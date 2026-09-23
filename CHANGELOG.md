@@ -12,6 +12,49 @@ version when it lands.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`/compact` (and the `compact_context` tool) no longer refuse to compact, and the
+  refusal notice no longer contradicts itself.** The explicit path still required
+  `rawTokens ≥ soft threshold` even though it is the *user's* explicit request; worse,
+  when the fold *did* happen but the compaction record was suppressed (records are only
+  written while the task execution is `Running`, i.e. never after a turn finished), the
+  caller saw `below_threshold` and the notice printed `state.TokenAudit.EstimatedPromptTokens`
+  — the **assembled** request size, not the quantity the gate compared — producing
+  sentences like “当前上下文估算 129409 tokens，未达压缩阈值 118962”. Now: the explicit path
+  folds unconditionally (`forceCompact` is a third fold criterion next to soft/hard
+  threshold, still requiring a matching request epoch), the decision facts
+  (`ComparedTokens` / `AssembledTokens` / both thresholds) travel back in
+  `CompactResult`, and the notice says what actually happened: compacted+recorded,
+  compacted-without-record (turn already finished) or scheduled. A session with **no
+  execution epoch** (just cold-loaded / just cleared) no longer gets a refusal either:
+  the request is registered and honoured on the next context assembly (`ScheduleForceCompact`),
+  so the compaction lands in the very next message. Teeth:
+  `TestCompactManualFoldsBelowThreshold`, `TestCompactManualReportsFoldWithoutRecord`,
+  `TestCompactContextWithoutTaskExecutionSchedulesNextAssembly` all turn red when the
+  explicit path is put back behind the soft threshold.
+- **The agent-facing skill catalog told the model to use the wrong input prefix.** The
+  passive `## Available Skills` hint read “ask the user to send `#<name>`”, but `#` has
+  been the *plugin* sigil since the 2026-09-17 one-sigil-one-meaning change (`$` recalls a
+  skill) — the hint was never updated, so the model kept teaching users a prefix that
+  switches plugins. The hint now takes the sigil from the core sigil table
+  (`prompt_layer.Deps.SkillSigil` ← `core.SigilSkill`), the shipped
+  `plugins/default/plugin.md` / `README.md` say `$plan` instead of `#plan`, the
+  `manual_smoke_test.go` smoke submits `$goal`/`$plan`, and two guards keep it that way:
+  `TestRenderSkillCatalogHintUsesInjectedSigil` (unit) plus
+  `TestPluginDocsDoNotUsePluginSigilForSkills` (plugin docs must not use `#<skill>`; it
+  fails on the historical `#plan` text).
+- **`/help` and the unknown-command path no longer dead-end.** The `/` palette is the
+  “full entry” and lists **tools** next to commands and skills, but the submit path only
+  executes commands and skills — picking `/compact_context` produced a bare “未知命令”.
+  `unknownCommandNotice` now names the tool case (“it is a model-side tool, it cannot be
+  executed from the input box”) and points at the matching command (`/compact`), and
+  performs a near-miss search (prefix/contains/edit-distance ≤ 2) for typos like
+  `/comapct`; `/help` documents the same contract.
+- `durable_queue_wire_test.go` was never assigned to a core README volume, so
+  `scripts/gen_core_readme_index.py` had been failing (and the per-volume index silently
+  stale) since it was added. It is mapped to the `input` volume and the index is refreshed.
+
 ### Added
 
 - **Uncommitted message tails are now recovered at session load, and the user can see

@@ -119,6 +119,9 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		PromptStack:   promptStack,
 		EffortManager: service.effortManager,
 		Tasks:         service.components.tasks,
+		// 技能目录的激活纪律句要引用应用侧 Skill 前缀：从 sigil 表注入，
+		// 避免提示文案与前缀契约漂移（见 prompt_layer.Deps.SkillSigil）。
+		SkillSigil: SigilSkill,
 	})
 	service.components.history = context_runtime.NewHistoryCoordinator(kernel)
 	service.components.sessions = session_runtime.NewCoordinator(session_runtime.Deps{

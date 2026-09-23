@@ -433,6 +433,25 @@
 - `func TestParallelSessionsExecuteConcurrently(t *testing.T)` — TestParallelSessionsExecuteConcurrently 验证 M2 核心语义：活跃会话运行中，
 - `func TestParallelSessionsQueuedPerSession(t *testing.T)` — TestParallelSessionsQueuedPerSession 验证每个会话维护自己的输入队列：A 运行
 
+### session_pending_tail.go
+
+- `func (service *Service) recoverPendingMessageTailAtLoad(sessionID string) string` — 草稿尾部（seq_draft）恢复的应用侧装配（A4）。
+- `func (service *Service) appendPendingTailNoticeLocked(sessionID, notice string)` — appendPendingTailNoticeLocked 把草稿尾恢复的结论作为一条 system 行补进目标会话
+
+### session_pending_tail_test.go
+
+- `func (s *pendingTailSessions) record(call string)`
+- `func (s *pendingTailSessions) callOrder() []string`
+- `func (s *pendingTailSessions) PendingMessageTailWorkspace(_, _ string) (dto.PendingMessageTailReport, bool, error)`
+- `func (s *pendingTailSessions) RecoverPendingMessageTailWorkspace(_, _ string) (dto.PendingMessageTailReport, bool, error)`
+- `func (s *pendingTailSessions) DiscardPendingMessageTailWorkspace(_, _ string) (dto.PendingMessageTailReport, bool, error)`
+- `func pendingTailVisibleTail(t *testing.T, service *Service) string` — pendingTailVisibleTail 返回可见会话里最后一条 system 行的正文（没有则 ""）。
+- `func TestPendingTailRecoverableIsRecoveredAndVisible(t *testing.T)` — TestPendingTailRecoverableIsRecoveredAndVisible：基座一致的草稿尾在冷加载时被
+- `func TestPendingTailGapIsReportedOnly(t *testing.T)` — TestPendingTailGapIsReportedOnly：基座断裂只报告——不得调用恢复，也不得丢弃，
+- `func TestPendingTailCleanIsSilent(t *testing.T)` — TestPendingTailCleanIsSilent：没有草稿尾时不做任何写、不打扰用户。
+- `func TestPendingTailRunningSessionNotTouched(t *testing.T)` — TestPendingTailRunningSessionNotTouched：回合正在跑的会话，加载路径不得抢发布点
+- `func TestPendingTailCapabilityAbsentIsNoop(t *testing.T)` — TestPendingTailCapabilityAbsentIsNoop：存储未装配该能力时静默退回（纯增强语义）。
+
 ### session_permission_tier.go
 
 - `func (service *Service) settingPort() (session.SessionSettingPort, bool)` — settingPort 返回会话端口的可选"会话级用户设置"扩展（未装配 = 档位退回内存态，
@@ -479,6 +498,11 @@
 - `func TestBackgroundSessionKeepsOwnProjectRoot(t *testing.T)` — TestBackgroundSessionKeepsOwnProjectRoot 复现工作区污染：会话 A 绑定项目 A，
 - `func waitSessionIdle(t *testing.T, service *Service)` — waitSessionIdle 等待全部会话回合结束（多会话并行时视图 Chat 状态不代表进程空闲）。
 
+### session_queue_recover.go
+
+- `func (service *Service) reEnqueueRecoveredInputs(sessionID string, resent []sessionstore.QueueItem)` — durable queue 的重启回填（写入侧接线的恢复半边）。
+- `func (service *Service) drainRecoveredQueueLocked(unit *session.SessionUnit, request chatRequest) (chatRequest, bool)` — drainRecoveredQueueLocked 把本会话队列里已有的待发项与本次提交合并为同一轮
+
 ### session_race_test.go
 
 - `func TestSnapshotBumpConcurrentWithRunChatTail(t *testing.T)` — TestSnapshotBumpConcurrentWithRunChatTail（TC-R-02）：并发 Submit（触发
@@ -489,26 +513,6 @@
 - `func TestSessionDomainsDisjoint(t *testing.T)` — TestSessionDomainsDisjoint（TC-INV-01）：A 与 B 的 M/X/R 状态域无共享，
 - `func TestViewSwitchDoesNotMutateExecution(t *testing.T)` — TestViewSwitchDoesNotMutateExecution（TC-INV-02）：切到 B 只换视图指针，
 - `func TestPersistReadsOnlyOwnDomain(t *testing.T)` — TestPersistReadsOnlyOwnDomain（TC-INV-03）：快照/活跃槽全是 B 时，
-
-### session_running_idle_submit_test.go
-
-- `func (engine *multiSessionEngine) startedFor(sessionID string) <-chan struct` — startedFor 加锁取某会话的"回合已进入"通道（started 映射由 ChatStreamFor
-- `func waitStreamCall(t *testing.T, engine *multiSessionEngine, sessionID string)` — waitStreamCall 轮询直到目标会话的引擎被调用（延后/后台启动都要等它）。
-- `func draftRoutedFixture(t *testing.T) (*multiSessionEngine, *draftRecordStore, *Service)` — draftRoutedFixture 是「生产形状」的会话路由宿主：路由引擎 + 支持 record 读写的
-- `func assertDraftSubmitMaterialized(t *testing.T, service *Service, store *draftRecordStore, draftID string)` — assertDraftSubmitMaterialized 锁定"显式提交到草稿"必须等于物化：
-- `func TestSubmitToSessionMaterializesDraftWhileOtherSessionRuns(t *testing.T)` — TestSubmitToSessionMaterializesDraftWhileOtherSessionRuns 是用户报告的原始场景：
-- `func TestSubmitToSessionMaterializesIdleDraft(t *testing.T)` — TestSubmitToSessionMaterializesIdleDraft 是同一条判据的对照组：没有会话运行中
-- `func newAliasBusyEngine() *aliasBusyEngine`
-- `func (engine *aliasBusyEngine) setBusy(sessionID string, value bool)`
-- `func (engine *aliasBusyEngine) waitAliasFree()` — waitAliasFree 阻塞直到"活跃别名那一会话"的回合结束（= 真锁语义）。
-- `func (engine *aliasBusyEngine) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error)`
-- `func (engine *aliasBusyEngine) History() []EngineMessage`
-- `func (engine *aliasBusyEngine) ClearHistory()`
-- `func (engine *aliasBusyEngine) aliasCalls() (int, int)`
-- `func TestBeginNewSessionDoesNotSerializeBehindRunningSession(t *testing.T)` — TestBeginNewSessionDoesNotSerializeBehindRunningSession 是 ② 的复现：
-- `func TestIdleSessionSubmitWhileOtherRunningLandsInViewSession(t *testing.T)` — TestIdleSessionSubmitWhileOtherRunningLandsInViewSession 是用户报告场景的**正面
-- `func waitSessionChatIdle(t *testing.T, service *Service, sessionID string)` — waitSessionChatIdle 轮询到指定会话自己的回合跑完（不看别的会话——后台会话
-- `func containsUserText(messages []Message, text string) bool`
 
 ### session_running_not_rerooted_test.go
 

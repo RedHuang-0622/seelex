@@ -7,7 +7,7 @@ import (
 )
 
 // ActivateSkill 把当前插件的一个技能激活进当前会话的 skill 层（模型侧
-// skill_activate 工具的后端）。语义与用户输入 #<name> 的 applySkill 一致：
+// skill_activate 工具的后端）。语义与用户输入 $<name> 的 applySkill 一致：
 //
 //   - 查询当前激活插件的技能表（Deps.Skills 端口 → skill.Registry 按
 //     activePlugin 隔离），技能列表随 switch_plugin 切换；

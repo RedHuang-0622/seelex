@@ -64,6 +64,26 @@ goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回�
 - `func TestGoalCoordinatorRoutineVerdictDoneClosesGoal(t *testing.T)` — TestGoalCoordinatorRoutineVerdictDoneClosesGoal 钉住 2026-09-15 seq-5389 的
 - `func TestGoalCoordinatorBeginResetsBrokenGovernor(t *testing.T)` — TestGoalCoordinatorBeginResetsBrokenGovernor 验证新 goal 拿回治理循环：
 
+### goal_directive_session_lock_test.go
+
+- `func newSessionLockEngine() *sessionLockEngine`
+- `func (engine *sessionLockEngine) SessionBacked() bool` — SessionBacked 报告"新 Session 装配"：OnIterationComplete 在会话锁内同步执行。
+- `func (engine *sessionLockEngine) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error)`
+- `func (engine *sessionLockEngine) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error)`
+- `func (engine *sessionLockEngine) History() []EngineMessage`
+- `func (engine *sessionLockEngine) HistoryFor(string) []EngineMessage`
+- `func (engine *sessionLockEngine) AppendHistory(msg types.Message)`
+- `func (engine *sessionLockEngine) AppendHistoryFor(_ string, msg types.Message)`
+- `func (engine *sessionLockEngine) ClearHistory()`
+- `func (engine *sessionLockEngine) ClearHistoryFor(string)`
+- `func (engine *sessionLockEngine) ReplaceHistory(sessionID string, history []EngineMessage) error`
+- `func (engine *sessionLockEngine) ReplaceHistoryFor(sessionID string, history []EngineMessage) error`
+- `func (engine *sessionLockEngine) SetSystemPrompt(string)`
+- `func (engine *sessionLockEngine) SetSystemPromptFor(string, string)`
+- `func (e *keepGoingEvaluator) Evaluate(_ context.Context, _ goaldomain.TLSessionEmbed) (goaldomain.TLDirective, error)`
+- `func (e *keepGoingEvaluator) count() int`
+- `func TestQueuedRoundMustNotReenterSessionLock(t *testing.T)`
+
 ### goal_directive_visible_immediately_test.go
 
 - `func advisorDirectiveRows(messages []Message) []Message` — advisorDirectiveRows 取可见会话里的 ADVISOR 裁决行（kind + 归属双条件：
@@ -74,6 +94,13 @@ goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回�
 - `func TestGoalLoopRoundLimitDefaults(t *testing.T)` — TestGoalLoopRoundLimitDefaults：治理循环的轮次上限解析——未配置（0）时落到
 - `func TestGoalGovernanceViewCarriesRoundLimit(t *testing.T)` — TestGoalGovernanceViewCarriesRoundLimit：治理视图必须把轮次上限一并下发——
 - `func TestTeamRuntimeSharesGovernorRoundLimit(t *testing.T)` — TestTeamRuntimeSharesGovernorRoundLimit：团队环的逃生上限与 Governor 的
+
+### goal_loop_turn_order_test.go
+
+- `func (e *scriptedTLEvaluator) Evaluate(_ context.Context, _ goaldomain.TLSessionEmbed) (goaldomain.TLDirective, error)`
+- `func (e *scriptedTLEvaluator) count() int`
+- `func waitUntil(t *testing.T, what string, ready func() bool)` — waitUntil 轮询直到条件成立（回合切换是异步的，用一次有界等待而不是 sleep 猜）。
+- `func TestGoalLoopTurnsAlternateExecAdvisorUntilVerdictCloses(t *testing.T)`
 
 ### goal_ring_escape_test.go
 

@@ -78,8 +78,8 @@ func TestActivateSkillRejectsBadNames(t *testing.T) {
 	}
 }
 
-// TestActivateSkillCoexistsWithUserSlashSkill：模型激活与 #<name> 路径共享
-// 同一层语义（# 激活后 ActivateSkill 同名覆盖不产生重复）。
+// TestActivateSkillCoexistsWithUserSlashSkill：模型激活与用户 Skill 前缀路径
+// 共享同一层语义（激活后 ActivateSkill 同名覆盖不产生重复）。
 func TestActivateSkillCoexistsWithUserSlashSkill(t *testing.T) {
 	engine := &fakeEngine{}
 	service := newTestService(t, engine)

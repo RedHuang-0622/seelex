@@ -104,7 +104,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (*fakeRuntime) Provider() string`
 - `func (*fakeRuntime) Accounts() []AccountInfo`
 - `func (runtime *fakeRuntime) SelectAccount(name string) bool`
-- `func (*fakeRuntime) VisibleTools(context.Context) []Tool`
+- `func (runtime *fakeRuntime) VisibleTools(context.Context) []Tool`
 - `func (*fakeRuntime) ActivePlugin() string`
 - `func (runtime *fakeRuntime) FullAccess() bool`
 - `func (runtime *fakeRuntime) SetFullAccess(on bool)`

@@ -35,6 +35,10 @@
 - `func SigilOf(input string) string` — SigilOf 返回输入的首字符前缀；不可解析时返回空串（调用方自行给默认值）。
 - `func (service *Service) sigilMigrationHint(used, name string) string` — sigilMigrationHint 在前缀没命中时给一句跨域迁移提示：命中**别的**域才给，
 - `func (service *Service) hasPlugin(name string) bool` — hasPlugin 报告名字是否命中已加载插件（PluginPort 没有按名查询，只能扫列表）。
+- `func (service *Service) unknownCommandNotice(name string) string` — unknownCommandNotice 报告未知命令，并尽量给一条能走下去的提示。
+- `func (service *Service) visibleToolNamed(name string) bool` — visibleToolNamed 报告名字是否命中当前可见工具（大小写不敏感）。
+- `func (service *Service) commandCounterpart(name string) string` — commandCounterpart 找与用户输入最像的命令名：前缀/包含关系优先，其次编辑距离
+- `func editDistanceAtMost(a, b string, limit int) bool` — editDistanceAtMost 判定两串的 Levenshtein 距离是否 ≤ limit（有界实现：只保留
 - `func (service *Service) commandSuggestions() []Suggestion`
 - `func (service *Service) skillSuggestions() []Suggestion`
 - `func (service *Service) toolSuggestions() []Suggestion`

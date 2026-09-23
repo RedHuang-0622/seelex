@@ -28,6 +28,13 @@ func (service *Service) registerBuiltinCommands() error {
 		}
 		builder.WriteString(fmt.Sprintf("\n提示: %s=命令  %s=切换插件  %s=召回 Skill  %s=手动召唤团队",
 			SigilCommand, SigilPlugin, SigilSkill, SigilTeam))
+		// 面板口径与提交口径必须一致地讲清楚：`/` 的建议面板是"全量入口"
+		// （命令 + 工具 + Skill），但输入框只执行命令与 Skill——工具由模型
+		// 调用、经权限门，打 /<工具名> 不会被当成工具调用。
+		builder.WriteString(fmt.Sprintf(
+			"\n说明: %s 面板同时列出命令、工具与 Skill 候选；工具名由模型调用（不能从输入框直接执行），"+
+				"命令与 Skill 可直接提交（Skill 也可用 %s<name>）。",
+			SigilCommand, SigilSkill))
 		return CommandResult{Notice: builder.String()}, nil
 	})
 	register("clear", "清空对话历史", func(context.Context, []string) (CommandResult, error) {

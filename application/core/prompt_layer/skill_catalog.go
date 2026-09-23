@@ -10,13 +10,31 @@ import (
 // skillCatalogHeader 是"可用技能"被动目录段的标题。
 //
 // 职责边界：目录只宣告当前激活插件里【可激活】的技能（name + description），
-// 永不携带指令正文（Prompt）——"发现不泄全文"；正文仍只在用户 #<name>
-// 激活后经 Trusted Active Skill 段注入。
+// 永不携带指令正文（Prompt）——"发现不泄全文"；正文仍只在用户用 Skill 前缀
+// 召回、或模型 skill_activate 之后经 Trusted Active Skill 段注入。
 const skillCatalogHeader = "## Available Skills"
 
 // skillCatalogActivationHint 是目录尾的激活纪律：目录只宣告可激活技能，
-// 激活入口是模型 skill_activate 工具（或用户输入 #<name>）；未激活不得声称生效。
-const skillCatalogActivationHint = "When this task matches a skill below, activate it with the skill_activate tool (or ask the user to send #<name>); only then are its contents injected as a Trusted Active Skill for the task. The listed set belongs to the active plugin and changes when you switch plugins. Never claim an unactivated skill is in effect."
+// 激活入口是模型 skill_activate 工具（或用户按本应用的 Skill 前缀召回）；
+// 未激活不得声称生效。
+//
+// 前缀**由调用方注入**（core 的 SigilSkill），本函数不写字面量：前缀契约在
+// 2026-09-17 调整过一次（`#` 让位给 Plugin、`$` 接管 Skill），当时这句话里的
+// `#<name>` 没人跟着改，模型就一直拿着错前缀去教用户——把前缀做成参数，
+// 前缀表换了这里必然跟着换。
+func skillCatalogActivationHint(skillSigil string) string {
+	var b strings.Builder
+	b.WriteString("When this task matches a skill below, activate it with the skill_activate tool")
+	if sigil := strings.TrimSpace(skillSigil); sigil != "" {
+		b.WriteString(" (or ask the user to send " + sigil + "<name>)")
+	} else {
+		b.WriteString(" (or ask the user to recall it by name)")
+	}
+	b.WriteString("; only then are its contents injected as a Trusted Active Skill for the task." +
+		" The listed set belongs to the active plugin and changes when you switch plugins." +
+		" Never claim an unactivated skill is in effect.")
+	return b.String()
+}
 
 // RenderSkillCatalog 把当前插件的技能清单渲染为字节稳定的目录段（被动技能
 // 的原子单元：[]model.SkillInfo → string，纯函数，无 I/O、无状态）：
@@ -24,8 +42,10 @@ const skillCatalogActivationHint = "When this task matches a skill below, activa
 //   - 无技能/全空名 → 返回 ""（不占 system 字节）；
 //   - 按 name 排序，同输入恒同输出（插件不变则目录段字节不变 → 前缀缓存友好）；
 //   - 每项一行 "- <name>: <description>"（description 为空则仅 "- <name>"）；
-//   - 只消费 Name/Description，Prompt 永不进入本段。
-func RenderSkillCatalog(skills []model.SkillInfo) string {
+//   - 只消费 Name/Description，Prompt 永不进入本段；
+//   - skillSigil 是应用侧 Skill 前缀（core.SigilSkill），只用于尾部的激活纪律，
+//     由调用方注入以避免前缀契约与本文案漂移。
+func RenderSkillCatalog(skills []model.SkillInfo, skillSigil string) string {
 	kept := make([]model.SkillInfo, 0, len(skills))
 	for _, item := range skills {
 		if name := strings.TrimSpace(item.Name); name != "" {
@@ -50,6 +70,6 @@ func RenderSkillCatalog(skills []model.SkillInfo) string {
 		}
 	}
 	b.WriteString("\n")
-	b.WriteString(skillCatalogActivationHint)
+	b.WriteString(skillCatalogActivationHint(skillSigil))
 	return b.String()
 }

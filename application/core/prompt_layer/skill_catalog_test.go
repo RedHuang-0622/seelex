@@ -42,7 +42,7 @@ func newCatalogCoordinator(t testing.TB, skills contract.SkillPort, tasks *task_
 	core := state.New(contract.Dependencies{Skills: skills})
 	ps := prompt.NewPromptStack()
 	ps.Push("instructions", "instructions", "BASE-INSTRUCTIONS")
-	return pl.NewCoordinator(pl.Deps{Core: core, PromptStack: ps, Tasks: catalogTasksStub{state: tasks}})
+	return pl.NewCoordinator(pl.Deps{Core: core, PromptStack: ps, Tasks: catalogTasksStub{state: tasks}, SkillSigil: "$"})
 }
 
 func systemPromptFor(t testing.TB, c *pl.Coordinator) string {
@@ -52,13 +52,13 @@ func systemPromptFor(t testing.TB, c *pl.Coordinator) string {
 
 // TestRenderSkillCatalogEmpty：无技能表 → 不占 system 字节（返回空）。
 func TestRenderSkillCatalogEmpty(t *testing.T) {
-	if got := pl.RenderSkillCatalog(nil); got != "" {
+	if got := pl.RenderSkillCatalog(nil, "$"); got != "" {
 		t.Fatalf("nil skills must render empty, got %q", got)
 	}
-	if got := pl.RenderSkillCatalog([]model.SkillInfo{}); got != "" {
+	if got := pl.RenderSkillCatalog([]model.SkillInfo{}, "$"); got != "" {
 		t.Fatalf("empty skills must render empty, got %q", got)
 	}
-	if got := pl.RenderSkillCatalog([]model.SkillInfo{{Name: "  "}}); got != "" {
+	if got := pl.RenderSkillCatalog([]model.SkillInfo{{Name: "  "}}, "$"); got != "" {
 		t.Fatalf("blank-name skills must render empty, got %q", got)
 	}
 }
@@ -70,12 +70,12 @@ func TestRenderSkillCatalogStableAndSorted(t *testing.T) {
 		{Name: "alpha", Description: "a desc"},
 		{Name: "mid", Description: ""},
 	}
-	first := pl.RenderSkillCatalog(input)
+	first := pl.RenderSkillCatalog(input, "$")
 	second := pl.RenderSkillCatalog([]model.SkillInfo{
 		{Name: "alpha", Description: "a desc"},
 		{Name: "zebra", Description: "z desc"},
 		{Name: "mid", Description: ""},
-	})
+	}, "$")
 	if first != second {
 		t.Fatalf("catalog must be byte-stable for identical content:\n%q\nvs\n%q", first, second)
 	}
@@ -101,7 +101,7 @@ func TestRenderSkillCatalogStableAndSorted(t *testing.T) {
 func TestRenderSkillCatalogNeverLeaksPrompt(t *testing.T) {
 	out := pl.RenderSkillCatalog([]model.SkillInfo{
 		{Name: "review", Description: "review code", Prompt: "TOP-SECRET review prompt body"},
-	})
+	}, "$")
 	if strings.Contains(out, "TOP-SECRET") {
 		t.Fatalf("catalog must not embed skill Prompt body: %q", out)
 	}
@@ -109,7 +109,7 @@ func TestRenderSkillCatalogNeverLeaksPrompt(t *testing.T) {
 		t.Fatalf("catalog must carry name+description: %q", out)
 	}
 	// 空 description → 仅 "- <name>"。
-	solo := pl.RenderSkillCatalog([]model.SkillInfo{{Name: "solo"}})
+	solo := pl.RenderSkillCatalog([]model.SkillInfo{{Name: "solo"}}, "$")
 	if !strings.Contains(solo, "- solo") || strings.Contains(solo, "- solo:") {
 		t.Fatalf("empty-description line shape wrong: %q", solo)
 	}
@@ -206,5 +206,26 @@ func TestCoordinatorEmptyCatalogOmitsSection(t *testing.T) {
 	promptText := systemPromptFor(t, c)
 	if strings.Contains(promptText, "## Available Skills") {
 		t.Fatalf("empty catalog must not render a section: %q", promptText)
+	}
+}
+
+// TestRenderSkillCatalogHintUsesInjectedSigil：激活纪律句里的用户入口前缀来自
+// 调用方注入（应用侧 Skill 前缀），不是本层写死的字面量——2026-09-17 前缀契约
+// 调整（`#` 让位给 Plugin、`$` 接管 Skill）时，这句里写死的 `#<name>` 没跟着改，
+// 模型就一直拿着错前缀去教用户。注入为空时也不虚构前缀示例。
+func TestRenderSkillCatalogHintUsesInjectedSigil(t *testing.T) {
+	rendered := pl.RenderSkillCatalog([]model.SkillInfo{{Name: "plan", Description: "plan tasks"}}, "$")
+	if !strings.Contains(rendered, "send $<name>") {
+		t.Fatalf("激活纪律句应使用注入的前缀：%q", rendered)
+	}
+	if strings.Contains(rendered, "#<name>") {
+		t.Fatalf("激活纪律句不得残留旧前缀 #<name>：%q", rendered)
+	}
+	withoutSigil := pl.RenderSkillCatalog([]model.SkillInfo{{Name: "plan"}}, "")
+	if strings.Contains(withoutSigil, "<name>") {
+		t.Fatalf("未注入前缀时不应虚构前缀示例：%q", withoutSigil)
+	}
+	if !strings.Contains(withoutSigil, "recall it by name") {
+		t.Fatalf("未注入前缀时应回落到按名字召回：%q", withoutSigil)
 	}
 }

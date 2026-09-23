@@ -137,6 +137,7 @@ go test ./application/core/session_runtime -count=1
 ### archive.go
 
 - `func (c *Coordinator) PersistCurrentSession(location Location, sessionID string) error` — PersistCurrentSession 把指定会话原子落盘（阶段 0：显式 location 键 +
+- `func (c *Coordinator) persistCurrentSessionLocked(location Location, sessionID string) error` — persistCurrentSessionLocked 是 PersistCurrentSession 的写者临界区实现
 - `func (c *Coordinator) allTranscriptEventsForSession(location Location, sessionID string, memory []model.TranscriptEvent) []model.TranscriptEvent` — allTranscriptEventsForSession 返回会话全量事件：磁盘持久化事件（全量读）
 - `func mergeTranscriptEventsBySeq(persisted, incoming []model.TranscriptEvent) []model.TranscriptEvent`
 - `func enrichTranscriptMessageIDs(events []model.TranscriptEvent, record model.SessionRecord)` — enrichTranscriptMessageIDs 建立 event-to-message 关联（模块化方案 §3.2）：
@@ -208,6 +209,8 @@ go test ./application/core/session_runtime -count=1
 - `func mergedCatalogLocked(grid map[string][]model.SessionInfo) []model.SessionInfo` — mergedCatalogLocked 从分格网格组合联合目录视图（调用方持 catalogMu）：
 - `func catalogProjectOrder(grid map[string][]model.SessionInfo) []string` — catalogProjectOrder 返回网格的全部项目键（稳定顺序，避免测试/镜像抖动）。
 - `func (c *Coordinator) TransitionLock(key string) sync.Locker` — TransitionLock 返回指定 key 的会话过渡互斥（key=会话 ID：该会话生命
+- `func (c *Coordinator) SessionWriterLock(sessionID string) sync.Locker` — SessionWriterLock 返回指定会话的"落盘单写者"（per-session actor：同会话
+- `func (c *Coordinator) RunSessionWrite(sessionID string, write func() error) error` — RunSessionWrite 在"会话落盘单写者"内执行一次会话落盘——**所有写点的唯一
 - `func (c *Coordinator) BindView(view ViewPort)` — BindView 注入 Snapshot revision bump 端口（装配根在 view 构造完成后调用；
 - `func (c *Coordinator) StartCatalogRefresh()` — StartCatalogRefresh 启动会话目录刷新 worker：目录发现与标题恢复离开
 - `func (c *Coordinator) RequestCatalogRefresh() <-chan struct` — RequestCatalogRefresh 非阻塞唤醒目录刷新 worker，并返回完成回执：某一轮
@@ -292,6 +295,22 @@ go test ./application/core/session_runtime -count=1
 - `func (s *granularPortTestSessions) Delete(string) error`
 - `func TestLoadSessionHistoryPrefersSessionGranularPort(t *testing.T)` — TestLoadSessionHistoryPrefersSessionGranularPort 验证 9.3.2 迁移：
 
+### pending_tail_wire.go
+
+- `func (c *Coordinator) pendingTailPort() (SessionPendingTailPort, bool)` — pendingTailPort 解析存储侧草稿尾部能力（未装配时 ok=false）。
+- `func (c *Coordinator) PendingMessageTail(location Location, sessionID string) (dto.PendingMessageTailReport, bool, error)` — PendingMessageTail 探测目标会话的草稿尾部（只读；ok=false = 能力未装配）。
+- `func (c *Coordinator) RecoverPendingMessageTail(location Location, sessionID string) (dto.PendingMessageTailReport, bool, error)` — RecoverPendingMessageTail 显式恢复草稿尾部：基座一致才推进发布点，
+- `func (c *Coordinator) DiscardPendingMessageTail(location Location, sessionID string) (dto.PendingMessageTailReport, bool, error)` — DiscardPendingMessageTail 显式丢弃草稿尾部（清理未提交行）。
+
+### queue_wire.go
+
+- `func (c *Coordinator) queuePort() (SessionQueuePort, bool)` — queuePort 解析存储侧队列能力（未装配时 ok=false）。
+- `func (c *Coordinator) QueueEnqueueInput(location Location, sessionID, content string) error` — QueueEnqueueInput 把一条排队输入镜像到 durable queue（失败不回滚内存队列：
+- `func (c *Coordinator) QueueMarkConsumedInput(location Location, sessionID, turnID string) error` — QueueMarkConsumedInput 提升批次为下一轮时标记消费。
+- `func (c *Coordinator) QueueConfirmConsumedInput(location Location, sessionID, turnID string) error` — QueueConfirmConsumedInput 该轮快照已发布 → 消费项出队。
+- `func (c *Coordinator) QueueFailConsumedInput(location Location, sessionID, turnID string) error` — QueueFailConsumedInput 该轮未发布（失败）→ 消费项内容回草稿。
+- `func (c *Coordinator) QueueRecoverInputs(location Location, sessionID string) ([]sessionstore.QueueItem, bool, error)` — QueueRecoverInputs 重启恢复生命周期的待发项：返回"已发送未确认需重发"的
+
 ### scope.go
 
 - `func (c *Coordinator) sessionCatalogProject(granular SessionGranularPort, projectID string) ([]model.SessionInfo, map[string]string)` — sessionCatalogProject 枚举单个项目的会话集合（G6：目录按 projectID 分格，
@@ -305,13 +324,22 @@ go test ./application/core/session_runtime -count=1
 - `func (c *Coordinator) ShortSessionID(id string) string` — ShortSessionID 按 limits.session_name_runes 截断会话 ID 显示。
 - `func (c *Coordinator) allProjectIDs() []string` — allProjectIDs 返回目录枚举的项目集合（空项目 = 当前 active scope + 全部
 - `func (c *Coordinator) AllProjectIDs() []string` — AllProjectIDs 返回目录枚举的项目集合（公开观察面：冷启动草稿恢复需要跨
-- `func (c *Coordinator) DraftCandidates() []model.SessionInfo` — DraftCandidates 返回目录里 status=draft 的会话候选（G：跨项目枚举，用于
 - `func (c *Coordinator) LocateSession(sessionID string) Location` — LocateSession 定位会话（workspace 绑定优先；支持 scoped 读取时遍历全部
 - `func preferSessionLocation(candidate, current Location, boundWorkspaceID string) bool`
 - `func preferSessionInfo(candidate, current model.SessionInfo) bool`
 - `func WorkspaceID(workspace *model.WorkspaceInfo) string` — WorkspaceID 返回工作区指针的 ID（nil → ""）。
 - `func (c *Coordinator) LoadSessionHistory(location Location, sessionID string) ([]contract.EngineMessage, error)` — LoadSessionHistory 加载会话 provider 历史（scoped 端口优先；回退切换写
 - `func (c *Coordinator) LoadSessionHistoryRange(workspaceID, sessionID string, offset, limit int) ([]contract.EngineMessage, int, error)` — LoadSessionHistoryRange 按偏移量窗口加载历史（scoped 端口优先）。
+
+### session_writer_test.go
+
+- `func (s *writerTestSessions) LoadTranscriptTailWorkspace(string, string, int, int) ([]model.TranscriptEvent, error)`
+- `func (s *writerTestSessions) LoadToolResultWorkspace(string, string, string) (model.StoredToolResult, error)`
+- `func newWriterTestCoordinator(t *testing.T, sessions contract.SessionPort) *Coordinator`
+- `func TestSessionWriterSerializesSameSessionFIFO(t *testing.T)` — TestSessionWriterSerializesSameSessionFIFO 同一会话的写点严格串行且 FIFO：
+- `func TestSessionWriterParallelAcrossSessions(t *testing.T)` — TestSessionWriterParallelAcrossSessions 不同会话的写点并行（不是全局单写者）：
+- `func TestReaderNotBlockedBySessionWriter(t *testing.T)` — TestReaderNotBlockedBySessionWriter 写者持锁期间读路径正常返回（C2：读侧不
+- `func TestSessionWriterClosedDegradesToNoop(t *testing.T)` — TestSessionWriterClosedDegradesToNoop 关闭后写点退化为"直接执行"而不是卡死
 
 ### storage.go
 

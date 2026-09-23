@@ -42,6 +42,11 @@ AgentTeam 装配适配与群聊角色会话透传（端口形状与 A2A 元数�
 - `func TestNewGoalRevivesStoppedTeamRing(t *testing.T)` — TestNewGoalRevivesStoppedTeamRing：环逃生后，新 goal 上线必须让它复活，并且
 - `func TestSameGoalBeginIsIdempotentAndKeepsRing(t *testing.T)` — TestSameGoalBeginIsIdempotentAndKeepsRing：幂等 begin（同名返回既有 active）
 
+### agentteam_ring_user_projection_test.go
+
+- `func TestTeamScheduleOrderDropsUserFromOrderRoles(t *testing.T)`
+- `func hasRoleName(names []string, want string) bool` — hasRoleName 报告名单里有没有某个角色名（测试内的最小集合判据）。
+
 ### agentteam_role_index.go
 
 - `func (index *roleSessionIndex) remember(mainSessionID string, view dto.TeamView)` — remember 记下一次"注册表读到的事实"。同一 (主会话, 角色) 覆盖旧值（角色改名/

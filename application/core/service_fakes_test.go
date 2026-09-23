@@ -299,6 +299,9 @@ type fakeRuntime struct {
 	fullAccessMu sync.RWMutex
 	binding      dto.PlanBranchBinding
 	planPolicy   dto.PlanPolicy
+	// visibleTools 覆盖 VisibleTools 的返回（默认给 [read]）：用例需要
+	// "某个工具名真的可见"时（未知命令提示要把工具与命令分开）才设置。
+	visibleTools []Tool
 	// planPolicyBySession 是按会话 plan 策略槽（G1-C：镜像生产
 	// Runtime.SetPlanPolicyFor 语义；fake 需锁保护并发 runChat 写入）。
 	planPolicyMu        sync.Mutex
@@ -362,7 +365,10 @@ func (runtime *fakeRuntime) SelectAccount(name string) bool {
 	return true
 }
 
-func (*fakeRuntime) VisibleTools(context.Context) []Tool {
+func (runtime *fakeRuntime) VisibleTools(context.Context) []Tool {
+	if runtime != nil && len(runtime.visibleTools) > 0 {
+		return runtime.visibleTools
+	}
 	return []Tool{{Name: "read", Description: "read files"}}
 }
 

@@ -33,6 +33,10 @@ type Deps struct {
 	PromptStack   *prompt.PromptStack
 	EffortManager *prompt.EffortManager
 	Tasks         TaskContextView
+	// SkillSigil 是应用侧的 Skill 输入前缀（core.SigilSkill）：技能目录的
+	// 激活纪律句里要引用它，而前缀契约归 core 的 sigil 表——由装配根注入，
+	// 本层不写字面量（否则前缀一改，模型拿着错前缀教用户，2026-09-17 就这么错过一次）。
+	SkillSigil string
 }
 
 // Coordinator 拥有 prompt 层组装与 provider 同步。
@@ -41,6 +45,7 @@ type Coordinator struct {
 	promptStack   *prompt.PromptStack
 	effortManager *prompt.EffortManager
 	tasks         TaskContextView
+	skillSigil    string
 
 	// cacheMu 保护 lastSystemPrompt（prompt 域自有状态锁；G5 锁拆分：本层
 	// 只串行化自己的"前缀缓存 + 引擎同步"临界区，不借用 Core.ViewMu 护它）。
@@ -55,6 +60,7 @@ func NewCoordinator(deps Deps) *Coordinator {
 		promptStack:   deps.PromptStack,
 		effortManager: deps.EffortManager,
 		tasks:         deps.Tasks,
+		skillSigil:    deps.SkillSigil,
 	}
 }
 
@@ -155,7 +161,7 @@ func (c *Coordinator) skillCatalogPart() string {
 	if skills == nil {
 		return ""
 	}
-	return RenderSkillCatalog(skills.All())
+	return RenderSkillCatalog(skills.All(), c.skillSigil)
 }
 
 // setEngineSystemPrompt 设置指定会话引擎的 system prompt（支持会话路由的

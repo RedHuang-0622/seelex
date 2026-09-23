@@ -67,7 +67,8 @@ system 层、前缀缓存失效面、锁外 `SetSystemPrompt`。
 
 ### skill_catalog.go
 
-- `func RenderSkillCatalog(skills []model.SkillInfo) string` — RenderSkillCatalog 把当前插件的技能清单渲染为字节稳定的目录段（被动技能
+- `func skillCatalogActivationHint(skillSigil string) string` — skillCatalogActivationHint 是目录尾的激活纪律：目录只宣告可激活技能，
+- `func RenderSkillCatalog(skills []model.SkillInfo, skillSigil string) string` — RenderSkillCatalog 把当前插件的技能清单渲染为字节稳定的目录段（被动技能
 
 ### skill_catalog_test.go
 
@@ -88,4 +89,5 @@ system 层、前缀缓存失效面、锁外 `SetSystemPrompt`。
 - `func TestCoordinatorSystemOmitsActiveSkillBody(t *testing.T)` — TestCoordinatorSystemOmitsActiveSkillBody：激活技能存在时，system 也只含
 - `func TestCoordinatorCatalogFollowsPluginSwitch(t *testing.T)` — TestCoordinatorCatalogFollowsPluginSwitch：目录内容随"当前插件技能表"变化
 - `func TestCoordinatorEmptyCatalogOmitsSection(t *testing.T)` — TestCoordinatorEmptyCatalogOmitsSection：插件无技能 → 目录段整体不出现，
+- `func TestRenderSkillCatalogHintUsesInjectedSigil(t *testing.T)` — TestRenderSkillCatalogHintUsesInjectedSigil：激活纪律句里的用户入口前缀来自
 

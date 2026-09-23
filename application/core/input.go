@@ -19,7 +19,7 @@ func (service *Service) submitCommand(ctx context.Context, input string) error {
 	}
 	command, ok := service.commands.Get(parts[0])
 	if !ok {
-		service.addNotice(fmt.Sprintf("未知命令: %s。输入 /help 查看可用命令。", parts[0]))
+		service.addNotice(service.unknownCommandNotice(parts[0]))
 		return nil
 	}
 	result, err := command.Execute(ctx, parts[1:])

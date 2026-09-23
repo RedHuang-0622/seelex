@@ -229,6 +229,12 @@ func TestSuggestionsAndSkillRouting(t *testing.T) {
 	if !strings.Contains(prompt, "## Available Skills") || !strings.Contains(prompt, "- review: review code") {
 		t.Fatalf("prompt missing passive skill catalog: %q", prompt)
 	}
+	// 激活纪律句里的用户入口前缀必须取自 sigil 表（SigilSkill）：`#` 自
+	// 2026-09-17 起是"切换插件"，提示里若再写 `#<name>` 就是把模型教错、
+	// 再由模型把用户教错（历史事故：该句写死前缀，前缀改了它没改）。
+	if !strings.Contains(prompt, "send "+SigilSkill+"<name>") || strings.Contains(prompt, "#<name>") {
+		t.Fatalf("skill catalog activation hint must use %s<name>: %q", SigilSkill, prompt)
+	}
 }
 
 func TestApprovalBrokerResolve(t *testing.T) {

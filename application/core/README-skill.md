@@ -20,7 +20,7 @@ Skill 指令信封编解码
 - `func TestActivateSkillPushesLayerAndNextSubmissionTrustsIt(t *testing.T)` — TestActivateSkillPushesLayerAndNextSubmissionTrustsIt：模型侧激活（ActivateSkill）
 - `func TestActivateSkillIdempotent(t *testing.T)` — TestActivateSkillIdempotent：同名重复激活不产生重复层（Push 同名覆盖）。
 - `func TestActivateSkillRejectsBadNames(t *testing.T)` — TestActivateSkillRejectsBadNames：空名/未知技能/goal 均拒绝且不改状态。
-- `func TestActivateSkillCoexistsWithUserSlashSkill(t *testing.T)` — TestActivateSkillCoexistsWithUserSlashSkill：模型激活与 #<name> 路径共享
+- `func TestActivateSkillCoexistsWithUserSlashSkill(t *testing.T)` — TestActivateSkillCoexistsWithUserSlashSkill：模型激活与用户 Skill 前缀路径
 
 ### skill_context.go
 

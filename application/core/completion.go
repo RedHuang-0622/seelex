@@ -158,6 +158,104 @@ func (service *Service) hasPlugin(name string) bool {
 	return false
 }
 
+// unknownCommandNotice 报告未知命令，并尽量给一条能走下去的提示。
+//
+// 两个真实来路（都踩过）：
+//   - `/` 面板是"全量入口"，把**工具**也列成候选，于是用户会照着打
+//     `/compact_context`、`/bash`——但输入框只能跑命令与 Skill（工具由模型调用、
+//     经权限门），提交路径没有也不会执行工具。命中工具名就说清这一点，并指出
+//     同名能力的命令入口（`compact_context` → `/compact`）；
+//   - 名字打错（`/comapct`）或写成近义名：与某个命令名互为前缀/包含/近似
+//     （编辑距离 ≤ 2）时直接给出正确写法。
+func (service *Service) unknownCommandNotice(name string) string {
+	trimmed := strings.TrimSpace(name)
+	notice := fmt.Sprintf("未知命令: %s。输入 %shelp 查看可用命令。", trimmed, SigilCommand)
+	hints := make([]string, 0, 2)
+	if service.visibleToolNamed(trimmed) {
+		hints = append(hints, fmt.Sprintf("「%s」是模型侧工具（由模型调用、经权限门），不能从输入框直接执行", trimmed))
+	}
+	if counterpart := service.commandCounterpart(trimmed); counterpart != "" {
+		hints = append(hints, fmt.Sprintf("你是想用 %s%s 吗？", SigilCommand, counterpart))
+	}
+	if len(hints) == 0 {
+		return notice
+	}
+	return notice + "（" + strings.Join(hints, "；") + "）"
+}
+
+// visibleToolNamed 报告名字是否命中当前可见工具（大小写不敏感）。
+func (service *Service) visibleToolNamed(name string) bool {
+	if service == nil || service.Deps.Runtime == nil || strings.TrimSpace(name) == "" {
+		return false
+	}
+	for _, tool := range service.Deps.Runtime.VisibleTools(context.Background()) {
+		if strings.EqualFold(tool.Name, strings.TrimSpace(name)) {
+			return true
+		}
+	}
+	return false
+}
+
+// commandCounterpart 找与用户输入最像的命令名：前缀/包含关系优先，其次编辑距离
+// ≤ 2（漏字、换位、邻键错字）。没有相似命令时返回 ""。
+func (service *Service) commandCounterpart(name string) string {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	if lower == "" {
+		return ""
+	}
+	best, bestScore := "", 0
+	for _, command := range service.commands.All() {
+		candidate := strings.ToLower(command.Name())
+		if candidate == "" || candidate == lower {
+			continue
+		}
+		matched := false
+		switch {
+		case strings.HasPrefix(lower, candidate), strings.Contains(lower, candidate):
+			matched = true
+		case len(candidate) <= 16 && len(lower) <= 16:
+			matched = editDistanceAtMost(lower, candidate, 2)
+		}
+		if matched && len(candidate) > bestScore {
+			best, bestScore = candidate, len(candidate)
+		}
+	}
+	return best
+}
+
+// editDistanceAtMost 判定两串的 Levenshtein 距离是否 ≤ limit（有界实现：只保留
+// 相邻两行，任一行最小值超限即早退）。
+func editDistanceAtMost(a, b string, limit int) bool {
+	ar, br := []rune(a), []rune(b)
+	if diff := len(ar) - len(br); diff > limit || diff < -limit {
+		return false
+	}
+	previous := make([]int, len(br)+1)
+	current := make([]int, len(br)+1)
+	for j := range previous {
+		previous[j] = j
+	}
+	for i := 1; i <= len(ar); i++ {
+		current[0] = i
+		rowMin := current[0]
+		for j := 1; j <= len(br); j++ {
+			cost := 1
+			if ar[i-1] == br[j-1] {
+				cost = 0
+			}
+			current[j] = min(previous[j]+1, min(current[j-1]+1, previous[j-1]+cost))
+			if current[j] < rowMin {
+				rowMin = current[j]
+			}
+		}
+		if rowMin > limit {
+			return false
+		}
+		copy(previous, current)
+	}
+	return previous[len(br)] <= limit
+}
+
 func (service *Service) commandSuggestions() []Suggestion {
 	suggestions := make([]Suggestion, 0)
 	for _, command := range service.commands.All() {

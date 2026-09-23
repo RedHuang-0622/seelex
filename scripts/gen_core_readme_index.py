@@ -71,7 +71,7 @@ ROOT_GROUPS = [
     ("command", "内置命令注册与执行", ["command"], ["permission_command_test.go"]),
     ("error", "错误码与面向用户的错误呈现", ["error"], []),
     ("history", "历史检索与 provider 失败恢复", ["history"], []),
-    ("input", "输入分派与路由兼容测试", ["input"], []),
+    ("input", "输入分派与路由兼容测试", ["input"], ["durable_queue_wire_test.go"]),
     ("plan", "Plan 打点/分支事件/重规划", ["plan"], []),
     ("reference", "read_tool_result / read_plan 引用工具", ["reference"], []),
     ("skill", "Skill 指令信封编解码", ["skill"], []),
