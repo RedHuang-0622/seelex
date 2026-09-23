@@ -190,6 +190,14 @@ GUI renderGoal / TUI 面板
 前端把 seq 单调视为"治理活着"，超过 `N` 秒无新 seq 显示
 `governance stalled`（前端只读展示，不做业务决策）。
 
+> **口径变更（2026-09-24，已实现）：本段废弃。** 心跳只回答"距上次推进过了多久"，
+> 回答不了"为什么不推进"：治理回合失败时 `AdvanceAfterChat` 的错误被调用方丢弃，
+> 面板于是只剩墙钟可猜，把"目标空闲等你输入"和"一次轮转被中止"印成同一句
+> `governance stalled`。现在 `HeartbeatSeq/HeartbeatAt` 与前端定时器判定一并删除，
+> 视图改用 `round_error` 承载分类后的失败原因（goal 仍保持 active 是安全默认），
+> 进行中的评审正文由 `peer_state`/`in_flight` 表达。见
+> [`docs/devlog/2026-09-24-governance-round-error-replaces-heartbeat.md`](../devlog/2026-09-24-governance-round-error-replaces-heartbeat.md)。
+
 ---
 
 ## 3. 页面效果（字符画）

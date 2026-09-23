@@ -14,6 +14,26 @@ version when it lands.
 
 ### Fixed
 
+- **The governance panel now reports *why* a round did not advance, instead of guessing from a
+  wall clock.** `active · Round 0 · peer advisory_pending · governance stalled` was never a
+  backend state: `goalCoordinator` stamped `heartbeat_at` on every advance and
+  `app.js startGoalStallMonitor` printed `governance stalled` once `floor(now) > heartbeat_at + 10`
+  — so an idle goal waiting for the user's next message lit up exactly like an aborted seat
+  rotation. The guess existed because the fact had nowhere to go: the ADVISOR round is driven
+  synchronously at the end of a turn, `Service.goalAdvanceAfterChat` discarded
+  `AdvanceAfterChat`'s error, and `techleader.go`'s already-classified reason
+  ("b 已作答但裁决不可用" vs "429/超时 → B4 缺席矩阵") never reached any projection.
+  `GoalGovernanceView` therefore drops `heartbeat_at`/`heartbeat_seq` (their only readers were
+  the stall heuristic and the `心跳 #N` decoration; no backend consumer ever existed) and gains
+  `round_error`, which `AdvanceAfterChat`/`Next` write on failure and clear on the next
+  successful advance or a new `Begin`. GUI and TUI render it as 「本轮治理未完成: …」 beside the
+  existing 「断环」 banner, and the 1s timer keeps only its in-flight-snapshot duty
+  (`startGoalInFlightPoller`), gated on `peer_state`/`in_flight`. Idle now shows nothing — idle
+  is not an anomaly. Teeth: `TestGoalCoordinatorRoundErrorVisible` (failure visible, goal still
+  active, cleared by a new goal) plus the `RoundError == ""` assertion on the happy path and a
+  TUI panel assertion on the new line. See
+  [`docs/devlog/2026-09-24-governance-round-error-replaces-heartbeat.md`](docs/devlog/2026-09-24-governance-round-error-replaces-heartbeat.md).
+
 - **A `/compact` between turns now leaves a compaction record, so the receipt no longer
   says "no record this time".** The fold always happened; what was missing was the evidence.
   `task_context._RecordContextCompactionLocked` accepted a compaction only while the task

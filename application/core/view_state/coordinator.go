@@ -52,7 +52,7 @@ type Deps struct {
 		GoalSkillActive() bool
 	}
 	// Goals 提供会话级 goal 治理只读视图（无 goal 返回 nil；前端据此渲染
-	// 「目标 + 治理」面板与心跳）。nil 时投影留空（未装配 goal 协调器）。
+	// 「目标 + 治理」面板）。nil 时投影留空（未装配 goal 协调器）。
 	Goals interface {
 		GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView
 	}

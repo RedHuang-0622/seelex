@@ -152,11 +152,10 @@ func (model Model) goalPanelLines() []string {
 	if title := oneLine(goal.Title, model.textLimit()); title != "" {
 		lines = append(lines, StyleChoiceInactive.Render("  "+oneLine(goal.GoalID+" · "+title, model.textLimit())))
 	}
-	state := "peer: " + fallback(goal.PeerState, "—")
-	if goal.HeartbeatSeq > 0 {
-		state += fmt.Sprintf(" · 心跳 #%d", goal.HeartbeatSeq)
+	lines = append(lines, StyleMuted.Render("  peer: "+fallback(goal.PeerState, "—")))
+	if goal.RoundError != "" {
+		lines = append(lines, StyleError.Render("  ✖ 本轮治理未完成: "+oneLine(goal.RoundError, model.textLimit())))
 	}
-	lines = append(lines, StyleMuted.Render("  "+state))
 	if goal.Broken {
 		lines = append(lines, StyleError.Render("  ✖ 治理已中断: "+oneLine(fallback(goal.BreakReason, "—"), model.textLimit())))
 	}

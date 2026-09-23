@@ -18,7 +18,7 @@ type serviceComponents struct {
 	sessions *session_runtime.Coordinator
 	tasks    *task_context.Coordinator
 	// goal 是会话级 goal 治理协调器（P1：每会话 Controller+Supervisor+
-	// Governor；视图投影/心跳/工具路由经 Service 面暴露）。
+	// Governor；视图投影/工具路由经 Service 面暴露）。
 	goal     *goalCoordinator
 	view     *view_state.Coordinator
 	subagent *subagent_view.Coordinator

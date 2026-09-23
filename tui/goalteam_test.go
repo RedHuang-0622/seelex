@@ -46,7 +46,7 @@ func goalSnapshot() application.Snapshot {
 		CurrentSeat:   "advisor-b",
 		PeerState:     "advisory_pending",
 		LastDirective: "[verdict_done] 两条验收证据在本次 ADVISOR 输入中均可核对",
-		HeartbeatSeq:  12,
+		RoundError:    "b 回合失败(429/超时 → B4 缺席矩阵): context deadline exceeded",
 	}
 	return snapshot
 }
@@ -111,7 +111,7 @@ func TestGoalPanelRendersGovernanceProjection(t *testing.T) {
 		t.Fatalf("Alt+G 后面板 = %q, want %q", model.panel, panelGoal)
 	}
 	panel := model.renderPanel()
-	for _, want := range []string{"GOAL", "running", "2/6", "advisor-b", "advisory_pending", "verdict_done", "g-1"} {
+	for _, want := range []string{"GOAL", "running", "2/6", "advisor-b", "advisory_pending", "verdict_done", "g-1", "本轮治理未完成", "429"} {
 		if !strings.Contains(panel, want) {
 			t.Fatalf("目标面板缺少 %q：\n%s", want, panel)
 		}

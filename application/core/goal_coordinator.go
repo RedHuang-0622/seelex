@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/agentteam"
@@ -56,12 +55,12 @@ type goalSessionRuntime struct {
 
 type goalCoordinator struct {
 	mu       sync.Mutex
-	now      func() int64
 	deps     goalCoordinatorDeps
 	sessions map[string]*goalSessionRuntime
 
-	heartbeatSeq map[string]uint64
-	heartbeatAt  map[string]int64
+	// roundError 是各会话**上一轮治理推进失败的原因**（空 = 无失败）：goal 保持
+	// active 是回合失败时的安全默认，但失败原因必须可见，否则面板只能靠墙钟猜。
+	roundError map[string]string
 	// injections 是"已注入引擎受信区、待可见回放"的指令（回合尾回放，见
 	// Service.injectGoalDirectivesFor）。
 	injections map[string][]goaldomain.TLDirective
@@ -73,13 +72,11 @@ type goalCoordinator struct {
 
 func newGoalCoordinator(deps goalCoordinatorDeps) *goalCoordinator {
 	return &goalCoordinator{
-		now:          func() int64 { return time.Now().Unix() },
-		deps:         deps,
-		sessions:     make(map[string]*goalSessionRuntime),
-		heartbeatSeq: make(map[string]uint64),
-		heartbeatAt:  make(map[string]int64),
-		injections:   make(map[string][]goaldomain.TLDirective),
-		published:    make(map[string]map[string]bool),
+		deps:       deps,
+		sessions:   make(map[string]*goalSessionRuntime),
+		roundError: make(map[string]string),
+		injections: make(map[string][]goaldomain.TLDirective),
+		published:  make(map[string]map[string]bool),
 	}
 }
 
@@ -125,11 +122,17 @@ func (g *goalCoordinator) bundleFor(sessionID string) *goalSessionRuntime {
 	return runtime
 }
 
-func (g *goalCoordinator) bumpHeartbeat(sessionID string) {
+// noteRoundError 登记（或清除）该会话上一轮治理推进的失败原因。
+//
+// ErrTLDisabled 是配置态（没装配 TL 评估器），不是回合故障，按"无失败"处理。
+func (g *goalCoordinator) noteRoundError(sessionID string, err error) {
 	g.mu.Lock()
-	g.heartbeatSeq[sessionID]++
-	g.heartbeatAt[sessionID] = g.now()
-	g.mu.Unlock()
+	defer g.mu.Unlock()
+	if err == nil || errors.Is(err, goaldomain.ErrTLDisabled) {
+		delete(g.roundError, sessionID)
+		return
+	}
+	g.roundError[sessionID] = err.Error()
 }
 
 // Begin 注册并压栈（会话路由）。
@@ -152,35 +155,26 @@ func (g *goalCoordinator) Begin(ctx context.Context, sessionID string, request g
 		// 未装配团队环时 teamRuntimeFor 返回 nil，Reset 对 nil 接收者安全。
 		g.teamRuntimeFor(sessionID).Reset()
 	}
-	g.bumpHeartbeat(sessionID)
+	// 新 goal 不继承上一轮的治理失败记录（面板不能拿着旧错误解释新目标）。
+	if record != nil && (before == nil || before.ID != record.ID) {
+		g.noteRoundError(sessionID, nil)
+	}
 	return record, nil
 }
 
 // Update 更新栈顶（会话路由）。
 func (g *goalCoordinator) Update(ctx context.Context, sessionID string, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error) {
-	record, err := g.bundleFor(sessionID).ctl.Update(ctx, request)
-	if err == nil {
-		g.bumpHeartbeat(sessionID)
-	}
-	return record, err
+	return g.bundleFor(sessionID).ctl.Update(ctx, request)
 }
 
 // ProposeFinish 送终态 gate（TL 缺席时 OutcomeNoTL 直连收口；B4）。
 func (g *goalCoordinator) ProposeFinish(ctx context.Context, sessionID string, request goaldomain.FinishRequest) (goaldomain.FinishProposalResult, error) {
-	result, err := g.bundleFor(sessionID).sup.ProposeFinish(ctx, request)
-	if err == nil {
-		g.bumpHeartbeat(sessionID)
-	}
-	return result, err
+	return g.bundleFor(sessionID).sup.ProposeFinish(ctx, request)
 }
 
 // Notify 登记 a 事件（exec 账本；触发策略见 Supervisor）。
 func (g *goalCoordinator) Notify(ctx context.Context, sessionID string, signal goaldomain.TLEvalSignal) error {
-	err := g.bundleFor(sessionID).sup.Notify(ctx, signal)
-	if err == nil {
-		g.bumpHeartbeat(sessionID)
-	}
-	return err
+	return g.bundleFor(sessionID).sup.Notify(ctx, signal)
 }
 
 // Next 推进治理循环一轮（惰性装配座位；返回 false = 收束）。
@@ -190,9 +184,7 @@ func (g *goalCoordinator) Next(ctx context.Context, sessionID string) (bool, err
 		runtime.gov = g.newGovernor(sessionID, runtime)
 	}
 	more, err := runtime.gov.Next(ctx)
-	if err == nil {
-		g.bumpHeartbeat(sessionID)
-	}
+	g.noteRoundError(sessionID, err)
 	return more, err
 }
 
@@ -200,7 +192,17 @@ func (g *goalCoordinator) Next(ctx context.Context, sessionID string) (bool, err
 // turn_completed（exec 账本水位 + 本轮工作正文摘要），若 TL 已启用则运行一轮
 // Governor（exec 让位 → advisor 真实 TL 回合）。TL 缺席/未启用按 B4 忽略，不阻塞。
 // detail 为空 = 本轮无可摘要产出（信号仍登记，水位不跳）。
+//
+// 本方法是治理回合失败的唯一登记点：goal 保持 active 是安全默认，但失败原因必须
+// 进只读视图（GoalGovernanceView.RoundError），否则调用方丢弃错误后，面板只剩墙钟
+// 可猜——把「合法空闲」和「真卡住」印成同一句话。
 func (g *goalCoordinator) AdvanceAfterChat(ctx context.Context, sessionID, detail string) error {
+	err := g.advanceAfterChat(ctx, sessionID, detail)
+	g.noteRoundError(sessionID, err)
+	return err
+}
+
+func (g *goalCoordinator) advanceAfterChat(ctx context.Context, sessionID, detail string) error {
 	runtime := g.bundleFor(sessionID)
 	if runtime.ctl.Status().Active == nil {
 		return nil
@@ -233,7 +235,6 @@ func (g *goalCoordinator) AdvanceAfterChat(ctx context.Context, sessionID, detai
 		// 的输入。
 		if stopped, reason := team.NoteTurn(strings.TrimSpace(detail) != ""); stopped {
 			runtime.gov.Break(reason)
-			g.bumpHeartbeat(sessionID)
 			if _, err := runtime.sup.AbortOnEscape(ctx, reason); err != nil {
 				return err
 			}
@@ -268,7 +269,6 @@ func (g *goalCoordinator) AdvanceAfterChat(ctx context.Context, sessionID, detai
 			break
 		}
 	}
-	g.bumpHeartbeat(sessionID)
 	return nil
 }
 
@@ -598,7 +598,6 @@ func (g *goalCoordinator) Break(_ context.Context, sessionID, reason string) err
 		return fmt.Errorf("goal_gov_break: 治理循环未装配（该会话尚无 Governor）")
 	}
 	runtime.gov.Break(reason)
-	g.bumpHeartbeat(sessionID)
 	return nil
 }
 
@@ -740,7 +739,7 @@ func (g *goalCoordinator) TakeInjected(sessionID string) []goaldomain.TLDirectiv
 func (g *goalCoordinator) GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView {
 	g.mu.Lock()
 	runtime := g.sessions[sessionID]
-	seq, at := g.heartbeatSeq[sessionID], g.heartbeatAt[sessionID]
+	roundError := g.roundError[sessionID]
 	g.mu.Unlock()
 	if runtime == nil {
 		return nil
@@ -749,19 +748,18 @@ func (g *goalCoordinator) GoalGovernanceViewFor(sessionID string) *dto.GoalGover
 	if status.Active == nil {
 		return &dto.GoalGovernanceView{
 			Active: false, RoundLimit: goalLoopRoundLimit(g.deps.MaxRounds),
-			HeartbeatAt: at, HeartbeatSeq: seq,
+			RoundError: roundError,
 		}
 	}
 	peer := runtime.sup.Snapshot()
 	view := &dto.GoalGovernanceView{
-		Active:       true,
-		GoalID:       status.Active.ID,
-		Title:        status.Active.Title,
-		Status:       string(status.Active.Status),
-		RoundLimit:   goalLoopRoundLimit(g.deps.MaxRounds),
-		PeerState:    string(peer.Peer),
-		HeartbeatAt:  at,
-		HeartbeatSeq: seq,
+		Active:     true,
+		GoalID:     status.Active.ID,
+		Title:      status.Active.Title,
+		Status:     string(status.Active.Status),
+		RoundLimit: goalLoopRoundLimit(g.deps.MaxRounds),
+		PeerState:  string(peer.Peer),
+		RoundError: roundError,
 		// 进行中的 ADVISOR 正文（只读快照）：回合结束为空。前端据此在评审期间
 		// 轮询快照，把"评审在写什么"及时渲染出来。
 		InFlight:      peer.InFlight,

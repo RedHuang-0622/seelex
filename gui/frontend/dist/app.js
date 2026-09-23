@@ -1909,7 +1909,7 @@ function renderGoal(snapshot) {
   if (!hasContent) {
     view.classList.add("muted");
     view.innerHTML = "当前无目标任务";
-    stopGoalStallMonitor(view);
+    stopGoalInFlightPoller(view);
     return;
   }
   // 活动栈分块：会话里嵌套压栈时，栈下目标也要能逐帧查看（不只是栈顶一帧）。
@@ -1927,15 +1927,19 @@ function renderGoal(snapshot) {
     : "";
   view.innerHTML = `${stackLine}${goalLine}${taskLine}${governanceLine}${chips}`;
   if (governance) {
-    startGoalStallMonitor(view, governance);
+    startGoalInFlightPoller(view, governance);
   } else {
-    stopGoalStallMonitor(view);
+    stopGoalInFlightPoller(view);
   }
 }
 
 // renderGoalGovernance 渲染「目标 + 治理」只读面板：goal 状态/轮次/座次/
-// TL 最近指令/断环横幅/心跳（字符画 §3.1；governance 视图来自
+// TL 最近指令/本轮治理未完成/断环横幅（governance 视图来自
 // runtime.goal_governance，goal 栈不入模型上下文）。
+//
+// 面板上**没有墙钟推断**：只说后端给的事实。「治理没在推进」以前由前端用
+// heartbeat_at + 10s 猜成 governance stalled，于是"空闲等你输入"与"回合被中止"
+// 印成同一句话；现在回合失败由协调器登记成 round_error，这里直接渲染它。
 function renderGoalGovernance(governance) {
   const status = escapeHtml(governance.status || "active");
   const round = Number.isFinite(governance.round) ? governance.round : 0;
@@ -1943,6 +1947,9 @@ function renderGoalGovernance(governance) {
   const peer = governance.peer_state ? escapeHtml(governance.peer_state) : "";
   const directive = governance.last_directive
     ? `<div class="goal-gov-directive" title="${escapeHtml(governance.last_directive)}">TL: ${escapeHtml(truncateGoalText(governance.last_directive, 160))}</div>`
+    : "";
+  const roundError = governance.round_error
+    ? `<div class="goal-gov-error" title="${escapeHtml(governance.round_error)}">本轮治理未完成: ${escapeHtml(truncateGoalText(governance.round_error, 160))}</div>`
     : "";
   const broken = governance.broken
     ? `<div class="goal-gov-broken">断环: ${escapeHtml(governance.break_reason || "已收束")}</div>`
@@ -1954,9 +1961,8 @@ function renderGoalGovernance(governance) {
     `Round ${round}`,
     seat ? `座次 ${seat}` : "",
     peer ? `peer ${peer}` : "",
-    `<span id="goal-stall" data-heartbeat-seq="${Number(governance.heartbeat_seq || 0)}" data-heartbeat-at="${Number(governance.heartbeat_at || 0)}"></span>`
   ].filter(Boolean).join(" · ");
-  return `<div class="goal-governance"><div class="goal-gov-meta">${meta}</div>${inFlight}${directive}${broken}</div>`;
+  return `<div class="goal-governance"><div class="goal-gov-meta">${meta}</div>${inFlight}${directive}${roundError}${broken}</div>`;
 }
 
 // refreshGoalInFlight 在 ADVISOR 回合进行中按节拍补一次只读快照：治理回合是
@@ -1978,32 +1984,24 @@ async function refreshGoalInFlight(view, governance) {
   }
 }
 
-// startGoalStallMonitor 心跳停滞提示（前端只读展示）：治理推进会带来单调
-// heartbeat_seq；超过 stallAfterSec 无新 seq 显示 stalled。不参与业务决策。
-function startGoalStallMonitor(view, governance) {
-  const stallAfterSec = 10;
-  const deadline = Number(governance.heartbeat_at || 0) + stallAfterSec;
-  const timer = view.__goalStallTimer;
+// startGoalInFlightPoller 评审进行中的快照轮询节拍：治理回合是**同步**跑完的
+// （后端在回合结束才推一次状态），进行中正文只能靠轮询快照才及时可见。
+//
+// 这里不做任何时间判断——是否真的去拉快照由 refreshGoalInFlight 按后端字段
+// （peer_state / in_flight）决定；旧实现同处还兼着 heartbeat 墙钟比较，把
+// "空闲等你输入"印成过 governance stalled。
+function startGoalInFlightPoller(view, governance) {
+  const timer = view.__goalInFlightTimer;
   if (timer) clearInterval(timer);
-  const tick = () => {
-    const stall = view.querySelector("#goal-stall");
-    if (!stall) return;
-    const now = Math.floor(Date.now() / 1000);
-    const stalled = now > deadline;
-    stall.textContent = stalled ? "governance stalled" : `心跳 #${Number(governance.heartbeat_seq || 0)}`;
-    stall.classList.toggle("goal-gov-stalled", stalled);
-    // 评审进行中：同一节拍补一次只读快照，把"评审在写什么"及时渲染出来。
-    // 每次渲染都会重建本定时器，因此闭包里的 governance 始终是最新一份。
-    void refreshGoalInFlight(view, governance);
-  };
-  tick();
-  view.__goalStallTimer = setInterval(tick, 1000);
+  // 每次渲染都会重建本定时器，因此闭包里的 governance 始终是最新一份。
+  view.__goalInFlightTimer = setInterval(() => void refreshGoalInFlight(view, governance), 1000);
+  void refreshGoalInFlight(view, governance);
 }
 
-function stopGoalStallMonitor(view) {
-  if (!view || !view.__goalStallTimer) return;
-  clearInterval(view.__goalStallTimer);
-  delete view.__goalStallTimer;
+function stopGoalInFlightPoller(view) {
+  if (!view || !view.__goalInFlightTimer) return;
+  clearInterval(view.__goalInFlightTimer);
+  delete view.__goalInFlightTimer;
 }
 
 // latestUserInput 返回会话最近一条非空用户消息（目标文本数据源）。

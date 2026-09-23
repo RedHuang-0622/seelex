@@ -15,13 +15,14 @@ goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回�
 
 - `func newGoalCoordinator(deps goalCoordinatorDeps) *goalCoordinator`
 - `func (g *goalCoordinator) bundleFor(sessionID string) *goalSessionRuntime` — bundleFor 返回（需要时创建）指定会话的 goal bundle。创建时若装配了会话
-- `func (g *goalCoordinator) bumpHeartbeat(sessionID string)`
+- `func (g *goalCoordinator) noteRoundError(sessionID string, err error)` — noteRoundError 登记（或清除）该会话上一轮治理推进的失败原因。
 - `func (g *goalCoordinator) Begin(ctx context.Context, sessionID string, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error)` — Begin 注册并压栈（会话路由）。
 - `func (g *goalCoordinator) Update(ctx context.Context, sessionID string, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error)` — Update 更新栈顶（会话路由）。
 - `func (g *goalCoordinator) ProposeFinish(ctx context.Context, sessionID string, request goaldomain.FinishRequest) (goaldomain.FinishProposalResult, error)` — ProposeFinish 送终态 gate（TL 缺席时 OutcomeNoTL 直连收口；B4）。
 - `func (g *goalCoordinator) Notify(ctx context.Context, sessionID string, signal goaldomain.TLEvalSignal) error` — Notify 登记 a 事件（exec 账本；触发策略见 Supervisor）。
 - `func (g *goalCoordinator) Next(ctx context.Context, sessionID string) (bool, error)` — Next 推进治理循环一轮（惰性装配座位；返回 false = 收束）。
 - `func (g *goalCoordinator) AdvanceAfterChat(ctx context.Context, sessionID, detail string) error` — AdvanceAfterChat 在 ChatStream 返回后的锁外安全点推进一次治理：登记
+- `func (g *goalCoordinator) advanceAfterChat(ctx context.Context, sessionID, detail string) error`
 - `func (g *goalCoordinator) teamRuntimeFor(sessionID string) *agentteam.Runtime` — teamRuntimeFor 取该会话的团队发言调度运行态（未装配团队环 → nil）。
 - `func goalLoopRoundLimit(configured int) int` — goalLoopRoundLimit 把配置值解析成实际生效的轮次上限。
 - `func (g *goalCoordinator) newGovernor(sessionID string, runtime *goalSessionRuntime) govern.Governor` — newGovernor 装配治理循环座位。座位的**存在性**由团队工作顺序（链表）决定：
@@ -56,7 +57,8 @@ goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回�
 ### goal_coordinator_test.go
 
 - `func TestGoalCoordinatorSessionIsolation(t *testing.T)` — TestGoalCoordinatorSessionIsolation 验证 P1 会话级协调器：两会话各自
-- `func TestGoalCoordinatorHeartbeatMonotonic(t *testing.T)` — TestGoalCoordinatorHeartbeatMonotonic 验证治理推进即心跳：Begin/Update
+- `func (failingTLEvaluator) Evaluate(context.Context, goaldomain.TLSessionEmbed) (goaldomain.TLDirective, error)`
+- `func TestGoalCoordinatorRoundErrorVisible(t *testing.T)` — TestGoalCoordinatorRoundErrorVisible 钉住「本轮治理未完成」的可见面：治理回合
 - `func TestSessionRuntimeCarriesGoalGovernance(t *testing.T)` — TestSessionRuntimeCarriesGoalGovernance 验证 GoalGovernanceView 进入
 - `func (e *stubTLEvaluator) Evaluate(context.Context, goaldomain.TLSessionEmbed) (goaldomain.TLDirective, error)`
 - `func TestGoalCoordinatorAdvanceAfterChatRunsTLRound(t *testing.T)` — TestGoalCoordinatorAdvanceAfterChatRunsTLRound 验证 A2A 在真实会话边界

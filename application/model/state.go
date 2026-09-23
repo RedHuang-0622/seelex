@@ -308,7 +308,7 @@ type RuntimeState struct {
 	// GoalSkillActive 是 goal skill 激活投影（右侧栏「目标」面板 badge）。
 	GoalSkillActive bool `json:"goal_skill_active,omitempty"`
 	// GoalGovernance 是本会话 goal 治理只读视图（无 goal 时为 nil；前端
-	// 据此渲染「目标 + 治理」面板与心跳）。
+	// 据此渲染「目标 + 治理」面板）。
 	GoalGovernance *dto.GoalGovernanceView `json:"goal_governance,omitempty"`
 	// ActiveSkills 是当前任务的激活 skill ID 列表（「目标」面板数据源）。
 	ActiveSkills []string `json:"active_skills,omitempty"`

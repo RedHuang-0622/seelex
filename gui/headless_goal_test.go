@@ -30,7 +30,6 @@ func (fake *goalRPCFakeApp) GoalBeginFor(_ context.Context, sessionID string, re
 	fake.active = &goaldomain.GoalRecord{ID: "g-1", Title: request.Title, Status: goaldomain.StatusActive}
 	fake.view = &dto.GoalGovernanceView{
 		Active: true, GoalID: "g-1", Title: request.Title, Status: string(goaldomain.StatusActive),
-		HeartbeatSeq: 1,
 	}
 	return fake.active, nil
 }
@@ -42,7 +41,7 @@ func (fake *goalRPCFakeApp) GoalUpdateFor(_ context.Context, sessionID string, r
 	if fake.active != nil && request.ProgressContent != "" {
 		fake.active.Progress = append(fake.active.Progress, goaldomain.Progress{Kind: request.ProgressKind, Content: request.ProgressContent})
 	}
-	fake.view.HeartbeatSeq++
+	fake.view.Round++
 	return fake.active, nil
 }
 
@@ -52,7 +51,7 @@ func (fake *goalRPCFakeApp) GoalProposeFinishFor(_ context.Context, sessionID st
 	fake.lastSID = sessionID
 	if fake.active != nil {
 		fake.active.Status = goaldomain.StatusCompleted
-		fake.view = &dto.GoalGovernanceView{Active: false, HeartbeatSeq: fake.view.HeartbeatSeq + 1}
+		fake.view = &dto.GoalGovernanceView{Active: false}
 	}
 	return goaldomain.FinishProposalResult{Outcome: goaldomain.OutcomeCompleted, Goal: fake.active}, nil
 }

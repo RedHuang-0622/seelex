@@ -25,8 +25,13 @@ type GoalGovernanceView struct {
 	LastDirective string `json:"last_directive,omitempty"`
 	Broken        bool   `json:"broken"`
 	BreakReason   string `json:"break_reason,omitempty"`
-	HeartbeatAt   int64  `json:"heartbeat_at,omitempty"`
-	HeartbeatSeq  uint64 `json:"heartbeat_seq"`
+	// RoundError 是**上一轮治理推进失败的原因**（空 = 无失败）。
+	//
+	// 为什么存在于治理视图：ADVISOR 回合失败（b 已作答但裁决不可用 / 429 / 超时）
+	// 时，goal 保持 active 是安全默认，但「轮次为什么不前进」此前既没进视图也没人
+	// 显示——调用方丢弃错误后，面板只能靠墙钟猜。这里由协调器写入分类后的原始错误
+	// 文本，成功推进一轮或新 goal 上线时清空。**只读投影，进程内，不落盘**。
+	RoundError string `json:"round_error,omitempty"`
 	// InFlight / InFlightChars 是**当前 b（ADVISOR）回合进行中**的正文近端。
 	//
 	// 为什么存在于治理视图：b 回合是同步跑完的（回合结束才推一次状态），旧实现里

@@ -41,27 +41,48 @@ func TestGoalCoordinatorSessionIsolation(t *testing.T) {
 	}
 }
 
-// TestGoalCoordinatorHeartbeatMonotonic 验证治理推进即心跳：Begin/Update
-// 后 heartbeat_seq 单调递增且视图携带 active 状态。
-func TestGoalCoordinatorHeartbeatMonotonic(t *testing.T) {
-	coordinator := newGoalCoordinator(goalCoordinatorDeps{})
-	if _, err := coordinator.Begin(context.Background(), "session-hb", goaldomain.BeginRequest{
-		Title: "心跳目标",
-	}); err != nil {
+// failingTLEvaluator 让 ADVISOR 回合总是失败（模拟裁决不可用 / 429 / 超时）。
+type failingTLEvaluator struct{}
+
+func (failingTLEvaluator) Evaluate(context.Context, goaldomain.TLSessionEmbed) (goaldomain.TLDirective, error) {
+	return goaldomain.TLDirective{}, goaldomain.ErrBadDirective
+}
+
+// TestGoalCoordinatorRoundErrorVisible 钉住「本轮治理未完成」的可见面：治理回合
+// 失败时 goal 保持 active（安全默认：不拿不可用的裁决收口），但失败原因必须进只读
+// 视图；新 goal 上线时清除，不让旧错误解释新目标。
+//
+// 修复前这条错误在 goalAdvanceAfterChat 里被丢弃，面板只剩 heartbeat_at 可比，于是
+// 用墙钟印出一个既不区分"空闲等你输入"也不区分"回合被中止"的 governance stalled。
+func TestGoalCoordinatorRoundErrorVisible(t *testing.T) {
+	ctx := context.Background()
+	coordinator := newGoalCoordinator(goalCoordinatorDeps{Evaluator: failingTLEvaluator{}})
+	if _, err := coordinator.Begin(ctx, "session-fail", goaldomain.BeginRequest{Title: "失败回合目标"}); err != nil {
 		t.Fatalf("begin: %v", err)
 	}
-	first := coordinator.GoalGovernanceViewFor("session-hb")
-	if first == nil || first.HeartbeatSeq != 1 || first.Status != string(goaldomain.StatusActive) {
-		t.Fatalf("begin 后视图 = %+v", first)
+	if err := coordinator.AdvanceAfterChat(ctx, "session-fail", "本轮工作正文"); err == nil {
+		t.Fatal("ADVISOR 回合失败应把错误返回给调用方")
 	}
-	if _, err := coordinator.Update(context.Background(), "session-hb", goaldomain.UpdateRequest{
-		ProgressKind: goaldomain.ProgressMilestone, ProgressContent: "打点",
-	}); err != nil {
-		t.Fatalf("update: %v", err)
+	failed := coordinator.GoalGovernanceViewFor("session-fail")
+	if failed == nil || !failed.Active {
+		t.Fatalf("回合失败不应改变 goal 的 active 态: %+v", failed)
 	}
-	second := coordinator.GoalGovernanceViewFor("session-hb")
-	if second == nil || second.HeartbeatSeq <= first.HeartbeatSeq {
-		t.Fatalf("心跳应单调递增: first=%+v second=%+v", first, second)
+	if failed.RoundError == "" {
+		t.Fatal("失败原因应进只读视图 RoundError")
+	}
+	// 收口旧目标（等价 goal_abort）后压入新目标：面板不能拿着上一目标的错误解释新目标。
+	if _, err := coordinator.bundleFor("session-fail").ctl.Abort(ctx, goaldomain.FinishRequest{Reason: "测试收口"}); err != nil {
+		t.Fatalf("abort: %v", err)
+	}
+	if _, err := coordinator.Begin(ctx, "session-fail", goaldomain.BeginRequest{Title: "新目标"}); err != nil {
+		t.Fatalf("begin 新目标: %v", err)
+	}
+	fresh := coordinator.GoalGovernanceViewFor("session-fail")
+	if fresh == nil || fresh.Title != "新目标" {
+		t.Fatalf("新目标应成为 active 帧: %+v", fresh)
+	}
+	if fresh.RoundError != "" {
+		t.Fatalf("新 goal 上线应清除旧失败记录: %+v", fresh)
 	}
 }
 
@@ -69,18 +90,18 @@ func TestGoalCoordinatorHeartbeatMonotonic(t *testing.T) {
 // SessionRuntime 槽并随 clone 深拷贝（前端快照字段归属）。
 func TestSessionRuntimeCarriesGoalGovernance(t *testing.T) {
 	runtime := RuntimeState{
-		GoalGovernance: &dto.GoalGovernanceView{Active: true, GoalID: "g-1", HeartbeatSeq: 7},
+		GoalGovernance: &dto.GoalGovernanceView{Active: true, GoalID: "g-1", Round: 7},
 	}
 	cloned := cloneRuntimeState(runtime)
 	if cloned.GoalGovernance == nil || cloned.GoalGovernance.GoalID != "g-1" {
 		t.Fatalf("clone 丢失治理视图: %+v", cloned.GoalGovernance)
 	}
-	cloned.GoalGovernance.HeartbeatSeq = 8
-	if runtime.GoalGovernance.HeartbeatSeq != 7 {
+	cloned.GoalGovernance.Round = 8
+	if runtime.GoalGovernance.Round != 7 {
 		t.Fatalf("治理视图应深拷贝（互不影响）: %+v", runtime.GoalGovernance)
 	}
 	session := sessionRuntimeOf(cloned)
-	if session.GoalGovernance == nil || session.GoalGovernance.HeartbeatSeq != 8 {
+	if session.GoalGovernance == nil || session.GoalGovernance.Round != 8 {
 		t.Fatalf("sessionRuntimeOf 应携带治理视图: %+v", session.GoalGovernance)
 	}
 }
@@ -101,7 +122,7 @@ func (e *stubTLEvaluator) Evaluate(context.Context, goaldomain.TLSessionEmbed) (
 
 // TestGoalCoordinatorAdvanceAfterChatRunsTLRound 验证 A2A 在真实会话边界
 // 可驱动：ChatStream 结束后 AdvanceAfterChat 触发一轮 Governor，Round≥1，
-// TL 指令进入待注入队列，治理视图心跳推进。
+// TL 指令进入待注入队列，且成功回合不留失败记录。
 func TestGoalCoordinatorAdvanceAfterChatRunsTLRound(t *testing.T) {
 	coordinator := newGoalCoordinator(goalCoordinatorDeps{
 		Evaluator: &stubTLEvaluator{directives: []goaldomain.TLDirective{{
@@ -119,6 +140,9 @@ func TestGoalCoordinatorAdvanceAfterChatRunsTLRound(t *testing.T) {
 	view := coordinator.GoalGovernanceViewFor("session-a2a")
 	if view == nil || view.Round < 1 {
 		t.Fatalf("治理视图应体现 TL 回合（Round≥1）: %+v", view)
+	}
+	if view.RoundError != "" {
+		t.Fatalf("成功回合不应留下失败记录: %+v", view)
 	}
 	directives := coordinator.DrainDirectives("session-a2a")
 	if len(directives) != 1 || directives[0].Content != "先补负路径单测再收口" {

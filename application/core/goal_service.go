@@ -280,6 +280,9 @@ func (service *Service) goalAdvanceAfterChat(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	// 返回值不在此处上报：聊天回合本身已成功，治理失败不能把它变成用户可见的聊天
+	// 错误；失败原因由协调器登记进只读视图（GoalGovernanceView.RoundError），
+	// 面板与 TUI 据此显示「本轮治理未完成」，不靠前端墙钟猜。
 	_ = coordinator.AdvanceAfterChat(ctx, sessionID, service.goalTurnWorkSummary(sessionID))
 	// "干完就走人"：这一轮把目标收口了，团队就离场（判定见 dismissTeamWhenGoalClosed）。
 	service.dismissTeamWhenGoalClosed(sessionID)

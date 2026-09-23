@@ -2518,7 +2518,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .trajectory-row.is-flash summary { background: var(--tint-running); }
 .trajectory-think { border-left: 3px solid var(--status-info); background: var(--tint-info); }
 .trajectory-think .io-label { color: var(--status-info); }
-/* goal 治理只读面板（P3）：状态/轮次/座次/心跳/断环横幅 */
+/* goal 治理只读面板（P3）：状态/轮次/座次/本轮治理未完成/断环横幅 */
 .goal-governance {
   margin-top: 6px;
   padding: 6px 8px;
@@ -2545,9 +2545,9 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   margin-top: 4px;
   color: #c0392b;
 }
-.goal-gov-stalled {
+.goal-gov-error {
+  margin-top: 4px;
   color: #c0392b;
-  font-weight: 600;
 }
 
 /* ---------- 对话区泛化滚动轴（思考 / 工具过程） + 左侧调试 id ---------- */
