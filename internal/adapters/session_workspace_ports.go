@@ -551,27 +551,48 @@ func (port SessionPort) QueueRecoverItemsWorkspace(projectID, sessionID string) 
 
 // PendingMessageTailWorkspace 探测 message 通道草稿尾部（seq_draft 只读
 // 探测；调用方据此决定 L2 恢复策略）。
-func (port SessionPort) PendingMessageTailWorkspace(projectID, sessionID string) (sessionstore.PendingTailReport, bool, error) {
+//
+// 返回纯 DTO：应用层（application/core）不得依赖 sessionstore 类型，映射职责
+// 收敛在本适配器（与 S27 的 role/schedule 端口收口同口径）。
+func (port SessionPort) PendingMessageTailWorkspace(projectID, sessionID string) (dto.PendingMessageTailReport, bool, error) {
 	if port.Manager == nil || port.Manager.Router() == nil {
-		return sessionstore.PendingTailReport{}, false, nil
+		return dto.PendingMessageTailReport{}, false, nil
 	}
-	return port.Manager.Router().PendingMessageTailWorkspace(projectID, sessionID)
+	report, ok, err := port.Manager.Router().PendingMessageTailWorkspace(projectID, sessionID)
+	return pendingTailDTO(report), ok, err
 }
 
 // RecoverPendingMessageTailWorkspace 显式恢复草稿尾部（基座一致才发布）。
-func (port SessionPort) RecoverPendingMessageTailWorkspace(projectID, sessionID string) (sessionstore.PendingTailReport, bool, error) {
+func (port SessionPort) RecoverPendingMessageTailWorkspace(projectID, sessionID string) (dto.PendingMessageTailReport, bool, error) {
 	if port.Manager == nil || port.Manager.Router() == nil {
-		return sessionstore.PendingTailReport{}, false, nil
+		return dto.PendingMessageTailReport{}, false, nil
 	}
-	return port.Manager.Router().RecoverPendingMessageTailWorkspace(projectID, sessionID)
+	report, ok, err := port.Manager.Router().RecoverPendingMessageTailWorkspace(projectID, sessionID)
+	return pendingTailDTO(report), ok, err
 }
 
 // DiscardPendingMessageTailWorkspace 显式丢弃草稿尾部。
-func (port SessionPort) DiscardPendingMessageTailWorkspace(projectID, sessionID string) (sessionstore.PendingTailReport, bool, error) {
+func (port SessionPort) DiscardPendingMessageTailWorkspace(projectID, sessionID string) (dto.PendingMessageTailReport, bool, error) {
 	if port.Manager == nil || port.Manager.Router() == nil {
-		return sessionstore.PendingTailReport{}, false, nil
+		return dto.PendingMessageTailReport{}, false, nil
 	}
-	return port.Manager.Router().DiscardPendingMessageTailWorkspace(projectID, sessionID)
+	report, ok, err := port.Manager.Router().DiscardPendingMessageTailWorkspace(projectID, sessionID)
+	return pendingTailDTO(report), ok, err
+}
+
+// pendingTailDTO 把存储层报告映射成跨层 DTO（正文行本身不跨层：应用侧只需要
+// 状态/行数/区间来做「探测 → 决策 → 恢复|丢弃」与向用户呈现）。
+func pendingTailDTO(report sessionstore.PendingTailReport) dto.PendingMessageTailReport {
+	return dto.PendingMessageTailReport{
+		SessionID:       report.SessionID,
+		Status:          report.Status,
+		HeadSeq:         report.HeadSeq,
+		TailFrom:        report.TailFrom,
+		TailTo:          report.TailTo,
+		RowCount:        report.RowCount(),
+		ExtraShardCount: len(report.ExtraShards),
+		Reason:          report.Reason,
+	}
 }
 
 // ---------- R2/R4 群聊角色会话适配（Application 可选能力面） ----------

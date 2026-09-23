@@ -239,6 +239,9 @@ func (service *Service) resetViewToDraftAfterRestoreFailure() {
 // 否则只完成目标会话自身状态装载（引擎驻留、可见投影、任务槽），不抢占
 // 当前视图。
 func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64) error {
+	// L2 草稿尾恢复（A4）必须在三读之前：可见正文的闸门是发布点，先恢复再读，
+	// 恢复出来的行才能进本次加载的可见会话（见 session_pending_tail.go）。
+	pendingTailNotice := service.recoverPendingMessageTailAtLoad(sessionID)
 	location := service.components.sessions.LocateSession(sessionID)
 	// 会话恢复三读（record/history/transcript）相互独立，并行加载：
 	// 大会话（数 MB）下全量解析总耗时从串行求和变为三路取最大值。
@@ -498,6 +501,10 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 			service.mirrorActiveViewLocked()
 		}
 	}
+	// 草稿尾恢复结论（A4）：用户可感知的一条 system 行（见 session_pending_tail.go）。
+	// 放在两条分支之外：有 record 的新布局与只有 legacy history 的旧布局都要提示
+	// "你上次中断时未提交的那几行被恢复了"。
+	service.appendPendingTailNoticeLocked(sessionID, pendingTailNotice)
 	service.setSessionChatLockedFor(sessionID, resumedRuntime.ChatState())
 	if mayActivate {
 		service.mirrorPlanProjectionForSessionLocked(sessionID, func() *PlanState {
