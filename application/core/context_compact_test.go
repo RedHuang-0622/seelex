@@ -89,13 +89,20 @@ func TestCompactContextHandlerFoldsTranscript(t *testing.T) {
 	}
 }
 
-// TestCompactContextBelowThresholdIsHonestNoOp：未达压缩阈值时不伪造压缩、
-// 不做状态改写，只如实报告当前估算与阈值（调用方据此提示，而不是报故障）。
-func TestCompactContextBelowThresholdIsHonestNoOp(t *testing.T) {
-	service, _, sessionID := compactTestService(t, "task-compact-2")
+// TestCompactManualFoldsBelowThreshold：显式压缩（/compact、compact_context）
+// **不设阈值前提**——上下文远低于软阈值时照样折叠，并如实报告判据量。
+//
+// 这是「手动命令被上限挡住」的直接来源：此前显式路径仍以「超过软阈值」为前提，
+// 未达阈值就回一句「未达压缩阈值」，而且句子里塞的是**装配后估算**（不是判据量），
+// 于是能说出「129409 tokens，未达压缩阈值 118962」这种自相矛盾的话。
+func TestCompactManualFoldsBelowThreshold(t *testing.T) {
+	service, engine, sessionID := compactTestService(t, "task-compact-2")
 	service.ViewMu.Lock()
 	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
 		TaskID: "task-compact", Role: "user", Content: "small question",
+	})
+	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		TaskID: "task-compact", Role: "assistant", Content: "small answer",
 	})
 	service.ViewMu.Unlock()
 
@@ -108,35 +115,103 @@ func TestCompactContextBelowThresholdIsHonestNoOp(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.Compacted {
-		t.Fatalf("未达阈值不应产生压缩：%+v", result)
+	if !result.Compacted || result.Version == 0 || !result.Recorded {
+		t.Fatalf("显式压缩必须在低阈值下也折叠并留记录：%+v", result)
 	}
-	if !strings.Contains(result.Note, "未达压缩阈值") || result.EstimatedTokens == 0 {
-		t.Fatalf("结果应说明估算与阈值：%+v", result)
+	if result.ComparedTokens >= result.SoftThreshold {
+		t.Fatalf("夹具应是低阈值场景（判据量 %d < 软阈值 %d），否则这条测试没有判别力",
+			result.ComparedTokens, result.SoftThreshold)
+	}
+	if strings.Contains(result.Note, "未达压缩阈值") {
+		t.Fatalf("低阈值下的显式压缩不应说「未达压缩阈值」：%q", result.Note)
 	}
 	service.ViewMu.RLock()
 	compactions := service.components.tasks.CurrentTaskExecution().ContextCompactions
 	service.ViewMu.RUnlock()
-	if len(compactions) != 0 {
-		t.Fatalf("未达阈值不应留下压缩记录：%#v", compactions)
+	if len(compactions) != 1 || compactions[0].Reason != "context_budget" {
+		t.Fatalf("显式压缩应留下一条 context_budget 记录：%#v", compactions)
+	}
+	// 低阈值场景折叠后引擎历史仍带着两轮内容（窗口宽），不是"压没了"。
+	if len(engine.History()) == 0 {
+		t.Fatal("折叠后引擎历史不应为空")
 	}
 }
 
-// TestCompactContextWithoutTaskExecution：会话没有任务执行纪元（例如刚启动
-// 还没发过消息）时不伪造纪元，返回明确提示而不是错误。
-func TestCompactContextWithoutTaskExecution(t *testing.T) {
-	service := newTestService(t, &fakeEngine{})
-	result, err := service.CompactContextNow(task_context.WithSessionID(context.Background(), service.Snapshot().Session.ID))
+// TestCompactManualReportsFoldWithoutRecord：折叠发生了、记录却没产生时，
+// 结果面必须如实说明（回合已收尾 → 压缩记录只在执行中写），而不是谎报
+// 「未达压缩阈值」。这正是"上下文 129k 却被告知无需压缩"的另一种来路。
+func TestCompactManualReportsFoldWithoutRecord(t *testing.T) {
+	service, _, sessionID := compactTestService(t, "task-finished")
+	service.ViewMu.Lock()
+	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		TaskID: "task-finished", Role: "assistant", Content: strings.Repeat("B", 4_000),
+	})
+	// 回合收尾：任务执行不再是 Running → RecordContextCompactionLocked 拒绝写记录。
+	service.components.tasks.CurrentTaskExecution().Status = task_context.StatusCompleted
+	service.ViewMu.Unlock()
+
+	ctx := task_context.WithSessionID(context.Background(), sessionID)
+	raw, err := service.CompactContextHandler(ctx, `{}`)
+	if err != nil {
+		t.Fatalf("compact_context: %v", err)
+	}
+	var result ContextCompactionResult
+	if err := json.Unmarshal([]byte(raw), &result); err != nil {
+		t.Fatal(err)
+	}
+	if !result.Compacted {
+		t.Fatalf("折叠应发生在结果面报告为已压缩：%+v", result)
+	}
+	if result.Recorded {
+		t.Fatalf("回合已收尾不应产生压缩记录：%+v", result)
+	}
+	if strings.Contains(result.Note, "未达压缩阈值") || strings.Contains(result.Note, "无需压缩") {
+		t.Fatalf("折叠已发生，结果面不得声称未压缩：%q", result.Note)
+	}
+	if !strings.Contains(result.Note, "已收尾") {
+		t.Fatalf("结果面应说明为何没有压缩记录：%q", result.Note)
+	}
+}
+
+// TestCompactContextWithoutTaskExecutionSchedulesNextAssembly：会话没有任务
+// 执行纪元（刚冷加载/刚清空）时不伪造纪元——登记为「下一次装配时立即压缩」，
+// 且该登记在下一条消息组装上下文时真的兑现（低阈值也折叠）。
+func TestCompactContextWithoutTaskExecutionSchedulesNextAssembly(t *testing.T) {
+	runtime := runtimeWithContextLimits{fakeRuntime: &fakeRuntime{}, window: 200_000, output: 8_192}
+	engine := &fakeEngine{}
+	service := newTestService(t, engine, withTestRuntime(runtime))
+	sessionID := service.Snapshot().Session.ID
+	marks := appendWindowRounds(t, service, "task-scheduled", 2, 400)
+
+	result, err := service.CompactContextNow(task_context.WithSessionID(context.Background(), sessionID))
 	if err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}
-	if result.Compacted || !strings.Contains(result.Note, "没有进行中的任务执行") {
-		t.Fatalf("结果 = %+v", result)
+	if result.Compacted || !result.Scheduled {
+		t.Fatalf("无纪元时应登记而不是假装压缩：%+v", result)
+	}
+	if !strings.Contains(result.Note, "已登记") {
+		t.Fatalf("结果面应说明已登记：%q", result.Note)
+	}
+	if len(engine.History()) != 0 {
+		t.Fatalf("登记本身不应装配/改写 provider 历史：%d 条", len(engine.History()))
+	}
+
+	// 下一条消息：新纪元建立后装配上下文 → 登记的强压兑现（判据量远低于软阈值）。
+	service.ViewMu.Lock()
+	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-scheduled-next"}
+	service.components.tasks.BeginTask("task-scheduled-next", "next", "high", nil, TaskCheckpoint{})
+	service.ViewMu.Unlock()
+	if _, err := service.components.context.PrepareExecutionContextFor(sessionID, "task-scheduled-next", "next"); err != nil {
+		t.Fatalf("装配 provider 上下文: %v", err)
+	}
+	if kept := retainedRounds(engine.History(), marks); kept >= len(marks) {
+		t.Fatalf("登记的强压未兑现：kept=%d want<%d（低阈值也应折叠）", kept, len(marks))
 	}
 }
 
 // TestCompactCommandRegisteredAndSharesPath：/compact 命令注册成功，且与工具
-// 走同一条落点——未达阈值时给同样的"无需压缩"提示。
+// 走同一条落点——显式路径不设阈值前提，低上下文也照样折叠。
 func TestCompactCommandRegisteredAndSharesPath(t *testing.T) {
 	service, _, _ := compactTestService(t, "task-compact-3")
 	command, ok := service.commands.Get("compact")
@@ -150,7 +225,10 @@ func TestCompactCommandRegisteredAndSharesPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("/compact: %v", err)
 	}
-	if !strings.Contains(result.Notice, "未达压缩阈值") {
+	if !strings.Contains(result.Notice, "已压缩上下文") {
 		t.Fatalf("/compact 提示 = %q", result.Notice)
+	}
+	if strings.Contains(result.Notice, "未达压缩阈值") {
+		t.Fatalf("/compact 不得在显式调用下声称未达阈值：%q", result.Notice)
 	}
 }

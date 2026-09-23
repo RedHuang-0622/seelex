@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/RedHuang-0622/Seele/types"
@@ -59,19 +60,62 @@ type Coordinator struct {
 	view      ViewPort
 	history   HistoryPort
 	workTable func(sessionID string) string
+
+	// pendingCompactMu 保护 pendingForceCompact：显式压缩（/compact、
+	// compact_context）落在**还没有执行纪元**的会话上时（冷加载、刚清空），
+	// 没有 RequestID 可以折叠，也不伪造一个——改登记为"该会话下一次装配
+	// provider 上下文时按显式路径压缩"。本锁只在装配入口最前面短暂持有，
+	// 不与 Core.ViewMu 构成嵌套。
+	pendingCompactMu    sync.Mutex
+	pendingForceCompact map[string]bool
 }
 
 // NewCoordinator 构造 context 域协调器。
 func NewCoordinator(deps Deps) *Coordinator {
 	return &Coordinator{
-		Core:      deps.Core,
-		tasks:     deps.Tasks,
-		sessions:  deps.Sessions,
-		prompts:   deps.Prompts,
-		view:      deps.View,
-		history:   deps.History,
-		workTable: deps.WorkTableTraceBlock,
+		Core:                deps.Core,
+		tasks:               deps.Tasks,
+		sessions:            deps.Sessions,
+		prompts:             deps.Prompts,
+		view:                deps.View,
+		history:             deps.History,
+		workTable:           deps.WorkTableTraceBlock,
+		pendingForceCompact: make(map[string]bool),
 	}
+}
+
+// ScheduleForceCompact 登记「该会话下一次装配 provider 上下文时按显式路径压缩」。
+//
+// 用途：`/compact` / compact_context 打在还没有执行纪元的会话上——刚冷加载、
+// 刚清空的会话只有已装载的历史，没有 TaskExecutionState.RequestID 可以折叠
+// （prepareExecutionContextFor 在 state == nil 时按设计直接返回）。这里不伪造
+// 纪元（伪造会把"有人在跑这个会话"写进状态），而是把"用户要求现在就压"记成
+// 一件待办：下一条消息组装上下文时先折叠再发送，压缩对那条消息立即生效。
+func (c *Coordinator) ScheduleForceCompact(sessionID string) {
+	sessionID = strings.TrimSpace(sessionID)
+	if c == nil || sessionID == "" {
+		return
+	}
+	c.pendingCompactMu.Lock()
+	defer c.pendingCompactMu.Unlock()
+	if c.pendingForceCompact == nil {
+		c.pendingForceCompact = make(map[string]bool)
+	}
+	c.pendingForceCompact[sessionID] = true
+}
+
+// consumePendingForceCompact 取走（并清除）登记项：true = 本次装配按显式压缩处理。
+func (c *Coordinator) consumePendingForceCompact(sessionID string) bool {
+	if c == nil || sessionID == "" {
+		return false
+	}
+	c.pendingCompactMu.Lock()
+	defer c.pendingCompactMu.Unlock()
+	if !c.pendingForceCompact[sessionID] {
+		return false
+	}
+	delete(c.pendingForceCompact, sessionID)
+	return true
 }
 
 // Ports 是装配端口图的只读快照（组装校验/诊断用）。
@@ -104,10 +148,18 @@ func (c *Coordinator) CompactTaskContextFor(sessionID, requestID string) error {
 }
 
 // forceCompactTaskContextFor 是显式压缩入口（/compact、compact_context）：
-// 绕过"每个 progress epoch 只压一次"的自动节流——用户/模型明确要求现在压缩，
-// 只要上下文确实超过软阈值就执行（未达阈值仍是 no-op，不伪造压缩）。
-func (c *Coordinator) forceCompactTaskContextFor(sessionID, requestID string) error {
-	return c.compactTaskContextFor(sessionID, requestID, prepareOptions{forceCompact: true})
+// **不设阈值前提**，也不受"每个 progress epoch 只压一次"的自动节流——用户/模型
+// 明确要求现在就压缩时，"还没到线"不是理由（此前 129409 tokens 的会话被回一句
+// "未达压缩阈值 118962"，正是显式路径仍被软阈值挡住 + 判据量与展示量混用的结果）。
+//
+// 返回 decision：把"压没压、按哪个量判、有没有落记录"如实带回调用方，调用方不再
+// 用别的数字反推结论。
+func (c *Coordinator) forceCompactTaskContextFor(sessionID, requestID string) (compactDecision, error) {
+	decision := compactDecision{}
+	if err := c.compactTaskContextFor(sessionID, requestID, prepareOptions{forceCompact: true, decision: &decision}); err != nil {
+		return compactDecision{}, err
+	}
+	return decision, nil
 }
 
 func (c *Coordinator) compactTaskContextFor(sessionID, requestID string, options prepareOptions) error {
@@ -121,34 +173,48 @@ func (c *Coordinator) compactTaskContextFor(sessionID, requestID string, options
 	return nil
 }
 
-// CompactOutcome 是主动压缩的三种结果：已压缩 / 没有任务执行纪元 /
-// 未达压缩阈值（无需压缩）。调用方据此给出准确提示，而不是把"没做事"
-// 混成"出错了"。
+// CompactOutcome 是主动压缩的结果分类：已压缩并落记录 / 已折叠但未落记录 /
+// 已登记（无执行纪元，下一次装配兑现）/ 判据未达（兜底）。调用方据此给出准确
+// 提示，而不是把"没做事"混成"出错了"，也不拿与判据无关的数字拼一句自相矛盾的话。
 type CompactOutcome string
 
 const (
-	CompactDone           CompactOutcome = "compacted"
-	CompactNoTask         CompactOutcome = "no_task"
-	CompactBelowThreshold CompactOutcome = "below_threshold"
+	CompactDone             CompactOutcome = "compacted"
+	CompactFoldedUnrecorded CompactOutcome = "folded_without_record"
+	CompactScheduled        CompactOutcome = "scheduled"
+	CompactBelowThreshold   CompactOutcome = "below_threshold"
 )
 
-// CompactResult 是主动压缩的结果面：结果分类 + 本次压缩记录（Compacted 时）
-// + 当前装配估算与软阈值（BelowThreshold 时给用户看清楚离压缩线还有多远）。
+// CompactResult 是主动压缩的结果面：结果分类 + 判据事实 + 压缩记录（落记录时）。
+//
+// 三个数字含义不同，混用就会说出「129409 tokens 未达压缩阈值 118962」这种话：
+//
+//	ComparedTokens  = 判据量（全量累积/引擎缓存峰值的请求估算，压缩决策用的那个量）
+//	AssembledTokens = 装配后估算（真正发给 provider 的请求大小）
+//	SoftThreshold   = 判据量的软阈值（预算 75%）
 type CompactResult struct {
 	Outcome         CompactOutcome
 	Record          model.ContextCompaction
-	EstimatedTokens int
+	Folded          bool
+	Recorded        bool
+	Version         uint64
+	ComparedTokens  int
+	AssembledTokens int
 	SoftThreshold   int
+	HardThreshold   int
 }
 
 // CompactContextNow 主动压缩指定会话的可变 transcript（`/compact` 命令与
-// `compact_context` 工具的同一落点）：与引擎钩子走同一条
-// CompactTaskContextFor 路径。
+// `compact_context` 工具的同一落点）：与引擎钩子走同一条 CompactTaskContextFor
+// 路径，但走**显式语义**——不设阈值前提（用户/模型明确要求即压），只要求该会话
+// 有匹配当前 request 的执行纪元。
 //
-// 语义边界：压缩绑定「当前任务执行」的请求纪元（TaskExecutionState.RequestID）
-// ——回合进行中由模型调用、回合结束后由用户命令触发都能命中（任务执行状态在
-// 会话内保留到重置）；会话没有任何任务执行时返回 CompactNoTask，未达软阈值时
-// 返回 CompactBelowThreshold——两种情况都不改写会话状态、不伪造压缩记录。
+// 三种提前返回都如实分类，不伪造压缩、也不谎报理由：
+//   - 没有执行纪元（冷加载/刚清空）→ 登记"下一条消息组装时立即压缩"
+//     （CompactScheduled），不伪造一个假纪元；
+//   - 折叠已发生但任务执行已收尾 → 引擎历史确实被有界 checkpoint 替换并按会话
+//     落盘，只是压缩记录不产生（记录只在 Running 时写）→ CompactFoldedUnrecorded；
+//   - 判据没命中（显式路径正常不会发生，兜底）→ CompactBelowThreshold。
 func (c *Coordinator) CompactContextNow(sessionID string) (CompactResult, error) {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
@@ -156,29 +222,37 @@ func (c *Coordinator) CompactContextNow(sessionID string) (CompactResult, error)
 	}
 	state := c.tasks.CurrentTaskExecutionFor(sessionID)
 	if state == nil || strings.TrimSpace(state.RequestID) == "" {
-		return CompactResult{Outcome: CompactNoTask}, nil
+		c.ScheduleForceCompact(sessionID)
+		return CompactResult{Outcome: CompactScheduled}, nil
 	}
-	requestID := state.RequestID
-	before := len(state.ContextCompactions)
-	if err := c.forceCompactTaskContextFor(sessionID, requestID); err != nil {
+	decision, err := c.forceCompactTaskContextFor(sessionID, state.RequestID)
+	if err != nil {
 		return CompactResult{}, err
 	}
-	state = c.tasks.CurrentTaskExecutionFor(sessionID)
-	if state == nil {
-		return CompactResult{Outcome: CompactNoTask}, nil
+	result := CompactResult{
+		Folded:          decision.Folded,
+		Recorded:        decision.Recorded,
+		Version:         decision.Version,
+		ComparedTokens:  decision.ComparedTokens,
+		AssembledTokens: decision.AssembledTokens,
+		SoftThreshold:   decision.SoftThreshold,
+		HardThreshold:   decision.HardThreshold,
 	}
-	if len(state.ContextCompactions) <= before {
-		// 未达软阈值：装配照常完成，但没有产生新的压缩记录——如实报告。
-		return CompactResult{
-			Outcome:         CompactBelowThreshold,
-			EstimatedTokens: state.TokenAudit.EstimatedPromptTokens,
-			SoftThreshold:   state.TokenAudit.SoftThreshold,
-		}, nil
+	switch {
+	case decision.NoEpoch:
+		c.ScheduleForceCompact(sessionID)
+		result.Outcome = CompactScheduled
+	case !decision.Folded:
+		result.Outcome = CompactBelowThreshold
+	case decision.Recorded:
+		result.Outcome = CompactDone
+		if updated := c.tasks.CurrentTaskExecutionFor(sessionID); updated != nil && len(updated.ContextCompactions) > 0 {
+			result.Record = updated.ContextCompactions[len(updated.ContextCompactions)-1]
+		}
+	default:
+		result.Outcome = CompactFoldedUnrecorded
 	}
-	return CompactResult{
-		Outcome: CompactDone,
-		Record:  state.ContextCompactions[len(state.ContextCompactions)-1],
-	}, nil
+	return result, nil
 }
 
 // sessionLocationLocked 返回指定会话的持久化定位（workspace 绑定优先；
@@ -213,15 +287,35 @@ func (c *Coordinator) PrepareExecutionContextFor(sessionID, requestID, currentIn
 	return c.prepareExecutionContextFor(sessionID, requestID, currentInput, prepareOptions{})
 }
 
+// compactDecision 是一次装配在压缩判据上的**事实面**：显式入口（/compact、
+// compact_context）据此如实报告结果，而不是拿别的数字（如装配后估算）反推。
+type compactDecision struct {
+	Folded          bool // 本次是否折叠了可变 transcript（原 compacting 判据）
+	Recorded        bool // 是否落了压缩记录（记录只在任务执行 Running 时产生）
+	Version         uint64
+	ComparedTokens  int // 判据量：全量累积/引擎缓存峰值的请求估算（rawTokens）
+	AssembledTokens int // 装配后估算（estimated，真正发给 provider 的大小）
+	SoftThreshold   int
+	HardThreshold   int
+	NoEpoch         bool // 没有可折叠的执行纪元（state == nil 或 requestID 不匹配）
+}
+
 // prepareOptions 是装配的可选语义（零值 = 自动路径）。
 type prepareOptions struct {
 	// forceCompact 表示调用方显式要求压缩（/compact、compact_context）：
-	// 绕过"每个 progress epoch 只压一次"的自动节流。仍以"确实超过软阈值"
-	// 为前提——未达阈值不产生压缩记录，也不改写任何状态。
+	// 不设阈值前提（不再等软阈值），也不受"每个 progress epoch 只压一次"的
+	// 自动节流。显式路径的硬前提只有一条：该会话有匹配当前 request 的执行纪元。
 	forceCompact bool
+	// decision 是出参：非 nil 时由装配过程回填压缩判据事实（见 compactDecision）。
+	decision *compactDecision
 }
 
 func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentInput string, options prepareOptions) (string, error) {
+	// 显式压缩的「下一条消息兑现」：没有执行纪元时登记的强压在这里取走，
+	// 本次装配即按显式路径折叠（先压后发，压缩对本条消息立即生效）。
+	if !options.forceCompact && c.consumePendingForceCompact(sessionID) {
+		options.forceCompact = true
+	}
 	if _, err := c.rejectOversizedToolResults(sessionID, task_context.DefaultToolResultLimit()); err != nil {
 		return "", err
 	}
@@ -248,6 +342,9 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	state := c.tasks.CurrentTaskExecutionFor(sessionID)
 	if state == nil || state.RequestID != requestID {
 		c.ViewMu.Unlock()
+		if options.decision != nil {
+			options.decision.NoEpoch = true
+		}
 		return currentInput, nil
 	}
 	events := append([]model.TranscriptEvent(nil), c.tasks.TranscriptFor(sessionID)...)
@@ -272,11 +369,15 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	windowConfig := context_control.Current()
 	allContextTokens := c.tasks.CountRequestTokens("", fullContext, "", nil)
 	hardCompact := windowConfig.MustCompact(allContextTokens)
-	// 自动路径按 progress epoch 节流（同一批进展只压一次）；显式路径只要
-	// 超过软阈值就压——用户/模型明确要求时不接受"等下一批进展再说"；硬压缩
-	// 阈值（all_context ≥ force_compact_tokens）同样不被节流挡下（必须压）。
-	newCheckpoint := (rawTokens >= budget.SoftThreshold || hardCompact) &&
-		(options.forceCompact || hardCompact || state.CompactedEpoch != state.ProgressEpoch)
+	// 折叠判据（三条，命中任一条即折叠）：
+	//	① 软阈值：rawTokens ≥ budget.SoftThreshold（自动路径的主判据）；
+	//	② 硬阈值：all_context ≥ window.force_compact_tokens（必须压，不等比例）；
+	//	③ 显式路径：options.forceCompact（/compact、compact_context）——用户/模型
+	//	   明确要求现在就压缩时**不设阈值前提**（"还没到线"不是拒绝理由）。
+	fold := rawTokens >= budget.SoftThreshold || hardCompact || options.forceCompact
+	// 自动路径按 progress epoch 节流（同一批进展只压一次）；显式路径与硬压缩
+	// 不受节流挡下（用户/模型明确要求时不接受"等下一批进展再说"，硬阈值必须压）。
+	newCheckpoint := fold && (options.forceCompact || hardCompact || state.CompactedEpoch != state.ProgressEpoch)
 	if newCheckpoint {
 		state.ContextVersion++
 		state.CompactedEpoch = state.ProgressEpoch
@@ -291,7 +392,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	// 保留前缀窗口（软压缩）：min(token1, token2)，见上方 windowConfig 注释。
 	// 窗口外部分尽数送进 compact_context；保留窗口按完整协议单元边界收敛
 	// （单元不可拆分），因此不再叠加配置单元上限做第二次截断。
-	compacting := rawTokens >= budget.SoftThreshold || hardCompact
+	compacting := fold
 	target := budget.Budget
 	if compacting {
 		if retained := windowConfig.RetainedContextTokens(allContextTokens, budget.Window); retained > 0 {
@@ -388,6 +489,16 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 			if recorded {
 				revision = c.view.BumpLocked()
 			}
+		}
+		if options.decision != nil {
+			// 压缩判据事实（显式入口据此如实报告，不拿别的数字反推）：
+			options.decision.Folded = compacting
+			options.decision.Recorded = recorded
+			options.decision.Version = checkpoint.Version
+			options.decision.ComparedTokens = rawTokens
+			options.decision.AssembledTokens = estimated
+			options.decision.SoftThreshold = budget.SoftThreshold
+			options.decision.HardThreshold = budget.HardThreshold
 		}
 	}
 	c.ViewMu.Unlock()

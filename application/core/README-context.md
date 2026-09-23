@@ -126,14 +126,15 @@ wire）。守卫用例：`TestToolNarrationStaysWithOwningIteration`、
 
 - `func (service *Service) CompactContextNow(ctx context.Context) (ContextCompactionResult, error)` — CompactContextNow 压缩当前执行会话（命令/工具共用）：会话从 ctx 解析，
 - `func (service *Service) CompactContextHandler(ctx context.Context, argsJSON string) (string, error)` — CompactContextHandler 实现 compact_context 工具：模型在上下文逼近上限、
-- `func newContextCompactionResult(record model.ContextCompaction) ContextCompactionResult`
+- `func newContextCompactionResult(outcome context_runtime.CompactResult) ContextCompactionResult`
 
 ### context_compact_test.go
 
 - `func compactTestService(t *testing.T, requestID string) (*Service, *fakeEngine, string)` — compactTestService 构造带活跃任务执行的会话：主动压缩绑定请求纪元
 - `func TestCompactContextHandlerFoldsTranscript(t *testing.T)` — TestCompactContextHandlerFoldsTranscript：compact_context 工具（= /compact
-- `func TestCompactContextBelowThresholdIsHonestNoOp(t *testing.T)` — TestCompactContextBelowThresholdIsHonestNoOp：未达压缩阈值时不伪造压缩、
-- `func TestCompactContextWithoutTaskExecution(t *testing.T)` — TestCompactContextWithoutTaskExecution：会话没有任务执行纪元（例如刚启动
+- `func TestCompactManualFoldsBelowThreshold(t *testing.T)` — TestCompactManualFoldsBelowThreshold：显式压缩（/compact、compact_context）
+- `func TestCompactManualReportsFoldWithoutRecord(t *testing.T)` — TestCompactManualReportsFoldWithoutRecord：折叠发生了、记录却没产生时，
+- `func TestCompactContextWithoutTaskExecutionSchedulesNextAssembly(t *testing.T)` — TestCompactContextWithoutTaskExecutionSchedulesNextAssembly：会话没有任务
 - `func TestCompactCommandRegisteredAndSharesPath(t *testing.T)` — TestCompactCommandRegisteredAndSharesPath：/compact 命令注册成功，且与工具
 
 ### context_controller_test.go
