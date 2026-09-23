@@ -15,10 +15,15 @@ import (
 // 前缀与含义**一一对应**，不做跨域兜底猜测：面板、输入框内联建议与 Submit
 // 路由共用这一张表（权威说明见 docs/gui/modules/shell-and-interactions.md）。
 //
-//	/  指令面板：命令 + 工具 + Skill（保留全量入口）
+//	/  可执行入口：命令 + Skill（工具**不**列出）
 //	#  切换 Plugin（含 off/none = 停用全部）
 //	$  召回 Skill（激活到当前会话）
 //	@  手动召唤团队：内置形态 + 团队库条目，装配到当前会话（可跟一句附言）
+//
+// `/` 只放"能从输入框直接执行"的东西。工具是模型侧的（由模型调用、经权限门），
+// 因此既不进建议也不进路由：一个能力要让用户打 `/名字` 显式调用，前提是它已注册
+// 成命令；没注册就没有这个入口，不是"入口藏在别处"。打错到工具名时由
+// unknownCommandNotice 说清这一点并给出同名命令入口。
 //
 // 前缀契约调整过（# 从 Skill 改为 Plugin、$ 接管 Skill、@ 从 Plugin 改为召唤
 // 团队），旧肌肉记忆打老前缀时给一句迁移提示（见 sigilMigrationHint），而不是
@@ -34,10 +39,10 @@ const (
 // 建议面（Suggestions）与迁移提示按它推导，不在别处再写一份字面量。
 var sigils = []string{SigilCommand, SigilPlugin, SigilSkill, SigilTeam}
 
-// 建议条目的域标记：前端按它选图标，TUI 按它显示标签。
+// 建议条目的域标记：前端按它选图标，TUI 按它显示标签。只有能从输入框直接执行的
+// 域才会成为候选（无 tool：工具由模型调用，见文件头前缀契约）。
 const (
 	SuggestionKindCommand = "command"
-	SuggestionKindTool    = "tool"
 	SuggestionKindSkill   = "skill"
 	SuggestionKindPlugin  = "plugin"
 	SuggestionKindTeam    = "team"
@@ -62,10 +67,10 @@ func (service *Service) Suggestions(input string) []Suggestion {
 	all := make([]Suggestion, 0)
 	switch trigger {
 	case SigilCommand:
-		// `/` 保留全量入口：命令 + 工具 + Skill（Skill 的专用前缀是 `$`，
-		// 但斜杠命令历史上就是"什么都从这里找"，不收回）。
+		// `/` 只列可执行入口：命令 + Skill（Skill 的专用前缀是 `$`，但斜杠命令
+		// 历史上就能召回技能，不收回）。工具不在这里——要让用户打 `/名字`
+		// 显式调用，先把这个能力注册成命令。
 		all = append(all, service.commandSuggestions()...)
-		all = append(all, service.toolSuggestions()...)
 		all = append(all, service.skillSuggestions()...)
 	case SigilPlugin:
 		all = append(all, service.pluginSuggestions()...)
@@ -83,8 +88,8 @@ func (service *Service) Suggestions(input string) []Suggestion {
 	}
 	sort.SliceStable(filtered, func(i, j int) bool {
 		priority := map[string]int{
-			SuggestionKindCommand: 0, SuggestionKindTool: 1, SuggestionKindSkill: 2,
-			SuggestionKindPlugin: 3, SuggestionKindTeam: 4,
+			SuggestionKindCommand: 0, SuggestionKindSkill: 1,
+			SuggestionKindPlugin: 2, SuggestionKindTeam: 3,
 		}
 		if priority[filtered[i].Kind] != priority[filtered[j].Kind] {
 			return priority[filtered[i].Kind] < priority[filtered[j].Kind]
@@ -160,12 +165,12 @@ func (service *Service) hasPlugin(name string) bool {
 
 // unknownCommandNotice 报告未知命令，并尽量给一条能走下去的提示。
 //
-// 两个真实来路（都踩过）：
-//   - `/` 面板是"全量入口"，把**工具**也列成候选，于是用户会照着打
-//     `/compact_context`、`/bash`——但输入框只能跑命令与 Skill（工具由模型调用、
-//     经权限门），提交路径没有也不会执行工具。命中工具名就说清这一点，并指出
-//     同名能力的命令入口（`compact_context` → `/compact`）；
-//   - 名字打错（`/comapct`）或写成近义名：与某个命令名互为前缀/包含/近似
+// 两个真实来路：
+//   - 打的是**工具名**（`/compact_context`、`/bash`）：工具只在模型那一侧（由模型
+//     调用、经权限门），提交路径没有也不会执行工具，`/` 面板因此也不列它。命中工具
+//     名就说清这一点，并指出同名能力的命令入口（`compact_context` → `/compact`）；
+//     要让某个工具有 `/名字` 入口，唯一途径是把它注册成命令。
+//   - 命令名打错（`/comapct`）或写成近义名：与某个命令名互为前缀/包含/近似
 //     （编辑距离 ≤ 2）时直接给出正确写法。
 func (service *Service) unknownCommandNotice(name string) string {
 	trimmed := strings.TrimSpace(name)
@@ -271,16 +276,6 @@ func (service *Service) skillSuggestions() []Suggestion {
 	for _, skill := range service.Deps.Skills.All() {
 		suggestions = append(suggestions, Suggestion{
 			Text: skill.Name, Description: skill.Description, Kind: SuggestionKindSkill,
-		})
-	}
-	return suggestions
-}
-
-func (service *Service) toolSuggestions() []Suggestion {
-	suggestions := make([]Suggestion, 0)
-	for _, tool := range service.Deps.Runtime.VisibleTools(context.Background()) {
-		suggestions = append(suggestions, Suggestion{
-			Text: tool.Name, Description: tool.Description, Kind: SuggestionKindTool,
 		})
 	}
 	return suggestions

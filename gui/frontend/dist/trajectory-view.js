@@ -40,6 +40,10 @@ export function createTrajectoryView(container, options = {}) {
   let axisPrefixSegments = [];
   let axisCompactionMarks = [];
   let axisDetailKey = "";
+  // axisFrame 是已打开的压缩详情里「折叠帧正文」的本地状态
+  // （{ loading, error, text, hasMore, nextOffset, totalBytes } 或 null）：
+  // 按 ref 从会话内容存储分页读取，不进 Snapshot，切换详情即清空。
+  let axisFrame = null;
   // 轴分页状态（本地 UI 状态，不进 Snapshot）：
   //  - axisPageSize：分页页大小档位（Shift+滚轮步进，默认 AXIS_PAGE_SIZE_DEFAULT）；
   //  - axisPage / axisAnchorKey / axisTail：当前页；anchorKey 指向本页首条记录，
@@ -92,8 +96,15 @@ container.innerHTML = [
     setFilter(button.dataset.trajectoryFilter);
   });
   detailEl.addEventListener("click", event => {
-    if (!event.target.closest("[data-axis-detail-close]")) return;
-    closeAxisDetail();
+    if (event.target.closest("[data-axis-detail-close]")) {
+      closeAxisDetail();
+      return;
+    }
+    // 压缩详情里的「折叠帧正文」入口：首次加载 / 续读下一页 / 收起正文。
+    const frameButton = event.target.closest("[data-compact-frame-load]");
+    if (!frameButton) return;
+    const mark = axisCompactionMarks[Number(String(axisDetailKey).split(":")[1])];
+    if (mark) loadCompactionFrame(mark, frameButton.dataset.compactFrameLoad);
   });
   // 上下文轴点击：元数据块（前缀层/压缩刻度）开/关轴详情；普通轨迹块先切
   // 回全量过滤保证行存在，再滚动定位并短暂高亮。
@@ -120,7 +131,11 @@ container.innerHTML = [
           setAxisNotice(`压缩 #${mark.version} 的锚点在第 ${mark.anchorPage + 1} 页，已跳转到该页`);
         }
         const current = axisCompactionMarks[Number(compactIndex)] || mark;
+        const wasOpen = axisDetailKey === `compact:${compactIndex}`;
         toggleAxisDetail(`compact:${compactIndex}`, { type: "compression", mark: current });
+        // 打开即取折叠帧正文（后端把帧写进会话内容存储、快照只带 ref）：用户
+        // 点一下就看到"压掉了什么、留下了什么"，而不是被指向模型侧工具。
+        if (!wasOpen && current.frameRef) loadCompactionFrame(current, "first");
         return;
       }
     }
@@ -262,25 +277,76 @@ container.innerHTML = [
       return;
     }
     axisDetailKey = key;
+    axisFrame = null;
     renderAxisDetailContent(selection);
   }
 
   function closeAxisDetail() {
     if (!axisDetailKey && detailEl.hidden) return;
     axisDetailKey = "";
+    axisFrame = null;
     detailEl.innerHTML = "";
     detailEl.hidden = true;
   }
 
   // renderAxisDetailContent 渲染详情；内容未变化时跳过（流式重渲染不闪烁）。
+  // selection 里的 frame = 已加载的折叠帧正文页（视图本地状态，不进 Snapshot）。
   function renderAxisDetailContent(selection) {
-    const html = renderAxisDetail(selection);
+    const merged = selection && selection.type === "compression" ? { ...selection, frame: axisFrame } : selection;
+    const html = renderAxisDetail(merged);
     if (!html) {
       closeAxisDetail();
       return;
     }
+    if (axisFrame?.loading && detailEl.querySelector(".axis-detail-text")) {
+      detailEl.querySelector(".axis-detail-text").textContent = "读取中…";
+      return;
+    }
     detailEl.innerHTML = html;
     detailEl.hidden = false;
+  }
+
+  // loadCompactionFrame 按 ref 分页读取「折叠帧正文」（会话内容存储里的有界
+  // checkpoint 帧）。offset=0 首次加载；page="more" 续读下一页；"hide" 收起正文
+  // （保留详情本身）。失败只更新详情内的错误文案，不弹全局提示（用户就在这里）。
+  async function loadCompactionFrame(mark, mode = "first") {
+    if (!mark) return;
+    if (mode === "hide") {
+      axisFrame = null;
+      renderAxisDetailContent({ type: "compression", mark });
+      return;
+    }
+    const offset = mode === "more" ? Number(axisFrame?.nextOffset || 0) : 0;
+    if (mode === "more" && !(offset > 0)) return;
+    const previous = mode === "more" ? String(axisFrame?.text || "") : "";
+    axisFrame = {
+      loading: true,
+      error: "",
+      text: previous,
+      hasMore: Boolean(axisFrame?.hasMore),
+      nextOffset: offset,
+      totalBytes: Number(axisFrame?.totalBytes || 0)
+    };
+    renderAxisDetailContent({ type: "compression", mark });
+    if (typeof options.loadResultRef !== "function" || !mark.frameRef) {
+      axisFrame = { loading: false, error: "当前环境不支持按 ref 读回正文", text: "", hasMore: false, nextOffset: 0, totalBytes: 0 };
+      renderAxisDetailContent({ type: "compression", mark });
+      return;
+    }
+    try {
+      const page = await options.loadResultRef(mark.frameRef, offset, options.resultPageLimit || 12000);
+      axisFrame = {
+        loading: false,
+        error: "",
+        text: previous + String(page?.content || ""),
+        hasMore: Boolean(page?.has_more),
+        nextOffset: Number(page?.next_offset || 0),
+        totalBytes: Number(page?.total_bytes || 0)
+      };
+    } catch (error) {
+      axisFrame = { loading: false, error: String(error), text: previous, hasMore: false, nextOffset: 0, totalBytes: Number(axisFrame?.totalBytes || 0) };
+    }
+    renderAxisDetailContent({ type: "compression", mark });
   }
 
   // refreshOpenAxisDetail 在 render 重算元数据后保持已打开的详情有效（例如

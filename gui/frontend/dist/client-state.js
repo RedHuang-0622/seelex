@@ -138,7 +138,7 @@ export function createGUIClient(options) {
     }
     snapshot = mergeProcessContext(result.snapshot);
     if (result.changed) {
-      options.onIncremental(snapshot, result.changed);
+      options.onIncremental(snapshot, result.changed, result.payload);
       reportDiag({ incrementals: diag.incrementals + 1 });
       if (result.changed === "message.delta" && bufferedDeltaMissing(event, snapshot)) {
         reportDiag({ buffered: diag.buffered + 1 });
@@ -173,7 +173,7 @@ export function createGUIClient(options) {
       if (step.error || step.needsRefresh) return false;
       lastEventSeq = step.lastSeq;
       snapshot = mergeProcessContext(step.snapshot);
-      if (step.changed) options.onIncremental(snapshot, step.changed);
+      if (step.changed) options.onIncremental(snapshot, step.changed, step.payload);
     }
     return true;
   }

@@ -85,6 +85,7 @@ type (
 	EventKind                  = event.EventKind
 	Event                      = event.Event
 	MessageDelta               = event.MessageDelta
+	CompactionProgress         = event.CompactionProgress
 	ReplayResult               = event.ReplayResult
 	Subscription               = event.Subscription
 	EventHub                   = event.EventHub
@@ -115,23 +116,30 @@ const (
 	EventResyncRequired        = event.EventResyncRequired
 	EventExitRequested         = event.EventExitRequested
 	EventViewSessionChanged    = event.EventViewSessionChanged
-	PlanPending                = model.PlanPending
-	PlanRunning                = model.PlanRunning
-	PlanCompleted              = model.PlanCompleted
-	PlanFailed                 = model.PlanFailed
-	PlanAborted                = model.PlanAborted
-	NodePending                = model.NodePending
-	NodeQueued                 = model.NodeQueued
-	NodeRunning                = model.NodeRunning
-	NodeWorktreeCreating       = model.NodeWorktreeCreating
-	NodeRebasing               = model.NodeRebasing
-	NodeMerging                = model.NodeMerging
-	NodeCompleted              = model.NodeCompleted
-	NodeFailed                 = model.NodeFailed
-	NodeAborted                = model.NodeAborted
-	NodeSkipped                = model.NodeSkipped
-	NodeCanceled               = model.NodeCanceled
-	NodePanicked               = model.NodePanicked
+	// 上下文压缩的门禁进度：宿主按 kind 分流才能渲染它，因此事件名与载荷类型都
+	// 在门面上（与 MessageDelta 同理——前端/控制台都只消费这一份常量）。
+	EventCompactionProgress   = event.EventCompactionProgress
+	CompactionProgressRunning = event.CompactionProgressRunning
+	CompactionProgressDone    = event.CompactionProgressDone
+	CompactionProgressFailed  = event.CompactionProgressFailed
+	CompactionPhaseBegin      = event.CompactionPhaseBegin
+	PlanPending               = model.PlanPending
+	PlanRunning               = model.PlanRunning
+	PlanCompleted             = model.PlanCompleted
+	PlanFailed                = model.PlanFailed
+	PlanAborted               = model.PlanAborted
+	NodePending               = model.NodePending
+	NodeQueued                = model.NodeQueued
+	NodeRunning               = model.NodeRunning
+	NodeWorktreeCreating      = model.NodeWorktreeCreating
+	NodeRebasing              = model.NodeRebasing
+	NodeMerging               = model.NodeMerging
+	NodeCompleted             = model.NodeCompleted
+	NodeFailed                = model.NodeFailed
+	NodeAborted               = model.NodeAborted
+	NodeSkipped               = model.NodeSkipped
+	NodeCanceled              = model.NodeCanceled
+	NodePanicked              = model.NodePanicked
 )
 
 var (
@@ -143,8 +151,9 @@ var (
 
 // ── 输入前缀（sigil）契约 ────────────────────────────────────────────────
 //
-// 前缀与含义一一对应：`/` 命令面板、`#` 切换插件、`$` 召回 Skill、
-// `@` 手动召唤团队。权威说明见 docs/gui/modules/shell-and-interactions.md；
+// 前缀与含义一一对应：`/` 可执行入口（命令 + Skill；工具不列出——只有模型能调用，
+// 要用户显式调用先注册成命令）、`#` 切换插件、`$` 召回 Skill、`@` 手动召唤团队。
+// 权威说明见 docs/gui/modules/shell-and-interactions.md；
 // 前端（含 TUI）只消费这里的常量与判定，不自持第二份字符表。
 const (
 	SigilCommand = core.SigilCommand

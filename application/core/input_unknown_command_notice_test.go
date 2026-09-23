@@ -63,9 +63,10 @@ func TestUnknownCommandSubmitKeepsNoticeNotError(t *testing.T) {
 	}
 }
 
-// TestHelpExplainsToolCandidatesAreNotExecutable：`/help` 的口径必须与建议面板
-// 一致——面板列命令 + 工具 + Skill，但输入框只执行命令与 Skill。
-func TestHelpExplainsToolCandidatesAreNotExecutable(t *testing.T) {
+// TestHelpStatesPanelListsOnlyExecutableEntries：`/help` 的口径必须与建议面板一致——
+// 面板只列能从输入框直接提交的入口（命令 + Skill），工具压根不列出（2026-09-23 口径
+// 修订：旧句式"面板同时列出命令、工具与 Skill 候选"已随 toolSuggestions 一起撤销）。
+func TestHelpStatesPanelListsOnlyExecutableEntries(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	command, ok := service.commands.Get("help")
 	if !ok {
@@ -80,8 +81,9 @@ func TestHelpExplainsToolCandidatesAreNotExecutable(t *testing.T) {
 		t.Fatalf("/help 应列出已注册命令：%q", notice)
 	}
 	for _, want := range []string{
-		"面板同时列出命令、工具与 Skill 候选",
-		"不能从输入框直接执行",
+		"只列可直接提交的入口",
+		"工具由模型调用、不在此列出",
+		"先把该能力注册成命令",
 		SigilSkill + "<name>",
 	} {
 		if !strings.Contains(notice, want) {

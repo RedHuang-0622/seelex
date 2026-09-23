@@ -4,7 +4,7 @@
 
 基础与杂项（aliases/limits/completion/compressed/diagnostics/fault-guard/perf/snapshot-budget/runtime/workspace/race）
 
-覆盖：显式名单 19 个文件（见生成器 `ROOT_GROUPS`）；未归属文件由覆盖自检拦下。
+覆盖：显式名单 20 个文件（见生成器 `ROOT_GROUPS`）；未归属文件由覆盖自检拦下。
 
 ## 文件与函数索引
 
@@ -41,11 +41,14 @@
 - `func editDistanceAtMost(a, b string, limit int) bool` — editDistanceAtMost 判定两串的 Levenshtein 距离是否 ≤ limit（有界实现：只保留
 - `func (service *Service) commandSuggestions() []Suggestion`
 - `func (service *Service) skillSuggestions() []Suggestion`
-- `func (service *Service) toolSuggestions() []Suggestion`
 - `func (service *Service) pluginSuggestions() []Suggestion` — pluginSuggestions 列出可切换插件；off 是"停用全部"的内置入口（与
 - `func teamPresetSuggestions() []Suggestion` — teamPresetSuggestions 列出可召唤的内置团队形态（goal-a2a / review-team /
 - `func isPresetTeam(name string) bool` — isPresetTeam 报告名字是否命中内置团队形态（team_id 与 team_kind 同值）。
 - `func teamSpecSummary(spec dto.TeamSpec) string` — teamSpecSummary 用形态自身的事实拼一句摘要（不另写一份人为描述，避免与
+
+### completion_test.go
+
+- `func TestSuggestionsExcludeModelSideTools(t *testing.T)` — TestSuggestionsExcludeModelSideTools：`/` 只列"能从输入框直接执行"的入口——
 
 ### compressed_turn.go
 

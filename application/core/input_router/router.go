@@ -22,7 +22,7 @@ type Route interface {
 // 前缀与用例一一对应（sigil 契约见 application/core/completion.go 与
 // docs/gui/modules/shell-and-interactions.md）：
 //
-//	/  命令面板
+//	/  可执行入口：命令 + Skill（工具不在此列，只有模型能调用；要显式调用先注册成命令）
 //	#  切换插件
 //	$  召回 Skill
 //	@  手动召唤团队

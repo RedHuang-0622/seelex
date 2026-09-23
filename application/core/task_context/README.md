@@ -343,7 +343,7 @@ go test ./application/core/task_context -count=1
 - `func (c *Coordinator) _ActivePlanProjectionLocked() *model.ActivePlanProjection`
 - `func (c *Coordinator) restoreTaskProjectionLocked(st *sessionTaskRuntime, projection *model.TaskContextProjection, fallbackObjective string)`
 - `func (c *Coordinator) resolveObjectiveRefLocked(st *sessionTaskRuntime, objectiveRef string) string`
-- `func (c *Coordinator) RecordContextCompactionLocked(requestID string, compaction model.ContextCompaction) bool` — RecordContextCompactionLocked 记录一次上下文压缩（仅运行中任务；调用方
+- `func (c *Coordinator) RecordContextCompactionLocked(requestID string, compaction model.ContextCompaction) bool` — RecordContextCompactionLocked 记录一次上下文压缩（运行中任务，或回合已收尾
 - `func (c *Coordinator) _RecordContextCompactionLocked(requestID string, compaction model.ContextCompaction) bool`
 - `func (c *Coordinator) SetTaskStateLocked(requestID string, status model.TaskStatus, summary string)` — SetTaskStateLocked 把任务可见状态写入快照（调用方持有 Core.ViewMu；requestID
 - `func (c *Coordinator) _SetTaskStateLocked(requestID string, status model.TaskStatus, summary string)`

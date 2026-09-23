@@ -85,4 +85,4 @@
 
 - `func TestUnknownCommandNoticeSeparatesToolsFromCommands(t *testing.T)` — 未知命令 / 帮助文案的服务发现一致性。
 - `func TestUnknownCommandSubmitKeepsNoticeNotError(t *testing.T)` — TestUnknownCommandSubmitKeepsNoticeNotError：未知命令仍然不是错误（照常回
-- `func TestHelpExplainsToolCandidatesAreNotExecutable(t *testing.T)` — TestHelpExplainsToolCandidatesAreNotExecutable：`/help` 的口径必须与建议面板
+- `func TestHelpStatesPanelListsOnlyExecutableEntries(t *testing.T)` — TestHelpStatesPanelListsOnlyExecutableEntries：`/help` 的口径必须与建议面板一致——

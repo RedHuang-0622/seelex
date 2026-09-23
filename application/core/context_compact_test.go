@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
+	"github.com/RedHuang-0622/seelex/application/model"
 )
 
 // compactTestService 构造带活跃任务执行的会话：主动压缩绑定请求纪元
@@ -138,17 +139,24 @@ func TestCompactManualFoldsBelowThreshold(t *testing.T) {
 	}
 }
 
-// TestCompactManualReportsFoldWithoutRecord：折叠发生了、记录却没产生时，
-// 结果面必须如实说明（回合已收尾 → 压缩记录只在执行中写），而不是谎报
-// 「未达压缩阈值」。这正是"上下文 129k 却被告知无需压缩"的另一种来路。
-func TestCompactManualReportsFoldWithoutRecord(t *testing.T) {
+// TestCompactManualAfterTurnRecordsExplicitOrigin：回合已收尾（任务状态不再是
+// Running）后用户打 /compact 或模型调 compact_context：折叠照做，**记录也照写**，
+// 来源标记为 explicit_after_turn。
+//
+// 这正是此前必落 folded_without_record 的场景（用户 2026-09-23 实测回执：
+// 「该回合的任务执行已收尾，压缩记录只在执行中产生，故本次不留记录」）：
+// 记录门槛只看 Running，而"回合之间手动压缩"恰恰是最自然的用法，于是前端完全
+// 看不到压缩（状态页「上下文压缩」区块为空、轨迹压缩轨整条不渲染）。
+func TestCompactManualAfterTurnRecordsExplicitOrigin(t *testing.T) {
 	service, _, sessionID := compactTestService(t, "task-finished")
 	service.ViewMu.Lock()
 	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
-		TaskID: "task-finished", Role: "assistant", Content: strings.Repeat("B", 4_000),
+		TaskID: "task-finished", MessageID: "message-1", Role: "assistant", Content: strings.Repeat("B", 4_000),
 	})
-	// 回合收尾：任务执行不再是 Running → RecordContextCompactionLocked 拒绝写记录。
+	// 回合收尾：任务执行不再是 Running（同时按真实收尾路径写一次任务面，
+	// 这样断言的是"用户会看到的那份快照"）。
 	service.components.tasks.CurrentTaskExecution().Status = task_context.StatusCompleted
+	service.components.tasks.SetTaskStateLocked("task-finished", model.TaskCompleted, "done")
 	service.ViewMu.Unlock()
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
@@ -163,14 +171,127 @@ func TestCompactManualReportsFoldWithoutRecord(t *testing.T) {
 	if !result.Compacted {
 		t.Fatalf("折叠应发生在结果面报告为已压缩：%+v", result)
 	}
-	if result.Recorded {
-		t.Fatalf("回合已收尾不应产生压缩记录：%+v", result)
+	if !result.Recorded {
+		t.Fatalf("回合收尾后的显式压缩必须留记录（否则前端看不到任何压缩）：%+v", result)
 	}
-	if strings.Contains(result.Note, "未达压缩阈值") || strings.Contains(result.Note, "无需压缩") {
-		t.Fatalf("折叠已发生，结果面不得声称未压缩：%q", result.Note)
+	if result.Origin != model.CompactionOriginExplicitAfterTurn {
+		t.Fatalf("来源应标记为 %q，实际 %q", model.CompactionOriginExplicitAfterTurn, result.Origin)
 	}
-	if !strings.Contains(result.Note, "已收尾") {
-		t.Fatalf("结果面应说明为何没有压缩记录：%q", result.Note)
+	if !strings.Contains(result.Note, "已压缩上下文") || strings.Contains(result.Note, "不留记录") {
+		t.Fatalf("回执应按记录成句、不得再说不留记录：%q", result.Note)
+	}
+	if result.FrameRef == "" || !strings.Contains(result.Note, result.FrameRef) {
+		t.Fatalf("帧正文引用应随记录回带（前端按 ref 分页回读正文）：%+v", result)
+	}
+	service.ViewMu.RLock()
+	records := service.components.tasks.CurrentTaskExecution().ContextCompactions
+	snapshotTask := service.Core.Snapshot.Task
+	service.ViewMu.RUnlock()
+	if len(records) != 1 || records[0].Origin != model.CompactionOriginExplicitAfterTurn || records[0].FrameRef == "" {
+		t.Fatalf("压缩记录 = %#v, want one explicit_after_turn record with frame ref", records)
+	}
+	if snapshotTask == nil || len(snapshotTask.ContextCompactions) != 1 {
+		t.Fatalf("快照应带上压缩记录（前端可见面）：%#v", snapshotTask)
+	}
+}
+
+// TestCompactAfterTurnSurfacesRecordWithoutTaskFace：快照里还没有任务面时
+// （冷恢复后直接显式压缩），压缩记录也必须出现在快照里——否则"前端看不到
+// 压缩"换个来路又回来了。
+func TestCompactAfterTurnSurfacesRecordWithoutTaskFace(t *testing.T) {
+	service, _, sessionID := compactTestService(t, "task-no-face")
+	service.ViewMu.Lock()
+	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		TaskID: "task-no-face", MessageID: "message-1", Role: "assistant", Content: strings.Repeat("F", 4_000),
+	})
+	service.components.tasks.CurrentTaskExecution().Status = task_context.StatusCompleted
+	service.Core.Snapshot.Task = nil
+	service.ViewMu.Unlock()
+
+	ctx := task_context.WithSessionID(context.Background(), sessionID)
+	if _, err := service.CompactContextNow(ctx); err != nil {
+		t.Fatalf("CompactContextNow: %v", err)
+	}
+	service.ViewMu.RLock()
+	task := service.Core.Snapshot.Task
+	service.ViewMu.RUnlock()
+	if task == nil || len(task.ContextCompactions) != 1 {
+		t.Fatalf("无任务面时压缩记录也应进快照：%#v", task)
+	}
+	if task.ContextCompactions[0].Origin != model.CompactionOriginExplicitAfterTurn {
+		t.Fatalf("记录来源 = %q, want %q", task.ContextCompactions[0].Origin, model.CompactionOriginExplicitAfterTurn)
+	}
+}
+
+// TestCompactionFrameBodyIsReadableByRef：记录里的 frame_ref 真能读回帧正文——
+// 前端"查看压缩帧"就走这条（Bridge.ToolResultContent → Service.ToolResultContent，
+// 按 ref 分页）。正文只放内容存储、不进快照，所以这条通路必须成立。
+func TestCompactionFrameBodyIsReadableByRef(t *testing.T) {
+	service, _, sessionID := compactTestService(t, "task-frame-read")
+	service.ViewMu.Lock()
+	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		TaskID: "task-frame-read", MessageID: "message-1", Role: "assistant", Content: strings.Repeat("G", 4_000),
+	})
+	service.components.tasks.CurrentTaskExecution().Status = task_context.StatusCompleted
+	service.ViewMu.Unlock()
+
+	result, err := service.CompactContextNow(task_context.WithSessionID(context.Background(), sessionID))
+	if err != nil {
+		t.Fatalf("CompactContextNow: %v", err)
+	}
+	if result.FrameRef == "" {
+		t.Fatalf("压缩记录应带帧正文引用：%+v", result)
+	}
+	page, err := service.ToolResultContent(context.Background(), result.FrameRef, 0, 0)
+	if err != nil {
+		t.Fatalf("按 ref 读帧正文: %v", err)
+	}
+	body := page.Content
+	if !strings.Contains(body, "Context checkpoint frame v") {
+		t.Fatalf("读回的正文不是帧正文：%q", body)
+	}
+	if !strings.Contains(body, "origin: "+model.CompactionOriginExplicitAfterTurn) {
+		t.Fatalf("帧正文应带上这次压缩的来源：%q", body)
+	}
+	if page.TotalBytes != result.FrameBytes {
+		t.Fatalf("帧正文体量应一致：page=%d record=%d", page.TotalBytes, result.FrameBytes)
+	}
+}
+
+// TestAutoCompactionAfterTurnKeepsRecordGate：自动路径（软/硬阈值）在回合已
+// 收尾时**仍然不补记**——放宽门槛只针对显式要求，否则会把上一回合的收尾状态
+// 误标成"该回合压缩过"。
+func TestAutoCompactionAfterTurnKeepsRecordGate(t *testing.T) {
+	service, _, sessionID := compactTestService(t, "task-auto-finished")
+	service.ViewMu.Lock()
+	// 夹具：判据量过软阈值（4 轮 × 16 万字符 ≈ 16 万 tokens），且这批进展尚未被
+	// 自动压过（CompactedEpoch != ProgressEpoch）→ 自动路径会折叠。
+	for index := 0; index < 4; index++ {
+		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+			TaskID: "task-auto-finished", Role: "user", Content: "question-" + string(rune('a'+index)),
+		})
+		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+			TaskID: "task-auto-finished", Role: "assistant", Content: strings.Repeat("E", 160_000),
+		})
+	}
+	state := service.components.tasks.CurrentTaskExecution()
+	state.Status = task_context.StatusCompleted
+	state.ProgressEpoch = state.CompactedEpoch + 1
+	before := state.ContextVersion
+	service.ViewMu.Unlock()
+
+	if err := service.components.context.CompactTaskContextFor(sessionID, "task-auto-finished"); err != nil {
+		t.Fatalf("CompactTaskContextFor: %v", err)
+	}
+	service.ViewMu.RLock()
+	after := service.components.tasks.CurrentTaskExecution().ContextVersion
+	records := service.components.tasks.CurrentTaskExecution().ContextCompactions
+	service.ViewMu.RUnlock()
+	if after == before {
+		t.Fatalf("夹具应触发自动折叠（否则这条测试没有判别力）：ContextVersion %d → %d", before, after)
+	}
+	if len(records) != 0 {
+		t.Fatalf("自动路径在回合收尾后不得补记（门槛只对显式要求放宽）：%#v", records)
 	}
 }
 
@@ -284,7 +405,7 @@ func TestCompactCommandNoticeReportsFoldedRange(t *testing.T) {
 	for _, want := range []string{
 		"已压缩上下文：v", record.MessageFrom, record.MessageTo,
 		fmt.Sprintf("事件 %d..%d", record.EventFrom, record.EventTo),
-		"估算 ", "read_tool_result / search_history",
+		"装配后估算 ", "read_tool_result / read_compressed_turn / search_history",
 	} {
 		if !strings.Contains(result.Notice, want) {
 			t.Fatalf("提示缺少 %q：%q", want, result.Notice)
@@ -315,19 +436,18 @@ func TestCompactionRangeLabel(t *testing.T) {
 	}
 }
 
-// TestCompactCommandReportsFoldWithoutRecordAsNote：折叠发生但**记录不产生**
-// （回合已收尾 → 记录只在执行中写）时，/compact 必须回带结果面的 Note，说明
-// “折叠已发生、为何没有记录”，不得按「压缩记录」成句。
+// TestCompactCommandNeverReportsFoldWithoutRecord：/compact 是显式路径，只要
+// 折叠真的发生就必然落记录（含回合已收尾的 explicit_after_turn），因此回执里
+// 不得再出现"不留记录"的说法——用户 2026-09-23 看到的那句「该回合的任务执行已
+// 收尾…故本次不留记录」必须消失。
 //
-// 该分支只填 Compacted/Version/EstimatedTokens/Note：Reason 与 MessagesBefore
-// 是零值。此前命令只看 result.Compacted 就套记录句式，于是对用户输出
-// 「已压缩上下文：v3（），压缩前 0 条消息 / 估算 32295 tokens」——空 reason、
-// 0 条消息，既与事实相反，也把真正解释（Note）丢掉了。
-func TestCompactCommandReportsFoldWithoutRecordAsNote(t *testing.T) {
-	service, _, _ := compactTestService(t, "task-command-folded-unrecorded")
+// 该分支的判别力在于：Reason/区间/帧引用都非零（记录句式才成立），若命令又
+// 回落到"没有记录"的分支，就说明门槛或来源标记被改回去了。
+func TestCompactCommandNeverReportsFoldWithoutRecord(t *testing.T) {
+	service, _, _ := compactTestService(t, "task-command-after-turn")
 	service.ViewMu.Lock()
 	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
-		TaskID: "task-command", Role: "assistant", Content: strings.Repeat("C", 4_000),
+		TaskID: "task-command-after-turn", MessageID: "message-1", Role: "assistant", Content: strings.Repeat("C", 4_000),
 	})
 	service.components.tasks.CurrentTaskExecution().Status = task_context.StatusCompleted
 	service.ViewMu.Unlock()
@@ -340,10 +460,16 @@ func TestCompactCommandReportsFoldWithoutRecordAsNote(t *testing.T) {
 	if err != nil {
 		t.Fatalf("/compact: %v", err)
 	}
-	if strings.Contains(result.Notice, "已压缩上下文：") {
-		t.Fatalf("没有压缩记录时不得按「记录」成句（会说出空 reason / 0 条消息）：%q", result.Notice)
+	if strings.Contains(result.Notice, "不留记录") || strings.Contains(result.Notice, "已收尾") {
+		t.Fatalf("显式路径折叠必留记录，不得再说不留记录：%q", result.Notice)
 	}
-	if !strings.Contains(result.Notice, "已收尾") {
-		t.Fatalf("提示应说明折叠已发生、记录不产生的原因：%q", result.Notice)
+	if !strings.Contains(result.Notice, "已压缩上下文：") {
+		t.Fatalf("回执应按记录成句：%q", result.Notice)
+	}
+	if !strings.Contains(result.Notice, "explicit_after_turn") {
+		t.Fatalf("回执应说明这次压缩的来源（回合之间显式要求）：%q", result.Notice)
+	}
+	if !strings.Contains(result.Notice, "帧正文 ref ") {
+		t.Fatalf("回执应带上帧正文引用（前端据此展开正文）：%q", result.Notice)
 	}
 }

@@ -2,6 +2,8 @@
 package model
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
@@ -44,10 +46,17 @@ type TaskState struct {
 
 // ContextCompaction is a user-visible record that the active provider context
 // was condensed. It intentionally contains no prompt text, checkpoint body,
-// tool argument, tool result, or conversation content.
+// tool argument, tool result, or conversation content: the frame body lives in
+// the session content store and is only referenced here through FrameRef.
 type ContextCompaction struct {
 	Version uint64 `json:"version"`
 	Reason  string `json:"reason"`
+	// Origin 是这次压缩的来源（auto/explicit/explicit_after_turn）。记录门槛
+	// 按它区分：自动路径（软/硬阈值）只在任务执行 Running 时写；显式路径
+	// （/compact、compact_context）在回合已收尾时也写——「用户/模型明确要求
+	// 现在压缩」这个事实本身就该被审计，而回合之间压缩恰恰是最自然的用法。
+	// 空串 = 旧记录（当时没有这个字段，按 auto 口径读）。
+	Origin string `json:"origin,omitempty"`
 	// MessagesBefore 是压缩发生时**装配前的引擎历史条数**（engineHistory 长度，
 	// 含 system 行）：冷加载/路由会话在该时刻合法为 0，而且它数的是引擎消息，
 	// 不是被压的 transcript 消息条数。要展示/判断"压了多少、从哪到哪"请用下面的
@@ -64,6 +73,61 @@ type ContextCompaction struct {
 	MessageTo   string `json:"message_to,omitempty"`
 	EventFrom   uint64 `json:"event_from,omitempty"`
 	EventTo     uint64 `json:"event_to,omitempty"`
+	// FrameRef 是可回读的帧正文引用：折叠发生那一刻的「有界 checkpoint 帧」
+	// 正文（任务证据摘要 + 区间元数据）已写进会话内容存储，前端按 ref 分页
+	// 读取（application.ToolResultContent / Bridge.ToolResultContent），
+	// 因此快照只带引用、不带正文。空串 = 本次没有可回读正文（例如摘要为空）。
+	FrameRef    string `json:"frame_ref,omitempty"`
+	FrameBytes  int    `json:"frame_bytes,omitempty"`
+	FrameTokens int    `json:"frame_tokens,omitempty"`
+}
+
+// 压缩来源（ContextCompaction.Origin）。
+const (
+	// CompactionOriginAuto 是自动路径（软阈值/硬阈值/自主压缩）产生的压缩。
+	CompactionOriginAuto = "auto"
+	// CompactionOriginExplicit 是回合执行中由 /compact 命令或 compact_context
+	// 工具显式要求的压缩（任务状态仍是 Running）。
+	CompactionOriginExplicit = "explicit"
+	// CompactionOriginExplicitAfterTurn 是回合已收尾（任务状态不再是 Running）
+	// 后由 /compact 命令或 compact_context 工具显式要求的压缩：折叠照做，
+	// 记录同样写——否则"回合之间压缩"这一最自然的用法在前端完全不可见。
+	CompactionOriginExplicitAfterTurn = "explicit_after_turn"
+)
+
+// ExplicitCompactionOrigin 报告该来源是否为显式要求（用户 /compact 或模型
+// compact_context）。空串按旧记录口径视为非显式（与 auto 同处理）。
+func ExplicitCompactionOrigin(origin string) bool {
+	return origin == CompactionOriginExplicit || origin == CompactionOriginExplicitAfterTurn
+}
+
+// CompactionRangeLabel 把压缩区间（消息号 + transcript 事件序号）渲染成一句
+// 人可读的范围，例如 `消息 message-1..message-103 / 事件 1..6`。
+//
+// 两段都缺时返回空串：调用方据此跳过这一段，不得改用别的数字（例如装配前的
+// 引擎历史条数）顶替——那会印出与事实相反的句子（2026-09-23 实测：
+// message-1..message-103 / 事件 1..6 配 messages_before=0）。
+func CompactionRangeLabel(messageFrom, messageTo string, eventFrom, eventTo uint64) string {
+	parts := make([]string, 0, 2)
+	if label := messageRangeLabel(messageFrom, messageTo); label != "" {
+		parts = append(parts, "消息 "+label)
+	}
+	if eventFrom > 0 || eventTo > 0 {
+		parts = append(parts, fmt.Sprintf("事件 %d..%d", eventFrom, eventTo))
+	}
+	return strings.Join(parts, " / ")
+}
+
+// messageRangeLabel 渲染消息号区间：单号不写 `..`，只有一端就只写一端。
+func messageRangeLabel(from, to string) string {
+	switch {
+	case from == "":
+		return to
+	case to == "" || to == from:
+		return from
+	default:
+		return from + ".." + to
+	}
 }
 
 type TaskStatus string

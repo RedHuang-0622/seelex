@@ -38,6 +38,12 @@ const (
 	// 发布端用 revision=0（同 chat.changed 口径），否则"快照比事件新"的陈旧
 	// 判据会把它丢掉，而面板缓存并不随快照翻转。
 	EventTeamChanged EventKind = "team.changed"
+	// EventCompactionProgress 通告"一轮上下文压缩正在逐关收口"（判据估算→装配
+	// →替换 provider 历史→渲染帧→存帧→写记录），前端进度条据此推进。载荷不进
+	// 快照（压缩记录本身才进），因此与 team.changed 同口径用 revision=0：否则
+	// "快照比事件新"的陈旧判据会把中途的进度帧吃掉。终局（done/failed）后本轮
+	// 进度生命周期即结束。
+	EventCompactionProgress EventKind = "compaction.progress"
 	// EventViewSessionChanged 通告权威视图会话已被应用在内部切换（进程级、
 	// 空 sid，投递给所有订阅者）：运行中冷恢复失败把视图回退到切换前会话 /
 	// 草稿时，GUI Bridge 的事件订阅键仍钉在失败目标会话上，其订阅已永远
@@ -108,6 +114,54 @@ type MessageDelta struct {
 	Delta     string `json:"delta"`
 	// ReasoningContent 在回合结束时整段送达（聊天区一行带过，轨迹区完整查看）。
 	ReasoningContent string `json:"reasoning_content,omitempty"`
+}
+
+// CompactionProgressState 是一轮压缩进度的状态：门禁收口中 / 本轮成功结束 /
+// 本轮失败。三态之外没有第四种，前端据此决定进度条是推进、收满还是染红。
+type CompactionProgressState string
+
+const (
+	// CompactionProgressRunning 一条门禁已收口，Gate/Index 说明走到哪。
+	CompactionProgressRunning CompactionProgressState = "running"
+	// CompactionProgressDone 本轮压缩正常收口（含"折叠了但按规则不落记录"）。
+	CompactionProgressDone CompactionProgressState = "done"
+	// CompactionProgressFailed 本轮压缩中途报错；Outcome 携带真实原因。
+	CompactionProgressFailed CompactionProgressState = "failed"
+)
+
+// CompactionPhaseBegin 是一轮压缩的**起手帧**：这一帧发出时判据估算还没出结果
+// （Index=0，一格都还没收口）。它存在是因为一段真实的时间窗口：显式压缩
+// （/compact、compact_context）从"用户按下回车"到"判据关收口"之间要跑两次全量
+// 请求估算（原始累积上下文 + 引擎缓存峰值），是整轮里最长的一段。没有这帧，
+// 界面上这段时间是完全空白的——用户看到的是"按了没反应"，几毫秒（大上下文里
+// 可达数百毫秒）后突然冒出一条"已完成"的压缩记录，于是合理地怀疑"根本没接线"。
+//
+// 只有显式路径能提前发：自动路径要不要折叠正是这次估算的结果，估完才知道。
+// 这也保证"没折叠就没有进度"（起手帧只在确定会折叠的轮次里发）。
+const CompactionPhaseBegin = "begin"
+
+// CompactionProgress 是 compaction.progress 的载荷：一轮折叠的门禁进度。
+//
+// 会话/请求归属在事件信封（Event.SessionID / Event.RequestID）里，载荷不重复
+// 一份同事实。Gate 是枚举 id（文案在前端 compaction-format.js，与压缩来源
+// 标签同一归属地），Detail 只带该关的数字事实，避免同一句话有两个来源。
+//
+// Phase 为空 = 该关刚刚收口（Index 是已收口关数）；Phase=begin = 起手帧。
+// ElapsedMS 是**刚刚过去的那一段**的墙钟耗时（毫秒）：起手帧为 0，每个门禁帧是
+// 这一关自己花掉的时间。它不是"从开轮算起"的累计值——前端把各帧加起来就是
+// 总耗时，而"哪一关慢"只有逐关计时才看得见（压缩总共几十毫秒时，这正是用户
+// 唯一能读到的"串行工作"证据）。
+type CompactionProgress struct {
+	State     CompactionProgressState `json:"state"`
+	Phase     string                  `json:"phase,omitempty"`
+	Gate      string                  `json:"gate,omitempty"`
+	Index     int                     `json:"index"`
+	Total     int                     `json:"total"`
+	Version   uint64                  `json:"version,omitempty"`
+	Origin    string                  `json:"origin,omitempty"`
+	Detail    string                  `json:"detail,omitempty"`
+	Outcome   string                  `json:"outcome,omitempty"`
+	ElapsedMS int                     `json:"elapsed_ms,omitempty"`
 }
 
 type Subscription struct {

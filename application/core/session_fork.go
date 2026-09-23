@@ -14,6 +14,13 @@ import (
 // 一期决策契约：深拷贝（含 tool-results 物理复制）+ 血缘 meta（子会话侧
 // forked_from 事实源）；切断点锚定 EventSeq + 段落边界；运行中拒绝 fork；
 // 跨项目 fork 一期禁止（子会话恒落在父会话所在项目）。
+//
+// 口径声明：这是 **ForkSession（会话分叉）**——产出独立项目级会话，继承规则
+// 与可达集合裁剪见 `session_runtime/fork.go` 头部（那条路只服务本入口）。
+// **ForkSubagent（`fork_subagents` 子代理派发）不是同一条路**：它经 workplan
+// DAG 建子代理现场，存储侧落 `subagent_<hash>/` 子树、不建独立 blob 目录、
+// 大工具输出引用主会话 `big_tool_result`（见 `sessionstore/fork_store.go` 头部、
+// my_design §8.1/§8.2），派发链不经过 `PrepareFork`，因此没有这条按 ref 裁剪。
 func (service *Service) ForkSession(parentID string, request model.ForkRequest) (string, error) {
 	parentID = strings.TrimSpace(parentID)
 	if parentID == "" {
@@ -34,6 +41,7 @@ func (service *Service) ForkSession(parentID string, request model.ForkRequest) 
 
 // ForkSessionLatest 从父会话最新完整段落边界创建独立子会话并切换到子会话
 // 继续（GUI/TUI 默认 fork 入口；精细切断点用 ForkSession + ForkRequest）。
+// 与 ForkSession 同属会话分叉口径；子代理派发（ForkSubagent）不走本入口。
 func (service *Service) ForkSessionLatest(parentID string) (string, error) {
 	parentID = strings.TrimSpace(parentID)
 	if parentID == "" {

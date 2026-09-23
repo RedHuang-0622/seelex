@@ -122,6 +122,23 @@ go test ./application/core/context_runtime -count=1
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
+### compaction_frame_test.go
+
+- `func TestCompactionFrameBodyReportsFoldedRangeAndInjection(t *testing.T)` — TestCompactionFrameBodyReportsFoldedRangeAndInjection：帧正文（前端按 ref
+- `func TestCompactionFrameBodyAdmitsMissingEvidence(t *testing.T)` — TestCompactionFrameBodyAdmitsMissingEvidence：没有可回读证据/没有区间边界时
+
+### compaction_progress.go
+
+- `func CompactionGateTotal() int` — CompactionGateTotal 返回一轮压缩的门禁总数（进度条分母）。
+- `func CompactionGateIndex(gate string) int` — CompactionGateIndex 返回门禁在权威顺序里的序号（1 起）；未知 id 返回 0。
+- `func (c *Coordinator) startCompactionProgress(sessionID, requestID string, version uint64, origin string) *compactionProgress` — startCompactionProgress 开启一轮门禁进度。没有会话路由键或宿主不支持按会话
+- `func (p *compactionProgress) begin()` — begin 发**起手帧**（见 event.CompactionPhaseBegin）：显式压缩在动第一个重活
+- `func (p *compactionProgress) gate(id, detail string)` — gate 通告「第 index 关收口」。未知 id 也发（序号 0 会被形状测试抓到），
+- `func (p *compactionProgress) elapsedLocked() int` — elapsedLocked 返回距上一帧的毫秒数并推进计时基准。调用方持锁。
+- `func (p *compactionProgress) setVersion(version uint64)` — setVersion 在自主压缩另开新纪元时校正本轮版本：判定关拿到的版本号可能还是
+- `func (p *compactionProgress) settle(err error, recorded bool, outcome string)` — settle 收口本轮：err 非空即失败终局（Outcome 带真实原因），否则按是否落了
+- `func (p *compactionProgress) publish(payload event.CompactionProgress)`
+
 ### coordinator.go
 
 - `func IsActiveSkillContent(content string) bool` — IsActiveSkillContent 判定内容是否为激活技能 internal 事件（Append-only
@@ -137,11 +154,13 @@ go test ./application/core/context_runtime -count=1
 - `func (c *Coordinator) sessionLocationLocked(sessionID string) session_runtime.Location` — sessionLocationLocked 返回指定会话的持久化定位（workspace 绑定优先；
 - `func (c *Coordinator) PrepareExecutionContext(requestID, currentInput string) (string, error)` — PrepareExecutionContext 从 durable task 状态与完整 transcript 单元重建
 - `func (c *Coordinator) PrepareExecutionContextFor(sessionID, requestID, currentInput string) (string, error)` — PrepareExecutionContextFor 从 durable task 状态与完整 transcript 单元重建
-- `func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentInput string, options prepareOptions) (string, error)`
+- `func compactionOrigin(options prepareOptions, state *task_context.TaskExecutionState) string` — compactionOrigin 判定一轮折叠的来源：自动路径（软/硬阈值、自主压缩）记 auto，
+- `func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentInput string, options prepareOptions) (out string, err error)`
 - `func (c *Coordinator) fitExecutionHistory( systemPrompt string, systems []contract.EngineMessage, planMessage string, events []model.TranscriptEvent, currentInput string, tools []model.Tool, target int, windowed bool, maxUnits int, ) ([]contract.EngineMessage, int, int)` — fitExecutionHistory 按目标预算装配 provider 历史：稳定前缀（system）→
 - `func (c *Coordinator) tryFitExecutionHistory( systemPrompt string, systems []contract.EngineMessage, planMessage string, events []model.TranscriptEvent, currentInput string, tools []model.Tool, target int, maxUnits int, ) ([]contract.EngineMessage, int, int)` — tryFitExecutionHistory 装配一次 system → context → plan 历史并估算 token，
 - `func (c *Coordinator) compressExecutionHistory( systemPrompt string, systems []contract.EngineMessage, summary string, planMessage string, currentInput string, tools []model.Tool, budget task_context.ContextBudget, ) ([]contract.EngineMessage, int, bool)` — compressExecutionHistory 是自主压缩兜底：正常有界窗口装不下全量预算时，
 - `func AutonomousCompactionMessage(summary string) string` — AutonomousCompactionMessage 渲染自主压缩帧正文（system 消息）：显式告知
+- `func compactionFrameBody(input compactionFrameInput) string` — compactionFrameBody 渲染「有界 checkpoint 帧」正文（供前端/审计回读的那一份）。
 - `func retainedMatchesTranscriptPrefix(systems []contract.EngineMessage, events []model.TranscriptEvent) bool` — retainedMatchesTranscriptPrefix 判定引擎保留段（非 system 的已定稿轮次）
 - `func (c *Coordinator) planContextMessageLocked(sessionID string) string`
 - `func currentPlanSlice(arguments, currentNode string) any`

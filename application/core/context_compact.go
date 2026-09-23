@@ -10,9 +10,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
+	"github.com/RedHuang-0622/seelex/application/model"
 )
 
 // ContextCompactionResult 是压缩结果面（命令 notice 与工具 JSON 共用）：
@@ -47,42 +49,68 @@ type ContextCompactionResult struct {
 	MessageTo   string `json:"message_to,omitempty"`
 	EventFrom   uint64 `json:"event_from,omitempty"`
 	EventTo     uint64 `json:"event_to,omitempty"`
+	// Origin 是这次压缩的来源（auto/explicit/explicit_after_turn，见 model 常量）：
+	// 「用户/模型显式要求」与「自动阈值触发」是两种事实，回执里不得混为一谈。
+	Origin string `json:"origin,omitempty"`
+	// FrameRef 是可回读的帧正文引用（会话内容存储里的 ref；空 = 本次没有正文可读）。
+	// 前端用 ToolResultContent(ref, offset, limit) 分页读，不把正文塞进快照。
+	FrameRef    string `json:"frame_ref,omitempty"`
+	FrameBytes  int    `json:"frame_bytes,omitempty"`
+	FrameTokens int    `json:"frame_tokens,omitempty"`
 	Note        string `json:"note"`
+}
+
+// compactionReasonLabel 渲染压缩原因（用户可读）。未知原因原样返回，不编造。
+func compactionReasonLabel(reason string) string {
+	switch reason {
+	case "context_budget":
+		return "上下文预算"
+	case "context_budget_autonomous":
+		return "上下文预算（自主压缩）"
+	case "large_tool_output":
+		return "工具输出过大"
+	case "":
+		return "上下文压缩"
+	default:
+		return reason
+	}
+}
+
+// compactionRecordNote 渲染「压缩已落记录」的回执：版本 + 原因 + 被压区间 +
+// 估算量，并指明帧正文与原始轮次怎么回读。
+//
+// 只印记录里**已有**的事实：区间空就不印区间段，判据量与装配量分开报
+// （混用会说出「129409 tokens 未达阈值 118962」这种自相矛盾的话）。
+func compactionRecordNote(result ContextCompactionResult) string {
+	var builder strings.Builder
+	builder.WriteString("已压缩上下文：v")
+	builder.WriteString(strconv.FormatUint(result.Version, 10))
+	builder.WriteString("（")
+	builder.WriteString(compactionReasonLabel(result.Reason))
+	builder.WriteString("）")
+	if label := compactionRangeLabel(result); label != "" {
+		builder.WriteString("，被压区间 ")
+		builder.WriteString(label)
+	}
+	fmt.Fprintf(&builder, "，装配后估算 %d tokens（判据量 %d）", result.EstimatedTokens, result.ComparedTokens)
+	if result.Origin != "" {
+		builder.WriteString("，来源 " + result.Origin)
+	}
+	if result.FrameRef != "" {
+		builder.WriteString("；帧正文 ref " + result.FrameRef + "（状态页「上下文压缩」条目可展开查看）")
+	}
+	builder.WriteString("。原始轮次仍在会话存储里，可用 read_tool_result / read_compressed_turn / search_history 回读细节。")
+	return builder.String()
 }
 
 // compactionRangeLabel 把压缩结果面里**已有的**区间字段（MessageFrom/To、
 // EventFrom/To）渲染成一段人可读的范围，例如
 // `消息 message-1..message-103 / 事件 1..6`。
 //
-// "压了多少"只说这两个边界，不说 MessagesBefore：后者是装配前的引擎历史条数
-// （engineHistory 长度，含 system 行、且冷加载/路由会话合法为 0），拿它当
-// "压缩前 N 条消息"会印出与事实相反的句子——2026-09-23 实测：区间
-// message-1..message-103 / 事件 1..6 配 messages_before=0，同一支还能印出
-// "压缩前 2 条消息"（2 条是引擎里的 system 行）。
-//
 // 区间为空（老记录、或这次真的没有可记的边界）时返回空串：调用方据此跳过
-// 这一段，不得改用别的量顶替。
+// 这一段，不得改用别的量顶替（判据见 model.CompactionRangeLabel）。
 func compactionRangeLabel(result ContextCompactionResult) string {
-	parts := make([]string, 0, 2)
-	if label := messageRangeLabel(result.MessageFrom, result.MessageTo); label != "" {
-		parts = append(parts, "消息 "+label)
-	}
-	if result.EventFrom > 0 || result.EventTo > 0 {
-		parts = append(parts, fmt.Sprintf("事件 %d..%d", result.EventFrom, result.EventTo))
-	}
-	return strings.Join(parts, " / ")
-}
-
-// messageRangeLabel 渲染消息号区间：单号不写 `..`，只有一端就只写一端。
-func messageRangeLabel(from, to string) string {
-	switch {
-	case from == "":
-		return to
-	case to == "" || to == from:
-		return from
-	default:
-		return from + ".." + to
-	}
+	return model.CompactionRangeLabel(result.MessageFrom, result.MessageTo, result.EventFrom, result.EventTo)
 }
 
 // CompactContextNow 压缩当前执行会话（命令/工具共用）：会话从 ctx 解析，
@@ -110,8 +138,8 @@ func (service *Service) CompactContextNow(ctx context.Context) (ContextCompactio
 		return newContextCompactionResult(outcome), nil
 	case context_runtime.CompactFoldedUnrecorded:
 		// 折叠确实发生了（引擎历史已换成有界 checkpoint 并按会话落盘），只是
-		// 这一轮的执行已收尾、压缩记录不产生（记录只在执行中写）。如实说明，
-		// 不谎报"未达阈值"。
+		// 这一轮是**自动路径**（软/硬阈值）且执行已收尾——自动压缩记录只在
+		// 任务执行中写，故不补记。如实说明，不谎报"未达阈值"。
 		return ContextCompactionResult{
 			Compacted:       true,
 			Version:         outcome.Version,
@@ -120,8 +148,8 @@ func (service *Service) CompactContextNow(ctx context.Context) (ContextCompactio
 			SoftThreshold:   outcome.SoftThreshold,
 			HardThreshold:   outcome.HardThreshold,
 			Note: "可变 transcript 已折叠为有界 checkpoint 帧并按会话落盘（引擎历史已换成压缩形态）；" +
-				"但该回合的任务执行已收尾，压缩记录只在执行中产生，故本次不留记录。" +
-				"原始轮次仍在会话存储里，可用 read_tool_result / read_compressed_turn / search_history 回读。",
+				"但这次折叠来自自动路径（软/硬阈值）且该回合的任务执行已收尾，自动压缩记录只在执行中写，" +
+				"故本次不留记录。原始轮次仍在会话存储里，可用 read_tool_result / read_compressed_turn / search_history 回读。",
 		}, nil
 	case context_runtime.CompactScheduled:
 		// 没有执行纪元：不伪造纪元、也不假装压过；登记为下一次装配兑现。
@@ -171,11 +199,12 @@ func (service *Service) CompactContextHandler(ctx context.Context, argsJSON stri
 
 func newContextCompactionResult(outcome context_runtime.CompactResult) ContextCompactionResult {
 	record := outcome.Record
-	return ContextCompactionResult{
+	result := ContextCompactionResult{
 		Compacted:       true,
 		Recorded:        true,
 		Version:         record.Version,
 		Reason:          record.Reason,
+		Origin:          record.Origin,
 		MessagesBefore:  record.MessagesBefore,
 		EstimatedTokens: outcome.AssembledTokens,
 		ComparedTokens:  outcome.ComparedTokens,
@@ -186,7 +215,10 @@ func newContextCompactionResult(outcome context_runtime.CompactResult) ContextCo
 		MessageTo:       record.MessageTo,
 		EventFrom:       record.EventFrom,
 		EventTo:         record.EventTo,
-		Note: "可变 transcript 已折叠为有界 checkpoint 帧（稳定前缀 + 任务证据摘要 + plan + 当前输入）；" +
-			"原始轮次仍在会话存储里，可用 read_tool_result / read_compressed_turn / search_history 回读细节。",
+		FrameRef:        record.FrameRef,
+		FrameBytes:      record.FrameBytes,
+		FrameTokens:     record.FrameTokens,
 	}
+	result.Note = compactionRecordNote(result)
+	return result
 }

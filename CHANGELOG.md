@@ -14,6 +14,53 @@ version when it lands.
 
 ### Fixed
 
+- **A `/compact` between turns now leaves a compaction record, so the receipt no longer
+  says "no record this time".** The fold always happened; what was missing was the evidence.
+  `task_context._RecordContextCompactionLocked` accepted a compaction only while the task
+  execution was `Running` — and pressing `/compact` *after* a turn finished is the most
+  natural way to use it. Every such request replaced the engine history with a bounded
+  checkpoint frame, persisted it per session, and then produced no record: the receipt read
+  `…故本次不留记录`, the status page's 「上下文压缩」 block stayed empty and the trajectory's
+  compaction axis rendered nothing, which is exactly what "nothing is wired up" looks like
+  from outside. The gate now keys on the record's **origin** (`ContextCompaction.Origin`:
+  `auto` / `explicit` / the new `explicit_after_turn`) instead of only on `Running`: "the
+  user or the model asked for this compaction right now" is auditable in its own right,
+  while the automatic path keeps the old rule (never back-fill a record onto a finished
+  turn — that would mislabel the turn as having compacted). The same function had a second
+  hole: with no task face in the snapshot at all (cold-restore, then an explicit compact) the
+  record lived only in memory, so widening the gate alone would still have shown nothing —
+  the face is now rebuilt from the owning session. `CompactFoldedUnrecorded` survives as the
+  honest mapping for a refused write (that request's execution face already replaced by a
+  newer turn), but the explicit path cannot reach it in normal flow anymore. Teeth:
+  `TestCompactManualAfterTurnRecordsExplicitOrigin` (origin + record + snapshot row +
+  record-shaped receipt + `frame_ref` in the note),
+  `TestCompactAfterTurnSurfacesRecordWithoutTaskFace` (no task face in the snapshot),
+  `TestCompactCommandNeverReportsFoldWithoutRecord` (the sentence itself is banned: the
+  notice must carry `已压缩上下文：`, `explicit_after_turn` and `帧正文 ref `, and must not
+  carry `不留记录`), and `TestAutoCompactionAfterTurnKeepsRecordGate` (the automatic path
+  must **still** not record after the turn — the only thing keeping the widened gate from
+  being a blanket change).
+- **A forked session can read back the compaction frames it inherited.** A session fork
+  (`ForkSessionLatest` / `/fork`) prunes the child's tool-result registry to the refs
+  reachable before the cut point, and compaction frame bodies
+  (`ContextCompactions[].FrameRef`) were not in that set — so every inherited “context
+  compaction” entry in the child session failed to open, even though the bytes were still
+  in the content store (the read path rejects any ref absent from the child's refs index:
+  `jsonRepository.ReadToolResult` returns not-exist). The reachability set now carries
+  those frame refs, so it follows the records the fork actually inherits — the code says
+  so explicitly, including what it does *not* claim: the rule is “follow the inherited
+  records”, not “filter by time”, because compaction records are inherited wholesale
+  (a conclusion later than the cut is dropped, the compaction history is kept).
+  **Scope is declared in the code**: this is **session fork** only. **Subagent fork**
+  (`fork_subagents`) lands in `subagent_<hash>/` with no blob directory of its own and
+  large tool output refers to the main session's `big_tool_result` (storage design §8.2 /
+  T-FK-05/06); that dispatch chain never calls `PrepareFork`, so it never runs
+  `truncateForkRecord` and has no per-ref pruning step at all — changing subagent
+  inheritance means changing the storage side (`sessionstore/fork_store.go`), not
+  `application/core/session_runtime/fork.go`. Teeth:
+  `TestForkSessionKeepsCompactionFrameRefReachable` (the inherited frame ref is present
+  **and** the post-cut `result:later` is still pruned), plus the registry assertion in
+  `TestPrepareForkTruncatesToRequestBoundary`.
 - **The cold-start session row no longer disappears from the session tree after you
   switch away.** The assembly root allocated an early draft session ID at cold start
   (`service_assembler.go`) but never stored it in the process-singleton draft slot
@@ -58,8 +105,9 @@ version when it lands.
 - **`/compact` (and the `compact_context` tool) no longer refuse to compact, and the
   refusal notice no longer contradicts itself.** The explicit path still required
   `rawTokens ≥ soft threshold` even though it is the *user's* explicit request; worse,
-  when the fold *did* happen but the compaction record was suppressed (records are only
-  written while the task execution is `Running`, i.e. never after a turn finished), the
+  when the fold *did* happen but the compaction record was refused (the gate only let
+  records through while the task execution was `Running` — the after-turn case is dealt
+  with in the `explicit_after_turn` entry above), the
   caller saw `below_threshold` and the notice printed `state.TokenAudit.EstimatedPromptTokens`
   — the **assembled** request size, not the quantity the gate compared — producing
   sentences like “当前上下文估算 129409 tokens，未达压缩阈值 118962”. Now: the explicit path
@@ -67,13 +115,14 @@ version when it lands.
   threshold, still requiring a matching request epoch), the decision facts
   (`ComparedTokens` / `AssembledTokens` / both thresholds) travel back in
   `CompactResult`, and the notice says what actually happened: compacted+recorded,
-  compacted-without-record (turn already finished) or scheduled. A session with **no
+  folded-but-refused-a-record or scheduled. A session with **no
   execution epoch** (just cold-loaded / just cleared) no longer gets a refusal either:
   the request is registered and honoured on the next context assembly (`ScheduleForceCompact`),
   so the compaction lands in the very next message. Teeth:
-  `TestCompactManualFoldsBelowThreshold`, `TestCompactManualReportsFoldWithoutRecord`,
-  `TestCompactContextWithoutTaskExecutionSchedulesNextAssembly` all turn red when the
-  explicit path is put back behind the soft threshold.
+  `TestCompactManualFoldsBelowThreshold` and
+  `TestCompactContextWithoutTaskExecutionSchedulesNextAssembly` turn red when the explicit
+  path is put back behind the soft threshold;
+  `TestCompactCommandNeverReportsFoldWithoutRecord` keeps the after-turn behaviour pinned.
 - **The `/compact` notice no longer prints a record-shaped sentence when no record
   exists.** `CompactFoldedUnrecorded` sets `Compacted` (the fold really happened) but
   deliberately leaves `Reason` and `MessagesBefore` unset, and the command only checked
@@ -83,8 +132,10 @@ version when it lands.
   outcome's own `Note` (which says the fold happened and why no record was written)
   thrown away. The command now emits the record line only when `Recorded` is true and
   otherwise returns the outcome's `Note` — the same wording the `compact_context` tool
-  already used. Teeth: `TestCompactCommandReportsFoldWithoutRecordAsNote` (red before the
-  fix, green after).
+  already used. Teeth: `TestCompactCommandNeverReportsFoldWithoutRecord` — in the final
+  shape of this batch the explicit path always gets its record, so the test pins both halves
+  (the notice is record-shaped **and** the `不留记录` wording can never come back); the
+  `Note` fallback still carries the automatic path's refused-record case.
 - **The `/compact` record line now reports the folded range, not an engine-history
   count.** `MessagesBefore` is `len(engineHistory(sessionID))` at assembly time — engine
   messages (system rows included), legitimately **0** for a cold-loaded/routed session —
@@ -122,6 +173,62 @@ version when it lands.
 
 ### Added
 
+- **A compression round now reports its gates while it runs.** New session-routed event kind
+  `compaction.progress` (`application/core/context_runtime/compaction_progress.go`): a
+  **begin frame** (`phase=begin`, `index=0`, `gate=judge`) followed by one frame per gate in
+  the authoritative order `judge → assemble → replace → frame → store → record`, then exactly
+  one terminal (`done` / `failed`, `reached=n/6`). Each frame carries `elapsed_ms` = the
+  wall clock of **the segment that just ended** (begin carries none), so the frontend can sum
+  the frames for a total and still see which gate was slow. The GUI right column draws it as
+  a bar on the existing plan-board track (`.plan-board-progress`, `role="progressbar"`) plus a
+  per-gate duration checklist; the round is transient — `revision=0`, never enters the
+  snapshot, is deliberately **not** in the 120 ms buffered-incremental set (coalescing would
+  drop gates), and the bar's whole lifetime is one round (kept 2.5 s after `done`, 6 s after
+  `failed`). Why the begin frame exists: the explicit path's first gate is the round's long
+  wait (two whole-request token estimates), so without it the panel is blank for the entire
+  expensive phase and then shows a finished record. The automatic path gets **no** begin
+  frame on purpose — whether to fold *is* the outcome of that estimate, so announcing intent
+  early would lie in the rounds that do not fold; "no fold, no progress" stays true.
+  Measured today on this machine over 30 rounds of `TestExplicitCompactGateTimeline`
+  (4×160 KB fixture): judge **31–64 ms** (median 40), assemble 6–18 ms (median 11), replace
+  ≤1 ms, frame 0 ms in 29 of 30 (one 54 ms scheduling outlier), store and record 0 ms in all
+  30; the whole `CompactContextNow` window is 40–121 ms. Those ranges are *not* a property of
+  the code: the same fixture on the same machine read judge 26 ms under `-count=1` and
+  31–64 ms under `-count=30` minutes apart, and an earlier sample read 46–90 ms. The numbers
+  are load; the contract is the **shape** — one begin frame, six gates in order, per-segment
+  durations that together fit inside the round. Teeth:
+  `TestExplicitCompactEmitsOrderedProgressGates` (six gates in order, one terminal),
+  `TestExplicitCompactGateTimeline` (the summed per-segment timings must fit inside the round
+  window; re-run PROBE today: not advancing the timing base — i.e. reporting cumulatives — is
+  red in 3 of 3 rounds at 913–2049 ms against a 138–299 ms window, and the same test goes red
+  if a second emitter mixes into the round, which breaks the gate sequence),
+  `assertBeginFrame` (begin is first, `index=0`, version 0 = "not yet determined", never
+  invents a duration), `TestAutoCompactionEmitsProgressGates` (automatic path has no begin
+  frame), `TestNoProgressEventsWithoutFold`, `TestCompactProgressTerminatesOnAssemblyError`
+  (a mid-round error must still close the bar — half a progress bar is worse than none),
+  `TestFrontendGateLabelsMatchBackendOrder` (the JS label table is pinned to the Go gate
+  list, across languages), `TestBridgeRelaysCompactionProgressToRenderer` (the GUI relay does
+  not swallow it) and the frontend suite (`a begin frame opens a round with nothing counted
+  and nothing timed`, `a new round never inherits the previous round's checklist`,
+  `the begin frame never becomes a checklist row of its own`,
+  `durations below a millisecond say so instead of claiming zero`,
+  `dispatches compaction.progress with its payload to the view`). Not done here: the TUI does
+  not consume this event yet.
+- **A compaction record now carries a readable frame body.** `ContextCompaction` gained
+  `frame_ref` / `frame_bytes` / `frame_tokens`: the bounded checkpoint frame written at the
+  moment of the fold goes into the session content store through the same tool-result
+  channel, and the record keeps only the reference — the snapshot never grows a copy of the
+  body. The status page's 「上下文压缩」 entries and the trajectory axis detail both gained a
+  查看帧正文 / 收起帧正文 toggle that pages the body back through
+  `Bridge.ToolResultContent` (`app.js` reads 12 000 bytes at a time, reusing the trajectory
+  detail container and its pagination component instead of a second one). Records written
+  before this change have no ref, so their entry simply renders no toggle. Teeth:
+  `TestCompactionFrameBodyIsReadableByRef` (the ref in the record reads back the frame,
+  including the `origin:` line and a matching `TotalBytes`),
+  `TestCompactionFrameBodyReportsFoldedRangeAndInjection` and
+  `TestCompactionFrameBodyAdmitsMissingEvidence` (the body states what it does not have
+  instead of inventing it), plus `renders compaction records with range, origin and a frame
+  entry` and `axis detail renders compaction range, origin and read-back entry`.
 - **Computer use can now see which panels scroll, and the wheel reports where it landed.**
   `computer_scroll` could only push `WHEEL_DELTA` at a coordinate, so the model had no way to
   tell *which* panel would move or whether there was more context off-screen. Two additions close
@@ -219,6 +326,20 @@ version when it lands.
   `RuntimeOptions.UserSeat`), `Runtime.NoteUserQueued`, `Service.NoteTeamUserQueued`,
   `noteTeamUserSeat` and their call sites, plus the GUI "user 席位" chip and the TUI
   schedule line (see `docs/devlog/2026-09-22-agentteam-ring-excludes-user.md`).
+- **Tools are no longer offered by the `/` panel, which now lists only what the input box
+  can submit.** The palette used to append model-side tools next to commands and skills, so
+  a user could pick `compact_context` from a menu whose entire purpose is "type this and
+  run it" and get an unknown-command error. A capability gets a `/name` entry only once it
+  is registered as a command; otherwise it is a tool, visible to the model and callable by
+  the model behind the permission gate, and it stays out of both suggestions and routing
+  (`/` never had a tool branch). Removed `SuggestionKindTool`, `Service.toolSuggestions()`
+  and the `toolAliases` fold-in table, dropped the tool-only `Executable` marker from the
+  `Suggestion` DTO, and re-ranked the sort so commands and skills lead. Discovery is
+  unaffected: the unknown-command notice still names `compact_context` as a model-side tool
+  and points at its command counterpart `/compact`, and `/help` says the same. Teeth:
+  `TestSuggestionsExcludeModelSideTools` pins both sides (the tool names are absent **and**
+  `/compact` is present), so deleting tools from the panel cannot silently delete the only
+  way to find the compaction entry.
 
 ### Added
 

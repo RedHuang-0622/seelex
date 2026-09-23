@@ -498,3 +498,35 @@ test("dispatches team.changed without a snapshot refresh, even above the revisio
   assert.equal(stale.changed, undefined);
   assert.equal(stale.needsRefresh, false);
 });
+
+// compaction.progress（压缩门禁进度）与 team.changed 同口径：载荷不进快照、按
+// revision=0 发布，reducer 只校验形状并把载荷透传给视图侧的进度条。丢了它，用户
+// 只看得到"压缩完了"，看不到"压到哪一关"；带 revision 则会被中途的权威快照判成
+// 陈旧事件丢掉——一轮压缩的六条进度正是发在快照修订不断上涨的窗口里。
+test("dispatches compaction.progress with its payload to the view", () => {
+  const current = { ...snapshot(), revision: 9 };
+  const payload = {
+    state: "running", gate: "assemble", index: 2, total: 6, version: 4, origin: "explicit",
+    detail: "assembled=12000 target=9000 autonomous=false"
+  };
+  const result = applyEvent(current, {
+    protocol_version: 1, delivery_seq: 12, revision: 0, kind: "compaction.progress",
+    payload: JSON.stringify(payload)
+  }, 11, 9);
+  assert.equal(result.needsRefresh, false);
+  assert.equal(result.changed, "compaction.progress");
+  assert.deepEqual(result.payload, payload);
+  assert.equal(result.snapshot.revision, 9);
+  // 进度不改任何快照事实：换到新快照的只有 revision 之外的一层浅拷贝。
+  assert.deepEqual(result.snapshot.conversation, current.conversation);
+  assert.equal(current.revision, 9);
+
+  // 反面：形状不合（缺 total/state）无法判进度，退回权威快照——与其他带载荷
+  // 的 kind 同一条兜底路径，不静默画一条假进度。
+  const broken = applyEvent(current, {
+    protocol_version: 1, delivery_seq: 13, revision: 0, kind: "compaction.progress",
+    payload: { state: "running" }
+  }, 12, 9);
+  assert.equal(broken.needsRefresh, true);
+  assert.equal(broken.changed, undefined);
+});

@@ -1,10 +1,24 @@
-// 轨迹（Trajectory）——响应类型分类 + Network 风格轨迹渲染（纯函数，零依赖，可单测）。
+// 轨迹（Trajectory）——响应类型分类 + Network 风格轨迹渲染（纯函数，可单测）。
 //
 // 数据源是 Snapshot.conversation（后端权威投影），本模块只做呈现层派生：
 // 先按"响应类型"把会话消息分类，再把分类结果投影为类似浏览器 Network
 // 面板的轨迹行（时间 / 类型 / 名称 / 状态 / 耗时 / 大小 + IN/OUT 详情）。
 // 分类与渲染都是纯函数；DOM 交互（过滤、展开、result_ref 读回）在
 // trajectory-view.js，本地 UI 状态不进入 Snapshot。
+//
+// 唯一依赖是 compaction-format.js（压缩记录的展示口径，纯函数、零依赖）：
+// 右栏「上下文压缩」条目与这里必须用同一份格式化函数，否则同一条记录会出现
+// 两种读法。
+import {
+  compactionCutLabel,
+  compactionCutTitle,
+  compactionOriginLabel,
+  compactionRangeText,
+  compactionReasonLabel
+} from "./compaction-format.js";
+
+// 既有调用方从本模块取区间渲染（口径的唯一实现在 compaction-format.js）。
+export { compactionRangeText };
 
 // 响应类型表：每条轨迹记录归属一个类型。顺序即过滤条展示顺序。
 export const TRAJECTORY_KINDS = [
@@ -442,14 +456,6 @@ export function prefixLayerSegments(layers = []) {
   });
 }
 
-function compactionReasonLabel(reason) {
-  switch (reason) {
-  case "context_budget": return "上下文预算达峰";
-  case "large_tool_output": return "超大工具输出";
-  default: return "上下文压缩";
-  }
-}
-
 function formatNumber(value) {
   return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(Number(value) || 0);
 }
@@ -502,14 +508,26 @@ export function compactionMarks(records = [], compactions = [], view = {}) {
     const stack = stacks.get(stackKey) || 0;
     stacks.set(stackKey, stack + 1);
     const x = aligned === null ? 0 : Math.min(Math.max(aligned, 0), 100);
+    const rangeText = compactionRangeText(compaction);
     return {
       key: `compact:${index}`,
       version: Number(compaction.version) || index + 1,
       reason: String(compaction.reason || ""),
       reasonLabel: compactionReasonLabel(compaction.reason),
+      origin: String(compaction.origin || ""),
+      originLabel: compactionOriginLabel(compaction.origin),
       messagesBefore: Number(compaction.messages_before) || 0,
       tokens: Number(compaction.estimated_tokens) || 0,
       timeLabel: compaction.compacted_at ? formatTime(compaction.compacted_at) : "—",
+      // 被压区间与分界说明（虚线用）：区间取自记录字段，不推算。
+      rangeText,
+      cutLabel: compactionCutLabel(compaction),
+      cutTitle: compactionCutTitle(compaction),
+      // 帧正文引用（后端把折叠那一刻的有界 checkpoint 帧写进会话内容存储）：
+      // 详情面板据此按 ref 分页读取，不再把用户甩给模型侧工具。
+      frameRef: String(compaction.frame_ref || ""),
+      frameBytes: Number(compaction.frame_bytes) || 0,
+      frameTokens: Number(compaction.frame_tokens) || 0,
       x,
       stack,
       anchored: anchor >= 0,
@@ -522,11 +540,13 @@ export function compactionMarks(records = [], compactions = [], view = {}) {
 }
 
 // renderAxisDetail 渲染被点中的元数据块详情（全部 escape，无未受控注入）。
-// selection = { type: "prefix", layer } 或 { type: "compression", mark }。
+// selection = { type: "prefix", layer } 或 { type: "compression", mark, frame }。
+// frame 是视图侧已加载的帧正文页（{ loading, error, text, hasMore, nextOffset,
+// totalBytes }）；未提供 = 尚未加载（只显示"查看折叠帧正文"入口）。
 export function renderAxisDetail(selection = {}) {
   if (!selection || typeof selection !== "object") return "";
   if (selection.type === "prefix" && selection.layer) return renderPrefixDetail(selection.layer);
-  if (selection.type === "compression" && selection.mark) return renderCompressionDetail(selection.mark);
+  if (selection.type === "compression" && selection.mark) return renderCompressionDetail(selection.mark, selection.frame);
   return "";
 }
 
@@ -548,10 +568,10 @@ function renderPrefixDetail(layer) {
   </section>`;
 }
 
-function renderCompressionDetail(mark) {
+function renderCompressionDetail(mark, frame) {
   const meta = [
     mark.timeLabel && mark.timeLabel !== "—" ? `时间 ${mark.timeLabel}` : "",
-    mark.messagesBefore > 0 ? `${formatNumber(mark.messagesBefore)} 条消息` : "",
+    mark.originLabel ? `来源 ${mark.originLabel}` : "",
     mark.tokens > 0 ? `约 ${formatNumber(mark.tokens)} tokens` : ""
   ].filter(Boolean).join(" · ");
   const where = mark.anchored
@@ -559,6 +579,7 @@ function renderCompressionDetail(mark) {
       ? `锚点在第 ${mark.anchorPage + 1} 页：本页刻度是钳位标记（点刻度跳页）`
       : "刻度=压缩发生时会话推进到的位置（锚定记录槽位右边界）")
     : "刻度钳在轴起点：压缩点早于当前已加载的对话窗口";
+  const range = mark.rangeText ? `被压区间 ${mark.rangeText}` : "本次记录没有可记的区间边界";
   return `<section class="axis-detail is-compression" data-axis-detail>
     <header>
       <strong>上下文压缩 #${escapeHtml(String(mark.version))}</strong>
@@ -569,10 +590,54 @@ function renderCompressionDetail(mark) {
       ${meta ? `<span>${escapeHtml(meta)}</span>` : ""}
       <span>${escapeHtml(where)}</span>
     </div>
-    <p>该时刻窗口外的旧轮次被折叠为栈顶压缩摘要，随后装配保留一个有界的新鲜
-       窗口继续执行。对话原文仍完整保留在时间线上（呈现层不丢消息）；折叠原文
-       可经 read_compressed_turn(segment_id) / search_history 读回。</p>
+    <p>该时刻窗口外的旧轮次被折叠为有界 checkpoint 帧（稳定 system 前缀 + 保留窗口 + plan）；
+       对话原文仍完整保留在时间线上（呈现层不丢消息）。${escapeHtml(range)}。</p>
+    ${renderCompactionFrameSection(mark, frame)}
   </section>`;
+}
+
+// renderCompactionFrameSection 渲染「折叠帧正文」区：按 ref 分页读回折叠那一刻
+// 留下的有界 checkpoint 帧（后端把它写进会话内容存储，快照只带引用）。
+//
+// 此前详情只说"可经 read_compressed_turn / search_history 读回"——那是模型侧
+// 工具，用户在 GUI 里点不开；这里给前端自己的入口（同一个分页组件，见
+// .axis-detail-text / data-compact-frame-load）。
+function renderCompactionFrameSection(mark, frame) {
+  if (!mark.frameRef) {
+    return `<div class="axis-detail-frame"><div class="axis-detail-meta"><span>帧正文：本次没有可回读正文（记录里没有 frame_ref）</span></div></div>`;
+  }
+  const size = [
+    mark.frameBytes > 0 ? `${formatNumber(mark.frameBytes)} bytes` : "",
+    mark.frameTokens > 0 ? `约 ${formatNumber(mark.frameTokens)} tokens` : ""
+  ].filter(Boolean).join(" · ");
+  const head = `<div class="axis-detail-frame-head">
+      <span class="axis-detail-frame-title">折叠帧正文</span>
+      <span class="axis-detail-frame-ref" title="会话内容存储里的引用（ref），前端按 ref 分页读取">${escapeHtml(mark.frameRef)}</span>
+      ${size ? `<span class="axis-detail-frame-size">${escapeHtml(size)}</span>` : ""}
+    </div>`;
+  if (!frame) {
+    return `<div class="axis-detail-frame">${head}
+      <button type="button" class="axis-detail-frame-load" data-compact-frame-load="first">查看折叠帧正文</button>
+    </div>`;
+  }
+  if (frame.loading) {
+    return `<div class="axis-detail-frame">${head}<pre class="axis-detail-text">读取中…</pre></div>`;
+  }
+  if (frame.error) {
+    return `<div class="axis-detail-frame">${head}
+      <pre class="axis-detail-text">读取失败：${escapeHtml(String(frame.error))}</pre>
+      <button type="button" class="axis-detail-frame-load" data-compact-frame-load="first">重试</button>
+    </div>`;
+  }
+  const remaining = Math.max(Number(frame.totalBytes || 0) - Number(frame.nextOffset || 0), 0);
+  const actions = frame.hasMore
+    ? `<button type="button" class="axis-detail-frame-load" data-compact-frame-load="more">加载更多${remaining > 0 ? `（剩余约 ${formatNumber(remaining)} bytes）` : ""}</button>`
+    : `<span class="axis-detail-frame-done">已加载完（${formatNumber(Number(frame.totalBytes || 0))} bytes）</span>`;
+  return `<div class="axis-detail-frame">${head}
+    <pre class="axis-detail-text">${escapeHtml(String(frame.text || "")) || '<span class="muted">（空正文）</span>'}</pre>
+    <div class="axis-detail-frame-actions">${actions}
+      <button type="button" class="axis-detail-frame-load" data-compact-frame-load="hide">收起正文</button></div>
+  </div>`;
 }
 
 function normalizeAxisExtras(extras) {
@@ -611,6 +676,32 @@ function compressionMarkWhere(mark) {
   if (mark.offPage === "before") return `锚点在第 ${mark.anchorPage + 1} 页（本页刻度钳在左边界，点击跳页）`;
   if (mark.offPage === "after") return `锚点在第 ${mark.anchorPage + 1} 页（本页刻度钳在右边界，点击跳页）`;
   return "刻度=锚定记录槽位的右边界（与记录轨同序号坐标）";
+}
+
+// renderCompressionCutRow 渲染「分界」轨：每个压缩刻度处画一条竖向虚线，并在
+// 线上标注「以上 … 已被折叠」——刻度只说"这里压过"，虚线才回答"从哪以上被折掉了、
+// 那段现在在哪"（对话原文仍在时间线上，折叠正文在会话内容存储里按 ref 回读）。
+//
+// 只画锚定在本页的刻度：offPage 的刻度是钳在页边界的占位，位置本身不真实，
+// 给它画分界就等于画一条假线（点击它仍会跳页，见视图侧）。
+function renderCompressionCutRow(marks) {
+  const cuts = marks.filter(mark => mark.anchored && !mark.offPage);
+  if (!cuts.length) {
+    return `<div class="context-axis-lane is-cut">
+      <span class="axis-lane-label" title="压缩分界虚线：只画锚定在本页的压缩点"><span>分界</span><span class="axis-lane-count">—</span></span>
+      <div class="axis-lane-bar is-cut-bar"><span class="axis-cut-hint">本页没有压缩点的分界（压缩刻度不在本页）</span></div>
+    </div>`;
+  }
+  const lines = cuts.map(mark => {
+    const flip = mark.x > 60;
+    const shift = flip ? "translateX(calc(-100% - 7px))" : "translateX(7px)";
+    return `<i class="axis-compress-cut" style="--x:${mark.x.toFixed(3)}%" title="${escapeHtml(mark.cutTitle)}" aria-hidden="true"></i>
+      <span class="axis-compress-cut-label" style="--x:${mark.x.toFixed(3)}%;transform:${shift}" title="${escapeHtml(mark.cutTitle)}">${escapeHtml(mark.cutLabel)}</span>`;
+  }).join("");
+  return `<div class="context-axis-lane is-cut">
+    <span class="axis-lane-label" title="压缩分界虚线：虚线以上（更早）的上下文已被折出 provider 历史；对话原文仍保留在时间线上"><span>分界</span><span class="axis-lane-count">×${cuts.length}</span></span>
+    <div class="axis-lane-bar is-cut-bar">${lines}</div>
+  </div>`;
 }
 
 // renderCompressionLane 渲染底部「压缩」轨：在会话推进位置标记历次压缩（刻度
@@ -699,11 +790,11 @@ export function renderContextAxis(records = [], extras) {
   const lanes = view.lanes.map(lane => renderAxisLane(lane, view.window)).join("");
   const hints = [`横轴=页内序号槽位（每块 1 槽，本页 ${view.window.capacity} 槽）`];
   if (prefixSegments.length) hints.push("前缀注入=层文本占比");
-  if (marks.length) hints.push(`压缩 ×${marks.length}（刻度可点击）`);
+  if (marks.length) hints.push(`压缩 ×${marks.length}（刻度+虚线可点击，虚线以上已被折叠）`);
   hints.push("点击块定位轨迹行 · 滚轮翻页 · Shift+滚轮调页大小");
   return `<div class="context-axis" role="group" aria-label="上下文轴：按响应类型分轨，横轴为页内记录序号（非时间轴、非体量轴）">
     <div class="context-axis-head"><strong>上下文轴</strong>${renderAxisPageInfo(view.window, options)}<span class="context-axis-note" data-axis-note>${escapeHtml(options.notice)}</span><span class="context-axis-hint">${escapeHtml(hints.join(" · "))}</span></div>
-    <div class="context-axis-track">${prefixSegments.length ? renderPrefixLane(prefixSegments) : ""}${lanes}${marks.length ? renderCompressionLane(marks) : ""}</div>
+    <div class="context-axis-track">${prefixSegments.length ? renderPrefixLane(prefixSegments) : ""}${lanes}${marks.length ? renderCompressionLane(marks) : ""}${marks.length ? renderCompressionCutRow(marks) : ""}</div>
   </div>`;
 }
 

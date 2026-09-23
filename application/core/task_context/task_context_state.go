@@ -961,8 +961,8 @@ func (c *Coordinator) resolveObjectiveRefLocked(st *sessionTaskRuntime, objectiv
 	return ""
 }
 
-// RecordContextCompactionLocked 记录一次上下文压缩（仅运行中任务；调用方
-// 持有 Core.ViewMu；requestID 反查会话）。
+// RecordContextCompactionLocked 记录一次上下文压缩（运行中任务，或回合已收尾
+// 但来源为显式要求的压缩；调用方持有 Core.ViewMu；requestID 反查会话）。
 func (c *Coordinator) RecordContextCompactionLocked(requestID string, compaction model.ContextCompaction) bool {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
@@ -975,13 +975,29 @@ func (c *Coordinator) _RecordContextCompactionLocked(requestID string, compactio
 		st = c.activeSessionLocked()
 	}
 	state := st.taskExecution
-	if state == nil || state.RequestID != requestID || state.Status != StatusRunning {
+	if state == nil || state.RequestID != requestID {
+		return false
+	}
+	// 记录门槛：任务执行中的压缩一律可记；显式压缩（/compact、compact_context）
+	// 在回合已收尾时同样记——折叠确实发生了（引擎历史已换成有界 checkpoint 帧
+	// 并按会话落盘），只因为"记录只在 Running 时写"就查无实据，前端便完全看不到
+	// 压缩（2026-09-23 实测：回合之间的 /compact 必落 folded_without_record）。
+	// 自动路径保持原口径：收尾后不补记，避免把上一回合的收尾状态误标成
+	// "该回合压缩过"。
+	if state.Status != StatusRunning && !model.ExplicitCompactionOrigin(compaction.Origin) {
 		return false
 	}
 	state.ContextCompactions = append(state.ContextCompactions, compaction)
-	if task := c.Snapshot.Task; task != nil && task.RequestID == requestID {
+	switch task := c.Snapshot.Task; {
+	case task != nil && task.RequestID == requestID:
 		task.ContextCompactions = append([]model.ContextCompaction(nil), state.ContextCompactions...)
 		task.UpdatedAt = compaction.CompactedAt
+	case task == nil && c.isActiveSessionLocked(st.sessionID):
+		// 快照里还没有任务面（冷恢复后直接显式压缩等）：按内存状态重建，否则记录
+		// 只活在内存里、前端依旧空白——用户 2026-09-23 报告"状态里看不到压缩帧"
+		// 的直接来路之一。任务面已存在但属于别的请求时不覆盖（那是另一个会话的
+		// 在飞回合，其状态面归它自己）。
+		c.Snapshot.Task = c._TaskStateFor(st.sessionID)
 	}
 	return true
 }

@@ -4,7 +4,7 @@ const INCREMENTAL_KINDS = new Set([
   "message.added", "message.delta", "tool.started", "tool.completed",
   "subagent.changed", "subagent.tool.started", "subagent.tool.completed",
   "chat.changed", "runtime.changed", "worktable.changed", "task.changed",
-  "interaction.opened", "interaction.closed", "team.changed"
+  "interaction.opened", "interaction.closed", "team.changed", "compaction.progress"
 ]);
 
 // PROCESS_KINDS 是进程级事件（G2/M2）：不带会话归属（session_id 必空），
@@ -69,7 +69,7 @@ export function applyEvent(snapshot, event, lastSeq = 0, snapshotRevisionFloor =
   const next = cloneSnapshot(snapshot, event.revision);
   const applied = applyIncremental(next, event, payload);
   return applied
-    ? { snapshot: next, lastSeq: seq, needsRefresh: false, changed: event.kind }
+    ? { snapshot: next, lastSeq: seq, needsRefresh: false, changed: event.kind, payload }
     : refreshResult(snapshot, seq);
 }
 
@@ -141,6 +141,12 @@ function applyIncremental(snapshot, event, payload) {
     // 载荷不在快照里（团队面板按需 RPC 拉取 AgentTeamView）：这条事件不带快照
     // 事实，因此后端按 revision=0 发布（同 chat.changed 口径），陈旧判据不吃它；
     // reducer 只需把 kind 透给 onIncremental，由应用层作废面板缓存。
+    return true;
+  case "compaction.progress":
+    // 压缩门禁进度也不进快照（压缩记录本身才进，随 snapshot.changed 到达）：
+    // 进度条是一轮压缩的瞬态，reducer 只校验形状并透传载荷给应用层。
+    if (!payload || typeof payload !== "object") return false;
+    if (typeof payload.state !== "string" || !Number.isFinite(Number(payload.total))) return false;
     return true;
   default:
     return false;

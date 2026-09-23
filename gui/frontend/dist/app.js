@@ -16,6 +16,7 @@ import { createGitLogView } from "./git-log-view.js";
 import { createWorkspaceChangesView } from "./workspace-changes.js";
 import { createFilePreviewController } from "./file-preview.js";
 import { renderContextCompactions } from "./context-summary.js";
+import { mergeCompactionProgress } from "./compaction-format.js";
 import { renderGoalInFlight, renderGoalStack } from "./goal-stack-view.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
 import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
@@ -400,6 +401,9 @@ const client = createGUIClient({
     if (sessionID !== lastViewSessionID) {
       lastViewSessionID = sessionID;
       resetAckWatermark();
+      // 门禁进度按会话路由投递：跟着视图走的那条进度条属于上一个会话的折叠，
+      // 切过来还挂着就是把别的会话的压缩说成当前会话的。权威快照随后重绘面板。
+      dropCompactionProgress();
     }
     render(snapshot, options);
   },
@@ -632,7 +636,7 @@ function render(snapshot, options = {}) {
   perfHooks.markRender(performance.now() - started);
 }
 
-function renderIncremental(snapshot, kind) {
+function renderIncremental(snapshot, kind, payload) {
   if (!snapshot) return;
   const started = performance.now();
   if (["message.added", "message.delta", "tool.started", "tool.completed"].includes(kind)) {
@@ -673,6 +677,15 @@ function renderIncremental(snapshot, kind) {
     if (isViewActive(dockState, "trajectory")) refreshPromptInjection();
     return;
   }
+  if (kind === "compaction.progress") {
+    // 门禁进度逐帧落地：它不进快照，若跟表格三类一起进 120ms 尾随合并，中间关
+    // 会被 latest-wins 丢掉，进度条就只剩"开始/结束"两帧——而"走到哪一关了"
+    // 正是这条事件唯一的信息。
+    applyCompactionProgress(payload);
+    repaintCompactions(currentCompactions());
+    perfHooks.markRender(performance.now() - started);
+    return;
+  }
   if (["subagent.changed", "subagent.tool.started", "subagent.tool.completed"].includes(kind)) {
     refreshPlanDetailData(snapshot.runtime?.plan, snapshot.runtime?.subagent_tree);
     if (activeNodeDetailKey) refreshOpenNodeDetail();
@@ -695,17 +708,18 @@ function renderIncremental(snapshot, kind) {
 // ~120ms 尾随合并：窗口内只重绘一次，且始终用最新快照（latest-wins）——渲染是
 // 快照的纯函数，丢掉中间态不会丢信息。
 //
-// 消息/工具/交互/团队类事件不合并：流式增量必须逐帧落地，团队面板走自己的
-// 失效重取路径。合并只改变"什么时候重绘"，不改变快照应用与回执水位
+// 消息/工具/交互/团队/压缩门禁类事件不合并：流式增量必须逐帧落地，团队面板走自己的
+// 失效重取路径，compaction.progress 的中间关一旦按 latest-wins 合并就再也看不见
+// "走到哪一关"。合并只改变"什么时候重绘"，不改变快照应用与回执水位
 // （reportAppliedEvents 仍在 client-state 里逐事件推进）。
 const BUFFERED_INCREMENTAL_KINDS = new Set(["runtime.changed", "worktable.changed", "task.changed"]);
 let bufferedIncrementalSnapshot = null;
 let bufferedIncrementalKinds = new Set();
 let bufferedIncrementalTimer = null;
 
-function renderIncrementalBuffered(snapshot, kind) {
+function renderIncrementalBuffered(snapshot, kind, payload) {
   if (!BUFFERED_INCREMENTAL_KINDS.has(kind)) {
-    renderIncremental(snapshot, kind);
+    renderIncremental(snapshot, kind, payload);
     return;
   }
   bufferedIncrementalSnapshot = snapshot;
@@ -978,6 +992,136 @@ function reportExplorerRefreshFailure(error, info) {
   }
 }
 
+// ── 上下文压缩条目：展开查看折叠帧正文 ────────────────────────
+// 帧正文不进快照（快照只带 frame_ref），展开时按 ref 分页读回；展开与分页都是
+// 本地 UI 状态。容器与分页组件与轨迹详情同一套（.axis-detail +
+// data-compact-frame-load），不自造第二套面板。
+function emptyCompactionDetail() {
+  return { index: -1, loading: false, error: "", text: "", hasMore: false, nextOffset: 0, totalBytes: 0 };
+}
+
+let compactionDetail = emptyCompactionDetail();
+let contextCompactionsBound = false;
+
+// ── 压缩门禁进度（一轮压缩的瞬态）────────────────────────────
+// 后端每收一关发一条 compaction.progress，终局（done/failed）恰好一条，本轮
+// 进度生命周期即结束。载荷不进快照（同 team.changed 口径），所以"现在走到哪
+// 一关"只活在视图侧这份暂存里：终局后保留片刻让人读完结论（含逐关耗时清单），
+// 再自动撤条。
+//
+// 累计逻辑在 compaction-format.mergeCompactionProgress（纯函数，node 测试直接
+// 覆盖）；这里是薄薄一层"存 + 定时撤条"。
+let compactionProgress = null;
+let compactionProgressTimer = null;
+const COMPACTION_PROGRESS_HOLD_MS = 2500;
+const COMPACTION_PROGRESS_FAILED_HOLD_MS = 6000;
+
+// applyCompactionProgress 收一帧门禁进度（显式压缩还会有一条起手帧，见后端
+// event.CompactionPhaseBegin）：按下回车立刻有反馈，不必等判据估算跑完。
+function applyCompactionProgress(payload) {
+  const next = mergeCompactionProgress(compactionProgress, payload);
+  if (!next || next === compactionProgress) return;
+  compactionProgress = next;
+  if (compactionProgressTimer !== null) {
+    window.clearTimeout(compactionProgressTimer);
+    compactionProgressTimer = null;
+  }
+  if (next.state !== "running") {
+    const hold = next.state === "failed" ? COMPACTION_PROGRESS_FAILED_HOLD_MS : COMPACTION_PROGRESS_HOLD_MS;
+    compactionProgressTimer = window.setTimeout(() => {
+      compactionProgressTimer = null;
+      dropCompactionProgress();
+      repaintCompactions(currentCompactions());
+    }, hold);
+  }
+}
+
+// dropCompactionProgress 只作废状态与定时器，不重绘：调用方随后会自己重绘
+// （会话切换由权威快照的 render 负责，此处再画一次会读到切换中的旧记录）。
+function dropCompactionProgress() {
+  if (compactionProgressTimer !== null) {
+    window.clearTimeout(compactionProgressTimer);
+    compactionProgressTimer = null;
+  }
+  compactionProgress = null;
+}
+
+function bindContextCompactions() {
+  const host = elements["context-compactions"];
+  if (contextCompactionsBound || !host) return;
+  contextCompactionsBound = true;
+  host.addEventListener("click", onContextCompactionsClick);
+}
+
+function currentCompactions() {
+  const compactions = client.current()?.task?.context_compactions;
+  return Array.isArray(compactions) ? compactions : [];
+}
+
+// onContextCompactionsClick 一条委托监听：data-compact-open 展开/收起条目，
+// data-compact-frame-load=first|more 首读/续读帧正文（重绘前先落状态，避免闪烁）。
+async function onContextCompactionsClick(event) {
+  const openButton = event.target?.closest?.("[data-compact-open]");
+  const pageButton = event.target?.closest?.("[data-compact-frame-load]");
+  if (!openButton && !pageButton) return;
+  const compactions = currentCompactions();
+  if (openButton) {
+    const index = Number(openButton.dataset.compactOpen);
+    if (compactionDetail.index === index) {
+      compactionDetail = emptyCompactionDetail();
+      repaintCompactions(compactions);
+      return;
+    }
+    compactionDetail = { ...emptyCompactionDetail(), index };
+    repaintCompactions(compactions);
+    const ref = String(compactions[index]?.frame_ref || "");
+    if (ref) await loadCompactionFrame(ref, 0, index, "");
+    repaintCompactions(compactions);
+    return;
+  }
+  const index = compactionDetail.index;
+  const ref = String(compactions[index]?.frame_ref || "");
+  if (!ref) return;
+  const mode = pageButton.dataset.compactFrameLoad;
+  const offset = mode === "more" ? Number(compactionDetail.nextOffset || 0) : 0;
+  if (mode === "more" && !(offset > 0)) return;
+  await loadCompactionFrame(ref, offset, index, mode === "more" ? compactionDetail.text : "");
+  repaintCompactions(compactions);
+}
+
+// loadCompactionFrame 按 ref 分页读取折叠帧正文。失败只更新条目内的错误文案
+// （用户就在这里，不再弹全局提示）；不改变展开状态本身。
+async function loadCompactionFrame(ref, offset, index, previousText) {
+  const base = compactionDetail;
+  compactionDetail = {
+    index, loading: true, error: "", text: String(previousText || ""),
+    hasMore: base.hasMore, nextOffset: Number(base.nextOffset || 0), totalBytes: Number(base.totalBytes || 0)
+  };
+  repaintCompactions(currentCompactions());
+  try {
+    const page = await invoke("ToolResultContent", ref, offset, 12000);
+    compactionDetail = {
+      index, loading: false, error: "",
+      text: String(previousText || "") + String(page?.content || ""),
+      hasMore: Boolean(page?.has_more), nextOffset: Number(page?.next_offset || 0),
+      totalBytes: Number(page?.total_bytes || 0)
+    };
+  } catch (error) {
+    compactionDetail = { ...compactionDetail, index, loading: false, error: String(error) };
+  }
+}
+
+// repaintCompactions 是右栏「上下文压缩」面板的唯一出口：记录列表 + 本轮门禁
+// 进度条一起画，可见性判据必须同源——折叠发生在写记录之前，"零记录"时面板
+// 仍可能有一轮压缩正在跑，按记录数判隐藏会让第一次折叠看不到进度条。
+function repaintCompactions(compactions) {
+  const host = elements["context-compactions"];
+  if (!host) return;
+  const list = Array.isArray(compactions) ? compactions : [];
+  host.innerHTML = renderContextCompactions(list, { detail: compactionDetail, progress: compactionProgress });
+  host.classList.toggle("hidden", list.length === 0 && !compactionProgress);
+}
+
 function renderProject(snapshot) {
   const workspace = snapshot.current_workspace || null;
   const runtime = snapshot.runtime || {};
@@ -992,8 +1136,8 @@ function renderProject(snapshot) {
       ? `Current task is running with ${runtime.plugin || "default"} capabilities in this project scope.`
       : `This session can read and write only within ${workspace.name}.`)
     : "Select a project to define this session's read and write scope.";
-  elements["context-compactions"].innerHTML = renderContextCompactions(compactions);
-  elements["context-compactions"].classList.toggle("hidden", compactions.length === 0);
+  repaintCompactions(compactions);
+  bindContextCompactions();
   syncExplorerData(snapshot, running);
 }
 
@@ -3117,7 +3261,7 @@ function bindSuggestionList(container) {
 }
 
 function suggestionIcon(kind) {
-  return ({ skill: "skill", plugin: "plugin", tool: "terminal", command: "command", team: "team" })[kind] || "command";
+  return ({ skill: "skill", plugin: "plugin", command: "command", team: "team" })[kind] || "command";
 }
 
 function acceptSuggestion(suggestion, trigger) {

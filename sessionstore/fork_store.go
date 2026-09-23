@@ -7,6 +7,14 @@
 //     拷贝（T-FK-01）；
 //   - fork subagent = session/subagent_<hash>/ 子树（metadata/message/event
 //     同构），无独立 big_tool_result（复用主会话 blob，T-FK-05/06）。
+//
+// 两条路的继承策略不同，改动前先认路（应用侧声明见
+// application/core/session_runtime/fork.go 头部）：
+//   - fork session：深拷贝 + 子会话自己的 refs 索引；应用侧
+//     `Coordinator.PrepareFork` 把可达 ref 裁到切断点，读取受索引约束——
+//     `jsonRepository.ReadToolResult` 对不在索引里的 ref 返回 not-exist；
+//   - fork subagent：复用主会话 blob（T-FK-05/06），派发链不经过应用侧
+//     `Coordinator.PrepareFork`，因此没有"按 ref 裁剪可达集合"这一步。
 package sessionstore
 
 import (

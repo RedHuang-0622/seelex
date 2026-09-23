@@ -142,12 +142,13 @@ func TestSuggestionsAndSkillRouting(t *testing.T) {
 	service := newTestService(t, engine)
 	defer service.Shutdown()
 	suggestions := service.Suggestions("/R")
-	if len(suggestions) != 3 || suggestions[0].Kind != "command" || suggestions[1].Kind != "tool" || suggestions[2].Kind != "skill" {
+	if len(suggestions) != 2 || suggestions[0].Kind != "command" || suggestions[1].Kind != "skill" {
 		t.Fatalf("unexpected suggestions: %#v", suggestions)
 	}
-	// sigil 契约：每个前缀只回自己那一域（`/` 指令 + `#` Plugin + `$` Skill +
-	// `@` 手动召唤团队），不互相兜底。`/` 是全量入口（命令/工具/Skill 混排），
-	// 因此只对它断言"含有该域候选"，其余前缀断言"整列只有一个域"。
+	// sigil 契约：每个前缀只回自己那一域（`/` 可执行入口 + `#` Plugin + `$` Skill +
+	// `@` 手动召唤团队），不互相兜底。`/` 列命令与 Skill 两类可执行入口（工具不在
+	// 这里——要用 /名字 显式调用先把它注册成命令），因此只对它断言"含有该域候选"，
+	// 其余前缀断言"整列只有一个域"。
 	for _, testCase := range []struct {
 		input, kind, member string
 		exclusive           bool

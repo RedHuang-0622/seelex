@@ -121,10 +121,11 @@ app.js 在启动时构造：
 （`application/core/completion.go` 的 `SigilCommand/SigilPlugin/SigilSkill/SigilTeam`
 与路由表 `application/core/input_router/router.go`）。四个 trigger：
 
-- `/`：命令与工具（保留全量入口，也列 Skill）。**面板列出 ≠ 提交可执行**：输入框
-  只执行命令与 Skill（工具由模型调用、经权限门），打 `/<工具名>`（如 `compact_context`）
-  不会被当成工具调用——未知命令提示会指出它是模型侧工具，并给出同名能力的命令入口
-  （`compact_context` → `/compact`；`/help` 也写明这条口径）；
+- `/`：**只列可执行入口**——命令与 Skill（Skill 也可用 `$<name>`）。工具不在这里出现：
+  工具由模型调用、经权限门，输入框既不执行它、面板也不列它。一个能力要让用户打
+  `/名字` 显式调用，前提是它已注册成命令（例如压缩：命令入口 `/compact`，工具入口
+  `compact_context` 归模型）。打 `/<工具名>` 时未知命令提示会指出它是模型侧工具，并
+  给出同名能力的命令入口（`compact_context` → `/compact`；`/help` 也写明这条口径）；
 - `#`：切换 Plugin（含 `#off` = 停用全部）；
 - `$`：召回 Skill（激活到当前会话）；
 - `@`：手动召唤团队（内置形态 + 团队库条目，装配到当前会话）。写法 `@<团队> [附言]`：

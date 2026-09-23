@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -212,8 +213,10 @@ type CompactResult struct {
 // 三种提前返回都如实分类，不伪造压缩、也不谎报理由：
 //   - 没有执行纪元（冷加载/刚清空）→ 登记"下一条消息组装时立即压缩"
 //     （CompactScheduled），不伪造一个假纪元；
-//   - 折叠已发生但任务执行已收尾 → 引擎历史确实被有界 checkpoint 替换并按会话
-//     落盘，只是压缩记录不产生（记录只在 Running 时写）→ CompactFoldedUnrecorded；
+//   - 折叠已发生但记录被拒 → 引擎历史确实被有界 checkpoint 替换并按会话落盘，
+//     只是这条压缩没进记录面 → CompactFoldedUnrecorded。显式路径正常必落记录
+//     （记录门槛对显式来源放宽到"回合已收尾也记"），走到这里只可能是该请求的
+//     执行面已被新回合替换；自动路径在回合收尾后按口径不补记，也会落到这一类；
 //   - 判据没命中（显式路径正常不会发生，兜底）→ CompactBelowThreshold。
 func (c *Coordinator) CompactContextNow(sessionID string) (CompactResult, error) {
 	sessionID = strings.TrimSpace(sessionID)
@@ -291,7 +294,7 @@ func (c *Coordinator) PrepareExecutionContextFor(sessionID, requestID, currentIn
 // compact_context）据此如实报告结果，而不是拿别的数字（如装配后估算）反推。
 type compactDecision struct {
 	Folded          bool // 本次是否折叠了可变 transcript（原 compacting 判据）
-	Recorded        bool // 是否落了压缩记录（记录只在任务执行 Running 时产生）
+	Recorded        bool // 是否落了压缩记录（由 task_context 的记录门槛判定）
 	Version         uint64
 	ComparedTokens  int // 判据量：全量累积/引擎缓存峰值的请求估算（rawTokens）
 	AssembledTokens int // 装配后估算（estimated，真正发给 provider 的大小）
@@ -310,7 +313,20 @@ type prepareOptions struct {
 	decision *compactDecision
 }
 
-func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentInput string, options prepareOptions) (string, error) {
+// compactionOrigin 判定一轮折叠的来源：自动路径（软/硬阈值、自主压缩）记 auto，
+// 显式要求（/compact、compact_context）记 explicit；回合已收尾时的显式要求记
+// explicit_after_turn——记录门槛按它放行，否则「回合之间压缩」在前端彻底不可见。
+func compactionOrigin(options prepareOptions, state *task_context.TaskExecutionState) string {
+	if !options.forceCompact {
+		return model.CompactionOriginAuto
+	}
+	if state.Status != task_context.StatusRunning {
+		return model.CompactionOriginExplicitAfterTurn
+	}
+	return model.CompactionOriginExplicit
+}
+
+func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentInput string, options prepareOptions) (out string, err error) {
 	// 显式压缩的「下一条消息兑现」：没有执行纪元时登记的强压在这里取走，
 	// 本次装配即按显式路径折叠（先压后发，压缩对本条消息立即生效）。
 	if !options.forceCompact && c.consumePendingForceCompact(sessionID) {
@@ -349,6 +365,25 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	}
 	events := append([]model.TranscriptEvent(nil), c.tasks.TranscriptFor(sessionID)...)
 	events = excludeCurrentInputEvent(events, requestID, currentInput)
+	// 门禁进度：显式路径（/compact、compact_context）在动第一个重活之前就开轮，
+	// 并立刻发起手帧——从"按下回车"到"判据关收口"之间要跑两次全量请求估算
+	// （原始累积上下文 + 引擎缓存峰值），是整轮里最长的一段；没有这帧，界面在这
+	// 段时间里完全空白（用户看到的是"按了没反应"，然后突然冒出一条已完成的压缩
+	// 记录，于是合理地怀疑"只有前端、后端没接线"）。
+	//
+	// 自动路径提前不了：要不要折叠正是这次估算的结果。显式路径可以——fold 判据里
+	// forceCompact 恒为真（fold := ... || options.forceCompact），所以这里开轮与
+	// 下方 `if fold` 一定配对，"没折叠"的轮次不会为不存在的事发进度。
+	//
+	// 起手帧的版本号此刻还不存在（新版本在下方 newCheckpoint 里定稿），发 0 表示
+	// "未定"；判据关收口时用 setVersion 补正，绝不先猜一个版本号。
+	var progress *compactionProgress
+	var recorded bool
+	if options.forceCompact {
+		progress = c.startCompactionProgress(sessionID, requestID, 0, compactionOrigin(options, state))
+		progress.begin()
+		defer func() { progress.settle(err, recorded, "") }()
+	}
 	// 达峰判定以全量累积 context 为准（而非可能已被框架压缩的引擎历史）：
 	// 与引擎缓存估算取峰值，压缩是唯一使累积前缀失效的事件。
 	fullContext := task_context.TranscriptTailHistory(events, budget.Budget, 0)
@@ -384,9 +419,28 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	}
 	checkpoint := c.tasks.BuildTaskCheckpointLocked(state)
 	checkpoint.Version = state.ContextVersion
+	// 压缩来源在折叠这一刻判定一次：进度面与压缩记录必须写同一个 origin，两处
+	// 分别采样 status 会让同一次折叠对不上号。
+	origin := compactionOrigin(options, state)
 	summary := state.ContextSummary()
 	planMessage := c.planContextMessageLocked(sessionID)
 	c.ViewMu.Unlock()
+
+	// 门禁进度：只有真的要折叠才开一轮。"没有纪元、登记为下一条消息兑现"与
+	// "未达判据"都不是压缩进行中——为没发生的事画进度条，比没有进度条更糟。
+	// 显式路径的轮次已在估算之前开好（见上），这里只补正版本号。
+	if fold {
+		if progress == nil {
+			progress = c.startCompactionProgress(sessionID, requestID, checkpoint.Version, origin)
+			defer func() { progress.settle(err, recorded, "") }()
+		} else {
+			// 起手帧发出时新版本号还没定稿（发的是 0=未定）：判据关收口时补上，
+			// 否则进度条上的 #N 会缺一截，或者对到上一条压缩记录上。
+			progress.setVersion(checkpoint.Version)
+		}
+		progress.gate(CompactionGateJudge, fmt.Sprintf("compared=%d all=%d soft=%d hard=%d",
+			rawTokens, allContextTokens, budget.SoftThreshold, budget.HardThreshold))
+	}
 
 	systems := RetainedSystemHistory(c.engineHistory(sessionID))
 	// 保留前缀窗口（软压缩）：min(token1, token2)，见上方 windowConfig 注释。
@@ -438,6 +492,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 			assembled, estimated, autonomous = compressed, compressedTokens, true
 		}
 	}
+	progress.gate(CompactionGateAssemble, fmt.Sprintf("assembled=%d target=%d autonomous=%t", estimated, target, autonomous))
 	if estimated > budget.Budget {
 		return "", fmt.Errorf("%w: estimated=%d budget=%d", ErrProviderContextBudgetExceeded, estimated, budget.Budget)
 	}
@@ -447,10 +502,10 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	if err := c.history.PrepareProviderHistoryFor(sessionID); err != nil {
 		return "", err
 	}
+	progress.gate(CompactionGateReplace, fmt.Sprintf("messages=%d", len(assembled)))
 
 	c.ViewMu.Lock()
 	state = c.tasks.CurrentTaskExecutionFor(sessionID)
-	recorded := false
 	var revision uint64
 	if state != nil && state.RequestID == requestID {
 		state.TokenAudit = model.TokenAudit{
@@ -465,6 +520,9 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 			state.ContextVersion++
 			state.CompactedEpoch = state.ProgressEpoch
 			checkpoint.Version = state.ContextVersion
+			// 进度面跟随同一个版本：判定关取数时自主压缩还没发生，不校正就会
+			// 把进度条对到上一条压缩记录上。
+			progress.setVersion(checkpoint.Version)
 		}
 		if newCheckpoint || autonomous {
 			c.tasks.RememberCheckpointLocked(checkpoint)
@@ -480,15 +538,41 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 				compressedTo = len(transcript)
 			}
 			compacted := task_context.TranscriptPrefixRange(transcript, compressedTo)
-			recorded = c.tasks.RecordContextCompactionLocked(requestID, model.ContextCompaction{
-				Version: checkpoint.Version, Reason: reason, MessagesBefore: len(existing),
+			record := model.ContextCompaction{
+				Version: checkpoint.Version, Reason: reason, Origin: origin,
+				MessagesBefore:  len(existing),
 				EstimatedTokens: rawTokens, CompactedAt: time.Now(),
 				MessageFrom: compacted.MessageFrom, MessageTo: compacted.MessageTo,
 				EventFrom: compacted.EventFrom, EventTo: compacted.EventTo,
+			}
+			// 帧正文落会话内容存储：快照只带 ref，前端按 ref 分页回读。此前帧
+			// 正文只活在内存 engine history（回合收尾即被剔除）、摘要只进自主
+			// 压缩的 wire 正文，前端因此"看得到压缩、看不到帧"。
+			frame := compactionFrameBody(compactionFrameInput{
+				Version:         checkpoint.Version,
+				Reason:          reason,
+				Origin:          origin,
+				At:              record.CompactedAt,
+				RangeLabel:      model.CompactionRangeLabel(record.MessageFrom, record.MessageTo, record.EventFrom, record.EventTo),
+				ComparedTokens:  rawTokens,
+				AssembledTokens: estimated,
+				SoftThreshold:   budget.SoftThreshold,
+				HardThreshold:   budget.HardThreshold,
+				Evidence:        summary,
+				PlanMessage:     planMessage,
+				Injected:        autonomous,
 			})
+			if strings.TrimSpace(frame) != "" {
+				stored := c.tasks.StoreToolResultForLocked(sessionID, compactionFrameTool, frame)
+				record.FrameRef, record.FrameBytes, record.FrameTokens = stored.Ref, stored.Size, stored.TokenCount
+				progress.gate(CompactionGateFrame, fmt.Sprintf("bytes=%d injected=%t", len(frame), autonomous))
+				progress.gate(CompactionGateStore, fmt.Sprintf("bytes=%d tokens=%d", record.FrameBytes, record.FrameTokens))
+			}
+			recorded = c.tasks.RecordContextCompactionLocked(requestID, record)
 			if recorded {
 				revision = c.view.BumpLocked()
 			}
+			progress.gate(CompactionGateRecord, fmt.Sprintf("recorded=%t version=%d", recorded, checkpoint.Version))
 		}
 		if options.decision != nil {
 			// 压缩判据事实（显式入口据此如实报告，不拿别的数字反推）：
@@ -621,6 +705,73 @@ func AutonomousCompactionMessage(summary string) string {
 		builder.WriteString("\n")
 	} else {
 		builder.WriteString("\nNo durable checkpoint evidence is available; rely on the current request and re-read as needed.\n")
+	}
+	return builder.String()
+}
+
+// compactionFrameMarker 标记回读用的帧正文（内容存储里的正文，不是 wire 消息；
+// 与 seelexctx 的 checkpoint/压缩帧标记无关，不会被 history_safety 清理）。
+const compactionFrameMarker = "<!-- seelex:context-checkpoint-frame:v1 -->"
+
+// compactionFrameTool 是帧正文在会话内容存储里登记的工具名：前端/审计据此分辨
+// "这不是工具输出，而是折叠那一刻留下的有界 checkpoint 帧"。
+const compactionFrameTool = "context_compaction_frame"
+
+// compactionFrameInput 是渲染帧正文所需的**事实**：全部取自这次折叠本身，
+// 不做二次推算（区间取记录值、token 取判据量与装配量、证据取当次摘要）。
+type compactionFrameInput struct {
+	Version         uint64
+	Reason          string
+	Origin          string
+	At              time.Time
+	RangeLabel      string // 消息/事件区间（model.CompactionRangeLabel；空 = 无边界可记）
+	ComparedTokens  int
+	AssembledTokens int
+	SoftThreshold   int
+	HardThreshold   int
+	Evidence        string // 有界任务证据摘要（TaskExecutionState.ContextSummary；可能为空）
+	PlanMessage     string // 随帧保留的 plan 尾部（可能为空）
+	Injected        bool   // 帧正文是否真的进了 provider 历史（自主压缩 = 是）
+}
+
+// compactionFrameBody 渲染「有界 checkpoint 帧」正文（供前端/审计回读的那一份）。
+//
+// 它必须如实回答三件互不相同的事：折叠把哪一段折出了 provider 历史、模型现在
+// 拿到的替代物是什么、留下的有界证据是什么。尤其是 Injected——普通显式压缩走
+// "保留窗口"路径（稳定 system 前缀 + 保留窗口 + plan），**并没有**把证据摘要注入
+// provider 历史；只有自主压缩才把帧正文作为 system 消息发出去。把两者写成同一句
+// 话，就等于告诉用户"模型看得到这份摘要"，而那是假的。
+func compactionFrameBody(input compactionFrameInput) string {
+	var builder strings.Builder
+	builder.WriteString(compactionFrameMarker)
+	builder.WriteString("\n# Context checkpoint frame v")
+	builder.WriteString(strconv.FormatUint(input.Version, 10))
+	builder.WriteString("\n\n")
+	fmt.Fprintf(&builder, "reason: %s · origin: %s · at: %s\n",
+		input.Reason, input.Origin, input.At.Format("2006-01-02 15:04:05Z07:00"))
+	if input.RangeLabel != "" {
+		fmt.Fprintf(&builder, "folded: %s（这段被折出 provider 历史；原文仍在会话存储里，可按区间回读）\n", input.RangeLabel)
+	} else {
+		builder.WriteString("folded: 本次没有可记的区间边界\n")
+	}
+	fmt.Fprintf(&builder, "tokens: compared %d → assembled %d (soft %d / hard %d)\n",
+		input.ComparedTokens, input.AssembledTokens, input.SoftThreshold, input.HardThreshold)
+	if input.Injected {
+		builder.WriteString("injected: yes —— 帧正文（自主压缩帧）已作为 system 消息进入 provider 历史\n")
+	} else {
+		builder.WriteString("injected: no —— 本次走保留窗口路径：provider 历史 = 稳定 system 前缀 + 保留窗口 + plan，未注入下面的证据摘要\n")
+	}
+	builder.WriteString("\n## Task evidence checkpoint\n")
+	if evidence := strings.TrimSpace(input.Evidence); evidence != "" {
+		builder.WriteString(evidence)
+		builder.WriteString("\n")
+	} else {
+		builder.WriteString("（本次折叠没有可回读的任务证据摘要：objective、检查点证据与工具结果都不足。）\n")
+	}
+	if plan := strings.TrimSpace(input.PlanMessage); plan != "" {
+		builder.WriteString("\n## Plan tail (kept in provider history)\n")
+		builder.WriteString(plan)
+		builder.WriteString("\n")
 	}
 	return builder.String()
 }

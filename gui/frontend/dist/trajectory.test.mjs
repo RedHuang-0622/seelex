@@ -27,7 +27,8 @@ import {
   compactionMarks,
   resolveAxisPage,
   stepAxisPageSize,
-  escapeHtml
+  escapeHtml,
+  compactionRangeText
 } from "./trajectory.js";
 
 // 模拟后端 conversation 消息（Snapshot 契约：role + tool 对象）。
@@ -311,18 +312,94 @@ test("axis detail renders escaped prefix layer text on demand", () => {
   assert.match(html, /每请求前置（system 前缀）/);
 });
 
-test("axis detail renders public compaction metadata without private content", () => {
+test("axis detail renders compaction range, origin and read-back entry", () => {
   const records = buildTrajectory([userMessage("u1", "hi")]);
   const compactions = [
-    { version: 3, reason: "context_budget", messages_before: 88, estimated_tokens: 200_000, compacted_at: "2026-08-25T10:00:01Z" }
+    {
+      version: 3, reason: "context_budget", origin: "explicit_after_turn", messages_before: 88,
+      estimated_tokens: 200_000, compacted_at: "2026-08-25T10:00:01Z",
+      message_from: "message-1", message_to: "message-8", event_from: 1, event_to: 6,
+      frame_ref: "tr-frame", frame_bytes: 512, frame_tokens: 160
+    }
   ];
   const mark = compactionMarks(records, compactions)[0];
   const html = renderAxisDetail({ type: "compression", mark });
   assert.match(html, /上下文压缩 #3/);
-  assert.match(html, /88/);
+  assert.match(html, /消息 message-1\.\.message-8（事件 1\.\.6）/);
+  assert.match(html, /来源 显式要求（回合后）/);
   assert.match(html, /200,000/);
-  assert.match(html, /read_compressed_turn/);
-  assert.doesNotMatch(html, /checkpoint 正文/);
+  assert.match(html, /tr-frame/);
+  // 前端自己的入口：不再把用户甩给模型侧工具（read_compressed_turn）。
+  assert.match(html, /data-compact-frame-load="first"/);
+  assert.doesNotMatch(html, /read_compressed_turn/);
+  // messages_before 是装配前的引擎历史条数，不得冒充"压缩前 88 条消息"。
+  assert.doesNotMatch(html, /88 条/);
+});
+
+test("axis detail reads back the folded frame body page by page", () => {
+  const records = buildTrajectory([userMessage("u1", "hi")]);
+  const compactions = [
+    { version: 4, reason: "context_budget", frame_ref: "tr-frame", frame_bytes: 90, frame_tokens: 20 }
+  ];
+  const mark = compactionMarks(records, compactions)[0];
+  const loading = renderAxisDetail({ type: "compression", mark, frame: { loading: true, text: "" } });
+  assert.match(loading, /读取中…/);
+  const first = renderAxisDetail({
+    type: "compression", mark,
+    frame: { loading: false, error: "", text: "# Context checkpoint frame v4\nfolded: 消息 message-1..message-8", hasMore: true, nextOffset: 40, totalBytes: 90 }
+  });
+  assert.match(first, /折叠帧正文/);
+  assert.match(first, /Context checkpoint frame v4/);
+  assert.match(first, /data-compact-frame-load="more"/);
+  assert.match(first, /剩余约 50 bytes/);
+  const last = renderAxisDetail({
+    type: "compression", mark,
+    frame: { loading: false, error: "", text: "tail", hasMore: false, nextOffset: 90, totalBytes: 90 }
+  });
+  assert.match(last, /已加载完/);
+  assert.doesNotMatch(last, /data-compact-frame-load="more"/);
+});
+
+test("axis detail says so when a record has no frame body", () => {
+  const records = buildTrajectory([userMessage("u1", "hi")]);
+  const mark = compactionMarks(records, [{ version: 1, reason: "context_budget" }])[0];
+  const html = renderAxisDetail({ type: "compression", mark });
+  assert.match(html, /本次没有可回读正文/);
+});
+
+test("compactionRangeText keeps to recorded boundaries", () => {
+  assert.equal(
+    compactionRangeText({ message_from: "message-1", message_to: "message-8", event_from: 1, event_to: 6 }),
+    "消息 message-1..message-8（事件 1..6）"
+  );
+  assert.equal(compactionRangeText({ message_from: "message-3", message_to: "message-3" }), "消息 message-3");
+  assert.equal(compactionRangeText({ event_from: 2, event_to: 5 }), "事件 2..5");
+  assert.equal(compactionRangeText({ messages_before: 88 }), "");
+});
+
+test("compression cut line marks where the prefix was folded", () => {
+  const records = buildTrajectory([userMessage("u1", "hi"), llmMessage("a1", "hello")]);
+  const compactions = [
+    { version: 5, reason: "context_budget", message_from: "message-1", message_to: "message-2", event_from: 1, event_to: 4,
+      compacted_at: "2026-08-25T10:00:01Z" }
+  ];
+  const html = renderContextAxis(records, { compactions });
+  assert.match(html, /axis-compress-cut/);
+  assert.match(html, /以上 消息 message-1\.\.message-2（事件 1\.\.4）已被折叠/);
+  assert.match(html, /虚线以上已被折叠/);
+});
+
+test("compression cut line stays out of clamped ticks", () => {
+  // 压缩点早于已加载窗口：刻度被钳到轴起点，位置不真实 → 不画分界虚线（只留刻度）。
+  const records = buildTrajectory([userMessage("u1", "hi")]);
+  const compactions = [
+    { version: 1, reason: "context_budget", compacted_at: "2020-01-01T00:00:00Z", message_from: "message-9", message_to: "message-9" }
+  ];
+  const marks = compactionMarks(records, compactions, { pageSize: 1 });
+  assert.equal(marks[0].anchored, false);
+  const html = renderContextAxis(records, { compactions, pageSize: 1 });
+  assert.doesNotMatch(html, /axis-compress-cut/);
+  assert.match(html, /本页没有压缩点的分界/);
 });
 
 test("renders filters with counts and active state", () => {

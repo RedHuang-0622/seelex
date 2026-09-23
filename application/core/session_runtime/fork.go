@@ -1,3 +1,16 @@
+// 会话分叉（**ForkSession**）的继承与裁剪规则。
+//
+// 声明：本文件每一条规则都只描述 **ForkSession** —— 用户触发的「分叉会话」
+// （`Service.ForkSession` / `ForkSessionLatest`、`/fork` 命令、GUI
+// `Bridge.ForkSessionLatest`）。它产出的是**独立项目级会话**：截断后的
+// record/事件流/四栈快照 + tool-results 整通道物理复制（删父安全，T-FK-07）。
+//
+// **ForkSubagent 不走本文件**（`fork_subagents`）：子代理现场由 workplan DAG
+// 派发（`seelebridge/fork`），存储侧由 `sessionstore.newSubagent` 建
+// `subagent_<hash>/` 子树，**不建独立 blob 目录**、大工具输出引用主会话
+// `big_tool_result`（my_design §8.2 / T-FK-05/06）。这条派发链不调用
+// `PrepareFork`，所以「按 ref 裁剪可达集合」这一步对它根本不发生——要改子代理
+// 的继承口径，改存储侧（`sessionstore/fork_store.go`），不要在这里加减规则。
 package session_runtime
 
 import (
@@ -30,6 +43,9 @@ type ForkContext struct {
 // 重写 CoversEventRange；压缩帧内 fork 走整帧继承 + 帧范围重写；四栈按
 // fork 时刻过滤为子会话独立栈起点。tool-results 的物理复制不在这里做——
 // 由 fork 流程调用 CloneSessionWorkspace 整通道复制（删父安全的前提）。
+//
+// 入口是 ForkSession（见本文件头部声明）；ForkSubagent 不经此函数，子代理
+// 现场与 blob 复用由存储侧负责。
 func (c *Coordinator) PrepareFork(location Location, childID, parentID string, request model.ForkRequest) (ForkContext, error) {
 	childID = strings.TrimSpace(childID)
 	parentID = strings.TrimSpace(parentID)
@@ -238,6 +254,14 @@ func forkInheritedEvents(events []sessionstore.Event, cut uint64) []sessionstore
 // truncateForkRecord 把父 SessionRecord 截断到 fork 时刻：Conversation/
 // Tasks/PlanStack/Checkpoints/Projection/Execution 一律截断，CoversEventRange
 // 重写为切断点；ToolResults 注册表只保留子会话可达的 ref。
+//
+// 口径声明（**ForkSession**）：这里裁的是独立子会话的注册表，它同时是子会话
+// refs 索引与 blob 复制清单的上游——`jsonRepository.ReadToolResult` 对不在索引
+// 里的 ref 直接返回 not-exist，所以裁多了就是子会话读不到、裁少了就是漏出
+// fork 点之后的内容。ForkSubagent 不调用本函数（也不调用 PrepareFork）。
+//
+// 压缩记录（ContextCompactions）按**整批历史证据**继承：结论（状态/计划）晚于
+// 切断点会被清空，压缩记录连同其 FrameRef 保留，见下方可达集合。
 func truncateForkRecord(record model.SessionRecord, events []sessionstore.Event, frames []sessionstore.CompactFrame, cutTime time.Time, displayUserInput func(string) string) model.SessionRecord {
 	now := time.Now().UTC()
 	cut := forkCutSeq(events)
@@ -412,10 +436,12 @@ func forkReadFiles(files []model.ReadFileRef, cutTime time.Time) []model.ReadFil
 	return result
 }
 
-// reachableToolResultRefs 汇总子会话可达的 tool-result ref：继承事件流的
-// ResultRef、截断后 checkpoint/Projection 的 ToolResultRefs、继承压缩帧的
-// Evidence 与 compressed:<segment_id> 原文归档。注册表只保留可达 ref，
-// 防止子会话通过 read_tool_result 提示触达 fork 点之后的内容。
+// reachableToolResultRefs 汇总**会话分叉（ForkSession）**子会话可达的
+// tool-result ref：继承事件流的 ResultRef、截断后 checkpoint/Projection 的
+// ToolResultRefs、继承压缩帧的 Evidence 与 compressed:<segment_id> 原文归档。
+// 注册表只保留可达 ref，防止子会话通过 read_tool_result 提示触达 fork 点
+// 之后的内容。（ForkSubagent 不经过这里——子代理派发链不调用本函数；
+// 两条路的存储形态见 `sessionstore/fork_store.go` 头部与 my_design §8。）
 func reachableToolResultRefs(events []sessionstore.Event, record model.SessionRecord, frames []sessionstore.CompactFrame) map[string]struct{} {
 	reachable := make(map[string]struct{})
 	for _, event := range events {
@@ -426,6 +452,23 @@ func reachableToolResultRefs(events []sessionstore.Event, record model.SessionRe
 	for _, checkpoint := range record.Checkpoints {
 		for _, ref := range checkpoint.ToolResultRefs {
 			reachable[ref] = struct{}{}
+		}
+	}
+	// 压缩记录的帧正文（ContextCompactions[].FrameRef，**ForkSession** 口径）：右栏
+	// 「上下文压缩」与轨迹详情按它回读折叠帧正文，而子会话是整批继承压缩记录
+	// （见 truncateForkRecord：晚于切断点的结论不继承、压缩历史保留），所以这些
+	// 记录的 FrameRef 必须跟着可达——漏掉它，子会话里每条压缩条目都报「读取
+	// 失败」，而正文其实还在存储里（ref 不在子会话 refs 索引里，
+	// `jsonRepository.ReadToolResult` 直接返回 not-exist）。
+	//
+	// 口径是"跟着被继承的记录走"，**不是**"按时间过滤"：记录本身不按切断点裁，
+	// 所以切断点之后产生的压缩记录也会继承、也会可读。要改成"后切记录不进子
+	// 会话"，必须同时改记录侧（truncateForkRecord），否则记录与可读性脱钩。
+	if record.Execution.Task != nil {
+		for _, compaction := range record.Execution.Task.ContextCompactions {
+			if compaction.FrameRef != "" {
+				reachable[compaction.FrameRef] = struct{}{}
+			}
 		}
 	}
 	if record.Projection != nil {

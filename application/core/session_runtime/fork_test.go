@@ -149,6 +149,9 @@ func forkTestFixture() (*forkTestSessions, time.Time) {
 				UpdatedAt: t4,
 				ContextCompactions: []model.ContextCompaction{{
 					Version: 1, Reason: "window", MessagesBefore: 5, EstimatedTokens: 10, CompactedAt: t2,
+					// frame_ref 指向折叠帧正文（会话内容存储）：fork 点之前产生的帧，
+					// 必须跟着子会话可达，否则右栏「上下文压缩」在子会话里读不回来。
+					FrameRef: "tr-frame-before", FrameBytes: 64, FrameTokens: 20,
 				}},
 			},
 			Continuation: "latest request summary",
@@ -157,6 +160,7 @@ func forkTestFixture() (*forkTestSessions, time.Time) {
 			{Ref: "result:read", Tool: "read"},
 			{Ref: "result:checkpoint", Tool: "checkpoint"},
 			{Ref: sessionstore.CompressedTurnRefPrefix + "seg-cross", Tool: "compact_frame"},
+			{Ref: "tr-frame-before", Tool: "context_compaction_frame"},
 			{Ref: "result:later", Tool: "later"},
 		},
 		UpdatedAt: t5,
@@ -274,7 +278,7 @@ func TestPrepareForkTruncatesToRequestBoundary(t *testing.T) {
 	if record.Execution.Continuation != "" {
 		t.Fatalf("continuation must not be inherited: %q", record.Execution.Continuation)
 	}
-	wantRefs := []string{"result:read", "result:checkpoint", sessionstore.CompressedTurnRefPrefix + "seg-cross"}
+	wantRefs := []string{"result:read", "result:checkpoint", sessionstore.CompressedTurnRefPrefix + "seg-cross", "tr-frame-before"}
 	gotRefs := make(map[string]bool, len(record.ToolResults))
 	for _, ref := range record.ToolResults {
 		gotRefs[ref.Ref] = true
@@ -324,6 +328,43 @@ func TestPrepareForkTruncatesToRequestBoundary(t *testing.T) {
 	}
 	if len(frame.Evidence) != 1 || frame.Evidence[0].Ref != "result:evidence" {
 		t.Fatalf("frame evidence lost: %#v", frame.Evidence)
+	}
+}
+
+// TestForkSessionKeepsCompactionFrameRefReachable 声明并钉住**会话分叉
+// （ForkSession）**这一侧的可达集合口径：子会话继承的压缩记录
+// （ContextCompactions[].FrameRef）必须留在子会话注册表里——它是右栏「上下文
+// 压缩」与轨迹详情回读帧正文的入口，ref 不在子会话 refs 索引里就会读成
+// not-exist（正文其实还在存储里）；而 fork 点之后的 ref（result:later）必须被裁掉。
+//
+// 反面对照（故意不在本测试覆盖）：ForkSubagent 走 `fork_subagents` DAG +
+// `sessionstore.newSubagent`，子代理复用主会话 big_tool_result、没有独立 refs
+// 索引，因此不经过 truncateForkRecord，也就没有这条按 ref 裁剪。
+func TestForkSessionKeepsCompactionFrameRefReachable(t *testing.T) {
+	sessions, _ := forkTestFixture()
+	coordinator := newForkTestCoordinator(t, sessions)
+
+	forkContext, err := coordinator.PrepareFork(Location{WorkspaceID: "ws-1"}, "child", "parent", model.ForkRequest{RequestID: "chat-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if forkContext.Record.Execution.Task == nil || len(forkContext.Record.Execution.Task.ContextCompactions) == 0 {
+		t.Fatalf("fixture must carry a compaction record: %#v", forkContext.Record.Execution.Task)
+	}
+	registry := make(map[string]string, len(forkContext.Record.ToolResults))
+	for _, ref := range forkContext.Record.ToolResults {
+		registry[ref.Ref] = ref.Tool
+	}
+	for _, compaction := range forkContext.Record.Execution.Task.ContextCompactions {
+		if compaction.FrameRef == "" {
+			t.Fatalf("fixture compaction must carry a frame ref: %#v", compaction)
+		}
+		if _, ok := registry[compaction.FrameRef]; !ok {
+			t.Fatalf("compaction frame ref %q missing from child registry: %#v", compaction.FrameRef, forkContext.Record.ToolResults)
+		}
+	}
+	if _, ok := registry["result:later"]; ok {
+		t.Fatalf("post-cut ref must not survive the session fork: %#v", forkContext.Record.ToolResults)
 	}
 }
 

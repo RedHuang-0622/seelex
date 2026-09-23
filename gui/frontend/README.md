@@ -53,7 +53,9 @@ flowchart TB
 | `dist/runtime-events.js` | Wails `EventsOn` 就绪探测、幂等绑定与 ready/event 转发。 |
 | `dist/conversation-view.js` / `chat-view.js` | 变高 keyed conversation、顶部 history sentinel、chat activity 渲染；历史加载用「按消息 key 的锚点」保持阅读位置。 |
 | `dist/conversation-wheel.js` | 右侧「会话内用户输入索引」：一条刻度 = 一条用户输入，且**覆盖整会话**（刻度表来自后端全量索引 `Bridge.SessionInputIndex`，含尚未加载到窗口的早期轮次；`app.js` 推入 + 宿主回读通道 `locateInput`）。位置：已加载轮次用问题节点在内容里的真实高度比例，未加载轮次按确定性比例布点；只索引用户输入（不再退回助手步骤/多类别刻度），当前输入高亮、悬停出摘要、点击跳到对应输入——未加载的目标先按页回读（`planInputLocate`/`locateInput`）再定位，回读通道未装配时只提示不空转；键盘 ↑↓/PgUp/PgDn/Home/End 只作用于用户输入刻度。纯函数（`normalizeInputIndex`/`planInputLocate`/`inputAtOffset`/`activeInputIndex`/`scrollTopForFraction`）可离线单测。空态只做视觉隐藏（`display:none` 会让轨道高度量成 0，轮轴再也出不来）。 |
-| `dist/trajectory.js` | 轨迹（Network 风格响应日志）纯函数：响应类型分类（input/llm/tool/error/system/notice；`role=system`/`kind=system` 独立成「系统」轨，`message.kind` 显式类别优先，无 kind 的旧数据回退 role 判定）、tool 请求/响应配对、过滤、统计、表格渲染与多线谱分轨上下文轴。多线谱语义集中在 `AXIS_LANES`（轨定义与顺序单一事实源）：每类响应占一条固定轨，块宽只表达该记录在轴上的相对体量（`contextAxisWeight`），入轨与定位由 `axisBlocks` 统一计算，不再出现同一块两套位置语义。轴还内联前缀注入（`prefixLayerSegments`，Bridge.PromptLayers）与压缩刻度（`compactionMarks`，snapshot.task.context_compactions）两条元数据轨与 `renderAxisDetail` 详情。 |
+| `dist/trajectory.js` | 轨迹（Network 风格响应日志）纯函数：响应类型分类（input/llm/tool/error/system/notice；`role=system`/`kind=system` 独立成「系统」轨，`message.kind` 显式类别优先，无 kind 的旧数据回退 role 判定）、tool 请求/响应配对、过滤、统计、表格渲染与多线谱分轨上下文轴。多线谱语义集中在 `AXIS_LANES`（轨定义与顺序单一事实源）：每类响应占一条固定轨，块宽只表达该记录在轴上的相对体量（`contextAxisWeight`），入轨与定位由 `axisBlocks` 统一计算，不再出现同一块两套位置语义。轴还内联前缀注入（`prefixLayerSegments`，Bridge.PromptLayers）、压缩刻度（`compactionMarks`，snapshot.task.context_compactions）与压缩分界虚线（`renderCompressionCutRow`：每个压缩点一条竖向虚线 + 「以上 … 已被折叠」，只画锚定在本页的刻度——钳到页边界的刻度位置不真实，不画假线）三条元数据轨与 `renderAxisDetail` 详情（压缩详情内按 `frame_ref` 分页读回折叠帧正文）。 |
+| `dist/compaction-format.js` | 压缩记录的展示口径（纯函数、零依赖）：原因/来源标签、被压区间（`compactionRangeText`）、分界标注（`compactionCutLabel`）——右栏「上下文压缩」条目与轨迹压缩轨/详情共用同一份，避免同一条记录两种读法。区间只取记录里已有的边界字段，绝不用 `messages_before`（装配前的引擎历史条数）冒充消息条数。还有门禁进度的累计与耗时文案：`mergeCompactionProgress`（把一帧 `compaction.progress` 并进本轮，判轮次边界、累加逐关耗时、终局沿用最后一条 running 的序号，见 `dist/compaction-format.test.mjs`）与 `compactionGateDurationText`（不足 1ms 写 `<1ms`，不写 `0ms` 也不凑成 1ms）。 |
+| `dist/context-summary.js` | 右栏「状态」子页的「上下文压缩」条目：版本/原因/来源/被压区间/估算/时间 + 展开后按 `frame_ref` 分页读回的折叠帧正文（与轨迹详情同一容器与分页组件）。此前只有一句硬编码英文占位句，没有区间、没有来源、不可展开。条目上方还有一轮压缩的门禁进度条（复用 Plan 面板的轨道）+ **逐关耗时清单**：压缩整轮只有几十毫秒，进度条不可能「慢慢走」，能看见串行工作的就是这份清单（每关一行 + 该关实测毫秒；起手帧那一关还没有数字，写「进行中」而不编耗时）。 |
 | `dist/trajectory-view.js` | 轨迹视图组件：对话区「轨迹」子页的上下文轴（记录轨 + 前缀注入/压缩元数据轨）/轴详情/过滤条/摘要/表格 keyed 渲染，行内复制/展开/result_ref 分页读回，本地过滤状态；普通轴块点击切回全量并定位轨迹行，元数据块点击开轴详情。**上下文轴分页**：滚轮在轴区域内翻页（`axisWheelStep` 累积阈值、一页一屏语义）、`Shift+滚轮`换页大小（`AXIS_PAGE_SIZE_STEPS`/`stepAxisPageSize`，带页码与页大小提示），分页窗口计算是纯函数（`resolveAxisPage`/`axisPageWindow`/`axisPageForIndex`）；翻到尚未加载的更早区间时提示并以既有 `loadMore` 通道回读，不静默跳位。 |
 | `dist/components.js` | message/tool/queue 等纯渲染组件；对话滚动轴（thinking / tool 各自可展开收起，LLM 正文内联）与左侧调试 id。 |
 | `dist/html-embed.js` | 会话内 HTML 渲染块：`seelex-html`（别名 `html-preview`）围栏 → **沙箱 iframe**（`sandbox="allow-scripts"`，**无 `allow-same-origin`**）+ srcdoc 内嵌 CSP（`default-src 'none'`、断网、仅 data: 图片）+ 源码折叠；`title=`/`height=` 参数，高度钳制 120–640px。普通 ```html 仍是源码块。 |
@@ -486,9 +488,19 @@ background:transparent }`` 这类规则特异性高于自绘控件的类规则�
 未激活时只缓存数据面（懒渲染），增量事件到达时重新投影。顶部上下文轴在
 六条响应类型轨之外内联两条元数据轨：「前缀注入」轨（Bridge.PromptLayers
 的会话级当前层，段宽=层文本占比、横跨整轴，点击开详情看全文——替代旧独立
-「前缀注入」面板）与「压缩」轨（`snapshot.task.context_compactions` 压缩
-刻度，锚定压缩发生时会话推进位置，点击开公开元数据详情；system prompt 与
-压缩的注入/折叠均可 trace 到轴上，粒度到会话级当前层与每次压缩事件）。
+「前缀注入」面板）、「压缩」轨（`snapshot.task.context_compactions` 压缩
+刻度，锚定压缩发生时会话推进位置）与「分界」轨（每个压缩点的竖向虚线 +
+「以上 消息 …（事件 …）已被折叠」标注：虚线以上是这次被折出 provider 历史的
+前缀）。刻度与虚线都可点：详情按公开元数据（版本/原因/来源/被压区间/时间）
+如实展开，并给出「折叠帧正文」入口——正文不进快照，前端按记录里的
+`frame_ref` 经 `Bridge.ToolResultContent` 分页读回（同一个分页组件，不再把
+用户指向模型侧工具）。system prompt 与压缩的注入/折叠均可 trace 到轴上，
+粒度到会话级当前层与每次压缩事件）。
+
+右栏「状态」子页的「上下文压缩」条目与轨迹压缩详情共用同一份口径函数
+（`dist/compaction-format.js`）：区间只取记录里的边界字段
+（`message_from/to`、`event_from/to`），绝不用 `messages_before`（装配前的
+引擎历史条数）冒充"压缩前 N 条消息"。
 
 子代理增量递归更新 `runtime.plan.nodes`：`subagent.changed` 替换完整节点，
 工具 started/completed 按 ID upsert `node.tool_events`。Plan 支持
@@ -578,7 +590,17 @@ containment/敏感过滤/符号链接拒绝/上限钳制/截断/二进制探测�
 
 ## Context compression summary
 
-The project overview renders `task.context_compactions` as a small timeline of successful context compressions. The frontend receives only public metadata (version, reason, counts, and time); it does not receive private checkpoint content, prompt text, tool payloads, or raw conversation history.
+The project overview renders `task.context_compactions` as a small timeline of successful context compressions. The frontend receives public metadata (version, reason, origin, folded range, tokens, time) and, only on demand, the folded frame body by reference: the body stays in the session content store and is paged back through `Bridge.ToolResultContent` (`frame_ref`). Prompt text, tool payloads, and raw conversation history are still not part of the snapshot; the entry no longer claims “details can be re-read when needed” without offering an entry point.
+The trajectory axis additionally draws a dashed cut line per compaction with the caption `以上 消息 …（事件 …）已被折叠`, so the folded prefix is visible as a boundary instead of a bare tick.
+
+A compression round is also visible **while it runs**. The backend publishes `compaction.progress` (one frame per gate, exactly one terminal frame; session-routed, `revision=0`, so it never enters the snapshot) and the right column renders a gate progress bar over the plan-board track plus a per-gate duration list. Two properties make the round readable rather than a single green flash: the explicit path (`/compact`, `compact_context`) emits a **begin frame before the first expensive step** — the round has two silent stretches otherwise, the judge gate (22–40 ms on a 640 KB fixture: two whole-request token estimates, full accumulated context + engine cache peak) and the frame gate (15–19 ms) — so pressing Enter gives feedback immediately instead of "no reaction"; and every frame carries the wall-clock milliseconds of the segment that just finished (`elapsed_ms`, 0 for the begin frame), so the list answers "which gate was slow" for a round that is over in tens of milliseconds. The automatic path deliberately has no begin frame (whether to fold *is* the outcome of that estimate), which keeps the older rule intact: no fold, no progress. Gates whose segment is under a millisecond print `<1ms`; the begin frame's gate prints `进行中` and never takes a checklist row of its own — the UI never invents a duration it does not have.
+
+The command palette (`/`) lists only what the input box can actually submit: commands and
+skills. Tools are not suggestions at all (`SuggestionKindTool` and the alias-folding
+`toolSuggestions` were removed) — they are called by the model behind the permission gate,
+so a capability only gets a `/name` entry once it is registered as a command (compaction:
+command `/compact`, model-side tool `compact_context`). Typing a tool name still gets an
+unknown-command notice that says so and points at the same-capability command.
 
 The right-column “代码”子页“工作树”面板 shows the bound workspace's file tree via
 `Bridge.WorkspaceTree` / `Bridge.WorkspaceFileCount` (metadata only: name,

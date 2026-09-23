@@ -41,6 +41,7 @@ SESSION_EXTRA = [
 MISC_FILES = [
     "aliases.go",
     "completion.go",
+    "completion_test.go",
     "compressed_turn.go",
     "compressed_turn_test.go",
     "diagnostics.go",

@@ -1437,7 +1437,47 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .context-summary-item header { display: flex; align-items: baseline; gap: 7px; color: var(--text-strong); font-size: 11px; }
 .context-summary-item header strong { color: var(--status-info); font: 700 10px var(--font-mono); }
 .context-summary-item small { display: block; margin-top: 3px; color: var(--faint); font: 10px var(--font-mono); }
-.context-summary-item p { margin: 5px 0 0; color: var(--muted); font-size: 11px; line-height: 1.35; }
+.context-summary-item header em.context-summary-origin {
+  margin-left: auto;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--faint);
+  font: 9.5px var(--font-mono);
+  font-style: normal;
+}
+.context-summary-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 5px; }
+.context-summary-open {
+  padding: 2px 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--text-soft);
+  font: 10px var(--font-mono);
+  cursor: pointer;
+}
+.context-summary-open:hover { border-color: var(--accent); color: var(--text); }
+.context-summary-ref { color: var(--faint); font: 9.5px var(--font-mono); }
+.context-summary-noframe { color: var(--faint); font: 10px var(--font-mono); }
+/* 压缩门禁进度条：轨道与填充直接用 Plan 面板那一套（.plan-board-progress /
+   .plan-board-bar），这里只补外层排版与三种状态色——同一份"进度"语义在仓库
+   里只该有一种视觉，第二套进度组件必然在间距和配色上漂移。 */
+.context-compaction-progress { display: grid; gap: 4px; }
+.context-compaction-progress-head { display: flex; align-items: baseline; gap: 7px; color: var(--text-strong); font-size: 11px; }
+.context-compaction-progress-count { margin-left: auto; color: var(--faint); font: 9.5px var(--font-mono); }
+.context-compaction-progress-detail { color: var(--faint); font: 10px var(--font-mono); overflow-wrap: anywhere; }
+.context-compaction-progress.is-running .plan-board-bar { background: var(--status-running); }
+.context-compaction-progress.is-done .plan-board-bar { background: var(--status-done); }
+.context-compaction-progress.is-failed .plan-board-bar { background: var(--status-failed); }
+/* 逐关耗时清单：整轮压缩只有几十毫秒，进度条不可能"慢慢走"，能看见的串行工作
+   就是这一行一行报出来的关口与各自耗时。等宽数字对齐，便于竖着比快慢。 */
+.context-compaction-gates { margin: 0; padding: 0; list-style: none; display: grid; gap: 1px; }
+.context-compaction-gate { display: flex; align-items: baseline; gap: 6px; font-size: 10px; color: var(--faint); }
+.context-compaction-gate-name { overflow-wrap: anywhere; }
+.context-compaction-gate-ms { margin-left: auto; font: 9.5px var(--font-mono); font-style: normal; }
+.context-compaction-gate.is-running .context-compaction-gate-name { color: var(--text-strong); }
+.context-compaction-gate.is-running .context-compaction-gate-ms { color: var(--status-running); }
+.context-compaction-gate.is-done .context-compaction-gate-ms { color: var(--text-strong); }
 
 .source-list { display: grid; gap: 5px; }
 #workspace-list { gap: 3px; }
@@ -1703,7 +1743,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .command-search:focus { border-color: var(--accent); }
 .command-results, .command-suggestions { display: grid; gap: 3px; }
 .command-results { max-height: 410px; margin-top: 10px; overflow-y: auto; }
-.command-result { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; gap: 8px; width: 100%; padding: 8px 9px; border: 1px solid transparent; border-radius: var(--r-md); color: var(--text-strong); text-align: left; background: transparent; cursor: pointer; }
+.command-result { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto; align-items: center; gap: 8px; width: 100%; padding: 8px 9px; border: 1px solid transparent; border-radius: var(--r-md); color: var(--text-strong); text-align: left; background: transparent; cursor: pointer; }
 .command-result:hover, .command-result.selected { border-color: var(--border); background: var(--surface-2); }
 .command-result-icon { color: var(--faint); }
 .command-prefix { font: 650 11.5px var(--font-mono); }
@@ -2214,6 +2254,9 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   border: 1px solid var(--border-strong);
   border-radius: var(--r-md);
   background: var(--code-bg);
+  /* 压缩分界虚线向上穿过所有轨：多余部分由这里裁剪，线才停在轨道内。 */
+  position: relative;
+  overflow: hidden;
 }
 .context-axis-lane {
   display: grid;
@@ -2332,6 +2375,70 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   opacity: .85;
 }
 .axis-segment.is-compress:hover { color: var(--text); opacity: 1; }
+
+/* ---------- 压缩分界轨（虚线 + 「以上 … 已被折叠」）----------
+   刻度只说"这里压过"，虚线才回答"从哪以上被折掉了、那段现在在哪"。虚线向上穿过
+   所有轨（超出部分由 .context-axis-track 的 overflow 裁剪），标注贴在线的上端。 */
+.context-axis-lane.is-cut {
+  margin-top: 3px;
+  padding-top: 3px;
+  border-top: 1px dashed var(--border);
+}
+.context-axis-lane.is-cut .axis-lane-label { color: var(--status-info); }
+.axis-lane-bar.is-cut-bar { height: 16px; overflow: visible; }
+.axis-cut-hint { color: var(--faint); font: 10px var(--font-mono); }
+.axis-compress-cut {
+  --x: 0%;
+  position: absolute;
+  left: var(--x);
+  top: -320px;
+  bottom: 0;
+  width: 0;
+  border-left: 1px dashed var(--status-info);
+  opacity: .7;
+  pointer-events: none;
+}
+.axis-compress-cut-label {
+  --x: 0%;
+  position: absolute;
+  left: var(--x);
+  top: 1px;
+  padding: 0 5px;
+  border: 1px dashed var(--status-info);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+  color: var(--status-info);
+  font: 9.5px var(--font-mono);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* ---------- 折叠帧正文区（压缩详情内）----------
+   与轨迹详情同容器（.axis-detail）同分页组件（.axis-detail-text），不自造第二套。 */
+.axis-detail-frame { padding: 0 10px 10px; }
+.axis-detail-frame-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  color: var(--faint);
+  font: 10px var(--font-mono);
+}
+.axis-detail-frame-title { color: var(--status-info); font-weight: 700; }
+.axis-detail-frame-ref { color: var(--muted); }
+.axis-detail-frame-load {
+  margin-top: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--text-soft);
+  font: 10.5px var(--font-mono);
+  cursor: pointer;
+}
+.axis-detail-frame-load:hover { border-color: var(--accent); color: var(--text); }
+.axis-detail-frame-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.axis-detail-frame-done { margin-top: 6px; color: var(--faint); font: 10px var(--font-mono); }
 /* 轴详情（点击前缀层/压缩刻度展开，替代旧独立前缀注入面板） */
 .trajectory-axis-detail { padding: 0 0 8px; }
 .axis-detail {

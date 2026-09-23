@@ -2,6 +2,7 @@ package gui
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"testing"
 
@@ -212,5 +213,58 @@ func TestBridgeRelaySubscribesToViewOnce(t *testing.T) {
 	}
 	if keys := app.subscriptionKeys(); len(keys) != 4 || keys[3] != "draft-session" {
 		t.Fatalf("subscription keys after BeginNewSession = %v, want rebuilt for draft-session", keys)
+	}
+}
+
+// TestBridgeRelaysCompactionProgressToRenderer 钉住 GUI 这一段中继不吞门禁进度。
+//
+// 压缩进度走会话路由 + revision=0（载荷不进快照，同 team.changed 口径），因此它
+// 只可能从这条订阅流到前端；而"界面看不到压缩在走"在浏览器里是排查不出来的——
+// 前端只能看到中继给它的东西。这条测试因此卡在架桥上：发布一条起手帧，渲染层必须
+// 收到同一条（含 phase/gate/index 事实，不能被压成空载荷）。
+func TestBridgeRelaysCompactionProgressToRenderer(t *testing.T) {
+	app := &sessionAwareFakeApplication{fakeApplication: newFakeApplication()}
+	app.snapshotMu.Lock()
+	app.snapshot.Session = application.SessionState{ID: "session-progress"}
+	app.snapshotMu.Unlock()
+	bridge, err := NewBridge(app, Options{})
+	if err != nil {
+		t.Fatalf("NewBridge: %v", err)
+	}
+	emitted := make(chan emittedEvent, 16)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() {
+		cancel()
+		bridge.Stop()
+	})
+	bridge.Start(ctx, func(_ context.Context, name string, payload any) {
+		emitted <- emittedEvent{name: name, payload: payload}
+	})
+	if ready := waitEmitted(t, emitted); ready.name != "seelex:ready" {
+		t.Fatalf("first event = %q, want seelex:ready", ready.name)
+	}
+
+	app.hub.PublishSession(application.EventCompactionProgress, 0, "req-1", "session-progress", application.CompactionProgress{
+		State: application.CompactionProgressRunning, Phase: application.CompactionPhaseBegin,
+		Gate: "judge", Total: 6, Origin: "explicit",
+	})
+
+	relayed := waitEmitted(t, emitted)
+	if relayed.name != eventName {
+		t.Fatalf("relayed event name = %q, want %q", relayed.name, eventName)
+	}
+	event, ok := relayed.payload.(application.Event)
+	if !ok {
+		t.Fatalf("relayed payload type = %T, want application.Event", relayed.payload)
+	}
+	if event.Kind != application.EventCompactionProgress || event.SessionID != "session-progress" || event.RequestID != "req-1" {
+		t.Fatalf("relayed event = %+v, want compaction.progress of session-progress/req-1", event)
+	}
+	var progress application.CompactionProgress
+	if err := json.Unmarshal(event.Payload, &progress); err != nil {
+		t.Fatalf("unmarshal compaction.progress payload: %v", err)
+	}
+	if progress.Phase != application.CompactionPhaseBegin || progress.Gate != "judge" || progress.Index != 0 || progress.Total != 6 {
+		t.Fatalf("relayed progress = %+v，want 起手帧（judge/0/6）", progress)
 	}
 }

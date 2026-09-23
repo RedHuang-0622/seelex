@@ -124,23 +124,40 @@ wire）。守卫用例：`TestToolNarrationStaysWithOwningIteration`、
 
 ### context_compact.go
 
+- `func compactionReasonLabel(reason string) string` — compactionReasonLabel 渲染压缩原因（用户可读）。未知原因原样返回，不编造。
+- `func compactionRecordNote(result ContextCompactionResult) string` — compactionRecordNote 渲染「压缩已落记录」的回执：版本 + 原因 + 被压区间 +
 - `func compactionRangeLabel(result ContextCompactionResult) string` — compactionRangeLabel 把压缩结果面里**已有的**区间字段（MessageFrom/To、
-- `func messageRangeLabel(from, to string) string` — messageRangeLabel 渲染消息号区间：单号不写 `..`，只有一端就只写一端。
 - `func (service *Service) CompactContextNow(ctx context.Context) (ContextCompactionResult, error)` — CompactContextNow 压缩当前执行会话（命令/工具共用）：会话从 ctx 解析，
 - `func (service *Service) CompactContextHandler(ctx context.Context, argsJSON string) (string, error)` — CompactContextHandler 实现 compact_context 工具：模型在上下文逼近上限、
 - `func newContextCompactionResult(outcome context_runtime.CompactResult) ContextCompactionResult`
+
+### context_compact_progress_test.go
+
+- `func drainCompactionProgress(t *testing.T, subscription event.Subscription) []compactionProgressFrame` — drainCompactionProgress 取出订阅里已排队的 compaction.progress。发布与装配
+- `func gateSequence(frames []compactionProgressFrame) []string` — gateSequence 抽出运行中门禁的 id 序列（终局事件不带 gate；起手帧不是"某一关
+- `func assertProgressShape(t *testing.T, frames []compactionProgressFrame, wantSession string)` — assertProgressShape 校验所有来路都要守的公共形状：路由键齐、序号单调、总数
+- `func assertBeginFrame(t *testing.T, frames []compactionProgressFrame)` — assertBeginFrame 钉起手帧的事实性：显式压缩在动第一个重活之前就把"这一轮开始
+- `func TestExplicitCompactEmitsOrderedProgressGates(t *testing.T)` — TestExplicitCompactEmitsOrderedProgressGates：/compact 显式折叠时逐关报告，
+- `func TestAutoCompactionEmitsProgressGates(t *testing.T)` — TestAutoCompactionEmitsProgressGates：自动路径（软阈值）在回合执行中折叠时
+- `func TestExplicitCompactGateTimeline(t *testing.T)` — TestExplicitCompactGateTimeline：逐关计时是这一轮压缩**串行工作**的唯一证据。
+- `func TestCompactProgressTerminatesOnAssemblyError(t *testing.T)` — TestCompactProgressTerminatesOnAssemblyError：装配失败也必须收口。结构性超限
+- `func TestNoProgressEventsWithoutFold(t *testing.T)` — TestNoProgressEventsWithoutFold：没折叠就没有进度。「登记为下一条消息兑现」
+- `func TestFrontendGateLabelsMatchBackendOrder(t *testing.T)` — TestFrontendGateLabelsMatchBackendOrder：门禁 id 是跨语言协议字面量——后端
 
 ### context_compact_test.go
 
 - `func compactTestService(t *testing.T, requestID string) (*Service, *fakeEngine, string)` — compactTestService 构造带活跃任务执行的会话：主动压缩绑定请求纪元
 - `func TestCompactContextHandlerFoldsTranscript(t *testing.T)` — TestCompactContextHandlerFoldsTranscript：compact_context 工具（= /compact
 - `func TestCompactManualFoldsBelowThreshold(t *testing.T)` — TestCompactManualFoldsBelowThreshold：显式压缩（/compact、compact_context）
-- `func TestCompactManualReportsFoldWithoutRecord(t *testing.T)` — TestCompactManualReportsFoldWithoutRecord：折叠发生了、记录却没产生时，
+- `func TestCompactManualAfterTurnRecordsExplicitOrigin(t *testing.T)` — TestCompactManualAfterTurnRecordsExplicitOrigin：回合已收尾（任务状态不再是
+- `func TestCompactAfterTurnSurfacesRecordWithoutTaskFace(t *testing.T)` — TestCompactAfterTurnSurfacesRecordWithoutTaskFace：快照里还没有任务面时
+- `func TestCompactionFrameBodyIsReadableByRef(t *testing.T)` — TestCompactionFrameBodyIsReadableByRef：记录里的 frame_ref 真能读回帧正文——
+- `func TestAutoCompactionAfterTurnKeepsRecordGate(t *testing.T)` — TestAutoCompactionAfterTurnKeepsRecordGate：自动路径（软/硬阈值）在回合已
 - `func TestCompactContextWithoutTaskExecutionSchedulesNextAssembly(t *testing.T)` — TestCompactContextWithoutTaskExecutionSchedulesNextAssembly：会话没有任务
 - `func TestCompactCommandRegisteredAndSharesPath(t *testing.T)` — TestCompactCommandRegisteredAndSharesPath：/compact 命令注册成功，且与工具
 - `func TestCompactCommandNoticeReportsFoldedRange(t *testing.T)` — TestCompactCommandNoticeReportsFoldedRange：记录分支的提示只说**记录里已有的
 - `func TestCompactionRangeLabel(t *testing.T)` — TestCompactionRangeLabel：区间渲染只在**有边界**时成段——空区间返回空串
-- `func TestCompactCommandReportsFoldWithoutRecordAsNote(t *testing.T)` — TestCompactCommandReportsFoldWithoutRecordAsNote：折叠发生但**记录不产生**
+- `func TestCompactCommandNeverReportsFoldWithoutRecord(t *testing.T)` — TestCompactCommandNeverReportsFoldWithoutRecord：/compact 是显式路径，只要
 
 ### context_controller_test.go
 
