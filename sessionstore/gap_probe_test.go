@@ -2,18 +2,24 @@
 
 // v8.3 设计稿符合度红灯探针（打点表 §5/§7 引用；修复后应转绿）。
 //
-//  1. TestProbeForkEventConstantCommitID：fork_store.go:126 用常量 commit_id
-//     提交父侧 fork EVENT → A.2 规则 3 把同父会话第二次 fork 的事件整次吞掉。
-//     违反 §2.0 规则 4「稳定 commit_id = 逻辑操作标识」。
-//  2. TestProbeStackStatusUpdateUnpublishedInvisible：active.jsonl 是整文件
-//     重写且状态迁移不重盖 revision → head 发布失败后，未发布的内容变更在冷
-//     重载后照样可见（已发布态被原地覆盖且无回退副本）。违反 §2.0 规则 1
-//     「append 未发布 = 未提交」。
+//  1. TestProbeForkEventConstantCommitID：fork_store.go 用常量 commit_id 提交父侧
+//     fork EVENT → A.2 规则 3 把同父会话第二次 fork 的事件整次吞掉。违反 §2.0
+//     规则 4「稳定 commit_id = 逻辑操作标识」。已修（D13：逐操作唯一凭据），
+//     本探针留在仓库作为回归钉子。
+//
+// 已退役的探针（**2026-09-23，随 A3 专项收口**）：
+//
+//	TestProbeStackStatusUpdateUnpublishedInvisible —— 它钉的是「未发布的状态迁移
+//	必须冷重载后不可见」，前提是把 active.jsonl 当归追加型通道用戳号做闸门。
+//	该口径已按 D12/§2.0 通道类型表修订：active.jsonl 是**整份替换型**（每次提交
+//	整文件原子替换，文件不存在「已 append 未发布」中间态，戳号只是标签），因此
+//	「head 回退后数据文件的变更照样可见」是**正确语义**而不是缺陷（H9 重新定性）。
+//	语义断言由常规测试 `channel_semantics_test.go` 的 T-STK-13
+//	（TestStackChannelActiveWholeReplacement）承担；探针留着只会让
+//	`go test -tags redprobe ./sessionstore` 长期红灯（运行期失败，不是构建失败）。
 package sessionstore
 
 import (
-	"os"
-	"strconv"
 	"testing"
 )
 
@@ -41,45 +47,5 @@ func TestProbeForkEventConstantCommitID(t *testing.T) {
 	t.Logf("父会话 EVENT rows=%d kinds=%v", len(events), marks)
 	if len(events) < 2 {
 		t.Fatalf("两次 fork 只剩 %d 行 EVENT：第二次被常量 commit_id 判成重复提交", len(events))
-	}
-}
-
-func TestProbeStackStatusUpdateUnpublishedInvisible(t *testing.T) {
-	harness := newJSONStackHarness(t)
-	store, key := harness.store, harness.key
-	harness.seedMessages(1)
-	if _, err := harness.push(StackKindTask, "b1", StackItemInput{ItemID: "A"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := harness.push(StackKindTask, "b1", StackItemInput{ItemID: "B"}); err != nil {
-		t.Fatal(err)
-	}
-	headPath := store.modulePath(key, moduleForStackKind(StackKindTask))
-	published, err := os.ReadFile(headPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := harness.setStatus(StackKindTask, "A", "review"); err != nil {
-		t.Fatal(err)
-	}
-	// 该次提交的 head 发布失败：数据文件已落盘，head 停在上一份已发布态。
-	if err := os.WriteFile(headPath, published, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	store.dropStackViews(key)
-
-	head := harness.head(StackKindTask)
-	active := harness.active(StackKindTask)
-	rows := make([]string, 0, len(active))
-	publishedStatus := ""
-	for _, row := range active {
-		rows = append(rows, row.ItemID+":"+row.Status+"@rev"+strconv.FormatUint(row.Revision, 10))
-		if row.ItemID == "A" {
-			publishedStatus = row.Status
-		}
-	}
-	t.Logf("head_seq=%d kinds=%v / 冷重载 active=%v", head.HeadSeq, head.Kinds, rows)
-	if publishedStatus == "review" {
-		t.Fatalf("未发布的状态迁移变得可见：active=%v（head_seq=%d）", rows, head.HeadSeq)
 	}
 }
