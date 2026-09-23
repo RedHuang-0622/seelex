@@ -78,15 +78,17 @@ func (s *queueRecordingSessions) queueCalls() (enqueued, marked, confirmed, fail
 // snapshotFailingSessions 让原子快照落盘失败，触发 persist 失败路径。
 // 必须同时实现 SessionSnapshotPort 的两个方法：能力断言要求整组方法齐备，
 // 只实现 Workspace 变体会断言失败而退回"无落盘"分支（本测试曾因此假绿）。
-type snapshotFailingSessions struct{ queueRecordingSessions }
+// 内嵌**指针**：queueRecordingSessions 含 sync.Mutex，按值内嵌会让每个方法都
+// 按值复制锁（go vet: passes lock by value），也会让"记录到的调用"不共享。
+type snapshotFailingSessions struct{ *queueRecordingSessions }
 
-func (snapshotFailingSessions) SaveSessionSnapshot(
+func (*snapshotFailingSessions) SaveSessionSnapshot(
 	string, []contract.EngineMessage, model.SessionRecord, []model.TranscriptEvent, []model.StoredToolResult,
 ) error {
 	return errors.New("disk unavailable")
 }
 
-func (snapshotFailingSessions) SaveSessionSnapshotWorkspace(
+func (*snapshotFailingSessions) SaveSessionSnapshotWorkspace(
 	string, string, []contract.EngineMessage, model.SessionRecord, []model.TranscriptEvent, []model.StoredToolResult,
 ) error {
 	return errors.New("disk unavailable")
@@ -162,7 +164,7 @@ func TestDurableQueueMirrorsQueuedInputAndConfirmsTurn(t *testing.T) {
 // → 本轮消费项内容回草稿（不留"已消费但永不重发"的死条目）。
 func TestDurableQueueReturnsConsumedContentToDraftOnPersistFailure(t *testing.T) {
 	engine := newBlockingEngine()
-	sessions := &snapshotFailingSessions{queueRecordingSessions{}}
+	sessions := &snapshotFailingSessions{queueRecordingSessions: &queueRecordingSessions{}}
 	service := newTestService(t, engine, withTestSessions(sessions))
 
 	if err := service.Submit(context.Background(), "第一轮输入"); err != nil {
