@@ -26,7 +26,7 @@ var permissionToolNames = []string{
 	"grep_search", "glob", "get_time", "web_search",
 	"todo_status", "todolist_status", "plan_status", "goal_status",
 	"plugins_list", "skills_list", "mcp_list", "plan_validate", "plan_export",
-	"computer_screenshot", "computer_windows", "computer_wait",
+	"computer_screenshot", "computer_windows", "computer_scroll_targets", "computer_wait",
 	// rw 写簇（项目）
 	"write_file", "edit_file", "bash",
 	"todo_init", "todo_add", "todo_done", "todolist_init", "todolist_add", "todolist_done",
@@ -104,7 +104,7 @@ func TestMainAgentToolDecisions(t *testing.T) {
 	}
 	ask := map[string]bool{
 		"write_file": true, "edit_file": true, "plugin_create": true, "skill_create": true,
-		"computer_screenshot": true, "computer_windows": true,
+		"computer_screenshot": true, "computer_windows": true, "computer_scroll_targets": true,
 		"computer_click": true, "computer_move": true, "computer_drag": true,
 		"computer_scroll": true, "computer_type": true, "computer_keys": true, "computer_focus": true,
 		"switch_plugin": true, "switch_mode": true, "skill_activate": true,

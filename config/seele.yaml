@@ -55,6 +55,8 @@ permission:
       action: ask
     - tool: "computer_windows"
       action: ask
+    - tool: "computer_scroll_targets"
+      action: ask
     - tool: "computer_click"
       action: ask
     - tool: "computer_move"

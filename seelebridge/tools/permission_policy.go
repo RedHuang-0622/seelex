@@ -100,7 +100,7 @@ func DefaultPermissionGroupList() []toolspermission.PermissionGroup {
 				"todo_status", "todolist_status", "plan_status", "goal_status",
 				"plugins_list", "skills_list", "mcp_list",
 				"plan_validate", "plan_export",
-				"computer_screenshot", "computer_windows", "computer_wait",
+				"computer_screenshot", "computer_windows", "computer_scroll_targets", "computer_wait",
 			},
 		},
 		{

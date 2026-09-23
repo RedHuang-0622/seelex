@@ -37,7 +37,11 @@ type actionResult struct {
 	Times        int         `json:"times,omitempty"`
 	Milliseconds int         `json:"milliseconds,omitempty"`
 	Window       *windowJSON `json:"window,omitempty"`
-	Note         string      `json:"note,omitempty"`
+	// Panel 是滚轮落点上的可滚动面板及滚前/滚后位置（只有 scroll 会填）。
+	Panel *scrollPanelJSON `json:"panel,omitempty"`
+	// Unavailable 标记"这次动作做了，但这一项观测没拿到"，便于模型决定是否补截图。
+	Unavailable []string `json:"unavailable,omitempty"`
+	Note        string   `json:"note,omitempty"`
 }
 
 type clickArgs struct {
@@ -139,9 +143,10 @@ func (t *Tools) drag(_ context.Context, argsJSON string) (string, error) {
 }
 
 type scrollArgs struct {
-	X     *int `json:"x"`
-	Y     *int `json:"y"`
-	Delta int  `json:"delta"`
+	X      *int   `json:"x"`
+	Y      *int   `json:"y"`
+	Delta  int    `json:"delta"`
+	Window string `json:"window"`
 }
 
 func (t *Tools) scroll(_ context.Context, argsJSON string) (string, error) {
@@ -155,15 +160,39 @@ func (t *Tools) scroll(_ context.Context, argsJSON string) (string, error) {
 	if args.Delta > maxScrollDelta || args.Delta < -maxScrollDelta {
 		return "", fmt.Errorf("computer: delta 绝对值上限 %d，得到 %d", maxScrollDelta, args.Delta)
 	}
-	point, err := t.resolvePoint(args.X, args.Y)
+	var focused *Window
+	if match := strings.TrimSpace(args.Window); match != "" {
+		win, err := t.ops.focusWindow(match)
+		if err != nil {
+			return "", err
+		}
+		focused = &win
+	}
+	point, err := t.resolveScrollPoint(args.X, args.Y, focused)
 	if err != nil {
 		return "", err
 	}
+	// 滚前先看一眼落点面板：只有拿到"滚前 + 滚后"两块观测，模型才分得清
+	// "滚了但已经到头"和"压根没滚到可滚动区域"。
+	before, hadBefore := t.scrollPanelAt(point)
 	if err := t.ops.scroll(point, args.Delta); err != nil {
 		return "", err
 	}
 	value := newPointJSON(point)
-	return encodeResult(actionResult{Action: "scroll", Point: &value, Delta: args.Delta})
+	result := actionResult{Action: "scroll", Point: &value, Delta: args.Delta}
+	if focused != nil {
+		window := newWindowJSON(*focused)
+		result.Window = &window
+	}
+	if after, ok := t.scrollPanelAt(point); ok {
+		panel := scrollPanelResult(after, before, hadBefore)
+		result.Panel = &panel
+		result.Note = scrollNote(&panel, nil)
+	} else {
+		result.Unavailable = append(result.Unavailable, "scroll_panel")
+		result.Note = scrollNote(nil, result.Unavailable)
+	}
+	return encodeResult(result)
 }
 
 type typeArgs struct {
@@ -260,14 +289,22 @@ func (t *Tools) resolveTarget(x, y *int, window string) (Point, *Window, error) 
 	}
 }
 
-// resolvePoint 解析滚轮落点：显式 x/y 优先，否则用当前光标位置（滚轮作用于
-// 指针下方的控件，缺省落到指针处符合直觉）。
-func (t *Tools) resolvePoint(x, y *int) (Point, error) {
+// resolveScrollPoint 解析滚轮落点，优先级：显式 x/y > 目标窗口里最大的可滚动
+// 面板中心 > 目标窗口中心 > 当前光标位置。
+//
+// 第二档是这套工具的关键便利：模型常有"滚一下某个窗口"的意图而没有坐标，此时
+// 用 computer_scroll_targets 的判据挑页面主干，比让它猜坐标稳得多。
+func (t *Tools) resolveScrollPoint(x, y *int, window *Window) (Point, error) {
 	switch {
 	case x != nil && y != nil:
 		return Point{X: *x, Y: *y}, nil
 	case x != nil || y != nil:
 		return Point{}, errors.New("computer: x 与 y 需要同时给出")
+	case window != nil:
+		if target, ok := t.largestScrollTarget(window.Handle); ok {
+			return target.Center(), nil
+		}
+		return window.Rect.Center(), nil
 	default:
 		return t.ops.cursor()
 	}

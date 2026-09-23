@@ -19,12 +19,13 @@ func TestPolicyHidesComputerInputToolsFromSubagents(t *testing.T) {
 	policy := NewPolicy(PolicyDeps{})
 	subCtx := model.WithNodeScope(context.Background(), model.NodeScope{NodeID: "s1", Role: model.RoleSubAgent})
 	got := policy.Filter(subCtx, []types.Tool{
-		planTool("computer_screenshot"), planTool("computer_windows"), planTool("computer_wait"),
+		planTool("computer_screenshot"), planTool("computer_windows"),
+		planTool("computer_scroll_targets"), planTool("computer_wait"),
 		planTool("computer_click"), planTool("computer_move"), planTool("computer_drag"),
 		planTool("computer_scroll"), planTool("computer_type"), planTool("computer_keys"),
 		planTool("computer_focus"), planTool("bash"),
 	})
-	want := []string{"computer_screenshot", "computer_windows", "computer_wait", "bash"}
+	want := []string{"computer_screenshot", "computer_windows", "computer_scroll_targets", "computer_wait", "bash"}
 	if len(got) != len(want) {
 		t.Fatalf("子代理可见工具 = %v, want %v", names(got), want)
 	}

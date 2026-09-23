@@ -33,3 +33,42 @@ func runClickSequence(inject injectMouse, down, up uint32, x, y uintptr, clicks 
 	}
 	return nil
 }
+
+// wheelDelta 是 Windows 定义的一格滚轮（WHEEL_DELTA）。
+const wheelDelta = 120
+
+// maxWheelNotches 限制一次滚轮请求被拆成的事件数（与 maxScrollDelta 对齐：
+// 1200 / 120 = 10）。
+const maxWheelNotches = 10
+
+// scrollNotches 把一次滚轮请求拆成「一格一格」的增量序列（含不足一格的余数）。
+//
+// 为什么不直接把整个 delta 塞进一个事件：一次事件带 600 点对多数 Win32 控件
+// 没问题，但 Chromium/Electron 这类宿主按事件做平滑滚动与限流，超大 delta 常被
+// 截断或只当一格。拆成一格一格与真人滚轮一致，落点可预测、也更接近"滚 N 格"。
+//
+// 纯函数：跨平台可单测；0 返回 nil（调用方先判非零），超过 maxWheelNotches 截断。
+func scrollNotches(delta int) []int {
+	if delta == 0 {
+		return nil
+	}
+	step := wheelDelta
+	if delta < 0 {
+		step = -wheelDelta
+	}
+	// step 与 delta 同号，因此 count ≥ 0；Go 的整数除法按零截断，余数单独发一次。
+	count := delta / step
+	remainder := delta - count*step
+	if count > maxWheelNotches {
+		count = maxWheelNotches
+		remainder = 0
+	}
+	notches := make([]int, 0, count+1)
+	for index := 0; index < count; index++ {
+		notches = append(notches, step)
+	}
+	if remainder != 0 && len(notches) < maxWheelNotches {
+		notches = append(notches, remainder)
+	}
+	return notches
+}

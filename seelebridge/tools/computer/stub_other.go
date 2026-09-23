@@ -37,6 +37,17 @@ func Drag(from, to Point, duration time.Duration) error { return ErrUnsupported 
 // Scroll 在非 Windows 平台返回 ErrUnsupported。
 func Scroll(p Point, delta int) error { return ErrUnsupported }
 
+// ListScrollTargets 在非 Windows 平台返回 ErrUnsupported（UI Automation 是
+// Windows 专有栈，不做假实现）。
+func ListScrollTargets(opts ScrollTargetOptions) ([]ScrollTarget, error) {
+	return nil, ErrUnsupported
+}
+
+// ScrollStateAtPoint 在非 Windows 平台返回 ErrUnsupported。
+func ScrollStateAtPoint(p Point, timeout time.Duration) (ScrollTarget, bool, error) {
+	return ScrollTarget{}, false, ErrUnsupported
+}
+
 // TypeText 在非 Windows 平台返回 ErrUnsupported。
 func TypeText(text string) error { return ErrUnsupported }
 

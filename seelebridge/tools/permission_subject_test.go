@@ -354,7 +354,7 @@ func TestSubagentVisibleToolsAreAuthorized(t *testing.T) {
 		"read_file", "read_plan", "read_tool_result", "read_compressed_turn", "search_history",
 		"grep_search", "glob", "get_time", "web_search", "todo_status", "todolist_status",
 		"plugins_list", "skills_list", "mcp_list", "plan_validate", "plan_export",
-		"computer_screenshot", "computer_windows", "computer_wait",
+		"computer_screenshot", "computer_windows", "computer_scroll_targets", "computer_wait",
 		"write_file", "edit_file", "bash",
 		"todo_init", "todo_add", "todo_done", "todolist_init", "todolist_add", "todolist_done",
 		"task_add", "taskadd", "project_refresh", "plugin_create", "skill_create",

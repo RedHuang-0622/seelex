@@ -60,9 +60,15 @@ type recorder struct {
 	clickCalls    []clickCall
 	dragCalls     []dragCall
 	scrollCalls   []scrollCall
-	typed         []string
-	keyCalls      []keysCall
-	sleeps        []time.Duration
+	// 可滚动面板：查询记录 + 可注入的结果/错误/逐次回读函数。
+	scrollTargetQueries []ScrollTargetOptions
+	scrollTargets       []ScrollTarget
+	scrollTargetsErr    error
+	scrollStateQueries  []Point
+	scrollStateFn       func(Point) (ScrollTarget, bool, error)
+	typed               []string
+	keyCalls            []keysCall
+	sleeps              []time.Duration
 }
 
 type harness struct {
@@ -150,6 +156,17 @@ func (r *recorder) primitives() primitives {
 			r.scrollCalls = append(r.scrollCalls, scrollCall{point: p, delta: delta})
 			return nil
 		},
+		scrollTargets: func(opts ScrollTargetOptions) ([]ScrollTarget, error) {
+			r.scrollTargetQueries = append(r.scrollTargetQueries, opts)
+			return r.scrollTargets, r.scrollTargetsErr
+		},
+		scrollState: func(p Point, _ time.Duration) (ScrollTarget, bool, error) {
+			r.scrollStateQueries = append(r.scrollStateQueries, p)
+			if r.scrollStateFn != nil {
+				return r.scrollStateFn(p)
+			}
+			return ScrollTarget{}, false, nil
+		},
 		typeText: func(text string) error { r.typed = append(r.typed, text); return nil },
 		pressKeys: func(combo string, times int) error {
 			r.keyCalls = append(r.keyCalls, keysCall{combo: combo, times: times})
@@ -198,7 +215,7 @@ func TestRegisterExposesWholeComputerToolFamily(t *testing.T) {
 	h := newHarness(t)
 	want := []string{
 		ToolScreenshot, ToolWindows, ToolFocus, ToolClick, ToolMove,
-		ToolDrag, ToolScroll, ToolType, ToolKeys, ToolWait,
+		ToolDrag, ToolScroll, ToolScrollTargets, ToolType, ToolKeys, ToolWait,
 	}
 	for _, name := range want {
 		tool, ok := h.toolsByName[name]

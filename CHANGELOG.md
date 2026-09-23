@@ -81,6 +81,29 @@ version when it lands.
 
 ### Added
 
+- **Computer use can now see which panels scroll, and the wheel reports where it landed.**
+  `computer_scroll` could only push `WHEEL_DELTA` at a coordinate, so the model had no way to
+  tell *which* panel would move or whether there was more context off-screen. Two additions close
+  that gap. A new read-only `computer_scroll_targets` tool enumerates the scrollable panels of a
+  window through **UI Automation** (`ScrollPattern`): readable name, control type, class,
+  rectangle, center point, and per-axis scroll position/viewport ratio with explicit
+  `at_start`/`at_end` flags — so "is there anything below?" is answered before scrolling.
+  `computer_scroll` now accepts `window` (focus + target that window's largest vertically
+  scrollable panel), splits the delta into per-notch `SendInput` wheel events (large jumps are
+  silently clamped by Chromium/Electron hosts), and reads the panel position **before and after**
+  scrolling so the result distinguishes "scrolled" from "already at the end" (a failed read-back
+  is reported as `unavailable: ["scroll_panel"]` instead of being invented). The UI Automation
+  client is hand-written COM (`uia_windows.go`, slots pinned to the Windows SDK
+  `UIAutomationClient.h`), read-only, bounded (node budget + depth + timeout) and apartment-safe
+  (MTA per query on a locked OS thread). Because Chromium materialises its accessibility tree
+  lazily, the query falls back to a bounded raw-view walk whenever `FindAll` fails to surface a
+  panel covering ≥20% of the window (VS Code's fast path returns only Monaco list rows), and
+  merges both batches; sub-panel-sized elements (<≈64×64 px) are dropped so virtualised list
+  rows do not flood the list. Verified on a real desktop against Edge, Qoder, VS Code and the
+  Seelex GUI window, including a wheel round-trip on Qoder's message list (100.439% → 97.251%
+  with `delta=+120`, exactly back with `delta=-120`). The same capability ships on the MCP face
+  as `scroll_targets`.
+
 - **Uncommitted message tails are now recovered at session load, and the user can see
   it.** The storage layer already had the explicit probe/restore/discard entry points for
   the `seq_draft` tail (`sessionstore/pending_tail.go` → Router → `SessionPort`), but the

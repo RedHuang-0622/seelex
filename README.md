@@ -63,7 +63,7 @@ Seelex 把这些能力组织成可替换、可测试的模块，而不是把它�
 | 项目安全 | ProjectScope 按会话分格的路径约束、PathGate / LMRW 规则；工具权责模型为「主体 × 路由组 × 位」（root / sub / emp_ro / emp_rw，ro / rw / rw_session / rw_desktop / ctl / adm），子代理在结构上缺 <code>ctl</code>/<code>adm</code> 位 |
 | 权限档位 | 主会话有序档位表 <code>manual</code> / <code>edit</code> / <code>auto</code> / <code>full</code>，按会话解析；档位只剪掉 <code>ask</code> 规则，从不覆盖危险 <code>deny</code>，<code>full</code> 短路仅作用于 root，员工越权仍走审批提权 |
 | 多模态输入 | 图片与文档附件进入模型请求；截屏画面落会话媒体分区（内容寻址、配额独立记账）并随下一次请求送入；文档无原生解码时兜底为内联文本 |
-| 桌面操作 | computer use 工具族（截屏/窗口枚举/聚焦/点击/移动/拖拽/滚动/输入/按键/等待）：平台门控 + <code>SEELEX_COMPUTER_USE</code> 总开关，输入注入默认逐次审批，子代理只见 <code>computer_screenshot</code>/<code>computer_windows</code>/<code>computer_wait</code> |
+| 桌面操作 | computer use 工具族（截屏/窗口枚举/可滚动面板识别/聚焦/点击/移动/拖拽/滚动/输入/按键/等待）：平台门控 + <code>SEELEX_COMPUTER_USE</code> 总开关，输入注入默认逐次审批，子代理只见只读观察类（<code>computer_screenshot</code>/<code>computer_windows</code>/<code>computer_scroll_targets</code>/<code>computer_wait</code>） |
 | 扩展系统 | 声明式 Plugin、目录化 Skill、MCP Server 冷启动登记/按需加载/重挂载与工具可见性过滤，以及 plugin/skill/mcp 自管理工具 |
 | 定时任务 | 周期（hour/day/week/month 或固定间隔）与一次性定时任务；command 白名单 argv 直传，prompt 任务复用会话执行器 |
 | Web 搜索 | <code>web_search</code> 工具与 tavily / bochaai / searxng provider 装配 |
@@ -386,7 +386,7 @@ Seelex 的截屏不再把 base64 塞进工具结果，而是走一条统一的�
 - **分轴限额**：文本大结果软限 60000 字符（可截断并归档 <code>result_ref</code>），媒体单件 8 MB、长边 4096 像素、每会话 500 件、会话配额 256 MB，且**永不截断**；配额只统计二进制载荷，与文本大结果独立记账，回收以工具结果引用集为准（<code>CollectMedia</code>，支持 dry-run）。
 - **归属按执行会话解析**：主代理按会话绑定，子代理与 Plan 节点按 <code>NodeScope.WorkspaceID</code>，刻意不读 Router 的活跃写作用域——并行执行期间视图可能已切走，用它解析会把画面写进另一个项目。
 
-门控分四层：平台（不支持的平台不注册工具）、<code>SEELEX_COMPUTER_USE=0/off/false/no</code> 可整体关闭、<code>config/seele.yaml</code> 的 <code>permission.rules</code> 逐次 allow/ask/deny、子代理不可见**会改变桌面**的工具（<code>computer_focus</code> 与键鼠注入类；子代理只保留 <code>computer_screenshot</code>、<code>computer_windows</code>、<code>computer_wait</code>）。默认规则中截屏与窗口枚举为 <code>ask</code>（画面会进入模型上下文），键鼠注入逐次 <code>ask</code>，<code>computer_wait</code> 为 <code>allow</code>。
+门控分四层：平台（不支持的平台不注册工具）、<code>SEELEX_COMPUTER_USE=0/off/false/no</code> 可整体关闭、<code>config/seele.yaml</code> 的 <code>permission.rules</code> 逐次 allow/ask/deny、子代理不可见**会改变桌面**的工具（<code>computer_focus</code> 与键鼠注入类；子代理只保留只读观察类 <code>computer_screenshot</code>、<code>computer_windows</code>、<code>computer_scroll_targets</code>、<code>computer_wait</code>）。默认规则中截屏、窗口枚举与可滚动面板识别为 <code>ask</code>（画面/屏幕内容进入模型上下文），键鼠注入逐次 <code>ask</code>，<code>computer_wait</code> 为 <code>allow</code>。
 
 ### 11. 目标栈与裁决角色把「完成」变成外部裁决
 
@@ -572,17 +572,18 @@ Skill 使用 <code>&lt;skill&gt;/SKILL.md</code> 目录结构；相关脚本和�
 
 ## Computer Use 与多模态输入
 
-桌面操控面由 10 个工具组成，支持桌面的平台默认注册，<code>SEELEX_COMPUTER_USE=0/off</code> 可整体关闭：
+桌面操控面由 11 个工具组成，支持桌面的平台默认注册，<code>SEELEX_COMPUTER_USE=0/off</code> 可整体关闭：
 
 | 类别 | 工具 |
 |---|---|
-| 观察 | <code>computer_screenshot</code>、<code>computer_windows</code>、<code>computer_focus</code> |
+| 观察 | <code>computer_screenshot</code>、<code>computer_windows</code>、<code>computer_scroll_targets</code>、<code>computer_focus</code> |
 | 输入注入 | <code>computer_click</code>、<code>computer_move</code>、<code>computer_drag</code>、<code>computer_scroll</code>、<code>computer_type</code>、<code>computer_keys</code> |
 | 节流 | <code>computer_wait</code> |
 
 - 截图按宽度缩放（最近邻，保持坐标系），PNG 落会话媒体分区，画面随下一次模型请求送入，同一张图至多送一次。
-- 输入注入默认逐次审批；子代理只可见 <code>computer_screenshot</code>、<code>computer_windows</code> 与 <code>computer_wait</code>（<code>computer_focus</code> 与键鼠注入类对子代理不可见，因为并行子代理共用一块桌面会互相打断）。
-- 另有一条面向外部宿主的 MCP 工具面（<code>seelebridge/tools/computer/mcp</code>）：<code>screenshot</code> / <code>view_screen</code> / <code>view_image</code> 与键鼠、窗口原语，图像以 base64 内联返回，供不共享会话媒体分区的宿主使用。
+- **滚轮与可滚动面板**：<code>computer_scroll_targets</code> 用 UI Automation **只读**列出窗口里的可滚轮面板（名称、控件类型、矩形、中心坐标、纵向/横向滚动位置与视口占比），模型据此知道"屏幕外的上下文在哪个面板里、还差多少"；<code>computer_scroll</code> 在指定坐标按格下发滚轮（给 <code>window</code> 时按该窗口最大的纵向面板落点），并在结果里回读落点面板的滚前/滚后位置，区分"滚了但已到头"和"没滚到可滚动区域"。
+- 输入注入默认逐次审批；子代理只可见只读观察类 <code>computer_screenshot</code>、<code>computer_windows</code>、<code>computer_scroll_targets</code> 与 <code>computer_wait</code>（<code>computer_focus</code> 与键鼠注入类对子代理不可见，因为并行子代理共用一块桌面会互相打断）。
+- 另有一条面向外部宿主的 MCP 工具面（<code>seelebridge/tools/computer/mcp</code>）：<code>screenshot</code> / <code>view_screen</code> / <code>view_image</code> / <code>scroll_targets</code> 与键鼠、窗口原语，图像以 base64 内联返回，供不共享会话媒体分区的宿主使用。
 
 权限规则在 <code>config/seele.yaml</code> 中声明（默认已包含以下条目）：
 
@@ -592,6 +593,8 @@ permission:
     - tool: "computer_screenshot"
       action: ask
     - tool: "computer_click"
+      action: ask
+    - tool: "computer_scroll_targets"
       action: ask
     - tool: "computer_wait"
       action: allow

@@ -30,16 +30,17 @@ import (
 
 // 工具名（稳定契约：权限规则、插件 include/exclude、可见性策略都按名字匹配）。
 const (
-	ToolScreenshot = "computer_screenshot"
-	ToolWindows    = "computer_windows"
-	ToolFocus      = "computer_focus"
-	ToolClick      = "computer_click"
-	ToolMove       = "computer_move"
-	ToolDrag       = "computer_drag"
-	ToolScroll     = "computer_scroll"
-	ToolType       = "computer_type"
-	ToolKeys       = "computer_keys"
-	ToolWait       = "computer_wait"
+	ToolScreenshot    = "computer_screenshot"
+	ToolWindows       = "computer_windows"
+	ToolScrollTargets = "computer_scroll_targets"
+	ToolFocus         = "computer_focus"
+	ToolClick         = "computer_click"
+	ToolMove          = "computer_move"
+	ToolDrag          = "computer_drag"
+	ToolScroll        = "computer_scroll"
+	ToolType          = "computer_type"
+	ToolKeys          = "computer_keys"
+	ToolWait          = "computer_wait"
 )
 
 // 默认上限：截图给模型看的宽度、单张截图的媒体字节上限（与
@@ -131,6 +132,8 @@ type primitives struct {
 	cursor        func() (Point, error)
 	foreground    func() (Window, error)
 	listWindows   func() ([]Window, error)
+	scrollTargets func(ScrollTargetOptions) ([]ScrollTarget, error)
+	scrollState   func(Point, time.Duration) (ScrollTarget, bool, error)
 	focusWindow   func(string) (Window, error)
 	moveMouse     func(Point) error
 	click         func(Point, ClickOptions) error
@@ -148,6 +151,8 @@ func defaultPrimitives() primitives {
 		cursor:        CursorPosition,
 		foreground:    ForegroundWindow,
 		listWindows:   ListWindows,
+		scrollTargets: ListScrollTargets,
+		scrollState:   ScrollStateAtPoint,
 		focusWindow:   FocusWindow,
 		moveMouse:     MoveMouse,
 		click:         Click,
@@ -181,11 +186,12 @@ func (t *Tools) Register() {
 	register := t.deps.RegisterTool
 	register(ToolScreenshot, "Capture the desktop (or a region) and hand the picture to your next request so you can see the screen. Returns the stored media ref, region, scale, cursor and foreground window. Coordinates are virtual-desktop physical pixels.", screenshotSchema(), t.screenshot)
 	register(ToolWindows, "List top-level desktop windows (title, handle, rect, visible, minimized) plus the virtual desktop size and the current foreground window. Use it to orient before clicking.", windowsSchema(), t.windows)
+	register(ToolScrollTargets, "List the panels inside a window that can be scrolled with the wheel: each entry carries a readable name, control type, rect, center point, and the current vertical/horizontal scroll position and viewport ratio. Use it to find where the off-screen context lives (a page body, a side list, a chat history) before calling computer_scroll, and to tell how much content is left above/below.", scrollTargetsSchema(), t.scrollTargets)
 	register(ToolFocus, "Bring a top-level window to the foreground by title substring (case-insensitive). Empty match reports the current foreground window without switching.", focusSchema(), t.focus)
 	register(ToolClick, "Click the desktop: give x/y, or give window (title substring) to click its center. button is left|right|middle; clicks is 1-3.", clickSchema(), t.click)
 	register(ToolMove, "Move the mouse pointer to a point without clicking (hover, tooltip, or drag staging).", moveSchema(), t.move)
 	register(ToolDrag, "Press the left button at from, drag to to, then release. Use for selecting ranges and moving windows.", dragSchema(), t.drag)
-	register(ToolScroll, "Scroll the wheel at a point (or at the current cursor when x/y are omitted). delta is in WHEEL_DELTA units (120 per notch); positive scrolls up.", scrollSchema(), t.scroll)
+	register(ToolScroll, "Scroll the wheel: give x/y (or give window to scroll that window's largest scrollable panel, or omit both to scroll under the cursor). delta is in WHEEL_DELTA units (120 per notch); positive scrolls up. The result reports the panel under the point and its position before/after, so you know whether content moved and whether you reached the top/bottom.", scrollSchema(), t.scroll)
 	register(ToolType, "Type literal text into the focused control (UTF-16 injection: CJK and emoji supported). Focus the target field first.", typeSchema(), t.typeText)
 	register(ToolKeys, "Press a key combination such as ctrl+shift+t or enter, optionally repeated (1-10).", keysSchema(), t.keys)
 	register(ToolWait, "Wait a bounded number of milliseconds so the UI can settle after an input, before taking the next screenshot.", waitSchema(), t.wait)

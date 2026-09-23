@@ -71,8 +71,8 @@ nil / 未命中的读面保持旧的按会话归属（后台会话待批仍归�
 
 - `goal_begin/goal_update/goal_propose_finish` 归 `ctl` 而不是 `rw`：goal 栈是主代理的
   治理状态，现有 `policy.go` 对子代理整族不可见，跟着 `ctl` 断位更贴合既有口径。
-- `computer_wait` 归 `ro` 且 allow（纯节流无副作用）；`computer_screenshot/windows` 是
-  `ro` 但默认 ask（画面进上下文）。
+- `computer_wait` 归 `ro` 且 allow（纯节流无副作用）；`computer_screenshot/windows/
+  scroll_targets` 是 `ro` 但默认 ask（画面或屏幕内容进上下文）。
 
 ### 2.3 位与缺位 —— 主体 × 组的授权表
 

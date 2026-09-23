@@ -142,13 +142,53 @@ func TestToolDefinitionsExposeViewTools(t *testing.T) {
 		}
 		byName[definition.Name] = definition
 	}
-	for _, name := range []string{"view_screen", "view_image", "screenshot", "click"} {
+	for _, name := range []string{"view_screen", "view_image", "screenshot", "click", "scroll", "scroll_targets"} {
 		if _, ok := byName[name]; !ok {
 			t.Fatalf("tools/list 缺少 %s", name)
 		}
 	}
 	if description := byName["view_screen"].Description; !strings.Contains(description, "当前页面状态") {
 		t.Fatalf("view_screen 的描述未点明「当前页面状态」：%q", description)
+	}
+	if description := byName["scroll_targets"].Description; !strings.Contains(description, "滚轮") {
+		t.Fatalf("scroll_targets 的描述未点明滚轮面板：%q", description)
+	}
+}
+
+// TestDescribeScrollTargetsRendersPanels 覆盖面板清单的文本渲染：名字缺失时
+// 退回类名，边界与视口占比都要写进文本。不碰真实桌面。
+func TestDescribeScrollTargetsRendersPanels(t *testing.T) {
+	targets := []computer.ScrollTarget{
+		{
+			Name:        "messages",
+			ControlType: "pane",
+			Rect:        computer.Rect{X: 100, Y: 200, Width: 400, Height: 300},
+			Vertical:    computer.ScrollAxis{Scrollable: true, Percent: 100, ViewSize: 40},
+		},
+		{
+			ClassName: "unnamed-container",
+			Rect:      computer.Rect{X: 0, Y: 0, Width: 200, Height: 200},
+			Vertical:  computer.ScrollAxis{Scrollable: true, Percent: 0, ViewSize: 80},
+		},
+		{
+			Name:       "static",
+			Rect:       computer.Rect{X: 0, Y: 0, Width: 900, Height: 900},
+			Horizontal: computer.ScrollAxis{Scrollable: true, Percent: 12, ViewSize: 70},
+		},
+	}
+	text := describeScrollTargets(targets, 2)
+	if !strings.Contains(text, "messages") || !strings.Contains(text, "中心=(300,350)") {
+		t.Fatalf("清单缺少面板名与中心坐标：%q", text)
+	}
+	if !strings.Contains(text, "已在末端") {
+		t.Fatalf("清单应标出已到底的面板：%q", text)
+	}
+	if strings.Contains(text, "unnamed-container") {
+		t.Fatalf("limit=2 时只保留面积最大的两条：%q", text)
+	}
+
+	if empty := describeScrollTargets(nil, 0); !strings.Contains(empty, "pgdn") {
+		t.Fatalf("空结果应给出键盘滚动回退：%q", empty)
 	}
 }
 

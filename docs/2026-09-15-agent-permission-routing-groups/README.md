@@ -109,7 +109,7 @@ adm ⇔ 该工具的"成功执行"会改变**工具面本身**（哪些工具存
 | `desktop` | **共享外设**（一块桌面，所有并行子代理共用） | ❌ | `computer_click` `computer_move` `computer_drag` `computer_scroll` `computer_type` `computer_keys` `computer_focus` |
 
 > 这条正是现规则「子代理不可见会改变桌面的工具」的位化表述（`policy.go:isComputerInputTool`）。
-> 观察类桌面工具（`computer_screenshot`/`computer_windows`/`computer_wait`）是 `ro`，`sub` 可达。
+> 观察类桌面工具（`computer_screenshot`/`computer_windows`/`computer_scroll_targets`/`computer_wait`）是 `ro`，`sub` 可达。
 
 ---
 
@@ -125,7 +125,7 @@ adm ⇔ 该工具的"成功执行"会改变**工具面本身**（哪些工具存
 | `todo_status` `todolist_status` `plan_status` `goal_status` | 状态读 |
 | `plugins_list` `skills_list` `mcp_list` | 枚举 |
 | `plan_validate` `plan_export` | 校验/导出（不改进程状态） |
-| `computer_screenshot` `computer_windows` | 桌面**观察**；画面进上下文 → 默认 ask（现规则已如此） |
+| `computer_screenshot` `computer_windows` `computer_scroll_targets` | 桌面**观察**；画面/屏幕内容进上下文 → 默认 ask（现规则已如此） |
 | `computer_wait` | 纯节流，无副作用 → allow（现规则已如此） |
 
 ### 3.2 `rw` 写簇（`rw-`）
@@ -189,7 +189,8 @@ permission:
     - name: ro
       match: ["read_*", "grep*", "glob", "get_time", "web_search", "search_history",
               "*_status", "*_list", "plan_validate", "plan_export",
-              "computer_screenshot", "computer_windows", "computer_wait"]
+              "computer_screenshot", "computer_windows", "computer_scroll_targets",
+              "computer_wait"]
       mode: r
       default: allow
     - name: rw

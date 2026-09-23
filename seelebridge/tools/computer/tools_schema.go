@@ -56,6 +56,14 @@ func focusSchema() map[string]any {
 	})
 }
 
+func scrollTargetsSchema() map[string]any {
+	return objectSchema(map[string]any{
+		"window":            map[string]any{"type": "string", "description": "目标窗口标题子串（大小写不敏感）；缺省查当前前台窗口。只读：不会聚焦或激活窗口"},
+		"include_offscreen": map[string]any{"type": "boolean", "description": "是否包含 UI Automation 标记为离屏的面板（缺省 false）"},
+		"limit":             integerSchema("返回的面板条数上限", 1, maxScrollTargetLimit),
+	})
+}
+
 func clickSchema() map[string]any {
 	properties := pointProperties()
 	properties["button"] = map[string]any{"type": "string", "enum": []string{"left", "right", "middle"}, "description": "鼠标键，缺省 left"}
@@ -80,6 +88,7 @@ func dragSchema() map[string]any {
 func scrollSchema() map[string]any {
 	properties := pointProperties()
 	properties["delta"] = integerSchema("滚轮增量：120 = 一格，正数向上（朝文档开头），负数向下", -maxScrollDelta, maxScrollDelta)
+	properties["window"] = map[string]any{"type": "string", "description": "先按标题子串聚焦该窗口；只给 window 不给 x/y 时滚该窗口最大的可滚动面板（先用 computer_scroll_targets 看清有哪些面板）"}
 	return objectSchema(properties, "delta")
 }
 

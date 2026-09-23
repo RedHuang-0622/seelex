@@ -30,6 +30,12 @@ const (
 	// 定位与点击之间的等待，避免移动消息未处理就发出按键。
 	pointerSettleMS = 25
 
+	// 相邻滚轮事件之间的间隔：一格一格下发时给宿主一点处理时间。
+	scrollNotchGapMS = 15
+	// 滚轮之后等待界面跟上（多数应用有平滑滚动）：紧接着的截图与回读才看得到
+	// 新位置，而不是滚前的旧画面。
+	scrollSettleMS = 120
+
 	keyEventKeyUp   = 0x0002
 	keyEventUnicode = 0x0004
 
@@ -200,6 +206,7 @@ func Drag(from, to Point, duration time.Duration) error {
 }
 
 // Scroll 在指定坐标滚动滚轮，delta 为 WHEEL_DELTA(120) 的倍数，正数向上。
+// delta 按格拆成多次事件下发（见 scrollNotches），并留出界面稳定时间。
 func Scroll(p Point, delta int) error {
 	if delta == 0 {
 		return fmt.Errorf("computer: scroll 需要非零 delta")
@@ -208,7 +215,18 @@ func Scroll(p Point, delta int) error {
 		return err
 	}
 	nx, ny := absolutePoint(p)
-	return sendMouse(mouseEventWheel, nx, ny, uint32(int32(delta)))
+	notches := scrollNotches(delta)
+	if len(notches) == 0 {
+		return fmt.Errorf("computer: scroll delta=%d 无法拆成滚轮事件", delta)
+	}
+	for _, notch := range notches {
+		if err := sendMouse(mouseEventWheel, nx, ny, uint32(int32(notch))); err != nil {
+			return err
+		}
+		Sleep(scrollNotchGapMS)
+	}
+	Sleep(scrollSettleMS - scrollNotchGapMS)
+	return nil
 }
 
 func sendInputs(inputs []input) error {

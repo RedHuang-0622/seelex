@@ -100,6 +100,90 @@ type pointArg struct {
 	Y int `json:"y"`
 }
 
+// describeScrollTargets 把可滚动面板渲染成给宿主模型看的文本清单。
+// limit<=0 用默认条数；坐标与 computer use 其它工具一致（虚拟桌面物理像素）。
+func describeScrollTargets(targets []computer.ScrollTarget, limit int) string {
+	if limit <= 0 {
+		limit = 12
+	}
+	targets = computer.NormalizeScrollTargets(targets, limit)
+	if len(targets) == 0 {
+		return "没有识别到可滚轮操作的面板：可能内容正好铺满，或该窗口没有 UI Automation 提供者。" +
+			"可以先用 press_keys 发 pgdn/pgup（先 focus_window 把焦点落到目标窗口），或直接 scroll 指定坐标。"
+	}
+	var builder strings.Builder
+	builder.WriteString("可滚轮操作的面板（按面积从大到小，外层容器在前）：\n")
+	for index, target := range targets {
+		fmt.Fprintf(&builder, "- #%d %s [%s]\n", index, scrollTargetLabel(target), target.ControlType)
+		fmt.Fprintf(&builder, "  rect=%s 中心=(%d,%d)\n", target.Rect, target.Center().X, target.Center().Y)
+		fmt.Fprintf(&builder, "  纵向: %s；横向: %s\n",
+			describeScrollAxis("percent", target.Vertical), describeScrollAxis("percent", target.Horizontal))
+	}
+	builder.WriteString("用 scroll 滚动：把某一行的中心坐标填进 x/y（delta 正数向上、负数向下）。")
+	return builder.String()
+}
+
+// scrollTargetLabel 给面板一个可读标签：UIA 名字缺失时退回类名，再缺就只说"未命名"。
+func scrollTargetLabel(target computer.ScrollTarget) string {
+	if name := strings.TrimSpace(target.Name); name != "" {
+		return name
+	}
+	if class := strings.TrimSpace(target.ClassName); class != "" {
+		return "未命名（class=" + class + "）"
+	}
+	if id := strings.TrimSpace(target.AutomationID); id != "" {
+		return "未命名（automation_id=" + id + "）"
+	}
+	return "未命名"
+}
+
+func describeScrollAxis(_ string, axis computer.ScrollAxis) string {
+	if !axis.Scrollable {
+		return "不可滚动"
+	}
+	position := "位置未知"
+	if axis.Percent >= 0 {
+		position = fmt.Sprintf("%.1f%%", axis.Percent)
+	}
+	edge := ""
+	if axis.AtStart() {
+		edge = "（已在起始端）"
+	} else if axis.AtEnd() {
+		edge = "（已在末端）"
+	}
+	view := ""
+	if axis.ViewSize >= 0 {
+		view = fmt.Sprintf("，视口占内容 %.1f%%", axis.ViewSize)
+	}
+	return fmt.Sprintf("可滚动，当前位置 %s%s%s", position, view, edge)
+}
+
+// scrollStateSummary 在 scroll 结果后追加「滚到哪个面板、滚前滚后位置」。
+func scrollStateSummary(after, before computer.ScrollTarget, hadBefore bool) string {
+	label := scrollTargetLabel(after)
+	if !after.Vertical.Scrollable {
+		return fmt.Sprintf("；落点面板 %s 只有横向可滚动", label)
+	}
+	position := "位置未知"
+	if after.Vertical.Percent >= 0 {
+		position = fmt.Sprintf("%.1f%%", after.Vertical.Percent)
+	}
+	summary := fmt.Sprintf("；落点面板 %s 纵向 %s", label, position)
+	if hadBefore && before.Vertical.Percent >= 0 && after.Vertical.Percent >= 0 {
+		if before.Vertical.Percent == after.Vertical.Percent {
+			summary += "（没动：可能已到头或 delta 太小）"
+		} else {
+			summary += fmt.Sprintf("（滚前 %.1f%%）", before.Vertical.Percent)
+		}
+	}
+	if after.Vertical.AtEnd() {
+		summary += "，已到面板底部"
+	} else if after.Vertical.AtStart() {
+		summary += "，已到面板顶部"
+	}
+	return summary
+}
+
 func shotDir() string {
 	if base := os.Getenv("LOCALAPPDATA"); base != "" {
 		return filepath.Join(base, "codex-computer-use", "shots")
@@ -434,10 +518,51 @@ func callTool(params json.RawMessage) (toolResult, error) {
 		if args.Delta == 0 {
 			args.Delta = -120
 		}
+		point := computer.Point{X: args.X, Y: args.Y}
+		before, hadBefore, _ := computer.ScrollStateAtPoint(point, 0)
 		if err := computer.Scroll(computer.Point{X: args.X, Y: args.Y}, args.Delta); err != nil {
 			return toolResult{}, err
 		}
-		return actionResult(fmt.Sprintf("scrolled delta=%d at (%d,%d)", args.Delta, args.X, args.Y), args.WithScreenshot, args.MaxWidth)
+		summary := fmt.Sprintf("scrolled delta=%d at (%d,%d)", args.Delta, args.X, args.Y)
+		if after, ok, _ := computer.ScrollStateAtPoint(point, 0); ok {
+			summary += scrollStateSummary(after, before, hadBefore)
+		}
+		return actionResult(summary, args.WithScreenshot, args.MaxWidth)
+
+	case "scroll_targets":
+		var args struct {
+			Title            string `json:"title"`
+			IncludeOffscreen bool   `json:"include_offscreen"`
+			Limit            int    `json:"limit"`
+		}
+		if err := json.Unmarshal(call.Arguments, &args); err != nil {
+			return toolResult{}, fmt.Errorf("scroll_targets 参数非法: %w", err)
+		}
+		handle := uintptr(0)
+		if needle := strings.ToLower(strings.TrimSpace(args.Title)); needle != "" {
+			windows, err := computer.ListWindows()
+			if err != nil {
+				return toolResult{}, err
+			}
+			matched := false
+			for _, window := range windows {
+				if window.Visible && strings.Contains(strings.ToLower(window.Title), needle) {
+					handle, matched = window.Handle, true
+					break
+				}
+			}
+			if !matched {
+				return toolResult{}, fmt.Errorf("未找到标题包含 %q 的可见窗口", args.Title)
+			}
+		}
+		targets, err := computer.ListScrollTargets(computer.ScrollTargetOptions{
+			WindowHandle:     handle,
+			IncludeOffscreen: args.IncludeOffscreen,
+		})
+		if err != nil {
+			return toolResult{}, err
+		}
+		return toolResult{Content: []toolContent{{Type: "text", Text: describeScrollTargets(targets, args.Limit)}}}, nil
 
 	case "type_text":
 		var args struct {
@@ -709,12 +834,21 @@ func toolDefinitions() []toolDef {
 		},
 		{
 			Name:        "scroll",
-			Description: "在指定坐标滚动滚轮。delta 为 120 的倍数，正数向上、负数向下。",
+			Description: "在指定坐标滚动滚轮。delta 为 120 的倍数，正数向上、负数向下；结果附带落点面板的滚前/滚后位置，可判断是否还有更多内容。",
 			InputSchema: obj(withProps(map[string]any{
 				"x":     map[string]any{"type": "integer"},
 				"y":     map[string]any{"type": "integer"},
 				"delta": map[string]any{"type": "integer", "description": "默认 -120（向下滚一格）"},
 			}), "x", "y"),
+		},
+		{
+			Name:        "scroll_targets",
+			Description: "列出窗口里可以用滚轮操作、借此看到屏幕外上下文的面板（名称、控件类型、矩形、中心坐标、当前滚动位置与视口占比）。只读：不聚焦、不点击、不滚动。先用它挑面板，再用 scroll 把中心坐标当 x/y 滚动。",
+			InputSchema: obj(map[string]any{
+				"title":             map[string]any{"type": "string", "description": "可选：按标题子串定位窗口（不聚焦）；缺省查当前前台窗口"},
+				"include_offscreen": map[string]any{"type": "boolean", "description": "是否包含离屏面板，默认 false"},
+				"limit":             map[string]any{"type": "integer", "description": "返回条数上限，默认 12"},
+			}),
 		},
 		{
 			Name:        "type_text",
