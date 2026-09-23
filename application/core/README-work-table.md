@@ -85,6 +85,7 @@
 - `func TestWorkItemCarriesOwningSession(t *testing.T)` — 归属会话必须从注册表记录透传到 WorkItem（GUI「会话」列与「仅本会话」筛选
 - `func TestGlobalWorkTableCarriesOwningSession(t *testing.T)` — 全局台账行带归属会话：实时注册表 = 当前会话，后台 scope 分区 = 分区键。
 - `func TestMergeTaskRecordsStampsSecondarySession(t *testing.T)` — 冷读合并：磁盘记录不带会话标记（归属由 SessionRecord 容器表达），合并时按
+- `func TestTaskChangedIncrementCarriesOwningSession(t *testing.T)` — 增量面：task.changed 单行必须带归属会话（与整表路径 taskSnapshotAll 同源
 
 ### work_table_session_scope_test.go
 

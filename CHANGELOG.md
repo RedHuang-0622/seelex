@@ -14,6 +14,47 @@ version when it lands.
 
 ### Fixed
 
+- **The cold-start session row no longer disappears from the session tree after you
+  switch away.** The assembly root allocated an early draft session ID at cold start
+  (`service_assembler.go`) but never stored it in the process-singleton draft slot
+  (`service.draft`), so the `Snapshot()` draft-row injection — gated on
+  `service.draft != nil` — never fired for the “startup is a draft” session. That row
+  was therefore shown only by the frontend's “current session fallback row”
+  (`app.js renderSessions` unshifts the active session when it is absent from the
+  catalog); as soon as the view switched to another session the fallback moved with it
+  and the initial session had no source left. The cold-start path now records the same
+  `draftSlot` that `BeginNewSession`/`resetViewToDraftAfterRestoreFailure` do, which also
+  restores the other slot-keyed invariants for that session (idempotent `BeginNewSession`
+  reuses the same ID instead of minting a new one, and the explicit-submit materialize
+  path recognises it). Teeth: `TestColdStartDraftSlotIsRetainedAcrossSwitch` (red before
+  the fix); `TestResidentLimitEvictsLeastRecentlyUsedIdle` now excludes the draft slot
+  row, which is a separate data layer from the resident catalog.
+- **`task.changed` increments carry the owning session key, so “this session only” no
+  longer drops the row that just changed.** Increments come only from the live task
+  registry, whose records carry no `SessionID`; the full-table path
+  (`seelebridge taskSnapshotAll`) stamps `currentTaskSessionID`, but the single-row
+  increment left it empty. The frontend replaces the whole row by `task_id`
+  (`protocol.js`), so a row that had its key was overwritten by a keyless copy and then
+  vanished under the session filter — exactly the reported “running subagent rows can't
+  be found with the current-session filter”, since every subagent status transition emits
+  an increment. `publishTaskChanged` now fills the key from the same attribution source as
+  the full projection when the record has none. The frontend filter also treats an empty
+  owner as the current view session in one shared predicate
+  (`work-table.js rowBelongsToViewSession`, used by the filter, its counts and the “sent”
+  axis) so a keyless legacy payload can never make a row disappear. Teeth:
+  `TestTaskChangedIncrementCarriesOwningSession`, plus the frontend
+  `session filter treats rows without an owning key as the view session` (both red
+  before the fix).
+- **Work-table refreshes are trailing-coalesced instead of re-rendering once per
+  event.** `runtime.changed` / `worktable.changed` / `task.changed` each rebuilt the whole
+  work table synchronously (batch tabs re-sorted, changed rows `replaceWith`-ed, new rows
+  inserted with a scroll jump), so a task burst looked like the panel “kept jumping”.
+  `app.js` now merges those three kinds over a ~120 ms trailing window and re-renders once
+  with the latest snapshot (latest-wins; the render is a pure function of the snapshot, so
+  dropped intermediate frames lose no information). Message/tool/interaction/team events
+  stay immediate, and the applied-sequence watermark is untouched. Teeth: covered by the
+  existing frontend suite (`node --test dist/*.test.mjs`, 433 pass), which pins the
+  per-kind dispatch strings the buffering wraps.
 - **`/compact` (and the `compact_context` tool) no longer refuse to compact, and the
   refusal notice no longer contradicts itself.** The explicit path still required
   `rawTokens ≥ soft threshold` even though it is the *user's* explicit request; worse,

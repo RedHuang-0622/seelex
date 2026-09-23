@@ -196,6 +196,10 @@
 - `func TestGetSessionTranscriptRange(t *testing.T)` — TestGetSessionTranscriptRange 钉住冷读区间语义：含端点、倒置显式报错、
 - `func TestListSessionsReturnsAuthoritativeDirectory(t *testing.T)` — TestListSessionsReturnsAuthoritativeDirectory C1：目录枚举不要求视图快照
 
+### session_cold_start_draft_test.go
+
+- `func TestColdStartDraftSlotIsRetainedAcrossSwitch(t *testing.T)`
+
 ### session_concurrent_content_isolation_test.go
 
 - `func TestConcurrentSessionsKeepOwnContent(t *testing.T)`

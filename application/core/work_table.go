@@ -331,6 +331,15 @@ func (service *Service) publishTaskChanged(record dto.TaskRecord, revision uint6
 	if service.Events == nil {
 		return
 	}
+	// 归属会话补齐（与整表路径同源）：增量只源自实时注册表（后台分区写不发
+	// 增量，见 seelebridge TaskAddFor/TaskSetStatusFor），而实时注册表恒属于
+	// 当前任务会话；注册表记录本身不带 SessionID，整表投影才给它标
+	// currentTaskSessionID。不补齐时整表已带键的行会被这份无键增量整行替换
+	// （前端 protocol.js 按 task_id 整行覆盖），前端"仅本会话"筛选随即丢掉
+	// 正在运行的行（子代理任务每状态迁移都发增量，最容易撞上）。
+	if record.SessionID == "" {
+		record.SessionID = sessionID
+	}
 	// 与整表投影同源补齐（plan 行依赖取自 plan 邻接面）：否则 task.changed
 	// 会把该行的依赖列擦成空。
 	item := service.workItemForRecord(record, sessionID)

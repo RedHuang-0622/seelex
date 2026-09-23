@@ -75,6 +75,11 @@ func TestResidentLimitEvictsLeastRecentlyUsedIdle(t *testing.T) {
 	snapshot := service.Snapshot()
 	byID := map[string]SessionInfo{}
 	for _, item := range snapshot.Sessions {
+		if item.Status == SessionStatusDraft {
+			// 冷启动草稿行（"新会话"槽位）不属于本用例的驻留目录面：它与
+			// 目录里 sess-* 是两层数据（草稿行由草稿槽位注入）。
+			continue
+		}
 		byID[item.ID] = item
 	}
 	if len(byID) != 3 {

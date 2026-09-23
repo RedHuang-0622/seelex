@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
@@ -202,6 +203,13 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		// 冷启动：引擎尚未建 bundle（HasSession=false）。早分配草稿 SID，
 		// 使"启动即草稿"也持有真实会话身份（订阅键/事件路由/物化复用同一 ID）。
 		initialSessionID = service.newDraftSessionIDLocked()
+		// 同步落草稿槽位（service.draft）：Snapshot 的草稿行注入、切换后草稿行
+		// 保留、BeginNewSession 的幂等复用、显式提交的物化路径都以该槽位为唯一
+		// 责任源（与 BeginNewSession / resetViewToDraftAfterRestoreFailure 同构）。
+		// 只分配 ID 不落槽位时，"启动即草稿"的会话行仅靠前端"当前会话兜底行"
+		// 显示，一旦切换视图就再无来源——初始会话从会话树"消失"的回归现场。
+		now := time.Now()
+		service.draft = &draftSlot{ID: initialSessionID, CreatedAt: now, UpdatedAt: now}
 	}
 	initialSession := SessionState{ID: initialSessionID, Draft: initialDraft}
 	if initialDraft {

@@ -387,6 +387,24 @@ test("session filter narrows rows, counts and sheet tabs to the view session", (
   assert.match(html, /data-work-sheet="all"/);
 });
 
+test("session filter treats rows without an owning key as the view session", () => {
+  // 后端已把实时注册表恒判给当前视图会话（seelebridge taskSnapshotAll /
+  // core publishTaskChanged）；但一条丢了归属键的增量行（旧版载荷/异常路径）
+  // 不该因此从「仅本会话」筛选与计数里消失——这正是"筛不到正在运行的子代理"
+  // 的可见形态。归属判定与计数共用同一口径（不出现"计数 1、列表 0"）。
+  const rows = [
+    { id: "task:sub", phase: "task", task: "正在跑的子代理", status: "running", kind: "subagent" },
+    { id: "task:2", phase: "task", task: "别的会话的 task", status: "pending", kind: "task", session_id: "sess-b" }
+  ];
+  const html = renderShellHTML(rows, {
+    ...uiState(),
+    sessionFilter: "mine",
+    viewSessionID: "sess-a"
+  });
+  assert.match(html, /data-work-session-count="1"/);
+  assert.match(html, /<span class="work-total">1 项<\/span>/);
+});
+
 test("session filter state tracks the current session getter on every render", () => {
   const harness = workTableViewHarness();
   let sessionID = "sess-a";

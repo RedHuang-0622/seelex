@@ -403,7 +403,7 @@ const client = createGUIClient({
     }
     render(snapshot, options);
   },
-  onIncremental: renderIncremental,
+  onIncremental: renderIncrementalBuffered,
   // 缺口增量补取：宿主从重放窗口按 delivery_seq 补事件，补不齐才重拉快照。
   replay: sinceSeq => invoke("ReplayEvents", sinceSeq),
   // 应用回执：告诉宿主哪些序号已经落地，宿主因此不必用轮询猜自己漏没漏事件。
@@ -686,6 +686,47 @@ function renderIncremental(snapshot, kind) {
     // 输入文本里猜"这次提交会不会改团队"。
     invalidateAgentTeam();
   }
+}
+
+// ── 表格三轴事件的尾随合并（缓冲）────────────────────────────
+// runtime.changed / worktable.changed / task.changed 三条事件都把工作表格整块
+// 重绘一遍（批次条重排、变更行 replaceWith、新行插入带动滚动位置跳变）。任务
+// 突发时（子代理每状态迁移都打点）逐条重绘在视觉上就是"表格总在跳"。这里做
+// ~120ms 尾随合并：窗口内只重绘一次，且始终用最新快照（latest-wins）——渲染是
+// 快照的纯函数，丢掉中间态不会丢信息。
+//
+// 消息/工具/交互/团队类事件不合并：流式增量必须逐帧落地，团队面板走自己的
+// 失效重取路径。合并只改变"什么时候重绘"，不改变快照应用与回执水位
+// （reportAppliedEvents 仍在 client-state 里逐事件推进）。
+const BUFFERED_INCREMENTAL_KINDS = new Set(["runtime.changed", "worktable.changed", "task.changed"]);
+let bufferedIncrementalSnapshot = null;
+let bufferedIncrementalKinds = new Set();
+let bufferedIncrementalTimer = null;
+
+function renderIncrementalBuffered(snapshot, kind) {
+  if (!BUFFERED_INCREMENTAL_KINDS.has(kind)) {
+    renderIncremental(snapshot, kind);
+    return;
+  }
+  bufferedIncrementalSnapshot = snapshot;
+  bufferedIncrementalKinds.add(kind);
+  if (bufferedIncrementalTimer !== null) return;
+  bufferedIncrementalTimer = window.setTimeout(flushBufferedIncrementals, 120);
+}
+
+function flushBufferedIncrementals() {
+  bufferedIncrementalTimer = null;
+  const snapshot = bufferedIncrementalSnapshot;
+  const kinds = bufferedIncrementalKinds;
+  bufferedIncrementalSnapshot = null;
+  bufferedIncrementalKinds = new Set();
+  if (!snapshot) return;
+  // 单次重绘取并集里最强的一类：runtime.changed ⊇ task.changed ⊇ worktable.changed
+  // （都含 plan 详情 + 工作表格；runtime 那一支还带账户/插件/技能/项目面）。
+  const kind = kinds.has("runtime.changed")
+    ? "runtime.changed"
+    : kinds.has("task.changed") ? "task.changed" : "worktable.changed";
+  renderIncremental(snapshot, kind);
 }
 
 // ── 对话区子页（对话 / 轨迹）──────────────────────────────

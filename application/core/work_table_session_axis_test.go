@@ -1,7 +1,9 @@
 package core
 
 import (
+	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
@@ -65,5 +67,49 @@ func TestMergeTaskRecordsStampsSecondarySession(t *testing.T) {
 	}
 	if byID["task:2"].SessionID != "sess-cold" {
 		t.Fatalf("磁盘记录未补归属会话：%+v", byID["task:2"])
+	}
+}
+
+// 增量面：task.changed 单行必须带归属会话（与整表路径 taskSnapshotAll 同源
+// 补齐）。实时注册表记录本身不带 SessionID，若增量原样下发，前端按 task_id
+// 整行替换（protocol.js）后该行 session_id 变空，「仅本会话」筛选当场丢掉
+// 正在运行的行——子代理任务每状态迁移都发增量，最易撞上。
+func TestTaskChangedIncrementCarriesOwningSession(t *testing.T) {
+	service := newTestService(t, &fakeEngine{})
+	sessionID := service.Snapshot().Session.ID
+	if sessionID == "" {
+		t.Fatal("view session has no ID")
+	}
+	subscription := service.Subscribe(16)
+	defer subscription.Close()
+
+	// 记录本身不带会话键（实时注册表语义）。
+	service.publishTaskChanged(dto.TaskRecord{
+		ID: "task:sub-1", Key: "subagent:node-1", Phase: dto.TaskPhaseTask, Task: "跑子代理",
+		Status: dto.TaskRunning, Kind: "subagent",
+	}, 1, "req-sub", sessionID)
+
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case event := <-subscription.Events:
+			if event.Kind != EventTaskChanged {
+				continue
+			}
+			var payload TaskChangedEvent
+			if err := json.Unmarshal(event.Payload, &payload); err != nil {
+				t.Fatalf("decode task.changed: %v", err)
+			}
+			if payload.TaskID != "task:sub-1" {
+				continue
+			}
+			if payload.Task.SessionID != sessionID {
+				t.Fatalf("BUG REPRO: task.changed 行归属会话 = %q, want %q（前端按会话筛选会丢掉该行）",
+					payload.Task.SessionID, sessionID)
+			}
+			return
+		case <-deadline:
+			t.Fatal("timeout waiting for task.changed")
+		}
 	}
 }

@@ -261,13 +261,22 @@ function rowsForSheet(items, state) {
   return items.filter(row => (row.batch_id || "") === state.activeBatch);
 }
 
+// rowBelongsToViewSession 判定行是否归属当前视图会话。空归属（草稿会话/
+// 未归属行/旧版无键增量）按"本会话"处理：后端把实时注册表恒判给当前视图会话
+// （见 seelebridge taskSnapshotAll 与 application/core publishTaskChanged），
+// 一行丢了归属键不该因此从筛选与计数里消失（「仅本会话筛不到正在运行的子代理」
+// 就是这样发生的）。渲染面另有「未归属（草稿）」占位，两处语义不冲突。
+function rowBelongsToViewSession(row, state) {
+  const owner = row.session_id || "";
+  return owner === "" || owner === (state?.viewSessionID || "");
+}
+
 // sessionRows 按归属会话过滤：「仅本会话」只留归属当前视图会话的行。工作表格
 // 是跨会话台账（后端读面默认全量），这是把会话维度收窄回来的唯一轴；默认
-// 「全部会话」，空串会话（草稿/未归属）在「仅本会话」下也算本会话。
+// 「全部会话」。
 function sessionRows(rows, state) {
   if (state?.sessionFilter !== "mine") return rows;
-  const current = state.viewSessionID || "";
-  return rows.filter(row => (row.session_id || "") === current);
+  return rows.filter(row => rowBelongsToViewSession(row, state));
 }
 
 // isDispatchedRow 判定「实发」行：归属当前视图会话且未终态——这正是后端请求
@@ -275,7 +284,7 @@ function sessionRows(rows, state) {
 // 未终态）。台账默认全量（含终态历史与别的会话的行），「实发」是贴在台账上
 // 最窄的一层视图，回答"模型此刻实际看到了哪些条目"。
 function isDispatchedRow(row, state) {
-  if ((row.session_id || "") !== (state?.viewSessionID || "")) return false;
+  if (!rowBelongsToViewSession(row, state)) return false;
   return !TERMINAL_STATUSES.has(statusToken(row.status));
 }
 
@@ -307,13 +316,13 @@ function visibleRows(items, state) {
 // sessionCounts 会话筛选轴的计数：分母是批次维度内的全部行（不受会话筛选与
 // 类型筛选影响），分子是其中归属当前会话的行。实发计数（dispatchCount）同源
 // ——按批次维度内的行统计，不受「仅本会话」/「实发」自身影响，否则开启后计数
-// 会自我坍缩。
+// 会自我坍缩。归属判定与 sessionRows 共用 rowBelongsToViewSession（同一口径，
+// 否则会出现"计数说 1 条、列表 0 条"）。
 function sessionCounts(items, state) {
   const base = rowsForSheet(items, state);
-  const current = state?.viewSessionID || "";
   return {
     all: base.length,
-    mine: base.filter(row => (row.session_id || "") === current).length
+    mine: base.filter(row => rowBelongsToViewSession(row, state)).length
   };
 }
 
