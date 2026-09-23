@@ -162,7 +162,20 @@ func (store *storeEngine) lRUDelete(key Key, upToSeq uint64, confirmed bool) (re
 	}
 	store.rememberMessageAnchor(key, newHead)
 	// head 已发布后删旧分片（失败只留孤儿文件，reader 以 head 为准）。
+	//
+	// 跳过本轮新写的分片：新片按「存活行首末 seq」命名，小分片淘汰后可能
+	// 与旧片**同名**（例：30 行 3 片淘汰 1..20 ⇒ 新片 message_21_30.jsonl
+	// 与旧末片同名）。若一并删除，head 会指向不存在的文件——而缺片读被当作
+	// "该片无行"（readMessageRowsFileAt 的 LRU 容忍），于是读者静默读到空，
+	// TotalRows 与可见行数不一致（数据无声消失）。
+	newPaths := make(map[string]bool, len(newFiles))
+	for _, path := range newFiles {
+		newPaths[filepath.Base(path)] = true
+	}
 	for _, shard := range oldShards {
+		if newPaths[shard.Path] {
+			continue
+		}
 		_ = os.Remove(filepath.Join(dir, shard.Path))
 	}
 	retention.WatermarkSeq = upToSeq

@@ -143,8 +143,51 @@ version when it lands.
   `seelexctx/gap_test.go` and `sessionstore/durable_history_test.go`; full suite green on
   `go test ./... -count=1` (67 packages, 0 failures) and `go build -tags "gui,desktop,production" ./...`.
 
+- **Reading a session's history no longer blocks the writer, and a concurrent publish can no
+  longer make a read fail.** `readRows` / `readTailRowsForSelection` used to hold `messageMu`
+  across the whole decode, so the lock profile showed 66% of the lock delays as *writers waiting
+  for readers* (one full history read made a commit wait 91.7 ms against a 30 ms budget, baseline
+  63.7 ms). The read path now takes a single **lock-free head snapshot** and decodes **outside**
+  the lock (`storeEngine.withPublishedHead`): the snapshot is taken once, decode runs against it,
+  and a decode that fails because a concurrently cleaned shard vanished under it is retried once
+  with a fresh snapshot (coordinates unchanged means real corruption and is reported as-is).
+  `readRowsLocked` stays for write-side callers (LRU delete, compaction, fork pre-read) and
+  `verifyMessage` keeps the exclusive lock, because its judgement is exactly "head and shards
+  frozen at the same instant" (sharing a lock-free snapshot with a concurrent cleanup would
+  report healthy deletions as corruption). Visibility is snapshot-consistent (MVCC-style stale
+  read); rows above the snapshot's `last_seq` stay invisible, so the draft tail can never leak.
+  Teeth: putting the decode back inside the lock turns `TestMessageReadDecodeOutsideWriterLock`
+  red (10 s timeout, the commit never finishes) and `TestCommitNotBlockedByFullHistoryRead` red
+  (extra wait 72.6 ms against the 30 ms budget).
+- **Windows readers of published files now open them with `FILE_SHARE_DELETE`.** Go's
+  `os.ReadFile`/`os.OpenFile` always use `share=READ|WRITE` without `DELETE`, which stayed
+  invisible while reads shared `messageMu` with the writer: heads are published by an atomic
+  rename (`writeAtomic`), and shards are deleted by LRU eviction / reap / compaction rewrite.
+  Once the read path became lock-free, `go test ./...` caught the reader losing that race — the
+  root package's `TestStorageConcurrentSessionLockProfile` failed inside `LoadEventTail` with
+  `metadata/message.json: The process cannot access the file because it is being used by another
+  process` (`ERROR_SHARING_VIOLATION`), while the same test passes on the parent commit.
+  Measured on one file over 4 s: 141 of 5248 default-mode reads failed while a writer looped
+  temp+rename, and two `O_RDWR` readers made 2077 of 2192 eviction deletes fail — with the share
+  bit, 0 of 9130 reads failed and every delete succeeded. `openSharedRead` / `readSharedFile`
+  (`sessionstore/file_shared_read_windows.go`, `..._other.go`) are wired into the five lock-free
+  read sites (`readModuleHeadFileRaw` for every module head, `readHeadEnvelopeLenient`,
+  `readMetaFromDir` for directory enumeration, `readMessageRowsFileAt`, `scanShardUserInputs`),
+  keeping the `*fs.PathError` shape so `errors.Is(err, fs.ErrNotExist)` is unchanged. Renaming
+  over a target still requires that no handle is open (`ERROR_ACCESS_DENIED`), so `writeAtomic`'s
+  backoff stays; this batch only removes the reader-side failure and the reader blocking deletes.
+
 ### Fixed
 
+- **LRU prefix eviction could delete the shard it had just published, silently emptying a
+  session's history.** Small shards are named after the surviving row range, so evicting 1..20
+  out of 30 rows rewrites the survivors as `message_21_30.jsonl` — the same name as the old last
+  shard, which the cleanup loop then removed by name. A missing shard reads as "no rows" (the LRU
+  tolerance in `readMessageRowsFileAt`), so `head.TotalRows` said 10 while the reader saw 0, with
+  no error anywhere. The cleanup now skips files published in the same pass;
+  `TestRetentionPrefixEvictionKeepsRewrittenShard` pins the three judgements (every shard in
+  `head.Shards` exists, visible rows equal `head.TotalRows`, `verifyMessage` passes) and turns red
+  with `head 引用的分片不存在: message_21_30.jsonl` as soon as the guard is dropped.
 - **A session can no longer self-lock while injecting a TL/ADVISOR directive at a
   tool-iteration boundary.** The `OnIterationComplete` hook runs synchronously
   inside `session.Session.ChatStream`, which holds the framework session mutex for

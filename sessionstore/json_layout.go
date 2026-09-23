@@ -599,7 +599,9 @@ func (repository *jsonRepository) currentGenerationLayout(key Key) (string, erro
 // 路径，不经过 hash 回算）。
 func readMetaFromDir(sessionRoot string) (frameworkStorage.SessionMeta, bool) {
 	headPath := filepath.Join(sessionRoot, "metadata", "message.json")
-	data, err := os.ReadFile(headPath)
+	// 目录枚举天然无锁：并发发布（rename）期间必须仍能读到头，否则会话在列表里
+	// 静默消失（readSharedFile 带 FILE_SHARE_DELETE）。
+	data, err := readSharedFile(headPath)
 	if err != nil {
 		return frameworkStorage.SessionMeta{}, false
 	}

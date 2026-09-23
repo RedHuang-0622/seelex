@@ -104,6 +104,22 @@ flowchart LR
 - 正文事实源 = `session/message/message_{m}_{n}.jsonl` 事件行（分片按默认
   100 行），`commit_id` 标记一次持久提交，同提交多行共享；head 是发布点，
   崩溃残尾/未发布行按恢复语义截断或不可见；
+- **message 读路径不持 `messageMu`（C2，2026-09-23）**：`readRows` /
+  `readTailRowsForSelection` 只做一次**无锁 head 快照**（自愈读入口，绝不把
+  未发布行提升为已提交），随后在**锁外**解码分片。写者因此不必排在长全量解码
+  后面——原实现读写共用一把独占 mutex，pprof 里 66% 的锁等待其实是**写者在等
+  读者**。可见性：读者看到的是快照那一刻的发布点（陈旧读；草稿尾天然不可见）；
+  并发清理删掉快照引用的分片时以新快照**重试一次**（有界，坐标没变即原样报错）。
+  并发发布/淘汰还要求**只读文件用带 `FILE_SHARE_DELETE` 的句柄打开**（Windows）：统一走
+  `openSharedRead`/`readSharedFile`（`file_shared_read_windows.go` / `_other.go`），接线
+  `readModuleHeadFileRaw`/`readHeadEnvelopeLenient`/`readMetaFromDir`/`readMessageRowsFileAt`/
+  `scanShardUserInputs`——默认共享位下读者会在 rename 发布窗口 open 失败
+  （`ERROR_SHARING_VIOLATION`），并挡住 LRU/reap 的删除；rename 覆盖仍要求目标无打开句柄，
+  故写侧 `renameBackoff` 保留。
+  验收：`message_read_lock_test.go`（结构性：读者钉在解码里，提交仍须完成）+
+  `lock_hotspot_test.go`（时序：读者造成的额外等待 ≤ 预算）；写侧整片重读 +
+  `fileSHA256` 整片重算（H3）与 head 每次提交整份重写（C1）仍是同一专项的
+  未完成项，归 `lock_hotspot_probe_test.go`（`-tags lockprobe`）定量跟踪；
 - provider 整段历史缓存（`history.json`）**已退役（S11/D9）**：Read/ReadRange
   全量读一律由 message 事件行派生；`Router.Save`/`WriteCommit` 的
   `ProviderHistory` 不再落盘（同一提交以 `Events` 为准，dev 阶段丢字段已

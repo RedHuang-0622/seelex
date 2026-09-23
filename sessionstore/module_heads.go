@@ -396,7 +396,9 @@ func (store *storeEngine) retryHeadAfterLock(key Key, module storageModule) (mod
 // 严格只读：不自愈、不取锁、不发布。
 func (store *storeEngine) readModuleHeadFileRaw(key Key, module storageModule) (moduleHeadFile, error) {
 	path := store.modulePath(key, module)
-	data, err := os.ReadFile(path)
+	// 只读打开带 FILE_SHARE_DELETE：head 由 rename 原子替换，读者若用 Go 默认共享位
+	// （缺 DELETE）会在替换窗口里 open 失败（ERROR_SHARING_VIOLATION）。
+	data, err := readSharedFile(path)
 	if err != nil {
 		return moduleHeadFile{}, err
 	}
@@ -426,7 +428,7 @@ func (store *storeEngine) readModuleHeadFileRaw(key Key, module storageModule) (
 // readHeadEnvelopeLenient 宽容读 head 信封（自愈重建的字段取回通道）：只要求
 // JSON 可解、模块/会话对得上；不校验 checksum、不触发自愈（否则自愈会递归）。
 func (store *storeEngine) readHeadEnvelopeLenient(key Key, module storageModule) (moduleHeadFile, bool) {
-	data, err := os.ReadFile(store.modulePath(key, module))
+	data, err := readSharedFile(store.modulePath(key, module))
 	if err != nil {
 		return moduleHeadFile{}, false
 	}

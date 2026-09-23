@@ -171,7 +171,7 @@ stateDiagram-v2
 | 写者 actor 化 | per-(workspace,session) 单写者收口 8 个写调用点（`chat.go:265`、`coordinator.go:118`、`content_lru.go:194`、`resident_lru.go:145`、`session_draft.go:56`、`session_lifecycle.go:148`、`archive_session.go:67`、`session_fork.go:118`） | 可复用 `seelebridge/internal/actor`（`seelactor.New`）；读侧改不可变投影（`stackViews` 范式）以消除 C1 锁热点 |
 | durable queue 写入侧接线 | `queueEnqueue` / `saveDraft` / `draftToQueue` 目前**只有测试调用**，主链路用户输入仍在内存队列 | 无（最小改动、收益直接） |
 | fsync 策略 | 每步 append 是否 `file.Sync()`：不 sync = 进程被杀可恢复、断电丢；每步 sync = 断电可恢复、每步一次落盘 | 与应用可接受的写放大共同决定 |
-| C1/C2 | head 体积随分片数线性增长 + 读者与写者同锁（红探针 222ms/预算 30ms）；head 每次提交整份重写 | 逐步草稿落地前应先修，否则把锁热点换成 IO 热点 |
+| C1/C2 | **C2 已修（2026-09-23）**：读者与写者不再同锁 —— `readRows`/`readTailRowsForSelection` 走「无锁 head 快照 + 锁外解码」（红探针 222ms/预算 30ms 已消；验收 = `sessionstore/message_read_lock_test.go`（结构性）+ `lock_hotspot_test.go`（时序预算），红→绿的有牙证明见 conformance-checklist §5 H2）。**C1 未做**：head 体积随分片数线性增长 + head 每次提交整份重写 | C1 待办：逐步草稿落地前应先修，否则把锁热点换成 IO 热点 |
 
 ---
 

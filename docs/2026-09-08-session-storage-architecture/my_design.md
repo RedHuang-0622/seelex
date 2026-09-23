@@ -391,6 +391,34 @@ EVENT 完整重算，则无需落盘）。判据只有一个：**这个快照能
 - 任何角色都不得直接写 message；角色 actor 的“完成/可同步”通知只进 sequencer 的
   排序队列，不参与 message 临界区。
 
+**message 读路径不持写锁（C2 补充，2026-09-23）**
+
+- 读（`readRows` / `readTailRowsForSelection`）**不取 message 写锁**：只做一次无锁
+  head 快照（自愈读入口，绝不把 `seq > last_seq` 的未发布行提升为已提交），按快照
+  在锁外解码分片；
+- 三条后果与契约：① 写者不再排在长全量解码后面（pprof 里 66% 的锁等待其实是
+  写者在等读者，C2 之前一次全量读让提交多等 91.7 ms / 预算 30 ms）；② 读者看到
+  的是快照那一刻的发布点（MVCC 式陈旧读；解码一律以快照 `last_seq` 为上限，草稿尾
+  天然不可见）；③ 并发清理（LRU 行删除 / 压缩重写 / reap 未索引分片）可能删掉快照
+  引用的分片，此时以新快照**重试一次**（有界；坐标没变则原样上抛真损坏，不掩盖）；
+- 重写型路径（LRU 删除、压缩、fork 前置读）仍走 `readRowsLocked`，与自己的写临界区
+  同锁；唯一保留独占锁的**只读**面 = `verifyMessage`——完整性检查器的判据就是
+  「head 与分片同时定格」，与并发清理共用无锁快照会把正常清理报成损坏；
+- 验收：`sessionstore/message_read_lock_test.go`（结构性：读者钉在解码里提交仍须
+  完成）+ `lock_hotspot_test.go`（时序：读者造成的额外等待 ≤ 30 ms）。
+
+**只读共享文件必须「不挡删除、也不被发布挡住」（Windows 共享位，2026-09-23）**
+
+- head 由 `writeAtomic` 的 rename 原子发布，分片会被 LRU 淘汰 / reap / 压缩重写删除；
+  而 Go 的 `os.ReadFile`/`os.OpenFile` 在 Windows 上固定 `share=READ|WRITE`（缺 `DELETE`）。
+  解耦前读写同锁把这个窗口序列化掉了，解耦后必须显式让路：
+- 统一走 `openSharedRead`/`readSharedFile`（Windows 带 `FILE_SHARE_DELETE`，非 Windows 用
+  `os.Open`/`os.ReadFile`），接线点 = `readModuleHeadFileRaw`（全部模块 head）、
+  `readHeadEnvelopeLenient`、`readMetaFromDir`（目录枚举 meta）、`readMessageRowsFileAt`、
+  `scanShardUserInputs`（分片）；
+- 边界：rename 覆盖仍要求目标无打开句柄（`renameBackoff` 继续负责），本层只消除读者侧的
+  `ERROR_SHARING_VIOLATION` 与「读者挡住删除」。
+
 **floor：当前发言角色的记录（v8.3 补充，2026-09-10）**
 
 - floor = “当前轮到这里发言的角色”，字段：`floor.role_name`、

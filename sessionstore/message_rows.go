@@ -206,7 +206,9 @@ const firstUserInputProbeLineBytes = 64 * 1024
 //
 // 崩溃残尾/坏行按存储既有语义跳过（decodeMessageRows 同口径）。
 func scanShardUserInputs(path string, limit int) ([]string, error) {
-	file, err := os.Open(path)
+	// 扫描可能持续到 256 KB：句柄同样要带 FILE_SHARE_DELETE，别把首片（恰好是
+	// LRU 淘汰对象）的删除挡住。
+	file, err := openSharedRead(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		// 分片不存在 = 一条用户输入都没有：显式空切片（`len == 0` 与 nil 同义，
 		// 见 listBlobHashes/readMessageRowsFileAt 的同一口径），不写 `nil, nil`
@@ -690,7 +692,9 @@ func (store *storeEngine) physicalLastShardLocked(key Key) (string, error) {
 }
 
 func readMessageRowsFileAt(path string) ([]Event, error) {
-	file, err := os.OpenFile(path, os.O_RDWR, 0o600)
+	// 只读 + FILE_SHARE_DELETE：读者不再挡淘汰删除（LRU/reap/压缩重写），自己也不
+	// 会在删除窗口里 open 失败；O_RDWR 是历史形状，本函数只读。
+	file, err := openSharedRead(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return []Event{}, nil
 	}
@@ -745,19 +749,82 @@ func fileSHA256(path string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// publishedReadHook 是"已发布 head 快照解码"的测试钩子：读者在锁外解码**之前**
+// 被调用（生产路径不设置）。测试用它把读者钉在解码里，断言写者不被读者阻塞
+// ——即读者确实不再持 messageMu（C2）。与 readSelfHealHook 同族：只读测试面。
+var publishedReadHook func()
+
 // readRows 按 seq 区间读取已发布行（[from, to] 含端点；越界安全）。
 // from == 0 表示从首行开始；to == 0 表示到 head 末尾。
+//
+// 读路径不持 messageMu（C2）：只做一次**无锁 head 快照**（readMessageHead 是
+// 自愈读入口——快路径零锁、慢路径 TryLock 不抢锁、且绝不把未发布行提升为已
+// 提交），随后在锁外解码分片。写者因此不必排在长全量解码后面（锁热点从
+// "读者独占"变回"只有写者排队"）。
+//
+// 代价与边界（读者侧可见性）：读者看到的是"快照那一刻的发布点"——与写者并发
+// 时可能读到稍旧的坐标（MVCC 式陈旧读，不会读到草稿尾：解码一律以快照的
+// last_seq 为上限）。并发清理（LRU 淘汰 / 压缩重写 / reap 未索引分片）可能删掉
+// 快照引用的分片，此时以新快照重试一次（有界，见 withPublishedHead）。
 func (store *storeEngine) readRows(key Key, fromSeq, toSeq uint64) ([]Event, error) {
-	store.mu(key, moduleMessage).Lock()
-	defer store.mu(key, moduleMessage).Unlock()
-	return store.readRowsLocked(key, fromSeq, toSeq)
+	return store.withPublishedHead(key, func(head messageHead) ([]Event, error) {
+		return store.decodePublishedRows(key, head, fromSeq, toSeq)
+	})
 }
 
+// withPublishedHead 以"已发布 head 快照"为基准做锁外解码。
+//
+// 重试口径：解码失败且 head 已漂移（分片索引/发布点变了）时用新快照重试**一次**
+// ——这正是"读到一半分片被并发清理删掉"的情形；坐标没变还失败就是真错误（损坏/
+// 缺片），原样上抛，不掩盖。重试有界，不构成无限循环。
+func (store *storeEngine) withPublishedHead(key Key, decode func(head messageHead) ([]Event, error)) ([]Event, error) {
+	head, err := store.readMessageHead(key)
+	if err != nil {
+		return nil, err
+	}
+	if hook := publishedReadHook; hook != nil {
+		hook()
+	}
+	rows, err := decode(head)
+	if err == nil {
+		return rows, nil
+	}
+	fresh, headErr := store.readMessageHead(key)
+	if headErr != nil || samePublishedHead(head, fresh) {
+		return nil, err
+	}
+	return decode(fresh)
+}
+
+// samePublishedHead 报告两次快照的**已发布坐标**是否同一（发布点 + 分片索引）。
+// 只用于判定"要不要重试一次"：相同即说明没有并发清理在动这批分片。
+func samePublishedHead(a, b messageHead) bool {
+	if a.LastSeq != b.LastSeq || len(a.Shards) != len(b.Shards) {
+		return false
+	}
+	for index := range a.Shards {
+		if a.Shards[index] != b.Shards[index] {
+			return false
+		}
+	}
+	return true
+}
+
+// readRowsLocked 是 readRows 的锁内版本（调用方持 messageMu）：写路径（LRU 行
+// 删除、压缩、fork 前置读等）用它保证"head 快照 + 解码"与自己的写临界区同锁，
+// 读者路径不要用（那正是 C2 要拆开的耦合）。
 func (store *storeEngine) readRowsLocked(key Key, fromSeq, toSeq uint64) ([]Event, error) {
 	head, err := store.readMessageHeadLocked(key)
 	if err != nil {
 		return nil, err
 	}
+	return store.decodePublishedRows(key, head, fromSeq, toSeq)
+}
+
+// decodePublishedRows 按给定 head 快照解码 [from, to] 区间（不取任何锁）：只读
+// 快照索引里的分片，并以 head.LastSeq 为上限——草稿尾（seq > last_seq）因此对
+// 读者天然不可见（D2 红线：读侧不得提升/不得看见未发布行）。
+func (store *storeEngine) decodePublishedRows(key Key, head messageHead, fromSeq, toSeq uint64) ([]Event, error) {
 	if toSeq != 0 && fromSeq > toSeq {
 		return nil, errors.New("session storage: invalid event range")
 	}
@@ -802,6 +869,7 @@ func (store *storeEngine) readAllRows(key Key) ([]Event, error) {
 //   - 全量语义（MaxInt/MaxInt）保持旧行为读全量。
 //
 // 返回的行按 seq 升序，供调用方再做 selectEventTail/完整单元裁剪。
+// 与 readRows 同口径：无锁 head 快照 + 锁外解码（C2），不在 messageMu 内做 IO。
 func (store *storeEngine) readTailRowsForSelection(key Key, tokenBudget, maxUnits int) ([]Event, error) {
 	if tokenBudget <= 0 || maxUnits <= 0 {
 		return []Event{}, nil
@@ -809,16 +877,16 @@ func (store *storeEngine) readTailRowsForSelection(key Key, tokenBudget, maxUnit
 	if maxUnits >= 1<<20 {
 		return store.readRows(key, 1, 0)
 	}
-	messageLock := store.mu(key, moduleMessage)
-	messageLock.Lock()
-	defer messageLock.Unlock()
-	head, err := store.readMessageHeadLocked(key)
-	if err != nil {
-		return nil, err
-	}
-	if head.LastSeq == 0 {
-		return []Event{}, nil
-	}
+	return store.withPublishedHead(key, func(head messageHead) ([]Event, error) {
+		if head.LastSeq == 0 {
+			return []Event{}, nil
+		}
+		return store.decodeTailRows(key, head, tokenBudget, maxUnits)
+	})
+}
+
+// decodeTailRows 按 head 快照从末分片向前累积解码（不取任何锁）。
+func (store *storeEngine) decodeTailRows(key Key, head messageHead, tokenBudget, maxUnits int) ([]Event, error) {
 	// 128 行/单元上限的保守估算：覆盖普通轮次 + 边界余量，同时避免把
 	// 整个历史读进来；超长单单元（极端工具链）会退化为读更多分片。
 	rowCap := (maxUnits + 1) * 128
@@ -846,6 +914,11 @@ func (store *storeEngine) readTailRowsForSelection(key Key, tokenBudget, maxUnit
 
 // verifyMessage 校验 message 通道：head 可读、分片存在、文件行数与 head
 // 一致、head 末行 = 最后已发布行；LRU 空洞（锚 ≤ watermark）不算损坏。
+//
+// 这里**保留独占 messageMu**（读者路径里唯一的例外）：它是完整性检查器，判据
+// 就是"head 引用的分片必须存在且行数列数吻合"——若与并发写者/清理者共用无锁
+// 快照，正常清理会被报成损坏（假警报），坏文件也可能被漏报。诊断面不参与热
+// 路径，独占锁的代价可接受。
 func (store *storeEngine) verifyMessage(key Key) error {
 	store.mu(key, moduleMessage).Lock()
 	defer store.mu(key, moduleMessage).Unlock()
@@ -880,10 +953,9 @@ func (store *storeEngine) verifyMessage(key Key) error {
 }
 
 // messageCount 返回当前物理行数（淘汰后不包含前缀空洞）。
+// 只读 head 快照，不需锁（C2：不参与写者排队）。
 func (store *storeEngine) messageCount(key Key) (uint64, error) {
-	store.mu(key, moduleMessage).Lock()
-	defer store.mu(key, moduleMessage).Unlock()
-	head, err := store.readMessageHeadLocked(key)
+	head, err := store.readMessageHead(key)
 	if err != nil {
 		return 0, err
 	}

@@ -29,13 +29,12 @@ func (store *storeEngine) pageHistoryRows(key Key, offset, limit int) ([]history
 	if limit <= 0 {
 		limit = 20
 	}
-	store.mu(key, moduleMessage).Lock()
-	head, err := store.readMessageHeadLocked(key)
+	// R1 是读者：head 取无锁快照（readMessageHead 自愈读，快路径零锁），解码
+	// 交给 readRows 在锁外完成（C2：整条历史读路径不持 messageMu）。
+	head, err := store.readMessageHead(key)
 	if err != nil {
-		store.mu(key, moduleMessage).Unlock()
 		return nil, 0, err
 	}
-	store.mu(key, moduleMessage).Unlock()
 	total := int(head.LastSeq)
 	if offset >= total {
 		return []historyReadRow{}, total, nil
