@@ -79,7 +79,7 @@ func wrapProc(name string, err error) error {
 }
 
 // CursorPosition 返回当前光标位置（虚拟桌面坐标）。
-func CursorPosition() (Point, error) {
+func (win32Desktop) CursorPosition() (Point, error) {
 	var p cursorPoint
 	ret, _, err := procGetCursorPos.Call(uintptr(unsafe.Pointer(&p)))
 	if ret == 0 {
@@ -89,7 +89,7 @@ func CursorPosition() (Point, error) {
 }
 
 // MoveMouse 把光标移动到指定坐标。
-func MoveMouse(p Point) error {
+func (win32Desktop) MoveMouse(p Point) error {
 	if err := setCursor(p); err != nil {
 		return err
 	}
@@ -106,8 +106,8 @@ func setCursor(p Point) error {
 }
 
 // absolutePoint 把虚拟桌面坐标归一化为 0..65535，供 MOUSEEVENTF_ABSOLUTE 使用。
-func absolutePoint(p Point) (uintptr, uintptr) {
-	screen, err := VirtualScreen()
+func (d win32Desktop) absolutePoint(p Point) (uintptr, uintptr) {
+	screen, err := d.VirtualScreen()
 	if err != nil || screen.Width <= 1 || screen.Height <= 1 {
 		return uintptr(int32(p.X)), uintptr(int32(p.Y))
 	}
@@ -150,7 +150,7 @@ func sendMouse(flags uint32, x, y uintptr, data uint32) error {
 }
 
 // Click 把光标移动到指定坐标并点击（按下与释放成对，失败也先补释放）。
-func Click(p Point, opts ClickOptions) error {
+func (d win32Desktop) Click(p Point, opts ClickOptions) error {
 	down, up, err := mouseButtonFlags(opts.Button)
 	if err != nil {
 		return err
@@ -163,10 +163,10 @@ func Click(p Point, opts ClickOptions) error {
 	if interval <= 0 {
 		interval = DefaultClickInterval
 	}
-	if err := MoveMouse(p); err != nil {
+	if err := d.MoveMouse(p); err != nil {
 		return err
 	}
-	nx, ny := absolutePoint(p)
+	nx, ny := d.absolutePoint(p)
 	return runClickSequence(sendMouse, down, up, nx, ny, clicks, interval, func(d time.Duration) {
 		Sleep(int(d / time.Millisecond))
 	})
@@ -174,11 +174,11 @@ func Click(p Point, opts ClickOptions) error {
 
 // Drag 按住左键从 from 拖到 to，用于框选、拖拽窗口等。中途失败也必须释放，
 // 否则桌面停在按住状态。
-func Drag(from, to Point, duration time.Duration) error {
-	if err := MoveMouse(from); err != nil {
+func (d win32Desktop) Drag(from, to Point, duration time.Duration) error {
+	if err := d.MoveMouse(from); err != nil {
 		return err
 	}
-	nx, ny := absolutePoint(from)
+	nx, ny := d.absolutePoint(from)
 	if err := sendMouse(mouseEventLeftDown, nx, ny, 0); err != nil {
 		_ = sendMouse(mouseEventLeftUp, nx, ny, 0)
 		return err
@@ -192,13 +192,13 @@ func Drag(from, to Point, duration time.Duration) error {
 		ratio := float64(i) / float64(steps)
 		x := from.X + int(float64(to.X-from.X)*ratio)
 		y := from.Y + int(float64(to.Y-from.Y)*ratio)
-		if err := MoveMouse(Point{X: x, Y: y}); err != nil {
+		if err := d.MoveMouse(Point{X: x, Y: y}); err != nil {
 			moveErr = err
 			break
 		}
 		Sleep(int(duration / time.Duration(steps) / time.Millisecond))
 	}
-	nx, ny = absolutePoint(to)
+	nx, ny = d.absolutePoint(to)
 	if err := sendMouse(mouseEventLeftUp, nx, ny, 0); err != nil {
 		return err
 	}
@@ -207,14 +207,14 @@ func Drag(from, to Point, duration time.Duration) error {
 
 // Scroll 在指定坐标滚动滚轮，delta 为 WHEEL_DELTA(120) 的倍数，正数向上。
 // delta 按格拆成多次事件下发（见 scrollNotches），并留出界面稳定时间。
-func Scroll(p Point, delta int) error {
+func (d win32Desktop) Scroll(p Point, delta int) error {
 	if delta == 0 {
 		return fmt.Errorf("computer: scroll 需要非零 delta")
 	}
-	if err := MoveMouse(p); err != nil {
+	if err := d.MoveMouse(p); err != nil {
 		return err
 	}
-	nx, ny := absolutePoint(p)
+	nx, ny := d.absolutePoint(p)
 	notches := scrollNotches(delta)
 	if len(notches) == 0 {
 		return fmt.Errorf("computer: scroll delta=%d 无法拆成滚轮事件", delta)
@@ -265,7 +265,7 @@ func unicodeInput(unit uint16, up bool) input {
 }
 
 // TypeText 以 Unicode 方式输入文本（支持中文与 emoji）。
-func TypeText(text string) error {
+func (win32Desktop) TypeText(text string) error {
 	if text == "" {
 		return nil
 	}
@@ -284,7 +284,7 @@ func TypeText(text string) error {
 }
 
 // PressKeys 按下组合键，times 为重复次数（0 视为 1）。
-func PressKeys(combo string, times int) error {
+func (win32Desktop) PressKeys(combo string, times int) error {
 	parsed, err := ParseKeyCombo(combo)
 	if err != nil {
 		return err

@@ -245,7 +245,8 @@ func inlineImage(flag *bool) bool {
 }
 
 func main() {
-	computer.EnableDPIAwareness()
+	// 一次性平台准备（Windows 声明 DPI 感知；失败不致命，后续调用自会报错）。
+	_ = computer.Prepare()
 	reader := bufio.NewScanner(os.Stdin)
 	reader.Buffer(make([]byte, 64*1024), maxLineBytes)
 	writer := bufio.NewWriter(os.Stdout)

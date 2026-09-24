@@ -19,7 +19,9 @@ require (
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
+	github.com/ebitengine/purego v0.11.1
 	github.com/google/uuid v1.6.0
+	github.com/jezek/xgb v1.3.1
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/wailsapp/wails/v2 v2.13.0
 	gopkg.in/yaml.v3 v3.0.1

@@ -10,7 +10,7 @@ import (
 
 // ── Seelex 侧 computer use 工具面 ────────────────────────────
 //
-// 原语层（同包的 *_windows.go / stub_other.go / view.go）之上的一层：把
+// 原语层（同包 desktop.go 的抽象面 + 平台实现，见 desktop.go 的路由说明）之上的一层：把
 // 「看屏幕、动鼠标、敲键盘、找窗口」暴露成 Seelex 自己的工具，模型在会话里
 // 直接调用；主要调用方是 seelebridge.Runtime.RegisterBuiltins。
 //
@@ -124,9 +124,10 @@ type Tools struct {
 	ops  primitives
 }
 
-// primitives 是平台原语的注入面：生产用真实实现，测试注入假实现，
+// primitives 是平台原语的注入面：生产用真实实现（Current()），测试注入假实现，
 // 因此工具族的参数校验、媒体落盘与随图语义可以在任何平台上单测。
 type primitives struct {
+	capabilities  func() Capabilities
 	capture       func(ScreenshotOptions) (Capture, error)
 	virtualScreen func() (Rect, error)
 	cursor        func() (Point, error)
@@ -144,22 +145,27 @@ type primitives struct {
 	sleep         func(time.Duration)
 }
 
-func defaultPrimitives() primitives {
+// defaultPrimitives 把平台抽象面（Desktop）的方法绑成工具层的注入面：上层只
+// 认这一个接口，底下是 Win32、X11 还是桩实现都与它无关。Current() 返回编译期
+// 选定的本平台实现（见 desktop.go 的路由说明）——平台一切换，这里绑到的就是
+// 新实现的同名方法，工具层与装配层一行都不用改。
+func defaultPrimitives(desktop Desktop) primitives {
 	return primitives{
-		capture:       CaptureShot,
-		virtualScreen: VirtualScreen,
-		cursor:        CursorPosition,
-		foreground:    ForegroundWindow,
-		listWindows:   ListWindows,
-		scrollTargets: ListScrollTargets,
-		scrollState:   ScrollStateAtPoint,
-		focusWindow:   FocusWindow,
-		moveMouse:     MoveMouse,
-		click:         Click,
-		drag:          Drag,
-		scroll:        Scroll,
-		typeText:      TypeText,
-		pressKeys:     PressKeys,
+		capabilities:  desktop.Capabilities,
+		capture:       desktop.CaptureShot,
+		virtualScreen: desktop.VirtualScreen,
+		cursor:        desktop.CursorPosition,
+		foreground:    desktop.ForegroundWindow,
+		listWindows:   desktop.ListWindows,
+		scrollTargets: desktop.ListScrollTargets,
+		scrollState:   desktop.ScrollStateAtPoint,
+		focusWindow:   desktop.FocusWindow,
+		moveMouse:     desktop.MoveMouse,
+		click:         desktop.Click,
+		drag:          desktop.Drag,
+		scroll:        desktop.Scroll,
+		typeText:      desktop.TypeText,
+		pressKeys:     desktop.PressKeys,
 		sleep:         func(d time.Duration) { Sleep(int(d / time.Millisecond)) },
 	}
 }
@@ -175,18 +181,25 @@ func NewTools(deps Deps) *Tools {
 	if deps.Now == nil {
 		deps.Now = time.Now
 	}
-	return &Tools{deps: deps, ops: defaultPrimitives()}
+	return &Tools{deps: deps, ops: defaultPrimitives(Current())}
 }
 
 // Register 注册整个工具族（注册面缺失时静默返回：装配层负责显式装配）。
+//
+// 逐个工具按 Desktop 的能力声明决定去留：能力做不到的工具**不注册**——例如
+// X11 没有 UI Automation 的 ScrollPattern，Linux 上就没有 computer_scroll_targets，
+// 而不是挂一个每次调用都必然失败的摆设。
 func (t *Tools) Register() {
 	if t == nil || t.deps.RegisterTool == nil {
 		return
 	}
 	register := t.deps.RegisterTool
+	caps := t.ops.capabilities()
 	register(ToolScreenshot, "Capture the desktop (or a region) and hand the picture to your next request so you can see the screen. Returns the stored media ref, region, scale, cursor and foreground window. Coordinates are virtual-desktop physical pixels.", screenshotSchema(), t.screenshot)
 	register(ToolWindows, "List top-level desktop windows (title, handle, rect, visible, minimized) plus the virtual desktop size and the current foreground window. Use it to orient before clicking.", windowsSchema(), t.windows)
-	register(ToolScrollTargets, "List the panels inside a window that can be scrolled with the wheel: each entry carries a readable name, control type, rect, center point, and the current vertical/horizontal scroll position and viewport ratio. Use it to find where the off-screen context lives (a page body, a side list, a chat history) before calling computer_scroll, and to tell how much content is left above/below.", scrollTargetsSchema(), t.scrollTargets)
+	if caps.ScrollTargets {
+		register(ToolScrollTargets, "List the panels inside a window that can be scrolled with the wheel: each entry carries a readable name, control type, rect, center point, and the current vertical/horizontal scroll position and viewport ratio. Use it to find where the off-screen context lives (a page body, a side list, a chat history) before calling computer_scroll, and to tell how much content is left above/below.", scrollTargetsSchema(), t.scrollTargets)
+	}
 	register(ToolFocus, "Bring a top-level window to the foreground by title substring (case-insensitive). Empty match reports the current foreground window without switching.", focusSchema(), t.focus)
 	register(ToolClick, "Click the desktop: give x/y, or give window (title substring) to click its center. button is left|right|middle; clicks is 1-3.", clickSchema(), t.click)
 	register(ToolMove, "Move the mouse pointer to a point without clicking (hover, tooltip, or drag staging).", moveSchema(), t.move)

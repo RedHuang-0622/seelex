@@ -23,15 +23,18 @@ const computerUseEnv = "SEELEX_COMPUTER_USE"
 
 // registerComputerTools 注册 computer use 工具族（见 RegisterBuiltins）。
 //
-// 平台不支持（非 Windows）或环境变量关闭时整体不注册：宁可不给模型这族工具，
-// 也不挂一串必然返回 ErrUnsupported 的摆设。
+// 平台不支持（Capabilities().Desktop 为 false）或环境变量关闭时整体不注册：
+// 宁可不给模型这族工具，也不挂一串必然返回 ErrUnsupported 的摆设。
 func (r *Runtime) registerComputerTools() {
 	if r == nil || r.registry == nil || !bridgecomputer.Supported() || !computerUseEnabled() {
 		return
 	}
-	// 截图与鼠标坐标都以物理像素为准：进程必须先声明 Per-Monitor V2 DPI 感知，
-	// 否则 125% 缩放下注入坐标会落到目标的 80%（见 computer/README.md）。
-	bridgecomputer.EnableDPIAwareness()
+	// 一次性平台准备（Windows 声明 Per-Monitor V2 DPI 感知，否则 125% 缩放下
+	// 注入坐标会落到目标的 80%，见 computer/README.md）。返回错误表示桌面能力
+	// 不可用——同样不注册，而不是挂上必然失败的工具。
+	if err := bridgecomputer.Prepare(); err != nil {
+		return
+	}
 	bridgecomputer.NewTools(bridgecomputer.Deps{
 		RegisterTool: r.RegisterTool,
 		StoreMedia:   r.storeSessionMedia,

@@ -243,7 +243,7 @@ func withUIATimeout(timeout time.Duration, query func() error) error {
 
 // ListScrollTargets 枚举一个窗口里可以滚轮操作的面板，供模型判断"屏幕外的
 // 上下文在哪个面板里、还差多少"。只读：不点、不滚、不聚焦。
-func ListScrollTargets(opts ScrollTargetOptions) ([]ScrollTarget, error) {
+func (win32Desktop) ListScrollTargets(opts ScrollTargetOptions) ([]ScrollTarget, error) {
 	var targets []ScrollTarget
 	err := withUIATimeout(opts.Timeout, func() error {
 		found, err := listScrollTargetsOnce(opts)
@@ -258,7 +258,7 @@ func ListScrollTargets(opts ScrollTargetOptions) ([]ScrollTarget, error) {
 
 // ScrollStateAtPoint 报告"这一点上的滚轮会滚到哪个面板"，以及该面板当前的滚动
 // 位置。找不到可滚动面板时返回 found=false（不是错误：那块地方本来就不滚动）。
-func ScrollStateAtPoint(p Point, timeout time.Duration) (ScrollTarget, bool, error) {
+func (win32Desktop) ScrollStateAtPoint(p Point, timeout time.Duration) (ScrollTarget, bool, error) {
 	var (
 		target ScrollTarget
 		found  bool

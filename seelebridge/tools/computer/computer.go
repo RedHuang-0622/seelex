@@ -88,6 +88,20 @@ type Capture struct {
 // DefaultClickInterval 是多次点击的默认间隔。
 const DefaultClickInterval = 60 * time.Millisecond
 
+// clipRect 把 rect 与 bounds 求交（用于把越界的截图/窗口区域收进屏幕内）。
+// 平台无关的纯几何函数：Windows 侧不用（GetWindowRect 给的就是屏幕坐标），
+// X11 与 macOS 的截图都靠它做边界收敛。
+func clipRect(rect, bounds Rect) Rect {
+	left := max(rect.X, bounds.X)
+	top := max(rect.Y, bounds.Y)
+	right := min(rect.X+rect.Width, bounds.X+bounds.Width)
+	bottom := min(rect.Y+rect.Height, bounds.Y+bounds.Height)
+	if right <= left || bottom <= top {
+		return Rect{X: left, Y: top}
+	}
+	return Rect{X: left, Y: top, Width: right - left, Height: bottom - top}
+}
+
 // Sleep 等待指定毫秒数，供 GUI 稳定期使用。
 func Sleep(ms int) {
 	if ms <= 0 {

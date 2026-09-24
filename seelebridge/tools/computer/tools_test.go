@@ -43,6 +43,8 @@ type keysCall struct {
 
 // recorder 收集假原语收到的调用，同时可注入单项失败。
 type recorder struct {
+	// caps 覆盖能力声明；nil 表示「全能力」（Windows 语义，11 个工具全注册）。
+	caps          *Capabilities
 	captureOpts   []ScreenshotOptions
 	captureErr    error
 	cursor        Point
@@ -81,8 +83,15 @@ type harness struct {
 }
 
 func newHarness(t *testing.T) *harness {
+	return newHarnessWithCaps(t, nil)
+}
+
+// newHarnessWithCaps 用指定能力声明构造工具族：caps 为 nil 表示全能力
+// （Windows 语义），否则用于验证「能力做不到的工具不注册」。
+func newHarnessWithCaps(t *testing.T, caps *Capabilities) *harness {
 	t.Helper()
 	h := &harness{toolsByName: map[string]registeredTool{}, recorder: &recorder{
+		caps:       caps,
 		cursor:     Point{X: 42, Y: 24},
 		virtual:    Rect{X: 0, Y: 0, Width: 1920, Height: 1080},
 		foreground: Window{Handle: 0xAA, Title: "Seelex", Rect: Rect{X: 0, Y: 0, Width: 1280, Height: 720}, Visible: true},
@@ -117,6 +126,12 @@ func newHarness(t *testing.T) *harness {
 
 func (r *recorder) primitives() primitives {
 	return primitives{
+		capabilities: func() Capabilities {
+			if r.caps != nil {
+				return *r.caps
+			}
+			return Capabilities{Desktop: true, ScrollTargets: true}
+		},
 		capture: func(opts ScreenshotOptions) (Capture, error) {
 			r.captureOpts = append(r.captureOpts, opts)
 			if r.captureErr != nil {
@@ -234,6 +249,29 @@ func TestRegisterExposesWholeComputerToolFamily(t *testing.T) {
 	}
 	if len(h.toolsByName) != len(want) {
 		t.Fatalf("注册工具数 = %d, want %d", len(h.toolsByName), len(want))
+	}
+}
+
+// TestRegisterSkipsToolsThePlatformCannotAnswer 验证「工具按能力声明暴露」：
+// X11 没有 UI Automation 的 ScrollPattern，因此 Linux 上不注册
+// computer_scroll_targets——宁可没有，也不挂一个必然失败的摆设。
+func TestRegisterSkipsToolsThePlatformCannotAnswer(t *testing.T) {
+	h := newHarnessWithCaps(t, &Capabilities{Desktop: true, ScrollTargets: false})
+
+	if _, ok := h.toolsByName[ToolScrollTargets]; ok {
+		t.Fatalf("ScrollTargets 能力为 false 时不应注册 %s（已注册：%v）", ToolScrollTargets, h.toolNames())
+	}
+	rest := []string{
+		ToolScreenshot, ToolWindows, ToolFocus, ToolClick, ToolMove,
+		ToolDrag, ToolScroll, ToolType, ToolKeys, ToolWait,
+	}
+	if len(h.toolsByName) != len(rest) {
+		t.Fatalf("注册工具数 = %d, want %d（%v）", len(h.toolsByName), len(rest), h.toolNames())
+	}
+	for _, name := range rest {
+		if _, ok := h.toolsByName[name]; !ok {
+			t.Fatalf("%s 应仍然注册（已注册：%v）", name, h.toolNames())
+		}
 	}
 }
 

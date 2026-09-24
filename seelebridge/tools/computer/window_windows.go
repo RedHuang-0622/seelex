@@ -79,7 +79,7 @@ func describeWindow(handle uintptr) Window {
 }
 
 // ListWindows 枚举有标题的顶层窗口。
-func ListWindows() ([]Window, error) {
+func (win32Desktop) ListWindows() ([]Window, error) {
 	windows := make([]Window, 0, 32)
 	callback := syscall.NewCallback(func(handle uintptr, _ uintptr) uintptr {
 		win := describeWindow(handle)
@@ -97,7 +97,7 @@ func ListWindows() ([]Window, error) {
 }
 
 // ForegroundWindow 返回当前前台窗口。
-func ForegroundWindow() (Window, error) {
+func (win32Desktop) ForegroundWindow() (Window, error) {
 	handle, _, err := procGetForegroundWindow.Call()
 	if handle == 0 {
 		return Window{}, fmt.Errorf("computer: 无法获取前台窗口: %v", err)
@@ -107,11 +107,11 @@ func ForegroundWindow() (Window, error) {
 
 // FocusWindow 按标题子串（大小写不敏感）查找窗口并置于前台。
 // match 为空时返回当前前台窗口而不做切换。返回被激活的窗口信息。
-func FocusWindow(match string) (Window, error) {
+func (d win32Desktop) FocusWindow(match string) (Window, error) {
 	if strings.TrimSpace(match) == "" {
-		return ForegroundWindow()
+		return d.ForegroundWindow()
 	}
-	windows, err := ListWindows()
+	windows, err := d.ListWindows()
 	if err != nil {
 		return Window{}, err
 	}

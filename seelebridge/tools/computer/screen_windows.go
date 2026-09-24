@@ -61,22 +61,19 @@ type bitmapInfo struct {
 	Colors [1]uint32
 }
 
-// Supported 报告当前平台是否具备桌面 computer use 实现（Windows 为 true：
-// 装配层据此注册工具族）。
-func Supported() bool { return true }
-
-// EnableDPIAwareness 把当前进程设置为 Per-Monitor V2 DPI 感知。
-// 截图与鼠标坐标都以物理像素为准，必须在使用其它函数前调用。
-func EnableDPIAwareness() {
+// Prepare 把当前进程设置为 Per-Monitor V2 DPI 感知。截图与鼠标坐标都以物理
+// 像素为准，必须在使用其它原语前调用（见 Desktop.Prepare）。
+func (win32Desktop) Prepare() error {
 	if err := procSetProcessDPIAwareness.Find(); err != nil {
-		return
+		return nil
 	}
 	const dpiAwarenessPerMonitorV2 = ^uintptr(3) // -4
 	_, _, _ = procSetProcessDPIAwareness.Call(dpiAwarenessPerMonitorV2)
+	return nil
 }
 
 // VirtualScreen 返回多显示器并集组成的虚拟桌面矩形。
-func VirtualScreen() (Rect, error) {
+func (win32Desktop) VirtualScreen() (Rect, error) {
 	x, _, _ := procGetSystemMetrics.Call(smXVirtualScreen)
 	y, _, _ := procGetSystemMetrics.Call(smYVirtualScreen)
 	w, _, _ := procGetSystemMetrics.Call(smCXVirtualScreen)
@@ -150,12 +147,12 @@ func captureRegion(region Rect) (*image.RGBA, error) {
 }
 
 // CaptureShot 抓取屏幕并按选项缩放。
-func CaptureShot(opts ScreenshotOptions) (Capture, error) {
+func (d win32Desktop) CaptureShot(opts ScreenshotOptions) (Capture, error) {
 	region := Rect{}
 	if opts.Region != nil {
 		region = *opts.Region
 	} else {
-		screen, err := VirtualScreen()
+		screen, err := d.VirtualScreen()
 		if err != nil {
 			return Capture{}, err
 		}
@@ -166,7 +163,7 @@ func CaptureShot(opts ScreenshotOptions) (Capture, error) {
 		return Capture{}, err
 	}
 	scaled, scale := ScaleNearest(img, opts.MaxWidth)
-	cursor, err := CursorPosition()
+	cursor, err := d.CursorPosition()
 	if err != nil {
 		cursor = Point{}
 	}
@@ -174,8 +171,8 @@ func CaptureShot(opts ScreenshotOptions) (Capture, error) {
 }
 
 // SavePNG 抓屏并写入 PNG 文件，返回实际截取区域与缩放系数。
-func SavePNG(path string, opts ScreenshotOptions) (Capture, error) {
-	capture, err := CaptureShot(opts)
+func (d win32Desktop) SavePNG(path string, opts ScreenshotOptions) (Capture, error) {
+	capture, err := d.CaptureShot(opts)
 	if err != nil {
 		return Capture{}, err
 	}
