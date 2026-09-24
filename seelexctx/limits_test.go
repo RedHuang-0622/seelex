@@ -215,3 +215,41 @@ func TestLimitsSearchTimeoutAlias(t *testing.T) {
 		t.Fatalf("search_timeout should take precedence, got %d", got)
 	}
 }
+
+// TestLimitsAsyncExecDefaultsOff 验证后台命令切片的开关语义：缺省（配置文件缺失、
+// limits 段缺 async_exec、或块在但 enabled 未写）= 关闭；只有显式 enabled: true
+// 才打开。关闭是安全侧（bash 收起 background、async_output 不注册），所以缺省
+// 必须是关——能力不可实施时拒绝，不静默降级成同步执行。
+func TestLimitsAsyncExecDefaultsOff(t *testing.T) {
+	limits, err := LoadLimits(filepath.Join(t.TempDir(), "missing.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if limits.WithDefaults().AsyncExec.Enabled {
+		t.Fatal("配置文件缺失时后台命令切片必须关闭")
+	}
+
+	absent := filepath.Join(t.TempDir(), "seele.yaml")
+	if err := os.WriteFile(absent, []byte("limits:\n  tool_call_timeout: 60\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	limits, err = LoadLimits(absent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if full := limits.WithDefaults(); full.AsyncExec.Enabled || full.ToolCallTimeoutSec != 60 {
+		t.Fatalf("缺 async_exec 段时必须关闭且不影响其它字段: %+v", full.AsyncExec)
+	}
+
+	enabled := filepath.Join(t.TempDir(), "seele.yaml")
+	if err := os.WriteFile(enabled, []byte("limits:\n  async_exec:\n    enabled: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	limits, err = LoadLimits(enabled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !limits.WithDefaults().AsyncExec.Enabled {
+		t.Fatal("显式 enabled: true 必须打开后台命令切片")
+	}
+}

@@ -37,16 +37,24 @@ type Deps struct {
 	DockerDaemonDown       func(stdout, stderr string) bool
 	DockerCLIPath          func() string
 	DockerHint             func(err error) string
+	// AsyncExecEnabled 打开后台命令轮询切片（seele.yaml limits.async_exec.enabled，
+	// 默认 false）。关闭时：bash schema 不下发 background、handler 收到
+	// background=true 直接报错、async_output 不注册——能力不可实施时必须拒绝，
+	// 不得静默降级成同步执行（security/sandbox.go 同源口径）。
+	AsyncExecEnabled bool
 }
 
 // Router registers and executes the project-scoped tool family.
 type Router struct {
 	deps Deps
+	// async 是后台命令登记表（切片关闭时闲置）：句柄表、去重键、输出文件。
+	// 装在一次 Runtime 装配的 Router 上（RegisterBuiltins 只调一次）。
+	async *asyncRegistry
 }
 
 // NewRouter constructs the scoped tool router with injected deps.
 func NewRouter(deps Deps) *Router {
-	return &Router{deps: deps}
+	return &Router{deps: deps, async: newAsyncRegistry()}
 }
 
 // resolveNodePath 解析工具路径的根：worktree 节点（NodeScope.WorkspaceID
@@ -84,7 +92,13 @@ func (r *Router) Register() {
 	r.deps.RegisterTool("glob", "Find matching files inside the bound project.", globSchema(), r.scopedGlob)
 	r.deps.RegisterTool("write_file", "Write a file inside the bound project.", writeFileSchema(), r.scopedWriteFile)
 	r.deps.RegisterTool("edit_file", "Edit a file inside the bound project.", editFileSchema(), r.scopedEditFile)
-	r.deps.RegisterTool("bash", "Run a command with its working directory constrained to the bound project. This is not an OS sandbox.", bashSchema(), r.scopedBash)
+	allowBackground := r.asyncEnabled()
+	r.deps.RegisterTool("bash", bashDescription(allowBackground), bashSchema(allowBackground), r.scopedBash)
+	if allowBackground {
+		// async_output 只在切片打开时注册：关闭时它必然无句柄可取，注册一个
+		// 只能报错的工具只是占模型的选项与 token。
+		r.deps.RegisterTool("async_output", asyncOutputDescription(), asyncOutputSchema(), r.scopedAsyncOutput)
+	}
 }
 
 type scopedReadFileInput struct {
@@ -415,6 +429,9 @@ type scopedBashInput struct {
 	Command string `json:"command"`
 	Timeout int    `json:"timeout,omitempty"`
 	Workdir string `json:"workdir,omitempty"`
+	// Background 把命令交给后台执行域（仅 limits.async_exec.enabled=true 时可用）。
+	// 回执是受理（handle + log_path），不是结果；取回另调 async_output。
+	Background bool `json:"background,omitempty"`
 }
 type scopedBashResult struct {
 	Stdout   string `json:"stdout"`
@@ -449,6 +466,10 @@ func (r *Router) scopedBash(ctx context.Context, argsJSON string) (output string
 	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
 		return "", fmt.Errorf("bash: invalid args: %w", err)
 	}
+	// 关闭时直接拒绝，不得静默当成同步执行：请求的和执行的必须是同一件事。
+	if input.Background && !r.asyncEnabled() {
+		return "", fmt.Errorf("bash: %s", asyncDisabledText)
+	}
 	if input.Command == "" {
 		return `{"stdout":"","stderr":"","exit_code":0}`, nil
 	}
@@ -459,6 +480,10 @@ func (r *Router) scopedBash(ctx context.Context, argsJSON string) (output string
 		return "", err
 	}
 	r.observeBash(BashDiagnosticEvent{Stage: "bash.resolve.done"})
+	// 后台分派：授权与 workdir 解析到这里已经完成，剩下的是"已批准之后的执行"。
+	if input.Background {
+		return r.dispatchAsync(ctx, input.Command, workdir)
+	}
 	// 执行路径（2026-08-04 回滚）：沙箱接入被怀疑导致工具挂起，恢复 v1
 	// 直连 exec（cwd 门禁语义不变）；CommandSandbox 接口保留在 sandbox.go，
 	// 待定位挂起根因后再接入（接入时需 fail-fast，不得悄悄降级）。
@@ -613,6 +638,26 @@ func writeFileSchema() map[string]interface{} {
 func editFileSchema() map[string]interface{} {
 	return map[string]interface{}{"type": "object", "properties": map[string]interface{}{"path": map[string]interface{}{"type": "string"}, "old_string": map[string]interface{}{"type": "string"}, "new_string": map[string]interface{}{"type": "string"}}, "required": []string{"path", "old_string", "new_string"}}
 }
-func bashSchema() map[string]interface{} {
-	return map[string]interface{}{"type": "object", "properties": map[string]interface{}{"command": map[string]interface{}{"type": "string"}, "timeout": map[string]interface{}{"type": "integer"}, "workdir": map[string]interface{}{"type": "string"}}, "required": []string{"command"}}
+
+// bashDescription 说明 bash 的边界；切片打开时追加"background 的回执不含输出"。
+func bashDescription(allowBackground bool) string {
+	const base = "Run a command with its working directory constrained to the bound project. This is not an OS sandbox."
+	if !allowBackground {
+		return base
+	}
+	return base + asyncBackgroundHint
+}
+
+// bashSchema 下发 bash 入参。background 只在切片打开时出现——schema 是模型的能力面，
+// 关掉的开关不该出现在它的选项里。
+func bashSchema(allowBackground bool) map[string]interface{} {
+	properties := map[string]interface{}{
+		"command": map[string]interface{}{"type": "string"},
+		"timeout": map[string]interface{}{"type": "integer"},
+		"workdir": map[string]interface{}{"type": "string"},
+	}
+	if allowBackground {
+		properties["background"] = map[string]interface{}{"type": "boolean"}
+	}
+	return map[string]interface{}{"type": "object", "properties": properties, "required": []string{"command"}}
 }

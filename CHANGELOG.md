@@ -12,6 +12,44 @@ version when it lands.
 
 ## [Unreleased]
 
+### Added
+
+- **Background commands land as a polling slice: `bash background=true` returns an acceptance
+  receipt, and the model fetches the output with `async_output(handle)`.** A long command no longer
+  holds its tool call (and with it the whole turn) open — the dispatch call's `tool_result` is
+  `{status:"accepted", handle, log_path, state:"running"}` and never the command output, so the
+  `tool_call`/`tool_result` pair still completes inside its own unit: history stays append-only,
+  nothing is rewritten later, and there is no "wake an idle session when the result lands" link
+  (that link would re-enter the session lock `ChatStream` holds for the whole round).
+  `async_output(handle, wait_ms)` returns **only the bytes produced since the previous call for that
+  handle** (a cursor over the log file, 4000 chars per call — repeated polls never replay the log),
+  `wait_ms` defaults to 5s and is clamped at 60s (negative returns immediately), the terminal poll
+  carries `exit_code`, and an unknown handle is an error rather than an empty success (an empty
+  success would read as "the command produced no output"). Isolation and budget: handles are valid
+  only in the session that dispatched them; the same command in the same session is not re-run while
+  it is still running (`repeated=true`), a dedup key that applies only to `state=running` so one
+  failure never permanently blocks that command; the registry caps in-flight runs at 32 and records
+  at 256, evicting the oldest finished record **and deleting its log file** (record slots are capped,
+  files are not — otherwise a long session grows the temp dir without bound), and the runtime removes
+  the whole output directory on shutdown because the directory is process-scoped and nothing else
+  would ever reclaim it (before that hook, a dev box had accumulated 44 orphaned `seelex-async-*`
+  directories); each run gets its own 30-minute hard cap that synthesizes `exit_code 124` and writes a
+  note into the output, because the synchronous path's tool timeout cannot apply once the receipt has
+  been returned; and output is truncated at 1 MiB with the writer still reporting every byte as
+  consumed — reporting a short write would make the command itself fail, dressing an infrastructure
+  limit up as a command failure. `async_output` is routed to the read-only permission group:
+  retrieval inherits the
+  authorization of the dispatch that was already approved, so it is not re-prompted. The slice is
+  gated by `limits.async_exec.enabled` (**default false**) and off is off, not "quietly
+  synchronous": the `background` property is absent from the bash schema, `async_output` is not
+  registered, and `background=true` is refused outright. Teeth: `seelebridge/tools/async_exec_test.go`
+  (the receipt carries no command output; deltas of repeated polls concatenate to the command output
+  exactly once; cross-session retrieval refused; unknown handle errors; dedup only while running;
+  in-flight cap; eviction deletes the log; incremental cursor; truncation without short writes;
+  `wait_ms` clamping; the switch gates schema, registration and handler together; permission group)
+  and `seelexctx/limits_test.go:TestLimitsAsyncExecDefaultsOff`. See
+  [`docs/2026-09-24-async-tool-deferred-ack/README.md`](docs/2026-09-24-async-tool-deferred-ack/README.md) §8.
+
 ### Changed
 
 - **GUI highlights are a tint of the skin, and the conversation column is a rounded panel.**

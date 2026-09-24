@@ -1,0 +1,50 @@
+# §8.3 轮询型后台命令 A/B 原始数据（2026-09-24 19:02:01）
+命令时长=20s 每臂每任务重复=3 次 任务=T1,T2,T3 开关唯一变量=limits.async_exec.enabled
+
+## 逐次原始样本（ratio=cached/prompt，in_ctx=输出进入后续上下文）
+task=T1  arm=A rep=1 wall_ms=22813   reqs=3   prompt=13119   cached=12544   uncached=575    ratio=0.956 polls=0  in_ctx=true  dirs=+0 log_bytes=+0 leftover=0 
+        逐轮 r1=4264/0.93 r2=4369/0.97 r3=4486/0.97
+task=T1  arm=B rep=1 wall_ms=22404   reqs=7   prompt=35098   cached=33408   uncached=1690   ratio=0.952 polls=11 in_ctx=true  dirs=+1 log_bytes=+19 leftover=0 
+        逐轮 r1=4477/0.91 r2=4645/0.94 r3=4908/0.96 r4=5032/0.97 r5=5188/0.96 r6=5351/0.96 r7=5497/0.95
+task=T1  arm=A rep=2 wall_ms=23046   reqs=3   prompt=13327   cached=12544   uncached=783    ratio=0.941 polls=0  in_ctx=true  dirs=+0 log_bytes=+0 leftover=0 
+        逐轮 r1=4264/0.93 r2=4473/0.94 r3=4590/0.95
+task=T1  arm=B rep=2 wall_ms=22231   reqs=7   prompt=34358   cached=32896   uncached=1462   ratio=0.957 polls=10 in_ctx=true  dirs=+1 log_bytes=+19 leftover=0 
+        逐轮 r1=4477/0.94 r2=4645/0.94 r3=4762/0.97 r4=4899/0.97 r5=5036/0.97 r6=5180/0.96 r7=5359/0.96
+task=T1  arm=A rep=3 wall_ms=23236   reqs=3   prompt=13373   cached=12672   uncached=701    ratio=0.948 polls=0  in_ctx=true  dirs=+0 log_bytes=+0 leftover=0 
+        逐轮 r1=4264/0.93 r2=4496/0.97 r3=4613/0.94
+task=T1  arm=B rep=3 wall_ms=22323   reqs=7   prompt=34532   cached=33024   uncached=1508   ratio=0.956 polls=10 in_ctx=true  dirs=+1 log_bytes=+19 leftover=0 
+        逐轮 r1=4477/0.94 r2=4660/0.96 r3=4786/0.96 r4=4946/0.96 r5=5082/0.96 r6=5218/0.96 r7=5363/0.95
+task=T2  arm=A rep=1 wall_ms=22527   reqs=3   prompt=13150   cached=12544   uncached=606    ratio=0.954 polls=0  in_ctx=true  dirs=+0 log_bytes=+0 leftover=0 
+        逐轮 r1=4255/0.93 r2=4403/0.96 r3=4492/0.97
+task=T2  arm=B rep=1 wall_ms=23108   reqs=4   prompt=19787   cached=18816   uncached=971    ratio=0.951 polls=3  in_ctx=true  dirs=+1 log_bytes=+19 leftover=0 
+        逐轮 r1=4468/0.95 r2=4865/0.92 r3=5013/0.97 r4=5441/0.96
+task=T2  arm=A rep=2 wall_ms=22677   reqs=3   prompt=13075   cached=12416   uncached=659    ratio=0.950 polls=0  in_ctx=true  dirs=+0 log_bytes=+0 leftover=0 
+        逐轮 r1=4255/0.93 r2=4367/0.97 r3=4453/0.95
+task=T2  arm=B rep=2 wall_ms=21926   reqs=7   prompt=34656   cached=33280   uncached=1376   ratio=0.960 polls=10 in_ctx=true  dirs=+1 log_bytes=+19 leftover=0 
+        逐轮 r1=4468/0.95 r2=4636/0.94 r3=4742/0.97 r4=4879/0.97 r5=5048/0.96 r6=5355/0.96 r7=5528/0.97
+task=T2  arm=A rep=3 wall_ms=22530   reqs=3   prompt=13249   cached=12544   uncached=705    ratio=0.947 polls=0  in_ctx=true  dirs=+0 log_bytes=+0 leftover=0 
+        逐轮 r1=4255/0.93 r2=4451/0.95 r3=4543/0.96
+task=T2  arm=B rep=3 wall_ms=22326   reqs=7   prompt=34307   cached=33024   uncached=1283   ratio=0.963 polls=10 in_ctx=true  dirs=+1 log_bytes=+19 leftover=0 
+        逐轮 r1=4468/0.95 r2=4657/0.96 r3=4755/0.97 r4=4892/0.97 r5=5029/0.97 r6=5180/0.96 r7=5326/0.96
+task=T3  arm=A rep=1 wall_ms=22775   reqs=2   prompt=8834    cached=8192    uncached=642    ratio=0.927 polls=0  in_ctx=true  dirs=+0 log_bytes=+0 leftover=0 
+        逐轮 r1=4252/0.93 r2=4582/0.92
+task=T3  arm=B rep=1 wall_ms=3282    reqs=3   prompt=13907   cached=13184   uncached=723    ratio=0.948 polls=1  in_ctx=false dirs=+1 log_bytes=+19 leftover=0 
+        逐轮 r1=4441/0.95 r2=4657/0.93 r3=4809/0.96
+task=T3  arm=A rep=2 wall_ms=22856   reqs=3   prompt=13163   cached=12544   uncached=619    ratio=0.953 polls=0  in_ctx=true  dirs=+0 log_bytes=+0 leftover=0 
+        逐轮 r1=4252/0.93 r2=4422/0.96 r3=4489/0.97
+task=T3  arm=B rep=2 wall_ms=4978    reqs=4   prompt=18949   cached=18048   uncached=901    ratio=0.952 polls=2  in_ctx=false dirs=+1 log_bytes=+19 leftover=0 
+        逐轮 r1=4441/0.95 r2=4724/0.95 r3=4861/0.95 r4=4923/0.96
+task=T3  arm=A rep=3 wall_ms=23101   reqs=3   prompt=13241   cached=12544   uncached=697    ratio=0.947 polls=0  in_ctx=true  dirs=+0 log_bytes=+0 leftover=0 
+        逐轮 r1=4252/0.93 r2=4461/0.95 r3=4528/0.96
+task=T3  arm=B rep=3 wall_ms=4883    reqs=3   prompt=14405   cached=13824   uncached=581    ratio=0.960 polls=1  in_ctx=false dirs=+1 log_bytes=+19 leftover=0 
+        逐轮 r1=4441/0.95 r2=4914/0.96 r3=5050/0.96
+
+## 判据（阈值跑前写死，跑后不改）
+[成立][硬] 1 墙钟 B ≤ A ｜ 逐任务中位(ms) A=[23046 22530 22856] B=[22323 22326 4883]；合计 A=68432 B=49532（Δ+27.6%）
+[成立][软] 2 缓存比率 B ≥ A−2pp ｜ A=0.948（108544/114531） B=0.956（229504/239999）
+[不成立][软] 3 总 prompt B ≤ A×1.10 ｜ 逐任务中位 A=[13327 13150 13163] B=[34532 34307 14405]；未命中边际合计 A=5987 B=10495
+[成立][软] 4 结果真进上下文 ｜ 每任务 B 臂 ≥1 次（T3 按取回回执计）；有效任务数 3，样本不完整 0
+[成立][硬] 5 进程归零/目录有界 ｜ 进程表增量最大 0、输出目录增量最大 1/次、日志字节增量见逐行
+
+## 收尾现场
+临时目录内 seelex-async-* 个数=49 合计字节=699 存活 sleep.exe=0

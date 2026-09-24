@@ -11,7 +11,8 @@ read/grep/glob/write/edit/bash 工具族（`Router`）、内联工具 provider
 
 - 职责：`Router` 注册并路由项目作用域工具；`RegistryState` 包装
   framework tools.Registry（超时/中间件/内联工具）；`PermissionGate`
-  做工具调度前的权限检查（allow/deny/ask）。
+  做工具调度前的权限检查（allow/deny/ask）；`async_exec.go` 承载 bash 的
+  后台命令执行域（轮询型，受 `limits.async_exec.enabled` 开关管辖，默认关）。
 - 非职责：MCP 工具生命周期（归 mcp 域）、plan 工具族（归 plan 域）。
 
 ## 与其它域的关系
@@ -64,6 +65,34 @@ flowchart TB
   可编译。输入注入类工具对子代理不可见（见 `policy.go` 的
   `isComputerInputTool`）。
 
+### 后台命令（轮询型，`async_exec.go`）
+
+形状：`bash background=true` 只返回**受理回执**（`{status:accepted, handle, log_path,
+state:running}`，不含命令输出），`tool_call`/`tool_result` 的配对就在这一次调用里完成；
+模型想看进展就自己再调 `async_output(handle, wait_ms)`。每一问一答都是正常的相邻工具对，
+所以历史只追加、不回写，也不需要"结果到达时把空闲会话叫醒"那条链路（它必然回闯
+`ChatStream` 全程持有的会话锁）。选型与实测见
+[`docs/2026-09-24-async-tool-deferred-ack/README.md`](../../docs/2026-09-24-async-tool-deferred-ack/README.md)
+§0（P4/P5 证明迟到 `role=tool` 在 wire 层非法，P7 证明轮询形态不破前缀缓存）。
+
+- `asyncRegistry`：单锁句柄表。句柄 `a<seq>`（seq 单调，不能用 `len(runs)` 推——驱逐过
+  已完成项后会同号，两条执行共用输出文件）；去重键 = 会话+命令（只在 `state=running`
+  期间生效，一次失败不得永久封死这条命令）；在途上限 32、记录槽 256，驱逐最老的已完成
+  记录时**连带删输出文件**（记录槽有上限、文件没有，否则长会话把临时目录无界撑大）。
+  `begin`/`snapshot` 都按值返回副本：表内那条记录的 `state/exit` 由执行体收尾在锁内改写。
+- 执行体：`context.WithoutCancel` + 自带 `asyncHardCap=30m`。同步路径的
+  `scopedToolTimeout` 在这里不适用——受理回执一返回，本次工具调用的 ctx 就失效，沿用
+  它会立刻杀掉刚起的命令。硬超时合成 `exit=124` 并把注记写进输出文件（否则模型只看到
+  "命令突然结束"）；正常退出、硬超时、执行体 panic 三条路都必须落到 `finish` 恰好一次。
+- `cappedLogWriter`：输出在 1MiB 处截断，超上限只丢字节、**仍向子进程报告已消费**
+  （报短写会让命令自己异常退出，那是把基础设施限制伪装成命令失败）。
+- 增量交付：`cursor` 是"已交付给模型的文件偏移"，每次取回最多带 4000 字符的**新增**
+  部分——反复轮询同一句柄不会把整份日志重播进上下文（这是轮询型唯一真实的 token 风险）。
+- kill-switch（`Deps.AsyncExecEnabled`，⇐ `limits.async_exec.enabled`，默认 false）：
+  关闭时三处同时收起——`bash` schema 不下发 `background`、`async_output` 不注册、
+  handler 收到 `background=true` 直接报错。**关就是关**，不得静默降级成同步执行
+  （与 `security/sandbox.go` 头注同源）。
+
 ## 数据流
 
 RegisterBuiltins → Router.Register → framework registry；每次工具调度 →
@@ -77,16 +106,37 @@ permission middleware → handler → 诊断/遥测钩子。
 ## 并发、存储、安全
 
 `Router`/`PermissionGate` 自带锁；路径经 `security.ProjectScope` 校验；
-bash 诊断观察者 panic 隔离。
+bash 诊断观察者 panic 隔离。后台命令：`asyncRegistry` 单锁（执行体 goroutine 只写
+自己那条，读侧在 handler 里）；句柄只对本会话有效，跨会话取回直接拒绝；执行体脱离
+工具 ctx（`context.WithoutCancel`），存活上限由 `asyncHardCap` 自带；输出文件落在
+临时目录、随记录驱逐一并删除。`async_output` 归只读权限组：取的是本会话里**已获批
+那次派发**的输出，因此不重复弹审批。
 
 ## 扩展方式
 
 新增 scoped 工具：扩展 `Router.Register`；新增内联产品工具：`AddInline`。
+后台能力（如 `agent_run background=true`）应复用 `asyncRegistry` 的形状——派发回执
+必须在自己的单元内完成配对，不得引入"迟到补记"写回历史中段的链路。
 
 ## Review 指南
 
 - 路径是否可能逃逸项目根；权限中间件是否在注册表构造时正确闭包捕获。
+- 后台执行体**不得**继承工具调用的 ctx 或 `scopedToolTimeout`（回执一返回该 ctx 就
+  失效）；新增清理路径都要问"终态是否恰好合成一次"。
+- 回执与取回的载荷必须确定性（不含时间戳/耗时）：这些字节会永久留在可缓存前缀里。
+- 取回只能交付增量并推进 `cursor`；把整份日志重播进上下文会同时烧 token 和破前缀。
+- 开关新增一处生效就要同步三处（schema / 注册 / handler），且关闭态必须报错而非降级。
 
 ## 测试与验证
 
-`go test ./seelebridge/tools/...`（router_test、permission_state_test）。
+`go test ./seelebridge/tools/...`（router_test、permission_state_test、
+async_exec_test：回执不含输出、增量拼接恰好一次、跨会话拒绝、未知句柄报错、去重只在
+在途、在途上限、驱逐连带删日志、截断不报短写、wait_ms 归一、开关三处同步、权限组）。
+真实 API 的形态与经济性冒烟（opt-in，不进 CI）：
+
+```text
+# wire 层：P1–P7（轮询形态合法且不破前缀缓存）
+go test -tags asynclive . -run TestAsyncWire -count=1 -v
+# §8.3 五指标 A/B（两臂只差 limits.async_exec.enabled）
+go test -tags manualsmoke . -run TestManualSmokeAsyncAB -count=1 -v -timeout=60m
+```

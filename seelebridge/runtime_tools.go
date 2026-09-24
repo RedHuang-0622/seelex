@@ -161,7 +161,11 @@ func (r *Runtime) observeBash(event BashDiagnosticEvent) {
 // registerProjectScopedTools overrides the Seele builtin filesystem tools
 // （委托 tools.Router；RegisterBuiltins 内调用）。
 func (r *Runtime) registerProjectScopedTools() {
-	seeltools.NewRouter(r.scopedToolsDeps()).Register()
+	router := seeltools.NewRouter(r.scopedToolsDeps())
+	router.Register()
+	// 后台命令的输出目录是进程级资源：登记进逆序关停链，否则每个进程都在临时目录
+	// 里留一份无人回收的日志（规格 §8.3 指标 5 实测）。
+	r.lifecycle = append(r.lifecycle, router.CloseAsync)
 }
 
 // registerTaskTools 注册主动任务工具 taskadd（同上委托）。
@@ -187,6 +191,7 @@ func (r *Runtime) scopedToolsDeps() seeltools.Deps {
 		ToolCallTimeout:        r.toolCallTimeout,
 		ToolCallTimeoutSec:     r.limits.ToolCallTimeoutSec,
 		DisableDockerAutoStart: r.limits.DisableDockerAutoStart,
+		AsyncExecEnabled:       r.limits.AsyncExec.Enabled,
 		ObserveBash:            r.observeBash,
 		EnsureDocker:           r.ensureDockerForRuntime,
 		DockerDaemonDown:       docker.IsDaemonDown,

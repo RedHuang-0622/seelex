@@ -20,6 +20,7 @@ import (
 	"github.com/RedHuang-0622/seelex/internal/adapters"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	"github.com/RedHuang-0622/seelex/seelebridge/security"
+	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
@@ -187,11 +188,18 @@ func newUnboundFullChainHarness(t *testing.T, accountsPath, projectRoot string, 
 }
 
 func newFullChainHarnessWithProjectBinding(t *testing.T, accountsPath, projectRoot string, toolTimeout time.Duration, bindProject bool) fullChainHarness {
+	return newFullChainHarnessWithLimits(t, accountsPath, projectRoot, toolTimeout, bindProject, seelexctx.Limits{})
+}
+
+// newFullChainHarnessWithLimits 是同一套装配，只多交出 limits 段：A/B 两臂要求
+// 除 limits.async_exec.enabled 外逐字段相同，开关是唯一变量。
+func newFullChainHarnessWithLimits(t *testing.T, accountsPath, projectRoot string, toolTimeout time.Duration, bindProject bool, limits seelexctx.Limits) fullChainHarness {
 	t.Helper()
 	runtimeBridge, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{
 		AccountsPath:    accountsPath,
 		StorePath:       filepath.Join(projectRoot, "runtime"),
 		ToolCallTimeout: toolTimeout,
+		Limits:          limits,
 	})
 	if err != nil {
 		t.Fatal(err)

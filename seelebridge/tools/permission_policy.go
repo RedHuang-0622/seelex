@@ -96,6 +96,9 @@ func DefaultPermissionGroupList() []toolspermission.PermissionGroup {
 			Match: []string{
 				"read_file", "read_plan", "read_tool_result", "read_compressed_turn",
 				"search_history", "grep_search", "glob",
+				// async_output 取的是本会话里**已获批那次派发**的输出：只读，
+				// 因此不重复弹审批（规格 §8.2）。
+				"async_output",
 				"get_time", "web_search",
 				"todo_status", "todolist_status", "plan_status", "goal_status",
 				"plugins_list", "skills_list", "mcp_list",

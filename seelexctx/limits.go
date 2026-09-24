@@ -129,6 +129,17 @@ type Limits struct {
 	// 掐死；fork 用独立大预算。子代理节点循环数复用 effort 调节值
 	// （PlanPolicy.MaxNodeLoops），不做独立常量。
 	ForkTimeoutSec int `yaml:"fork_timeout"` // fork 工具总超时（秒；0 → 7200 = 2 小时）
+	// AsyncExec 是后台命令（轮询型异步工具）的开关块。默认 false = 切片关闭：
+	// bash schema 不下发 background、handler 收到 background=true 直接报错、
+	// async_output 不注册。关就是关（不静默降级成同步执行），可一键回滚。
+	// 规格：docs/2026-09-24-async-tool-deferred-ack/README.md §8。
+	AsyncExec AsyncExecLimits `yaml:"async_exec"`
+}
+
+// AsyncExecLimits 是后台命令轮询切片的开关块。零值（含整个块缺失）= 关闭，
+// 因此不需要在 DefaultLimits / WithDefaults 里重复声明默认。
+type AsyncExecLimits struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 // DefaultLimits 返回全部默认值（与重构前的硬编码常量一一对应，行为不变）。
