@@ -1,50 +1,50 @@
-# §8.3 轮询型后台命令 A/B 原始数据（2026-09-24 19:02:01）
+# §8.3 轮询型后台命令 A/B 原始数据（2026-09-24 19:46:01）
 命令时长=20s 每臂每任务重复=3 次 任务=T1,T2,T3 开关唯一变量=limits.async_exec.enabled
 
 ## 逐次原始样本（ratio=cached/prompt，in_ctx=输出进入后续上下文）
-task=T1  arm=A rep=1 wall_ms=22813   reqs=3   prompt=13119   cached=12544   uncached=575    ratio=0.956 polls=0  in_ctx=true  dirs=+0 log_bytes=+0 leftover=0 
-        逐轮 r1=4264/0.93 r2=4369/0.97 r3=4486/0.97
-task=T1  arm=B rep=1 wall_ms=22404   reqs=7   prompt=35098   cached=33408   uncached=1690   ratio=0.952 polls=11 in_ctx=true  dirs=+1 log_bytes=+19 leftover=0 
-        逐轮 r1=4477/0.91 r2=4645/0.94 r3=4908/0.96 r4=5032/0.97 r5=5188/0.96 r6=5351/0.96 r7=5497/0.95
-task=T1  arm=A rep=2 wall_ms=23046   reqs=3   prompt=13327   cached=12544   uncached=783    ratio=0.941 polls=0  in_ctx=true  dirs=+0 log_bytes=+0 leftover=0 
-        逐轮 r1=4264/0.93 r2=4473/0.94 r3=4590/0.95
-task=T1  arm=B rep=2 wall_ms=22231   reqs=7   prompt=34358   cached=32896   uncached=1462   ratio=0.957 polls=10 in_ctx=true  dirs=+1 log_bytes=+19 leftover=0 
-        逐轮 r1=4477/0.94 r2=4645/0.94 r3=4762/0.97 r4=4899/0.97 r5=5036/0.97 r6=5180/0.96 r7=5359/0.96
-task=T1  arm=A rep=3 wall_ms=23236   reqs=3   prompt=13373   cached=12672   uncached=701    ratio=0.948 polls=0  in_ctx=true  dirs=+0 log_bytes=+0 leftover=0 
-        逐轮 r1=4264/0.93 r2=4496/0.97 r3=4613/0.94
-task=T1  arm=B rep=3 wall_ms=22323   reqs=7   prompt=34532   cached=33024   uncached=1508   ratio=0.956 polls=10 in_ctx=true  dirs=+1 log_bytes=+19 leftover=0 
-        逐轮 r1=4477/0.94 r2=4660/0.96 r3=4786/0.96 r4=4946/0.96 r5=5082/0.96 r6=5218/0.96 r7=5363/0.95
-task=T2  arm=A rep=1 wall_ms=22527   reqs=3   prompt=13150   cached=12544   uncached=606    ratio=0.954 polls=0  in_ctx=true  dirs=+0 log_bytes=+0 leftover=0 
-        逐轮 r1=4255/0.93 r2=4403/0.96 r3=4492/0.97
-task=T2  arm=B rep=1 wall_ms=23108   reqs=4   prompt=19787   cached=18816   uncached=971    ratio=0.951 polls=3  in_ctx=true  dirs=+1 log_bytes=+19 leftover=0 
-        逐轮 r1=4468/0.95 r2=4865/0.92 r3=5013/0.97 r4=5441/0.96
-task=T2  arm=A rep=2 wall_ms=22677   reqs=3   prompt=13075   cached=12416   uncached=659    ratio=0.950 polls=0  in_ctx=true  dirs=+0 log_bytes=+0 leftover=0 
-        逐轮 r1=4255/0.93 r2=4367/0.97 r3=4453/0.95
-task=T2  arm=B rep=2 wall_ms=21926   reqs=7   prompt=34656   cached=33280   uncached=1376   ratio=0.960 polls=10 in_ctx=true  dirs=+1 log_bytes=+19 leftover=0 
-        逐轮 r1=4468/0.95 r2=4636/0.94 r3=4742/0.97 r4=4879/0.97 r5=5048/0.96 r6=5355/0.96 r7=5528/0.97
-task=T2  arm=A rep=3 wall_ms=22530   reqs=3   prompt=13249   cached=12544   uncached=705    ratio=0.947 polls=0  in_ctx=true  dirs=+0 log_bytes=+0 leftover=0 
-        逐轮 r1=4255/0.93 r2=4451/0.95 r3=4543/0.96
-task=T2  arm=B rep=3 wall_ms=22326   reqs=7   prompt=34307   cached=33024   uncached=1283   ratio=0.963 polls=10 in_ctx=true  dirs=+1 log_bytes=+19 leftover=0 
-        逐轮 r1=4468/0.95 r2=4657/0.96 r3=4755/0.97 r4=4892/0.97 r5=5029/0.97 r6=5180/0.96 r7=5326/0.96
-task=T3  arm=A rep=1 wall_ms=22775   reqs=2   prompt=8834    cached=8192    uncached=642    ratio=0.927 polls=0  in_ctx=true  dirs=+0 log_bytes=+0 leftover=0 
-        逐轮 r1=4252/0.93 r2=4582/0.92
-task=T3  arm=B rep=1 wall_ms=3282    reqs=3   prompt=13907   cached=13184   uncached=723    ratio=0.948 polls=1  in_ctx=false dirs=+1 log_bytes=+19 leftover=0 
-        逐轮 r1=4441/0.95 r2=4657/0.93 r3=4809/0.96
-task=T3  arm=A rep=2 wall_ms=22856   reqs=3   prompt=13163   cached=12544   uncached=619    ratio=0.953 polls=0  in_ctx=true  dirs=+0 log_bytes=+0 leftover=0 
-        逐轮 r1=4252/0.93 r2=4422/0.96 r3=4489/0.97
-task=T3  arm=B rep=2 wall_ms=4978    reqs=4   prompt=18949   cached=18048   uncached=901    ratio=0.952 polls=2  in_ctx=false dirs=+1 log_bytes=+19 leftover=0 
-        逐轮 r1=4441/0.95 r2=4724/0.95 r3=4861/0.95 r4=4923/0.96
-task=T3  arm=A rep=3 wall_ms=23101   reqs=3   prompt=13241   cached=12544   uncached=697    ratio=0.947 polls=0  in_ctx=true  dirs=+0 log_bytes=+0 leftover=0 
-        逐轮 r1=4252/0.93 r2=4461/0.95 r3=4528/0.96
-task=T3  arm=B rep=3 wall_ms=4883    reqs=3   prompt=14405   cached=13824   uncached=581    ratio=0.960 polls=1  in_ctx=false dirs=+1 log_bytes=+19 leftover=0 
-        逐轮 r1=4441/0.95 r2=4914/0.96 r3=5050/0.96
+task=T1  arm=A rep=1 wall_ms=22547   reqs=3   prompt=13116   cached=12544   uncached=572    ratio=0.956 polls=0  in_ctx=true  dirs=+0 log_bytes=+0 leftover=0
+        逐轮 r1=4263/0.93 r2=4366/0.97 r3=4487/0.97
+task=T1  arm=B rep=1 wall_ms=22334   reqs=6   prompt=30111   cached=28544   uncached=1567   ratio=0.948 polls=4  in_ctx=true  dirs=+1 log_bytes=+19 leftover=0
+        逐轮 r1=4476/0.94 r2=4736/0.92 r3=4877/0.94 r4=5201/0.96 r5=5338/0.96 r6=5483/0.96
+task=T1  arm=A rep=2 wall_ms=24344   reqs=4   prompt=18151   cached=17152   uncached=999    ratio=0.945 polls=0  in_ctx=true  dirs=+0 log_bytes=+0 leftover=0
+        逐轮 r1=4263/0.93 r2=4563/0.93 r3=4632/0.97 r4=4693/0.95
+task=T1  arm=B rep=2 wall_ms=22604   reqs=7   prompt=34770   cached=33280   uncached=1490   ratio=0.957 polls=4  in_ctx=true  dirs=+1 log_bytes=+19 leftover=0
+        逐轮 r1=4476/0.94 r2=4706/0.95 r3=4834/0.95 r4=4976/0.95 r5=5113/0.95 r6=5260/0.97 r7=5405/0.97
+task=T1  arm=A rep=3 wall_ms=23662   reqs=3   prompt=13282   cached=12544   uncached=738    ratio=0.944 polls=0  in_ctx=true  dirs=+0 log_bytes=+0 leftover=0
+        逐轮 r1=4263/0.93 r2=4450/0.95 r3=4569/0.95
+task=T1  arm=B rep=3 wall_ms=22361   reqs=6   prompt=29539   cached=28288   uncached=1251   ratio=0.958 polls=4  in_ctx=true  dirs=+1 log_bytes=+19 leftover=0
+        逐轮 r1=4476/0.94 r2=4735/0.92 r3=4876/0.97 r4=5012/0.97 r5=5148/0.97 r6=5292/0.97
+task=T2  arm=A rep=1 wall_ms=22871   reqs=3   prompt=13210   cached=12544   uncached=666    ratio=0.950 polls=0  in_ctx=true  dirs=+0 log_bytes=+0 leftover=0
+        逐轮 r1=4254/0.93 r2=4435/0.95 r3=4521/0.96
+task=T2  arm=B rep=1 wall_ms=22821   reqs=7   prompt=34759   cached=33280   uncached=1479   ratio=0.957 polls=4  in_ctx=true  dirs=+1 log_bytes=+19 leftover=0
+        逐轮 r1=4467/0.95 r2=4634/0.94 r3=4852/0.95 r4=4989/0.95 r5=5126/0.97 r6=5273/0.97 r7=5418/0.97
+task=T2  arm=A rep=2 wall_ms=25292   reqs=4   prompt=18003   cached=17152   uncached=851    ratio=0.953 polls=0  in_ctx=true  dirs=+0 log_bytes=+0 leftover=0
+        逐轮 r1=4254/0.93 r2=4457/0.95 r3=4548/0.96 r4=4744/0.97
+task=T2  arm=B rep=2 wall_ms=23509   reqs=6   prompt=30840   cached=29568   uncached=1272   ratio=0.959 polls=4  in_ctx=true  dirs=+1 log_bytes=+19 leftover=0
+        逐轮 r1=4467/0.95 r2=4922/0.96 r3=5069/0.96 r4=5321/0.96 r5=5458/0.96 r6=5603/0.96
+task=T2  arm=A rep=3 wall_ms=23122   reqs=3   prompt=13251   cached=12544   uncached=707    ratio=0.947 polls=0  in_ctx=true  dirs=+0 log_bytes=+0 leftover=0
+        逐轮 r1=4254/0.93 r2=4453/0.95 r3=4544/0.96
+task=T2  arm=B rep=3 wall_ms=22514   reqs=6   prompt=29416   cached=28032   uncached=1384   ratio=0.953 polls=4  in_ctx=true  dirs=+1 log_bytes=+18 leftover=0
+        逐轮 r1=4467/0.95 r2=4701/0.93 r3=4850/0.95 r4=4993/0.95 r5=5130/0.97 r6=5275/0.97
+task=T3  arm=A rep=1 wall_ms=23133   reqs=3   prompt=13093   cached=12416   uncached=677    ratio=0.948 polls=0  in_ctx=true  dirs=+0 log_bytes=+0 leftover=0
+        逐轮 r1=4251/0.93 r2=4388/0.96 r3=4454/0.95
+task=T3  arm=B rep=1 wall_ms=4494    reqs=3   prompt=13907   cached=13312   uncached=595    ratio=0.957 polls=1  in_ctx=false dirs=+1 log_bytes=+19 leftover=0
+        逐轮 r1=4440/0.95 r2=4665/0.96 r3=4802/0.96
+task=T3  arm=A rep=2 wall_ms=23191   reqs=3   prompt=13169   cached=12544   uncached=625    ratio=0.953 polls=0  in_ctx=true  dirs=+0 log_bytes=+0 leftover=0
+        逐轮 r1=4251/0.93 r2=4426/0.95 r3=4492/0.97
+task=T3  arm=B rep=2 wall_ms=3948    reqs=3   prompt=13997   cached=13312   uncached=685    ratio=0.951 polls=1  in_ctx=false dirs=+1 log_bytes=+19 leftover=0
+        逐轮 r1=4440/0.95 r2=4704/0.95 r3=4853/0.95
+task=T3  arm=A rep=3 wall_ms=22457   reqs=2   prompt=8653    cached=8192    uncached=461    ratio=0.947 polls=0  in_ctx=true  dirs=+0 log_bytes=+0 leftover=0
+        逐轮 r1=4251/0.93 r2=4402/0.96
+task=T3  arm=B rep=3 wall_ms=3753    reqs=3   prompt=13973   cached=13312   uncached=661    ratio=0.953 polls=1  in_ctx=false dirs=+1 log_bytes=+19 leftover=0
+        逐轮 r1=4440/0.95 r2=4675/0.96 r3=4858/0.95
 
 ## 判据（阈值跑前写死，跑后不改）
-[成立][硬] 1 墙钟 B ≤ A ｜ 逐任务中位(ms) A=[23046 22530 22856] B=[22323 22326 4883]；合计 A=68432 B=49532（Δ+27.6%）
-[成立][软] 2 缓存比率 B ≥ A−2pp ｜ A=0.948（108544/114531） B=0.956（229504/239999）
-[不成立][软] 3 总 prompt B ≤ A×1.10 ｜ 逐任务中位 A=[13327 13150 13163] B=[34532 34307 14405]；未命中边际合计 A=5987 B=10495
+[成立][硬] 1 墙钟 B ≤ A ｜ 逐任务中位(ms) A=[23662 23122 23133] B=[22361 22821 3948]；合计 A=69917 B=49130（Δ+29.7%）
+[成立][软] 2 缓存比率 B ≥ A−2pp ｜ A=0.949（117632/123928） B=0.955（220928/231312）
+[不成立][软] 3 总 prompt B ≤ A×1.10 ｜ 逐任务中位 A=[13282 13251 13093] B=[30111 30840 13973]；未命中边际合计 A=6296 B=10384
 [成立][软] 4 结果真进上下文 ｜ 每任务 B 臂 ≥1 次（T3 按取回回执计）；有效任务数 3，样本不完整 0
 [成立][硬] 5 进程归零/目录有界 ｜ 进程表增量最大 0、输出目录增量最大 1/次、日志字节增量见逐行
 
 ## 收尾现场
-临时目录内 seelex-async-* 个数=49 合计字节=699 存活 sleep.exe=0
+临时目录内 seelex-async-* 个数=59 合计字节=847 存活 sleep.exe=0

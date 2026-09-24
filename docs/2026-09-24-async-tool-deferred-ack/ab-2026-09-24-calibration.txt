@@ -2,9 +2,9 @@
 命令时长=6s 每臂每任务重复=1 次 任务=T1 开关唯一变量=limits.async_exec.enabled
 
 ## 逐次原始样本（ratio=cached/prompt，in_ctx=输出进入后续上下文）
-task=T1  arm=A rep=1 wall_ms=10553   reqs=3   prompt=13296   cached=12544   ratio=0.943 polls=0  in_ctx=true  dirs=+0 log_bytes=+0 leftover=0 
+task=T1  arm=A rep=1 wall_ms=10553   reqs=3   prompt=13296   cached=12544   ratio=0.943 polls=0  in_ctx=true  dirs=+0 log_bytes=+0 leftover=0
         逐轮 r1=4263/0.93 r2=4459/0.95 r3=4574/0.95
-task=T1  arm=B rep=1 wall_ms=11423   reqs=4   prompt=20156   cached=15488   ratio=0.768 polls=3  in_ctx=true  dirs=+1 log_bytes=+19 leftover=0 
+task=T1  arm=B rep=1 wall_ms=11423   reqs=4   prompt=20156   cached=15488   ratio=0.768 polls=3  in_ctx=true  dirs=+1 log_bytes=+19 leftover=0
         逐轮 r1=4476/0.09 r2=5070/0.96 r3=5225/0.96 r4=5385/0.97
 
 ## 判据（阈值跑前写死，跑后不改）

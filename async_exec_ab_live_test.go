@@ -39,6 +39,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -229,17 +230,14 @@ func abRunTurn(t *testing.T, accountsSource, upstream, taskID, arm string, rep, 
 			sample.cached += record.usage.CacheHitTokens
 			sample.uncached += record.usage.CacheMissTokens
 		}
-		roundReceipts := 0
-		for _, message := range prefixLiveMessages(t, record.body) {
+		messages := prefixLiveMessages(t, record.body)
+		roundReceipts := abAsyncReceipts(messages)
+		for _, message := range messages {
 			if message.role == "assistant" && message.hasTools && strings.Contains(message.raw, `"async_output"`) && callIdx < 0 {
 				callIdx = index
 			}
 			if message.role == "tool" && strings.Contains(message.raw, sentinel) && outIdx < 0 {
 				outIdx = index
-			}
-			// 回执条数与 sentinel 判定要各算各的：一条取回回执既含 handle 又可能含标记。
-			if message.role == "tool" && strings.Contains(message.raw, `"handle":"`) {
-				roundReceipts++
 			}
 		}
 		// 每对问答都会随历史重放到后续请求里，所以取"最全的那一条请求"的条数：
@@ -260,6 +258,29 @@ func abRunTurn(t *testing.T, accountsSource, upstream, taskID, arm string, rep, 
 	sample.logBytes = bytesAfter - bytesBefore
 	sample.leftover = abSleepProcesses() - sleepBefore
 	return sample
+}
+
+// abAsyncReceipts 数一条请求里有几条 tool 消息的正文是异步载荷（解出来含 handle）。
+//
+// 只能在 content 上判，不能在 raw 上判：raw 是 wire 原文（正文字符串里全是 `\"`），
+// 而 content 已被 prefixLiveContentText 解过一层，就是工具返回的那段 JSON 文本。
+func abAsyncReceipts(messages []prefixLiveMessage) int {
+	count := 0
+	for _, message := range messages {
+		if message.role != "tool" || message.content == "" {
+			continue
+		}
+		var payload struct {
+			Handle string `json:"handle"`
+		}
+		if err := json.Unmarshal([]byte(message.content), &payload); err != nil {
+			continue
+		}
+		if payload.Handle != "" {
+			count++
+		}
+	}
+	return count
 }
 
 // abAsyncTempFootprint 统计后台输出目录的个数与总字节：这是"目录有界"的实测面。
@@ -509,10 +530,11 @@ func abWriteReport(t *testing.T, cfg abConfig, samples []abSample, gates []abGat
 
 	fmt.Fprintf(&report, "## 逐次原始样本（ratio=cached/prompt，in_ctx=输出进入后续上下文）\n")
 	for _, sample := range samples {
-		fmt.Fprintf(&report, "task=%-3s arm=%s rep=%d wall_ms=%-7d reqs=%-3d prompt=%-7d cached=%-7d uncached=%-6d ratio=%.3f polls=%-2d in_ctx=%-5v dirs=%+d log_bytes=%+d leftover=%d %s\n",
+		line := fmt.Sprintf("task=%-3s arm=%s rep=%d wall_ms=%-7d reqs=%-3d prompt=%-7d cached=%-7d uncached=%-6d ratio=%.3f polls=%-2d in_ctx=%-5v dirs=%+d log_bytes=%+d leftover=%d %s",
 			sample.task, sample.arm, sample.rep, sample.wall.Milliseconds(), sample.requests, sample.prompt, sample.cached,
 			sample.uncached, sample.ratio(), sample.polls, sample.inContext, sample.dirs, sample.logBytes, sample.leftover,
 			abFailureSuffix(sample))
+		fmt.Fprintf(&report, "%s\n", strings.TrimRight(line, " \t"))
 		rounds := make([]string, 0, len(sample.rounds))
 		for i, round := range sample.rounds {
 			ratio := 0.0
