@@ -89,6 +89,22 @@ func decodeAsyncPayload(t *testing.T, output string) asyncPayload {
 	return payload
 }
 
+// waitAsyncTerminalForTest 派发了真实后台命令的用例在结束前要等执行体收尾：终态是
+// awaitAsync 关掉文件之后才合成的，没等到就退出，句柄还开着，收尾删不掉目录，
+// 而进程一死就再没人来删（这正是临时目录里那 44 个的来源）。
+func waitAsyncTerminalForTest(t *testing.T, router *Router, handle string) {
+	t.Helper()
+	run, ok := router.async.snapshot(handle)
+	if !ok {
+		t.Fatalf("句柄 %s 不在登记表里", handle)
+	}
+	select {
+	case <-run.done:
+	case <-time.After(time.Minute):
+		t.Fatalf("句柄 %s 未在预算内收尾", handle)
+	}
+}
+
 // ── 端到端：派发回执 + 增量取回 ──────────────────────────────────────────
 
 // TestAsyncDispatchAckCarriesNoCommandOutput 验证受理回执是受理而不是结果：
@@ -108,6 +124,7 @@ func TestAsyncDispatchAckCarriesNoCommandOutput(t *testing.T) {
 	if ack.Output != "" {
 		t.Fatalf("受理回执不得携带命令输出: %q", ack.Output)
 	}
+	waitAsyncTerminalForTest(t, router, ack.Handle)
 }
 
 // TestAsyncPollDeliversOnlyNewBytes 是切片的主验收：反复轮询同一句柄，把每次
@@ -165,6 +182,7 @@ func TestAsyncPollRejectsForeignSession(t *testing.T) {
 	if _, err := router.scopedAsyncOutput(owner, string(args)); err != nil {
 		t.Fatalf("本会话取回不得报错: %v", err)
 	}
+	waitAsyncTerminalForTest(t, router, ack.Handle)
 }
 
 // TestAsyncPollUnknownHandleFailsLoudly 验证未知句柄是错误而不是空成功：
@@ -300,11 +318,41 @@ func TestAsyncRegistryCloseRemovesOutputDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	registry.finish(run.handle, 0) // 没有在跑的执行体了 ⇒ 当场可删
 	registry.close()
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("收尾必须删除输出目录: err=%v", err)
 	}
 	registry.close() // 幂等：没有目录可删时不得炸
+}
+
+// TestAsyncRegistryCloseSweepsLateFinish 钉住"当场删不掉 ⇒ 收尾补删"这条分支：
+// close 总是先试，握着日志句柄时（Windows）删不动，目录只能留到最后一条 finish——
+// 那一刻句柄已关，才是确定的可删点。非 Windows 上 close 当场就删掉了，这条仍然通过，
+// 只是走不到补删分支。
+func TestAsyncRegistryCloseSweepsLateFinish(t *testing.T) {
+	registry := newAsyncRegistryForTest(t)
+	run, _, err := registry.begin("sess-a", "echo late")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Dir(run.logPath)
+	file, err := os.Create(run.logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	registry.close()
+	if _, _, err := registry.begin("sess-a", "echo after-close"); err == nil {
+		_ = file.Close()
+		t.Fatal("关停后不得再登记——那会新建一个没人回收的目录")
+	}
+
+	_ = file.Close() // 执行体收尾前先关文件（awaitAsync 就是这个顺序）
+	registry.finish(run.handle, 0)
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("最后一条收尾必须把目录补删掉: err=%v", err)
+	}
 }
 
 func TestAsyncRegistryTailDeliversOnlyNewBytes(t *testing.T) {

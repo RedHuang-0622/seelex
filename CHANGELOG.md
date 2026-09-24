@@ -33,7 +33,10 @@ version when it lands.
   files are not — otherwise a long session grows the temp dir without bound), and the runtime removes
   the whole output directory on shutdown because the directory is process-scoped and nothing else
   would ever reclaim it (before that hook, a dev box had accumulated 44 orphaned `seelex-async-*`
-  directories); each run gets its own 30-minute hard cap that synthesizes `exit_code 124` and writes a
+  directories): the removal is attempted immediately and, when a still-running command holds the log
+  file open, retried by the last execution to finish — the one point where the handle is certainly
+  closed — while dispatching after shutdown is refused rather than creating a directory nobody will
+  collect; each run gets its own 30-minute hard cap that synthesizes `exit_code 124` and writes a
   note into the output, because the synchronous path's tool timeout cannot apply once the receipt has
   been returned; and output is truncated at 1 MiB with the writer still reporting every byte as
   consumed — reporting a short write would make the command itself fail, dressing an infrastructure

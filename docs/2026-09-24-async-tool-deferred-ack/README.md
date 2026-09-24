@@ -250,10 +250,12 @@ A/B 原始数据与逐轮并排表落盘 `docs/2026-09-24-async-tool-deferred-ac
 - [x] 竞态闭合：`begin` 与 `snapshot` 同口径**按值返回副本**，派发侧不再锁外读表内可变
       字段。旧形状的反证留在 `async_exec_raceproof_test.go`（tag `raceproof`，opt-in 报红），
       回归钉在 `TestAsyncRegistryBeginHandsOutACopy`。
-- [x] 目录泄漏闭合：`Router.CloseAsync` + `asyncRegistry.close` 登记进 `Runtime.Shutdown`
-      逆序链（`seelebridge/runtime_tools.go`）；测试脚手架（`asyncTestRouter` /
-      `newAsyncRegistryForTest`）同口径自收。修复前本机残留 44 个目录，隔离复测一次 B 臂
-      回合前后计数不变。
+- [x] 目录泄漏闭合：`Router.CloseAsync` 登记进 `Runtime.Shutdown` 逆序链
+      （`seelebridge/runtime_tools.go`）；close 当场试删，删不动（执行体还握着日志句柄）
+      由最后一条 `finish` 补删，关停后 `begin` 直接报错不新建无人回收的目录。
+      测试脚手架（`asyncTestRouter` / `newAsyncRegistryForTest`）同口径自收，派发型用例
+      等执行体收尾才退出。修复前本机残留 44 个目录 + 每轮单测再漏 5 个；现在隔离复测一次
+      B 臂回合 49 → 49、连续两轮单测 59 → 59 → 59。
 - [x] 文档同步：`seelebridge/tools/README.md` 补「后台命令（轮询型）」小节与四条 Review
       边界；本文件 §0 补 P7 行与一条 A/B 冷启动口径。
 - [x] 时间线记录：[`docs/devlog/2026-09-24-async-polling-ab-closeout.md`](../devlog/2026-09-24-async-polling-ab-closeout.md)

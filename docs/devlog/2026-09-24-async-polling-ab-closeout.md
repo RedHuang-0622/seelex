@@ -27,15 +27,18 @@ merge/rebase——切片与前端 commit 在同一条线上，`git worktree list
 
 - 修复前现场：临时目录 **44 个** `seelex-async-*`。驱逐只删单条记录的文件，没有任何路径
   会删进程自己的目录。
-- 修法：`Router.CloseAsync` + `asyncRegistry.close`，登记进 `Runtime.Shutdown` 的逆序链。
-  尽力而为语义与驱逐侧同口径（Windows 下命令还在跑 ⇒ 句柄占用 ⇒ `RemoveAll` 失败）。
+- 修法（三条）：`Router.CloseAsync` + `asyncRegistry.close` 登记进 `Runtime.Shutdown`
+  逆序链；close **当场试删**，删不动就记下意图，由**最后一条 `finish` 补删**；关停后
+  `begin` 报错，不再新建无人回收的目录。为什么用"删得掉吗"而不是"表里还有没有 running"
+  作判据：只登记、没启动执行体的在途记录根本没有句柄，按 running 判会把目录永久留住——
+  删除结果自己就是最准的答复。
 - 实测闭合：隔离跑一次 B 臂回合，前后计数 **49 → 49**；全量矩阵 9 个 B 回合各 +1（运行期）、
   收尾后无净增。
 - 顺手收掉测试自己的残留：一轮 `go test ./seelebridge/tools` 曾留下 5 个目录
   （`owner-only-marker` / `incremental-marker` / `ack-payload-marker` 这些 fixture 写在
-  `a1.log` 里，正是它们让矩阵期间那 +5 一度被误记到 A/B 头上）。脚手架
-  `asyncTestRouter` / `newAsyncRegistryForTest` 挂 `t.Cleanup` 后，单轮残留 5 → **2**。
-  剩下 2 个不是遗漏：那几个用例结束时命令仍在跑，撞的是同一条 Windows 句柄限制。
+  `a1.log` 里，正是它们让矩阵期间那 +5 一度被误记到 A/B 头上）。脚手架挂 `t.Cleanup` +
+  派发型用例等执行体收尾（`waitAsyncTerminalForTest`，终态在 `file.Close()` 之后才合成），
+  连续两轮单测 **59 → 59 → 59**；补删那条分支由 `TestAsyncRegistryCloseSweepsLateFinish` 钉住。
 
 ## 4. §8.3 五指标 A/B：硬判据过、成本判据不过
 

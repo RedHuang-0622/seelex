@@ -108,9 +108,10 @@ permission middleware → handler → 诊断/遥测钩子。
 `Router`/`PermissionGate` 自带锁；路径经 `security.ProjectScope` 校验；
 bash 诊断观察者 panic 隔离。后台命令：`asyncRegistry` 单锁（执行体 goroutine 只写
 自己那条，读侧在 handler 里）；句柄只对本会话有效，跨会话取回直接拒绝；执行体脱离
-工具 ctx（`context.WithoutCancel`），存活上限由 `asyncHardCap` 自带；输出文件落在
-临时目录、随记录驱逐一并删除。`async_output` 归只读权限组：取的是本会话里**已获批
-那次派发**的输出，因此不重复弹审批。
+工具 ctx（`context.WithoutCancel`），存活上限由 `asyncHardCap` 自带；输出目录归本进程，
+`CloseAsync` 当场试删，删不动（还有句柄没关）就由最后一条 `finish` 补删，关停后
+`begin` 直接报错而不是新建一个没人回收的目录。`async_output` 归只读权限组：取的是
+本会话里**已获批那次派发**的输出，因此不重复弹审批。
 
 ## 扩展方式
 

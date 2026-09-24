@@ -72,6 +72,9 @@ type asyncRegistry struct {
 	dir     string
 	dirErr  error
 	tempDir string
+	// closed = CloseAsync 已调用。此刻若还有执行体在跑，删目录只会撞上未关闭的句柄，
+	// 所以只记意图，由最后一条收尾补删（见 finish / close）。
+	closed bool
 }
 
 func newAsyncRegistry() *asyncRegistry {
@@ -110,6 +113,10 @@ func (g *asyncRegistry) begin(sessionID, command string) (asyncRun, bool, error)
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
+	if g.closed {
+		// 关停后再登记就会新建一个没人回收的目录（CloseAsync 已经跑过），宁可报错。
+		return asyncRun{}, false, fmt.Errorf("bash: 后台执行域已关停（进程正在收尾）")
+	}
 	key := asyncKey(sessionID, command)
 	if id, ok := g.byKey[key]; ok {
 		if run := g.runs[id]; run != nil && run.state == asyncStateRunning {
@@ -188,6 +195,12 @@ func (g *asyncRegistry) finish(handle string, exitCode int) {
 		run.state = asyncStateFailed
 	}
 	close(run.done)
+	// 关停时若还有句柄没关，close 删不掉；这里是补删点（文件已由 awaitAsync 关闭，
+	// 且没有人再读这个句柄）。别的执行体还在写的话这次删除照样失败，交给它自己的
+	// 收尾再试一次——不需要定时器，也不用判断"多久算陈旧"。
+	if g.closed {
+		g.removeDirLocked()
+	}
 }
 
 // snapshot 复制一份判定所需字段，避免把锁外的渲染代码接进锁内。
@@ -378,8 +391,11 @@ func (r *Router) asyncEnabled() bool {
 // CloseAsync 释放后台执行域的输出目录（装配层在进程收尾时登记）。
 //
 // 为什么需要：目录是进程级的，进程死了就再没有人会去删它——实测本机临时目录里
-// 累积了 44 个 seelex-async-*。删除是尽力而为：仍在跑的命令持有文件句柄，Windows
-// 下会失败，那只是让日志多留一会儿（与驱逐侧 `_ = os.Remove` 同口径）。
+// 累积了 44 个 seelex-async-*。
+//
+// 先当场试删；删不掉说明还有执行体握着日志文件句柄（Windows 下会失败），那就记下
+// 关停意图，由最后一条 `finish` 补删——那一刻文件已关闭且无人再读句柄，是唯一确定
+// 的可删点。不排定时器，也不靠"过多久算陈旧"猜状态。
 func (r *Router) CloseAsync() {
 	if r == nil || r.async == nil {
 		return
@@ -390,10 +406,19 @@ func (r *Router) CloseAsync() {
 func (g *asyncRegistry) close() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	g.closed = true
+	g.removeDirLocked()
+}
+
+// removeDirLocked 删目录，成功才忘掉它（失败时留着，等下一个可删点重试）。
+// 调用方必须已持有 g.mu。
+func (g *asyncRegistry) removeDirLocked() {
 	if g.dir == "" {
 		return
 	}
-	_ = os.RemoveAll(g.dir)
+	if err := os.RemoveAll(g.dir); err != nil {
+		return
+	}
 	g.dir = ""
 }
 
