@@ -8,10 +8,12 @@
   --skin-accent-strong-light: #96601f;
   --skin-on-accent-light: #fffaf0;
   /* 暖纸 → 微冷纸：极轻的色温扫（暖纸本身亮度就高，幅度收窄） */
+  --skin-gradient-light: linear-gradient(180deg, #f2eadb 0%, #e4e0d6 100%);
 
   /* 深色：暖铜提亮 */
   --skin-accent-dark: #d99a4e;
   --skin-accent-strong-dark: #e8b36a;
   --skin-on-accent-dark: #201607;
   /* 暖褐近黑 → 冷褐近黑 */
+  --skin-gradient-dark: linear-gradient(180deg, #201c16 0%, #171614 100%);
 }

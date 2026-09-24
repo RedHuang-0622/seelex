@@ -8,10 +8,12 @@
   --skin-accent-strong-light: #256349;
   --skin-on-accent-light: #f0fbf5;
   /* 淡青绿 → 钢青：冷色系的等亮度色温扫 */
+  --skin-gradient-light: linear-gradient(180deg, #dce9df 0%, #cfe0e2 100%);
 
   /* 深色：铜绿提亮 */
   --skin-accent-dark: #6fb58e;
   --skin-accent-strong-dark: #8ccba8;
   --skin-on-accent-dark: #08130d;
   /* 青绿 → 钢青（暗） */
+  --skin-gradient-dark: linear-gradient(180deg, #141f1c 0%, #101b20 100%);
 }

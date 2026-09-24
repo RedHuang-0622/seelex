@@ -12,6 +12,38 @@ version when it lands.
 
 ## [Unreleased]
 
+### Changed
+
+- **The GUI skin and the light/dark mode are two independent axes now.** The skin used to *be*
+  the mode: six whole-palette themes (`qoder-light`, `qoder-dark`, `graphite`, `verdigris`,
+  `paper`, `silver`), each pinned to one `data-theme`, so choosing depth meant choosing a
+  different skin and no skin could offer both. Now the neutral base (surfaces, text, borders,
+  status colours, translucent fills, shadows, ticks) lives in `styles.css` under `:root`
+  (light) and `:root[data-theme="dark"]` (dark), while `themes/<skin>.css` carries only brand
+  tokens — the primary signal and the ambient gradient — in both depth variants (8 `--skin-*`
+  tokens, one `:root` rule). `theme.js` grows two orthogonal actions (`applySkin` → `<link>`,
+  `applyMode` → `data-theme`) persisted separately (`localStorage["seelex.skin"]` /
+  `"seelex.mode"`); the settings “Appearance” section shows two card rows
+  (`#theme-picker` / `#mode-picker`). Five skins × two depths = ten looks, and “add a skin” is
+  still one CSS file plus one manifest entry (manifest schema 2: `skins[]` + `modes[]`).
+- **Each skin ships its own ambient gradient.** `--shell-gradient` — the equal-luminance,
+  purely vertical colour-temperature sweep that makes the shell read as one continuous field
+  (Qoder's `#EBEBC6 → #D1DAE2`) — is now a skin token with a light and a dark variant, bridged
+  by `styles.css` (`:root` / `:root[data-theme="dark"]`) so each skin's sweep follows the depth.
+  The five skins get five distinct sweeps (Qoder yellow→cyan, graphite ivory→steel, verdigris
+  green→teal, paper warm→cool paper, silver silver→cool grey). Section 27 applies it: the shell
+  (`.app-shell`) carries the gradient, the top bar and side panels go transparent, and the
+  centre column stays a pure-white “paper” on top, joined by neutral `--border-hairline` seams.
+  The Wails window background moves to `#EBEBC6` (the default light shell's gradient start) so
+  the first frame no longer flashes the old fill. Render evidence:
+  `docs/design/qoder-skin/tools/verify-skins.py` (headless-Chrome pixel sampling over all ten
+  combinations) shows the five light shell-top
+  colours are all distinct, while every skin's content-paper colour depends only on depth
+  (`#FBFAF6` light / `#1F1F1F` dark) — the two axes really are decoupled.
+- **Border temperature decided (P2-1, option A).** `--border` moves from warm `#e6e3da` to
+  neutral `#e7e7e4` so warm hairlines stop muddying the cold bottom of the gradient; the new
+  `--border-warm: #e6e3da` keeps warmth for the few places that genuinely want it.
+
 ### Fixed
 
 - **`/compact` on a freshly cold-loaded session folds right away instead of telling you to

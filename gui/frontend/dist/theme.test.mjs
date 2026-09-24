@@ -36,8 +36,8 @@ const NEUTRAL_TOKENS = [
 ];
 
 const BRAND_TOKENS = [
-  "--skin-accent-light", "--skin-accent-strong-light", "--skin-on-accent-light",
-  "--skin-accent-dark", "--skin-accent-strong-dark", "--skin-on-accent-dark"
+  "--skin-accent-light", "--skin-accent-strong-light", "--skin-on-accent-light", "--skin-gradient-light",
+  "--skin-accent-dark", "--skin-accent-strong-dark", "--skin-on-accent-dark", "--skin-gradient-dark"
 ];
 
 test("theme: skin ids are restricted to safe slugs", () => {
@@ -131,6 +131,8 @@ test("theme: styles.css ships both mode bases and bridges skin tokens", async ()
   // 品牌位桥接：浅色 / 深色各自从皮肤变体取值。
   assert.match(css, /--accent:\s*var\(--skin-accent-light/);
   assert.match(darkBlock, /--accent:\s*var\(--skin-accent-dark/);
+  assert.match(css, /--shell-gradient:\s*var\(--skin-gradient-light/);
+  assert.match(darkBlock, /--shell-gradient:\s*var\(--skin-gradient-dark/);
 });
 
 test("theme: 换肤/切深浅把「已生效」回流给 token 消费方（外链皮肤等 CSS 落地）", () => {

@@ -12,9 +12,11 @@
   --skin-accent-light: #1f2328;
   --skin-accent-strong-light: #0f1215;
   --skin-on-accent-light: #ffffff;
+  --skin-gradient-light: linear-gradient(180deg, #ebebc6 0%, #d1dae2 100%);
 
   /* 深色变体（主信号反相：浅实心 + 深字） */
   --skin-accent-dark: #e9e9ec;
   --skin-accent-strong-dark: #ffffff;
   --skin-on-accent-dark: #16161a;
+  --skin-gradient-dark: linear-gradient(180deg, #1b1a17 0%, #171a1e 100%);
 }

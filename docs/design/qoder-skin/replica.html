@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <title>Seelex · Qoder 皮肤复刻（静态预览）</title>
+  <!--
+    Qoder 视觉换代的**静态复刻页**。
+    它不是另写一套 CSS：DOM 用的是 gui/frontend/dist/index.html 的真实类名，
+    样式用的是 gui/frontend/dist/styles.css + themes/<id>.css 的真实皮肤文件，
+    所以这页看到的就是运行时那套前端在同一份皮肤下的样子。
+    唯一属于本页的东西：右上角那颗皮肤切换器 + 一份示例数据。
+  -->
+  <link rel="stylesheet" href="../../../gui/frontend/dist/vendor/pico.min.css">
+  <link rel="stylesheet" href="../../../gui/frontend/dist/vendor/xterm/xterm.css">
+  <link rel="stylesheet" href="../../../gui/frontend/dist/styles.css">
+  <link id="seelex-skin" rel="stylesheet" href="../../../gui/frontend/dist/themes/qoder.css">
+  <style>
+    /* 只属于"复刻页"的两条：皮肤切换器（运行时由设置弹窗承担）+ 复刻提示条 */
+    .replica-bar {
+      position: fixed;
+      right: 322px;
+      bottom: 122px;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--panel-solid);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+      font-size: 12px;
+      color: var(--text-mid);
+    }
+    .replica-bar em { font-style: normal; color: var(--faint); }
+    .replica-bar button {
+      padding: 4px 10px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--surface);
+      color: var(--text-soft);
+      font-size: 11.5px;
+      cursor: pointer;
+    }
+    .replica-bar button.is-active {
+      border-color: var(--accent);
+      background: var(--accent);
+      color: var(--on-accent);
+    }
+    .replica-note {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 100;
+      padding: 5px 12px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--text-bright) 78%, transparent);
+      color: var(--surface);
+      font-size: 11px;
+      letter-spacing: .02em;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="replica-bar" class="replica-bar">
+    <em>皮肤</em>
+    <button type="button" data-skin="qoder" class="is-active">Qoder</button>
+    <button type="button" data-skin="graphite">石墨黄铜</button>
+    <button type="button" data-skin="verdigris">铜绿钢青</button>
+    <button type="button" data-skin="paper">暖纸</button>
+    <button type="button" data-skin="silver">银白</button>
+    <em>深浅</em>
+    <button type="button" data-mode="light" class="is-active">浅色</button>
+    <button type="button" data-mode="dark">深色</button>
+  </div>
+  <div class="replica-note">静态复刻 · 真 DOM 类名 + 真 styles.css + 真皮肤文件</div>
+
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">S</span>
+        <div><strong>Seelex</strong><small>tie v0.9.4</small></div>
+      </div>
+      <div class="runtime-summary">
+        <span class="status-dot online"></span>
+        <span>openai · deepseek-v3</span>
+        <span>128.4k tok</span>
+        <button class="icon-button subtle" type="button" title="终端 (Ctrl+`)" aria-label="终端" data-icon="terminal"></button>
+        <button class="icon-button subtle" type="button" title="设置" aria-label="设置" data-icon="settings"></button>
+      </div>
+    </header>
+
+    <aside class="left-panel panel">
+      <div class="panel-rail-head">
+        <button class="icon-button subtle panel-toggle" type="button" title="收起/展开左栏 (Ctrl+B)" aria-label="收起/展开左栏" data-icon="chevron-left"></button>
+      </div>
+      <section class="sessions-section">
+        <div class="section-title">
+          <span>会话</span>
+          <span class="section-actions"><span class="badge">20</span><button class="icon-button" type="button" title="新建会话" aria-label="新建会话" data-icon="plus"></button></span>
+        </div>
+        <div class="stack-list">
+          <div class="session-group">
+            <div class="session-group-head"><span class="collapse-chevron" aria-hidden="true"></span><span>SEELEX</span><span class="badge">16</span></div>
+            <button class="stack-button active" type="button">
+              <span class="entry-name"><span class="status-dot online"></span>展示你审美的时候到了，先截屏当前的 seelex</span>
+              <small>刚刚 · 128.4k tok</small>
+            </button>
+            <button class="stack-button" type="button">
+              <span class="entry-name"><span class="status-dot"></span>提交代码</span>
+              <small>12 分钟前 · 42.1k tok</small>
+            </button>
+            <button class="stack-button" type="button">
+              <span class="entry-name"><span class="status-dot"></span>需要放映的是 sdcard 里的视频</span>
+              <small>1 小时前 · 18.7k tok</small>
+            </button>
+            <button class="stack-button" type="button">
+              <span class="entry-name"><span class="status-dot"></span>@goal-a2a 队友</span>
+              <small>今天 11:04 · 96.2k tok</small>
+            </button>
+            <button class="stack-button" type="button">
+              <span class="entry-name"><span class="status-dot"></span>提交你的更改：</span>
+              <small>今天 10:31 · 7.4k tok</small>
+            </button>
+          </div>
+          <div class="session-group">
+            <div class="session-group-head"><span class="collapse-chevron" aria-hidden="true"></span><span>SEELE</span><span class="badge">1</span></div>
+            <button class="stack-button" type="button">
+              <span class="entry-name"><span class="status-dot"></span>rearmwork 需要重跑一遍</span>
+              <small>昨天 · 22.9k tok</small>
+            </button>
+          </div>
+          <div class="session-group">
+            <div class="session-group-head"><span class="collapse-chevron" aria-hidden="true"></span><span>INTRODUCE_MYSELF</span><span class="badge">4</span></div>
+            <button class="stack-button" type="button">
+              <span class="entry-name"><span class="status-dot"></span>你终端的号码为</span>
+              <small>昨天 · 3.1k tok</small>
+            </button>
+          </div>
+        </div>
+      </section>
+    </aside>
+
+    <main class="workspace">
+      <div class="trace-rail" aria-hidden="true"></div>
+      <div class="conversation-tabs">
+        <button class="conversation-tab is-active" type="button">对话</button>
+        <button class="conversation-tab" type="button">轨迹</button>
+      </div>
+
+      <div class="dock-host main-host">
+        <div class="conversation-shell">
+          <div class="conversation">
+            <article class="message user">
+              <div class="message-debug"><span class="item-id">message-0 · user</span></div>
+              <div class="message-head"><span class="role-mark">你</span></div>
+              <div class="message-body">
+                <p>展示你审美的时候到了：先截屏当前 Seelex，打开 Qoder 分析它前端漂亮的原因，做出静态复刻查看效果，再把当前前端跟进到 Qoder 同款风格（<strong>包括皮肤变换</strong>）。</p>
+              </div>
+            </article>
+
+            <article class="message assistant">
+              <div class="message-debug"><span class="item-id">message-1 · assistant</span></div>
+              <div class="message-head"><span class="role-mark">Seelex</span></div>
+              <div class="message-body">
+                <p>先给结论：Qoder 的好看不是"配色好看"，而是四条可复现的规则——底用色温分层、面用发丝描边、色只承载语义、动效只留一处。复刻按这四条做，不靠堆装饰。</p>
+                <h3>1. 底色分层：外壳暖白 → 内容纯白</h3>
+                <p>左侧导航与标题栏是象牙暖白 <code>#f7f6f2</code>，阅读区是纯白 <code>#ffffff</code>。分层靠<strong>色温</strong>而不是描边，所以整屏没有一根硬线也不糊。</p>
+                <h3>2. 几何：大圆角 + 发丝线 + 极轻投影</h3>
+                <p>圆角一档到底（胶囊 <code>999px</code>、卡片 <code>10px</code>、输入区 <code>16px</code>），描边统一 <code>#e6e3da</code> 的 1px，投影只给浮层和输入区。</p>
+                <h3>3. 颜色只承载含义</h3>
+                <p>界面本身是无彩色，颜色只在有语义时出现：琥珀=需要授权，绿=通过/增量，红=失败/减量，蓝=信息与链接。</p>
+                <details class="conversation-axis is-tools">
+                  <summary><span class="axis-caret" aria-hidden="true"></span><span class="axis-label">执行工具 5 次 · 271s</span><span class="axis-meta">读文件 3 · 图像 2</span></summary>
+                </details>
+                <div class="tool-run is-success">
+                  <div class="tool-run-line">
+                    <span class="tool-state" aria-hidden="true">✓</span>
+                    <span class="chat-chip is-tool"><span class="chat-chip-name">read_file</span><span class="chat-chip-meta">gui/frontend/dist/styles.css</span></span>
+                    <span class="chat-chip-hint">4434 行 · 230 KB</span>
+                  </div>
+                </div>
+                <div class="tool-run is-running">
+                  <div class="tool-run-line">
+                    <span class="tool-state" aria-hidden="true"><span class="runtime-spinner"></span></span>
+                    <span class="chat-chip is-tool"><span class="chat-chip-name">computer_screenshot</span><span class="chat-chip-meta">Qoder 桌面端</span></span>
+                    <span class="chat-chip-hint">取色中…</span>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
+        </div>
+      </div>
+
+      <form class="composer">
+        <textarea rows="1" placeholder="描述任务，输入 / 查看命令，# 切换插件，$ 召回 Skill，@ 手动召唤团队">把 Qoder 那套底色分层与胶囊几何做成皮肤，覆盖到全部面板。</textarea>
+        <div class="composer-actions">
+          <div class="composer-tools">
+            <button class="icon-button composer-icon" type="button" title="命令面板 (Ctrl+K)" aria-label="命令面板" data-icon="command"></button>
+            <button class="icon-button composer-icon" type="button" title="运行状态" aria-label="运行状态" data-icon="runtime"></button>
+            <div class="perm-picker">
+              <button class="perm-chip" type="button" aria-haspopup="menu" aria-expanded="false">手动 ▾</button>
+            </div>
+          </div>
+          <span>READY</span>
+          <div class="effort-control" data-effort="high" role="group" aria-label="Effort 级别">
+            <span class="effort-end effort-end--min">Lite</span>
+            <div class="effort-syringe">
+              <div class="syringe-barrel"><div class="syringe-piston"></div></div>
+              <input class="syringe-input" type="range" min="0" max="3" step="1" value="2" aria-label="Effort 级别">
+            </div>
+            <span class="effort-end effort-end--max">Max</span>
+            <span class="effort-value">High</span>
+          </div>
+          <button class="icon-button action-button primary-button" type="submit" title="发送" aria-label="发送" data-icon="send"></button>
+        </div>
+      </form>
+
+      <section class="terminal-panel is-collapsed" aria-label="终端">
+        <div class="terminal-resize" role="separator" aria-orientation="horizontal"></div>
+        <div class="terminal-head">
+          <button class="icon-button subtle terminal-collapse" type="button" title="收起终端" aria-label="收起终端" data-icon="chevron-down"></button>
+          <div class="terminal-tabs">
+            <button class="terminal-tab is-active" type="button">powershell</button>
+            <button class="terminal-tab" type="button">bash</button>
+          </div>
+          <div class="terminal-actions">
+            <button class="icon-button subtle" type="button" title="新建终端" aria-label="新建终端" data-icon="plus"></button>
+            <button class="icon-button subtle" type="button" title="关闭当前终端" aria-label="关闭当前终端" data-icon="close"></button>
+            <button class="icon-button subtle" type="button" title="隐藏终端面板" aria-label="隐藏终端面板" data-icon="chevron-down"></button>
+          </div>
+        </div>
+        <div class="terminal-body">
+          <pre class="preview">PS G:\Program\go\seelex&gt; go test ./gui/... -run Theme -count=1
+ok      github.com/RedHuang-0622/seelex/gui     0.42s</pre>
+        </div>
+      </section>
+    </main>
+
+    <aside class="right-panel panel">
+      <div class="panel-rail-head">
+        <button class="icon-button subtle panel-toggle" type="button" title="收起/展开右栏" aria-label="收起/展开右栏" data-icon="chevron-right"></button>
+      </div>
+      <section class="project-heading">
+        <div class="section-title">项目</div>
+        <h2>seelex</h2>
+        <div class="project-root">G:\Program\go\seelex</div>
+      </section>
+      <nav class="right-tabs">
+        <button class="right-tab is-active" type="button">工作树</button>
+        <button class="right-tab" type="button">提交记录</button>
+        <button class="right-tab" type="button">工作区更改</button>
+      </nav>
+      <div class="dock-host right-host">
+        <div class="right-tabpanel">
+          <details class="collapse-section" open>
+            <summary class="collapse-summary"><span class="collapse-chevron" aria-hidden="true"></span><span>状态</span></summary>
+            <div class="status-table">
+              <div class="status-row"><span class="status-label">运行态</span><span class="status-value">执行中</span></div>
+              <div class="status-row"><span class="status-label">模型</span><span class="status-value">deepseek-v3</span></div>
+              <div class="status-row"><span class="status-label">皮肤 · 深浅</span><span class="status-value" id="status-skin">Qoder · 浅色</span></div>
+            </div>
+          </details>
+          <details class="collapse-section" open>
+            <summary class="collapse-summary"><span class="collapse-chevron" aria-hidden="true"></span><span>工作区更改</span><span class="badge">6</span></summary>
+            <div class="changes-view">
+              <div class="changes-summary"><span class="changes-branch">main</span><span class="changes-counts">未暂存 6 · 未跟踪 5</span></div>
+              <div class="changes-row is-modified"><span class="changes-status">M</span><span class="changes-path">gui/frontend/dist/styles.css</span></div>
+              <div class="changes-row is-modified"><span class="changes-status">M</span><span class="changes-path">gui/frontend/dist/theme.js</span></div>
+              <div class="changes-row is-modified"><span class="changes-status">M</span><span class="changes-path">gui/frontend/dist/theme.test.mjs</span></div>
+              <div class="changes-row is-modified"><span class="changes-status">M</span><span class="changes-path">gui/frontend/dist/app.js</span></div>
+              <div class="changes-row is-modified"><span class="changes-status">M</span><span class="changes-path">gui/frontend/dist/index.html</span></div>
+              <div class="changes-row is-modified"><span class="changes-status">M</span><span class="changes-path">gui/frontend/dist/themes/manifest.json</span></div>
+              <div class="changes-row is-untracked"><span class="changes-status">A</span><span class="changes-path">gui/frontend/dist/themes/qoder.css</span></div>
+              <div class="changes-row is-untracked"><span class="changes-status">A</span><span class="changes-path">gui/frontend/dist/themes/graphite.css</span></div>
+              <div class="changes-row is-untracked"><span class="changes-status">A</span><span class="changes-path">gui/frontend/dist/themes/verdigris.css</span></div>
+              <div class="changes-row is-untracked"><span class="changes-status">A</span><span class="changes-path">gui/frontend/dist/themes/paper.css</span></div>
+              <div class="changes-row is-untracked"><span class="changes-status">A</span><span class="changes-path">gui/frontend/dist/themes/silver.css</span></div>
+            </div>
+          </details>
+        </div>
+      </div>
+      <details class="collapse-section side-more">
+        <summary class="side-more-summary"><span class="collapse-chevron" aria-hidden="true"></span><span>历史检索</span></summary>
+      </details>
+    </aside>
+  </div>
+
+  <script>
+    // 图标：等价 components.js 的 hydrateIcons（这里只放复刻页用到的那几个）
+    const ICONS = {
+      "chevron-left": '<path d="M15 5l-7 7 7 7"/>',
+      "chevron-right": '<path d="M9 5l7 7-7 7"/>',
+      "chevron-down": '<path d="M5 9l7 7 7-7"/>',
+      "plus": '<path d="M12 5v14M5 12h14"/>',
+      "close": '<path d="M6 6l12 12M18 6L6 18"/>',
+      "terminal": '<path d="M4 7h16v10H4z"/><path d="M8 11l3 2-3 2M13 15h3"/>',
+      "settings": '<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/>',
+      "command": '<path d="M9 4a3 3 0 100 6 3 3 0 100 6M15 4a3 3 0 110 6 3 3 0 110 6M9 10h6M9 16h6"/>',
+      "runtime": '<circle cx="12" cy="12" r="8"/><path d="M12 8v5l3 2"/>',
+      "send": '<path d="M12 19V5M6 11l6-6 6 6"/>',
+      "table": '<path d="M4 6h16v12H4z"/><path d="M4 10h16M10 10v8"/>'
+    };
+    function hydrateIcons(root) {
+      (root || document).querySelectorAll("[data-icon]").forEach(function (el) {
+        const d = ICONS[el.getAttribute("data-icon")];
+        if (!d) return;
+        const size = el.getAttribute("data-icon-size") || 16;
+        el.innerHTML = '<svg class="icon" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" ' +
+          'stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' + d + "</svg>";
+        el.removeAttribute("data-icon");
+      });
+    }
+    hydrateIcons(document);
+
+    // 两轴换肤：皮肤（换 <link href>）× 深浅（改 <html data-theme>），等价 theme.js 的落地动作
+    const SKINS = {
+      qoder: { label: "Qoder", file: "../../../gui/frontend/dist/themes/qoder.css" },
+      graphite: { label: "石墨黄铜", file: "../../../gui/frontend/dist/themes/graphite.css" },
+      verdigris: { label: "铜绿钢青", file: "../../../gui/frontend/dist/themes/verdigris.css" },
+      paper: { label: "暖纸白昼", file: "../../../gui/frontend/dist/themes/paper.css" },
+      silver: { label: "银白冷钢", file: "../../../gui/frontend/dist/themes/silver.css" }
+    };
+    const MODES = { light: "浅色", dark: "深色" };
+    const bar = document.getElementById("replica-bar");
+    function updateStatus() {
+      const label = document.getElementById("status-skin");
+      if (!label) return;
+      const skinId = document.documentElement.getAttribute("data-skin") || "qoder";
+      const modeId = document.documentElement.getAttribute("data-theme") || "light";
+      label.textContent = (SKINS[skinId] ? SKINS[skinId].label : skinId) + " · " + (MODES[modeId] || modeId);
+    }
+    function applySkin(id) {
+      const skin = SKINS[id];
+      if (!skin) return;
+      document.documentElement.setAttribute("data-skin", id);
+      document.getElementById("seelex-skin").setAttribute("href", skin.file);
+      bar.querySelectorAll("button[data-skin]").forEach(function (b) {
+        b.classList.toggle("is-active", b.getAttribute("data-skin") === id);
+      });
+      updateStatus();
+    }
+    function applyMode(id) {
+      if (!MODES[id]) return;
+      document.documentElement.setAttribute("data-theme", id);
+      bar.querySelectorAll("button[data-mode]").forEach(function (b) {
+        b.classList.toggle("is-active", b.getAttribute("data-mode") === id);
+      });
+      updateStatus();
+    }
+    bar.addEventListener("click", function (ev) {
+      const skinBtn = ev.target.closest("button[data-skin]");
+      if (skinBtn) return applySkin(skinBtn.getAttribute("data-skin"));
+      const modeBtn = ev.target.closest("button[data-mode]");
+      if (modeBtn) return applyMode(modeBtn.getAttribute("data-mode"));
+    });
+    // 静态页没有设置弹窗，用 URL hash 指定外观：replica.html#silver-dark / #graphite-light
+    const hash = (location.hash || "").replace(/^#/, "");
+    if (hash) {
+      const parts = hash.split("-");
+      if (SKINS[parts[0]]) applySkin(parts[0]);
+      if (MODES[parts[1]]) applyMode(parts[1]);
+    }
+    updateStatus();
+
+    // 静态页没有滚动锚点，固定回顶部（延迟到浏览器恢复滚动位置之后再执行），
+    // 截出来的就是"从头读"的视图
+    const conv = document.querySelector(".conversation");
+    if (conv) {
+      conv.scrollTop = 0;
+      setTimeout(function () { conv.scrollTop = 0; }, 350);
+    }
+  </script>
+</body>
+</html>

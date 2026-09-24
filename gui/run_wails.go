@@ -52,7 +52,8 @@ func Run(app Application, config Options) error {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		BackgroundColour: &wailsoptions.RGBA{R: 19, G: 22, B: 31, A: 1},
+		// 窗底 = 默认外观（qoder 皮肤 · 浅色）的环境渐变起点色，消除首帧闪色。
+		BackgroundColour: &wailsoptions.RGBA{R: 235, G: 235, B: 198, A: 1},
 		OnStartup: func(ctx context.Context) {
 			bridge.Start(ctx, func(ctx context.Context, name string, payload any) {
 				runtime.EventsEmit(ctx, name, payload)
