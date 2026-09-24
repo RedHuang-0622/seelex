@@ -1,0 +1,20 @@
+/* 皮肤包：石墨黄铜
+ * 两轴换肤的「皮肤」轴：只给品牌 token（黄铜主信号 + 石墨色温的环境渐变）。
+ * 中性基座由深浅轴在 styles.css 提供。
+ *
+ * 原始气质（旧默认皮肤）：铁蓝石墨底 + 黄铜主信号。换代后中性归深浅，
+ * 皮肤只保留"黄铜"这一支信号，并由环境渐变把石墨的冷、黄铜的暖连起来。
+ * 契约见 themes/README.md：只覆盖 :root token，不写选择器、不用 !important。 */
+:root {
+  /* 浅色：黄铜压深一档，保证浅底上白字有对比 */
+  --skin-accent-light: #8a6420;
+  --skin-accent-strong-light: #6f5018;
+  --skin-on-accent-light: #fffaf0;
+  /* 暖象牙 → 冷钢：等亮度的色温扫，与 Qoder 同一条性质 */
+
+  /* 深色：黄铜提亮 */
+  --skin-accent-dark: #d9a657;
+  --skin-accent-strong-dark: #e8bc72;
+  --skin-on-accent-dark: #1a1308;
+  /* 铁蓝石墨：暖近黑 → 冷近黑 */
+}

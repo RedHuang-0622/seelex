@@ -59,8 +59,8 @@ flowchart TB
 | `dist/trajectory-view.js` | 轨迹视图组件：对话区「轨迹」子页的上下文轴（记录轨 + 前缀注入/压缩元数据轨）/轴详情/过滤条/摘要/表格 keyed 渲染，行内复制/展开/result_ref 分页读回，本地过滤状态；普通轴块点击切回全量并定位轨迹行，元数据块点击开轴详情。**上下文轴分页**：滚轮在轴区域内翻页（`axisWheelStep` 累积阈值、一页一屏语义）、`Shift+滚轮`换页大小（`AXIS_PAGE_SIZE_STEPS`/`stepAxisPageSize`，带页码与页大小提示），分页窗口计算是纯函数（`resolveAxisPage`/`axisPageWindow`/`axisPageForIndex`）；翻到尚未加载的更早区间时提示并以既有 `loadMore` 通道回读，不静默跳位。 |
 | `dist/components.js` | message/tool/queue 等纯渲染组件；对话滚动轴（thinking / tool 各自可展开收起，LLM 正文内联）与左侧调试 id。 |
 | `dist/html-embed.js` | 会话内 HTML 渲染块：`seelex-html`（别名 `html-preview`）围栏 → **沙箱 iframe**（`sandbox="allow-scripts"`，**无 `allow-same-origin`**）+ srcdoc 内嵌 CSP（`default-src 'none'`、断网、仅 data: 图片）+ 源码折叠；`title=`/`height=` 参数，高度钳制 120–640px。普通 ```html 仍是源码块。 |
-| `dist/theme.js` | 皮肤（材质包）加载层：读 `themes/manifest.json` → 归一化 → 切 `<html data-theme>` 与皮肤 `<link>`；id 限 `[a-z0-9-]`、路径只允许 `themes/<id>.css`（防路径逃逸）；选择记在 `localStorage["seelex.theme"]`。 |
-| `dist/themes/` | 内置皮肤包 + `manifest.json`：皮肤只覆盖语义 token（契约与 token 清单见 `themes/README.md`），不写选择器、不用 `!important`、不引远程资源。 |
+| `dist/theme.js` | 换肤加载层（**两轴**：深浅 × 皮肤）：读 `themes/manifest.json` → 归一化 → 切 `<html data-theme>`（深浅）与皮肤 `<link>`（品牌）；id 限 `[a-z0-9-]`、路径只允许 `themes/<id>.css`（防路径逃逸）；皮肤记 `localStorage["seelex.skin"]`、深浅记 `localStorage["seelex.mode"]`。 |
+| `dist/themes/` | 内置皮肤包 + `manifest.json`（schema 2：`skins[]` + `modes[]`）：皮肤只覆盖**品牌 token**（主信号 + 环境渐变，8 个 `--skin-*`），中性基座由深浅在 `styles.css` 提供（契约与 token 清单见 `themes/README.md`），皮肤不写选择器、不用 `!important`、不引远程资源。 |
 | `dist/vendor/` | 第三方资源落盘区（无 CDN、随包嵌入）：`pico.min.css` 组件库、`marked`、`highlight.js`、`DOMPurify`、`docx-preview`、`PDF.js`、`xterm/`（终端仿真器 + 容器自适应插件，见 `vendor/xterm/README.md`）。版本与许可登记见 `vendor/README.md`。 |
 | `dist/plan-dsl.js` | Plan JSON DSL 归一化、DAG → 树状布局（节点详情弹窗数据面）、节点详情弹窗。树轨事实是 `treeIsLast`/`treeAncestors`（末子标记 + 各层祖先是否续行），由 `tree-fork.treeRowAttrs` 画成缩进轨；子代理树同一套。 |
 | `dist/agent-team-view.js` | Agent Team 面板渲染（右侧栏 · 状态 → Agent Team）：**分成「员工库」（可用员工 = 全局母本 ∪ 本会话在编，行首 ≡ 拖进发言顺序，来源 chip 标 `库` / `本会话`，行内 新建 / 编辑 / 删除 / 入库）、「团队库」（一行一支用户团队，团队名是按钮 → 打开「这一支」的团队面板；行内 装配 / ✕；内置形态退成表下一行 chip）、「员工栏」（在编员工 + 发言顺序，行首手柄拖拽调序，三列表：身份 / 位置 / 操作）、「发言调度」（运行态顺序串珠条：序号 + 身份，发言中 / 下一个各占一档高亮，轮次徽标 + 席位/收束一行 meta）**；入职与修改员工、新建与编辑团队都是**冷加载面板**（`hirePanel` / `teamEditorPanel`，点 + / 团队名才注入 slot，字段按 身份 / 编排 / 能力 / 提示词 分节条目化，✕ 图标 / Esc 关闭），团队面板的成员表（`renderTeamMemberList`）行序即发言顺序、可 ✕ 移除、可拖拽调序、可承接从员工库拖来的行。数据源是 Application API（`Bridge.AgentTeamPresets/View/Library/GlobalConfig/SaveTeam/DeleteTeam/MaterializeTeam/PutRole/DeleteRole/SetOrder/InstantiateRole/SaveEmployee/DeleteEmployee/OptimizePrompt` 等）。各份事实各有归属：发言顺序 = 会话 `lifecycle.order_policy/order_roles`，员工配置（提示词/权限）= 会话角色注册表，团队库 / 员工库 / 默认顺序 = **全局**母本（数据根下 `team/`，会话读的是深拷贝副本）；本模块不缓存顺序、不做乐观重排——每次动作后重拉视图（纯函数 `employeePool` / `teamMemberNames` / `nextAgentTeamOrder` / `agentTeamOrderForDrag` / `teamGlobalDrift` 供共用）。 |
@@ -85,7 +85,7 @@ flowchart TB
 
 样式全部集中在 `dist/styles.css`，遵循 Tracebench（轨迹台架）设计体系：本地 Agent 工程验证台架，铁蓝石墨 + 暖纸白 + 黄铜信号灯，会话/工具/Plan 全部打在一条时间基线上。
 
-- `:root` 定义唯一 token 层：表面色（`--bg/panel/surface`）、文本色（`--paper` 系）、品牌色（`--accent` 黄铜）、语义色（`--status-running/done/failed/info`）、刻度线（`--tick`）、字阶、圆角与间距。组件不得硬编码色值；同义状态只允许使用对应语义变量，禁止色值漂移。
+- token 层分两条轴：**深浅**（`:root` 浅色 / `:root[data-theme="dark"]` 深色）给表面色（`--bg/panel/surface`）、文本色、描边、语义色（`--status-running/done/failed/info`）、刻度线（`--tick`）、半透明面与投影；**皮肤**（`themes/<skin>.css`）只给品牌（主信号 + 环境渐变，8 个 `--skin-*`），由 styles.css 桥接成 `--accent`/`--on-accent`/`--shell-gradient`。字阶、圆角与间距属基座，不分轴。组件不得硬编码色值；同义状态只允许使用对应语义变量，禁止色值漂移。
 - 字体三角色：界面正文 `--font-ui`，数据/时间戳/状态 `--font-mono`，标签与数字 `--font-display`（Bahnschrift 系测量字）；最小可见字号 10px，数据行 ≥11px，正文不低于 12px。
 - 中栏签名：`#trace-rail` 是一条垂直时间基线，消息与 Plan 卡片以打点（`::before` 圆点）挂线，工具卡片以左侧 3px 状态条标识；运行中的 Plan 节点是唯一常驻动效（黄铜扫掠 `trace-sweep`），`prefers-reduced-motion` 全局关闭。
 - 界面词统一为中文：就绪 / 执行中 / 排队 / 手动 / 自动改文件 / 自动执行 / 全权；弹窗 eyebrow 不再使用英文机器词。
@@ -450,8 +450,9 @@ Wails bridge；srcdoc 自带 CSP（`default-src 'none'`、`connect-src 'none'`�
    类选择器覆盖的元素，所以引入它不会推翻既有外观；
 2. **Seelex 样式**（`styles.css`）= 语义 token + 组件样式，并把 `--pico-*`
    桥接到 token（"组件库桥接"段），因此第三方组件跟随皮肤换色；
-3. **皮肤包**（`themes/<id>.css`）= 只覆盖语义 token 的换肤层（"皮肤选择"在
-   设置的「外观」区）。深浅色、材质包都在这一层做，组件结构不动。
+3. **皮肤包**（`themes/<skin>.css`）= 只覆盖**品牌 token** 的换肤层（"皮肤"与
+   "深浅"在设置的「外观」区各自一排卡片，两条轴互不耦合：深浅给中性基座，
+   皮肤给主信号与环境渐变）。组件结构不动。
 
 控件尺寸走 token（`--control-h-sm/--control-h/--control-h-lg`、`--row-min-h`），
 图标按钮、徽标、输入框、页签、主次按钮、列表行统一取这几个值——同排控件不再
@@ -614,3 +615,29 @@ Snapshot/业务状态；accounts.yaml 等敏感名与 .git/node_modules/.seelex 
 `Bridge.WorkspaceGitLog` 展示最近 20 条提交的拓扑泳道图（按 `--topo-order` 的
 提交行 + 每个提交的 parents；分叉由前端 tree-fork 画 SVG，hash/作者/时间/标题
 为只读元数据，不含 diff/文件内容）。
+
+
+## 视觉换代：Qoder 基座 + 两轴换肤（2026-09-24）
+
+默认外观从 `graphite`（铁蓝石墨 + 黄铜）换成 `qoder` + 浅色（象牙暖白外壳 + 纯白内容面，
+墨黑主信号），并在 `dist/styles.css` 末尾新增**第 27 节「Qoder 基座」**（几何、密度、层级、
+标签字号——只走 token，不写硬编码色值），同时把**环境渐变**（壳承载 `--shell-gradient`）
+落进第 27 节 a)。
+
+**换肤拆成两条正交的轴**（用户要求"皮肤和深浅色分开来做"）：
+
+- **深浅（mode）** = 中性基座：`styles.css` 的 `:root`（浅色）与 `:root[data-theme="dark"]`
+  （深色）给面 / 文本 / 描边 / 状态 / 半透明面 / 投影；由 `<html data-theme>` 选择；
+- **皮肤（skin）** = 品牌：`themes/<skin>.css` 只给**主信号 + 环境渐变**共 8 个 `--skin-*`
+  token，styles.css 桥接成 `--accent`/`--on-accent`/`--shell-gradient`；
+- 两者可自由组合（5 皮肤 × 2 深浅 = 10 种外观），"加一套皮肤 = 加一个 CSS 文件 + 一条登记"，
+  不改任何 JS，也不改深浅。设置弹窗「外观」区因此有**两排卡片**（`#theme-picker` 皮肤 /
+  `#mode-picker` 深浅）；`theme.js` 的落点从「6 套整皮肤」变成「皮肤 `<link>` + `data-theme`」，
+  记忆也拆成 `localStorage["seelex.skin"]` 与 `localStorage["seelex.mode"]`；
+- **契约收紧**：皮肤包仍"只覆盖 `:root`、不写选择器、不用 `!important`"，但覆盖面从
+  "全部语义 token"收窄到 8 个品牌 token；中性 token 由深浅基座负责，`theme.test.mjs`
+  对**两条轴各自的 token 清单**都有校验；
+- **5 套皮肤**：`qoder`（默认）/ `graphite` / `verdigris` / `paper` / `silver`，
+  **每套都有自己的环境渐变**（深浅各一条，见 `themes/README.md` 的皮肤表）；
+- **文档与证据**：成因分析（五条可复现规则）、渐变色皮肤设计、逐文件改动表、静态复刻页
+  与实机截图都在 [`docs/design/qoder-skin/`](../../docs/design/qoder-skin/README.md)。

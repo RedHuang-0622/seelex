@@ -1,0 +1,20 @@
+/* 皮肤包：Qoder（默认皮肤）
+ * 两轴换肤的「皮肤」轴：本文件只提供**品牌 token**（主信号 + 环境渐变），
+ * 中性基座（面/文本/描边/状态/投影）由深浅轴在 styles.css 里给（见 themes/README.md）。
+ *
+ * 口径（与 Qoder 一致）：
+ *   - 主信号：浅色下取墨黑（= Qoder 那颗实心发送键），深色下反相为象牙白；
+ *   - 环境渐变：等亮度、纯竖直、线性 sRGB——一道"色温扫过"而不是明暗渐变，
+ *     这是用户点名欣赏的"通透"（配方与判据见 docs/design/qoder-skin/DESIGN-LANGUAGE.md 1.3）。
+ * 契约见 themes/README.md：只覆盖 :root token，不写选择器、不用 !important。 */
+:root {
+  /* 浅色变体 */
+  --skin-accent-light: #1f2328;
+  --skin-accent-strong-light: #0f1215;
+  --skin-on-accent-light: #ffffff;
+
+  /* 深色变体（主信号反相：浅实心 + 深字） */
+  --skin-accent-dark: #e9e9ec;
+  --skin-accent-strong-dark: #ffffff;
+  --skin-on-accent-dark: #16161a;
+}

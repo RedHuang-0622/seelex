@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="zh-CN" data-theme="dark">
+<html lang="zh-CN" data-theme="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="color-scheme" content="dark">
+  <meta name="color-scheme" content="light">
   <title>Seelex</title>
   <!-- 组件库（元素基线与通用组件皮）先加载；styles.css 的类选择器特异性更高，
        负责 Seelex 外观；themes/<id>.css 只覆盖语义 token。顺序不要改。 -->
@@ -279,8 +279,11 @@
       <label id="storage-dsn-field" class="settings-field hidden">连接字符串（PostgreSQL / Redis）<input id="storage-dsn" type="password" placeholder="postgres://user:password@host:5432/database?sslmode=require 或 redis://:password@host:6379/0" autocomplete="off"></label>
       <div class="settings-section">
         <div class="section-title">外观</div>
-        <p class="settings-note">皮肤包只覆盖语义 token（契约见 <code>themes/README.md</code>）：组件结构、交互与可访问性不随皮肤改变。</p>
+        <p class="settings-note">深浅（浅色 / 深色）与皮肤是两条独立的轴：深浅决定面、文本、描边的中性基座，皮肤只给主信号与环境渐变（契约见 <code>themes/README.md</code>）。组件结构、交互与可访问性都不随二者改变。</p>
+        <div class="settings-subtitle">皮肤</div>
         <div id="theme-picker" class="theme-picker" role="radiogroup" aria-label="界面皮肤"></div>
+        <div class="settings-subtitle">深浅</div>
+        <div id="mode-picker" class="theme-picker mode-picker" role="radiogroup" aria-label="深浅色"></div>
       </div>
       <div class="settings-actions"><button id="storage-test" type="button" class="secondary">测试连接</button><button id="storage-save" type="button" class="primary">保存并切换</button></div>
       <div id="storage-status" class="muted"></div>

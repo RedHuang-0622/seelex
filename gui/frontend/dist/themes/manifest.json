@@ -1,38 +1,54 @@
 {
-  "schema_version": 1,
-  "default": "graphite",
-  "themes": [
+  "schema_version": 2,
+  "default_skin": "qoder",
+  "default_mode": "light",
+  "skins": [
+    {
+      "id": "qoder",
+      "name": "Qoder",
+      "description": "默认皮肤：墨黑主信号 + 黄→青蓝的环境渐变（通透感的来源）",
+      "swatches": ["#1f2328", "#ebebc6", "#1b1a17", "#e9e9ec"],
+      "file": "themes/qoder.css"
+    },
     {
       "id": "graphite",
       "name": "石墨黄铜",
-      "mode": "dark",
-      "description": "默认皮肤：铁蓝石墨底 + 黄铜主信号",
-      "swatches": ["#141b21", "#222c35", "#d9a657", "#e9e4d8"],
-      "file": ""
+      "description": "原默认：黄铜主信号 + 石墨色温的环境渐变",
+      "swatches": ["#8a6420", "#eae6dc", "#191d22", "#d9a657"],
+      "file": "themes/graphite.css"
     },
     {
       "id": "verdigris",
       "name": "铜绿钢青",
-      "mode": "dark",
-      "description": "冷色信号皮肤：铜绿主信号 + 钢青信息色，底子更青",
-      "swatches": ["#0f191c", "#1d2f35", "#6fb58e", "#e4ecec"],
+      "description": "冷色信号：铜绿主信号 + 青绿→钢青的环境渐变",
+      "swatches": ["#2f7d5e", "#dce9df", "#141f1c", "#6fb58e"],
       "file": "themes/verdigris.css"
     },
     {
       "id": "paper",
       "name": "暖纸白昼",
-      "mode": "light",
-      "description": "浅色皮肤：暖纸白底 + 墨黑正文，适合白天与投屏",
-      "swatches": ["#f4f1ea", "#ffffff", "#b5762a", "#2a2c2e"],
+      "description": "暖铜主信号 + 暖纸色温的环境渐变，适合白天与投屏",
+      "swatches": ["#b5762a", "#f2eadb", "#201c16", "#d99a4e"],
       "file": "themes/paper.css"
     },
     {
       "id": "silver",
       "name": "银白冷钢",
-      "mode": "light",
-      "description": "浅色皮肤：银白冷灰底 + 钢青主信号，清冷克制",
-      "swatches": ["#eef0f2", "#c0c2c4", "#9aa0a7", "#5c6673"],
+      "description": "钢青主信号 + 银白冷灰的环境渐变，清冷克制",
+      "swatches": ["#5c6673", "#e9edf1", "#1a1d20", "#aeb8c2"],
       "file": "themes/silver.css"
+    }
+  ],
+  "modes": [
+    {
+      "id": "light",
+      "name": "浅色",
+      "description": "象牙暖白外壳 + 纯白内容面，正文墨黑"
+    },
+    {
+      "id": "dark",
+      "name": "深色",
+      "description": "中性近黑外壳 + 深灰内容面，正文象牙白"
     }
   ]
 }

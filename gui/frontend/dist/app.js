@@ -88,7 +88,7 @@ const elements = Object.fromEntries([
   "role-session-modal", "role-session-close", "role-session-modal-title", "role-session-view",
   "right-tabs", "goal-section", "goal-badge", "goal-view", "code-panes", "code-pane-tabs", "code-pane-worktree", "code-pane-gitlog", "git-log-view", "git-log-count", "code-pane-changes", "changes-view", "changes-count",
   "file-preview-pane", "file-preview-view", "file-preview-tabs", "file-preview-hide-panes", "file-preview-close", "file-preview-divider", "file-preview-collapse", "file-preview-rail",
-  "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "theme-picker", "inline-suggestions",
+  "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "theme-picker", "mode-picker", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
   "load-history", "latest-history", "interaction-modal", "perm-toggle", "perm-menu", "interaction-risk", "interaction-title", "permission-tier-list",
   "new-session-modal", "new-session-close", "new-session-task", "new-session-workspace", "new-session-back", "new-session-workspace-list", "new-session-pick-folder", "new-session-step-1", "new-session-step-2",
@@ -3218,22 +3218,36 @@ function themeStorage() {
 }
 
 function renderThemePicker() {
-  const host = elements["theme-picker"];
-  if (!host) return;
+  const skinHost = elements["theme-picker"];
+  const modeHost = elements["mode-picker"];
   if (!themeController) {
-    host.innerHTML = '<span class="muted">皮肤清单未就绪</span>';
+    if (skinHost) skinHost.innerHTML = '<span class="muted">皮肤清单未就绪</span>';
+    if (modeHost) modeHost.innerHTML = '<span class="muted">深浅清单未就绪</span>';
     return;
   }
-  const current = themeController.current()?.id || "";
-  host.innerHTML = themeController.themes.map(theme => {
-    const active = theme.id === current;
-    const swatches = theme.swatches.map(color => `<i style="background:${escapeHtml(color)}"></i>`).join("");
-    return `<button type="button" class="theme-card${active ? " is-active" : ""}" data-theme-id="${escapeHtml(theme.id)}" role="radio" aria-checked="${active ? "true" : "false"}" title="${escapeHtml(theme.description)}">
+  const current = themeController.current();
+  const currentSkin = current?.skin?.id || "";
+  const currentMode = current?.mode || "";
+  if (skinHost) {
+    skinHost.innerHTML = themeController.skins.map(skin => {
+      const active = skin.id === currentSkin;
+      const swatches = skin.swatches.map(color => `<i style="background:${escapeHtml(color)}"></i>`).join("");
+      return `<button type="button" class="theme-card${active ? " is-active" : ""}" data-skin-id="${escapeHtml(skin.id)}" role="radio" aria-checked="${active ? "true" : "false"}" title="${escapeHtml(skin.description)}">
       <span class="theme-swatches" aria-hidden="true">${swatches}</span>
-      <span class="theme-name">${escapeHtml(theme.name)}${active ? '<span class="theme-current">当前</span>' : ""}</span>
-      <span class="theme-desc">${escapeHtml(theme.description)}</span>
+      <span class="theme-name">${escapeHtml(skin.name)}${active ? '<span class="theme-current">当前</span>' : ""}</span>
+      <span class="theme-desc">${escapeHtml(skin.description)}</span>
     </button>`;
-  }).join("");
+    }).join("");
+  }
+  if (modeHost) {
+    modeHost.innerHTML = themeController.modes.map(mode => {
+      const active = mode.id === currentMode;
+      return `<button type="button" class="theme-card${active ? " is-active" : ""}" data-mode-id="${escapeHtml(mode.id)}" role="radio" aria-checked="${active ? "true" : "false"}" title="${escapeHtml(mode.description)}">
+      <span class="theme-name">${escapeHtml(mode.name)}${active ? '<span class="theme-current">当前</span>' : ""}</span>
+      <span class="theme-desc">${escapeHtml(mode.description)}</span>
+    </button>`;
+    }).join("");
+  }
 }
 
 async function initialiseTheme() {
@@ -3247,15 +3261,22 @@ async function initialiseTheme() {
     // 终端仍是深色底）。
     onApplied: () => terminalPanel.refreshTheme()
   });
-  // 启动时套回上次的皮肤：<html data-theme> 与皮肤 <link> 都由控制器决定。
-  themeController.apply(themeController.current()?.id);
+  // 启动时套回上次的皮肤与深浅：皮肤 <link> 与 <html data-theme> 都由控制器决定。
+  themeController.apply();
   renderThemePicker();
 }
 
 elements["theme-picker"]?.addEventListener("click", event => {
-  const card = event.target.closest("[data-theme-id]");
+  const card = event.target.closest("[data-skin-id]");
   if (!card || !themeController) return;
-  themeController.apply(card.dataset.themeId);
+  themeController.applySkin(card.dataset.skinId);
+  renderThemePicker();
+});
+
+elements["mode-picker"]?.addEventListener("click", event => {
+  const card = event.target.closest("[data-mode-id]");
+  if (!card || !themeController) return;
+  themeController.applyMode(card.dataset.modeId);
   renderThemePicker();
 });
 

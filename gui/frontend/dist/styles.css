@@ -10,69 +10,88 @@
 
 /* ---------- 1. Tokens ---------- */
 :root {
-  /* surfaces：铁蓝石墨（Tracebench 轨迹台架） */
-  --bg: #141b21;
-  --panel: #1b242c;
-  --surface: #222c35;
-  --surface-2: #2b3742;
-  --surface-3: #36434f;
-  --border: #2c3843;
-  --border-strong: #3c4a56;
+  /* ============================================================
+     两轴换肤：深浅（mode）× 皮肤（skin）
+     ------------------------------------------------------------
+     · 深浅（mode）：本文件提供**中性基座**（面 / 文本 / 描边 / 状态 / 半透明面 /
+       投影 / 刻度）。默认浅色放在 `:root`，深色覆盖在 `:root[data-theme="dark"]`；
+       由 `<html data-theme>` 选择，和皮肤无关。
+     · 皮肤（skin）：`themes/<skin>.css` 只提供**品牌 token**（主信号 + 环境渐变），
+       styles.css 在这里把它们桥接成 `--accent*` / `--on-accent` / `--shell-gradient`。
+       落在 `--skin-*-light` / `--skin-*-dark` 两个变体上，深浅各自取自己那份。
+     契约见 themes/README.md。
+     ============================================================ */
+  /* surfaces：浅色中性基座 */
+  --bg: #f7f6f2;
+  --panel: #fbfaf6;
+  --surface: #ffffff;
+  --surface-2: #f1f0ea;
+  --surface-3: #e8e6de;
+  /* 描边色温（决策 P2-1 A）：中性极轻暖，与冷底渐变共存不发脏；
+     确实要暖的地方显式取 --border-warm。 */
+  --border: #e7e7e4;
+  --border-warm: #e6e3da;
+  --border-strong: #d6d2c6;
+  /* 两类中性发丝线（Qoder 实机取色）：面板接缝 / 输入面描边 */
+  --border-hairline: #e6e6e6;
+  --border-field: #dddddd;
+
+  /* 皮肤桥接：品牌 token 由皮肤给，缺省回落到 Qoder 浅色那一套 */
+  --accent: var(--skin-accent-light, #1f2328);
+  --accent-strong: var(--skin-accent-strong-light, #0f1215);
+  --on-accent: var(--skin-on-accent-light, #ffffff);
 
   /* text：暖纸白，像打印在钢板上 */
-  --text: #e9e4d8;
-  --muted: #98a09e;
-  --faint: #77828a;
+  --text: #1f2328;
+  --muted: #6b6f76;
+  --faint: #9096a0;
   /* consolidated neutral ramp (single source of truth) */
-  --text-bright: #f0ecdf;
-  --text-strong: #e9e4d8;
-  --text-soft: #c6c4ba;
-  --text-mid: #b8b5aa;
-  --text-dim: #98a09e;
+  --text-bright: #0f1215;
+  --text-strong: #1f2328;
+  --text-soft: #3c4148;
+  --text-mid: #4e545c;
+  --text-dim: #6b6f76;
 
-  /* brand：黄铜主信号（instrument lamp） */
-  --accent: #d9a657;
-  --accent-strong: #e8bc72;
-  --on-accent: #1a1308;
+  /* brand：主信号由皮肤桥接（--skin-accent-light），这里不再写死色值 */
 
-  /* status (single source of truth) */
-  --status-running: #d9a657;
-  --status-done: #6fb58e;
-  --status-failed: #d4695f;
-  --status-info: #7ba3c7;
-  --status-idle: #7e8b90;
+  /* status (semantic colors. mode-owned, skin-independent) */
+  --status-running: #b26a00;
+  --status-done: #1f9c63;
+  --status-failed: #d64545;
+  --status-info: #2e6be6;
+  --status-idle: #9aa0a8;
 
   /* status tints & borders (derived, still tokenized) */
-  --tint-running: rgba(217, 166, 87, .10);
-  --tint-done: rgba(111, 181, 142, .10);
-  --tint-failed: rgba(212, 105, 95, .10);
-  --tint-info: rgba(123, 163, 199, .10);
-  --border-running: rgba(217, 166, 87, .45);
-  --border-done: rgba(111, 181, 142, .45);
-  --border-failed: rgba(212, 105, 95, .45);
-  --border-info: rgba(123, 163, 199, .45);
+  --tint-running: rgba(178, 106, 0, .10);
+  --tint-done: rgba(31, 156, 99, .10);
+  --tint-failed: rgba(214, 69, 69, .10);
+  --tint-info: rgba(46, 107, 230, .10);
+  --border-running: rgba(178, 106, 0, .38);
+  --border-done: rgba(31, 156, 99, .38);
+  --border-failed: rgba(214, 69, 69, .38);
+  --border-info: rgba(46, 107, 230, .38);
 
   /* code & deep panels */
-  --code-bg: #10161b;
+  --code-bg: #f5f4f0;
   /* translucent surfaces（皮肤包按同一组名字覆盖，浅色皮肤才成立） */
-  --surface-blur: rgba(20, 27, 33, .94);
-  --panel-solid: rgba(27, 36, 44, .97);
-  --surface-glass: rgba(34, 44, 53, .76);
-  --overlay: rgba(6, 10, 13, .66);
-  --surface-opaque: rgba(20, 24, 22, .99);
+  --surface-blur: rgba(247, 246, 242, .92);
+  --panel-solid: rgba(251, 250, 246, .97);
+  --surface-glass: rgba(241, 240, 234, .86);
+  --overlay: rgba(24, 26, 30, .34);
+  --surface-opaque: rgba(255, 255, 255, .99);
 
   /* trace：刻度线 */
-  --tick: #39454f;
-  --tick-hot: #d9a657;
+  --tick: #e3e0d7;
+  --tick-hot: #1f2328;
 
   /* tree-fork：树轨与提交图泳道（VS Code 观感；皮肤包可覆盖这几个 token） */
   --tree-rail: color-mix(in srgb, var(--border-strong) 80%, transparent);
-  --fork-lane-0: #d9a657;
-  --fork-lane-1: #7ba3c7;
-  --fork-lane-2: #6fb58e;
-  --fork-lane-3: #c58fb4;
-  --fork-lane-4: #9b8fd0;
-  --fork-lane-5: #d4695f;
+  --fork-lane-0: #b26a00;
+  --fork-lane-1: #2e6be6;
+  --fork-lane-2: #1f9c63;
+  --fork-lane-3: #a4538f;
+  --fork-lane-4: #6f5bd6;
+  --fork-lane-5: #d64545;
 
   /* type */
   --font-ui: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
@@ -86,11 +105,11 @@
   --text-2xl: 26px;
 
   /* radii */
-  --r-sm: 2px;
-  --r-md: 3px;
-  --r-lg: 4px;
-  --r-xl: 6px;
-  --r-2xl: 8px;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 10px;
+  --r-xl: 14px;
+  --r-2xl: 16px;
 
   /* spacing */
   --sp-1: 4px;
@@ -99,8 +118,8 @@
   --sp-4: 16px;
   --sp-5: 24px;
 
-  --shadow: 0 8px 24px rgba(0, 0, 0, .28);
-  --shadow-sm: 0 3px 10px rgba(0, 0, 0, .18);
+  --shadow: 0 14px 34px rgba(24, 28, 36, .14), 0 2px 6px rgba(24, 28, 36, .06);
+  --shadow-sm: 0 1px 2px rgba(24, 28, 36, .05), 0 8px 20px rgba(24, 28, 36, .07);
 
   /* motion */
   --ease-out: cubic-bezier(.16, 1, .3, 1);
@@ -117,8 +136,78 @@
   font-family: var(--font-ui);
   color: var(--text);
   background: var(--bg);
-  color-scheme: dark;
+  color-scheme: light;
   font-size: var(--text-md);
+}
+
+/* ============================================================
+   深浅轴 · 深色基座（`<html data-theme="dark">`）
+   ------------------------------------------------------------
+   与皮肤无关：任何皮肤切到深色，都用这一份中性基座；
+   皮肤只通过下面的桥接 token 决定主信号与环境渐变。
+   ============================================================ */
+:root[data-theme="dark"] {
+  --bg: #181818;
+  --panel: #1f1f1f;
+  --surface: #262626;
+  --surface-2: #2e2e2e;
+  --surface-3: #3a3a3a;
+  --border: #333333;
+  --border-warm: #37332c;
+  --border-strong: #474747;
+  --border-hairline: #2c2c2c;
+  --border-field: #3a3a3a;
+
+  --accent: var(--skin-accent-dark, #e9e9ec);
+  --accent-strong: var(--skin-accent-strong-dark, #ffffff);
+  --on-accent: var(--skin-on-accent-dark, #16161a);
+
+  --text: #e4e4e4;
+  --muted: #a3a3a3;
+  --faint: #7e7e7e;
+  --text-bright: #ffffff;
+  --text-strong: #e4e4e4;
+  --text-soft: #c8c8c8;
+  --text-mid: #b4b4b4;
+  --text-dim: #a3a3a3;
+
+  --status-running: #e0a45c;
+  --status-done: #4cc38a;
+  --status-failed: #f0716a;
+  --status-info: #6ba6ff;
+  --status-idle: #8c8c93;
+
+  --tint-running: rgba(224, 164, 92, .12);
+  --tint-done: rgba(76, 195, 138, .12);
+  --tint-failed: rgba(240, 113, 106, .12);
+  --tint-info: rgba(107, 166, 255, .12);
+  --border-running: rgba(224, 164, 92, .42);
+  --border-done: rgba(76, 195, 138, .42);
+  --border-failed: rgba(240, 113, 106, .42);
+  --border-info: rgba(107, 166, 255, .42);
+
+  --code-bg: #131313;
+  --surface-blur: rgba(24, 24, 24, .94);
+  --panel-solid: rgba(31, 31, 31, .97);
+  --surface-glass: rgba(46, 46, 46, .78);
+  --overlay: rgba(0, 0, 0, .62);
+  --surface-opaque: rgba(20, 20, 20, .99);
+
+  --tick: #3a3a3a;
+  --tick-hot: #e9e9ec;
+
+  --tree-rail: color-mix(in srgb, var(--border-strong) 80%, transparent);
+  --fork-lane-0: #e0a45c;
+  --fork-lane-1: #6ba6ff;
+  --fork-lane-2: #4cc38a;
+  --fork-lane-3: #c98fc3;
+  --fork-lane-4: #a08bf0;
+  --fork-lane-5: #f0716a;
+
+  --shadow: 0 10px 28px rgba(0, 0, 0, .46);
+  --shadow-sm: 0 3px 12px rgba(0, 0, 0, .34);
+
+  color-scheme: dark;
 }
 
 /* ---------- 2. Base ---------- */
@@ -134,7 +223,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
   outline-offset: 0;
   box-shadow: var(--focus-glow);
 }
-::selection { background: rgba(217, 166, 87, .28); }
+::selection { background: color-mix(in srgb, var(--accent) 22%, transparent); }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb {
   border: 2px solid transparent;
@@ -248,11 +337,11 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   height: 7px;
   border-radius: 50%;
   background: var(--status-idle);
-  box-shadow: 0 0 0 3px rgba(126, 139, 144, .14);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-idle) 16%, transparent);
 }
 .status-dot.online {
   background: var(--status-done);
-  box-shadow: 0 0 0 3px rgba(111, 181, 142, .16);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-done) 18%, transparent);
 }
 
 .panel { min-width: 0; padding: 16px 14px; overflow-y: auto; background: var(--panel); }
@@ -456,7 +545,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .message-body em { color: var(--text-soft); }
 .message-body del { color: var(--muted); }
 .message-body a { color: var(--status-info); text-decoration: none; border-bottom: 1px solid rgba(123, 163, 199, .35); }
-.message-body a:hover { color: #a8cce8; border-bottom-color: rgba(123, 163, 199, .55); }
+.message-body a:hover { color: var(--accent); border-bottom-color: var(--border-info); }
 .message-body ul, .message-body ol { margin: 8px 0 14px; padding-left: 24px; }
 .message-body li { margin: 4px 0; padding-left: 2px; }
 .message-body li::marker { color: var(--faint); }
@@ -817,11 +906,11 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   color: var(--faint);
 }
 .effort-end--min { color: var(--status-done); }
-.effort-control[data-effort="max"] .effort-end--max { color: #c58aff; }
+.effort-control[data-effort="max"] .effort-end--max { color: var(--fork-lane-4); }
 .effort-control[data-effort="lite"] { --effort-tone: var(--status-done); }
-.effort-control[data-effort="medium"] { --effort-tone: #7ba3c7; }
+.effort-control[data-effort="medium"] { --effort-tone: var(--status-info); }
 .effort-control[data-effort="high"] { --effort-tone: var(--status-running); }
-.effort-control[data-effort="max"] { --effort-tone: #c58aff; }
+.effort-control[data-effort="max"] { --effort-tone: var(--fork-lane-4); }
 
 .effort-syringe { position: relative; display: flex; align-items: center; width: 100%; height: 29px; cursor: pointer; }
 .syringe-barrel {
@@ -840,7 +929,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   width: var(--effort-progress);
   transition: width var(--dur-med) var(--ease-out), background var(--dur-med) var(--ease-out);
 }
-.effort-control[data-effort="max"] .syringe-barrel { border-color: rgba(197, 138, 255, .55); }
+.effort-control[data-effort="max"] .syringe-barrel { border-color: color-mix(in srgb, var(--fork-lane-4) 55%, transparent); }
 .syringe-input {
   position: absolute;
   z-index: 2;
@@ -1684,7 +1773,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .work-sent-chip { display: inline-block; margin-left: 4px; padding: 0 4px; border: 1px solid var(--border-running); border-radius: var(--r-sm); color: var(--status-running); background: var(--tint-running); font: 700 9px var(--font-mono); vertical-align: middle; }
 .work-phase-chip { display: inline-block; max-width: 100%; padding: 1px 5px; border-radius: var(--r-sm); color: var(--status-info); background: var(--tint-info); font: 700 10px var(--font-mono); overflow: hidden; text-overflow: ellipsis; }
 .work-phase-chip.is-tasklist { color: var(--status-running); background: var(--tint-running); }
-.work-phase-chip.is-subagent { color: #b49ae0; background: #1d1729; }
+.work-phase-chip.is-subagent { color: var(--fork-lane-4); background: color-mix(in srgb, var(--fork-lane-4) 14%, var(--surface)); }
 .work-phase-chip.is-task { color: var(--status-done); background: var(--tint-done); }
 .work-status { display: inline-block; max-width: 100%; padding: 1px 5px; border: 1px solid var(--border-strong); border-radius: var(--r-sm); color: var(--muted); background: var(--surface-2); font: 700 10px var(--font-mono); overflow: hidden; text-overflow: ellipsis; }
 .work-row.is-running, .work-row.is-queued, .work-row.is-doing { border-color: var(--border-running); }
@@ -1976,7 +2065,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .subagent-tree-headline strong { min-width: 0; overflow: hidden; color: var(--text-strong); font-size: 11px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .subagent-session { margin-left: auto; flex: none; max-width: 90px; overflow: hidden; color: var(--faint); font: 10px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
 .subagent-tree-detail { flex: none; padding: 1px 6px; border: 1px solid rgba(123, 163, 199, .35); border-radius: var(--r-sm); color: var(--status-info); background: var(--tint-info); font: 10px var(--font-mono); cursor: pointer; }
-.subagent-tree-detail:hover { border-color: rgba(123, 163, 199, .5); color: #a8cce8; }
+.subagent-tree-detail:hover { border-color: var(--border-info); color: var(--status-info); }
 .subagent-tree-goal, .subagent-tree-summary, .subagent-tree-error { margin-top: 3px; overflow: hidden; color: var(--faint); font: 10px/1.5 var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
 .subagent-tree-context { display: flex; flex-wrap: wrap; gap: 3px 8px; margin-top: 3px; }
 .subagent-tree-meta { color: var(--status-info); font: 700 10px var(--font-mono); text-transform: uppercase; }
@@ -2095,7 +2184,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .perm-chip .perm-caret { margin-left: 3px; font-size: 8px; opacity: .75; }
 .perm-chip.is-open { border-color: var(--border-done); background: var(--surface-2); }
 /* 浮层向上展开：芯片在 composer 底部，向下会被输入区盖住。 */
-.perm-menu { position: absolute; bottom: calc(100% + 6px); right: 0; z-index: 40; display: grid; gap: 2px; min-width: 210px; padding: 5px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); box-shadow: 0 8px 24px rgba(0, 0, 0, .28); }
+.perm-menu { position: absolute; bottom: calc(100% + 6px); right: 0; z-index: 40; display: grid; gap: 2px; min-width: 210px; padding: 5px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); box-shadow: var(--shadow-sm); }
 .perm-menu[hidden] { display: none; }
 .perm-menu-item { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 1px 8px; padding: 6px 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text); text-align: left; cursor: pointer; transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out); }
 .perm-menu-item:hover, .perm-menu-item:focus-visible { border-color: var(--border-done); background: var(--surface-2); outline: none; }
@@ -2554,8 +2643,8 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .goal-governance {
   margin-top: 6px;
   padding: 6px 8px;
-  border-left: 3px solid var(--accent, #4f8cff);
-  background: color-mix(in srgb, var(--panel, #fff) 92%, transparent);
+  border-left: 3px solid var(--accent);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -2571,15 +2660,15 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 }
 .goal-gov-directive {
   margin-top: 4px;
-  color: #666;
+  color: var(--muted);
 }
 .goal-gov-broken {
   margin-top: 4px;
-  color: #c0392b;
+  color: var(--status-failed);
 }
 .goal-gov-error {
   margin-top: 4px;
-  color: #c0392b;
+  color: var(--status-failed);
 }
 
 /* ---------- 对话区泛化滚动轴（思考 / 工具过程） + 左侧调试 id ---------- */
@@ -3027,6 +3116,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .modal-card { box-shadow: var(--shadow); }
 .modal-header { padding-bottom: 14px; border-bottom: 1px solid var(--border); }
 .settings-section { margin: 18px 0 4px; padding-top: 16px; border-top: 1px solid var(--border); }
+.settings-subtitle { margin-top: 12px; color: var(--faint); font-size: 11px; font-weight: 600; letter-spacing: .02em; }
 .theme-picker { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-top: 10px; }
 .theme-card {
   display: grid;
@@ -4085,7 +4175,7 @@ html[data-right-collapsed="true"] #right-divider { display: none; }
 }
 .session-menu-item:hover { color: var(--text-strong); background: var(--surface-2); }
 .session-menu-item.is-danger { color: var(--status-failed); }
-.session-menu-item.is-danger:hover { color: #ffd7d7; background: color-mix(in srgb, var(--status-failed) 18%, transparent); }
+.session-menu-item.is-danger:hover { color: var(--status-failed); background: color-mix(in srgb, var(--status-failed) 18%, transparent); }
 .session-menu-item .icon { display: block; flex: none; }
 .session-menu-sep { height: 1px; margin: 3px 4px; background: var(--border); }
 
@@ -4514,15 +4604,15 @@ button.team-library-name:hover { color: var(--accent); text-decoration: underlin
 
 /* c) 滚动边缘内阴影（纵向 up/down，横向 start/end） */
 .scroll-shadows { transition: box-shadow var(--dur-fast) var(--ease-out); }
-.scroll-shadows.is-scroll-up { box-shadow: inset 0 10px 10px -10px rgba(0, 0, 0, .55); }
-.scroll-shadows.is-scroll-down { box-shadow: inset 0 -10px 10px -10px rgba(0, 0, 0, .55); }
+.scroll-shadows.is-scroll-up { box-shadow: inset 0 10px 10px -10px color-mix(in srgb, var(--text-bright) 16%, transparent); }
+.scroll-shadows.is-scroll-down { box-shadow: inset 0 -10px 10px -10px color-mix(in srgb, var(--text-bright) 16%, transparent); }
 .scroll-shadows.is-scroll-up.is-scroll-down {
-  box-shadow: inset 0 10px 10px -10px rgba(0, 0, 0, .55), inset 0 -10px 10px -10px rgba(0, 0, 0, .55);
+  box-shadow: inset 0 10px 10px -10px color-mix(in srgb, var(--text-bright) 16%, transparent), inset 0 -10px 10px -10px color-mix(in srgb, var(--text-bright) 16%, transparent);
 }
-.scroll-edges-x.is-scroll-start { box-shadow: inset 10px 0 10px -10px rgba(0, 0, 0, .5); }
-.scroll-edges-x.is-scroll-end { box-shadow: inset -10px 0 10px -10px rgba(0, 0, 0, .5); }
+.scroll-edges-x.is-scroll-start { box-shadow: inset 10px 0 10px -10px color-mix(in srgb, var(--text-bright) 14%, transparent); }
+.scroll-edges-x.is-scroll-end { box-shadow: inset -10px 0 10px -10px color-mix(in srgb, var(--text-bright) 14%, transparent); }
 .scroll-edges-x.is-scroll-start.is-scroll-end {
-  box-shadow: inset 10px 0 10px -10px rgba(0, 0, 0, .5), inset -10px 0 10px -10px rgba(0, 0, 0, .5);
+  box-shadow: inset 10px 0 10px -10px color-mix(in srgb, var(--text-bright) 14%, transparent), inset -10px 0 10px -10px color-mix(in srgb, var(--text-bright) 14%, transparent);
 }
 
 /* 横向条（sheet 栏 / 页签栏）：滚轮翻译成横向拨动，按住拖动就是"拨滚轴"。
@@ -4544,3 +4634,145 @@ button.team-library-name:hover { color: var(--accent); text-decoration: underlin
   .is-rolling { transition: none; }
   .scroll-shadows { transition: none; }
 }
+
+/* ============================================================
+   27. Qoder 基座（2026-09-24 视觉换代）
+   ------------------------------------------------------------
+   来源：对 Qoder 桌面端（light/dark）实机截图的结构与取色分析，
+   完整成因与映射见 docs/design/qoder-skin/README.md。
+
+   本节只做**与配色无关**的基座换代（几何、密度、层级、可读性），
+   颜色一律走 token：换肤（themes/*.css）依旧只覆盖语义 token。
+   四条口径：
+     a) 底 = 外壳暖白 / 内容纯白：靠色温分层，不靠描边；
+     b) 面 = 大圆角 + 发丝描边 + 极轻投影，浮层才有影；
+     c) 行 = 静止的胶囊高亮（不再用左侧信号条）；页签用下划线指示；
+     d) 字 = 标签正常大小写（去掉大写+字距），正文行长与行高不变。
+   本节追加在文件末尾，按"后写覆盖"生效；不改任何 token 值。
+   ============================================================ */
+
+/* a) 分层：左栏/右栏=外壳底，中栏=内容面（Qoder 的"白纸"阅读区） */
+.workspace { background: var(--surface); }
+.left-panel,
+.right-panel { background: var(--bg); }
+
+/* b) 顶栏：Qoder 的标题栏是不透明外壳色，不做背景模糊 */
+.topbar {
+  background: var(--panel);
+  backdrop-filter: none;
+}
+
+/* c) 标签：正常大小写 + 中等字重（去掉大写与字距的机器感） */
+.section-title,
+.collapse-summary,
+.side-more-summary,
+.session-group-head {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-mid);
+}
+.section-title.sub-title { letter-spacing: 0; }
+
+/* d) 列表行：静止胶囊高亮（Qoder 的活动行就是一块浅灰胶囊） */
+.stack-button { padding: 7px 10px; }
+.stack-button:hover { background: var(--surface-2); }
+.stack-button.active { color: var(--text-bright); background: var(--surface-2); }
+.session-row.is-active,
+.session-row[aria-current="true"] {
+  border-color: transparent;
+  background: var(--surface-2);
+  box-shadow: none;
+}
+.session-row:hover { background: var(--surface-2); }
+
+/* e) 图标键：安静（悬停只落一层浅底，不描光晕） */
+.icon-button { border-radius: var(--r-md); }
+.icon-button:hover {
+  color: var(--text);
+  border-color: transparent;
+  background: var(--surface-2);
+  box-shadow: none;
+}
+
+/* f) 数据胶囊：Qoder 的 chip 是"发丝描边胶囊" */
+.chip {
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-mid);
+  background: var(--surface-2);
+  font: 500 10.5px var(--font-mono);
+}
+
+/* g) 输入区：全宽圆角卡片（Qoder 的 composer 是这一屏的主角） */
+.composer {
+  padding: 14px 14px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-2xl);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.composer:focus-within {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm), var(--focus-glow);
+}
+
+/* h) 主按钮：墨黑实心 + 白字，无渐变无光晕（Qoder 的发送键） */
+.primary-button,
+.app-shell button.primary {
+  border: 1px solid var(--accent) !important;
+  background: var(--accent) !important;
+  color: var(--on-accent) !important;
+  box-shadow: none !important;
+}
+.primary-button:hover { filter: brightness(1.08); }
+.primary-button:active { transform: translateY(1px) scale(.96); }
+
+/* i) 权限档位：胶囊 + 正常字重（语义色仍由 is-on 决定） */
+.perm-chip {
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 999px;
+  font: 600 11px var(--font-ui);
+  letter-spacing: 0;
+}
+
+/* j) 页签：活动态用下划线指示，不再整块染色 */
+.conversation-tab,
+.right-tab { border-radius: var(--r-md) var(--r-md) 0 0; }
+.conversation-tab.is-active,
+.right-tab.is-active {
+  background: transparent;
+  color: var(--text-bright);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+/* k) 正文内联代码：浅底胶囊（浅色皮肤下不再靠深色块反白） */
+.message-body code {
+  padding: 2px 6px;
+  border-radius: var(--r-sm);
+  color: var(--text-strong);
+  background: var(--surface-2);
+  font: 12px var(--font-mono);
+}
+.message-body pre,
+.preview { border-color: var(--border); border-radius: var(--r-lg); }
+
+/* l) 滚动条：12px 轨道内缩 3px 的胶囊滑块，半透明而非实色 */
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-bright) 16%, transparent);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text-bright) 30%, transparent);
+  background-clip: padding-box;
+}
+
+/* m) 发送键：圆形实心（Qoder 的 primary 是一颗圆键，不是方角）。
+   选择器要压过 .app-shell .icon-button.action-button 那条既有规则。 */
+.app-shell .icon-button.action-button.primary-button { border-radius: 999px; }
