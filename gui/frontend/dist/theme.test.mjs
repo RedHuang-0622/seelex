@@ -135,6 +135,43 @@ test("theme: styles.css ships both mode bases and bridges skin tokens", async ()
   assert.match(darkBlock, /--shell-gradient:\s*var\(--skin-gradient-dark/);
 });
 
+// 选中态高亮的「同一份口径」（用户 2026-09-24 点名两处：右栏 状态/工作台/资源管理器 的
+// 按钮高亮、以及"圆角配上一个黑色的下外框"）。判据落成四条静态断言——它们不描述理想，
+// 只描述这一轮交付的写法；口径改了就该改这里，别让它悄悄漂回去。
+test("theme: 选中态高亮只由皮肤派生（无黑块 / 无圆角配黑下条）", async () => {
+  const raw = await readFile(new URL("./styles.css", import.meta.url), "utf8");
+  const css = raw.replace(/\/\*[\s\S]*?\*\//g, ""); // 注释里可以谈口径，代码里不行
+
+  // 1) 派生 token 只声明一次（浅色基座）：深浅两轴由 --accent / --surface 桥接自动跟随，
+  //    皮肤换肤不用各自再声明一遍（否则五套皮肤 × 深浅就是十份事实）。
+  assert.equal((css.match(/--hl-fill:/g) || []).length, 1, "--hl-fill 只应在浅色基座声明一次");
+  assert.equal((css.match(/--hl-ink:/g) || []).length, 1, "--hl-ink 只应在浅色基座声明一次");
+  assert.match(css, /--hl-fill:\s*color-mix\(in srgb,\s*var\(--accent\)/, "高亮底必须由皮肤主信号派生");
+  assert.match(css, /--hl-ink:\s*var\(--accent-strong\)/, "高亮字必须取同色系重色");
+
+  // 2) 黑名单一：单边下条（`inset 0 -Npx 0` 压在圆角上就是"圆角 + 黑下框"）。
+  assert.doesNotMatch(css, /inset 0 -\d+px 0/, "页签家族不许再画单边下条");
+
+  // 3) 黑名单二：硬编码的"上圆下直"（`Npx Npx 0 0`）——页签老写法，半径必须走 token。
+  assert.doesNotMatch(css, /border-radius:\s*\d+px \d+px 0 0/, "页签半径必须走 token");
+
+  // 4) 黑名单三：带圆角的规则块里出现纯黑（描边 / 投影）——那正是用户读到的"黑外框"。
+  for (const m of css.matchAll(/([^{}]*)\{([^{}]*)\}/g)) {
+    const selector = m[1].trim().split("\n").pop().trim();
+    if (/border-radius/.test(m[2]) && /rgba\(0,\s*0,\s*0/.test(m[2])) {
+      assert.fail(`带圆角的规则块里出现纯黑：${selector}`);
+    }
+  }
+
+  // 5) 本轮的几何口径：中栏纸 8px 圆角（子节点由既有 overflow 裁圆）、页签条跟纸同色。
+  assert.match(css, /\.workspace\s*\{\s*border-radius:\s*var\(--r-md\)/, "内容纸必须是 --r-md 圆角");
+  assert.match(css, /\.conversation-tabs\s*\{\s*background:\s*transparent/, "页签条必须跟纸同色");
+
+  // 6) 过圆角不回潮：全文件胶囊计数是收敛指标（OPTIMIZATION-PLAN P1-1 记 32）。
+  const pills = (css.match(/border-radius:\s*999px/g) || []).length;
+  assert.ok(pills <= 32, `胶囊半径回潮：${pills} 处 > 32`);
+});
+
 test("theme: 换肤/切深浅把「已生效」回流给 token 消费方（外链皮肤等 CSS 落地）", () => {
   const created = [];
   const byId = new Map();

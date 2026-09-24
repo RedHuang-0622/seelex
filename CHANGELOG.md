@@ -14,6 +14,22 @@ version when it lands.
 
 ### Changed
 
+- **GUI highlights are a tint of the skin, and the conversation column is a rounded panel.**
+  A selected tab or highlighted button is no longer a black block or a black frame: the fill is
+  a thin tint of the current skin's primary signal (`--hl-fill: color-mix(in srgb, var(--accent)
+  14%, var(--surface))`, ink `--accent-strong`), with no border, no `inset 0 -Npx 0` bottom bar,
+  no shadow and no offset. The "rounded corner + black bottom edge" skeleton is gone from the
+  whole tab family (conversation sub-tabs, right-column sub-tabs, sheet tabs, terminal tabs,
+  schedule pill), and the right-column "paper bookmark" skeuomorph is retired. The conversation
+  column itself is now a *rounded panel*: `.workspace` carries an 8px radius (`--r-md`) and the
+  shell gradient shows through the four corner arcs while the edges stay flush with the window —
+  the same 7–8px paper corner measured on Qoder. In the right column, the context-compaction
+  block moved back **inside** the 状态 fold right after 概要, and `repaintCompactions` opens that
+  fold while a round is in flight (historical records alone never force it open, so a manual
+  collapse is not fought back). The Agent Team panel now states one fact per block: the employee
+  library is the only editor for an employee's profile (prompt / permissions / kind), the staff
+  rail only edits the current session's roster and speaking order, and its per-row 编辑 button
+  (which wrote a second, session-scoped copy of the same profile) is gone.
 - **The GUI skin and the light/dark mode are two independent axes now.** The skin used to *be*
   the mode: six whole-palette themes (`qoder-light`, `qoder-dark`, `graphite`, `verdigris`,
   `paper`, `silver`), each pinned to one `data-theme`, so choosing depth meant choosing a

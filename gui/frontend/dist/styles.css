@@ -135,6 +135,14 @@
   --focus-glow: 0 0 12px 1px color-mix(in srgb, var(--accent) 45%, transparent);
   --press-shadow: inset 0 1px 3px color-mix(in srgb, var(--bg) 60%, transparent);
 
+  /* 选中态（页签）：同色系薄底 + 同色系重字。
+     口径（用户要求）：高亮**不再是黑块 / 黑外框 / 黑下条**——主信号本身在 Qoder 皮肤下
+     近乎黑，整块染色只会读成"黑色外框"；这里取**当前皮肤色系**的一层薄色，浅色皮肤下
+     自动变成它的淡色（钢蓝 / 铜褐 / 铜金 / 墨绿），文字用同色系的重色。
+     --accent / --surface 已按深浅轴桥接，故本派生 token 只声明一次（同 --focus-ring）。 */
+  --hl-fill: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  --hl-ink: var(--accent-strong);
+
   font-family: var(--font-ui);
   color: var(--text);
   background: var(--bg);
@@ -703,30 +711,32 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   z-index: 4;
   flex: none;
   display: flex;
-  gap: 2px;
-  padding: 8px 10px 0;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 10px;
   border-bottom: 1px solid var(--border);
   background: var(--bg);
 }
+/* 子页页签 = 静止胶囊：选中态是同色系薄底（见 27-j）。
+   口径（用户要求）：不要"圆角 + 单边黑条"的组合——顶部页签原先是"上圆角 + 2px 黑下条"，
+   现在描边、下条全部去掉，只留一块同色系薄底。 */
 .conversation-tab {
-  padding: 6px 16px 7px;
-  border: 1px solid transparent;
-  border-bottom: 0;
-  border-radius: var(--r-md) var(--r-md) 0 0;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: var(--r-md);
   color: var(--muted);
   background: transparent;
   font-size: var(--text-sm);
   cursor: pointer;
 }
-.conversation-tab:hover { color: var(--text); }
-.conversation-tab:focus-visible, .right-tab:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: 0; box-shadow: var(--focus-glow); }
-.conversation-tab.is-active {
-  color: var(--text);
-  background: var(--surface-2);
-  border-color: var(--border);
-  margin-bottom: -1px;
-  font-weight: 600;
+.conversation-tab:hover { color: var(--text); background: color-mix(in srgb, var(--surface-2) 70%, transparent); }
+/* 拖拽落点：与右栏同一套语义色环（base 已 border: 0，不能只设 border-color）。 */
+.conversation-tab.is-drag-over {
+  color: var(--text-bright);
+  background: var(--tint-info);
+  box-shadow: inset 0 0 0 1px var(--border-info);
 }
+.conversation-tab:focus-visible, .right-tab:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: 0; box-shadow: var(--focus-glow); }
 .conversation-tab[draggable="true"], .right-tab[draggable="true"] { cursor: grab; user-select: none; }
 .conversation-tab.is-dragging, .right-tab.is-dragging { opacity: .55; }
 .conversation-tab.is-drag-over { color: var(--text-bright); border-color: var(--accent); background: var(--surface-3); }
@@ -771,10 +781,14 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .trajectory-summary .is-failed { color: var(--status-failed); }
 .trajectory-summary .is-running { color: var(--status-running); }
 
-.trajectory-list { display: grid; gap: 6px; }.trajectory-row {
+.trajectory-list { display: grid; gap: 6px; }
+/* 轨迹条目：左侧 3px 状态色轨 + **方角**。
+   口径（用户要求）：侧边色轨与圆角互斥——圆角会把 3px 轨的上下端各切掉一小段，
+   看着像一只"[ 括弧"；这里去掉圆角，让状态轨成为一条通到顶底的通栏。 */
+.trajectory-row {
   border: 1px solid var(--border);
   border-left: 3px solid var(--tick);
-  border-radius: var(--r-md);
+  border-radius: 0;
   background: var(--surface);
   overflow: hidden;
 }
@@ -800,7 +814,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   gap: 8px;
   padding: 6px 10px;
   border: 0;
-  border-radius: var(--r-md);
+  border-radius: 0;
   color: var(--faint);
   background: var(--surface-2);
   font: 700 10.5px var(--font-mono);
@@ -970,17 +984,8 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   cursor: pointer;
 }
 .right-tab:hover { color: var(--text); }
-.right-tab.is-active { color: var(--text-strong); font-weight: 600; }
-.right-tab.is-active::after {
-  content: "";
-  position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: -1px;
-  height: 2px;
-  border-radius: 999px;
-  background: var(--accent);
-}
+/* 选中态见 27-j：同色系薄底静止胶囊。这里不再画任何下划线 / 描边
+   （原的一条 2px --accent 下划线在 Qoder 皮肤下就是一条黑条）。 */
 .right-tabpanel {
   flex: 1;
   min-height: 0;
@@ -2295,9 +2300,11 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   overflow-y: hidden;
   scrollbar-width: thin;
 }
-.excel-sheet { display: inline-flex; align-items: center; gap: 6px; max-width: 240px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 3px 3px 0 0; color: var(--muted); background: var(--surface); cursor: pointer; font: 10px var(--font-mono); }
+/* 工作表页签的半径走 token：原先硬编码 `3px 3px 0 0`（上圆角 + 下直边）就是
+   "圆角配一条黑下框"那条丑的写法，本轮收敛到 `--r-md`（同族的选中态见 27-o）。 */
+.excel-sheet { display: inline-flex; align-items: center; gap: 6px; max-width: 240px; padding: 4px 10px; border: 1px solid var(--border); border-radius: var(--r-md); color: var(--muted); background: var(--surface); cursor: pointer; font: 10px var(--font-mono); }
 .excel-sheet:hover { color: var(--text-strong); border-color: var(--border-strong); }
-.excel-sheet.is-active { color: var(--text-bright); border-color: var(--border-strong); background: var(--surface); box-shadow: inset 0 -2px 0 var(--status-running); font-weight: 700; }
+.excel-sheet.is-active { color: var(--text-bright); border-color: var(--border-strong); background: var(--surface); font-weight: 700; }
 .excel-sheet-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .excel-sheet-counts { flex: none; color: var(--faint); }
 
@@ -3586,56 +3593,24 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   text-transform: uppercase;
 }
 
-/* ---------- 19. 右栏页签：纸质笔记本书签（拟物） ----------
-   口径（用户要求）：选中的子页不再只是一条下划线，而是"夹在笔记本里的一张纸书签"——
-   纸色票签从栏脊上探出，底部收成尖角，带纸面高光与投影；未选中的页保持平面文字，
-   与选中态形成"插进去 / 没插进去"的对比。 */
+/* ---------- 19. 右栏页签：静止胶囊（原"纸质笔记本书签"拟物已下线） ----------
+   口径（用户要求）：右栏（状态 / 工作台 / 资源管理器）的按钮高亮不再画"黑色外框"——
+   原来的书签拟物在 Qoder 皮肤下留下 1px 深色描边 + 2px 深色下条 + 深色三角，
+   整块读起来就是一只黑框。现在统一成与左侧会话列表同一族的**静止胶囊**：
+   底色取当前皮肤色系的一层薄色（--hl-fill）、文字取同色系重色（--hl-ink），
+   不描边、不加下条、不投影、不做位移；选中态集中在 27-j 一处定义。 */
 .right-tabs {
   gap: 4px;
-  align-items: flex-end;
-  padding: 7px 14px 0;
+  align-items: center;
+  padding: 6px 14px;
 }
 .right-tab {
-  padding: 6px 12px 10px;
-  border: 1px solid transparent;
-  border-bottom: 0;
-  border-radius: var(--r-md) var(--r-md) 0 0;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+  padding: 5px 12px;
+  border: 0;
+  border-radius: var(--r-md);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
 .right-tab:hover { background: color-mix(in srgb, var(--surface-2) 70%, transparent); color: var(--text); }
-.right-tab.is-active {
-  color: var(--on-accent);
-  font-weight: 650;
-  background-image: linear-gradient(180deg, var(--accent-strong), var(--accent));
-  border-color: color-mix(in srgb, var(--accent) 65%, var(--border-strong));
-  box-shadow: 0 3px 8px rgba(0, 0, 0, .30), inset 0 1px 0 color-mix(in srgb, #ffffff 34%, transparent);
-  transform: translateY(1px);
-}
-/* 书签尖角：选中页签底部探出的纸质三角（背景沿父元素的书签纸色）。 */
-.right-tab.is-active::after {
-  content: "";
-  position: absolute;
-  left: -1px;
-  right: -1px;
-  bottom: -5px;
-  height: 6px;
-  background-image: inherit;
-  background-color: var(--accent);
-  clip-path: polygon(0 0, 100% 0, 50% 100%);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, .25);
-  border-radius: 0;
-}
-/* 纸面压痕：书签顶部的一线高光，让它看起来是"一张纸"而不是一块色块。 */
-.right-tab.is-active::before {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 4px;
-  right: 4px;
-  height: 1px;
-  background: color-mix(in srgb, #ffffff 42%, transparent);
-  opacity: .55;
-}
 
 /* ---------- 20. 对话里的群聊归属 ----------
    EXEC（main）与 ADVISOR（tl）的 provider role 都是 assistant：身份只由**发言人名**
@@ -4255,7 +4230,7 @@ button.team-library-name:hover { color: var(--accent); text-decoration: underlin
 }
 .schedule-idx { color: var(--faint); font: 9px var(--font-mono); }
 .schedule-pill.is-floor { color: var(--text-strong); border-color: var(--border-running); background: var(--tint-running); }
-.schedule-pill.is-next { color: var(--text-strong); border-color: var(--accent); box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--accent) 55%, transparent); }
+.schedule-pill.is-next { color: var(--text-strong); border-color: var(--accent); }
 .schedule-pill.is-idle { color: var(--faint); border-style: dashed; }
 .schedule-tag { color: var(--status-running); font: 9px var(--font-mono); }
 .schedule-tag.is-next { color: var(--accent); }
@@ -4431,7 +4406,6 @@ button.team-library-name:hover { color: var(--accent); text-decoration: underlin
 .terminal-tab.is-active {
   color: var(--text-strong);
   background: var(--surface-2);
-  box-shadow: inset 0 -1px 0 var(--accent);
 }
 .terminal-tab.is-exited .terminal-tab-label { color: var(--faint); text-decoration: line-through; }
 .terminal-tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -4525,14 +4499,13 @@ button.team-library-name:hover { color: var(--accent); text-decoration: underlin
 #node-detail-modal { z-index: 130; }
 #role-session-modal { z-index: 120; }
 
-/* 工作表页签：像文件夹里一片片立起来的标签，选中的那片"提起来"（微抬 + 底沿）。 */
+/* 工作表页签：选中的那片微抬一点（不阴影、不描边——统一口径见第 27 节 o）。 */
 .excel-sheet {
   transition: color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out),
     background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
 .excel-sheet.is-active {
   transform: translateY(-1px);
-  box-shadow: inset 0 -2px 0 var(--status-running), var(--shadow-sm);
 }
 
 /* 文件详情抽屉"抽出"：抽屉由收起转展开的那一次，从左轨滑出摊开（一次性，
@@ -4752,14 +4725,16 @@ button.team-library-name:hover { color: var(--accent); text-decoration: underlin
   letter-spacing: 0;
 }
 
-/* j) 页签：活动态用下划线指示，不再整块染色 */
+/* j) 页签：选中态 = 静止胶囊（同色系薄底 + 同色系重字），右栏页签与对话区子页共用一套。
+   口径（用户要求）：高亮既不是黑块 / 黑外框，也不是"圆角 + 单边黑条"——
+   底色与文字都落在当前皮肤色系里（--hl-fill / --hl-ink），描边、下条、投影一律不画。 */
 .conversation-tab,
-.right-tab { border-radius: var(--r-md) var(--r-md) 0 0; }
+.right-tab { border-radius: var(--r-md); }
 .conversation-tab.is-active,
 .right-tab.is-active {
-  background: transparent;
-  color: var(--text-bright);
-  box-shadow: inset 0 -2px 0 var(--accent);
+  background: var(--hl-fill);
+  color: var(--hl-ink);
+  box-shadow: none;
 }
 
 /* k) 正文内联代码：浅底胶囊（浅色皮肤下不再靠深色块反白） */
@@ -4789,3 +4764,35 @@ button.team-library-name:hover { color: var(--accent); text-decoration: underlin
 /* m) 发送键：圆形实心（Qoder 的 primary 是一颗圆键，不是方角）。
    选择器要压过 .app-shell .icon-button.action-button 那条既有规则。 */
 .app-shell .icon-button.action-button.primary-button { border-radius: 999px; }
+
+/* n) 内容纸 = 一个带圆角的 panel（对话区整块）——用户口径「该有圆角的地方放上圆角，
+   比如对话区整体的 panel」。
+   实机证据：Qoder 的「纸」四角是 **7–8px 圆角**，而且**不缩进**——纸与壳齐边，
+   只在四个角的弧里露出壳（refs/qoder-light-clean.png：顶左 (323,56)→(316,63)、
+   顶右 1907→1913、底 1070 行左 319 / 右 1910）。
+   本产品的中栏就是那块纸：`.workspace` 是 `.app-shell`（渐变）的子节点，四角弧里
+   自然露出壳的渐变，**不需要任何间隙**；子节点（子页页签条 / 终端面板）由既有的
+   `overflow: hidden` 一起裁圆。
+   半径取 `--r-md`(8px)：与 Qoder 实测同档，且不撞「一屏只有一处 ≥14px」（那处是 composer）。 */
+.workspace { border-radius: var(--r-md); }
+
+/* 页签条跟纸同色：`.conversation-tabs` 还留着**渐变换代前**的壳色 `var(--bg)`
+   （#f7f6f2），叠在纸上就是第三种颜色，纸的上面两个圆角会被这层薄色抹平。
+   纸要读成"一整块"，页签条就必须是纸的一部分（Qoder 的内容头部也是纸色）。
+   该元素的横向滚动暗示走 box-shadow，不靠 background，所以这里清底色不误伤它。 */
+.conversation-tabs { background: transparent; }
+
+/* o) 页签家族补齐剩下三处：工作表页签 / 终端页签 / 发言调度胶囊还是"圆角 + 单边色条"
+   的老写法（27-j 只覆盖了对话区与右栏页签）——`inset 0 -Npx 0` 压在圆角上，正是用户点名的
+   那条丑（"圆角配上一个黑色的下外框"）。统一到同一套**静止胶囊**：同色系薄底 + 同色系重字，
+   描边强调、下条、投影一律不画；半径一并收敛到 token（工作表页签原来是硬编码的 3px）。 */
+.excel-sheet,
+.terminal-tab { border-radius: var(--r-md); }
+.excel-sheet.is-active,
+.terminal-tab.is-active,
+.schedule-pill.is-next {
+  color: var(--hl-ink);
+  background: var(--hl-fill);
+  border-color: var(--border);
+  box-shadow: none;
+}

@@ -280,9 +280,11 @@ export function employeePool(global, team) {
   return [...pool.values()];
 }
 
-// employeeLibraryBlock 是「员工库」块：可用员工一份清单，行首 ≡ 直接拖到员工栏或
-// 团队成员表 = 把人排进发言顺序。逐行只留必要动作——库里的行可改 / 可删，只在本会话
-// 里的行给一个「入库」。
+// employeeLibraryBlock 是「员工库」块：**全局**那份事实——员工是谁 + 档案（提示词/权限/类型）。
+// 池子取「全局库 ∪ 本会话在编」（读侧合并，母本优先）：只要会话里有员工（比如装配 goal-a2a
+// 后的 tl），员工库就不再是 0 人空壳；每行的「来源」chip 说明它落在哪份事实里。行首 ≡ 拖到
+// 员工栏或团队成员表 = 把人排进发言顺序。逐行只留必要动作——库里的行可改/可删，只在本会话
+// 里的行给一个「入库」（写回母本）。
 function employeeLibraryBlock(global, team) {
   const available = Boolean(global && typeof global === "object");
   const pool = employeePool(global, team);
@@ -301,7 +303,7 @@ function employeeLibraryBlock(global, team) {
         <span class="team-library-name" title="${escapeHtml(role.roleName)}">${escapeHtml(roleDisplayName(role.roleName, role.roleKind))}</span>
         <span class="team-member-role" title="逻辑角色名（metadata，不是 provider role）">${escapeHtml(role.roleName)}</span>
         <span class="chip">${escapeHtml(ROLE_KIND_LABEL[role.roleKind] || role.roleKind || "agent")}</span>
-        <span class="team-perm-chip${role.toolsPolicy || role.permissionGroups ? "" : " is-inherit"}" title="工具权限（登记在角色注册表）">${escapeHtml(memberPermLabel(role))}</span>
+        <span class="team-perm-chip${role.toolsPolicy || role.permissionGroups ? "" : " is-inherit"}" title="工具权限（员工库档案；库里有就以库里的为准）">${escapeHtml(memberPermLabel(role))}</span>
       </span>`,
       `<span class="team-source-chip${role.inLibrary ? "" : " is-session"}" title="${role.inLibrary ? "员工库（全局母本）" : "只在本会话在编名单里"}">${role.inLibrary ? "库" : "本会话"}</span>`,
       `<span class="team-library-actions">${actions.join("")}</span>`
@@ -314,7 +316,8 @@ function employeeLibraryBlock(global, team) {
   const headActions = available
     ? `<button type="button" class="text-button" data-team-employee-new="1" data-tip="新建一个员工（不装配到任何会话）">${icon("plus", 12)}新建员工</button>`
     : '<span class="team-editor-hint muted">旧宿主：员工库不可写</span>';
-  return `${teamRailHead("员工库", pool.length, headActions)}
+  return `${teamRailHead("员工库", pool.length, headActions,
+    "员工库（全局事实）：员工是谁、档案（提示词 / 权限 / 类型）都在这里改——员工档案的唯一编辑入口，与团队解耦")}
     ${teamTable({
       label: "员工库",
       head: ["员工（拖拽调序）", "来源", "操作"],
@@ -391,10 +394,12 @@ function normalizeMembers(items) {
 // （全局母本：团队库 + 员工库 + 默认顺序 + 会话副本投影）；缺省时只渲染当前会话状态
 // （不伪造按钮）。
 //
-// 面板分四块，各自条目化：
-//   「员工库」= 可用员工（全局库 ∪ 本会话在编）+ 入库/新建/编辑/删除，行首可拖进顺序；
-//   「团队库」= 用户自己的团队（点团队名开团队面板）+ 内置形态 chip + 新建团队；
-//   「员工栏」= 本会话在编员工 + 发言顺序（拖拽 ≡ 直接调序）+ 冷加载入职/修改面板；
+// 面板分四块，各自条目化——**一块只管一份事实**（用户口径：语意弄清楚、别功能耦合）：
+//   「员工库」= 全局：员工是谁 + 档案（提示词/权限/类型）的唯一编辑入口（入库/新建/修改/删除），
+//     行首可拖进顺序（= 顺带入职）；
+//   「团队库」= 全局：用户自己的团队（点团队名开团队面板）+ 内置形态 chip + 新建团队；
+//   「员工栏」= 本会话：在编员工 + 发言顺序（拖拽 ≡ 直接调序）+ 入职 + 摘除/移出本会话；
+//     档案只回显、不在这里改（改档案回「员工库」，再入职一次即覆盖副本）；
 //   「发言调度」= 运行态：轮次 / 下一个 / 收束（顺序串珠条，不是表格；环成员不含
 //   user——用户经回合尾的消息队列提升发言，不占环内排班位）。
 export function renderAgentTeam(view, presets, library, global) {
@@ -447,7 +452,8 @@ function teamLibraryBlock(team, presets, library) {
     return `<button type="button" class="team-preset-chip${active ? " is-active" : ""}" data-team-materialize="${escapeHtml(kind)}"${active ? ' disabled title="当前会话就是这个形态"' : ` data-tip="按内置形态 ${escapeHtml(kind)} 装配一支团队"`}>${escapeHtml(kind)}</button>`;
   }).join("");
   return `${teamRailHead("团队库", library.teams.length,
-    `<button type="button" class="text-button" data-team-open-team="1" data-tip="新建一支团队（空白 / 从当前会话 / 从内置模板）">${icon("plus", 12)}新建团队</button>`)}
+    `<button type="button" class="text-button" data-team-open-team="1" data-tip="新建一支团队（空白 / 从当前会话 / 从内置模板）">${icon("plus", 12)}新建团队</button>`,
+    "团队库（全局事实）：一行一支团队——有谁、按什么顺序回答；员工本身的增删改在「员工库」")}
     ${teamTable({
       label: "团队库",
       head: ["团队", "规模", "操作"],
@@ -459,14 +465,17 @@ function teamLibraryBlock(team, presets, library) {
 }
 
 // staffSection 是「员工栏」：本会话在编员工 + 发言顺序（同一张表：顺序就是发言次序）。
-// 顺序**只用拖拽**调整（有拖拽就不需要 ↑/↓ 按钮）；点「+ 入职」加人，点「编辑」改
-// 提示词与权限；员工库里的行也能拖进来（未在编的先入职，再落到拖放位置）。
+// 顺序**只用拖拽**调整（有拖拽就不需要 ↑/↓ 按钮）；点「+ 入职」把人装进本会话；点 ✕ 摘除
+// （出顺序、留角色）、点「删除」连会话注册表一起删。档案（提示词/权限/类型）**只回显**：
+// 唯一编辑入口是「员工库」（否则同一个人的档案有两套按钮、写两份事实）。
+// 员工库里的行也能拖进来（未在编的先入职，再落到拖放位置）。
 // 窄栏口径：类型 chip 并进身份格，表只留"身份 / 位置 / 操作"三列——列一多，每列
 // 只剩二十几像素（"user" 会被折成 "use r" 就是这个原因）。
 function staffSection(team) {
   const rows = staffRows(team);
   return `${teamRailHead("员工栏", team.members.length,
-    `<button type="button" class="text-button" data-team-open-hire="1" data-tip="入职一个新员工（角色名 / 提示词 / 权限）">${icon("plus", 12)}入职</button>`)}
+    `<button type="button" class="text-button" data-team-open-hire="1" data-tip="入职一个新员工（角色名 / 提示词 / 权限）">${icon("plus", 12)}入职</button>`,
+    "员工栏（本会话）：谁在编、发言顺序（拖拽调序 / 摘除 / 移出本会话）；档案（提示词 / 权限 / 类型）在「员工库」改，改完再「入职」一次即覆盖本会话副本")}
     ${teamTable({
       label: "员工栏",
       head: ["员工（拖拽调序 · 权限）", "位置", "操作"],
@@ -502,13 +511,17 @@ function staffRow(member, orderIndex, team, scheduled = false) {
   const position = inOrder ? `#${orderIndex + 1}` : scheduled ? "定时" : "未排入";
   const perm = memberPermLabel(member);
   const promptChip = member.systemPrompt
-    ? `<span class="team-perm-chip" title="已登记提示词（${escapeHtml(String(member.systemPrompt.length))} 字符）">提示词</span>`
-    : `<span class="team-perm-chip is-inherit" title="未登记提示词">无提示词</span>`;
+    ? `<span class="team-perm-chip" title="本会话在编副本已登记提示词（${escapeHtml(String(member.systemPrompt.length))} 字符）">提示词</span>`
+    : `<span class="team-perm-chip is-inherit" title="本会话在编副本未登记提示词（继承档案）">无提示词</span>`;
+  // 行内动作只留**本会话**的两件：摘除（出工作顺序、留角色）/ 删除（连会话注册表一起删）。
+  // 「编辑」在这一版下线（用户口径：员工栏不该和员工库功能耦合）——档案（提示词 / 权限 /
+  // 类型）的唯一编辑入口是「员工库」：本会话那份是入职/装配时取下的副本，要改档案回员工库改，
+  // 再「入职」一次即覆盖（同 role_name 幂等覆盖）。于是"同一个人的档案有两套按钮、写两份事实"
+  // 只剩一处；员工栏只回显本副本的现状。
   const actions = [
     pinned
       ? `<button type="button" class="text-button" data-team-action="remove" data-team-role="${escapeHtml(member.roleName)}" disabled title="user/main 是群聊起手与收口，不能摘除">${icon("close", 12)}</button>`
       : `<button type="button" class="text-button" data-team-action="remove" data-team-role="${escapeHtml(member.roleName)}"${inOrder ? "" : " disabled"} aria-label="摘除 ${escapeHtml(display)}" data-tip="从工作顺序摘除（保留角色）">${icon("close", 12)}</button>`,
-    `<button type="button" class="text-button team-member-edit" data-team-edit="${escapeHtml(member.roleName)}"${pinned ? ' disabled title="user/main 由会话本身提供，配置不可改"' : ' data-tip="打开编辑面板（提示词 / 权限 / 类型）"'}>编辑</button>`,
     `<button type="button" class="text-button team-member-remove" data-team-delete="${escapeHtml(member.roleName)}"${pinned ? ' disabled title="user/main 由会话本身提供，不能删除"' : ' data-tip="从注册表与工作顺序中删除该角色"'}>删除</button>`
   ].join("");
   const handle = scheduled
@@ -520,7 +533,7 @@ function staffRow(member, orderIndex, team, scheduled = false) {
       <button type="button" class="text-button team-member-name" data-team-role-open="${escapeHtml(member.roleName)}" data-team-role-session="${escapeHtml(member.roleSessionID)}" data-tip="查看 ${escapeHtml(display)} 的独立会话\nrole=${escapeHtml(member.roleName)} · ${escapeHtml(session)}" aria-label="查看 ${escapeHtml(display)} 的独立会话">${escapeHtml(display)}</button>
       <span class="team-member-role" title="逻辑角色名（metadata，不是 provider role）">${escapeHtml(member.roleName)}</span>
       <span class="chip">${escapeHtml(kind)}</span>
-      <span class="team-perm-chip${perm === "继承" ? " is-inherit" : ""}" title="工具权限（登记在角色注册表）">${escapeHtml(perm)}</span>
+      <span class="team-perm-chip${perm === "继承" ? " is-inherit" : ""}" title="工具权限（本会话在编副本）">${escapeHtml(perm)}</span>
       ${promptChip}
       ${onFloor ? '<span class="chip team-floor-chip" title="当前发言权在这一位">发言中</span>' : ""}
     </span>`,
@@ -730,8 +743,12 @@ function teamSection(team) {
 }
 
 // teamRailHead 是各栏共用的栏头（栏名 + 计数 + 可选动作）。
-function teamRailHead(title, count, action = "") {
-  return `<div class="section-title sub-title team-rail-head">
+// teamRailHead 是各栏共用的栏头（栏名 + 计数 + 可选动作）。
+// tip 是这块的**事实域**口径（"员工库写全局、员工栏写本会话"）——挂在栏头的 title 上：
+// 上一轮已经把"栏头摆注解文字"这条口径钉掉了（见 agent-team-view.test.mjs 的
+// "head carries no annotation text"），所以域只在 hover 与 aria 里说，不再占版面。
+function teamRailHead(title, count, action = "", tip = "") {
+  return `<div class="section-title sub-title team-rail-head"${tip ? ` title="${escapeHtml(tip)}"` : ""}>
     <span>${escapeHtml(title)}</span>
     <span class="badge">${Number(count) || 0}</span>
     ${action ? `<span class="team-rail-actions">${action}</span>` : ""}

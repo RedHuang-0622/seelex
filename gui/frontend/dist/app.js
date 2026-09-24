@@ -1116,12 +1116,24 @@ async function loadCompactionFrame(ref, offset, index, previousText) {
 // repaintCompactions 是右栏「上下文压缩」面板的唯一出口：记录列表 + 本轮门禁
 // 进度条一起画，可见性判据必须同源——折叠发生在写记录之前，"零记录"时面板
 // 仍可能有一轮压缩正在跑，按记录数判隐藏会让第一次折叠看不到进度条。
+//
+// 块本身挂在 状态/概要 折叠区**里面**（用户口径：压缩内容放概要下面），折叠区默认
+// 收起——所以"本轮正在压 / 刚压完"这条瞬态要自己把折叠区打开（见 revealStatusPanel）；
+// 历次记录不触发打开：那是用户展开 状态 才读的静态事实。
 function repaintCompactions(compactions) {
   const host = elements["context-compactions"];
   if (!host) return;
   const list = Array.isArray(compactions) ? compactions : [];
   host.innerHTML = renderContextCompactions(list, { detail: compactionDetail, progress: compactionProgress });
   host.classList.toggle("hidden", list.length === 0 && !compactionProgress);
+  if (compactionProgress) revealStatusPanel();
+}
+
+// revealStatusPanel 把 状态 折叠区打开（只开不收）：不这么做，块一挪进折叠区，
+// "按下回车到底动没动"又回到"用户得先想起去展开 状态"的老问题。
+function revealStatusPanel() {
+  const panel = document.getElementById("status-panel");
+  if (panel && !panel.open) panel.open = true;
 }
 
 // ── 折叠帧正文弹框 ───────────────────────────────────────────
@@ -2405,9 +2417,11 @@ function closeAgentTeamEditors() {
   }
 }
 
-// openAgentTeamHire 打开入职 / 修改面板。scope=session 落在当前会话的在编员工上，
-// scope=library 落在**全局员工库**上（员工库与团队解耦：库里的增删改不依赖团队，
-// 也不动任何会话的副本；保存走 AgentTeamSaveEmployee）。
+// openAgentTeamHire 打开入职 / 修改面板。scope=library 落在**全局员工库**上（员工库与
+// 团队解耦：库里的增删改不依赖团队，也不动任何会话的副本；保存走 AgentTeamSaveEmployee）——
+// 员工库的「新建员工」与「修改」两条入口都走它。scope=session 只服务员工栏的「+ 入职」
+// （空角色名 = 新装配一个人；填已存在的角色名即幂等覆盖本会话那份副本——员工栏不再有
+// 单独的「编辑」入口，改档案的唯一编辑入口是员工库）。
 function openAgentTeamHire(roleName = "", scope = "session") {
   const slot = agentTeamSlot("hire");
   if (!slot) return;
@@ -2527,12 +2541,8 @@ elements["team-view"]?.addEventListener("click", async event => {
     openAgentTeamTeamPanel("");
     return;
   }
-  const editButton = event.target.closest?.("[data-team-edit]");
-  if (editButton?.dataset.teamEdit) {
-    openAgentTeamHire(editButton.dataset.teamEdit);
-    return;
-  }
-  // 团队条目点击 = 打开这支团队的团队面板（面板标题写明在改哪一支）。
+  // 员工栏行内的「编辑」已下线（员工档案的唯一编辑入口 = 员工库，见 agent-team-view.js），
+  // 这里不再接 data-team-edit；团队条目点击仍开团队面板（面板标题写明在改哪一支）。
   const editTeam = event.target.closest?.("[data-team-edit-team]");
   if (editTeam?.dataset.teamEditTeam) {
     openAgentTeamTeamPanel(editTeam.dataset.teamEditTeam);

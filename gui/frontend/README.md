@@ -267,6 +267,14 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
 读深拷贝副本；2026-09-15 第二轮又收了一轮噪音：栏头注解与"存当前会话 / 入库当前
 会话 / 顺序设为默认"三个整表级写动作全部撤掉，改成行内一次性的最小动作）：
 
+**四块各自只管一份事实（2026-09-24 澄清语意并删掉耦合点）**：员工库 = 全局「员工是谁 +
+档案（提示词 / 权限 / 类型）」的**唯一编辑入口**；团队库 = 全局「一支团队有谁、什么顺序」；
+员工栏 = **本会话**「在编名单 + 发言顺序 + 入职 / 摘除 / 移出本会话」；发言调度 = 运行态只读。
+员工栏行内原来的「编辑」（会话作用域改档案）已下线——同一个人的档案有两套按钮、写两份事实，
+必然要漂移（视图侧得靠 `teamGlobalDrift` + 「入库」+ 漂移提示兜）；现在要改档案回员工库改，
+再「入职」一次即覆盖本会话副本（同 `role_name` 幂等覆盖），`app.js` 里接 `data-team-edit`
+的分支一并删除。三块栏头的 `title` 写明各自事实域（栏头不摆注解文字，域只在 hover 里说）。
+
 - **员工库 = 可用员工（全局母本 ∪ 本会话在编）**：读侧合并（`employeePool`），行首
   ≡ 可拖到员工栏或团队成员表把人排进发言顺序；每行带来源 chip（`库` / `本会话`）。
   库里的行给「编辑 / ✕」（`AgentTeamSaveEmployee` / `AgentTeamDeleteEmployee`，写
@@ -284,8 +292,10 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
   员工拖到另一行之前（或拖到底部"顺序末尾"落区）即提交整份 `order_roles`；
   **没有 ↑/↓ 按钮**——拖拽是唯一的调序通道（用户口径），`nextAgentTeamOrder` 因此
   只处理"摘除 / 恢复"（纯函数 `agentTeamOrderForDrag` 负责位置，非法动作返回 null
-  不提交）。表只留三列（身份 / 位置 / 操作），类型 chip 并进身份格：窄栏里列一多，
-  每列只剩二十几像素（`user` 会被折成 `use r`）。
+  不提交）。行内只留本会话的两件事：✕ **摘除**（出工作顺序、留角色）与**删除**
+  （连会话注册表一起删）；**档案只回显**（权限 / 提示词 chip 的 title 写明"本会话
+  在编副本"），编辑入口在员工库。表只留三列（身份 / 位置 / 操作），类型 chip 并进身份格：
+  窄栏里列一多，每列只剩二十几像素（`user` 会被折成 `use r`）。
 - **发言调度（运行态串珠条）**：不摆 项/值 表——顺序本身是一条可视的链
   （`.schedule-pill`：序号 + 身份），"发言中"（floor）与"下一个"（`schedule.next_role`）
   各占一档高亮，其余为普通/虚线（`unexecuted` 的角色标"无执行者"）；上方徽标是
@@ -293,8 +303,8 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
   `user`（用户的发言机会是回合尾消息队列被整批提升为下一轮，不是排班位），所以珠子
   里没有 `USER`、"下一个"也不会指向人。参照群聊的通行做法：顺序用位置与编号表达，
   不靠文字播报。没有 `TeamView.schedule`（旧宿主）时整块隐藏，不拿静态顺序冒充运行态。
-- **冷加载面板**：`+ 入职` / `编辑` 打开的「入职 / 修改员工」面板、`+ 新建团队` /
-  点团队名打开的「团队」面板默认都不渲染——只有 `data-team-hire-slot` /
+- **冷加载面板**：员工库的 `+ 新建员工` / 「修改」、员工栏的 `+ 入职`、`+ 新建团队` /
+  点团队名 打开的「入职 / 修改员工」与「团队」面板默认都不渲染——只有 `data-team-hire-slot` /
   `data-team-team-slot` 两个隐藏占位；点开才注入表单，右上角是 `data-icon="close"`
   （取消 / Esc 同样关闭）。字段**条目化 + 序列化**：一条字段一行（序号 + 标签 +
   控件 + 说明），按 身份 / 编排 / 能力 / 提示词 分节——右栏只有 220~480px，标签与
@@ -321,9 +331,18 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
 
 ### 页签与折叠口径（2026-09 交互改版）
 
-- **选中页签 = 纸质笔记本书签（拟物）**：`.right-tab.is-active` 不再是下划线，
-  而是从栏脊上探出的纸色票签（顶部高光 + 底部 `clip-path` 尖角 + 投影），未选
-  中的页保持平面文字；样式集中在 `styles.css` 第 19 节（`.right-tabs` 一节）。
+- **选中页签 = 静止胶囊（2026-09-24 换代，取代纸质笔记本书签拟物）**：选中态统一成
+  "同色系薄底 + 同色系重字"（`--hl-fill` / `--hl-ink`，`styles.css` 第 27 节 j），
+  不描边、不加下条、不投影、不做位移——用户口径是"高亮既不是黑块 / 黑外框，也不是
+  圆角 + 单边黑条"。同一套口径覆盖页签家族的五处：对话区子页、右栏子页、工作表页签、
+  终端页签、发言调度胶囊（第 27 节 o）；库内 `inset 0 -Npx 0` 的写法已清零，
+  `rgba(0, 0, 0` 只剩深色主题里的两个投影 token。
+- **上下文压缩块在 状态 折叠区里（2026-09-24 反转早先的"挪出去"）**：
+  `#context-compactions` 挂在 `#status-panel` 里、紧随概要（用户口径："上下文压缩内容
+  需要放到状态的概要下面"）。折叠区默认收起，所以"按下回车到底动没动"改由视图侧兜住：
+  `app.js: repaintCompactions` 见到本轮门禁进度就 `revealStatusPanel()` 打开折叠区
+  （只开不收），历次记录不自动弹开（免得跟用户手动收起打架）；口径有测试钉住
+  （`gui/frontend/dist/status-panel.test.mjs`）。
 - **状态 / 账户 / Agent Team 三个折叠块默认收起**：`index.html` 里
   `#status-panel`、`#accounts-section`、`#team-section` 都不带 `open`，展开才拉
   数据（Agent Team 的 `toggle` 事件仍触发一次 `refreshAgentTeam`）。避免右栏一
@@ -349,9 +368,10 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
   收起态各一枚，`html[data-left-collapsed]` / `[data-right-collapsed]` 由 CSS 切换
   显隐）。收起后每条栏仍保留 26px 窄脊 + 那枚按钮（可达、不占位），Ctrl+B /
   Ctrl+J 与 `seelex.*.collapsed` 记忆不变。
-- **外壳不再渲染背景渐晕**：`.app-shell` 用单一 `--bg`，层次靠各面板自己的
-  `surface` 与 1px 分隔；右栏页签条也去掉了那条装饰性渐变（选中页签的拟物书签
-  保留）。
+- **外壳承载环境渐变（2026-09-24 换代后）**：`.app-shell` 铺一条等亮度竖向渐变
+  （`--shell-gradient`，每套皮肤深浅各一条），顶栏与左右栏透明透出它、中栏是盖在
+  渐变上的"纸"；面板之间的层次仍靠各自的 `surface` 与 1px 发丝接缝，不靠辉光。
+  右栏页签条没有装饰性渐变。
 
 ## 输入前缀（sigil）与命令面板
 
@@ -594,7 +614,7 @@ containment/敏感过滤/符号链接拒绝/上限钳制/截断/二进制探测�
 The project overview renders `task.context_compactions` as a small timeline of successful context compressions. The frontend receives public metadata (version, reason, origin, folded range, tokens, time) and, only on demand, the folded frame body by reference: the body stays in the session content store and is paged back through `Bridge.ToolResultContent` (`frame_ref`). Prompt text, tool payloads, and raw conversation history are still not part of the snapshot; the entry no longer claims “details can be re-read when needed” without offering an entry point.
 The trajectory axis additionally draws a dashed cut line per compaction with the caption `以上 消息 …（事件 …）已被折叠`, so the folded prefix is visible as a boundary instead of a bare tick.
 
-A compression round is also visible **while it runs**. The backend publishes `compaction.progress` (one frame per gate, exactly one terminal frame; session-routed, `revision=0`, so it never enters the snapshot) and the right column renders a gate progress bar over the plan-board track plus a per-gate duration list. Two properties make the round readable rather than a single green flash: the explicit path (`/compact`, `compact_context`) emits a **begin frame before the first expensive step** — the round has two silent stretches otherwise, the judge gate (22–40 ms on a 640 KB fixture: two whole-request token estimates, full accumulated context + engine cache peak) and the frame gate (15–19 ms) — so pressing Enter gives feedback immediately instead of "no reaction"; and every frame carries the wall-clock milliseconds of the segment that just finished (`elapsed_ms`, 0 for the begin frame), so the list answers "which gate was slow" for a round that is over in tens of milliseconds. The automatic path deliberately has no begin frame (whether to fold *is* the outcome of that estimate), which keeps the older rule intact: no fold, no progress. Gates whose segment is under a millisecond print `<1ms`; the begin frame's gate prints `进行中` and never takes a checklist row of its own — the UI never invents a duration it does not have.
+A compression round is also visible **while it runs**. The backend publishes `compaction.progress` (one frame per gate, exactly one terminal frame; session-routed, `revision=0`, so it never enters the snapshot) and the right column renders a gate progress bar over the plan-board track plus a per-gate duration list. The block itself lives **inside the 状态 fold, right after 概要** (user口径: “上下文压缩内容需要放到状态的概要下面”); because that fold starts collapsed, `repaintCompactions` reveals it (`revealStatusPanel`) whenever a round is in flight — records alone never force it open, so a manual collapse is not fought back (`gui/frontend/dist/status-panel.test.mjs` pins both halves). Two properties make the round readable rather than a single green flash: the explicit path (`/compact`, `compact_context`) emits a **begin frame before the first expensive step** — the round has two silent stretches otherwise, the judge gate (22–40 ms on a 640 KB fixture: two whole-request token estimates, full accumulated context + engine cache peak) and the frame gate (15–19 ms) — so pressing Enter gives feedback immediately instead of "no reaction"; and every frame carries the wall-clock milliseconds of the segment that just finished (`elapsed_ms`, 0 for the begin frame), so the list answers "which gate was slow" for a round that is over in tens of milliseconds. The automatic path deliberately has no begin frame (whether to fold *is* the outcome of that estimate), which keeps the older rule intact: no fold, no progress. Gates whose segment is under a millisecond print `<1ms`; the begin frame's gate prints `进行中` and never takes a checklist row of its own — the UI never invents a duration it does not have.
 
 The command palette (`/`) lists only what the input box can actually submit: commands and
 skills. Tools are not suggestions at all (`SuggestionKindTool` and the alias-folding
@@ -641,3 +661,11 @@ Snapshot/业务状态；accounts.yaml 等敏感名与 .git/node_modules/.seelex 
   **每套都有自己的环境渐变**（深浅各一条，见 `themes/README.md` 的皮肤表）；
 - **文档与证据**：成因分析（五条可复现规则）、渐变色皮肤设计、逐文件改动表、静态复刻页
   与实机截图都在 [`docs/design/qoder-skin/`](../../docs/design/qoder-skin/README.md)。
+
+**中栏是"一块带圆角的纸"（2026-09-24 第二波）**：`.workspace`（对话区整块 panel：子页页签条 +
+对话/轨迹 + composer + 终端面板）拿到 `border-radius: var(--r-md)`(8px)，子节点由既有
+`overflow: hidden` 一起裁圆；圆角里露出来的是壳的渐变，**不缩进**——这与 Qoder 实机量到的
+"纸四角 7–8px 圆角、四边紧贴窗口"一致（量法见 `docs/design/qoder-skin/tools/measure-skin.py`
+同族，数值见 DESIGN-LANGUAGE §3）。同时把 `.conversation-tabs` 的底色清掉：它还留着
+**渐变换代前**的壳色 `var(--bg)`（#f7f6f2），叠在纸上就是第三种颜色、会把纸上面两个圆角
+抹平——纸要读成"一整块"，页签条就得是纸的一部分。

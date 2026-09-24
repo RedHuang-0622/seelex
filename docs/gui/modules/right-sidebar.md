@@ -18,14 +18,24 @@ localStorage 记忆）。历史检索保留在右栏子页之下的「更多」�
 
 | 子页 | 内容 | 数据源 |
 |---|---|---|
-| **状态** | 项目状态表（键值两列：状态/会话/消息/任务/待审批/文件数）+ 概要 + 上下文压缩时间线 + **账户栏**（状态一栏之下）+ **Agent Team**（员工栏 / Team 栏两块表格） | `snapshot.chat/task/conversation`、`runtime`（含 `runtime.accounts` / `runtime.account`） |
+| **状态** | 项目状态表（键值两列：状态/会话/消息/任务/待审批/文件数）+ 概要 + **上下文压缩**（都在同一个折叠区里，压缩块紧跟概要）+ **账户栏**（状态一栏之下）+ **Agent Team**（员工库 / 团队库 / 员工栏 / 发言调度四块表格） | `snapshot.chat/task/conversation`、`runtime`（含 `runtime.accounts` / `runtime.account`） |
 | **工作台** | 「目标」面板 + 工作表格入口 + 定时任务面板 | `runtime.goal_skill_active`、`runtime.active_skills`、`task`、`work_table`、`scheduled_tasks` |
 | **资源管理器** | 左：文件预览抽屉（点工作树或工作区更改的文件行打开）；右：三个平级子页 工作树 / 提交记录 / 工作区更改（页签切换、激活态持久化，各自滚动、各自刷新按钮） | `Bridge.WorkspaceFileContent`、`Bridge.WorkspaceTree/FileCount`、`Bridge.WorkspaceGitLog`、`Bridge.WorkspaceChanges` |
 
 项目标题（`project-heading`）与「历史检索」折叠区跨子页常驻，不属于任何子页。
-状态子页自上而下：`状态` → `账户` → `Agent Team`。
+状态子页自上而下：`状态`（折叠区里依次是状态表 / 概要 / **上下文压缩**）→ `账户` → `Agent Team`。
 
 ### 上下文压缩（状态子页）
+
+**位置**：`#context-compactions` 挂在 `#status-panel` 折叠区**里面**、紧随概要
+（`#project-overview`）之后——用户口径「上下文压缩内容需要放到状态的概要下面」
+（2026-09-24 反转了 2026-09-24 早先"挪到折叠区外面"的处置，见
+`docs/devlog/2026-09-24-compaction-frontier-singleton-and-frame-popup.md` §2.4）。
+折叠区默认收起，所以"按下回车到底动没动"这条可见性改由视图侧兜住：
+`app.js: repaintCompactions` 见到本轮门禁进度（`compactionProgress`）就调用
+`revealStatusPanel()` 把折叠区打开（只开不收）；**历次记录不触发打开**——那是用户
+展开 状态 才读的静态事实，自动弹开会跟用户手动收起打架。两条一起才是完整口径：
+只挪进去 = 折叠态下进度条与记录又整块消失，只自动展开不挪 = 又回到点名的"没放在概要下面"。
 
 渲染集中在 `gui/frontend/dist/context-summary.js`，一块里叠了三种来源不同的东西：
 
@@ -61,13 +71,25 @@ provider · model + 不可用标记），点击走 `#account-list` 容器委托�
 
 ### Agent Team（状态子页）
 
-面板拆成两个不同的东西，各自条目化（`role=table` 的网格表格
-`.team-table/.team-table-row`）：
+面板拆成四块，**一块只管一份事实**（用户口径：语意弄清楚、别功能耦合），各自条目化
+（`role=table` 的网格表格 `.team-table/.team-table-row`）：
 
-- **员工栏** —— 员工管理：员工名单表（员工身份 / 逻辑角色名 / 类型 / 独立会话 /
-  顺序位置 / 编辑·删除）+ 一步实例化表单（同 `role_name` 幂等覆盖）；
-- **Team 栏** —— 装配与编排：装配 preset 工具栏 + 团队参数表（形态 / 顺序策略 /
-  发言权）+ 发言调度表 + 工作顺序表（含未排入顺序的"恢复"）+ 定时 agent 表。
+| 块 | 唯一职责 | 事实域（谁写、写哪） | 行内动作 |
+|---|---|---|---|
+| **员工库** | 员工是谁 + **档案（提示词 / 权限 / 类型）的唯一编辑入口** | 全局母本 `<root>/team/employees.json`（`AgentTeamSaveEmployee` / `AgentTeamDeleteEmployee`） | 库里的行：修改 / ✕；只在本会话在编的行：入库（写母本、不装配）；行首可拖进顺序（= 先入职再落到位置） |
+| **团队库** | 一支团队**有谁、按什么顺序回答**（模板） | 全局母本 `<root>/team/library.json`（`AgentTeamMaterializeTeam` / `AgentTeamDeleteTeam`） | 点团队名开团队面板 / 装配 / ✕；内置形态是 chip |
+| **员工栏** | 本会话**在编名单 + 发言顺序** | 会话副本 `session/team/roles.json` + `lifecycle.order_policy/order_roles`（`AgentTeamSetOrder` / `AgentTeamDeleteRole`） | 拖拽调序（唯一调序通道）/ ✕ 摘除（出顺序、留角色）/ 删除（连会话注册表一起删）/ 点名字看独立会话 / `+ 入职` |
+| **发言调度（Team 栏）** | 运行态：轮次 / 下一个 / 收束 | `TeamView.schedule`（权威投影，前端不推演） | 无（只读串珠条） |
+
+**耦合点已按口径删掉（2026-09-24）**：员工栏行内原来的「编辑」打开的是**会话作用域**的
+入职/修改面板——同一个人在两处（员工库 / 员工栏）各有一套"改提示词 / 权限 / 类型"的按钮，
+写两份事实、必然要漂移（视图侧因此还得有 `teamGlobalDrift` + 「入库」+ 漂移提示兜着）。
+现在档案的唯一编辑入口是员工库；员工栏只**回显**本副本现状（权限 / 提示词 chip 的 title
+写明"本会话在编副本"），要改就回员工库改、再「入职」一次（同 `role_name` 幂等覆盖）。
+`app.js` 里接 `data-team-edit` 的分支随之删除（没有读者的契约不留）。
+三块栏头的 `title` 各自写明事实域（员工库=全局、团队库=全局、员工栏=本会话）；上一轮已钉住
+"栏头不摆注解文字"，所以域只在 hover 里说，不占版面（测试见 `agent-team-view.test.mjs`
+的 "head carries no annotation text" 与 "员工栏只写本会话"）。
 
 顺序的唯一事实是会话 `lifecycle.order_policy/order_roles`：前端只提交用户改动后
 的整张顺序表，不缓存、不乐观重排，每次动作后重拉视图（`Bridge.AgentTeam*`）。

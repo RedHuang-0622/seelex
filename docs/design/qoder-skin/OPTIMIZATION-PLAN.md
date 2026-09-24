@@ -10,7 +10,7 @@
 | 用户说 | 判据（可验收） | 现状 | 优先级 |
 |---|---|---|---|
 | 「渐变色从左侧框去到顶栏，很通透」 | 壳承载 `--shell-gradient`；左栏顶 `#EBEBC6`、底 `#D1DAE2`、横向差 0 | **完全没有**（三块平色） | **P0** |
-| 「圆角配上一个黑色的下外框真的丑爆了」 | 全库不存在"圆角 + 深色下边/影"的组合 | 至少 5 处 | **P0** |
+| 「圆角配上一个黑色的下外框真的丑爆了」 | 全库不存在"圆角 + 深色下边/影"的组合 | 至少 5 处 → **已清零**（2026-09-24，见 P0-2） | **P0** |
 | 「不能出现过圆角」 | 见设计语言 3.3 四条判据 | 33× `999px`、4× 圆角页签、10 处非 token 半径 | P1 |
 | 「不合时宜的阴影」 | 全库"有影的元素"≤ 3 类；影参数满足 4 条质量约束 | 70 处 `box-shadow`，含黑影 2 处 | P1 |
 | 「减少不必要的线框，保留文件树里必要的线框」 | 装饰线清零；结构线/数据线保留 | `border-bottom` 39 处待分类 | P1 |
@@ -132,6 +132,22 @@ python docs/design/qoder-skin/tools/measure-skin.py gradient <截图> 270 4 1054
 **验收**：全文件搜索 `inset 0 -2px 0`、`inset 0 -1px 0`、`rgba(0, 0, 0` 三个串，
 在**带圆角**的规则里命中数必须为 **0**（加一条自检脚本，见 P2）。
 
+### 落地（✅ 2026-09-24）
+
+1/2/3/4 在第 27 节 j) 收口（页签 = 静止胶囊：同色系薄底 `--hl-fill` + 同色系重字
+`--hl-ink`，描边 / 下条 / 投影 / 位移一律不画）；第 5 处与它同一族的另两处（**工作表页签**
+`.excel-sheet.is-active` 的 `3px 3px 0 0` + `inset 0 -2px 0 status-running`、**终端页签**
+`.terminal-tab.is-active` 的 `inset 0 -1px 0 accent`）在第 27 节 o) 收口，旧声明直接从源头
+删掉（不留"被后写覆盖"的残留——P0-2 的 1/2/3 当初就是这么漏掉的）。
+
+自检结果（2026-09-24，`styles.css` 全文）：
+
+```
+inset 0 -2px 0 -> 0 处        inset 0 -1px 0 -> 0 处
+rgba(0, 0, 0 -> 3 处，全部在 :root[data-theme="dark"] 的 --overlay / --shadow / --shadow-sm
+              （token 定义，不在带圆角的规则里；token 本身的改写见 P0-3）
+```
+
 ---
 
 ## P0-3　重写阴影 token：现在的 `--shadow-sm` 本身就是一条"黑底边"
@@ -200,8 +216,10 @@ python docs/design/qoder-skin/tools/measure-skin.py gradient <截图> 270 4 1054
 | `.app-shell .icon-button.action-button.primary-button` | `999px`（圆键） | **改 `var(--r-md)`**——实机是 35×35 的**圆角方**，角剖面 6–8px（圆的话该是 17.5px）。见设计语言 3.1 |
 | `.composer` | `var(--r-2xl)` = 16px | 改 `var(--r-xl)` = 14px |
 | `.conversation-tab, .right-tab` | `r-md r-md 0 0`（4 处） | **删**，改 `var(--r-md)` 全圆角 + 胶囊填充（P0-2） |
-| 33 处 `border-radius: 999px` | 见下 | 逐类判定 |
-| 非 token 硬编码半径 | `8px×4 / 5px×2 / 6px / 4px / 3px / 2px / 1px` 共 10 处 | 收敛到 token（4px→`--r-xs`、6px→`--r-sm`、8px→`--r-md`、1–3px 归 `--r-xs` 或 0） |
+| **`.workspace`（对话区整块 panel）** | `border-radius: 0`（直角） | **✅ 已落地 `var(--r-md)`(8px)**：实机量到 Qoder 的纸四角 7–8px 且四边不缩进（设计语言 3.1 新增那一行），圆角里露的是壳的渐变、不需要留白槽；子节点由既有 `overflow: hidden` 一起裁圆（`styles.css` 第 27 节 n） |
+| `.excel-sheet` | `3px 3px 0 0`（硬编码 + 零圆角底边） | **✅ 收敛到 `var(--r-md)`**（第 27 节 o） |
+| 33 处 `border-radius: 999px` | 见下 | 逐类判定（现计数 **32**） |
+| 非 token 硬编码半径 | `8px×4 / 5px×2 / 6px / 4px / 3px / 2px / 1px` 共 10 处 | 收敛到 token（4px→`--r-xs`、6px→`--r-sm`、8px→`--r-md`、1–3px 归 `--r-xs` 或 0）；工作表页签那处已收敛 |
 | `--control-radius` | `var(--r-md)` | 保留（但页签不再用它） |
 
 **33 处 999px 的判定**：真胶囊（保留）——`.badge` `.chip` `.chat-chip` `.perm-chip`

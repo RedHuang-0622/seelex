@@ -97,6 +97,24 @@ test("团队库 head carries no annotation text", () => {
   assert.doesNotMatch(html, /team-rail-hint/);
 });
 
+test("员工栏只写本会话：档案编辑只在员工库，不再两处同名按钮写两份事实", () => {
+  const html = renderAgentTeam(goalView, presets, library, globalConfig);
+  const staffSection = html.slice(html.indexOf('aria-label="员工栏"'), html.indexOf('data-team-order-drop="end"'));
+
+  // 本会话的两件事还在：摘除（出工作顺序、留角色）与移出本会话（连注册表一起删）。
+  assert.match(staffSection, /data-team-action="remove"/);
+  assert.match(staffSection, /data-team-delete="tl"/);
+  // 档案编辑（提示词 / 权限 / 类型）从员工栏下线：唯一入口是员工库。
+  assert.doesNotMatch(staffSection, /data-team-edit="/);
+  assert.doesNotMatch(staffSection, />编辑</);
+  assert.match(html, /data-team-employee-edit="auditor"/);
+  // 回显的 chip 说清它是"本会话在编副本"，不再与员工库同句混读。
+  assert.match(staffSection, /title="工具权限（本会话在编副本）"/);
+  // 栏头 title 说明各自的事实域（不占版面：见上面 "head carries no annotation text"）。
+  assert.match(html, /team-rail-head" title="员工库（全局事实）[^"]*"/);
+  assert.match(html, /team-rail-head" title="员工栏（本会话）[^"]*"/);
+});
+
 test("员工栏 holds the working order and exposes drag handles + permissions", () => {
   const html = renderAgentTeam(goalView, presets, library);
   assert.match(html, /team-rail-head[\s\S]*?<span>员工栏<\/span>/);
