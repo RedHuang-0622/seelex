@@ -79,4 +79,6 @@ merge/rebase——切片与前端 commit 在同一条线上，`git worktree list
 - 全量 `go test ./...` 唯一的红与本切片无关：`sessionstore` 的
   `TestCommitNotBlockedByFullHistoryRead` 在并发跑全包时超 30ms 预算（无竞争中位 53.8ms、
   并发下提交 157.4ms），隔离 `-count=3` 复跑 3/3 绿。它测的是"一次全量历史读给提交加的
-  等待"，对 CPU 竞争敏感；本轮**没有**动它的预算，只在此留痕。
+  等待"，对 CPU 竞争敏感；本轮**没有**动它的预算，只在此留痕。后续在机器空下来时复跑
+  `go test ./... -count=1`：67 包全 ok、0 FAIL，这条也直接绿——确认它是竞争敏感，
+  不是本切片带回的回退；发布门禁里"看过一次全绿"这条由此满足。
