@@ -24,6 +24,13 @@ type TaskPort interface {
 	CountTranscriptEvent(model.TranscriptEvent) int
 	CurrentTaskExecution() *task_context.TaskExecutionState
 	CurrentTaskExecutionFor(sessionID string) *task_context.TaskExecutionState
+	// BeginSessionContextMaintenanceLocked 为没有在飞回合的会话（冷加载、刚
+	// 清空）打开会话级上下文维护身份，返回该身份；空串 = 没拿到（已有在飞
+	// 回合），调用方必须按既有纪元路径处理。调用方持有 Core.ViewMu。
+	BeginSessionContextMaintenanceLocked(sessionID string) string
+	// EndSessionContextMaintenanceLocked 撤销维护身份，保留压缩产生的上下文
+	// 状态（版本/压缩记录/checkpoint）。调用方持有 Core.ViewMu。
+	EndSessionContextMaintenanceLocked(sessionID, requestID string)
 	Transcript() []model.TranscriptEvent
 	TranscriptFor(sessionID string) []model.TranscriptEvent
 	RememberCheckpointLocked(model.TaskCheckpoint)

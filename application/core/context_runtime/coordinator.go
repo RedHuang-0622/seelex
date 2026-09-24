@@ -204,18 +204,28 @@ type CompactResult struct {
 	AssembledTokens int
 	SoftThreshold   int
 	HardThreshold   int
+	// NoEpoch 标记本次压缩落在**没有在飞回合**的会话上（冷加载、刚清空）：
+	// 折叠按会话级维护身份执行（见 task_context.SessionMaintenanceRequestPrefix），
+	// 而不是登记到"下一条消息"再兑现。回执据此说明这次压缩为什么能立刻生效。
+	NoEpoch bool
 }
 
 // CompactContextNow 主动压缩指定会话的可变 transcript（`/compact` 命令与
 // `compact_context` 工具的同一落点）：与引擎钩子走同一条 CompactTaskContextFor
-// 路径，但走**显式语义**——不设阈值前提（用户/模型明确要求即压），只要求该会话
-// 有匹配当前 request 的执行纪元。
+// 路径，但走**显式语义**——不设阈值前提（用户/模型明确要求即压）。
+//
+// 会话有没有在飞回合走两条路，**两条都当场压缩**：
+//   - 有匹配当前 request 的执行纪元 → 按该纪元折叠（显式路径正常落记录）；
+//   - 没有执行纪元（冷加载、刚清空）→ 打开会话级维护身份，立刻折叠**已装载**
+//     的上下文（含落盘、落记录、出帧正文），不再只登记到"下一条消息组装时
+//     兑现"——用户按下回车就是要现在看到结果，不能要求他再发一条消息。
+//     只有会话真的没有可折叠内容（transcript 与引擎历史都没有对话材料）时，
+//     才回落到登记语义（CompactScheduled）。
 //
 // 三种提前返回都如实分类，不伪造压缩、也不谎报理由：
-//   - 没有执行纪元（冷加载/刚清空）→ 登记"下一条消息组装时立即压缩"
-//     （CompactScheduled），不伪造一个假纪元；
-//   - 折叠已发生但记录被拒 → 引擎历史确实被有界 checkpoint 替换并按会话落盘，
-//     只是这条压缩没进记录面 → CompactFoldedUnrecorded。显式路径正常必落记录
+//   - 没有可折叠的请求上下文（空会话）→ 登记"下一条消息组装时立即压缩"
+//     （CompactScheduled），不伪造一个假回合；
+//   - 折叠已发生但记录被拒 → CompactFoldedUnrecorded。显式路径正常必落记录
 //     （记录门槛对显式来源放宽到"回合已收尾也记"），走到这里只可能是该请求的
 //     执行面已被新回合替换；自动路径在回合收尾后按口径不补记，也会落到这一类；
 //   - 判据没命中（显式路径正常不会发生，兜底）→ CompactBelowThreshold。
@@ -223,6 +233,11 @@ func (c *Coordinator) CompactContextNow(sessionID string) (CompactResult, error)
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
 		return CompactResult{}, errors.New("compact context: session id is required")
+	}
+	// 冷加载/刚清空：当场折叠已装载的上下文（返回 handled=false 表示这次该由
+	// 既有纪元路径处理：并发开了回合，或会话没有任何可折叠材料）。
+	if result, handled, err := c.compactSessionContextWithoutEpoch(sessionID); handled {
+		return result, err
 	}
 	state := c.tasks.CurrentTaskExecutionFor(sessionID)
 	if state == nil || strings.TrimSpace(state.RequestID) == "" {
@@ -257,6 +272,84 @@ func (c *Coordinator) CompactContextNow(sessionID string) (CompactResult, error)
 		result.Outcome = CompactFoldedUnrecorded
 	}
 	return result, nil
+}
+
+// compactSessionContextWithoutEpoch 处理"会话没有在飞回合"（冷加载、刚清空）
+// 的显式压缩：**立刻**折叠已装载的上下文，而不是登记到下一次装配。
+//
+// handled=false 表示本次不该由本分支负责，调用方继续按纪元路径处理：
+//   - 会话此刻已有在飞回合（并发开了新回合）；
+//   - 会话没有可折叠材料（引擎历史里没有对话消息、transcript 为空）——空会话
+//     折叠只会产出一条区间为空的记录，那是把"没做事"记成"做了事"，所以这里
+//     维持既有语义：登记下一条消息兑现（handled=true + CompactScheduled）。
+//
+// 维护身份的作用范围严格限定在这一次折叠内：拿到身份 → 折叠（落记录、出帧正文、
+// 替换引擎历史、按会话落盘）→ 撤销身份。期间不写 ChatState.Running、不设
+// Snapshot.Chat.RequestID、不建任务注册表条目，因此可见面上没有"有人在跑这个
+// 会话"的假信号。
+func (c *Coordinator) compactSessionContextWithoutEpoch(sessionID string) (CompactResult, bool, error) {
+	if state := c.tasks.CurrentTaskExecutionFor(sessionID); state != nil && strings.TrimSpace(state.RequestID) != "" {
+		return CompactResult{}, false, nil
+	}
+	if !c.hasFoldableSessionContext(sessionID) {
+		// 空会话：折叠只会产出一条区间为空的记录（把"没做事"记成"做了事"），
+		// 因此维持既有语义——登记为"下一条消息组装上下文时先压后发"。
+		c.ScheduleForceCompact(sessionID)
+		return CompactResult{Outcome: CompactScheduled}, true, nil
+	}
+	c.ViewMu.Lock()
+	requestID := c.tasks.BeginSessionContextMaintenanceLocked(sessionID)
+	c.ViewMu.Unlock()
+	if requestID == "" {
+		// 身份没拿到：期间会话开了回合（或已挂着别的身份）→ 交回调用方重判。
+		return CompactResult{}, false, nil
+	}
+	decision, err := c.forceCompactTaskContextFor(sessionID, requestID)
+	// 无论成败都撤销维护身份：留下一个假身份会让这个会话的后续压缩与回合
+	// 都拿不到干净的状态。
+	c.ViewMu.Lock()
+	c.tasks.EndSessionContextMaintenanceLocked(sessionID, requestID)
+	c.ViewMu.Unlock()
+	if err != nil {
+		return CompactResult{}, true, err
+	}
+	result := CompactResult{
+		Folded:          decision.Folded,
+		Recorded:        decision.Recorded,
+		Version:         decision.Version,
+		ComparedTokens:  decision.ComparedTokens,
+		AssembledTokens: decision.AssembledTokens,
+		SoftThreshold:   decision.SoftThreshold,
+		HardThreshold:   decision.HardThreshold,
+		NoEpoch:         true,
+	}
+	switch {
+	case !decision.Folded:
+		result.Outcome = CompactBelowThreshold
+	case decision.Recorded:
+		result.Outcome = CompactDone
+		if updated := c.tasks.CurrentTaskExecutionFor(sessionID); updated != nil && len(updated.ContextCompactions) > 0 {
+			result.Record = updated.ContextCompactions[len(updated.ContextCompactions)-1]
+		}
+	default:
+		result.Outcome = CompactFoldedUnrecorded
+	}
+	return result, true, nil
+}
+
+// hasFoldableSessionContext 判定会话是否装载了**可折叠的对话材料**：transcript
+// 有事件，或引擎历史里有非 system 消息（纯 system 前缀折叠不出任何区间，不算
+// 材料）。
+func (c *Coordinator) hasFoldableSessionContext(sessionID string) bool {
+	if len(c.tasks.TranscriptFor(sessionID)) > 0 {
+		return true
+	}
+	for _, message := range c.engineHistory(sessionID) {
+		if !strings.EqualFold(strings.TrimSpace(message.Role), "system") {
+			return true
+		}
+	}
+	return false
 }
 
 // sessionLocationLocked 返回指定会话的持久化定位（workspace 绑定优先；

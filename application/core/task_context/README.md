@@ -18,6 +18,17 @@ result-ref、token 审计（`CalibratedTokenCounter`）、plan 帧状态与 ReAc
   落盘前回填：`BackfillAssistantReasoning` 用引擎历史补齐 transcript 的
   reasoning 草稿，`MergeToolNarration` 把只进过视图的工具轮说明正文并入
   tool_call 事件（重启恢复的轨迹保留工具轮间的 LLM 输出与草稿）。
+- 做：**会话级上下文维护身份**（`session_context_maintenance.go`）。会话没有
+  在飞回合时（冷加载、刚清空）没有 `RequestID` 可折叠，`/compact` 过去只能
+  登记到"下一条消息"。`BeginSessionContextMaintenanceLocked` 给这种会话开一个
+  **带前缀的维护身份**（`SessionMaintenanceRequestPrefix`）并（在没有任务状态
+  时）按会话自己的事实建一份上下文状态：`RequestID` 与真实回合 ID 不可能混淆，
+  状态标记为 `StatusIdle`（前端状态面本就把"没有任务"渲染成 `idle`），不写
+  `ChatState.Running`、不设快照 `RequestID`、不建任务注册表条目；压缩结束后
+  `EndSessionContextMaintenanceLocked` 撤销身份，**保留**这次压缩产生的
+  `ContextVersion`/`ContextCompactions`/checkpoint（它们是会话的上下文事实，
+  不是回合事实）。已有上下文状态（冷恢复的 projection）时复用，不新建不覆盖；
+  已有在飞回合时拒绝发放身份（不抢占真实身份）。
 - 不做：会话持久化跨域事务、chat 流式编排、context 装配。
 
 ## 关键文件
@@ -29,6 +40,7 @@ result-ref、token 审计（`CalibratedTokenCounter`）、plan 帧状态与 ReAc
 | `task_execution.go` | `TaskExecutionState`/`NodeCheckpoint` 与证据/摘要。 |
 | `task_service.go` | `TaskService` 终态判定/打点工具 + Plan 投影读取。 |
 | `task_context_state.go` | transcript/checkpoint/result-ref/token 审计协调器。 |
+| `session_context_maintenance.go` | 会话级上下文维护身份（冷加载/刚清空会话的显式压缩入口）+ `StatusIdle`。 |
 | `token_counter.go` | 校准 token 计数器与上下文预算。 |
 | `plan_transcript.go` | Plan 投影 helper 与 transcript 协议单元收敛。 |
 
@@ -280,6 +292,14 @@ go test ./application/core/task_context -count=1
 ### role_fields_test.go
 
 - `func TestTranscriptRoleFieldsDefaults(t *testing.T)` — TestTranscriptRoleFieldsDefaults 钉住 R4 生产者默认：user 行开启新 round，
+
+### session_context_maintenance.go
+
+- `func SessionMaintenanceRequestID(sessionID string) string` — SessionMaintenanceRequestID 返回会话的维护身份（同会话可重复使用；压缩
+- `func (c *Coordinator) BeginSessionContextMaintenanceLocked(sessionID string) string` — BeginSessionContextMaintenanceLocked 为指定会话打开（或复用）会话级上下文
+- `func (c *Coordinator) EndSessionContextMaintenanceLocked(sessionID, requestID string)` — EndSessionContextMaintenanceLocked 撤销会话级上下文维护身份：把维护期间
+- `func sessionMaintenanceObjective(transcript []model.TranscriptEvent) string` — sessionMaintenanceObjective 取会话 transcript 里最后一条真实用户输入作为
+- `func truncateRunes(value string, limit int) string` — truncateRunes 按字符数有界截断（不切断多字节字符），带显式省略标记。
 
 ### task_context_state.go
 

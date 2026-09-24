@@ -59,6 +59,52 @@ wire）。守卫用例：`TestToolNarrationStaysWithOwningIteration`、
 `context_runtime/history.go` 的 doc 注释和研究文档 §7/§8 为准（本 README 不复制易变
 状态）。
 
+## 冷加载会话的 `/compact`：当场折叠，不再只登记（2026-09-24）
+
+**触发**：用户在刚冷加载的会话里执行 `/compact`，拿到的是「当前会话没有进行中的
+执行纪元（例如刚冷加载或刚清空），现在没有可折叠的请求上下文；已登记：下一条消息
+组装上下文前立即压缩」。他接着想问「我需要你的摘要内容」——而命令早已结束，登记的
+兑现要等下一条消息，用户看到的是「按了没反应」。
+
+**根因**：显式压缩的入口判据是「该会话有匹配当前 request 的执行纪元」
+（`CompactContextNow` 在 `state == nil || state.RequestID == ""` 时只登记）。冷加载
+会话的 transcript 与引擎历史**都已装载**，缺的只是"一个在飞回合的 RequestID"——
+把"没有在飞回合"读成了"没有可折叠的上下文"。2026-09-23 那轮拒绝"伪造纪元"是对的
+（伪造会把"有人在跑这个会话"写进可见面），但落成了"只登记"，等于把用户明确要求的
+压缩推迟到他自己再发一条消息。
+
+**改法**：新增**会话级维护身份**（`task_context/session_context_maintenance.go`）：
+`BeginSessionContextMaintenanceLocked` 给这类会话开一个带前缀的维护 `RequestID`
+（`session-maintenance:<sessionID>`），没有任务状态时按会话自己的事实（最后一条真实
+用户输入作 objective）建一份上下文状态，状态标记 `idle`；`CompactContextNow` 用它跑
+同一条显式折叠路径（判据量照算、记录照落、帧正文照出、引擎历史照换、按会话落盘），
+结束后 `EndSessionContextMaintenanceLocked` 撤销身份并保留压缩产生的
+`ContextVersion`/`ContextCompactions`/checkpoint。三条诚实约束：不写
+`ChatState.Running`、不设快照 `Chat.RequestID`、不建任务注册表条目；已有在飞回合时
+**拒绝**发放身份（退回纪元路径），压缩失败也**必须**撤销身份。空会话（transcript 与
+引擎历史都没有对话消息）维持登记语义——折叠空上下文只会产出一条区间为空的记录。
+
+**回执**：`explicit_after_turn` 来源不变，但结果面新增 `NoEpoch`（工具 JSON 字段
+`no_epoch`，omitempty），命令与工具共用的 `compactionRecordNote` 因此能说出
+「会话没有在飞回合（冷加载或刚清空），已按会话级显式压缩立即执行（折叠已装载的
+上下文并落记录，无需下一条消息）：已压缩上下文：v…」，并照旧回带帧正文 `frame_ref`
+（用户问「摘要内容」时读到的就是它，状态页「上下文压缩」条目可展开）。空区间时只有
+登记语义仍保留旧措辞，且把原因改成「没有在飞回合、也没有已装载的对话材料（空会话）」。
+
+**有牙证明**：把 `compactSessionContextWithoutEpoch` 开头改回 `return
+CompactResult{}, false, nil`（旧行为）后，
+`TestCompactContextWithoutTaskExecutionCompactsImmediately` 红在「冷加载会话必须
+当场压缩并留记录（不是登记）」、`TestCompactWithoutEpochKeepsExecutionFacesClean` 红在
+「压缩后会话应保留上下文状态」；撤销探针后两条全绿。
+`TestCompactEmptySessionRegistersAndRedeemsOnNextMessage` 钉住空会话的登记与"下一条
+消息兑现"仍在。
+
+**已知边界**（本轮不扩大范围）：① 压缩记录在**下一条消息的回合收尾持久化**后可能从
+`record.Execution.Task.ContextCompactions` 消失（回合状态按 `IsContinuableStatus`
+重建，不继承记录）——与本轮之前的"回合之间压缩"同一口径，帧正文仍可从内容存储按
+`frame_ref` 回读；② 冷加载且没有任务证据时，帧正文的证据区只有 objective/plan，
+区间与四区 token 事实照旧完整。
+
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
@@ -153,8 +199,11 @@ wire）。守卫用例：`TestToolNarrationStaysWithOwningIteration`、
 - `func TestCompactAfterTurnSurfacesRecordWithoutTaskFace(t *testing.T)` — TestCompactAfterTurnSurfacesRecordWithoutTaskFace：快照里还没有任务面时
 - `func TestCompactionFrameBodyIsReadableByRef(t *testing.T)` — TestCompactionFrameBodyIsReadableByRef：记录里的 frame_ref 真能读回帧正文——
 - `func TestAutoCompactionAfterTurnKeepsRecordGate(t *testing.T)` — TestAutoCompactionAfterTurnKeepsRecordGate：自动路径（软/硬阈值）在回合已
-- `func TestCompactContextWithoutTaskExecutionSchedulesNextAssembly(t *testing.T)` — TestCompactContextWithoutTaskExecutionSchedulesNextAssembly：会话没有任务
+- `func TestCompactContextWithoutTaskExecutionCompactsImmediately(t *testing.T)` — TestCompactContextWithoutTaskExecutionCompactsImmediately：会话没有任务执行
+- `func TestCompactWithoutEpochKeepsExecutionFacesClean(t *testing.T)` — TestCompactWithoutEpochKeepsExecutionFacesClean：会话级维护身份不得在可见面
+- `func TestCompactEmptySessionRegistersAndRedeemsOnNextMessage(t *testing.T)` — TestCompactEmptySessionRegistersAndRedeemsOnNextMessage：会话真的没有可折叠
 - `func TestCompactCommandRegisteredAndSharesPath(t *testing.T)` — TestCompactCommandRegisteredAndSharesPath：/compact 命令注册成功，且与工具
+- `func TestCompactCommandWithoutEpochFoldsImmediately(t *testing.T)` — TestCompactCommandWithoutEpochFoldsImmediately：命令入口（用户真的按回车的
 - `func TestCompactCommandNoticeReportsFoldedRange(t *testing.T)` — TestCompactCommandNoticeReportsFoldedRange：记录分支的提示只说**记录里已有的
 - `func TestCompactionRangeLabel(t *testing.T)` — TestCompactionRangeLabel：区间渲染只在**有边界**时成段——空区间返回空串
 - `func TestCompactCommandNeverReportsFoldWithoutRecord(t *testing.T)` — TestCompactCommandNeverReportsFoldWithoutRecord：/compact 是显式路径，只要

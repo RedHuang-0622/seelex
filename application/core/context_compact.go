@@ -26,11 +26,15 @@ import (
 //	ComparedTokens  = 压缩判据量（全量累积/引擎缓存峰值的请求估算）
 //	EstimatedTokens = 装配后估算（真正发给 provider 的请求大小）
 type ContextCompactionResult struct {
-	Compacted bool   `json:"compacted"`
-	Recorded  bool   `json:"recorded,omitempty"`
-	Scheduled bool   `json:"scheduled,omitempty"`
-	Version   uint64 `json:"version,omitempty"`
-	Reason    string `json:"reason,omitempty"`
+	Compacted bool `json:"compacted"`
+	Recorded  bool `json:"recorded,omitempty"`
+	Scheduled bool `json:"scheduled,omitempty"`
+	// NoEpoch 标记这次压缩发生在**没有在飞回合**的会话上（冷加载、刚清空）：
+	// 折叠按会话级维护身份执行（task_context.SessionMaintenanceRequestPrefix），
+	// 当场生效、不依赖下一条消息。回执据此说明为什么"按了就有结果"。
+	NoEpoch bool   `json:"no_epoch,omitempty"`
+	Version uint64 `json:"version,omitempty"`
+	Reason  string `json:"reason,omitempty"`
 	// MessagesBefore 是**装配前的引擎历史条数**（engineHistory 长度），不是被压
 	// 的 transcript 消息数：冷加载/路由会话里它合法为 0，而同一时刻的区间字段
 	// （MessageFrom/To、EventFrom/To）仍然记得住"从哪压到哪"。用户可见的折叠
@@ -81,8 +85,16 @@ func compactionReasonLabel(reason string) string {
 //
 // 只印记录里**已有**的事实：区间空就不印区间段，判据量与装配量分开报
 // （混用会说出「129409 tokens 未达阈值 118962」这种自相矛盾的话）。
+//
+// `/compact` 命令与 `compact_context` 工具共用这一句（命令侧不套自己的模板）：
+// 因此"这次压缩为什么能当场生效"（无在飞回合的会话级压缩）也必须写在这里，
+// 否则命令回执会把 NoEpoch 这件事悄悄丢掉。
 func compactionRecordNote(result ContextCompactionResult) string {
 	var builder strings.Builder
+	if result.NoEpoch {
+		builder.WriteString("会话没有在飞回合（冷加载或刚清空），已按会话级显式压缩立即执行" +
+			"（折叠已装载的上下文并落记录，无需下一条消息）：")
+	}
 	builder.WriteString("已压缩上下文：v")
 	builder.WriteString(strconv.FormatUint(result.Version, 10))
 	builder.WriteString("（")
@@ -114,8 +126,13 @@ func compactionRangeLabel(result ContextCompactionResult) string {
 }
 
 // CompactContextNow 压缩当前执行会话（命令/工具共用）：会话从 ctx 解析，
-// ctx 没带时回退视图会话；没有任务执行纪元时返回 Compacted=false 的结果
-// （不是错误——"现在没有可压缩的活"不是故障）。
+// ctx 没带时回退视图会话。
+//
+// 会话**有没有在飞回合都当场压缩**：有匹配 request 的执行纪元就按该纪元折叠；
+// 只有已装载的上下文而没有在飞回合（冷加载、刚清空）时按会话级维护身份立刻
+// 折叠已装载的上下文——用户按下回车就是要看到结果，不能要求他再发一条消息。
+// 唯一例外是会话真的没有可折叠材料（空会话）：此时登记为"下一条消息组装时
+// 立即压缩"（CompactScheduled），"没有可折叠的活"不是错误。
 func (service *Service) CompactContextNow(ctx context.Context) (ContextCompactionResult, error) {
 	if service == nil {
 		return ContextCompactionResult{}, errors.New("compact context: service is unavailable")
@@ -135,11 +152,26 @@ func (service *Service) CompactContextNow(ctx context.Context) (ContextCompactio
 	}
 	switch outcome.Outcome {
 	case context_runtime.CompactDone:
+		// 无在飞回合的会话级压缩由 compactionRecordNote 在同一句里说明
+		// （命令与工具共用那一句，见其 doc 注释）。
 		return newContextCompactionResult(outcome), nil
 	case context_runtime.CompactFoldedUnrecorded:
 		// 折叠确实发生了（引擎历史已换成有界 checkpoint 并按会话落盘），只是
 		// 这一轮是**自动路径**（软/硬阈值）且执行已收尾——自动压缩记录只在
 		// 任务执行中写，故不补记。如实说明，不谎报"未达阈值"。
+		if outcome.NoEpoch {
+			return ContextCompactionResult{
+				Compacted:       true,
+				Version:         outcome.Version,
+				EstimatedTokens: outcome.AssembledTokens,
+				ComparedTokens:  outcome.ComparedTokens,
+				SoftThreshold:   outcome.SoftThreshold,
+				HardThreshold:   outcome.HardThreshold,
+				Note: "会话没有在飞回合（冷加载或刚清空），已按会话级显式压缩立刻折叠已装载的上下文" +
+					"（引擎历史已换成压缩形态并按会话落盘）；但这条压缩没有进记录面（该会话的上下文状态被新回合替换），" +
+					"故本次不留记录。原始轮次仍在会话存储里，可用 read_tool_result / read_compressed_turn / search_history 回读。",
+			}, nil
+		}
 		return ContextCompactionResult{
 			Compacted:       true,
 			Version:         outcome.Version,
@@ -152,10 +184,12 @@ func (service *Service) CompactContextNow(ctx context.Context) (ContextCompactio
 				"故本次不留记录。原始轮次仍在会话存储里，可用 read_tool_result / read_compressed_turn / search_history 回读。",
 		}, nil
 	case context_runtime.CompactScheduled:
-		// 没有执行纪元：不伪造纪元、也不假装压过；登记为下一次装配兑现。
+		// 没有在飞回合、也没有已装载的对话材料（空会话）：不伪造纪元，也不折叠
+		// 空上下文（那只会产出一条区间为空的记录，等于把"没做事"记成"做了事"），
+		// 登记为下一次装配兑现。
 		return ContextCompactionResult{
 			Scheduled: true,
-			Note: "当前会话没有进行中的执行纪元（例如刚冷加载或刚清空），现在没有可折叠的请求上下文；" +
+			Note: "会话没有在飞回合（刚冷加载或刚清空），也没有已装载的对话材料（空会话）：现在没有可折叠的请求上下文；" +
 				"已登记：下一条消息组装上下文前立即压缩，压缩结果对那条消息生效。",
 		}, nil
 	default:
@@ -202,6 +236,7 @@ func newContextCompactionResult(outcome context_runtime.CompactResult) ContextCo
 	result := ContextCompactionResult{
 		Compacted:       true,
 		Recorded:        true,
+		NoEpoch:         outcome.NoEpoch,
 		Version:         record.Version,
 		Reason:          record.Reason,
 		Origin:          record.Origin,

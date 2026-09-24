@@ -295,22 +295,144 @@ func TestAutoCompactionAfterTurnKeepsRecordGate(t *testing.T) {
 	}
 }
 
-// TestCompactContextWithoutTaskExecutionSchedulesNextAssembly：会话没有任务
-// 执行纪元（刚冷加载/刚清空）时不伪造纪元——登记为「下一次装配时立即压缩」，
-// 且该登记在下一条消息组装上下文时真的兑现（低阈值也折叠）。
-func TestCompactContextWithoutTaskExecutionSchedulesNextAssembly(t *testing.T) {
+// TestCompactContextWithoutTaskExecutionCompactsImmediately：会话没有任务执行
+// 纪元（刚冷加载/刚清空）时**当场折叠已装载的上下文**，不再只回一句「已登记」。
+//
+// 触发：用户在冷加载的会话里按下 `/compact`，只拿到「已登记：下一条消息组装
+// 上下文前立即压缩」，而他接着问「我需要你的摘要内容」——那时命令早已结束，
+// 登记的兑现要等下一条消息，用户看到的是「什么都没发生」。冷加载的会话并不缺
+// 可折叠的上下文（transcript 与引擎历史都已装载），缺的只是「一个在飞回合的
+// RequestID」；这条用例钉住会话级维护身份把这件事补上：折叠、落记录、出帧正文
+// 一次做完。
+func TestCompactContextWithoutTaskExecutionCompactsImmediately(t *testing.T) {
 	runtime := runtimeWithContextLimits{fakeRuntime: &fakeRuntime{}, window: 200_000, output: 8_192}
 	engine := &fakeEngine{}
 	service := newTestService(t, engine, withTestRuntime(runtime))
 	sessionID := service.Snapshot().Session.ID
-	marks := appendWindowRounds(t, service, "task-scheduled", 2, 400)
+	marks := appendWindowRounds(t, service, "task-cold", 4, 2_000)
+	// 冷加载的引擎历史：稳定 system 前缀 + 一段**不属于 transcript** 的旧对话
+	// （真实冷恢复会装载它）。折叠后这段必须退出 provider 历史，否则「折叠」
+	// 只是记录里的说法。
+	if err := service.replaceEngineHistory(sessionID, []EngineMessage{
+		{Role: "system", Content: "cold-load system prefix", ContentSet: true},
+		{Role: "user", Content: "stale-question-not-in-transcript", ContentSet: true},
+		{Role: "assistant", Content: "stale-answer-not-in-transcript", ContentSet: true},
+	}); err != nil {
+		t.Fatalf("装载引擎历史: %v", err)
+	}
+
+	ctx := task_context.WithSessionID(context.Background(), sessionID)
+	result, err := service.CompactContextNow(ctx)
+	if err != nil {
+		t.Fatalf("CompactContextNow: %v", err)
+	}
+	if !result.Compacted || !result.Recorded || result.Scheduled {
+		t.Fatalf("冷加载会话必须当场压缩并留记录（不是登记）：%+v", result)
+	}
+	if result.Origin != model.CompactionOriginExplicitAfterTurn {
+		t.Fatalf("来源 = %q, want %q", result.Origin, model.CompactionOriginExplicitAfterTurn)
+	}
+	if strings.Contains(result.Note, "已登记") {
+		t.Fatalf("立即压缩的回执不得再说「已登记」：%q", result.Note)
+	}
+	if !strings.Contains(result.Note, "已压缩上下文") || result.FrameRef == "" {
+		t.Fatalf("回执应成句并回带帧正文引用（用户要看的摘要就是这一份）：%+v", result)
+	}
+	if result.EventFrom == 0 && result.MessageFrom == "" {
+		t.Fatalf("记录应带被压区间：%+v", result)
+	}
+	// 帧正文可按 ref 读回：用户问「我需要你的摘要内容」时读到的就是它。
+	page, err := service.ToolResultContent(ctx, result.FrameRef, 0, 0)
+	if err != nil {
+		t.Fatalf("按 ref 读帧正文: %v", err)
+	}
+	if !strings.Contains(page.Content, "Context checkpoint frame v") {
+		t.Fatalf("读回的正文不是帧正文：%q", page.Content)
+	}
+	// 引擎历史确实被换成压缩形态：旧对话退出、稳定前缀与最新窗口保留。
+	history := engine.History()
+	joined := ""
+	for _, message := range history {
+		joined += message.Content + "\n"
+	}
+	if strings.Contains(joined, "stale-question-not-in-transcript") {
+		t.Fatal("折叠后旧引擎历史仍在 provider 历史里——折叠没真的发生")
+	}
+	if !strings.Contains(joined, "cold-load system prefix") {
+		t.Fatal("压缩后稳定 system 前缀必须保留（缓存友好）")
+	}
+	kept := retainedRounds(history, marks)
+	if kept == 0 {
+		t.Fatal("保留窗口应留下最新轮次（协议单元不可拆分，不得压成空历史）")
+	}
+	if kept >= len(marks) {
+		t.Fatalf("窗口外的旧轮次应被折出 provider 历史：kept=%d want<%d", kept, len(marks))
+	}
+	// 记录与帧进快照可见面（前端「上下文压缩」列表读的就是它）。
+	service.ViewMu.RLock()
+	state := service.components.tasks.CurrentTaskExecutionFor(sessionID)
+	snapshotTask := service.Core.Snapshot.Task
+	service.ViewMu.RUnlock()
+	if state == nil || len(state.ContextCompactions) != 1 {
+		t.Fatalf("会话上下文状态应留下一条压缩记录：%#v", state)
+	}
+	if snapshotTask == nil || len(snapshotTask.ContextCompactions) != 1 {
+		t.Fatalf("压缩记录应进快照可见面：%#v", snapshotTask)
+	}
+}
+
+// TestCompactWithoutEpochKeepsExecutionFacesClean：会话级维护身份不得在可见面
+// 上冒充「有人在跑这个会话」，且必须在压缩结束后撤销——残留一个假身份会让这个
+// 会话后续的回合与压缩都拿不到干净的状态。
+func TestCompactWithoutEpochKeepsExecutionFacesClean(t *testing.T) {
+	runtime := runtimeWithContextLimits{fakeRuntime: &fakeRuntime{}, window: 200_000, output: 8_192}
+	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
+	sessionID := service.Snapshot().Session.ID
+	appendWindowRounds(t, service, "task-cold-faces", 2, 400)
+
+	service.ViewMu.RLock()
+	beforeRunning, beforeRequest := service.Core.Snapshot.Chat.Running, service.Core.Snapshot.Chat.RequestID
+	service.ViewMu.RUnlock()
+
+	if _, err := service.CompactContextNow(task_context.WithSessionID(context.Background(), sessionID)); err != nil {
+		t.Fatalf("CompactContextNow: %v", err)
+	}
+
+	service.ViewMu.RLock()
+	afterRunning, afterRequest := service.Core.Snapshot.Chat.Running, service.Core.Snapshot.Chat.RequestID
+	state := service.components.tasks.CurrentTaskExecutionFor(sessionID)
+	service.ViewMu.RUnlock()
+	if afterRunning != beforeRunning || afterRequest != beforeRequest {
+		t.Fatalf("冷加载压缩不该动执行面：Running %v→%v, RequestID %q→%q",
+			beforeRunning, afterRunning, beforeRequest, afterRequest)
+	}
+	if state == nil {
+		t.Fatal("压缩后会话应保留上下文状态（版本/记录/checkpoint 的落点）")
+	}
+	if state.RequestID != "" {
+		t.Fatalf("维护身份必须在压缩结束后撤销，实际 RequestID=%q", state.RequestID)
+	}
+	if state.Status != task_context.StatusIdle {
+		t.Fatalf("会话上下文状态应标记为 %q（没有在飞回合），实际 %q", task_context.StatusIdle, state.Status)
+	}
+}
+
+// TestCompactEmptySessionRegistersAndRedeemsOnNextMessage：会话真的没有可折叠
+// 材料（新建/刚清空的空会话）时，等待登记仍是如实的回答——把空上下文折一遍只会
+// 产出一条区间为空的记录，那是把「没做事」记成「做了事」。这条用例同时钉住登记
+// 的兑现路径：下一条消息组装上下文时先压后发。
+func TestCompactEmptySessionRegistersAndRedeemsOnNextMessage(t *testing.T) {
+	runtime := runtimeWithContextLimits{fakeRuntime: &fakeRuntime{}, window: 200_000, output: 8_192}
+	engine := &fakeEngine{}
+	service := newTestService(t, engine, withTestRuntime(runtime))
+	sessionID := service.Snapshot().Session.ID
 
 	result, err := service.CompactContextNow(task_context.WithSessionID(context.Background(), sessionID))
 	if err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}
 	if result.Compacted || !result.Scheduled {
-		t.Fatalf("无纪元时应登记而不是假装压缩：%+v", result)
+		t.Fatalf("没有可折叠材料时应登记而不是假装压缩：%+v", result)
 	}
 	if !strings.Contains(result.Note, "已登记") {
 		t.Fatalf("结果面应说明已登记：%q", result.Note)
@@ -320,11 +442,12 @@ func TestCompactContextWithoutTaskExecutionSchedulesNextAssembly(t *testing.T) {
 	}
 
 	// 下一条消息：新纪元建立后装配上下文 → 登记的强压兑现（判据量远低于软阈值）。
+	marks := appendWindowRounds(t, service, "task-empty", 2, 400)
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-scheduled-next"}
-	service.components.tasks.BeginTask("task-scheduled-next", "next", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-empty-next"}
+	service.components.tasks.BeginTask("task-empty-next", "next", "high", nil, TaskCheckpoint{})
 	service.ViewMu.Unlock()
-	if _, err := service.components.context.PrepareExecutionContextFor(sessionID, "task-scheduled-next", "next"); err != nil {
+	if _, err := service.components.context.PrepareExecutionContextFor(sessionID, "task-empty-next", "next"); err != nil {
 		t.Fatalf("装配 provider 上下文: %v", err)
 	}
 	if kept := retainedRounds(engine.History(), marks); kept >= len(marks) {
@@ -352,6 +475,42 @@ func TestCompactCommandRegisteredAndSharesPath(t *testing.T) {
 	}
 	if strings.Contains(result.Notice, "未达压缩阈值") {
 		t.Fatalf("/compact 不得在显式调用下声称未达阈值：%q", result.Notice)
+	}
+}
+
+// TestCompactCommandWithoutEpochFoldsImmediately：命令入口（用户真的按回车的
+// 那条路）在冷加载会话上同样当场折叠，回执必须说明"不必等下一条消息"，并且
+// 帧正文引用随回执回带——用户接着问"我需要你的摘要内容"时读的就是它。
+func TestCompactCommandWithoutEpochFoldsImmediately(t *testing.T) {
+	runtime := runtimeWithContextLimits{fakeRuntime: &fakeRuntime{}, window: 200_000, output: 8_192}
+	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
+	appendWindowRounds(t, service, "task-command-cold", 2, 400)
+
+	command, ok := service.commands.Get("compact")
+	if !ok {
+		t.Fatal("/compact 未注册")
+	}
+	result, err := command.Execute(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("/compact: %v", err)
+	}
+	if !strings.Contains(result.Notice, "已压缩上下文") {
+		t.Fatalf("/compact 提示 = %q", result.Notice)
+	}
+	if strings.Contains(result.Notice, "已登记") {
+		t.Fatalf("冷加载会话的 /compact 不该只回一句已登记：%q", result.Notice)
+	}
+	if !strings.Contains(result.Notice, "立即执行") {
+		t.Fatalf("回执应说明这次压缩当场生效（不必等下一条消息）：%q", result.Notice)
+	}
+	if strings.Contains(result.Notice, "read_compressed_turn") == false {
+		t.Fatalf("回执应保留回读指引：%q", result.Notice)
+	}
+	service.ViewMu.RLock()
+	task := service.Core.Snapshot.Task
+	service.ViewMu.RUnlock()
+	if task == nil || len(task.ContextCompactions) != 1 {
+		t.Fatalf("压缩记录应进快照可见面（状态页「上下文压缩」列表）：%#v", task)
 	}
 }
 

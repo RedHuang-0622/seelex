@@ -14,6 +14,32 @@ version when it lands.
 
 ### Fixed
 
+- **`/compact` on a freshly cold-loaded session folds right away instead of telling you to
+  send another message first.** Pressing `/compact` in a session that had just been
+  cold-loaded (or just cleared) returned only
+  *「已登记：下一条消息组装上下文前立即压缩」*; the user's next question — “I need your
+  summary content” — ran after the command had already ended, so the promised fold looked
+  like nothing happened. The gate read “no in-flight turn” as “nothing to fold”: the
+  transcript and the engine history were both loaded, only the request epoch (a `RequestID`)
+  was missing. The 2026-09-23 refusal to *fake* an epoch still holds (a real epoch would leak
+  “someone is running this session” into `ChatState.Running` / the task registry / the snapshot
+  `RequestID`), so `task_context` now lends the session a **session-level maintenance identity**
+  (`session-maintenance:<sessionID>`, `StatusIdle`): `compactSessionContextWithoutEpoch` folds
+  the loaded context through the same explicit path (criteria, record, frame body,
+  engine-history replacement, per-session persistence), then revokes the identity — it never
+  writes `ChatState.Running`, never sets the snapshot `Chat.RequestID` and never creates a
+  task-registry entry. A session with genuinely nothing to fold (a new / just-cleared **empty**
+  session) keeps the registered semantics, since folding an empty context would only produce an
+  empty-range record — booking “did nothing” as “did something”. `ContextCompactionResult`
+  gains `NoEpoch` (`no_epoch`, omitempty) so the shared `compactionRecordNote` — used by both
+  the command and the tool — says why the fold landed immediately and still carries the frame
+  `frame_ref`. Teeth: `TestCompactContextWithoutTaskExecutionCompactsImmediately`,
+  `TestCompactWithoutEpochKeepsExecutionFacesClean` (no execution face is left behind and the
+  identity is revoked) and `TestCompactCommandWithoutEpochFoldsImmediately`;
+  `TestCompactEmptySessionRegistersAndRedeemsOnNextMessage` pins the unchanged empty-session
+  register-and-redeem path. See
+  [`docs/devlog/2026-09-24-cold-load-compact-immediate.md`](docs/devlog/2026-09-24-cold-load-compact-immediate.md).
+
 - **The governance panel now reports *why* a round did not advance, instead of guessing from a
   wall clock.** `active · Round 0 · peer advisory_pending · governance stalled` was never a
   backend state: `goalCoordinator` stamped `heartbeat_at` on every advance and
@@ -132,15 +158,14 @@ version when it lands.
   — the **assembled** request size, not the quantity the gate compared — producing
   sentences like “当前上下文估算 129409 tokens，未达压缩阈值 118962”. Now: the explicit path
   folds unconditionally (`forceCompact` is a third fold criterion next to soft/hard
-  threshold, still requiring a matching request epoch), the decision facts
+  threshold — a cold-loaded session with loaded material now folds immediately through a
+  session-level maintenance identity, see the entry above), the decision facts
   (`ComparedTokens` / `AssembledTokens` / both thresholds) travel back in
   `CompactResult`, and the notice says what actually happened: compacted+recorded,
-  folded-but-refused-a-record or scheduled. A session with **no
-  execution epoch** (just cold-loaded / just cleared) no longer gets a refusal either:
-  the request is registered and honoured on the next context assembly (`ScheduleForceCompact`),
-  so the compaction lands in the very next message. Teeth:
-  `TestCompactManualFoldsBelowThreshold` and
-  `TestCompactContextWithoutTaskExecutionSchedulesNextAssembly` turn red when the explicit
+  folded-but-refused-a-record or scheduled. A session that is genuinely **empty**
+  (just cold-loaded with no messages / just cleared) is registered and honoured on the
+  next context assembly (`ScheduleForceCompact`), so the compaction lands in the very
+  next message. Teeth: `TestCompactManualFoldsBelowThreshold` turns red when the explicit
   path is put back behind the soft threshold;
   `TestCompactCommandNeverReportsFoldWithoutRecord` keeps the after-turn behaviour pinned.
 - **The `/compact` notice no longer prints a record-shaped sentence when no record

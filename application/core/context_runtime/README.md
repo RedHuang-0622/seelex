@@ -21,6 +21,16 @@
   `TranscriptTailHistory` 降级保留最新完整单元，`fitExecutionHistory` 最终
   兜底不再走 `events=nil` 的空历史分支；真正超出全量预算时由
   `PrepareExecutionContextFor` 返回 `ErrProviderContextBudgetExceeded`。
+- 做：**显式压缩（`/compact`、`compact_context`）两条路径都当场折叠**
+  （`CompactContextNow`）：有匹配 request 的执行纪元 → 按该纪元折叠；会话没有
+  在飞回合（冷加载、刚清空）→ 向 task 域借一个**会话级维护身份**
+  （`BeginSessionContextMaintenanceLocked`）折叠已装载的上下文，折叠结束即撤销
+  身份（`EndSessionContextMaintenanceLocked`）。这条路径不伪造回合：不写
+  `ChatState.Running`、不设快照 `Chat.RequestID`、不建任务注册表条目；压缩记录与
+  帧正文照常落到该会话的上下文状态与可见快照。只有会话真的没有可折叠材料
+  （`hasFoldableSessionContext`：transcript 与引擎历史都没有对话消息）时才回到
+  登记语义（`ScheduleForceCompact` → 下一条消息装配时先压后发）——折叠空上下文
+  只会产出一条区间为空的记录，那是把"没做事"记成"做了事"。
 - 做：**工具配对归一化**（`RepairInterruptedToolChains`，随
   `PrepareProviderHistory` 一起跑）。provider 的规则是"每条 `tool` 消息必须
   紧跟携带其 `tool_calls` 的 assistant 消息"，不是"历史里存在配对"——历史里
@@ -102,6 +112,11 @@ Review 重点：持锁不得调用外部端口、压缩后历史必须保留 sys
 路径由 `history_safety.go` 单独负责）、累积段字节稳定（已定稿轮次不重排/
 不改写，压缩是唯一使前缀失效的事件）、plan/task 尾部不参与压缩、provider
 投影不得事后补写（工具轮正文归零、空工具结果保持空，否则跨轮前缀失效）。
+无纪元显式压缩（冷加载会话）另有三条：① 不得伪造真实回合纪元——只能用
+会话级维护身份，且身份必须成对撤销（异常路径也要撤销，否则会话停在假身份
+上）；② 不得在可见面留下"正在执行"信号（`ChatState.Running`/快照
+`Chat.RequestID`/任务注册表条目一律不动，状态是 `idle`）；③ 身份发放前必须
+重判一次"会话此刻有没有在飞回合"，并发开回合时退回纪元路径或登记，不抢占。
 工具配对的两条独立要求不要混：**记录内不得留孤儿/重复**（归一化剔除）与
 **结果必须与声明相邻**（归一化重排）——只补不排就是 2026-09-17 的 400。
 新增/修改归一化规则时同步 `looksLikeProviderValidToolPairs`（provider 规则的
@@ -152,6 +167,8 @@ go test ./application/core/context_runtime -count=1
 - `func (c *Coordinator) forceCompactTaskContextFor(sessionID, requestID string) (compactDecision, error)` — forceCompactTaskContextFor 是显式压缩入口（/compact、compact_context）：
 - `func (c *Coordinator) compactTaskContextFor(sessionID, requestID string, options prepareOptions) error`
 - `func (c *Coordinator) CompactContextNow(sessionID string) (CompactResult, error)` — CompactContextNow 主动压缩指定会话的可变 transcript（`/compact` 命令与
+- `func (c *Coordinator) compactSessionContextWithoutEpoch(sessionID string) (CompactResult, bool, error)` — compactSessionContextWithoutEpoch 处理"会话没有在飞回合"（冷加载、刚清空）
+- `func (c *Coordinator) hasFoldableSessionContext(sessionID string) bool` — hasFoldableSessionContext 判定会话是否装载了**可折叠的对话材料**：transcript
 - `func (c *Coordinator) sessionLocationLocked(sessionID string) session_runtime.Location` — sessionLocationLocked 返回指定会话的持久化定位（workspace 绑定优先；
 - `func (c *Coordinator) PrepareExecutionContext(requestID, currentInput string) (string, error)` — PrepareExecutionContext 从 durable task 状态与完整 transcript 单元重建
 - `func (c *Coordinator) PrepareExecutionContextFor(sessionID, requestID, currentInput string) (string, error)` — PrepareExecutionContextFor 从 durable task 状态与完整 transcript 单元重建
