@@ -204,6 +204,10 @@ type CompactResult struct {
 	AssembledTokens int
 	SoftThreshold   int
 	HardThreshold   int
+	// Gates 是本轮门禁的逐关实测耗时（权威顺序，与进度事件同源）。显式路径的
+	// 回执据此自带"走了哪几关、各花多久"：进度事件是瞬态、不进快照、终局后
+	// ~2.5s 撤条，只靠它用户按完回车再抬头就什么都看不到了。
+	Gates []CompactionGateTiming
 	// NoEpoch 标记本次压缩落在**没有在飞回合**的会话上（冷加载、刚清空）：
 	// 折叠按会话级维护身份执行（见 task_context.SessionMaintenanceRequestPrefix），
 	// 而不是登记到"下一条消息"再兑现。回执据此说明这次压缩为什么能立刻生效。
@@ -256,6 +260,7 @@ func (c *Coordinator) CompactContextNow(sessionID string) (CompactResult, error)
 		AssembledTokens: decision.AssembledTokens,
 		SoftThreshold:   decision.SoftThreshold,
 		HardThreshold:   decision.HardThreshold,
+		Gates:           decision.Gates,
 	}
 	switch {
 	case decision.NoEpoch:
@@ -321,6 +326,7 @@ func (c *Coordinator) compactSessionContextWithoutEpoch(sessionID string) (Compa
 		AssembledTokens: decision.AssembledTokens,
 		SoftThreshold:   decision.SoftThreshold,
 		HardThreshold:   decision.HardThreshold,
+		Gates:           decision.Gates,
 		NoEpoch:         true,
 	}
 	switch {
@@ -394,7 +400,12 @@ type compactDecision struct {
 	AssembledTokens int // 装配后估算（estimated，真正发给 provider 的大小）
 	SoftThreshold   int
 	HardThreshold   int
-	NoEpoch         bool // 没有可折叠的执行纪元（state == nil 或 requestID 不匹配）
+	// Gates 是本轮门禁的逐关实测耗时（权威顺序，与进度事件同一份数字）。
+	// 显式路径的调用方据此把"走了哪几关、各花多久"带回用户：进度事件是瞬态
+	// （revision=0、不进快照、终局后 ~2.5s 撤条），只靠它，用户按完回车再抬头
+	// 就什么都看不到了——回执必须自己拿得住这份事实。
+	Gates   []CompactionGateTiming
+	NoEpoch bool // 没有可折叠的执行纪元（state == nil 或 requestID 不匹配）
 }
 
 // prepareOptions 是装配的可选语义（零值 = 自动路径）。
@@ -708,6 +719,9 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 			options.decision.AssembledTokens = estimated
 			options.decision.SoftThreshold = budget.SoftThreshold
 			options.decision.HardThreshold = budget.HardThreshold
+			// 逐关耗时在 6 关全部收口之后取（record 关在上方已发），因此这份
+			// 清单不会缺最后一关。
+			options.decision.Gates = progress.GateTimings()
 		}
 	}
 	c.ViewMu.Unlock()

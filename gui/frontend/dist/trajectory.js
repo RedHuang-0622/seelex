@@ -12,6 +12,7 @@
 import {
   compactionCutLabel,
   compactionCutTitle,
+  compactionFrontier,
   compactionOriginLabel,
   compactionRangeText,
   compactionReasonLabel
@@ -497,7 +498,7 @@ export function compactionMarks(records = [], compactions = [], view = {}) {
   // 同一锚点上的多个刻度会落在同一个 x（同一件事的重复记录、或都被钳到页边界）：
   // 给它们一个 0,1,2… 的错位序号，渲染时朝轨道内侧横向错开，保证每个刻度都能点。
   const stacks = new Map();
-  return list.map((compaction, index) => {
+  const marks = list.map((compaction, index) => {
     const anchor = compactionAnchorIndex(rows, compaction.compacted_at);
     const aligned = anchor >= 0 ? (anchor + 1 - window.start) * window.slot : null;
     let offPage = "";
@@ -537,6 +538,17 @@ export function compactionMarks(records = [], compactions = [], view = {}) {
       page: window.page
     };
   });
+  // 会话单例分界：只给**前沿**那一个刻度打标记（被折出保留窗口的最后一条消息；
+  // 判定与右栏、对话区分界共用 compactionFrontier，同一份口径）。分界说明改用
+  // 前沿的合并区间——"以上"指的是整段已折出的上下文，只报最后一次折叠会漏掉
+  // 更早的那一段。
+  const frontier = compactionFrontier(list);
+  if (frontier && marks[frontier.index]) {
+    marks[frontier.index].isFrontier = true;
+    marks[frontier.index].cutLabel = compactionCutLabel(frontier);
+    marks[frontier.index].cutTitle = compactionCutTitle(frontier);
+  }
+  return marks;
 }
 
 // renderAxisDetail 渲染被点中的元数据块详情（全部 escape，无未受控注入）。
@@ -678,29 +690,37 @@ function compressionMarkWhere(mark) {
   return "刻度=锚定记录槽位的右边界（与记录轨同序号坐标）";
 }
 
-// renderCompressionCutRow 渲染「分界」轨：每个压缩刻度处画一条竖向虚线，并在
-// 线上标注「以上 … 已被折叠」——刻度只说"这里压过"，虚线才回答"从哪以上被折掉了、
-// 那段现在在哪"（对话原文仍在时间线上，折叠正文在会话内容存储里按 ref 回读）。
+// renderCompressionCutRow 渲染「分界」轨：**会话单例**的一条竖向虚线，线上标注
+// 「以上 … 已被折叠」。
 //
-// 只画锚定在本页的刻度：offPage 的刻度是钳在页边界的占位，位置本身不真实，
-// 给它画分界就等于画一条假线（点击它仍会跳页，见视图侧）。
+// 为什么只画一条：分界想说的是"以上这些已经不发给模型了"，那是会话当前的**一个**
+// 事实。历次压缩各画一条线，读者会以为两条线之间那段还给模型（其实早折掉了）。
+// 前沿由 compactionFrontier 判定（message_to 序号最大者，与右栏、对话区同一份口径）；
+// 历次记录本身仍逐条可查（「压缩」轨的刻度点击开详情、右栏「上下文压缩」列表）。
+//
+// 位置仍只画锚定在本页的：offPage 的刻度是钳在页边界的占位，位置本身不真实，给它
+// 画分界就等于画一条假线——那时只在提示里写出前沿在第几页（压缩轨上那个刻度可点击
+// 跳页）。分界不在本页时这里明确说"本页看不到"，不用别的刻度顶替。
 function renderCompressionCutRow(marks) {
-  const cuts = marks.filter(mark => mark.anchored && !mark.offPage);
-  if (!cuts.length) {
+  const frontier = marks.find(mark => mark.isFrontier);
+  const cut = frontier && frontier.anchored && !frontier.offPage ? frontier : null;
+  if (!cut) {
+    const hint = !frontier
+      ? "会话还没折叠过上下文，没有压缩分界"
+      : !frontier.anchored
+        ? "会话压缩分界早于已加载窗口（分界线画不出来；压缩轨上刻度置于起点，点击可看记录）"
+        : `会话压缩分界在第 ${frontier.anchorPage + 1} 页（本页看不到分界；压缩轨上该刻度可点击跳页）`;
     return `<div class="context-axis-lane is-cut">
-      <span class="axis-lane-label" title="压缩分界虚线：只画锚定在本页的压缩点"><span>分界</span><span class="axis-lane-count">—</span></span>
-      <div class="axis-lane-bar is-cut-bar"><span class="axis-cut-hint">本页没有压缩点的分界（压缩刻度不在本页）</span></div>
+      <span class="axis-lane-label" title="压缩分界虚线：会话单例，只画前沿当前所在的那一页"><span>分界</span><span class="axis-lane-count">—</span></span>
+      <div class="axis-lane-bar is-cut-bar"><span class="axis-cut-hint">${escapeHtml(hint)}</span></div>
     </div>`;
   }
-  const lines = cuts.map(mark => {
-    const flip = mark.x > 60;
-    const shift = flip ? "translateX(calc(-100% - 7px))" : "translateX(7px)";
-    return `<i class="axis-compress-cut" style="--x:${mark.x.toFixed(3)}%" title="${escapeHtml(mark.cutTitle)}" aria-hidden="true"></i>
-      <span class="axis-compress-cut-label" style="--x:${mark.x.toFixed(3)}%;transform:${shift}" title="${escapeHtml(mark.cutTitle)}">${escapeHtml(mark.cutLabel)}</span>`;
-  }).join("");
+  const flip = cut.x > 60;
+  const shift = flip ? "translateX(calc(-100% - 7px))" : "translateX(7px)";
   return `<div class="context-axis-lane is-cut">
-    <span class="axis-lane-label" title="压缩分界虚线：虚线以上（更早）的上下文已被折出 provider 历史；对话原文仍保留在时间线上"><span>分界</span><span class="axis-lane-count">×${cuts.length}</span></span>
-    <div class="axis-lane-bar is-cut-bar">${lines}</div>
+    <span class="axis-lane-label" title="压缩分界虚线（会话单例）：虚线以上（更早）的上下文已被折出 provider 历史；对话原文仍保留在时间线上，历次折叠记录见右栏「上下文压缩」"><span>分界</span><span class="axis-lane-count">×1</span></span>
+    <div class="axis-lane-bar is-cut-bar"><i class="axis-compress-cut" style="--x:${cut.x.toFixed(3)}%" title="${escapeHtml(cut.cutTitle)}" aria-hidden="true"></i>
+      <span class="axis-compress-cut-label" style="--x:${cut.x.toFixed(3)}%;transform:${shift}" title="${escapeHtml(cut.cutTitle)}">${escapeHtml(cut.cutLabel)}</span></div>
   </div>`;
 }
 

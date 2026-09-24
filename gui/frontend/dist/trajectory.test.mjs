@@ -390,7 +390,8 @@ test("compression cut line marks where the prefix was folded", () => {
 });
 
 test("compression cut line stays out of clamped ticks", () => {
-  // 压缩点早于已加载窗口：刻度被钳到轴起点，位置不真实 → 不画分界虚线（只留刻度）。
+  // 压缩点早于已加载窗口：刻度被钳到轴起点，位置不真实 → 不画分界虚线（只留刻度），
+  // 提示里写明"分界早于已加载窗口"——不用别的刻度顶替。
   const records = buildTrajectory([userMessage("u1", "hi")]);
   const compactions = [
     { version: 1, reason: "context_budget", compacted_at: "2020-01-01T00:00:00Z", message_from: "message-9", message_to: "message-9" }
@@ -399,7 +400,32 @@ test("compression cut line stays out of clamped ticks", () => {
   assert.equal(marks[0].anchored, false);
   const html = renderContextAxis(records, { compactions, pageSize: 1 });
   assert.doesNotMatch(html, /axis-compress-cut/);
-  assert.match(html, /本页没有压缩点的分界/);
+  assert.match(html, /会话压缩分界早于已加载窗口/);
+});
+
+test("axis draws one cut line for the session frontier, not one per record", () => {
+  // 分界是会话单例：被折出保留窗口的最后一条消息（message_to 序号最大者）。历次压缩
+  // 各画一条线，读者会以为两条线之间那段还给模型（其实早折掉了）——所以分界虚线恒为
+  // 一条，且区间取整段已折出的上下文（起点最早、终点最新：只报最后一段会漏掉更早的）。
+  const records = buildTrajectory([
+    userMessage("u1", "hi"),
+    llmMessage("a1", "hello"),
+    userMessage("u2", "again"),
+    llmMessage("a2", "ok")
+  ]);
+  const compactions = [
+    { version: 1, reason: "context_budget", message_from: "message-1", message_to: "message-2", event_from: 1, event_to: 2, compacted_at: "2026-08-25T10:00:01Z" },
+    { version: 2, reason: "context_budget", message_from: "message-3", message_to: "message-4", event_from: 3, event_to: 4, compacted_at: "2026-08-25T10:00:02Z" }
+  ];
+  const html = renderContextAxis(records, { compactions });
+  assert.equal((html.match(/class="axis-compress-cut"/g) || []).length, 1);
+  assert.match(html, /以上 消息 message-1\.\.message-4（事件 1\.\.4）已被折叠/);
+  // 两个刻度都还在（历次记录可逐条查看），但只有前沿那个被标记为分界。
+  const marks = compactionMarks(records, compactions, {});
+  assert.equal(marks.length, 2);
+  assert.equal(marks.filter(mark => mark.isFrontier).length, 1);
+  assert.equal(marks[1].isFrontier, true);
+  assert.equal(marks[0].isFrontier, undefined);
 });
 
 test("renders filters with counts and active state", () => {

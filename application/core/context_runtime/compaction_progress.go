@@ -29,6 +29,20 @@ const (
 	CompactionGateRecord = "record"
 )
 
+// CompactionGateTiming 是一关的实测耗时（门禁 id + 本关毫秒数）。
+//
+// 它同时供两处消费，且**只有这一个来源**：进度事件（ElapsedMS）与压缩回执里的
+// 逐关清单。回执与进度条分开各测一次，同一关就会有两种说法（"进度条说 33ms、
+// 回执说 4ms"），正是这个仓库反复防的那类漂移。
+//
+// 门禁的中文名不在这里：id 是跨语言协议字面量，文案表只在前端
+// compaction-format.js 的 compactionGateLabels（同一处只放一种语言，键序由
+// TestFrontendGateLabelsMatchBackendOrder 互钉）。回执只报 id 与毫秒。
+type CompactionGateTiming struct {
+	Gate      string
+	ElapsedMS int
+}
+
 // CompactionGates 是门禁的权威顺序（进度条据此画格子）。
 var CompactionGates = []string{
 	CompactionGateJudge,
@@ -79,6 +93,10 @@ type compactionProgress struct {
 	settled bool
 	// last 是上一帧的发出时刻（逐帧计时的基准）。
 	last time.Time
+	// timings 是已收口的每一关及其耗时。它不只是"给进度条看的"：显式路径的
+	// 调用方（/compact 回执）要能把"这一轮走了哪几关、各花了多久"如实带回用户，
+	// 否则回执只能说"已压缩"，用户看不出慢在哪一关。
+	timings []CompactionGateTiming
 	// note 是本轮的非门禁事实（例如「被纪元节流：只折叠、不落记录」），拼进
 	// settle 的 Detail。终局必须能自答「进度条走完了，为什么没有记录」——否则
 	// 用户只能看到 ran 到 replace 的进度条然后什么都没有，合理地怀疑后端没接线。
@@ -136,6 +154,11 @@ func (p *compactionProgress) gate(id, detail string) {
 	} else if index > p.reached {
 		p.reached = index
 	}
+	elapsed := p.elapsedLocked()
+	if index > 0 {
+		// 先把耗时记进本轮清单，再发帧：回执与进度条读同一份数字。
+		p.timings = append(p.timings, CompactionGateTiming{Gate: id, ElapsedMS: elapsed})
+	}
 	payload := event.CompactionProgress{
 		State:     event.CompactionProgressRunning,
 		Gate:      id,
@@ -144,10 +167,27 @@ func (p *compactionProgress) gate(id, detail string) {
 		Version:   p.version,
 		Origin:    p.origin,
 		Detail:    detail,
-		ElapsedMS: p.elapsedLocked(),
+		ElapsedMS: elapsed,
 	}
 	p.mu.Unlock()
 	p.publish(payload)
+}
+
+// GateTimings 返回本轮已收口门禁的实测耗时（副本）。调用点在本轮收口之后
+// （prepareExecutionContextFor 的出栈 deferred settle 之后），因此读到的是一份
+// 完整清单；返回副本是为了不把内部切片借给调用方。
+func (p *compactionProgress) GateTimings() []CompactionGateTiming {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.timings) == 0 {
+		return nil
+	}
+	out := make([]CompactionGateTiming, len(p.timings))
+	copy(out, p.timings)
+	return out
 }
 
 // elapsedLocked 返回距上一帧的毫秒数并推进计时基准。调用方持锁。

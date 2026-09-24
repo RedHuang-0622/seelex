@@ -1,4 +1,5 @@
 import { renderConversationModel } from "./components.js";
+import { conversationCompactionAnchor } from "./compaction-format.js";
 import { historyWindowed } from "./protocol.js";
 
 export function createChatView(elements, conversationView) {
@@ -10,11 +11,15 @@ export function createChatView(elements, conversationView) {
   // 影响呈现；权威判据在应用层（restoring 期间拒绝输入，ErrSessionRestoring）。
   // draft：本页未发送的草稿正文（页面 context 的第二半，判据在 draft-lifecycle.js
   // composerDraftRows）。有草稿时这一页就不是空态——草稿会话此前因此显示成空页。
-  function renderConversation(messages, chat, scrollMode = "auto", hasMoreHistory = false, restoring = false, switching = false, draft = "") {
+  // compactions：会话的压缩记录（Snapshot.Task.ContextCompactions）。对话区只从
+  // 它派生**一条**分界（会话单例，落点与文案由 conversationCompactionAnchor 判定），
+  // 插在最新被折出的那条消息之后；记录逐条可查的地方是右栏「上下文压缩」与轨迹
+  // 「压缩」轨。
+  function renderConversation(messages, chat, scrollMode = "auto", hasMoreHistory = false, restoring = false, switching = false, draft = "", compactions = []) {
     const draftText = String(draft ?? "");
     const active = messages.length > 0 || draftText.trim() !== "" || chat.running || (chat.input_queue || []).length > 0 || restoring || switching;
     elements["empty-state"].classList.toggle("hidden", active);
-    conversationView.render(renderConversationModel(messages, chat, draftText), { scrollMode, hasMoreHistory });
+    conversationView.render(renderConversationModel(messages, chat, draftText, conversationCompactionAnchor(messages, compactions)), { scrollMode, hasMoreHistory });
   }
 
   // renderControls 是输入区锁的唯一落点：restoring（目标会话恢复中）= 整块
@@ -68,7 +73,8 @@ export function createChatView(elements, conversationView) {
         snapshot.has_more_history,
         snapshot.session?.status === "restoring",
         switching,
-        draft
+        draft,
+        snapshot.task?.context_compactions || []
       );
       renderControls(snapshot, switching);
     },

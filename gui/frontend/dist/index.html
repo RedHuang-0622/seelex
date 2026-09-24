@@ -138,8 +138,11 @@
           <div id="project-status" class="status-grid"></div>
           <div class="section-title sub-title">概要</div>
           <div id="project-overview" class="project-overview"></div>
-          <div id="context-compactions" class="context-compactions hidden"></div>
         </details>
+        <!-- 上下文压缩：在 状态/概要 折叠区**之外**——折叠起来时它跟着消失，用户就
+             看不到本轮压缩的进度条与历次折叠记录（而"按了回车有没有动作"正靠这里）。
+             位置紧跟概要之后。 -->
+        <div id="context-compactions" class="context-compactions hidden"></div>
         <details class="collapse-section" id="accounts-section">
           <summary class="collapse-summary"><span class="collapse-chevron" aria-hidden="true"></span><span>账户</span><span id="account-count" class="badge">0</span></summary>
           <div id="account-list" class="account-list"></div>
@@ -396,6 +399,15 @@
     <div class="modal-card scheduled-table-card" data-resizable>
       <div class="modal-header"><div><span class="eyebrow">定时任务</span><h2 id="scheduled-table-modal-title">定时任务表格</h2></div><button id="scheduled-table-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
       <div id="scheduled-table-view" class="scheduled-table-view muted">暂无定时任务</div>
+      <div class="modal-resize-handle" aria-hidden="true"></div>
+    </div>
+  </div>
+
+  <div id="compaction-frame-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="compaction-frame-modal-title">
+    <div class="modal-card compaction-frame-card" data-resizable>
+      <div class="modal-header"><div><span class="eyebrow">上下文压缩</span><h2 id="compaction-frame-modal-title">折叠帧正文</h2></div><button id="compaction-frame-modal-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
+      <p id="compaction-frame-modal-meta" class="settings-note"></p>
+      <div id="compaction-frame-modal-view" class="compaction-frame-modal-view muted">选择一条压缩记录查看折叠帧正文。</div>
       <div class="modal-resize-handle" aria-hidden="true"></div>
     </div>
   </div>

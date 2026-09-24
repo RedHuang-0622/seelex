@@ -15,8 +15,8 @@ import { createWorkTreeView } from "./worktree-view.js";
 import { createGitLogView } from "./git-log-view.js";
 import { createWorkspaceChangesView } from "./workspace-changes.js";
 import { createFilePreviewController } from "./file-preview.js";
-import { renderContextCompactions } from "./context-summary.js";
-import { mergeCompactionProgress } from "./compaction-format.js";
+import { renderCompactionFrameModal, renderContextCompactions } from "./context-summary.js";
+import { compactionRangeText, compactionReasonLabel, mergeCompactionProgress } from "./compaction-format.js";
 import { renderGoalInFlight, renderGoalStack } from "./goal-stack-view.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
 import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
@@ -83,6 +83,7 @@ const elements = Object.fromEntries([
   "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",
   "runtime-details", "effort-control", "effort-range", "effort-value", "work-section", "work-count", "work-unread", "work-table-open", "work-table-summary", "work-table-modal", "work-table-modal-close", "work-table-modal-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-close", "sched-name", "sched-kind", "sched-mode", "sched-period-value", "sched-period-unit", "sched-period-field", "sched-datetime", "sched-datetime-field", "sched-command", "sched-command-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-enabled-field", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
   "project-name", "project-root", "project-status", "project-overview", "worktree-view", "file-count", "context-compactions",
+  "compaction-frame-modal", "compaction-frame-modal-close", "compaction-frame-modal-title", "compaction-frame-modal-meta", "compaction-frame-modal-view",
   "team-section", "team-view", "team-count",
   "role-session-modal", "role-session-close", "role-session-modal-title", "role-session-view",
   "right-tabs", "goal-section", "goal-badge", "goal-view", "code-panes", "code-pane-tabs", "code-pane-worktree", "code-pane-gitlog", "git-log-view", "git-log-count", "code-pane-changes", "changes-view", "changes-count",
@@ -203,7 +204,8 @@ function runViewActivation(view) {
       snapshot.has_more_history,
       snapshot.session?.status === "restoring",
       Boolean(state.resumingSessionID),
-      composerDraftPageText(snapshot)
+      composerDraftPageText(snapshot),
+      snapshot.task?.context_compactions || []
     );
     chatView.renderControls(snapshot, Boolean(state.resumingSessionID));
     return;
@@ -640,7 +642,7 @@ function renderIncremental(snapshot, kind, payload) {
   if (!snapshot) return;
   const started = performance.now();
   if (["message.added", "message.delta", "tool.started", "tool.completed"].includes(kind)) {
-    chatView.renderConversation(snapshot.conversation || [], snapshot.chat || {}, "auto", snapshot.has_more_history, snapshot.session?.status === "restoring", Boolean(state.resumingSessionID), composerDraftPageText(snapshot));
+    chatView.renderConversation(snapshot.conversation || [], snapshot.chat || {}, "auto", snapshot.has_more_history, snapshot.session?.status === "restoring", Boolean(state.resumingSessionID), composerDraftPageText(snapshot), snapshot.task?.context_compactions || []);
     chatView.renderControls(snapshot, Boolean(state.resumingSessionID));
     renderTrajectory(snapshot);
     // 新用户输入会多出一条索引刻度（助手增量不动索引），按指纹去重后拉取。
@@ -1121,6 +1123,114 @@ function repaintCompactions(compactions) {
   host.innerHTML = renderContextCompactions(list, { detail: compactionDetail, progress: compactionProgress });
   host.classList.toggle("hidden", list.length === 0 && !compactionProgress);
 }
+
+// ── 折叠帧正文弹框 ───────────────────────────────────────────
+// 帧正文入口（data-compact-frame-ref）出现在三处：右栏「上下文压缩」条目、对话区
+// 「以上已折叠」分界行、以及将来任何一处——委托因此挂在 document 上，一处接住所有
+// 入口，组件侧只携带 ref（不持有 invoke 依赖）。
+//
+// 弹框与右栏展开共用同一份正文区（renderCompactionFrameModal → renderFrameDetail），
+// 因此不存在"同一个 ref 两种读法"。状态只在视图侧（不进快照）：快照刷新会重建记录
+// 数组，但弹框里的正文是独立读回来的，不受影响。
+let compactionFrameModal = { record: null, detail: null };
+// 读取是异步的：期间可能又开了另一条记录、点了重试、或关掉弹框。只有最后一次请求的
+// 结果可以落到弹框上——否则先发的响应回来会把新正文盖掉（同会话切换里的过期响应）。
+let compactionFrameLoadToken = 0;
+
+function emptyCompactionFrameDetail(previousText = "") {
+  return { loading: true, error: "", text: String(previousText || ""), hasMore: false, nextOffset: 0, totalBytes: 0 };
+}
+
+// currentCompactionRecord 按 frame_ref 在当前快照的压缩记录里找回那条记录（弹框只
+// 存 ref 的话，记录被刷新换掉就画不出元数据与大小）。
+function currentCompactionRecord(frameRef) {
+  const ref = String(frameRef || "");
+  if (!ref) return null;
+  return currentCompactions().find(item => String(item?.frame_ref || "") === ref) || null;
+}
+
+// openCompactionFrame 打开弹框并按 ref 读第一页正文。记录找不到时也照样打开：弹框
+// 里明确说"没有帧正文引用"，比点了没反应好。
+async function openCompactionFrame(frameRef) {
+  const ref = String(frameRef || "");
+  const record = currentCompactionRecord(ref);
+  compactionFrameModal = { record, detail: ref ? emptyCompactionFrameDetail() : null };
+  repaintCompactionFrameModal();
+  setModal("compaction-frame-modal", true);
+  if (record && ref) await loadCompactionFramePage(ref, 0, false);
+}
+
+function closeCompactionFrame() {
+  compactionFrameLoadToken += 1;
+  setModal("compaction-frame-modal", false);
+  compactionFrameModal = { record: null, detail: null };
+}
+
+function repaintCompactionFrameModal() {
+  const view = elements["compaction-frame-modal-view"];
+  if (!view) return;
+  const record = compactionFrameModal.record || {};
+  const version = Number(record.version || 0);
+  const range = compactionRangeText(record);
+  const facts = [
+    range,
+    compactionReasonLabel(record.reason),
+    record.compacted_at ? String(record.compacted_at) : ""
+  ].filter(Boolean).join(" · ");
+  if (elements["compaction-frame-modal-title"]) {
+    elements["compaction-frame-modal-title"].textContent = version > 0 ? `折叠帧正文 · 压缩 #${version}` : "折叠帧正文";
+  }
+  if (elements["compaction-frame-modal-meta"]) elements["compaction-frame-modal-meta"].textContent = facts;
+  view.innerHTML = renderCompactionFrameModal({ record, detail: compactionFrameModal.detail });
+}
+
+// loadCompactionFramePage 按 ref 分页读取帧正文（offset=0 首读，append=true 续读）。
+async function loadCompactionFramePage(frameRef, offset, append) {
+  const ref = String(frameRef || "");
+  if (!ref) return;
+  const token = ++compactionFrameLoadToken;
+  const previous = append ? String(compactionFrameModal.detail?.text || "") : "";
+  const totalBytes = Number(compactionFrameModal.detail?.totalBytes || 0);
+  compactionFrameModal.detail = { loading: true, error: "", text: previous, hasMore: false, nextOffset: Number(offset) || 0, totalBytes };
+  repaintCompactionFrameModal();
+  let next = null;
+  try {
+    const page = await invoke("ToolResultContent", ref, offset, 12000);
+    next = {
+      loading: false, error: "",
+      text: previous + String(page?.content || ""),
+      hasMore: Boolean(page?.has_more), nextOffset: Number(page?.next_offset || 0),
+      totalBytes: Number(page?.total_bytes || 0)
+    };
+  } catch (error) {
+    next = { ...compactionFrameModal.detail, loading: false, error: String(error) };
+  }
+  // 过期响应直接丢掉：弹框这时可能已经关了、或已经指向另一条记录。
+  if (token !== compactionFrameLoadToken) return;
+  compactionFrameModal.detail = next;
+  repaintCompactionFrameModal();
+}
+
+document.addEventListener("click", event => {
+  const trigger = event.target?.closest?.("[data-compact-frame-ref]");
+  if (!trigger) return;
+  openCompactionFrame(String(trigger.dataset.compactFrameRef || ""));
+});
+
+elements["compaction-frame-modal-view"]?.addEventListener("click", event => {
+  const page = event.target?.closest?.("[data-compact-frame-load]");
+  const ref = String(compactionFrameModal.record?.frame_ref || "");
+  if (!page || !ref) return;
+  if (page.dataset.compactFrameLoad === "more") {
+    const offset = Number(compactionFrameModal.detail?.nextOffset || 0);
+    if (!(offset > 0)) return;
+    loadCompactionFramePage(ref, offset, true);
+    return;
+  }
+  loadCompactionFramePage(ref, 0, false);
+});
+
+elements["compaction-frame-modal-close"]?.addEventListener("click", closeCompactionFrame);
 
 function renderProject(snapshot) {
   const workspace = snapshot.current_workspace || null;
@@ -3732,7 +3842,7 @@ elements["scheduled-task-view"].addEventListener("click", async event => {
   }
 });
 
-for (const [modalID, close] of [["runtime-modal", closeRuntime], ["command-modal", closeCommandPalette], ["settings-modal", closeSettings], ["scheduled-task-modal", closeScheduledTaskDialog], ["node-detail-modal", closeNodeDetail], ["work-table-modal", closeWorkTable], ["new-session-modal", closeNewSessionModal], ["role-session-modal", closeRoleSessionDetail]]) {
+for (const [modalID, close] of [["runtime-modal", closeRuntime], ["command-modal", closeCommandPalette], ["settings-modal", closeSettings], ["scheduled-task-modal", closeScheduledTaskDialog], ["node-detail-modal", closeNodeDetail], ["work-table-modal", closeWorkTable], ["new-session-modal", closeNewSessionModal], ["role-session-modal", closeRoleSessionDetail], ["compaction-frame-modal", closeCompactionFrame]]) {
   elements[modalID].addEventListener("click", event => {
     if (event.target === elements[modalID]) close();
   });

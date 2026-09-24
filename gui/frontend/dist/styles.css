@@ -523,6 +523,34 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .queued-message-body > :last-child { margin-bottom: 0; }
 .queued-message-body p { margin: 0 0 7px; }
 
+/* 压缩分界（会话单例）：对话区里的一条虚分隔——线以上（更早）的上下文已不再发给
+   模型，但对话原文仍在这一页；右侧按钮打开可调大小的弹框读折叠帧正文。
+   一条线对应"会话当前的折叠前沿"（compactionFrontier），不是每条压缩记录一条。 */
+.conversation-compaction-frontier {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 860px;
+  margin: 14px auto;
+  color: var(--faint);
+  font: 10.5px var(--font-mono);
+}
+.conversation-compaction-frontier-line { flex: 1 1 24px; height: 0; border-top: 1px dashed var(--border-strong); }
+.conversation-compaction-frontier-label { flex: 0 1 auto; min-width: 0; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+.conversation-compaction-frontier-note { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-compaction-frontier-open {
+  flex: none;
+  padding: 2px 7px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-sm);
+  color: var(--text-soft);
+  background: var(--surface-2);
+  font: 10px var(--font-mono);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.conversation-compaction-frontier-open:hover { border-color: var(--accent); color: var(--text); }
+
 @keyframes runtime-spin { to { transform: rotate(360deg); } }
 @keyframes queue-enter { from { opacity: 0; } }
 @keyframes trace-sweep {
@@ -1459,6 +1487,10 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .context-summary-open:hover { border-color: var(--accent); color: var(--text); }
 .context-summary-ref { color: var(--faint); font: 9.5px var(--font-mono); }
 .context-summary-noframe { color: var(--faint); font: 10px var(--font-mono); }
+/* 折叠帧正文弹框：正文最长、右栏最窄，所以给可调大小（同 .runtime-card 的
+   data-resizable 约定：卡片自己 resize，正文区内滚）。 */
+.compaction-frame-card { width: min(980px, 100%); min-width: 520px; min-height: 340px; max-width: calc(100vw - 48px); max-height: min(820px, calc(100vh - 48px)); overflow: auto; resize: both; }
+.compaction-frame-modal-view { max-height: min(640px, 58vh); overflow: auto; }
 /* 压缩门禁进度条：轨道与填充直接用 Plan 面板那一套（.plan-board-progress /
    .plan-board-bar），这里只补外层排版与三种状态色——同一份"进度"语义在仓库
    里只该有一种视觉，第二套进度组件必然在间距和配色上漂移。 */

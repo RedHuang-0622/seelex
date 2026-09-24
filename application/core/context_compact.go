@@ -39,12 +39,20 @@ type ContextCompactionResult struct {
 	// 的 transcript 消息数：冷加载/路由会话里它合法为 0，而同一时刻的区间字段
 	// （MessageFrom/To、EventFrom/To）仍然记得住"从哪压到哪"。用户可见的折叠
 	// 范围一律走 compactionRangeLabel，不要拿这个数字当"压缩前 N 条消息"。
-	MessagesBefore  int    `json:"messages_before,omitempty"`
-	EstimatedTokens int    `json:"estimated_tokens,omitempty"`
-	ComparedTokens  int    `json:"compared_tokens,omitempty"`
-	SoftThreshold   int    `json:"soft_threshold,omitempty"`
-	HardThreshold   int    `json:"hard_threshold,omitempty"`
-	CompactedAt     string `json:"compacted_at,omitempty"`
+	MessagesBefore  int `json:"messages_before,omitempty"`
+	EstimatedTokens int `json:"estimated_tokens,omitempty"`
+	ComparedTokens  int `json:"compared_tokens,omitempty"`
+	SoftThreshold   int `json:"soft_threshold,omitempty"`
+	HardThreshold   int `json:"hard_threshold,omitempty"`
+	// Gates 是本轮门禁的逐关实测耗时（权威顺序 judge→assemble→replace→frame
+	// →store→record，与 compaction.progress 同一份数字）。进度条是瞬态
+	// （revision=0、不进快照、终局后 ~2.5s 撤条），用户按完回车再抬头就什么都
+	// 看不到；回执自带这份清单，"按了就看见门禁"才在回执这一处成立。
+	//
+	// 只带门禁 id 与毫秒：关卡中文名只在前端 compaction-format.js 的
+	// compactionGateLabels，后端另立一份必然与进度条漂移。
+	Gates       []CompactionGateTiming `json:"gates,omitempty"`
+	CompactedAt string                 `json:"compacted_at,omitempty"`
 	// 压缩区间（记录，不推算）：被压出保留窗口、送进 compact_context 的
 	// transcript 前缀。MessageFrom/MessageTo = UI 消息号，EventFrom/EventTo =
 	// transcript 事件序号。原始内容可用 read_compressed_turn / read_tool_result
@@ -62,6 +70,17 @@ type ContextCompactionResult struct {
 	FrameBytes  int    `json:"frame_bytes,omitempty"`
 	FrameTokens int    `json:"frame_tokens,omitempty"`
 	Note        string `json:"note"`
+}
+
+// CompactionGateTiming 是压缩回执里的逐关耗时（门禁 id + 本关毫秒）。
+//
+// 门禁 id 是跨语言协议字面量（context_runtime.CompactionGates），中文关卡名只在
+// 前端 compaction-format.js 的 compactionGateLabels（同一处只放一种语言，键序由
+// TestFrontendGateLabelsMatchBackendOrder 互钉）。回执因此只报 id 与数字，不另立
+// 一份关卡名表——两份表一定会漂移成"进度条说 33ms、回执说另一关"。
+type CompactionGateTiming struct {
+	Gate      string `json:"gate"`
+	ElapsedMS int    `json:"elapsed_ms"`
 }
 
 // compactionReasonLabel 渲染压缩原因（用户可读）。未知原因原样返回，不编造。
@@ -108,11 +127,43 @@ func compactionRecordNote(result ContextCompactionResult) string {
 	if result.Origin != "" {
 		builder.WriteString("，来源 " + result.Origin)
 	}
+	// 门禁清单：回执自带"走了哪几关、各花多久"。进度条是瞬态（2.5s 后撤条），
+	// 回执若只说"已压缩"，用户按完回车再抬头就永远看不到门禁走过。
+	if checklist := compactionGateChecklist(result.Gates); checklist != "" {
+		builder.WriteString("；门禁 " + checklist)
+	}
 	if result.FrameRef != "" {
 		builder.WriteString("；帧正文 ref " + result.FrameRef + "（状态页「上下文压缩」条目可展开查看）")
 	}
 	builder.WriteString("。原始轮次仍在会话存储里，可用 read_tool_result / read_compressed_turn / search_history 回读细节。")
 	return builder.String()
+}
+
+// compactionGateChecklist 把逐关耗时渲染成一行事实清单，例如
+// `reached=6/6 judge<1ms assemble 4ms replace<1ms frame 33ms store<1ms record<1ms`。
+//
+// 只报门禁 id 与毫秒：关卡中文名是前端的文案表（同一处只放一种语言）。清单为空
+// （没折叠、或这轮没走到任何一关）时返回空串，调用方跳过这一段——不拿别的量顶替。
+func compactionGateChecklist(gates []CompactionGateTiming) string {
+	if len(gates) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(gates)+1)
+	parts = append(parts, fmt.Sprintf("reached=%d/%d", len(gates), context_runtime.CompactionGateTotal()))
+	for _, gate := range gates {
+		parts = append(parts, gate.Gate+compactionGateDuration(gate.ElapsedMS))
+	}
+	return strings.Join(parts, " ")
+}
+
+// compactionGateDuration 渲染单关耗时。毫秒整数里 0 的含义是"不到一毫秒"，
+// 写成 `0ms` 读起来像"没花时间"——口径与前端 compactionGateDurationText 一致
+// （不足 1ms 写 <1ms），两处都从后端这一个毫秒整数派生，不各自四舍五入。
+func compactionGateDuration(milliseconds int) string {
+	if milliseconds <= 0 {
+		return "<1ms"
+	}
+	return strconv.Itoa(milliseconds) + "ms"
 }
 
 // compactionRangeLabel 把压缩结果面里**已有的**区间字段（MessageFrom/To、
@@ -231,6 +282,19 @@ func (service *Service) CompactContextHandler(ctx context.Context, argsJSON stri
 	return string(encoded), nil
 }
 
+// contextCompactionGates 把 context_runtime 的门禁耗时映射为回执面类型（JSON
+// 可序列化）。两边字段一一对应，不做重算、不补零。
+func contextCompactionGates(gates []context_runtime.CompactionGateTiming) []CompactionGateTiming {
+	if len(gates) == 0 {
+		return nil
+	}
+	out := make([]CompactionGateTiming, 0, len(gates))
+	for _, gate := range gates {
+		out = append(out, CompactionGateTiming{Gate: gate.Gate, ElapsedMS: gate.ElapsedMS})
+	}
+	return out
+}
+
 func newContextCompactionResult(outcome context_runtime.CompactResult) ContextCompactionResult {
 	record := outcome.Record
 	result := ContextCompactionResult{
@@ -245,6 +309,7 @@ func newContextCompactionResult(outcome context_runtime.CompactResult) ContextCo
 		ComparedTokens:  outcome.ComparedTokens,
 		SoftThreshold:   outcome.SoftThreshold,
 		HardThreshold:   outcome.HardThreshold,
+		Gates:           contextCompactionGates(outcome.Gates),
 		CompactedAt:     record.CompactedAt.Format("2006-01-02T15:04:05Z07:00"),
 		MessageFrom:     record.MessageFrom,
 		MessageTo:       record.MessageTo,

@@ -17,6 +17,8 @@ function dataURL(source) {
 
 const chatSource = (await readFile(new URL("./chat-view.js", import.meta.url), "utf8"))
   .replace('"./components.js"', `"${dataURL("export function renderConversationModel(messages, chat, draft) { return { messages, chat, draft }; }")}"`)
+  // 压缩分界（会话单例的那条虚线）不参与输入区锁：这里只钉住导入解析，返回"无分界"。
+  .replace('"./compaction-format.js"', `"${dataURL("export function conversationCompactionAnchor() { return null; }")}"`)
   .replace('"./protocol.js"', `"${dataURL("export function historyWindowed() { return false; }")}"`);
 const { createChatView } = await import(dataURL(chatSource));
 

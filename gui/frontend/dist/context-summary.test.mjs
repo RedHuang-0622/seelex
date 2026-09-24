@@ -13,7 +13,7 @@ const compactionURL = `data:text/javascript;base64,${Buffer.from(await readFile(
 const summarySource = (await readFile(new URL("./context-summary.js", import.meta.url), "utf8"))
   .replace('"./components.js"', `"${componentsURL}"`)
   .replace('"./compaction-format.js"', `"${compactionURL}"`);
-const { renderContextCompactions } = await import(`data:text/javascript;base64,${Buffer.from(summarySource).toString("base64")}`);
+const { renderContextCompactions, renderCompactionFrameModal } = await import(`data:text/javascript;base64,${Buffer.from(summarySource).toString("base64")}`);
 const { mergeCompactionProgress } = await import(compactionURL);
 
 test("renders compaction records with range, origin and a frame entry", () => {
@@ -148,4 +148,36 @@ test("done frame lists every gate with its own measured duration", () => {
   assert.match(html, /压缩完成/);
   assert.doesNotMatch(html, /进行中/);
   assert.equal((html.match(/context-compaction-gate is-done/g) || []).length, 6);
+});
+
+// ── 折叠帧正文：内联展开 + 可调大小弹框（两种读法，同一份正文区）────────────
+
+test("每条记录同时给内联展开与弹框两个入口（同一 ref）", () => {
+  const html = renderContextCompactions([{
+    version: 3, reason: "context_budget", message_from: "message-1", message_to: "message-9",
+    frame_ref: "tr-z", frame_bytes: 120, frame_tokens: 30
+  }]);
+  assert.match(html, /data-compact-open="0"/);
+  assert.match(html, /data-compact-frame-ref="tr-z"/);
+  assert.match(html, /弹框查看/);
+});
+
+test("弹框正文区与右栏内联展开是同一段 HTML", () => {
+  const record = { version: 3, frame_ref: "tr-z", frame_bytes: 120, frame_tokens: 30, estimated_tokens: 4200 };
+  const detail = { loading: false, error: "", text: "frame body", hasMore: true, nextOffset: 10, totalBytes: 25 };
+  const modal = renderCompactionFrameModal({ record, detail });
+  assert.match(modal, /折叠帧正文/);
+  assert.match(modal, /tr-z/);
+  assert.match(modal, /frame body/);
+  assert.match(modal, /data-compact-frame-load="more"/);
+  assert.match(modal, /剩余约 15 bytes/);
+  // 右栏展开时用的是同一个渲染器：两种读法若各写一套，正文/分页迟早漂移。
+  const inline = renderContextCompactions([record], { detail: { index: 0, ...detail } });
+  assert.ok(inline.includes(modal), "弹框正文应当是右栏展开正文的同一段 HTML");
+});
+
+test("没有 ref 的弹框明说没有正文，不给一个空壳 viewer", () => {
+  const html = renderCompactionFrameModal({ record: { version: 1 }, detail: { text: "x" } });
+  assert.match(html, /没有可回读的正文/);
+  assert.doesNotMatch(html, /axis-detail-text/);
 });

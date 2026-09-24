@@ -37,7 +37,8 @@ export function renderContextCompactions(compactions = [], options = {}) {
     const frameRef = String(compaction?.frame_ref || "");
     const open = Boolean(detail) && detail.index === index;
     const actions = frameRef
-      ? `<button type="button" class="context-summary-open" data-compact-open="${index}" aria-expanded="${open}" title="按 ref ${escapeHtml(frameRef)} 读取折叠帧正文">${open ? "收起帧正文" : "查看帧正文"}</button>`
+      ? `<button type="button" class="context-summary-open" data-compact-open="${index}" aria-expanded="${open}" title="按 ref ${escapeHtml(frameRef)} 读取折叠帧正文">${open ? "收起帧正文" : "查看帧正文"}</button>
+        <button type="button" class="context-summary-open" data-compact-frame-ref="${escapeHtml(frameRef)}" title="在可调大小的弹框里查看帧正文（ref ${escapeHtml(frameRef)}）">弹框查看</button>`
       : `<span class="context-summary-noframe">本次没有可回读正文</span>`;
     return `<article class="context-summary-item">
       <header><strong>#${escapeHtml(String(version || "?"))}</strong><span>${escapeHtml(reason)}</span>${origin ? `<em class="context-summary-origin">${escapeHtml(origin)}</em>` : ""}</header>
@@ -107,6 +108,21 @@ function renderCompactionGateTimeline(progress, begin) {
   }
   if (rows.length === 0) return "";
   return `<ol class="context-compaction-gates">${rows.join("")}</ol>`;
+}
+
+// renderCompactionFrameModal 渲染弹框里的折叠帧正文：复用右栏展开时的同一份正文区
+// （renderFrameDetail）与同一套分页标记（data-compact-frame-load），因此弹框与右栏
+// 读的是同一个 ref、同一段正文、同一套"加载更多"行为，不会出现两种读法。
+//
+// 为什么要有弹框：右栏在 状态/账户/团队 的折叠区之间，正文又最长，面板里只能看到
+// 几行；弹框可调大小（data-resizable），读长正文才是可用的。
+export function renderCompactionFrameModal(state = {}) {
+  const record = state.record && typeof state.record === "object" ? state.record : {};
+  const frameRef = String(record.frame_ref || "");
+  if (!frameRef) {
+    return '<span class="muted">这条压缩记录没有帧正文引用（frame_ref 为空），本次没有可回读的正文。</span>';
+  }
+  return renderFrameDetail(record, state.detail && typeof state.detail === "object" ? state.detail : {}, frameRef, Number(record.estimated_tokens || 0));
 }
 
 // renderFrameDetail 渲染展开的折叠帧正文区：复用轨迹详情同一容器与分页组件

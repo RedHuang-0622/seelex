@@ -46,6 +46,95 @@ export function compactionRangeText(compaction = {}) {
   return parts[0];
 }
 
+// messageOrdinal 从消息 id 取**事件序号**（`message-663` → 663；工具行
+// `message-663-1` 属于同一事件 → 663）。取不到（空、其它形状）返回 null。
+//
+// 分界要按序号与对话行对位，不能按字符串比大小（`message-9` > `message-663`）。
+export function messageOrdinal(messageID) {
+  const match = /^message-(\d+)(?:-\d+)?$/.exec(String(messageID ?? "").trim());
+  return match ? Number(match[1]) : null;
+}
+
+// compactionFrontier 返回会话**单例**的压缩分界（前沿）：历次记录里被折出保留
+// 窗口的最后一条消息（message_to 序号最大者），区间起点取全部记录里最早的一端。
+//
+// 为什么是单例：分界想说的是"以上这些已经不发给模型了"，那是会话当前的**一个**
+// 事实。历次压缩各画一条线，读者会以为两条线之间那段还给模型（其实早折掉了）。
+// 记录本身仍逐条可查（右栏「上下文压缩」列表、轨迹「压缩」轨刻度）。
+//
+// 返回值沿用记录字段名（message_from/message_to/event_from/event_to），因此可直接
+// 喂给 compactionRangeText / compactionCutLabel / compactionCutTitle——分界文案与
+// 条目文案因此不可能分叉。index 是前沿记录在入参数组里的下标（轨迹据此给刻度打
+// 标记）。没有可比记录（空列表、记录里没有消息号）返回 null：不画线，不用别的量
+// 顶替。
+export function compactionFrontier(compactions = []) {
+  const list = (Array.isArray(compactions) ? compactions : []).filter(record => record && typeof record === "object");
+  let frontierIndex = -1;
+  let frontierOrdinal = null;
+  let startOrdinal = null;
+  let messageFrom = "";
+  let eventFrom = 0;
+  let eventTo = 0;
+  list.forEach((compaction, index) => {
+    const end = messageOrdinal(compaction.message_to);
+    if (end !== null && (frontierOrdinal === null || end > frontierOrdinal)) {
+      frontierOrdinal = end;
+      frontierIndex = index;
+    }
+    const start = messageOrdinal(compaction.message_from);
+    if (start !== null && (startOrdinal === null || start < startOrdinal)) {
+      startOrdinal = start;
+      messageFrom = String(compaction.message_from || "");
+    }
+    const from = Number(compaction.event_from || 0);
+    if (from > 0 && (eventFrom === 0 || from < eventFrom)) eventFrom = from;
+    const to = Number(compaction.event_to || 0);
+    if (to > eventTo) eventTo = to;
+  });
+  if (frontierIndex < 0) return null;
+  const frontier = list[frontierIndex];
+  return {
+    ...frontier,
+    index: frontierIndex,
+    count: list.length,
+    messageToOrdinal: frontierOrdinal,
+    // 分界以上指的是"整段已折出的上下文"，不是最后一次折叠的那一段：起点取最早、
+    // 终点取最新。只报最后一段会让更早的折叠看起来还发给模型。
+    message_from: messageFrom || String(frontier.message_to || ""),
+    event_from: eventFrom,
+    event_to: eventTo
+  };
+}
+
+// conversationCompactionAnchor 求对话区那条「以上已折叠」分界该落在哪一条消息之后
+// （纯函数；null = 本页不画线）。渲染层只拿到"落在哪条消息之后 + 已格式化的文案"，
+// 不必再懂压缩口径——口径只在 compaction-format.js 一处。
+//
+// 落点：本页最后一条"消息号 <= 前沿消息号"的消息。前沿消息通常就在本页；往回翻页时
+// 整页都可能更早，分界落在本页末尾（读作"这一页以上都被折了"）。整页都在前沿之后
+// （前沿在更早的那一页）返回 null：分界不在这一页，这里没有任何已折叠的内容，凭空插
+// 一行就是假线。
+export function conversationCompactionAnchor(messages = [], compactions = []) {
+  const frontier = compactionFrontier(compactions);
+  if (!frontier) return null;
+  const rows = Array.isArray(messages) ? messages : [];
+  const target = Number(frontier.messageToOrdinal);
+  let messageID = "";
+  for (const message of rows) {
+    const ordinal = messageOrdinal(message?.id);
+    if (ordinal !== null && ordinal <= target) messageID = String(message.id || "");
+  }
+  if (!messageID) return null;
+  const count = Number(frontier.count || 0);
+  return {
+    messageID,
+    label: compactionCutLabel(frontier),
+    title: `${compactionCutTitle(frontier)} · 分界是会话单例：历次折叠记录见右栏「上下文压缩」与轨迹「压缩」轨`,
+    note: count > 1 ? `会话共折叠 ${count} 次，这里只标最新一次的终点` : "",
+    frameRef: String(frontier.frame_ref || "")
+  };
+}
+
 // compactionCutLabel 渲染压缩分界虚线的说明：这条线以上（更早）的上下文已被折出
 // provider 历史。区间未知时只说"更早的上下文"，不编造范围。
 export function compactionCutLabel(compaction = {}) {

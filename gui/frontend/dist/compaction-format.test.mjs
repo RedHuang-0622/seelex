@@ -7,7 +7,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { compactionGateDurationText, mergeCompactionProgress } from "./compaction-format.js";
+import {
+  compactionFrontier,
+  compactionGateDurationText,
+  compactionRangeText,
+  conversationCompactionAnchor,
+  mergeCompactionProgress,
+  messageOrdinal
+} from "./compaction-format.js";
 
 const fold = (...frames) => frames.reduce((acc, frame) => mergeCompactionProgress(acc, frame), null);
 
@@ -123,4 +130,72 @@ test("the begin frame never becomes a checklist row of its own", () => {
   assert.deepEqual(failed.gates, []);
   assert.equal(failed.state, "failed");
   assert.equal(failed.outcome, "assembly exploded");
+});
+
+// ── 压缩分界（会话单例）的判定与落点 ─────────────────────────────
+// 分界不是"每条压缩记录一条"：它说的是会话当前的一个事实（以上这些已经不发给模型），
+// 因此判定只返回一个前沿，区间取整段已折出的上下文（起点最早、终点最新）——只报最后
+// 一次折叠，会让更早折掉的那段看起来还发给模型。
+
+test("messageOrdinal reads the event number, tool rows included", () => {
+  assert.equal(messageOrdinal("message-663"), 663);
+  assert.equal(messageOrdinal("message-663-2"), 663);
+  assert.equal(messageOrdinal("tool-call-1"), null);
+  assert.equal(messageOrdinal(""), null);
+  assert.equal(messageOrdinal(undefined), null);
+});
+
+test("compactionFrontier takes the last folded message and the earliest start", () => {
+  const frontier = compactionFrontier([
+    { version: 1, message_from: "message-1", message_to: "message-20", event_from: 1, event_to: 3, frame_ref: "tr-1" },
+    { version: 2, message_from: "message-21", message_to: "message-103", event_from: 4, event_to: 9, frame_ref: "tr-2" }
+  ]);
+  assert.equal(frontier.index, 1);
+  assert.equal(frontier.count, 2);
+  assert.equal(frontier.messageToOrdinal, 103);
+  assert.equal(frontier.message_from, "message-1");
+  assert.equal(frontier.message_to, "message-103");
+  assert.equal(frontier.event_from, 1);
+  assert.equal(frontier.event_to, 9);
+  assert.equal(frontier.frame_ref, "tr-2");
+  assert.equal(compactionRangeText(frontier), "消息 message-1..message-103（事件 1..9）");
+});
+
+test("compactionFrontier declines to guess when no record carries a message id", () => {
+  assert.equal(compactionFrontier([]), null);
+  assert.equal(compactionFrontier([{ version: 1, reason: "context_budget", messages_before: 88 }]), null);
+});
+
+test("conversationCompactionAnchor places one divider after the last folded message", () => {
+  const messages = [
+    { id: "message-1", role: "user" }, { id: "message-2", role: "assistant" },
+    { id: "message-3", role: "user" }, { id: "message-4", role: "assistant" }
+  ];
+  const anchor = conversationCompactionAnchor(messages, [
+    { version: 1, message_from: "message-1", message_to: "message-2", compacted_at: "t1" },
+    { version: 2, message_from: "message-3", message_to: "message-4", compacted_at: "t2" }
+  ]);
+  assert.equal(anchor.messageID, "message-4");
+  assert.equal(anchor.label, "以上 消息 message-1..message-4已被折叠");
+  assert.match(anchor.note, /会话共折叠 2 次/);
+});
+
+test("conversationCompactionAnchor keeps the divider off pages that hold nothing folded", () => {
+  // 前沿在更早的那一页：本页消息都在分界之后 —— 这里没有任何已折叠的内容，凭空插一行
+  // 虚线就是假线。
+  const anchor = conversationCompactionAnchor([{ id: "message-9" }, { id: "message-10" }], [
+    { version: 1, message_from: "message-1", message_to: "message-4", compacted_at: "t1" }
+  ]);
+  assert.equal(anchor, null);
+  assert.equal(conversationCompactionAnchor([{ id: "message-1" }], []), null);
+});
+
+test("conversationCompactionAnchor clamps to the page end when the whole page is older", () => {
+  // 往回翻页：整页都比前沿更早 → 分界落在本页末尾（读作"这一页以上都被折了"）。
+  const anchor = conversationCompactionAnchor([{ id: "message-1" }, { id: "message-2" }], [
+    { version: 1, message_from: "message-1", message_to: "message-103", compacted_at: "t1" }
+  ]);
+  assert.equal(anchor.messageID, "message-2");
+  assert.equal(anchor.note, "");
+  assert.equal(anchor.frameRef, "");
 });

@@ -8,7 +8,7 @@ const markdownSource = (await readFile(new URL("./markdown.js", import.meta.url)
 const markdownURL = `data:text/javascript;base64,${Buffer.from(markdownSource).toString("base64")}`;
 const componentSource = (await readFile(new URL("./components.js", import.meta.url), "utf8"))
   .replace('"./markdown.js"', `"${markdownURL}"`);
-const { renderChatActivity, renderConversationComponent, renderConversationModel, messageRoleClass, roleIdentity, DRAFT_ROW_KEY } = await import(`data:text/javascript;base64,${Buffer.from(componentSource).toString("base64")}`);
+const { renderChatActivity, renderConversationComponent, renderConversationModel, messageRoleClass, roleIdentity, DRAFT_ROW_KEY, COMPACTION_FRONTIER_KEY } = await import(`data:text/javascript;base64,${Buffer.from(componentSource).toString("base64")}`);
 
 test("assigns each message the identity of the agent that owns the round", () => {
   assert.equal(roleIdentity({ role: "assistant", role_name: "main" }), "EXEC");
@@ -207,4 +207,53 @@ test("草稿行按 markdown 渲染并 escape 危险文本", () => {
   assert.doesNotMatch(item.html, /<img/);
   assert.match(item.html, /&lt;img/);
   assert.match(item.html, /<strong>粗体<\/strong>/);
+});
+
+// ── 压缩分界（会话单例）在对话区的那一行 ─────────────────────────
+// 落点与文案由 compaction-format.conversationCompactionAnchor 判定；这里只钉渲染
+// 与落点：一行、插在被折出的最后一条消息之后、锚点不在本页就不插。
+
+test("分界行插在被折出保留窗口的最后一条消息之后", () => {
+  const messages = [
+    { id: "message-1", role: "user", content: "一" },
+    { id: "message-2", role: "assistant", content: "二" },
+    { id: "message-3", role: "user", content: "三" }
+  ];
+  const anchor = { messageID: "message-2", label: "以上 消息 message-1..message-2已被折叠", title: "t", note: "", frameRef: "tr-1" };
+  const model = renderConversationModel(messages, {}, "", anchor);
+  const index = model.items.findIndex(item => item.key === COMPACTION_FRONTIER_KEY);
+  assert.equal(index, 2);
+  assert.equal(model.items[index - 1].key, "message:message-2");
+  assert.equal(model.items[index + 1].key, "message:message-3");
+  assert.equal(model.items[index].meta.kind, "frontier");
+  assert.match(model.items[index].html, /class="conversation-compaction-frontier"/);
+  assert.match(model.items[index].html, /以上 消息 message-1\.\.message-2已被折叠/);
+  assert.match(model.items[index].html, /data-compact-frame-ref="tr-1"/);
+  assert.match(model.items[index].html, /查看折叠帧正文/);
+  // 分界不是消息：不带轨迹 key，免得被当成会话里的一条。
+  assert.doesNotMatch(model.items[index].html, /data-trajectory-key/);
+});
+
+test("锚点不在本页或没有锚点时绝不插行", () => {
+  const messages = [{ id: "message-9", role: "user", content: "九" }];
+  const none = renderConversationModel(messages, {}, "");
+  assert.doesNotMatch(none.items.map(item => item.html).join(""), /conversation-compaction-frontier/);
+  // 记录刷新/换会话导致锚点消息不在本页：宁可少一行，也不插在错的位置。
+  const stale = renderConversationModel(messages, {}, "", { messageID: "message-1", label: "x", title: "t", note: "", frameRef: "" });
+  assert.doesNotMatch(stale.items.map(item => item.html).join(""), /conversation-compaction-frontier/);
+});
+
+test("分界行 escape 说明文字与 ref", () => {
+  const anchor = {
+    messageID: "message-1",
+    label: "以上 <script>alert(1)</script>已被折叠",
+    title: "<b>tip</b>",
+    note: "<i>2 次</i>",
+    frameRef: "tr-\"1\""
+  };
+  const html = renderConversationModel([{ id: "message-1", role: "user", content: "一" }], {}, "", anchor)
+    .items.map(item => item.html).join("");
+  assert.doesNotMatch(html, /<script>/);
+  assert.match(html, /&lt;script&gt;/);
+  assert.match(html, /data-compact-frame-ref="tr-&quot;1&quot;"/);
 });

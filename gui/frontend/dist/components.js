@@ -63,8 +63,8 @@ export function escapeHtml(value = "") {
 
 export const markdown = renderMarkdown;
 
-export function renderConversationComponent(messages = [], chat = {}, draft = "") {
-  const model = renderConversationModel(messages, chat, draft);
+export function renderConversationComponent(messages = [], chat = {}, draft = "", anchor = null) {
+  const model = renderConversationModel(messages, chat, draft, anchor);
   return { html: model.items.map(item => item.html).join(""), payloads: model.payloads };
 }
 
@@ -73,16 +73,53 @@ export function renderConversationComponent(messages = [], chat = {}, draft = ""
 // 不是消息，所以用独立的 chat: 前缀而不是 message:<id>。
 export const DRAFT_ROW_KEY = "chat:draft";
 
+// COMPACTION_FRONTIER_KEY 是对话页里「压缩分界」那一行的稳定 key。它不属于任何
+// message：分界是会话级事实（单例），所以用独立的 chat: 前缀（同草稿行），渲染层
+// 据此对账 DOM。
+export const COMPACTION_FRONTIER_KEY = "chat:compaction-frontier";
+
+// insertCompactionFrontier 在分界所在的那条消息之后插入一行「以上已折叠」虚线。
+//
+// anchor 是 compaction-format.js 里的 conversationCompactionAnchor 返回值（已算好
+// 落点与文案；null = 本页不画线）。分界是**会话单例**，因此每个对话页最多一行——
+// 历次压缩各插一行，读者会以为两条分界之间的对话还发给模型。
+function insertCompactionFrontier(items, anchor) {
+  if (!anchor || !anchor.messageID) return items;
+  const at = items.findIndex(item => item.messageID && item.messageID === anchor.messageID);
+  if (at < 0) return items;
+  const rows = items.slice();
+  rows.splice(at + 1, 0, { kind: "frontier", key: COMPACTION_FRONTIER_KEY, html: renderCompactionFrontierRow(anchor) });
+  return rows;
+}
+
+// renderCompactionFrontierRow 渲染「以上已折叠」虚线行：一条虚分隔 + 分界说明 +
+// （有帧时）「查看折叠帧正文」入口。入口只携带 data 属性
+// （data-compact-frame-ref），由 app.js 的 document 级委托接住——组件不持有
+// invoke 依赖（同排队卡片的动作按钮）。
+function renderCompactionFrontierRow(anchor) {
+  const frameRef = String(anchor.frameRef || "");
+  const label = String(anchor.label || "");
+  const note = String(anchor.note || "");
+  return `<div class="conversation-compaction-frontier" data-conversation-key="${COMPACTION_FRONTIER_KEY}" data-wheel-kind="system" data-wheel-label="${escapeHtml(label)}" title="${escapeHtml(String(anchor.title || label))}">
+      <span class="conversation-compaction-frontier-line" aria-hidden="true"></span>
+      <span class="conversation-compaction-frontier-label">${escapeHtml(label)}</span>
+      ${note ? `<span class="conversation-compaction-frontier-note">${escapeHtml(note)}</span>` : ""}
+      ${frameRef ? `<button type="button" class="conversation-compaction-frontier-open" data-compact-frame-ref="${escapeHtml(frameRef)}" title="按 ref ${escapeHtml(frameRef)} 读取折叠帧正文（弹出查看）">查看折叠帧正文</button>` : ""}
+    </div>`;
+}
+
 // renderConversationModel 把一页的内容组装成渲染行：既定 message + （可选）本页
 // 未发送的草稿行 + 运行时活动带。draft 为空/全空白时绝不插行——页面不会凭空多出
 // 一条空白草稿（判据同 draft-lifecycle.js composerDraftRows）。
-export function renderConversationModel(messages = [], chat = {}, draft = "") {
+// anchor 是会话单例压缩分界（conversationCompactionAnchor 的返回值；null = 本会话
+// 没折叠过、或分界不在本页），只决定「以上已折叠」那一行的落点。
+export function renderConversationModel(messages = [], chat = {}, draft = "", anchor = null) {
   const payloads = new Map();
-  const items = buildConversationItems(messages);
+  const items = insertCompactionFrontier(buildConversationItems(messages), anchor);
   const grouped = groupConversationItems(items, payloads);
   const rendered = grouped.map((item, index) => {
     const key = item.key || `${item.kind}-${index}`;
-    const html = item.kind === "axis"
+    const html = item.kind === "axis" || item.kind === "frontier"
       ? item.html
       : item.kind === "tool"
         ? renderToolCall(item, key, payloads)
@@ -177,7 +214,10 @@ export function buildConversationItems(messages = []) {
   const pendingByID = new Map();
   for (const [messageIndex, message] of messages.entries()) {
     if (!message.tool) {
-      items.push({ kind: "message", key: `message:${message.id || messageIndex}`, message });
+      // messageID：分界行要按事件序号与消息行对位（判据见 compaction-format.js 的
+      // messageOrdinal / conversationCompactionAnchor），
+      // 因此每条渲染行都带上自己的消息 id，不靠渲染层回查 messages。
+      items.push({ kind: "message", key: `message:${message.id || messageIndex}`, messageID: String(message.id || ""), message });
       continue;
     }
     const tool = message.tool;
@@ -199,6 +239,7 @@ export function buildConversationItems(messages = []) {
     const item = {
       kind: "tool",
       key: `tool:${tool.id || message.id || messageIndex}`,
+      messageID: String(message.id || ""),
       id: tool.id || "",
       name: tool.name || "tool",
       input: tool.arguments || "",
@@ -250,6 +291,13 @@ function groupConversationItems(items, payloads) {
     pendingTools.length = 0;
   };
   for (const item of items) {
+    if (item.kind === "frontier") {
+      // 分界行自成一组：它不是工具行（不能并进"工具过程"折叠组），也不属于任何
+      // 消息——先收掉挂起的工具行，再原样放行。
+      flushTools();
+      grouped.push(item);
+      continue;
+    }
     if (item.kind !== "message") {
       pendingTools.push(item);
       continue;

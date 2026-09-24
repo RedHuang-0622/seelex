@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -425,6 +426,84 @@ func TestNoProgressEventsWithoutFold(t *testing.T) {
 	}
 	if frames := drainCompactionProgress(t, subscription); len(frames) != 0 {
 		t.Fatalf("没有折叠却发了进度事件：%+v", frames)
+	}
+}
+
+// TestMaintenanceCompactEmitsOrderedProgressGates：会话级维护身份路径（冷加载、
+// 刚清空——会话**没有在飞回合**）同样逐关报告。
+//
+// 这条断言是补上来的：既有门禁测试只覆盖"有纪元"的显式路径与自动路径，维护路径
+// 发不发门禁没有任何测试钉住，只能靠一次性探针回答——而前端进度条能不能显示，
+// 完全取决于这一条事实。
+func TestMaintenanceCompactEmitsOrderedProgressGates(t *testing.T) {
+	runtime := runtimeWithContextLimits{fakeRuntime: &fakeRuntime{}, window: 200_000, output: 8_192}
+	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
+	defer service.Shutdown()
+	sessionID := service.Snapshot().Session.ID
+	// 冷加载：只装载材料，不开回合（也就没有执行纪元）。
+	appendWindowRounds(t, service, "task-cold-progress", 4, 2_000)
+
+	subscription, err := service.SubscribeSession(sessionID, 256)
+	if err != nil {
+		t.Fatalf("SubscribeSession: %v", err)
+	}
+	defer subscription.Close()
+
+	ctx := task_context.WithSessionID(context.Background(), sessionID)
+	result, err := service.CompactContextNow(ctx)
+	if err != nil {
+		t.Fatalf("CompactContextNow: %v", err)
+	}
+	if !result.Compacted || !result.NoEpoch {
+		t.Fatalf("冷加载会话应走会话级维护身份当场折叠，结果 = %+v", result)
+	}
+	frames := drainCompactionProgress(t, subscription)
+	assertProgressShape(t, frames, sessionID)
+	assertBeginFrame(t, frames)
+	if got := gateSequence(frames); strings.Join(got, ",") != strings.Join(context_runtime.CompactionGates, ",") {
+		t.Fatalf("门禁序列 = %v，want %v", got, context_runtime.CompactionGates)
+	}
+	// 归属：门禁挂在会话级维护身份上（可见面据此把这一轮对到会话）。
+	for _, frame := range frames {
+		if !strings.HasPrefix(frame.requestID, task_context.SessionMaintenanceRequestPrefix) {
+			t.Fatalf("维护路径的门禁请求归属 = %q，want 会话级维护身份", frame.requestID)
+		}
+	}
+	if terminal := frames[len(frames)-1].event; terminal.State != event.CompactionProgressDone {
+		t.Fatalf("终局事件 = %+v，want done", terminal)
+	}
+}
+
+// TestCompactReceiptCarriesGateChecklist：回执自带门禁清单（逐关 id + 毫秒）。
+//
+// 进度条是瞬态（revision=0、不进快照、终局后 2.5s 撤条）：回执若不拿住这份事实，
+// 用户按完回车、再看到回执时门禁早已撤条——"有门禁"就成了一句看不见的话。
+func TestCompactReceiptCarriesGateChecklist(t *testing.T) {
+	service, _, sessionID := compactTestService(t, "task-gates-receipt")
+	appendWindowRounds(t, service, "task-gates-receipt", 4, 2_000)
+
+	ctx := task_context.WithSessionID(context.Background(), sessionID)
+	result, err := service.CompactContextNow(ctx)
+	if err != nil {
+		t.Fatalf("CompactContextNow: %v", err)
+	}
+	total := context_runtime.CompactionGateTotal()
+	if len(result.Gates) != total {
+		t.Fatalf("回执门禁清单 = %d 关，want %d：%+v", len(result.Gates), total, result.Gates)
+	}
+	for index, gate := range result.Gates {
+		if gate.Gate != context_runtime.CompactionGates[index] {
+			t.Fatalf("第 %d 关门禁 = %q，权威顺序里是 %q", index, gate.Gate, context_runtime.CompactionGates[index])
+		}
+		if gate.ElapsedMS < 0 {
+			t.Fatalf("门禁 %s 的耗时 = %d ms，不可能为负", gate.Gate, gate.ElapsedMS)
+		}
+		if !strings.Contains(result.Note, gate.Gate) {
+			t.Fatalf("回执没有报出门禁 %s：%q", gate.Gate, result.Note)
+		}
+	}
+	if count := fmt.Sprintf("门禁 reached=%d/%d", len(result.Gates), total); !strings.Contains(result.Note, count) {
+		t.Fatalf("回执的门禁清单缺少收口计数 %q：%q", count, result.Note)
 	}
 }
 
