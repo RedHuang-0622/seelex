@@ -58,14 +58,17 @@ limits:
   session_name_runes: 16         # 会话名截断（默认 16）
   preflight_retry: 2             # preflight 重试次数（默认 2）
   output_reserve_tokens: 512     # provider 输出预留 token（默认 512）
-  # ── 上下文压缩预算比例（0 = 默认比例；预算 = 窗口 − output_reserve_tokens − 窗口/安全除数）──
-  # 这五个数此前硬编码在 task_context.newContextBudget，报表口径与判据口径分开演化的
-  # 教训就是：判据必须可调，且报表要显示同一份口径。默认值与旧硬编码逐位一致。
-  context_safety_reserve_divisor: 8   # 安全预留 = 窗口/该值（默认 8）
-  context_soft_percent: 75            # 软压缩线 = 预算 × %（默认 75）
-  context_hard_percent: 90            # 硬阈值线 = 预算 × %（默认 90；判据是装配后估算）
-  context_target_percent: 60          # 压缩后目标 = 预算 × %（默认 60）
-  context_single_item_percent: 50     # 单条输入外置阈值 = 预算 × %（默认 50；超限则归档为 result_ref）
+  # ── 上下文压缩预算（0 = 用默认值）───────────────────────────────
+  # 预算 budget = context_window − output_reserve_tokens − context_window ÷ 安全除数；
+  # 下面各百分比都以 budget 为基数。**同一份值被两个触发层消费**（不再各说各话）：
+  #   ① 回合边界装配（application/core/task_context 判据：每次给模型发请求前算一次）
+  #   ② 回合内框架控制器（seelexctx：每收一个工具结果 / 每闭合一轮就判一次）
+  # 默认值与改成配置之前的硬编码逐位一致 —— 不动这段配置 = 行为不变。
+  context_safety_reserve_divisor: 8   # 安全预留 = 窗口 ÷ 该值。调小（如 4）→ 预留更多、预算更小、更早开始压缩
+  context_soft_percent: 75            # 软压缩线：请求估算到达 budget×75% 就折叠可变 transcript。调低 → 压得更早更频繁（省 token，代价是反复重压、provider 前缀缓存更容易失效）；调高 → 少压几轮，但离窗口上限更近
+  context_hard_percent: 90            # 硬阈值线：装配后的请求仍 ≥ budget×90% 时立刻自主折成有界 checkpoint 帧（不等软线的下一个纪元）。调低 → 更"绝不贴边发送"；调高 → 允许历史更满
+  context_target_percent: 60          # 压缩目标：折叠后把请求大小压回 budget×60% 附近，给下一轮留确定余量。与 soft 的差 = 每次压掉的量；两者相等会导致每轮都重压
+  context_single_item_percent: 50     # 单条输入外置阈值：一条输入超 budget×50% 就先归档为 result_ref，请求里只放引用
   # 保留区下限（占预算 %；0 = 未配置 → 下限只剩「至少 1 个完整协议单元」兜底）：
   # 保留区 = clamp(占比 × 全量, floor, retain_tokens)，floor = max(最近 1 个完整协议单元, 该比例 × 预算)。
   # floor > window.retain_tokens 是非法组合，启动期直接报错（不许静默取小）。
@@ -78,7 +81,12 @@ limits:
   context_max_units: 4           # 上下文压缩扫描单元上限（默认 4）
   message_shard_size: 100        # 会话存储分片条数（默认 100）
   summary_chars: 800             # 项目记录摘要截断（默认 800）
-  max_tool_result_chars: 60000   # 工具结果最大字符数（默认 60000；fork 汇总按子代理数 ×n 放大，超大结果归档为 result_ref）
+  # 工具结果最大字符数：超过即整条归档为 result_ref、请求里只留省略块与引用。
+  # 三层同源消费（此前只有应用层跟着配置走）：回合内 processor、框架控制器的
+  # "这条结果算不算超大"判定、应用层归档。调大 → 更多原文直接进上下文（少一次
+  # 回读往返，但更快撞上压缩线）；调小 → 更早外置，模型要多调一次 read_tool_result。
+  # fork 汇总按子代理数 ×n 放大，窗口是容灾上限不是截断线。
+  max_tool_result_chars: 60000
   snapshot_tool_output_chars: 8000 # 可见会话快照单条工具输出上限（默认 8000）：超限只留预览进快照，完整内容归档 result_ref 点击再取——WebView2 渲染内存截断线（治本）
   # docker 守护进程自动恢复：bash 命令因 Docker Desktop 未运行失败时自动
   # 启动守护进程并重跑一次（默认开启；关闭需显式 disable_docker_auto_start: true）

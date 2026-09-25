@@ -41,39 +41,54 @@ const checkpointMarker = "<!-- seelex:context-checkpoint:v1 -->"
 // plan 消息贴近当前输入、不参与压缩、不作为记忆查询或轮次单元。
 const ActivePlanContextMarker = "<!-- seelex:active-plan:v1 -->"
 
-// ContextWindowPolicy 软/硬阈值（与 application contextBudget 同源决策：
-// Budget 内 75% 软阈值 / 90% 硬阈值 / 压缩目标 60%，2026-07-29 文档保留）。
+// ContextWindowPolicy 软/硬阈值与安全预留。比例**全部来自 limits 配置段**
+// （context_soft_percent / context_hard_percent / context_target_percent /
+// context_safety_reserve_divisor），与 application 层 newContextBudget 读同一份
+// 配置：同一个"软阈值"在装配层与回合内控制器只能有一个来源，否则用户调低
+// context_soft_percent 后，回合内仍按出厂比例压（报表说 60% 已压过、控制器还
+// 在 75% 等）。默认 8/75/90/60 由 Limits.WithDefaults 给出（见 limits.go）。
 type ContextWindowPolicy struct {
 	Window         int // provider 上下文窗口
 	OutputReserve  int // 单次输出预留
 	SafetyReserve  int // 安全保留区
 	ReservedTokens int // system prompt + 栈块固定预留（0 → 用 SafetyReserve）
 	ConfigRounds   int // 显式 window.rounds（0 = 未配置）
+	// 以下四个比例/除数是 limits 生效值（构造时经 WithDefaults 归一，恒 > 0）。
+	SafetyReserveDivisor int // 安全预留除数（预算 = window − output − window/divisor）
+	SoftPercent          int // 软压缩线（占预算 %）
+	HardPercent          int // 硬阈值线（占预算 %）
+	TargetPercent        int // 压缩后目标（占预算 %）
 }
 
-// NewContextWindowPolicy 按 window/outputReserve 构造阈值策略
-// （与 newContextBudget 同款计算：safety = window/8）。
-func NewContextWindowPolicy(window, outputReserve int) ContextWindowPolicy {
-	safetyReserve := window / 8
+// NewContextWindowPolicy 按 window/outputReserve + limits 生效值构造阈值策略
+// （与 newContextBudget 同款计算：safety = window/context_safety_reserve_divisor）。
+// limits 传零值不构成"阈值 0"：先经 WithDefaults 归一，未配置字段回退默认比例。
+func NewContextWindowPolicy(window, outputReserve int, limits Limits) ContextWindowPolicy {
+	settings := limits.WithDefaults()
+	safetyReserve := window / settings.ContextSafetyReserveDivisor
 	if safetyReserve < 0 {
 		safetyReserve = 0
 	}
 	return ContextWindowPolicy{
 		Window: window, OutputReserve: outputReserve, SafetyReserve: safetyReserve,
+		SafetyReserveDivisor: settings.ContextSafetyReserveDivisor,
+		SoftPercent:          settings.ContextSoftPercent,
+		HardPercent:          settings.ContextHardPercent,
+		TargetPercent:        settings.ContextTargetPercent,
 	}
 }
 
 // Budget 返回可用于请求的 token 预算。
 func (p ContextWindowPolicy) Budget() int { return p.Window - p.OutputReserve - p.SafetyReserve }
 
-// SoftThreshold 软阈值（75%）。
-func (p ContextWindowPolicy) SoftThreshold() int { return p.Budget() * 75 / 100 }
+// SoftThreshold 软阈值（limits.context_soft_percent，默认 75%）。
+func (p ContextWindowPolicy) SoftThreshold() int { return p.Budget() * p.SoftPercent / 100 }
 
-// HardThreshold 硬阈值（90%）。
-func (p ContextWindowPolicy) HardThreshold() int { return p.Budget() * 90 / 100 }
+// HardThreshold 硬阈值（limits.context_hard_percent，默认 90%）。
+func (p ContextWindowPolicy) HardThreshold() int { return p.Budget() * p.HardPercent / 100 }
 
-// TargetAfterCompaction 压缩目标（60%）。
-func (p ContextWindowPolicy) TargetAfterCompaction() int { return p.Budget() * 60 / 100 }
+// TargetAfterCompaction 压缩目标（limits.context_target_percent，默认 60%）。
+func (p ContextWindowPolicy) TargetAfterCompaction() int { return p.Budget() * p.TargetPercent / 100 }
 
 // Reserved 固定预留（system prompt + 栈块）。
 func (p ContextWindowPolicy) Reserved() int {
@@ -283,7 +298,11 @@ func (c *seelexContextController) frameCarryTokens() int {
 	return DefaultFrameCarryTokens
 }
 
-// policy 返回生效的阈值策略（Budget 提供时用其窗口/输出推导）。
+// policy 返回生效的阈值策略（Budget 提供时用账号窗口/输出预留覆盖输入）。
+//
+// 覆盖只换 Window/OutputReserve 这两个账号输入，比例与除数沿用构造时注入的
+// limits 生效值：在这里重建一份策略会把配置丢掉、退回出厂默认，配置就只对着
+// 一个触发层生效（装配层跟着改、回合内控制器仍按 75% 等）。
 func (c *seelexContextController) policy() ContextWindowPolicy {
 	policy := c.opts.Policy
 	if policy.Window <= 0 {
@@ -291,12 +310,16 @@ func (c *seelexContextController) policy() ContextWindowPolicy {
 	}
 	if c.opts.Budget != nil {
 		if contextTokens := c.opts.Budget.ContextTokens(); contextTokens > 0 {
-			output := c.opts.Budget.MaxOutputTokens()
-			policy = NewContextWindowPolicy(contextTokens, output)
+			policy.Window = contextTokens
+			policy.OutputReserve = c.opts.Budget.MaxOutputTokens()
+			policy.SafetyReserve = contextTokens / policy.SafetyReserveDivisor
+			if policy.SafetyReserve < 0 {
+				policy.SafetyReserve = 0
+			}
 		}
 	}
 	if policy.OutputReserve <= 0 {
-		policy.OutputReserve = policy.Window / 8
+		policy.OutputReserve = policy.Window / policy.SafetyReserveDivisor
 	}
 	return policy
 }

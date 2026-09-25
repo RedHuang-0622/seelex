@@ -73,6 +73,30 @@ flowchart LR
 | `bridge.go` | Export/ExportWithGoal/Import 兼容 API（委托子包）。 |
 | `seele.go` | re-export 仍被使用的 Seele `seelectx` 压缩函数；`EstimateTokens` 兼容变量已改为 `tokens` 脚本感知估算。 |
 
+## 阈值与上限的来源（一处配置，两层消费）
+
+本包控制器**不持有任何魔法数字**。回合内触发用的四个比例与一条字符上限全部来自
+`config/seelex.yaml` 的 `limits` 段，由 `seelebridge` 在装配 Runtime 时注入：
+
+| 配置键 | 作用 | 注入点 |
+|---|---|---|
+| `context_safety_reserve_divisor` | 安全预留 = 窗口 ÷ 该值，决定预算基数 | `NewContextWindowPolicy(window, output, r.limits)` |
+| `context_soft_percent` | 软压缩线：请求估算到达 `预算 × %` 就折叠窗口外轮次 | 同上 |
+| `context_hard_percent` | 硬阈值路径：收缩窗口时以此为可用上限 | 同上 |
+| `context_target_percent` | 压缩后目标 | 同上 |
+| `max_tool_result_chars` | 单条工具结果多大算"超大"（→ 归档为 `result_ref`） | `ControllerOptions.MaxToolResultChars` 与 `NewToolResultProcessor(limit, …)` |
+
+**触发点**：Seele ReActLoop 每次迭代发 `before_model` / `after_assistant` /
+`after_tool` 三个事件，本包只处理后两个（`controller.go` 的 `Handle`）——压缩边界
+必须落在完整协议单元上，`before_model` 处单元尚未闭合，不在那里折叠。
+
+**注入而非全局**：`Limits` 类型属于本包，`application/core/internal/limits` 只是这
+同一份结构的进程持有者（它 import 本包，反向即成环）。因此沿用 `FrameCarryTokens`
+已在走的"调用方注入"通路，不再新增第二份进程级持有者。
+
+**回归防线**：`controller_limits_test.go` 钉住三件事——改比例真的改变软/硬/目标
+数字、`Budget` 覆盖账号窗口时比例不被重建策略丢掉、注入的上限真的决定"算不算超大"。
+
 ## 数据流
 
 ```text

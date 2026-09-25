@@ -661,7 +661,7 @@ func frameworkToolErrorContent(err error) string {
 }
 
 // defaultToolResultLimit 返回工具结果字符预算（seelex.yaml limits 段
-// max_tool_result_chars，默认 20000）。
+// max_tool_result_chars，出厂默认 60000）。
 func defaultToolResultLimit() int {
 	return limits.Get().MaxToolResultChars
 }

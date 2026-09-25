@@ -79,8 +79,10 @@ func (r *Runtime) coverHistoryGap(ctx context.Context, allEvents []sessionstore.
 // 保持既有行为；Assembler 的 system provider 在应用层迁移后接管。
 func (r *Runtime) mainContextComponents() session.ContextComponents {
 	return session.ContextComponents{
-		Assembler:           r.seelexAssembler(),
-		ToolResultProcessor: seelexctx.NewToolResultProcessor(0, nil),
+		Assembler: r.seelexAssembler(),
+		// 工具结果归档上限取 limits 生效值：传 0 会退回出厂默认，
+		// max_tool_result_chars 就对回合内归档失效了。
+		ToolResultProcessor: seelexctx.NewToolResultProcessor(r.limits.MaxToolResultChars, nil),
 		Compressor:          r.seelexCompressor(),
 		Controller:          r.seelexController(),
 	}
@@ -93,7 +95,7 @@ func (r *Runtime) mainContextComponents() session.ContextComponents {
 func (r *Runtime) nodeContextComponents() session.ContextComponents {
 	return session.ContextComponents{
 		Assembler: r.node.Assembler(),
-		ToolResultProcessor: seelexctx.NewToolResultProcessor(0, seenode.ToolResultArchiver{
+		ToolResultProcessor: seelexctx.NewToolResultProcessor(r.limits.MaxToolResultChars, seenode.ToolResultArchiver{
 			ArchiverFor: r.node.ToolResultArchiverFor,
 			Shared:      seelexctx.NewInMemoryToolResultArchiver(),
 		}),
@@ -107,13 +109,14 @@ func (r *Runtime) nodeContextComponents() session.ContextComponents {
 // 账号限额推导。节点级栈当前为内存态（运行期隔离优先；节点会话记录
 // 落盘承载恢复数据面）。
 func (r *Runtime) nodeController() seelectx.ContextController {
-	policy := seelexctx.NewContextWindowPolicy(r.ContextWindow(), r.MaxOutputTokens())
+	policy := seelexctx.NewContextWindowPolicy(r.ContextWindow(), r.MaxOutputTokens(), r.limits)
 	return seelexctx.NewContextController(seelexctx.ControllerOptions{
-		Policy: policy,
-		Window: r.windowPolicy(),
-		Budget: runtimeBudgetProvider{runtime: r},
-		Stacks: seelexctx.NewMemoryCompactStack(),
-		Turns:  r.getTurnArchiver(),
+		Policy:             policy,
+		Window:             r.windowPolicy(),
+		Budget:             runtimeBudgetProvider{runtime: r},
+		Stacks:             seelexctx.NewMemoryCompactStack(),
+		Turns:              r.getTurnArchiver(),
+		MaxToolResultChars: r.limits.MaxToolResultChars,
 		// 节点压缩帧 SegmentID 溯源到节点会话：与主会话栈隔离（2026-08-24 修复）。
 		SessionIDProvider: func() string { return "node" },
 		// 压缩 DAG：节点子代理也走 select_range → chapter1/2 → merge 的
@@ -197,15 +200,19 @@ func (r *Runtime) seelexCompressor() seelectx.Compressor {
 }
 
 // seelexController 构造控制器：窗口策略来自 RuntimeConfig.WindowConfig
-// （DefaultWindowPolicy，plan.md §3.7.3），阈值预算来自账号限额。
+// （DefaultWindowPolicy，plan.md §3.7.3），阈值预算的窗口/输出来自账号限额，
+// 比例与除数来自 limits 段（context_soft_percent / context_hard_percent /
+// context_target_percent / context_safety_reserve_divisor）。工具结果归档上限
+// 同源于 limits：processor、控制器、应用装配层因此只有一份生效值。
 func (r *Runtime) seelexController() seelectx.ContextController {
-	policy := seelexctx.NewContextWindowPolicy(r.ContextWindow(), r.MaxOutputTokens())
+	policy := seelexctx.NewContextWindowPolicy(r.ContextWindow(), r.MaxOutputTokens(), r.limits)
 	return seelexctx.NewContextController(seelexctx.ControllerOptions{
-		Policy: policy,
-		Window: r.windowPolicy(),
-		Budget: runtimeBudgetProvider{runtime: r},
-		Stacks: runtimeCompactStacks{runtime: r, memory: seelexctx.NewMemoryCompactStack()},
-		Turns:  r.getTurnArchiver(),
+		Policy:             policy,
+		Window:             r.windowPolicy(),
+		Budget:             runtimeBudgetProvider{runtime: r},
+		Stacks:             runtimeCompactStacks{runtime: r, memory: seelexctx.NewMemoryCompactStack()},
+		Turns:              r.getTurnArchiver(),
+		MaxToolResultChars: r.limits.MaxToolResultChars,
 		// 帧摘要传递上限（limits.context_frame_carry_tokens）：本地折叠把上一栈顶
 		// 帧 Chapter 2 正文并入新帧时的并入量上限，超出退化为锚点。
 		FrameCarryTokens: r.limits.ContextFrameCarryTokens,

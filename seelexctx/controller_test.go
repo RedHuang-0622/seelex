@@ -70,7 +70,7 @@ func roundHistory(rounds int) []types.Message {
 func newController(window int, stacks CompactStackStore) *seelexContextController {
 	return &seelexContextController{
 		opts: ControllerOptions{
-			Policy:            NewContextWindowPolicy(100_000, 8_192),
+			Policy:            NewContextWindowPolicy(100_000, 8_192, DefaultLimits()),
 			Window:            fixedWindowPolicy{rounds: window},
 			Tokens:            heavyTokenCounter{},
 			Stacks:            stacks,
@@ -86,7 +86,7 @@ func newDefaultWindowController() *seelexContextController {
 	stacks := NewMemoryCompactStack()
 	return &seelexContextController{
 		opts: ControllerOptions{
-			Policy: NewContextWindowPolicy(100_000, 8_192),
+			Policy: NewContextWindowPolicy(100_000, 8_192, DefaultLimits()),
 			Window: NewDefaultWindowPolicy(WindowConfig{Ratio: 0.5, MinRounds: 2, MaxRounds: 40}),
 			Tokens: heavyTokenCounter{},
 			Stacks: stacks,
@@ -163,7 +163,7 @@ func TestControllerNoCompressionBelowSoftThreshold(t *testing.T) {
 	// 轻量计数（len/3）：10 轮历史远低于软阈值 → 不触发压缩。
 	controller := &seelexContextController{
 		opts: ControllerOptions{
-			Policy: NewContextWindowPolicy(100_000, 8_192),
+			Policy: NewContextWindowPolicy(100_000, 8_192, DefaultLimits()),
 			Window: fixedWindowPolicy{rounds: 3},
 			Tokens: ConservativeTokenCounter{},
 			Stacks: NewMemoryCompactStack(),
@@ -215,7 +215,7 @@ func TestControllerSegmentClosePreservesGoalPlanEvidence(t *testing.T) {
 	}}
 	controller := &seelexContextController{
 		opts: ControllerOptions{
-			Policy:            NewContextWindowPolicy(100_000, 8_192),
+			Policy:            NewContextWindowPolicy(100_000, 8_192, DefaultLimits()),
 			Window:            fixedWindowPolicy{rounds: 3},
 			Tokens:            heavyTokenCounter{},
 			Stacks:            store,
@@ -592,7 +592,7 @@ func TestControllerCompressionArchivesTurnOriginal(t *testing.T) {
 	archiver := &recordingTurnArchiver{}
 	controller := &seelexContextController{
 		opts: ControllerOptions{
-			Policy:            NewContextWindowPolicy(100_000, 8_192),
+			Policy:            NewContextWindowPolicy(100_000, 8_192, DefaultLimits()),
 			Window:            fixedWindowPolicy{rounds: 3},
 			Tokens:            heavyTokenCounter{},
 			Stacks:            stacks,
