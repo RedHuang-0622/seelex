@@ -135,10 +135,10 @@ func TestSessionInputIndexRequiresSessionID(t *testing.T) {
 func TestSessionInputIndexTruncatesSummary(t *testing.T) {
 	store := newPagedSessionStore("summary-session", 0)
 	long := strings.Repeat("长", inputIndexSummaryLimit+140)
-	store.messages = []Message{
-		{ID: "m1", Role: "user", Content: long, CreatedAt: time.Now()},
-		{ID: "m2", Role: "assistant", Content: "回答", CreatedAt: time.Now()},
-	}
+	store.setPublished(
+		Message{ID: "m1", Role: "user", Content: long, CreatedAt: time.Now()},
+		Message{ID: "m2", Role: "assistant", Content: "回答", CreatedAt: time.Now()},
+	)
 	service := inputIndexService(t, store)
 
 	index, err := service.SessionInputIndex("summary-session")
@@ -193,18 +193,18 @@ func TestSessionInputIndexSkipsNonUserAndInternalRows(t *testing.T) {
 	envelope := skillContextEnvelopePrefix +
 		base64.RawURLEncoding.EncodeToString([]byte(display)) +
 		skillContextEnvelopeSuffix + "\n内部材料正文（不应出现在摘要里）"
-	store.messages = []Message{
-		{ID: "m1", Role: "user", Content: "真正的输入", CreatedAt: time.Now()},
-		{ID: "m2", Role: "assistant", Content: "回答", CreatedAt: time.Now()},
-		{ID: "m3", Role: "tool", Content: "工具调用", CreatedAt: time.Now()},
-		{ID: "m4", Role: "tool_result", Content: "工具结果", CreatedAt: time.Now()},
-		{ID: "m5", Role: "system", Content: "系统行", CreatedAt: time.Now()},
-		{ID: "m6", Role: "user", Content: context_runtime.TaskContextCheckpointPrefix + "\n内部检查点", CreatedAt: time.Now()},
-		{ID: "m7", Role: "user", Content: session_runtime.SessionArchiveResumePrefix + "\n恢复摘要", CreatedAt: time.Now()},
-		{ID: "m8", Role: "user", Content: "   \n  ", CreatedAt: time.Now()},
-		{ID: "m9", Role: "user", Content: envelope, CreatedAt: time.Now()},
-		{ID: "m10", Role: "user", Content: "第二条真输入", CreatedAt: time.Now()},
-	}
+	store.setPublished(
+		Message{ID: "m1", Role: "user", Content: "真正的输入", CreatedAt: time.Now()},
+		Message{ID: "m2", Role: "assistant", Content: "回答", CreatedAt: time.Now()},
+		Message{ID: "m3", Role: "tool", Content: "工具调用", CreatedAt: time.Now()},
+		Message{ID: "m4", Role: "tool_result", Content: "工具结果", CreatedAt: time.Now()},
+		Message{ID: "m5", Role: "system", Content: "系统行", CreatedAt: time.Now()},
+		Message{ID: "m6", Role: "user", Content: context_runtime.TaskContextCheckpointPrefix + "\n内部检查点", CreatedAt: time.Now()},
+		Message{ID: "m7", Role: "user", Content: session_runtime.SessionArchiveResumePrefix + "\n恢复摘要", CreatedAt: time.Now()},
+		Message{ID: "m8", Role: "user", Content: "   \n  ", CreatedAt: time.Now()},
+		Message{ID: "m9", Role: "user", Content: envelope, CreatedAt: time.Now()},
+		Message{ID: "m10", Role: "user", Content: "第二条真输入", CreatedAt: time.Now()},
+	)
 	service := inputIndexService(t, store)
 
 	index, err := service.SessionInputIndex("filter-session")

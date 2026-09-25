@@ -566,7 +566,11 @@ func (service *Service) ResumeSession(sessionID string) error {
 //     Snapshot 会在下一次镜像（新消息/工具事件/切换）被整体抹掉，offset
 //     退回尾部，前端表现为「点了加载更早，内容回卷，再点还是同一页」；
 //   - 窗口 = 从新 HistoryOffset 起的连续一段（上限 window）：窗口整体后退
-//     一页，而不是把可见列表无限加长（WebView 渲染内存有硬上限）。
+//     一页，而不是把可见列表无限加长（WebView 渲染内存有硬上限）；
+//   - 冷读面只到发布点：滑出窗口的本轮在飞行行要等这次落盘（回合收尾
+//     PersistCurrentSession）才读得回来。窗口因此不贴尾，安装点保持
+//     TotalMessages 如实前推，前端据「total − (offset+窗口条数)」提示
+//     「下方还有新内容」，而不是把内容抹平。
 func (service *Service) LoadMoreHistory(limit int) error {
 	window := Limits().HistoryWindow
 	if window <= 0 {
@@ -600,23 +604,27 @@ func (service *Service) LoadMoreHistory(limit int) error {
 	if loadOffset < 0 {
 		loadOffset = 0
 	}
-	page, total, err := service.loadConversationPage(workspaceID, sessionID, loadOffset, offset-loadOffset)
+	rows, total, err := service.loadConversationPage(workspaceID, sessionID, loadOffset, offset-loadOffset)
 	if err != nil {
 		return err
 	}
-	return service.installVisibleHistory(sessionID, page, total, loadOffset, window, historyPagePrepend)
+	page := conversationPage{rows: rows, diskTotal: total, start: loadOffset}
+	return service.installVisibleHistory(sessionID, page, window, historyPagePrepend)
 }
 
 // LoadLatestHistory 把可见会话拉回最新一页（历史浏览后的「回到最新」）。
 // 分页只移动窗口、不动数据：回到最新 = 重新读尾部窗口并贴尾；回看期间
 // 错过的新消息由这次基线一并带回。
+//
+// 热读短路：内存窗口已经贴着有效尾（窗口右界 = 已可见总数）时，「回到最新」
+// 没有任何可加载的东西——冷读面的右界是发布点，换上来的必然是更旧的一页，
+// 把本轮尚未落盘的尾部整窗删掉。此时直接返回，内存即答案。
 func (service *Service) LoadLatestHistory() error {
 	window := Limits().HistoryWindow
 	if window <= 0 {
 		window = 1
 	}
 	service.ViewMu.RLock()
-	total := service.Core.Snapshot.TotalMessages
 	sessionID := service.Core.Snapshot.Session.ID
 	workspaceID := currentWorkspaceIDLocked(service)
 	service.ViewMu.RUnlock()
@@ -625,22 +633,58 @@ func (service *Service) LoadLatestHistory() error {
 		// 并清除「内容未加载」标志，无需再读一次）。
 		return service.reloadSessionContent(sessionID)
 	}
-
-	offset := total - window
-	if offset < 0 {
-		offset = 0
+	if service.visibleTailServedFromMemory(sessionID) {
+		return nil
 	}
-	page, count, err := service.loadConversationPage(workspaceID, sessionID, offset, window)
+
+	page, err := service.loadConversationTailPage(workspaceID, sessionID, window)
 	if err != nil {
 		return err
 	}
-	if count > 0 {
-		total = count
-		if offset = total - window; offset < 0 {
-			offset = 0
-		}
+	return service.installVisibleHistory(sessionID, page, window, historyPageReplace)
+}
+
+// visibleTailServedFromMemory 报告内存窗口是否已经把有效尾部整窗带到（非空且
+// 贴尾）。贴尾 = 用户已经在最新处；窗口为空（草稿/刚被卸载）时按「未带到」
+// 处理，必须走冷读。
+func (service *Service) visibleTailServedFromMemory(sessionID string) bool {
+	atTail := false
+	service.components.view.SessionViewReadLocked(sessionID, func(view *session.View) {
+		durable := view_state.DurableConversationCount(view.Conversation)
+		atTail = durable > 0 && view.HistoryOffset+durable >= view.TotalMessages
+	})
+	return atTail
+}
+
+// loadConversationTailPage 读磁盘已发布的尾部窗口：先探总数，再按总数定位窗口
+// 起点读一页。反过来「先按内存估计读、再用磁盘总数重算起点」会让窗口内容与
+// HistoryOffset 各说各话——读回的是旧的一页，起点却指向新尾部。
+//
+// 探测与窗口读是两次独立加锁操作（与 session_runtime.LoadHistoryTailWindow 同一
+// 观察项）：两读之间会话并发增长时窗口会短一两行，下一次加载自我纠正。
+func (service *Service) loadConversationTailPage(workspaceID, sessionID string, window int) (conversationPage, error) {
+	// limit=1 只为拿总数（区间读把 total 一并带回）。
+	_, diskTotal, err := service.loadConversationPage(workspaceID, sessionID, 0, 1)
+	if err != nil {
+		return conversationPage{}, err
 	}
-	return service.installVisibleHistory(sessionID, page, total, offset, window, historyPageReplace)
+	start := diskTotal - window
+	if start < 0 {
+		start = 0
+	}
+	rows, _, err := service.loadConversationPage(workspaceID, sessionID, start, window)
+	if err != nil {
+		return conversationPage{}, err
+	}
+	return conversationPage{rows: rows, diskTotal: diskTotal, start: start}, nil
+}
+
+// conversationPage 是一段冷读结果：可见行 + 磁盘**已发布**总数 + 这一页在可见
+// 下标空间里的起点 start。
+type conversationPage struct {
+	rows      []Message
+	diskTotal int
+	start     int
 }
 
 // historyPageInstall 描述一页历史如何安装进可见窗口。
@@ -692,31 +736,76 @@ func (service *Service) loadConversationPage(workspaceID, sessionID string, offs
 // installVisibleHistory 安装一页可见历史：写会话可见投影（事实源）→ 收敛
 // 窗口 → 镜像 Snapshot → bump 并发布快照变更。分页态因此随会话走，后续任何
 // 镜像（新消息/工具事件/切换）都不会把它抹掉。
-func (service *Service) installVisibleHistory(sessionID string, page []Message, total, offset, window int, mode historyPageInstall) error {
+//
+// 冷读面的右界是**发布点**（sessionstore 以 message 通道 head.LastSeq 为读者
+// 闸门），本轮尚未落盘的行只有内存窗口知道。因此这里守三条：
+//   - 已可见总数不因冷读倒退：total = max(磁盘已发布数, 内存总数)。总数是前端
+//     「下方还有 N 条新内容」的唯一依据，倒退既谎报到底，又让一个并不贴尾的
+//     窗口被 append 路径判成贴尾，下一条消息就插进列表中间（断层）；
+//   - 窗口起点由**实际装进去的行**推出，不接受调用方估计的 pageStart+窗口：
+//     冷读一页短于请求时（读到发布点就没了），估计值会与内容各说各话；
+//   - 只拼得上的才拼：磁盘页与内存窗口之间有空洞时不假装连续（宁可窗口短一
+//     页，也不在列表中间留一段谁都没有的下标区间）；一页都没读到时保持现有
+//     窗口，只校正总数。
+//
+// 页尾按**实际读到的行**推：读回面过滤掉的下标（system、内部标记）本来就不在
+// 可见空间里，按请求量补齐反而会把重复行拼回窗口。
+func (service *Service) installVisibleHistory(sessionID string, page conversationPage, window int, mode historyPageInstall) error {
 	if window <= 0 {
 		window = 1
 	}
-	if offset < 0 {
-		offset = 0
+	pageStart, diskTotal := page.start, page.diskTotal
+	if pageStart < 0 {
+		pageStart = 0
 	}
 	service.ViewMu.Lock()
-	for index := range page {
-		if page[index].ID == "" {
-			page[index].ID = fmt.Sprintf("message-%d", service.components.view.NextMessageSeqForLocked(sessionID))
+	for index := range page.rows {
+		if page.rows[index].ID == "" {
+			page.rows[index].ID = fmt.Sprintf("message-%d", service.components.view.NextMessageSeqForLocked(sessionID))
 		}
 	}
 	service.components.view.SessionViewMutateLocked(sessionID, func(view *session.View) {
-		if mode == historyPageReplace {
-			view.Conversation = append([]Message(nil), page...)
-		} else {
-			view.Conversation = append(append([]Message(nil), page...), view.Conversation...)
-			view.Conversation = view_state.BoundConversationHead(view.Conversation, window)
+		effectiveTotal := diskTotal
+		if view.TotalMessages > effectiveTotal {
+			effectiveTotal = view.TotalMessages
 		}
-		if total > 0 {
-			view.TotalMessages = total
+		if effectiveTotal > 0 {
+			view.TotalMessages = effectiveTotal
 		}
-		view.HistoryOffset = offset
-		view.HasMoreHistory = offset > 0
+		if len(page.rows) == 0 {
+			view.HasMoreHistory = view.HistoryOffset > 0
+			return
+		}
+		memoryStart := view.HistoryOffset
+		memoryRows := durableConversationRows(view.Conversation)
+		pageRight := pageStart + len(page.rows)
+		if pageRight > diskTotal {
+			pageRight = diskTotal
+		}
+		start, rows := pageStart, append([]Message(nil), page.rows...)
+		switch mode {
+		case historyPagePrepend:
+			if pageRight == memoryStart {
+				rows = append(rows, memoryRows...)
+			}
+			rows = view_state.BoundConversationHead(rows, window)
+		case historyPageReplace:
+			// 页读到了发布点、且内存窗口跨在发布点上：把发布点之后的那段热尾
+			// 接回页尾，否则「回到最新」会把本轮尚未落盘的尾部整窗删掉。
+			if pageRight >= diskTotal && memoryStart <= diskTotal && memoryStart+len(memoryRows) > diskTotal {
+				hot := memoryRows[diskTotal-memoryStart:]
+				rows = append(rows, hot...)
+				pageRight += len(hot)
+			}
+			rows = view_state.BoundConversationTail(rows, window)
+			start = pageRight - len(durableConversationRows(rows))
+		}
+		if start < 0 {
+			start = 0
+		}
+		view.Conversation = rows
+		view.HistoryOffset = start
+		view.HasMoreHistory = start > 0
 		view.ConversationWindow = window
 		// 本路径安装了可见正文（分页/冷回读）：「内容未加载」标志随之清除。
 		view.ContentUnloaded = false
@@ -728,6 +817,19 @@ func (service *Service) installVisibleHistory(sessionID string, page []Message, 
 	// 内容 LRU：分页/回读都是一次正文使用（移动到使用序最前并收敛超限）。
 	service.touchContent(sessionID)
 	return nil
+}
+
+// durableConversationRows 取出可见窗口里参与历史游标的行（system 引导行不占
+// durable 下标空间，与 view_state.DurableConversationCount 同一口径）。
+func durableConversationRows(messages []Message) []Message {
+	rows := make([]Message, 0, len(messages))
+	for _, message := range messages {
+		if message.Role == "system" {
+			continue
+		}
+		rows = append(rows, message)
+	}
+	return rows
 }
 
 func adaptEngineMessage(msg EngineMessage) Message {

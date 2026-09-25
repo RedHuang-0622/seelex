@@ -36,17 +36,23 @@ func withHistoryWindow(window int) func() {
 
 // pagedSessionStore 仿生产会话端口：record 与 conversation 窗口读的是同一份
 // durable 消息（v8 布局里两者都由 message 事件行派生，索引空间一致）。
+//
+// published 是**发布点闸门**（sessionstore 的 head.LastSeq 同一语义）：record 与
+// conversation 区间读只看得见 messages[:published]。写者可以先物理 append
+// （appendDraft），发布点要等回合收尾才推进（publishDraftTail）——夹具据此表达
+// 「内存窗口领先磁盘」的在飞回合。
 type pagedSessionStore struct {
 	fakeSessions
 	mu        sync.Mutex
 	sessionID string
 	title     string
 	messages  []Message
+	published int
 	rangeRead int
 }
 
 func newPagedSessionStore(sessionID string, count int) *pagedSessionStore {
-	store := &pagedSessionStore{sessionID: sessionID, title: "长会话"}
+	store := &pagedSessionStore{sessionID: sessionID, title: "长会话", published: count}
 	for index := 0; index < count; index++ {
 		role := "assistant"
 		if index%2 == 0 {
@@ -99,7 +105,7 @@ func (store *pagedSessionStore) LoadSessionRecordWorkspace(workspaceID, sessionI
 	}
 	record := SessionRecord{Version: 3, ID: sessionID}
 	record.Title.Value = store.title
-	record.Conversation.Messages = append([]Message(nil), store.messages...)
+	record.Conversation.Messages = append([]Message(nil), store.messages[:store.published]...)
 	return record, nil
 }
 
@@ -119,7 +125,7 @@ func (store *pagedSessionStore) LoadSessionRecord(sessionID string) (SessionReco
 }
 
 // LoadConversationRangeWorkspace 是生产分页读回面（SessionConversationRangePort）：
-// offset/limit 与 record 的可见消息序列同空间。
+// offset/limit 与 record 的可见消息序列同空间，且同样以发布点为上限。
 func (store *pagedSessionStore) LoadConversationRangeWorkspace(workspaceID, sessionID string, offset, limit int) ([]Message, int, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -127,19 +133,50 @@ func (store *pagedSessionStore) LoadConversationRangeWorkspace(workspaceID, sess
 		return nil, 0, fs.ErrNotExist
 	}
 	store.rangeRead++
-	total := store.countLocked()
-	return sliceWindow(&store.messages, offset, limit), total, nil
+	published := store.messages[:store.published]
+	total := len(published)
+	return sliceWindow(&published, offset, limit), total, nil
 }
 
+// appendDurable 追加一条**已提交**行（物理落盘 + 推进发布点）。
 func (store *pagedSessionStore) appendDurable(role, content string) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	store.appendRowLocked(role, content)
+	store.published = len(store.messages)
+}
+
+// appendDraft 只将行物理落盘，不推进发布点：对冷读面不可见（等价 message
+// 通道里 seq > head.LastSeq 的草稿尾），只有内存窗口知道它。
+func (store *pagedSessionStore) appendDraft(role, content string) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.appendRowLocked(role, content)
+}
+
+// publishDraftTail 推进发布点（回合收尾 PersistCurrentSession 同一效果）。
+func (store *pagedSessionStore) publishDraftTail() {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.published = len(store.messages)
+}
+
+func (store *pagedSessionStore) appendRowLocked(role, content string) {
 	store.messages = append(store.messages, Message{
 		ID:        fmt.Sprintf("message-%d", len(store.messages)+1),
 		Role:      role,
 		Content:   content,
 		CreatedAt: time.Now(),
 	})
+}
+
+// setPublished 直接铺一整份**已发布**的磁盘消息：不关心草稿尾的用例用它，
+// 别直接改 store.messages（那会绕过发布点闸门，冷读面什么都读不到）。
+func (store *pagedSessionStore) setPublished(messages ...Message) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.messages = append([]Message(nil), messages...)
+	store.published = len(store.messages)
 }
 
 func (store *pagedSessionStore) rangeReads() int {

@@ -248,37 +248,20 @@ func (service *Service) ensureSessionContent(sessionID string) error {
 	return service.reloadSessionContent(sessionID)
 }
 
-// reloadSessionContent 冷回读被卸载的可见正文窗口：按保留下来的窗口标志
-// （TotalMessages 与 limits.history_window）经既有分页读回面读磁盘尾部窗口并
-// 整窗安装（installVisibleHistory 会清掉「内容未加载」标志），磁盘为唯一事实源。
+// reloadSessionContent 冷回读被卸载的可见正文窗口：经与「回到最新」同一条尾部
+// 窗口读面（先探已发布总数，再按总数定位窗口起点）读回磁盘尾部窗口并整窗安装
+// （installVisibleHistory 会清掉「内容未加载」标志并按实际装入的行定起点）。
+// 卸载时保留的窗口标志只用来判断「要不要回读」，不作为读取起点——磁盘为准。
 func (service *Service) reloadSessionContent(sessionID string) error {
 	window := Limits().HistoryWindow
 	if window <= 0 {
 		window = 1
 	}
-	service.ViewMu.RLock()
-	total := 0
-	if unit := service.sessions.Unit(sessionID); unit != nil {
-		unit.View.Read(func(view *session.View) { total = view.TotalMessages })
-	}
-	service.ViewMu.RUnlock()
-	offset := total - window
-	if offset < 0 {
-		offset = 0
-	}
 	workspaceID := service.components.sessions.LocateSession(sessionID).WorkspaceID
-	page, count, err := service.loadConversationPage(workspaceID, sessionID, offset, window)
+	page, err := service.loadConversationTailPage(workspaceID, sessionID, window)
 	if err != nil {
 		return fmt.Errorf("reload session content %q: %w", sessionID, err)
 	}
-	if count > 0 {
-		// 磁盘总数是权威（内存总数只是卸载时保留的窗口标志）：以它重算窗口
-		// 起点，避免回读期间落盘的新消息被切在窗口之外。
-		total = count
-		if offset = total - window; offset < 0 {
-			offset = 0
-		}
-	}
 	// 安装即一次正文使用（installVisibleHistory 负责 touch 内容 LRU）。
-	return service.installVisibleHistory(sessionID, page, total, offset, window, historyPageReplace)
+	return service.installVisibleHistory(sessionID, page, window, historyPageReplace)
 }

@@ -6,7 +6,7 @@
 
 覆盖：`session*.go` + 显式名单（见生成器 `ROOT_GROUPS`）；未归属文件由覆盖自检拦下。
 
-## 历史分页契约（2026-09-11）
+## 历史分页契约（2026-09-11 / 2026-09-25）
 
 `LoadMoreHistory` / `LoadLatestHistory` 是 GUI 顶部 sentinel 与历史栏的应用
 边界，语义收口如下：
@@ -19,9 +19,28 @@
 3. 窗口 = `[HistoryOffset, HistoryOffset + 窗口条数)` 的连续区间：窗口整体后退
    一页，可见列表不会无限加长（WebView 渲染内存有硬上限）。
 4. 回看期间（窗口未贴尾）新消息不回卷窗口、也不进可见列表；`LoadLatestHistory`
-   重新读尾部窗口贴尾，并带回回看期间的新消息。
+   重新读尾部窗口贴尾，并带回回看期间的新消息——但只带得回**已发布**的那部分，
+   见第 6~9 条。
 5. 无 record 的旧格式会话冷加载同样写入 `TotalMessages/HistoryOffset`（历史
    总数来自 provider 历史），否则 `HasMoreHistory` 恒为 false，早期历史读不到。
+6. **冷读面的右界是发布点**：回合内的可见行先进内存窗口，`PersistCurrentSession`
+   要到 runChat 收尾才落盘，而存储侧读者闸门是 message 通道的 `head.LastSeq`
+   （`decodePublishedRows`）。所以「内存已可见总数 > 磁盘已发布数」在运行中的
+   会话里是常态，差额就是本轮尚未落盘的行。
+7. `installVisibleHistory`（三条加载方向入口的唯一安装点）据此守三条：已可见
+   总数不因冷读倒退（取磁盘与内存的较大值，否则前端「下方还有 N 条」被抹平，
+   且一个并不贴尾的窗口会被 append 路径判成贴尾，下一条消息插进列表中间形成
+   断层）；窗口起点由**实际装进去的行**推出，不接受调用方估计值；磁盘页与内存
+   窗口之间有空洞时不假装连续（宁可窗口短一页，冷读一页为空时保持原窗口）。
+8. **热读短路**：内存窗口已经贴着有效尾时 `LoadLatestHistory` 直接返回——它
+   已经在最新处，再冷读只会换上更旧的已发布一页。这条短路就是「加载着加载着
+   只剩冷加载内容、尾部没了，一出工具结果又像是恢复了正常」的修复点。
+9. 尾部窗口读先探已发布总数、再按总数定位起点（`loadConversationTailPage`，与
+   `session_runtime.LoadHistoryTailWindow` 同一形状）；尚未落盘又已滑出窗口的
+   行要等这次提交后才能回读（有界滑动窗口的固有语义）。
+10. 复现与回归：`session_history_pagination_test.go`（分页态随会话走）+
+    `session_history_hot_tail_test.go`（在飞尾部不被冷读抹掉、总数不倒退、
+    offset 与内容对齐）。
 
 ## 提交归属：草稿与运行中会话（2026-09-20）
 
@@ -74,7 +93,7 @@
 - `func (service *Service) sessionContentLoadedLocked(sessionID string) bool` — sessionContentLoadedLocked 报告目标会话当前是否持有已加载的可见正文
 - `func (service *Service) sessionContentUnloaded(sessionID string) bool` — sessionContentUnloaded 报告目标会话的可见正文是否已被内容 LRU 卸载（需要
 - `func (service *Service) ensureSessionContent(sessionID string) error` — ensureSessionContent 在目标会话正文已被卸载时从磁盘回读（热挂载不重建
-- `func (service *Service) reloadSessionContent(sessionID string) error` — reloadSessionContent 冷回读被卸载的可见正文窗口：按保留下来的窗口标志
+- `func (service *Service) reloadSessionContent(sessionID string) error` — reloadSessionContent 冷回读被卸载的可见正文窗口：经与「回到最新」同一条尾部
 
 ### content_lru_test.go
 
@@ -322,11 +341,24 @@
 - `func (service *Service) ResumeSession(sessionID string) error` — ResumeSession 是 GUI/TUI 会话选择的直接应用边界。它刻意绕过命令文本解析，
 - `func (service *Service) LoadMoreHistory(limit int) error` — LoadMoreHistory 把更早的一页历史前置到可见会话（GUI 顶部 sentinel 与
 - `func (service *Service) LoadLatestHistory() error` — LoadLatestHistory 把可见会话拉回最新一页（历史浏览后的「回到最新」）。
+- `func (service *Service) visibleTailServedFromMemory(sessionID string) bool` — visibleTailServedFromMemory 报告内存窗口是否已经把有效尾部整窗带到（非空且
+- `func (service *Service) loadConversationTailPage(workspaceID, sessionID string, window int) (conversationPage, error)` — loadConversationTailPage 读磁盘已发布的尾部窗口：先探总数，再按总数定位窗口
 - `func currentWorkspaceIDLocked(service *Service) string` — currentWorkspaceIDLocked 返回当前视图会话的 workspace ID（调用方持有
 - `func (service *Service) loadConversationPage(workspaceID, sessionID string, offset, limit int) ([]Message, int, error)` — loadConversationPage 读回一段可见历史：record conversation 模块优先
-- `func (service *Service) installVisibleHistory(sessionID string, page []Message, total, offset, window int, mode historyPageInstall) error` — installVisibleHistory 安装一页可见历史：写会话可见投影（事实源）→ 收敛
+- `func (service *Service) installVisibleHistory(sessionID string, page conversationPage, window int, mode historyPageInstall) error` — installVisibleHistory 安装一页可见历史：写会话可见投影（事实源）→ 收敛
+- `func durableConversationRows(messages []Message) []Message` — durableConversationRows 取出可见窗口里参与历史游标的行（system 引导行不占
 - `func adaptEngineMessage(msg EngineMessage) Message`
 - `func isVisibleHistoryMessage(message EngineMessage) bool`
+
+### session_history_hot_tail_test.go
+
+- `func beginInFlightTurn(t *testing.T, service *Service, store *pagedSessionStore, count int) []string` — beginInFlightTurn 造「本轮已进内存窗口、尚未落盘」的在飞尾部：store 只物理
+- `func assertVisibleWindow(t *testing.T, label string, snapshot Snapshot, wantOffset int, wantContents []string, wantTotal int)` — assertVisibleWindow 断言快照里的「窗口起点 + 窗口内容 + 已可见总数」。
+- `func TestLoadLatestHistoryKeepsInFlightTail(t *testing.T)` — TestLoadLatestHistoryKeepsInFlightTail 红灯 1（缺陷 1）：回合进行中，内存窗口
+- `func TestColdPageReadDoesNotRegressVisibleTotal(t *testing.T)` — TestColdPageReadDoesNotRegressVisibleTotal 红灯 2（缺陷 2）：「加载更早」滑走
+- `func TestToolResultAfterPagingDoesNotPunchHole(t *testing.T)` — TestToolResultAfterPagingDoesNotPunchHole 红灯 3（缺陷 1+2 的后果）：内存窗口
+- `func TestLoadLatestHistorySplicesStraddlingHotTail(t *testing.T)` — TestLoadLatestHistorySplicesStraddlingHotTail 红灯 4（缺陷 1+3）：内存窗口正好
+- `func TestInFlightTailReturnsAfterCommit(t *testing.T)` — TestInFlightTailReturnsAfterCommit 收口断言：在飞行落盘（发布点推进）之后，
 
 ### session_history_pagination_test.go
 
@@ -341,7 +373,11 @@
 - `func (store *pagedSessionStore) SaveSessionRecordWorkspace(workspaceID, sessionID string, record SessionRecord) error`
 - `func (store *pagedSessionStore) LoadSessionRecord(sessionID string) (SessionRecord, error)`
 - `func (store *pagedSessionStore) LoadConversationRangeWorkspace(workspaceID, sessionID string, offset, limit int) ([]Message, int, error)` — LoadConversationRangeWorkspace 是生产分页读回面（SessionConversationRangePort）：
-- `func (store *pagedSessionStore) appendDurable(role, content string)`
+- `func (store *pagedSessionStore) appendDurable(role, content string)` — appendDurable 追加一条**已提交**行（物理落盘 + 推进发布点）。
+- `func (store *pagedSessionStore) appendDraft(role, content string)` — appendDraft 只将行物理落盘，不推进发布点：对冷读面不可见（等价 message
+- `func (store *pagedSessionStore) publishDraftTail()` — publishDraftTail 推进发布点（回合收尾 PersistCurrentSession 同一效果）。
+- `func (store *pagedSessionStore) appendRowLocked(role, content string)`
+- `func (store *pagedSessionStore) setPublished(messages ...Message)` — setPublished 直接铺一整份**已发布**的磁盘消息：不关心草稿尾的用例用它，
 - `func (store *pagedSessionStore) rangeReads() int`
 - `func sliceWindow[T any](items *[]T, offset, limit int) []T`
 - `func visibleContents(snapshot Snapshot) []string` — visibleContents 取快照对话里的非 system 消息内容（system 是「已恢复会话」
