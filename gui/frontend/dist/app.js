@@ -82,7 +82,7 @@ const elements = Object.fromEntries([
   "plugin-list", "plugin-count", "account-list", "account-count", "conversation", "conversation-tabs", "trajectory",
   "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",
   "runtime-details", "effort-control", "effort-range", "effort-value", "work-section", "work-count", "work-unread", "work-table-open", "work-table-summary", "work-table-modal", "work-table-modal-close", "work-table-modal-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-close", "sched-name", "sched-kind", "sched-mode", "sched-period-value", "sched-period-unit", "sched-period-field", "sched-datetime", "sched-datetime-field", "sched-command", "sched-command-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-enabled-field", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
-  "project-name", "project-root", "project-status", "project-overview", "worktree-view", "file-count", "context-compactions",
+  "project-name", "project-root", "project-status", "worktree-view", "file-count", "context-compactions",
   "compaction-frame-modal", "compaction-frame-modal-close", "compaction-frame-modal-title", "compaction-frame-modal-meta", "compaction-frame-modal-view",
   "team-section", "team-view", "team-count",
   "role-session-modal", "role-session-close", "role-session-modal-title", "role-session-view",
@@ -1246,18 +1246,14 @@ elements["compaction-frame-modal-close"]?.addEventListener("click", closeCompact
 
 function renderProject(snapshot) {
   const workspace = snapshot.current_workspace || null;
-  const runtime = snapshot.runtime || {};
   const task = snapshot.task || null;
   const running = Boolean(snapshot.chat?.running);
   const compactions = task?.context_compactions || [];
   elements["project-name"].textContent = workspace?.name || "No project selected";
   elements["project-root"].textContent = workspace?.root_path || "";
   renderProjectStatus(snapshot, running);
-  elements["project-overview"].textContent = workspace
-    ? (running
-      ? `Current task is running with ${runtime.plugin || "default"} capabilities in this project scope.`
-      : `This session can read and write only within ${workspace.name}.`)
-    : "Select a project to define this session's read and write scope.";
+  // 概要区不再放那句英文作用域说明：用户口径是「概要有且仅有压缩栈表格」，而它说的
+  // 两件事（哪个工作区、能不能跑）分别由项目名/根路径与上面的状态行承载。
   repaintCompactions(compactions);
   bindContextCompactions();
   syncExplorerData(snapshot, running);

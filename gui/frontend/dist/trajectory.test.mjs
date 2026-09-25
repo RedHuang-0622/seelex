@@ -282,9 +282,22 @@ test("compaction events mark the conversation axis at their anchor time", () => 
   assert.match(html, /data-compact-idx="0"/);
   assert.match(html, /压缩 ×1/);
   // 刻度是压缩位置的元数据标记（点击开详情），不携带轨迹行定位键。
-  const compressBlock = html.match(/<button type="button" class="axis-segment is-compress"[^>]*>/)?.[0] || "";
+  const compressBlock = html.match(/<button type="button" class="axis-segment is-compress[^"]*"[^>]*>/)?.[0] || "";
   assert.doesNotMatch(compressBlock, /data-trajectory-key/);
   assert.match(compressBlock, /data-compact-idx="0"/);
+  // 折叠帧的先后层次靠灰阶：栈顶（前沿）深灰、被更晚折叠取代的浅灰。前沿的判定
+  // 只看被压区间终点（compactionFrontier），这条记录没有消息边界 ⇒ 判不出前沿，
+  // 刻度留在浅灰——不用别的量（时间/版本号）顶替，否则三处读数会分叉。
+  assert.match(compressBlock, /is-stale/);
+  const framed = [
+    { version: 1, reason: "context_budget", message_from: "message-1", message_to: "message-9", compacted_at: "2026-08-25T10:00:01Z" },
+    { version: 2, reason: "context_budget", message_from: "message-1", message_to: "message-20", compacted_at: "2026-08-25T10:00:02Z" }
+  ];
+  const framedHTML = renderContextAxis(records, { compactions: framed });
+  const frontierBlock = framedHTML.match(/<button type="button" class="axis-segment is-compress is-frontier"[^>]*>/)?.[0] || "";
+  const staleBlocks = framedHTML.match(/<button type="button" class="axis-segment is-compress is-stale"[^>]*>/g) || [];
+  assert.ok(frontierBlock, "最新一次折叠的刻度没标 is-frontier");
+  assert.equal(staleBlocks.length, 1, "过时折叠的刻度数不对（灰阶会把读序带错）");
 });
 
 test("compaction earlier than the loaded window clamps to the axis start", () => {

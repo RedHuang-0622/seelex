@@ -106,6 +106,25 @@ export function compactionFrontier(compactions = []) {
   };
 }
 
+// compactionStackOrder 把压缩记录按「栈」的顺序排出**下标序列**：栈顶 = 最新一次
+// 折叠（被压区间终点序号最大者，与 compactionFrontier 同一把尺），往下依次更早。
+//
+// 返回下标而不是重排后的记录：右栏的展开态（data-compact-open）与帧正文都按下标记账
+// （app.js 用 compactions[index] 取记录），排序若换了数组，点开第 1 行就会读到第 2 行
+// 的正文。同一侧记录少（会话级），不做分页。
+export function compactionStackOrder(compactions = []) {
+  const list = Array.isArray(compactions) ? compactions : [];
+  return list
+    .map((record, index) => ({
+      index,
+      end: messageOrdinal(record?.message_to) ?? -1,
+      time: Number(Date.parse(String(record?.compacted_at || ""))) || 0,
+      version: Number(record?.version || 0)
+    }))
+    .sort((left, right) => right.end - left.end || right.time - left.time || right.version - left.version)
+    .map(entry => entry.index);
+}
+
 // conversationCompactionAnchor 求对话区那条「以上已折叠」分界该落在哪一条消息之后
 // （纯函数；null = 本页不画线）。渲染层只拿到"落在哪条消息之后 + 已格式化的文案"，
 // 不必再懂压缩口径——口径只在 compaction-format.js 一处。

@@ -137,12 +137,12 @@
           <summary class="collapse-summary"><span class="collapse-chevron" aria-hidden="true"></span><span>状态</span></summary>
           <div id="project-status" class="status-grid"></div>
           <div class="section-title sub-title">概要</div>
-          <div id="project-overview" class="project-overview"></div>
-          <!-- 上下文压缩：挂在 状态/概要 折叠区**里面**、紧跟概要
-               （用户口径：「上下文压缩内容需要放到状态的概要下面」）。
-               收起来时它确实跟着收起来，所以"按下回车到底动没动"改由 app.js 兜住：
+          <!-- 概要有且仅有压缩栈表格（用户口径 2026-09-26）：这里此前是一句英文作用域
+               说明 + 一列卡片，说明与项目名/根路径/状态行重复，卡片在窄栏里错位。
+               块仍挂在 状态/概要 折叠区**里面**（上一轮口径：压缩内容放概要下面）。
+               收起来时它跟着收起来，所以"按下回车到底动没动"由 app.js 兜住：
                repaintCompactions 见到本轮门禁进度就把 状态 折叠区打开（只开不收），
-               历次记录仍按用户自己展开 状态 来读——可见性靠这一条，不靠把块挪到折叠区外。 -->
+               历次记录不触发打开——那是用户展开 状态 才读的静态事实。 -->
           <div id="context-compactions" class="context-compactions hidden"></div>
         </details>
         <details class="collapse-section" id="accounts-section">

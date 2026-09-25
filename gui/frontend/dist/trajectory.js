@@ -730,13 +730,14 @@ function renderCompressionCutRow(marks) {
 // 内侧错位（x=100 向左、其余向右），保证每一个刻度都能被点到。
 function renderCompressionLane(marks) {
   const bar = marks.map((mark, index) => {
-    const title = `压缩 #${mark.version} · ${mark.reasonLabel}${mark.messagesBefore > 0 ? ` · ${formatNumber(mark.messagesBefore)} 条` : ""}${mark.tokens > 0 ? ` · 约 ${formatNumber(mark.tokens)} tokens` : ""} · ${mark.timeLabel} · ${compressionMarkWhere(mark)} · 点击查看详情`;
+    const title = `压缩 #${mark.version} · ${mark.reasonLabel}${mark.messagesBefore > 0 ? ` · ${formatNumber(mark.messagesBefore)} 条` : ""}${mark.tokens > 0 ? ` · 约 ${formatNumber(mark.tokens)} tokens` : ""} · ${mark.timeLabel} · ${mark.isFrontier ? "栈顶：当前折叠前沿" : "已被更晚的折叠取代"} · ${compressionMarkWhere(mark)} · 点击查看详情`;
     const shift = mark.stack ? (mark.x >= 100 ? -1 : 1) * mark.stack * 6 : 0;
     const offset = shift ? `;transform:translateX(calc(-50% ${shift > 0 ? "+" : "-"} ${Math.abs(shift)}px))` : "";
-    return `<button type="button" class="axis-segment is-compress" style="--x:${mark.x.toFixed(3)}%${offset}" data-compact-idx="${index}" title="${escapeHtml(title)}" aria-label="${escapeHtml(`压缩 #${mark.version}`)}"><span>#${escapeHtml(String(mark.version))}</span></button>`;
+    const state = mark.isFrontier ? "is-frontier" : "is-stale";
+    return `<button type="button" class="axis-segment is-compress ${state}" style="--x:${mark.x.toFixed(3)}%${offset}" data-compact-idx="${index}" title="${escapeHtml(title)}" aria-label="${escapeHtml(`压缩 #${mark.version}`)}"><span>#${escapeHtml(String(mark.version))}</span></button>`;
   }).join("");
-  return `<div class="context-axis-lane is-compress" aria-label="上下文压缩刻度（模型侧把旧段折叠为摘要的位置，对话原文仍保留）">
-    <span class="axis-lane-label" title="软阈值达峰时把窗口外旧轮次折叠为栈顶摘要；刻度与记录轨共用序号坐标，标记压缩发生时会话推进到的位置"><span>压缩</span><span class="axis-lane-count">×${marks.length}</span></span>
+  return `<div class="context-axis-lane is-compress" aria-label="上下文压缩刻度（虚线=一次折叠帧所在的位置；深灰=栈顶前沿、浅灰=已被更晚折叠取代，对话原文仍保留）">
+    <span class="axis-lane-label" title="软阈值达峰时把窗口外旧轮次折叠为栈顶摘要；每段虚线标一个折叠帧的位置，与记录轨共用序号坐标"><span>压缩</span><span class="axis-lane-count">×${marks.length}</span></span>
     <div class="axis-lane-bar is-meta">${bar}</div>
   </div>`;
 }

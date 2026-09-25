@@ -92,19 +92,23 @@ function insertCompactionFrontier(items, anchor) {
   return rows;
 }
 
-// renderCompactionFrontierRow 渲染「以上已折叠」虚线行：一条虚分隔 + 分界说明 +
-// （有帧时）「查看折叠帧正文」入口。入口只携带 data 属性
-// （data-compact-frame-ref），由 app.js 的 document 级委托接住——组件不持有
-// invoke 依赖（同排队卡片的动作按钮）。
+// renderCompactionFrontierRow 渲染「以上已折叠」分界行：左右两条虚线夹一枚说明牌，
+// 牌上是三件事——线在哪（label）、上方原文还能不能读（hint，明写不靠悬停）、帧正文
+// 怎么打开（按钮）。入口只携带 data 属性（data-compact-frame-ref），由 app.js 的
+// document 级委托接住——组件不持有 invoke 依赖（同排队卡片的动作按钮）。
 function renderCompactionFrontierRow(anchor) {
   const frameRef = String(anchor.frameRef || "");
   const label = String(anchor.label || "");
   const note = String(anchor.note || "");
   return `<div class="conversation-compaction-frontier" data-conversation-key="${COMPACTION_FRONTIER_KEY}" data-wheel-kind="system" data-wheel-label="${escapeHtml(label)}" title="${escapeHtml(String(anchor.title || label))}">
       <span class="conversation-compaction-frontier-line" aria-hidden="true"></span>
-      <span class="conversation-compaction-frontier-label">${escapeHtml(label)}</span>
-      ${note ? `<span class="conversation-compaction-frontier-note">${escapeHtml(note)}</span>` : ""}
-      ${frameRef ? `<button type="button" class="conversation-compaction-frontier-open" data-compact-frame-ref="${escapeHtml(frameRef)}" title="按 ref ${escapeHtml(frameRef)} 读取折叠帧正文（弹出查看）">查看折叠帧正文</button>` : ""}
+      <span class="conversation-compaction-frontier-chip">
+        <strong class="conversation-compaction-frontier-label">${escapeHtml(label)}</strong>
+        <em class="conversation-compaction-frontier-hint">分界以上的原文仍在下方，可继续上翻阅读；只是不再随请求发给模型</em>
+        ${note ? `<span class="conversation-compaction-frontier-note">${escapeHtml(note)}</span>` : ""}
+        ${frameRef ? `<button type="button" class="conversation-compaction-frontier-open" data-compact-frame-ref="${escapeHtml(frameRef)}" title="按 ref ${escapeHtml(frameRef)} 读取折叠帧正文（弹出查看）">查看折叠帧正文</button>` : ""}
+      </span>
+      <span class="conversation-compaction-frontier-line" aria-hidden="true"></span>
     </div>`;
 }
 

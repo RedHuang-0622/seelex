@@ -1,52 +1,68 @@
 import { escapeHtml } from "./components.js";
 // 压缩记录的展示口径与轨迹「压缩」轨共用同一份纯函数（compaction-format.js）：
 // 两处各写一份就会出现同一条记录两种读法的漂移。
-import { compactionGateDurationText, compactionGateLabel, compactionOriginLabel, compactionOutcomeLabel, compactionRangeText, compactionReasonLabel } from "./compaction-format.js";
+import { compactionFrontier, compactionGateDurationText, compactionGateLabel, compactionOriginLabel, compactionOutcomeLabel, compactionRangeText, compactionReasonLabel, compactionStackOrder } from "./compaction-format.js";
 
-// renderContextCompactions 渲染右栏「上下文压缩」：门禁进度条（瞬态，一轮压缩
-// 结束即撤）+ 记录条目（公开元数据：版本/原因/来源/被压区间/估算/时间）+ 按
-// ref 展开的折叠帧正文。
+// 压缩栈表格（右栏 状态/概要 里唯一的内容块）。
 //
-// 这里此前只有一句硬编码英文占位句（"Task checkpoint retained; details can be
-// re-read when needed."）——用户看到的"压缩帧像占位符"就是它：没有区间、没有来源、
-// 不可展开。正文不进快照，options.detail 携带视图侧按 frame_ref 读回来的那一页
-// （{ index, loading, error, text, hasMore, nextOffset, totalBytes }；index 是本
-// 次展开的条目下标，-1 = 未展开）。
+// 展示口径与轨迹「压缩」轨共用同一份纯函数（compaction-format.js）：两处各写一份就
+// 会出现同一条记录两种读法的漂移。
+//
+// renderContextCompactions 渲染门禁进度条（瞬态，一轮压缩结束即撤）+ 压缩栈表格：
+// 一行一次折叠，栈顶 = 当前前沿（深灰），更早的折叠往下排（浅灰）。点开某行读该帧
+// 正文（detail 由视图侧按 frame_ref 分页读回来），没有帧引用的行不给展开入口。
+//
+// 这里此前是一列卡片 + 一句硬编码英文占位句（"Task checkpoint retained; details can
+// be re-read when needed."）——用户看到的"压缩帧像占位符"就是它：没有区间、没有来源、
+// 不可展开。卡片改表格的原因同状态表：右栏窄，自由布局会错位，表格行始终对齐。
 //
 // options.progress 是一轮压缩的门禁进度（compaction.progress 载荷）。进度不进
 // 快照，因此「零记录 + 有进度」也要出内容：折叠发生在写记录之前，只有记录时
 // 才显示就会让进度条在唯一的"还没有记录"那一轮里彻底不出现。
+const STACK_COLUMNS = ["栈", "折叠", "帧"];
+
 export function renderContextCompactions(compactions = [], options = {}) {
   const records = Array.isArray(compactions) ? compactions : [];
   const progress = renderCompactionProgress(options.progress);
   if (records.length === 0) return progress;
   const detail = options.detail && typeof options.detail === "object" ? options.detail : null;
+  const frontier = compactionFrontier(records);
   const title = '<div class="context-summary-title">上下文压缩</div>';
-  return `${progress ? `${progress}${title}` : title}${records.map((compaction, index) => {
-    const version = Number(compaction?.version || 0);
-    const reason = compactionReasonLabel(compaction?.reason);
-    const origin = compactionOriginLabel(compaction?.origin);
-    const tokens = Number(compaction?.estimated_tokens || 0);
+  const head = `<div class="compaction-stack-row is-head" role="row">${
+    STACK_COLUMNS.map(label => `<span role="columnheader">${escapeHtml(label)}</span>`).join("")}</div>`;
+  const rows = compactionStackOrder(records).map(index => {
+    const compaction = records[index] || {};
+    const version = Number(compaction.version || 0);
+    const reason = compactionReasonLabel(compaction.reason);
+    const origin = compactionOriginLabel(compaction.origin);
+    const tokens = Number(compaction.estimated_tokens || 0);
     const range = compactionRangeText(compaction);
-    const time = formatTime(compaction?.compacted_at);
-    const facts = [
-      range ? `被压区间 ${range}` : "无区间边界",
-      tokens ? `约 ${formatNumber(tokens)} tokens` : "",
-      time
-    ].filter(Boolean).join(" · ");
-    const frameRef = String(compaction?.frame_ref || "");
+    const time = formatTime(compaction.compacted_at);
+    const isFrontier = Boolean(frontier) && frontier.index === index;
+    const frameRef = String(compaction.frame_ref || "");
     const open = Boolean(detail) && detail.index === index;
+    // 一行两排：右栏实测量级只有 ~280px，四列会把中文按字符切碎（浏览器核对里
+    // "message-1..message-663" 被断成 mes/sage-）。触发与来源同排，区间/估算/
+    // 时间另起一排等宽小字。
+    const facts = [range || "无区间边界", tokens ? `${formatNumber(tokens)} tokens` : "", time].filter(Boolean).join(" · ");
+    // 动作列两个短按钮：右栏实测量级只有 ~280px，"查看帧正文"这种五字按钮会把
+    // 触发与区间挤成四行（浏览器核对实测），而两个入口都得一次点击到位。
     const actions = frameRef
-      ? `<button type="button" class="context-summary-open" data-compact-open="${index}" aria-expanded="${open}" title="按 ref ${escapeHtml(frameRef)} 读取折叠帧正文">${open ? "收起帧正文" : "查看帧正文"}</button>
-        <button type="button" class="context-summary-open" data-compact-frame-ref="${escapeHtml(frameRef)}" title="在可调大小的弹框里查看帧正文（ref ${escapeHtml(frameRef)}）">弹框查看</button>`
-      : `<span class="context-summary-noframe">本次没有可回读正文</span>`;
-    return `<article class="context-summary-item">
-      <header><strong>#${escapeHtml(String(version || "?"))}</strong><span>${escapeHtml(reason)}</span>${origin ? `<em class="context-summary-origin">${escapeHtml(origin)}</em>` : ""}</header>
-      <small>${escapeHtml(facts)}</small>
-      <div class="context-summary-actions">${actions}${frameRef ? `<span class="context-summary-ref" title="会话内容存储里的引用（ref）">${escapeHtml(frameRef)}</span>` : ""}</div>
-      ${open ? renderFrameDetail(compaction, detail, frameRef, tokens) : ""}
-    </article>`;
-  }).join("")}`;
+      ? `<button type="button" class="context-summary-open" data-compact-open="${index}" aria-expanded="${open}" title="按 ref ${escapeHtml(frameRef)} 读取折叠帧正文${open ? "（收起）" : "（展开在本行下方）"}">${open ? "收起" : "帧正文"}</button>
+        <button type="button" class="context-summary-open" data-compact-frame-ref="${escapeHtml(frameRef)}" title="在可调大小的弹框里查看帧正文（ref ${escapeHtml(frameRef)}）">弹框</button>`
+      : `<span class="context-summary-noframe">无帧正文</span>`;
+    const row = [
+      `<div class="compaction-stack-row${isFrontier ? " is-frontier" : " is-stale"}${open ? " is-open" : ""}" role="row" data-compact-index="${index}" title="${escapeHtml([reason, origin, facts].filter(Boolean).join(" · "))}">`,
+      `<span role="cell" class="compaction-stack-cell is-version">#${escapeHtml(String(version || "?"))}${isFrontier ? '<em class="compaction-stack-flag">栈顶</em>' : ""}</span>`,
+      `<span role="cell" class="compaction-stack-cell is-body">`,
+      `<strong>${escapeHtml(reason)}</strong>${origin ? `<em class="compaction-stack-origin">${escapeHtml(origin)}</em>` : ""}`,
+      `<small>${escapeHtml(facts)}</small></span>`,
+      `<span role="cell" class="compaction-stack-cell is-actions">${actions}</span>`,
+      "</div>"
+    ].join("");
+    return open ? `${row}<div class="compaction-stack-detail" role="row">${renderFrameDetail(compaction, detail, frameRef, tokens)}</div>` : row;
+  }).join("");
+  return `${progress ? `${progress}${title}` : title}<div class="compaction-stack" role="table" aria-label="压缩栈：一行一次折叠，栈顶是当前前沿">${head}${rows}</div>`;
 }
 
 // renderCompactionProgress 渲染一轮压缩的门禁进度条：复用 Plan 面板同款轨道与

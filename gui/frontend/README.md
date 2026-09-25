@@ -221,8 +221,8 @@ retry 状态展示 `RETRY n`（retry_count）。
 整体记忆在 `seelex.dock.v1`（旧 `seelex.right.tab` 仅作一次迁移读取）。
 右栏默认三个子页（`.right-tabs`，默认激活「状态」）：
 
-- **状态**：项目状态 grid（状态/会话/消息/任务/文件数）+ 概要 + 上下文压缩
-  时间线（原「状态」面板整体移入）。
+- **状态**：项目状态表（状态/会话/消息/任务/文件数）+「概要」= 压缩栈表格
+  （一行一次折叠，点行读帧正文；原「状态」面板整体移入）。
 - **工作台**：「目标」面板 + 工作表格入口 + 定时任务面板。
 - **代码**（资源管理器）：左右分栏——左「内容详情」抽屉 + 右**三个平级子页**
   （工作树 / 提交记录 / 工作区更改）。子页用一条内嵌页签切换（`role=tablist`，
@@ -337,12 +337,13 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
   圆角 + 单边黑条"。同一套口径覆盖页签家族的五处：对话区子页、右栏子页、工作表页签、
   终端页签、发言调度胶囊（第 27 节 o）；库内 `inset 0 -Npx 0` 的写法已清零，
   `rgba(0, 0, 0` 只剩深色主题里的两个投影 token。
-- **上下文压缩块在 状态 折叠区里（2026-09-24 反转早先的"挪出去"）**：
-  `#context-compactions` 挂在 `#status-panel` 里、紧随概要（用户口径："上下文压缩内容
-  需要放到状态的概要下面"）。折叠区默认收起，所以"按下回车到底动没动"改由视图侧兜住：
-  `app.js: repaintCompactions` 见到本轮门禁进度就 `revealStatusPanel()` 打开折叠区
-  （只开不收），历次记录不自动弹开（免得跟用户手动收起打架）；口径有测试钉住
-  （`gui/frontend/dist/status-panel.test.mjs`）。
+- **上下文压缩块在 状态 折叠区里，且概要有且仅有它（两轮口径叠加）**：
+  2026-09-24 把 `#context-compactions` 挂回 `#status-panel` 里、紧随概要（用户口径：
+  "上下文压缩内容需要放到状态的概要下面"）；2026-09-26 再收窄为"概要有且仅有压缩栈
+  表格"——同区的英文作用域说明删除，卡片改表格。折叠区默认收起，所以"按下回车到底
+  动没动"改由视图侧兜住：`app.js: repaintCompactions` 见到本轮门禁进度就
+  `revealStatusPanel()` 打开折叠区（只开不收），历次记录不自动弹开（免得跟用户手动
+  收起打架）；两条口径都由 `gui/frontend/dist/status-panel.test.mjs` 钉住。
 - **状态 / 账户 / Agent Team 三个折叠块默认收起**：`index.html` 里
   `#status-panel`、`#accounts-section`、`#team-section` 都不带 `open`，展开才拉
   数据（Agent Team 的 `toggle` 事件仍触发一次 `refreshAgentTeam`）。避免右栏一
@@ -509,19 +510,26 @@ background:transparent }`` 这类规则特异性高于自绘控件的类规则�
 未激活时只缓存数据面（懒渲染），增量事件到达时重新投影。顶部上下文轴在
 六条响应类型轨之外内联两条元数据轨：「前缀注入」轨（Bridge.PromptLayers
 的会话级当前层，段宽=层文本占比、横跨整轴，点击开详情看全文——替代旧独立
-「前缀注入」面板）、「压缩」轨（`snapshot.task.context_compactions` 压缩
-刻度，锚定压缩发生时会话推进位置）与「分界」轨（每个压缩点的竖向虚线 +
-「以上 消息 …（事件 …）已被折叠」标注：虚线以上是这次被折出 provider 历史的
-前缀）。刻度与虚线都可点：详情按公开元数据（版本/原因/来源/被压区间/时间）
-如实展开，并给出「折叠帧正文」入口——正文不进快照，前端按记录里的
-`frame_ref` 经 `Bridge.ToolResultContent` 分页读回（同一个分页组件，不再把
-用户指向模型侧工具）。system prompt 与压缩的注入/折叠均可 trace 到轴上，
+「前缀注入」面板）、「压缩」轨（`snapshot.task.context_compactions` 的折叠帧刻度，
+锚定压缩发生时会话推进位置；**每段是竖向虚线**，栈顶/当前前沿用
+`--compaction-frame-latest`（浅底深灰）、被更晚折叠取代的用
+`--compaction-frame-stale`（浅底浅灰）——两个 token 只是中性 ramp 的别名，
+所以深色模式的倒置由深浅基座自己完成，不写第二套色值）与「分界」轨（**会话单例**：
+只画当前前沿那一条竖向虚线 + 「以上 消息 …（事件 …）已被折叠」标注，历次折叠各画
+一条会让读者以为两条线之间那段还发给模型）。刻度与虚线都可点：详情按公开元数据
+（版本/原因/来源/被压区间/时间）如实展开，并给出「折叠帧正文」入口——正文不进快照，
+前端按记录里的 `frame_ref` 经 `Bridge.ToolResultContent` 分页读回（同一个分页组件，
+不再把用户指向模型侧工具）。system prompt 与压缩的注入/折叠均可 trace 到轴上，
 粒度到会话级当前层与每次压缩事件）。
 
-右栏「状态」子页的「上下文压缩」条目与轨迹压缩详情共用同一份口径函数
-（`dist/compaction-format.js`）：区间只取记录里的边界字段
-（`message_from/to`、`event_from/to`），绝不用 `messages_before`（装配前的
-引擎历史条数）冒充"压缩前 N 条消息"。
+右栏「状态」子页的「概要」区**有且仅有压缩栈表格**（2026-09-26 口径：一行一次折叠，
+栈顶在前、按新旧下沉，前沿行标「栈顶」并取深灰，过时行降为浅灰；点行读本帧正文，
+弹框入口同排）。原先挤在同一区的英文作用域说明已删——它说的两件事由项目名/根路径
+与上面的状态表承载。表格与轨迹压缩详情、对话区分界共用同一份口径函数
+（`dist/compaction-format.js`，含栈序 `compactionStackOrder` 与前沿
+`compactionFrontier`）：区间只取记录里的边界字段（`message_from/to`、
+`event_from/to`），绝不用 `messages_before`（装配前的引擎历史条数）冒充
+"压缩前 N 条消息"。
 
 子代理增量递归更新 `runtime.plan.nodes`：`subagent.changed` 替换完整节点，
 工具 started/completed 按 ID upsert `node.tool_events`。Plan 支持
@@ -611,8 +619,8 @@ containment/敏感过滤/符号链接拒绝/上限钳制/截断/二进制探测�
 
 ## Context compression summary
 
-The project overview renders `task.context_compactions` as a small timeline of successful context compressions. The frontend receives public metadata (version, reason, origin, folded range, tokens, time) and, only on demand, the folded frame body by reference: the body stays in the session content store and is paged back through `Bridge.ToolResultContent` (`frame_ref`). Prompt text, tool payloads, and raw conversation history are still not part of the snapshot; the entry no longer claims “details can be re-read when needed” without offering an entry point.
-The trajectory axis additionally draws a dashed cut line per compaction with the caption `以上 消息 …（事件 …）已被折叠`, so the folded prefix is visible as a boundary instead of a bare tick.
+Overview in the status sub-page holds **only** the compaction stack, rendered as a table: one row per successful compression, newest first, the frontier row flagged 栈顶, and the frame body read back on demand by reference — the body stays in the session content store and is paged through `Bridge.ToolResultContent` (`frame_ref`). The English scope sentence that used to sit in the same section is gone (the project name, root path and the status table already carry it), and the card list it shared the section with is replaced, because free-layout cards misalign in a ~300px rail. Prompt text, tool payloads and raw conversation history are still not part of the snapshot; the entry no longer claims “details can be re-read when needed” without offering an entry point.
+The trajectory axis marks each frame with a **dashed** vertical tick — frontier frame in `--compaction-frame-latest`, superseded frames in `--compaction-frame-stale`; both alias the neutral ramp, so the dark-mode inversion needs no second palette — plus exactly one cut line for the current frontier, captioned `以上 消息 …（事件 …）已被折叠`, so the folded prefix reads as a boundary rather than a bare tick. In the conversation column the same frontier is a dashed separator whose chip states in visible text that the messages above it remain readable and are simply no longer sent to the model.
 
 A compression round is also visible **while it runs**. The backend publishes `compaction.progress` (one frame per gate, exactly one terminal frame; session-routed, `revision=0`, so it never enters the snapshot) and the right column renders a gate progress bar over the plan-board track plus a per-gate duration list. The block itself lives **inside the 状态 fold, right after 概要** (user口径: “上下文压缩内容需要放到状态的概要下面”); because that fold starts collapsed, `repaintCompactions` reveals it (`revealStatusPanel`) whenever a round is in flight — records alone never force it open, so a manual collapse is not fought back (`gui/frontend/dist/status-panel.test.mjs` pins both halves). Two properties make the round readable rather than a single green flash: the explicit path (`/compact`, `compact_context`) emits a **begin frame before the first expensive step** — the round has two silent stretches otherwise, the judge gate (22–40 ms on a 640 KB fixture: two whole-request token estimates, full accumulated context + engine cache peak) and the frame gate (15–19 ms) — so pressing Enter gives feedback immediately instead of "no reaction"; and every frame carries the wall-clock milliseconds of the segment that just finished (`elapsed_ms`, 0 for the begin frame), so the list answers "which gate was slow" for a round that is over in tens of milliseconds. The automatic path deliberately has no begin frame (whether to fold *is* the outcome of that estimate), which keeps the older rule intact: no fold, no progress. Gates whose segment is under a millisecond print `<1ms`; the begin frame's gate prints `进行中` and never takes a checklist row of its own — the UI never invents a duration it does not have.
 

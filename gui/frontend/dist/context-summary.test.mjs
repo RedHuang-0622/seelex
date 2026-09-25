@@ -51,12 +51,12 @@ test("expanded record reads the folded frame body back by ref", () => {
   assert.match(html, /Context checkpoint frame v1/);
   assert.match(html, /data-compact-frame-load="more"/);
   assert.match(html, /剩余约 60 bytes/);
-  assert.match(html, /收起帧正文/);
+  assert.match(html, /收起/);
 });
 
 test("records without a frame ref say so instead of offering an empty viewer", () => {
   const html = renderContextCompactions([{ version: 1, reason: "context_budget" }]);
-  assert.match(html, /本次没有可回读正文/);
+  assert.match(html, /无帧正文/);
   assert.doesNotMatch(html, /data-compact-open/);
 });
 
@@ -159,7 +159,26 @@ test("每条记录同时给内联展开与弹框两个入口（同一 ref）", (
   }]);
   assert.match(html, /data-compact-open="0"/);
   assert.match(html, /data-compact-frame-ref="tr-z"/);
-  assert.match(html, /弹框查看/);
+  assert.match(html, /弹框/);
+});
+
+// 压缩栈表格的读法（用户口径 2026-09-26）：栈顶在前、按新旧下沉，栈顶那一行才是
+// 当前前沿（深灰 + 「栈顶」标记），更早的折叠降成浅灰但仍逐条可点开读正文。
+// 展开入口带的是**原数组下标**——视图侧按 compactions[index] 取记录与记账，重排
+// 若换了下标，点开第 1 行就会读到第 2 行的正文。
+test("压缩栈按新旧下沉，只有栈顶标前沿，入口仍按原下标记账", () => {
+  const records = [
+    { version: 1, reason: "context_budget", message_from: "message-1", message_to: "message-9", frame_ref: "tr-old" },
+    { version: 2, reason: "large_tool_output", message_from: "message-1", message_to: "message-40", frame_ref: "tr-new" }
+  ];
+  const html = renderContextCompactions(records);
+  const rows = [...html.matchAll(/<div class="compaction-stack-row (is-frontier|is-stale)[^"]*"[^>]*data-compact-index="(\d+)"/g)]
+    .map(match => ({ state: match[1], index: Number(match[2]) }));
+  assert.deepEqual(rows, [{ state: "is-frontier", index: 1 }, { state: "is-stale", index: 0 }]);
+  assert.equal((html.match(/class="compaction-stack-flag"/g) || []).length, 1, "前沿标记只能有一个");
+  assert.ok(html.indexOf("#2") < html.indexOf("#1"), "栈顶没排在最前");
+  // 表头存在且只有一行表头（表格不是卡片列表）。
+  assert.match(html, /class="compaction-stack-row is-head"[^>]*>.*<span role="columnheader">栈<\/span>/s);
 });
 
 test("弹框正文区与右栏内联展开是同一段 HTML", () => {
