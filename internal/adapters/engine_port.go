@@ -33,9 +33,12 @@ type EnginePort struct {
 	engines map[string]ReactorEngine
 	// engineCalls 是每会话进行中 ChatStream 计数（会话级锁语义：历史替换
 	// 只在该会话无活跃调用时才安装干净引擎）。
-	engineCalls    map[string]int
-	pendingHistory []types.Message
-	pendingSession string
+	engineCalls map[string]int
+	// pendingHistory 是「目标会话此刻有回合在飞，等它收尾再装」的历史登记表，
+	// 按会话键控。为什么不能是单槽（一份历史 + 一个目标会话号）：S3b 之后，
+	// **任何**会话（含非活跃会话）在飞时折叠都要登记待安装，单槽既装不下多个
+	// 会话，也让 legacy ChatStream 把别的会话的待安装装到自己头上。
+	pendingHistory map[string][]types.Message
 	prepareHistory func(string, []types.Message)
 	systemPrompt   string
 	maxLoops       int
@@ -122,11 +125,12 @@ type ReactorEngineFactory func(sessionID string) ReactorEngine
 
 func NewEnginePort(eng ReactorEngine, newEngine ReactorEngineFactory, tracer *telemetry.MemoryTracer) *EnginePort {
 	port := &EnginePort{
-		engine:      eng,
-		newEngine:   newEngine,
-		tracer:      tracer,
-		engines:     make(map[string]ReactorEngine),
-		engineCalls: make(map[string]int),
+		engine:         eng,
+		newEngine:      newEngine,
+		tracer:         tracer,
+		engines:        make(map[string]ReactorEngine),
+		engineCalls:    make(map[string]int),
+		pendingHistory: make(map[string][]types.Message),
 	}
 	if eng == nil {
 		return port
@@ -165,10 +169,8 @@ func (port *EnginePort) ChatStream(ctx context.Context, input string, onChunk fu
 
 	port.mu.Lock()
 	port.engineCalls[sessionID]--
-	if port.engineCalls[sessionID] == 0 && len(port.pendingHistory) > 0 {
-		port.installSessionEngineLocked(port.pendingSession, port.pendingHistory)
-		port.pendingHistory = nil
-		port.pendingSession = ""
+	if port.engineCalls[sessionID] == 0 {
+		port.installPendingLocked(sessionID)
 	}
 	port.mu.Unlock()
 	return result, err
@@ -196,10 +198,8 @@ func (port *EnginePort) ChatStreamFor(sessionID string, ctx context.Context, inp
 
 	port.mu.Lock()
 	port.engineCalls[sessionID]--
-	if port.engineCalls[sessionID] == 0 && port.pendingSession == sessionID && len(port.pendingHistory) > 0 {
-		port.installSessionEngineLocked(sessionID, port.pendingHistory)
-		port.pendingHistory = nil
-		port.pendingSession = ""
+	if port.engineCalls[sessionID] == 0 {
+		port.installPendingLocked(sessionID)
 	}
 	port.mu.Unlock()
 	return result, err
@@ -221,10 +221,17 @@ func (port *EnginePort) HistoryFor(sessionID string) []contract.EngineMessage {
 }
 
 // RawHistoryFor 返回指定会话引擎的原始历史（只读拷贝）。
+//
+// 锁纪律（S3b）：port.mu 只做查表，engine.History() 一定在锁外调。Session.mu
+// 由 ChatStream 从进函数持到出函数，锁内读它等于「持着进程级 RLock 等一把整轮
+// 不放手的锁」——Go 的 RWMutex 在有写者排队后连新读者也停，于是别的会话连开回合
+// 都开不了。挪到锁外后，卡住的只有本次调用自己（语义仍是权威历史），进程不冻结。
+// 代价与 AppendHistoryFor/ClearHistoryFor 同口径：查表后引擎可能已被替换，读到的是
+// 拿到的那一份实例。
 func (port *EnginePort) RawHistoryFor(sessionID string) []types.Message {
 	port.mu.RLock()
-	defer port.mu.RUnlock()
 	engine := port.engineForSessionLocked(sessionID)
+	port.mu.RUnlock()
 	if engine == nil {
 		return nil
 	}
@@ -357,12 +364,15 @@ func (port *EnginePort) AppendHistory(msg types.Message) {
 	}
 }
 
+// ClearHistory 清空活跃会话引擎历史。锁纪律同 ClearHistoryFor：port.mu 只解析
+// 别名，engine 调用在锁外（锁内等 Session.mu 会把全进程排在 port.mu 上）。
 func (port *EnginePort) ClearHistory() {
-	port.mu.Lock()
-	if port.engine != nil {
-		port.engine.ClearHistory()
+	port.mu.RLock()
+	engine := port.engine
+	port.mu.RUnlock()
+	if engine != nil {
+		engine.ClearHistory()
 	}
-	port.mu.Unlock()
 }
 func (port *EnginePort) ReplaceHistory(sessionID string, history []contract.EngineMessage) error {
 	sessionID = strings.TrimSpace(sessionID)
@@ -379,19 +389,20 @@ func (port *EnginePort) ReplaceRawHistory(sessionID string, history []types.Mess
 	if port.engine == nil && port.newEngine == nil {
 		return fmt.Errorf("engine is unavailable")
 	}
-	if port.engineCalls[port.sessionID] > 0 {
-		// A running ReActLoop owns its in-memory slice. Keep it valid for the
-		// current turn, then install a genuinely clean reactor before the next
-		// request. ClearHistory deliberately retains system messages upstream,
-		// so appending them again here would duplicate the prompt on every
-		// compaction or recovery.
-		port.replaceActiveHistoryLocked(desired)
-		port.pendingHistory = append([]types.Message(nil), desired...)
-		port.pendingSession = sessionID
-	} else {
-		port.installSessionEngineLocked(sessionID, desired)
+	// A running ReActLoop owns its in-memory slice and overwrites the session
+	// view at turn exit, so touching that engine now buys nothing and would
+	// block right here on a lock held for the whole round. Register the fold
+	// instead: it is installed the moment the turn releases port.engineCalls
+	// (see installPendingLocked).
+	if port.engineCalls[sessionID] > 0 {
+		port.armPendingLocked(sessionID, desired)
+		port.activateLocked(sessionID)
+		return nil
 	}
-	port.sessionID = sessionID
+	// 先装后切：install 已把新引擎登记在该会话号下，别名随后指过去即可。反过来
+	// （先 activate 再 install）会让工厂白造一台——install 又造一个新的换上。
+	port.installSessionEngineLocked(sessionID, desired)
+	port.activateLocked(sessionID)
 	return nil
 }
 
@@ -408,18 +419,18 @@ func (port *EnginePort) replaceRawHistoryFor(sessionID string, history []types.M
 		if port.engine == nil && port.newEngine == nil {
 			return fmt.Errorf("engine is unavailable")
 		}
-		if port.engineCalls[port.sessionID] > 0 {
-			port.replaceActiveHistoryLocked(desired)
-			port.pendingHistory = append([]types.Message(nil), desired...)
-			port.pendingSession = sessionID
-		} else {
-			port.installSessionEngineLocked(sessionID, desired)
+		if port.engineCalls[sessionID] > 0 {
+			port.armPendingLocked(sessionID, desired)
+			return nil
 		}
+		port.installSessionEngineLocked(sessionID, desired)
 		return nil
 	}
-	// 非活跃目标会话：会话内替换，不切换活跃。
-	engine, ok := port.engines[sessionID]
-	if !ok || engine == nil {
+	// 非活跃目标会话：会话内替换，不切换活跃。这里原本没有「目标在飞就先登记」
+	// 这一步，等于持着进程级 port.mu 去等一把整轮不放手的会话锁——目标会话恰好
+	// 开着回合时，其它会话连开回合都要排在 port.mu 后面（S3b 写面引信）。
+	engine := port.engineForSessionLocked(sessionID)
+	if engine == nil {
 		if port.newEngine == nil {
 			return fmt.Errorf("engine for session %q is unavailable", sessionID)
 		}
@@ -431,40 +442,103 @@ func (port *EnginePort) replaceRawHistoryFor(sessionID string, history []types.M
 		port.engineCalls[sessionID] = 0
 		engine = fresh
 	}
-	engine.ClearHistory()
-	for _, message := range desired {
-		engine.AppendHistory(message)
+	if port.engineCalls[sessionID] > 0 {
+		port.armPendingLocked(sessionID, desired)
+		return nil
 	}
+	installHistoryInPlace(engine, desired)
 	if port.prepareHistory != nil {
 		port.prepareHistory(sessionID, desired)
 	}
 	return nil
 }
 
-func (port *EnginePort) replaceActiveHistoryLocked(history []types.Message) {
-	port.engine.ClearHistory()
+// replaceTargetHistoryLocked 就地重建目标会话引擎的历史（工厂不可用时的退路）。
+// 单引擎装配下注册表里最多只有一台引擎，它就是目标会话的承载者：顺手登记到目标
+// 会话号下，后续别名解析才找得到，重建也不会被悄悄丢掉。调用方必须持 port.mu，
+// 且已确认目标会话无回合在飞。
+func (port *EnginePort) replaceTargetHistoryLocked(sessionID string, history []types.Message) {
+	engine := port.engineForSessionLocked(sessionID)
+	if engine == nil {
+		if port.engine == nil {
+			return
+		}
+		engine = port.engine
+		port.engines[sessionID] = engine
+		port.engineCalls[sessionID] = 0
+	}
+	installHistoryInPlace(engine, history)
+}
+
+// installHistoryInPlace 用 history 重建 engine 的 provider 历史，保留该会话的引擎
+// 实例。调用方必须保证这个引擎此刻没有回合在飞——ClearHistory/History/AppendHistory
+// 用的是 ChatStream 整轮持有的那把会话锁，锁内调用会排到回合结束（持着 port.mu 时
+// 就是把全进程排到别人后面）。
+//
+// system 行只补缺、不重加：上游 ClearHistory 刻意保留 system 消息，再把 desired 里
+// 的 system 追加一遍等于每次压缩/恢复都复制一份 prompt。
+func installHistoryInPlace(engine ReactorEngine, history []types.Message) {
+	engine.ClearHistory()
 	hasSystem := false
-	for _, message := range port.engine.History() {
+	for _, message := range engine.History() {
 		hasSystem = hasSystem || message.Role == "system"
 	}
 	for _, message := range history {
 		if message.Role == "system" {
 			if !hasSystem {
-				port.engine.AppendHistory(message)
+				engine.AppendHistory(message)
 				hasSystem = true
 			}
 			continue
 		}
-		port.engine.AppendHistory(message)
+		engine.AppendHistory(message)
 	}
 }
 
+// armPendingLocked 登记「该会话这次回合收尾之后要装的历史」。调用方必须持 port.mu
+// 且已确认该会话有回合在飞（engineCalls > 0）——登记之后绝不能碰它的引擎。
+func (port *EnginePort) armPendingLocked(sessionID string, history []types.Message) {
+	if port.pendingHistory == nil {
+		port.pendingHistory = make(map[string][]types.Message)
+	}
+	port.pendingHistory[sessionID] = append([]types.Message(nil), history...)
+}
+
+// installPendingLocked 在该会话的最后一个在飞回合收尾时兑现登记的历史。调用方必须
+// 持 port.mu 且 engineCalls[sessionID] 已归零，此刻装历史不会排在会话锁后面，而
+// port.mu 又挡住了新回合进入（新回合要先 Lock 才能给 engineCalls 加一），因此这一
+// 次安装对该会话是原子的。
+func (port *EnginePort) installPendingLocked(sessionID string) {
+	history, ok := port.pendingHistory[sessionID]
+	if !ok {
+		return
+	}
+	delete(port.pendingHistory, sessionID)
+	port.installSessionEngineLocked(sessionID, history)
+}
+
+// activateLocked 把活跃别名（port.engine / port.sessionID）成对指向目标会话。
+// 它**只查表不建引擎**：需要新引擎的调用（ReplaceRawHistory）先经 install 把引擎
+// 登记在该会话号下，再指别名——反过来会白造一台。目标未注册时返回 false 且不动
+// 别名。整个过程不碰任何引擎的历史方法，因此可以在持 port.mu 时安全调用。
+func (port *EnginePort) activateLocked(sessionID string) bool {
+	engine := port.engineForSessionLocked(sessionID)
+	if engine == nil {
+		return false
+	}
+	port.engine = engine
+	port.sessionID = sessionID
+	_, port.sessionBacked = engine.(*frameworkSession.Session)
+	return true
+}
+
 // installSessionEngineLocked 为目标会话安装权威历史：优先创建全新引擎并
-// 注册到会话注册表（ReplaceHistory 语义 = 干净 reactor）；工厂不可用时
-// 回退为就地替换当前引擎。调用方必须持有 port.mu。
+// 注册到会话注册表（ReplaceHistory 语义 = 干净 reactor）；工厂不可用时回退为
+// 就地重建该会话的引擎。两处都只在目标会话此刻无回合在飞时才会被调到（判据在
+// 调用方），所以就地重建不会排在会话锁后面。调用方必须持有 port.mu。
 func (port *EnginePort) installSessionEngineLocked(sessionID string, history []types.Message) {
 	if port.newEngine == nil {
-		port.replaceActiveHistoryLocked(history)
+		port.replaceTargetHistoryLocked(sessionID, history)
 		if port.prepareHistory != nil {
 			port.prepareHistory(sessionID, history)
 		}
@@ -472,7 +546,7 @@ func (port *EnginePort) installSessionEngineLocked(sessionID string, history []t
 	}
 	fresh := port.newEngine(sessionID)
 	if fresh == nil {
-		port.replaceActiveHistoryLocked(history)
+		port.replaceTargetHistoryLocked(sessionID, history)
 		if port.prepareHistory != nil {
 			port.prepareHistory(sessionID, history)
 		}
@@ -483,8 +557,11 @@ func (port *EnginePort) installSessionEngineLocked(sessionID string, history []t
 	}
 	port.engines[sessionID] = fresh
 	port.engineCalls[sessionID] = 0
-	port.engine = fresh
-	_, port.sessionBacked = fresh.(*frameworkSession.Session)
+	if port.sessionID == sessionID {
+		// 只有目标就是活跃会话时才换别名；后台会话的折叠不得把活跃会话切走。
+		port.engine = fresh
+		_, port.sessionBacked = fresh.(*frameworkSession.Session)
+	}
 	if port.systemPrompt != "" {
 		fresh.SetSystemPrompt(port.systemPrompt)
 	}
@@ -588,16 +665,25 @@ func (port *EnginePort) ResumeRawSession(sessionID string, history []types.Messa
 	if port.engineCalls[sessionID] > 0 {
 		// 目标会话自身忙时才延迟安装；其它会话运行中不阻塞本会话恢复
 		// （M2 并行语义：空闲目标可立即安装，避免触碰运行中会话的引擎锁）。
-		port.pendingHistory = append([]types.Message(nil), desired...)
-		port.pendingSession = sessionID
+		port.armPendingLocked(sessionID, desired)
 		return nil
 	}
 	engine, ok := port.engines[sessionID]
 	if !ok || engine == nil {
 		if port.newEngine == nil {
-			port.replaceActiveHistoryLocked(desired)
-			if port.prepareHistory != nil {
-				port.prepareHistory(sessionID, desired)
+			// 单引擎装配（legacy/测试桩）：没有工厂就没有第二台引擎，只能就地重建
+			// 这一台。它承载的是当前活跃会话，活跃会话有回合在飞时这一步会排到它的
+			// 会话锁后面，所以按同一口径先登记、等那次回合收尾再装。
+			if port.engine == nil {
+				return fmt.Errorf("engine is unavailable")
+			}
+			if port.engineCalls[port.sessionID] > 0 {
+				port.armPendingLocked(port.sessionID, desired)
+			} else {
+				installHistoryInPlace(port.engine, desired)
+				if port.prepareHistory != nil {
+					port.prepareHistory(sessionID, desired)
+				}
 			}
 			port.sessionID = sessionID
 			return nil
