@@ -508,8 +508,9 @@ func (service *Service) snapshotOfResident(sessionID string) (SessionSnapshot, e
 	// 工作表格是项目/全局台账（与视图投影同源）：会话快照里的表格也取全局
 	// 读面，避免"切到哪个会话才看到哪些行"。会话级读面（落盘）仍走
 	// TaskSnapshotFor。
-	if records := service.Deps.Runtime.TaskSnapshot(); len(records) > 0 {
-		rows := buildWorkTable(snapshot.Runtime.Plan, records, nil)
+	asyncRuns := service.asyncRunsForTable()
+	if records := service.Deps.Runtime.TaskSnapshot(); len(records) > 0 || len(asyncRuns) > 0 {
+		rows := buildWorkTable(snapshot.Runtime.Plan, records, nil, asyncRuns)
 		snapshot.Runtime.WorkTable = rows
 		snapshot.Runtime.WorkTableBatches = buildWorkTableBatches(rows)
 	}

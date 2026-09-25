@@ -113,6 +113,10 @@ func DefaultPermissionGroupList() []toolspermission.PermissionGroup {
 			Default:  toolspermission.ActionAllow,
 			Match: []string{
 				"write_file", "edit_file", "bash",
+				// async_kill 终止的正是 bash 起的执行体：跟 bash 同组才有相同的主体
+				// 覆盖。放 CTL 会让 sub/员工断位，它们自己派发的后台命令就谁也杀不掉；
+				// 真正的门是 handler 里的"句柄必须属于本会话"。
+				"async_kill",
 				"todo_init", "todo_add", "todo_done",
 				"todolist_init", "todolist_add", "todolist_done",
 				"task_add", "taskadd",

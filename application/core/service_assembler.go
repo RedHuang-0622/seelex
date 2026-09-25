@@ -97,6 +97,12 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		CurrentSessionID: func() string {
 			return service.sessions.ActiveID()
 		},
+		AsyncPending: func(sessionID string) int {
+			if service == nil || service.Deps.Runtime == nil {
+				return 0
+			}
+			return service.Deps.Runtime.AsyncPendingFor(sessionID)
+		},
 	})
 	// P1：会话级 goal 治理协调器（第五栈持久化经 Runtime 按会话注入；
 	// Runtime 未实现 SessionContextStoreFor 时退化为内存态）。

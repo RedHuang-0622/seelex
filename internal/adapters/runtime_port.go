@@ -84,6 +84,18 @@ func (port RuntimePort) TaskSnapshot() []dto.TaskRecord {
 func (port RuntimePort) TaskSnapshotFor(sessionID string) []dto.TaskRecord {
 	return port.Runtime.TaskSnapshotFor(sessionID)
 }
+func (port RuntimePort) ReleaseSessionAsync(sessionID string) int {
+	return port.Runtime.ReleaseSessionAsync(sessionID)
+}
+func (port RuntimePort) AsyncPendingFor(sessionID string) int {
+	return port.Runtime.AsyncPendingFor(sessionID)
+}
+func (port RuntimePort) AsyncRunsSnapshot() []dto.AsyncRunRecord {
+	return port.Runtime.AsyncRunsSnapshot()
+}
+func (port RuntimePort) AsyncRunEvents() <-chan struct{} {
+	return port.Runtime.AsyncRunEvents()
+}
 func (port RuntimePort) TaskAdd(spec dto.TaskSpec) (dto.TaskRecord, bool, error) {
 	return port.Runtime.TaskAdd(spec)
 }

@@ -42,6 +42,9 @@ type Deps struct {
 	// background=true 直接报错、async_output 不注册——能力不可实施时必须拒绝，
 	// 不得静默降级成同步执行（security/sandbox.go 同源口径）。
 	AsyncExecEnabled bool
+	// AsyncBatchID 解析某会话当前的 chat 请求 ID（= 工作表格的批次键）。后台执行
+	// 派发时要盖上它，否则投影出来的行会掉进"早期任务"批次里，看不出是谁起的。
+	AsyncBatchID func(sessionID string) string
 }
 
 // Router registers and executes the project-scoped tool family.
@@ -95,9 +98,10 @@ func (r *Router) Register() {
 	allowBackground := r.asyncEnabled()
 	r.deps.RegisterTool("bash", bashDescription(allowBackground), bashSchema(allowBackground), r.scopedBash)
 	if allowBackground {
-		// async_output 只在切片打开时注册：关闭时它必然无句柄可取，注册一个
-		// 只能报错的工具只是占模型的选项与 token。
+		// async_output / async_kill 只在能力常驻时注册：关闭时它们必然无句柄可取，
+		// 注册两个只会报错的工具只是占模型的选项与 token。
 		r.deps.RegisterTool("async_output", asyncOutputDescription(), asyncOutputSchema(), r.scopedAsyncOutput)
+		r.deps.RegisterTool("async_kill", asyncKillDescription(), asyncKillSchema(), r.scopedAsyncKill)
 	}
 }
 
@@ -432,6 +436,9 @@ type scopedBashInput struct {
 	// Background 把命令交给后台执行域（仅 limits.async_exec.enabled=true 时可用）。
 	// 回执是受理（handle + log_path），不是结果；取回另调 async_output。
 	Background bool `json:"background,omitempty"`
+	// Description 是这条后台命令在做什么的一句话——它是工作表格的行标题，
+	// background=true 时必填（同步执行不需要：结果就在这一轮的输出里）。
+	Description string `json:"description,omitempty"`
 }
 type scopedBashResult struct {
 	Stdout   string `json:"stdout"`
@@ -482,7 +489,11 @@ func (r *Router) scopedBash(ctx context.Context, argsJSON string) (output string
 	r.observeBash(BashDiagnosticEvent{Stage: "bash.resolve.done"})
 	// 后台分派：授权与 workdir 解析到这里已经完成，剩下的是"已批准之后的执行"。
 	if input.Background {
-		return r.dispatchAsync(ctx, input.Command, workdir)
+		// 后台命令会活过这一轮，行标题只能来自派发时的这句话——没有别的诚实来源。
+		if strings.TrimSpace(input.Description) == "" {
+			return "", fmt.Errorf("bash: background=true 必须带 description（一句话说明这条命令在做什么，它会成为工作打点表的行标题）")
+		}
+		return r.dispatchAsync(ctx, input.Command, input.Description, workdir)
 	}
 	// 执行路径（2026-08-04 回滚）：沙箱接入被怀疑导致工具挂起，恢复 v1
 	// 直连 exec（cwd 门禁语义不变）；CommandSandbox 接口保留在 sandbox.go，
@@ -658,6 +669,9 @@ func bashSchema(allowBackground bool) map[string]interface{} {
 	}
 	if allowBackground {
 		properties["background"] = map[string]interface{}{"type": "boolean"}
+		// 只给类型，不写 property 级说明：这条要求已经在 bash 描述里（asyncBackgroundHint），
+		// schema 每轮都下发，两处都写就是每次请求重复付同一份 token。
+		properties["description"] = map[string]interface{}{"type": "string"}
 	}
 	return map[string]interface{}{"type": "object", "properties": properties, "required": []string{"command"}}
 }

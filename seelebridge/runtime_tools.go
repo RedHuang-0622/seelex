@@ -163,9 +163,33 @@ func (r *Runtime) observeBash(event BashDiagnosticEvent) {
 func (r *Runtime) registerProjectScopedTools() {
 	router := seeltools.NewRouter(r.scopedToolsDeps())
 	router.Register()
+	r.scopedTools = router
 	// 后台命令的输出目录是进程级资源：登记进逆序关停链，否则每个进程都在临时目录
 	// 里留一份无人回收的日志（规格 §8.3 指标 5 实测）。
 	r.lifecycle = append(r.lifecycle, router.CloseAsync)
+}
+
+// ReleaseSessionAsync 杀掉某会话名下所有在途后台命令（会话删除/归档时由 core 调用）。
+//
+// 为什么必须有人调它：后台执行体是按会话登记的，会话没了就再没有任何一条
+// async_output / async_kill 路径能拿到它——不杀就是无人认领的孤儿进程，而工作
+// 打点表会一路跟着它显示 running。
+//
+// 返回被登记的句柄数（不是"确认杀死数"：杀不掉的仍由各自执行体收尾收敛）。
+func (r *Runtime) ReleaseSessionAsync(sessionID string) int {
+	if r == nil || r.scopedTools == nil {
+		return 0
+	}
+	return r.scopedTools.CloseSessionAsync(sessionID)
+}
+
+// AsyncPendingFor 报告某会话还在跑的后台命令数。core 的"无进展预算"用它把
+// "有在途执行被查询"算作进展——见 application/core/task_context/coordinator.go。
+func (r *Runtime) AsyncPendingFor(sessionID string) int {
+	if r == nil || r.scopedTools == nil {
+		return 0
+	}
+	return r.scopedTools.AsyncPendingFor(sessionID)
 }
 
 // registerTaskTools 注册主动任务工具 taskadd（同上委托）。
@@ -192,6 +216,7 @@ func (r *Runtime) scopedToolsDeps() seeltools.Deps {
 		ToolCallTimeoutSec:     r.limits.ToolCallTimeoutSec,
 		DisableDockerAutoStart: r.limits.DisableDockerAutoStart,
 		AsyncExecEnabled:       r.limits.AsyncExec.Enabled,
+		AsyncBatchID:           r.CurrentTaskBatchFor,
 		ObserveBash:            r.observeBash,
 		EnsureDocker:           r.ensureDockerForRuntime,
 		DockerDaemonDown:       docker.IsDaemonDown,

@@ -31,6 +31,7 @@ type Coordinator struct {
 	presentToolError  func(string, error) string
 	queuedInputRefs   func(string) []string
 	currentSessionID  func() string
+	asyncPending      func(string) int
 
 	goalSkillActive atomic.Bool
 	tokenCounter    RequestTokenCounter
@@ -103,6 +104,7 @@ func NewCoordinator(deps Deps) *Coordinator {
 		presentToolError:  deps.PresentToolError,
 		queuedInputRefs:   deps.QueuedInputRefs,
 		currentSessionID:  deps.CurrentSessionID,
+		asyncPending:      deps.AsyncPending,
 		tokenCounter:      NewCalibratedTokenCounter(),
 	}
 }
@@ -524,6 +526,19 @@ func (c *Coordinator) _RecordReActToolCall(ctx context.Context) {
 	}
 }
 
+// pendingAsyncForContext 返回该 ctx 所属会话此刻还在跑的后台命令数。
+// 未注入读面、或 ctx 没有会话 ID 时返回 0——判据退回原行为，不猜。
+func (c *Coordinator) pendingAsyncForContext(ctx context.Context) int {
+	if c.asyncPending == nil {
+		return 0
+	}
+	sessionID := SessionIDFromContext(ctx)
+	if sessionID == "" {
+		return 0
+	}
+	return c.asyncPending(sessionID)
+}
+
 // AllowNextReActIteration 判定是否允许下一轮模型迭代（自行加锁）。ctx
 // 携带会话 ID 时路由到对应会话，否则按活跃会话。
 func (c *Coordinator) AllowNextReActIteration(ctx context.Context, turn int) bool {
@@ -553,6 +568,13 @@ func (c *Coordinator) _AllowNextReActIteration(ctx context.Context, turn int) bo
 		// 无进展预算的决策输入来自 TaskService 的语义进展计数（epoch）。
 		if epoch, active := c.semanticProgressLocked(budget.requestID); active {
 			if epoch == budget.lastProgressEpoch {
+				// 字节口径没动，但本会话还有在途后台执行被查询：那是"命令还没完"，
+				// 不是模型在原地打转。异步载荷刻意不含时间戳（含了就每轮白烧一次
+				// 前缀缓存），所以一条安静的长命令的两次取回必然逐字节相同——只看
+				// 字节就会把还在跑的回合判死。空转由上面的 tool-call / round 上限封顶。
+				if c.pendingAsyncForContext(ctx) > 0 {
+					return true
+				}
 				budget.noProgressRounds++
 			} else {
 				budget.lastProgressEpoch = epoch

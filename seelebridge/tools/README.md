@@ -11,8 +11,10 @@ read/grep/glob/write/edit/bash 工具族（`Router`）、内联工具 provider
 
 - 职责：`Router` 注册并路由项目作用域工具；`RegistryState` 包装
   framework tools.Registry（超时/中间件/内联工具）；`PermissionGate`
-  做工具调度前的权限检查（allow/deny/ask）；`async_exec.go` 承载 bash 的
-  后台命令执行域（轮询型，受 `limits.async_exec.enabled` 开关管辖，默认关）。
+  做工具调度前的权限检查（allow/deny/ask）；`async_*.go`（表 / 执行体 / 工具面 / 探针
+  四份）承载 bash 的
+  后台命令执行域（轮询型，受 `limits.async_exec.enabled` 管辖；出厂配置 **true**，
+  结构零值仍 false = 旧配置缺这段时能力不出现）。
 - 非职责：MCP 工具生命周期（归 mcp 域）、plan 工具族（归 plan 域）。
 
 ## 与其它域的关系
@@ -65,15 +67,26 @@ flowchart TB
   可编译。输入注入类工具对子代理不可见（见 `policy.go` 的
   `isComputerInputTool`）。
 
-### 后台命令（轮询型，`async_exec.go`）
+### 后台命令（轮询型，`async_exec.go` / `async_run.go` / `async_tools.go` / `async_probe.go`）
 
-形状：`bash background=true` 只返回**受理回执**（`{status:accepted, handle, log_path,
-state:running}`，不含命令输出），`tool_call`/`tool_result` 的配对就在这一次调用里完成；
-模型想看进展就自己再调 `async_output(handle, wait_ms)`。每一问一答都是正常的相邻工具对，
-所以历史只追加、不回写，也不需要"结果到达时把空闲会话叫醒"那条链路（它必然回闯
-`ChatStream` 全程持有的会话锁）。选型与实测见
+形状：`bash background=true`（**必须带 `description`**，一句话说明这条命令在干什么——
+它是工作打点表的行标题，没有别的诚实来源）只返回**受理回执**（`{status:accepted, handle,
+log_path, state:running}`，不含命令输出），`tool_call`/`tool_result` 的配对就在这一次调用
+里完成；模型想看进展就自己再调 `async_output(handle, wait_ms)`，想终止就调
+`async_kill(handle)`。每一问一答都是正常的相邻工具对，所以历史只追加、不回写，也不需要
+"结果到达时把空闲会话叫醒"那条链路（它必然回闯 `ChatStream` 全程持有的会话锁）。选型与
+实测见
 [`docs/2026-09-24-async-tool-deferred-ack/README.md`](../../docs/2026-09-24-async-tool-deferred-ack/README.md)
-§0（P4/P5 证明迟到 `role=tool` 在 wire 层非法，P7 证明轮询形态不破前缀缓存）。
+§0（P4/P5 证明迟到 `role=tool` 在 wire 层非法，P7 证明轮询形态不破前缀缓存）与 §10。
+
+文件分工按"表 / 执行体 / 工具面 / 探针"四份（`async_exec.go` 单文件曾长到 608 行且职责混合，
+命中仓库根 `MEMORY.md` 的上帝文件判据）：
+
+- `async_exec.go`：句柄表与状态机（`running/done/failed/killed`）、载荷渲染。
+- `async_run.go`：派发、`awaitAsync` 收尾、进程树与输出目录回收。
+- `async_tools.go`：`async_output` / `async_kill` 两个 handler 与 schema/描述。
+- `async_probe.go`：只读探针（`AsyncRuns` / `AsyncRunEvents`）——回答界面上的
+  "是什么、在跑什么、现在怎么样"，不推进游标、不进上下文。
 
 - `asyncRegistry`：单锁句柄表。句柄 `a<seq>`（seq 单调，不能用 `len(runs)` 推——驱逐过
   已完成项后会同号，两条执行共用输出文件）；去重键 = 会话+命令（只在 `state=running`
@@ -82,16 +95,53 @@ state:running}`，不含命令输出），`tool_call`/`tool_result` 的配对就
   `begin`/`snapshot` 都按值返回副本：表内那条记录的 `state/exit` 由执行体收尾在锁内改写。
 - 执行体：`context.WithoutCancel` + 自带 `asyncHardCap=30m`。同步路径的
   `scopedToolTimeout` 在这里不适用——受理回执一返回，本次工具调用的 ctx 就失效，沿用
-  它会立刻杀掉刚起的命令。硬超时合成 `exit=124` 并把注记写进输出文件（否则模型只看到
-  "命令突然结束"）；正常退出、硬超时、执行体 panic 三条路都必须落到 `finish` 恰好一次。
+  它会立刻杀掉刚起的命令。硬超时合成 `exit=124`、被杀合成 `exit=137`，两者都把注记写进
+  输出文件（否则模型只看到"命令突然结束"）；正常退出、硬超时、被杀、执行体 panic 四条路
+  都必须落到 `finish` 恰好一次。
+- **进程树终止靠 `security.ProcessTree`（Windows = Job Object，POSIX = 进程组）**：
+  `exec.CommandContext` 到点只杀直接子进程（bash），`taskkill /T` 也杀不到——MSYS2/Git Bash
+  的 fork 子 shell 不一定挂在直接父进程下，实测 `bash -c "(sleep 0.5; echo GRANDCHILD) &
+  sleep 25"` 在 150ms 被 `/T` 杀掉后 GRANDCHILD 仍落进日志。Job Object 不看父子关系，
+  且 `KILL_ON_JOB_CLOSE` 让"执行体收尾时关句柄"成为唯一确定的回收点。Job 建不出来时
+  退化成按 PID 杀，`Degraded()` 说得清——此时不得主张"整棵进程树已终止"。
 - `cappedLogWriter`：输出在 1MiB 处截断，超上限只丢字节、**仍向子进程报告已消费**
   （报短写会让命令自己异常退出，那是把基础设施限制伪装成命令失败）。
 - 增量交付：`cursor` 是"已交付给模型的文件偏移"，每次取回最多带 4000 字符的**新增**
   部分——反复轮询同一句柄不会把整份日志重播进上下文（这是轮询型唯一真实的 token 风险）。
-- kill-switch（`Deps.AsyncExecEnabled`，⇐ `limits.async_exec.enabled`，默认 false）：
-  关闭时三处同时收起——`bash` schema 不下发 `background`、`async_output` 不注册、
-  handler 收到 `background=true` 直接报错。**关就是关**，不得静默降级成同步执行
-  （与 `security/sandbox.go` 头注同源）。
+- 会话销毁即杀：`Router.CloseSessionAsync(sessionID)` 由 `Runtime.ReleaseSessionAsync`
+  转给 core，在会话删除/归档时调用。句柄表按会话持有执行体，会话没了就没有任何取回/终止
+  入口——不杀就是无人认领的孤儿进程，而工作打点表会一路显示 running。
+- `AsyncPendingFor(sessionID)`：只读计数本会话在途执行。它是 core"无进展预算"的判据输入：
+  异步载荷刻意不含时间戳（含了就每轮白烧前缀缓存），所以一条**安静**的长命令的两次取回
+  必然逐字节相同，按载荷字节算进展会把还在跑的回合判死。
+- 实时探针（`async_probe.go`）：`AsyncRuns()` 把登记表采样成"是什么（description）、
+  在跑什么（command）、现在怎么样（state / exit / 已产出字节 / 末行 / 耗时 / 是否降级）"，
+  `AsyncRunEvents()` 是它的变化信号口（容量 1、latest-wins）。三类来源发信号：派发与终态
+  （`begin`/`finish`）、以及**有新字节**（`cappedLogWriter` → `noteOutput`，按
+  `asyncProbeThrottle=1s` 去抖；安静没输出的命令不刷信号）。探针不推进 `cursor`，也不进
+  上下文——命令行原文、绝对路径、时间戳只到 GUI；`asyncPayload` 那份仍受"确定性、不含
+  路径"的缓存纪律约束。core 侧的投影见 `application/core/work_table_async.go`。
+- 开关（`Deps.AsyncExecEnabled` ⇐ `limits.async_exec.enabled`，**出厂 true**；结构零值仍
+  false，旧配置文件缺这段 = 关）：关闭时三处同时收起——`bash` schema 不下发 `background`、
+  `async_output`/`async_kill` 不注册、handler 收到 `background=true` 直接报错。
+  **关就是关**，不得静默降级成同步执行（与 `security/sandbox.go` 头注同源）。
+  常驻开的已知代价：三个入口的 schema 每轮常驻，实测让每轮 prompt 多约 213 token。
+
+## Review 要点（本域最容易出错的地方）
+
+- `state/exit/killRequested/cmd` 只能在 `g.mu` 内读写；终止动作（taskkill / TerminateJobObject）
+  必须在锁外做——`finish` 也要这把锁。
+- `killed` 意图只能在终止**确认成功**后落（`markKilled`），否则状态会跑在进程前面。
+- 载荷新增字段前想清楚：它会永久留在可缓存前缀里，任何"每次都不一样"的字节都在白烧预算。
+- 派发返回前若 `attach` 没落上（记录被驱逐/关停），执行体必须自己 `tree.Close()`，否则漏 Job。
+- 探针读表（`infos`）只能在锁内取字段，文件 `stat`/读末窗一律在锁外做——一条狂写日志的
+  命令不得挡住派发与收尾。信号是**非阻塞**发送（持 `g.mu` 时），消费者慢就让它丢，
+  读侧自己汇聚。
+- `asyncProbeThrottle` 只限制发信号的频率，不参与"进程还活着吗"的判断；终态一律由
+  `cmd.Wait` 的返回说话。新增按墙钟猜状态的判据一律拒绝。
+- 给后台执行加字段时先说清它属于哪一层：`asyncRun`（表）→ `AsyncRunInfo`（探针，可带
+  路径/时间/命令原文）→ `asyncPayload`（进上下文，必须确定性、不含路径）。三层字段混用
+  就是拿缓存预算换界面便利。
 
 ## 数据流
 

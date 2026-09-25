@@ -44,7 +44,7 @@ func TestBuildWorkTableMapsPlanNodes(t *testing.T) {
 		{ID: "plan:n2a", Key: "plan:n2a", Phase: "plan", Task: "子任务", Status: dto.TaskPending, Kind: "plan", SourceID: "n2a", Dependencies: []string{"plan:n2"}},
 	}
 
-	rows := buildWorkTable(plan, tasks, nil)
+	rows := buildWorkTable(plan, tasks, nil, nil)
 	if len(rows) != 3 {
 		t.Fatalf("rows = %d, want 3", len(rows))
 	}
@@ -81,7 +81,7 @@ func TestBuildWorkTableTasklistModeMarksCheckNode(t *testing.T) {
 		}},
 	}
 	tasks := []dto.TaskRecord{{ID: "plan:n1", Phase: "plan", Task: "步骤", Status: dto.TaskCompleted, Kind: "plan", SourceID: "n1"}}
-	rows := buildWorkTable(plan, tasks, nil)
+	rows := buildWorkTable(plan, tasks, nil, nil)
 	ops := make([]string, 0, len(rows[0].Trace))
 	for _, point := range rows[0].Trace {
 		ops = append(ops, point.Operation)
@@ -98,7 +98,7 @@ func TestBuildWorkTableMapsTodoItems(t *testing.T) {
 		{ID: "todo:2", Phase: "tasklist", Task: "c", Status: dto.TaskCompleted, Kind: "todo"},
 		{ID: "todo:3", Phase: "tasklist", Task: "d", Status: dto.TaskCompleted, Kind: "todo"},
 	}
-	rows := buildWorkTable(nil, tasks, nil)
+	rows := buildWorkTable(nil, tasks, nil, nil)
 	if len(rows) != 4 {
 		t.Fatalf("rows = %d", len(rows))
 	}
@@ -179,7 +179,7 @@ func TestBuildWorkTableMapsSubagentTasks(t *testing.T) {
 			},
 		},
 	}
-	rows := buildWorkTable(nil, tasks, nil)
+	rows := buildWorkTable(nil, tasks, nil, nil)
 	if len(rows) != 2 {
 		t.Fatalf("rows = %d, want 2", len(rows))
 	}
@@ -206,7 +206,7 @@ func TestBuildWorkTableBoundsRowsAndTruncatesEvidence(t *testing.T) {
 			Task: "t", Status: dto.TaskPending, Kind: "todo",
 		})
 	}
-	rows := buildWorkTable(nil, tasks, nil)
+	rows := buildWorkTable(nil, tasks, nil, nil)
 	if len(rows) != Limits().WorkTableRows {
 		t.Fatalf("rows = %d, want %d", len(rows), Limits().WorkTableRows)
 	}
@@ -215,7 +215,7 @@ func TestBuildWorkTableBoundsRowsAndTruncatesEvidence(t *testing.T) {
 	row := buildWorkTable(nil, []dto.TaskRecord{{
 		ID: "task:1", Phase: "task", Task: long, Description: long, Kind: "task",
 		Trace: []dto.TaskTracePoint{{Status: "pending", Operation: "task.add", Evidence: long}},
-	}}, nil)[0]
+	}}, nil, nil)[0]
 	if !strings.HasSuffix(row.Description, "…") || len([]rune(row.Description)) != Limits().EvidenceChars+1 {
 		t.Fatalf("description truncation = %d runes", len([]rune(row.Description)))
 	}

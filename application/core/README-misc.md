@@ -193,6 +193,7 @@
 
 ### workspace_usecase.go
 
+- `func (service *Service) releaseSessionAsync(sessionID string)` — releaseSessionAsync 把"这个会话没有了"转告执行域：杀掉它名下所有在途后台命令。
 - `func (service *Service) DeleteSession(sessionID string) error`
 - `func (service *Service) CreateWorkspace(name, rootPath, gitRemote string) error`
 - `func (service *Service) BindWorkspace(workspaceID string) error`

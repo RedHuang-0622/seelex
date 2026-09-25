@@ -26,7 +26,7 @@ import (
 // begin 现在按值返回，所以这里在锁内取回指针——差的就是派发侧有没有拿到锁外可读的
 // 可变字段，这正是要证的那一点。
 func (g *asyncRegistry) beginPointerShape(sessionID, command string) *asyncRun {
-	run, _, err := g.begin(sessionID, command)
+	run, _, err := g.begin(sessionID, command, "", "")
 	if err != nil {
 		return nil
 	}

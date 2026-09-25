@@ -38,6 +38,8 @@ func asyncTestRouter(t *testing.T, enabled bool) *Router {
 		DisableDockerAutoStart: true,
 		SessionKey:             asyncSessionFromCtx,
 		AsyncExecEnabled:       enabled,
+		// 批次解析口固定回答一个 ID：后台行要归到派发它的那次请求（投影用例断言这一点）。
+		AsyncBatchID: func(string) string { return "req-test" },
 	})
 	// 用例自己收现场：否则一轮 go test 就在临时目录里留下几个 seelex-async-*。
 	t.Cleanup(router.CloseAsync)
@@ -53,10 +55,13 @@ func newAsyncRegistryForTest(t *testing.T) *asyncRegistry {
 	return reg
 }
 
-// dispatchForTest 走 bash handler 的 background 分支派发一条命令。
+// dispatchForTest 走 bash handler 的 background 分支派发一条命令。description 是
+// background=true 的必填项（工作表格行标题），测试统一给一句固定标签。
 func dispatchForTest(t *testing.T, router *Router, ctx context.Context, command string) asyncPayload {
 	t.Helper()
-	args, err := json.Marshal(map[string]interface{}{"command": command, "background": true})
+	args, err := json.Marshal(map[string]interface{}{
+		"command": command, "background": true, "description": "test dispatch",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,11 +207,11 @@ func TestAsyncPollUnknownHandleFailsLoudly(t *testing.T) {
 
 func TestAsyncRegistryDedupsOnlyWhileRunning(t *testing.T) {
 	registry := newAsyncRegistryForTest(t)
-	first, started, err := registry.begin("sess-a", "echo same")
+	first, started, err := registry.begin("sess-a", "echo same", "", "")
 	if err != nil || !started {
 		t.Fatalf("首次派发: started=%v err=%v", started, err)
 	}
-	second, startedAgain, err := registry.begin("sess-a", "echo same")
+	second, startedAgain, err := registry.begin("sess-a", "echo same", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +221,7 @@ func TestAsyncRegistryDedupsOnlyWhileRunning(t *testing.T) {
 
 	// 跑完后允许重发：一次失败（或一次成功）不得永久封死这条命令。
 	registry.finish(first.handle, 0)
-	third, startedThird, err := registry.begin("sess-a", "echo same")
+	third, startedThird, err := registry.begin("sess-a", "echo same", "", "")
 	if err != nil || !startedThird {
 		t.Fatalf("终态后重发: started=%v err=%v", startedThird, err)
 	}
@@ -225,7 +230,7 @@ func TestAsyncRegistryDedupsOnlyWhileRunning(t *testing.T) {
 	}
 
 	// 去重键含会话：另一个会话的同名命令不受影响。
-	other, otherStarted, err := registry.begin("sess-b", "echo same")
+	other, otherStarted, err := registry.begin("sess-b", "echo same", "", "")
 	if err != nil || !otherStarted {
 		t.Fatalf("跨会话不得共享去重键: started=%v err=%v", otherStarted, err)
 	}
@@ -239,7 +244,7 @@ func TestAsyncRegistryDedupsOnlyWhileRunning(t *testing.T) {
 // 语义上也必须是副本——受理回执是已定稿的一行账，命令恰好在同一瞬间结束都不回头改它。
 func TestAsyncRegistryBeginHandsOutACopy(t *testing.T) {
 	registry := newAsyncRegistryForTest(t)
-	run, started, err := registry.begin("sess-a", "echo copy")
+	run, started, err := registry.begin("sess-a", "echo copy", "", "")
 	if err != nil || !started {
 		t.Fatalf("派发: started=%v err=%v", started, err)
 	}
@@ -266,11 +271,11 @@ func TestAsyncRegistryBeginHandsOutACopy(t *testing.T) {
 func TestAsyncRegistryCapsRunningDispatch(t *testing.T) {
 	registry := newAsyncRegistryForTest(t)
 	for i := 0; i < asyncMaxRunning; i++ {
-		if _, started, err := registry.begin("sess-a", fmt.Sprintf("echo %d", i)); err != nil || !started {
+		if _, started, err := registry.begin("sess-a", fmt.Sprintf("echo %d", i), "", ""); err != nil || !started {
 			t.Fatalf("第 %d 次派发: started=%v err=%v", i, started, err)
 		}
 	}
-	if _, _, err := registry.begin("sess-a", "echo overflow"); err == nil {
+	if _, _, err := registry.begin("sess-a", "echo overflow", "", ""); err == nil {
 		t.Fatal("在途上限必须拒绝新派发（不许把机器跑满）")
 	}
 }
@@ -279,7 +284,7 @@ func TestAsyncRegistryCapsRunningDispatch(t *testing.T) {
 // 只封记录会让临时目录在一个长会话里无界增长。
 func TestAsyncRegistryEvictionDropsRecordAndLog(t *testing.T) {
 	registry := newAsyncRegistryForTest(t)
-	oldest, _, err := registry.begin("sess-a", "echo oldest")
+	oldest, _, err := registry.begin("sess-a", "echo oldest", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +296,7 @@ func TestAsyncRegistryEvictionDropsRecordAndLog(t *testing.T) {
 	t.Cleanup(func() { _ = os.RemoveAll(filepath.Dir(oldest.logPath)) })
 
 	for i := 0; i < asyncMaxRecords+2; i++ {
-		run, started, err := registry.begin("sess-a", fmt.Sprintf("echo churn-%d", i))
+		run, started, err := registry.begin("sess-a", fmt.Sprintf("echo churn-%d", i), "", "")
 		if err != nil || !started {
 			t.Fatalf("churn %d: started=%v err=%v", i, started, err)
 		}
@@ -309,7 +314,7 @@ func TestAsyncRegistryEvictionDropsRecordAndLog(t *testing.T) {
 // 资源，进程死了就没人再删——不删就是每个进程在临时目录里攒一份垃圾（实测 44 份）。
 func TestAsyncRegistryCloseRemovesOutputDir(t *testing.T) {
 	registry := newAsyncRegistryForTest(t)
-	run, _, err := registry.begin("sess-a", "echo close")
+	run, _, err := registry.begin("sess-a", "echo close", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,7 +337,7 @@ func TestAsyncRegistryCloseRemovesOutputDir(t *testing.T) {
 // 只是走不到补删分支。
 func TestAsyncRegistryCloseSweepsLateFinish(t *testing.T) {
 	registry := newAsyncRegistryForTest(t)
-	run, _, err := registry.begin("sess-a", "echo late")
+	run, _, err := registry.begin("sess-a", "echo late", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -343,7 +348,7 @@ func TestAsyncRegistryCloseSweepsLateFinish(t *testing.T) {
 	}
 
 	registry.close()
-	if _, _, err := registry.begin("sess-a", "echo after-close"); err == nil {
+	if _, _, err := registry.begin("sess-a", "echo after-close", "", ""); err == nil {
 		_ = file.Close()
 		t.Fatal("关停后不得再登记——那会新建一个没人回收的目录")
 	}
@@ -357,7 +362,7 @@ func TestAsyncRegistryCloseSweepsLateFinish(t *testing.T) {
 
 func TestAsyncRegistryTailDeliversOnlyNewBytes(t *testing.T) {
 	registry := newAsyncRegistryForTest(t)
-	run, _, err := registry.begin("sess-a", "echo tail")
+	run, _, err := registry.begin("sess-a", "echo tail", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -395,7 +400,7 @@ func TestAsyncRegistryTailDeliversOnlyNewBytes(t *testing.T) {
 // 向子进程报短写会让命令自己异常退出，那是把基础设施问题伪装成命令问题。
 func TestAsyncCappedWriterTruncatesWithoutShortWrite(t *testing.T) {
 	registry := newAsyncRegistryForTest(t)
-	run, _, err := registry.begin("sess-a", "echo cap")
+	run, _, err := registry.begin("sess-a", "echo cap", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

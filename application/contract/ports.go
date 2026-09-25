@@ -103,6 +103,36 @@ type SessionChatEngine interface {
 	// 会话需先 ActivateSession 恢复）。
 	HasSession(sessionID string) bool
 }
+
+// InLoopEngine 是「回合内自持锁历史通道」的可选端口（按类型断言取用，模式同
+// SessionChatEngine）。
+//
+// 为什么需要：工具 handler 与 LoopHooks 都是 ChatStream 同一 goroutine 的同步
+// 回调，而 ChatStream 从进函数持锁到出函数。这条路径上再调 History /
+// ReplaceHistory / SetSystemPrompt = 同 goroutine 抢自己已持有的非重入锁 = 永久
+// 自锁（上面 `AppendHistory` 的契约注释记的就是同一条事故）。上下文压缩本来就
+// 必须读写引擎历史，所以显式压缩落在**正在跑的回合**上时，唯一正确的落点是引擎
+// 注入在本轮 ctx 里的环内把手（Seele `session.InLoop`）：同一份数据、同一套语
+// 义，只是不再二次取锁。
+//
+// ok=false 表示该 ctx 不来自进行中的回合（冷启动、回合之间、测试桩）：调用方必须
+// 回落到常规方法，不得凭此伪造「已折叠」。
+type InLoopEngine interface {
+	// HistoryInLoop 返回本轮引擎历史（只读拷贝）。
+	HistoryInLoop(ctx context.Context) ([]EngineMessage, bool)
+	// ReplaceHistoryInLoop 就地替换本轮引擎历史。折叠当场生效：同回合的下一次
+	// 模型请求读到的就是替换后的历史，不经过「下一次装载」。
+	//
+	// 返回 (false, nil) = 不在环内，调用方回落到 ReplaceHistoryFor；返回
+	// (true, err) = 在环内但被引擎拒绝（例如替换会丢掉正在飞的 tool_call
+	// 单元）——此时**不得回落**，回落等于再去取一次本回合已持有的锁。
+	ReplaceHistoryInLoop(ctx context.Context, history []EngineMessage) (bool, error)
+	// SetSystemPromptInLoop 把本会话当前的 system prompt 推进本轮引擎历史。
+	// 它不改写进程级 prompt 默认、不取全进程锁（那两件事属于
+	// SetSystemPromptFor，环内折叠不该顺带做）。拒绝语义同上。
+	SetSystemPromptInLoop(ctx context.Context, prompt string) (bool, error)
+}
+
 type RuntimePort interface {
 	Model() string
 	Provider() string
@@ -157,6 +187,23 @@ type RuntimePort interface {
 	// 落盘 SessionRecord.Tasks 与请求尾部打点块用；后台会话收尾不得读活跃
 	// 注册表，对应 R6/P2）。
 	TaskSnapshotFor(sessionID string) []dto.TaskRecord
+	// ReleaseSessionAsync 杀掉某会话名下所有在途后台命令（bash background=true），
+	// 返回被登记的句柄数。会话删除/归档**必须**调用：句柄表按会话持有执行体，
+	// 会话没了就再没有 async_output/async_kill 能拿到它——不杀就是无人认领的
+	// 孤儿进程，而工作打点表会一路跟着它显示 running。
+	ReleaseSessionAsync(sessionID string) int
+	// AsyncPendingFor 返回某会话此刻还在跑的后台命令数（能力未开时恒 0）。
+	// 消费点是"无进展预算"：安静的长命令被反复取回时载荷逐字节相同，字节口径的
+	// 进展不会推进，但有在途执行被查询本身就是进展。
+	AsyncPendingFor(sessionID string) int
+	// AsyncRunsSnapshot 返回后台命令执行表的**只读投影**（按派发顺序）。消费点是
+	// 工作表格与请求尾部打点块（application/core/work_table_async.go）。
+	// 它刻意不是 task 注册表条目：句柄表在内存，进注册表就会随会话落盘并在重启后
+	// 复活成一条永远 running 的假行（不变量 I-21）。
+	AsyncRunsSnapshot() []dto.AsyncRunRecord
+	// AsyncRunEvents 返回后台执行表的变化信号口：派发、终态、驱逐、新字节各发一次
+	// （latest-wins，容量 1）。消费者必须自己汇聚，不得在信号回调里读表。
+	AsyncRunEvents() <-chan struct{}
 	// TaskAdd 主动登记 task（幂等：Key 命中返回既有记录）。
 	TaskAdd(spec dto.TaskSpec) (dto.TaskRecord, bool, error)
 	// TaskAddFor 按归属会话登记 task：当前任务会话写实时注册表，后台会话写

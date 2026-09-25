@@ -46,4 +46,8 @@ type Deps struct {
 	// CurrentSessionID 返回当前活跃会话 ID（线程安全；会话域重构后流式
 	// 路径在无 Core.ViewMu 下反查活跃会话）。
 	CurrentSessionID func() string
+	// AsyncPending 返回指定会话此刻在途的后台命令数（nil = 无后台执行域）。
+	// 消费点是"无进展预算"：载荷字节口径的进展对安静的长命令不会推进，
+	// 而有在途执行被查询本身就是进展。
+	AsyncPending func(sessionID string) int
 }

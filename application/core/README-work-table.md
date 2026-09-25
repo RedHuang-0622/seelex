@@ -10,6 +10,29 @@
 随包附带 `subagent_tree`（清空时显式空数组），前端详情入口据此把工作表格行
 解析成弹窗节点，避免"行先到、树未到"时详情打不开。
 
+## 后台命令行（第四路输入，只读投影）
+
+`buildWorkTable` 有四个输入：plan、task 注册表、子代理树，以及 **后台执行登记表投影**
+（`Runtime.AsyncRunsSnapshot()`）。第四路刻意**不写进 task 注册表**：注册表随会话
+`record.Tasks` 落盘并在恢复时回灌，而后台句柄活在内存——真进去就会在重启后留下一条永远
+running 的假行。因此后台行的生命完全跟着登记表：派发出现、探针更新、终态被驱逐即消失
+（不变量 I-21：registry 是 async 行的唯一事实源，投影只读、不落盘）。
+
+- 行身份：`ID = SourceID = async:<handle>`、`kind = task`（owner 裁定）；行标题取模型派发时
+  写的 `description`，描述列是命令行原文，探针读数（state/exit/已产出字节/末行/耗时/是否
+  降级）落在可展开的打点行，日志路径落在附件列——**这四项前端零改动**，列位本来就存在。
+- 三处建表入口（实时重投影、会话快照、冷读面）统一走 `asyncRunsForTable()`，避免"切到哪个
+  会话才看到哪些行"。行数上限 `asyncWorkMaxRows`（在途优先、终态按最新补齐），否则登记表
+  的 256 个记录槽会挤掉真实任务行。
+- 请求尾部打点块只并 **在跑的** 后台行，且字段比界面窄：句柄、state、已产出字节、
+  描述或命令短截断。**不含**日志路径、末行原文、时间戳——那三者是探针给 GUI 的，进上下文
+  等于每轮重付一遍，还会把日志正文变成注入面。
+- 生命周期消费者由三个变四个：`consumeAsyncRuns()` 收登记表的变化信号（派发/终态/驱逐/
+  去抖后的新字节），走 `refreshWorkTableFromSources()` 复用同一条发布路径，所以表格与打点块
+  不会分叉。信号是容量 1 的汇聚口，中间态被合并掉无所谓：每次重投影读的都是当下全量。
+- 锁纪律：登记表锁是**叶子锁**（tools 侧从不回调进 application，只发 channel），所以持
+  `ViewMu` 时读它是安全的；必须锁外取的是 `Engine.SubAgentTree()` 那类会拿会话锁的读面。
+
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
@@ -17,7 +40,7 @@
 
 ### work_table.go
 
-- `func buildWorkTable(plan *PlanState, tasks []dto.TaskRecord, subagentTree []dto.SubAgentTreeNode) []WorkItem` — buildWorkTable 组装工作表格行：注册表 task → WorkItem；plan 行额外合并
+- `func buildWorkTable(plan *PlanState, tasks []dto.TaskRecord, subagentTree []dto.SubAgentTreeNode, asyncRuns []dto.AsyncRunRecord) []WorkItem` — buildWorkTable 组装工作表格行：注册表 task → WorkItem；plan 行额外合并
 - `func taskRecordToWorkItem(record dto.TaskRecord) WorkItem` — taskRecordToWorkItem 把注册表 task 快照映射为 WorkItem（含 retry 计数）。
 - `func batchLabel(id string, createdAt time.Time) string` — batchLabel 由批次 ID 与创建时间派生展示标签：真实批次用本地时间
 - `func buildWorkTableBatches(rows []WorkItem) []WorkTableBatch` — buildWorkTableBatches 从工作表格行派生批次分片头：按 BatchID 分组，
@@ -25,7 +48,7 @@
 - `func boundWorkTrace(points []WorkTracePoint) []WorkTracePoint` — boundWorkTrace 按时间倒序排序并截断。
 - `func truncateWorkEvidence(value string, limit int) string`
 - `func formatWorkDuration(duration time.Duration) string`
-- `func (state *serviceState) refreshWorkTableLocked(tasks []dto.TaskRecord)` — refreshWorkTableLocked 在 service.ViewMu 持锁时重建工作表格投影。
+- `func (state *serviceState) refreshWorkTableLocked(tasks []dto.TaskRecord)` — refreshWorkTableLocked 在 service.ViewMu 持锁时重建工作表格投影（后台行的读侧
 - `func (state *serviceState) publishWorkTable(revision uint64, requestID string, items []WorkItem, batches []WorkTableBatch)` — publishWorkTable 在锁外发布整表（CSP 汇聚发布器，latest-wins；items 必须
 - `func (service *Service) workTableEventPayload(update worktable.WorkTableUpdate) WorkTableEvent` — workTableEventPayload 组装 worktable.changed 的 payload：表格 + 批次头 +
 - `func subagentTreePayloadSignature(nodes []dto.SubAgentTreeNode) string` — subagentTreePayloadSignature 生成子代理树投影的内容签名，用于判断
@@ -50,11 +73,12 @@
 - `func cloneSubAgentTreeForSync(nodes []dto.SubAgentTreeNode) []dto.SubAgentTreeNode`
 - `func (service *Service) RefreshWorkTableSnapshot()` — RefreshWorkTableSnapshot 是子代理树生命周期变更的被动投影入口（由 CSP
 - `func (service *Service) refreshWorkTableFromSources()` — refreshWorkTableFromSources 是被动触发的统一入口：同步 plan/子代理树 →
-- `func (service *Service) startLifecycleConsumers()` — startLifecycleConsumers 启动三个消费者 goroutine：子代理树信号 → 刷新
+- `func (service *Service) startLifecycleConsumers()` — startLifecycleConsumers 启动四个消费者 goroutine：子代理树信号 → 刷新
 - `func (service *Service) stopLifecycleConsumers()`
 - `func (service *Service) consumeSubagentLifecycle()`
 - `func (service *Service) consumePlanNodeEvents()`
 - `func (service *Service) consumeTaskChanges()`
+- `func (service *Service) consumeAsyncRuns()` — consumeAsyncRuns 是第四个生命周期消费者：后台执行表一有可见变化（派发、终态、
 - `func (service *Service) safeLifecycleCall(call func())` — safeLifecycleCall 处理消费者中的 panic：数据竞争/逻辑故障不得静默吞掉
 - `func (service *Service) UpdateWorkItemStatus(id, status string) error` — UpdateWorkItemStatus 是工作表格的人工状态更新入口（v1：todo 三态
 - `func parseWorkItemID(id string) (kind string, index int, err error)`
@@ -65,6 +89,29 @@
 - `func TestWorkTablePayloadSmallerThanFullRuntime(t *testing.T)`
 - `func heavyTestPlan(nodes int) *PlanState`
 - `func heavySubagentTree(rows int) []dto.SubAgentTreeNode`
+
+### work_table_async.go
+
+- `func (state *serviceState) asyncRunsForTable() []dto.AsyncRunRecord` — asyncRunsForTable 读后台执行投影。三处建表入口（实时重投影、会话快照、冷读面）
+- `func asyncWorkItems(records []dto.AsyncRunRecord) []WorkItem` — asyncWorkItems 把后台执行全量投影成工作表格行（跨会话：工作表格是全局台账，
+- `func asyncRunToWorkItem(record dto.AsyncRunRecord) WorkItem` — asyncRunToWorkItem 映射一条后台执行到工作表格行。
+- `func asyncProbePoint(record dto.AsyncRunRecord, elapsed time.Duration) WorkTracePoint` — asyncProbePoint 是一次探针采样的打点行：状态、字节数、末行、耗时。
+- `func asyncWorkStatus(state string) string` — asyncWorkStatus 把执行域状态映射到工作表格的权威状态字面量。
+- `func asyncTraceLines(records []dto.AsyncRunRecord, sessionID string) []string` — asyncTraceLines 生成打点块里的后台行：**只在跑的那些**（终态行不进块，与"无活动
+- `func formatAsyncBytes(bytes int64) string` — formatAsyncBytes 把字节数写成便于扫读的量级（界面与打点块共用一个口径）。
+
+### work_table_async_test.go
+
+- `func runningAsyncRecord(handle string) dto.AsyncRunRecord`
+- `func workItemByID(rows []WorkItem, id string) (WorkItem, bool)`
+- `func TestAsyncRunProjectsEveryVisibleColumn(t *testing.T)` — 列位分配：描述→行标题、指令→描述列、探针读数→打点行、日志路径→附件列。
+- `func TestAsyncTerminalStatesMapToWorkStatus(t *testing.T)` — 终态映射：done→completed，failed/killed→failed（表格状态机没有"被杀"这一档）。
+- `func TestAsyncTraceLinesCarryNoPathsOrLogContent(t *testing.T)` — 打点块只列在跑的后台命令，且进上下文的字段必须收窄：路径、末行原文、时间戳
+- `func TestAsyncRunAloneMaterializesTraceBlock(t *testing.T)` — 整块语义：没有活动任务、只有一条在跑的后台命令时，打点块必须出现（这是
+- `func TestAsyncRowDisappearsWhenRegistryDropsIt(t *testing.T)` — 登记表是唯一事实源：它不再报这条记录（终态被驱逐），投影里就没有这行。
+- `func TestAsyncChangeSignalReprojectsWorkTable(t *testing.T)` — 第 4 个生命周期消费者：执行域一发声，表格就重投影——不靠模型再调一次工具，
+- `func TestAsyncRowsAreCappedAndNeverEvictTasks(t *testing.T)` — 后台行按上限封顶，且不挤掉真实任务行（在途优先，终态按最新补齐）。
+- `func serviceWorkTableRows(service *Service) []WorkItem`
 
 ### work_table_fuzz_test.go
 

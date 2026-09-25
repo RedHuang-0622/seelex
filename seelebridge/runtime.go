@@ -165,8 +165,9 @@ type Runtime struct {
 	heartbeatInterval   time.Duration
 	limits              seelexctx.Limits // seele.yaml limits 段（含默认；seelebridge 消费点读取）
 	scopedToolsReady    bool
-	lifecycle           []func()  // 生命周期登记（NewRuntime 装配序；Shutdown 逆序）
-	shutdownOnce        sync.Once // Shutdown 幂等守卫：并发/重复调用只执行一次（lifecycle 各实现不保证并发安全）
+	scopedTools         *seeltools.Router // 后台命令执行域（会话销毁即杀的入口）
+	lifecycle           []func()          // 生命周期登记（NewRuntime 装配序；Shutdown 逆序）
+	shutdownOnce        sync.Once         // Shutdown 幂等守卫：并发/重复调用只执行一次（lifecycle 各实现不保证并发安全）
 
 	plugins *plugin.Manager // 插件可见性配置（plugin/ 域）
 

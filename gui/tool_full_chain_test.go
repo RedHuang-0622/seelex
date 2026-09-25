@@ -145,6 +145,10 @@ func (*guiChainRuntime) TodoSnapshot() []dto.TodoItem                { return ni
 func (*guiChainRuntime) SetTodoStatus(int, dto.TodoItemStatus) error { return nil }
 func (*guiChainRuntime) TaskSnapshot() []dto.TaskRecord              { return nil }
 func (*guiChainRuntime) TaskSnapshotFor(string) []dto.TaskRecord     { return nil }
+func (*guiChainRuntime) ReleaseSessionAsync(string) int              { return 0 }
+func (*guiChainRuntime) AsyncPendingFor(string) int                  { return 0 }
+func (*guiChainRuntime) AsyncRunsSnapshot() []dto.AsyncRunRecord     { return nil }
+func (*guiChainRuntime) AsyncRunEvents() <-chan struct{}             { return nil }
 func (*guiChainRuntime) TaskAdd(dto.TaskSpec) (dto.TaskRecord, bool, error) {
 	return dto.TaskRecord{}, false, nil
 }

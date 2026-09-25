@@ -13,7 +13,7 @@ import (
 func TestWorkItemCarriesOwningSession(t *testing.T) {
 	rows := buildWorkTable(nil, []dto.TaskRecord{{
 		ID: "task:1", Phase: dto.TaskPhaseTask, Task: "a", Kind: "task", SessionID: "sess-a",
-	}}, nil)
+	}}, nil, nil)
 	if len(rows) != 1 || rows[0].SessionID != "sess-a" {
 		t.Fatalf("WorkItem = %+v, want SessionID=sess-a", rows)
 	}
@@ -29,7 +29,7 @@ func TestGlobalWorkTableCarriesOwningSession(t *testing.T) {
 		"session-bg": {{ID: "task:b", Key: "k-b", Phase: dto.TaskPhaseTask, Task: "后台会话的任务", Kind: "task"}},
 	}
 
-	rows := buildWorkTable(nil, runtime.TaskSnapshot(), nil)
+	rows := buildWorkTable(nil, runtime.TaskSnapshot(), nil, nil)
 	sessions := make(map[string]string, len(rows))
 	for _, row := range rows {
 		sessions[row.ID] = row.SessionID

@@ -34,7 +34,7 @@ func TestWorkTablePlanRowsCarryDAGDependencies(t *testing.T) {
 		{ID: "plan:implement", Key: "plan:implement", Phase: "plan", Task: "implement", Kind: "plan", SourceID: "implement"},
 		{ID: "plan:verify", Key: "plan:verify", Phase: "plan", Task: "verify", Kind: "plan", SourceID: "verify"},
 	}
-	rows := buildWorkTable(plan, tasks, nil)
+	rows := buildWorkTable(plan, tasks, nil, nil)
 	byID := map[string]WorkItem{}
 	for _, row := range rows {
 		byID[row.ID] = row

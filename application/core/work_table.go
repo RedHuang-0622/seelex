@@ -24,9 +24,10 @@ import (
 // retry（B3）：status=retry + RetryCount，前端展示 RETRY n。
 
 // buildWorkTable 组装工作表格行：注册表 task → WorkItem；plan 行额外合并
-// 节点事件/工具活动打点（详情数据面仍直接读 plan 节点）。有界：行数 ≤
-// limits.work_table_rows，trace ≤ workTableTraceLimit。
-func buildWorkTable(plan *PlanState, tasks []dto.TaskRecord, subagentTree []dto.SubAgentTreeNode) []WorkItem {
+// 节点事件/工具活动打点（详情数据面仍直接读 plan 节点）；后台命令（asyncRuns）
+// 以**只读投影**并入，不进注册表（见 work_table_async.go 与不变量 I-21）。
+// 有界：行数 ≤ limits.work_table_rows，trace ≤ workTableTraceLimit。
+func buildWorkTable(plan *PlanState, tasks []dto.TaskRecord, subagentTree []dto.SubAgentTreeNode, asyncRuns []dto.AsyncRunRecord) []WorkItem {
 	nodeByID := make(map[string]PlanNode)
 	if plan != nil {
 		var walk func(nodes []PlanNode)
@@ -52,6 +53,7 @@ func buildWorkTable(plan *PlanState, tasks []dto.TaskRecord, subagentTree []dto.
 		}
 		rows = append(rows, item)
 	}
+	rows = append(rows, asyncWorkItems(asyncRuns)...)
 	sort.SliceStable(rows, func(left, right int) bool {
 		leftOrder := phaseOrder[rows[left].Phase]
 		rightOrder := phaseOrder[rows[right].Phase]
@@ -243,12 +245,14 @@ func formatWorkDuration(duration time.Duration) string {
 	return fmt.Sprintf("%.2fs", ms/1000)
 }
 
-// refreshWorkTableLocked 在 service.ViewMu 持锁时重建工作表格投影。
+// refreshWorkTableLocked 在 service.ViewMu 持锁时重建工作表格投影（后台行的读侧
+// 锁安全性见 asyncRunsForTable）。
 func (state *serviceState) refreshWorkTableLocked(tasks []dto.TaskRecord) {
 	rows := buildWorkTable(
 		state.Snapshot.Runtime.Plan,
 		tasks,
 		state.Snapshot.Runtime.SubAgentTree,
+		state.asyncRunsForTable(),
 	)
 	state.Snapshot.Runtime.WorkTable = rows
 	state.Snapshot.Runtime.WorkTableBatches = buildWorkTableBatches(rows)
@@ -654,18 +658,21 @@ func (state *serviceState) workTableTraceBlock() string {
 }
 
 // workTableTraceBlockFor 返回指定会话的打点表标记块：只含该会话 scope 中
-// 未终态任务（pending/running/doing/retry），按 id 稳定排序；无活动任务
-// 返回空串（块随任务完成自动删除）。
+// 未终态任务（pending/running/doing/retry）**与在跑的后台命令**，按稳定顺序；
+// 两者都没有时返回空串（块随任务完成/命令收尾自动消失）。
 //
 // 会话作用域（S1：打点表按会话取数）：打点表**不是**工作表格本体——工作
 // 表格是全局台账（TaskSnapshot），而打点表注入在“正在组装下一次请求的会话”
-// 的上下文尾部，必须只取该会话自己的 task scope，否则会话会读到别的会话的
+// 的上下文尾部，必须只取该会话自己的 scope，否则会话会读到别的会话的
 // 活动任务（历史污染/上下文串台）且看不到自己的打点：
 //   - 活跃（视图）会话 = TaskSnapshotFor("")，即实时注册表（runtime.
 //     SwitchSessionTasks 在 BeginNewSession/Resume/Activate 时与视图对齐，
 //     live registry 恒属于当前视图会话）；
 //   - 后台会话（视图已切走、它仍在并行跑） = TaskSnapshotFor(sessionID) 的
 //     scope 分区。
+//
+// 后台执行不走那套分区：登记表里每条都自带归属会话键，按 effectiveSession 过滤
+// 即可（"" 表示视图会话，用快照里的会话 ID 顶上）。
 func (state *serviceState) workTableTraceBlockFor(sessionID string) string {
 	if state == nil || state.Deps.Runtime == nil {
 		return ""
@@ -673,6 +680,10 @@ func (state *serviceState) workTableTraceBlockFor(sessionID string) string {
 	state.ViewMu.RLock()
 	viewID := state.Snapshot.Session.ID
 	state.ViewMu.RUnlock()
+	effectiveSession := sessionID
+	if effectiveSession == "" || effectiveSession == viewID {
+		effectiveSession = viewID
+	}
 	var records []dto.TaskRecord
 	if forTasks, ok := state.Deps.Runtime.(interface{ TaskSnapshotFor(string) []dto.TaskRecord }); ok {
 		scope := sessionID
@@ -690,27 +701,38 @@ func (state *serviceState) workTableTraceBlockFor(sessionID string) string {
 			active = append(active, record)
 		}
 	}
-	if len(active) == 0 {
-		return ""
-	}
 	sort.SliceStable(active, func(left, right int) bool {
 		return active[left].ID < active[right].ID
 	})
-	var builder strings.Builder
-	builder.WriteString(workTableTraceMarkerOpen + "\n# 工作打点表（系统维护，只读；任务状态与打点以工作表格为准）\n")
-	lines := 2
+	lines := make([]string, 0, len(active)+1)
 	for _, record := range active {
-		if lines >= workTableTraceMaxLines {
-			builder.WriteString("- …（打点表已达上限，详情见工作表格）\n")
-			break
-		}
 		retry := ""
 		if record.RetryCount > 0 {
 			retry = fmt.Sprintf(" retry=%d", record.RetryCount)
 		}
-		builder.WriteString(fmt.Sprintf("- %s %s%s %s\n",
+		lines = append(lines, fmt.Sprintf("- %s %s%s %s",
 			record.ID, record.Status, retry, truncateWorkEvidence(record.Task, 80)))
-		lines++
+	}
+	asyncLines := asyncTraceLines(state.Deps.Runtime.AsyncRunsSnapshot(), effectiveSession)
+	lines = append(lines, asyncLines...)
+	if len(lines) == 0 {
+		return ""
+	}
+
+	var builder strings.Builder
+	builder.WriteString(workTableTraceMarkerOpen + "\n# 工作打点表（系统维护，只读；任务状态与打点以工作表格为准）\n")
+	budget := workTableTraceMaxLines - 2
+	for _, line := range lines {
+		if budget <= 0 {
+			builder.WriteString("- …（打点表已达上限，详情见工作表格）\n")
+			break
+		}
+		builder.WriteString(line + "\n")
+		budget--
+	}
+	if len(asyncLines) > 0 {
+		builder.WriteString("async:<句柄> 行是后台命令（bash background=true）：字节数=已产出输出量；" +
+			"取结果用 async_output(句柄)，终止用 async_kill(句柄)。\n")
 	}
 	builder.WriteString(workTableTraceMarkerClose)
 	return builder.String()
@@ -757,9 +779,9 @@ func (service *Service) refreshWorkTableFromSources() {
 
 // ── CSP 生命周期消费者（取代同步回调 observer）────────────
 
-// startLifecycleConsumers 启动三个消费者 goroutine：子代理树信号 → 刷新
-// 工作表格；plan 节点事件 → 投影；task 变更 → 直发 task.changed。数据经
-// channel（CSP）流转，runtime 侧不再同步回调进 application。
+// startLifecycleConsumers 启动四个消费者 goroutine：子代理树信号 → 刷新
+// 工作表格；plan 节点事件 → 投影；task 变更 → 直发 task.changed；后台执行表变化 →
+// 重投影。数据经 channel（CSP）流转，runtime 侧不再同步回调进 application。
 func (service *Service) startLifecycleConsumers() {
 	if service.Deps.Runtime == nil {
 		return
@@ -770,6 +792,7 @@ func (service *Service) startLifecycleConsumers() {
 	go service.consumeSubagentLifecycle()
 	go service.consumePlanNodeEvents()
 	go service.consumeTaskChanges()
+	go service.consumeAsyncRuns()
 }
 
 func (service *Service) stopLifecycleConsumers() {
@@ -828,6 +851,28 @@ func (service *Service) consumeTaskChanges() {
 			sessionID := service.Core.Snapshot.Session.ID
 			service.ViewMu.RUnlock()
 			service.safeLifecycleCall(func() { service.publishTaskChanged(record, revision, requestID, sessionID) })
+		case <-service.lifecycleStop:
+			return
+		}
+	}
+}
+
+// consumeAsyncRuns 是第四个生命周期消费者：后台执行表一有可见变化（派发、终态、
+// 驱逐、以及去抖后的"有新字节"）就重投影工作表格。
+//
+// 为什么走 refreshWorkTableFromSources 而不是自己发一种新事件：后台行只是整表的
+// 一路输入，复用同一条发布路径才能保证"表格里看到的"与"上下文打点块里看到的"
+// 永远同源、同一个 revision。信号是容量 1 的汇聚口，被合并掉的中间态无所谓——
+// 每次重投影读的都是登记表当下全量。
+func (service *Service) consumeAsyncRuns() {
+	events := service.Deps.Runtime.AsyncRunEvents()
+	if events == nil {
+		return
+	}
+	for {
+		select {
+		case <-events:
+			service.safeLifecycleCall(service.refreshWorkTableFromSources)
 		case <-service.lifecycleStop:
 			return
 		}

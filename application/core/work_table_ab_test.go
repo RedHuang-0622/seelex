@@ -23,7 +23,7 @@ func TestWorkTablePayloadSmallerThanFullRuntime(t *testing.T) {
 	}
 	tree := heavySubagentTree(10)
 
-	table := buildWorkTable(plan, tasks, tree)
+	table := buildWorkTable(plan, tasks, tree, nil)
 	if len(table) > Limits().WorkTableRows {
 		t.Fatalf("table rows = %d exceed limit %d", len(table), Limits().WorkTableRows)
 	}

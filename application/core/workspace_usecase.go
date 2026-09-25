@@ -9,6 +9,15 @@ import (
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
+// releaseSessionAsync 把"这个会话没有了"转告执行域：杀掉它名下所有在途后台命令。
+// 与 releaseTeamRuntime 同一时点、同一语义（会话这一段生命结束）。
+func (service *Service) releaseSessionAsync(sessionID string) {
+	if service == nil || service.Deps.Runtime == nil || sessionID == "" {
+		return
+	}
+	service.Deps.Runtime.ReleaseSessionAsync(sessionID)
+}
+
 func (service *Service) DeleteSession(sessionID string) error {
 	// 会话粒度删除：项目绑定由存储层从会话 record 解析（旧 workspace
 	// 粒度 DeleteWorkspace 口已删除）。
@@ -17,6 +26,9 @@ func (service *Service) DeleteSession(sessionID string) error {
 	}
 	// 会话没了就不该留着它的发言调度记账（环是派生状态，重开按落盘事实重建）。
 	service.releaseTeamRuntime(sessionID)
+	// 同一时点终止它名下还在跑的后台命令：句柄表按会话持有执行体，会话删了就没有
+	// 任何入口能再取回或杀掉它们。
+	service.releaseSessionAsync(sessionID)
 	if service.Deps.Workspace != nil {
 		service.Deps.Workspace.UnbindSession(sessionID)
 		workspaceProjection := service.collectWorkspaceProjection()

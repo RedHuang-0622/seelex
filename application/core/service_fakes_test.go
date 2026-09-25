@@ -302,6 +302,15 @@ type fakeRuntime struct {
 	// visibleTools 覆盖 VisibleTools 的返回（默认给 [read]）：用例需要
 	// "某个工具名真的可见"时（未知命令提示要把工具与命令分开）才设置。
 	visibleTools []Tool
+	// releasedAsyncSessions 记录 ReleaseSessionAsync 收到过哪些会话（"会话销毁即杀
+	// 后台命令"的用例断言 core 真的转了这一道）。
+	releasedAsyncSessions []string
+	// asyncPending 是 AsyncPendingFor 的回答值（无进展判据的用例用它模拟在途后台命令）。
+	asyncPending int
+	// asyncRuns 是 AsyncRunsSnapshot 的回答值：后台行投影用例用它直接喂投影输入。
+	asyncRuns []dto.AsyncRunRecord
+	// asyncEvents 是 AsyncRunEvents 的回答口（nil = 该消费者不启动，同生产关闭能力时）。
+	asyncEvents chan struct{}
 	// planPolicyBySession 是按会话 plan 策略槽（G1-C：镜像生产
 	// Runtime.SetPlanPolicyFor 语义；fake 需锁保护并发 runChat 写入）。
 	planPolicyMu        sync.Mutex
@@ -523,6 +532,21 @@ func (runtime *fakeRuntime) TaskSnapshot() []dto.TaskRecord {
 	defer runtime.todoMu.Unlock()
 	return runtime.globalSnapshotLocked()
 }
+
+// ReleaseSessionAsync 记下被释放的会话，供"会话销毁即杀后台命令"的用例断言。
+func (runtime *fakeRuntime) ReleaseSessionAsync(sessionID string) int {
+	runtime.releasedAsyncSessions = append(runtime.releasedAsyncSessions, sessionID)
+	return 0
+}
+
+// AsyncPendingFor 回答测试显式设置的在途后台命令数。
+func (runtime *fakeRuntime) AsyncPendingFor(string) int { return runtime.asyncPending }
+
+// AsyncRunsSnapshot 回答测试显式设置的后台执行投影（后台行投影用例的输入源）。
+func (runtime *fakeRuntime) AsyncRunsSnapshot() []dto.AsyncRunRecord { return runtime.asyncRuns }
+
+// AsyncRunEvents 返回测试自己持有的信号口（默认 nil = 消费者不启动）。
+func (runtime *fakeRuntime) AsyncRunEvents() <-chan struct{} { return runtime.asyncEvents }
 
 // TaskSnapshotFor 保持会话粒度（持久化落盘/请求尾部打点块用）。
 func (runtime *fakeRuntime) TaskSnapshotFor(sessionID string) []dto.TaskRecord {

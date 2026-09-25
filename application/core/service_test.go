@@ -638,7 +638,7 @@ func TestBeginNewSessionKeepsGlobalWorkTable(t *testing.T) {
 	}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Runtime.WorkTable = buildWorkTable(nil, runtime.TaskSnapshot(), nil)
+	service.Core.Snapshot.Runtime.WorkTable = buildWorkTable(nil, runtime.TaskSnapshot(), nil, nil)
 	service.ViewMu.Unlock()
 
 	if err := service.BeginNewSession(); err != nil {

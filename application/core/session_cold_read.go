@@ -55,8 +55,9 @@ func (service *Service) snapshotOfCold(sessionID string) (SessionSnapshot, error
 	if service.Deps.Runtime != nil {
 		records = mergeTaskRecords(service.Deps.Runtime.TaskSnapshot(), record.Tasks, sessionID)
 	}
-	if len(records) > 0 {
-		rows := buildWorkTable(snapshot.Runtime.Plan, records, nil)
+	asyncRuns := service.asyncRunsForTable()
+	if len(records) > 0 || len(asyncRuns) > 0 {
+		rows := buildWorkTable(snapshot.Runtime.Plan, records, nil, asyncRuns)
 		snapshot.Runtime.WorkTable = rows
 		snapshot.Runtime.WorkTableBatches = buildWorkTableBatches(rows)
 	}

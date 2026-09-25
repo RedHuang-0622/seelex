@@ -26,7 +26,7 @@ func FuzzBuildWorkTable(f *testing.F) {
 		var tasks []dto.TaskRecord
 		_ = json.Unmarshal([]byte(taskJSON), &tasks)
 
-		rows := buildWorkTable(plan, tasks, nil)
+		rows := buildWorkTable(plan, tasks, nil, nil)
 		if len(rows) > Limits().WorkTableRows {
 			t.Fatalf("rows = %d exceed limit %d", len(rows), Limits().WorkTableRows)
 		}
