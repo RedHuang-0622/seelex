@@ -55,6 +55,23 @@ version when it lands.
 
 ### Changed
 
+- **Compaction is now readable in three places, each with one job.** ① The status sub-page's
+  Overview section holds **only** the compaction stack, as a table: one row per folded frame, newest at
+  the top, frontier row flagged 栈顶, older folds stepping down in the stale gray, and the frame body
+  read back by `ref` when a row is opened. The English scope sentence that used to sit there is gone —
+  the project name, root path and the status table already say both things it claimed, and the card list
+  it shared the section with misaligned in a 300px rail. Rows keep carrying the *original* array index in
+  `data-compact-open`, so reordering the stack cannot make row 1 open row 2's body. ② The context axis
+  marks each compaction frame with a **dashed** vertical tick instead of a solid bar, and the gray step
+  encodes recency: the current frontier frame in `--compaction-frame-latest`, every superseded frame in
+  `--compaction-frame-stale`. Both tokens alias the neutral ramp (`--text-strong` / `--faint`), so the
+  requested inversion in dark mode comes from the two mode bases themselves and no second palette was
+  written; the axis cut line and its label use the same latest-frame color. ③ The conversation area
+  separates the frontier with two fading dashed rules around a chip, and the chip now states in visible
+  text — not only in a tooltip — that everything above the line is still readable by scrolling, and that
+  it is simply no longer sent to the model. Browser-checked against the real renderers and `styles.css`
+  at rail width in both modes (`_logs/s3c_visual.html`); the first table draft broke Chinese text
+  mid-token at 280px, which is why the row is three columns with a two-line body.
 - **GUI highlights are a tint of the skin, and the conversation column is a rounded panel.**
   A selected tab or highlighted button is no longer a black block or a black frame: the fill is
   a thin tint of the current skin's primary signal (`--hl-fill: color-mix(in srgb, var(--accent)
@@ -102,6 +119,114 @@ version when it lands.
   `--border-warm: #e6e3da` keeps warmth for the few places that genuinely want it.
 
 ### Fixed
+
+- **A fold issued between turns could still freeze every session: `EnginePort.mu` is no longer held
+  across a wait on a session lock.** The in-turn self-deadlock was closed by the in-loop handle, but the
+  out-of-loop path kept three fuses, all the same shape — take the process-wide `port.mu`, then call into
+  a session engine whose `Session.mu` is held for a whole round by someone else:
+  `replaceRawHistoryFor`'s non-active branch (`ClearHistory` + per-message `AppendHistory` with no
+  in-flight check at all), `ReplaceRawHistory` and the active branch (`replaceActiveHistoryLocked` ran
+  even when `engineCalls > 0`, so the "defer the install" guard only deferred half of it — and touching
+  that view mid-round is pointless anyway, because the loop overwrites it with its own `rl.history` at
+  exit), and `RawHistoryFor` (`engine.History()` inside `port.mu.RLock()`, which also parks every later
+  reader once a writer queues). The consequence was never "this call is slow" but "no other session can
+  start a turn", since `ChatStreamFor` needs that same lock to increment its own counter.
+  The rule is now stated once and enforced everywhere: **no `port.mu` hold may span a possibly-blocking
+  `Session.mu` wait**. Under the lock the port only reads and writes its tables and engines nobody else
+  can reach yet; a session with a turn in flight gets its fold **registered** in a per-session pending
+  registry (previously one slice plus one target id, which also let the legacy `ChatStream` exit install
+  another session's fold onto itself) and installed at that session's own turn exit, where the count has
+  reached zero while `port.mu` still keeps new turns out. Reads resolve the engine under `RLock` and call
+  `History()` outside it, so the authoritative semantics survive and only the caller waits. Two defects
+  fell out of the same sweep: the background replace path re-appended the system row after
+  `ClearHistory` had deliberately kept one — duplicating the prompt on every background fold — so both
+  paths now share `installHistoryInPlace`, and `installSessionEngineLocked` flipped the active alias for
+  whichever engine it built, letting a background session's fold switch the active session away.
+  Teeth: `engine_port_lockfuse_test.go` drives a real hanging tool round on one session and asserts both
+  halves per fuse — the fold returns immediately **and** an unrelated session still runs a turn; with the
+  pre-fix shapes restored, those assertions fail at 2s and 10s respectively
+  (`_logs/s3b_prefix_write.log`, `_logs/s3b_prefix_read.log`). `internal/adapters/README.md` gained the
+  lock-discipline section, and the existing lazy-resume test caught an intermediate version that built two
+  engines per replace.
+- **`compact_context` called from inside a running turn folded nothing and froze the whole process: it
+  now compacts on the spot.** `Session.ChatStream` holds `Session.mu` from entry to exit and dispatches
+  tools on that same goroutine, so the tool's landing point started with `engineHistory →
+  EnginePort.HistoryFor → engine.History()` — a second acquire of a non-reentrant mutex already held by
+  the caller, i.e. a permanent self-deadlock (`TestEngineHistoryFromToolHandlerSelfBlocks` measured it:
+  the probe never returned, and cancelling the context did not end the round). Worse, that read held
+  `EnginePort.mu` in read mode *while* blocked, and Go's `RWMutex` stops admitting new readers once a
+  writer queues — so every other session's `ChatStreamFor`, which needs that same lock to start a turn,
+  queued behind it. One model tool call therefore froze history reads, replacements, session start and
+  resume across the entire process, and the compaction round taken from the previous slice was never
+  released either.
+  The fold's history input and output now move to the only legitimate place they can be touched without
+  re-locking: the handle the engine injects into the turn's own context once it holds the lock (Seele
+  `session.InLoop`, reached through `contract.InLoopEngine` and `context_runtime.loopHistoryChannel`, a
+  value that exists for one call only — no counter, no timestamp, nothing that has to *guess* whether
+  the engine is running). `Session.mu` is acquired exactly once per turn instead of twice,
+  `EnginePort.mu` is not involved at all, so the blast radius shrinks from process to that one session.
+  Crucially the fold no longer hands its result to the next load: the out-of-loop path arms
+  `PrepareMainSessionHistory` because the engine may be rebuilt before the next turn, but the in-loop
+  path is rewriting the history this very turn is reading, and the loop persists it at its own exit
+  (`saveToCache → DurableHistory.Save`). The compacted frame is therefore the first message of the next
+  provider request **in the same round**, and the receipt carries the real numbers instead of a promise.
+  In-flight lower bound: at that point the assistant `tool_calls` is already in history while its result
+  is not, so `withInFlightTail` keeps the current round's own tail in the replacement (the engine refuses
+  a replacement that would drop it, `ErrInLoopInFlightDropped`, rather than let the soon-appended tool
+  message become an orphan). **The compaction strategy did not change**: thresholds, soft/hard lines,
+  window size, frame construction, record gates and the six-gate order are untouched, and
+  `TestCompactContextInLoopAndOutOfLoopAgree` pins that claim by asserting judgement counts, folded
+  ranges (event and message ends), `reason`/`origin` and the written-back provider history are
+  field-for-field identical between the two paths on the same history — while requiring the channel
+  counters to be non-zero on one side and exactly zero on the other, so "identical" cannot just mean both
+  runs silently took the same route. Lock-free paths (idle-session `/compact`, between-turn assembly)
+  behave exactly as before, since `inLoop == nil` falls back to the previous accessors.
+  Teeth: `internal/adapters/engine_port_inloop_test.go` (immediate effect in the same turn; dropping the
+  in-flight tail refused and history untouched; unavailable outside a turn), the new Seele
+  `session/inloop_test.go` (handle visibility, generation guard rejecting a handle from a finished turn,
+  refusal never mutating history) and `_logs/s3_*.log` for the build/vet/test run.
+
+- **An explicit compaction round and a newly opened turn no longer read and write the same engine
+  history concurrently.** Pressing `/compact` in a session with no in-flight turn folds the loaded
+  context immediately (see the 2026-09-24 entry), and that fold deliberately writes nothing into
+  `ChatState.Running` — faking a running turn would leak "someone is executing this session" into the
+  snapshot, the task registry and the stop button. The three honest constraints left one hole: the
+  submit path's only busy test is `runtime.ChatState().Running`, so a message typed while the fold was
+  in flight opened a turn whose assembly read the engine history, replaced it, and won the race against
+  the fold's own `ReplaceHistoryFor` — the user got a compaction record that immediately disappeared
+  plus an answer built on the pre-compaction context. `Service` now keeps a per-session
+  `compacting` set (same lock, same shape as `restoring`) that `CompactContextNow` claims before
+  folding and releases once the receipt is built; `submitConversation` and `submitConversationFor`
+  check it after the `Running` test and hand the input to `deferSubmitUntilCompacted`, which waits for
+  the settle point and replays the submit **on the same target session**. The run-time input queue is
+  deliberately not reused: its promotion point is *turn end*, and an explicit compaction has no turn,
+  so a queued message would sit there until the user sent something else.
+  `TestSubmitParksWhileCompactionRoundOpen` / `TestCompactionRoundIsAcquiredExclusively` /
+  `TestCompactionGateIsScopedToItsSession` pin the three behaviours (parked, serially acquired, scoped
+  to one session), and `internal/adapters` grew a real-`Session` probe documenting the neighbouring
+  engine-lock fact that in-turn compaction still has to respect (`Session.ChatStream` holds `Session.mu`
+  from entry to exit, so history writes issued from a running round's own goroutine never return).
+
+- **Both compaction layers now read one configured source: `limits.context_soft_percent` (and its
+  siblings) used to steer only the assembly layer.** `seelexctx.ContextWindowPolicy` computed
+  `safety = window/8` and soft/hard/target as 75/90/60 % of budget **in code**, while
+  `task_context.newContextBudget` read `context_safety_reserve_divisor` / `context_soft_percent` /
+  `context_hard_percent` / `context_target_percent` from `config/seelex.yaml`. Lowering the soft
+  line moved the per-turn assembly gate while the per-tool-result controller kept folding at 75 % —
+  one name, two sources, which is the "criteria and report disagree" failure this repo has now been
+  bitten by twice. `NewContextWindowPolicy` takes the loaded `Limits` (normalised through
+  `WithDefaults`, so a zero value falls back to the shipped ratios instead of yielding a 0 threshold
+  that would fold every single round), and `policy()` now overrides only the account window and
+  output when a `Budget` provider supplies them: rebuilding the policy there was silently dropping
+  the configured ratios back to factory defaults. Tool output had the same gap from the other side —
+  `seelebridge` built both the `ToolResultProcessor` and the controllers without `MaxToolResultChars`,
+  so `limits.max_tool_result_chars` never reached the "is this result oversized" verdict (factory
+  60000 always won). `seelexctx/controller_limits_test.go` pins all three facts: changing a ratio
+  changes the numbers, a `Budget` override keeps them, an injected limit changes the verdict. Shipped
+  defaults are bit-identical to the old constants, so an untouched config behaves exactly as before.
+  `config/seelex.yaml` now states what each knob does and which way to turn it, and
+  `seelexctx/README.md` gains a “阈值与上限的来源” section naming the injection points; two stale
+  comments claiming the tool-result default was 20000 (it is 60000) are corrected.
 
 - **`/compact` on a freshly cold-loaded session folds right away instead of telling you to
   send another message first.** Pressing `/compact` in a session that had just been
