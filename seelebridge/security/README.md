@@ -11,7 +11,8 @@
 - `pathgate.go`：`PathGate` allow/ask/deny 权限规则（读取 `seele.yaml` permission 段）。
 - `sandbox.go`：`CommandSandbox` shell 执行隔离端口（项目 cwd 门禁 + 凭据环境清洗 +
   超时，非 OS 级隔离）；`ScrubEnvironment`/`FileExists` 供根包命令路径复用。
-- `command_windows.go`/`command_other.go`：`ConfigureHiddenCommand`（平台构建标签）。
+- `command_windows.go`/`command_other.go`：`ConfigureHiddenCommand`（平台构建标签）——**合并写入** `SysProcAttr` 而不是整体赋值：`internal/winhide` 也往同一处写 `CREATE_NO_WINDOW`，谁赋值谁就把对方抹掉。
+- `process_tree_windows.go`/`process_tree_other.go`：`ProcessTree`（Windows = Job Object + `KILL_ON_JOB_CLOSE`；POSIX = 进程组 + `kill(-pgid)`）与 `ConfigureProcessTree`。**`taskkill /T` 不够**：MSYS2/Git Bash 的 fork 子 shell 不一定挂在直接父 PID 下，实测杀不掉；Job Object 不看父子关系，关句柄即整树回收。Job 建不出来时退化为按 PID 杀，由 `Degraded()` 如实报出（此时不得主张"整棵进程树已终止"）。
 
 被根包 `scoped_tools` / `runtime` / `scheduler` / `docker` / `worktree_manager` 消费；
 不反向依赖 `seelebridge` 根包；根包直接 import `security.*`（如
