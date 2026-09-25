@@ -9,6 +9,7 @@ import (
 	"github.com/RedHuang-0622/Seele/session"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
 	seelplan "github.com/RedHuang-0622/seelex/seelebridge/plan"
 	selexsession "github.com/RedHuang-0622/seelex/session"
@@ -382,7 +383,11 @@ func (bridge *ToolHookBridge) Hooks() *session.LoopHooks {
 			// ReAct 中间态执行 —— 新 append 的 assistant 工具记录可能仍在
 			// 执行中，误判会与即将到达的真结果重复；定稿链由装配/请求前
 			// 的 PrepareProviderHistoryFor 补齐。
-			if err := svc.components.history.PrepareNewHistoryContentFor(sessionIDFromContext(ctx)); err != nil {
+			// 这条回调跑在 ChatStream 同一条 goroutine 上（会话锁已被本回合持有），
+			// 所以修复必须按 ctx 取环内通道：不依赖上面 SessionBacked 的提前返回
+			// 来保证不自锁，将来谁调整那段守卫也不会踩回同一个坑。
+			if err := svc.components.history.PrepareNewHistoryContentFor(sessionIDFromContext(ctx),
+				context_runtime.InLoopChannelFrom(svc.Deps.Engine, ctx)); err != nil {
 				svc.components.context.RecordContextControlFailure(activeRequestID, err)
 				return false
 			}

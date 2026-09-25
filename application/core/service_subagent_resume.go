@@ -54,7 +54,8 @@ func (service *Service) PrepareProviderHistory(sessionID string) error {
 	if service == nil || service.components.history == nil {
 		return fmt.Errorf("prepare provider history: history coordinator is not assembled")
 	}
-	return service.components.history.PrepareProviderHistoryFor(sessionID)
+	// 这条入口在回合之外（子代理恢复的补历史步骤），传 nil 按锁外路径取锁。
+	return service.components.history.PrepareProviderHistoryFor(sessionID, nil)
 }
 
 // ForkSubagents 直接派发一批子代理（自动化/冒烟入口；与模型调用

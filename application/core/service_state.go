@@ -73,6 +73,18 @@ type serviceState struct {
 	// （SubmitToSession 非阻塞契约与“restoring 期间不得开新回合”的调和）。
 	restoreSig chan struct{}
 
+	// compacting 是「该会话有一轮上下文压缩正在进行」的集合（Core.ViewMu 保护）。
+	// 它必须独立于 ChatState.Running 存在：落在**没有在飞回合**的会话上的显式
+	// 压缩（冷加载/刚清空 → compactSessionContextWithoutEpoch）刻意不写 Running
+	// （伪造 Running 会把“有人在跑这个会话”漏进快照、任务注册表和停止按钮），
+	// 于是 Submit 的 busy 判据看不见这一轮。缺这道门时的现场：一条消息在折叠
+	// 读完引擎历史之后、写回之前开出新回合，两边各自替换引擎历史并写上下文状态，
+	// 后写的那份把这一轮折叠整个丢掉。
+	// compactSig 是「有会话的压缩轮已收口」的广播信号，形状与 restoreSig 相同
+	// （等待方先读通道再睡觉，醒来重读集合复判）。见 context_compact_gate.go。
+	compacting map[string]struct{}
+	compactSig chan struct{}
+
 	// fullAccessDefault 是进程级全权默认（装配期从引擎门捕获一次；G4：
 	// 会话未选择时回退该值，不继承其它会话的遗留开关）。
 	fullAccessDefault bool

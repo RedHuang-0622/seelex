@@ -197,7 +197,15 @@ func (service *Service) CompactContextNow(ctx context.Context) (ContextCompactio
 	if sessionID == "" {
 		return ContextCompactionResult{}, errors.New("compact context: 当前没有可压缩的会话")
 	}
-	outcome, err := service.components.context.CompactContextNow(sessionID)
+	// 同会话串行：先领到这一会话的压缩轮再折叠（已有轮在跑时等它收口）。领到的
+	// 这段覆盖折叠、落盘与回执构造，期间该会话的新提交挂到收口之后再开回合——
+	// 没有这道门，一条消息就能在折叠读完引擎历史之后、写回之前开出新回合，两边
+	// 各自替换历史，后写的那份把这轮折叠整个丢掉。门见 context_compact_gate.go。
+	if err := service.acquireCompactionRound(ctx, sessionID); err != nil {
+		return ContextCompactionResult{}, err
+	}
+	defer service.releaseCompactionRound(sessionID)
+	outcome, err := service.components.context.CompactContextNow(ctx, sessionID)
 	if err != nil {
 		return ContextCompactionResult{}, err
 	}

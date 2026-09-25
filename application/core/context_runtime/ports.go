@@ -68,9 +68,10 @@ type ViewPort interface {
 	BumpLocked() uint64
 }
 
-// HistoryPort 是 provider 缓存归一化窄接口（sessionID 指明目标会话）。
+// HistoryPort 是 provider 缓存归一化窄接口（sessionID 指明目标会话；inLoop 是
+// 可选的环内历史通道，nil = 锁外路径）。
 type HistoryPort interface {
-	PrepareProviderHistoryFor(sessionID string) error
+	PrepareProviderHistoryFor(sessionID string, inLoop *loopHistoryChannel) error
 }
 
 // Deps 是 context_runtime 的装配输入。

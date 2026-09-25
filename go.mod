@@ -96,3 +96,8 @@ require (
 	google.golang.org/grpc v1.83.1 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
+
+// 临时联调（2026-09-26）：Seele 新增 session.InLoop「已持锁」环内历史把手——上下文
+// 压缩在回合内当场生效，不再二次取 Session.mu（自锁）也不交给下一次装载。Seele 侧
+// 改动发布 tag 后移除本条，回归纯净依赖（口径同顶部 2026-09-15 那次权限模型联调）。
+replace github.com/RedHuang-0622/Seele => G:/Program/go/Seele

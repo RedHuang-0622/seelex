@@ -69,7 +69,7 @@ func retainedRounds(history []EngineMessage, marks []string) int {
 // 本次压缩记录——自动路径受"同一批进展只压一次"节流，显式路径不受。
 func compactNow(t *testing.T, service *Service, sessionID string) ContextCompaction {
 	t.Helper()
-	outcome, err := service.components.context.CompactContextNow(sessionID)
+	outcome, err := service.components.context.CompactContextNow(context.Background(), sessionID)
 	if err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}

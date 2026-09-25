@@ -149,6 +149,7 @@ go test ./application/core/context_runtime -count=1
 - `func (c *Coordinator) startCompactionProgress(sessionID, requestID string, version uint64, origin string) *compactionProgress` — startCompactionProgress 开启一轮门禁进度。没有会话路由键或宿主不支持按会话
 - `func (p *compactionProgress) begin()` — begin 发**起手帧**（见 event.CompactionPhaseBegin）：显式压缩在动第一个重活
 - `func (p *compactionProgress) gate(id, detail string)` — gate 通告「第 index 关收口」。未知 id 也发（序号 0 会被形状测试抓到），
+- `func (p *compactionProgress) GateTimings() []CompactionGateTiming` — GateTimings 返回本轮已收口门禁的实测耗时（副本）。调用点在本轮收口之后
 - `func (p *compactionProgress) elapsedLocked() int` — elapsedLocked 返回距上一帧的毫秒数并推进计时基准。调用方持锁。
 - `func (p *compactionProgress) setVersion(version uint64)` — setVersion 在自主压缩另开新纪元时校正本轮版本：判定关拿到的版本号可能还是
 - `func (p *compactionProgress) skip(reason string)` — skip 记下「本轮折叠了但不落记录」的原因（settle 时拼进 Detail）。没有它，读者
@@ -164,11 +165,11 @@ go test ./application/core/context_runtime -count=1
 - `func (c *Coordinator) Ports() Ports` — Ports 是装配端口图的只读快照（组装校验/诊断用）。
 - `func (c *Coordinator) CompactTaskContext(requestID string) error` — CompactTaskContext 把整个可变 transcript 替换为一个私有、有界的 checkpoint
 - `func (c *Coordinator) CompactTaskContextFor(sessionID, requestID string) error` — CompactTaskContextFor 把指定会话整个可变 transcript 替换为一个私有、有界
-- `func (c *Coordinator) forceCompactTaskContextFor(sessionID, requestID string) (compactDecision, error)` — forceCompactTaskContextFor 是显式压缩入口（/compact、compact_context）：
+- `func (c *Coordinator) forceCompactTaskContextFor(ctx context.Context, sessionID, requestID string) (compactDecision, error)` — forceCompactTaskContextFor 是显式压缩入口（/compact、compact_context）：
 - `func (c *Coordinator) compactTaskContextFor(sessionID, requestID string, options prepareOptions) error`
-- `func (c *Coordinator) CompactContextNow(sessionID string) (CompactResult, error)` — CompactContextNow 主动压缩指定会话的可变 transcript（`/compact` 命令与
-- `func (c *Coordinator) compactSessionContextWithoutEpoch(sessionID string) (CompactResult, bool, error)` — compactSessionContextWithoutEpoch 处理"会话没有在飞回合"（冷加载、刚清空）
-- `func (c *Coordinator) hasFoldableSessionContext(sessionID string) bool` — hasFoldableSessionContext 判定会话是否装载了**可折叠的对话材料**：transcript
+- `func (c *Coordinator) CompactContextNow(ctx context.Context, sessionID string) (CompactResult, error)` — CompactContextNow 主动压缩指定会话的可变 transcript（`/compact` 命令与
+- `func (c *Coordinator) compactSessionContextWithoutEpoch(ctx context.Context, sessionID string) (CompactResult, bool, error)` — compactSessionContextWithoutEpoch 处理"会话没有在飞回合"（冷加载、刚清空）
+- `func (c *Coordinator) hasFoldableSessionContext(ctx context.Context, sessionID string) bool` — hasFoldableSessionContext 判定会话是否装载了**可折叠的对话材料**：transcript
 - `func (c *Coordinator) sessionLocationLocked(sessionID string) session_runtime.Location` — sessionLocationLocked 返回指定会话的持久化定位（workspace 绑定优先；
 - `func (c *Coordinator) PrepareExecutionContext(requestID, currentInput string) (string, error)` — PrepareExecutionContext 从 durable task 状态与完整 transcript 单元重建
 - `func (c *Coordinator) PrepareExecutionContextFor(sessionID, requestID, currentInput string) (string, error)` — PrepareExecutionContextFor 从 durable task 状态与完整 transcript 单元重建
@@ -185,7 +186,7 @@ go test ./application/core/context_runtime -count=1
 - `func excludeCurrentInputEvent(events []model.TranscriptEvent, requestID, currentInput string) []model.TranscriptEvent`
 - `func (c *Coordinator) protectOversizedCurrentInputLocked(sessionID, requestID, currentInput string, budget task_context.ContextBudget) string` — protectOversizedCurrentInputLocked 把超**单条**预算的当前输入归档为引用：
 - `func ContentReferenceWarning(resultRef string) string` — ContentReferenceWarning 是超限用户输入归档引用警告文本。
-- `func (c *Coordinator) rejectOversizedToolResults(sessionID string, maxChars int) (bool, error)` — rejectOversizedToolResults 把超限输出替换为显式重试指令（不给头部/尾部
+- `func (c *Coordinator) rejectOversizedToolResults(sessionID string, maxChars int, inLoop *loopHistoryChannel) (bool, error)` — rejectOversizedToolResults 把超限输出替换为显式重试指令（不给头部/尾部
 - `func RejectToolResults(history []contract.EngineMessage, maxChars int) ([]contract.EngineMessage, bool)` — RejectToolResults 替换超限工具结果为显式引用警告（纯函数面）。
 - `func rejectToolResultsWithRefs(history []contract.EngineMessage, maxChars int, refs map[string]string) ([]contract.EngineMessage, bool)`
 - `func IsOversizedToolResult(content string, maxChars int) bool` — IsOversizedToolResult 判定工具结果是否超限（或带框架截断标记）。
@@ -212,9 +213,9 @@ go test ./application/core/context_runtime -count=1
 
 - `func interruptedToolResultContent(name string) string` — interruptedToolResultContent 生成缺失 tool 结果的协议占位正文：明示该
 - `func NewHistoryCoordinator(core *state.Core) *HistoryCoordinator` — NewHistoryCoordinator 构造 history 域协调器。
-- `func (h *HistoryCoordinator) PrepareProviderHistory() error` — PrepareProviderHistory 使每条持久化消息对拒绝空 content 的 provider 安全
-- `func (h *HistoryCoordinator) PrepareProviderHistoryFor(sessionID string) error` — PrepareProviderHistoryFor 使每条持久化消息对拒绝空 content 的 provider
-- `func (h *HistoryCoordinator) PrepareNewHistoryContentFor(sessionID string) error` — PrepareNewHistoryContentFor 仅修复引擎历史中新 append 的空正文消息
+- `func (h *HistoryCoordinator) PrepareProviderHistory(inLoop *loopHistoryChannel) error` — PrepareProviderHistory 使每条持久化消息对拒绝空 content 的 provider 安全
+- `func (h *HistoryCoordinator) PrepareProviderHistoryFor(sessionID string, inLoop *loopHistoryChannel) error` — PrepareProviderHistoryFor 使每条持久化消息对拒绝空 content 的 provider
+- `func (h *HistoryCoordinator) PrepareNewHistoryContentFor(sessionID string, inLoop *loopHistoryChannel) error` — PrepareNewHistoryContentFor 仅修复引擎历史中新 append 的空正文消息
 - `func (h *HistoryCoordinator) replaceEngineHistory(sessionID string, history []contract.EngineMessage) error` — replaceEngineHistory 会话内替换指定会话引擎历史（会话路由引擎用
 - `func (h *HistoryCoordinator) engineHistory(sessionID string) []contract.EngineMessage` — engineHistory 返回指定会话引擎历史（会话路由引擎用 HistoryFor，否则活跃
 - `func RepairInterruptedToolChains(history []contract.EngineMessage) ([]contract.EngineMessage, bool)` — RepairInterruptedToolChains 修复中断（残缺）工具链：assistant 消息携带
@@ -243,6 +244,18 @@ go test ./application/core/context_runtime -count=1
 - `func TestCompactionFrameNeverReentersFoldInput(t *testing.T)` — TestCompactionFrameNeverReentersFoldInput：帧是**终态**——一次折叠产生的帧绝不
 - `func retainedContents(history []contract.EngineMessage) []string`
 - `func TestRetainedSystemHistoryKeepsActiveSkillEvent(t *testing.T)` — TestRetainedSystemHistoryKeepsActiveSkillEvent：激活技能事件是 append-only
+
+### inloop_history.go
+
+- `func InLoopChannelFrom(engine any, ctx context.Context) *loopHistoryChannel` — InLoopChannelFrom 按 ctx 判定这次调用是否在回合内，返回可传给折叠/修复入口的
+- `func (c *Coordinator) foldHistory(channel *loopHistoryChannel, sessionID string) []contract.EngineMessage` — foldHistory 读引擎历史：环内走通道（不取锁），否则按 Coordinator 的既有口径
+- `func (c *Coordinator) replaceFoldHistory(channel *loopHistoryChannel, sessionID string, history []contract.EngineMessage) error` — replaceFoldHistory 写引擎历史：环内走通道并当场生效；通道明确拒绝时如实返回
+- `func (c *Coordinator) setFoldSystemPrompt(channel *loopHistoryChannel, sessionID, prompt string)` — setFoldSystemPrompt 把本会话 system prompt 推进引擎历史：环内不取锁、也不顺带
+- `func (h *HistoryCoordinator) foldHistory(channel *loopHistoryChannel, sessionID string) []contract.EngineMessage` — foldHistory / replaceFoldHistory 是 HistoryCoordinator 的同款入口（provider
+- `func (h *HistoryCoordinator) replaceFoldHistory(channel *loopHistoryChannel, sessionID string, history []contract.EngineMessage) error`
+- `func (c *Coordinator) withInFlightTail(channel *loopHistoryChannel, existing, assembled []contract.EngineMessage) []contract.EngineMessage` — withInFlightTail 把「正在飞的那一截」接回折叠产物尾部，只在环内生效（锁外路径
+- `func inFlightTail(history []contract.EngineMessage) []contract.EngineMessage` — inFlightTail 返回历史末尾那段「assistant 带 tool_calls、其中至少一个 call 还没有
+- `func sameToolCalls(left, right []contract.EngineToolCall) bool`
 
 ### layout.go
 

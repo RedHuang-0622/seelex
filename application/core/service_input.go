@@ -151,6 +151,16 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 		}
 		return nil
 	}
+	// 同会话压缩门（延后语义，判据与上面的 restoring 门同形）：一轮显式压缩可以
+	// 在**没有在飞回合**的会话上运行，而它刻意不写 ChatState.Running（伪造 Running
+	// 会把"有人在跑这个会话"漏进快照与停止按钮），所以这里的 busy 判据必须自己
+	// 看见它——否则新回合的装配与折叠读写同一份引擎历史，后写的那份把折叠丢掉。
+	// 不排队：显式压缩没有回合，队列的正常提升点（回合结束）永远不会到来。
+	if service.isCompactingLocked(sessionID) {
+		service.ViewMu.Unlock()
+		service.deferSubmitUntilCompacted(ctx, sessionID, input)
+		return nil
+	}
 	// 非运行分支：队列里可能遗留待发项（如重启回填的「已发送未确认」输入），
 	// 与本次提交合并为同一轮，否则它们永远等不到排空点。
 	merged, drained := service.drainRecoveredQueueLocked(runtime, request)
@@ -220,6 +230,13 @@ func (service *Service) submitConversationFor(ctx context.Context, sessionID, in
 		if enqueueErr := service.components.sessions.QueueEnqueueInput(service.components.sessions.LocateSession(sessionID), sessionID, request.displayInput); enqueueErr != nil {
 			runChatDebug("durable queue enqueue session=%s err=%v", sessionID, enqueueErr)
 		}
+		return nil
+	}
+	// 同会话压缩门：与 submitConversation 同一条判据（见那里的注释），后台提交
+	// 路径也经此。挂起后在同一 sessionID 上重放，不改目标会话。
+	if service.isCompactingLocked(sessionID) {
+		service.ViewMu.Unlock()
+		service.deferSubmitUntilCompacted(ctx, sessionID, input)
 		return nil
 	}
 	// 非运行分支：与 submitConversation 同一条提升规则（队列遗留待发项并入
