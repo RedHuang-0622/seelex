@@ -37,6 +37,22 @@ func TestWorkspaceSwitchConcurrentWithBackgroundPersist(t *testing.T) {
 	}
 	wg.Wait()
 
+	// 收尾收敛（这一步是 2026-09-26 复现后补的，不是装饰）：
+	//
+	// `Submit` 返回 **不等于**这一轮结束——上面 8 次并发提交会继续在后台跑模型、
+	// 写会话存储。不等整进程空闲就退出，`t.TempDir()` 的清理会与这些残留写者抢同
+	// 一个目录，Windows 上的表现是"断言全过、红在清理"：
+	//
+	//	TempDir RemoveAll cleanup: unlinkat …\sessions-json\…\metadata: The directory is not empty.
+	//
+	// WaitForIdle 等的是**全部会话**的已接受工作（AnyChatRunning 语义），且从不取消
+	// 活跃 chat；用有界 ctx 兜住"真的收敛不了"的情形，避免用例挂死。
+	settleCtx, settleCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer settleCancel()
+	if err := scenario.harness.app.WaitForIdle(settleCtx); err != nil {
+		t.Fatalf("concurrent submits did not settle before assertions: %v", err)
+	}
+
 	record, ok := loadStoredRecord(t, scenario.store, "", scenario.sessionA)
 	if !ok {
 		t.Fatalf("A record missing after concurrent activity")
