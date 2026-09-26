@@ -88,8 +88,9 @@
     Seele 侧 `session/inloop_test.go` 两条（`_logs/s3_seele_inloop.log`，全量套件
     `_logs/s3_sele_all.log`：仅 `TestRealChain*`/`TestTraceReal` 因本机 key 失效 401）。
   - 文档：`application/core/README-context.md` 新增环内通道一节；`CHANGELOG.md` Fixed；
-    本台账把原方案 A/B 的写法作废。发布收尾（**用户执行**）：Seele 打 tag → 去掉
-    `go.mod` 末尾的临时 replace → `GOWORK=off go mod vendor`。
+    本台账把原方案 A/B 的写法作废。发布收尾（**2026-09-26 完成**）：Seele 打 tag
+    `v0.3.1`（6a04a7c）→ 去掉 `go.mod` 末尾的临时 replace → `GOWORK=off go mod vendor`
+    （`vendor/modules.txt` 固定 v0.3.1、无 replace）。
 
 - [x] **S3b 锁外折叠的三条 `port.mu → sess.mu` 引信（P1）**：判据「折叠路径上任何一次
   `port.mu` 持有都不得跨越一次可能阻塞的 `Session.mu` 等待」，逐条落地。

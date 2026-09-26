@@ -4,7 +4,7 @@
 
 ## 生态位
 
-`seelebridge` 是 Seelex 与 Seele（当前 `v0.3.0`，见 `go.mod`）之间的防腐层。它把 Seele 的
+`seelebridge` 是 Seelex 与 Seele（当前 `v0.3.1`，见 `go.mod`）之间的防腐层。它把 Seele 的
 `accountpool`（P2C 账号租约）、`agent`（NewWithComponents 装配）、`session`
 （主会话与节点子代理会话）、`tools`（Registry + 主体×路由组×位的权限门）、
 `workplan`（codec 导入 + 事件投影）、`event`/`telemetry` 能力包装成 Seelex

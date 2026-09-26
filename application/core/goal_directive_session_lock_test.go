@@ -14,7 +14,7 @@ package core
 //	→ 同一 goroutine 自锁死：回合永不收尾、会话永远停在「运行中」、
 //	  排队输入再也不发出去、任务/回合关都关不掉。
 //
-// 这里用 Seele v0.3.0 的真实锁纪律替身（ChatStream 全程持锁；History/
+// 这里用 Seele v0.3.1 的真实锁纪律替身（ChatStream 全程持锁；History/
 // AppendHistory/ClearHistory/ReplaceHistory/SetSystemPrompt 取同一把锁）——
 // 依据是 session/chat.go 的 ChatStream(进函数持锁) 与 AppendHistory(取锁)，
 // 不是自证式桩。
@@ -31,7 +31,7 @@ import (
 	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
 )
 
-// sessionLockEngine 按 Seele v0.3.0 的锁语义假装成 session.Session：
+// sessionLockEngine 按 Seele v0.3.1 的锁语义假装成 session.Session：
 // ChatStream 进函数持锁、出函数释放；历史读写取同一把锁（不可重入）。
 // 每次 ChatStream 驱动一轮「工具迭代」，并在迭代边界回调 OnIterationComplete
 // —— 生产里那正是会话锁内的同步回调。

@@ -30,7 +30,7 @@ flowchart LR
 刻意不做：
 
 - 不截图、不落盘、不管配额与 GC（那是 `sessionstore` 媒体分区的事）。
-- 不替换引擎的对话循环。Seele 的 `types.Message.Content` 是 `*string`（v0.3.0 实测）
+- 不替换引擎的对话循环。Seele 的 `types.Message.Content` 是 `*string`（v0.3.1 实测）
   （纯文本），带图请求无法经引擎下发；本包是这一能力缺口的 Seelex 侧适配，
   等 Seele 支持 content parts 后由引擎接管，本包只保留编码与冒烟用途。
 - 不读取账号配置、不打印凭据（`Config.APIKey` 只进 Authorization 头）。

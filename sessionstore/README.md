@@ -210,7 +210,7 @@ Router 用 RWMutex 把 active repository、config 和 project ID 绑定为原子
 
 ## Seele v2 会话适配
 
-两个适配器把 Router 接到 Seele（当前 `v0.3.0`，见 `go.mod`）的会话契约：
+两个适配器把 Router 接到 Seele（当前 `v0.3.1`，见 `go.mod`）的会话契约：
 
 - `durable_history.go` — `DurableHistory` 实现 `seelectx.DurableHistory`
   （Load/Save/Clear）：Session 每次 Chat 前 Load、结束后 Save；`Reset`

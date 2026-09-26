@@ -55,6 +55,15 @@ version when it lands.
 
 ### Changed
 
+- **Seele moves from the local in-loop `replace` to the released `v0.3.1`.** `go.mod` now requires
+  `github.com/RedHuang-0622/Seele v0.3.1` (6a04a7c, `feat(session): 环内历史把手 InLoop`) and the
+  2026-09-26 temporary `replace => G:/Program/go/Seele` is gone; `go mod vendor` regenerated the ignored
+  vendor tree, so `vendor/modules.txt` pins v0.3.1 with no replace. The handle Seelex already uses
+  (`session.InLoopFrom` → `EnginePort.HistoryInLoop/ReplaceHistoryInLoop/SetSystemPromptInLoop`) is the
+  released API, so the version bump required no Seelex source change; `AGENTS.md`, the root `README.md`,
+  `seelebridge/`, `sessionstore/` and `seelebridge/multimodal/` now cite v0.3.1. Verified with
+  `go build ./...`, `go build -tags "gui,desktop,production" ./...` and `go test ./...` (only the
+  pre-existing local `e2e` vendor-README gate stays red, and that gate walks gitignored `vendor/`).
 - **Compaction thresholds now ship at 95% soft / 98% hard / 80% target instead of 75/90/60.** The code
   default and the checked-in `config/seelex.yaml` carry the same numbers (`seelexctx.DefaultLimits` is the
   single source; `task_context.newContextBudget` no longer keeps a second copy of the fallbacks), and

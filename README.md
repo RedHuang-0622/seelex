@@ -255,7 +255,7 @@ plugin/ · skill/ · sessionstore/ · workspace/ · session/ · mcpstack/
 | Seele | Agent/Session 原语、ReAct 执行、工具注册与分发、WorkPlan 内核、账号租约、事件和遥测 |
 | Seelex | 工程任务语义、Plan 产品 DSL、项目作用域工具、上下文策略、Plugin/Skill/MCP 编排、持久化和前端 |
 
-Seelex 当前依赖 <code>github.com/RedHuang-0622/Seele v0.3.0</code>（见 <code>go.mod</code>；v0.3.0 即 Linux 式权限模型：主体 × 路由组 × rwx + sudo 与中间件判定；2026-09-15 联调期的本地 <code>replace</code> 已移除）。上游能力通过 <code>seelebridge/</code> 集中适配，Application 和前端不直接依赖 Seele 的内部类型。
+Seelex 当前依赖 <code>github.com/RedHuang-0622/Seele v0.3.1</code>（见 <code>go.mod</code>；v0.3.1 即 Linux 式权限模型：主体 × 路由组 × rwx + sudo 与中间件判定，并包含 <code>session.InLoop</code> 环内历史把手；2026-09-15 权限模型与 2026-09-26 InLoop 两轮联调期的本地 <code>replace</code> 均已移除）。上游能力通过 <code>seelebridge/</code> 集中适配，Application 和前端不直接依赖 Seele 的内部类型。
 
 ## 数据流与机制图
 

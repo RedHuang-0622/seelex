@@ -2,9 +2,10 @@ module github.com/RedHuang-0622/seelex
 
 go 1.25.8
 
-// Seele：发布依赖走下面的 require（v0.3.0 = Linux 式权限模型：主体×路由组×rwx
-// + sudo 与中间件判定）。2026-09-15 曾临时加本地 replace（=> G:/Program/go/Seele）
-// 联调该模型；v0.3.0 发布后 replace 已移除，回归纯净依赖。
+// Seele：发布依赖走下面的 require。v0.3.1 = Linux 式权限模型（主体×路由组×rwx
+// + sudo 与中间件判定）+ session.InLoop 环内历史把手（回合持锁时刻读写 working
+// history，宿主不再二次取 Session.mu）。两次本地 replace 联调（2026-09-15 权限
+// 模型、2026-09-26 InLoop）都在对应 tag 发布后移除，回归纯净依赖。
 //
 // go-pty（v0.2.3）：GUI 下栏终端的跨平台 PTY。Windows 走 ConPTY，unix 走
 // creack/pty，是唯一被维护的纯 Go 跨平台伪终端实现；自研 ConPTY 需要 unsafe
@@ -13,7 +14,7 @@ go 1.25.8
 // termios（其 ssh 支持所需），Windows 不受影响。
 
 require (
-	github.com/RedHuang-0622/Seele v0.3.0
+	github.com/RedHuang-0622/Seele v0.3.1
 	github.com/atotto/clipboard v0.1.4
 	github.com/aymanbagabas/go-pty v0.2.3
 	github.com/charmbracelet/bubbles v1.0.0
@@ -96,8 +97,3 @@ require (
 	google.golang.org/grpc v1.83.1 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
-
-// 临时联调（2026-09-26）：Seele 新增 session.InLoop「已持锁」环内历史把手——上下文
-// 压缩在回合内当场生效，不再二次取 Session.mu（自锁）也不交给下一次装载。Seele 侧
-// 改动发布 tag 后移除本条，回归纯净依赖（口径同顶部 2026-09-15 那次权限模型联调）。
-replace github.com/RedHuang-0622/Seele => G:/Program/go/Seele
