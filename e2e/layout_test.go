@@ -243,6 +243,10 @@ func TestEveryGoPackageDirectoryHasReadme(t *testing.T) {
 	skipped := map[string]bool{
 		".git": true, "dist": true, "_tmp": true, "tmp": true,
 		"node_modules": true, ".gocache": true, ".venv": true,
+		// vendor/ 是第三方依赖的只读副本：它的包目录既不是仓库模块，也不受
+		// AGENTS.md 的模块 README 约定约束（`go mod vendor` 会整体重写它）。
+		// 漏掉这一项会让门禁在每一个 vendor 子包上失败，把真正的红淹没掉。
+		"vendor": true,
 	}
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {

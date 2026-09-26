@@ -45,7 +45,7 @@ func TestProcessTreeFlagsSurviveRepeatedConfigure(t *testing.T) {
 	}
 }
 
-// 本机必须真能建出 Job：否则 async_kill 只剩"杀直接子进程"的退化能力，
+// 本机必须能建出 Job：否则 job_manage(op=kill) 只剩"杀直接子进程"的退化能力，
 // 这条一旦变红就该重新审视"进程树已终止"的所有断言。
 func TestNewProcessTreeNotDegraded(t *testing.T) {
 	tree := NewProcessTree()

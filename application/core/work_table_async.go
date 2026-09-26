@@ -2,13 +2,14 @@ package core
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
-// ── 后台命令（bash background=true）的工作表格投影 ─────────────────────
+// ── 作业（bash_bg / read_batch / subagent）的工作表格投影 ──────────────
 //
 // 事实源是 seelebridge 的后台执行登记表，这里只做**只读投影**：投影行不进 task
 // 注册表、不随会话落盘（不变量 I-21）。为什么不走注册表——注册表 record.Tasks 会
@@ -139,33 +140,82 @@ func asyncWorkStatus(state string) string {
 	}
 }
 
-// asyncTraceLines 生成打点块里的后台行：**只在跑的那些**（终态行不进块，与"无活动
-// 任务块自动消失"同语义），且只取本会话——打点块注入在组装请求的那个会话尾部。
+// asyncTraceLines 生成打点块里的作业行，且只取本会话——打点块注入在组装请求的那个
+// 会话尾部。
 //
-// 进上下文的字段是刻意收窄的：句柄、状态、输出字节数、任务描述（或命令行短截断）。
-// 不含日志路径、不含末行原文、不含时间戳：日志正文由 async_output 按游标增量交付，
-// 探针读数重复进上下文只会每轮白烧 token。
+// 两类行（设计文档 §A.3 的回填规范，打点 K-5）：
+//   - **在途行**：句柄、类别、状态、已产出字节数、行标题 —— 与环境里"任务打点"同语义；
+//   - **完成行**（待取回）：句柄、类别、状态与**有界摘要**（退出码 + 行数 + 字节数 +
+//     有界末行）。这就是"回填的内容 = 表格的内容"：行还在，但它现在带着结果。
+//
+// 进上下文的字段仍然刻意收窄：不含日志路径、不含末行原文（摘要里的末行是**压成一行、
+// 限长**的采样）、不含时间戳。全文只走 job_manage(op=fetch) 或 attachments 里的日志路径
+// ——完成行随打点块每轮重播，塞全文就是按轮数线性烧 token。
+//
+// 有界：单行 ≤asyncWorkMaxRows 条，块行数由调用方（workTableTraceBlockFor）按
+// workTableTraceMaxLines 截断；被截掉的完成行**补一行汇总**，而不是静默消失——
+// 静默会让模型以为"没有待取回的作业"，而事实是"太多"。
 func asyncTraceLines(records []dto.AsyncRunRecord, sessionID string) []string {
 	lines := make([]string, 0, len(records))
+	var running, finished []dto.AsyncRunRecord
 	for _, record := range records {
-		if record.State != dto.AsyncStateRunning {
-			continue
-		}
 		if sessionID != "" && record.SessionID != sessionID {
 			continue
 		}
-		if len(lines) >= asyncWorkMaxRows {
-			break
+		if record.State == dto.AsyncStateRunning {
+			running = append(running, record)
+			continue
 		}
-		fields := []string{asyncWorkRowPrefix + record.Handle, record.State, formatAsyncBytes(record.LogBytes)}
-		if detail := truncateWorkEvidence(record.Description, 40); detail != "" {
-			fields = append(fields, detail)
-		} else if command := truncateWorkEvidence(record.Command, 40); command != "" {
-			fields = append(fields, command)
+		// 终态但**还没回填过**的记录不进块：那是状态机与投影之间的不一致（finish 会在
+		// 迁移终态的同一步置上 notified），宁可漏一行也不要把一条没有摘要的行当成结果。
+		if record.Notified {
+			finished = append(finished, record)
 		}
-		lines = append(lines, "- "+strings.Join(fields, " "))
+	}
+	// 在途优先（它们在动），完成行按完成时间**倒序**（最新完成的先被看见）。
+	sort.SliceStable(finished, func(left, right int) bool {
+		return finished[left].EndedAt.After(finished[right].EndedAt)
+	})
+	ordered := append(append([]dto.AsyncRunRecord(nil), running...), finished...)
+	dropped := 0
+	// 汇总行也要占一格：上限是"这一块里最多几条"，不是"明细几条 + 汇总另算"。
+	limit := asyncWorkMaxRows
+	if len(ordered) > limit {
+		limit--
+	}
+	for _, record := range ordered {
+		if len(lines) >= limit {
+			dropped++
+			continue
+		}
+		lines = append(lines, asyncTraceLine(record))
+	}
+	if dropped > 0 {
+		lines = append(lines, fmt.Sprintf("- …另有 %d 个作业未在块内列出（详情见工作表格）", dropped))
 	}
 	return lines
+}
+
+// asyncTraceLine 渲染一条作业行：句柄、类别、状态、（完成行）摘要或（在途行）标题。
+func asyncTraceLine(record dto.AsyncRunRecord) string {
+	kind := strings.TrimSpace(record.Kind)
+	if kind == "" {
+		kind = "process"
+	}
+	fields := []string{asyncWorkRowPrefix + record.Handle, kind, record.State, formatAsyncBytes(record.LogBytes)}
+	if record.State != dto.AsyncStateRunning {
+		// 完成行带**有界摘要**（回填的全部内容）。
+		if summary := truncateWorkEvidence(record.Summary, Limits().EvidenceChars); summary != "" {
+			fields = append(fields, summary)
+		}
+		return "- " + strings.Join(fields, " ")
+	}
+	if detail := truncateWorkEvidence(record.Description, 40); detail != "" {
+		fields = append(fields, detail)
+	} else if command := truncateWorkEvidence(record.Command, 40); command != "" {
+		fields = append(fields, command)
+	}
+	return "- " + strings.Join(fields, " ")
 }
 
 // formatAsyncBytes 把字节数写成便于扫读的量级（界面与打点块共用一个口径）。

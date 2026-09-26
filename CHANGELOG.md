@@ -14,6 +14,31 @@ version when it lands.
 
 ### Added
 
+- **The subprocess contract is now one interface: `Add` + the four named management actions
+  `Status` / `Fetch` / `Kill` / `Done`, all returning `[]byte`.** `seelebridge/tools/job_contract.go`
+  declares `JobTool`; three kinds of job share one registry and one state machine (`process` =
+  `bash_bg`, `inline` = `read_batch`, `subagent` = `fork_subagents{async:true}`). `Done` is part of
+  the interface — it is the contract's terminal action, not an internal hook: the execution body
+  migrates the terminal state (`finish` / `CompleteJob`, passive) and the model retires the settled
+  row (`job_manage(op=done)`, active), both idempotent (a job migrates exactly once). `op=done` on a
+  running job is refused — the terminal state is only ever decided by the execution body; use `kill`.
+  Payloads are `[]byte` (JSON): the tool boundary converts to `string` once, where the framework's
+  `ToolHandler` requires it.
+- **`bash` splits into a family, and the read-only face carries a server-side guard.** `bash`
+  (serial, write-class, no more `background`) / `bash_read` (read-only, no approval — but every
+  command goes through `security.ClassifyCommand`, which fails closed: unknown first word, compound
+  commands, redirects, variable expansion and write subcommands are refused, never silently
+  executed) / `bash_bg` (managed background: `Add` returns an acceptance receipt) / `read_batch`
+  (N read jobs in one call, dispatch-and-return) / `job_manage` (`op=observe|fetch|kill|done`). The
+  old `async_output` / `async_kill` names are gone with **zero residue** in code and config,
+  enforced by `TestRetiredJobToolNamesLeaveNoResidue`.
+- **Completed jobs are backfilled into the work-table trace block with a bounded summary.** The
+  row stays visible after the job ends carrying `state + exit + lines + bytes + bounded tail`
+  (≤512 bytes, cut on a UTF-8 boundary), instead of the row silently disappearing; the block
+  (markers + title + hint included) stays within `workTableTraceMaxLines`, and dropped completed
+  rows are summarised in one line rather than vanishing. The model's `fetch`/`done` retires the row
+  and the fetched result becomes the single source of truth. `Notified` is the idempotence key.
+
 - **Background commands land as a polling slice: `bash background=true` returns an acceptance
   receipt, and the model fetches the output with `async_output(handle)`.** A long command no longer
   holds its tool call (and with it the whole turn) open — the dispatch call's `tool_result` is

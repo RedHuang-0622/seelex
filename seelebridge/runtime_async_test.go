@@ -18,6 +18,9 @@ func TestAsyncRunRecordMappingCarriesEveryColumn(t *testing.T) {
 		State: "failed", Exit: 2, LogPath: `C:\Temp\seelex-async-1\a3.log`, LogBytes: 2048,
 		LastByteAt: lastByte, Tail: "FAIL seelebridge/tools", Truncated: true, Degraded: true,
 		BatchID: "req-9", StartedAt: started, EndedAt: ended,
+		// 打点 K-2 的行 schema：类别 / 有界摘要 / 行数 / 回填位 / 同批下标。
+		Kind: "inline", Summary: "failed · exit=2 · 40 行 · 2.0KiB · 末行: FAIL", Lines: 40,
+		Notified: true, Index: 3,
 	}
 	record := asyncRunRecordFrom(info)
 
@@ -25,6 +28,8 @@ func TestAsyncRunRecordMappingCarriesEveryColumn(t *testing.T) {
 		record.Description != info.Description || record.Command != info.Command ||
 		record.State != info.State || record.ExitCode != info.Exit ||
 		record.LogPath != info.LogPath || record.LogBytes != info.LogBytes ||
+		record.Kind != info.Kind || record.Summary != info.Summary || record.Lines != info.Lines ||
+		record.Notified != info.Notified || record.Index != info.Index ||
 		record.Tail != info.Tail || record.Truncated != info.Truncated ||
 		record.Degraded != info.Degraded || record.BatchID != info.BatchID ||
 		!record.StartedAt.Equal(started) || !record.EndedAt.Equal(ended) ||

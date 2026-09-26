@@ -176,19 +176,19 @@ func TestOutputSignalsAreDebounced(t *testing.T) {
 	}
 }
 
-// 派发经过 handler 时，描述与批次必须真的落到登记表；缺描述要当场拒绝，
+// 派发经过工具面时，描述与批次必须真的落到登记表；缺描述要当场拒绝，
 // 而不是让工作表格冒出一行没有标题的后台行。
 func TestBackgroundDispatchCarriesDescriptionAndBatch(t *testing.T) {
 	router := asyncTestRouter(t, true)
 	ctx := asyncTestCtx(t.TempDir(), "sess-desc")
 
 	args, err := json.Marshal(map[string]interface{}{
-		"command": "sleep 30", "background": true, "description": "跑一整轮集成测试",
+		"command": "sleep 30", "description": "跑一整轮集成测试",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := router.scopedBash(ctx, string(args)); err != nil {
+	if _, err := router.scopedBashBg(ctx, string(args)); err != nil {
 		t.Fatalf("带描述的派发被拒: %v", err)
 	}
 	infos := router.AsyncRuns()
@@ -206,15 +206,15 @@ func TestBackgroundDispatchCarriesDescriptionAndBatch(t *testing.T) {
 	}
 	router.CloseSessionAsync("sess-desc")
 
-	missing, err := json.Marshal(map[string]interface{}{"command": "sleep 1", "background": true})
+	missing, err := json.Marshal(map[string]interface{}{"command": "sleep 1"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := router.scopedBash(ctx, string(missing)); err == nil ||
+	if _, err := router.scopedBashBg(ctx, string(missing)); err == nil ||
 		!strings.Contains(err.Error(), "description") {
-		t.Fatalf("background=true 缺描述必须被拒，实得 err=%v", err)
+		t.Fatalf("bash_bg 缺描述必须被拒，实得 err=%v", err)
 	}
-	// 同步执行不受影响：description 只是后台的必填项。
+	// 同步执行不受影响：description 只是作业派的必填项。
 	syncArgs, _ := json.Marshal(map[string]interface{}{"command": "echo hi"})
 	if _, err := router.scopedBash(ctx, string(syncArgs)); err != nil {
 		t.Fatalf("同步 bash 被描述要求误伤: %v", err)
@@ -228,9 +228,9 @@ func TestProbeIsEmptyWhenCapabilityOff(t *testing.T) {
 	if got := router.AsyncRuns(); got != nil {
 		t.Fatalf("能力未开却有投影行: %+v", got)
 	}
-	args, _ := json.Marshal(map[string]interface{}{"command": "echo hi", "background": true, "description": "x"})
-	if _, err := router.scopedBash(ctx, string(args)); err == nil {
-		t.Fatal("能力未开时 background 必须报错")
+	args, _ := json.Marshal(map[string]interface{}{"command": "echo hi", "description": "x"})
+	if _, err := router.scopedBashBg(ctx, string(args)); err == nil {
+		t.Fatal("能力未开时 bash_bg 必须报错")
 	}
 }
 

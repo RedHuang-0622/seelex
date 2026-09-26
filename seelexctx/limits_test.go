@@ -216,9 +216,9 @@ func TestLimitsSearchTimeoutAlias(t *testing.T) {
 	}
 }
 
-// TestLimitsAsyncExecDefaultsOff 验证后台命令切片的开关语义：缺省（配置文件缺失、
+// TestLimitsAsyncExecDefaultsOff 验证作业面的开关语义：缺省（配置文件缺失、
 // limits 段缺 async_exec、或块在但 enabled 未写）= 关闭；只有显式 enabled: true
-// 才打开。关闭是安全侧（bash 收起 background、async_output 不注册），所以缺省
+// 才打开。关闭是安全侧（作业工具都不注册、旧入参 background 直接拒绝），所以缺省
 // 必须是关——能力不可实施时拒绝，不静默降级成同步执行。
 func TestLimitsAsyncExecDefaultsOff(t *testing.T) {
 	limits, err := LoadLimits(filepath.Join(t.TempDir(), "missing.yaml"))

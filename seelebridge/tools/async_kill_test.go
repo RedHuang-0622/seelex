@@ -10,20 +10,20 @@ import (
 	"time"
 )
 
-// async_kill 与"会话销毁即杀"的行为判据（台账 §10 J4/J5）。
+// job_manage(op=kill) 与"会话销毁即杀"的行为判据（台账 §10 J4/J5）。
 //
 // 进程树是否真死，不看进程表（跨平台不可靠），看**行为**：派发一条"0.5 秒后由后台子
 // shell 写一行 GRANDCHILD"的命令，若在 0.15 秒杀掉 bash 后那行仍然出现在日志里，说明
 // 只杀了 bash、孙进程还活着并继续持有写端。
 
-// killForTest 调 async_kill handler 并解出回执。
+// killForTest 调 job_manage(op=kill) 并解出回执。
 func killForTest(t *testing.T, router *Router, ctx context.Context, handle string) (asyncPayload, error) {
 	t.Helper()
-	args, err := json.Marshal(map[string]interface{}{"handle": handle})
+	args, err := json.Marshal(map[string]interface{}{"op": "kill", "handle": handle})
 	if err != nil {
 		t.Fatal(err)
 	}
-	output, err := router.scopedAsyncKill(ctx, string(args))
+	output, err := router.scopedJobManage(ctx, string(args))
 	if err != nil {
 		return asyncPayload{}, err
 	}
@@ -54,7 +54,7 @@ func TestAsyncKillTerminatesProcessTree(t *testing.T) {
 	time.Sleep(150 * time.Millisecond)
 	acked, err := killForTest(t, router, ctx, receipt.Handle)
 	if err != nil {
-		t.Fatalf("async_kill: %v", err)
+		t.Fatalf("job_manage(op=kill): %v", err)
 	}
 	if acked.Status != "killed" {
 		t.Fatalf("终止回执状态 = %q，want killed", acked.Status)
@@ -77,16 +77,19 @@ func TestAsyncKillTerminatesProcessTree(t *testing.T) {
 		t.Fatalf("读日志: %v", err)
 	}
 	if strings.Contains(string(body), "GRANDCHILD") {
-		t.Fatal("孙进程活过了 async_kill：只杀了 bash，没杀整棵树")
+		t.Fatal("孙进程活过了 op=kill：只杀了 bash，没杀整棵树")
 	}
 	if !strings.Contains(string(body), "exit=137") {
 		t.Fatalf("终止注记没进正文，模型将只看到\"命令突然结束\": %q", string(body))
 	}
 
-	// 终态之后取回：带回 killed 状态，不再是 running。
+	// 终态之后取回：带回 killed 状态与 **kill 前已落盘的字节**（kill 不是丢结果）。
 	final := pollForTest(t, router, ctx, receipt.Handle, -1)
 	if final.Status != "finished" || final.State != asyncStateKilled || final.ExitCode != asyncKilledExit {
 		t.Fatalf("杀后取回 = %+v，want finished/killed/137", final)
+	}
+	if !strings.Contains(final.Output, "exit=137") {
+		t.Fatalf("kill 前的收尾注记必须能取回（已产出内容不丢）: %+v", final)
 	}
 }
 
@@ -155,7 +158,7 @@ func TestAsyncKillDoesNotLieWhenKillerFails(t *testing.T) {
 	// 换回可用的实现再杀一次：同一句柄可重试，且这次要真收敛成 killed。
 	router.async.attach(receipt.Handle, working.tree)
 	if _, err := killForTest(t, router, ctx, receipt.Handle); err != nil {
-		t.Fatalf("重试 async_kill: %v", err)
+		t.Fatalf("重试 op=kill: %v", err)
 	}
 	waitAsyncTerminalForTest(t, router, receipt.Handle)
 	if run, _ := router.async.snapshot(receipt.Handle); run.state != asyncStateKilled {
@@ -190,25 +193,25 @@ func TestCloseSessionAsyncKillsOnlyOwnSession(t *testing.T) {
 	}
 }
 
-func TestAsyncKillRegistrationFollowsCapability(t *testing.T) {
+func TestJobKillEntryFollowsCapability(t *testing.T) {
 	ctx := asyncTestCtx(t.TempDir(), "sess-gate")
-	if _, err := NewRouter(Deps{}).scopedAsyncKill(ctx, `{"handle":"a1"}`); err == nil {
-		t.Fatal("能力关闭时 async_kill 必须直接报错，不得静默做任何事")
+	if _, err := NewRouter(Deps{}).scopedJobManage(ctx, `{"op":"kill","handle":"a1"}`); err == nil {
+		t.Fatal("能力关闭时 job_manage 必须直接报错，不得静默做任何事")
 	}
 
 	off := captureRegisteredTools(t, false)
-	if _, present := off["async_kill"]; present {
-		t.Fatal("能力关闭时不该注册 async_kill")
+	if _, present := off["job_manage"]; present {
+		t.Fatal("能力关闭时不该注册 job_manage")
 	}
 	on := captureRegisteredTools(t, true)
-	tool, present := on["async_kill"]
+	tool, present := on["job_manage"]
 	if !present {
-		t.Fatal("能力常驻时必须注册 async_kill")
+		t.Fatal("能力常驻时必须注册 job_manage")
 	}
-	if !strings.Contains(tool.description, "child processes") {
-		t.Fatalf("async_kill 描述必须点明杀整棵树: %q", tool.description)
+	if !strings.Contains(tool.description, "process tree") {
+		t.Fatalf("job_manage 描述必须点明终止整棵进程树: %q", tool.description)
 	}
-	if !strings.Contains(on["bash"].description, "async_kill") {
-		t.Fatalf("bash 描述必须把终止口告诉模型: %q", on["bash"].description)
+	if !strings.Contains(on["bash_bg"].description, "job_manage") {
+		t.Fatalf("bash_bg 描述必须把管理口告诉模型: %q", on["bash_bg"].description)
 	}
 }

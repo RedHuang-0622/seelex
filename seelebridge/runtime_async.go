@@ -5,7 +5,7 @@ import (
 	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 )
 
-// 后台命令（bash background=true）到 Application 侧的**只读投影面**。
+// 作业（bash_bg / read_batch / subagent）到 Application 侧的**只读投影面**。
 //
 // 为什么单独立一个文件而不是塞进 runtime_tools.go：这一面不属于"工具注册与调度"，
 // 它是执行域状态的对外读侧（工作表格与请求尾部打点块的输入）。写侧（派发、取回、
@@ -38,11 +38,16 @@ func asyncRunRecordFrom(info seeltools.AsyncRunInfo) dto.AsyncRunRecord {
 	return dto.AsyncRunRecord{
 		SessionID:   info.SessionID,
 		Handle:      info.Handle,
+		Kind:        info.Kind,
 		Description: info.Description,
 		Command:     info.Command,
 		State:       info.State,
 		ExitCode:    info.Exit,
 		LogBytes:    info.LogBytes,
+		Summary:     info.Summary,
+		Lines:       info.Lines,
+		Notified:    info.Notified,
+		Index:       info.Index,
 		Tail:        info.Tail,
 		LastByteAt:  info.LastByteAt,
 		LogPath:     info.LogPath,

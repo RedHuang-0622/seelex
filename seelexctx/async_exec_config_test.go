@@ -14,7 +14,7 @@ func TestAsyncExecShippedConfigOn(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !loaded.WithDefaults().AsyncExec.Enabled {
-		t.Fatal("出厂配置必须让后台命令能力常驻开（background / async_output / async_kill）")
+		t.Fatal("出厂配置必须让作业面常驻开（bash_bg / read_batch / job_manage）")
 	}
 }
 

@@ -37,10 +37,10 @@ type Deps struct {
 	DockerDaemonDown       func(stdout, stderr string) bool
 	DockerCLIPath          func() string
 	DockerHint             func(err error) string
-	// AsyncExecEnabled 打开后台命令轮询切片（seele.yaml limits.async_exec.enabled，
-	// 默认 false）。关闭时：bash schema 不下发 background、handler 收到
-	// background=true 直接报错、async_output 不注册——能力不可实施时必须拒绝，
-	// 不得静默降级成同步执行（security/sandbox.go 同源口径）。
+	// AsyncExecEnabled 打开**作业面**（seele.yaml limits.async_exec.enabled，默认
+	// false）：bash_bg / read_batch / job_manage 注册，fork 的 async 模式可用。
+	// 关闭时它们都不注册、bash 收到旧入参 background=true 直接报错——能力不可实施
+	// 时必须拒绝，不得静默降级成同步执行（security/sandbox.go 同源口径）。
 	AsyncExecEnabled bool
 	// AsyncBatchID 解析某会话当前的 chat 请求 ID（= 工作表格的批次键）。后台执行
 	// 派发时要盖上它，否则投影出来的行会掉进"早期任务"批次里，看不出是谁起的。
@@ -96,12 +96,20 @@ func (r *Router) Register() {
 	r.deps.RegisterTool("write_file", "Write a file inside the bound project.", writeFileSchema(), r.scopedWriteFile)
 	r.deps.RegisterTool("edit_file", "Edit a file inside the bound project.", editFileSchema(), r.scopedEditFile)
 	allowBackground := r.asyncEnabled()
-	r.deps.RegisterTool("bash", bashDescription(allowBackground), bashSchema(allowBackground), r.scopedBash)
+	// bash 工具族（设计文档 §A.4 / 打点 K-3）——三个名字，不是一个名字加开关：
+	//   bash      串行、同步、**写类**（保守归类）：保留现状语义，但不再有
+	//             background 开关（那一类由 bash_bg 承担，回执形状也不一样）。
+	//   bash_read 只读、同步快返回：落在 ro 簇 ⇒ 免打断；**handler 侧必须有服务端
+	//             守卫**（security.ClassifyCommand），否则它就是挂着只读名牌的 bash。
+	//   bash_bg   后台受管（JobTool.Add 的进程作业面）：派发即返回受理回执。
+	r.deps.RegisterTool("bash", bashDescription(), bashSchema(), r.scopedBash)
+	r.deps.RegisterTool("bash_read", bashReadDescription(), bashSchema(), r.scopedBashRead)
 	if allowBackground {
-		// async_output / async_kill 只在能力常驻时注册：关闭时它们必然无句柄可取，
-		// 注册两个只会报错的工具只是占模型的选项与 token。
-		r.deps.RegisterTool("async_output", asyncOutputDescription(), asyncOutputSchema(), r.scopedAsyncOutput)
-		r.deps.RegisterTool("async_kill", asyncKillDescription(), asyncKillSchema(), r.scopedAsyncKill)
+		// 作业面只在能力常驻时注册：关闭时它们必然无句柄可取，注册几个只会报错的
+		// 工具只是占模型的选项与 token。关就是关（见 Deps.AsyncExecEnabled 注释）。
+		r.deps.RegisterTool("bash_bg", bashBgDescription(), bashBgSchema(), r.scopedBashBg)
+		r.deps.RegisterTool("read_batch", readBatchDescription(), readBatchSchema(), r.scopedReadBatch)
+		r.deps.RegisterTool("job_manage", jobManageDescription(), jobManageSchema(), r.scopedJobManage)
 	}
 }
 
@@ -433,11 +441,11 @@ type scopedBashInput struct {
 	Command string `json:"command"`
 	Timeout int    `json:"timeout,omitempty"`
 	Workdir string `json:"workdir,omitempty"`
-	// Background 把命令交给后台执行域（仅 limits.async_exec.enabled=true 时可用）。
-	// 回执是受理（handle + log_path），不是结果；取回另调 async_output。
+	// Background 是**已废弃的旧入参**：它只被兼容解析，用来把老会话/老提示词送来的
+	// `background=true` 明确拒掉并指向 bash_bg。保留字段而不是删掉，是为了让这次拒绝
+	// 有话说——静默当成同步执行等于把"后台"偷偷变成"前台"。
 	Background bool `json:"background,omitempty"`
-	// Description 是这条后台命令在做什么的一句话——它是工作表格的行标题，
-	// background=true 时必填（同步执行不需要：结果就在这一轮的输出里）。
+	// Description 同上：旧 background 形态的行标题，现在只在 bash_bg 里有意义。
 	Description string `json:"description,omitempty"`
 }
 type scopedBashResult struct {
@@ -473,9 +481,13 @@ func (r *Router) scopedBash(ctx context.Context, argsJSON string) (output string
 	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
 		return "", fmt.Errorf("bash: invalid args: %w", err)
 	}
-	// 关闭时直接拒绝，不得静默当成同步执行：请求的和执行的必须是同一件事。
+	// background 已经搬去 bash_bg。旧入参一律拒绝：静默当成同步执行是"请求的和执行的
+	// 不是同一件事"，而静默转后台是"结果突然不在这一轮里"——两条都不能做。
 	if input.Background && !r.asyncEnabled() {
 		return "", fmt.Errorf("bash: %s", asyncDisabledText)
+	}
+	if input.Background {
+		return "", fmt.Errorf("bash: background=true 已废弃；后台受管命令改用 bash_bg（派发即返回受理回执，取回/终止/销项走 job_manage）")
 	}
 	if input.Command == "" {
 		return `{"stdout":"","stderr":"","exit_code":0}`, nil
@@ -487,20 +499,53 @@ func (r *Router) scopedBash(ctx context.Context, argsJSON string) (output string
 		return "", err
 	}
 	r.observeBash(BashDiagnosticEvent{Stage: "bash.resolve.done"})
-	// 后台分派：授权与 workdir 解析到这里已经完成，剩下的是"已批准之后的执行"。
-	if input.Background {
-		// 后台命令会活过这一轮，行标题只能来自派发时的这句话——没有别的诚实来源。
-		if strings.TrimSpace(input.Description) == "" {
-			return "", fmt.Errorf("bash: background=true 必须带 description（一句话说明这条命令在做什么，它会成为工作打点表的行标题）")
+	return r.executeScopedBash(ctx, input.Command, input.Timeout, workdir)
+}
+
+// scopedBashRead 是只读工具面上的命令执行（设计文档 §A.4 的 M1 / 打点 K-4）。
+//
+// 与 bash 的唯一语义差别是**先过服务端守卫**：分类失败的命令一律拒绝，并明确要求
+// 改用 bash。守卫只吃命令字符串（签名上拿不到模型的任何主张），因此"模型说这是只读的"
+// 不构成授权依据；判定通过也不放宽 cwd 门禁与凭据清洗——bash_read 不是沙箱。
+func (r *Router) scopedBashRead(ctx context.Context, argsJSON string) (output string, returnedErr error) {
+	defer func() {
+		if returnedErr != nil {
+			r.observeBash(BashDiagnosticEvent{Stage: "bash_read.handler.return.error", Err: returnedErr})
+			return
 		}
-		return r.dispatchAsync(ctx, input.Command, input.Description, workdir)
+		r.observeBash(BashDiagnosticEvent{Stage: "bash_read.handler.return"})
+	}()
+	var input scopedBashInput
+	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
+		return "", fmt.Errorf("bash_read: invalid args: %w", err)
 	}
+	if input.Background {
+		return "", fmt.Errorf("bash_read: background=true 已废弃；后台受管命令改用 bash_bg")
+	}
+	if input.Command == "" {
+		return `{"stdout":"","stderr":"","exit_code":0}`, nil
+	}
+	// 服务端判定：**先判定、后解析路径、最后执行**。判成写就报错要求改用 bash，
+	// 绝不静默降级成执行（与 sandbox.go 的 fail-fast 同源口径）。
+	if !security.ClassifyCommand(input.Command) {
+		return "", fmt.Errorf("bash_read: 服务端判定这不是只读命令（%q）；写类命令改用 bash（rw 簇，规则照旧），需要后台执行用 bash_bg", input.Command)
+	}
+	workdir, err := r.resolveNodePath(ctx, input.Workdir, false)
+	if err != nil {
+		return "", err
+	}
+	return r.executeScopedBash(ctx, input.Command, input.Timeout, workdir)
+}
+
+// executeScopedBash 是同步执行路径（bash 与 bash_read 共用）：授权、路径与分类都
+// 已经在调用方完成，这里是"已经批准之后的执行"。
+func (r *Router) executeScopedBash(ctx context.Context, command string, timeoutSec int, workdir string) (string, error) {
 	// 执行路径（2026-08-04 回滚）：沙箱接入被怀疑导致工具挂起，恢复 v1
 	// 直连 exec（cwd 门禁语义不变）；CommandSandbox 接口保留在 sandbox.go，
 	// 待定位挂起根因后再接入（接入时需 fail-fast，不得悄悄降级）。
-	shell, shellArgs := scopedBashCommand(input.Command)
+	shell, shellArgs := scopedBashCommand(command)
 	r.observeBash(BashDiagnosticEvent{Stage: "bash.command.prepared", Shell: filepath.Base(shell)})
-	timeout := r.scopedToolTimeout(input.Timeout)
+	timeout := r.scopedToolTimeout(timeoutSec)
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, shell, shellArgs...)
@@ -510,12 +555,12 @@ func (r *Router) scopedBash(ctx context.Context, argsJSON string) (output string
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	r.observeBash(BashDiagnosticEvent{Stage: "bash.process.starting", Shell: filepath.Base(shell)})
-	if err = cmd.Start(); err != nil {
+	if err := cmd.Start(); err != nil {
 		r.observeBash(BashDiagnosticEvent{Stage: "bash.process.start.error", Shell: filepath.Base(shell), Err: err})
 		return "", fmt.Errorf("bash: %w", err)
 	}
 	r.observeBash(BashDiagnosticEvent{Stage: "bash.process.started", Shell: filepath.Base(shell)})
-	err = cmd.Wait()
+	waitErr := cmd.Wait()
 	if runCtx.Err() == context.DeadlineExceeded {
 		r.observeBash(BashDiagnosticEvent{Stage: "bash.timeout", Shell: filepath.Base(shell), Err: runCtx.Err()})
 		return "", fmt.Errorf("bash: timeout after %v", timeout)
@@ -525,12 +570,12 @@ func (r *Router) scopedBash(ctx context.Context, argsJSON string) (output string
 		return "", fmt.Errorf("bash: %w", runCtx.Err())
 	}
 	exitCode := 0
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+	if waitErr != nil {
+		if exitErr, ok := waitErr.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
 		} else {
-			r.observeBash(BashDiagnosticEvent{Stage: "bash.process.wait.error", Shell: filepath.Base(shell), Err: err})
-			return "", fmt.Errorf("bash: %w", err)
+			r.observeBash(BashDiagnosticEvent{Stage: "bash.process.wait.error", Shell: filepath.Base(shell), Err: waitErr})
+			return "", fmt.Errorf("bash: %w", waitErr)
 		}
 	}
 	r.observeBash(BashDiagnosticEvent{Stage: "bash.process.exited", Shell: filepath.Base(shell), ExitCode: exitCode})
@@ -650,28 +695,38 @@ func editFileSchema() map[string]interface{} {
 	return map[string]interface{}{"type": "object", "properties": map[string]interface{}{"path": map[string]interface{}{"type": "string"}, "old_string": map[string]interface{}{"type": "string"}, "new_string": map[string]interface{}{"type": "string"}}, "required": []string{"path", "old_string", "new_string"}}
 }
 
-// bashDescription 说明 bash 的边界；切片打开时追加"background 的回执不含输出"。
-func bashDescription(allowBackground bool) string {
-	const base = "Run a command with its working directory constrained to the bound project. This is not an OS sandbox."
-	if !allowBackground {
-		return base
-	}
-	return base + asyncBackgroundHint
+// bashDescription 说明 bash 的边界与它在三名字里的位置：**写类、串行、同步**。
+//
+// 三个名字必须靠描述消歧，否则模型会拿 bash_read 当 bash 用（工具面每多一个名字，
+// 选择歧义就多一分，这是工具级分裂的真实代价）。
+func bashDescription() string {
+	return "Run a command with its working directory constrained to the bound project. " +
+		"This is not an OS sandbox. This is the serial, write-class entry: use it whenever the " +
+		"command writes anything. Prefer bash_read for commands you know are read-only (it is " +
+		"allowed without approval), and bash_bg to run a long command in the background (that " +
+		"call returns only an acceptance receipt)."
 }
 
-// bashSchema 下发 bash 入参。background 只在切片打开时出现——schema 是模型的能力面，
-// 关掉的开关不该出现在它的选项里。
-func bashSchema(allowBackground bool) map[string]interface{} {
-	properties := map[string]interface{}{
-		"command": map[string]interface{}{"type": "string"},
-		"timeout": map[string]interface{}{"type": "integer"},
-		"workdir": map[string]interface{}{"type": "string"},
+// bashReadDescription 说明只读面的**硬边界**：只允许只读命令，且判定在服务端。
+func bashReadDescription() string {
+	return "Run a READ-ONLY command with its working directory constrained to the bound " +
+		"project. This is not an OS sandbox. The command is classified on the server: write " +
+		"commands (git commit, rm, redirects such as '>' or '|', variable expansion) are " +
+		"refused, not executed. This entry needs no approval, so use it for inspection " +
+		"(ls/cat/head/tail/grep/rg/git status/git log/go test/go build); anything that writes " +
+		"must go through bash."
+}
+
+// bashSchema 下发 bash / bash_read 入参：两个名字的入参形状相同（同一份 schema），
+// 差别只在**服务端判定**，不在模型能声明的字段里（模型无法自报"这是只读的"）。
+func bashSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"command": map[string]interface{}{"type": "string"},
+			"timeout": map[string]interface{}{"type": "integer"},
+			"workdir": map[string]interface{}{"type": "string"},
+		},
+		"required": []string{"command"},
 	}
-	if allowBackground {
-		properties["background"] = map[string]interface{}{"type": "boolean"}
-		// 只给类型，不写 property 级说明：这条要求已经在 bash 描述里（asyncBackgroundHint），
-		// schema 每轮都下发，两处都写就是每次请求重复付同一份 token。
-		properties["description"] = map[string]interface{}{"type": "string"}
-	}
-	return map[string]interface{}{"type": "object", "properties": properties, "required": []string{"command"}}
 }

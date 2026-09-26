@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +20,12 @@ import (
 type RegistryState struct {
 	Registry *frameworktools.Registry
 	inline   *InlineProvider
+	// undeclared 是"注册了但没有簇属声明"的工具名（打点 K-0 的读面）：名字不在
+	// 路由组表里 ⇒ DeclaredToolMeta 派生不出 Groups。它不是错误（动态 MCP /
+	// 第三方插件工具本来就无从声明），但**必须是可观测的**——一张看得见的清单
+	// 才拦得住"新工具忘了分封、于是静默降级成按名字路由/默认审批"。
+	undeclaredMu sync.Mutex
+	undeclared   map[string]bool
 }
 
 // NewRegistryState 构造带超时/权限门/事件与诊断中间件的工具注册表。
@@ -45,6 +52,11 @@ func asMetaMiddleware(mw frameworktools.Middleware) frameworktools.MetaMiddlewar
 }
 
 // AddInline 注册一个普通产品工具（等价旧 holder.RegisterInline，重名覆盖）。
+//
+// 簇属（ToolMeta）在这里**无条件填上**：声明来自 DeclaredToolMeta（路由组表是
+// 单一事实源，见 tool_meta.go）。填表是打点 K-0 的第一步——在此之前 Meta 恒为
+// nil，权限判定只能退回按名字路由，声明的能力面（control 类仅 root 可路由、
+// 资源限定）全部读不到。
 func (s *RegistryState) AddInline(
 	name, description string,
 	inputSchema map[string]interface{},
@@ -57,6 +69,10 @@ func (s *RegistryState) AddInline(
 		s.inline = &InlineProvider{}
 		_ = s.Registry.Register(s.inline)
 	}
+	meta := DeclaredToolMeta(name)
+	if len(meta.Groups) == 0 {
+		s.noteUndeclared(name)
+	}
 	s.inline.upsert(frameworktools.ToolEntry{
 		Definition: types.Tool{
 			Type: "function",
@@ -65,10 +81,57 @@ func (s *RegistryState) AddInline(
 			},
 		},
 		Handler: frameworktools.HandlerFunc(handler),
+		Meta:    &meta,
 	})
 	// 重建快照使新工具立即可见（注册表只读锁调度，快照重建线程安全）。
 	_ = s.Registry.Unregister(s.inline.ProviderName())
 	_ = s.Registry.Register(s.inline)
+}
+
+// noteUndeclared 记下"没有簇属声明"的工具名（幂等）。
+func (s *RegistryState) noteUndeclared(name string) {
+	s.undeclaredMu.Lock()
+	defer s.undeclaredMu.Unlock()
+	if s.undeclared == nil {
+		s.undeclared = map[string]bool{}
+	}
+	s.undeclared[name] = true
+}
+
+// UndeclaredTools 返回没有簇属声明的工具名（稳定排序，供用例/诊断读取）。
+//
+// 判据（打点 K-0）：**静态工具面必须为空**——seelex 自己注册的每个工具都该在
+// 路由组表里分封；非空即意味着"这个名字没有权限策略、也没有并发分类"。
+// 动态第三方工具（MCP / 插件）不在这条判据内：它们的名字在装配期不存在，
+// 执行口径仍是"未分封 = 按框架默认走审批"（既有语义，未改）。
+func (s *RegistryState) UndeclaredTools() []string {
+	if s == nil {
+		return nil
+	}
+	s.undeclaredMu.Lock()
+	defer s.undeclaredMu.Unlock()
+	names := make([]string, 0, len(s.undeclared))
+	for name := range s.undeclared {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// InlineMetas 返回已注册内联工具的簇属（名字 → 声明），供用例断言"全量填表"。
+func (s *RegistryState) InlineMetas() map[string]frameworktools.ToolMeta {
+	if s == nil || s.inline == nil {
+		return nil
+	}
+	metas := map[string]frameworktools.ToolMeta{}
+	for _, entry := range s.inline.Tools() {
+		if entry.Meta == nil {
+			metas[entry.Definition.Function.Name] = frameworktools.ToolMeta{}
+			continue
+		}
+		metas[entry.Definition.Function.Name] = *entry.Meta
+	}
+	return metas
 }
 
 // FindTool 按名称在注册表中查找工具（plan 工具面读取）。
@@ -160,6 +223,10 @@ type PermissionGate struct {
 	// 运行时按"会话档位 + 主体类"命中，O(1)，不引入每调用的规则重算。
 	// manual 档指向 base checker（不覆盖），其余档是 ApplyTier(base, id) 的 checker。
 	tierCheckers map[string]*toolspermission.PermissionChecker
+	// groupNames 是**当前配置**里存在的路由组名集合（rebuildLocked 时重建）。
+	// 用途见 sanitizeMeta：工具声明的簇若不在本次配置里，声明必须作废——否则
+	// checker 的 DecideForMeta 查不到组、所需位退化成 0，判定结果是**放行**。
+	groupNames map[string]bool
 	// SessionFromContext 从工具调度 ctx 提取会话归属（seelebridge 根包
 	// 注入 seelebridge 会话路由键；nil = 权限审批保持进程级空归属回退）。
 	SessionFromContext func(ctx context.Context) string
@@ -198,6 +265,10 @@ func (state *PermissionGate) Set(cfg toolspermission.PermissionConfig, handler t
 // 主体在运行时补了一条默认授权，却只重建了 base checker，root 在各档位下仍读旧表。
 func (state *PermissionGate) rebuildLocked() {
 	state.checker = toolspermission.NewPermissionChecker(state.cfg)
+	state.groupNames = make(map[string]bool, len(state.cfg.Groups))
+	for _, group := range state.cfg.Groups {
+		state.groupNames[group.Name] = true
+	}
 	state.tierCheckers = make(map[string]*toolspermission.PermissionChecker, len(dto.PermissionTiers()))
 	for _, info := range dto.PermissionTiers() {
 		if info.ID == dto.PermissionTierManual {
@@ -410,6 +481,11 @@ func (state *PermissionGate) Middleware(approvalTimeout time.Duration) framework
 		return frameworktools.HandlerFunc(func(ctx context.Context, argsJSON string) (string, error) {
 			sessionID := state.sessionFromContext(ctx)
 			class := state.classFor(ctx)
+			// 簇属声明先过守卫：声明的簇不在本次配置的组表里 ⇒ 声明作废，判定退回
+			// 按名字路由（详见 sanitizeMeta）。这一步必须在 Enforce/Decide **之前**，
+			// 因为两个入口吃的都是这份 meta。用局部量：闭包参数被同一工具的多路
+			// 并发调用共享，就地改写会成数据竞争（sanitize 幂等，但仍不该共享写）。
+			declared := state.sanitizeMeta(meta)
 			// 主体解析：员工执行面在 ctx 里带了角色名 → 落到这个员工自己的主体
 			// （emp_<角色>）；其余落回主体类对应的共享主体。判定表只有一份，
 			// 因此"给员工分配了什么权限"与"调用时按什么判"是同一条路径。
@@ -423,7 +499,7 @@ func (state *PermissionGate) Middleware(approvalTimeout time.Duration) framework
 			if approvalSessionID := state.approvalSessionFor(sessionID); approvalSessionID != "" {
 				ctx = toolspermission.WithSessionID(ctx, approvalSessionID)
 			}
-			if err := state.gate(approvalTimeout, class, sessionID).Decide(ctx, name, meta, policyArgsFor(name, argsJSON)); err != nil {
+			if err := state.gate(approvalTimeout, class, sessionID).Decide(ctx, name, declared, policyArgsFor(name, argsJSON)); err != nil {
 				return "", err
 			}
 			return next.Execute(ctx, argsJSON)
@@ -438,7 +514,7 @@ func (state *PermissionGate) Middleware(approvalTimeout time.Duration) framework
 // 真正传给工具的仍是原始 argsJSON。
 func policyArgsFor(name, argsJSON string) string {
 	switch name {
-	case "bash":
+	case "bash", "bash_bg":
 		var input struct {
 			Command string `json:"command"`
 		}

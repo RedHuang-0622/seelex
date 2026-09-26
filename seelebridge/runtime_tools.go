@@ -171,8 +171,8 @@ func (r *Runtime) registerProjectScopedTools() {
 
 // ReleaseSessionAsync 杀掉某会话名下所有在途后台命令（会话删除/归档时由 core 调用）。
 //
-// 为什么必须有人调它：后台执行体是按会话登记的，会话没了就再没有任何一条
-// async_output / async_kill 路径能拿到它——不杀就是无人认领的孤儿进程，而工作
+// 为什么必须有人调它：作业是按会话登记的，会话没了就再没有任何一条
+// job_manage 路径能拿到它——不终止就是无人认领的孤儿，而工作
 // 打点表会一路跟着它显示 running。
 //
 // 返回被登记的句柄数（不是"确认杀死数"：杀不掉的仍由各自执行体收尾收敛）。
@@ -271,6 +271,28 @@ func (r *Runtime) RegisterTool(
 	}
 	r.registry.AddInline(name, description, inputSchema, handler)
 }
+
+// ToolMetas 返回**已装配内联工具面**每个工具的簇属声明（名字 → ToolMeta）。
+//
+// 这是打点 K-0 的读面：簇属在注册时由 tools.DeclaredToolMeta 填进注册表条目，
+// 用例据此断言"全量工具都声明了 Groups"，诊断面据此回答"这个工具属于哪个簇"。
+func (r *Runtime) ToolMetas() map[string]frameworktools.ToolMeta {
+	if r == nil || r.registry == nil {
+		return nil
+	}
+	return r.registry.InlineMetas()
+}
+
+// UndeclaredTools 返回**没有簇属声明**的工具名（K-0 判据：seelex 自己的静态工具面
+// 必须为空）。非空意味着这个名字既没有权限策略、也没有并发分类——一张看得见的
+// 清单，比一条"注册时忘了分封"的静默降级好。
+func (r *Runtime) UndeclaredTools() []string {
+	if r == nil || r.registry == nil {
+		return nil
+	}
+	return r.registry.UndeclaredTools()
+}
+
 func (r *Runtime) SetFullAccess(on bool) {
 	if r.permission != nil {
 		r.permission.SetFullAccess(on)

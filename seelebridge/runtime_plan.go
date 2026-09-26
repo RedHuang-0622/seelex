@@ -19,6 +19,7 @@ import (
 	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
 	"github.com/RedHuang-0622/seelex/seelebridge/plan"
+	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
 	"github.com/RedHuang-0622/seelex/seelexctx/provider"
 	"github.com/RedHuang-0622/seelex/sessionstore"
@@ -225,7 +226,63 @@ func (r *Runtime) forkDeps() fork.Deps {
 		RunPlan:                  r.planExecutor.RunPlan,
 		ForkTimeoutSec:           r.limits.ForkTimeoutSec,
 		PlanNodeMaxLoops:         r.limits.PlanNodeMaxLoops,
+		Jobs:                     r.subagentJobs(),
 	}
+}
+
+// subagentJobsAdapter 把**作业域**暴露给 fork 域的 SubagentJobs 端口。
+//
+// 方向：fork 只描述"登记一条子代理作业 / 追加正文 / 合成终态"，不 import tools 域
+// 的任何类型；真实落点是 tools.Router 的作业登记表（三类作业同一张表）。这与
+// fork.Deps 里其它回调用闭包注入的口径一致——跨域只走端口。
+type subagentJobsAdapter struct{ runtime *Runtime }
+
+// Add 登记一条子代理作业并挂取消口。
+func (a subagentJobsAdapter) Add(spec fork.SubagentJobSpec, cancel context.CancelFunc) (string, error) {
+	router := a.router()
+	if router == nil {
+		return "", fmt.Errorf("子代理作业面不可用（工具路由未装配）：去掉 async 走阻塞模式")
+	}
+	return router.AddSubagentJob(seeltools.JobSpec{
+		Kind:      seeltools.JobKindSubagent,
+		SessionID: spec.SessionID,
+		Command:   spec.Goal,
+		// 行标题：worktree 隔离的子代理，标题就是它在干什么（id 是身份，不是标题）。
+		Title: "子代理 " + spec.ID + ": " + spec.Goal,
+	}, cancel)
+}
+
+// Note 追加子代理的已产出内容（kill 后仍可 fetch）。
+func (a subagentJobsAdapter) Note(handle, text string) {
+	if router := a.router(); router != nil {
+		_ = router.NoteJob(handle, text)
+	}
+}
+
+// Complete 合成终态（运行体系被动 done）。
+func (a subagentJobsAdapter) Complete(handle, state string) {
+	if router := a.router(); router != nil {
+		router.CompleteJob(handle, state)
+	}
+}
+
+// router 延迟解析工具路由：fork 域在 **NewRuntime 构造期**就拿到这个端口（那时
+// 工具路由还没装配），必须在调用时现取——否则会把 nil 记一辈子，async 模式永远
+// 报"作业面未装配"。
+func (a subagentJobsAdapter) router() *seeltools.Router {
+	if a.runtime == nil {
+		return nil
+	}
+	return a.runtime.scopedTools
+}
+
+// subagentJobs 返回子代理作业端口（延迟解析，见 router）；能力关闭时 Add 会以
+// "去掉 async 走阻塞模式"显式失败——fork 的 async 模式绝不静默退化成阻塞调用。
+func (r *Runtime) subagentJobs() fork.SubagentJobs {
+	if r == nil {
+		return nil
+	}
+	return subagentJobsAdapter{runtime: r}
 }
 
 // forkSubagentsHandler 是 fork_subagents 的执行入口（委托 fork.Tool.Handle）。
@@ -330,6 +387,12 @@ func (r *Runtime) registerForkTool() {
 					"type":        "integer",
 					"minimum":     1,
 					"description": "本批 fork 总超时（秒）。长任务可省略（默认 limits.fork_timeout，2h）；简单审查/只读任务建议给 1200（20 分钟）等更紧上限，避免排队或异常时挂太久。",
+				},
+				"async": map[string]interface{}{
+					"type": "boolean",
+					"description": "true = 作业化派发：立刻返回每个子代理的句柄，结果用 " +
+						"job_manage(op=fetch, handle) 取回，期间可 observe/kill（存在 job_manage）；" +
+						"false/省略 = 阻塞到全部子代理跑完并直接返回结果。",
 				},
 			},
 			"required": []string{"subagents"},

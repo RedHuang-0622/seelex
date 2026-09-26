@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -37,7 +38,7 @@ const (
 // 留在可缓存前缀里。
 var (
 	asyncTimeoutNote = fmt.Sprintf("\n[seelex:async] 命令超过硬上限 %s，进程树已终止（exit=%d）\n", asyncHardCap, asyncTimeoutExit)
-	asyncKilledNote  = fmt.Sprintf("\n[seelex:async] 命令被终止（async_kill 或会话销毁），进程树已退出（exit=%d）\n", asyncKilledExit)
+	asyncKilledNote  = fmt.Sprintf("\n[seelex:async] 作业被终止（job_manage(op=kill) 或会话销毁），执行体已退出（exit=%d）\n", asyncKilledExit)
 	asyncPanicNote   = "\n[seelex:async] 执行体内部错误，已合成失败终态\n"
 )
 
@@ -148,22 +149,87 @@ func (r *Router) currentBatch(sessionID string) string {
 //
 // description 在这里归一成一行的短标签：它是工作表格的行标题，长文本既挤坏表格
 // 也会每轮重播进上下文尾部打点块。
+//
+// 它现在是**合同面**（bashBgTool.Add）的薄包装：派发路径只有一条，回执渲染只有
+// 一份（renderJobAccepted）。生产走 bash_bg / bash_read 工具面，这里留给直接调用
+// 契约的路径与用例。
 func (r *Router) dispatchAsync(ctx context.Context, command, description, workdir string) (string, error) {
-	sessionID := r.sessionKey(ctx)
-	run, started, err := r.async.begin(sessionID, command, clampProbeLine(description), r.currentBatch(sessionID))
+	payload, err := (&bashBgTool{router: r}).Add(ctx, JobSpec{
+		SessionID: r.sessionKey(ctx),
+		Command:   command,
+		Title:     clampProbeLine(description),
+		BatchID:   r.currentBatch(r.sessionKey(ctx)),
+		Workdir:   workdir,
+	})
 	if err != nil {
 		return "", err
 	}
-	if started {
-		if err := r.startAsync(ctx, run, command, workdir); err != nil {
-			// 起不来就当场失败：受理回执不得谎报 running（模型会一直轮询一个
-			// 永远不会结束的句柄）。合成终态后重发同一命令不会被去重挡住
-			// （去重键只对 state=running 生效）。
-			r.async.finish(run.handle, 1)
-			return "", err
-		}
+	return string(payload), nil
+}
+
+// startInlineJob 起一个进程内作业（Kind=inline：批量读）。
+//
+// 与 startAsync 的差别只有"执行体是谁"：没有子进程、没有进程树，取消靠 ctx。
+// 输出仍写同一份日志文件——于是**状态机、取回游标、探针、投影全部原样复用**，
+// 这正是"三类作业共用一张表"的价值（多一类作业零新增机制）。
+//
+// 读的结果以"文件内容原样 + 一行头"写进日志：取回侧只需要消费字节，不关心语义。
+func (r *Router) startInlineJob(ctx context.Context, run asyncRun, spec JobSpec) error {
+	file, err := os.Create(run.logPath)
+	if err != nil {
+		return fmt.Errorf("read_batch: 无法创建作业输出文件: %w", err)
 	}
-	return renderAccepted(run, !started)
+	// 取消口：kill / 会话销毁都会取消它（进程作业的对应物是进程树）。
+	jobCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	r.async.setCancel(run.handle, cancel)
+	go func() {
+		defer cancel()
+		defer file.Close()
+		writer := &cappedLogWriter{registry: r.async, handle: run.handle, file: file, remain: asyncLogCap}
+		exit := 0
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				_, _ = writer.Write([]byte(asyncPanicNote))
+				exit = 1
+			}
+			// 被杀（kill / 会话销毁）时执行体自己收敛：终态由这里合成，
+			// 与进程作业的 awaitAsync 同构。
+			if jobCtx.Err() != nil {
+				_, _ = writer.Write([]byte(asyncKilledNote))
+				r.async.finish(run.handle, asyncKilledExit)
+				return
+			}
+			r.async.finish(run.handle, exit)
+		}()
+		data, readErr := os.ReadFile(spec.Workdir)
+		if readErr != nil {
+			_, _ = writer.Write([]byte(fmt.Sprintf("[seelex:job] 读 %s 失败: %v\n", spec.Command, readErr)))
+			exit = 1
+			return
+		}
+		// 行窗口（read_batch 的 start_line/end_line）：schema 上写了的参数就必须真的
+		// 生效——宣了不做的参数比没有这个参数更糟（模型会以为窗口生效了）。
+		if spec.StartLine > 0 || spec.EndLine > 0 {
+			lines := strings.Split(string(data), "\n")
+			start := spec.StartLine
+			if start <= 0 {
+				start = 1
+			}
+			if start > len(lines) {
+				_, _ = writer.Write([]byte(fmt.Sprintf("[seelex:job] start_line %d 超过文件长度 %d\n", spec.StartLine, len(lines))))
+				exit = 1
+				return
+			}
+			end := len(lines)
+			if spec.EndLine >= start && spec.EndLine < end {
+				end = spec.EndLine
+			}
+			data = []byte(strings.Join(lines[start-1:end], "\n"))
+		}
+		_, _ = writer.Write([]byte(fmt.Sprintf("[seelex:job] read_file %s (%d bytes)\n", spec.Command, len(data))))
+		_, _ = writer.Write(data)
+	}()
+	return nil
 }
 
 // startAsync 起执行体；返回错误 = 没能启动，调用方据此当场失败。

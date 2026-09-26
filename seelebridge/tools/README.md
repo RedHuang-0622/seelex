@@ -10,10 +10,9 @@ read/grep/glob/write/edit/bash 工具族（`Router`）、内联工具 provider
 ## 职责与非职责
 
 - 职责：`Router` 注册并路由项目作用域工具；`RegistryState` 包装
-  framework tools.Registry（超时/中间件/内联工具）；`PermissionGate`
-  做工具调度前的权限检查（allow/deny/ask）；`async_*.go`（表 / 执行体 / 工具面 / 探针
-  四份）承载 bash 的
-  后台命令执行域（轮询型，受 `limits.async_exec.enabled` 管辖；出厂配置 **true**，
+  framework tools.Registry（超时/中间件/内联工具 + 工具簇属声明）；`PermissionGate`
+  做工具调度前的权限检查（allow/deny/ask）；`async_*.go` / `job_*.go` 承载 **作业执行域**
+  （子进程调用系契约，受 `limits.async_exec.enabled` 管辖；出厂配置 **true**，
   结构零值仍 false = 旧配置缺这段时能力不出现）。
 - 非职责：MCP 工具生命周期（归 mcp 域）、plan 工具族（归 plan 域）。
 
@@ -67,24 +66,52 @@ flowchart TB
   可编译。输入注入类工具对子代理不可见（见 `policy.go` 的
   `isComputerInputTool`）。
 
-### 后台命令（轮询型，`async_exec.go` / `async_run.go` / `async_tools.go` / `async_probe.go`）
+### 作业执行域（子进程调用系契约，`async_*.go` / `job_*.go`）
 
-形状：`bash background=true`（**必须带 `description`**，一句话说明这条命令在干什么——
-它是工作打点表的行标题，没有别的诚实来源）只返回**受理回执**（`{status:accepted, handle,
-log_path, state:running}`，不含命令输出），`tool_call`/`tool_result` 的配对就在这一次调用
-里完成；模型想看进展就自己再调 `async_output(handle, wait_ms)`，想终止就调
-`async_kill(handle)`。每一问一答都是正常的相邻工具对，所以历史只追加、不回写，也不需要
+**契约 = 一个 interface、Add + 四个管理动作**（`job_contract.go` 的 `JobTool`）：
+
+```text
+Add(ctx, JobSpec)            → []byte   派发并立刻返回受理回执（handle + log_path）
+Status(ctx, JobHandle)       → []byte   只读看进度（不推进游标、不消费输出）
+Fetch(ctx, JobHandle)        → []byte   取回增量（消费式：取过的不再给第二次）
+Kill(ctx, JobHandle)         → []byte   终止执行体（进程树 / 取消级联），已产出内容不丢
+Done(ctx, JobHandle)         → []byte   销项一个已终态的作业（终态只由执行体判定）
+```
+
+出参一律 `[]byte`（JSON 载荷）：载荷就是将来要交给模型/前端的结构化输出，先转成
+string 只会让每个调用点多做一次编解码往返；框架的 `ToolHandler` 只吃 string，所以
+转换点只留在**工具边界**那一处。
+
+三类作业共用**同一张登记表、同一套状态机**（`asyncRun.kind`）：
+
+| kind | 谁派发 | 执行体 | 谁触发终态 |
+|---|---|---|---|
+| `process` | `bash_bg` | 后台 shell 子进程（进程树可终止） | 运行体系（`awaitAsync` 被动） |
+| `inline` | `read_batch` | 进程内读扇出（取消靠 ctx） | 运行体系（goroutine 收尾，被动） |
+| `subagent` | `fork_subagents`（`async=true`） | plan 节点编排（取消靠 ctx） | 运行体系（`CompleteJob`，被动）+ 模型侧 `done` 销项 |
+
+工具面与形状：`bash`（串行写类，**不再有 `background`**）/ `bash_read`（只读、免打断，
+handler 侧必须过服务端 `security.ClassifyCommand`）/ `bash_bg`（`Add`，**必须带
+`description`**——它是工作打点表的行标题）/ `read_batch`（一次派发 N 个读作业）/
+`job_manage`（`op=observe|fetch|kill|done`）。派发只返回**受理回执**
+（`{status:accepted, handle, log_path, state:running}`，不含作业输出），
+`tool_call`/`tool_result` 的配对就在这一次调用里完成。每一问一答都是正常的相邻工具对，
+所以历史只追加、不回写，也不需要
 "结果到达时把空闲会话叫醒"那条链路（它必然回闯 `ChatStream` 全程持有的会话锁）。选型与
 实测见
 [`docs/2026-09-24-async-tool-deferred-ack/README.md`](../../docs/2026-09-24-async-tool-deferred-ack/README.md)
 §0（P4/P5 证明迟到 `role=tool` 在 wire 层非法，P7 证明轮询形态不破前缀缓存）与 §10。
+契约与打点见 [`docs/tool_concurrency_design.md`](../../docs/tool_concurrency_design.md)
+§A/§B 与 [`docs/tool_calling_step0_contracts.md`](../../docs/tool_calling_step0_contracts.md)。
 
-文件分工按"表 / 执行体 / 工具面 / 探针"四份（`async_exec.go` 单文件曾长到 608 行且职责混合，
-命中仓库根 `MEMORY.md` 的上帝文件判据）：
+文件分工按"契约 / 表 / 执行体 / 工具面 / 探针"五份（`async_exec.go` 单文件曾长到 608 行
+且职责混合，命中仓库根 `MEMORY.md` 的上帝文件判据）：
 
+- `job_contract.go`：`JobTool` 契约 + `jobManager`（四个管理动作的唯一实现）。
+- `job_tools.go`：`job_manage` / `bash_bg` / `read_batch` 三个工具面与 schema/描述。
+- `job_run.go` / `job_subagent.go`：等待预算、子代理作业的登记与被动收尾入口。
 - `async_exec.go`：句柄表与状态机（`running/done/failed/killed`）、载荷渲染。
 - `async_run.go`：派发、`awaitAsync` 收尾、进程树与输出目录回收。
-- `async_tools.go`：`async_output` / `async_kill` 两个 handler 与 schema/描述。
 - `async_probe.go`：只读探针（`AsyncRuns` / `AsyncRunEvents`）——回答界面上的
   "是什么、在跑什么、现在怎么样"，不推进游标、不进上下文。
 
@@ -122,10 +149,17 @@ log_path, state:running}`，不含命令输出），`tool_call`/`tool_result` �
   上下文——命令行原文、绝对路径、时间戳只到 GUI；`asyncPayload` 那份仍受"确定性、不含
   路径"的缓存纪律约束。core 侧的投影见 `application/core/work_table_async.go`。
 - 开关（`Deps.AsyncExecEnabled` ⇐ `limits.async_exec.enabled`，**出厂 true**；结构零值仍
-  false，旧配置文件缺这段 = 关）：关闭时三处同时收起——`bash` schema 不下发 `background`、
-  `async_output`/`async_kill` 不注册、handler 收到 `background=true` 直接报错。
-  **关就是关**，不得静默降级成同步执行（与 `security/sandbox.go` 头注同源）。
-  常驻开的已知代价：三个入口的 schema 每轮常驻，实测让每轮 prompt 多约 213 token。
+  false，旧配置文件缺这段 = 关）：关闭时作业工具（`bash_bg` / `read_batch` /
+  `job_manage`）都不注册、`bash` 收到旧入参 `background=true` 与 `fork_subagents`
+  的 `async=true` 都直接报错。**关就是关**，不得静默降级成同步执行
+  （与 `security/sandbox.go` 头注同源）。常驻开的已知代价：这几个入口的 schema
+  每轮常驻（实测三个入口约 213 token/轮，A/B 报告 §4 r1）。
+- 完成回填（打点 K-5）：终态迁移那一刻算一次**有界摘要**（≤512B：状态 + 退出码 +
+  行数 + 字节数 + 有界末行），投影（`application/core/work_table_async.go`）把它回填进
+  请求尾部打点块——在途行带标题、完成行带摘要，取回/销项后行才消失。摘要按轮重播，
+  所以它是**严格有界**的；全文只走 `fetch` 或 attachments 里的日志路径。
+  `Notified` 位是回填幂等键：重复 `finish` / 重复 `done` 不产生第二次回填
+  （`finish` 与 `CompleteJob` 都以"状态非 running 即返回"做同一次守卫）。
 
 ## Review 要点（本域最容易出错的地方）
 
@@ -156,18 +190,21 @@ permission middleware → handler → 诊断/遥测钩子。
 ## 并发、存储、安全
 
 `Router`/`PermissionGate` 自带锁；路径经 `security.ProjectScope` 校验；
-bash 诊断观察者 panic 隔离。后台命令：`asyncRegistry` 单锁（执行体 goroutine 只写
-自己那条，读侧在 handler 里）；句柄只对本会话有效，跨会话取回直接拒绝；执行体脱离
-工具 ctx（`context.WithoutCancel`），存活上限由 `asyncHardCap` 自带；输出目录归本进程，
-`CloseAsync` 当场试删，删不动（还有句柄没关）就由最后一条 `finish` 补删，关停后
-`begin` 直接报错而不是新建一个没人回收的目录。`async_output` 归只读权限组：取的是
-本会话里**已获批那次派发**的输出，因此不重复弹审批。
+bash 诊断观察者 panic 隔离。作业域：`asyncRegistry` 单锁（执行体 goroutine 只写
+自己那条，读侧在 handler 里，文件 I/O 一律在锁外）；句柄只对本会话有效，跨会话
+取回/终止/销项直接拒绝；执行体脱离工具 ctx（`context.WithoutCancel`），存活上限由
+`asyncHardCap` 自带；输出目录归本进程，`CloseAsync` 当场试删，删不动（还有句柄没关）
+就由最后一条 `finish` 补删，关停后 `begin` 直接报错而不是新建一个没人回收的目录。
+`bash_read` 归只读权限组，但**服务端守卫**（`security.ClassifyCommand`）才是那道门：
+分类失败一律按写处理，不因为"这个名字免审批"而放行。
 
 ## 扩展方式
 
-新增 scoped 工具：扩展 `Router.Register`；新增内联产品工具：`AddInline`。
-后台能力（如 `agent_run background=true`）应复用 `asyncRegistry` 的形状——派发回执
-必须在自己的单元内完成配对，不得引入"迟到补记"写回历史中段的链路。
+新增 scoped 工具：扩展 `Router.Register`；新增内联产品工具：`AddInline`（簇属由
+`DeclaredToolMeta` 按路由组表自动填，新工具名必须先在**路由组表**里分封，否则
+`RegistryState.UndeclaredTools()` 会把它列出来）。新增作业类型：实现 `JobTool`
+（`Add` + `Status`/`Fetch`/`Kill`/`Done`，管理动作委派 `jobManager`）并把执行体接进
+`asyncRun`——派发回执必须在自己的单元内完成配对，不得引入"迟到补记"写回历史中段的链路。
 
 ## Review 指南
 
@@ -176,6 +213,9 @@ bash 诊断观察者 panic 隔离。后台命令：`asyncRegistry` 单锁（执�
   失效）；新增清理路径都要问"终态是否恰好合成一次"。
 - 回执与取回的载荷必须确定性（不含时间戳/耗时）：这些字节会永久留在可缓存前缀里。
 - 取回只能交付增量并推进 `cursor`；把整份日志重播进上下文会同时烧 token 和破前缀。
+- 终态只由执行体判定：模型侧 `done` 只能销**已终态**的行，对在途作业必须报错并要求
+  `kill`；`finish`/`CompleteJob` 必须以"状态非 running 即返回"守住"只迁移一次"。
+- 摘要与投影都必须按**字节**封顶（末行按字符截断再拼进摘要，混着算会悄悄超限）。
 - 开关新增一处生效就要同步三处（schema / 注册 / handler），且关闭态必须报错而非降级。
 
 ## 测试与验证

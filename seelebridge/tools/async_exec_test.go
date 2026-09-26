@@ -55,17 +55,17 @@ func newAsyncRegistryForTest(t *testing.T) *asyncRegistry {
 	return reg
 }
 
-// dispatchForTest 走 bash handler 的 background 分支派发一条命令。description 是
-// background=true 的必填项（工作表格行标题），测试统一给一句固定标签。
+// dispatchForTest 走 bash_bg 工具面派发一条后台命令（JobTool.Add 的进程作业面）。
+// description 是必填项（工作表格行标题），测试统一给一句固定标签。
 func dispatchForTest(t *testing.T, router *Router, ctx context.Context, command string) asyncPayload {
 	t.Helper()
 	args, err := json.Marshal(map[string]interface{}{
-		"command": command, "background": true, "description": "test dispatch",
+		"command": command, "description": "test dispatch",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	output, err := router.scopedBash(ctx, string(args))
+	output, err := router.scopedBashBg(ctx, string(args))
 	if err != nil {
 		t.Fatalf("dispatch %q: %v", command, err)
 	}
@@ -74,15 +74,29 @@ func dispatchForTest(t *testing.T, router *Router, ctx context.Context, command 
 
 func pollForTest(t *testing.T, router *Router, ctx context.Context, handle string, waitMS int) asyncPayload {
 	t.Helper()
-	args, err := json.Marshal(map[string]interface{}{"handle": handle, "wait_ms": waitMS})
+	args, err := json.Marshal(map[string]interface{}{"op": "fetch", "handle": handle, "wait_ms": waitMS})
 	if err != nil {
 		t.Fatal(err)
 	}
-	output, err := router.scopedAsyncOutput(ctx, string(args))
+	output, err := router.scopedJobManage(ctx, string(args))
 	if err != nil {
 		t.Fatalf("poll %s: %v", handle, err)
 	}
 	return decodeAsyncPayload(t, output)
+}
+
+// manageForTest 走 job_manage 的任意 op（只读那一档的用例用它做旁路观测）。
+func manageForTest(t *testing.T, router *Router, ctx context.Context, op, handle string) (asyncPayload, error) {
+	t.Helper()
+	args, err := json.Marshal(map[string]interface{}{"op": op, "handle": handle, "wait_ms": -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := router.scopedJobManage(ctx, string(args))
+	if err != nil {
+		return asyncPayload{}, err
+	}
+	return decodeAsyncPayload(t, output), nil
 }
 
 func decodeAsyncPayload(t *testing.T, output string) asyncPayload {
@@ -161,10 +175,13 @@ func TestAsyncPollDeliversOnlyNewBytes(t *testing.T) {
 		t.Fatalf("增量交付必须恰好一次，实际 %d 次（累计正文 %q）", got, delivered.String())
 	}
 
-	// 终态之后再取一次：没有新字节，不得把已交付内容重播一遍。
-	again := pollForTest(t, router, ctx, ack.Handle, -1)
-	if again.Output != "" {
-		t.Fatalf("终态复取不得重播输出: %q", again.Output)
+	// 终态 + 已交付 ⇒ 销项（设计文档 §A.3 的行生命周期）：行从投影里消失，
+	// history 里上面那次取回成为唯一事实。再取就是"已销项"，不是重播。
+	if _, ok := router.async.snapshot(ack.Handle); ok {
+		t.Fatal("终态取回之后句柄仍在登记表里：行不会从投影里消失")
+	}
+	if _, err := manageForTest(t, router, ctx, "fetch", ack.Handle); err == nil {
+		t.Fatal("已销项句柄再取回必须报错（不能重播整份日志）")
 	}
 }
 
@@ -177,17 +194,17 @@ func TestAsyncPollRejectsForeignSession(t *testing.T) {
 	intruder := asyncTestCtx(root, "sess-intruder")
 	ack := dispatchForTest(t, router, owner, "echo owner-only-marker")
 
-	args, err := json.Marshal(map[string]interface{}{"handle": ack.Handle, "wait_ms": -1})
+	args, err := json.Marshal(map[string]interface{}{"op": "fetch", "handle": ack.Handle, "wait_ms": -1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := router.scopedAsyncOutput(intruder, string(args)); err == nil {
+	if _, err := router.scopedJobManage(intruder, string(args)); err == nil {
 		t.Fatal("跨会话取回必须被拒绝")
 	}
-	if _, err := router.scopedAsyncOutput(owner, string(args)); err != nil {
+	waitAsyncTerminalForTest(t, router, ack.Handle)
+	if _, err := router.scopedJobManage(owner, string(args)); err != nil {
 		t.Fatalf("本会话取回不得报错: %v", err)
 	}
-	waitAsyncTerminalForTest(t, router, ack.Handle)
 }
 
 // TestAsyncPollUnknownHandleFailsLoudly 验证未知句柄是错误而不是空成功：
@@ -195,10 +212,10 @@ func TestAsyncPollRejectsForeignSession(t *testing.T) {
 func TestAsyncPollUnknownHandleFailsLoudly(t *testing.T) {
 	router := asyncTestRouter(t, true)
 	ctx := asyncTestCtx(t.TempDir(), "sess-a")
-	if _, err := router.scopedAsyncOutput(ctx, `{"handle":"a404"}`); err == nil {
+	if _, err := router.scopedJobManage(ctx, `{"op":"fetch","handle":"a404"}`); err == nil {
 		t.Fatal("未知句柄必须报错")
 	}
-	if _, err := router.scopedAsyncOutput(ctx, `{}`); err == nil {
+	if _, err := router.scopedJobManage(ctx, `{"op":"fetch"}`); err == nil {
 		t.Fatal("缺 handle 必须报错")
 	}
 }
@@ -258,8 +275,8 @@ func TestAsyncRegistryBeginHandsOutACopy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(accepted, `"state":"running"`) {
-		t.Fatalf("回执必须渲染派发时刻的状态: %s", accepted)
+	if !strings.Contains(string(accepted), `"state":"running"`) {
+		t.Fatalf("回执必须渲染派发时刻的状态: %s", string(accepted))
 	}
 	// 取回侧读的是表内最新态，不受派发副本影响。
 	fresh, ok := registry.snapshot(run.handle)
@@ -491,48 +508,83 @@ func bashPropertyNames(t *testing.T, tool capturedTool) map[string]bool {
 	return names
 }
 
-// TestAsyncKillSwitchGatesSchemaAndRegistration 验证开关是"关就是关"：
-// 关时 background 不出现在 schema（模型不该看见关掉的开关）、async_output 不注册、
-// 收到 background=true 直接报错（不得静默降级成同步执行）。
-func TestAsyncKillSwitchGatesSchemaAndRegistration(t *testing.T) {
+// TestJobCapabilityGatesSchemaAndRegistration 验证能力开关是"关就是关"：
+// 关时作业面（bash_bg / read_batch / job_manage）一个都不注册，bash schema 里也没有
+// background（那个开关已经搬去 bash_bg），旧入参 background=true 直接报错
+// （不得静默按同步执行）。
+func TestJobCapabilityGatesSchemaAndRegistration(t *testing.T) {
 	off := captureRegisteredTools(t, false)
-	if _, present := off["async_output"]; present {
-		t.Fatal("切片关闭时不该注册 async_output")
+	for _, name := range []string{"bash_bg", "read_batch", "job_manage"} {
+		if _, present := off[name]; present {
+			t.Fatalf("切片关闭时不该注册 %s", name)
+		}
 	}
 	if bashPropertyNames(t, off["bash"])["background"] {
-		t.Fatal("切片关闭时 bash schema 不得下发 background")
+		t.Fatal("bash schema 不得再下发 background（那一类由 bash_bg 承担）")
+	}
+	if _, present := off["bash_read"]; !present {
+		t.Fatal("bash_read 与作业切片无关：它必须常驻（只读命令的免打断面）")
 	}
 	ctx := asyncTestCtx(t.TempDir(), "sess-a")
 	if _, err := NewRouter(Deps{ToolCallTimeout: time.Minute}).scopedBash(ctx, `{"command":"echo x","background":true}`); err == nil {
-		t.Fatal("切片关闭时 background=true 必须直接报错，不得静默按同步执行")
+		t.Fatal("background=true 必须直接报错（改用 bash_bg），不得静默按同步执行")
 	}
-	if _, err := NewRouter(Deps{}).scopedAsyncOutput(ctx, `{"handle":"a1"}`); err == nil {
-		t.Fatal("切片关闭时 async_output 必须直接报错")
+	if _, err := NewRouter(Deps{}).scopedJobManage(ctx, `{"op":"fetch","handle":"a1"}`); err == nil {
+		t.Fatal("切片关闭时 job_manage 必须直接报错")
 	}
 
 	on := captureRegisteredTools(t, true)
-	if _, present := on["async_output"]; !present {
-		t.Fatal("切片打开时必须注册 async_output")
+	for _, name := range []string{"bash_bg", "read_batch", "job_manage"} {
+		if _, present := on[name]; !present {
+			t.Fatalf("切片打开时必须注册 %s", name)
+		}
 	}
-	if !bashPropertyNames(t, on["bash"])["background"] {
-		t.Fatal("切片打开时 bash schema 必须下发 background")
+	if bashPropertyNames(t, on["bash"])["background"] {
+		t.Fatal("bash schema 永远不下发 background")
 	}
-	if !strings.Contains(on["bash"].description, "acceptance receipt") {
-		t.Fatalf("bash 描述必须点明回执不含命令输出: %q", on["bash"].description)
+	if !strings.Contains(on["bash_bg"].description, "acceptance receipt") {
+		t.Fatalf("bash_bg 描述必须点明回执不含命令输出: %q", on["bash_bg"].description)
 	}
-	if !strings.Contains(on["async_output"].description, "incremental") {
-		t.Fatalf("async_output 描述必须点明只给增量: %q", on["async_output"].description)
+	if !strings.Contains(on["bash_read"].description, "READ-ONLY") {
+		t.Fatalf("bash_read 描述必须点明只读边界: %q", on["bash_read"].description)
+	}
+	if !strings.Contains(on["job_manage"].description, "consumer-style") {
+		t.Fatalf("job_manage 描述必须点明取回是消费式: %q", on["job_manage"].description)
 	}
 }
 
-// TestAsyncOutputRoutesToReadOnlyGroup 验证取回落在只读组：它取的是本会话里
-// 已经获批的那次派发的输出，重复弹审批只会教用户盲点"允许"。
-func TestAsyncOutputRoutesToReadOnlyGroup(t *testing.T) {
-	group, ok := RoutePermissionGroup(DefaultPermissionGroupList(), "async_output")
-	if !ok {
-		t.Fatal("async_output 未归入任何权限组：未归组工具按框架默认走审批")
+// TestBashFamilyRoutingTable 是 K-3 的判据（TC-K3-1）：三个 bash 名字按预期分组。
+//
+//   - bash / bash_bg → rw：写类与后台受管；sub/员工才能杀掉自己派的作业。
+//   - bash_read      → ro：只读命令免打断（这正是分裂的目的）。
+//   - job_manage     → rw：它含 kill/done，取回/终止必须与派发同组。
+//   - read_batch     → ro：只读扇出，不碰共享状态。
+func TestBashFamilyRoutingTable(t *testing.T) {
+	cases := []struct {
+		tool  string
+		group string
+	}{
+		{"bash", GroupRW},
+		{"bash_bg", GroupRW},
+		{"bash_read", GroupRO},
+		{"job_manage", GroupRW},
+		{"read_batch", GroupRO},
 	}
-	if group.Name != GroupRO {
-		t.Fatalf("async_output 权限组 = %q, want %q", group.Name, GroupRO)
+	groups := DefaultPermissionGroupList()
+	for _, testCase := range cases {
+		group, ok := RoutePermissionGroup(groups, testCase.tool)
+		if !ok {
+			t.Errorf("%s 未归入任何权限组：未分封的工具按框架默认走审批", testCase.tool)
+			continue
+		}
+		if group.Name != testCase.group {
+			t.Errorf("%s 路由组 = %q, want %q", testCase.tool, group.Name, testCase.group)
+		}
+	}
+	// 旧名字必须彻底下线（L-2/L-4 的判据）：还留在表里就意味着还有一条注册路径活着。
+	for _, retired := range []string{"async_output", "async_kill"} {
+		if _, ok := RoutePermissionGroup(groups, retired); ok {
+			t.Errorf("%s 已下线，不得再出现在权限表里", retired)
+		}
 	}
 }

@@ -2,7 +2,7 @@ package dto
 
 import "time"
 
-// AsyncRunRecord 是一次后台命令（bash background=true）的**只读投影记录**。
+// AsyncRunRecord 是一次**作业**（bash_bg / read_batch / subagent）的**只读投影记录**。
 //
 // 生态位：seelebridge 的后台执行登记表是唯一事实源，core 只把它投影成工作表格行与
 // 请求尾部打点块（见 application/core/work_table_async.go）。它**不是** task 注册表
@@ -10,14 +10,19 @@ import "time"
 // 留下一条永远 running 的假行。所以这里的行随状态出现、随终态/驱逐消失，永不落盘
 // （不变量 I-21）。
 //
-// 字段口径分两层，别混：
+// 字段口径分三层，别混：
 //   - Command / LogPath / StartedAt / EndedAt 只到 GUI（工作表格行、详情、附件列）；
-//   - 进模型上下文的那份（尾部打点块）只允许用 Handle / State / LogBytes /
-//     Description，且终态行不进块。绝对路径与时间戳进上下文既烧 token 也没信息量。
+//   - 进模型上下文的那份（尾部打点块）只允许用 Handle / Kind / State / LogBytes /
+//     Description / **有界 Summary**：在途行带标题，完成行带摘要（退出码 + 行数 +
+//     字节数 + 有界末行）。绝对路径、末行原文与时间戳进上下文既烧 token 也没信息量；
+//   - Summary 有硬上限（seelebridge 侧 ≤512B）：完成行随打点块**每轮重播**，
+//     无界即按轮数线性烧 token。
 type AsyncRunRecord struct {
 	SessionID string `json:"session_id"`
 	Handle    string `json:"handle"` // 句柄原文（a3）；工作表格行 ID 为 async:a3
-	// Description 是模型派发时写的一句话（background=true 必填）→ 工作表格行标题。
+	// Kind = process | inline | subagent：决定读取口与 kill 语义（句柄是同一套）。
+	Kind string `json:"kind,omitempty"`
+	// Description 是模型派发时写的一句话（bash_bg 的 description 必填）→ 行标题。
 	Description string `json:"description,omitempty"`
 	// Command 是命令行原文（单行截断后的形态）→ 描述列。它本来就在该会话历史里
 	// （那次 bash 调用的入参），投影到界面不构成新增暴露面。
@@ -27,6 +32,15 @@ type AsyncRunRecord struct {
 	ExitCode int    `json:"exit_code"` // running 时为 -1，不是 0
 	// LogBytes 是已落盘字节数：真实的进展信号。打点块用它，不用墙钟猜状态。
 	LogBytes int64 `json:"log_bytes"`
+	// Summary 是终态**有界摘要**（≤512B）：完成行回填进打点块的就是它，全文只走 fetch。
+	// Lines 是输出行数（摘要的一部分，单独成列便于前端直接用）。
+	Summary string `json:"summary,omitempty"`
+	Lines   int    `json:"lines,omitempty"`
+	// Notified = 该作业的终态已回填过一次（幂等键）：重复 finish / 重复 done 不得产生
+	// 第二次回填，因此这个位只会被置一次。
+	Notified bool `json:"notified,omitempty"`
+	// Index 是同批内 wire 下标（inline 扇出）：排序键，不是完成序。
+	Index int `json:"index,omitempty"`
 	// Tail 是输出末行采样（探针读数，只到 GUI）；LastByteAt 是输出文件最后修改时间。
 	Tail       string    `json:"tail,omitempty"`
 	LastByteAt time.Time `json:"last_byte_at,omitempty"`

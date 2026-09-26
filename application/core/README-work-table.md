@@ -24,9 +24,13 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - 三处建表入口（实时重投影、会话快照、冷读面）统一走 `asyncRunsForTable()`，避免"切到哪个
   会话才看到哪些行"。行数上限 `asyncWorkMaxRows`（在途优先、终态按最新补齐），否则登记表
   的 256 个记录槽会挤掉真实任务行。
-- 请求尾部打点块只并 **在跑的** 后台行，且字段比界面窄：句柄、state、已产出字节、
-  描述或命令短截断。**不含**日志路径、末行原文、时间戳——那三者是探针给 GUI 的，进上下文
-  等于每轮重付一遍，还会把日志正文变成注入面。
+- 请求尾部打点块并**在途行 + 待取回的完成行**（打点 K-5 的完成回填），且字段比界面窄：
+  句柄、`kind`、state、已产出字节，在途行带标题、完成行带**有界摘要**（state + exit +
+  行数 + 字节数 + 有界末行，≤512B）。**不含**日志路径、末行原文（摘要里的末行是压成一行、
+  限长的采样）、时间戳——那三者是探针给 GUI 的，进上下文等于每轮重付一遍，还会把日志正文
+  变成注入面。整块行数（含开/闭标记、标题与读法说明）≤ `workTableTraceMaxLines`；被截断
+  的完成行补一行汇总，不静默消失。模型 `job_manage(op=fetch)` 取回（或 `op=done` 销项）
+  之后那一行才从投影里消失——history 里的结果成为唯一事实。
 - 生命周期消费者由三个变四个：`consumeAsyncRuns()` 收登记表的变化信号（派发/终态/驱逐/
   去抖后的新字节），走 `refreshWorkTableFromSources()` 复用同一条发布路径，所以表格与打点块
   不会分叉。信号是容量 1 的汇聚口，中间态被合并掉无所谓：每次重投影读的都是当下全量。
@@ -97,7 +101,7 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - `func asyncRunToWorkItem(record dto.AsyncRunRecord) WorkItem` — asyncRunToWorkItem 映射一条后台执行到工作表格行。
 - `func asyncProbePoint(record dto.AsyncRunRecord, elapsed time.Duration) WorkTracePoint` — asyncProbePoint 是一次探针采样的打点行：状态、字节数、末行、耗时。
 - `func asyncWorkStatus(state string) string` — asyncWorkStatus 把执行域状态映射到工作表格的权威状态字面量。
-- `func asyncTraceLines(records []dto.AsyncRunRecord, sessionID string) []string` — asyncTraceLines 生成打点块里的后台行：**只在跑的那些**（终态行不进块，与"无活动
+- `func asyncTraceLines(records []dto.AsyncRunRecord, sessionID string) []string` — asyncTraceLines 生成打点块里的作业行：在途行 + **待取回的完成行**（带
 - `func formatAsyncBytes(bytes int64) string` — formatAsyncBytes 把字节数写成便于扫读的量级（界面与打点块共用一个口径）。
 
 ### work_table_async_test.go
@@ -106,7 +110,7 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - `func workItemByID(rows []WorkItem, id string) (WorkItem, bool)`
 - `func TestAsyncRunProjectsEveryVisibleColumn(t *testing.T)` — 列位分配：描述→行标题、指令→描述列、探针读数→打点行、日志路径→附件列。
 - `func TestAsyncTerminalStatesMapToWorkStatus(t *testing.T)` — 终态映射：done→completed，failed/killed→failed（表格状态机没有"被杀"这一档）。
-- `func TestAsyncTraceLinesCarryNoPathsOrLogContent(t *testing.T)` — 打点块只列在跑的后台命令，且进上下文的字段必须收窄：路径、末行原文、时间戳
+- `func TestAsyncTraceLinesCarryNoPathsOrLogContent(t *testing.T)` — 打点块列在途行与待取回的完成行，且进上下文的字段必须收窄：路径、末行原文、时间戳
 - `func TestAsyncRunAloneMaterializesTraceBlock(t *testing.T)` — 整块语义：没有活动任务、只有一条在跑的后台命令时，打点块必须出现（这是
 - `func TestAsyncRowDisappearsWhenRegistryDropsIt(t *testing.T)` — 登记表是唯一事实源：它不再报这条记录（终态被驱逐），投影里就没有这行。
 - `func TestAsyncChangeSignalReprojectsWorkTable(t *testing.T)` — 第 4 个生命周期消费者：执行域一发声，表格就重投影——不靠模型再调一次工具，

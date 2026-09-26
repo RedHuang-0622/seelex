@@ -11,8 +11,8 @@ import (
 // 后台命令的轮询型执行域·实时探针：把登记表里的一次执行采样成"能看懂的一眼"，
 // 供工作表格投影（application/core/work_table_async.go）消费。
 //
-// 探针和取回（async_output）是两回事，别混：
-//   - async_output 推进游标、把**新增字节**交给模型，一次一问一答，花一轮往返；
+// 探针和取回（job_manage(op=fetch)）是两回事，别混：
+//   - fetch 推进游标、把**新增字节**交给模型，一次一问一答，花一轮往返；
 //   - 探针不推进游标、不进上下文，只回答"此刻它在不在动、动到哪一行"，
 //     由派发/终态/新字节三类信号驱动（见 asyncRegistry.Events / noteOutput）。
 //
@@ -36,6 +36,57 @@ type AsyncRunInfo struct {
 	BatchID     string    // 派发它的那次 chat 请求（工作表格批次归属）
 	StartedAt   time.Time
 	EndedAt     time.Time // 零值 = 还没终态
+	// Kind = process | inline | subagent（打点 K-2）：决定读取口与 kill 语义。
+	Kind string
+	// Summary 是终态**有界摘要**（≤512 字节；打点 K-5 的 K-2）：回填进投影的内容
+	// 就是它。全文不入投影，只走取回或 log_path。
+	Summary string
+	// Lines 是输出行数；Notified 是"该作业的终态已回填过一次"（K-4 的幂等键）。
+	Lines    int
+	Notified bool
+	// Index 是同批内 wire 下标（排序键，不是完成序）。
+	Index int
+}
+
+// observeLine 是一条作业的**观察读数**（只读旁路：不推进游标、不消费输出）。
+// 它把"此刻它在不在动、动到哪一行"压成一行——模型侧看的就是这一行。
+func (g *asyncRegistry) observeLine(run asyncRun) string {
+	bytes, _, tail := sampleLog(run.logPath)
+	line := jobSummaryLine(run, bytes)
+	if tail != "" && run.state == asyncStateRunning {
+		line += " · 末行: " + clampProbeLine(tail)
+	}
+	if run.capHit {
+		line += " · 输出已截断（全文见 log_path）"
+	}
+	if run.tree != nil && run.tree.Degraded() {
+		line += " · 进程树挂不上，终止只及直接子进程"
+	}
+	return "- " + line
+}
+
+// observeSession 列某会话在册作业的观察读数（按派发序稳定排序）。
+//
+// 这是 V7 的落点：main agent"主动查看子代理/后台作业在干什么"不需要 OS 进程化，
+// 只需要这份只读读数——句柄契约与执行体是 goroutine 还是进程正交。
+func (g *asyncRegistry) observeSession(sessionID string) []string {
+	infos := g.infos()
+	lines := make([]string, 0, len(infos))
+	for _, info := range infos {
+		if sessionID != "" && info.SessionID != sessionID {
+			continue
+		}
+		line := jobSummaryLine(asyncRun{
+			handle: info.Handle, kind: info.Kind, state: info.State, exit: info.Exit,
+			description: info.Description, command: info.Command, summary: info.Summary,
+			lines: info.Lines, capHit: info.Truncated,
+		}, info.LogBytes)
+		if info.Tail != "" && info.State == asyncStateRunning {
+			line += " · 末行: " + clampProbeLine(info.Tail)
+		}
+		lines = append(lines, "- "+line)
+	}
+	return lines
 }
 
 // AsyncRuns 返回全部后台执行的探针读数，按派发顺序稳定排序（句柄是 "a<seq>"，
@@ -75,6 +126,11 @@ func (g *asyncRegistry) infos() []AsyncRunInfo {
 			BatchID:     run.batchID,
 			StartedAt:   run.startedAt,
 			EndedAt:     run.endedAt,
+			Kind:        run.kind,
+			Summary:     run.summary,
+			Lines:       run.lines,
+			Notified:    run.notified,
+			Index:       run.index,
 		})
 	}
 	g.mu.Unlock()

@@ -27,6 +27,8 @@ type Deps struct {
 	RunPlan                  func(ctx context.Context, loaded *plan.LoadedPlanDoc, withNodeOutputs bool) (string, error)
 	ForkTimeoutSec           int
 	PlanNodeMaxLoops         int
+	// Jobs 是子代理作业的登记面（Kind=subagent，打点 L-5）。nil = async 模式不可用。
+	Jobs SubagentJobs
 }
 
 // Tool 是 fork_subagents 的执行编排：B6 task 幂等登记 → 结果复用（省 token）
@@ -113,6 +115,14 @@ func (t *Tool) Handle(ctx context.Context, argsJSON string) (string, error) {
 	if forkTimeout <= 0 {
 		forkTimeout = 2 * time.Hour
 	}
+	// 作业化派发（打点 L-5）：这一批子代理登记成 Kind=subagent 的作业，**派发即返回**。
+	//
+	// 为什么必须在这里分叉（而不是只加一个管理工具）：阻塞调用期间模型没有下一次
+	// 调用，"主动查看/提前终止子代理"在阻塞形态下根本没有入口——不是缺工具，是缺
+	// 时机。作业化之后 observe / kill / done 才有意义（设计文档 §B.3）。
+	if input.Async {
+		return t.dispatchJobs(ctx, loaded, input, forkTimeout)
+	}
 	// 剥离外层截止时间（保留用户取消传播），改用 limits.fork_timeout。
 	// forkCtx 由 Background 派生会丢会话路由值，这里把执行会话 ID 重新
 	// 注入（G1-C）：fork 的 plan_run 与主会话 plan_run 同槽登记、事件
@@ -125,6 +135,92 @@ func (t *Tool) Handle(ctx context.Context, argsJSON string) (string, error) {
 	defer stop()
 	defer forkCancel()
 	return t.deps.RunPlan(forkCtx, loaded, false)
+}
+
+// dispatchJobs 把这一批子代理**作业化派发**：登记 N 条 Kind=subagent 作业 → 立刻返回
+// 受理回执（每个子代理一个句柄）→ 编排跑在后台 goroutine 里，收尾时把每个子代理的
+// 产出写进它自己的作业正文并合成终态。
+//
+// 三条纪律与后台命令同源（见 tools/async_run.go 的头注）：
+//   - ctx 用 `context.WithoutCancel` 摘掉工具调用的截止时间：回执一返回，本次调用的
+//     ctx 就失效，沿用它会把刚起的编排立刻取消；存活上限由自己的 forkTimeout 兜住；
+//   - **不**挂 `context.AfterFunc(ctx, cancel)`：作业活过这一轮，取消只能来自
+//     `job_manage(op=kill)` 与会话销毁（它们走登记表里的取消口）；
+//   - 收尾必须落到 Complete（恰好一次）：跑完、失败、被取消三条路都不能让句柄停在
+//     running——否则那一行会永远显示在打点表上。
+func (t *Tool) dispatchJobs(ctx context.Context, loaded *plan.LoadedPlanDoc, input Input, timeout time.Duration) (string, error) {
+	if t.deps.Jobs == nil {
+		return "", fmt.Errorf("fork_subagents: async 模式不可用（子代理作业面未装配或后台能力未开启）；去掉 async 走阻塞模式")
+	}
+	runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+	if sessionID := seetelemetry.SessionIDFromContext(ctx); sessionID != "" {
+		runCtx = seetelemetry.WithSessionID(runCtx, sessionID)
+	}
+	sessionID := seetelemetry.SessionIDFromContext(ctx)
+
+	type dispatched struct {
+		spec   SubagentSpec
+		handle string
+	}
+	jobs := make([]dispatched, 0, len(input.Subagents))
+	for _, spec := range input.Subagents {
+		handle, err := t.deps.Jobs.Add(SubagentJobSpec{ID: spec.ID, Goal: spec.Goal, SessionID: sessionID}, cancel)
+		if err != nil {
+			cancel()
+			// 已经登记的那些不能让它们停在 running：合成失败终态（终态只由执行体判定
+			// 的纪律在这里的落实是"编排根本没起来"）。
+			for _, created := range jobs {
+				t.deps.Jobs.Complete(created.handle, "failed")
+			}
+			return "", fmt.Errorf("fork_subagents: 登记子代理作业失败: %w", err)
+		}
+		jobs = append(jobs, dispatched{spec: spec, handle: handle})
+	}
+
+	go func() {
+		defer cancel()
+		output, runErr := t.deps.RunPlan(runCtx, loaded, false)
+		state := "done"
+		switch {
+		case runErr != nil && runCtx.Err() != nil:
+			state = "killed"
+		case runErr != nil:
+			state = "failed"
+		}
+		for _, item := range jobs {
+			// 每个子代理的正文 = 它自己的产出（子代理树里保存的摘要）；取不到时退回
+			// 整批结果——宁可给整批，也不要给一行空正文。
+			body := strings.TrimSpace(t.deps.SubagentTreeSummaryFor(item.spec.ID))
+			if body == "" {
+				body = strings.TrimSpace(output)
+			}
+			if body != "" {
+				t.deps.Jobs.Note(item.handle, body+"\n")
+			}
+			t.deps.Jobs.Complete(item.handle, state)
+		}
+	}()
+
+	receipts := make([]map[string]string, 0, len(jobs))
+	for _, item := range jobs {
+		receipts = append(receipts, map[string]string{
+			"handle": item.handle, "id": item.spec.ID, "state": "running",
+		})
+	}
+	payload := map[string]any{
+		"status":     "accepted",
+		"async":      true,
+		"node_count": len(receipts),
+		"jobs":       receipts,
+		"hint": "这批子代理已作业化派发（调用本身不等结果）。用 job_manage(op=observe, handle) " +
+			"看它们在干什么（不消费输出）、op=fetch 取回产出、op=kill 提前终止（已产出内容不丢）、" +
+			"op=done 结清终态行。注意：任意一个句柄的 kill 会取消**整批**编排（它们共用一次 plan run）。",
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("fork_subagents: 渲染受理回执失败: %w", err)
+	}
+	return string(encoded), nil
 }
 
 // reusableForkSummaries 检查每个 spec 是否可复用已保存输出：goal 命中的

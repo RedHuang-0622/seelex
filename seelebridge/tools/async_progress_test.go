@@ -11,11 +11,11 @@ import (
 // 结构体相等不等于重发出去的字节相等。
 func pollRaw(t *testing.T, router *Router, ctx context.Context, handle string, waitMS int) string {
 	t.Helper()
-	args, err := json.Marshal(map[string]interface{}{"handle": handle, "wait_ms": waitMS})
+	args, err := json.Marshal(map[string]interface{}{"op": "fetch", "handle": handle, "wait_ms": waitMS})
 	if err != nil {
 		t.Fatal(err)
 	}
-	output, err := router.scopedAsyncOutput(ctx, string(args))
+	output, err := router.scopedJobManage(ctx, string(args))
 	if err != nil {
 		t.Fatalf("poll %s: %v", handle, err)
 	}
@@ -42,7 +42,7 @@ func TestQuietPollResultsAreByteIdentical(t *testing.T) {
 	if first != second {
 		t.Fatalf("同一安静句柄的两次取回必须逐字节相同：\n%s\n%s", first, second)
 	}
-	if !strings.Contains(first, "async_output") {
+	if !strings.Contains(first, "job_manage") {
 		t.Fatal("取回正文必须把下一步动作告诉模型")
 	}
 

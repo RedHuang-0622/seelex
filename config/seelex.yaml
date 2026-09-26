@@ -130,14 +130,14 @@ limits:
   # 不受通用工具超时（tool_call_timeout）限制，用独立预算（默认 2 小时）。
   # 子代理循环数复用 effort 调节值（high=48 / max=96），无需单独配置。
   # fork_timeout: 7200           # fork 工具总超时（秒；默认 7200 = 2h）
-  # 后台命令（轮询型异步工具）：bash background=true 派发后立刻返回受理回执
-  # （handle + log_path），命令输出经 async_output(handle) 分次取回（每次只给新增
-  # 部分），async_kill(handle) 终止整棵进程树。
-  # 出厂常驻开 = 这三个入口一直在模型的工具面上，"这一次要不要后台"由模型逐次
-  # 传参决定；代价是 background/async_output/async_kill 的 schema 每轮常驻，实测
-  # 让每轮 prompt 多约 213 token（A/B 报告 §4 r1 行）。
-  # 置 false = 整块收回能力：bash 收起 background、两个工具不注册、收到
-  # background=true 直接拒绝（能力不可实施时不得静默降级成同步执行）。
+  # 作业面（子进程调用系契约）：bash_bg 派发后立刻返回受理回执（handle+log_path），
+  # 结果经 job_manage(op=fetch, handle) 分次取回（消费式：每次只给新增部分），
+  # op=observe 只读看进展（不消费输出）、op=kill 终止整棵进程树、op=done 销项。
+  # 同一套契约还覆盖 read_batch（批量读作业化）与 fork_subagents 的 async 模式。
+  # 出厂常驻开 = 这些入口一直在模型的工具面上；代价是它们的 schema 每轮常驻。
+  # 置 false = 整块收回能力：bash_bg / read_batch / job_manage 都不注册，
+  # fork_subagents 的 async 模式显式拒绝，bash 收到旧入参 background=true 直接拒绝
+  # （能力不可实施时不得静默降级成同步执行）。
   # 规格与实测：docs/2026-09-24-async-tool-deferred-ack/README.md §8/§10。
   async_exec:
     enabled: true                # 常驻开；改回 false 即整块收回

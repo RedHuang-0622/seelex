@@ -77,7 +77,7 @@ type jobExtendedLimitInformation struct {
 }
 
 // ConfigureProcessTree 让子进程自成进程组。与 Job 无关，作用是别让控制台的
-// Ctrl+C 一类信号顺带打到后台命令上——它的生死只有 async_kill 与存活上限说了算。
+// Ctrl+C 一类信号顺带打到后台命令上——它的生死只有 job_manage(op=kill) 与存活上限说了算。
 //
 // 只补自己那一位：SysProcAttr 有多个写者（winhide.Apply、ConfigureHiddenCommand），
 // 任何一处整体赋值都会把别人的 flag 抹掉。

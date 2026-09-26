@@ -721,18 +721,31 @@ func (state *serviceState) workTableTraceBlockFor(sessionID string) string {
 
 	var builder strings.Builder
 	builder.WriteString(workTableTraceMarkerOpen + "\n# 工作打点表（系统维护，只读；任务状态与打点以工作表格为准）\n")
-	budget := workTableTraceMaxLines - 2
-	for _, line := range lines {
-		if budget <= 0 {
-			builder.WriteString("- …（打点表已达上限，详情见工作表格）\n")
-			break
-		}
-		builder.WriteString(line + "\n")
+	// 预算必须把**整块**算进去（开/闭标记 + 标题 + 读法说明），否则"块 ≤ 30 行"这条
+	// 上限会被固定开销吃掉几行（打点 K-2 的判据是整块行数）。
+	budget := workTableTraceMaxLines - 3 // 开标记 + 标题 + 闭标记
+	hint := ""
+	if len(asyncLines) > 0 {
+		hint = "async:<句柄> 行是作业（bash_bg 后台命令 / read_batch 扇出读 / subagent）：" +
+			"字节数=已产出输出量；在途行带标题，完成行带摘要（exit/行数/末行采样）。" +
+			"取结果用 job_manage(op=fetch, handle)、只读看进展用 op=observe、终止用 op=kill、" +
+			"销项用 op=done。"
 		budget--
 	}
-	if len(asyncLines) > 0 {
-		builder.WriteString("async:<句柄> 行是后台命令（bash background=true）：字节数=已产出输出量；" +
-			"取结果用 async_output(句柄)，终止用 async_kill(句柄)。\n")
+	truncated := false
+	if len(lines) > budget {
+		// 提示行也占一格：截断要让模型看见"还有更多"，而不是静默变短。
+		lines = lines[:budget-1]
+		truncated = true
+	}
+	for _, line := range lines {
+		builder.WriteString(line + "\n")
+	}
+	if truncated {
+		builder.WriteString("- …（打点表已达上限，详情见工作表格）\n")
+	}
+	if hint != "" {
+		builder.WriteString(hint + "\n")
 	}
 	builder.WriteString(workTableTraceMarkerClose)
 	return builder.String()

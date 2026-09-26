@@ -118,8 +118,8 @@ func TestAsyncTerminalStatesMapToWorkStatus(t *testing.T) {
 	}
 }
 
-// 打点块只列在跑的后台命令，且进上下文的字段必须收窄：路径、末行原文、时间戳
-// 都不许出现在这里（它们是探针给 GUI 的）。
+// 打点块列**在途行 + 待取回的完成行**（打点 K-5 的回填规范），且进上下文的字段必须
+// 收窄：路径、日志名、时间戳都不许出现在这里（它们是探针给 GUI 的）。
 func TestAsyncTraceLinesCarryNoPathsOrLogContent(t *testing.T) {
 	record := runningAsyncRecord("a3")
 	lines := asyncTraceLines([]dto.AsyncRunRecord{record}, "session-a")
@@ -127,7 +127,7 @@ func TestAsyncTraceLinesCarryNoPathsOrLogContent(t *testing.T) {
 		t.Fatalf("打点行数 = %d: %v", len(lines), lines)
 	}
 	line := lines[0]
-	for _, want := range []string{"async:a3", "running", "1.3KiB", "跑一整轮集成测试"} {
+	for _, want := range []string{"async:a3", "process", "running", "1.3KiB", "跑一整轮集成测试"} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("打点行缺 %q: %q", want, line)
 		}
@@ -138,10 +138,29 @@ func TestAsyncTraceLinesCarryNoPathsOrLogContent(t *testing.T) {
 		}
 	}
 
+	// 终态 + 已回填（Notified）⇒ 进块，带**有界摘要**。
 	terminal := record
 	terminal.State = "done"
-	if got := asyncTraceLines([]dto.AsyncRunRecord{terminal}, "session-a"); len(got) != 0 {
-		t.Fatalf("终态行仍进打点块: %v", got)
+	terminal.Notified = true
+	terminal.Summary = "done · exit=0 · 12 行 · 1.3KiB · 末行: ok seelebridge/tools"
+	terminalLines := asyncTraceLines([]dto.AsyncRunRecord{terminal}, "session-a")
+	if len(terminalLines) != 1 {
+		t.Fatalf("完成行（已回填）必须进打点块: %v", terminalLines)
+	}
+	for _, want := range []string{"async:a3", "done", "exit=0", "12 行"} {
+		if !strings.Contains(terminalLines[0], want) {
+			t.Fatalf("完成行缺 %q: %q", want, terminalLines[0])
+		}
+	}
+	if strings.Contains(terminalLines[0], record.LogPath) || strings.Contains(terminalLines[0], "a3.log") {
+		t.Fatalf("完成行漏出日志路径: %q", terminalLines[0])
+	}
+
+	// 终态但**没回填过**（Notified=false）= 状态机与投影不一致，不得当成结果进块。
+	unnotified := record
+	unnotified.State = "done"
+	if got := asyncTraceLines([]dto.AsyncRunRecord{unnotified}, "session-a"); len(got) != 0 {
+		t.Fatalf("没回填过的终态行进了块: %v", got)
 	}
 	if got := asyncTraceLines([]dto.AsyncRunRecord{record}, "session-b"); len(got) != 0 {
 		t.Fatalf("别的会话的后台命令漏进本会话打点块: %v", got)
@@ -158,18 +177,28 @@ func TestAsyncRunAloneMaterializesTraceBlock(t *testing.T) {
 
 	runtime.asyncRuns = []dto.AsyncRunRecord{runningAsyncRecord("a3")}
 	block := service.workTableTraceBlockFor("")
-	if !strings.Contains(block, workTableTraceMarkerOpen) || !strings.Contains(block, "- async:a3 running") {
+	if !strings.Contains(block, workTableTraceMarkerOpen) || !strings.Contains(block, "- async:a3 process running") {
 		t.Fatalf("只有后台命令时打点块没出现: %q", block)
 	}
-	if !strings.Contains(block, "async_output") {
+	if !strings.Contains(block, "job_manage") {
 		t.Fatalf("打点块缺 async:<句柄> 的读法说明: %q", block)
 	}
 
+	// 完成后：行**带着摘要留在块里**（这正是"回填的内容 = 表格的内容"）。
 	done := runningAsyncRecord("a3")
 	done.State = "done"
+	done.Notified = true
+	done.Summary = "done · exit=0 · 3 行 · 12B · 末行: ok"
 	runtime.asyncRuns = []dto.AsyncRunRecord{done}
+	finishedBlock := service.workTableTraceBlockFor("")
+	if !strings.Contains(finishedBlock, "async:a3") || !strings.Contains(finishedBlock, "exit=0") {
+		t.Fatalf("完成行没有带着摘要回填: %q", finishedBlock)
+	}
+
+	// 取回之后行消失（登记表不再报它）⇒ 块自动消失。
+	runtime.asyncRuns = nil
 	if got := service.workTableTraceBlockFor(""); got != "" {
-		t.Fatalf("后台命令终态后打点块应自动消失: %q", got)
+		t.Fatalf("取回/销项之后打点块应自动消失: %q", got)
 	}
 }
 
@@ -250,6 +279,74 @@ func TestAsyncRowsAreCappedAndNeverEvictTasks(t *testing.T) {
 	}
 	if _, ok := workItemByID(rows, "task:1"); !ok {
 		t.Fatal("真实任务行被后台行挤掉")
+	}
+}
+
+// TC-K5-1（打点 K-5 的"有界"判据）：注入 100 个已完成作业 →
+//   - 工作表格里的作业行 ≤ asyncWorkMaxRows；
+//   - 打点块里的行 ≤ workTableTraceMaxLines（含块头块尾）；
+//   - 在途行优先于完成行（它们在动）；
+//   - 被截掉的完成行**补一行汇总**，不静默消失（静默会让模型以为"没有待取回的作业"）。
+func TestAsyncBackfillStaysBounded(t *testing.T) {
+	records := make([]dto.AsyncRunRecord, 0, 120)
+	for index := range 100 {
+		record := runningAsyncRecord(fmt.Sprintf("f%d", index))
+		record.State = "done"
+		record.Notified = true
+		record.Summary = fmt.Sprintf("done · exit=0 · %d 行 · 1.3KiB · 末行: ok", index)
+		record.EndedAt = time.Now().Add(time.Duration(index) * time.Millisecond)
+		records = append(records, record)
+	}
+	for index := range 4 {
+		records = append(records, runningAsyncRecord(fmt.Sprintf("r%d", index)))
+	}
+
+	rows := asyncWorkItems(records)
+	asyncRows := 0
+	for _, row := range rows {
+		if strings.HasPrefix(row.ID, asyncWorkRowPrefix) {
+			asyncRows++
+		}
+	}
+	if asyncRows > asyncWorkMaxRows {
+		t.Fatalf("工作表格作业行 = %d，超过上限 %d", asyncRows, asyncWorkMaxRows)
+	}
+
+	lines := asyncTraceLines(records, "session-a")
+	if len(lines) > asyncWorkMaxRows {
+		t.Fatalf("打点行 = %d，超过上限 %d", len(lines), asyncWorkMaxRows)
+	}
+	// 在途行必须全部在（4 条），且排在完成行之前。
+	for index := range 4 {
+		want := fmt.Sprintf("async:r%d", index)
+		found := false
+		for position, line := range lines {
+			if strings.Contains(line, want) {
+				found = true
+				if position >= 4 {
+					t.Fatalf("在途行 %s 没有排在完成行之前: %v", want, lines)
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("在途行 %s 被完成行挤掉了: %v", want, lines)
+		}
+	}
+	// 被截掉的完成行要有汇总行，而不是无声无息。
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "另有") {
+		t.Fatalf("被截断的完成行没有汇总行: %v", lines)
+	}
+
+	// 整块（含块头块尾与读法说明）不得超过 workTableTraceMaxLines。
+	runtime := &fakeRuntime{}
+	service := newTestService(t, &fakeEngine{sessionID: "session-a"}, withTestRuntime(runtime))
+	defer service.Shutdown()
+	runtime.currentTaskSession = "session-a"
+	runtime.asyncRuns = records
+	block := service.workTableTraceBlockFor("")
+	if got := strings.Count(strings.TrimSpace(block), "\n") + 1; got > workTableTraceMaxLines {
+		t.Fatalf("打点块行数 = %d，超过上限 %d:\n%s", got, workTableTraceMaxLines, block)
 	}
 }
 

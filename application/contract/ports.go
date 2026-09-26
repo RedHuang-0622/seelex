@@ -187,10 +187,10 @@ type RuntimePort interface {
 	// 落盘 SessionRecord.Tasks 与请求尾部打点块用；后台会话收尾不得读活跃
 	// 注册表，对应 R6/P2）。
 	TaskSnapshotFor(sessionID string) []dto.TaskRecord
-	// ReleaseSessionAsync 杀掉某会话名下所有在途后台命令（bash background=true），
-	// 返回被登记的句柄数。会话删除/归档**必须**调用：句柄表按会话持有执行体，
-	// 会话没了就再没有 async_output/async_kill 能拿到它——不杀就是无人认领的
-	// 孤儿进程，而工作打点表会一路跟着它显示 running。
+	// ReleaseSessionAsync 终止某会话名下所有在途作业（bash_bg 进程 / read_batch
+	// 扇出 / subagent 编排），返回被登记的句柄数。会话删除/归档**必须**调用：
+	// 句柄表按会话持有执行体，会话没了就再没有 job_manage 能拿到它——不杀就是
+	// 无人认领的孤儿，而工作打点表会一路跟着它显示 running。
 	ReleaseSessionAsync(sessionID string) int
 	// AsyncPendingFor 返回某会话此刻还在跑的后台命令数（能力未开时恒 0）。
 	// 消费点是"无进展预算"：安静的长命令被反复取回时载荷逐字节相同，字节口径的

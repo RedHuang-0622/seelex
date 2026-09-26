@@ -96,9 +96,13 @@ func DefaultPermissionGroupList() []toolspermission.PermissionGroup {
 			Match: []string{
 				"read_file", "read_plan", "read_tool_result", "read_compressed_turn",
 				"search_history", "grep_search", "glob",
-				// async_output 取的是本会话里**已获批那次派发**的输出：只读，
-				// 因此不重复弹审批（规格 §8.2）。
-				"async_output",
+				// bash_read 是 bash 工具族里的**只读面**（设计文档 §A.4）：分类判定
+				// 在服务端（security.ClassifyCommand），落在只读簇 ⇒ 默认 allow ⇒
+				// 子代理/只读员工天然拿得到，且不弹审批。这正是工具级分裂的目的。
+				"bash_read",
+				// read_batch 派发的是一批**只读**扇出作业（Kind=inline），不碰共享状态：
+				// 派发面免打断，取回/终止/销项走 job_manage（rw 簇）。
+				"read_batch",
 				"get_time", "web_search",
 				"todo_status", "todolist_status", "plan_status", "goal_status",
 				"plugins_list", "skills_list", "mcp_list",
@@ -113,10 +117,10 @@ func DefaultPermissionGroupList() []toolspermission.PermissionGroup {
 			Default:  toolspermission.ActionAllow,
 			Match: []string{
 				"write_file", "edit_file", "bash",
-				// async_kill 终止的正是 bash 起的执行体：跟 bash 同组才有相同的主体
-				// 覆盖。放 CTL 会让 sub/员工断位，它们自己派发的后台命令就谁也杀不掉；
+				// bash_bg / job_manage 与 bash 同组：它们管的正是 bash 起的执行体。
+				// 放 CTL 会让 sub/员工断位，它们自己派发的后台作业就谁也取不回、杀不掉；
 				// 真正的门是 handler 里的"句柄必须属于本会话"。
-				"async_kill",
+				"bash_bg", "job_manage",
 				"todo_init", "todo_add", "todo_done",
 				"todolist_init", "todolist_add", "todolist_done",
 				"task_add", "taskadd",
@@ -218,9 +222,21 @@ func DefaultPermissionRules() []toolspermission.PermissionRule {
 		{ToolName: "skill_create", Action: toolspermission.ActionAsk},
 
 		// bash 能力白名单：安全命令直接执行，越界命令问人，危险命令拒绝。
+		//
+		// 口径同时覆盖 bash_bg（后台受管命令）——它跑的是同一类命令，只是活过这一轮。
+		// **不覆盖 bash_read**：那个名字的入参必须过服务端只读分类（K-4），
+		// 命令模式规则在这里是第二道、也是更弱的一道（模型换个写法就能绕过模式匹配）。
 		{ToolName: "bash", Action: toolspermission.ActionAsk},
+		{ToolName: "bash_bg", Action: toolspermission.ActionAsk},
 		{
 			ToolName: "bash",
+			Patterns: []string{"git *", "ls *", "cat *", "echo *", "head *", "tail *",
+				"pwd", "which *", "whoami", "date", "df *", "du *", "printenv",
+				"go test *", "go build *", "go vet *", "gofmt *"},
+			Action: toolspermission.ActionAllow,
+		},
+		{
+			ToolName: "bash_bg",
 			Patterns: []string{"git *", "ls *", "cat *", "echo *", "head *", "tail *",
 				"pwd", "which *", "whoami", "date", "df *", "du *", "printenv",
 				"go test *", "go build *", "go vet *", "gofmt *"},
@@ -232,7 +248,17 @@ func DefaultPermissionRules() []toolspermission.PermissionRule {
 			Action:   toolspermission.ActionAsk,
 		},
 		{
+			ToolName: "bash_bg",
+			Patterns: []string{"npm install *", "npm ci*", "make *", "docker *", "rm *", "mv *", "chmod *", "chown *"},
+			Action:   toolspermission.ActionAsk,
+		},
+		{
 			ToolName: "bash",
+			Patterns: []string{"rm -rf /*", "rm -fr /*", ":(){ :|:& };:", "dd if=* of=*", "mkfs*", "shutdown*", "reboot*"},
+			Action:   toolspermission.ActionDeny,
+		},
+		{
+			ToolName: "bash_bg",
 			Patterns: []string{"rm -rf /*", "rm -fr /*", ":(){ :|:& };:", "dd if=* of=*", "mkfs*", "shutdown*", "reboot*"},
 			Action:   toolspermission.ActionDeny,
 		},
@@ -430,6 +456,42 @@ func (state *PermissionGate) configSnapshot() toolspermission.PermissionConfig {
 // 规则的用例）时不启用主体类策略，完全落回框架的位/规则判定。
 func (state *PermissionGate) policyReady(cfg toolspermission.PermissionConfig) bool {
 	return len(cfg.Groups) > 0 && len(cfg.Subjects) > 0
+}
+
+// sanitizeMeta 把"本次配置里不存在的簇"从工具自带的簇属里摘掉（打点 K-0 的
+// 配套守卫，不是可选项）。
+//
+// 为什么必须摘：checker 的 DecideForMeta 在 meta.Groups 非空时走声明路径——
+// 它按**组名**在当前配置的组表里查那个组；查不到时 required 停留在 meta.Bits，
+// 而 seelex 的声明刻意把 Bits 留 0（"所需位"只有一个事实源：组 Mode）⇒ required
+// 为 0 ⇒ 跳过位检查，**判定结果直接落成 allow**。于是"用户用 seelex.yaml 的
+// permission.groups 换掉默认组表"这类配置会得到一次静默放权（bash 在组表里
+// 找不到 rw 就不再要位、也不再问人）。
+//
+// 摘掉之后（Groups/Bits 归零、Kind 保留）判定落回**按名字路由**，也就是 K-0
+// 之前的老路：组表里没有 → 未分封 → 默认 ask。语义边界因此是安全的：声明只在
+// 它真的存在于本次配置时生效，声明与配置不一致时退回更保守的那条路。
+//
+// 保留 Kind 的理由：control 类的"仅 root 可路由"是**框架级**约束（
+// permission/middleware.go），与组表是否存在无关；它收窄而不放权，摘掉反而更松。
+func (state *PermissionGate) sanitizeMeta(meta frameworktools.ToolMeta) frameworktools.ToolMeta {
+	if len(meta.Groups) == 0 {
+		return meta
+	}
+	state.mu.RLock()
+	known := state.groupNames
+	kept := make([]string, 0, len(meta.Groups))
+	for _, group := range meta.Groups {
+		if known[group] {
+			kept = append(kept, group)
+		}
+	}
+	state.mu.RUnlock()
+	if len(kept) == 0 {
+		return frameworktools.ToolMeta{Kind: meta.Kind}
+	}
+	meta.Groups = kept
+	return meta
 }
 
 // enforceClass 是主体类策略（框架 BitEnforcer 接口的实现面）：返回 ok=true 表示

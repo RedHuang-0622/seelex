@@ -6,10 +6,10 @@ package main
 //
 // 两臂只差 limits.async_exec.enabled——装配、账号、模型、任务素材逐字段相同：
 //
-//	A 臂 = 开关关：bash schema 里没有 background、async_output 未注册，长命令只能在
+//	A 臂 = 开关关：作业工具（bash_bg / read_batch / job_manage）都不注册，长命令只能在
 //	        工具调用里同步阻塞，整轮被这一条命令钉住；
-//	B 臂 = 开关开：background=true 秒回受理回执（不含输出），趁命令在跑做别的活，
-//	        再用 async_output(handle, wait_ms) 轮询取回增量。
+//	B 臂 = 开关开：bash_bg 秒回受理回执（不含输出），趁命令在跑做别的活，
+//	        再用 job_manage(op=fetch, handle, wait_ms) 轮询取回增量。
 //
 // 判据在跑之前写死（规格 §8.3 + 台账 §10.2，跑完不得回头改阈值）：
 //
@@ -35,9 +35,9 @@ package main
 // 不让模型随机性决定回合形状（两臂、每次重复都走同一条脚本）。
 //
 // 指标 4 的判据只看 wire，不看模型说了什么：标记 SENT-* 只存在于命令输出里，所以它
-// 必须出现在 role=tool 消息中，且出现在 async_output 调用**之后**的那次请求里才算数
+// 必须出现在 role=tool 消息中，且出现在 job_manage(op=fetch) 调用**之后**的那次请求里才算数
 // ——受理回执本身不含输出，模型抄不到。T3 以「不取回结果」为设计目标，其指标 4 降级
-// 为「async_output 的返回体进入后续请求 ≥1 次」，这一点在报告里单列。
+// 为「job_manage(op=fetch) 的返回体进入后续请求 ≥1 次」，这一点在报告里单列。
 //
 // 运行（校准：只跑 T1、1 次、命令 6 秒）：
 //
@@ -128,7 +128,7 @@ type abSample struct {
 	prompt    int
 	cached    int
 	uncached  int  // 真实边际：命中的前缀按轮重复计入 prompt，只有 miss 才是新增成本
-	polls     int  // 含 async_output 调用的请求数
+	polls     int  // 含 job_manage(op=fetch) 调用的请求数
 	inContext bool // 命令输出标记在调用之后的请求里进过 tool 消息
 	dirs      int  // 输出目录增量
 	logBytes  int64
@@ -163,8 +163,9 @@ func (s abSample) ratio() float64 {
 func abPrompt(arm, taskID, command, sentinel string) string {
 	const tail = "只调用上面点名的工具，不要编造任何命令输出。"
 	sync := "用 bash 执行命令 `" + command + "`（工具调用会阻塞到命令结束），拿到输出后再继续。"
-	async := "用 bash 的 background=true 派发命令 `" + command + "`（该次调用的返回只是受理回执，不含输出）。派发成功后先干别的活，" +
-		"之后用 async_output(handle, wait_ms=5000) 取回输出；若返回仍在运行，就再调用一次 async_output。"
+	async := "用 bash_bg 派发命令 `" + command + "`（该次调用的返回只是受理回执，不含输出）。派发成功后先干别的活，" +
+		"之后用 job_manage(op=fetch, handle, wait_ms=5000) 取回输出；若返回仍在运行，就再取回一次" +
+		"（终态取回后该句柄即销项，不要再取）。"
 	ask := "最后回答三件事：命令输出里的标记是什么、a.txt 的第一行是什么、b.txt 的第一行是什么。"
 
 	switch taskID {
@@ -180,9 +181,9 @@ func abPrompt(arm, taskID, command, sentinel string) string {
 		if arm == abArmA {
 			return sync + read + "最后回答两件事：b.txt 的第一行是什么、命令输出里的标记是什么。" + tail
 		}
-		return "用 bash 的 background=true 派发命令 `" + command + "`，然后调用 async_output(handle, wait_ms=1000) 一次；" +
+		return "用 bash_bg 派发命令 `" + command + "`，然后调用 job_manage(op=fetch, handle, wait_ms=1000) 一次；" +
 			"不管命令是否结束都不要再等、不要再取回。" + read +
-			"最后只回答 b.txt 的第一行，并按 async_output 的返回如实说明命令此刻是否已经结束。" + tail
+			"最后只回答 b.txt 的第一行，并按那次取回的返回如实说明命令此刻是否已经结束。" + tail
 	case "T4":
 		// 安静长命令：整条命令中途**一行都不输出**，直到最后才 echo 标记。B 臂被要求
 		// 恰好轮询 6 次——6 次取回的载荷逐字节相同（载荷必须确定性，否则每轮白烧缓存），
@@ -192,8 +193,9 @@ func abPrompt(arm, taskID, command, sentinel string) string {
 			return "用 bash 执行命令 `" + command + "`（工具调用会阻塞到命令结束）。" +
 				"然后回答：命令输出里的标记是什么。" + tail
 		}
-		return "严格按序执行，不增不减：(1) 用 bash 的 background=true 派发命令 `" + command +
-			"`，description 写「安静等一条长命令跑完」；(2) 对上一步返回的 handle 调用 async_output(handle, wait_ms=2000) " +
+		return "严格按序执行，不增不减：(1) 用 bash_bg 派发命令 `" + command +
+			"`，description 写「安静等一条长命令跑完」；(2) 对上一步返回的 handle 调用 " +
+			"job_manage(op=fetch, handle, wait_ms=2000) " +
 			"**恰好 6 次**；(3) 6 次之后，若某次返回里出现了标记就把标记原样回答出来，没有出现就回答「未取得」并说明命令仍在运行。" +
 			"不要派发第二条命令，不要用别的工具。"
 	default: // T1：长命令并行读代码
@@ -368,7 +370,7 @@ func abRunTurn(t *testing.T, accountsSource, upstream, taskID, arm string, rep, 
 		messages := prefixLiveMessages(t, record.body)
 		roundReceipts := abAsyncReceipts(messages)
 		for _, message := range messages {
-			if message.role == "assistant" && message.hasTools && strings.Contains(message.raw, `"async_output"`) && callIdx < 0 {
+			if message.role == "assistant" && message.hasTools && strings.Contains(message.raw, `"job_manage"`) && callIdx < 0 {
 				callIdx = index
 			}
 			if message.role == "tool" && strings.Contains(message.raw, sentinel) && outIdx < 0 {
@@ -376,7 +378,7 @@ func abRunTurn(t *testing.T, accountsSource, upstream, taskID, arm string, rep, 
 			}
 		}
 		// 每对问答都会随历史重放到后续请求里，所以取"最全的那一条请求"的条数：
-		// 第一条是派发回执，其余每条都是一次 async_output 取回。
+		// 第一条是派发回执，其余每条都是一次 job_manage(op=fetch) 取回。
 		if roundReceipts > receipts {
 			receipts = roundReceipts
 		}
@@ -385,7 +387,7 @@ func abRunTurn(t *testing.T, accountsSource, upstream, taskID, arm string, rep, 
 		sample.polls = receipts - 1
 	}
 	if outIdx >= 0 {
-		// A 臂没有 async_output：同步 bash 的输出进入后续请求即等价事实。
+		// A 臂没有作业面：同步 bash 的输出进入后续请求即等价事实。
 		sample.inContext = arm == abArmA || outIdx > callIdx
 	}
 	dirsAfter, bytesAfter := abAsyncTempFootprint()
