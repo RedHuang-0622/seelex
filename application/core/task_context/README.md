@@ -196,6 +196,7 @@ go test ./application/core/task_context -count=1
 - `func (c *Coordinator) _ClearReActBudget(requestID string)`
 - `func (c *Coordinator) RecordReActToolCall(ctx context.Context)` — RecordReActToolCall 累计一次工具调用（自行加锁）。ctx 携带会话 ID 时
 - `func (c *Coordinator) _RecordReActToolCall(ctx context.Context)`
+- `func (c *Coordinator) pendingAsyncForContext(ctx context.Context) int` — pendingAsyncForContext 返回该 ctx 所属会话此刻还在跑的后台命令数。
 - `func (c *Coordinator) AllowNextReActIteration(ctx context.Context, turn int) bool` — AllowNextReActIteration 判定是否允许下一轮模型迭代（自行加锁）。ctx
 - `func (c *Coordinator) _AllowNextReActIteration(ctx context.Context, turn int) bool`
 - `func (c *Coordinator) ReActBudgetError(requestID string) error` — ReActBudgetError 返回预算终止错误（自行加锁；无终止原因 → nil）。
@@ -215,6 +216,11 @@ go test ./application/core/task_context -count=1
 - `func (c *Coordinator) _RestoreSessionTaskLockedFor(sessionID string, restored RestoredTaskState)`
 - `func (c *Coordinator) ResetForNewSessionLocked()` — ResetForNewSessionLocked 清空活跃会话任务/plan 状态（BeginNewSession /
 - `func (c *Coordinator) _ResetForNewSessionLocked()`
+
+### coordinator_async_budget_test.go
+
+- `func TestQuietAsyncPollingIsNotCountedAsNoProgress(t *testing.T)` — D1 的红→绿对照：一条**安静**的长命令（还在跑，但没有新输出）被反复取回时，
+- `func TestNoAsyncReaderFallsBackToPlainNoProgressBudget(t *testing.T)` — 未注入在途读面（能力关闭 / 测试桩）时，判据必须退回原行为——不得因为
 
 ### ctx.go
 
