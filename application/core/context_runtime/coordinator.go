@@ -197,7 +197,7 @@ const (
 //
 //	ComparedTokens  = 判据量（全量累积/引擎缓存峰值的请求估算，压缩决策用的那个量）
 //	AssembledTokens = 装配后估算（真正发给 provider 的请求大小）
-//	SoftThreshold   = 判据量的软阈值（预算 75%）
+//	SoftThreshold   = 判据量的软阈值（limits.context_soft_percent，默认 95%）
 type CompactResult struct {
 	Outcome         CompactOutcome
 	Record          model.ContextCompaction
@@ -479,6 +479,14 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	}
 	events := append([]model.TranscriptEvent(nil), c.tasks.TranscriptFor(sessionID)...)
 	events = excludeCurrentInputEvent(events, requestID, currentInput)
+	// 累积上下文的绝对起点：上一次折叠已经覆盖的 transcript 前缀不再回填。
+	// 判据、保留窗口与装配都从同一起点往后看——否则每次装配都把已折出的前缀
+	// 重新算进“全量累积”，长会话稳定越线、每回合重新压一次。
+	retainedFrom := 0
+	if state.ContextRetainedFrom > 0 && state.ContextRetainedFrom <= len(events) {
+		retainedFrom = state.ContextRetainedFrom
+	}
+	accumulated := events[retainedFrom:]
 	// 门禁进度：显式路径（/compact、compact_context）在动第一个重活之前就开轮，
 	// 并立刻发起手帧——从"按下回车"到"判据关收口"之间要跑两次全量请求估算
 	// （原始累积上下文 + 引擎缓存峰值），是整轮里最长的一段；没有这帧，界面在这
@@ -498,9 +506,12 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 		progress.begin()
 		defer func() { progress.settle(err, recorded, "") }()
 	}
-	// 达峰判定以全量累积 context 为准（而非可能已被框架压缩的引擎历史）：
-	// 与引擎缓存估算取峰值，压缩是唯一使累积前缀失效的事件。
-	fullContext := task_context.TranscriptTailHistory(events, budget.Budget, 0)
+	// 达峰判定以**未被折叠覆盖**的全量累积 context 为准（而非可能已被框架
+	// 压缩的引擎历史）：与引擎缓存估算取峰值，压缩是唯一使累积前缀失效的事件。
+	// 尾窗选择注入请求同款估算器（TranscriptTailWindowBy），裁剪量与判据量
+	// 才是同一把尺子；否则一边按事件记录值裁、一边按当前校准值判，保留窗口
+	// 会重新“膨胀”越线。
+	fullContext := task_context.TranscriptTailHistoryBy(accumulated, budget.Budget, 0, c.transcriptUnitTokens)
 	rawTokens := c.tasks.CountRequestTokens(systemPrompt, fullContext, currentInput, tools)
 	if cacheTokens := c.tasks.CountRequestTokens(systemPrompt, existing, currentInput, tools); cacheTokens > rawTokens {
 		rawTokens = cacheTokens
@@ -508,7 +519,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	currentInput = c.protectOversizedCurrentInputLocked(sessionID, requestID, currentInput, budget)
 	// 压缩策略输入（同一份 window 配置段，框架侧 WindowPolicy 与这里共用）：
 	//
-	//	软压缩 = provider 比例阈值（预算 75%）+ 保留窗口规则
+	//	软压缩 = provider 比例阈值（limits.context_soft_percent，默认 95%）+ 保留窗口规则
 	//	         保留前缀 = min(token1, token2)，token1 = 配置里硬编码的
 	//	         保留窗口 token 数（未配置回退账号上下文窗口），
 	//	         token2 = ratio × all_context（全量上下文 token 数）；
@@ -561,6 +572,11 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	}
 
 	systems := RetainedSystemHistory(c.foldHistory(options.inLoop, sessionID))
+	// 折叠留下的保留窗口是 transcript 的**后缀**，已由 accumulated 从头重建；
+	// 保留段只留 system 前缀，避免窗口内容与累积段重复计入。
+	if retainedFrom > 0 {
+		systems = RetainedSystemOnly(systems)
+	}
 	// 保留前缀窗口（软压缩）：min(token1, token2)，见上方 windowConfig 注释。
 	// 窗口外部分尽数送进 compact_context；保留窗口按完整协议单元边界收敛
 	// （单元不可拆分），因此不再叠加配置单元上限做第二次截断。
@@ -583,12 +599,13 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	// transcript 压缩区间的记事基准：累积模式可能丢掉已覆盖前缀，记录边界
 	// 时用原始 events（未裁剪）＋丢弃条数还原绝对下标。
 	transcript := events
+	windowEvents := accumulated
 	discardedEvents := 0
 	if !compacting {
 		// 累积模式：保留段（稳定前缀 + 已定稿轮次）已覆盖 transcript 前缀，
 		// 只追加保留段之后的新事件（append-only，字节稳定）。
 		if covered := retainedContextEventCount(systems); covered > 0 {
-			if covered < len(events) && !retainedMatchesTranscriptPrefix(systems, events) {
+			if covered < len(windowEvents) && !retainedMatchesTranscriptPrefix(systems, windowEvents) {
 				// 冷恢复只装载了尾部窗口：保留段是 transcript 的**后缀**而
 				// 非前缀（retainedMatchesTranscriptPrefix=false）。此时按
 				// “已覆盖 covered 条事件”跳过会得到 [tail]+[middle] 的
@@ -596,16 +613,17 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 				// 字节不稳定 → 缓存无法命中）。回退为从完整 transcript
 				// 按原序重建：保留段只留 system，事件不裁剪。
 				systems = RetainedSystemOnly(systems)
-			} else if covered < len(events) {
+			} else if covered < len(windowEvents) {
 				discardedEvents = covered
-				events = events[covered:]
+				windowEvents = windowEvents[covered:]
 			} else {
-				events = nil // 全部事件已被保留段覆盖：本次无需追加
+				windowEvents = nil // 全部事件已被保留段覆盖：本次无需追加
 			}
 		}
 	}
-	assembled, retainedFrom, estimated := c.fitExecutionHistory(systemPrompt, systems, planMessage, events, currentInput, tools, target, compacting, 0)
-	// 自主压缩（探测即主动触发）：装配结果一旦逼近硬阈值（预算 90%），说明
+	assembled, retainedWindowFrom, estimated := c.fitExecutionHistory(systemPrompt, systems, planMessage, windowEvents, currentInput, tools, target, compacting, 0)
+	// 自主压缩（探测即主动触发）：装配结果一旦逼近硬阈值（limits.context_hard_percent，
+	// 默认 98%），说明
 	// 可变 transcript 已经压不动——此时立刻折叠为有界 checkpoint 帧（稳定
 	// system 前缀 + 任务证据摘要 + plan + 当前输入），而不是把贴着上限的历史
 	// 发出去、等下一次超过全量预算再兜底。触发点是"探测到接近上限"，不是
@@ -618,6 +636,13 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 		if compressed, compressedTokens, ok := c.compressExecutionHistory(systemPrompt, systems, summary, planMessage, currentInput, tools, budget); ok && compressedTokens < estimated {
 			assembled, estimated, autonomous = compressed, compressedTokens, true
 		}
+	}
+	// 本次折叠覆盖到的 transcript 绝对边界：普通折叠 = 已折出前缀的终点
+	// （保留窗口从它开始），自主压缩 = 整个 transcript 都被 checkpoint 替代。
+	// 记录区间与下一回合的累积起点都读这一份事实，不再各自重算。
+	compressedTo := retainedFrom + discardedEvents + retainedWindowFrom
+	if autonomous {
+		compressedTo = len(transcript)
 	}
 	// 四区显式化（《压缩四区模型》① ② ③ ④ + 当轮输入）：分区、各区 token 数与
 	// 来源来自**装配结果本身**，判据量与保留窗口决策同一次采样写入。门禁 Detail
@@ -647,6 +672,12 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	state = c.tasks.CurrentTaskExecutionFor(sessionID)
 	var revision uint64
 	if state != nil && state.RequestID == requestID {
+		// 本次折叠后累积上下文的起点前移到新的保留窗口/checkpoint 边界；
+		// 未折叠不动（保留窗口没有变化）。跨回合由 continuationTaskExecutionState
+		// 继承，避免下一回合从 transcript 头部重新累积。
+		if compacting || autonomous {
+			state.ContextRetainedFrom = compressedTo
+		}
 		state.TokenAudit = model.TokenAudit{
 			Model: runtimeModel, Counter: c.tasks.TokenCounterName(),
 			Budget: budget.Budget, SoftThreshold: budget.SoftThreshold, HardThreshold: budget.HardThreshold,
@@ -670,12 +701,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 				reason = "context_budget_autonomous"
 			}
 			// 压缩区间（记录，不推算）：被压出保留窗口、送进 compact_context 的
-			// transcript 前缀。自主压缩（bounded checkpoint 帧）不留 transcript
-			// 保留段 → 整个 transcript 都是被压区间。
-			compressedTo := discardedEvents + retainedFrom
-			if autonomous {
-				compressedTo = len(transcript)
-			}
+			// transcript 前缀（compressedTo 在装配后、落记录前已定稿）。
 			compacted := task_context.TranscriptPrefixRange(transcript, compressedTo)
 			record := model.ContextCompaction{
 				Version: checkpoint.Version, Reason: reason, Origin: origin,
@@ -799,13 +825,21 @@ func (c *Coordinator) tryFitExecutionHistory(
 	maxUnits int,
 ) ([]contract.EngineMessage, int, int) {
 	history := append([]contract.EngineMessage(nil), systems...)
-	tail, retainedFrom := task_context.TranscriptTailWindow(events, target, maxUnits)
+	tail, retainedFrom := task_context.TranscriptTailWindowBy(events, target, maxUnits, c.transcriptUnitTokens)
 	history = append(history, tail...)
 	// plan 后置贴近当前输入（LLM 循环会把当前输入追加到历史尾部）。
 	if planMessage != "" {
 		history = append(history, contract.EngineMessage{Role: "system", Content: planMessage, ContentSet: true})
 	}
 	return history, retainedFrom, c.tasks.CountRequestTokens(systemPrompt, history, currentInput, tools)
+}
+
+// transcriptUnitTokens 按请求装配同款估算器给一个协议单元计价。保留窗口
+// （target）、达峰判据与最终装配必须共用这一把尺子：事件自带的 TokenCount 是
+// 落盘那一刻的估算值，校准因子变化后与当前估算会漂移，按记录值裁出的窗口在
+// 重新估算时会“膨胀”回阈值以上，造成每回合重压。
+func (c *Coordinator) transcriptUnitTokens(unit []model.TranscriptEvent) int {
+	return c.tasks.CountRequestTokens("", task_context.TranscriptEventMessages(unit), "", nil)
 }
 
 // compressExecutionHistory 是自主压缩兜底：正常有界窗口装不下全量预算时，

@@ -63,6 +63,24 @@ func TestTranscriptTailWindowReportsRetainedBoundary(t *testing.T) {
 	}
 }
 
+// TestTranscriptTailWindowByUsesInjectedEstimator：选窗必须按注入的估算器
+// （压缩判据/保留窗口同款）计价，而不是事件自带的记录值。校准因子变化后两者
+// 会漂移：按记录值裁出的窗口在重新估算时会“膨胀”回软阈值以上，导致长会话
+// 每回合都判成越线、每回合重压。
+func TestTranscriptTailWindowByUsesInjectedEstimator(t *testing.T) {
+	// 5 轮 × 30000 记录值；注入 2× 估算后每轮按 60000 计。
+	events := windowEvents(5, 30_000)
+	history, start := TranscriptTailWindowBy(events, 100_000, 4, func(unit []model.TranscriptEvent) int {
+		return recordedUnitTokens(unit) * 2
+	})
+	if len(history) != 2 {
+		t.Fatalf("retained messages = %d, want 2 (1 unit × 2 messages)", len(history))
+	}
+	if start != 8 {
+		t.Fatalf("window start = %d, want 8 (只保留最新 1 轮)", start)
+	}
+}
+
 // TestTranscriptTailWindowRecordsUnitCapBoundary：单元上限比 token 预算更紧时
 // （maxUnits 生效），边界同样落在完整协议单元起始处。
 func TestTranscriptTailWindowRecordsUnitCapBoundary(t *testing.T) {

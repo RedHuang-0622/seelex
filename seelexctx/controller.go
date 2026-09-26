@@ -46,7 +46,7 @@ const ActivePlanContextMarker = "<!-- seelex:active-plan:v1 -->"
 // context_safety_reserve_divisor），与 application 层 newContextBudget 读同一份
 // 配置：同一个"软阈值"在装配层与回合内控制器只能有一个来源，否则用户调低
 // context_soft_percent 后，回合内仍按出厂比例压（报表说 60% 已压过、控制器还
-// 在 75% 等）。默认 8/75/90/60 由 Limits.WithDefaults 给出（见 limits.go）。
+// 在 95% 等）。默认 8/95/98/80 由 Limits.WithDefaults 给出（见 limits.go）。
 type ContextWindowPolicy struct {
 	Window         int // provider 上下文窗口
 	OutputReserve  int // 单次输出预留
@@ -81,13 +81,13 @@ func NewContextWindowPolicy(window, outputReserve int, limits Limits) ContextWin
 // Budget 返回可用于请求的 token 预算。
 func (p ContextWindowPolicy) Budget() int { return p.Window - p.OutputReserve - p.SafetyReserve }
 
-// SoftThreshold 软阈值（limits.context_soft_percent，默认 75%）。
+// SoftThreshold 软阈值（limits.context_soft_percent，默认 95%）。
 func (p ContextWindowPolicy) SoftThreshold() int { return p.Budget() * p.SoftPercent / 100 }
 
-// HardThreshold 硬阈值（limits.context_hard_percent，默认 90%）。
+// HardThreshold 硬阈值（limits.context_hard_percent，默认 98%）。
 func (p ContextWindowPolicy) HardThreshold() int { return p.Budget() * p.HardPercent / 100 }
 
-// TargetAfterCompaction 压缩目标（limits.context_target_percent，默认 60%）。
+// TargetAfterCompaction 压缩目标（limits.context_target_percent，默认 80%）。
 func (p ContextWindowPolicy) TargetAfterCompaction() int { return p.Budget() * p.TargetPercent / 100 }
 
 // Reserved 固定预留（system prompt + 栈块）。
@@ -302,7 +302,7 @@ func (c *seelexContextController) frameCarryTokens() int {
 //
 // 覆盖只换 Window/OutputReserve 这两个账号输入，比例与除数沿用构造时注入的
 // limits 生效值：在这里重建一份策略会把配置丢掉、退回出厂默认，配置就只对着
-// 一个触发层生效（装配层跟着改、回合内控制器仍按 75% 等）。
+// 一个触发层生效（装配层跟着改、回合内控制器仍按 95% 等）。
 func (c *seelexContextController) policy() ContextWindowPolicy {
 	policy := c.opts.Policy
 	if policy.Window <= 0 {

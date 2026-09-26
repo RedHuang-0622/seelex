@@ -18,6 +18,12 @@ result-ref、token 审计（`CalibratedTokenCounter`）、plan 帧状态与 ReAc
   落盘前回填：`BackfillAssistantReasoning` 用引擎历史补齐 transcript 的
   reasoning 草稿，`MergeToolNarration` 把只进过视图的工具轮说明正文并入
   tool_call 事件（重启恢复的轨迹保留工具轮间的 LLM 输出与草稿）。
+- 做：**累积上下文起点与可选尺子的尾窗收敛**。`TaskExecutionState.ContextRetainedFrom`
+  记录上一次折叠覆盖到的 transcript 绝对事件下标（0 = 尚未折叠），压缩判据与
+  累积装配只从该起点往后看，跨回合由 `continuationTaskExecutionState` 继承；
+  尾窗另提供 `TranscriptTailWindowBy`，允许调用方注入自己的 token 估算器，
+  使裁剪预算与压缩判据/保留窗口共用同一把尺子（默认 `TranscriptTailWindow`
+  仍按事件自带 `TokenCount` 记录值，供冷读装载使用）。
 - 做：**会话级上下文维护身份**（`session_context_maintenance.go`）。会话没有
   在飞回合时（冷加载、刚清空）没有 `RequestID` 可折叠，`/compact` 过去只能
   登记到"下一条消息"。`BeginSessionContextMaintenanceLocked` 给这种会话开一个
@@ -247,6 +253,10 @@ go test ./application/core/task_context -count=1
 - `func ActivePlanFrame(stack []model.SessionPlanFrame, activeID string) *model.SessionPlanFrame` — ActivePlanFrame 返回 plan 栈中的激活帧（未找到 → nil）。
 - `func ActivePlanFromStack(stack []model.SessionPlanFrame, activeID string) *model.PlanState` — ActivePlanFromStack 返回激活帧的 Plan 深拷贝（未找到 → nil）。
 - `func TranscriptTailWindow(events []model.TranscriptEvent, tokenBudget, maxUnits int) ([]contract.EngineMessage, int)` — TranscriptTailHistory 把 transcript 尾部事件按协议单元收敛为 provider
+- `func recordedUnitTokens(events []model.TranscriptEvent) int` — recordedUnitTokens 是 TranscriptTailWindow 的历史口径：单元内事件自带
+- `func TranscriptTailWindowBy( events []model.TranscriptEvent, tokenBudget, maxUnits int, unitTokens func([]model.TranscriptEvent) int, ) ([]contract.EngineMessage, int)` — TranscriptTailWindowBy 与 TranscriptTailWindow 同语义，但按注入的单元
+- `func TranscriptEventMessages(events []model.TranscriptEvent) []contract.EngineMessage` — TranscriptEventMessages 把一组 transcript 事件映射为 provider 消息（与装配
+- `func TranscriptTailHistoryBy( events []model.TranscriptEvent, tokenBudget, maxUnits int, unitTokens func([]model.TranscriptEvent) int, ) []contract.EngineMessage` — TranscriptTailHistoryBy 是 TranscriptTailWindowBy 的窗口消息视图。
 - `func TranscriptTailHistory(events []model.TranscriptEvent, tokenBudget, maxUnits int) []contract.EngineMessage` — TranscriptTailHistory 是 TranscriptTailWindow 的窗口消息视图（多数调用方
 - `func (r TranscriptEventRange) Empty() bool` — Empty 报告该区间没有任何可记录的边界。
 - `func TranscriptPrefixRange(events []model.TranscriptEvent, end int) TranscriptEventRange` — TranscriptPrefixRange 记录 events[:end] 的区间边界：事件序号取首/末事件的
@@ -276,6 +286,7 @@ go test ./application/core/task_context -count=1
 - `func windowEvents(units, unitTokens int) []model.TranscriptEvent` — windowEvents 构造 units 个已定稿轮次（user+assistant），每轮 unitTokens 个
 - `func itoa(value int) string`
 - `func TestTranscriptTailWindowReportsRetainedBoundary(t *testing.T)` — TestTranscriptTailWindowReportsRetainedBoundary：窗口边界 = 保留段首个事件
+- `func TestTranscriptTailWindowByUsesInjectedEstimator(t *testing.T)` — TestTranscriptTailWindowByUsesInjectedEstimator：选窗必须按注入的估算器
 - `func TestTranscriptTailWindowRecordsUnitCapBoundary(t *testing.T)` — TestTranscriptTailWindowRecordsUnitCapBoundary：单元上限比 token 预算更紧时
 - `func TestTranscriptTailWindowDegradesToNewestUnit(t *testing.T)` — TestTranscriptTailWindowDegradesToNewestUnit：单个最新单元自身超预算时仍保留
 - `func TestTranscriptPrefixRangeRecordsMessageNumbers(t *testing.T)` — TestTranscriptPrefixRangeRecordsMessageNumbers：压缩区间记录消息号与事件

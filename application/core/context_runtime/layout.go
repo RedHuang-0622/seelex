@@ -43,22 +43,27 @@ type ContextZone struct {
 
 // RetainDecision 是保留窗口（③ 的边界）的一次决策事实（《待落地》1 显式化）。
 //
-// 判定公式：retained = clamp(min(token1, token2), floor, token1)
+// 判定公式：retained = min(clamp(min(token1, token2), floor, token1), target)
 //
 //	token1 = 配置里的保留上限 window.retain_tokens（未配置 → 账号上下文窗口）
 //	token2 = window.ratio × 全量上下文
 //	floor  = max(最近 1 个完整协议单元, limits.context_retain_floor_percent × 预算)
+//	target = limits.context_target_percent × 预算（0 = 未配置）
 //
 // 「最近 1 个完整协议单元」这条兜底在装配层（TranscriptTailWindow 单元不可拆分），
-// 本结构只记比例部分与最终值。
+// 本结构只记比例部分与最终值。target 是**硬上限**：保留规则/下限允许保留更多
+// 时也必须收口，给下一轮留出 soft − target 的确定余量；否则保留窗口加固定
+// 开销贴着软线，下一轮稍增即越线。
 type RetainDecision struct {
 	AllContextTokens int  `json:"all_context_tokens"`
 	BudgetTokens     int  `json:"budget_tokens"`
-	CapTokens        int  `json:"cap_tokens"`   // token1（0 = 未配置 → 窗口兜底）
-	RatioTokens      int  `json:"ratio_tokens"` // token2
-	FloorTokens      int  `json:"floor_tokens"` // 比例下限（0 = 未配置）
-	Retained         int  `json:"retained"`     // 最终保留区
+	CapTokens        int  `json:"cap_tokens"`    // token1（0 = 未配置 → 窗口兜底）
+	RatioTokens      int  `json:"ratio_tokens"`  // token2
+	FloorTokens      int  `json:"floor_tokens"`  // 比例下限（0 = 未配置）
+	TargetTokens     int  `json:"target_tokens"` // 压缩目标（0 = 未配置）
+	Retained         int  `json:"retained"`      // 最终保留区
 	FloorApplied     bool `json:"floor_applied"`
+	TargetApplied    bool `json:"target_applied"`
 }
 
 // ContextLayout 是一次装配的四区显式化 + 保留窗口决策 + 判据量。判据与报表读
@@ -89,9 +94,9 @@ func (l ContextLayout) zone(kind string) ContextZone {
 
 // Terse 渲染保留窗口决策的一行事实（门禁 Detail 用：短、无文案）。
 func (r RetainDecision) Terse() string {
-	return fmt.Sprintf("all=%d budget=%d cap=%d ratio=%d floor=%d retained=%d floor_applied=%t",
+	return fmt.Sprintf("all=%d budget=%d cap=%d ratio=%d floor=%d target=%d retained=%d floor_applied=%t target_applied=%t",
 		r.AllContextTokens, r.BudgetTokens, r.CapTokens, r.RatioTokens,
-		r.FloorTokens, r.Retained, r.FloorApplied)
+		r.FloorTokens, r.TargetTokens, r.Retained, r.FloorApplied, r.TargetApplied)
 }
 
 // RetainTerse 渲染保留窗口决策的一行事实。
@@ -245,5 +250,12 @@ func retainWindowDecision(
 	// 在报表里报成生效（否则「我明明配了下限」会变成另一个不可对账的数字）。
 	decision.FloorApplied = decision.FloorTokens > 0 &&
 		decision.Retained > config.RetainedContextTokens(allContextTokens, budget.Window)
+	// target 是折叠后的请求落点（limits.context_target_percent），作为保留区的
+	// 最终硬上限：与 soft 的差就是每次折叠留下的余量。不设上限时（0）保持旧行为。
+	decision.TargetTokens = budget.TargetAfterCompaction
+	if decision.TargetTokens > 0 && decision.Retained > decision.TargetTokens {
+		decision.Retained = decision.TargetTokens
+		decision.TargetApplied = true
+	}
 	return decision
 }

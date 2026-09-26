@@ -23,7 +23,7 @@ func TestContextBudgetUsesRuntimeLimits(t *testing.T) {
 	if budget.Window != 200_000 || budget.OutputReserve != 8_192 || budget.SafetyReserve != 25_000 {
 		t.Fatalf("runtime budget reserves = %+v", budget)
 	}
-	if budget.Budget != 166_808 || budget.TargetAfterCompaction != 100_084 {
+	if budget.Budget != 166_808 || budget.TargetAfterCompaction != 133_446 {
 		t.Fatalf("runtime budget = %+v", budget)
 	}
 }
@@ -36,7 +36,7 @@ func TestContextBudgetFallsBackForLegacyRuntime(t *testing.T) {
 
 // TestContextBudgetRatiosComeFromLimits：压缩预算比例是配置项（seelex.yaml
 // limits 段），不再是硬编码常量——调 context_soft_percent 必须改变软/硬/目标
-// 与单条外置阈值，且默认值保持重构前口径（窗口/8、75%、90%、60%、50%）。
+// 与单条外置阈值，且默认值只来自 seelexctx.DefaultLimits（窗口/8、95%、98%、80%、50%）。
 // 报表口径与判据口径必须来自同一份数字，这个用例把它钉死。
 func TestContextBudgetRatiosComeFromLimits(t *testing.T) {
 	previous := limits.Get()
@@ -47,10 +47,10 @@ func TestContextBudgetRatiosComeFromLimits(t *testing.T) {
 	if base.SafetyReserve != 25_000 || base.Budget != 166_808 {
 		t.Fatalf("默认预算基数 = %+v", base)
 	}
-	if base.SoftThreshold != 125_106 || base.HardThreshold != 150_127 {
+	if base.SoftThreshold != 158_467 || base.HardThreshold != 163_471 {
 		t.Fatalf("默认软/硬阈值 = %+v", base)
 	}
-	if base.TargetAfterCompaction != 100_084 || base.SingleItemInputLimit != 83_404 {
+	if base.TargetAfterCompaction != 133_446 || base.SingleItemInputLimit != 83_404 {
 		t.Fatalf("默认目标/单条外置阈值 = %+v", base)
 	}
 
@@ -77,7 +77,7 @@ func TestContextBudgetRatiosComeFromLimits(t *testing.T) {
 	// 非法比例（0/负/超 100）回退默认，不得把预算算成 0（那会让每轮都压缩）。
 	limits.Apply(seelexctx.Limits{ContextSoftPercent: 0, ContextHardPercent: 200})
 	fallback := ContextBudgetFor(runtimeWithContextLimits{window: 200_000, output: 8_192})
-	if fallback.SoftThreshold != 125_106 || fallback.HardThreshold != 150_127 {
+	if fallback.SoftThreshold != 158_467 || fallback.HardThreshold != 163_471 {
 		t.Fatalf("非法比例未回退默认: %+v", fallback)
 	}
 }

@@ -85,12 +85,14 @@ type Limits struct {
 	OutputReserveTokens  int `yaml:"output_reserve_tokens"`   // provider 输出预留 token
 	// ── 上下文压缩预算比例（0 = 用默认比例；见 task_context.newContextBudget）──
 	// 预算 = window − output_reserve_tokens − window/context_safety_reserve_divisor；
-	// 下面各个百分比都以此为基数。默认 8/75/90/60/50 与重构前的硬编码逐位一致。
+	// 下面各个百分比都以此为基数。默认 8/95/98/80/50（2026-09-26 起压缩阈值上调：
+	// 旧 75/90 的保留窗口落点贴着软线，长会话会一轮一压；target 80 同时是保留区
+	// 硬上限，soft − target 是每次折叠留给下一轮的余量）。
 	// 取值超界（不在 [0,100]）在 LoadLimits 显式报错，不再静默回退默认值。
 	ContextSafetyReserveDivisor int `yaml:"context_safety_reserve_divisor"` // 安全预留除数（默认 8 → 窗口/8）
 	ContextSoftPercent          int `yaml:"context_soft_percent"`           // 软压缩线（占预算 %，默认 75）
 	ContextHardPercent          int `yaml:"context_hard_percent"`           // 硬阈值线（占预算 %，默认 90）
-	ContextTargetPercent        int `yaml:"context_target_percent"`         // 压缩后目标（占预算 %，默认 60）
+	ContextTargetPercent        int `yaml:"context_target_percent"`         // 压缩后目标（占预算 %，默认 60）；同时是折叠后保留区/请求落点的硬上限（RetainDecision.TargetTokens），必须低于 soft 才有余量
 	ContextSingleItemPercent    int `yaml:"context_single_item_percent"`    // 单条输入外置阈值（占预算 %，默认 50）
 	// ── 保留区下限与帧摘要传递上限（《压缩四区模型》边界判定 / 《待落地》1、2）──
 	// ContextRetainFloorPercent 是**保护区下限**（占预算 %）：
@@ -169,11 +171,12 @@ func DefaultLimits() Limits {
 		SessionNameRunes:       16,
 		PreflightRetry:         2,
 		OutputReserveTokens:    512,
-		// 压缩预算比例：与重构前的硬编码一致（窗口/8、75%、90%、60%、50%）。
+		// 压缩预算比例：窗口/8、95%、98%、80%、50%。soft/target 的差即每次
+		// 折叠留给下一轮的余量；target 同时是保留区硬上限（见 RetainDecision）。
 		ContextSafetyReserveDivisor: 8,
-		ContextSoftPercent:          75,
-		ContextHardPercent:          90,
-		ContextTargetPercent:        60,
+		ContextSoftPercent:          95,
+		ContextHardPercent:          98,
+		ContextTargetPercent:        80,
 		ContextSingleItemPercent:    50,
 		// 帧摘要传递上限：并入量 ≤ 1024 token（默认值即「定值」；0 = 未配置 →
 		// 本默认）。并入超限的部分退化为锚点，细节靠检索回读。

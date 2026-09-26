@@ -98,6 +98,14 @@ func TestRetainWindowDecisionRecordsFacts(t *testing.T) {
 	if capped.CapTokens != 60_000 || capped.Retained != 60_000 {
 		t.Fatalf("保留上限必须拦住下限：%+v", capped)
 	}
+	// 压缩目标（context_target_percent × 预算）是保留区的硬上限：占比窗口
+	// 允许 126000，也必须收口到目标 100000，给下一轮留出 soft − target 的余量。
+	targetCapped := retainWindowDecision(config, 180_000,
+		task_context.ContextBudget{Window: 200_000, Budget: 174_488, TargetAfterCompaction: 100_000}, 0)
+	if targetCapped.RatioTokens <= 100_000 || targetCapped.TargetTokens != 100_000 ||
+		targetCapped.Retained != 100_000 || !targetCapped.TargetApplied {
+		t.Fatalf("压缩目标未收口保留区：%+v", targetCapped)
+	}
 }
 
 // TestContextLayoutTerseAndZonesRender：门禁 Detail 与帧正文读同一份 layout——

@@ -58,7 +58,7 @@ Seelex 把这些能力组织成可替换、可测试的模块，而不是把它�
 | Plan 与子 Agent | 可选 WorkPlan DAG、拓扑校验、并行分支、独立节点 Session、事件投影和结果 merge-back；<code>fork_subagents</code> 派发子代理并同步等待终态 |
 | 目标治理 | 会话级 LIFO goal 栈与状态机、独立上下文的裁决角色（ADVISOR / TechLeader）回合制评审、抽帧节流、有界指令邮箱、终态门禁与 append-only 审计 |
 | 代理团队与工作台 | TeamSpec 团队工厂与 preset 隐式拉起、成员与发言顺序注册表；plan / tasklist / subagent / todo 四源合一的工作台投影与 traceboard |
-| 上下文治理 | Prompt Stack 稳定前缀、滑动窗口、预算控制、压缩 DAG、超大工具结果归档为 <code>result_ref</code> 与按页/过滤读回；装配逼近硬阈值（预算 90%）时**探测即主动压缩**为有界 checkpoint 帧，<code>compact_context</code> 工具与 <code>/compact</code> 命令可手动触发同一压缩 |
+| 上下文治理 | Prompt Stack 稳定前缀、滑动窗口、预算控制、压缩 DAG、超大工具结果归档为 <code>result_ref</code> 与按页/过滤读回；装配逼近硬阈值（默认 98% 预算）时**探测即主动压缩**为有界 checkpoint 帧，<code>compact_context</code> 工具与 <code>/compact</code> 命令可手动触发同一压缩 |
 | 记忆与检索 | 相关记忆块（词法 top-K）、以压缩栈为索引的历史检索读回、跨会话稳定前缀复用、CLI/项目级 <code>MEMORY.md</code> 索引 |
 | 项目安全 | ProjectScope 按会话分格的路径约束、PathGate / LMRW 规则；工具权责模型为「主体 × 路由组 × 位」（root / sub / emp_ro / emp_rw，ro / rw / rw_session / rw_desktop / ctl / adm），子代理在结构上缺 <code>ctl</code>/<code>adm</code> 位 |
 | 权限档位 | 主会话有序档位表 <code>manual</code> / <code>edit</code> / <code>auto</code> / <code>full</code>，按会话解析；档位只剪掉 <code>ask</code> 规则，从不覆盖危险 <code>deny</code>，<code>full</code> 短路仅作用于 root，员工越权仍走审批提权 |

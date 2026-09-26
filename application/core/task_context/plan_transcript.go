@@ -105,8 +105,35 @@ func ActivePlanFromStack(stack []model.SessionPlanFrame, activeID string) *model
 //
 // 边界来自窗口决策本身（被选中的尾部单元的下标），下游只记录、不重算。
 func TranscriptTailWindow(events []model.TranscriptEvent, tokenBudget, maxUnits int) ([]contract.EngineMessage, int) {
+	return TranscriptTailWindowBy(events, tokenBudget, maxUnits, recordedUnitTokens)
+}
+
+// recordedUnitTokens 是 TranscriptTailWindow 的历史口径：单元内事件自带
+// TokenCount（事件落盘时估算）之和。保留给冷读等只做装载、不做压缩判据的
+// 调用方；判据/保留窗口必须走 TranscriptTailWindowBy 注入同一把 token 尺子，
+// 否则“裁到预算”的裁剪量与“是否越线”的估算量会各说各话（一边按记录值裁、
+// 一边按当前校准值判 → 每回合都判成越线）。
+func recordedUnitTokens(events []model.TranscriptEvent) int {
+	tokens := 0
+	for _, event := range events {
+		tokens += event.TokenCount
+	}
+	return tokens
+}
+
+// TranscriptTailWindowBy 与 TranscriptTailWindow 同语义，但按注入的单元
+// token 估算（同一单元 messages 计数）选窗——预算/目标与判据共用同一估算器，
+// 选出的窗口才不会在重新估算时“膨胀”回去。
+func TranscriptTailWindowBy(
+	events []model.TranscriptEvent,
+	tokenBudget, maxUnits int,
+	unitTokens func([]model.TranscriptEvent) int,
+) ([]contract.EngineMessage, int) {
 	if len(events) == 0 || tokenBudget <= 0 {
 		return nil, len(events)
+	}
+	if unitTokens == nil {
+		unitTokens = recordedUnitTokens
 	}
 	units := transcriptProtocolUnitList(events)
 	if maxUnits <= 0 {
@@ -115,15 +142,12 @@ func TranscriptTailWindow(events []model.TranscriptEvent, tokenBudget, maxUnits 
 	selected := make([]transcriptProtocolUnit, 0, maxUnits)
 	tokens := 0
 	for index := len(units) - 1; index >= 0 && len(selected) < maxUnits; index-- {
-		unitTokens := 0
-		for _, event := range units[index].events {
-			unitTokens += event.TokenCount
-		}
-		if tokens+unitTokens > tokenBudget {
+		cost := unitTokens(units[index].events)
+		if tokens+cost > tokenBudget {
 			break
 		}
 		selected = append(selected, units[index])
-		tokens += unitTokens
+		tokens += cost
 	}
 	// 自 newest 向旧扫描一个单元都放不下（selected 为空）时，仍保留最新
 	// 完整单元：静默丢弃最新轮会让模型“失忆”（继续请求看不到上一轮内容）。
@@ -140,6 +164,27 @@ func TranscriptTailWindow(events []model.TranscriptEvent, tokenBudget, maxUnits 
 		return history, len(events)
 	}
 	return history, selected[len(selected)-1].start
+}
+
+// TranscriptEventMessages 把一组 transcript 事件映射为 provider 消息（与装配
+// 出口同一映射）。调用方据此用自有的 token 估算器给单元计价，避免再写一份
+// 事件→消息的转换。
+func TranscriptEventMessages(events []model.TranscriptEvent) []contract.EngineMessage {
+	messages := make([]contract.EngineMessage, 0, len(events))
+	for _, event := range events {
+		messages = append(messages, transcriptEventMessage(event))
+	}
+	return messages
+}
+
+// TranscriptTailHistoryBy 是 TranscriptTailWindowBy 的窗口消息视图。
+func TranscriptTailHistoryBy(
+	events []model.TranscriptEvent,
+	tokenBudget, maxUnits int,
+	unitTokens func([]model.TranscriptEvent) int,
+) []contract.EngineMessage {
+	history, _ := TranscriptTailWindowBy(events, tokenBudget, maxUnits, unitTokens)
+	return history
 }
 
 // TranscriptTailHistory 是 TranscriptTailWindow 的窗口消息视图（多数调用方

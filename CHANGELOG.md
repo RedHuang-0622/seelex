@@ -55,6 +55,13 @@ version when it lands.
 
 ### Changed
 
+- **Compaction thresholds now ship at 95% soft / 98% hard / 80% target instead of 75/90/60.** The code
+  default and the checked-in `config/seelex.yaml` carry the same numbers (`seelexctx.DefaultLimits` is the
+  single source; `task_context.newContextBudget` no longer keeps a second copy of the fallbacks), and
+  `context_target_percent` is a live cap rather than documentation: post-fold retention is capped at
+  `target`, so `soft − target` is the headroom the next turn has to consume before folding again. The
+  75/90/60 figures survive only where a test pins the *mechanism* it exercises (`controllerTestLimits`,
+  `pinMechanismCompactionRatios`) or in point-in-time research notes.
 - **Compaction is now readable in three places, each with one job.** ① The status sub-page's
   Overview section holds **only** the compaction stack, as a table: one row per folded frame, newest at
   the top, frontier row flagged 栈顶, older folds stepping down in the stale gray, and the frame body
@@ -120,6 +127,25 @@ version when it lands.
 
 ### Fixed
 
+- **Long sessions no longer compact once per turn: the turn-boundary judge re-accumulated the whole
+  transcript instead of looking past the last fold.** The soft/hard decision compared
+  `min(whole transcript, budget) + system + tools + input` against `budget × percent`, while the retained
+  window was chosen by summing each event's *recorded* `TokenCount` — two different rulers. Once a session
+  was long enough to fill the budget, the compared number sat at or above the whole budget (measured
+  frames: `compared 224159` against `budget 158616`), so raising the soft percent from 75 to 95 changed
+  nothing and every user turn recorded another fold (13:20:20.96 user message → 13:20:21 frame). The fix
+  keeps `TaskExecutionState.ContextRetainedFrom` — the transcript event index already covered by the last
+  fold — and makes the judge, the retention window and the assembly all read only `events[retainedFrom:]`;
+  `TranscriptTailWindowBy` lets the window be selected with the same counter the judge and the final
+  estimate use, so a window trimmed to `target` no longer measures larger than `target` on re-estimate.
+  Teeth: `TestContextBudgetDoesNotRecompactWithoutNewContent` (red before the fix: two records with no
+  new transcript content), `TestTranscriptTailWindowByUsesInjectedEstimator`, and the existing prefix/
+  range/restore suites in `application/core` + `seelexctx`. The running dev GUI still loads its own
+  `dist/seelex-gui-dev/config/seelex.yaml`, which has no `limits.context_*` keys — the repo-root
+  95/98/80 edit only takes effect once that file (or the rebuilt product) carries it. The fold target is
+  no longer dead configuration either: `RetainDecision` now applies `limits.context_target_percent` as a
+  hard cap (`TargetTokens`/`TargetApplied`) on top of the `min(token1, ratio × all)` retention rule, so
+  "keep more, but leave soft − target of headroom" is one config line rather than a code constant.
 - **A fold issued between turns could still freeze every session: `EnginePort.mu` is no longer held
   across a wait on a session lock.** The in-turn self-deadlock was closed by the in-loop handle, but the
   out-of-loop path kept three fuses, all the same shape — take the process-wide `port.mu`, then call into

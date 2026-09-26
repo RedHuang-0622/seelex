@@ -66,11 +66,25 @@ func roundHistory(rounds int) []types.Message {
 	return history
 }
 
+// controllerTestLimits 是控制器**机制**用例的显式阈值注入：这组用例验证窗口
+// 溢出/折叠/归档/去重本身，不验证出厂默认档。默认档口径（2026-09-26 起
+// 95/98/80）由 limits_test.go 钉住——机制用例显式给出自己假设的比例，默认档
+// 调整不会把机制用例带红，也不会让"配置被消费"的断言变成对默认值的隐式依赖。
+func controllerTestLimits() Limits {
+	return Limits{
+		ContextSafetyReserveDivisor: 8,
+		ContextSoftPercent:          75,
+		ContextHardPercent:          90,
+		ContextTargetPercent:        60,
+		ContextSingleItemPercent:    50,
+	}
+}
+
 // newController 构造注入齐全的控制器（窗口固定 n、内存压缩栈、放大计数）。
 func newController(window int, stacks CompactStackStore) *seelexContextController {
 	return &seelexContextController{
 		opts: ControllerOptions{
-			Policy:            NewContextWindowPolicy(100_000, 8_192, DefaultLimits()),
+			Policy:            NewContextWindowPolicy(100_000, 8_192, controllerTestLimits()),
 			Window:            fixedWindowPolicy{rounds: window},
 			Tokens:            heavyTokenCounter{},
 			Stacks:            stacks,
@@ -86,7 +100,7 @@ func newDefaultWindowController() *seelexContextController {
 	stacks := NewMemoryCompactStack()
 	return &seelexContextController{
 		opts: ControllerOptions{
-			Policy: NewContextWindowPolicy(100_000, 8_192, DefaultLimits()),
+			Policy: NewContextWindowPolicy(100_000, 8_192, controllerTestLimits()),
 			Window: NewDefaultWindowPolicy(WindowConfig{Ratio: 0.5, MinRounds: 2, MaxRounds: 40}),
 			Tokens: heavyTokenCounter{},
 			Stacks: stacks,
@@ -163,7 +177,7 @@ func TestControllerNoCompressionBelowSoftThreshold(t *testing.T) {
 	// 轻量计数（len/3）：10 轮历史远低于软阈值 → 不触发压缩。
 	controller := &seelexContextController{
 		opts: ControllerOptions{
-			Policy: NewContextWindowPolicy(100_000, 8_192, DefaultLimits()),
+			Policy: NewContextWindowPolicy(100_000, 8_192, controllerTestLimits()),
 			Window: fixedWindowPolicy{rounds: 3},
 			Tokens: ConservativeTokenCounter{},
 			Stacks: NewMemoryCompactStack(),
@@ -215,7 +229,7 @@ func TestControllerSegmentClosePreservesGoalPlanEvidence(t *testing.T) {
 	}}
 	controller := &seelexContextController{
 		opts: ControllerOptions{
-			Policy:            NewContextWindowPolicy(100_000, 8_192, DefaultLimits()),
+			Policy:            NewContextWindowPolicy(100_000, 8_192, controllerTestLimits()),
 			Window:            fixedWindowPolicy{rounds: 3},
 			Tokens:            heavyTokenCounter{},
 			Stacks:            store,
@@ -592,7 +606,7 @@ func TestControllerCompressionArchivesTurnOriginal(t *testing.T) {
 	archiver := &recordingTurnArchiver{}
 	controller := &seelexContextController{
 		opts: ControllerOptions{
-			Policy:            NewContextWindowPolicy(100_000, 8_192, DefaultLimits()),
+			Policy:            NewContextWindowPolicy(100_000, 8_192, controllerTestLimits()),
 			Window:            fixedWindowPolicy{rounds: 3},
 			Tokens:            heavyTokenCounter{},
 			Stacks:            stacks,

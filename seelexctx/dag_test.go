@@ -183,7 +183,7 @@ func TestControllerCompactionDAGIntegration(t *testing.T) {
 	dag := NewCompactionDAG(CompactionDAGOptions{SessionIDProvider: func() string { return "sess-dag-ctrl" }})
 	controller := &seelexContextController{
 		opts: ControllerOptions{
-			Policy:            NewContextWindowPolicy(100_000, 8_192, DefaultLimits()),
+			Policy:            NewContextWindowPolicy(100_000, 8_192, controllerTestLimits()),
 			Window:            fixedWindowPolicy{rounds: 3},
 			Tokens:            heavyTokenCounter{},
 			Stacks:            stacks,

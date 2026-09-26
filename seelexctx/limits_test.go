@@ -9,11 +9,11 @@ import (
 
 // TestLoadLimitsCompactionBudgetRatios：压缩预算比例是**装配参数**（seelex.yaml
 // limits 段），不再硬编码在 task_context.newContextBudget——判据（软/硬/目标）
-// 与单条输入外置阈值必须能被同一份配置调，且缺字段回退默认（8/75/90/60/50）。
+// 与单条输入外置阈值必须能被同一份配置调，且缺字段回退默认（8/95/98/80/50）。
 func TestLoadLimitsCompactionBudgetRatios(t *testing.T) {
 	def := DefaultLimits()
-	if def.ContextSafetyReserveDivisor != 8 || def.ContextSoftPercent != 75 ||
-		def.ContextHardPercent != 90 || def.ContextTargetPercent != 60 ||
+	if def.ContextSafetyReserveDivisor != 8 || def.ContextSoftPercent != 95 ||
+		def.ContextHardPercent != 98 || def.ContextTargetPercent != 80 ||
 		def.ContextSingleItemPercent != 50 {
 		t.Fatalf("压缩预算默认比例 = %+v", def)
 	}
@@ -49,8 +49,8 @@ func TestLoadLimitsCompactionBudgetRatios(t *testing.T) {
 		t.Fatal(err)
 	}
 	merged := loaded.WithDefaults()
-	if merged.ContextSoftPercent != 70 || merged.ContextHardPercent != 90 ||
-		merged.ContextTargetPercent != 60 || merged.ContextSingleItemPercent != 50 ||
+	if merged.ContextSoftPercent != 70 || merged.ContextHardPercent != 98 ||
+		merged.ContextTargetPercent != 80 || merged.ContextSingleItemPercent != 50 ||
 		merged.ContextSafetyReserveDivisor != 8 {
 		t.Fatalf("部分配置必须与默认合并 = %+v", merged)
 	}

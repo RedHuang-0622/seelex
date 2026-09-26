@@ -21,6 +21,21 @@
   `TranscriptTailHistory` 降级保留最新完整单元，`fitExecutionHistory` 最终
   兜底不再走 `events=nil` 的空历史分支；真正超出全量预算时由
   `PrepareExecutionContextFor` 返回 `ErrProviderContextBudgetExceeded`。
+- **达峰判据的累积起点**：`TaskExecutionState.ContextRetainedFrom` 记录上一次
+  折叠覆盖到的 transcript 绝对事件下标。判据量、保留窗口与累积装配都只从该
+  起点往后看——被折出的前缀不再回填，否则长会话每次装配都重新累积全量、
+  稳定越线，表现为"一发消息压一次"。折出后起点前移到新的保留窗口边界；
+  未折叠的回合不动，跨回合由 `continuationTaskExecutionState` 继承。
+- **同一把 token 尺子**：尾窗选择走 `TranscriptTailWindowBy` 注入请求装配
+  所用的估算器（`Coordinator.transcriptUnitTokens`）。事件自带的 `TokenCount`
+  是落盘那一刻的估算值，校准因子变化后与当前估算漂移；按记录值裁窗、按当前
+  值判峰会得到"裁完仍越线"的循环。冷读装载仍用记录值口径（只装载、不做
+  压缩判据）。
+- **落点由配置收口**：折叠目标 = `RetainDecision.Retained`，在
+  `min(token1, ratio × all)` 与保护区下限之外再受
+  `limits.context_target_percent × 预算` 硬上限约束（`TargetTokens`/
+  `TargetApplied` 是同一份决策事实，`Terse()` 与帧正文照实渲染）。保留窗口
+  与 soft 之间的差额就是每次折叠留下的余量；两者相等或反超会退化成每回合重压。
 - 做：**显式压缩（`/compact`、`compact_context`）两条路径都当场折叠**
   （`CompactContextNow`）：有匹配 request 的执行纪元 → 按该纪元折叠；会话没有
   在飞回合（冷加载、刚清空）→ 向 task 域借一个**会话级维护身份**
@@ -112,6 +127,11 @@ Review 重点：持锁不得调用外部端口、压缩后历史必须保留 sys
 路径由 `history_safety.go` 单独负责）、累积段字节稳定（已定稿轮次不重排/
 不改写，压缩是唯一使前缀失效的事件）、plan/task 尾部不参与压缩、provider
 投影不得事后补写（工具轮正文归零、空工具结果保持空，否则跨轮前缀失效）。
+达峰判据另有三条边界：① 累积起点必须取 `ContextRetainedFrom`（含跨回合
+继承），不得每次从 transcript 头部重算；② 尾窗选择与判据/装配必须同一估算器
+（`TranscriptTailWindowBy`），记录值只用于装载；③ 折叠后必须回写新的起点
+（普通折叠 = 保留窗口起点，自主压缩 = transcript 末尾），否则下一回合会把
+已折出的前缀再算一遍。
 无纪元显式压缩（冷加载会话）另有三条：① 不得伪造真实回合纪元——只能用
 会话级维护身份，且身份必须成对撤销（异常路径也要撤销，否则会话停在假身份
 上）；② 不得在可见面留下"正在执行"信号（`ChatState.Running`/快照
@@ -177,6 +197,7 @@ go test ./application/core/context_runtime -count=1
 - `func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentInput string, options prepareOptions) (out string, err error)`
 - `func (c *Coordinator) fitExecutionHistory( systemPrompt string, systems []contract.EngineMessage, planMessage string, events []model.TranscriptEvent, currentInput string, tools []model.Tool, target int, windowed bool, maxUnits int, ) ([]contract.EngineMessage, int, int)` — fitExecutionHistory 按目标预算装配 provider 历史：稳定前缀（system）→
 - `func (c *Coordinator) tryFitExecutionHistory( systemPrompt string, systems []contract.EngineMessage, planMessage string, events []model.TranscriptEvent, currentInput string, tools []model.Tool, target int, maxUnits int, ) ([]contract.EngineMessage, int, int)` — tryFitExecutionHistory 装配一次 system → context → plan 历史并估算 token，
+- `func (c *Coordinator) transcriptUnitTokens(unit []model.TranscriptEvent) int` — transcriptUnitTokens 按请求装配同款估算器给一个协议单元计价。保留窗口
 - `func (c *Coordinator) compressExecutionHistory( systemPrompt string, systems []contract.EngineMessage, summary string, planMessage string, currentInput string, tools []model.Tool, budget task_context.ContextBudget, ) ([]contract.EngineMessage, int, bool)` — compressExecutionHistory 是自主压缩兜底：正常有界窗口装不下全量预算时，
 - `func AutonomousCompactionMessage(summary string) string` — AutonomousCompactionMessage 渲染自主压缩帧正文（system 消息）：显式告知
 - `func compactionFrameBody(input compactionFrameInput) string` — compactionFrameBody 渲染「有界 checkpoint 帧」正文（供前端/审计回读的那一份）。

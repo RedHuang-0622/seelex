@@ -6,7 +6,26 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
+	"github.com/RedHuang-0622/seelex/application/core/internal/limits"
+	"github.com/RedHuang-0622/seelex/seelexctx"
 )
+
+// pinMechanismCompactionRatios 把压缩阈值钉回 75/90/60：这组用例验证的是
+// "达峰装配 / 主动压缩 / 同批进展不重复压"的**机制**，不验证出厂默认档
+// （默认档由 seelexctx/limits_test.go 钉住）。显式注入后，默认档从
+// 95/98/80 调整不会再让机制用例随阈值漂移而红。
+func pinMechanismCompactionRatios(t *testing.T) {
+	t.Helper()
+	previous := limits.Get()
+	limits.Apply(seelexctx.Limits{
+		ContextSafetyReserveDivisor: 8,
+		ContextSoftPercent:          75,
+		ContextHardPercent:          90,
+		ContextTargetPercent:        60,
+		ContextSingleItemPercent:    50,
+	})
+	t.Cleanup(func() { limits.Apply(previous) })
+}
 
 // TestContextBudgetOvershootKeepsNewestSettledRound：达峰装配时单个已定稿
 // 轮次估算大于压缩目标但仍低于硬阈值（预算 90%），属于正常有界窗口——此时
@@ -61,6 +80,7 @@ func TestContextBudgetOvershootKeepsNewestSettledRound(t *testing.T) {
 // 折叠为有界 checkpoint 帧，而不是把贴着上限的历史发出去、等超过全量预算
 // 再被动兜底（旧行为：这种请求会照发，下一次超限才报错）。
 func TestContextBudgetProactivelyCompactsAtHardThreshold(t *testing.T) {
+	pinMechanismCompactionRatios(t)
 	runtime := runtimeWithContextLimits{
 		fakeRuntime: &fakeRuntime{}, window: 200_000, output: 8_192,
 	}

@@ -63,18 +63,24 @@ type taskTerminal struct {
 // TaskExecutionState 是单个任务的功能打点快照与终态判定输入。任务开始创建，
 // 终态即结束；它不持久化、不承担会话恢复（恢复经 checkpoint/transcript）。
 type TaskExecutionState struct {
-	RequestID          string
-	Objective          string
-	Effort             string
-	PlanArguments      string
-	Status             string
-	CompactedEpoch     uint64
-	ProgressEpoch      uint64
-	ContextVersion     uint64
-	TokenAudit         model.TokenAudit
-	ActiveSkills       []model.ActiveSkill
-	TrustedSkillLayers []prompt.PromptLayer
-	ContextCompactions []model.ContextCompaction
+	RequestID      string
+	Objective      string
+	Effort         string
+	PlanArguments  string
+	Status         string
+	CompactedEpoch uint64
+	ProgressEpoch  uint64
+	ContextVersion uint64
+	// ContextRetainedFrom 是当前保留窗口在 transcript 事件序列中的**绝对起点**：
+	// 0 = 尚未折叠，累积上下文从会话头部开始；> 0 = 上一次折叠已覆盖
+	// events[:ContextRetainedFrom]，provider 侧累积上下文 = events[ContextRetainedFrom:]。
+	// 回合边界的达峰判据与累积装配都从这里往后看——否则每次装配都把已被折出的
+	// 前缀重新计入，长会话会稳定越线、每回合重新压一次。
+	ContextRetainedFrom int
+	TokenAudit          model.TokenAudit
+	ActiveSkills        []model.ActiveSkill
+	TrustedSkillLayers  []prompt.PromptLayer
+	ContextCompactions  []model.ContextCompaction
 
 	checkpoints         map[string]*NodeCheckpoint
 	toolSignatures      map[string]struct{}
@@ -111,6 +117,7 @@ func continuationTaskExecutionState(requestID, objective, effort string, previou
 	if state.ContextVersion == 0 {
 		state.ContextVersion = 1
 	}
+	state.ContextRetainedFrom = previous.ContextRetainedFrom
 	state.ContextCompactions = append([]model.ContextCompaction(nil), previous.ContextCompactions...)
 	state.TokenAudit = previous.TokenAudit
 	if HasSubstantiveCheckpoint(checkpoint) {

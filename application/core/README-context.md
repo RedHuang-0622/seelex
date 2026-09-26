@@ -168,8 +168,13 @@ handler / 循环回调）使用；② 环内折叠的压缩帧仍要跑一次模
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
+### context_budget_frequency_test.go
+
+- `func TestContextBudgetDoesNotRecompactWithoutNewContent(t *testing.T)` — TestContextBudgetDoesNotRecompactWithoutNewContent 钉住回合边界达峰判据的
+
 ### context_budget_last_resort_test.go
 
+- `func pinMechanismCompactionRatios(t *testing.T)` — pinMechanismCompactionRatios 把压缩阈值钉回 75/90/60：这组用例验证的是
 - `func TestContextBudgetOvershootKeepsNewestSettledRound(t *testing.T)` — TestContextBudgetOvershootKeepsNewestSettledRound：达峰装配时单个已定稿
 - `func TestContextBudgetProactivelyCompactsAtHardThreshold(t *testing.T)` — TestContextBudgetProactivelyCompactsAtHardThreshold：装配结果落在硬阈值
 - `func TestContextBudgetOvershootCompactsWhenNewestExceedsFullBudget(t *testing.T)` — TestContextBudgetOvershootCompactsWhenNewestExceedsFullBudget：最新轮自身

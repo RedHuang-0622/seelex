@@ -81,9 +81,9 @@ flowchart LR
 | 配置键 | 作用 | 注入点 |
 |---|---|---|
 | `context_safety_reserve_divisor` | 安全预留 = 窗口 ÷ 该值，决定预算基数 | `NewContextWindowPolicy(window, output, r.limits)` |
-| `context_soft_percent` | 软压缩线：请求估算到达 `预算 × %` 就折叠窗口外轮次 | 同上 |
-| `context_hard_percent` | 硬阈值路径：收缩窗口时以此为可用上限 | 同上 |
-| `context_target_percent` | 压缩后目标 | 同上 |
+| `context_soft_percent` | 软压缩线：请求估算到达 `预算 × %`（默认 95）就折叠窗口外轮次 | 同上 |
+| `context_hard_percent` | 硬阈值路径：收缩窗口时以此为可用上限（默认 98） | 同上 |
+| `context_target_percent` | 压缩后目标，同时是保留区硬上限（默认 80；`soft − target` 即每次折叠留给下一轮的余量） | 同上 |
 | `max_tool_result_chars` | 单条工具结果多大算"超大"（→ 归档为 `result_ref`） | `ControllerOptions.MaxToolResultChars` 与 `NewToolResultProcessor(limit, …)` |
 
 **触发点**：Seele ReActLoop 每次迭代发 `before_model` / `after_assistant` /

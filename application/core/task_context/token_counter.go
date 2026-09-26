@@ -30,16 +30,6 @@ type ContextBudget struct {
 	SingleItemInputLimit int
 }
 
-// 压缩预算的默认比例：config/seelex.yaml limits 段缺失/非法时回退到这里，
-// 取值与重构前的硬编码逐位一致（窗口/8、75%、90%、60%、50%）。
-const (
-	defaultSafetyReserveDivisor = 8
-	defaultSoftPercent          = 75
-	defaultHardPercent          = 90
-	defaultTargetPercent        = 60
-	defaultSingleItemPercent    = 50
-)
-
 // RequestTokenCounter 是上下文装配的 token 计数契约（可被模型 tokenizer
 // 替换而不改装配）。
 type RequestTokenCounter interface {
@@ -183,26 +173,27 @@ func ContextBudgetFor(runtime any) ContextBudget {
 // context_soft_percent / context_hard_percent / context_target_percent /
 // context_single_item_percent），不在这里硬编码：调参不该改代码，而魔法数字一旦
 // 散在代码里，报表口径与判据口径就会各说各话（读者看到"超了硬线"却什么都没发生）。
-// 默认值与旧硬编码逐位一致：安全预留 = 窗口/8，软 75% / 硬 90% / 压缩目标 60% /
-// 单条外置 50%。
+// 默认值只有一处来源：seelexctx.DefaultLimits()（配置默认档）。本函数只做
+// "调用方手写字面量/老装配"的防御性兜底，不另立一套数字。
 func newContextBudget(window, outputReserve int) ContextBudget {
 	if window <= 0 {
 		return ContextBudget{}
 	}
 	settings := limits.Get()
+	defaults := seelexctx.DefaultLimits()
 	divisor := settings.ContextSafetyReserveDivisor
 	if divisor <= 0 {
-		divisor = defaultSafetyReserveDivisor
+		divisor = defaults.ContextSafetyReserveDivisor
 	}
 	safetyReserve := window / divisor
 	budget := window - outputReserve - safetyReserve
 	return ContextBudget{
 		Window: window, OutputReserve: outputReserve, SafetyReserve: safetyReserve,
 		Budget:                budget,
-		SoftThreshold:         percentOf(budget, settings.ContextSoftPercent, defaultSoftPercent),
-		HardThreshold:         percentOf(budget, settings.ContextHardPercent, defaultHardPercent),
-		TargetAfterCompaction: percentOf(budget, settings.ContextTargetPercent, defaultTargetPercent),
-		SingleItemInputLimit:  percentOf(budget, settings.ContextSingleItemPercent, defaultSingleItemPercent),
+		SoftThreshold:         percentOf(budget, settings.ContextSoftPercent, defaults.ContextSoftPercent),
+		HardThreshold:         percentOf(budget, settings.ContextHardPercent, defaults.ContextHardPercent),
+		TargetAfterCompaction: percentOf(budget, settings.ContextTargetPercent, defaults.ContextTargetPercent),
+		SingleItemInputLimit:  percentOf(budget, settings.ContextSingleItemPercent, defaults.ContextSingleItemPercent),
 	}
 }
 
