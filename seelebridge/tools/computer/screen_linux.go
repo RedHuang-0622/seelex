@@ -193,4 +193,3 @@ func channel(value, mask uint32) uint8 {
 	}
 	return uint8(narrowed * 255 / ((1 << width) - 1))
 }
-

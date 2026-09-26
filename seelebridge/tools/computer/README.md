@@ -66,10 +66,12 @@ flowchart LR
 职责：
 
 - 把「看屏幕、动鼠标、敲键盘、找窗口」封装成可测试的 Go 函数；
-- 用 **UI Automation** 只读回答「页面里哪些面板可以滚轮操作、滚到哪一段、屏幕外
-  还有多少内容」（`computer_scroll_targets`），让滚轮有落点、有回读；
-- 坐标语义统一为虚拟桌面（多显示器并集）物理像素，进程启动即声明
-  Per-Monitor V2 DPI 感知（`EnableDPIAwareness`），避免坐标被系统缩放虚拟化；
+- 用 **UI Automation / Accessibility / X11** 回答「页面里哪些面板可以滚轮操作、滚到哪一段、
+  屏幕外还有多少内容」（`computer_scroll_targets`），让滚轮有落点、有回读——**有控件树的平台才有**，
+  平台实现做不到时该工具不注册、原语显式返回 `ErrUnsupported`；
+- 坐标语义统一为虚拟桌面（多显示器并集）物理像素；Windows 上进程启动即声明
+  Per-Monitor V2 DPI 感知（`EnableDPIAwareness`），避免坐标被系统缩放虚拟化，
+  X11 的坐标本来就是屏幕物理像素、无需声明；
 - 在 MCP 层做 JSON-RPC 编解码与工具名/参数校验；
 - 在工具层做参数校验、上限钳制、媒体落盘与随图入队（工具族清单见下）。
 
@@ -93,10 +95,18 @@ flowchart LR
 | `keys.go` | 虚拟键码与组合键解析（跨平台可测）。 |
 | `click.go` | 点击序列语义：按下/释放成对、失败必补释放。平台无关、可单测。 |
 | `scrolltarget.go` | 可滚动面板的领域类型（`ScrollTarget`/`ScrollAxis`）与纯函数：过滤、按面积排序、点命中取最内层、轴状态派生（到顶/到底）。平台无关、可单测。 |
+| `desktop.go` | **平台抽象面**：`Desktop` 接口（13 个操作原语 + 2 个可滚动面板观测 + `Capabilities`/`Prepare`）与 `Capabilities` 声明。工具层、MCP 面与装配层只依赖它；平台差异在**编译期**由 build tag 选定 `current`，不做运行时探测。 |
+| `facade.go` | 包级门面：`Current()` / `Supported()` / `ScrollTargetsSupported()` 与所有原语转发；外部调用方（`mcp/`、装配层、真机冒烟）不感知平台。 |
+| `platform_windows.go` | Windows 的 `Desktop` 装配（user32/gdi32 + UI Automation；`ScrollTargets=true`）。 |
+| `platform_linux.go` | Linux(X11) 的 `Desktop` 装配（纯 Go `jezek/xgb` + XTEST；`ScrollTargets=false`）。 |
+| `platform_darwin.go` | macOS 的 `Desktop` 装配（纯 Go dlopen 的 CoreGraphics + CGEvent + Accessibility）。 |
+| `platform_unsupported.go` | 其余 GOOS 的桩：每个原语显式 `ErrUnsupported`、`Capabilities` 全 false，装配层因此**不注册**整族工具。 |
+| `screen_windows.go` / `input_windows.go` / `window_windows.go` | Windows 原语：GDI 截屏 + DPI 感知 / `SendInput` 鼠标键盘 / `EnumWindows` 等。 |
 | `uia_windows.go` | UI Automation 客户端（Windows）：手写 COM vtable 调用，枚举窗口子树里的可滚动面板、读滚动位置、按点回读落点面板。 |
-| `screen_windows.go` / `stub_other.go` | 截屏与 DPI 感知（Windows 实现 / 非 Windows 返回 `ErrUnsupported`）。 |
-| `input_windows.go` | 鼠标与键盘注入（SendInput）。 |
-| `window_windows.go` | 顶层窗口枚举、矩形、状态与聚焦。 |
+| `x11_linux.go` | Linux(X11) 的地基：连接生命周期、X11 原子/属性读写、输入注入的唯一出口（`fakeKey`/`fakeMotion`/`fakeButton`，全部 checked）。 |
+| `screen_linux.go` / `input_linux.go` / `window_linux.go` | Linux 原语：X11 截屏与光标 / XTEST 鼠标键盘（键号 1/2/3=左/中/右，4/5=滚轮）/ EWMH 窗口枚举与激活。 |
+| `scrolltarget_linux.go` | Linux 的可滚动面板观测：显式 `ErrUnsupported`（X11 没有控件树，见「平台实现」）。 |
+| `darwin_core.go` / `screen_darwin.go` / `input_darwin.go` / `window_darwin.go` / `scrolltarget_darwin.go` | macOS 原语（CoreGraphics 截屏、CGEvent 注入、Accessibility 窗口与面板观测）。 |
 | `mcp/main.go` | MCP stdio 服务端：`initialize` / `tools/list` / `tools/call`。 |
 | `tools.go` | Seelex 侧工具族的装配面：`Deps`（注册面/媒体分区/随图队列）+ 十一个工具名常量 + 注册 + 共享 helper。 |
 | `tools_view.go` | 观察类工具：`computer_screenshot`（截屏 → 媒体分区 → 随图）、`computer_windows`、`computer_focus`。 |
@@ -107,6 +117,7 @@ flowchart LR
 | `scrolltarget_test.go` | 可滚动面板纯函数单测（过滤/排序/点命中/滚轮分格），任何平台都能跑。 |
 | `tools_scroll_test.go` | 滚轮工具契约单测：面板清单、窗口匹配、滚前/滚后回读、缺省落点。 |
 | `tools_desktop_probe_test.go` | 真机桌面冒烟（默认跳过，`SEELEX_COMPUTER_DESKTOP_PROBE=1` 才跑）。 |
+| `desktop_probe_linux_test.go` | Linux 真机桌面冒烟（同上开关）：在 X11 会话里跑截屏 → PNG → 窗口枚举。 |
 | `scrolltargets_desktop_probe_test.go` | 真机 UI Automation 探针（默认跳过）：枚举真实窗口的可滚动面板并验证点命中回读。 |
 
 ### Seelex 侧工具族（`tools*.go`）
@@ -127,7 +138,9 @@ flowchart LR
 
 开关与门控：
 
-- 平台：非 Windows 不注册（`Supported() == false`，宁可不给也不挂一串必然失败的摆设）；
+- 平台：只有 `current` 声明了桌面能力才注册（`Supported()` = `Capabilities().Desktop`）；
+  没有桌面实现的 GOOS 一个工具都不给（宁可不给也不挂一串必然失败的摆设），
+  做不到的工具也单独摘掉——例如 Linux 上不注册 `computer_scroll_targets`；
 - 环境：`SEELEX_COMPUTER_USE=0|off|false|no` 整体关闭（无头/CI 场景）；
 - 权限：`config/seele.yaml` 的 `permission.rules` 逐次 allow/ask/deny（默认 `* → ask`，
   本仓库给 `computer_*` 写了显式规则：只读观察（截屏/窗口/可滚动面板）也 ask，
@@ -136,7 +149,44 @@ flowchart LR
 - 可见性：输入注入类工具对子代理不可见（并行子代理共用一块桌面会互相打断），
   观察类工具对子代理保持可见，且截到的画面只进**执行会话自己**的随图队列。
 
-## 核心实现
+## 平台实现
+
+路由在**编译期**用 build tag 选定（`platform_<goos>.go` 各给一个 `current`），不做运行时探测——
+Windows 实现直连 `user32`/`gdi32`，而 Go 标准库把 `syscall.NewLazyDLL` 这类 DLL 绑定只定义在
+Windows 专属文件里，同一份代码编到别的平台连编译都过不去。代价是"一个二进制只服务一个平台"，
+换来的是 `CGO_ENABLED=0` 的四平台交叉编译与"没有该平台就不注册工具"这个硬边界。
+
+| 平台 | 观察 | 输入 | `ScrollTargets` | 备注 |
+|---|---|---|---|---|
+| Windows | GDI 截屏（Per-Monitor V2 DPI 感知） | `SendInput`（返回真实事件数，可判成败） | ✅ UI Automation `ScrollPattern` | 主平台，见「核心实现」 |
+| Linux (X11) | `jezek/xgb` 直接读根窗口像素 | XTEST `FakeInputChecked` | ❌ 显式 `ErrUnsupported` | 需要可用的 X 会话与 XTEST；Wayland 只覆盖 XWayland 下的 X11 客户端 |
+| macOS | CoreGraphics 截屏 | CGEvent 注入 | ✅ Accessibility | `Prepare()` 需检查屏幕录制与辅助功能授权（TCC 无法静默获得） |
+| 其它 GOOS | — | — | — | `platform_unsupported.go`：全部 `ErrUnsupported`，不注册工具 |
+
+### Linux(X11) 实测口径（2026-09-25，Ubuntu 22.04 / Xorg）
+
+一次完整的实机验收（UT）。被测二进制由本包 HEAD 交叉编译，判据是 `xev`（X 服务器层）
++ 一个"把收到的字节写进文件"的终端（应用层）+ `xdotool`（独立读 `_NET_ACTIVE_WINDOW`
+与 `XGetInputFocus`）。逐条结论与复现见 [`docs/linux-vm-demo/computer-use.md`](../../../docs/linux-vm-demo/computer-use.md)：
+
+- **可用**：截屏、窗口枚举、前台窗口、光标读写、`FocusWindow`（EWMH `_NET_ACTIVE_WINDOW`
+  + Raise + SetInputFocus）、鼠标移动/点击/拖拽/滚轮、组合键、**ASCII 文本注入**（`xev` 记录的
+  键码、Shift 状态与 keysym 逐项精确；`Shift+字母`、`>|_` 等需 Shift 的字符也对）；
+- **点击即聚焦**：不先 `FocusWindow`、只给 `x/y` 的点击能把焦点搬到被点窗口，随后注入的
+  键盘落在那里（`xdotool` 独立确认）；
+- **环境前提（会造成"完全没反应"的错觉）**：桌面输入法处于中文态时，注入的 ASCII
+  会被输入法当成拼音吃掉（字母进预编辑缓冲不落盘、`>`→`》`、`-`→`—`）。这是所有 X11
+  注入方案共有的前提，参考实现 `xdotool` 同样失败；切到 `xkb:us::eng` 后逐字节精确。
+  **演示与无人值守场景应在会话开始前显式切引擎**；
+- **已知缺陷（未修）**：`TypeText` 对**非 ASCII**（中文/emoji）走"把最高空闲键码临时重映射成
+  Unicode 键码再按一下"这条路时不稳——多字连打会丢字/串字，字间留 1.5s 也只能减轻。
+  同机同窗口的 `xdotool type --delay 200` 正确，说明技术可行、实现需补一次强制往返/沉降。
+  在修好之前，**不要把"支持中文与 emoji"当成 Linux 上的既有能力**；
+- `computer_scroll_targets` 在 Linux 上**不注册**：它要回答的"哪些面板能滚、滚到哪、视口占比"
+  是控件树（UI Automation / Accessibility）才有的信息，X11 协议里只有窗口与像素。
+  `computer_scroll` 仍然可用，只是回读部分显式给 `unavailable: ["scroll_panel"]`，不编造状态。
+
+
 
 - **输入注入走 `SendInput`，不走 `mouse_event`**：`SendInput` 返回真正插入队列
   的事件数，调用方因此能判断成功/失败；`mouse_event` 返回 `void`，把它的
@@ -240,19 +290,23 @@ computer_screenshot
 
 ## 依赖方向
 
-只依赖标准库与 Windows 系统库（`user32`/`gdi32`/`kernel32`，以及 UI Automation
-所需的 `ole32`/`oleaut32` + `CUIAutomation` 组件）。不允许反向依赖
-`seelebridge` 根包、`application/`、`session/` 等上层；非 Windows 平台由
-`stub_other.go` 保持 `go build ./...` 可编译。
+只依赖标准库与平台系统接口：Windows 走 `user32`/`gdi32`/`kernel32`（以及 UI Automation
+所需的 `ole32`/`oleaut32` + `CUIAutomation`），Linux 走纯 Go 的 `jezek/xgb`（X11 + XTEST），
+macOS 走纯 Go `dlopen` 的 CoreGraphics/CGEvent/Accessibility。**不引入运行期外部二进制**
+（不是 shell 出去调 `scrot` / `xdotool`），因此 `CGO_ENABLED=0` 的交叉编译不受影响。
+不允许反向依赖 `seelebridge` 根包、`application/`、`session/` 等上层；未接入的 GOOS 由
+`platform_unsupported.go` 保持 `go build ./...` 可编译，且不会注册任何 computer 工具。
 
 ## 并发、安全与错误语义
 
 - 原语是**有副作用的**：调用即真实操作桌面，不做并发隔离，调用方自行串行；
-- UI Automation 查询是**只读**的：只枚举元素、读属性，不聚焦、不点击、不滚动、
-  不改任何窗口状态；非 Windows 平台返回 `ErrUnsupported`；
+- 平台观测的只读性分平台：Windows 的 UI Automation 查询只枚举元素、读属性，不聚焦、
+  不点击、不滚动、不改任何窗口状态；X11 侧的窗口枚举/属性读取同样是只读请求；
+  没有对应栈的平台返回 `ErrUnsupported`（`computer_scroll_targets` 在 Linux 上即如此）。
   COM/跨进程调用的失败与超时都显式返回（`CoCreateInstance`/`FindAll`/超时各有
   独立错误文案），滚轮动作则把回读失败降级成 `unavailable`，不影响输入本身；
-- 非 Windows 平台返回 `ErrUnsupported`，不 panic；
+- X11 连接是**进程级共享**的（`x11Mu` 下的一次会话，连接级故障后丢弃重连），
+  键盘映射若被临时重映射会在用完时尽力还原；注入失败一律返回错误，不 panic；
 - 截屏写入路径由调用方给出，默认落在 `%LOCALAPPDATA%\codex-computer-use\shots`；
 - 输入注入不校验目标窗口，权限由宿主的审批策略控制。
 - Seelex 工具层：截屏没有落点（媒体分区不可用）或没有随图通道时**显式失败**，
@@ -266,17 +320,20 @@ computer_screenshot
 
 ## 扩展方式
 
-- 新原语：先在 `computer.go` 定义类型与语义，再在 `*_windows.go` 实现、在
-  `stub_other.go` 补桩，最后在 `mcp/main.go` 的 `tools/list` 与 `tools/call`
-  登记；
-- 平台无关的原语（如 `view.go` 的看图）只需新文件 + 单测，不必进
-  `stub_other.go`；
+- 新原语：先在 `desktop.go` 的 `Desktop` 接口上定义语义，再在每个 `platform_*.go`
+  对应的平台实现里落地（Windows 在 `*_windows.go`、Linux 在 `*_linux.go`、
+  macOS 在 `*_darwin.go`），在 `platform_unsupported.go` 保持返回 `ErrUnsupported`，
+  最后在 `mcp/main.go` 的 `tools/list` 与 `tools/call` 登记；
+- 平台无关的原语（如 `view.go` 的看图）只需新文件 + 单测，不必进任何平台实现；
+- **新增一个平台**：写一个实现 `Desktop` 的 `platform_<goos>.go` + 对应的
+  screen/input/window 实现，并把 `platform_unsupported.go` 的 build tag 再排除掉该
+  GOOS。工具层、权限规则、媒体通路一行都不用改；
 - 新 MCP 工具同步补 `mcp/main_test.go`：直接调 `callTool` 断言 content 块，
   测试不依赖真实桌面；
 - 新 Seelex 工具：在 `tools.go` 的 `Register` 加一行 + `tools_schema.go` 补
   schema + `tools_test.go` 补用例（原语注入假实现，任何平台都能跑）；
 - 新 UIA 能力：先在 `uia_windows.go` 按 SDK 头文件核对 vtable 槽位与 IID，再在
-  `stub_other.go` 补桩；能被"筛/排/判"的部分（过滤、排序、点命中、轴状态）一律
+  `platform_unsupported.go` 保持桩；能被"筛/排/判"的部分（过滤、排序、点命中、轴状态）一律
   放进 `scrolltarget.go` 做成纯函数，平台实现只保留系统调用；
 - 新增或扩大 UIA 遍历范围时必须同时给节点预算与截止时间：跨进程遍历是
   O(节点数) 次调用，没有上限就等于把一次工具调用挂死；
@@ -324,6 +381,9 @@ go test ./seelebridge/tools/computer/... -count=1
 - `tools_desktop_probe_test.go`：默认跳过；`SEELEX_COMPUTER_DESKTOP_PROBE=1`
   时用**真实桌面**跑"截屏 → PNG → 落盘 → 随图"与窗口枚举（本机实测
   1536×864 虚拟桌面 → 1024×576 画面、82 KB PNG、10 个可见顶层窗口）。
+- `desktop_probe_linux_test.go`：默认跳过；同一个开关，在**有 X 会话的 Linux** 上跑
+  `Supported()` 判定 + 截屏落盘 + 窗口枚举。VM 实测命令见
+  [`docs/linux-vm-demo/computer-use.md`](../../../docs/linux-vm-demo/computer-use.md) §8。
 - `scrolltargets_desktop_probe_test.go`：默认跳过；`SEELEX_COMPUTER_DESKTOP_PROBE=1`
   时用真实桌面**只读**枚举可滚动面板（可选 `SEELEX_COMPUTER_PROBE_WINDOW=<标题子串>`
   指定窗口，不聚焦），并用最大面板的中心做点命中回读断言。本机实测：Seelex 窗口
