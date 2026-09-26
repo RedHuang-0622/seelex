@@ -334,6 +334,21 @@ ok  github.com/RedHuang-0622/seelex/seelebridge/tools  2.537s
 
 ## 7. 真实 API 活体实测（2026-09-26，本机真实账号）
 
+### 7.1 顺带定位的两条"负载下才红"的既有用例（不是本次契约改动引入的）
+
+全仓并行跑时出现过两条偶发红；两条都复现、都定位到机制，并已修掉（修法与证据如下，
+因为它们都属于"看起来像数据污染、其实是读法/收尾时序"的典型坑）：
+
+| 用例 | 现象 | 机制（实测） | 修法 |
+|---|---|---|---|
+| `seelebridge.TestSessionLifecycleEventsLLMAndToolIntentEffect` | 偶发 `intent-effect correlation mismatch for llm.before/llm.after` | 判据读的是"视图里最后一个 before 与最后一个 after"。而 `MemoryTracer.Query` 遍历 `trace.spans`（**map，顺序随机**）后只按 Timestamp 做**稳定**排序，Windows 时钟粒度粗 ⇒ 末轮 before/after 同时间戳时保持随机顺序。实测 40 会话 × 200 次查询：**40/40 会话出现多种顺序；旧判据失配 111 次；按 `trace.Operations`（CorrelationID 归并）失配 0 次** | 改读 `trace.Operations`（顺序无关的 intent-effect 投影），失败时 dump 事件清单 |
+| `TestWorkspaceSwitchConcurrentWithBackgroundPersist` | 断言全过，红在清理：`TempDir RemoveAll cleanup: unlinkat …\metadata: The directory is not empty.` | 该用例最后段并发发起 8 次 `Submit` 后直接返回；**`Submit` 返回 ≠ 本轮结束**，`t.TempDir()` 清理与仍在跑的后台落盘抢同一个目录（隔离复现 1/1） | 断言前先 `WaitForIdle`（等**全部会话**已接受工作，有界 ctx）；修后 10/10 绿 |
+
+> 结论（与"数据污染"清单的对应）：这两条**不是**事务未回滚 / 自增 ID 冲突 / 幂等键冲突
+> ——这条链路上没有事务，job 句柄是每个登记表自增、correlation ID 是 16 字节随机串。
+> 它们对应的是另外两条：**"视图顺序不稳定"**（读法依赖了 map 迭代顺序）与**"收尾未落定就拆现场"**
+> （残留后台写者与临时目录清理竞态）。
+
 用例：`job_live_smoke_test.go` → `TestManualSmokeRealAccountJobContract`（tag `manualsmoke`）。
 它不做任何 mock：**四个动作全部由真实 provider 的模型自己发起**（句柄由测试从真实回执里
 取出、在第二轮明文回喂，因此"模型执行 kill"是确定的，而不是靠模型记住句柄）。

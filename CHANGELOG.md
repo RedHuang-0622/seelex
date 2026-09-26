@@ -39,6 +39,25 @@ version when it lands.
   rows are summarised in one line rather than vanishing. The model's `fetch`/`done` retires the row
   and the fetched result becomes the single source of truth. `Notified` is the idempotence key.
 
+### Fixed
+
+- **Two load-sensitive test flakes that made the full suite red intermittently** (both reproduced,
+  neither caused by the contract work above — the first lives in the framework's telemetry
+  projection, the second in a pre-existing repro test):
+  - `seelebridge.TestSessionLifecycleEventsLLMAndToolIntentEffect` paired "the last `llm.before`"
+    with "the last `llm.after`" from `Tracer().Query`. That view is **not order-stable**:
+    `MemoryTracer.Query` walks `trace.spans` (a map, randomised iteration) and only *stable*-sorts
+    by timestamp, while the Windows clock is coarse — a fast round's before/after land in the same
+    tick and inherit map order. Measured: 40 sessions × 200 queries → 40/40 sessions showed multiple
+    view orders, and the old criterion mismatched **111** times while reading the framework's
+    `trace.Operations` (grouped by `CorrelationID`, order-independent) mismatched **0** times. The
+    test now asserts intent-effect pairing through `Operations` and dumps the event list on failure.
+  - `TestWorkspaceSwitchConcurrentWithBackgroundPersist` fired 8 concurrent `Submit` calls in its
+    final phase and then returned: `Submit` returning is not the turn finishing, so `t.TempDir()`
+    cleanup raced the still-running background writes (`RemoveAll …: The directory is not empty.`).
+    It now settles with `WaitForIdle` (all sessions, bounded) before asserting; reproduced 1/1
+    before, green 10/10 after.
+
 - **Background commands land as a polling slice: `bash background=true` returns an acceptance
   receipt, and the model fetches the output with `async_output(handle)`.** A long command no longer
   holds its tool call (and with it the whole turn) open — the dispatch call's `tool_result` is
