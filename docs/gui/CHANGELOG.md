@@ -2,6 +2,53 @@
 
 本文件记录会改变模块边界、跨模块契约、兼容性、持久化或运行流程的重要设计。纯文字修正不记录。
 
+## 2026-09-27
+
+### Fixed
+
+- **顶栏两个诊断徽标此前从不渲染：`elements` 注册表缺 `perf-badge-host` /
+  `live-diag-host`，两处 `if (elements["..."])` 永远为假。** 数据一直在采
+  （`window.__seelexPerf` 的样本环、`__seelexLiveDiag` 的缺口计数都在），但渲染进程
+  自己看不见——"谁在吃内存 / 事件有没有缺口"的口径被一个注册表漏项静默掐掉。
+  补注册表，并加 `element-registry.test.mjs` 把这类静默失效钉住：`elements["x"]` 用到的
+  key 必须都注册、注册的 id 必须都在 `index.html` 里、两个徽标宿主必须真的被 append。
+
+### Changed
+
+- **重型 vendor 从"启动同步加载"改为"首次真用到时注入"。** PDF.js（368KB）、
+  docx-preview（69KB）、xterm.js（277KB）+ addon-fit 过去都在 `index.html` 尾部同步
+  加载，任何一次启动都为它们付 parse/compile 与内部缓存的内存，哪怕用户从不打开对应
+  预览/终端。现在统一走 `vendor-loader.js`：首次走到该类型预览（或第一次真的开终端）
+  才注入；同一 src 并发共用 in-flight、失败/超时不缓存可重试、已就绪直接返回（与
+  "仍同步加载"的写法兼容）。终端刻意保持**同步启动语义**：组件已就绪（第二次起，以及
+  注入了 `createTerminal`/`createFit` 的调用方）走同步路径，只有首次开终端才 `then` 到
+  `openTerminal`——`terminal-panel-controller.test.mjs` 那条「Open 未返回时先到的输出
+  要按 id 暂存」就是这条语义的护栏（第一版把它改成 `async newTerminal()` 时确实红了）。
+  仍同步：highlight 核心+语言包、marked、DOMPurify、xterm.css。
+- **诊断钩子自身不再制造开销。** `perf-hooks.domNodes` 由 `querySelectorAll` 全量快照
+  改为 `getElementsByTagName` 的 live `length`（它被 10s 轮询与每次 `markRender` 调用）；
+  `start`/`stop` 幂等，`stop()` 清掉轮询定时器，视图重建不再叠表。
+- **终端回滚缓冲 5000 → 2000 行**（xterm 每个实例一份，按标签、按后端会话各留一份）。
+
+### 暂不改（记下判据，免得下一个人重做同一份分析）
+
+- **不为会话行加 `content-visibility: auto`。** `conversation-wheel.rowsFromDOM()` 逐个测
+  真实 `getBoundingClientRect()`（注释写明"不靠模型里的估算值"），会话锚点恢复又用
+  `container.scrollHeight` 增量；被跳过渲染的行只报 `contain-intrinsic-size` 占位高度 →
+  轮轴刻度比例偏、行首次渲染时容器高度突变可能顶动滚动。要做得和窗口化同一批。
+- **不给 `htmlByKey` 加条数上限。** 它已按 desired key 剪枝到"窗口内的行"；上限若小于
+  窗口，未命中的行每帧都会被判成"html 变了"→ 走 `reconcile` 的 `replaceWith` 整行重建，
+  抖动反而放大。真正的杠杆是**物化行数**的上限（窗口化），不是缓存条数。
+- **GPU 常驻不是模糊/图层提升造成的。** 现皮肤已把 `.topbar`/`.left-panel`/`.right-panel`
+  的 `backdrop-filter` 覆盖成 `none`，全仓无 `will-change`、无 `contain:`，只有 `.modal`
+  打开时才有全窗 `blur(8px)`。要压它得压"失效面积与层数"（窗口化 + 就地更新）。
+
+### 验证与生效
+
+- 前端口径：`cd gui/frontend/dist && node --test` → 485 passed / 0 failed。
+- 前端是 `embed.FS` 打进二进制的：以上改动**重建 GUI 后**才生效；实机前后对比需重建后
+  由顶栏徽标（DOM 节点 / JS 堆 / 快照体积，10s 一条）给出基线。
+
 ## 2026-09-23
 
 ### Added

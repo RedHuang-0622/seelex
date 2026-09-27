@@ -78,6 +78,9 @@ const state = {
 
 const elements = Object.fromEntries([
   "app-title", "app-version", "connection-dot", "provider-label", "token-label",
+  // 顶栏两个诊断徽标宿主：缺了它们，下面 `if (elements["perf-badge-host"])` 永远为假，
+  // 徽标会静默不渲染（性能/事件诊断数据照采，但用户看不到，见 element-registry.test.mjs）。
+  "perf-badge-host", "live-diag-host",
   "session-list", "session-count", "new-session",
   "plugin-list", "plugin-count", "account-list", "account-count", "conversation", "conversation-tabs", "trajectory",
   "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",

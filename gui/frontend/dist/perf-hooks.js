@@ -5,8 +5,9 @@
 // 暴露：
 //   window.__seelexPerf = {
 //     samples: [{t, renderMs, domNodes, jsHeap, snapshotBytes, convMsgs, convChars, largest, truncated, archived}],
-//     markRender(ms), poll(), reset(), badge: HTMLElement
+//     markRender(ms), poll(), reset(), start(), stop(), badge: HTMLElement
 //   }
+// start()/stop() 幂等：stop() 清掉 10s 轮询定时器（视图销毁/重连时不再叠表）。
 //
 // GUI 每 10s 轮询后端 PerfStats（无内容指标）+ 本地渲染成本采样；采样
 // 环有界（60 条）。徽标点击展开最近样本的摘要（console.table）。
@@ -16,14 +17,21 @@ const POLL_INTERVAL_MS = 10000;
 
 export function createPerfHooks({ getStats, onError } = {}) {
   const samples = [];
+  // 10s 轮询定时器句柄：stop() 要能清掉，start() 重复调用也不叠表。
+  let timer = null;
   const badge = document.createElement("span");
   badge.className = "perf-badge";
   badge.title = "性能追踪：渲染进程内存/渲染耗时/快照载荷（点击看最近样本摘要）";
   badge.setAttribute("role", "status");
   badge.textContent = "…";
 
+  // domNodes 取 live HTMLCollection 的 length：通配符 querySelectorAll 每次都要
+  // 走完整棵树并把结果装进一个全量 NodeList（大 DOM 上就是一次 O(n) 分配），而
+  // 两个调用点（10s 轮询 + 每次 markRender）只要一个数，不需要快照。
   function domNodes() {
-    return document.querySelectorAll("*").length;
+    const doc = globalThis.document;
+    if (!doc || typeof doc.getElementsByTagName !== "function") return 0;
+    return doc.getElementsByTagName("*").length;
   }
 
   function jsHeap() {
@@ -85,10 +93,18 @@ export function createPerfHooks({ getStats, onError } = {}) {
 
   function start() {
     record({ renderMs: 0 });
-    if (typeof setInterval === "function") {
-      setInterval(() => void poll(), POLL_INTERVAL_MS);
+    if (typeof setInterval === "function" && timer === null) {
+      timer = setInterval(() => void poll(), POLL_INTERVAL_MS);
     }
     void poll();
+  }
+
+  // stop 清掉轮询定时器（幂等）。视图重建/重连时先 stop 再 start，避免叠定时器。
+  function stop() {
+    if (timer !== null) {
+      clearInterval(timer);
+      timer = null;
+    }
   }
 
   function markRender(ms) {
@@ -121,5 +137,5 @@ export function createPerfHooks({ getStats, onError } = {}) {
     })));
   });
 
-  return { samples, badge, record, markRender, poll, reset, start };
+  return { samples, badge, record, markRender, poll, reset, start, stop };
 }

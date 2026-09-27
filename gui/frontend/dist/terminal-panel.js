@@ -11,6 +11,12 @@
 //     这里也不实现 gap/resync：事件按 id 追加到对应 xterm，缺失由重开终端兜底。
 
 import { flashResizePill, hideResizePill, showResizePill } from "./resize-pill.js";
+import { ensureVendorScript } from "./vendor-loader.js";
+
+// xterm 两个脚本已从 index.html 移到按需加载（见 index.html 注释）：
+// 只有"第一次真的开终端"时才注入，不打开终端的会话不再为它们付内存。
+const XTERM_SRC = new URL("./vendor/xterm/xterm.js", import.meta.url).toString();
+const FIT_SRC = new URL("./vendor/xterm/addon-fit.js", import.meta.url).toString();
 
 export const TERMINAL_STATE_KEY = "seelex.terminal.v1";
 export const TERMINAL_MIN_HEIGHT = 120;
@@ -125,6 +131,16 @@ export function createTerminalPanel(options) {
   const readViewport = options.viewport || (() => window.innerHeight || 900);
   const createTerminal = options.createTerminal || defaultTerminalFactory;
   const createFit = options.createFit || defaultFitFactory;
+  // 调用方注入了自己的工厂（测试/宿主）时不碰 vendor：组件由调用方负责。
+  // 只有两个工厂都用默认实现时，才在开终端前把 xterm 脚本按需注入到位。
+  const ownsVendors = !options.createTerminal && !options.createFit;
+  const terminalVendorsReady = () => !ownsVendors
+    || (typeof globalThis.window?.Terminal === "function"
+      && typeof globalThis.window?.FitAddon?.FitAddon === "function");
+  const loadTerminalVendors = () => (ownsVendors
+    ? ensureVendorScript(XTERM_SRC, () => typeof globalThis.window?.Terminal === "function")
+      .then(() => ensureVendorScript(FIT_SRC, () => typeof globalThis.window?.FitAddon?.FitAddon === "function"))
+    : Promise.resolve(true));
 
   let state = normalizeTerminalState(readState(), readViewport());
   // sessions: 后端终端 ID → { id, title, term, fit, view, running, exited }
@@ -231,6 +247,17 @@ export function createTerminalPanel(options) {
     state.collapsed = false;
     persist();
     applyLayout();
+    // 组件已就绪（常态：第二次起开终端、以及注入了工厂的调用方）→ 同步开终端，
+    // 保持既有同步语义（调用方可以立刻按 id 收事件）；只有"第一次真的开终端"
+    // 需要先注入 vendor，才走 then 分支。注入失败落到 onError（与组件缺失同路）。
+    if (!terminalVendorsReady()) {
+      return loadTerminalVendors().then(openTerminal, (error) => { onError(error); return null; });
+    }
+    return openTerminal();
+  }
+
+  // openTerminal 是原来的开终端主体（建实例 → 挂载 → startSession）。
+  function openTerminal() {
     let term = null;
     let view = null;
     try {
@@ -550,7 +577,9 @@ function defaultTerminalFactory() {
     fontSize: 12,
     lineHeight: 1.25,
     fontFamily: cssToken("--font-mono", "ui-monospace, Consolas, monospace"),
-    scrollback: 5000,
+    // scrollback 是按标签、按后端会话各留一份的回滚缓冲（不是全局共享）。
+    // 5000 行在多标签 + 长输出下是常驻内存大头，收到 2000（VS Code 同量级）。
+    scrollback: 2000,
     theme: terminalTheme(),
     allowProposedApi: true
   });

@@ -420,18 +420,18 @@
   <div id="ui-tooltip" class="ui-tooltip hidden" role="tooltip"></div>
   <div id="toast" class="toast hidden"></div>
   <!-- 文件预览第三方组件（本地 vendor，离线可用；随 embed 打包进二进制）。
-       顺序依赖：highlight 核心 → 语言包 → marked → DOMPurify → docx-preview
-       → pdf.js（PDF worker 由 file-preview.js 按相对路径加载）。 -->
+       顺序依赖：highlight 核心 → 语言包 → marked → DOMPurify。
+       docx-preview 与 pdf.js 不在这里同步加载：它们只服务"打开 .docx / .pdf 预览"
+       这一件事（合计约 440KB 脚本），改由 file-preview.js 首次走到该类型预览时
+       用 vendor-loader.js 注入（按需加载；已就绪则原样复用）。
+       PDF worker 由 file-preview.js 按相对路径加载。 -->
   <script src="./vendor/highlightjs/highlight.min.js"></script>
   <script src="./vendor/highlightjs/languages.all.min.js"></script>
   <script src="./vendor/marked/marked.min.js"></script>
   <script src="./vendor/purify/purify.min.js"></script>
-  <script src="./vendor/docx-preview/docx-preview.min.js"></script>
-  <script src="./vendor/pdfjs/pdf.min.js"></script>
-  <!-- 下栏终端仿真器（本地 vendor，离线可用）：UMD 全局 Terminal / FitAddon
-       必须在模块脚本之前就绪。 -->
-  <script src="./vendor/xterm/xterm.js"></script>
-  <script src="./vendor/xterm/addon-fit.js"></script>
+  <!-- 下栏终端仿真器（本地 vendor，离线可用）不再同步加载：xterm.js / addon-fit.js
+       由 terminal-panel.js 在"第一次真的开终端"时按需注入（UMD 全局 Terminal /
+       FitAddon 到位后才建实例）；不打开终端的会话不再为它们付内存。 -->
   <script type="module" src="./app.js"></script>
 </body>
 </html>

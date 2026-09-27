@@ -16,6 +16,7 @@
 // 清空并回调 onEmpty，由 app.js 收起抽屉、把子页恢复到原来大小。
 
 import { escapeHtml, icon } from "./components.js";
+import { ensureVendorScript } from "./vendor-loader.js";
 
 // 各类型预览读取上限（字节；后端还有 64 MiB 硬钳制）。
 export const PREVIEW_LIMITS = {
@@ -582,8 +583,19 @@ function renderImage(panel, bytes, path, sizeText, addCleanup) {
 // ── PDF（pdfjs-dist）───────────────────────────────────────
 
 const PDF_WORKER_SRC = new URL("./vendor/pdfjs/pdf.worker.min.js", import.meta.url).toString();
+// 库本体按需加载（index.html 不再同步加载它）：首次打开 PDF 预览才注入，
+// 免得每次启动都为 368KB 的 PDF.js 付 parse/compile 与内部缓存的内存。
+const PDF_LIB_SRC = new URL("./vendor/pdfjs/pdf.min.js", import.meta.url).toString();
 
 async function renderPDF(panel, bytes, isCurrent, addCleanup) {
+  if (!(window.pdfjsLib || globalThis.pdfjsLib)) {
+    try {
+      await ensureVendorScript(PDF_LIB_SRC, () => Boolean(window.pdfjsLib || globalThis.pdfjsLib));
+    } catch {
+      renderNotice(panel, "PDF 查看组件加载失败（vendor/pdfjs）");
+      return;
+    }
+  }
   const pdfjsLib = window.pdfjsLib || globalThis.pdfjsLib;
   if (!pdfjsLib) {
     renderNotice(panel, "PDF 查看组件未加载（vendor/pdfjs 缺失？）");
@@ -660,7 +672,18 @@ async function renderPDF(panel, bytes, isCurrent, addCleanup) {
 
 // ── Word（docx-preview）────────────────────────────────────
 
+// docx-preview 同样按需加载（index.html 不再同步加载）。
+const DOCX_LIB_SRC = new URL("./vendor/docx-preview/docx-preview.min.js", import.meta.url).toString();
+
 async function renderWord(panel, bytes, isCurrent, addCleanup) {
+  if (!(window.docx && typeof window.docx.renderAsync === "function")) {
+    try {
+      await ensureVendorScript(DOCX_LIB_SRC, () => Boolean(window.docx && typeof window.docx.renderAsync === "function"));
+    } catch {
+      renderNotice(panel, "Word 查看组件加载失败（vendor/docx-preview）");
+      return;
+    }
+  }
   const docx = window.docx;
   if (!docx || typeof docx.renderAsync !== "function") {
     renderNotice(panel, "Word 查看组件未加载（vendor/docx-preview 缺失？）");
