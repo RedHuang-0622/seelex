@@ -2,6 +2,7 @@ package adapters
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -12,13 +13,20 @@ import (
 	"github.com/RedHuang-0622/seelex/application/contract"
 )
 
-// 本文件钉住环内通道的正面事实：回合内的工具 handler 凭 ChatStream 注入的 ctx 就能
-// 读/写引擎历史，**当场生效**——同回合的下一次模型请求读到的已是替换后的历史，不经
-// 过「下一次装载」。反向事实（回合内 Session.History() 自锁）由
-// engine_port_reentrance_test.go 钉住；两条一起说明"为什么只能走这条门"。
+// 本文件钉住「回合进行中写历史」的正面事实与下界（Seele 方案 B 之后的行为）：
+//
+//   - 工具 handler（ChatStream 同一 goroutine）在回合内调**普通公开方法**
+//     （EnginePort.ReplaceHistoryFor → session.Session.ReplaceHistory）无需任何
+//     「环内把手」：替换被排队到循环的下一个检查点，**本回合的下一次模型请求**
+//     读到的就是折叠后的历史（当场生效，不经过"下一次装载"）。
+//   - 引擎仍拒收会丢掉在飞 tool_call 单元的替换（ErrInFlightToolCallDropped），
+//     且被拒时历史不动——core 侧 withInFlightTail 正是为了不触发这条拒绝。
+//
+// 旧模型（回合从进函数持锁到出函数 + session.InLoop 把手）下，这里测的是
+// HistoryInLoop/ReplaceHistoryInLoop；把手与整条环内通道已随 Seele 升级删除，
+// 对应用例改为直接钉"新模型下同一件事仍然成立"。
 
-// foldProbe 在工具派发点（ChatStream 同一 goroutine、会话锁已持有）执行，返回值即
-// 本次工具结果正文。
+// foldProbe 在工具派发点（ChatStream 同一 goroutine）执行，返回值即本次工具结果正文。
 type foldProbe func(t *testing.T, port *EnginePort, ctx context.Context) string
 
 // foldAgent 把 probe 挂在一次工具调用上；completer 负责第一轮发起工具调用、第二轮
@@ -33,7 +41,7 @@ type foldAgent struct {
 
 func (a foldAgent) VisibleTools(context.Context) []types.Tool {
 	return []types.Tool{{Type: "function", Function: types.ToolFunction{
-		Name: a.toolName, Description: "in-loop fold probe",
+		Name: a.toolName, Description: "in-turn fold probe",
 		Parameters: map[string]any{"type": "object"},
 	}}}
 }
@@ -99,8 +107,8 @@ func requestHas(messages []types.Message, want string) bool {
 	return false
 }
 
-// runFoldTurn 起一个真实 Session（会话锁语义只在这里存在，替身引擎复现不了），让
-// 模型在第一轮调用 compact_context，probe 就在该次派发内跑。
+// runFoldTurn 起一个真实 Session（回合闸门与工作状态只在它身上存在，替身引擎复现
+// 不了），让模型在第一轮调用 compact_context，probe 就在该次派发内跑。
 func runFoldTurn(t *testing.T, probe foldProbe) (*frameworkSession.Session, *foldCompleter) {
 	t.Helper()
 	completer := &foldCompleter{toolName: "compact_context"}
@@ -132,40 +140,39 @@ func runFoldTurn(t *testing.T, probe foldProbe) (*frameworkSession.Session, *fol
 	return created, completer
 }
 
-// TestInLoopReplaceTakesEffectInSameTurn 就是这次要交付的行为：一次调用当场压完，
-// 同回合的下一次请求读到的已是折叠后的历史。
-func TestInLoopReplaceTakesEffectInSameTurn(t *testing.T) {
+// inFlightFold 返回一次折叠产物：压缩帧 + 当前历史里**正在飞的那一截**
+// （assistant 带 tool_calls、其结果尚未 append）。尾部必须保留，否则引擎拒收。
+func inFlightFold(history []contract.EngineMessage) []contract.EngineMessage {
+	folded := []contract.EngineMessage{{Role: "user", Content: "COMPACTED-FRAME", ContentSet: true}}
+	for _, message := range history {
+		if message.Role == "assistant" && len(message.ToolCalls) > 0 {
+			folded = append(folded, message)
+		}
+	}
+	return folded
+}
+
+// TestReplaceHistoryInsideTurnTakesEffectInSameTurn 是要交付的行为：回合内的工具
+// handler 用**普通公开方法**提交替换（不再需要环内把手，也不需要 ctx 透传），替换
+// 在循环的下一个检查点落地，同回合的下一次请求读到的已是折叠后的历史。
+func TestReplaceHistoryInsideTurnTakesEffectInSameTurn(t *testing.T) {
 	var (
-		readOK    bool
 		readCount int
-		handled   bool
 		writeErr  error
 	)
-	sess, completer := runFoldTurn(t, func(t *testing.T, port *EnginePort, ctx context.Context) string {
-		history, ok := port.HistoryInLoop(ctx)
-		readOK, readCount = ok, len(history)
-		if !ok {
-			return "no in-loop handle"
-		}
-		// 折叠产物 = 压缩帧 + 正在飞的那一截（尾部保留）。
-		folded := []contract.EngineMessage{{Role: "user", Content: "COMPACTED-FRAME", ContentSet: true}}
-		for _, message := range history {
-			if message.Role == "assistant" && len(message.ToolCalls) > 0 {
-				folded = append(folded, message)
-			}
-		}
-		handled, writeErr = port.ReplaceHistoryInLoop(ctx, folded)
-		return "folded in-loop"
+	sess, completer := runFoldTurn(t, func(t *testing.T, port *EnginePort, _ context.Context) string {
+		// 读：会话当前工作历史（永不阻塞，随时可读）。
+		history := port.HistoryFor(port.SessionID())
+		readCount = len(history)
+		writeErr = port.ReplaceHistoryFor(port.SessionID(), inFlightFold(history))
+		return "folded in-turn"
 	})
 
-	if !readOK {
-		t.Fatal("回合内取不到环内把手（ctx 未携带本轮能力）")
-	}
 	if readCount != 2 {
-		t.Fatalf("环内读到的历史长度 = %d, want 2（user + assistant tool_calls）", readCount)
+		t.Fatalf("回合内读到的历史长度 = %d, want 2（user + assistant tool_calls）", readCount)
 	}
-	if !handled || writeErr != nil {
-		t.Fatalf("环内替换未被处理：handled=%v err=%v", handled, writeErr)
+	if writeErr != nil {
+		t.Fatalf("回合内替换被拒：%v", writeErr)
 	}
 	requests := completer.snapshot()
 	if len(requests) != 2 {
@@ -175,7 +182,7 @@ func TestInLoopReplaceTakesEffectInSameTurn(t *testing.T) {
 		t.Fatal("折叠不该出现在第一次请求里")
 	}
 	if !requestHas(requests[1], "COMPACTED-FRAME") {
-		t.Fatal("环内替换未即时生效：同回合的下一次请求看不到折叠帧")
+		t.Fatal("回合内替换未即时生效：同回合的下一次请求看不到折叠帧")
 	}
 	if requestHas(requests[1], "go") {
 		t.Fatal("折叠后旧输入仍在请求里")
@@ -196,49 +203,43 @@ func TestInLoopReplaceTakesEffectInSameTurn(t *testing.T) {
 	}
 }
 
-// TestInLoopDropsInFlightTailIsRefused 钉住引擎侧下界：环内替换若会丢掉正在飞的
-// tool_call 单元（其结果尚未 append），必须被拒且不动历史——否则紧随其后 append 的
+// TestReplaceHistoryDropsInFlightTailIsRefused 钉住引擎侧下界：替换若会丢掉正在飞的
+// tool_call 单元（其结果尚未 append），必须被拒且不改历史——否则紧随其后 append 的
 // 结果行成孤儿。core 侧 withInFlightTail 正是为了不触发这条拒绝。
-func TestInLoopDropsInFlightTailIsRefused(t *testing.T) {
+func TestReplaceHistoryDropsInFlightTailIsRefused(t *testing.T) {
 	var (
-		handled    bool
 		refuseErr  error
 		lenAfter   int
-		restoredOK bool
+		restoreErr error
 	)
-	_, _ = runFoldTurn(t, func(t *testing.T, port *EnginePort, ctx context.Context) string {
-		history, ok := port.HistoryInLoop(ctx)
-		if !ok {
-			t.Error("探针取不到环内把手")
-			return "no handle"
-		}
-		handled, refuseErr = port.ReplaceHistoryInLoop(ctx, []contract.EngineMessage{
+	_, _ = runFoldTurn(t, func(t *testing.T, port *EnginePort, _ context.Context) string {
+		history := port.HistoryFor(port.SessionID())
+		refuseErr = port.ReplaceHistoryFor(port.SessionID(), []contract.EngineMessage{
 			{Role: "user", Content: "COMPACTED-FRAME", ContentSet: true},
 		})
-		after, _ := port.HistoryInLoop(ctx)
-		lenAfter = len(after)
+		lenAfter = len(port.HistoryFor(port.SessionID()))
 		// 接回在飞尾部，让本轮正常收尾。
-		restoredOK, _ = port.ReplaceHistoryInLoop(ctx, history)
+		restoreErr = port.ReplaceHistoryFor(port.SessionID(), inFlightFold(history))
 		return "tail preserved"
 	})
 
 	if refuseErr == nil {
-		t.Fatal("丢掉在飞尾部的环内替换被接受了（引擎下界失效）")
+		t.Fatal("丢掉在飞尾部的替换被接受了（引擎下界失效）")
 	}
-	if !handled {
-		t.Fatalf("端口应回报「在环内但被拒」而不是「不在环内」：handled=%v", handled)
+	if !errors.Is(refuseErr, frameworkSession.ErrInFlightToolCallDropped) {
+		t.Fatalf("拒收理由不是「会丢在飞 tool_call 单元」：%v", refuseErr)
 	}
 	if lenAfter != 2 {
 		t.Fatalf("被拒的替换改动了历史：len=%d want 2", lenAfter)
 	}
-	if !restoredOK {
-		t.Fatal("保留尾部的替换没被受理")
+	if restoreErr != nil {
+		t.Fatalf("保留尾部的替换被拒：%v", restoreErr)
 	}
 }
 
-// TestInLoopEngineUnavailableOutsideTurn 是回落判据：环外 ctx 一律 ok=false /
-// handled=false 且无错误，调用方据此回落到取锁方法（不得凭此伪造「已折叠」）。
-func TestInLoopEngineUnavailableOutsideTurn(t *testing.T) {
+// TestReplaceHistoryOutsideTurnAppliesImmediately 是锁外路径的对照：没有回合在飞时
+// 替换当场落地（不需要 ctx、不需要把手）。
+func TestReplaceHistoryOutsideTurnAppliesImmediately(t *testing.T) {
 	completer := &foldCompleter{toolName: "compact_context"}
 	created, err := frameworkSession.NewSession(frameworkSession.SessionComponents{
 		Agent: foldAgent{llm: completer, toolName: "compact_context", t: t},
@@ -247,15 +248,17 @@ func TestInLoopEngineUnavailableOutsideTurn(t *testing.T) {
 		t.Fatalf("NewSession: %v", err)
 	}
 	port := NewEnginePort(created, nil, nil)
+	created.AppendHistory(types.Message{Role: "user", Content: ptrText("seed")})
 
-	if _, ok := port.HistoryInLoop(context.Background()); ok {
-		t.Fatal("环外不该取到环内历史")
+	if err := port.ReplaceHistoryFor(created.SessionID(), []contract.EngineMessage{
+		{Role: "user", Content: "COMPACTED-FRAME", ContentSet: true},
+	}); err != nil {
+		t.Fatalf("锁外替换: %v", err)
 	}
-	history := []contract.EngineMessage{{Role: "user", Content: "x", ContentSet: true}}
-	if handled, err := port.ReplaceHistoryInLoop(context.Background(), history); handled || err != nil {
-		t.Fatalf("环外替换应回报「未处理、无错误」：handled=%v err=%v", handled, err)
-	}
-	if handled, err := port.SetSystemPromptInLoop(context.Background(), "p"); handled || err != nil {
-		t.Fatalf("环外 prompt 写入应回报「未处理、无错误」：handled=%v err=%v", handled, err)
+	history := port.HistoryFor(created.SessionID())
+	if len(history) != 1 || history[0].Content != "COMPACTED-FRAME" {
+		t.Fatalf("锁外替换没有当场生效：%+v", history)
 	}
 }
+
+func ptrText(value string) *string { return &value }

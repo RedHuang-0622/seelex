@@ -48,10 +48,9 @@ type SubagentSessions struct {
 	sessions   map[string]*frameworkSession.Session
 	sessionIDs map[string]string
 	snapshots  map[string][]types.Message
-	// liveHistories 是运行中节点最近一次读到的历史（循环发布的检查点）。
-	// Seele 的 Session 在整段 ChatStream 期间持有会话锁，actor 若直接读
-	// History() 会停在流式上几十秒并堵住整个注册表；因此运行中的读取一律走
-	// 这里的缓存（由 refreshLiveHistoryLocked 用 HistoryIfAvailable 刷新）。
+	// liveHistories 是运行中节点最近一次读到的历史（会话当前工作历史）。
+	// 读取本身已不再阻塞（Seele 的 History 只取工作状态短临界区），缓存只是
+	// 让"未注册即无历史"与"已注册但还没材料"两件事可区分。
 	liveHistories    map[string][]types.Message
 	goals            map[string]string
 	contextSnapshots map[string]*snapshot.ContextSnapshot
@@ -452,17 +451,21 @@ func (s *SubagentSessions) persistLocked(nodeID string) {
 	}
 }
 
-// refreshLiveHistoryLocked 刷新并返回运行中节点的最近历史（actor goroutine 内
-// 调用），**绝不阻塞**：Seele 的 Session 在整段 ChatStream 期间持有会话锁，
-// History() 会让 actor 停在流式上（实测 28s；actor 是单 goroutine，一处阻塞
-// 会让所有节点的详情与落账排队，mailbox 满后还丢阶段事件）。HistoryIfAvailable
-// 返回循环在每个历史检查点发布的快照，代价是最多滞后一个检查点；节点刚注册、
-// 尚未发布过检查点时返回上次缓存（可能为 nil）。
+// refreshLiveHistoryLocked 刷新并返回运行中节点的当前历史（actor goroutine 内
+// 调用），**绝不阻塞**：Seele 把「整段 ChatStream 持有会话锁」换成了回合闸门 +
+// 工作状态短临界区，`History()` 只取一次微秒级临界区，因此任何时刻都能直接读到
+// 当前工作历史（旧实现要绕道 HistoryIfAvailable 的检查点快照，代价是最多滞后
+// 一个检查点）。
+//
+// 空历史按空切片缓存（不是 nil）：调用方据"读到空"与"读不到"区分状态，nil 会让
+// 「已注册但还没材料」看起来像「没注册」。
 func (s *SubagentSessions) refreshLiveHistoryLocked(nodeID string, sess *frameworkSession.Session) []types.Message {
 	if sess != nil {
-		if history, ok := sess.HistoryIfAvailable(); ok {
-			s.liveHistories[nodeID] = history
+		history := sess.History()
+		if history == nil {
+			history = []types.Message{}
 		}
+		s.liveHistories[nodeID] = history
 	}
 	return s.liveHistories[nodeID]
 }
@@ -477,12 +480,11 @@ func (s *SubagentSessions) buildRecordLocked(nodeID string) sessionstore.NodeSes
 		UpdatedAt:     time.Now().UTC(),
 	}
 	if sess := s.sessions[nodeID]; sess != nil {
-		// 运行期落账读的是循环发布的检查点（HistoryIfAvailable），**不再阻塞
-		// actor**：本函数由 RecordStage/RecordResult/NoteWorktree/NoteOutcome
-		// 在节点运行期间触发，而节点整段 ChatStream 都持有会话锁——旧实现让
-		// actor 停在流式上（实测 28s），期间所有节点的详情与落账全部排队。
-		// 代价是记录最多滞后一个检查点，换来的是"写得及时"：崩溃恢复要的是
-		// 最近一次成功落盘的检查点，而不是卡了几十秒才写下的那一份。
+		// 运行期落账读的就是会话当前工作历史（History 只取短临界区，**不再阻塞
+		// actor**）：本函数由 RecordStage/RecordResult/NoteWorktree/NoteOutcome
+		// 在节点运行期间触发，旧实现（会话锁持满整轮 + HistoryIfAvailable 检查点
+		// 快照）让 actor 停在流式上（实测 28s），期间所有节点的详情与落账全部
+		// 排队。现在读到的是权威工作历史本身。
 		history := s.refreshLiveHistoryLocked(nodeID, sess)
 		record.History = history
 		record.ContextJSON, _ = json.Marshal(

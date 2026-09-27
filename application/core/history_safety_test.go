@@ -22,7 +22,7 @@ func TestPrepareProviderHistoryRepairsBeforeChat(t *testing.T) {
 	engine := &fakeEngine{history: []EngineMessage{{Role: "assistant", Content: ""}}}
 	service := newTestService(t, engine)
 	defer service.Shutdown()
-	if err := service.components.history.PrepareProviderHistory(nil); err != nil {
+	if err := service.components.history.PrepareProviderHistory(); err != nil {
 		t.Fatal(err)
 	}
 	history := engine.History()

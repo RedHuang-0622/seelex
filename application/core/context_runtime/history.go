@@ -43,28 +43,28 @@ func NewHistoryCoordinator(core *state.Core) *HistoryCoordinator {
 
 // PrepareProviderHistory 使每条持久化消息对拒绝空 content 的 provider 安全
 // （工具调用保留，仅恢复缺失的说明文本；活跃会话兼容包装）。
-// inLoop 由调用方按自己所在的调用点传入：nil = 锁外路径。
-func (h *HistoryCoordinator) PrepareProviderHistory(inLoop *loopHistoryChannel) error {
-	return h.PrepareProviderHistoryFor(h.Deps.Engine.SessionID(), inLoop)
+func (h *HistoryCoordinator) PrepareProviderHistory() error {
+	return h.PrepareProviderHistoryFor(h.Deps.Engine.SessionID())
 }
 
 // PrepareProviderHistoryFor 使每条持久化消息对拒绝空 content 的 provider
 // 安全：先补齐中断（残缺）工具链缺失的 tool 结果（协议占位），再恢复空
 // 正文。sessionID 指明目标会话。
 //
-// 它必须与折叠同源取历史：装配路径里它就跑在 replaceEngineHistory 之后，若折叠
-// 发生在正在跑的回合内而这里改回取锁方法，同一条 goroutine 会再抢一次会话锁。
-func (h *HistoryCoordinator) PrepareProviderHistoryFor(sessionID string, inLoop *loopHistoryChannel) error {
-	history := h.foldHistory(inLoop, sessionID)
+// 它与折叠同源取历史、同源写回（会话路由端口）：装配路径里它紧跟在折叠之后，
+// 两边写的是同一份工作历史；写回在忙会话上由引擎排队到下一个检查点，因此不会
+// 因为"这一轮正在跑"而丢掉。
+func (h *HistoryCoordinator) PrepareProviderHistoryFor(sessionID string) error {
+	history := h.foldHistory(sessionID)
 	prepared, repaired := RepairInterruptedToolChains(history)
 	if repaired {
-		if err := h.replaceFoldHistory(inLoop, sessionID, prepared); err != nil {
+		if err := h.replaceFoldHistory(sessionID, prepared); err != nil {
 			return fmt.Errorf("repair interrupted tool chains: %w", err)
 		}
 	}
 	final, repairedContent := RepairEmptyHistoryContent(prepared)
 	if repairedContent {
-		if err := h.replaceFoldHistory(inLoop, sessionID, final); err != nil {
+		if err := h.replaceFoldHistory(sessionID, final); err != nil {
 			return fmt.Errorf("repair empty provider history content: %w", err)
 		}
 	}
@@ -76,13 +76,13 @@ func (h *HistoryCoordinator) PrepareProviderHistoryFor(sessionID string, inLoop 
 // 尚未写入（活跃 ReAct 中），残缺链的配对修复留到装配/请求前由
 // PrepareProviderHistoryFor 执行 —— 避免把"即将执行"的工具调用误判为
 // 中断丢失而注入占位。
-func (h *HistoryCoordinator) PrepareNewHistoryContentFor(sessionID string, inLoop *loopHistoryChannel) error {
-	history := h.foldHistory(inLoop, sessionID)
+func (h *HistoryCoordinator) PrepareNewHistoryContentFor(sessionID string) error {
+	history := h.foldHistory(sessionID)
 	prepared, repaired := RepairEmptyHistoryContent(history)
 	if !repaired {
 		return nil
 	}
-	return h.replaceFoldHistory(inLoop, sessionID, prepared)
+	return h.replaceFoldHistory(sessionID, prepared)
 }
 
 // replaceEngineHistory 会话内替换指定会话引擎历史（会话路由引擎用

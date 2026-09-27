@@ -121,6 +121,34 @@ type ReactorEngine interface {
 	AppendHistory(types.Message)
 }
 
+// historyQueuer 是「能当场接收一次历史替换」的引擎能力（Seele session.Session 实现）。
+//
+// 为什么它是宿主迁移的支点：回合进行中，引擎把替换**排队到下一个检查点**（模型调用
+// 前 / assistant 落历史后 / tool 结果 append 前后），空闲时立即应用；因此宿主不再需要
+// 「等这个会话的回合收尾，再换一台新引擎把历史装上去」那套登记表。折叠在下一次模型
+// 请求前就生效，这也正是自动压缩要的语义（它本就要在下一次请求才生效）。
+//
+// 没有实现它的引擎（只支持 Clear/Append 的旧替身与 legacy 引擎）仍走 pendingHistory
+// 登记路径，行为与之前一致。
+type historyQueuer interface {
+	ReplaceHistory([]types.Message) error
+}
+
+// queueSessionHistory 把一次历史替换交给在飞会话的引擎自己排队。返回 false = 该引擎
+// 没有这个能力，调用方回退登记路径。
+//
+// 为什么可以持着 port.mu 调用：新引擎的 ReplaceHistory 只做两件短事——按当前工作
+// 历史校验替换是否丢掉在飞 tool_call 单元、把替换挂进检查点队列，**不等任何回合**。
+// 旧实现里"改在飞会话的历史"会撞上整轮持有不放的会话锁（S3b 的三处引信），所以当时
+// 只能登记到收尾再装。
+func queueSessionHistory(engine ReactorEngine, history []types.Message) (bool, error) {
+	queuer, ok := engine.(historyQueuer)
+	if !ok {
+		return false, nil
+	}
+	return true, queuer.ReplaceHistory(history)
+}
+
 type ReactorEngineFactory func(sessionID string) ReactorEngine
 
 func NewEnginePort(eng ReactorEngine, newEngine ReactorEngineFactory, tracer *telemetry.MemoryTracer) *EnginePort {
@@ -389,12 +417,19 @@ func (port *EnginePort) ReplaceRawHistory(sessionID string, history []types.Mess
 	if port.engine == nil && port.newEngine == nil {
 		return fmt.Errorf("engine is unavailable")
 	}
-	// A running ReActLoop owns its in-memory slice and overwrites the session
-	// view at turn exit, so touching that engine now buys nothing and would
-	// block right here on a lock held for the whole round. Register the fold
-	// instead: it is installed the moment the turn releases port.engineCalls
-	// (see installPendingLocked).
+	// A running ReActLoop used to own its in-memory slice and overwrite the session
+	// view at turn exit, so touching that engine then bought nothing and would block
+	// right here on a lock held for the whole round. Seele no longer works that way:
+	// the engine queues a replacement submitted during a turn and applies it at its
+	// next checkpoint (before the next model request), so handing the history to the
+	// running session is now both safe and useful — it is what makes an in-turn fold
+	// visible to the *next* request of that same turn. Engines without that capability
+	// still take the old route (register and install once the turn releases
+	// port.engineCalls, see installPendingLocked).
 	if port.engineCalls[sessionID] > 0 {
+		if queued, err := queueSessionHistory(port.engineForSessionLocked(sessionID), desired); queued {
+			return err
+		}
 		port.armPendingLocked(sessionID, desired)
 		port.activateLocked(sessionID)
 		return nil
@@ -415,11 +450,15 @@ func (port *EnginePort) replaceRawHistoryFor(sessionID string, history []types.M
 	port.mu.Lock()
 	defer port.mu.Unlock()
 	if sessionID == port.sessionID {
-		// 目标是当前活跃会话：与 ReplaceRawHistory 相同语义（可能延迟安装）。
+		// 目标是当前活跃会话：与 ReplaceRawHistory 相同语义（可能排队到检查点，
+		// 也可能换一台干净引擎）。
 		if port.engine == nil && port.newEngine == nil {
 			return fmt.Errorf("engine is unavailable")
 		}
 		if port.engineCalls[sessionID] > 0 {
+			if queued, err := queueSessionHistory(port.engineForSessionLocked(sessionID), desired); queued {
+				return err
+			}
 			port.armPendingLocked(sessionID, desired)
 			return nil
 		}
@@ -443,6 +482,9 @@ func (port *EnginePort) replaceRawHistoryFor(sessionID string, history []types.M
 		engine = fresh
 	}
 	if port.engineCalls[sessionID] > 0 {
+		if queued, err := queueSessionHistory(engine, desired); queued {
+			return err
+		}
 		port.armPendingLocked(sessionID, desired)
 		return nil
 	}
@@ -471,13 +513,19 @@ func (port *EnginePort) replaceTargetHistoryLocked(sessionID string, history []t
 }
 
 // installHistoryInPlace 用 history 重建 engine 的 provider 历史，保留该会话的引擎
-// 实例。调用方必须保证这个引擎此刻没有回合在飞——ClearHistory/History/AppendHistory
-// 用的是 ChatStream 整轮持有的那把会话锁，锁内调用会排到回合结束（持着 port.mu 时
-// 就是把全进程排到别人后面）。
+// 实例。调用方必须保证这个引擎此刻没有回合在飞（这正是"空闲会话"的落点）。
+//
+// 优先让引擎自己装（Seele session.Session.ReplaceHistory）：一次短临界区完成整份替换，
+// 语义是"工作历史就是这份"。引擎拒绝时（自定义 Loop 不支持替换 / 替换会丢掉在飞单元）
+// 退回 Clear + 逐条 Append 的 legacy 形状——本函数的契约已保证没有回合在飞，兼容路径
+// 不会撞上在飞校验。
 //
 // system 行只补缺、不重加：上游 ClearHistory 刻意保留 system 消息，再把 desired 里
 // 的 system 追加一遍等于每次压缩/恢复都复制一份 prompt。
 func installHistoryInPlace(engine ReactorEngine, history []types.Message) {
+	if queuer, ok := engine.(historyQueuer); ok && queuer.ReplaceHistory(history) == nil {
+		return
+	}
 	engine.ClearHistory()
 	hasSystem := false
 	for _, message := range engine.History() {

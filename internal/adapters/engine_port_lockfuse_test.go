@@ -2,6 +2,7 @@ package adapters
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -247,35 +248,42 @@ func historyText(history []types.Message) string {
 	return text
 }
 
-// TestFoldWhileAnotherSessionTurnRunsDoesNotFreezePort 钉写面非活跃分支：目标会话
-// 有回合在飞时，锁外折叠只登记待安装并当场返回，其它会话的开回合不受影响；登记的
-// 历史在那次回合收尾时装上，且不顺带把活跃会话切走。
-func TestFoldWhileAnotherSessionTurnRunsDoesNotFreezePort(t *testing.T) {
+// foldWithInFlightTail 组装一次"保留在飞单元"的折叠产物：压缩帧 + 当前历史里
+// assistant 带 tool_calls 的那一截。尾部必须保留——引擎会拒收丢掉它的替换
+// （ErrInFlightToolCallDropped），而折叠产物本来就不含这一截。
+func foldWithInFlightTail(port *EnginePort, sessionID, frame string) []contract.EngineMessage {
+	folded := foldFrame(frame)
+	for _, message := range port.HistoryFor(sessionID) {
+		if message.Role == "assistant" && len(message.ToolCalls) > 0 {
+			folded = append(folded, message)
+		}
+	}
+	return folded
+}
+
+// TestFoldOnBusySessionLandsInTurnAndDoesNotFreezePort 钉写面非活跃分支：目标会话
+// 有回合在飞时，锁外折叠**当场把替换交给引擎排队**（不换引擎、不等回合收尾），其它
+// 会话的开回合不受影响；替换在该回合的下一个检查点落地，那条在飞 tool 结果不会成孤儿。
+//
+// 旧实现在这条路径上只能"登记待安装 + 等回合收尾换一台干净引擎"：Seele 让回合忙时
+// 的替换排队到检查点之后，宿主不再需要那套登记表（见 EnginePort.queueSessionHistory）。
+func TestFoldOnBusySessionLandsInTurnAndDoesNotFreezePort(t *testing.T) {
 	harness := newFuseHarness(t, false)
 	harness.startHangingTurn(t)
 
 	harness.wait(t, "对正在跑回合的会话做锁外折叠", func() error {
-		return harness.port.ReplaceHistoryFor(harness.hangKey, harness.folded)
+		return harness.port.ReplaceHistoryFor(harness.hangKey,
+			foldWithInFlightTail(harness.port, harness.hangKey, "S3B-FOLDED-FRAME"))
 	})
-	// 登记≠兑现：durable 的「下一次装载」槽此刻还不该被动过。
-	select {
-	case sessionID := <-harness.prepared:
-		t.Fatalf("折叠登记时就 arm 了下一次装载槽：%s", sessionID)
-	default:
-	}
 	harness.runQuietTurn(t)
 
 	harness.releaseHang(t)
-	if got := historyText(harness.port.RawHistoryFor(harness.hangKey)); got != "S3B-FOLDED-FRAME" {
-		t.Fatalf("回合收尾后登记的折叠没装上：history=%q", got)
+	history := historyText(harness.port.RawHistoryFor(harness.hangKey))
+	if !strings.Contains(history, "S3B-FOLDED-FRAME") {
+		t.Fatalf("在飞会话的折叠没落地：history=%q", history)
 	}
-	select {
-	case sessionID := <-harness.prepared:
-		if sessionID != harness.hangKey {
-			t.Fatalf("下一次装载槽 arm 到了别的会话：%s", sessionID)
-		}
-	case <-time.After(fuseQuickBudget):
-		t.Fatal("登记的折叠装上后没有 arm 下一次装载槽")
+	if !strings.Contains(history, "released") {
+		t.Fatalf("折叠把刚 append 的 tool 结果抹掉了（孤儿/丢失）：history=%q", history)
 	}
 	if harness.port.SessionID() != fuseOtherSession {
 		t.Fatalf("后台会话的折叠把活跃会话切走了：%s", harness.port.SessionID())
@@ -283,9 +291,9 @@ func TestFoldWhileAnotherSessionTurnRunsDoesNotFreezePort(t *testing.T) {
 	harness.assertNoFactoryFailure(t)
 }
 
-// TestFoldWhileActiveSessionTurnRunsDoesNotFreezePort 钉写面活跃分支：修前它在
-// engineCalls>0 时仍会就地改 port.engine 的历史（同一个持锁等待），修后一律登记。
-func TestFoldWhileActiveSessionTurnRunsDoesNotFreezePort(t *testing.T) {
+// TestFoldOnBusyActiveSessionDoesNotFreezePort 钉写面活跃分支：活跃别名上的折叠与
+// 会话内折叠同路（排队到检查点），不换引擎、不影响其它会话。
+func TestFoldOnBusyActiveSessionDoesNotFreezePort(t *testing.T) {
 	harness := newFuseHarness(t, true)
 	if harness.port.SessionID() != harness.hangKey {
 		t.Fatalf("用例前提不成立：活跃会话应为挂死那台，实际 %s", harness.port.SessionID())
@@ -293,52 +301,55 @@ func TestFoldWhileActiveSessionTurnRunsDoesNotFreezePort(t *testing.T) {
 	harness.startHangingTurn(t)
 
 	harness.wait(t, "对活跃的在飞会话做折叠", func() error {
-		return harness.port.ReplaceHistoryFor(harness.hangKey, harness.folded)
+		return harness.port.ReplaceHistoryFor(harness.hangKey,
+			foldWithInFlightTail(harness.port, harness.hangKey, "S3B-FOLDED-FRAME"))
 	})
 	harness.runQuietTurn(t)
 
 	harness.releaseHang(t)
-	if got := historyText(harness.port.RawHistoryFor(harness.hangKey)); got != "S3B-FOLDED-FRAME" {
-		t.Fatalf("活跃会话登记的折叠没在收尾时装上：history=%q", got)
+	history := historyText(harness.port.RawHistoryFor(harness.hangKey))
+	if !strings.Contains(history, "S3B-FOLDED-FRAME") {
+		t.Fatalf("活跃会话的折叠没落地：history=%q", history)
+	}
+	if !strings.Contains(history, "released") {
+		t.Fatalf("折叠把刚 append 的 tool 结果抹掉了（孤儿/丢失）：history=%q", history)
 	}
 	harness.assertNoFactoryFailure(t)
 }
 
-// TestHistoryReadOfBusySessionDoesNotFreezePort 钉读面：读一台在飞会话的历史可以
-// 慢慢等（权威语义不变），但它不得持着 port.mu 的 RLock 等——否则别的会话连 Lock
-// 都拿不到，全进程的开回合一起排队。
-func TestHistoryReadOfBusySessionDoesNotFreezePort(t *testing.T) {
+// TestHistoryReadOfBusySessionIsNonBlocking 钉读面：读一台在飞会话的历史**立刻**
+// 返回当前工作历史（Seele 的工作状态短临界区），既能读到在飞状态，也不会把别的会话
+// 堵在 port.mu 后面。旧模型下这条读会等整轮不放的会话锁，且持着全进程读锁等，
+// 一次长流式就能让界面和所有会话一起冻住。
+func TestHistoryReadOfBusySessionIsNonBlocking(t *testing.T) {
 	harness := newFuseHarness(t, false)
 	harness.startHangingTurn(t)
 
-	blockedRead := make(chan []types.Message, 1)
-	go func() { blockedRead <- harness.port.RawHistoryFor(harness.hangKey) }()
+	// 非活跃别名：RawHistoryFor。
+	read := make(chan []types.Message, 1)
+	go func() { read <- harness.port.RawHistoryFor(harness.hangKey) }()
 	select {
-	case messages := <-blockedRead:
-		t.Fatalf("在飞会话的历史读立刻返回了（用例前提不成立）：%d 条", len(messages))
-	case <-time.After(100 * time.Millisecond):
+	case messages := <-read:
+		if len(messages) == 0 {
+			t.Fatal("在飞会话的历史读返回了空历史")
+		}
+	case <-time.After(fuseQuickBudget):
+		t.Fatal("在飞会话的历史读没有立刻返回（读面又跨了整轮等待）")
 	}
 
+	// 判据：读期间 / 读之后 port.mu 都空着——别会话照样开得动回合。
 	harness.runQuietTurn(t)
 	if got := historyText(harness.port.RawHistoryFor(fuseOtherSession)); got == "" {
 		t.Fatal("空闲会话的历史读不到（读面把 port.mu 的状态弄坏了）")
 	}
-	harness.releaseHangNow()
-	select {
-	case messages := <-blockedRead:
-		if len(messages) == 0 {
-			t.Fatal("等到的权威历史为空")
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("在飞会话的历史读在回合收尾后仍没返回")
-	}
+	harness.releaseHang(t)
 	harness.assertNoFactoryFailure(t)
 }
 
-// TestDeferredFoldsAreKeyedBySession 钉住登记面按会话键控：一台在飞、一台空闲时，
-// 折叠各归各的会话，登记位不会挤掉已装的成果（修前是单槽 + 单个目标会话号，legacy
-// ChatStream 退出点还会把别人那份装到自己头上）。
-func TestDeferredFoldsAreKeyedBySession(t *testing.T) {
+// TestFoldsAreKeyedBySession 钉住"折叠各归各的会话"：一台在飞、一台空闲时，两次折叠
+// 分别落在自己的会话上，谁也不会挤掉谁（旧实现是单槽登记 + 换引擎，legacy ChatStream
+// 退出点还会把别人那份装到自己头上）。
+func TestFoldsAreKeyedBySession(t *testing.T) {
 	harness := newFuseHarness(t, false)
 
 	harness.wait(t, "对空闲会话折叠", func() error {
@@ -346,15 +357,16 @@ func TestDeferredFoldsAreKeyedBySession(t *testing.T) {
 	})
 	harness.startHangingTurn(t)
 	harness.wait(t, "对挂死会话折叠", func() error {
-		return harness.port.ReplaceHistoryFor(harness.hangKey, harness.folded)
+		return harness.port.ReplaceHistoryFor(harness.hangKey,
+			foldWithInFlightTail(harness.port, harness.hangKey, "S3B-FOLDED-FRAME"))
 	})
 	if got := historyText(harness.port.RawHistoryFor(fuseOtherSession)); got != "S3B-OTHER-FRAME" {
-		t.Fatalf("空闲会话已装的折叠被登记位挤掉了：history=%q", got)
+		t.Fatalf("空闲会话已装的折叠被另一会话挤掉了：history=%q", got)
 	}
 
 	harness.releaseHang(t)
-	if got := historyText(harness.port.RawHistoryFor(harness.hangKey)); got != "S3B-FOLDED-FRAME" {
-		t.Fatalf("挂死会话的折叠没按自己的键兑现：history=%q", got)
+	if got := historyText(harness.port.RawHistoryFor(harness.hangKey)); !strings.Contains(got, "S3B-FOLDED-FRAME") {
+		t.Fatalf("挂死会话的折叠没按自己的键落地：history=%q", got)
 	}
 	if got := historyText(harness.port.RawHistoryFor(fuseOtherSession)); got != "S3B-OTHER-FRAME" {
 		t.Fatalf("另一会话的折叠被串改：history=%q", got)

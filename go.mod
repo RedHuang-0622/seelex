@@ -7,6 +7,11 @@ go 1.25.8
 // history，宿主不再二次取 Session.mu）。两次本地 replace 联调（2026-09-15 权限
 // 模型、2026-09-26 InLoop）都在对应 tag 发布后移除，回归纯净依赖。
 //
+// 当前有一处**临时**本地 replace（见文件末尾）：Seele 未发布的方案 B 用「回合闸门
+// + 短临界区工作状态」替换了 InLoop 把手（session/inloop.go 整条删除，History 永不
+// 阻塞、回合内写历史经检查点排队）。宿主必须跟着迁移，否则编译不过（旧把手不在）。
+// 上游 tag 发布后删掉 replace 并 go mod tidy && go mod vendor，回到纯净依赖。
+//
 // go-pty（v0.2.3）：GUI 下栏终端的跨平台 PTY。Windows 走 ConPTY，unix 走
 // creack/pty，是唯一被维护的纯 Go 跨平台伪终端实现；自研 ConPTY 需要 unsafe
 // 组装 STARTUPINFOEX/PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE，风险高于依赖本身。
@@ -97,3 +102,8 @@ require (
 	google.golang.org/grpc v1.83.1 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
+
+// replace 联调（临时）：Seele 工作树里的方案 B（回合闸门 + 短临界区工作状态）尚未
+// 发 tag。用法与 2026-09-15（权限模型）、2026-09-26（InLoop）两次联调一致：
+// 上游 tag 发布后删除本段并 go mod tidy && go mod vendor，回到纯净依赖。
+replace github.com/RedHuang-0622/Seele => ../Seele

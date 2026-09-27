@@ -2,135 +2,96 @@ package core
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
 
-// 同会话压缩串行门的三条判据（实现见 context_compact_gate.go）。
+// 同会话压缩门（context_compact_gate.go）的串行语义：一轮压缩在跑时，第二次显式
+// 压缩**等它收口**再执行，而不是并发折叠——两边各自读同一段历史、各自替换，后写的
+// 那份会把前一轮整个丢掉。
 //
-// 它们钉的是同一个事故：没有在执行纪元的显式压缩（冷加载/刚清空的会话）刻意不
-// 写 ChatState.Running，因此 Submit 的 busy 判据看不见这一轮。缺门时的现场是
-// "折叠读完引擎历史 → 新回合开出并装配 → 两边各自替换历史 → 后写的把折叠丢掉"，
-// 用户看到的是一条压完就消失的记录加上一条按旧上下文回答的回复。
+// 这条现在对**所有**调用方成立，包括落在正在跑的回合里的调用（compact_context 工具、
+// 回合内的 /compact）：Seele 把回合准入换成闸门 + 工作状态短临界区之后，回合进行中
+// 不再持有跨整轮的会话锁，`History`/`ReplaceHistory` 也不等回合（忙会话的替换排队到
+// 下一个检查点）。于是"回合内的调用方等门"与"锁外那轮读历史"之间不存在互等。
+//
+// 历史沿革：旧模型下回合内持着 Session.mu，等门会与锁外那轮互等成死锁，因此当时只在
+// 回合内做非阻塞领轮（领不到就如实报错）。那条补丁连同它的判据（引擎侧的
+// InLoopTurn / 环内把手）已随 Seele 升级一起删除——本文件钉的是删掉之后的具体行为。
 
-func engineChatInputs(engine *fakeEngine) []string {
-	engine.mu.Lock()
-	defer engine.mu.Unlock()
-	return append([]string(nil), engine.chatInputs...)
-}
-
-// waitForChatInputs 轮询到引擎收到的请求数达到 want，返回这些请求。
-func waitForChatInputs(t *testing.T, engine *fakeEngine, want int) []string {
+// seedLongRounds 与 TestCompactContextHandlerFoldsTranscript 同一份量：4 轮、每轮
+// 16 万字符，稳过软阈值，保证折叠真的发生。
+func seedLongRounds(t *testing.T, service *Service, requestID string) {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if inputs := engineChatInputs(engine); len(inputs) >= want {
-			return inputs
-		}
-		time.Sleep(time.Millisecond)
+	service.ViewMu.Lock()
+	defer service.ViewMu.Unlock()
+	for index := 0; index < 4; index++ {
+		body := "round-" + string(rune('a'+index)) + ":" + strings.Repeat("A", 160_000)
+		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+			TaskID: requestID, Role: "user", Content: "q-" + string(rune('a'+index)),
+		})
+		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+			TaskID: requestID, Role: "assistant", Content: body,
+		})
 	}
-	t.Fatalf("等待 3s 后引擎只收到 %d 次请求，期望 %d 次", len(engineChatInputs(engine)), want)
-	return nil
 }
 
-// TestSubmitParksWhileCompactionRoundOpen 是这条不变量的正面：压缩轮进行中，
-// 同会话的提交**照常被受理但不成回合**（没有新的引擎请求），轮次收口后在同
-// 一会话上自动补投。补投不能靠队列：显式压缩没有回合，队列的正常提升点
-// （回合结束）永远不会到来。
-func TestSubmitParksWhileCompactionRoundOpen(t *testing.T) {
-	engine := &fakeEngine{}
-	service := newTestService(t, engine)
-	ctx := context.Background()
-	if err := service.Submit(ctx, "first"); err != nil {
-		t.Fatalf("首次提交：%v", err)
-	}
-	waitForChatInputs(t, engine, 1)
-	// 门只管"没有回合在跑"的窗口：等第一轮收尾，排除排队分支的干扰。
-	waitForSnapshot(t, service, func(snapshot Snapshot) bool { return !snapshot.Chat.Running })
+// TestCompactContextWaitsForHeldCompactionGate 钉住等待方向：门已被占用时，第二次
+// 显式压缩**等待**（不是并发折叠、也不是立刻报错），收口后照常完成并自己收口。
+func TestCompactContextWaitsForHeldCompactionGate(t *testing.T) {
+	service, _, sessionID := compactTestService(t, "task-gate-wait")
+	seedLongRounds(t, service, "task-gate-wait")
+	service.ViewMu.Lock()
+	service.Core.Snapshot.Session.ID = sessionID
+	service.ViewMu.Unlock()
+	ctx := withSessionID(context.Background(), sessionID)
 
-	sessionID := service.Snapshot().Session.ID
-	if sessionID == "" {
-		t.Fatal("夹具没有视图会话 ID")
+	// 预置：另一个调用方已经领到这一会话的压缩轮（它正在折叠中）。
+	// 与被删掉的 tryAcquireCompactionRound 做的事完全一致——生产代码里没有
+	// 「非阻塞领轮」这条路径了（见 gate 文件的加锁纪律注释）。
+	service.ViewMu.Lock()
+	if service.compacting == nil {
+		service.compacting = map[string]struct{}{}
 	}
-	if err := service.acquireCompactionRound(ctx, sessionID); err != nil {
-		t.Fatalf("领取压缩轮：%v", err)
-	}
-	if err := service.Submit(ctx, "parked-while-compacting"); err != nil {
-		service.releaseCompactionRound(sessionID)
-		t.Fatalf("压缩进行中提交应照常受理：%v", err)
-	}
-	time.Sleep(80 * time.Millisecond)
-	if inputs := engineChatInputs(engine); len(inputs) != 1 {
-		service.releaseCompactionRound(sessionID)
-		t.Fatalf("压缩轮进行中开出了新回合：engine 请求 %d 次（期望仍是 1）", len(inputs))
-	}
-	service.releaseCompactionRound(sessionID)
-	waitForChatInputs(t, engine, 2)
-}
-
-// TestCompactionGateIsScopedToItsSession 钉住"同会话串行"里的另一半：门按会话
-// 键控，别的会话照常开回合（进程级一把锁会在第一个断言处失败）。
-func TestCompactionGateIsScopedToItsSession(t *testing.T) {
-	engine := &fakeEngine{}
-	service := newTestService(t, engine)
-	ctx := context.Background()
-	if err := service.acquireCompactionRound(ctx, "sess-being-compacted"); err != nil {
-		t.Fatalf("领取压缩轮：%v", err)
-	}
-	t.Cleanup(func() { service.releaseCompactionRound("sess-being-compacted") })
-
-	if err := service.Submit(ctx, "other-session-input"); err != nil {
-		t.Fatalf("提交：%v", err)
-	}
-	waitForChatInputs(t, engine, 1)
-}
-
-// TestCompactionRoundIsAcquiredExclusively 是"串行"那一半：上一轮没收口时，下一
-// 次显式压缩不会并行开跑（两条折叠并行 = 两次历史替换互相覆盖，且门禁进度条会
-// 出现两套并存的格子），收口后立即兑现。
-func TestCompactionRoundIsAcquiredExclusively(t *testing.T) {
-	service := newTestService(t, &fakeEngine{})
-	ctx := context.Background()
-	sessionID := service.Snapshot().Session.ID
-	if sessionID == "" {
-		t.Fatal("夹具没有视图会话 ID")
-	}
-	if err := service.acquireCompactionRound(ctx, sessionID); err != nil {
-		t.Fatalf("领取压缩轮：%v", err)
-	}
-
-	type compactCall struct {
-		result ContextCompactionResult
-		err    error
-	}
-	returned := make(chan compactCall, 1)
+	service.compacting[sessionID] = struct{}{}
+	service.ViewMu.Unlock()
+	done := make(chan error, 1)
 	go func() {
-		result, err := service.CompactContextNow(ctx)
-		returned <- compactCall{result: result, err: err}
+		_, err := service.CompactContextNow(ctx)
+		done <- err
 	}()
 	select {
-	case call := <-returned:
-		service.releaseCompactionRound(sessionID)
-		t.Fatalf("上一轮还没收口，第二次压缩就返回了：%+v err=%v", call.result, call.err)
-	case <-time.After(80 * time.Millisecond):
+	case err := <-done:
+		t.Fatalf("门被占用时压缩不该立刻返回（err=%v）", err)
+	case <-time.After(200 * time.Millisecond):
 	}
 
 	service.releaseCompactionRound(sessionID)
 	select {
-	case call := <-returned:
-		if call.err != nil {
-			service.releaseCompactionRound(sessionID)
-			t.Fatalf("收口后第二次压缩应兑现：%v", call.err)
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("门收口后压缩失败：%v", err)
 		}
-	case <-time.After(3 * time.Second):
-		service.releaseCompactionRound(sessionID)
-		t.Fatal("收口后第二次压缩没有兑现（等待方没被唤醒或唤醒后没复判）")
+	case <-time.After(10 * time.Second):
+		t.Fatal("门收口后压缩没有继续")
 	}
-	// 收口必须成对：门不能泄漏，否则这个会话之后每次提交都挂在等待里。
-	service.ViewMu.RLock()
-	leaked := service.isCompactingLocked(sessionID)
-	service.ViewMu.RUnlock()
-	if leaked {
-		t.Fatalf("压缩轮收口后 compacting 仍留着会话 %s", sessionID)
+	if service.isCompactingLocked(sessionID) {
+		t.Fatal("压缩轮没有收口：后续压缩会一直等下去")
+	}
+
+	// 收口之后同一会话还能再压一次（门没有留在坏状态）。
+	second := make(chan error, 1)
+	go func() {
+		_, err := service.CompactContextNow(ctx)
+		second <- err
+	}()
+	select {
+	case err := <-second:
+		if err != nil {
+			t.Fatalf("第二次压缩失败：%v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("第二次压缩没有完成")
 	}
 }

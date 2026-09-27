@@ -154,14 +154,11 @@ func (c *Coordinator) CompactTaskContextFor(sessionID, requestID string) error {
 // 明确要求现在就压缩时，"还没到线"不是理由（此前 129409 tokens 的会话被回一句
 // "未达压缩阈值 118962"，正是显式路径仍被软阈值挡住 + 判据量与展示量混用的结果）。
 //
-// ctx 决定引擎历史走哪条路：来自正在跑的回合（compact_context 工具、回合内的
-// /compact）时用环内通道，不再二次取会话锁；否则照旧。
-//
 // 返回 decision：把"压没压、按哪个量判、有没有落记录"如实带回调用方，调用方不再
 // 用别的数字反推结论。
 func (c *Coordinator) forceCompactTaskContextFor(ctx context.Context, sessionID, requestID string) (compactDecision, error) {
 	decision := compactDecision{}
-	options := prepareOptions{forceCompact: true, decision: &decision, inLoop: InLoopChannelFrom(c.Deps.Engine, ctx)}
+	options := prepareOptions{forceCompact: true, decision: &decision}
 	if err := c.compactTaskContextFor(sessionID, requestID, options); err != nil {
 		return compactDecision{}, err
 	}
@@ -300,7 +297,7 @@ func (c *Coordinator) compactSessionContextWithoutEpoch(ctx context.Context, ses
 	if state := c.tasks.CurrentTaskExecutionFor(sessionID); state != nil && strings.TrimSpace(state.RequestID) != "" {
 		return CompactResult{}, false, nil
 	}
-	if !c.hasFoldableSessionContext(ctx, sessionID) {
+	if !c.hasFoldableSessionContext(sessionID) {
 		// 空会话：折叠只会产出一条区间为空的记录（把"没做事"记成"做了事"），
 		// 因此维持既有语义——登记为"下一条消息组装上下文时先压后发"。
 		c.ScheduleForceCompact(sessionID)
@@ -350,11 +347,11 @@ func (c *Coordinator) compactSessionContextWithoutEpoch(ctx context.Context, ses
 // hasFoldableSessionContext 判定会话是否装载了**可折叠的对话材料**：transcript
 // 有事件，或引擎历史里有非 system 消息（纯 system 前缀折叠不出任何区间，不算
 // 材料）。
-func (c *Coordinator) hasFoldableSessionContext(ctx context.Context, sessionID string) bool {
+func (c *Coordinator) hasFoldableSessionContext(sessionID string) bool {
 	if len(c.tasks.TranscriptFor(sessionID)) > 0 {
 		return true
 	}
-	for _, message := range c.foldHistory(InLoopChannelFrom(c.Deps.Engine, ctx), sessionID) {
+	for _, message := range c.foldHistory(sessionID) {
 		if !strings.EqualFold(strings.TrimSpace(message.Role), "system") {
 			return true
 		}
@@ -420,11 +417,6 @@ type prepareOptions struct {
 	forceCompact bool
 	// decision 是出参：非 nil 时由装配过程回填压缩判据事实（见 compactDecision）。
 	decision *compactDecision
-	// inLoop 是环内自持锁历史通道（见 inloop_history.go）：非 nil 表示这一次
-	// 装配发生在正在跑的回合内，引擎历史必须走通道读写，不能再取一次会话锁。
-	// 零值 = 锁外路径，行为与之前完全一致。它只是按调用存在的值，不挂任何长期
-	// 状态。
-	inLoop *loopHistoryChannel
 }
 
 // compactionOrigin 判定一轮折叠的来源：自动路径（软/硬阈值、自主压缩）记 auto，
@@ -446,7 +438,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	if !options.forceCompact && c.consumePendingForceCompact(sessionID) {
 		options.forceCompact = true
 	}
-	if _, err := c.rejectOversizedToolResults(sessionID, task_context.DefaultToolResultLimit(), options.inLoop); err != nil {
+	if _, err := c.rejectOversizedToolResults(sessionID, task_context.DefaultToolResultLimit()); err != nil {
 		return "", err
 	}
 	// 工作打点表：请求尾部的只读标记块（system 前缀保持不变 → 缓存友好；
@@ -461,11 +453,11 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	}
 	budget := task_context.ContextBudgetFor(c.Deps.Runtime)
 	tools := c.Deps.Runtime.VisibleTools(context.Background())
-	existing := c.foldHistory(options.inLoop, sessionID)
+	existing := c.foldHistory(sessionID)
 	c.ViewMu.RLock()
 	systemPrompt := c.prompts.SystemPromptForActiveTaskLockedFor(sessionID)
 	c.ViewMu.RUnlock()
-	c.setFoldSystemPrompt(options.inLoop, sessionID, systemPrompt)
+	c.setFoldSystemPrompt(sessionID, systemPrompt)
 
 	runtimeModel := c.Deps.Runtime.Model()
 	c.ViewMu.Lock()
@@ -571,7 +563,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 		}
 	}
 
-	systems := RetainedSystemHistory(c.foldHistory(options.inLoop, sessionID))
+	systems := RetainedSystemHistory(c.foldHistory(sessionID))
 	// 折叠留下的保留窗口是 transcript 的**后缀**，已由 accumulated 从头重建；
 	// 保留段只留 system 前缀，避免窗口内容与累积段重复计入。
 	if retainedFrom > 0 {
@@ -659,11 +651,11 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	if estimated > budget.Budget {
 		return "", fmt.Errorf("%w: estimated=%d budget=%d", ErrProviderContextBudgetExceeded, estimated, budget.Budget)
 	}
-	replacement := c.withInFlightTail(options.inLoop, existing, assembled)
-	if err := c.replaceFoldHistory(options.inLoop, sessionID, replacement); err != nil {
+	replacement := c.withInFlightTail(existing, assembled)
+	if err := c.replaceFoldHistory(sessionID, replacement); err != nil {
 		return "", fmt.Errorf("assemble provider context: %w", err)
 	}
-	if err := c.history.PrepareProviderHistoryFor(sessionID, options.inLoop); err != nil {
+	if err := c.history.PrepareProviderHistoryFor(sessionID); err != nil {
 		return "", err
 	}
 	progress.gate(CompactionGateReplace, fmt.Sprintf("messages=%d", len(replacement)))
@@ -1099,8 +1091,8 @@ const FrameworkToolOutputTruncatedMarker = "\n...[truncated]"
 
 // rejectOversizedToolResults 把超限输出替换为显式重试指令（不给头部/尾部
 // 预览，避免基于误导片段的推理；目标会话显式传入）。
-func (c *Coordinator) rejectOversizedToolResults(sessionID string, maxChars int, inLoop *loopHistoryChannel) (bool, error) {
-	history := c.foldHistory(inLoop, sessionID)
+func (c *Coordinator) rejectOversizedToolResults(sessionID string, maxChars int) (bool, error) {
+	history := c.foldHistory(sessionID)
 	c.ViewMu.RLock()
 	refs := c.tasks.ResultRefsByCallIDFor(sessionID)
 	c.ViewMu.RUnlock()
@@ -1108,7 +1100,7 @@ func (c *Coordinator) rejectOversizedToolResults(sessionID string, maxChars int,
 	if !changed {
 		return false, nil
 	}
-	if err := c.replaceFoldHistory(inLoop, sessionID, filtered); err != nil {
+	if err := c.replaceFoldHistory(sessionID, filtered); err != nil {
 		return false, fmt.Errorf("reject oversized tool results: %w", err)
 	}
 	return true, nil

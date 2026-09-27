@@ -99,17 +99,16 @@ sequenceDiagram
 - actor 串行化父证据合并，防并发覆盖（B 修复）；
 - mailbox soft cap 只作诊断计数、内容不丢（A 修复）；
 - 命令投递带超时，actor 关闭后快速失败；
-- **运行中会话读取一律非阻塞**（2026-09-10 长流热点）：`SubagentSessions` 是
-  单 goroutine actor，`Conversation`/`ContextSnapshot`/落账若调用
-  `Session.History()`，会停在子代理整段流式上（实测 28s），期间**所有**节点的
-  详情、阶段日志与落账一起排队，mailbox（256）满后 `RecordStage` 开始丢事件。
-  因此运行中读取统一走 `refreshLiveHistoryLocked`：用引擎的
-  `HistoryIfAvailable()` 拿"循环在历史检查点发布的快照"（模型调用前 /
-  assistant 落历史后 / 工具结果落历史后），最多滞后一个检查点。
-  - 落账语义：`buildRecordLocked` 写的是"最近一次成功读到的检查点"，而不是
-    卡几十秒后写下的那一份——崩溃恢复要的是写得及时，不是写得最全。
-  - 结束路径（`Unregister`）此时 `ChatStream` 已出栈，读到的是权威历史；
-    极端情况下退化为最后一次检查点，仍优于阻塞 actor。
+- **运行中会话读取一律非阻塞**（2026-09-10 长流热点；2026-09-27 Seele 方案 B
+  后语义更强）：`SubagentSessions` 是单 goroutine actor，若某次读会停在子代理
+  整段流式上（旧实现里 `Session.History()` 会，实测 28s），**所有**节点的详情、
+  阶段日志与落账都会一起排队，mailbox（256）满后 `RecordStage` 开始丢事件。
+  Seele 现在把工作历史放在短临界区后面（回合不持锁跑整轮），`History()` 任何
+  时刻都立即返回当前工作历史，因此运行中读取统一走 `refreshLiveHistoryLocked`：
+  直接读 `History()`，空历史不覆盖上次缓存（第一条消息还没落历史时读到的 nil
+  只是"还没有材料"，不是"历史被清空了"）。
+  - 落账语义：`buildRecordLocked` 写的是当前工作历史（最多滞后一次写入提交，
+    而不是滞后整轮），崩溃恢复要的是写得及时，不是写得最全。
   - 回归覆盖：`TestSubagentSessionsReadsDoNotBlockOnStreamingNode`
     （运行中节点自身读取 + 另一节点不被拖住）、`TestSubagentSessions*`。
 - 运行期记录落盘（`<mainSessionID>-<subSessionID>.json`，见

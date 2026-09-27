@@ -201,6 +201,11 @@ func (service *Service) CompactContextNow(ctx context.Context) (ContextCompactio
 	// 这段覆盖折叠、落盘与回执构造，期间该会话的新提交挂到收口之后再开回合——
 	// 没有这道门，一条消息就能在折叠读完引擎历史之后、写回之前开出新回合，两边
 	// 各自替换历史，后写的那份把这轮折叠整个丢掉。门见 context_compact_gate.go。
+	//
+	// 这里可以放心阻塞：调用方即使在回合内（compact_context 工具、回合内的
+	// /compact），手里也没有会话锁——Seele 的回合准入是闸门、工作历史是短临界区，
+	// 而锁外那一轮领到门之后做的读写同样不等回合（忙会话的替换排队到检查点）。
+	// 两边都不持"对方要用的锁"，因此等门只会排队，不会互等成死锁。
 	if err := service.acquireCompactionRound(ctx, sessionID); err != nil {
 		return ContextCompactionResult{}, err
 	}

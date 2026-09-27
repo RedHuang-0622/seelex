@@ -105,63 +105,52 @@ CompactResult{}, false, nil`（旧行为）后，
 `frame_ref` 回读；② 冷加载且没有任务证据时，帧正文的证据区只有 objective/plan，
 区间与四区 token 事实照旧完整。
 
-## 回合内即时压缩：已持锁的环内通道（2026-09-26）
+## 回合内即时压缩：同一套方法 + 检查点（2026-09-27，替换环内把手）
 
-**触发事实**：`Session.ChatStream` 从进函数持 `Session.mu` 到出函数，工具派发与全部循环回调都在
-同一 goroutine、同一把锁内（`Seele session/chat.go:273-278`、`loop.go:358`）。`compact_context`
-交给模型在回合内调用，其落点 `CompactContextNow → prepareExecutionContextFor` 第一件事就是读
-引擎历史，走 `EnginePort.HistoryFor → RawHistoryFor`（`port.mu.RLock`）`→ engine.History()`
-（`Session.mu`）——同 goroutine 抢自己已持有的非重入锁 = 永久自锁，而且此时 `port.mu` 的读锁还
-攥在手里，之后任何要 `port.mu.Lock` 的动作（含别的会话开新回合）全部排队。反向探针
-`TestEngineHistoryFromToolHandlerSelfBlocks` 实测过这条。
+**旧模型的问题**：`Session.ChatStream` 从进函数持 `Session.mu` 到出函数，工具派发与全部循环回调
+都在同一 goroutine、同一把锁内。`compact_context` 交给模型在回合内调用，其落点
+`CompactContextNow → prepareExecutionContextFor` 第一件事就是读引擎历史（`EnginePort.HistoryFor →
+RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的非重入锁 = 永久自锁，而且此时
+`port.mu` 的读锁还攥在手里，之后任何要 `port.mu.Lock` 的动作（含别的会话开新回合）全部排队。反向
+探针 `TestEngineHistoryFromToolHandlerSelfBlocks` 实测过这条。当时的绕法是"环内把手"：引擎取锁后往
+本轮 ctx 注入 `session.InLoop`，宿主凭它读写历史。
 
-**改法**：把折叠的**历史出入口**从锁外挪到唯一的合法持锁点——引擎在 `Chat`/`ChatStream` 取锁后
-注入本轮 ctx 的 `session.InLoop` 把手（Seele `session/inloop.go`）。三段锁征用对照：
+**Seele 换了模型，宿主跟着简化**：回合准入改成**闸门**（不持锁跑整轮），工作历史改由**短临界区**
+保护。于是环内与环外走的是同一套方法、同一份数据：
 
 ```
-回合内·改前   EnginePort,ChatStreamFor <-get- EnginePort.mu … -return-（182→189）
-             SeeleSession,ChatStream   <-get- SeeleSession.mu（全程）
-             Coordinator,engineHistory  <-get- EnginePort.mu.RLock → <-get- SeeleSession.mu ⛔自锁
-回合内·改后   SeeleSession,ChatStream   <-get- SeeleSession.mu（全程，唯一一次）
-             Coordinator,foldHistory    读把手缓存，不取任何锁
-             Coordinator,replaceFold…  <-get- Controller/Store 细粒度锁（微秒级）；不碰 EnginePort.mu
-锁外（回合之间/冷加载） 与改前完全一致：`inLoop == nil` → 原路 `engineHistory/replaceEngineHistory`
+回合内 / 回合外（同一套方法）   History()            只取一次微秒级临界区，**永不阻塞**
+                            ReplaceHistory(h)   忙时排队到循环的下一个检查点，空闲时立即应用
+                            （检查点：模型调用前 / assistant 落历史后 / tool 结果 append 前后）
 ```
 
-- 通道是**按调用存在的值**（`context_runtime/inloop_history.go` 的 `loopHistoryChannel`，挂在
-  `prepareOptions.inLoop` 与显式入参上），不进任何长期对象；`InLoopChannelFrom(engine, ctx)`
-  拿不到把手就返回 nil，调用方回落——不用调用计数/时间戳去猜"引擎在不在跑"。
-- 端口语义：`(false, nil)`＝不在环内，必须回落；`(true, err)`＝在环内被引擎拒绝，**不得**回落
-  （回落等于再去拿一次本回合已持有的锁）。见 `contract.InLoopEngine`。
-- 环内替换刻意**不 arm** `PrepareMainSessionHistory`（"交给下一次装载"那条），本轮收尾由循环自己
-  `saveToCache → DurableHistory.Save` 落盘；所以折叠帧进的是**这一次**的 provider 历史，不需要
-  等下一条消息，也不需要下一次装配兑现。
-- 下界：环内调用点必然落在「assistant 已带 tool_calls、其结果尚未 append」的时刻，所以折叠产物
-  必须保留这段在飞尾部（`withInFlightTail`），否则紧随其后 append 的结果行成孤儿；引擎侧也会以
-  `ErrInLoopInFlightDropped` 拒收丢尾部的替换。多保留的是本轮自己的消息，**不参与压缩判据**。
+- 宿主不再需要判断"我在不在环内"，也不再需要把 ctx 透传进折叠：`context_runtime` 的
+  `loopHistoryChannel` 与 `contract.InLoopEngine` 整条删除，折叠统一走 `foldHistory` /
+  `replaceFoldHistory`（按会话路由到 `HistoryFor` / `ReplaceHistoryFor`）。
+- 回合内折叠**仍然当场生效**，落点从"锁内直写"变成"下一个检查点"：`compact_context` 在工具
+  handler 里提交替换，循环紧接着（tool 结果 append **之前**）排空它，因此同回合的下一次模型请求
+  读到的已是折叠后的历史——对压缩正是期望语义（它本就要在下一次请求才生效）。
+- 忙会话的**锁外**折叠也不再"登记待安装 + 等回合收尾换引擎"：`EnginePort.replaceRawHistoryFor`
+  把替换直接交给引擎排队（`queueSessionHistory`），登记表只在引擎不具备该能力时兜底。折叠因此对
+  下一次请求生效，而不是等下一次装载。
+- 下界不变：折叠产物必须保留「assistant 已带 tool_calls、其结果尚未 append」的在飞尾部
+  （`withInFlightTail`，现在对**所有**路径都做），否则引擎以 `ErrInFlightToolCallDropped` 拒收，
+  紧随其后 append 的结果行成孤儿。多保留的是本轮自己的消息，**不参与压缩判据**。
+- 观测面读历史（`/history`、工作区切换、子代理落账）不再需要"循环发布的检查点快照"：
+  `History()` 任何时刻都返回当前工作历史，且不会因长流式阻塞。
+- 同会话压缩门（`context_compact_gate.go`）仍在：并发折叠会各自读同一段历史、各自替换，后写的
+  那份把前一轮整个丢掉。区别是现在**所有**调用方都走阻塞领轮——没有谁持着"对方要用的锁"，等待只
+  会排队。
 
-**策略零改动**：阈值、软硬线、窗口 N、帧构造、记录门槛、门禁顺序一行未动——通道只换"历史字节从
-哪来、回到哪去"。对拍：`TestCompactContextInLoopAndOutOfLoopAgree` 用同一引擎类型 + 两种 ctx，
-断言判据量（compared/assembled/soft/hard）、被压区间（事件号与消息号两端）、`reason`/`origin` 与
-写回的 provider 历史逐字段相等，并要求通道计数一边非零、一边为零（否则"一致"只是两次走了同一条
-路）。
+**有牙证明**（`internal/adapters/engine_port_history_test.go`，真实 Session）：
+`TestReplaceHistoryInsideTurnTakesEffectInSameTurn`（同回合下一次请求已带折叠帧；终态历史 =
+帧 + 在飞 assistant + tool 结果 + 收尾 assistant）、`TestReplaceHistoryDropsInFlightTailIsRefused`
+（丢在飞尾部被拒且不动历史）、`TestReplaceHistoryOutsideTurnAppliesImmediately`（锁外立即落地）；
+`engine_port_reentrance_test.go` 的 `TestEngineHistoryFromToolHandlerReturnsPromptly` 是旧自锁
+断言的反转报警器；`application/core/context_compact_gate_test.go` 钉同会话压缩门的等待与收口。
 
-**有牙证明**：`internal/adapters/engine_port_inloop_test.go` 三条——即时生效（同回合下一次请求
-已带折叠帧、终态历史是 帧+在飞 assistant+tool 结果+收尾 assistant）、丢在飞尾部被拒且不动历史、
-环外一律回报"未处理"；与反向探针同批 PASS。Seele 侧 `session/inloop_test.go` 钉把手可见性、
-世代守卫（回合结束后旧 ctx 取不到）与"被拒不改动历史"。
-
-**边界**：① 把手**不校验 goroutine**（Go 无可靠 goroutine 身份）——世代守卫能挡住"上一回合泄漏
-的 ctx"，挡不住"本轮进行中被别的 goroutine 拿走的那个 ctx"，因此只允许在同一调用栈内（工具
-handler / 循环回调）使用；② 环内折叠的压缩帧仍要跑一次模型调用，这段时间 `Session.mu` 被多持有
-数秒，等它的是同会话的 `ClearHistory/Reset/AppendHistory`（观测面走 `HistoryIfAvailable()` 的
-`TryLock`，不阻塞），其他会话零影响；③ 锁外那条路径已关掉：`port.mu` 的任一次持有都不再跨越可能
-阻塞的 `Session.mu` 等待——目标会话有回合在飞时折叠只登记待安装（按会话键控，那次回合收尾时兑现），
-历史读也挪到 `port.mu` 之外；判据与不变量见 `internal/adapters/README.md`「并发与锁纪律
-（EnginePort）」（台账 S3b）。锁外折叠的语义是"该会话这次回合收尾时装上"，不是"交给下一次装载"。
-
-**发布收尾**（依赖，不在本仓库内）：Seele 侧改动需打 tag → `go.mod` 去掉临时 `replace` →
-`GOWORK=off go mod vendor`。
+**边界**：① 忙会话上的写回是"下一个检查点生效"而不是"立即"，期间的其它写入按提交顺序一起排空；
+② `/compact` 与自动压缩共用同一条装配路径，因此两者的历史出入口完全一致（不再分环内环外）。
 
 ## 文件与函数索引
 
@@ -249,29 +238,15 @@ handler / 循环回调）使用；② 环内折叠的压缩帧仍要跑一次模
 - `func (service *Service) signalCompactionLocked()` — signalCompactionLocked 广播一次「compacting 集合已变化」（调用方持有
 - `func (service *Service) compactionSignalLocked() <-chan struct` — compactionSignalLocked 返回当前收口信号（调用方持有 Core.ViewMu）。惰性
 - `func (service *Service) acquireCompactionRound(ctx context.Context, sessionID string) error` — acquireCompactionRound 领取该会话的压缩轮：已有轮在跑时先等它收口（同会话
+- `func (service *Service) tryAcquireCompactionRound(sessionID string) bool` — tryAcquireCompactionRound 非阻塞地领取该会话的压缩轮：返回 false = 这一会话
 - `func (service *Service) releaseCompactionRound(sessionID string)` — releaseCompactionRound 收口该会话的压缩轮并唤醒等待方。幂等：没领过轮的
 - `func (service *Service) awaitCompactionRound(ctx context.Context, sessionID string) error` — awaitCompactionRound 等到该会话没有压缩轮在跑（ctx 取消即返回错误）。
 - `func (service *Service) deferSubmitUntilCompacted(ctx context.Context, sessionID, text string)` — deferSubmitUntilCompacted 把一次对话提交挂到该会话压缩轮的收口点：门开着时
 
 ### context_compact_gate_test.go
 
-- `func engineChatInputs(engine *fakeEngine) []string`
-- `func waitForChatInputs(t *testing.T, engine *fakeEngine, want int) []string` — waitForChatInputs 轮询到引擎收到的请求数达到 want，返回这些请求。
-- `func TestSubmitParksWhileCompactionRoundOpen(t *testing.T)` — TestSubmitParksWhileCompactionRoundOpen 是这条不变量的正面：压缩轮进行中，
-- `func TestCompactionGateIsScopedToItsSession(t *testing.T)` — TestCompactionGateIsScopedToItsSession 钉住"同会话串行"里的另一半：门按会话
-- `func TestCompactionRoundIsAcquiredExclusively(t *testing.T)` — TestCompactionRoundIsAcquiredExclusively 是"串行"那一半：上一轮没收口时，下一
-
-### context_compact_inloop_test.go
-
-- `func inLoopCompactContext() context.Context`
-- `func (engine *inLoopFakeEngine) marked(ctx context.Context) bool`
-- `func (engine *inLoopFakeEngine) HistoryInLoop(ctx context.Context) ([]EngineMessage, bool)`
-- `func (engine *inLoopFakeEngine) ReplaceHistoryInLoop(ctx context.Context, history []EngineMessage) (bool, error)`
-- `func (engine *inLoopFakeEngine) SetSystemPromptInLoop(ctx context.Context, prompt string) (bool, error)`
-- `func (engine *inLoopFakeEngine) counters() (int, int, int)`
-- `func newInLoopCompactService(t *testing.T, requestID string) (*Service, *inLoopFakeEngine, string)` — newInLoopCompactService 复刻 compactTestService 的纪元装配，但引擎换成能同时
 - `func seedLongRounds(t *testing.T, service *Service, requestID string)` — seedLongRounds 与 TestCompactContextHandlerFoldsTranscript 同一份量：4 轮、每轮
-- `func TestCompactContextInLoopAndOutOfLoopAgree(t *testing.T)`
+- `func TestCompactContextWaitsForHeldCompactionGate(t *testing.T)` — TestCompactContextWaitsForHeldCompactionGate 钉住等待方向：门已被占用时，第二次
 
 ### context_compact_progress_test.go
 

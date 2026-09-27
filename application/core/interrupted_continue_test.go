@@ -40,7 +40,7 @@ func TestColdResumeContinueAfterInterruptedToolChain(t *testing.T) {
 	defer service.Shutdown()
 
 	// chat 前装配 seam：残缺链补成协议合法序列。
-	if err := service.components.history.PrepareProviderHistory(nil); err != nil {
+	if err := service.components.history.PrepareProviderHistory(); err != nil {
 		t.Fatal(err)
 	}
 	history := engine.History()

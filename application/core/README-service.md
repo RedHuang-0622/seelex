@@ -230,7 +230,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (service *Service) WaitForIdle(ctx context.Context) error` — WaitForIdle 等待全部已接受的 chat 工作完成。它从不取消活跃 chat；调用方
 - `func (service *Service) AnyChatRunning() bool` — AnyChatRunning 报告是否存在任一会话的运行中回合（G0c 关闭语义：视图空闲
 - `func (service *Service) CancelAllChats()` — CancelAllChats 取消全部会话的运行中回合（G0c 关闭超时路径：后台会话同样
-- `func (service *Service) CancelChat(requestID string) bool` — CancelChat 取消当前视图会话正在运行的回合。
+- `func (service *Service) CancelChat(requestID string) bool` — CancelChat 是"停止按钮"的终止原语，语义按以下顺序成立（顺序即语义）：
 - `func (service *Service) Shutdown()`
 
 ### service_input_test.go
@@ -361,6 +361,13 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func TestMessageDeltaIncludesStableMessageID(t *testing.T)`
 - `func TestToolEventsUpdateSnapshot(t *testing.T)`
 - `func TestToolCompletionDoesNotReenterServiceLockForGoalSkillVisibility(t *testing.T)`
+
+### service_stop_flush_test.go
+
+- `func (engine *stopQueueEngine) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error)`
+- `func (engine *stopQueueEngine) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error)` — ChatStreamFor 显式转发到自身 ChatStream（覆盖内嵌 fakeEngine 的提升方法，
+- `func (engine *stopQueueEngine) recordedInputs() []string`
+- `func TestStopFlushesQueuedInputsIntoTheNextTurn(t *testing.T)` — TestStopFlushesQueuedInputsIntoTheNextTurn 钉住停止按钮的第三条语义：点停止后清空
 
 ### service_subagent_resume.go
 

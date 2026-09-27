@@ -9,7 +9,6 @@ import (
 	"github.com/RedHuang-0622/Seele/session"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
 	seelplan "github.com/RedHuang-0622/seelex/seelebridge/plan"
 	selexsession "github.com/RedHuang-0622/seelex/session"
@@ -358,16 +357,16 @@ func (bridge *ToolHookBridge) Hooks() *session.LoopHooks {
 			// runChat 结束点回放）。
 			svc.GoalIterationCompleted(ctx)
 			// 新 Session 装配（session.NewSession + Session.ChatStream）下，
-			// OnIterationComplete 在 Session 锁内同步执行：回调不得重入 Session
-			// 的历史操作（History/ReplaceHistory/AppendHistory），否则死锁。
-			// 压缩决策移交 ContextController（seelectx.ContextController，
-			// plan.md §3.5：OnIterationComplete 不再触发 compactTaskContext）；
-			// 配对修复由 chat 边界（prepareProviderHistory / 批处理路径）
-			// 承担，进度回调与事件流保持不变。
+			// OnIterationComplete 在回合内、同一条 goroutine 上同步执行。Seele
+			// 已把「整轮持锁」换成回合闸门 + 工作状态短临界区：这里再调引擎的
+			// 历史方法不会自锁（忙时排队到下一个检查点），所以下面这段提前返回
+			// 是**语义**选择而不是锁规避——压缩决策移交 ContextController
+			// （seelectx.ContextController，plan.md §3.5：OnIterationComplete 不再
+			// 触发 compactTaskContext）；配对修复由装配/请求前
+			// （prepareProviderHistory / 批处理路径）承担，进度回调与事件流不变。
 			if reentrant, ok := svc.Deps.Engine.(interface{ SessionBacked() bool }); ok && reentrant.SessionBacked() {
-				// Session 锁内不可重入 AppendHistory（死锁）；每轮 ReAct
-				// 迭代结束检查输入队列：非空 → 返回 false 中断本轮（本轮
-				// 工具已全部完成，是安全边界），由 runChat 结尾的队列提升
+				// 每轮 ReAct 迭代结束检查输入队列：非空 → 返回 false 中断本轮
+				// （本轮工具已全部完成，是安全边界），由 runChat 结尾的队列提升
 				// 自动开启下一轮并清空队列——一轮一消费，无需等整条 loop。
 				svc.ViewMu.RLock()
 				queued := len(svc.activeQueuedChatRequestsLocked()) > 0
@@ -383,11 +382,12 @@ func (bridge *ToolHookBridge) Hooks() *session.LoopHooks {
 			// ReAct 中间态执行 —— 新 append 的 assistant 工具记录可能仍在
 			// 执行中，误判会与即将到达的真结果重复；定稿链由装配/请求前
 			// 的 PrepareProviderHistoryFor 补齐。
-			// 这条回调跑在 ChatStream 同一条 goroutine 上（会话锁已被本回合持有），
-			// 所以修复必须按 ctx 取环内通道：不依赖上面 SessionBacked 的提前返回
-			// 来保证不自锁，将来谁调整那段守卫也不会踩回同一个坑。
-			if err := svc.components.history.PrepareNewHistoryContentFor(sessionIDFromContext(ctx),
-				context_runtime.InLoopChannelFrom(svc.Deps.Engine, ctx)); err != nil {
+			//
+			// 这条回调跑在 ChatStream 同一条 goroutine 上，但 Seele 已不再让
+			// 回合持锁跑整轮：这里的读写经 Session 的工作状态短临界区 / 检查点
+			// 队列落地，因此**不存在自锁**。保留 NewHistoryContentFor 只修空正文
+			// 的窄语义仍是刻意的（不要在中间态做配对修复），不是因为锁。
+			if err := svc.components.history.PrepareNewHistoryContentFor(sessionIDFromContext(ctx)); err != nil {
 				svc.components.context.RecordContextControlFailure(activeRequestID, err)
 				return false
 			}
