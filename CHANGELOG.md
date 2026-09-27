@@ -12,6 +12,31 @@ version when it lands.
 
 ## [Unreleased]
 
+### Changed
+
+- **The host side of context folding no longer has an "in-loop" path — Seele replaced the
+  whole-round session lock with a turn gate plus a short critical section.** `session/inloop.go` is
+  gone upstream (with `Session.InLoopFrom`, `HistoryIfAvailable` and `WithHistoryPublisher`): a turn
+  takes a capacity-1 gate instead of holding `Session.mu` from function entry to exit, the working
+  history lives behind a short critical section (`session/state.go`), `History()` never blocks, and
+  a `ReplaceHistory()` submitted while a turn runs is queued and applied at the turn's next
+  checkpoint (before the model call, after the assistant row, before/after each tool result).
+  Consequences here: `contract.InLoopEngine`, `EnginePort.HistoryInLoop`/`ReplaceHistoryInLoop`/
+  `SetSystemPromptInLoop`, `context_runtime.loopHistoryChannel` + `InLoopChannelFrom`, the
+  `prepareOptions.inLoop` field and every `inLoop` parameter are deleted — folding reads and writes
+  through the ordinary session-routed methods (`foldHistory`/`replaceFoldHistory`). An in-turn fold
+  still takes effect for *that same turn's* next request; it now lands at a checkpoint
+  (`state.drain()` runs right before the tool result is appended) instead of being written under the
+  lock. The same simplification applies out of turn: a fold aimed at a session whose turn is in
+  flight is handed to the engine to queue (`EnginePort.queueSessionHistory`) instead of being parked
+  until the turn exits and a fresh engine is installed — `pendingHistory` now only covers engines
+  without that capability, and `withInFlightTail` applies to every path (the engine refuses a
+  replacement that drops the in-flight `tool_call` unit). Subagent node records read `History()`
+  directly. Until Seele tags this, `go.mod` carries a temporary local `replace` (same precedent as
+  the 2026-09-15 permission model and the 2026-09-26 InLoop round); drop it and re-vendor when the
+  tag lands. Reversal alarm for the model change: `TestEngineHistoryFromToolHandlerReturnsPromptly`
+  (in-turn history reads used to self-block; they must return promptly).
+
 ### Added
 
 - **The subprocess contract is now one interface: `Add` + the four named management actions
@@ -40,6 +65,49 @@ version when it lands.
   and the fetched result becomes the single source of truth. `Notified` is the idempotence key.
 
 ### Fixed
+
+- **The stop button could not stop a running foreground tool call.** Cancelling a turn aborted the
+  engine loop but left the tool's descendants alive: `executeScopedBash` relied on
+  `exec.CommandContext`'s default cancel, which kills only the shell it started, while the
+  grandchildren that shell forked kept running *and* kept holding the output pipe — so `cmd.Wait`
+  could not return until they exited and "stop" meant "stop, then wait another thirty seconds". A
+  build-like command that spawns a grandchild reproduced it deterministically: the marker the
+  grandchild writes 2s later still appeared, and the tool call only returned after the assertion
+  window. The synchronous path (`bash` / `bash_read`, including the docker-recovery retry) now uses
+  the same termination primitive the background execution domain already had — `newScopedCommand` =
+  `security.ProcessTree` + `ConfigureProcessTree` + `cmd.Cancel` + `WaitDelay` — so stopping (and the
+  tool `timeout`) terminates the **whole tree**. Background jobs are deliberately untouched: they
+  drop the turn context via `context.WithoutCancel`, so the stop button never kills a `bash_bg` /
+  `read_batch` / `subagent` job. The queued inputs of a stopped turn are still all sent — the queue
+  is promoted into the next turn as before. Regression tests:
+  `TestStopTerminatesForegroundToolRun`, `TestStopLeavesBackgroundSubprocessRunning`
+  (`seelebridge/tools/stop_foreground_run_test.go`) and
+  `TestStopFlushesQueuedInputsIntoTheNextTurn` (`application/core/service_stop_flush_test.go`).
+- **Three frontend stalls behind "the session looks frozen and the newest messages are not
+  visible"** — found while auditing the compaction path end to end, each with a regression test:
+  - The conversation's top sentinel auto-loaded an older page whenever its `IntersectionObserver`
+    fired, including while the user was parked at the tail (160px `rootMargin`, container shown
+    again after `display:none`, layout shifts). Loading an older page slides the visible window
+    back, so the newest rows silently left the DOM. Auto-loading is now gated by
+    `shouldAutoLoadOlder()` in `conversation-view.js`: never while the view follows the tail; the
+    explicit "load earlier" button still goes through the host command.
+  - `resync.required` was handled *after* the `delivery_seq` dedup test, so a host instruction whose
+    watermark was equal to or below the renderer's applied watermark was swallowed as a duplicate:
+    the full reload never happened, the view stayed on stale content, and the acknowledgment told
+    the host there was nothing left to re-deliver. Authority-alignment events are now handled before
+    dedup and set the watermark to the value the host supplied.
+  - The ready baseline only reset the applied watermark when the session id changed. A *same-id*
+    re-subscription (Bridge rebuilds the subscription, the view session stays) restarts
+    `delivery_seq` at 1, so the stale watermark swallowed the new subscription's first events and
+    reported that high watermark to the host, which then stopped re-delivering: permanent silence
+    with no error to look at. `seelex:ready` now goes through `client.acceptBaseline()`, which
+    resets the applied watermark — and only that entry point does: an ordinary mid-subscription
+    refresh must keep it, or events re-delivered from the replay window would be applied twice
+    (streaming deltas would double).
+- **`EnginePort.History()`/`RawHistory()` no longer call into the engine while holding `port.mu`.**
+  The two alias readers still held the process-wide read lock across `engine.History()`; the same
+  S3b shape as `RawHistoryFor`, but reachable by user commands (`/history`, workspace switch) rather
+  than by folding. The engine call now happens outside the lock, matching the rest of the package.
 
 - **Two load-sensitive test flakes that made the full suite red intermittently** (both reproduced,
   neither caused by the contract work above — the first lives in the framework's telemetry
