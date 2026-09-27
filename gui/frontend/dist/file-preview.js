@@ -49,8 +49,9 @@ const IMAGE_EXTENSIONS = new Set([
   ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".ico", ".avif"
 ]);
 
-// 代码语言别名（与 dist/vendor/highlightjs/lang 内已 vendor 的语言对应；
-// 未知别名返回 "" → 高亮时用 highlightAuto 兜底）。
+// 代码语言别名（highlight.js 的语言名；index.html 同步加载的 languages.all.min.js
+// 已把全部语言注册进 hljs，所以只要名字对得上就能高亮；未知别名返回 "" →
+// 高亮时用 highlightAuto 兜底）。
 const LANGUAGE_BY_EXT = {
   ".go": "go", ".js": "javascript", ".mjs": "javascript", ".cjs": "javascript",
   ".ts": "typescript", ".tsx": "typescript", ".jsx": "javascript",
