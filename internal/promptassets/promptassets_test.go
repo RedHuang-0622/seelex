@@ -7,7 +7,7 @@ import (
 
 func TestSystemAssetsContainEvidenceAndAuthorityRules(t *testing.T) {
 	instructions := SystemInstructions()
-	for _, required := range []string{"Evidence Before Conclusions", "Hypothesis", "Visible Intent Before Tools", "Before the first tool call in a distinct phase", "Optional WorkPlan", "not a mandatory preflight gate", "Use a Plan when:", "Do not use a Plan when:", "truncated tool output as", "Task Terminal Protocol", "task_complete", "task_needs_user_decision", "task_failed"} {
+	for _, required := range []string{"Evidence Before Conclusions", "Hypothesis", "Visible Intent Before Tools", "Before the first tool call in a distinct phase", "Optional WorkPlan", "not a mandatory preflight gate", "Use a Plan when:", "Do not use a Plan when:", "truncated tool output as", "Task Terminal Protocol", "task_complete", "task_needs_user_decision", "task_failed", "Long-Running Commands", "Use `bash_bg` when:", "Do not use `bash_bg` when:"} {
 		if !strings.Contains(instructions, required) {
 			t.Fatalf("system instructions missing %q", required)
 		}

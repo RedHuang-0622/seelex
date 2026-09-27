@@ -492,6 +492,9 @@ func (r *Router) scopedBash(ctx context.Context, argsJSON string) (output string
 	if input.Command == "" {
 		return `{"stdout":"","stderr":"","exit_code":0}`, nil
 	}
+	if err := r.auditSerialTimeout("bash", input.Timeout); err != nil {
+		return "", err
+	}
 	r.observeBash(BashDiagnosticEvent{Stage: "bash.resolve.start"})
 	workdir, err := r.resolveNodePath(ctx, input.Workdir, false)
 	if err != nil {
@@ -529,6 +532,9 @@ func (r *Router) scopedBashRead(ctx context.Context, argsJSON string) (output st
 	// 绝不静默降级成执行（与 sandbox.go 的 fail-fast 同源口径）。
 	if !security.ClassifyCommand(input.Command) {
 		return "", fmt.Errorf("bash_read: 服务端判定这不是只读命令（%q）；写类命令改用 bash（rw 簇，规则照旧），需要后台执行用 bash_bg", input.Command)
+	}
+	if err := r.auditSerialTimeout("bash_read", input.Timeout); err != nil {
+		return "", err
 	}
 	workdir, err := r.resolveNodePath(ctx, input.Workdir, false)
 	if err != nil {
@@ -734,26 +740,75 @@ func editFileSchema() map[string]interface{} {
 	return map[string]interface{}{"type": "object", "properties": map[string]interface{}{"path": map[string]interface{}{"type": "string"}, "old_string": map[string]interface{}{"type": "string"}, "new_string": map[string]interface{}{"type": "string"}}, "required": []string{"path", "old_string", "new_string"}}
 }
 
+// ── 串行 bash 的时长预算 ─────────────────────────────────────────────────
+
+// serialBashBudget 是串行 bash 的时长预算：预期跑得更久的命令必须派发到后台作业面
+// （bash_bg），而不是把串行入口的 timeout 抬上去。
+//
+// 为什么这条线是必需的：串行命令占着整个回合——它跑多久，模型就多久做不了别的；
+// 而分钟级的构建/测试/安装/下载恰好是后台化最划算的形状（派发即回执、结果分次取回、
+// 途中能做别的）。5 分钟是"人已经会去泡杯茶"的量级；这个数字同时出现在工具描述、
+// 拒绝消息与系统提示词里，唯一的来源就是这里（见 serialBashBudgetLabel）。
+const serialBashBudget = 5 * time.Minute
+
+// serialBashBudgetLabel 把预算写成给模型读的文案（"5 minutes"）。描述、错误消息与
+// 系统提示词用的是同一个词，且都从这里派生——数字改了文案跟着改，改不动的只有
+// assets/system/instructions.md 里那一处，由 TestSerialBashBudgetAgreesWithPrompt 钉住。
+func serialBashBudgetLabel() string {
+	return fmt.Sprintf("%d minutes", int(serialBashBudget/time.Minute))
+}
+
+// auditSerialTimeout 审查串行入口**声明的**时长：超预算就拒绝，不截断、也不静默跑下去。
+//
+// 为什么拒绝而不是按预算截断：截断是静默降级——模型以为给了 30 分钟，命令在第 5 分钟
+// 被杀，工作白做且没有任何信号说明该换入口；拒绝则把唯一的正确动作（派发到 bash_bg）
+// 直接写回给模型。
+//
+// 只在作业面常驻时审查：作业面关闭（limits.async_exec.enabled=false）时没有 bash_bg
+// 可派发，此时拒绝一条长命令等于既不执行也不给替代路径——那时旧口径（显式 timeout
+// 说了算）才是诚实的。没声明 timeout 的调用同样不受影响：没有"声明的时长"可审查，
+// 长命令该走后台这件事由工具描述与系统提示词负责说明。
+func (r *Router) auditSerialTimeout(toolName string, requestedSeconds int) error {
+	if requestedSeconds <= 0 || !r.asyncEnabled() {
+		return nil
+	}
+	if time.Duration(requestedSeconds)*time.Second <= serialBashBudget {
+		return nil
+	}
+	return fmt.Errorf("%s: timeout %ds 超过串行预算 %s；预期跑得更久的命令改用 bash_bg 派发"+
+		"（后台受管：派发即返回受理回执，取回走 job_manage(op=fetch, handle)，终止走 op=kill）",
+		toolName, requestedSeconds, serialBashBudgetLabel())
+}
+
 // bashDescription 说明 bash 的边界与它在三名字里的位置：**写类、串行、同步**。
 //
 // 三个名字必须靠描述消歧，否则模型会拿 bash_read 当 bash 用（工具面每多一个名字，
-// 选择歧义就多一分，这是工具级分裂的真实代价）。
+// 选择歧义就多一分，这是工具级分裂的真实代价）。时长边界（"超过预算的命令不属于
+// 串行入口"）必须写在描述里：服务端只拦得住显式声明的 timeout，而没声明的那种正是
+// 最容易跑成 30 分钟串行的那一类。
 func bashDescription() string {
 	return "Run a command with its working directory constrained to the bound project. " +
 		"This is not an OS sandbox. This is the serial, write-class entry: use it whenever the " +
 		"command writes anything. Prefer bash_read for commands you know are read-only (it is " +
-		"allowed without approval), and bash_bg to run a long command in the background (that " +
-		"call returns only an acceptance receipt)."
+		"allowed without approval). It is serial and synchronous — it holds the turn while the " +
+		"command runs — and it refuses a `timeout` above its " + serialBashBudgetLabel() +
+		" budget: commands expected to take longer belong to bash_bg, whose call returns only " +
+		"an acceptance receipt."
 }
 
 // bashReadDescription 说明只读面的**硬边界**：只允许只读命令，且判定在服务端。
+//
+// 它同时要说明时长边界：`go test` / `go build` 这类例子就在本描述里，而它们正是最容易
+// 跑过 5 分钟的一类——不写清就会变成"模型拿 bash_read 串行跑完整套测试"。
 func bashReadDescription() string {
 	return "Run a READ-ONLY command with its working directory constrained to the bound " +
 		"project. This is not an OS sandbox. The command is classified on the server: write " +
 		"commands (git commit, rm, redirects such as '>' or '|', variable expansion) are " +
 		"refused, not executed. This entry needs no approval, so use it for inspection " +
 		"(ls/cat/head/tail/grep/rg/git status/git log/go test/go build); anything that writes " +
-		"must go through bash."
+		"must go through bash. It is serial as well: a `timeout` above the " +
+		serialBashBudgetLabel() + " budget is refused — dispatch a test suite or build " +
+		"expected to run longer with bash_bg instead."
 }
 
 // bashSchema 下发 bash / bash_read 入参：两个名字的入参形状相同（同一份 schema），

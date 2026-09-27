@@ -39,6 +39,18 @@ version when it lands.
 
 ### Added
 
+- **A time boundary between the serial and the background command entries.** `bash` and
+  `bash_read` are serial: while one runs, the turn cannot do anything else, so a command measured
+  in minutes should not hold it. A serial call that declares a `timeout` above `serialBashBudget`
+  (5 minutes) is now refused, and the error names the entry that takes it — `bash_bg` (results via
+  `job_manage(op=fetch)`, stop with `op=kill`). The check only runs while the job surface is on:
+  with `limits.async_exec.enabled: false` there is no `bash_bg` to dispatch to, so the old rule (an
+  explicit `timeout` wins) stands; a call that declares no `timeout` is unaffected — there is no
+  declared time to audit (its bound is the description plus the prompt rule). The number is stated
+  in all three tool descriptions and in a new `Long-Running Commands` system-prompt section, all of
+  them derived from the one constant: `TestSerialBashBudgetAgreesWithPrompt`
+  (`seelebridge/tools/serial_bash_budget_test.go`) renders the prompt asset and fails when prose and
+  code drift apart.
 - **The subprocess contract is now one interface: `Add` + the four named management actions
   `Status` / `Fetch` / `Kill` / `Done`, all returning `[]byte`.** `seelebridge/tools/job_contract.go`
   declares `JobTool`; three kinds of job share one registry and one state machine (`process` =

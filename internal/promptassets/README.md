@@ -70,6 +70,17 @@ Application-side payload validation or token/checkpoint context controller.
 
 System instructions distinguish trusted installed Skill policy from user/Plan data. Active task Skills and Plan execution policy are injected as system layers and reconstructed from the persisted projection; canonical Plan data and checkpoints remain lower-priority structured context. Instructions also require Agents to treat `result_ref` warnings as omitted evidence, use `read_tool_result` or `read_plan` for targeted read-only retrieval, and never infer facts from truncated or omitted content.
 
+## Tool entry boundaries
+
+System instructions state the time boundary between the serial and the background
+command entries: a command expected to run longer than five minutes is dispatched
+with `bash_bg` (its `description` becomes the work-table row title), the serial
+entries refuse a `timeout` above that budget and name `bash_bg` instead, and a
+runtime without the background surface falls back to an explicit serial `timeout`.
+The number in the asset is the one the code enforces
+(`seelebridge/tools.serialBashBudget`): a test there renders this asset and fails
+when prose and code drift apart.
+
 ## Visual answers
 
 System instructions describe the one rendered-HTML surface the GUI provides:

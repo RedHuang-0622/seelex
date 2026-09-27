@@ -112,6 +112,17 @@ handler 侧必须过服务端 `security.ClassifyCommand`）/ `bash_bg`（`Add`�
 契约与打点见 [`docs/tool_concurrency_design.md`](../../docs/tool_concurrency_design.md)
 §A/§B 与 [`docs/tool_calling_step0_contracts.md`](../../docs/tool_calling_step0_contracts.md)。
 
+串行与后台之间有一条**时长线**（`serialBashBudget` = 5 分钟）：显式 `timeout` 超过它的
+`bash` / `bash_read` 调用被拒绝，并被指向 `bash_bg`（`auditSerialTimeout`）。取拒绝而不是
+按预算截断：截断是静默降级——模型以为给了 30 分钟，命令在第 5 分钟被杀，工作白做且没有
+任何信号说明该换入口。作业面关闭时**不**审查：没有 `bash_bg` 可派发，拒绝一条长命令等于
+既不执行也不给替代路径。没声明 `timeout` 的调用同样不审查（没有"声明的时长"），长命令该
+去哪由描述与系统提示词负责说明。这条线的数字在三份工具描述与
+[`assets/system/instructions.md`](../../internal/promptassets/assets/system/instructions.md)
+的 `Long-Running Commands` 段里各出现一次，来源只有 `serialBashBudget`：
+`serial_bash_budget_test.go` 同时钉住拒绝、边界、开关不误伤与"提示词里的数字就是代码执行
+的数字"。
+
 文件分工按"契约 / 表 / 执行体 / 工具面 / 探针"五份（`async_exec.go` 单文件曾长到 608 行
 且职责混合，命中仓库根 `MEMORY.md` 的上帝文件判据）：
 

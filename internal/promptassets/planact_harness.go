@@ -83,6 +83,13 @@ func PlanActHarnessCases() []PlanActHarnessCase {
 			Expected:    "每个节点完成后、进入下一个节点前调用 task_check_node 打点；task_complete 只收尾，已在途打点的节点无需重复枚举。",
 			Required:    []string{"call `task_check_node`", "before moving on to the next node", "do not need to be repeated in `completed_nodes`"},
 		},
+		{
+			Name:        "long-command-goes-to-the-background-entry",
+			Effort:      "high",
+			UserRequest: "跑完整测试套件，跑的时候继续把审查做完。",
+			Expected:    "分钟级命令走后台作业面（bash_bg 派发 + job_manage 取回）；串行 bash/bash_read 超预算的 timeout 被拒绝；作业面关闭时才串行并显式给 timeout。",
+			Required:    []string{"Long-Running Commands", "Use `bash_bg` when:", "Do not use `bash_bg` when:", "timeout` above 5 minutes instead of running it", "work-table row title", "If `bash_bg` is not in your tool list"},
+		},
 	}
 }
 

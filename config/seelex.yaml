@@ -138,6 +138,10 @@ limits:
   # 置 false = 整块收回能力：bash_bg / read_batch / job_manage 都不注册，
   # fork_subagents 的 async 模式显式拒绝，bash 收到旧入参 background=true 直接拒绝
   # （能力不可实施时不得静默降级成同步执行）。
+  # 串行与后台之间还有一条时长线：显式 timeout 超过 5 分钟（serialBashBudget）的
+  # bash / bash_read 调用被拒绝并指向 bash_bg；关闭本块时**不**审查——没有替代入口时
+  # 拒绝一条长命令等于既不执行也不给路。
+  # 提示词侧条文：internal/promptassets/assets/system/instructions.md「Long-Running Commands」。
   # 规格与实测：docs/2026-09-24-async-tool-deferred-ack/README.md §8/§10。
   async_exec:
     enabled: true                # 常驻开；改回 false 即整块收回

@@ -167,9 +167,12 @@ func bashBgSchema() map[string]interface{} {
 }
 
 // bashBgDescription 说明"派发即结束"：回执不含输出，取回与终止各走哪个 op。
-// 不写清，模型会以为它只是"超时更长的那种 bash"。
+// 不写清，模型会以为它只是"超时更长的那种 bash"——所以时长边界（超过串行预算的命令
+// 属于这里）写在最前面，而不是让模型自己去串行描述的拒绝消息里反推。
 func bashBgDescription() string {
-	return "Dispatch a command to the background job store. That call's result is only an " +
+	return "Dispatch a command to the background job store — this is the entry for anything " +
+		"expected to run longer than the serial budget (" + serialBashBudgetLabel() + "): " +
+		"serial bash / bash_read refuse a `timeout` above it. That call's result is only an " +
 		"acceptance receipt (handle + log_path), never the command output — use " +
 		"job_manage(op=fetch, handle) for results, job_manage(op=kill, handle) to terminate, " +
 		"job_manage(op=observe, handle) to look at progress without consuming output, and " +
