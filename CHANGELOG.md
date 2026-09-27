@@ -78,6 +78,37 @@ version when it lands.
 
 ### Fixed
 
+- **A fold's record vanished on the very next round, and a message sent while browsing history was
+  swallowed.** Both are state-ownership bugs behind one field report ("after a fold the next round's
+  compaction is nowhere to be found; my input is gone and nothing on screen moves until the round
+  ends, while 'return to latest' does nothing"):
+  - `continuationTaskExecutionState` used the *turn* continuation predicate (`IsContinuableStatus`)
+    as the gate for *session* context facts. A turn that ends normally (`completed`) and a
+    cold-loaded session whose maintenance identity has been withdrawn (`idle`) are both
+    non-continuable, so the next round started from a blank state: `ContextCompactions` — the single
+    source behind the status panel's "context compaction" entry, the trajectory compaction mark and
+    the conversation's fold divider — plus `ContextVersion` and `ContextRetainedFrom` were dropped.
+    The retained window start is the expensive one: the next assembly counts the already-folded
+    prefix again, so a long session crosses the soft threshold every round ("one message, one
+    compaction record"). Session context facts are now inherited unconditionally; only turn facts
+    stay behind the continuable gate. Regression tests:
+    `TestReproCompactionRecordSurvivesNextRoundAfterColdMaintenance`,
+    `TestReproContextFactsSurviveCompletedTurnBoundary`
+    (`application/core/context_compact_across_rounds_repro_test.go`).
+  - A `user` row appended while the visible window was not tail-aligned only advanced
+    `TotalMessages` and never entered the window — correct on its own, since writing it would punch
+    a hole between the window and the tail — but the renderer's reducer refuses out-of-window
+    `message.added` for exactly the same reason, so the round the user had just started existed in
+    neither place. The input looked swallowed and the whole round stayed invisible until it was
+    persisted at round end or the user pressed "return to latest" (which cannot reach unpublished
+    in-flight rows either). A user row is now the boundary case: appending it ends browsing first
+    (`endBrowsingForNewTurn` resets the window in place to "this message is the tail"), so the
+    window is tail-aligned again and the round streams where the user is looking; assistant/tool
+    rows keep the old rule. Regression tests: `TestReproSubmitWhileBrowsingKeepsUserRowInWindow`,
+    `TestReproSubmitWhileBrowsingEndsBrowsingState`
+    (`application/core/session_history_browsing_submit_repro_test.go`). Known boundary (unchanged):
+    rows already in flight when the user pages *away* mid-round are only recoverable once that round
+    is persisted — documented in `application/core/README-session.md` §9.
 - **The stop button could not stop a running foreground tool call.** Cancelling a turn aborted the
   engine loop but left the tool's descendants alive: `executeScopedBash` relied on
   `exec.CommandContext`'s default cancel, which kills only the shell it started, while the

@@ -16,6 +16,13 @@ revision 在此自持。
   新消息只推进 `TotalMessages`、不写进窗口——写进去会在窗口尾部插洞并把用户
   拽回尾部。`SessionViewBrowsingHistoryLocked` 是这条判据的消费面（流式增量、
   推理挂接等「写最新一条消息」的路径在回看期间必须跳过，否则会串写到旧消息）。
+- **用户行例外（2026-09-28）**：回看期间到达的 `user` 行开启新一轮对话，追加前先
+  把窗口原地重置为「以这条新消息为尾」（`endBrowsingForNewTurn`，与内容 LRU 卸载
+  后的重置同一形状）。用户发言是「从现在起看最新」的手势，不是阅读手势：照旧不
+  写进窗口时，这一轮自己的输入落在窗口之外，而前端 reducer 在 `historyWindowed`
+  时同样不落 `message.added`，现场表现就是「输入被吞、整个回合界面一动不动」。
+  助手/工具行不受这条规则影响（`TestAppendWhileBrowsingHistoryKeepsWindow` 钉住
+  的正是那一侧）。
 - 不做：工作表格构建（根包 `work_table.go`，经端口注入）、chat 流式。
 
 ## 依赖方向
@@ -103,6 +110,7 @@ system 引导消息、投影应用不覆盖 Plan/Account 指针。
 - `func viewWindowTailAligned(view *session.View) bool` — viewWindowTailAligned 报告可见窗口是否贴尾（窗口末尾即 durable 末尾）。
 - `func (c *Coordinator) SessionViewBrowsingHistoryLocked(sessionID string) bool` — SessionViewBrowsingHistoryLocked 报告指定会话是否处于「回看更早历史」状态
 - `func DurableConversationCount(messages []model.Message) int` — DurableConversationCount 返回参与历史游标的可见消息数（system 引导消息
+- `func endBrowsingForNewTurn(view *session.View)` — endBrowsingForNewTurn 结束回看：把可见窗口原地重置为「以即将追加的新消息为尾」。
 - `func (c *Coordinator) boundViewTailLocked(view *session.View)`
 - `func durableConversationCount(messages []model.Message) int`
 - `func BoundConversationTail(messages []model.Message, window int) []model.Message` — BoundConversationTail 保留尾部窗口（system 与普通消息分列计数）。

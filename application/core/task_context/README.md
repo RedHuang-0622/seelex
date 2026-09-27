@@ -20,7 +20,13 @@ result-ref、token 审计（`CalibratedTokenCounter`）、plan 帧状态与 ReAc
   tool_call 事件（重启恢复的轨迹保留工具轮间的 LLM 输出与草稿）。
 - 做：**累积上下文起点与可选尺子的尾窗收敛**。`TaskExecutionState.ContextRetainedFrom`
   记录上一次折叠覆盖到的 transcript 绝对事件下标（0 = 尚未折叠），压缩判据与
-  累积装配只从该起点往后看，跨回合由 `continuationTaskExecutionState` 继承；
+  累积装配只从该起点往后看，跨回合由 `continuationTaskExecutionState` 继承
+  （2026-09-28：**无条件**继承 `ContextVersion` / `ContextRetainedFrom` /
+  `ContextCompactions`——它们是**会话**的上下文事实，而回合续接判据
+  `IsContinuableStatus` 只该挡回合事实。回合收尾 `completed`、冷加载维护身份撤销
+  后的 `idle` 都不再让压缩记录与保留窗口起点归零；否则下一轮装配会把已被折出的
+  前缀重新计入，长会话稳定越线、每回合重新压一次，快照可见面的「上下文压缩」列表
+  也会在下一轮凭空消失）；
   尾窗另提供 `TranscriptTailWindowBy`，允许调用方注入自己的 token 估算器，
   使裁剪预算与压缩判据/保留窗口共用同一把尺子（默认 `TranscriptTailWindow`
   仍按事件自带 `TokenCount` 记录值，供冷读装载使用）。

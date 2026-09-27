@@ -232,13 +232,17 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 - `func contextCompactionGates(gates []context_runtime.CompactionGateTiming) []CompactionGateTiming` — contextCompactionGates 把 context_runtime 的门禁耗时映射为回执面类型（JSON
 - `func newContextCompactionResult(outcome context_runtime.CompactResult) ContextCompactionResult`
 
+### context_compact_across_rounds_repro_test.go
+
+- `func TestReproCompactionRecordSurvivesNextRoundAfterColdMaintenance(t *testing.T)` — TestReproCompactionRecordSurvivesNextRoundAfterColdMaintenance 冷加载维护
+- `func TestReproContextFactsSurviveCompletedTurnBoundary(t *testing.T)` — TestReproContextFactsSurviveCompletedTurnBoundary 回合**正常收尾**
+
 ### context_compact_gate.go
 
 - `func (service *Service) isCompactingLocked(sessionID string) bool` — isCompactingLocked 报告该会话是否有一轮上下文压缩正在进行（调用方持有
 - `func (service *Service) signalCompactionLocked()` — signalCompactionLocked 广播一次「compacting 集合已变化」（调用方持有
 - `func (service *Service) compactionSignalLocked() <-chan struct` — compactionSignalLocked 返回当前收口信号（调用方持有 Core.ViewMu）。惰性
 - `func (service *Service) acquireCompactionRound(ctx context.Context, sessionID string) error` — acquireCompactionRound 领取该会话的压缩轮：已有轮在跑时先等它收口（同会话
-- `func (service *Service) tryAcquireCompactionRound(sessionID string) bool` — tryAcquireCompactionRound 非阻塞地领取该会话的压缩轮：返回 false = 这一会话
 - `func (service *Service) releaseCompactionRound(sessionID string)` — releaseCompactionRound 收口该会话的压缩轮并唤醒等待方。幂等：没领过轮的
 - `func (service *Service) awaitCompactionRound(ctx context.Context, sessionID string) error` — awaitCompactionRound 等到该会话没有压缩轮在跑（ctx 取消即返回错误）。
 - `func (service *Service) deferSubmitUntilCompacted(ctx context.Context, sessionID, text string)` — deferSubmitUntilCompacted 把一次对话提交挂到该会话压缩轮的收口点：门开着时

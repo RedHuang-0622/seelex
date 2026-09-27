@@ -20,7 +20,11 @@
    一页，可见列表不会无限加长（WebView 渲染内存有硬上限）。
 4. 回看期间（窗口未贴尾）新消息不回卷窗口、也不进可见列表；`LoadLatestHistory`
    重新读尾部窗口贴尾，并带回回看期间的新消息——但只带得回**已发布**的那部分，
-   见第 6~9 条。
+   见第 6~9 条。**用户行例外（2026-09-28）**：回看期间到达的 `user` 行开启新一轮
+   对话，追加前先把窗口原地重置为「以这条新消息为尾」（`endBrowsingForNewTurn`）
+   ——用户发言意味着「从现在起看最新」，否则这一轮自己的输入落在窗口之外，前端
+   reducer 在 `historyWindowed` 时也不落 `message.added`，表现为「输入被吞、整个
+   回合界面一动不动」。
 5. 无 record 的旧格式会话冷加载同样写入 `TotalMessages/HistoryOffset`（历史
    总数来自 provider 历史），否则 `HasMoreHistory` 恒为 false，早期历史读不到。
 6. **冷读面的右界是发布点**：回合内的可见行先进内存窗口，`PersistCurrentSession`
@@ -40,7 +44,8 @@
    行要等这次提交后才能回读（有界滑动窗口的固有语义）。
 10. 复现与回归：`session_history_pagination_test.go`（分页态随会话走）+
     `session_history_hot_tail_test.go`（在飞尾部不被冷读抹掉、总数不倒退、
-    offset 与内容对齐）。
+    offset 与内容对齐）+ `session_history_browsing_submit_repro_test.go`
+    （回看期间提交的用户行必须回到窗口，「输入被吞」的复现）。
 
 ## 提交归属：草稿与运行中会话（2026-09-20）
 
@@ -349,6 +354,12 @@
 - `func durableConversationRows(messages []Message) []Message` — durableConversationRows 取出可见窗口里参与历史游标的行（system 引导行不占
 - `func adaptEngineMessage(msg EngineMessage) Message`
 - `func isVisibleHistoryMessage(message EngineMessage) bool`
+
+### session_history_browsing_submit_repro_test.go
+
+- `func TestReproSubmitWhileBrowsingKeepsUserRowInWindow(t *testing.T)` — TestReproSubmitWhileBrowsingKeepsUserRowInWindow 回看历史时提交一轮对话，
+- `func TestReproSubmitWhileBrowsingEndsBrowsingState(t *testing.T)` — TestReproSubmitWhileBrowsingEndsBrowsingState 提交之后会话不得再被判成
+- `func containsContent(contents []string, want string) bool`
 
 ### session_history_hot_tail_test.go
 

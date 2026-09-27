@@ -346,6 +346,18 @@ func (c *Coordinator) AppendMessageWithOriginLockedFor(sessionID, role, content 
 		// （前端按顺序渲染，窗口外内容缺失表现为断层），并且把正在回看的
 		// 用户强行拽回尾部、阅读位置被抢。正文由 message.added 事件带回，
 		// 前端据 total_messages 与 offset+窗口条数之差提示「下方还有新内容」。
+		// 回看历史时到达的**用户行**开启新一轮对话：用户主动发言意味着「从现在
+		// 起看最新」——结束回看，把窗口原地重置为「以这条新消息为尾」，再照常
+		// 追加。不这样做，这一轮的行只会计进 TotalMessages 而不进可见窗口：前端
+		// reducer 在 historyWindowed 时同样不落 message.added（避免窗口与尾之间
+		// 的断层），用户看到的是「自己的输入被吞、整个回合界面一动不动」，只有
+		// 等下一条消息或手动「回到最新」才看得到（用户报告）。
+		// 助手/工具行不适用这条：它们随回合而来、不表达「我要看最新」，到达时
+		// 用户多半正在读旧账（TestAppendWhileBrowsingHistoryKeepsWindow 钉住的
+		// 正是那一侧）。
+		if role == "user" && !viewWindowTailAligned(v) {
+			endBrowsingForNewTurn(v)
+		}
 		if !viewWindowTailAligned(v) {
 			if role != "system" {
 				v.TotalMessages++
@@ -529,6 +541,18 @@ func (c *Coordinator) SessionViewBrowsingHistoryLocked(sessionID string) bool {
 // 不占 durable 序号空间）。
 func DurableConversationCount(messages []model.Message) int {
 	return durableConversationCount(messages)
+}
+
+// endBrowsingForNewTurn 结束回看：把可见窗口原地重置为「以即将追加的新消息为尾」。
+// 清空窗口内容、把起点推到当前总数（与内容 LRU 卸载后的重置同一形状：窗口贴着
+// 总数，内容由随后的 append 逐条落回）。更早的历史仍可经 `LoadMoreHistory` 冷读
+// 翻回，因此不谎报「没有更早历史」。
+//
+// 调用方持有会话视图写锁（`View.Mutate` 内）。
+func endBrowsingForNewTurn(view *session.View) {
+	view.Conversation = nil
+	view.HistoryOffset = view.TotalMessages
+	view.HasMoreHistory = view.TotalMessages > 0
 }
 
 func (c *Coordinator) boundViewTailLocked(view *session.View) {
