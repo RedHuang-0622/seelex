@@ -1,0 +1,10 @@
+// Seelex 应用图标资源（windres 输入）。
+//
+// 1 = 图标组资源 ID（EXE/快捷方式/任务栏默认取组内索引 0 的图标），
+// ICON = RT_GROUP_ICON。图标本体在同目录的 seelex.ico（由 make-icon.sh 从
+// seelex-logo.png 生成多尺寸）。
+//
+// 生成 syso（放进仓库根目录——根目录是 package main，Go 工具链按文件名
+// rsrc_windows_amd64.syso 在 windows/amd64 构建时自动链接）：
+//   scripts/make-icon.sh
+1 ICON "seelex.ico"

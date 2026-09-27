@@ -12,6 +12,29 @@
   自己看不见——"谁在吃内存 / 事件有没有缺口"的口径被一个注册表漏项静默掐掉。
   补注册表，并加 `element-registry.test.mjs` 把这类静默失效钉住：`elements["x"]` 用到的
   key 必须都注册、注册的 id 必须都在 `index.html` 里、两个徽标宿主必须真的被 append。
+- **顶栏两个诊断徽标把运行状态挤没了**（`provider · model` 被截成 `openai · deep…`、用量
+  标签整个消失）。病根是宽度算术：徽标各自 `max-width: 22vw` / `26vw`，而它们所在的
+  `.runtime-summary` 上限只有 `32vw`——徽标一渲染就吃满甚至超过整行预算。改为：预算放到
+  `min(64vw, 1040px)`；两个徽标封顶 `240px`（固定像素）并带 `flex: 0 6 auto` —— 空间不够
+  时先缩徽标而不是缩运行信息；再按视口分级收起（≤1500px 收会话新鲜度、≤1180px 收性能
+  徽标；≤780px 沿用"整行只留状态点"的原规则）。运行信息在任何宽度下都比诊断优先，
+  `brand-and-topbar.test.mjs` 把这条顺序钉住。
+
+### Added
+
+- **顶栏品牌位从字母占位换成品牌图。** `brand-mark` 由 `<span>S</span>` 换成
+  `<img src="./assets/seelex-logo.png">`（同一份图的 128px 小图，`<link rel="icon">` 也指
+  它）；CSS 从"字母盒"（accent 实心块 + 居中排版）改为图片式（保留 26px 尺寸与圆角、
+  `object-fit: contain`）。品牌源图 `gui/icons/seelex-logo.png` 四周有透明留白，前端小图与
+  `.ico` 都先按 alpha 裁到图形本体再补 4% 边距——不裁的话 26px 处只是一个缩小的白块。
+- **Windows 图标资源链（exe / 快捷方式 / 任务栏 / 窗口图标）。** `gui/icons/` 收品牌源图 +
+  多尺寸 `seelex.ico`（16/24/32/48/64/128/256，Pillow 生成）+ `icon.rc`；`scripts/make-icon.sh`
+  是唯一再生成入口，`windres` 出的 `rsrc_windows_amd64.syso` **入库放在仓库根目录**——根目录
+  是 package main，Go 工具链按文件名在 windows/amd64 构建时自动链接，于是"任何构建入口
+  （build-dev.sh / build.ps1 / build-gui.ps1 / flow / CI）都不用改"。缺 Pillow / windres 时
+  脚本降级跳过并说明（图标是表现层资源，不该挡住任何平台的构建）。`icon_resource_test.go`
+  把这条链钉住：`.rc` 引用 `.ico`、`.ico` 各档齐全、`.syso` 是 x86-64 COFF 且**内容里能原样
+  找到 `.ico` 最大一档**——用内容包含而不是时间戳（git 不保留 mtime，克隆后时间戳不可信）。
 
 ### Changed
 
@@ -59,7 +82,10 @@
 
 ### 验证与生效
 
-- 前端口径：`cd gui/frontend/dist && node --test` → 492 passed / 0 failed。
+- 前端口径：`cd gui/frontend/dist && node --test` → 494 passed / 0 failed。
+- 图标链：`go test -run TestWindowsIconResourcePipeline .` 通过；重建 GUI 后
+  `[System.Drawing.Icon]::ExtractAssociatedIcon` 取到 32×32 图标、均色与品牌图一致，
+  `.ico` 最大档负载可在 exe 里按原字节找到。
 - 前端是 `embed.FS` 打进二进制的：以上改动**重建 GUI 后**才生效；实机前后对比需重建后
   由顶栏徽标（DOM 节点 / JS 堆 / 快照体积，10s 一条）给出基线。
 

@@ -48,6 +48,7 @@ tmp/build/                          流程中间态（可整体删除）
 | `build-dev.sh` | post-commit 快速重建 dev 二进制（CLI→`dist/dev/seelex.exe`，GUI→P2）。 |
 | `build-gui.ps1` | Wails GUI 发布包（Publish/Dev），产物只进 `dist/archive/`。 |
 | `seelex-flow.ps1` | 分阶段构建/部署/回滚/发布流程（Stage → Smoke → Deploy → Release）。 |
+| `make-icon.sh` | 图标资源链：品牌图 → 多尺寸 `.ico` + 前端品牌图，再 `windres` 成根目录 `rsrc_windows_amd64.syso`（缺 Pillow/windres 时降级跳过，不挡构建）。 |
 | `sync-claudecode-account.ps1` | 从本机 Claude Code 设置生成 local account 配置。 |
 | `gen_core_readme_index.py` | 生成 `application/core` 的「文件与函数索引」（根包按前缀分卷）。 |
 | `check_readme_refs.py` | README 漂移检查：链接目标与正文路径字面量是否还存在（`--strict` 可用于门禁）。 |

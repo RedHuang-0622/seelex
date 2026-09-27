@@ -332,22 +332,25 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 }
 
 .brand, .runtime-summary { display: flex; align-items: center; gap: 10px; }
+/* 品牌位：品牌图（assets/seelex-logo.png，26px 显示、128px 原图给 HiDPI）。图自带白底
+   方块，所以这里不再铺 accent 实心块；保留原尺寸与圆角，object-fit 防拉伸。 */
 .brand-mark {
-  display: grid;
-  place-items: center;
+  display: block;
   width: 26px;
   height: 26px;
   border-radius: var(--r-lg);
-  color: var(--on-accent);
-  background: var(--accent);
-  font-size: 13px;
-  font-weight: 800;
-  letter-spacing: .02em;
+  object-fit: contain;
+  background: var(--surface);      /* 图解码出来前不留空洞 */
+  -webkit-user-drag: none;
+  user-select: none;
 }
 .brand strong, .brand small { display: block; }
 .brand strong { font-size: 13px; font-weight: 650; letter-spacing: -.01em; }
 .brand small { margin-top: 1px; color: var(--muted); font: 10px var(--font-mono); }
-.runtime-summary { justify-content: flex-end; max-width: 32vw; overflow: hidden; color: var(--muted); font: 11px var(--font-mono); }
+/* 右侧运行状态的宽度预算：provider · model 与用量是用户要看的，诊断徽标（性能 / 会话
+   新鲜度）是开发诊断。徽标各自有 max-width，但两者相加仍可能吃满预算，所以上限放到
+   64vw，并在下面按视口宽度分级收起徽标（先收新鲜度，再收性能），运行信息永远留得下。 */
+.runtime-summary { justify-content: flex-end; max-width: min(64vw, 1040px); overflow: hidden; color: var(--muted); font: 11px var(--font-mono); }
 .runtime-summary > span:not(.status-dot) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status-dot {
   flex: none;
@@ -729,11 +732,15 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .io-collapse .io-collapse-meta { opacity: 0.7; }
 .io-collapse + .io-note { padding-top: 0; }
 /* 性能追踪徽标（顶部状态区）：渲染进程可观测指标；点击看最近样本 */
-.perf-badge-host { display: inline-flex; align-items: center; }
-.perf-badge { max-width: 22vw; overflow: hidden; padding: 1px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); background: var(--surface); font: 10px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.perf-badge-host { display: inline-flex; align-items: center; flex: 0 6 auto; min-width: 0; }
+.perf-badge { max-width: 240px; overflow: hidden; padding: 1px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); background: var(--surface); font: 10px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .perf-badge:hover { color: var(--text); border-color: var(--accent); }
-.live-diag-badge { max-width: 26vw; overflow: hidden; padding: 1px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); background: var(--surface); font: 10px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.live-diag-badge { max-width: 240px; overflow: hidden; padding: 1px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); background: var(--surface); font: 10px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .live-diag-badge:hover { color: var(--text); border-color: var(--accent); }
+/* 诊断徽标按宽度分级收起：先收会话新鲜度，再收性能徽标。它们是开发诊断，绝不占用
+   provider · model / 用量那一行文字的空间（780px 以下整行只留状态点，见下方窄屏规则）。 */
+@media (max-width: 1500px) { #live-diag-host { display: none; } }
+@media (max-width: 1180px) { #perf-badge-host { display: none; } }
 
 /* ---------- 5b. Conversation tabs / Trajectory ---------- */
 /* 对话区子页 tab（对话 / 轨迹）：固定于 workspace 顶部，不随内容滚动 */

@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light">
   <title>Seelex</title>
+  <!-- 窗口/页面图标与 exe 图标同源：品牌图经 scripts/make-icon.sh 裁到图形本体后写成
+       这里的 128px 小图（gui/icons/seelex-logo.png 是唯一事实）。 -->
+  <link rel="icon" type="image/png" href="./assets/seelex-logo.png">
   <!-- 组件库（元素基线与通用组件皮）先加载；styles.css 的类选择器特异性更高，
        负责 Seelex 外观；themes/<id>.css 只覆盖语义 token。顺序不要改。 -->
   <link rel="stylesheet" href="./vendor/pico.min.css">
@@ -34,7 +37,7 @@
 <body>
   <div class="app-shell">
     <header class="topbar">
-      <div class="brand"><span class="brand-mark" aria-hidden="true">S</span><div><strong id="app-title">Seelex</strong><small id="app-version">alpha</small></div></div>
+      <div class="brand"><img class="brand-mark" src="./assets/seelex-logo.png" alt="" draggable="false"><div><strong id="app-title">Seelex</strong><small id="app-version">alpha</small></div></div>
       <div class="runtime-summary"><span id="connection-dot" class="status-dot"></span><span id="provider-label">connecting</span><span id="token-label"></span><span id="perf-badge-host" class="perf-badge-host"></span><span id="live-diag-host" class="perf-badge-host"></span><button id="terminal-button" class="icon-button subtle" type="button" title="终端 (Ctrl+`)" aria-label="终端" aria-pressed="false" data-icon="terminal"></button><button id="settings-button" class="icon-button subtle" type="button" title="设置" aria-label="设置" data-icon="settings"></button></div>
     </header>
 
