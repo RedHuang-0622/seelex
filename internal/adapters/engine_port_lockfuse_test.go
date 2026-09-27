@@ -23,6 +23,9 @@ import (
 //   - RawHistoryFor：port.mu.RLock() 内调 engine.History() → 持 RLock 等会话锁，
 //     Go 的 RWMutex 有写者排队后连新读者也停。
 //
+// 同上口径的第四处（S3b 之后才收）：活跃别名读面 History / RawHistory —— 它要等的
+// 是同一把 Session.mu，触发者却是用户按得到的 `/history` 与工作区切换。
+//
 // 三条的后果都不是"这一次调用慢"，而是**全进程所有会话**的开回合排在 port.mu 后面
 // （ChatStreamFor 自己要 Lock 才能开回合）。所以每条用例同时断言两件事：折叠自己当场
 // 返回，且**别的会话照样开得动回合**。
@@ -342,6 +345,32 @@ func TestHistoryReadOfBusySessionIsNonBlocking(t *testing.T) {
 	if got := historyText(harness.port.RawHistoryFor(fuseOtherSession)); got == "" {
 		t.Fatal("空闲会话的历史读不到（读面把 port.mu 的状态弄坏了）")
 	}
+	harness.releaseHang(t)
+	harness.assertNoFactoryFailure(t)
+}
+
+// TestActiveHistoryReadOfBusySessionIsNonBlocking 钉活跃别名读面（History /
+// RawHistory）：它和 RawHistoryFor 是同一份工作历史，触发者却是**用户在回合跑着时
+// 按得到的** `/history` 命令与工作区切换——必须同样立刻返回。
+func TestActiveHistoryReadOfBusySessionIsNonBlocking(t *testing.T) {
+	harness := newFuseHarness(t, true)
+	if harness.port.SessionID() != harness.hangKey {
+		t.Fatalf("用例前提不成立：活跃会话应为挂死那台，实际 %s", harness.port.SessionID())
+	}
+	harness.startHangingTurn(t)
+
+	read := make(chan []contract.EngineMessage, 1)
+	go func() { read <- harness.port.History() }()
+	select {
+	case messages := <-read:
+		if len(messages) == 0 {
+			t.Fatal("在飞活跃会话的历史读返回了空历史")
+		}
+	case <-time.After(fuseQuickBudget):
+		t.Fatal("在飞活跃会话的历史读没有立刻返回")
+	}
+
+	harness.runQuietTurn(t)
 	harness.releaseHang(t)
 	harness.assertNoFactoryFailure(t)
 }

@@ -923,11 +923,24 @@ func attrTelemetryInt(attributes telemetry.Attributes, key string) int {
 func (port *EnginePort) History() []contract.EngineMessage {
 	return adaptMessages(port.RawHistory())
 }
+
+// RawHistory 返回**活跃引擎**的原始历史（只读拷贝）。
+//
+// 锁纪律（S3b 口径，与 RawHistoryFor / ClearHistory 同）：port.mu 只用来取出
+// 引擎实例，engine.History() 一律在锁外调。port.mu 是跨会话的进程级锁，而
+// engine.History() 要取那把被整个回合持有的 Session.mu——锁内调它就等于「持着
+// 全进程读锁等一把整轮不放手的锁」，Go 的 RWMutex 在有写者排队后连新读者也停，
+// 于是本该只卡住本次调用的等待会把所有会话的开回合/历史读一起冻住。挪到锁外后，
+// 卡住的仍然只有本次调用自己（语义仍是权威历史）。
+//
+// 这条路径的用户可达入口：`/history` 命令、工作区切换（运行中会话的历史读）。
+// 代价与 RawHistoryFor 相同：查表之后引擎可能已被替换，读到的是拿到的那一份实例。
 func (port *EnginePort) RawHistory() []types.Message {
 	port.mu.RLock()
-	defer port.mu.RUnlock()
-	if port.engine == nil {
+	engine := port.engine
+	port.mu.RUnlock()
+	if engine == nil {
 		return nil
 	}
-	return append([]types.Message(nil), port.engine.History()...)
+	return append([]types.Message(nil), engine.History()...)
 }
