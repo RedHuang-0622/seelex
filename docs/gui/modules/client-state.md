@@ -28,13 +28,17 @@ Event kinds 白名单只包含 reducer 能安全归并的类型。`snapshot.chan
 处理顺序：
 
 1. 校验 event 对象和 protocol version；
-2. 验证 delivery_seq 非零、检测向前缺口（缺口只标记 `gap` 并**不推进**水位）；
-3. 丢弃重复/乱序旧 seq；
-4. 未知 kind 或缺少 Snapshot → refresh；
-5. revision 不高于权威 Snapshot floor → 只推进 seq；
-6. decode payload；
-7. clone 必需的 Snapshot 分支并应用增量；
-8. 无法应用 payload → refresh。
+2. 校验会话归属（视图外迟到事件丢弃且不推进水位）；
+3. **权威对齐事件 `resync.required` 先于去重判定处理**：它是宿主的指令（"整份重拉并
+   把水位抬到这个序号"），序号可能等于甚至小于已应用水位，先走去重会被当迟到事件
+   吞掉——整份重拉永不发生；
+4. 验证 delivery_seq 非零、检测向前缺口（缺口只标记 `gap` 并**不推进**水位）；
+5. 丢弃重复/乱序旧 seq；
+6. 未知 kind 或缺少 Snapshot → refresh；
+7. revision 不高于权威 Snapshot floor → 只推进 seq；
+8. decode payload；
+9. clone 必需的 Snapshot 分支并应用增量；
+10. 无法应用 payload → refresh。
 
 `handleEvent` 把每条事件排进一条 promise 链：缺口补取与快照重拉都是异步的，两
 条事件并发落地会让水位和 snapshot 交叉写坏。链本身吞掉失败，一次抛错不会永久卡

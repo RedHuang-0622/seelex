@@ -49,9 +49,9 @@ flowchart TB
 | 文件 | 职责 |
 |---|---|
 | `dist/app.js` | DOM 绑定、Bridge 调用、工作区/session/runtime/settings 编排。 |
-| `dist/client-state.js` | Snapshot/Event reducer、delivery_seq gap 和 resync；保留桌面进程段（`processContext`）——会话粒度基线到达时与进程段合并渲染，session-only 的 `runtime.changed` 不抖动账户/插件/技能/模型等进程面板（G3 收口）。 |
-| `dist/runtime-events.js` | Wails `EventsOn` 就绪探测、幂等绑定与 ready/event 转发。 |
-| `dist/conversation-view.js` / `chat-view.js` | 变高 keyed conversation、顶部 history sentinel、chat activity 渲染；历史加载用「按消息 key 的锚点」保持阅读位置。 |
+| `dist/client-state.js` | Snapshot/Event reducer、delivery_seq gap 和 resync；`acceptBaseline` 是**订阅换代基线**入口（`seelex:ready` 才走它：新订阅 `delivery_seq` 从 1 重计，已应用水位必须归零——不看会话 id 变没变）；保留桌面进程段（`processContext`）——会话粒度基线到达时与进程段合并渲染，session-only 的 `runtime.changed` 不抖动账户/插件/技能/模型等进程面板（G3 收口）。 |
+| `dist/runtime-events.js` | Wails `EventsOn` 就绪探测、幂等绑定与 ready/event 转发（ready 走 `acceptBaseline`）。 |
+| `dist/conversation-view.js` / `chat-view.js` | 变高 keyed conversation、顶部 history sentinel（自动翻更早页由 `shouldAutoLoadOlder` 把关：**停在尾部时一律不翻**）、chat activity 渲染；历史加载用「按消息 key 的锚点」保持阅读位置。 |
 | `dist/conversation-wheel.js` | 右侧「会话内用户输入索引」：一条刻度 = 一条用户输入，且**覆盖整会话**（刻度表来自后端全量索引 `Bridge.SessionInputIndex`，含尚未加载到窗口的早期轮次；`app.js` 推入 + 宿主回读通道 `locateInput`）。位置：已加载轮次用问题节点在内容里的真实高度比例，未加载轮次按确定性比例布点；只索引用户输入（不再退回助手步骤/多类别刻度），当前输入高亮、悬停出摘要、点击跳到对应输入——未加载的目标先按页回读（`planInputLocate`/`locateInput`）再定位，回读通道未装配时只提示不空转；键盘 ↑↓/PgUp/PgDn/Home/End 只作用于用户输入刻度。纯函数（`normalizeInputIndex`/`planInputLocate`/`inputAtOffset`/`activeInputIndex`/`scrollTopForFraction`）可离线单测。空态只做视觉隐藏（`display:none` 会让轨道高度量成 0，轮轴再也出不来）。 |
 | `dist/trajectory.js` | 轨迹（Network 风格响应日志）纯函数：响应类型分类（input/llm/tool/error/system/notice；`role=system`/`kind=system` 独立成「系统」轨，`message.kind` 显式类别优先，无 kind 的旧数据回退 role 判定）、tool 请求/响应配对、过滤、统计、表格渲染与多线谱分轨上下文轴。多线谱语义集中在 `AXIS_LANES`（轨定义与顺序单一事实源）：每类响应占一条固定轨，块宽只表达该记录在轴上的相对体量（`contextAxisWeight`），入轨与定位由 `axisBlocks` 统一计算，不再出现同一块两套位置语义。轴还内联前缀注入（`prefixLayerSegments`，Bridge.PromptLayers）、压缩刻度（`compactionMarks`，snapshot.task.context_compactions）与压缩分界虚线（`renderCompressionCutRow`：每个压缩点一条竖向虚线 + 「以上 … 已被折叠」，只画锚定在本页的刻度——钳到页边界的刻度位置不真实，不画假线）三条元数据轨与 `renderAxisDetail` 详情（压缩详情内按 `frame_ref` 分页读回折叠帧正文）。 |
 | `dist/compaction-format.js` | 压缩记录的展示口径（纯函数、零依赖）：原因/来源标签、被压区间（`compactionRangeText`）、分界标注（`compactionCutLabel`）——右栏「上下文压缩」条目与轨迹压缩轨/详情共用同一份，避免同一条记录两种读法。区间只取记录里已有的边界字段，绝不用 `messages_before`（装配前的引擎历史条数）冒充消息条数。还有门禁进度的累计与耗时文案：`mergeCompactionProgress`（把一帧 `compaction.progress` 并进本轮，判轮次边界、累加逐关耗时、终局沿用最后一条 running 的序号，见 `dist/compaction-format.test.mjs`）与 `compactionGateDurationText`（不足 1ms 写 `<1ms`，不写 `0ms` 也不凑成 1ms）。 |
@@ -175,10 +175,17 @@ Workbench 快照或进程制品）；会话粒度基线（`capabilities.session_
 `active-chat-sync.js` 已删除。
 
 视图会话切换（ResumeSession/ActivateSession/新建/分支）会使 Bridge 重建订阅：
-新订阅的 `delivery_seq` 从 1 重新计，因此权威基线（`seelex:ready` 或切换后的
-refresh）到达时，`client-state` 会按 `session.id` 变化复位已应用水位，`app.js`
+新订阅的 `delivery_seq` 从 1 重新计，因此**订阅换代基线**（`seelex:ready`）到达时，
+`client-state.acceptBaseline` 一律复位已应用水位（不看会话 id 变没变），`app.js`
 同步复位待发回执游标——否则新订阅 seq<=旧水位的首段事件会被当作重复静默丢弃，
-会话正文停在基线，只有下一次用户交互触发的整份 refresh 才看得到新内容。
+会话正文停在基线，且回执会把旧订阅的高水位报给宿主，宿主据此停止补投（永久静默）。
+归零只走 `acceptBaseline` 这一个入口：同一订阅内的整份 refresh 必须保留水位，否则
+宿主从重放窗口补投的旧序号事件会被重复应用（流式 delta 叠两遍）。
+
+`resync.required` 是宿主的**指令**（"整份重拉，并把水位抬到这个序号"），因此
+`protocol.js` 在 `delivery_seq` 的连续性/去重判定**之前**处理它：它的序号可能是
+本订阅的投递水位（等于甚至小于渲染层已应用水位），先走去重判定会把它当迟到事件
+吞掉——整份重拉永不发生，视图停在旧内容上。
 
 右侧工作台由「工作表格」入口按钮统一接管：数据源 `snapshot.runtime.work_table`
 + `snapshot.runtime.work_table_batches`（权威投影）与
@@ -425,6 +432,11 @@ composer 的输入前缀是一份**跨前后端契约**，前端只消费不发�
   窗口整体后退一页，分页态写进后端会话可见投影（不再只写 Snapshot 镜像，
   否则新消息/工具事件一次镜像就把分页结果抹回尾部，表现为「点了加载更早，
   内容回卷，再点还是同一页」）。
+- **自动翻页只在用户离开尾部时发生**（`conversation-view.js` 的
+  `shouldAutoLoadOlder`）：窗口整体后退会把尾部那段移出 DOM，所以用户停在尾部时
+  sentinel 的任何几何触发（容器 `display:none` 后重新显示、侧栏折叠、布局抖动
+  把 sentinel 带进 `rootMargin`）都不得翻页——否则"最新消息"会在用户没做任何
+  操作的情况下从 DOM 消失。「加载更早」按钮走宿主命令，不受这条限制。
 - 回看更早历史期间（`history_offset + 窗口条数 < total_messages`，前端判据
   `historyWindowed()`）：尾部新消息不再把窗口拽回尾部，也**不会**被追加进
   列表（那会在窗口与尾巴之间插出断层）；`message.added` 只记为已应用。

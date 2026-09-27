@@ -236,6 +236,45 @@ test("switch resync: acceptSnapshot resets the baseline and view increments keep
   // 过滤，前端不判定 session_id（正向防线见 gui/bridge_session_test.go）。
 });
 
+// 同 id 重订阅（桥接层重建订阅、视图会话没变）：新订阅的 delivery_seq 从 1 重计，
+// 因此权威基线必须走 acceptBaseline 复位已应用水位；只按"会话 id 变没变"判断会漏掉
+// 这一种，症状是新订阅 1..N 全被当"重复"吞掉、视图停在基线、且回执把旧高水位报给
+// 宿主，宿主据此停止补投（永久静默）。
+test("same-id resubscription: the ready baseline resets the applied watermark", async () => {
+  const incrementals = [];
+  let loads = 0;
+  const client = createGUIClient({
+    loadSnapshot: async () => { loads += 1; return makeSnapshot(1, "A"); },
+    onSnapshot() {},
+    onIncremental: (_snapshot, kind) => incrementals.push(kind),
+    onError: error => { throw error; }
+  });
+
+  await client.refresh({ scroll: "bottom" });
+  // 旧订阅已经应用到 5。
+  await client.handleEvent({
+    protocol_version: 1, seq: 5, delivery_seq: 5, revision: 2, session_id: "session-a",
+    kind: "message.delta",
+    payload: { message_id: "assistant-1", delta: "B" }
+  });
+  assert.equal(client.appliedSeq(), 5);
+  assert.deepEqual(incrementals, ["message.delta"]);
+
+  // 宿主重建订阅（会话 id 不变），发出换代基线。
+  assert.equal(client.acceptBaseline(makeSnapshot(6, "AB"), "bottom"), true);
+  assert.equal(client.appliedSeq(), 0, "换代基线必须把已应用水位归零（新订阅从 1 重计）");
+
+  // 新订阅 seq 从 1 开始：必须被应用，而不是被旧水位吞成"重复"。
+  await client.handleEvent({
+    protocol_version: 1, seq: 9, delivery_seq: 1, revision: 7, session_id: "session-a",
+    kind: "message.delta",
+    payload: { message_id: "assistant-1", delta: "C" }
+  });
+  assert.equal(client.current().conversation[0].content, "ABC");
+  assert.deepEqual(incrementals, ["message.delta", "message.delta"]);
+  assert.equal(loads, 1, "订阅换代本身不该额外拉快照");
+});
+
 // G3 收口：桌面 Workbench 收到联合快照后保留进程段（目录 + 进程运行原件）；
 // 会话粒度基线（capabilities.session_snapshot）与 session-only 的
 // runtime.changed 不得让账户/插件/技能/模型等进程面板数据抖动。

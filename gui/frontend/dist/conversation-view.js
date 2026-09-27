@@ -3,6 +3,17 @@ import { markEntering } from "./motion.js";
 
 const BOTTOM_THRESHOLD = 72;
 
+// shouldAutoLoadOlder 判定"顶部 sentinel 的自动触发"是否真的应当翻更早一页。
+//
+// 抽成纯函数是为了让这条纪律可测（view 本身要真 DOM + 轮轴）：它是"看不到最新消息"
+// 那类问题的唯一判据——**用户停在尾部时一律不自动翻页**。
+export function shouldAutoLoadOlder(state) {
+  if (!state?.hasLoader) return false;
+  if (state.followsTail) return false;
+  if (!state.canLoadMore || state.loadingOlder) return false;
+  return Boolean(state.sentinelArmed);
+}
+
 export function createConversationView(container, options = {}) {
   const htmlByKey = new Map();
   let payloads = new Map();
@@ -20,8 +31,22 @@ export function createConversationView(container, options = {}) {
   // 点击到尚未加载的早期输入时，轮轴经 locateInput 让宿主先回读那一页。
   const wheel = createConversationWheel(container, { locateInput: options.locateInput });
 
+  // loadOlder 翻更早的一页。
+  //
+  // **只在用户真的离开尾部时**才自动翻：可见窗口是"从 history_offset 起的连续一段"
+  // （后端 history_window），翻更早页会把窗口整体后退，最新的那一段随之离开 DOM。
+  // 用户停在尾部时他看的就是最新内容，此时任何自动触发（IntersectionObserver 在容器
+  // display:none 后重新显示、布局变化把 sentinel 带进 rootMargin、侧栏折叠改变可用
+  // 高度）都会把最新消息静默移出窗口——这正是"看不到最新消息"最容易复现的一条。
+  // 显式的「加载更早」按钮走宿主命令（invoke LoadMoreHistory），不受这里限制。
   async function loadOlder() {
-    if (!canLoadMore || loadingOlder || !sentinelArmed || typeof options.loadMore !== "function") return;
+    if (!shouldAutoLoadOlder({
+      canLoadMore,
+      followsTail,
+      loadingOlder,
+      sentinelArmed,
+      hasLoader: typeof options.loadMore === "function"
+    })) return;
     sentinelArmed = false;
     loadingOlder = true;
     try { await options.loadMore(); }

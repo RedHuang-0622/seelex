@@ -138,6 +138,26 @@ test("global seq jumps are normal; only delivery_seq gaps mean loss", () => {
   assert.equal(lost.needsRefresh, true);
 });
 
+test("resync.required is an instruction: it must beat delivery_seq dedup", () => {
+  // 场景：宿主补不齐缺口时发 resync.required，其 delivery_seq 是本订阅的投递水位，
+  // 可能等于甚至小于渲染层已应用的水位（例如刚换过订阅、或渲染层已应用更高序号）。
+  // 若先走"seq<=lastSeq 即重复"的判定，这条指令会被静默吞掉：整份重拉永不发生，
+  // 视图停在旧内容上，而回执还会把"不需要补投"坐实给宿主。
+  const applied = applyEvent(snapshot(), {
+    protocol_version: 1, delivery_seq: 6, kind: "resync.required"
+  }, 20);
+  assert.equal(applied.dropped, undefined);
+  assert.equal(applied.needsRefresh, true);
+  assert.equal(applied.lastSeq, 6, "水位要对齐到宿主给的值，缺口到此收敛");
+
+  // 缺口起点下发来的对齐指令同理（seq 远小于已应用水位）。
+  const behind = applyEvent(snapshot(), {
+    protocol_version: 1, delivery_seq: 3, kind: "resync.required"
+  }, 9);
+  assert.equal(behind.needsRefresh, true);
+  assert.equal(behind.lastSeq, 3);
+});
+
 test("flags sequence gaps for incremental replay and unknown events for resync", () => {
   // 缺口刻意不推进 lastSeq：宿主先按 delivery_seq 增量补取（C4），补不齐才整份
   // 重拉，重拉后落到 gapSeq。

@@ -96,6 +96,25 @@ export function createGUIClient(options) {
     return true;
   }
 
+  // acceptBaseline 处理**订阅换代基线**（宿主 Start/resubscribe 后随
+  // seelex:ready 投递的权威快照）：新订阅的 delivery_seq 从 1 重新计，已应用水位
+  // 必须一并归零。
+  //
+  // 为什么不能只看"会话 id 有没有变"：会话 id 相同的重订阅（视图会话没变、订阅键
+  // 重建：桥接层 syncSubscriptionToView / 会话键漂移 / 视图命令后重建）同样把投递序号
+  // 打回 1。此时旧订阅的高水位会把新订阅的 1..N 全吞成"重复"——视图停在基线，且
+  // reportApplied 把旧订阅的高水位回执给宿主，宿主据此认定渲染层已全部落地而**停止
+  // 补投**：症状就是"会话整体静默、看不到最新消息"，且没有任何异常可看。
+  //
+  // 只有 seelex:ready 走这条入口（宿主只在 Start / resubscribe 发它），因此归零不会
+  // 误伤同一订阅内的整份刷新——那种刷新下宿主仍会按自己的 ackedSeq 从重放窗口补投旧
+  // 序号事件，归零会让它们被重复应用（流式 delta 会叠两遍）。
+  function acceptBaseline(value, scrollMode = "bottom") {
+    const applied = acceptSnapshot(value, scrollMode);
+    if (applied) lastEventSeq = 0;
+    return applied;
+  }
+
   async function handleEvent(event) {
     const next = eventChain.then(() => applyEventFlow(event));
     // 链本身必须吞掉失败：否则一次抛错会让后续 .then 永不执行，事件从此静默丢弃。
@@ -181,7 +200,7 @@ export function createGUIClient(options) {
   // 回执告诉宿主"这些序号我已应用"，宿主因此不需要用轮询去猜自己是否漏了事件。
   function reportApplied() { options.onApplied?.(lastEventSeq); }
 
-  return { refresh, handleEvent, acceptSnapshot, current: () => snapshot, appliedSeq: () => lastEventSeq };
+  return { refresh, handleEvent, acceptSnapshot, acceptBaseline, current: () => snapshot, appliedSeq: () => lastEventSeq };
 }
 
 function requestedScrollMode(options) {

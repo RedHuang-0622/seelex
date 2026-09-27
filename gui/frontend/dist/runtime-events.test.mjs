@@ -11,7 +11,9 @@ test("waits for the Wails event runtime and binds listeners exactly once", async
   const errors = [];
   const client = {
     async handleEvent(event) { events.push(event); },
-    acceptSnapshot(snapshot, scrollMode) { snapshots.push([snapshot, scrollMode]); }
+    // ready 走 acceptBaseline（订阅换代基线：新订阅 delivery_seq 从 1 重计，
+    // 已应用水位必须一并复位），见 client-state.acceptBaseline。
+    acceptBaseline(snapshot, scrollMode) { snapshots.push([snapshot, scrollMode]); }
   };
   const bind = createRuntimeEventBinder({ client, onError: error => errors.push(error) });
 
@@ -40,7 +42,7 @@ test("routes invalid ready snapshots to the frontend error boundary", () => {
   const bind = createRuntimeEventBinder({
     client: {
       handleEvent() {},
-      acceptSnapshot() { throw failure; }
+      acceptBaseline() { throw failure; }
     },
     onError: error => errors.push(error)
   });

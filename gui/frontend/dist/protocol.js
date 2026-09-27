@@ -51,6 +51,13 @@ export function applyEvent(snapshot, event, lastSeq = 0, snapshotRevisionFloor =
   if (!belongsToView(event, snapshot)) {
     return { snapshot, lastSeq, needsRefresh: false, dropped: true };
   }
+  // 权威对齐事件（resync.required）**先于** delivery_seq 的连续性/去重判定处理：它是
+  // 宿主的指令（"整份重拉，并把水位抬到我给你的这个序号"），不是内容事件。宿主在重放
+  // 窗口补不齐缺口时发它，其 delivery_seq 就是本订阅的投递水位——可能等于、甚至小于
+  // 渲染层已应用的水位（渲染层可能已应用更高序号，或刚换过订阅）。若先走
+  // `seq <= lastSeq` 的重复判定，它会被当成迟到事件静默吞掉：整份重拉永远不发生，
+  // 视图停在旧内容上，而"不需要补投"这个结论还会被回执坐实（宿主据此停止重推）。
+  if (event.kind === "resync.required") return refreshResult(snapshot, seq);
   // 连续性只按 delivery_seq（本订阅内的投递序号）判定：会话归属由 application
   // 在投递端过滤，全局 seq 因此必然跳号，跳号不代表丢事件；缺口才是。
   if (!seq || (lastSeq && seq > lastSeq + 1)) {
