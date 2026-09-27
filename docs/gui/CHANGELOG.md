@@ -28,7 +28,20 @@
 - **诊断钩子自身不再制造开销。** `perf-hooks.domNodes` 由 `querySelectorAll` 全量快照
   改为 `getElementsByTagName` 的 live `length`（它被 10s 轮询与每次 `markRender` 调用）；
   `start`/`stop` 幂等，`stop()` 清掉轮询定时器，视图重建不再叠表。
-- **终端回滚缓冲 5000 → 2000 行**（xterm 每个实例一份，按标签、按后端会话各留一份）。
+- **终端回滚行数从常量变成设置项（默认 2000，可改 1000/2000/5000/10000）。** 回滚缓冲
+  是**每个终端实例各留一份**（按标签、按后端会话），所以它是"内存 × 标签数"的乘数项：
+  5000 → 2000 是这一批的默认取值（VS Code 同量级）。设置面板新增「终端」区
+  （`#terminal-scrollback`），落盘键 `seelex.terminal.scrollback.v1`。
+  `setScrollback()` 一次做两件事：落盘 + 立刻作用到已打开的标签（xterm 允许运行时改
+  `options.scrollback`，缓冲就地收缩，不用重开标签）；开新标签时由面板统一给值
+  （`applyScrollback`），不依赖工厂自己设——默认工厂与注入工厂同口径。输入归一
+  （`normalizeTerminalScrollback`：非法回落 2000、越界钳到 [100, 100000]），因为
+  localStorage 与下拉框都是外部输入。
+- **弹窗遮罩去掉 `backdrop-filter: blur(8px)`，只留 `--overlay` 半透明色。** 遮罩是
+  全窗 `fixed` 层，blur 让每次合成都得把身后内容渲进纹理再跑一遍全窗模糊——弹窗开着
+  而身后在流式刷新就是每帧一次。浅 `.34` / 深 `.62` 的遮罩本身已经够暗，视觉差异很小。
+  （pico 的 `--pico-modal-overlay-backdrop-filter` 保持原样：本仓没有 `<dialog>`，
+  弹窗都是 `div.modal`，那条是死配置。）
 
 ### 暂不改（记下判据，免得下一个人重做同一份分析）
 
@@ -40,12 +53,13 @@
   窗口，未命中的行每帧都会被判成"html 变了"→ 走 `reconcile` 的 `replaceWith` 整行重建，
   抖动反而放大。真正的杠杆是**物化行数**的上限（窗口化），不是缓存条数。
 - **GPU 常驻不是模糊/图层提升造成的。** 现皮肤已把 `.topbar`/`.left-panel`/`.right-panel`
-  的 `backdrop-filter` 覆盖成 `none`，全仓无 `will-change`、无 `contain:`，只有 `.modal`
-  打开时才有全窗 `blur(8px)`。要压它得压"失效面积与层数"（窗口化 + 就地更新）。
+  的 `backdrop-filter` 覆盖成 `none`，全仓无 `will-change`、无 `contain:`；本批又把
+  `.modal` 打开时那层全窗 `blur(8px)` 去掉了。要压 GPU 得压"失效面积与层数"（窗口化 +
+  就地更新），不是找哪条 CSS 没关。
 
 ### 验证与生效
 
-- 前端口径：`cd gui/frontend/dist && node --test` → 485 passed / 0 failed。
+- 前端口径：`cd gui/frontend/dist && node --test` → 492 passed / 0 failed。
 - 前端是 `embed.FS` 打进二进制的：以上改动**重建 GUI 后**才生效；实机前后对比需重建后
   由顶栏徽标（DOM 节点 / JS 堆 / 快照体积，10s 一条）给出基线。
 

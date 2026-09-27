@@ -91,7 +91,7 @@ const elements = Object.fromEntries([
   "role-session-modal", "role-session-close", "role-session-modal-title", "role-session-view",
   "right-tabs", "goal-section", "goal-badge", "goal-view", "code-panes", "code-pane-tabs", "code-pane-worktree", "code-pane-gitlog", "git-log-view", "git-log-count", "code-pane-changes", "changes-view", "changes-count",
   "file-preview-pane", "file-preview-view", "file-preview-tabs", "file-preview-hide-panes", "file-preview-close", "file-preview-divider", "file-preview-collapse", "file-preview-rail",
-  "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "theme-picker", "mode-picker", "inline-suggestions",
+  "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "terminal-scrollback", "theme-picker", "mode-picker", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
   "load-history", "latest-history", "interaction-modal", "perm-toggle", "perm-menu", "interaction-risk", "interaction-title", "permission-tier-list",
   "new-session-modal", "new-session-close", "new-session-task", "new-session-workspace", "new-session-back", "new-session-workspace-list", "new-session-pick-folder", "new-session-step-1", "new-session-step-2",
@@ -4401,6 +4401,29 @@ const terminalPanel = createTerminalPanel({
   invoke,
   onError: showToast
 });
+
+// 终端回滚行数（设置面板 → 终端）：启动时把当前值填进下拉框，change 时落盘并立刻
+// 作用到已打开的标签。放在面板构造之后——这里要用到 terminalPanel（避免 TDZ）。
+function syncTerminalScrollbackSelect() {
+  const select = elements["terminal-scrollback"];
+  if (!select) return;
+  const current = String(terminalPanel.scrollback());
+  if (!select.querySelector(`option[value="${current}"]`)) {
+    // 落盘值不在预置选项里（手改过 localStorage）：补一条，别让下拉框显示成别的值。
+    const option = document.createElement("option");
+    option.value = current;
+    option.textContent = `${current} 行`;
+    select.appendChild(option);
+  }
+  select.value = current;
+}
+
+elements["terminal-scrollback"]?.addEventListener("change", event => {
+  terminalPanel.setScrollback(event.target.value);
+  syncTerminalScrollbackSelect();
+});
+
+syncTerminalScrollbackSelect();
 
 document.addEventListener("keydown", event => {
   if (!(event.ctrlKey || event.metaKey) || event.altKey) return;

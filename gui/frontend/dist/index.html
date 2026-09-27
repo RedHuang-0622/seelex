@@ -287,6 +287,13 @@
         <div class="settings-subtitle">深浅</div>
         <div id="mode-picker" class="theme-picker mode-picker" role="radiogroup" aria-label="深浅色"></div>
       </div>
+      <div class="settings-section">
+        <div class="section-title">终端</div>
+        <p class="settings-note">回滚行数是每个终端标签各留一份的历史缓冲：越大能往上翻得越远，占用也越大（改后立刻作用于已打开的标签）。</p>
+        <label class="settings-field">回滚行数
+          <select id="terminal-scrollback"><option value="1000">1000 行</option><option value="2000" selected>2000 行（默认）</option><option value="5000">5000 行</option><option value="10000">10000 行</option></select>
+        </label>
+      </div>
       <div class="settings-actions"><button id="storage-test" type="button" class="secondary">测试连接</button><button id="storage-save" type="button" class="primary">保存并切换</button></div>
       <div id="storage-status" class="muted"></div>
     </div>

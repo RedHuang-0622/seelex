@@ -26,8 +26,43 @@ export const TERMINAL_MAX_RATIO = 0.72;
 // 后端 gui/terminal 的默认值（仅用于首次 Open 的尺寸回退）。
 export const TERMINAL_DEFAULT_COLS = 80;
 export const TERMINAL_DEFAULT_ROWS = 24;
+// 回滚行数是**设置项**（设置面板 → 终端 → 回滚行数），不是布局状态：单独一个键。
+// 每个终端实例各留一份（按标签、按后端会话），所以它是"内存 × 标签数"的乘数项，
+// 默认 2000（VS Code 同量级；见 docs/gui/CHANGELOG.md 2026-09-27）。
+export const TERMINAL_SCROLLBACK_KEY = "seelex.terminal.scrollback.v1";
+export const TERMINAL_SCROLLBACK_DEFAULT = 2000;
+export const TERMINAL_SCROLLBACK_MIN = 100;
+export const TERMINAL_SCROLLBACK_MAX = 100000;
 
 // ── 纯函数 ───────────────────────────────────────────────────────────────
+
+// normalizeTerminalScrollback：任何输入（字符串 / 浮点 / 垃圾 / 越界）→ 合法回滚
+// 行数。非法回落默认、越界钳到边界（设置项是外部输入：可能来自手改过的 localStorage）。
+export function normalizeTerminalScrollback(value) {
+  const raw = typeof value === "number" ? value : Number.parseInt(String(value ?? "").trim(), 10);
+  if (!Number.isFinite(raw)) return TERMINAL_SCROLLBACK_DEFAULT;
+  return Math.min(TERMINAL_SCROLLBACK_MAX, Math.max(TERMINAL_SCROLLBACK_MIN, Math.trunc(raw)));
+}
+
+// readTerminalScrollback / writeTerminalScrollback：设置项的读面与写面。无存储环境
+// （隐私模式）不抛：读回落默认，写只在本页生效。
+export function readTerminalScrollback(storage) {
+  try {
+    return normalizeTerminalScrollback(storage?.getItem(TERMINAL_SCROLLBACK_KEY));
+  } catch {
+    return TERMINAL_SCROLLBACK_DEFAULT;
+  }
+}
+
+export function writeTerminalScrollback(storage, value) {
+  const normalized = normalizeTerminalScrollback(value);
+  try {
+    storage?.setItem(TERMINAL_SCROLLBACK_KEY, String(normalized));
+  } catch {
+    // 无存储环境忽略：设置仍生效于本次会话，只是记不住
+  }
+  return normalized;
+}
 
 // clampTerminalHeight 把面板高度钳到 [最小高度, 视口比例上限]。
 export function clampTerminalHeight(value, viewportHeight) {
@@ -128,6 +163,10 @@ export function createTerminalPanel(options) {
   const invoke = options.invoke;
   const onError = options.onError || (() => {});
   const storage = options.storage || safeStorage();
+  // 回滚行数：options.scrollback（测试/宿主注入）> 落盘设置 > 默认 2000。
+  let scrollback = options.scrollback === undefined
+    ? readTerminalScrollback(storage)
+    : normalizeTerminalScrollback(options.scrollback);
   const readViewport = options.viewport || (() => window.innerHeight || 900);
   const createTerminal = options.createTerminal || defaultTerminalFactory;
   const createFit = options.createFit || defaultFitFactory;
@@ -149,6 +188,28 @@ export function createTerminalPanel(options) {
   // 会话登记时按序补投，不丢首屏。
   const pending = new Map();
   let activeId = "";
+
+  // applyScrollback：把当前设置作用到一个实例上。xterm 允许运行时改
+  // options.scrollback，缓冲就地收缩（多出来的最老行被丢弃），不用重开标签。
+  function applyScrollback(term) {
+    try {
+      if (term?.options) term.options.scrollback = scrollback;
+    } catch {
+      // 宿主接了只读实例：跳过，下一次新建时再给
+    }
+  }
+
+  // setScrollback：设置面板入口——落盘并立刻作用到已打开的标签，返回生效值。
+  // 非法输入回落默认（下拉框与手改过的 localStorage 都从这里过一遍）。
+  function setScrollback(value) {
+    scrollback = writeTerminalScrollback(storage, value);
+    for (const session of sessions.values()) applyScrollback(session.term);
+    return scrollback;
+  }
+
+  function scrollbackValue() {
+    return scrollback;
+  }
   let observer = null;
 
   function readState() {
@@ -262,6 +323,9 @@ export function createTerminalPanel(options) {
     let view = null;
     try {
       term = createTerminal();
+      // 回滚行数由设置项统一给（本页设置 > 默认 2000）：不依赖工厂自己设，
+      // 默认工厂与注入工厂同口径。
+      applyScrollback(term);
       const fit = createFit();
       if (fit) term.loadAddon(fit);
       view = document.createElement("div");
@@ -546,6 +610,8 @@ export function createTerminalPanel(options) {
     toggle: toggleOpen,
     toggleCollapse,
     newTerminal,
+    setScrollback,
+    scrollback: scrollbackValue,
     closeTerminal,
     closeActive,
     refit,
@@ -577,9 +643,9 @@ function defaultTerminalFactory() {
     fontSize: 12,
     lineHeight: 1.25,
     fontFamily: cssToken("--font-mono", "ui-monospace, Consolas, monospace"),
-    // scrollback 是按标签、按后端会话各留一份的回滚缓冲（不是全局共享）。
-    // 5000 行在多标签 + 长输出下是常驻内存大头，收到 2000（VS Code 同量级）。
-    scrollback: 2000,
+    // 这里是工厂自己的兜底：真正的设置项由面板 applyScrollback 覆盖
+    // （设置面板 → 终端 → 回滚行数，默认 2000）。
+    scrollback: TERMINAL_SCROLLBACK_DEFAULT,
     theme: terminalTheme(),
     allowProposedApi: true
   });

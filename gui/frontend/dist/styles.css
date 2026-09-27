@@ -1901,7 +1901,10 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .work-table-modal-view { overflow: auto; padding: 10px; }
 
 /* ---------- 12. Modals ---------- */
-.modal { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 24px; background: var(--overlay); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+/* 弹窗遮罩不做背景模糊：它是全窗 fixed 层，backdrop-filter 会让每次合成都要把身后
+   内容渲进纹理再跑一遍全窗模糊（弹窗开着而身后在流式刷新＝每帧一次）。--overlay 本身
+   已经够暗（浅 .34 / 深 .62），去模糊后视觉差异很小。 */
+.modal { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 24px; background: var(--overlay); }
 .modal-card { width: min(620px, 100%); padding: 22px; border: 1px solid var(--border-strong); border-radius: var(--r-2xl); background: var(--surface); box-shadow: var(--shadow); }
 .modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .modal-header h2, .modal-card h2 { margin: 2px 0 0; color: var(--text-bright); font-size: 17px; font-weight: 600; }

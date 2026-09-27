@@ -4,13 +4,19 @@ import test from "node:test";
 import {
   TERMINAL_DEFAULT_HEIGHT,
   TERMINAL_MIN_HEIGHT,
+  TERMINAL_SCROLLBACK_DEFAULT,
+  TERMINAL_SCROLLBACK_MAX,
+  TERMINAL_SCROLLBACK_MIN,
   clampTerminalHeight,
   decodeBase64Bytes,
   encodeBase64Bytes,
   nextActiveTerminal,
+  normalizeTerminalScrollback,
   normalizeTerminalState,
+  readTerminalScrollback,
   terminalEventOf,
-  terminalTabItems
+  terminalTabItems,
+  writeTerminalScrollback
 } from "./terminal-panel.js";
 
 test("clampTerminalHeight keeps the panel inside [min, viewport ratio]", () => {
@@ -91,4 +97,34 @@ test("terminalEventOf normalizes output and exit payloads", () => {
   // 缺 id 的事件无法归属到任何终端：直接丢弃，不猜
   assert.equal(terminalEventOf({ kind: "output", data: "aGk=" }), null);
   assert.equal(terminalEventOf(null), null);
+});
+
+test("normalizeTerminalScrollback：非法回落默认、越界钳边界", () => {
+  assert.equal(TERMINAL_SCROLLBACK_DEFAULT, 2000, "默认值是设置项的口径起点");
+  assert.equal(normalizeTerminalScrollback(undefined), TERMINAL_SCROLLBACK_DEFAULT);
+  assert.equal(normalizeTerminalScrollback(null), TERMINAL_SCROLLBACK_DEFAULT);
+  assert.equal(normalizeTerminalScrollback(""), TERMINAL_SCROLLBACK_DEFAULT);
+  assert.equal(normalizeTerminalScrollback("不是数字"), TERMINAL_SCROLLBACK_DEFAULT);
+  assert.equal(normalizeTerminalScrollback(Number.NaN), TERMINAL_SCROLLBACK_DEFAULT);
+  assert.equal(normalizeTerminalScrollback("5000"), 5000, "下拉框给的是字符串");
+  assert.equal(normalizeTerminalScrollback(3210.7), 3210, "取整：xterm 要整数行数");
+  assert.equal(normalizeTerminalScrollback(-5), TERMINAL_SCROLLBACK_MIN);
+  assert.equal(normalizeTerminalScrollback(1e9), TERMINAL_SCROLLBACK_MAX);
+});
+
+test("readTerminalScrollback / writeTerminalScrollback：落盘读回，无存储环境不抛", () => {
+  const store = new Map();
+  const storage = {
+    getItem: key => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => store.set(key, String(value))
+  };
+  assert.equal(readTerminalScrollback(storage), TERMINAL_SCROLLBACK_DEFAULT, "没写过 → 默认");
+  assert.equal(writeTerminalScrollback(storage, "5000"), 5000);
+  assert.equal(readTerminalScrollback(storage), 5000, "读回写过的值");
+  assert.equal(writeTerminalScrollback(storage, "垃圾"), TERMINAL_SCROLLBACK_DEFAULT, "写面也归一");
+  assert.equal(readTerminalScrollback(storage), TERMINAL_SCROLLBACK_DEFAULT);
+  // 无存储环境（隐私模式等）：回落默认，不抛
+  assert.equal(readTerminalScrollback(undefined), TERMINAL_SCROLLBACK_DEFAULT);
+  assert.equal(readTerminalScrollback({ getItem() { throw new Error("blocked"); } }), TERMINAL_SCROLLBACK_DEFAULT);
+  assert.equal(writeTerminalScrollback({ setItem() { throw new Error("blocked"); } }, 5000), 5000, "写失败仍返回生效值");
 });

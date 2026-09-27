@@ -2,8 +2,8 @@
 // 真的开终端时按需注入"：
 //   ① index.html 不再有这两条 <script>（xterm.css 仍同步——它只是一段样式）；
 //   ② terminal-panel.js 在 newTerminal 里、createTerminal() 之前 await 注入；
-//   ③ 调用方自己注入了工厂时不碰 vendor（测试/宿主行为不变）；
-//   ④ 顺带把 scrollback 从上不封顶的 5000 收到 2000（按标签按会话各一份）。
+//   ③ 调用方自己注入了工厂时不碰 vendor（测试/宿主行为不变）。
+//（终端回滚行数同批改成了设置项，口径在 terminal-scrollback-setting.test.mjs。）
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
@@ -36,8 +36,9 @@ test("按需注入只发生在首次开终端，且不改变既有同步语义",
   assert.ok(gateAt < thenAt && thenAt < openAt && openAt < createAt, "顺序：门控 → 注入后开 → 建实例");
 });
 
-test("终端回滚缓冲有上限（不再 5000 行 × 每标签 × 每会话）", async () => {
+test("终端回滚缓冲已改为设置项：默认 2000，工厂只做兜底", async () => {
   const source = await read("terminal-panel.js");
-  assert.match(source, /scrollback: 2000/);
+  assert.match(source, /export const TERMINAL_SCROLLBACK_DEFAULT = 2000;/);
+  assert.match(source, /scrollback: TERMINAL_SCROLLBACK_DEFAULT,/);
   assert.doesNotMatch(source, /scrollback: 5000/);
 });

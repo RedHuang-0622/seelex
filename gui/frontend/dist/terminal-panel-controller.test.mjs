@@ -8,7 +8,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { TERMINAL_STATE_KEY, createTerminalPanel, encodeBase64Bytes } from "./terminal-panel.js";
+import {
+  TERMINAL_SCROLLBACK_DEFAULT,
+  TERMINAL_SCROLLBACK_KEY,
+  TERMINAL_STATE_KEY,
+  createTerminalPanel,
+  encodeBase64Bytes
+} from "./terminal-panel.js";
 
 // ── 最小假 DOM ──────────────────────────────────────────────────────────
 
@@ -175,7 +181,7 @@ function createFakeFit(terminal) {
   };
 }
 
-function createHarness({ viewportHeight = 900, deferredOpen = false, tokens = {} } = {}) {
+function createHarness({ viewportHeight = 900, deferredOpen = false, tokens = {}, scrollbackStore = null } = {}) {
   installFakeGlobals(viewportHeight, tokens);
   const host = new FakeElement("section");
   host.rect = { bottom: 900, top: 600, left: 0, width: 800, height: 300 };
@@ -203,6 +209,8 @@ function createHarness({ viewportHeight = 900, deferredOpen = false, tokens = {}
   };
 
   const store = new Map();
+  // 预置落盘设置（测"构造时读回设置"这条路；缺省就是没写过 → 默认值）。
+  if (scrollbackStore !== null) store.set(TERMINAL_SCROLLBACK_KEY, String(scrollbackStore));
   const storage = {
     getItem: key => (store.has(key) ? store.get(key) : null),
     setItem: (key, value) => store.set(key, String(value))
@@ -484,4 +492,32 @@ test("a failing TerminalOpen reports the error and does not leak a view", async 
   assert.equal(panel.sessionCount(), 0);
   assert.equal(body.children.length, 0);
   assert.match(errors[0], /no usable shell/);
+});
+
+// ── 回滚行数：设置项（默认 2000）────────────────────────────────────────
+
+test("回滚行数：默认 2000，开标签即生效，改动立刻作用到已打开的标签", async () => {
+  const harness = createHarness();
+  assert.equal(harness.panel.scrollback(), TERMINAL_SCROLLBACK_DEFAULT);
+  await harness.panel.newTerminal();
+  assert.equal(harness.terminals[0].options.scrollback, TERMINAL_SCROLLBACK_DEFAULT, "开终端即按设置给值");
+
+  assert.equal(harness.panel.setScrollback(5000), 5000);
+  assert.equal(harness.terminals[0].options.scrollback, 5000, "已打开的标签就地生效（不重开标签）");
+  assert.equal(harness.store.get(TERMINAL_SCROLLBACK_KEY), "5000", "设置落盘");
+
+  await harness.panel.newTerminal();
+  assert.equal(harness.terminals[1].options.scrollback, 5000, "后开的标签用新值");
+
+  // 非法值（下拉框被改成怪东西 / 手改 localStorage）回落默认，而不是把垃圾塞给 xterm
+  assert.equal(harness.panel.setScrollback("不是数字"), TERMINAL_SCROLLBACK_DEFAULT);
+  assert.equal(harness.terminals[0].options.scrollback, TERMINAL_SCROLLBACK_DEFAULT);
+  assert.equal(harness.store.get(TERMINAL_SCROLLBACK_KEY), String(TERMINAL_SCROLLBACK_DEFAULT));
+});
+
+test("回滚行数：落盘值在下次构造时生效（不是每次都用默认）", async () => {
+  const harness = createHarness({ scrollbackStore: 5000 });
+  assert.equal(harness.panel.scrollback(), 5000);
+  await harness.panel.newTerminal();
+  assert.equal(harness.terminals[0].options.scrollback, 5000);
 });
