@@ -537,6 +537,39 @@ func (r *Router) scopedBashRead(ctx context.Context, argsJSON string) (output st
 	return r.executeScopedBash(ctx, input.Command, input.Timeout, workdir)
 }
 
+// newScopedCommand 构造一条"整棵树可终止"的同步命令。
+//
+// exec.CommandContext 的默认取消只杀直接子进程（bash/powershell），它 fork 出来的孙
+// 进程照活：既继续产出（用户以为停了），又继续持有输出管道，于是 cmd.Wait 要等到孙进程
+// 自己退出才返回——"停止工具调用"就变成"点了停止还要再等几十秒"。进程树（Windows
+// Job Object / POSIX 进程组）覆盖整棵树，与后台执行域同源（见 async_run.startAsync）。
+//
+// WaitDelay 是兜底：孙进程握管道而终止实现失效时，收尾仍能在预算内返回，不被按住。
+func newScopedCommand(runCtx context.Context, shell string, shellArgs []string, workdir string) (*exec.Cmd, *security.ProcessTree) {
+	tree := security.NewProcessTree()
+	cmd := exec.CommandContext(runCtx, shell, shellArgs...)
+	winhide.Apply(cmd)
+	cmd.Dir = workdir
+	security.ConfigureHiddenCommand(cmd)
+	security.ConfigureProcessTree(cmd)
+	cmd.Cancel = func() error { return tree.Terminate() }
+	cmd.WaitDelay = asyncWaitDelay
+	return cmd, tree
+}
+
+// startScopedCommand 起命令并把进程挂进树。挂不上不放弃执行：派发已经发生，退化成
+// "只杀直接子进程"比报错有用，差别由 tree.Degraded() 说得出。
+func startScopedCommand(cmd *exec.Cmd, tree *security.ProcessTree) error {
+	if err := cmd.Start(); err != nil {
+		tree.Close()
+		return err
+	}
+	if cmd.Process != nil {
+		_ = tree.Attach(cmd.Process.Pid)
+	}
+	return nil
+}
+
 // executeScopedBash 是同步执行路径（bash 与 bash_read 共用）：授权、路径与分类都
 // 已经在调用方完成，这里是"已经批准之后的执行"。
 func (r *Router) executeScopedBash(ctx context.Context, command string, timeoutSec int, workdir string) (string, error) {
@@ -548,19 +581,17 @@ func (r *Router) executeScopedBash(ctx context.Context, command string, timeoutS
 	timeout := r.scopedToolTimeout(timeoutSec)
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(runCtx, shell, shellArgs...)
-	winhide.Apply(cmd)
-	cmd.Dir = workdir
-	security.ConfigureHiddenCommand(cmd)
+	cmd, tree := newScopedCommand(runCtx, shell, shellArgs, workdir)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	r.observeBash(BashDiagnosticEvent{Stage: "bash.process.starting", Shell: filepath.Base(shell)})
-	if err := cmd.Start(); err != nil {
+	if err := startScopedCommand(cmd, tree); err != nil {
 		r.observeBash(BashDiagnosticEvent{Stage: "bash.process.start.error", Shell: filepath.Base(shell), Err: err})
 		return "", fmt.Errorf("bash: %w", err)
 	}
 	r.observeBash(BashDiagnosticEvent{Stage: "bash.process.started", Shell: filepath.Base(shell)})
 	waitErr := cmd.Wait()
+	tree.Close()
 	if runCtx.Err() == context.DeadlineExceeded {
 		r.observeBash(BashDiagnosticEvent{Stage: "bash.timeout", Shell: filepath.Base(shell), Err: runCtx.Err()})
 		return "", fmt.Errorf("bash: timeout after %v", timeout)
@@ -568,6 +599,10 @@ func (r *Router) executeScopedBash(ctx context.Context, command string, timeoutS
 	if runCtx.Err() != nil {
 		r.observeBash(BashDiagnosticEvent{Stage: "bash.canceled", Shell: filepath.Base(shell), Err: runCtx.Err()})
 		return "", fmt.Errorf("bash: %w", runCtx.Err())
+	}
+	if errors.Is(waitErr, exec.ErrWaitDelay) {
+		// 进程自己已退出，只是输出管道被孙进程多握了一会儿：命令成了（与后台执行域同口径）。
+		waitErr = nil
 	}
 	exitCode := 0
 	if waitErr != nil {
@@ -590,21 +625,25 @@ func (r *Router) executeScopedBash(ctx context.Context, command string, timeoutS
 		if startErr == nil {
 			// 重跑（新超时上下文；原 runCtx 可能已耗尽）。
 			retryCtx, retryCancel := context.WithTimeout(ctx, timeout)
-			retryCmd := exec.CommandContext(retryCtx, shell, shellArgs...)
-			winhide.Apply(retryCmd)
-			retryCmd.Dir = workdir
-			security.ConfigureHiddenCommand(retryCmd)
+			retryCmd, retryTree := newScopedCommand(retryCtx, shell, shellArgs, workdir)
 			var retryOut, retryErrBuf bytes.Buffer
 			retryCmd.Stdout, retryCmd.Stderr = &retryOut, &retryErrBuf
-			if runErr := retryCmd.Run(); runErr == nil {
-				retryCancel()
+			runErr := startScopedCommand(retryCmd, retryTree)
+			if runErr == nil {
+				runErr = retryCmd.Wait()
+				retryTree.Close()
+				if errors.Is(runErr, exec.ErrWaitDelay) {
+					runErr = nil
+				}
+			}
+			retryCancel()
+			if runErr == nil {
 				r.observeBash(BashDiagnosticEvent{Stage: "bash.docker.retry.ok", Shell: filepath.Base(shell)})
 				encoded, _ := json.Marshal(scopedBashResult{
 					Stdout: strings.TrimSpace(retryOut.String()), Stderr: strings.TrimSpace(retryErrBuf.String()), ExitCode: 0,
 				})
 				return string(encoded), nil
 			}
-			retryCancel()
 			r.observeBash(BashDiagnosticEvent{Stage: "bash.docker.retry.failed", Shell: filepath.Base(shell)})
 			result.Stderr = strings.TrimSpace(retryErrBuf.String()) + r.deps.DockerHint(nil)
 			if retryOut.Len() > 0 {

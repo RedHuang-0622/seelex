@@ -58,6 +58,14 @@ flowchart TB
   （`NodeScope.WorkspaceID`）→ 执行 ctx 的**会话键**（`Deps.SessionKey`，生产为
   telemetry 会话 ID）对应的项目根 → 进程默认根。后台/并行会话因此不会借用视图
   会话的项目根（工作区污染回归见 `router_session_root_test.go`）。
+- **前台工具调用的终止（停止按钮）**：同步 `bash` / `bash_read` 的 run 挂在回合 ctx 上，
+  点停止 = 取消该 ctx。它与后台作业共用同一套进程树原语（`newScopedCommand` =
+  `security.ProcessTree` + `ConfigureProcessTree` + `cmd.Cancel` + `WaitDelay`），所以
+  停止（以及 `timeout` 到点）终止的是**整棵树**：只杀直接 shell 时，它派生的孙进程会继续
+  跑、继续握住输出管道，`cmd.Wait` 于是要等孙进程自己退出——"停止工具调用"就变成"点了
+  停止还要再等几十秒"（回归用例 `stop_foreground_run_test.go`）。反过来，后台作业用
+  `context.WithoutCancel` 摘掉了回合 ctx，**停止按钮不杀它们**：生死只由
+  `job_manage(op=kill)` 与 `asyncHardCap` 决定。
 - `RegistryState`：framework registry 包装 + `InlineProvider` 累积
   RegisterTool 产品工具（重名覆盖、快照重建）。
 - `PermissionGate`：middleware 闭包捕获，运行时原子更新。**权限档位按会话解析**（`SetPermissionTierFor` / `PermissionTierFor` / `effectiveTierLocked`，空会话 ID = 进程级默认面）：middleware 由执行 ctx 取会话（`SessionFromContext`）后按"主体类 + 会话档位"选 checker——root 读本会话档位表（`permission_tiers.go:ApplyTier` 剪掉若干 ask），`sub`/`emp_*` 一律读 base 表；`full` 档的执行门短路**只对 root**（`Enforce` 条件 `class == root`），所以 A 会话切档不会放行 B 会话、员工越权也不会被 `full` 档连带放行（回归见 `permission_tiers_test.go`、`permission_session_isolation_test.go`、`permission_state_test.go`）。`SetFullAccess*` / `FullAccessFor` 保留为兼容壳（⇔ `full`/`manual` 档）。

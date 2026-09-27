@@ -305,7 +305,15 @@ func (service *Service) CancelAllChats() {
 	}
 }
 
-// CancelChat 取消当前视图会话正在运行的回合。
+// CancelChat 是"停止按钮"的终止原语，语义按以下顺序成立（顺序即语义）：
+//
+//  1. 先停在跑的前台工具调用：取消会话回合的 ctx，引擎 ReAct 循环与正在执行的前台
+//     工具（同步 bash 及其派生的整棵进程树）随之中止——工具调用不会在停止之后继续
+//     跑完，也不会再按住收尾等它（见 seelebridge/tools 的进程树终止原语）。
+//  2. 不动后台子进程：bash_bg / read_batch / subagent 作业用 context.WithoutCancel
+//     摘掉了回合 ctx，生死只由 job_manage(op=kill) 与硬上限决定；点停止不杀它们。
+//  3. 清空消息队列并全部发出去：排队输入在回合收尾整批提升为下一轮（见 runChat），
+//     停止不会把队列一起丢掉——用户已经发过的消息一条都不会少发。
 //
 // requestID 只作参考，不作为否决条件：渲染层持有的 request_id 可能滞后一个事件
 // tick（排队回合刚提升时尤其明显），而一个会话同时只有一个运行中回合，"停掉我
