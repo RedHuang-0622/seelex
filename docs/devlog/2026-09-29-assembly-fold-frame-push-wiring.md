@@ -137,3 +137,23 @@ gofmt -l application seelebridge seelexctx internal gui   # 只报既有的 hist
   `-tags compactlive` 三件套复跑才算闭环；本机无凭据，未跑。
 - `context_compaction_summary.enabled=true` 的臂仍无 live 用例，且 DAG 单测里也没有
   构造 `Enabled:true` 的断言（fake Summarizer 已有）。
+
+---
+
+## 7. 审查条目 → 本批提交对照
+
+| 审查条目 | 状态 | 提交 |
+|---|---|---|
+| P1-A 装配层折叠不推帧 | 已修 | `e095068`（接线）+ `4573afd`（三种降级分开记账） |
+| P1-B `context_compaction_summary` 打开也不生效 | 已解 | `e095068`（`MainCompactionDAG` 有了真实调用方）+ `0b15bce`（订正「Not yet live」） |
+| P1-C 真实 API 证据断档 | **未闭环** | 待跑（见 §6） |
+| P2-D 无自动压缩总开关 | 按文档口径处置 | `f423751`（写明近似关闭的做法与代价；不新增开关是明确的产品口径） |
+| P2-E soft ≥ hard 无校验 | 已修 | `59954b6`（`LoadLimits` 加载期报错，比较生效值） |
+| P3-F 文档写 `seele.yaml` 而实际读 `config/seelex.yaml` | 已修（本批点名处） | `f423751` |
+| P3-G `context_single_item_percent` 消费者注释不准 | 已修 | `f423751`（逐键列明消费者） |
+| H 控制器 `policy()` 缺预算下界防护 | 已修（先复现再防护） | `d75d0a4`（复现：`budget=-125`、`soft=-118`） |
+
+`4573afd` 另修一处本报告没提、但同属「报表口径」的问题：门禁报
+`index=skipped reason=no_overflow` 时，帧正文的 readback 段却说「索引面未启用」——
+同一事实两处说法不一致，读帧的人会去查一个并不存在的配置事故。
+
