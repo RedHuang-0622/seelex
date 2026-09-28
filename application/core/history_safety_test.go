@@ -168,10 +168,15 @@ func TestContextExhaustionReturnsBoundedRecoveryInstructionToAgent(t *testing.T)
 	}
 }
 
-func TestEmptyProviderContentLeavesNextTurnWithRecoverableHistory(t *testing.T) {
+// TestEmptyProviderContentRejectionResumesFromBoundedCheckpoint 覆盖“记录不合法”
+// 的另一半措辞（invalid params, chat content is empty）：它与 tool 配对 400 同类
+// （classifyProviderFailure 都判 providerFailureHistory），恢复之后同样重放一次
+// 有界恢复回合，而不是把回合判死。被拒的记录不进入重放的请求；恢复说明只走私有
+// system 区，回合成功后由 removeProviderContextRecovery 摘掉。
+func TestEmptyProviderContentRejectionResumesFromBoundedCheckpoint(t *testing.T) {
 	engine := &fakeEngine{
 		appendChatHistory: true,
-		chatErr:           errors.New("engine loop 0: ChatClient stream: invalid params, chat content is empty (2013)"),
+		chatErrors:        []error{errors.New("engine loop 0: ChatClient stream: invalid params, chat content is empty (2013)")},
 	}
 	service := newTestService(t, engine)
 	defer service.Shutdown()
@@ -180,23 +185,23 @@ func TestEmptyProviderContentLeavesNextTurnWithRecoverableHistory(t *testing.T) 
 	}
 	waitForChatCompletion(t, service)
 
-	history := engine.History()
-	recoveryFound := false
-	for _, message := range history {
+	engine.mu.Lock()
+	inputs := append([]string(nil), engine.chatInputs...)
+	resent := append([]EngineMessage(nil), engine.historyBeforeChat...)
+	engine.mu.Unlock()
+	if len(inputs) != 2 {
+		t.Fatalf("provider calls = %d, want 2 (original + bounded recovery turn)", len(inputs))
+	}
+	if !strings.Contains(inputs[1], "seelex:context-recovery-agent:v1") {
+		t.Fatalf("second request is not the bounded recovery turn: %q", inputs[1])
+	}
+	for _, message := range resent {
 		if strings.HasPrefix(message.Content, providerRecoveryPrefix) {
-			recoveryFound = true
-			break
+			t.Fatalf("replayed request still carries the rejected transcript: %#v", resent)
 		}
 	}
-	if !recoveryFound {
-		t.Fatalf("empty-content failure left no recovery history: %#v", history)
-	}
-	if state := service.Snapshot().Task; state == nil || state.Status != TaskInterrupted {
-		t.Fatalf("task state = %#v, want interrupted", state)
-	}
-	// chat 报错是原始正文（诊断优先）：provider 细节原样可见，不做文案改写。
-	if visible := service.Snapshot().Chat.Error; !strings.Contains(visible, "chat content is empty") {
-		t.Fatalf("visible error = %q", visible)
+	if visible := service.Snapshot().Chat.Error; visible != "" {
+		t.Fatalf("recovered empty-content rejection surfaced as a dead turn: %q", visible)
 	}
 }
 
