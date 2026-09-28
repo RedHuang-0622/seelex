@@ -371,12 +371,13 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 }
 
 .panel { min-width: 0; padding: 16px 14px; overflow-y: auto; background: var(--panel); }
-/* 左栏只留一条纵向滚动条（用户报告：侧栏上摞着好几条，最长的那条是面板自己的——
-   .panel 自带 overflow-y: auto，里面 .stack-list 又滚一层、每个会话分组
-   .session-group-body 还各滚一层，滚轮在一层到底后会接力翻下一层）。
-   面板从此不滚，只做高度容器（flex 列 + overflow: hidden），把剩余高度让给会话
-   列表；列表是左栏唯一那条纵向滚动容器（见下面 .sessions-section 两行与
-   .session-group-body）。 */
+/* 左栏的滚动条分两层，多余的那条删掉（用户口径："保留项目粒度下的滚轮以及
+   会话列表的滚轮，对多余出来的第三个滚轮进行删除"）：
+     1) 面板自身（.panel 自带 overflow-y: auto）= 多余的那条——它是整条侧栏的
+        长条滚轮，最显眼也最没用，这里删掉；
+     2) 会话列表 .stack-list = 保留；
+     3) 每个展开的会话分组 .session-group-body（项目粒度）= 保留（见该规则）。
+   面板从此只做高度容器（flex 列 + overflow: hidden），把剩余高度让给 2)。 */
 .left-panel { display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border); }
 .right-panel {
   display: flex;
@@ -388,9 +389,10 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 }
 .right-panel > .project-heading { padding: 16px 14px 10px; flex: none; }
 .panel section + section { margin-top: 20px; }
-/* 左栏那条唯一的纵向滚动链：section 只把高度让下去（flex 列 + min-height: 0），
-   列表吃掉剩余高度自滚——max-height 归零后它才是"吃掉剩余空间"的那一环，否则
-   限高（100%）与 section 里的标题叠加会把列表最后一行顶到面板外被裁掉。 */
+/* 左栏的高度链：section 只把高度让下去（flex 列 + min-height: 0），会话列表吃掉
+   剩余高度自滚——max-height 归零后它才是"吃掉剩余空间"的那一环，否则限高（100%）
+   与 section 里的标题叠加会把列表最后一行顶到面板外被裁掉。面板自己不再滚（见上
+   面 .left-panel），所以列表这条就是左栏被保留的两条滚轮之一。 */
 .sessions-section { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .sessions-section > .section-title { flex: none; }
 .sessions-section .stack-list { flex: 1 1 auto; min-height: 0; max-height: none; overflow-y: auto; padding-right: 2px; }
@@ -2428,13 +2430,15 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 }
 .session-group.is-collapsed .session-group-chevron { transform: rotate(-45deg); }
 .session-group.is-collapsed .session-group-body { display: none; }
-/* 会话分组不再自滚：它是"左栏只有一个纵向滚动容器"口径里的第二条——.stack-list
-   吃掉剩余高度自滚，分组正文只负责排版（原来给分组限高（42vh 与 320px 取小）并
-   自滚，每个展开的分组就各自再开一条滚轮，滚轮在一层到底后接力翻下一层）。 */
+/* 分组正文自己滚（项目粒度那条，用户口径要保留）：每个展开的分组限高
+   min(42vh, 320px) 并在内部滚，滚到底后滚轮交给外面的会话列表——这是设计要的
+   两层，不是多余的那条；多余的是面板自身那条（见 .left-panel）。 */
 .session-group-body {
   display: grid;
   gap: 3px;
   padding: 3px 5px 5px;
+  max-height: min(42vh, 320px);
+  overflow-y: auto;
 }
 /* 会话条目：两段式（标题段 + ⋯ 段）。标题段吃满剩余宽度、单行省略；⋯ 段
    常驻一个省略号按钮，点开才是置顶/分支/删除（见第 20 节）。 */
