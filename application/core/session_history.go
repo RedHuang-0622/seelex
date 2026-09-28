@@ -223,6 +223,11 @@ func (service *Service) resetViewToDraftAfterRestoreFailure() {
 	runtime.SetCancel(nil)
 	runtime.SetRequests(nil)
 	service.Core.Snapshot.Chat = runtime.ChatState()
+	// 档位与其它会话字段同一口径重算：这条路径在 Core.ViewMu 下完成（不读盘），
+	// 草稿槽位要么是就地新建（无持久设置可读），要么是保留中的槽位（其会话单元
+	// 仍持有该会话的档位选择）——两种情况 syncViewPermissionTierLocked 给出的都是
+	// 本会话的生效档位，而不是上一个会话留在快照里的那个。
+	service.syncViewPermissionTierLocked(draftID)
 	service.components.sessions.SetSessionTitleLocked(draftID, SessionTitle{})
 	service.components.tasks.ResetForNewSessionLocked()
 	revision := service.bumpLocked()

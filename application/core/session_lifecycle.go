@@ -177,6 +177,10 @@ func (service *Service) UnloadSession(sessionID string) error {
 		service.Core.Snapshot.Task = nil
 		service.Core.Snapshot.Runtime.Plan = nil
 		service.Core.Snapshot.ReadFiles = nil
+		// 卸载活跃会话后进入的是**就地新建**的草稿（ID 全新，没有任何持久设置），
+		// 档位同样必须在同一临界区里重算：否则卸载后留在快照里的是刚被卸载会话的
+		// 档位，chip 与实际生效档位不符（与 BeginNewSession 同一口径）。
+		service.syncViewPermissionTierLocked(draftID)
 		service.components.tasks.ResetForNewSessionLocked()
 	}
 	revision := service.bumpLocked()

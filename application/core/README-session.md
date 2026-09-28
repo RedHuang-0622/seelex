@@ -509,6 +509,7 @@
 - `func (service *Service) persistPermissionTier(sessionID, tier string) error` — persistPermissionTier 把档位写进会话级设置（"" = 清除该会话的选择）。
 - `func (service *Service) readStoredPermissionTier(sessionID string) string` — readStoredPermissionTier 读取该会话持久化的权限档位（"" = 从未选择 / 未装配
 - `func (service *Service) applyStoredPermissionTier(sessionID, tier string)` — applyStoredPermissionTier 把持久化档位落到该会话的内存槽 + 执行门 + 审批自动
+- `func (service *Service) syncViewPermissionTierLocked(sessionID string)` — syncViewPermissionTierLocked 把 sessionID 的**生效档位**重算进进程快照，保证
 - `func (service *Service) restorePermissionTierFor(sessionID string)` — restorePermissionTierFor 读回并落地该会话的档位（非锁内衔接场合的便捷入口）。
 
 ### session_permission_tier_persist_test.go
@@ -522,6 +523,8 @@
 - `func TestPermissionTierWithoutSettingPortStaysInMemory(t *testing.T)` — TestPermissionTierWithoutSettingPortStaysInMemory：未装配会话级设置端口的最小宿主
 - `func TestPermissionTierSettingPortErrorSurfaces(t *testing.T)` — TestPermissionTierSettingPortErrorSurfaces：会话级设置写失败必须显式报错且**不改**
 - `func (sessions *failingTierSessions) SetSessionPermissionTier(string, string) error`
+- `func TestBeginNewSessionMirrorsDraftPermissionTier(t *testing.T)` — TestBeginNewSessionMirrorsDraftPermissionTier：**新建会话**必须把新会话的生效
+- `func TestBeginNewSessionRestoresPersistedDraftTier(t *testing.T)` — TestBeginNewSessionRestoresPersistedDraftTier：草稿槽位是**可复用**的（切走再
 - `func TestPermissionTierSwitchMirrorsViewSnapshot(t *testing.T)` — TestPermissionTierSwitchMirrorsViewSnapshot：切到某会话时，**目标会话**的生效
 
 ### session_permission_tier_test.go

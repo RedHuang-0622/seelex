@@ -72,9 +72,9 @@ func (service *Service) readStoredPermissionTier(sessionID string) string {
 // 投影直接读到恢复后的档位。
 //
 // tier 为空或不可识别时**不写会话槽**（未选择 = 回退进程默认；存储里的脏值不得变成
-// 一次静默降级或静默放行），但**视图快照仍要重算**：切换会话后快照里若留着上一个
-// 会话的档位，用户看到的就是错的——尤其上一个会话是 full 时，"以为免审其实要问人"
-// 只是别扭，"以为要问人其实免审"是安全问题。
+// 一次静默降级或静默放行），但**视图快照仍要重算**（见 syncViewPermissionTierLocked）：
+// 切换会话后快照里若留着上一个会话的档位，用户看到的就是错的——尤其上一个会话是 full
+// 时，"以为免审其实要问人"只是别扭，"以为要问人其实免审"是安全问题。
 func (service *Service) applyStoredPermissionTier(sessionID, tier string) {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
@@ -93,6 +93,31 @@ func (service *Service) applyStoredPermissionTier(sessionID, tier string) {
 	}
 	if service.Core.Snapshot.Session.ID != sessionID {
 		// 非视图会话（后台冷加载等）：只落地它自己的槽，不改视图快照。
+		return
+	}
+	service.syncViewPermissionTierLocked(sessionID)
+}
+
+// syncViewPermissionTierLocked 把 sessionID 的**生效档位**重算进进程快照，保证
+// 「快照里的档位 == 该会话真正生效的档位」。调用方持有 Core.ViewMu，本方法不读盘。
+//
+// 它存在的理由是一条**不变量**，而不是某一条切换路径的补丁：快照里的
+// Runtime.PermissionTier/FullAccess 是 chip 与运行状态面板的唯一读面，任何一次
+// 「视图指针换到另一个会话」都必须在同一次临界区里把这个字段重算成本会话的值。
+// 漏掉一次，用户看到的就是**上一个会话的档位**——2026-09-17 的切会话路径
+// （TestPermissionTierSwitchMirrorsViewSnapshot）修过一次，但**进入新会话**这条
+// 路径当时漏了：BeginNewSession 只清了 Plan/会话/聊天态，档位字段原样留着，于是
+// 「新建会话后 chip 显示上一次的档位，实际生效的是新会话的默认档位」。方向不对称：
+// 上一个是 full 而新会话是 manual 只是别扭；反过来"看着手动其实全权放着"是安全问题。
+//
+// 取值口径与执行门一致（permissionTierForSession：会话槽优先，未选择回退进程默认），
+// 因此重算出来的值就是 chat 起点 syncFullAccessFor 会写进门的那个值。
+func (service *Service) syncViewPermissionTierLocked(sessionID string) {
+	if service == nil {
+		return
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" || service.Core.Snapshot.Session.ID != sessionID {
 		return
 	}
 	effective := service.permissionTierForSession(sessionID)

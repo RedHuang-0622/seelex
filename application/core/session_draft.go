@@ -93,6 +93,12 @@ func (service *Service) BeginNewSession() error {
 	}
 	service.ViewMu.Unlock()
 
+	// 需求变更（P1-1 补口）：新会话的权限档位必须在这里**读回并重算**，与
+	// 冷启动 / 热挂载 / 冷恢复三条切换路径同构。草稿槽位是可复用的（切走再新建
+	// 会恢复同一份早分配 SID），所以"这个会话之前选过档位"是真实存在的情形；读盘
+	// 只能在锁外（readStoredPermissionTier 含磁盘读，不得持 Core.ViewMu）。
+	storedTier := service.readStoredPermissionTier(draftID)
+
 	if restoredWorkspace == nil {
 		// 任务会话草稿：必须真正未关联工作区（清空上个会话继承的项目绑定）。
 		if service.Deps.Runtime != nil {
@@ -120,6 +126,10 @@ func (service *Service) BeginNewSession() error {
 	draftRuntime.SetRequests(nil)
 	service.Core.Snapshot.Chat = draftRuntime.ChatState()
 	service.Core.Snapshot.Session.Composer = draftRuntime.ComposerText()
+	// 档位重算落在同一临界区里（会话单元已就位）：草稿自己的档位（会话槽或进程
+	// 默认）覆盖掉上一个会话留在快照里的那个值——否则新会话的 chip 显示的是**上一个
+	// 会话的档位**，而真正生效的是本会话的档位（见 syncViewPermissionTierLocked）。
+	service.applyStoredPermissionTier(draftID, storedTier)
 	service.components.sessions.SetSessionTitleLocked(draftID, SessionTitle{})
 	service.components.tasks.ResetForNewSessionLocked()
 	revision := service.bumpLocked()
