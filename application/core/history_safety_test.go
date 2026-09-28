@@ -262,3 +262,22 @@ func TestToolProtocolRejectionsAreHistoryFailures(t *testing.T) {
 		t.Fatalf("provider failure = %q, want %q", got, providerFailureHistory)
 	}
 }
+
+// TestInsufficientToolMessagesIsAHistoryFailure 覆盖 tool 配对协议的另一半措辞：
+// assistant 宣告了 tool_calls，但紧跟其后（相邻区间内）的 tool 回执不足以回应
+// 每个 tool_call_id——provider 报 "An assistant message with 'tool_calls' must be
+// followed by tool messages responding to each 'tool_call_id'. (insufficient tool
+// messages following tool_calls message)"。这与 TestToolProtocolRejectionsAreHistoryFailures
+// 是同一类"请求里的记录不合法"，也必须走有界检查点的历史恢复，而不是把会话循环
+// 判死（同上一条用例的现场形状：一轮在第 N 次 LLM 往返上被 400 打断）。
+// 措辞实测来源：docs/2026-09-24-async-tool-deferred-ack/README.md §0 探针 P4。
+func TestInsufficientToolMessagesIsAHistoryFailure(t *testing.T) {
+	err := errors.New(`session loop 0: seelebridge: stream with account "agent-1": ` +
+		`ChatClient stream: HTTP 400: {"error":{"message":"An assistant message with 'tool_calls' ` +
+		`must be followed by tool messages responding to each 'tool_call_id'. ` +
+		`(insufficient tool messages following tool_calls message)","type":"invalid_request_error",` +
+		`"param":null,"code":"invalid_request_error"}}`)
+	if got := classifyProviderFailure(err); got != providerFailureHistory {
+		t.Fatalf("provider failure = %q, want %q", got, providerFailureHistory)
+	}
+}
