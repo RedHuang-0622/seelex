@@ -1,4 +1,4 @@
-import { renderConversationModel } from "./components.js";
+import { renderConversationModel, renderMessageQueue } from "./components.js";
 import { conversationCompactionAnchor } from "./compaction-format.js";
 import { historyWindowed } from "./protocol.js";
 
@@ -20,6 +20,21 @@ export function createChatView(elements, conversationView) {
     const active = messages.length > 0 || draftText.trim() !== "" || chat.running || (chat.input_queue || []).length > 0 || restoring || switching;
     elements["empty-state"].classList.toggle("hidden", active);
     conversationView.render(renderConversationModel(messages, chat, draftText, conversationCompactionAnchor(messages, compactions)), { scrollMode, hasMoreHistory });
+    renderMessageQueueHost(chat);
+  }
+
+  // renderMessageQueueHost 把排队条画到输入框正上方的 #message-queue（见
+  // index.html 的宿主与 styles.css 的 .message-queue-host）。队列**不进对话流**：
+  // 它是"还没发出去的那几条"，必须跟着输入框走，留在滚动区里会被对话内容推走、
+  // 也随滚动跑掉（用户口径：与输入框间隔太宽，要贴着输入框、像抽屉一样叠着）。
+  // --queue-h 写回给对话区底部留白：那一叠是绝对定位的浮层，滚动区得自己让出
+  // 它的高度，否则对话尾部会被压在叠下面；空队列写 0。
+  function renderMessageQueueHost(chat = {}) {
+    const host = elements["message-queue"];
+    if (!host) return;
+    const html = renderMessageQueue(chat);
+    if (host.innerHTML !== html) host.innerHTML = html;
+    document.documentElement.style.setProperty("--queue-h", `${host.offsetHeight}px`);
   }
 
   // renderControls 是输入区锁的唯一落点：restoring（目标会话恢复中）= 整块

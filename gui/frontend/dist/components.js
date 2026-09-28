@@ -36,6 +36,9 @@ const ICONS = {
   circle: '<circle cx="12" cy="12" r="8"/>',
   dot: '<circle cx="12" cy="12" r="4.5" fill="currentColor" stroke="none"/>',
   more: '<circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none"/>',
+  // grip：拖拽把手（两列竖点，队列条排序用）。`more` 是横三点，做成把手会被读成
+  // "更多操作"，所以另立一枚。
+  grip: '<circle cx="9" cy="6" r="1.5" fill="currentColor" stroke="none"/><circle cx="15" cy="6" r="1.5" fill="currentColor" stroke="none"/><circle cx="9" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="9" cy="18" r="1.5" fill="currentColor" stroke="none"/><circle cx="15" cy="18" r="1.5" fill="currentColor" stroke="none"/>',
   star: '<path d="m12 4 2.5 5.1 5.5.8-4 3.9.95 5.5L12 16.7l-4.95 2.6.95-5.5-4-3.9 5.5-.8z" fill="currentColor" stroke="none"/>',
   "star-outline": '<path d="m12 4 2.5 5.1 5.5.8-4 3.9.95 5.5L12 16.7l-4.95 2.6.95-5.5-4-3.9 5.5-.8z"/>',
   user: '<circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/>',
@@ -154,23 +157,54 @@ export function renderConversationModel(messages = [], chat = {}, draft = "", an
   return { items: rendered, payloads };
 }
 
+// renderChatActivity 渲染对话流尾部的「运行时活动带」——只剩执行中的 loader。
+// 排队叠**不在这里**，见 renderMessageQueue：队列是贴着输入框上沿的一叠，宿主是
+// #message-queue（输入框正上方），不进对话滚动区。
 export function renderChatActivity(chat = {}) {
-  const queue = Array.isArray(chat.input_queue) ? chat.input_queue : [];
   const running = Boolean(chat.running);
-  if (!running && queue.length === 0) return "";
-  const loader = running ? `<section class="runtime-activity" role="status" aria-live="polite">
+  if (!running) return "";
+  return `<section class="runtime-activity" role="status" aria-live="polite">
     <span class="runtime-spinner">${icon("source", 15)}</span>
     <strong>执行中</strong>
     <span class="runtime-pulse" aria-hidden="true"><i></i><i></i><i></i></span>
-  </section>` : "";
-  const queued = queue.length ? `<section class="message-queue" aria-label="等待发送的消息">
+  </section>`;
+}
+
+// renderMessageQueue 渲染贴输入框上沿的「排队叠」：一行一条（拖拽把手 + 折返箭头
+// + 单行正文 + 右侧动作），整叠底边压在输入框上沿上（宿主定位见 .message-queue-host）。
+// 它必须跟着输入框走，所以不进对话流：留在滚动区里会被对话内容推走、随滚动跑掉，
+// 与输入框之间还隔着一整段对话区底部留白（.conversation 给输入框让位的那一段），
+// 读起来跟输入框没有关系（用户口径：间隔太宽，要贴着输入框）。
+// 拖动把手与 ↑/↓ 动作都只携带纯数据（data-queue-drag / data-queue-action + 下标），
+// 由渲染层（app.js）统一委托到 Bridge，组件本身不持有 invoke 依赖。
+export function renderMessageQueue(chat = {}) {
+  const queue = Array.isArray(chat.input_queue) ? chat.input_queue : [];
+  if (!queue.length) return "";
+  return `<section class="message-queue" aria-label="等待发送的消息">
     ${queue.map((input, index) => renderQueuedMessage(input, index, queue.length)).join("")}
-  </section>` : "";
-  return loader + queued;
+  </section>`;
+}
+
+// queueDragTarget 把一次拖拽落点折算成后端 ReorderQueuedInput 要的 (from, to)。
+// 后端口径是"条目最终落在 to 位置"（application/core/service_queue.go；测试钉住
+// [second,third,fourth] --(0,2)--> [third,fourth,second]），而纸面上的落点是**插入缝**：
+// 第 hoverIndex 条的上半 = 插到它前面，下半 = 插到它后面。两套口径差一层换算——
+// 后端要的是"先把条目抽出去、再插回"的最终下标，抽出这一步会让缝之后的序号前移
+// 一位，所以 from 在缝前面时 to 要减 1（否则会把条目往回多送一格）。
+// 换算成缝的前一条（to === from，即原地落下）返回 null：不必产生一次真实搬家。
+export function queueDragTarget(from, hoverIndex, length, after = false) {
+  if (!Number.isInteger(from) || !Number.isInteger(hoverIndex) || !Number.isInteger(length)) return null;
+  if (from < 0 || from >= length || hoverIndex < 0 || hoverIndex >= length) return null;
+  const seam = after ? hoverIndex + 1 : hoverIndex;
+  const to = from < seam ? seam - 1 : seam;
+  if (to < 0 || to >= length || to === from) return null;
+  return { from, to };
 }
 
 // renderQueuedMessage 渲染一条排队输入：**单行条**（用户口径：形状照 Qoder 的队列
-// 做法——一行一条：折返箭头 + 单行正文 + 右侧动作），不再是带表头与正文区的卡片。
+// 做法——一行一条：拖拽把手 + 折返箭头 + 单行正文 + 右侧动作），不再是带表头与正文区的卡片。
+// 把手（data-queue-drag）承担"拖拽换序"，两侧的 ↑/↓ 动作保留为键盘/无拖拽环境的
+// 等价入口——两条路都汇到同一次 ReorderQueuedInput（见 app.js）。
 // 正文走纯文本而非 markdown：单行省略号要求这段内容属于该元素本身，块级 <p> 会让
 // text-overflow 失效；完整原文挂在 data-tip 上（悬停/聚焦出应用自己的提示，\n 会被
 // paintTip 换成 <br>），撤回后原文回到输入框继续编辑。
@@ -182,6 +216,7 @@ function renderQueuedMessage(input, index, length) {
   const move = (action, disabled) => `<button type="button" class="queue-action" data-queue-action="${action}" data-queue-index="${index}"
         title="${action === "up" ? "上移" : "下移"}" aria-label="${action === "up" ? "上移" : "下移"}排队 ${label}"${disabled ? " disabled" : ""}>${icon(action === "up" ? "arrow-up" : "arrow-down", 13)}</button>`;
   return `<article class="queued-message" data-queue-index="${index}" aria-label="排队 ${label}，等待发送">
+      <span class="queued-drag-handle" draggable="true" data-queue-drag="${index}" title="拖拽调整排队顺序" aria-label="拖拽调整排队 ${label} 的顺序">${icon("grip", 13)}</span>
       <span class="queued-message-lead" aria-hidden="true">${icon("corner-down-right", 14)}</span>
       <span class="queued-message-text"${row.tip ? ` data-tip="${escapeHtml(row.tip)}"` : ""}>${escapeHtml(row.line)}</span>
       <span class="queued-message-actions">

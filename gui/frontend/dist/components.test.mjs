@@ -8,7 +8,7 @@ const markdownSource = (await readFile(new URL("./markdown.js", import.meta.url)
 const markdownURL = `data:text/javascript;base64,${Buffer.from(markdownSource).toString("base64")}`;
 const componentSource = (await readFile(new URL("./components.js", import.meta.url), "utf8"))
   .replace('"./markdown.js"', `"${markdownURL}"`);
-const { renderChatActivity, renderConversationComponent, renderConversationModel, messageRoleClass, roleIdentity, DRAFT_ROW_KEY, COMPACTION_FRONTIER_KEY } = await import(`data:text/javascript;base64,${Buffer.from(componentSource).toString("base64")}`);
+const { renderChatActivity, renderConversationComponent, renderConversationModel, renderMessageQueue, messageRoleClass, roleIdentity, DRAFT_ROW_KEY, COMPACTION_FRONTIER_KEY } = await import(`data:text/javascript;base64,${Buffer.from(componentSource).toString("base64")}`);
 
 test("assigns each message the identity of the agent that owns the round", () => {
   assert.equal(roleIdentity({ role: "assistant", role_name: "main" }), "EXEC");
@@ -53,14 +53,15 @@ test("renders runtime activity only from active chat state", () => {
 });
 
 test("renders queued inputs as one-line rows", () => {
-  const html = renderChatActivity({
+  const html = renderMessageQueue({
     running: true,
     input_queue: ["**follow up**", "<script>alert(1)</script>"]
   });
 
-  // 一行一条（Qoder 形状）：折返箭头 + 单行正文 + 右侧动作；序号进可访问名，不占纸面。
+  // 一行一条（Qoder 形状）：拖拽把手 + 折返箭头 + 单行正文 + 右侧动作；序号进可访问名，不占纸面。
   assert.equal((html.match(/class="queued-message-text"/g) || []).length, 2);
   assert.equal((html.match(/class="queued-message-lead"/g) || []).length, 2);
+  assert.equal((html.match(/class="queued-drag-handle"/g) || []).length, 2);
   assert.match(html, /aria-label="排队 01，等待发送"/);
   assert.match(html, /aria-label="排队 02，等待发送"/);
   // 正文是纯文本：单行省略号要求这段行内内容属于该元素本身，markdown 的块级 <p> 会让
@@ -79,8 +80,12 @@ test("appends activity after conversation without changing tool payloads", () =>
     { running: true, input_queue: ["next"] }
   );
 
-  assert.match(rendered.html, /class="message assistant"[\s\S]*runtime-activity[\s\S]*排队 01/);
+  // 对话流里只剩"执行中"活动带：排队条自成一叠、宿主是输入框上沿的
+  // #message-queue（app.js/chat-view.js），不再随对话滚动跑掉。
+  assert.match(rendered.html, /class="message assistant"[\s\S]*runtime-activity/);
+  assert.doesNotMatch(rendered.html, /排队 01/);
   assert.equal(rendered.payloads.size, 0);
+  assert.match(renderMessageQueue({ running: true, input_queue: ["next"] }), /排队 01/);
 });
 
 test("uses stable message and tool keys for incremental rendering", () => {

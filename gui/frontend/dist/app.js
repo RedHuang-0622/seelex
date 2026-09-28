@@ -1,4 +1,4 @@
-import { escapeHtml, hydrateIcons, icon, queueMoveTarget } from "./components.js";
+import { escapeHtml, hydrateIcons, icon, queueDragTarget, queueMoveTarget } from "./components.js";
 import { FILE_DRAG_MIME, dropPaths, dropPlan, fileDragPayload } from "./file-drop.js";
 import { createChatView } from "./chat-view.js";
 import { createGUIClient } from "./client-state.js";
@@ -101,6 +101,7 @@ const elements = Object.fromEntries([
   "interaction-question", "interaction-preview", "interaction-options",
   "node-detail-modal", "node-detail-close", "node-detail-title", "node-detail-content", "toast", "ui-tooltip",
   "toggle-left-panel", "toggle-right-panel",
+  "message-queue",
   "terminal-panel", "terminal-body", "terminal-tabs", "terminal-resize", "terminal-collapse",
   "terminal-new", "terminal-close", "terminal-hide", "terminal-button"
 ].map(id => [id, document.getElementById(id)]));
@@ -830,10 +831,65 @@ elements.conversation.addEventListener("click", async event => {
   }
 });
 
+// 排队条拖拽换序：把手（data-queue-drag）是拖动源，同宿主里的另一条是落点。
+// 落点只标一条缝（上半 = 插到它前面，下半 = 插到它后面），换算交给纯函数
+// queueDragTarget——后端口径是"条目最终落在 to 位置"，与纸面落点差一层（见
+// components.js 的注释与 queue-edit.test.mjs 的用例）。
+// 载荷只写自定义 mime：写 text/plain 会被 file-drop.js 的"跨窗口兜底"当成工作树
+// 路径读走，一次排序就会变成一条"读文件"的排队消息。
+const QUEUE_DRAG_MIME = "application/x-seelex-queue";
+const queueRows = () => elements["message-queue"].querySelectorAll(".queued-message");
+function clearQueueDropMarks() {
+  for (const row of queueRows()) row.classList.remove("is-drop-before", "is-drop-after", "is-dragging");
+}
+function queueDropSeam(event, row) {
+  const box = row.getBoundingClientRect();
+  return { hoverIndex: Number(row.dataset.queueIndex), after: event.clientY > box.top + box.height / 2 };
+}
+elements["message-queue"].addEventListener("dragstart", event => {
+  const handle = event.target.closest?.("[data-queue-drag]");
+  if (!handle) return;
+  event.dataTransfer?.setData(QUEUE_DRAG_MIME, String(handle.dataset.queueDrag ?? ""));
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+  handle.closest(".queued-message")?.classList.add("is-dragging");
+});
+elements["message-queue"].addEventListener("dragover", event => {
+  if (!event.dataTransfer?.types?.includes(QUEUE_DRAG_MIME)) return;
+  const row = event.target.closest?.(".queued-message");
+  if (!row) return;
+  event.preventDefault(); // 不拦住默认行为就不会有 drop
+  event.dataTransfer.dropEffect = "move";
+  const { after } = queueDropSeam(event, row);
+  for (const other of queueRows()) {
+    if (other === row) continue;
+    other.classList.remove("is-drop-before", "is-drop-after");
+  }
+  row.classList.toggle("is-drop-before", !after);
+  row.classList.toggle("is-drop-after", after);
+});
+elements["message-queue"].addEventListener("dragend", clearQueueDropMarks);
+elements["message-queue"].addEventListener("drop", async event => {
+  const row = event.target.closest?.(".queued-message");
+  if (!row || !event.dataTransfer?.types?.includes(QUEUE_DRAG_MIME)) return;
+  event.preventDefault();
+  const from = Number(event.dataTransfer.getData(QUEUE_DRAG_MIME));
+  const { hoverIndex, after } = queueDropSeam(event, row);
+  const sessionID = client.current()?.session?.id || "";
+  const length = (client.current()?.chat?.input_queue || []).length;
+  const target = queueDragTarget(from, hoverIndex, length, after);
+  clearQueueDropMarks();
+  if (!target) return; // 原地落下：不打扰后端，也不刷快照
+  try {
+    await invoke("ReorderQueuedInput", sessionID, target.from, target.to);
+    await refresh({ scroll: "auto" });
+  } catch (error) {
+    showToast(error);
+  }
+});
+
 // recallQueuedInput 把撤回的排队原文交还输入框重新编辑：输入框已有未发送
 // 正文时把撤回内容追加在后（不覆盖用户草稿），随后聚焦并把光标放到末尾。
-function recallQueuedInput(text) {
-  const recalled = String(text ?? "");
+function recallQueuedInput(text) {  const recalled = String(text ?? "");
   if (!recalled) return;
   const existing = elements.prompt.value;
   elements.prompt.value = existing.trim() ? `${existing.trimEnd()}\n${recalled}` : recalled;
@@ -1756,6 +1812,8 @@ window.addEventListener("resize", () => {
   // 侧栏宽度上限按视口动态计算：窗口变小要把已存宽度收回到可用范围，避免
   // 超出容器把主视图挤成 0（内容详情宽度由 CSS 封顶，无需在这里收回）。
   applyPanelWidths();
+  // 输入框会因换行/字体重排而变高（--composer-h 是队列叠与对话区留白的依据）。
+  syncComposerMetrics();
 });
 
 // sessionRow 渲染一条会话条目。条目刻意分成两段（用户口径）：
@@ -3040,6 +3098,9 @@ function initFileDrop() {
     setFileDropZone(null);
   });
   document.addEventListener("dragover", event => {
+    // 队列条自己的拖拽换序（QUEUE_DRAG_MIME）不是文件投放：不点亮文件投放区，
+    // 免得一次排序被读成"往队列里丢文件"（高亮会把整叠与输入框描上强调边）。
+    if (event.dataTransfer?.types?.includes(QUEUE_DRAG_MIME)) return;
     const zone = fileDropZone(event.target);
     if (!zone) return;
     event.preventDefault();
@@ -3055,6 +3116,9 @@ function initFileDrop() {
     const zone = fileDropZone(event.target);
     setFileDropZone(null);
     if (!zone) return;
+    // 队列条换序的落点（QUEUE_DRAG_MIME）由队列宿主自己的 drop 处理器接走：
+    // 载荷里没有工作树路径，这里不该再按"投放文件"处理一次。
+    if (event.dataTransfer?.types?.includes(QUEUE_DRAG_MIME)) return;
     const plan = dropPlan({ paths: dropPaths(dropPayload(event.dataTransfer)), draftText: elements.prompt.value });
     if (!plan) return;
     event.preventDefault();
@@ -4588,12 +4652,24 @@ document.addEventListener("keydown", event => {
 function resizePrompt() {
   elements.prompt.style.height = "auto";
   elements.prompt.style.height = `${Math.min(elements.prompt.scrollHeight, 180)}px`;
+  syncComposerMetrics();
+}
+
+// syncComposerMetrics 把输入框的实测高度交给 CSS（--composer-h）：输入框与贴它
+// 上沿的消息队列叠都是绝对定位的浮层，对话区底部留白与队列叠的 `bottom` 都要知道
+// 它到底多高——多行草稿会把输入框撑高，写死一个数就会在长草稿里露缝或被压住。
+function syncComposerMetrics() {
+  if (!elements.composer) return;
+  document.documentElement.style.setProperty("--composer-h", `${elements.composer.offsetHeight}px`);
 }
 
 async function initialise() {
   try {
     hydrateIcons();
     applyDockState();
+    // 输入框 / 队列叠 / 对话区留白三者的高度关系要先立起来（--composer-h），
+    // 否则首帧的底部留白按 CSS 缺省值算，队列一出现就会压住对话尾部。
+    syncComposerMetrics();
     await initialiseTheme();
     if (!bindRuntimeEvents(window.runtime)) {
       throw new Error("GUI event runtime 尚未就绪");

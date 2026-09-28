@@ -75,6 +75,11 @@
         </div>
         <div id="trajectory" class="trajectory hidden" aria-live="polite"></div>
       </div>
+      <!-- 消息队列宿主：贴输入框上沿的「一叠条」，由 chat-view.js / app.js 渲染
+           （renderMessageQueue）。绝对定位在输入框正上方——队列是"还没发出去的
+           那几条"，必须跟着输入框走，所以不放进对话滚动区（.conversation）。
+           空的时候 :empty 规则整块收起，不吃高度也不吃指针。 -->
+      <div id="message-queue" class="message-queue-host" aria-live="polite"></div>
       <form id="composer" class="composer">
         <div id="inline-suggestions" class="command-suggestions inline-suggestions hidden"></div>
         <textarea id="prompt" rows="1" placeholder="描述任务，输入 / 查看命令，# 切换插件，$ 召回 Skill，@ 手动召唤团队"></textarea>
