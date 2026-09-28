@@ -129,6 +129,18 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - `func TestServicePlanSyncExposesDAGDependencies(t *testing.T)` — TestServicePlanSyncExposesDAGDependencies 走 Service 路径：plan 投影 → task
 - `func TestTaskChangedIncrementCarriesPlanDependencies(t *testing.T)` — TestTaskChangedIncrementCarriesPlanDependencies 增量面：task.changed 单行
 
+### work_table_project_scope_test.go
+
+- `func newProjectSwitchHarness(t *testing.T) *projectSwitchHarness`
+- `func (harness *projectSwitchHarness) enterProjectA(t *testing.T)` — enterProjectA 在项目 A 里跑一轮（会话 A 成为已加载会话，引擎带历史），并把一条
+- `func (harness *projectSwitchHarness) switchToProjectB(t *testing.T)` — switchToProjectB 触发项目切换（startFreshSession：新建独立会话）。
+- `func appendProjectRoundsFor(t *testing.T, service *Service, sessionID string, rounds, chars int)` — appendProjectRoundsFor 给**指定会话**追加 rounds 个已定稿轮次（每轮约
+- `func TestProjectSwitchDoesNotInjectForeignWorkTableRows(t *testing.T)` — TestProjectSwitchDoesNotInjectForeignWorkTableRows —— 时机①：切换项目后
+- `func TestProjectSwitchWorkTableBlockStaysCleanAcrossCompaction(t *testing.T)` — TestProjectSwitchWorkTableBlockStaysCleanAcrossCompaction —— 时机②：切换项目
+- `func TestProjectSwitchRebindsTaskRegistryToNewSession(t *testing.T)` — TestProjectSwitchRebindsTaskRegistryToNewSession —— 同一根因的数据面：项目切换
+- `func TestProjectSwitchKeepsForeignRowsInLedger(t *testing.T)` — TestProjectSwitchKeepsForeignRowsInLedger —— 边界：工作表格是**项目/全局台账**，
+- `func TestProjectSwitchWithoutFreshSessionKeepsOwnRows(t *testing.T)` — TestProjectSwitchWithoutFreshSessionKeepsOwnRows —— 对照：**没有**新建独立会话
+
 ### work_table_race_test.go
 
 - `func TestWorkTableRaceConcurrentMutations(t *testing.T)` — TestWorkTableRaceConcurrentMutations 并发执行工作表格三类变更路径：

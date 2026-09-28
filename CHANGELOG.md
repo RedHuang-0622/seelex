@@ -146,6 +146,22 @@ version when it lands.
 
 ### Fixed
 
+- **Switching projects left the previous project's activity in the new project's turn context.** The
+  project-switch path (`bindWorkspaceInfo`) starts a fresh session when the target workspace differs
+  and the current session already has history — and it did so without going through the session-switch
+  protocol that `/new`, hot-attach, cold-resume and cold-load all follow. Two pointers stayed behind:
+  the session domain's active session (so `SessionIDForRequest` fell back to the *old* session and the
+  new project's turn was registered against it — task epoch, plan and transcript included) and the
+  runtime's task registry (so the request-tail work-table block, which reads the live registry for the
+  view session, injected the old project's active rows into the new session's `currentInput` — the
+  block is spliced in *before* the fold judgement, so the pollution also entered the compaction
+  criterion and survived it round after round). Fixed by finishing the protocol in that branch:
+  `sessions.SetActive` inside the view lock, then `SwitchSessionTasks` + `clear subagent tree` +
+  `refreshWorkTableFromSources` outside it, in the same order as `/new`. The old project's rows are not
+  lost — they move into that session's own scope partition and the work table (a project/global ledger)
+  still lists them with their original owning session. Teeth: `application/core/work_table_project_scope_test.go`
+  (five cases: uncompressed first turn, fold round and post-fold round, registry/routing data face, plus
+  two guards against over-fixing).
 - **A controller policy whose output reserve ate the whole window folded on every tool result.**
   `policy()` normalized `Window <= 0` and `OutputReserve <= 0` but never looked at the budget those
   give, so `output_reserve + window/divisor >= window` left `Budget()` — and with it

@@ -153,6 +153,11 @@ func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
 		service.Core.Snapshot.HasMoreHistory = false
 		service.Core.Snapshot.Runtime.Plan = nil
 		service.Core.Snapshot.Interaction = nil
+		// 会话域活跃指针跟着换（与 /new、热挂载、冷恢复、冷加载同序）：只改快照
+		// 里的 Session.ID 而不动这一格，新项目的回合会按旧指针登记到**上一个项目
+		// 的会话**上（RequestID→会话反查落空 → 任务纪元/plan/transcript 全落在旧
+		// 会话），见 work_table_project_scope_test.go。
+		service.sessions.SetActive(currentSessionID)
 		service.appendMessageLocked("system", fmt.Sprintf("已切换到项目 %s，新建独立会话", workspace.Name), nil)
 	}
 	service.Core.Snapshot.CurrentWorkspace = &WorkspaceInfo{
@@ -161,6 +166,21 @@ func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
 	service.applyWorkspaceProjectionLocked(workspaceProjection)
 	revision := service.bumpLocked()
 	service.ViewMu.Unlock()
+	// 会话切换（新建独立会话）：换当前会话指针、清子代理锚、把**新会话自己的**
+	// task 账装回实时注册表，再重投影工作表格——与 /new（session_draft.go）、
+	// 热挂载（session_lifecycle.go）、冷恢复（session_history.go）同一套协议。
+	//
+	// 缺这一步时注册表指针停在**上一个项目**的会话上，而打点块对"视图会话"走
+	// 「实时注册表」那条读面（workTableTraceBlockFor），于是新项目首轮请求的尾部
+	// 打点表会把旧项目的活动任务前置进 currentInput：跨项目上下文污染（且按轮
+	// 重拼，压缩也洗不掉）。旧项目的行不丢：SwitchSessionTasks 把它们搬进该会话
+	// 自己的 scope 分区，全局台账（工作表格）照旧看得见它——工作表格是项目/全局
+	// 台账、打点块是会话级实发面，两件事不能混（docs/devlog/2026-09-19-worktable-global-scope.md）。
+	if startFreshSession {
+		service.Deps.Runtime.SwitchSessionTasks(currentSessionID, service.Deps.Runtime.TaskSnapshotFor(currentSessionID))
+		_ = service.Deps.Runtime.ClearSubagentTree()
+		service.refreshWorkTableFromSources()
+	}
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", service.currentViewSessionID(), nil)
 	service.components.sessions.RequestCatalogRefresh()
 	return nil
