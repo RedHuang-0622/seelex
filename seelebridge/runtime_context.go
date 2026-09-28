@@ -220,9 +220,13 @@ func (r *Runtime) seelexController() seelectx.ContextController {
 		// 仍指向正确会话（compact-<sessionID>-<ms>）。
 		SessionIDProvider: r.MainSessionID,
 		// 压缩 DAG（2026-09-06 详设 §4.6）：阈值/窗口/去重/归档不变，
-		// 帧生成改走 workplan 图。前缀重放 Summarizer 暂不注入：启用前提
-		// 是字节级装配出口快照固化（system/History/Tools 与真实请求同一条
-		// 装配路径，见设计 §9 风险 1），未确认前 Chapter 2 恒本地折叠。
+		// 帧生成改走 workplan 图。**控制器路径的 Summarizer 仍不注入**：
+		// 启用前提是字节级装配出口快照固化（system/History/Tools 与真实请求
+		// 同一条装配路径，见设计 §9 风险 1），而控制器拿到的 ev.History 是否
+		// 与 wire 同源尚未验证——贸然注入会付全价却拿不到前缀缓存。
+		// 装配层折叠（application/core/context_runtime，回合开始前那条路径）
+		// 已注入，因为它手里正好握着上一次真实请求的三样原件，见
+		// MainCompactionDAG。未注入时 Chapter 2 恒本地折叠。
 		Compaction: seelexctx.NewCompactionDAG(seelexctx.CompactionDAGOptions{
 			SessionIDProvider: r.MainSessionID,
 			SystemPrompt: func() string {
@@ -249,12 +253,74 @@ func (r *Runtime) seelexController() seelectx.ContextController {
 // 为什么用 ContextWindow 的保守份额而不是硬阈值：分片是"压缩区自身大到一次发不出"
 // 的容灾路径，判据应当是"这一次请求能不能装下原始溢出区"，而不是"要不要现在压缩"。
 // 取窗口的 3/4 给正文、留 1/4 给 system/tools/指令与估算偏差。
+//
+// limits.context_compaction_summary.input_tokens > 0 时以配置为准；未配置才走
+// 这里的推导——旋钮的零值必须是"沿用既有行为"，否则加了它就静默改掉片预算。
 func (r *Runtime) replayInputTokens() int {
+	if configured := r.limits.ContextCompactionSummary.InputTokens; configured > 0 {
+		return configured
+	}
 	window := r.ContextWindow()
 	if window <= 0 {
 		return 0
 	}
 	return window * 3 / 4
+}
+
+// compactionSummarizer 按开关构造前缀重放厚摘要器（limits.context_compaction_summary）。
+//
+// 关闭、QuickChat 装配失败、摘要器构造失败三种情况一律返回 **nil**：nil 是
+// chapter2Node 的显式判据（`d.opts.Summarizer != nil`），落到本地确定性折叠，
+// 既不报错也不静默降级成"发一次没有缓存的调用"。QuickChat 走的是与
+// seelexCompressor 同一条构造路径（共享账号 completer 的隔离调用，无工具、
+// 独立 history），不第二次装配 completer。
+func (r *Runtime) compactionSummarizer() seelexctx.PrefixReplaySummarizer {
+	if !r.limits.ContextCompactionSummary.Enabled {
+		return nil
+	}
+	quickChat, err := seelectx.NewQuickChat(r.completer)
+	if err != nil || quickChat == nil {
+		return nil
+	}
+	summarizer, err := seelexctx.NewQuickChatPrefixReplaySummarizer(quickChat)
+	if err != nil {
+		return nil
+	}
+	return summarizer
+}
+
+// MainCompactionDAG 返回**装配层折叠**（application/core/context_runtime，回合
+// 开始前那条路径）用的压缩 DAG 执行器。
+//
+// 与 seelexController 里那份的差别只有一处、但很关键：这份**注入 Summarizer**。
+// 装配层在折叠那一刻手里握着上一次真实请求的 system / history / tools 三样原件
+// （coordinator.go 的 systemPrompt / existing / tools，全部来自产出该请求的同一
+// 条装配路径），因此重放请求能与真实请求共享字节前缀、几乎全命中缓存——详设 §9
+// 风险 1 的启用前提在这条路径上是**满足**的。控制器路径拿到的 ev.History 是否
+// 与 wire 同源尚未验证，所以那边仍不注入。
+//
+// SystemPrompt / Tools 与 seelexController 同源（会话上下文存储 + 可见工具），
+// 保证两条路径产出的帧形状一致。
+func (r *Runtime) MainCompactionDAG() *seelexctx.CompactionDAG {
+	return seelexctx.NewCompactionDAG(seelexctx.CompactionDAGOptions{
+		SessionIDProvider: r.MainSessionID,
+		Summarizer:        r.compactionSummarizer(),
+		SystemPrompt: func() string {
+			if store := r.sessionContextStore(); store != nil {
+				return store.SystemPrompt()
+			}
+			return ""
+		},
+		Tools: func() []types.Tool {
+			if r.agt == nil {
+				return nil
+			}
+			return r.agt.VisibleTools(context.Background())
+		},
+		Chapter2MaxTokens: r.limits.ContextCompactionSummary.Chapter2Tokens,
+		FrameCarryTokens:  r.limits.ContextFrameCarryTokens,
+		ReplayInputTokens: r.replayInputTokens(),
+	})
 }
 
 // sessionContextStore 返回绑定的会话上下文存储（nil = 未绑定）。

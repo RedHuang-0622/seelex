@@ -137,12 +137,40 @@ type Limits struct {
 	// 关就是关（不静默降级成同步执行），可一键回滚。
 	// 规格：docs/2026-09-24-async-tool-deferred-ack/README.md §8。
 	AsyncExec AsyncExecLimits `yaml:"async_exec"`
+	// ContextCompactionSummary 是**折叠处 LLM 章节化摘要**（前缀重放厚摘要）的
+	// 开关块。默认 false = 关闭：折叠恒走本地确定性折叠（summary_source=local），
+	// 一次模型调用都不发。关就是关（不静默降级），可一键回滚。
+	//
+	// 打开的代价必须写清楚：这是**新增的、无人值守的付费调用**——每次折叠一次，
+	// 溢出区超过片预算时分片重放会按片多次。收益是帧 Chapter 2 从"元数据投影"
+	// 变成真摘要（Errors and Fixes / Pending / Next Step 三节不再恒 (none)），
+	// 从而给 search_history 的词法初筛提供有区分度的关键词。
+	ContextCompactionSummary CompactionSummaryLimits `yaml:"context_compaction_summary"`
 }
 
 // AsyncExecLimits 是后台命令轮询切片的开关块。零值（含整个块缺失）= 关闭，
 // 因此不需要在 DefaultLimits / WithDefaults 里重复声明默认。
 type AsyncExecLimits struct {
 	Enabled bool `yaml:"enabled"`
+}
+
+// CompactionSummaryLimits 是折叠处 LLM 章节化摘要的开关块。零值（含整个块
+// 缺失）= 关闭，因此同样不需要在 DefaultLimits / WithDefaults 里声明默认。
+//
+// 两个 token 字段的零值各自回退到消费方的既有兜底常量（InputTokens → 不分片；
+// Chapter2Tokens → seelexctx.PrefixReplayMaxTokens），不在这里重复声明，避免
+// 同一数字两处维护。
+type CompactionSummaryLimits struct {
+	Enabled bool `yaml:"enabled"`
+	// InputTokens 是分片重放的**片预算**（模型输入侧）：溢出区自身超过它时按
+	// 协议单元切片逐片重放、摘要前向传递（见 ChunkReplayMessages /
+	// SummarizeChunkPlan）。0 = 未配置 → 沿用既有推导（账号上下文窗口 × 3/4，
+	// 见 seelebridge 的 replayInputTokens）；写负值在 LoadLimits 报错。
+	// 注意"不分片"不是 0 的语义——那会静默改掉既有推导。
+	InputTokens int `yaml:"input_tokens"`
+	// Chapter2Tokens 是厚摘要的输出预算。0 → PrefixReplayMaxTokens（2048）。
+	// QuickChat 通道未透传预算时仅作记录。
+	Chapter2Tokens int `yaml:"chapter2_tokens"`
 }
 
 // DefaultLimits 返回全部默认值（与重构前的硬编码常量一一对应，行为不变）。
@@ -381,7 +409,8 @@ func LoadLimits(path string) (Limits, error) {
 		check.SessionNameRunes < 0 || check.PreflightRetry < 0 || check.OutputReserveTokens < 0 ||
 		check.ToolTokenOverhead < 0 || check.ContextMaxUnits < 0 || check.MessageShardSize < 0 || check.SummaryChars < 0 || check.TodoMaxItems < 0 || check.WorkTableRows < 0 || check.WalkTimeoutSec < 0 ||
 		check.MaxToolResultChars < 0 || check.SnapshotToolOutputChars < 0 || check.DockerStartTimeoutSec < 0 ||
-		check.ForkTimeoutSec < 0 || check.ContextRetainFloorPercent < 0 || check.ContextFrameCarryTokens < 0 {
+		check.ForkTimeoutSec < 0 || check.ContextRetainFloorPercent < 0 || check.ContextFrameCarryTokens < 0 ||
+		check.ContextCompactionSummary.InputTokens < 0 || check.ContextCompactionSummary.Chapter2Tokens < 0 {
 		return Limits{}, fmt.Errorf("limits: values must not be negative")
 	}
 	// 比例类旋钮的超界不再静默回退默认值（那会把「用户写错了」吞成「看起来生效」）：
