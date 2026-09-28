@@ -97,6 +97,11 @@ limits:
   # 只在**装配层折叠**（回合开始前那条路径）注入：那里手里握着上一次真实请求的
   # system/history/tools 三样原件，重放请求能与真实请求共享字节前缀、几乎全命中
   # 缓存。回合内控制器路径的字节同源性尚未验证，暂不注入（会付全价却拿不到缓存）。
+  # 接线（2026-09-29）：装配层折叠推帧这一跳现在真的会走这条 DAG
+  # （application/core/context_runtime 的 pushCompactionFrame →
+  # seelebridge/runtime_compaction_index.go 的 PushCompactionFrame →
+  # MainCompactionDAG），因此**打开就生效**：栈帧 summary_source=replay、帧正文原样
+  # 嵌入该摘要；关闭恒本地折叠（summary_source=local）。
   # context_compaction_summary:
   #   enabled: false
   #   input_tokens: 0        # 分片重放片预算；0 = 沿用既有推导（账号窗口 × 3/4），不是"不分片"

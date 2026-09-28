@@ -124,12 +124,43 @@ version when it lands.
   projection: "Errors and fixes / Pending / Next step" are no longer a constant `(none)`, which is what
   gives `search_history`'s deterministic lexical first pass something to match. The in-turn controller
   path still injects no summarizer: its `ev.History` is not yet proven byte-identical to the wire
-  request, and a replay that misses the prefix cache pays full price for nothing. **Not yet live:**
-  nothing calls `MainCompactionDAG` — the coordinator's fold path (`context_runtime.Deps`) has no
-  injection point for it — so turning the switch on changes nothing until that wiring lands.
+  request, and a replay that misses the prefix cache pays full price for nothing. **Live since the
+  assembly-fold frame push landed** (see the entry under **Fixed**): the fold path now reaches
+  `MainCompactionDAG` through `PushCompactionFrame`, so `enabled: true` changes behavior — the stack
+  frame's `summary_source` reads `replay`, and the frame body embeds that summary verbatim.
 
 ### Fixed
 
+- **An assembly-layer fold never pushed its frame onto the session's compaction stack, so the three
+  paths that read that stack were dead for every session whose folds happen only there.** `190049e`
+  added the capability face (`context_runtime.CompactionIndexPort`), the landing site
+  (`seelebridge.Runtime.PushCompactionFrame`) and the adapter — but no caller: `Deps` had no
+  injection point and the coordinator never probed for one (`git grep PushCompactionFrame` hit only
+  those three). The compaction stack therefore stayed empty for the fold path that actually runs
+  most often (soft line / `/compact` / `compact_context`), which silently disabled every reader: the
+  memory-block first pass returns nil, `search_history` degrades to a tail scan, and gap coverage
+  skips itself. The assembler now probes the runtime for that narrow optional interface
+  (`application/core/service_assembler.go`) — a failed probe means "no index", which is the correct
+  behavior and must not force every fake/harness to grow an empty method. The fold landing site
+  calls `pushCompactionFrame` once (`context_runtime/compaction_index.go`), taking every input from
+  the fold itself instead of recomputing it: the overflow is `transcript[retainedFrom:compressedTo]`
+  (anything before `retainedFrom` is already covered by earlier frames, and re-feeding it would make
+  search hit the same content twice), the replay material is `existing` (the previous real request's
+  history bytes — rebuilding it from the event stream would lose byte identity, and with it the
+  prefix cache the replay was buying) and the range is the recorded `TranscriptPrefixRange` value
+  (`EventSeq` is the authoritative fact on this side; unit indices are reverse-looked-up by the
+  receiver — the two are not subtraction). A seventh gate (`index`) joins the authoritative order
+  `judge → assemble → replace → index → frame → store → record`, with the frontend label table
+  pinned to that order by a test; the frame body carries `segment_id` / `summary_source` and embeds
+  the stack frame's summary verbatim. Degradations are booked separately, because "never tried"
+  (index face not assembled → `index=unavailable`), "tried and failed" (`index=error err=…`) and
+  "nothing to push" (`index=skipped reason=no_overflow`) are three different facts — and a failed
+  push never interrupts the fold or the request. Teeth: `TestFoldPushesCompactionFrameIntoIndex`,
+  `TestFoldWithoutIndexFaceReportsDegradedGate`, `TestFoldPushFailureIsReportedNotFatal`,
+  `TestFoldWithoutOverflowReportsSkippedNotUnavailable`
+  (`application/core/context_compact_index_test.go`) and `TestFrontendGateLabelsMatchBackendOrder`.
+  Side effect: `limits.context_compaction_summary` is no longer a switch that does nothing when
+  opened (see the entry under **Changed**).
 - **A fold's record vanished on the very next round, and a message sent while browsing history was
   swallowed.** Both are state-ownership bugs behind one field report ("after a fold the next round's
   compaction is nowhere to be found; my input is gone and nothing on screen moves until the round
