@@ -65,6 +65,10 @@ type fakeApplication struct {
 	fileRel           string
 	fileLimit         int64
 	fileErr           error
+	writeRel          string
+	writeContent      string
+	writeResult       dto.FileWriteResult
+	writeErr          error
 	metaSessionID     string
 	sessionMeta       application.SessionMeta
 	archivedSession   string
@@ -264,6 +268,12 @@ func (fake *fakeApplication) WorkspaceFileContent(relPath string, limit int64) (
 	fake.fileRel = relPath
 	fake.fileLimit = limit
 	return fake.fileContent, fake.fileErr
+}
+
+func (fake *fakeApplication) WorkspaceWriteFile(relPath, content string) (dto.FileWriteResult, error) {
+	fake.writeRel = relPath
+	fake.writeContent = content
+	return fake.writeResult, fake.writeErr
 }
 
 func (fake *fakeApplication) ToolResultContent(_ context.Context, resultRef string, offset, limit int) (application.ToolResultPage, error) {
@@ -501,6 +511,61 @@ func TestBridgeWorkspaceFileContentForwardsPathAndLimit(t *testing.T) {
 	}
 	if content.Name != "main.go" || content.Path != "src/main.go" || content.TextLike != true {
 		t.Fatalf("unexpected file content: %+v", content)
+	}
+}
+
+func TestBridgeWorkspaceWriteFileForwardsPathAndContent(t *testing.T) {
+	t.Parallel()
+	fake := newFakeApplication()
+	fake.writeResult = dto.FileWriteResult{Path: "src/main.go", Size: 5, Limit: 64 << 20}
+	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := bridge.WorkspaceWriteFile("src/main.go", "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.writeRel != "src/main.go" || fake.writeContent != "hello" {
+		t.Fatalf("forwarded rel=%q content=%q", fake.writeRel, fake.writeContent)
+	}
+	if result.Path != "src/main.go" || result.Size != 5 {
+		t.Fatalf("unexpected write result: %+v", result)
+	}
+}
+
+// TestEmbeddedFilePreviewEditWiring：「文件详情」面板的编辑面必须在嵌入前端里
+// 真的接起来——编辑器（Ctrl+S 保存）、保存通道（Bridge.WorkspaceWriteFile）、
+// 脏关闭的保存选择弹窗三者缺一，用户看到的就是"能改字但存不回去"。
+func TestEmbeddedFilePreviewEditWiring(t *testing.T) {
+	t.Parallel()
+	script, err := embeddedFrontend.ReadFile("frontend/dist/app.js")
+	if err != nil {
+		t.Fatalf("embedded frontend app.js: %v", err)
+	}
+	index, err := embeddedFrontend.ReadFile("frontend/dist/index.html")
+	if err != nil {
+		t.Fatalf("embedded frontend index.html: %v", err)
+	}
+	preview, err := embeddedFrontend.ReadFile("frontend/dist/file-preview.js")
+	if err != nil {
+		t.Fatalf("embedded frontend file-preview.js: %v", err)
+	}
+	previewSource := string(preview)
+	if !strings.Contains(string(script), `invoke("WorkspaceWriteFile"`) {
+		t.Fatal("文件详情编辑必须经 Bridge.WorkspaceWriteFile 落盘（不得只在前端留一份假保存）")
+	}
+	if !strings.Contains(string(script), "writer:") || !strings.Contains(string(script), "confirmSave") {
+		t.Fatal("文件预览控制器必须接上写入面与脏关闭的保存选择")
+	}
+	if !strings.Contains(previewSource, "canEditPreview") || !strings.Contains(previewSource, "serializeEditableText") {
+		t.Fatal("文件预览必须按可编辑判定与编码基线（EOL/BOM）写回，而不是把编辑器字符串直接落盘")
+	}
+	for _, id := range []string{"file-save-modal", "file-save-keep", "file-save-discard", "file-save-cancel"} {
+		if !strings.Contains(string(index), `id="`+id+`"`) {
+			t.Fatalf("缺少保存选择弹窗元素 %s", id)
+		}
 	}
 }
 

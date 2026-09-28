@@ -258,6 +258,32 @@ func (service *Service) WorkspaceFileContent(relPath string, limit int64) (dto.F
 	return port.ReadFile(root, relPath, limit)
 }
 
+// WorkspaceWriteFile 用 content 覆盖当前工作区某文件的全部内容（「资源管理器 →
+// 文件详情」面板的编辑保存数据源）。root 只来自后端当前 workspace，客户端只能传
+// 相对路径；可见性边界（containment / 忽略目录 / 敏感文件名 / 符号链接 / 二进制 /
+// 上限）在 workspace 层保证，且写入是原子发布——因此保存成功后调用方读回同一路径
+// 就能把编辑器基线同步到实际文件。
+//
+// 权限口径：这是**用户自己**在面板里点下的保存（用户即动作主体，点击就是同意），
+// 不走主代理权限档位与执行选择页面——档位管的是"主 agent 能不能动你的文件"，不是
+// "你能不能改自己的文件"。工具面（write_file/edit_file）的档位判定一字未动。
+func (service *Service) WorkspaceWriteFile(relPath, content string) (dto.FileWriteResult, error) {
+	service.ViewMu.RLock()
+	root := ""
+	if service.Core.Snapshot.CurrentWorkspace != nil {
+		root = service.Core.Snapshot.CurrentWorkspace.RootPath
+	}
+	service.ViewMu.RUnlock()
+	if root == "" {
+		return dto.FileWriteResult{}, errors.New("worktree: no workspace bound to current session")
+	}
+	port, ok := service.Deps.Workspace.(contract.WorkspaceFileWritePort)
+	if !ok {
+		return dto.FileWriteResult{}, errors.New("worktree: workspace backend does not support file editing")
+	}
+	return port.WriteFile(root, relPath, []byte(content))
+}
+
 // workspaceTreePort 读取当前工作区 root（锁内快照拷贝，锁外做文件 I/O）并
 // 断言 WorkspacePort 实现 optional 树端口。
 func (service *Service) workspaceTreePort() (contract.WorkspaceTreePort, string, error) {

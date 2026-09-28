@@ -113,6 +113,12 @@ func (port WorkspacePort) ReadFile(root, relPath string, limit int64) (dto.FileC
 	return port.Repo.ReadFile(root, relPath, limit)
 }
 
+// WorkspaceFileWritePort 实现：转发给 Repo（文件详情编辑保存；可见性边界与
+// 原子发布在 workspace 域内保证）。
+func (port WorkspacePort) WriteFile(root, relPath string, content []byte) (dto.FileWriteResult, error) {
+	return port.Repo.WriteFile(root, relPath, content)
+}
+
 func adaptWorkspace(item workspace.Info) model.WorkspaceInfo {
 	return model.WorkspaceInfo{
 		ID:        item.ID,

@@ -172,10 +172,16 @@
 ### workspace_file_usecase_test.go
 
 - `func (fake *fileFakeWorkspace) ReadFile(root, relPath string, limit int64) (dto.FileContent, error)`
+- `func (fake *fileFakeWorkspace) WriteFile(root, relPath string, content []byte) (dto.FileWriteResult, error)`
+- `func (fake *readOnlyFileFakeWorkspace) ReadFile(root, relPath string, limit int64) (dto.FileContent, error)`
 - `func TestWorkspaceFileContentForwardsCurrentWorkspaceRoot(t *testing.T)`
 - `func TestWorkspaceFileContentRejectsWithoutBoundWorkspace(t *testing.T)`
 - `func TestWorkspaceFileContentFallsBackWhenBackendLacksFilePort(t *testing.T)`
 - `func TestWorkspaceFileContentUseCaseReadsRealFilesystem(t *testing.T)` — TestWorkspaceFileContentUseCaseReadsRealFilesystem 走真实 workspace.Repo
+- `func TestWorkspaceWriteFileForwardsCurrentWorkspaceRoot(t *testing.T)` — TestWorkspaceWriteFileForwardsCurrentWorkspaceRoot：编辑保存走的是与预览读取
+- `func TestWorkspaceWriteFileRejectsWithoutBoundWorkspace(t *testing.T)`
+- `func TestWorkspaceWriteFileRejectsReadOnlyBackend(t *testing.T)`
+- `func TestWorkspaceWriteFileUseCaseWritesRealFilesystem(t *testing.T)` — TestWorkspaceWriteFileUseCaseWritesRealFilesystem：真实 workspace.Repo 上的
 
 ### workspace_tree_usecase_test.go
 
@@ -204,6 +210,7 @@
 - `func (service *Service) WorkspaceGitLog(limit int) (dto.GitLogResult, error)` — WorkspaceGitLog 返回当前工作区最近 limit 条提交（含父提交拓扑；GUI
 - `func (service *Service) WorkspaceChanges(limit int) (dto.WorkspaceChangesResult, error)` — WorkspaceChanges 返回当前工作区未提交的改动（GUI 工作区更改面板数据源；
 - `func (service *Service) WorkspaceFileContent(relPath string, limit int64) (dto.FileContent, error)` — WorkspaceFileContent 读取当前工作区某文件的前 limit 字节（GUI 文件预览
+- `func (service *Service) WorkspaceWriteFile(relPath, content string) (dto.FileWriteResult, error)` — WorkspaceWriteFile 用 content 覆盖当前工作区某文件的全部内容（「资源管理器 →
 - `func (service *Service) workspaceTreePort() (contract.WorkspaceTreePort, string, error)` — workspaceTreePort 读取当前工作区 root（锁内快照拷贝，锁外做文件 I/O）并
 - `func (service *Service) collectWorkspaceProjection() workspaceStateProjection` — collectWorkspaceProjection 在获取 service.ViewMu 之前执行 WorkspacePort I/O。
 - `func (service *Service) applyWorkspaceProjectionLocked(projection workspaceStateProjection)`

@@ -61,3 +61,13 @@ type FileContent struct {
 	Truncated bool   `json:"truncated"` // Size > Limit，内容已截断
 	TextLike  bool   `json:"text_like"` // 二进制探测：可安全按文本展示
 }
+
+// FileWriteResult 是工作树文件写入（文件详情编辑保存）的结果。
+// 只报告"落到哪个相对路径、写了多少字节"：写入是原子发布（同目录临时文件 +
+// rename），因此保存成功即"磁盘上的内容就是这一份"，调用方随后按同一路径读回
+// 就能把编辑器基线同步到实际文件——这是编辑面唯一的成功判据，不靠回执自证。
+type FileWriteResult struct {
+	Path  string `json:"path"`  // 相对工作区根路径（/ 分隔）
+	Size  int64  `json:"size"`  // 写入后的文件字节数
+	Limit int64  `json:"limit"` // 生效的单次写入上限（字节）
+}

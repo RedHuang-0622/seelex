@@ -91,6 +91,10 @@ type Application interface {
 	// 数据源；root 只来自后端当前 workspace，containment/敏感过滤在
 	// workspace 层保证；只读受控字节，不进快照）。
 	WorkspaceFileContent(relPath string, limit int64) (dto.FileContent, error)
+	// WorkspaceWriteFile 覆盖当前工作区某文件的全部内容（文件详情面板的
+	// 编辑保存；可见性边界与原子发布在 workspace 层保证）。用户即动作主体，
+	// 不走主代理权限档位与审批；未装配写端口的宿主显式报错。
+	WorkspaceWriteFile(relPath, content string) (dto.FileWriteResult, error)
 	// ToolResultContent 按 result_ref 分页读回完整工具输出（快照被截断的
 	// 工具输出，前端"加载完整输出"数据源；复用 read_tool_result 通道）。
 	ToolResultContent(context.Context, string, int, int) (application.ToolResultPage, error)
@@ -1266,6 +1270,13 @@ func (bridge *Bridge) WorkspaceChanges(limit int) (dto.WorkspaceChangesResult, e
 // 在 application + workspace 层保证；只读受控字节，不进快照）。
 func (bridge *Bridge) WorkspaceFileContent(relPath string, limit int64) (dto.FileContent, error) {
 	return bridge.app.WorkspaceFileContent(relPath, limit)
+}
+
+// WorkspaceWriteFile 转发工作树文件写入（「文件详情」面板的编辑保存）：用户
+// 自己按下的保存，是用户动作而不是主代理动作——不经过权限档位与执行选择页面；
+// 可见性边界、二进制拒绝与原子发布在 application + workspace 层保证。
+func (bridge *Bridge) WorkspaceWriteFile(relPath, content string) (dto.FileWriteResult, error) {
+	return bridge.app.WorkspaceWriteFile(relPath, content)
 }
 
 // ToolResultContent 按 result_ref 分页读回完整工具输出（快照被截断的

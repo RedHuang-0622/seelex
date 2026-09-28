@@ -92,6 +92,7 @@ const elements = Object.fromEntries([
   "role-session-modal", "role-session-close", "role-session-modal-title", "role-session-view",
   "right-tabs", "goal-section", "goal-badge", "goal-view", "code-panes", "code-pane-tabs", "code-pane-worktree", "code-pane-gitlog", "git-log-view", "git-log-count", "code-pane-changes", "changes-view", "changes-count",
   "file-preview-pane", "file-preview-view", "file-preview-tabs", "file-preview-hide-panes", "file-preview-close", "file-preview-divider", "file-preview-collapse", "file-preview-rail",
+  "file-save-modal", "file-save-title", "file-save-message", "file-save-keep", "file-save-discard", "file-save-cancel",
   "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "terminal-scrollback", "theme-picker", "mode-picker", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
   "load-history", "latest-history", "interaction-modal", "perm-toggle", "perm-menu", "interaction-risk", "interaction-title", "permission-tier-list",
@@ -473,12 +474,29 @@ const workspaceChangesView = createWorkspaceChangesView(elements["changes-view"]
 // 文件预览（「资源管理器」子页左抽屉）：工作树文件点击 → 后端读取受控字节
 // （containment/敏感过滤/上限在 workspace 层保证）→ 按类型分派渲染。
 // 容器是「多文件详情」：每个文件一枚上标 chip + 一个独立面板；最后一个 chip
-// 关闭（容器为空）时回调 onEmpty → 抽屉收起、子页恢复原来大小（工作树/提交
-// 记录重新占满）。
+// 关闭（容器为空）时回调 onEmpty → 抽屉收起、子页恢复原来大小（工作树/提交记录
+// 重新占满）。
+//
+// 编辑面（Ctrl+S 保存，见 file-preview.js）：writer 是落盘通道，confirmSave 是
+// 「还有未保存内容」时的保存选择弹窗，onSaved 在保存成功后把改动面刷回资源管理器
+// （文件的 git 状态变了，工作区更改面板必须跟上）。
 const filePreviewController = createFilePreviewController({
   view: elements["file-preview-view"],
   tabsHost: elements["file-preview-tabs"],
   loader: async (entry, kind, limit) => invoke("WorkspaceFileContent", entry.path, limit),
+  writer: async (entry, text) => {
+    // 工作区切换守卫：面板里的文件属于打开它的那个工作区。切换后若还拿着旧面板
+    // 保存，同样的相对路径会落到新工作区里的另一个文件上——静默覆盖别人的文件是
+    // 最不可接受的失败面，因此宁可显式拒绝（重新打开该文件即恢复可保存）。
+    const currentRoot = client.current()?.current_workspace?.root_path || "";
+    if (previewRoot && currentRoot && currentRoot !== previewRoot) {
+      throw new Error("工作区已切换，请重新打开该文件后再保存");
+    }
+    return invoke("WorkspaceWriteFile", entry.path, text);
+  },
+  confirmSave: confirmPreviewSave,
+  onSaved: () => { refreshExplorerPages(["changes"]); },
+  onNotice: message => showToast(message),
   onError: showToast,
   onEmpty: () => closeFilePreview()
 });
@@ -3986,6 +4004,11 @@ document.addEventListener("keydown", event => {
     openCommandPalette("/");
   }
   if (event.key === "Escape") {
+    // 保存选择弹窗优先：Esc = 取消这次决定（不动作、不丢内容），不顺势往下关抽屉。
+    if (pendingSaveChoice) {
+      resolveSaveChoice("cancel");
+      return;
+    }
     closePermissionMenu();
     closeRuntime();
     closeCommandPalette();
@@ -4381,9 +4404,12 @@ function openFilePreview(entry) {
   revealView("code");
 }
 
-function closeFilePreview() {
+async function closeFilePreview() {
   const pane = elements["file-preview-pane"];
   if (!previewPaneOpen && (!pane || pane.classList.contains("is-closed"))) return;
+  // 关之前先过未保存守卫：还有编辑没落盘时弹窗问保存/不保存/取消；用户取消
+  // （或保存失败）就原样留着抽屉，不静默丢内容。
+  if (!(await filePreviewController.requestCloseAll())) return;
   previewPaneOpen = false;
   // 容器生命周期结束（主动收起 / 最后一个 chip 关闭）→ 恢复原来大小：
   // 工作树与提交记录重新占满子页。
@@ -4394,6 +4420,46 @@ function closeFilePreview() {
   syncPreviewLayout();
   filePreviewController.clear();
 }
+
+// ── 文件详情的「保存选择」弹窗 ──────────────────────────────
+// 「编辑参考 VS Code」的另一半：只有 Ctrl+S 才落盘，因此**退出编辑 / 关闭 chip /
+// 收起抽屉**这三条路上若还有未保存内容，必须先问一次——保存 / 不保存 / 取消。
+// 三个选项都是显式选择：没有默认动作，直接丢掉用户刚写的字是最不可接受的失败面。
+// 返回 "save" | "discard" | "cancel"（未决弹窗只允许一枚：再次调用把上一枚按取消收口）。
+let pendingSaveChoice = null;
+
+function confirmPreviewSave({ paths = [] } = {}) {
+  const list = Array.isArray(paths) ? paths.filter(Boolean) : [];
+  if (!list.length) return Promise.resolve("discard");
+  elements["file-save-message"].textContent = list.length === 1
+    ? `${list[0]} 有未保存的修改。`
+    : `${list.length} 个文件有未保存的修改：${list.join("、")}`;
+  // 上一枚仍未决：按"取消"收口（绝不让两枚弹窗叠着，也绝不替用户选"不保存"）。
+  if (pendingSaveChoice) pendingSaveChoice("cancel");
+  setModal("file-save-modal", true);
+  return new Promise(resolve => {
+    pendingSaveChoice = choice => {
+      pendingSaveChoice = null;
+      setModal("file-save-modal", false);
+      resolve(choice);
+    };
+  });
+}
+
+function resolveSaveChoice(choice) {
+  const resolve = pendingSaveChoice;
+  pendingSaveChoice = null;
+  setModal("file-save-modal", false);
+  if (resolve) resolve(choice);
+}
+
+elements["file-save-keep"].addEventListener("click", () => resolveSaveChoice("save"));
+elements["file-save-discard"].addEventListener("click", () => resolveSaveChoice("discard"));
+elements["file-save-cancel"].addEventListener("click", () => resolveSaveChoice("cancel"));
+elements["file-save-modal"].addEventListener("click", event => {
+  // 点遮罩 = 放弃这次决定（不动作，不丢内容）。
+  if (event.target === elements["file-save-modal"]) resolveSaveChoice("cancel");
+});
 
 // previewPaneWidth 预览列宽度：只保留下界，**不设固定上限**——容器封顶交给
 // CSS 的 min(var(--preview-w), calc(100% - 6px))。因此窗口/子页变窄时不会把已存

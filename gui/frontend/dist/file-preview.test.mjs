@@ -5,16 +5,21 @@ import {
   CODE_EXTENSIONS,
   PREVIEW_LIMITS,
   base64ToBytes,
+  baselineDriftNotice,
+  canEditPreview,
   closePreviewTab,
   codeLanguageForPath,
+  decodeEditableText,
   decodeFileText,
+  editDirty,
   formatPreviewSize,
   needsWholeFile,
   normalizePreviewTab,
   openPreviewTab,
   previewKindForPath,
   previewTabLabel,
-  renderPreviewTabsHTML
+  renderPreviewTabsHTML,
+  serializeEditableText
 } from "./file-preview.js";
 
 test("previewKindForPath dispatches by extension", () => {
@@ -173,4 +178,66 @@ test("renderPreviewTabsHTML marks the active chip, escapes text and carries a cl
   assert.ok(html.includes("&lt;b&gt;a&lt;/b&gt;"));
   // 空列表渲染为空串。
   assert.equal(renderPreviewTabsHTML([], ""), "");
+});
+
+// ── 编辑（Ctrl+S 保存 / 脏判定 / 编码基线）────────────────────
+
+test("canEditPreview allows text-like editable kinds only", () => {
+  const textPayload = { text_like: true, truncated: false };
+  for (const kind of ["code", "text", "markdown"]) {
+    assert.equal(canEditPreview(kind, textPayload), true, kind);
+  }
+  // 非文本类一律不给编辑入口（图片/PDF/Word 的"正文"不是文本）。
+  for (const kind of ["pdf", "word", "word-legacy", "image", "unsupported"]) {
+    assert.equal(canEditPreview(kind, textPayload), false, kind);
+  }
+  // 二进制探测为假 → 只读。
+  assert.equal(canEditPreview("code", { text_like: false }), false);
+  // **截断的读取不能编辑**：缓冲区里只有前半段，保存会把"看了一半"写成全文。
+  assert.equal(canEditPreview("text", { text_like: true, truncated: true }), false);
+  assert.equal(canEditPreview("text", null), false);
+  // 旧载荷缺 text_like：按"可文本"处理（与预览的兜底同口径）。
+  assert.equal(canEditPreview("text", { truncated: false }), true);
+});
+
+test("decodeEditableText records EOL and BOM, and refuses non-UTF-8", () => {
+  const plain = decodeEditableText(new TextEncoder().encode("a\nb\n"));
+  assert.deepEqual(plain, { text: "a\nb\n", eol: "\n", bom: false });
+  const crlf = decodeEditableText(new TextEncoder().encode("a\r\nb\r\n"));
+  assert.deepEqual(crlf, { text: "a\nb\n", eol: "\r\n", bom: false });
+  const bom = decodeEditableText(new TextEncoder().encode("\ufeffa\nb\n"));
+  assert.deepEqual(bom, { text: "a\nb\n", eol: "\n", bom: true });
+  // 非 UTF-8（GBK "编码" / UTF-16 BOM）→ null：宁可不给编辑入口，也不静默改编码。
+  assert.equal(decodeEditableText(new Uint8Array([0xB1, 0xE0, 0xC2, 0xEB])), null);
+  assert.equal(decodeEditableText(new Uint8Array([0xFF, 0xFE, 0x2D, 0x00])), null);
+});
+
+test("serializeEditableText round-trips the file's encoding facts", () => {
+  const baseline = { eol: "\r\n", bom: true };
+  const encoded = serializeEditableText("x\ny\n", baseline);
+  assert.equal(encoded, "\ufeffx\r\ny\r\n");
+  const back = decodeEditableText(new TextEncoder().encode(encoded));
+  assert.deepEqual(back, { text: "x\ny\n", eol: "\r\n", bom: true });
+  // 编辑器回传 CRLF 也不重复还原（先归一），LF 文件保持 LF。
+  assert.equal(serializeEditableText("x\r\ny", { eol: "\n", bom: false }), "x\ny");
+  assert.equal(serializeEditableText(null, {}), "");
+});
+
+test("editDirty compares normalized text and baselineDriftNotice names the drift", () => {
+  assert.equal(editDirty("a\nb", "a\nb"), false);
+  assert.equal(editDirty("a\nb", "a\r\nb"), false, "换行风格差异不算脏（编辑器归一后比较）");
+  assert.equal(editDirty("a\nb", "a\nc"), true);
+  assert.equal(editDirty("", null), false);
+  assert.equal(baselineDriftNotice("a\nb", "a\nb"), "");
+  assert.match(baselineDriftNotice("a\nb", "a\nc"), /已按磁盘内容刷新基线/);
+});
+
+test("renderPreviewTabsHTML marks dirty chips", () => {
+  const tabs = [{ path: "a.go", name: "a.go" }, { path: "b.go", name: "b.go" }];
+  const html = renderPreviewTabsHTML(tabs, "a.go", ["b.go"]);
+  assert.ok(html.includes("file-preview-chip is-dirty"), "脏 chip 必须有可见标记");
+  assert.ok(html.includes("file-preview-chip-dirty"));
+  assert.ok(html.includes("（未保存）"), "脏 chip 的提示文案要说明未保存");
+  const clean = renderPreviewTabsHTML(tabs, "", []);
+  assert.ok(!clean.includes("is-dirty"));
 });

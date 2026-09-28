@@ -164,6 +164,75 @@ export function needsWholeFile(kind) {
   return kind === "pdf" || kind === "word" || kind === "word-legacy" || kind === "image";
 }
 
+// ── 编辑（文件详情面板的写入面）──────────────────────────────
+// 「编辑参考 VSCode」：编辑一段缓冲区、**只有 Ctrl+S 才落盘**，退出/关闭前若还有
+// 未保存内容就弹窗让用户选保存/不保存/取消。因此这里需要三件纯事实：
+//   1. 这个文件能不能编辑（类型 + 是否文本 + 是否被截断 + 编码是否可回写）；
+//   2. 编辑器缓冲区与磁盘基线是不是同一份（脏判定）；
+//   3. 回写时怎么把编辑器正文还原成原文件的编码事实（EOL / BOM）。
+// 全部纯函数，node --test 直接钉住；控制器只做 DOM 与 Bridge 调用。
+
+// EDITABLE_PREVIEW_KINDS：可按文本编辑的预览类型。图片 / PDF / Word / 二进制
+// 不在其中——它们的"正文"不是文本，编辑面无从下手。
+export const EDITABLE_PREVIEW_KINDS = new Set(["code", "text", "markdown"]);
+
+// canEditPreview 判定一次读取结果能不能进编辑态：
+//   - 类型必须是文本类（见上）；
+//   - 后端二进制探测必须为文本（text_like=false 一律只读）；
+//   - **截断的读取不能编辑**：缓冲区里只有文件前半段，保存会把"看了一半"写成全文。
+export function canEditPreview(kind, payload) {
+  if (!EDITABLE_PREVIEW_KINDS.has(kind)) return false;
+  if (!payload) return false;
+  if (payload.truncated) return false;
+  return payload.text_like !== false;
+}
+
+// decodeEditableText 把字节解成编辑器基线 { text, eol, bom }；**不可回写时返回 null**：
+//   - 非 UTF-8（GBK / windows-1252 / UTF-16 都落在这里）：保存时会静默把文件改成
+//     UTF-8，那是用户没同意的编码变更，宁可不给编辑入口；
+//   - 其余按 UTF-8 解码，记下 BOM 与 EOL 风格（正文一律归一成 LF 供编辑器使用，
+//     回写时再由 serializeEditableText 还原）。BOM 从字节判定：UTF-8 解码器会把它吃掉。
+export function decodeEditableText(bytes) {
+  let text;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return null;
+  }
+  // BOM 只能从**字节**判：TextDecoder("utf-8") 默认把开头的 EF BB BF 当 BOM 吃掉，
+  // 解码后的字符串里已经没有 \uFEFF 了（回写时要按字节事实还原）。
+  const bom = bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf;
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  return { text: text.replace(/\r\n/g, "\n"), eol, bom };
+}
+
+// normalizeEditorText 把任意输入归一成 LF 正文（textarea 的 value 在不同浏览器/
+// 平台对换行的处理不完全一致，归一后所有比较都在同一套换行上做）。
+export function normalizeEditorText(value) {
+  return String(value ?? "").replace(/\r\n?/g, "\n");
+}
+
+// serializeEditableText 把编辑器正文还原成落盘字符串：EOL 风格与 BOM 回到原文件
+// 的样子（只改内容，不改文件的"编码事实"——否则一次保存会把整个文件的重行风格刷掉，
+// diff 里看起来像重写了每一行）。
+export function serializeEditableText(value, baseline = {}) {
+  const normalized = normalizeEditorText(value);
+  const body = baseline.eol === "\r\n" ? normalized.replace(/\n/g, "\r\n") : normalized;
+  return (baseline.bom ? "\ufeff" : "") + body;
+}
+
+// editDirty 脏判定：编辑器正文与磁盘基线是否不同（换行归一后比较）。
+export function editDirty(baselineText, currentText) {
+  return normalizeEditorText(currentText) !== normalizeEditorText(baselineText);
+}
+
+// baselineDriftNotice 给出"保存后读回"的提示文案：写入成功但读回的内容与写入不一致
+// （外部同时改了同一文件、编码回落等），基线必须**以磁盘为准**并如实告诉用户，
+// 而不是让编辑器继续相信"我刚写进去的就是磁盘内容"。
+export function baselineDriftNotice(writtenText, diskText) {
+  return editDirty(writtenText, diskText) ? "保存后读回的内容与写入不一致，已按磁盘内容刷新基线" : "";
+}
+
 // ── 多文件详情标签（纯函数）────────────────────────────────
 // 上标 chip 条的数据面：一份「已打开文件详情」的有序列表 + 当前激活项。
 // 全部纯函数，node --test 直接覆盖，不触碰 DOM / Bridge。
@@ -216,14 +285,18 @@ export function closePreviewTab(tabs, path, activePath = "") {
 }
 
 // renderPreviewTabsHTML 渲染上标 chip 条：每枚 chip = 一个已打开的文件详情，
-// 尾部一枚关闭按钮。全部文本 escape。
-export function renderPreviewTabsHTML(tabs, activePath = "") {
+// 尾部一枚关闭按钮。dirtyPaths 里的 chip 缀一枚未保存标记（●）——「编辑过但还没
+// Ctrl+S」这件事必须一眼看得见，否则用户关掉抽屉时才发现丢了内容。全部文本 escape。
+export function renderPreviewTabsHTML(tabs, activePath = "", dirtyPaths = []) {
   const list = Array.isArray(tabs) ? tabs : [];
+  const dirty = new Set(Array.isArray(dirtyPaths) ? dirtyPaths : []);
   return list.map(tab => {
     const active = tab.path === activePath;
     const label = tab.name || previewTabLabel(tab.path);
-    return `<span class="file-preview-chip${active ? " is-active" : ""}" role="tab" aria-selected="${String(active)}" data-preview-tab="${escapeHtml(tab.path)}" title="${escapeHtml(tab.path)}" tabindex="${active ? "0" : "-1"}">
+    const isDirty = dirty.has(tab.path);
+    return `<span class="file-preview-chip${active ? " is-active" : ""}${isDirty ? " is-dirty" : ""}" role="tab" aria-selected="${String(active)}" data-preview-tab="${escapeHtml(tab.path)}" title="${escapeHtml(isDirty ? `${tab.path}（未保存）` : tab.path)}" tabindex="${active ? "0" : "-1"}">
         <span class="file-preview-chip-label">${escapeHtml(label)}</span>
+        ${isDirty ? `<span class="file-preview-chip-dirty" title="有未保存的修改" aria-label="有未保存的修改">${icon("dot", 10)}</span>` : ""}
         <button type="button" class="file-preview-chip-close" data-preview-tab-close="${escapeHtml(tab.path)}" title="关闭 ${escapeHtml(tab.path)}" aria-label="关闭 ${escapeHtml(tab.path)}">${icon("close", 11)}</button>
       </span>`;
   }).join("");
@@ -232,22 +305,44 @@ export function renderPreviewTabsHTML(tabs, activePath = "") {
 // ── 控制器（DOM 依赖部分）──────────────────────────────────
 
 // createFilePreviewController 管理「多文件详情」容器的完整生命周期：
-//   loader(entry, kind, limit) → { base64, size, truncated, text_like }。
-// 每个文件详情一个独立面板（切换只切显隐，不重读、不丢滚动）；写入面板前
+//   loader(entry, kind, limit) → { base64, size, truncated, text_like }；
+//   writer(entry, text) → 落盘（Bridge.WorkspaceWriteFile）；
+//   confirmSave({ paths }) → "save" | "discard" | "cancel"（未接弹窗的宿主按"取消"
+//   处理：宁可不动作，也不静默丢掉用户刚编辑的内容）。
+// 每个文件详情一个独立面板（切换只切显隐，不重读、不丢滚动位置）；写入面板前
 // 递增该面板代数，废弃未完成的异步渲染（防串台）。最后一个 chip 关闭时清空
 // 容器并回调 onEmpty（app.js 据此收起抽屉、恢复子页原来大小）。
 // 没有独立的标题 / 元信息行：文件身份由 chip 标签条（tabsHost）承担。
-export function createFilePreviewController({ view, tabsHost, loader, onError, onEmpty }) {
+//
+// 编辑语义（与 VS Code 对齐）：**只有 Ctrl+S（或"保存"按钮）才落盘**；进入编辑态
+// 的正文与磁盘基线分开两份，脏状态由 editDirty 判定，chip 上以 ● 标出；关闭 chip /
+// 关闭抽屉 / 退出编辑时若有未保存内容，先弹窗让用户选保存 / 不保存 / 取消。保存成功
+// 后**读回实际文件**并把基线换成读回的那一份——基线只认磁盘，不认"我刚写进去的"。
+export function createFilePreviewController({
+  view, tabsHost, loader, writer, confirmSave, onSaved, onNotice, onError, onEmpty
+}) {
   const tabs = [];
-  const panels = new Map(); // path -> { el, generation, cleanups: [] }
+  const panels = new Map(); // path -> record
   let activePath = "";
+
+  // record = {
+  //   panel: 面板（显隐单位，含工具栏 + 正文两段）,
+  //   el: 正文容器（只读渲染与编辑器都写这里；也是滚动容器）,
+  //   toolbar: 编辑/保存动作条,
+  //   loaded: { kind, payload, bytes }（最后一次读取/保存后读回的事实）,
+  //   baseline: { text, eol, bom } | null（可编辑时的磁盘基线）,
+  //   edit: { textarea, status, saving } | null（编辑态）,
+  //   rendered: 只读视图是否已是当前内容,
+  //   generation / cleanups: 异步渲染防串台与资源回收,
+  // }
 
   if (tabsHost) {
     tabsHost.addEventListener("click", event => {
       const closeButton = event.target?.closest?.("[data-preview-tab-close]");
       if (closeButton) {
         event.preventDefault();
-        closeTab(closeButton.dataset.previewTabClose || "");
+        // 关 chip 前先过脏守卫（有未保存内容就弹窗问）。
+        void requestClose(closeButton.dataset.previewTabClose || "");
         return;
       }
       const chip = event.target?.closest?.("[data-preview-tab]");
@@ -276,6 +371,15 @@ export function createFilePreviewController({ view, tabsHost, loader, onError, o
     });
   }
 
+  // Ctrl+S = 保存当前激活面板正在编辑的内容（VS Code 口径：落盘只发生在这一个
+  // 动作上，不自动保存）。监听挂容器：编辑器 textarea 与动作条按钮的按键都冒泡到这里。
+  view?.addEventListener("keydown", event => {
+    if (!(event.ctrlKey || event.metaKey) || event.shiftKey || event.altKey) return;
+    if (String(event.key || "").toLowerCase() !== "s") return;
+    event.preventDefault();
+    if (activePath) void saveFile(activePath);
+  });
+
   function focusChip(path) {
     if (!tabsHost) return;
     const chip = Array.from(tabsHost.querySelectorAll("[data-preview-tab]"))
@@ -283,15 +387,41 @@ export function createFilePreviewController({ view, tabsHost, loader, onError, o
     chip?.focus?.();
   }
 
+  // dirtyPathList / isDirtyRecord 是脏状态的唯一判据（chip 的 ●、关闭前的弹窗、
+  // 「保存全部」都用它）：编辑器正文与磁盘基线不同即脏。
+  function isDirtyRecord(record) {
+    if (!record?.edit || !record.baseline) return false;
+    return editDirty(record.baseline.text, record.edit.textarea.value);
+  }
+
+  function dirtyPathList() {
+    const paths = [];
+    for (const [path, record] of panels) {
+      if (isDirtyRecord(record)) paths.push(path);
+    }
+    return paths;
+  }
+
   function syncChips() {
     if (!tabsHost) return;
-    tabsHost.innerHTML = renderPreviewTabsHTML(tabs, activePath);
+    tabsHost.innerHTML = renderPreviewTabsHTML(tabs, activePath, dirtyPathList());
     tabsHost.classList.toggle("hidden", tabs.length === 0);
+  }
+
+  // askDirtyChoice 把"有未保存内容"这件事交给宿主弹窗（保存 / 不保存 / 取消）。
+  // 未接弹窗（confirmSave 缺失或返回值不可识别）一律按"取消"：静默丢内容比多问一次
+  // 严重得多。
+  async function askDirtyChoice(paths) {
+    const list = Array.isArray(paths) ? paths.filter(Boolean) : [];
+    if (!list.length) return "discard";
+    if (typeof confirmSave !== "function") return "cancel";
+    const choice = await confirmSave({ paths: [...list] });
+    return choice === "save" || choice === "discard" ? choice : "cancel";
   }
 
   function showActivePanel() {
     for (const [path, record] of panels) {
-      record.el.classList.toggle("hidden", path !== activePath);
+      record.panel.classList.toggle("hidden", path !== activePath);
     }
   }
 
@@ -301,6 +431,9 @@ export function createFilePreviewController({ view, tabsHost, loader, onError, o
     view.innerHTML = '<div class="file-preview-notice">从工作树选择文件后在此查看详情</div>';
   }
 
+  // ensurePanel 建立面板骨架：面板 = 动作条（编辑/保存，按状态显隐）+ 正文容器。
+  // 正文容器才是渲染目标与滚动容器（只读渲染函数与编辑器都写它），因此切换编辑态
+  // 不会污染/重建另一段结构。
   function ensurePanel(tab) {
     const existing = panels.get(tab.path);
     if (existing) return existing;
@@ -309,12 +442,22 @@ export function createFilePreviewController({ view, tabsHost, loader, onError, o
       view.innerHTML = "";
       view.classList.remove("muted");
     }
-    const el = document.createElement("div");
-    el.className = "file-preview-panel hidden";
-    el.setAttribute("role", "tabpanel");
-    el.dataset.previewPanel = tab.path;
-    view?.appendChild(el);
-    const record = { el, generation: 0, cleanups: [] };
+    const panel = document.createElement("div");
+    panel.className = "file-preview-panel hidden";
+    panel.setAttribute("role", "tabpanel");
+    panel.dataset.previewPanel = tab.path;
+    const toolbar = document.createElement("div");
+    toolbar.className = "file-preview-toolbar";
+    toolbar.hidden = true;
+    const body = document.createElement("div");
+    body.className = "file-preview-panel-body";
+    panel.appendChild(toolbar);
+    panel.appendChild(body);
+    view?.appendChild(panel);
+    const record = {
+      path: tab.path, panel, el: body, toolbar,
+      generation: 0, cleanups: [], loaded: null, baseline: null, edit: null, rendered: false
+    };
     panels.set(tab.path, record);
     return record;
   }
@@ -331,43 +474,260 @@ export function createFilePreviewController({ view, tabsHost, loader, onError, o
     if (!record) return;
     record.generation += 1; // 废弃仍在飞行的异步渲染
     runCleanups(record);
-    record.el.remove();
+    record.panel.remove();
     panels.delete(path);
+  }
+
+  // ── 编辑态动作条 ─────────────────────────────────────────
+
+  function setEditStatus(record, text, tone = "") {
+    const status = record?.edit?.status;
+    if (!status) return;
+    status.textContent = text || "";
+    status.classList.toggle("is-dirty", tone === "dirty");
+    status.classList.toggle("is-failed", tone === "failed");
+  }
+
+  function refreshEditStatus(record) {
+    if (!record?.edit || record.edit.saving) return;
+    if (isDirtyRecord(record)) setEditStatus(record, "未保存", "dirty");
+    else setEditStatus(record, "已同步", "");
+  }
+
+  function actionButton(label, title, onClick, extraClass = "") {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `file-preview-action${extraClass ? ` ${extraClass}` : ""}`;
+    button.textContent = label;
+    button.title = title;
+    button.addEventListener("click", onClick);
+    return button;
+  }
+
+  // renderToolbar 按记录状态重绘动作条：只读 + 可编辑 → 「编辑」；编辑态 →
+  // 状态行 + 「保存」（Ctrl+S 等价）+ 「完成」；不可编辑/未加载 → 整条隐藏。
+  function renderToolbar(record) {
+    const toolbar = record?.toolbar;
+    if (!toolbar) return;
+    toolbar.innerHTML = "";
+    if (record.edit) {
+      const status = document.createElement("span");
+      status.className = "file-preview-edit-status";
+      record.edit.status = status;
+      toolbar.appendChild(status);
+      toolbar.appendChild(actionButton("保存", "保存到文件（Ctrl+S）", () => { void saveFile(record.path); }, "is-primary"));
+      toolbar.appendChild(actionButton("完成", "退出编辑（有未保存修改时会先问）", () => { void requestExitEdit(record.path); }));
+      toolbar.hidden = false;
+      refreshEditStatus(record);
+      return;
+    }
+    if (record.baseline && record.loaded) {
+      toolbar.appendChild(actionButton("编辑", "编辑并保存这个文件（Ctrl+S 保存）", () => beginEdit(record.path)));
+      toolbar.hidden = false;
+      return;
+    }
+    toolbar.hidden = true;
+  }
+
+  // renderPanel 把面板正文切到当前状态：编辑态 = 编辑器；其余按最后一次读取
+  // （或保存后读回）的字节重绘只读视图。
+  function renderPanel(record) {
+    renderToolbar(record);
+    if (record.edit) {
+      record.el.innerHTML = "";
+      record.el.classList.remove("muted");
+      record.el.appendChild(record.edit.textarea);
+      syncChips();
+      return;
+    }
+    if (record.loaded && !record.rendered) {
+      void renderLoaded(record);
+    } else {
+      syncChips();
+    }
+  }
+
+  function beginEdit(path) {
+    const record = panels.get(path);
+    if (!record?.baseline || record.edit || !record.loaded) return false;
+    const textarea = document.createElement("textarea");
+    textarea.className = "file-preview-editor";
+    textarea.spellcheck = false;
+    textarea.value = record.baseline.text;
+    textarea.setAttribute("aria-label", `${path} 编辑`);
+    textarea.addEventListener("input", () => {
+      refreshEditStatus(record);
+      syncChips();
+    });
+    record.edit = { textarea, status: null, saving: false };
+    // 编辑态不是"只读渲染"：退出编辑时必须按最新字节重绘（否则留在面板里的还是
+    // 编辑器的 DOM——一个已经不该存在的 textarea）。
+    record.rendered = false;
+    renderPanel(record);
+    textarea.focus?.();
+    return true;
+  }
+
+  // saveFile 是唯一的落盘路径（Ctrl+S 与「保存」按钮共用）：
+  //   1. 把编辑器正文按原文件的编码事实（EOL/BOM）序列化后交给 writer；
+  //   2. **读回实际文件**，基线换成读回的那一份（磁盘为准）；
+  //   3. 读回内容与刚写入的不一致（外部并发改动/编码回落）时提示用户。
+  async function saveFile(path) {
+    const record = panels.get(path);
+    if (!record?.edit || !record.baseline || !record.loaded) return false;
+    if (record.edit.saving) return false;
+    if (typeof writer !== "function") {
+      setEditStatus(record, "保存失败：宿主未提供写入面", "failed");
+      return false;
+    }
+    const text = normalizeEditorText(record.edit.textarea.value);
+    const outgoing = serializeEditableText(text, record.baseline);
+    record.edit.saving = true;
+    setEditStatus(record, "保存中…", "");
+    try {
+      await writer({ path, name: previewTabLabel(path) }, outgoing);
+      const kind = record.loaded.kind;
+      const limit = PREVIEW_LIMITS[kind] || PREVIEW_LIMITS.text;
+      const fresh = await loader({ path, name: previewTabLabel(path) }, kind, limit);
+      if (!fresh || !fresh.base64) throw new Error("保存后读回失败：文件内容不可读");
+      const freshBytes = base64ToBytes(fresh.base64);
+      const nextBaseline = decodeEditableText(freshBytes);
+      applyLoaded(record, kind, fresh);
+      let notice = "";
+      if (nextBaseline) {
+        notice = baselineDriftNotice(text, nextBaseline.text);
+        record.edit.textarea.value = nextBaseline.text;
+      } else {
+        // 读回的内容已不是可回写的 UTF-8（外部改成了别的编码）：基线作废，只提示。
+        record.baseline = null;
+        record.edit.textarea.value = decodeFileText(freshBytes);
+        notice = "保存后读回的内容无法按 UTF-8 解码，已按磁盘内容刷新基线（该文件不再可编辑）";
+      }
+      record.rendered = false;
+      record.edit.saving = false;
+      refreshEditStatus(record);
+      if (notice && onNotice) onNotice(notice);
+      if (onSaved) onSaved(path);
+      syncChips();
+      return true;
+    } catch (error) {
+      record.edit.saving = false;
+      setEditStatus(record, `保存失败：${error?.message || String(error)}`, "failed");
+      if (onError) onError(error);
+      return false;
+    }
+  }
+
+  // saveAll 按打开顺序逐个保存脏文件；任一失败即整体判失败（调用方据此不关闭面板，
+  // 让用户看得见失败原因）。
+  async function saveAll() {
+    let ok = true;
+    for (const path of dirtyPathList()) {
+      if (!(await saveFile(path))) ok = false;
+    }
+    return ok;
+  }
+
+  // requestExitEdit 退出编辑态：有未保存内容先问（保存 / 不保存 / 取消）。
+  async function requestExitEdit(path) {
+    const record = panels.get(path);
+    if (!record?.edit) return;
+    if (isDirtyRecord(record)) {
+      const choice = await askDirtyChoice([path]);
+      if (choice === "cancel") return;
+      if (choice === "save" && !(await saveFile(path))) return;
+    }
+    record.edit = null;
+    renderPanel(record);
+  }
+
+  // requestClose 关一个 chip：脏则先问（保存失败就不关，让用户看到失败）。
+  async function requestClose(path) {
+    const record = panels.get(path);
+    if (!record) return;
+    if (isDirtyRecord(record)) {
+      const choice = await askDirtyChoice([path]);
+      if (choice === "cancel") return;
+      if (choice === "save" && !(await saveFile(path))) return;
+    }
+    closeTab(path);
+  }
+
+  // requestCloseAll 收起整个抽屉前的守卫：返回 false 表示用户取消（或保存失败），
+  // 调用方必须原样保留当前状态。
+  async function requestCloseAll() {
+    const dirty = dirtyPathList();
+    if (!dirty.length) return true;
+    const choice = await askDirtyChoice(dirty);
+    if (choice === "cancel") return false;
+    if (choice === "save" && !(await saveAll())) return false;
+    return true;
   }
 
   async function loadInto(tab, record) {
     const generation = ++record.generation;
     runCleanups(record);
+    record.loaded = null;
+    record.baseline = null;
+    record.rendered = false;
     showBusy(record.el);
     const kind = previewKindForPath(tab.path);
     const limit = PREVIEW_LIMITS[kind] || PREVIEW_LIMITS.text;
-    const addCleanup = task => { if (typeof task === "function") record.cleanups.push(task); };
     try {
       const payload = await loader(tab, kind, limit);
       if (generation !== record.generation) return;
-      if (!payload || !payload.base64) {
-        renderNotice(record.el, "文件内容为空或不可读");
-        return;
-      }
-      const bytes = base64ToBytes(payload.base64);
-      const sizeText = formatPreviewSize(payload.size);
-      if (payload.truncated && needsWholeFile(kind)) {
-        renderNotice(record.el, `文件超过 ${sizeText}，暂不支持预览完整内容`);
-        return;
-      }
-      const truncated = Boolean(payload.truncated);
+      applyLoaded(record, kind, payload);
+      await renderLoaded(record, generation);
+    } catch (error) {
+      if (generation !== record.generation) return;
+      record.rendered = true;
+      renderNotice(record.el, `无法预览：${error?.message || String(error)}`);
+      if (onError) onError(error);
+    }
+    renderToolbar(record);
+  }
+
+  // applyLoaded 记录一次读取（或保存后读回）的事实：字节、可编辑时的编码基线。
+  // 基线是 null 就是"这个文件不给编辑入口"（类型不支持 / 二进制 / 截断 / 非 UTF-8）。
+  function applyLoaded(record, kind, payload) {
+    const bytes = payload?.base64 ? base64ToBytes(payload.base64) : null;
+    record.loaded = { kind, payload, bytes };
+    record.baseline = canEditPreview(kind, payload) && bytes ? decodeEditableText(bytes) : null;
+    record.rendered = false;
+  }
+
+  // renderLoaded 按最后一次读取的字节重绘只读正文（初始加载与"退出编辑"共用；
+  // generation 校验保证被更新的一代不会被旧渲染覆盖）。
+  async function renderLoaded(record, generation = record.generation) {
+    const loaded = record.loaded;
+    if (!loaded || !loaded.bytes) {
+      record.rendered = true;
+      renderNotice(record.el, "文件内容为空或不可读");
+      return;
+    }
+    const { kind, payload, bytes } = loaded;
+    const addCleanup = task => { if (typeof task === "function") record.cleanups.push(task); };
+    runCleanups(record);
+    const sizeText = formatPreviewSize(payload.size);
+    if (payload.truncated && needsWholeFile(kind)) {
+      record.rendered = true;
+      renderNotice(record.el, `文件超过 ${sizeText}，暂不支持预览完整内容`);
+      return;
+    }
+    const truncated = Boolean(payload.truncated);
+    try {
       switch (kind) {
         case "markdown":
           renderMarkdown(record.el, bytes, truncated);
           break;
         case "code":
-          renderHighlighted(record.el, bytes, codeLanguageForPath(tab.path), truncated);
+          renderHighlighted(record.el, bytes, codeLanguageForPath(record.path), truncated);
           break;
         case "text":
           renderPlainText(record.el, bytes, truncated);
           break;
         case "image":
-          renderImage(record.el, bytes, tab.path, sizeText, addCleanup);
+          renderImage(record.el, bytes, record.path, sizeText, addCleanup);
           break;
         case "pdf":
           await renderPDF(record.el, bytes, () => generation === record.generation, addCleanup);
@@ -390,6 +750,7 @@ export function createFilePreviewController({ view, tabsHost, loader, onError, o
       renderNotice(record.el, `无法预览：${error?.message || String(error)}`);
       if (onError) onError(error);
     }
+    if (generation === record.generation) record.rendered = true;
   }
 
   async function open(entry) {
@@ -445,6 +806,15 @@ export function createFilePreviewController({ view, tabsHost, loader, onError, o
     activateTab,
     closeTab,
     clear,
+    // 编辑面（抽屉与 chip 的守卫都经这里，UI 不自己判脏）：
+    edit: beginEdit,
+    save: saveFile,
+    saveAll,
+    exitEdit: requestExitEdit,
+    dirtyPaths: dirtyPathList,
+    isDirty: path => isDirtyRecord(panels.get(path)),
+    requestClose,
+    requestCloseAll,
     tabs: () => tabs.slice(),
     active: () => activePath
   };

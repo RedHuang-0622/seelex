@@ -410,6 +410,21 @@
     </div>
   </div>
 
+  <!-- 文件详情的「保存选择」弹窗：编辑过但还没 Ctrl+S 的内容在退出编辑 / 关闭
+       文件 / 收起抽屉前先问一次（保存 / 不保存 / 取消）。三个选项都是显式选择，
+       没有默认动作——直接丢掉用户刚写的字是最不可接受的失败面。 -->
+  <div id="file-save-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="file-save-title">
+    <div class="modal-card file-save-card">
+      <div class="modal-header"><div><span class="eyebrow">文件详情</span><h2 id="file-save-title">保存修改？</h2></div></div>
+      <p id="file-save-message" class="settings-note"></p>
+      <div class="settings-actions file-save-actions">
+        <button id="file-save-keep" type="button" class="primary">保存</button>
+        <button id="file-save-discard" type="button" class="secondary">不保存</button>
+        <button id="file-save-cancel" type="button" class="text-button">取消</button>
+      </div>
+    </div>
+  </div>
+
   <div id="scheduled-table-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="scheduled-table-modal-title">
     <div class="modal-card scheduled-table-card" data-resizable>
       <div class="modal-header"><div><span class="eyebrow">定时任务</span><h2 id="scheduled-table-modal-title">定时任务表格</h2></div><button id="scheduled-table-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
