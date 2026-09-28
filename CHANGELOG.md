@@ -131,6 +131,17 @@ version when it lands.
 
 ### Fixed
 
+- **`context_soft_percent` ≥ `context_hard_percent` is now a load-time error instead of a silent
+  foot-gun.** The constraint existed only as a comment in `config/seelex.yaml`; `LoadLimits` checked
+  each ratio against `[0,100]` and nothing else. Crossing them is not cosmetic: the soft line is the
+  "fold as soon as we reach it" criterion and the hard line is the "we still crossed it after
+  assembly, fold now" pre-emption path, so soft ≥ hard makes the pre-emption true on every round —
+  "one conversation, one compaction record" — with nothing in the configuration to explain it. The
+  check runs on the **effective** values (after `WithDefaults`), so `context_soft_percent: 100`
+  alone (hard defaults to 98) and `context_hard_percent: 90` alone (soft defaults to 95) are both
+  rejected: reading the raw parse would let exactly those two spellings through, and "100 alone" is
+  the way people try to turn compaction off. Teeth: `TestLoadLimitsRejectsSoftAtOrAboveHard`
+  (`seelexctx/limits_test.go`).
 - **An assembly-layer fold never pushed its frame onto the session's compaction stack, so the three
   paths that read that stack were dead for every session whose folds happen only there.** `190049e`
   added the capability face (`context_runtime.CompactionIndexPort`), the landing site

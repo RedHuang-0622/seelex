@@ -429,6 +429,20 @@ func LoadLimits(path string) (Limits, error) {
 			return Limits{}, fmt.Errorf("limits: %s must be within [0,100], got %d", ratio.name, ratio.value)
 		}
 	}
+	// 相对关系同样是配置的一部分（与保留区下限 > retain_tokens 的那条启动期报错同一条
+	// 纪律：静默接受非法组合，问题只会以性能症状出现）。软线是"到达就折叠"的主判据，
+	// 硬线是"装配后仍越线就立刻自主折叠"的抢跑路径：软线 ≥ 硬线时抢跑每轮都成立，
+	// 表现为"一轮对话压一次"，而配置里看不出任何异常。
+	//
+	// 判定用 WithDefaults 之后的**生效值**，不是原始解析结果：只写了 soft: 100 而没写
+	// hard 时，生效的是 100/98（非法）；只看原始值会让这种写法绕过校验。
+	effective := check.WithDefaults()
+	if effective.ContextSoftPercent >= effective.ContextHardPercent {
+		return Limits{}, fmt.Errorf(
+			"limits: context_soft_percent (%d) must be < context_hard_percent (%d)"+
+				"（软线到达即折叠；软线 ≥ 硬线会让自主折叠每轮抢跑）",
+			effective.ContextSoftPercent, effective.ContextHardPercent)
+	}
 	return check, nil
 }
 

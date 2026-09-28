@@ -3,6 +3,7 @@ package seelexctx
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -173,6 +174,47 @@ func TestLoadLimitsRejectsNegative(t *testing.T) {
 	}
 	if _, err := LoadLimits(path); err == nil {
 		t.Fatal("negative work_table_rows must be rejected")
+	}
+}
+
+// TestLoadLimitsRejectsSoftAtOrAboveHard：软线必须**严格低于**硬线。这条约束此前只写在
+// config/seelex.yaml 的注释里，代码不校验（LoadLimits 只查了每项落在 [0,100]），配反了
+// 会让自主折叠每轮抢跑——症状是"一轮对话压一次"，而配置里看不出任何异常。
+//
+// 判定必须落在**生效值**上：只写 soft: 100（hard 缺省 98）与只把 hard 调到 90（soft 缺省
+// 95）都是非法组合，而原始解析结果里"另一侧是 0"，只看原始值这两种写法都会溜过去。
+func TestLoadLimitsRejectsSoftAtOrAboveHard(t *testing.T) {
+	for _, testCase := range []struct {
+		name    string
+		content string
+		wantErr bool
+	}{
+		{"soft == hard", "limits:\n  context_soft_percent: 90\n  context_hard_percent: 90\n", true},
+		{"soft > hard", "limits:\n  context_soft_percent: 96\n  context_hard_percent: 90\n", true},
+		{"soft 100，hard 缺省（98）", "limits:\n  context_soft_percent: 100\n", true},
+		{"hard 90，soft 缺省（95）", "limits:\n  context_hard_percent: 90\n", true},
+		{"soft < hard", "limits:\n  context_soft_percent: 60\n  context_hard_percent: 85\n", false},
+		{"只写 soft 70（< 缺省 hard 98）", "limits:\n  context_soft_percent: 70\n", false},
+	} {
+		path := filepath.Join(t.TempDir(), "seele.yaml")
+		if err := os.WriteFile(path, []byte(testCase.content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		limits, err := LoadLimits(path)
+		if testCase.wantErr {
+			if err == nil {
+				t.Fatalf("%s：必须报错，实际通过（%+v）", testCase.name, limits)
+			}
+			// 报错必须同时点名两个键（只说"配置非法"等于让用户去猜是哪一对）。
+			if message := err.Error(); !strings.Contains(message, "context_soft_percent") ||
+				!strings.Contains(message, "context_hard_percent") {
+				t.Fatalf("%s：报错没有点名两个键：%v", testCase.name, err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("%s：不该报错：%v", testCase.name, err)
+		}
 	}
 }
 
