@@ -52,17 +52,25 @@ test("renders runtime activity only from active chat state", () => {
   assert.match(html, /执行中/);
 });
 
-test("renders queued inputs as safe markdown cards", () => {
+test("renders queued inputs as one-line rows", () => {
   const html = renderChatActivity({
     running: true,
     input_queue: ["**follow up**", "<script>alert(1)</script>"]
   });
 
-  assert.match(html, /排队 01/);
-  assert.match(html, /<strong>follow up<\/strong>/);
-  assert.match(html, /排队 02/);
+  // 一行一条（Qoder 形状）：折返箭头 + 单行正文 + 右侧动作；序号进可访问名，不占纸面。
+  assert.equal((html.match(/class="queued-message-text"/g) || []).length, 2);
+  assert.equal((html.match(/class="queued-message-lead"/g) || []).length, 2);
+  assert.match(html, /aria-label="排队 01，等待发送"/);
+  assert.match(html, /aria-label="排队 02，等待发送"/);
+  // 正文是纯文本：单行省略号要求这段行内内容属于该元素本身，markdown 的块级 <p> 会让
+  // text-overflow 失效——所以 `**` 原样显示，不再是 <strong>。
+  assert.match(html, /\*\*follow up\*\*/);
+  assert.doesNotMatch(html, /<strong>follow up<\/strong>/);
+  // 逃逸仍成立（正文里的标签只以文本出现），且完整原文留给悬停提示（data-tip）。
   assert.doesNotMatch(html, /<script>/);
   assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.match(html, /data-tip="&lt;script&gt;alert\(1\)&lt;\/script&gt;"/);
 });
 
 test("appends activity after conversation without changing tool payloads", () => {
@@ -202,11 +210,14 @@ test("空草稿不留行：页面 context 只剩既定消息，既有 key 不受
   }
 });
 
-test("草稿行按 markdown 渲染并 escape 危险文本", () => {
+test("草稿行是单行纯文本并 escape 危险文本", () => {
   const item = renderedModel([], {}, "<img src=x onerror=alert(1)> **粗体**").items.at(-1);
+  // 与排队条同形（单行条）：正文是纯文本，标签只以文本出现；原文与提示都不含标签。
   assert.doesNotMatch(item.html, /<img/);
   assert.match(item.html, /&lt;img/);
-  assert.match(item.html, /<strong>粗体<\/strong>/);
+  assert.match(item.html, /data-tip="&lt;img src=x onerror=alert\(1\)&gt; \*\*粗体\*\*"/);
+  assert.match(item.html, /class="queued-message-text"/);
+  assert.doesNotMatch(item.html, /<strong>粗体<\/strong>/);
 });
 
 // ── 压缩分界（会话单例）在对话区的那一行 ─────────────────────────

@@ -31,9 +31,11 @@ test("renders reorder and recall controls on every queued message", () => {
 test("keeps queued labels and escaping after adding the edit controls", () => {
   const html = renderChatActivity({ running: true, input_queue: ["**follow up**", "<script>alert(1)</script>"] });
 
-  assert.match(html, /排队 01/);
-  assert.match(html, /排队 02/);
-  assert.match(html, /<strong>follow up<\/strong>/);
+  // 排队序号与正文一并在可访问名/提示里（单行条纸面上只有一行字）。
+  assert.match(html, /aria-label="排队 01，等待发送"/);
+  assert.match(html, /aria-label="排队 02，等待发送"/);
+  // 纯文本正文：markdown 标记原样显示，标签一律逃逸。
+  assert.match(html, /\*\*follow up\*\*/);
   assert.doesNotMatch(html, /<script>/);
   assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
 });

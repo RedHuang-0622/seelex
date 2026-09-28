@@ -1494,10 +1494,57 @@ func TestEmbeddedWorkTableSingleScrollContainer(t *testing.T) {
 	}
 }
 
+// TestEmbeddedQueueSingleLineRows：消息队列的每条是一行（用户口径：形状照 Qoder 的
+// 队列做法——折返箭头 + 单行正文 + 右侧动作），且这一行不许再自带滚动容器：旧卡片
+// 有表头 + 正文区，正文区还写着 max-height + overflow: auto，是左栏同款的"嵌套滚动
+// 容器"。正文走纯文本（块级 <p> 会让 text-overflow 失效），完整原文挂 data-tip。
+func TestEmbeddedQueueSingleLineRows(t *testing.T) {
+	t.Parallel()
+	styles, err := embeddedFrontend.ReadFile("frontend/dist/styles.css")
+	if err != nil {
+		t.Fatalf("embedded frontend styles.css: %v", err)
+	}
+	source := string(styles)
+	for _, want := range []string{
+		"display: flex;\n  align-items: center;\n  gap: 8px;\n  margin: 0;\n  min-height: 32px;\n  padding: 4px 6px 4px 9px;\n  border: 1px solid var(--border-strong);\n  border-radius: var(--r-lg);\n  background: var(--surface);\n  box-shadow: none;",
+		".queued-message-text { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--muted); font-size: var(--text-sm); text-overflow: ellipsis; white-space: nowrap; }",
+		".queued-message-flag { flex: none; color: var(--status-info); font: 700 10px var(--font-mono); letter-spacing: .06em; }",
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("排队条必须是单行（一行放下箭头/正文/动作），缺少规则：%s", want)
+		}
+	}
+	if strings.Contains(source, ".queued-message-body") {
+		t.Fatal("排队条不得再有正文区（.queued-message-body）：它是那张又高又空卡片的一半，还自带 overflow: auto")
+	}
+	if strings.Contains(source, "--queue-peek") {
+		t.Fatal("单行条不再用压边留白叠放（相邻条 margin-top: -1px 共用一条边），--queue-peek 应已删除")
+	}
+	components, err := embeddedFrontend.ReadFile("frontend/dist/components.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(components)
+	for _, want := range []string{
+		`"corner-down-right"`,
+		`class="queued-message-lead"`,
+		`class="queued-message-text"`,
+		"function queueRowText",
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("排队条的渲染缺少：%s", want)
+		}
+	}
+	if strings.Contains(script, `<div class="queued-message-body">`) {
+		t.Fatal("排队条不得再渲染表头/正文区结构")
+	}
+}
+
 // TestEmbeddedChatQueueCardStack：聊天框与消息队列是同一套卡片语言（用户口径：
-// "消息队列是像卡片一样叠放在聊天框上面，同时聊天框也是一个卡片"），且"点击激活"
-// 的阴影从一圈 accent 聚光改成卡片抬升（--shadow-lift）——聚光在卡片语言里读起来
-// 像"选中/报错"，不像"正在输入"。
+// "消息队列是像卡片一样叠放在聊天框上面，同时聊天框也是一个卡片"），叠放方式后来
+// 按用户新口径改成"一叠单行条"（形状照 Qoder 的队列：一条一行），相邻条共用一条边
+// 而不是压边留白；"点击激活"的阴影从一圈 accent 聚光改成卡片抬升（--shadow-lift）
+// ——聚光在卡片语言里读起来像"选中/报错"，不像"正在输入"。
 //
 // 同时钉住档案夹 → 会话的拖拽接线（文件-drop 纯逻辑 + 工作树行的可拖标记），
 // 这条链任何一环断掉都只是"拖了没反应"，没有报错可查，所以必须在测试里找得出来。
@@ -1510,13 +1557,20 @@ func TestEmbeddedChatQueueCardStack(t *testing.T) {
 	source := string(styles)
 	for _, want := range []string{
 		"--shadow-lift:",
-		".message-queue .queued-message + .queued-message { margin-top: calc(-1 * (var(--queue-peek) + 2px)); }",
+		".message-queue .queued-message + .queued-message { margin-top: -1px; }",
+		// 顶部两角圆、底边直角：这一叠的底边贴在聊天框上沿（用户口径："消息队列的
+		// 底部不支持圆角"、"顶部保持圆角"）。
+		".message-queue .queued-message { border-radius: 0; }",
+		".message-queue .queued-message:first-child { border-radius: var(--r-lg) var(--r-lg) 0 0; }",
 		".message-queue.is-drop-target .queued-message,",
 		".composer.is-drop-target {",
 	} {
 		if !strings.Contains(source, want) {
-			t.Fatalf("聊天框/消息队列的卡片叠放与拖放高亮缺少规则：%s", want)
+			t.Fatalf("聊天框/消息队列的叠放与拖放高亮缺少规则：%s", want)
 		}
+	}
+	if strings.Contains(source, ".message-queue .queued-message:last-child") {
+		t.Fatal("队列底边不得设圆角：这一叠的底边贴在聊天框上沿，只留顶部两角")
 	}
 	if strings.Count(source, ".composer:focus-within {") != 2 ||
 		strings.Count(source, "box-shadow: var(--shadow-lift);") != 2 {

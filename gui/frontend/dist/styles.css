@@ -620,52 +620,71 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .runtime-spinner { color: var(--status-info); animation: runtime-spin 1.4s linear infinite; }
 .runtime-pulse { display: inline-flex; align-items: center; gap: 3px; }
 .runtime-pulse i { width: 3px; height: 3px; border-radius: 50%; background: var(--muted); }
-/* 消息队列 = 叠在聊天框上沿的一叠卡片（用户口径："消息队列是像卡片一样叠放在
-   聊天框上面"）。队列本身是一列，卡片之间用 --queue-peek 相互压边：后一条压住
-   前一条的下沿，读起来是牌堆；每条卡片底部预留同样高度的内边距，压边吃掉的是
-   留白而不是正文。最下面一条（最新排队的那条）紧贴聊天框上沿，两者共用同一套
-   卡片语言（实边 + --r-xl 圆角 + 投影），所以一眼看出"聊天框上面还摞着几张"。 */
+/* 消息队列 = 贴在聊天框上沿的一叠「单行条」（用户口径：形状照 Qoder 的队列做法）。
+   一条一行：折返箭头 + 单行正文（超长省略号）+ 右侧动作。不再是一张带表头
+   （"排队 01 / 等待"）与正文区的卡片——那张卡片又高又空，正文区还自带
+   max-height + overflow: auto，正是左栏同款的"嵌套滚动容器"。
+   "一叠"的读法改由共用边与圆角承担：相邻两条用 -1px 外边距压成一条发丝线，
+   整块只留顶部两角（底边贴着聊天框上沿，不做圆角），被指到/键盘进入的那条浮到
+   最上面（z-index），共用边不会被邻居压掉。 */
 .message-queue {
   display: flex;
   flex-direction: column;
-  gap: 0;
   margin: 0 auto;
-  --queue-peek: 9px;
 }
-.message-queue .queued-message {
-  position: relative;
-  padding-bottom: var(--queue-peek);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--r-xl);
-  background: var(--surface);
-  box-shadow: var(--shadow-sm);
-}
-.message-queue .queued-message + .queued-message { margin-top: calc(-1 * (var(--queue-peek) + 2px)); }
-/* 被指到/键盘进入的那张浮到牌堆最上面并抬高一档（压边不再遮它）。 */
+.message-queue .queued-message + .queued-message { margin-top: -1px; }
+/* 圆角只留顶部两角，底边**不设圆角**：这一叠的底边是贴在聊天框上沿的（Qoder 的
+   排队条同样只圆顶边）。中间那些条四角都是直角，否则相邻两行一圆一直，缝里会
+   漏出两段弧线，"一叠"读成一串胶囊。基座 .queued-message 的 --r-lg 留给单条独立
+   出现时用（未发送草稿行不在 .message-queue 里，走的就是基座）。 */
+.message-queue .queued-message { border-radius: 0; }
+.message-queue .queued-message:first-child { border-radius: var(--r-lg) var(--r-lg) 0 0; }
+/* 被指到/键盘进入的那条浮到最上面，且底色抬一档（一行高的条抬阴影读不出来）。 */
 .message-queue .queued-message:hover,
-.message-queue .queued-message:focus-within { z-index: 2; box-shadow: var(--shadow); }
+.message-queue .queued-message:focus-within { z-index: 2; background: var(--surface-2); }
 /* 队列作为文件拖放目标（从档案夹拖文件过来排队）：卡片语言 + 一圈强调边。 */
 .message-queue.is-drop-target .queued-message,
 .composer.is-drop-target {
   border-color: var(--accent);
   box-shadow: var(--shadow-lift), 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
 }
-.queued-message { overflow: hidden; border: 1px dashed var(--border-strong); border-radius: var(--r-lg); background: var(--surface-glass); animation: queue-enter var(--dur-fast) var(--ease-out); }
-.queued-message header { display: flex; align-items: center; gap: 7px; min-height: 30px; padding: 5px 9px; border-bottom: 1px solid var(--border); color: var(--faint); font: 700 10.5px var(--font-mono); letter-spacing: .1em; }
-.queued-message header small { margin-left: auto; color: var(--status-running); font: inherit; }
-.queued-message-actions { display: inline-flex; align-items: center; gap: 2px; margin-left: 4px; }
-.queue-action { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 20px; padding: 0; border: 1px solid var(--border); border-radius: var(--r-sm); background: transparent; color: var(--faint); font: inherit; cursor: pointer; }
-.queue-action:hover:not(:disabled) { color: var(--text); border-color: var(--border-strong); background: var(--surface-2); }
+/* 单行条本体：一行放下三段（折返箭头 / 正文 / 动作），高度随行高走、不随正文长短走。
+   `margin: 0` + `box-shadow: none` 是给组件库擦屁股：Pico 把每个 <article> 当卡片
+   （`article { margin-bottom: 1rem; box-shadow: var(--pico-card-box-shadow) }`）——
+   §12.2 只在 .app-shell 内归零了 margin-bottom，阴影仍会逐条落在这一叠上，而相邻
+   条共用一条发丝边时，逐条卡片阴影会把"一叠"读成一串独立的胶囊。 */
+.queued-message {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  min-height: 32px;
+  padding: 4px 6px 4px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: none;
+  animation: queue-enter var(--dur-fast) var(--ease-out);
+}
+.queued-message-lead { display: inline-flex; flex: none; color: var(--faint); }
+/* 正文是**纯文本**：单行省略号要求这段行内内容属于该元素本身，块级 <p>（markdown
+   的产物）会让 text-overflow 失效；多行输入的连续空白折叠成单个空格，完整原文挂在
+   data-tip 上（悬停/聚焦出提示，paintTip 把 \n 换成 <br>）。 */
+.queued-message-text { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--muted); font-size: var(--text-sm); text-overflow: ellipsis; white-space: nowrap; }
+.queued-message-actions { display: inline-flex; flex: none; align-items: center; gap: 2px; color: var(--faint); }
+.queued-message:hover .queued-message-actions,
+.queued-message:focus-within .queued-message-actions { color: var(--text-mid); }
+/* 动作键：24px 无边图标键（一行里再描三道边会读成三个小方块），悬停才给底色。 */
+.queue-action { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.queue-action:hover:not(:disabled) { color: var(--text); background: var(--surface-2); }
 .queue-action:disabled { opacity: .3; cursor: default; }
 .queue-action[data-queue-action="recall"]:hover:not(:disabled) { color: var(--status-running); }
-/* 未发送草稿行（页面 context 的草稿投影，见 draft-lifecycle.js）：与排队卡片同族，
-   但用实心强调边 + 「待发送」标签，和既定 message 一眼可分。 */
-.draft-message { border-style: solid; border-color: var(--status-info); background: var(--surface-2); }
-.draft-message header, .draft-message header small { color: var(--status-info); }
-.queued-message-body { max-height: 140px; padding: 9px 11px; overflow: auto; color: var(--muted); font-size: var(--text-sm); line-height: 1.55; }
-.queued-message-body > :first-child { margin-top: 0; }
-.queued-message-body > :last-child { margin-bottom: 0; }
-.queued-message-body p { margin: 0 0 7px; }
+/* 未发送草稿行（页面 context 的草稿投影，见 draft-lifecycle.js）：与排队条同形，
+   但用强调色 + 右侧「待发送」标签，和已排队的那些一眼可分。 */
+.draft-message { border-color: var(--status-info); background: var(--surface-2); }
+.draft-message .queued-message-lead { color: var(--status-info); }
+.queued-message-flag { flex: none; color: var(--status-info); font: 700 10px var(--font-mono); letter-spacing: .06em; }
 
 /* 压缩分界（会话单例）：对话区里的一条明显分隔——左右两条虚线夹一枚说明牌。
    线以上（更早）的上下文已不再发给模型，但**原文仍在这一页里可读**，这句写在牌子上

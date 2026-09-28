@@ -26,6 +26,7 @@ const ICONS = {
   "arrow-up": '<path d="M12 19V5M5 12l7-7 7 7"/>',
   "arrow-down": '<path d="M12 5v14M5 12l7 7 7-7"/>',
   recall: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
+  "corner-down-right": '<path d="M4 4v7a4 4 0 0 0 4 4h12"/><path d="m15 10 5 5-5 5"/>',
   refresh: '<path d="M20 11a8 8 0 1 0-2.4 5.7"/><path d="M20 5v6h-6"/>',
   branch: '<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M8.5 6h4a5.5 5.5 0 0 1 3 5v-0.5a5.5 5.5 0 0 1-3 5h-4"/>',
   "chevron-left": '<path d="m14.5 6-6 6 6 6"/>',
@@ -168,35 +169,50 @@ export function renderChatActivity(chat = {}) {
   return loader + queued;
 }
 
-// renderQueuedMessage 渲染一条排队输入卡片：正文 + 三个编辑动作（上移 /
-// 下移 / 撤回编辑）。动作按钮只携带纯数据（data-queue-action/index），由
-// 渲染层（app.js）统一委托到 Bridge，组件本身不持有 invoke 依赖。
+// renderQueuedMessage 渲染一条排队输入：**单行条**（用户口径：形状照 Qoder 的队列
+// 做法——一行一条：折返箭头 + 单行正文 + 右侧动作），不再是带表头与正文区的卡片。
+// 正文走纯文本而非 markdown：单行省略号要求这段内容属于该元素本身，块级 <p> 会让
+// text-overflow 失效；完整原文挂在 data-tip 上（悬停/聚焦出应用自己的提示，\n 会被
+// paintTip 换成 <br>），撤回后原文回到输入框继续编辑。
+// 动作按钮只携带纯数据（data-queue-action/index），由渲染层（app.js）统一委托到
+// Bridge，组件本身不持有 invoke 依赖。
 function renderQueuedMessage(input, index, length) {
   const label = String(index + 1).padStart(2, "0");
+  const row = queueRowText(input);
   const move = (action, disabled) => `<button type="button" class="queue-action" data-queue-action="${action}" data-queue-index="${index}"
         title="${action === "up" ? "上移" : "下移"}" aria-label="${action === "up" ? "上移" : "下移"}排队 ${label}"${disabled ? " disabled" : ""}>${icon(action === "up" ? "arrow-up" : "arrow-down", 13)}</button>`;
-  return `<article class="queued-message" data-queue-index="${index}">
-      <header><span>${icon("message", 13)}</span><strong>排队 ${label}</strong><small>等待</small>
-        <span class="queued-message-actions">
-          ${move("up", index === 0)}
-          ${move("down", index === length - 1)}
-          <button type="button" class="queue-action" data-queue-action="recall" data-queue-index="${index}"
-            title="撤回编辑" aria-label="撤回排队 ${label} 到输入框">${icon("recall", 13)}</button>
-        </span>
-      </header>
-      <div class="queued-message-body">${markdown(input)}</div>
+  return `<article class="queued-message" data-queue-index="${index}" aria-label="排队 ${label}，等待发送">
+      <span class="queued-message-lead" aria-hidden="true">${icon("corner-down-right", 14)}</span>
+      <span class="queued-message-text"${row.tip ? ` data-tip="${escapeHtml(row.tip)}"` : ""}>${escapeHtml(row.line)}</span>
+      <span class="queued-message-actions">
+        ${move("up", index === 0)}
+        ${move("down", index === length - 1)}
+        <button type="button" class="queue-action" data-queue-action="recall" data-queue-index="${index}"
+          title="撤回编辑" aria-label="撤回排队 ${label} 到输入框">${icon("recall", 13)}</button>
+      </span>
     </article>`;
 }
 
+// queueRowText 把排队正文压成单行条要的两份文本：line 是条上显示的那一行（连续
+// 空白折叠成单个空格，免得换行把一行撕出空洞），tip 是完整原文（保留换行，交给
+// data-tip）。两份都原样交给 escapeHtml，正文里的标签不会被当成 HTML。
+function queueRowText(value) {
+  const original = String(value ?? "");
+  return { line: original.replace(/\s+/g, " ").trim(), tip: original.trim() };
+}
+
 // renderDraftMessage 渲染「未发送草稿」行：本会话当前还没提交出去的正文（仍活在
-// 输入框里，生命周期见 draft-lifecycle.js）。身份有三处可判：meta.kind="draft"、
-// `is-draft` 类、`data-draft`/`data-unsent` 标记——渲染层与测试都不靠正文猜。
+// 输入框里，生命周期见 draft-lifecycle.js）。形状与排队条同族（单行条），差别用
+// 强调色 + 右侧「待发送」标签表达。身份有三处可判：meta.kind="draft"、`is-draft`
+// 类、`data-draft`/`data-unsent` 标记——渲染层与测试都不靠正文猜。
 // 它是投影：不进 conversation、不派 message id、也不回写输入框（输入框正文才是
 // 本地事实源）。
 function renderDraftMessage(text, key) {
-  return `<article class="queued-message draft-message is-draft" data-conversation-key="${escapeHtml(key)}" data-draft="true" data-unsent="true">
-      <header><span>${icon("message", 13)}</span><strong>未发送草稿</strong><small>待发送</small></header>
-      <div class="queued-message-body">${markdown(text)}</div>
+  const row = queueRowText(text);
+  return `<article class="queued-message draft-message is-draft" data-conversation-key="${escapeHtml(key)}" data-draft="true" data-unsent="true" aria-label="未发送草稿，待发送">
+      <span class="queued-message-lead" aria-hidden="true">${icon("message", 14)}</span>
+      <span class="queued-message-text"${row.tip ? ` data-tip="${escapeHtml(row.tip)}"` : ""}>${escapeHtml(row.line)}</span>
+      <span class="queued-message-flag">待发送</span>
     </article>`;
 }
 
