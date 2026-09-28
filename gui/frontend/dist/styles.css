@@ -2040,6 +2040,10 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
    同一套写法）。 */
 .modal-card.work-table-modal-card[data-resizable] { display: flex; flex-direction: column; overflow: hidden; }
 .work-table-modal-card > .modal-header { flex: none; }
+/* 弹窗头只剩一枚关闭按钮：标题交给表格自己的头带（▾ 工作表格 N 项 M 打点，那一条
+   坐在 --surface-2 的浅色带上，用户口径"保留内部黄色的部分即可"），头带自己就有
+   下边框，弹窗头不再重复一条。 */
+.work-table-modal-card > .work-table-modal-head { justify-content: flex-end; align-items: center; margin-bottom: 8px; padding-bottom: 0; border-bottom: 0; }
 #work-table-modal-view { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 10px; }
 /* createWorkTableView 会给这个容器挂上 .work-table-view（原 display: grid）；
    这里改成 flex 列，才是「表格区吃掉卡片剩余高度」的那条链。 */

@@ -105,7 +105,9 @@ test("renders shell with filter chips and totals", () => {
     { id: "plan:n1", phase: "plan", task: "a", status: "running", trace: [] },
     { id: "todo:0", phase: "tasklist", task: "b", status: "done", trace: [{ status: "done" }] }
   ], uiState());
-  assert.match(html, /工作表格/);
+  // 弹窗头不再重复标题（用户口径："保留内部黄色的部分即可"）：整块的名字只由这条
+  // 头带给出，所以这里钉的是强标记本身，而不是"页面里出现过工作表格"。
+  assert.match(html, /<strong>工作表格<\/strong>/);
   assert.match(html, /2 项/);
   assert.match(html, /1 打点/);
   assert.match(html, /excel-grid/);

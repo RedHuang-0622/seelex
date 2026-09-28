@@ -370,9 +370,12 @@
     </div>
   </div>
 
-  <div id="work-table-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="work-table-modal-title">
+  <div id="work-table-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="工作表格">
     <div class="modal-card work-table-modal-card" data-resizable>
-      <div class="modal-header"><div><span class="eyebrow">工作表格</span><h2 id="work-table-modal-title">工作表格</h2></div><button id="work-table-modal-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
+      <!-- 标题只留一个：表格自己的头带（▾ 工作表格 N 项 M 打点，见 work-table.js，
+           用户口径"保留内部黄色的部分即可"）。这里不再重复 eyebrow + h2 两个"工作表格"，
+           弹窗的无障碍名改走 aria-label。 -->
+      <div class="modal-header work-table-modal-head"><button id="work-table-modal-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
       <div id="work-table-modal-view" class="work-table-modal-view muted">暂无工作任务</div>
       <div class="modal-resize-handle" aria-hidden="true"></div>
     </div>

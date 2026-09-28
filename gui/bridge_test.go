@@ -1494,6 +1494,46 @@ func TestEmbeddedWorkTableSingleScrollContainer(t *testing.T) {
 	}
 }
 
+// TestEmbeddedWorkTableTitleOnce：工作表格弹窗只留一个「工作表格」标题。
+// 现场（用户报告）："工作表格里面三个工作表格的标题是不是有点多了"——弹窗头的
+// eyebrow 与 h2 各写一个（同一个词上下两行），表格自己的头带里还有第三个。
+// 口径："保留内部黄色的部分即可"——只留坐在 .work-table-head 浅色带上的那一条
+// （work-table.js 的 .work-entry-toggle strong），弹窗头两个删掉；弹窗的无障碍名
+// 改走 aria-label，不留视觉上重复的 h2。
+func TestEmbeddedWorkTableTitleOnce(t *testing.T) {
+	t.Parallel()
+	page, err := embeddedFrontend.ReadFile("frontend/dist/index.html")
+	if err != nil {
+		t.Fatalf("embedded frontend index.html: %v", err)
+	}
+	html := string(page)
+	start := strings.Index(html, `<div id="work-table-modal"`)
+	if start < 0 {
+		t.Fatal("找不到工作表格弹窗容器")
+	}
+	head := html[start:]
+	end := strings.Index(head, `id="work-table-modal-view"`)
+	if end < 0 {
+		t.Fatal("找不到工作表格弹窗的正文容器")
+	}
+	modalHead := head[:end]
+	if !strings.Contains(modalHead, `aria-label="工作表格"`) {
+		t.Fatal("弹窗的无障碍名要落在 aria-label 上（视觉标题只剩表格头带那一条）")
+	}
+	for _, banned := range []string{`class="eyebrow"`, "work-table-modal-title", "<h2"} {
+		if strings.Contains(modalHead, banned) {
+			t.Fatalf("工作表格弹窗头不得再重复标题（只留表格头带那一条），却仍有：%s", banned)
+		}
+	}
+	script, err := embeddedFrontend.ReadFile("frontend/dist/work-table.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(script), "<strong>工作表格</strong>") {
+		t.Fatal("表格头带里那一条「工作表格」要留着：弹窗头删掉后就靠它给整块命名")
+	}
+}
+
 // TestEmbeddedLeftPanelSingleScrollContainer：左栏只允许一条纵向滚动条（用户报告：
 // 侧栏上摞着好几条，最长的那条是面板自己的——观感就是"多开了一个滚动容器"）。
 //
