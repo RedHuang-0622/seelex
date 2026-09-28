@@ -1,5 +1,6 @@
-// Package context_control owns the window-policy config loading (seele.yaml
-// window 段)。窗口决策公式归属 seelexctx，本包只做配置加载与别名转发。
+// Package context_control owns the window-policy config loading (config/seelex.yaml
+// window 段；权限在 config/seele.yaml，不是同一个文件)。窗口决策公式归属
+// seelexctx，本包只做配置加载与别名转发。
 package context_control
 
 import (
@@ -20,7 +21,7 @@ type WindowPolicy = seelexctx.WindowPolicy
 // ProviderContextInfo 携带窗口决策的全部输入。
 type ProviderContextInfo = seelexctx.ProviderContextInfo
 
-// WindowConfig 是 seele.yaml 的 window 配置段。
+// WindowConfig 是 config/seelex.yaml 的 window 配置段。
 type WindowConfig = seelexctx.WindowConfig
 
 // DefaultWindowPolicy 是 provider 推导策略（clamp 公式）。
@@ -47,7 +48,7 @@ type windowConfigFile struct {
 // 读取同一份配置，避免第二套硬编码窗口数字。
 var active atomic.Pointer[seelexctx.WindowConfig]
 
-// Apply 应用 seele.yaml 的 window 段（未配置字段补默认值）。
+// Apply 应用 config/seelex.yaml 的 window 段（未配置字段补默认值）。
 func Apply(config WindowConfig) {
 	applied := config.WithDefaults()
 	active.Store(&applied)
@@ -61,7 +62,7 @@ func Current() WindowConfig {
 	return seelexctx.DefaultWindowConfig()
 }
 
-// LoadWindowConfig 读取 seele.yaml 的 window 配置段（路径门控同款加载风格）。
+// LoadWindowConfig 读取 config/seelex.yaml 的 window 配置段（路径门控同款加载风格）。
 // 文件不存在 → 零值配置（全部未配置，走默认）；解析失败显式报错。
 func LoadWindowConfig(path string) (WindowConfig, error) {
 	data, err := os.ReadFile(path)

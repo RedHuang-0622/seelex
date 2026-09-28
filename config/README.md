@@ -15,7 +15,7 @@ flowchart LR
     LOCALOVR["*.local.yaml（机器覆盖，不发布）"] -.-> LOAD
     LOAD --> POOL["Seele AccountPool（按角色分组）"]
     LOAD --> BUDGET["context_window / max_tokens → 输入预算"]
-    SEELE["config/seele.yaml<br/>permission.rules + limits"] --> GATE["PermissionGate / 运行时上限"]
+    SEELE["config/seele.yaml<br/>permission.rules"] --> GATE["PermissionGate"]
     SEELEX["config/seelex.yaml<br/>window / limits"] --> WIN["窗口策略与进程上限"]
     ROOT["main.go：选择文件并注入 Runtime"] --> LOAD
     ROOT --> SEELE
@@ -28,7 +28,7 @@ flowchart LR
 - `accounts.yaml`：本机实际账号文件，可能含秘密，不应提交或出现在文档输出。
 - `*.local.yaml`：机器或开发者专用覆盖文件，同样不得发布。
 - `seele.yaml`：权限规则文件（permission.rules），`main.go` 优先读 `config/seele.yaml`，根目录版本回退兼容。
-- `seelex.yaml`：运行参数文件（window / limits），加载逻辑同上。
+- `seelex.yaml`：运行参数文件（window / limits），加载逻辑同上。**两个 `limits` 段只有一个家**：`window` 与 `limits`（含 `limits.session_storage`）都从 `config/seelex.yaml` 读（`core.LoadWindowConfig` 与 `seelexctx.LoadLimits` 收的是同一个路径，见 `main.go` 的 `initRuntime`）；`config/seele.yaml` 只放权限段。
 
 账号按 `subagent`、`agent`、`goalplan` 等 role 分组；缺少专用 role 时由 bridge 的 fallback 规则选择账号。
 

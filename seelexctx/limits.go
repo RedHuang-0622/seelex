@@ -8,9 +8,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// SessionStorageLimits 是 seele.yaml `limits.session_storage` 块（缺失 = 存储
-// 默认值）。键名与 my_design §11 的叶子一一对应（`session_storage.<域>.<叶子>`
-// → `session_storage.<域>_<叶子>`）。
+// SessionStorageLimits 是 config/seelex.yaml `limits.session_storage` 块（与
+// limits 段同文件；缺失 = 存储默认值）。键名与 my_design §11 的叶子一一对应
+// （`session_storage.<域>.<叶子>` → `session_storage.<域>_<叶子>`）。
 type SessionStorageLimits struct {
 	RetryCacheMaxItems             int    `yaml:"retry_cache_max_items"`             // 尝试缓存条目上限
 	RetryCacheMaxChars             int    `yaml:"retry_cache_max_chars"`             // 尝试缓存字符上限
@@ -35,8 +35,9 @@ type SessionStorageLimits struct {
 }
 
 // ── 运行时上限（limits）────────────────────────────────────────
-// seele.yaml 的 limits 段：集中治理需要跨模块一致、影响资源消耗或用户可见
-// 行为的运行时上限。局部 UI/格式常量仍由所属模块维护，不宣称消除所有常量。
+// config/seelex.yaml 的 limits 段（权限在同一目录的 config/seele.yaml，两者不是
+// 同一个文件）：集中治理需要跨模块一致、影响资源消耗或用户可见行为的运行时上限。
+// 局部 UI/格式常量仍由所属模块维护，不宣称消除所有常量。
 // 缺失字段 → 零值 → 消费方套用 DefaultLimits 的默认值；无需改代码即可调参。
 
 // Limits 是运行时行为上限集合（零值 = 未配置，走默认）。
@@ -373,7 +374,8 @@ func (l Limits) Durations() (toolCall, approval, planDecision, heartbeat, replan
 		time.Duration(l.SearchTimeoutSec) * time.Second
 }
 
-// LoadLimits 读取 seele.yaml 的 limits 配置段：
+// LoadLimits 读取 config/seelex.yaml（运行参数文件；权限在 config/seele.yaml）的
+// limits 配置段：
 //   - 文件不存在或 limits 段缺失 → DefaultLimits()（完整默认值）；
 //   - limits 段存在 → 解析字段（未写字段 0 → 调用方 WithDefaults 补默认；
 //     tool_call_timeout: 0 是显式"无限制"，保留）；

@@ -24,8 +24,8 @@ type ProviderContextInfo struct {
 	ConfigRounds   int // 用户显式配置 window.rounds（0 = 未配置）
 }
 
-// WindowConfig 是 seele.yaml 的 window 配置段。零值字段表示"未配置"，
-// 回退到既定默认值（确认点 5）。
+// WindowConfig 是 config/seelex.yaml 的 window 配置段（运行参数文件；权限在同一
+// 目录的 config/seele.yaml）。零值字段表示"未配置"，回退到既定默认值（确认点 5）。
 type WindowConfig struct {
 	Rounds int     `yaml:"rounds"`
 	Ratio  float64 `yaml:"ratio"`

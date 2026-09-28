@@ -14,6 +14,21 @@ version when it lands.
 
 ### Changed
 
+- **The compaction budget's configuration notes now say who consumes what, how to approximate
+  turning compaction off, and where the keys actually live.** Three drifts, all in the direction of
+  "the file looks more capable than it is": (1) the block claimed "the same value is consumed by two
+  trigger layers", which holds for `context_safety_reserve_divisor` / `context_soft_percent` /
+  `context_hard_percent` and `context_target_percent` but *not* for `context_single_item_percent`
+  (assembly layer only) — the consumers are now listed key by key; (2) there is deliberately no
+  master "auto compaction" switch, and the notes now spell out the closest thing — raise
+  soft/hard toward 98/99 or 99/100, keep `window.force_compact_tokens` at 0, and accept that a
+  request that no longer fits is **refused** (`estimated > budget` →
+  `ErrProviderContextBudgetExceeded`) rather than sent with the original text forced in;
+  (3) `window` and `limits` (including `limits.session_storage`) are read from `config/seelex.yaml`
+  alone — the permission file `config/seele.yaml` holds no limits section — while several comments
+  and `config/README.md`'s diagram said `seele.yaml` (`seelexctx/limits.go`,
+  `seelexctx/window.go`, `application/core/context_control/window_policy.go`). Also recorded: the
+  soft < hard constraint is enforced by `LoadLimits` since this batch, not just written as a comment.
 - **The host side of context folding no longer has an "in-loop" path — Seele replaced the
   whole-round session lock with a turn gate plus a short critical section.** `session/inloop.go` is
   gone upstream (with `Session.InLoopFrom`, `HistoryIfAvailable` and `WithHistoryPublisher`): a turn
