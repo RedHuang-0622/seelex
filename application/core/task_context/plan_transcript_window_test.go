@@ -1,6 +1,7 @@
 package task_context
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/application/model"
@@ -104,6 +105,109 @@ func TestTranscriptTailWindowDegradesToNewestUnit(t *testing.T) {
 	}
 	if empty, start := TranscriptTailWindow(nil, 1_000, 0); len(empty) != 0 || start != 0 {
 		t.Fatalf("空 transcript：history=%d start=%d, want 0/0（未保留任何事件）", len(empty), start)
+	}
+}
+
+// TestTranscriptTailWindowKeepsRoundStartAtBoundary：保留窗口的边界必须落在
+// **轮次起点**，绝不能落在一轮中间。
+//
+// 现场（用户报告）：压缩之后模型「丢了目标」——它看得见自己刚才干到哪一步，
+// 却看不见用户到底在要求什么。根因是边界被判在一轮中间：该轮的用户提问被判进
+// 压缩区间（原文折进帧摘要），它的续写留在保留窗口里。于是压缩记录的区间终点
+// 越过了一条用户提问行（"界限的判断包含了用户那一轮的提问"），而保留下来的
+// 续写失去了它的来由。
+//
+// 一轮被拆成多段是常态而不是异常：轮内的技能正文/内部材料注入会把一轮切开，
+// 每段各自都是**协议合法**的单元（所以单元级看一切正常，问题只在"轮次"这一层），
+// 半途中断的工具链同理。边界因此不能只看"单元起点"，还要看"轮次起点"。
+func TestTranscriptTailWindowKeepsRoundStartAtBoundary(t *testing.T) {
+	events := []model.TranscriptEvent{
+		{Seq: 1, Role: "user", Content: "第一轮提问", TokenCount: 10, MessageID: "message-1"},
+		{Seq: 2, Role: "assistant", Content: "第一轮答复", TokenCount: 10, MessageID: "message-2"},
+		{Seq: 3, Role: "user", Content: "第二轮提问（本轮目标）", TokenCount: 10, MessageID: "message-3"},
+		// 该轮的第一个工具链在这里断了（结果缺失）→ 与提问同段收尾。
+		{Seq: 4, Role: "assistant", ToolCalls: []model.TranscriptToolCall{{ID: "c1", Name: "read"}}, TokenCount: 10, MessageID: "message-4"},
+		// 轮内注入的技能正文（provider role = system）：把这一轮切成多段。
+		{Seq: 5, Role: "user", Content: ActiveSkillMarker + "\n## Trusted Active Skill: review\nbody", TokenCount: 10, MessageID: "message-5"},
+		// 该轮提问之后被保留的续写段。
+		{Seq: 6, Role: "assistant", ToolCalls: []model.TranscriptToolCall{{ID: "c2", Name: "bash"}}, TokenCount: 10, MessageID: "message-6"},
+		{Seq: 7, Role: "tool", ToolCallID: "c2", Name: "bash", Content: "结果", TokenCount: 10, MessageID: "message-7"},
+	}
+	// 预算 20 只装得下最新一段（seq 6..7 的续写）：边界必须被推回该轮的起点
+	// （seq 3 的提问），而不是停在 seq 6 —— 停在 seq 6 就等于把提问判给了压缩。
+	history, start := TranscriptTailWindowBy(events, 20, 0, recordedUnitTokens)
+	if start != 2 {
+		t.Fatalf("窗口边界 = %d, want 2（第二轮提问的下标）：边界落在了一轮中间 —— "+
+			"该轮提问会被判进压缩区间，而它的续写留在窗口里（模型从此失去目标）", start)
+	}
+	if prefix := events[:start]; len(prefix) != 2 || prefix[len(prefix)-1].Role == "user" {
+		t.Fatalf("被压前缀 = %#v, want 以非用户行收尾（压缩区间终点不得落在提问行上）", prefix)
+	}
+	if len(history) == 0 || !strings.Contains(history[0].Content, "第二轮提问（本轮目标）") {
+		t.Fatalf("保留窗口必须以该轮的用户提问开头，实际 = %#v", history)
+	}
+}
+
+// TestTranscriptTailWindowKeepsRoundStartAcrossMaterialInjection：轮内的**内部
+// 材料行**（Role=user + WireMaterial，provider role 映射为 system）不是轮次起点。
+//
+// 现场（用户报告）：压缩之后模型「丢了目标」——界限的判断把**用户这一轮的提问**
+// 判进了压缩区间（"界限的判断包含了用户下一轮的提问"）。根因是它把轮内的内部材料
+// 行误当成新的轮次起点：材料行在提问**之后**，窗口边界就停在材料行上，而这一轮
+// 真正的提问（在材料行之前）被折走，保留窗口里只剩"续写"，模型从此不知道用户
+// 要什么。
+//
+// 判据与同包 sessionMaintenanceObjective 的"什么算真实用户输入"必须同源：那里
+// 已经用 `Role != "user" || WireMaterial || isActiveSkillEvent` 排除材料行。
+func TestTranscriptTailWindowKeepsRoundStartAcrossMaterialInjection(t *testing.T) {
+	events := []model.TranscriptEvent{
+		{Seq: 1, Role: "user", Kind: model.TranscriptEventKindUserInput, Content: "第一轮提问", TokenCount: 10, MessageID: "message-1"},
+		{Seq: 2, Role: "assistant", Kind: model.TranscriptEventKindLLM, Content: "第一轮回答", TokenCount: 10, MessageID: "message-2"},
+		{Seq: 3, Role: "user", Kind: model.TranscriptEventKindUserInput, Content: "第二轮提问（本轮目标）", TokenCount: 10, MessageID: "message-3"},
+		// 轮内注入的内部材料：给模型看的检查点/状态材料（生产方置 wire_material）。
+		// 正文不带 `<!-- seelex:` 前缀时，Kind 会被归类成 user_input —— 单看 Kind
+		// 分不出"材料"与"提问"，只有 WireMaterial 能。
+		{Seq: 4, Role: "user", Kind: model.TranscriptEventKindUserInput, WireMaterial: true,
+			Content: "任务 active 状态材料", TokenCount: 10, MessageID: "message-4"},
+		{Seq: 5, Role: "assistant", ToolCalls: []model.TranscriptToolCall{{ID: "c1", Name: "read"}}, TokenCount: 10, MessageID: "message-5"},
+		{Seq: 6, Role: "tool", ToolCallID: "c1", Name: "read", Content: "结果", TokenCount: 10, MessageID: "message-6"},
+	}
+	// 预算 20 只装得下最新一段（seq 5..6）：边界必须被推回该轮的起点（seq 3），
+	// 不能停在材料行（seq 4）—— 停在材料行就等于把提问判给了压缩区间。
+	history, start := TranscriptTailWindowBy(events, 20, 0, recordedUnitTokens)
+	if start != 2 {
+		t.Fatalf("窗口边界 = %d, want 2（第二轮提问的下标）：边界停在了轮内材料行上，"+
+			"该轮提问会被判进压缩区间（模型从此失去目标）", start)
+	}
+	if prefix := events[:start]; len(prefix) != 2 || prefix[len(prefix)-1].Role == "user" {
+		t.Fatalf("被压前缀 = %#v, want 以非用户行收尾（压缩区间终点不得落在提问行上）", prefix)
+	}
+	if len(history) == 0 || !strings.Contains(history[0].Content, "第二轮提问（本轮目标）") {
+		t.Fatalf("保留窗口必须以该轮的用户提问开头，实际 = %#v", history)
+	}
+}
+
+// TestIsUserQuestionEventMatchesMaintenanceObjective：轮次起点判据与"最后一条
+// 真实用户输入"（sessionMaintenanceObjective）必须同源 —— 两处口径一分叉，压缩
+// 边界就会把材料行当轮次起点。
+func TestIsUserQuestionEventMatchesMaintenanceObjective(t *testing.T) {
+	cases := []struct {
+		name  string
+		event model.TranscriptEvent
+		want  bool
+	}{
+		{"用户提问", model.TranscriptEvent{Role: "user", Kind: model.TranscriptEventKindUserInput}, true},
+		{"旧数据（Kind 空）", model.TranscriptEvent{Role: "user"}, true},
+		{"内部材料（wire_material）", model.TranscriptEvent{Role: "user", Kind: model.TranscriptEventKindUserInput, WireMaterial: true}, false},
+		{"内部材料（Kind internal）", model.TranscriptEvent{Role: "user", Kind: model.TranscriptEventKindInternal}, false},
+		{"激活技能正文", model.TranscriptEvent{Role: "user", Kind: model.TranscriptEventKindUserInput, Content: ActiveSkillMarker + "\n正文"}, false},
+		{"逻辑归属 system", model.TranscriptEvent{Role: "user", Kind: model.TranscriptEventKindUserInput, RoleName: "system"}, false},
+		{"非用户角色", model.TranscriptEvent{Role: "assistant", Kind: model.TranscriptEventKindLLM}, false},
+	}
+	for _, testCase := range cases {
+		if got := isUserQuestionEvent(testCase.event); got != testCase.want {
+			t.Errorf("%s: isUserQuestionEvent = %v, want %v", testCase.name, got, testCase.want)
+		}
 	}
 }
 

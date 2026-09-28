@@ -120,7 +120,7 @@ func (c *Coordinator) EndSessionContextMaintenanceLocked(sessionID, requestID st
 func sessionMaintenanceObjective(transcript []model.TranscriptEvent) string {
 	for index := len(transcript) - 1; index >= 0; index-- {
 		event := transcript[index]
-		if event.Role != "user" || event.WireMaterial || isActiveSkillEvent(event) {
+		if !isUserQuestionEvent(event) {
 			continue
 		}
 		content := strings.TrimSpace(event.Content)

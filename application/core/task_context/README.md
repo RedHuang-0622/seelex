@@ -77,6 +77,15 @@ flowchart TB
     COORD --> SNAP["权威 Snapshot（经 state.Core）"]
 ```
 
+轮次边界口径（压缩窗口）：`TranscriptTailWindowBy` 的保留窗口边界必须落在**真实用户提问**上，
+而"什么算真实用户提问"只有一处定义——`isUserQuestionEvent`（role=user、非 `WireMaterial`、
+非激活技能正文、逻辑归属不是 system、kind 是用户输入；空 kind = 旧数据，回退 role 判定），
+`opensRound`（压缩边界的前推参照）与会话维护目标（`sessionMaintenanceObjective`，取"最后一条
+真实用户输入"）共用它。这两处口径分叉过一次，代价很大：轮内的内部材料行（role=user +
+`wire_material`，provider role 映射为 system）在提问**之后**，被当成新的轮次起点，于是边界停在
+材料行上，这一轮的提问（在材料行之前）被折进压缩区间——保留窗口里只剩"续写"，模型从此不知道
+用户要什么（用户现象："压缩之后目标丢了"、"界限的判断包含了用户下一轮的提问"）。
+
 ## 数据流图
 
 ```mermaid
@@ -269,6 +278,8 @@ go test ./application/core/task_context -count=1
 - `func transcriptEventMessage(event model.TranscriptEvent) contract.EngineMessage`
 - `func providerContentForEvent(event model.TranscriptEvent) string` — providerContentForEvent 返回事件在 provider wire 上的真实正文：ProviderContent
 - `func providerRoleForTranscriptEvent(event model.TranscriptEvent) string` — providerRoleForTranscriptEvent 把 transcript 事实映射为 provider 可见 role：
+- `func (unit transcriptProtocolUnit) opensRound() bool` — opensRound 报告该单元是否以**真实用户提问**开头（轮次起点）。
+- `func isUserQuestionEvent(event model.TranscriptEvent) bool` — isUserQuestionEvent 判定一条 transcript 事件是否为**真实用户提问**（轮次起点）。
 - `func transcriptProtocolUnitList(events []model.TranscriptEvent) []transcriptProtocolUnit` — transcriptProtocolUnitList 划分协议单元并记录每段在 events 中的起始下标
 - `func transcriptProtocolUnits(events []model.TranscriptEvent) [][]model.TranscriptEvent` — transcriptProtocolUnits 只要单元内容（不关心边界）的视图。
 - `func isActiveSkillEvent(event model.TranscriptEvent) bool` — isActiveSkillEvent 判定事件是否为激活技能正文 internal 轮次（ActiveSkillMarker
@@ -295,6 +306,9 @@ go test ./application/core/task_context -count=1
 - `func TestTranscriptTailWindowByUsesInjectedEstimator(t *testing.T)` — TestTranscriptTailWindowByUsesInjectedEstimator：选窗必须按注入的估算器
 - `func TestTranscriptTailWindowRecordsUnitCapBoundary(t *testing.T)` — TestTranscriptTailWindowRecordsUnitCapBoundary：单元上限比 token 预算更紧时
 - `func TestTranscriptTailWindowDegradesToNewestUnit(t *testing.T)` — TestTranscriptTailWindowDegradesToNewestUnit：单个最新单元自身超预算时仍保留
+- `func TestTranscriptTailWindowKeepsRoundStartAtBoundary(t *testing.T)` — TestTranscriptTailWindowKeepsRoundStartAtBoundary：保留窗口的边界必须落在
+- `func TestTranscriptTailWindowKeepsRoundStartAcrossMaterialInjection(t *testing.T)` — TestTranscriptTailWindowKeepsRoundStartAcrossMaterialInjection：轮内的**内部
+- `func TestIsUserQuestionEventMatchesMaintenanceObjective(t *testing.T)` — TestIsUserQuestionEventMatchesMaintenanceObjective：轮次起点判据与"最后一条
 - `func TestTranscriptPrefixRangeRecordsMessageNumbers(t *testing.T)` — TestTranscriptPrefixRangeRecordsMessageNumbers：压缩区间记录消息号与事件
 
 ### provider_content_test.go

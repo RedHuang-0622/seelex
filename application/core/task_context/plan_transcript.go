@@ -140,6 +140,7 @@ func TranscriptTailWindowBy(
 		maxUnits = len(units) // 全量累积（append-only 已定稿轮次）
 	}
 	selected := make([]transcriptProtocolUnit, 0, maxUnits)
+	first := len(units) // 已选单元里最旧者的下标（len(units) = 未选任何单元）
 	tokens := 0
 	for index := len(units) - 1; index >= 0 && len(selected) < maxUnits; index-- {
 		cost := unitTokens(units[index].events)
@@ -147,12 +148,31 @@ func TranscriptTailWindowBy(
 			break
 		}
 		selected = append(selected, units[index])
+		first = index
 		tokens += cost
 	}
 	// 自 newest 向旧扫描一个单元都放不下（selected 为空）时，仍保留最新
 	// 完整单元：静默丢弃最新轮会让模型“失忆”（继续请求看不到上一轮内容）。
 	if len(selected) == 0 && len(units) > 0 {
 		selected = append(selected, units[len(units)-1])
+		first = len(units) - 1
+	}
+	// 轮次完整性：边界只能落在**轮次起点**，不能落在一轮中间。
+	//
+	// 现场（用户报告）：压缩之后模型「丢了目标」——它看得见自己刚才干到哪一步，
+	// 却看不见用户到底在要求什么。原因是边界被判在一轮中间：该轮的用户提问被判进
+	// 压缩区间（原文只在帧摘要里留一行），它的续写留在保留窗口里；压缩记录的区间
+	// 终点因此越过了一条用户提问行，保留下来的续写失去了来由。
+	//
+	// 一轮被切成多段是常态而非异常：轮内的技能正文/内部材料注入（provider role
+	// 映射为 system）会把一轮切开，半途中断的工具链同理，每段各自都是协议合法的
+	// 单元 —— 所以单元级看一切正常，问题只在"轮次"这一层。被选中的最旧单元若不
+	// 是轮次起点，就向前补齐到它所属轮次的起点；这些单元本来就在窗口边上（预算
+	// 只差一段），补齐的代价远小于"留着续写、丢了提问"，方向与上面那条「单条超
+	// 预算也保留最新单元」同源：宁可多留一点，不让模型失忆。
+	for first > 0 && !units[first].opensRound() {
+		first--
+		selected = append(selected, units[first])
 	}
 	history := make([]contract.EngineMessage, 0)
 	for index := len(selected) - 1; index >= 0; index-- {
@@ -163,7 +183,7 @@ func TranscriptTailWindowBy(
 	if len(selected) == 0 {
 		return history, len(events)
 	}
-	return history, selected[len(selected)-1].start
+	return history, units[first].start
 }
 
 // TranscriptEventMessages 把一组 transcript 事件映射为 provider 消息（与装配
@@ -283,6 +303,54 @@ func providerRoleForTranscriptEvent(event model.TranscriptEvent) string {
 type transcriptProtocolUnit struct {
 	start  int
 	events []model.TranscriptEvent
+}
+
+// opensRound 报告该单元是否以**真实用户提问**开头（轮次起点）。
+//
+// 只有真实用户提问开启新轮次：轮内的技能正文与内部材料是 Role=user 的注入事件，
+// 但 provider role 映射为 system（见 providerRoleForTranscriptEvent），它们把一轮
+// 切成多段，本身不开启新轮。判据必须与 providerRoleForTranscriptEvent 同源——
+// 两处对"什么算用户轮"的口径一分叉，压缩窗口就会在上面那种多段轮上判错边界。
+//
+// 现场（用户报告）：压缩之后模型「丢了目标」——界限的判断把**用户这一轮的提问**
+// 判进了压缩区间。根因不是边界落在"一段的中间"，而是它把轮内的**内部材料行**当成了
+// 新的轮次起点：材料行在提问**之后**，于是边界停在材料行上，这一轮真正的提问（在
+// 材料行之前）被折走，保留窗口里只剩"续写"，模型从此不知道用户要什么。
+func (unit transcriptProtocolUnit) opensRound() bool {
+	if len(unit.events) == 0 {
+		return false
+	}
+	return isUserQuestionEvent(unit.events[0])
+}
+
+// isUserQuestionEvent 判定一条 transcript 事件是否为**真实用户提问**（轮次起点）。
+//
+// 这是"什么算真实用户输入"的唯一口径，task_context 内三处读者共用：压缩窗口的
+// 轮次边界（opensRound）、会话维护目标（sessionMaintenanceObjective，取"最后一条
+// 真实用户输入"）、以及任何按"轮次起点"取数的路径。口径一分叉就会出上面那条现场：
+// 内部材料行被当成轮次起点 → 压缩边界越过提问行 → 模型失去目标。
+//
+// 判据（任一不满足即不是提问）：
+//   - Role 必须是 user，且不是激活技能正文（ActiveSkillMarker 注入）；
+//   - 不能是内部材料：WireMaterial（检查点渲染正文等"给模型看的内部材料"，由生产
+//     方置位；正文不带 `<!-- seelex:` 前缀时 Kind 会被归类成 user_input，只有这个
+//     标志分得出材料与提问）；
+//   - 不能是逻辑归属 system 的行（internal/context 行的角色归属，见
+//     applyTranscriptRoleFieldsLocked）；
+//   - Kind 必须是用户输入；空串 = 旧数据，回退 role 判定（见 classifyTranscriptEventKind）。
+func isUserQuestionEvent(event model.TranscriptEvent) bool {
+	if event.Role != "user" || event.WireMaterial || isActiveSkillEvent(event) {
+		return false
+	}
+	if event.RoleName == "system" {
+		return false
+	}
+	switch event.Kind {
+	case "", model.TranscriptEventKindUserInput:
+		return true
+	default:
+		return false
+	}
 }
 
 // transcriptProtocolUnitList 划分协议单元并记录每段在 events 中的起始下标
