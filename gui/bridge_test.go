@@ -1402,6 +1402,33 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	}
 }
 
+// TestEmbeddedWorkTableSingleScrollContainer：工作表格弹窗纵向只允许一个滚动
+// 容器（用户报告的多重滚轮：在一层滚到底会连着翻下一层）。
+//
+// 根因是三层嵌套——.modal-card[data-resizable] 自带 overflow:auto、正文容器
+// .work-table-modal-view 又写了一份 overflow:auto、表格区再自限高自滚。这里钉住
+// "卡片与正文容器不滚、表格区滚"这一条链，改动 CSS 时立刻失败。
+func TestEmbeddedWorkTableSingleScrollContainer(t *testing.T) {
+	t.Parallel()
+	styles, err := embeddedFrontend.ReadFile("frontend/dist/styles.css")
+	if err != nil {
+		t.Fatalf("embedded frontend styles.css: %v", err)
+	}
+	source := string(styles)
+	for _, want := range []string{
+		".modal-card.work-table-modal-card[data-resizable] { display: flex; flex-direction: column; overflow: hidden; }",
+		"#work-table-modal-view { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 10px; }",
+		"#work-table-modal-view .work-table-scroll { flex: 1 1 auto; min-height: 0; max-height: none; }",
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("工作表格弹窗必须只有一个纵向滚动容器，缺少规则：%s", want)
+		}
+	}
+	if strings.Contains(source, ".work-table-modal-view { overflow: auto;") {
+		t.Fatal("工作表格正文容器不得再自带 overflow: auto（与卡片自身 overflow 叠加就是多重滚轮）")
+	}
+}
+
 func waitEmitted(t *testing.T, events <-chan emittedEvent) emittedEvent {
 	t.Helper()
 	select {

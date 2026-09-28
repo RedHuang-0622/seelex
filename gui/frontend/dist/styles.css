@@ -1905,7 +1905,71 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .work-table-button-icon { color: var(--status-done); font-size: 14px; }
 .work-table-button-hint { margin-left: auto; color: var(--faint); font: 10px var(--font-mono); }
 .work-table-modal-card { width: min(1120px, 94vw); max-height: 86vh; }
-.work-table-modal-view { overflow: auto; padding: 10px; }
+/* 多重滚轮（用户报告：工作表格弹窗「滚一下跳三层」）：这个弹窗纵向原本有三个
+   嵌套滚动区——可拉伸卡片自带 `overflow: auto`（.modal-card[data-resizable] 的
+   约定）、正文容器又写了一份 `overflow: auto`、表格区再限高自滚。滚轮在一层到底
+   之后会连着翻下一层，观感就是一次滚动跳很远。左侧栏会话列表是同一个毛病
+   （.panel 与 .stack-list 各滚一层），口径也照那处：**纵向只留一个滚动容器**，
+   就是表格区本身（.work-table-scroll 已经是边缘阴影与横向委托的既有目标），卡片
+   与正文容器只负责把高度让下去。
+   选择器带 [data-resizable]：与 `.modal-card[data-resizable]` 同特异性且更靠后，
+   否则会被它的 `overflow: auto` 盖掉（与 index.html 里 node-detail-card 的覆盖
+   同一套写法）。 */
+.modal-card.work-table-modal-card[data-resizable] { display: flex; flex-direction: column; overflow: hidden; }
+.work-table-modal-card > .modal-header { flex: none; }
+#work-table-modal-view { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 10px; }
+/* createWorkTableView 会给这个容器挂上 .work-table-view（原 display: grid）；
+   这里改成 flex 列，才是「表格区吃掉卡片剩余高度」的那条链。 */
+#work-table-modal-view.work-table-view { display: flex; flex-direction: column; min-height: 0; }
+#work-table-modal-view > .work-table { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+/* 折叠态（.is-collapsed → display: none）保持原样，这里只给展开态接上 flex 链。 */
+#work-table-modal-view .work-entry-body:not(.is-collapsed) { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+/* 唯一滚动容器：高度由卡片剩余空间决定（不再自限 min(56vh, 560px)，限高与卡片
+   max-height 叠加正是"两个滚动区"的来源），溢出仍由它自己滚。 */
+#work-table-modal-view .work-table-scroll { flex: 1 1 auto; min-height: 0; max-height: none; }
+/* 弹窗里的工作表格：**只留一个纵向滚动容器**。
+   现场（真机）：卡片自己带 §18 的 .modal-card[data-resizable]{overflow:auto}，
+   正文区 .work-table-modal-view 又 overflow:auto，表格区 .work-table-scroll 再
+   overflow-y:auto——滚轮在三层之间接力，用户看到「多重滚轮」。这与左栏会话列表
+   是同一个现场（嵌套滚动容器），修法同构：让卡片成为纵向 flex，把高度一路传给
+   表格区，只有它滚；表头（筛选条）与分页因此固定可见，不再被裁在滚动区外。
+   选择器带 [data-resizable]：与 §18 的 .modal-card[data-resizable] 比权重更高
+   （不必依赖文件内顺序），规则得以留在本节与其它 .work-table-* 相邻。 */
+.modal-card.work-table-modal-card[data-resizable] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.modal-card.work-table-modal-card[data-resizable] > .modal-header { flex: none; }
+.modal-card.work-table-modal-card[data-resizable] .work-table-modal-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.modal-card.work-table-modal-card[data-resizable] [data-work-table] {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.modal-card.work-table-modal-card[data-resizable] .work-entry-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+/* 折叠态是 display:none（见 §11 的 .work-entry-body.is-collapsed）：带前缀重写
+   一次，避免被上面那条同权重更靠后的 display:flex 反超（折叠态会露出表体）。 */
+.modal-card.work-table-modal-card[data-resizable] .work-entry-body.is-collapsed { display: none; }
+/* 弹窗里表格区不再自带限高：高度由卡片（可拖动调整）决定，max-height 归零后
+   它才是唯一的滚动容器。 */
+.modal-card.work-table-modal-card[data-resizable] .work-table-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+}
 
 /* ---------- 12. Modals ---------- */
 /* 弹窗遮罩不做背景模糊：它是全窗 fixed 层，backdrop-filter 会让每次合成都要把身后
