@@ -17,8 +17,9 @@
 - `func (service *Service) recoverProviderContext(err error, originalRequest string) error` — recoverProviderContext 在 provider 因超出上下文窗口拒绝累积 transcript 后，
 - `func (service *Service) recoverProviderFailure(err error, originalRequest string) (bool, error)` — recoverProviderFailure 仅在 provider 拒绝请求后，把不可用 transcript 替换
 - `func (service *Service) recoverProviderFailureFor(ctx context.Context, err error, originalRequest string) (bool, error)` — recoverProviderFailureFor 与 recoverProviderFailure 相同，但 ctx 携带会话
-- `func (service *Service) retryContextRecovery(ctx context.Context, requestID string, onChunk func(string)) error` — retryContextRecovery 在 provider 因上下文长度在执行前拒绝请求时，给同一
+- `func (service *Service) retryContextRecovery(ctx context.Context, requestID string, onChunk func(string)) error` — retryContextRecovery 在 provider 于执行前拒绝请求（上下文长度 / 记录不合法）
 - `func classifyProviderFailure(err error) providerFailureKind`
+- `func retryableAfterRecovery(err error) bool` — retryableAfterRecovery 判定"被 provider 拒绝的这次请求"能否安全地重放一次
 - `func providerRecoveryDetails(kind providerFailureKind) (prefix, heading, summary string)`
 - `func isProviderContextExhaustion(err error) bool`
 - `func (service *Service) removeProviderContextRecovery() error`
@@ -34,12 +35,15 @@
 - `func TestContextExhaustionPersistsInterruptedProjectionAfterBoundedRetryFails(t *testing.T)`
 - `func containsRecoveryHistory(history []EngineMessage, prefix string) bool`
 - `func TestContextExhaustionReturnsBoundedRecoveryInstructionToAgent(t *testing.T)`
-- `func TestEmptyProviderContentLeavesNextTurnWithRecoverableHistory(t *testing.T)`
+- `func TestEmptyProviderContentRejectionResumesFromBoundedCheckpoint(t *testing.T)` — TestEmptyProviderContentRejectionResumesFromBoundedCheckpoint 覆盖“记录不合法”
 - `func TestNonRecoverableProviderFailureMarksTaskFailed(t *testing.T)`
 - `func TestIterationRepairsNewlyAddedEmptyToolHistory(t *testing.T)`
 - `func TestServerFailuresAreRecoverableWithoutAutomaticReplay(t *testing.T)`
 - `func TestToolProtocolRejectionsAreHistoryFailures(t *testing.T)` — TestToolProtocolRejectionsAreHistoryFailures 覆盖 2026-09-20 现场那条 400：
 - `func TestInsufficientToolMessagesIsAHistoryFailure(t *testing.T)` — TestInsufficientToolMessagesIsAHistoryFailure 覆盖 tool 配对协议的另一半措辞：
+- `func TestRetryableAfterRecoveryOnlyReplaysPreExecutionRejections(t *testing.T)` — TestRetryableAfterRecoveryOnlyReplaysPreExecutionRejections 钉住"什么时候可以
+- `func liveSessionLoopToolPairingFailure() error` — liveSessionLoopToolPairingFailure 是 2026-09-28 现场原文：会话循环第一次请求
+- `func TestHistoryProtocolFailureResumesInsteadOfKillingTheSession(t *testing.T)` — TestHistoryProtocolFailureResumesInsteadOfKillingTheSession 覆盖现场后果：恢复
 
 ### history_search.go
 

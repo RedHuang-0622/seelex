@@ -735,6 +735,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 				SummarySource: push.SummarySource,
 				Summary:       push.Summary,
 				IndexError:    push.indexError(),
+				IndexSkipped:  push.Skipped,
 				Range: compactionFoldedRange{
 					MessageFrom: record.MessageFrom,
 					MessageTo:   record.MessageTo,

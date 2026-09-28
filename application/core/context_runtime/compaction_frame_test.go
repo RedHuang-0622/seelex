@@ -233,4 +233,18 @@ func TestCompactionFrameBodyReadbackSaysWhyNoDrillDown(t *testing.T) {
 	if !strings.Contains(failed.Readback.Note, "compact stack is unavailable") {
 		t.Fatalf("推帧失败必须带真实原因：%+v", failed.Readback)
 	}
+
+	// 索引面已就绪、只是这次折叠没有折出任何完整协议单元（区间为空）：必须说这
+	// 一种，不能顺手说成"索引面未启用"——那是把"这次没事可做"报成"这一跳没接"，
+	// 读帧的人会去查一个并不存在的配置事故。
+	skipped := frameMetadataFrom(t, compactionFrameBody(compactionFrameInput{
+		Version: 6, Reason: "context_budget", Origin: "manual",
+		IndexSkipped: true,
+	}))
+	if !strings.Contains(skipped.Readback.Note, "没有折出任何完整协议单元") {
+		t.Fatalf("索引面在但没有区间可推时必须说清这一种：%+v", skipped.Readback)
+	}
+	if strings.Contains(skipped.Readback.Note, "索引面未启用") {
+		t.Fatalf("索引面已就绪却说成未启用：%+v", skipped.Readback)
+	}
 }

@@ -262,6 +262,7 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 - `func TestFoldPushesCompactionFrameIntoIndex(t *testing.T)` — TestFoldPushesCompactionFrameIntoIndex：装配层折叠必须把这次折出的区间推进会话
 - `func TestFoldWithoutIndexFaceReportsDegradedGate(t *testing.T)` — TestFoldWithoutIndexFaceReportsDegradedGate：索引面未装配（Runtime 不实现
 - `func TestFoldPushFailureIsReportedNotFatal(t *testing.T)` — TestFoldPushFailureIsReportedNotFatal：索引面在、推帧报错时，折叠与本次请求
+- `func TestFoldWithoutOverflowReportsSkippedNotUnavailable(t *testing.T)` — TestFoldWithoutOverflowReportsSkippedNotUnavailable：索引面在，但这次折叠**没有
 
 ### context_compact_progress_test.go
 

@@ -279,3 +279,72 @@ func TestFoldPushFailureIsReportedNotFatal(t *testing.T) {
 		t.Fatalf("帧正文应写出推帧失败的真实原因：\n%s", page.Content)
 	}
 }
+
+// TestFoldWithoutOverflowReportsSkippedNotUnavailable：索引面在，但这次折叠**没有
+// 折出任何完整协议单元**（尚未越过任何保留窗口就显式 /compact：区间为空、没有原文
+// 可归档）时，门禁与帧正文必须报"这次无事可做"，而不是"索引面未启用"——后者会让
+// 读帧的人去查一个并不存在的配置事故，而"没尝试 / 试了失败 / 无区间可推"本就是要
+// 分开记账的三种事实。
+func TestFoldWithoutOverflowReportsSkippedNotUnavailable(t *testing.T) {
+	recorder := &compactionIndexRecorder{}
+	runtime := &compactionIndexRuntime{
+		runtimeWithContextLimits: runtimeWithContextLimits{fakeRuntime: &fakeRuntime{}, window: 200_000, output: 8_192},
+		recorder:                 recorder,
+	}
+	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
+	service.ViewMu.Lock()
+	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-index-skip"}
+	service.components.tasks.BeginTask("task-index-skip", "inspect", "high", nil, TaskCheckpoint{})
+	// 只有两个短事件：整个 transcript 都装得进保留窗口，因此显式压缩折不出任何
+	// 区间（溢出为空）——这正是"索引面就绪但无事可做"的形态。
+	for _, event := range []TranscriptEvent{
+		{TaskID: "task-index-skip", MessageID: "message-1", Role: "user", Content: "hello"},
+		{TaskID: "task-index-skip", MessageID: "message-2", Role: "assistant", Content: "hi"},
+	} {
+		service.components.tasks.AppendTranscriptEventLocked(event)
+	}
+	service.ViewMu.Unlock()
+	sessionID := service.Snapshot().Session.ID
+
+	subscription, err := service.SubscribeSession(sessionID, 256)
+	if err != nil {
+		t.Fatalf("SubscribeSession: %v", err)
+	}
+	defer subscription.Close()
+
+	ctx := task_context.WithSessionID(context.Background(), sessionID)
+	result, err := service.CompactContextNow(ctx)
+	if err != nil {
+		t.Fatalf("CompactContextNow: %v", err)
+	}
+	if !result.Compacted || !result.Recorded {
+		t.Fatalf("显式压缩即使无区间可折也应照常折叠并落记录：%+v", result)
+	}
+
+	// ① 溢出为空时不拿一个空区间去打扰索引面（推一帧没有原文可归档的区间，只会让
+	// 检索命中一个读不回来的段）；但**这一步仍然被记为一关**：门禁与帧正文要如实
+	// 说出"索引面就绪、这次没有可推的原文"，而不是沉默跳过。
+	requests, _ := recorder.snapshot()
+	if len(requests) != 0 {
+		t.Fatalf("溢出为空不该问索引面（空区间推上去只会让检索命中读不回来的段）：%+v", requests)
+	}
+
+	// ② 门禁如实报 skipped（不是 unavailable）。
+	frames := drainCompactionProgress(t, subscription)
+	assertProgressShape(t, frames, sessionID)
+	if detail := indexGateDetail(t, frames); detail != "index=skipped reason=no_overflow" {
+		t.Fatalf("无区间可推时门禁 index 关 = %q，want index=skipped reason=no_overflow", detail)
+	}
+
+	// ③ 帧正文说"没有折出任何完整协议单元"，不得说成"索引面未启用"。
+	page, err := service.ToolResultContent(ctx, result.FrameRef, 0, 0)
+	if err != nil {
+		t.Fatalf("按 ref 读帧正文: %v", err)
+	}
+	if !strings.Contains(page.Content, "没有折出任何完整协议单元") {
+		t.Fatalf("帧正文应说清这次没有区间可推：\n%s", page.Content)
+	}
+	if strings.Contains(page.Content, "索引面未启用") {
+		t.Fatalf("索引面已就绪却说成未启用（两种降级混为一谈）：\n%s", page.Content)
+	}
+}

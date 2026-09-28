@@ -83,9 +83,14 @@ type compactionFrameInput struct {
 	// ReadbackToolResults 是本次折叠区间内可继续细筛的工具结果句柄
 	// （result:<callID>，read_tool_result 的入参）。
 	ReadbackToolResults []string
-	// IndexError 是推帧失败的真实原因（空 = 没失败/没尝试）。有值时正文如实写出
-	// "为什么这一帧没有细筛入口"，不留空段也不假装可读回。
+	// IndexError 是推帧失败的真实原因（空 = 没失败/没尝试/无区间）。有值时正文如实
+	// 写出"为什么这一帧没有细筛入口"，不留空段也不假装可读回。
 	IndexError string
+	// IndexSkipped 报告"索引面已就绪，但这次折叠没有折出任何完整协议单元"（例如
+	// 尚未越过任何保留窗口就显式 /compact：区间为空，没有原文可归档）。它与
+	// "索引面未启用"是两种事实——前者说明接线是好的、只是这次无事可做，后者说明
+	// 这一跳在本宿主上根本不存在。混为一谈会让前者读起来像一次配置事故。
+	IndexSkipped bool
 }
 
 // compactionFoldedRange 是被折叠区间的边界事实（记录值，不推算）。
@@ -166,6 +171,9 @@ func (input compactionFrameInput) readback() compactionReadback {
 	case input.IndexError != "":
 		out.Note = "本次没有压缩栈帧（推帧失败：" + input.IndexError +
 			"），因此没有 read_compressed_turn 入口；原始轮次仍在会话存储里，可用 search_history 检索。"
+	case input.IndexSkipped:
+		out.Note = "本次没有压缩栈帧（这次折叠没有折出任何完整协议单元，没有原文可归档），" +
+			"因此没有 read_compressed_turn 入口；原始轮次仍在会话存储里，可用 search_history 检索。"
 	default:
 		out.Note = "本次没有压缩栈帧（索引面未启用），因此没有 read_compressed_turn 入口；" +
 			"原始轮次仍在会话存储里，可用 search_history 检索。"
