@@ -39,6 +39,7 @@
 - `func TestIterationRepairsNewlyAddedEmptyToolHistory(t *testing.T)`
 - `func TestServerFailuresAreRecoverableWithoutAutomaticReplay(t *testing.T)`
 - `func TestToolProtocolRejectionsAreHistoryFailures(t *testing.T)` — TestToolProtocolRejectionsAreHistoryFailures 覆盖 2026-09-20 现场那条 400：
+- `func TestInsufficientToolMessagesIsAHistoryFailure(t *testing.T)` — TestInsufficientToolMessagesIsAHistoryFailure 覆盖 tool 配对协议的另一半措辞：
 
 ### history_search.go
 

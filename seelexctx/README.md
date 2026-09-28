@@ -118,6 +118,14 @@ merge_frame → controller/gap PushCompact；帧 Summary 固定两章节，模�
 - 向后兼容：门面 API 保持稳定，复杂能力下沉子包。
 - token 估算：事前用 `tokens` 脚本感知估算，事后由 application 侧以 provider usage 校准（`calibratedTokenCounter`）。
 
+**孪生实现必须同步改**：provider 的 tool 配对协议在两处各有一份实现——应用侧
+`application/core/context_runtime/history.go:RepairInterruptedToolChains`（请求前，缺结果一律补占位）
+与本包 `history_safety.go:repairToolPairing`（wire 出口，`SanitizeProviderToolProtocol` 保守不补占位，
+但**重复宣告**一类照补：那不是"可能正在执行"的调用，而是已经拿到过回执的调用的重发）。包依赖方向
+不允许共用一份代码，因此改动必须成对；两侧出口不变量由
+`seelexctx/wire_protocol_safety_test.go:assertProviderToolProtocol` 全量断言（逐条声明的相邻回执、
+孤儿、乱序、重复、空 ID）。
+
 ## Review 指南
 
 - 是否把完整 secrets/tool raw output 无界注入 child。

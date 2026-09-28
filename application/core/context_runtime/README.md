@@ -97,12 +97,22 @@ sequenceDiagram
 
     P->>R: 传入工作历史投影
     R->>R: ① 被隔开的结果搬回声明之后
-    R->>R: ② 重复结果与孤儿行退出投影
+    R->>R: ② 逐次配对（第 k 次声明 ↔ 该 call_id 的第 k 条结果），重复/孤儿行退出投影
     R->>R: ③ 缺结果的调用补占位，且排在原地结果之后
     R-->>P: 结果块连续（looksLikeProviderValidToolPairs 自校验）
     P->>E: 只改写取出给 provider 的历史投影
     Note over D: durable 消息行不动，因此不丢记录
 ```
+
+配对按 **call_id 的出现次序**做，不是「首个声明认领该 ID 的全部结果」：同一个 `call_id`
+被两次声明（重试/中断后重发复用 ID，现场形状）时，后一条同名结果正是后一次声明的回执——
+按「每个 ID 只认首个结果」会把它当重复行丢掉，后一条声明在自己那一行之后的相邻块里就缺回执，
+provider 直接 400 `insufficient tool messages following tool_calls message`（2026-09-28 现场：
+session loop 0）。同一行里**空 ID**与**行内重复 ID**的调用永远配不上回执（provider 按
+`tool_calls` 条数数），从声明里剔除。合成占位只在调用**不可能在飞**时补（ReplaceHistory 路径，
+或重复声明），并且被后到的真结果顶掉——否则「重复结果」规则会把真结果当多余行丢弃，模型永远
+只看到「调用可能没执行」。框架侧孪生实现（`seelexctx/history_safety.go`）同步改，出口不变量
+由 `seelexctx/wire_protocol_safety_test.go:assertProviderToolProtocol` 全量断言。
 
 历史归一化遵守**跨轮前缀不变量**：每条请求都以更早发出的请求字节为前缀，
 因此 provider 投影必须等于 wire 已发出的字节——携带工具调用的 assistant
@@ -250,12 +260,19 @@ go test ./application/core/context_runtime -count=1
 - `func (h *HistoryCoordinator) PrepareNewHistoryContentFor(sessionID string) error` — PrepareNewHistoryContentFor 仅修复引擎历史中新 append 的空正文消息
 - `func (h *HistoryCoordinator) replaceEngineHistory(sessionID string, history []contract.EngineMessage) error` — replaceEngineHistory 会话内替换指定会话引擎历史（会话路由引擎用
 - `func (h *HistoryCoordinator) engineHistory(sessionID string) []contract.EngineMessage` — engineHistory 返回指定会话引擎历史（会话路由引擎用 HistoryFor，否则活跃
-- `func RepairInterruptedToolChains(history []contract.EngineMessage) ([]contract.EngineMessage, bool)` — RepairInterruptedToolChains 修复中断（残缺）工具链：assistant 消息携带
-- `func (p toolCallPairing) emitInPlace(index int, callID string) bool` — emitInPlace 报告某 tool 行能否原样输出：它是该 call_id 的首个结果，且位置已经
+- `func (p toolCallPairing) emitInPlace(index int) bool` — emitInPlace 报告某 tool 行能否原样输出：它是所服务声明的结果，且位置已经落在
 - `func (p toolCallPairing) declarationHasInPlaceResult(index int) bool` — declarationHasInPlaceResult 报告声明行 index 的结果里是否存在"原地输出"的那
+- `func isInterruptedToolResult(message contract.EngineMessage) bool` — isInterruptedToolResult 报告一行 tool 结果是否为合成占位（不是真实工具输出）。
 - `func indexToolCallPairing(history []contract.EngineMessage) toolCallPairing`
+- `func RepairInterruptedToolChains(history []contract.EngineMessage) ([]contract.EngineMessage, bool)` — RepairInterruptedToolChains 修复历史里的工具链，使它在 provider 的 tool 配对
 - `func RepairEmptyHistoryContent(history []contract.EngineMessage) ([]contract.EngineMessage, bool)` — RepairEmptyHistoryContent 使历史对拒绝空 content 的 provider 安全
 - `func IsProviderOnlyHistoryContent(content string) bool` — IsProviderOnlyHistoryContent 识别仅用于满足 provider 非空 content 要求的
+
+### history_pairing_gap_test.go
+
+- `func TestRepairInterruptedToolChainsPairsRepeatedDeclarationOccurrence(t *testing.T)` — TestRepairInterruptedToolChainsPairsRepeatedDeclarationOccurrence：同一 call_id
+- `func TestRepairInterruptedToolChainsKeepsRepeatedResultWithRepeatedDeclaration(t *testing.T)` — TestRepairInterruptedToolChainsKeepsRepeatedResultWithRepeatedDeclaration：反过来
+- `func TestRepairInterruptedToolChainsDropsEmptyCallIDDeclaration(t *testing.T)` — TestRepairInterruptedToolChainsDropsEmptyCallIDDeclaration：声明里的空 ID 调用
 
 ### history_recovery_test.go
 

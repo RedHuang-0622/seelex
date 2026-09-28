@@ -32,10 +32,15 @@ import (
 // assertProviderToolProtocol 复刻 provider 对 tool 消息的校验规则：
 //
 //	每条 role=tool 消息都必须落在"声明了它的 assistant 行 + 1 .. + len(tool_calls)"
-//	这一相邻结果块内，且同一 call_id 不许出现重复结果。
+//	这一相邻结果块内，同一 call_id 不许出现重复结果，且**每条宣告的 tool_call 都必须
+//	在自己的相邻结果块里拿到一条回执**（后半句对应 provider 的第二半措辞
+//	"insufficient tool messages following tool_calls message"：它按宣告条数数回执，
+//	少一条就 400，与"历史里另一处凑巧有同名结果"无关）。
 func assertProviderToolProtocol(t *testing.T, history []types.Message) {
 	t.Helper()
-	owner := map[string]int{}
+	// 声明按出现次序登记：同一 call_id 可以被多次声明（重发/重试复用 ID），
+	// 每条声明都需要自己的相邻回执。
+	declared := map[string][]int{}
 	width := map[int]int{}
 	for index, message := range history {
 		if message.Role != "assistant" {
@@ -44,34 +49,52 @@ func assertProviderToolProtocol(t *testing.T, history []types.Message) {
 		width[index] = len(message.ToolCalls)
 		for _, call := range message.ToolCalls {
 			if call.ID == "" {
-				continue
+				t.Fatalf("msg#%d 宣告了空 ID 的 tool_call：provider 按宣告条数数回执，这条永远配不上 → 400: %s",
+					index, roleShape(history))
 			}
-			if _, seen := owner[call.ID]; !seen {
-				owner[call.ID] = index
-			}
+			declared[call.ID] = append(declared[call.ID], index)
 		}
 	}
-	results := map[string]int{}
+	served := map[string][]bool{}
+	for id, rows := range declared {
+		served[id] = make([]bool, len(rows))
+	}
 	for index, message := range history {
 		if message.Role != "tool" {
 			continue
 		}
-		declaration, declared := owner[message.ToolCallID]
-		if !declared {
+		rows := declared[message.ToolCallID]
+		if len(rows) == 0 {
 			t.Fatalf("msg#%d role=tool tool_call_id=%q 没有前一条声明它的 assistant → provider 400 "+
 				"(Messages with role 'tool' must be a response to a preceding message with 'tool_calls'): %s",
 				index, message.ToolCallID, roleShape(history))
 		}
-		if index < declaration+1 || index > declaration+width[declaration] {
-			t.Fatalf("msg#%d role=tool tool_call_id=%q 不在声明行 msg#%d 的相邻结果块 [%d,%d] 内 → provider 400: %s",
-				index, message.ToolCallID, declaration, declaration+1, declaration+width[declaration],
-				roleShape(history))
+		matched := -1
+		for occurrence, row := range rows {
+			if served[message.ToolCallID][occurrence] {
+				continue
+			}
+			if index >= row+1 && index <= row+width[row] {
+				matched = occurrence
+				break
+			}
 		}
-		if first, duplicate := results[message.ToolCallID]; duplicate {
-			t.Fatalf("msg#%d role=tool tool_call_id=%q 是重复结果（首个在 msg#%d）→ provider 400: %s",
-				index, message.ToolCallID, first, roleShape(history))
+		if matched < 0 {
+			t.Fatalf("msg#%d role=tool tool_call_id=%q 不在任何一条**未消费**声明的相邻结果块内"+
+				"（重复结果 / 乱序 / 隔开都会让 provider 400）: %s",
+				index, message.ToolCallID, roleShape(history))
 		}
-		results[message.ToolCallID] = index
+		served[message.ToolCallID][matched] = true
+	}
+	for id, rows := range declared {
+		for occurrence, row := range rows {
+			if served[id][occurrence] {
+				continue
+			}
+			t.Fatalf("msg#%d 宣告的 tool_call_id=%q 在自己的相邻结果块里没有回执 → provider 400 "+
+				"(insufficient tool messages following tool_calls message): %s",
+				row, id, roleShape(history))
+		}
 	}
 }
 
