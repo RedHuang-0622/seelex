@@ -151,7 +151,7 @@ function renderLevel(entries, state, level, ancestors) {
         ${isDir
           ? `<button type="button" class="tree-toggle" data-tree-dir="${escapeHtml(entry.path)}" aria-expanded="${expanded}" title="展开/折叠 ${escapeHtml(entry.name)}">${escapeHtml(entry.name)}</button>
              <span class="tree-count" title="直接文件数">${entry.count}</span>${spinner}`
-          : `<button type="button" class="tree-file tree-file-open" data-file-open="${escapeHtml(entry.path)}" data-file-name="${escapeHtml(entry.name)}" data-file-size="${entry.size}" title="查看 ${escapeHtml(entry.path)}">${escapeHtml(entry.name)}</button>
+          : `<button type="button" class="tree-file tree-file-open" data-file-open="${escapeHtml(entry.path)}" data-file-name="${escapeHtml(entry.name)}" data-file-size="${entry.size}" draggable="true" data-file-drag="${escapeHtml(entry.path)}" title="查看 ${escapeHtml(entry.path)}（可拖到输入框/消息队列发送）">${escapeHtml(entry.name)}</button>
              <span class="tree-size">${formatSize(entry.size)}</span>`}
       </div>
       ${isDir && expanded && truncated && children

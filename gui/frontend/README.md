@@ -67,7 +67,8 @@ flowchart TB
 | `dist/todo-view.js` | todolist 渲染组件（数据源 `runtime.todo_items` 权威投影；仍供测试与复用，右侧工作台已由工作表格接管）。 |
 | `dist/work-table.js` | 工作表格视图（弹窗内完整多维表格：阶段/任务/描述/状态/Assignee/Dependency/附件）、批次分片（批次 = chat 请求，批次头可折叠 + 各类计数）、筛选（全部/Plan/Task/Todo/Subagent，按权威 kind）、行内打点、todo 三态更新、retry 计数（RETRY n）、plan/subagent 详情入口；行区独立滚轮滚动（表头吸顶）+ 分页查看（每页 10/20/50，页码钳制）；section/行两级 keyed reconciliation + html 缓存；`workTableSignatures`/`countUnread` 提供未读角标判据。 |
 | `dist/tree-fork.js` | 树 / 分叉的统一渲染件（VS Code 观感，纯函数）。两件事：① `treeRowAttrs` 把「层级 + 是否末子 + 祖先是否续行」折算成树轨的 class/行内 style——祖先续行轨 = 行内 1px `linear-gradient` 背景（每层一道），自身连接轨 = `::before`（末子圆角弯头 / 非末子整行竖线），**零额外 DOM**；② `layoutCommitGraph` 把 git 的 parents 拓扑算成泳道（`rows[].lane` + 每行线段 + `dropped`），`commitGraphRowHTML` 逐行画 SVG（直线 / 合并贝塞尔 + 提交点），泳道色走 `--fork-lane-0..5`。像素几何只有一份（`railOffset`/`laneCenter`），CSS 只负责画，换肤只换 token。 |
-| `dist/worktree-view.js` | 工作树视图（「资源管理器」子页「工作树」面板）：数据源 `Bridge.WorkspaceTree(relPath, depth)` / `Bridge.WorkspaceFileCount()`（后端权威元数据，只含名称/路径/类型/大小/计数，不含文件内容）；目录行惰性展开（首次经 `loadDir` 拉子级并缓存）、直接文件计数 badge、截断提示；文件行是可点击按钮（`data-file-open`），点击经 `options.onOpenFile` 打开文件预览；层级连线交给 `tree-fork` 的树轨（不再是缩进 + 字符画），行点击用容器委托（展开/收起重绘不再逐行绑监听），全部文本 escape。 |
+| `dist/worktree-view.js` | 工作树视图（「资源管理器」子页「工作树」面板）：数据源 `Bridge.WorkspaceTree(relPath, depth)` / `Bridge.WorkspaceFileCount()`（后端权威元数据，只含名称/路径/类型/大小/计数，不含文件内容）；目录行惰性展开（首次经 `loadDir` 拉子级并缓存）、直接文件计数 badge、截断提示；文件行是可点击按钮（`data-file-open`），点击经 `options.onOpenFile` 打开文件预览，同时 `draggable="true" data-file-drag="<工作区相对路径>"`——可以直接拖到聊天框/消息队列发出去（落点映射见 `dist/file-drop.js`）；层级连线交给 `tree-fork` 的树轨（不再是缩进 + 字符画），行点击用容器委托（展开/收起重绘不再逐行绑监听），全部文本 escape。 |
+| `dist/file-drop.js` | 档案夹 → 会话的拖放**纯映射**（拖拽载荷 → 工作区相对路径 → 排队正文 → 动作）：`normalizeDropPath`（只接受工作区内相对路径：绝对路径、`..`、超长一律丢弃）、`dropPaths`（自定义 mime → `text/plain` → 带路径字段的 `files`；**裸文件名不接受**——发出去只会让模型去读一个不存在的文件）、`fileQueueText`（渲染成一条可执行的读取指令）、`dropPlan`（草稿非空 → `insert` 只追加引用、不替用户发出去；草稿为空 → `queue` 走 composer 的普通提交路径，会话运行中由后端排进消息队列）。DOM 与 Bridge 调用留在 `app.js`（document 级委托：消息队列每次重绘都换 DOM） |
 | `dist/file-preview.js` | 文件预览控制器与纯函数（「资源管理器」子页左抽屉）：数据源 `Bridge.WorkspaceFileContent(relPath, limit)`（后端受控读取：containment/敏感过滤/上限/二进制探测，原始字节 base64 带回）；按扩展名分派渲染——markdown（marked→DOMPurify→highlight.js）、代码/文本（highlight.js 高亮或纯文本）、PDF（PDF.js canvas 分页）、Word（docx-preview）、图片（blob `<img>`）、`.doc` 提示转换；组件全部本地 vendor（`dist/vendor/`，随 embed 离线打包）；文本永不直接 innerHTML，markdown 输出先 DOMPurify 消毒。抽屉是**多文件详情容器**：每个打开的文件一枚 chip（`renderPreviewTabsHTML`）+ 一个独立面板（切换只切显隐，不重读、不丢滚动位置）；抽屉**头部就是 chip 标签条本身**（无独立标题 / 元信息行——「文件详情 · path · size」那行已删，文件身份由 chip 承担，动作按钮贴右）；纯函数 `previewTabLabel`/`normalizePreviewTab`/`openPreviewTab`/`closePreviewTab` 给出标签生命周期（打开去重、关闭切邻居、关闭不同项保持当前激活）；最后一个 chip 关闭（容器为空）回调 `onEmpty` → 抽屉收起、子页恢复原来大小。 |
 | `dist/git-log-view.js` | 提交记录视图（「资源管理器」子页「提交记录」面板）：数据源 `Bridge.WorkspaceGitLog(limit)`（后端权威只读元数据：按 `--topo-order` 的提交行 + 每个提交的 `parents` 父 hash，不含 diff/文件内容）。分叉不再贴 `git --graph` 的字符画：`tree-fork.layoutCommitGraph` 按 parents 算泳道，逐行 SVG 画直线/合并曲线 + 提交点；短 hash 点击复制完整 hash、截断与泳道上限提示；hash 复制走容器委托；全部文本 escape。 |
 | `dist/terminal-panel.js` | **下栏终端面板**（VS Code 式）：纯函数（`clampTerminalHeight`/`normalizeTerminalState`/`terminalTabItems`/`nextActiveTerminal`/`decodeBase64Bytes`/`encodeBase64Bytes`/`terminalEventOf`）与 DOM 控制器 `createTerminalPanel` 同文件。终端的**权威状态在后端**（`Bridge.TerminalOpen/Write/Resize/Close/List`），前端只持有布局（`seelex.terminal.v1`：是否展开/收起/高度）与 xterm 实例：多开标签（同名 shell 编号、退出划线、行尾 ✕）、顶边拖拽调高（键盘 ↑↓ 微调）、收起只留头带；输出走独立事件名 `seelex:terminal`（不进 `seelex:event` 的 seq 水位，`TerminalOpen` 返回前到达的输出按 id 暂存后补投）；尺寸唯一来自 xterm `fit()` 的 cols/rows（`onResize` → `TerminalResize`）。终端不属于会话：切换会话/历史分页都不触碰它。xterm 的配色只在创建时从 token 取一次，换肤后由 `refreshTheme()` 把最新 token 套回全部已开终端（`app.js` 把它接到 `theme.js` 的 `onApplied` 回流口，契约见 `dist/themes/README.md` 的「换肤回流」段）。控制器级契约测试见 `terminal-panel-controller.test.mjs`（假 DOM + 假 xterm + 假 Bridge，不开窗不起进程）。 |
@@ -126,7 +127,10 @@ flowchart TB
   发言调度、定时 agent 表）。两栏都是条目化表格，别再往 chip 混排的自由布局里加字段。
 - 动效克制：只保留一个加载指示（`runtime-spinner`），装饰性动画（扫光、连点、辉光、呼吸）已移除；`prefers-reduced-motion` 全局生效。
 - 交互口径（拟物但克制：北欧家居式极简 + 锤子式短促回弹）：
-  - 焦点提示只作用于**外框**：`1px solid var(--focus-ring)` + `box-shadow: var(--focus-glow)`（`0 0 12px 1px`，零偏移、纯发散模糊）；输入区不描内框——容器 `.composer:focus-within` 聚光，内部 `textarea` 的 focus ring 显式清掉；
+  - 焦点提示只作用于**外框**：`1px solid var(--focus-ring)` + `box-shadow: var(--focus-glow)`（`0 0 12px 1px`，零偏移、纯发散模糊）；内部 `textarea` 的 focus ring 显式清掉。
+    **例外（用户口径）**：聊天框是**卡片**，它的「点击激活」不再加聚光——卡片一旦发光就像"被选中/报错"，不像"正在输入"。`.composer:focus-within` 改成卡片抬升 `--shadow-lift`（两套皮肤各一档）＋ 一点点 accent 描边提示焦点在哪；
+  - 消息队列 = 叠在聊天框上沿的一叠卡片：`.message-queue` 是列，卡片之间用 `--queue-peek` 相互压边（每张卡底部预留同样高度的内边距，压边吃掉的是留白而不是正文），最下面一条（最新排队）紧贴聊天框上沿；被指到/键盘进入的那张浮到最上面；作为文件拖放目标时高亮同一套强调边；
+  - 档案夹 → 会话的拖拽：工作树文件行 `draggable`（`data-file-drag` = 工作区相对路径），聊天框与消息队列是落点，映射逻辑在 `dist/file-drop.js`（纯函数）：草稿非空只**追加**引用（不替用户发出去），草稿为空就走 composer 的普通提交路径（会话运行中由后端排进消息队列——上方那叠卡片就是这么来的）；
   - 按压是「陷进去再弹回来」：`:active` 用 0 偏移内阴影 `--press-shadow` + `translateY(1px) scale(.985)`（图标键 .94），开关态（`perm-chip.is-on` / `team-preset.is-active` / 已置顶）也用内阴影表示"已经按进去"；位移都在 1~2px，不做弹跳；
   - 层次靠 1px 外框 + 极轻投影，不堆厚描边；`prefers-reduced-motion` 关闭全部 transition/animation。
 - 内存口径（前端只做减法的三件事）：
@@ -624,7 +628,7 @@ applied 水位——否则新会话 `delivery_seq=1..N` 会被误判为重复静
 `file-preview.test.mjs` 覆盖预览分派（扩展名→类型/语言）、大小格式、UTF-8/
 UTF-16/GBK 解码、base64 往返与截断语义，以及多文件详情标签的纯函数（标签名、
 打开去重、关闭切邻居/保持当前项、chip 渲染与转义）；`worktree-view.test.mjs`
-断言文件行渲染为带路径元数据的打开按钮。后端侧：`workspace/readfile_test.go` 覆盖
+断言文件行渲染为带路径元数据的打开按钮；`file-drop.test.mjs` 覆盖拖放纯映射（只接受工作区内相对路径——绝对路径/`..`/超长丢弃、mime 与 `text/plain` 的读取优先级、裸文件名拒绝、读取指令正文、"草稿非空只追加"的落点判定）。后端侧：`workspace/readfile_test.go` 覆盖
 containment/敏感过滤/符号链接拒绝/上限钳制/截断/二进制探测，
 `application/core/workspace_file_usecase_test.go` 覆盖当前工作区 root 转发与
 后端缺文件端口时的降级，`gui/bridge_test.go` 覆盖 Bridge 参数转发。

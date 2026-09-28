@@ -1429,6 +1429,65 @@ func TestEmbeddedWorkTableSingleScrollContainer(t *testing.T) {
 	}
 }
 
+// TestEmbeddedChatQueueCardStack：聊天框与消息队列是同一套卡片语言（用户口径：
+// "消息队列是像卡片一样叠放在聊天框上面，同时聊天框也是一个卡片"），且"点击激活"
+// 的阴影从一圈 accent 聚光改成卡片抬升（--shadow-lift）——聚光在卡片语言里读起来
+// 像"选中/报错"，不像"正在输入"。
+//
+// 同时钉住档案夹 → 会话的拖拽接线（文件-drop 纯逻辑 + 工作树行的可拖标记），
+// 这条链任何一环断掉都只是"拖了没反应"，没有报错可查，所以必须在测试里找得出来。
+func TestEmbeddedChatQueueCardStack(t *testing.T) {
+	t.Parallel()
+	styles, err := embeddedFrontend.ReadFile("frontend/dist/styles.css")
+	if err != nil {
+		t.Fatalf("embedded frontend styles.css: %v", err)
+	}
+	source := string(styles)
+	for _, want := range []string{
+		"--shadow-lift:",
+		".message-queue .queued-message + .queued-message { margin-top: calc(-1 * (var(--queue-peek) + 2px)); }",
+		".message-queue.is-drop-target .queued-message,",
+		".composer.is-drop-target {",
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("聊天框/消息队列的卡片叠放与拖放高亮缺少规则：%s", want)
+		}
+	}
+	if strings.Count(source, ".composer:focus-within {") != 2 ||
+		strings.Count(source, "box-shadow: var(--shadow-lift);") != 2 {
+		t.Fatal("两处 .composer:focus-within（基础皮肤 + 对话框皮肤）都必须用卡片抬升阴影")
+	}
+	if strings.Contains(source, "--shadow-sm), var(--focus-glow)") {
+		t.Fatal("聊天框激活不得再叠 accent 聚光：改用 --shadow-lift（卡片抬升）")
+	}
+	script, err := embeddedFrontend.ReadFile("frontend/dist/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(script), `from "./file-drop.js"`) ||
+		!strings.Contains(string(script), "initFileDrop();") ||
+		!strings.Contains(string(script), `const FILE_DROP_TARGETS = "#composer, .message-queue";`) ||
+		!strings.Contains(string(script), `elements.composer.requestSubmit();`) {
+		t.Fatal("档案夹拖文件到聊天框/队列的接线必须存在（file-drop.js + drop 委托 + 复用提交路径）")
+	}
+	worktree, err := embeddedFrontend.ReadFile("frontend/dist/worktree-view.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(worktree), `draggable="true" data-file-drag=`) {
+		t.Fatal("工作树文件行必须可拖且携带相对路径（data-file-drag）")
+	}
+	drop, err := embeddedFrontend.ReadFile("frontend/dist/file-drop.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, symbol := range []string{"FILE_DRAG_MIME", "normalizeDropPath", "dropPaths", "dropPlan", "fileQueueText"} {
+		if !strings.Contains(string(drop), "export function "+symbol) && !strings.Contains(string(drop), "export const "+symbol) {
+			t.Fatalf("file-drop.js 必须导出 %s（纯映射，供 node --test 钉住）", symbol)
+		}
+	}
+}
+
 func waitEmitted(t *testing.T, events <-chan emittedEvent) emittedEvent {
 	t.Helper()
 	select {

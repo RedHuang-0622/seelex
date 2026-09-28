@@ -1,4 +1,5 @@
 import { escapeHtml, hydrateIcons, icon, queueMoveTarget } from "./components.js";
+import { FILE_DRAG_MIME, dropPaths, dropPlan, fileDragPayload } from "./file-drop.js";
 import { createChatView } from "./chat-view.js";
 import { createGUIClient } from "./client-state.js";
 import { clearSubmittedText, composerSubmitPlan, composerViewSwitch, isComposingEnter, shouldRestoreDraft } from "./composer-input.js";
@@ -2971,6 +2972,91 @@ elements["scheduled-table-view"]?.addEventListener("click", async event => {
     showToast(error);
   }
 });
+
+// ── 档案夹 → 会话：把工作树文件"抽出来"发出去（拖拽） ────────────────────────
+// 纯映射在 file-drop.js（可脱 DOM 单测），这里只做 DOM/Bridge 接线：
+//   1) 工作树文件行 draggable（worktree-view.js 输出 data-file-drag）；
+//   2) dragstart 把**相对路径**写进 dataTransfer（自定义 mime + text/plain 兜底）；
+//   3) 聊天框与消息队列是 drop 目标（队列每次重渲染都换 DOM，所以用 document 委托）：
+//      草稿非空 → 只把引用追加到草稿（不打断用户正在写的话，更不替他发出去）；
+//      草稿为空 → 整条交出去发送：会话在跑时后端排进消息队列，就渲染成聊天框上沿
+//      的那叠排队卡片；空闲时就是一条普通消息。复用 composer 的提交路径（语义、
+//      清除草稿、刷新都与手打发送完全一致），不另开一条发送通道。
+const FILE_DROP_TARGETS = "#composer, .message-queue";
+let fileDropTarget = null;
+
+function fileDropZone(node) {
+  return node?.closest?.(FILE_DROP_TARGETS) || null;
+}
+
+function setFileDropZone(zone) {
+  if (fileDropTarget === zone) return;
+  fileDropTarget?.classList?.remove("is-drop-target");
+  fileDropTarget = zone;
+  fileDropTarget?.classList?.add("is-drop-target");
+}
+
+function dropPayload(transfer) {
+  if (!transfer) return {};
+  let mime = "";
+  let text = "";
+  try { mime = transfer.getData(FILE_DRAG_MIME) || ""; } catch { mime = ""; }
+  try { text = transfer.getData("text/plain") || ""; } catch { text = ""; }
+  return { mime, text, files: Array.from(transfer.files || []) };
+}
+
+function initFileDrop() {
+  document.addEventListener("dragstart", event => {
+    const source = event.target?.closest?.("[data-file-drag]");
+    if (!source) return;
+    const payload = fileDragPayload(source.dataset.fileDrag);
+    if (!payload) return;
+    event.dataTransfer?.setData(payload.mime, payload.path);
+    event.dataTransfer?.setData("text/plain", payload.path);
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy";
+    source.classList.add("is-dragging");
+  });
+  document.addEventListener("dragend", event => {
+    event.target?.closest?.("[data-file-drag]")?.classList.remove("is-dragging");
+    // 取消拖拽（Esc / 窗口失焦）时 dragleave 可能不到：这里兜底撤掉高亮。
+    setFileDropZone(null);
+  });
+  document.addEventListener("dragover", event => {
+    const zone = fileDropZone(event.target);
+    if (!zone) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    setFileDropZone(zone);
+  });
+  document.addEventListener("dragleave", event => {
+    if (!fileDropTarget) return;
+    // 只有真的离开高亮区才撤（进入子元素也会触发 dragleave）。
+    if (!fileDropTarget.contains(event.relatedTarget)) setFileDropZone(null);
+  });
+  document.addEventListener("drop", event => {
+    const zone = fileDropZone(event.target);
+    setFileDropZone(null);
+    if (!zone) return;
+    const plan = dropPlan({ paths: dropPaths(dropPayload(event.dataTransfer)), draftText: elements.prompt.value });
+    if (!plan) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    if (plan.mode === "insert") {
+      // 草稿非空：只追加引用，让用户接着写完再自己发。
+      elements.prompt.value = plan.draft;
+      markComposerEdited();
+      resizePrompt();
+      elements.prompt.focus();
+      showToast(`已引用 ${plan.paths.length} 个工作树文件`);
+      return;
+    }
+    // 草稿为空：走与手打发送完全相同的提交路径（后端在会话运行中会把它排进队列）。
+    elements.prompt.value = plan.text;
+    resizePrompt();
+    elements.composer.requestSubmit();
+  });
+}
+initFileDrop();
 
 // initModalResize 通用弹窗拉伸：右下角手柄 pointer 拖动调整宽高
 // （覆盖工作表格/定时任务表格等 data-resizable 弹窗，仅尺寸调整）。
