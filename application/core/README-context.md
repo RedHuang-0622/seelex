@@ -252,6 +252,17 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 - `func seedLongRounds(t *testing.T, service *Service, requestID string)` — seedLongRounds 与 TestCompactContextHandlerFoldsTranscript 同一份量：4 轮、每轮
 - `func TestCompactContextWaitsForHeldCompactionGate(t *testing.T)` — TestCompactContextWaitsForHeldCompactionGate 钉住等待方向：门已被占用时，第二次
 
+### context_compact_index_test.go
+
+- `func (recorder *compactionIndexRecorder) push( _ context.Context, sessionID string, request context_runtime.CompactionIndexRequest, ) (context_runtime.CompactionIndexReceipt, error)`
+- `func (recorder *compactionIndexRecorder) snapshot() ([]context_runtime.CompactionIndexRequest, []string)`
+- `func (runtime *compactionIndexRuntime) PushCompactionFrame( ctx context.Context, sessionID string, request context_runtime.CompactionIndexRequest, ) (context_runtime.CompactionIndexReceipt, error)`
+- `func indexGateDetail(t *testing.T, frames []compactionProgressFrame) string` — indexGateDetail 取出本轮进度里门禁 index 的事实行（找不到直接失败：一轮真折叠
+- `func appendIndexRounds(t *testing.T, service *Service, taskID string)` — appendIndexRounds 追加 4 个已定稿轮（每轮约 4 万 tokens），足以越过软阈值触发
+- `func TestFoldPushesCompactionFrameIntoIndex(t *testing.T)` — TestFoldPushesCompactionFrameIntoIndex：装配层折叠必须把这次折出的区间推进会话
+- `func TestFoldWithoutIndexFaceReportsDegradedGate(t *testing.T)` — TestFoldWithoutIndexFaceReportsDegradedGate：索引面未装配（Runtime 不实现
+- `func TestFoldPushFailureIsReportedNotFatal(t *testing.T)` — TestFoldPushFailureIsReportedNotFatal：索引面在、推帧报错时，折叠与本次请求
+
 ### context_compact_progress_test.go
 
 - `func drainCompactionProgress(t *testing.T, subscription event.Subscription) []compactionProgressFrame` — drainCompactionProgress 取出订阅里已排队的 compaction.progress。发布与装配

@@ -167,10 +167,32 @@ go test ./application/core/context_runtime -count=1
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
+### compaction_frame.go
+
+- `func (r compactionFoldedRange) Empty() bool` — Empty 报告这份区间没有任何可记录的边界。
+- `func (input compactionFrameInput) metadata() compactionFrameMetadata` — metadata 把渲染输入投影为元数据结构（纯映射，不重算任何数字）。
+- `func (input compactionFrameInput) readback() compactionReadback` — readback 组装细筛入口。segment_id 缺失时如实说明为什么没有这一跳——
+- `func compactionFrameBody(input compactionFrameInput) string` — compactionFrameBody 渲染折叠帧正文：v2 标记 + JSON 元数据块 + Markdown 读后感块。
+- `func marshalFrameMetadata(meta compactionFrameMetadata) string` — marshalFrameMetadata 序列化元数据块。这些结构体不含 channel/func，Marshal 不会
+- `func (input compactionFrameInput) readingNotes() string` — readingNotes 渲染帧的 Markdown 一半。
+
 ### compaction_frame_test.go
 
-- `func TestCompactionFrameBodyReportsFoldedRangeAndInjection(t *testing.T)` — TestCompactionFrameBodyReportsFoldedRangeAndInjection：帧正文（前端按 ref
-- `func TestCompactionFrameBodyAdmitsMissingEvidence(t *testing.T)` — TestCompactionFrameBodyAdmitsMissingEvidence：没有可回读证据/没有区间边界时
+- `func frameMetadataFrom(t *testing.T, body string) compactionFrameMetadata` — frameMetadataFrom 抽出帧正文里那个 fenced json 块并解析。抽不出/解析不了直接
+- `func TestCompactionFrameBodyIsJSONMetadataPlusReadingNotes(t *testing.T)` — TestCompactionFrameBodyIsJSONMetadataPlusReadingNotes 钉住规范形状：
+- `func TestCompactionFrameBodyMetadataCarriesFoldFacts(t *testing.T)` — TestCompactionFrameBodyMetadataCarriesFoldFacts：元数据块里的每个字段都对得上
+- `func TestCompactionFrameBodyOmitsEmptyFoldedRange(t *testing.T)` — TestCompactionFrameBodyOmitsEmptyFoldedRange：没有可记的区间边界时 folded 整个
+- `func TestCompactionFrameBodyEmbedsSummaryVerbatim(t *testing.T)` — TestCompactionFrameBodyEmbedsSummaryVerbatim：有栈帧摘要时**原样嵌入**，
+- `func TestCompactionFrameBodyAdmitsMissingEvidence(t *testing.T)` — TestCompactionFrameBodyAdmitsMissingEvidence：没有栈帧摘要（开关默认关、重放失败
+- `func TestCompactionFrameBodyReadbackSaysWhyNoDrillDown(t *testing.T)` — TestCompactionFrameBodyReadbackSaysWhyNoDrillDown：缺 segment_id 时，正文必须
+
+### compaction_index.go
+
+- `func (c *Coordinator) pushCompactionFrame( sessionID, requestID string, overflow, replay []contract.EngineMessage, window task_context.TranscriptEventRange, ) compactionIndexPush` — pushCompactionFrame 把这次折叠折出保留窗口的区间推进会话压缩栈。
+- `func (p compactionIndexPush) gateDetail() string` — gateDetail 渲染门禁 index 关的 Detail：这一步的**事实**（有没有尝试、成没成、
+- `func (p compactionIndexPush) sourceLabel() string` — sourceLabel 报告摘要来源；缺省写 (none) 而不是留空——空段会被读成"格式没写对"，
+- `func (p compactionIndexPush) indexError() string` — indexError 返回推帧失败的真实原因（空 = 没失败、也没跳过）。帧正文据此如实写出
+- `func foldedOverflowEvents(events []model.TranscriptEvent, from, to int) []model.TranscriptEvent` — foldedOverflowEvents 截取被折出保留窗口的 transcript 区间（events[from:to]）。
 
 ### compaction_progress.go
 
@@ -210,7 +232,6 @@ go test ./application/core/context_runtime -count=1
 - `func (c *Coordinator) transcriptUnitTokens(unit []model.TranscriptEvent) int` — transcriptUnitTokens 按请求装配同款估算器给一个协议单元计价。保留窗口
 - `func (c *Coordinator) compressExecutionHistory( systemPrompt string, systems []contract.EngineMessage, summary string, planMessage string, currentInput string, tools []model.Tool, budget task_context.ContextBudget, ) ([]contract.EngineMessage, int, bool)` — compressExecutionHistory 是自主压缩兜底：正常有界窗口装不下全量预算时，
 - `func AutonomousCompactionMessage(summary string) string` — AutonomousCompactionMessage 渲染自主压缩帧正文（system 消息）：显式告知
-- `func compactionFrameBody(input compactionFrameInput) string` — compactionFrameBody 渲染「有界 checkpoint 帧」正文（供前端/审计回读的那一份）。
 - `func retainedMatchesTranscriptPrefix(systems []contract.EngineMessage, events []model.TranscriptEvent) bool` — retainedMatchesTranscriptPrefix 判定引擎保留段（非 system 的已定稿轮次）
 - `func (c *Coordinator) planContextMessageLocked(sessionID string) string`
 - `func currentPlanSlice(arguments, currentNode string) any`
@@ -300,7 +321,6 @@ go test ./application/core/context_runtime -count=1
 - `func (r RetainDecision) Terse() string` — Terse 渲染保留窗口决策的一行事实（门禁 Detail 用：短、无文案）。
 - `func (l ContextLayout) RetainTerse() string` — RetainTerse 渲染保留窗口决策的一行事实。
 - `func (l ContextLayout) ZonesTerse() string` — ZonesTerse 渲染四区 token 数的一行事实（门禁 Detail 用）。
-- `func (l ContextLayout) RenderZones() string` — RenderZones 把四区渲染为帧正文里的区块（分区 + 各区 token 数与来源）："这一轮
 - `func (c *Coordinator) buildContextLayout( systemPrompt string, assembled []contract.EngineMessage, currentInput string, ) ContextLayout` — buildContextLayout 把装配后的 provider 历史切进四区并汇总判据量：分区判据见
 - `func (c *Coordinator) countRequestTokens( systemPrompt string, history []contract.EngineMessage, currentInput string, tools []model.Tool, ) int` — countRequestTokens 适配 TaskPort.CountRequestTokens 到四区切分的计数签名。
 - `func ContextZones( systemPrompt string, assembled []contract.EngineMessage, currentInput string, count zoneCounter, ) []ContextZone` — ContextZones 把装配后的 provider 历史切进四区并给出各区 token 数、条数与来源。
@@ -312,5 +332,5 @@ go test ./application/core/context_runtime -count=1
 - `func TestContextZonesClassifiesFourZones(t *testing.T)` — TestContextZonesClassifiesFourZones：四区显式化的分区判据全部是消息自身的
 - `func TestRetainWindowDecisionRecordsFacts(t *testing.T)` — TestRetainWindowDecisionRecordsFacts：保留窗口决策把"拿什么数字比的"全部记下
 - `func TestContextLayoutTerseAndZonesRender(t *testing.T)` — TestContextLayoutTerseAndZonesRender：门禁 Detail 与帧正文读同一份 layout——
-- `func TestCompactionFrameBodyCarriesZoneLayout(t *testing.T)` — TestCompactionFrameBodyCarriesZoneLayout：帧正文必须带上四区区块——否则记录里
+- `func TestCompactionFrameBodyCarriesZoneLayout(t *testing.T)` — TestCompactionFrameBodyCarriesZoneLayout：帧正文必须带上四区事实——否则记录里
 
