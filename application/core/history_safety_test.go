@@ -281,3 +281,72 @@ func TestInsufficientToolMessagesIsAHistoryFailure(t *testing.T) {
 		t.Fatalf("provider failure = %q, want %q", got, providerFailureHistory)
 	}
 }
+
+// TestRetryableAfterRecoveryOnlyReplaysPreExecutionRejections 钉住"什么时候可以
+// 重放恢复回合"：provider 在工具执行前拒绝（上下文耗尽 / 记录不合法）可安全重放；
+// 超时与服务端故障副作用不确定，不得重放。
+func TestRetryableAfterRecoveryOnlyReplaysPreExecutionRejections(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"context exhaustion", errors.New("engine loop 15: context window exceeds limit (2013)"), true},
+		{"tool pairing 400 (live)", liveSessionLoopToolPairingFailure(), true},
+		{"orphan tool result 400", errors.New(`HTTP 400: Messages with role 'tool' must be a response to a preceding message with 'tool_calls'`), true},
+		{"upstream timeout", errors.New("engine loop 16: ChatClient stream: HTTP 504: timeout_error"), false},
+		{"server unavailable", errors.New("engine loop 16: HTTP 503: server_error"), false},
+		{"not a provider failure", nil, false},
+	}
+	for _, testCase := range cases {
+		if got := retryableAfterRecovery(testCase.err); got != testCase.want {
+			t.Fatalf("%s: retryableAfterRecovery = %v, want %v", testCase.name, got, testCase.want)
+		}
+	}
+}
+
+// liveSessionLoopToolPairingFailure 是 2026-09-28 现场原文：会话循环第一次请求
+// 就带着一条没配齐回执的 assistant(tool_calls)，provider 直接 400，循环被判死。
+func liveSessionLoopToolPairingFailure() error {
+	return errors.New(`session loop 0: seelebridge: stream with account "goalplan-1": ` +
+		`ChatClient stream: HTTP 400: {"error":{"message":"An assistant message with 'tool_calls' ` +
+		`must be followed by tool messages responding to each 'tool_call_id'. ` +
+		`(insufficient tool messages following tool_calls message)","type":"invalid_request_error",` +
+		`"param":null,"code":"invalid_request_error"}}`)
+}
+
+// TestHistoryProtocolFailureResumesInsteadOfKillingTheSession 覆盖现场后果：恢复
+// 做了，但没有重放恢复回合（重放条件只认上下文耗尽），于是第一次请求就 400 的
+// 会话被判死——用户看到的是"会话中断"，而不是"Agent 从检查点继续"。
+// 期望：恢复回合重放一次；被拒的记录不再出现在重放的请求里；会话照常结束。
+func TestHistoryProtocolFailureResumesInsteadOfKillingTheSession(t *testing.T) {
+	engine := &fakeEngine{
+		appendChatHistory: true,
+		chatErrors:        []error{liveSessionLoopToolPairingFailure()},
+	}
+	service := newTestService(t, engine)
+	defer service.Shutdown()
+	if err := service.Submit(context.Background(), "finish the repository audit"); err != nil {
+		t.Fatal(err)
+	}
+	waitForChatCompletion(t, service)
+
+	if visible := service.Snapshot().Chat.Error; visible != "" {
+		t.Fatalf("history-protocol 400 surfaced as a dead turn: %q", visible)
+	}
+	engine.mu.Lock()
+	inputs := append([]string(nil), engine.chatInputs...)
+	resent := append([]EngineMessage(nil), engine.historyBeforeChat...)
+	engine.mu.Unlock()
+	if len(inputs) != 2 {
+		t.Fatalf("provider calls = %d, want 2 (original + bounded recovery turn)", len(inputs))
+	}
+	if !strings.Contains(inputs[1], "seelex:context-recovery-agent:v1") {
+		t.Fatalf("second request is not the bounded recovery turn: %q", inputs[1])
+	}
+	for _, message := range resent {
+		if message.Role == "tool" || len(message.ToolCalls) > 0 {
+			t.Fatalf("replayed request still carries the rejected tool record: %#v", resent)
+		}
+	}
+}

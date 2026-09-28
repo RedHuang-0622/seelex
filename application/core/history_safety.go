@@ -14,7 +14,7 @@ const providerRecoveryPrefix = "<!-- seelex:provider-recovery:v1 -->"
 const contextRecoveryRequestDelimiter = "\n## Original User Request\n"
 
 const contextRecoveryAgentInput = "<!-- seelex:context-recovery-agent:v1 -->\n" +
-	"The provider rejected the previous context as too large. The history now contains a bounded task checkpoint. " +
+	"The provider rejected the previous conversation record (context too large, or an invalid tool-call record). The history now contains a bounded task checkpoint. " +
 	"Continue from that checkpoint without assuming omitted details. If more detail is required, use a narrower, paginated, or filtered tool call; do not request a full large result. " +
 	"Deliver the task if the checkpoint evidence is sufficient."
 
@@ -91,9 +91,10 @@ replayed safely.
 	return true, nil
 }
 
-// retryContextRecovery 在 provider 因上下文长度在执行前拒绝请求时，给同一
-// Agent 一次安全的恢复回合。刻意限定于上下文耗尽：超时与服务器故障可能留下
-// 不确定的工具副作用，不得重放。
+// retryContextRecovery 在 provider 于执行前拒绝请求（上下文长度 / 记录不合法）
+// 时，给同一 Agent 一次安全的恢复回合。是否重放由调用方经
+// retryableAfterRecovery 判定：超时与服务器故障可能留下不确定的工具副作用，
+// 不得重放。
 func (service *Service) retryContextRecovery(ctx context.Context, requestID string, onChunk func(string)) error {
 	sessionID := sessionIDFromContext(ctx)
 	if sessionID == "" {
@@ -161,6 +162,19 @@ func classifyProviderFailure(err error) providerFailureKind {
 		return providerFailureServer
 	}
 	return providerFailureNone
+}
+
+// retryableAfterRecovery 判定"被 provider 拒绝的这次请求"能否安全地重放一次
+// 有界恢复回合。恢复（recoverProviderFailureFor）已把 transcript 换成有界
+// 检查点，重放不会把被拒的记录再发一遍；判据是"这次拒绝发生在工具执行之前"：
+//   - 上下文耗尽：provider 在装配后、执行前拒绝，没有工具副作用；
+//   - 记录不合法（tool 配对协议 400）：同样是请求校验就被拒。2026-09-28 现场
+//     `session loop 0: seelebridge: stream with account "goalplan-1": ChatClient
+//     stream: HTTP 400 ... insufficient tool messages following tool_calls
+//     message` 把会话循环直接判死（恢复完却不重放，用户只看到"会话中断"）。
+// 超时（504）与服务端故障刻意排除：工具副作用不确定，不得自动重放。
+func retryableAfterRecovery(err error) bool {
+	return isProviderContextExhaustion(err) || classifyProviderFailure(err) == providerFailureHistory
 }
 
 func providerRecoveryDetails(kind providerFailureKind) (prefix, heading, summary string) {

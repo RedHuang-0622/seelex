@@ -214,7 +214,7 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		if recoveryErr != nil {
 			err = fmt.Errorf("%w; context recovery failed: %v", err, recoveryErr)
 		}
-		if recovered && recoveryErr == nil && isProviderContextExhaustion(err) {
+		if recovered && recoveryErr == nil && retryableAfterRecovery(err) {
 			if retryErr := service.retryContextRecovery(ctx, requestID, onChunk); retryErr != nil {
 				err = fmt.Errorf("%w; bounded context recovery turn failed: %v", err, retryErr)
 			} else {
