@@ -111,21 +111,6 @@ func (l ContextLayout) ZonesTerse() string {
 	return strings.Join(parts, " ")
 }
 
-// RenderZones 把四区渲染为帧正文里的区块（分区 + 各区 token 数与来源）："这一轮
-// 折叠把哪个区动了多少 token"必须有一处可回读的落点，否则记录里只剩一个总量，
-// 读者无法把判据与报表对上。
-func (l ContextLayout) RenderZones() string {
-	var builder strings.Builder
-	for _, zone := range l.Zones {
-		fmt.Fprintf(&builder, "- %s: %d tokens / %d 条 · 来源 %s\n",
-			zone.Kind, zone.Tokens, zone.Messages, zone.Source)
-	}
-	fmt.Fprintf(&builder, "- 判据: compared=%d assembled=%d soft=%d hard=%d compacting=%t\n",
-		l.ComparedTokens, l.EstimatedTokens, l.SoftThreshold, l.HardThreshold, l.Compacting)
-	fmt.Fprintf(&builder, "- 保留窗口: %s\n", l.RetainTerse())
-	return builder.String()
-}
-
 // buildContextLayout 把装配后的 provider 历史切进四区并汇总判据量：分区判据见
 // ContextZones（纯函数），判据量与保留窗口决策由调用方在同一轮次采样写入。
 func (c *Coordinator) buildContextLayout(

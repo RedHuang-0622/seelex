@@ -131,6 +131,35 @@ func TestOneLineSummaryAndAnchorSource(t *testing.T) {
 	}
 }
 
+// TestOneLineSummarySkipsStructuredData 锚点一句话不得取到结构化数据行。
+//
+// 有牙：删掉 OneLineSummary 里那条 IndexAny(`{["` + 反引号) 守卫，本用例即红。
+// 这条污染是**静默**的——每帧看起来都"有锚点"（非空 → anchor_source=ok），
+// 不会触发 degraded 标记，因此不会有任何报警，而下一帧的 Chapter 1 里已经躺着
+// 一段花括号。回读帧正文的 JSON 元数据块正是以 `{` 开头（见
+// application/core/context_runtime/compaction_frame.go 的规范形状）。
+func TestOneLineSummarySkipsStructuredData(t *testing.T) {
+	polluted := sessionstore.CompactFrame{Summary: "## " + CompactChapter2Title + "\n" +
+		"{\n  \"schema\": \"seelex.context-compaction-frame/v2\",\n  \"version\": 7\n}\n" +
+		"### 目标 (Goal)\n接通压缩帧索引面"}
+	if got := OneLineSummary(polluted); got != "接通压缩帧索引面" {
+		t.Fatalf("锚点取到了结构化数据行 = %q", got)
+	}
+	if got := FrameAnchorSource(&polluted); got != CompactAnchorSourceOK {
+		t.Fatalf("anchor source = %q, want ok", got)
+	}
+	// 数组、引号、反引号开头同样不得入选（fenced 代码块与 JSON 数组都会出现）。
+	for _, line := range []string{`["a","b"]`, `"quoted": true`, "```json"} {
+		frame := sessionstore.CompactFrame{Summary: "## " + CompactChapter2Title + "\n" + line}
+		if got := OneLineSummary(frame); got != "" {
+			t.Fatalf("行首 %q 不得成为锚点，got %q", line, got)
+		}
+		if got := FrameAnchorSource(&frame); got != CompactAnchorSourceDegraded {
+			t.Fatalf("行首 %q 应标记 degraded，got %q", line, got)
+		}
+	}
+}
+
 // TestChatQueueRequestLabels 1 基 request 覆盖标签；倒置返回空。
 func TestChatQueueRequestLabels(t *testing.T) {
 	from, to := ChatQueueRequestLabels(0, 6)

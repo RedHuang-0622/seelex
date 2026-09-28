@@ -138,37 +138,38 @@ func TestContextLayoutTerseAndZonesRender(t *testing.T) {
 			t.Fatalf("保留窗口一行事实缺少 %q：%s", want, retain)
 		}
 	}
-	rendered := layout.RenderZones()
-	for _, want := range []string{"- stable_prefix:", "- folded:", "- protected_window:", "- tail:", "- current_input:", "- 判据:", "- 保留窗口:"} {
-		if !strings.Contains(rendered, want) {
-			t.Fatalf("帧正文四区区块缺少 %q：\n%s", want, rendered)
-		}
-	}
 	if layout.zone(ZoneFolded).Tokens != 90_000 || layout.zone("unknown").Tokens != 0 {
 		t.Fatalf("zone 查询口径不对：%+v", layout.zone("unknown"))
 	}
 }
 
-// TestCompactionFrameBodyCarriesZoneLayout：帧正文必须带上四区区块——否则记录里
-// 只剩一个总量，读者无法把"判据说超了"与"哪个区占了多少"对上。
+// TestCompactionFrameBodyCarriesZoneLayout：帧正文必须带上四区事实——否则记录里
+// 只剩一个总量，读者无法把"判据说超了"与"哪个区占了多少"对上。四区躺在元数据块
+// 的 layout.zones 里（结构化、可逐字段对拍），不再是 v1 的散文区块。
 func TestCompactionFrameBodyCarriesZoneLayout(t *testing.T) {
 	layout := ContextLayout{
 		Zones:  []ContextZone{{Kind: ZoneStable, Tokens: 100, Messages: 1, Source: "system"}},
 		Retain: RetainDecision{AllContextTokens: 200_000, BudgetTokens: 174_488, Retained: 91_000},
 	}
-	body := compactionFrameBody(compactionFrameInput{
+	meta := frameMetadataFrom(t, compactionFrameBody(compactionFrameInput{
 		Version: 3, Reason: "context_budget", Origin: "explicit_after_turn",
 		At:       time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC),
 		Injected: false, Layout: layout,
-	})
-	for _, want := range []string{"## Context zones (四区)", "- stable_prefix:", "- 保留窗口:", "retained=91000"} {
-		if !strings.Contains(body, want) {
-			t.Fatalf("帧正文缺少 %q：\n%s", want, body)
-		}
+	}))
+	if len(meta.Layout.Zones) != 1 {
+		t.Fatalf("四区没有进元数据块：%+v", meta.Layout)
 	}
-	// 未提供 layout（旧调用方/无装配上下文）时不留空段。
-	plain := compactionFrameBody(compactionFrameInput{Version: 1, Reason: "context_budget"})
-	if strings.Contains(plain, "## Context zones") {
-		t.Fatalf("没有 layout 时不得写空区块：\n%s", plain)
+	zone := meta.Layout.Zones[0]
+	if zone.Kind != ZoneStable || zone.Tokens != 100 || zone.Messages != 1 || zone.Source != "system" {
+		t.Fatalf("分区事实被改写：%+v", zone)
+	}
+	if meta.Layout.Retain.Retained != 91_000 || meta.Layout.Retain.AllContextTokens != 200_000 {
+		t.Fatalf("保留窗口决策没有进元数据块：%+v", meta.Layout.Retain)
+	}
+	// 未提供 layout（旧调用方/无装配上下文）时，layout 是零值而不是缺字段——
+	// 读者据此知道"这一帧没有装配上下文"，而不是"字段丢了"。
+	plain := frameMetadataFrom(t, compactionFrameBody(compactionFrameInput{Version: 1, Reason: "context_budget"}))
+	if len(plain.Layout.Zones) != 0 || plain.Layout.Compacting {
+		t.Fatalf("没有 layout 时不得凭空造分区：%+v", plain.Layout)
 	}
 }

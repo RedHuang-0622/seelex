@@ -250,8 +250,10 @@ func TestCompactionFrameBodyIsReadableByRef(t *testing.T) {
 	if !strings.Contains(body, "Context checkpoint frame v") {
 		t.Fatalf("读回的正文不是帧正文：%q", body)
 	}
-	if !strings.Contains(body, "origin: "+model.CompactionOriginExplicitAfterTurn) {
-		t.Fatalf("帧正文应带上这次压缩的来源：%q", body)
+	// v2 帧正文里来源是 JSON 元数据块的字段，不再是 v1 的散文行。
+	// MarshalIndent 的 `"key": value` 形式稳定（只有行首缩进随嵌套层级变）。
+	if !strings.Contains(body, `"origin": "`+model.CompactionOriginExplicitAfterTurn+`"`) {
+		t.Fatalf("帧正文的元数据块应带上这次压缩的来源：%q", body)
 	}
 	if page.TotalBytes != result.FrameBytes {
 		t.Fatalf("帧正文体量应一致：page=%d record=%d", page.TotalBytes, result.FrameBytes)

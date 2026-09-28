@@ -27,6 +27,16 @@ type Candidate struct {
 	Evidence  []sessionstore.EvidenceRef
 	From      int // 累计 ChatQueue 单元索引（CompactFrame.From）
 	To        int // 累计 ChatQueue 单元索引（CompactFrame.To）
+	// EventFrom/EventTo 是 transcript EventSeq 区间（含端点；0 = 该帧未声明）。
+	//
+	// 为什么两套区间都要带：From/To 是**累计单元索引**，只有回合内控制器与真空区
+	// 覆盖这两条路径能算准（它们本来就在单元空间里工作）；装配层折叠（回合开始前
+	// 那条路径，也是实际最常发生的那条）手里的权威事实是 EventSeq，硬塞进 From/To
+	// 会让检索侧 clamp 出一个"看起来合法但指向别的轮次"的区间——静默错读比报错更糟。
+	// 因此检索侧优先按 EventSeq 反查单元下标（见 search.buildHit），From/To 只作
+	// 旧帧与控制器帧的回退。两个字段不参与打分，只作定位。
+	EventFrom uint64
+	EventTo   uint64
 }
 
 // Options 选取参数；零值字段回退默认（见 DefaultOptions）。

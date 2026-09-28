@@ -196,6 +196,7 @@ func (s *Searcher) Search(ctx context.Context, query string, opts Options) (Resu
 			candidates = append(candidates, memory.Candidate{
 				SegmentID: frame.SegmentID, Summary: frame.Summary,
 				Evidence: frame.Evidence, From: frame.From, To: frame.To,
+				EventFrom: frame.EventFrom, EventTo: frame.EventTo,
 			})
 		}
 		selected := memory.Select(query, candidates, memory.Options{Limit: opts.Limit})
@@ -251,8 +252,19 @@ func collectHits(query string, selected []memory.Candidate, units [][]sessionsto
 	return hits, truncated
 }
 
-// buildHit 按帧 [From..To] 单元范围读回真实聊天记录。单元索引与帧范围
-// 近似对齐：越界 clamp 到事件流边界；clamp 后范围倒置 → 空命中（不报错）。
+// buildHit 按帧区间读回真实聊天记录。
+//
+// 区间定位有两条路，优先级不可颠倒：
+//
+//  1. 帧声明了 EventSeq 区间（EventTo > 0）→ 按 Seq 在这份 units 上**反查**单元下标。
+//     这是权威路径：装配层折叠（回合开始前那条，也是实际最常发生的那条）手里的
+//     事实就是 EventSeq；而 units 由 CompleteEventUnits 切出，会跳过孤儿 tool 与
+//     未知角色，因此"事件下标 → 单元下标"**不是减法**，只能按 Seq 查找。
+//     反查不到 → 空命中 + 在 Summary 里写明原因，绝不 clamp 猜。
+//  2. 未声明（控制器帧 / 真空区帧 / 旧记录）→ 沿用 From/To 累计单元索引 + clamp。
+//
+// 为什么第 1 条不许回退到 clamp：clamp 会产出一个"看起来合法但指向别的轮次"的
+// 区间，读回的是错的原文却不报错——静默错读比空命中糟得多。
 // Summary 截断到展示长度；Score 复用 memory.Select 同款打分。
 func buildHit(query string, candidate memory.Candidate, units [][]sessionstore.Event, budget int) Hit {
 	hit := Hit{
@@ -262,10 +274,22 @@ func buildHit(query string, candidate memory.Candidate, units [][]sessionstore.E
 		Summary:   truncateContent(candidate.Summary),
 		Score:     memory.Score(query, candidate),
 	}
-	from := clampIndex(candidate.From, len(units))
-	to := clampIndex(candidate.To, len(units))
-	if to < from {
-		return hit // 帧范围在事件流之外（clamp 后倒置）→ 空命中
+	var from, to int
+	if candidate.EventTo > 0 {
+		mapped, ok := eventSeqUnitRange(units, candidate.EventFrom, candidate.EventTo)
+		if !ok {
+			hit.Summary = truncateContent(candidate.Summary) +
+				fmt.Sprintf("\n[区间无法定位：帧声明事件序号 %d..%d，但当前事件流里找不到对应单元；不猜测、不 clamp]",
+					candidate.EventFrom, candidate.EventTo)
+			return hit
+		}
+		from, to = mapped.from, mapped.to
+	} else {
+		from = clampIndex(candidate.From, len(units))
+		to = clampIndex(candidate.To, len(units))
+		if to < from {
+			return hit // 帧范围在事件流之外（clamp 后倒置）→ 空命中
+		}
 	}
 	hit.From, hit.To = from, to
 	hit.Units = to - from + 1
@@ -280,6 +304,56 @@ func buildHit(query string, candidate memory.Candidate, units [][]sessionstore.E
 	}
 	hit.Truncated = index <= to // 范围内还有单元未渲染 = 预算耗尽截断
 	return hit
+}
+
+// unitRange 是一次 EventSeq → 单元下标的映射结果（含端点）。
+type unitRange struct {
+	from int
+	to   int
+}
+
+// eventSeqUnitRange 在 units 上按 EventSeq 区间反查单元下标区间。
+//
+// from = 首个"最大 Seq >= eventFrom"的单元；to = 末个"最小 Seq <= eventTo"的单元。
+// Seq 为 0 的事件（合成事件，见 TranscriptPrefixRange 的同款跳过规则）不参与定界。
+// 任一端找不到 → ok=false，调用方必须空命中，不得回退 clamp。
+func eventSeqUnitRange(units [][]sessionstore.Event, eventFrom, eventTo uint64) (unitRange, bool) {
+	if eventTo == 0 || len(units) == 0 {
+		return unitRange{}, false
+	}
+	out := unitRange{from: -1, to: -1}
+	for index, unit := range units {
+		low, high := unitSeqBounds(unit)
+		if low == 0 && high == 0 {
+			continue // 整个单元都没有真实事件序号，无法定界
+		}
+		if out.from < 0 && high >= eventFrom {
+			out.from = index
+		}
+		if low <= eventTo {
+			out.to = index
+		}
+	}
+	if out.from < 0 || out.to < 0 || out.to < out.from {
+		return unitRange{}, false
+	}
+	return out, true
+}
+
+// unitSeqBounds 返回一个单元内非零 EventSeq 的最小/最大值（都为 0 = 无真实序号）。
+func unitSeqBounds(unit []sessionstore.Event) (low, high uint64) {
+	for _, event := range unit {
+		if event.Seq == 0 {
+			continue
+		}
+		if low == 0 || event.Seq < low {
+			low = event.Seq
+		}
+		if event.Seq > high {
+			high = event.Seq
+		}
+	}
+	return low, high
 }
 
 // renderUnitRecords 渲染一个事件单元为记录列表（token 预算内；预算耗尽

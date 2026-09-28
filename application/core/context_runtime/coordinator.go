@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -706,11 +705,17 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 			// 正文只活在内存 engine history（回合收尾即被剔除）、摘要只进自主
 			// 压缩的 wire 正文，前端因此"看得到压缩、看不到帧"。
 			frame := compactionFrameBody(compactionFrameInput{
-				Version:         checkpoint.Version,
-				Reason:          reason,
-				Origin:          origin,
-				At:              record.CompactedAt,
-				RangeLabel:      model.CompactionRangeLabel(record.MessageFrom, record.MessageTo, record.EventFrom, record.EventTo),
+				Version: checkpoint.Version,
+				Reason:  reason,
+				Origin:  origin,
+				At:      record.CompactedAt,
+				Range: compactionFoldedRange{
+					MessageFrom: record.MessageFrom,
+					MessageTo:   record.MessageTo,
+					EventFrom:   record.EventFrom,
+					EventTo:     record.EventTo,
+					Label:       model.CompactionRangeLabel(record.MessageFrom, record.MessageTo, record.EventFrom, record.EventTo),
+				},
 				ComparedTokens:  rawTokens,
 				AssembledTokens: estimated,
 				SoftThreshold:   budget.SoftThreshold,
@@ -880,84 +885,6 @@ func AutonomousCompactionMessage(summary string) string {
 		builder.WriteString("\n")
 	} else {
 		builder.WriteString("\nNo durable checkpoint evidence is available; rely on the current request and re-read as needed.\n")
-	}
-	return builder.String()
-}
-
-// compactionFrameMarker 标记回读用的帧正文（内容存储里的正文，不是 wire 消息；
-// 与 seelexctx 的 checkpoint/压缩帧标记无关，不会被 history_safety 清理）。
-const compactionFrameMarker = "<!-- seelex:context-checkpoint-frame:v1 -->"
-
-// compactionFrameTool 是帧正文在会话内容存储里登记的工具名：前端/审计据此分辨
-// "这不是工具输出，而是折叠那一刻留下的有界 checkpoint 帧"。
-const compactionFrameTool = "context_compaction_frame"
-
-// compactionFrameInput 是渲染帧正文所需的**事实**：全部取自这次折叠本身，
-// 不做二次推算（区间取记录值、token 取判据量与装配量、证据取当次摘要）。
-type compactionFrameInput struct {
-	Version         uint64
-	Reason          string
-	Origin          string
-	At              time.Time
-	RangeLabel      string // 消息/事件区间（model.CompactionRangeLabel；空 = 无边界可记）
-	ComparedTokens  int
-	AssembledTokens int
-	SoftThreshold   int
-	HardThreshold   int
-	Evidence        string // 有界任务证据摘要（TaskExecutionState.ContextSummary；可能为空）
-	PlanMessage     string // 随帧保留的 plan 尾部（可能为空）
-	Injected        bool   // 帧正文是否真的进了 provider 历史（自主压缩 = 是）
-	// Layout 是这次装配的四区显式化（分区 + 各区 token 数与来源）与保留窗口决策：
-	// 帧正文里必须有一处能回读到"这轮折叠把哪个区动了多少 token"，否则记录里只剩
-	// 一个总量，判据与报表对不上。
-	Layout ContextLayout
-}
-
-// compactionFrameBody 渲染「有界 checkpoint 帧」正文（供前端/审计回读的那一份）。
-//
-// 它必须如实回答三件互不相同的事：折叠把哪一段折出了 provider 历史、模型现在
-// 拿到的替代物是什么、留下的有界证据是什么。尤其是 Injected——普通显式压缩走
-// "保留窗口"路径（稳定 system 前缀 + 保留窗口 + plan），**并没有**把证据摘要注入
-// provider 历史；只有自主压缩才把帧正文作为 system 消息发出去。把两者写成同一句
-// 话，就等于告诉用户"模型看得到这份摘要"，而那是假的。
-func compactionFrameBody(input compactionFrameInput) string {
-	var builder strings.Builder
-	builder.WriteString(compactionFrameMarker)
-	builder.WriteString("\n# Context checkpoint frame v")
-	builder.WriteString(strconv.FormatUint(input.Version, 10))
-	builder.WriteString("\n\n")
-	fmt.Fprintf(&builder, "reason: %s · origin: %s · at: %s\n",
-		input.Reason, input.Origin, input.At.Format("2006-01-02 15:04:05Z07:00"))
-	if input.RangeLabel != "" {
-		fmt.Fprintf(&builder, "folded: %s（这段被折出 provider 历史；原文仍在会话存储里，可按区间回读）\n", input.RangeLabel)
-	} else {
-		builder.WriteString("folded: 本次没有可记的区间边界\n")
-	}
-	fmt.Fprintf(&builder, "tokens: compared %d → assembled %d (soft %d / hard %d)\n",
-		input.ComparedTokens, input.AssembledTokens, input.SoftThreshold, input.HardThreshold)
-	if input.Injected {
-		builder.WriteString("injected: yes —— 帧正文（自主压缩帧）已作为 system 消息进入 provider 历史\n")
-	} else {
-		builder.WriteString("injected: no —— 本次走保留窗口路径：provider 历史 = 稳定 system 前缀 + 保留窗口 + plan，未注入下面的证据摘要\n")
-	}
-	// 四区显式化（① 绝不压前缀 / ② 被压掉 / ③ 窗口保护 / ④ 绝不压后缀 + 当轮输入）：
-	// 与判据读同一份 ContextLayout（同一轮、同一次采样），读者能把"判据说超了"
-	// 与"哪个区占了多少"对上。
-	if len(input.Layout.Zones) > 0 {
-		builder.WriteString("\n## Context zones (四区)\n")
-		builder.WriteString(input.Layout.RenderZones())
-	}
-	builder.WriteString("\n## Task evidence checkpoint\n")
-	if evidence := strings.TrimSpace(input.Evidence); evidence != "" {
-		builder.WriteString(evidence)
-		builder.WriteString("\n")
-	} else {
-		builder.WriteString("（本次折叠没有可回读的任务证据摘要：objective、检查点证据与工具结果都不足。）\n")
-	}
-	if plan := strings.TrimSpace(input.PlanMessage); plan != "" {
-		builder.WriteString("\n## Plan tail (kept in provider history)\n")
-		builder.WriteString(plan)
-		builder.WriteString("\n")
 	}
 	return builder.String()
 }

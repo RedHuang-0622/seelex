@@ -73,8 +73,15 @@ type ContextCompaction struct {
 	MessageTo   string `json:"message_to,omitempty"`
 	EventFrom   uint64 `json:"event_from,omitempty"`
 	EventTo     uint64 `json:"event_to,omitempty"`
+	// SegmentID 是本次折叠在**会话压缩栈**（sessionstore.CompactFrame）里那一帧的
+	// 标识，是快照侧记录与栈帧之间的互链键，同时是 read_compressed_turn 的必选
+	// 入参。没有它，模型对这段被折出的区间就拿不到细筛入口——原文明明还在盘上，
+	// 却只能靠 search_history 碰运气。
+	// 空串 = 本次没有推帧（索引面未启用、栈不可用或推帧失败）；折叠本身照样成立，
+	// 只是少了这一跳。帧正文的 readback 段会如实说明缺的是哪一跳、为什么。
+	SegmentID string `json:"segment_id,omitempty"`
 	// FrameRef 是可回读的帧正文引用：折叠发生那一刻的「有界 checkpoint 帧」
-	// 正文（任务证据摘要 + 区间元数据）已写进会话内容存储，前端按 ref 分页
+	// 正文（JSON 元数据 + Markdown 读后感）已写进会话内容存储，前端按 ref 分页
 	// 读取（application.ToolResultContent / Bridge.ToolResultContent），
 	// 因此快照只带引用、不带正文。空串 = 本次没有可回读正文（例如摘要为空）。
 	FrameRef    string `json:"frame_ref,omitempty"`

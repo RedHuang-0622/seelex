@@ -26,8 +26,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -46,11 +44,53 @@ func applyRetainFloorPercent(percent int) {
 	core.ApplyLimits(applied)
 }
 
-var (
-	prefixLiveRetainedPattern = regexp.MustCompile(`retained=(\d+)`)
-	prefixLiveFloorPattern    = regexp.MustCompile(`floor=(\d+)`)
-	prefixLiveAllPattern      = regexp.MustCompile(`all=(\d+)`)
-)
+// prefixLiveMetadata 是帧正文 v2 元数据块里本冒烟要断言的字段。
+//
+// **黑盒结构**：刻意不复用 context_runtime 的未导出类型。这里测的是持久化格式
+// 本身，复用会让"格式变了、测试跟着改"，失去报警能力。
+//
+// v1 的散文行（`retained=707`、`floor_applied=true`、`## Context zones`）已不再
+// 存在；正则在正文里抓这些字面量会**静默抓空**，所以改为解析 JSON。
+type prefixLiveMetadata struct {
+	Schema string `json:"schema"`
+	Layout struct {
+		Zones []struct {
+			Kind   string `json:"kind"`
+			Tokens int    `json:"tokens"`
+			Source string `json:"source"`
+		} `json:"zones"`
+		Retain struct {
+			AllContextTokens int  `json:"all_context_tokens"`
+			FloorTokens      int  `json:"floor_tokens"`
+			Retained         int  `json:"retained"`
+			FloorApplied     bool `json:"floor_applied"`
+		} `json:"retain"`
+	} `json:"layout"`
+}
+
+// prefixLiveParseMetadata 从帧正文抽出 ```json 元数据块并解析。抽不出/解析不了
+// 直接失败：正文里没有可解析的元数据块，就等于这一帧无法被逐字段对拍。
+func prefixLiveParseMetadata(t *testing.T, stage, body string) prefixLiveMetadata {
+	t.Helper()
+	const open = "```json\n"
+	start := strings.Index(body, open)
+	if start < 0 {
+		t.Fatalf("%s：帧正文没有 ```json 元数据块（不是 v2 形状）：%s", stage, truncateForLog(body))
+	}
+	rest := body[start+len(open):]
+	end := strings.Index(rest, "\n```")
+	if end < 0 {
+		t.Fatalf("%s：帧正文的 json 块没有闭合：%s", stage, truncateForLog(body))
+	}
+	var meta prefixLiveMetadata
+	if err := json.Unmarshal([]byte(rest[:end]), &meta); err != nil {
+		t.Fatalf("%s：元数据块不是合法 JSON（%v）：%s", stage, err, truncateForLog(rest[:end]))
+	}
+	if meta.Schema == "" {
+		t.Fatalf("%s：元数据块缺少 schema 标识：%s", stage, truncateForLog(rest[:end]))
+	}
+	return meta
+}
 
 func TestPrefixChainRetainFloorLiveSmoke(t *testing.T) {
 	accountsSource := strings.TrimSpace(os.Getenv("SEELEX_SMOKE_ACCOUNTS"))
@@ -116,11 +156,13 @@ func TestPrefixChainRetainFloorLiveSmoke(t *testing.T) {
 	floored := prefixLiveCompactAndReadFrame(t, harness, submit, ctx, "下限 50% 预算")
 
 	// ── 断言 1：保护区下限真的抬高保留区 ───────────────────────────
-	baselineRetained := prefixLiveMetric(t, baseline.Body, "retained", prefixLiveRetainedPattern)
-	flooredRetained := prefixLiveMetric(t, floored.Body, "retained", prefixLiveRetainedPattern)
-	baselineFloor := prefixLiveMetric(t, baseline.Body, "floor", prefixLiveFloorPattern)
-	flooredFloor := prefixLiveMetric(t, floored.Body, "floor", prefixLiveFloorPattern)
-	flooredAll := prefixLiveMetric(t, floored.Body, "all", prefixLiveAllPattern)
+	baselineMeta := prefixLiveParseMetadata(t, "下限未配置（0）", baseline.Body)
+	flooredMeta := prefixLiveParseMetadata(t, "下限 50% 预算", floored.Body)
+	baselineRetained := baselineMeta.Layout.Retain.Retained
+	flooredRetained := flooredMeta.Layout.Retain.Retained
+	baselineFloor := baselineMeta.Layout.Retain.FloorTokens
+	flooredFloor := flooredMeta.Layout.Retain.FloorTokens
+	flooredAll := flooredMeta.Layout.Retain.AllContextTokens
 	if baselineFloor != 0 {
 		t.Fatalf("下限未配置时 floor 应为 0，得到 %d", baselineFloor)
 	}
@@ -140,28 +182,31 @@ func TestPrefixChainRetainFloorLiveSmoke(t *testing.T) {
 		t.Fatalf("下限没有抬高保留区：baseline retained=%d floor=%d；floored retained=%d floor=%d",
 			baselineRetained, baselineFloor, flooredRetained, flooredFloor)
 	}
-	if !strings.Contains(floored.Body, "floor_applied=true") {
+	if !flooredMeta.Layout.Retain.FloorApplied {
 		t.Fatalf("配置生效的这次折叠必须报告 floor_applied=true：\n%s", truncateForLog(floored.Body))
 	}
-	if !strings.Contains(baseline.Body, "floor_applied=false") {
+	if baselineMeta.Layout.Retain.FloorApplied {
 		t.Fatalf("未配置下限的这次折叠必须报告 floor_applied=false：\n%s", truncateForLog(baseline.Body))
 	}
 	t.Logf("下限生效实测：baseline retained=%d floor=%d → floored retained=%d floor=%d all=%d",
 		baselineRetained, baselineFloor, flooredRetained, flooredFloor, flooredAll)
 
 	// ── 断言 2：四区显式化在帧正文里可回读 ─────────────────────────
-	for _, want := range []string{
-		"## Context zones (四区)",
-		"- stable_prefix:",
-		"- folded:",
-		"- protected_window:",
-		"- tail:",
-		"- current_input:",
-		"- 判据: compared=",
-		"- 保留窗口: all=",
-	} {
-		if !strings.Contains(floored.Body, want) {
-			t.Fatalf("帧正文缺少四区块 %q：\n%s", want, truncateForLog(floored.Body))
+	// v2 里四区是元数据块的 layout.zones 结构化数组，不再是 "## Context zones"
+	// 散文区块。逐分区核对存在性与来源，比子串匹配更强：它同时钉住"分区在"与
+	// "分区名对"，而不只是"正文里出现过这个词"。
+	presentZones := make(map[string]string, len(flooredMeta.Layout.Zones))
+	for _, zone := range flooredMeta.Layout.Zones {
+		presentZones[zone.Kind] = zone.Source
+	}
+	for _, want := range []string{"stable_prefix", "folded", "protected_window", "tail", "current_input"} {
+		source, ok := presentZones[want]
+		if !ok {
+			t.Fatalf("帧正文的元数据块缺少分区 %q（实得 %v）：\n%s",
+				want, presentZones, truncateForLog(floored.Body))
+		}
+		if strings.TrimSpace(source) == "" {
+			t.Fatalf("分区 %q 没有来源说明，读者无法判断这一段是什么：%s", want, truncateForLog(floored.Body))
 		}
 	}
 
@@ -232,20 +277,6 @@ func prefixLiveCompactAndReadFrame(
 		t.Fatalf("%s：回读到的不是压缩帧正文：%s", stage, truncateForLog(decoded.Content))
 	}
 	return prefixLiveFrame{Record: record, Body: decoded.Content}
-}
-
-// prefixLiveMetric 从帧正文里取一个整数判据量的实测值。
-func prefixLiveMetric(t *testing.T, body, name string, pattern *regexp.Regexp) int {
-	t.Helper()
-	match := pattern.FindStringSubmatch(body)
-	if len(match) != 2 {
-		t.Fatalf("帧正文里找不到 %s 的事实：\n%s", name, truncateForLog(body))
-	}
-	value, err := strconv.Atoi(match[1])
-	if err != nil {
-		t.Fatalf("帧正文里的 %s 不是整数：%q", name, match[1])
-	}
-	return value
 }
 
 // subscribePrefixLiveProgress 订阅压缩门禁打点（compaction.progress），按会话外的

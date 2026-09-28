@@ -114,14 +114,14 @@ func TestCompactFrameBodyCarriesZoneLayout(t *testing.T) {
 	if err := json.Unmarshal([]byte(page), &decoded); err != nil {
 		t.Fatalf("帧正文分页不是 JSON：%v", err)
 	}
+	// v2 帧正文：四区与保留窗口决策结构化躺在元数据块的 layout 里，
+	// 不再是 v1 的 "## Context zones" 散文区块。
 	for _, want := range []string{
-		"## Context zones (四区)",
-		"- stable_prefix:",
-		"- folded:",
-		"- protected_window:",
-		"- 保留窗口: ",
-		"retained=",
-		"cap=9000",
+		`"kind": "stable_prefix"`,
+		`"kind": "folded"`,
+		`"kind": "protected_window"`,
+		`"cap_tokens": 9000`,
+		`"retained":`,
 	} {
 		if !strings.Contains(decoded.Content, want) {
 			t.Fatalf("帧正文缺少 %q：\n%s", want, decoded.Content)

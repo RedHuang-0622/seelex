@@ -378,8 +378,14 @@ func frameChapter(summary, title string) string {
 }
 
 // OneLineSummary 从帧内容提取一句话摘要（锚点用）：优先取 Chapter 2 正文
-// 第一条非空、非标题、非注释内容行，rune 超限截断；不可提取 → 空串
-// （调用方据此标记 anchor_source=degraded）。
+// 第一条非空、非标题、非注释、非结构化数据的内容行，rune 超限截断；不可提取
+// → 空串（调用方据此标记 anchor_source=degraded）。
+//
+// 「非结构化数据」这条守卫（`{` / `[` / `"` / 反引号 开头）把一条既有隐式契约
+// 变成显式的：Summary 必须是**可读散文**。回读帧正文里的 JSON 元数据块以 `{`
+// 开头，一旦有人把它误写进 Summary，锚点的一句话就会变成一段花括号，经
+// PrevSummaryOneLine 渲染进下一帧的 Chapter 1 —— 污染整条帧链，而且每一帧看起来
+// 都"有锚点"，不会触发 degraded 标记，因此不会有任何报警。
 func OneLineSummary(frame sessionstore.CompactFrame) string {
 	candidates := append(strings.Split(FrameChapter2(frame), "\n"),
 		strings.Split(frame.Summary, "\n")...)
@@ -390,6 +396,11 @@ func OneLineSummary(frame sessionstore.CompactFrame) string {
 		}
 		if strings.HasPrefix(line, "#") || strings.HasPrefix(line, "<!--") ||
 			strings.HasPrefix(line, ">") || strings.HasPrefix(line, "- ") {
+			continue
+		}
+		// 开括号与**闭括号**都要挡：JSON 块的闭合行是单独的 `}` 或 `]`，
+		// 只挡开括号会漏掉它（实测：锚点变成 "}"）。
+		if strings.IndexAny(line, `{[}]"`+"`") == 0 {
 			continue
 		}
 		return truncateRunes(line, maxOneLineRunes)
