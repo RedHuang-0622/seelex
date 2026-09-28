@@ -75,10 +75,10 @@ type compactionFrameInput struct {
 	// 数字——同一事实两处表达就会漂移（layout.go 的单一口径纪律）。
 	Layout ContextLayout
 	// 逐关门禁耗时（CompactionGateTiming）**刻意不进帧正文**：正文的渲染时刻在
-	// record 关收口之前（record.FrameRef 要先落存储才能写记录），那份清单必然缺
-	// 最后一关，接入推帧后还缺 index 关。放一份明知不全的副本进正文，就是本仓库
-	// 反复防的"报表口径与判据口径分叉"。它的两个既有家不变：进度事件（瞬态）与
-	// 压缩回执（options.decision.Gates，6 关全收口之后才取）。
+	// store / record 两关收口之前（record.FrameRef 要先落存储才能写记录），那份
+	// 清单必然缺最后两关。放一份明知不全的副本进正文，就是本仓库反复防的
+	// "报表口径与判据口径分叉"。它的两个既有家不变：进度事件（瞬态）与压缩回执
+	// （options.decision.Gates，全部关收口之后才取）。
 	//
 	// ReadbackToolResults 是本次折叠区间内可继续细筛的工具结果句柄
 	// （result:<callID>，read_tool_result 的入参）。

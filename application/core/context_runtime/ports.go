@@ -146,6 +146,12 @@ type Deps struct {
 	Prompts  PromptPort
 	View     ViewPort
 	History  HistoryPort
+	// CompactionIndex 是「折叠帧进会话压缩栈」的注入口（见 CompactionIndexPort）。
+	// nil = 索引面未装配：折叠与本次请求照常成立，只是不推栈，帧正文与门禁如实
+	// 写明"索引面未启用"，检索回读那一跳因此缺席。装配根源包在装配期用类型断言
+	// 探测 Runtime 是否实现该窄接口（见 application/core/service_assembler.go）——
+	// 探测失败的正确行为本来就是"不索引"，不该强迫每个 fake/harness 长出空方法。
+	CompactionIndex CompactionIndexPort
 	// WorkTableTraceBlock 返回打点表标记块（work_table 域；请求尾部只读
 	// 注入）。sessionID 指明正在组装执行上下文的会话：打点必须取自该会话
 	// 自己的 task scope，多会话并行时后台会话不得看到活跃会话的打点。

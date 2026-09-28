@@ -163,12 +163,13 @@ export function compactionCutLabel(compaction = {}) {
 
 // compactionGateLabels 是压缩门禁进度条的文案表，键序 = 后端
 // context_runtime.CompactionGates 的执行顺序（判据估算→装配→替换 provider
-// 历史→渲染帧→存帧→写记录）。两处顺序一旦漂移，进度条会把「存帧」画在
-// 「写记录」之后——frontend 测试照着这份键序钉后端字面量。
+// 历史→推帧进压缩栈→渲染帧→存帧→写记录）。两处顺序一旦漂移，进度条会把
+// 「存帧」画在「写记录」之后——frontend 测试照着这份键序钉后端字面量。
 export const compactionGateLabels = {
   judge: "判定是否需要折叠",
   assemble: "装配压缩上下文",
   replace: "替换 provider 历史",
+  index: "推帧进压缩栈",
   frame: "渲染 checkpoint 帧",
   store: "帧正文落盘",
   record: "写压缩记录"

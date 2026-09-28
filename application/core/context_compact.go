@@ -44,8 +44,8 @@ type ContextCompactionResult struct {
 	ComparedTokens  int `json:"compared_tokens,omitempty"`
 	SoftThreshold   int `json:"soft_threshold,omitempty"`
 	HardThreshold   int `json:"hard_threshold,omitempty"`
-	// Gates 是本轮门禁的逐关实测耗时（权威顺序 judge→assemble→replace→frame
-	// →store→record，与 compaction.progress 同一份数字）。进度条是瞬态
+	// Gates 是本轮门禁的逐关实测耗时（权威顺序 judge→assemble→replace→index
+	// →frame→store→record，与 compaction.progress 同一份数字）。进度条是瞬态
 	// （revision=0、不进快照、终局后 ~2.5s 撤条），用户按完回车再抬头就什么都
 	// 看不到；回执自带这份清单，"按了就看见门禁"才在回执这一处成立。
 	//
@@ -140,7 +140,7 @@ func compactionRecordNote(result ContextCompactionResult) string {
 }
 
 // compactionGateChecklist 把逐关耗时渲染成一行事实清单，例如
-// `reached=6/6 judge<1ms assemble 4ms replace<1ms frame 33ms store<1ms record<1ms`。
+// `reached=7/7 judge<1ms assemble 4ms replace<1ms index 12ms frame 33ms store<1ms record<1ms`。
 //
 // 只报门禁 id 与毫秒：关卡中文名是前端的文案表（同一处只放一种语言）。清单为空
 // （没折叠、或这轮没走到任何一关）时返回空串，调用方跳过这一段——不拿别的量顶替。

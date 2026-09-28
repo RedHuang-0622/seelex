@@ -55,12 +55,13 @@ var ErrProviderContextBudgetExceeded = errors.New("provider context exceeds the 
 // 可恢复中断）。
 type Coordinator struct {
 	*state.Core
-	tasks     TaskPort
-	sessions  SessionPort
-	prompts   PromptPort
-	view      ViewPort
-	history   HistoryPort
-	workTable func(sessionID string) string
+	tasks           TaskPort
+	sessions        SessionPort
+	prompts         PromptPort
+	view            ViewPort
+	history         HistoryPort
+	workTable       func(sessionID string) string
+	compactionIndex CompactionIndexPort
 
 	// pendingCompactMu 保护 pendingForceCompact：显式压缩（/compact、
 	// compact_context）落在**还没有执行纪元**的会话上时（冷加载、刚清空），
@@ -81,6 +82,7 @@ func NewCoordinator(deps Deps) *Coordinator {
 		view:                deps.View,
 		history:             deps.History,
 		workTable:           deps.WorkTableTraceBlock,
+		compactionIndex:     deps.CompactionIndex,
 		pendingForceCompact: make(map[string]bool),
 	}
 }
@@ -701,14 +703,38 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 				MessageFrom: compacted.MessageFrom, MessageTo: compacted.MessageTo,
 				EventFrom: compacted.EventFrom, EventTo: compacted.EventTo,
 			}
+			// 推帧：把这次折出保留窗口的区间推进会话压缩栈（窄可选能力，见
+			// CompactionIndexPort）。**必须在渲染帧正文之前**——正文要嵌入回执
+			// 里的 segment_id、摘要来源与降级原因，否则读帧的人只能看到"没有
+			// 细筛入口"，而模型根本拿不到 read_compressed_turn 的入参。
+			//
+			// 溢出素材取 transcript[retainedFrom:compressedTo]：retainedFrom 之前
+			// 的区间已被更早的帧覆盖（帧链自足），重复喂进去只会让检索命中两段
+			// 同内容；自主压缩时 compressedTo = len(transcript)，即"尚未被任何帧
+			// 覆盖的全部"。ReplayHistory 取 existing——上一次真实请求的历史字节，
+			// 与产出该请求是同一条装配路径。
+			//
+			// 未装配索引面与推帧失败都不中断装配（索引缺失是降级不是错误），
+			// 但门禁 index 关与帧正文的 readback 段都要如实写出是哪一种。
+			push := compactionIndexPush{}
+			if compacting || autonomous {
+				push = c.pushCompactionFrame(sessionID, requestID,
+					task_context.TranscriptEventMessages(foldedOverflowEvents(transcript, retainedFrom, compressedTo)),
+					existing, compacted)
+				progress.gate(CompactionGateStackPush, push.gateDetail())
+			}
 			// 帧正文落会话内容存储：快照只带 ref，前端按 ref 分页回读。此前帧
 			// 正文只活在内存 engine history（回合收尾即被剔除）、摘要只进自主
 			// 压缩的 wire 正文，前端因此"看得到压缩、看不到帧"。
 			frame := compactionFrameBody(compactionFrameInput{
-				Version: checkpoint.Version,
-				Reason:  reason,
-				Origin:  origin,
-				At:      record.CompactedAt,
+				Version:       checkpoint.Version,
+				Reason:        reason,
+				Origin:        origin,
+				At:            record.CompactedAt,
+				SegmentID:     push.SegmentID,
+				SummarySource: push.SummarySource,
+				Summary:       push.Summary,
+				IndexError:    push.indexError(),
 				Range: compactionFoldedRange{
 					MessageFrom: record.MessageFrom,
 					MessageTo:   record.MessageTo,
@@ -752,7 +778,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 			options.decision.AssembledTokens = estimated
 			options.decision.SoftThreshold = budget.SoftThreshold
 			options.decision.HardThreshold = budget.HardThreshold
-			// 逐关耗时在 6 关全部收口之后取（record 关在上方已发），因此这份
+			// 逐关耗时在全部门禁收口之后取（record 关在上方已发），因此这份
 			// 清单不会缺最后一关。
 			options.decision.Gates = progress.GateTimings()
 		}

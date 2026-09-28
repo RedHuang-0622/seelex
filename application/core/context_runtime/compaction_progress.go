@@ -21,6 +21,12 @@ const (
 	CompactionGateAssemble = "assemble"
 	// CompactionGateReplace 替换 provider 历史并归一化引擎缓存。
 	CompactionGateReplace = "replace"
+	// CompactionGateStackPush 把这次折出的区间推进会话压缩栈（见
+	// CompactionIndexPort）：拿到 segment_id 才算给模型留了 read_compressed_turn
+	// 这一跳。索引面未装配或推帧失败也收口——降级必须留痕，不能静默跳过。
+	// id 字面量是 "index"（协议字面量），常量名避开 CompactionGateIndex 那个
+	// 序号查询函数。
+	CompactionGateStackPush = "index"
 	// CompactionGateFrame 渲染压缩帧正文（前端可按区间回读的那份）。
 	CompactionGateFrame = "frame"
 	// CompactionGateStore 帧正文进会话内容存储，得到 frame_ref。
@@ -48,6 +54,7 @@ var CompactionGates = []string{
 	CompactionGateJudge,
 	CompactionGateAssemble,
 	CompactionGateReplace,
+	CompactionGateStackPush,
 	CompactionGateFrame,
 	CompactionGateStore,
 	CompactionGateRecord,
