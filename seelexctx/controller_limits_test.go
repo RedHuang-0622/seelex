@@ -101,6 +101,48 @@ func TestControllerPolicyKeepsRatiosAcrossBudgetOverride(t *testing.T) {
 	}
 }
 
+// TestControllerPolicyKeepsBudgetPositiveWhenOutputReserveEatsWindow：账号的输出预留
+// 一旦吃掉整个窗口（output_reserve + window/安全除数 ≥ window），预算 = 窗口 − 输出预留
+// − 安全预留 ≤ 0，软阈值也跟着 ≤ 0——于是「本轮 tokens ≥ 软阈值」恒真：每收到一个工具
+// 结果、每闭合一轮都折一次（表现为"一轮对话压一次"），而配置里什么异常都看不出来。
+//
+// 装配层那条路径有同名防护（task_context.ContextBudgetFor 遇非法组合回退默认预算），
+// 控制器这条此前只有上游账号校验可能拦住它——那条校验不在本仓。
+//
+// 判别力：第 ① 段描述的是"为什么会每轮抢跑"（非法组合下软阈值确实 ≤ 0，修好之后也必须
+// 成立）；第 ② 段才是防护本身——回退后预算与软阈值都必须回到正数，且**不许换掉窗口**
+// （换窗口会让报表里的窗口值与账号实际能力对不上），注入的比例也仍是配置值。
+func TestControllerPolicyKeepsBudgetPositiveWhenOutputReserveEatsWindow(t *testing.T) {
+	// ① 重现非法组合：窗口 1_000、输出预留 1_000、安全预留 = 1_000/8 = 125。
+	illegal := NewContextWindowPolicy(1_000, 1_000, DefaultLimits())
+	if illegal.Budget() > 0 || illegal.SoftThreshold() > 0 {
+		t.Fatalf("夹具必须重现非法组合（预算 ≤ 0 → 软线恒真）：budget=%d soft=%d",
+			illegal.Budget(), illegal.SoftThreshold())
+	}
+
+	// ② 防护：controller.policy() 必须把它收敛成可用策略。
+	controller := &seelexContextController{opts: ControllerOptions{Policy: illegal}}
+	policy := controller.policy()
+	if policy.Budget() <= 0 || policy.SoftThreshold() <= 0 {
+		t.Fatalf("非法组合必须被兜成可用策略：budget=%d soft=%d policy=%+v",
+			policy.Budget(), policy.SoftThreshold(), policy)
+	}
+	if policy.Window != illegal.Window {
+		t.Fatalf("回退不该换掉窗口：window=%d want %d", policy.Window, illegal.Window)
+	}
+	if policy.SoftPercent != illegal.SoftPercent || policy.HardPercent != illegal.HardPercent {
+		t.Fatalf("回退不该换掉注入的比例：%+v", policy)
+	}
+	// 安全预留除数缺失（宿主手搓字面量的形态）时不得除零，且同样要收敛成正预算。
+	handBuilt := ContextWindowPolicy{
+		Window: 1_000, OutputReserve: 0,
+		SoftPercent: 95, HardPercent: 98, TargetPercent: 80,
+	}
+	if guarded := (&seelexContextController{opts: ControllerOptions{Policy: handBuilt}}).policy(); guarded.Budget() <= 0 {
+		t.Fatalf("缺安全预留除数时必须回退到默认除数并保住正预算：%+v", guarded)
+	}
+}
+
 // TestControllerOversizedToolUsesConfiguredLimit：注入的
 // limits.max_tool_result_chars 必须真的决定"这条工具结果算不算超大"。
 func TestControllerOversizedToolUsesConfiguredLimit(t *testing.T) {

@@ -305,6 +305,14 @@ func (c *seelexContextController) frameCarryTokens() int {
 // 一个触发层生效（装配层跟着改、回合内控制器仍按 95% 等）。
 func (c *seelexContextController) policy() ContextWindowPolicy {
 	policy := c.opts.Policy
+	// 安全预留除数先归一：宿主手搓 ContextWindowPolicy 字面量时它可能是 0，而下面
+	// 三处都拿它做除数（缺了会在这里除零崩掉）。回退出厂除数（8）与构造入口
+	// NewContextWindowPolicy 的归一同一份来源。
+	divisor := policy.SafetyReserveDivisor
+	if divisor <= 0 {
+		divisor = DefaultLimits().ContextSafetyReserveDivisor
+		policy.SafetyReserveDivisor = divisor
+	}
 	if policy.Window <= 0 {
 		policy.Window = DefaultMaxTokens
 	}
@@ -312,14 +320,27 @@ func (c *seelexContextController) policy() ContextWindowPolicy {
 		if contextTokens := c.opts.Budget.ContextTokens(); contextTokens > 0 {
 			policy.Window = contextTokens
 			policy.OutputReserve = c.opts.Budget.MaxOutputTokens()
-			policy.SafetyReserve = contextTokens / policy.SafetyReserveDivisor
+			policy.SafetyReserve = contextTokens / divisor
 			if policy.SafetyReserve < 0 {
 				policy.SafetyReserve = 0
 			}
 		}
 	}
 	if policy.OutputReserve <= 0 {
-		policy.OutputReserve = policy.Window / policy.SafetyReserveDivisor
+		policy.OutputReserve = policy.Window / divisor
+	}
+	// 下界防护：预算 = 窗口 − 输出预留 − 安全预留 ≤ 0 时，软阈值也跟着 ≤ 0，
+	// 「本轮 tokens ≥ 软阈值」恒真——每收到一个工具结果、每闭合一轮都折一次（症状是
+	// "一轮对话压一次"，而配置里看不出任何异常）。账号把输出预留配到吃掉整个窗口
+	// （output_reserve + window/除数 ≥ window）就是这条路径，2026-09-29 用
+	// NewContextWindowPolicy(1_000, 1_000, DefaultLimits()) 复现：budget=-125、
+	// soft=-118。装配层有同名防护（task_context.ContextBudgetFor 遇非法组合回退默认
+	// 预算），这里做同一件事：保住窗口，把输出预留与安全预留收敛到窗口 ÷ 安全除数
+	// （出厂默认的相对关系），使预算恒为正。上游账号校验可能也拦这一组合，但规则不在
+	// 本仓，不能拿"别处可能拦住"当本地不防护的理由。
+	if policy.OutputReserve+policy.SafetyReserve >= policy.Window {
+		policy.OutputReserve = policy.Window / divisor
+		policy.SafetyReserve = policy.Window / divisor
 	}
 	return policy
 }

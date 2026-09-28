@@ -131,6 +131,21 @@ version when it lands.
 
 ### Fixed
 
+- **A controller policy whose output reserve ate the whole window folded on every tool result.**
+  `policy()` normalized `Window <= 0` and `OutputReserve <= 0` but never looked at the budget those
+  give, so `output_reserve + window/divisor >= window` left `Budget()` — and with it
+  `SoftThreshold()` — at or below zero, and "tokens ≥ soft threshold" is then unconditionally true:
+  one fold per tool result, one per closing round, with nothing in the configuration to explain it.
+  Reproduced directly (the review carried this as an unverified hypothesis):
+  `NewContextWindowPolicy(1_000, 1_000, DefaultLimits())` yields `budget=-125`, `soft=-118`. The
+  assembly layer already had the counterpart guard (`task_context.ContextBudgetFor` falls back to the
+  default budget for an illegal pair); the controller now does the same thing — keep the window,
+  converge output reserve and safety reserve to `window / safety divisor` (the factory relation) so
+  the budget stays positive. The safety-reserve divisor is normalized first: the same function
+  divides by it three times, and a host-built `ContextWindowPolicy` literal may leave it at 0 (that
+  path used to panic on integer division by zero). Teeth:
+  `TestControllerPolicyKeepsBudgetPositiveWhenOutputReserveEatsWindow`
+  (`seelexctx/controller_limits_test.go`).
 - **`context_soft_percent` ≥ `context_hard_percent` is now a load-time error instead of a silent
   foot-gun.** The constraint existed only as a comment in `config/seelex.yaml`; `LoadLimits` checked
   each ratio against `[0,100]` and nothing else. Crossing them is not cosmetic: the soft line is the
