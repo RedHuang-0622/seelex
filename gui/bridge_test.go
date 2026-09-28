@@ -1494,6 +1494,38 @@ func TestEmbeddedWorkTableSingleScrollContainer(t *testing.T) {
 	}
 }
 
+// TestEmbeddedLeftPanelSingleScrollContainer：左栏只允许一条纵向滚动条（用户报告：
+// 侧栏上摞着好几条，最长的那条是面板自己的——观感就是"多开了一个滚动容器"）。
+//
+// 根因是 .panel 自带 overflow-y: auto，而里面 .stack-list 又滚一层、每个会话分组
+// .session-group-body 还各滚一层。这里钉住"面板不滚、会话列表滚"这一条链：面板
+// overflow: hidden 只做高度容器，section 把高度让给列表（flex 列 + min-height: 0），
+// 列表 max-height 归零后吃掉剩余高度。改动 CSS 时立刻失败。
+func TestEmbeddedLeftPanelSingleScrollContainer(t *testing.T) {
+	t.Parallel()
+	styles, err := embeddedFrontend.ReadFile("frontend/dist/styles.css")
+	if err != nil {
+		t.Fatalf("embedded frontend styles.css: %v", err)
+	}
+	source := string(styles)
+	for _, want := range []string{
+		".left-panel { display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border); }",
+		".sessions-section { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }",
+		".sessions-section .stack-list { flex: 1 1 auto; min-height: 0; max-height: none; overflow-y: auto; padding-right: 2px; }",
+		".session-group-body {\n  display: grid;\n  gap: 3px;\n  padding: 3px 5px 5px;\n}",
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("左栏必须只有一条纵向滚动条（会话列表），缺少规则：%s", want)
+		}
+	}
+	if strings.Contains(source, ".sessions-section .stack-list { max-height: 100%; overflow-y: auto;") {
+		t.Fatal("会话列表不得再自限高 100%：限高与 section 里的标题叠加会把最后一行顶出面板、被 overflow: hidden 裁掉")
+	}
+	if strings.Contains(source, "max-height: min(42vh, 320px)") {
+		t.Fatal("会话分组不得再自滚：它与 .stack-list 摞在同一条轴上就是左栏的第二条滚轮")
+	}
+}
+
 // TestEmbeddedQueueSingleLineRows：消息队列的每条是一行（用户口径：形状照 Qoder 的
 // 队列做法——折返箭头 + 单行正文 + 右侧动作），且这一行不许再自带滚动容器：旧卡片
 // 有表头 + 正文区，正文区还写着 max-height + overflow: auto，是左栏同款的"嵌套滚动
