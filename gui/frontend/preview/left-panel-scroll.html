@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>左栏滚动链 · 静态预览</title>
+  <!-- 只吃 Seelex 自己的语义 token 与组件皮（pico 只管元素基线，可选） -->
+  <link rel="stylesheet" href="../dist/vendor/pico.min.css">
+  <link rel="stylesheet" href="../dist/styles.css">
+  <style>
+    /* ── 仅预览页自用的外壳：说明条 + 诊断面板，不参与左栏滚动链 ── */
+    .preview-banner {
+      position: fixed; left: 12px; bottom: 12px; z-index: 90;
+      display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+      max-width: calc(100vw - 24px); padding: 8px 10px;
+      border: 1px solid var(--border-strong); border-radius: var(--r-lg);
+      background: var(--surface-opaque, #fff); box-shadow: var(--shadow);
+      font: 11px var(--font-mono); color: var(--text-mid);
+    }
+    .preview-banner button { padding: 3px 8px; border: 1px solid var(--border-strong); border-radius: var(--r-md); background: var(--surface-2); color: var(--text); font: 11px var(--font-mono); cursor: pointer; }
+    .preview-banner button:hover { color: var(--text-bright); border-color: var(--accent); }
+    #diag {
+      position: fixed; top: 60px; left: 12px; z-index: 91;
+      min-width: 300px; padding: 8px 10px;
+      border: 1px solid var(--border-strong); border-radius: var(--r-lg);
+      background: var(--surface-opaque, #fff); box-shadow: var(--shadow);
+      font: 10px/1.5 var(--font-mono); color: var(--text-mid);
+    }
+    #diag h4 { margin: 0 0 5px; font: 700 10px var(--font-mono); color: var(--text-bright); letter-spacing: .04em; }
+    #diag table { border-collapse: collapse; }
+    #diag td { padding: 1px 6px 1px 0; white-space: nowrap; vertical-align: top; }
+    #diag .yes { color: var(--status-done); font-weight: 700; }
+    #diag .no { color: var(--faint); }
+    #wheel-log { margin: 6px 0 0; padding: 5px 6px; max-height: 116px; overflow: auto; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--code-bg, #f6f6f6); color: var(--text-soft); }
+    #wheel-log div { white-space: nowrap; }
+    .ws-stub { display: grid; place-content: center; color: var(--muted); font: 12px var(--font-mono); }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div><strong>Seelex</strong><small>静态预览</small></div>
+      </div>
+      <div class="runtime-summary"><span class="status-dot"></span><span>left-panel scroll chain</span></div>
+    </header>
+
+    <aside class="left-panel panel">
+      <div class="panel-rail-head">
+        <button id="toggle-left-panel" class="icon-button subtle panel-toggle" type="button" title="收起/展开左栏 (Ctrl+B)" aria-label="收起/展开左栏" aria-pressed="false">
+          <span class="panel-toggle-open"><svg class="icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 3L5 8l5 5"/></svg></span>
+          <span class="panel-toggle-closed"><svg class="icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 3l5 5-5 5"/></svg></span>
+        </button>
+      </div>
+      <section class="sessions-section">
+        <div class="section-title">
+          <span>会话</span>
+          <span class="section-actions">
+            <span id="session-count" class="badge">0</span>
+            <button id="new-session" class="icon-button" type="button" title="新建会话" aria-label="新建会话">
+              <svg class="icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3v10M3 8h10"/></svg>
+            </button>
+          </span>
+        </div>
+        <div id="session-list" class="stack-list"></div>
+      </section>
+    </aside>
+
+    <div id="left-divider" class="panel-divider" role="separator" aria-orientation="vertical"></div>
+    <section class="workspace ws-stub">中栏（占位）：左栏的滚动链与它无关</section>
+    <div id="right-divider" class="panel-divider" role="separator" aria-orientation="vertical"></div>
+    <aside class="right-panel panel ws-stub">右栏（占位）</aside>
+  </div>
+
+  <div id="diag">
+    <h4>左栏滚动链实测（真实 styles.css）</h4>
+    <table id="diag-table"></table>
+    <div id="wheel-log"></div>
+  </div>
+
+  <div class="preview-banner">
+    <span>项目数：</span>
+    <button data-groups="5">5（贴合现场）</button>
+    <button data-groups="8">8（撑爆面板）</button>
+    <button data-groups="2">2（不溢出）</button>
+    <button id="collapse-all">全部折叠</button>
+    <button id="expand-all">全部展开</button>
+    <button id="toggle-legacy">看「修复前」（抽屉被压扁）</button>
+  </div>
+
+  <script>
+    const ICON = {
+      message: '<svg class="icon" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3.5h12v7.5H6.5L3.5 13.5V11H2z"/></svg>',
+      more: '<svg class="icon" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><circle cx="3.2" cy="8" r="1.35"/><circle cx="8" cy="8" r="1.35"/><circle cx="12.8" cy="8" r="1.35"/></svg>',
+      plus: '<svg class="icon" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3v10M3 8h10"/></svg>',
+    };
+
+    // 会话数据：贴合现场（52 条 / 5 组），再准备两组用于把面板撑爆。
+    const TITLES = [
+      '你看一下，关于左侧栏的一些操作你可以交互下，发现下他的问题所在',
+      '你自己使用下左侧栏找下是什么原因导致了这个问题然后修了',
+      '保留内部黄色的部分即可',
+      'session loop 0: seelebridge: stream with account pool',
+      '继续',
+      '你改下一些 关于终止的操作原语，终止按钮点击之后，如果还没跑完就',
+      '你看看上下文压缩的部分，看看前端和里面的内容还有什么要改的',
+      '你看下工具调用目前是串行的还是轮询的？',
+      '腾讯的不用加直接投递即可',
+      '似乎我们不太适合这种高科技的算法岗，找个开发岗就行',
+      '给德赛西威的简历里面加个这个：',
+      '继续帮我在 boss 直聘上投递简历，投递时候的打招呼语可以',
+      '尝试发布一个后台运行的任务',
+      '冬冬从华师出发，我从汉溪长隆或者钟村站出发，并且冬冬',
+      '然后写一个项目简介用于放到简历的项目介绍中，需要先说问题',
+      '目前里程碑的文件在哪里了？',
+      '继续完善这个项目的上下文压缩功能',
+      '@goal-a2a 锐评下这个框架',
+      '在 Seele 侧补齐（Gate 透出 ctx + ID/SessionID/Timeout/…',
+      '你好，尝试发布一个后台运行的任务',
+    ];
+    const GROUPS = [
+      { name: 'coder_hq', count: 1 },
+      { name: 'introduce_myself', count: 12 },
+      { name: 'Seele', count: 3 },
+      { name: 'seelex', count: 35 },
+      { name: '__unbound__', label: '未关联会话', count: 1 },
+      { name: 'seelex-docs', count: 14 },
+      { name: 'qlab', count: 9 },
+      { name: 'freecad', count: 6 },
+    ];
+
+    const sessionList = document.getElementById('session-list');
+
+    function rowHTML(title, index, active, status) {
+      const chip = status ? `<span class="session-status is-${status}">${status === 'running' ? '运行中' : status}</span>` : '';
+      return `<div class="session-row" data-session-row="s${index}">
+        <button class="stack-button session-button session-title${active ? ' active' : ''}" data-session="s${index}">
+          <span class="entry-name">${ICON.message} ${title}</span>${chip}
+        </button>
+        <span class="session-more"><button class="session-more-toggle" type="button" aria-label="更多操作">${ICON.more}</button></span>
+      </div>`;
+    }
+
+    function groupHTML(group, gi, collapsed) {
+      const label = group.label || group.name;
+      const rows = [];
+      for (let i = 0; i < group.count; i++) {
+        const title = TITLES[(gi * 5 + i) % TITLES.length];
+        rows.push(rowHTML(title, `${gi}-${i}`, gi === 3 && i === 0, gi === 3 && i === 0 ? 'running' : ''));
+      }
+      const add = group.name === '__unbound__' ? '' :
+        `<button type="button" class="session-group-add" title="在该工作区新建会话">${ICON.plus}</button>`;
+      return `<div class="session-group${collapsed ? ' is-collapsed' : ''}" data-workspace-group="${group.name}">
+        <div class="session-group-head-row">
+          <button type="button" class="session-group-head" aria-expanded="${!collapsed}">
+            <span class="session-group-chevron"></span>
+            <span class="session-group-name">${label}</span>
+            <span class="badge">${group.count}</span>
+          </button>
+          ${add}
+        </div>
+        <div class="session-group-body">${rows.join('')}</div>
+      </div>`;
+    }
+
+    function render(groupCount) {
+      const groups = GROUPS.slice(0, groupCount);
+      sessionList.innerHTML = groups.map((g, i) => groupHTML(g, i, false)).join('');
+      document.getElementById('session-count').textContent = String(groups.reduce((n, g) => n + g.count, 0));
+      measure();
+    }
+
+    // ── 诊断：谁是滚动容器、各层能不能滚 ──────────────────────────
+    const chain = () => [
+      { name: '.left-panel', el: document.querySelector('.left-panel') },
+      { name: '.sessions-section', el: document.querySelector('.sessions-section') },
+      { name: '.stack-list（外层滚轮）', el: document.querySelector('#session-list') },
+      ...Array.from(document.querySelectorAll('.session-group')).flatMap((g, i) => {
+        const label = g.querySelector('.session-group-name').textContent;
+        return [
+          { name: `   └ 抽屉盒 #${i + 1} ${label}`, el: g },
+          { name: `        └ 抽屉正文 #${i + 1}`, el: g.querySelector('.session-group-body') },
+        ];
+      }),
+    ];
+
+    function measure() {
+      const rows = chain().map(({ name, el }) => {
+        if (!el) return `<tr><td>${name}</td><td class="no">—</td></tr>`;
+        const cs = getComputedStyle(el);
+        const scrollable = el.scrollHeight > el.clientHeight + 1 && /(auto|scroll)/.test(cs.overflowY);
+        return `<tr>
+          <td>${name}</td>
+          <td>client ${el.clientHeight} / scroll ${el.scrollHeight}</td>
+          <td class="${scrollable ? 'yes' : 'no'}">${scrollable ? '可滚' : '不滚'}</td>
+          <td>overflow-y:${cs.overflowY}</td>
+        </tr>`;
+      });
+      document.getElementById('diag-table').innerHTML = rows.join('');
+    }
+
+    // ── 滚轮被谁接住：按 Chromium 的判定顺序（最近的、能往该方向滚的祖先）──
+    function wheelScroller(target, deltaY) {
+      let el = target instanceof Element ? target : null;
+      while (el && el !== document.documentElement) {
+        const cs = getComputedStyle(el);
+        const canScroll = /(auto|scroll)/.test(cs.overflowY) && el.scrollHeight > el.clientHeight + 1;
+        const notAtEnd = deltaY < 0 ? el.scrollTop + el.clientHeight < el.scrollHeight - 1 : el.scrollTop > 0;
+        if (canScroll && notAtEnd) return el;
+        el = el.parentElement;
+      }
+      return null;
+    }
+
+    const log = document.getElementById('wheel-log');
+    function describe(el) {
+      if (!el) return '（没有可滚容器 → 滚轮空转）';
+      if (el.id === 'session-list') return '.stack-list ← 外层滚轮（项目抽屉之外）';
+      const group = el.closest('.session-group');
+      if (group) return `抽屉「${group.querySelector('.session-group-name').textContent}」← 项目粒度滚轮`;
+      return el.className || el.tagName;
+    }
+
+    window.addEventListener('wheel', (event) => {
+      const hit = wheelScroller(event.target, event.deltaY);
+      const line = document.createElement('div');
+      line.textContent = `Δ${event.deltaY > 0 ? '↓' : '↑'} ${describe(hit)}`;
+      log.prepend(line);
+      while (log.childElementCount > 24) log.lastElementChild.remove();
+      requestAnimationFrame(measure);
+    }, { passive: true });
+
+    sessionList.addEventListener('click', (event) => {
+      const toggle = event.target.closest('[data-session-more]');
+      if (toggle) {
+        toggle.closest('.session-row').classList.toggle('is-menu-open');
+        return;
+      }
+      const head = event.target.closest('.session-group-head');
+      if (head) {
+        head.closest('.session-group').classList.toggle('is-collapsed');
+        requestAnimationFrame(measure);
+        return;
+      }
+      const row = event.target.closest('.session-row');
+      if (row) {
+        sessionList.querySelectorAll('.session-row.is-active').forEach(r => r.classList.remove('is-active'));
+        row.classList.add('is-active');
+      }
+    });
+
+    document.querySelector('.preview-banner').addEventListener('click', (event) => {
+      const btn = event.target.closest('button');
+      if (!btn) return;
+      if (btn.dataset.groups) render(Number(btn.dataset.groups));
+      if (btn.id === 'collapse-all') document.querySelectorAll('.session-group').forEach(g => g.classList.add('is-collapsed'));
+      if (btn.id === 'expand-all') document.querySelectorAll('.session-group').forEach(g => g.classList.remove('is-collapsed'));
+      if (btn.id === 'toggle-legacy') setLegacy(!legacy);
+      requestAnimationFrame(measure);
+    });
+
+    // 「修复前」= 不写 grid-auto-rows（默认 auto）：网格会把大的项目抽屉压扁去凑
+    // 容器高度，抽屉内容被裁、外层滚动条也不出现（下面 #diag 能直接看到）。
+    let legacy = new URLSearchParams(location.search).has('legacy');
+    const legacyButton = document.getElementById('toggle-legacy');
+    function setLegacy(on) {
+      legacy = on;
+      sessionList.style.gridAutoRows = on ? 'auto' : '';
+      legacyButton.textContent = on ? '看「修复后」（外层滚轮出现）' : '看「修复前」（抽屉被压扁）';
+    }
+    setLegacy(legacy);
+
+    render(5);
+    window.addEventListener('resize', () => requestAnimationFrame(measure));
+    setInterval(measure, 1000);
+  </script>
+</body>
+</html>

@@ -447,7 +447,23 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .badge.is-unread { border: 1px solid var(--border-running); color: var(--brass); background: var(--tint-running); }
 
 /* ---------- 4. Lists / stacks / chips ---------- */
-.stack-list { display: grid; gap: 3px; }
+/* 列表行**按内容高度排**（align-content: start + grid-auto-rows: max-content），
+   不按网格拉伸线平分容器高度，也不许被压扁。
+   现场 A（align-content）：左栏会话列表 .stack-list 是定高网格（flex: 1 1 auto
+   + 滚动），grid 的 align-content 默认是 stretch——当分组被折叠、行内容不足时，
+   每条 .session-group 的行盒被拉成等高的大块，用户看到的是「几块空白白卡 +
+   固定高度、滚不动」（会话看起来"全没了"，其实是折叠态被撑开成空白块）。
+   现场 B（grid-auto-rows）：左栏要的是"项目抽屉之外还有一条外层滚轮"，而
+   grid-auto-rows 默认 `auto` = `minmax(auto, max-content)`——auto 那条下限取
+   项目的自动最小尺寸，.session-group 是 `overflow: hidden`，自动最小尺寸就是
+   0，于是当抽屉总高超过列表高度时，网格**把大抽屉压扁**去凑容器高度，而不是
+   溢出。实测（headless Chrome，1500x1040，5 组）：抽屉盒 client 239 / scroll
+   349 —— 每个大抽屉被裁掉 110px，而 .stack-list 的 scrollHeight == clientHeight
+   （803/803），外层滚动条永远不出现，"滚不动"。改成 max-content 后行盒不再
+   收缩：内容高 951 > 803，外层滚轮（项目抽屉之外那条）正常出现并滚动。
+   横轴不动：隐式列是 auto，`justify-content: normal` 正是行铺满栏宽的那条
+   依据，改成 start 会让行缩成 max-content 宽。 */
+.stack-list { display: grid; align-content: start; grid-auto-rows: max-content; gap: 3px; }
 .stack-button {
   width: 100%;
   padding: 6px 10px;

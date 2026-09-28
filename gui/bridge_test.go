@@ -1542,6 +1542,15 @@ func TestEmbeddedWorkTableTitleOnce(t *testing.T) {
 // 口径（用户纠正，别再改回去）："保留项目粒度下的滚轮以及会话列表的滚轮，对多余
 // 出来的第三个滚轮进行删除"——分组那条是设计要的第一层，不能跟着一起删；面板
 // overflow: hidden 只做高度容器，section 把高度让给列表（flex 列 + min-height: 0）。
+//
+// 追加现场（同一口径的下一环，2026-09-29）：口径是"项目抽屉之外还要有一条外层
+// 滚轮"，而这条滚轮当时**从来不会出现**——列表是定高网格，grid-auto-rows 默认
+// `auto` = `minmax(auto, max-content)`，auto 那条下限取项目的自动最小尺寸，而
+// .session-group 是 overflow: hidden，自动最小尺寸为 0，于是抽屉总高超过列表高度
+// 时网格**把大抽屉压扁**去凑容器高度，而不是溢出。实测（headless Chrome 1500x1040，
+// 5 组）：抽屉盒 client 239 / scroll 349（每个大抽屉被裁掉 110px），而 .stack-list
+// 的 scrollHeight == clientHeight，外层滚轮永不出现。`grid-auto-rows: max-content`
+// 钉住行盒高度后：内容 1016 > 649，外层滚轮出现并可滚；抽屉盒 client == scroll。
 func TestEmbeddedLeftPanelScrollerChain(t *testing.T) {
 	t.Parallel()
 	styles, err := embeddedFrontend.ReadFile("frontend/dist/styles.css")
@@ -1553,11 +1562,17 @@ func TestEmbeddedLeftPanelScrollerChain(t *testing.T) {
 		".left-panel { display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border); }",
 		".sessions-section { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }",
 		".sessions-section .stack-list { flex: 1 1 auto; min-height: 0; max-height: none; overflow-y: auto; padding-right: 2px; }",
+		// 项目抽屉之外那条外层滚轮的前提：行盒按内容高排且不许被网格压扁
+		// （align-content: start 管"不拉伸"，grid-auto-rows: max-content 管"不压扁"）。
+		".stack-list { display: grid; align-content: start; grid-auto-rows: max-content; gap: 3px; }",
 		".session-group-body {\n  display: grid;\n  gap: 3px;\n  padding: 3px 5px 5px;\n  max-height: min(42vh, 320px);\n  overflow-y: auto;",
 	} {
 		if !strings.Contains(source, want) {
 			t.Fatalf("左栏的滚动链不完整（列表 + 项目粒度分组各一条，面板不滚），缺少规则：%s", want)
 		}
+	}
+	if strings.Contains(source, ".stack-list { display: grid; align-content: start; gap: 3px; }") {
+		t.Fatal("外层会话列表不得只写 align-content: start：缺 grid-auto-rows: max-content 时网格会把项目抽屉压扁（抽屉盒 239 < 内容 349），外层滚轮因此永不出现")
 	}
 	if strings.Contains(source, ".sessions-section .stack-list { max-height: 100%; overflow-y: auto;") {
 		t.Fatal("会话列表不得再自限高 100%：限高与 section 里的标题叠加会把最后一行顶出面板、被 overflow: hidden 裁掉")
