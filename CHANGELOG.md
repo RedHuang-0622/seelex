@@ -36,6 +36,13 @@ version when it lands.
   the 2026-09-15 permission model and the 2026-09-26 InLoop round); drop it and re-vendor when the
   tag lands. Reversal alarm for the model change: `TestEngineHistoryFromToolHandlerReturnsPromptly`
   (in-turn history reads used to self-block; they must return promptly).
+- **The message queue and the composer are one card language, and "activated" no longer means a
+  glow.** Queue entries are now a card stack peeking over the composer's top edge (`--queue-peek`
+  overlap; each card reserves that much bottom padding so the overlap eats whitespace, not text), the
+  composer is the card at the bottom of the deck, and the click/focus shadow changed from an accent
+  glow (`--focus-glow`) to a lifted card shadow (`--shadow-lift`, added to both themes): a glow reads
+  as "selected / error", not "I am typing here". Drop targets (dragging a file out of the explorer)
+  highlight with the accent border. Teeth: `TestEmbeddedChatQueueCardStack` (`gui/bridge_test.go`).
 
 ### Added
 
@@ -75,6 +82,51 @@ version when it lands.
   (markers + title + hint included) stays within `workTableTraceMaxLines`, and dropped completed
   rows are summarised in one line rather than vanishing. The model's `fetch`/`done` retires the row
   and the fetched result becomes the single source of truth. `Notified` is the idempotence key.
+- **Files can be dragged out of the explorer and queued for sending.** A work-tree file row is
+  `draggable` and carries its workspace-relative path (`data-file-drag`); the composer and the message
+  queue are drop targets. A drop onto an empty composer is submitted through the ordinary composer
+  path (a running session queues it server-side — that is where the stacked queue cards come from); a
+  drop onto a non-empty draft only appends the reference, so the user's sentence is never cut short
+  and never sent on their behalf. The mapping is pure and DOM-free
+  (`gui/frontend/dist/file-drop.js`: `normalizeDropPath` / `dropPaths` / `fileQueueText` / `dropPlan`),
+  pinned by `gui/frontend/dist/file-drop.test.mjs`: only workspace-relative paths are accepted —
+  absolute paths and `..` are dropped, and a bare OS file *name* is refused rather than turned into an
+  instruction to read a file that does not exist.
+- **A file detail panel can be edited and saved with Ctrl+S.** The panel grew the write half of the read
+  face it already had: `Bridge.WorkspaceWriteFile` → `Service.WorkspaceWriteFile` → the *optional*
+  `WorkspaceFileWritePort` (declared apart from the read-only port, so a read-only host must fail loudly
+  instead of silently growing a write ability), and the write itself is an atomic publish in `workspace`
+  (`temp file + rename`, the same visibility boundary as the read face). Saving is a user action, so it
+  does not pass the main agent's tier or approval — and it is not taken on its own report: the file is
+  read back through the same path and the editor baseline becomes what came back, so an outside change is
+  named rather than hidden. Only Ctrl+S (or the toolbar's save) writes; the buffer and the on-disk baseline
+  are two separate facts, the chip carries a dirty mark, and exiting the edit, closing a chip or collapsing
+  the drawer asks 保存 / 不保存 / 取消 first — cancel and a failed save both leave the buffer exactly as it
+  was. The file's encoding facts survive the save (EOL style and BOM are recorded on load and restored on
+  write), and a file that is not UTF-8 (GBK, UTF-16), whose read was truncated, or that is not text-like
+  gets no edit entry point at all: saving one would silently rewrite the file's encoding. Teeth:
+  `workspace/writefile_test.go`, `application/core/workspace_file_usecase_test.go`
+  (`TestWorkspaceWriteFile*`), `gui/bridge_test.go:TestEmbeddedFilePreviewEditWiring`,
+  `gui/frontend/dist/file-preview.test.mjs` (edit eligibility, EOL/BOM round-trip, dirty judgement),
+  `gui/frontend/dist/file-preview-controller.test.mjs` (Ctrl+S is the only write, read-back baseline,
+  dirty close guard).
+- **The fold can now pay for a real Chapter 2 — behind a switch that ships closed.**
+  `limits.context_compaction_summary` (`enabled` / `input_tokens` / `chapter2_tokens`, negative values
+  fail loudly in `LoadLimits`) gates a prefix-replay thick summary for the fold that runs right before
+  a request: `MainCompactionDAG` (`seelebridge/runtime_context.go`) is the same compaction DAG the
+  controller path uses, except that it *does* inject a `seelexctx.PrefixReplaySummarizer` (QuickChat,
+  the compressor's own construction path), and `replayInputTokens` honours the configured shard budget
+  while its zero value keeps the derived "account window × 3/4" — a knob whose zero must mean "behave
+  as before", not "stop sharding". Closed is closed: with the block missing or `enabled: false` the fold
+  is the local deterministic one (frame `summary_source=local`) and not a single extra model call is
+  sent, because opening it buys an *unattended paid call* — once per fold, once per shard once the
+  overflow exceeds the shard budget — and its payoff is that Chapter 2 stops being a metadata
+  projection: "Errors and fixes / Pending / Next step" are no longer a constant `(none)`, which is what
+  gives `search_history`'s deterministic lexical first pass something to match. The in-turn controller
+  path still injects no summarizer: its `ev.History` is not yet proven byte-identical to the wire
+  request, and a replay that misses the prefix cache pays full price for nothing. **Not yet live:**
+  nothing calls `MainCompactionDAG` — the coordinator's fold path (`context_runtime.Deps`) has no
+  injection point for it — so turning the switch on changes nothing until that wiring lands.
 
 ### Fixed
 
@@ -207,6 +259,55 @@ version when it lands.
   `wait_ms` clamping; the switch gates schema, registration and handler together; permission group)
   and `seelexctx/limits_test.go:TestLimitsAsyncExecDefaultsOff`. See
   [`docs/2026-09-24-async-tool-deferred-ack/README.md`](docs/2026-09-24-async-tool-deferred-ack/README.md) §8.
+- **The fold boundary swallowed the round's own question, so the model lost the goal.** A follow-up to
+  the "boundary must land on a round start" fix: the boundary was still judged on a *unit whose first
+  row is a user-role row*, and a round's injected internal material (`role=user`, provider role
+  `system`, `wire_material=true`) is exactly that. Material rows sit *after* the question, so the
+  walk-back stopped on them and the question just before them fell into the folded prefix — the kept
+  window began with the round's continuation and the model could no longer see what it had been asked.
+  "What counts as a real user question" now has one definition — `isUserQuestionEvent`
+  (`application/core/task_context/plan_transcript.go`: role, `WireMaterial`, active-skill marker,
+  logical role name, kind) — shared by the fold boundary (`opensRound`) and by the maintenance
+  objective's "last real user input" lookup, which already used that criterion; the drift between the
+  two was the bug. Teeth: `TestTranscriptTailWindowKeepsRoundStartAcrossMaterialInjection`,
+  `TestIsUserQuestionEventMatchesMaintenanceObjective`
+  (`application/core/task_context/plan_transcript_window_test.go` — with the old predicate the window
+  start is 3, the material row, instead of 2, the question).
+- **`insufficient tool messages following tool_calls message`: the provider's second tool-pairing
+  wording is now repaired, not just classified.** `859c360` taught the classifier that wording, but
+  the history was still sent in a shape the provider rejects. The repair paired results to
+  declarations by *first result per `call_id`*, which breaks the moment a `call_id` is declared twice
+  (a retry/interrupted call reusing its ID — the field shape: "session loop 0" dying on the first
+  request): the second same-name result was discarded as a duplicate, leaving the second declaration
+  with nothing adjacent to it. A declaration carrying an empty or within-row-duplicated `call_id` was
+  waved through as "cannot pair, leave the chain as is" — but the provider counts receipts by
+  `tool_calls` entries, so such a call can never be satisfied. Pairing is now per occurrence (k-th
+  declaration ↔ k-th result), unpairable calls are dropped from the declaration, and a synthetic
+  placeholder is emitted only when the call is provably not in flight (the ReplaceHistory path, or a
+  repeated declaration). A placeholder also no longer shadows the real result that arrives later —
+  that ordering used to make the model believe a tool had not run. Both sides of the twin
+  implementation are fixed together (`application/core/context_runtime/history.go`,
+  `seelexctx/history_safety.go`), and the wire assertion now covers the whole rule (per-declaration
+  receipt, not only orphan/adjacency/duplicate). Teeth: `history_pairing_gap_test.go`,
+  `wire_pairing_gap_test.go` — all four cases fail before the fix with the exact reported wording.
+- **The work-table modal had three nested vertical scroll containers, so one wheel notch jumped three
+  blocks.** `.modal-card[data-resizable]` brings `overflow: auto`, the modal body added a second one,
+  and the table area capped its own height — the same shape as the session list. The card and the body
+  now only pass height down (flex column, `overflow: hidden`) and the table area is the single
+  scroller. Teeth: `TestEmbeddedWorkTableSingleScrollContainer` (`gui/bridge_test.go`).
+- **A new session wore the previous session's permission tier.** The chip and the runtime panel read one
+  field — the view snapshot's `Runtime.PermissionTier`/`FullAccess` — so every path that moves the view
+  pointer to another session has to recompute it inside the same critical section. Switching sessions did
+  (2026-09-17, `TestPermissionTierSwitchMirrorsViewSnapshot`); *entering* one did not. `BeginNewSession`
+  reset the plan, the session row and the chat state and left the tier field untouched, so the new session
+  displayed the tier of the session the user had just left while the gate itself ran with the new session's
+  own tier — and the quiet direction is the dangerous one ("looks manual, is actually full access"). The
+  recomputation now has a single definition, `syncViewPermissionTierLocked` (session slot first, process
+  default when the session never chose), and the three entry paths — new session, unload-to-draft, failed
+  restore fallback — call it; `BeginNewSession` reads the (reusable) draft slot's persisted tier outside the
+  lock, exactly as cold start, hot mount and cold restore already do. Teeth:
+  `TestBeginNewSessionMirrorsDraftPermissionTier`, `TestBeginNewSessionRestoresPersistedDraftTier`
+  (`application/core/session_permission_tier_persist_test.go`).
 
 ### Changed
 
