@@ -57,11 +57,12 @@ export function renderScheduledTasks(items, commands) {
 // renderScheduledTasksTable 渲染定时任务 Excel 表格（弹窗内展示；列：
 // 名称/类型/周期/下次运行/状态/操作；取消按钮以 data-sched-cancel 携带
 // 任务 ID——ID 是操作键，名称只展示）。
+//
+// 整块的名字由头带那一条给出（<strong>定时任务</strong> N 项，坐在 --surface-2
+// 的浅色带上）：弹窗头不再重复标题（口径同工作表格弹窗），所以名字必须留在表内。
+// 头带与表体之间只有 .sched-table-scroll 一个滚动容器——弹窗纵向只此一层可滚。
 export function renderScheduledTasksTable(items, commands) {
   const list = scheduledTasksView(items);
-  if (!list.length) {
-    return '<span class="muted list-empty">暂无定时任务</span>';
-  }
   const labelByKey = new Map((Array.isArray(commands) ? commands : []).map(command => [command.key, command.label]));
   const rows = list.map(task => {
     const kind = task.kind === "prompt" ? "提示词" : "命令";
@@ -77,12 +78,19 @@ export function renderScheduledTasksTable(items, commands) {
       <td class="work-cell work-cell-actions"><button type="button" class="text-button sched-cancel" data-sched-cancel="${escapeHtml(task.id)}">取消</button></td>
     </tr>`;
   }).join("");
-  return `<table class="excel-grid scheduled-table" data-scheduled-table>
+  const body = list.length ? `<table class="excel-grid scheduled-table" data-scheduled-table>
     <thead><tr class="excel-head-row">
       <th>名称</th><th>类型</th><th>周期</th><th>下次运行</th><th>状态</th><th>操作</th>
     </tr></thead>
     <tbody>${rows}</tbody>
-  </table>`;
+  </table>` : '<span class="muted list-empty">暂无定时任务</span>';
+  return `<div class="sched-table" data-sched-table>
+    <header class="sched-table-band">
+      <strong>定时任务</strong>
+      <span class="sched-table-total">${list.length} 项</span>
+    </header>
+    <div class="sched-table-scroll" data-sched-table-scroll>${body}</div>
+  </div>`;
 }
 
 // schedStatusText 状态文案（权威 JSON 的 running/last_status 驱动）。

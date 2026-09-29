@@ -1534,6 +1534,97 @@ func TestEmbeddedWorkTableTitleOnce(t *testing.T) {
 	}
 }
 
+// TestEmbeddedScheduledTableTitleOnce：定时任务表格弹窗只留一个「定时任务」标题。
+// 现场（用户报告，2026-09-29 真机两连）：「依旧嵌套」「依旧多重标题」——同一个毛病
+// 的下一处：工作表格弹窗已在 e2dd0f0 收敛成"弹窗头只留关闭按钮、标题交给表内头带"，
+// 定时任务表格弹窗仍写着 eyebrow「定时任务」+ h2「定时任务表格」两行同名标题。
+// 口径照 e2dd0f0：弹窗头两个都删掉、无障碍名改走 aria-label，名字只留表内那一条
+// （scheduled-tasks-view.js 的 .sched-table-band 里的 <strong>定时任务</strong>）。
+func TestEmbeddedScheduledTableTitleOnce(t *testing.T) {
+	t.Parallel()
+	page, err := embeddedFrontend.ReadFile("frontend/dist/index.html")
+	if err != nil {
+		t.Fatalf("embedded frontend index.html: %v", err)
+	}
+	html := string(page)
+	start := strings.Index(html, `<div id="scheduled-table-modal"`)
+	if start < 0 {
+		t.Fatal("找不到定时任务表格弹窗容器")
+	}
+	head := html[start:]
+	end := strings.Index(head, `id="scheduled-table-view"`)
+	if end < 0 {
+		t.Fatal("找不到定时任务表格弹窗的正文容器")
+	}
+	modalHead := head[:end]
+	if !strings.Contains(modalHead, `aria-label="定时任务表格"`) {
+		t.Fatal("弹窗的无障碍名要落在 aria-label 上（视觉标题只剩表格头带那一条）")
+	}
+	for _, banned := range []string{`class="eyebrow"`, "scheduled-table-modal-title", "<h2"} {
+		if strings.Contains(modalHead, banned) {
+			t.Fatalf("定时任务表格弹窗头不得再重复标题（只留表格头带那一条），却仍有：%s", banned)
+		}
+	}
+	script, err := embeddedFrontend.ReadFile("frontend/dist/scheduled-tasks-view.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(script), "<strong>定时任务</strong>") {
+		t.Fatal("表格头带里那一条「定时任务」要留着：弹窗头删掉后就靠它给整块命名")
+	}
+}
+
+// TestEmbeddedScheduledTableSingleScrollContainer：定时任务表格弹窗纵向只允许一个
+// 滚动容器。
+//
+// 现场（用户报告，与工作表格弹窗同一句）："依旧嵌套"——根因同样是三层嵌套：
+// .modal-card[data-resizable] 自带 overflow: auto、正文容器 #scheduled-table-view
+// 又写了一份 overflow: auto、表格再自带 min-width 横向滚。修法照
+// TestEmbeddedWorkTableSingleScrollContainer：卡片与正文容器都不滚，只有表格区
+// .sched-table-scroll 滚（横向也归它）。
+func TestEmbeddedScheduledTableSingleScrollContainer(t *testing.T) {
+	t.Parallel()
+	styles, err := embeddedFrontend.ReadFile("frontend/dist/styles.css")
+	if err != nil {
+		t.Fatalf("embedded frontend styles.css: %v", err)
+	}
+	source := string(styles)
+	for _, want := range []string{
+		".modal-card.scheduled-table-card[data-resizable] { display: flex; flex-direction: column; overflow: hidden; }",
+		"#scheduled-table-view { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 10px; }",
+		"#scheduled-table-view .sched-table-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }",
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("定时任务表格弹窗必须只有一个纵向滚动容器，缺少规则：%s", want)
+		}
+	}
+	if strings.Contains(source, ".scheduled-table-view { overflow: auto;") {
+		t.Fatal("定时任务表格正文容器不得再自带 overflow: auto（与卡片自身 overflow 叠加就是多重滚轮）")
+	}
+}
+
+// TestEmbeddedScheduledToggleInline：新建定时任务弹窗的「创建后立即启用」开关与文案
+// 必须在同一行。
+//
+// 现场（真机 2026-09-29）：勾选框在第 1 行、文案「创建后立即启用」掉到第 2 行。根因是
+// 权重与顺序的双重失手——标记里两者同属 .settings-field（display: grid，按行铺子项），
+// 而 .settings-field 在 styles.css 里更靠后、权重又不低于 .sched-toggle，于是
+// .sched-toggle 的 display: flex 被盖掉。修法是把自己抬到 (0,2,0)：.settings-field.sched-toggle。
+func TestEmbeddedScheduledToggleInline(t *testing.T) {
+	t.Parallel()
+	styles, err := embeddedFrontend.ReadFile("frontend/dist/styles.css")
+	if err != nil {
+		t.Fatalf("embedded frontend styles.css: %v", err)
+	}
+	source := string(styles)
+	if !strings.Contains(source, ".settings-field.sched-toggle { display: flex;") {
+		t.Fatal("开关行要用 .settings-field.sched-toggle（(0,2,0)）压过 .settings-field 的 grid，否则开关与文案分两行")
+	}
+	if strings.Contains(source, "\n.sched-toggle { display: flex;") {
+		t.Fatal("裸 .sched-toggle 权重与 .settings-field 相同且更靠前，会被 grid 盖掉：改用 .settings-field.sched-toggle")
+	}
+}
+
 // TestEmbeddedLeftPanelScrollerChain：左栏保留两条纵向滚轮——会话列表与每个展开的
 // 会话分组（项目粒度），只删掉多余的那条：面板自身。
 //

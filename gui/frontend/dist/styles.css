@@ -1974,7 +1974,11 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .sched-result.sched-error { color: var(--status-failed); }
 .sched-log { overflow: auto; max-height: 88px; margin: 0; padding: 5px 7px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--code-bg); color: var(--faint); font: 10px/1.5 var(--font-mono); overflow-wrap: anywhere; white-space: pre-wrap; word-break: break-all; }
 .sched-actions { display: flex; justify-content: flex-end; }
-.sched-toggle { display: flex; align-items: center; gap: 8px; }
+/* 启用开关与文案同一行。现场（真机）：标记里这两件是同一个 .settings-field 的子节点，
+   而 .settings-field 是 display: grid（默认按行铺子项），它在本文件里更靠后、权重又
+   同为 (0,1,0)，于是把这里的 display: flex 盖掉——开关与"创建后立即启用"被拆成上下两行。
+   带 .settings-field 前缀把自己抬到 (0,2,0)，顺序就不再决定胜负。 */
+.settings-field.sched-toggle { display: flex; align-items: center; gap: 8px; }
 .sched-toggle input { width: auto; padding: 0; }
 
 .history-search-form { display: flex; align-items: center; gap: 6px; margin-bottom: 7px; }
@@ -2649,10 +2653,29 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .excel-sheet-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .excel-sheet-counts { flex: none; color: var(--faint); }
 
-/* 定时任务 Excel 表格弹窗 */
+/* 定时任务 Excel 表格弹窗（与工作表格弹窗同构：标题只留表内一条、纵向只留一个
+   滚动容器） */
 .scheduled-table-card { width: min(960px, 94vw); max-height: 86vh; }
-.scheduled-table-view { overflow: auto; padding: 10px; }
-.scheduled-table-view .scheduled-table { min-width: 720px; }
+/* 嵌套滚动（现场：可拉伸卡片 .modal-card[data-resizable] 自带 overflow:auto、正文
+   .scheduled-table-view 又写了一份 overflow:auto、表格再自带 min-width 横向滚——滚轮
+   在三层之间接力，观感就是"滚一下跳三层"）。口径与工作表格弹窗/左栏会话列表一致：
+   纵向只留一个滚动容器（就是表格区 .sched-table-scroll），卡片与正文容器只负责把高度
+   让下去。选择器带 [data-resizable]：与 §18 的 .modal-card[data-resizable] 同特异性
+   且更靠后，否则会被它的 overflow: auto 盖掉。 */
+.modal-card.scheduled-table-card[data-resizable] { display: flex; flex-direction: column; overflow: hidden; }
+.scheduled-table-card > .modal-header { flex: none; }
+/* 弹窗头只剩一枚关闭按钮：标题交给表内头带那一条（弹窗头自己带下边框，这里去掉避免
+   两条横线叠在同一个位置）。 */
+.scheduled-table-card > .scheduled-table-modal-head { justify-content: flex-end; align-items: center; margin-bottom: 8px; padding-bottom: 0; border-bottom: 0; }
+#scheduled-table-view { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 10px; }
+#scheduled-table-view > .sched-table { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+/* 唯一滚动容器：高度由卡片剩余空间决定，横向溢出也归它（表格 min-width 720px）。 */
+#scheduled-table-view .sched-table-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
+/* 表格自己的头带：整块的名字只剩这一条（坐在 --surface-2 浅色带上，口径同工作表格
+   的 .work-table-head）。 */
+.sched-table-band { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 10px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+.sched-table-total { color: var(--muted); font-size: var(--text-sm); }
+.sched-table-scroll .scheduled-table { min-width: 720px; }
 .sched-row td:first-child { color: var(--text-strong); font-weight: 600; }
 .sched-table-command { display: block; color: var(--faint); font: 10px var(--font-mono); }
 

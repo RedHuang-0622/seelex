@@ -148,9 +148,24 @@ test("renders scheduled tasks as Excel table with columns and cancel buttons", (
   assert.match(html, /data-sched-id="sched_1"/);
 });
 
+// 表格整块的名字只剩头带那一条（弹窗头不再重复标题），且表体只隔一个滚动容器：
+// 弹窗纵向只此一层可滚（口径同工作表格弹窗，见 styles.css 的 .scheduled-table-card）。
+test("keeps one name band and one scroll container around the scheduled table", () => {
+  const html = renderScheduledTasksTable([task(), task({ id: "sched_2", name: "第二个" })], []);
+  assert.match(html, /<header class="sched-table-band">\s*<strong>定时任务<\/strong>/);
+  assert.match(html, /sched-table-total">2 项</);
+  assert.equal((html.match(/class="sched-table-scroll"/g) || []).length, 1);
+  assert.equal((html.match(/<table/g) || []).length, 1);
+  // 头带在滚动容器之外：滚动时块名不跟着走。
+  assert.ok(html.indexOf("sched-table-band") < html.indexOf("sched-table-scroll"));
+});
+
 test("renders empty scheduled table state for empty or non-array input", () => {
-  assert.match(renderScheduledTasksTable([], []), /暂无定时任务/);
-  assert.match(renderScheduledTasksTable(null, null), /暂无定时任务/);
-  assert.match(renderScheduledTasksTable(undefined, undefined), /暂无定时任务/);
-  assert.match(renderScheduledTasksTable("nope", []), /暂无定时任务/);
+  for (const items of [[], null, undefined, "nope"]) {
+    const html = renderScheduledTasksTable(items, []);
+    assert.match(html, /暂无定时任务/);
+    // 空表也有头带：标题只剩这一条，空态不能连名字一起丢。
+    assert.match(html, /<strong>定时任务<\/strong>/);
+    assert.match(html, /sched-table-total">0 项</);
+  }
 });

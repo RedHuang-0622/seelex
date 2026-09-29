@@ -412,6 +412,13 @@ composer 的输入前缀是一份**跨前后端契约**，前端只消费不发�
 
 新建弹窗的字段由 `Bridge.ScheduleTask` 提交（`scheduled-tasks-view` 不直接持有 Bridge）：类型分「命令」与「提示词」两种；执行方式分「周期重复」与「定时执行（一次性）」两种。
 
+**表格弹窗（口径与工作表格弹窗同族）**：完整表格放 `#scheduled-table-modal`（右栏只留入口按钮），里面有两条硬规矩，改 `index.html` / `styles.css` 时别踩回去：
+
+- **名字只有一条**：弹窗头只留关闭按钮（`aria-label="定时任务表格"` 给无障碍名），整块的名字由表内头带 `.sched-table-band` 那条给出（`定时任务 N 项`，坐在 `--surface-2` 浅色带上）。头带在滚动容器之外，空态（0 条）也照常渲染——否则删掉弹窗头两个标题后整块就没有名字了。
+- **纵向只有一个滚动容器**：卡片（`.modal-card.scheduled-table-card[data-resizable]`）与正文容器（`#scheduled-table-view`）都只让高度（`overflow: hidden`），唯一滚的是 `.sched-table-scroll`（横向溢出也归它，表格 `min-width: 720px`）。三个都滚就是"一次滚动跳三层"。
+
+两条都由 `gui/bridge_test.go` 的 `TestEmbeddedScheduledTableTitleOnce` / `TestEmbeddedScheduledTableSingleScrollContainer` 钉住；渲染侧的记号（头带、滚动容器各一份、头带在容器之外）由 `scheduled-tasks-view.test.mjs` 钉住。
+
 - **命令任务（主路径）**：下拉选项来自 `snapshot.runtime.scheduled_commands`（后端编译期白名单，`main.go` 登记 `auto_get_jobs`，指向 `local/tools/auto_get_jobs/main.py`）。白名单命令的 argv 固定、不经 shell 展开，前端无法注入任意命令。脚本依赖（`.env`、`user_requirements.txt`、`city_list.json`、chromedriver）均按其自身目录解析，调度器只提供固定工作目录与超时。
 - **提示词任务（扩展点）**：提交后由后端注入的 executor 触发一次 agent 会话（main 装配为 application Submit，排队语义：会话忙时任务排队，不与进行中的对话冲突）。任务绑定当前 main session（`session_id` 留空 = 执行时当前会话；显式绑定会在会话切换后跳过而非误投）。结果回传为「已提交」状态字；异步会话的完整输出请从会话记录/事件库查询，这是当前实现的有意取舍。
 

@@ -4379,6 +4379,7 @@ setupPanelDividers();
 // 与命中哪些容器。
 const SCROLL_SHADOW_TARGETS = [
   ".work-table-scroll",
+  ".sched-table-scroll",
   ".session-group-body",
   "#account-list",
   "#plugin-list",

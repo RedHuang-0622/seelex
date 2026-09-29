@@ -433,9 +433,13 @@
     </div>
   </div>
 
-  <div id="scheduled-table-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="scheduled-table-modal-title">
+  <div id="scheduled-table-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="定时任务表格">
     <div class="modal-card scheduled-table-card" data-resizable>
-      <div class="modal-header"><div><span class="eyebrow">定时任务</span><h2 id="scheduled-table-modal-title">定时任务表格</h2></div><button id="scheduled-table-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
+      <!-- 标题只留一个（口径同工作表格弹窗 e2dd0f0：用户报告"同一个词连着两行"）：
+           弹窗头不再写 eyebrow + h2，名字交给表格自己的头带（▾ 定时任务 N 项，见
+           scheduled-tasks-view.js 的 .sched-table-band）。无障碍名因此落到 aria-label，
+           不留视觉上重复的 h2。 -->
+      <div class="modal-header scheduled-table-modal-head"><button id="scheduled-table-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
       <div id="scheduled-table-view" class="scheduled-table-view muted">暂无定时任务</div>
       <div class="modal-resize-handle" aria-hidden="true"></div>
     </div>

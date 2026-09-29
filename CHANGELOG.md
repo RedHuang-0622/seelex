@@ -12,6 +12,36 @@ version when it lands.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The scheduled-task table's dialog repeats its own name twice and nests two scroll containers.**
+  Two defects the work-table dialog had already been rid of (commit `e2dd0f0`, plus the
+  single-scroll-container note in `gui/frontend/dist/styles.css`) were still live in the
+  scheduled-task dialog, whose content is a sibling Excel grid. Measured against `HEAD` in a headless
+  scene built from the *committed* `styles.css` / `scheduled-tasks-view.js` / modal markup: the dialog
+  card (`.modal-card [data-resizable]` → `overflow: auto`) and the body container
+  (`.scheduled-table-view` → `overflow: auto`) were both scroll containers, so the wheel handed off
+  between layers as soon as the grid overflowed, and the dialog head stacked `span.eyebrow`「定时任务」
+  over `h2`「定时任务表格」— two lines of the same name, the same "同一个词连着两行" the work-table head
+  was emptied of. The dialog head now carries only its close button (the accessible name moved to
+  `aria-label="定时任务表格"`), the card and body only pass the height down (`display: flex;
+  overflow: hidden`), the grid area `.sched-table-scroll` is the *only* vertical scroll container,
+  and the single name now lives on the table's own band (`.sched-table-band`, the `--surface-2`
+  strip: `定时任务 N 项`) — outside the scroll container, and present in the empty state too (a
+  zero-row table that had no title at all before). Pinned by
+  `gui/bridge_test.go`'s `TestEmbeddedScheduledTableTitleOnce`,
+  `TestEmbeddedScheduledTableSingleScrollContainer` and
+  `TestEmbeddedScheduledToggleInline`, plus the new band/scroll assertions in
+  `gui/frontend/dist/scheduled-tasks-view.test.mjs`. See
+  `docs/devlog/2026-09-29-scheduled-table-single-title-single-scroll.md`.
+- **The "create a scheduled task" dialog's enable switch and its label sat on two different lines.**
+  The marker puts the checkbox and the text「创建后立即启用」in one `.settings-field`, which is
+  `display: grid` (children flow onto their own rows); `.sched-toggle`'s `display: flex` lost to it
+  because `.settings-field` is both later in `styles.css` and equally specific. The rule is now
+  `.settings-field.sched-toggle` (0,2,0), so the switch and its label share a row regardless of file
+  order. Measured in the same headless scene: `display: grid` / text rect left 460 == box left 460
+  before, `display: flex` / text left 542 > box right 528 after.
+
 ### Changed
 
 - **A subagent row now belongs to the session that forked it, not to whoever is looking.** The work
