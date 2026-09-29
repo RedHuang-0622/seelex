@@ -229,6 +229,37 @@ version when it lands.
 
 ### Fixed
 
+- **A prefix-replay request can no longer carry a tool call without its receipt — the cause of every
+  fold that silently fell back to the local summary.** The frame evidence added earlier the same day
+  paid for itself immediately: the fold at 19:18:52 came back with the provider's own text, `HTTP 400
+  An assistant message with 'tool_calls' must be followed by tool messages responding to each
+  'tool_call_id'. (insufficient tool messages following tool_calls message)`. The replay material was
+  the *pre-repair* snapshot of the engine history: `coordinator.go` reads `existing :=
+  c.foldHistory(sessionID)` at the top of assembly, but the wire-side chain repair
+  (`PrepareProviderHistoryFor` → `RepairInterruptedToolChains`) runs **after** the fold replacement,
+  and `pushCompactionFrame` hands that older `existing` to the compaction DAG as `ReplayHistory`. A
+  turn interrupted mid-tool leaves exactly one assistant declaration whose results never landed —
+  the repair that fills it is deliberately deferred to the request seam — so the real request went out
+  legal while the replay request went out with an unanswered declaration and was rejected outright.
+  `seelexctx/replay_material.go` now normalizes the material to the provider's pairing protocol before
+  it can reach the wire, under two rules that invent nothing: an **unsettled tail unit** (the trailing
+  declaration still has calls without receipts and only its own result rows follow) is dropped whole —
+  it belongs to no bytes ever sent upstream, and fabricating a "result lost" placeholder for a call
+  that may still be executing would be a lie; a **mid-history dead chain** (messages follow it, so it
+  cannot be running) gets the same recovery placeholder the assembly layer already writes for the real
+  request, byte for byte. The rules are applied once in `chapter2Node` (before chunking, so chunk
+  token accounting sees legal material) and again idempotently at the summarizer's wire exit (which
+  also covers every chunk of the chunked chain); the fact that material was touched lands in the frame
+  as `replay-material:normalized`, and material that is *still* illegal is never sent —
+  `replay-material-invalid` names the offending position, while material trimmed to nothing reports
+  `no-replay-material` with the unanswered call id. Verified against the live account
+  (`seelebridge/replay_live_broken_chain_probe_test.go`, `-tags replayprobe`): the unnormalized shapes
+  reproduce the exact 400 in 77ms and 52ms — which also explains the earlier "458ms did two replay
+  calls" puzzle, since a doomed call returns in ~50–80ms — while the same material normalized
+  succeeds (1.4–1.9s), as does the production entry point for both shapes. Pinned by
+  `seelexctx/replay_material_test.go` and `seelexctx/replay_material_dag_test.go`; see
+  `docs/devlog/2026-09-29-replay-material-not-wire-legal.md`.
+
 - **The dev GUI package's `config/` no longer freezes at whatever day `build-gui.ps1` last ran — a config
   change in the repo now actually reaches the running GUI.** `dist/seelex-gui-dev/` carries its own copy of
   `config/`, and the binary resolves it by **CWD-relative** path (`main.go`:

@@ -151,13 +151,15 @@ type compactionDAGState struct {
 	// 不记正常。
 	degradeCode string
 	degradeNote string
-	frame         sessionstore.CompactFrame
+	frame       sessionstore.CompactFrame
 	// carry 是「上一帧 Chapter 2 并入」的决策事实（帧摘要传递上限）。
 	carry CarryDiagnostics
 	// replay 是分片重放的计划事实（未分片 → 空计划）。
-	replay    ReplayChunkPlan
-	started   map[string]bool
-	startedMu sync.Mutex
+	replay ReplayChunkPlan
+	// replayMaterial 是重放素材的规整事实（逐字未动 → 零报告 → 不写证据）。
+	replayMaterial ReplayMaterialReport
+	started        map[string]bool
+	startedMu      sync.Mutex
 }
 
 // Execute 运行压缩 DAG 并返回拼装完成的 CompactFrame（不含 PushCompact；
@@ -314,6 +316,11 @@ func (d *CompactionDAG) chapter1Node(state *compactionDAGState) func(context.Con
 
 // chapter2Node：前缀重放厚摘要（一次重试）→ 失败/无重放素材回退本地折叠。
 //
+// 重放素材先过 wire 协议规整（PrepareReplayMaterial，见 replay_material.go）：素材
+// 是"请求出口修复之前"的历史快照，未回执的工具调用会让整条重放请求被 provider
+// 400 拒收（2026-09-29 现场）。规整事实进帧证据（不静默改字节）；规整后仍不合法
+// 就不发这次注定被拒的请求，改记 `replay-material-invalid`。
+//
 // 溢出区自身超过片预算（ReplayInputTokens）时走**分片重放链**：按协议单元切片
 // 逐片重放，摘要前向传递（SummarizeChunkPlan），除首片外不追求前缀缓存命中
 // （正确性与「不重复送原文」优先）。任何一片失败即整条回退本地折叠。
@@ -325,10 +332,30 @@ func (d *CompactionDAG) chapter1Node(state *compactionDAGState) func(context.Con
 func (d *CompactionDAG) chapter2Node(state *compactionDAGState) func(context.Context) error {
 	return func(ctx context.Context) error {
 		markStarted(state, "chapter2_thick")
-		if d.opts.Summarizer != nil && len(state.input.History) > 0 {
+		material, materialReport := PrepareReplayMaterial(state.input.History)
+		state.replayMaterial = materialReport
+		materialErr := ValidateReplayProtocol(material)
+		switch {
+		case d.opts.Summarizer == nil:
+			note := strings.TrimSpace(d.opts.SummarizerNote)
+			if note == "" {
+				note = "摘要器未装配（开关关闭或 QuickChat 装配失败）"
+			}
+			state.degrade("no-summarizer", note)
+		case len(state.input.History) == 0:
+			state.degrade("no-replay-material",
+				"无重放素材（上一次真实请求的引擎历史为空），本次不调用模型")
+		case len(material) == 0:
+			state.degrade("no-replay-material", fmt.Sprintf(
+				"重放素材规整后为空：尾巴是一个未落定的工具调用单元（宣告的调用 %s 尚无回执），本次不调用模型",
+				strings.Join(materialReport.DroppedTailCallIDs, ",")))
+		case materialErr != nil:
+			state.degrade("replay-material-invalid", fmt.Sprintf(
+				"重放素材在 wire 协议规整后仍不合法，本次不发重放请求：%v", materialErr))
+		default:
 			request := ReplayRequest{
 				SystemPrompt: d.systemPrompt(),
-				History:      append([]frameworktypes.Message(nil), state.input.History...),
+				History:      append([]frameworktypes.Message(nil), material...),
 				Tools:        d.tools(),
 				MaxTokens:    d.chapter2MaxTokens(),
 			}
@@ -370,15 +397,6 @@ func (d *CompactionDAG) chapter2Node(state *compactionDAGState) func(context.Con
 			}
 			// 两次尝试均失败 → 本地折叠兜底（不消耗模型 token 的确定性路径）。
 			state.degrade("replay-failed", fmt.Sprintf("前缀重放两次调用均失败，已回退本地折叠：%v", lastErr))
-		} else if d.opts.Summarizer == nil {
-			note := strings.TrimSpace(d.opts.SummarizerNote)
-			if note == "" {
-				note = "摘要器未装配（开关关闭或 QuickChat 装配失败）"
-			}
-			state.degrade("no-summarizer", note)
-		} else {
-			state.degrade("no-replay-material",
-				"无重放素材（上一次真实请求的引擎历史为空），本次不调用模型")
 		}
 		chapter2, carry := LocalChapter2WithCarry(LocalFoldOptions{
 			Overflow:         state.overflow,
@@ -447,7 +465,8 @@ func (d *CompactionDAG) mergeNode(state *compactionDAGState) func(context.Contex
 			Evidence: append(overflowEvidence(state.overflow, state.record),
 				append(CarryEvidence(state.carry),
 					append(ReplayEvidence(state.replay),
-						LocalFoldEvidence(state.degradeCode, state.degradeNote)...)...)...),
+						append(ReplayMaterialEvidence(state.replayMaterial),
+							LocalFoldEvidence(state.degradeCode, state.degradeNote)...)...)...)...),
 			CompressedAt: time.Now(),
 		}
 		if state.prevTop != nil {

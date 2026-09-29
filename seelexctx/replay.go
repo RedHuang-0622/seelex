@@ -81,16 +81,27 @@ func (s *quickChatPrefixReplaySummarizer) Summarize(ctx context.Context, req Rep
 	if len(req.History) == 0 {
 		return ReplayResult{}, fmt.Errorf("seelexctx: prefix replay requires history bytes")
 	}
+	// wire 出口兜底：素材在 chapter2 节点已按同一规则规整过一次（规整幂等），这里
+	// 再兜一次——分片链的每一片、以及直接调摘要器的调用方都不经过那条路。规整后
+	// 仍不合法的素材绝不发出去：provider 会整条 400 拒收，而报文只说"回执不够"，
+	// 读不出是哪一条调用；这里返回的报文指名违规位置。
+	material, _ := PrepareReplayMaterial(req.History)
+	if err := ValidateReplayProtocol(material); err != nil {
+		return ReplayResult{}, fmt.Errorf("seelexctx: prefix replay material violates provider tool protocol: %w", err)
+	}
+	if len(material) == 0 {
+		return ReplayResult{}, fmt.Errorf("seelexctx: prefix replay material is empty after normalization")
+	}
 	instruction := req.Instruction
 	if strings.TrimSpace(instruction) == "" {
 		instruction = PrefixReplayInstruction
 	}
-	messages := make([]types.Message, 0, len(req.History)+2)
+	messages := make([]types.Message, 0, len(material)+2)
 	if req.SystemPrompt != "" {
 		prompt := req.SystemPrompt
 		messages = append(messages, types.Message{Role: "system", Content: &prompt})
 	}
-	messages = append(messages, req.History...)
+	messages = append(messages, material...)
 	// 唯一新增尾巴：固定压缩指令（model 不可见 requestID 索引）。
 	messages = append(messages, types.Message{Role: "user", Content: &instruction})
 	reply, err := s.chat.Complete(ctx, seelectx.QuickChatRequest{
