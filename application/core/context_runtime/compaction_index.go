@@ -39,6 +39,10 @@ type compactionIndexPush struct {
 	Summary string
 	// SummarySource 是摘要来源：replay（前缀重放厚摘要）| local（本地确定性折叠）。
 	SummarySource string
+	// SummaryNote 说明"这次为什么没有模型摘要"（空 = 有模型摘要）。帧正文如实
+	// 写出它：local 的三种来路（开关关闭 / 无重放素材 / 重放调用失败）从
+	// summary_source 一个标记读不出来，而读帧的人恰恰要问的就是这个。
+	SummaryNote string
 	// Err 是推帧失败的真实原因（nil = 没失败）。
 	Err error
 }
@@ -87,6 +91,7 @@ func (c *Coordinator) pushCompactionFrame(
 		SegmentID:     receipt.SegmentID,
 		Summary:       receipt.Summary,
 		SummarySource: receipt.SummarySource,
+		SummaryNote:   receipt.SummaryNote,
 	}
 }
 

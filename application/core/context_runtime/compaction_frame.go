@@ -59,6 +59,7 @@ type compactionFrameInput struct {
 	At              time.Time
 	SegmentID       string // 压缩栈帧标识；空 = 本次没有推帧（栈不可用或推帧失败）
 	SummarySource   string // replay（前缀重放厚摘要）| local（本地确定性折叠）| 空 = 没有栈帧
+	SummaryNote     string // 落到本地折叠的原因（空 = 这次真有模型摘要）
 	Summary         string // 读后感（栈帧 Summary 原样；空 → 走本地兜底材料）
 	ComparedTokens  int
 	AssembledTokens int
@@ -127,6 +128,7 @@ type compactionFrameMetadata struct {
 	At            time.Time              `json:"at"`
 	SegmentID     string                 `json:"segment_id,omitempty"`
 	SummarySource string                 `json:"summary_source,omitempty"`
+	SummaryNote   string                 `json:"summary_note,omitempty"`
 	Injected      bool                   `json:"injected"`
 	Folded        *compactionFoldedRange `json:"folded,omitempty"`
 	Layout        ContextLayout          `json:"layout"`
@@ -143,6 +145,7 @@ func (input compactionFrameInput) metadata() compactionFrameMetadata {
 		At:            input.At,
 		SegmentID:     input.SegmentID,
 		SummarySource: input.SummarySource,
+		SummaryNote:   input.SummaryNote,
 		// Injected 必须如实：普通折叠走保留窗口路径，provider 历史 = 稳定 system
 		// 前缀 + 保留窗口 + plan，**并没有**把读后感注入历史；只有自主压缩才注入。
 		// 把两者写成同一句话，等于告诉读者"模型看得到这份摘要"，而那是假的。
@@ -211,6 +214,17 @@ func marshalFrameMetadata(meta compactionFrameMetadata) string {
 	return string(encoded)
 }
 
+// localFoldReason 说明这次为什么没有模型读后感。有降级原因（折叠 DAG 记下的开关
+// 状态，或重放失败时的真实报错）就原样写出：此前这里是一句"开关未开启，或前缀重放
+// 失败"的 or 措辞，读帧的人分不清是哪一种，而两件事的处置完全不同——一个是配置、
+// 一个是故障。没有原因（更早版本写的帧、或推帧失败）时保留原来的兜底措辞。
+func (input compactionFrameInput) localFoldReason() string {
+	if note := strings.TrimSpace(input.SummaryNote); note != "" {
+		return note + "。"
+	}
+	return "折叠摘要开关未开启，或前缀重放失败已回退本地折叠。"
+}
+
 // readingNotes 渲染帧的 Markdown 一半。
 //
 // 有栈帧摘要（Summary 非空）→ **原样嵌入**，不加外层标题：它自带
@@ -226,7 +240,7 @@ func (input compactionFrameInput) readingNotes() string {
 	}
 	var builder strings.Builder
 	builder.WriteString("## 折叠材料 (Folded Material)\n\n")
-	builder.WriteString("（本次没有模型生成的读后感：折叠摘要开关未开启，或前缀重放失败已回退本地折叠。" +
+	builder.WriteString("（本次没有模型生成的读后感：" + input.localFoldReason() +
 		"下面是任务台账的有界证据，**不是**对被折原文的总结；原文按上面 readback 段的句柄回读。）\n\n")
 	builder.WriteString("### 任务证据检查点 (Task Evidence Checkpoint)\n")
 	if evidence := strings.TrimSpace(input.Evidence); evidence != "" {

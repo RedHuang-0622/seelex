@@ -115,6 +115,11 @@ type CompactionIndexReceipt struct {
 	// SummarySource 是摘要来源：replay（前缀重放厚摘要）| local（本地确定性折叠）。
 	// 它是"重放到底成没成"的唯一证据：两次尝试都失败会静默落回 local。
 	SummarySource string
+	// SummaryNote 说明"这次为什么没有模型摘要"（空 = 有模型摘要）。local 有三种
+	// 来路（开关关闭 / 无重放素材 / 重放调用失败，后者还带真实报错），只有
+	// summary_source 一个标记读不出是哪一种；这份 note 由折叠 DAG 记下、经栈帧证据
+	// 带上来，最终写进帧正文，让帧自己回答"模型为什么没被叫到"。
+	SummaryNote string
 }
 
 // ErrCompactionIndexUnavailable 表示索引面不可用（Runtime 缺失或未装配压缩栈）。

@@ -234,6 +234,25 @@ func carryPrompt(index, total int, previous string) string {
 	return builder.String()
 }
 
+// CompactFoldLocalEvidenceRefPrefix 标记"这次折叠落到本地确定性折叠"的证据 ref
+// 前缀：ref = `fold-local:<code>`，code 说明是哪一种降级。写这条证据的原因是
+// **静默降级**：本地折叠只有 `summary_source=local` 一个标记，而它有三种完全不同的
+// 来路（开关关闭 / 无重放素材 / 重放调用失败），读帧的人无从分辨——现场排查只能
+// 靠猜。有了 code 与正文，帧自己就能回答"模型为什么没被叫到"。
+const CompactFoldLocalEvidenceRefPrefix = "fold-local:"
+
+// LocalFoldEvidence 把"为什么这次没有模型摘要"写成帧证据。与 ReplayEvidence 同一条
+// 纪律：没这件事（replay 成功）就不留痕。
+func LocalFoldEvidence(code, note string) []sessionstore.EvidenceRef {
+	if strings.TrimSpace(code) == "" {
+		return nil
+	}
+	return []sessionstore.EvidenceRef{{
+		Ref:     CompactFoldLocalEvidenceRefPrefix + code,
+		Summary: strings.TrimSpace(note),
+	}}
+}
+
 // ReplayEvidence 把分片重放的决策事实写成帧证据（打点落点：帧持久化在会话
 // state blob 的 CompactStack 里）。未分片（片数 <= 1）时不写——没有这件事就
 // 不留痕，避免报表里出现"分片 1 片"这种无信息项。

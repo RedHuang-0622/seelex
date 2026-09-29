@@ -41,5 +41,6 @@ func (port RuntimePort) PushCompactionFrame(
 		SegmentID:     receipt.SegmentID,
 		Summary:       receipt.Summary,
 		SummarySource: receipt.SummarySource,
+		SummaryNote:   receipt.SummaryNote,
 	}, nil
 }

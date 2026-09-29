@@ -40,7 +40,18 @@ export function renderContextCompactions(compactions = [], options = {}) {
     const time = formatTime(compaction.compacted_at);
     const isFrontier = Boolean(frontier) && frontier.index === index;
     const frameRef = String(compaction.frame_ref || "");
-    const open = Boolean(detail) && detail.index === index;
+    // 展开哪一行按 **(会话, frame_ref)** 判定，不按记录数组下标：
+    //   - 下标会随记录数组重排、更会随会话切换指到另一条记录——上一个会话读回来的
+    //     正文挂到当前会话的同一序号行上，就是把别的会话的折叠说成当前会话的；
+    //   - ref 是内容存储里的引用，跨会话不会撞，且与读取侧（data-compact-frame-load
+    //     按 ref 分页）同一身份，不会出现"展开的是这条、续读的是那条"；
+    //   - options.sessionID 是当前视图会话：详情里写的会话对不上就不认这份正文
+    //     （即使 ref 撞了，也不许跨会话显示）。
+    const detailSession = detail ? String(detail.sessionID || "") : "";
+    const detailRef = detail ? String(detail.ref || "") : "";
+    const sessionID = String(options.sessionID || "");
+    const detailApplies = detailRef !== "" && (sessionID === "" || detailSession === "" || detailSession === sessionID);
+    const open = detailApplies && detailRef === frameRef;
     // 一行两排：右栏实测量级只有 ~280px，四列会把中文按字符切碎（浏览器核对里
     // "message-1..message-663" 被断成 mes/sage-）。触发与来源同排，区间/估算/
     // 时间另起一排等宽小字。

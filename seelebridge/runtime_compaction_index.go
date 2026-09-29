@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/RedHuang-0622/Seele/types"
 
@@ -47,6 +48,23 @@ type CompactionFrameReceipt struct {
 	SegmentID     string
 	Summary       string
 	SummarySource string
+	// SummaryNote 说明"这次为什么没有模型摘要"（空 = 这次真有模型摘要）。只有落到
+	// 本地确定性折叠的帧才有：它把 `summary_source=local` 的三种来路（开关关闭 /
+	// 无重放素材 / 重放调用失败）分开，并带上失败时的真实报错——否则读帧的人只能靠
+	// 猜，而"模型为什么没被叫到"正是这条链上唯一无法从帧形状反推的事实。
+	SummaryNote string
+}
+
+// frameSummaryNote 从帧证据里读出降级原因（ref 前缀 `fold-local:` 的那条，由
+// seelexctx 的 chapter2Node 写入）。没有这条证据 → 返回空串：不编原因，
+// 也不把"没有解释"说成"没有降级"。
+func frameSummaryNote(frame sessionstore.CompactFrame) string {
+	for _, evidence := range frame.Evidence {
+		if strings.HasPrefix(evidence.Ref, seelexctx.CompactFoldLocalEvidenceRefPrefix) {
+			return strings.TrimSpace(evidence.Summary)
+		}
+	}
+	return ""
 }
 
 // PushCompactionFrame 生成一帧并压入该会话的压缩栈，返回回执。
@@ -111,5 +129,6 @@ func (r *Runtime) PushCompactionFrame(
 		SegmentID:     frame.SegmentID,
 		Summary:       frame.Summary,
 		SummarySource: frame.SummarySource,
+		SummaryNote:   frameSummaryNote(frame),
 	}, nil
 }

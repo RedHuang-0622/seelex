@@ -412,6 +412,10 @@ const client = createGUIClient({
       // 门禁进度按会话路由投递：跟着视图走的那条进度条属于上一个会话的折叠，
       // 切过来还挂着就是把别的会话的压缩说成当前会话的。权威快照随后重绘面板。
       dropCompactionProgress();
+      // 帧正文视图态（右栏展开的正文 + 帧正文弹框）同属上一个会话：切过来还挂着
+      // 就是把别的会话的折叠正文说成当前会话的。清掉即"按会话重读"——用户再展开
+      // 时按 ref 从当前会话的内容存储重读一次。
+      resetCompactionViewState();
     }
     render(snapshot, options);
   },
@@ -1076,12 +1080,48 @@ function reportExplorerRefreshFailure(error, info) {
 // 帧正文不进快照（快照只带 frame_ref），展开时按 ref 分页读回；展开与分页都是
 // 本地 UI 状态。容器与分页组件与轨迹详情同一套（.axis-detail +
 // data-compact-frame-load），不自造第二套面板。
+//
+// 视图态的身份是 **(会话, frame_ref)**，不是记录数组下标：下标既会随记录数组重排，
+// 更会随会话切换指向另一条记录——上一个会话读回来的正文挂在当前会话的同一序号行上，
+// 就是把别的会话的折叠说成当前会话的。ref 是内容存储里的引用，跨会话不会撞；会话
+// 字段把"这份正文属于谁"写进视图态（渲染侧据此拒绝跨会话正文，见
+// renderContextCompactions 的 sessionID 选项），会话切换时整份清空（见
+// resetCompactionViewState：用户再展开就按 ref 从当前会话重读一次）。
 function emptyCompactionDetail() {
-  return { index: -1, loading: false, error: "", text: "", hasMore: false, nextOffset: 0, totalBytes: 0 };
+  return { ref: "", sessionID: "", loading: false, error: "", text: "", hasMore: false, nextOffset: 0, totalBytes: 0 };
 }
 
 let compactionDetail = emptyCompactionDetail();
 let contextCompactionsBound = false;
+
+// 读取是异步的：期间可能又点了另一条记录、或切了会话。只有最后一次请求的结果可以
+// 落到条目上（同弹框的 compactionFrameLoadToken 口径）。
+let compactionDetailToken = 0;
+
+// clearCompactionDetail 收起条目并把在途读取作废（否则先发的响应回来会把正文画回来）。
+function clearCompactionDetail() {
+  compactionDetailToken += 1;
+  compactionDetail = emptyCompactionDetail();
+}
+
+// compactionViewSessionID 返回当前**视图会话**：帧正文视图态按它归属。
+function compactionViewSessionID() {
+  return String(client.current()?.session?.id || "");
+}
+
+// resetCompactionViewState 清空帧正文视图态（右栏展开条目 + 帧正文弹框），由会话
+// 切换调用（见 onSnapshot 的会话切换分支）。
+//
+// 为什么必须整份清而不是只靠 ref 判定：帧正文是**按 ref 从当前会话的内容存储**
+// 读回来的，上一个会话读回来的正文还挂在视图里，就是"把别的会话的折叠说成当前
+// 会话的"。清掉之后用户再展开会按 ref 重读一次——即用户口径的"根据会话重读压缩帧"。
+// 在途读取一并作废（两枚 token 都推进）：它们的响应不得落回切换后的视图。
+function resetCompactionViewState() {
+  clearCompactionDetail();
+  compactionFrameLoadToken += 1;
+  compactionFrameModal = { record: null, detail: null };
+  setModal("compaction-frame-modal", false);
+}
 
 // ── 压缩门禁进度（一轮压缩的瞬态）────────────────────────────
 // 后端每收一关发一条 compaction.progress，终局（done/failed）恰好一条，本轮
@@ -1140,55 +1180,66 @@ function currentCompactions() {
 
 // onContextCompactionsClick 一条委托监听：data-compact-open 展开/收起条目，
 // data-compact-frame-load=first|more 首读/续读帧正文（重绘前先落状态，避免闪烁）。
+//
+// 展开身份一律是 ref：按钮上带的数组下标只用来**取**这一行的 ref（点击那一刻的
+// 权威记录），此后的收起与续读都只认视图态里存的 ref——不然记录数组一变，续读就
+// 会把另一条记录的续页接到当前正文尾巴上。
 async function onContextCompactionsClick(event) {
   const openButton = event.target?.closest?.("[data-compact-open]");
   const pageButton = event.target?.closest?.("[data-compact-frame-load]");
   if (!openButton && !pageButton) return;
   const compactions = currentCompactions();
   if (openButton) {
-    const index = Number(openButton.dataset.compactOpen);
-    if (compactionDetail.index === index) {
-      compactionDetail = emptyCompactionDetail();
+    const ref = String(compactions[Number(openButton.dataset.compactOpen)]?.frame_ref || "");
+    if (!ref) return; // 没有帧引用的行本来就没有展开入口
+    if (compactionDetail.ref === ref) {
+      clearCompactionDetail();
       repaintCompactions(compactions);
       return;
     }
-    compactionDetail = { ...emptyCompactionDetail(), index };
+    compactionDetail = { ...emptyCompactionDetail(), ref, sessionID: compactionViewSessionID() };
     repaintCompactions(compactions);
-    const ref = String(compactions[index]?.frame_ref || "");
-    if (ref) await loadCompactionFrame(ref, 0, index, "");
+    await loadCompactionFrame(ref, 0, "");
     repaintCompactions(compactions);
     return;
   }
-  const index = compactionDetail.index;
-  const ref = String(compactions[index]?.frame_ref || "");
+  const ref = String(compactionDetail.ref || "");
   if (!ref) return;
   const mode = pageButton.dataset.compactFrameLoad;
   const offset = mode === "more" ? Number(compactionDetail.nextOffset || 0) : 0;
   if (mode === "more" && !(offset > 0)) return;
-  await loadCompactionFrame(ref, offset, index, mode === "more" ? compactionDetail.text : "");
+  await loadCompactionFrame(ref, offset, mode === "more" ? compactionDetail.text : "");
   repaintCompactions(compactions);
 }
 
 // loadCompactionFrame 按 ref 分页读取折叠帧正文。失败只更新条目内的错误文案
 // （用户就在这里，不再弹全局提示）；不改变展开状态本身。
-async function loadCompactionFrame(ref, offset, index, previousText) {
+//
+// 每次读取都把 (ref, 会话) 一起写回视图态：读取是异步的，期间可能又点了另一条记录、
+// 或切了会话。只有最后一次请求的结果可以落到条目上（token 口径同弹框），否则先发的
+// 响应回来会把新正文盖掉、把别的会话的正文画进来。
+async function loadCompactionFrame(ref, offset, previousText) {
   const base = compactionDetail;
+  const token = ++compactionDetailToken;
   compactionDetail = {
-    index, loading: true, error: "", text: String(previousText || ""),
+    ref, sessionID: compactionViewSessionID(), loading: true, error: "", text: String(previousText || ""),
     hasMore: base.hasMore, nextOffset: Number(base.nextOffset || 0), totalBytes: Number(base.totalBytes || 0)
   };
   repaintCompactions(currentCompactions());
+  let next = null;
   try {
     const page = await invoke("ToolResultContent", ref, offset, 12000);
-    compactionDetail = {
-      index, loading: false, error: "",
+    next = {
+      ref, sessionID: compactionViewSessionID(), loading: false, error: "",
       text: String(previousText || "") + String(page?.content || ""),
       hasMore: Boolean(page?.has_more), nextOffset: Number(page?.next_offset || 0),
       totalBytes: Number(page?.total_bytes || 0)
     };
   } catch (error) {
-    compactionDetail = { ...compactionDetail, index, loading: false, error: String(error) };
+    next = { ...compactionDetail, ref, loading: false, error: String(error) };
   }
+  if (token !== compactionDetailToken) return;
+  compactionDetail = next;
 }
 
 // repaintCompactions 是右栏「上下文压缩」面板的唯一出口：记录列表 + 本轮门禁
@@ -1202,7 +1253,10 @@ function repaintCompactions(compactions) {
   const host = elements["context-compactions"];
   if (!host) return;
   const list = Array.isArray(compactions) ? compactions : [];
-  host.innerHTML = renderContextCompactions(list, { detail: compactionDetail, progress: compactionProgress });
+  // sessionID 一起给渲染侧：展开行按 (会话, ref) 判定，上个会话的正文不许认。
+  host.innerHTML = renderContextCompactions(list, {
+    detail: compactionDetail, progress: compactionProgress, sessionID: compactionViewSessionID()
+  });
   host.classList.toggle("hidden", list.length === 0 && !compactionProgress);
   if (compactionProgress) revealStatusPanel();
 }

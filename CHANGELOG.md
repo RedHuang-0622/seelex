@@ -14,6 +14,37 @@ version when it lands.
 
 ### Changed
 
+- **A fold that falls back to the local deterministic summary now says why.** All three ways into
+  `summary_source=local` used to leave no trace — summary switch off, no replay material, and the
+  paid replay call failing (twice, silently, in `chapter2Node`). A frame therefore could not answer
+  the only question a reader has ("why was the model never asked?"), and a live fold showed how
+  expensive that silence is: a fresh process that had loaded `enabled: true` still produced
+  `summary_source=local`, its receipt recorded `index 458ms` while a real replay call measures
+  3.5–14s (see `docs/devlog/2026-09-29-replay-fast-fail-local-fold.md`), and nothing in the artifacts
+  could separate "never called" from "called and failed". The DAG now stamps the reason —
+  `fold-local:no-summarizer` / `fold-local:no-replay-material` / `fold-local:chunk-replay-failed` /
+  `fold-local:replay-failed` with the real error text — into the stack frame's evidence, the receipt
+  carries it as `SummaryNote`, and the frame body writes it both as `summary_note` in the JSON
+  metadata block and as the reason sentence in the folded-material paragraph. Replay success clears
+  the record (a note only ever means "this fold really degraded"). `Runtime` gained
+  `compactionSummarizerWithNote`, so the three nil exits report themselves instead of collapsing into
+  one nil. Pinned by `TestCompactionSummarySwitchOpenReplayFailureWritesReason` (open arm + a failing
+  completer: local source, the real error in the receipt note and in the frame evidence) and
+  `TestCompactionFrameBodyWritesWhyNoModelSummary`; the closed arm now also asserts
+  `fold-local:no-summarizer`.
+- **The GUI's compaction-frame view state is session-scoped, so switching sessions cannot show
+  another session's frame.** The right-panel expansion and the frame modal were module-level view
+  state keyed by the *record array index*, and neither was cleared on session switch: session B's row
+  #N rendered session A's already-read body (and "load more" could append A's next page to it), while
+  the modal kept A's record and text. Expansion is now keyed by **(session, frame_ref)** — the ref is
+  the content-store handle the pagination already uses, so "which row is expanded" and "which frame
+  the pages come from" are one identity — and the renderer refuses a detail whose session does not
+  match the current view session (`options.sessionID`). The session-change branch of `onSnapshot`
+  (next to the existing ack-watermark and gate-progress resets) calls `resetCompactionViewState`,
+  clearing the inline body, invalidating the new in-flight token and closing the modal, so expanding
+  again re-reads the frame by ref from the current session. Pinned by
+  `compaction-frame-session-scope.test.mjs` (source-level assertions, the repo's idiom for `app.js`)
+  and two behaviour cases in `context-summary.test.mjs` (stale ref, stale session).
 - **The fold's paid thick summary now ships switched on, and its two arms have teeth.** The shipped
   `config/seelex.yaml` sets `limits.context_compaction_summary.enabled: true`. What moved is the shipped
   file's choice, not the field's semantics: the zero value is still "closed", so a missing block or

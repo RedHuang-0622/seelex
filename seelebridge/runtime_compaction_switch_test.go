@@ -2,6 +2,7 @@ package seelebridge
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -56,6 +57,13 @@ type compactionSwitchFixture struct {
 // chapter2_tokens 的零值语义）保持出厂。
 func newCompactionSwitchFixture(t *testing.T, enabled bool) *compactionSwitchFixture {
 	t.Helper()
+	return newCompactionSwitchFixtureWith(t, enabled, newScriptedNodeCompleter(compactionSwitchReply))
+}
+
+// newCompactionSwitchFixtureWith 是上面那条接线的参数化版本：只换 completer。
+// 失败臂要的就是"同一个生产入口 + 一个稳定失败的 completer"。
+func newCompactionSwitchFixtureWith(t *testing.T, enabled bool, completer agent.Completer) *compactionSwitchFixture {
+	t.Helper()
 	runtime := newTestRuntime(t)
 	t.Cleanup(runtime.Shutdown)
 
@@ -77,14 +85,14 @@ func newCompactionSwitchFixture(t *testing.T, enabled bool) *compactionSwitchFix
 	}
 	runtime.AttachSessionContextStore(store)
 
-	scripted := newScriptedNodeCompleter(compactionSwitchReply)
-	injectScriptedCompleters(t, runtime, map[string]agent.Completer{"agent": scripted})
+	injectScriptedCompleters(t, runtime, map[string]agent.Completer{"agent": completer})
 	// 注册内联工具面：重放请求的 Tools 取自 VisibleTools（与真实请求同 schema），没有
 	// 工具面就只剩一个"0 == 0"的空断言，钉不住"工具被原样带上"。
 	runtime.RegisterBuiltins()
 
 	runtime.limits.ContextCompactionSummary.Enabled = enabled
-	return &compactionSwitchFixture{runtime: runtime, store: store, scripted: scripted, session: sessionID}
+	scriptedCompleter, _ := completer.(*scriptedNodeCompleter)
+	return &compactionSwitchFixture{runtime: runtime, store: store, scripted: scriptedCompleter, session: sessionID}
 }
 
 // push 走生产推帧入口：溢出区原文 + "上一次真实请求"的历史字节。
@@ -132,6 +140,60 @@ func TestCompactionSummarySwitchClosedKeepsLocalFold(t *testing.T) {
 	}
 	if top := fixture.stackTop(t); top.SummarySource != seelexctx.CompactSummarySourceLocal {
 		t.Fatalf("关臂栈顶 summary_source = %q，want local", top.SummarySource)
+	}
+	// 关臂也要能自答"模型为什么没被叫到"：note 说明是开关关闭，而不是笼统一句
+	// "可能没开、也可能失败"（local 的三种来路必须分得开）。
+	if !strings.Contains(receipt.SummaryNote, "开关关闭") {
+		t.Fatalf("关臂 summary_note 应说明开关关闭，实际 %q", receipt.SummaryNote)
+	}
+	if !hasFoldLocalEvidence(fixture.stackTop(t), "no-summarizer") {
+		t.Fatalf("关臂栈帧应留 fold-local:no-summarizer 证据，实际 %+v", fixture.stackTop(t).Evidence)
+	}
+}
+
+// 失败臂复用同包既有的 failingCompleter（fork_smoke_test.go）：它只做一件事——
+// 让每一次模型调用稳定报错。用例钉的是"重放失败时帧里必须写出真实报错"，
+// 不是网络行为。
+
+func hasFoldLocalEvidence(frame sessionstore.CompactFrame, code string) bool {
+	for _, evidence := range frame.Evidence {
+		if evidence.Ref == seelexctx.CompactFoldLocalEvidenceRefPrefix+code {
+			return true
+		}
+	}
+	return false
+}
+
+// TestCompactionSummarySwitchOpenReplayFailureWritesReason：开臂 + 重放调用失败——
+// 帧必须写出"这次为什么没有模型摘要"（含真实报错），而不是只留一个
+// summary_source=local 让人猜。
+//
+// 这条用例来自一次现场：新进程（已确认读到 enabled: true）折出的帧仍是 local，而
+// 它的回执只有 `index 458ms` 与 `summary_source=local`——"没调用"与"调用失败"读不出
+// 来，失败原因被 chapter2Node 吞掉。静默降级本身就是缺陷：两条来路的处置完全不同
+// （一个是配置，一个是故障）。
+func TestCompactionSummarySwitchOpenReplayFailureWritesReason(t *testing.T) {
+	const failure = "account lease refused: rate limited"
+	fixture := newCompactionSwitchFixtureWith(t, true, &failingCompleter{err: errors.New(failure)})
+	if summarizer := fixture.runtime.compactionSummarizer(); summarizer == nil {
+		t.Fatal("开关打开时摘要器不该为 nil（失败臂要钉的是调用失败，不是没装配）")
+	}
+
+	receipt := fixture.push(t)
+	if receipt.SummarySource != seelexctx.CompactSummarySourceLocal {
+		t.Fatalf("重放失败后应回退本地折叠，summary_source = %q", receipt.SummarySource)
+	}
+	for _, want := range []string{"前缀重放两次调用均失败", failure} {
+		if !strings.Contains(receipt.SummaryNote, want) {
+			t.Fatalf("回执 summary_note 应含 %q，实际 %q", want, receipt.SummaryNote)
+		}
+	}
+	top := fixture.stackTop(t)
+	if !hasFoldLocalEvidence(top, "replay-failed") {
+		t.Fatalf("栈帧应留 fold-local:replay-failed 证据，实际 %+v", top.Evidence)
+	}
+	if !strings.Contains(top.Evidence[len(top.Evidence)-1].Summary, failure) {
+		t.Fatalf("证据正文应带真实报错，实际 %q", top.Evidence[len(top.Evidence)-1].Summary)
 	}
 }
 

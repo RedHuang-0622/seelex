@@ -98,6 +98,10 @@ type CompactionDAGOptions struct {
 	SegmentPrefix string
 	// Summarizer 是前缀重放厚摘要器（nil → 恒本地折叠）。
 	Summarizer PrefixReplaySummarizer
+	// SummarizerNote 说明"摘要器为什么不可用"（开关关闭 / QuickChat 装配失败 /
+	// 摘要器构造失败）。它只在 Summarizer == nil 时被消费：nil 的三个出口此前
+	// 都不留痕，现场只剩一个 summary_source=local，读帧的人无从分辨是哪一种。
+	SummarizerNote string
 	// SystemPrompt/Tools 是前缀重放字节素材提供者（与真实请求同源时才有
 	// 前缀命中价值；nil → 重放请求不带对应素材）。
 	SystemPrompt func() string
@@ -142,6 +146,11 @@ type compactionDAGState struct {
 	anchorSource  string
 	chapter2      string
 	summarySource string
+	// degradeCode / degradeNote 是"这次为什么没有模型摘要"的事实（code 进帧证据
+	// ref，note 进证据正文与帧正文）。replay 成功时两者保持为空——只记降级，
+	// 不记正常。
+	degradeCode string
+	degradeNote string
 	frame         sessionstore.CompactFrame
 	// carry 是「上一帧 Chapter 2 并入」的决策事实（帧摘要传递上限）。
 	carry CarryDiagnostics
@@ -255,6 +264,20 @@ func markStarted(state *compactionDAGState, id string) {
 	state.started[id] = true
 }
 
+// degrade 记录"这次为什么没有模型摘要"。后写的覆盖先写的：先分片链失败、再单次
+// 重放失败，留下的该是**最后一次**的原因。只有最终落到本地折叠时才进帧证据
+// （见 mergeNode），重放成功会被 clearDegrade 清掉。
+func (state *compactionDAGState) degrade(code, note string) {
+	state.degradeCode = code
+	state.degradeNote = note
+}
+
+// clearDegrade 在重放成功后清掉降级事实：降级记录只记"最终真的降级了"。
+func (state *compactionDAGState) clearDegrade() {
+	state.degradeCode = ""
+	state.degradeNote = ""
+}
+
 func (state *compactionDAGState) startedCount() int {
 	state.startedMu.Lock()
 	defer state.startedMu.Unlock()
@@ -294,6 +317,11 @@ func (d *CompactionDAG) chapter1Node(state *compactionDAGState) func(context.Con
 // 溢出区自身超过片预算（ReplayInputTokens）时走**分片重放链**：按协议单元切片
 // 逐片重放，摘要前向传递（SummarizeChunkPlan），除首片外不追求前缀缓存命中
 // （正确性与「不重复送原文」优先）。任何一片失败即整条回退本地折叠。
+//
+// 每条降级出口都留下 (code, note)：这是本轮折叠"没有模型摘要"的唯一解释来源。
+// 早前三种出口（摘要器 nil / 无重放素材 / 重放调用失败）都不留痕，现场只有一个
+// summary_source=local，排查只能靠猜配置、猜账号、猜调用——一个 458ms 的 index
+// 门禁到底是"没调用"还是"调用失败"读不出来。
 func (d *CompactionDAG) chapter2Node(state *compactionDAGState) func(context.Context) error {
 	return func(ctx context.Context) error {
 		markStarted(state, "chapter2_thick")
@@ -311,25 +339,46 @@ func (d *CompactionDAG) chapter2Node(state *compactionDAGState) func(context.Con
 					state.summarySource = CompactSummarySourceReplay
 					state.replay = plan
 					state.replay.Chained = true
+					state.clearDegrade()
 					return nil
 				}
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
-				// 分片链失败 → 落回单次重放/本地折叠（不中断请求）。
+				// 分片链失败 → 落回单次重放/本地折叠（不中断请求）。这里的失败原因
+				// 先记下：若随后单次重放成功，它会被 clearDegrade 清掉。
+				state.degrade("chunk-replay-failed",
+					fmt.Sprintf("分片重放（%d 片）失败，已落回单次重放：%v", plan.ChunkCount(), err))
 			}
+			var lastErr error
 			for attempt := 0; attempt < 2; attempt++ {
 				result, err := d.opts.Summarizer.Summarize(ctx, request)
 				if err == nil && strings.TrimSpace(result.Chapter2) != "" {
 					state.chapter2 = normalizeReplayChapter2(result.Chapter2)
 					state.summarySource = CompactSummarySourceReplay
+					state.clearDegrade()
 					return nil
 				}
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
+				if err == nil {
+					lastErr = fmt.Errorf("模型返回空摘要")
+				} else {
+					lastErr = err
+				}
 			}
 			// 两次尝试均失败 → 本地折叠兜底（不消耗模型 token 的确定性路径）。
+			state.degrade("replay-failed", fmt.Sprintf("前缀重放两次调用均失败，已回退本地折叠：%v", lastErr))
+		} else if d.opts.Summarizer == nil {
+			note := strings.TrimSpace(d.opts.SummarizerNote)
+			if note == "" {
+				note = "摘要器未装配（开关关闭或 QuickChat 装配失败）"
+			}
+			state.degrade("no-summarizer", note)
+		} else {
+			state.degrade("no-replay-material",
+				"无重放素材（上一次真实请求的引擎历史为空），本次不调用模型")
 		}
 		chapter2, carry := LocalChapter2WithCarry(LocalFoldOptions{
 			Overflow:         state.overflow,
@@ -396,7 +445,9 @@ func (d *CompactionDAG) mergeNode(state *compactionDAGState) func(context.Contex
 			SummarySource: state.summarySource,
 			AnchorSource:  AnchorSourceWithCarry(state.anchorSource, state.carry),
 			Evidence: append(overflowEvidence(state.overflow, state.record),
-				append(CarryEvidence(state.carry), ReplayEvidence(state.replay)...)...),
+				append(CarryEvidence(state.carry),
+					append(ReplayEvidence(state.replay),
+						LocalFoldEvidence(state.degradeCode, state.degradeNote)...)...)...),
 			CompressedAt: time.Now(),
 		}
 		if state.prevTop != nil {

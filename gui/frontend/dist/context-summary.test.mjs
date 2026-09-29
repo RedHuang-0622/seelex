@@ -40,8 +40,9 @@ test("renders compaction records with range, origin and a frame entry", () => {
 test("expanded record reads the folded frame body back by ref", () => {
   const compactions = [{ version: 1, reason: "context_budget", origin: "explicit", frame_ref: "tr-x", frame_bytes: 90, frame_tokens: 24 }];
   const html = renderContextCompactions(compactions, {
+    sessionID: "session-a",
     detail: {
-      index: 0, loading: false, error: "",
+      ref: "tr-x", sessionID: "session-a", loading: false, error: "",
       text: "<!-- seelex:context-checkpoint-frame:v1 -->\n# Context checkpoint frame v1\n",
       hasMore: true, nextOffset: 30, totalBytes: 90
     }
@@ -52,6 +53,36 @@ test("expanded record reads the folded frame body back by ref", () => {
   assert.match(html, /data-compact-frame-load="more"/);
   assert.match(html, /剩余约 60 bytes/);
   assert.match(html, /收起/);
+});
+
+// 展开身份 = (会话, ref)：上一个会话读回来的正文不许挂在当前会话的记录行上。
+// 旧实现按**记录数组下标**判定展开行，于是切到会话 B 后，B 的同一序号行会直接显示
+// 会话 A 的正文（正文本身还是 A 的字节）——正是用户报的"跨会话留存压缩帧的污染"。
+test("ref 对不上不认（记录数组重排后下标会漂）", () => {
+  const html = renderContextCompactions([{ version: 1, reason: "context_budget", frame_ref: "tr-other" }], {
+    sessionID: "session-a",
+    detail: { ref: "tr-x", sessionID: "session-a", text: "旧正文", hasMore: false, nextOffset: 0, totalBytes: 9 }
+  });
+  assert.doesNotMatch(html, /旧正文/);
+  assert.doesNotMatch(html, /收起/);
+  assert.match(html, /data-compact-open="0"/);
+});
+
+test("会话对不上不认：切到别的会话后旧正文既不上屏也不给收起", () => {
+  const records = [{ version: 1, reason: "context_budget", frame_ref: "tr-shared" }];
+  const stale = { ref: "tr-shared", sessionID: "session-a", loading: false, error: "", text: "会话 A 的正文", hasMore: false, nextOffset: 9, totalBytes: 9 };
+
+  const crossSession = renderContextCompactions(records, { detail: stale, sessionID: "session-b" });
+  assert.doesNotMatch(crossSession, /会话 A 的正文/);
+  assert.doesNotMatch(crossSession, /收起/);
+  assert.match(crossSession, /data-compact-open="0"/);
+
+  // 同一会话 + 同一 ref 才认（视图侧清空前也不许把别的会话的正文画出来）。
+  const sameSession = renderContextCompactions(records, {
+    detail: { ...stale, sessionID: "session-b" }, sessionID: "session-b"
+  });
+  assert.match(sameSession, /会话 A 的正文/);
+  assert.match(sameSession, /收起/);
 });
 
 test("records without a frame ref say so instead of offering an empty viewer", () => {
@@ -164,8 +195,8 @@ test("每条记录同时给内联展开与弹框两个入口（同一 ref）", (
 
 // 压缩栈表格的读法（用户口径 2026-09-26）：栈顶在前、按新旧下沉，栈顶那一行才是
 // 当前前沿（深灰 + 「栈顶」标记），更早的折叠降成浅灰但仍逐条可点开读正文。
-// 展开入口带的是**原数组下标**——视图侧按 compactions[index] 取记录与记账，重排
-// 若换了下标，点开第 1 行就会读到第 2 行的正文。
+// 展开入口仍带**原数组下标**，但视图侧只用它取这一行的 frame_ref（点击那一刻的
+// 权威记录）；此后收起/续读只认 ref——下标会随记录重排与会话切换而漂。
 test("压缩栈按新旧下沉，只有栈顶标前沿，入口仍按原下标记账", () => {
   const records = [
     { version: 1, reason: "context_budget", message_from: "message-1", message_to: "message-9", frame_ref: "tr-old" },
@@ -191,7 +222,10 @@ test("弹框正文区与右栏内联展开是同一段 HTML", () => {
   assert.match(modal, /data-compact-frame-load="more"/);
   assert.match(modal, /剩余约 15 bytes/);
   // 右栏展开时用的是同一个渲染器：两种读法若各写一套，正文/分页迟早漂移。
-  const inline = renderContextCompactions([record], { detail: { index: 0, ...detail } });
+  const inline = renderContextCompactions([record], {
+    sessionID: "session-x",
+    detail: { ref: "tr-z", sessionID: "session-x", ...detail }
+  });
   assert.ok(inline.includes(modal), "弹框正文应当是右栏展开正文的同一段 HTML");
 });
 

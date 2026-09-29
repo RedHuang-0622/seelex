@@ -2,6 +2,7 @@ package seelebridge
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/session"
@@ -275,18 +276,28 @@ func (r *Runtime) replayInputTokens() int {
 // seelexCompressor 同一条构造路径（共享账号 completer 的隔离调用，无工具、
 // 独立 history），不第二次装配 completer。
 func (r *Runtime) compactionSummarizer() seelexctx.PrefixReplaySummarizer {
+	summarizer, _ := r.compactionSummarizerWithNote()
+	return summarizer
+}
+
+// compactionSummarizerWithNote 是上面那一跳的唯一实现：除了摘要器，还给出
+// **为什么没有摘要器**（三种 nil 出口的分别是"开关关闭 / QuickChat 装配失败 /
+// 摘要器构造失败"）。三个出口此前都不留痕——windowsgui 构建下 log.Printf 也无处
+// 可看，现场只剩一个 `summary_source=local`；这份 note 走进折叠 DAG 的
+// SummarizerNote，最终落进帧证据与帧正文，让"模型为什么没被叫到"在帧里自答。
+func (r *Runtime) compactionSummarizerWithNote() (seelexctx.PrefixReplaySummarizer, string) {
 	if !r.limits.ContextCompactionSummary.Enabled {
-		return nil
+		return nil, "折叠处厚摘要开关关闭（limits.context_compaction_summary.enabled 非 true），本次不调用模型"
 	}
 	quickChat, err := seelectx.NewQuickChat(r.completer)
 	if err != nil || quickChat == nil {
-		return nil
+		return nil, fmt.Sprintf("QuickChat 装配失败（%v），本次不调用模型", err)
 	}
 	summarizer, err := seelexctx.NewQuickChatPrefixReplaySummarizer(quickChat)
 	if err != nil {
-		return nil
+		return nil, fmt.Sprintf("前缀重放摘要器构造失败（%v），本次不调用模型", err)
 	}
-	return summarizer
+	return summarizer, ""
 }
 
 // MainCompactionDAG 返回**装配层折叠**（application/core/context_runtime，回合
@@ -302,9 +313,11 @@ func (r *Runtime) compactionSummarizer() seelexctx.PrefixReplaySummarizer {
 // SystemPrompt / Tools 与 seelexController 同源（会话上下文存储 + 可见工具），
 // 保证两条路径产出的帧形状一致。
 func (r *Runtime) MainCompactionDAG() *seelexctx.CompactionDAG {
+	summarizer, summarizerNote := r.compactionSummarizerWithNote()
 	return seelexctx.NewCompactionDAG(seelexctx.CompactionDAGOptions{
 		SessionIDProvider: r.MainSessionID,
-		Summarizer:        r.compactionSummarizer(),
+		Summarizer:        summarizer,
+		SummarizerNote:    summarizerNote,
 		SystemPrompt: func() string {
 			if store := r.sessionContextStore(); store != nil {
 				return store.SystemPrompt()

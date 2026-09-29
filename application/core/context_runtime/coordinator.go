@@ -807,9 +807,12 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 			At:            record.CompactedAt,
 			SegmentID:     push.SegmentID,
 			SummarySource: push.SummarySource,
-			Summary:       push.Summary,
-			IndexError:    push.indexError(),
-			IndexSkipped:  push.Skipped,
+			// SummaryNote 只在"这次没有模型摘要"时有值：帧正文据此把 local 的三种
+			// 来路（开关关闭 / 无重放素材 / 重放失败及其报错）分开写实。
+			SummaryNote:  push.SummaryNote,
+			Summary:      push.Summary,
+			IndexError:   push.indexError(),
+			IndexSkipped: push.Skipped,
 			Range: compactionFoldedRange{
 				MessageFrom: record.MessageFrom,
 				MessageTo:   record.MessageTo,

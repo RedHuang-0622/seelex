@@ -248,3 +248,43 @@ func TestCompactionFrameBodyReadbackSaysWhyNoDrillDown(t *testing.T) {
 		t.Fatalf("索引面已就绪却说成未启用：%+v", skipped.Readback)
 	}
 }
+
+// TestCompactionFrameBodyWritesWhyNoModelSummary：落到本地折叠时，正文必须写出
+// **为什么没有模型摘要**（开关关闭 / 无重放素材 / 重放调用失败及其真实报错）。
+//
+// 此前这里只有一句"开关未开启，或前缀重放失败"的 or 措辞，读帧的人分不清是哪一种
+// ——而两件事的处置完全不同（一个是配置，一个是故障）。一次现场：新进程确认读到
+// enabled: true，折出的帧仍是 local，回执只有一个 `index 458ms`，读不出"没调用"
+// 还是"调用失败"。
+func TestCompactionFrameBodyWritesWhyNoModelSummary(t *testing.T) {
+	const failure = "account lease refused: rate limited"
+	const note = "前缀重放两次调用均失败，已回退本地折叠：" + failure
+	input := compactionFrameInput{
+		Version: 7, Reason: "context_budget", Origin: "explicit_after_turn",
+		SummarySource: "local", SummaryNote: note,
+	}
+
+	meta := frameMetadataFrom(t, compactionFrameBody(input))
+	if meta.SummarySource != "local" {
+		t.Fatalf("summary_source = %q，want local", meta.SummarySource)
+	}
+	if !strings.Contains(meta.SummaryNote, failure) {
+		t.Fatalf("元数据块应写出降级原因（含真实报错），实际 %q", meta.SummaryNote)
+	}
+
+	body := compactionFrameBody(input)
+	for _, want := range []string{"前缀重放两次调用均失败", failure} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("折叠材料一段应写出 %q：\n%s", want, body)
+		}
+	}
+
+	// 没有原因（更早版本写的帧、推帧失败）：保留兜底措辞，不编一个原因。
+	plain := compactionFrameBody(compactionFrameInput{Version: 1, Reason: "context_budget"})
+	if !strings.Contains(plain, "折叠摘要开关未开启，或前缀重放失败已回退本地折叠") {
+		t.Fatalf("没有原因时应保留兜底措辞：\n%s", plain)
+	}
+	if !strings.Contains(plain, "不是**对被折原文的总结") {
+		t.Fatalf("兜底措辞里「这不是总结」的口径不能丢：\n%s", plain)
+	}
+}
