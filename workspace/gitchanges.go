@@ -19,8 +19,6 @@ package workspace
 import (
 	"bytes"
 	"context"
-	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -46,16 +44,9 @@ const (
 // limit <= 0 使用默认 200；超过 gitChangesMaxLimit 钳制。非 git 仓库或 git
 // 不可用时返回 Result.Error 描述（调用方仍可展示错误态）。
 func (r *Repo) GitChanges(root string, limit int) (dto.WorkspaceChangesResult, error) {
-	if strings.TrimSpace(root) == "" {
-		return dto.WorkspaceChangesResult{}, fmt.Errorf("git changes: root required")
-	}
-	rootAbs, err := filepath.Abs(root)
+	rootAbs, err := resolveGitRoot(root, "git changes")
 	if err != nil {
-		return dto.WorkspaceChangesResult{}, fmt.Errorf("git changes: resolve root: %w", err)
-	}
-	rootAbs = filepath.Clean(rootAbs)
-	if info, statErr := os.Stat(rootAbs); statErr != nil || !info.IsDir() {
-		return dto.WorkspaceChangesResult{}, fmt.Errorf("git changes: inspect root: %w", statErr)
+		return dto.WorkspaceChangesResult{}, err
 	}
 	if limit <= 0 {
 		limit = gitChangesDefaultLimit
@@ -85,25 +76,12 @@ func (r *Repo) GitChanges(root string, limit int) (dto.WorkspaceChangesResult, e
 		"--",
 		".",
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), gitChangesTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", argv...)
-	winhide.Apply(cmd)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if runErr := cmd.Run(); runErr != nil {
-		message := strings.TrimSpace(stderr.String())
-		if message == "" {
-			message = runErr.Error()
-		}
-		if ctx.Err() != nil {
-			message = "git 改动查询超时"
-		}
+	stdout, message := runGitRead(argv, gitChangesTimeout, "git 改动查询超时")
+	if message != "" {
 		return dto.WorkspaceChangesResult{Root: rootAbs, Error: message}, nil
 	}
 
-	parsed := parseGitStatusOutput(stdout.Bytes(), gitChangesScanBudget)
+	parsed := parseGitStatusOutput(stdout, gitChangesScanBudget)
 	result := dto.WorkspaceChangesResult{
 		Root:   rootAbs,
 		Branch: parsed.branch,

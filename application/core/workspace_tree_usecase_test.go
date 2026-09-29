@@ -20,12 +20,14 @@ type treeFakeWorkspace struct {
 	count     dto.TreeCount
 	gitLog    dto.GitLogResult
 	changes   dto.WorkspaceChangesResult
+	gitCommit dto.GitCommitDetail
 	listErr   error
 	countErr  error
 	lastRoot  string
 	lastRel   string
 	lastDepth int
 	lastLimit int
+	lastHash  string
 }
 
 func (fake *treeFakeWorkspace) ListTree(root, relPath string, depth int) (dto.TreeListing, error) {
@@ -50,6 +52,13 @@ func (fake *treeFakeWorkspace) GitChanges(root string, limit int) (dto.Workspace
 	fake.lastRoot = root
 	fake.lastLimit = limit
 	return fake.changes, nil
+}
+
+func (fake *treeFakeWorkspace) GitCommitDetail(root, hash string, limit int) (dto.GitCommitDetail, error) {
+	fake.lastRoot = root
+	fake.lastHash = hash
+	fake.lastLimit = limit
+	return fake.gitCommit, nil
 }
 
 func TestWorkspaceTreeForwardsCurrentWorkspaceRoot(t *testing.T) {
@@ -107,6 +116,9 @@ func TestWorkspaceTreeRejectsWithoutBoundWorkspace(t *testing.T) {
 	if _, err := service.WorkspaceChanges(20); err == nil {
 		t.Fatal("WorkspaceChanges succeeded without a workspace")
 	}
+	if _, err := service.WorkspaceGitCommitDetail("abc", 20); err == nil {
+		t.Fatal("WorkspaceGitCommitDetail succeeded without a workspace")
+	}
 }
 
 func TestWorkspaceGitLogForwardsCurrentWorkspaceRoot(t *testing.T) {
@@ -134,6 +146,37 @@ func TestWorkspaceGitLogForwardsCurrentWorkspaceRoot(t *testing.T) {
 	}
 	if fake.lastRoot != root || fake.lastLimit != 10 {
 		t.Fatalf("forwarded root=%q limit=%d", fake.lastRoot, fake.lastLimit)
+	}
+}
+
+func TestWorkspaceGitCommitDetailForwardsCurrentWorkspaceRoot(t *testing.T) {
+	fake := &treeFakeWorkspace{
+		fakeWorkspace: newFakeWorkspace(),
+		gitCommit: dto.GitCommitDetail{
+			Hash: "abc", ShortHash: "abc", Author: "dev", Date: "08-29 10:00", Subject: "feat: commit view",
+			Total: 1,
+			Files: []dto.GitCommitFileEntry{{Path: "src/main.go", Kind: dto.ChangeModified, Status: "M", Letter: "M", Additions: 3}},
+		},
+	}
+	service := newTestService(t, &fakeEngine{}, func(deps *Dependencies) {
+		deps.Workspace = fake
+	})
+
+	root := t.TempDir()
+	if err := service.CreateWorkspace("project", root, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := service.WorkspaceGitCommitDetail("abc", 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 1 || len(result.Files) != 1 || result.Files[0].Path != "src/main.go" || result.Files[0].Additions != 3 {
+		t.Fatalf("unexpected commit detail: %+v", result)
+	}
+	// hash 原样下发（客户端只能从提交列表带回来，不能自己拼路径）。
+	if fake.lastRoot != root || fake.lastHash != "abc" || fake.lastLimit != 200 {
+		t.Fatalf("forwarded root=%q hash=%q limit=%d", fake.lastRoot, fake.lastHash, fake.lastLimit)
 	}
 }
 

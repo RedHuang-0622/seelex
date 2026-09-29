@@ -70,7 +70,7 @@ flowchart TB
 | `dist/worktree-view.js` | 工作树视图（「资源管理器」子页「工作树」面板）：数据源 `Bridge.WorkspaceTree(relPath, depth)` / `Bridge.WorkspaceFileCount()`（后端权威元数据，只含名称/路径/类型/大小/计数，不含文件内容）；目录行惰性展开（首次经 `loadDir` 拉子级并缓存）、直接文件计数 badge、截断提示；文件行是可点击按钮（`data-file-open`），点击经 `options.onOpenFile` 打开文件预览，同时 `draggable="true" data-file-drag="<工作区相对路径>"`——可以直接拖到聊天框/消息队列发出去（落点映射见 `dist/file-drop.js`）；层级连线交给 `tree-fork` 的树轨（不再是缩进 + 字符画），行点击用容器委托（展开/收起重绘不再逐行绑监听），全部文本 escape。 |
 | `dist/file-drop.js` | 档案夹 → 会话的拖放**纯映射**（拖拽载荷 → 工作区相对路径 → 排队正文 → 动作）：`normalizeDropPath`（只接受工作区内相对路径：绝对路径、`..`、超长一律丢弃）、`dropPaths`（自定义 mime → `text/plain` → 带路径字段的 `files`；**裸文件名不接受**——发出去只会让模型去读一个不存在的文件）、`fileQueueText`（渲染成一条可执行的读取指令）、`dropPlan`（草稿非空 → `insert` 只追加引用、不替用户发出去；草稿为空 → `queue` 走 composer 的普通提交路径，会话运行中由后端排进消息队列）。DOM 与 Bridge 调用留在 `app.js`（document 级委托：消息队列每次重绘都换 DOM） |
 | `dist/file-preview.js` | 文件预览控制器与纯函数（「资源管理器」子页左抽屉）：数据源 `Bridge.WorkspaceFileContent(relPath, limit)`（后端受控读取：containment/敏感过滤/上限/二进制探测，原始字节 base64 带回）；按扩展名分派渲染——markdown（marked→DOMPurify→highlight.js）、代码/文本（highlight.js 高亮或纯文本）、PDF（PDF.js canvas 分页）、Word（docx-preview）、图片（blob `<img>`）、`.doc` 提示转换；组件全部本地 vendor（`dist/vendor/`，随 embed 离线打包）；文本永不直接 innerHTML，markdown 输出先 DOMPurify 消毒。抽屉是**多文件详情容器**：每个打开的文件一枚 chip（`renderPreviewTabsHTML`）+ 一个独立面板（切换只切显隐，不重读、不丢滚动位置）；抽屉**头部就是 chip 标签条本身**（无独立标题 / 元信息行——「文件详情 · path · size」那行已删，文件身份由 chip 承担，动作按钮贴右）；纯函数 `previewTabLabel`/`normalizePreviewTab`/`openPreviewTab`/`closePreviewTab` 给出标签生命周期（打开去重、关闭切邻居、关闭不同项保持当前激活）；最后一个 chip 关闭（容器为空）回调 `onEmpty` → 抽屉收起、子页恢复原来大小。**编辑面**（`canEditPreview` / `decodeEditableText` / `serializeEditableText` / `editDirty` / `baselineDriftNotice`）：只有文本类、二进制探测为真且未被截断的读取才给编辑入口（非 UTF-8 的文件不给——保存会静默改掉它的编码）；**只有 Ctrl+S（或动作条「保存」）才落盘**，落盘按原文件的 EOL / BOM 还原，随后按同一路径**读回实际文件**并把编辑器基线换成读回的那一份（外部并发改动被点名而不是被掩盖）；退出编辑 / 关闭 chip / 收起抽屉前先过脏守卫（保存 / 不保存 / 取消，chip 上以 ● 标未保存），取消与保存失败都原样保留缓冲。 |
-| `dist/git-log-view.js` | 提交记录视图（「资源管理器」子页「提交记录」面板）：数据源 `Bridge.WorkspaceGitLog(limit)`（后端权威只读元数据：按 `--topo-order` 的提交行 + 每个提交的 `parents` 父 hash，不含 diff/文件内容）。分叉不再贴 `git --graph` 的字符画：`tree-fork.layoutCommitGraph` 按 parents 算泳道，逐行 SVG 画直线/合并曲线 + 提交点；短 hash 点击复制完整 hash、截断与泳道上限提示；hash 复制走容器委托；全部文本 escape。 |
+| `dist/git-log-view.js` | 提交记录视图（「资源管理器」子页「提交记录」面板）：**三层**——提交列表（数据源 `Bridge.WorkspaceGitLog(limit)`：后端权威只读元数据，按 `--topo-order` 的提交行 + 每个提交的 `parents` 父 hash，不含 diff/文件内容；`tree-fork.layoutCommitGraph` 按 parents 算泳道，逐行 SVG 画直线/合并曲线 + 提交点；短 hash 点击复制完整 hash）→ 提交详情（`Bridge.WorkspaceGitCommitDetail(hash, limit)`：状态字母/中文标签/路径/重命名原路径/±行数，删除的行不可下钻）→ 文件内容（`Bridge.WorkspaceGitCommitFileContent(hash, path, limit)`：该文件在那个提交时的内容，字节来自 git 对象库，只读）。返回键逐层退回、迟到结果按代次丢弃、根刷新不离开已打开的提交；正文渲染复用 `file-preview.renderReadOnlyContent`；全部文本 escape。 |
 | `dist/terminal-panel.js` | **下栏终端面板**（VS Code 式）：纯函数（`clampTerminalHeight`/`normalizeTerminalState`/`terminalTabItems`/`nextActiveTerminal`/`decodeBase64Bytes`/`encodeBase64Bytes`/`terminalEventOf`）与 DOM 控制器 `createTerminalPanel` 同文件。终端的**权威状态在后端**（`Bridge.TerminalOpen/Write/Resize/Close/List`），前端只持有布局（`seelex.terminal.v1`：是否展开/收起/高度）与 xterm 实例：多开标签（同名 shell 编号、退出划线、行尾 ✕）、顶边拖拽调高（键盘 ↑↓ 微调）、收起只留头带；输出走独立事件名 `seelex:terminal`（不进 `seelex:event` 的 seq 水位，`TerminalOpen` 返回前到达的输出按 id 暂存后补投）；尺寸唯一来自 xterm `fit()` 的 cols/rows（`onResize` → `TerminalResize`）。终端不属于会话：切换会话/历史分页都不触碰它。xterm 的配色只在创建时从 token 取一次，换肤后由 `refreshTheme()` 把最新 token 套回全部已开终端（`app.js` 把它接到 `theme.js` 的 `onApplied` 回流口，契约见 `dist/themes/README.md` 的「换肤回流」段）。控制器级契约测试见 `terminal-panel-controller.test.mjs`（假 DOM + 假 xterm + 假 Bridge，不开窗不起进程）。 |
 | `dist/scheduled-tasks-view.js` | 定时/周期任务面板渲染（数据源 `runtime.scheduled_tasks` / `runtime.scheduled_commands` 权威投影）。 |
 | `dist/read-sources.js` | **deprecated**（不再被 `app.js` 引用，右栏已由「工作树」接管；文件预览已落地）：从会话工具事件中收集成功完成的 `read_file` 路径。文件与测试保留供会话证据复用。 |
@@ -258,7 +258,12 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
 「资源管理器」子页数据面：工作树走 `Bridge.WorkspaceTree/FileCount`（惰性目录展开），
 提交记录走 `Bridge.WorkspaceGitLog(limit)`（最近 20 条：按 `--topo-order` 的提交行
 + 每个提交的 `parents` 父 hash + hash/作者/时间/标题；前端按 parents 算泳道，
-用 SVG 画直线/合并曲线 + 提交点，短 hash 点击复制完整 hash）。
+用 SVG 画直线/合并曲线 + 提交点，短 hash 点击复制完整 hash）。**提交记录是三层视图**：
+点开某一条提交 → `Bridge.WorkspaceGitCommitDetail(hash, limit)` 给出这次提交改了哪些
+文件（状态字母 + 中文标签 + 路径 + 重命名原路径 + ±行数；删除的行不可下钻），点开清单
+里的一行 → `Bridge.WorkspaceGitCommitFileContent(hash, path, limit)` 给出该文件**在那个
+提交时**的内容（字节来自 git 对象库，只读）。返回键逐层退回；根刷新只换列表数据、
+不把用户从已打开的提交里踢出去。
 两面板在工作区切换或 chat 结束（文件/提交可能变化）时按需刷新；子页未激活时
 数据面缓存，激活时按需拉取。文件预览：点击工作树文件行 → 左抽屉经
 `Bridge.WorkspaceFileContent` 拉取受控字节（默认 4 MiB 文本 / 24 MiB 文档图片，
@@ -268,8 +273,10 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
 尾部 ✕ 关闭单个详情；再次点开同一文件只是激活，不重复读盘）；最后一个 chip 关闭
 （容器为空）时容器生命周期结束——抽屉自动收起、子页恢复原来大小（工作树/提交
 记录重新占满）。预览属当前工作区，工作区切换时抽屉随树清空；截断文件明确提示、
-分页类（PDF/Word/图片）超限放弃渲染而非半截展示。历史检索保留在 `#side-more`
-折叠区常驻。
+分页类（PDF/Word/图片）超限放弃渲染而非半截展示。提交记录里的文件内容**不**进这个
+抽屉（历史版本没有写入口，且同名文件会与工作区文件共用一枚 chip）：它在提交记录面板
+内只读渲染，渲染分派共用 `file-preview.renderReadOnlyContent`。历史检索保留在
+`#side-more` 折叠区常驻。
 
 ### Agent Team 面板（员工库 / 团队库 / 员工栏 / 发言调度）
 
@@ -629,16 +636,25 @@ applied 水位——否则新会话 `delivery_seq=1..N` 会被误判为重复静
 `runtime.work_table`（plan 对象引用不变）且子代理事件复用未命中分支节点
 （结构共享，无整树深拷贝）。`git-log-view.test.mjs` 覆盖提交记录归一化
 （提交行/畸形载荷）、parents 泳道布局（merge 分叉与 join 收口）、SVG 分叉渲染、
-截断与泳道上限提示、全部文本 escape 与复制回调；`tree-fork.test.mjs` 覆盖树轨
+截断与泳道上限提示、全部文本 escape 与复制回调，以及两层下钻（提交详情归一化与
+渲染、三层推进与返回、迟到结果不覆盖新画面、没有加载器时不产生死链接、根刷新不
+离开已打开的提交）；`tree-fork.test.mjs` 覆盖树轨
 几何（末子弯头 / 续行轨 / 深度与缩进钳制）与泳道算法（分叉、合并、空闲泳道复用、
 泳道打满丢弃、畸形载荷不出 NaN）。
 `file-preview.test.mjs` 覆盖预览分派（扩展名→类型/语言）、大小格式、UTF-8/
 UTF-16/GBK 解码、base64 往返与截断语义，以及多文件详情标签的纯函数（标签名、
-打开去重、关闭切邻居/保持当前项、chip 渲染与转义）；`worktree-view.test.mjs`
+打开去重、关闭切邻居/保持当前项、chip 渲染与转义）；`file-preview-render.test.mjs`
+覆盖共用的只读渲染入口（按路径分派、空/二进制/截断提示、认调用方给的 kind）；
+`worktree-view.test.mjs`
 断言文件行渲染为带路径元数据的打开按钮；`file-drop.test.mjs` 覆盖拖放纯映射（只接受工作区内相对路径——绝对路径/`..`/超长丢弃、mime 与 `text/plain` 的读取优先级、裸文件名拒绝、读取指令正文、"草稿非空只追加"的落点判定）；`file-preview-controller.test.mjs` 覆盖编辑面的控制器契约（Ctrl+S 是唯一的写盘动作、保存后读回并把基线换成磁盘的那一份、脏关闭与收起抽屉的保存选择守卫）。后端侧：`workspace/readfile_test.go` 覆盖
 containment/敏感过滤/符号链接拒绝/上限钳制/截断/二进制探测，
+`workspace/gitcommit_test.go` 覆盖名状态与 numstat 解析、hash 形状、提交详情集成
+（改/删/增/重命名/二进制/敏感过滤、根提交、合并提交按首父、子目录剥前缀、limit
+截断），以及对象库读取（工作区已改而提交内仍是旧内容、已删除文件在历史提交里可读、
+大文件截断早停、目录/敏感/越界路径拒绝），
 `application/core/workspace_file_usecase_test.go` 覆盖当前工作区 root 转发与
-后端缺文件端口时的降级，`gui/bridge_test.go` 覆盖 Bridge 参数转发。
+后端缺文件端口时的降级，`gui/bridge_test.go` 覆盖 Bridge 参数转发与提交记录下钻
+的前端接线。
 
 ## Context compression summary
 
@@ -665,7 +681,10 @@ Snapshot/业务状态；accounts.yaml 等敏感名与 .git/node_modules/.seelex 
 忽略路径在 workspace 层直接拒绝。同一子页的「提交记录」面板经
 `Bridge.WorkspaceGitLog` 展示最近 20 条提交的拓扑泳道图（按 `--topo-order` 的
 提交行 + 每个提交的 parents；分叉由前端 tree-fork 画 SVG，hash/作者/时间/标题
-为只读元数据，不含 diff/文件内容）。
+为只读元数据，不含 diff/文件内容），并可再下钻两层：点开某一条提交经
+`Bridge.WorkspaceGitCommitDetail` 看这次改了哪些文件（状态/路径/重命名原路径/
+±行数），点开某个文件经 `Bridge.WorkspaceGitCommitFileContent` 看它**在那个提交
+时**的内容（字节读的是 git 对象库，工作区怎么改都影响不到它，也不会写回工作区）。
 
 
 ## 视觉换代：Qoder 基座 + 两轴换肤（2026-09-24）

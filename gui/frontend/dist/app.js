@@ -470,7 +470,12 @@ const gitLogView = createGitLogView(elements["git-log-view"], {
     } catch (error) {
       showToast(error);
     }
-  }
+  },
+  // 提交记录的两层下钻：点开某一条 → 这次提交改了哪些文件；再点开某个文件 →
+  // 它**在那个提交时**的内容（只读，字节来自 git 对象库，不会写回工作区）。
+  // limit 是展示预算（视图侧给），后端另有自己的钳制上限。
+  loadCommit: async (hash, limit) => invoke("WorkspaceGitCommitDetail", hash, limit),
+  loadFile: async (hash, path, limit) => invoke("WorkspaceGitCommitFileContent", hash, path, limit)
 });
 // 工作区更改面板：行点击复用同一个文件详情抽屉（已删除的文件不可点）。
 const workspaceChangesView = createWorkspaceChangesView(elements["changes-view"], {

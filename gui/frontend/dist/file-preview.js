@@ -697,7 +697,8 @@ export function createFilePreviewController({
   }
 
   // renderLoaded 按最后一次读取的字节重绘只读正文（初始加载与"退出编辑"共用；
-  // generation 校验保证被更新的一代不会被旧渲染覆盖）。
+  // generation 校验保证被更新的一代不会被旧渲染覆盖）。渲染分派本身在
+  // renderReadOnlyContent（与「提交内文件内容」视图共用同一套）。
   async function renderLoaded(record, generation = record.generation) {
     const loaded = record.loaded;
     if (!loaded || !loaded.bytes) {
@@ -705,46 +706,15 @@ export function createFilePreviewController({
       renderNotice(record.el, "文件内容为空或不可读");
       return;
     }
-    const { kind, payload, bytes } = loaded;
     const addCleanup = task => { if (typeof task === "function") record.cleanups.push(task); };
     runCleanups(record);
-    const sizeText = formatPreviewSize(payload.size);
-    if (payload.truncated && needsWholeFile(kind)) {
-      record.rendered = true;
-      renderNotice(record.el, `文件超过 ${sizeText}，暂不支持预览完整内容`);
-      return;
-    }
-    const truncated = Boolean(payload.truncated);
     try {
-      switch (kind) {
-        case "markdown":
-          renderMarkdown(record.el, bytes, truncated);
-          break;
-        case "code":
-          renderHighlighted(record.el, bytes, codeLanguageForPath(record.path), truncated);
-          break;
-        case "text":
-          renderPlainText(record.el, bytes, truncated);
-          break;
-        case "image":
-          renderImage(record.el, bytes, record.path, sizeText, addCleanup);
-          break;
-        case "pdf":
-          await renderPDF(record.el, bytes, () => generation === record.generation, addCleanup);
-          break;
-        case "word":
-          await renderWord(record.el, bytes, () => generation === record.generation, addCleanup);
-          break;
-        case "word-legacy":
-          renderNotice(record.el, ".doc 为旧版 Word 格式，暂无浏览器内预览组件；请用 Word 另存为 .docx 后查看。");
-          break;
-        default:
-          if (payload.text_like === false) {
-            renderNotice(record.el, "该文件是二进制文件，暂不支持预览。");
-          } else {
-            renderPlainText(record.el, bytes, truncated);
-          }
-      }
+      await renderReadOnlyContent(record.el, loaded.payload, {
+        path: record.path,
+        kind: loaded.kind,
+        isCurrent: () => generation === record.generation,
+        addCleanup
+      });
     } catch (error) {
       if (generation !== record.generation) return;
       renderNotice(record.el, `无法预览：${error?.message || String(error)}`);
@@ -850,6 +820,68 @@ function appendTruncatedBanner(content, payloadSizeText) {
   banner.className = "file-preview-banner";
   banner.textContent = `内容已截断：仅显示文件前 ${payloadSizeText || "一部分"}`;
   content.prepend(banner);
+}
+
+// renderReadOnlyContent 把一份受控字节（Bridge 的 FileContent 形状）渲染进任意
+// 只读容器：markdown / 代码 / 文本 / 图片 / PDF / Word / 二进制提示，与「文件详情」
+// 面板共用同一条分派。它**只渲染**——没有编辑器、不写盘、不碰标签生命周期与脏状态，
+// 因此「提交内文件内容」这类只读视图可以安全地复用它（历史版本不该有任何写入口）。
+//
+// 调用方给容器与选项：
+//
+//	options.path             文件路径（分派类型、代码语言、图片 alt）
+//	options.kind             已算好的预览类型（省略则按 path 现算）
+//	options.isCurrent()      异步渲染（PDF/Word）落地前的一代校验
+//	options.addCleanup(task) 资源回收登记（blob URL、渲染任务）
+//
+// 渲染失败向上抛（调用方决定怎么呈现）；"没有可看的内容"（空文件、二进制、超上限的
+// 分页类）由本函数渲染成提示，不算失败。返回实际使用的预览类型。
+export async function renderReadOnlyContent(panel, payload, options = {}) {
+  const path = String(options.path || "");
+  const kind = typeof options.kind === "string" && options.kind ? options.kind : previewKindForPath(path);
+  const addCleanup = typeof options.addCleanup === "function" ? options.addCleanup : () => {};
+  const isCurrent = typeof options.isCurrent === "function" ? options.isCurrent : () => true;
+  const bytes = payload?.base64 ? base64ToBytes(payload.base64) : null;
+  if (!bytes || bytes.length === 0) {
+    renderNotice(panel, "文件内容为空或不可读");
+    return kind;
+  }
+  const sizeText = formatPreviewSize(payload.size);
+  if (payload.truncated && needsWholeFile(kind)) {
+    renderNotice(panel, `文件超过 ${sizeText}，暂不支持预览完整内容`);
+    return kind;
+  }
+  const truncated = Boolean(payload.truncated);
+  switch (kind) {
+    case "markdown":
+      renderMarkdown(panel, bytes, truncated);
+      break;
+    case "code":
+      renderHighlighted(panel, bytes, codeLanguageForPath(path), truncated);
+      break;
+    case "text":
+      renderPlainText(panel, bytes, truncated);
+      break;
+    case "image":
+      renderImage(panel, bytes, path, sizeText, addCleanup);
+      break;
+    case "pdf":
+      await renderPDF(panel, bytes, isCurrent, addCleanup);
+      break;
+    case "word":
+      await renderWord(panel, bytes, isCurrent, addCleanup);
+      break;
+    case "word-legacy":
+      renderNotice(panel, ".doc 为旧版 Word 格式，暂无浏览器内预览组件；请用 Word 另存为 .docx 后查看。");
+      break;
+    default:
+      if (payload.text_like === false) {
+        renderNotice(panel, "该文件是二进制文件，暂不支持预览。");
+      } else {
+        renderPlainText(panel, bytes, truncated);
+      }
+  }
+  return kind;
 }
 
 function renderPlainText(panel, bytes, truncated) {

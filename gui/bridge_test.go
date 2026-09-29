@@ -59,6 +59,11 @@ type fakeApplication struct {
 	treeErr           error
 	gitLog            dto.GitLogResult
 	gitLimit          int
+	gitCommit         dto.GitCommitDetail
+	gitCommitHash     string
+	commitContent     dto.FileContent
+	commitRel         string
+	commitLimit       int64
 	changes           dto.WorkspaceChangesResult
 	changesLimit      int
 	fileContent       dto.FileContent
@@ -262,6 +267,19 @@ func (fake *fakeApplication) WorkspaceGitLog(limit int) (dto.GitLogResult, error
 func (fake *fakeApplication) WorkspaceChanges(limit int) (dto.WorkspaceChangesResult, error) {
 	fake.changesLimit = limit
 	return fake.changes, nil
+}
+
+func (fake *fakeApplication) WorkspaceGitCommitDetail(hash string, limit int) (dto.GitCommitDetail, error) {
+	fake.gitCommitHash = hash
+	fake.gitLimit = limit
+	return fake.gitCommit, nil
+}
+
+func (fake *fakeApplication) WorkspaceGitCommitFileContent(hash, relPath string, limit int64) (dto.FileContent, error) {
+	fake.gitCommitHash = hash
+	fake.commitRel = relPath
+	fake.commitLimit = limit
+	return fake.commitContent, fake.fileErr
 }
 
 func (fake *fakeApplication) WorkspaceFileContent(relPath string, limit int64) (dto.FileContent, error) {
@@ -493,6 +511,52 @@ func TestBridgeWorkspaceChangesForwardsLimit(t *testing.T) {
 	}
 }
 
+func TestBridgeWorkspaceGitCommitDetailForwardsHash(t *testing.T) {
+	t.Parallel()
+	fake := newFakeApplication()
+	fake.gitCommit = dto.GitCommitDetail{
+		Hash: "aaaa", ShortHash: "a1b2", Author: "Alice", Date: "08-29", Subject: "feat: commit view",
+		Total: 1,
+		Files: []dto.GitCommitFileEntry{{Path: "src/main.go", Kind: dto.ChangeModified, Status: "M", Letter: "M", Additions: 3, Deletions: 1}},
+	}
+	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := bridge.WorkspaceGitCommitDetail("aaaa", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.gitCommitHash != "aaaa" || fake.gitLimit != 50 {
+		t.Fatalf("forwarded hash=%q limit=%d", fake.gitCommitHash, fake.gitLimit)
+	}
+	if result.Total != 1 || len(result.Files) != 1 || result.Files[0].Path != "src/main.go" || result.Files[0].Additions != 3 {
+		t.Fatalf("unexpected commit detail: %+v", result)
+	}
+}
+
+func TestBridgeWorkspaceGitCommitFileContentForwardsHashPathAndLimit(t *testing.T) {
+	t.Parallel()
+	fake := newFakeApplication()
+	fake.commitContent = dto.FileContent{Name: "main.go", Path: "src/main.go", Size: 4, Limit: 8, TextLike: true}
+	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	content, err := bridge.WorkspaceGitCommitFileContent("aaaa", "src/main.go", 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.gitCommitHash != "aaaa" || fake.commitRel != "src/main.go" || fake.commitLimit != 8 {
+		t.Fatalf("forwarded hash=%q rel=%q limit=%d", fake.gitCommitHash, fake.commitRel, fake.commitLimit)
+	}
+	if content.Path != "src/main.go" || !content.TextLike {
+		t.Fatalf("unexpected commit file content: %+v", content)
+	}
+}
+
 func TestBridgeWorkspaceFileContentForwardsPathAndLimit(t *testing.T) {
 	t.Parallel()
 	fake := newFakeApplication()
@@ -565,6 +629,44 @@ func TestEmbeddedFilePreviewEditWiring(t *testing.T) {
 	for _, id := range []string{"file-save-modal", "file-save-keep", "file-save-discard", "file-save-cancel"} {
 		if !strings.Contains(string(index), `id="`+id+`"`) {
 			t.Fatalf("缺少保存选择弹窗元素 %s", id)
+		}
+	}
+}
+
+// TestEmbeddedGitCommitDrilldownWiring：提交记录的两次下钻必须在嵌入前端里真的
+// 接起来——点开某一条提交（文件清单）、再点开某个文件（那个提交时的内容）。三处
+// 缺一，用户看到的就是"点了没反应"或"内容与抽屉串台"。
+//
+// 为什么"复用 file-preview 的只读渲染器"也在这里钉：历史版本绝不能落进带编辑面的
+// 文件详情抽屉（同名文件会共用一枚 chip，一次 Ctrl+S 就能把历史版本写回工作区），
+// 所以渲染分派必须只有一份（file-preview.renderReadOnlyContent），而不是在本面板
+// 里重造第二套。
+func TestEmbeddedGitCommitDrilldownWiring(t *testing.T) {
+	t.Parallel()
+	script, err := embeddedFrontend.ReadFile("frontend/dist/app.js")
+	if err != nil {
+		t.Fatalf("embedded frontend app.js: %v", err)
+	}
+	view, err := embeddedFrontend.ReadFile("frontend/dist/git-log-view.js")
+	if err != nil {
+		t.Fatalf("embedded frontend git-log-view.js: %v", err)
+	}
+	viewSource := string(view)
+	for _, method := range []string{"WorkspaceGitCommitDetail", "WorkspaceGitCommitFileContent"} {
+		if !strings.Contains(string(script), `invoke("`+method+`"`) {
+			t.Fatalf("提交记录下钻必须经 Bridge.%s", method)
+		}
+	}
+	if !strings.Contains(viewSource, `from "./file-preview.js"`) ||
+		!strings.Contains(viewSource, "renderReadOnlyContent") {
+		t.Fatal("提交内文件内容必须复用 file-preview 的只读渲染器，不得重造第二套")
+	}
+	if strings.Contains(viewSource, "WorkspaceWriteFile") || strings.Contains(viewSource, "canEditPreview") {
+		t.Fatal("提交内文件内容必须只读：不得出现任何写回或编辑入口")
+	}
+	for _, hook := range []string{"data-git-commit=", "data-git-file=", "data-git-back="} {
+		if !strings.Contains(viewSource, hook) {
+			t.Fatalf("提交记录三层视图缺少点击凭据 %s", hook)
 		}
 	}
 }

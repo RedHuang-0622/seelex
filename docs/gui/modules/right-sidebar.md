@@ -12,7 +12,9 @@ localStorage 记忆）。历史检索保留在右栏子页之下的「更多」�
 
 主要调用方：`app.js` 右侧栏渲染；数据源：`snapshot.runtime`（权威投影）与
 `Bridge.WorkspaceTree` / `Bridge.WorkspaceFileCount` / `Bridge.WorkspaceGitLog` /
-`Bridge.WorkspaceChanges` / `Bridge.WorkspaceFileContent`（只读元数据/受控读取桥）。
+`Bridge.WorkspaceChanges` / `Bridge.WorkspaceGitCommitDetail` /
+`Bridge.WorkspaceFileContent` / `Bridge.WorkspaceGitCommitFileContent`
+（只读元数据/受控读取桥）。
 
 ## 子页划分
 
@@ -20,7 +22,7 @@ localStorage 记忆）。历史检索保留在右栏子页之下的「更多」�
 |---|---|---|
 | **状态** | 项目状态表（键值两列：状态/会话/消息/任务/待审批/文件数）+ 概要 + **上下文压缩**（都在同一个折叠区里，压缩块紧跟概要）+ **账户栏**（状态一栏之下）+ **Agent Team**（员工库 / 团队库 / 员工栏 / 发言调度四块表格） | `snapshot.chat/task/conversation`、`runtime`（含 `runtime.accounts` / `runtime.account`） |
 | **工作台** | 「目标」面板 + 工作表格入口 + 定时任务面板 | `runtime.goal_skill_active`、`runtime.active_skills`、`task`、`work_table`、`scheduled_tasks` |
-| **资源管理器** | 左：文件预览抽屉（点工作树或工作区更改的文件行打开）；右：三个平级子页 工作树 / 提交记录 / 工作区更改（页签切换、激活态持久化，各自滚动、各自刷新按钮） | `Bridge.WorkspaceFileContent`、`Bridge.WorkspaceTree/FileCount`、`Bridge.WorkspaceGitLog`、`Bridge.WorkspaceChanges` |
+| **资源管理器** | 左：文件预览抽屉（点工作树或工作区更改的文件行打开）；右：三个平级子页 工作树 / 提交记录 / 工作区更改（页签切换、激活态持久化，各自滚动、各自刷新按钮）；提交记录可再下钻两层（提交详情 → 该提交内的文件内容） | `Bridge.WorkspaceFileContent`、`Bridge.WorkspaceTree/FileCount`、`Bridge.WorkspaceGitLog`、`Bridge.WorkspaceChanges`、`Bridge.WorkspaceGitCommitDetail`、`Bridge.WorkspaceGitCommitFileContent` |
 
 项目标题（`project-heading`）与「历史检索」折叠区跨子页常驻，不属于任何子页。
 状态子页自上而下：`状态`（折叠区里依次是状态表 / 概要 / **上下文压缩**）→ `账户` → `Agent Team`。
@@ -170,6 +172,10 @@ draft 文件删除）。所以「本轮完成」= 草稿变成已发布行、「
   占位），工作树 + 提交记录独占子页；点竖轨（或按钮）还原。它与「隐蔽工作树/提交
   记录」互斥（收起时复位隐蔽态），因此不会出现两侧都隐蔽的空子页。收起态是**会话内
   状态、不落盘**：打开文件会解除它（点文件树必须能看见详情），关闭全部详情也归零。
+  提交记录里的文件内容**不走这个抽屉**：抽屉按路径认身份、且带编辑面（Ctrl+S 直接写
+  工作区文件），而历史版本与工作区同名文件会是同一枚 chip——一次保存就能把某个历史
+  版本写回工作区。那一层在提交记录面板内只读渲染，渲染分派仍共用
+  `file-preview.renderReadOnlyContent`。
 - **工作树**：`Bridge.WorkspaceTree(relPath, depth)` / `Bridge.WorkspaceFileCount()`
   （后端权威元数据：名称/路径/类型/大小/直接文件计数，不含文件内容）；目录行
   惰性展开，文件行是可点击按钮（打开预览）；层级连线用 `tree-fork` 的树轨
@@ -178,8 +184,18 @@ draft 文件删除）。所以「本轮完成」= 草稿变成已发布行、「
 - **提交记录**：`Bridge.WorkspaceGitLog(limit)`（最近 20 条：按 `--topo-order`
   的提交行 + 每个提交的 `parents` 父 hash + hash/作者/时间/标题；只读，不含
   diff/文件内容）；分叉由前端算泳道并画 SVG（直线/合并曲线 + 提交点，
-  `tree-fork.layoutCommitGraph`），短 hash 可点击复制完整 hash。实现见
-  `git-log-view.js`。
+  `tree-fork.layoutCommitGraph`），短 hash 可点击复制完整 hash。**这份面板是三层
+  的**（2026-09-29 起）：点开某一条提交 → 这次提交改了哪些文件
+  （`Bridge.WorkspaceGitCommitDetail(hash, limit)`：状态字母/路径/重命名原路径/
+  ±行数，删除的行不可下钻）；再点开清单里的一行 → 该文件**在那个提交时**的内容
+  （`Bridge.WorkspaceGitCommitFileContent(hash, path, limit)`，字节来自 git 对象库，
+  只读）。返回键逐层退回（文件清单 → 提交列表），刷新（chat 结束 / 手动刷新）只换
+  列表数据、不把用户从已打开的提交里踢出去，工作区切换才整块清空（`reset`）。
+  实现见 `git-log-view.js`。
+  两层下钻的数据源就是 `workspace.GitCommitDetail` / `workspace.GitCommitFileContent`
+  （见下「提交详情数据面」）——面板不解释 git 语义，状态字母与中文标签全部来自后端
+  的 `Kind`/`Letter`，只有"怎么渲染一份字节"复用文件详情抽屉的
+  `file-preview.renderReadOnlyContent`。
 - **工作区更改**：`Bridge.WorkspaceChanges(limit)`（最近 200 条未提交改动：
   行内是状态字母/路径/重命名原路径/暂存标记，头上是「分支 · 暂存 x · 未暂存 y ·
   未跟踪 z · 冲突 w」统计；只读元数据，**不含 diff 与文件内容**）。点文件行打开
@@ -220,6 +236,36 @@ draft 文件删除）。所以「本轮完成」= 草稿变成已发布行、「
 error），避免 GUI toast 噪音。limit 默认 20、钳制上限 200。
 接线：`workspace.Repo.GitLog` → `WorkspaceTreePort.GitLog` →
 `application.Service.WorkspaceGitLog` → `Bridge.WorkspaceGitLog`。
+
+### 提交详情数据面（后端）
+
+`workspace.GitCommitDetail(root, hash, limit)` 回答"这次提交改了哪些文件"，
+`workspace.GitCommitFileContent(root, hash, relPath, limit)` 回答"这个文件在这个
+提交时是什么内容"。两者共用同一组收敛（路径基准、hash 形状校验、超时与失败文案、
+可见性边界），所以放在同一个文件（`workspace/gitcommit.go`）里：
+
+- **清单**由三条固定 argv 查询拼出：头部事实（`show --no-patch
+  --pretty=format:` + 提交列表同一条字段口径）+ `show --format= --name-status -z
+  --find-renames --diff-merges=first-parent --end-of-options <hash> -- .` +
+  同参数换 `--numstat` 取 ±行数（按新路径与名状态对齐）。`--format=` 抑制头部是必需的：
+  `--name-status`/`--numstat` 与 `--no-patch` 不能同时出现（git 直接报错），而
+  `--diff-merges=first-parent` 让合并提交按首父给出差异（默认合并提交什么都不给）。
+- **内容**读 git 对象库：`cat-file -t` 先确认是 blob（目录 tree 与子模块 gitlink
+  不是文件，明确失败而不是把目录清单当正文），`cat-file -s` 取真实字节数（截断提示
+  要说总数），`show` 读前 limit 字节并在读够后关掉读端。返回形状与工作树预览**完全
+  相同**（`dto.FileContent`），因此前端两条通道共用一套渲染分派。
+- **参数形状**：hash 必须是 4~64 位十六进制（修订表达式不受理；`--output=` 之类
+  会被 git 当选项解析），进程侧再叠加 `--end-of-options` 与路径前的 `--`。
+- **路径与可见性**：清单路径剥掉仓库根前缀（工作区根可能是仓库子目录），命中敏感
+  文件名计入 `Filtered`（面板显式提示）；内容读取走 `sanitizeWorkspaceRelPath`
+  ——与 `ReadFile` 同一条边界（相对路径、containment、忽略目录、敏感文件名）。
+
+接线：`workspace.Repo.GitCommitDetail` → `WorkspaceTreePort.GitCommitDetail` →
+`application.Service.WorkspaceGitCommitDetail` → `Bridge.WorkspaceGitCommitDetail`；
+`workspace.Repo.GitCommitFileContent` → `WorkspaceFilePort.GitCommitFileContent` →
+`application.Service.WorkspaceGitCommitFileContent` → `Bridge.WorkspaceGitCommitFileContent`。
+（内容读取与预览读取同属文件端口：Application 侧 `workspaceFilePort()` 一处解析 root，
+两条通道不可能解析到不同的工作区。）
 
 ### 工作区更改数据面（后端）
 
@@ -268,7 +314,8 @@ app.js（停靠布局渲染）
   ├── dock-layout.js（分区/排序/置换纯函数）
   ├── snapshot.runtime.*（状态/工作台子页，权威投影）
   ├── worktree-view.js ──► Bridge.WorkspaceTree / WorkspaceFileCount
-  ├── git-log-view.js ──► Bridge.WorkspaceGitLog
+  ├── git-log-view.js ──► Bridge.WorkspaceGitLog / WorkspaceGitCommitDetail /
+  │                        WorkspaceGitCommitFileContent ──► file-preview.renderReadOnlyContent
   ├── workspace-changes.js ──► Bridge.WorkspaceChanges
   └── history-search.js ──► Bridge.SearchHistory
 ```
@@ -285,6 +332,11 @@ app.js（停靠布局渲染）
 - 会话类页面在主视图之外时，空态/历史按钮/输入框的显隐由
   `syncSessionChrome` 统一收敛，避免隐藏容器渲染把会话专属悬浮件带出来。
 - git log 查询是只读元数据：不得暴露 diff/补丁/文件内容；参数必须固定 argv。
+- 提交详情（点开某条提交）同样是只读元数据：不得暴露补丁；hash 必须按形状校验
+  （修订表达式与选项形状一律拒绝，进程侧叠加 `--end-of-options`）；提交内文件内容
+  只走 `WorkspaceGitCommitFileContent`，且必须与工作树预览共用同一条可见性边界与
+  同一套渲染分派——**不得**把历史版本塞进带编辑面的文件详情抽屉（同名文件会串台，
+  一次 Ctrl+S 就能把历史版本写回工作区）。
 - 工作区更改查询同样是只读元数据：不得暴露 diff/补丁/文件内容/blob；参数必须
   固定 argv，路径一律以**工作区根**为基准下发（仓库子目录即工作区根时要剥前缀），
   敏感文件名与工作区之外的路径必须过滤并计入 `Filtered`（不许静默丢弃）。
@@ -299,6 +351,7 @@ app.js（停靠布局渲染）
 ```text
 node --test gui/frontend/dist/dock-layout.test.mjs
 node --test gui/frontend/dist/git-log-view.test.mjs
+node --test gui/frontend/dist/file-preview-render.test.mjs
 node --test gui/frontend/dist/workspace-changes.test.mjs
 node --test gui/frontend/dist/tree-fork.test.mjs
 go test ./workspace ./gui ./application/core -count=1
@@ -306,7 +359,12 @@ go test ./workspace ./gui ./application/core -count=1
 
 关键测试：`dock-layout.test.mjs`（默认分区/同栏换序/跨栏置换/脏存储收敛/
 持久化 round-trip）、`git-log-view.test.mjs`（归一化/parents 泳道/SVG 渲染/
-escape/截断/复制回调）、`tree-fork.test.mjs`（树轨几何 + 泳道算法）、
-`workspace/gitlog_test.go`（解析、%P 父提交、非 git 仓库、limit 钳制、集成）、
-`gui/bridge_test.go`（Bridge 转发 + 前端契约断言）、
-`application/core/workspace_tree_usecase_test.go`（用例转发）。
+escape/截断/复制回调 + 提交详情归一化与渲染、三层下钻与返回、迟到结果丢弃、
+没有加载器时不产生死链接）、`file-preview-render.test.mjs`（共用只读渲染入口：
+分派、空/二进制/截断提示、认调用方给的 kind）、`tree-fork.test.mjs`（树轨几何 +
+泳道算法）、`workspace/gitlog_test.go`（解析、%P 父提交、非 git 仓库、limit 钳制、
+集成）、`workspace/gitcommit_test.go`（名状态/numstat 解析、hash 形状、提交详情集成、
+对象库读取与截断、目录与敏感路径拒绝）、`gui/bridge_test.go`（Bridge 转发 +
+前端契约断言，含提交记录下钻接线）、
+`application/core/workspace_tree_usecase_test.go` 与 `workspace_file_usecase_test.go`
+（用例转发与后端能力缺失时的显式报错）。

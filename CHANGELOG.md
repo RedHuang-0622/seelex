@@ -14,6 +14,50 @@ version when it lands.
 
 ### Added
 
+- **The commit log is now three levels deep: opening a commit shows the files it touched, and opening
+  a file shows that file *as of that commit*.** The 提交记录 pane only ever listed commits (hash, author,
+  time, subject, topology); "what did this commit actually change" and "what did that file look like
+  then" both required leaving the app for a terminal. Clicking a commit now loads
+  `WorkspaceGitCommitDetail(hash, limit)` — status letter, path, rename origin, `+/-` line counts,
+  deleted entries not enterable — and clicking a row loads
+  `WorkspaceGitCommitFileContent(hash, relPath, limit)`, which reads the blob out of the **object
+  database**, so the working tree's current content cannot affect it and this channel cannot write back.
+  Back keys step up one level; a refresh (chat finished / manual) swaps the list data without evicting
+  a commit the user has open, and only a workspace switch clears the whole view. The two new methods sit
+  on the ports that already own their kind of data (`WorkspaceTreePort` for the metadata list,
+  `WorkspaceFilePort` for the bytes, so both read paths resolve the workspace root in exactly one place).
+  `workspace.GitCommitDetail` runs three fixed-argv queries (header facts with the very same
+  `%H\x01%h\x01%an\x01%ad\x01%P\x01%s` layout the commit list uses, plus
+  `show --format= --name-status -z --find-renames --diff-merges=first-parent --end-of-options <hash> -- .`
+  and the same line with `--numstat`). Shapes were pinned against real git 2.51 first: `--name-status`
+  cannot be combined with `--no-patch` (hence the separate header query, and `--format=` to silence the
+  header in the list query); a merge commit yields an **empty** file list unless
+  `--diff-merges=first-parent` asks for the first-parent diff; `-z` emits a rename as `R<score>`, origin,
+  target, and numstat as `add\tdel\t`, origin, target — hence a *positional* parser that consumes the
+  origin record together with a half-written rename instead of guessing from record shape (a file named
+  `M` is indistinguishable from the status `M`); and a `<hash>` argument is parsed as an option by git
+  (`--output=` is a real error message), so the hash is shape-checked (4–64 hex) before it ever reaches
+  argv, on top of `--end-of-options` and `-- .`. Content reads ask `cat-file -t` first (a directory tree
+  or a submodule gitlink is not a file and must fail instead of rendering a listing as content), then
+  `-s` for the true byte count, then `show`, closing the read end as soon as `limit` bytes arrive. Path
+  containment, ignored directories and sensitive file names are shared with the working-tree read through
+  `sanitizeWorkspaceRelPath` — one implementation of the visibility boundary, not two — and the returned
+  `dto.FileContent` is the same shape the preview drawer consumes. The renderer is shared too: the
+  read-only dispatch moved out of the drawer into `file-preview.renderReadOnlyContent`, which both
+  `renderLoaded` and the commit view call, while historical content deliberately does **not** go into the
+  file preview drawer (tabs are keyed by path, so a historical version would collide with the working-tree
+  file in the same chip — and that drawer is editable, so one Ctrl+S could write an old version over the
+  working tree). Pinned by 17 `workspace/gitcommit_test.go` cases (pure parsers plus a real repository
+  fixture: modify/delete/add/rename/binary/sensitive in one commit, root commit all-added, merge by first
+  parent, subdirectory workspace root prefix stripping, limit truncation, reads that prove the object
+  database is the source, deleted-later files still readable at their commit, large-blob early stop,
+  directory/sensitive/escaping path rejection), `TestEmbeddedGitCommitDrilldownWiring` in
+  `gui/bridge_test.go` (the drill-down must be wired through the two Bridge methods and must reuse the
+  shared renderer while carrying no write path of its own), 11 frontend cases in
+  `git-log-view.test.mjs` (detail normalization and rendering, three-level navigation, stale-response
+  discarding, no drill-down callback means no dead link) and 4 in the new
+  `file-preview-render.test.mjs`. See `docs/devlog/2026-09-29-commit-detail-and-file-content.md`.
+
 - **Missing config files and a missing tool directory now seed themselves from default data embedded in
   the binary.** The boot path had a chain of candidates but no write branch at the end of it: when every
   candidate was absent the app silently fell back to code defaults (limits, permission rules) or skipped

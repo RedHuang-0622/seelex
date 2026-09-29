@@ -29,6 +29,7 @@
 | `subagent_live.go` | `SubagentLiveEvent`：节点第一视角实时推送（stage / tool / assistant）。 |
 | `subagent_recovery.go` | 子代理中断恢复的只读投影。 |
 | `tree.go` | 工作树（Work Tree）只读元数据：只含路径/名称/类型/大小/计数，绝不携带文件内容。 |
+| `gitcommit.go` | 提交详情（一个提交改了哪些文件）只读元数据：状态/路径/重命名原路径/±行数；文件**内容**走 `dto.FileContent`（与工作树预览同一形状）。 |
 | `worktree.go` | `NodeWorktreeInfo`：节点 worktree 现场的只读摘要（人工恢复入口）。 |
 
 ## 依赖方向
@@ -90,7 +91,8 @@ flowchart LR
 - 是否引入了行为方法或对存储/框架的 import（违反「纯数据」定位）。
 - 是否出现了第二份平行定义（`seelebridge` 侧应为 alias，而不是同名结构体）。
 - 投影类 DTO 是否可能无界增长（子代理事件、工具事件必须有界）。
-- 是否把 workspace 内文件内容塞进只读元数据 DTO（`tree.go` 明确禁止）。
+- 是否把 workspace 内文件内容塞进只读元数据 DTO（`tree.go` / `gitcommit.go` 明确禁止；
+  文件字节只走 `FileContent`，且必须由后端 workspace 层做 containment 与敏感过滤）。
 
 ## 测试与验证
 

@@ -13,6 +13,12 @@ type WorkspaceFilePort interface {
 	// ReadFile 读取 root 内 relPath 文件的前 limit 字节（limit ≤ 0 用实现
 	// 默认上限；超出实现硬上限时钳制并如实报告 Limit/Truncated）。
 	ReadFile(root, relPath string, limit int64) (dto.FileContent, error)
+	// GitCommitFileContent 读取 relPath 文件在**某个提交**时的内容（前 limit
+	// 字节）。字节来源是 git 对象库而不是工作区磁盘，除此之外与 ReadFile 同一
+	// 条边界（相对路径 + containment、忽略目录与敏感文件过滤、大小上限、二进制
+	// 探测）与同一个返回形状——两条读取通道只有"读哪一份"不同。目录/子模块等
+	// 非 blob 对象、该提交里不存在的路径都显式失败（不拿目录清单冒充文件内容）。
+	GitCommitFileContent(root, hash, relPath string, limit int64) (dto.FileContent, error)
 }
 
 // WorkspaceFileWritePort 是工作区文件写入（「文件详情」面板编辑保存）的 optional

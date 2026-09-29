@@ -172,9 +172,14 @@
 ### workspace_file_usecase_test.go
 
 - `func (fake *fileFakeWorkspace) ReadFile(root, relPath string, limit int64) (dto.FileContent, error)`
+- `func (fake *fileFakeWorkspace) GitCommitFileContent(root, hash, relPath string, limit int64) (dto.FileContent, error)`
 - `func (fake *fileFakeWorkspace) WriteFile(root, relPath string, content []byte) (dto.FileWriteResult, error)`
 - `func (fake *readOnlyFileFakeWorkspace) ReadFile(root, relPath string, limit int64) (dto.FileContent, error)`
+- `func (fake *readOnlyFileFakeWorkspace) GitCommitFileContent(root, hash, relPath string, limit int64) (dto.FileContent, error)`
 - `func TestWorkspaceFileContentForwardsCurrentWorkspaceRoot(t *testing.T)`
+- `func TestWorkspaceGitCommitFileContentForwardsHashPathAndLimit(t *testing.T)`
+- `func TestWorkspaceGitCommitFileContentRejectsWithoutBoundWorkspace(t *testing.T)`
+- `func TestWorkspaceGitCommitFileContentFallsBackWhenBackendLacksFilePort(t *testing.T)`
 - `func TestWorkspaceFileContentRejectsWithoutBoundWorkspace(t *testing.T)`
 - `func TestWorkspaceFileContentFallsBackWhenBackendLacksFilePort(t *testing.T)`
 - `func TestWorkspaceFileContentUseCaseReadsRealFilesystem(t *testing.T)` — TestWorkspaceFileContentUseCaseReadsRealFilesystem 走真实 workspace.Repo
@@ -189,9 +194,11 @@
 - `func (fake *treeFakeWorkspace) CountFiles(root string) (dto.TreeCount, error)`
 - `func (fake *treeFakeWorkspace) GitLog(root string, limit int) (dto.GitLogResult, error)`
 - `func (fake *treeFakeWorkspace) GitChanges(root string, limit int) (dto.WorkspaceChangesResult, error)`
+- `func (fake *treeFakeWorkspace) GitCommitDetail(root, hash string, limit int) (dto.GitCommitDetail, error)`
 - `func TestWorkspaceTreeForwardsCurrentWorkspaceRoot(t *testing.T)`
 - `func TestWorkspaceTreeRejectsWithoutBoundWorkspace(t *testing.T)`
 - `func TestWorkspaceGitLogForwardsCurrentWorkspaceRoot(t *testing.T)`
+- `func TestWorkspaceGitCommitDetailForwardsCurrentWorkspaceRoot(t *testing.T)`
 - `func TestWorkspaceTreeFallsBackWhenBackendLacksTreePort(t *testing.T)`
 - `func TestWorkspaceTreeUseCaseReadsRealFilesystem(t *testing.T)` — TestWorkspaceTreeUseCaseReadsRealFilesystem 走真实 workspace.Repo（实现
 - `func TestWorkspaceChangesForwardsCurrentWorkspaceRoot(t *testing.T)`
@@ -209,8 +216,12 @@
 - `func (service *Service) WorkspaceFileCount() (dto.TreeCount, error)` — WorkspaceFileCount 统计当前工作区文件/目录数（工作树文件数 badge 数据源）。
 - `func (service *Service) WorkspaceGitLog(limit int) (dto.GitLogResult, error)` — WorkspaceGitLog 返回当前工作区最近 limit 条提交（含父提交拓扑；GUI
 - `func (service *Service) WorkspaceChanges(limit int) (dto.WorkspaceChangesResult, error)` — WorkspaceChanges 返回当前工作区未提交的改动（GUI 工作区更改面板数据源；
+- `func (service *Service) WorkspaceGitCommitDetail(hash string, limit int) (dto.GitCommitDetail, error)` — WorkspaceGitCommitDetail 返回当前工作区某个提交改了哪些文件（GUI「提交记录 →
 - `func (service *Service) WorkspaceFileContent(relPath string, limit int64) (dto.FileContent, error)` — WorkspaceFileContent 读取当前工作区某文件的前 limit 字节（GUI 文件预览
+- `func (service *Service) WorkspaceGitCommitFileContent(hash, relPath string, limit int64) (dto.FileContent, error)` — WorkspaceGitCommitFileContent 读取当前工作区某文件在某个提交时的内容（GUI
 - `func (service *Service) WorkspaceWriteFile(relPath, content string) (dto.FileWriteResult, error)` — WorkspaceWriteFile 用 content 覆盖当前工作区某文件的全部内容（「资源管理器 →
 - `func (service *Service) workspaceTreePort() (contract.WorkspaceTreePort, string, error)` — workspaceTreePort 读取当前工作区 root（锁内快照拷贝，锁外做文件 I/O）并
+- `func (service *Service) workspaceFilePort() (contract.WorkspaceFilePort, string, error)` — workspaceFilePort 读取当前工作区 root（同一套锁内快照拷贝）并断言
+- `func (service *Service) workspaceRootPort(missingPortMessage string) (contract.WorkspacePort, string, error)` — workspaceRootPort 解析"当前会话绑定的工作区根"与后端本身：没有绑定工作区时
 - `func (service *Service) collectWorkspaceProjection() workspaceStateProjection` — collectWorkspaceProjection 在获取 service.ViewMu 之前执行 WorkspacePort I/O。
 - `func (service *Service) applyWorkspaceProjectionLocked(projection workspaceStateProjection)`

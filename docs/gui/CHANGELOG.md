@@ -2,6 +2,29 @@
 
 本文件记录会改变模块边界、跨模块契约、兼容性、持久化或运行流程的重要设计。纯文字修正不记录。
 
+## 2026-09-29
+
+### Added
+
+- **提交记录长成三层：点开某条提交看它改了哪些文件，再点开某个文件看它「在那个提交时」
+  的内容。** 这条新增了两个跨层契约：`Bridge.WorkspaceGitCommitDetail(hash, limit)`
+  （只读元数据：状态字母/路径/重命名原路径/±行数）与
+  `Bridge.WorkspaceGitCommitFileContent(hash, relPath, limit)`（该提交时的字节，来源是
+  git 对象库）。端口归属按"数据是什么"分：清单挂 `WorkspaceTreePort`（与 GitLog/
+  GitChanges 同级），字节挂 `WorkspaceFilePort`（与 ReadFile 同级）——Application 侧
+  `workspaceFilePort()` 一处解析工作区 root，两条读取通道不可能解析到不同的工作区。
+  三处必须在后端收敛的事实：① 路径基准（清单剥掉仓库根前缀、内容补齐前缀，工作区根
+  可能是仓库子目录）；② 参数形状（hash 必须 4~64 位十六进制，进程侧叠加
+  `--end-of-options` 与路径前的 `--`）；③ 可见性边界（`sanitizeWorkspaceRelPath` 是
+  工作区可见性边界的唯一实现，磁盘与对象库两条读取共用，敏感文件名与越界路径一律拒绝）。
+  前端 `git-log-view.js` 从一屏列表变成三层视图（列表 → 提交详情 → 文件内容），共用容器与
+  一条委托监听、下钻代次丢弃迟到结果；**历史版本刻意不进「文件详情」抽屉**（抽屉按路径
+  认身份会与工作区同名文件串台，且它带编辑面，一次 Ctrl+S 就能把历史版本写回工作区），
+  但渲染分派仍共用从 `renderLoaded` 抽出的 `file-preview.renderReadOnlyContent`。
+  接线钉子：`gui/bridge_test.go::TestEmbeddedGitCommitDrilldownWiring`（必须经这两个
+  Bridge 方法、必须复用共用渲染器、不得出现任何写回/编辑入口）。详见
+  `docs/devlog/2026-09-29-commit-detail-and-file-content.md`。
+
 ## 2026-09-27
 
 ### Fixed

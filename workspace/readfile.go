@@ -76,19 +76,12 @@ func (r *Repo) ReadFile(root, relPath string, limit int64) (dto.FileContent, err
 }
 
 // resolveFileTarget 校验 root/relPath 并把 relPath 解析为根内文件绝对路径。
-// 拒绝绝对路径、逃逸路径、目录与符号链接；路径任一环节命中忽略目录或
-// 敏感文件名时拒绝（预览数据源与工作树元数据同一可见性边界）。
+// 相对路径的形状与可见性边界交给 sanitizeWorkspaceRelPath（与 git 对象库读取
+// 共用同一条边界），这里再做"根内、非目录、非符号链接"的磁盘侧校验。
 func resolveFileTarget(root, relPath string) (rootAbs, fileAbs, rel string, err error) {
-	rel = strings.TrimSpace(relPath)
-	if rel == "" {
-		return "", "", "", fmt.Errorf("workspace file: path required")
-	}
-	if filepath.IsAbs(rel) {
-		return "", "", "", fmt.Errorf("workspace file: absolute path not allowed")
-	}
-	rel = filepath.Clean(filepath.FromSlash(rel))
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", "", "", fmt.Errorf("workspace file: path escapes workspace root")
+	rel, err = sanitizeWorkspaceRelPath(relPath)
+	if err != nil {
+		return "", "", "", err
 	}
 
 	root = strings.TrimSpace(root)
@@ -105,18 +98,6 @@ func resolveFileTarget(root, relPath string) (rootAbs, fileAbs, rel string, err 
 		return "", "", "", fmt.Errorf("workspace file: path escapes workspace root")
 	}
 
-	for segment := range strings.SplitSeq(rel, string(filepath.Separator)) {
-		if segment == "" {
-			continue
-		}
-		if _, ignored := ignoreDirNames[segment]; ignored {
-			return "", "", "", fmt.Errorf("workspace file: %q is not readable (ignored directory)", segment)
-		}
-		if isSensitiveName(segment) {
-			return "", "", "", fmt.Errorf("workspace file: %q is not readable (sensitive name)", segment)
-		}
-	}
-
 	info, err := os.Lstat(fileAbs)
 	if err != nil {
 		return "", "", "", fmt.Errorf("workspace file: inspect %q: %w", rel, err)
@@ -128,6 +109,39 @@ func resolveFileTarget(root, relPath string) (rootAbs, fileAbs, rel string, err 
 		return "", "", "", fmt.Errorf("workspace file: %q is a symbolic link (not supported)", rel)
 	}
 	return rootAbs, fileAbs, rel, nil
+}
+
+// sanitizeWorkspaceRelPath 校验并归一化一个工作区相对路径（纯函数，不碰磁盘）：
+// 拒绝空串、绝对路径、逃逸根（`..`）、路径任一环节命中忽略目录或敏感文件名。
+// 返回归一化后的相对路径（沿用平台分隔符）。
+//
+// 它是工作区**可见性边界**的唯一实现，两条读取通道共用：工作区磁盘（ReadFile）
+// 与 git 对象库（GitCommitFileContent）。理由：同一份文件不该因为"从工作区读"还是
+// "从某个提交读"而露出不同的东西；边界写成两份，两边必然漂移。
+func sanitizeWorkspaceRelPath(relPath string) (string, error) {
+	rel := strings.TrimSpace(relPath)
+	if rel == "" {
+		return "", fmt.Errorf("workspace file: path required")
+	}
+	if filepath.IsAbs(rel) {
+		return "", fmt.Errorf("workspace file: absolute path not allowed")
+	}
+	rel = filepath.Clean(filepath.FromSlash(rel))
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("workspace file: path escapes workspace root")
+	}
+	for segment := range strings.SplitSeq(rel, string(filepath.Separator)) {
+		if segment == "" {
+			continue
+		}
+		if _, ignored := ignoreDirNames[segment]; ignored {
+			return "", fmt.Errorf("workspace file: %q is not readable (ignored directory)", segment)
+		}
+		if isSensitiveName(segment) {
+			return "", fmt.Errorf("workspace file: %q is not readable (sensitive name)", segment)
+		}
+	}
+	return rel, nil
 }
 
 // textLikeBytes 做轻量二进制探测：含 NUL 字节即视为二进制；控制字节

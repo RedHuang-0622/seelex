@@ -20,6 +20,12 @@ type fileFakeWorkspace struct {
 	lastRoot  string
 	lastRel   string
 	lastLimit int64
+	// 提交内文件内容（「提交记录 → 点开某个文件」）的面。
+	commitContent dto.FileContent
+	commitRoot    string
+	commitHash    string
+	commitRel     string
+	commitLimit   int64
 	// 写入面记录（编辑保存用例）。
 	writeRoot    string
 	writeRel     string
@@ -35,6 +41,14 @@ func (fake *fileFakeWorkspace) ReadFile(root, relPath string, limit int64) (dto.
 	return fake.content, fake.fileErr
 }
 
+func (fake *fileFakeWorkspace) GitCommitFileContent(root, hash, relPath string, limit int64) (dto.FileContent, error) {
+	fake.commitRoot = root
+	fake.commitHash = hash
+	fake.commitRel = relPath
+	fake.commitLimit = limit
+	return fake.commitContent, fake.fileErr
+}
+
 func (fake *fileFakeWorkspace) WriteFile(root, relPath string, content []byte) (dto.FileWriteResult, error) {
 	fake.writeRoot = root
 	fake.writeRel = relPath
@@ -47,6 +61,10 @@ func (fake *fileFakeWorkspace) WriteFile(root, relPath string, content []byte) (
 type readOnlyFileFakeWorkspace struct{ *fakeWorkspace }
 
 func (fake *readOnlyFileFakeWorkspace) ReadFile(root, relPath string, limit int64) (dto.FileContent, error) {
+	return dto.FileContent{}, nil
+}
+
+func (fake *readOnlyFileFakeWorkspace) GitCommitFileContent(root, hash, relPath string, limit int64) (dto.FileContent, error) {
 	return dto.FileContent{}, nil
 }
 
@@ -76,6 +94,59 @@ func TestWorkspaceFileContentForwardsCurrentWorkspaceRoot(t *testing.T) {
 	}
 	if fake.lastRoot != root || fake.lastRel != "src/main.go" || fake.lastLimit != 16 {
 		t.Fatalf("forwarded root=%q rel=%q limit=%d", fake.lastRoot, fake.lastRel, fake.lastLimit)
+	}
+}
+
+func TestWorkspaceGitCommitFileContentForwardsHashPathAndLimit(t *testing.T) {
+	fake := &fileFakeWorkspace{
+		fakeWorkspace: newFakeWorkspace(),
+		commitContent: dto.FileContent{
+			Name: "main.go", Path: "src/main.go", Size: 4, Limit: 8, TextLike: true,
+			Base64: base64.StdEncoding.EncodeToString([]byte("code")),
+		},
+	}
+	service := newTestService(t, &fakeEngine{}, func(deps *Dependencies) {
+		deps.Workspace = fake
+	})
+
+	root := t.TempDir()
+	if err := service.CreateWorkspace("project", root, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := service.WorkspaceGitCommitFileContent("abc1234", "src/main.go", 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Path != "src/main.go" || !got.TextLike {
+		t.Fatalf("unexpected content: %+v", got)
+	}
+	if fake.commitRoot != root || fake.commitHash != "abc1234" || fake.commitRel != "src/main.go" || fake.commitLimit != 8 {
+		t.Fatalf("forwarded root=%q hash=%q rel=%q limit=%d",
+			fake.commitRoot, fake.commitHash, fake.commitRel, fake.commitLimit)
+	}
+}
+
+func TestWorkspaceGitCommitFileContentRejectsWithoutBoundWorkspace(t *testing.T) {
+	fake := &fileFakeWorkspace{fakeWorkspace: newFakeWorkspace()}
+	service := newTestService(t, &fakeEngine{}, func(deps *Dependencies) {
+		deps.Workspace = fake
+	})
+	if _, err := service.WorkspaceGitCommitFileContent("abc1234", "README.md", 0); err == nil {
+		t.Fatal("WorkspaceGitCommitFileContent succeeded without a workspace")
+	}
+}
+
+func TestWorkspaceGitCommitFileContentFallsBackWhenBackendLacksFilePort(t *testing.T) {
+	service := newTestService(t, &fakeEngine{}, func(deps *Dependencies) {
+		deps.Workspace = newFakeWorkspace()
+	})
+	root := t.TempDir()
+	if err := service.CreateWorkspace("project", root, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.WorkspaceGitCommitFileContent("abc1234", "README.md", 0); err == nil {
+		t.Fatal("WorkspaceGitCommitFileContent succeeded without file-capable backend")
 	}
 }
 

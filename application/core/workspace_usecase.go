@@ -258,24 +258,39 @@ func (service *Service) WorkspaceChanges(limit int) (dto.WorkspaceChangesResult,
 	return port.GitChanges(root, limit)
 }
 
+// WorkspaceGitCommitDetail 返回当前工作区某个提交改了哪些文件（GUI「提交记录 →
+// 点开某一条」数据源；只读元数据——状态/路径/重命名原路径/±行数，不含补丁或
+// 文件内容）。root 只来自后端当前 workspace，hash 由前端从提交列表原样带回；
+// hash 形状校验、路径基准与敏感过滤都在 workspace 层保证。
+func (service *Service) WorkspaceGitCommitDetail(hash string, limit int) (dto.GitCommitDetail, error) {
+	port, root, err := service.workspaceTreePort()
+	if err != nil {
+		return dto.GitCommitDetail{}, err
+	}
+	return port.GitCommitDetail(root, hash, limit)
+}
+
 // WorkspaceFileContent 读取当前工作区某文件的前 limit 字节（GUI 文件预览
 // 数据源；root 只来自后端当前 workspace，containment/敏感过滤/上限在
 // workspace 层保证；limit ≤ 0 用默认上限）。只读受控字节，不落快照。
 func (service *Service) WorkspaceFileContent(relPath string, limit int64) (dto.FileContent, error) {
-	service.ViewMu.RLock()
-	root := ""
-	if service.Core.Snapshot.CurrentWorkspace != nil {
-		root = service.Core.Snapshot.CurrentWorkspace.RootPath
-	}
-	service.ViewMu.RUnlock()
-	if root == "" {
-		return dto.FileContent{}, errors.New("worktree: no workspace bound to current session")
-	}
-	port, ok := service.Deps.Workspace.(contract.WorkspaceFilePort)
-	if !ok {
-		return dto.FileContent{}, errors.New("worktree: workspace backend does not support file preview")
+	port, root, err := service.workspaceFilePort()
+	if err != nil {
+		return dto.FileContent{}, err
 	}
 	return port.ReadFile(root, relPath, limit)
+}
+
+// WorkspaceGitCommitFileContent 读取当前工作区某文件在某个提交时的内容（GUI
+// 「提交记录 → 点开某个文件」数据源）。与 WorkspaceFileContent 同一条可见性
+// 边界与同一个返回形状，区别只在字节来源是 git 对象库而不是工作区磁盘：这个
+// 提交那一刻的那一份，工作区怎么改都影响不到它；这条通道也只有读。
+func (service *Service) WorkspaceGitCommitFileContent(hash, relPath string, limit int64) (dto.FileContent, error) {
+	port, root, err := service.workspaceFilePort()
+	if err != nil {
+		return dto.FileContent{}, err
+	}
+	return port.GitCommitFileContent(root, hash, relPath, limit)
 }
 
 // WorkspaceWriteFile 用 content 覆盖当前工作区某文件的全部内容（「资源管理器 →
@@ -307,6 +322,35 @@ func (service *Service) WorkspaceWriteFile(relPath, content string) (dto.FileWri
 // workspaceTreePort 读取当前工作区 root（锁内快照拷贝，锁外做文件 I/O）并
 // 断言 WorkspacePort 实现 optional 树端口。
 func (service *Service) workspaceTreePort() (contract.WorkspaceTreePort, string, error) {
+	port, root, err := service.workspaceRootPort("worktree: workspace backend does not support tree listing")
+	if err != nil {
+		return nil, "", err
+	}
+	treePort, ok := port.(contract.WorkspaceTreePort)
+	if !ok {
+		return nil, "", errors.New("worktree: workspace backend does not support tree listing")
+	}
+	return treePort, root, nil
+}
+
+// workspaceFilePort 读取当前工作区 root（同一套锁内快照拷贝）并断言
+// WorkspacePort 实现 optional 文件端口。预览读取与"提交内文件内容"读取共用它：
+// root 的来源只有一处，两条读取通道不可能解析到不同的工作区。
+func (service *Service) workspaceFilePort() (contract.WorkspaceFilePort, string, error) {
+	port, root, err := service.workspaceRootPort("worktree: workspace backend does not support file preview")
+	if err != nil {
+		return nil, "", err
+	}
+	filePort, ok := port.(contract.WorkspaceFilePort)
+	if !ok {
+		return nil, "", errors.New("worktree: workspace backend does not support file preview")
+	}
+	return filePort, root, nil
+}
+
+// workspaceRootPort 解析"当前会话绑定的工作区根"与后端本身：没有绑定工作区时
+// 报错（调用方各自给出能力面的说明）。
+func (service *Service) workspaceRootPort(missingPortMessage string) (contract.WorkspacePort, string, error) {
 	service.ViewMu.RLock()
 	root := ""
 	if service.Core.Snapshot.CurrentWorkspace != nil {
@@ -316,11 +360,10 @@ func (service *Service) workspaceTreePort() (contract.WorkspaceTreePort, string,
 	if root == "" {
 		return nil, "", errors.New("worktree: no workspace bound to current session")
 	}
-	port, ok := service.Deps.Workspace.(contract.WorkspaceTreePort)
-	if !ok {
-		return nil, "", errors.New("worktree: workspace backend does not support tree listing")
+	if service.Deps.Workspace == nil {
+		return nil, "", errors.New(missingPortMessage)
 	}
-	return port, root, nil
+	return service.Deps.Workspace, root, nil
 }
 
 type workspaceStateProjection struct {

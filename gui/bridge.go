@@ -87,10 +87,19 @@ type Application interface {
 	// 元数据——路径与状态字符，不含 diff/文件内容；非 git 仓库返回
 	// Result.Error）。
 	WorkspaceChanges(limit int) (dto.WorkspaceChangesResult, error)
+	// WorkspaceGitCommitDetail 返回当前工作区某个提交改了哪些文件（提交记录
+	// 「点开某一条」数据源；只读元数据——状态/路径/重命名原路径/±行数，不含
+	// diff 或文件内容；非 git 仓库或提交不存在返回 Result.Error）。hash 由前端
+	// 从提交列表原样带回，形状校验在后端。
+	WorkspaceGitCommitDetail(hash string, limit int) (dto.GitCommitDetail, error)
 	// WorkspaceFileContent 读取当前工作区某文件的前 limit 字节（文件预览
 	// 数据源；root 只来自后端当前 workspace，containment/敏感过滤在
 	// workspace 层保证；只读受控字节，不进快照）。
 	WorkspaceFileContent(relPath string, limit int64) (dto.FileContent, error)
+	// WorkspaceGitCommitFileContent 读取某文件在某个提交时的内容（提交记录
+	// 「点开某个文件」数据源）。与 WorkspaceFileContent 同一条可见性边界，
+	// 只是字节来自 git 对象库；这条通道只有读，不回写工作区。
+	WorkspaceGitCommitFileContent(hash, relPath string, limit int64) (dto.FileContent, error)
 	// WorkspaceWriteFile 覆盖当前工作区某文件的全部内容（文件详情面板的
 	// 编辑保存；可见性边界与原子发布在 workspace 层保证）。用户即动作主体，
 	// 不走主代理权限档位与审批；未装配写端口的宿主显式报错。
@@ -1264,6 +1273,20 @@ func (bridge *Bridge) WorkspaceGitLog(limit int) (dto.GitLogResult, error) {
 // Result.Error 供面板显示错误态）。
 func (bridge *Bridge) WorkspaceChanges(limit int) (dto.WorkspaceChangesResult, error) {
 	return bridge.app.WorkspaceChanges(limit)
+}
+
+// WorkspaceGitCommitDetail 转发某个提交的改动文件清单（提交记录「点开某一条」
+// 数据源；只读元数据——状态/路径/重命名原路径/±行数，不含 diff 或文件内容；
+// 非 git 仓库返回 Result.Error 供面板显示错误态）。
+func (bridge *Bridge) WorkspaceGitCommitDetail(hash string, limit int) (dto.GitCommitDetail, error) {
+	return bridge.app.WorkspaceGitCommitDetail(hash, limit)
+}
+
+// WorkspaceGitCommitFileContent 转发"某文件在某个提交时的内容"读取（提交记录
+// 「点开某个文件」数据源；字节来自 git 对象库，可见性边界与工作树预览同一条；
+// 只读受控字节，不进快照，也不写回工作区）。
+func (bridge *Bridge) WorkspaceGitCommitFileContent(hash, relPath string, limit int64) (dto.FileContent, error) {
+	return bridge.app.WorkspaceGitCommitFileContent(hash, relPath, limit)
 }
 
 // WorkspaceFileContent 转发工作树文件预览读取（containment/敏感过滤/上限

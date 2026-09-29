@@ -23,4 +23,10 @@ type WorkspaceTreePort interface {
 	// 前缀），敏感文件名与工作区之外的路径不展示并计入 Result.Filtered；
 	// 只含路径与状态字符，绝不含文件内容或 diff。
 	GitChanges(root string, limit int) (dto.WorkspaceChangesResult, error)
+	// GitCommitDetail 返回 root 内某个提交改了哪些文件（状态/路径/重命名原路径/
+	// ±行数；固定 argv、只读、超时；非 git 仓库或提交不存在以 Result.Error 描述，
+	// 不返回 Go error）。hash 必须是十六进制形状——修订表达式不接受，畸形 hash
+	// 是调用方传错参数，返回 Go error。清单同样不含补丁或文件内容（文件内容走
+	// WorkspaceFilePort.GitCommitFileContent）。
+	GitCommitDetail(root, hash string, limit int) (dto.GitCommitDetail, error)
 }
