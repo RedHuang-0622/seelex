@@ -23,10 +23,16 @@ type persistedPlanRestorer interface {
 }
 
 // resumeSession 是会话切换的应用边界：目标已驻留（含运行中）热加载；目标
-// 未驻留且无会话运行中时同步冷加载；目标未驻留且有会话运行中时改为异步
-// 冷加载——先给目标会话空壳 + 权威 restoring 状态，后台完成装载后再发布
-// 内容基线，消除同步磁盘 I/O 在视图过渡 key 上的串行等待（“恢复中”不再
-// 等于前端 RPC 长期不返回）。
+// 未驻留时冷加载。冷加载一律先激活目标会话的 restoring 空壳（视图立即指向
+// 目标、会话树显示“恢复中”），装载——磁盘三读 / wire 装配 / 引擎恢复 / 队列
+// 回填——在**视图过渡 key 之外**完成：键只保护「判定视图意图」与「按意图序号
+// 发布基线」两段，一次冷加载不再把别的会话的切换与提交排在自己的磁盘读之后
+// （“一个会话冷加载，另一个会话就没反应”）。
+//
+// 空闲（无会话运行中）走同一条链路，只是前台调用**同步**等装载收口，保持
+// 「ResumeSession 返回 ⇒ 目标已装载（失败则视图回退到切换前会话）」的契约；
+// 运行中则立即返回、装载在后台完成（前端 RPC 不再长期不返回，“恢复中”不等于
+// 卡住）。
 func (service *Service) resumeSession(sessionID string) error {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
@@ -35,7 +41,6 @@ func (service *Service) resumeSession(sessionID string) error {
 
 	transition := service.transitionForSession(sessionID)
 	transition.Lock()
-	defer transition.Unlock()
 
 	service.ViewMu.RLock()
 	hot := service.sessionLoaded(sessionID)
@@ -45,76 +50,43 @@ func (service *Service) resumeSession(sessionID string) error {
 	service.ViewMu.RUnlock()
 
 	if restoring {
-		// 同目标已有后台冷加载在途：空壳已激活，重复请求幂等（不重复装载、
-		// 不推进 epoch——自身装载不能被自己打断）。
+		// 同目标已有装载在途：空壳已激活，重复请求幂等（不重复装载、不推进
+		// epoch——自身装载不能被自己打断）。
+		transition.Unlock()
 		return nil
 	}
 	if hot {
 		// 阶段 2：目标会话已驻留（含运行中）→ 热加载，只换视图指针 +
 		// 投影会话 scope，不重建历史、不触碰 X/M/R（不变量 Ⅱ）。推进 epoch，
-		// 让在途后台冷加载不再抢占视图。
+		// 让在途冷加载不再抢占视图。
 		service.bumpViewEpoch()
+		transition.Unlock()
 		return service.hotAttachSession(sessionID)
 	}
-	if !running {
-		// 空闲：保持同步冷加载（无运行中会话共享全局根/写作用域，串行装载
-		// 更简单；activateEpoch=0 表示无条件激活）。
-		service.bumpViewEpoch()
-		if err := service.resumeSessionCold(sessionID, 0); err != nil {
-			// 同步冷加载失败也保持“ResumeSession 返回错误 ⇒ 视图停留在切换
-			// 前会话”的不变量（与后台冷加载失败路径 handleColdRestoreFailure
-			// 同一语义）：resumeSessionCold 的迟到失败（如 context 挂接）发生
-			// 在视图激活之后，不回滚会让前端误以为还在 previous 而把后续输入
-			// 路由进一个用户看不到的会话（切换失败后“输入发不出去/发错会话”）。
-			service.rollbackSyncResumeFailure(sessionID, previous)
-			return err
-		}
-		return nil
-	}
-	// 运行中 + 目标未驻留：异步冷加载。先激活 restoring 空壳并立即返回，
-	// 由后台 goroutine 完成装载；期间其它切换仍可快速进行（冷加载不占视图
-	// 过渡 key），迟到完成由 epoch 判定不再抢占。
+	// 目标未驻留：冷加载。先激活 restoring 空壳并立刻**让出**视图过渡 key，
+	// 装载不再占着它跑完整段磁盘 I/O（原来整段装载都在键内，别的会话的
+	// resume/submit 只能排队，用户视角是「另一个会话断掉」）。
 	epoch, err := service.beginAsyncRestore(sessionID)
+	transition.Unlock()
 	if err != nil {
 		return err
 	}
-	go service.resumeSessionColdInBackground(sessionID, previous, epoch)
+	if running {
+		// 运行中：装载交后台，本次请求立即返回。
+		go service.resumeSessionColdInBackground(sessionID, previous, epoch)
+		return nil
+	}
+	// 空闲：同步等装载收口，调用方返回时目标已装载（或被更新的切换取代、
+	// 只完成自身会话状态）。
+	if err := service.resumeSessionCold(sessionID, epoch); err != nil {
+		service.handleColdRestoreFailure(sessionID, previous, epoch, err)
+		return err
+	}
 	return nil
 }
 
-// rollbackSyncResumeFailure 在同步冷加载失败后恢复视图一致性（调用方持视图
-// 过渡锁；仅空闲分支可达，无运行中会话）。目标是保证：ResumeSession 返回
-// 错误时视图仍停留在切换前会话，前端后续输入路由到用户看到的那一个会话。
-//
-//   - 视图已被目标激活（迟到失败）：目标驻留则热挂载回退，否则重置到草稿空壳
-//     （与 handleColdRestoreFailure 一致）；
-//   - 视图尚未切到目标（早失败）：若 previous 驻留则对其热挂载一次，把可能已
-//     被目标 workspace 占用的全局项目根/写作用域切回 previous（无运行中会话，
-//     安全）。
-func (service *Service) rollbackSyncResumeFailure(sessionID, previousID string) {
-	service.ViewMu.RLock()
-	stillOnTarget := service.Core.Snapshot.Session.ID == sessionID
-	service.ViewMu.RUnlock()
-	if stillOnTarget {
-		if previousID != "" && service.sessionLoaded(previousID) {
-			if err := service.hotAttachSession(previousID); err != nil {
-				runChatDebug("rollback sync resume to %q after %q failure: %v", previousID, sessionID, err)
-				service.resetViewToDraftAfterRestoreFailure()
-			}
-			return
-		}
-		service.resetViewToDraftAfterRestoreFailure()
-		return
-	}
-	// 早失败：视图本来就在 previous（或其草稿）。previous 驻留时热挂载一次，
-	// 修正可能被目标 workspace 占用的全局根；未驻留（草稿）则无需动作。
-	if previousID != "" && service.sessionLoaded(previousID) {
-		_ = service.hotAttachSession(previousID)
-	}
-}
-
-// bumpViewEpoch 推进视图切换序号（任何新的视图激活都推进；后台冷加载完成
-// 时只有仍为最新 epoch 才允许发布基线）。
+// bumpViewEpoch 推进视图切换序号（任何新的视图激活都推进；冷加载完成时只有
+// 仍为最新 epoch 才允许发布基线）。
 func (service *Service) bumpViewEpoch() {
 	service.ViewMu.Lock()
 	service.nextViewEpochLocked()
@@ -239,10 +211,9 @@ func (service *Service) resetViewToDraftAfterRestoreFailure() {
 // resumeSessionCold 是 resumeSession 的冷加载主体：目标未驻留时重建引擎、
 // 恢复 workspace 绑定与可见会话，然后发布一致快照。
 //
-// activateEpoch=0 表示同步装载（调用方已持视图过渡锁，无条件激活）；
-// activateEpoch>0 表示后台装载：仅当装载完成时仍是最新切换目标才发布基线，
-// 否则只完成目标会话自身状态装载（引擎驻留、可见投影、任务槽），不抢占
-// 当前视图。
+// activateEpoch 是本次装载对应的视图意图序号（调用方在激活 restoring 空壳时
+// 推进）：装载完成时若不是最新序号、或视图已不再指向目标，本次只完成目标会话
+// 自身的状态装载（引擎驻留、可见投影、任务槽），不发布基线、不抢占当前视图。
 func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64) error {
 	// L2 草稿尾恢复（A4）必须在三读之前：可见正文的闸门是发布点，先恢复再读，
 	// 恢复出来的行才能进本次加载的可见会话（见 session_pending_tail.go）。
@@ -397,30 +368,19 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 			planRestoreErr = restorer.RestorePlan(context.Background(), activePlan.Arguments)
 		}
 	}
-	// 会话级 task 隔离：切换会话时整体替换**当前会话的实时注册表**（清空
-	// 旧会话、恢复目标会话 task）并清空子代理树——这是会话级读面（落盘/
-	// 打点）；工作表格本体是全局台账（TaskSnapshot = 注册表 + 全部分区），
-	// 不随本次切换丢行。
-	service.Deps.Runtime.SwitchSessionTasks(sessionID, record.Tasks)
-	_ = service.Deps.Runtime.ClearSubagentTree()
-	// 恢复锚点：从主会话事件库/子会话记录重建目标会话的 fork 树与认领
-	// （Assignee → subagent:<节点会话ID>；重启/切页后不再停留 main）。
-	_ = service.Deps.Runtime.RestoreSubagentAnchors(sessionID)
 	workspaceProjection := service.collectWorkspaceProjection()
 	// 需求变更（P1-1）：冷加载读回目标会话的权限档位（含磁盘读，在锁外完成；
 	// 内存态落地在下面拿到会话单元之后）。
 	storedTier := service.readStoredPermissionTier(sessionID)
 
 	service.ViewMu.Lock()
-	// 异步装载（activateEpoch>0）：仅在仍是最新切换目标且目标仍是当前视图
-	// 会话时才发布基线；被更新的切换取代时，本次只完成目标会话自身的状态
-	// 装载（引擎驻留/可见投影/任务槽），不激活视图、不抢占、不发布。
-	mayActivate := activateEpoch == 0
-	if activateEpoch != 0 {
-		mayActivate = service.viewEpoch == activateEpoch && service.Core.Snapshot.Session.ID == sessionID
-	}
-	// restoring 标记只由后台装载设置：无论激活与否都先移除，避免装载完成
-	// 后会话树/快照停留在“恢复中”。
+	// 发布判据：装载完成时必须是「最新视图意图」且视图仍指向目标会话——
+	// 目标会话在装载期间可能已经跑过自己的回合，也可能已被更新的切换取代，
+	// 两种情形都只完成目标会话自身的状态装载（引擎驻留/可见投影/任务槽），
+	// 不激活视图、不抢占、不发布。
+	mayActivate := service.viewEpoch == activateEpoch && service.Core.Snapshot.Session.ID == sessionID
+	// 装载在途标记：无论激活与否都先移除，避免装载完成后会话树/快照停留
+	// 在“恢复中”。
 	service.clearRestoringLocked(sessionID)
 	name := session_runtime.SessionTitleFromHistory(history, displayUserInput)
 	if hasRecord && record.Title.Value != "" {
@@ -468,12 +428,11 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 		view.Conversation = append(view.Conversation, Message{Role: "system", Content: "已恢复会话: " + sessionID, CreatedAt: time.Now()})
 		view.Conversation = append(view.Conversation, service.components.sessions.RecordConversationTail(record, Limits().HistoryWindow)...)
 		view.ReadFiles = append([]ReadFileRef(nil), record.Execution.ReadFiles...)
-		// 可见投影：后台冷恢复（activateEpoch>0）可能迟到完成，而目标会话在这
-		// 期间可能已经跑过自己的回合——它的可见会话是更新的活事实，用恢复快照
-		// 覆盖会把这一轮顶掉（2026-09-11 TC-A2-01 第三层根因：fork 子会话首轮
-		// 被迟到的基线整体覆盖）。后台装载因此只在目标可见会话仍为空时安装；
-		// 同步装载（activateEpoch=0，调用方持视图过渡锁、无并发写）保持原语义。
-		if activateEpoch == 0 || service.sessionViewEmptyLocked(sessionID) {
+		// 可见投影：冷恢复可能迟到完成，而目标会话在这期间可能已经跑过自己的
+		// 回合——它的可见会话是更新的活事实，用恢复快照覆盖会把这一轮顶掉
+		//（2026-09-11 TC-A2-01 第三层根因：fork 子会话首轮被迟到的基线整体
+		// 覆盖）。装载因此只在目标可见会话仍为空时安装。
+		if service.sessionViewEmptyLocked(sessionID) {
 			service.components.view.SetSessionViewLocked(sessionID, view)
 		}
 		if mayActivate {
@@ -544,6 +503,17 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 		}
 	}
 	if mayActivate {
+		// 会话级 task 隔离（只在视图真的切到目标会话时才动）：整体替换**当前
+		// 会话的实时注册表**（清空旧会话、恢复目标会话 task）、清空子代理树并
+		// 重建目标会话的 fork 树与认领。三者都是**进程级**执行面（落盘/打点/
+		// GUI 子树）；工作表格本体是全局台账（TaskSnapshot = 注册表 + 全部分区），
+		// 不随本次切换丢行。不激活视图的装载（目标已被更新的切换取代）只完成
+		// 自身会话状态，不得抢走运行中会话的执行面——原来无条件执行，B 在飞时
+		// A 的后台冷加载会把注册表归属与子代理树改成 A。这三步写在投影发布之前，
+		// 让紧随其后的 publishRuntimeProjections 带上目标会话的工作表格/子代理树。
+		service.Deps.Runtime.SwitchSessionTasks(sessionID, record.Tasks)
+		_ = service.Deps.Runtime.ClearSubagentTree()
+		_ = service.Deps.Runtime.RestoreSubagentAnchors(sessionID)
 		service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 		service.publishRuntimeProjections()
 	}
@@ -575,7 +545,10 @@ func (service *Service) ResumeSession(sessionID string) error {
 //   - 冷读面只到发布点：滑出窗口的本轮在飞行行要等这次落盘（回合收尾
 //     PersistCurrentSession）才读得回来。窗口因此不贴尾，安装点保持
 //     TotalMessages 如实前推，前端据「total − (offset+窗口条数)」提示
-//     「下方还有新内容」，而不是把内容抹平。
+//     「下方还有新内容」，而不是把内容抹平；
+//   - 冷读下标是**未过滤**空间（内部标记行也占位），可见下标与它之间隔着那些
+//     行：一页读回来先按**行身份**找接缝（窗口首行在页里的位置），只把接缝
+//     之前的那段可见行前置进窗口；接缝对不上就不假装连续（见 installVisibleHistory）。
 func (service *Service) LoadMoreHistory(limit int) error {
 	window := Limits().HistoryWindow
 	if window <= 0 {
@@ -609,11 +582,14 @@ func (service *Service) LoadMoreHistory(limit int) error {
 	if loadOffset < 0 {
 		loadOffset = 0
 	}
-	rows, total, err := service.loadConversationPage(workspaceID, sessionID, loadOffset, offset-loadOffset)
+	// 冷读面的下标是**未过滤**空间（内部标记行同样占位），可见下标不能直接当
+	// 冷读下标用：这里多带一个窗口并按几何扩读，由接缝（窗口首行）对位确定这一
+	// 页的右界（见 loadEarlierVisiblePage），再按行身份前置进窗口。
+	seam := service.visibleWindowFirstRow(sessionID)
+	page, err := service.loadEarlierVisiblePage(workspaceID, sessionID, offset, offset-loadOffset, window, seam)
 	if err != nil {
 		return err
 	}
-	page := conversationPage{rows: rows, diskTotal: total, start: loadOffset}
 	return service.installVisibleHistory(sessionID, page, window, historyPagePrepend)
 }
 
@@ -661,35 +637,99 @@ func (service *Service) visibleTailServedFromMemory(sessionID string) bool {
 	return atTail
 }
 
-// loadConversationTailPage 读磁盘已发布的尾部窗口：先探总数，再按总数定位窗口
-// 起点读一页。反过来「先按内存估计读、再用磁盘总数重算起点」会让窗口内容与
-// HistoryOffset 各说各话——读回的是旧的一页，起点却指向新尾部。
+// loadConversationTailPage 读发布点处的尾部窗口：先探总数（未过滤空间，只用来
+// 定位发布点），再从发布点向左读一整段。尾部整段被内部标记行占掉时（回合收尾刚
+// 落的 checkpoint），一窗未过滤行里可能一条可见行都读不出来——「回到最新」会
+// 拿到空页，所以这里按几何扩读向左补齐，直到可见行攒够一窗或读到序列开头。
 //
 // 探测与窗口读是两次独立加锁操作（与 session_runtime.LoadHistoryTailWindow 同一
 // 观察项）：两读之间会话并发增长时窗口会短一两行，下一次加载自我纠正。
 func (service *Service) loadConversationTailPage(workspaceID, sessionID string, window int) (conversationPage, error) {
 	// limit=1 只为拿总数（区间读把 total 一并带回）。
-	_, diskTotal, err := service.loadConversationPage(workspaceID, sessionID, 0, 1)
+	probe, err := service.loadConversationPage(workspaceID, sessionID, 0, 1)
 	if err != nil {
 		return conversationPage{}, err
 	}
-	start := diskTotal - window
+	diskTotal := probe.diskTotal
+	if diskTotal <= 0 {
+		return conversationPage{diskTotal: diskTotal}, nil
+	}
+	span := window
+	if span <= 0 {
+		span = 1
+	}
+	for {
+		start := diskTotal - span
+		if start < 0 {
+			start = 0
+		}
+		page, err := service.loadConversationPage(workspaceID, sessionID, start, diskTotal-start)
+		if err != nil {
+			return conversationPage{}, err
+		}
+		if len(page.rows) >= window || start == 0 {
+			return page, nil
+		}
+		span *= 2
+	}
+}
+
+// loadEarlierVisiblePage 读可见窗口之前的一页历史（「加载更早」的冷读面）。
+//
+// 冷读面的下标是**未过滤**空间，可见下标不能直接当冷读下标用：按可见下标读回来
+// 的一页可能整段落在窗口之前，与窗口之间留一道谁也不显示的洞。这里从「可见下标
+// 减一页」起读、按几何向右扩读，直到页里出现窗口首行的对位（接缝找到）——此时
+// 页尾正好落在窗口之前，页里的可见行就是紧挨着窗口的那一页。
+//
+// 扩到「已发布的行全读回来」仍没有对位（窗口首行是在飞行，磁盘上根本没有），或
+// 窗口为空（没有对位锚）时，返回读到的整段，交给安装路径按「宁可窗口短一页，也
+// 不在列表中间留一段谁都没有的下标区间」处理。
+func (service *Service) loadEarlierVisiblePage(workspaceID, sessionID string, offset, limit, window int, seam Message) (conversationPage, error) {
+	start := offset - limit
 	if start < 0 {
 		start = 0
 	}
-	rows, _, err := service.loadConversationPage(workspaceID, sessionID, start, window)
-	if err != nil {
-		return conversationPage{}, err
+	span := limit + window
+	if span <= 0 {
+		span = 1
 	}
-	return conversationPage{rows: rows, diskTotal: diskTotal, start: start}, nil
+	for {
+		page, err := service.loadConversationPage(workspaceID, sessionID, start, span)
+		if err != nil {
+			return conversationPage{}, err
+		}
+		if containsSameRow(page.rows, seam) || (start == 0 && page.reachesPublishedTail()) {
+			return page, nil
+		}
+		if !hasRowIdentity(seam) {
+			// 没有对位锚（窗口为空）：扩读没有意义。
+			return page, nil
+		}
+		span *= 2
+	}
 }
 
-// conversationPage 是一段冷读结果：可见行 + 磁盘**已发布**总数 + 这一页在可见
-// 下标空间里的起点 start。
+// conversationPage 是一段冷读结果，**两个坐标空间分开记**：
+//
+//   - 冷读面（sessionstore 由 message 行直接展开 conversation）把内部标记行
+//     （上下文 checkpoint、运行期提示……）也当成普通会话行，行数与下标都是
+//     **未过滤**空间的；
+//   - 可见会话（view.Conversation / view.HistoryOffset / view.TotalMessages）
+//     一律是**可见**空间：内部标记行不占位。
+//
+// 两个空间不能相减相加——「窗口永远差几格够不到尾」「回到最新看不到最新」那组
+// 缺陷的根就是拿未过滤总数当可见总数。磁盘的未过滤总数因此只回答一个问题：
+// 这一页读到发布点了吗。
 type conversationPage struct {
 	rows      []Message
+	rawRows   int
 	diskTotal int
 	start     int
+}
+
+// reachesPublishedTail 报告这一页读到了发布点（未过滤空间的右界）。
+func (page conversationPage) reachesPublishedTail() bool {
+	return page.rawRows > 0 && page.start+page.rawRows >= page.diskTotal
 }
 
 // historyPageInstall 描述一页历史如何安装进可见窗口。
@@ -711,57 +751,61 @@ func currentWorkspaceIDLocked(service *Service) string {
 	return service.Core.Snapshot.CurrentWorkspace.ID
 }
 
-// loadConversationPage 读回一段可见历史：record conversation 模块优先
-// （长会话翻页不反序列化整份 state），旧格式会话回退 provider 历史区间。
-func (service *Service) loadConversationPage(workspaceID, sessionID string, offset, limit int) ([]Message, int, error) {
+// loadConversationPage 读回一段历史：record conversation 模块优先（长会话翻页不
+// 反序列化整份 state），旧格式会话回退 provider 历史区间。返回的 rows 已过滤到
+// 可见空间，rawRows / diskTotal 则是**未过滤**空间的行数（读回面把内部标记行也
+// 当普通 conversation 行，见 conversationPage）。
+func (service *Service) loadConversationPage(workspaceID, sessionID string, offset, limit int) (conversationPage, error) {
+	page := conversationPage{start: offset}
 	if limit <= 0 {
-		return nil, 0, nil
+		return page, nil
 	}
 	if store, ok := service.Deps.Sessions.(session_runtime.SessionConversationRangePort); ok {
 		messages, count, err := store.LoadConversationRangeWorkspace(workspaceID, sessionID, offset, limit)
 		if err != nil {
-			return nil, 0, fmt.Errorf("load conversation range: %w", err)
+			return conversationPage{}, fmt.Errorf("load conversation range: %w", err)
 		}
-		return service.components.sessions.RecordConversation(SessionRecord{Conversation: ConversationRecord{Messages: messages}}), count, nil
+		page.rows = service.components.sessions.RecordConversation(SessionRecord{Conversation: ConversationRecord{Messages: messages}})
+		page.rawRows = len(messages)
+		page.diskTotal = count
+		return page, nil
 	}
 	history, count, err := service.components.sessions.LoadSessionHistoryRange(workspaceID, sessionID, offset, limit)
 	if err != nil {
-		return nil, 0, fmt.Errorf("load history range: %w", err)
+		return conversationPage{}, fmt.Errorf("load history range: %w", err)
 	}
-	adapted := make([]Message, 0, len(history))
+	page.rows = make([]Message, 0, len(history))
 	for _, msg := range history {
 		if !isVisibleHistoryMessage(msg) {
 			continue
 		}
-		adapted = append(adapted, adaptEngineMessage(msg))
+		page.rows = append(page.rows, adaptEngineMessage(msg))
 	}
-	return adapted, count, nil
+	page.rawRows = len(history)
+	page.diskTotal = count
+	return page, nil
 }
 
 // installVisibleHistory 安装一页可见历史：写会话可见投影（事实源）→ 收敛
 // 窗口 → 镜像 Snapshot → bump 并发布快照变更。分页态因此随会话走，后续任何
 // 镜像（新消息/工具事件/切换）都不会把它抹掉。
 //
-// 冷读面的右界是**发布点**（sessionstore 以 message 通道 head.LastSeq 为读者
-// 闸门），本轮尚未落盘的行只有内存窗口知道。因此这里守三条：
-//   - 已可见总数不因冷读倒退：total = max(磁盘已发布数, 内存总数)。总数是前端
-//     「下方还有 N 条新内容」的唯一依据，倒退既谎报到底，又让一个并不贴尾的
-//     窗口被 append 路径判成贴尾，下一条消息就插进列表中间（断层）；
-//   - 窗口起点由**实际装进去的行**推出，不接受调用方估计的 pageStart+窗口：
-//     冷读一页短于请求时（读到发布点就没了），估计值会与内容各说各话；
-//   - 只拼得上的才拼：磁盘页与内存窗口之间有空洞时不假装连续（宁可窗口短一
-//     页，也不在列表中间留一段谁都没有的下标区间）；一页都没读到时保持现有
-//     窗口，只校正总数。
-//
-// 页尾按**实际读到的行**推：读回面过滤掉的下标（system、内部标记）本来就不在
-// 可见空间里，按请求量补齐反而会把重复行拼回窗口。
+// 坐标口径（2026-09-29 修复）：view.Conversation / view.HistoryOffset /
+// view.TotalMessages 一律是**可见**空间；冷读面回的行数与下标是**未过滤**空间
+// （内部标记行也占位）。两者不能相减相加，因此这里只认三条事实：
+//   - 可见总数以会话可见投影为准（冷加载基线 + 追加路径共同维护），读数不倒退
+//     ——它是前端「下方还有 N 条新内容」的唯一依据，倒退既谎报到底，又让一个
+//     并不贴尾的窗口被 append 路径判成贴尾，下一条消息就插进列表中间（断层）。
+//     磁盘的未过滤总数只回答「这一页读到发布点了吗」，不参与总数；
+//   - 窗口位置由**行身份**（接缝）推出：前置页接在窗口首行之前，尾页把窗口里
+//     发布点之后的热尾（本轮尚未落盘的行）接回页尾。冷读一页短于请求时按请求量
+//     和估计起点算出来的位置会与内容各说各话（旧实现的「窗口起点与内容脱节」）；
+//   - 只拼得上的才拼：接缝对不上（窗口首行不在磁盘上——整窗都是在飞行）时不
+//     假装连续，宁可窗口原地不动，也不在列表中间留一段谁都没有的下标区间；
+//     一页可见行都没读到时保持现有窗口。
 func (service *Service) installVisibleHistory(sessionID string, page conversationPage, window int, mode historyPageInstall) error {
 	if window <= 0 {
 		window = 1
-	}
-	pageStart, diskTotal := page.start, page.diskTotal
-	if pageStart < 0 {
-		pageStart = 0
 	}
 	service.ViewMu.Lock()
 	for index := range page.rows {
@@ -770,43 +814,21 @@ func (service *Service) installVisibleHistory(sessionID string, page conversatio
 		}
 	}
 	service.components.view.SessionViewMutateLocked(sessionID, func(view *session.View) {
-		effectiveTotal := diskTotal
-		if view.TotalMessages > effectiveTotal {
-			effectiveTotal = view.TotalMessages
-		}
-		if effectiveTotal > 0 {
-			view.TotalMessages = effectiveTotal
-		}
-		if len(page.rows) == 0 {
-			view.HasMoreHistory = view.HistoryOffset > 0
-			return
-		}
-		memoryStart := view.HistoryOffset
 		memoryRows := durableConversationRows(view.Conversation)
-		pageRight := pageStart + len(page.rows)
-		if pageRight > diskTotal {
-			pageRight = diskTotal
-		}
-		start, rows := pageStart, append([]Message(nil), page.rows...)
+		memoryStart := view.HistoryOffset
+		var rows []Message
+		start := memoryStart
 		switch mode {
-		case historyPagePrepend:
-			if pageRight == memoryStart {
-				rows = append(rows, memoryRows...)
-			}
-			rows = view_state.BoundConversationHead(rows, window)
 		case historyPageReplace:
-			// 页读到了发布点、且内存窗口跨在发布点上：把发布点之后的那段热尾
-			// 接回页尾，否则「回到最新」会把本轮尚未落盘的尾部整窗删掉。
-			if pageRight >= diskTotal && memoryStart <= diskTotal && memoryStart+len(memoryRows) > diskTotal {
-				hot := memoryRows[diskTotal-memoryStart:]
-				rows = append(rows, hot...)
-				pageRight += len(hot)
-			}
-			rows = view_state.BoundConversationTail(rows, window)
-			start = pageRight - len(durableConversationRows(rows))
+			rows, start = replaceVisibleTail(page.rows, memoryRows, memoryStart, view.TotalMessages, window)
+		case historyPagePrepend:
+			rows, start = prependVisibleHistory(page.rows, memoryRows, memoryStart, window)
 		}
-		if start < 0 {
-			start = 0
+		if len(rows) == 0 {
+			// 一页可见行都没读到（尾段整段是内部标记行、或会话还没有可见正文）：
+			// 保持现有窗口与总数，只如实校正「还有更早历史」。
+			view.HasMoreHistory = memoryStart > 0
+			return
 		}
 		view.Conversation = rows
 		view.HistoryOffset = start
@@ -814,6 +836,10 @@ func (service *Service) installVisibleHistory(sessionID string, page conversatio
 		view.ConversationWindow = window
 		// 本路径安装了可见正文（分页/冷回读）：「内容未加载」标志随之清除。
 		view.ContentUnloaded = false
+		// 窗口不得越过可见总数：可见总数只增不减（镜像/追加路径同一口径）。
+		if tail := start + view_state.DurableConversationCount(view.Conversation); tail > view.TotalMessages {
+			view.TotalMessages = tail
+		}
 	})
 	service.mirrorActiveViewLocked()
 	revision := service.bumpLocked()
@@ -822,6 +848,134 @@ func (service *Service) installVisibleHistory(sessionID string, page conversatio
 	// 内容 LRU：分页/回读都是一次正文使用（移动到使用序最前并收敛超限）。
 	service.touchContent(sessionID)
 	return nil
+}
+
+// replaceVisibleTail 组装「回到最新 / 冷回读」的尾部窗口：以冷读页为底，把内存
+// 窗口里发布点之后的那段热尾（本轮尚未落盘的行）按**行身份**接回页尾；页尾接上
+// 了热尾时窗口右界就是内存窗口的右界（内存窗口贴着有效尾），否则右界是可见总数
+// （窗口右界 = 已发布的最新一条可见行）。
+//
+// 两个右界都在可见空间里，读回面多出来的内部标记行不会让窗口「永远差几格」。
+// 可见总数落后于磁盘已发布的可见行（同一会话由单一视图台账维护，正常不会发生）
+// 时这里给出的是下界：窗口里仍是真实的最新一行，只有起点偏保守。
+func replaceVisibleTail(pageRows, memoryRows []Message, memoryStart, memoryTotal, window int) ([]Message, int) {
+	rows := append([]Message(nil), pageRows...)
+	end := memoryTotal
+	if at := indexOfSameRow(memoryRows, lastRow(rows)); at >= 0 {
+		rows = append(rows, memoryRows[at+1:]...)
+		end = memoryStart + len(memoryRows)
+	}
+	rows = view_state.BoundConversationTail(rows, window)
+	visible := len(durableConversationRows(rows))
+	if visible == 0 {
+		return nil, memoryStart
+	}
+	start := end - visible
+	if start < 0 {
+		start = 0
+	}
+	return rows, start
+}
+
+// prependVisibleHistory 组装「加载更早」的窗口：页里接缝（窗口首行）之前的可见行
+// 前置到窗口头部，窗口整体后退一页（不改总数——总数是可见空间里所有已可见行）。
+//
+// 接缝对不上（窗口首行不在页里、或它前面没有可见行）时返回空：宁可窗口原地不动，
+// 也不在列表中间留一段谁都没有的下标区间。窗口为空（没有对位锚）时没有「连续」
+// 可言：这一页就是窗口之前的一段，按调用方给的可见下标推定位置。
+func prependVisibleHistory(pageRows, memoryRows []Message, memoryStart, window int) ([]Message, int) {
+	if len(pageRows) == 0 {
+		return nil, memoryStart
+	}
+	if len(memoryRows) == 0 {
+		rows := view_state.BoundConversationTail(append([]Message(nil), pageRows...), window)
+		start := memoryStart - len(durableConversationRows(rows))
+		if start < 0 {
+			start = 0
+		}
+		return rows, start
+	}
+	seam := indexOfSameRow(pageRows, memoryRows[0])
+	if seam <= 0 {
+		return nil, memoryStart
+	}
+	earlier := append([]Message(nil), pageRows[:seam]...)
+	if len(earlier) > window {
+		earlier = earlier[len(earlier)-window:]
+	}
+	rows := view_state.BoundConversationHead(append(earlier, memoryRows...), window)
+	start := memoryStart - len(earlier)
+	if start < 0 {
+		start = 0
+	}
+	return rows, start
+}
+
+// visibleWindowFirstRow 返回目标会话可见窗口的首条 durable 行——前置一页要接在它
+// 前面，所以它是「更早一页」的接缝对位锚（窗口为空时返回零值行：没有对位锚）。
+func (service *Service) visibleWindowFirstRow(sessionID string) Message {
+	var first Message
+	service.components.view.SessionViewReadLocked(sessionID, func(view *session.View) {
+		rows := durableConversationRows(view.Conversation)
+		if len(rows) > 0 {
+			first = rows[0]
+		}
+	})
+	return first
+}
+
+// hasRowIdentity 报告一行是否带得出身份（空行无法对位）。
+func hasRowIdentity(message Message) bool {
+	return message.ID != "" || message.Content != "" || message.ReasoningContent != "" || message.Tool != nil
+}
+
+// sameByContent 按「角色 + 正文 + 思考」对位（没有稳定消息 ID 的行只能这样认）；
+// 空行（占位 assistant、只有工具调用的 tool 行）不参与内容对位——两条空占位长得
+// 一模一样，认错就把接缝挪了位：工具行按调用 ID 对位，其余空行一律不对位。
+func sameByContent(left, right Message) bool {
+	if left.Role != right.Role {
+		return false
+	}
+	if left.Content != "" || left.ReasoningContent != "" {
+		return left.Content == right.Content && left.ReasoningContent == right.ReasoningContent
+	}
+	if left.Tool != nil && right.Tool != nil {
+		return left.Tool.ID != "" && left.Tool.ID == right.Tool.ID
+	}
+	return false
+}
+
+// indexOfSameRow 返回 rows 里第一条与 want 同身份的行下标（-1 = 没找到）。先按
+// 消息 ID 认（同一条消息在内存窗口与磁盘行里同 ID，最稳）；ID 认不出来再退回内容
+// 对位——旧格式 provider 历史行没有稳定 ID（每次读回都由调用方重新派号），只有
+// 「角色 + 正文 + 思考」可比。
+func indexOfSameRow(rows []Message, want Message) int {
+	if want.ID != "" {
+		for index := range rows {
+			if rows[index].ID == want.ID {
+				return index
+			}
+		}
+	}
+	for index := range rows {
+		if sameByContent(rows[index], want) {
+			return index
+		}
+	}
+	return -1
+}
+
+// containsSameRow 报告 rows 里有没有与 want 同身份的行。
+func containsSameRow(rows []Message, want Message) bool {
+	return indexOfSameRow(rows, want) >= 0
+}
+
+// lastRow 返回最后一行（空序列返回零值行：与任何行都不是同一条）。
+func lastRow(rows []Message) Message {
+	if len(rows) == 0 {
+		return Message{}
+	}
+	return rows[len(rows)-1]
 }
 
 // durableConversationRows 取出可见窗口里参与历史游标的行（system 引导行不占

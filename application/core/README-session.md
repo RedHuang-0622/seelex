@@ -6,7 +6,7 @@
 
 覆盖：`session*.go` + 显式名单（见生成器 `ROOT_GROUPS`）；未归属文件由覆盖自检拦下。
 
-## 历史分页契约（2026-09-11 / 2026-09-25）
+## 历史分页契约（2026-09-11 / 2026-09-25 / 2026-09-29）
 
 `LoadMoreHistory` / `LoadLatestHistory` 是 GUI 顶部 sentinel 与历史栏的应用
 边界，语义收口如下：
@@ -32,20 +32,24 @@
    （`decodePublishedRows`）。所以「内存已可见总数 > 磁盘已发布数」在运行中的
    会话里是常态，差额就是本轮尚未落盘的行。
 7. `installVisibleHistory`（三条加载方向入口的唯一安装点）据此守三条：已可见
-   总数不因冷读倒退（取磁盘与内存的较大值，否则前端「下方还有 N 条」被抹平，
-   且一个并不贴尾的窗口会被 append 路径判成贴尾，下一条消息插进列表中间形成
-   断层）；窗口起点由**实际装进去的行**推出，不接受调用方估计值；磁盘页与内存
-   窗口之间有空洞时不假装连续（宁可窗口短一页，冷读一页为空时保持原窗口）。
+   总数以**会话可见投影**为准（冷加载基线 + 追加路径共同维护），只增不减，窗口
+   不得越过总数；磁盘的未过滤总数只回答「这一页读到发布点了吗」，不参与总数——
+   它多算的正是内部标记行（「窗口永远差几格够不到尾」就是它造成的）；窗口位置由
+   **行身份**（接缝）推出——前置页接在窗口首行之前、尾页把窗口里发布点之后的热尾
+   接回页尾；接缝对不上（窗口首行不在磁盘上）时不假装连续，宁可窗口原地不动。
 8. **热读短路**：内存窗口已经贴着有效尾时 `LoadLatestHistory` 直接返回——它
    已经在最新处，再冷读只会换上更旧的已发布一页。这条短路就是「加载着加载着
    只剩冷加载内容、尾部没了，一出工具结果又像是恢复了正常」的修复点。
-9. 尾部窗口读先探已发布总数、再按总数定位起点（`loadConversationTailPage`，与
-   `session_runtime.LoadHistoryTailWindow` 同一形状）；尚未落盘又已滑出窗口的
-   行要等这次提交后才能回读（有界滑动窗口的固有语义）。
+9. 尾部窗口读先探发布点、再向左**扩读**补齐一窗可见行（`loadConversationTailPage`）：
+    尾段整段是内部标记行时（回合收尾刚落 checkpoint）不再拿到空页；「加载更早」
+    同理按可见下标起读、几何扩读直到接缝（窗口首行）出现。尚未落盘又已滑出窗口
+    的行要等这次提交后才能回读（有界滑动窗口的固有语义）。
 10. 复现与回归：`session_history_pagination_test.go`（分页态随会话走）+
     `session_history_hot_tail_test.go`（在飞尾部不被冷读抹掉、总数不倒退、
     offset 与内容对齐）+ `session_history_browsing_submit_repro_test.go`
-    （回看期间提交的用户行必须回到窗口，「输入被吞」的复现）。
+    （回看期间提交的用户行必须回到窗口，「输入被吞」的复现）+
+    `session_history_coldload_latest_repro_test.go`（冷加载后「回到最新」必须
+    贴尾，尾窗整段被内部行占掉时同样必须贴尾）。
 
 ## 提交归属：草稿与运行中会话（2026-09-20）
 
@@ -230,6 +234,24 @@
 - `func concurrentTranscriptText(events []TranscriptEvent) string` — concurrentTranscriptText 把 transcript 拼成可搜索文本（角色 + 正文 + 调用 ID）。
 - `func concurrentViewText(service *Service, sessionID string) string` — concurrentViewText 返回指定会话可见视图的全部消息文本（用户 + assistant +
 
+### session_cross_session_cold_load_repro_test.go
+
+- `func (sessions *gatedColdSessions) releaseNow()`
+- `func (sessions *gatedColdSessions) LoadHistory(sessionID string) ([]EngineMessage, error)`
+- `func (sessions *gatedColdSessions) LoadHistoryRange(sessionID string, offset, limit int) ([]EngineMessage, int, error)`
+- `func (sessions *gatedColdSessions) gate(sessionID string)`
+- `func newGatedColdSessions() *gatedColdSessions`
+- `func (runtime *scopeSpyRuntime) SwitchSessionTasks(sessionID string, records []dto.TaskRecord)`
+- `func (runtime *scopeSpyRuntime) ClearSubagentTree() error`
+- `func (runtime *scopeSpyRuntime) snapshot() (string, []string, int)`
+- `func callerStacks() string` — callerStacks 抓取全部 goroutine 栈（阻塞现场证据）。
+- `func transitionLockFrames(stacks string) string` — transitionLockFrames 从栈里挑出与过渡锁/冷加载相关的帧（截断输出用）。
+- `func waitRestoringCleared(t *testing.T, service *Service, sessionID string)` — waitRestoringCleared 等目标会话的后台冷加载走完（restoring 清除）。冷加载
+- `func releaseEngineSession(engine *multiSessionEngine, sessionID string)` — releaseEngineSession 释放测试引擎的会话回合门闩（幂等；会话从未运行过时
+- `func drainColdLoadFixture(t *testing.T, service *Service, engine *multiSessionEngine, sessions *gatedColdSessions)` — drainColdLoadFixture 释放冷加载门闩与引擎门闸，把现场收干净后在调用方报告
+- `func TestReproColdLoadBlocksAnotherSessionSubmit(t *testing.T)` — TestReproColdLoadBlocksAnotherSessionSubmit：A 冷加载（历史装载中）时，
+- `func TestReproColdLoadStealsSharedRuntimeScopeFromRunningSession(t *testing.T)` — TestReproColdLoadStealsSharedRuntimeScopeFromRunningSession：B 在飞（引擎
+
 ### session_ctx.go
 
 - `func withSessionID(ctx context.Context, sessionID string) context.Context` — withSessionID 把会话 ID 注入 ctx（runChat 执行路径）。Seele ReActLoop 会
@@ -336,8 +358,7 @@
 ### session_history.go
 
 - `func (service *Service) resumeSession(sessionID string) error` — resumeSession 是会话切换的应用边界：目标已驻留（含运行中）热加载；目标
-- `func (service *Service) rollbackSyncResumeFailure(sessionID, previousID string)` — rollbackSyncResumeFailure 在同步冷加载失败后恢复视图一致性（调用方持视图
-- `func (service *Service) bumpViewEpoch()` — bumpViewEpoch 推进视图切换序号（任何新的视图激活都推进；后台冷加载完成
+- `func (service *Service) bumpViewEpoch()` — bumpViewEpoch 推进视图切换序号（任何新的视图激活都推进；冷加载完成时只有
 - `func (service *Service) beginAsyncRestore(sessionID string) (uint64, error)` — beginAsyncRestore 激活目标会话的 restoring 空壳：视图指针立即切到目标，
 - `func (service *Service) resumeSessionColdInBackground(sessionID, previousID string, epoch uint64)` — resumeSessionColdInBackground 后台执行冷加载：完成/失败后按 epoch 判定
 - `func (service *Service) handleColdRestoreFailure(sessionID, previousID string, epoch uint64, cause error)` — handleColdRestoreFailure 后台冷加载失败的降级：用户若仍停留在失败的恢复
@@ -360,6 +381,15 @@
 - `func TestReproSubmitWhileBrowsingKeepsUserRowInWindow(t *testing.T)` — TestReproSubmitWhileBrowsingKeepsUserRowInWindow 回看历史时提交一轮对话，
 - `func TestReproSubmitWhileBrowsingEndsBrowsingState(t *testing.T)` — TestReproSubmitWhileBrowsingEndsBrowsingState 提交之后会话不得再被判成
 - `func containsContent(contents []string, want string) bool`
+
+### session_history_coldload_latest_repro_test.go
+
+- `func internalCheckpointRow(index int) Message` — internalCheckpointRow 造一条**已落盘**的内部行（上下文 checkpoint 标记）。
+- `func seedDurableRows(store *pagedSessionStore, visible, trailingInternal int)` — seedDurableRows 铺一整份**已发布**行：visible 条 durable-N + trailingInternal
+- `func coldLoadLongSession(t *testing.T, trailingInternal int) (*Service, *pagedSessionStore)` — coldLoadLongSession 冷加载一个「durable 20 条 + 末尾内部行」的长会话（窗口 6），
+- `func assertWindowAtTail(t *testing.T, service *Service, label string)` — assertWindowAtTail 断言「回到最新」之后的三件事：窗口贴尾（前端
+- `func TestReproColdLoadThenReturnToLatestReachesTail(t *testing.T)` — TestReproColdLoadThenReturnToLatestReachesTail 红灯 1：冷加载后翻一页再点
+- `func TestReproColdLoadReturnToLatestWhenTailWindowIsInternalRows(t *testing.T)` — TestReproColdLoadReturnToLatestWhenTailWindowIsInternalRows 红灯 2：尾窗那一段
 
 ### session_history_hot_tail_test.go
 
@@ -732,7 +762,7 @@
 - `func (sessions *gatedHistorySessions) LoadHistory(sessionID string) ([]EngineMessage, error)`
 - `func (sessions *gatedHistorySessions) LoadHistoryRange(sessionID string, offset, limit int) ([]EngineMessage, int, error)`
 - `func (sessions *gatedHistorySessions) gateEnabled(sessionID string) bool`
-- `func TestSwitchDuringColdLoadSerializes(t *testing.T)` — TestSwitchDuringColdLoadSerializes 复现：会话 A 处于冷加载（历史装载被
+- `func TestSwitchDuringColdLoadSerializes(t *testing.T)` — TestSwitchDuringColdLoadSerializes 度量「冷加载占不占视图过渡 key」这条契约。
 - `func TestBeginNewSessionSingleDraftOwner(t *testing.T)` — TestBeginNewSessionSingleDraftOwner 复现/钉住“新建会话”的幂等与责任链：
 
 ### session_switch_running_cold_test.go

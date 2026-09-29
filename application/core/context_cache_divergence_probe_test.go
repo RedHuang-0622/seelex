@@ -137,8 +137,16 @@ func (h *prefixProbeHarness) startStream() {
 // 可见消息占位（startChatFor）→ transcript user 事件 → PrepareExecutionContextFor
 // 装配 → 循环把当前输入作为最后一条 user 消息追加进工作历史
 // （Seele loop.go: `rl.history = append(rl.history, types.Message{Role:"user", ...})`）。
+//
+// 流按**每轮一个**重建：生产每次 runChat 都 `SetStream(NewVisibleOutputStream(
+// requestID))`（chat.go:90/355/691/709），一个流只属于一次请求；本探针此前只建一次、
+// 三代轮次共用（当时没有任何读路径读流内容，无差别），而工具轮说明正文的归位现在会在
+// 回看态下读这份请求作用域的流缓冲（application/core/chat.go 的
+// streamedAssistantTextLocked）——夹具必须与生产同形，否则第二轮读到的会是上一轮的
+// 正文（跨轮漂移）。断言（每个工具轮事件只承载自己那次迭代的正文）不因此放宽。
 func (h *prefixProbeHarness) beginTurn(input string) {
 	h.t.Helper()
+	h.startStream()
 	h.service.ViewMu.Lock()
 	h.service.appendMessageLocked("user", input, nil)
 	h.service.appendMessageLocked("assistant", "", nil)

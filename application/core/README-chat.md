@@ -39,16 +39,33 @@
 - `func (service *Service) consumeVisibleChunkBackground(sessionID, requestID, chunk string) string` — consumeVisibleChunkBackground 后台会话的流式消费：仅触碰该会话单元自身的
 - `func (service *Service) appendVisibleDelta(requestID, chunk string)`
 - `func (service *Service) appendVisibleDeltaBackground(sessionID, requestID, chunk string)` — appendVisibleDeltaBackground 后台会话的流式增量：仅 View.mu + 会话本地
-- `func (service *Service) attachLatestReasoning(sessionID, requestID string)` — attachLatestReasoning 在聊天回合结束后，把引擎历史中最后一次 assistant
-- `func (service *Service) streamedAssistantTextLocked(sessionID string) string` — streamedAssistantTextLocked 返回会话可见投影里本轮的 assistant 正文累积
+- `func (service *Service) attachLatestReasoning(sessionID, requestID string)` — attachLatestReasoning 在聊天回合结束后，把引擎历史里**每个 assistant 步骤**
+- `func reasoningStepsFromHistory(history []EngineMessage) []stepReasoning` — reasoningStepsFromHistory 按出现顺序取出引擎历史里带推理的 assistant 步骤。
+- `func lastReasoningFromHistory(history []EngineMessage) string` — lastReasoningFromHistory 返回引擎历史里最后一条 assistant 推理（老口径）。
+- `func attachStepReasoningLocked(view *session.View, steps []stepReasoning) []MessageDelta` — attachStepReasoningLocked 给可见窗口里每个 assistant 步骤挂上**它自己**的推理
+- `func visibleStepCallIDs(conversation []Message, index int) map[string]bool` — visibleStepCallIDs 返回可见窗口里第 index 条 assistant 步骤声明的工具调用 ID
+- `func takeReasoningStep(steps []stepReasoning, content string, ids map[string]bool) int` — takeReasoningStep 取第一个与 (content, ids) 匹配的步骤下标（-1 = 没有），
+- `func attachLastReasoningLocked(view *session.View, reasoning string) (MessageDelta, bool)` — attachLastReasoningLocked 是没有任何步骤配上时的老口径兜底：把推理挂到窗口
+- `func (service *Service) streamedAssistantTextLocked(sessionID string) string` — streamedAssistantTextLocked 返回会话本轮的可见 assistant 正文累积
+- `func (service *Service) streamedRequestTextLocked(sessionID string) string` — streamedRequestTextLocked 返回会话当前请求已累积的可见流式正文（会话单元无
 - `func (service *Service) appendHistoryLocked(history []EngineMessage)`
 - `func (service *Service) appendHistoryLockedFor(sessionID string, history []EngineMessage)` — appendHistoryLockedFor 把引擎历史追加为指定会话的可见消息（冷加载无
+
+### chat_cold_load_narration_repro_test.go
+
+- `func (s *coldNarrationStore) SaveSessionRecordWorkspace(_, _ string, record SessionRecord) error`
+- `func (s *coldNarrationStore) LoadSessionRecordWorkspace(workspaceID, sessionID string) (SessionRecord, error)`
+- `func TestColdLoadKeepsToolWheelNarration(t *testing.T)`
 
 ### chat_delegation_test.go
 
 - `func (engine *singleLoopEngine) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error)`
 - `func (engine *singleLoopEngine) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error)` — ChatStreamFor 显式转发到自身 ChatStream（会话路由面下仍单次提交）。
 - `func TestLoopDelegatedToSeele(t *testing.T)` — TestLoopDelegatedToSeele（UC6）：core 无自编 ReAct 循环——一次提交只
+
+### chat_hot_attach_reasoning_repro_test.go
+
+- `func TestHotMountKeepsStepReasoningInVisibleWindow(t *testing.T)`
 
 ### chat_state_event_test.go
 

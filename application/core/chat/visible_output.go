@@ -9,6 +9,10 @@ type VisibleOutputStream struct {
 	requestID string
 	inThink   bool
 	pending   string
+	// text 累积本请求截至当前的可见正文（think 块已剥离）。回看历史（可见窗口
+	// 未贴尾）时流式增量按设计不进窗口，工具轮说明正文的按迭代归位只能从这里读
+	// （见 application/core/chat.go 的 streamedAssistantTextLocked）。
+	text strings.Builder
 }
 
 func NewVisibleOutputStream(requestID string) *VisibleOutputStream {
@@ -23,7 +27,24 @@ func (stream *VisibleOutputStream) RequestID() string {
 	return stream.requestID
 }
 
+// Text 返回本请求已累积的可见正文（空串 = 还没有可见正文）。
+func (stream *VisibleOutputStream) Text() string {
+	if stream == nil {
+		return ""
+	}
+	return stream.text.String()
+}
+
 func (stream *VisibleOutputStream) Consume(chunk string) string {
+	visible := stream.filter(chunk)
+	if visible != "" {
+		stream.text.WriteString(visible)
+	}
+	return visible
+}
+
+// filter 是 think 块过滤本体：返回本分片里真正可见的正文。
+func (stream *VisibleOutputStream) filter(chunk string) string {
 	input := stream.pending + chunk
 	stream.pending = ""
 	var visible strings.Builder

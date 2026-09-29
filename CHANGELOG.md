@@ -118,6 +118,72 @@ version when it lands.
   order. Measured in the same headless scene: `display: grid` / text rect left 460 == box left 460
   before, `display: flex` / text left 542 > box right 528 after.
 
+- **Cold-loading one session no longer blocks (or hijacks) another.** The loader used to run its whole
+  body — three disk reads, wire assembly, engine restore, queue refill — while holding the *view
+  transition key*, and on the desktop host that key is process-wide (`seelebridge/runtime.go:718`
+  `PerSessionExecution()==false` makes `transitionForSession` fall back to `transitionForKey("")`), so
+  "A is cold-loading" meant "every other session's resume/submit queues behind A's disk I/O" — the
+  user's "one session triggers a cold load and another one breaks". On top of that, a *background* load
+  that no longer owned the view (`mayActivate=false`, the view having been switched back to a running
+  session) still rewrote **process-level** execution state: `SwitchSessionTasks` repointed the live task
+  registry at the cold session and `ClearSubagentTree` wiped the whole subagent tree (the GUI's "clear"
+  entry point). `resumeSession` is now four stages — decide intent, activate the restoring shell, load,
+  publish by epoch — and holds the key only for the first and the last: the shell is activated, the key
+  is released, and the load finishes outside it (idle callers still block on the load, so
+  "ResumeSession returned ⇒ target loaded, and a failure rolls the view back" survives; a running
+  session returns immediately with the load in the background). The process-level swap
+  (`SwitchSessionTasks`/`ClearSubagentTree`/`RestoreSubagentAnchors`) moved inside `if mayActivate`, so a
+  load that does not end up owning the view only settles the target's own state (engine residency,
+  visible projection, task slot). `rollbackSyncResumeFailure` disappeared with the sync-only branch (its
+  rollback lives in `handleColdRestoreFailure`), and the pin that *measured* the old serialization,
+  `TestSwitchDuringColdLoadSerializes`, flips with the contract: it now fails if switching to B waits for
+  A's load, and still requires A to settle after its gate opens. Pinned by the new
+  `application/core/session_cross_session_cold_load_repro_test.go`
+  (`TestReproColdLoadBlocksAnotherSessionSubmit` — the goroutine stack showed
+  `SubmitToSession → ActivateSession → resumeSession` queued in `transition_manager.go:53`;
+  `TestReproColdLoadStealsSharedRuntimeScopeFromRunningSession` — the registry owner came out as
+  `sess-cold` and `ClearSubagentTree` was called once, both wanted 0). See
+  `docs/devlog/2026-09-29-cold-load-no-longer-blocks-other-sessions.md`.
+
+- **Attaching to a resident session now brings every step's thinking, not just the last one's.** The
+  visible window's reasoning had exactly one writer: `attachLatestReasoning` at the end of a turn, and it
+  took the *last* reasoning in the engine history and attached it to the *last* assistant message. A turn
+  whose process consists of several assistant steps (one per tool round) therefore showed empty thinking
+  for every step but the final answer, and a hot attach swaps only the view pointer
+  (`session_lifecycle.go:18-24`) — the in-memory window is the only source, so those steps stayed empty
+  until the session was cold-loaded (where the per-step `BackfillAssistantReasoning` had already put each
+  step's reasoning into the durable rows). `attachLatestReasoning` now pairs each reasoning-bearing
+  assistant step in the engine history with its counterpart in the visible window using the very same
+  identity the persistence backfill uses (tool-call ID set + normalized content, consumed in order),
+  attaches each one to its own message and publishes one `message.delta` per message actually written;
+  when nothing pairs it falls back to the old single-attach behaviour unchanged. Pinned by
+  `application/core/chat_hot_attach_reasoning_repro_test.go` (`TestHotMountKeepsStepReasoningInVisibleWindow`:
+  `["" "" "综合结果"]` before, `["先列目录" "再看文件" "综合结果"]` after) plus the untouched
+  `reasoning_visible_test.go`.
+
+- **A tool round's narration is no longer lost while the session is scrolled back — so a cold load can
+  still show what the model said between tools.** A tool round's narration exists nowhere on the provider
+  wire (Seele's `session/loop.go` sends `Content: nil` when a reply carries tool calls); the only place it
+  is persisted is the tool-hook boundary's per-iteration attribution
+  (`handleToolStart → task_context.AttributeToolNarrationLocked`), whose input,
+  `streamedAssistantTextLocked`, read the *last non-tool assistant message of the visible window*. In
+  browsing state (window not at the tail) `appendVisibleDelta` deliberately does not land deltas in the
+  window, so that read returned **another round's** text (measured: the previous turn's `durable-15`
+  written into this round's tool event) or nothing at all — the durable row therefore had no narration,
+  and a cold load showed no mid-process text. It now prefers the request-scoped stream buffer
+  (`chat.VisibleOutputStream` accumulates the think-stripped visible text and exposes `Text()`), falling
+  back to the window when there is no stream buffer (unchanged semantics when streaming at the tail and
+  for non-streaming providers), and still returns empty rather than attributing another round's text. The
+  AB probe's harness had been reusing one stream across three turns — harmless while nothing read the
+  stream — and is now corrected to production's per-request stream
+  (`SetStream(NewVisibleOutputStream(requestID))` at every `beginTurn`, matching `chat.go:90/355/691/709`),
+  with every assertion (no cross-turn drift) kept as-is. Pinned by
+  `application/core/chat_cold_load_narration_repro_test.go` (`TestColdLoadKeepsToolWheelNarration`: the
+  tool event's content read `durable-15` before and the round's own narration after, and that narration is
+  present in a freshly resumed service's visible conversation) plus
+  `TestStrategyAB_NarrationAttributionAcrossTurns` and `TestToolNarrationStaysWithOwningIteration`. See
+  `docs/devlog/2026-09-29-visible-process-traces-hot-and-cold.md`.
+
 - **A session stopped writing one compaction record per turn.** Folding trims only the transcript
   side, while assembly closes the **whole request** onto the retained-window landing point, so when
   that landing point still sits above the soft line the fold buys nothing: the next round crosses the
@@ -144,6 +210,33 @@ version when it lands.
   turns must land **no** record, `compactionRecords` stays 0 — red before the fix with a 132,779-token
   fold against a 100,084 soft line) plus the untouched `context_budget_frequency_test.go`. See
   `docs/devlog/2026-09-29-compaction-idempotency-margin.md`.
+
+- **"Return to latest" no longer stops a few rows short of the tail, and a tail window made of internal rows
+  is no longer an empty page.** The cold-read face derives conversation rows straight from `message` rows, so
+  internal markers (context checkpoints) count as rows and the counts/indices it returns live in an
+  **unfiltered** space, while the visible session (`Conversation` / `HistoryOffset` / `TotalMessages`) lives in
+  a **visible** space that drops those markers. The install path mixed the two: it took `max(diskTotal,
+  memoryTotal)` as the visible total (the disk side is the unfiltered one) and derived the window start from
+  `pageStart + len(page.rows)` in the same mix, so every internal row inside the tail window moved the window's
+  right edge one cell short. The frontend's `historyWindowed` (`offset + visible < total`) then stayed true
+  forever - `protocol.js`'s reducer dropped `message.added` (the user "never sees the newest content") and
+  `SessionViewBrowsingHistoryLocked` kept skipping streaming deltas, reasoning attach and tool-result
+  write-back - and when the tail window was entirely internal rows the page came back empty and the window
+  never moved at all. `conversationPage` now carries both spaces explicitly (`rows` filtered;
+  `rawRows`/`diskTotal`/`start` raw) and the raw total only answers "did this page reach the publish point".
+  The tail read over-reads leftwards until it has a full window of visible rows (or hits the start of the
+  sequence), `LoadMoreHistory` over-reads until the seam (the window's first row) appears in the page, and the
+  install aligns by **row identity** (message ID first, then role + content + reasoning - legacy provider rows
+  have no stable ID) instead of by arithmetic: the replace path splices the memory window's post-publish-point
+  hot tail back on and takes the window's right edge from the memory window (or from the visible total when
+  there is no hot tail), the prepend path moves the window back to exactly the rows in front of the seam, and a
+  seam that cannot be matched leaves the window where it is instead of faking continuity. Pinned by the new
+  `application/core/session_history_coldload_latest_repro_test.go`
+  (`TestReproColdLoadThenReturnToLatestReachesTail` and
+  `TestReproColdLoadReturnToLatestWhenTailWindowIsInternalRows`: red before with `offset=15 visible=5 total=21`
+  and `offset=8 visible=6 total=26`), with `session_history_pagination_test.go`,
+  `session_history_hot_tail_test.go`, `session_history_browsing_submit_repro_test.go`, `content_lru_test.go`
+  and `service_test.go` untouched. See `docs/devlog/2026-09-29-history-paging-visible-space.md`.
 
 ### Changed
 

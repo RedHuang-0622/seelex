@@ -90,7 +90,9 @@ Service 集成用例。
 
 - `func NewVisibleOutputStream(requestID string) *VisibleOutputStream`
 - `func (stream *VisibleOutputStream) RequestID() string` — RequestID 返回该输出流绑定的请求 ID（跨包只读访问）。
+- `func (stream *VisibleOutputStream) Text() string` — Text 返回本请求已累积的可见正文（空串 = 还没有可见正文）。
 - `func (stream *VisibleOutputStream) Consume(chunk string) string`
+- `func (stream *VisibleOutputStream) filter(chunk string) string` — filter 是 think 块过滤本体：返回本分片里真正可见的正文。
 - `func StripThoughtBlocks(value string) string`
 - `func trailingTagPrefix(value, tag string) string`
 

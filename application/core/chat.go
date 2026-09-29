@@ -799,20 +799,24 @@ func (service *Service) appendVisibleDeltaBackground(sessionID, requestID, chunk
 	service.publishSessionEvent(EventMessageDelta, revision, requestID, sessionID, MessageDelta{MessageID: messageID, Delta: chunk})
 }
 
-// attachLatestReasoning 在聊天回合结束后，把引擎历史中最后一次 assistant
-// 的推理内容挂到可见 assistant 消息（ReasoningContent 字段）。推理内容与
-// content 分离：聊天区一行带过，轨迹区完整查看；不写入 content，避免与
-// 可见回复混排。找不到目标消息或内容未变化时静默返回。
+// attachLatestReasoning 在聊天回合结束后，把引擎历史里**每个 assistant 步骤**
+// 的推理内容挂到可见窗口里与之对应的那条 assistant 消息（ReasoningContent
+// 字段）。推理内容与 content 分离：聊天区一行带过，轨迹区完整查看；不写入
+// content，避免与可见回复混排。
+//
+// 为什么必须按步骤挂：一个回合的「过程」由多次助手步骤组成（工具轮之间各一条），
+// 落盘回填（task_context.BackfillAssistantReasoning）给每个步骤都补了推理、
+// durable rows 因此每个步骤都带 reasoning；而热挂载只换视图指针、不重建正文
+// （session_lifecycle.go hotAttachSession），可见窗口是唯一来源——只挂最后
+// 一次会让工具轮的思考过程在热挂载后消失（冷加载/分页回读看得到，热路径看不到）。
+//
+// 配对口径与落盘回填一致（工具调用 ID 集合 + 归一化正文，逐条顺序消费）；一条
+// 都配不上时退回老口径（最后一条推理挂窗口最后一条 assistant 消息），既有语义
+// 与"已有推理不覆盖"的保守策略都保留。
 func (service *Service) attachLatestReasoning(sessionID, requestID string) {
 	history := service.engineHistoryFor(sessionID)
-	reasoning := ""
-	for index := len(history) - 1; index >= 0; index-- {
-		if history[index].Role == "assistant" && history[index].ReasoningContent != "" {
-			reasoning = history[index].ReasoningContent
-			break
-		}
-	}
-	if reasoning == "" {
+	steps := reasoningStepsFromHistory(history)
+	if len(steps) == 0 {
 		return
 	}
 	service.ViewMu.Lock()
@@ -821,46 +825,177 @@ func (service *Service) attachLatestReasoning(sessionID, requestID string) {
 		service.ViewMu.Unlock()
 		return
 	}
-	messageID := ""
-	alreadyAttached := false
+	var attached []MessageDelta
 	// G5 访问器化：经 View.mu 读写可见消息（Mutate 内完成查找+写入，
 	// 避免 ViewMu 下的裸字段穿越）。
 	service.components.view.SessionViewMutateLocked(sessionID, func(view *session.View) {
-		for index := len(view.Conversation) - 1; index >= 0; index-- {
-			if view.Conversation[index].Role != "assistant" || view.Conversation[index].Tool != nil {
-				continue
-			}
-			if view.Conversation[index].ReasoningContent == reasoning {
-				alreadyAttached = true
-				return
-			}
-			view.Conversation[index].ReasoningContent = reasoning
-			messageID = view.Conversation[index].ID
+		attached = attachStepReasoningLocked(view, steps)
+		if len(attached) > 0 {
 			return
 		}
+		if delta, ok := attachLastReasoningLocked(view, lastReasoningFromHistory(history)); ok {
+			attached = append(attached, delta)
+		}
 	})
-	if !alreadyAttached && messageID != "" {
-		service.mirrorActiveViewLocked()
-		revision := service.bumpLocked()
+	if len(attached) == 0 {
 		service.ViewMu.Unlock()
-		service.publishSessionEvent(EventMessageDelta, revision, requestID, sessionID, MessageDelta{
-			MessageID:        messageID,
-			ReasoningContent: reasoning,
-		})
 		return
 	}
+	service.mirrorActiveViewLocked()
+	revision := service.bumpLocked()
 	service.ViewMu.Unlock()
+	for _, delta := range attached {
+		if delta.MessageID == "" {
+			continue
+		}
+		service.publishSessionEvent(EventMessageDelta, revision, requestID, sessionID, delta)
+	}
 }
 
-// streamedAssistantTextLocked 返回会话可见投影里本轮的 assistant 正文累积
-// （= 本次请求截至当前的可见流式正文）。流式增量按 appendVisibleDelta 的同一
-// 规则落在"最后一条非工具 assistant 消息"上（每轮在回合开头已有占位消息）；
-// 工具轮说明正文的**按迭代归位**以它为基准
-// （见 task_context.AttributeToolNarrationLocked）。调用方持有 Core.ViewMu
-// （工具钩子边界）。
+// stepReasoning 是引擎历史里一个 assistant 步骤的推理及其配对身份。
+type stepReasoning struct {
+	content   string
+	callIDs   map[string]bool
+	reasoning string
+}
+
+// reasoningStepsFromHistory 按出现顺序取出引擎历史里带推理的 assistant 步骤。
+func reasoningStepsFromHistory(history []EngineMessage) []stepReasoning {
+	steps := make([]stepReasoning, 0, len(history))
+	for _, message := range history {
+		if message.Role != "assistant" || strings.TrimSpace(message.ReasoningContent) == "" {
+			continue
+		}
+		step := stepReasoning{
+			content:   strings.TrimSpace(message.Content),
+			reasoning: message.ReasoningContent,
+			callIDs:   make(map[string]bool, len(message.ToolCalls)),
+		}
+		for _, call := range message.ToolCalls {
+			step.callIDs[call.ID] = true
+		}
+		steps = append(steps, step)
+	}
+	return steps
+}
+
+// lastReasoningFromHistory 返回引擎历史里最后一条 assistant 推理（老口径）。
+func lastReasoningFromHistory(history []EngineMessage) string {
+	for index := len(history) - 1; index >= 0; index-- {
+		if history[index].Role == "assistant" && history[index].ReasoningContent != "" {
+			return history[index].ReasoningContent
+		}
+	}
+	return ""
+}
+
+// attachStepReasoningLocked 给可见窗口里每个 assistant 步骤挂上**它自己**的推理
+// （配对口径与落盘回填一致：工具调用 ID 集合 + 归一化正文，顺序消费）。
+// 返回本次真正写入的 delta（MessageID + reasoning）。已有推理的消息不覆盖。
+func attachStepReasoningLocked(view *session.View, steps []stepReasoning) []MessageDelta {
+	var attached []MessageDelta
+	for index := range view.Conversation {
+		message := &view.Conversation[index]
+		if message.Role != "assistant" || message.Tool != nil || message.ReasoningContent != "" {
+			continue
+		}
+		match := takeReasoningStep(steps, message.Content, visibleStepCallIDs(view.Conversation, index))
+		if match < 0 {
+			continue
+		}
+		step := steps[match]
+		steps = append(steps[:match], steps[match+1:]...)
+		message.ReasoningContent = step.reasoning
+		attached = append(attached, MessageDelta{MessageID: message.ID, ReasoningContent: step.reasoning})
+	}
+	return attached
+}
+
+// visibleStepCallIDs 返回可见窗口里第 index 条 assistant 步骤声明的工具调用 ID
+// 集合：实时视图把工具调用渲染成紧随其后的 role=tool 消息（Tool 自带 ID）。
+func visibleStepCallIDs(conversation []Message, index int) map[string]bool {
+	ids := map[string]bool{}
+	for next := index + 1; next < len(conversation); next++ {
+		message := conversation[next]
+		if message.Role != "tool" || message.Tool == nil {
+			break
+		}
+		ids[message.Tool.ID] = true
+	}
+	return ids
+}
+
+// takeReasoningStep 取第一个与 (content, ids) 匹配的步骤下标（-1 = 没有），
+// 口径与 task_context.findReasoningCandidate 一致。
+func takeReasoningStep(steps []stepReasoning, content string, ids map[string]bool) int {
+	trimmed := strings.TrimSpace(content)
+	for index := range steps {
+		step := steps[index]
+		if len(step.callIDs) != len(ids) {
+			continue
+		}
+		matched := true
+		for id := range ids {
+			if !step.callIDs[id] {
+				matched = false
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+		if len(ids) > 0 {
+			// 工具轮：调用 ID 已唯一确定迭代，正文差异（说明文本归位）不参与区分。
+			if step.content != "" && step.content != trimmed {
+				continue
+			}
+			return index
+		}
+		if trimmed != step.content {
+			continue
+		}
+		return index
+	}
+	return -1
+}
+
+// attachLastReasoningLocked 是没有任何步骤配上时的老口径兜底：把推理挂到窗口
+// 最后一条 assistant 消息（已有相同推理视为已挂，静默返回）。
+func attachLastReasoningLocked(view *session.View, reasoning string) (MessageDelta, bool) {
+	if reasoning == "" {
+		return MessageDelta{}, false
+	}
+	for index := len(view.Conversation) - 1; index >= 0; index-- {
+		message := &view.Conversation[index]
+		if message.Role != "assistant" || message.Tool != nil {
+			continue
+		}
+		if message.ReasoningContent == reasoning {
+			return MessageDelta{}, false
+		}
+		message.ReasoningContent = reasoning
+		return MessageDelta{MessageID: message.ID, ReasoningContent: reasoning}, true
+	}
+	return MessageDelta{}, false
+}
+
+// streamedAssistantTextLocked 返回会话本轮的可见 assistant 正文累积
+// （= 本次请求截至当前的可见流式正文）。工具轮说明正文的**按迭代归位**以它为
+// 基准（见 task_context.AttributeToolNarrationLocked）。
+//
+// 取值以**请求作用域的流缓冲**为准：回看历史（可见窗口未贴尾）时流式增量按
+// 设计不进窗口（appendVisibleDelta 早退，避免把增量挂到旧消息上），此时从可见
+// 窗口读到的是**别的轮次**的正文；而工具轮正文在框架 wire 上被丢弃（Seele
+// session/loop.go callLLM 在带 tool_calls 时构造 Content:nil 的消息），视图之外
+// 没有第二份——读错就是把本轮正文丢掉、把别的轮次正文挂到本工具轮上。
+// 无流缓冲（非流式提供方/未开始流式）时回退可见窗口，保持旧语义。
+// 调用方持有 Core.ViewMu（工具钩子边界）。
 func (service *Service) streamedAssistantTextLocked(sessionID string) string {
 	if sessionID == "" {
 		return ""
+	}
+	if text := service.streamedRequestTextLocked(sessionID); text != "" {
+		return text
 	}
 	text := ""
 	service.components.view.SessionViewReadLocked(sessionID, func(view *session.View) {
@@ -874,6 +1009,24 @@ func (service *Service) streamedAssistantTextLocked(sessionID string) string {
 		}
 	})
 	return text
+}
+
+// streamedRequestTextLocked 返回会话当前请求已累积的可见流式正文（会话单元无
+// 流缓冲、或流实现不累积正文时为空——调用方回退可见窗口）。调用方持有
+// Core.ViewMu。
+func (service *Service) streamedRequestTextLocked(sessionID string) string {
+	unit := service.sessions.Unit(sessionID)
+	if unit == nil {
+		return ""
+	}
+	stream := unit.StreamSink()
+	if stream == nil {
+		return ""
+	}
+	if texted, ok := stream.(interface{ Text() string }); ok {
+		return texted.Text()
+	}
+	return ""
 }
 
 func (service *Service) appendHistoryLocked(history []EngineMessage) {

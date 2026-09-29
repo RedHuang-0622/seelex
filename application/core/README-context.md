@@ -168,6 +168,11 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 - `func TestContextBudgetProactivelyCompactsAtHardThreshold(t *testing.T)` — TestContextBudgetProactivelyCompactsAtHardThreshold：装配结果落在硬阈值
 - `func TestContextBudgetOvershootCompactsWhenNewestExceedsFullBudget(t *testing.T)` — TestContextBudgetOvershootCompactsWhenNewestExceedsFullBudget：最新轮自身
 
+### context_budget_margin_idempotency_test.go
+
+- `func pinIneffectiveFoldRatios(t *testing.T)` — pinIneffectiveFoldRatios 把压缩比例钉成「折叠落点够不到软线」的**合法**档：
+- `func TestContextBudgetSkipsFoldWithoutMargin(t *testing.T)` — TestContextBudgetSkipsFoldWithoutMargin 钉住软线折叠的**幂等/有效性校验**：
+
 ### context_cache_divergence_probe_test.go
 
 - `func newPrefixProbeHarness(t *testing.T, window int) *prefixProbeHarness`

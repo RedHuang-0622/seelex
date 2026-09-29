@@ -102,9 +102,15 @@ func (sessions *gatedHistorySessions) gateEnabled(sessionID string) bool {
 	return true
 }
 
-// TestSwitchDuringColdLoadSerializes 复现：会话 A 处于冷加载（历史装载被
-// 门闩阻塞）时，切到 B 会等待 A 完成——当前视图过渡仍按视图 key 串行。
-// 用例用于度量该等待并防止将来出现死锁（等待应随 A 释放而收敛）。
+// TestSwitchDuringColdLoadSerializes 度量「冷加载占不占视图过渡 key」这条契约。
+//
+// 旧实现：整段冷加载（磁盘三读 / wire 装配 / 引擎恢复 / 队列回填）都在视图过渡
+// key 内跑，于是 A 冷加载期间切到 B 会一直等到 A 完成——本用例当时把这段等待
+// 记成瓶颈证据（用户现场：「一个会话激发冷加载，另一个会话就容易断掉」）。
+//
+// 现契约（2026-09-29 修复后）：冷加载先激活目标空壳、随即让出视图 key，装载在键
+// 之外完成、按 epoch 判定发布。因此这里断言**切到 B 不再等 A**；同时仍要求 A 释放
+// 装载后自身收口（不挂起、不互相干扰）。防死锁的那半句断言保留。
 func TestSwitchDuringColdLoadSerializes(t *testing.T) {
 	engine := newMultiSessionEngine()
 	now := time.Now()
@@ -160,11 +166,20 @@ func TestSwitchDuringColdLoadSerializes(t *testing.T) {
 	go func() {
 		switchDone <- service.ResumeSession("sess-b")
 	}()
+	// 预期：切到 B **不等** A 的冷加载（装载不再占视图过渡 key）。旧实现这里
+	// 必然超时（B 排队等 A），正是用户现场的「另一个会话没反应」。
+	switchCtx, cancelSwitch := context.WithTimeout(context.Background(), 2*time.Second)
+	switched := false
 	select {
 	case err := <-switchDone:
-		t.Fatalf("switch to b returned before cold load released: %v", err)
-	case <-time.After(200 * time.Millisecond):
-		// 预期：视图 key 串行，B 等待 A 冷加载完成——记录该等待为瓶颈证据。
+		cancelSwitch()
+		switched = true
+		if err != nil {
+			t.Fatalf("switch to b during cold load: %v", err)
+		}
+	case <-switchCtx.Done():
+		cancelSwitch()
+		t.Fatal("switch to b blocked on cold load（视图过渡 key 仍被整段装载占着）")
 	}
 	gated.releaseNow()
 
@@ -176,15 +191,17 @@ func TestSwitchDuringColdLoadSerializes(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("cold resume deadlocked after release")
 	}
-	select {
-	case err := <-switchDone:
-		if err != nil {
-			t.Fatalf("switch to b after cold load: %v", err)
+	if !switched {
+		select {
+		case err := <-switchDone:
+			if err != nil {
+				t.Fatalf("switch to b after cold load: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("switch to b deadlocked after cold load released")
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("switch to b deadlocked after cold load released")
 	}
-	t.Log("cold-load switch: b waits until a finishes cold load（视图 key 串行瓶颈，已收敛无死锁）")
+	t.Log("cold-load switch: b 不再等待 a 的冷加载（视图 key 不覆盖装载），且 a 释放后正常收口")
 }
 
 // TestBeginNewSessionSingleDraftOwner 复现/钉住“新建会话”的幂等与责任链：
