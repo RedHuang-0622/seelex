@@ -175,8 +175,11 @@ func (c *Coordinator) CompactTaskContext(requestID string) error {
 
 // CompactTaskContextFor 把指定会话整个可变 transcript 替换为一个私有、有界
 // 的 checkpoint（引擎迭代 hook 调用，绝不持有 Core.ViewMu）。
+//
+// 这是**维护入口**：调用目的本身就是要折出有界 checkpoint（见 prepareOptions
+// 的 maintenanceFold），因此不受自动路径的幂等校验约束。
 func (c *Coordinator) CompactTaskContextFor(sessionID, requestID string) error {
-	return c.compactTaskContextFor(sessionID, requestID, prepareOptions{})
+	return c.compactTaskContextFor(sessionID, requestID, prepareOptions{maintenanceFold: true})
 }
 
 // forceCompactTaskContextFor 是显式压缩入口（/compact、compact_context）：
@@ -445,6 +448,14 @@ type prepareOptions struct {
 	// 不设阈值前提（不再等软阈值），也不受"每个 progress epoch 只压一次"的
 	// 自动节流。显式路径的硬前提只有一条：该会话有匹配当前 request 的执行纪元。
 	forceCompact bool
+	// maintenanceFold 表示这次装配来自**维护入口**（CompactTaskContextFor：
+	// 引擎迭代 hook / 控制器驱动的折叠）——调用目的本身就是要折出一个私有、
+	// 有界的 checkpoint，而不是"为发出某一条真实请求顺带压一次"。
+	//
+	// 自动路径的幂等校验（ineffectiveFold）只对后者有意义：它防的是"每轮达峰
+	// 重压一次"（同一件事反复做、余量名义化），而维护入口的契约就是这次折叠
+	// 必须发生，跳过即违约（TestContextController* 系列钉住这一点）。
+	maintenanceFold bool
 	// decision 是出参：非 nil 时由装配过程回填压缩判据事实（见 compactDecision）。
 	decision *compactDecision
 }
@@ -551,12 +562,41 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	windowConfig := context_control.Current()
 	allContextTokens := c.tasks.CountRequestTokens("", fullContext, "", nil)
 	hardCompact := windowConfig.MustCompact(allContextTokens)
+	// 保留窗口决策（③ 的边界）提前到判据之前：它的值就是「折叠后整条请求最多能到
+	// 哪」，判据要拿它做下面的**幂等/有效性校验**。纯算术 + 一次配置读取，提前
+	// 计算不改变任何既有语义（下方折叠分支直接复用这一份，不再重算第二遍）。
+	retain := retainWindowDecision(windowConfig, allContextTokens, budget, limits.Get().ContextRetainFloorPercent)
+	// 固定开销 = 整条请求估算 − transcript 一侧估算：system 稳定层 + plan 上下文 +
+	// 工具 + 当轮输入。这部分**不参与折叠**，因此它独立于保留窗口决策存在。
+	requestOverhead := rawTokens - allContextTokens
+	if requestOverhead < 0 {
+		requestOverhead = 0
+	}
 	// 折叠判据（三条，命中任一条即折叠）：
 	//	① 软阈值：rawTokens ≥ budget.SoftThreshold（自动路径的主判据）；
 	//	② 硬阈值：all_context ≥ window.force_compact_tokens（必须压，不等比例）；
 	//	③ 显式路径：options.forceCompact（/compact、compact_context）——用户/模型
 	//	   明确要求现在就压缩时**不设阈值前提**（"还没到线"不是拒绝理由）。
 	fold := rawTokens >= budget.SoftThreshold || hardCompact || options.forceCompact
+	// ── 幂等/有效性校验（软线折叠）────────────────────────────────────────
+	//
+	// 折叠只裁 transcript 一侧，装配又把**整条请求**收口到保留窗口决策的落点上
+	// （见 fitExecutionHistory：target = retain.Retained 时判的是全量请求估算）。
+	// 于是「这次折叠之后请求能到哪」= retain.Retained + 固定开销，而上限是
+	// retain.Retained（装配保证 ≤ target）。落点不落在软线以下时，这次折叠换不来
+	// 任何余量：下一轮达峰判据会以同一个数字再越线，于是**同一个会话每一轮都压
+	// 一次**——现场（2026-09-29 21:19~21:23，同一会话 3.5 分钟内落 3 条记录，
+	// 帧区间每次都从 message-1 起、`estimated_tokens` 贴着软线）。
+	//
+	// 此时不折叠，把额度留给硬线/自主压缩那条真能把请求压下去的路径（它折的是
+	// 帧而不是 transcript，因此不受这条上限约束）。判据事实照旧进判据关的 Detail
+	// 与终局 Detail，读进度的人能自答"为什么这次没压"。
+	//
+	// 显式要求（/compact、compact_context）、硬线与维护入口**不受此校验约束**：
+	// 它们分别是"用户/模型现在就要求压"、"必须压"与"这次调用就是要折出 checkpoint"
+	// 的语义，跳过即违约。
+	ineffectiveFold := fold && !options.forceCompact && !options.maintenanceFold && !hardCompact &&
+		retain.Retained+requestOverhead >= budget.SoftThreshold
 	// 自动路径按 progress epoch 节流（同一批进展只压一次）；显式路径与硬压缩
 	// 不受节流挡下（用户/模型明确要求时不接受"等下一批进展再说"，硬阈值必须压）。
 	//
@@ -564,7 +604,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	// 第一次折叠必须留痕。progress epoch 与 CompactedEpoch 的初值都是"未开始"语义，
 	// 只看"两值不等"会把首轮折叠判成本纪元已压过——前三关照跑（进度报表都出来了）、
 	// 却不落记录不落帧，用户看到"压缩了"却查不到压了哪段。首压留痕，同纪元后续再挡。
-	newCheckpoint := fold && (options.forceCompact || hardCompact ||
+	newCheckpoint := fold && !ineffectiveFold && (options.forceCompact || hardCompact ||
 		state.CompactedEpoch != state.ProgressEpoch || len(state.ContextCompactions) == 0)
 	if newCheckpoint {
 		state.ContextVersion++
@@ -602,11 +642,11 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	// 保留前缀窗口（软压缩）：min(token1, token2)，见上方 windowConfig 注释。
 	// 窗口外部分尽数送进 compact_context；保留窗口按完整协议单元边界收敛
 	// （单元不可拆分），因此不再叠加配置单元上限做第二次截断。
-	compacting := fold
+	// 无效折叠（幂等校验命中）不折叠：装配照常走未折叠路径，保留窗口决策这一轮
+	// 不参与落点（target 仍是全量预算）。
+	compacting := fold && !ineffectiveFold
 	target := budget.Budget
-	retain := RetainDecision{}
 	if compacting {
-		retain = retainWindowDecision(windowConfig, allContextTokens, budget, limits.Get().ContextRetainFloorPercent)
 		if retain.Retained > 0 {
 			target = retain.Retained
 		}
@@ -615,8 +655,8 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 		// 判据关在保留窗口决策**之后**收口：这一关的事实就是"拿什么数字比的"
 		// ——判据量 + 保留窗口决策（含保护区下限），两者同源、同一次采样
 		// （all= 由保留窗口决策给出，不在这里重复一份同值事实）。
-		progress.gate(CompactionGateJudge, fmt.Sprintf("compared=%d soft=%d hard=%d %s",
-			rawTokens, budget.SoftThreshold, budget.HardThreshold, retain.Terse()))
+		progress.gate(CompactionGateJudge, fmt.Sprintf("compared=%d soft=%d hard=%d overhead=%d ineffective=%t %s",
+			rawTokens, budget.SoftThreshold, budget.HardThreshold, requestOverhead, ineffectiveFold, retain.Terse()))
 	}
 	// transcript 压缩区间的记事基准：累积模式可能丢掉已覆盖前缀，记录边界
 	// 时用原始 events（未裁剪）＋丢弃条数还原绝对下标。
@@ -762,11 +802,20 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 			}
 			commitFold = true
 		} else if fold {
-			// 折叠真的发生了（前三关照跑），但没有走到落记录：同一个 progress 纪元内
-			// 已压过、且装配后估算未越硬阈值（走进来的 autonomous 为假）。把这条原因
+			// 折叠真的发生了（前三关照跑），但没有走到落记录：两条原因，都把事实
 			// 写进终局 Detail——进度条不该走到一半就沉默，读者需要一个能自答的句号。
-			progress.skip(fmt.Sprintf("skipped=epoch_throttled compacted_epoch=%d progress_epoch=%d context_version=%d",
-				state.CompactedEpoch, state.ProgressEpoch, state.ContextVersion))
+			if ineffectiveFold {
+				// 幂等/有效性校验命中：这次折叠的落点仍在软线之上（保留区 + 固定开销
+				// ≥ 软线），折了也只是把同一件事再做一遍。跳过它，等硬线/自主压缩。
+				progress.skip(fmt.Sprintf("skipped=ineffective_fold landing=%d soft=%d overhead=%d retained=%d all=%d",
+					retain.Retained+requestOverhead, budget.SoftThreshold,
+					requestOverhead, retain.Retained, allContextTokens))
+			} else {
+				// 同一个 progress 纪元内已压过、且装配后估算未越硬阈值（走进来的
+				// autonomous 为假）。
+				progress.skip(fmt.Sprintf("skipped=epoch_throttled compacted_epoch=%d progress_epoch=%d context_version=%d",
+					state.CompactedEpoch, state.ProgressEpoch, state.ContextVersion))
+			}
 		}
 	}
 	c.ViewMu.Unlock()

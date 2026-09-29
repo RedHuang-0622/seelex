@@ -69,7 +69,7 @@ limits:
   #   context_single_item_percent → **只有装配层**消费（application/core/task_context 的
   #       单条超大输入外置）；回合内控制器不读它
   #   context_retain_floor_percent → 保留窗口下限（装配层决策 + main 启动期校验）
-  # 代码内置默认档（配置缺失时的兜底）与这里一致：8/95/98/80/50（2026-09-26 起
+  # 出厂档（本文件）= 10/95/98/65/50（2026-09-29 起）；代码内置兜底档仍是 8/95/98/80/50（2026-09-26 起
   # 上调；旧 75/90 的保留窗口落点贴着软线，一轮的体积增长就重新越线——通知里
   # 「上下文预算达峰 · 自动阈值」因此一轮对话压一次）。上调后只有请求真的逼近
   # 预算上限才折叠（预算已先扣掉输出预留 + 安全预留，100% 的预算 ≠ 窗口上限，
@@ -84,10 +84,10 @@ limits:
   # 99/100）并把 window.force_compact_tokens 留 0（不启用硬压缩）；代价是请求会一直
   # 贴着预算上限，而且在装不下时装配层会**直接拒绝发送**（estimated > budget →
   # ErrProviderContextBudgetExceeded），而不是把你想要的原文硬塞进去。
-  context_safety_reserve_divisor: 8   # 安全预留 = 窗口 ÷ 该值。调小（如 4）→ 预留更多、预算更小、更早开始压缩
+  context_safety_reserve_divisor: 10  # 安全预留 = 窗口 ÷ 该值。调小（如 4）→ 预留更多、预算更小、更早开始压缩
   context_soft_percent: 95            # 软压缩线：请求估算到达 budget×95% 就折叠可变 transcript。调低 → 压得更早更频繁（省 token，代价是反复重压、provider 前缀缓存更容易失效）；调高 → 少压几轮，但离窗口上限更近
   context_hard_percent: 98            # 硬阈值线：装配后的请求仍 ≥ budget×98% 时立刻自主折成有界 checkpoint 帧（不等软线的下一个纪元）。调低 → 更"绝不贴边发送"；调高 → 允许历史更满
-  context_target_percent: 80          # 压缩目标：折叠后把请求大小压回 budget×80% 附近（保留区硬上限），给下一轮留 soft − target = 15% 预算的确定余量。与 soft 的差 = 每次压掉的量；两者相等或反超会导致每轮都重压
+  context_target_percent: 65          # 压缩目标：折叠后把请求大小压回 budget×65% 附近（保留区硬上限），给下一轮留 soft − target = 30% 预算的确定余量（2026-09-29 由 80 上调余量：现场 session-48c05322bb9e6f1a 一轮增长 ~29k token 就重新越线，3.5 分钟内压 3 次）。与 soft 的差 = 每次压掉的量；两者相等或反超会导致每轮都重压（2026-09-29 起由装配层幂等/有效性校验兜住：落点够不到软线就不折）
   context_single_item_percent: 50     # 单条输入外置阈值：一条输入超 budget×50% 就先归档为 result_ref，请求里只放引用
   # 保留区下限（占预算 %；0 = 未配置 → 下限只剩「至少 1 个完整协议单元」兜底）：
   # 保留区 = clamp(占比 × 全量, floor, retain_tokens)，floor = max(最近 1 个完整协议单元, 该比例 × 预算)。
@@ -96,7 +96,10 @@ limits:
   # 帧摘要传递上限（token；本地折叠把上一帧 Chapter 2 正文并入新帧的并入量上限，
   # 超出部分退化为锚点：segment_id + request 首尾 + 一句话，细节靠检索回读）。
   # 该份正文是唯一进上下文、进缓存前缀的帧内容，不设上限会随帧数膨胀。
-  context_frame_carry_tokens: 1024
+  # 2026-09-29 由 1024 上调到 4096：现场帧（本会话 21:21:42 / 21:23:19 两条）的
+  # Chapter 2 正文分别是 4159 / 3087 token，原上限让**每一条**帧都在并入那一步
+  # 退化成锚点——帧里只剩"前一帧在哪"，用户读到的就是"压缩的内容很小"。
+  context_frame_carry_tokens: 4096
   # ── 折叠处 LLM 章节化摘要（前缀重放厚摘要）─────────────────────
   # 出厂**打开**（本文件 enabled: true，2026-09-29 起）。注意口径分两层：**代码零值
   # 仍是关**（整块缺失或 enabled: false 都恒走本地确定性折叠，帧 summary_source=local，

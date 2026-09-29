@@ -118,7 +118,47 @@ version when it lands.
   order. Measured in the same headless scene: `display: grid` / text rect left 460 == box left 460
   before, `display: flex` / text left 542 > box right 528 after.
 
+- **A session stopped writing one compaction record per turn.** Folding trims only the transcript
+  side, while assembly closes the **whole request** onto the retained-window landing point, so when
+  that landing point still sits above the soft line the fold buys nothing: the next round crosses the
+  same line with the same number and folds again. Observed live in `session-48c05322bb9e6f1a`: three
+  records in 3.5 minutes (21:19:52 / 21:21:42 / 21:23:19), every frame's range restarting at
+  `message-1` and its judge quantity hugging the soft line, because one round of that conversation can
+  grow ~29k tokens while the old `soft − target` margin was 15% of the budget (~25k). Assembly now runs
+  an **idempotency/effectiveness check**: the retained-window decision is computed *before* the judge
+  and reused, `requestOverhead = rawTokens − allContextTokens` (system layer + plan + tools + current
+  input — the part folding cannot touch) is measured, and when `retain.Retained + requestOverhead ≥
+  SoftThreshold` the automatic soft-line fold is skipped (`skipped=ineffective_fold landing=… soft=…
+  overhead=… retained=… all=…` in the terminal Detail, `overhead=`/`ineffective=` in the judge gate's
+  Detail) so the quota is left to the hard line / autonomous fold, which folds the frame rather than
+  the transcript and is not bounded by that landing point. Explicit requests (`/compact`,
+  `compact_context`), the hard threshold and the **maintenance entry** (`CompactTaskContextFor`, whose
+  whole purpose is to fold out a bounded checkpoint) are exempt — `prepareOptions.maintenanceFold`
+  keeps `TestContextControllerCompactsAndCleansInternalCheckpoint` and
+  `TestContextControllerRepeatedCompactionDoesNotAccumulateCheckpoints` green. Factory limits were
+  widened in the same pass (`context_safety_reserve_divisor` 8→10, `context_target_percent` 80→65 so
+  the margin is 30% of the budget, `context_frame_carry_tokens` 1024→4096 — the two live frames'
+  Chapter 2 bodies were 4159 / 3087 tokens, so *every* frame was degrading to an anchor at the
+  carry step). Pinned by the new `application/core/context_budget_margin_idempotency_test.go`
+  (`TestContextBudgetSkipsFoldWithoutMargin`: 16 rounds × 32k chars, first assembly and the next two
+  turns must land **no** record, `compactionRecords` stays 0 — red before the fix with a 132,779-token
+  fold against a 100,084 soft line) plus the untouched `context_budget_frequency_test.go`. See
+  `docs/devlog/2026-09-29-compaction-idempotency-margin.md`.
+
 ### Changed
+
+- **The Seele dependency is back to a clean released version: `v0.3.1` → `v0.3.2`, temporary local
+  `replace` removed.** v0.3.2 ships "plan B" (turn gate + short critical-section working state) and
+  deletes the `session.InLoop` in-lock history handle, which the host had been getting through a local
+  `replace => ../Seele` while the tag was unpublished. `require` now pins `v0.3.2`, the replace block
+  and its comment are gone, `go mod tidy` moved only Seele's two `go.sum` lines, and
+  `go mod vendor` regenerated `vendor/` from the released zip (`vendor/modules.txt` no longer carries a
+  `=>` line). `go build ./...` plus `go test ./seelexctx/... ./sessionstore/... ./seelebridge/
+  ./application/core/... -count=1` are green. Two operational notes for the next bump: `go mod vendor`
+  refuses to run in workspace mode (`go.work` is present) and needs `GOWORK=off` (or `go work vendor`),
+  and the module cache may hold `v0.3.2.mod` without the `.zip`, so `go mod download
+  github.com/RedHuang-0622/Seele@v0.3.2` has to run first. See
+  `docs/devlog/2026-09-29-seele-v032-clean-dependency.md`.
 
 - **A subagent row now belongs to the session that forked it, not to whoever is looking.** The work
   table's rows are session-grained (the GUI's "this session only" and "actually sent" filters read
