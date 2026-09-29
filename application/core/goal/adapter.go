@@ -9,6 +9,7 @@ package goal
 
 import (
 	"context"
+	"errors"
 
 	"github.com/RedHuang-0622/seelex/application/core/govern"
 )
@@ -55,6 +56,13 @@ func (s *advisorSeat) Act(ctx context.Context) (govern.TurnAction, error) {
 	}
 	directive, err := s.supervisor.RunEval(ctx, s.trigger)
 	if err != nil {
+		// 已有回合在飞（例如 a 的信号刚触发了一轮评审）：这是**良性跳过**，不是治理
+		// 失败。把 error 透出去会被治理循环记成 roundError——用户看到一条与实际相反
+		// 的"ADVISOR 回合失败"；返回零动作 + nil 则让环继续，在飞的那一轮自己会产出
+		// 裁决（它的收口/断环由它自己的调用者处理）。
+		if errors.Is(err, ErrRoundInFlight) {
+			return govern.TurnAction{Note: "ADVISOR 回合在进行中（不排队：本轮发言跳过，已有评审在飞）"}, nil
+		}
 		return govern.TurnAction{}, err
 	}
 	// 终态裁决即收口（design §5 逃生口）：常规治理回合的 verdict_done 必须同样

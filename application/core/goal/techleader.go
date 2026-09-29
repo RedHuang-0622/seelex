@@ -157,6 +157,16 @@ type Supervisor struct {
 	inFlight   string
 	inFlightAt int64
 
+	// roundInFlight 是回合租约：true = 已有一轮 b 评审在执行段（s.mu 之内准入、
+	// s.mu 之外执行）。它就是"回合不可重入"的显式表示——旧实现靠"RunEval 锁住
+	// 整轮"顺带实现互斥，代价是 s.mu 横跨模型调用（同 goroutine 回调 s.mu 即自锁死，
+	// 另一 goroutine 侧的 s.mu→roundGate 与 roundGate→s.mu 成环 = ABBA）。
+	//
+	// 与 peer.State=PeerEvaluating 的分工：peer 的状态是**给外部看的自述**（面板
+	// 显示"正在评审"），本字段是**准入判定的事实**（谁可以进执行段）。二者同锁更新，
+	// 但判重用本字段：状态可能因为一次失败回合被写回，租约只由准入/提交两段掌握。
+	roundInFlight bool
+
 	turnsSinceEval int
 	evalCount      int64
 	lastEvalAt     int64
@@ -165,9 +175,9 @@ type Supervisor struct {
 
 // noteInFlight 记一段 b 回合的进行中正文。
 //
-// 它在 s.mu 之内被调用（runRoundLocked 的回合路径），但**不依赖**这一点：写入由
+// 它在 s.mu 之内被调用（准入段 beginRoundLocked 的补帧路径），但**不依赖**这一点：写入由
 // inFlightMu（s.mu 的叶子）保护，因此引擎在不同 goroutine 上回调 onChunk 也不会与
-// Snapshot 读取形成数据竞争。
+// Snapshot 读取形成数据竞争。执行段（evaluateRound）刻意不持 s.mu，回调走的正是那条路。
 //
 // 只保留近端（MaxInFlightRunes）：in-flight 是"当前写到哪"的只读快照，不是完整
 // 回合正文——完整原文仍由 recorder 落 role draft。它刻意不触发任何推送：前端在
@@ -325,6 +335,10 @@ func (s *Supervisor) advisorForLocked(active *GoalRecord) *AdvisorSession {
 //   - goal_updated：推进水位、不评估（差异帧在下个回合前补帧）；
 //   - step_checkpoint：受 eval_window 抑制；到窗即回合；
 //   - 关键信号（compacted/budget/approval/terminal）：立即回合。
+//
+// 三段式（2026-09-29）：登记与准入在 s.mu 内，**评估在 s.mu 外**。Notify 因此
+// 再也不会被"另一个回合正在评审"拖住——登记落在账本上，评估留给下一次触发
+// （ErrRoundInFlight 在这里是**正常结果**而不是错误）。
 func (s *Supervisor) Notify(ctx context.Context, signal TLEvalSignal) error {
 	if err := signal.Validate(); err != nil {
 		return err
@@ -335,9 +349,8 @@ func (s *Supervisor) Notify(ctx context.Context, signal TLEvalSignal) error {
 	if signal.At <= 0 {
 		signal.At = s.now()
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
+	s.mu.Lock()
 	s.execSeq++ // a 事件登记（水位推进；turn 跳帧）
 	if s.advisor != nil {
 		s.advisor.Head = s.execSeq
@@ -345,7 +358,16 @@ func (s *Supervisor) Notify(ctx context.Context, signal TLEvalSignal) error {
 	if signal.Kind == SignalTurnCompleted {
 		s.noteWorkProgressLocked(signal)
 	}
-	return s.maybeAutoEvalLocked(ctx, signal)
+	plan, planErr := s.beginAutoRoundLocked(ctx, signal)
+	s.mu.Unlock()
+
+	if plan == nil {
+		// 不评估是常态（turn 跳帧 / goal_updated / 窗口抑制 / 未启用 / 已有回合
+		// 在飞）：事件已经登记在账本上，下一次触发会把它一起带进 b 的输入。
+		return planErr
+	}
+	_, err := s.completeRound(ctx, plan)
+	return err
 }
 
 // noteWorkProgressLocked 把 turn_completed 的工作正文摘要入待抽帧缓冲（调用方
@@ -391,145 +413,326 @@ func (s *Supervisor) flushWorkProgressLocked(peer *AdvisorSession, now int64) er
 	return nil
 }
 
-func (s *Supervisor) maybeAutoEvalLocked(ctx context.Context, signal TLEvalSignal) error {
+// beginAutoRoundLocked 是 Notify 的"要不要评 + 准入"合一判定（调用方持 s.mu）。
+//
+// 返回 (nil, nil) = 本轮不评估，不是错误：turn 跳帧 / goal_updated 不评、窗口
+// 未到不评、b 未启用不评、**已有回合在飞不评**（登记已完成，评估留给下一次触发）。
+// 只有准入里的真错误（帧账本 append 失败、b 输入构建失败）才带 err 返回。
+func (s *Supervisor) beginAutoRoundLocked(ctx context.Context, signal TLEvalSignal) (*roundPlan, error) {
 	switch signal.Kind {
 	case SignalTurnCompleted:
 		s.turnsSinceEval++
-		return nil
+		return nil, nil
 	case SignalGoalUpdated:
-		return nil
+		return nil, nil
 	}
 	if !s.Enabled() {
-		return nil
+		return nil, nil
 	}
 	if !IsCriticalSignal(signal.Kind) && s.cfg.EvalWindow > 0 && s.turnsSinceEval < s.cfg.EvalWindow {
-		return nil
+		return nil, nil
 	}
-	_, err := s.runRoundLocked(ctx, "signal:"+string(signal.Kind), signal)
-	return err
+	plan, err := s.beginRoundLocked(ctx, "signal:"+string(signal.Kind), signal)
+	switch {
+	case errors.Is(err, ErrRoundInFlight), errors.Is(err, ErrNoActiveGoal):
+		// 这两条在 Notify 语义下都等于"本轮不评"：登记照旧、不排队、不报错。
+		return nil, nil
+	default:
+		return plan, err
+	}
 }
 
 // RunEval 强制执行一次 b 回合（外部/边界触发：终态 gate、审批预筛、headless goal_tl_eval）。
+//
+// 三段式（2026-09-29 锁面审计 §4.1 整改）：准入与提交在 s.mu 内，**评估本身在 s.mu 外**。
+// 旧实现把整轮锁在 RunEval 里，s.mu 因此横跨模型调用——同 goroutine 上一个"回合内
+// 回头找 Supervisor"的回调（流式分片/迭代钩子/工具）走到 s.mu 就是自锁死；另一
+// goroutine 侧的 s.mu → roundGate 与 roundGate → s.mu 就是环（ABBA）。执行段挪出
+// s.mu 之后环在结构上不成立：**不存在"持 s.mu 等 roundGate"的一方**，于是也不需要
+// 那条反向边先消失。
 func (s *Supervisor) RunEval(ctx context.Context, trigger string) (TLDirective, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.runRoundLocked(ctx, trigger, TLEvalSignal{Kind: SignalStepCheckpoint, Source: "manual_eval"})
+	return s.runRound(ctx, trigger, TLEvalSignal{Kind: SignalStepCheckpoint, Source: "manual_eval"})
 }
 
-// runRoundLocked 执行一次 b 回合（调用方持 s.mu）：
-// Mirror on_eval：先补 a 差异帧（goal.update 补帧）+ 触发帧 → b 上下文 append →
-// 渲染 b 自身输入（锚点+帧+自身回合记忆）→ 评估 → corr 信封发布 → 缓存观测记录。
-func (s *Supervisor) runRoundLocked(ctx context.Context, trigger string, signal TLEvalSignal) (TLDirective, error) {
+// runRound 是 b 回合的唯一入口（RunEval / Notify / 终态 gate / 审批预筛都走它）：
+// 准入（s.mu 内）→ 执行（s.mu 外）→ 提交（s.mu 内）→ 记录（s.mu 外）。
+func (s *Supervisor) runRound(ctx context.Context, trigger string, signal TLEvalSignal) (TLDirective, error) {
+	plan, err := s.beginRound(ctx, trigger, signal)
+	if err != nil {
+		return TLDirective{}, err
+	}
+	return s.completeRound(ctx, plan)
+}
+
+// roundPlan 是一次 b 回合的**准入快照**：准入段在 s.mu 内固化输入与环境，执行段
+// 不再读共享状态；提交段据 goalStamp 复核"这一期间 goal 有没有变"（B 语义，见 commitRound）。
+type roundPlan struct {
+	trigger     string
+	peer        *AdvisorSession
+	embed       TLSessionEmbed
+	inputText   string
+	cached      int64
+	inputTokens int64
+	at          int64
+	goalID      string
+	goalStamp   string
+}
+
+// beginRound 是准入段：只拿 s.mu 一小段，做完判定与 b 输入构造就放掉。
+func (s *Supervisor) beginRound(ctx context.Context, trigger string, signal TLEvalSignal) (*roundPlan, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.beginRoundLocked(ctx, trigger, signal)
+}
+
+// beginRoundLocked 是准入段本体（调用方持 s.mu）：
+// 判定（b 可用 / 有 active goal / **无回合在飞**）→ 懒 bind peer → Mirror on_eval
+// 补 a 差异帧 + 工作进展帧 → 触发帧 → 渲染 b 自身输入 → 占回合租约。
+// **不调评估器**：那是执行段的事（evaluateRound）。
+func (s *Supervisor) beginRoundLocked(ctx context.Context, trigger string, signal TLEvalSignal) (*roundPlan, error) {
 	if !s.Enabled() {
-		return TLDirective{}, ErrTLDisabled
+		return nil, ErrTLDisabled
+	}
+	if s.roundInFlight {
+		return nil, ErrRoundInFlight
 	}
 	active, ok := s.ctl.ActiveGoal()
 	if !ok {
-		return TLDirective{}, ErrNoActiveGoal
+		return nil, ErrNoActiveGoal
 	}
 	peer := s.advisorForLocked(active)
-	peer.State = PeerEvaluating
 	now := s.now()
-
-	// 本轮的**进行中**观察面：模型分片不再被丢弃（旧实现给 ChatStream 传 nil），
-	// 而是经 ctx 回调进 in-flight 近端，作为只读快照暴露给前端（快照查看）。
-	// defer 清理：本回合任何返回路径（含错误）都不把中间态留给下一次裁决。
-	ctx = WithTLDeltaSink(ctx, s.noteInFlight)
-	defer s.clearInFlight()
+	plan := &roundPlan{
+		trigger: trigger, peer: peer, at: now,
+		goalID: active.ID, goalStamp: goalStampOf(active),
+	}
+	// 占回合租约（锁内）：以下任何提前返回都必须释放，否则回合闸门永久卡死。
+	s.roundInFlight = true
+	peer.State = PeerEvaluating
 
 	// 1) 补 a 差异帧（on_eval：一次性同步区间内抽帧集）。
 	if err := s.syncControllerDiffFramesLocked(peer, active, now); err != nil {
-		return TLDirective{}, err
+		s.abortRoundLocked(peer)
+		return nil, err
 	}
 	// 1.5) 补 a 工作进展帧（turn_completed.Detail）：b 的输入因此包含 EXEC 实际
 	// 干了什么（正文摘要/工具名），而不是只有目标陈述与打点。
 	if err := s.flushWorkProgressLocked(peer, now); err != nil {
-		return TLDirective{}, err
+		s.abortRoundLocked(peer)
+		return nil, err
 	}
 	// 2) 触发帧（本回合为何而评）。
-	frame, frameOK := frameForSignal(signal)
-	if frameOK {
+	if frame, frameOK := frameForSignal(signal); frameOK {
 		s.execSeq++
 		peer.Head = s.execSeq
 		if _, err := peer.appendFrame(Frame{
 			Kind: frame, RefSeq: s.execSeq, At: now,
 			Source: signal.Source, Detail: signal.Detail,
 		}); err != nil {
-			return TLDirective{}, err
+			s.abortRoundLocked(peer)
+			return nil, err
 		}
 	}
 
 	// 3) b 回合输入 = b 自身上下文（协议 C3 事务式；前缀稳定 → 命中可测）。
 	embed, inputText := peer.renderEmbed(trigger)
 	if err := embed.Validate(); err != nil {
-		return TLDirective{}, fmt.Errorf("%w: b 回合输入构建: %v", ErrInvalidArgument, err)
+		s.abortRoundLocked(peer)
+		return nil, fmt.Errorf("%w: b 回合输入构建: %v", ErrInvalidArgument, err)
 	}
 
 	// 4) 缓存观测：相邻回合公共前缀即命中（协议 §2 C4）。
-	prevText := peer.cachedInputText
-	cached := int64(0)
-	if prevText != "" {
-		cached = estimateTokens(commonPrefix(prevText, inputText))
+	if prevText := peer.cachedInputText; prevText != "" {
+		plan.cached = estimateTokens(commonPrefix(prevText, inputText))
 	}
-	inputTokens := estimateTokens(inputText)
+	plan.inputTokens = estimateTokens(inputText)
+	plan.embed, plan.inputText = embed, inputText
 	peer.cachedInputText = inputText
+	return plan, nil
+}
 
-	directive, err := s.evaluator.Evaluate(ctx, embed)
-	if err != nil {
+// abortRoundLocked 释放回合租约并把 peer 落回稳态（准入失败路径；调用方持 s.mu）。
+func (s *Supervisor) abortRoundLocked(peer *AdvisorSession) {
+	s.roundInFlight = false
+	if peer != nil && peer.State == PeerEvaluating {
 		peer.State = PeerAdvisoryPending
+	}
+}
+
+// completeRound 跑完一个已准入的回合：执行段（锁外）→ 提交段（锁内）→ 记录（锁外）。
+func (s *Supervisor) completeRound(ctx context.Context, plan *roundPlan) (TLDirective, error) {
+	directive, evalErr := s.evaluateRound(ctx, plan)
+	directive, record, mainTurn, err := s.commitRound(ctx, plan, directive, evalErr)
+	if record != nil {
+		s.recordRound(ctx, record, mainTurn)
+	}
+	return directive, err
+}
+
+// evaluateRound 是执行段：**刻意不持 s.mu**。
+//
+// 这一段里跑的是模型调用 + b 的只读工具回合（真实耗时以秒/分钟计），期间
+//   - 前端轮询的 Snapshot 拿得到 s.mu：面板在 evaluating 期间是**活的**，in-flight
+//     近端因此真的读得到（旧实现把它锁在整轮之后，放行时已被 clearInFlight 清空，
+//     等于从没亮过）；
+//   - 回合内任何回头找 Supervisor 的回调（流式分片、迭代钩子、工具）走到 s.mu 时
+//     不会自锁死（同 goroutine 重入非重入锁 = 死锁）；
+//   - 与 roundGate 不再成环：不存在"持 s.mu 等 roundGate"的一方。
+func (s *Supervisor) evaluateRound(ctx context.Context, plan *roundPlan) (TLDirective, error) {
+	// 本轮的**进行中**观察面：模型分片不再被丢弃（旧实现给 ChatStream 传 nil），
+	// 而是经 ctx 回调进 in-flight 近端，作为只读快照暴露给前端（快照查看）。
+	// defer 清理：本回合任何返回路径（含错误）都不把中间态留给下一次裁决。
+	ctx = WithTLDeltaSink(ctx, s.noteInFlight)
+	defer s.clearInFlight()
+	return s.evaluator.Evaluate(ctx, plan.embed)
+}
+
+// commitRound 是提交段入口：拿 s.mu 一小段做提交（body 见 commitRoundLocked）。
+func (s *Supervisor) commitRound(ctx context.Context, plan *roundPlan, directive TLDirective, evalErr error) (TLDirective, *TLRoundRecord, *MainTurnRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.commitRoundLocked(ctx, plan, directive, evalErr)
+}
+
+// commitRoundLocked 是提交段本体（调用方持 s.mu）：复核 goal → 校验裁决 → 落 b 回合段
+// + corr 信封 → 记账。记录器**不在这一段**调用（见 recordRound）：宿主/落盘活压在回合
+// 锁上会又造一条 s.mu → 宿主锁的边。
+func (s *Supervisor) commitRoundLocked(ctx context.Context, plan *roundPlan, directive TLDirective, evalErr error) (TLDirective, *TLRoundRecord, *MainTurnRecord, error) {
+	peer := plan.peer
+	s.abortRoundLocked(peer) // 释放租约；peer.State 由下面的分支写终值
+
+	if evalErr != nil {
 		// 分类不要在这里写死：**裁决不可用**（ErrBadDirective：原文不可解析 / 域校验
 		// 不过 / goal 漂移）与**缺席**（429/超时/回合失败）是两件事。把 429/超时的标签
 		// 贴到前者身上，用户读到的收口说明会与实际状态相反（gate.go 按同一条边界分支）。
-		if errors.Is(err, ErrBadDirective) {
-			return TLDirective{}, fmt.Errorf("b 回合已作答但裁决不可用: %w", err)
+		switch {
+		case errors.Is(evalErr, ErrBadDirective):
+			return TLDirective{}, nil, nil, fmt.Errorf("b 回合已作答但裁决不可用: %w", evalErr)
+		case errors.Is(evalErr, ErrRoundGoalGone):
+			return TLDirective{}, nil, nil, evalErr // 保留"结论丢弃"的可判定语义（不贴缺席标签）
+		default:
+			return TLDirective{}, nil, nil, fmt.Errorf("b 回合失败(429/超时 → B4 缺席矩阵): %w", evalErr)
 		}
-		return TLDirective{}, fmt.Errorf("b 回合失败(429/超时 → B4 缺席矩阵): %w", err)
 	}
+
 	if directive.At <= 0 {
-		directive.At = now
+		directive.At = plan.at
 	}
 	if directive.GoalID == "" {
-		directive.GoalID = active.ID
+		directive.GoalID = plan.goalID
 	}
 	directive.Corr = peer.nextCorr()
 	if err := directive.Validate(); err != nil {
-		return TLDirective{}, fmt.Errorf("%w: %v", ErrBadDirective, err)
+		return TLDirective{}, nil, nil, fmt.Errorf("%w: %v", ErrBadDirective, err)
 	}
-	if directive.GoalID != active.ID {
-		return TLDirective{}, fmt.Errorf("%w: goal 漂移（directive %s ≠ active %s）", ErrBadDirective, directive.GoalID, active.ID)
+	if directive.GoalID != plan.goalID {
+		return TLDirective{}, nil, nil, fmt.Errorf("%w: goal 漂移（directive %s ≠ active %s）", ErrBadDirective, directive.GoalID, plan.goalID)
 	}
 
-	// 5) b 自身回合段 append（= 用户例子 6(b)）+ corr 信封发布（不回写 goal 共享状态）。
+	// 5) 复核顶栈 goal（执行段在锁外，这一期间 a/人类可以改或收口 goal）：
+	//   - 收口 / 取消（栈空，或顶栈已换成别的 goal）→ 这一回合的结论无处落地：
+	//     **丢弃**（不发 corr 信封、不落回合段、不记录）= B 语义"取消 → 丢弃结论"。
+	//     必须显式判的后果：gate 否则会拿一份属于旧 goal 的裁决去 Finish **新**的栈顶。
+	//   - 同一个 goal 被改（更新）→ 结论仍然有效，但 b 的记忆要跟上：补一条
+	//     goal.update 差异帧（B 语义"变更 → 做出 update"），下一回合的输入即含新事实。
+	active, ok := s.ctl.ActiveGoal()
+	if !ok {
+		return TLDirective{}, nil, nil, fmt.Errorf("%w: b 回合期间 goal 已收口", ErrRoundGoalGone)
+	}
+	if active.ID != plan.goalID {
+		return TLDirective{}, nil, nil, fmt.Errorf("%w: b 回合期间顶栈 goal 已更换（%s → %s）", ErrRoundGoalGone, plan.goalID, active.ID)
+	}
+	goalChanged := goalStampOf(active) != plan.goalStamp
+
+	// 6) b 自身回合段 append（= 用户例子 6(b)）+ corr 信封发布（不回写 goal 共享状态）。
+	refSeq := peer.Applied
 	peer.appendRound(Round{
-		At:           now,
-		Trigger:      trigger,
-		RefSeq:       peer.Applied,
+		At:           plan.at,
+		Trigger:      plan.trigger,
+		RefSeq:       refSeq,
 		Corr:         directive.Corr,
 		Kind:         directive.Kind,
 		Summary:      directive.Summary(),
-		InputTokens:  inputTokens,
-		CachedTokens: cached,
+		InputTokens:  plan.inputTokens,
+		CachedTokens: plan.cached,
 	})
 	s.mailbox.PublishDirective(directive)
-	if s.recorder != nil {
-		// 每回合记录 b 看到的原文与它的原始回答（持久化/展示失败不阻断治理）。
-		_ = s.recorder.RecordTLRound(ctx, TLRoundRecord{
-			Trigger: trigger, RefSeq: peer.Applied, Context: inputText,
-			Output: directiveText(directive),
-		})
-		if loopContinues(directive.Kind) {
-			_ = s.recorder.RecordMainTurn(ctx, MainTurnRecord{
-				Trigger: trigger, RoundID: peer.Applied, Directive: directive.Kind,
-			})
-		}
+	if goalChanged {
+		s.noteGoalChangedLocked(peer, active)
 	}
 	peer.Cache = cacheStatsOf(peer.Rounds)
 	peer.State = PeerAdvisoryPending
 	s.evalCount++
-	s.lastEvalAt = now
+	s.lastEvalAt = plan.at
 	s.lastEvalGoalID = active.ID
 	s.turnsSinceEval = 0
-	return directive, nil
+
+	// 每回合记录 b 看到的原文与它的原始回答（在锁外交给记录器；持久化/展示失败
+	// 不阻断治理）。终态裁决不交还发言权，因此不产生 main_turn 记录。
+	record := &TLRoundRecord{
+		Trigger: plan.trigger, RefSeq: refSeq, Context: plan.inputText,
+		Output: directiveText(directive),
+	}
+	var mainTurn *MainTurnRecord
+	if loopContinues(directive.Kind) {
+		mainTurn = &MainTurnRecord{Trigger: plan.trigger, RoundID: refSeq, Directive: directive.Kind}
+	}
+	return directive, record, mainTurn, nil
+}
+
+// noteGoalChangedLocked 在提交段发现"顶栈 goal 在回合期间被改过"时补一条
+// goal.update 差异帧（B 语义：变更 → 做出 update，而不是丢弃、也不是假装没发生）。
+//
+// 补帧游标同时对齐到当前 progress 条数：下一次准入的 syncControllerDiffFramesLocked
+// 因此不会为同一段差异再补一遍。补帧失败只吞掉——帧账本是"可重补的近似"，本回合的
+// 结论以裁决为准，不因为一条差异帧写不进去而作废。
+func (s *Supervisor) noteGoalChangedLocked(peer *AdvisorSession, active *GoalRecord) {
+	s.execSeq++
+	peer.Head = s.execSeq
+	if _, err := peer.appendFrame(Frame{
+		Kind: FrameGoalUpdated, RefSeq: s.execSeq, At: s.now(),
+		Source: "goal_updated_during_round", Detail: latestProgressSummary(active),
+	}); err != nil {
+		return
+	}
+	s.lastSyncedProgress = len(active.Progress)
+}
+
+// recordRound 把回合原文交给记录器——**锁外**。两重理由：① 记录器是宿主/落盘活
+// （tl role draft → sequencer → 主文档），压在 s.mu 上就是让整轮治理等文件 I/O；
+// ② 它可能回头取宿主侧锁（ViewMu 等），在 s.mu 内调用即又造一条 s.mu → 宿主锁的边。
+// best-effort：记录失败不阻断治理（与旧行为一致，只是挪出了锁）。
+func (s *Supervisor) recordRound(ctx context.Context, record *TLRoundRecord, mainTurn *MainTurnRecord) {
+	s.mu.Lock()
+	recorder := s.recorder
+	s.mu.Unlock()
+	if recorder == nil {
+		return
+	}
+	_ = recorder.RecordTLRound(ctx, *record)
+	if mainTurn != nil {
+		_ = recorder.RecordMainTurn(ctx, *mainTurn)
+	}
+}
+
+// goalStampOf 是顶栈 goal 的轻量指纹：回答"这一回合执行期间 goal 变了吗"。
+//
+// 只取会影响裁决依据的字段（身份 / 状态 / 标题 / 正文 / 完成条件 / 进度尾条）。
+// 不拿 UpdatedAt 单判：域时间是秒级（time.Now().Unix），同一秒内的两次更新会
+// 得到同一个时间戳——"改过但判不出"正是这里最不该有的漏。
+func goalStampOf(record *GoalRecord) string {
+	if record == nil {
+		return ""
+	}
+	lastProgress := ""
+	if count := len(record.Progress); count > 0 {
+		lastProgress = record.Progress[count-1].Content
+	}
+	return strings.Join([]string{
+		record.ID, string(record.Status), record.Title, record.Statement,
+		strings.Join(record.Acceptance, "\x1e"), lastProgress,
+		fmt.Sprintf("%d", len(record.Progress)),
+	}, "\x1f")
 }
 
 // syncControllerDiffFramesLocked 把 headless 直接改 goal（无 Notify 接线）的差异补成

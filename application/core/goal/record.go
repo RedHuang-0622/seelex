@@ -219,6 +219,15 @@ type UpdateRequest struct {
 	ProgressContent string       `json:"progress_content,omitempty"`
 }
 
+// ChangesDefinition 报告这次更新是否动到了 goal 的**定义**：标题 / 正文 / 完成条件 /
+// 非目标范围。只追加 progress 的更新**不算**改定义——那是执行侧在汇报进展，不是重写目标。
+//
+// 权限口径（2026-09-29）：定义类变更只有 TL 裁决侧能发起；agent 工具面只允许追加进度
+// （见 application/core 的 authorizeAgentGoalMutation）。
+func (r UpdateRequest) ChangesDefinition() bool {
+	return r.Title != nil || r.Statement != nil || r.Acceptance != nil || r.OutOfScope != nil
+}
+
 // FinishRequest 是 goal_finish / goal_abort 的入参（reason/result 审计）。
 type FinishRequest struct {
 	Reason string `json:"reason,omitempty"`

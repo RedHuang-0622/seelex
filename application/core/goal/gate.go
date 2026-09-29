@@ -53,12 +53,34 @@ func (s *Supervisor) ProposeFinish(ctx context.Context, request FinishRequest) (
 	}
 
 	// b 启用：terminal.proposed 帧进入 b 上下文并强制一回合。
-	s.mu.Lock()
-	directive, err := s.runRoundLocked(ctx, "gate:goal_finish", TLEvalSignal{
+	// 三段式（2026-09-29）：评估在 s.mu 之外跑，gate 不再把整轮锁在自己身上。
+	directive, err := s.runRound(ctx, "gate:goal_finish", TLEvalSignal{
 		Kind: SignalTerminalProposal, Source: "finish_gate", Detail: boundedProposalDetail(request.Result),
 	})
-	s.mu.Unlock()
 	if err != nil {
+		active, _ := s.ctl.ActiveGoal()
+		// A 语义（2026-09-29）：**已有回合在飞 → 不排队**。排队等于把收口路径挂在
+		// 一个可能永远不结束的回合上（那正是 roundGate 那条纪律要避免的事）。按 B4
+		// 缺席矩阵保持 active 转人工。刻意**不 reap**：在飞的那一轮还在用这个 peer，
+		// 拆掉它的上下文等于把正在跑的评审弄瞎。
+		if errors.Is(err, ErrRoundInFlight) {
+			return FinishProposalResult{
+				Outcome: OutcomeEscalate,
+				Goal:    active,
+				Message: fmt.Sprintf("已有 ADVISOR 回合在进行中（不排队等待：a 永不等待 b），goal 保持 active 待重新提议: %v", err),
+			}, nil
+		}
+		// B 语义（2026-09-29）：回合执行期间 goal 被收口/更换 → 这次裁决无处落地，
+		// 已丢弃。此时旧的 peer 绑的是已经不存在的目标：顺手 reap，别让它带进下一个
+		// goal（headless 直接 Finish/Abort 不 reap 是既有缺口，这条路径至少不留）。
+		if errors.Is(err, ErrRoundGoalGone) {
+			s.unbindIfTerminal("goal_gone_during_round")
+			return FinishProposalResult{
+				Outcome: OutcomeEscalate,
+				Goal:    active,
+				Message: fmt.Sprintf("b 回合期间 goal 已收口/更换，本次裁决已丢弃（未落地），转人工确认: %v", err),
+			}, nil
+		}
 		// gate 的两种失败必须分开说，否则用户看到的是与实际相反的收口状态：
 		//   - b **已作答但裁决不可用**（ErrBadDirective：原文不可解析 / 域校验不过 /
 		//     goal 漂移）—— 裁决内容可能存在，只是没能落地；
@@ -66,7 +88,6 @@ func (s *Supervisor) ProposeFinish(ctx context.Context, request FinishRequest) (
 		// 两者都保持 active（安全默认：不拿一份不可用的裁决去收口 goal），但说明必须
 		// 诚实。把解析失败说成"缺席"，用户就会得到"goal 仍 active"这种与实际相反的
 		// 结论（2026-09-16 事故：裁决内容上已是 verdict_done）。
-		active, _ := s.ctl.ActiveGoal()
 		s.unbindIfTerminal("evicted_round_failure")
 		if errors.Is(err, ErrBadDirective) {
 			return FinishProposalResult{
@@ -207,13 +228,25 @@ func (s *Supervisor) PreScreenApproval(ctx context.Context, request ApprovalScre
 			Message: "high 风险不在 b 代答白名单：转人工审批（默认拒绝兜底）"}, nil
 	}
 
-	s.mu.Lock()
-	directive, err := s.runRoundLocked(ctx, "gate:approval_prescreen", TLEvalSignal{
+	// 三段式（2026-09-29）：评估在 s.mu 之外跑（预筛同样是"回合"，同样不能把 s.mu
+	// 横跨模型调用）。
+	directive, err := s.runRound(ctx, "gate:approval_prescreen", TLEvalSignal{
 		Kind: SignalApprovalAsked, Source: "approval_prescreen",
 		Detail: boundedProposalDetail(summary), Ref: request.Ref,
 	})
-	s.mu.Unlock()
 	if err != nil {
+		// A 语义（2026-09-29）：已有回合在飞 → 不排队，直接转人工（审批侧默认拒绝
+		// 兜底不变；在飞的那一轮仍在用 peer，因此不 reap）。
+		if errors.Is(err, ErrRoundInFlight) {
+			return ApprovalVerdict{Outcome: ApprovalOutcomeEscalate,
+				Message: fmt.Sprintf("已有 ADVISOR 回合在进行中（不排队等待），转人工审批: %v", err)}, nil
+		}
+		// B 语义：回合期间 goal 被收口/更换 → 裁决已丢弃，不拿它去放行一次审批。
+		if errors.Is(err, ErrRoundGoalGone) {
+			s.unbindIfTerminal("goal_gone_during_round")
+			return ApprovalVerdict{Outcome: ApprovalOutcomeEscalate,
+				Message: fmt.Sprintf("b 回合期间 goal 已收口/更换（裁决已丢弃），转人工审批: %v", err)}, nil
+		}
 		// B4：b 缺席（429/超时）→ 转人工（默认拒绝兜底不变）。
 		s.unbindIfTerminal("evicted_round_failure")
 		return ApprovalVerdict{Outcome: ApprovalOutcomeEscalate,

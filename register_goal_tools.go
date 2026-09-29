@@ -25,8 +25,6 @@ func registerGoalTools(runtime *seelebridge.Runtime, app *application.Service) {
 	updateSchema := map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
-			"title":            map[string]interface{}{"type": "string", "description": "标题（有值才改）"},
-			"statement":        map[string]interface{}{"type": "string", "description": "正文（有值才改）"},
 			"progress_kind":    map[string]interface{}{"type": "string", "description": "milestone|finding|decision|risk"},
 			"progress_content": map[string]interface{}{"type": "string", "description": "进度/发现内容"},
 		},
@@ -46,7 +44,7 @@ func registerGoalTools(runtime *seelebridge.Runtime, app *application.Service) {
 	)
 	runtime.RegisterTool(
 		"goal_update",
-		"向栈顶 active goal 追加一条进度/发现或更新标题/正文/完成条件（推进 goal 治理，不直接收口）。",
+		"向栈顶 active goal 追加一条进度/发现（推进 goal 治理，不直接收口）。权限：agent 面只能汇报进度；改 goal 定义（标题/正文/完成条件）只有 ADVISOR 裁决侧能发起，改定义反而会让评审依据失效。",
 		updateSchema,
 		app.GoalUpdateHandler,
 	)

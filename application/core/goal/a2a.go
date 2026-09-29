@@ -266,6 +266,24 @@ var (
 	ErrNoActiveGoal  = errors.New("goal: 无 active goal 可评估")
 	ErrBadDirective  = errors.New("goal: TL 输出非法指令")
 	ErrInvalidSignal = errors.New("goal: 非法信号")
+
+	// ErrRoundInFlight 表示已有一次 b 回合在进行中（回合闸门不可重入）。
+	//
+	// 显式失败而不是排队：调用方等的是一个**可能永远不结束**的回合（内部是模型
+	// 调用 + 工具回合），排队会把"已有回合在飞"翻译成"调用方永久挂起"——正是
+	// 2026-09-29 锁面审计里 roundGate 那条纪律（非重入闸门排队即永久挂死）。
+	// 每个调用点按自己的语义处理，见 runRound 的四个调用点：
+	// Notify = 本轮不评（登记已完成，下一次触发再评）；gate/审批预筛 = B4 缺席
+	// 矩阵（保持 active 转人工，a 永不等待 b）；治理座位 = 良性跳过本轮发言。
+	ErrRoundInFlight = errors.New("goal: 已有 ADVISOR 回合在进行中（不排队，显式失败）")
+
+	// ErrRoundGoalGone 表示回合执行期间顶栈 goal 被收口或被换掉，这一回合的结论
+	// 因此无处落地（B 语义：**取消 → 丢弃结论**）。
+	//
+	// 为什么必须显式判：回合执行段在 s.mu 之外（见 techleader.go 的三段式），所以
+	// "谁在回合期间动了 goal"是真实可能的；若照旧套用准入时的 active 记录，gate 会
+	// 拿一份属于旧 goal 的裁决去收口**新**的栈顶目标。
+	ErrRoundGoalGone = errors.New("goal: b 回合期间 goal 已收口/更换，结论丢弃")
 )
 
 // TLNow 提供 TL 域时间源（测试可注入）。

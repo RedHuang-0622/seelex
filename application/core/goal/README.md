@@ -183,7 +183,22 @@ exec-a.Act（推进/登记） → advisor-b.Act（真实 TL 回合）
 ## 并发、存储、安全或错误语义
 
 - Controller.mu / Supervisor.mu：锁序 Supervisor.mu → Controller.mu；
-  Controller 永不回调 Supervisor（无反向死锁）；评估器调用是唯一阻塞点；
+  Controller 永不回调 Supervisor（无反向死锁）；
+- **b 回合是三段式**（2026-09-29 锁面审计 §4.1 整改）：准入（`beginRoundLocked`，
+  s.mu 内，只做判定 + 补帧 + 渲染 b 输入）→ 执行（`evaluateRound`，**不持 s.mu**：
+  模型调用与角色回合都在这一段）→ 提交（`commitRoundLocked`，s.mu 内，复核 goal +
+  落 b 回合段 + 发 corr 信封）；记录器在提交之后、锁外调用（`recordRound`）。
+  于是"持 s.mu 等 roundGate"的一方不存在，s.mu ↔ roundGate 的环在结构上不成立，
+  同 goroutine 上"回合内回头找 Supervisor"的回调也不再自锁死。副作用是进行中正文
+  （`TLState.InFlight`）在 peer=evaluating 期间真的读得到——旧实现把快照挡在整轮之后；
+- 回合闸门**不可重入且不排队**（`roundInFlight` 租约）：已有回合在飞时，第二个入口
+  拿到 `ErrRoundInFlight`。各调用点按自己的语义处理：`Notify` = 登记照旧、本轮不评；
+  终态 gate / 审批预筛 = B4 缺席默认（保持 active 转人工，a 永不等待 b）；治理座位 =
+  良性跳过本轮发言（不写 roundError、不断环）；
+- 提交段复核顶栈 goal（执行段在锁外，这一期间 goal 可能被改或被收口）：
+  **收口/取消** → 丢弃这一回合的结论（`ErrRoundGoalGone`，不发信封、不落回合段）；
+  **同一个 goal 被改** → 结论照常落地，并补一条 `goal.update` 差异帧
+  （`goalStampOf` 指纹判定；不用秒级 `UpdatedAt` 单判，否则同一秒内的两次更新判不出）；
 - b 上下文只尾部追加（前缀稳定），帧 ref_seq 单调、dup 幂等；
 - 指令/帧/嵌入全有界（MaxDirectiveQueue/MaxDirectiveRunes/…）；
 - 错误语义：TL 缺席（ErrTLDisabled/429/超时）走 B4 矩阵，不吞不挂。
@@ -434,6 +449,26 @@ go test -race ./application/core/goal/ -count=1
 - `func (r *GoalRecord) Clone() *GoalRecord` — Clone 深拷贝记录（返回副本，避免锁外读到栈内可变引用）。
 - `func (r *GoalRecord) validateBegin() error`
 - `func newGoalRecord(id string, request BeginRequest, now int64) *GoalRecord` — newGoalRecord 由 BeginRequest 构造记录并应用默认值。
+- `func (r UpdateRequest) ChangesDefinition() bool` — ChangesDefinition 报告这次更新是否动到了 goal 的**定义**：标题 / 正文 / 完成条件 /
+
+### round_lock_test.go
+
+- `func (e *gateEvaluator) Evaluate(ctx context.Context, embed TLSessionEmbed) (TLDirective, error)` — Evaluate 实现 TLEvaluator：hooks → 放行 entered → 等 release → 返回裁决。
+- `func (e *gateEvaluator) evalCount() int`
+- `func newBlockingEvaluator(reply TLDirective) *gateEvaluator` — newBlockingEvaluator 构造"卡在执行段"的评估器（不 release 就一直不返回）。
+- `func newImmediateEvaluator(reply TLDirective, hooks ...func(context.Context, TLSessionEmbed)) *gateEvaluator` — newImmediateEvaluator 构造"立刻返回"的评估器，可带回合内副作用。
+- `func beginTestGoal(t *testing.T, ctl *Controller, title string)`
+- `func waitSignal(t *testing.T, ch <-chan struct{}, what string)` — waitSignal 等一个形状信号在超时内就绪。
+- `func mustSnapshotWithin(t *testing.T, sup *Supervisor) TLState` — mustSnapshotWithin 断言快照能在超时内返回——即执行段**不持** s.mu。
+- `func waitRound(t *testing.T, done <-chan error, what string) error` — waitRound 收一个后台回合的结果（超时即失败，不挂死）。
+- `func TestRoundDoesNotHoldSupervisorLockWhileEvaluating(t *testing.T)` — TestRoundDoesNotHoldSupervisorLockWhileEvaluating 钉住三段式的核心：**执行段不持
+- `func TestRoundInFlightIsExplicitErrorNotQueue(t *testing.T)` — TestRoundInFlightIsExplicitErrorNotQueue 钉住回合闸门的"不排队"纪律：第二个入口
+- `func TestProposeFinishWhileRoundInFlightEscalates(t *testing.T)` — TestProposeFinishWhileRoundInFlightEscalates 钉住 A 语义：终态 gate 遇到"已有回合
+- `func TestPreScreenApprovalWhileRoundInFlightEscalates(t *testing.T)` — TestPreScreenApprovalWhileRoundInFlightEscalates 同一条 A 语义在审批预筛上的表现：
+- `func TestInRoundCallbackDoesNotDeadlock(t *testing.T)` — TestInRoundCallbackDoesNotDeadlock 钉住"回合内回头找 Supervisor"的形状：同 goroutine
+- `func TestRoundDiscardedWhenGoalClosedDuringRound(t *testing.T)` — TestRoundDiscardedWhenGoalClosedDuringRound 钉住 B 语义之一：回合执行期间 goal 被
+- `func TestRoundEmitsGoalUpdateFrameWhenGoalChangedDuringRound(t *testing.T)` — TestRoundEmitsGoalUpdateFrameWhenGoalChangedDuringRound 钉住 B 语义之二：回合执行
+- `func TestAdvisorSeatSkipsWhenRoundInFlight(t *testing.T)` — TestAdvisorSeatSkipsWhenRoundInFlight 钉住治理座位的处理口径：在飞是**良性跳过**
 
 ### sessionstore_store.go
 
@@ -493,8 +528,8 @@ go test -race ./application/core/goal/ -count=1
 - `func (m *TechLeaderMailbox) PendingDirectives() int` — PendingDirectives 读面计数。
 - `func (m *TechLeaderMailbox) Overflow() int64` — Overflow 返回指令溢出计数。
 - `func DefaultTechLeaderConfig() TechLeaderConfig` — DefaultTechLeaderConfig 返回生产默认（≤1 次/3-5 轮，控制 b 回合频率）。
-- `func (s *Supervisor) noteInFlightLocked(delta string)` — noteInFlightLocked 记一段 b 回合的进行中正文（调用方已持 s.mu：它是同一次
-- `func (s *Supervisor) clearInFlightLocked()` — clearInFlightLocked 清空进行中正文（回合结束：权威正文是裁决行）。
+- `func (s *Supervisor) noteInFlight(delta string)` — noteInFlight 记一段 b 回合的进行中正文。
+- `func (s *Supervisor) clearInFlight()` — clearInFlight 清空进行中正文（回合结束：权威正文是裁决行）。
 - `func boundInFlightRunes(text string, max int) string` — boundInFlightRunes 把进行中正文截到近端 max 个 rune（超出时前置省略标记）。
 - `func loopContinues(kind DirectiveKind) bool` — loopContinues 报告该裁决是否把发言权交还 EXEC（终态裁决结束循环）。
 - `func (s *Supervisor) SetRoundRecorder(recorder TLRoundRecorder)` — SetRoundRecorder 注入 b 回合记录器（装配根在首次会话启动前调用；幂等）。
@@ -507,9 +542,19 @@ go test -race ./application/core/goal/ -count=1
 - `func (s *Supervisor) Notify(ctx context.Context, signal TLEvalSignal) error` — Notify 登记一条 a 事件（EXEC 账本）并按触发策略决定是否自动执行 b 回合。
 - `func (s *Supervisor) noteWorkProgressLocked(signal TLEvalSignal)` — noteWorkProgressLocked 把 turn_completed 的工作正文摘要入待抽帧缓冲（调用方
 - `func (s *Supervisor) flushWorkProgressLocked(peer *AdvisorSession, now int64) error` — flushWorkProgressLocked 在 b 回合前把缓冲的 EXEC 工作进展一次性抽成
-- `func (s *Supervisor) maybeAutoEvalLocked(ctx context.Context, signal TLEvalSignal) error`
+- `func (s *Supervisor) beginAutoRoundLocked(ctx context.Context, signal TLEvalSignal) (*roundPlan, error)` — beginAutoRoundLocked 是 Notify 的"要不要评 + 准入"合一判定（调用方持 s.mu）。
 - `func (s *Supervisor) RunEval(ctx context.Context, trigger string) (TLDirective, error)` — RunEval 强制执行一次 b 回合（外部/边界触发：终态 gate、审批预筛、headless goal_tl_eval）。
-- `func (s *Supervisor) runRoundLocked(ctx context.Context, trigger string, signal TLEvalSignal) (TLDirective, error)` — runRoundLocked 执行一次 b 回合（调用方持 s.mu）：
+- `func (s *Supervisor) runRound(ctx context.Context, trigger string, signal TLEvalSignal) (TLDirective, error)` — runRound 是 b 回合的唯一入口（RunEval / Notify / 终态 gate / 审批预筛都走它）：
+- `func (s *Supervisor) beginRound(ctx context.Context, trigger string, signal TLEvalSignal) (*roundPlan, error)` — beginRound 是准入段：只拿 s.mu 一小段，做完判定与 b 输入构造就放掉。
+- `func (s *Supervisor) beginRoundLocked(ctx context.Context, trigger string, signal TLEvalSignal) (*roundPlan, error)` — beginRoundLocked 是准入段本体（调用方持 s.mu）：
+- `func (s *Supervisor) abortRoundLocked(peer *AdvisorSession)` — abortRoundLocked 释放回合租约并把 peer 落回稳态（准入失败路径；调用方持 s.mu）。
+- `func (s *Supervisor) completeRound(ctx context.Context, plan *roundPlan) (TLDirective, error)` — completeRound 跑完一个已准入的回合：执行段（锁外）→ 提交段（锁内）→ 记录（锁外）。
+- `func (s *Supervisor) evaluateRound(ctx context.Context, plan *roundPlan) (TLDirective, error)` — evaluateRound 是执行段：**刻意不持 s.mu**。
+- `func (s *Supervisor) commitRound(ctx context.Context, plan *roundPlan, directive TLDirective, evalErr error) (TLDirective, *TLRoundRecord, *MainTurnRecord, error)` — commitRound 是提交段入口：拿 s.mu 一小段做提交（body 见 commitRoundLocked）。
+- `func (s *Supervisor) commitRoundLocked(ctx context.Context, plan *roundPlan, directive TLDirective, evalErr error) (TLDirective, *TLRoundRecord, *MainTurnRecord, error)` — commitRoundLocked 是提交段本体（调用方持 s.mu）：复核 goal → 校验裁决 → 落 b 回合段
+- `func (s *Supervisor) noteGoalChangedLocked(peer *AdvisorSession, active *GoalRecord)` — noteGoalChangedLocked 在提交段发现"顶栈 goal 在回合期间被改过"时补一条
+- `func (s *Supervisor) recordRound(ctx context.Context, record *TLRoundRecord, mainTurn *MainTurnRecord)` — recordRound 把回合原文交给记录器——**锁外**。两重理由：① 记录器是宿主/落盘活
+- `func goalStampOf(record *GoalRecord) string` — goalStampOf 是顶栈 goal 的轻量指纹：回答"这一回合执行期间 goal 变了吗"。
 - `func (s *Supervisor) syncControllerDiffFramesLocked(peer *AdvisorSession, active *GoalRecord, now int64) error` — syncControllerDiffFramesLocked 把 headless 直接改 goal（无 Notify 接线）的差异补成
 - `func latestProgressSummary(active *GoalRecord) string` — latestProgressSummary 取最近一条 progress 作 update 帧详情（有界）。
 - `func (s *Supervisor) unbindIfTerminal(reason string)` — unbindIfTerminal 在 goal 收口后置 b 终态（协议 §9：done/abort → unbind + reap 会话对象，

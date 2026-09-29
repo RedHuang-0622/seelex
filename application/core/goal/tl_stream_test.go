@@ -8,7 +8,7 @@ import (
 
 // tl_stream_test.go — 钉住「b 回合进行中」观察面的两条口径：
 //
-//  1. ctx 上的观察回调能取回（挂载点 = Supervisor.runRoundLocked，消费点 =
+//  1. ctx 上的观察回调能取回（挂载点 = Supervisor.evaluateRound，消费点 =
 //     seelebridge 角色回合）；
 //  2. 进行中正文是**有界近端**，且回合结束即清空（权威正文是裁决行，不是中间态）。
 //

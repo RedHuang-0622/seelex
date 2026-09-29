@@ -403,11 +403,40 @@ func (service *Service) goalBeginHandler(ctx context.Context, argsJSON string) (
 	return marshalGoalResult(record)
 }
 
-// goalUpdateHandler 是 goal_update 工具 handler。
+// errGoalDefinitionTLOnly 是 **agent 工具面**尝试改 goal 定义时的拒绝错误。
+var errGoalDefinitionTLOnly = errors.New("goal: goal 定义的修改只有 ADVISOR(TL) 裁决侧可发起")
+
+// authorizeAgentGoalMutation 判定"agent 工具面（EXEC / 员工 / 子代理）"是否可以做这次
+// goal 变更；nil = 放行。
+//
+// 权限口径（2026-09-29 定）：**goal 的修改与取消只有 TL（ADVISOR）裁决侧有资格**。
+//
+//	动作                            | agent 工具面                      | TL 裁决侧 | 人类/运维面（headless RPC）
+//	追加进度（progress_*）          | 允许                              | —         | 允许
+//	改定义（标题/正文/完成条件/范围）| **拒绝**（本函数）                 | 允许      | 允许
+//	取消（finish/abort）            | 无此工具；只有 goal_propose_finish（提议）→ TL 裁决 → 才收口 | 允许（verdict_done / 逃生 AbortOnEscape） | 允许（显式人工操作）
+//
+// 为什么不让 agent 直接改定义：改定义 = 在被审查的目标上单方面换掉验收标准，ADVISOR
+// 的评审依据当场失效（"回合期间 goal 被改"的 B 语义正是这件事的兜底；这里是源头收口）。
+// 为什么不拦人类/运维面：人不是 agent——headless 的 goal_update/goal_finish/goal_abort
+// 是工作台与运维通道，拦掉它等于把"用户无法取消自己的目标"当成安全，且环逃生
+// （AbortOnEscape）也必须保留一条不过 gate 的收口口。
+func authorizeAgentGoalMutation(request goaldomain.UpdateRequest) error {
+	if !request.ChangesDefinition() {
+		return nil
+	}
+	return fmt.Errorf("%w：goal_update 在 agent 工具面上只接受 progress_kind/progress_content（用它汇报进度即可）", errGoalDefinitionTLOnly)
+}
+
+// goalUpdateHandler 是 goal_update 工具 handler（agent 工具面：权限收口见
+// authorizeAgentGoalMutation；人类/运维面的显式会话 API 是 GoalUpdateFor）。
 func (service *Service) goalUpdateHandler(ctx context.Context, argsJSON string) (string, error) {
 	var request goaldomain.UpdateRequest
 	if err := json.Unmarshal([]byte(argsJSON), &request); err != nil {
 		return "", fmt.Errorf("goal_update: invalid arguments: %w", err)
+	}
+	if err := authorizeAgentGoalMutation(request); err != nil {
+		return "", err
 	}
 	record, err := service.GoalUpdate(ctx, request)
 	if err != nil {

@@ -184,9 +184,10 @@ func TestRecordMainTurnPublishesHostMarkerInTheSameRound(t *testing.T) {
 }
 
 // TestRecordTLRoundKeepsTheOriginalWhenTheRoundIsCancelled 钉住「取消不丢内容」：
-// 记录器刻意不因 ctx 取消而丢原文——只要本回合已出裁决（runRoundLocked 只在
-// Evaluate 成功后调用记录器），原文照落、照同步；取消发生在评估阶段时根本走不到
-// 记录器，因此不会留下悬空草稿。两种情形都不会出现"取消丢内容"或"取消后草稿挂着"。
+// 记录器刻意不因 ctx 取消而丢原文——只要本回合已出裁决（提交段只在
+// Evaluate 成功后产出记录，见 completeRound/recordRound），原文照落、照同步；取消
+// 发生在评估阶段时根本走不到记录器，因此不会留下悬空草稿。两种情形都不会出现
+// "取消丢内容"或"取消后草稿挂着"。
 func TestRecordTLRoundKeepsTheOriginalWhenTheRoundIsCancelled(t *testing.T) {
 	sessionID := "sess-tl-cancelled"
 	sessions, recorder, _ := draftRecordingFixture(t, sessionID)

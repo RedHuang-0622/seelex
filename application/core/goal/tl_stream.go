@@ -13,7 +13,7 @@ import "context"
 //   - 不改 TLEvaluator 契约（契约只承载裁决本身：TLDirective）；
 //   - 不引入前端→后端的写入口（这只把后端产生的分片**单向**推出去）。
 //
-// 谁挂载：Supervisor.runRoundLocked（每一轮 b 回合的唯一执行点）。
+// 谁挂载：Supervisor.evaluateRound（每一轮 b 回合的唯一执行点；执行段不持 s.mu）。
 // 谁消费：seelebridge 的角色回合（把它接到引擎的 onChunk）。
 
 // TLDeltaSink 接收 b 回合的流式分片（每次调用是一段增量正文）。

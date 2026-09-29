@@ -14,6 +14,30 @@ version when it lands.
 
 ### Changed
 
+- **The ADVISOR evaluation round no longer holds `Supervisor.mu` across the model call, and only the
+  TechLead can change or cancel a goal.** `RunEval` used to keep `s.mu` for a whole round (admission +
+  `evaluator.Evaluate` + commit + recorder), so the mutex spanned a streamed model call that can run for
+  minutes: any in-round callback that walked back into the Supervisor (stream deltas, iteration hooks,
+  tools) re-entered a non-reentrant mutex on the same goroutine — a guaranteed self-deadlock — and
+  `s.mu → roundGate` against `roundGate → s.mu` is the ABBA the lock audit had parked as "the other half".
+  The round is three-phased now: admission (diff frames + b input rendering) and commit (verdict
+  validation + corr envelope + bookkeeping) under `s.mu`, **evaluation outside it**, and the recorder after
+  commit, outside the lock (it is host I/O and may take host-side locks). Round mutual exclusion became an
+  explicit non-queuing lease (`ErrRoundInFlight`): `Notify` still registers the event and only skips this
+  evaluation, the finish/approval gates fall back to the B4 absence matrix (goal stays active, escalate to
+  human, and the in-flight peer is deliberately *not* reaped), the governance seat skips its turn benignly
+  instead of reporting a fake round error, and `RunEval` / headless fail visibly. Two knock-on effects:
+  `Snapshot()` is live while `peer=evaluating`, so the in-progress verdict text added earlier is now
+  actually observable in the panel, and the commit phase re-checks the top goal — a goal closed or swapped
+  mid-round makes that round discard its verdict (`ErrRoundGoalGone`: no envelope, no round segment, no
+  counters), while a goal *modified* mid-round still lands its verdict and appends a `goal.update` frame so
+  b's next round is re-anchored (fingerprint-compared, because the domain clock is second-granular and
+  "changed within the same second" must not be missed). On the permission side, goal definition edits
+  (title/statement/acceptance/out-of-scope) and cancellation are TechLead-only on the agent plane:
+  `goal_update` is progress-only for agents (schema narrowed, handler rejects definition edits with a
+  dedicated error), while explicit-session APIs and headless RPC keep them for humans/ops, and
+  `goal_propose_finish` still only proposes until the TechLead's verdict (or the B4 no-TL fallback) closes
+  the goal. See `docs/devlog/2026-09-29-goal-round-three-phase-and-goal-permission.md`.
 - **The execution-fact event log is a true append-only line log now, not a whole-file JSON array.**
   `framework-events.json` holds one fact per line (`seq` + `payload`) and an append is a single
   `O_APPEND` write, so the critical section no longer scales with the size of the log. The old

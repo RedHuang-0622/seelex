@@ -104,6 +104,10 @@ goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回�
 - `func waitUntil(t *testing.T, what string, ready func() bool)` — waitUntil 轮询直到条件成立（回合切换是异步的，用一次有界等待而不是 sleep 猜）。
 - `func TestGoalLoopTurnsAlternateExecAdvisorUntilVerdictCloses(t *testing.T)`
 
+### goal_permission_test.go
+
+- `func TestAgentGoalUpdateCannotRewriteDefinition(t *testing.T)` — TestAgentGoalUpdateCannotRewriteDefinition 钉住 agent 工具面的收口与人类面的保留。
+
 ### goal_ring_escape_test.go
 
 - `func (s *escapeRecordingSessions) AppendRoleDraft(_ string, _ string, _ string, rows []dto.RoleDraftRow) error`
@@ -165,7 +169,8 @@ goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回�
 - `func (service *Service) publishAdvisorDirectiveRows(sessionID string, directives []goaldomain.TLDirective)` — publishAdvisorDirectiveRows 把 b→a 指令以可见 ADVISOR 行写进目标会话：
 - `func (service *Service) advisorRoleSessionID(sessionID string) string` — advisorRoleSessionID 解析 ADVISOR（tl）的角色会话号：按工厂口径
 - `func (service *Service) goalBeginHandler(ctx context.Context, argsJSON string) (string, error)` — goalBeginHandler 是 goal_begin 工具 handler（main.go 注册）。
-- `func (service *Service) goalUpdateHandler(ctx context.Context, argsJSON string) (string, error)` — goalUpdateHandler 是 goal_update 工具 handler。
+- `func authorizeAgentGoalMutation(request goaldomain.UpdateRequest) error` — authorizeAgentGoalMutation 判定"agent 工具面（EXEC / 员工 / 子代理）"是否可以做这次
+- `func (service *Service) goalUpdateHandler(ctx context.Context, argsJSON string) (string, error)` — goalUpdateHandler 是 goal_update 工具 handler（agent 工具面：权限收口见
 - `func (service *Service) goalProposeFinishHandler(ctx context.Context, argsJSON string) (string, error)` — goalProposeFinishHandler 是 goal_propose_finish 工具 handler。
 - `func (service *Service) goalStatusHandler(ctx context.Context, _ string) (string, error)` — goalStatusHandler 是 goal_status 工具 handler。
 - `func marshalGoalResult(value any) (string, error)`
