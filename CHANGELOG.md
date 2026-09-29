@@ -14,6 +14,19 @@ version when it lands.
 
 ### Changed
 
+- **The execution-fact event log is a true append-only line log now, not a whole-file JSON array.**
+  `framework-events.json` holds one fact per line (`seq` + `payload`) and an append is a single
+  `O_APPEND` write, so the critical section no longer scales with the size of the log. The old
+  `AppendFrameworkEvent` read the whole array under `store.mu` (the process-wide sink lock) *and*
+  `repository.mu`, merged, re-marshalled and republished the file atomically: measured with 10,000
+  existing entries that cost 38.8 ms and 1.65 MB written per appended fact, against 0.30 ms and
+  ~159 B now (128×; flat in log size). Reads accept both shapes, the first append migrates a
+  pre-upgrade array — and v1 `generation-N/events.json` residue, as before — into line form in one
+  atomic publish, a torn tail record from a crash is dropped on read and truncated by the next
+  append, and a duplicated `Seq` keeps the last writer, which is the idempotence the old
+  read-merge-rewrite provided. `EventStore.mu` still serialises every session's facts on purpose:
+  the append is O(1) now, so split it only after measuring queueing. See `sessionstore/README.md`
+  and `docs/devlog/2026-09-29-event-log-append-only.md`.
 - **The compaction budget's configuration notes now say who consumes what, how to approximate
   turning compaction off, and where the keys actually live.** Three drifts, all in the direction of
   "the file looks more capable than it is": (1) the block claimed "the same value is consumed by two
@@ -146,6 +159,18 @@ version when it lands.
 
 ### Fixed
 
+- **Three more lock-surface audit items (§2.14 / §2.8 / §2.13) are fixed: pure reads stopped taking
+  the write lock, the compact bridge left the session-context lock, and the JSON-layout runtime
+  entries register in-flight operations.** (1) `sessionBundle.mu` became a `sync.RWMutex` and
+  `Runtime.Session()` / `CurrentSession()` take it read-only, so assembly and session switches no
+  longer serialise every reader. (2) `SessionContextStore.PushCompact` ran `bridgeCompactFrame`
+  (compact channel + disk) inside `s.mu`, which parked every `Snapshot` / `SystemPrompt` read of
+  that session on the write; `s.mu` now only mutates memory while a `bridgeMu` that covers no pure
+  read keeps push → bridge → persist in order. (3) The 14 runtime entries in `runtime_api.go` took
+  a repository pointer under a read lock and then ran unlocked, so `Configure` / `Close` could tear
+  the old backend down underneath them; they now go through `withJSONRepositoryAt`, which registers
+  an in-flight operation and preserves the existing `(false, nil)` "capability unavailable" contract
+  callers fall back on. See `docs/devlog/2026-09-29-store-lock-and-runtime-entry-batch.md`.
 - **The engine port no longer calls the host's history handoff while holding the port lock.**
   `EnginePort` installed and resumed history in one `port.mu` critical section that ended by calling
   `port.prepareHistory` — a host-injected implementation (production assembly is

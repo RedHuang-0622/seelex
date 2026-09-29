@@ -4,6 +4,7 @@
 package sessionstore
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -11,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -39,10 +41,16 @@ const (
 	defaultMessageShardSize = 100
 	// frameworkEventLogFile 是执行事实事件库的独立 append-only 文件
 	// （v2 模块布局：不随 generation rollover 失效；见 plan.md §阶段1 P0）。
+	// 形态是**逐行日志**：一条事实 = 一行 compact JSON，追加只写尾部、
+	// 不读旧内容、不重写整份文件（锁面审计 §2.9）。升级前落盘的「整份 JSON
+	// 数组」仍可读，并在首次追加时就地迁移成逐行日志。
 	frameworkEventLogFile = "framework-events.json"
 	// frameworkEventLegacyFile 是 v1 布局下 generation 内的事件库文件名，
 	// 首次写入 v2 模块时迁移合并，之后只读回退。
 	frameworkEventLegacyFile = "events.json"
+	// eventLogTailChunk 是事件库自愈扫描分块（从尾部向前找最后一条完整记录），
+	// 保证自愈代价与事件库体积无关。
+	eventLogTailChunk = 64 * 1024
 )
 
 // ErrBackendRetired 标识已退役的会话存储后端。R1 只保留 JSON v8 实现；
@@ -997,6 +1005,32 @@ func (router *Router) withRepositoryAt(projectID string, fn func(Repository, str
 	return fn(repository, strings.TrimSpace(resolvedProjectID))
 }
 
+// withJSONRepositoryAt 是"仅 JSON 会话存储布局"运行期入口的统一包装（§2.13）：
+// 在锁外执行对 jsonRepository 的操作，同时登记在途操作（activeOps），使
+// Configure/Close 会等到该操作结束再关闭旧后端——此前这些入口只取锁快照
+// repository 指针就放锁，可与存储切换/Close 在旧后端上重叠。
+//
+// 与 withRepositoryAt 的差异是**口径**，不能顺带改变：
+//   - withRepositoryAt 只在 Router 已关闭时返回 error；
+//   - 本函数对"非 JSON 布局"与"Router 已关闭"都返回 (false, nil)，调用方按
+//     "该能力不可用 → 回退旧链路/降级"处理。
+//
+// 调用方确实依赖后一种口径（例：session_history.go 的 wire 装配把 err 当硬
+// 失败、直接中断会话恢复，而 ok=false 才回退到旧装配），所以这里保留
+// (false, nil)，而不是改走 withRepositoryAt 把关闭变成 error。
+func (router *Router) withJSONRepositoryAt(projectID string, fn func(*jsonRepository, string) error) (bool, error) {
+	repository, resolvedProjectID, ok := router.acquireRepository(projectID)
+	if !ok {
+		return false, nil
+	}
+	defer router.releaseRepository()
+	jsonRepo, ok := repository.(*jsonRepository)
+	if !ok {
+		return false, nil
+	}
+	return true, fn(jsonRepo, resolvedProjectID)
+}
+
 // acquireRepository 短暂取锁获取当前 repository 并登记在途操作；数据操作在
 // 锁外执行（跨会话并行），Configure/Close 会在活跃归零后再关闭旧后端。
 func (router *Router) acquireRepository(projectID string) (Repository, string, bool) {
@@ -1238,31 +1272,236 @@ func (repository *jsonRepository) AppendFrameworkEvent(_ context.Context, key Ke
 		return err
 	}
 	path := filepath.Join(directory, frameworkEventLogFile)
-	var entries []EventLogEntry
-	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
-		// 首次写入：迁移 v1 布局遗留的 events.json（所有 generation），
-		// 独立 append-only 事实轨不随 generation rollover 失效。
+	if err := repository.prepareEventLogForAppendLocked(path, directory); err != nil {
+		return err
+	}
+	line, err := json.Marshal(entry)
+	if err != nil {
+		return fmt.Errorf("session storage: marshal event log entry: %w", err)
+	}
+	return appendEventLogLine(path, line)
+}
+
+// prepareEventLogForAppendLocked 让事件库文件处于「可逐行追加」状态，是追加
+// 路径上唯一可能读写全量内容的地方（且每个会话只发生一次）：
+//
+//   - 文件不存在：按旧口径迁移 v1 布局遗留的 events.json（含已 rollover 的
+//     generation），旧执行事实不随布局升级丢失；
+//   - 文件是升级前形态（整份 JSON 数组）：原子重写成逐行日志；
+//   - 文件已是逐行日志：只截掉崩溃截断的半条尾记录（自愈），随后交给调用方
+//     O(1) 追加。
+//
+// 判形态只看首字节、自愈只看尾部，**不读整份日志** —— 否则「追加也要读一遍
+// 全库」会把 §2.9 要消掉的线性代价原样带回来。调用方必须持有
+// jsonRepository.mu 写锁。
+func (repository *jsonRepository) prepareEventLogForAppendLocked(path, directory string) error {
+	first, size, tornCut, err := inspectEventLog(path)
+	if err != nil {
+		return err
+	}
+	if size < 0 { // 文件不存在：一次性迁移 v1 遗留的 events.json
 		legacy, legacyErr := repository.legacyFrameworkEventEntriesLocked(directory)
 		if legacyErr != nil {
 			return legacyErr
 		}
-		entries = legacy
-	} else if err != nil {
-		return err
-	} else {
-		existing, readErr := repository.readEventLogLocked(path)
+		if len(legacy) == 0 {
+			return nil // 空库：留给追加路径的 O_CREATE 建文件
+		}
+		return writeEventLogLines(path, legacy)
+	}
+	if size == 0 {
+		return nil
+	}
+	switch first {
+	case '[': // 升级前形态（整份 JSON 数组）：一次性重写成逐行日志
+		data, readErr := os.ReadFile(path)
 		if readErr != nil {
 			return readErr
 		}
-		entries = existing
+		entries, decodeErr := decodeLegacyEventLogArray(data)
+		if decodeErr != nil {
+			return decodeErr
+		}
+		return writeEventLogLines(path, entries)
+	case '{': // 逐行日志
+		if tornCut < 0 {
+			return nil
+		}
+		return os.Truncate(path, tornCut)
+	default:
+		// 首字节既不是 '{' 也不是 '['（前导空白等手工文件）：退回整份判定，
+		// 属罕见路径，不进入热路径代价。
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		if isLegacyEventLogArray(data) {
+			entries, decodeErr := decodeLegacyEventLogArray(data)
+			if decodeErr != nil {
+				return decodeErr
+			}
+			return writeEventLogLines(path, entries)
+		}
+		if tornCut < 0 {
+			return nil
+		}
+		return os.Truncate(path, tornCut)
 	}
-	// merge 而非直接 append：同 Seq 重试幂等，乱序追加也保持 Seq 排序。
-	entries = mergeEventLogEntries(entries, []EventLogEntry{entry})
-	data, err := json.Marshal(entries)
+}
+
+// writeEventLogLines 原子发布逐行日志（迁移路径专用：每会话只发生一次）。
+func writeEventLogLines(path string, entries []EventLogEntry) error {
+	lines, err := encodeEventLogLines(entries)
 	if err != nil {
-		return fmt.Errorf("session storage: marshal event log: %w", err)
+		return err
 	}
-	return writeAtomic(path, data, 0o600)
+	return writeAtomic(path, lines, 0o600)
+}
+
+// appendEventLogLine 以 O_APPEND 追加一行（一条事实 = 一行）：不读旧内容、
+// 不重写整份文件，临界区长度与事件库体积解耦（锁面审计 §2.9）。写侧不做
+// fsync，与 writeAtomic 同口径（进程崩溃不丢已写页，掉电丢未落盘页）。
+func appendEventLogLine(path string, line []byte) error {
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	_, err = file.Write(append(line, '\n'))
+	return err
+}
+
+// inspectEventLog 一次打开就拿到追加前要判断的三件事：形态（首字节）、体积、
+// 崩溃截断位置（tornCut ≥ 0 表示需要截断；-1 表示完好）。
+// size < 0 表示文件不存在。只读首字节与尾部分块，不读整份日志。
+func inspectEventLog(path string) (first byte, size int64, tornCut int64, err error) {
+	tornCut = -1
+	file, err := os.Open(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, -1, tornCut, nil
+	}
+	if err != nil {
+		return 0, 0, tornCut, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return 0, 0, tornCut, err
+	}
+	size = info.Size()
+	if size == 0 {
+		return 0, size, tornCut, nil
+	}
+	head := make([]byte, 1)
+	if _, err := file.ReadAt(head, 0); err != nil && !errors.Is(err, io.EOF) {
+		return 0, size, tornCut, err
+	}
+	first = head[0]
+	last := make([]byte, 1)
+	if _, err := file.ReadAt(last, size-1); err != nil && !errors.Is(err, io.EOF) {
+		return first, size, tornCut, err
+	}
+	if last[0] == '\n' {
+		return first, size, tornCut, nil
+	}
+	tornCut, err = scanEventLogTailCut(file, size)
+	return first, size, tornCut, err
+}
+
+// scanEventLogTailCut 从尾部向前按块找最后一条完整记录的末尾
+// （0 = 整份文件都是半条记录）。
+func scanEventLogTailCut(file *os.File, size int64) (int64, error) {
+	buffer := make([]byte, eventLogTailChunk)
+	for end := size; end > 0; {
+		start := end - int64(len(buffer))
+		if start < 0 {
+			start = 0
+		}
+		chunk := buffer[:end-start]
+		if _, err := file.ReadAt(chunk, start); err != nil && !errors.Is(err, io.EOF) {
+			return -1, err
+		}
+		if index := bytes.LastIndexByte(chunk, '\n'); index >= 0 {
+			return start + int64(index) + 1, nil
+		}
+		end = start
+	}
+	return 0, nil
+}
+
+// encodeEventLogLines 把事件序列编成逐行日志（每行一条 compact JSON + 换行）。
+func encodeEventLogLines(entries []EventLogEntry) ([]byte, error) {
+	var buffer bytes.Buffer
+	for _, entry := range entries {
+		line, err := json.Marshal(entry)
+		if err != nil {
+			return nil, fmt.Errorf("session storage: marshal event log: %w", err)
+		}
+		buffer.Write(line)
+		buffer.WriteByte('\n')
+	}
+	return buffer.Bytes(), nil
+}
+
+// isLegacyEventLogArray 判定事件库是不是升级前的「整份 JSON 数组」形态。
+func isLegacyEventLogArray(data []byte) bool {
+	trimmed := bytes.TrimSpace(data)
+	return len(trimmed) > 0 && trimmed[0] == '['
+}
+
+func decodeLegacyEventLogArray(data []byte) ([]EventLogEntry, error) {
+	var entries []EventLogEntry
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return nil, fmt.Errorf("session storage: decode event log: %w", err)
+	}
+	return entries, nil
+}
+
+// decodeEventLog 解事件库：逐行日志（现形态）与整份 JSON 数组（升级前形态）都认。
+// 不以换行结束的尾行 = 崩溃截断的半条记录，读时丢弃（下一次追加会把它截掉），
+// 已结束的行损坏仍显式报错。
+func decodeEventLog(data []byte) ([]EventLogEntry, error) {
+	if isLegacyEventLogArray(data) {
+		return decodeLegacyEventLogArray(data)
+	}
+	lines := bytes.Split(data, []byte{'\n'})
+	entries := make([]EventLogEntry, 0, len(lines))
+	for index, raw := range lines {
+		line := bytes.TrimSpace(raw)
+		if len(line) == 0 {
+			continue
+		}
+		var entry EventLogEntry
+		if err := json.Unmarshal(line, &entry); err != nil {
+			if index == len(lines)-1 && !bytes.HasSuffix(data, []byte{'\n'}) {
+				break // 崩溃截断的半条尾记录
+			}
+			return nil, fmt.Errorf("session storage: decode event log: %w", err)
+		}
+		entries = append(entries, entry)
+	}
+	return entries, nil
+}
+
+// dedupeEventLogEntries 同 Seq 只留最后追加的那条（后写者胜），与旧「读整份 →
+// mergeEventLogEntries」的幂等口径一致：调用方已按 Seq 升序排好，这里保持顺序。
+func dedupeEventLogEntries(entries []EventLogEntry) []EventLogEntry {
+	if len(entries) < 2 {
+		return entries
+	}
+	kept := make([]EventLogEntry, 0, len(entries))
+	seen := make(map[uint64]struct{}, len(entries))
+	for index := len(entries) - 1; index >= 0; index-- {
+		if _, ok := seen[entries[index].Seq]; ok {
+			continue
+		}
+		seen[entries[index].Seq] = struct{}{}
+		kept = append(kept, entries[index])
+	}
+	for left, right := 0, len(kept)-1; left < right; left, right = left+1, right-1 {
+		kept[left], kept[right] = kept[right], kept[left]
+	}
+	return kept
 }
 
 func (repository *jsonRepository) ReadFrameworkEvents(_ context.Context, key Key) ([]EventLogEntry, error) {
@@ -1343,7 +1582,8 @@ func mergeEventLogEntries(primary, extra []EventLogEntry) []EventLogEntry {
 	return merged
 }
 
-// readEventLogLocked 读取事件库 JSON（不存在 → 空库；损坏 → 显式错误）。
+// readEventLogLocked 读取事件库（不存在 → 空库；损坏 → 显式错误），按 Seq
+// 升序返回，同 Seq 只留最后追加的那条（幂等，与旧「读整份 → merge」口径一致）。
 // 调用方必须持有 jsonRepository.mu（读锁或写锁）。
 func (repository *jsonRepository) readEventLogLocked(path string) ([]EventLogEntry, error) {
 	data, err := os.ReadFile(path)
@@ -1353,12 +1593,12 @@ func (repository *jsonRepository) readEventLogLocked(path string) ([]EventLogEnt
 	if err != nil {
 		return nil, err
 	}
-	var entries []EventLogEntry
-	if err := json.Unmarshal(data, &entries); err != nil {
-		return nil, fmt.Errorf("session storage: decode event log: %w", err)
+	entries, err := decodeEventLog(data)
+	if err != nil {
+		return nil, err
 	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Seq < entries[j].Seq })
-	return entries, nil
+	sort.SliceStable(entries, func(i, j int) bool { return entries[i].Seq < entries[j].Seq })
+	return dedupeEventLogEntries(entries), nil
 }
 
 func (repository *jsonRepository) ReadProjectRecord(_ context.Context, projectID string) (ProjectRecord, error) {

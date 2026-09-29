@@ -367,6 +367,38 @@ tmp 并显式报错。原因：Windows 上目标文件被任何句柄打开即�
 见 `TestWriteAtomicSurvivesTransientHandle` 与
 `TestWriteAtomicGivesUpWithinBudgetAndLeavesNoTemp`。
 
+## 执行事实事件库（`framework-events.json`）
+
+双轨事件的「事实轨」（`event.Sink` → `sessionstore/event_store.go`）按会话落盘，
+不随 generation rollover 失效（v2 模块布局，与 `session/event/` 的 transcript
+结构事件是两回事）。
+
+- **放置**：`<sessionRoot>/framework-events.json`，**逐行日志**（一条事实 = 一行
+  `EventLogEntry`：`seq` + `payload`）。
+- **写形态 = 真追加**：`AppendFrameworkEvent` 以 `O_APPEND|O_CREATE` 写一行就返回，
+  **不读旧内容、不重写整份文件** —— 临界区长度与事件库体积解耦（锁面审计 §2.9
+  记的「读整份 → merge → 原子整文件重写」已移除；旧形态下每追加一条的代价随库
+  线性增长，且 `store.mu`/`repository.mu` 上的排队被放大）。
+- **锁**：仍走 `jsonRepository.mu` 写锁（跨会话共用）。这是**取舍**：没有为事件库
+  另开按会话的模块锁，理由是追加已是 O(1) 尾写，代价不再随负载放大（要再切分请先
+  量出排队，别只凭「共用一把锁」下结论）。
+- **读形态**：两种形态都认。升级前落盘的「整份 JSON 数组」照读；首次追加时就地
+  重写成逐行日志（`writeAtomic` 原子发布）。v1 布局遗留
+  `generation-N/events.json` 与会话根 `events.json` 仍按旧口径合并迁移。
+- **幂等**：按 `seq` 去重，**后写者胜**（与旧「读整份 → `mergeEventLogEntries`」
+  一致）；读回按 `seq` 升序。
+- **崩溃语义**：文件不以换行结束 = 最后一条是半条记录。读时丢弃该尾行不报损坏，
+  下一次追加前把它截掉（自愈，从尾部按 64 KiB 块向前找最后一条完整记录）；已以
+  换行结束的行损坏仍显式报错。写侧不做 fsync，与 `writeAtomic` 同口径。
+- 判据：`TestEventLogAppendsLinesWithoutRewriting`（逐行形态 + 前缀不被改写，
+  有牙：换回「读整份 → 重写」立刻红）、`TestEventLogMigratesLegacyArrayFileOnFirstAppend`、
+  `TestEventLogMigratesLegacyGenerationFilesOnFirstAppend`、
+  `TestEventLogDropsTornTailAndHealsOnNextAppend`、
+  `TestEventLogKeepsLastEntryForRepeatedSeq`、
+  `TestEventLogConcurrentAppendsKeepEveryEntry`（`-race`）。
+- 边界：事件库随会话单调增长，**没有轮转/压缩**（消费方按 `seq` 区间读；是否需要
+  保留策略属产品项）。
+
 ## 子代理会话记录（NodeSessionRecord）
 
 子代理（fork/plan 的 `kind:agent` 节点）会话记录按主会话索引落盘：

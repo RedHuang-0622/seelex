@@ -576,6 +576,11 @@ func (service *Service) sessionEventFilter(sessionID string) func(event.Event) b
 		}
 		// 草稿视图（空 sid）过渡口径：事件归属当前视图会话或仍为空占位。
 		// G4 早分配 SID 后本分支只保留进程类判定。
+		//
+		// §2.12（未采用，设计级）：这里每次发布都经 actor 取 V，处于 hub 的
+		// publishMu + subscriber.mu 内。曾试"在 session.Domain 里加 V 的无锁
+		// 镜像"，被 T5.5 静态不变量（TestGlobalSharedFaceBounded：Domain 只允许
+		// channel 字段，G 之外不得有共享可变状态）挡下；改动需先改架构决定。
 		activeID := service.sessions.ActiveID()
 		return event.SessionID == "" || event.SessionID == activeID
 	}

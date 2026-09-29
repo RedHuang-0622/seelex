@@ -215,6 +215,12 @@ type SessionContextStore struct {
 	mu     sync.RWMutex
 	record SessionContextRecord
 	loaded bool
+
+	// bridgeMu 串行 compact 链的"压栈 → 桥接落盘 → 持久化"整段（§2.8）：
+	// s.mu 只护 record 与纯读，落盘一律在 s.mu 之外；帧靠 PrevSegmentID
+	// 成链、compact 通道会拒绝乱序帧，所以"落盘顺序 = 压栈顺序"必须由某把
+	// 锁保证——bridgeMu 就是它，且它不覆盖任何纯读。
+	bridgeMu sync.Mutex
 }
 
 // NewSessionContextStore 创建会话上下文存储（惰性加载）。
@@ -740,8 +746,15 @@ func (s *SessionContextStore) PopSkill(skillID string) error {
 }
 
 // PushCompact 在窗口外压缩时压入摘要帧。
+//
+// 锁纪律（§2.8）：s.mu 内只做校验与压栈（内存），compact 通道落盘（bridge）
+// 移到 s.mu 之外——写盘期间不再阻塞本会话的纯读。帧靠 PrevSegmentID 成链、
+// 通道会拒绝乱序帧，所以落盘必须与压栈同序：bridgeMu 串行"压栈 → 落盘 →
+// 持久化"整段来保证（它不覆盖任何纯读）。
 func (s *SessionContextStore) PushCompact(frame CompactFrame) error {
-	err := s.update(func(record *SessionContextRecord) error {
+	s.bridgeMu.Lock()
+	defer s.bridgeMu.Unlock()
+	if err := s.mutate(func(record *SessionContextRecord) error {
 		if frame.SegmentID == "" {
 			return fmt.Errorf("session context: compact frame requires segment_id")
 		}
@@ -773,7 +786,6 @@ func (s *SessionContextStore) PushCompact(frame CompactFrame) error {
 			if frame.PrevSegmentID != "" {
 				return fmt.Errorf("session context: first compact frame must not carry prev_segment_id")
 			}
-			s.bridgeCompactFrame(frame)
 			record.CompactStack = append(record.CompactStack, frame)
 			return nil
 		}
@@ -789,11 +801,15 @@ func (s *SessionContextStore) PushCompact(frame CompactFrame) error {
 			return fmt.Errorf("session context: prev request range [%q,%q] must match stack top [%q,%q]",
 				frame.PrevRequestFrom, frame.PrevRequestTo, top.RequestFrom, top.RequestTo)
 		}
-		s.bridgeCompactFrame(frame)
 		record.CompactStack = append(record.CompactStack, frame)
 		return nil
-	})
-	return err
+	}); err != nil {
+		return err
+	}
+	// 桥接与持久化都在 s.mu 之外：写盘不再阻塞本会话的纯读（SystemPrompt/
+	// Snapshot/审计快照等）。
+	s.bridgeCompactFrame(frame)
+	return s.Persist(context.Background())
 }
 
 // bridgeCompactFrame 把运行期压缩帧写进 compact 通道（S19：单源写入；
@@ -807,20 +823,26 @@ func (s *SessionContextStore) bridgeCompactFrame(frame CompactFrame) {
 	}
 }
 
-// update 在加锁下执行栈操作并持久化 state blob。
-func (s *SessionContextStore) update(mutate func(*SessionContextRecord) error) error {
+// mutate 在 s.mu 内执行栈操作，**不落盘**：锁内只允许改内存（§2.8——落盘
+// 放进来会让一次写盘阻塞本会话的全部纯读）。
+func (s *SessionContextStore) mutate(apply func(*SessionContextRecord) error) error {
 	if s == nil || s.router == nil || s.sessionID == "" {
 		return fmt.Errorf("session context: router or session ID is unavailable")
 	}
 	s.mu.Lock()
-	err := mutate(&s.record)
+	err := apply(&s.record)
 	if err == nil {
 		// 本次进程已持有内存态：v8 的内存字段（SkillStack 等）不得被随后
 		// 的 Load 从已剥离的 blob 覆盖。
 		s.loaded = true
 	}
 	s.mu.Unlock()
-	if err != nil {
+	return err
+}
+
+// update 在加锁下执行栈操作并持久化 state blob。
+func (s *SessionContextStore) update(apply func(*SessionContextRecord) error) error {
+	if err := s.mutate(apply); err != nil {
 		return err
 	}
 	return s.Persist(context.Background())

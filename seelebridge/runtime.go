@@ -515,10 +515,12 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 func (r *Runtime) Agent() *agent.Agent { return r.agt }
 
 // Session 返回当前主会话（尚未创建时返回 nil）。
+// 纯读：只 RLock（§2.14）——取写锁会让并发读面（CurrentSession 等）在装配/
+// 切换期间无谓串行，而这里并不改动 bundle 任何字段。
 func (r *Runtime) Session() *session.Session {
 	if bundle := r.activeBundle(); bundle != nil {
-		bundle.mu.Lock()
-		defer bundle.mu.Unlock()
+		bundle.mu.RLock()
+		defer bundle.mu.RUnlock()
 		return bundle.session
 	}
 	return nil

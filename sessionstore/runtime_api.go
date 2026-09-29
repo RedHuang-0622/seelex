@@ -42,171 +42,208 @@ func (router *Router) jsonRepository() (*jsonRepository, bool) {
 // AssembleWireWorkspace 对会话执行 wire 装配（frame 摘要 + tail + 最近 K
 // 条尝试）。非该布局返回 ok=false。
 func (router *Router) AssembleWireWorkspace(projectID, sessionID string, budget, k int) ([]types.Message, bool, error) {
-	router.mu.RLock()
-	repository, ok := router.jsonRepositoryLocked()
-	router.mu.RUnlock()
+	var messages []types.Message
+	var supported bool
+	ok, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, projectID string) error {
+		var inner error
+		messages, supported, inner = repository.assembleWireWorkspace(Key{ProjectID: projectID, SessionID: sessionID}, budget, k)
+		return inner
+	})
 	if !ok {
-		return nil, false, nil
+		return nil, false, err
 	}
-	return repository.assembleWireWorkspace(Key{ProjectID: projectID, SessionID: sessionID}, budget, k)
+	return messages, supported, err
 }
 
 // CommitCompactFrameWorkspace 把运行期压缩帧写入 compact 通道（帧摘要
 // 供 wire 装配；非该布局返回 ok=false）。
 func (router *Router) CommitCompactFrameWorkspace(projectID, sessionID string, frame CompactFrame) (bool, error) {
-	router.mu.RLock()
-	repository, ok := router.jsonRepositoryLocked()
-	router.mu.RUnlock()
+	var committed bool
+	ok, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, projectID string) error {
+		var inner error
+		committed, inner = repository.commitCompactFrameWorkspace(Key{ProjectID: projectID, SessionID: sessionID}, frame)
+		return inner
+	})
 	if !ok {
-		return false, nil
+		return false, err
 	}
-	return repository.commitCompactFrameWorkspace(Key{ProjectID: projectID, SessionID: sessionID}, frame)
+	return committed, err
 }
 
 // RetentionAdvisoryWorkspace 返回会话 retention 水位建议（v8；非 v8 返回
 // Layout=legacy 的零值建议）。
 func (router *Router) RetentionAdvisoryWorkspace(projectID, sessionID string) (RetentionAdvisory, error) {
-	router.mu.RLock()
-	repository, ok := router.jsonRepositoryLocked()
-	router.mu.RUnlock()
+	var advisory RetentionAdvisory
+	ok, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, projectID string) error {
+		var inner error
+		advisory, inner = repository.retentionAdvisoryWorkspace(Key{ProjectID: projectID, SessionID: sessionID})
+		return inner
+	})
 	if !ok {
-		return RetentionAdvisory{Layout: "legacy"}, nil
+		return RetentionAdvisory{Layout: "legacy"}, err
 	}
-	return repository.retentionAdvisoryWorkspace(Key{ProjectID: projectID, SessionID: sessionID})
+	return advisory, err
 }
 
 // LRUDeleteWorkspace 用户确认后删除 watermark 前连续前缀（v8；manual 模式
 // 未确认返回 ErrRetentionRequiresConfirm）。
 func (router *Router) LRUDeleteWorkspace(projectID, sessionID string, upToSeq uint64, confirmed bool) (bool, error) {
-	router.mu.RLock()
-	repository, ok := router.jsonRepositoryLocked()
-	router.mu.RUnlock()
+	var removed bool
+	ok, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, projectID string) error {
+		var inner error
+		removed, inner = repository.lruDeleteWorkspace(Key{ProjectID: projectID, SessionID: sessionID}, upToSeq, confirmed)
+		return inner
+	})
 	if !ok {
-		return false, nil
+		return false, err
 	}
-	return repository.lruDeleteWorkspace(Key{ProjectID: projectID, SessionID: sessionID}, upToSeq, confirmed)
+	return removed, err
 }
 
 // LifecycleRecoverWorkspace 重启恢复 lifecycle 队列（发送未确认项回
 // queued；message 已发布项出队）。返回恢复条数 + ok。
 func (router *Router) LifecycleRecoverWorkspace(projectID, sessionID string) (int, bool, error) {
-	router.mu.RLock()
-	repository, ok := router.jsonRepositoryLocked()
-	router.mu.RUnlock()
+	var recovered int
+	var supported bool
+	ok, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, projectID string) error {
+		var inner error
+		recovered, supported, inner = repository.lifecycleRecoverWorkspace(Key{ProjectID: projectID, SessionID: sessionID})
+		return inner
+	})
 	if !ok {
-		return 0, false, nil
+		return 0, false, err
 	}
-	return repository.lifecycleRecoverWorkspace(Key{ProjectID: projectID, SessionID: sessionID})
+	return recovered, supported, err
 }
 
 // PendingMessageTailWorkspace 探测 message 通道的草稿尾部（seq > head
 // last_seq 的未提交行）：只读，不发布、不清理。non-v8 返回 ok=false。
 func (router *Router) PendingMessageTailWorkspace(projectID, sessionID string) (PendingTailReport, bool, error) {
-	router.mu.RLock()
-	repository, ok := router.jsonRepositoryLocked()
-	router.mu.RUnlock()
+	var report PendingTailReport
+	var supported bool
+	ok, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, projectID string) error {
+		var inner error
+		report, supported, inner = repository.pendingTailWorkspace(Key{ProjectID: projectID, SessionID: sessionID})
+		return inner
+	})
 	if !ok {
-		return PendingTailReport{}, false, nil
+		return PendingTailReport{}, false, err
 	}
-	return repository.pendingTailWorkspace(Key{ProjectID: projectID, SessionID: sessionID})
+	return report, supported, err
 }
 
 // RecoverPendingMessageTailWorkspace 显式恢复草稿尾部（L2）：基座一致时
 // 把未提交行提升为已发布（原子发布 head）；基座断裂时只报告不发布。
 // 返回报告（Status = clean/recovered/gap）；non-v8 返回 ok=false。
 func (router *Router) RecoverPendingMessageTailWorkspace(projectID, sessionID string) (PendingTailReport, bool, error) {
-	router.mu.RLock()
-	repository, ok := router.jsonRepositoryLocked()
-	router.mu.RUnlock()
+	var report PendingTailReport
+	var supported bool
+	ok, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, projectID string) error {
+		var inner error
+		report, supported, inner = repository.recoverPendingTailWorkspace(Key{ProjectID: projectID, SessionID: sessionID})
+		return inner
+	})
 	if !ok {
-		return PendingTailReport{}, false, nil
+		return PendingTailReport{}, false, err
 	}
-	return repository.recoverPendingTailWorkspace(Key{ProjectID: projectID, SessionID: sessionID})
+	return report, supported, err
 }
 
 // DiscardPendingMessageTailWorkspace 显式清理草稿尾部（等价于提交路径的
 // reap，但可观测、可审计）。返回被丢弃的行数；non-v8 返回 ok=false。
 func (router *Router) DiscardPendingMessageTailWorkspace(projectID, sessionID string) (PendingTailReport, bool, error) {
-	router.mu.RLock()
-	repository, ok := router.jsonRepositoryLocked()
-	router.mu.RUnlock()
+	var report PendingTailReport
+	var supported bool
+	ok, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, projectID string) error {
+		var inner error
+		report, supported, inner = repository.discardPendingTailWorkspace(Key{ProjectID: projectID, SessionID: sessionID})
+		return inner
+	})
 	if !ok {
-		return PendingTailReport{}, false, nil
+		return PendingTailReport{}, false, err
 	}
-	return repository.discardPendingTailWorkspace(Key{ProjectID: projectID, SessionID: sessionID})
+	return report, supported, err
 }
 
 // QueueEnqueueWorkspace 把一条排队输入镜像落盘（durable queue 写入侧；
 // 同 requestID 重放幂等）。非 v8 无操作。
 func (router *Router) QueueEnqueueWorkspace(projectID, sessionID, requestID, content string) error {
-	router.mu.RLock()
-	repository, ok := router.jsonRepositoryLocked()
-	router.mu.RUnlock()
+	ok, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, projectID string) error {
+		_, inner := repository.queueEnqueueWorkspace(Key{ProjectID: projectID, SessionID: sessionID}, requestID, content)
+		return inner
+	})
 	if !ok {
-		return nil
+		return err
 	}
-	_, err := repository.queueEnqueueWorkspace(Key{ProjectID: projectID, SessionID: sessionID}, requestID, content)
 	return err
 }
 
 // QueueMarkConsumedWorkspace 把 lifecycle 队列中全部待发送项标记为被 turnID
 // 这一轮消费（提升批次时调用；非 v8 无操作）。
 func (router *Router) QueueMarkConsumedWorkspace(projectID, sessionID, turnID string) error {
-	router.mu.RLock()
-	repository, ok := router.jsonRepositoryLocked()
-	router.mu.RUnlock()
+	ok, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, projectID string) error {
+		_, inner := repository.queueMarkConsumedWorkspace(Key{ProjectID: projectID, SessionID: sessionID}, turnID)
+		return inner
+	})
 	if !ok {
-		return nil
+		return err
 	}
-	_, err := repository.queueMarkConsumedWorkspace(Key{ProjectID: projectID, SessionID: sessionID}, turnID)
 	return err
 }
 
 // QueueConfirmConsumedWorkspace 该轮 message 已发布 → 消费项出队。
 func (router *Router) QueueConfirmConsumedWorkspace(projectID, sessionID, turnID string) error {
-	router.mu.RLock()
-	repository, ok := router.jsonRepositoryLocked()
-	router.mu.RUnlock()
+	ok, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, projectID string) error {
+		_, inner := repository.queueConfirmConsumedWorkspace(Key{ProjectID: projectID, SessionID: sessionID}, turnID)
+		return inner
+	})
 	if !ok {
-		return nil
+		return err
 	}
-	_, err := repository.queueConfirmConsumedWorkspace(Key{ProjectID: projectID, SessionID: sessionID}, turnID)
 	return err
 }
 
 // QueueFailConsumedWorkspace 该轮未发布（失败）→ 消费项内容回草稿并出队。
 func (router *Router) QueueFailConsumedWorkspace(projectID, sessionID, turnID string) error {
-	router.mu.RLock()
-	repository, ok := router.jsonRepositoryLocked()
-	router.mu.RUnlock()
+	ok, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, projectID string) error {
+		_, inner := repository.queueFailConsumedWorkspace(Key{ProjectID: projectID, SessionID: sessionID}, turnID)
+		return inner
+	})
 	if !ok {
-		return nil
+		return err
 	}
-	_, err := repository.queueFailConsumedWorkspace(Key{ProjectID: projectID, SessionID: sessionID}, turnID)
 	return err
 }
 
 // QueueItemsWorkspace 读 lifecycle 队列投影（UI/诊断）。
 func (router *Router) QueueItemsWorkspace(projectID, sessionID string) ([]QueueItem, bool, error) {
-	router.mu.RLock()
-	repository, ok := router.jsonRepositoryLocked()
-	router.mu.RUnlock()
+	var rows []QueueItem
+	var supported bool
+	ok, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, projectID string) error {
+		var inner error
+		rows, supported, inner = repository.queueItemsWorkspace(Key{ProjectID: projectID, SessionID: sessionID})
+		return inner
+	})
 	if !ok {
-		return nil, false, nil
+		return nil, false, err
 	}
-	return repository.queueItemsWorkspace(Key{ProjectID: projectID, SessionID: sessionID})
+	return rows, supported, err
 }
 
 // QueueRecoverItemsWorkspace 重启恢复队列并返回条目级结果（重发项/出队项/
 // 仍在队列项）。
 func (router *Router) QueueRecoverItemsWorkspace(projectID, sessionID string) (QueueRecoveryReport, bool, error) {
-	router.mu.RLock()
-	repository, ok := router.jsonRepositoryLocked()
-	router.mu.RUnlock()
+	var report QueueRecoveryReport
+	var supported bool
+	ok, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, projectID string) error {
+		var inner error
+		report, supported, inner = repository.queueRecoverItemsWorkspace(Key{ProjectID: projectID, SessionID: sessionID})
+		return inner
+	})
 	if !ok {
-		return QueueRecoveryReport{}, false, nil
+		return QueueRecoveryReport{}, false, err
 	}
-	return repository.queueRecoverItemsWorkspace(Key{ProjectID: projectID, SessionID: sessionID})
+	return report, supported, err
 }
 
 // ---------- 栈通道（my_design §2.4/§3.2）----------

@@ -12,10 +12,15 @@ import (
 // 决策契约（docs/research/2026-08-24-session-resource-granularity.md §决策
 // 契约）：runtime 生成与生命周期、锁、actor 保护层级一律会话粒度且不传播；
 // fork 会话深拷贝 = 新建 bundle + 拷贝数据面，不共享本结构任何实例句柄。
-// 因此本结构禁止整体复制（内部含 sync.Mutex 与活动句柄），子会话必须经
+// 因此本结构禁止整体复制（内部含 sync.RWMutex 与活动句柄），子会话必须经
 // bundleFor 新建。
+//
+// 锁面口径：`mu` 是 sync.RWMutex —— Session()/CurrentSession() 这类**纯读**
+// 只需 RLock，读读之间不互斥；只有改动 session/hooks/binding 的装配路径
+// （newMainSession/attachContextStore 等）取写锁。纯读若也取写锁，装配或
+// 切换一旦持有写锁，所有读面都会被无谓地串行化。
 type sessionBundle struct {
-	mu      sync.Mutex
+	mu      sync.RWMutex
 	session *frameworkSession.Session
 	hooks   *frameworkSession.LoopHooks
 	binding sessionBindings
