@@ -98,8 +98,11 @@ limits:
   # 该份正文是唯一进上下文、进缓存前缀的帧内容，不设上限会随帧数膨胀。
   context_frame_carry_tokens: 1024
   # ── 折叠处 LLM 章节化摘要（前缀重放厚摘要）─────────────────────
-  # 默认**关闭**（整块缺失即关）。关就是关：折叠恒走本地确定性折叠
-  # （帧 summary_source=local），一次模型调用都不发，不静默降级、可一键回滚。
+  # 出厂**打开**（本文件 enabled: true，2026-09-29 起）。注意口径分两层：**代码零值
+  # 仍是关**（整块缺失或 enabled: false 都恒走本地确定性折叠，帧 summary_source=local，
+  # 一次模型调用都不发，不静默降级、可一键回滚，与 async_exec 同一套纪律）；变的是
+  # **出厂文件的选择**，不是字段语义——所以这行本身有测试钉着
+  # （seelebridge/runtime_compaction_switch_test.go 的 TestShippedCompactionSummarySwitchShipsOpen）。
   #
   # 打开的代价：这是**新增的、无人值守的付费调用**——每次折叠一次；溢出区超过
   # input_tokens 片预算时分片重放，按片多次。
@@ -116,10 +119,12 @@ limits:
   # seelebridge/runtime_compaction_index.go 的 PushCompactionFrame →
   # MainCompactionDAG），因此**打开就生效**：栈帧 summary_source=replay、帧正文原样
   # 嵌入该摘要；关闭恒本地折叠（summary_source=local）。
-  # context_compaction_summary:
-  #   enabled: false
-  #   input_tokens: 0        # 分片重放片预算；0 = 沿用既有推导（账号窗口 × 3/4），不是"不分片"
-  #   chapter2_tokens: 0     # 厚摘要输出预算；0 → 2048
+  # 两臂都有离线用例钉住（见上面那个测试文件）：关 → 摘要器 nil + 零付费调用 +
+  # summary_source=local；开 → 摘要器非 nil + 恰好一次前缀重放调用 + summary_source=replay。
+  context_compaction_summary:
+    enabled: true            # 2026-09-29 打开：此后每次装配层折叠多一次无人值守的付费调用
+    input_tokens: 0          # 分片重放片预算；0 = 沿用既有推导（账号窗口 × 3/4），不是"不分片"
+    chapter2_tokens: 0       # 厚摘要输出预算；0 → 2048
   tool_token_overhead: 64        # 工具 token 估算开销（默认 64）
   context_max_units: 4           # 上下文压缩扫描单元上限（默认 4）
   message_shard_size: 100        # 会话存储分片条数（默认 100）

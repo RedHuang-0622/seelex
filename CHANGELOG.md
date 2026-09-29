@@ -14,6 +14,20 @@ version when it lands.
 
 ### Changed
 
+- **The fold's paid thick summary now ships switched on, and its two arms have teeth.** The shipped
+  `config/seelex.yaml` sets `limits.context_compaction_summary.enabled: true`. What moved is the shipped
+  file's choice, not the field's semantics: the zero value is still "closed", so a missing block or
+  `enabled: false` folds locally and sends no extra model call. What opening buys is the entry below —
+  one unattended paid call per assembly-layer fold, and a stack frame whose `summary_source` reads
+  `replay`. The switch is now pinned by tests instead of by a line in a config file:
+  `seelebridge/runtime_compaction_switch_test.go` walks both arms through the production entry
+  (`Runtime.PushCompactionFrame` → `MainCompactionDAG`) against a real `Runtime`, a bound
+  `SessionContextStore` and a deterministic completer — closed: summarizer `nil`, zero completer calls,
+  `summary_source=local`; open: summarizer non-nil, exactly one replay request (session system prompt
+  verbatim, history bytes verbatim, the visible tool face, the fixed instruction as the only new tail),
+  and `summary_source=replay` on both the receipt and the stack top. A third test,
+  `TestShippedCompactionSummarySwitchShipsOpen`, fails if the shipped file is quietly re-closed. Forcing
+  the switch ignored in either direction turns exactly the corresponding arm red.
 - **The ADVISOR evaluation round no longer holds `Supervisor.mu` across the model call, and only the
   TechLead can change or cancel a goal.** `RunEval` used to keep `s.mu` for a whole round (admission +
   `evaluator.Evaluate` + commit + recorder), so the mutex spanned a streamed model call that can run for
@@ -162,7 +176,8 @@ version when it lands.
   `gui/frontend/dist/file-preview.test.mjs` (edit eligibility, EOL/BOM round-trip, dirty judgement),
   `gui/frontend/dist/file-preview-controller.test.mjs` (Ctrl+S is the only write, read-back baseline,
   dirty close guard).
-- **The fold can now pay for a real Chapter 2 — behind a switch that ships closed.**
+- **The fold can now pay for a real Chapter 2 — behind a switch that now ships open (its zero value stays
+  closed).**
   `limits.context_compaction_summary` (`enabled` / `input_tokens` / `chapter2_tokens`, negative values
   fail loudly in `LoadLimits`) gates a prefix-replay thick summary for the fold that runs right before
   a request: `MainCompactionDAG` (`seelebridge/runtime_context.go`) is the same compaction DAG the
