@@ -70,6 +70,35 @@ type Coordinator struct {
 	// 不与 Core.ViewMu 构成嵌套。
 	pendingCompactMu    sync.Mutex
 	pendingForceCompact map[string]bool
+
+	// pushMu 保护 pushLocks：按会话键的推帧串行锁表（见 compactionPushLock）。
+	// 生命周期与 sessionStates 同口径——按会话键长期保留，条目上限即会话数。
+	pushMu    sync.Mutex
+	pushLocks map[string]*sync.Mutex
+}
+
+// compactionPushLock 返回指定会话的推帧串行锁（惰性创建）。
+//
+// 为什么需要一条**只包推帧**的窄串行：压缩栈是链式结构，PushCompact 会校验
+// PrevSegmentID / PrevRequestFrom / PrevRequestTo 必须与栈顶逐一相等（见
+// sessionstore.SessionContextStore.PushCompact）。两个折叠并发推同一会话时，
+// 后者按自己读到的栈顶填锚点，必然撞上这条校验。推帧原先在 Core.ViewMu 的临界
+// 区里，这条串行是**顺带**得到的；推帧移出锁（见 prepareExecutionContextFor 的
+// 锁纪律）之后必须显式补回，否则就是我们在缩小锁粒度时把一条既有不变量丢了。
+// 只包推帧本身：渲染、落存储、写记录都不在这把锁里，ViewMu 也不会回来。
+// 按会话键取锁，跨会话不互等。
+func (c *Coordinator) compactionPushLock(sessionID string) *sync.Mutex {
+	c.pushMu.Lock()
+	defer c.pushMu.Unlock()
+	if c.pushLocks == nil {
+		c.pushLocks = make(map[string]*sync.Mutex)
+	}
+	lock := c.pushLocks[sessionID]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		c.pushLocks[sessionID] = lock
+	}
+	return lock
 }
 
 // NewCoordinator 构造 context 域协调器。
@@ -661,10 +690,37 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	}
 	progress.gate(CompactionGateReplace, fmt.Sprintf("messages=%d", len(replacement)))
 
+	// ── 折叠落点的锁纪律：ViewMu 内只留内存提交，慢活一律在锁外 ─────────────
+	//
+	// 这一段原先是**单个** ViewMu 临界区里做完三件事：推进会话状态、推帧
+	// （CompactionIndexPort → 前缀重放 DAG + 原文归档 + 压缩栈写盘）、帧正文落
+	// 内容存储。第一件是微秒级内存操作，后两件是模型调用与磁盘 I/O。持锁做后两
+	// 件有两个后果，都不是假想：
+	//
+	//	① 永久自锁：推帧会回调到装配根注入的实现（见 main.go 的
+	//	   CompressedTurnArchiver）。它在 ctx 没有会话归属时读 app.Snapshot()，
+	//	   而 Snapshot 要 ViewMu.RLock——同一个 goroutine 持写锁再取读锁，
+	//	   RWMutex 不可重入 → 永久阻塞，没有超时、外部取消也进不来。观感是整块
+	//	   交互面冻死：进度条停在 index 关之前（replace 3/7），/compact 不返回，
+	//	   快照取不到（会话切不动、列表与右栏不刷新），新消息连队列都进不去。
+	//	② 锁的持有时间 = 推帧耗时：软线折叠在回合里跑，于是**一个**会话的折叠
+	//	   把它自己连同其它会话的提交、快照、切会话一起堵在这把全局锁上。与
+	//	   2026-09-23 message 读路径那条教训同形（读路径持写锁做整段解码）。
+	//
+	// 因此切成三段：锁内提交状态（A）→ 锁外推帧与渲染（B）→ 锁内落存储与写记录
+	// （C）。段间传递的都是值拷贝（记录、区间、帧输入），不把锁内对象的指针带出
+	// 去；C 段写记录时由 task 域自己按 requestID 复核归属（回合已换人 →
+	// recorded=false，与"记录门槛不满足"同一结论），不需要额外的锁内校验。
 	c.ViewMu.Lock()
 	state = c.tasks.CurrentTaskExecutionFor(sessionID)
+	stateMatched := state != nil && state.RequestID == requestID
 	var revision uint64
-	if state != nil && state.RequestID == requestID {
+	// B/C 两段的材料：只有拿到执行纪元（stateMatched）且本轮要落记录时才有效。
+	commitFold := false
+	compactedRange := task_context.TranscriptEventRange{}
+	record := model.ContextCompaction{}
+	reason := ""
+	if stateMatched {
 		// 本次折叠后累积上下文的起点前移到新的保留窗口/checkpoint 边界；
 		// 未折叠不动（保留窗口没有变化）。跨回合由 continuationTaskExecutionState
 		// 继承，避免下一回合从 transcript 头部重新累积。
@@ -689,80 +745,22 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 		}
 		if newCheckpoint || autonomous {
 			c.tasks.RememberCheckpointLocked(checkpoint)
-			reason := "context_budget"
+			reason = "context_budget"
 			if autonomous {
 				reason = "context_budget_autonomous"
 			}
 			// 压缩区间（记录，不推算）：被压出保留窗口、送进 compact_context 的
-			// transcript 前缀（compressedTo 在装配后、落记录前已定稿）。
-			compacted := task_context.TranscriptPrefixRange(transcript, compressedTo)
-			record := model.ContextCompaction{
+			// transcript 前缀（compressedTo 在装配后、落记录前已定稿）。区间与记录
+			// 都是**值事实**，在这里定稿后就可以安全带出锁外（B 段要用它渲染帧正文）。
+			compactedRange = task_context.TranscriptPrefixRange(transcript, compressedTo)
+			record = model.ContextCompaction{
 				Version: checkpoint.Version, Reason: reason, Origin: origin,
 				MessagesBefore:  len(existing),
 				EstimatedTokens: rawTokens, CompactedAt: time.Now(),
-				MessageFrom: compacted.MessageFrom, MessageTo: compacted.MessageTo,
-				EventFrom: compacted.EventFrom, EventTo: compacted.EventTo,
+				MessageFrom: compactedRange.MessageFrom, MessageTo: compactedRange.MessageTo,
+				EventFrom: compactedRange.EventFrom, EventTo: compactedRange.EventTo,
 			}
-			// 推帧：把这次折出保留窗口的区间推进会话压缩栈（窄可选能力，见
-			// CompactionIndexPort）。**必须在渲染帧正文之前**——正文要嵌入回执
-			// 里的 segment_id、摘要来源与降级原因，否则读帧的人只能看到"没有
-			// 细筛入口"，而模型根本拿不到 read_compressed_turn 的入参。
-			//
-			// 溢出素材取 transcript[retainedFrom:compressedTo]：retainedFrom 之前
-			// 的区间已被更早的帧覆盖（帧链自足），重复喂进去只会让检索命中两段
-			// 同内容；自主压缩时 compressedTo = len(transcript)，即"尚未被任何帧
-			// 覆盖的全部"。ReplayHistory 取 existing——上一次真实请求的历史字节，
-			// 与产出该请求是同一条装配路径。
-			//
-			// 未装配索引面与推帧失败都不中断装配（索引缺失是降级不是错误），
-			// 但门禁 index 关与帧正文的 readback 段都要如实写出是哪一种。
-			push := compactionIndexPush{}
-			if compacting || autonomous {
-				push = c.pushCompactionFrame(sessionID, requestID,
-					task_context.TranscriptEventMessages(foldedOverflowEvents(transcript, retainedFrom, compressedTo)),
-					existing, compacted)
-				progress.gate(CompactionGateStackPush, push.gateDetail())
-			}
-			// 帧正文落会话内容存储：快照只带 ref，前端按 ref 分页回读。此前帧
-			// 正文只活在内存 engine history（回合收尾即被剔除）、摘要只进自主
-			// 压缩的 wire 正文，前端因此"看得到压缩、看不到帧"。
-			frame := compactionFrameBody(compactionFrameInput{
-				Version:       checkpoint.Version,
-				Reason:        reason,
-				Origin:        origin,
-				At:            record.CompactedAt,
-				SegmentID:     push.SegmentID,
-				SummarySource: push.SummarySource,
-				Summary:       push.Summary,
-				IndexError:    push.indexError(),
-				IndexSkipped:  push.Skipped,
-				Range: compactionFoldedRange{
-					MessageFrom: record.MessageFrom,
-					MessageTo:   record.MessageTo,
-					EventFrom:   record.EventFrom,
-					EventTo:     record.EventTo,
-					Label:       model.CompactionRangeLabel(record.MessageFrom, record.MessageTo, record.EventFrom, record.EventTo),
-				},
-				ComparedTokens:  rawTokens,
-				AssembledTokens: estimated,
-				SoftThreshold:   budget.SoftThreshold,
-				HardThreshold:   budget.HardThreshold,
-				Evidence:        summary,
-				PlanMessage:     planMessage,
-				Injected:        autonomous,
-				Layout:          layout,
-			})
-			if strings.TrimSpace(frame) != "" {
-				stored := c.tasks.StoreToolResultForLocked(sessionID, compactionFrameTool, frame)
-				record.FrameRef, record.FrameBytes, record.FrameTokens = stored.Ref, stored.Size, stored.TokenCount
-				progress.gate(CompactionGateFrame, fmt.Sprintf("bytes=%d injected=%t", len(frame), autonomous))
-				progress.gate(CompactionGateStore, fmt.Sprintf("bytes=%d tokens=%d", record.FrameBytes, record.FrameTokens))
-			}
-			recorded = c.tasks.RecordContextCompactionLocked(requestID, record)
-			if recorded {
-				revision = c.view.BumpLocked()
-			}
-			progress.gate(CompactionGateRecord, fmt.Sprintf("recorded=%t version=%d", recorded, checkpoint.Version))
+			commitFold = true
 		} else if fold {
 			// 折叠真的发生了（前三关照跑），但没有走到落记录：同一个 progress 纪元内
 			// 已压过、且装配后估算未越硬阈值（走进来的 autonomous 为假）。把这条原因
@@ -770,21 +768,94 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 			progress.skip(fmt.Sprintf("skipped=epoch_throttled compacted_epoch=%d progress_epoch=%d context_version=%d",
 				state.CompactedEpoch, state.ProgressEpoch, state.ContextVersion))
 		}
-		if options.decision != nil {
-			// 压缩判据事实（显式入口据此如实报告，不拿别的数字反推）：
-			options.decision.Folded = compacting
-			options.decision.Recorded = recorded
-			options.decision.Version = checkpoint.Version
-			options.decision.ComparedTokens = rawTokens
-			options.decision.AssembledTokens = estimated
-			options.decision.SoftThreshold = budget.SoftThreshold
-			options.decision.HardThreshold = budget.HardThreshold
-			// 逐关耗时在全部门禁收口之后取（record 关在上方已发），因此这份
-			// 清单不会缺最后一关。
-			options.decision.Gates = progress.GateTimings()
-		}
 	}
 	c.ViewMu.Unlock()
+
+	// ── B 段（锁外）：推帧 + 帧正文渲染 ────────────────────────────────────
+	if commitFold {
+		// 推帧：把这次折出保留窗口的区间推进会话压缩栈（窄可选能力，见
+		// CompactionIndexPort）。**必须在渲染帧正文之前**——正文要嵌入回执
+		// 里的 segment_id、摘要来源与降级原因，否则读帧的人只能看到"没有
+		// 细筛入口"，而模型根本拿不到 read_compressed_turn 的入参。
+		//
+		// 溢出素材取 transcript[retainedFrom:compressedTo]：retainedFrom 之前
+		// 的区间已被更早的帧覆盖（帧链自足），重复喂进去只会让检索命中两段
+		// 同内容；自主压缩时 compressedTo = len(transcript)，即"尚未被任何帧
+		// 覆盖的全部"。ReplayHistory 取 existing——上一次真实请求的历史字节，
+		// 与产出该请求是同一条装配路径。
+		//
+		// 未装配索引面与推帧失败都不中断装配（索引缺失是降级不是错误），
+		// 但门禁 index 关与帧正文的 readback 段都要如实写出是哪一种。
+		//
+		// 这一步在锁外（见上方锁纪律）：DAG 可能做前缀重放厚摘要的**模型调用**，
+		// 归档器要写盘，且接收侧实现是宿主任意代码——持 ViewMu 跑它既会把交互面
+		// 冻住，也会被它回调取读锁而永久自锁。
+		push := compactionIndexPush{}
+		if compacting || autonomous {
+			push = c.pushCompactionFrame(sessionID, requestID,
+				task_context.TranscriptEventMessages(foldedOverflowEvents(transcript, retainedFrom, compressedTo)),
+				existing, compactedRange)
+			progress.gate(CompactionGateStackPush, push.gateDetail())
+		}
+		// 帧正文（同样在锁外渲染；纯函数，只读上面这份值事实）：快照只带 ref，
+		// 前端按 ref 分页回读。此前帧正文只活在内存 engine history（回合收尾即
+		// 被剔除）、摘要只进自主压缩的 wire 正文，前端因此"看得到压缩、看不到帧"。
+		frame := compactionFrameBody(compactionFrameInput{
+			Version:       checkpoint.Version,
+			Reason:        reason,
+			Origin:        origin,
+			At:            record.CompactedAt,
+			SegmentID:     push.SegmentID,
+			SummarySource: push.SummarySource,
+			Summary:       push.Summary,
+			IndexError:    push.indexError(),
+			IndexSkipped:  push.Skipped,
+			Range: compactionFoldedRange{
+				MessageFrom: record.MessageFrom,
+				MessageTo:   record.MessageTo,
+				EventFrom:   record.EventFrom,
+				EventTo:     record.EventTo,
+				Label:       model.CompactionRangeLabel(record.MessageFrom, record.MessageTo, record.EventFrom, record.EventTo),
+			},
+			ComparedTokens:  rawTokens,
+			AssembledTokens: estimated,
+			SoftThreshold:   budget.SoftThreshold,
+			HardThreshold:   budget.HardThreshold,
+			Evidence:        summary,
+			PlanMessage:     planMessage,
+			Injected:        autonomous,
+			Layout:          layout,
+		})
+
+		// ── C 段（锁内）：帧正文进内容存储 + 写压缩记录 + 翻转视图修订 ──────
+		// 这一段只碰内存（内容存储的 pending 登记与记录投影），因此是短锁。
+		c.ViewMu.Lock()
+		if strings.TrimSpace(frame) != "" {
+			stored := c.tasks.StoreToolResultForLocked(sessionID, compactionFrameTool, frame)
+			record.FrameRef, record.FrameBytes, record.FrameTokens = stored.Ref, stored.Size, stored.TokenCount
+			progress.gate(CompactionGateFrame, fmt.Sprintf("bytes=%d injected=%t", len(frame), autonomous))
+			progress.gate(CompactionGateStore, fmt.Sprintf("bytes=%d tokens=%d", record.FrameBytes, record.FrameTokens))
+		}
+		recorded = c.tasks.RecordContextCompactionLocked(requestID, record)
+		if recorded {
+			revision = c.view.BumpLocked()
+		}
+		progress.gate(CompactionGateRecord, fmt.Sprintf("recorded=%t version=%d", recorded, checkpoint.Version))
+		c.ViewMu.Unlock()
+	}
+	if stateMatched && options.decision != nil {
+		// 压缩判据事实（显式入口据此如实报告，不拿别的数字反推）：
+		options.decision.Folded = compacting
+		options.decision.Recorded = recorded
+		options.decision.Version = checkpoint.Version
+		options.decision.ComparedTokens = rawTokens
+		options.decision.AssembledTokens = estimated
+		options.decision.SoftThreshold = budget.SoftThreshold
+		options.decision.HardThreshold = budget.HardThreshold
+		// 逐关耗时在全部门禁收口之后取（record 关在上方已发），因此这份
+		// 清单不会缺最后一关。
+		options.decision.Gates = progress.GateTimings()
+	}
 	if recorded {
 		if hub, ok := c.Events.(event.SessionAwareHub); ok {
 			hub.PublishSession(event.EventSnapshotChanged, revision, requestID, sessionID, nil)

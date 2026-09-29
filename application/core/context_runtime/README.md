@@ -129,6 +129,23 @@ session loop 0）。同一行里**空 ID**与**行内重复 ID**的调用永远�
 `PrepareExecutionContext` 锁内读 task 权威状态 → 锁外 ReplaceHistory →
 锁内记 checkpoint → 锁外 Publish。
 
+**折叠落点的锁纪律（三段式，2026-09-29）**：`prepareExecutionContextFor` 把
+「提交状态（A，锁内，微秒级内存操作）→ 推帧与帧正文渲染（B，**锁外**）→ 帧正文进
+内容存储 + 写压缩记录 + 翻转视图修订（C，锁内）」分开。理由两条，都在现场发生过：
+① 推帧会回调到装配根注入的实现——`CompressedTurnArchiver` 在 ctx 没有会话归属时读
+`app.Snapshot()`，而 Snapshot 要 `ViewMu.RLock`；同一 goroutine 持写锁再取读锁，
+`sync.RWMutex` 不可重入 = **永久自锁**，`/compact` 返回、快照、提交、切会话一起冻死；
+② 推帧在生产路径上不是纯计算（前缀重放厚摘要的**模型调用** + 原文归档 + 压缩栈写盘），
+持锁跑它等于把**一个**会话的折叠变成全进程停摆。
+跨段传递的只有**值拷贝**（压缩记录、被折区间、帧输入），锁内对象的指针不出锁；
+C 段由 `RecordContextCompactionLocked` 按 requestID 自己复核归属（回合已换人 →
+`recorded=false`，无主记录不落）。
+推帧本身按会话键串行（`Coordinator.compactionPushLock`）：压缩栈是链式结构，
+`PushCompact` 的链锚点校验要求一次只推一帧——这条串行原先由 `ViewMu` 顺带提供，
+移出锁后必须显式补回；只包推帧，跨会话不互等。
+已知边界：推帧仍跑在 `context.Background()` 上（`compaction_index.go`），
+因此"停止"不会中断在飞的厚摘要模型调用——但交互面已不再被它扣住。
+
 ## 扩展与 Review
 
 新增压缩策略改 `fitExecutionHistory`；替换 token 估算走 `TaskPort` 计数面。
@@ -151,6 +168,9 @@ Review 重点：持锁不得调用外部端口、压缩后历史必须保留 sys
 **结果必须与声明相邻**（归一化重排）——只补不排就是 2026-09-17 的 400。
 新增/修改归一化规则时同步 `looksLikeProviderValidToolPairs`（provider 规则的
 本地编码），让"修完仍会被拒"在用例里红灯，而不是在线上。
+折叠落点新增任何"慢活"（模型调用、写盘、外部端口回调、宿主注入实现）时必须放进
+B 段（锁外），不得回填进 A/C；跨段只传值拷贝。推帧新增并发入口时按会话键取锁，
+不要用全局锁——链锚点校验要求同会话一次只推一帧，跨会话必须并行。
 
 ## 测试
 
@@ -208,9 +228,21 @@ go test ./application/core/context_runtime -count=1
 - `func (p *compactionProgress) settle(err error, recorded bool, outcome string)` — settle 收口本轮：err 非空即失败终局（Outcome 带真实原因），否则按是否落了
 - `func (p *compactionProgress) publish(payload event.CompactionProgress)`
 
+### compaction_push_lock_test.go
+
+- `func (probe *pushConcurrencyProbe) PushCompactionFrame( _ context.Context, sessionID string, _ CompactionIndexRequest, ) (CompactionIndexReceipt, error)`
+- `func (probe *pushConcurrencyProbe) maxConcurrent() int`
+- `func pushProbeOverflow() []contract.EngineMessage` — pushProbeOverflow 是一份非空的溢出素材（空溢出走 Skipped 分支，不会问索引面）。
+- `func startPush(coordinator *Coordinator, sessionID string) chan struct` — startPush 在后台发起一次推帧，返回完成信号与（推完后的）回执读取。
+- `func awaitEntered(t *testing.T, entered <-chan string) string`
+- `func awaitPush(t *testing.T, done chan struct{})`
+- `func TestCompactionPushSerializesWithinSession(t *testing.T)` — TestCompactionPushSerializesWithinSession：同会话的两条推帧不得重叠。
+- `func TestCompactionPushDoesNotSerializeAcrossSessions(t *testing.T)` — TestCompactionPushDoesNotSerializeAcrossSessions：锁必须按会话键取——
+
 ### coordinator.go
 
 - `func IsActiveSkillContent(content string) bool` — IsActiveSkillContent 判定内容是否为激活技能 internal 事件（Append-only
+- `func (c *Coordinator) compactionPushLock(sessionID string) *sync.Mutex` — compactionPushLock 返回指定会话的推帧串行锁（惰性创建）。
 - `func NewCoordinator(deps Deps) *Coordinator` — NewCoordinator 构造 context 域协调器。
 - `func (c *Coordinator) ScheduleForceCompact(sessionID string)` — ScheduleForceCompact 登记「该会话下一次装配 provider 上下文时按显式路径压缩」。
 - `func (c *Coordinator) consumePendingForceCompact(sessionID string) bool` — consumePendingForceCompact 取走（并清除）登记项：true = 本次装配按显式压缩处理。

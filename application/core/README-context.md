@@ -279,6 +279,13 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 - `func TestCompactReceiptCarriesGateChecklist(t *testing.T)` — TestCompactReceiptCarriesGateChecklist：回执自带门禁清单（逐关 id + 毫秒）。
 - `func TestFrontendGateLabelsMatchBackendOrder(t *testing.T)` — TestFrontendGateLabelsMatchBackendOrder：门禁 id 是跨语言协议字面量——后端
 
+### context_compact_selfdeadlock_repro_test.go
+
+- `func (stub *archiverSessionsStub) SaveCommitWorkspace(_, _ string, _ sessionstore.Commit) error`
+- `func (stub *archiverSessionsStub) commitCount() int`
+- `func (runtime *productionArchiveIndexRuntime) PushCompactionFrame( ctx context.Context, _ string, request context_runtime.CompactionIndexRequest, ) (context_runtime.CompactionIndexReceipt, error)`
+- `func TestExplicitCompactFramePushSelfDeadlocksRepro(t *testing.T)` — TestExplicitCompactFramePushSelfDeadlocksRepro：在真实归档接线（main.go:310 同形）
+
 ### context_compact_test.go
 
 - `func compactTestService(t *testing.T, requestID string) (*Service, *fakeEngine, string)` — compactTestService 构造带活跃任务执行的会话：主动压缩绑定请求纪元
@@ -296,6 +303,12 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 - `func TestCompactCommandNoticeReportsFoldedRange(t *testing.T)` — TestCompactCommandNoticeReportsFoldedRange：记录分支的提示只说**记录里已有的
 - `func TestCompactionRangeLabel(t *testing.T)` — TestCompactionRangeLabel：区间渲染只在**有边界**时成段——空区间返回空串
 - `func TestCompactCommandNeverReportsFoldWithoutRecord(t *testing.T)` — TestCompactCommandNeverReportsFoldWithoutRecord：/compact 是显式路径，只要
+
+### context_compact_viewmu_hold_repro_test.go
+
+- `func (runtime *blockingIndexRuntime) PushCompactionFrame( ctx context.Context, _ string, _ context_runtime.CompactionIndexRequest, ) (context_runtime.CompactionIndexReceipt, error)`
+- `func returnsWithin(d time.Duration, fn func()) bool` — returnsWithin 报告 fn 是否在 d 之内返回（返回 false = 阻塞住了）。
+- `func TestExplicitCompactReproViewMuHoldAcrossFramePush(t *testing.T)` — TestExplicitCompactReproViewMuHoldAcrossFramePush：推帧进行中，交互面是否仍然可用。
 
 ### context_controller_test.go
 

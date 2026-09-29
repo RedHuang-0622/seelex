@@ -146,6 +146,40 @@ version when it lands.
 
 ### Fixed
 
+- **Folding a session's context no longer holds the application-wide view lock while pushing the
+  compaction frame — that lock was both a permanent self-deadlock and a whole-process freeze.**
+  `context_runtime.prepareExecutionContextFor` used to do three things inside a single `Core.ViewMu`
+  critical section: commit the session's task state (microseconds of memory work), push the frame
+  through `CompactionIndexPort` (a replay-summary DAG — a *model call* once
+  `limits.context_compaction_summary.enabled` is on — plus the turn archiver writing the original
+  turns to disk and `PushCompact` writing the stack), and render + store the frame body. Both
+  consequences reproduce deterministically with the production wiring: (1) **self-deadlock** — the
+  archiver injected in `main.go` falls back to `app.Snapshot()` when the context carries no session,
+  and `Snapshot` takes `ViewMu.RLock`; the same goroutine already holds the write lock, `RWMutex` is
+  not reentrant, so the process stopped for good at `replace` (3/7): `/compact` never returned,
+  `Snapshot` never returned (session switching, session list and side panel stopped refreshing) and
+  `Submit` could not even reach the message queue; (2) the lock stayed held for the whole push, so one
+  session's fold stalled every other session's snapshot/submit/switch on a global lock — the same
+  lesson as the 2026-09-23 message read path. The critical section is now three: state commit under
+  the lock (A), **push and frame rendering outside it** (B), frame body into the content store + the
+  compaction record + the view-revision bump under a second short lock (C). Only value copies (record,
+  folded range, frame input) cross the boundary; C re-resolves the session by `requestID` through the
+  task domain, so a turn that ended mid-push degrades to `recorded=false` instead of writing an
+  unowned record. The push itself is serialized per session by a narrow keyed lock
+  (`Coordinator.compactionPushLock`): the compaction stack is a chain whose `PushCompact` validates
+  `PrevSegmentID`/`PrevRequestFrom`/`PrevRequestTo` against the stack top, and that serialization used
+  to come for free from `ViewMu` — dropping it would have been a regression we introduced ourselves.
+  Teeth: `application/core/context_compact_viewmu_hold_repro_test.go` (during a deliberately blocked
+  push the write lock, `Snapshot`, `Submit` and session switch must all return, while `/compact` must
+  still wait for *its own* push), `application/core/context_compact_selfdeadlock_repro_test.go` (the
+  production archiver wiring: submit returns, snapshot stays live, the archived commit lands) — both
+  red with the push moved back inside the lock — and
+  `application/core/context_runtime/compaction_push_lock_test.go` (per-session serialization plus
+  cross-session non-blocking; red without the keyed lock). Known boundary, unchanged: the push still
+  runs on `context.Background()` (`context_runtime/compaction_index.go`), so pressing stop does not
+  abort an in-flight replay-summary call — it no longer freezes the interaction surface, which is what
+  this fix is about.
+
 - **Switching projects left the previous project's activity in the new project's turn context.** The
   project-switch path (`bindWorkspaceInfo`) starts a fresh session when the target workspace differs
   and the current session already has history — and it did so without going through the session-switch

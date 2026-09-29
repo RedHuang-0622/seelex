@@ -65,6 +65,11 @@ func (c *Coordinator) pushCompactionFrame(
 	if len(overflow) == 0 {
 		return compactionIndexPush{Attempted: true, Skipped: true}
 	}
+	// 同会话推帧串行（跨会话不互等）：见 compactionPushLock 的注释——压缩栈是
+	// 链式结构，两条并发推帧的后来者必撞锚点校验。
+	lock := c.compactionPushLock(sessionID)
+	lock.Lock()
+	defer lock.Unlock()
 	receipt, err := c.compactionIndex.PushCompactionFrame(context.Background(), sessionID, CompactionIndexRequest{
 		Overflow:      overflow,
 		ReplayHistory: replay,
