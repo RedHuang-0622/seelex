@@ -44,8 +44,9 @@ type Deps struct {
 	// 读取视图归属——视图指针在 session.Domain actor，不经快照镜像）。
 	CurrentSessionID func() string
 	// RefreshWorkTableLocked 在锁内重建工作表格投影（work_table 域；
-	// 调用方已持有 Core.ViewMu）。
-	RefreshWorkTableLocked func(tasks []dto.TaskRecord)
+	// 调用方已持有 Core.ViewMu）。任务注册表与后台作业投影都必须**锁外采样**
+	// 后按值传入——后台作业投影会做文件 I/O，锁内采样即把慢活算进临界区。
+	RefreshWorkTableLocked func(tasks []dto.TaskRecord, asyncRuns []dto.AsyncRunRecord)
 	// Tasks 提供任务级 skill 激活投影（「目标」面板数据源）。
 	Tasks interface {
 		ActiveSkillIDs() []string
@@ -68,7 +69,7 @@ type Coordinator struct {
 	currentFullAccess      func(string) bool
 	currentPermissionTier  func(string) string
 	currentSessionID       func() string
-	refreshWorkTableLocked func([]dto.TaskRecord)
+	refreshWorkTableLocked func([]dto.TaskRecord, []dto.AsyncRunRecord)
 	tasks                  interface {
 		ActiveSkillIDs() []string
 		GoalSkillActive() bool
@@ -109,6 +110,10 @@ type RuntimeStateProjection struct {
 	SessionID string
 	Runtime   model.RuntimeState
 	Tasks     []dto.TaskRecord
+	// AsyncRuns 是后台作业投影（工作表格用）。它在**锁外**收集：宿主实现会对每条
+	// 作业做 stat + 读日志末窗（文件 I/O），持 Core.ViewMu 采样就是把进程级视图锁
+	// 押在一次慢活上（2026-09-29 锁面审计 §2.5）。
+	AsyncRuns []dto.AsyncRunRecord
 }
 
 // SnapshotView 返回权威快照深拷贝。
@@ -170,6 +175,8 @@ func (c *Coordinator) CollectRuntimeProjectionFor(ctx context.Context, sessionID
 			ScheduledCommands: append([]seelebridge.ScheduledCommandInfo(nil), c.Deps.Runtime.ScheduledCommands()...),
 			SubAgentTree:      c.Deps.Engine.SubAgentTree(),
 		},
+		// 后台作业投影同样在锁外采样（Deps.Runtime.AsyncRunsSnapshot()）。
+		AsyncRuns: c.Deps.Runtime.AsyncRunsSnapshot(),
 	}
 	if c.tasks != nil {
 		projection.Runtime.ActiveSkills = append([]string(nil), c.activeSkillIDsFor(sessionID)...)
@@ -296,7 +303,7 @@ func (c *Coordinator) ApplyRuntimeProjectionForLocked(sessionID string, projecti
 	unit.SetRuntimeState(runtime)
 	if sessionID == c.Snapshot.Session.ID {
 		c.Snapshot.Runtime = runtime
-		c.refreshWorkTableLocked(projection.Tasks)
+		c.refreshWorkTableLocked(projection.Tasks, projection.AsyncRuns)
 	}
 }
 

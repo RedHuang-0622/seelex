@@ -81,12 +81,12 @@ func TestRunRoundInstallsInFlightSinkAndClears(t *testing.T) {
 // TestNoteInFlightIsBoundedTail：进行中正文保留近端，且读数与内容一致。
 func TestNoteInFlightIsBoundedTail(t *testing.T) {
 	sup := NewSupervisor(newTestController(t, DefaultStackDepth), nil, TechLeaderConfig{})
-	sup.noteInFlightLocked("   ") // 空分片不上账
+	sup.noteInFlight("   ") // 空分片不上账
 	if snap := sup.Snapshot(); snap.InFlight != "" || snap.InFlightChars != 0 {
 		t.Fatalf("空分片不该产生进行中正文: %+v", snap.InFlight)
 	}
 	long := strings.Repeat("证", MaxInFlightRunes+200)
-	sup.noteInFlightLocked(long)
+	sup.noteInFlight(long)
 	snap := sup.Snapshot()
 	runes := []rune(snap.InFlight)
 	if len(runes) != MaxInFlightRunes+1 { // 近端上限 + 前置省略标记

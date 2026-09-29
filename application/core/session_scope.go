@@ -464,6 +464,19 @@ func (service *Service) sessionResidentLocked(unit *session.SessionUnit, session
 // snapshotOfResident 组装驻留会话（引擎 bundle 在内存）的会话快照：走单元
 // Runtime 槽/View/协调器每会话投影。调用方无需持有 Core.ViewMu（本方法自取）。
 func (service *Service) snapshotOfResident(sessionID string) (SessionSnapshot, error) {
+	// 宿主读面（审批表 / 任务注册表 / 后台作业投影）在 ViewMu **之外**采样：
+	// AsyncRunsSnapshot() 会对每条后台作业做 stat + 读日志末窗（文件 I/O），
+	// TaskSnapshot() 同样是宿主实现。持进程级视图锁跑它们 = 把整块交互面押在一次
+	// 慢活上；更坏的情况是宿主实现回调进 Core.ViewMu（归档器当年就是"读
+	// app.Snapshot()"）——RWMutex 写者优先下，持读锁再取读锁就是自己等自己，
+	// 永久挂死（2026-09-29 锁面审计 §2.4/§2.5）。
+	var approvals []Interaction
+	if service.Approval != nil {
+		approvals = service.Approval.PendingBySession(sessionID)
+	}
+	asyncRuns := service.asyncRunsForTable()
+	taskRecords := service.Deps.Runtime.TaskSnapshot()
+
 	service.ViewMu.RLock()
 	defer service.ViewMu.RUnlock()
 	unit := service.sessions.Unit(sessionID)
@@ -492,10 +505,8 @@ func (service *Service) snapshotOfResident(sessionID string) (SessionSnapshot, e
 		ConversationWindow: view.ConversationWindow,
 		ReadFiles:          append([]ReadFileRef(nil), view.ReadFiles...),
 	}
-	if service.Approval != nil {
-		if approvals := service.Approval.PendingBySession(sessionID); len(approvals) > 0 {
-			snapshot.Approvals = append([]Interaction(nil), approvals...)
-		}
+	if len(approvals) > 0 {
+		snapshot.Approvals = append([]Interaction(nil), approvals...)
 	}
 	if plan := service.planProjectionLocked(sessionID); plan != nil {
 		snapshot.Runtime.Plan = clonePlanForSync(plan)
@@ -508,9 +519,8 @@ func (service *Service) snapshotOfResident(sessionID string) (SessionSnapshot, e
 	// 工作表格是项目/全局台账（与视图投影同源）：会话快照里的表格也取全局
 	// 读面，避免"切到哪个会话才看到哪些行"。会话级读面（落盘）仍走
 	// TaskSnapshotFor。
-	asyncRuns := service.asyncRunsForTable()
-	if records := service.Deps.Runtime.TaskSnapshot(); len(records) > 0 || len(asyncRuns) > 0 {
-		rows := buildWorkTable(snapshot.Runtime.Plan, records, nil, asyncRuns)
+	if len(taskRecords) > 0 || len(asyncRuns) > 0 {
+		rows := buildWorkTable(snapshot.Runtime.Plan, taskRecords, nil, asyncRuns)
 		snapshot.Runtime.WorkTable = rows
 		snapshot.Runtime.WorkTableBatches = buildWorkTableBatches(rows)
 	}

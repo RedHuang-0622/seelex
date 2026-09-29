@@ -582,7 +582,11 @@ plan/task/goal 三栈用例经 `forEachStackBackend` 跑 JSON 后端（head 只�
 
 ### Review 风险
 
-- 写入必须走 `store.mu(key, moduleMedia)`，media 与 message 各自加锁，不要跨模块持锁。
+- 写入必须走 `store.mu(key, moduleMedia)`：media 与 message **各自一把锁**——模块与锁
+  一对一，`mutexFor` 未映射的枚举会显式失败（`panic`）而不是静默别名，别把两个模块的
+  读写放进同一个临界区（那既是互相串行，也是不可重入自锁的埋点）。
+  验收：`TestModuleLocksAreDistinct` / `TestUnmappedModuleLockPanicsInsteadOfAliasing` /
+  `TestMediaReadNotBlockedByHeldMessageLock`。
 - 内容寻址意味着**同字节不同名只是别名**，不要假设「文件名就是唯一标识」。
 - ref 非法或缺失必须显式报错（`ErrMediaRefInvalid` / `os.ErrNotExist`），
   不得静默退化成空结果——那会让模型以为「图里没有内容」。

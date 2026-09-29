@@ -245,14 +245,18 @@ func formatWorkDuration(duration time.Duration) string {
 	return fmt.Sprintf("%.2fs", ms/1000)
 }
 
-// refreshWorkTableLocked 在 service.ViewMu 持锁时重建工作表格投影（后台行的读侧
-// 锁安全性见 asyncRunsForTable）。
-func (state *serviceState) refreshWorkTableLocked(tasks []dto.TaskRecord) {
+// refreshWorkTableLocked 在 service.ViewMu 持锁时重建工作表格投影。
+//
+// 两个输入都必须是**锁外采样**后按值传进来的：任务注册表快照与后台作业投影都要读
+// 宿主，而后台作业投影会对每条记录做 stat + 读日志末窗（文件 I/O）。持进程级视图
+// 写锁采样 = 把整块交互面押在一次慢活上（2026-09-29 锁面审计 §2.5，与 2026-09-29
+// 折叠持 ViewMu 推帧的"后果②"同形）。
+func (state *serviceState) refreshWorkTableLocked(tasks []dto.TaskRecord, asyncRuns []dto.AsyncRunRecord) {
 	rows := buildWorkTable(
 		state.Snapshot.Runtime.Plan,
 		tasks,
 		state.Snapshot.Runtime.SubAgentTree,
-		state.asyncRunsForTable(),
+		asyncRuns,
 	)
 	state.Snapshot.Runtime.WorkTable = rows
 	state.Snapshot.Runtime.WorkTableBatches = buildWorkTableBatches(rows)
@@ -354,8 +358,9 @@ func (service *Service) publishTaskChanged(record dto.TaskRecord, revision uint6
 // worktable.changed（结构安全网）；task.changed 由 CSP 消费者直发。
 func (service *Service) publishTaskDeltas() {
 	tasks := service.Deps.Runtime.TaskSnapshot()
+	asyncRuns := service.asyncRunsForTable()
 	service.ViewMu.Lock()
-	service.refreshWorkTableLocked(tasks)
+	service.refreshWorkTableLocked(tasks, asyncRuns)
 	revision := service.bumpLocked()
 	requestID := service.Core.Snapshot.Chat.RequestID
 	items := CloneWorkItems(service.Core.Snapshot.Runtime.WorkTable)

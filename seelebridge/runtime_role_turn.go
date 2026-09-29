@@ -11,7 +11,7 @@ package seelebridge
 //   - **员工回合**（RunRoleTurn）：V 模型团队循环里 pm/exec/test_case 各自做工；
 //   - **ADVISOR 评审回合**（runtime_goal_tl.go 的 goalLLMEvaluator）：tl 座位带
 //     **只读**工具跑一轮，把裁决从"观点"变成"证据"（A2A-VALUE-REVIEW §2.5/§3.3）。
-//     两者共用会话生命周期/权限分配/项目根绑定/串行化锁——差别只在系统提示、
+//     两者共用会话生命周期/权限分配/项目根绑定/回合闸门——差别只在系统提示、
 //     输入与循环上限。
 //
 // 为什么必须有这一层（而不是让 application 直接调模型）：
@@ -60,14 +60,44 @@ type roleEngine interface {
 	ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error)
 }
 
-// roleSessionHandle 是一个角色会话的运行时槽：引擎 + 串行化锁。
+// roleSessionHandle 是一个角色会话的运行时槽：引擎 + 回合准入闸门。
 //
-// 为什么需要锁：同一个角色会话可能被并发驱动（不同 goal / 不同会话的同名角色），
-// 而引擎的 ReAct 循环不是并发安全的。串行化 = "同一角色一次只跑一轮"。
+// 锁纪律（2026-09-29 锁面审计 §2.2）：
+//   - roundGate 只包"跑一轮"，是**叶子锁**：持它期间不得再取任何上层锁
+//     （Supervisor.mu / Core.ViewMu / 会话与存储模块锁），回合内的代码也不得再取它；
+//   - 它**不保护任何字段**：引擎在 handle 发布进状态表之前写入、之后只读，因此命名
+//     上刻意不叫 mu/bundleMu——把"闸门"当成"句柄锁"用，就会重演"宽临界区顺带串行"
+//     的老路（当年归档器只是"读 app.Snapshot()"，契约一漂移就是永久自锁）；
+//   - 同 goroutine 重入由 ctx 在飞标记拦下（roleRoundInFlightFromContext：显式错误、
+//     不排队）。非重入锁上排队等待就是永久挂死——2026-09-23"迭代边界注入撞会话锁"
+//     是同一族的真实挂死现场。
 type roleSessionHandle struct {
-	mu     sync.Mutex
-	id     string
-	engine roleEngine
+	id        string
+	engine    roleEngine
+	roundGate sync.Mutex
+}
+
+// ErrRoleRoundReentrant 表示同一角色会话在**本轮之内**被再次驱动（同 goroutine
+// 重入）。串行闸门不可重入：这种调用若排队就是永久挂死，因此显式失败。
+var ErrRoleRoundReentrant = errors.New("角色回合：同一角色会话在本轮内被再次驱动（闸门不可重入）")
+
+// roleRoundInFlightKey 携带"本 ctx 链上正在跑的角色会话 ID"。
+//
+// 它的作用域**就是这一轮**：标记只挂在回合自己的 turnCtx 上（随 ChatStream 进入
+// 引擎、再随工具调用向下传），调用方的 ctx 不受影响，因此回合结束后的下一次调用
+// 不会被误判为重入。
+type roleRoundInFlightKey struct{}
+
+func withRoleRoundInFlight(ctx context.Context, roleSessionID string) context.Context {
+	return context.WithValue(ctx, roleRoundInFlightKey{}, roleSessionID)
+}
+
+func roleRoundInFlightFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	id, _ := ctx.Value(roleRoundInFlightKey{}).(string)
+	return id
 }
 
 // roleTurnState 是角色回合执行面的运行时状态（懒建；Runtime 零值可用）。
@@ -183,6 +213,13 @@ func (r *Runtime) runRoleRound(ctx context.Context, spec roleRoundSpec) (string,
 	}
 	spec.RoleName, spec.RoleSessionID = roleName, roleSessionID
 
+	// 同 goroutine 重入检测放在**任何副作用之前**（不开角色会话、不分配权限）：同一
+	// 角色会话在本轮之内被再次驱动时（工具/回调里同步再发起一轮，用的是本轮向下传的
+	// ctx），回合闸门不可重入——排队即永久挂死，所以显式失败。
+	if inFlight := roleRoundInFlightFromContext(ctx); inFlight == roleSessionID {
+		return "", fmt.Errorf("角色回合 %s（会话 %s）：%w", roleName, roleSessionID, ErrRoleRoundReentrant)
+	}
+
 	handle, err := r.roleSessionFor(spec)
 	if err != nil {
 		return "", err
@@ -195,13 +232,21 @@ func (r *Runtime) runRoleRound(ctx context.Context, spec roleRoundSpec) (string,
 	// telemetry 标签写成角色会话：角色回合的 llm/tool 事件可按角色归因（审计面）。
 	turnCtx = WithTelemetrySessionID(turnCtx, roleSessionID)
 
-	handle.mu.Lock()
+	// 在飞标记挂到**本轮**的 ctx 上：检测在上方（进函数处），标记在这里——ChatStream
+	// 与它派生的工具调用因此都能看到"这一轮正在跑哪个角色会话"，本轮之内的重入请求
+	// 才会被拦下（调用方自己的 ctx 不受影响）。
+	turnCtx = withRoleRoundInFlight(turnCtx, roleSessionID)
+
+	// 闸门只包"跑一轮"这一段（准入在内、执行在外）。引擎读在闸门外：handle 经
+	// state.mu 发布、engine 在发布前写入，因此是安全的只读。
+	engine := handle.engine
+	handle.roundGate.Lock()
 	if spec.FreshContext {
 		// 隔离由构造保证：本轮的上下文完全由 spec.Input 自带（见 roleRoundSpec.FreshContext）。
-		handle.engine.ClearHistory()
+		engine.ClearHistory()
 	}
-	output, err := handle.engine.ChatStream(turnCtx, spec.Input, spec.OnDelta)
-	handle.mu.Unlock()
+	output, err := engine.ChatStream(turnCtx, spec.Input, spec.OnDelta)
+	handle.roundGate.Unlock()
 	if err != nil {
 		// 执行面出错向上抛（治理循环透传）：不能吞成"没产出"，否则环会把它记成
 		// 无进展并逃生，把模型/权限/存储的故障掩盖成"团队不干活"。

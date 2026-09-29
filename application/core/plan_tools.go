@@ -251,6 +251,12 @@ func (service *Service) HandlePlanNodeComplete(event dto.PlanNodeEvent) {
 // Snapshot.Runtime.Plan 视图镜像（镜像写留 ViewMu），与刷新/发布在同一个
 // ViewMu 临界区内完成。
 func (service *Service) handleViewPlanNodeComplete(event dto.PlanNodeEvent, sessionID string) {
+	// 子代理树投影在 ViewMu **之外**取：Engine.SubAgentTree() 是宿主注入实现，持
+	// ViewMu 调它等于把进程级视图锁押在宿主不变式上——2026-09-08 复现过的环就是这条
+	// 边（ViewMu → SubAgentTree → 节点 Session.mu，与节点执行 goroutine 的
+	// Session.mu → ViewMu.Lock 成环，见 subagent_view/coordinator.go 的锁序注释）。
+	// 锁内只做赋值（纯值拷贝），同 work_table.go 的 RefreshWorkTableSnapshot。
+	tree := service.Deps.Engine.SubAgentTree()
 	service.ViewMu.Lock()
 	plan := service.Core.Snapshot.Runtime.Plan
 	if plan == nil {
@@ -303,7 +309,7 @@ func (service *Service) handleViewPlanNodeComplete(event dto.PlanNodeEvent, sess
 	}
 	// 子代理树投影：fork 子代理生命周期与 plan 节点事件同源（queued/running/
 	// completed），树状态随权威 Snapshot 增量刷新（内存态，不落盘）。
-	service.Core.Snapshot.Runtime.SubAgentTree = service.Deps.Engine.SubAgentTree()
+	service.Core.Snapshot.Runtime.SubAgentTree = tree
 	revision := service.bumpLocked()
 	requestID := service.Core.Snapshot.Chat.RequestID
 	var changed SubagentEvent
@@ -328,8 +334,10 @@ func (service *Service) handleBackgroundPlanNodeComplete(event dto.PlanNodeEvent
 	if !result.Applied {
 		return
 	}
+	// 同 handleViewPlanNodeComplete：宿主树投影在 ViewMu 之外取，锁内只赋值。
+	tree := service.Deps.Engine.SubAgentTree()
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Runtime.SubAgentTree = service.Deps.Engine.SubAgentTree()
+	service.Core.Snapshot.Runtime.SubAgentTree = tree
 	revision := service.bumpLocked()
 	requestID := service.Core.Snapshot.Chat.RequestID
 	service.ViewMu.Unlock()
@@ -345,6 +353,8 @@ func (service *Service) handleBackgroundPlanNodeComplete(event dto.PlanNodeEvent
 // HandlePlanBranchEvent 应用来自桥接层的分支生命周期迁移，并向两端前端发布
 // 更新后的 runtime 快照。
 func (service *Service) HandlePlanBranchEvent(event seelplan.PlanBranchEvent) {
+	// 同 handleViewPlanNodeComplete：宿主树投影在 ViewMu 之外取，锁内只赋值。
+	tree := service.Deps.Engine.SubAgentTree()
 	service.ViewMu.Lock()
 	plan := service.Core.Snapshot.Runtime.Plan
 	if plan == nil {
@@ -366,7 +376,7 @@ func (service *Service) HandlePlanBranchEvent(event seelplan.PlanBranchEvent) {
 	}
 	task_context.RecalculatePlanProgress(plan)
 	// 子代理树投影：分支生命周期（queued/started/failed）同样刷新树状态。
-	service.Core.Snapshot.Runtime.SubAgentTree = service.Deps.Engine.SubAgentTree()
+	service.Core.Snapshot.Runtime.SubAgentTree = tree
 	revision := service.bumpLocked()
 	requestID := service.Core.Snapshot.Chat.RequestID
 	viewSessionID := service.Core.Snapshot.Session.ID

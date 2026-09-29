@@ -146,6 +146,76 @@ version when it lands.
 
 ### Fixed
 
+- **An unlocked read path no longer publishes a storage module head: the retention advisory used the
+  "caller holds the lock" entry from outside any lock, so a corrupt head could be rebuilt and
+  republished while another writer was mid-commit.** `jsonRepository.retentionAdvisoryWorkspace` holds
+  only the router's `mu` (unrelated to per-session module locks) and read the message head through
+  `readMessageHeadLocked`, whose precondition is "caller holds `messageMu`". On a corrupt head that
+  fell into `repairModuleHeadLocked` → `publishModuleHead`, i.e. an atomic replace of
+  `metadata/message.json` with **no** module lock — exactly the case `module_heads.go` spells out as
+  forbidden ("a rebuild publish must hold the module lock, otherwise it overwrites a concurrent
+  writer's head, or promotes rows whose append finished but whose head was never published"). The
+  cost of the interleaving is physical: a head regressed to an earlier `LastSeq` makes the next
+  commit's `reapUnpublishedLocked` truncate the tail shard, deleting committed rows. The read now goes
+  through the lock-free entry (`readMessageHead`, whose heal path is `TryLock` + bounded failure and
+  never publishes), matching the two head reads next to it and `currentGenerationLayout`, which
+  already used the lock-free entry. Teeth: `sessionstore/retention_advisory_lock_test.go` — with a
+  writer holding `messageMu`, the advisory must leave `metadata/message.json` byte-identical and fail
+  bounded (red before the fix: the file was rewritten), and with the lock free it must still heal in
+  place (the reverse guard, so the fix cannot drift into "a corrupt head is never repaired").
+- **The role-round gate is now a leaf admission gate with a re-entrancy guard, and the TL in-flight
+  sink no longer depends on a cross-package "same goroutine" contract.** `Runtime.runRoleRound` held
+  `roleSessionHandle.mu` from `Lock()` to `Unlock()` around the whole round
+  (`ClearHistory` + `engine.ChatStream`, i.e. a model call plus tool execution plus approval waits),
+  and the same mutex was presented as the handle's field lock. Two hazards: a same-goroutine
+  re-entrant drive of the same role session (a tool or callback synchronously starting the next round)
+  blocked forever on a non-reentrant mutex — the same shape that hung the process on 2026-09-23
+  (framework `ChatStream` holding `Session.mu` for the whole round while an iteration-hook callback
+  re-entered it) — and `Supervisor.mu → handle.mu` is a live edge (the TL evaluator *is* a role round:
+  `runRoundLocked` → `evaluator.Evaluate` → `goalLLMEvaluator.round` = `runRoleRound`), so any callback
+  from inside a round into governance would close an ABBA cycle. The mutex is now named and documented
+  as a round gate that protects no fields, the engine read sits outside it, and a ctx in-flight marker
+  turns same-session re-entry into an explicit `ErrRoleRoundReentrant` **before any side effect**
+  (opening a role session, assigning permissions) instead of an unbounded wait. Separately,
+  `Supervisor.noteInFlight`/`clearInFlight` own a short leaf mutex (`inFlightMu`, taken inside `s.mu`
+  and never the other way): the old code wrote `s.inFlight` unlocked and relied on "the streaming
+  callback is on the goroutine holding `s.mu`", a contract seelebridge could not enforce because it
+  hands `spec.OnDelta` straight to the engine. Teeth:
+  `seelebridge/runtime_role_turn_test.go` (`TestRoleRoundRejectsReentrantDriveOnSameSession` — a stub
+  engine that drives the same session from inside its own round: red before the guard, the outer round
+  never returns, 5s guard; `TestRoleRoundAllowsSequentialRoundsOnSameSession` is the reverse guard that
+  the marker must not leak past the round). Known boundary, unchanged: the ABBA half stays open — the
+  governance path still holds `Supervisor.mu` across the evaluation round, so decoupling the b-round
+  admission from `s.mu` is its own batch.
+- **Host ports are no longer called while holding the application-wide view lock** (three plan-event
+  paths, the resident session snapshot, and the work-table refresh). `Engine.SubAgentTree()` inside
+  `ViewMu.Lock()` is the exact edge that was reproduced as a deadlock on 2026-09-08
+  (`ViewMu.RLock → SubAgentTree → node Session.mu` against `Session.mu → ViewMu.Lock` from the node's
+  execution goroutine — the fix back then moved the lookup outside the lock in `subagent_view`, and
+  `work_table.go`'s `RefreshWorkTableSnapshot` already reads the tree outside the lock with the reason
+  written down); `plan_tools.go` had kept three in-lock call sites. `snapshotOfResident` also called
+  `Approval.PendingBySession`, `Deps.Runtime.TaskSnapshot()` and the async-run projection (per-record
+  `stat` + log-tail reads) under `ViewMu.RLock`, which is both "slow work counted into a global lock"
+  and "if any implementation ever reads back into `Core.ViewMu`, the reader waits on itself".
+  `refreshWorkTableLocked` now takes the async-run snapshot **by value** (the port signature and
+  `view_state.RuntimeStateProjection` carry it, sampled in the already lock-free projection
+  collection); the three tree reads are hoisted above the lock and the critical section only assigns.
+  Teeth: the existing plan/subagent/work-table suites and `go test -race ./application/core/...`.
+- **Plan slot reads copy the value inside the lock.** `PolicyFor`, `BindingFor` and `CurrentRunIDFor`
+  all did `RLock(); slot := readSlot(sid); RUnlock(); return slot.field` — `readSlot` returns a
+  pointer into the map, so the dereference raced with `SetPolicyFor`/`SetBindingFor`/`beginRunFor`
+  writing the same field under the write lock. Teeth: `seelebridge/plan/slot_race_test.go` under
+  `-race` (before the fix the detector reports `WARNING: DATA RACE` between `SetPolicyFor`
+  (executor.go:167) and `PolicyFor` (executor.go:179)).
+- **The async job registry no longer does file I/O inside its table lock.** `beginJob` created the
+  output directory (`os.MkdirTemp`) and reaped evicted logs (`os.Remove`) under `g.mu`, and `close`
+  plus the shutdown reap point ran `os.RemoveAll` there too — the same file's own discipline (written
+  next to `killTarget`: "termination always happens outside the lock, `finish` needs this lock too")
+  says otherwise. Directory creation is now a double-checked `MkdirTemp` outside the lock, eviction
+  returns the log paths to delete and they are removed after the unlock, and both `close` and the
+  shutdown reap point delete the directory outside the lock (still only forgetting it on success, so a
+  failed delete is retried at the next reap point). Not a deadlock fix: it removes a slow-disk stall of
+  dispatch, probe and completion behind one lock.
 - **Folding a session's context no longer holds the application-wide view lock while pushing the
   compaction frame — that lock was both a permanent self-deadlock and a whole-process freeze.**
   `context_runtime.prepareExecutionContextFor` used to do three things inside a single `Core.ViewMu`

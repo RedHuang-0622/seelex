@@ -148,6 +148,12 @@ type Supervisor struct {
 	// 及时"。这里按同一次调用内的 ctx 回调把分片收进一个**有界近端**，作为只读快照
 	// 暴露（TLState.InFlight）；前端在 peer=evaluating 期间轮询快照即可看到进行中的正文。
 	// 它不参与任何裁决：裁决仍然只来自 Evaluate 的返回值（TLDirective）。
+	//
+	// 锁：inFlightMu 是 s.mu 的**叶子**（只在 s.mu 之内取、从不反向）。旧实现依赖"流式
+	// 回调与持 s.mu 者同 goroutine"这条**跨包契约**（seelebridge 把 spec.OnDelta 原样交给
+	// 引擎，无从强制），引擎换个 goroutine 回调 onChunk 就是 s.inFlight 的数据竞争；
+	// 自带短锁后该契约不再需要（2026-09-29 锁面审计 §2.2 附带缺口）。
+	inFlightMu sync.Mutex
 	inFlight   string
 	inFlightAt int64
 
@@ -157,22 +163,29 @@ type Supervisor struct {
 	lastEvalGoalID string
 }
 
-// noteInFlightLocked 记一段 b 回合的进行中正文（调用方已持 s.mu：它是同一次
-// Evaluate 调用内的流式回调，与 runRoundLocked 同一 goroutine）。
+// noteInFlight 记一段 b 回合的进行中正文。
+//
+// 它在 s.mu 之内被调用（runRoundLocked 的回合路径），但**不依赖**这一点：写入由
+// inFlightMu（s.mu 的叶子）保护，因此引擎在不同 goroutine 上回调 onChunk 也不会与
+// Snapshot 读取形成数据竞争。
 //
 // 只保留近端（MaxInFlightRunes）：in-flight 是"当前写到哪"的只读快照，不是完整
 // 回合正文——完整原文仍由 recorder 落 role draft。它刻意不触发任何推送：前端在
 // peer=evaluating 期间轮询快照即可，后端不需要为每个分片做一次投影。
-func (s *Supervisor) noteInFlightLocked(delta string) {
+func (s *Supervisor) noteInFlight(delta string) {
 	if strings.TrimSpace(delta) == "" {
 		return
 	}
+	s.inFlightMu.Lock()
+	defer s.inFlightMu.Unlock()
 	s.inFlight = boundInFlightRunes(s.inFlight+delta, MaxInFlightRunes)
 	s.inFlightAt = s.now()
 }
 
-// clearInFlightLocked 清空进行中正文（回合结束：权威正文是裁决行）。
-func (s *Supervisor) clearInFlightLocked() {
+// clearInFlight 清空进行中正文（回合结束：权威正文是裁决行）。
+func (s *Supervisor) clearInFlight() {
+	s.inFlightMu.Lock()
+	defer s.inFlightMu.Unlock()
 	s.inFlight = ""
 	s.inFlightAt = 0
 }
@@ -421,8 +434,8 @@ func (s *Supervisor) runRoundLocked(ctx context.Context, trigger string, signal 
 	// 本轮的**进行中**观察面：模型分片不再被丢弃（旧实现给 ChatStream 传 nil），
 	// 而是经 ctx 回调进 in-flight 近端，作为只读快照暴露给前端（快照查看）。
 	// defer 清理：本回合任何返回路径（含错误）都不把中间态留给下一次裁决。
-	ctx = WithTLDeltaSink(ctx, s.noteInFlightLocked)
-	defer s.clearInFlightLocked()
+	ctx = WithTLDeltaSink(ctx, s.noteInFlight)
+	defer s.clearInFlight()
 
 	// 1) 补 a 差异帧（on_eval：一次性同步区间内抽帧集）。
 	if err := s.syncControllerDiffFramesLocked(peer, active, now); err != nil {
@@ -561,6 +574,9 @@ func (s *Supervisor) unbindIfTerminal(reason string) {
 
 // Snapshot 返回 b/治理状态快照（headless goal_tl_snapshot / 前端 ADVISOR 面板素材）。
 func (s *Supervisor) Snapshot() TLState {
+	s.inFlightMu.Lock()
+	inFlight, inFlightAt := s.inFlight, s.inFlightAt
+	s.inFlightMu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	state := TLState{
@@ -571,9 +587,9 @@ func (s *Supervisor) Snapshot() TLState {
 		PendingDirectives:  s.mailbox.PendingDirectives(),
 		OverflowDirectives: s.mailbox.Overflow(),
 		TurnsSinceEval:     s.turnsSinceEval,
-		InFlight:           s.inFlight,
-		InFlightChars:      len([]rune(s.inFlight)),
-		InFlightAt:         s.inFlightAt,
+		InFlight:           inFlight,
+		InFlightChars:      len([]rune(inFlight)),
+		InFlightAt:         inFlightAt,
 	}
 	if active, ok := s.ctl.ActiveGoal(); ok {
 		state.ActiveGoalID = active.ID

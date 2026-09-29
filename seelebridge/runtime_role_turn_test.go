@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
@@ -36,6 +37,8 @@ type fakeRoleEngine struct {
 	// deltas 是本桩"模型"输出的流式分片：非空时逐段回调 onChunk（钉 OnDelta 的
 	// 转发——回合执行面本来就是流式的，旧实现把 onChunk 传成 nil 会丢掉这些分片）。
 	deltas []string
+	// reenter 是"回合内同步再驱动一次"的探针（回合闸门不可重入的验收用）。
+	reenter func(context.Context)
 }
 
 func (engine *fakeRoleEngine) SessionID() string { return engine.id }
@@ -67,6 +70,11 @@ func (engine *fakeRoleEngine) SetMaxLoops(n int) {
 }
 
 func (engine *fakeRoleEngine) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error) {
+	// 重入探针在取本桩自己的锁**之前**跑：内层调用要走到 Runtime 的回合闸门，若被
+	// 桩的锁挡住，判据就从"闸门"被偷换成"桩"了。
+	if engine.reenter != nil {
+		engine.reenter(ctx)
+	}
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
 	engine.inputs = append(engine.inputs, input)
@@ -291,6 +299,81 @@ func TestReleaseRoleSessionsDropsEngines(t *testing.T) {
 	}
 	if *created != 2 {
 		t.Fatalf("释放后重开应重建引擎：构造次数 = %d", *created)
+	}
+}
+
+// TestRoleRoundRejectsReentrantDriveOnSameSession 钉住回合闸门**不可重入**且被拦成
+// 显式错误：同一角色会话在**本轮之内**被再次驱动时（引擎/工具的回调里同步发起下一轮，
+// 用的是本轮向下传的 ctx），若排进闸门就是永久挂死（非重入锁上排队等待）。
+//
+// 修前的形态：整轮包在 `handle.mu` 里，内层调用永久阻塞在 `Lock()`——没有超时、外部
+// 取消也进不来。同族的真实挂死现场见
+// docs/devlog/2026-09-23-iteration-hook-session-lock-reentry.md（框架 Session.ChatStream
+// 整轮持 e.mu，迭代边界的回调再取同一把锁 → 队列提升轮自锁）。
+func TestRoleRoundRejectsReentrantDriveOnSameSession(t *testing.T) {
+	runtime, engine, _ := newRoleTurnRuntime(t)
+
+	inner := make(chan error, 1)
+	engine.mu.Lock()
+	engine.reenter = func(ctx context.Context) {
+		_, err := runtime.RunRoleTurn(ctx, dto.RoleTurnRequest{
+			SessionID:     "sess-main",
+			RoleName:      "pm",
+			RoleSessionID: "goal-a2a-pm",
+			ToolsPolicy:   dto.ToolPolicyReadonly,
+			Input:         "内层：本轮之内再驱动同一角色会话",
+		})
+		inner <- err
+	}
+	engine.mu.Unlock()
+
+	outer := make(chan error, 1)
+	go func() {
+		_, err := runtime.RunRoleTurn(context.Background(), dto.RoleTurnRequest{
+			SessionID:     "sess-main",
+			RoleName:      "pm",
+			RoleSessionID: "goal-a2a-pm",
+			ToolsPolicy:   dto.ToolPolicyReadonly,
+			Input:         "外层：本轮工作正文",
+		})
+		outer <- err
+	}()
+
+	select {
+	case err := <-outer:
+		if err != nil {
+			t.Fatalf("外层回合失败: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("外层回合没有返回——它被本轮之内的重入请求扣在闸门上了")
+	}
+	select {
+	case err := <-inner:
+		if !errors.Is(err, ErrRoleRoundReentrant) {
+			t.Fatalf("内层回合 err = %v, want ErrRoleRoundReentrant", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("内层回合未返回——它排在了不可重入的回合闸门上（永久挂死）")
+	}
+}
+
+// TestRoleRoundAllowsSequentialRoundsOnSameSession 是上一条的**反向护栏**：在飞标记
+// 只作用于本轮，回合结束后的下一次调用（同一角色会话、同一个外部 ctx）必须照常跑，
+// 否则修法就从"重入挂死"滑到"同一会话只能跑一轮"。
+func TestRoleRoundAllowsSequentialRoundsOnSameSession(t *testing.T) {
+	runtime, engine, _ := newRoleTurnRuntime(t)
+	request := dto.RoleTurnRequest{
+		SessionID: "sess-main", RoleName: "pm", RoleSessionID: "goal-a2a-pm",
+		ToolsPolicy: dto.ToolPolicyReadonly, Input: "本轮工作正文",
+	}
+	ctx := context.Background()
+	for round := 1; round <= 2; round++ {
+		if _, err := runtime.RunRoleTurn(ctx, request); err != nil {
+			t.Fatalf("第 %d 轮: %v", round, err)
+		}
+	}
+	if _, _, calls, _ := engine.snapshot(); calls != 2 {
+		t.Fatalf("同一会话的两次串行回合应各跑一次，得 %d", calls)
 	}
 }
 

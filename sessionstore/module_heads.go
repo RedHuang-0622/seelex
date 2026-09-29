@@ -99,7 +99,8 @@ type storeEngine struct {
 // sessionModuleLocks 是单个会话的模块锁集合与只属于该会话的短临界区状态。
 //
 // 锁口径：
-//   - 每个模块一把锁（§2.0 规则 2）→ 模块间互不阻塞；
+//   - 每个模块一把锁（§2.0 规则 2）→ 模块间互不阻塞；模块与锁**一对一**，
+//     任何枚举值没有对应 case 都是编程错误（见 mutexFor 的 default）；
 //   - guideMu 只保护本会话 metadata 目录/guide 注册（原实现是仓库级
 //     metaMu：任一会话注册模块会让所有会话的提交排队）；
 //   - stackViews 是栈通道提交时发布的不可变读投影（actor 出口），读者既不
@@ -117,7 +118,12 @@ type sessionModuleLocks struct {
 	toolRefsMu   sync.Mutex
 	systemMu     sync.Mutex
 	checkpointMu sync.Mutex
-	guideMu      sync.Mutex
+	// mediaMu 是媒体的**独立**锁：媒体的读写与 message 提交是两件事，media 曾因
+	// mutexFor 缺 case 落到 default 而被静默别名成 messageMu（两把语义不同的锁
+	// 物理上是一把），后果是 ① 截图/媒体读与消息提交互相串行、② 任何"在 message
+	// 临界区内读写媒体"的调用都会变成不可重入自锁（2026-09-29 锁面审计 §2.10）。
+	mediaMu sync.Mutex
+	guideMu sync.Mutex
 
 	stackViews [4]atomic.Pointer[stackView]
 	// anchor 是 message 通道最近一次发布的坐标（栈通道取锚用，避免打开
@@ -204,8 +210,17 @@ func (locks *sessionModuleLocks) mutexFor(mod storageModule) *sync.Mutex {
 		return &locks.systemMu
 	case moduleCheckpoint:
 		return &locks.checkpointMu
+	case moduleMedia:
+		// 媒体是独立模块（自己的目录、自己的 head、自己的锁）。曾因缺这个 case
+		// 落到 default 被静默别名成 messageMu：媒体读（ReadMedia/ListMedia）与
+		// messageCommit 互相串行，且任何"message 临界区内读写媒体"即不可重入自锁。
+		return &locks.mediaMu
 	default:
-		return &locks.messageMu
+		// 禁止静默别名：枚举是包内编译期常量，未映射只可能是"加了 storageModule
+		// 忘了加 case"。猜一个锁（旧行为）等于把两把语义不同的锁合成一把——那正是
+		// media 的成因，且它把缺陷藏到"某个临界区恰好嵌套"的那一天才炸。
+		// TestModuleLocksAreDistinct 遍历枚举钉住这条不变式。
+		panic(fmt.Sprintf("sessionstore: 未映射的存储模块 %q（补 mutexFor 的 case，禁止 default 别名）", mod))
 	}
 }
 

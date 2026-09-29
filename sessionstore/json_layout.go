@@ -443,7 +443,15 @@ func (repository *jsonRepository) retentionAdvisoryWorkspace(key Key) (Retention
 	if err != nil {
 		return advisory, err
 	}
-	messageHead, err := repository.layout.readMessageHeadLocked(key)
+	// 必须走**无锁入口**：本路径不持任何模块锁（唯一持有的是调用方的 router.mu，
+	// 与存储模块锁无关）。readMessageHeadLocked 的先决条件是"调用方持 messageMu"，
+	// 在这里调用即锁前提违例——head 损坏时会走 repairModuleHeadLocked，在零模块锁
+	// 下发布 metadata/message.json（module_heads.go 的 D2 反例：无锁发布可与并发
+	// writer 交错，把 head 回退到更早的 LastSeq，下一次提交的 reapUnpublishedLocked
+	// 会按 head 截断尾分片 → 已提交行被物理删除）。
+	// 无锁入口的语义是 TryLock + 有界失败：拿不到锁（正有 writer 在提交）就原样上报，
+	// 绝不抢锁、绝不发布；锁释放后下一次读自愈。2026-09-29 锁面审计 §2.1。
+	messageHead, err := repository.layout.readMessageHead(key)
 	if err != nil {
 		return advisory, err
 	}

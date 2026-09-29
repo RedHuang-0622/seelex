@@ -27,7 +27,7 @@ func TestWorkTableRaceConcurrentMutations(t *testing.T) {
 		Status: PlanRunning,
 		Nodes:  []PlanNode{{ID: "n1", Label: "并行任务", Status: NodeRunning}},
 	}
-	service.refreshWorkTableLocked(service.Deps.Runtime.TaskSnapshot())
+	service.refreshWorkTableLocked(service.Deps.Runtime.TaskSnapshot(), service.asyncRunsForTable())
 	service.ViewMu.Unlock()
 
 	const workers = 12

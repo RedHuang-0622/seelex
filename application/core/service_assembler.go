@@ -158,8 +158,8 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		},
 		Tasks: service.components.tasks,
 		Goals: service,
-		RefreshWorkTableLocked: func(tasks []dto.TaskRecord) {
-			service.refreshWorkTableLocked(tasks)
+		RefreshWorkTableLocked: func(tasks []dto.TaskRecord, asyncRuns []dto.AsyncRunRecord) {
+			service.refreshWorkTableLocked(tasks, asyncRuns)
 		},
 		Limits: Limits,
 	})

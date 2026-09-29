@@ -190,20 +190,42 @@ func asyncKey(sessionID, command string) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-func (g *asyncRegistry) directory() (string, error) {
-	if g.dirErr != nil {
-		return "", g.dirErr
+// ensureDirectory 返回（必要时创建）作业输出根目录。created=true 表示**本次调用
+// 建的**（调用方据此在关停竞争里回收它）。
+//
+// 目录创建（os.MkdirTemp）在 g.mu **之外**做：临界区只装表内改写（同 killTarget /
+// retire 的纪律）。锁内只做"查已有 / 登记新建"，并发下保留先建好的那一个（没人回收
+// 多余的目录）。
+func (g *asyncRegistry) ensureDirectory() (dir string, created bool, err error) {
+	g.mu.Lock()
+	existing, dirErr := g.dir, g.dirErr
+	g.mu.Unlock()
+	if dirErr != nil {
+		return "", false, dirErr
 	}
+	if existing != "" {
+		return existing, false, nil
+	}
+	fresh, createErr := os.MkdirTemp(g.tempDir, "seelex-async-")
+	if createErr != nil {
+		g.mu.Lock()
+		if g.dirErr == nil {
+			g.dirErr = createErr
+		}
+		g.mu.Unlock()
+		return "", false, createErr
+	}
+	g.mu.Lock()
 	if g.dir != "" {
-		return g.dir, nil
+		// 并发下已被别人建好：保留先到的那一个，删掉自己刚建的（此时它是空目录）。
+		winner := g.dir
+		g.mu.Unlock()
+		_ = os.Remove(fresh)
+		return winner, false, nil
 	}
-	dir, err := os.MkdirTemp(g.tempDir, "seelex-async-")
-	if err != nil {
-		g.dirErr = err
-		return "", err
-	}
-	g.dir = dir
-	return dir, nil
+	g.dir = fresh
+	g.mu.Unlock()
+	return fresh, true, nil
 }
 
 // begin 登记一次后台命令派发（Kind=process 的便捷入口，历史调用点与用例都走它）。
@@ -227,11 +249,36 @@ func (g *asyncRegistry) begin(sessionID, command, description, batchID string) (
 // 在锁内改写，派发侧若拿到指针，就是在锁外读这两个字段——回执渲染只需要 handle 与
 // logPath，给副本即可，且"回执渲染的是派发那一刻的状态"本身就是对的语义。
 func (g *asyncRegistry) beginJob(spec JobSpec) (asyncRun, bool, error) {
+	// 关停先判：免得为一个注定被拒的登记新建目录（CloseAsync 已经跑过，没人回收）。
 	g.mu.Lock()
-	defer g.mu.Unlock()
+	closed := g.closed
+	g.mu.Unlock()
+	if closed {
+		return asyncRun{}, false, fmt.Errorf("job: 作业执行域已关停（进程正在收尾）")
+	}
+	// 输出目录创建在**锁外**（MkdirTemp 是文件 I/O；临界区只装表内改写）。
+	dir, created, err := g.ensureDirectory()
+	if err != nil {
+		return asyncRun{}, false, fmt.Errorf("job: 无法创建作业输出目录: %w", err)
+	}
+
+	// 被驱逐记录的日志文件在**锁外**删（evictLocked 只摘表）：文件 I/O 不进临界区，
+	// 否则一条疯狂写日志的命令会让"回收"把派发与探针一起按住（同 killTarget 的纪律）。
+	var evicted []string
+	g.mu.Lock()
+	defer func() {
+		g.mu.Unlock()
+		for _, path := range evicted {
+			_ = os.Remove(path)
+		}
+	}()
 
 	if g.closed {
-		// 关停后再登记就会新建一个没人回收的目录（CloseAsync 已经跑过），宁可报错。
+		// 关停后再登记就会新建一个没人回收的目录（CloseAsync 已经跑过），宁可报错；
+		// 自己刚建的那个当场回收（os.Remove 只删空目录，已有日志时失败也无害）。
+		if created {
+			evicted = append(evicted, dir)
+		}
 		return asyncRun{}, false, fmt.Errorf("job: 作业执行域已关停（进程正在收尾）")
 	}
 	key := ""
@@ -246,11 +293,7 @@ func (g *asyncRegistry) beginJob(spec JobSpec) (asyncRun, bool, error) {
 	if g.countRunningLocked() >= asyncMaxRunning {
 		return asyncRun{}, false, fmt.Errorf("job: 在途作业已满 %d 个，先用 job_manage(op=observe) 查看、或等其中一个结束", asyncMaxRunning)
 	}
-	g.evictLocked()
-	dir, err := g.directory()
-	if err != nil {
-		return asyncRun{}, false, fmt.Errorf("job: 无法创建作业输出目录: %w", err)
-	}
+	evicted = append(evicted, g.evictLocked()...)
 	// seq 单调：不能用 len(runs) 推，驱逐过已完成项后会同号，两条执行共用输出文件。
 	g.seq++
 	handle := fmt.Sprintf("a%d", g.seq)
@@ -308,11 +351,14 @@ func (g *asyncRegistry) countRunningFor(sessionID string) int {
 	return count
 }
 
-// evictLocked 驱逐最老的已完成记录（连带去重键与输出文件）把表封顶。在途项永不丢。
+// evictLocked 驱逐最老的已完成记录（连带去重键）把表封顶，返回**待删的输出文件
+// 路径**（调用方在锁外删）。在途项永不丢。
 //
 // 输出文件必须连带删：记录槽有上限、文件没有——只封记录会让临时目录在一个长
-// 会话里无界增长。删除是尽力而为（失败只意味着那份日志多留一会儿）。
-func (g *asyncRegistry) evictLocked() {
+// 会话里无界增长。删除是尽力而为（失败只意味着那份日志多留一会儿），但**动作必须
+// 在锁外**：os.Remove 是文件 I/O，持 g.mu 删会把派发/收尾/探针一起按住。
+func (g *asyncRegistry) evictLocked() []string {
+	var removed []string
 	for len(g.runs) >= asyncMaxRecords {
 		oldestID, oldest := "", (*asyncRun)(nil)
 		for id, run := range g.runs {
@@ -324,12 +370,13 @@ func (g *asyncRegistry) evictLocked() {
 			}
 		}
 		if oldest == nil {
-			return
+			return removed
 		}
 		delete(g.byKey, oldest.key)
 		delete(g.runs, oldestID)
-		_ = os.Remove(oldest.logPath)
+		removed = append(removed, oldest.logPath)
 	}
+	return removed
 }
 
 // attach 记下执行体所属的进程树（只有起得来的进程才可能被杀）。返回 false = 记录
@@ -437,7 +484,14 @@ func (g *asyncRegistry) finish(handle string, exitCode int) {
 	summary, lines := summarizeLog(snap.logPath, exitCode, state)
 
 	g.mu.Lock()
-	defer g.mu.Unlock()
+	reapDir := false
+	defer func() {
+		g.mu.Unlock()
+		if reapDir {
+			// 删目录在锁外（os.RemoveAll 是文件 I/O）。
+			g.removeDir()
+		}
+	}()
 	run, ok := g.runs[handle]
 	if !ok || run.state != asyncStateRunning {
 		// 记录已被销项/驱逐，或另一个入口先一步落了终态：都不再迁移（只迁移一次）。
@@ -456,7 +510,7 @@ func (g *asyncRegistry) finish(handle string, exitCode int) {
 	// 且没有人再读这个句柄）。别的执行体还在写的话这次删除照样失败，交给它自己的
 	// 收尾再试一次——不需要定时器，也不用判断"多久算陈旧"。
 	if g.closed {
-		g.removeDirLocked()
+		reapDir = true
 	}
 }
 
@@ -797,21 +851,32 @@ func (g *asyncRegistry) notifyLocked() {
 // close 记下关停意图并当场试删输出目录。
 func (g *asyncRegistry) close() {
 	g.mu.Lock()
-	defer g.mu.Unlock()
 	g.closed = true
-	g.removeDirLocked()
+	g.mu.Unlock()
+	// 删目录在**锁外**：os.RemoveAll 是文件 I/O，持 g.mu 删会把派发/收尾/探针一起
+	// 按住（同 killTarget 的纪律）。
+	g.removeDir()
 }
 
-// removeDirLocked 删目录，成功才忘掉它（失败时留着，等下一个可删点重试）。
-// 调用方必须已持有 g.mu。
-func (g *asyncRegistry) removeDirLocked() {
-	if g.dir == "" {
+// removeDir 删输出根目录，成功才忘掉它（失败时留着，等下一个可删点重试）。
+//
+// 调用方**不得**持 g.mu：本方法自己在锁内取路径、在锁外删、再锁内就地清除
+// （删的是目录，中途有并发登记时 g.dir 已变，此时不清 = 让新目录继续可用）。
+func (g *asyncRegistry) removeDir() {
+	g.mu.Lock()
+	dir := g.dir
+	g.mu.Unlock()
+	if dir == "" {
 		return
 	}
-	if err := os.RemoveAll(g.dir); err != nil {
+	if err := os.RemoveAll(dir); err != nil {
 		return
 	}
-	g.dir = ""
+	g.mu.Lock()
+	if g.dir == dir {
+		g.dir = ""
+	}
+	g.mu.Unlock()
 }
 
 // asyncPayload 是派发回执、观察/取回结果与终止回执的共同载荷。字段刻意不含时间戳与耗时：

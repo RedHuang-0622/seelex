@@ -90,6 +90,10 @@ func (executor *Executor) slotLocked(sessionID string) *planSlot {
 // readSlot 返回指定会话槽（读锁内调用）。显式会话只读自己的槽：槽未建
 // 时返回零值，绝不回退全局默认（G1-C/M6：额度按 sid 建槽，activeSessionID
 // 与默认槽不得成为后台会话的事实源）；"" 是 legacy 无 sid 槽。
+//
+// 返回的是**槽指针**，因此解引用必须留在同一个读锁内（返回字段值，不返回指针）：
+// SetPolicyFor/SetBindingFor/SetRunID* 都在写锁内改槽字段，把指针带到锁外再读
+// 就是数据竞争（2026-09-29 锁面审计 §2.11）。
 func (executor *Executor) readSlot(sessionID string) *planSlot {
 	if executor.slots == nil {
 		return &planSlot{}
@@ -170,9 +174,9 @@ func (executor *Executor) PolicyFor(sessionID string) PlanPolicy {
 		return PlanPolicy{}
 	}
 	executor.slotMu.RLock()
-	slot := executor.readSlot(sessionID)
+	policy := executor.readSlot(sessionID).policy
 	executor.slotMu.RUnlock()
-	return slot.policy
+	return policy
 }
 
 // SetBinding 冻结下一次 plan_run 的请求级绑定（默认值填充由 Runtime 委托
@@ -210,9 +214,9 @@ func (executor *Executor) BindingFor(sessionID string) PlanBranchBinding {
 		return PlanBranchBinding{}
 	}
 	executor.slotMu.RLock()
-	slot := executor.readSlot(sessionID)
+	binding := executor.readSlot(sessionID).binding
 	executor.slotMu.RUnlock()
-	return slot.binding
+	return binding
 }
 
 // SetApprovalGate 设置 plan kind:approve/manual 节点的审批门控。
@@ -481,8 +485,9 @@ func (executor *Executor) CurrentRunIDFor(sessionID string) string {
 	}
 	executor.slotMu.RLock()
 	slot := executor.readSlot(sessionID)
+	runID := slot.runID
 	executor.slotMu.RUnlock()
-	return slot.runID
+	return runID
 }
 
 // EventSink 返回执行事实投影 sink（事件库 + 订阅；诊断/测试读取）。
