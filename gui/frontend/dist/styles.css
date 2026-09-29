@@ -1675,7 +1675,26 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .git-log-hash.is-copied { color: var(--status-done); }
 .git-log-meta { display: inline-flex; gap: 8px; min-width: 0; overflow: hidden; color: var(--faint); font: 10px var(--font-mono); white-space: nowrap; }
 .git-log-author, .git-log-date { overflow: hidden; text-overflow: ellipsis; }
-.git-log-subject { overflow: hidden; color: var(--text-strong); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+/* 提交标题是一枚「看起来像文本」的按钮：与 .git-log-hash / .git-commit-path 同一条
+   口径——必须自己抹掉组件库（vendor/pico.min.css）的按钮皮（padding / border /
+   background）。漏掉这一步的现场（真机截图）：pico 的 `button` 背景走
+   `--pico-primary-background` → 桥接到 `--accent`，而这里的文字色是
+   `--text-strong`；浅色皮肤（缺省皮肤）下两者同为 #1f2328，于是提交标题整列
+   被画成一块读不出字、还带 pico 内边距的黑条（hover/点击都是它，只是看不见）。 */
+.git-log-subject {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-log-subject:hover { color: var(--accent); }
+.git-log-subject:focus-visible { outline: none; box-shadow: var(--focus-glow); }
 .git-log-error { padding: 6px 8px; border: 1px solid var(--border-failed); border-radius: var(--r-sm); color: var(--status-failed); font-size: 11px; background: var(--tint-failed); }
 .git-log-empty, .git-log-limit { padding: 6px 8px; color: var(--faint); font-size: 11px; }
 /* 提交记录的第二、三层：点开某一条 → 这次改了哪些文件（清单）；再点开某一行 →
@@ -2262,7 +2281,19 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .tier-option-label { font-weight: 700; font-size: var(--text-sm); }
 .tier-option-desc { font-size: var(--text-xs); color: var(--faint); }
 
-.settings-card { width: min(500px, calc(100vw - 28px)); }
+/* 设置弹窗：内容比视口高时必须能滚（滚轮翻得到底部的「保存并切换」），并且随窗口
+   收缩。`.modal` 是 place-items:center 的 fixed 网格、自己不带 overflow —— 卡片一旦
+   高过视口，上下两端就被切在屏幕外，没有任何滚动容器能追回来（现场：小窗口里
+   终端 / 外观 两段读不到，按钮点不着）。给卡片封顶 + 自己滚，口径同
+   .runtime-card 的 max-height + overflow:auto；遮罩不必再复制一份滚动。
+   `.scheduled-task-modal` 复用同一枚卡片类且带 [data-resizable]（它自己的
+   overflow:auto 特异性更高，照旧生效），这里只补它缺的高度上限。 */
+.settings-card {
+  width: min(500px, calc(100vw - 28px));
+  max-height: min(760px, calc(100vh - 48px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
 .settings-note { margin: 0 0 14px; color: var(--muted); font-size: var(--text-sm); line-height: 1.55; }
 .settings-field { display: grid; gap: 6px; margin: 12px 0; color: var(--muted); font-size: var(--text-sm); }
 .settings-field input, .settings-field select { width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--code-bg); color: var(--text); font: 12px var(--font-mono); }

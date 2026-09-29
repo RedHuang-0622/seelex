@@ -528,6 +528,25 @@ background:transparent }`` 这类规则特异性高于自绘控件的类规则�
 上下文轴块的颜色用 `color-mix(状态色, 轨底色)` 的实色而不是 10% 透明度的
 `--tint-*`：一条轨道可能装几十上百个窄块，透明底色在浅色皮肤下等于不可见。
 
+**反过来，自绘的"文本按钮"必须自己抹掉组件库那张皮**：pico 的 `button` 背景走
+`--pico-primary-background`，而 Seelex 把它桥接到 `--accent`。所以一枚只有裸类名
+（没有 `.text-button` / `.stack-button` / `.tree-file` 这类皮肤类兜底）的按钮，实际
+拿到的是一块 `--accent` 实心底；它的文字色若是 `--text-strong`，整枚按钮就是一块
+读不出字的色块。现场：提交记录的「提交标题」（`.git-log-subject`，浅色皮肤下
+`--accent` 与 `--text-strong` 同为 #1f2328）在右栏渲染成一条黑条——点得开、hover
+有反应，就是没有字。口径：文本按钮一律写
+`padding: 0; border: 0; background: transparent`（`.git-log-hash` /
+`.git-commit-path` / `.changes-path` / `button.team-library-name` 都这么写）；
+`text-button-chrome.test.mjs` 会扫出所有"裸类名 + 没有任何 background 规则"的按钮，
+新加一枚忘了抹皮的按钮会当场失败。
+
+**弹窗卡片要自己封顶 + 自己滚**：`.modal` 是 `place-items: center` 的 `fixed` 网格、
+自己不带 `overflow`，卡片一旦高过视口，上下两端就被切在屏幕外，滚轮没有落点、底部
+按钮永远点不着。设置面板（`.settings-card`：存储 / 外观 / 终端 三段）就踩过这条——
+`max-height: min(760px, calc(100vh - 48px))` + `overflow-y: auto`
+（口径同 `.runtime-card`）是能滚到「保存并切换」的唯一路径；遮罩不再复制第二份滚动。
+`settings-modal-scroll.test.mjs` 钉住这三件套。
+
 对话区顶部是主视图页签条（`.conversation-tabs`，本地 UI 状态）；「对话 / 轨迹」
 两个会话子页可以留在主视图，也可以与右栏任一子页置换后停靠到右栏。会话类
 页面在主视图激活时显示底部输入框，其它主视图全宽展示时不遮挡。

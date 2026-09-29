@@ -82,6 +82,32 @@ version when it lands.
 
 ### Fixed
 
+- **The commit log's subject column rendered as a solid black bar, and the settings dialog could not be
+  scrolled to its own buttons.** Two front-end defects, both found on a real screenshot.
+  `vendor/pico.min.css` paints every `button` with `background-color: var(--pico-primary-background)`,
+  and `styles.css` bridges that token to `--accent`; so every text-like row button in the app
+  (`.git-log-hash`, `.git-commit-path`, `.changes-path`, `button.team-library-name`) resets the vendor
+  chrome itself (`padding: 0; border: 0; background: transparent`). `.git-log-subject` was the single
+  omission — it is the only button in the front-end emitted with a bare class name and no skin class to
+  borrow a background from, so it kept pico's background *and* pico's padding, while its own
+  `color: var(--text-strong)` is the same `#1f2328` as the light theme's `--accent`: the whole subject
+  column became an unreadable black block that still hovered and still opened the commit. The rule now
+  carries the reset (plus hover/focus states). `text-button-chrome.test.mjs` generalises the guard by
+  walking every `<button>` the front-end emits and failing on any bare class name that resolves to no
+  `background` rule, so the next omission fails in the test run instead of in a screenshot.
+  Separately, `.modal` is a `position: fixed` grid with `place-items: center` and no overflow of its own,
+  so a card taller than the viewport had both ends cut off with nowhere for the wheel to land — the
+  settings card (storage / appearance / terminal sections) could not reach "保存并切换".
+  `.settings-card` now caps itself (`max-height: min(760px, calc(100vh - 48px))`) and scrolls, the same
+  `max-height` + `overflow: auto` shape `.runtime-card` already used.
+  Verified in a real Chromium against the shipped stylesheets: the subject button's computed background
+  went from `rgb(31, 35, 40)` to `rgba(0, 0, 0, 0)` (padding `10.125px 13.5px` → `0`, height `38.75px` →
+  `16.5px`), and at a 327px-tall viewport the settings card computes `max-height: 279px`,
+  `overflow-y: auto`, `scrollHeight 780 > clientHeight 277`, and really scrolls. Regression: the guard was
+  confirmed to fail on the pre-fix rule; 5 new cases in `text-button-chrome.test.mjs` and
+  `settings-modal-scroll.test.mjs` (front-end suite 535 → 540, all green). See
+  `docs/devlog/2026-09-29-gitlog-subject-skin-and-settings-modal-scroll.md`.
+
 - **A long LLM stream could be killed for being *slow* rather than *stalled*, and one subagent's
   failure took its siblings down with it.** Two complaints, one incident. `seelebridge/account.ClientFor`
   built every account client with `api.NewChatClient(Timeout: 300)`, and that constructor turns the value
