@@ -198,6 +198,23 @@ version when it lands.
 
 ### Fixed
 
+- **The dev GUI package's `config/` no longer freezes at whatever day `build-gui.ps1` last ran — a config
+  change in the repo now actually reaches the running GUI.** `dist/seelex-gui-dev/` carries its own copy of
+  `config/`, and the binary resolves it by **CWD-relative** path (`main.go`:
+  `firstExisting("config/seelex.yaml", "seelex.yaml")`), but the post-commit dev build only replaced the two
+  executables and never the packaged config. The switch entry above is what made it visible: the shipped file
+  was flipped to `enabled: true` at 17:23 and committed at 17:25, the hook rebuilt `seelex-gui.exe` at 17:25:36,
+  the GUI was restarted at 17:59:50 — and the fold it produced at 18:00:08 was *still* the local scaffold
+  (`summary_source=local`; every fingerprint matches: `### 错误与修复 (Errors and Fixes)`, `### 待办 (Pending)`
+  and `### 下一步 (Next Step)` are hardcoded `(none)`, `### 文件与代码` is a `- 工具: <name>` list, and
+  `### 当前工作` is a `溢出轮次: N 个完整协议单元` tally). The cause was one directory away: the packaged copy
+  was the 2026-09-26 file (7067 bytes), which predates the generator that introduced the block — it does not
+  contain the key at all, so the running process read `Enabled=false` no matter what the repo said.
+  `scripts/build-dev.sh` now syncs `config/seelex.yaml` and `config/seele.yaml` into the dev package
+  (idempotent: identical files are left alone) and deliberately never touches `accounts.yaml`, which is local
+  credentials supplied at build time. The config is read once at startup, so a flip still needs a GUI restart
+  to take effect.
+
 - **Three more lock-surface audit items (§2.14 / §2.8 / §2.13) are fixed: pure reads stopped taking
   the write lock, the compact bridge left the session-context lock, and the JSON-layout runtime
   entries register in-flight operations.** (1) `sessionBundle.mu` became a `sync.RWMutex` and
