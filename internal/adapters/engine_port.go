@@ -40,6 +40,11 @@ type EnginePort struct {
 	// 会话，也让 legacy ChatStream 把别的会话的待安装装到自己头上。
 	pendingHistory map[string][]types.Message
 	prepareHistory func(string, []types.Message)
+	// handoffSeq / handoffLatest 是「锁内决定、锁外交接」的序号闸：一次历史交接
+	// 只在本会话仍是最后一次决定时才会落到宿主（见 runHandoff）。锁内决定与锁外
+	// 调用之间必然有窗口，两次替换并发时先决定的那个可能后交出去。
+	handoffSeq     uint64
+	handoffLatest  map[string]uint64
 	systemPrompt   string
 	maxLoops       int
 	sessionBacked  bool
@@ -149,6 +154,56 @@ func queueSessionHistory(engine ReactorEngine, history []types.Message) (bool, e
 	return true, queuer.ReplaceHistory(history)
 }
 
+// historyHandoff 是一次「锁内决定、解锁后交给宿主」的历史交接（PrepareHistory）。
+//
+// 为什么必须分两段：prepareHistory 是宿主注入实现——生产装配是
+// Runtime.PrepareMainSessionHistory（bundlesMu.RLock → binding.mu.RLock →
+// DurableHistory.PrepareNextLoad），在 port.mu 内调它等于「持进程级端口锁调宿主
+// 实现」，与本包 README 写死的「port.mu 内不做跨越等待的操作」相反，也与
+// replaceRawHistoryFor 旁边那条注释同源（S3b 写面引信：持 port.mu 等别人的锁，
+// 全进程所有会话都排在它后面）。宿主实现哪天回读端口，持锁同步重入非重入锁就是
+// 永久自锁——那一类事故本仓已经发生过不止一次。
+type historyHandoff struct {
+	sessionID string
+	history   []types.Message
+	seq       uint64
+	armed     bool
+}
+
+// armHandoffLocked 登记一次待交接。调用方必须持 port.mu；未注入宿主实现时不登记
+// （与旧行为一致：prepareHistory == nil 直接跳过）。
+//
+// 序号是「锁内决定 → 锁外交接」这个窗口的补偿：该会话的决定已被更晚的一次取代时，
+// 这一份旧历史不得再交给宿主（否则把 durable 的 next-load 拉回过期状态）。
+func (port *EnginePort) armHandoffLocked(sessionID string, history []types.Message) historyHandoff {
+	if port.prepareHistory == nil {
+		return historyHandoff{}
+	}
+	if port.handoffLatest == nil {
+		port.handoffLatest = make(map[string]uint64)
+	}
+	port.handoffSeq++
+	port.handoffLatest[sessionID] = port.handoffSeq
+	return historyHandoff{sessionID: sessionID, history: history, seq: port.handoffSeq, armed: true}
+}
+
+// runHandoff 在 port.mu **之外**把历史交给宿主。已被后续决定取代的那次直接丢弃。
+// 取 prepareHistory 引用要走一次极短读锁（与 RawHistoryFor 取引擎引用同口径）：
+// 宿主调用本身一定在锁外。
+func (port *EnginePort) runHandoff(handoff historyHandoff) {
+	if !handoff.armed {
+		return
+	}
+	port.mu.RLock()
+	latest := port.handoffLatest[handoff.sessionID] == handoff.seq
+	prepare := port.prepareHistory
+	port.mu.RUnlock()
+	if !latest || prepare == nil {
+		return
+	}
+	prepare(handoff.sessionID, handoff.history)
+}
+
 type ReactorEngineFactory func(sessionID string) ReactorEngine
 
 func NewEnginePort(eng ReactorEngine, newEngine ReactorEngineFactory, tracer *telemetry.MemoryTracer) *EnginePort {
@@ -197,10 +252,12 @@ func (port *EnginePort) ChatStream(ctx context.Context, input string, onChunk fu
 
 	port.mu.Lock()
 	port.engineCalls[sessionID]--
+	handoff := historyHandoff{}
 	if port.engineCalls[sessionID] == 0 {
-		port.installPendingLocked(sessionID)
+		handoff = port.installPendingLocked(sessionID)
 	}
 	port.mu.Unlock()
+	port.runHandoff(handoff)
 	return result, err
 }
 
@@ -226,10 +283,12 @@ func (port *EnginePort) ChatStreamFor(sessionID string, ctx context.Context, inp
 
 	port.mu.Lock()
 	port.engineCalls[sessionID]--
+	handoff := historyHandoff{}
 	if port.engineCalls[sessionID] == 0 {
-		port.installPendingLocked(sessionID)
+		handoff = port.installPendingLocked(sessionID)
 	}
 	port.mu.Unlock()
+	port.runHandoff(handoff)
 	return result, err
 }
 
@@ -413,9 +472,21 @@ func (port *EnginePort) ReplaceHistory(sessionID string, history []contract.Engi
 func (port *EnginePort) ReplaceRawHistory(sessionID string, history []types.Message) error {
 	desired := canonicalEngineHistory(history)
 	port.mu.Lock()
-	defer port.mu.Unlock()
+	handoff, err := port.replaceRawHistoryLocked(sessionID, desired)
+	port.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	port.runHandoff(handoff)
+	return nil
+}
+
+// replaceRawHistoryLocked 是 ReplaceRawHistory 的锁内段：只动注册表并登记待交接，
+// 宿主调用（prepareHistory）由调用方在 port.mu 之外兑现（见 historyHandoff）。
+// 调用方必须持 port.mu。
+func (port *EnginePort) replaceRawHistoryLocked(sessionID string, desired []types.Message) (historyHandoff, error) {
 	if port.engine == nil && port.newEngine == nil {
-		return fmt.Errorf("engine is unavailable")
+		return historyHandoff{}, fmt.Errorf("engine is unavailable")
 	}
 	// A running ReActLoop used to own its in-memory slice and overwrite the session
 	// view at turn exit, so touching that engine then bought nothing and would block
@@ -428,17 +499,17 @@ func (port *EnginePort) ReplaceRawHistory(sessionID string, history []types.Mess
 	// port.engineCalls, see installPendingLocked).
 	if port.engineCalls[sessionID] > 0 {
 		if queued, err := queueSessionHistory(port.engineForSessionLocked(sessionID), desired); queued {
-			return err
+			return historyHandoff{}, err
 		}
 		port.armPendingLocked(sessionID, desired)
 		port.activateLocked(sessionID)
-		return nil
+		return historyHandoff{}, nil
 	}
 	// 先装后切：install 已把新引擎登记在该会话号下，别名随后指过去即可。反过来
 	// （先 activate 再 install）会让工厂白造一台——install 又造一个新的换上。
-	port.installSessionEngineLocked(sessionID, desired)
+	handoff := port.installSessionEngineLocked(sessionID, desired)
 	port.activateLocked(sessionID)
-	return nil
+	return handoff, nil
 }
 
 // ReplaceHistoryFor 是会话内历史替换（M2 后台并行）：替换指定会话引擎的
@@ -448,22 +519,32 @@ func (port *EnginePort) ReplaceRawHistory(sessionID string, history []types.Mess
 func (port *EnginePort) replaceRawHistoryFor(sessionID string, history []types.Message) error {
 	desired := canonicalEngineHistory(history)
 	port.mu.Lock()
-	defer port.mu.Unlock()
+	handoff, err := port.replaceRawHistoryForLocked(sessionID, desired)
+	port.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	port.runHandoff(handoff)
+	return nil
+}
+
+// replaceRawHistoryForLocked 的锁内段：只动注册表并登记待交接，宿主调用在锁外
+// （见 historyHandoff）。调用方必须持 port.mu。
+func (port *EnginePort) replaceRawHistoryForLocked(sessionID string, desired []types.Message) (historyHandoff, error) {
 	if sessionID == port.sessionID {
 		// 目标是当前活跃会话：与 ReplaceRawHistory 相同语义（可能排队到检查点，
 		// 也可能换一台干净引擎）。
 		if port.engine == nil && port.newEngine == nil {
-			return fmt.Errorf("engine is unavailable")
+			return historyHandoff{}, fmt.Errorf("engine is unavailable")
 		}
 		if port.engineCalls[sessionID] > 0 {
 			if queued, err := queueSessionHistory(port.engineForSessionLocked(sessionID), desired); queued {
-				return err
+				return historyHandoff{}, err
 			}
 			port.armPendingLocked(sessionID, desired)
-			return nil
+			return historyHandoff{}, nil
 		}
-		port.installSessionEngineLocked(sessionID, desired)
-		return nil
+		return port.installSessionEngineLocked(sessionID, desired), nil
 	}
 	// 非活跃目标会话：会话内替换，不切换活跃。这里原本没有「目标在飞就先登记」
 	// 这一步，等于持着进程级 port.mu 去等一把整轮不放手的会话锁——目标会话恰好
@@ -471,11 +552,11 @@ func (port *EnginePort) replaceRawHistoryFor(sessionID string, history []types.M
 	engine := port.engineForSessionLocked(sessionID)
 	if engine == nil {
 		if port.newEngine == nil {
-			return fmt.Errorf("engine for session %q is unavailable", sessionID)
+			return historyHandoff{}, fmt.Errorf("engine for session %q is unavailable", sessionID)
 		}
 		fresh := port.newEngine(sessionID)
 		if fresh == nil {
-			return fmt.Errorf("engine for session %q is unavailable", sessionID)
+			return historyHandoff{}, fmt.Errorf("engine for session %q is unavailable", sessionID)
 		}
 		port.engines[sessionID] = fresh
 		port.engineCalls[sessionID] = 0
@@ -483,16 +564,13 @@ func (port *EnginePort) replaceRawHistoryFor(sessionID string, history []types.M
 	}
 	if port.engineCalls[sessionID] > 0 {
 		if queued, err := queueSessionHistory(engine, desired); queued {
-			return err
+			return historyHandoff{}, err
 		}
 		port.armPendingLocked(sessionID, desired)
-		return nil
+		return historyHandoff{}, nil
 	}
 	installHistoryInPlace(engine, desired)
-	if port.prepareHistory != nil {
-		port.prepareHistory(sessionID, desired)
-	}
-	return nil
+	return port.armHandoffLocked(sessionID, desired), nil
 }
 
 // replaceTargetHistoryLocked 就地重建目标会话引擎的历史（工厂不可用时的退路）。
@@ -555,14 +633,14 @@ func (port *EnginePort) armPendingLocked(sessionID string, history []types.Messa
 // installPendingLocked 在该会话的最后一个在飞回合收尾时兑现登记的历史。调用方必须
 // 持 port.mu 且 engineCalls[sessionID] 已归零，此刻装历史不会排在会话锁后面，而
 // port.mu 又挡住了新回合进入（新回合要先 Lock 才能给 engineCalls 加一），因此这一
-// 次安装对该会话是原子的。
-func (port *EnginePort) installPendingLocked(sessionID string) {
+// 次安装对该会话是原子的。返回的待交接由调用方在解锁之后兑现（见 historyHandoff）。
+func (port *EnginePort) installPendingLocked(sessionID string) historyHandoff {
 	history, ok := port.pendingHistory[sessionID]
 	if !ok {
-		return
+		return historyHandoff{}
 	}
 	delete(port.pendingHistory, sessionID)
-	port.installSessionEngineLocked(sessionID, history)
+	return port.installSessionEngineLocked(sessionID, history)
 }
 
 // activateLocked 把活跃别名（port.engine / port.sessionID）成对指向目标会话。
@@ -583,22 +661,17 @@ func (port *EnginePort) activateLocked(sessionID string) bool {
 // installSessionEngineLocked 为目标会话安装权威历史：优先创建全新引擎并
 // 注册到会话注册表（ReplaceHistory 语义 = 干净 reactor）；工厂不可用时回退为
 // 就地重建该会话的引擎。两处都只在目标会话此刻无回合在飞时才会被调到（判据在
-// 调用方），所以就地重建不会排在会话锁后面。调用方必须持有 port.mu。
-func (port *EnginePort) installSessionEngineLocked(sessionID string, history []types.Message) {
+// 调用方），所以就地重建不会排在会话锁后面。调用方必须持有 port.mu；返回的待交接
+// 由调用方在解锁之后兑现——宿主实现（PrepareHistory）绝不在 port.mu 内被调到。
+func (port *EnginePort) installSessionEngineLocked(sessionID string, history []types.Message) historyHandoff {
 	if port.newEngine == nil {
 		port.replaceTargetHistoryLocked(sessionID, history)
-		if port.prepareHistory != nil {
-			port.prepareHistory(sessionID, history)
-		}
-		return
+		return port.armHandoffLocked(sessionID, history)
 	}
 	fresh := port.newEngine(sessionID)
 	if fresh == nil {
 		port.replaceTargetHistoryLocked(sessionID, history)
-		if port.prepareHistory != nil {
-			port.prepareHistory(sessionID, history)
-		}
-		return
+		return port.armHandoffLocked(sessionID, history)
 	}
 	for _, message := range history {
 		fresh.AppendHistory(message)
@@ -616,9 +689,7 @@ func (port *EnginePort) installSessionEngineLocked(sessionID string, history []t
 	if port.maxLoops > 0 {
 		fresh.SetMaxLoops(port.maxLoops)
 	}
-	if port.prepareHistory != nil {
-		port.prepareHistory(sessionID, history)
-	}
+	return port.armHandoffLocked(sessionID, history)
 }
 
 func canonicalEngineHistory(history []types.Message) []types.Message {
@@ -706,15 +777,26 @@ func (port *EnginePort) ResumeRawSession(sessionID string, history []types.Messa
 	}
 	desired := canonicalEngineHistory(history)
 	port.mu.Lock()
-	defer port.mu.Unlock()
+	handoff, err := port.resumeRawSessionLocked(sessionID, desired)
+	port.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	port.runHandoff(handoff)
+	return nil
+}
+
+// resumeRawSessionLocked 是 ResumeRawSession 的锁内段：只动注册表并登记待交接，
+// 宿主调用由调用方在 port.mu 之外兑现（见 historyHandoff）。调用方必须持 port.mu。
+func (port *EnginePort) resumeRawSessionLocked(sessionID string, desired []types.Message) (historyHandoff, error) {
 	if port.newEngine == nil && port.engine == nil {
-		return fmt.Errorf("engine is unavailable")
+		return historyHandoff{}, fmt.Errorf("engine is unavailable")
 	}
 	if port.engineCalls[sessionID] > 0 {
 		// 目标会话自身忙时才延迟安装；其它会话运行中不阻塞本会话恢复
 		// （M2 并行语义：空闲目标可立即安装，避免触碰运行中会话的引擎锁）。
 		port.armPendingLocked(sessionID, desired)
-		return nil
+		return historyHandoff{}, nil
 	}
 	engine, ok := port.engines[sessionID]
 	if !ok || engine == nil {
@@ -723,22 +805,21 @@ func (port *EnginePort) ResumeRawSession(sessionID string, history []types.Messa
 			// 这一台。它承载的是当前活跃会话，活跃会话有回合在飞时这一步会排到它的
 			// 会话锁后面，所以按同一口径先登记、等那次回合收尾再装。
 			if port.engine == nil {
-				return fmt.Errorf("engine is unavailable")
+				return historyHandoff{}, fmt.Errorf("engine is unavailable")
 			}
+			handoff := historyHandoff{}
 			if port.engineCalls[port.sessionID] > 0 {
 				port.armPendingLocked(port.sessionID, desired)
 			} else {
 				installHistoryInPlace(port.engine, desired)
-				if port.prepareHistory != nil {
-					port.prepareHistory(sessionID, desired)
-				}
+				handoff = port.armHandoffLocked(sessionID, desired)
 			}
 			port.sessionID = sessionID
-			return nil
+			return handoff, nil
 		}
 		engine = port.newEngine(sessionID)
 		if engine == nil {
-			return fmt.Errorf("engine: factory returned nil for session %q", sessionID)
+			return historyHandoff{}, fmt.Errorf("engine: factory returned nil for session %q", sessionID)
 		}
 		port.engines[sessionID] = engine
 		port.engineCalls[sessionID] = 0
@@ -756,10 +837,7 @@ func (port *EnginePort) ResumeRawSession(sessionID string, history []types.Messa
 	if port.maxLoops > 0 {
 		engine.SetMaxLoops(port.maxLoops)
 	}
-	if port.prepareHistory != nil {
-		port.prepareHistory(sessionID, desired)
-	}
-	return nil
+	return port.armHandoffLocked(sessionID, desired), nil
 }
 
 // EnableWorkingHistoryRelease marks this adapter as backed by DurableHistory.

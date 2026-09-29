@@ -49,7 +49,7 @@ flowchart LR
 | `frameworkSession.Session` 的回合闸门 + 工作状态短锁 | 单会话 | 闸门只串行化"谁在跑回合"（不持锁跑整轮）；工作历史由短临界区保护（Seele 的 `workingState`），回合内的写入排队到循环的下一个检查点 |
 | `EnginePort.mu`（下称 `port.mu`） | 全进程（端口级） | 只应覆盖注册表/别名的查表与改写 |
 
-三条不变量：
+四条不变量：
 
 1. **回合内直接用公开方法，不需要"环内把手"**。Seele 把"整轮持锁"换成闸门 + 短临界区
    之后，工具 handler / 循环回调里调 `History()` / `ReplaceHistory()` 不再自锁：读只取
@@ -67,6 +67,14 @@ flowchart LR
    且 `port.mu` 还握着 ⇒ 对新回合原子）；登记时不 arm durable 的「下一次装载」槽，安装
    时才 arm；后台会话的安装只换注册表里的引擎，不改活跃别名（`activateLocked` 只查表，
    不建引擎）。
+4. **宿主注入实现（`PrepareHistory`）一律在 `port.mu` 之外被调**。生产装配是
+   `Runtime.PrepareMainSessionHistory`（`bundlesMu` → `binding.mu` → `DurableHistory`），
+   锁内调它就是"持全进程端口锁调宿主实现"，宿主实现一回读端口即自锁。所以安装/恢复路径
+   一律分两段：锁内只改注册表并 `armHandoffLocked` 登记一次交接，解锁之后由 `runHandoff`
+   兑现（`ReplaceRawHistory`/`replaceRawHistoryFor`/`ResumeRawSession`，以及回合出口的
+   `installPendingLocked`）。两段之间必然有窗口，因此交接带序号闸：本次决定若已被更晚的
+   一次取代，旧历史不得再交给宿主——否则 durable 的 next-load 被拉回过期状态。以后新增
+   "要交给宿主的动作"，照这条走，不要顺手在 `*Locked` 里直接调。
 
 `installHistoryInPlace` 是唯一的"就地重建 provider 历史"实现：引擎支持替换时直接交给
 `Session.ReplaceHistory`（一次短临界区装完整份），否则退回 `ClearHistory` + 逐条
@@ -77,6 +85,9 @@ flowchart LR
 
 - 新增端口方法时先问：这一步会不会在 `port.mu` 里等某个回合？（等就有 S3b 那类引信。）
   会就改成锁外，或改走"交给引擎排队"。
+- 宿主注入的实现（`EnginePortDeps` 里的那些函数）不得在 `port.mu` 内被调：它们是"另一端
+  的锁 + I/O"的入口（`PrepareHistory` 就是）。要交给宿主的动作按 `armHandoffLocked` +
+  `runHandoff` 两段走，别在 `*Locked` 里顺手调。
 - `engineCalls` 只看目标会话自己的计数，不要拿活跃会话的计数代替（后台会话折叠的
   判据就是它）。
 - 别名 `port.engine` 与 `port.sessionID` 必须成对改；先 install 再 activate，反过来
@@ -93,5 +104,7 @@ go test ./internal/adapters -count=1
 关键测试：`engine_port_reentrance_test.go`（回合内读历史**必须立刻返回**——旧自锁断言
 的反转报警器）、`engine_port_history_test.go`（回合内替换在检查点当场生效 + 在飞下界 +
 锁外立即落地）、`engine_port_lockfuse_test.go`（写面/读面都不再把 `port.mu` 跨在等回合
-上；每条都同时断言"折叠当场返回"与"别的会话照样开回合"）。
+上；每条都同时断言"折叠当场返回"与"别的会话照样开回合"）、
+`engine_port_handoff_test.go`（宿主 `PrepareHistory` 在锁外被调：宿主回读端口不再自锁；
+序号闸丢过期交接；三条安装路径各兑现一次交接；反向护栏防止把宿主动作搬丢）。
 `e2e/scenario` 与 `application/core` 的压缩用例覆盖应用侧口径。

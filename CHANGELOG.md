@@ -146,6 +146,28 @@ version when it lands.
 
 ### Fixed
 
+- **The engine port no longer calls the host's history handoff while holding the port lock.**
+  `EnginePort` installed and resumed history in one `port.mu` critical section that ended by calling
+  `port.prepareHistory` — a host-injected implementation (production assembly is
+  `Runtime.PrepareMainSessionHistory` → `sessionBindings.mu` → `binding.mu` →
+  `DurableHistory.PrepareNextLoad`). Two consequences, both already seen in this repository:
+  every fold/resume ran the host chain *inside* the process-wide port lock (all sessions' lookups,
+  turn openings and history reads queued behind one host round-trip), and any host implementation that
+  read back into the port re-entered a non-reentrant mutex held by the same goroutine — the shape of
+  the 2026-09-23 and 2026-09-29 hangs. The three install paths (`ReplaceRawHistory`,
+  `replaceRawHistoryFor`, `ResumeRawSession`) and the turn-exit `installPendingLocked` now run in two
+  stages: the `*Locked` helper only touches the registry and *arms* a handoff (`armHandoffLocked`),
+  and `runHandoff` makes the host call after the unlock. The window between "decide under the lock"
+  and "call outside it" is covered by a per-session handoff sequence, so a decision already superseded
+  by a later one is dropped rather than handing a stale history to the host (which would pull durable's
+  next-load slot back to an older state); the reverse guard pins that the handoff was not simply lost —
+  all three paths must still reach the host exactly once. Teeth:
+  `internal/adapters/engine_port_handoff_test.go` —
+  `TestPrepareHistoryIsCalledOutsidePortLock` (a host handoff that reads back into the port, 2s budget;
+  red before the fix, the replace never returns), `TestSupersededHandoffIsDropped`,
+  `TestHandoffReachesHostOnEveryInstallPath` (3 sub-cases) and
+  `TestPendingInstallHandsOffOutsidePortLock`. `internal/adapters/README.md`'s invariant list is now
+  four entries, with the "host implementations are only called outside `port.mu`" rule written down.
 - **An unlocked read path no longer publishes a storage module head: the retention advisory used the
   "caller holds the lock" entry from outside any lock, so a corrupt head could be rebuilt and
   republished while another writer was mid-commit.** `jsonRepository.retentionAdvisoryWorkspace` holds
