@@ -23,7 +23,7 @@ func TestSubAgentTreeRegisterForkProjection(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 
-	runtime.subagentTree.RegisterFork(mainAgentNodeID, []fork.SubagentSpec{
+	runtime.subagentTree.RegisterFork("", mainAgentNodeID, []fork.SubagentSpec{
 		{ID: "s1", Goal: "audit module A"},
 		{ID: "s2", Goal: "audit module B"},
 	})
@@ -54,7 +54,7 @@ func TestSubAgentTreeRegisterForkProjection(t *testing.T) {
 func TestSubAgentTreeContextProjection(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
-	runtime.subagentTree.RegisterFork(mainAgentNodeID, []fork.SubagentSpec{
+	runtime.subagentTree.RegisterFork("", mainAgentNodeID, []fork.SubagentSpec{
 		{ID: "done-node", Goal: "audit"},
 		{ID: "live-node", Goal: "live"},
 	})
@@ -102,7 +102,7 @@ func TestSubAgentTreeContextProjection(t *testing.T) {
 func TestSubAgentTreeLifecycleTransitions(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
-	runtime.subagentTree.RegisterFork(mainAgentNodeID, []fork.SubagentSpec{
+	runtime.subagentTree.RegisterFork("", mainAgentNodeID, []fork.SubagentSpec{
 		{ID: "ok", Goal: "g1"},
 		{ID: "bad", Goal: "g2"},
 	})
@@ -172,7 +172,7 @@ func TestRestoredCrashLeftoversMarkedInterrupted(t *testing.T) {
 		{NodeID: "crashed-queued", SessionID: "node-crash-queued", Goal: "queued-crash", Status: "queued"},
 		{NodeID: "done-node", SessionID: "node-done", Goal: "done", Status: "done", Summary: "ok"},
 		{NodeID: "mystery", SessionID: "node-mystery", Goal: "mystery", Status: ""},
-	}, nil)
+	}, "", nil)
 
 	tree := runtime.SubAgentTree()
 	if len(tree) != 1 {
@@ -200,13 +200,35 @@ func TestRestoredCrashLeftoversMarkedInterrupted(t *testing.T) {
 	}
 }
 
+// TestRegisterForkTagsOwningMainSession 钉住**归属主会话**的标注：fork 注册按
+// 调用方给出的主会话标注节点，嵌套 fork 从父节点继承（嵌套链上的 ctx 会话键
+// 不是归属的权威来源），投影把标记带出去——工作表格行的会话轴取的就是它，
+// 落空的行会被前端 rowBelongsToViewSession 的空值兜底判成"每个会话的本会话"。
+func TestRegisterForkTagsOwningMainSession(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+
+	runtime.subagentTree.RegisterFork("session-a", mainAgentNodeID, []fork.SubagentSpec{{ID: "a", Goal: "top"}})
+	// 嵌套 fork 传了一个不该信的会话号 → 仍随父节点归 session-a。
+	runtime.subagentTree.RegisterFork("subagent-bogus", "a", []fork.SubagentSpec{{ID: "a1", Goal: "nested"}})
+
+	for _, want := range []struct{ id, owner string }{
+		{"a", "session-a"},
+		{"a1", "session-a"},
+	} {
+		if got := treeNode(t, runtime, want.id); got.MainSessionID != want.owner {
+			t.Fatalf("节点 %q 归属主会话 = %q, want %q", want.id, got.MainSessionID, want.owner)
+		}
+	}
+}
+
 // TestSubAgentTreeClearRemovesEverything 清空入口：整树（含失败节点与
 // 嵌套层级）一次移除。
 func TestSubAgentTreeClearRemovesEverything(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
-	runtime.subagentTree.RegisterFork(mainAgentNodeID, []fork.SubagentSpec{{ID: "a", Goal: "top"}})
-	runtime.subagentTree.RegisterFork("a", []fork.SubagentSpec{{ID: "a1", Goal: "nested"}})
+	runtime.subagentTree.RegisterFork("", mainAgentNodeID, []fork.SubagentSpec{{ID: "a", Goal: "top"}})
+	runtime.subagentTree.RegisterFork("", "a", []fork.SubagentSpec{{ID: "a1", Goal: "nested"}})
 	runtime.node.CompleteSubagentNode("a1", "nested done", errors.New("boom"))
 	if err := runtime.subagentTree.Clear(); err != nil {
 		t.Fatalf("clear: %v", err)
@@ -221,8 +243,8 @@ func TestSubAgentTreeClearRemovesEverything(t *testing.T) {
 func TestSubAgentTreeNestedFork(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
-	runtime.subagentTree.RegisterFork(mainAgentNodeID, []fork.SubagentSpec{{ID: "a", Goal: "top"}})
-	runtime.subagentTree.RegisterFork("a", []fork.SubagentSpec{{ID: "a1", Goal: "nested"}})
+	runtime.subagentTree.RegisterFork("", mainAgentNodeID, []fork.SubagentSpec{{ID: "a", Goal: "top"}})
+	runtime.subagentTree.RegisterFork("", "a", []fork.SubagentSpec{{ID: "a1", Goal: "nested"}})
 
 	// 嵌套子代理运行中 → 挂在父节点 a 下。
 	root := runtime.SubAgentTree()[0]
@@ -261,7 +283,7 @@ func TestSubAgentTreeEmptyAndOrphan(t *testing.T) {
 		t.Fatalf("empty tree = %+v, want nil", tree)
 	}
 	// 模拟父节点缺失（正常路径不会发生，防御性兜底）：父节点未注册 → 孤儿归主代理。
-	runtime.subagentTree.RegisterFork("gone", []fork.SubagentSpec{{ID: "orphan", Goal: "x"}})
+	runtime.subagentTree.RegisterFork("", "gone", []fork.SubagentSpec{{ID: "orphan", Goal: "x"}})
 	runtime.subagentTree.CompleteSubagentNode("orphan", "done", nil)
 	root := runtime.SubAgentTree()[0]
 	if len(root.Children) != 1 || root.Children[0].ID != "orphan" || root.Children[0].ParentID != "gone" {
@@ -333,7 +355,7 @@ func TestSubAgentTreeEventsChannelNotifiesOnForkLifecycle(t *testing.T) {
 		}
 	}
 
-	runtime.subagentTree.RegisterFork(mainAgentNodeID, []fork.SubagentSpec{{ID: "s1", Goal: "g"}})
+	runtime.subagentTree.RegisterFork("", mainAgentNodeID, []fork.SubagentSpec{{ID: "s1", Goal: "g"}})
 	waitSignal(1) // fork 注册
 
 	runtime.node.CompleteSubagentNode("s1", "done", nil)
@@ -356,7 +378,7 @@ func TestSubAgentTreeRetainsBoundedDoneNodes(t *testing.T) {
 	for index := 0; index < 55; index++ {
 		specs = append(specs, fork.SubagentSpec{ID: fmt.Sprintf("s%d", index), Goal: "g"})
 	}
-	runtime.subagentTree.RegisterFork(mainAgentNodeID, specs)
+	runtime.subagentTree.RegisterFork("", mainAgentNodeID, specs)
 	for index := 0; index < 55; index++ {
 		runtime.node.CompleteSubagentNode(fmt.Sprintf("s%d", index), "done", nil)
 	}
@@ -367,7 +389,7 @@ func TestSubAgentTreeRetainsBoundedDoneNodes(t *testing.T) {
 	}
 
 	// failed 节点不受 done 上限影响。
-	runtime.subagentTree.RegisterFork(mainAgentNodeID, []fork.SubagentSpec{{ID: "f1", Goal: "g"}})
+	runtime.subagentTree.RegisterFork("", mainAgentNodeID, []fork.SubagentSpec{{ID: "f1", Goal: "g"}})
 	runtime.node.CompleteSubagentNode("f1", "x", errors.New("boom"))
 	if got := treeNode(t, runtime, "f1"); got.Status != dto.SubAgentFailed {
 		t.Fatalf("failed node = %+v, want failed", got)
@@ -425,7 +447,7 @@ func TestLiveRunningSubagentSurvivesSessionSwitchRestore(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 
-	runtime.subagentTree.RegisterFork(mainAgentNodeID, []fork.SubagentSpec{{ID: "live-1", Goal: "keep working"}})
+	runtime.subagentTree.RegisterFork("", mainAgentNodeID, []fork.SubagentSpec{{ID: "live-1", Goal: "keep working"}})
 	runtime.node.MarkStarted("live-1")
 	if got := treeNode(t, runtime, "live-1").Status; got != dto.SubAgentRunning {
 		t.Fatalf("precondition: live node status = %q, want running", got)
@@ -435,7 +457,7 @@ func TestLiveRunningSubagentSurvivesSessionSwitchRestore(t *testing.T) {
 	// 而节点在本进程内仍然在跑。
 	runtime.subagentTree.Restore([]sessionstore.NodeSessionRecord{
 		{NodeID: "live-1", SessionID: "node-live-1", Goal: "keep working", Status: "running"},
-	}, nil)
+	}, "session-a", nil)
 
 	if got := treeNode(t, runtime, "live-1").Status; got != dto.SubAgentRunning {
 		t.Fatalf("live running subagent must stay running across a session switch, got %q", got)
@@ -459,16 +481,21 @@ func TestRestoreSkipsRecordsOfAnotherMainSession(t *testing.T) {
 	}
 
 	// 视图在 A：B 的 running 记录不属于 A → 不建节点。
-	runtime.subagentTree.Restore([]sessionstore.NodeSessionRecord{record}, belongsToA)
+	runtime.subagentTree.Restore([]sessionstore.NodeSessionRecord{record}, "session-a", belongsToA)
 	if got := treeNode(t, runtime, "other-main-node"); got.ID != "" {
 		t.Fatalf("record of another main session must not enter this session's tree: %+v", got)
 	}
 
 	// 视图切到 B：同一记录按崩溃口径接管为 interrupted（它的主会话才是当前视图，
-	// 本进程没有它的活会话）。
-	runtime.subagentTree.Restore([]sessionstore.NodeSessionRecord{record}, func(sessionstore.NodeSessionRecord) bool { return true })
-	if got := treeNode(t, runtime, "other-main-node").Status; got != dto.SubAgentInterrupted {
-		t.Fatalf("restored foreign-session leftover status = %q, want interrupted", got)
+	// 本进程没有它的活会话）；恢复进来的节点同时带上**归属主会话**——工作表格行
+	// 的会话轴取它，落空的行会被前端当成本会话（跨会话污染，2026-09-29）。
+	runtime.subagentTree.Restore([]sessionstore.NodeSessionRecord{record}, "session-b", func(sessionstore.NodeSessionRecord) bool { return true })
+	restored := treeNode(t, runtime, "other-main-node")
+	if restored.Status != dto.SubAgentInterrupted {
+		t.Fatalf("restored foreign-session leftover status = %q, want interrupted", restored.Status)
+	}
+	if restored.MainSessionID != "session-b" {
+		t.Fatalf("恢复节点的归属主会话 = %q, want session-b", restored.MainSessionID)
 	}
 }
 

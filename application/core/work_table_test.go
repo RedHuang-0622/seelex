@@ -288,17 +288,26 @@ func TestUpdateWorkItemStatusRejectsInvalid(t *testing.T) {
 // TestRefreshWorkTableSnapshotPublishesSubagentRows 验证被动触发：
 // 子代理树生命周期（fork 注册/完成）经 observer → RefreshWorkTableSnapshot
 // 自动同步 task 注册表并发布 worktable.changed，无需模型调用任何工具。
+//
+// 树节点必须带**归属主会话**（MainSessionID）：工作表格行按它收窄到本会话，
+// 没有标记的节点不投影（见 syncTasksFromSourcesFor——缺标记时"行属于谁"只能
+// 按谁触发同步猜，那正是跨会话污染）。
 func TestRefreshWorkTableSnapshotPublishesSubagentRows(t *testing.T) {
 	engine := &fakeEngine{}
+	service := newTestService(t, engine)
+	viewSessionID := service.Snapshot().Session.ID
+	if viewSessionID == "" {
+		t.Fatal("view session has no ID")
+	}
 	engine.mu.Lock()
 	engine.subAgentTree = []dto.SubAgentTreeNode{{
 		ID: "main",
 		Children: []dto.SubAgentTreeNode{{
-			ID: "s1", Goal: "分析作者", Status: dto.SubAgentRunning, SessionID: "node-s1", StartedAt: time.Now(),
+			ID: "s1", Goal: "分析作者", Status: dto.SubAgentRunning, SessionID: "node-s1",
+			MainSessionID: viewSessionID, StartedAt: time.Now(),
 		}},
 	}}
 	engine.mu.Unlock()
-	service := newTestService(t, engine)
 	subscription := service.Subscribe(8)
 	defer subscription.Close()
 

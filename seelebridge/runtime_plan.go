@@ -217,9 +217,9 @@ func (r *Runtime) forkDeps() fork.Deps {
 	return fork.Deps{
 		CurrentPlanPolicy:        r.currentPlanPolicy,
 		NodeFactory:              r.nodeFactory,
-		TaskResolveByKey:         r.ResolveTaskByKey,
-		TaskAdd:                  r.TaskAdd,
-		TaskSetStatus:            r.TaskSetStatus,
+		TaskResolveByKeyFor:      r.ResolveTaskByKeyFor,
+		TaskAddFor:               r.TaskAddFor,
+		TaskSetStatusFor:         r.TaskSetStatusFor,
 		TaskAttachParticipant:    r.TaskAttachParticipant,
 		SubagentTreeRegisterFork: r.subagentTree.RegisterFork,
 		SubagentTreeSummaryFor:   r.subagentTree.SummaryFor,

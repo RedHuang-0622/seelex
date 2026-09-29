@@ -60,7 +60,7 @@ func (a blockingAgent) LLM() types.ChatCompleter { return a.llm }
 // 卡住不动”）。用例只依赖公开行为：真会话真的在流、真的持锁，投影必须及时返回。
 func TestProjectionDoesNotBlockOnLiveSessionStream(t *testing.T) {
 	tree := NewSubagentTree(nil)
-	tree.RegisterFork(model.MainAgentNodeID, []fork.SubagentSpec{
+	tree.RegisterFork("", model.MainAgentNodeID, []fork.SubagentSpec{
 		{ID: "live-node", Goal: "long stream"},
 	})
 
@@ -138,7 +138,7 @@ func findTreeNode(nodes []SubAgentTreeNode, id string) *SubAgentTreeNode {
 // 本用例证明不阻塞的同时数据仍然到位（GUI 工作表格/详情可见）。
 func TestProjectionCarriesNodeReportedMessageCount(t *testing.T) {
 	tree := NewSubagentTree(nil)
-	tree.RegisterFork(model.MainAgentNodeID, []fork.SubagentSpec{
+	tree.RegisterFork("", model.MainAgentNodeID, []fork.SubagentSpec{
 		{ID: "live-node", Goal: "live"},
 	})
 	live := frameworkSession.New(nil)

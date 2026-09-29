@@ -12,19 +12,33 @@ const todoLimitHint = "seele.yaml limits.todo_max_items"
 
 // Deps 是 todo/task 工具的运行时回调集合，由根包（Runtime）注入。
 type Deps struct {
-	RegisterTool         func(name, description string, inputSchema map[string]interface{}, handler func(ctx context.Context, argsJSON string) (string, error))
-	ReplaceTodo          func(items []TodoItem) error
-	AppendTodo           func(item TodoItem, limit int) error
-	SetTodoStatusByIndex func(index int, status TaskStatus) (TaskRecord, error)
-	TodoSnapshot         func() []TodoItem
-	TaskAdd              func(spec TaskSpec) (TaskRecord, bool, error)
-	TodoMaxItems         int
+	RegisterTool func(name, description string, inputSchema map[string]interface{}, handler func(ctx context.Context, argsJSON string) (string, error))
+	// SessionFromContext 解析执行 ctx 的会话归属（生产 = telemetry 会话键）。
+	// 工具族写的是**调用它的那个会话**的 scope：子代理/后台会话里跑的清单与
+	// taskadd 若落进实时注册表（当前视图会话），别的会话的工作表格与清单会被
+	// 顶掉/贴错会话号——行属于谁取决于"谁在看"（2026-09-29 会话归属收口）。
+	// 空 = 无 ctx 归属（旧调用面），退回实时注册表。
+	SessionFromContext func(ctx context.Context) string
+	TaskAddFor         func(sessionID string, spec TaskSpec) (TaskRecord, bool, error)
+	ReplaceTodoFor     func(sessionID string, items []TodoItem) error
+	AppendTodoFor      func(sessionID string, item TodoItem, limit int) error
+	SetTodoStatusFor   func(sessionID string, index int, status TaskStatus) (TaskRecord, error)
+	TodoSnapshotFor    func(sessionID string) []TodoItem
+	TodoMaxItems       int
 }
 
 // Tools 是 todolist 工具族与 taskadd 的注册与处理（todo 与 task 注册表融合，
 // docs/2026-08-09-worktable/tasklist.md：todolist 项即 kind=todo 的 task）。
 type Tools struct {
 	deps Deps
+}
+
+// sessionID 解析本次工具调用的会话归属（空 = 旧调用面，落实时注册表）。
+func (t *Tools) sessionID(ctx context.Context) string {
+	if t.deps.SessionFromContext == nil {
+		return ""
+	}
+	return t.deps.SessionFromContext(ctx)
 }
 
 // NewTools 构造工具族（deps 全部为闭包，域内不依赖根包）。
@@ -148,7 +162,7 @@ func (t *Tools) RegisterTaskTools() {
 		t.taskAddHandler)
 }
 
-func (t *Tools) todoInitHandler(_ context.Context, argsJSON string) (string, error) {
+func (t *Tools) todoInitHandler(ctx context.Context, argsJSON string) (string, error) {
 	var input struct {
 		Items []string `json:"items"`
 	}
@@ -165,13 +179,14 @@ func (t *Tools) todoInitHandler(_ context.Context, argsJSON string) (string, err
 			items = append(items, TodoItem{Text: text, Status: TodoItemPending})
 		}
 	}
-	if err := t.deps.ReplaceTodo(items); err != nil {
+	sessionID := t.sessionID(ctx)
+	if err := t.deps.ReplaceTodoFor(sessionID, items); err != nil {
 		return "", err
 	}
-	return t.todoStatusJSON(), nil
+	return t.todoStatusJSON(sessionID), nil
 }
 
-func (t *Tools) todoAddHandler(_ context.Context, argsJSON string) (string, error) {
+func (t *Tools) todoAddHandler(ctx context.Context, argsJSON string) (string, error) {
 	var input struct {
 		Item string `json:"item"`
 	}
@@ -181,23 +196,25 @@ func (t *Tools) todoAddHandler(_ context.Context, argsJSON string) (string, erro
 	if text := strings.TrimSpace(input.Item); text == "" {
 		return "", fmt.Errorf("todo_add: item is required")
 	}
-	if err := t.deps.AppendTodo(TodoItem{Text: strings.TrimSpace(input.Item), Status: TodoItemPending}, t.deps.TodoMaxItems); err != nil {
+	sessionID := t.sessionID(ctx)
+	if err := t.deps.AppendTodoFor(sessionID, TodoItem{Text: strings.TrimSpace(input.Item), Status: TodoItemPending}, t.deps.TodoMaxItems); err != nil {
 		return "", err
 	}
-	return t.todoStatusJSON(), nil
+	return t.todoStatusJSON(sessionID), nil
 }
 
-func (t *Tools) todoDoneHandler(_ context.Context, argsJSON string) (string, error) {
+func (t *Tools) todoDoneHandler(ctx context.Context, argsJSON string) (string, error) {
 	var input struct {
 		Index int `json:"index"`
 	}
 	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
 		return "", fmt.Errorf("todo_done: invalid args: %w", err)
 	}
-	if _, err := t.deps.SetTodoStatusByIndex(input.Index, TaskCompleted); err != nil {
+	sessionID := t.sessionID(ctx)
+	if _, err := t.deps.SetTodoStatusFor(sessionID, input.Index, TaskCompleted); err != nil {
 		return "", err
 	}
-	items := t.deps.TodoSnapshot()
+	items := t.deps.TodoSnapshotFor(sessionID)
 	allDone := true
 	for _, item := range items {
 		if !item.Done {
@@ -206,19 +223,22 @@ func (t *Tools) todoDoneHandler(_ context.Context, argsJSON string) (string, err
 		}
 	}
 	// 全部 done → 提示收尾（衔接 task_complete 终态；模型按收尾契约提交）。
-	status := t.todoStatusJSON()
+	status := t.todoStatusJSON(sessionID)
 	if allDone {
 		status = strings.TrimSuffix(status, "}") + `, "all_done": true, "hint": "所有待办已完成，调用 task_complete 提交任务"}`
 	}
 	return status, nil
 }
 
-func (t *Tools) todoStatusHandler(_ context.Context, _ string) (string, error) {
-	return t.todoStatusJSON(), nil
+func (t *Tools) todoStatusHandler(ctx context.Context, _ string) (string, error) {
+	return t.todoStatusJSON(t.sessionID(ctx)), nil
 }
 
 // taskAddHandler 主动登记 task（幂等：按归一化 goal 去重）。
-func (t *Tools) taskAddHandler(_ context.Context, argsJSON string) (string, error) {
+//
+// 会话归属取**调用 ctx 的会话键**：子代理/后台会话里调的 taskadd 必须登记到
+// 自己那个会话的 scope，不能借实时注册表落进当前视图会话的表格。
+func (t *Tools) taskAddHandler(ctx context.Context, argsJSON string) (string, error) {
 	var input struct {
 		Goal         string   `json:"goal"`
 		Description  string   `json:"description,omitempty"`
@@ -232,7 +252,11 @@ func (t *Tools) taskAddHandler(_ context.Context, argsJSON string) (string, erro
 	if goal == "" {
 		return "", errors.New("task_add: goal is required")
 	}
-	record, created, err := t.deps.TaskAdd(TaskSpec{
+	sessionID := ""
+	if t.deps.SessionFromContext != nil {
+		sessionID = t.deps.SessionFromContext(ctx)
+	}
+	record, created, err := t.deps.TaskAddFor(sessionID, TaskSpec{
 		Key:          TaskKeyForGoal(goal),
 		Phase:        TaskPhaseTask,
 		Task:         goal,
@@ -252,8 +276,9 @@ func (t *Tools) taskAddHandler(_ context.Context, argsJSON string) (string, erro
 }
 
 // todoStatusJSON 渲染清单 JSON（{items:[{text,done}], done:n, total:n}）。
-func (t *Tools) todoStatusJSON() string {
-	items := t.deps.TodoSnapshot()
+// sessionID 是调用会话：读的是**这个会话**的清单（空 = 实时注册表）。
+func (t *Tools) todoStatusJSON(sessionID string) string {
+	items := t.deps.TodoSnapshotFor(sessionID)
 	done := 0
 	encoded := make([]map[string]interface{}, 0, len(items))
 	for _, item := range items {

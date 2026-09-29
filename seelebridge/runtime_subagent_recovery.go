@@ -131,7 +131,7 @@ func (r *Runtime) RestoreSubagentAnchors(sessionID string) error {
 		r.subagentSessions.Restore(records)
 	}
 	if r.subagentTree != nil {
-		r.subagentTree.Restore(records, r.recordBelongsToCurrentMain)
+		r.subagentTree.Restore(records, sessionID, r.recordBelongsToCurrentMain)
 	}
 	if r.worktreeMgr != nil {
 		r.worktreeMgr.Restore(records)
@@ -141,7 +141,7 @@ func (r *Runtime) RestoreSubagentAnchors(sessionID string) error {
 		return fmt.Errorf("restore subagent anchors: load conclusions: %w", err)
 	}
 	if r.subagentTree != nil {
-		r.subagentTree.Restore(conclusions, r.recordBelongsToCurrentMain)
+		r.subagentTree.Restore(conclusions, sessionID, r.recordBelongsToCurrentMain)
 	}
 	return nil
 }

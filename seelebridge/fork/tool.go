@@ -18,11 +18,11 @@ import (
 type Deps struct {
 	CurrentPlanPolicy        func() plan.PlanPolicy
 	NodeFactory              func() codec.NodeFactory[plan.SeelexNodeInput]
-	TaskResolveByKey         func(key string) (task.TaskRecord, bool, error)
-	TaskAdd                  func(spec task.TaskSpec) (task.TaskRecord, bool, error)
-	TaskSetStatus            func(id string, status task.TaskStatus, evidence string) (task.TaskRecord, error)
+	TaskResolveByKeyFor      func(sessionID, key string) (task.TaskRecord, bool, error)
+	TaskAddFor               func(sessionID string, spec task.TaskSpec) (task.TaskRecord, bool, error)
+	TaskSetStatusFor         func(sessionID, id string, status task.TaskStatus, evidence string) (task.TaskRecord, error)
 	TaskAttachParticipant    func(id, participant string) (task.TaskRecord, error)
-	SubagentTreeRegisterFork func(parentID string, specs []SubagentSpec)
+	SubagentTreeRegisterFork func(mainSessionID, parentID string, specs []SubagentSpec)
 	SubagentTreeSummaryFor   func(specID string) string
 	RunPlan                  func(ctx context.Context, loaded *plan.LoadedPlanDoc, withNodeOutputs bool) (string, error)
 	ForkTimeoutSec           int
@@ -69,9 +69,15 @@ func (t *Tool) Handle(ctx context.Context, argsJSON string) (string, error) {
 	// B6 装配件：fork 派工前做 task 幂等校验——按归一化 goal 查注册表；
 	// 命中 → 绑既有 task_id；未命中 → 子代理自己开一个 task。只给 task_id，
 	// 不注入 task 内容（保持子代理 prompt 格式纯净）。
+	//
+	// 会话归属：读写一律走**发起 fork 的会话**（ctx 会话键）的 scope，不用
+	// 无会话的实时注册表入口——后台会话（视图已切走，它仍在并行跑）里 fork 的
+	// 子代理否则会把行写进**当前视图会话**的注册表，"这一行属于谁"取决于谁在
+	// 看，工作表格「仅本会话」当场张冠李戴（2026-09-29 与子代理树同一批收口）。
+	sessionID := seetelemetry.SessionIDFromContext(ctx)
 	taskBindings := make(map[string]string, len(input.Subagents))
 	for _, spec := range input.Subagents {
-		if taskID := t.bindSubagentTask(spec); taskID != "" {
+		if taskID := t.bindSubagentTask(sessionID, spec); taskID != "" {
 			taskBindings[spec.ID] = taskID
 		}
 	}
@@ -81,13 +87,13 @@ func (t *Tool) Handle(ctx context.Context, argsJSON string) (string, error) {
 	// read_tool_result 失败——需要 retry），直接读回已保存输出并返回，
 	// 不再重新执行。只有全部命中才短路；部分命中仍整体重跑，避免 DAG
 	// 出现混合状态（保守策略，README 注明）。
-	if summaries, ok := t.reusableForkSummaries(input.Subagents); ok {
+	if summaries, ok := t.reusableForkSummaries(sessionID, input.Subagents); ok {
 		for _, spec := range input.Subagents {
 			if taskID := taskBindings[spec.ID]; taskID != "" {
 				// bindSubagentTask 已把终态 task 置 retry（RetryCount 自增）；
 				// 复用成功 → 置回 completed，计数保留（worktable 显示 DONE，
 				// retry_count 保留，未读签名变化）。
-				_, _ = t.deps.TaskSetStatus(taskID, task.TaskCompleted, "fork reused stored output")
+				_, _ = t.deps.TaskSetStatusFor(sessionID, taskID, task.TaskCompleted, "fork reused stored output")
 			}
 		}
 		return t.forkReuseResultJSON(input.Subagents, summaries)
@@ -99,11 +105,13 @@ func (t *Tool) Handle(ctx context.Context, argsJSON string) (string, error) {
 	}
 	// 子代理树（内存态，不落盘）：记录 parent/child 链——父节点是发起
 	// fork 的子代理（NodeScope 携带节点 ID；嵌套 fork）或主代理（main 合成根）。
+	// 归属主会话按执行 ctx 的会话键标注（嵌套 fork 由树从父节点继承）：工作
+	// 表格行按它归属，缺了它就只能按"谁触发同步"归属（跨会话污染）。
 	parentID := model.MainAgentNodeID
 	if scope, ok := model.NodeScopeFromContext(ctx); ok && scope.NodeID != "" && scope.Role == model.RoleSubAgent {
 		parentID = scope.NodeID
 	}
-	t.deps.SubagentTreeRegisterFork(parentID, input.Subagents)
+	t.deps.SubagentTreeRegisterFork(seetelemetry.SessionIDFromContext(ctx), parentID, input.Subagents)
 	// fork 超时护栏：同步编排工具总时长 = 全部子代理工作量之和；通用工具
 	// 超时会掐死长任务，故剥离外层截止时间（保留用户取消传播）改用自己的
 	// 上限。任务可按需分配：长任务不填（limits.fork_timeout，默认 2h）；
@@ -226,13 +234,17 @@ func (t *Tool) dispatchJobs(ctx context.Context, loaded *plan.LoadedPlanDoc, inp
 // reusableForkSummaries 检查每个 spec 是否可复用已保存输出：goal 命中的
 // 既有 task 已完成，且子代理树仍保留该节点的完整输出。全部命中才返回
 // （摘要表, true）；任一缺失返回 (nil, false)。
-func (t *Tool) reusableForkSummaries(specs []SubagentSpec) (map[string]string, bool) {
+//
+// sessionID 是发起 fork 的会话：查重必须落在**这个会话的 scope**——后台会话里
+// 的 fork 若查的是实时注册表（别的会话），命中判定会张冠李戴（可能复用别的会话
+// 的同 goal task，也可能看不见自己在办的）。
+func (t *Tool) reusableForkSummaries(sessionID string, specs []SubagentSpec) (map[string]string, bool) {
 	if len(specs) == 0 {
 		return nil, false
 	}
 	summaries := make(map[string]string, len(specs))
 	for _, spec := range specs {
-		if _, found, _ := t.deps.TaskResolveByKey(task.TaskKeyForGoal(spec.Goal)); !found {
+		if _, found, _ := t.deps.TaskResolveByKeyFor(sessionID, task.TaskKeyForGoal(spec.Goal)); !found {
 			return nil, false
 		}
 		if summary := t.deps.SubagentTreeSummaryFor(spec.ID); summary == "" {
@@ -274,9 +286,12 @@ func (t *Tool) forkReuseResultJSON(specs []SubagentSpec, summaries map[string]st
 
 // bindSubagentTask 解析/创建子代理 task 并返回 task_id（幂等：相同 goal
 // 命中同一 task；新开时以 subagent:<id> 作为 ID，随后参与者合并）。
-func (t *Tool) bindSubagentTask(spec SubagentSpec) string {
+//
+// sessionID 是发起 fork 的会话（调用方按 ctx 会话键给出）：查重、新建与状态
+// 打点都落在**这个会话的 scope**（后台会话写自身分区，不用实时注册表入口）。
+func (t *Tool) bindSubagentTask(sessionID string, spec SubagentSpec) string {
 	key := task.TaskKeyForGoal(spec.Goal)
-	if existing, found, _ := t.deps.TaskResolveByKey(key); found {
+	if existing, found, _ := t.deps.TaskResolveByKeyFor(sessionID, key); found {
 		// 既有 task 被子代理重新接手：
 		//   - 终态（completed/failed）→ 重试语义：置 retry（RetryCount
 		//     自增，worktable 显示 RETRY n），节点真正启动时再转 running；
@@ -284,22 +299,22 @@ func (t *Tool) bindSubagentTask(spec SubagentSpec) string {
 		//   - 其余（pending/queued）→ 排队（B5 生命周期打点）。
 		switch existing.Status {
 		case task.TaskCompleted, task.TaskFailed:
-			_, _ = t.deps.TaskSetStatus(existing.ID, task.TaskRetry, "fork retried")
+			_, _ = t.deps.TaskSetStatusFor(sessionID, existing.ID, task.TaskRetry, "fork retried")
 		case task.TaskRetry, task.TaskRunning, task.TaskDoing:
 			// 保持当前状态（retry 保留计数；running 不允许回退）。
 		default:
-			_, _ = t.deps.TaskSetStatus(existing.ID, task.TaskQueued, "fork scheduled")
+			_, _ = t.deps.TaskSetStatusFor(sessionID, existing.ID, task.TaskQueued, "fork scheduled")
 		}
 		return existing.ID
 	}
-	created, _, err := t.deps.TaskAdd(task.TaskSpec{
+	created, _, err := t.deps.TaskAddFor(sessionID, task.TaskSpec{
 		ID: "subagent:" + spec.ID, Key: key, Phase: task.TaskPhaseSubagent, Task: spec.Goal,
 		Kind: "subagent", SourceID: spec.ID,
 	})
 	if err != nil {
 		return ""
 	}
-	_, _ = t.deps.TaskSetStatus(created.ID, task.TaskQueued, "fork scheduled")
+	_, _ = t.deps.TaskSetStatusFor(sessionID, created.ID, task.TaskQueued, "fork scheduled")
 	return created.ID
 }
 

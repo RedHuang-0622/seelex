@@ -3,6 +3,7 @@ package session
 import (
 	"encoding/json"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -71,6 +72,11 @@ type subagentNodeRecord struct {
 	summary   string
 	errorMsg  string
 	sessionID string
+	// mainSessionID 是**发起这棵树的主会话**（fork 注册时按执行 ctx 的会话键
+	// 标注；嵌套 fork 从父节点继承）。它只服务一个消费者：工作表格行的归属
+	// 会话轴——树是进程级一张（多会话共处），行是会话粒度的，没有这个标记，
+	// 同步一侧只能按"谁触发同步"归属行（跨会话污染，2026-09-29）。
+	mainSessionID string
 	// session 只保存运行中子会话的引用，**不在投影路径中读取它的 History**
 	// （会话锁被 ChatStream 整段持有，读它会阻塞观测面几十秒）。运行中的
 	// 可见信息一律来自本结构里的 scalar 与 messageCount。
@@ -106,18 +112,29 @@ func NewSubagentTree(trace provider.TraceSource) *SubagentTree {
 
 // RegisterFork 记录一次 fork_subagents：parentID 下挂 N 个子代理节点
 // （状态 queued、goal 来自 spec）。幂等：同 id 重复 fork 覆盖旧记录。
-func (s *SubagentTree) RegisterFork(parentID string, specs []fork.SubagentSpec) {
+//
+// mainSessionID 是发起这次 fork 的主会话（fork 工具按执行 ctx 的会话键传入）：
+// 子代理节点因此带上**归属会话**，工作表格行才有会话粒度的归属（见
+// subagentNodeRecord.mainSessionID）。嵌套 fork（父节点是子代理）从父节点继承
+// 归属——链上的每个节点都属于同一个主会话，ctx 会话键在嵌套链上不是归属的
+// 权威来源（角色会话/节点会话都可能出现在那里）。
+func (s *SubagentTree) RegisterFork(mainSessionID, parentID string, specs []fork.SubagentSpec) {
 	if s == nil || len(specs) == 0 {
 		return
 	}
 	if parentID == "" {
 		parentID = model.MainAgentNodeID
 	}
+	mainSessionID = strings.TrimSpace(mainSessionID)
 	s.mu.Lock()
+	if parent := s.nodes[parentID]; parent != nil && parent.mainSessionID != "" {
+		mainSessionID = parent.mainSessionID
+	}
 	for _, spec := range specs {
 		s.nodes[spec.ID] = &subagentNodeRecord{
 			id: spec.ID, parentID: parentID, goal: spec.Goal,
 			status: SubAgentQueued, startedAt: time.Now(),
+			mainSessionID: mainSessionID,
 		}
 		s.children[parentID] = append(s.children[parentID], spec.ID)
 	}
@@ -323,6 +340,10 @@ func (s *SubagentTree) Clear() error {
 // 根下。恢复完成后通知 observer（application 工作表格自动刷新，认领回填
 // subagent:<节点会话ID>）。
 //
+// mainSessionID 是**这些记录的主会话**（调用方按自己 List 的会话传入）：恢复
+// 进来的节点因此带归属会话，工作表格才不会把这些行摊给"正在被同步的会话"。
+// 空串表示调用方不知道归属（测试/旧装配），此时保留节点已有的标记。
+//
 // belongsToCurrent 可选：报告某条记录是否属于**当前视图的主会话**。运行期
 // persistLocked 会把还在跑的节点写进它所属主会话的记录里（Status="running"），
 // 而恢复是"切到哪个会话就按哪个会话的记录重建树"——若不过滤，别的会话的
@@ -333,10 +354,11 @@ func (s *SubagentTree) Clear() error {
 // 本进程仍在跑的节点（内存态有活会话）不被记录覆盖：崩溃口径（running →
 // interrupted）只适用于"记录的主人已经不在这个进程里"，照搬会把手头正在跑
 // 的节点显示成中断。
-func (s *SubagentTree) Restore(records []sessionstore.NodeSessionRecord, belongsToCurrent func(sessionstore.NodeSessionRecord) bool) {
+func (s *SubagentTree) Restore(records []sessionstore.NodeSessionRecord, mainSessionID string, belongsToCurrent func(sessionstore.NodeSessionRecord) bool) {
 	if s == nil || len(records) == 0 {
 		return
 	}
+	mainSessionID = strings.TrimSpace(mainSessionID)
 	s.mu.Lock()
 	for _, record := range records {
 		if record.NodeID == "" {
@@ -349,15 +371,16 @@ func (s *SubagentTree) Restore(records []sessionstore.NodeSessionRecord, belongs
 			continue
 		}
 		node := &subagentNodeRecord{
-			id:        record.NodeID,
-			parentID:  model.MainAgentNodeID,
-			goal:      record.Goal,
-			status:    restoredSubAgentStatus(record.Status),
-			summary:   record.Summary,
-			errorMsg:  record.Error,
-			sessionID: record.SessionID,
-			startedAt: record.StartedAt,
-			endedAt:   record.EndedAt,
+			id:            record.NodeID,
+			parentID:      model.MainAgentNodeID,
+			goal:          record.Goal,
+			status:        restoredSubAgentStatus(record.Status),
+			summary:       record.Summary,
+			errorMsg:      record.Error,
+			sessionID:     record.SessionID,
+			mainSessionID: mainSessionID,
+			startedAt:     record.StartedAt,
+			endedAt:       record.EndedAt,
 		}
 		if len(record.ContextJSON) > 0 {
 			var snap snapshot.ContextSnapshot
@@ -367,6 +390,9 @@ func (s *SubagentTree) Restore(records []sessionstore.NodeSessionRecord, belongs
 		}
 		if existing := s.nodes[node.id]; existing != nil {
 			node.session = existing.session
+			if node.mainSessionID == "" {
+				node.mainSessionID = existing.mainSessionID
+			}
 			if node.status == SubAgentQueued || node.status == SubAgentRunning {
 				if existing.status == SubAgentDone || existing.status == SubAgentFailed {
 					node.status = existing.status
@@ -464,6 +490,7 @@ func (s *SubagentTree) Projection() []SubAgentTreeNode {
 // 快照指针与"是否有运行中会话"的标记；运行中节点不读会话内容。
 type treeProjectionNode struct {
 	id, parentID, goal, summary, errorMsg, sessionID string
+	mainSessionID                                    string
 	status                                           SubAgentNodeStatus
 	startedAt, endedAt                               time.Time
 	contextSnap                                      *snapshot.ContextSnapshot
@@ -496,17 +523,18 @@ func (s *SubagentTree) projection() []SubAgentTreeNode {
 	records := make(map[string]*treeProjectionNode, len(s.nodes))
 	for id, record := range s.nodes {
 		node := &treeProjectionNode{
-			id:           id,
-			parentID:     record.parentID,
-			goal:         record.goal,
-			status:       record.status,
-			summary:      record.summary,
-			errorMsg:     record.errorMsg,
-			sessionID:    record.sessionID,
-			startedAt:    record.startedAt,
-			endedAt:      record.endedAt,
-			messageCount: record.messageCount,
-			children:     append([]string(nil), s.children[id]...),
+			id:            id,
+			parentID:      record.parentID,
+			goal:          record.goal,
+			status:        record.status,
+			summary:       record.summary,
+			errorMsg:      record.errorMsg,
+			sessionID:     record.sessionID,
+			mainSessionID: record.mainSessionID,
+			startedAt:     record.startedAt,
+			endedAt:       record.endedAt,
+			messageCount:  record.messageCount,
+			children:      append([]string(nil), s.children[id]...),
 		}
 		if record.contextSnap != nil {
 			node.contextSnap = record.contextSnap
@@ -539,6 +567,7 @@ func (s *SubagentTree) projectNode(id string, records map[string]*treeProjection
 	node.Summary = record.summary
 	node.Error = record.errorMsg
 	node.SessionID = record.sessionID
+	node.MainSessionID = record.mainSessionID
 	node.StartedAt = record.startedAt
 	node.EndedAt = record.endedAt
 	if record.contextSnap != nil {

@@ -14,6 +14,40 @@ version when it lands.
 
 ### Changed
 
+- **A subagent row now belongs to the session that forked it, not to whoever is looking.** The work
+  table's rows are session-grained (the GUI's "this session only" and "actually sent" filters read
+  `row.session_id`, and an unowned row counts as "mine" in *every* session), while the subagent tree
+  is one process-wide tree in which a node carried only its *own* node session — never the main
+  session that forked it. Three writers therefore answered "who owns this row?" with "who is looking
+  or writing": the projection in `syncTasksFromSourcesFor` walked the whole tree into whichever
+  session was being synced, `fork`'s task binding used the unscoped `TaskAdd`/`TaskSetStatus`/
+  `TaskResolveByKey` (the live registry *is* the view session), and the `task_add` / `todo_*` handlers
+  ignored the calling ctx entirely — so a subagent running for a background session wrote its rows,
+  and even its `todo_init` replacement, into the session the user happened to be viewing. Nodes now
+  carry `MainSessionID` (tagged at fork registration from the execution ctx, inherited by nested
+  forks, stamped on restore), the projection only takes nodes that belong to the session being synced
+  (an unowned node is *not* guessed into every session), and every write goes through the
+  session-routed entry points (`TaskAddFor`/`TaskSetStatusFor`/`TaskResolveByKeyFor` plus the new
+  `ReplaceTodoFor`/`AppendTodoFor`/`SetTodoStatusFor`/`TodoSnapshotFor`), with an empty session key
+  keeping the old live-registry behaviour. Pinned by
+  `application/core/work_table_subagent_session_scope_test.go` (both directions were red before the
+  filter), `seelebridge/task_add_session_scope_test.go` (a stub that ignores the ctx turns both cases
+  red), `seelebridge/fork/bind_subagent_task_test.go` and
+  `TestRegisterForkTagsOwningMainSession`; `TestRefreshWorkTableSnapshotPublishesSubagentRows` now
+  states the new contract in its fixture. See
+  `docs/devlog/2026-09-29-subagent-rows-session-ownership.md`.
+- **A fold that has no live request now still asks the model for its summary.** The prefix-replay
+  material was only ever `existing` — the engine history read at the start of assembly — but the most
+  common fold happens exactly when there is no request in flight (a `/compact` on a cold-loaded
+  session, the session-level maintenance identity, or the autonomous fold triggered by the first
+  message of a cold-loaded session), where the engine history has not been materialised yet. Every
+  such frame therefore degraded to `summary_source=local` with `no-replay-material`: the model was
+  never asked, and the frame could not tell a reader why. The material now falls back to
+  `fullContext` — the transcript-projected history this very assembly is judging and about to send —
+  when `existing` is empty; wire normalisation and protocol validation are unchanged. Pinned by the
+  new assertion in `TestFoldPushesCompactionFrameIntoIndex` (red before, green after; the fixture
+  runs with an empty engine history, which is the cold-load shape). See
+  `docs/devlog/2026-09-29-cold-fold-replay-material.md`.
 - **A fold that falls back to the local deterministic summary now says why.** All three ways into
   `summary_source=local` used to leave no trace — summary switch off, no replay material, and the
   paid replay call failing (twice, silently, in `chapter2Node`). A frame therefore could not answer

@@ -158,6 +158,13 @@ func TestFoldPushesCompactionFrameIntoIndex(t *testing.T) {
 	if request.RequestID != "task-index-1" {
 		t.Fatalf("推帧请求归属 = %q，want 触发折叠的回合标识", request.RequestID)
 	}
+	// ②b 重放素材：本夹具的引擎历史是空的（冷加载/刚清空——还没有在飞请求），素材
+	// 因此必须改取**本次装配的 transcript 窗口**。空素材 = 每一帧都落
+	// no-replay-material、模型从未被问到（2026-09-29 现场：帧正文里只有
+	// summary_note=无重放素材，人读不出"模型为什么没被叫到"）。
+	if len(request.ReplayHistory) == 0 {
+		t.Fatal("引擎历史为空时重放素材不能为空：折叠会静默退化成没有模型摘要的本地折叠")
+	}
 
 	// ③ 回执落到了帧正文：segment_id 与摘要来源都在元数据块里，读后感原样嵌入，
 	// 且 readback 段不再说"没有细筛入口"。

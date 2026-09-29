@@ -775,6 +775,157 @@ func (r *Runtime) SetTodoStatus(index int, status dto.TodoItemStatus) error {
 	return err
 }
 
+// ── todolist 工具族的会话归属（2026-09-29）────────────────────────────
+//
+// 工具族（todo_init/add/done/status）与 taskadd 同一口径：写的是**调用它的那个
+// 会话**的 scope。子代理看得见清单工具族，而子代理可能在后台会话里跑——若走实时
+// 注册表，它的 todo_init 会把**当前视图会话**的清单整表顶掉，行也贴错会话号
+// （工作表格会话轴张冠李戴）。清单项在注册表里就是 kind=todo 的 task 行，因此
+// 会话级读面与 task 分区同构：分区里按 Kind=="todo" 的**顺序**表达清单顺序。
+//
+// 空会话键 = 无 ctx 归属（旧调用面）→ 实时注册表，保持既有行为。
+
+// TodoSnapshotFor 按归属会话读清单（工具族按调用会话取数）。
+func (r *Runtime) TodoSnapshotFor(sessionID string) []dto.TodoItem {
+	if r == nil || r.tasks == nil {
+		return nil
+	}
+	r.sessionTaskMu.Lock()
+	current := r.currentTaskSessionID
+	records := append([]dto.TaskRecord(nil), r.sessionTaskSnapshots[sessionID]...)
+	r.sessionTaskMu.Unlock()
+	if sessionID == "" || sessionID == current {
+		return r.TodoSnapshot()
+	}
+	return todoItemsFromRecords(records)
+}
+
+// ReplaceTodoFor 按归属会话整体替换清单（todo_init）。
+func (r *Runtime) ReplaceTodoFor(sessionID string, items []dto.TodoItem) error {
+	if r == nil || r.tasks == nil {
+		return errors.New("todolist: unavailable")
+	}
+	r.sessionTaskMu.Lock()
+	current := r.currentTaskSessionID
+	r.sessionTaskMu.Unlock()
+	if sessionID == "" || sessionID == current {
+		return r.tasks.ReplaceTodo(items)
+	}
+	r.sessionTaskMu.Lock()
+	defer r.sessionTaskMu.Unlock()
+	records := partitionWithoutTodo(r.sessionTaskSnapshots[sessionID])
+	for _, item := range items {
+		records = append(records, todoRecordFromItem(item))
+	}
+	r.sessionTaskSnapshots[sessionID] = records
+	return nil
+}
+
+// AppendTodoFor 按归属会话追加清单项（todo_add；上限与注册表同一口径）。
+func (r *Runtime) AppendTodoFor(sessionID string, item dto.TodoItem, limit int) error {
+	if r == nil || r.tasks == nil {
+		return errors.New("todolist: unavailable")
+	}
+	r.sessionTaskMu.Lock()
+	current := r.currentTaskSessionID
+	r.sessionTaskMu.Unlock()
+	if sessionID == "" || sessionID == current {
+		return r.tasks.AppendTodo(item, limit)
+	}
+	r.sessionTaskMu.Lock()
+	defer r.sessionTaskMu.Unlock()
+	records := r.sessionTaskSnapshots[sessionID]
+	if limit > 0 && len(todoRecordsIn(records)) >= limit {
+		return fmt.Errorf("todo_add: list already at limit %d", limit)
+	}
+	r.sessionTaskSnapshots[sessionID] = append(records, todoRecordFromItem(item))
+	return nil
+}
+
+// SetTodoStatusFor 按归属会话设置清单项三态（todo_done）。
+func (r *Runtime) SetTodoStatusFor(sessionID string, index int, status task.TaskStatus) (dto.TaskRecord, error) {
+	if r == nil || r.tasks == nil {
+		return dto.TaskRecord{}, errors.New("todolist: unavailable")
+	}
+	r.sessionTaskMu.Lock()
+	current := r.currentTaskSessionID
+	r.sessionTaskMu.Unlock()
+	if sessionID == "" || sessionID == current {
+		return r.tasks.SetTodoStatusByIndex(index, status)
+	}
+	r.sessionTaskMu.Lock()
+	defer r.sessionTaskMu.Unlock()
+	records := r.sessionTaskSnapshots[sessionID]
+	positions := todoRecordPositions(records)
+	if index < 0 || index >= len(positions) {
+		return dto.TaskRecord{}, fmt.Errorf("todo_done: index %d out of range (0..%d)", index, len(positions)-1)
+	}
+	position := positions[index]
+	if status != task.TaskPending && status != task.TaskDoing && status != task.TaskCompleted {
+		return dto.TaskRecord{}, fmt.Errorf("task: todo 只支持三态 pending/doing/completed，不能迁移到 %s", status)
+	}
+	records[position].Status = status
+	r.sessionTaskSnapshots[sessionID] = records
+	return records[position], nil
+}
+
+// todoItemsFromRecords 还原分区里的清单（按行顺序 = 清单顺序）。
+func todoItemsFromRecords(records []dto.TaskRecord) []dto.TodoItem {
+	items := make([]dto.TodoItem, 0, len(records))
+	for _, record := range records {
+		if record.Kind != "todo" {
+			continue
+		}
+		items = append(items, task.TaskToTodoItem(record))
+	}
+	return items
+}
+
+// todoRecordsIn 返回分区里的清单行（保持顺序）。
+func todoRecordsIn(records []dto.TaskRecord) []dto.TaskRecord {
+	todos := make([]dto.TaskRecord, 0, len(records))
+	for _, record := range records {
+		if record.Kind == "todo" {
+			todos = append(todos, record)
+		}
+	}
+	return todos
+}
+
+// todoRecordPositions 返回清单行在分区里的下标（顺序即清单顺序）。
+func todoRecordPositions(records []dto.TaskRecord) []int {
+	positions := make([]int, 0, len(records))
+	for index, record := range records {
+		if record.Kind == "todo" {
+			positions = append(positions, index)
+		}
+	}
+	return positions
+}
+
+// partitionWithoutTodo 去掉分区里的清单行（整体替换清单用；任务行原样保留）。
+func partitionWithoutTodo(records []dto.TaskRecord) []dto.TaskRecord {
+	kept := make([]dto.TaskRecord, 0, len(records))
+	for _, record := range records {
+		if record.Kind == "todo" {
+			continue
+		}
+		kept = append(kept, record)
+	}
+	return kept
+}
+
+// todoRecordFromItem 由清单项构造 kind=todo 的分区行：形状与注册表建的行同构
+// （Phase=tasklist、Key=todo:<文本>、状态三态映射），ID 取**进程级**分配器——
+// 分区里"每个会话各自从 1 数"会让跨会话台账同号去重丢行（见 addTaskPartition）。
+func todoRecordFromItem(item dto.TodoItem) dto.TaskRecord {
+	id := task.NextAutoID("todo")
+	return dto.TaskRecord{
+		ID: id, Key: "todo:" + item.Text, Phase: dto.TaskPhaseTasklist,
+		Task: item.Text, Status: task.TodoToTaskStatus(item.Status), Kind: "todo",
+	}
+}
+
 // ── actor 消息边界（应用 → Runtime 单向发布）──────────────────────
 
 // RuntimeVisibilityProjection is an immutable application-to-runtime message.

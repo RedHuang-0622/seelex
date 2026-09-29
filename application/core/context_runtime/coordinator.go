@@ -781,8 +781,21 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 		// 溢出素材取 transcript[retainedFrom:compressedTo]：retainedFrom 之前
 		// 的区间已被更早的帧覆盖（帧链自足），重复喂进去只会让检索命中两段
 		// 同内容；自主压缩时 compressedTo = len(transcript)，即"尚未被任何帧
-		// 覆盖的全部"。ReplayHistory 取 existing——上一次真实请求的历史字节，
-		// 与产出该请求是同一条装配路径。
+		// 覆盖的全部"。
+		//
+		// 重放素材（ReplayHistory）首选 existing——上一次真实请求的历史字节，
+		// 与产出该请求是同一条装配路径（前缀重放靠它命中前缀缓存）。但它**在
+		// 没有在飞请求时必然为空**：冷加载/刚清空的会话还没有物化引擎历史，
+		// 而这类会话的折叠恰恰是最常见的一次（/compact、会话级维护身份、以及
+		// 冷加载后第一条消息触发的自动折叠）。此时素材改取 fullContext——本次
+		// 装配从 transcript 投影出的那份历史（"如果这次不折叠，就会发出去的
+		// 对话内容"）。否则每一帧都落在 no-replay-material 上：帧里只有一句
+		// "本次不调用模型"，模型从未被问到，而读帧的人无从知道差的就是这份素材
+		// （2026-09-29 现场）。
+		replayMaterial := existing
+		if len(replayMaterial) == 0 {
+			replayMaterial = fullContext
+		}
 		//
 		// 未装配索引面与推帧失败都不中断装配（索引缺失是降级不是错误），
 		// 但门禁 index 关与帧正文的 readback 段都要如实写出是哪一种。
@@ -794,7 +807,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 		if compacting || autonomous {
 			push = c.pushCompactionFrame(sessionID, requestID,
 				task_context.TranscriptEventMessages(foldedOverflowEvents(transcript, retainedFrom, compressedTo)),
-				existing, compactedRange)
+				replayMaterial, compactedRange)
 			progress.gate(CompactionGateStackPush, push.gateDetail())
 		}
 		// 帧正文（同样在锁外渲染；纯函数，只读上面这份值事实）：快照只带 ref，

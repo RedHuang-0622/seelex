@@ -312,8 +312,8 @@ func subagentTreePayloadSignature(nodes []dto.SubAgentTreeNode) string {
 	walk = func(items []dto.SubAgentTreeNode) {
 		fmt.Fprintf(&builder, "%d:", len(items))
 		for _, node := range items {
-			fmt.Fprintf(&builder, "%s|%s|%s|%d|%d|%d|%d|%d;",
-				node.ID, node.Status, node.SessionID,
+			fmt.Fprintf(&builder, "%s|%s|%s|%s|%d|%d|%d|%d|%d;",
+				node.ID, node.Status, node.SessionID, node.MainSessionID,
 				len(node.Goal), len(node.Summary), len(node.Error),
 				node.StartedAt.UnixNano(), node.EndedAt.UnixNano())
 			if node.Context != nil {
@@ -379,13 +379,28 @@ func (service *Service) syncTasksFromSources() {
 
 // syncTasksFromSourcesFor 把指定会话的 plan 节点与子代理树生命周期投影进该
 // 会话自身的 task scope（R6/P2 收口：写自有域，后台会话不再污染当前注册表）。
+//
+// 子代理行按**归属会话**收窄（2026-09-29）：子代理树是进程级的一张（多会话的
+// fork 共处一树，见 seelebridge/session/subagent_tree.go），而工作表格行是会话
+// 粒度的——前端按 `row.session_id` 做「仅本会话」与「实发」筛选，并把空归属
+// 兜底成"本会话"。整棵树下投影的后果是：行落在谁的表格里取决于**谁触发了这次
+// 同步**（视图切走后为后台会话同步，就把视图会话的子代理写进后台会话的分区，
+// 还把后台自己的行贴上视图会话号），于是每个会话都能看到别的会话的子代理。因此
+// 只投影 MainSessionID == 本会话的节点；未标注归属（旧记录/无 ctx 会话的注册
+// 路径）不猜——宁可少一行，也不把别人的行摊给每个会话。
 func (service *Service) syncTasksFromSourcesFor(sessionID string) {
 	service.ViewMu.RLock()
+	viewSessionID := service.Core.Snapshot.Session.ID
+	// 空入参 = 当前视图会话（与 scope 的空值语义同源）；归属判据不接受空键。
+	ownerSessionID := sessionID
+	if ownerSessionID == "" {
+		ownerSessionID = viewSessionID
+	}
 	plan := service.sessionActivePlanLocked(sessionID)
 	tree := cloneSubAgentTreeForSync(service.Core.Snapshot.Runtime.SubAgentTree)
 	// 活跃会话的 task scope 恒为实时注册表（""）；后台会话写自身分区。
 	scope := sessionID
-	if sessionID == "" || sessionID == service.Core.Snapshot.Session.ID {
+	if sessionID == "" || sessionID == viewSessionID {
 		scope = ""
 	}
 	service.ViewMu.RUnlock()
@@ -405,6 +420,9 @@ func (service *Service) syncTasksFromSourcesFor(sessionID string) {
 		for _, node := range items {
 			if node.ID == "" || node.ID == "main" {
 				walkTree(node.Children, parentID)
+				continue
+			}
+			if strings.TrimSpace(node.MainSessionID) != ownerSessionID {
 				continue
 			}
 			service.syncSubagentTask(scope, node, parentID)

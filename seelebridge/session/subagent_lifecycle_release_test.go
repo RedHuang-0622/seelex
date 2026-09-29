@@ -20,7 +20,7 @@ import (
 // TestSubagentTreeReleasesLiveSessionOnComplete 钉住终态即摘活会话引用。
 func TestSubagentTreeReleasesLiveSessionOnComplete(t *testing.T) {
 	tree := NewSubagentTree(nil)
-	tree.RegisterFork("", []fork.SubagentSpec{{ID: "node-1"}, {ID: "node-2"}})
+	tree.RegisterFork("", "", []fork.SubagentSpec{{ID: "node-1"}, {ID: "node-2"}})
 	tree.NoteSession("node-1", &frameworkSession.Session{})
 	if record := tree.nodes["node-1"]; record == nil || record.session == nil {
 		t.Fatal("活跃节点应当持有活会话引用（运行期实时投影要用）")

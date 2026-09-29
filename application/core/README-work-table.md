@@ -52,7 +52,7 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - `func boundWorkTrace(points []WorkTracePoint) []WorkTracePoint` — boundWorkTrace 按时间倒序排序并截断。
 - `func truncateWorkEvidence(value string, limit int) string`
 - `func formatWorkDuration(duration time.Duration) string`
-- `func (state *serviceState) refreshWorkTableLocked(tasks []dto.TaskRecord)` — refreshWorkTableLocked 在 service.ViewMu 持锁时重建工作表格投影（后台行的读侧
+- `func (state *serviceState) refreshWorkTableLocked(tasks []dto.TaskRecord, asyncRuns []dto.AsyncRunRecord)` — refreshWorkTableLocked 在 service.ViewMu 持锁时重建工作表格投影。
 - `func (state *serviceState) publishWorkTable(revision uint64, requestID string, items []WorkItem, batches []WorkTableBatch)` — publishWorkTable 在锁外发布整表（CSP 汇聚发布器，latest-wins；items 必须
 - `func (service *Service) workTableEventPayload(update worktable.WorkTableUpdate) WorkTableEvent` — workTableEventPayload 组装 worktable.changed 的 payload：表格 + 批次头 +
 - `func subagentTreePayloadSignature(nodes []dto.SubAgentTreeNode) string` — subagentTreePayloadSignature 生成子代理树投影的内容签名，用于判断
@@ -156,6 +156,14 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 
 - `func TestS1BackgroundSessionContextMustNotCarryActiveSessionWorkTable(t *testing.T)`
 - `func TestWorkTableTraceBlockForScopesBySession(t *testing.T)`
+
+### work_table_subagent_session_scope_test.go
+
+- `func subagentSessionScopeFixture(t *testing.T) (*fakeRuntime, *Service)` — subagentSessionScopeFixture 造一个视图会话在 session-a 的服务，并把"进程级
+- `func TestSubagentRowsStayOutOfActiveRegistryOfOtherSessions(t *testing.T)` — 视图路径：活跃会话同步只收自己的子代理行，别的会话的行不得进实时注册表。
+- `func TestBackgroundSyncKeepsForeignSubagentRowsOut(t *testing.T)` — 后台路径：为 session-a 后台同步时，树里**别的会话**的子代理不得写进 A 的分区。
+- `func TestSubagentWorkItemCarriesOwningSession(t *testing.T)` — 归位后的行必须带上归属会话键（前端会话轴的唯一数据源）；缺键的行会被前端
+- `func hasTaskKey(records []dto.TaskRecord, key string) bool`
 
 ### work_table_subagent_status_test.go
 

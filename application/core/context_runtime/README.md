@@ -194,6 +194,7 @@ go test ./application/core/context_runtime -count=1
 - `func (input compactionFrameInput) readback() compactionReadback` — readback 组装细筛入口。segment_id 缺失时如实说明为什么没有这一跳——
 - `func compactionFrameBody(input compactionFrameInput) string` — compactionFrameBody 渲染折叠帧正文：v2 标记 + JSON 元数据块 + Markdown 读后感块。
 - `func marshalFrameMetadata(meta compactionFrameMetadata) string` — marshalFrameMetadata 序列化元数据块。这些结构体不含 channel/func，Marshal 不会
+- `func (input compactionFrameInput) localFoldReason() string` — localFoldReason 说明这次为什么没有模型读后感。有降级原因（折叠 DAG 记下的开关
 - `func (input compactionFrameInput) readingNotes() string` — readingNotes 渲染帧的 Markdown 一半。
 
 ### compaction_frame_test.go
@@ -205,6 +206,7 @@ go test ./application/core/context_runtime -count=1
 - `func TestCompactionFrameBodyEmbedsSummaryVerbatim(t *testing.T)` — TestCompactionFrameBodyEmbedsSummaryVerbatim：有栈帧摘要时**原样嵌入**，
 - `func TestCompactionFrameBodyAdmitsMissingEvidence(t *testing.T)` — TestCompactionFrameBodyAdmitsMissingEvidence：没有栈帧摘要（开关默认关、重放失败
 - `func TestCompactionFrameBodyReadbackSaysWhyNoDrillDown(t *testing.T)` — TestCompactionFrameBodyReadbackSaysWhyNoDrillDown：缺 segment_id 时，正文必须
+- `func TestCompactionFrameBodyWritesWhyNoModelSummary(t *testing.T)` — TestCompactionFrameBodyWritesWhyNoModelSummary：落到本地折叠时，正文必须写出
 
 ### compaction_index.go
 

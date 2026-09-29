@@ -228,13 +228,15 @@ func (r *Runtime) scopedToolsDeps() seeltools.Deps {
 // taskToolsDeps 把 Runtime 能力面注入 task 工具族（Deps 全部为闭包）。
 func (r *Runtime) taskToolsDeps() task.Deps {
 	return task.Deps{
-		RegisterTool:         r.RegisterTool,
-		ReplaceTodo:          r.tasks.ReplaceTodo,
-		AppendTodo:           r.tasks.AppendTodo,
-		SetTodoStatusByIndex: r.tasks.SetTodoStatusByIndex,
-		TodoSnapshot:         r.TodoSnapshot,
-		TaskAdd:              r.TaskAdd,
-		TodoMaxItems:         r.limits.TodoMaxItems,
+		RegisterTool: r.RegisterTool,
+		// 工具写的会话 = 调用它的那个会话（执行 ctx 的会话键），不是实时注册表。
+		SessionFromContext: seetelemetry.SessionIDFromContext,
+		TaskAddFor:         r.TaskAddFor,
+		ReplaceTodoFor:     r.ReplaceTodoFor,
+		AppendTodoFor:      r.AppendTodoFor,
+		SetTodoStatusFor:   r.SetTodoStatusFor,
+		TodoSnapshotFor:    r.TodoSnapshotFor,
+		TodoMaxItems:       r.limits.TodoMaxItems,
 	}
 }
 func (r *Runtime) AllTools() []Tool {

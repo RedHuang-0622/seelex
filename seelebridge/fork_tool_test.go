@@ -88,7 +88,7 @@ func TestForkSubagentsReuseStoredOutputSavesTokens(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	runtime.subagentTree.RegisterFork(mainAgentNodeID, []fork.SubagentSpec{
+	runtime.subagentTree.RegisterFork("", mainAgentNodeID, []fork.SubagentSpec{
 		{ID: "s1", Goal: "audit module A"},
 		{ID: "s2", Goal: "audit module B"},
 	})
