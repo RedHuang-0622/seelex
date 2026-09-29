@@ -36,6 +36,7 @@ import (
 	"encoding/json"
 
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/internal/bootseed"
 	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 )
 
@@ -126,7 +127,7 @@ func TestRealAPIPermissionSmoke(t *testing.T) {
 	// 装上**生产同形**的权责配置与**生产审批桥**：默认分组 + 主体授权表 +
 	// config/seele.yaml 覆盖，审批走 ApprovalBroker（GUI 同一条路）。
 	cfg := seeltools.DefaultPermissionConfig()
-	if fileCfg, err := loadPermissionConfig(firstExisting("config/seele.yaml", "seele.yaml")); err != nil {
+	if fileCfg, err := loadPermissionConfig(ensureConfigFile(bootseed.PermissionConfigName, bootseed.PermissionConfigPack())); err != nil {
 		t.Fatalf("loadPermissionConfig: %v", err)
 	} else {
 		cfg = mergePermissionConfig(cfg, fileCfg)

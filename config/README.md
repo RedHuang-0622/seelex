@@ -30,6 +30,29 @@ flowchart LR
 - `seele.yaml`：权限规则文件（permission.rules），`main.go` 优先读 `config/seele.yaml`，根目录版本回退兼容。
 - `seelex.yaml`：运行参数文件（window / limits），加载逻辑同上。**两个 `limits` 段只有一个家**：`window` 与 `limits`（含 `limits.session_storage`）都从 `config/seelex.yaml` 读（`core.LoadWindowConfig` 与 `seelexctx.LoadLimits` 收的是同一个路径，见 `main.go` 的 `initRuntime`）；`config/seele.yaml` 只放权限段。
 
+## 启动期自愈（责任链 + 缺失即初始化）
+
+`main.go` 按**责任链**决定读哪份配置（`runtimeConfigChain`）：
+
+```text
+1. config/<name>         CWD 相对（仓库里那份 / 开发场景；用户改过的就是它）
+2. <name>                根目录回退（历史兼容）
+3. <exe>/config/<name>   包内配置（正式部署：二进制旁边自带一份）
+```
+
+**存在即读**：链上第一份存在的文件就是答案，进程一个字节都不写。
+**缺失即初始化**：三处都没有时，用内嵌在二进制里的默认档（`internal/bootseed`
+的 `assets/config/`）在 **`<exe>/config/`** 落盘，再读它——落盘位置刻意只取二进制
+所在目录，CWD 可能是用户的项目目录，不能在那里凭空造 `config/`。
+
+两条约定：
+
+- 内嵌默认档必须是本目录规范档的**逐字节副本**：改了 `config/*.yaml` 就跑
+  `scripts/sync-bootseed-defaults.ps1`（`internal/bootseed` 的
+  `TestEmbeddedConfigDefaultsMatchRepository` 会在漂移时变红）；
+- `accounts.yaml` **不参与**自愈（它是本地凭据，由 `-LocalConfigPath` 显式给出，
+  仓库根与包内都不会凭空生成一份假的）。
+
 账号按 `subagent`、`agent`、`goalplan` 等 role 分组；缺少专用 role 时由 bridge 的 fallback 规则选择账号。
 
 每个账号条目可带可选字段 `max_concurrency`，控制该账号在 AccountPool 上的

@@ -12,7 +12,39 @@ version when it lands.
 
 ## [Unreleased]
 
+### Added
+
+- **Missing config files and a missing tool directory now seed themselves from default data embedded in
+  the binary.** The boot path had a chain of candidates but no write branch at the end of it: when every
+  candidate was absent the app silently fell back to code defaults (limits, permission rules) or skipped
+  a capability outright (the whitelisted `auto_get_jobs` command never registered — the scheduled-task
+  dialog's command dropdown was simply empty, e.g. in `dist/seelex-gui-dev/`, which ships no `local/`).
+  The new `internal/bootseed` package turns that fallback into initialization, with three rules: a
+  **chain of responsibility** decides the location (`config/<name>` → `<name>` → `<exe>/config/<name>`),
+  **an existing candidate is read as-is** (not one byte is written when something exists), and only when
+  the whole chain is missing is the embedded default written — into the binary's own `<exe>/config/`,
+  never into a CWD that may be the user's project. Default data is carried two ways, byte-exact either
+  way: `EncodingRaw` (text, diffable) and `EncodingBase64` (non-UTF-8/GBK, binary — the decoder ignores
+  folding whitespace). `Materialize` skips every target that already exists, so user edits are never
+  overwritten on the next start. First packs: `config/seelex.yaml` + `config/seele.yaml` (byte-identical
+  copies of the repository canonical files, kept in sync by `scripts/sync-bootseed-defaults.ps1` and
+  pinned by `TestEmbeddedConfigDefaultsMatchRepository`), and the `local/tools/auto_get_jobs/` skeleton
+  (`README.md` + `.env.example` with key names only) so "what goes here, and where" is visible on disk
+  the moment it is missed. The command-registration safety rule is unchanged: no `main.py`, no
+  registration — the skeleton only explains, it never makes an unrunnable command look publishable.
+  Pinned by `internal/bootseed`'s 12 tests (hit writes nothing / seed is byte-exact / existing files are
+  skipped / escaping `Rel` rejected / base64 round-trip with invalid UTF-8) and by `boot_seed_test.go`
+  in the composition root. See `docs/devlog/2026-09-29-boot-default-seed.md`.
+
 ### Fixed
+
+- **A package that ships no `config/` read nothing but code defaults — including the permission rules.**
+  The read path was `firstExisting("config/seelex.yaml", "seelex.yaml")`, i.e. relative to the current
+  working directory only: run the CLI straight out of `dist/dev/` and neither `window`/`limits` nor
+  `permission.rules` were read at all (recorded as a known gap in
+  `docs/devlog/2026-09-29-dev-package-config-drift.md` §6). The chain now also carries the binary's own
+  `config/` as its third candidate and seeds it when nothing exists anywhere, so the two configuration
+  files are in force wherever the binary is started from; a CWD config still wins (first candidate).
 
 - **The scheduled-task table's dialog repeats its own name twice and nests two scroll containers.**
   Two defects the work-table dialog had already been rid of (commit `e2dd0f0`, plus the

@@ -30,6 +30,7 @@ import (
 	coretask "github.com/RedHuang-0622/seelex/application/core/task_context"
 	"github.com/RedHuang-0622/seelex/gui"
 	"github.com/RedHuang-0622/seelex/internal/adapters"
+	"github.com/RedHuang-0622/seelex/internal/bootseed"
 	"github.com/RedHuang-0622/seelex/internal/buildinfo"
 	mcpconfig "github.com/RedHuang-0622/seelex/mcpstack/config"
 	"github.com/RedHuang-0622/seelex/plugin"
@@ -77,17 +78,56 @@ func accountsPath() string {
 	return filepath.Join("config", "accounts.yaml")
 }
 
-// firstExisting 返回第一个存在的路径（配置兼容：优先 config/，回退根目录）。
-func firstExisting(paths ...string) string {
-	for _, p := range paths {
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
+// runtimeConfigChain 返回配置文件在责任链上的候选（按优先级）与允许初始化的落盘根：
+//
+//  1. config/<name>        CWD 相对（仓库里那份 / 开发场景；用户改过的就是它）
+//  2. <name>               根目录回退（历史兼容）
+//  3. <exe>/config/<name>  包内配置（正式部署：二进制旁边自带一份）
+//
+// 落盘根**固定取 <exe>/config**：CWD 可能是用户的项目目录，不能在那里凭空造出
+// config/ 来；二进制所在目录才是这个应用自己的地盘。落盘失败（只读安装目录等）
+// 由调用方回退代码默认值，不阻断启动。
+func runtimeConfigChain(name string) (candidates []string, seedRoot string) {
+	candidates = []string{filepath.Join("config", name), name}
+	if exe, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exe)
+		candidates = append(candidates, filepath.Join(exeDir, "config", name))
+		seedRoot = filepath.Join(exeDir, "config")
 	}
-	if len(paths) > 0 {
-		return paths[0]
+	return candidates, seedRoot
+}
+
+// ensureConfigFile 按责任链给出配置文件路径（口径见 internal/bootseed）：
+//
+//	存在即读：候选链上第一份存在的文件就是答案——用户改过的、包内自带的、
+//	          仓库里的，都优先于默认数据，本函数一个字节都不写。
+//	缺失即初始化：候选链上全都没有 → 用内嵌默认档在 <exe>/config 里落盘，再读它。
+//
+// 返回"该读哪个路径"；确实没有可用文件时返回链上第一个候选（与老口径一致：让
+// 宽容的加载器按"文件不存在"处置，走代码默认值）。
+func ensureConfigFile(name string, pack bootseed.Pack) string {
+	candidates, seedRoot := runtimeConfigChain(name)
+	result, err := bootseed.Resolve(bootseed.Spec{
+		Name:       name,
+		Candidates: candidates,
+		SeedRoot:   seedRoot,
+		Entry:      name,
+		Pack:       pack,
+	})
+	if err != nil {
+		log.Printf("config: %s 初始化默认档失败（回退代码默认值）: %v", name, err)
+		return candidates[0]
 	}
-	return ""
+	switch result.Kind {
+	case bootseed.KindSeeded:
+		log.Printf("config: %s 候选链上都没有，已用内嵌默认档初始化到 %s（存在即读：之后直接用这份）", name, result.Path)
+	case bootseed.KindMissing:
+		log.Printf("config: %s 候选链上都没有，且无处落盘（回退代码默认值）", name)
+	}
+	if result.Path != "" {
+		return result.Path
+	}
+	return candidates[0]
 }
 
 func main() {
@@ -480,24 +520,52 @@ func registerScheduledTaskCapability(runtime *seelebridge.Runtime) {
 	}
 }
 
-// resolveAutoGetJobsDir 定位 auto_get_jobs 脚本目录：优先相对当前工作目录
-// （go run / 开发场景），回退二进制所在目录（正式部署）；目录内必须存在 main.py。
+// resolveAutoGetJobsDir 定位 auto_get_jobs 脚本目录（责任链 + 缺失即初始化，
+// 口径见 internal/bootseed）：
+//
+//	存在即读：CWD 相对的 local/tools/auto_get_jobs/main.py、二进制旁边那份，
+//	          谁先存在就用谁（用户自己放好的脚本永远优先）。
+//	缺失即初始化：两处都没有 main.py → 把**骨架**（README.md + .env.example）
+//	          写到二进制旁边的 local/tools/auto_get_jobs/，让"该放什么、放哪儿"
+//	          在文件系统上可见；脚本本体是第三方项目，不随包分发。
+//
+// 命令登记的安全口径不变：没有 main.py 就不登记（登记即信任、argv 固定直传）。
 func resolveAutoGetJobsDir() (string, bool) {
-	relative := filepath.Join("local", "tools", "auto_get_jobs")
-	candidates := []string{relative}
+	exeDir := ""
 	if exe, err := os.Executable(); err == nil {
-		candidates = append(candidates, filepath.Join(filepath.Dir(exe), relative))
+		exeDir = filepath.Dir(exe)
 	}
-	for _, dir := range candidates {
-		abs, err := filepath.Abs(dir)
-		if err != nil {
-			continue
-		}
-		if info, statErr := os.Stat(filepath.Join(abs, "main.py")); statErr == nil && !info.IsDir() {
-			return abs, true
-		}
+	return resolveToolDir(filepath.Join("local", "tools", "auto_get_jobs"), exeDir, bootseed.AutoGetJobsPack())
+}
+
+// resolveToolDir 是 resolveAutoGetJobsDir 的可测内核（exeDir 由调用方给，测试才好
+// 摆现场）：按责任链找工具目录，两个候选是 CWD 相对的那份与 <exeDir>/ 下那份。
+// 命中即用；全缺则把骨架（pack）初始化到 <exeDir>/<relative>，但没有 main.py 就
+// 不认账——返回 false，调用方跳过白名单命令登记。
+func resolveToolDir(relative, exeDir string, pack bootseed.Pack) (string, bool) {
+	candidates := []string{filepath.Join(relative, "main.py")}
+	seedRoot := ""
+	if exeDir != "" {
+		candidates = append(candidates, filepath.Join(exeDir, relative, "main.py"))
+		seedRoot = filepath.Join(exeDir, relative)
 	}
-	log.Printf("scheduled tasks: auto_get_jobs 脚本目录未找到（期望 %s），跳过该白名单命令登记", relative)
+	result, err := bootseed.Resolve(bootseed.Spec{
+		Name:       relative,
+		Candidates: candidates,
+		SeedRoot:   seedRoot,
+		Pack:       pack,
+	})
+	if err != nil {
+		log.Printf("scheduled tasks: 初始化 %s 目录骨架失败: %v", relative, err)
+	}
+	if result.Kind == bootseed.KindHit {
+		return filepath.Dir(result.Path), true
+	}
+	if len(result.Written) > 0 {
+		log.Printf("scheduled tasks: %s 脚本目录未找到（期望 %s），已初始化骨架 %v；仍缺 main.py，跳过该白名单命令登记", pack.Name, relative, result.Written)
+		return "", false
+	}
+	log.Printf("scheduled tasks: %s 脚本目录未找到（期望 %s），跳过该白名单命令登记", pack.Name, relative)
 	return "", false
 }
 
@@ -521,8 +589,11 @@ func registerTaskTerminalTools(runtime *seelebridge.Runtime, app *application.Se
 
 func initRuntime() (*seelebridge.Runtime, error) {
 	// 运行参数在 config/seelex.yaml（配置参数文件；权限在 config/seele.yaml）：
-	// 优先 config/，回退根目录（开发习惯兼容）；滑动窗口段缺失 → 零值走默认；limits 缺失字段 → 默认值。
-	runtimeConfigPath := firstExisting("config/seelex.yaml", "seelex.yaml")
+	// 责任链 = CWD 的 config/ → CWD 根目录 → 二进制目录的 config/（见
+	// runtimeConfigChain）。命中就按它读（存在即读）；全都没有 → 用内嵌默认档在
+	// 二进制旁边初始化，再读它（internal/bootseed）。滑动窗口段缺失 → 零值走默认；
+	// limits 缺失字段 → 默认值。
+	runtimeConfigPath := ensureConfigFile(bootseed.RuntimeConfigName, bootseed.RuntimeConfigPack())
 	windowConfig, err := core.LoadWindowConfig(runtimeConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("加载 window 配置失败: %w", err)
@@ -1230,7 +1301,7 @@ func setupPermissionGate(runtime permissionRuntime, approval *application.Approv
 		return err
 	}
 	cfg := seeltools.DefaultPermissionConfig()
-	fileCfg, err := loadPermissionConfig(firstExisting("config/seele.yaml", "seele.yaml"))
+	fileCfg, err := loadPermissionConfig(ensureConfigFile(bootseed.PermissionConfigName, bootseed.PermissionConfigPack()))
 	if err != nil {
 		return err
 	}
