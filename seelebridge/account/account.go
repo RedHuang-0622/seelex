@@ -6,6 +6,7 @@ package account
 import (
 	"fmt"
 	"hash/fnv"
+	"net/http"
 
 	"github.com/RedHuang-0622/Seele/accountpool"
 	"github.com/RedHuang-0622/Seele/agent"
@@ -16,11 +17,20 @@ import (
 
 // ClientFor 从账号配置构造一个同步 Completer（agent.Completer）。
 // 每个账号一个独立 client，账号选择统一走 accountpool 租赁，不做类型断言。
+//
+// 超时纪律（2026-09-29 事故）：api.NewChatClient 把 LLMConfig.Timeout 变成
+// http.Client.Timeout——**整请求 wall-clock 上限，含 SSE body 读**。长流因此会被
+// 「总时长」而不是「停滞」判死，报错措辞 `…(Client.Timeout or context cancellation
+// while reading body)` 还区分不了两者。这里显式清零该字段（NewChatClient 对
+// Timeout<=0 会回落到 60s，所以必须清在构造之后——见 seelebridge/account/README.md），
+// 改用 Transport 级看门狗：响应头超时 + body 空闲看门狗（transport.go）。
 func ClientFor(spec model.AccountSpec) agent.Completer {
 	client := api.NewChatClient(types.LLMConfig{
 		BaseURL: spec.BaseURL, APIKey: spec.APIKey, Model: spec.Model,
-		MaxTokens: spec.MaxTokens, Timeout: 300, Temperature: 0.7,
+		MaxTokens: spec.MaxTokens, Temperature: 0.7,
 	})
+	client.Client.Timeout = 0
+	client.Client.Transport = newStreamTransport(http.DefaultTransport)
 	client.SetProvider(api.ProviderType(spec.Provider))
 	return client
 }

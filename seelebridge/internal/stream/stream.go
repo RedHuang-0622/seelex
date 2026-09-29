@@ -5,7 +5,9 @@ package stream
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/RedHuang-0622/Seele/accountpool"
 	"github.com/RedHuang-0622/Seele/agent"
@@ -43,7 +45,7 @@ func (c *streamingAccountCompleter) CompleteStream(
 	}
 	lease, err := c.pool.Resolve(ctx, request)
 	if err != nil {
-		return "", "", nil, fmt.Errorf("seelebridge: acquire streaming client: %w", err)
+		return "", "", nil, fmt.Errorf("seelebridge: acquire streaming client: %w", withCancelCause(ctx, err))
 	}
 	// defer 保证 EOF / 错误 / ctx 取消 / 提前 Close 任一退出路径都恰好释放一次。
 	// accountpool.Lease.Release 本身幂等（sync.Once），重复调用无害。
@@ -72,9 +74,33 @@ func (c *streamingAccountCompleter) CompleteStream(
 	}
 	content, reasoningContent, toolCalls, err = streamer.CompleteStream(ctx, messages, tools, onChunk)
 	if err != nil {
-		return "", "", nil, fmt.Errorf("seelebridge: stream with account %q: %w", lease.AccountID(), err)
+		return "", "", nil, fmt.Errorf("seelebridge: stream with account %q: %w", lease.AccountID(), withCancelCause(ctx, err))
 	}
 	return content, reasoningContent, toolCalls, nil
+}
+
+// withCancelCause 在 ctx 因上游 cancel(cause) 中止时，把真实原因附加到错误文本。
+//
+// 为什么必须显式取 context.Cause：accountpool.Acquire 只用 ctx.Err() 包装
+// （pool.go 的 ctx.Err() 短路与 select <-ctx.Done() 两处），而 WithCancelCause
+// 派生出的子 ctx 的 Err() 恒为 context.Canceled、真实原因只存在于 Cause——
+// 兄弟节点因此报出没有来由的 "accountpool: acquire: context canceled"
+// （2026-09-29 事故：fail-fast 连坐把「谁失败了、为什么失败」整个丢掉）。
+//
+// 只在确有独立 cause 时附加：plain cancel / deadline 的 Cause 就是 ctx.Err()
+// （无额外信息），错误文本里已经含原因时也不重复附加。
+func withCancelCause(ctx context.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+	cause := context.Cause(ctx)
+	if cause == nil || errors.Is(cause, ctx.Err()) {
+		return err
+	}
+	if cause.Error() == err.Error() || strings.Contains(err.Error(), cause.Error()) {
+		return err
+	}
+	return fmt.Errorf("%w (canceled by: %v)", err, cause)
 }
 
 var _ agent.StreamCompleter = (*streamingAccountCompleter)(nil)

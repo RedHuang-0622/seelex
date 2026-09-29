@@ -2,6 +2,7 @@ package seelebridge
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -203,10 +204,16 @@ func TestForkManySubagentsSharedAccountDeadlockProbe(t *testing.T) {
 	}
 }
 
-// TestForkManySubagentsFailFastCancel reproduces fail-fast cascade cancel:
-// when one subagent fails, the error must surface as the original failure, not
-// be masked as context.Canceled ("task stopped").
-func TestForkManySubagentsFailFastCancel(t *testing.T) {
+// TestForkManySubagentsBestEffortSurfacesRealFailure 钉住 best-effort 批次的失败面
+// （2026-09-29 事故）：一个子代理失败时
+//   - 报出来的必须是原始失败原因，不能被伪装成 context.Canceled / deadline；
+//   - 同批兄弟不再被连坐取消（仍有 completed 的 agent 节点，产出保留）；
+//   - 整体状态按 REQ-006 报 failed，且**不回工具错误**——工具错误会顶掉工具结果
+//     内容（session/loop.go 的 dErr 分支只留 `{"error":…}`），幸存产出就传不回父代理。
+//
+// 历史：本用例原名 TestForkManySubagentsFailFastCancel，复现的是旧 fail-fast 连坐把
+// 兄弟节点的失败伪装成 context.Canceled（同一事故的另一半）。
+func TestForkManySubagentsBestEffortSurfacesRealFailure(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
@@ -229,16 +236,51 @@ func TestForkManySubagentsFailFastCancel(t *testing.T) {
 		t.Fatalf("plan_load: %v %s", err, result)
 	}
 	result, err := runtime.Agent().DirectDispatch(context.Background(), "plan_run", `{}`)
-	t.Logf("plan_run result: %.200s\nerr=%v", result, err)
-	if err == nil {
-		t.Fatal("plan_run must return an error when a subagent fails")
+	t.Logf("plan_run result: %.400s\nerr=%v", result, err)
+	if err != nil {
+		t.Fatalf("有幸存子代理时 plan_run 不得整体报错（错误会顶掉幸存产出）: %v\n%s", err, result)
 	}
-	if !strings.Contains(err.Error(), "boom") {
-		t.Fatalf("error must carry the subagent failure cause, got: %v", err)
+
+	var out struct {
+		Status string `json:"status"`
+		Error  string `json:"error"`
+		Nodes  []struct {
+			NodeID string `json:"node_id"`
+			Kind   string `json:"kind"`
+			Status string `json:"status"`
+		} `json:"nodes"`
 	}
-	// Key assertion: the error must not be masked as context.Canceled.
-	if strings.Contains(err.Error(), "context canceled") || strings.Contains(err.Error(), "context deadline exceeded") {
-		t.Fatalf("error was masked as cancel/timeout, real failure hidden: %v", err)
+	if unmarshalErr := json.Unmarshal([]byte(result), &out); unmarshalErr != nil {
+		t.Fatalf("plan_run result must be JSON: %v\n%s", unmarshalErr, result)
+	}
+	completedAgents, failedAgents := 0, 0
+	for _, node := range out.Nodes {
+		if node.Kind != "agent" {
+			continue
+		}
+		switch node.Status {
+		case "completed":
+			completedAgents++
+		case "failed":
+			failedAgents++
+		}
+	}
+	if failedAgents == 0 {
+		t.Fatalf("失败节点未被报出: %s", result)
+	}
+	if completedAgents == 0 {
+		t.Fatalf("兄弟节点被连坐取消：整批没有幸存 agent 节点: %s", result)
+	}
+	// 关键断言（沿用原用例）：失败面必须是原始原因，不得被伪装成 cancel/timeout。
+	if !strings.Contains(out.Error, "boom") {
+		t.Fatalf("失败原因必须出现在结果 error 里，got: %q\n%s", out.Error, result)
+	}
+	if strings.Contains(out.Error, "context canceled") || strings.Contains(out.Error, "context deadline exceeded") {
+		t.Fatalf("失败被伪装成 cancel/timeout，真实原因被藏: %q", out.Error)
+	}
+	// REQ-006：任一分支失败不得把整体标成 completed。
+	if out.Status != "failed" {
+		t.Fatalf("整体状态 = %q, want failed（有节点失败）", out.Status)
 	}
 }
 

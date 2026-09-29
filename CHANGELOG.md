@@ -82,6 +82,35 @@ version when it lands.
 
 ### Fixed
 
+- **A long LLM stream could be killed for being *slow* rather than *stalled*, and one subagent's
+  failure took its siblings down with it.** Two complaints, one incident. `seelebridge/account.ClientFor`
+  built every account client with `api.NewChatClient(Timeout: 300)`, and that constructor turns the value
+  into `http.Client.Timeout` — a *whole-request wall-clock deadline that covers the SSE body read*. The
+  incident's fatal turn began at 22:02:33 and died at 22:07:33, exactly 300 s later, with
+  `read SSE: context deadline exceeded (Client.Timeout or context cancellation while reading body)`:
+  a wording that cannot tell "upstream is gone" from "upstream is still producing tokens, just slowly",
+  so a long reasoning stream or a large tool-call argument payload trips it the same way. The account
+  client now carries **no** whole-request deadline (`Client.Timeout = 0`, cleared *after* construction
+  because `NewChatClient` falls back to 60 s for a non-positive value) and gets two progress-sensitive
+  Transport watchdogs instead: a response-header timeout, and a body **idle** watchdog that fires only
+  when no data arrives for 300 s and then reports `seelebridge: LLM stream stalled (no data received)
+  after 5m0s`. Ceilings elsewhere are unchanged (`limits.fork_timeout`, `tool_call_timeout`).
+  The second complaint — `session loop 100: seelebridge: acquire streaming client: accountpool: acquire:
+  context canceled`, with no reason attached — was the fail-fast cascade: one batch node failed, the
+  framework cancelled the batch context, and `accountpool.Acquire` wraps `ctx.Err()` (always
+  `context.Canceled` under `WithCancelCause`) while the real reason lives only in `context.Cause`.
+  `internal/stream` now attaches the cause (`… (canceled by: …)`), and plan/fork batches run
+  **best-effort**, so a failed node no longer cancels its siblings and the survivors' output still comes
+  back to the parent. The result contract keeps failures honest: a batch with a failed node reports
+  `status: "failed"` plus an `error` naming it — REQ-006's "a failed branch must never be reported as a
+  completed plan", the field `application/core`'s `planRunFailure` / `updatePlanFromRunResult` read —
+  while a batch where *no* agent node survived keeps the hard tool error (an error would otherwise
+  replace the tool result content and drop the surviving output). Pinned by
+  `seelebridge/account/transport_test.go` + `transport_watchdog_test.go` (the incident wording is
+  reproduced against a trickling SSE server, then the same stream survives the new watchdog),
+  `internal/stream/stream_test.go` (cancel cause on acquire and mid-stream) and
+  `seelebridge/fork_besteffort_test.go` (one failing subagent, one slow survivor).
+
 - **A package that ships no `config/` read nothing but code defaults — including the permission rules.**
   The read path was `firstExisting("config/seelex.yaml", "seelex.yaml")`, i.e. relative to the current
   working directory only: run the CLI straight out of `dist/dev/` and neither `window`/`limits` nor

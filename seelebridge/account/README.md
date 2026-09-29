@@ -32,10 +32,30 @@ flowchart LR
 ## 核心实现
 
 - `ClientFor(spec)`：每个账号一个独立 `api.NewChatClient`，provider 类型
-  由配置设定。
+  由配置设定；**不设整请求超时**（见下节「流式超时纪律」）。
 - `ForRole(pool, role)`：按角色（含回退链）筛选启用账号，无匹配回退任意
   启用账号。
 - `StableIndex(seed, size)`：FNV-1a 32 位稳定哈希索引（同 seed 恒等）。
+
+## 流式超时纪律（2026-09-29 事故）
+
+`api.NewChatClient(cfg)` 把 `cfg.Timeout` 变成 `http.Client.Timeout`——它是
+**整请求 wall-clock 上限，含 SSE body 读**；`Timeout<=0` 还会回落到 60s。事故现场：
+一条健康但缓慢的流 22:02:33 起、22:07:33 满 300s 被砍，报出
+`read SSE: context deadline exceeded (Client.Timeout or context cancellation while
+reading body)`——这句话区分不了「上游挂了」与「上游还在推进、只是慢」。
+
+因此 `ClientFor` 在构造之后显式 `client.Client.Timeout = 0`（清零必须发生在构造
+之后，见上），并装配 `newStreamTransport`（`transport.go`）：
+
+- `streamHeaderTimeout`（默认 60s）：等响应头的上限；
+- `streamIdleTimeout`（默认 300s）：两次 body 数据之间的**空闲**上限——只要流还在
+  推进就永不触发；真停滞时报 `seelebridge: LLM stream stalled (no data received)
+  after 5m0s`（自带语义，可定位）。
+
+看门狗挂在 Transport 上（`idleWatchdogBody`，逐次 Read 装表），同步与流式两条路径
+都被覆盖。整批/整轮的天花板仍在别处：`limits.fork_timeout`（默认 2h）与
+`tool_call_timeout`。
 
 ## 数据流
 
@@ -63,5 +83,8 @@ NewRuntime 读取账号 YAML → `RegisterAccounts` 注册池 → 请求时
 
 ## 测试与验证
 
-`go test ./seelebridge/account/...`；稳定选择由根包
+`go test ./seelebridge/account/...`：`manager_test.go`（账号选择/provider 过滤）+
+`transport_test.go` / `transport_watchdog_test.go`——后者用 httptest 的 OpenAI 兼容
+SSE 上游钉住事故形状（整请求超时会掐断健康慢流、复现那句措辞；换成空闲看门狗后
+同一条流活下来，真停滞则报可读错误）。稳定选择由根包
 `runtime_test.go` 的 TestResolveAccountForBranchIsStableAndRoleScoped 覆盖。

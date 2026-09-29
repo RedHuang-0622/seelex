@@ -58,6 +58,20 @@ flowchart LR
     REPLAN --> RUN
 ```
 
+## 批次失败策略（best-effort）
+
+`newPlanRunner` 显式 `SetForkPolicy(forkexec.PolicyBestEffort)`：plan/fork 批次里的
+节点彼此独立（独立 worktree、独立账号、独立 goal），单点失败不该让整批归零，
+也不该连坐取消已经跑出结果的兄弟节点。框架 `ForkCoordinator` 的默认值是
+fail-fast（`forkexec.go` 的 `policy()`），不显式设置就会连坐。
+
+配套的结果契约在 `planRunResultJSON`：best-effort 下框架不再回错误，因此整体状态
+改由节点终态派生——有 failed 节点 → `status:"failed"` + `error` 点名失败节点及其
+原因（REQ-006：任一分支失败不得报整体 completed，`application/core` 的
+`planRunFailure`/`updatePlanFromRunResult` 都吃这个字段）；有幸存节点时不回错误
+（错误会顶掉工具结果内容，幸存产出就传不回父代理）；整批 agent 节点无一幸存时
+仍回工具错误。
+
 ## 验证
 
 ```text

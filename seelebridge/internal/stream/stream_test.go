@@ -228,6 +228,53 @@ func TestStreamingCompleterSelectorPinsAccount(t *testing.T) {
 	<-streamDone
 }
 
+// TestStreamingCompleterReportsCancelCause 钉住事故①：ctx 被上游 cancel(cause)
+// 中止时，错误面必须带出真实原因。accountpool.Acquire 只包 ctx.Err()（WithCancelCause
+// 之后恒为 context.Canceled），fail-fast 连坐 / 批次取消的真实原因只存在于
+// context.Cause——不显式取出来，兄弟节点就只能报出没有来由的 "context canceled"
+// （2026-09-29 事故：session loop 100: seelebridge: acquire streaming client:
+// accountpool: acquire: context canceled）。
+func TestStreamingCompleterReportsCancelCause(t *testing.T) {
+	pool := newStreamPool(t, map[string]agent.Completer{"agent-1": newScriptedStreamCompleter()})
+	completer := &streamingAccountCompleter{pool: pool}
+
+	ctx, cancel := context.WithCancelCause(context.Background())
+	cancel(errors.New("batch canceled: node fix-return-to-latest failed"))
+
+	_, _, _, err := completer.CompleteStream(ctx, nil, nil, nil)
+	if err == nil {
+		t.Fatal("canceled acquire must fail")
+	}
+	if !strings.Contains(err.Error(), "batch canceled: node fix-return-to-latest failed") {
+		t.Fatalf("acquire error must carry the cancellation cause, got: %v", err)
+	}
+}
+
+// TestStreamingCompleterReportsCancelCauseMidStream 同上，但取消发生在流在途时
+// （兄弟节点已在跑：ctx 取消 → 流中断 → 错误面仍须带原因）。
+func TestStreamingCompleterReportsCancelCauseMidStream(t *testing.T) {
+	streamer := newScriptedStreamCompleter()
+	pool := newStreamPool(t, map[string]agent.Completer{"agent-1": streamer})
+	completer := &streamingAccountCompleter{pool: pool}
+
+	ctx, cancel := context.WithCancelCause(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, _, _, err := completer.CompleteStream(ctx, nil, nil, nil)
+		done <- err
+	}()
+	<-streamer.started
+
+	cancel(errors.New("batch canceled: sibling node failed"))
+	err := <-done
+	if err == nil {
+		t.Fatal("aborted stream must fail")
+	}
+	if !strings.Contains(err.Error(), "batch canceled: sibling node failed") {
+		t.Fatalf("stream error must carry the cancellation cause, got: %v", err)
+	}
+}
+
 // TestStreamingCompleterFallsBackToSyncCompleter 验证无流式能力的账号退化为单次返回。
 func TestStreamingCompleterFallsBackToSyncCompleter(t *testing.T) {
 	syncClient := &syncOnlyCompleter{}

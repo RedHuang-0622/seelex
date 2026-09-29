@@ -405,7 +405,8 @@ drained:
 
 // scriptedNodeCompleter 是确定性节点 completer（example 08 模式，无网络）：
 // 记录每次请求的完整消息与可见工具；release 非 nil 时阻塞到关闭（模拟慢
-// 节点）；probeTool 非空时首轮发出该工具调用（验证 Dispatch 可见性）。
+// 节点）；probeTool 非空时首轮发出该工具调用（验证 Dispatch 可见性）；
+// failErr 非空时直接失败（模拟上游 LLM 流错误 → 节点 failed）。
 type scriptedNodeCompleter struct {
 	mu        sync.Mutex
 	startOnce sync.Once
@@ -415,6 +416,7 @@ type scriptedNodeCompleter struct {
 	seenTools [][]types.Tool
 	probeTool string
 	reply     string
+	failErr   error
 }
 
 func newScriptedNodeCompleter(reply string) *scriptedNodeCompleter {

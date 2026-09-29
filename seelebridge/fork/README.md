@@ -53,6 +53,24 @@ sequenceDiagram
     F-->>T: 外层工具结果（Waiting for output 期间即预期行为）
 ```
 
+## 批次失败策略（best-effort）
+
+fork 批次的节点彼此独立（各自 worktree、各自账号、各自 goal），因此
+`plan.newPlanRunner` 显式把 fork 批次的失败策略设为 `forkexec.PolicyBestEffort`
+（框架默认是 fail-fast）：
+
+- 任一节点失败**不再** cancel 整批上下文——同批兄弟节点跑完，产出照常回到父代理；
+- 失败仍必须可见：`planRunResultJSON` 按节点终态派生结果状态——有 failed 节点时
+  `status:"failed"` + `error` 点名失败节点（REQ-006：任一分支失败不得报整体
+  completed），`nodes[].status` 逐行可见；
+- 只有**整批 agent 节点无一幸存**时才回到工具错误（错误会顶掉工具结果内容，
+  有幸存产出时不能再走错误通道）。
+
+背景（2026-09-29 事故）：`fix-return-to-latest` 的流在 22:02:33 起满 300s 被
+整请求超时掐断（failed），旧 fail-fast 立刻 cancel 整批，`fix-coldload-interference`
+在 0.346s 后被连坐取消并报出没有来由的 `context canceled`，已完成产出一起被丢。
+同一策略已在 `node/agent_node.go` 的 worktree 收尾降级（2026-09-11 事故）有过先例。
+
 ## 验证
 
 ```text

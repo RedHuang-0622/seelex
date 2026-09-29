@@ -3,7 +3,9 @@ package plan
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/RedHuang-0622/Seele/workplan/codec"
 	coreplan "github.com/RedHuang-0622/Seele/workplan/core/plan"
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
+	"github.com/RedHuang-0622/Seele/workplan/runtime/forkexec"
 	workplanrunner "github.com/RedHuang-0622/Seele/workplan/runtime/runner"
 )
 
@@ -407,6 +410,15 @@ func (executor *Executor) newPlanRunner(loaded *LoadedPlanDoc, binding PlanBranc
 	}
 	planRunner := workplanrunner.New(loaded.Plan, opts...)
 	planRunner.SetMaxForkConcurrency(loaded.MaxForkConc)
+	// 批次失败策略：best-effort（2026-09-29 事故收口）。
+	//
+	// 默认的 fail-fast 在任一节点失败时立刻 cancel 整批 forkCtx：同批兄弟节点被
+	// 连坐取消、报出无从追溯的 "context canceled"，已完成产出一起被丢。fork 的节点
+	// 彼此独立（各自 worktree、各自账号、各自 goal），单点失败不该让整批归零。
+	// best-effort 下兄弟节点照常跑完，失败仍按节点行报出（state=failed）。
+	//
+	// 同源先例：seelebridge/node/agent_node.go 的 worktree 收尾降级（2026-09-11 事故）。
+	planRunner.SetForkPolicy(forkexec.PolicyBestEffort)
 	return planRunner
 }
 
@@ -419,12 +431,26 @@ func newPlanRunID() string {
 // （NodeBase snake_case 平铺 JSON），供 application/core 的
 // updatePlanFromRunResult / planRunFailure 解析。执行错误同时以返回值和
 // "status":"failed" + "error" 字段表达，双通道均可观察。
+//
+// best-effort 批次（newPlanRunner 的 SetForkPolicy）下框架不再回错误，因此这里
+// 额外按节点终态判定两件事：
+//   - 有 failed 节点 → status 必须是 failed（REQ-006「任一分支失败后不能把整体
+//     Plan 标成 completed」），否则父代理与 GUI 会把部分失败当整批成功；
+//   - agent 节点全部失败（无幸存者）→ 仍以工具错误返回，保留整批归零的硬失败；
+//     有幸存者时只给内容（错误会顶掉工具结果内容，幸存产出就传不回父代理）。
 func planRunResultJSON(result *workplanTypes.WorkPlanResult, err error, withNodeOutputs bool) (string, error) {
 	status := "completed"
-	if err != nil {
+	nodeError := ""
+	outcome := summarizeNodeOutcomes(result)
+	switch {
+	case err != nil:
 		status = "failed"
-	} else if result != nil && result.Aborted {
+		nodeError = err.Error()
+	case result != nil && result.Aborted:
 		status = "aborted"
+	case len(outcome.failed) > 0:
+		status = "failed"
+		nodeError = outcome.failureMessage()
 	}
 	out := struct {
 		Status      string                   `json:"status"`
@@ -435,9 +461,7 @@ func planRunResultJSON(result *workplanTypes.WorkPlanResult, err error, withNode
 		Nodes       []workplanTypes.NodeBase `json:"nodes,omitempty"`
 	}{
 		Status: status,
-	}
-	if err != nil {
-		out.Error = err.Error()
+		Error:  nodeError,
 	}
 	if result != nil {
 		nodes := make([]workplanTypes.NodeBase, 0, len(result.NodeResults))
@@ -460,7 +484,59 @@ func planRunResultJSON(result *workplanTypes.WorkPlanResult, err error, withNode
 	if marshalErr != nil {
 		return "", marshalErr
 	}
+	// 整批 agent 节点无一幸存（典型：唯一子代理失败）→ 保留硬失败语义，仍以工具
+	// 错误返回（框架在 best-effort 下不再回错误，这条判定补上）。有幸存节点时不回
+	// 错误：错误会顶掉工具结果内容（session/loop.go 的 dErr 分支只留 `{"error":…}`），
+	// 幸存子代理的产出就传不回父代理了。
+	if err == nil && outcome.failedAgents > 0 && outcome.completedAgents == 0 {
+		return string(encoded), errors.New(nodeError)
+	}
 	return string(encoded), err
+}
+
+// nodeOutcome 统计节点终态。agent 节点是 fork 批次的交付单元，start / summary 等
+// 装配节点不计入"整批归零"判定（start 永远 completed）。
+type nodeOutcome struct {
+	failedAgents    int
+	completedAgents int
+	failed          []string
+}
+
+func summarizeNodeOutcomes(result *workplanTypes.WorkPlanResult) nodeOutcome {
+	var outcome nodeOutcome
+	if result == nil {
+		return outcome
+	}
+	for _, nr := range result.NodeResults {
+		if nr == nil {
+			continue
+		}
+		switch nr.Status {
+		case "failed":
+			if nr.Err != nil {
+				outcome.failed = append(outcome.failed, fmt.Sprintf("%s: %v", nr.NodeID, nr.Err))
+			} else {
+				outcome.failed = append(outcome.failed, nr.NodeID)
+			}
+			if nr.Kind == "agent" {
+				outcome.failedAgents++
+			}
+		case "completed":
+			if nr.Kind == "agent" {
+				outcome.completedAgents++
+			}
+		}
+	}
+	return outcome
+}
+
+// failureMessage 给出失败节点的「id: 原因」摘要；有幸存 agent 时点明产出未丢。
+func (outcome nodeOutcome) failureMessage() string {
+	joined := strings.Join(outcome.failed, "; ")
+	if outcome.completedAgents == 0 {
+		return "子代理全部失败：" + joined
+	}
+	return "部分节点失败（best-effort：其余节点产出已保留）：" + joined
 }
 
 func (provider *ToolProvider) clearPlan(_ context.Context, _ string) (string, error) {
