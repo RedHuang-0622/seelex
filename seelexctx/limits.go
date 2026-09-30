@@ -151,6 +151,8 @@ type Limits struct {
 	// 变成真摘要（Errors and Fixes / Pending / Next Step 三节不再恒 (none)），
 	// 从而给 search_history 的词法初筛提供有区分度的关键词。
 	ContextCompactionSummary CompactionSummaryLimits `yaml:"context_compaction_summary"`
+	// Team 是 teamwork 的产品级约束块（人数上限等），见 TeamLimits。
+	Team TeamLimits `yaml:"team"`
 }
 
 // AsyncExecLimits 是后台命令轮询切片的开关块。零值（含整个块缺失）= 关闭，
@@ -177,6 +179,29 @@ type CompactionSummaryLimits struct {
 	// QuickChat 通道未透传预算时仅作记录。
 	Chapter2Tokens int `yaml:"chapter2_tokens"`
 }
+
+// TeamLimits 是 **teamwork 产品级约束块**（leader + 异步 worker 作业面，
+// 见 docs/arch/teamwork-leader-worker-architecture.md §4.3）：
+// 由 Seelex 掌控、框架不可替代的那几个数字。
+//
+// 为什么必须有这一块，而不是只靠框架的 jobs 在途上限：teammate 不挂子代理
+// （D6 硬移除 `fork_subagents`）⇒ worktree 数量被 teammate 数量封顶 ⇒
+// 「人数上限」就是「工作区不累积残留」的那条产品级约束。框架在途上限
+// （jobs.Limits.InFlight，默认 32）只是兜底：撞到它说明产品约束已经失效，
+// 用户看到的是一个与"团队"无关的数字。
+type TeamLimits struct {
+	// MaxTeammates 是**同时在编 teammate 人数**的上限（默认 6，与
+	// ResidentSessionLimit 同量级取整）。超限的 team_dispatch / team_plan
+	// **显式拒绝**（不静默排队——排队会把"人满了"伪装成"在跑"）。
+	//
+	// 处置口径：0 = 未配置 → 默认 6；负值在 LoadLimits 显式报错（不为负数
+	// 造语义：它既不是"无限制"也不是"禁用"，两种解读都会让配置看不出来）。
+	MaxTeammates int `yaml:"max_teammates"`
+}
+
+// DefaultTeamMaxTeammates 是 teammate 人数上限的出厂默认值（决策：暂定 6，
+// 与留守引擎上限同量级；M1 实测后调，不改契约）。
+const DefaultTeamMaxTeammates = 6
 
 // DefaultLimits 返回全部默认值（与重构前的硬编码常量一一对应，行为不变）。
 func DefaultLimits() Limits {
@@ -228,6 +253,8 @@ func DefaultLimits() Limits {
 		SnapshotToolOutputChars: 8000,
 		DockerStartTimeoutSec:   60,
 		ForkTimeoutSec:          7200,
+		// teamwork：teammate 人数上限默认 6（与留守引擎上限同量级）。
+		Team: TeamLimits{MaxTeammates: DefaultTeamMaxTeammates},
 	}
 }
 
@@ -365,6 +392,9 @@ func (l Limits) WithDefaults() Limits {
 	if l.ForkTimeoutSec == 0 {
 		l.ForkTimeoutSec = def.ForkTimeoutSec
 	}
+	if l.Team.MaxTeammates == 0 {
+		l.Team.MaxTeammates = def.Team.MaxTeammates
+	}
 	return l
 }
 
@@ -416,7 +446,8 @@ func LoadLimits(path string) (Limits, error) {
 		check.ToolTokenOverhead < 0 || check.ContextMaxUnits < 0 || check.MessageShardSize < 0 || check.SummaryChars < 0 || check.TodoMaxItems < 0 || check.WorkTableRows < 0 || check.WalkTimeoutSec < 0 ||
 		check.MaxToolResultChars < 0 || check.SnapshotToolOutputChars < 0 || check.DockerStartTimeoutSec < 0 ||
 		check.ForkTimeoutSec < 0 || check.ContextRetainFloorPercent < 0 || check.ContextFrameCarryTokens < 0 ||
-		check.ContextCompactionSummary.InputTokens < 0 || check.ContextCompactionSummary.Chapter2Tokens < 0 {
+		check.ContextCompactionSummary.InputTokens < 0 || check.ContextCompactionSummary.Chapter2Tokens < 0 ||
+		check.Team.MaxTeammates < 0 {
 		return Limits{}, fmt.Errorf("limits: values must not be negative")
 	}
 	// 比例类旋钮的超界不再静默回退默认值（那会把「用户写错了」吞成「看起来生效」）：

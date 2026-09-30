@@ -735,6 +735,22 @@ func (g *goalCoordinator) TakeInjected(sessionID string) []goaldomain.TLDirectiv
 	return directives
 }
 
+// goalStepViews 把 goal 域的评审过程步骤投影成只读 DTO（nil 进 → nil 出，
+// 面板不显示空壳）。
+func goalStepViews(steps []goaldomain.TLStep) []dto.GoalStepView {
+	if len(steps) == 0 {
+		return nil
+	}
+	views := make([]dto.GoalStepView, 0, len(steps))
+	for _, step := range steps {
+		views = append(views, dto.GoalStepView{
+			Kind: step.Kind, Turn: step.Turn, Name: step.Name,
+			Args: step.Args, Result: step.Result, Err: step.Err, At: step.At,
+		})
+	}
+	return views
+}
+
 // GoalGovernanceViewFor 组装只读治理视图（无 bundle/无 goal → nil，前端隐藏）。
 func (g *goalCoordinator) GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView {
 	g.mu.Lock()
@@ -764,6 +780,7 @@ func (g *goalCoordinator) GoalGovernanceViewFor(sessionID string) *dto.GoalGover
 		// 轮询快照，把"评审在写什么"及时渲染出来。
 		InFlight:      peer.InFlight,
 		InFlightChars: peer.InFlightChars,
+		RoundSteps:    goalStepViews(peer.RoundSteps),
 	}
 	// 每帧的只读投影：工作台按**活动栈**分块展示（栈顶=当前目标，栈下=被嵌套
 	// 压栈而暂停的目标）。栈只有一份事实（Controller 的 LIFO 栈），这里只读。

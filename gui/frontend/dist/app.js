@@ -18,7 +18,7 @@ import { createWorkspaceChangesView } from "./workspace-changes.js";
 import { createFilePreviewController } from "./file-preview.js";
 import { renderCompactionFrameModal, renderContextCompactions } from "./context-summary.js";
 import { compactionRangeText, compactionReasonLabel, mergeCompactionProgress } from "./compaction-format.js";
-import { renderGoalInFlight, renderGoalStack } from "./goal-stack-view.js";
+import { renderGoalInFlight, renderGoalStack, renderGoalSteps } from "./goal-stack-view.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
 import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
 import { agentTeamOrderForDrag, employeePool, hirePanel, isPinnedRole, nextAgentTeamOrder, normalizeAgentTeam, normalizeTeamGlobal, normalizeTeamLibrary, PERMISSION_CUSTOM_TOOLS, PERMISSION_GROUPS, PERMISSION_BITS, renderAgentTeam, renderRoleSessionDetail, renderTeamMemberList, roleDisplayName, teamEditorPanel, teamMemberNames } from "./agent-team-view.js";
@@ -2213,13 +2213,16 @@ function renderGoalGovernance(governance) {
     : "";
   // 进行中的 ADVISOR 正文（只读快照）：评审期间有，回合结束即清空。
   const inFlight = renderGoalInFlight(governance);
+  // 评审**过程**（只读快照）：评审者这一轮调了哪些只读工具、拿到什么。进行中随
+  // 轮询逐步长出来；回合结束后保留到下一轮开始（"最近一轮的过程"）。
+  const steps = renderGoalSteps(governance);
   const meta = [
     `<span class="goal-gov-status">${status}</span>`,
     `Round ${round}`,
     seat ? `座次 ${seat}` : "",
     peer ? `peer ${peer}` : "",
   ].filter(Boolean).join(" · ");
-  return `<div class="goal-governance"><div class="goal-gov-meta">${meta}</div>${inFlight}${directive}${roundError}${broken}</div>`;
+  return `<div class="goal-governance"><div class="goal-gov-meta">${meta}</div>${steps}${inFlight}${directive}${roundError}${broken}</div>`;
 }
 
 // refreshGoalInFlight 在 ADVISOR 回合进行中按节拍补一次只读快照：治理回合是

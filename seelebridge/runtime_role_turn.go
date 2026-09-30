@@ -40,6 +40,7 @@ import (
 	"github.com/RedHuang-0622/Seele/session"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
 	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 )
 
@@ -338,6 +339,11 @@ func (r *Runtime) newRoleEngine(sessionID string) (roleEngine, error) {
 		Agent:     r.agt,
 		Context:   context,
 		Telemetry: r.hook,
+		// ReAct 钩子把角色回合的**工具步骤**接到 goal 域的过程观察面（tl_steps.go）：
+		// ADVISOR 评审的只读工具调用因此能被前端看见（"评审过程"），而不是只活在
+		// 这个进程内会话里。钩子按 ctx 取 sink：员工回合没有 sink（取到 nil），
+		// 因此这条路径对员工回合是零成本 no-op。
+		Hooks:     roleLoopHooks(),
 		SessionID: sessionID,
 		ModelName: r.model,
 		Config:    session.SessionConfig{MaxLoops: roleTurnMaxLoops},
@@ -346,6 +352,46 @@ func (r *Runtime) newRoleEngine(sessionID string) (roleEngine, error) {
 		return nil, fmt.Errorf("角色回合：创建角色会话 %q 失败: %w", sessionID, err)
 	}
 	return sess, nil
+}
+
+// roleLoopHooks 返回角色回合的 ReAct 钩子集合：只做一件事——把工具调用与返回
+// 转成 goal 域的过程步骤（TLStep），送到**本轮 ctx 上挂的 sink**。
+//
+// 为什么用 ctx 而不是给 Session 传固定回调：角色会话引擎是**按角色会话缓存**的
+// （一个角色开一次），而 sink 是**按回合**的（每轮 Supervisor 都会重新挂）。把
+// sink 放 ctx 正好让"引擎活得久、回调只活一轮"两件事各归其位；流程结束 sink 失效，
+// 不会把上一轮的观察面带到下一轮。
+//
+// 为什么只送工具步骤、不送模型正文：正文分片已经由 OnDelta 通道负责（见
+// runtime_goal_tl.go）；两句分开可以让面板分别控制粒度——工具步骤是"可核对的事实"，
+// 模型正文是"正在写什么"。
+func roleLoopHooks() *session.LoopHooks {
+	return &session.LoopHooks{
+		OnToolStart: func(ctx context.Context, info session.ToolCallInfo) {
+			sink := goaldomain.TLStepSinkFrom(ctx)
+			if sink == nil {
+				return
+			}
+			sink(goaldomain.TLStep{
+				Kind: "tool", Turn: info.Turn, Name: info.Name,
+				Args: truncateRunes(info.Arguments, goaldomain.StepArgsLimit),
+			})
+		},
+		OnToolComplete: func(ctx context.Context, info session.ToolCallInfo) {
+			sink := goaldomain.TLStepSinkFrom(ctx)
+			if sink == nil {
+				return
+			}
+			step := goaldomain.TLStep{
+				Kind: "tool_result", Turn: info.Turn, Name: info.Name,
+				Result: truncateRunes(info.Result, goaldomain.StepResultLimit),
+			}
+			if info.Error != nil {
+				step.Err = info.Error.Error()
+			}
+			sink(step)
+		},
+	}
 }
 
 // roleTurnSystemPrompt 组装员工回合的系统提示：**已登记的员工提示词优先**

@@ -156,6 +156,12 @@ type Supervisor struct {
 	inFlightMu sync.Mutex
 	inFlight   string
 	inFlightAt int64
+	// inFlightSteps 是**本轮/最近一轮** b 回合的过程步骤（工具调用 + 返回），
+	// 由执行段的 ReAct 钩子经 ctx 回调写入（见 tl_steps.go）。与 inFlight 正文
+	// 的区别：正文在回合结束清空（权威正文是裁决行），步骤保留到**下一轮开始**
+	// 才换代——回合跑完后用户仍能看到"刚才评审做了什么"。
+	// 锁：与 inFlight 同锁（inFlightMu = s.mu 的叶子）。
+	inFlightSteps []TLStep
 
 	// roundInFlight 是回合租约：true = 已有一轮 b 评审在执行段（s.mu 之内准入、
 	// s.mu 之外执行）。它就是"回合不可重入"的显式表示——旧实现靠"RunEval 锁住
@@ -583,6 +589,12 @@ func (s *Supervisor) evaluateRound(ctx context.Context, plan *roundPlan) (TLDire
 	// 而是经 ctx 回调进 in-flight 近端，作为只读快照暴露给前端（快照查看）。
 	// defer 清理：本回合任何返回路径（含错误）都不把中间态留给下一次裁决。
 	ctx = WithTLDeltaSink(ctx, s.noteInFlight)
+	// 本轮的过程观察面：b 在角色会话里调的**只读工具**（read_file/grep/glob…）经
+	// ReAct 钩子进步骤列表，作为只读快照暴露给前端（"评审过程"面板）。
+	// 与正文分片的分工见 tl_steps.go；步骤**不在回合结束清空**（下一轮开始才换代），
+	// 因此回合跑完后仍可查看"刚刚评审做了什么"。
+	s.clearRoundSteps()
+	ctx = WithTLStepSink(ctx, s.noteStep)
 	defer s.clearInFlight()
 	return s.evaluator.Evaluate(ctx, plan.embed)
 }
@@ -779,6 +791,7 @@ func (s *Supervisor) unbindIfTerminal(reason string) {
 func (s *Supervisor) Snapshot() TLState {
 	s.inFlightMu.Lock()
 	inFlight, inFlightAt := s.inFlight, s.inFlightAt
+	steps := append([]TLStep(nil), s.inFlightSteps...)
 	s.inFlightMu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -793,6 +806,7 @@ func (s *Supervisor) Snapshot() TLState {
 		InFlight:           inFlight,
 		InFlightChars:      len([]rune(inFlight)),
 		InFlightAt:         inFlightAt,
+		RoundSteps:         steps,
 	}
 	if active, ok := s.ctl.ActiveGoal(); ok {
 		state.ActiveGoalID = active.ID
@@ -890,6 +904,10 @@ type TLState struct {
 	InFlight      string `json:"in_flight,omitempty"`
 	InFlightChars int    `json:"in_flight_chars,omitempty"`
 	InFlightAt    int64  `json:"in_flight_at,omitempty"`
+	// RoundSteps 是**本轮/最近一轮** b 回合的过程步骤（工具调用 + 返回）。
+	// 与 InFlight 的区别：InFlight 是模型正文的近端（回合结束清空），RoundSteps
+	// 是"评审者做了什么"的可核对事实（保留到下一轮开始才换代）。
+	RoundSteps []TLStep `json:"round_steps,omitempty"`
 }
 
 // MaxInFlightRunes 是进行中正文的可见上限（保留**近端**：in-flight 的价值在

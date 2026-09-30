@@ -54,6 +54,11 @@ const (
 	// §2.5.5/S24：引擎续跑快照（整份替换型内容，E.2 白名单）。
 	moduleCheckpoint storageModule = "checkpoint"
 	moduleMedia      storageModule = "media"
+	// moduleTeamwork 是 teamwork 的硬编排计划（leader + 异步 worker，
+	// docs/arch/teamwork-leader-worker-architecture.md §4.6）：head 即 plan.json
+	// （整份替换型内容，谁、什么顺序）；同模块的数据文件 teamwork/events.jsonl
+	// 是派发 / 里程碑 / retire 的**追加审计面**（只追加、不重写）。
+	moduleTeamwork storageModule = "teamwork"
 )
 
 // guide 是会话读索引/路由（不持有模块数据，I9）。模块清单变更（首写某
@@ -123,7 +128,11 @@ type sessionModuleLocks struct {
 	// 物理上是一把），后果是 ① 截图/媒体读与消息提交互相串行、② 任何"在 message
 	// 临界区内读写媒体"的调用都会变成不可重入自锁（2026-09-29 锁面审计 §2.10）。
 	mediaMu sync.Mutex
-	guideMu sync.Mutex
+	// teamworkMu 是 teamwork 的独立锁：leader 改写计划（整份替换）与 teammate
+	// 审计追加不能与 message 提交互相串行，也必须避免"message 临界区内写
+	// teamwork 审计"变成不可重入自锁（与 mediaMu 同一条教训）。
+	teamworkMu sync.Mutex
+	guideMu    sync.Mutex
 
 	stackViews [4]atomic.Pointer[stackView]
 	// anchor 是 message 通道最近一次发布的坐标（栈通道取锚用，避免打开
@@ -215,6 +224,8 @@ func (locks *sessionModuleLocks) mutexFor(mod storageModule) *sync.Mutex {
 		// 落到 default 被静默别名成 messageMu：媒体读（ReadMedia/ListMedia）与
 		// messageCommit 互相串行，且任何"message 临界区内读写媒体"即不可重入自锁。
 		return &locks.mediaMu
+	case moduleTeamwork:
+		return &locks.teamworkMu
 	default:
 		// 禁止静默别名：枚举是包内编译期常量，未映射只可能是"加了 storageModule
 		// 忘了加 case"。猜一个锁（旧行为）等于把两把语义不同的锁合成一把——那正是

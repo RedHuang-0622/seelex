@@ -40,12 +40,33 @@ type GoalGovernanceView struct {
 	// tl_directive 行）。**只有后端 → 前端的单向投影**。
 	InFlight      string `json:"in_flight,omitempty"`
 	InFlightChars int    `json:"in_flight_chars,omitempty"`
+	// RoundSteps 是**本轮/最近一轮** ADVISOR 评审的过程步骤（工具调用 + 返回）。
+	//
+	// 为什么存在于治理视图：b 回合是一次**带只读工具的**评审（读文件/搜索），但那些
+	// 工具调用只活在进程内的角色会话里，回合结束即消失——前端因此只看得到终局裁决
+	// （tl_directive 行），看不到"评审者核对了什么"。这里把过程作为只读投影暴露，
+	// 前端据此渲染"评审过程"时间线（进行中与刚结束都可看）。**单向投影**。
+	RoundSteps []GoalStepView `json:"round_steps,omitempty"`
 	// Stack 是 goal **活动栈**的逐帧只读投影（栈底→栈顶；末元素 = Active 那一帧）。
 	//
 	// 为什么要有它：governance 视图原来只有栈顶一帧，会话里嵌套压栈（新 goal 压栈、
 	// 栈下目标转 paused）之后，工作台看不到"栈上还有什么"。这里按帧给出内容，工作台
 	// 据此分块展示；事实仍是 Controller 的 LIFO 栈一份，这里是只读投影。
 	Stack []GoalFrameView `json:"stack,omitempty"`
+}
+
+// GoalStepView 是 ADVISOR 评审过程里的**一步**只读投影（前端"评审过程"时间线）。
+//
+// 两步一条工具调用：Kind="tool"（Name/Args 有效）与 Kind="tool_result"
+// （Result/Err 有效）——与轨迹视图的请求/响应对齐，前端可配对渲染。
+type GoalStepView struct {
+	Kind   string `json:"kind,omitempty"`
+	Turn   int    `json:"turn,omitempty"`
+	Name   string `json:"name,omitempty"`
+	Args   string `json:"args,omitempty"`
+	Result string `json:"result,omitempty"`
+	Err    string `json:"err,omitempty"`
+	At     int64  `json:"at,omitempty"`
 }
 
 // GoalFrameView 是 goal 活动栈里**一帧**的只读投影（工作台按帧分块查看）。

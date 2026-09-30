@@ -22,6 +22,7 @@ func allStorageModules() []storageModule {
 		moduleStackPlan, moduleStackTask, moduleStackGoal,
 		moduleLifecycle, moduleRetention, moduleSubagent,
 		moduleSystem, moduleCheckpoint, moduleMedia,
+		moduleTeamwork,
 	}
 }
 

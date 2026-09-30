@@ -33,6 +33,70 @@ version when it lands.
 
 ### Added
 
+- **The asynchronous job face is now a framework capability, not a Seelex-only prototype.** Seelex's
+  job contract (`bash_bg` / `read_batch` / `job_manage` sharing one table and one state machine) proved
+  that "one long-running task" wants to be a first-class object; the *generic* half of it now lives in
+  Seele as the `jobs` root capability: the contract (`Kind`, `State`, `Handle`, `Scope{Session,Subject}`,
+  `Spec`, `Record`, `Manager`, `Executor`, `Sink`), the manager (table + state machine + the four
+  actions + `Snapshot`/`Reclaim`/`Events`/`Close`), and the product-neutral management tool
+  `jobs_manage` (`jobs/builtin`). What stays here is the dispatch side — `bash_bg`, `read_batch`,
+  `fork_subagents` — because a dispatch tool is bound to a concrete command and prompt vocabulary. The
+  split is therefore *management is generic, dispatch is product-specific*. The invariants the prototype
+  established are now enforced by the framework and pinned by tests: finalization happens exactly once
+  on all four paths (normal exit / hard cap / kill / executor panic), a hard cap synthesises `exit=124`
+  and a kill `exit=137` with the cause noted in the output file, handles are `a<seq>` and never
+  persisted, output is bounded while still reporting success (an infrastructure budget must not be
+  disguised as a command failure), and fetch/kill/done refuse a caller outside the job's scope.
+  `Scope` is two parallel fields — never a concatenated string — so no escaping or collision rules are
+  invented for characters that both session ids and role names may contain; `{Session}` selects a whole
+  session and `{Session, Subject}` one teammate, for both listing and reclamation. Seelex consumes it
+  through a temporary local `replace` in `go.mod` (the same discipline as the three earlier local
+  replace integrations: it is removed once Seele tags the capability).
+
+- **Teamwork now has a plan, a place to keep it, and a real audit trail — with the two open questions
+  answered.** The leader/worker architecture (`docs/arch/teamwork-leader-worker-architecture.md`) left
+  two items pending; both are now decided and implemented. The teammate ceiling is
+  `limits.team.max_teammates`, defaulting to **6** (`seelexctx.TeamLimits`, negative values rejected at
+  load time), and the plan carries an **append-only audit surface**: the plan itself is the
+  `moduleTeamwork` head (the equivalent of `plan.json` — atomically published, checksummed,
+  self-healing), while `teamwork/events.jsonl` records `plan / dispatch / join / milestone / retire`
+  facts and is never rewritten (a crash tail is skipped rather than making the earlier rows unreadable).
+  `moduleTeamwork` gets its own module lock, so writing a plan cannot serialise behind a message commit.
+  Validation is enforced at the point of persistence, not only at assembly time — the plan can be
+  rewritten by the leader, so the second gate has to exist: one role per teammate, no built-in roles
+  (`main` / `user`), the teammate ceiling, unique stage ids, an acyclic `depends_on` graph (Kahn), and
+  milestone references that actually exist.
+
+- **`seelebridge/teamwork` orchestrates teammates as jobs and keeps the leader's hands off the
+  execution path.** The coordinator owns the plan, dispatch, a *bounded* join, milestones and
+  retirement; the execution body and the workspace are ports, so ordering, the teammate ceiling, scope
+  reclamation and the retirement sequence are all testable without an engine or a git checkout.
+  `team_dispatch` refuses a role that is not enrolled and refuses to start a teammate beyond the
+  ceiling (explicitly, never silently queued — queueing would disguise "the team is full" as "it is
+  running"), and repeated dispatches of the same role collapse onto the job already running, because two
+  jobs sharing one worktree make "who is editing this" unanswerable. `team_retire` runs four steps in a
+  fixed order — reclaim that teammate's jobs (`Reclaim(Scope{Session, Subject})`, which leaves sibling
+  teammates untouched), release its worktree, clear its session contents, keep it on the roster — and a
+  missing port is an explicit error rather than a silent skip, since the worktree count stays bounded
+  only if retirement really releases. The job kinds are `worker` (bounded turns in the role session
+  under the `emp_<role>` subject) and `seat`, so the goal seat loop can become one executor of the same
+  contract instead of a second driver beside it.
+
+- **The ADVISOR's review is now visible as a process, not only as a verdict: which read-only tools it
+  called, with what arguments, and what came back.** The evaluation round runs on an in-process role
+  session that deliberately holds no durable history, so its tool calls lived and died with the round —
+  the only ADVISOR facts reaching the UI were the two role-draft rows (`role_context` + `tl_directive`),
+  and while the round was running the goal panel showed nothing but a bounded tail of the model's text.
+  The role engine now carries ReAct hooks (`roleLoopHooks`) that read a per-round sink from the turn
+  context (`goal.WithTLStepSink`) and report every tool call and result as a `TLStep`; `Supervisor` keeps
+  the last `MaxRoundSteps` of them, exposes them as `TLState.RoundSteps`, and the coordinator projects
+  them into `runtime.goal_governance.round_steps` (`dto.GoalStepView`). Unlike the in-flight text —
+  cleared when the round commits, because the authoritative text is the verdict row — the step list is
+  rotated at the **start** of the next round, so "what the reviewer just checked" is still on screen
+  after the verdict lands. The panel renders it as a timeline (`renderGoalSteps`: `▸ tool args` /
+  `↳ result`, failures highlighted). Employee rounds install no sink, so the hooks are a zero-cost no-op
+  for them; the step list is an observation surface only and never feeds a verdict.
+
 - **The commit log is now three levels deep: opening a commit shows the files it touched, and opening
   a file shows that file *as of that commit*.** The 提交记录 pane only ever listed commits (hash, author,
   time, subject, topology); "what did this commit actually change" and "what did that file look like

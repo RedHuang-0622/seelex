@@ -1,0 +1,442 @@
+package teamwork
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/RedHuang-0622/Seele/jobs"
+	"github.com/RedHuang-0622/seelex/sessionstore"
+)
+
+// ── 端口替身（本包因此可在没有引擎、没有 git 的测试里跑完编排语义）──
+
+type memoryPlanStore struct {
+	mu     sync.Mutex
+	plan   sessionstore.TeamworkPlan
+	events []sessionstore.TeamworkEvent
+	limit  int
+}
+
+func (s *memoryPlanStore) WritePlan(_ context.Context, _ sessionstore.Key, plan sessionstore.TeamworkPlan, maxTeammates int) error {
+	if err := sessionstore.ValidateTeamworkPlan(plan, maxTeammates); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.plan = plan
+	return nil
+}
+
+func (s *memoryPlanStore) ReadPlan(context.Context, sessionstore.Key) (sessionstore.TeamworkPlan, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.plan.TeamID == "" {
+		return sessionstore.TeamworkPlan{}, errors.New("teamwork: 计划不存在")
+	}
+	return s.plan, nil
+}
+
+func (s *memoryPlanStore) AppendEvent(_ context.Context, _ sessionstore.Key, event sessionstore.TeamworkEvent) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.events = append(s.events, event)
+	return nil
+}
+
+func (s *memoryPlanStore) ReadEvents(context.Context, sessionstore.Key) ([]sessionstore.TeamworkEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]sessionstore.TeamworkEvent(nil), s.events...), nil
+}
+
+func (s *memoryPlanStore) kinds() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	kinds := make([]string, 0, len(s.events))
+	for _, event := range s.events {
+		kinds = append(kinds, event.Kind)
+	}
+	return kinds
+}
+
+type fakeRunner struct {
+	mu       sync.Mutex
+	requests []WorkerRequest
+	block    chan struct{}
+}
+
+func (r *fakeRunner) RunWorker(ctx context.Context, request WorkerRequest, sink jobs.Sink) error {
+	r.mu.Lock()
+	r.requests = append(r.requests, request)
+	block := r.block
+	r.mu.Unlock()
+	sink.Note("worker ran: " + request.Role + "\n")
+	if block != nil {
+		select {
+		case <-block:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	sink.Complete(jobs.StateDone, "ok")
+	return nil
+}
+
+type callLog struct {
+	mu    sync.Mutex
+	calls []string
+}
+
+func (l *callLog) record(entry string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.calls = append(l.calls, entry)
+}
+
+func (l *callLog) snapshot() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]string(nil), l.calls...)
+}
+
+type fakeWorktrees struct{ log *callLog }
+
+func (w fakeWorktrees) Release(_ context.Context, role string) error {
+	w.log.record("worktree:" + role)
+	return nil
+}
+
+type fakeSessions struct{ log *callLog }
+
+func (s fakeSessions) Reset(_ context.Context, roleSessionID string) error {
+	s.log.record("session:" + roleSessionID)
+	return nil
+}
+
+// ── fixture ─────────────────────────────────────────────────────────
+
+type fixture struct {
+	coordinator *Coordinator
+	store       *memoryPlanStore
+	jobs        jobs.Manager
+	runner      *fakeRunner
+	calls       *callLog
+}
+
+func newFixture(t *testing.T, maxTeammates int) *fixture {
+	t.Helper()
+	store := &memoryPlanStore{}
+	runner := &fakeRunner{}
+	log := &callLog{}
+	manager, err := jobs.New(
+		jobs.WithExecutor(WorkerExecutor(runner, 4)),
+		jobs.WithLimits(jobs.Limits{InFlight: 64}),
+	)
+	if err != nil {
+		t.Fatalf("jobs.New: %v", err)
+	}
+	t.Cleanup(func() { _ = manager.Close(context.Background()) })
+	coordinator, err := New(Options{
+		Key:          sessionstore.Key{ProjectID: "p", SessionID: "s"},
+		Store:        store,
+		Jobs:         manager,
+		Workers:      runner,
+		Worktrees:    fakeWorktrees{log: log},
+		Sessions:     fakeSessions{log: log},
+		MaxTeammates: maxTeammates,
+	})
+	if err != nil {
+		t.Fatalf("teamwork.New: %v", err)
+	}
+	return &fixture{coordinator: coordinator, store: store, jobs: manager, runner: runner, calls: log}
+}
+
+func vmodelPlan() sessionstore.TeamworkPlan {
+	return sessionstore.TeamworkPlan{
+		TeamID:  "v-model",
+		Version: 1,
+		Stages: []sessionstore.TeamworkStage{
+			{ID: "req", Roles: []string{"pm"}},
+			{ID: "impl", Roles: []string{"exec"}, DependsOn: []string{"req"}},
+			{ID: "test", Roles: []string{"test_case"}, DependsOn: []string{"impl"}},
+		},
+		Members: []sessionstore.TeamworkMember{
+			{Role: "pm"},
+			{Role: "exec", Worktree: "seelex/exec"},
+			{Role: "test_case"},
+		},
+		Milestones: []sessionstore.TeamworkMilestone{{ID: "m-impl", After: []string{"impl"}, Required: []string{"exec"}}},
+	}
+}
+
+// waitTerminal 轮询到作业终态（测试里用真实时钟，只等一个短窗口）。
+func waitTerminal(t *testing.T, manager jobs.Manager, handle jobs.Handle) jobs.Record {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if record, ok := manager.Observe(handle); ok && record.State.Terminal() {
+			return record
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	t.Fatalf("作业 %s 没有在窗口内终态", handle)
+	return jobs.Record{}
+}
+
+// ── 用例 ───────────────────────────────────────────────────────────
+
+func TestSetPlanDerivesRoleSessionIDsAndAudits(t *testing.T) {
+	fixture := newFixture(t, 6)
+	ctx := context.Background()
+	if err := fixture.coordinator.SetPlan(ctx, vmodelPlan()); err != nil {
+		t.Fatalf("SetPlan: %v", err)
+	}
+	plan, err := fixture.coordinator.Plan(ctx)
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	if plan.Members[0].RoleSessionID != "v-model-pm" {
+		t.Fatalf("role_session_id 未按 (team_id, role) 派生: %q", plan.Members[0].RoleSessionID)
+	}
+	if kinds := fixture.store.kinds(); len(kinds) != 1 || kinds[0] != sessionstore.TeamworkEventPlan {
+		t.Fatalf("计划改写必须留下审计行: %v", kinds)
+	}
+}
+
+func TestDispatchJoinMilestoneLifecycle(t *testing.T) {
+	fixture := newFixture(t, 6)
+	ctx := context.Background()
+	if err := fixture.coordinator.SetPlan(ctx, vmodelPlan()); err != nil {
+		t.Fatalf("SetPlan: %v", err)
+	}
+	handle, stage, err := fixture.coordinator.Dispatch(ctx, "exec", "实现 v-model 的 impl 阶段")
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if stage != "impl" {
+		t.Fatalf("阶段归属 = %q, want impl", stage)
+	}
+	record := waitTerminal(t, fixture.jobs, handle)
+	if record.Scope.Subject != "emp_exec" || record.Node != "impl" {
+		t.Fatalf("作业作用域/归属错了: %+v", record)
+	}
+	if record.Description == "" {
+		t.Fatal("作业行标题必须来自派发时那句话")
+	}
+
+	// 里程碑：after 的阶段已派发过 ⇒ 允许声明。
+	if err := fixture.coordinator.Milestone(ctx, "m-impl", "impl 完成，进入 test"); err != nil {
+		t.Fatalf("Milestone: %v", err)
+	}
+	plan, _ := fixture.coordinator.Plan(ctx)
+	if plan.State.Milestones["m-impl"] == "" || plan.Milestones[0].Status != sessionstore.TeamworkMilestoneDone {
+		t.Fatalf("里程碑没有落到计划: %+v", plan.Milestones[0])
+	}
+
+	joined, err := fixture.coordinator.Join(ctx, []jobs.Handle{handle}, 2*time.Second)
+	if err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	if len(joined) != 1 || joined[0].Running() {
+		t.Fatalf("Join 没有收敛: %+v", joined)
+	}
+
+	// 退场：四步顺序固定。
+	if err := fixture.coordinator.Retire(ctx, "exec"); err != nil {
+		t.Fatalf("Retire: %v", err)
+	}
+	calls := fixture.calls.snapshot()
+	if len(calls) != 2 || calls[0] != "worktree:exec" || calls[1] != "session:v-model-exec" {
+		t.Fatalf("退场步骤顺序错了: %v", calls)
+	}
+	if _, ok := fixture.jobs.Observe(handle); ok {
+		t.Fatal("退场必须在步 1 回收该 teammate 的作业")
+	}
+	plan, _ = fixture.coordinator.Plan(ctx)
+	if plan.Members[1].Worktree != "" {
+		t.Fatalf("退场后 worktree 指派名应清空待重派: %+v", plan.Members[1])
+	}
+	if len(plan.Members) != 3 {
+		t.Fatal("退场删的是会话内容与检出，不是注册/在编")
+	}
+}
+
+func TestMilestoneRefusesStageThatNeverRan(t *testing.T) {
+	fixture := newFixture(t, 6)
+	ctx := context.Background()
+	if err := fixture.coordinator.SetPlan(ctx, vmodelPlan()); err != nil {
+		t.Fatalf("SetPlan: %v", err)
+	}
+	if err := fixture.coordinator.Milestone(ctx, "m-impl", "x"); err == nil {
+		t.Fatal("依赖阶段没派发过就声明里程碑必须被拒")
+	}
+}
+
+func TestDispatchRefusesUnknownRole(t *testing.T) {
+	fixture := newFixture(t, 6)
+	ctx := context.Background()
+	if err := fixture.coordinator.SetPlan(ctx, vmodelPlan()); err != nil {
+		t.Fatalf("SetPlan: %v", err)
+	}
+	if _, _, err := fixture.coordinator.Dispatch(ctx, "ghost", "x"); err == nil {
+		t.Fatal("不在编的角色必须被拒")
+	}
+}
+
+func TestDispatchRefusesWhenTeamIsFull(t *testing.T) {
+	fixture := newFixture(t, 2)
+	eventually := make(chan struct{})
+	fixture.runner.block = eventually
+	ctx := context.Background()
+	plan := vmodelPlan()
+	plan.Members = plan.Members[:2]
+	if err := fixture.coordinator.SetPlan(ctx, plan); err != nil {
+		t.Fatalf("SetPlan: %v", err)
+	}
+	// 直接把"在跑人数"顶到上限（模拟同会话里已经跑着的两个 teammate 作业）。
+	for index := 0; index < 2; index++ {
+		if _, err := fixture.jobs.Dispatch(ctx, jobs.Spec{
+			Kind:        KindWorker,
+			Scope:       jobs.Scope{Session: "s", Subject: fmt.Sprintf("emp_other%d", index)},
+			Description: "占位",
+		}); err != nil {
+			t.Fatalf("Dispatch: %v", err)
+		}
+	}
+	_, _, err := fixture.coordinator.Dispatch(ctx, "exec", "第三个")
+	if err == nil || !strings.Contains(err.Error(), "max_teammates") {
+		t.Fatalf("超员必须显式拒绝并点明上限，得到 %v", err)
+	}
+	close(eventually)
+}
+
+func TestDispatchDedupsSameRole(t *testing.T) {
+	fixture := newFixture(t, 6)
+	eventually := make(chan struct{})
+	fixture.runner.block = eventually
+	ctx := context.Background()
+	if err := fixture.coordinator.SetPlan(ctx, vmodelPlan()); err != nil {
+		t.Fatalf("SetPlan: %v", err)
+	}
+	first, _, err := fixture.coordinator.Dispatch(ctx, "exec", "第一轮")
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	second, _, err := fixture.coordinator.Dispatch(ctx, "exec", "第一轮")
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if first != second {
+		t.Fatalf("同一角色的重复派发必须折叠到一个在跑的作业: %s vs %s", first, second)
+	}
+	close(eventually)
+}
+
+func TestRetireReclaimsOnlyThatTeammate(t *testing.T) {
+	fixture := newFixture(t, 6)
+	eventually := make(chan struct{})
+	fixture.runner.block = eventually
+	ctx := context.Background()
+	if err := fixture.coordinator.SetPlan(ctx, vmodelPlan()); err != nil {
+		t.Fatalf("SetPlan: %v", err)
+	}
+	execHandle, _, err := fixture.coordinator.Dispatch(ctx, "exec", "impl")
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	testHandle, _, err := fixture.coordinator.Dispatch(ctx, "test_case", "test")
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if err := fixture.coordinator.Retire(ctx, "exec"); err != nil {
+		t.Fatalf("Retire: %v", err)
+	}
+	if _, ok := fixture.jobs.Observe(execHandle); ok {
+		t.Fatal("被退场 teammate 的作业必须回收")
+	}
+	if _, ok := fixture.jobs.Observe(testHandle); !ok {
+		t.Fatal("退场只动这一个 teammate，邻居的作业不该被牵连")
+	}
+	close(eventually)
+}
+
+func TestRetireRequiresWorkspaceAndSessionPorts(t *testing.T) {
+	store := &memoryPlanStore{}
+	manager, err := jobs.New(jobs.WithExecutor(WorkerExecutor(&fakeRunner{}, 4)))
+	if err != nil {
+		t.Fatalf("jobs.New: %v", err)
+	}
+	t.Cleanup(func() { _ = manager.Close(context.Background()) })
+	coordinator, err := New(Options{
+		Key:   sessionstore.Key{ProjectID: "p", SessionID: "s"},
+		Store: store,
+		Jobs:  manager,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	ctx := context.Background()
+	if err := coordinator.SetPlan(ctx, vmodelPlan()); err != nil {
+		t.Fatalf("SetPlan: %v", err)
+	}
+	err = coordinator.Retire(ctx, "exec")
+	if err == nil || !strings.Contains(err.Error(), "步 2") {
+		t.Fatalf("缺工作区端口时必须在步 2 显式报错，得到 %v", err)
+	}
+}
+
+func TestSetPlanDelegatesStructuralValidation(t *testing.T) {
+	fixture := newFixture(t, 6)
+	plan := vmodelPlan()
+	plan.Stages[0].DependsOn = []string{"test"} // 环
+	if err := fixture.coordinator.SetPlan(context.Background(), plan); err == nil {
+		t.Fatal("带环的计划必须在落盘那一步就被拒")
+	}
+}
+
+func TestNewRefusesIncompleteWiring(t *testing.T) {
+	if _, err := New(Options{}); err == nil {
+		t.Fatal("缺会话作用域必须被拒")
+	}
+	if _, err := New(Options{Key: sessionstore.Key{ProjectID: "p", SessionID: "s"}}); err == nil {
+		t.Fatal("缺 PlanStore 必须被拒")
+	}
+	manager, err := jobs.New()
+	if err != nil {
+		t.Fatalf("jobs.New: %v", err)
+	}
+	t.Cleanup(func() { _ = manager.Close(context.Background()) })
+	if _, err := New(Options{Key: sessionstore.Key{ProjectID: "p", SessionID: "s"}, Store: &memoryPlanStore{}}); err == nil {
+		t.Fatal("缺 jobs.Manager 必须被拒")
+	}
+}
+
+func TestSubjectIsEmployeeSubject(t *testing.T) {
+	if SubjectForRole("exec") != "emp_exec" {
+		t.Fatalf("主体名必须是 emp_<role>（权限面与作用域共用同一套命名）")
+	}
+}
+
+func TestWorkerExecutorWithoutRunnerFails(t *testing.T) {
+	executor := WorkerExecutor(nil, 1)
+	manager, err := jobs.New(jobs.WithExecutor(executor))
+	if err != nil {
+		t.Fatalf("jobs.New: %v", err)
+	}
+	t.Cleanup(func() { _ = manager.Close(context.Background()) })
+	handle, err := manager.Dispatch(context.Background(), jobs.Spec{
+		Kind: KindWorker, Scope: jobs.Scope{Session: "s"}, Description: "x",
+	})
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	record := waitTerminal(t, manager, handle)
+	if record.State != jobs.StateFailed {
+		t.Fatalf("缺 Runner 必须以失败收场（不静默成功）: %+v", record)
+	}
+}

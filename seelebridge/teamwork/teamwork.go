@@ -1,0 +1,220 @@
+// Package teamwork 把 teamwork 从「一排轮流发言的座位」重做成
+// 「一个 leader + 一组可被派发 / 观察 / 终止的 worker 作业」。
+//
+// 分工（docs/arch/teamwork-leader-worker-architecture.md §2 / D1）：
+//
+//   - **作业面**归 Seele 的 jobs 根能力（契约 + Manager + jobs_manage）；
+//   - **硬编排**归这里：计划（谁、什么顺序）+ 派发 + 汇合 + 里程碑 + 退场；
+//   - **执行体**（在角色会话里真跑一轮）与**工作区**（git worktree）是端口，
+//     由装配层注入——本包因此能在没有引擎、没有 git 的测试里把编排语义
+//     （顺序、超员拒绝、作用域回收、退场四步）全部跑完。
+//
+// 顺序的唯一事实是计划的 stages[].depends_on（D4），不是 leader 的调用姿势，
+// 也不是任何"上一轮是谁"的隐式状态。
+package teamwork
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/RedHuang-0622/Seele/jobs"
+	"github.com/RedHuang-0622/seelex/sessionstore"
+)
+
+// 作业类别：在 jobs 的开放 Kind 上注册，框架不解释这两个值。
+const (
+	// KindWorker 是 teammate 作业：在角色会话里跑限量回合。
+	KindWorker jobs.Kind = "worker"
+	// KindSeat 是 goal 座位循环作业（D4：座位轮转降级为一个 Executor）。
+	KindSeat jobs.Kind = "seat"
+)
+
+// SubjectForRole 是 teammate 的主体名：既是权限主体，也是作业作用域的第二
+// 分量（与 sessionstore 的 emp 主体同名，权限面因此不需要第二套映射）。
+func SubjectForRole(role string) string { return "emp_" + role }
+
+// DefaultRoleSessionID 派生角色会话号：同一个 (team_id, role) 永远得到同一个值
+// （重复装配幂等）。与 agentteam.RoleSessionID 同形；装配层可用
+// Options.DeriveRoleSessionID 注入权威实现。
+func DefaultRoleSessionID(teamID, roleName string) string {
+	return teamID + "-" + roleName
+}
+
+// PlanStore 是计划的持久面（生产实现 = sessionstore.TeamworkRepository）。
+type PlanStore interface {
+	WritePlan(ctx context.Context, key sessionstore.Key, plan sessionstore.TeamworkPlan, maxTeammates int) error
+	ReadPlan(ctx context.Context, key sessionstore.Key) (sessionstore.TeamworkPlan, error)
+	AppendEvent(ctx context.Context, key sessionstore.Key, event sessionstore.TeamworkEvent) error
+	ReadEvents(ctx context.Context, key sessionstore.Key) ([]sessionstore.TeamworkEvent, error)
+}
+
+// WorkerRequest 是一次 teammate 作业的全部输入。它同时是作业载荷
+// （jobs.Spec.Payload）与执行体入参——只有一份定义，就不会出现"派发时带了、
+// 执行时丢了"的静默降级。
+type WorkerRequest struct {
+	TeamID        string `json:"team_id"`
+	Role          string `json:"role"`
+	RoleSessionID string `json:"role_session_id"`
+	Subject       string `json:"subject"`
+	Worktree      string `json:"worktree,omitempty"`
+	Stage         string `json:"stage"`
+	Goal          string `json:"goal"`
+	// MaxTurns 是本轮在角色会话里允许的回合上限（0 = 装配层默认）。
+	MaxTurns int `json:"max_turns,omitempty"`
+}
+
+// WorkerRunner 在角色会话里跑有限回合。
+//
+// 生产实现是升格后的 runtime_role_turn：起手把 emp_<role> 主体放进执行
+// ctx（该回合的工具面按角色权责收窄），并把 teammate 工具面里**没有**
+// fork_subagents（D6 硬移除）这件事带进装配，而不是靠运行时判断。
+type WorkerRunner interface {
+	RunWorker(ctx context.Context, request WorkerRequest, sink jobs.Sink) error
+}
+
+// SeatRequest 是 goal 座位循环作业的输入（D4）。
+type SeatRequest struct {
+	GoalID   string `json:"goal_id"`
+	TeamID   string `json:"team_id,omitempty"`
+	Stage    string `json:"stage,omitempty"`
+	MaxTurns int    `json:"max_turns,omitempty"`
+}
+
+// SeatRunner 跑一轮 goal 座位循环并输出治理结论。
+type SeatRunner interface {
+	RunSeat(ctx context.Context, request SeatRequest, sink jobs.Sink) error
+}
+
+// WorkspaceReleaser 释放一个 teammate 的工作区（git worktree remove + 删本地
+// 分支）。释放前若工作区脏，实现必须按 ErrUncommittedChanges 语义显式报错，
+// 不得静默丢弃（D7 / §4.7）。
+type WorkspaceReleaser interface {
+	Release(ctx context.Context, role string) error
+}
+
+// SessionResetter 清空一个角色会话的**记录内容**（工作历史 + durable 快照），
+// 保留在编。删的是对话记忆，不是注册。
+type SessionResetter interface {
+	Reset(ctx context.Context, roleSessionID string) error
+}
+
+// Options 装配一个 Coordinator。必填：Store、Jobs；其余端口按能力装配，
+// 缺失时对应的动作显式报错（不静默降级）。
+type Options struct {
+	// Key 是会话作用域（会话键 = 作业隔离与回收粒度）。
+	Key sessionstore.Key
+	// Store 是计划与审计的持久面。
+	Store PlanStore
+	// Jobs 是作业面（frame jobs.Manager），worker/seat 执行体注册在它上面。
+	Jobs jobs.Manager
+	// Workers 是 teammate 执行体（缺失 ⇒ team_dispatch 拒绝）。
+	Workers WorkerRunner
+	// Worktrees 释放工作区（缺失 ⇒ team_retire 在第二步显式报错，不静默跳过）。
+	Worktrees WorkspaceReleaser
+	// Sessions 清角色会话内容（缺失 ⇒ team_retire 在第三步显式报错）。
+	Sessions SessionResetter
+	// MaxTeammates 是产品级人数上限（seelexctx.TeamLimits.MaxTeammates）。
+	// <= 0 = 不限制（不推荐：框架在途上限会先于产品约束生效）。
+	MaxTeammates int
+	// MaxTurns 是每个 teammate 作业的回合上限（0 = 装配层默认）。
+	MaxTurns int
+	// DeriveRoleSessionID 覆盖角色会话号的派生（默认 DefaultRoleSessionID）。
+	DeriveRoleSessionID func(teamID, roleName string) string
+	// Clock 覆盖墙钟（测试用）。
+	Clock func() time.Time
+}
+
+// Coordinator 是 leader 的编排面：计划 + 派发 + 汇合 + 里程碑 + 退场。
+//
+// 它自己**不跑**任何 teammate：跑是 jobs.Manager + WorkerRunner 的事，它只
+// 掌控顺序、作用域与收口——这正是"leader 阻塞与否与 worker 是否推进正交"的
+// 落点（§6.3）。
+type Coordinator struct {
+	key        sessionstore.Key
+	store      PlanStore
+	jobs       jobs.Manager
+	workers    WorkerRunner
+	worktrees  WorkspaceReleaser
+	sessions   SessionResetter
+	maxMembers int
+	maxTurns   int
+	derive     func(teamID, roleName string) string
+	clock      func() time.Time
+}
+
+// New 装配一个 Coordinator。
+func New(options Options) (*Coordinator, error) {
+	if strings.TrimSpace(options.Key.ProjectID) == "" || strings.TrimSpace(options.Key.SessionID) == "" {
+		return nil, errors.New("teamwork: 会话作用域（project_id + session_id）是必填")
+	}
+	if options.Store == nil {
+		return nil, errors.New("teamwork: PlanStore 是必填")
+	}
+	if options.Jobs == nil {
+		return nil, errors.New("teamwork: jobs.Manager 是必填")
+	}
+	derive := options.DeriveRoleSessionID
+	if derive == nil {
+		derive = DefaultRoleSessionID
+	}
+	clock := options.Clock
+	if clock == nil {
+		clock = time.Now
+	}
+	return &Coordinator{
+		key:        options.Key,
+		store:      options.Store,
+		jobs:       options.Jobs,
+		workers:    options.Workers,
+		worktrees:  options.Worktrees,
+		sessions:   options.Sessions,
+		maxMembers: options.MaxTeammates,
+		maxTurns:   options.MaxTurns,
+		derive:     derive,
+		clock:      clock,
+	}, nil
+}
+
+// Key 返回会话作用域。
+func (c *Coordinator) Key() sessionstore.Key { return c.key }
+
+// audit 追加一条审计行。审计失败**不吞**：它与计划是同一份事实的两个面。
+func (c *Coordinator) audit(ctx context.Context, event sessionstore.TeamworkEvent) error {
+	event.At = c.clock().UTC()
+	return c.store.AppendEvent(ctx, c.key, event)
+}
+
+// stageFor 返回某个角色所属的阶段 id（第一个声明的阶段优先）。
+func stageFor(plan sessionstore.TeamworkPlan, role string) string {
+	for _, stage := range plan.Stages {
+		for _, candidate := range stage.Roles {
+			if candidate == role {
+				return stage.ID
+			}
+		}
+	}
+	return ""
+}
+
+// memberFor 返回在编成员。
+func memberFor(plan sessionstore.TeamworkPlan, role string) (sessionstore.TeamworkMember, bool) {
+	for _, member := range plan.Members {
+		if member.Role == role {
+			return member, true
+		}
+	}
+	return sessionstore.TeamworkMember{}, false
+}
+
+func describeHandle(handle jobs.Handle) string { return string(handle) }
+
+func summarize(records []jobs.Record) string {
+	states := make([]string, 0, len(records))
+	for _, record := range records {
+		states = append(states, fmt.Sprintf("%s=%s", record.Handle, record.State))
+	}
+	return strings.Join(states, " ")
+}

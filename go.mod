@@ -33,6 +33,11 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
+// M0（2026-10-01）：jobs 根能力先在 Seele 本地检出联调，故暂加 replace 指向
+// G:/Program/go/seele。Seele 打 tag 发布 jobs 后本段即删除，回归纯净依赖
+// （与三次本地 replace 联调的既有纪律一致）。
+replace github.com/RedHuang-0622/Seele => G:/Program/go/seele
+
 require (
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3 // indirect
 	github.com/RedHuang-0622/TemplatePoolByGO v0.1.8 // indirect
