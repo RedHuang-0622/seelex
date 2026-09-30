@@ -38,6 +38,7 @@ import (
 	"sync"
 
 	"github.com/RedHuang-0622/Seele/session"
+	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
@@ -336,7 +337,9 @@ func (r *Runtime) newRoleEngine(sessionID string) (roleEngine, error) {
 		context = r.mainContextComponents()
 	}
 	sess, err := session.NewSession(session.SessionComponents{
-		Agent:     r.agt,
+		// Agent 是 teammate 工具面：在框架 Agent 之上**硬移除** fork_subagents（D6，见
+		// teammateToolFace）——角色会话里根本不存在这个工具，而不是靠运行期开关。
+		Agent:     teammateToolFace(r.agt),
 		Context:   context,
 		Telemetry: r.hook,
 		// ReAct 钩子把角色回合的**工具步骤**接到 goal 域的过程观察面（tl_steps.go）：
@@ -476,3 +479,61 @@ func (r *Runtime) RoleSessionIDs() []string {
 	}
 	return ids
 }
+
+// teammateExcludedTools 是 teammate（员工 / ADVISOR 评审者）角色会话**硬移除**的
+// 工具名（D6：不设开关）。
+//
+// 为什么是硬移除而不是开关或运行期判断：
+//   - 一角色一 teammate 已经定死（D8），若 teammate 还能 fork 子代理，嵌套分叉会
+//     **绕过人数上限**——"限制在编 teammate"这条产品约束当场失效；
+//   - teammate 绑 worktree，子代理会派生**孙 worktree**；生命周期说不清就会留下
+//     删不干净的检查点与孤儿作业（正是 D6 要堵的那条路）；
+//   - 需要并行广度时的正确做法是 **leader 多派几个 teammate**，而不是让 teammate
+//     再分叉。
+var teammateExcludedTools = []string{"fork_subagents"}
+
+// teammateAgent 是 teammate 角色会话的**工具面收窄层**：在框架 Agent 之上把
+// teammateExcludedTools 从可见面剔除，并在派发口直接拒绝（防手写调用绕过可见面）。
+//
+// 收窄是**装配期**决定的（工具面在角色会话建起来的那一刻就是收窄的），而不是每
+// 一轮再判断一次——"装配即无此工具"比"运行时记得拦它"可靠。
+type teammateAgent struct {
+	inner    session.Agent
+	excluded map[string]struct{}
+}
+
+// teammateToolFace 把框架 Agent 包成 teammate 工具面。inner 为 nil 时原样返回 nil，
+// 保持"未装配 agent"的既有错误语义（不把 nil 包成一个非 nil 的空壳）。
+func teammateToolFace(inner session.Agent) session.Agent {
+	if inner == nil {
+		return nil
+	}
+	excluded := make(map[string]struct{}, len(teammateExcludedTools))
+	for _, name := range teammateExcludedTools {
+		excluded[name] = struct{}{}
+	}
+	return &teammateAgent{inner: inner, excluded: excluded}
+}
+
+func (a *teammateAgent) LLM() types.ChatCompleter { return a.inner.LLM() }
+
+func (a *teammateAgent) VisibleTools(ctx context.Context) []types.Tool {
+	tools := a.inner.VisibleTools(ctx)
+	filtered := make([]types.Tool, 0, len(tools))
+	for _, tool := range tools {
+		if _, banned := a.excluded[tool.Function.Name]; banned {
+			continue
+		}
+		filtered = append(filtered, tool)
+	}
+	return filtered
+}
+
+func (a *teammateAgent) Dispatch(ctx context.Context, name, argsJSON string) (string, error) {
+	if _, banned := a.excluded[name]; banned {
+		return "", fmt.Errorf("角色回合：%s 不在 teammate 工具面内（D6 硬移除；需要并行广度请让 leader 再派 teammate）", name)
+	}
+	return a.inner.Dispatch(ctx, name, argsJSON)
+}
+
+var _ session.Agent = (*teammateAgent)(nil)
