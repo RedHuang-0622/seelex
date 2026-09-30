@@ -12,6 +12,27 @@ version when it lands.
 
 ## [Unreleased]
 
+### Notes
+
+- **M0's last step — moving the background-job face onto Seele's `jobs.Manager` — is blocked on the frozen
+  `jobs` contract, not on effort, and the blocker is now written down with reproducible evidence.** The
+  async face (`bash_bg` / `read_batch` / `job_manage`) and the framework's `jobs.Manager` disagree on
+  seven points that cannot be bridged while the existing `async_*_test.go` cases stay untouched:
+  `Dispatch` demands a non-empty `Description` while the pinned cases call `begin` with an empty one;
+  `Dispatch` starts the executor and opens/holds the per-job output file immediately, while the pinned
+  cases treat `begin` as register-only and require the output directory to be removable while jobs are
+  registered (Windows `RemoveAll` fails on the held handle — Go opens without `FILE_SHARE_DELETE`);
+  `Fetch` advances the cursor and auto-retires in one step while the tool face is two-phase
+  (`advanceTail` read, then `markCursor`); the manager exposes no external "synthesize terminal state"
+  entry beyond the executor's `Sink`, while `registry.finish(handle, exit)` is a public method the cases
+  call directly; the manager keeps no readable retired-state literal (only `ErrRetired`) and never
+  deletes per-job output files; and an executor cannot learn its own handle from the `Spec`. Every one of
+  these can be papered over from the Seelex side only by keeping a second copy of the state machine
+  there — which is exactly what M0 set out to remove. `docs/arch/teamwork-leader-worker-architecture.md`
+  §12 records the evidence (probe outputs + source anchors) and lists the six minimal `jobs` additions
+  that would let the move land as a byte-for-byte-preserving facade. **No production code changed this
+  batch; the async face's behaviour is unchanged.**
+
 ### Changed
 
 - **Folding now happens only where a model-written reading note can follow it: the assembly layer, at

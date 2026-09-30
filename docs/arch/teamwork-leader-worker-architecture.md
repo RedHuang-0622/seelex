@@ -444,7 +444,7 @@ O4 plan/stage id（脱离会话生命周期；`bash_bg` 这种非 teamwork 场�
 |---|---|---|
 | M0 Seele `jobs` 根能力 | **已实现** | `Seele/jobs/{job,manager,executor,options,output}.go` + `jobs/builtin`（`jobs_manage`）+ `jobs/README.md` + `Seele/docs/arch/16-jobs-contracts.md`；不变式 I-1..I-7 逐条有用例（含去重、跨作用域拒绝、两档 Snapshot/Reclaim、硬上限 124 / 被杀 137 / panic 收尾、输出封顶不改判终态） |
 | M0 Seelex `go.mod` replace | **已实现（临时）** | `replace github.com/RedHuang-0622/Seele => G:/Program/go/seele`，`go work vendor` 已重生成 vendor；Seele 打 tag 发布 `jobs` 后即删除 |
-| M0 旧异步面迁到 `jobs.Manager` | **待做** | `seelebridge/tools/{async_exec,async_run,async_probe,job_contract}.go` 仍是旧实现。**派发工具签名与语义未动**（`bash_bg`/`read_batch`/`job_manage` 行为零变化），迁移是独立一步：它要拿既有 `async_*_test.go` 当回归，且必须逐字节保住回执行文 |
+| M0 旧异步面迁到 `jobs.Manager` | **受阻（证据见 §12）** | `seelebridge/tools/{async_exec,async_run,async_probe,job_contract}.go` 仍是旧实现。**派发工具签名与语义未动**（`bash_bg`/`read_batch`/`job_manage` 行为零变化）；本轮只做了阻塞分析与文档，**未改任何生产代码**。§12 给出逐条实证：在「既有 `async_*_test.go` 一字不改」+「Seele `jobs` 契约冻结」两条硬约束下，忠实的门面化无法落地（能绕的几条，绕法就是把状态机在 Seelex 侧原样留一份，迁移变成名义上的） |
 | M1 worker Executor | **已实现** | `seelebridge/teamwork/executor.go`：`KindWorker` / `KindSeat`；载荷 `WorkerRequest` 既是 `jobs.Spec.Payload` 又是执行体入参；生产实现 = `Runtime.RunWorker`（角色会话里跑一轮有界回合，起手绑工作区/带 `emp_<role>` 权责） |
 | M1 worktree 绑定 / 释放 | **已实现** | `Runtime.ReleaseWorkspace` 接 `seelebridge/worktree`（脏工作区按 `ErrUncommittedChanges` 语义报错、不静默丢弃；`CleanupWorktree` 走 git；无现场幂等）；`Runtime.bindWorkerProjectRoot` 优先绑 worktree、缺失回退主工作区 |
 | M1 人数上限 | **已实现** | `seelexctx.TeamLimits`（默认 6）+ `config/seelex.yaml` 的 `limits.team.max_teammates` + 两道拒绝（计划校验 + 派发闸门）；组合根经 `Runtime.SetTeamworkBackend` 注入 |
@@ -458,9 +458,50 @@ O4 plan/stage id（脱离会话生命周期；`bash_bg` 这种非 teamwork 场�
 | M4 清场 | **待做** | `lifecycle.order_policy/order_roles` 只读化与 §9 死代码清单未动 |
 
 **结论**：作业面（Seele `jobs`）与 teamwork 的**编排面 / 存储面 / 生命周期 / 工具面接线**已落地并有回归；
-`fork_subagents` 硬移除与 leader 提示词亦已就位。剩下两件：**旧异步面迁移到 `jobs.Manager`**（M0，逐字节保行为）
-与 **goal 座位循环降级为 `KindSeat` 执行体**（M2），以及随之的 **M4 清场**——都属于**替换旧面**的那一侧，
+`fork_subagents` 硬移除与 leader 提示词亦已就位。剩下两件：**旧异步面迁移到 `jobs.Manager`**（M0）——本轮做了阻塞分析，结论是**在这两条硬约束下不落地**（§12）；
+以及 **goal 座位循环降级为 `KindSeat` 执行体**（M2），还有随之的 **M4 清场**——都属于**替换旧面**的那一侧，
 按本文纪律放在新面已就位之后。
+
+## 12. M0「旧异步面迁到 `jobs.Manager`」阻塞分析（2026-10-01）
+
+**结论**：本步**无法在「既有 `async_*_test.go` 一字不改」+「Seele `jobs` 契约冻结」两条硬约束下忠实落地**。
+Seelex 侧本轮**未改任何生产代码**（对外行为逐字节不变，见 CHANGELOG）。下面每条都配可复现证据：一个只 `import jobs` 的探针程序（跑完即删，不入库）实测输出。
+
+### 12.1 冲突点（逐条 + 实证）
+
+| # | 冲突 | 实证（探针实测 / 源码锚点） |
+|---|---|---|
+| B1 | `jobs.Manager.Dispatch` 要求 `Description` 非空；既有用例直接调 `registry.begin(sessionID, command, "", "")`（**空描述**） | `Dispatch(Description:"") -> err=jobs: spec.description is required (ErrEmptyDesc=true)`（`manager.go` 的 `ErrEmptyDesc`） |
+| B2 | `Dispatch` **立即起执行体**（`go m.execute`）；既有用例把 `begin` 当「**只登记、不执行**」，随后自己 `finish/attach/setCancel` | 探针：`Dispatch` 返回时执行体已在跑（`executor started? len(started)=1`，`manager.go` 的 `go m.execute`） |
+| B3 | `Dispatch` 立即创建并**持有** `<handle>.log` 写句柄；Seelex 的 `close/removeDir` 语义要求「登记期间输出目录可被 `os.RemoveAll` 删掉」 | 探针：`RemoveAll while job registered -> unlinkat ... being used by another process`；独立复现：Go `os.OpenFile` 在 Windows 不带 `FILE_SHARE_DELETE`，`RemoveAll` 必失败（`output.go` 的 `newOutputWriter`） |
+| B4 | `Fetch` 是「读增量 + **推进游标** + 终态即**自动 retire**」的**一体**动作；Seelex 工具面是**两段式**（`advanceTail` 读 → `markCursor` 提交），`retire` 只由 fetch-交付后 / `op=done` 显式触发 | 探针：`fetch -> state=done` 后 `observe -> present=false`（已被 manager 销项），第二次 `fetch -> ErrRetired`。工具面的 `snapshot→advanceTail→markCursor→snapshot→render→retire` 会在第二次 `snapshot` 处报「已不在登记表里」（`job_contract.go` 的 `jobManager.Fetch`） |
+| B5 | `Manager` **没有**外部「合成终态」入口（终态只由 `Executor` 拿到的 `Sink` 决定）；Seelex 的 `registry.finish(handle, exit)` 是执行体**之外**的公共方法（用例直接调） | `Manager` 接口面只有 `Dispatch/Observe/Fetch/Kill/Done/Snapshot/Reclaim/Events/ScopeOf/Close`，无 `Complete/Declare`（`manager.go`） |
+| B6 | `Manager` **没有** `RetiredState(handle) (State, bool)`：销项后只剩 `ErrRetired`，读不到终态**字面量**；Seelex 的 `retiredState` 要返回字面量给重复 `done/fetch` 的幂等回执 | 探针：`second fetch -> err=jobs: job already retired: a1`；`renderRetired/renderObserved`（`async_exec.go`）需要 `state` |
+| B7 | `Manager` **不删**每个作业的输出文件（`retireLocked` 只关句柄，`Close`/`prune` 也不删）；Seelex 要求驱逐/销项**连带删文件** | 读 `manager.go` 的 `retireLocked/Close/prune`（无 `os.Remove`）；用例 `TestAsyncRegistryEvictionDropsRecordAndLog` 断言文件消失 |
+| B8 | 执行体要知道**自己的句柄**才能回填 Seelex 侧表（进程树、取消口、命令原文、Index、Notified）；`Executor.Start(ctx, spec, sink)` 的 `spec` **不带 handle** | `job.go` 的 `Spec`（无 `Handle`）；`Handle` 由 `Dispatch` 才产生 |
+
+### 12.2 为什么「打补丁」不成立
+
+上述每一条都能用 Seelex 侧旁路硬绕：空描述填空串（B1）、执行体写成「无 router 时阻塞等 body」（B2/B5）、用 `Snapshot` 差分反推被驱逐句柄再删文件（B7）、给 `Payload` 塞自造关联 id 找回句柄（B8）。但绕出来的结果**恰好是把状态机在 Seelex 侧原样留了一份**：
+
+- **游标必须留**（B4：两段式「渲染-提交」语义 manager 没有）⇒ manager 的 `Cursor/Truncated` 成为死字段；
+- **墓碑字面量必须留**（B6）⇒ 与 manager 的 `retired` 表双份；
+- **记录/销项策略必须留**（B7：差分反推）⇒ 与 manager 的 `prune` 双份；
+- **终态合成入口必须留**（B5/B8）⇒ Seelex 仍拥有「什么算终态」。
+
+也就是说，得到的不是「薄门面」，而是「**两份状态机 + 一堆对齐 hack**」，还新引入 goroutine 泄漏（无 router 的阻塞执行体）与漂移面。这与 M0 的目标（把记录/状态机**搬进** `jobs.Manager`）相悖，故**不落地**，等 Seele 契约补齐（§12.3）后再做一次干净的门面化。
+
+### 12.3 解除阻塞所需的最小 Seele 契约增补（建议，留待 Seele 侧评审）
+
+1. `Manager.Declare(ctx, spec) (Handle, error)`（或 `Spec.Deferred`）：**只登记、不起执行体** —— 对齐 `beginJob` 的既有语义。
+2. **外部终态入口**：导出按句柄的 `Sink`（`Manager.SinkOf(handle) (Sink, bool)`），或 `Manager.Complete(ctx, handle, state, exit, summary)` —— 对齐 `registry.finish`。
+3. `Manager.Peek(handle, budget)`：**只读增量**（不推进游标、不销项），与 `Fetch`（推进 + 销项）并列 —— 对齐两段式工具面。
+4. `Manager.RetiredState(handle) (State, bool)`：销项墓碑的**字面量**读面（幂等回执）。
+5. **输出文件归属与删除**：`Spec.OutputPath` + manager 不接管文件句柄（或 manager 在 `retire` 时删文件）—— 同时解掉 B3 的 Windows `RemoveAll` 约束与 B7。
+6. `Limits.HardCap = 0`（不交 manager 合成终态）**已在 M0 具备**；Seelex 执行体自带 30 分钟硬上限与 `exit=124/137` 注记，保持不动。
+
+> 这 6 条一旦就位，Seelex 侧只需把 `asyncRegistry` 的 `runs` 侧表缩到「进程树 / 取消口 / 命令原文 / Index / Notified」，其余读面直连 manager，即可实现**逐字节不变**的门面化。
+
 
 ## 附：锚点索引
 
