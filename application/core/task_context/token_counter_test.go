@@ -35,9 +35,13 @@ func TestContextBudgetFallsBackForLegacyRuntime(t *testing.T) {
 }
 
 // TestContextBudgetRatiosComeFromLimits：压缩预算比例是配置项（seelex.yaml
-// limits 段），不再是硬编码常量——调 context_soft_percent 必须改变软/硬/目标
-// 与单条外置阈值，且默认值只来自 seelexctx.DefaultLimits（窗口/8、95%、98%、80%、50%）。
+// limits 段），不再是硬编码常量——调 context_hard_percent 必须改变硬/目标与
+// 单条外置阈值，且默认值只来自 seelexctx.DefaultLimits（窗口/8、98%、80%、50%）。
 // 报表口径与判据口径必须来自同一份数字，这个用例把它钉死。
+//
+// 2026-09-30 起只剩一条线（取消软线提前量，见 context_runtime 的折叠判据）：
+// SoftThreshold 与 HardThreshold 同值——报告面因此不会出现"报表说已过软线、
+// 系统却没折"的口径分裂；limits.context_soft_percent 不再被消费（保留键兼容旧配置）。
 func TestContextBudgetRatiosComeFromLimits(t *testing.T) {
 	previous := limits.Get()
 	defer limits.Apply(previous)
@@ -47,8 +51,8 @@ func TestContextBudgetRatiosComeFromLimits(t *testing.T) {
 	if base.SafetyReserve != 25_000 || base.Budget != 166_808 {
 		t.Fatalf("默认预算基数 = %+v", base)
 	}
-	if base.SoftThreshold != 158_467 || base.HardThreshold != 163_471 {
-		t.Fatalf("默认软/硬阈值 = %+v", base)
+	if base.SoftThreshold != 163_471 || base.HardThreshold != 163_471 {
+		t.Fatalf("默认阈值（软并入硬，两条线同值）= %+v", base)
 	}
 	if base.TargetAfterCompaction != 133_446 || base.SingleItemInputLimit != 83_404 {
 		t.Fatalf("默认目标/单条外置阈值 = %+v", base)
@@ -67,7 +71,7 @@ func TestContextBudgetRatiosComeFromLimits(t *testing.T) {
 	}
 	budget := 200_000 - 8_192 - 50_000
 	if configured.Budget != budget ||
-		configured.SoftThreshold != budget*50/100 ||
+		configured.SoftThreshold != budget*80/100 ||
 		configured.HardThreshold != budget*80/100 ||
 		configured.TargetAfterCompaction != budget*40/100 ||
 		configured.SingleItemInputLimit != budget*25/100 {
@@ -77,7 +81,7 @@ func TestContextBudgetRatiosComeFromLimits(t *testing.T) {
 	// 非法比例（0/负/超 100）回退默认，不得把预算算成 0（那会让每轮都压缩）。
 	limits.Apply(seelexctx.Limits{ContextSoftPercent: 0, ContextHardPercent: 200})
 	fallback := ContextBudgetFor(runtimeWithContextLimits{window: 200_000, output: 8_192})
-	if fallback.SoftThreshold != 158_467 || fallback.HardThreshold != 163_471 {
+	if fallback.SoftThreshold != 163_471 || fallback.HardThreshold != 163_471 {
 		t.Fatalf("非法比例未回退默认: %+v", fallback)
 	}
 }

@@ -98,9 +98,11 @@ type CompactionDAGOptions struct {
 	SegmentPrefix string
 	// Summarizer 是前缀重放厚摘要器（nil → 恒本地折叠）。
 	Summarizer PrefixReplaySummarizer
-	// SummarizerNote 说明"摘要器为什么不可用"（开关关闭 / QuickChat 装配失败 /
-	// 摘要器构造失败）。它只在 Summarizer == nil 时被消费：nil 的三个出口此前
-	// 都不留痕，现场只剩一个 summary_source=local，读帧的人无从分辨是哪一种。
+	// SummarizerNote 说明"摘要器为什么不可用"：开关关闭 / QuickChat 装配失败 /
+	// 摘要器构造失败（装配层三种 nil 出口），以及**这条链路结构上不注入摘要器**
+	// （回合内控制器/节点控制器链路）。它只在 Summarizer == nil 时被消费：nil 的
+	// 各出口此前都不留痕，现场只剩一个 summary_source=local，读帧的人无从分辨是
+	// 哪一种——而"是配置没开、是装配失败、还是这条链路本来就不接"的处置完全不同。
 	SummarizerNote string
 	// SystemPrompt/Tools 是前缀重放字节素材提供者（与真实请求同源时才有
 	// 前缀命中价值；nil → 重放请求不带对应素材）。
@@ -339,7 +341,11 @@ func (d *CompactionDAG) chapter2Node(state *compactionDAGState) func(context.Con
 		case d.opts.Summarizer == nil:
 			note := strings.TrimSpace(d.opts.SummarizerNote)
 			if note == "" {
-				note = "摘要器未装配（开关关闭或 QuickChat 装配失败）"
+				// 默认措辞刻意不提"开关关闭或 QuickChat 装配失败"：那两种是
+				// **装配层**的 nil 出口，未装配这一层的调用方未必适用。把没验证
+				// 过的原因写成自答，读帧的人会去查一个并不存在的配置事故
+				// （2026-09-30 现场：控制器链路的结构性 nil 被答成了开关问题）。
+				note = "摘要器未装配（这条折叠链路没有注入摘要器，调用方未说明原因）"
 			}
 			state.degrade("no-summarizer", note)
 		case len(state.input.History) == 0:

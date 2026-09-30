@@ -293,6 +293,11 @@ func localCurrentWork(opts LocalFoldOptions) (string, CarryDiagnostics) {
 				builder.WriteString(renderUnitLine(unit.messages))
 			}
 		}
+		// "索引不含正文"这个事实必须与回读入口一起写出来（2026-09-30 判据 R1）：
+		// 模型看到这帧时唯一能依赖的就是"每轮首段预览 + 回读句柄"。把"这里没有
+		// 全文"说破，模型才知道何时该去 read_compressed_turn / search_history
+		// 取回细节，而不是把索引当全文、以为上下文只剩这些。
+		builder.WriteString("（以上为折叠索引：每轮只留首段预览，被折轮次正文不在本帧；完整原文经 read_compressed_turn / search_history 回读。）\n")
 	}
 	previous, carry := CarryPreviousChapter2(opts.PrevTop, opts.CarryLimitTokens)
 	if previous != "" {

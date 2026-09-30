@@ -91,10 +91,14 @@ type Limits struct {
 	// 硬上限，soft − target 是每次折叠留给下一轮的余量）。
 	// 取值超界（不在 [0,100]）在 LoadLimits 显式报错，不再静默回退默认值。
 	ContextSafetyReserveDivisor int `yaml:"context_safety_reserve_divisor"` // 安全预留除数（默认 8 → 窗口/8）
-	ContextSoftPercent          int `yaml:"context_soft_percent"`           // 软压缩线（占预算 %，默认 95）
-	ContextHardPercent          int `yaml:"context_hard_percent"`           // 硬阈值线（占预算 %，默认 98）
-	ContextTargetPercent        int `yaml:"context_target_percent"`         // 压缩后目标（占预算 %，默认 80）；同时是折叠后保留区/请求落点的硬上限（RetainDecision.TargetTokens），必须低于 soft 才有余量
-	ContextSingleItemPercent    int `yaml:"context_single_item_percent"`    // 单条输入外置阈值（占预算 %，默认 50）
+	ContextSoftPercent          int `yaml:"context_soft_percent"`           // 软压缩线（占预算 %，默认 95）。**2026-09-30 起已不参与判据**（取消软线
+	// 提前量：折叠改写请求前缀、provider 前缀缓存整段作废，折回来的余量不值得
+	// 每轮付这份代价）——装配层自动折叠的唯一阈值改由 context_hard_percent 给出，
+	// 报告面的 soft 与 hard 同源。键与下面的 soft<hard 校验保留只为兼容既有配置，
+	// 下一版一并摘除。
+	ContextHardPercent       int `yaml:"context_hard_percent"`        // 硬阈值线（占预算 %，默认 98）
+	ContextTargetPercent     int `yaml:"context_target_percent"`      // 压缩后目标（占预算 %，默认 80）；同时是折叠后保留区/请求落点的硬上限（RetainDecision.TargetTokens），必须低于 soft 才有余量
+	ContextSingleItemPercent int `yaml:"context_single_item_percent"` // 单条输入外置阈值（占预算 %，默认 50）
 	// ── 保留区下限与帧摘要传递上限（《压缩四区模型》边界判定 / 《待落地》1、2）──
 	// ContextRetainFloorPercent 是**保护区下限**（占预算 %）：
 	//   floor = max(最近 1 个完整协议单元, 该比例 × 预算)

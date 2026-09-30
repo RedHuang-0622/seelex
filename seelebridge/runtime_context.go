@@ -106,28 +106,19 @@ func (r *Runtime) nodeContextComponents() session.ContextComponents {
 }
 
 // nodeController 构造节点子代理会话的上下文控制器：压缩栈与主会话隔离
-// （子代理压缩帧不再写入主会话 SessionContextStore），窗口/预算仍按节点
-// 账号限额推导。节点级栈当前为内存态（运行期隔离优先；节点会话记录
-// 落盘承载恢复数据面）。
+// （子代理压缩帧不再写入主会话 SessionContextStore），归档上限与
+// processor / 装配层同源于 limits.MaxToolResultChars。
+//
+// 2026-09-30 起回合内不再折叠对话（见 seelexctx.Handle）：折叠是上下文压缩流程里
+// 产出元数据的一步，折完必须由模型按章节写出读后感，只有装配层做得到——它手里握着
+// 上一次真实请求的字节前序（system/History/Tools 与 wire 同源），前缀重放才换得来
+// 前缀缓存。节点链路拿到的 ev.History 是**装配前**的引擎工作历史，注入摘要器会付
+// 全价却拿不到缓存（设计 §9 风险 1），所以节点链路也不折帧：子代理的窗口越线同样
+// 交给装配层那条路径。
 func (r *Runtime) nodeController() seelectx.ContextController {
-	policy := seelexctx.NewContextWindowPolicy(r.ContextWindow(), r.MaxOutputTokens(), r.limits)
 	return seelexctx.NewContextController(seelexctx.ControllerOptions{
-		Policy:             policy,
-		Window:             r.windowPolicy(),
-		Budget:             runtimeBudgetProvider{runtime: r},
 		Stacks:             seelexctx.NewMemoryCompactStack(),
-		Turns:              r.getTurnArchiver(),
 		MaxToolResultChars: r.limits.MaxToolResultChars,
-		// 节点压缩帧 SegmentID 溯源到节点会话：与主会话栈隔离（2026-08-24 修复）。
-		SessionIDProvider: func() string { return "node" },
-		// 压缩 DAG：节点子代理也走 select_range → chapter1/2 → merge 的
-		// workplan 图（2026-09-06 压缩 DAG 详设 §4.6）。前缀重放摘要器
-		// 暂不注入（字节级装配出口未固化，见设计 §9 风险 1）→ 本地折叠。
-		Compaction: seelexctx.NewCompactionDAG(seelexctx.CompactionDAGOptions{
-			SessionIDProvider: func() string { return "node" },
-			FrameCarryTokens:  r.limits.ContextFrameCarryTokens, // limits.context_frame_carry_tokens
-			ReplayInputTokens: r.replayInputTokens(),
-		}),
 	})
 }
 
@@ -200,51 +191,20 @@ func (r *Runtime) seelexCompressor() seelectx.Compressor {
 	})
 }
 
-// seelexController 构造控制器：窗口策略来自 RuntimeConfig.WindowConfig
-// （DefaultWindowPolicy，plan.md §3.7.3），阈值预算的窗口/输出来自账号限额，
-// 比例与除数来自 limits 段（context_soft_percent / context_hard_percent /
-// context_target_percent / context_safety_reserve_divisor）。工具结果归档上限
-// 同源于 limits：processor、控制器、应用装配层因此只有一份生效值。
+// seelexController 构造控制器：回合内不折叠对话，只做超大工具结果的兜底归档。
+//
+// 2026-09-30 起折叠整条归装配层（application/core/context_runtime，见
+// MainCompactionDAG）：折叠是上下文压缩流程里产出元数据的一步，折完必须由模型按
+// 章节写出读后感；装配层在折叠那一刻手里握着上一次真实请求的三样原件（coordinator
+// 的 systemPrompt/existing/tools），而控制器只拿得到**装配前**的引擎工作历史
+// （seelectx.ContextEvent.History = ReActLoop.History()）——拿它当重放素材会付一次
+// 全价调用却换不来前缀缓存（设计 §9 风险 1），折出来的帧也因此没有读后感，模型只
+// 剩索引、还得 search_history 回读（2026-09-30 现场）。归档上限与 processor /
+// 装配层同源于 limits.MaxToolResultChars：全链路只有一份生效值。
 func (r *Runtime) seelexController() seelectx.ContextController {
-	policy := seelexctx.NewContextWindowPolicy(r.ContextWindow(), r.MaxOutputTokens(), r.limits)
 	return seelexctx.NewContextController(seelexctx.ControllerOptions{
-		Policy:             policy,
-		Window:             r.windowPolicy(),
-		Budget:             runtimeBudgetProvider{runtime: r},
 		Stacks:             runtimeCompactStacks{runtime: r, memory: seelexctx.NewMemoryCompactStack()},
-		Turns:              r.getTurnArchiver(),
 		MaxToolResultChars: r.limits.MaxToolResultChars,
-		// 帧摘要传递上限（limits.context_frame_carry_tokens）：本地折叠把上一栈顶
-		// 帧 Chapter 2 正文并入新帧时的并入量上限，超出退化为锚点。
-		FrameCarryTokens: r.limits.ContextFrameCarryTokens,
-		// 压缩帧 SegmentID 溯源到当前会话：每次压缩动态取值，会话切换后
-		// 仍指向正确会话（compact-<sessionID>-<ms>）。
-		SessionIDProvider: r.MainSessionID,
-		// 压缩 DAG（2026-09-06 详设 §4.6）：阈值/窗口/去重/归档不变，
-		// 帧生成改走 workplan 图。**控制器路径的 Summarizer 仍不注入**：
-		// 启用前提是字节级装配出口快照固化（system/History/Tools 与真实请求
-		// 同一条装配路径，见设计 §9 风险 1），而控制器拿到的 ev.History 是否
-		// 与 wire 同源尚未验证——贸然注入会付全价却拿不到前缀缓存。
-		// 装配层折叠（application/core/context_runtime，回合开始前那条路径）
-		// 已注入，因为它手里正好握着上一次真实请求的三样原件，见
-		// MainCompactionDAG。未注入时 Chapter 2 恒本地折叠。
-		Compaction: seelexctx.NewCompactionDAG(seelexctx.CompactionDAGOptions{
-			SessionIDProvider: r.MainSessionID,
-			SystemPrompt: func() string {
-				if store := r.sessionContextStore(); store != nil {
-					return store.SystemPrompt()
-				}
-				return ""
-			},
-			Tools: func() []types.Tool {
-				if r.agt == nil {
-					return nil
-				}
-				return r.agt.VisibleTools(context.Background())
-			},
-			FrameCarryTokens:  r.limits.ContextFrameCarryTokens, // limits.context_frame_carry_tokens
-			ReplayInputTokens: r.replayInputTokens(),
-		}),
 	})
 }
 

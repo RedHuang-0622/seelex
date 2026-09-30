@@ -7,7 +7,6 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/RedHuang-0622/Seele/seelectx"
 	frameworktypes "github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/sessionstore"
@@ -172,51 +171,5 @@ func TestCompactionDAGUsesUnitCountFromMessages(t *testing.T) {
 	}
 	if frame.From != 0 || frame.To != 2 {
 		t.Fatalf("frame range = [%d,%d], want [0,2]", frame.From, frame.To)
-	}
-}
-
-// TestControllerCompactionDAGIntegration 生产路径接线：控制器注入
-// CompactionDAG 后，Handle 压缩产出两章节 + 链锚字段的契约帧，投影历史
-// 与去重语义不变。
-func TestControllerCompactionDAGIntegration(t *testing.T) {
-	stacks := NewMemoryCompactStack()
-	dag := NewCompactionDAG(CompactionDAGOptions{SessionIDProvider: func() string { return "sess-dag-ctrl" }})
-	controller := &seelexContextController{
-		opts: ControllerOptions{
-			Policy:            NewContextWindowPolicy(100_000, 8_192, controllerTestLimits()),
-			Window:            fixedWindowPolicy{rounds: 3},
-			Tokens:            heavyTokenCounter{},
-			Stacks:            stacks,
-			SessionIDProvider: func() string { return "sess-dag-ctrl" },
-			Compaction:        dag,
-		},
-		lastCompactedTo: -1,
-	}
-	decision, err := controller.Handle(context.Background(), seelectx.ContextEvent{
-		Kind: seelectx.ContextAfterAssistant, Turn: 1, Query: "继续", History: roundHistory(10),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !decision.ReplaceHistory || len(decision.History) != 1+6 {
-		t.Fatalf("projected history length = %d, replace=%v", len(decision.History), decision.ReplaceHistory)
-	}
-	frames := stacks.Snapshot().CompactStack
-	if len(frames) != 1 || frames[0].To != 6 {
-		t.Fatalf("dag frames = %+v, want 1 frame To=6", frames)
-	}
-	frame := frames[0]
-	if frame.SummarySource != CompactSummarySourceLocal {
-		t.Fatalf("summary source = %q, want local", frame.SummarySource)
-	}
-	if !strings.Contains(frame.Summary, "## "+CompactChapter1Title) ||
-		!strings.Contains(frame.Summary, "## "+CompactChapter2Title) {
-		t.Fatalf("frame must be two-chapter:\n%s", frame.Summary)
-	}
-	if frame.RequestFrom != "chat-1" || frame.RequestTo != "chat-7" {
-		t.Fatalf("request labels = %q..%q", frame.RequestFrom, frame.RequestTo)
-	}
-	if frame.PrevSegmentID != "" {
-		t.Fatalf("first dag frame must not chain, got %q", frame.PrevSegmentID)
 	}
 }

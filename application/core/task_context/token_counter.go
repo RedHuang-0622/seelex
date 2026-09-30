@@ -189,8 +189,12 @@ func newContextBudget(window, outputReserve int) ContextBudget {
 	budget := window - outputReserve - safetyReserve
 	return ContextBudget{
 		Window: window, OutputReserve: outputReserve, SafetyReserve: safetyReserve,
-		Budget:                budget,
-		SoftThreshold:         percentOf(budget, settings.ContextSoftPercent, defaults.ContextSoftPercent),
+		Budget: budget,
+		// 2026-09-30 起自动折叠只剩一条线（取消软线提前量，见 context_runtime 的
+		// 折叠判据）：这里按**硬线**比例产出 SoftThreshold，报告面/进度面因此与判据
+		// 同源（软 == 硬 = 唯一那条线），不再出现"报表说已过软线、系统却没折"的
+		// 口径分裂。limits.context_soft_percent 自此不再被消费（保留键兼容旧配置）。
+		SoftThreshold:         percentOf(budget, settings.ContextHardPercent, defaults.ContextHardPercent),
 		HardThreshold:         percentOf(budget, settings.ContextHardPercent, defaults.ContextHardPercent),
 		TargetAfterCompaction: percentOf(budget, settings.ContextTargetPercent, defaults.ContextTargetPercent),
 		SingleItemInputLimit:  percentOf(budget, settings.ContextSingleItemPercent, defaults.ContextSingleItemPercent),

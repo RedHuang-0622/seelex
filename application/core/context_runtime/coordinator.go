@@ -573,17 +573,19 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 		requestOverhead = 0
 	}
 	// 折叠判据（三条，命中任一条即折叠）：
-	//	① 软阈值：rawTokens ≥ budget.SoftThreshold（自动路径的主判据）；
+	//	① 自动路径的唯一阈值：rawTokens ≥ budget.HardThreshold（2026-09-30 起取消
+	//	   软线提前量：折叠会改写请求前缀，provider 的前缀缓存整段作废，折回来的
+	//	   余量不值得付这份代价——只有真的逼近上限才折一次）；
 	//	② 硬阈值：all_context ≥ window.force_compact_tokens（必须压，不等比例）；
 	//	③ 显式路径：options.forceCompact（/compact、compact_context）——用户/模型
 	//	   明确要求现在就压缩时**不设阈值前提**（"还没到线"不是拒绝理由）。
-	fold := rawTokens >= budget.SoftThreshold || hardCompact || options.forceCompact
-	// ── 幂等/有效性校验（软线折叠）────────────────────────────────────────
+	fold := rawTokens >= budget.HardThreshold || hardCompact || options.forceCompact
+	// ── 幂等/有效性校验（自动路径折叠）────────────────────────────────────
 	//
 	// 折叠只裁 transcript 一侧，装配又把**整条请求**收口到保留窗口决策的落点上
 	// （见 fitExecutionHistory：target = retain.Retained 时判的是全量请求估算）。
 	// 于是「这次折叠之后请求能到哪」= retain.Retained + 固定开销，而上限是
-	// retain.Retained（装配保证 ≤ target）。落点不落在软线以下时，这次折叠换不来
+	// retain.Retained（装配保证 ≤ target）。落点不落到判据线以下时，这次折叠换不来
 	// 任何余量：下一轮达峰判据会以同一个数字再越线，于是**同一个会话每一轮都压
 	// 一次**——现场（2026-09-29 21:19~21:23，同一会话 3.5 分钟内落 3 条记录，
 	// 帧区间每次都从 message-1 起、`estimated_tokens` 贴着软线）。
@@ -596,7 +598,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	// 它们分别是"用户/模型现在就要求压"、"必须压"与"这次调用就是要折出 checkpoint"
 	// 的语义，跳过即违约。
 	ineffectiveFold := fold && !options.forceCompact && !options.maintenanceFold && !hardCompact &&
-		retain.Retained+requestOverhead >= budget.SoftThreshold
+		retain.Retained+requestOverhead >= budget.HardThreshold
 	// 自动路径按 progress epoch 节流（同一批进展只压一次）；显式路径与硬压缩
 	// 不受节流挡下（用户/模型明确要求时不接受"等下一批进展再说"，硬阈值必须压）。
 	//

@@ -13,7 +13,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/RedHuang-0622/Seele/seelectx"
+	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
 // 锁竞争门禁（pprof mutex + block profile）。
@@ -155,10 +155,9 @@ func contentionGatePureWorker(worker int) error {
 	return nil
 }
 
-// contentionGateSharedWorker 跑真实形状：每 worker 一个控制器/DAG，共用一把压缩栈锁。
+// contentionGateSharedWorker 跑真实形状：每 worker 一份折叠产物 + 一个 DAG，共用一把压缩栈锁。
 func contentionGateSharedWorker(worker int, shared CompactStackStore) error {
 	sessionID := fmt.Sprintf("sess-gate-%d", worker)
-	controller := newController(3, shared)
 	dag := NewCompactionDAG(CompactionDAGOptions{
 		SessionIDProvider: func() string { return sessionID },
 		Summarizer:        gateSummarizer{},
@@ -167,17 +166,22 @@ func contentionGateSharedWorker(worker int, shared CompactStackStore) error {
 	})
 	for iteration := 0; iteration < contentionGateIterations; iteration++ {
 		history := roundHistory(8)
-		if _, err := controller.Handle(context.Background(), seelectx.ContextEvent{
-			Kind: seelectx.ContextAfterAssistant, Turn: iteration, Query: "继续", History: history,
+		// 写共享压缩栈：2026-09-30 起回合内控制器不再折帧，写栈的只剩装配层折叠
+		// 路径——这里按它同一条契约（PushCompact）造真竞争。否则 B 臂的探针会
+		// 退化成"空集上的真命题"（本文件头注释警告的那件事）。
+		if err := shared.PushCompact(sessionstore.CompactFrame{
+			SegmentID: fmt.Sprintf("compact-%s-%d", sessionID, iteration),
+			From:      iteration,
+			To:        iteration + 1,
 		}); err != nil {
-			return fmt.Errorf("controller.Handle: %w", err)
+			return fmt.Errorf("shared.PushCompact: %w", err)
 		}
 		if _, err := dag.Execute(context.Background(), CompactionInput{
 			Messages: history, History: history, UnitCount: len(history),
 		}); err != nil {
 			return fmt.Errorf("dag.Execute: %w", err)
 		}
-		// 共享栈读写：真实形状是控制器写、真空区覆盖/报表读。
+		// 共享栈读写：折叠路径写帧、真空区覆盖/报表读。
 		_ = shared.Snapshot()
 	}
 	return nil

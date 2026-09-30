@@ -12,6 +12,25 @@ version when it lands.
 
 ## [Unreleased]
 
+### Changed
+
+- **Folding now happens only where a model-written reading note can follow it: the assembly layer, at
+  most once per turn, and only when the request is genuinely near the ceiling.** Folding is one step of
+  context compaction (it produces the metadata), not a self-contained action, and the step after it —
+  the model writing the chapter notes — needs the byte-exact prefix of the last real request, which only
+  the assembly path holds. The in-loop framework controller (`seelexctx`) is handed the *pre-assembly*
+  engine history, so the records it folded carried no notes at all: the model saw an index and had to
+  `search_history` / `read_compressed_turn` to recover the content, and rewriting the request prefix
+  invalidated the provider's cached prefix on every fold. That controller now performs exactly one
+  action — archiving oversized tool results as `result_ref`, unchanged — and its fold orchestration
+  (window derivation, frame building, `ReplaceHistory`, threshold checks) along with the nine
+  `ControllerOptions` injection points are gone. The automatic path also drops the soft line: a single
+  threshold (`context_hard_percent`) decides, so the prefix-cache miss is paid only when the request is
+  really about to hit the ceiling. Explicit entry points (`/compact`, `compact_context`) and manual
+  compression are unaffected. `limits.context_soft_percent` is no longer consumed (the key stays for
+  config compatibility, and the reported soft value now equals the hard one so the report and the
+  decision can no longer disagree).
+
 ### Added
 
 - **The commit log is now three levels deep: opening a commit shows the files it touched, and opening

@@ -60,34 +60,36 @@ limits:
   output_reserve_tokens: 512     # provider 输出预留 token（默认 512）
   # ── 上下文压缩预算（0 = 用默认值）───────────────────────────────
   # 预算 budget = context_window − output_reserve_tokens − context_window ÷ 安全除数；
-  # 下面各百分比都以 budget 为基数。各键的消费者**逐个列明**——"同一份值被两个触发层
-  # 消费"只对下面前三项成立，不能一概而论：
-  #   context_safety_reserve_divisor / context_soft_percent / context_hard_percent
-  #     → 两个触发层都消费：① 回合边界装配（application/core/task_context，每次发请求
-  #       前算一次）② 回合内框架控制器（seelexctx，每收一个工具结果 / 每闭合一轮判一次）
-  #   context_target_percent     → 折叠落点（两层同源算法）
-  #   context_single_item_percent → **只有装配层**消费（application/core/task_context 的
-  #       单条超大输入外置）；回合内控制器不读它
+  # 下面各百分比都以 budget 为基数。各键的消费者**逐个列明**：
+  #   context_safety_reserve_divisor / context_hard_percent
+  #     → 装配层消费（application/core/task_context，发请求前每次算一次）：请求估算
+  #       （与引擎缓存峰值取大）≥ budget×hard% 就折叠可变 transcript——这是自动路径
+  #       **唯一**的阈值；显式入口（/compact、compact_context）与 window.force_compact_tokens
+  #       不受它约束。
+  #   context_soft_percent → **2026-09-30 起不再被消费（取消软线提前量）**：折叠会改写
+  #       请求前缀，provider 的前缀缓存整段作废，折回来的余量不值得每轮付这份代价，
+  #       所以只在真的逼近上限时折一次。键保留只为兼容既有配置（报告面展示的 soft 与
+  #       hard 同源，不再出现"报表说已过软线、系统却没折"的口径分裂）；下一版连同
+  #       seelexctx.LoadLimits 的 soft<hard 校验一起摘除。
+  #   context_target_percent     → 折叠后落点（装配层保留窗口决策的硬上限）
+  #   context_single_item_percent → 装配层消费（单条超大输入外置）
   #   context_retain_floor_percent → 保留窗口下限（装配层决策 + main 启动期校验）
-  # 出厂档（本文件）= 10/95/98/65/50（2026-09-29 起）；代码内置兜底档仍是 8/95/98/80/50（2026-09-26 起
-  # 上调；旧 75/90 的保留窗口落点贴着软线，一轮的体积增长就重新越线——通知里
-  # 「上下文预算达峰 · 自动阈值」因此一轮对话压一次）。上调后只有请求真的逼近
-  # 预算上限才折叠（预算已先扣掉输出预留 + 安全预留，100% 的预算 ≠ 窗口上限，
-  # 所以 95/98 仍是安全网而非"关掉压缩"）。
-  # 约束：context_soft_percent 必须 < context_hard_percent —— 硬线是"装配后仍越线
-  # 就立刻自主折叠"的抢跑路径；软线高于硬线时自主折叠会每轮抢跑，反倒压得更勤。
-  # **2026-09-29 起这条约束由 seelexctx.LoadLimits 校验**（比的是补默认之后的生效
-  # 值，所以"只写 soft: 100"或"只把 hard 调到 90"都会被拒），配反了启动即报错。
+  # 回合内框架控制器（seelexctx）2026-09-30 起**不再折对话**：它只拿得到装配前的引擎
+  # 工作历史（system/项目/记忆/前缀栈/工具面都还没进去），折出来的帧没有读后感——而
+  # 折叠是"产出元数据 + 由模型按章节写读后感"这条流程里的一步，只有握着上一次真实请求
+  # 原件的装配层做得到。控制器现在只剩一个动作：超大工具结果的兜底归档。
+  # 出厂档（本文件）= 10/95/98/65/50；代码内置兜底档 = 8/95/98/80/50。软线已不参与
+  # 判据，两档都留着它，免得旧配置读回来"键没了"。
   #
   # 想"尽量不压"怎么办：这里**没有**自动压缩总开关（有意为之——压缩是"还能不能继续
-  # 说话"的安全网，不是可选优化）。可行的近似是把 soft/hard 调到很高（如 98/99 或
-  # 99/100）并把 window.force_compact_tokens 留 0（不启用硬压缩）；代价是请求会一直
-  # 贴着预算上限，而且在装不下时装配层会**直接拒绝发送**（estimated > budget →
+  # 说话"的安全网，不是可选优化）。可行的近似是把 context_hard_percent 调到很高
+  # （如 99/100）并把 window.force_compact_tokens 留 0（不启用硬压缩）；代价是请求会
+  # 一直贴着预算上限，而且在装不下时装配层会**直接拒绝发送**（estimated > budget →
   # ErrProviderContextBudgetExceeded），而不是把你想要的原文硬塞进去。
   context_safety_reserve_divisor: 10  # 安全预留 = 窗口 ÷ 该值。调小（如 4）→ 预留更多、预算更小、更早开始压缩
-  context_soft_percent: 95            # 软压缩线：请求估算到达 budget×95% 就折叠可变 transcript。调低 → 压得更早更频繁（省 token，代价是反复重压、provider 前缀缓存更容易失效）；调高 → 少压几轮，但离窗口上限更近
-  context_hard_percent: 98            # 硬阈值线：装配后的请求仍 ≥ budget×98% 时立刻自主折成有界 checkpoint 帧（不等软线的下一个纪元）。调低 → 更"绝不贴边发送"；调高 → 允许历史更满
-  context_target_percent: 65          # 压缩目标：折叠后把请求大小压回 budget×65% 附近（保留区硬上限），给下一轮留 soft − target = 30% 预算的确定余量（2026-09-29 由 80 上调余量：现场 session-48c05322bb9e6f1a 一轮增长 ~29k token 就重新越线，3.5 分钟内压 3 次）。与 soft 的差 = 每次压掉的量；两者相等或反超会导致每轮都重压（2026-09-29 起由装配层幂等/有效性校验兜住：落点够不到软线就不折）
+  context_soft_percent: 95            # 已不参与判据（2026-09-30 取消软线，见上）；保留键兼容旧配置
+  context_hard_percent: 98            # 自动折叠的唯一阈值：请求估算 ≥ budget×98% 就折叠可变 transcript。调低 → 更"绝不贴边发送"；调高 → 允许历史更满
+  context_target_percent: 65          # 压缩目标：折叠后把请求大小压回 budget×65% 附近（保留区硬上限），给下一轮留 hard − target = 33% 预算的确定余量。与 hard 的差 = 每次压掉的量；落点够不到判据线时装配层跳过这次折叠（幂等/有效性校验）
   context_single_item_percent: 50     # 单条输入外置阈值：一条输入超 budget×50% 就先归档为 result_ref，请求里只放引用
   # 保留区下限（占预算 %；0 = 未配置 → 下限只剩「至少 1 个完整协议单元」兜底）：
   # 保留区 = clamp(占比 × 全量, floor, retain_tokens)，floor = max(最近 1 个完整协议单元, 该比例 × 预算)。

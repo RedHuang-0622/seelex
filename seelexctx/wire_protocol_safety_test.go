@@ -238,30 +238,3 @@ func TestAssemblerSanitizesWorkingHistoryToolProtocol(t *testing.T) {
 		}
 	}
 }
-
-// TestControllerWindowProjectionKeepsProviderToolProtocol 复现现场那条链路：
-// 窗口投影保留窗口内的非单元消息（孤儿 tool 行）→ 投影后历史以 tool 行开头
-// → 控制器把它写回会话历史 → 下一次请求原样发往 provider → 400。
-func TestControllerWindowProjectionKeepsProviderToolProtocol(t *testing.T) {
-	controller := newController(1, NewMemoryCompactStack())
-	big := strings.Repeat("数据内容", 50)
-	history := []types.Message{
-		textMessage("user", "轮0-用户"+big),
-		textMessage("assistant", "轮0-回复"+big),
-		textMessage("user", "轮1-用户"+big),
-		textMessage("assistant", "轮1-回复"+big),
-		resultMessage("ghost", "read_file", "孤儿结果：落在溢出边界与窗口之间"),
-		textMessage("user", "轮2-用户"+big),
-		textMessage("assistant", "轮2-回复"+big),
-	}
-	decision, err := controller.Handle(context.Background(), seelectx.ContextEvent{
-		Kind: seelectx.ContextAfterAssistant, Turn: 1, Query: "", History: history,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !decision.ReplaceHistory {
-		t.Fatal("窗口溢出必须压缩并替换历史")
-	}
-	assertProviderToolProtocol(t, decision.History)
-}

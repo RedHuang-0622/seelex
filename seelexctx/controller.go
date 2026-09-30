@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/types"
@@ -180,99 +179,65 @@ func NewMemoryCompactStack() CompactStackStore {
 }
 
 // ControllerOptions 控制器的全部注入依赖。
+//
+// 折叠编排（窗口推导 / 压缩帧 / ReplaceHistory）已于 2026-09-30 整体移出控制器：
+// 折叠是上下文压缩流程里**产出元数据**的一步，折完必须由模型按章节写出读后感，
+// 只有装配层（application/core/context_runtime，下一轮开始前那次）做得到。
+// 控制器因此只剩一件事——超大工具结果的兜底归档，依赖也就是归档器与它的字符预算；
+// 原先的 Policy/Window/Tokens/Budget/Stacks/Turns/SessionIDProvider/Compaction/
+// FrameCarryTokens 九个注入项随折叠编排一并摘除，不留"留着但没人读"的配置面。
 type ControllerOptions struct {
-	Policy ContextWindowPolicy
-	Window WindowPolicy
-
-	// Tokens token 计数（nil → ConservativeTokenCounter）。
-	Tokens TokenCounter
-
-	// Budget provider 上下文窗口/最大输出（nil → 用 Policy.Window 且
-	// OutputReserve 归零，阈值仍可用）。
-	Budget BudgetProvider
-
-	// Archive 超大工具结果归档（nil → 内存归档）。
+	// Archive 超大工具结果归档（nil → 内存归档）。控制器只做兜底归档：
+	// 归档器按调用 ID 幂等，与 processor 共用同一份实现时不会重复入库。
 	Archive ToolResultArchiver
-
-	// Turns 压缩轮次原文归档（nil → 不持久化原文，压缩不可读回）。
-	// 归档后帧 Evidence 携带读回句柄（ref），模型可经 read_compressed_turn
-	// 工具读回原文——压缩丢失可逆。
-	Turns TurnArchiver
-
-	// Stacks 会话级压缩栈（nil → 内存态）。
-	Stacks CompactStackStore
-
-	// SessionIDProvider 提供当前会话 ID 用于压缩帧 SegmentID 溯源
-	// （每次压缩时动态取值，会话切换后仍溯源到正确会话；nil → 无前缀）。
-	SessionIDProvider func() string
-
-	// Compaction 压缩 DAG 执行器（docs/2026-09-06-compaction-dag/design.md
-	// §4；nil → 旧 buildCompactFrame 本地折叠路径）。注入后压缩走
-	// select_range → chapter1/chapter2 → merge 的 workplan 图，成功取帧；
-	// Chapter 2 失败由 DAG 内部回退本地折叠（详设 §4.5）。
-	Compaction *CompactionDAG
 
 	// MaxToolResultChars 超大工具结果判定（≤0 → seelex 生效默认
 	// DefaultToolResultLimit()，与 processor / application.core 同源）。
 	MaxToolResultChars int
 
-	// FrameCarryTokens 是帧摘要传递上限（limits.context_frame_carry_tokens；
-	// ≤0 → DefaultFrameCarryTokens）：本地折叠把上一栈顶帧的 Chapter 2 正文并入
-	// 新帧时的并入量上限，超出退化为锚点（见 CarryPreviousChapter2）。
-	FrameCarryTokens int
+	// Stacks 会话级压缩栈（nil → 内存态）。控制器自己不再折帧，但栈顶帧的
+	// From 是"溢出起点"的去重基准（见 chatUnits / compactedUnitBase）：
+	// 窗口外轮次的划分要接着上一次折叠的落点算，否则同一段内容会被反复计入
+	// 溢出区间。
+	Stacks CompactStackStore
 }
 
 // seelexContextController 实现 seelectx.ContextController。
 type seelexContextController struct {
 	opts ControllerOptions
-	mu   sync.Mutex
-	// lastCompactedTo 上次压缩帧的累计 To（ChatQueue 单元索引）：
-	// 本次帧 To 不大于它时说明无新溢出（去重基准是"是否有新溢出内容"，
-	// 而非溢出批次尺寸——同尺寸连续批次会跳过真实新溢出，见审计 R2）。
-	lastCompactedTo int
 }
 
 // NewContextController 构造 seelex 上下文控制器。
 func NewContextController(opts ControllerOptions) seelectx.ContextController {
-	if opts.Tokens == nil {
-		opts.Tokens = ConservativeTokenCounter{}
-	}
 	if opts.Archive == nil {
 		opts.Archive = NewInMemoryToolResultArchiver()
 	}
 	if opts.Stacks == nil {
 		opts.Stacks = &memoryCompactStack{}
 	}
-	// lastCompactedTo 初值 -1：首帧 To 可能为 0（溢出 1 单元），
-	// 不能与"从未压缩"的 0 初值混淆而被去重误杀。
-	return &seelexContextController{opts: opts, lastCompactedTo: -1}
+	return &seelexContextController{opts: opts}
 }
 
 // Handle 实现 seelectx.ContextController。
+//
+// 循环内不再折叠对话（2026-09-30 起，见包文档）：折叠是上下文压缩流程里**产出
+// 元数据**的一步，折完必须由模型按章节写出读后感；而这一步只有装配层做得到
+// ——它手里握着上一次真实请求的原件，能接着发起摘要调用。回合内控制器拿到的只有
+// 引擎工作历史（system/项目/记忆/前缀栈/工具面都还没进去），叫不动模型写读后感，
+// 折出来只能是"没有正文的薄记录"：模型看不到被折内容、要 search_history 回读，
+// 而且请求开头被改写，provider 的前缀缓存整段作废。窗口越线交给装配层在
+// 下一轮开始前处理（application/core/context_runtime）。
+//
+// 这里保留的动作只有一个：超大工具结果的兜底归档（processor 路径之外的保险；
+// 归档器按调用 ID 幂等）。归档不改变历史，只把原文外置成引用。
 func (c *seelexContextController) Handle(ctx context.Context, ev seelectx.ContextEvent) (seelectx.ContextDecision, error) {
-	switch ev.Kind {
-	case seelectx.ContextAfterTool:
-		if c.oversizedTool(ev.Tool) {
-			return c.hardThresholdPath(ctx, ev)
-		}
-		if c.softThresholdHit(ev) {
-			return c.compressWindowOutside(ctx, ev)
-		}
-	case seelectx.ContextAfterAssistant:
-		// 片段闭合（完整协议单元结束）→ 软阈值触发窗口外压缩。
-		if c.softThresholdHit(ev) {
-			return c.compressWindowOutside(ctx, ev)
-		}
+	if ev.Kind != seelectx.ContextAfterTool || !c.oversizedTool(ev.Tool) {
+		return seelectx.ContextDecision{}, nil
+	}
+	if _, err := c.opts.Archive.Store(ctx, ev.Tool.CallID, ev.Tool.Name, ev.Tool.Raw); err != nil {
+		return seelectx.ContextDecision{}, fmt.Errorf("seelexctx: archive oversized tool result %q: %w", ev.Tool.Name, err)
 	}
 	return seelectx.ContextDecision{}, nil
-}
-
-// ── 阈值与窗口 ────────────────────────────────────────────────────
-
-// softThresholdHit 按注入 token 计数估算当前请求 token，跨过软阈值即触发。
-func (c *seelexContextController) softThresholdHit(ev seelectx.ContextEvent) bool {
-	tokens := c.opts.Tokens.CountHistory(ev.History) + c.opts.Tokens.CountText(ev.Query)
-	return tokens >= c.policy().SoftThreshold()
 }
 
 // oversizedTool 判断事件携带的工具结果是否超大（带截断标记或超字符预算）。
@@ -290,344 +255,60 @@ func (c *seelexContextController) maxToolResultChars() int {
 	return DefaultToolResultLimit()
 }
 
-// frameCarryTokens 返回帧摘要传递上限（≤0 → DefaultFrameCarryTokens）。
-func (c *seelexContextController) frameCarryTokens() int {
-	if c.opts.FrameCarryTokens > 0 {
-		return c.opts.FrameCarryTokens
-	}
-	return DefaultFrameCarryTokens
-}
-
-// policy 返回生效的阈值策略（Budget 提供时用账号窗口/输出预留覆盖输入）。
-//
-// 覆盖只换 Window/OutputReserve 这两个账号输入，比例与除数沿用构造时注入的
-// limits 生效值：在这里重建一份策略会把配置丢掉、退回出厂默认，配置就只对着
-// 一个触发层生效（装配层跟着改、回合内控制器仍按 95% 等）。
-func (c *seelexContextController) policy() ContextWindowPolicy {
-	policy := c.opts.Policy
-	// 安全预留除数先归一：宿主手搓 ContextWindowPolicy 字面量时它可能是 0，而下面
-	// 三处都拿它做除数（缺了会在这里除零崩掉）。回退出厂除数（8）与构造入口
-	// NewContextWindowPolicy 的归一同一份来源。
-	divisor := policy.SafetyReserveDivisor
-	if divisor <= 0 {
-		divisor = DefaultLimits().ContextSafetyReserveDivisor
-		policy.SafetyReserveDivisor = divisor
-	}
-	if policy.Window <= 0 {
-		policy.Window = DefaultMaxTokens
-	}
-	if c.opts.Budget != nil {
-		if contextTokens := c.opts.Budget.ContextTokens(); contextTokens > 0 {
-			policy.Window = contextTokens
-			policy.OutputReserve = c.opts.Budget.MaxOutputTokens()
-			policy.SafetyReserve = contextTokens / divisor
-			if policy.SafetyReserve < 0 {
-				policy.SafetyReserve = 0
-			}
-		}
-	}
-	if policy.OutputReserve <= 0 {
-		policy.OutputReserve = policy.Window / divisor
-	}
-	// 下界防护：预算 = 窗口 − 输出预留 − 安全预留 ≤ 0 时，软阈值也跟着 ≤ 0，
-	// 「本轮 tokens ≥ 软阈值」恒真——每收到一个工具结果、每闭合一轮都折一次（症状是
-	// "一轮对话压一次"，而配置里看不出任何异常）。账号把输出预留配到吃掉整个窗口
-	// （output_reserve + window/除数 ≥ window）就是这条路径，2026-09-29 用
-	// NewContextWindowPolicy(1_000, 1_000, DefaultLimits()) 复现：budget=-125、
-	// soft=-118。装配层有同名防护（task_context.ContextBudgetFor 遇非法组合回退默认
-	// 预算），这里做同一件事：保住窗口，把输出预留与安全预留收敛到窗口 ÷ 安全除数
-	// （出厂默认的相对关系），使预算恒为正。上游账号校验可能也拦这一组合，但规则不在
-	// 本仓，不能拿"别处可能拦住"当本地不防护的理由。
-	if policy.OutputReserve+policy.SafetyReserve >= policy.Window {
-		policy.OutputReserve = policy.Window / divisor
-		policy.SafetyReserve = policy.Window / divisor
-	}
-	return policy
-}
-
-// windowRounds 经 WindowPolicy 推导当前窗口 N；输入缺失时保守回退
-// MinRounds（WindowRounds 返回的 n 已是回退值，错误供审计）。
-func (c *seelexContextController) windowRounds(ctx context.Context, history []types.Message) int {
-	if c.opts.Window == nil {
-		return defaultMinRounds
-	}
-	units := c.chatUnits(history)
-	info := c.windowInfo(units)
-	n, err := c.opts.Window.WindowRounds(ctx, info)
-	if err != nil {
-		return n // 策略已保守回退 MinRounds
-	}
-	return n
-}
-
-// shrinkWindowRounds 硬阈值路径的窗口收缩：以硬阈值预算为 ContextTokens
-// 重推导 N（WindowPolicy clamp 保证不低于 MinRounds）。
-func (c *seelexContextController) shrinkWindowRounds(ctx context.Context, history []types.Message) int {
-	if c.opts.Window == nil {
-		return defaultMinRounds
-	}
-	units := c.chatUnits(history)
-	info := c.windowInfo(units)
-	info.ContextTokens = c.policy().HardThreshold()
-	n, err := c.opts.Window.WindowRounds(ctx, info)
-	if err != nil {
-		return n
-	}
-	return n
-}
-
-// defaultMinRounds 是 WindowPolicy 缺省时的保守回退（与 DefaultWindowConfig
-// 的 min_rounds 一致；配置策略注入后由策略决定）。
-const defaultMinRounds = 4
-
-func (c *seelexContextController) windowInfo(units []historyUnit) ProviderContextInfo {
-	policy := c.policy()
-	return ProviderContextInfo{
-		ContextTokens:  policy.Window,
-		AvgRoundTokens: c.avgRoundTokens(units),
-		ReservedTokens: policy.Reserved(),
-		ConfigRounds:   policy.ConfigRounds,
-	}
-}
-
-// avgRoundTokens 按最近完整单元估算每轮 token（双限：非零且有界）。
-func (c *seelexContextController) avgRoundTokens(units []historyUnit) int {
-	for index := len(units) - 1; index >= 0; index-- {
-		unitTokens := c.opts.Tokens.CountHistory(units[index].messages)
-		if unitTokens > 0 {
-			return unitTokens
-		}
-	}
-	return 1
-}
-
-// ── 硬阈值路径 ────────────────────────────────────────────────────
-
-// hardThresholdPath：先归档超大工具输出为 result_ref（processor 路径之外
-// 兜底；归档器按调用 ID 幂等），仍超限才收缩窗口（不低于 MinRounds），
-// 新移出窗口的轮次进入压缩。
-func (c *seelexContextController) hardThresholdPath(ctx context.Context, ev seelectx.ContextEvent) (seelectx.ContextDecision, error) {
-	if ev.Tool != nil && c.oversizedTool(ev.Tool) {
-		if _, err := c.opts.Archive.Store(ctx, ev.Tool.CallID, ev.Tool.Name, ev.Tool.Raw); err != nil {
-			return seelectx.ContextDecision{}, fmt.Errorf("seelexctx: archive oversized tool result %q: %w", ev.Tool.Name, err)
-		}
-	}
-	n := c.shrinkWindowRounds(ctx, ev.History)
-	return c.compressWindowOutsideWith(ctx, ev, n)
-}
-
-// ── 窗口外压缩（plan.md §3.7.4）────────────────────────────────────
-
-// compressWindowOutside 以当前窗口 N 压缩窗口外轮次。
-func (c *seelexContextController) compressWindowOutside(ctx context.Context, ev seelectx.ContextEvent) (seelectx.ContextDecision, error) {
-	n := c.windowRounds(ctx, ev.History)
-	return c.compressWindowOutsideWith(ctx, ev, n)
-}
-
-// compressWindowOutsideWith 只压缩窗口外轮次（窗口内原样保留）；新溢出帧
-// 合并上一栈顶帧（栈顶自足）后 push CompactStack。
-func (c *seelexContextController) compressWindowOutsideWith(ctx context.Context, ev seelectx.ContextEvent, n int) (seelectx.ContextDecision, error) {
-	if n <= 0 {
-		return seelectx.ContextDecision{}, nil
-	}
-	units := c.chatUnits(ev.History)
-	if len(units) <= n {
-		return seelectx.ContextDecision{}, nil
-	}
-	overflow := units[:len(units)-n]
-	c.mu.Lock()
-	lastCompactedTo := c.lastCompactedTo
-	c.mu.Unlock()
-	// 去重基准 = 累计边界（帧 To 单调递增的 ChatQueue 单元索引）：
-	// 本次帧没有覆盖到上次压缩点之后的任何新单元 → 无新溢出。
-	// 提前检查（用同一累计公式预测 To）：无新溢出时不执行压缩 DAG，
-	// 避免无谓的前缀重放模型调用（详设 §4.6 去重语义不变）。
-	predictedTo := c.predictedFrameTo(overflow)
-	if predictedTo <= lastCompactedTo {
-		return seelectx.ContextDecision{}, nil
-	}
-	frame, err := c.buildCompactionFrame(ctx, overflow, ev)
-	if err != nil {
-		return seelectx.ContextDecision{}, fmt.Errorf("seelexctx: build compact frame: %w", err)
-	}
-	// 后置去重（并发/快照漂移兜底）：build 后上次压缩点可能已前进，帧没有
-	// 覆盖任何新溢出内容 → 跳过，保持旧路径的原子语义。
-	c.mu.Lock()
-	lastCompactedTo = c.lastCompactedTo
-	c.mu.Unlock()
-	if frame.To <= lastCompactedTo {
-		return seelectx.ContextDecision{}, nil
-	}
-	// 原文归档（可选注入）：溢出轮次原文持久化，帧 Evidence 携带读回
-	// 句柄，Summary 提示 read_compressed_turn —— 压缩丢失可逆。
-	if c.opts.Turns != nil {
-		ref, err := c.opts.Turns.StoreTurn(ctx, frame.SegmentID, overflowMessages(overflow))
-		if err != nil {
-			return seelectx.ContextDecision{}, fmt.Errorf("seelexctx: archive compressed turns: %w", err)
-		}
-		frame.Evidence = append(frame.Evidence, sessionstore.EvidenceRef{
-			Ref:     ref,
-			Summary: "compressed turns original (read_compressed_turn)",
-		})
-		frame.Summary += fmt.Sprintf("\n已压缩轮次原文可经 read_compressed_turn(segment_id=%s) 读回", frame.SegmentID)
-	}
-	if err := c.opts.Stacks.PushCompact(frame); err != nil {
-		return seelectx.ContextDecision{}, fmt.Errorf("seelexctx: push compact frame: %w", err)
-	}
-
-	projected := projectHistory(ev.History, units, n)
-	// ReplaceHistory 前：history_safety 配对修复 + checkpoint/旧压缩帧清理
-	//（只作用于保留的窗口消息；新压缩帧在修复后前置，不受清理影响）。
-	projected = PrepareReplaceHistory(projected)
-	projected = append([]types.Message{compactFrameMessage(frame)}, projected...)
-
-	c.mu.Lock()
-	c.lastCompactedTo = frame.To
-	c.mu.Unlock()
-	return seelectx.ContextDecision{ReplaceHistory: true, History: projected}, nil
-}
-
-// predictedFrameTo 预测新帧 To = 末个被压单元的**已记录区号**（单元自带
-// ordinal，见 chatUnits/compactedUnitBase）；不再用 len(overflow) 推算终点。
-func (c *seelexContextController) predictedFrameTo(overflow []historyUnit) int {
-	if len(overflow) == 0 {
-		return -1
-	}
-	return overflow[len(overflow)-1].ordinal
-}
-
-// buildCompactionFrame 生成压缩帧：注入 CompactionDAG 时走 workplan 图
-// （成功取帧，失败逐级兜底），否则用本地 buildCompactFrame（兼容旧调用方
-// 与测试）。两者都产出带链锚字段/request 索引的契约帧。
-func (c *seelexContextController) buildCompactionFrame(
-	ctx context.Context,
-	overflow []historyUnit,
-	ev seelectx.ContextEvent,
-) (sessionstore.CompactFrame, error) {
-	if c.opts.Compaction != nil {
-		input := CompactionInput{
-			Record:   c.opts.Stacks.Snapshot(),
-			Messages: overflowMessages(overflow),
-			History:  ev.History,
-			Kind:     CompactFoldOverflow,
-		}
-		return c.opts.Compaction.Execute(ctx, input)
-	}
-	return c.buildCompactFrame(overflow)
-}
-
-// buildCompactFrame 构造压缩帧：Summary 合并上一栈顶帧与当前溢出内容
-// （栈顶自足 = 该时刻窗口外全部轮次的综合摘要）。
-//
-// From/To 语义：区间**记录**自被压单元自身的区号（historyUnit.ordinal，
-// 由 chatUnits 以已记录帧边界为基准编号），不再用 len(overflow) /
-// prevTop.To+len(overflow) 推算终点——窗口外单元不保证从 0 连续
-// （投影、覆盖缺口、冷恢复），推算值与事实会漂移。合并帧的 From 沿用
-// 已记录的前帧起点（综合摘要覆盖从 From 到 To 的连续段），To 取末个被压
-// 单元的区号。消费方（覆盖账簿/UI/fork）因此可把帧映射回持久化 ChatQueue。
-func (c *seelexContextController) buildCompactFrame(overflow []historyUnit) (sessionstore.CompactFrame, error) {
-	record := c.opts.Stacks.Snapshot()
-	var prevTop *sessionstore.CompactFrame
-	if len(record.CompactStack) > 0 {
-		top := record.CompactStack[len(record.CompactStack)-1]
-		prevTop = &top
-	}
-	segmentID := fmt.Sprintf("compact-%d", time.Now().UnixMilli())
-	if c.opts.SessionIDProvider != nil {
-		if sessionID := c.opts.SessionIDProvider(); sessionID != "" {
-			segmentID = fmt.Sprintf("compact-%s-%d", sessionID, time.Now().UnixMilli())
-		}
-	}
-	to := -1
-	from := 0
-	if len(overflow) > 0 {
-		from = overflow[0].ordinal
-		to = overflow[len(overflow)-1].ordinal
-	}
-	if prevTop != nil {
-		from = prevTop.From
-	}
-	requestFrom, requestTo := ChatQueueRequestLabels(from, to)
-	summary, carry := c.summarizeOverflow(overflow, prevTop, record)
-	frame := sessionstore.CompactFrame{
-		SegmentID:     segmentID,
-		From:          from,
-		To:            to,
-		RequestFrom:   requestFrom,
-		RequestTo:     requestTo,
-		Summary:       RenderFrameSummary(RenderAnchorChapter(prevTop), summary),
-		SummarySource: CompactSummarySourceLocal,
-		AnchorSource:  AnchorSourceWithCarry(FrameAnchorSource(prevTop), carry),
-		Evidence:      append(overflowEvidence(overflow, record), CarryEvidence(carry)...),
-		CompressedAt:  time.Now(),
-	}
-	if prevTop != nil {
-		// 链锚点：只指向前驱（SegmentID/request/一句话），不复制前驱全文。
-		frame.PrevSegmentID = prevTop.SegmentID
-		frame.PrevRequestFrom = prevTop.RequestFrom
-		frame.PrevRequestTo = prevTop.RequestTo
-		frame.PrevSummaryOneLine = OneLineSummary(*prevTop)
-	}
-	return frame, nil
-}
-
-// summarizeOverflow 生成综合摘要：栈帧的 goal/plan/evidence（片段闭合压缩
-// 保留目标/计划/证据）+ 上一栈顶摘要 + 溢出轮次代表性内容。第二个返回值是
-// 「上一帧正文并入」的决策事实（帧摘要传递上限，见 CarryPreviousChapter2）。
-func (c *seelexContextController) summarizeOverflow(overflow []historyUnit, prevTop *sessionstore.CompactFrame, record sessionstore.SessionContextRecord) (string, CarryDiagnostics) {
-	var builder strings.Builder
-	if len(record.TaskStack) > 0 {
-		top := record.TaskStack[len(record.TaskStack)-1]
-		builder.WriteString("任务目标: ")
-		builder.WriteString(top.Objective)
-		builder.WriteByte('\n')
-	}
-	if len(record.PlanStack) > 0 {
-		top := record.PlanStack[len(record.PlanStack)-1]
-		builder.WriteString("计划: ")
-		builder.WriteString(top.Title)
-		builder.WriteString(" (")
-		builder.WriteString(top.Status)
-		builder.WriteString(")\n")
-	}
-	previous, carry := CarryPreviousChapter2(prevTop, c.frameCarryTokens())
-	if previous != "" {
-		builder.WriteString("先前压缩摘要: ")
-		builder.WriteString(previous)
-		builder.WriteByte('\n')
-	}
-	builder.WriteString("本轮溢出轮次: ")
-	builder.WriteString(fmt.Sprintf("%d 个完整协议单元", len(overflow)))
-	builder.WriteByte('\n')
-	for _, unit := range overflow {
-		builder.WriteString(renderUnitLine(unit.messages))
-	}
-	return strings.TrimSpace(builder.String()), carry
-}
-
 // renderUnitLine 渲染一个单元的单行摘要（用户输入前 80 字符 + 工具名）。
+// maxUnitPreviewRunes 是轮次行预览的 rune 上限：本地折叠是**索引**，每轮只留
+// 一眼可辨的首段正文（用户问题与助手答复各一行），完整原文经 read_compressed_turn
+// / search_history 回读。
+//
+// 按 rune 而不是 byte 截断：被折正文以中文为主，按 byte 切会在多字节字符中间断开
+// （预览里出现半个汉字），截断点还随内容语言漂移——同一段内容换个措辞就变长短。
+// 80 与旧口径一致（原 user 行就是"前 80 字符"）。
+const maxUnitPreviewRunes = 80
+
+// renderUnitLine 渲染一个单元的可读索引行：用户输入与助手答复各取首段预览
+// （rune 上限 maxUnitPreviewRunes），工具只出调用名/工具名。
+//
+// 助手侧正文此前**完全不进帧**（只出工具调用名），于是被折轮次在模型可见面上
+// 只剩"某人问了什么"，回答了什么一个字都没有——本地折叠的 Chapter 2 是模型唯一
+// 能看到的被折内容（assembler 只渲染栈顶帧 Chapter 2），压缩因此变成"折叠掉上下文"
+// 而不是"总结上下文"（2026-09-30 重启恢复现场：重启后模型对早先对话只剩索引）。
+// 把助手答复的首段一并留下，折叠产物才既有定位（索引）又有内容（可读首段）。
+//
+// 这条渲染路径现在只剩装配层的降级分支在用（摘要器不可用时 chapter2Node 落本地
+// 折叠）：回合内控制器已不折帧（2026-09-30），但"折出来的东西必须让人和模型看得见
+// 内容"这条要求不变。
 func renderUnitLine(unit []types.Message) string {
 	var builder strings.Builder
+	appendPreview := func(label, content string) {
+		content = strings.TrimSpace(content)
+		if content == "" {
+			return
+		}
+		builder.WriteString(label)
+		builder.WriteString(truncateRunes(content, maxUnitPreviewRunes))
+		builder.WriteByte('\n')
+	}
 	for _, message := range unit {
-		switch {
-		case message.Role == "user" && message.Content != nil:
-			content := *message.Content
-			if len(content) > 80 {
-				content = content[:80] + "..."
+		switch message.Role {
+		case "user":
+			if message.Content != nil {
+				appendPreview("- 用户: ", *message.Content)
 			}
-			builder.WriteString("- 用户: ")
-			builder.WriteString(content)
-			builder.WriteByte('\n')
-		case message.Role == "assistant":
+		case "assistant":
+			if message.Content != nil {
+				appendPreview("- 助手: ", *message.Content)
+			}
 			for _, call := range message.ToolCalls {
 				builder.WriteString("- 工具调用: ")
 				builder.WriteString(call.Function.Name)
 				builder.WriteByte('\n')
 			}
-		case message.Role == "tool" && message.Name != "":
-			builder.WriteString("- 工具结果: ")
-			builder.WriteString(message.Name)
-			builder.WriteByte('\n')
+		case "tool":
+			if message.Name != "" {
+				builder.WriteString("- 工具结果: ")
+				builder.WriteString(message.Name)
+				builder.WriteByte('\n')
+			}
 		}
 	}
 	return builder.String()
@@ -649,31 +330,6 @@ func overflowEvidence(overflow []historyUnit, record sessionstore.SessionContext
 	}
 	return evidence
 }
-
-// projectHistory 投影历史：从最后一个溢出单元的结束处起保留
-// （= 溢出区与窗口之间的非单元消息（不完整工具链/孤儿）随窗口保留，
-// 不再静默丢弃，见审计 R3）+ 窗口内完整单元及其后的未闭合尾部。
-// 压缩帧块由调用方前置。
-func projectHistory(history []types.Message, units []historyUnit, n int) []types.Message {
-	projected := make([]types.Message, 0, len(history))
-	if len(units) > n {
-		overflowLastEnd := units[len(units)-n-1].end
-		projected = append(projected, history[overflowLastEnd:]...)
-	}
-	return projected
-}
-
-// compactFrameMessage 把压缩帧渲染为 working history 中的块消息。
-// 只携带 marker + 帧定位（segment/From/To）——摘要正文由 Assembler 的
-// 栈顶 compact 块渲染（RenderStackBlocks），避免同一摘要双重投喂
-// （审计 R5）；帧块消息本身可被下次压缩的 removeContextMarkers 清理。
-func compactFrameMessage(frame sessionstore.CompactFrame) types.Message {
-	location := fmt.Sprintf("segment=%s from=%d to=%d", frame.SegmentID, frame.From, frame.To)
-	content := compactContextMarker + " " + location
-	return types.Message{Role: "user", Content: &content}
-}
-
-// ── 轮次单元切分（对齐 sessionstore completeEventUnits 语义）────────
 
 // historyUnit 是历史中的一个完整协议单元（轮），start/end 为原始历史
 // 的半开消息索引（用于投影时保留窗口内消息）。
@@ -733,6 +389,19 @@ func chatUnits(history []types.Message, baseOrdinal int) []historyUnit {
 // chatUnits 方法版：区号基准取已记录帧边界的下一个区号（见 compactedUnitBase）。
 func (c *seelexContextController) chatUnits(history []types.Message) []historyUnit {
 	return chatUnits(history, c.compactedUnitBase())
+}
+
+// overflowMessages 展平溢出单元的消息（保留原始顺序；单元内消息不重复）。
+func overflowMessages(overflow []historyUnit) []types.Message {
+	total := 0
+	for _, unit := range overflow {
+		total += len(unit.messages)
+	}
+	messages := make([]types.Message, 0, total)
+	for _, unit := range overflow {
+		messages = append(messages, unit.messages...)
+	}
+	return messages
 }
 
 // compactedUnitBase 返回累计单元区号基准 = 已被压缩帧覆盖的单元数（栈顶
@@ -812,17 +481,4 @@ func toolChainUnit(history []types.Message, start int) (historyUnit, int, bool) 
 		index++
 	}
 	return unit, index, len(seen) == len(wanted)
-}
-
-// overflowMessages 展平溢出单元的消息（保留原始顺序；单元内消息不重复）。
-func overflowMessages(overflow []historyUnit) []types.Message {
-	total := 0
-	for _, unit := range overflow {
-		total += len(unit.messages)
-	}
-	messages := make([]types.Message, 0, total)
-	for _, unit := range overflow {
-		messages = append(messages, unit.messages...)
-	}
-	return messages
 }
