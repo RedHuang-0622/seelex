@@ -254,6 +254,9 @@ func (r *Runtime) RegisterBuiltins() {
 	// SEELEX_COMPUTER_USE 可整体关闭；图片走会话媒体分区 + 随图队列，
 	// 权限仍由 seele.yaml 的 permission.rules 逐次把关。
 	r.registerComputerTools()
+	// teamwork leader 六件套 + jobs_manage：仅在注入了 teamwork backend 时注册
+	// （未装配 = 不摆出一族永远报错的工具）。
+	r.registerTeamworkTools()
 	r.scopedToolsReady = true
 	// plan 工具（seelex-workplan provider）：plan_load/plan_clear/plan_validate/
 	// plan_status/plan_export；plan_run 的执行内核在 seele-v2 slice 4 迁移后恢复。

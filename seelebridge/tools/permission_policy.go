@@ -121,6 +121,9 @@ func DefaultPermissionGroupList() []toolspermission.PermissionGroup {
 				// 放 CTL 会让 sub/员工断位，它们自己派发的后台作业就谁也取不回、杀不掉；
 				// 真正的门是 handler 里的"句柄必须属于本会话"。
 				"bash_bg", "job_manage",
+				// jobs_manage 是 Seele jobs 的**通用管理工具**（observe/fetch/kill/done），
+				// 与 bash_bg/job_manage 同组：它管的正是作业面的执行体（含 teammate 作业）。
+				"jobs_manage",
 				"todo_init", "todo_add", "todo_done",
 				"todolist_init", "todolist_add", "todolist_done",
 				"task_add", "taskadd",
@@ -155,6 +158,10 @@ func DefaultPermissionGroupList() []toolspermission.PermissionGroup {
 				// goal 栈是主代理的治理状态：policy.go 对子代理整族不可见，
 				// 因此跟着 ctl 一起断位（比设计稿 §3.2 的 rw 更贴合现有口径）。
 				"goal_begin", "goal_update", "goal_propose_finish",
+				// teamwork leader 编排面：改的是"团队顺序与作业"这条循环控制流，
+				// 与 fork_subagents/plan_* 同族——sub/员工断位（teammate 不该编排
+				// 团队），主代理（root）默认 allow。
+				"team_plan", "team_dispatch", "team_join", "team_milestone", "team_retire",
 			},
 		},
 		{

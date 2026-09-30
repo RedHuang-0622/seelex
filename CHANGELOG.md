@@ -33,6 +33,25 @@ version when it lands.
 
 ### Added
 
+- **The leader's team now has a real tool face, and a teammate cannot fork subagents — not by a
+  switch, but because the tool is not in its face at all.** The leader/worker architecture left the
+  orchestration semantics implemented but unreachable; this batch connects them. The five leader tools
+  (`team_plan`, `team_dispatch`, `team_join`, `team_milestone`, `team_retire`) are registered on the
+  runtime, routed in the permission group table (`team_*` in the control cluster, so a teammate or
+  subagent cannot orchestrate the team), and backed by the framework's generic `jobs_manage`; the plan
+  and audit facts persist through `moduleTeamwork`, with the session scope key resolved from
+  session → project exactly as the execution-event store resolves it. The execution body, the
+  workspace and the session reset are ports the runtime implements: the worker runs one bounded round
+  in its role session under the `emp_<role>` subject, `team_retire` releases the git worktree (a dirty
+  tree is an explicit error, never a silent discard) and clears the role session's contents, and the
+  list of tools a teammate simply does not have is enforced by a wrapper around the framework agent
+  (`teammateToolFace`), so `fork_subagents` is absent from `VisibleTools` and refused at `Dispatch` —
+  independent of whether subject resolution happens to identify the employee. The reason is not
+  defense in depth for its own sake: a teammate that could fork would bypass the teammate ceiling and
+  spawn grandchild worktrees whose lifetime nobody can account for, so the correct way to get
+  parallelism is for the leader to dispatch more teammates. A new `$teamwork` skill carries the
+  prompt side, so the whole flow is drivable from the prompt.
+
 - **The asynchronous job face is now a framework capability, not a Seelex-only prototype.** Seelex's
   job contract (`bash_bg` / `read_batch` / `job_manage` sharing one table and one state machine) proved
   that "one long-running task" wants to be a first-class object; the *generic* half of it now lives in

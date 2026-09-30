@@ -75,7 +75,10 @@ type TeamworkMember struct {
 	Role          string         `json:"role"`
 	RoleSessionID string         `json:"role_session_id"`
 	Worktree      string         `json:"worktree,omitempty"`
-	Permission    map[string]int `json:"permission_groups,omitempty"`
+	// ToolsPolicy 是权责档（readonly / readwrite / inherit）；与 Permission 的
+	// 关系同 dto.RoleSpec：显式 Permission 非空则以格子为准，档位只用于选分支。
+	ToolsPolicy string         `json:"tools_policy,omitempty"`
+	Permission  map[string]int `json:"permission_groups,omitempty"`
 }
 
 // TeamworkMilestone 是 leader 声明的里程碑（内容由 leader 撰写，见 §4.5）。
@@ -127,6 +130,22 @@ type TeamworkRepository interface {
 func Teamwork(repository Repository) (TeamworkRepository, bool) {
 	teamwork, ok := repository.(TeamworkRepository)
 	return teamwork, ok
+}
+
+// TeamworkFor 返回**当前活跃后端**的 teamwork 读/写面（JSON 后端实现它；其他后端
+// 返回 false）。组合根据此把 moduleTeamwork 装配进 leader 编排面——它不需要知道
+// 后端是怎么被选出来的，只问"当前后端给不给这个能力"。
+func (router *Router) TeamworkFor() (TeamworkRepository, bool) {
+	if router == nil {
+		return nil, false
+	}
+	var repository TeamworkRepository
+	var ok bool
+	_ = router.withRepository(func(current Repository, _ string) error {
+		repository, ok = Teamwork(current)
+		return nil
+	})
+	return repository, ok
 }
 
 // teamworkDir 返回 teamwork 模块的数据目录。

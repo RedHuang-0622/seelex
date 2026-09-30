@@ -31,6 +31,8 @@ var permissionToolNames = []string{
 	"write_file", "edit_file", "bash",
 	"todo_init", "todo_add", "todo_done", "todolist_init", "todolist_add", "todolist_done",
 	"task_add", "taskadd", "project_refresh", "plugin_create", "skill_create",
+	// jobs_manage：Seele jobs 通用管理工具（与 bash_bg/job_manage 同组）
+	"jobs_manage",
 	// rw 写簇（会话工作台）
 	"compact_context",
 	// rw 写簇（共享外设）
@@ -40,6 +42,8 @@ var permissionToolNames = []string{
 	"task_complete", "task_failed", "task_needs_user_decision", "task_check_node",
 	"ask_approve", "fork_subagents", "plan_load", "plan_clear", "plan_run",
 	"goal_begin", "goal_update", "goal_propose_finish",
+	// teamwork leader 编排面（ctl 簇）
+	"team_plan", "team_dispatch", "team_join", "team_milestone", "team_retire",
 	// adm 属主簇
 	"switch_plugin", "switch_mode", "skill_activate", "plugins_reload", "mcp_create", "mcp_load",
 }
@@ -101,6 +105,8 @@ func TestMainAgentToolDecisions(t *testing.T) {
 		"task_check_node": true, "ask_approve": true, "fork_subagents": true,
 		"plan_load": true, "plan_clear": true, "plan_run": true,
 		"goal_begin": true, "goal_update": true, "goal_propose_finish": true,
+		"jobs_manage": true,
+		"team_plan":   true, "team_dispatch": true, "team_join": true, "team_milestone": true, "team_retire": true,
 	}
 	ask := map[string]bool{
 		"write_file": true, "edit_file": true, "plugin_create": true, "skill_create": true,

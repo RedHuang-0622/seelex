@@ -55,13 +55,22 @@ type PlanStore interface {
 // （jobs.Spec.Payload）与执行体入参——只有一份定义，就不会出现"派发时带了、
 // 执行时丢了"的静默降级。
 type WorkerRequest struct {
+	// MainSessionID 是派发它的主会话（leader 会话）：worker 的项目根与权限归属
+	// 都挂在它上面；作业会活过派发它的那一轮，所以必须随载荷带过来，不能指望
+	// 执行体的 ctx 里还有主会话（那是作业自己的 ctx）。
+	MainSessionID string `json:"main_session_id"`
 	TeamID        string `json:"team_id"`
 	Role          string `json:"role"`
 	RoleSessionID string `json:"role_session_id"`
 	Subject       string `json:"subject"`
-	Worktree      string `json:"worktree,omitempty"`
-	Stage         string `json:"stage"`
-	Goal          string `json:"goal"`
+	// ToolsPolicy / PermissionGroups 是该 teammate 的权责口径（来自计划成员条目）：
+	// 装配层据此在该角色自己的主体 emp_<role> 上分配位（与用户权限同一张表）。
+	// 两者都空 = 继承宿主默认。
+	ToolsPolicy      string           `json:"tools_policy,omitempty"`
+	PermissionGroups map[string]uint8 `json:"permission_groups,omitempty"`
+	Worktree         string           `json:"worktree,omitempty"`
+	Stage            string           `json:"stage"`
+	Goal             string           `json:"goal"`
 	// MaxTurns 是本轮在角色会话里允许的回合上限（0 = 装配层默认）。
 	MaxTurns int `json:"max_turns,omitempty"`
 }
@@ -92,13 +101,13 @@ type SeatRunner interface {
 // 分支）。释放前若工作区脏，实现必须按 ErrUncommittedChanges 语义显式报错，
 // 不得静默丢弃（D7 / §4.7）。
 type WorkspaceReleaser interface {
-	Release(ctx context.Context, role string) error
+	ReleaseWorkspace(ctx context.Context, role string) error
 }
 
 // SessionResetter 清空一个角色会话的**记录内容**（工作历史 + durable 快照），
 // 保留在编。删的是对话记忆，不是注册。
 type SessionResetter interface {
-	Reset(ctx context.Context, roleSessionID string) error
+	ResetSession(ctx context.Context, roleSessionID string) error
 }
 
 // Options 装配一个 Coordinator。必填：Store、Jobs；其余端口按能力装配，
@@ -207,6 +216,23 @@ func memberFor(plan sessionstore.TeamworkPlan, role string) (sessionstore.Teamwo
 		}
 	}
 	return sessionstore.TeamworkMember{}, false
+}
+
+// memberPermissionGroups 把计划里的权限格子（组 → 位）折成框架的 uint8 位图。
+// 位是非负整数且落在 0..255；越界是**计划写错了**，显式报错而不是截断伪装成
+// "分配成功"。
+func memberPermissionGroups(member sessionstore.TeamworkMember) (map[string]uint8, error) {
+	if len(member.Permission) == 0 {
+		return nil, nil
+	}
+	groups := make(map[string]uint8, len(member.Permission))
+	for group, bits := range member.Permission {
+		if bits < 0 || bits > 255 {
+			return nil, fmt.Errorf("teamwork: 成员 %q 的权限组 %q 位=%d 越界（0..255）", member.Role, group, bits)
+		}
+		groups[group] = uint8(bits)
+	}
+	return groups, nil
 }
 
 func describeHandle(handle jobs.Handle) string { return string(handle) }

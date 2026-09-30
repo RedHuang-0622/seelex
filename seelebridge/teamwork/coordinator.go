@@ -62,15 +62,22 @@ func (c *Coordinator) Dispatch(ctx context.Context, role, goal string) (jobs.Han
 		return "", "", err
 	}
 	stage := stageFor(plan, role)
+	groups, err := memberPermissionGroups(member)
+	if err != nil {
+		return "", "", err
+	}
 	request := WorkerRequest{
-		TeamID:        plan.TeamID,
-		Role:          role,
-		RoleSessionID: member.RoleSessionID,
-		Subject:       SubjectForRole(role),
-		Worktree:      member.Worktree,
-		Stage:         stage,
-		Goal:          goal,
-		MaxTurns:      c.maxTurns,
+		MainSessionID:    c.key.SessionID,
+		TeamID:           plan.TeamID,
+		Role:             role,
+		RoleSessionID:    member.RoleSessionID,
+		Subject:          SubjectForRole(role),
+		ToolsPolicy:      member.ToolsPolicy,
+		PermissionGroups: groups,
+		Worktree:         member.Worktree,
+		Stage:            stage,
+		Goal:             goal,
+		MaxTurns:         c.maxTurns,
 	}
 	payload, err := json.Marshal(request)
 	if err != nil {
@@ -214,14 +221,14 @@ func (c *Coordinator) Retire(ctx context.Context, role string) error {
 	if c.worktrees == nil {
 		return errors.New("teamwork: retire 步 2 需要 WorkspaceReleaser（未装配）")
 	}
-	if err := c.worktrees.Release(ctx, role); err != nil {
+	if err := c.worktrees.ReleaseWorkspace(ctx, role); err != nil {
 		return fmt.Errorf("teamwork: retire 步 2（释放工作区）失败: %w", err)
 	}
 	// 步 3：清会话内容（删的是对话记忆与工作区检出，不是注册/在编）。
 	if c.sessions == nil {
 		return errors.New("teamwork: retire 步 3 需要 SessionResetter（未装配）")
 	}
-	if err := c.sessions.Reset(ctx, member.RoleSessionID); err != nil {
+	if err := c.sessions.ResetSession(ctx, member.RoleSessionID); err != nil {
 		return fmt.Errorf("teamwork: retire 步 3（清会话内容）失败: %w", err)
 	}
 	// 步 4：留在编，worktree 指派名清空待重派；句柄投影一并清掉（它已不在册）。

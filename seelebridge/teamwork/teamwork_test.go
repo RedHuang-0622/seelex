@@ -106,14 +106,14 @@ func (l *callLog) snapshot() []string {
 
 type fakeWorktrees struct{ log *callLog }
 
-func (w fakeWorktrees) Release(_ context.Context, role string) error {
+func (w fakeWorktrees) ReleaseWorkspace(_ context.Context, role string) error {
 	w.log.record("worktree:" + role)
 	return nil
 }
 
 type fakeSessions struct{ log *callLog }
 
-func (s fakeSessions) Reset(_ context.Context, roleSessionID string) error {
+func (s fakeSessions) ResetSession(_ context.Context, roleSessionID string) error {
 	s.log.record("session:" + roleSessionID)
 	return nil
 }

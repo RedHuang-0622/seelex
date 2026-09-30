@@ -445,21 +445,22 @@ O4 plan/stage id（脱离会话生命周期；`bash_bg` 这种非 teamwork 场�
 | M0 Seele `jobs` 根能力 | **已实现** | `Seele/jobs/{job,manager,executor,options,output}.go` + `jobs/builtin`（`jobs_manage`）+ `jobs/README.md` + `Seele/docs/arch/16-jobs-contracts.md`；不变式 I-1..I-7 逐条有用例（含去重、跨作用域拒绝、两档 Snapshot/Reclaim、硬上限 124 / 被杀 137 / panic 收尾、输出封顶不改判终态） |
 | M0 Seelex `go.mod` replace | **已实现（临时）** | `replace github.com/RedHuang-0622/Seele => G:/Program/go/seele`，`go work vendor` 已重生成 vendor；Seele 打 tag 发布 `jobs` 后即删除 |
 | M0 旧异步面迁到 `jobs.Manager` | **待做** | `seelebridge/tools/{async_exec,async_run,async_probe,job_contract}.go` 仍是旧实现。**派发工具签名与语义未动**（`bash_bg`/`read_batch`/`job_manage` 行为零变化），迁移是独立一步：它要拿既有 `async_*_test.go` 当回归，且必须逐字节保住回执行文 |
-| M1 worker Executor | **已建面** | `seelebridge/teamwork/executor.go`：`KindWorker` / `KindSeat`；载荷 `WorkerRequest` 既是 `jobs.Spec.Payload` 又是执行体入参（一份定义，杜绝"派发带了、执行丢了"） |
-| M1 worktree 绑定 / 释放 | **已建面** | `WorkspaceReleaser` 端口；生产实现接 `seelebridge/worktree` 的 `Release`（脏工作区按 `ErrUncommittedChanges` 语义报错） |
-| M1 人数上限 | **已实现** | `seelexctx.TeamLimits`（默认 6）+ `config/seelex.yaml` 的 `limits.team.max_teammates` + 两道拒绝（计划校验 + 派发闸门） |
-| M1 teammate 工具面移除 `fork_subagents` | **待做** | 需在 teammate 工具面装配点硬移除（`seelebridge/tools` 装配），并加"工具面不存在它"的用例 |
-| M2 `moduleTeamwork` 存储 | **已实现** | `sessionstore/module_heads.go`（枚举 + **独立锁** + `mutexFor` case，锁面用例已同步全集）+ `sessionstore/teamwork.go` |
-| M2 plan schema + 校验 | **已实现** | `sessionstore.ValidateTeamworkPlan`：一角色一 teammate、禁内置角色（`main`/`user`）、人数上限、阶段 id 唯一、`depends_on` 无环（Kahn）、里程碑 `after`/`required` 引用存在 |
+| M1 worker Executor | **已实现** | `seelebridge/teamwork/executor.go`：`KindWorker` / `KindSeat`；载荷 `WorkerRequest` 既是 `jobs.Spec.Payload` 又是执行体入参；生产实现 = `Runtime.RunWorker`（角色会话里跑一轮有界回合，起手绑工作区/带 `emp_<role>` 权责） |
+| M1 worktree 绑定 / 释放 | **已实现** | `Runtime.ReleaseWorkspace` 接 `seelebridge/worktree`（脏工作区按 `ErrUncommittedChanges` 语义报错、不静默丢弃；`CleanupWorktree` 走 git；无现场幂等）；`Runtime.bindWorkerProjectRoot` 优先绑 worktree、缺失回退主工作区 |
+| M1 人数上限 | **已实现** | `seelexctx.TeamLimits`（默认 6）+ `config/seelex.yaml` 的 `limits.team.max_teammates` + 两道拒绝（计划校验 + 派发闸门）；组合根经 `Runtime.SetTeamworkBackend` 注入 |
+| M1 teammate 工具面移除 `fork_subagents` | **已实现** | `seelebridge/runtime_role_turn.go` 的 `teammateAgent`/`teammateToolFace`（硬移除：可见面剔除 + 派发口拒绝），`newRoleEngine` 装配点用 `teammateToolFace(r.agt)`；`runtime_role_face_test.go` 钉住（含"装配点确实用它"） |
+| M2 `moduleTeamwork` 存储 | **已实现** | `sessionstore/module_heads.go`（枚举 + **独立锁** + `mutexFor` case）+ `sessionstore/teamwork.go` |
+| M2 plan schema + 校验 | **已实现** | `sessionstore.ValidateTeamworkPlan`：一角色一 teammate、禁内置角色、人数上限、阶段 id 唯一、`depends_on` 无环（Kahn）、里程碑引用存在 |
 | M2 `events.jsonl` 审计面（D12） | **已实现** | `AppendTeamworkEvent` / `ReadTeamworkEvents`（只追加、残尾容错）；`Coordinator` 写 `plan / dispatch / join / milestone / retire` 五类事实 |
-| M2 leader 六件套工具 | **已建面** | `Coordinator` 的 `SetPlan / Dispatch / Join / Milestone / Retire`（+ `Plan / Audit`）已可用并有用例；**工具面注册（`RegistryState.AddInline` + 路由组表声明）与 leader 提示词待做** |
-| M2 goal 座位降级 `KindSeat` | **已建面** | `SeatRunner` 端口 + `SeatExecutor`；`application/core/govern/*` 的座位循环改造待做 |
-| M3 `team_retire` 四步 | **已实现** | `Coordinator.Retire`：`Reclaim(Scope{Session,Subject})` → 释放 worktree → 清会话内容 → 保在线；端口缺失时**显式报错**（不静默跳过），步序有用例钉住 |
+| M2 leader 六件套工具 | **已实现** | `seelebridge/runtime_teamwork.go` 的 `team_plan/team_dispatch/team_join/team_milestone/team_retire` 经 `r.RegisterTool` 注册（`RegisterBuiltins` + `SetTeamworkBackend`），`jobs_manage` 由 `jobs/builtin` 提供；路由组表已分封（`team_*` → ctl、`jobs_manage` → rw）。**leader 提示词** = `plugins/default/teamwork/SKILL.md`（`$teamwork`）。组合根接线见 `main.go` 的 `Runtime.SetTeamworkBackend`；`sessionstore.Router.TeamworkFor` 提供持久面 |
+| M2 goal 座位降级 `KindSeat` | **已建面** | `SeatRunner` 端口 + `SeatExecutor`；`application/core/govern/*` 的座位循环改造**待做**（当前 jobs 管理器只注册 worker 执行体，未注册 seat） |
+| M3 `team_retire` 四步 | **已实现** | `Coordinator.Retire`：`Reclaim(Scope{Session,Subject})` → 释放 worktree → 清会话内容 → 保在线；端口缺失时**显式报错**；生产实现 = `Runtime.ReleaseWorkspace` + `Runtime.ResetSession`（角色会话为进程内执行面，清内存历史即"内容已清"） |
 | M4 清场 | **待做** | `lifecycle.order_policy/order_roles` 只读化与 §9 死代码清单未动 |
 
-**结论**：作业面（Seele `jobs`）与 teamwork 的**编排面 / 存储面 / 生命周期**已落地并有回归；
-剩下的是三件"接线"（旧异步面迁移、leader 工具面 + 提示词、座位循环改造）与清场——都属于
-**替换旧面**的那一侧，按本文纪律放在新面已就位之后。
+**结论**：作业面（Seele `jobs`）与 teamwork 的**编排面 / 存储面 / 生命周期 / 工具面接线**已落地并有回归；
+`fork_subagents` 硬移除与 leader 提示词亦已就位。剩下两件：**旧异步面迁移到 `jobs.Manager`**（M0，逐字节保行为）
+与 **goal 座位循环降级为 `KindSeat` 执行体**（M2），以及随之的 **M4 清场**——都属于**替换旧面**的那一侧，
+按本文纪律放在新面已就位之后。
 
 ## 附：锚点索引
 

@@ -36,6 +36,7 @@ import (
 	"github.com/RedHuang-0622/seelex/plugin"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	"github.com/RedHuang-0622/seelex/seelebridge/search"
+	seeteamwork "github.com/RedHuang-0622/seelex/seelebridge/teamwork"
 	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 	"github.com/RedHuang-0622/seelex/seelebridge/tools/websearch"
 	"github.com/RedHuang-0622/seelex/seelexctx"
@@ -258,6 +259,23 @@ func run() error {
 		}
 		return ""
 	})
+	// teamwork 编排面：leader 的六件套工具 + jobs_manage。计划/审计落 moduleTeamwork
+	// （JSON 后端）；作用域键由"会话 → 所属项目"解析，与执行事实事件库同源。
+	if repo, ok := store.TeamworkFor(); ok {
+		if err := runtime.SetTeamworkBackend(seelebridge.TeamworkBackend{
+			Store: seeteamwork.NewPlanStore(repo),
+			KeyFor: func(sessionID string) (sessionstore.Key, bool) {
+				workspace, exists := wsRepo.SessionWorkspace(sessionID)
+				if !exists || strings.TrimSpace(workspace.ID) == "" {
+					return sessionstore.Key{}, false
+				}
+				return sessionstore.Key{ProjectID: workspace.ID, SessionID: sessionID}, true
+			},
+			MaxTeammates: runtimeLimits.Team.MaxTeammates,
+		}); err != nil {
+			return fmt.Errorf("装配 teamwork 编排面失败: %w", err)
+		}
+	}
 	app, err := initApplication(appEngine, runtime, pluginManager, sessionManager, skillRegistry, wsRepo, events, approval)
 	if err != nil {
 		return err

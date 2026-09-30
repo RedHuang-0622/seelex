@@ -15,6 +15,7 @@ import (
 	"github.com/RedHuang-0622/Seele/agent"
 	"github.com/RedHuang-0622/Seele/agent/bridge"
 	frameworkevent "github.com/RedHuang-0622/Seele/event"
+	"github.com/RedHuang-0622/Seele/jobs"
 	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/telemetry"
@@ -38,6 +39,7 @@ import (
 	subagentsession "github.com/RedHuang-0622/seelex/seelebridge/session"
 	"github.com/RedHuang-0622/seelex/seelebridge/task"
 	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
+	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
 	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/sessionstore"
@@ -177,6 +179,14 @@ type Runtime struct {
 	// 分离——角色回合是派生的、可丢弃的执行面，不该进活跃会话/持久化路由。
 	roleTurnsMu sync.Mutex
 	roleTurns   *roleTurnState
+
+	// teamwork 编排面（runtime_teamwork.go）：leader 的硬编排工具（team_*）与
+	// jobs 作业面。backend 由组合根注入（PlanStore + KeyFor）；未注入 = **不注册**
+	// 这族工具（有就有、没有就是没装配，而不是注册一堆永远报错的空壳）。
+	teamworkMu      sync.Mutex
+	teamworkBackend *TeamworkBackend
+	teamworkJobs    jobs.Manager
+	teamworkCoords  map[sessionstore.Key]*teamwork.Coordinator
 
 	// 上下文控制接线（seelebridge/context_components.go）：
 	// 窗口策略（RuntimeConfig.WindowConfig 构造）、会话上下文存储与
