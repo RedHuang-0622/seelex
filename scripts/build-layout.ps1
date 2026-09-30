@@ -17,6 +17,9 @@ function Get-SeelexLayout {
     #
     # dist/  (external artifacts; only these partitions are allowed)
     #   <os>-<arch>/            P1 platform release tree (CLI + runtime files)
+    #   linux-amd64-gui/        P6 Linux GUI delivery tree (seelex-gui cgo build;
+    #                           built on a Linux host: Docker ubuntu:22.04 or the
+    #                           Ubuntu VM - it cannot be cross-built on Windows)
     #   seelex-gui-dev/         P2 dev GUI baseline (USER DATA - never cleaned)
     #   archive/                P3 versioned release archives (*.zip|*.tar.gz|*.sha256)
     #   dev/                    P4 post-commit quick builds
@@ -31,6 +34,9 @@ function Get-SeelexLayout {
     return [PSCustomObject]@{
         DistRoot          = $distRoot
         # P1 platform tree base: dist/<os>-<arch>/ (caller appends platform dir)
+        # P6 Linux GUI delivery tree: dist/linux-amd64-gui/ (seelex-gui + runtime)
+        LinuxGuiDir       = Join-Path $distRoot "linux-amd64-gui"
+        LinuxGuiExe       = Join-Path $distRoot "linux-amd64-gui\seelex-gui"
         # P2 dev GUI baseline (user data; kept by every clean by default)
         DevBaselineDir    = Join-Path $distRoot "seelex-gui-dev"
         DevBaselineExe    = Join-Path $distRoot "seelex-gui-dev\seelex-gui.exe"
@@ -56,14 +62,15 @@ function Get-SeelexLayout {
         # by build scripts.
         AllowedDistEntries = @(
             "archive", "seelex-gui-dev", "dev", "stage-gui", ".seelex",
-            "windows-amd64", "linux-amd64", "darwin-amd64", "darwin-arm64"
+            "windows-amd64", "linux-amd64", "linux-amd64-gui",
+            "darwin-amd64", "darwin-arm64"
         )
     }
 }
 
 function Assert-DistRootCleanLayout {
     # Fails when an unexpected entry exists directly under dist/. Guarantees the
-    # root stays limited to the canonical partitions (P1..P5).
+    # root stays limited to the canonical partitions (P1..P6).
     param(
         [string]$DistRoot,
         [string[]]$ExtraAllowed = @()

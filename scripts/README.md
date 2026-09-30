@@ -26,17 +26,22 @@ flowchart LR
 ## 分区速览
 
 ```text
-dist/                               对外产物（根下只允许这五个分区）
-  dist/<os>-<arch>/                 P1 平台发布树（CLI + 运行时文件）
+dist/                               对外产物（根下只允许这六个分区）
+  dist/<os>-<arch>/                 P1 平台发布树（CLI + 运行时文件 + seelex-logo.png）
   dist/seelex-gui-dev/              P2 dev GUI 基线（用户数据，默认永不 clean）
   dist/archive/                     P3 发布归档（zip / tar.gz / sha256）
   dist/dev/                         P4 本地快速构建（post-commit → seelex.exe）
   dist/stage-gui/                   P5 GUI 暂存区（flow Stage → 待部署 exe 放置区）
+  dist/linux-amd64-gui/             P6 Linux GUI 交付树（cgo 产物，只能由 Linux 侧构建）
 tmp/build/                          流程中间态（可整体删除）
   tmp/build/smoke/                  T1 冒烟报告
   tmp/build/stash/seelex-gui-dev/   T2 回滚 stash
   tmp/build/deploy.log              T3 部署日志
 ```
+
+品牌图：`gui/icons/seelex-logo.png` 是**入库的唯一事实源**（不依赖任何本机下载
+目录）；打包步骤把它复制为每个交付树内的 `seelex-logo.png`，使任一交付文件夹
+出发都能就地取到品牌图。
 
 ## 文件
 
@@ -47,6 +52,7 @@ tmp/build/                          流程中间态（可整体删除）
 | `build.sh` | POSIX 构建入口（P1 + P3，保留 P2）。 |
 | `build-dev.sh` | post-commit 快速重建 dev 二进制（CLI→`dist/dev/seelex.exe`，GUI→P2）。 |
 | `build-gui.ps1` | Wails GUI 发布包（Publish/Dev），产物只进 `dist/archive/`。 |
+| `build-linux-gui.sh` | **Linux GUI 构建入口（P6）**：Docker（默认 `ubuntu:22.04` + `webkit2_40`）/ `--native` / `--pack-only`，产物落 `dist/linux-amd64-gui/` 并归档到 `dist/archive/`。 |
 | `seelex-flow.ps1` | 分阶段构建/部署/回滚/发布流程（Stage → Smoke → Deploy → Release）。 |
 | `make-icon.sh` | 图标资源链：品牌图 → 多尺寸 `.ico` + 前端品牌图，再 `windres` 成根目录 `rsrc_windows_amd64.syso`（缺 Pillow/windres 时降级跳过，不挡构建）。 |
 | `sync-claudecode-account.ps1` | 从本机 Claude Code 设置生成 local account 配置。 |
@@ -56,10 +62,13 @@ tmp/build/                          流程中间态（可整体删除）
 
 仓库级 clean/build 编排由根目录 `Makefile` 提供：
 - `make build` / `make package`：平台树进 `dist/<os>-<arch>/`，归档进 `dist/archive/`；
+- `make build-linux-gui VERSION=<tag>`：在 Docker（`ubuntu:22.04`，`webkit2_40`）内构建
+  Linux GUI，落进 P6 `dist/linux-amd64-gui/` 并归档；`--pack-only` 路径由
+  `STAGED_LINUX_GUI=<binary>` 指定外部（如 VM 内）构建的产物；
 - `make rebuild-gui VERSION=<tag>`：构建 Dev GUI（要求 `LOCAL_CONFIG`，
   默认 `config/accounts.yaml`，作为不透明文件复制为包内 `config/accounts.yaml`）；
 - `make publish-rebuild-gui VERSION=<tag>`：构建 Publish GUI，只含 example；
-- `make clean`：只清 P1/P3/P4/P5（含 `dist/stage-gui/`），**默认保留 P2**（`CLEAN_DEV=1` 才删 P2）；
+- `make clean`：只清 P1/P3/P4/P5/P6（含 `dist/stage-gui/`、`dist/linux-amd64-gui/`），**默认保留 P2**（`CLEAN_DEV=1` 才删 P2）；
 - `make guard-dist-layout`：校验 `dist/` 根只有规范分区，多余条目即失败。
 
 ## 分阶段部署流程（推荐）

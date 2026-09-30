@@ -6,6 +6,10 @@
 > **后续补充（2026-09-25）**：本包还包含 **Linux computer use（X11 后端）的实测与演示**、
 > 以及 **Ubuntu 桌面上的 Seelex GUI** 素材——见 [`computer-use.md`](computer-use.md) 与 §6.1。
 
+> **后续补充（2026-09-30）**：Linux GUI 已有正式构建入口与交付落点——`make build-linux-gui`
+> （Docker `ubuntu:22.04` + `webkit2_40`）产出 P6 `dist/linux-amd64-gui/`；构建、ABI 判据、
+> 送入虚拟机与覆盖步骤见 [`build-linux-gui-delivery.md`](build-linux-gui-delivery.md)。
+
 ## 1. 结论（一句话）
 
 Seelex 已作为原生 `linux/amd64` 静态程序运行在 VMware 的 Ubuntu 22.04.5 虚拟机内：既能以

@@ -13,11 +13,19 @@ GUI_PACKAGE := seelex-v$(ARCHIVE_VERSION)-windows-amd64-gui
 ARCHIVE_DIR := $(DIST)/archive
 GUI_ARCHIVE := $(ARCHIVE_DIR)/$(GUI_PACKAGE).zip
 GUI_CHECKSUM := $(GUI_ARCHIVE).sha256
+# P6 Linux GUI 交付树（cgo + GTK/WebKit，只能由 Linux 侧构建）
+LINUX_GUI_DIR := $(DIST)/linux-amd64-gui
+LINUX_GUI_PACKAGE := seelex-v$(ARCHIVE_VERSION)-linux-amd64-gui
+LINUX_GUI_ARCHIVE := $(ARCHIVE_DIR)/$(LINUX_GUI_PACKAGE).tar.gz
+LINUX_GUI_CHECKSUM := $(LINUX_GUI_ARCHIVE).sha256
+LINUX_GUI_DOCKER_IMAGE ?= ubuntu:22.04
+# 品牌图：仓库内唯一事实源（入库），打包时复制进每个交付树，交付文件夹自足。
+BRAND_LOGO := gui/icons/seelex-logo.png
 
 # 目标平台: OS/ARCH
 PLATFORMS := windows/amd64 linux/amd64 darwin/amd64 darwin/arm64
 
-.PHONY: all release rebuild clean build package clean-gui build-gui dev-build-gui publish-build-gui rebuild-gui publish-rebuild-gui stage-gui smoke-gui deploy-gui rollback-gui release-dev dev-flow guard-dist guard-dist-layout guard-version guard-local-config help
+.PHONY: all release rebuild clean build package clean-gui build-gui dev-build-gui publish-build-gui rebuild-gui publish-rebuild-gui stage-gui smoke-gui deploy-gui rollback-gui release-dev dev-flow guard-dist guard-dist-layout guard-version guard-local-config build-linux-gui pack-linux-gui clean-linux-gui help
 
 ## all: 安全清理、构建所有平台并打包
 all: release
@@ -63,6 +71,7 @@ package:
 		cp -r plugins "$$outdir/"; \
 		cp LICENSE CHANGELOG.md README.md "$$outdir/"; \
 		[ ! -f README_EN.md ] || cp README_EN.md "$$outdir/"; \
+		cp "$(BRAND_LOGO)" "$$outdir/seelex-logo.png"; \
 		dirname="seelex-v$(ARCHIVE_VERSION)-$$os-$$arch"; \
 		cp -r "$$outdir" "$(ARCHIVE_DIR)/$$dirname"; \
 		tar -czf "$(ARCHIVE_DIR)/$$dirname.tar.gz" -C "$(ARCHIVE_DIR)" "$$dirname"; \
@@ -112,7 +121,7 @@ clean: guard-dist guard-dist-layout
 		arch=$$(echo $$p | cut -d/ -f2); \
 		rm -rf -- "$(DIST)/$$os-$$arch"; \
 	done
-	rm -rf -- "$(DIST)/archive" "$(DIST)/dev" "$(DIST)/stage-gui"
+	rm -rf -- "$(DIST)/archive" "$(DIST)/dev" "$(DIST)/stage-gui" "$(LINUX_GUI_DIR)"
 	@if [ -d "$(DIST)/seelex-gui-dev" ]; then \
 		if [ "$(CLEAN_DEV)" = "1" ]; then \
 			echo "[clean] removing $(DIST)/seelex-gui-dev (explicit CLEAN_DEV=1)"; \
@@ -126,6 +135,24 @@ clean: guard-dist guard-dist-layout
 clean-gui: guard-dist guard-version
 	@echo "[clean-gui] $(GUI_ARCHIVE) $(GUI_CHECKSUM)"
 	rm -rf -- "$(GUI_ARCHIVE)" "$(GUI_CHECKSUM)" "$(ARCHIVE_DIR)/.stage-$(GUI_PACKAGE)"
+
+## clean-linux-gui: 只清理 Linux GUI 交付树 (P6) 与当前版本归档
+clean-linux-gui: guard-dist guard-version
+	@echo "[clean-linux-gui] $(LINUX_GUI_DIR) $(LINUX_GUI_ARCHIVE)"
+	rm -rf -- "$(LINUX_GUI_ARCHIVE)" "$(LINUX_GUI_CHECKSUM)" "$(LINUX_GUI_DIR)" "$(ARCHIVE_DIR)/$(LINUX_GUI_PACKAGE)"
+
+## build-linux-gui: 构建 Linux GUI（cgo + GTK/WebKit）并落进 P6 交付树 dist/linux-amd64-gui/
+##   默认走 Docker (ubuntu:22.04, webkit2gtk-4.0)；在 Linux 主机上也可用 --native 直接构建
+##   国内网络加速（可选）：
+##     make build-linux-gui VERSION=v0.1.1 LINUX_GUI_APT_MIRROR=https://mirrors.aliyun.com
+##     （若 _tmp/go1.25.8-linux-amd64.tar.gz 存在会自动复用，省掉容器内 60MB 下载）
+build-linux-gui: guard-version
+	@bash scripts/build-linux-gui.sh --version "$(VERSION)" $(LINUX_GUI_BUILD_ARGS)
+
+## pack-linux-gui: 用已有二进制补齐 Linux GUI 交付树（不重建）
+##   STAGED_LINUX_GUI=/path/to/seelex-gui（VM/容器内构建的产物）
+pack-linux-gui: guard-version
+	@bash scripts/build-linux-gui.sh --version "$(VERSION)" --pack-only $(if $(STAGED_LINUX_GUI),--binary "$(STAGED_LINUX_GUI)")
 
 ## build-gui: dev-build-gui 的兼容别名
 build-gui: dev-build-gui

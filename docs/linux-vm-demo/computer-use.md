@@ -183,7 +183,11 @@ ldd   : libwebkit2gtk-4.0.so.37 / libgtk-3.so.0 / libjavascriptcoregtk-4.0.so.18
 
 > 注意：Linux GUI 是 **cgo + GTK/WebKit** 的产物，无法在 Windows 上交叉编译；
 > 仓库当前的 `make build` 只产出 `CGO_ENABLED=0` 的 TUI/headless 平台树，
-> `scripts/build-gui.ps1` 只做 Windows。**Linux GUI 目前没有构建入口**——这是待补的一环。
+> `scripts/build-gui.ps1` 只做 Windows。Linux GUI 现在有独立入口：
+> `make build-linux-gui VERSION=<tag>`（Docker `ubuntu:22.04` + `webkit2_40`，
+> 或 `scripts/build-linux-gui.sh --native` 在 Linux 主机内构建），交付落点为
+> **P6 `dist/linux-amd64-gui/`**；完整步骤见
+> [`build-linux-gui-delivery.md`](build-linux-gui-delivery.md)。
 
 ## 8. 复现清单
 
@@ -210,4 +214,7 @@ printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"l
 1. **前提检查**：桌面输入法不在中文态（否则 ASCII 被吃）；建议宿主在会话开始前显式切引擎；
 2. **缺陷修复**：非 ASCII 注入的重映射路径（§4），修法与判据都已留证；
 3. **构建入口**：给 Linux GUI（Wails、需 cgo）补一个构建目标，并把 computer use 一起打进去
+   ——**构建入口已补**（`make build-linux-gui` / `scripts/build-linux-gui.sh`，交付落点 P6
+   `dist/linux-amd64-gui/`，步骤见 [`build-linux-gui-delivery.md`](build-linux-gui-delivery.md)）；
+   把 computer use 的 MCP 二进制一并打进该交付树仍未做。
    （computer use 本身与 GUI 无耦合，已在 TUI/headless 平台树里）。
