@@ -282,6 +282,11 @@ func run() error {
 	}
 	defer app.Shutdown()
 	console.LogStageIf(backendTrace, "startup.application.ready")
+	// 座位循环的执行侧（M2 的最后一块）：goal 座位循环降级为 jobs.KindSeat 执行体
+	// ——作业面在 SetTeamworkBackend 时已注册好 seat 执行体（Scope{Session} +
+	// 治理行标题），这里补"谁来真跑一轮"（application 侧的 RunSeatRound，复用
+	// 与同步降级路径同一份 runSeatRound）。未注入 = 作业显式报错，不静默降级。
+	runtime.SetSeatRoundRunner(app)
 	// 子代理中断恢复的「补历史」步骤：父侧缺失的工具结果（含中断的
 	// subagent 派发）在续跑前补齐 provider-only tool 占位。
 	runtime.SetSubagentParentRepairer(app.PrepareProviderHistory)

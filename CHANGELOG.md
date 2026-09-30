@@ -35,6 +35,22 @@ version when it lands.
 
 ### Changed
 
+- **The goal seat loop is now a `jobs.KindSeat` executor: one driver, one loop body, two ways in.** The
+  governance seating loop used to be a second driver running beside the job face — `AdvanceAfterChat`
+  walked it synchronously while jobs did their own thing — so "everything long-running is a job" stayed a
+  claim the code did not make. The loop body is extracted into a single `runSeatRound`, and a round is
+  either dispatched as a `seat` job (registered next to the worker executor, `Scope{Session}` and a
+  readable governance row title) and joined with a bounded budget (five minutes; a caller cancellation or
+  an expired budget best-effort kills the job), or — when the host never wired the seat job face — run in
+  place, byte for byte as before. The verdict is still readable in the round that produced it: the join
+  waits for the terminal state, so `AdvanceAfterChat` returns only after the ADVISOR round has actually
+  run and `publishPendingGoalDirectivesFor` republishes it in the same turn. Session ownership and the
+  round's work text travel in the payload, never in the job's context (the manager derives that from
+  `Background`); the execution side is a goal-domain `RunSeatRound` that reuses the very same loop body,
+  and an unrouted seat job is an explicit error rather than a silent success. A failure terminal
+  (failed / killed / still running past the budget) lands on the existing round-error path, so
+  `GoalGovernanceView.RoundError` keeps explaining why a round did not finish.
+
 - **Folding now happens only where a model-written reading note can follow it: the assembly layer, at
   most once per turn, and only when the request is genuinely near the ceiling.** Folding is one step of
   context compaction (it produces the metadata), not a self-contained action, and the step after it —

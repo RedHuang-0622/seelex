@@ -288,6 +288,33 @@ func (service *Service) goalAdvanceAfterChat(ctx context.Context) {
 	service.dismissTeamWhenGoalClosed(sessionID)
 }
 
+// RunSeatRound 是座位循环的**执行侧**（seelebridge 的 teamwork.SeatRoundRunner，
+// 组合根经 Runtime.SetSeatRoundRunner 注入）：作业执行体在自己的 goroutine 上调它，
+// 会话归属与工作正文一律来自**载荷**——作业的执行 ctx 是 jobs.Manager 从
+// Background 派生的，不带原调用会话与 detail（这也是 SeatRequest 要带
+// SessionID/Detail 的原因）。
+//
+// 它复用**同一份** goalCoordinator.runSeatRound（驱动唯一化，D4）：作业里跑的座位
+// 循环与未装配作业面时的同步循环是同一段正文，不存在"同步一份 + 作业里再一份"。
+func (service *Service) RunSeatRound(ctx context.Context, sessionID, detail string, note func(string)) error {
+	coordinator, err := service.goalCoordinatorFor(sessionID)
+	if err != nil {
+		return err
+	}
+	if err := coordinator.runSeatRound(ctx, sessionID, detail); err != nil {
+		return err
+	}
+	// 作业输出文件里留一行可读结论（作业行的 Summaries/输出面据此有内容，
+	// 而不是一个"什么都没发生"的空作业）。治理结论本身在只读治理视图里，
+	// 这里不复制第二份裁决口径。
+	if note != nil {
+		if view := coordinator.GoalGovernanceViewFor(sessionID); view != nil {
+			note(fmt.Sprintf("goal 座位循环完成：round=%d seat=%s\n", view.Round, view.CurrentSeat))
+		}
+	}
+	return nil
+}
+
 // dismissTeamWhenGoalClosed 让"干完就走人"成立：目标收口（栈里没有 active goal）
 // 之后，本会话的在编团队离场（删注册表 + 清顺序）。
 //

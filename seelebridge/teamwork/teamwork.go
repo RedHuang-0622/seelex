@@ -85,16 +85,34 @@ type WorkerRunner interface {
 }
 
 // SeatRequest 是 goal 座位循环作业的输入（D4）。
+//
+// 会话归属与工作正文一律走载荷：作业的执行 ctx 是 jobs.Manager 从 Background
+// 派生的，**不带**原调用会话与 detail——执行体只能从载荷读这两件事。
 type SeatRequest struct {
 	GoalID   string `json:"goal_id"`
 	TeamID   string `json:"team_id,omitempty"`
 	Stage    string `json:"stage,omitempty"`
 	MaxTurns int    `json:"max_turns,omitempty"`
+	// SessionID 是这一轮治理的会话归属（作业作用域 + 治理循环都要它）。
+	SessionID string `json:"session_id,omitempty"`
+	// Detail 是本轮工作正文（AdvanceAfterChat 的 detail）：员工座位要靠它才有活
+	// 可干（空 = 员工座位只跑"按角色设定继续"的一轮，不凭空补全）。
+	Detail string `json:"detail,omitempty"`
 }
 
 // SeatRunner 跑一轮 goal 座位循环并输出治理结论。
 type SeatRunner interface {
 	RunSeat(ctx context.Context, request SeatRequest, sink jobs.Sink) error
+}
+
+// SeatRoundRunner 跑一轮 goal 座位循环（goal 域实现）。
+//
+// 它与 SeatRunner 的分工：SeatRunner 是**作业执行体**的入参面（拿 jobs.Sink 收敛
+// 终态），SeatRoundRunner 是执行体转调的**领域入口**——会话归属与正文按载荷显式
+// 传入，不由 ctx 承载；note 是执行体给出的有界输出口（作业输出文件）。
+// 未装配 = 执行体显式报错（不静默降级成一个"空成功"的作业）。
+type SeatRoundRunner interface {
+	RunSeatRound(ctx context.Context, sessionID, detail string, note func(string)) error
 }
 
 // WorkspaceReleaser 释放一个 teammate 的工作区（git worktree remove + 删本地

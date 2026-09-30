@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/agentteam"
@@ -44,6 +45,10 @@ type goalCoordinatorDeps struct {
 	// 不推进治理循环）。V 模型团队循环（pm → exec → test case）落地时，实现方在
 	// 这里注入：每个具备执行面的员工角色因此获得一个真正干活的座位。
 	RoleTurnFor func(sessionID string) RoleTurnRunner
+	// SeatJobs 把一轮治理推进表达为作业（D4：座位循环不再是"与 jobs 并列的第二套
+	// 驱动"）。nil = 宿主没装配座位作业面（测试桩宿主 / 未接线宿主）→ 走现状同步
+	// 循环，行为一字不变。
+	SeatJobs SeatJobs
 }
 
 // goalSessionRuntime 是一个会话的 goal 治理 bundle（会话间零共享）。
@@ -241,6 +246,64 @@ func (g *goalCoordinator) advanceAfterChat(ctx context.Context, sessionID, detai
 			return nil
 		}
 	}
+	// 驱动唯一化（D4）：座位循环的正文只有一份（runSeatRound）。装配了座位作业面
+	// 就把它表达为一个 jobs.KindSeat 作业（派发 → 有界汇合），没装配的宿主原地同步
+	// 跑同一份正文——两条路径不复写循环。
+	if jobs := g.deps.SeatJobs; jobs != nil {
+		return g.advanceSeatViaJobs(ctx, jobs, sessionID, detail)
+	}
+	return g.runSeatRound(ctx, sessionID, detail)
+}
+
+// seatJoinBudget 是座位作业的**有界汇合预算**：座位循环在作业里跑，回合收尾不能
+// 等到天荒地老；到点仍无终态按"本轮未完成"登记，并尽力终止该作业。
+const seatJoinBudget = 5 * time.Minute
+
+// seatJobStateDone 是座位作业"这一轮治理跑完了"的终态字面量（与 Seele
+// jobs.StateDone 同值：端口用最小面字符串，不把框架类型拉进 goal 域）。
+const seatJobStateDone = "done"
+
+// advanceSeatViaJobs 把这一轮治理推进表达为一个座位作业：派发 → 有界汇合 → 按终态
+// 折回失败原因（与 gov.Next 报错同一条登记路径，见 AdvanceAfterChat）。
+//
+// 它自己**不跑**座位：跑是执行体的事（Service.RunSeatRound，复用同一份
+// runSeatRound）。归属与正文全走载荷——作业的执行 ctx 是 jobs.Manager 从
+// Background 派生的，不带原调用的会话与 detail。
+func (g *goalCoordinator) advanceSeatViaJobs(ctx context.Context, jobs SeatJobs, sessionID, detail string) error {
+	handle, err := jobs.DispatchSeat(ctx, sessionID, detail)
+	if err != nil {
+		return err
+	}
+	outcome, err := jobs.JoinSeat(ctx, handle, seatJoinBudget)
+	if err != nil {
+		return err
+	}
+	if outcome.Known && outcome.State == seatJobStateDone {
+		return nil
+	}
+	return errors.New(seatOutcomeError(outcome))
+}
+
+// seatOutcomeError 把非 done 的座位作业终态折成一句可读的失败原因（优先用作业面给
+// 的有界摘要，没有就合成——绝不返回空串，否则 noteRoundError 会把失败当"无失败"）。
+func seatOutcomeError(outcome SeatJobOutcome) string {
+	if summary := strings.TrimSpace(outcome.Summary); summary != "" {
+		return summary
+	}
+	if !outcome.Known {
+		return "goal 座位作业终态未知（句柄已不在册）"
+	}
+	return fmt.Sprintf("goal 座位作业未完成：state=%s exit=%d", outcome.State, outcome.ExitCode)
+}
+
+// runSeatRound 是座位循环的**唯一正文**（驱动唯一化）：从当前轮次推进到 Round
+// 递增或断环为止。同步降级路径（advanceAfterChat）与 jobs.KindSeat 执行体
+// （Service.RunSeatRound）都调它——两份调用、一份实现。
+func (g *goalCoordinator) runSeatRound(ctx context.Context, sessionID, detail string) error {
+	runtime := g.bundleFor(sessionID)
+	if runtime.gov == nil {
+		runtime.gov = g.newGovernor(sessionID, runtime)
+	}
 	// Governor.Next 每次只推进一个座位；推进一整轮（员工 → 评审）需要执行到
 	// Round 递增或断环为止。
 	//
@@ -255,7 +318,8 @@ func (g *goalCoordinator) advanceAfterChat(ctx context.Context, sessionID, detai
 	// 本轮工作正文经 ctx 透传到员工座位的执行面：座位在装配期构造、不持有
 	// "这一轮发生了什么"，而员工回合必须拿到本轮 detail 才有活可干（否则只能
 	// 凭空猜，等于用一个空输入跑一次模型调用）。ctx 是唯一不引入新共享状态
-	// 的通道——并发会话各自持自己的 ctx。
+	// 的通道——并发会话各自持自己的 ctx。作业执行体因此必须把载荷里的 detail
+	// 折成本函数的入参（作业 ctx 里没有它）。
 	ctx = withRoleTurnInput(ctx, detail)
 	for attempt := 0; attempt < attempts; attempt++ {
 		more, err := runtime.gov.Next(ctx)
@@ -527,6 +591,30 @@ type RoleTurnOutcome struct {
 // 未装配（nil）= 当前试水形态：员工角色只在环里占发言位，不推进治理循环。
 type RoleTurnRunner interface {
 	RunRoleTurn(ctx context.Context, request RoleTurnRequest) (RoleTurnOutcome, error)
+}
+
+// SeatJobOutcome 是座位作业的终态读数。它**定义在 contract/dto**（这里是别名）：
+// goal 域声明端口、seelebridge 实现端口，两端都要引用同一个类型，而 seelebridge
+// 不能反向 import application/core（core 已 import seelebridge，会成环）。
+type SeatJobOutcome = dto.SeatJobOutcome
+
+// SeatJobs 把一轮治理推进表达为作业（D4：座位循环不再是"与 jobs 并列的第二套
+// 驱动"）。由 seelebridge 的 Runtime 实现（DispatchSeat → 作业面派发，
+// JoinSeat → 有界汇合到终态），经 goalCoordinatorDeps.SeatJobs 注入。
+//
+// 未实现（测试桩宿主 / 未接线宿主）= nil → advanceAfterChat 走现状同步循环：端口
+// 缺席不该改变任何既有行为。
+type SeatJobs interface {
+	DispatchSeat(ctx context.Context, sessionID, detail string) (handle string, err error)
+	JoinSeat(ctx context.Context, handle string, budget time.Duration) (SeatJobOutcome, error)
+}
+
+// SeatJobsAssembled 是座位作业面的**装配探针**（可选能力，与 SessionContextStoreFor
+// 同一口径）：实现了 SeatJobs 还不够——作业面（jobs.Manager）要到装配期注入
+// teamwork 后端才存在，没装配的宿主必须保持"端口为 nil"的现状语义（同步座位循环，
+// 行为一字不变），而不是接到一个永远报错的空壳。
+type SeatJobsAssembled interface {
+	SeatJobsAssembled() bool
 }
 
 // seatsFromOrder 是退化路径：只有链表顺序（角色名）时按名字匹配。

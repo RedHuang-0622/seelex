@@ -28,6 +28,7 @@ import (
 	"github.com/RedHuang-0622/Seele/jobs"
 	"github.com/RedHuang-0622/Seele/jobs/builtin"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
 	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
@@ -61,6 +62,10 @@ func (r *Runtime) SetTeamworkBackend(backend TeamworkBackend) error {
 	}
 	manager, err := jobs.New(
 		jobs.WithExecutor(teamwork.WorkerExecutor(r, backend.MaxTurns)),
+		// 座位执行体（D4）：goal 座位循环是 jobs 契约下的一个实现，不再是"与 jobs
+		// 并列的第二套驱动"。它拿着 Runtime 自身——真跑一轮由 SetSeatRoundRunner
+		// 注入的 goal 域实现负责（未注入 = 执行体显式报错，不静默降级成空成功）。
+		jobs.WithExecutor(teamwork.SeatExecutor(r)),
 		jobs.WithSessionResolver(func(ctx context.Context) string {
 			return seeletelemetry.SessionIDFromContext(ctx)
 		}),
@@ -381,6 +386,213 @@ func (r *Runtime) ResetSession(_ context.Context, roleSessionID string) error {
 		handle.engine.ClearHistory()
 	}
 	return nil
+}
+
+// ── 座位作业面（D4）：goal 座位循环 = jobs.KindSeat 作业 ─────────────────────
+
+const (
+	// DefaultSeatJoinBudget 是座位作业的默认汇合预算（goal 域传 5 分钟；这里留一个
+	// 同量级兜底，供调用方传 <=0 时使用）。
+	DefaultSeatJoinBudget = 5 * time.Minute
+	// seatJoinWaitStep 是单次 Fetch 的等待上限：作业面把单次等待 clamp 在
+	// MaxWait（默认 60s），因此长预算必须由多次有界等待拼成，不能一次性要 5 分钟。
+	seatJoinWaitStep = 30 * time.Second
+	// seatKillGrace 是"尽力终止"的宽限：调用方 ctx 已经取消，Kill 不能再用它等。
+	seatKillGrace = 5 * time.Second
+)
+
+// SeatJobsAssembled 报告座位作业面是否已装配（goal 域的装配探针，见
+// goalCoordinatorDeps.SeatJobs）：seat 执行体与作业管理器都只在
+// SetTeamworkBackend 里存在，没装配的宿主必须保持"端口为 nil"的现状语义。
+func (r *Runtime) SeatJobsAssembled() bool {
+	if r == nil {
+		return false
+	}
+	r.teamworkMu.Lock()
+	defer r.teamworkMu.Unlock()
+	return r.teamworkJobs != nil
+}
+
+// teamworkManager 取作业面（未装配 → 显式报错，不静默降级）。
+func (r *Runtime) teamworkManager() (jobs.Manager, error) {
+	if r == nil {
+		return nil, errors.New("teamwork: runtime 为空")
+	}
+	r.teamworkMu.Lock()
+	defer r.teamworkMu.Unlock()
+	if r.teamworkJobs == nil {
+		return nil, errors.New("teamwork: 作业面未装配（缺 SetTeamworkBackend）")
+	}
+	return r.teamworkJobs, nil
+}
+
+// SetSeatRoundRunner 注入座位循环的执行侧实现（goal 域的实现者，见
+// teamwork.SeatRoundRunner）。组合根在 initApplication 之后调一次。
+//
+// seat 执行体在 SetTeamworkBackend 时就注册好了（它拿着 Runtime 自身，每次 RunSeat
+// 现取 runner），因此注册与注入的先后不成问题。
+func (r *Runtime) SetSeatRoundRunner(runner teamwork.SeatRoundRunner) {
+	if r == nil {
+		return
+	}
+	r.seatRoundMu.Lock()
+	r.seatRound = runner
+	r.seatRoundMu.Unlock()
+}
+
+// seatRoundRunner 取座位循环的执行侧实现（未装配 → nil）。
+func (r *Runtime) seatRoundRunner() teamwork.SeatRoundRunner {
+	if r == nil {
+		return nil
+	}
+	r.seatRoundMu.RLock()
+	defer r.seatRoundMu.RUnlock()
+	return r.seatRound
+}
+
+// DispatchSeat 实现 goal 域的 SeatJobs 派发侧：把一轮治理推进表达为一个
+// jobs.KindSeat 作业（D4）。会话归属与工作正文一律走载荷——作业的执行 ctx 是
+// jobs.Manager 从 Background 派生的，不带原调用的会话与 detail。
+func (r *Runtime) DispatchSeat(ctx context.Context, sessionID, detail string) (string, error) {
+	manager, err := r.teamworkManager()
+	if err != nil {
+		return "", err
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return "", errors.New("teamwork: 座位作业缺会话归属")
+	}
+	payload, err := json.Marshal(teamwork.SeatRequest{SessionID: sessionID, Detail: detail})
+	if err != nil {
+		return "", fmt.Errorf("teamwork: 座位作业载荷编码失败: %w", err)
+	}
+	handle, err := manager.Dispatch(ctx, jobs.Spec{
+		Kind:        teamwork.KindSeat,
+		Scope:       jobs.Scope{Session: sessionID},
+		Description: seatJobDescription(detail),
+		Payload:     payload,
+	})
+	if err != nil {
+		return "", fmt.Errorf("teamwork: 派发座位作业失败: %w", err)
+	}
+	return string(handle), nil
+}
+
+// JoinSeat 实现 goal 域的 SeatJobs 汇合侧：有界等到座位作业的终态，并按读数折回
+// 结论（非 done ⇒ 本轮治理未完成，由 goal 域登记进 RoundError）。
+//
+// 有界：预算到点仍无终态就**尽力终止**该作业，并如实报回"仍在跑"——留一个还在跑的
+// 座位循环去和下一个回合抢同一个 governor，不是安全降级。调用方 ctx 取消同理
+// （返回错误 + 尽力 Kill）。
+func (r *Runtime) JoinSeat(ctx context.Context, handle string, budget time.Duration) (dto.SeatJobOutcome, error) {
+	manager, err := r.teamworkManager()
+	if err != nil {
+		return dto.SeatJobOutcome{}, err
+	}
+	if strings.TrimSpace(handle) == "" {
+		return dto.SeatJobOutcome{}, errors.New("teamwork: 座位作业句柄为空")
+	}
+	if budget <= 0 {
+		budget = DefaultSeatJoinBudget
+	}
+	deadline := time.Now().Add(budget)
+	for {
+		wait := time.Until(deadline)
+		if wait <= 0 {
+			return r.abandonSeat(manager, handle, budget), nil
+		}
+		if wait > seatJoinWaitStep {
+			wait = seatJoinWaitStep
+		}
+		_, record, err := manager.Fetch(ctx, jobs.Handle(handle), jobs.FetchBudget{
+			WaitMS: int(wait / time.Millisecond),
+		})
+		if err != nil {
+			r.killSeatBestEffort(manager, handle)
+			return dto.SeatJobOutcome{}, err
+		}
+		if record.State.Terminal() {
+			return dto.SeatJobOutcome{
+				State:    string(record.State),
+				ExitCode: record.ExitCode,
+				Summary:  record.Summary,
+				Known:    true,
+			}, nil
+		}
+	}
+}
+
+// abandonSeat 是"预算到点还没终态"的出口：先读一次读数（此时仍是 running），再尽力
+// 终止作业，把读数如实交回（非 done ⇒ 本轮登记失败）。
+func (r *Runtime) abandonSeat(manager jobs.Manager, handle string, budget time.Duration) dto.SeatJobOutcome {
+	record, ok := manager.Observe(jobs.Handle(handle))
+	r.killSeatBestEffort(manager, handle)
+	if !ok {
+		return dto.SeatJobOutcome{
+			State:   string(jobs.StateKilled),
+			Summary: fmt.Sprintf("goal 座位循环超过汇合预算 %s 未结束，作业句柄已不在册", budget),
+		}
+	}
+	summary := strings.TrimSpace(record.Summary)
+	if summary == "" {
+		summary = fmt.Sprintf("goal 座位循环超过汇合预算 %s 未结束（state=%s）", budget, record.State)
+	}
+	return dto.SeatJobOutcome{
+		State: string(record.State), ExitCode: record.ExitCode, Summary: summary, Known: true,
+	}
+}
+
+// killSeatBestEffort 尽力终止一个座位作业。调用方的 ctx 可能已经取消（这正是走到
+// 这里的原因之一），因此用一个独立的短宽限 ctx；Kill 的作用域判定按 ctx 解析，空
+// 作用域是通配，所以这里不需要原会话。
+func (r *Runtime) killSeatBestEffort(manager jobs.Manager, handle string) {
+	if manager == nil {
+		return
+	}
+	killCtx, cancel := context.WithTimeout(context.Background(), seatKillGrace)
+	defer cancel()
+	_ = manager.Kill(killCtx, jobs.Handle(handle))
+}
+
+// seatJobDescription 给座位作业一行可读标题：作业会活过派发它的那一轮，标题是它
+// 唯一的说明（作业面要求 Description 非空）。
+func seatJobDescription(detail string) string {
+	const limit = 60
+	line := strings.TrimSpace(detail)
+	if index := strings.IndexAny(line, "\r\n"); index >= 0 {
+		line = strings.TrimSpace(line[:index])
+	}
+	if runes := []rune(line); len(runes) > limit {
+		line = string(runes[:limit]) + "…"
+	}
+	if line == "" {
+		return "goal 座位循环"
+	}
+	return "goal 座位循环：" + line
+}
+
+// RunSeat 实现 teamwork.SeatRunner：执行体把座位作业折成 goal 域的 RunSeatRound
+// 调用（会话归属与正文来自载荷，而不是作业的 ctx）。
+//
+// 未装配 runner（组合根没调 SetSeatRoundRunner）= **显式报错**：一个"什么都没发生
+// 的成功作业"会把治理静默掉，比失败更糟。
+func (r *Runtime) RunSeat(ctx context.Context, request teamwork.SeatRequest, sink jobs.Sink) error {
+	if r == nil {
+		return errors.New("teamwork: seat 执行体未装配（runtime 为空）")
+	}
+	runner := r.seatRoundRunner()
+	if runner == nil {
+		return errors.New("teamwork: seat 执行体未装配（缺 SeatRoundRunner）")
+	}
+	sessionID := strings.TrimSpace(request.SessionID)
+	if sessionID == "" {
+		return errors.New("teamwork: 座位作业缺会话归属（载荷未带 session_id）")
+	}
+	var note func(string)
+	if sink != nil {
+		note = sink.Note
+	}
+	return runner.RunSeatRound(ctx, sessionID, request.Detail, note)
 }
 
 // worktreeDirty 报告工作区是否有未提交改动（git status --porcelain 非空）。
