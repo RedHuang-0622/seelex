@@ -1123,6 +1123,30 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   outline: none;
   opacity: 0;
 }
+/* 命中区与显示区对齐（2026-10-01 现场「effort 条没有跟着鼠标走」）：
+   .syringe-input 是覆盖在滑轨上的隐形 range，此前**没有**任何 ::-*-slider-thumb
+   规则——默认滑块约 16px 宽，Chromium 的值映射按 (x − thumb/2) / (trackW − thumb)
+   计算，等于把轨道两端各吃掉半个滑块宽的感应区；而显示侧
+   .syringe-piston 是纯百分比填充。控件被压到紧凑宽度时（.effort-control
+   width:120px / min-width:90px，滑轨只剩 ~22px），这 16px 的滑块把可用感应区
+   挤到几乎归零，鼠标位置对应的档位与活塞填充因此对不上。
+   把滑块显式收成零宽：轨道全程即感应区，命中映射与填充用同一把尺子。 */
+.syringe-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 0;
+  height: 100%;
+  margin: 0;
+  border: 0;
+  background: transparent;
+}
+.syringe-input::-moz-range-thumb {
+  width: 0;
+  height: 100%;
+  margin: 0;
+  border: 0;
+  background: transparent;
+}
 .syringe-input:active { cursor: pointer; }
 .syringe-input:disabled { cursor: wait; }
 .effort-syringe:hover .syringe-barrel { border-color: var(--border-strong); }

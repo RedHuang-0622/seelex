@@ -2139,8 +2139,11 @@ elements["account-list"]?.addEventListener("click", async event => {
 });
 
 function renderSkills(skills) {
+  // Skill 的召回前缀是 `$`（`#` 是切换 Plugin、`/` 是命令、`@` 是召唤团队）：
+  // 与 application/core/input_router/router.go 的 skillRoute/pluginRoute 一字对应。
+  // 这里曾写死成 `#`，于是用户用 `$goal` 召回的 Skill 在列表里显示成 `#goal`。
   elements["skill-list"].innerHTML = skills.length
-    ? skills.map(skill => `<span class="chip" title="${escapeHtml(skill.description || "")}">#${escapeHtml(skill.name)}</span>`).join("")
+    ? skills.map(skill => `<span class="chip" title="${escapeHtml(skill.description || "")}">$${escapeHtml(skill.name)}</span>`).join("")
     : '<span class="muted">当前 Plugin 无 Skill</span>';
 }
 
@@ -2184,7 +2187,7 @@ function renderGoal(snapshot) {
   }
   const governanceLine = governance ? renderGoalGovernance(governance) : "";
   const chips = activeSkills.length
-    ? `<div class="goal-skills">${activeSkills.map(skill => `<span class="chip">#${escapeHtml(skill)}</span>`).join("")}</div>`
+    ? `<div class="goal-skills">${activeSkills.map(skill => `<span class="chip">$${escapeHtml(skill)}</span>`).join("")}</div>`
     : "";
   view.classList.remove("muted");
   if (governance) {
@@ -4363,15 +4366,48 @@ function storageRemove(key) {
 function clampPanelWidth(value, min, max) {
   return Math.min(max, Math.max(min, Math.round(value)));
 }
-// sidePaneMaxWidth 侧栏宽度上限：视口宽减去中间主视图与留白（主视图至少留
-// ~280px），窗口越大侧栏能拉得越宽。
-function sidePaneMaxWidth() {
-  const viewport = window.innerWidth || 1280;
-  return Math.max(320, viewport - 280);
+// ── 两栏宽度预算 ──────────────────────────────────────────────────────────
+// .app-shell 的列是 `var(--left-w) 6px minmax(0,1fr) 6px var(--right-w)`：两栏
+// 宽度之和 + 两条分隔条 + 主视图必须 ≤ 视口，否则网格整体溢出容器，最右那一栏
+// （右栏）被挤出视口——现场（2026-10-01）「调整边框大小时右栏消失」就是这么来的：
+// 旧口径只按 `viewport-280` **逐栏**钳制，两栏之和可以远超视口，而左栏锚在视口
+// 左边、看起来没事。用户口径：右栏要「跟左栏一样保持大小，最好保持比例」。
+const MAIN_VIEW_MIN = 280; // 中间主视图至少保留的宽度
+const PANEL_DIVIDERS = 12; // 两条分隔条 6px × 2
+const PANEL_WIDTH_FLOOR = 200; // 单栏下限（预算极小时的最后兜底）
+
+function viewportWidth() {
+  return window.innerWidth || 1280;
 }
+// sidePaneWidthBudget 两栏**共用**的可用宽度预算。
+function sidePaneWidthBudget() {
+  return Math.max(0, viewportWidth() - MAIN_VIEW_MIN - PANEL_DIVIDERS);
+}
+// sidePaneMaxWidth 单栏宽度上限。拖拽时传入另一栏当前宽度：一栏拉宽不该把另一栏
+// 挤出视口（旧口径只留 320 的绝对下限，等同于放任溢出）。
+function sidePaneMaxWidth(otherWidth = 0) {
+  const budget = sidePaneWidthBudget() - Math.max(0, Number(otherWidth) || 0);
+  return Math.max(PANEL_WIDTH_FLOOR, budget);
+}
+// applyPanelWidths 把两栏宽度落到 CSS 变量：先各自钳制，两栏之和超预算时**按
+// 比例收敛**（用户口径「最好保持比例」）。写回的是 CSS 变量而不是 localStorage
+// ——收起再展开、或窗口重新变大，用户原来拖出来的宽度仍原样恢复（与
+// previewPaneWidth 同一条口径：存的是用户意图，钳制只影响当前这一次渲染）。
 function applyPanelWidths() {
-  const left = clampPanelWidth(Number(storageGet(LEFT_WIDTH_KEY)) || 268, LEFT_WIDTH_MIN, sidePaneMaxWidth());
-  const right = clampPanelWidth(Number(storageGet(RIGHT_WIDTH_KEY)) || 300, RIGHT_WIDTH_MIN, sidePaneMaxWidth());
+  const budget = sidePaneWidthBudget();
+  const cap = Math.max(PANEL_WIDTH_FLOOR, budget);
+  let left = clampPanelWidth(Number(storageGet(LEFT_WIDTH_KEY)) || 268, LEFT_WIDTH_MIN, cap);
+  let right = clampPanelWidth(Number(storageGet(RIGHT_WIDTH_KEY)) || 300, RIGHT_WIDTH_MIN, cap);
+  if (budget > 0 && left + right > budget) {
+    const scale = budget / (left + right);
+    left = Math.max(LEFT_WIDTH_MIN, Math.round(left * scale));
+    right = Math.max(RIGHT_WIDTH_MIN, Math.round(right * scale));
+  }
+  // 收敛到两栏下限后仍装不下（预算小于两栏下限之和）：把余量差让给右栏，宁可
+  // 它窄到下界也不让它整条被顶出视口。主视图由 minmax(0,1fr) 自行收窄。
+  if (budget > 0 && left + right > budget) {
+    right = Math.max(RIGHT_WIDTH_MIN, budget - left);
+  }
   document.documentElement.style.setProperty("--left-w", `${left}px`);
   document.documentElement.style.setProperty("--right-w", `${right}px`);
 }
@@ -4385,11 +4421,18 @@ function setupPanelDividers() {
   const rightDivider = document.getElementById("right-divider");
   if (!shell || !leftDivider || !rightDivider) return;
 
-  function setWidth(variable, key, min, width) {
-    const clamped = clampPanelWidth(width, min, sidePaneMaxWidth());
+  // setWidth：把拖出来的宽度落到 CSS 变量并落盘。otherWidth 是**另一栏**当前
+  // 宽度——上限从两栏共用预算里再扣掉它，一栏拉宽因此不会把另一栏挤出视口。
+  function setWidth(variable, key, min, width, otherWidth = 0) {
+    const clamped = clampPanelWidth(width, min, sidePaneMaxWidth(otherWidth));
     document.documentElement.style.setProperty(variable, `${clamped}px`);
     storageSet(key, String(clamped));
     return clamped;
+  }
+  // currentPanelWidth 读当前 CSS 变量里的栏宽（拖拽钳制时要扣掉的那一栏）。
+  function currentPanelWidth(variable, fallback) {
+    const raw = parseFloat(document.documentElement.style.getPropertyValue(variable));
+    return Number.isFinite(raw) && raw > 0 ? raw : fallback;
   }
   // beginDrag：统一拖拽骨架——挂 is-dragging（分隔条点亮）+ body 上的
   // is-resizing-col（全局禁选/统一光标），onMove 返回新宽度用于读条。
@@ -4419,14 +4462,14 @@ function setupPanelDividers() {
     };
   }
   leftDivider.addEventListener("pointerdown", beginDrag(leftDivider, event => {
-    return setWidth("--left-w", LEFT_WIDTH_KEY, LEFT_WIDTH_MIN, event.clientX - shell.getBoundingClientRect().left);
+    return setWidth("--left-w", LEFT_WIDTH_KEY, LEFT_WIDTH_MIN, event.clientX - shell.getBoundingClientRect().left, currentPanelWidth("--right-w", 300));
   }));
   rightDivider.addEventListener("pointerdown", beginDrag(rightDivider, event => {
-    return setWidth("--right-w", RIGHT_WIDTH_KEY, RIGHT_WIDTH_MIN, shell.getBoundingClientRect().right - event.clientX);
+    return setWidth("--right-w", RIGHT_WIDTH_KEY, RIGHT_WIDTH_MIN, shell.getBoundingClientRect().right - event.clientX, currentPanelWidth("--left-w", 268));
   }));
   // 双击分隔条 = 复位到默认宽度（左 268 / 右 300），拖歪了不用来回找。
-  leftDivider.addEventListener("dblclick", () => setWidth("--left-w", LEFT_WIDTH_KEY, LEFT_WIDTH_MIN, 268));
-  rightDivider.addEventListener("dblclick", () => setWidth("--right-w", RIGHT_WIDTH_KEY, RIGHT_WIDTH_MIN, 300));
+  leftDivider.addEventListener("dblclick", () => setWidth("--left-w", LEFT_WIDTH_KEY, LEFT_WIDTH_MIN, 268, currentPanelWidth("--right-w", 300)));
+  rightDivider.addEventListener("dblclick", () => setWidth("--right-w", RIGHT_WIDTH_KEY, RIGHT_WIDTH_MIN, 300, currentPanelWidth("--left-w", 268)));
 
   function keyboardAdjust(divider, isRight) {
     divider.addEventListener("keydown", event => {
@@ -4436,10 +4479,10 @@ function setupPanelDividers() {
       let width;
       if (isRight) {
         const current = parseFloat(document.documentElement.style.getPropertyValue("--right-w")) || 300;
-        width = setWidth("--right-w", RIGHT_WIDTH_KEY, RIGHT_WIDTH_MIN, current - step);
+        width = setWidth("--right-w", RIGHT_WIDTH_KEY, RIGHT_WIDTH_MIN, current - step, currentPanelWidth("--left-w", 268));
       } else {
         const current = parseFloat(document.documentElement.style.getPropertyValue("--left-w")) || 268;
-        width = setWidth("--left-w", LEFT_WIDTH_KEY, LEFT_WIDTH_MIN, current + step);
+        width = setWidth("--left-w", LEFT_WIDTH_KEY, LEFT_WIDTH_MIN, current + step, currentPanelWidth("--right-w", 300));
       }
       const rect = divider.getBoundingClientRect();
       flashResizePill(`${width} px`, rect.left + rect.width / 2, rect.top + rect.height / 2);
