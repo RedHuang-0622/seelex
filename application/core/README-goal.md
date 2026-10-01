@@ -30,15 +30,7 @@ goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回
 - `func goalLoopRoundLimit(configured int) int` — goalLoopRoundLimit 把配置值解析成实际生效的轮次上限。
 - `func (g *goalCoordinator) newGovernor(sessionID string, runtime *goalSessionRuntime) govern.Governor` — newGovernor 装配治理循环座位。座位的**存在性**由团队工作顺序（链表）决定：
 - `func (g *goalCoordinator) seatsFor(sessionID string, supervisor *goaldomain.Supervisor, execAct func(context.Context) (govern.TurnAction, error)) []govern.Seat` — seatsFor 按团队注册表的**角色 kind** 派生治理座位。
-- `func (g *goalCoordinator) roleTurnRunnerFor(sessionID string) RoleTurnRunner` — roleTurnRunnerFor 取该会话的员工执行面（未装配 → nil = 试水形态）。
-- `func (plan seatPlan) seats() []govern.Seat` — seats 按角色 kind 派生座位（纯函数，便于单测钉住"改名不丢座位"与
-- `func newRoleTurnSeat(seat RoleSeat, orderIndex int, sessionID string, runner RoleTurnRunner) roleTurnSeat`
-- `func (seat roleTurnSeat) Name() string`
-- `func (seat roleTurnSeat) Kind() govern.AgentKind`
-- `func withRoleTurnInput(ctx context.Context, detail string) context.Context`
-- `func roleTurnInputFromContext(ctx context.Context) string`
-- `func (seat roleTurnSeat) Act(ctx context.Context) (govern.TurnAction, error)` — Act 跑一轮员工回合。错误向上抛（治理循环透传）：执行面出错不能吞成"没产出"，
-- `func roleTurnNote(outcome RoleTurnOutcome) string` — roleTurnNote 把一轮员工回合的结论落成面板可见的一句话：没跑起来和跑了没产出
+- `func (plan seatPlan) seats() []govern.Seat` — seats 按角色 kind 派生座位（纯函数，便于单测钉住"改名不丢座位"）。
 - `func seatsFromOrder(order []string, supervisor *goaldomain.Supervisor, execAct func(context.Context) (govern.TurnAction, error)) []govern.Seat` — seatsFromOrder 是退化路径：只有链表顺序（角色名）时按名字匹配。
 - `func orderSeats(seats []govern.Seat) []govern.Seat` — orderSeats 把座位按 EXEC → ADVISOR 归位（同 kind 保持链表次序）。
 - `func (g *goalCoordinator) teamOrderFor(sessionID string) []string` — teamOrderFor 读该会话团队环的链表顺序（未装配团队环 → nil）。
@@ -125,17 +117,6 @@ goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回
 - `func TestRingEscapeClosesGoalAndArchivesTLHistory(t *testing.T)` — TestRingEscapeClosesGoalAndArchivesTLHistory：逃生后 goal 必须收口，且 tl 角色
 - `func TestRingEscapeWithoutGoalIsQuiet(t *testing.T)` — TestRingEscapeWithoutGoalIsQuiet：没有 goal 时环逃生不应报错、不应写归档
 
-### goal_role_turn_test.go
-
-- `func (runner *stubRoleTurnRunner) RunRoleTurn(_ context.Context, request RoleTurnRequest) (RoleTurnOutcome, error)`
-- `func (runner *stubRoleTurnRunner) recorded() []RoleTurnRequest`
-- `func TestRoleTurnSeatPassesRoleIdentityToExecutionFace(t *testing.T)` — TestRoleTurnSeatPassesRoleIdentityToExecutionFace：座位必须把"在哪个角色会话上、
-- `func TestRoleTurnNoteSurfacesSilentAndEmptyRounds(t *testing.T)` — TestRoleTurnNoteSurfacesSilentAndEmptyRounds：座位一直空着不能被误读成"员工干完了"。
-- `func TestRoleTurnSeatPropagatesExecutionError(t *testing.T)` — TestRoleTurnSeatPropagatesExecutionError：执行面出错必须向上抛。吞成"没产出"会让
-- `func TestAdvanceAfterChatCompletesRoundWithExecutionSeats(t *testing.T)` — TestAdvanceAfterChatCompletesRoundWithExecutionSeats 是"员工执行面接入后环仍能走完
-- `func TestAdvanceAfterChatWithoutExecutionFaceKeepsPilotShape(t *testing.T)` — TestAdvanceAfterChatWithoutExecutionFaceKeepsPilotShape 是试水形态的回归钉：
-- `func TestRoleTurnNoteTrimmed(t *testing.T)` — TestRoleTurnNoteTrimmed 保证空 Note 不产生悬空空格（面板拼接用）。
-
 ### goal_seat_jobs_test.go
 
 - `func (jobs *fakeSeatJobs) DispatchSeat(ctx context.Context, sessionID, detail string) (string, error)`
@@ -154,7 +135,7 @@ goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回
 - `func seatNamesOf(seats []govern.Seat) []string`
 - `func equalSeatKinds(left, right []govern.AgentKind) bool`
 - `func TestSeatPlanFollowsRoleKindNotRoleName(t *testing.T)` — TestSeatPlanFollowsRoleKindNotRoleName：座位由 kind 决定，与角色名无关。
-- `func TestSeatPlanGivesExecutionSeatToAgentRoles(t *testing.T)` — TestSeatPlanGivesExecutionSeatToAgentRoles：装配了员工执行面后，agent 角色获得
+- `func TestSeatPlanGivesNoSeatToAgentRoles(t *testing.T)` — TestSeatPlanGivesNoSeatToAgentRoles：员工角色**不再**占治理座位——员工干活由 leader
 - `func equalStrings(left, right []string) bool`
 - `func TestCoordinatorSeatsFromRegistryKinds(t *testing.T)` — TestCoordinatorSeatsFromRegistryKinds：协调器在有注册表读面时必须走 kind 派生，
 - `func TestSeatsFallBackToOrderNamesWithoutRegistry(t *testing.T)` — TestSeatsFallBackToOrderNamesWithoutRegistry：没有注册表读面时退回老路径（按

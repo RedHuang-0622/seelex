@@ -574,6 +574,22 @@ go test -race ./application/core/goal/ -count=1
 - `func TestMailboxBoundedDirectivesAndOverflow(t *testing.T)`
 - `func TestMailboxPeekDoesNotConsume(t *testing.T)` — TestMailboxPeekDoesNotConsume：Peek 只给"看一眼"（回合尾立刻回放可见行用），
 
+### tl_steps.go
+
+- `func WithTLStepSink(ctx context.Context, sink TLStepSink) context.Context` — WithTLStepSink 把步骤观察回调挂到 ctx 上（回合开始处挂）。
+- `func TLStepSinkFrom(ctx context.Context) TLStepSink` — TLStepSinkFrom 取出步骤观察回调；未挂载时返回 nil（执行面按"不观察"处理，
+- `func (s *Supervisor) noteStep(step TLStep)` — noteStep 记一个 b 回合步骤（保留最近 MaxRoundSteps 条）。
+- `func (s *Supervisor) clearRoundSteps()` — clearRoundSteps 在本轮**开始**时清掉上一轮的过程。
+- `func (s *Supervisor) roundStepsSnapshot() []TLStep` — roundStepsSnapshot 复制当前过程步骤（读面用；调用方不限持锁）。
+
+### tl_steps_test.go
+
+- `func (e *stepEvaluator) Evaluate(ctx context.Context, _ TLSessionEmbed) (TLDirective, error)`
+- `func TestTLStepSinkRoundTrip(t *testing.T)`
+- `func TestRunRoundKeepsRoundStepsAfterCommit(t *testing.T)` — TestRunRoundKeepsRoundStepsAfterCommit：回合结束后步骤**仍在**（保留给面板），
+- `func TestRoundStepsAreBounded(t *testing.T)` — TestRoundStepsAreBounded：步骤列表保留最近 MaxRoundSteps 条（旧步骤先丢）。
+- `func TestRoundStepsRotateOnNextRound(t *testing.T)` — TestRoundStepsRotateOnNextRound：新一轮开始即换代——面板语义是"本轮/最近一轮"，
+
 ### tl_stream.go
 
 - `func WithTLDeltaSink(ctx context.Context, sink TLDeltaSink) context.Context` — WithTLDeltaSink 把观察回调挂到 ctx 上（回合开始处挂，defer 清理）。

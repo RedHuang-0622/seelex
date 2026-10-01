@@ -39,8 +39,6 @@ type RuntimeOptions struct {
 	RoundLimit int
 	// NoProgressLimit ≤0 = 不设无进展上限。
 	NoProgressLimit int
-	// Buffer 是 Requests() 的 channel 缓冲（≤0 取默认 8）。
-	Buffer int
 }
 
 // Runtime 是会话级的发言调度运行态：环内成员顺序 + 逃生记账。
@@ -85,12 +83,8 @@ type Runtime struct {
 // 角色会话坐标）；executors 为 nil 时按包的 RolesWithExecutor 事实表判断。
 // 环成员 = order_roles 去掉 user（见 ringOrder）。
 func NewRuntime(order []string, sessions map[string]string, orderPolicy string, opts RuntimeOptions) *Runtime {
-	buffer := opts.Buffer
-	if buffer < 1 {
-		buffer = 8
-	}
 	return &Runtime{
-		scheduler:       NewTurnScheduler(ringOrder(order), sessions, buffer),
+		scheduler:       NewTurnScheduler(ringOrder(order), sessions),
 		policy:          strings.TrimSpace(orderPolicy),
 		roundLimit:      opts.RoundLimit,
 		noProgressLimit: opts.NoProgressLimit,

@@ -23,9 +23,17 @@ import (
 //  1. 源码事实：生产调用点必须存在，且**只能**在 `runtime.go`（不允许在别处悄悄
 //     再建一条不共享逃生记账的环——那会长出第二份顺序事实）；
 //  2. 文档声明：README 必须点名生产消费面（`Order()` / `NoteTurn()`）并**如实**
-//     声明 `Next()`/`Advance()` 没有生产消费者。声明与代码漂移就红。
+//     声明 `Advance()`（经 `Runtime.Next`）没有生产消费者。声明与代码漂移就红。
 //     注意本用例只断言"文档说了什么"，运行时的真实消费面由 `runtime_test.go` 的
 //     行为用例与 `goal_coordinator` 的调用点承担。
+//
+// 2026-10-01（M4 §9 #3）：`TurnScheduler` 的 channel 投递路径
+// （`Requests`/`Request`/`Next`）、顺序编辑三件（`Move`/`Remove`/`Restore`）与只读
+// getter（`Prefix`）**已退场**——它们没有生产消费者（投递方"每个角色自己的 agent
+// loop"从未落地，前端拖拽调序那条手势也已退场）。两条断言的**形状不变**，"没有
+// 生产消费者"从此指 `Advance()`（经 `Runtime.Next`）；另加一条：**退场这件事必须
+// 被记下来**（README 与 `scheduler.go` 都要写"已退场"），否则下一个人会照旧措辞
+// 把它读成"还活着但没人用"。
 
 // schedulerCallSite 是扫描结果里的一条调用点。
 type schedulerCallSite struct {
@@ -107,9 +115,9 @@ func TestTurnSchedulerWiredStatusIsDocumented(t *testing.T) {
 		t.Fatalf("读模块 README 失败: %v", err)
 	}
 	text := string(data)
-	for _, want := range []string{"TurnScheduler", "runtime.go", "逃生", "接线现状", "Order()", "NoteTurn()", "没有生产消费者"} {
+	for _, want := range []string{"TurnScheduler", "runtime.go", "逃生", "接线现状", "Order()", "NoteTurn()", "没有生产消费者", "已退场"} {
 		if !strings.Contains(text, want) {
-			t.Fatalf("README 缺少接线状态声明 %q（必须写清生产消费面 Order()/NoteTurn()、Next()/Advance() 没有生产消费者，以及逃生路径）", want)
+			t.Fatalf("README 缺少接线状态声明 %q（必须写清生产消费面 Order()/NoteTurn()、Advance() 没有生产消费者、已退场的四组，以及逃生路径）", want)
 		}
 	}
 	if strings.Contains(text, "尚未接线") {
@@ -153,7 +161,9 @@ func schedulerSkipDir(name string) bool {
 //
 // 两条断言：
 //  1. 包内生产源码不得再出现字面量"尚未接线"（旧结论的唯一措辞）；
-//  2. scheduler.go 必须点名它的生产调用点（runtime.go）与"接线状态"口径。
+//  2. scheduler.go 必须点名它的生产调用点（runtime.go）与"接线状态"口径，并记下
+//     2026-10-01 的退场（"已退场"）——退场不写在文件头，下一个人就只看得到一张
+//     没人消费的接口表。
 func TestTurnSchedulerWiredStatusIsDocumentedInSources(t *testing.T) {
 	root := schedulerRepoRoot(t)
 	pkgDir := filepath.Join(root, "application", "core", "agentteam")
@@ -184,9 +194,9 @@ func TestTurnSchedulerWiredStatusIsDocumentedInSources(t *testing.T) {
 	if scanned == 0 || schedulerText == "" {
 		t.Fatal("未扫描到调度器包的生产源码")
 	}
-	for _, want := range []string{"接线状态", "生产调用点", "runtime.go"} {
+	for _, want := range []string{"接线状态", "生产调用点", "runtime.go", "已退场"} {
 		if !strings.Contains(schedulerText, want) {
-			t.Fatalf("scheduler.go 缺少接线声明 %q：生产调用点及其唯一性必须写在该文件头", want)
+			t.Fatalf("scheduler.go 缺少接线声明 %q：生产调用点及其唯一性、以及已退场的接口必须写在该文件头", want)
 		}
 	}
 }

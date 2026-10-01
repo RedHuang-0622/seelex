@@ -35,6 +35,26 @@ version when it lands.
 
 ### Changed
 
+- **The ring's channel-dispatch and order-editing interfaces are retired (the M4 dead-code list's item #3),
+  and the earlier "no production consumer" reading is corrected in the same breath.** `TurnScheduler` kept
+  a second dispatch path (`Requests` / `Request` / `Next`) whose producer — "each role's own agent loop" —
+  never landed, three order-editing methods (`Move` / `Remove` / `Restore`) whose UI gesture was already
+  retired, and a read-only getter (`Prefix`) that duplicated `Snapshot().Prefix`. All three groups had zero
+  production consumers, so they are gone, together with what existed only to serve them: the `requests`
+  channel, the `buffer` constructor argument, `RuntimeOptions.Buffer` (production never set it),
+  `TurnRequest.RoundID`, and the two private helpers `orderLocked` / `indexOfRole`. What the ring *is*
+  consumed for is unchanged and now stated in one place: `SetOrder` (whole-table replacement via
+  `Runtime.SyncOrder`), `Order()` (seat existence), `SetPrefix` (the team-work prefix carrier) and
+  `sessionsLocked()`. `Advance()` / `Runtime.Next()` are **kept**: they have no production caller either —
+  the earlier note treating `Advance` as production-consumed via `Runtime.Next` was wrong (`Runtime.Next`
+  is called only by tests) — but they are the only place the escape reasons `no_executor` / `empty_ring`
+  are computed, so deleting them would delete behaviour, not dead code; that call belongs to the step where
+  the team plan becomes the single order fact. The wiring guards moved with the facts: both falsifiable
+  assertions survive, "没有生产消费者" now refers to `Advance()`, and a third assertion requires the
+  retirement to be recorded (README and `scheduler.go` must both say "已退场"), so the next reader cannot
+  mistake a retired interface table for a live one. See
+  [`docs/devlog/2026-10-01-turn-rotation-retired.md`](docs/devlog/2026-10-01-turn-rotation-retired.md).
+
 - **Subagent dispatch is now background-only: `fork_subagents` returns handles, never results.** The
   job face was always there for subagents, but behind an `async` switch that defaulted off — so the
   model's default was a call that blocked until the whole `start → N×agent → summary` DAG finished, and

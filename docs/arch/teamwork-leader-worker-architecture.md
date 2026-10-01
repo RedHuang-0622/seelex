@@ -380,7 +380,7 @@ leader 判定某 teammate 的一轮任务结束 → `team_retire(role)`，**顺�
 |---|---|---|
 | goal 治理座位循环 | `application/core/govern/`、`goal_coordinator.go` 的 `newGovernor`/`seatPlan.seats`/`roleTurnSeat`/`newRoleTurnSeat` | 降级为 `KindSeat` Executor（D4），原座位派生逻辑随之收敛或退场 |
 | ADVISOR 座位 | `application/core/goal/advisor.go`、`NewAdvisorSeat` | 转 review worker |
-| team 环与逃生 | `application/core/agentteam/{scheduler,runtime}.go`（`TurnScheduler` 未接线） | `TurnScheduler` 环退场；逃生并入 `jobs` 管理面 |
+| team 环与逃生 | `application/core/agentteam/{scheduler,runtime}.go`——**已接线**（生产消费 `Order()` / `SetPrefix()` / `SetOrder()` / `Snapshot()`；原写"未接线"是旧结论，2026-10-01 按事实更正） | `TurnScheduler` 的无消费者接口**已退场（2026-10-01，#3）**：channel 投递（`Requests`/`Request`/`Next`）、顺序编辑三件（`Move`/`Remove`/`Restore`）、只读 getter `Prefix`，见 [`../devlog/2026-10-01-turn-rotation-retired.md`](../devlog/2026-10-01-turn-rotation-retired.md)。环与逃生仍 live（`NoteTurn` 记账 + `TeamView.schedule`）；`Advance`/`Runtime.Next` 同样没有生产消费者但**未删**（逃生 ③`no_executor`/④`empty_ring` 的唯一计算点，删=删行为）。退场条件 = team plan 成为唯一顺序事实（届时再定推进路径与"逃生并入 `jobs` 管理面"） |
 | 座位派生读面 | `application/core/agentteam_runtime.go`（`teamRoleSeatsFor`） | 若 team plan 成唯一顺序事实则退场 |
 | 旧顺序字段 | `lifecycle.order_policy/order_roles` | 转历史/只读，读面切到计划 |
 | `RoleTurnRunner` 适配 | `application/core/role_turn.go`、`contract.RoleTurnPort` | 若 worker Executor 走 `jobs` 契约则退场/改名 |
@@ -458,13 +458,13 @@ O4 plan/stage id（脱离会话生命周期；`bash_bg` 这种非 teamwork 场�
 | M2 leader 六件套工具 | **已实现** | `seelebridge/runtime_teamwork.go` 的 `team_plan/team_dispatch/team_join/team_milestone/team_retire` 经 `r.RegisterTool` 注册（`RegisterBuiltins` + `SetTeamworkBackend`），`jobs_manage` 由 `jobs/builtin` 提供；路由组表已分封（`team_*` → ctl、`jobs_manage` → rw）。**leader 提示词** = `plugins/default/teamwork/SKILL.md`（`$teamwork`）。组合根接线见 `main.go` 的 `Runtime.SetTeamworkBackend`；`sessionstore.Router.TeamworkFor` 提供持久面 |
 | M2 goal 座位降级 `KindSeat` | **已实现** | **派发侧**端口 = `application/core/goal_coordinator.go` 的 `SeatJobs`（`DispatchSeat` / `JoinSeat`；终态读数 `dto.SeatJobOutcome`），经 `goalCoordinatorDeps.SeatJobs` 注入、由 `service_assembler.go` 的 `assembler.deps.Runtime.(SeatJobs)`（+ 装配探针 `SeatJobsAssembled`）探测；**执行侧**端口 = `seelebridge/teamwork.SeatRoundRunner`（`Runtime.SetSeatRoundRunner`，组合根 `main.go` 在 `initApplication` 之后传入 application 侧实现者 `Service.RunSeatRound`）。座位循环正文**唯一**（`goalCoordinator.runSeatRound`，作业执行体与同步降级路径共用）：`advanceAfterChat` 逃生记账之后——装配了作业面 → `DispatchSeat` → 有界（默认 5 分钟）`JoinSeat`，终态非 done ⇒ `Summary` 走与 `gov.Next` 同一条登记路径进 `RoundError`；未装配（端口 nil / 作业面未装配）⇒ 现状同步循环，行为一字不变。注册：`Runtime.SetTeamworkBackend` 的 `jobs.New` 补 `teamwork.SeatExecutor(r)`（作业 `Scope{Session}`、`Description` 为治理行标题）；会话归属与本轮正文走**载荷**（`SeatRequest.SessionID/Detail`），不依赖作业 ctx（由 `jobs.Manager` 从 `Background` 派生） |
 | M3 `team_retire` 四步 | **已实现** | `Coordinator.Retire`：`Reclaim(Scope{Session,Subject})` → 释放 worktree → 清会话内容 → 保在线；端口缺失时**显式报错**；生产实现 = `Runtime.ReleaseWorkspace` + `Runtime.ResetSession`（角色会话为进程内执行面，清内存历史即"内容已清"） |
-| M4 清场 | **待做（§9 已逐条核实）；已先清掉"内置形态目录"这一块** | §9 清单的**引用事实与退场条件**见 [`../devlog/2026-10-01-m4-deadcode-inventory.md`](../devlog/2026-10-01-m4-deadcode-inventory.md)：六条候选里只有 `TurnScheduler` 的 `Next/Request/Remove/Restore` 是 `test-only`（删它同时是改规格，要连带改 `scheduler_wiring_test.go` 与 README），其余五条都 `blocked`——`newGovernor`/`seatPlan`/`NewAdvisorSeat` 仍是座位循环正文（`runSeatRound`）的唯一座位派生来源、`teamRoleSeatsFor`/`RoleTurnPort` 仍有生产消费者、`order_policy/order_roles` 被席位环与前端 `team.set_order`（员工栏「摘除」时提交整张顺序表）共同消费。**已做的三步标注/清理**：① 2026-10-01 `order_policy` 在 `dto`（GoDoc）、`application/core/agentteam/README.md` 与 GUI 里标注为历史字段（字段本体、落盘取值与 `order_roles` 一字未动，退场条件仍 blocked），见 [`../devlog/2026-10-01-teamwork-legacy-order-fields.md`](../devlog/2026-10-01-teamwork-legacy-order-fields.md)；② 同日**删除内置形态目录**（`agentteam/presets.go` 与全部配套入口）——它不属于 §9 六条，但同属"旧面"，且 `goal` 上线自动装配团队会**整份替换掉会话已有的团队**（事故，不是自动化），见 [`../devlog/2026-10-01-no-builtin-team-shapes.md`](../devlog/2026-10-01-no-builtin-team-shapes.md)；③ 同日 **GUI 侧撤掉全部人工编排**（团队形态 chip / 顺序策略 / 拖拽调序 / 位置列一并退场，"次序 = 登记先后"落进面板与文档），见 [`../devlog/2026-10-01-team-panel-no-shapes.md`](../devlog/2026-10-01-team-panel-no-shapes.md)；④ 同日 **#1/#6 的员工执行面整条退场**（M2 的 `KindSeat` 已接管座位循环，员工干活改由 leader 派 worker 作业，退场条件「先建新面、后撤旧面」成立）：`RoleSeat` 只留 `RoleName`/`RoleKind`、`roleTurnSeat`/`newRoleTurnSeat`/`roleTurnNote`/`withRoleTurnInput`/`RoleTurnRunner`/`goalCoordinatorDeps.RoleTurnFor`/`application/core/role_turn.go` 与跨层的 `contract.RoleTurnPort`+`deps.RoleTurn`+`dto.RoleTurnRequest/RoleTurnOutcome`+`Runtime.RunRoleTurn` 一并删除（`runRoleRound` 保留——worker 作业与 ADVISOR 评审仍共用它），见 [`../devlog/2026-10-01-seat-employee-face-retired.md`](../devlog/2026-10-01-seat-employee-face-retired.md) |
+| M4 清场 | **待做（§9 已逐条核实）；已先清掉"内置形态目录"这一块** | §9 清单的**引用事实与退场条件**见 [`../devlog/2026-10-01-m4-deadcode-inventory.md`](../devlog/2026-10-01-m4-deadcode-inventory.md)：六条候选里只有 `TurnScheduler` 的 `Next/Request/Remove/Restore` 是 `test-only`（删它同时是改规格，要连带改 `scheduler_wiring_test.go` 与 README），其余五条都 `blocked`——`newGovernor`/`seatPlan`/`NewAdvisorSeat` 仍是座位循环正文（`runSeatRound`）的唯一座位派生来源、`teamRoleSeatsFor`/`RoleTurnPort` 仍有生产消费者、`order_policy/order_roles` 被席位环与前端 `team.set_order`（员工栏「摘除」时提交整张顺序表）共同消费。**已做的三步标注/清理**：① 2026-10-01 `order_policy` 在 `dto`（GoDoc）、`application/core/agentteam/README.md` 与 GUI 里标注为历史字段（字段本体、落盘取值与 `order_roles` 一字未动，退场条件仍 blocked），见 [`../devlog/2026-10-01-teamwork-legacy-order-fields.md`](../devlog/2026-10-01-teamwork-legacy-order-fields.md)；② 同日**删除内置形态目录**（`agentteam/presets.go` 与全部配套入口）——它不属于 §9 六条，但同属"旧面"，且 `goal` 上线自动装配团队会**整份替换掉会话已有的团队**（事故，不是自动化），见 [`../devlog/2026-10-01-no-builtin-team-shapes.md`](../devlog/2026-10-01-no-builtin-team-shapes.md)；③ 同日 **GUI 侧撤掉全部人工编排**（团队形态 chip / 顺序策略 / 拖拽调序 / 位置列一并退场，"次序 = 登记先后"落进面板与文档），见 [`../devlog/2026-10-01-team-panel-no-shapes.md`](../devlog/2026-10-01-team-panel-no-shapes.md)；④ 同日 **#1/#6 的员工执行面整条退场**（M2 的 `KindSeat` 已接管座位循环，员工干活改由 leader 派 worker 作业，退场条件「先建新面、后撤旧面」成立）：`RoleSeat` 只留 `RoleName`/`RoleKind`、`roleTurnSeat`/`newRoleTurnSeat`/`roleTurnNote`/`withRoleTurnInput`/`RoleTurnRunner`/`goalCoordinatorDeps.RoleTurnFor`/`application/core/role_turn.go` 与跨层的 `contract.RoleTurnPort`+`deps.RoleTurn`+`dto.RoleTurnRequest/RoleTurnOutcome`+`Runtime.RunRoleTurn` 一并删除（`runRoleRound` 保留——worker 作业与 ADVISOR 评审仍共用它），见 [`../devlog/2026-10-01-seat-employee-face-retired.md`](../devlog/2026-10-01-seat-employee-face-retired.md)；⑤ 同日 **#3 的 `TurnScheduler` 无消费者接口退场**：channel 投递（`Requests`/`Request`/`Next`）、顺序编辑三件（`Move`/`Remove`/`Restore`）、只读 getter `Prefix`，连同只服务它们的 `requests` 通道、`RuntimeOptions.Buffer`、`TurnRequest.RoundID` 与 `orderLocked`/`indexOfRole`；`scheduler_wiring_test.go` 的声明按事实改写并新增"退场必须被记下来"，见 [`../devlog/2026-10-01-turn-rotation-retired.md`](../devlog/2026-10-01-turn-rotation-retired.md) |
 
 **结论**：作业面（Seele `jobs`）与 teamwork 的**编排面 / 存储面 / 生命周期 / 工具面接线**已落地并有回归；
 `fork_subagents` 硬移除与 leader 提示词亦已就位；**goal 座位循环也已降级为 `jobs.KindSeat` 执行体**（M2 的最后一块：
 座位循环正文唯一、作业路径与同步降级路径共用，装配/未装配两侧行为都有用例钉住）。
 剩下两件：**旧异步面迁移到 `jobs.Manager`**（M0）——本轮做了阻塞分析，结论是**在这两条硬约束下不落地**（§12）；
-与 **M4 清场**（已推进：员工执行面整条退场，见上表 ④；余项仍按 §9 逐条核实）——都属于**替换旧面**的那一侧，
+与 **M4 清场**（已推进：员工执行面整条退场 + `TurnScheduler` 无消费者接口退场，见上表 ④⑤；余项仍按 §9 逐条核实）——都属于**替换旧面**的那一侧，
 按本文纪律放在新面已就位之后。
 
 ## 12. M0「旧异步面迁到 `jobs.Manager`」阻塞分析（2026-10-01）
@@ -506,6 +506,23 @@ Seelex 侧本轮**未改任何生产代码**（对外行为逐字节不变，见
 6. `Limits.HardCap = 0`（不交 manager 合成终态）**已在 M0 具备**；Seelex 执行体自带 30 分钟硬上限与 `exit=124/137` 注记，保持不动。
 
 > 这 6 条一旦就位，Seelex 侧只需把 `asyncRegistry` 的 `runs` 侧表缩到「进程树 / 取消口 / 命令原文 / Index / Notified」，其余读面直连 manager，即可实现**逐字节不变**的门面化。
+
+
+### 12.4 后续裁决（2026-10-01）：此路径**不再作为候选**
+
+用户裁决：把异步面 / 作业事件流**迁到 Seele** 这条路**已经走过并认定失败**，原因是 `jobs` 侧的
+sink 形状做不到「`job_manage` 之后保持稳定前缀、再把数据追加到尾部」：
+
+- `event.Sink`（`WithEventSink`）必须在 `jobs.New` **构造期**定死，那时还不知道"这条作业属于哪个
+  会话的哪条事件流"；框架 `event.Recorder` 是**单例 + 序号全局**，而 Seelex 的会话事件库是
+  **按会话追加/排序**的——这样发出的事件**append 不到会话事件流的尾部**，只能事后回填归属，且全局
+  序号在按会话排序下不成立（§3 的那条结构性理由）。
+- 结论：该 hook 已从 `jobs` 撤出（`Sink` 契约回到 `Note` / `SignalBytes` / `Exit` / `Complete`），
+  事件流落在 Seelex 侧（`seelebridge/jobs_events.go` 订阅 `Events()` + `Snapshot` 自投影追加），
+  与 `docs/arch/context-prefix-chain.md` 的"已定稿轮次 append-only、旧轮字节不变"同一口径。
+
+因此：**本步不再开工，也不必等 §12.3 的契约增补**；§12.3 降级为**留档**（记录"当年为什么绕不过去"），
+不构成待办。
 
 
 ## 附：锚点索引

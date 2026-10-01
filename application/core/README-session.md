@@ -368,10 +368,20 @@
 - `func (service *Service) LoadMoreHistory(limit int) error` — LoadMoreHistory 把更早的一页历史前置到可见会话（GUI 顶部 sentinel 与
 - `func (service *Service) LoadLatestHistory() error` — LoadLatestHistory 把可见会话拉回最新一页（历史浏览后的「回到最新」）。
 - `func (service *Service) visibleTailServedFromMemory(sessionID string) bool` — visibleTailServedFromMemory 报告内存窗口是否已经把有效尾部整窗带到（非空且
-- `func (service *Service) loadConversationTailPage(workspaceID, sessionID string, window int) (conversationPage, error)` — loadConversationTailPage 读磁盘已发布的尾部窗口：先探总数，再按总数定位窗口
+- `func (service *Service) loadConversationTailPage(workspaceID, sessionID string, window int) (conversationPage, error)` — loadConversationTailPage 读发布点处的尾部窗口：先探总数（未过滤空间，只用来
+- `func (service *Service) loadEarlierVisiblePage(workspaceID, sessionID string, offset, limit, window int, seam Message) (conversationPage, error)` — loadEarlierVisiblePage 读可见窗口之前的一页历史（「加载更早」的冷读面）。
+- `func (page conversationPage) reachesPublishedTail() bool` — reachesPublishedTail 报告这一页读到了发布点（未过滤空间的右界）。
 - `func currentWorkspaceIDLocked(service *Service) string` — currentWorkspaceIDLocked 返回当前视图会话的 workspace ID（调用方持有
-- `func (service *Service) loadConversationPage(workspaceID, sessionID string, offset, limit int) ([]Message, int, error)` — loadConversationPage 读回一段可见历史：record conversation 模块优先
+- `func (service *Service) loadConversationPage(workspaceID, sessionID string, offset, limit int) (conversationPage, error)` — loadConversationPage 读回一段历史：record conversation 模块优先（长会话翻页不
 - `func (service *Service) installVisibleHistory(sessionID string, page conversationPage, window int, mode historyPageInstall) error` — installVisibleHistory 安装一页可见历史：写会话可见投影（事实源）→ 收敛
+- `func replaceVisibleTail(pageRows, memoryRows []Message, memoryStart, memoryTotal, window int) ([]Message, int)` — replaceVisibleTail 组装「回到最新 / 冷回读」的尾部窗口：以冷读页为底，把内存
+- `func prependVisibleHistory(pageRows, memoryRows []Message, memoryStart, window int) ([]Message, int)` — prependVisibleHistory 组装「加载更早」的窗口：页里接缝（窗口首行）之前的可见行
+- `func (service *Service) visibleWindowFirstRow(sessionID string) Message` — visibleWindowFirstRow 返回目标会话可见窗口的首条 durable 行——前置一页要接在它
+- `func hasRowIdentity(message Message) bool` — hasRowIdentity 报告一行是否带得出身份（空行无法对位）。
+- `func sameByContent(left, right Message) bool` — sameByContent 按「角色 + 正文 + 思考」对位（没有稳定消息 ID 的行只能这样认）；
+- `func indexOfSameRow(rows []Message, want Message) int` — indexOfSameRow 返回 rows 里第一条与 want 同身份的行下标（-1 = 没找到）。先按
+- `func containsSameRow(rows []Message, want Message) bool` — containsSameRow 报告 rows 里有没有与 want 同身份的行。
+- `func lastRow(rows []Message) Message` — lastRow 返回最后一行（空序列返回零值行：与任何行都不是同一条）。
 - `func durableConversationRows(messages []Message) []Message` — durableConversationRows 取出可见窗口里参与历史游标的行（system 引导行不占
 - `func adaptEngineMessage(msg EngineMessage) Message`
 - `func isVisibleHistoryMessage(message EngineMessage) bool`
