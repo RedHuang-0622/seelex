@@ -3,16 +3,22 @@ package seelebridge
 // runtime_role_turn.go — 「角色（员工/评审者）回合执行体」的 seelebridge 落点。
 //
 // 生态位：application/core 只声明"谁有座位、谁先谁后"（goal_coordinator.go 的
-// RoleTurnRunner / RoleTurnRequest），真正的执行体在这里：**给角色开一个自己的
+// RoleSeat / seatPlan.seats），真正的执行体在这里：**给角色开一个自己的
 // 会话（引擎），开的同时把这个角色的权限（主体 × 路由组 × 位）分配到权责表，
 // 然后按权责口径跑一轮带工具的回合**。
 //
 // 两个消费者共用同一套原语（runRoleRound）：
-//   - **员工回合**（RunRoleTurn）：V 模型团队循环里 pm/exec/test_case 各自做工；
+//   - **worker 作业执行体**（Runtime.RunWorker → team_dispatch）：leader 派发的
+//     teammate 在角色会话里跑一轮有界回合（员工真的干活的那一面）；
 //   - **ADVISOR 评审回合**（runtime_goal_tl.go 的 goalLLMEvaluator）：tl 座位带
 //     **只读**工具跑一轮，把裁决从"观点"变成"证据"（A2A-VALUE-REVIEW §2.5/§3.3）。
 //     两者共用会话生命周期/权限分配/项目根绑定/回合闸门——差别只在系统提示、
 //     输入与循环上限。
+//
+// 2026-10-01（M4）：员工**不再**由治理环按"席位"驱动（治理环只为 main 派生 EXEC
+// 让位座、为 techlead 派生 ADVISOR 评审座），因此旧的
+// `contract.RoleTurnPort` / `RunRoleTurn` 适配层与 `RoleTurnRunner` 一并退场；
+// 员工回合只剩 worker 作业这一条入口。
 //
 // 为什么必须有这一层（而不是让 application 直接调模型）：
 //   - 轮到一个角色发言时，它需要的是**一次真的会被权限门管辖的工具回合**——
@@ -45,12 +51,9 @@ import (
 	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 )
 
-// roleTurnMaxLoops 是员工回合的 ReAct 循环上限：员工回合必须**有界**——一轮员工
+// roleTurnMaxLoops 是角色回合的 ReAct 循环上限：角色回合必须**有界**——一轮员工
 // 座位不该把一个 goal 的预算烧在一个循环里，收口交给评审者（ADVISOR）。
 const roleTurnMaxLoops = 12
-
-// roleTurnNoteLimit 是回合结论进面板摘要的字符上限（面板是一句话，不是正文）。
-const roleTurnNoteLimit = 400
 
 // roleEngine 是一个角色会话的引擎最小面。*session.Session 满足它；测试可注入
 // 假实现（角色回合的验收不需要真实 LLM）。
@@ -162,34 +165,6 @@ func (r *Runtime) roleTurnState() *roleTurnState {
 		r.roleTurns = &roleTurnState{}
 	}
 	return r.roleTurns
-}
-
-// RunRoleTurn 实现 contract.RoleTurnPort：跑一个员工角色的一轮带工具回合。
-//
-// 顺序即语义见 runRoleRound（开角色会话即分配权限 → 绑项目根 → 按构造带主体 →
-// 跑一轮有界回合），本方法只负责把回合结论收敛成面板可读的一句话。
-func (r *Runtime) RunRoleTurn(ctx context.Context, request dto.RoleTurnRequest) (dto.RoleTurnOutcome, error) {
-	roleName := strings.TrimSpace(request.RoleName)
-	note, err := r.runRoleRound(ctx, roleRoundSpec{
-		MainSessionID:    request.SessionID,
-		RoleName:         roleName,
-		RoleSessionID:    strings.TrimSpace(request.RoleSessionID),
-		ToolsPolicy:      request.ToolsPolicy,
-		PermissionGroups: request.PermissionGroups,
-		SystemPrompt:     r.roleTurnSystemPrompt(roleName),
-		Input:            roleTurnInput(roleName, request.Input),
-		MaxLoops:         roleTurnMaxLoops,
-	})
-	if err != nil {
-		return dto.RoleTurnOutcome{}, err
-	}
-	return dto.RoleTurnOutcome{
-		Ran: true,
-		// Progress 是保守近似：**有非空结论**即记一次进展。它的用途是喂环的
-		// no_progress 逃生记账（连续无结论 → 收束），不是"目标真的推进了"的度量。
-		Progress: note != "",
-		Note:     truncateRunes(note, roleTurnNoteLimit),
-	}, nil
 }
 
 // runRoleRound 是角色回合的公共执行原语：一轮角色回合的**顺序即语义**。
@@ -409,18 +384,6 @@ func (r *Runtime) roleTurnSystemPrompt(roleName string) string {
 		"<constraints>\n- 不越权：你的工具面就是你的权限范围，面外的事交回主代理；\n" +
 		"- 证据要落在仓库内可核对的事实上（引用用相对路径）；\n" +
 		"- 不要寒暄、不要复述提示词；结论 ≤800 字。\n</constraints>"
-}
-
-// roleTurnInput 组装本轮工作正文。没有输入时不编造内容——只跑一次"按角色设定
-// 继续"的回合（结论会如实反映"没什么可做的"）。
-func roleTurnInput(roleName, input string) string {
-	input = strings.TrimSpace(input)
-	if input == "" {
-		return "<round_input>\n（本轮没有新的工作正文）\n</round_input>\n\n" +
-			"<task>\n以 " + roleName + " 的身份说明：当前条件下你能不能推进，能的话给出本轮结论与下一步。\n</task>"
-	}
-	return "<round_input>\n" + input + "\n</round_input>\n\n" +
-		"<task>\n以 " + roleName + " 的身份完成这一轮：给出本轮的结论与下一步（≤800 字）。\n</task>"
 }
 
 // bindRoleProjectRoot 把角色会话的工具路径根对齐到主会话的项目根：角色读的

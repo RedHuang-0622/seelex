@@ -57,6 +57,18 @@ version when it lands.
   execution — the same "off is off" discipline the other dispatch tools follow. See
   [`docs/devlog/2026-10-01-fork-subagents-background-and-job-manage-batch.md`](docs/devlog/2026-10-01-fork-subagents-background-and-job-manage-batch.md).
 
+- **The seat era's employee execution face is retired (the M4 dead-code list's items #1 and #6).** The
+  governance ring now derives seats only for `main` (the EXEC yield seat) and `techlead` (the ADVISOR
+  review seat) — employees do their work as leader-dispatched worker jobs — which made the whole
+  "employee turn seat" chain dead: `roleTurnSeat`, `newRoleTurnSeat`, `roleTurnNote`,
+  `withRoleTurnInput`, `RoleTurnRunner`, `goalCoordinatorDeps.RoleTurnFor`, `seatPlan.Runner`, the
+  `dto.RoleKindAgent` seat branch, `RoleSeat`'s `RoleSessionID`/`ToolsPolicy`/`PermissionGroups`
+  fields, `application/core/role_turn.go`, the cross-layer `contract.RoleTurnPort` + `Deps.RoleTurn`,
+  the `dto.RoleTurnRequest`/`RoleTurnOutcome` DTOs and `Runtime.RunRoleTurn`. `runRoleRound` stays: the
+  worker executor and the ADVISOR review still share it, and its acceptance suite now pins it directly
+  (the production path itself, not a stand-in) instead of going through the retired port. See
+  [`docs/devlog/2026-10-01-seat-employee-face-retired.md`](docs/devlog/2026-10-01-seat-employee-face-retired.md).
+
 - **The employee side of the Agent Team panel now updates the way the panel itself does — by event,
   plus a manual refresh key, never by heartbeat.** ClaudeTeamwork judges liveness from file heartbeats
   (`.teamwork/heartbeats/`); this side's job table already *is* the liveness fact (`running` / `done` /

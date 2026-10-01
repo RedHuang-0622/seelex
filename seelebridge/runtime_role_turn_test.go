@@ -3,12 +3,17 @@ package seelebridge
 // runtime_role_turn_test.go — 「角色回合执行体」的验收面。
 //
 // 三件事必须同时成立，角色才不是"发言权"而是"做工权"：
-//  1. 轮到一个 agent 角色时，它真的跑了一轮（在**自己的会话**上，不是主会话）；
-//  2. 开角色会话的那一刻，这个员工（角色）的权限被分配到权责表（emp_<角色>）；
+//  1. 轮到一个角色时，它真的跑了一轮（在**自己的会话**上，不是主会话）；
+//  2. 开角色会话的那一刻，这个员工的权限被分配到权责表（emp_<角色>）；
 //  3. 该回合的工具调用按**员工口径**解析主体（工具面被权责收窄），而不是落回 root。
 //
 // 假引擎替代真实 LLM：角色回合的正确性不该依赖一次真实 API 调用（那是"真实 API
 // 冒烟"那一件事），这里钉的是执行体自己的装配与授权语义。
+//
+// 2026-10-01（M4）：员工不再由治理环的"座位"驱动（`contract.RoleTurnPort` /
+// `RunRoleTurn` 随座位制退场），这一面只剩 worker 作业执行体（Runtime.RunWorker）
+// 与 ADVISOR 评审两个消费者，两者共用同一个 `runRoleRound` 原语。用例因此直接钉
+// `runRoleRound`——那是生产路径本身，不是替身。
 
 import (
 	"context"
@@ -112,25 +117,49 @@ func newRoleTurnRuntime(t *testing.T) (*Runtime, *fakeRoleEngine, *int) {
 	return runtime, engine, &created
 }
 
+// employeeSpec 组装一轮"员工回合"的执行面入参：系统提示按角色登记取、本轮正文
+// 包成 <round_input>、循环有界。
+//
+// 它复刻的是随座位制退场的 `contract.RoleTurnPort` 那层入参装配（2026-10-01 M4）；
+// 执行面本身（runRoleRound）一字未改——变的只是"谁调它"。
+func (r *Runtime) employeeSpec(mainSession, role, roleSession, policy, input string) roleRoundSpec {
+	name := strings.TrimSpace(role)
+	return roleRoundSpec{
+		MainSessionID: mainSession,
+		RoleName:      name,
+		RoleSessionID: strings.TrimSpace(roleSession),
+		ToolsPolicy:   policy,
+		SystemPrompt:  r.roleTurnSystemPrompt(name),
+		Input:         employeeRoundInput(name, input),
+		MaxLoops:      roleTurnMaxLoops,
+	}
+}
+
+// employeeRoundInput 组装员工这一轮的工作正文（与 worker 的 round_input 同口径）。
+// 没有输入时不编造内容——只跑一次"按角色设定继续"的回合。
+func employeeRoundInput(roleName, input string) string {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return "<round_input>\n（本轮没有新的工作正文）\n</round_input>\n\n" +
+			"<task>\n以 " + roleName + " 的身份说明：当前条件下你能不能推进，能的话给出本轮结论与下一步。\n</task>"
+	}
+	return "<round_input>\n" + input + "\n</round_input>\n\n" +
+		"<task>\n以 " + roleName + " 的身份完成这一轮：给出本轮的结论与下一步（≤800 字）。\n</task>"
+}
+
 // TestRoleTurnRunsOnRoleSessionAndAssignsEmployeePermission 钉住"开角色会话的同时
 // 分配该员工的权限"，并确认回合真的落在角色会话上（按角色提示 + 有界循环）。
 func TestRoleTurnRunsOnRoleSessionAndAssignsEmployeePermission(t *testing.T) {
 	runtime, engine, created := newRoleTurnRuntime(t)
-	outcome, err := runtime.RunRoleTurn(context.Background(), dto.RoleTurnRequest{
-		SessionID:     "sess-main",
-		RoleName:      "pm",
-		RoleSessionID: "goal-a2a-pm",
-		ToolsPolicy:   dto.ToolPolicyReadonly,
-		Input:         "本轮工作正文：把目标拆成可验证的子任务",
-	})
+	note, err := runtime.runRoleRound(context.Background(), runtime.employeeSpec(
+		"sess-main", "pm", "goal-a2a-pm", dto.ToolPolicyReadonly,
+		"本轮工作正文：把目标拆成可验证的子任务",
+	))
 	if err != nil {
-		t.Fatalf("RunRoleTurn: %v", err)
+		t.Fatalf("runRoleRound: %v", err)
 	}
-	if !outcome.Ran || !outcome.Progress {
-		t.Fatalf("回合结论 = %+v，应有产出", outcome)
-	}
-	if outcome.Note != "拆出 3 个子任务，下一步验证边界" {
-		t.Fatalf("Note = %q", outcome.Note)
+	if note != "拆出 3 个子任务，下一步验证边界" {
+		t.Fatalf("Note = %q", note)
 	}
 
 	prompt, maxLoops, calls, _ := engine.snapshot()
@@ -179,14 +208,10 @@ func TestRoleTurnContextYieldsEmployeeToolFace(t *testing.T) {
 	}
 	for _, item := range cases {
 		engine.output = "本轮结论"
-		if _, err := runtime.RunRoleTurn(context.Background(), dto.RoleTurnRequest{
-			SessionID:     "sess-main",
-			RoleName:      item.role,
-			RoleSessionID: "goal-a2a-" + item.role,
-			ToolsPolicy:   item.policy,
-			Input:         "工作正文",
-		}); err != nil {
-			t.Fatalf("RunRoleTurn(%s): %v", item.role, err)
+		if _, err := runtime.runRoleRound(context.Background(), runtime.employeeSpec(
+			"sess-main", item.role, "goal-a2a-"+item.role, item.policy, "工作正文",
+		)); err != nil {
+			t.Fatalf("runRoleRound(%s): %v", item.role, err)
 		}
 	}
 	engine.mu.Lock()
@@ -215,15 +240,12 @@ func TestRoleTurnContextYieldsEmployeeToolFace(t *testing.T) {
 // 连续的历史），而不是每轮重开一个（重开 = 每轮都失忆）。
 func TestRoleTurnReusesRoleSessionAcrossTurns(t *testing.T) {
 	runtime, engine, created := newRoleTurnRuntime(t)
-	request := dto.RoleTurnRequest{
-		SessionID: "sess-main", RoleName: "pm", RoleSessionID: "goal-a2a-pm",
-		ToolsPolicy: dto.ToolPolicyReadonly, Input: "第一轮",
-	}
-	if _, err := runtime.RunRoleTurn(context.Background(), request); err != nil {
+	spec := runtime.employeeSpec("sess-main", "pm", "goal-a2a-pm", dto.ToolPolicyReadonly, "第一轮")
+	if _, err := runtime.runRoleRound(context.Background(), spec); err != nil {
 		t.Fatalf("第一轮: %v", err)
 	}
-	request.Input = "第二轮"
-	if _, err := runtime.RunRoleTurn(context.Background(), request); err != nil {
+	spec.Input = employeeRoundInput("pm", "第二轮")
+	if _, err := runtime.runRoleRound(context.Background(), spec); err != nil {
 		t.Fatalf("第二轮: %v", err)
 	}
 	if *created != 1 {
@@ -241,9 +263,9 @@ func TestRoleTurnPropagatesEngineError(t *testing.T) {
 	runtime, engine, _ := newRoleTurnRuntime(t)
 	sentinel := errors.New("模型连接断了")
 	engine.err = sentinel
-	if _, err := runtime.RunRoleTurn(context.Background(), dto.RoleTurnRequest{
-		SessionID: "sess-main", RoleName: "pm", RoleSessionID: "goal-a2a-pm", ToolsPolicy: dto.ToolPolicyReadonly,
-	}); !errors.Is(err, sentinel) {
+	if _, err := runtime.runRoleRound(context.Background(), runtime.employeeSpec(
+		"sess-main", "pm", "goal-a2a-pm", dto.ToolPolicyReadonly, "",
+	)); !errors.Is(err, sentinel) {
 		t.Fatalf("角色回合错误必须可被 errors.Is 归类，得到 %v", err)
 	}
 }
@@ -251,13 +273,13 @@ func TestRoleTurnPropagatesEngineError(t *testing.T) {
 // TestRoleTurnRejectsMissingIdentity：角色名与角色会话是权限落地的锚点，缺一不跑。
 func TestRoleTurnRejectsMissingIdentity(t *testing.T) {
 	runtime, _, created := newRoleTurnRuntime(t)
-	cases := []dto.RoleTurnRequest{
-		{RoleName: "pm"},
-		{RoleSessionID: "goal-a2a-pm"},
+	cases := []roleRoundSpec{
+		runtime.employeeSpec("sess-main", "pm", "", dto.ToolPolicyReadonly, ""),
+		runtime.employeeSpec("sess-main", "", "goal-a2a-pm", dto.ToolPolicyReadonly, ""),
 	}
-	for _, request := range cases {
-		if _, err := runtime.RunRoleTurn(context.Background(), request); err == nil {
-			t.Fatalf("缺身份应显式失败：%+v", request)
+	for _, spec := range cases {
+		if _, err := runtime.runRoleRound(context.Background(), spec); err == nil {
+			t.Fatalf("缺身份应显式失败：%+v", spec)
 		}
 	}
 	if *created != 0 {
@@ -270,10 +292,10 @@ func TestRoleTurnRejectsMissingIdentity(t *testing.T) {
 func TestRoleTurnInheritedPolicyAssignsNothing(t *testing.T) {
 	runtime, _, _ := newRoleTurnRuntime(t)
 	for _, policy := range []string{dto.ToolPolicyInherit, dto.ToolPolicyFull} {
-		if _, err := runtime.RunRoleTurn(context.Background(), dto.RoleTurnRequest{
-			SessionID: "sess-main", RoleName: "owner", RoleSessionID: "goal-a2a-owner", ToolsPolicy: policy,
-		}); err != nil {
-			t.Fatalf("RunRoleTurn(%q): %v", policy, err)
+		if _, err := runtime.runRoleRound(context.Background(), runtime.employeeSpec(
+			"sess-main", "owner", "goal-a2a-owner", policy, "",
+		)); err != nil {
+			t.Fatalf("runRoleRound(%q): %v", policy, err)
 		}
 	}
 	if permissions := runtime.EmployeePermissions(); len(permissions) != 0 {
@@ -285,17 +307,15 @@ func TestRoleTurnInheritedPolicyAssignsNothing(t *testing.T) {
 // （不释放就等于角色与进程同寿）。
 func TestReleaseRoleSessionsDropsEngines(t *testing.T) {
 	runtime, _, created := newRoleTurnRuntime(t)
-	request := dto.RoleTurnRequest{
-		SessionID: "sess-main", RoleName: "pm", RoleSessionID: "goal-a2a-pm", ToolsPolicy: dto.ToolPolicyReadonly,
-	}
-	if _, err := runtime.RunRoleTurn(context.Background(), request); err != nil {
+	spec := runtime.employeeSpec("sess-main", "pm", "goal-a2a-pm", dto.ToolPolicyReadonly, "")
+	if _, err := runtime.runRoleRound(context.Background(), spec); err != nil {
 		t.Fatalf("第一轮: %v", err)
 	}
 	runtime.ReleaseRoleSessions()
 	if ids := runtime.RoleSessionIDs(); len(ids) != 0 {
 		t.Fatalf("释放后仍有角色会话：%v", ids)
 	}
-	if _, err := runtime.RunRoleTurn(context.Background(), request); err != nil {
+	if _, err := runtime.runRoleRound(context.Background(), spec); err != nil {
 		t.Fatalf("释放后重开: %v", err)
 	}
 	if *created != 2 {
@@ -317,26 +337,20 @@ func TestRoleRoundRejectsReentrantDriveOnSameSession(t *testing.T) {
 	inner := make(chan error, 1)
 	engine.mu.Lock()
 	engine.reenter = func(ctx context.Context) {
-		_, err := runtime.RunRoleTurn(ctx, dto.RoleTurnRequest{
-			SessionID:     "sess-main",
-			RoleName:      "pm",
-			RoleSessionID: "goal-a2a-pm",
-			ToolsPolicy:   dto.ToolPolicyReadonly,
-			Input:         "内层：本轮之内再驱动同一角色会话",
-		})
+		_, err := runtime.runRoleRound(ctx, runtime.employeeSpec(
+			"sess-main", "pm", "goal-a2a-pm", dto.ToolPolicyReadonly,
+			"内层：本轮之内再驱动同一角色会话",
+		))
 		inner <- err
 	}
 	engine.mu.Unlock()
 
 	outer := make(chan error, 1)
 	go func() {
-		_, err := runtime.RunRoleTurn(context.Background(), dto.RoleTurnRequest{
-			SessionID:     "sess-main",
-			RoleName:      "pm",
-			RoleSessionID: "goal-a2a-pm",
-			ToolsPolicy:   dto.ToolPolicyReadonly,
-			Input:         "外层：本轮工作正文",
-		})
+		_, err := runtime.runRoleRound(context.Background(), runtime.employeeSpec(
+			"sess-main", "pm", "goal-a2a-pm", dto.ToolPolicyReadonly,
+			"外层：本轮工作正文",
+		))
 		outer <- err
 	}()
 
@@ -363,13 +377,10 @@ func TestRoleRoundRejectsReentrantDriveOnSameSession(t *testing.T) {
 // 否则修法就从"重入挂死"滑到"同一会话只能跑一轮"。
 func TestRoleRoundAllowsSequentialRoundsOnSameSession(t *testing.T) {
 	runtime, engine, _ := newRoleTurnRuntime(t)
-	request := dto.RoleTurnRequest{
-		SessionID: "sess-main", RoleName: "pm", RoleSessionID: "goal-a2a-pm",
-		ToolsPolicy: dto.ToolPolicyReadonly, Input: "本轮工作正文",
-	}
+	spec := runtime.employeeSpec("sess-main", "pm", "goal-a2a-pm", dto.ToolPolicyReadonly, "本轮工作正文")
 	ctx := context.Background()
 	for round := 1; round <= 2; round++ {
-		if _, err := runtime.RunRoleTurn(ctx, request); err != nil {
+		if _, err := runtime.runRoleRound(ctx, spec); err != nil {
 			t.Fatalf("第 %d 轮: %v", round, err)
 		}
 	}
@@ -422,13 +433,10 @@ func TestTeamMemberInstancesAreSessionScoped(t *testing.T) {
 		// 身份派生走生产口径：工厂按 (主会话, team_id, role_name) 派发成员实例。
 		roleSessionID := agentteam.RoleSessionID(mainSession, teamID, role)
 		ids = append(ids, roleSessionID)
-		if _, err := runtime.RunRoleTurn(context.Background(), dto.RoleTurnRequest{
-			SessionID:     mainSession,
-			RoleName:      role,
-			RoleSessionID: roleSessionID,
-			ToolsPolicy:   dto.ToolPolicyReadonly,
-			Input:         "同一个团队的同一个角色，来自 " + mainSession,
-		}); err != nil {
+		if _, err := runtime.runRoleRound(context.Background(), runtime.employeeSpec(
+			mainSession, role, roleSessionID, dto.ToolPolicyReadonly,
+			"同一个团队的同一个角色，来自 "+mainSession,
+		)); err != nil {
 			t.Fatalf("会话 %s 的员工回合: %v", mainSession, err)
 		}
 	}

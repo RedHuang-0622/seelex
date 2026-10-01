@@ -53,7 +53,8 @@ func WithTLStepSink(ctx context.Context, sink TLStepSink) context.Context {
 }
 
 // TLStepSinkFrom 取出步骤观察回调；未挂载时返回 nil（执行面按"不观察"处理，
-// 不影响回合本身）。员工回合（RunRoleTurn）当前不挂回调，因此取到 nil 是常态。
+// 不影响回合本身）。员工回合（worker 作业驱动的角色回合）当前不挂回调，
+// 因此它取到 nil 是常态。
 func TLStepSinkFrom(ctx context.Context) TLStepSink {
 	if ctx == nil {
 		return nil

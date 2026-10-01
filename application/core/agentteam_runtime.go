@@ -224,17 +224,8 @@ func (service *Service) teamRoleSeatsFor(sessionID string) []RoleSeat {
 }
 
 func roleSeatOf(member dto.TeamMember) RoleSeat {
-	seat := RoleSeat{
-		RoleName:      strings.TrimSpace(member.RoleName),
-		RoleKind:      member.RoleKind,
-		RoleSessionID: strings.TrimSpace(member.RoleSessionID),
-		ToolsPolicy:   member.ToolsPolicy,
+	return RoleSeat{
+		RoleName: strings.TrimSpace(member.RoleName),
+		RoleKind: member.RoleKind,
 	}
-	if len(member.PermissionGroups) > 0 {
-		seat.PermissionGroups = make(map[string]uint8, len(member.PermissionGroups))
-		for group, bits := range member.PermissionGroups {
-			seat.PermissionGroups[group] = bits
-		}
-	}
-	return seat
 }

@@ -9,6 +9,7 @@ package core
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
@@ -85,7 +86,7 @@ func TestSeatPlanFollowsRoleKindNotRoleName(t *testing.T) {
 			want: []govern.AgentKind{govern.AgentKindExec},
 		},
 		{
-			name: "agent 角色未装配执行面：不占座位（只占发言位）",
+			name: "agent 角色不占治理座位（员工走 leader 派发的 worker 作业）",
 			seats: []RoleSeat{
 				{RoleName: "main", RoleKind: dto.RoleKindMain},
 				{RoleName: "tl", RoleKind: dto.RoleKindTechlead},
@@ -105,30 +106,28 @@ func TestSeatPlanFollowsRoleKindNotRoleName(t *testing.T) {
 	}
 }
 
-// TestSeatPlanGivesExecutionSeatToAgentRoles：装配了员工执行面后，agent 角色获得
-// **真正干活的座位**，且链序（V 模型 pm → exec → test case）原样保留、评审者收尾。
-func TestSeatPlanGivesExecutionSeatToAgentRoles(t *testing.T) {
+// TestSeatPlanGivesNoSeatToAgentRoles：员工角色**不再**占治理座位——员工干活由 leader
+// 派 worker 作业（team_dispatch → jobs.KindWorker），治理环只为 main 派生 EXEC 让位座、
+// 为 techlead 派生 ADVISOR 评审座（2026-10-01 M4：席位制轮回的退场点）。名单里
+// agent / user 角色再多也不改变座位集合，链序也不受影响。
+func TestSeatPlanGivesNoSeatToAgentRoles(t *testing.T) {
 	plan := seatPlan{
-		SessionID: "sess-v",
 		Seats: []RoleSeat{
 			{RoleName: "user", RoleKind: dto.RoleKindUser},
-			{RoleName: "pm", RoleKind: dto.RoleKindAgent, RoleSessionID: "goal-a2a-pm", ToolsPolicy: dto.ToolPolicyReadonly},
+			{RoleName: "pm", RoleKind: dto.RoleKindAgent},
 			{RoleName: "main", RoleKind: dto.RoleKindMain},
-			{RoleName: "test_case", RoleKind: dto.RoleKindAgent, RoleSessionID: "goal-a2a-test_case", ToolsPolicy: dto.ToolPolicyReadWrite},
+			{RoleName: "test_case", RoleKind: dto.RoleKindAgent},
 			{RoleName: "tl", RoleKind: dto.RoleKindTechlead},
 		},
 		ExecAct: seatExecAct,
-		Runner:  &stubRoleTurnRunner{},
 	}
 	seats := plan.seats()
-	// 做工的座位（pm / exec / test_case）按链序在前，评审者永远收尾——
-	// 否则一轮会在评审之后才跑完产出，治理循环看到的是上一轮的产出。
-	// （ADVISOR 座位名缺省由 goal 域给成 advisor-b。）
-	want := []string{"pm", "exec-a", "test_case", "advisor-b"}
+	// EXEC 让位座 + ADVISOR 评审座；员工角色一座都不占。
+	want := []string{"exec-a", "advisor-b"}
 	if got := seatNamesOf(seats); !equalStrings(got, want) {
 		t.Fatalf("座位名 = %v, want %v", got, want)
 	}
-	wantKinds := []govern.AgentKind{govern.AgentKindExec, govern.AgentKindExec, govern.AgentKindExec, govern.AgentKindAdvisor}
+	wantKinds := []govern.AgentKind{govern.AgentKindExec, govern.AgentKindAdvisor}
 	if got := seatKindsOf(seats); !equalSeatKinds(got, wantKinds) {
 		t.Fatalf("座位 kinds = %v, want %v", got, wantKinds)
 	}
@@ -191,7 +190,9 @@ func TestCoordinatorSeatsFallBackWhenRegistryUnavailable(t *testing.T) {
 }
 
 // TestTeamRoleSeatsFromRegistryView 钉住装配层的座位来源：角色按发言链顺序
-// （lifecycle.order_roles 是唯一顺序事实）给出，且带 role_kind / 角色会话 / 权责。
+// （lifecycle.order_roles 是唯一顺序事实）给出，且带 role_kind。座位只回答
+// "谁在链上、是什么 kind"——员工作业要的角色会话/权责由 leader 派发时的计划给，
+// 不再经座位透传（2026-10-01 M4）。
 func TestTeamRoleSeatsFromRegistryView(t *testing.T) {
 	sessions := &teamRecordingSessions{}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
@@ -205,18 +206,14 @@ func TestTeamRoleSeatsFromRegistryView(t *testing.T) {
 		t.Skip("该夹具未物化团队注册表（无座位来源可读）")
 	}
 	kinds := make(map[dto.RoleKind]bool, len(specs))
-	roleSessions := 0
 	for _, spec := range specs {
-		kinds[spec.RoleKind] = true
-		if spec.RoleSessionID != "" {
-			roleSessions++
+		if strings.TrimSpace(spec.RoleName) == "" {
+			t.Fatalf("座位来源必须带角色名：%+v", specs)
 		}
+		kinds[spec.RoleKind] = true
 	}
 	if !kinds[dto.RoleKindMain] || !kinds[dto.RoleKindTechlead] {
 		t.Fatalf("座位来源必须包含 main 与 techlead 两种 kind，得到 %+v", specs)
-	}
-	if roleSessions == 0 {
-		t.Fatal("座位来源必须带角色会话号（员工执行面按它跑回合）")
 	}
 
 	// 顺序必须与 order_roles 一致（夹具顺序读走加锁入口：读写两侧同一把锁）。

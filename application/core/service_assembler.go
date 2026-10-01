@@ -126,9 +126,6 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		TLRecorderFor:  service.goalTLRecorderFor,
 		TeamRuntimeFor: service.teamRuntimeBySession,
 		RoleSeatsFor:   service.teamRoleSeatsFor,
-		// 员工执行面：装配了 contract.RoleTurnPort 才有（见 role_turn.go）。
-		// 未装配 → nil → agent 角色不占治理座位（试水形态，不假装有人干活）。
-		RoleTurnFor: service.roleTurnRunnerFor,
 		// 座位作业面：把一轮治理推进表达为 jobs.KindSeat 作业（见 goal_coordinator.go
 		// 的 SeatJobs / runSeatRound）。
 		SeatJobs: seatJobs,

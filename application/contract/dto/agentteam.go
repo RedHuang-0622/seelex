@@ -55,8 +55,9 @@ const DefaultTeamID = "goal-a2a"
 // 生效边界（事实，不是承诺）：权限登记的落点是角色注册表（session/team/
 // roles.json）；真正的工具拦截在 seelebridge 的 PermissionGate（按会话/全局）。
 // 登记值经两条路生效：① 装配期 Runtime.AssignEmployeePermissions 把在编员工落成
-// 各自的主体条目 emp_<角色名>；② 角色回合起点（Runtime.RunRoleTurn）按构造把
-// 主体放进 ctx。因此"改完注册表"对**下一次员工回合**生效。
+// 各自的主体条目 emp_<角色名>；② 角色回合起点（Runtime.runRoleRound，由 leader 派发的
+// worker 作业与 ADVISOR 评审共用）按构造把主体放进 ctx。因此"改完注册表"对
+// **下一次员工回合**生效。
 //
 // ToolsPolicy 只是**档位预设**（readonly/readwrite 两档可分配；空/full = 继承宿主
 // 默认）。要给某个员工逐格装配（例如"能写项目但碰不到共享桌面"），用
@@ -320,32 +321,4 @@ type RolePromptOptimizeResult struct {
 	Optimized string   `json:"optimized,omitempty"`
 	Notes     []string `json:"notes,omitempty"`
 	Model     string   `json:"model,omitempty"`
-}
-
-// RoleTurnRequest 描述"跑一个角色（员工）的一轮"所需的全部上下文。
-//
-// 这是 application 侧 RoleTurnRunner 契约的**跨层形态**：application/core 只
-// 决定"谁有座位、谁先谁后"，真正的执行体（角色自己的会话 + 工具面 + 权责）
-// 由 seelebridge 实现。两个契约字段必须一一对应，否则座位派生的请求到执行体
-// 会丢字段（丢 ToolsPolicy = 员工权责无从落地）。
-type RoleTurnRequest struct {
-	SessionID     string `json:"session_id,omitempty"`      // 主会话（团队注册表/环的属主）
-	RoleName      string `json:"role_name,omitempty"`       // 角色名（如 pm / exec / test_case）
-	RoleSessionID string `json:"role_session_id,omitempty"` // 角色会话（员工自己的会话）
-	ToolsPolicy   string `json:"tools_policy,omitempty"`    // 该角色的权责口径（readonly / readwrite / full）
-	OrderIndex    int    `json:"order_index,omitempty"`     // 在发言链里的位次（0 起）
-	// PermissionGroups 是该角色**逐格装配**的权限（路由组 → 位）。丢字段等于丢
-	// 员工权限：执行体开角色会话时按它分配主体条目，少一份就等于"装配了但没生效"。
-	PermissionGroups map[string]uint8 `json:"permission_groups,omitempty"`
-	// Input 是本轮该角色拿到的"工作正文"（治理循环的 detail）。为空时执行体
-	// 只跑一次"按自己的角色设定继续"的回合，不做任何凭空补全。
-	Input string `json:"input,omitempty"`
-}
-
-// RoleTurnOutcome 是一轮角色回合的结论：治理循环用它写面板（Note）并喂逃生
-// 记账（Progress=false 的轮次会被环的 no_progress 口径计入）。
-type RoleTurnOutcome struct {
-	Ran      bool   `json:"ran"`      // 真的跑了模型回合（false = 该角色这轮没动）
-	Progress bool   `json:"progress"` // 这一轮是否推进了目标
-	Note     string `json:"note,omitempty"`
 }
