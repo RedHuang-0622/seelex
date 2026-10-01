@@ -153,6 +153,11 @@ type Limits struct {
 	ContextCompactionSummary CompactionSummaryLimits `yaml:"context_compaction_summary"`
 	// Team 是 teamwork 的产品级约束块（人数上限等），见 TeamLimits。
 	Team TeamLimits `yaml:"team"`
+	// Runtime 是进程级启动行为块（见 RuntimeLimits）：当前只有一个开关——
+	// 是否同意多进程共用同一数据根。零值 = 关（单实例），与既有
+	// 「单数据根 = 单进程写者」（sessionstore/data_root_lock.go）一致；
+	// 打开需在配置里显式写 runtime.allow_multi_process: true。
+	Runtime RuntimeLimits `yaml:"runtime"`
 }
 
 // AsyncExecLimits 是后台命令轮询切片的开关块。零值（含整个块缺失）= 关闭，
@@ -197,6 +202,22 @@ type TeamLimits struct {
 	// 处置口径：0 = 未配置 → 默认 6；负值在 LoadLimits 显式报错（不为负数
 	// 造语义：它既不是"无限制"也不是"禁用"，两种解读都会让配置看不出来）。
 	MaxTeammates int `yaml:"max_teammates"`
+}
+
+// RuntimeLimits 是**进程级启动行为**块（limits.runtime）。与 TeamLimits 不同，
+// 它不放"能开几个人"这类业务上限，只回答"这一次启动允不允许"。
+//
+// 当前只有一个开关，且**默认关**（零值 false），理由是现状即单实例：数据根
+// 独占锁（sessionstore/data_root_lock.go 的 lock.owner）把"单数据根 = 单进程
+// 写者"钉成不变量，第二个进程启动即被拒绝。这个开关只用来在明确知情时放行。
+type RuntimeLimits struct {
+	// AllowMultiProcess 决定启动期是否同意第二个进程共用同一数据根。
+	//   - false（默认，含整块缺失）：单实例。另一个进程在写同一数据根时，
+	//     启动期闸门（main.guardMultiProcess）给出可读拒绝；装配深处的数据根锁
+	//     同样会把冲突报成 ErrDataRootLocked。
+	//   - true：放行。第二个进程不再被数据根锁拒绝，代价是失去跨进程写者
+	//     串行化——一致性由使用者负责（配置注释里写清了代价）。
+	AllowMultiProcess bool `yaml:"allow_multi_process"`
 }
 
 // DefaultTeamMaxTeammates 是 teammate 人数上限的出厂默认值（决策：暂定 6，

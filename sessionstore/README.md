@@ -313,6 +313,13 @@ verify）只在 `stack_channel.go` + `stack_journal.go` 写一次，后端只实
   所以"另一个还活着的 seelex 正在写同一数据根"永远不会被抢锁（这是单写者
   不变量）；`lock_auto_recover: false` 仍可显式恢复"只报错不接管"的保守口径。
 
+  **多进程放行（2026-10-01 起，`limits.runtime.allow_multi_process`）**：默认
+  false = 单实例，跨进程存活锁一律拒绝（上面的单写者不变量）。显式置 true 后，
+  锁在冲突时退化为**诊断信息**——本进程照常启动，但不持锁、不续租、`Close` 也不删
+  别人的锁文件；代价是失去跨进程写者串行化（进程内模块锁不跨进程，并发写同一会话
+  /模块会互相覆盖，一致性由使用者负责）。配置说明见 `config/README.md`，两臂用例见
+  `data_root_lock_multiprocess_test.go`。
+
   **存活判定（2026-09-18 修正，`process_alive_windows.go`）**：Windows 的进程对象在
   「进程已终结、但仍有句柄引用」时依旧可以被打开（PID 也仍被占用），因此
   `os.FindProcess`/`OpenProcess` 成功**不能**证明持有者活着——被强杀的 dev GUI 会被

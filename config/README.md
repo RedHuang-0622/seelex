@@ -30,6 +30,24 @@ flowchart LR
 - `seele.yaml`：权限规则文件（permission.rules），`main.go` 优先读 `config/seele.yaml`，根目录版本回退兼容。
 - `seelex.yaml`：运行参数文件（window / limits），加载逻辑同上。**两个 `limits` 段只有一个家**：`window` 与 `limits`（含 `limits.session_storage`）都从 `config/seelex.yaml` 读（`core.LoadWindowConfig` 与 `seelexctx.LoadLimits` 收的是同一个路径，见 `main.go` 的 `initRuntime`）；`config/seele.yaml` 只放权限段。
 
+## 多进程启动开关（`limits.runtime.allow_multi_process`）
+
+`config/seelex.yaml` 的 `limits.runtime.allow_multi_process` 决定进程是否同意
+**多进程**共用同一数据根，**默认 false = 单实例**：
+
+- 数据根是单进程写者（`sessionstore/data_root_lock.go` 的 `lock.owner`）。默认下
+  第二个进程启动即被拒绝：`main.go` 的 `guardMultiProcess` 给出**可读的启动期拒绝**，
+  装配深处的数据根锁同样把冲突报成 `ErrDataRootLocked`。
+- 置 `true` 才放行：第二个进程不再被数据根锁拒绝（存储侧 `allow_multi_process`
+  让冲突退化为一条诊断日志，本进程不持锁、不夺锁、不删别人的锁）。
+- **代价**：多个进程可同时写同一数据根，失去**跨进程**写者串行化——进程内的模块锁
+  不跨进程，并发写同一会话/同一模块会互相覆盖。谁保证一致性 = 使用者（典型用法是
+  只读的旁路进程，或把并发写分给不同数据根）。
+- 代码零值 = 关（`seelexctx.RuntimeLimits.AllowMultiProcess` 的零值 false），与既有
+  `async_exec` / `context_compaction_summary` 同一套「整块缺失或显式 false 都走
+  不允许路径、可一键回滚」的纪律；两臂各有用例钉住（`seelexctx` 解析两臂 +
+  `sessionstore` 数据根锁两臂）。
+
 ## 启动期自愈（责任链 + 缺失即初始化）
 
 `main.go` 按**责任链**决定读哪份配置（`runtimeConfigChain`）：

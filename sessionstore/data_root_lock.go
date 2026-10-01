@@ -8,6 +8,9 @@
 //     陈旧（两条同时成立才算活着 → pid 复用不会误判成活跃持有者）；
 //   - 默认 `auto_recover=false`：陈旧锁也只报错、由用户决定，不静默接管
 //     （§9「默认提示拒绝」）；
+//   - `allow_multi_process=true`（默认 false、见 limits.runtime）：锁退化为诊断，
+//     冲突时放行本进程（不持锁、不续租、Close 不删别人的锁），代价是失去跨进程
+//     写者串行化；
 //   - 同进程内重复打开同一数据根按引用计数共享（进程本来就是同一写者）。
 //
 // 「pid 不存在」由平台实现判定：unix 用 signal 0（见 process_alive_unix.go），
@@ -23,6 +26,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -84,6 +88,14 @@ func acquireDataRootLock(root string, settings storageSettings) error {
 
 	record, acquired, err := tryWriteOwnerRecord(path, key, staleAfter, boolValue(settings.AutoRecover, false))
 	if err != nil {
+		// allow_multi_process=true：数据根锁退化为诊断信息，不再拦启动——冲突
+		// （活跃或陈旧持有者）在这里放行，本进程不持锁、不续租、Close 也不删别人
+		// 的锁文件。代价是多个进程可同时写同一数据根、失去跨进程写者串行化
+		// （一致性由使用者负责，见 config/seelex.yaml 的 runtime 块）。
+		if boolValue(settings.AllowMultiProcess, false) && isDataRootLockConflict(err) {
+			log.Printf("session storage: 数据根 %s 已被占用，allow_multi_process=true 放行本进程（本进程不持锁；%v）", key, err)
+			return nil
+		}
 		return err
 	}
 	if !acquired {
@@ -219,6 +231,13 @@ func ownerIsStale(held ownerRecord, staleAfter time.Duration) bool {
 		return true
 	}
 	return time.Since(held.RenewedAt) > staleAfter
+}
+
+// isDataRootLockConflict 报告 err 是否为「数据根被别的持有者占用」（活跃锁
+// ErrDataRootLocked 或陈旧锁 ErrDataRootStaleLock）。allow_multi_process=true 时
+// 用它决定是否放行；其它错误（建锁失败等）不属冲突，照常上报。
+func isDataRootLockConflict(err error) bool {
+	return errors.Is(err, ErrDataRootLocked) || errors.Is(err, ErrDataRootStaleLock)
 }
 
 func lockError(base error, held ownerRecord) error {

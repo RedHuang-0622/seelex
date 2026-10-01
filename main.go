@@ -181,6 +181,12 @@ func run() error {
 	}
 	defer runtime.Shutdown()
 	console.LogStageIf(backendTrace, "startup.runtime.ready")
+	// 启动期多进程闸门（limits.runtime.allow_multi_process，默认单实例）：数据根
+	// 是单进程写者，另一个实例在写同一数据根时在这里给出可读拒绝，而不是让
+	// ErrDataRootLocked 从装配深处冒出来（`initStore` 真正抢锁时会再兜一次）。
+	if err := guardMultiProcess(); err != nil {
+		return err
+	}
 
 	runtime.RegisterBuiltins()
 	console.LogStageIf(backendTrace, "startup.builtins.ready")
@@ -1145,6 +1151,30 @@ func registerAskApprove(runtime *seelebridge.Runtime, approval *application.Appr
 	)
 }
 
+// guardMultiProcess 是启动期多进程闸门：数据根是单进程写者
+// （sessionstore/data_root_lock.go 的 lock.owner）。默认单实例——另一个实例正在写
+// 同一数据根时，这里给出**可读**的拒绝（对齐 ErrDataRootLocked 的口径，但更早、
+// 更可操作）。只有 limits.runtime.allow_multi_process: true 才放行；代价见
+// config/seelex.yaml 的 runtime 块（放行后失去跨进程写者串行化，一致性由使用者负责）。
+//
+// 这是**早期**闸门（发生在抢锁之前）：真正的不变量仍由 initStore → sessionstore
+// 的数据根锁兜底，所以这里只做「能早就早」的可读拒绝，不替代锁本身。
+func guardMultiProcess() error {
+	if runtimeLimits.Runtime.AllowMultiProcess {
+		return nil
+	}
+	dataRoot := filepath.Dir(*storePath)
+	staleAfter := time.Duration(runtimeLimits.SessionStorage.LockStaleAfterSeconds) * time.Second
+	if owner, held := sessionstore.DataRootLockedByWith(dataRoot, staleAfter); held {
+		return fmt.Errorf(
+			"数据根 %s 正被另一个 Seelex 实例独占（pid=%d program=%s host=%s）：默认单实例。"+
+				"要允许并行启动，在 config/seelex.yaml 设 limits.runtime.allow_multi_process: true"+
+				"（代价：多个进程共用同一数据根，失去跨进程写者串行化，一致性由使用者负责）",
+			dataRoot, owner.PID, owner.Program, owner.Hostname)
+	}
+	return nil
+}
+
 func initStore() (*sessionstore.Router, error) {
 	// NestedSessionStore 的 baseDir 与 workspace_index.json 同级
 	baseDir := filepath.Dir(*storePath)
@@ -1162,6 +1192,9 @@ func initStore() (*sessionstore.Router, error) {
 // 分片行数沿用既有顶层键 limits.message_shard_size。
 func sessionStorageLimits() sessionstore.Settings {
 	limits := runtimeLimits.SessionStorage
+	// 指针：把 limits.runtime.allow_multi_process 原样传进 §9 数据根锁（存储侧默认
+	// 也是 false，这里显式带过去，让配置一眼看得出生效）。
+	allowMultiProcess := runtimeLimits.Runtime.AllowMultiProcess
 	return sessionstore.Settings{
 		MessageShardRows:        runtimeLimits.MessageShardSize,
 		RetryCacheMaxItems:      limits.RetryCacheMaxItems,
@@ -1173,6 +1206,7 @@ func sessionStorageLimits() sessionstore.Settings {
 		QueuePersistPending:     limits.QueuePersistPending,
 		StaleAfterSeconds:       limits.LockStaleAfterSeconds,
 		AutoRecover:             limits.LockAutoRecover,
+		AllowMultiProcess:       &allowMultiProcess,
 		BlobSoftLimitChars:      limits.BlobSoftLimitChars,
 		BlobHardLimitBytes:      limits.BlobHardLimitBytes,
 		BlobSessionQuotaBytes:   limits.BlobSessionQuotaBytes,

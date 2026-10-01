@@ -201,6 +201,19 @@ limits:
   # 规格与实测：docs/2026-09-24-async-tool-deferred-ack/README.md §8/§10。
   async_exec:
     enabled: true                # 常驻开；改回 false 即整块收回
+  # ── 进程级启动行为（runtime）────────────────────────────────────
+  # 是否同意**多进程**共用同一数据根。默认 false = 单实例：数据根独占锁
+  # （sessionstore/data_root_lock.go 的 lock.owner）把「单数据根 = 单进程写者」
+  # 钉成不变量，第二个进程启动即被拒绝（main.guardMultiProcess 给可读拒绝）。
+  #
+  # 只有明确知情才打开：
+  #   - true 时第二个进程不再被数据根锁拒绝（存储侧 allow_multi_process）；
+  #   - **代价**：多个进程可同时写同一数据根，失去跨进程写者串行化——进程内的
+  #     模块锁不跨进程，并发写同一会话/同一模块会互相覆盖。谁保证一致性 = 使用者
+  #     （典型用法是只读的旁路进程，或把并发写分给不同数据根）。
+  #   - 关就是关（零值 = false = 单实例），可一键回滚。
+  runtime:
+    allow_multi_process: false   # 默认单实例；true = 放行第二个进程（代价见上）
 #
 # 子代理超时速查：子代理执行长命令被掐，先调 tool_call_timeout；
 # 审批弹窗超时调 approval_timeout；子代理循环上限调 plan_node_max_loops。
