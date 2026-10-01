@@ -247,6 +247,21 @@ type RuntimePort interface {
 	// （GUI 历史检索面板数据源；无压缩栈时尾部扫描兜底）。
 	SearchHistory(context.Context, string, int) (seelexctxsearch.Result, error)
 }
+// TeamworkBoardProjection 是**窄可选**能力面：Runtime 提供某会话的团队看板只读投影
+// （计划 + 作业行 + 审计流水）。
+//
+// 为什么是"可选窄接口 + 类型断言"而不是 RuntimePort 的成员：RuntimePort 是"每个后端
+// 都必须给出"的能力面，往里加一个成员会逼所有 fake / harness 长出空方法；而团队看板只在
+// 装配了 teamwork 的宿主上有意义。口径与 context_runtime.CompactionIndexPort 一致：
+// **有就有、没有就是没装配**——未装配时投影留空，前端整块退场（不留空壳）。
+//
+// 契约：docs/arch/team-board-gui-tui-contract.md §3。
+type TeamworkBoardProjection interface {
+	// TeamworkBoardSnapshot 返回该会话的团队看板只读投影。未装配 teamwork、
+	// 解析不出会话作用域、或该会话尚无计划时返回 nil。
+	TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoardView
+}
+
 type PluginPort interface {
 	All() []model.PluginInfo
 	Activate(context.Context, string) error

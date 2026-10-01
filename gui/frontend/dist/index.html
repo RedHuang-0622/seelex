@@ -168,6 +168,13 @@
           <div class="section-title"><span>目标</span><span id="goal-badge" class="badge hidden">GOAL</span></div>
           <div id="goal-view" class="goal-view muted">当前无目标任务</div>
         </section>
+        <!-- 团队看板：数据源 = runtime.teamwork_board（与 TUI Alt+T 面板同源投影）。
+             注意 id 前缀是 team-board-*：team-section/team-view/team-count 已被
+             「状态」页的 Agent Team 块占用，不得复用。无计划 → 整块 hidden（不留空壳）。 -->
+        <section id="team-board-section" class="hidden">
+          <div class="section-title"><span>团队看板</span><span id="team-board-badge" class="badge hidden">0</span></div>
+          <div id="team-board-view" class="team-board-view muted">当前无团队计划</div>
+        </section>
         <section id="work-section" class="hidden">
           <div class="section-title"><span>工作表格</span><span id="work-count" class="badge">0</span><span id="work-unread" class="badge is-unread hidden">0 未读</span></div>
           <button id="work-table-open" class="work-table-button" type="button" title="打开工作表格详情">

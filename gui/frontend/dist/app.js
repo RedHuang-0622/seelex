@@ -20,6 +20,7 @@ import { createFilePreviewController } from "./file-preview.js";
 import { renderCompactionFrameModal, renderContextCompactions } from "./context-summary.js";
 import { compactionRangeText, compactionReasonLabel, mergeCompactionProgress } from "./compaction-format.js";
 import { renderGoalDetail, renderGoalPanel } from "./goal-board-view.js";
+import { TEAM_BOARD_CSS, renderTeamBoard } from "./team-board-view.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
 import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
 import { employeePool, hirePanel, isPinnedRole, nextAgentTeamOrder, normalizeAgentTeam, normalizeTeamGlobal, normalizeTeamLibrary, PERMISSION_CUSTOM_TOOLS, PERMISSION_GROUPS, PERMISSION_BITS, renderAgentTeam, renderRoleSessionDetail, renderTeamMemberList, roleDisplayName, teamEditorPanel, teamEntryFromMembers, teamMemberNames, teamMemberSpecMap, teamRoleSpec } from "./agent-team-view.js";
@@ -91,7 +92,7 @@ const elements = Object.fromEntries([
   "compaction-frame-modal", "compaction-frame-modal-close", "compaction-frame-modal-title", "compaction-frame-modal-meta", "compaction-frame-modal-view",
   "team-section", "team-view", "team-count",
   "role-session-modal", "role-session-close", "role-session-modal-title", "role-session-view",
-  "right-tabs", "goal-section", "goal-badge", "goal-view", "goal-detail-modal", "goal-detail-close", "goal-detail-title", "goal-detail-view", "code-panes", "code-pane-tabs", "code-pane-worktree", "code-pane-gitlog", "git-log-view", "git-log-count", "code-pane-changes", "changes-view", "changes-count",
+  "right-tabs", "goal-section", "goal-badge", "goal-view", "goal-detail-modal", "goal-detail-close", "goal-detail-title", "goal-detail-view", "team-board-section", "team-board-badge", "team-board-view", "code-panes", "code-pane-tabs", "code-pane-worktree", "code-pane-gitlog", "git-log-view", "git-log-count", "code-pane-changes", "changes-view", "changes-count",
   "file-preview-pane", "file-preview-view", "file-preview-tabs", "file-preview-hide-panes", "file-preview-close", "file-preview-divider", "file-preview-collapse", "file-preview-rail",
   "file-save-modal", "file-save-title", "file-save-message", "file-save-keep", "file-save-discard", "file-save-cancel",
   "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "terminal-scrollback", "theme-picker", "mode-picker", "inline-suggestions",
@@ -661,6 +662,7 @@ function render(snapshot, options = {}) {
   refreshPlanDetailData(snapshot.runtime?.plan, snapshot.runtime?.subagent_tree);
   renderWorkTable(snapshot.runtime?.work_table, snapshot.runtime?.work_table_batches);
   renderGoal(snapshot);
+  renderTeam(snapshot);
   renderScheduledTaskPanel(snapshot.runtime || {});
   scheduleAgentTeamRefresh(snapshot);
   renderSkills(snapshot.runtime?.skills || []);
@@ -693,6 +695,7 @@ function renderIncremental(snapshot, kind, payload) {
     refreshPlanDetailData(snapshot.runtime?.plan, snapshot.runtime?.subagent_tree);
     renderWorkTable(snapshot.runtime?.work_table, snapshot.runtime?.work_table_batches);
     renderGoal(snapshot);
+    renderTeam(snapshot);
     renderScheduledTaskPanel(snapshot.runtime || {});
     renderSkills(snapshot.runtime?.skills || []);
     renderProject(snapshot);
@@ -2149,6 +2152,101 @@ function renderSkills(skills) {
   elements["skill-list"].innerHTML = skills.length
     ? skills.map(skill => `<span class="chip" title="${escapeHtml(skill.description || "")}">$${escapeHtml(skill.name)}</span>`).join("")
     : '<span class="muted">当前 Plugin 无 Skill</span>';
+}
+
+// ── 「团队看板」面板（工作台子页）──────────────────────────
+// 数据源：runtime.teamwork_board（后端只读投影：计划 + 作业行 + 审计流水）。
+//
+// 面板只做**搬运**：把 DTO 喂给纯渲染件 renderTeamBoard（team-board-view.js）——
+// 拓扑排序、依赖层号、阶段状态折算全在渲染件里，这里不重算一遍（重算就是第二份事实）。
+// 单向：只读快照，前端没有任何写入口。
+//
+// 退场语义与「目标」面板同口径：没有计划（快照里没有 teamwork_board、或计划里没有阶段）
+// 就是没有了——整块退场，不留空壳。
+function renderTeam(snapshot) {
+  const section = elements["team-board-section"];
+  const view = elements["team-board-view"];
+  const badge = elements["team-board-badge"];
+  if (!section || !view) return;
+  const input = teamBoardInput(snapshot?.runtime || {});
+  const html = input ? renderTeamBoard(input) : "";
+  if (!html) {
+    section.classList.add("hidden");
+    if (badge) badge.classList.add("hidden");
+    view.innerHTML = "";
+    return;
+  }
+  ensureTeamBoardStyles();
+  section.classList.remove("hidden");
+  view.classList.remove("muted");
+  view.innerHTML = html;
+  if (badge) {
+    badge.classList.remove("hidden");
+    // 徽标写阶段数（与同栏「工作表格 / 定时任务」的计数徽标同口径）。不写 "TEAM"：
+    // 渲染件自己在看板头里已经有一个 TEAM 标记，再来一个就是同屏两个 TEAM。
+    badge.textContent = String(input.plan.stages.length);
+    badge.title = `团队 ${input.plan.team_id || "—"} · v${input.plan.version || 0} · ${input.plan.stages.length} 个阶段`;
+  }
+}
+
+// teamBoardInput 把后端 DTO 搬成渲染件的入参；没有计划 → null（调用方据此退场）。
+//
+// events[].at 由后端给 **unix 秒**：这里转成 "YYYY-MM-DDTHH:MM"（**本地时间**，与渲染件
+// formatEventTime 的正则同形）。不转成 toISOString()：那是 UTC，面板上会显示成差 8 小时的
+// 时间——面板要的是"用户看到几点"。
+function teamBoardInput(runtime) {
+  const board = runtime?.teamwork_board;
+  const stages = Array.isArray(board?.stages) ? board.stages : [];
+  if (!board || stages.length === 0) return null;
+  return {
+    plan: {
+      team_id: board.team_id || "",
+      version: board.version || 0,
+      stages,
+      members: Array.isArray(board.members) ? board.members : [],
+      milestones: Array.isArray(board.milestones) ? board.milestones : [],
+    },
+    // 在编上限来自后端（TeamworkBackend.MaxTeammates）；缺失/0 = 不限制，
+    // 渲染件据此把「在编 n」写成「在编 n/max」。
+    maxMembers: Number(board.max_members) || 0,
+    jobs: (Array.isArray(board.jobs) ? board.jobs : []).map(job => ({
+      handle: job?.handle || "",
+      state: job?.state || "",
+      exit_code: job?.exit_code || 0,
+      bytes: job?.bytes || 0,
+      stage: job?.stage || "",
+      node: job?.node || "",
+      role: job?.role || "",
+      scope: job?.scope || {},
+    })),
+    events: (Array.isArray(board.events) ? board.events : []).map(event => ({
+      ...event,
+      at: localMinuteStamp(event?.at),
+    })),
+    stale: board.stale === true,
+  };
+}
+
+// localMinuteStamp 把 unix 秒转成本地时间的 "YYYY-MM-DDTHH:MM"（解析不出来 → ""，
+// 渲染件据此写 "—"，不把渲染层的猜测当成事实）。
+function localMinuteStamp(at) {
+  const seconds = Number(at || 0);
+  if (!Number.isFinite(seconds) || seconds <= 0) return "";
+  const date = new Date(seconds * 1000);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = value => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+    + `T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+// ensureTeamBoardStyles 把看板样式注入一次，来源 = team-board-view.js 的 TEAM_BOARD_CSS。
+// 不往 styles.css 里抄第二份：抄一份就是两处色值，改一处漏一处。
+function ensureTeamBoardStyles() {
+  if (document.getElementById("team-board-styles")) return;
+  const style = document.createElement("style");
+  style.id = "team-board-styles";
+  style.textContent = TEAM_BOARD_CSS;
+  document.head.appendChild(style);
 }
 
 // ── 「目标」面板（工作台子页）──────────────────────────────

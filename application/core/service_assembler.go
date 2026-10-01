@@ -155,6 +155,10 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		},
 		Tasks: service.components.tasks,
 		Goals: service,
+		// 团队看板读面（计划 + 作业行 + 审计流水）：与 Goals 同构——Deps 收窄成
+		// 「会话 → 只读投影」，转发与缓存的责任留给桥（未装配 teamwork 时
+		// TeamworkBoardViewFor 走类型断言失败分支返回 nil）。
+		Teamwork: service,
 		RefreshWorkTableLocked: func(tasks []dto.TaskRecord, asyncRuns []dto.AsyncRunRecord) {
 			service.refreshWorkTableLocked(tasks, asyncRuns)
 		},

@@ -1,5 +1,5 @@
 import { escapeHtml } from "./components.js";
-import { renderGoalInFlight, renderGoalStack, renderGoalSteps } from "./goal-stack-view.js";
+import { renderGoalInFlight, renderGoalStack } from "./goal-stack-view.js";
 
 // goal-board-view.js 是「目标」面板的**面板件 / 看板件 / 详情件**三个纯渲染件（不碰
 // DOM，便于 node:test）。数据源只有一个：后端只读投影
@@ -113,12 +113,14 @@ export function renderGoalBoard(governance, goalText = "") {
 }
 
 // renderGoalGovernance 渲染「目标」面板的治理只读块：goal 状态 / TL 最近指令 /
-// 评审过程与进行中正文（governance 视图来自 runtime.goal_governance，goal 栈不入
-// 模型上下文）。
+// 进行中正文（governance 视图来自 runtime.goal_governance，goal 栈不入模型上下文）。
 //
 // 席位轮转退场后（2026-10-01 阶段三 W3）面板不再有"轮次 / 座次 / 断环 / 治理未
-// 完成"这些循环概念：goal 的驱动是提示词驱动的 leader 派活，终态由 gate 判。面板
-// 只显示 goal 状态 + 评审者状态 + 最近裁决 + 评审过程。
+// 完成"这些循环概念：goal 的驱动是提示词驱动的 leader 派活，终态由 gate 判。
+//
+// 2026-10-02 用户裁决：**评审过程**（round_steps 时间线）从这里退场——它此前只要
+// goal 栈上有 active 帧就常驻可见，而用户口径是"不要挂在 goal 是否存活下面"。
+// 裁决是去掉，不迁移落点、不新建确认面；后端的 round_steps 投影仍在（前端不再消费）。
 //
 // 面板上**没有墙钟推断**：只说后端给的事实。
 export function renderGoalGovernance(governance) {
@@ -129,14 +131,11 @@ export function renderGoalGovernance(governance) {
     : "";
   // 进行中的 ADVISOR 正文（只读快照）：评审期间有，回合结束即清空。
   const inFlight = renderGoalInFlight(governance);
-  // 评审**过程**（只读快照）：评审者这一轮调了哪些只读工具、拿到什么。进行中随
-  // 轮询逐步长出来；回合结束后保留到下一轮开始（"最近一轮的过程"）。
-  const steps = renderGoalSteps(governance);
   const meta = [
     `<span class="goal-gov-status">${status}</span>`,
     peer ? `peer ${peer}` : "",
   ].filter(Boolean).join(" · ");
-  return `<div class="goal-governance"><div class="goal-gov-meta">${meta}</div>${steps}${inFlight}${directive}</div>`;
+  return `<div class="goal-governance"><div class="goal-gov-meta">${meta}</div>${inFlight}${directive}</div>`;
 }
 
 // renderGoalDetail 渲染「点开看」的详情：一帧一节属性表（栈底→栈顶，栈顶标当前）。

@@ -4752,21 +4752,9 @@ button.team-library-name:hover { color: var(--accent); text-decoration: underlin
 .goal-frame-progress { margin-top: 3px; color: var(--text-dim); font-size: 10.5px; }
 .goal-frame-progress-item { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .goal-gov-inflight { margin-top: 4px; color: var(--accent); font-size: 11px; line-height: 1.4; }
-/* ADVISOR 评审过程（P3+）：工具步骤时间线——"评审者核对了什么"的可见面。
-   与 in-flight 正文（accent 色，模型在写什么）区分：工具行用常规文字色，
-   返回行缩进降噪，出错行用失败色。 */
-.goal-gov-steps { margin-top: 4px; font-size: 11px; line-height: 1.45; }
-.goal-steps-title { color: var(--text-dim); font-size: 10.5px; margin-bottom: 2px; }
-.goal-step {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-mid);
-}
-.goal-step.is-tool { color: var(--text-strong); }
-.goal-step-args { color: var(--text-dim); margin-left: 6px; }
-.goal-step.is-result { padding-left: 14px; color: var(--text-dim); }
-.goal-step.is-error { color: var(--status-failed); }
+/* ADVISOR 评审过程（.goal-gov-steps / .goal-steps-title / .goal-step*）的样式已随
+   用户裁决（2026-10-02）删除：评审过程不再挂在「goal 是否存活」下面。删样式而不是
+   留着，是因为留下的规则指向一个不会再出现的 DOM——下次改配色时没人知道它死了。 */
 
 /* ── 目标看板（工作台「目标」子页）：上面大的 active seq + 下面小字的最近输入 ──
    看板只在会话里有 active goal 时出现（目标结束就没有了，不留空壳）。

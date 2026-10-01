@@ -23,7 +23,8 @@ export const SESSION_RUNTIME_KEYS = Object.freeze([
   "goal_governance",
   "active_skills",
   "work_table",
-  "work_table_batches"
+  "work_table_batches",
+  "teamwork_board"
 ]);
 
 // PROCESS_RUNTIME_KEYS 是 model.ProcessRuntime 的 JSON 键：进程单例原件

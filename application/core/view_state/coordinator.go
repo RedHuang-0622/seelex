@@ -57,6 +57,12 @@ type Deps struct {
 	Goals interface {
 		GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView
 	}
+	// Teamwork 提供会话级**团队看板**只读投影（计划 + 作业行 + 审计流水；
+	// 无计划返回 nil）。nil 时投影留空（未装配 teamwork 编排面），前端整块退场。
+	// 契约：docs/arch/team-board-gui-tui-contract.md §3。
+	Teamwork interface {
+		TeamworkBoardViewFor(sessionID string) *dto.TeamworkBoardView
+	}
 	// Limits 返回当前生效的运行时上限（窗口配置）。
 	Limits func() seelexctx.Limits
 }
@@ -76,6 +82,9 @@ type Coordinator struct {
 	}
 	goals interface {
 		GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView
+	}
+	teamwork interface {
+		TeamworkBoardViewFor(sessionID string) *dto.TeamworkBoardView
 	}
 	limits func() seelexctx.Limits
 	// messageSeq 是**每会话独立**的可见消息派号（键 = 会话 ID；所有读写都在
@@ -99,6 +108,7 @@ func NewCoordinator(deps Deps) *Coordinator {
 		refreshWorkTableLocked: deps.RefreshWorkTableLocked,
 		tasks:                  deps.Tasks,
 		goals:                  deps.Goals,
+		teamwork:               deps.Teamwork,
 		limits:                 deps.Limits,
 		messageSeq:             make(map[string]uint64),
 	}
@@ -186,6 +196,12 @@ func (c *Coordinator) CollectRuntimeProjectionFor(ctx context.Context, sessionID
 		if goalView := c.goals.GoalGovernanceViewFor(sessionID); goalView != nil {
 			copyView := *goalView
 			projection.Runtime.GoalGovernance = &copyView
+		}
+	}
+	if c.teamwork != nil {
+		if boardView := c.teamwork.TeamworkBoardViewFor(sessionID); boardView != nil {
+			copyView := *boardView
+			projection.Runtime.TeamworkBoard = &copyView
 		}
 	}
 	metrics := c.replanMetricsFor(sessionID)

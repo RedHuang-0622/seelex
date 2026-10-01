@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { renderGoalFrame, renderGoalInFlight, renderGoalStack, renderGoalSteps } from "./goal-stack-view.js";
+import { renderGoalFrame, renderGoalInFlight, renderGoalStack } from "./goal-stack-view.js";
 
 // goal-stack-view.test.mjs 钉住三件事：
 //   1. 有活动栈时渲染成**一张专用表格**（excel-grid 口径），一行一帧、栈底→栈顶，
 //      栈下帧不能丢，栈顶标成当前目标；
 //   2. ADVISOR 回合进行中的正文近端能渲染出来（渲染不及时的修复面）；
 //      没有进行中正文时不多出空壳；
-//   3. ADVISOR **评审过程**（工具步骤）能渲染出来——工具调用一行、返回一行，
-//      出错高亮；没有步骤时不渲染空壳。
+//   3. ADVISOR **评审过程**渲染件**已退场**（2026-10-02 用户裁决）：不再挂在
+//      「goal 是否存活」下面，本文件也不再导出它——反向钉住，防止悄悄长回来。
 // 纯渲染函数：不碰 DOM，也不需要后端。
 
 test("renderGoalStack 用专用表格逐帧表达活动栈，栈顶标为当前目标", () => {
@@ -60,41 +60,10 @@ test("renderGoalInFlight 渲染进行中正文，无正文时不渲染", () => {
   assert.equal(renderGoalInFlight(null), "");
 });
 
-test("renderGoalSteps 渲染评审过程：工具调用与返回各一行，出错高亮", () => {
-  const html = renderGoalSteps({
-    peer_state: "evaluating",
-    round_steps: [
-      { kind: "tool", name: "read_file", args: '{"path":"docs/x.md"}' },
-      { kind: "tool_result", name: "read_file", result: "命中 3 处" },
-      { kind: "tool", name: "bash", args: "go test" },
-      { kind: "tool_result", name: "bash", err: "退出码 1" }
-    ]
-  });
-  assert.match(html, /data-goal-steps="4"/);
-  assert.match(html, /data-goal-steps-running="1"/);
-  assert.match(html, /评审过程（进行中）/);
-  assert.match(html, /▸ read_file/);
-  assert.match(html, /▸ bash/);
-  assert.match(html, /↳ 命中 3 处/);
-  assert.match(html, /is-error/);
-  assert.match(html, /错误: 退出码 1/);
-  // 参数与结果都进 title（悬停可读全量），正文里截断
-  assert.match(html, /title="\{&quot;path&quot;:&quot;docs\/x\.md&quot;\}"/);
-});
-
-test("renderGoalSteps 回合结束后标为「最近一轮」，无步骤时不渲染", () => {
-  const html = renderGoalSteps({ peer_state: "advisory_pending", round_steps: [{ kind: "tool", name: "glob" }] });
-  assert.match(html, /评审过程（最近一轮）/);
-  assert.match(html, /data-goal-steps-running="0"/);
-  assert.equal(renderGoalSteps({ round_steps: [] }), "");
-  assert.equal(renderGoalSteps({}), "");
-  assert.equal(renderGoalSteps(null), "");
-});
-
-test("renderGoalSteps 转义工具名与参数，不把内容当结构", () => {
-  const html = renderGoalSteps({
-    round_steps: [{ kind: "tool", name: "<img src=x onerror=1>", args: '"<b>"' }]
-  });
-  assert.ok(!html.includes("<img"), "工具名必须被转义");
-  assert.ok(!html.includes("<b>"), "参数必须被转义");
+// 评审过程已按用户裁决退场（2026-10-02）：不再挂在「goal 是否存活」下面，也不迁移
+// 落点。这条**反向**钉住导出面——它一旦回来，说明有人把评审过程又接回了目标面板。
+test("评审过程渲染件已退场：goal-stack-view 不再导出 renderGoalSteps", async () => {
+  const module = await import("./goal-stack-view.js");
+  assert.equal(module.renderGoalSteps, undefined, "renderGoalSteps 不应再导出");
+  assert.equal(module.renderGoalStep, undefined, "renderGoalStep 不应再导出");
 });

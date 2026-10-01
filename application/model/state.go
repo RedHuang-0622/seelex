@@ -326,6 +326,11 @@ type RuntimeState struct {
 	// WorkTableBatches 是工作表格的批次分片头（按 CreatedAt 升序；空批次
 	// 归入「早期任务」置底）。前端按 batch_id 分组渲染。
 	WorkTableBatches []WorkTableBatch `json:"work_table_batches,omitempty"`
+	// TeamworkBoard 是本会话团队看板的只读投影（计划 + 作业行 + 审计流水）。
+	// 未装配 teamwork、或该会话尚无计划时为 nil——GUI 与 TUI 据此**整块退场**
+	// （不留空壳，口径同目标看板）。契约见
+	// docs/arch/team-board-gui-tui-contract.md。
+	TeamworkBoard *dto.TeamworkBoardView `json:"teamwork_board,omitempty"`
 }
 
 // ReplanMonitor exposes bounded recovery-planning usage without exposing
@@ -754,6 +759,10 @@ type SessionRuntime struct {
 	// WorkTable 是工作台统一工作表格的权威投影（本会话槽）。
 	WorkTable        []WorkItem       `json:"work_table,omitempty"`
 	WorkTableBatches []WorkTableBatch `json:"work_table_batches,omitempty"`
+	// TeamworkBoard 是本会话团队看板的只读投影（计划 + 作业行 + 审计流水；
+	// 未装配 teamwork 或该会话没有计划时为 nil，前端整块退场）。
+	// 契约：docs/arch/team-board-gui-tui-contract.md。
+	TeamworkBoard *dto.TeamworkBoardView `json:"teamwork_board,omitempty"`
 }
 
 // SessionSnapshot 是会话粒度、传输完备的快照制品（G3）：每会话一份，只承载
@@ -874,7 +883,37 @@ func CloneRuntimeState(runtime RuntimeState) RuntimeState {
 	copyRuntime.SubAgentTree = cloneSubAgentTree(runtime.SubAgentTree)
 	copyRuntime.WorkTable = CloneWorkItems(runtime.WorkTable)
 	copyRuntime.WorkTableBatches = CloneWorkTableBatches(runtime.WorkTableBatches)
+	copyRuntime.TeamworkBoard = CloneTeamworkBoardView(runtime.TeamworkBoard)
 	return copyRuntime
+}
+
+// CloneTeamworkBoardView 深拷贝团队看板投影：切片**与元素内嵌的切片**都要独立。
+// 快照是并发读者的共享值，浅拷贝会让前端读到一半的写（stages[].roles 这类
+// 内嵌切片最容易被漏掉——外层切片换新、内层仍指向同一底层数组）。
+func CloneTeamworkBoardView(view *dto.TeamworkBoardView) *dto.TeamworkBoardView {
+	if view == nil {
+		return nil
+	}
+	cloned := *view
+	if view.Stages != nil {
+		cloned.Stages = make([]dto.TeamworkStageView, len(view.Stages))
+		for index, stage := range view.Stages {
+			cloned.Stages[index] = stage
+			cloned.Stages[index].Roles = append([]string(nil), stage.Roles...)
+			cloned.Stages[index].DependsOn = append([]string(nil), stage.DependsOn...)
+		}
+	}
+	cloned.Members = append([]dto.TeamworkMemberView(nil), view.Members...)
+	if view.Milestones != nil {
+		cloned.Milestones = make([]dto.TeamworkMilestoneView, len(view.Milestones))
+		for index, milestone := range view.Milestones {
+			cloned.Milestones[index] = milestone
+			cloned.Milestones[index].After = append([]string(nil), milestone.After...)
+		}
+	}
+	cloned.Jobs = append([]dto.TeamworkJobView(nil), view.Jobs...)
+	cloned.Events = append([]dto.TeamworkEventView(nil), view.Events...)
+	return &cloned
 }
 
 // CloneWorkTableBatches 深拷贝批次头（Counts map 必须独立，避免并发读者

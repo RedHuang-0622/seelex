@@ -190,6 +190,7 @@ func (r *Runtime) teamPlanHandler(ctx context.Context, argsJSON string) (string,
 	if err := coordinator.SetPlan(ctx, plan); err != nil {
 		return "", fmt.Errorf("team_plan: %w", err)
 	}
+	r.invalidateTeamworkBoard()
 	return jsonReceipt(map[string]any{
 		"ok": true, "team_id": plan.TeamID, "stages": len(plan.Stages),
 		"members": len(plan.Members), "milestones": len(plan.Milestones),
@@ -212,6 +213,7 @@ func (r *Runtime) teamDispatchHandler(ctx context.Context, argsJSON string) (str
 	if err != nil {
 		return "", fmt.Errorf("team_dispatch: %w", err)
 	}
+	r.invalidateTeamworkBoard()
 	return jsonReceipt(map[string]any{
 		"ok": true, "handle": string(handle), "stage": stage,
 		"hint": "受理回执即返回，不等待：继续你的关键路径，需要时用 jobs_manage(op=observe/fetch) 或 team_join 观察。",
@@ -262,6 +264,7 @@ func (r *Runtime) teamMilestoneHandler(ctx context.Context, argsJSON string) (st
 	if err := coordinator.Milestone(ctx, strings.TrimSpace(raw.ID), raw.Content); err != nil {
 		return "", fmt.Errorf("team_milestone: %w", err)
 	}
+	r.invalidateTeamworkBoard()
 	return jsonReceipt(map[string]any{"ok": true, "id": raw.ID})
 }
 
@@ -279,6 +282,7 @@ func (r *Runtime) teamRetireHandler(ctx context.Context, argsJSON string) (strin
 	if err := coordinator.Retire(ctx, strings.TrimSpace(raw.Role)); err != nil {
 		return "", fmt.Errorf("team_retire: %w", err)
 	}
+	r.invalidateTeamworkBoard()
 	return jsonReceipt(map[string]any{
 		"ok": true, "role": raw.Role,
 		"detail": "回收作业 → 释放 worktree → 清会话内容 → 保在线",

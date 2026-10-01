@@ -187,6 +187,10 @@ type Runtime struct {
 	teamworkBackend *TeamworkBackend
 	teamworkJobs    jobs.Manager
 	teamworkCoords  map[sessionstore.Key]*teamwork.Coordinator
+	// teamworkBoardCache 是「计划 + 审计」的按会话缓存（见 runtime_teamwork_board.go）：
+	// 会话快照是高频采集路径，不允许每次都做 O(events) 的文件读；team_* 工具成功
+	// 返回后失效（作业行不进缓存——jobs.Manager.Snapshot 是内存读，随取随新）。
+	teamworkBoardCache map[sessionstore.Key]teamworkBoardSnapshotCache
 
 	// 上下文控制接线（seelebridge/context_components.go）：
 	// 窗口策略（RuntimeConfig.WindowConfig 构造）、会话上下文存储与

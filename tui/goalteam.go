@@ -181,10 +181,12 @@ func (model Model) teamPanelLines() []string {
 		return []string{StyleMuted.Render("  ◆ TEAM  尚未读取（Alt+T 打开）")}
 	}
 	if !view.Configured {
-		return []string{
+		lines := []string{
 			StyleMuted.Render("  ◆ TEAM  当前会话未装配 AgentTeam（GUI 团队面板可一键装配 preset；goal_begin 也会隐式装配 goal-a2a）"),
-			StyleMuted.Render("  ·  Alt+T 重试 · Esc 关闭"),
 		}
+		lines = append(lines, model.teamBoardLines()...)
+		lines = append(lines, StyleMuted.Render("  ·  Alt+T 重试 · Esc 关闭"))
+		return lines
 	}
 	header := fmt.Sprintf("  ◆ TEAM  %s · order_policy=%s",
 		fallback(view.TeamKind, view.TeamID), fallback(view.OrderPolicy, "—"))
@@ -214,8 +216,96 @@ func (model Model) teamPanelLines() []string {
 	} else {
 		lines = append(lines, StyleMuted.Render("  调度 无运行态（本会话没有发言调度运行时）"))
 	}
+	lines = append(lines, model.teamBoardLines()...)
 	lines = append(lines, StyleMuted.Render("  ·  Alt+T 刷新 · Alt+G 看目标 · Esc 关闭"))
 	return clampLines(lines, panelLineLimit)
+}
+
+// teamBoardLines 渲染**团队看板**（数据源 = Snapshot.Runtime.TeamworkBoard，与 GUI
+// 「团队看板」子页**同源投影**：同一份后端只读投影，不另起一套取值）。
+// 无计划（nil 或没有阶段）→ nil：不追加空壳，口径同 GUI。
+//
+// 这一节刻意**不重算**阶段状态与拓扑层号——那些是纯渲染件
+// （gui/frontend/dist/team-board-view.js）的职责，终端里再折一遍就是第二份事实。
+// 这里只把投影里已有的东西逐行说清楚：阶段（角色 / 依赖边）、该阶段的作业行、里程碑。
+func (model Model) teamBoardLines() []string {
+	board := model.snapshot.Runtime.TeamworkBoard
+	if board == nil || len(board.Stages) == 0 {
+		return nil
+	}
+	width := model.textLimit()
+	running, done, failed := 0, 0, 0
+	for _, job := range board.Jobs {
+		switch job.State {
+		case "running":
+			running++
+		case "done":
+			done++
+		case "failed", "killed":
+			failed++
+		}
+	}
+	header := fmt.Sprintf("  ◆ 团队看板  %s · v%d · 阶段 %d · %s · 作业 %d 跑/%d 完/%d 败",
+		fallback(board.TeamID, "—"), board.Version, len(board.Stages), rosterText(board),
+		running, done, failed)
+	lines := []string{StyleTaskRunning.Render(oneLine(header, width))}
+	for _, stage := range board.Stages {
+		roles := "—"
+		if len(stage.Roles) > 0 {
+			roles = strings.Join(stage.Roles, ",")
+		}
+		deps := "—"
+		if len(stage.DependsOn) > 0 {
+			deps = strings.Join(stage.DependsOn, ",")
+		}
+		lines = append(lines, StyleChoiceInactive.Render(oneLine(
+			fmt.Sprintf("  %s  %s  deps:%s", stage.ID, roles, deps), width)))
+		for _, job := range board.Jobs {
+			if job.Stage != stage.ID && job.Node != stage.ID {
+				continue
+			}
+			lines = append(lines, StyleMuted.Render(oneLine(
+				fmt.Sprintf("    作业 %s %s %s", job.Handle, fallback(job.State, "—"), formatByteSize(job.Bytes)), width)))
+		}
+	}
+	for _, milestone := range board.Milestones {
+		line := fmt.Sprintf("  里程碑 %s %s", milestone.ID, fallback(milestone.Status, "pending"))
+		if content := oneLine(milestone.Content, width/2); content != "" {
+			line += " · " + content
+		}
+		lines = append(lines, StyleMuted.Render(oneLine(line, width)))
+	}
+	if board.Stale {
+		lines = append(lines, StyleMuted.Render("  ·  句柄投影可能过期（jobs I-4：句柄只在内存，进程重启后作废）"))
+	}
+	return lines
+}
+
+// rosterText 是在编一行：有产品级上限时写「在编 n/max」（看板要能区分"正常"与"顶到上限"），
+// 没有上限时只写「在编 n」——不编造一个不存在的上限。
+//
+// 成员**不在这里逐行列出**：成员表归 Alt+T 面板上半段的 AgentTeam 那一节。同一块面板里
+// 再列一遍"在编"，只会让人以为有两份互相矛盾的名册（AgentTeam 是发言调度面，
+// 团队看板是 leader 的硬编排面，两者本来就可能是不同的集合）。
+func rosterText(board *dto.TeamworkBoardView) string {
+	if board.MaxMembers > 0 {
+		return fmt.Sprintf("在编 %d/%d", len(board.Members), board.MaxMembers)
+	}
+	return fmt.Sprintf("在编 %d", len(board.Members))
+}
+
+// formatByteSize 把字节数压成终端友好的短形态（0 → "0B"，不写"0.0KiB"）。
+func formatByteSize(bytes int64) string {
+	switch {
+	case bytes <= 0:
+		return "0B"
+	case bytes < 1024:
+		return fmt.Sprintf("%dB", bytes)
+	case bytes < 1024*1024:
+		return fmt.Sprintf("%.1fKiB", float64(bytes)/1024)
+	default:
+		return fmt.Sprintf("%.1fMiB", float64(bytes)/(1024*1024))
+	}
 }
 
 // memberLine 渲染一行成员：位置 · 角色（kind/tools_policy）· 角色会话 ID 尾号 ·
