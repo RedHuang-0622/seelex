@@ -723,8 +723,13 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	//
 	// 原始轮次仍完整留在会话存储里，模型需要细节时按结果引用/分页回读；
 	// 只有压缩形态自身仍超全量预算（如 system 指令自身超窗口）才拒绝发送。
+	// 自主压缩是**最后一道**折叠，它和普通折叠折出的是同一种帧（元数据 + 读后感），
+	// 因此「没有模型读后感就不折」这条口径同样管它：缺了读后感的一帧对检索无用，却会
+	// 改写请求前缀、把 provider 的整段前缀缓存作废。此前只有 newCheckpoint 与
+	// compacting 带了 noSummary 闸，这条路径漏了 —— "没有读后感"的宿主仍会被自主压缩
+	// 推出一帧并落下记录（用户口径 2026-10-01 要求不折、不推栈顶、不落记录）。
 	autonomous := false
-	if estimated > budget.HardThreshold {
+	if !noSummary && estimated > budget.HardThreshold {
 		if compressed, compressedTokens, ok := c.compressExecutionHistory(systemPrompt, systems, summary, planMessage, currentInput, tools, budget); ok && compressedTokens < estimated {
 			assembled, estimated, autonomous = compressed, compressedTokens, true
 		}
