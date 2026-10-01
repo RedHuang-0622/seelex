@@ -19,8 +19,7 @@ import { createWorkspaceChangesView } from "./workspace-changes.js";
 import { createFilePreviewController } from "./file-preview.js";
 import { renderCompactionFrameModal, renderContextCompactions } from "./context-summary.js";
 import { compactionRangeText, compactionReasonLabel, mergeCompactionProgress } from "./compaction-format.js";
-import { renderGoalInFlight, renderGoalStack, renderGoalSteps } from "./goal-stack-view.js";
-import { renderGoalBoard, renderGoalDetail } from "./goal-board-view.js";
+import { renderGoalDetail, renderGoalPanel } from "./goal-board-view.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
 import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
 import { employeePool, hirePanel, isPinnedRole, nextAgentTeamOrder, normalizeAgentTeam, normalizeTeamGlobal, normalizeTeamLibrary, PERMISSION_CUSTOM_TOOLS, PERMISSION_GROUPS, PERMISSION_BITS, renderAgentTeam, renderRoleSessionDetail, renderTeamMemberList, roleDisplayName, teamEditorPanel, teamEntryFromMembers, teamMemberNames, teamMemberSpecMap, teamRoleSpec } from "./agent-team-view.js";
@@ -2153,18 +2152,18 @@ function renderSkills(skills) {
 }
 
 // ── 「目标」面板（工作台子页）──────────────────────────────
-// 数据源：runtime.goal_skill_active / runtime.active_skills（任务级 skill
-// 激活权威投影，backend 锁内快照）+ snapshot.task（当前任务状态/摘要）+
-// 最近用户输入（目标文本，本地派生展示）。
+// 数据源：runtime.goal_governance（goal 状态机只读投影）+ runtime.active_skills
+// （任务级 skill 激活权威投影）+ 最近用户输入（目标文本，本地派生展示）。
 //
-// 面板的主体是一块**看板**（goal-board-view.js）：上面是大的 active seq
-// （当前目标在本会话 goal 序列里的序号），下面是我发出的最近一次任务（小字）。
-// 目标结束（栈上没有 active 帧）→ 看板就没有了（这是用户口径：结束就是没有了）。
+// 面板与它的标签都归 goal 状态机（纯渲染件见 goal-board-view.js renderGoalPanel）：
+// 栈上还有 active 帧（目标在跑）→ 面板可见（看板 + 治理只读块 + goal 域 skill
+// chips，GOAL 徽标亮）；目标结束（栈上没有 active 帧）→ 整块退场，徽标与 chips
+// 一起退场（用户口径：结束就是没有了，不留空壳）。
+// 标签的判据**不是** skill 激活态：`$goal`/`$teamwork` 一召回就长期为真，拿它当
+// 判据就是"goal 已经结束了、标签还贴着"（2026-10-02 现场）。
 // 点开看板 = 详情弹窗（goal-detail-view），像资源管理器的"内容详情"那样逐项列全。
 function renderGoal(snapshot) {
   const runtime = snapshot.runtime || {};
-  const task = snapshot.task || null;
-  const goalActive = Boolean(runtime.goal_skill_active);
   const governance = runtime.goal_governance && runtime.goal_governance.active
     ? runtime.goal_governance
     : null;
@@ -2175,42 +2174,24 @@ function renderGoal(snapshot) {
   // 详情弹窗与看板共用同一份只读输入：刷新时一起重绘（见 refreshGoalDetail）。
   lastGoalView = { governance, goalText };
   refreshGoalDetail();
-  const hasContent = governance || goalActive || activeSkills.length > 0 || task || goalText;
-  goalSection.classList.toggle("hidden", !hasContent);
+  const panel = renderGoalPanel({ governance, goalText, activeSkills });
+  goalSection.classList.toggle("hidden", panel.hidden);
   const badge = elements["goal-badge"];
   if (badge) {
-    badge.classList.toggle("hidden", !goalActive);
+    badge.classList.toggle("hidden", panel.badgeHidden);
     badge.textContent = "GOAL";
-    badge.title = goalActive ? "GOAL 方法论已激活" : "";
+    badge.title = panel.badgeTitle;
   }
   const view = elements["goal-view"];
-  if (!hasContent) {
-    view.classList.add("muted");
-    view.innerHTML = "当前无目标任务";
+  if (panel.hidden) {
+    // 没有 active goal：不留空壳，也不留上一轮面板里的标签与正文。
+    view.innerHTML = "";
     stopGoalInFlightPoller(view);
     return;
   }
-  const governanceLine = governance ? renderGoalGovernance(governance) : "";
-  const chips = activeSkills.length
-    ? `<div class="goal-skills">${activeSkills.map(skill => `<span class="chip">$${escapeHtml(skill)}</span>`).join("")}</div>`
-    : "";
   view.classList.remove("muted");
-  if (governance) {
-    // 有 active goal：看板（大 active seq + 小字最近输入）+ 评审只读块 + skill chips。
-    // 旧的大字 goal-text 行不再重复渲染——它就在看板的小字那一行上。
-    view.innerHTML = `${renderGoalBoard(governance, goalText)}${governanceLine}${chips}`;
-    startGoalInFlightPoller(view, governance);
-    return;
-  }
-  // 没有 active goal（目标结束 / 只有 skill 激活）：保留原有的非看板面。
-  const goalLine = goalText
-    ? `<div class="goal-text" title="${escapeHtml(goalText)}">${escapeHtml(truncateGoalText(goalText))}</div>`
-    : "";
-  const taskLine = task
-    ? `<div class="goal-task"><span class="goal-task-status is-${escapeHtml(task.status || "idle")}">${escapeHtml(task.status || "idle")}</span><span class="goal-task-summary" title="${escapeHtml(task.summary || "")}">${escapeHtml(task.summary || "任务进行中")}</span></div>`
-    : "";
-  view.innerHTML = `${goalLine}${taskLine}${chips}`;
-  stopGoalInFlightPoller(view);
+  view.innerHTML = panel.html;
+  startGoalInFlightPoller(view, governance);
 }
 
 // lastGoalView 是「目标」面板最近一次渲染的只读输入（治理视图 + 最近用户输入）：
@@ -2264,33 +2245,6 @@ document.addEventListener("keydown", event => {
   if (event.key === "Escape") closeGoalDetail();
 });
 
-// renderGoalGovernance 渲染「目标」面板的治理只读块：goal 状态 / TL 最近指令 /
-// 评审过程与进行中正文（governance 视图来自 runtime.goal_governance，goal 栈不入
-// 模型上下文）。
-//
-// 席位轮转退场后（2026-10-01 阶段三 W3）面板不再有"轮次 / 座次 / 断环 / 治理未
-// 完成"这些循环概念：goal 的驱动是提示词驱动的 leader 派活，终态由 gate 判。面板
-// 只显示 goal 状态 + 评审者状态 + 最近裁决 + 评审过程。
-//
-// 面板上**没有墙钟推断**：只说后端给的事实。
-function renderGoalGovernance(governance) {
-  const status = escapeHtml(governance.status || "active");
-  const peer = governance.peer_state ? escapeHtml(governance.peer_state) : "";
-  const directive = governance.last_directive
-    ? `<div class="goal-gov-directive" title="${escapeHtml(governance.last_directive)}">TL: ${escapeHtml(truncateGoalText(governance.last_directive, 160))}</div>`
-    : "";
-  // 进行中的 ADVISOR 正文（只读快照）：评审期间有，回合结束即清空。
-  const inFlight = renderGoalInFlight(governance);
-  // 评审**过程**（只读快照）：评审者这一轮调了哪些只读工具、拿到什么。进行中随
-  // 轮询逐步长出来；回合结束后保留到下一轮开始（"最近一轮的过程"）。
-  const steps = renderGoalSteps(governance);
-  const meta = [
-    `<span class="goal-gov-status">${status}</span>`,
-    peer ? `peer ${peer}` : "",
-  ].filter(Boolean).join(" · ");
-  return `<div class="goal-governance"><div class="goal-gov-meta">${meta}</div>${steps}${inFlight}${directive}</div>`;
-}
-
 // refreshGoalInFlight 在 ADVISOR 回合进行中按节拍补一次只读快照：治理回合是
 // **同步**跑完的（后端在回合结束才推一次状态），所以进行中正文必须靠轮询快照
 // 才能及时渲染出来。只在 peer=evaluating 或已有进行中正文时拉取，避免平时空转。
@@ -2340,10 +2294,6 @@ function latestUserInput(snapshot) {
     }
   }
   return "";
-}
-
-function truncateGoalText(text, max = 120) {
-  return text.length <= max ? text : `${text.slice(0, max)}…`;
 }
 
 // lastPlanDsl 保存最近一次渲染的 Plan DSL（节点详情弹窗的数据源；

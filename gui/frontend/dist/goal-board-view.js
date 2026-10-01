@@ -1,14 +1,21 @@
 import { escapeHtml } from "./components.js";
-import { renderGoalStack } from "./goal-stack-view.js";
+import { renderGoalInFlight, renderGoalStack, renderGoalSteps } from "./goal-stack-view.js";
 
-// goal-board-view.js 是「目标」面板的**看板件**与**详情件**两个纯渲染件（不碰 DOM，
-// 便于 node:test）。数据源只有一个：后端只读投影
+// goal-board-view.js 是「目标」面板的**面板件 / 看板件 / 详情件**三个纯渲染件（不碰
+// DOM，便于 node:test）。数据源只有一个：后端只读投影
 // `snapshot.runtime.goal_governance`（+ 会话里最近一条用户输入，本地派生）。
 //
-//  1. renderGoalBoard：工作台「目标」子页那一块看板——**上面**是大的 active seq
+//  1. renderGoalPanel：工作台「目标」子页那一块面板，也是**标签的状态机**所在处。
+//     状态由 goal 自己给：栈上还有 active 帧 = 目标在跑 →
+//       面板可见 + GOAL 徽标亮 + goal 域 skill chips + 看板 + 治理块；
+//     目标结束（收口 / 归档，栈上没有 active 帧）→
+//       整块退场（hidden、徽标隐藏、正文空串）：**结束就是没有了，不留空壳**。
+//     标签的判据**不能**是 skill 激活态：`$goal`/`$teamwork` 一召回就长期为真，
+//     拿它当判据就是"goal 已经结束了、GOAL 徽标与 chips 还贴着"（2026-10-02 现场）。
+//  2. renderGoalBoard：面板里的看板——**上面**是大的 active seq
 //     （当前目标在本会话 goal 序列里的序号），**下面**是最近一次用户输入的小字。
 //     栈上没有 active 帧（目标结束 / 收口）时返回 ""：结束就是没有了，不留空壳。
-//  2. renderGoalDetail：点开看板的弹窗内容，像资源管理器的「内容详情」——一张属性表
+//  3. renderGoalDetail：点开看板的弹窗内容，像资源管理器的「内容详情」——一张属性表
 //     逐项列出这一帧的全部内容（序号/状态/标题/正文/完成条件/非目标范围/打点流水/
 //     时间戳），嵌套压栈时逐帧一节（栈顶 = 当前目标）。
 //
@@ -40,6 +47,33 @@ export function goalActiveSeq(frame, index = 0) {
   const match = /^g-(\d+)$/.exec(id.trim());
   if (match) return Number(match[1]);
   return Number.isFinite(index) ? index + 1 : 0;
+}
+
+// renderGoalPanel 渲染「目标」面板**这一块现在长什么样**：可见性 + GOAL 徽标 +
+// 面板正文。它是标签的**状态机**所在处——面板与它的标签共用一个状态：
+//
+//   live  （栈上还有 active 帧 = 目标在跑）→ 面板可见，GOAL 徽标亮，正文 = 看板 +
+//          治理块 + goal 域 skill chips；
+//   !live （没开 goal / 目标已收口归档）  → 面板隐藏，徽标隐藏，正文空串。
+//
+// 判据只能来自 goal 自己（governance 的 active 帧），**不能**来自 skill 激活态：
+// `$goal`/`$teamwork` 一召回就长期为真（见本文件头注释），拿它当判据就会让标签在
+// 目标结束后继续贴着。
+export function renderGoalPanel({ governance = null, goalText = "", activeSkills = [] } = {}) {
+  if (!activeGoalFrame(governance)) {
+    return { live: false, hidden: true, badgeHidden: true, badgeTitle: "", html: "" };
+  }
+  const skills = Array.isArray(activeSkills) ? activeSkills : [];
+  const chips = skills.length
+    ? `<div class="goal-skills">${skills.map(skill => `<span class="chip">$${escapeHtml(skill)}</span>`).join("")}</div>`
+    : "";
+  return {
+    live: true,
+    hidden: false,
+    badgeHidden: false,
+    badgeTitle: "目标进行中",
+    html: `${renderGoalBoard(governance, goalText)}${renderGoalGovernance(governance)}${chips}`,
+  };
 }
 
 // renderGoalBoard 渲染看板块；无 active 帧 → ""（面板不显示空壳）。
@@ -76,6 +110,33 @@ export function renderGoalBoard(governance, goalText = "") {
       </button>
       ${task ? `<div class="goal-board-task" title="${escapeHtml(task)}">${escapeHtml(truncate(task, BOARD_TASK_LIMIT))}</div>` : ""}
     </div>`;
+}
+
+// renderGoalGovernance 渲染「目标」面板的治理只读块：goal 状态 / TL 最近指令 /
+// 评审过程与进行中正文（governance 视图来自 runtime.goal_governance，goal 栈不入
+// 模型上下文）。
+//
+// 席位轮转退场后（2026-10-01 阶段三 W3）面板不再有"轮次 / 座次 / 断环 / 治理未
+// 完成"这些循环概念：goal 的驱动是提示词驱动的 leader 派活，终态由 gate 判。面板
+// 只显示 goal 状态 + 评审者状态 + 最近裁决 + 评审过程。
+//
+// 面板上**没有墙钟推断**：只说后端给的事实。
+export function renderGoalGovernance(governance) {
+  const status = escapeHtml(governance.status || "active");
+  const peer = governance.peer_state ? escapeHtml(governance.peer_state) : "";
+  const directive = governance.last_directive
+    ? `<div class="goal-gov-directive" title="${escapeHtml(governance.last_directive)}">TL: ${escapeHtml(truncate(governance.last_directive, 160))}</div>`
+    : "";
+  // 进行中的 ADVISOR 正文（只读快照）：评审期间有，回合结束即清空。
+  const inFlight = renderGoalInFlight(governance);
+  // 评审**过程**（只读快照）：评审者这一轮调了哪些只读工具、拿到什么。进行中随
+  // 轮询逐步长出来；回合结束后保留到下一轮开始（"最近一轮的过程"）。
+  const steps = renderGoalSteps(governance);
+  const meta = [
+    `<span class="goal-gov-status">${status}</span>`,
+    peer ? `peer ${peer}` : "",
+  ].filter(Boolean).join(" · ");
+  return `<div class="goal-governance"><div class="goal-gov-meta">${meta}</div>${steps}${inFlight}${directive}</div>`;
 }
 
 // renderGoalDetail 渲染「点开看」的详情：一帧一节属性表（栈底→栈顶，栈顶标当前）。

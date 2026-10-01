@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { activeGoalFrame, goalActiveSeq, renderGoalBoard, renderGoalDetail, renderGoalFrameDetail } from "./goal-board-view.js";
+import { activeGoalFrame, goalActiveSeq, renderGoalBoard, renderGoalDetail, renderGoalFrameDetail, renderGoalPanel } from "./goal-board-view.js";
 
-// goal-board-view.test.mjs 钉住四件事：
+// goal-board-view.test.mjs 钉住五件事：
+//   0. 面板（标签的状态机）：栈上还有 active 帧（目标在跑）→ 面板可见 + GOAL 徽标
+//      亮 + 看板/治理块/chips 一起出；目标结束（收口 / 归档）→ 整块退场，**哪怕
+//      `$goal`/`$teamwork` 仍在激活态**也不留标签（2026-10-02 现场口径）；
 //   1. 看板：大的 active seq 取自 goal 记录自己的序号（g-<n>），小字那一行是最近
 //      一次用户输入；没有 active 帧（目标结束）→ 空串，不留空壳；
 //   2. active seq 不是打点条数，也不是栈位置——id 解析不出来才回退位置；
@@ -32,6 +35,46 @@ const GOVERNANCE = {
     }
   ]
 };
+
+test("renderGoalPanel 目标在跑：面板可见 + GOAL 徽标亮 + 看板/治理块/chips 一起出", () => {
+  const panel = renderGoalPanel({ governance: GOVERNANCE, goalText: "把 goal 看板搬到工作台", activeSkills: ["goal", "teamwork"] });
+  assert.equal(panel.live, true);
+  assert.equal(panel.hidden, false);
+  assert.equal(panel.badgeHidden, false);
+  assert.equal(panel.badgeTitle, "目标进行中");
+  assert.match(panel.html, /data-goal-board data-goal-seq="3"/);
+  assert.match(panel.html, /class="goal-governance"/);
+  assert.match(panel.html, /class="goal-skills"/);
+  assert.match(panel.html, /<span class="chip">\$goal<\/span>/);
+  assert.match(panel.html, /<span class="chip">\$teamwork<\/span>/);
+});
+
+test("renderGoalPanel 目标结束：面板与标签一起退场（skill 还在激活态也不留）", () => {
+  // 现场（2026-10-02）：goal 已收口归档，而 `$goal`/`$teamwork` 仍处于激活态——
+  // 旧接线拿 skill 激活态当判据，于是 GOAL 徽标与 chips 一直在工作台上贴着。
+  for (const governance of [null, { active: false, stack: [] }, { active: true, stack: [] }]) {
+    const panel = renderGoalPanel({ governance, goalText: "我发出的最近一次任务", activeSkills: ["goal", "teamwork"] });
+    assert.equal(panel.live, false, `governance=${JSON.stringify(governance)} 不该判成"目标在跑"`);
+    assert.equal(panel.hidden, true);
+    assert.equal(panel.badgeHidden, true);
+    assert.equal(panel.badgeTitle, "");
+    assert.equal(panel.html, "", "结束就是没有了：不留空壳");
+    assert.ok(!panel.html.includes("goal-skills"), "chips 跟着目标退场");
+  }
+});
+
+test("renderGoalPanel 没有激活 skill 时看板照旧，只是没有 chips", () => {
+  const panel = renderGoalPanel({ governance: GOVERNANCE, goalText: "", activeSkills: [] });
+  assert.equal(panel.live, true);
+  assert.ok(!panel.html.includes("goal-skills"));
+  assert.match(panel.html, /data-goal-board/);
+});
+
+test("renderGoalPanel 转义 skill 名，不把 skill 名当结构", () => {
+  const panel = renderGoalPanel({ governance: GOVERNANCE, activeSkills: ['<img src=x onerror=1>'] });
+  assert.ok(!panel.html.includes("<img"), "skill 名必须被转义");
+  assert.match(panel.html, /<span class="chip">\$&lt;img src=x onerror=1&gt;<\/span>/);
+});
 
 test("renderGoalBoard 上面是大 active seq，下面是最近一次输入的小字", () => {
   const html = renderGoalBoard(GOVERNANCE, "把 goal 看板搬到工作台，点开能看详情");

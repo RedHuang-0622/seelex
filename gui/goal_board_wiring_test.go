@@ -5,11 +5,14 @@ import (
 	"testing"
 )
 
-// TestEmbeddedGoalBoardWiring：「目标」子页的看板必须在嵌入前端里真的接起来。
+// TestEmbeddedGoalBoardWiring：「目标」子页的面板必须在嵌入前端里真的接起来。
 //
 // 用户口径（2026-10-03）：看板出来到工作台的「目标」子页——上面是大的 active seq，
 // 下面是我发出的最近一次任务（小字），点开出一份内容详情（资源管理器「内容详情」
 // 口径）；目标结束（栈上没有 active 帧）就没有看板。
+// 用户口径（2026-10-02）：标签的生命周期也归 goal 状态机——目标结束后面板与它的
+// 标签（GOAL 徽标 / goal 域 skill chips）一起退场，不靠 skill 激活态（`$goal`
+// 一召回就长期为真，用它当判据就是"goal 已经结束了、标签还贴着"）。
 //
 // 三处缺一，用户看到的就分别是"没有看板"（模块没接）/ "点了没反应"（点击落点没接）/
 // "弹窗是空的"（弹窗元素没进 DOM）。这里逐条钉住。
@@ -31,9 +34,9 @@ func TestEmbeddedGoalBoardWiring(t *testing.T) {
 	boardSource := string(board)
 
 	if !strings.Contains(app, `from "./goal-board-view.js"`) ||
-		!strings.Contains(app, "renderGoalBoard(") ||
+		!strings.Contains(app, "renderGoalPanel(") ||
 		!strings.Contains(app, "renderGoalDetail(") {
-		t.Fatal("看板与详情必须由 ./goal-board-view.js 的纯渲染件承担（app.js 只做接线）")
+		t.Fatal("面板/看板/详情必须由 ./goal-board-view.js 的纯渲染件承担（app.js 只做接线）")
 	}
 	if !strings.Contains(app, `[data-goal-board-open]`) || !strings.Contains(app, "openGoalDetail()") {
 		t.Fatal("看板卡片的点击落点必须接上详情弹窗（否则点了没反应）")
@@ -55,5 +58,11 @@ func TestEmbeddedGoalBoardWiring(t *testing.T) {
 		if strings.Contains(app, retired) {
 			t.Fatalf("席位轮转已退场，app.js 不得再引用 %q", retired)
 		}
+	}
+	// 标签的生命周期归 goal 状态机（2026-10-02 现场）：面板不得拿 skill 激活态当
+	// 标签判据——`$goal`/`$teamwork` 一召回就长期为真，目标收口归档后 GOAL 徽标与
+	// chips 会一直贴着。判据只能是治理视图里"栈上还有 active 帧"。
+	if strings.Contains(app, "goal_skill_active") {
+		t.Fatal("「目标」面板的标签必须由 goal 状态机（治理视图的 active 帧）驱动，不得由 skill 激活态驱动")
 	}
 }
