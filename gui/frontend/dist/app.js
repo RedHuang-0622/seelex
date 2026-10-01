@@ -4,6 +4,7 @@ import { createChatView } from "./chat-view.js";
 import { createGUIClient } from "./client-state.js";
 import { clearSubmittedText, composerSubmitPlan, composerViewSwitch, isComposingEnter, shouldRestoreDraft } from "./composer-input.js";
 import { createConversationView } from "./conversation-view.js";
+import { createEmbedActionGate, resolveEmbedAction } from "./embed-bridge.js";
 import { createTrajectoryView } from "./trajectory-view.js";
 import { buildTrajectory } from "./trajectory.js";
 import { createEffortControl } from "./effort-control.js";
@@ -4129,6 +4130,74 @@ document.addEventListener("keydown", event => {
   event.preventDefault();
   openNodeDetail(node.dataset.planNodeOpen);
 });
+
+// ── 会话内 HTML 渲染块的动作通道（iframe → 宿主 · postMessage）────────────
+// 块被关在无 `allow-same-origin` 的沙箱 iframe 里，块内脚本够不到应用；反方向只有
+// postMessage 一条路。身份**按 `event.source` 与本页既有渲染块的 contentWindow 比对**，
+// 不按 origin：opaque origin 恒为 `"null"`，按它判等于不判（判据与白名单在
+// embed-bridge.js，这里只做接线与落点）。
+const embedActionGate = createEmbedActionGate();
+
+function embedFrameFor(source) {
+  if (!source) return null;
+  for (const frame of document.querySelectorAll("iframe.html-embed-frame")) {
+    if (frame.contentWindow === source) return frame;
+  }
+  return null;
+}
+
+window.addEventListener("message", event => {
+  const frame = embedFrameFor(event.source);
+  // 来源不是本页的渲染块（别的窗口、扩展、父页面）：静默忽略。块内本来就没有回执
+  // 通道，报错刷屏只会把"没收到"误读成故障。
+  if (!frame) return;
+  const decision = resolveEmbedAction({
+    data: event.data,
+    interactive: frame.closest(".html-embed")?.dataset.embedInteractive === "1",
+    allow: seed => embedActionGate.allow(seed)
+  });
+  if (!decision.ok) return;
+  void applyEmbedAction(decision, frame);
+});
+
+// applyEmbedAction 把一次通过判据的动作落到宿主动作上。落点只有四个，且都复用既有
+// 通道：复制同对话区的复制、发消息同 composer 的提交规划（`SubmitToSession` + 显式
+// 视图会话），所以队列、草稿清理、sigil 前缀的行为与用户自己按 Enter 完全一致。
+async function applyEmbedAction(decision, frame) {
+  if (decision.action === "copy-text") {
+    try {
+      await navigator.clipboard.writeText(decision.payload.text);
+      showToast("已复制图形视图的文本");
+    } catch (error) { showToast(error); }
+    return;
+  }
+  if (decision.action === "open-source") {
+    const source = frame.closest(".html-embed")?.querySelector("details.html-embed-source");
+    if (source) source.open = !source.open;
+    return;
+  }
+  if (decision.action === "fill-composer") {
+    // 追加而不是覆盖：用户手边的半句草稿不是这一块可以拿去的东西（同召回排队
+    // 消息的语义）。块的动作只负责把话放进去，发不发由用户按 Enter 决定。
+    const existing = elements.prompt.value;
+    elements.prompt.value = existing.trim() ? `${existing.trimEnd()}\n${decision.payload.text}` : decision.payload.text;
+    markComposerEdited();
+    resizePrompt();
+    elements.prompt.focus();
+    showToast("图形视图已写入输入框（未发送）");
+    return;
+  }
+  if (decision.action === "ask-agent") {
+    // 不动输入框：这是块自己那条请求，不该覆盖用户手边的草稿。走与输入框提交
+    // 同一条规划（composer-input.js），因此发往的会话、队列与 sigil 路由一致。
+    const plan = composerSubmitPlan({ text: decision.payload.text, viewedSessionID: client.current()?.session?.id });
+    try {
+      await invoke(plan.rpc, ...plan.args);
+      showToast("图形视图已向本会话发送一条请求");
+    } catch (error) { showToast(error); }
+    await refresh({ scroll: "bottom" });
+  }
+}
 
 document.addEventListener("keydown", event => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {

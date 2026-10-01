@@ -181,6 +181,30 @@ must bring everything it needs with it.
 - **Don't:** put credentials, account configuration, private file contents, or
   user data into the block: it is rendered output, not a private channel.
 
+**Interaction inside the block:**
+
+- **Do:** put the click target on a shape, not on its label. The embed's base CSS
+  sets `pointer-events:none` on SVG `text` because a label sitting on a shape
+  swallows the click; give a specific label back its own hit area with
+  `style="pointer-events:auto"` when the text really is the control.
+- **Do:** keep in-frame interaction free-form — hover states, class toggles,
+  inline JS state changes, SMIL/CSS animation, `<foreignObject>` controls and
+  pointer drag all work inside the sandbox and need no protocol. Write SVG
+  animation with `transform-box:fill-box` (the base CSS already defaults it) and
+  gate motion behind `@media (prefers-reduced-motion: reduce)`.
+- **Do:** cross the frame boundary only through the allowlisted actions, declared
+  in markup —
+  `<rect data-seelex-action="ask-agent" data-seelex-payload='{"text":"解释节点 A"}'>`
+  — or from inline script with `seelex.emit("ask-agent", {text: "…"})`. The whole
+  surface is `ask-agent` (send a message to this conversation), `fill-composer`
+  (draft only, never sent), `copy-text`, `open-source`.
+- **Do:** add `interactive=1` to the fence when the block should be allowed to
+  drive the conversation; the caption then says so, and `ask-agent` is accepted
+  only right after the user clicks or presses a key inside the block.
+- **Don't:** wire a driving action to a timer, an `onload` handler or a stream of
+  automatic replays — those are refused by design. If the interaction needs no
+  conversation turn, keep it entirely inside the frame.
+
 If unsure whether a visual helps, answer in text and offer the visual as a
 follow-up. Self-check: will the user read this block faster than the same facts
 as text?

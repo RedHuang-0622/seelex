@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildEmbedBridgeScript,
   buildEmbedDocument,
   isHtmlEmbedLanguage,
   parseEmbedInfo,
@@ -18,13 +19,51 @@ test("html embed: only explicitly marked fences are rendered", () => {
 });
 
 test("html embed: info string carries title and clamped height", () => {
-  assert.deepEqual(parseEmbedInfo(""), { title: "图形视图", height: 260 });
-  assert.deepEqual(parseEmbedInfo('title="吞吐趋势" height=360'), { title: "吞吐趋势", height: 360 });
-  assert.deepEqual(parseEmbedInfo("height='420'"), { title: "图形视图", height: 420 });
+  assert.deepEqual(parseEmbedInfo(""), { title: "图形视图", height: 260, interactive: false });
+  assert.deepEqual(parseEmbedInfo('title="吞吐趋势" height=360'), { title: "吞吐趋势", height: 360, interactive: false });
+  assert.deepEqual(parseEmbedInfo("height='420'"), { title: "图形视图", height: 420, interactive: false });
   // 高度钳制：不给一条消息把页面撑爆或压成一条缝的机会。
   assert.equal(parseEmbedInfo("height=10").height, 120);
   assert.equal(parseEmbedInfo("height=99999").height, 640);
   assert.equal(parseEmbedInfo("height=abc").height, 260);
+});
+
+test("html embed: driving the conversation is opt-in per block", () => {
+  assert.equal(parseEmbedInfo("").interactive, false);
+  assert.equal(parseEmbedInfo('title="可点架构图" interactive=1').interactive, true);
+  // 裸标记也算给了值：围栏信息串是人手写的，不该因为少打一个 `=1` 静默失效。
+  assert.equal(parseEmbedInfo("interactive").interactive, true);
+  assert.equal(parseEmbedInfo("interactive=true").interactive, true);
+  assert.equal(parseEmbedInfo("interactive=0").interactive, false);
+  assert.equal(parseEmbedInfo("height=300").interactive, false);
+
+  const plain = renderHtmlEmbed("<svg></svg>");
+  assert.match(plain, /data-embed-interactive="0"/);
+  assert.match(plain, /沙箱渲染 · 不联网</);
+  assert.doesNotMatch(plain, /可驱动会话/);
+
+  const live = renderHtmlEmbed("<svg></svg>", "interactive=1");
+  assert.match(live, /data-embed-interactive="1"/);
+  assert.match(live, /可驱动会话/);
+});
+
+test("html embed: svg interaction defaults ride along in the base css", () => {
+  const document = buildEmbedDocument("<svg><text>x</text></svg>");
+  // 标签默认不当命中面（压在图形上的 <text> 会吃掉 click）。
+  assert.match(document, /:where\(svg text\)\{pointer-events:none\}/);
+  // 就地旋转要先有确定的参考框。
+  assert.match(document, /transform-box:fill-box/);
+});
+
+test("html embed: the action bridge is injected inside the sandbox document", () => {
+  const bridge = buildEmbedBridgeScript();
+  const document = buildEmbedDocument("<svg></svg>");
+  assert.match(document, /seelex-embed/);
+  assert.equal((bridge.match(/<\/script>/g) || []).length, 1);
+  // 桥排在正文之前：块内脚本一执行就该拿得到 seelex。
+  assert.ok(document.indexOf(bridge) < document.indexOf("<svg></svg>"));
+  // 块本身的桥只以转义文本存在（渲染出来的 HTML 里没有可执行的 script 标签）。
+  assert.doesNotMatch(renderHtmlEmbed("<svg></svg>"), /<script>/);
 });
 
 test("html embed: document is locked down by csp", () => {

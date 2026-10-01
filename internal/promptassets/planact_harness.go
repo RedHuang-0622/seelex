@@ -70,6 +70,13 @@ func PlanActHarnessCases() []PlanActHarnessCase {
 			Required:    []string{"Rendered HTML for Visual Answers", "seelex-html", "source block", "clamped to 120–640px", "no network access"},
 		},
 		{
+			Name:        "visual-answer-can-drive-the-conversation",
+			Effort:      "high",
+			UserRequest: "画一张可点的架构图，点节点就让你解释它。",
+			Expected:    "块内交互默认留在沙箱内（形状而非标签承受点击、动画写 transform-box）；跨帧只能走白名单动作（ask-agent/fill-composer/copy-text/open-source），驱动会话需要围栏 interactive=1 与块内刚发生的真实手势，不许接在 onload/timer 上。",
+			Required:    []string{"Interaction inside the block", "data-seelex-action", "ask-agent", "interactive=1", "pointer-events:none", "prefers-reduced-motion"},
+		},
+		{
 			Name:        "tasklist-vs-plan-distinction",
 			Effort:      "high",
 			UserRequest: "区分串行任务清单与并行子代理计划。",

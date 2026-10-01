@@ -14,6 +14,23 @@ version when it lands.
 
 ### Added
 
+- **会话内 HTML/SVG 渲染块开了一条受控的反向通道：画布里的动作可以驱动会话.** 渲染块一直是
+  `sandbox="allow-scripts"`（无 `allow-same-origin`）的 iframe，块内脚本够不到应用；反方向过去
+  **完全没有出口**，所以图只能看不能点。现在加了一条窄路与一套判据：块内可 `postMessage`，
+  宿主按 **`event.source` 与既有渲染块 `contentWindow` 的身份比对**（沙箱 iframe 是 opaque
+  origin，`event.origin` 恒为 `"null"`，按 origin 判等于不判）放行**白名单动作**——
+  `ask-agent`（向本会话发一条请求）、`fill-composer`（只写输入框、绝不发送）、`copy-text`、
+  `open-source`（展开该块源码）。声明式写法 `data-seelex-action` + `data-seelex-payload`
+  由桥的文档级委托接住，模型不必为"点一下"写脚本；也可用 `seelex.emit(action, payload)`。
+  三道闸门保证"有后果"的动作不被滥用：**块级自愿**（围栏写 `interactive=1`，说明牌同步显示
+  「可驱动会话」，非自愿的块发来 `ask-agent` 一律拒）、**块内真实手势**（帧内脚本按
+  `event.isTrusted` 记时，只有 1.5s 内的真实点击/按键才放行——`onload`/`timer` 自动重放一律
+  丢弃）、**宿主侧滑动窗口限流 + 同正文去重**（连点、循环重放不给第二次）。协议与注入脚本在
+  `gui/frontend/dist/html-embed.js`，宿主判据在新增的 `gui/frontend/dist/embed-bridge.js`
+  （纯函数，含 `embed-bridge.test.mjs` 5 条用例），接线在 `app.js`。
+  提示词层（`internal/promptassets`）同步给出配方与红线（形状而非标签承受点击、动画写
+  `transform-box`、driving 动作不许接在 `onload`/timer 上），并新增一条 harness 用例。
+
 - **工作台「目标」子页有了看板与详情（goal 看板的可见面）.** 面板主体换成一块**看板**：
   上面是大的 **active seq**（当前目标在本会话 goal 序列里的序号，取 `goal` 记录自己的
   `g-<n>`，不是打点条数、也不是它在栈里的位置），下面是「我发出的最近一次任务」（最近一条
@@ -29,6 +46,13 @@ version when it lands.
   `break_reason` / `goal-gov-broken` / `goal-gov-error` 不许再从门外爬回来。
 
 ### Changed
+
+- **SVG 渲染块的两条兜底默认（实测得来）.** `:where(svg text){pointer-events:none}`：`<text>`
+  标签压在图形上时会**吃掉**指针事件（点在字上的 click 到不了图形），标签因此默认不当命中面
+  ——要让标签自己可点，写 `style="pointer-events:auto"` 或任意一条自己的 `text` 规则即可
+  （`:where()` 特异性为 0，不为难作者）。`:where(svg rect,…){transform-box:fill-box}`：CSS
+  `transform` 作用在 SVG 元素上时默认参考框是 viewBox，`rotate()` 会绕画布中心转，`fill-box`
+  才是作者通常要的"就地转"。两条都在 `EMBED_BASE_CSS`，作者写了自己的规则就听作者的。
 
 - **旧 goal（席位轮换）的残余物清完：把「已退场的机制」当现存机制写的注释与文档全部改成事实.** W3
   删掉了座位循环的代码，但一整批**注释/文档仍在陈述它还在**（`newGovernor 据此决定 main/tl

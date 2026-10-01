@@ -58,7 +58,8 @@ flowchart TB
 | `dist/context-summary.js` | 右栏「状态」子页的「上下文压缩」条目：版本/原因/来源/被压区间/估算/时间 + 展开后按 `frame_ref` 分页读回的折叠帧正文（与轨迹详情同一容器与分页组件）。此前只有一句硬编码英文占位句，没有区间、没有来源、不可展开。条目上方还有一轮压缩的门禁进度条（复用 Plan 面板的轨道）+ **逐关耗时清单**：压缩整轮只有几十毫秒，进度条不可能「慢慢走」，能看见串行工作的就是这份清单（每关一行 + 该关实测毫秒；起手帧那一关还没有数字，写「进行中」而不编耗时）。 |
 | `dist/trajectory-view.js` | 轨迹视图组件：对话区「轨迹」子页的上下文轴（记录轨 + 前缀注入/压缩元数据轨）/轴详情/过滤条/摘要/表格 keyed 渲染，行内复制/展开/result_ref 分页读回，本地过滤状态；普通轴块点击切回全量并定位轨迹行，元数据块点击开轴详情。**上下文轴分页**：滚轮在轴区域内翻页（`axisWheelStep` 累积阈值、一页一屏语义）、`Shift+滚轮`换页大小（`AXIS_PAGE_SIZE_STEPS`/`stepAxisPageSize`，带页码与页大小提示），分页窗口计算是纯函数（`resolveAxisPage`/`axisPageWindow`/`axisPageForIndex`）；翻到尚未加载的更早区间时提示并以既有 `loadMore` 通道回读，不静默跳位。 |
 | `dist/components.js` | message/tool/queue 等纯渲染组件；对话滚动轴（thinking / tool 各自可展开收起，LLM 正文内联）与左侧调试 id。 |
-| `dist/html-embed.js` | 会话内 HTML 渲染块：`seelex-html`（别名 `html-preview`）围栏 → **沙箱 iframe**（`sandbox="allow-scripts"`，**无 `allow-same-origin`**）+ srcdoc 内嵌 CSP（`default-src 'none'`、断网、仅 data: 图片）+ 源码折叠；`title=`/`height=` 参数，高度钳制 120–640px。普通 ```html 仍是源码块。 |
+| `dist/html-embed.js` | 会话内 HTML 渲染块：`seelex-html`（别名 `html-preview`）围栏 → **沙箱 iframe**（`sandbox="allow-scripts"`，**无 `allow-same-origin`**）+ srcdoc 内嵌 CSP（`default-src 'none'`、断网、仅 data: 图片）+ 源码折叠；`title=`/`height=` 参数，高度钳制 120–640px；`interactive=1` 表示这一块自愿驱动会话（说明牌同步显示）。**跨帧动作协议**住在这里（标签、`data-seelex-action`/`data-seelex-payload`、动作表、注入脚本）——零 import，测试按 data: URL 内联它。普通 ```html 仍是源码块。 |
+| `dist/embed-bridge.js` | 会话内 HTML 渲染块的**动作通道宿主侧判据**（iframe → 宿主 · postMessage）：解析 → 动作白名单（`ask-agent` / `fill-composer` / `copy-text` / `open-source`）→ 载荷上限 → 块级自愿（driving 动作要求围栏 `interactive=1`）→ 滑动窗口限流与同正文去重。身份按 **`event.source`** 比对（沙箱 iframe 是 opaque origin，`event.origin` 恒为 `"null"`，按 origin 判等于不判）；有后果的动作还要求块内 1.5s 内的**真实手势**（帧内脚本按 `event.isTrusted` 记时，`onload`/timer 自动重放被丢）。落点在 `app.js`：复制 / 写输入框（不发送）/ 走 `SubmitToSession` 发一条请求 / 展开该块源码。纯函数，含 `embed-bridge.test.mjs`。 |
 | `dist/theme.js` | 换肤加载层（**两轴**：深浅 × 皮肤）：读 `themes/manifest.json` → 归一化 → 切 `<html data-theme>`（深浅）与皮肤 `<link>`（品牌）；id 限 `[a-z0-9-]`、路径只允许 `themes/<id>.css`（防路径逃逸）；皮肤记 `localStorage["seelex.skin"]`、深浅记 `localStorage["seelex.mode"]`。 |
 | `dist/themes/` | 内置皮肤包 + `manifest.json`（schema 2：`skins[]` + `modes[]`）：皮肤只覆盖**品牌 token**（主信号 + 环境渐变，8 个 `--skin-*`），中性基座由深浅在 `styles.css` 提供（契约与 token 清单见 `themes/README.md`），皮肤不写选择器、不用 `!important`、不引远程资源。 |
 | `dist/vendor/` | 第三方资源落盘区（无 CDN、随包嵌入）：`pico.min.css` 组件库、`marked`、`highlight.js`、`DOMPurify`、`docx-preview`、`PDF.js`、`xterm/`（终端仿真器 + 容器自适应插件，见 `vendor/xterm/README.md`）。版本与许可登记见 `vendor/README.md`。 |
@@ -546,6 +547,25 @@ Wails bridge；srcdoc 自带 CSP（`default-src 'none'`、`connect-src 'none'`�
 只允许内联样式/脚本与 `data:` 图片）断掉网络出口；不给表单/弹窗/顶层跳转。
 块内附「查看源码」（转义文本）供用户核对。普通 ```html 围栏仍然是源码块，
 不会被执行。
+
+### 块内交互与跨帧动作
+
+块内交互默认**留在帧内**，不需要任何协议：CSS `:hover/:focus`、点击改类、内联脚本改 SVG
+DOM、SMIL/CSS 动画、`<foreignObject>` 里的真控件、指针拖拽都实测可用（探针页
+`tmp/svg-interactive-probe{,2,3}.html`，结论见 devlog `2026-10-03-svg-embed-interactivity`）。
+两条兜底默认写在 `EMBED_BASE_CSS`，都用 `:where()`（特异性 0，作者写自己的规则即可覆盖）：
+`:where(svg text){pointer-events:none}`（标签压在图形上会**吃掉**点击）与
+`:where(svg rect,…){transform-box:fill-box}`（CSS `transform` 的参考框，否则 `rotate()`
+绕画布中心转）。
+
+要"画布里的动作变成宿主动作"，反方向只有 `postMessage` 一条路，且只能是白名单动作：
+`ask-agent`（向本会话发一条请求）、`fill-composer`（只写输入框，绝不发送）、`copy-text`、
+`open-source`。声明式写法
+`<rect data-seelex-action="ask-agent" data-seelex-payload='{"text":"…"}'>` 由桥的文档级委托
+接住，模型不必为"点一下"写脚本；也可用 `seelex.emit(action, payload)`。`ask-agent` 是"有后果"
+的动作，要三道闸门同时过：围栏写 `interactive=1`、块内刚发生过真实点击/按键（1.5s 内）、
+宿主限流未触发。约束没变：不联网、够不到宿主 DOM / storage / bridge、`window.open` 无效——
+白名单之外没有第二条路。
 
 样式分三层，改外观前先确认改哪一层（顺序不能换）：
 
