@@ -270,11 +270,15 @@
 
 ### session_draft.go
 
-- `func (service *Service) newDraftSessionIDLocked() string` — newDraftSessionIDLocked 生成早分配的草稿会话 ID（调用方持有 Core.ViewMu）。
+- `func (service *Service) newDraftSessionIDLocked() string` — newDraftSessionIDLocked 生成早分配的会话 ID（调用方持有 Core.ViewMu）。
 - `func (service *Service) BeginNewSession() error` — BeginNewSession 进入幂等的草稿状态：早分配真实会话 ID 并建 SessionUnit
 - `func (service *Service) materializeDraftSession(firstQuestion string) error` — materializeDraftSession 为首条请求创建引擎会话与项目绑定：复用早分配
 - `func (service *Service) isUnmaterializedDraftTarget(sessionID string) bool` — isUnmaterializedDraftTarget 预判显式提交的目标是否就是那份尚未物化的草稿
 - `func (service *Service) materializeDraftForSubmit(sessionID, firstInput string) error` — materializeDraftForSubmit 把「显式提交的目标恰好是未物化的草稿」接回物化路径。
+
+### session_draft_context_scope_test.go
+
+- `func TestBeginNewSessionClearsPreviousSessionContextFacts(t *testing.T)` — TestBeginNewSessionClearsPreviousSessionContextFacts 钉住「新建会话」的**会话事实**
 
 ### session_effort_test.go
 

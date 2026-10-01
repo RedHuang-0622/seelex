@@ -13,7 +13,7 @@ AgentTeam 装配适配与群聊角色会话透传（端口形状与 A2A 元数�
 
 ### agentteam_fixture_test.go
 
-- `func goalTeamFixture() dto.TeamSpec` — goalTeamFixture 是一支 goal 形态的团队：user → main → tl（tl 是 techlead，
+- `func goalTeamFixture() dto.TeamSpec` — goalTeamFixture 是一支 goal 形态的团队：user → main → tl（tl 是 techlead，角色回合
 
 ### agentteam_floor_wiring_test.go
 
@@ -78,7 +78,7 @@ AgentTeam 装配适配与群聊角色会话透传（端口形状与 A2A 元数�
 - `func (service *Service) releaseTeamRuntime(mainSessionID string)` — releaseTeamRuntime 释放某个主会话的发言调度运行态（会话删除/归档时调用）。
 - `func (service *Service) noteTeamWorkPrefix(mainSessionID string)` — noteTeamWorkPrefix 把「主会话上下文（含主会话 draft）」的只读装配喂给团队环当前缀。
 - `func (service *Service) teamScheduleFor(mainSessionID string) *dto.TeamSchedule` — teamScheduleFor 投影指定会话的调度运行态（nil = 该会话没有环）。
-- `func (service *Service) teamRuntimeBySession(sessionID string) *agentteam.Runtime` — teamRuntimeBySession 返回（需要时创建）指定会话的发言调度运行态，供治理循环
+- `func (service *Service) teamRuntimeBySession(sessionID string) *agentteam.Runtime` — teamRuntimeBySession 返回（需要时创建）指定会话的发言调度运行态。席位轮转退场
 
 ### agentteam_service.go
 

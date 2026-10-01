@@ -419,7 +419,7 @@ go test -race ./application/core/agentteam -count=1
 - `func TestRuntimeEscapeRoundLimit(t *testing.T)` — TestRuntimeEscapeRoundLimit：轮次上限是逃生路径第一道——到达即停，且原因是
 - `func TestRuntimeEscapeNoProgress(t *testing.T)` — TestRuntimeEscapeNoProgress：连续无进展是逃生路径第二道——推进一次即清零，
 - `func TestRuntimeEscapeNoExecutor(t *testing.T)` — TestRuntimeEscapeNoExecutor：环里一个能发言的都没有时显式收束（no_executor /
-- `func TestRuntimeEscapeExternalStop(t *testing.T)` — TestRuntimeEscapeExternalStop：用户中断 / goal 收口走同一
+- `func TestRuntimeEscapeExternalStop(t *testing.T)` — TestRuntimeEscapeExternalStop：用户中断 / goal 收口走同一个显式停止入口，原因
 - `func TestRuntimeResetRevivesEscapeState(t *testing.T)` — TestRuntimeResetRevivesEscapeState：逃生是显式结论，但**复活也必须是显式可达
 - `func TestRuntimeResetOnNilIsSafe(t *testing.T)` — TestRuntimeResetOnNilIsSafe：Reset 走 nil 接收者安全（未装配团队环的会话在
 
@@ -467,7 +467,7 @@ go test -race ./application/core/agentteam -count=1
 
 ### testspecs_test.go
 
-- `func testGoalSpec() dto.TeamSpec` — testGoalSpec 是一支 goal 形态的团队：user → main → tl（tl 是 techlead，装配后由
+- `func testGoalSpec() dto.TeamSpec` — testGoalSpec 是一支 goal 形态的团队：user → main → tl（tl 是 techlead，角色回合
 - `func testReviewSpec() dto.TeamSpec` — testReviewSpec 是第二支团队（AT8 证据）：换角色集与顺序策略，代码路径不变。
 - `func testResearchSpec() dto.TeamSpec` — testResearchSpec 是第三支团队：演示"定时角色不入 order_roles"的分区。
 

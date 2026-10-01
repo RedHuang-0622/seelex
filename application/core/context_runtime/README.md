@@ -214,6 +214,7 @@ go test ./application/core/context_runtime -count=1
 - `func (p compactionIndexPush) gateDetail() string` — gateDetail 渲染门禁 index 关的 Detail：这一步的**事实**（有没有尝试、成没成、
 - `func (p compactionIndexPush) sourceLabel() string` — sourceLabel 报告摘要来源；缺省写 (none) 而不是留空——空段会被读成"格式没写对"，
 - `func (p compactionIndexPush) indexError() string` — indexError 返回推帧失败的真实原因（空 = 没失败、也没跳过）。帧正文据此如实写出
+- `func (c *Coordinator) compactionSummaryAvailable() bool` — compactionSummaryAvailable 探测这次折叠能不能拿到模型读后感。索引面未装配、
 - `func foldedOverflowEvents(events []model.TranscriptEvent, from, to int) []model.TranscriptEvent` — foldedOverflowEvents 截取被折出保留窗口的 transcript 区间（events[from:to]）。
 
 ### compaction_progress.go
@@ -227,6 +228,7 @@ go test ./application/core/context_runtime -count=1
 - `func (p *compactionProgress) elapsedLocked() int` — elapsedLocked 返回距上一帧的毫秒数并推进计时基准。调用方持锁。
 - `func (p *compactionProgress) setVersion(version uint64)` — setVersion 在自主压缩另开新纪元时校正本轮版本：判定关拿到的版本号可能还是
 - `func (p *compactionProgress) skip(reason string)` — skip 记下「本轮折叠了但不落记录」的原因（settle 时拼进 Detail）。没有它，读者
+- `func (p *compactionProgress) skipOutcome(outcome CompactOutcome)` — skipOutcome 记下本轮"没有落记录"的结果分类（settle 时优先于默认的
 - `func (p *compactionProgress) settle(err error, recorded bool, outcome string)` — settle 收口本轮：err 非空即失败终局（Outcome 带真实原因），否则按是否落了
 - `func (p *compactionProgress) publish(payload event.CompactionProgress)`
 

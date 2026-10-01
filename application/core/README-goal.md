@@ -14,7 +14,6 @@ goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回
 > `Controller` + `Supervisor` + 终态 gate + 逃生。详见
 > [`docs/devlog/2026-10-03-seat-rotation-retired.md`](../../docs/devlog/2026-10-03-seat-rotation-retired.md)。
 
-
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
@@ -64,8 +63,6 @@ goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回
 - `func (engine *sessionLockEngine) ReplaceHistoryFor(sessionID string, history []EngineMessage) error`
 - `func (engine *sessionLockEngine) SetSystemPrompt(string)`
 - `func (engine *sessionLockEngine) SetSystemPromptFor(string, string)`
-- `func (e *keepGoingEvaluator) Evaluate(_ context.Context, _ goaldomain.TLSessionEmbed) (goaldomain.TLDirective, error)`
-- `func (e *keepGoingEvaluator) count() int`
 - `func TestQueuedRoundMustNotReenterSessionLock(t *testing.T)`
 
 ### goal_directive_visible_immediately_test.go
@@ -128,6 +125,7 @@ goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回
 ### goal_stack_view_test.go
 
 - `func TestGoalStackFramesProjectsEveryFrame(t *testing.T)`
+- `func TestGoalStackFramesCarriesDetailFields(t *testing.T)` — TestGoalStackFramesCarriesDetailFields 钉住"点开看详情"需要的字段不缺：
 - `func TestGoalStackFramesEmptyAndNilRecords(t *testing.T)`
 
 ### goal_team_recorder.go
