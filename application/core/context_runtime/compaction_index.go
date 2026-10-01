@@ -131,6 +131,37 @@ func (p compactionIndexPush) indexError() string {
 	return p.Err.Error()
 }
 
+// compactionSummaryProbe 是「这次折叠到底能不能拿到模型读后感」的**窄可选**探针。
+//
+// 为什么要它：一帧的价值分配是「元数据 + 模型读后感」（见 compaction_frame.go 的
+// 文件头），缺了读后感的一帧对检索毫无用处，而折叠会改写请求前缀、把 provider 的
+// 整段前缀缓存作废。因此当这次折叠注定落成本地确定性折叠时（生效配置里折叠处厚摘要
+// 开关关闭 / QuickChat 装配失败 / 这条链路结构上不注入摘要器），正确的动作是**不折**：
+// 上下文原样 append、压缩栈顶不动，只把这次判据如实留痕（用户口径 2026-10-01）。
+//
+// 刻意与 CompactionIndexPort 分开做成**第二个**可选接口：`PushCompactionFrame` 是
+// 推帧义务，而"有没有读后感"是宿主配置/装配事实。把它并进 CompactionIndexPort 会
+// 迫使每个 fake/harness 都回答这个问题，而它们（以及不关心摘要的宿主）的正确行为
+// 本来就是"沿用既有行为 = 折叠照常"。未实现 = 视为可用。
+type compactionSummaryProbe interface {
+	// CompactionSummaryAvailable 报告本次折叠能否拿到模型生成的读后感（true =
+	// 折叠处厚摘要可用，折叠照常；false = 只能本地折叠，因此这次不折）。
+	CompactionSummaryAvailable() bool
+}
+
+// compactionSummaryAvailable 探测这次折叠能不能拿到模型读后感。索引面未装配、
+// 或宿主没实现探针 → 返回 true（沿用既有行为：折叠照常）。
+func (c *Coordinator) compactionSummaryAvailable() bool {
+	if c == nil || c.compactionIndex == nil {
+		return true
+	}
+	probe, ok := c.compactionIndex.(compactionSummaryProbe)
+	if !ok {
+		return true
+	}
+	return probe.CompactionSummaryAvailable()
+}
+
 // foldedOverflowEvents 截取被折出保留窗口的 transcript 区间（events[from:to]）。
 //
 // from 之前的区间已被更早的帧覆盖（帧链自足，见 seelebridge 的 carry 语义），

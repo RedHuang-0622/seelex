@@ -385,3 +385,51 @@ test("workbench joint snapshots keep their inline process fields untouched", asy
   assert.ok(rendered[0].runtime.accounts !== undefined);
   assert.equal(rendered[0], client.current());
 });
+
+// 用户现场（2026-10-01）：「上下文压缩总是污染前端，然后在新开会话的时候带到新建
+// 会话」。压缩记录挂在 task.context_compactions 上；进草稿（新建会话）时宿主若没把
+// 上一个会话的 Snapshot.Task 镜像清掉，前端就会把旧会话的压缩栈画成新会话的事实。
+// 渲染层因此在快照入口就按下会话身份归一（草稿会话没有任务面/已读文件），
+// client.current() 与 onSnapshot 看到的是同一份干净快照。
+test("draft sessions drop the previous session's task and read files", async () => {
+  const rendered = [];
+  let loads = 0;
+  const client = createGUIClient({
+    loadSnapshot: async () => {
+      loads += 1;
+      if (loads === 1) {
+        const resident = makeSnapshot(1, "A");
+        resident.task = { request_id: "task-a", status: "progressing", context_compactions: [{ version: 3, frame_ref: "tr-old" }] };
+        return resident;
+      }
+      return {
+        protocol_version: 1,
+        revision: 2,
+        session: { id: "draft_9_1", name: "新会话", draft: true, status: "draft" },
+        conversation: [],
+        chat: { running: false },
+        // 宿主镜像滞后：上一个会话的任务面（压缩记录挂在这里）与已读文件还在。
+        task: {
+          request_id: "task-from-session-a",
+          status: "progressing",
+          context_compactions: [{ version: 4, reason: "context_budget", frame_ref: "tr-old", message_to: "message-522" }]
+        },
+        read_files: [{ path: "application/core/session_draft.go", read_at: "2026-10-01T00:00:00Z" }],
+        runtime: {}
+      };
+    },
+    onSnapshot: snapshot => rendered.push(snapshot),
+    onIncremental() {},
+    onError: error => { throw error; }
+  });
+
+  await client.refresh({ scroll: "bottom" });
+  assert.equal(client.current().task.context_compactions.length, 1, "非草稿会话的任务面照常保留");
+
+  await client.refresh({ scroll: "bottom" });
+  const draft = client.current();
+  assert.equal(draft.session.draft, true);
+  assert.equal(draft.task, undefined, "草稿会话不得显示上一个会话的压缩记录");
+  assert.equal(draft.read_files, undefined, "草稿会话不得显示上一个会话的已读文件");
+  assert.equal(rendered.at(-1).task, undefined, "onSnapshot 拿到的必须是同一份已归一快照");
+});

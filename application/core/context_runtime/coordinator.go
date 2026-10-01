@@ -217,6 +217,11 @@ type CompactOutcome string
 const (
 	CompactDone             CompactOutcome = "compacted"
 	CompactFoldedUnrecorded CompactOutcome = "folded_without_record"
+	// CompactSkippedNoSummary：这次折叠注定产不出模型读后感（摘要器未装配 /
+	// 无重放素材 / 重放调用失败），因此**不折上下文、不推压缩栈顶**，只留痕。
+	// 与 CompactFoldedUnrecorded（折叠发生了、只是没落记录）是两种终局：前者
+	// 什么都没动，后者动了上下文。
+	CompactSkippedNoSummary CompactOutcome = "skipped_no_summary"
 	CompactScheduled        CompactOutcome = "scheduled"
 	CompactBelowThreshold   CompactOutcome = "below_threshold"
 )
@@ -300,6 +305,10 @@ func (c *Coordinator) CompactContextNow(ctx context.Context, sessionID string) (
 	case decision.NoEpoch:
 		c.ScheduleForceCompact(sessionID)
 		result.Outcome = CompactScheduled
+	case decision.NoSummary:
+		// 判据命中了，但这次折叠拿不到模型读后感：不折上下文、不推压缩栈顶，
+		// 上下文原样继续 append（用户口径 2026-10-01）。
+		result.Outcome = CompactSkippedNoSummary
 	case !decision.Folded:
 		result.Outcome = CompactBelowThreshold
 	case decision.Recorded:
@@ -364,6 +373,8 @@ func (c *Coordinator) compactSessionContextWithoutEpoch(ctx context.Context, ses
 		NoEpoch:         true,
 	}
 	switch {
+	case decision.NoSummary:
+		result.Outcome = CompactSkippedNoSummary
 	case !decision.Folded:
 		result.Outcome = CompactBelowThreshold
 	case decision.Recorded:
@@ -440,6 +451,11 @@ type compactDecision struct {
 	// 就什么都看不到了——回执必须自己拿得住这份事实。
 	Gates   []CompactionGateTiming
 	NoEpoch bool // 没有可折叠的执行纪元（state == nil 或 requestID 不匹配）
+	// NoSummary 报告这次折叠因"没有模型读后感"被跳过（用户口径：没读后感就不折
+	// 上下文、不推压缩栈顶）。它与 Folded=false 一起出现：调用方据此区分"判据没
+	// 命中"（CompactBelowThreshold）与"判据命中了、但没有读后感所以不动"
+	// （CompactSkippedNoSummary）——两种终局给用户的下一步完全不同。
+	NoSummary bool
 }
 
 // prepareOptions 是装配的可选语义（零值 = 自动路径）。
@@ -599,6 +615,18 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	// 的语义，跳过即违约。
 	ineffectiveFold := fold && !options.forceCompact && !options.maintenanceFold && !hardCompact &&
 		retain.Retained+requestOverhead >= budget.HardThreshold
+	// ── 没有模型读后感就不折 ──────────────────────────────────────────────
+	//
+	// 一帧的价值分配是「元数据 + 模型读后感」（见 compaction_frame.go 的文件头）：
+	// 缺了读后感的一帧对检索毫无用处，而折叠本身会改写请求前缀、把 provider 的
+	// 整段前缀缓存作废。因此当这次折叠注定落成**本地确定性折叠**（生效配置里折叠处
+	// 厚摘要开关关闭、QuickChat 装配失败、或这条链路结构上不注入摘要器）时，正确的
+	// 动作是**不折**：上下文原样 append、压缩栈顶不动，只把这次判据如实留痕。
+	//
+	// 用户口径（2026-10-01）：只有出了读后感才折上下文、才更新 compact stack top。
+	// 判据走窄可选探针（compactionSummaryProbe）：未实现它的 fake/harness 与不关心
+	// 摘要的宿主返回"可用"→ 行为与改动前完全一致。
+	noSummary := fold && !c.compactionSummaryAvailable()
 	// 自动路径按 progress epoch 节流（同一批进展只压一次）；显式路径与硬压缩
 	// 不受节流挡下（用户/模型明确要求时不接受"等下一批进展再说"，硬阈值必须压）。
 	//
@@ -606,7 +634,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	// 第一次折叠必须留痕。progress epoch 与 CompactedEpoch 的初值都是"未开始"语义，
 	// 只看"两值不等"会把首轮折叠判成本纪元已压过——前三关照跑（进度报表都出来了）、
 	// 却不落记录不落帧，用户看到"压缩了"却查不到压了哪段。首压留痕，同纪元后续再挡。
-	newCheckpoint := fold && !ineffectiveFold && (options.forceCompact || hardCompact ||
+	newCheckpoint := fold && !ineffectiveFold && !noSummary && (options.forceCompact || hardCompact ||
 		state.CompactedEpoch != state.ProgressEpoch || len(state.ContextCompactions) == 0)
 	if newCheckpoint {
 		state.ContextVersion++
@@ -646,7 +674,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	// （单元不可拆分），因此不再叠加配置单元上限做第二次截断。
 	// 无效折叠（幂等校验命中）不折叠：装配照常走未折叠路径，保留窗口决策这一轮
 	// 不参与落点（target 仍是全量预算）。
-	compacting := fold && !ineffectiveFold
+	compacting := fold && !ineffectiveFold && !noSummary
 	target := budget.Budget
 	if compacting {
 		if retain.Retained > 0 {
@@ -804,9 +832,15 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 			}
 			commitFold = true
 		} else if fold {
-			// 折叠真的发生了（前三关照跑），但没有走到落记录：两条原因，都把事实
+			// 折叠真的发生了（前三关照跑），但没有走到落记录：三条原因，都把事实
 			// 写进终局 Detail——进度条不该走到一半就沉默，读者需要一个能自答的句号。
-			if ineffectiveFold {
+			if noSummary {
+				// 没有模型读后感：这次折叠只会产出"元数据 + 无读后感"的一帧，对检索
+				// 毫无用处，却会改写请求前缀、作废一段 provider 缓存。因此不折上下文、
+				// 不推压缩栈顶，只把这次判据留痕（用户口径 2026-10-01）。
+				progress.skipOutcome(CompactSkippedNoSummary)
+				progress.skip("skipped=no_summary reason=no_model_summarizer")
+			} else if ineffectiveFold {
 				// 幂等/有效性校验命中：这次折叠的落点仍在软线之上（保留区 + 固定开销
 				// ≥ 软线），折了也只是把同一件事再做一遍。跳过它，等硬线/自主压缩。
 				progress.skip(fmt.Sprintf("skipped=ineffective_fold landing=%d soft=%d overhead=%d retained=%d all=%d",
@@ -914,6 +948,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 		// 压缩判据事实（显式入口据此如实报告，不拿别的数字反推）：
 		options.decision.Folded = compacting
 		options.decision.Recorded = recorded
+		options.decision.NoSummary = noSummary
 		options.decision.Version = checkpoint.Version
 		options.decision.ComparedTokens = rawTokens
 		options.decision.AssembledTokens = estimated

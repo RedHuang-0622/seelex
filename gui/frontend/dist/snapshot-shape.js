@@ -73,6 +73,37 @@ export function isSessionRuntimeKey(key) {
   return SESSION_RUNTIME_KEYS.includes(key);
 }
 
+// isDraftSession 判定快照描述的是不是**未物化的草稿会话**（新建会话 / 卸载后
+// 就地新建）：它还没有引擎会话、没有任何回合。后端两个字段都写
+// （`Draft: true` + `status: "draft"`），这里任一命中即认，避免只跟一边。
+export function isDraftSession(snapshot) {
+  const session = snapshot?.session;
+  if (!session || typeof session !== "object") return false;
+  return session.draft === true || session.status === "draft";
+}
+
+// stripDraftSessionFacts 从草稿会话的快照里去掉它**结构上不可能拥有**的会话事实：
+// 任务面（`task`，上下文压缩记录 `context_compactions`、任务状态与摘要都挂在它上面）
+// 与已读文件（`read_files`）。
+//
+// 为什么渲染层要做这一刀（而不是只信任快照）：这两个字段是宿主侧的**镜像**
+// （`Core.Snapshot.Task` / `Core.Snapshot.ReadFiles`），随视图会话切换而重写；换
+// 视图指针的那几条路径只要漏清一处，上一个会话的事实就会显示成新会话的。用户现场
+// （2026-10-01）：「上下文压缩总是污染前端，然后在新开会话的时候带到新建会话」——
+// 全新会话的右栏「上下文压缩」列着上一个会话的记录，正是 `BeginNewSession` 没清
+// `Snapshot.Task`。宿主侧已按会话清（见 `application/core/session_draft.go`），这里是
+// 渲染层的第二道闸：草稿会话没有任务面这件事是**结构事实**，不依赖宿主是否清干净。
+//
+// 纯函数（返回新对象，不改入参），node 测试直接覆盖。
+export function stripDraftSessionFacts(snapshot) {
+  if (!snapshot || typeof snapshot !== "object" || !isDraftSession(snapshot)) return snapshot;
+  if (snapshot.task === undefined && snapshot.read_files === undefined) return snapshot;
+  const next = { ...snapshot };
+  delete next.task;
+  delete next.read_files;
+  return next;
+}
+
 export function isProcessRuntimeKey(key) {
   return PROCESS_RUNTIME_KEYS.includes(key);
 }

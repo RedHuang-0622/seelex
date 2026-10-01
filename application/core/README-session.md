@@ -58,7 +58,7 @@
 
 1. **显式提交目标是未物化草稿时，先物化再判定是否加载**（`materializeDraftForSubmit`
    → `materializeDraftSession`）。草稿没有可冷回读的历史：走 `ActivateSession` 会把
-   那条 `Status=draft` 的 record 当冷会话装载，新会话以「已恢复会话: draft_…」开头、
+   那条 `Status=draft` 的 record 当冷会话装载，新会话以「已恢复会话: seelex-…」开头、
    草稿槽位不消费、composer 不清理（重启后已发送的正文会回到输入框）。
 2. **归属不符要显式失败**：草稿槽是进程单例，物化会把共享视图镜像切到该 SID，因此
    只有视图仍停在这份草稿上时才允许物化，否则返回 `ErrDraftNotInView`——渲染层拿着

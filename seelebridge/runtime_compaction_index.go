@@ -67,6 +67,18 @@ func frameSummaryNote(frame sessionstore.CompactFrame) string {
 	return ""
 }
 
+// CompactionSummaryAvailable 报告装配层折叠这次能不能拿到**模型生成的读后感**
+// （前缀重放厚摘要）。它是 context_runtime 的窄可选探针 compactionSummaryProbe 的
+// 实现：false → 这次折叠注定落成本地确定性折叠（帧只有元数据、对检索无用，却会
+// 作废一段 provider 前缀缓存），装配层因此**不折上下文、不推压缩栈顶**，只把这次
+// 判据如实留痕（用户口径 2026-10-01：只有出了读后感才更新 compact stack top）。
+//
+// 与 MainCompactionDAG 同源：两者读同一个 compactionSummarizer——探针 true 就等于
+// DAG 的 Summarizer 非 nil，探针 false 就等于 chapter2Node 一定走本地折叠。
+func (r *Runtime) CompactionSummaryAvailable() bool {
+	return r.compactionSummarizer() != nil
+}
+
 // PushCompactionFrame 生成一帧并压入该会话的压缩栈，返回回执。
 //
 // 三步都不允许"静默半成"：DAG 失败 → 返回错误（调用方只记日志、折叠照常）；

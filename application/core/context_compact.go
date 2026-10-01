@@ -247,6 +247,21 @@ func (service *Service) CompactContextNow(ctx context.Context) (ContextCompactio
 				"但这次折叠来自自动路径（软/硬阈值）且该回合的任务执行已收尾，自动压缩记录只在执行中写，" +
 				"故本次不留记录。原始轮次仍在会话存储里，可用 read_tool_result / read_compressed_turn / search_history 回读。",
 		}, nil
+	case context_runtime.CompactSkippedNoSummary:
+		// 判据命中了，但这次折叠拿不到模型读后感（折叠处厚摘要开关关闭 / QuickChat
+		// 装配失败）。折出来的帧只有元数据、对检索毫无用处，却会作废一段 provider
+		// 前缀缓存，因此**不折上下文、不推压缩栈顶**，上下文原样继续 append
+		// （用户口径 2026-10-01：只有出了读后感才更新 compact stack top）。
+		return ContextCompactionResult{
+			ComparedTokens:  outcome.ComparedTokens,
+			EstimatedTokens: outcome.AssembledTokens,
+			SoftThreshold:   outcome.SoftThreshold,
+			HardThreshold:   outcome.HardThreshold,
+			Note: fmt.Sprintf("压缩判据已命中（判据量 %d tokens ≥ 硬阈值 %d），但这次折叠拿不到模型读后感"+
+				"（折叠处厚摘要开关未开启，或摘要器装配失败）：按口径**不折上下文、不推压缩栈顶**，"+
+				"上下文原样继续 append。打开 limits.context_compaction_summary.enabled 后这次折叠才会真正执行。",
+				outcome.ComparedTokens, outcome.HardThreshold),
+		}, nil
 	case context_runtime.CompactScheduled:
 		// 没有在飞回合、也没有已装载的对话材料（空会话）：不伪造纪元，也不折叠
 		// 空上下文（那只会产出一条区间为空的记录，等于把"没做事"记成"做了事"），

@@ -108,6 +108,10 @@ type compactionProgress struct {
 	// settle 的 Detail。终局必须能自答「进度条走完了，为什么没有记录」——否则
 	// 用户只能看到 ran 到 replace 的进度条然后什么都没有，合理地怀疑后端没接线。
 	note string
+	// outcome 是本轮"没有落记录"时的**结果分类**（空 → settle 按 folded_without_record
+	// 兜底）。纪元节流与「没有模型读后感所以不折」是两种完全不同的终局：前端文案
+	// 不该把后者读成"折叠了，只是没记"。
+	outcome string
 }
 
 // startCompactionProgress 开启一轮门禁进度。没有会话路由键或宿主不支持按会话
@@ -231,6 +235,18 @@ func (p *compactionProgress) skip(reason string) {
 	p.mu.Unlock()
 }
 
+// skipOutcome 记下本轮"没有落记录"的结果分类（settle 时优先于默认的
+// folded_without_record）。callers 用它把「没有模型读后感所以不折」与「被纪元
+// 节流」分开：前者什么都没动，后者折了上下文只是没记。
+func (p *compactionProgress) skipOutcome(outcome CompactOutcome) {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	p.outcome = string(outcome)
+	p.mu.Unlock()
+}
+
 // settle 收口本轮：err 非空即失败终局（Outcome 带真实原因），否则按是否落了
 // 压缩记录给出 compacted / folded_without_record。幂等——重复调用只发一条。
 func (p *compactionProgress) settle(err error, recorded bool, outcome string) {
@@ -255,6 +271,8 @@ func (p *compactionProgress) settle(err error, recorded bool, outcome string) {
 	} else if outcome == "" {
 		if recorded {
 			outcome = string(CompactDone)
+		} else if p.outcome != "" {
+			outcome = p.outcome
 		} else {
 			outcome = string(CompactFoldedUnrecorded)
 		}

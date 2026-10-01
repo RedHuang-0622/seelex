@@ -1,5 +1,5 @@
 import { applyEvent, validateSnapshot } from "./protocol.js";
-import { PROCESS_TOP_KEYS, classifySnapshot, processContextOf, processRuntimeOf } from "./snapshot-shape.js";
+import { PROCESS_TOP_KEYS, classifySnapshot, processContextOf, processRuntimeOf, stripDraftSessionFacts } from "./snapshot-shape.js";
 
 export function createGUIClient(options) {
   let snapshot = null;
@@ -83,7 +83,10 @@ export function createGUIClient(options) {
     if (snapshot && Number(candidate.revision) < Number(snapshot.revision || 0)) return false;
     const previousSessionID = snapshot?.session?.id;
     rememberProcessContext(candidate);
-    snapshot = mergeProcessContext(candidate);
+    // 会话事实按会话身份认：草稿会话没有任务面/已读文件，快照里若还带着（宿主
+    // 镜像滞后），这里就地把它们去掉——压缩记录挂在 task 上，不去掉就会在全新
+    // 会话的右栏「上下文压缩」里显示成当前会话的事实（见 stripDraftSessionFacts）。
+    snapshot = stripDraftSessionFacts(mergeProcessContext(candidate));
     snapshotRevisionFloor = Number(candidate.revision || 0);
     // Bridge 在视图会话切换时重建订阅：新订阅的 delivery_seq 从 1 重新计，
     // 权威基线（seelex:ready / ResumeSession 后的 refresh）到达时必须一并复位

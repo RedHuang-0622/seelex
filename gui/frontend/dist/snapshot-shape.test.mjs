@@ -194,3 +194,50 @@ test("process snapshot carries process originals and no conversation payload", (
     assert.ok(raw.includes(`"${required}"`), `process snapshot must carry ${required}`);
   }
 });
+
+// 用户现场（2026-10-01）：「上下文压缩总是污染前端，然后在新开会话的时候带到新建
+// 会话」——压缩记录挂在 task.context_compactions 上，而 task 是宿主侧随视图会话
+// 切换重写的镜像。草稿会话（新建会话）结构上没有任务面，渲染层因此必须拒收快照里
+// 残留的 task/read_files，而不是把上一个会话的压缩栈说成当前会话的。
+test("stripDraftSessionFacts drops session facts a draft session cannot own", () => {
+  const draft = sessionArtifact();
+  draft.session = { id: "draft_1_1", name: "新会话", draft: true, status: "draft" };
+  draft.task = {
+    request_id: "task-from-previous-session",
+    status: "progressing",
+    context_compactions: [{ version: 3, reason: "context_budget", frame_ref: "tr-abc", message_to: "message-522" }]
+  };
+  draft.read_files = [{ path: "application/core/session_draft.go", read_at: "2026-10-01T00:00:00Z" }];
+
+  const cleaned = shape.stripDraftSessionFacts(draft);
+  assert.equal(cleaned.task, undefined, "草稿会话不得带任务面（压缩记录挂在它上面）");
+  assert.equal(cleaned.read_files, undefined, "草稿会话不得带上一个会话的已读文件");
+  assert.equal(cleaned.session.id, "draft_1_1");
+  assert.equal(cleaned.conversation.length, 1, "只清会话事实，不动其它字段");
+  // 不改入参：快照对象由 client-state 共享，就地删字段会让进程段合并读到半份快照。
+  assert.ok(draft.task, "入参不得被修改");
+});
+
+test("stripDraftSessionFacts keeps tasks for real sessions", () => {
+  const resident = sessionArtifact();
+  resident.session = { id: "session-a", name: "A" };
+  resident.task = { request_id: "task-a", status: "progressing", context_compactions: [{ version: 1 }] };
+  const kept = shape.stripDraftSessionFacts(resident);
+  assert.equal(kept.task.context_compactions.length, 1, "非草稿会话的任务面必须原样保留");
+  assert.equal(kept, resident, "无可清字段时返回原对象（不制造无意义拷贝）");
+});
+
+test("stripDraftSessionFacts recognizes drafts by either field", () => {
+  const byStatus = sessionArtifact();
+  byStatus.session = { id: "draft_2_1", name: "新会话", status: "draft" };
+  byStatus.task = { request_id: "task-x", context_compactions: [{ version: 1 }] };
+  assert.equal(shape.stripDraftSessionFacts(byStatus).task, undefined, "status=draft 同样认");
+
+  const byFlag = sessionArtifact();
+  byFlag.session = { id: "draft_3_1", name: "新会话", draft: true };
+  byFlag.task = { request_id: "task-x", context_compactions: [{ version: 1 }] };
+  assert.equal(shape.stripDraftSessionFacts(byFlag).task, undefined, "draft=true 同样认");
+
+  assert.equal(shape.isDraftSession({}), false, "没有 session 段的载荷不算草稿");
+  assert.equal(shape.isDraftSession(null), false);
+});

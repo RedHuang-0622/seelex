@@ -243,6 +243,10 @@ export function compactionOutcomeLabel(outcome) {
   switch (String(outcome || "")) {
   case "compacted": return "已折叠并写入压缩记录";
   case "folded_without_record": return "已折叠，本轮纪元未到期不写记录";
+  // 判据命中了，但这次折叠拿不到模型读后感（厚摘要开关未开/摘要器装配失败）：
+  // 按口径不折上下文、不推压缩栈顶，上下文原样继续 append。与上一行是两种终局
+  // ——前者折了上下文只是没记，后者什么都没动。
+  case "skipped_no_summary": return "没有模型读后感：不折叠，上下文原样继续";
   default: return String(outcome || "");
   }
 }

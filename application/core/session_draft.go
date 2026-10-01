@@ -11,19 +11,33 @@ import (
 
 const draftSessionName = "新会话"
 
-// newDraftSessionIDLocked 生成早分配的草稿会话 ID（调用方持有 Core.ViewMu）。
-// 草稿 ID 使用独立前缀与序号：Windows 时间戳低分辨率下同一 tick 多次
+// sessionIDPrefix 是宿主早分配会话 ID 的前缀。「草稿」是会话的**状态**
+// （Snapshot.Session.Draft / 会话记录的 Status=draft），不是会话的身份：这个 ID
+// 在首次提交物化后会继续当真实会话 ID 用——引擎 bundle、会话记录键、权限档位槽、
+// 工作区绑定全按它寻址，RoleSessionID 还拿它派生角色/子代理会话号。因此前缀必须
+// 读作"一个会话"。此前这里是 `draft_`，于是每一个经「新建会话」产生的会话终生带
+// draft 前缀，工作表格的「会话」列永远显示 draft_…（2026-10-01 现场：明明是 session，
+// draft 不代表 session）。
+const sessionIDPrefix = "seelex"
+
+// newDraftSessionIDLocked 生成早分配的会话 ID（调用方持有 Core.ViewMu）。
+// ID 使用独立前缀与序号：Windows 时间戳低分辨率下同一 tick 多次
 // BeginNewSession 也不会碰撞；引擎按该显式 ID 建 bundle（HasSession=false
 // 阶段不建，首次提交物化时经 ActivateSession 创建）。
 func (service *Service) newDraftSessionIDLocked() string {
 	service.draftSeq++
-	return fmt.Sprintf("draft_%d_%d", time.Now().UnixNano(), service.draftSeq)
+	return fmt.Sprintf("%s-%d-%d", sessionIDPrefix, time.Now().UnixNano(), service.draftSeq)
 }
 
 // BeginNewSession 进入幂等的草稿状态：早分配真实会话 ID 并建 SessionUnit
 // （HasSession=false，不建引擎 bundle、不写空历史），引擎会话只在第一条
 // 真实 conversation 请求发出时创建。草稿槽位携带 ID 与工作区绑定，切换
 // 会话后仍可恢复；首次提交（materializeDraftSession）时消费并清空。
+//
+// 同时清掉上一个会话留在共享快照里的**会话事实**（`Task` / `ReadFiles`）：
+// 换视图指针就是换会话，这两个字段是宿主侧镜像（`Task` 上挂着压缩记录
+// `ContextCompactions`），漏清会让新会话显示、并在首次提交时按会话落盘成
+// 上一个会话的任务面与已读文件。口径与 unloadSession 的同名字段清理一致。
 func (service *Service) BeginNewSession() error {
 	transition := service.transitionView()
 	transition.Lock()
@@ -118,6 +132,15 @@ func (service *Service) BeginNewSession() error {
 	service.Core.Snapshot.HistoryOffset = 0
 	service.Core.Snapshot.TotalMessages = 0
 	service.Core.Snapshot.HasMoreHistory = false
+	// 进入草稿 = 换会话：上一会话留在快照里的**会话事实**必须一并清掉，否则新会话会
+	// 显示（并在首次提交时按会话落盘成自己的历史）上一个会话的任务面与已读文件。
+	//
+	// `Task` 是压缩记录（`ContextCompactions`）与任务状态的唯一投影面，`ReadFiles`
+	// 会被 `PersistCurrentSession` 写成目标会话的 `Execution`——两者都归会话所有。
+	// 这一段与 `unloadSession` 的同名字段清理必须口径一致（2026-10-01 用户现场：
+	// 新建会话的右栏「上下文压缩」仍列着上一个会话的记录，就是这里漏了 Task）。
+	service.Core.Snapshot.Task = nil
+	service.Core.Snapshot.ReadFiles = nil
 	service.Core.Snapshot.Runtime.Plan = nil
 	service.Core.Snapshot.Interaction = nil
 	draftRuntime := service.sessionUnitLocked(draftID)
@@ -246,7 +269,7 @@ func (service *Service) isUnmaterializedDraftTarget(sessionID string) bool {
 // 存在理由：前端普通输入一律走 SubmitToSession + 显式视图会话 ID（含草稿的早分配
 // SID，见 gui/frontend/dist/composer-input.js），而草稿从来没有可冷回读的历史——
 // 不先物化，SubmitToSession 会按"目标未加载"去 ActivateSession→冷加载那份
-// Status=draft 的 record：新会话以「已恢复会话: draft_…」开头、草稿槽位不消费、
+// Status=draft 的 record：新会话以「已恢复会话: seelex-…」开头、草稿槽位不消费、
 // 草稿 record 不清理（重启后已发送的正文又回到输入框），有会话运行中时还要先经过
 // restoring 空壳与延后提交。物化是草稿首条提交的唯一正解。
 //
