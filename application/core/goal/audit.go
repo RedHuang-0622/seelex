@@ -81,5 +81,9 @@ func (s *ContextStateStore) AppendGoalAudit(ctx context.Context, entry AuditEntr
 	if err := s.session.AppendGoalAudit(record); err != nil {
 		return err
 	}
-	return nil
+	// 终态条目（goal.finish/goal.abort）落账后再刷一次看板：goal 域的写序是
+	// "先 persistLocked(Save) → 再 appendAudit"，弹栈那一刻账本里还没有终态
+	// 条目——只看 Save 会让收口账本漏一条、close 的原因也只能用 kind 兜底。
+	// 见 board_archive.go 的刷新时机说明。
+	return s.refreshBoardAfterAudit(ctx, entry)
 }

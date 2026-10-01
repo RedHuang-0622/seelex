@@ -48,6 +48,32 @@ type teamworkBoardSnapshotCache struct {
 	plan        sessionstore.TeamworkPlan
 	events      []sessionstore.TeamworkEvent
 	planMissing bool
+	// archive 是活体给不出看板时的**存档兜底**（§6 重启恢复）：nil = 无可用存档
+	// （没写过 / state=closed / 快照坏了）。它随同一份缓存条目一起取，而不是每次
+	// 现读——绝大多数会话既没有计划也没有存档，负缓存的语义不能因为兜底退化成
+	// "每次快照都去读一个不存在的存档文件"。
+	archive *dto.TeamworkBoardView
+}
+
+// buildTeamworkBoardView 是把（计划 + 审计 + 作业行）组装成下发前端的
+// dto.TeamworkBoardView 的**唯一一条**路径。
+//
+// 抽成自由函数而不是留在快照方法里：写侧（存档刷新，runtime_teamwork_board_archive.go）
+// 必须产出与下发**同形**的载荷——两处各拼一遍就是两份事实，重启恢复出的看板迟早
+// 和活体下发的不一样。
+func buildTeamworkBoardView(plan sessionstore.TeamworkPlan, events []sessionstore.TeamworkEvent, records []jobs.Record, maxMembers int) dto.TeamworkBoardView {
+	view := dto.TeamworkBoardView{
+		TeamID:     plan.TeamID,
+		Version:    plan.Version,
+		MaxMembers: maxMembers,
+		Stages:     teamworkStageViews(plan.Stages),
+		Members:    teamworkMemberViews(plan.Members),
+		Milestones: teamworkMilestoneViews(plan.Milestones),
+		Jobs:       teamworkJobViews(records),
+		Events:     teamworkEventViews(events),
+	}
+	view.Stale = teamworkProjectionStale(plan.State, view.Jobs)
+	return view
 }
 
 // TeamworkBoardSnapshot 实现 contract.TeamworkBoardProjection：返回某会话的团队看板
@@ -89,6 +115,10 @@ func (r *Runtime) TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoardView
 			}
 		}
 		cached = teamworkBoardSnapshotCache{plan: plan, events: events, planMissing: missing}
+		if missing || len(plan.Stages) == 0 {
+			// 活体给不出看板：同一次采集里把存档兜底也取回来（见 cache.archive 的说明）。
+			cached.archive = r.readTeamBoardArchive(backend, key)
+		}
 		r.teamworkMu.Lock()
 		if r.teamworkBoardCache == nil {
 			r.teamworkBoardCache = map[sessionstore.Key]teamworkBoardSnapshotCache{}
@@ -97,29 +127,26 @@ func (r *Runtime) TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoardView
 		r.teamworkMu.Unlock()
 	}
 
-	if cached.planMissing {
-		return nil
-	}
-	plan := cached.plan
-	if len(plan.Stages) == 0 {
-		// 没有阶段 = 没有可看的编排：不留空壳（与渲染件的空计划口径一致）。
-		return nil
+	if cached.planMissing || len(cached.plan.Stages) == 0 {
+		// 没有计划 / 没有阶段 = 活体给不出可看的编排：回落到存档快照（§6 重启恢复）。
+		// 仍然是 nil 就表示"看板退场"（无存档 / 存档已 closed / 快照坏了）——
+		// 与渲染件的空计划口径一致，不留空壳。
+		if cached.archive == nil {
+			return nil
+		}
+		// 浅拷贝后返回：缓存里那一份是共享的，不能让消费者的字段写入污染缓存
+		// （活体路径每次新建 view，这里保持同一口径）。
+		recovered := *cached.archive
+		return &recovered
 	}
 
-	view := &dto.TeamworkBoardView{
-		TeamID:     plan.TeamID,
-		Version:    plan.Version,
-		MaxMembers: backend.MaxTeammates,
-		Stages:     teamworkStageViews(plan.Stages),
-		Members:    teamworkMemberViews(plan.Members),
-		Milestones: teamworkMilestoneViews(plan.Milestones),
-		Events:     teamworkEventViews(cached.events),
-	}
+	plan := cached.plan
+	var records []jobs.Record
 	if manager != nil {
-		view.Jobs = teamworkJobViews(manager.Snapshot(jobs.Scope{Session: key.SessionID}))
+		records = manager.Snapshot(jobs.Scope{Session: key.SessionID})
 	}
-	view.Stale = teamworkProjectionStale(plan.State, view.Jobs)
-	return view
+	view := buildTeamworkBoardView(plan, cached.events, records, backend.MaxTeammates)
+	return &view
 }
 
 // invalidateTeamworkBoard 丢弃看板缓存（team_* 工具成功返回后调用）。

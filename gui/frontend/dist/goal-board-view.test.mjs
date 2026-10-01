@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { activeGoalFrame, goalActiveSeq, renderGoalBoard, renderGoalDetail, renderGoalFrameDetail, renderGoalPanel } from "./goal-board-view.js";
+import { activeGoalFrame, goalActiveSeq, renderGoalBoard, renderGoalDetail, renderGoalFrameDetail, renderGoalHistory, renderGoalPanel } from "./goal-board-view.js";
 
 // goal-board-view.test.mjs 钉住五件事：
 //   0. 面板（标签的状态机）：栈上还有 active 帧（目标在跑）→ 面板可见 + GOAL 徽标
@@ -98,6 +98,59 @@ test("renderGoalBoard 没有用户输入时只显示看板本身，不编造小�
   const html = renderGoalBoard(GOVERNANCE, "");
   assert.ok(!html.includes("goal-board-task"), "没有输入就不留小字壳");
   assert.match(html, /goal-board-seq-num">3</);
+});
+
+test("renderGoalBoard 的 recovered 标记：存档兜底出来的那一帧显形，活体帧不显", () => {
+  const recovered = renderGoalBoard({ ...GOVERNANCE, recovered: true }, "");
+  assert.match(recovered, /自快照恢复/);
+  assert.match(recovered, /class="chip goal-recovered"/);
+  // 活体投影（默认）不带这个痕迹：它不是常驻装饰，只有真从存档兜底时才出现。
+  assert.doesNotMatch(renderGoalBoard(GOVERNANCE, ""), /自快照恢复/);
+});
+
+test("renderGoalHistory：history 单成一节（只追加的收口账本），不混进看板卡片", () => {
+  const governance = {
+    active: true,
+    history: [
+      { goal_id: "g-2", title: "上一轮目标", status: "completed", closed_at: 1700000200, closed_reason: "goal.finish", progress_count: 5 },
+      { goal_id: "g-1", title: "更早的目标", status: "aborted", closed_at: 1700000100, closed_reason: "goal.abort", progress_count: 0 },
+    ],
+  };
+  const html = renderGoalHistory(governance);
+  assert.match(html, /data-goal-history-count="2"/);
+  assert.match(html, /历史目标 · 2/);
+  assert.match(html, /data-goal-history="g-2" data-goal-history-status="completed"/);
+  assert.match(html, /data-goal-history="g-1" data-goal-history-status="aborted"/);
+  assert.match(html, /COMPLETED/);
+  assert.match(html, /goal\.finish/);
+  assert.match(html, /打点 5 条/);
+  // progress_count=0 时不写"打点 0 条"（那是"没记到"而不是"没做过"）
+  assert.doesNotMatch(html, /打点 0 条/);
+  // 账本不得混进看板卡片：卡片只写 active seq
+  const board = renderGoalBoard(governance, "");
+  assert.ok(!board.includes("g-1"), "已收口目标不得出现在看板主体");
+  assert.ok(!board.includes("g-2"), "已收口目标不得出现在看板主体");
+});
+
+test("renderGoalHistory：空账本 / 缺 id 的条目都不留空壳，内容一律转义", () => {
+  assert.equal(renderGoalHistory(null), "");
+  assert.equal(renderGoalHistory({ history: [] }), "");
+  assert.equal(renderGoalHistory({ history: [{ title: "没有编号" }] }), "");
+  const html = renderGoalHistory({ history: [{ goal_id: "<b>g-1</b>", title: "<i>标题</i>", status: "completed" }] });
+  assert.ok(!html.includes("<i>标题</i>"), "标题必须转义");
+  assert.match(html, /&lt;b&gt;g-1&lt;\/b&gt;/);
+});
+
+test("renderGoalPanel 把「历史目标」放在看板之后、治理块之前（两者分开显示）", () => {
+  const panel = renderGoalPanel({
+    governance: { ...GOVERNANCE, history: [{ goal_id: "g-2", title: "上一轮", status: "completed", closed_reason: "goal.finish" }] },
+    goalText: "",
+    activeSkills: [],
+  });
+  const board = panel.html.indexOf("data-goal-board");
+  const history = panel.html.indexOf("data-goal-history-count");
+  const governance = panel.html.indexOf("goal-governance");
+  assert.ok(board >= 0 && history > board && governance > history, "顺序：看板 → 历史目标 → 治理块");
 });
 
 test("goalActiveSeq 取 goal 记录自己的序号，不是打点条数也不是栈位置", () => {

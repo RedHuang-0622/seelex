@@ -84,3 +84,48 @@ func TestEmbeddedTeamBoardWiring(t *testing.T) {
 		t.Fatal("评审过程已退场：「目标」面板不得再渲染它")
 	}
 }
+
+// TestEmbeddedBoardArchiveVisibilityWiring 是**存档可见面**的接线守卫（设计契约
+// docs/arch/session-board-metadata-lifecycle.md §6 第 3 条 / §3.1 / §10 第 4 条）。
+//
+// 存档（metadata/board_goal.json / metadata/board_team.json）本身是存储侧的事，但
+// "从存档兜底恢复出来的看板必须能被看出来"是**前端的事**：缺了这几行，用户看到的恢复
+// 结果与活体投影一模一样——他会把上一轮的快照当成现在的事实（这是本设计最不能出的错）。
+// 同理，收口账本必须在展示面与"当前目标"**分开**（§3.1 的硬要求），不许混进看板卡片。
+func TestEmbeddedBoardArchiveVisibilityWiring(t *testing.T) {
+	t.Parallel()
+	read := func(path string) string {
+		t.Helper()
+		content, err := embeddedFrontend.ReadFile(path)
+		if err != nil {
+			t.Fatalf("embedded frontend %s: %v", path, err)
+		}
+		return string(content)
+	}
+	app := read("frontend/dist/app.js")
+	teamView := read("frontend/dist/team-board-view.js")
+	goalView := read("frontend/dist/goal-board-view.js")
+	styles := read("frontend/dist/styles.css")
+
+	// 团队看板：recovered 必须从快照一路走到渲染件（搬运 + 渲染两处都要在）。
+	if !strings.Contains(app, "recovered: board.recovered === true") {
+		t.Fatal("app.js 必须把 runtime.teamwork_board.recovered 搬给渲染件（登记了不消费 = 这个痕迹永远不显示）")
+	}
+	if !strings.Contains(teamView, "team-recovered") || !strings.Contains(teamView, "自快照恢复") {
+		t.Fatal("团队看板渲染件必须显形 recovered（与 stale 同形的一句话）")
+	}
+
+	// goal 看板：recovered 标记 + 「历史目标」一节，且账本与看板主体分开渲染。
+	if !strings.Contains(goalView, "goal-recovered") || !strings.Contains(goalView, "自快照恢复") {
+		t.Fatal("「目标」看板必须显形 recovered（这一帧来自存档快照）")
+	}
+	if !strings.Contains(goalView, "export function renderGoalHistory(") {
+		t.Fatal("「目标」面板必须把 history 单成一节渲染（§3.1：不得混进看板卡片）")
+	}
+	if !strings.Contains(goalView, "${renderGoalHistory(governance)}") {
+		t.Fatal("renderGoalPanel 必须真的把「历史目标」一节放进面板（导出了不调 = 永远不显示）")
+	}
+	if !strings.Contains(styles, ".goal-history-list") || !strings.Contains(styles, ".goal-recovered") {
+		t.Fatal("styles.css 缺少「历史目标」/ recovered 的样式（渲染出来却没有版式）")
+	}
+}

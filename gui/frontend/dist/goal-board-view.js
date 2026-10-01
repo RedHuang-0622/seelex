@@ -72,7 +72,7 @@ export function renderGoalPanel({ governance = null, goalText = "", activeSkills
     hidden: false,
     badgeHidden: false,
     badgeTitle: "目标进行中",
-    html: `${renderGoalBoard(governance, goalText)}${renderGoalGovernance(governance)}${chips}`,
+    html: `${renderGoalBoard(governance, goalText)}${renderGoalHistory(governance)}${renderGoalGovernance(governance)}${chips}`,
   };
 }
 
@@ -80,6 +80,9 @@ export function renderGoalPanel({ governance = null, goalText = "", activeSkills
 //
 // goalText = 会话里最近一条非空用户输入（小字那一行）。它可能为空（例如恢复出来的
 // 会话里没有用户行），此时只显示 on-board 的大字序号与标题。
+//
+// 看板主体**只写 active seq**：这一帧就是"当前治理中的目标"。已收口的目标走
+// renderGoalHistory，不在这里出现（把 history 混进来就是把结束的目标写成当前的）。
 export function renderGoalBoard(governance, goalText = "") {
   const stack = Array.isArray(governance?.stack) ? governance.stack : [];
   const frame = activeGoalFrame(governance);
@@ -95,6 +98,11 @@ export function renderGoalBoard(governance, goalText = "") {
     marks ? `打点 ${marks} 条` : "",
     formatGoalTime(frame.updated_at) !== "—" ? `更新 ${formatGoalTime(frame.updated_at)}` : "",
   ].filter(Boolean).join(" · ");
+  // recovered：这一帧来自会话存档快照（活体栈给不出时才兜底），不是活体算出来的。
+  // 它只做标记，前端不为它改任何事实——活体一恢复，后端下次采集自然撤掉它。
+  const recovered = governance?.recovered === true
+    ? '<span class="chip goal-recovered" title="这一帧来自会话存档快照（活体栈给不出时才兜底）；活体一恢复就会覆盖回活体结果">自快照恢复</span>'
+    : "";
   const task = String(goalText || "").trim();
   return `<div class="goal-board" data-goal-board data-goal-seq="${escapeHtml(String(seq))}">
       <button type="button" class="goal-board-card" data-goal-board-open title="点开查看目标详情">
@@ -105,10 +113,49 @@ export function renderGoalBoard(governance, goalText = "") {
         <span class="goal-board-body">
           <span class="goal-board-title" title="${escapeHtml(title)}">${escapeHtml(truncate(title, BOARD_TITLE_LIMIT))}</span>
           <span class="goal-board-meta">${escapeHtml(meta)}</span>
+          ${recovered ? `<span class="goal-board-flags">${recovered}</span>` : ""}
         </span>
         <span class="goal-board-hint" aria-hidden="true">详情</span>
       </button>
       ${task ? `<div class="goal-board-task" title="${escapeHtml(task)}">${escapeHtml(truncate(task, BOARD_TASK_LIMIT))}</div>` : ""}
+    </div>`;
+}
+
+// renderGoalHistory 渲染「历史目标」一节：本会话**已收口/中止**目标的只读账本。
+//
+// 为什么单成一节、而不是并进看板卡片：看板主体是"当前治理中的那一帧"，账本是"已经
+// 结束的目标列表"——两者正交（口径见 docs/arch/session-board-metadata-lifecycle.md
+// §3.1）。混在一起就是把 finished 的目标写成"当前目标"。账本只追加不重写，所以这里
+// 只读：没有写入口，也没有排序之外的加工。
+//
+// 数据来自后端（活体与存档两份来源合并后统一下发）；没有条目 → ""（没有就是没有，
+// 不留空壳）。order 保持后端给的顺序（最近收口的在最后），前端不重排。
+export function renderGoalHistory(governance) {
+  const history = Array.isArray(governance?.history) ? governance.history : [];
+  const entries = history.filter(entry => entry && String(entry.goal_id || "").trim());
+  if (entries.length === 0) return "";
+  const rows = entries.map(entry => {
+    const id = String(entry.goal_id).trim();
+    const title = String(entry.title || "").trim() || id;
+    const status = String(entry.status || "").trim().toUpperCase();
+    const reason = String(entry.closed_reason || "").trim();
+    const at = formatGoalTime(entry.closed_at);
+    const count = Number(entry.progress_count) || 0;
+    const meta = [
+      status,
+      reason,
+      count > 0 ? `打点 ${count} 条` : "",
+      at !== "—" ? `收口 ${at}` : "",
+    ].filter(Boolean).join(" · ");
+    return `<li class="goal-history-row" data-goal-history="${escapeHtml(id)}" data-goal-history-status="${escapeHtml(String(entry.status || ""))}">
+        <span class="goal-history-id" title="${escapeHtml(id)}">${escapeHtml(id)}</span>
+        <span class="goal-history-title" title="${escapeHtml(title)}">${escapeHtml(truncate(title, BOARD_TITLE_LIMIT))}</span>
+        <span class="goal-history-meta">${escapeHtml(meta)}</span>
+      </li>`;
+  }).join("");
+  return `<div class="goal-history" data-goal-history-count="${entries.length}">
+      <div class="goal-history-head">历史目标 · ${entries.length}</div>
+      <ol class="goal-history-list">${rows}</ol>
     </div>`;
 }
 

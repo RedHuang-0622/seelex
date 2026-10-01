@@ -59,6 +59,13 @@ const (
 	// （整份替换型内容，谁、什么顺序）；同模块的数据文件 teamwork/events.jsonl
 	// 是派发 / 里程碑 / retire 的**追加审计面**（只追加、不重写）。
 	moduleTeamwork storageModule = "teamwork"
+	// moduleBoardGoal / moduleBoardTeam 是两块看板的**会话粒度元数据 + 快照**
+	// （docs/arch/session-board-metadata-lifecycle.md）：board_goal.json /
+	// board_team.json。它们**不是领域事实源**——不进任何判定，只服务"重启后快照
+	// 还能恢复"与看板的开/关生命周期。拆成两个模块而不是一个：两块看板由不同子系统
+	// 写（goal 域 / teamwork 域），共用一个模块就是给它们造一个共享串行点。
+	moduleBoardGoal storageModule = "board_goal"
+	moduleBoardTeam storageModule = "board_team"
 )
 
 // guide 是会话读索引/路由（不持有模块数据，I9）。模块清单变更（首写某
@@ -132,7 +139,12 @@ type sessionModuleLocks struct {
 	// 审计追加不能与 message 提交互相串行，也必须避免"message 临界区内写
 	// teamwork 审计"变成不可重入自锁（与 mediaMu 同一条教训）。
 	teamworkMu sync.Mutex
-	guideMu    sync.Mutex
+	// boardGoalMu / boardTeamMu 是两块看板存档的独立锁：goal 看板的存档由 goal 域
+	// 的迁移写、团队看板的存档由 teamwork 侧写，两者互不阻塞，也不与各自的领域
+	// 模块共用一把（共用就会把"写看板存档"与"写领域事实"串成一个串行点）。
+	boardGoalMu sync.Mutex
+	boardTeamMu sync.Mutex
+	guideMu     sync.Mutex
 
 	stackViews [4]atomic.Pointer[stackView]
 	// anchor 是 message 通道最近一次发布的坐标（栈通道取锚用，避免打开
@@ -226,6 +238,10 @@ func (locks *sessionModuleLocks) mutexFor(mod storageModule) *sync.Mutex {
 		return &locks.mediaMu
 	case moduleTeamwork:
 		return &locks.teamworkMu
+	case moduleBoardGoal:
+		return &locks.boardGoalMu
+	case moduleBoardTeam:
+		return &locks.boardTeamMu
 	default:
 		// 禁止静默别名：枚举是包内编译期常量，未映射只可能是"加了 storageModule
 		// 忘了加 case"。猜一个锁（旧行为）等于把两把语义不同的锁合成一把——那正是

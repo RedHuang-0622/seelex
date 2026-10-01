@@ -4784,6 +4784,40 @@ button.team-library-name:hover { color: var(--accent); text-decoration: underlin
 .goal-board-title { overflow: hidden; color: var(--text-strong); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .goal-board-meta { color: var(--text-dim); font: 10.5px var(--font-mono); }
 .goal-board-hint { flex: none; color: var(--faint); font-size: 10.5px; }
+/* 看板主体上的"痕迹"标记（目前只有 recovered：这一帧来自存档快照，不是活体）。 */
+.goal-board-flags { display: flex; flex-wrap: wrap; gap: 4px; }
+.goal-recovered { border-color: var(--border-strong); color: var(--text-mid); }
+
+/* 「历史目标」一节 = 已收口/中止目标的只读账本（与活动栈正交，见归档契约 §3.1）。
+   一行一个目标：编号 + 标题 + 收口元信息。它没有写入口，也不参与任何判定。 */
+.goal-history { display: flex; flex-direction: column; gap: 4px; }
+.goal-history-head { color: var(--text-dim); font: 10.5px var(--font-mono); letter-spacing: .04em; }
+.goal-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.goal-history-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-left-width: 2px;
+  border-left-color: var(--status-idle);
+  border-radius: 5px;
+  background: var(--code-bg);
+  font-size: 11px;
+}
+.goal-history-row[data-goal-history-status="completed"] { border-left-color: var(--status-done); }
+.goal-history-row[data-goal-history-status="aborted"] { border-left-color: var(--status-failed); }
+.goal-history-id { flex: none; color: var(--text-mid); font-family: var(--font-mono); font-size: 10px; }
+.goal-history-title { flex: 0 1 auto; min-width: 0; overflow: hidden; color: var(--text-strong); text-overflow: ellipsis; white-space: nowrap; }
+.goal-history-meta { flex: none; margin-left: auto; color: var(--text-dim); font: 10px var(--font-mono); }
 /* 小字那一行 = 我发出的最近一次任务（最近一条用户输入）。 */
 .goal-board-task {
   overflow: hidden;

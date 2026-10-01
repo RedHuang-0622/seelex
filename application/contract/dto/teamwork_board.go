@@ -26,7 +26,10 @@ type TeamworkBoardView struct {
 	MaxMembers int `json:"max_members,omitempty"`
 	// Stale 是 **jobs I-4 的显式化**：句柄只在内存（进程重启即作废），当计划里残留着
 	// 句柄投影、而本进程的句柄表里查不到它时置真。它只影响一行提示，不改变任何判定。
-	Stale      bool                    `json:"stale,omitempty"`
+	Stale bool `json:"stale,omitempty"`
+	// Recovered 是**存档兜底**的显式化：活体给不出看板（无计划 / 计划没有阶段）时
+	// 由存档快照恢复（§6 重启恢复）。前端据此说明"这是上一次的存档，不是活体事实"。
+	Recovered  bool                    `json:"recovered,omitempty"`
 	Stages     []TeamworkStageView     `json:"stages,omitempty"`
 	Members    []TeamworkMemberView    `json:"members,omitempty"`
 	Milestones []TeamworkMilestoneView `json:"milestones,omitempty"`
@@ -61,13 +64,13 @@ type TeamworkMilestoneView struct {
 // TeamworkJobView 是一行作业投影。Stage / Role 是桥给出的**权威归属**：渲染件里那条
 // job.stage → job.node → job.scope.subject 的回落链只是过渡口径，接线后 stage 必定命中。
 type TeamworkJobView struct {
-	Handle   string `json:"handle"`
-	State    string `json:"state,omitempty"` // running|done|failed|killed（开放取值）
-	ExitCode int    `json:"exit_code,omitempty"`
-	Bytes    int64  `json:"bytes,omitempty"`
-	Stage    string `json:"stage,omitempty"`
-	Node     string `json:"node,omitempty"`
-	Role     string `json:"role,omitempty"`
+	Handle   string               `json:"handle"`
+	State    string               `json:"state,omitempty"` // running|done|failed|killed（开放取值）
+	ExitCode int                  `json:"exit_code,omitempty"`
+	Bytes    int64                `json:"bytes,omitempty"`
+	Stage    string               `json:"stage,omitempty"`
+	Node     string               `json:"node,omitempty"`
+	Role     string               `json:"role,omitempty"`
 	Scope    TeamworkJobScopeView `json:"scope,omitempty"`
 }
 

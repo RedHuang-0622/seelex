@@ -553,6 +553,9 @@ func cloneGoalGovernanceView(view *dto.GoalGovernanceView) *dto.GoalGovernanceVi
 		return nil
 	}
 	copyView := *view
+	// 收口账本是切片：克隆必须断开共享，否则一个视图的消费者能改到另一个视图的
+	// 账本（会话快照按会话隔离的前提）。
+	copyView.History = append([]dto.GoalHistoryView(nil), view.History...)
 	return &copyView
 }
 

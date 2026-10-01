@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -30,9 +31,10 @@ const (
 
 // 面板的展示上限：裁决正文按 rune 截断，行数上限防止长团队把对话区挤没。
 const (
-	panelLineLimit    = 12
-	panelTextLimit    = 96
-	panelDirectiveMax = 120
+	panelLineLimit       = 12
+	panelTextLimit       = 96
+	panelDirectiveMax    = 120
+	goalHistoryLineLimit = 4
 )
 
 // errTeamViewUnsupported 表示当前 AppController 没有团队读面：面板明确提示，
@@ -136,6 +138,10 @@ func (model Model) panelLines() []string {
 
 // goalPanelLines 渲染目标治理只读面（数据源 = Snapshot.Runtime.GoalGovernance，
 // 与 GUI 「目标」面板同源投影；未上线 goal 时给出上线入口提示）。
+//
+// 面板的可见性口径与 GUI 一致：**归 goal 状态机**——栈上没有 active 帧（收口/归档）
+// 就只给上线提示，不留空壳。收口账本（History）跟着看板一起出现：它是"已结束的
+// 目标"那一节，与活动栈正交，但不单独撑起一块面板。
 func (model Model) goalPanelLines() []string {
 	goal := model.snapshot.Runtime.GoalGovernance
 	if goal == nil || !goal.Active {
@@ -148,6 +154,11 @@ func (model Model) goalPanelLines() []string {
 	}
 	header := fmt.Sprintf("  ◆ GOAL  %s · %s",
 		fallback(goal.Status, "active"), fallback(goal.GoalID, "—"))
+	if goal.Recovered {
+		// 这一帧来自会话存档快照（活体栈给不出时才兜底）：是个**痕迹**，不是结论——
+		// 活体一恢复，后端下次投影自然撤掉它。
+		header += " · 自快照恢复"
+	}
 	lines := []string{StyleTaskRunning.Render(header)}
 	if title := oneLine(goal.Title, model.textLimit()); title != "" {
 		lines = append(lines, StyleChoiceInactive.Render("  "+title))
@@ -160,8 +171,59 @@ func (model Model) goalPanelLines() []string {
 	} else {
 		lines = append(lines, StyleMuted.Render("  TL: 暂无裁决（终态 gate 尚未评估）"))
 	}
+	lines = append(lines, model.goalHistoryLines()...)
 	lines = append(lines, StyleMuted.Render("  ·  Alt+T 看团队 · Esc 关闭"))
 	return lines
+}
+
+// goalHistoryLines 渲染「历史目标」一节：本会话已收口/中止目标的只读账本。
+//
+// 它是**另一件东西**，不是看板的一部分：看板主体写的是"当前治理中的那一帧"，
+// 账本写的是"已经结束的目标"（口径见 docs/arch/session-board-metadata-lifecycle.md
+// §3.1）。混在一行里就是把 finished 的目标读成当前目标。
+//
+// 只显示最近 goalHistoryLineLimit 条（终端面板会挤掉对话区），多出的折叠成一行——
+// 折叠数字只说"还有几条"，不重排、不摘要。
+func (model Model) goalHistoryLines() []string {
+	goal := model.snapshot.Runtime.GoalGovernance
+	if goal == nil || len(goal.History) == 0 {
+		return nil
+	}
+	width := model.textLimit()
+	entries := goal.History
+	hidden := 0
+	if len(entries) > goalHistoryLineLimit {
+		hidden = len(entries) - goalHistoryLineLimit
+		entries = entries[len(entries)-goalHistoryLineLimit:]
+	}
+	lines := []string{StyleMuted.Render(fmt.Sprintf("  ·  历史目标 %d", len(goal.History)))}
+	for _, entry := range entries {
+		parts := []string{fallback(strings.ToUpper(strings.TrimSpace(entry.Status)), "—")}
+		if reason := oneLine(entry.ClosedReason, width/3); reason != "" {
+			parts = append(parts, reason)
+		}
+		if entry.ProgressCount > 0 {
+			parts = append(parts, fmt.Sprintf("打点 %d 条", entry.ProgressCount))
+		}
+		if at := formatGoalClosedAt(entry.ClosedAt); at != "" {
+			parts = append(parts, "收口 "+at)
+		}
+		lines = append(lines, StyleMuted.Render(oneLine(fmt.Sprintf("     %s %s · %s",
+			fallback(entry.GoalID, "—"), oneLine(entry.Title, width/2), strings.Join(parts, " · ")), width)))
+	}
+	if hidden > 0 {
+		lines = append(lines, StyleMuted.Render(fmt.Sprintf("     ·  另有 %d 条更早的收口已折叠", hidden)))
+	}
+	return lines
+}
+
+// formatGoalClosedAt 把存档里的 unix 秒压成 "YYYY-MM-DD HH:MM"（0/负数 → ""，
+// 不把渲染层的猜测当成事实：面板只报它有的东西）。
+func formatGoalClosedAt(at int64) string {
+	if at <= 0 {
+		return ""
+	}
+	return time.Unix(at, 0).Format("2006-01-02 15:04")
 }
 
 // teamPanelLines 渲染团队只读面：成员与发言顺序（TeamView.OrderRoles/InOrder）、
@@ -274,6 +336,10 @@ func (model Model) teamBoardLines() []string {
 			line += " · " + content
 		}
 		lines = append(lines, StyleMuted.Render(oneLine(line, width)))
+	}
+	if board.Recovered {
+		// 来自会话存档快照（活体投影给不出时才兜底）：与 GUI 同形的痕迹标记。
+		lines = append(lines, StyleMuted.Render("  ·  自快照恢复（活体投影给不出，这份看板来自会话存档）"))
 	}
 	if board.Stale {
 		lines = append(lines, StyleMuted.Render("  ·  句柄投影可能过期（jobs I-4：句柄只在内存，进程重启后作废）"))

@@ -220,13 +220,13 @@ export function milestoneStatus(milestone) {
 
 // renderTeamBoard 渲染整块看板；没有计划 / 计划里没有阶段 → ""（不留空壳，口径同目标看板）。
 export function renderTeamBoard(input = {}) {
-  const { plan = null, jobs = [], events = [], maxMembers = 0, stale = false } = input;
+  const { plan = null, jobs = [], events = [], maxMembers = 0, stale = false, recovered = false } = input;
   const entries = orderStages(plan);
   if (entries.length === 0) return "";
   const grouped = jobsByStage(plan, jobs);
   const statusById = stageStatuses(plan, jobs);
   const summary = summarizeTeam(plan, jobs);
-  const head = renderTeamHead(plan, summary, maxMembers, stale);
+  const head = renderTeamHead(plan, summary, maxMembers, stale, recovered);
   const stages = entries
     .map(entry => renderTeamStageCard(entry, { jobs: grouped.get(entry.id) || [], status: statusById.get(entry.id) }))
     .join("");
@@ -240,7 +240,12 @@ export function renderTeamBoard(input = {}) {
 }
 
 // renderTeamHead 是看板头：team_id + 版本 + 一行计数。计数只报事实（不写「进度良好」这类话）。
-export function renderTeamHead(plan, summary, maxMembers = 0, stale = false) {
+//
+// 两个标记都是**痕迹**，不是装饰：
+//   - recovered：这份看板来自存档快照（活体投影给不出时兜底），不是活体算出来的；
+//   - stale：里面的作业行句柄来自上一个进程（jobs I-4），真值以 Observe 为准。
+// 恢复出来的看板两者同时为真，所以同屏出现（不是二选一）。
+export function renderTeamHead(plan, summary, maxMembers = 0, stale = false, recovered = false) {
   const version = Number(plan?.version) || 0;
   const teamID = String(plan?.team_id || "未命名团队");
   const roster = maxMembers > 0 ? `在编 ${summary.members}/${maxMembers}` : `在编 ${summary.members}`;
@@ -252,6 +257,9 @@ export function renderTeamHead(plan, summary, maxMembers = 0, stale = false) {
     `作业 ${summary.jobs_running} 跑 / ${summary.jobs_done} 完 / ${summary.jobs_failed} 败`,
     `里程碑 ${summary.milestones_done}/${summary.milestones_total}`,
   ].filter(Boolean).join(" · ");
+  const recoveredChip = recovered
+    ? '<span class="chip team-recovered" title="这块看板来自会话存档快照（活体投影给不出时才兜底），活体一恢复就会覆盖回活体结果">自快照恢复</span>'
+    : "";
   const staleChip = stale
     ? '<span class="chip team-stale" title="jobs I-4：句柄只在内存，进程重启后的投影一律过期，真值以 Observe 为准">句柄投影可能过期</span>'
     : "";
@@ -259,6 +267,7 @@ export function renderTeamHead(plan, summary, maxMembers = 0, stale = false) {
       <span class="team-badge">TEAM</span>
       <span class="team-board-id" title="${escapeHtml(teamID)}">${escapeHtml(truncate(teamID, TEXT_LIMIT))}</span>
       ${version > 0 ? `<span class="team-version">v${escapeHtml(String(version))}</span>` : ""}
+      ${recoveredChip}
       ${staleChip}
       <span class="team-counts">${escapeHtml(counts)}</span>
     </div>`;
@@ -416,6 +425,7 @@ export const TEAM_BOARD_CSS = `
 .team-board-id { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); color: var(--text-strong); }
 .team-version { flex: none; color: var(--text-dim); }
 .team-counts { flex: 1 1 100%; min-width: 0; overflow-wrap: anywhere; }
+.team-recovered { border-color: var(--border-strong); color: var(--text-mid); }
 .team-stale { border-color: var(--border-running); color: var(--status-running); }
 .team-stages { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 6px; }
 .team-stage { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 6px 7px; border: 1px solid var(--border); border-left-width: 2px; border-radius: 6px; background: var(--code-bg); }

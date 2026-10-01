@@ -268,8 +268,13 @@ func run() error {
 	// teamwork 编排面：leader 的六件套工具 + jobs_manage。计划/审计落 moduleTeamwork
 	// （JSON 后端）；作用域键由"会话 → 所属项目"解析，与执行事实事件库同源。
 	if repo, ok := store.TeamworkFor(); ok {
+		// 看板存档面（会话粒度元数据 + 重启快照恢复）：与计划/审计同一个 JSON 后端，
+		// 落 metadata/board_team.json。非 JSON 后端不实现它 → nil，读侧无从恢复，
+		// 活体投影照常工作。
+		boardRepo, _ := store.BoardsFor()
 		if err := runtime.SetTeamworkBackend(seelebridge.TeamworkBackend{
-			Store: seeteamwork.NewPlanStore(repo),
+			Store:  seeteamwork.NewPlanStore(repo),
+			Boards: boardRepo,
 			KeyFor: func(sessionID string) (sessionstore.Key, bool) {
 				workspace, exists := wsRepo.SessionWorkspace(sessionID)
 				if !exists || strings.TrimSpace(workspace.ID) == "" {

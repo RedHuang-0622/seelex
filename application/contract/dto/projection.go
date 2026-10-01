@@ -46,6 +46,29 @@ type GoalGovernanceView struct {
 	// 栈下目标转 paused）之后，工作台看不到"栈上还有什么"。这里按帧给出内容，工作台
 	// 据此分块展示；事实仍是 Controller 的 LIFO 栈一份，这里是只读投影。
 	Stack []GoalFrameView `json:"stack,omitempty"`
+	// Recovered 标记这一帧**来自看板存档快照**而不是活体栈（§9 的读侧兜底）：
+	// 活体栈为空、存档里 state=active 时用它把看板重建出来。前端据此可标注
+	// "从上次会话恢复"。活体可用时恒为 false。
+	Recovered bool `json:"recovered,omitempty"`
+	// History 是**已收口目标的账本**（只追加，来自看板存档的 history）。
+	//
+	// 为什么它不是兜底专属：账本与活动栈是两个正交的面——活体栈可用时它照样
+	// 存在（"这台会话收口过哪些目标"），所以活体可用时也要下发；反之它**不会**
+	// 混进 Stack，也不代表 active 那一帧（活动栈的事实只有 Controller 一份）。
+	History []GoalHistoryView `json:"history,omitempty"`
+}
+
+// GoalHistoryView 是**已收口目标**的一条只读账本条目（看板存档 history 的投影；
+// 只追加、不重写，按 goal_id 去重）。
+type GoalHistoryView struct {
+	GoalID       string `json:"goal_id"`
+	Title        string `json:"title,omitempty"`
+	Status       string `json:"status,omitempty"` // completed | aborted（收口终态）
+	ClosedAt     int64  `json:"closed_at,omitempty"`
+	ClosedReason string `json:"closed_reason,omitempty"`
+	// ProgressCount 是该目标收口时的打点条数（判定得出时才有值：终态审计条目
+	// 自己不承载条数，取不到就是 0，不猜）。
+	ProgressCount int `json:"progress_count,omitempty"`
 }
 
 // GoalStepView 是 ADVISOR 评审过程里的**一步**只读投影（前端"评审过程"时间线）。

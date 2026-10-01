@@ -27,14 +27,44 @@ import (
 
 // ContextStateStore 实现 Store：把 goal.Controller 栈投影到会话级
 // SessionContextStore 的 GoalStack（第五栈）。
+//
+// 它同时是**goal 看板存档的写侧**（board_archive.go）：栈保存成功后刷新
+// metadata/board_goal.json（active = 当前栈顶帧；history = 只追加的收口账本）。
+// 看板存档是**派生快照**：它不参与栈的保存语义（§7 的"close 写不进去就不能当
+// 关闭"由 reportBoardWriteFailure 承接），未装配存档面（BoardsFor 返回 false）
+// 时全部降级为"没有存档"，不报错、不阻断。
 type ContextStateStore struct {
 	session *sessionstore.SessionContextStore
+	// boards 是看板存档取用面（可选装配，**绑定会话**）；nil = 该域没有存档面。
+	boards sessionstore.SessionBoards
 }
 
 // NewContextStateStore 构造适配器。session 为 nil 时 Load/Save 返回
-// ErrStoreUnavailable（未装配会话上下文存储的降级路径）。
-func NewContextStateStore(session *sessionstore.SessionContextStore) *ContextStateStore {
-	return &ContextStateStore{session: session}
+// ErrStoreUnavailable（未装配会话上下文存储的降级路径）；boards 可选（缺省 =
+// 没有看板存档面，写侧全部降级），也可事后用 BindBoards 注入。
+func NewContextStateStore(session *sessionstore.SessionContextStore, boards ...sessionstore.SessionBoards) *ContextStateStore {
+	store := &ContextStateStore{session: session}
+	if len(boards) > 0 {
+		store.boards = boards[0]
+	}
+	return store
+}
+
+// BindBoards 注入会话看板存档取用面（sessionstore.Router.BoardsForSession 的产物）。
+// 未注入 → 写侧不写存档、读侧按"没有存档"降级。
+func (s *ContextStateStore) BindBoards(boards sessionstore.SessionBoards) {
+	if s == nil {
+		return
+	}
+	s.boards = boards
+}
+
+// boardRepository 返回看板存档取用面（**绑定会话**的面）；未装配返回 false。
+func (s *ContextStateStore) boardRepository() (sessionstore.SessionBoards, bool) {
+	if s == nil || s.boards == nil {
+		return nil, false
+	}
+	return s.boards, true
 }
 
 // Load 实现 Store：从会话 GoalStack 读取当前栈（空栈返回空切片）。
@@ -50,6 +80,10 @@ func (s *ContextStateStore) Load(ctx context.Context) ([]*GoalRecord, error) {
 
 // Save 实现 Store：全量替换会话 GoalStack 并持久化。写入前先确保会话
 // context 已 Load（避免未加载即覆盖磁盘上的既有 goal 栈）。
+//
+// 栈落盘成功后刷新 goal 看板存档（board_archive.go）：存档是派生快照，**不改变
+// 这里栈的保存语义**——栈写失败时直接返回（存档不动）；存档写失败按 §7 分方向
+// 处理（close 上报、active 尽力而为）。
 func (s *ContextStateStore) Save(ctx context.Context, records []*GoalRecord) error {
 	if s == nil || s.session == nil {
 		return ErrStoreUnavailable
@@ -60,7 +94,7 @@ func (s *ContextStateStore) Save(ctx context.Context, records []*GoalRecord) err
 	if err := s.session.ReplaceGoalStack(goalFramesFromRecords(records)); err != nil {
 		return fmt.Errorf("%w: 保存会话 goal 栈: %v", ErrStoreUnavailable, err)
 	}
-	return nil
+	return s.refreshGoalBoard(ctx, records)
 }
 
 // goalFramesFromRecords 把 goal 域记录投影为 sessionstore 第五栈帧

@@ -133,6 +133,73 @@ func TestGoalPanelWithoutActiveGoalPointsAtEntry(t *testing.T) {
 	}
 }
 
+// TestGoalPanelShowsRecoveredFrameAndHistoryLedger：目标面板的两条新痕迹
+//   - recovered：这一帧来自会话存档快照（活体栈给不出时才兜底）；
+//   - 「历史目标」：已收口/中止目标的只读账本，与看板主体分开显示——不收口的目标
+//     只在账本里，看板主体写的仍是 active seq。
+//
+// 同时钉住"面板可见性归 goal 状态机"：没有活跃帧时面板只给上线提示，账本不单独
+// 撑起一块面板（与 GUI 同口径；收口后想常驻看账本要单独裁决）。
+func TestGoalPanelShowsRecoveredFrameAndHistoryLedger(t *testing.T) {
+	app := newFakeApp()
+	snapshot := goalSnapshot()
+	snapshot.Runtime.GoalGovernance.Recovered = true
+	snapshot.Runtime.GoalGovernance.History = []dto.GoalHistoryView{
+		{GoalID: "g-2", Title: "上一轮收口的目标", Status: "completed", ClosedAt: 1760000000, ClosedReason: "goal.finish", ProgressCount: 5},
+		{GoalID: "g-3", Title: "<i>没人做过的目标</i>", Status: "aborted", ClosedAt: 1760003600, ClosedReason: "goal.abort"},
+	}
+	app.snapshot = snapshot
+	model := NewModel(app)
+	model.showLogo = false
+	model.width, model.height = 120, 40
+
+	model, _ = press(t, model, altRuneKey('g'))
+	panel := model.renderPanel()
+	for _, want := range []string{"自快照恢复", "历史目标 2", "g-2", "上一轮收口的目标", "COMPLETED", "goal.finish", "打点 5 条",
+		"g-3", "ABORTED", "goal.abort"} {
+		if !strings.Contains(panel, want) {
+			t.Fatalf("目标面板缺少 %q：\n%s", want, panel)
+		}
+	}
+	// 账本与看板主体分开：看板头写的是活跃那一帧（g-1），账本行写自己的编号。
+	if !strings.Contains(panel, "g-1") {
+		t.Fatalf("看板主体应写 active 的编号：\n%s", panel)
+	}
+	if got, want := model.panelHeight(), strings.Count(panel, "\n")+1; got != want {
+		t.Fatalf("面板高度 = %d, 渲染行数 = %d", got, want)
+	}
+
+	// 折叠：账本很长时只显示最近 goalHistoryLineLimit 条，其余折成一行（不挤掉对话区）。
+	app.snapshot.Runtime.GoalGovernance.History = []dto.GoalHistoryView{
+		{GoalID: "g-1", Status: "completed"}, {GoalID: "g-2", Status: "completed"},
+		{GoalID: "g-3", Status: "completed"}, {GoalID: "g-4", Status: "completed"},
+		{GoalID: "g-5", Status: "completed"}, {GoalID: "g-6", Status: "completed"},
+	}
+	folded := NewModel(app)
+	folded.showLogo = false
+	folded.width, folded.height = 120, 40
+	folded, _ = press(t, folded, altRuneKey('g'))
+	text := folded.renderPanel()
+	if !strings.Contains(text, "另有 2 条更早的收口已折叠") {
+		t.Fatalf("长账本没有折叠提示：\n%s", text)
+	}
+	if rows := strings.Count(text, "COMPLETED"); rows != goalHistoryLineLimit {
+		t.Fatalf("折叠后应只显示最近 %d 条，实际 %d：\n%s", goalHistoryLineLimit, rows, text)
+	}
+	// 没有活跃帧时账本不单独露面（面板可见性归 goal 状态机）。
+	app.snapshot.Runtime.GoalGovernance = &dto.GoalGovernanceView{
+		Active:  false,
+		History: []dto.GoalHistoryView{{GoalID: "g-1", Status: "completed"}},
+	}
+	closed := NewModel(app)
+	closed.showLogo = false
+	closed.width = 80
+	closed, _ = press(t, closed, altRuneKey('g'))
+	if text := closed.renderPanel(); strings.Contains(text, "历史目标") {
+		t.Fatalf("没有活跃帧时不应单独撑起账本面板：\n%s", text)
+	}
+}
+
 func TestTeamPanelFetchesServiceViewOnce(t *testing.T) {
 	base := newFakeApp()
 	base.snapshot = goalSnapshot()

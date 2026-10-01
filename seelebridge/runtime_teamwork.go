@@ -39,6 +39,10 @@ import (
 type TeamworkBackend struct {
 	// Store 是计划与审计的持久面（生产实现 = sessionstore 的 moduleTeamwork）。
 	Store teamwork.PlanStore
+	// Boards 是团队看板**存档**的读/写面（生产实现 = sessionstore 的
+	// moduleBoardTeam，取用面 Router.BoardsFor）。可选：未注入 = 不刷新存档、
+	// 读侧也无从恢复——"有就有、没有就是没装配"。
+	Boards sessionstore.BoardRepository
 	// KeyFor 把会话 ID 解析成存储作用域键（project_id + session_id）。
 	KeyFor func(sessionID string) (sessionstore.Key, bool)
 	// MaxTeammates 是产品级人数上限（seelexctx.TeamLimits.MaxTeammates）。
@@ -191,6 +195,7 @@ func (r *Runtime) teamPlanHandler(ctx context.Context, argsJSON string) (string,
 		return "", fmt.Errorf("team_plan: %w", err)
 	}
 	r.invalidateTeamworkBoard()
+	r.archiveTeamBoard(ctx)
 	return jsonReceipt(map[string]any{
 		"ok": true, "team_id": plan.TeamID, "stages": len(plan.Stages),
 		"members": len(plan.Members), "milestones": len(plan.Milestones),
@@ -214,6 +219,7 @@ func (r *Runtime) teamDispatchHandler(ctx context.Context, argsJSON string) (str
 		return "", fmt.Errorf("team_dispatch: %w", err)
 	}
 	r.invalidateTeamworkBoard()
+	r.archiveTeamBoard(ctx)
 	return jsonReceipt(map[string]any{
 		"ok": true, "handle": string(handle), "stage": stage,
 		"hint": "受理回执即返回，不等待：继续你的关键路径，需要时用 jobs_manage(op=observe/fetch) 或 team_join 观察。",
@@ -246,6 +252,11 @@ func (r *Runtime) teamJoinHandler(ctx context.Context, argsJSON string) (string,
 	if err != nil {
 		return "", fmt.Errorf("team_join: %w", err)
 	}
+	// 汇合也是一次**审计追加**（Coordinator.Join 会记 join 事件），因此同样是看板的
+	// 一个 update 时机（契约 §5 的表里有它）：不在这里失效缓存，面板就要等到下一次
+	// team_plan/dispatch/milestone/retire 才看得到这次汇合（"漏一处就是静默陈旧"）。
+	r.invalidateTeamworkBoard()
+	r.archiveTeamBoard(ctx)
 	return jsonReceipt(map[string]any{"ok": true, "jobs": records})
 }
 
@@ -265,6 +276,7 @@ func (r *Runtime) teamMilestoneHandler(ctx context.Context, argsJSON string) (st
 		return "", fmt.Errorf("team_milestone: %w", err)
 	}
 	r.invalidateTeamworkBoard()
+	r.archiveTeamBoard(ctx)
 	return jsonReceipt(map[string]any{"ok": true, "id": raw.ID})
 }
 
@@ -283,6 +295,7 @@ func (r *Runtime) teamRetireHandler(ctx context.Context, argsJSON string) (strin
 		return "", fmt.Errorf("team_retire: %w", err)
 	}
 	r.invalidateTeamworkBoard()
+	r.archiveTeamBoard(ctx)
 	return jsonReceipt(map[string]any{
 		"ok": true, "role": raw.Role,
 		"detail": "回收作业 → 释放 worktree → 清会话内容 → 保在线",

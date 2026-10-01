@@ -2224,6 +2224,9 @@ function teamBoardInput(runtime) {
       at: localMinuteStamp(event?.at),
     })),
     stale: board.stale === true,
+    // recovered = 这份看板由后端从会话存档兜底恢复（活体投影给不出）。它只是**痕迹**：
+    // 前端不为它改任何事实，也不缓存它——活体一恢复，下一次快照自然把它撤掉。
+    recovered: board.recovered === true,
   };
 }
 

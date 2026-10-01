@@ -263,6 +263,19 @@ test("renderTeamBoard：句柄投影过期时显形（jobs I-4），不假装是
   assert.doesNotMatch(renderTeamBoard({ plan: PLAN, jobs: [] }), /句柄投影可能过期/);
 });
 
+test("renderTeamBoard：从存档恢复的看板显形（recovered），与 stale 同屏而不互斥", () => {
+  // recovered = 这份看板来自会话存档快照（活体投影给不出时才兜底）。
+  const recoveredOnly = renderTeamBoard({ plan: PLAN, jobs: [], recovered: true });
+  assert.match(recoveredOnly, /自快照恢复/);
+  assert.doesNotMatch(recoveredOnly, /句柄投影可能过期/);
+  // 恢复出来的看板两者同时为真：存档里的作业行也一律是上一个进程的句柄。
+  const both = renderTeamBoard({ plan: PLAN, jobs: [], recovered: true, stale: true });
+  assert.match(both, /自快照恢复/);
+  assert.match(both, /句柄投影可能过期/);
+  // 活体投影：两个标记都不出现（默认就是没有痕迹）。
+  assert.doesNotMatch(renderTeamBoard({ plan: PLAN, jobs: [] }), /自快照恢复/);
+});
+
 test("renderTeamStageCard 把无依赖写成 —，把缺失依赖/成环写成告警行", () => {
   const html = renderTeamBoard({ plan: PLAN, jobs: [] });
   assert.match(html, /<span class="team-label">依赖<\/span><span class="muted">—<\/span>/);

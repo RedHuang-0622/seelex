@@ -19,6 +19,10 @@ import (
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
+// frameProgressLimit 是看板卡片上"一行摘要"保留的打点条数（详情面看 ProgressAll
+// 全量）：看板帧投影与"存档恢复"的帧投影共用同一个上限，避免两处渲染不一致。
+const frameProgressLimit = 3
+
 // goalCoordinatorDeps 是 goal 协调器装配输入。
 type goalCoordinatorDeps struct {
 	// StoreFor 返回指定会话的 SessionContextStore（nil = 未装配 → 内存态）。
@@ -67,6 +71,11 @@ func (g *goalCoordinator) bundleFor(sessionID string) *goalSessionRuntime {
 	if g.deps.StoreFor != nil {
 		if contextStore := g.deps.StoreFor(sessionID); contextStore != nil {
 			adapter := goaldomain.NewContextStateStore(contextStore)
+			// 看板存档面（goal 看板写侧的扇出）：未装配（BoardsFor 返回 false）
+			// 时适配器按"没有存档"降级——不报错、不阻断栈的持久化。
+			if boards, ok := g.boardFor(sessionID); ok {
+				adapter.BindBoards(boards)
+			}
 			store, audit = adapter, adapter
 		}
 	}
@@ -262,7 +271,6 @@ func goalStackFrames(stack []*goaldomain.GoalRecord) []dto.GoalFrameView {
 	if len(stack) == 0 {
 		return nil
 	}
-	const frameProgressLimit = 3
 	frames := make([]dto.GoalFrameView, 0, len(stack))
 	for index, record := range stack {
 		if record == nil {
@@ -318,21 +326,35 @@ func goalStepViews(steps []goaldomain.TLStep) []dto.GoalStepView {
 	return views
 }
 
-// GoalGovernanceViewFor 组装只读治理视图（无 bundle/无 goal → nil，前端隐藏）。
+// GoalGovernanceViewFor 组装只读治理视图（无 bundle/无 goal/无存档 → nil，前端隐藏）。
 //
 // 席位轮转退场后，视图不再有"轮次/座次/断环"这类循环概念：它只投影 goal
 // **看板**（活动栈逐帧 + 状态 + 最近裁决）。评审过程（round_steps / in_flight /
 // peer_state）仍在——但只在终态 gate 或审批预筛跑真实 TL 回合时短暂有值。
+//
+// 看板存档（§8/§9 的读侧兜底）：活体栈为空时存档是**唯一还在的快照**——进程
+// 重启后活栈通道可能还没重建（或已经被弹空），而看板存档里 state=active 说明
+// 那一刻有目标在跑。此时按存档的 active 帧把看板重建出来并标 Recovered=true；
+// state=closed 或没有存档则让看板退场（Active:false / nil），不留空壳。
+// history 是收口**账本**，活体可用时也照常下发（它不是兜底专属，也不混进 Stack）。
 func (g *goalCoordinator) GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView {
 	g.mu.Lock()
 	runtime := g.sessions[sessionID]
 	g.mu.Unlock()
+	archive, hasArchive := g.readGoalBoardArchive(sessionID)
 	if runtime == nil {
-		return nil
+		// 还没有 goal bundle（本次进程还没碰过这个会话的 goal）：只有存档能
+		// 回答"上一轮目标还在不在"。没有存档仍然返回 nil（会话隔离用例钉的
+		// 就是这条：未 begin 的会话不应有治理视图）。
+		return recoveredGoalView(archive, hasArchive)
 	}
 	status := runtime.ctl.Status()
 	if status.Active == nil {
-		return &dto.GoalGovernanceView{Active: false}
+		if view := recoveredGoalView(archive, hasArchive); view != nil {
+			return view
+		}
+		// 看板退场：state=closed 或没有存档（Active:false，前端隐藏面板）。
+		return &dto.GoalGovernanceView{Active: false, History: goalHistoryViews(archive, hasArchive)}
 	}
 	peer := runtime.sup.Snapshot()
 	view := &dto.GoalGovernanceView{
@@ -346,6 +368,8 @@ func (g *goalCoordinator) GoalGovernanceViewFor(sessionID string) *dto.GoalGover
 		InFlight:      peer.InFlight,
 		InFlightChars: peer.InFlightChars,
 		RoundSteps:    goalStepViews(peer.RoundSteps),
+		// 收口账本与活体栈正交：活体可用时照常下发（前端"已收口目标"列表的数据面）。
+		History: goalHistoryViews(archive, hasArchive),
 	}
 	// 每帧的只读投影：工作台按**活动栈**分块展示（栈顶=当前目标，栈下=被嵌套
 	// 压栈而暂停的目标）。栈只有一份事实（Controller 的 LIFO 栈），这里只读。
@@ -354,4 +378,109 @@ func (g *goalCoordinator) GoalGovernanceViewFor(sessionID string) *dto.GoalGover
 		view.LastDirective = rounds[len(rounds)-1].Summary
 	}
 	return view
+}
+
+// boardFor 返回指定会话的看板存档取用面。未装配（StoreFor 缺席 / Router 缺席
+// / 非 JSON 布局）返回 false——调用方按"没有存档"降级，不报错、不阻断。
+func (g *goalCoordinator) boardFor(sessionID string) (sessionstore.SessionBoards, bool) {
+	if g == nil || g.deps.StoreFor == nil {
+		return nil, false
+	}
+	contextStore := g.deps.StoreFor(sessionID)
+	if contextStore == nil {
+		return nil, false
+	}
+	router := contextStore.Router()
+	if router == nil {
+		return nil, false
+	}
+	return router.BoardsForSession(sessionID)
+}
+
+// readGoalBoardArchive 读取该会话的看板存档。没有存档面 / 没有存档 / 存档损坏
+// 一律返回 false：调用方统一按"没有存档"降级（读侧不把存档当硬依赖）。
+func (g *goalCoordinator) readGoalBoardArchive(sessionID string) (sessionstore.GoalBoardMeta, bool) {
+	boards, ok := g.boardFor(sessionID)
+	if !ok {
+		return sessionstore.GoalBoardMeta{}, false
+	}
+	archive, err := boards.ReadGoalBoard(context.Background())
+	if err != nil {
+		return sessionstore.GoalBoardMeta{}, false
+	}
+	return archive, true
+}
+
+// recoveredGoalView 用存档里的 active 帧重建看板（Recovered=true 标记"这一帧
+// 来自快照，不是活体栈"）。存档不存在 / 已关闭 / 没有当前帧 → nil（由调用方
+// 决定"退场"还是"隐藏"）。
+func recoveredGoalView(archive sessionstore.GoalBoardMeta, hasArchive bool) *dto.GoalGovernanceView {
+	if !hasArchive || archive.State != sessionstore.BoardStateActive || archive.Active == nil {
+		return nil
+	}
+	active := archive.Active
+	progress := goalProgressViews(active.Progress)
+	view := &dto.GoalGovernanceView{
+		Active:    true,
+		Recovered: true,
+		GoalID:    active.GoalID,
+		Title:     active.Title,
+		Status:    active.Status,
+		History:   goalHistoryViews(archive, hasArchive),
+		Stack: []dto.GoalFrameView{{
+			ID:          active.GoalID,
+			Title:       active.Title,
+			Statement:   active.Statement,
+			Status:      active.Status,
+			Active:      true,
+			Acceptance:  append([]string(nil), active.Acceptance...),
+			OutOfScope:  append([]string(nil), active.OutOfScope...),
+			Progress:    tailProgressViews(progress, frameProgressLimit),
+			ProgressAll: progress,
+			CreatedAt:   active.CreatedAt,
+			UpdatedAt:   active.UpdatedAt,
+		}},
+	}
+	return view
+}
+
+// goalHistoryViews 把看板存档的收口账本投影成只读 DTO（空账本 → nil：没有条目
+// 就没有条目，不产生空壳）。history **不混进 Stack、也不当 active 那一帧**——
+// 它是"已收口目标"的账本，与活动栈是两个正交的面。
+func goalHistoryViews(archive sessionstore.GoalBoardMeta, hasArchive bool) []dto.GoalHistoryView {
+	if !hasArchive || len(archive.History) == 0 {
+		return nil
+	}
+	views := make([]dto.GoalHistoryView, 0, len(archive.History))
+	for _, entry := range archive.History {
+		views = append(views, dto.GoalHistoryView{
+			GoalID:        entry.GoalID,
+			Title:         entry.Title,
+			Status:        entry.Status,
+			ClosedAt:      entry.ClosedAt,
+			ClosedReason:  entry.ClosedReason,
+			ProgressCount: entry.ProgressCount,
+		})
+	}
+	return views
+}
+
+// goalProgressViews 把看板存档里的打点投影成只读 DTO（空 → nil）。
+func goalProgressViews(items []sessionstore.GoalProgress) []dto.GoalProgressView {
+	if len(items) == 0 {
+		return nil
+	}
+	views := make([]dto.GoalProgressView, 0, len(items))
+	for _, item := range items {
+		views = append(views, dto.GoalProgressView{At: item.At, Kind: item.Kind, Content: item.Content})
+	}
+	return views
+}
+
+// tailProgressViews 取末尾 limit 条（卡片一行摘要用；详情面用全量）。
+func tailProgressViews(items []dto.GoalProgressView, limit int) []dto.GoalProgressView {
+	if limit <= 0 || len(items) <= limit {
+		return items
+	}
+	return items[len(items)-limit:]
 }
