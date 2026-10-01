@@ -111,3 +111,26 @@ test("renderer wires queue actions to the bridge invoke surface", async () => {
   const markup = await readFile(new URL("./index.html", import.meta.url), "utf8");
   assert.match(markup, /id="message-queue"/);
 });
+
+// 动作按钮的 click 委托必须挂在队列宿主上，而不是对话区。排队条是贴输入框上沿的
+// 绝对定位浮层：#message-queue 在 index.html 里是 #conversation / #conversation-shell
+// 的兄弟节点，压根不进对话滚动区——委托挂在 elements.conversation 上时，上移 / 下移 /
+// 撤回三颗按钮的 click 不会冒泡到对话区，三个动作会静默失效（「队列的东西回退不了」）。
+// 这条断言钉的是**宿主元素表达式**本身（不只是 [data-queue-action] 这个选择器字符串，
+// 否则搬不搬家都能过）：从动作选择器往回找最近的那条 click 委托，看它挂在谁身上。
+test("delegates queue actions on the queue host, not the conversation transcript", async () => {
+  const script = await readFile(new URL("./app.js", import.meta.url), "utf8");
+  const marker = script.indexOf("[data-queue-action]");
+  assert.ok(marker > 0, "app.js must delegate queued message actions");
+  const hosts = [...script.slice(0, marker).matchAll(/elements(?:\["[^"]+"\]|\.[A-Za-z0-9_]+)\.addEventListener\("click"/g)];
+  const host = hosts.at(-1)?.[0];
+  assert.equal(
+    host,
+    'elements["message-queue"].addEventListener("click"',
+    "queue actions must be delegated from the queue host (#message-queue), not from #conversation"
+  );
+  // 队列宿主与对话区在 index.html 里是兄弟节点：这也是「委托必须挂在队列宿主上」的物理理由。
+  const markup = await readFile(new URL("./index.html", import.meta.url), "utf8");
+  assert.match(markup, /<\/div>\s*(?:<!--[\s\S]*?-->\s*)?<div id="message-queue"/, "#message-queue must sit outside the conversation scroll area");
+});
+

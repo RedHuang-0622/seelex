@@ -820,7 +820,12 @@ async function refreshPromptInjection() {
 // 队列条目的编辑动作（上移 / 下移 / 撤回编辑）：三处动作都只带下标，顺序
 // 事实源在后端会话队列（application/service_queue.go），渲染层不自行改本地
 // 顺序——成功后统一 refresh 拉权威快照，失败把后端错误原样提示。
-elements.conversation.addEventListener("click", async event => {
+//
+// 委托宿主必须是 elements["message-queue"]（输入框正上方那一层），不能是
+// elements.conversation：宿主 #message-queue 在 index.html 里是 #conversation /
+// #conversation-shell 的兄弟节点，排队条压根不在对话滚动区内，按钮的 click 不会
+// 冒泡到对话区——挂在对话区上时上移/下移/撤回三颗按钮全死（现场「队列的东西回退不了」）。
+elements["message-queue"].addEventListener("click", async event => {
   const button = event.target.closest?.("[data-queue-action]");
   if (!button || button.disabled) return;
   event.preventDefault();
