@@ -196,7 +196,8 @@ func TestRealAPITeamWorkContentLiveProbe(t *testing.T) {
 	}
 	conv := teamWorkConversationFacts(snapFinal.Conversation, marker)
 	report["final_conversation"] = conv
-	// 判据 C：可见会话里 tl 行是否带 role_name（前端 roleIdentity 的数据源）。
+	// 判据 C：ADVISOR（tl）不进可见对话（2026-10-01 口径修正）——conversation 里
+	// 不应出现 role_name=tl 的行；它的回合原文只在 tl 角色会话（role.snapshot）里。
 	tlRows, rolesSeen := 0, map[string]int{}
 	for _, message := range snapFinal.Conversation {
 		rolesSeen[message.RoleName]++
@@ -216,7 +217,7 @@ func TestRealAPITeamWorkContentLiveProbe(t *testing.T) {
 		"tl_input_has_work_content": inputHasMarker,
 		"tl_input_has_work_frame":   inputHasWorkFrame,
 		"view_floor_role_filled":    viewAfter.FloorRole != "",
-		"conversation_has_tl_rows":  tlRows > 0,
+		"conversation_has_tl_rows":  tlRows > 0, // 期望 false：ADVISOR 不进对话
 	}
 	report["verdict"] = verdict
 	t.Logf("[verdict] %+v", verdict)
@@ -236,6 +237,9 @@ func TestRealAPITeamWorkContentLiveProbe(t *testing.T) {
 		}
 		if viewAfter.FloorRole == "" {
 			t.Fatalf("team.view.floor_role 未被填充（floor 没有出口；role.snapshot floor=%+v）", tlSnapshot.Floor)
+		}
+		if tlRows != 0 {
+			t.Fatalf("ADVISOR 的行出现在可见对话里（%d 行；ADVISOR 不进对话）：%+v", tlRows, snapFinal.Conversation)
 		}
 	}
 

@@ -45,22 +45,12 @@ type goalCoordinator struct {
 	mu       sync.Mutex
 	deps     goalCoordinatorDeps
 	sessions map[string]*goalSessionRuntime
-
-	// injections 是"已注入引擎受信区、待可见回放"的指令（回合尾回放，见
-	// Service.injectGoalDirectivesFor）。
-	injections map[string][]goaldomain.TLDirective
-	// published 记录"已回放进可见会话"的指令 corr（每会话一集）：指令产出的那一
-	// 回合就要可见（Service.publishPendingGoalDirectivesFor），而下一次回合的
-	// 常规回放不能把它再写一遍（corr 幂等）。
-	published map[string]map[string]bool
 }
 
 func newGoalCoordinator(deps goalCoordinatorDeps) *goalCoordinator {
 	return &goalCoordinator{
-		deps:       deps,
-		sessions:   make(map[string]*goalSessionRuntime),
-		injections: make(map[string][]goaldomain.TLDirective),
-		published:  make(map[string]map[string]bool),
+		deps:     deps,
+		sessions: make(map[string]*goalSessionRuntime),
 	}
 }
 
@@ -307,48 +297,10 @@ func goalStackFrames(stack []*goaldomain.GoalRecord) []dto.GoalFrameView {
 	return frames
 }
 
-// DirectivePublished 报告该 corr 的指令是否已回放进可见会话（corr 幂等去重）。
-func (g *goalCoordinator) DirectivePublished(sessionID, corr string) bool {
-	if corr == "" {
-		return false
-	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.published[sessionID][corr]
-}
-
-// MarkDirectivePublished 记录一条指令已回放进可见会话（回合结束时记，下一次
-// 回合的常规回放据此跳过它，避免同一裁决出现两行）。
-func (g *goalCoordinator) MarkDirectivePublished(sessionID, corr string) {
-	if corr == "" {
-		return
-	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.published[sessionID] == nil {
-		g.published[sessionID] = make(map[string]bool)
-	}
-	g.published[sessionID][corr] = true
-}
-
-// NoteInjected 记录一次已注入引擎受信区的 TL 指令（回合尾可见区回放）。
-func (g *goalCoordinator) NoteInjected(sessionID string, directives []goaldomain.TLDirective) {
-	if len(directives) == 0 {
-		return
-	}
-	g.mu.Lock()
-	g.injections[sessionID] = append(g.injections[sessionID], directives...)
-	g.mu.Unlock()
-}
-
-// TakeInjected 取走（并清空）该会话已注入受信区的 TL 指令。
-func (g *goalCoordinator) TakeInjected(sessionID string) []goaldomain.TLDirective {
-	g.mu.Lock()
-	directives := g.injections[sessionID]
-	delete(g.injections, sessionID)
-	g.mu.Unlock()
-	return directives
-}
+// ADVISOR 的可见回放记账（DirectivePublished / MarkDirectivePublished /
+// NoteInjected / TakeInjected）已删除（2026-10-01 口径修正）：裁决不再回放进可见
+// 会话，"待回放/已回放"这份账本随之失去唯一消费者。裁决只走受信注入与它自己的
+// tl 角色会话。
 
 // goalStepViews 把 goal 域的评审过程步骤投影成只读 DTO（nil 进 → nil 出，
 // 面板不显示空壳）。

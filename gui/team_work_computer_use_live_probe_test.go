@@ -186,33 +186,27 @@ func TestRealAPITeamWorkComputerUseLiveProbe(t *testing.T) {
 			titleMarker, truncateForLog(tlInput, 1200))
 	}
 
-	// 证据三：ADVISOR 裁决**在产出它的那一回合就进可见聊天**（产品改动：
-	// 回放触发点从"下一次用户回合"前移到"指令产出回合的末尾"），并与治理视图
-	// 做语义一致性断言。
+	// 证据三：ADVISOR 的裁决**不进可见聊天**（2026-10-01 口径修正：ADVISOR 是被
+	// 调用的 agent，不是对话席位），裁决原文只从它的角色会话读。
 	//
-	// 2026-09-16 更新（原断言写于 09-14，早于"终态裁决真的收口 goal"修复，也早于
-	// 回放触发点前移）：
-	//   - 旧断言在终态裁决（verdict_done / escalate_human）收口 goal 之后读**在线**
-	//     治理视图（要求 Active=true 且 LastDirective 非空）——把"正确的收口"报成失败；
-	//   - 旧断言等 15 分钟再读裁决，因为裁决过去只在**下一次**用户提交时才被排空注入、
-	//     再在下一次回合尾回放——结构上等不到（这是"探针假阴性"的真因）。
-	// 现在：裁决行在 Submit #2 的回合尾（WaitIdle 返回前）就已回放，读**可见聊天**
-	// （kind=tl_directive + role_name=tl）即为持久事实，无需二次提交、无需长等待。
+	// 沿革：2026-09-16 P1-3 曾把裁决"回放"成可见聊天行（assistant + role_name=tl +
+	// kind=tl_directive，正文是 `[TL 指令 corr-N] <正文>`），本探针当时据此断言"产出
+	// 它的那一回合就可见"。2026-10-01 用户口径修正后该回放撤除——聊天的事实源是
+	// transcript（conversationFromTranscriptLocked 只投影 user/main），因此这里改判
+	// "对话里没有 ADVISOR 行"，裁决 kind 取 tl 角色会话里的回合原文。
 	snapAfter, err := proc.snapshot(ctx)
 	if err != nil {
 		t.Fatalf("Snapshot(证据三): %v", err)
 	}
-	directive, ok := teamWorkAdvisorVerdict(snapAfter.Conversation)
-	if !ok {
-		t.Logf("[headless stderr warnings] %v", forkLiveStderrWarnings(proc.stderr.String()))
-		t.Fatalf("本回合结束后可见聊天里没有 ADVISOR 裁决行（kind=tl_directive + role_name=tl）："+
-			"ADVISOR 回合没跑，或裁决没有在产出它的回合回放（conversation tail=%s）",
-			describeTeamWorkTail(snapAfter.Conversation, 6))
+	if verdict, ok := teamWorkAdvisorVerdict(snapAfter.Conversation); ok {
+		t.Fatalf("ADVISOR 的裁决出现在可见聊天里（ADVISOR 不进对话）：%q", truncateForLog(verdict, 200))
 	}
-	report["tl_directive"] = truncateForLog(directive, 400)
-	// 裁决 kind 取 ADVISOR 回合**原文**（role.snapshot 的 tl 输出 = 裁决 JSON）：
-	// 可见回放行是 `[TL 指令 corr-N] <正文>` 形式，kind 不在正文里。
 	_, advisorOutputs, _ := teamWorkTLRoundRows(tlSnapshot)
+	directive := ""
+	if len(advisorOutputs) > 0 {
+		directive = advisorOutputs[len(advisorOutputs)-1]
+	}
+	report["tl_round_output"] = truncateForLog(directive, 400)
 	directiveKind := teamWorkDirectiveKind(advisorOutputs)
 	report["tl_directive_kind"] = directiveKind
 	govRaw, err := proc.rpc(ctx, "goal.gov_snapshot", map[string]any{})

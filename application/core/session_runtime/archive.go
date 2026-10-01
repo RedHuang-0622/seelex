@@ -291,10 +291,18 @@ func (c *Coordinator) userInputResultRefLocked(sessionID, content string) string
 // 消息（阶段 0：后台会话无独立可见缓冲，transcript 是权威事件源；不读
 // 全局 Snapshot.Conversation）。消息 ID 由事件 Seq 派生（message-%d），
 // 同一会话内唯一，resume 后新消息由 advanceMessageSeq 继续递增不冲突。
+//
+// ADVISOR（role_name=tl）的行**不进这份投影**（2026-10-01 口径修正）：它是被
+// 调用的 agent（goal 终态 gate 的评审者），不是参与对话的席位——裁决只走受信注入
+// 与它自己的 tl 角色会话（前端"评审过程"面板）。行本身仍在 transcript 与角色会话
+// 里（可审计），只是不算"对话"。
 func (c *Coordinator) conversationFromTranscriptLocked(events []model.TranscriptEvent) []model.Message {
 	messages := make([]model.Message, 0, len(events))
 	for _, event := range events {
 		if event.Role == "system" || c.isInternalContent(event.Content) {
+			continue
+		}
+		if event.RoleName == model.RoleNameTL {
 			continue
 		}
 		// 群聊归属随事件一起搬到可见消息：冷恢复后聊天区仍按"哪个 agent 主持

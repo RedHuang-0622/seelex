@@ -34,10 +34,6 @@ goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回
 - `func (g *goalCoordinator) DrainDirectives(sessionID string) []goaldomain.TLDirective` — DrainDirectives 排空该会话 b→a 指令队列（ChatStream 回合边界注入）。
 - `func (g *goalCoordinator) PeekDirectives(sessionID string) []goaldomain.TLDirective` — PeekDirectives 读取该会话待注入的 b→a 指令（不消费）：回合结束时把刚产出的
 - `func goalStackFrames(stack []*goaldomain.GoalRecord) []dto.GoalFrameView` — goalStackFrames 把 Controller 的活动栈投影成逐帧只读视图（栈底→栈顶，末元素
-- `func (g *goalCoordinator) DirectivePublished(sessionID, corr string) bool` — DirectivePublished 报告该 corr 的指令是否已回放进可见会话（corr 幂等去重）。
-- `func (g *goalCoordinator) MarkDirectivePublished(sessionID, corr string)` — MarkDirectivePublished 记录一条指令已回放进可见会话（回合结束时记，下一次
-- `func (g *goalCoordinator) NoteInjected(sessionID string, directives []goaldomain.TLDirective)` — NoteInjected 记录一次已注入引擎受信区的 TL 指令（回合尾可见区回放）。
-- `func (g *goalCoordinator) TakeInjected(sessionID string) []goaldomain.TLDirective` — TakeInjected 取走（并清空）该会话已注入受信区的 TL 指令。
 - `func goalStepViews(steps []goaldomain.TLStep) []dto.GoalStepView` — goalStepViews 把 goal 域的评审过程步骤投影成只读 DTO（nil 进 → nil 出，
 - `func (g *goalCoordinator) GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView` — GoalGovernanceViewFor 组装只读治理视图（无 bundle/无 goal → nil，前端隐藏）。
 
@@ -46,6 +42,10 @@ goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回
 - `func TestGoalCoordinatorSessionIsolation(t *testing.T)` — TestGoalCoordinatorSessionIsolation 验证 P1 会话级协调器：两会话各自
 - `func TestSessionRuntimeCarriesGoalGovernance(t *testing.T)` — TestSessionRuntimeCarriesGoalGovernance 验证 GoalGovernanceView 进入
 - `func (e *stubTLEvaluator) Evaluate(context.Context, goaldomain.TLSessionEmbed) (goaldomain.TLDirective, error)`
+
+### goal_directive_not_in_conversation_test.go
+
+- `func TestAdvisorDirectiveNeverEntersVisibleConversation(t *testing.T)`
 
 ### goal_directive_session_lock_test.go
 
@@ -64,11 +64,6 @@ goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回
 - `func (engine *sessionLockEngine) SetSystemPrompt(string)`
 - `func (engine *sessionLockEngine) SetSystemPromptFor(string, string)`
 - `func TestQueuedRoundMustNotReenterSessionLock(t *testing.T)`
-
-### goal_directive_visible_immediately_test.go
-
-- `func advisorDirectiveRows(messages []Message) []Message` — advisorDirectiveRows 取可见会话里的 ADVISOR 裁决行（kind + 归属双条件：
-- `func TestAdvisorVerdictVisibleInProducingTurn(t *testing.T)`
 
 ### goal_governance_steps_test.go
 
@@ -102,15 +97,11 @@ goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回
 - `func (service *Service) SetGoalTLEvaluator(evaluator goaldomain.TLEvaluator)` — SetGoalTLEvaluator 注入真实 TL 评估器（组合根：seelebridge 账号面 →
 - `func (service *Service) refreshGoalRuntimeProjection(sessionID string)` — refreshGoalRuntimeProjection 在 goal 状态迁移后刷新目标会话的 runtime
 - `func (service *Service) GoalIterationCompleted(ctx context.Context) bool` — GoalIterationCompleted 是 ChatStream OnIterationComplete 的 goal 接线：
-- `func formatDirectiveText(directive goaldomain.TLDirective) string` — formatDirectiveText 是 b→a 指令的**单行可读形式**：引擎受信注入与可见回放
-- `func (service *Service) injectGoalDirectives(sessionID string, directives []goaldomain.TLDirective)` — injectGoalDirectives 把 b→a 指令注入引擎受信区，并登记"待可见回放"：
+- `func formatDirectiveText(directive goaldomain.TLDirective) string` — formatDirectiveText 是 b→a 指令的**单行可读形式**：受信注入是它唯一的落地形式
+- `func (service *Service) injectGoalDirectives(sessionID string, directives []goaldomain.TLDirective)` — injectGoalDirectives 把 b→a 指令注入引擎受信区——这是 ADVISOR 与 EXEC 之间
 - `func (service *Service) injectGoalDirectivesForStart(sessionID string)` — injectGoalDirectivesForStart 在 ChatStream 开始前把 TL 回合产生的指令
 - `func (service *Service) goalAdvanceAfterChat(ctx context.Context)` — goalAdvanceAfterChat 在 ChatStream 返回后的锁外安全点做一次 goal 收尾记账
 - `func (service *Service) dismissTeamWhenGoalClosed(sessionID string)` — dismissTeamWhenGoalClosed 让"干完就走人"成立：目标收口（栈里没有 active goal）
-- `func (service *Service) injectGoalDirectivesFor(sessionID string)` — injectGoalDirectivesFor 在 ChatStream 结束后的锁外安全点，把本回合已注入
-- `func (service *Service) publishPendingGoalDirectivesFor(sessionID string)` — publishPendingGoalDirectivesFor 把治理回合**刚产出**、仍在待注入队列里的
-- `func (service *Service) publishAdvisorDirectiveRows(sessionID string, directives []goaldomain.TLDirective)` — publishAdvisorDirectiveRows 把 b→a 指令以可见 ADVISOR 行写进目标会话：
-- `func (service *Service) advisorRoleSessionID(sessionID string) string` — advisorRoleSessionID 解析 ADVISOR（tl）的角色会话号：按工厂口径
 - `func (service *Service) goalBeginHandler(ctx context.Context, argsJSON string) (string, error)` — goalBeginHandler 是 goal_begin 工具 handler（main.go 注册）。
 - `func authorizeAgentGoalMutation(request goaldomain.UpdateRequest) error` — authorizeAgentGoalMutation 判定"agent 工具面（EXEC / 员工 / 子代理）"是否可以做这次
 - `func (service *Service) goalUpdateHandler(ctx context.Context, argsJSON string) (string, error)` — goalUpdateHandler 是 goal_update 工具 handler（agent 工具面：权限收口见

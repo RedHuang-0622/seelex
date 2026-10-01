@@ -17,7 +17,6 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/application/core/agentteam"
 	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
 )
 
@@ -172,8 +171,9 @@ func (service *Service) refreshGoalRuntimeProjection(sessionID string) {
 //   - 队列提升出来的下一轮：runChat 起手同样注入（提升路径不经过
 //     startChatFor，少了这一处裁决就会晚一整轮）。
 //
-// 可见回放不受影响：回合尾 publishPendingGoalDirectivesFor 用非消费的
-// PeekDirectives，裁决照样在产出它的那一回合就可见。
+// 裁决**不进可见对话**（2026-10-01 口径修正）：ADVISOR 是被调用的 agent，
+// 不是对话席位——受信注入是它与 EXEC 之间唯一的交付通道；评审原文留在它自己的
+// tl 角色会话里（前端"评审过程"面板），不在聊天区冒充一条发言。
 func (service *Service) GoalIterationCompleted(ctx context.Context) bool {
 	sessionID := sessionIDFromContext(ctx)
 	coordinator, err := service.goalCoordinatorFor(sessionID)
@@ -190,29 +190,26 @@ func (service *Service) GoalIterationCompleted(ctx context.Context) bool {
 	return true
 }
 
-// formatDirectiveText 是 b→a 指令的**单行可读形式**：引擎受信注入与可见回放
-// 共用同一份格式（两处各拼一遍字符串必然漂移，corr 是唯一的行标识）。
+// formatDirectiveText 是 b→a 指令的**单行可读形式**：受信注入是它唯一的落地形式
+// （2026-10-01 口径修正后不再有可见回放），corr 是唯一的行标识。
 func formatDirectiveText(directive goaldomain.TLDirective) string {
 	return "[TL 指令 " + directive.Corr + "] " + strings.TrimSpace(directive.Content)
 }
 
-// injectGoalDirectives 把 b→a 指令注入引擎受信区，并登记"待可见回放"：
+// injectGoalDirectives 把 b→a 指令注入引擎受信区——这是 ADVISOR 与 EXEC 之间
+// **唯一**的交付通道（ADVISOR 不进可见对话：它是被调用的 agent，不是对话席位）：
 //
 //   - 注入：以 user 角色写进引擎历史（下一次模型调用就能看到），包在〔〕里
-//     与真实用户输入区分；
-//   - 登记：同一批指令记进 coordinator.injections，回合尾由
-//     injectGoalDirectivesFor 回放进可见会话（引擎历史不是可见投影的事实源）。
+//     与真实用户输入区分。
 func (service *Service) injectGoalDirectives(sessionID string, directives []goaldomain.TLDirective) {
 	for _, directive := range directives {
 		value := "〔" + formatDirectiveText(directive) + "〕"
 		service.appendEngineMessage(sessionID, types.Message{Role: "user", Content: &value})
 	}
-	service.components.goal.NoteInjected(sessionID, directives)
 }
 
 // injectGoalDirectivesForStart 在 ChatStream 开始前把 TL 回合产生的指令
-// 排空并注入引擎受信区（可见副本的两种出口见 injectGoalDirectivesFor 与
-// publishPendingGoalDirectivesFor）。
+// 排空并注入引擎受信区（唯一交付通道；不进可见对话）。
 func (service *Service) injectGoalDirectivesForStart(sessionID string) {
 	if service == nil || service.components.goal == nil {
 		return
@@ -270,81 +267,9 @@ func (service *Service) dismissTeamWhenGoalClosed(sessionID string) {
 	}
 }
 
-// injectGoalDirectivesFor 在 ChatStream 结束后的锁外安全点，把本回合已注入
-// 引擎的 TL 指令回放进可见会话（仅展示，不入 goal 栈）。
-func (service *Service) injectGoalDirectivesFor(sessionID string) {
-	if service == nil || service.components.goal == nil {
-		return
-	}
-	service.publishAdvisorDirectiveRows(sessionID, service.components.goal.TakeInjected(sessionID))
-}
-
-// publishPendingGoalDirectivesFor 把治理回合**刚产出**、仍在待注入队列里的
-// b→a 指令立刻回放进可见会话。
-//
-// 为什么需要它：治理回合（ADVISOR）跑在回合末尾（goalAdvanceAfterChat），它
-// 产出的裁决过去只在**下一次**用户提交时才被排空注入、再在下一次回合尾回放
-// ——用户盯着面板也看不到裁决（2026-09-16 team work 探针实测：等满 15 分钟
-// 仍无行）。现在：裁决在产出它的那一回合就可见。
-//
-// 指令本身不消费（PeekDirectives）：受信注入仍由下一次 ChatStream 前的
-// DrainDirectives 完成，注入语义与时机不变；已回放的 corr 记账在 coordinator
-// 里，下一次回合的常规回放据此去重，同一裁决只出现一行。
-func (service *Service) publishPendingGoalDirectivesFor(sessionID string) {
-	if service == nil || service.components.goal == nil {
-		return
-	}
-	service.publishAdvisorDirectiveRows(sessionID, service.components.goal.PeekDirectives(sessionID))
-}
-
-// publishAdvisorDirectiveRows 把 b→a 指令以可见 ADVISOR 行写进目标会话：
-// role=assistant + role_name=tl + kind=tl_directive（写成 system 行会让聊天区
-// 把它渲染成「系统」，两个 agent 又变回无区别，见
-// visible_role_attribution_test.go）。同一 corr 只写一次：指令产出的那一回合
-// 就该可见，下一次回合的常规回放不得把它再写一遍。
-func (service *Service) publishAdvisorDirectiveRows(sessionID string, directives []goaldomain.TLDirective) {
-	published := make([]goaldomain.TLDirective, 0, len(directives))
-	for _, directive := range directives {
-		if service.components.goal.DirectivePublished(sessionID, directive.Corr) {
-			continue
-		}
-		published = append(published, directive)
-	}
-	if len(published) == 0 {
-		return
-	}
-	// 角色会话号解析走存储读（锁外完成，避免在 ViewMu 里做 I/O）。
-	advisorSessionID := service.advisorRoleSessionID(sessionID)
-	roundID := service.components.tasks.RoleRoundFor(sessionID)
-	service.ViewMu.Lock()
-	for _, directive := range published {
-		origin := MessageOrigin{
-			RoleName: RoleNameTL, RoleSessionID: advisorSessionID,
-			RoundID: roundID, Kind: goaldomain.DirectiveRowKind,
-		}
-		service.appendSessionMessageWithOriginLocked(sessionID, "assistant", formatDirectiveText(directive), nil, origin)
-	}
-	revision := service.bumpLocked()
-	service.ViewMu.Unlock()
-	for _, directive := range published {
-		service.components.goal.MarkDirectivePublished(sessionID, directive.Corr)
-	}
-	service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
-}
-
-// advisorRoleSessionID 解析 ADVISOR（tl）的角色会话号：按工厂口径
-// (主会话, team_id, role_name) 派生，与 goal 回合记录器写入 draft 的会话号同源。
-// 未装配 AgentTeam（旧会话/测试桩）时返回空——不伪造角色会话号。
-func (service *Service) advisorRoleSessionID(sessionID string) string {
-	if service == nil || strings.TrimSpace(sessionID) == "" {
-		return ""
-	}
-	view, err := service.AgentTeamView(sessionID)
-	if err != nil || !view.Configured {
-		return ""
-	}
-	return agentteam.RoleSessionID(sessionID, view.TeamID, RoleNameTL)
-}
+// ADVISOR 的可见回放已删除（2026-10-01 口径修正）：b→a 裁决不再写进可见会话。
+// ADVISOR 是被调用的 agent（终态 gate 的评审者），不是对话席位——裁决只走受信
+// 注入（injectGoalDirectives）与它自己的 tl 角色会话（goal_team_recorder）。
 
 // goalBeginHandler 是 goal_begin 工具 handler（main.go 注册）。
 func (service *Service) goalBeginHandler(ctx context.Context, argsJSON string) (string, error) {

@@ -3,7 +3,10 @@
 // conversationFromTranscriptLocked 把 transcript 事件投影成可见会话消息
 // （落盘 record 的 conversation 子树由它生成，冷恢复后的聊天区也读这份投影）。
 // 它此前只搬 Role/Content/ReasoningContent，丢掉了 R4 的角色归属字段，
-// 于是恢复后的 ADVISOR 行又退化成 AGENT（与实时聊天同样的「没区分」症状）。
+// 于是恢复后的 EXEC 行退化成 AGENT（与实时聊天同样的「没区分」症状）。
+//
+// 2026-10-01 追加：ADVISOR（role_name=tl）的行不进这份投影——它是被调用的 agent
+// （goal 终态 gate 的评审者），不是对话席位。
 package session_runtime
 
 import (
@@ -14,6 +17,10 @@ import (
 
 // TestConversationFromTranscriptPreservesRoleAttribution 钉住事件 → 可见消息
 // 的字段搬运：role_name / role_session_id / round_id / unit_seq 一样都不能丢。
+//
+// 同时钉住 ADVISOR（role_name=tl）的行**不进这份投影**（2026-10-01 口径修正）：
+// 它是被调用的 agent（goal 终态 gate 的评审者），不是对话席位——它的行仍在
+// transcript 与 tl 角色会话里（可审计），但不构成"对话"。
 func TestConversationFromTranscriptPreservesRoleAttribution(t *testing.T) {
 	coordinator := &Coordinator{isInternalContent: func(string) bool { return false }}
 	events := []model.TranscriptEvent{
@@ -23,16 +30,22 @@ func TestConversationFromTranscriptPreservesRoleAttribution(t *testing.T) {
 	}
 
 	messages := coordinator.conversationFromTranscriptLocked(events)
-	if len(messages) != len(events) {
-		t.Fatalf("可见消息数 = %d, want %d（%#v）", len(messages), len(events), messages)
+	want := events[:2]
+	if len(messages) != len(want) {
+		t.Fatalf("可见消息数 = %d, want %d（ADVISOR 行应被排除；%#v）", len(messages), len(want), messages)
 	}
-	for index, want := range events {
+	for index, expected := range want {
 		got := messages[index]
-		if got.RoleName != want.RoleName || got.RoleSessionID != want.RoleSessionID ||
-			got.RoundID != want.RoundID || got.UnitSeq != want.UnitSeq {
+		if got.RoleName != expected.RoleName || got.RoleSessionID != expected.RoleSessionID ||
+			got.RoundID != expected.RoundID || got.UnitSeq != expected.UnitSeq {
 			t.Errorf("消息 %d 归属字段丢失：got role_name=%q role_session_id=%q round=%d unit=%d, want role_name=%q role_session_id=%q round=%d unit=%d",
 				index, got.RoleName, got.RoleSessionID, got.RoundID, got.UnitSeq,
-				want.RoleName, want.RoleSessionID, want.RoundID, want.UnitSeq)
+				expected.RoleName, expected.RoleSessionID, expected.RoundID, expected.UnitSeq)
+		}
+	}
+	for _, message := range messages {
+		if message.RoleName == model.RoleNameTL {
+			t.Fatalf("ADVISOR 的行出现在对话投影里（ADVISOR 不进对话）：%+v", message)
 		}
 	}
 }

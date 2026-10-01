@@ -164,7 +164,7 @@ func TestQueuedRoundMustNotReenterSessionLock(t *testing.T) {
 	bridge.Bind(service)
 	engine.hooks = bridge.Hooks()
 
-	// 第 1 轮：@团队 起手（回合尾会把待注入队列里的指令回放进可见会话）。
+	// 第 1 轮：@团队 起手（回合尾只做 goal 收尾记账；ADVISOR 不进可见对话）。
 	if err := service.Submit(context.Background(), "@goal-a2a 跑一轮再看队列提升"); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -186,13 +186,13 @@ func TestQueuedRoundMustNotReenterSessionLock(t *testing.T) {
 	}
 
 	// 席位轮转退场后回合尾不再自动跑 ADVISOR；直接把一条 b→a 指令放进待注入队列，
-	// 复刻"回合尾有指令待排空 + 回放"的现场——本用例的回归点是**锁纪律**（迭代钩子
-	// 不得再入会话锁），与指令的来源无关。
+	// 复刻"回合尾有指令待排空 + 下一次 ChatStream 起手注入"的现场——本用例的回归点
+	// 是**锁纪律**（迭代钩子不得再入会话锁），与指令的来源无关。
 	service.components.goal.bundleFor("sess-summon").sup.Mailbox().PublishDirective(
 		goaldomain.TLDirective{Corr: "corr-lock-test", Kind: goaldomain.DirectiveCorrect, Content: "先补负路径单测再收口"},
 	)
 
-	// 放行第 1 轮：收尾 → 指令回放进可见会话 → 队列提升开第 2 轮。
+	// 放行第 1 轮：收尾 → 队列提升开第 2 轮（第 2 轮起手做受信注入）。
 	close(engine.release)
 
 	idle := make(chan error, 1)
@@ -218,9 +218,21 @@ func TestQueuedRoundMustNotReenterSessionLock(t *testing.T) {
 	if snapshot.Chat.QueuedCount != 0 {
 		t.Fatalf("提升后队列未排空：%+v", snapshot.Chat)
 	}
-	// 裁决不许被"改成安全注入"顺手吃掉：可见回放通道（transcript 行）照旧，
-	// 下一次 ChatStream 起手才做受信注入（不再在锁内注入）。
-	if text := conversationTexts(snapshot.Conversation); !strings.Contains(strings.Join(text, "\n"), "TL 指令") {
-		t.Fatalf("裁决没有回放进可见会话：%v", text)
+	// ADVISOR 不进可见对话（2026-10-01 口径修正）：聊天区不得出现 ADVISOR 行——
+	// 裁决的交付通道是受信注入（下一次 ChatStream 起手；该通道的回归见
+	// goal_directive_not_in_conversation_test.go），不是"回放一条可见行"。
+	if text := conversationTexts(snapshot.Conversation); strings.Contains(strings.Join(text, "\n"), "TL 指令") {
+		t.Fatalf("ADVISOR 的裁决不该出现在对话里：%v", text)
 	}
+	pending := service.components.goal.PeekDirectives("sess-summon")
+	injected := false
+	for _, message := range engine.History() {
+		if strings.Contains(message.Content, "TL 指令 corr-lock-test") {
+			injected = true
+		}
+	}
+	// 交付事实只记录不断言：本用例的替身引擎按"装配=替换历史"的形态工作
+	// （session 装配在注入之后替换引擎历史），引擎历史不是可靠断言面；这里真正
+	// 钉住的是锁纪律（回合必须收尾）与"ADVISOR 不进对话"。
+	t.Logf("[delivery] 待注入队列剩余=%d；引擎受信区可见=%v", len(pending), injected)
 }

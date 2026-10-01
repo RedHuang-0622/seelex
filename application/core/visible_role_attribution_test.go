@@ -8,8 +8,13 @@
 // 因此应用层必须保证可见会话消息带群聊归属（my_design §8.3）：
 //   - 用户行 = role_name:user；
 //   - EXEC（main）的回合行 = role_name:main；
-//   - ADVISOR（tl）的指令回放 = assistant 行 + role_name:tl（不是 system 行）；
 //   - 同一轮的行共享 round_id（前端 R 徽标）。
+//
+// ADVISOR（tl）**没有对话行**（2026-10-01 口径修正）：它是被调用的 agent（goal
+// 终态 gate 的评审者），不是对话席位——裁决只走受信注入与它自己的 tl 角色会话。
+// 原先钉住"TL 指令回放 = assistant 行 + role_name:tl"的用例
+// （TestTeamDirectiveReplayCarriesAdvisorIdentity）随之删除；取而代之的回归见
+// goal_directive_not_in_conversation_test.go。
 package core
 
 import (
@@ -18,7 +23,6 @@ import (
 	"strings"
 	"testing"
 
-	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
 	"github.com/RedHuang-0622/seelex/session"
 )
 
@@ -66,36 +70,6 @@ func TestVisibleConversationCarriesRoleAttribution(t *testing.T) {
 		if !strings.Contains(string(payload), want) {
 			t.Errorf("前端载荷缺 %s：%s", want, payload)
 		}
-	}
-}
-
-// TestTeamDirectiveReplayCarriesAdvisorIdentity 复现 ADVISOR 不可辨：TL 回合的
-// 指令回放此前以 role=system 写进可见会话，前端渲染成「系统」。它必须是一条
-// assistant 行 + role_name:tl，前端才会按 ADVISOR 归属。
-func TestTeamDirectiveReplayCarriesAdvisorIdentity(t *testing.T) {
-	service := newTestService(t, &fakeEngine{})
-	const sessionID = "session-team"
-	const directive = "先补负路径单测再收口"
-
-	service.components.goal.NoteInjected(sessionID, []goaldomain.TLDirective{
-		{Kind: goaldomain.DirectiveCorrect, Corr: "tl-1", Content: directive},
-	})
-	service.injectGoalDirectivesFor(sessionID)
-
-	replay := visibleMessage(t, visibleConversationFor(service, sessionID), func(message Message) bool {
-		return strings.Contains(message.Content, directive)
-	})
-	if replay.Role != "assistant" {
-		t.Errorf("TL 指令回放 role = %q, want %q（system 行在聊天区渲染成「系统」，不是 ADVISOR）",
-			replay.Role, "assistant")
-	}
-	if replay.RoleName != "tl" {
-		t.Errorf("TL 指令回放 role_name = %q, want %q", replay.RoleName, "tl")
-	}
-	// kind 是"这条行是裁决"的机器可读标识（轨迹区分类与探针取行都靠它，
-	// 不靠正文措辞）。
-	if replay.Kind != goaldomain.DirectiveRowKind {
-		t.Errorf("TL 指令回放 kind = %q, want %q", replay.Kind, goaldomain.DirectiveRowKind)
 	}
 }
 
