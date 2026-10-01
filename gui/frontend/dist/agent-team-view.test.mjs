@@ -16,9 +16,13 @@ import {
   renderRoleSessionSwitcher,
   renderTeamMemberList,
   roleDisplayName,
+  roleKindLabel,
   teamEditorPanel,
+  teamEntryFromMembers,
   teamGlobalDrift,
   teamMemberNames,
+  teamMemberSpecMap,
+  teamRoleSpec,
   toolsPolicyLabel
 } from "./agent-team-view.js";
 
@@ -236,6 +240,119 @@ test("teamMemberNames / renderTeamMemberList keep the team's own order without p
   assert.match(list, /data-team-member-remove="tl"/);
   assert.match(renderTeamMemberList([], []), /team-member-empty/);
   assert.match(renderTeamMemberList(null, null), /team-member-empty/);
+});
+
+// ── 团队成员的 RoleSpec：生态位（形态）/ 人的档案（员工库·条目）────────
+//
+// 回归背景（真事）：团队面板只搬 role_name/role_kind/tools_policy/system_prompt，
+// 保存一支 goal-a2a 就把 tl 的 techlead 规格降级成 agent —— 装配后按 RoleKind 派生
+// 座位（seatPlan：techlead → ADVISOR）的评审座位当场没了。下面这几条把"不许再丢字段"
+// 钉住。
+
+const goalPreset = {
+  team_kind: "goal-a2a",
+  order_policy: "goal_loop",
+  gate_policy: "goal_finish_gate",
+  compact_policy: "main_authoritative",
+  roles: [{
+    role_name: "tl",
+    role_kind: "techlead",
+    join_policy: "on_goal_create",
+    presence_policy: "online_when_goal_active",
+    tools_policy: "readonly",
+    directive_schema: ["verdict_done", "verdict_not_done", "escalate_human"]
+  }]
+};
+
+test("teamMemberSpecMap：生态位取自团队形态，人的档案取自员工库 / 条目", () => {
+  const pool = [
+    { roleName: "tl", roleKind: "agent", toolsPolicy: "readwrite", permissionGroups: { ro: 4, rw: 2 }, systemPrompt: "你是技术负责人" },
+    { roleName: "worker", roleKind: "agent", toolsPolicy: "readwrite" }
+  ];
+  const specs = teamMemberSpecMap(["tl", "worker"], { preset: goalPreset, pool });
+  // 形态定义 tl 的生态位：techlead + goal 上线入顺序 + verdict 指令集。
+  assert.equal(specs.tl.role_kind, "techlead");
+  assert.equal(specs.tl.join_policy, "on_goal_create");
+  assert.equal(specs.tl.presence_policy, "online_when_goal_active");
+  assert.deepEqual(specs.tl.directive_schema, ["verdict_done", "verdict_not_done", "escalate_human"]);
+  // 人的档案以员工库那一份为准：权限是用户给这个人登记的，不被形态的 readonly 覆盖。
+  assert.equal(specs.tl.tools_policy, "readwrite");
+  assert.deepEqual(specs.tl.permission_groups, { ro: 4, rw: 2 });
+  assert.equal(specs.tl.system_prompt, "你是技术负责人");
+  // 形态里没有的角色整体走员工库那一份，并且不编造没登记的字段。
+  assert.equal(specs.worker.role_kind, "agent");
+  assert.equal(specs.worker.join_policy, undefined);
+});
+
+test("teamMemberSpecMap：编辑被降级过的条目时生态位回到形态", () => {
+  const degraded = {
+    team_id: "goal-a2a",
+    team_kind: "goal-a2a",
+    order_roles: ["user", "main", "tl"],
+    roles: [{ role_name: "tl", role_kind: "agent", tools_policy: "readwrite" }]
+  };
+  const specs = teamMemberSpecMap(["tl"], { entry: degraded, preset: goalPreset, pool: [] });
+  assert.equal(specs.tl.role_kind, "techlead");
+  assert.equal(specs.tl.join_policy, "on_goal_create");
+  assert.equal(specs.tl.tools_policy, "readwrite");
+});
+
+test("teamEntryFromMembers 带上整份 RoleSpec 与形态级策略（丢一个字段就是丢一个座位）", () => {
+  const entry = teamEntryFromMembers({
+    teamID: "goal-a2a",
+    teamKind: "goal-a2a",
+    name: "goal-a2a",
+    orderPolicy: "goal_loop",
+    gatePolicy: "goal_finish_gate",
+    compactPolicy: "main_authoritative",
+    members: [
+      { roleName: "tl", spec: { role_kind: "techlead", join_policy: "on_goal_create", tools_policy: "readwrite", directive_schema: ["verdict_done"] } },
+      { roleName: "worker", spec: { role_kind: "agent", tools_policy: "readwrite", system_prompt: "干活" } }
+    ]
+  });
+  assert.equal(entry.team_id, "goal-a2a");
+  assert.deepEqual(entry.order_roles, ["user", "main", "tl", "worker"]);
+  assert.deepEqual(entry.roles[0], {
+    role_name: "tl",
+    role_kind: "techlead",
+    join_policy: "on_goal_create",
+    tools_policy: "readwrite",
+    directive_schema: ["verdict_done"]
+  });
+  assert.deepEqual(entry.roles[1], { role_name: "worker", role_kind: "agent", tools_policy: "readwrite", system_prompt: "干活" });
+  assert.equal(entry.gate_policy, "goal_finish_gate");
+  assert.equal(entry.compact_policy, "main_authoritative");
+});
+
+test("teamRoleSpec 只收登记过的值：空 / 空数组不算事实", () => {
+  assert.deepEqual(teamRoleSpec({ role_kind: "agent", join_policy: "", directive_schema: [], order_priority: 0, presence_policy: "online" }), { role_kind: "agent", presence_policy: "online" });
+  assert.deepEqual(teamRoleSpec(null), {});
+});
+
+test("roleKindLabel 未知生态位原样显示，不折成 agent", () => {
+  assert.equal(roleKindLabel("techlead"), "TL");
+  assert.equal(roleKindLabel("agent"), "agent");
+  assert.equal(roleKindLabel("leader"), "leader");
+  assert.equal(roleKindLabel(""), "");
+});
+
+test("团队编辑器把成员生态位与形态策略带进草稿", () => {
+  const html = teamEditorPanel(normalizeAgentTeam(goalView), normalizeTeamLibrary(library).teams[0], presets);
+  // 成员行带生态位（可见 chip + 可回读的载荷），行序即发言顺序。
+  assert.match(html, /data-team-member-kind="agent"/);
+  assert.match(html, /class="chip team-member-kind"[^>]*>agent</);
+  assert.match(html, /data-team-member-spec="[^"]*&quot;role_kind&quot;:&quot;agent&quot;/);
+  // 形态级策略进表单（表单里没有编辑入口，但保存时要原样送回后端）。
+  assert.match(html, /data-team-form-gate/);
+  assert.match(html, /data-team-form-compact/);
+  assert.match(html, /data-team-form-shape/);
+});
+
+test("团队库行只说顺序策略、真实顺序进 title（不再承诺写死的班底）", () => {
+  const html = renderAgentTeam(goalView, presets, library);
+  assert.doesNotMatch(html, /固定循环 user → main ↔ TL/);
+  assert.match(html, /实际顺序：user → main → auditor/);
+  assert.match(html, /1 人 · 由 user \/ main 编排/);
 });
 
 // ── 排序纯函数 ────────────────────────────────────────────────

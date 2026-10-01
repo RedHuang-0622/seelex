@@ -63,7 +63,7 @@ flowchart TB
 | `dist/themes/` | 内置皮肤包 + `manifest.json`（schema 2：`skins[]` + `modes[]`）：皮肤只覆盖**品牌 token**（主信号 + 环境渐变，8 个 `--skin-*`），中性基座由深浅在 `styles.css` 提供（契约与 token 清单见 `themes/README.md`），皮肤不写选择器、不用 `!important`、不引远程资源。 |
 | `dist/vendor/` | 第三方资源落盘区（无 CDN、随包嵌入）：`pico.min.css` 组件库、`marked`、`highlight.js`、`DOMPurify`、`docx-preview`、`PDF.js`、`xterm/`（终端仿真器 + 容器自适应插件，见 `vendor/xterm/README.md`）。版本与许可登记见 `vendor/README.md`。 |
 | `dist/plan-dsl.js` | Plan JSON DSL 归一化、DAG → 树状布局（节点详情弹窗数据面）、节点详情弹窗。树轨事实是 `treeIsLast`/`treeAncestors`（末子标记 + 各层祖先是否续行），由 `tree-fork.treeRowAttrs` 画成缩进轨；子代理树同一套。 |
-| `dist/agent-team-view.js` | Agent Team 面板渲染（右侧栏 · 状态 → Agent Team）：**分成「员工库」（可用员工 = 全局母本 ∪ 本会话在编，行首 ≡ 拖进发言顺序，来源 chip 标 `库` / `本会话`，行内 新建 / 编辑 / 删除 / 入库）、「团队库」（一行一支用户团队，团队名是按钮 → 打开「这一支」的团队面板；行内 装配 / ✕；内置形态退成表下一行 chip）、「员工栏」（在编员工 + 发言顺序，行首手柄拖拽调序，三列表：身份 / 位置 / 操作）、「发言调度」（运行态顺序串珠条：序号 + 身份，发言中 / 下一个各占一档高亮，轮次徽标 + 席位/收束一行 meta）**；入职与修改员工、新建与编辑团队都是**冷加载面板**（`hirePanel` / `teamEditorPanel`，点 + / 团队名才注入 slot，字段按 身份 / 编排 / 能力 / 提示词 分节条目化，✕ 图标 / Esc 关闭），团队面板的成员表（`renderTeamMemberList`）行序即发言顺序、可 ✕ 移除、可拖拽调序、可承接从员工库拖来的行。数据源是 Application API（`Bridge.AgentTeamPresets/View/Library/GlobalConfig/SaveTeam/DeleteTeam/MaterializeTeam/PutRole/DeleteRole/SetOrder/InstantiateRole/SaveEmployee/DeleteEmployee/OptimizePrompt` 等）。各份事实各有归属：发言顺序 = 会话 `lifecycle.order_policy/order_roles`，员工配置（提示词/权限）= 会话角色注册表，团队库 / 员工库 / 默认顺序 = **全局**母本（数据根下 `team/`，会话读的是深拷贝副本）；本模块不缓存顺序、不做乐观重排——每次动作后重拉视图（纯函数 `employeePool` / `teamMemberNames` / `nextAgentTeamOrder` / `agentTeamOrderForDrag` / `teamGlobalDrift` 供共用）。 |
+| `dist/agent-team-view.js` | Agent Team 面板渲染（右侧栏 · 状态 → Agent Team）：**分成「员工库」（可用员工 = 全局母本 ∪ 本会话在编，行首 ≡ 拖进发言顺序，来源 chip 标 `库` / `本会话`，行内 新建 / 编辑 / 删除 / 入库）、「团队库」（一行一支用户团队，团队名是按钮 → 打开「这一支」的团队面板；行内 装配 / ✕；内置形态退成表下一行 chip）、「员工栏」（在编员工 + 发言顺序，行首手柄拖拽调序，三列表：身份 / 位置 / 操作）、「发言调度」（运行态顺序串珠条：序号 + 身份，发言中 / 下一个各占一档高亮，轮次徽标 + 席位/收束一行 meta）**；入职与修改员工、新建与编辑团队都是**冷加载面板**（`hirePanel` / `teamEditorPanel`，点 + / 团队名才注入 slot，字段按 身份 / 编排 / 能力 / 提示词 分节条目化，✕ 图标 / Esc 关闭），团队面板的成员表（`renderTeamMemberList`）行序即发言顺序、可 ✕ 移除、可拖拽调序、可承接从员工库拖来的行。数据源是 Application API（`Bridge.AgentTeamPresets/View/Library/GlobalConfig/SaveTeam/DeleteTeam/MaterializeTeam/PutRole/DeleteRole/SetOrder/InstantiateRole/SaveEmployee/DeleteEmployee/OptimizePrompt` 等）。各份事实各有归属：发言顺序 = 会话 `lifecycle.order_policy/order_roles`，员工配置（提示词/权限）= 会话角色注册表，团队库 / 员工库 / 默认顺序 = **全局**母本（数据根下 `team/`，会话读的是深拷贝副本）；本模块不缓存顺序、不做乐观重排——每次动作后重拉视图（纯函数 `employeePool` / `teamMemberNames` / `nextAgentTeamOrder` / `agentTeamOrderForDrag` / `teamGlobalDrift` / `teamRoleSpec` / `teamMemberSpecMap` / `teamEntryFromMembers` 供共用）。团队库条目存的是**整套 `dto.RoleSpec`**：成员行把这份规格挂在 `data-team-member-spec` 上跟着行走，保存时按行序写回；生态位（`role_kind` / `join_policy` / `presence_policy` / `directive_schema`）以团队形态为准，人的档案（提示词 / 权限 / 模型）以员工库为准，形态级 `gate_policy` / `compact_policy` 随形态带入——面板不再只搬 4 个字段（那会把 goal-a2a 的 tl 从 techlead 降级成 agent，装配后 `seatPlan` 就不再派生 ADVISOR 座位）。 |
 | `dist/todo-view.js` | todolist 渲染组件（数据源 `runtime.todo_items` 权威投影；仍供测试与复用，右侧工作台已由工作表格接管）。 |
 | `dist/work-table.js` | 工作表格视图（弹窗内完整多维表格：阶段/任务/描述/状态/Assignee/Dependency/附件）、批次分片（批次 = chat 请求，批次头可折叠 + 各类计数）、筛选（全部/Plan/Task/Todo/Subagent，按权威 kind）、行内打点、todo 三态更新、retry 计数（RETRY n）、plan/subagent 详情入口；行区独立滚轮滚动（表头吸顶）+ 分页查看（每页 10/20/50，页码钳制）；section/行两级 keyed reconciliation + html 缓存；`workTableSignatures`/`countUnread` 提供未读角标判据。 |
 | `dist/tree-fork.js` | 树 / 分叉的统一渲染件（VS Code 观感，纯函数）。两件事：① `treeRowAttrs` 把「层级 + 是否末子 + 祖先是否续行」折算成树轨的 class/行内 style——祖先续行轨 = 行内 1px `linear-gradient` 背景（每层一道），自身连接轨 = `::before`（末子圆角弯头 / 非末子整行竖线），**零额外 DOM**；② `layoutCommitGraph` 把 git 的 parents 拓扑算成泳道（`rows[].lane` + 每行线段 + `dropped`），`commitGraphRowHTML` 逐行画 SVG（直线 / 合并贝塞尔 + 提交点），泳道色走 `--fork-lane-0..5`。像素几何只有一份（`railOffset`/`laneCenter`），CSS 只负责画，换肤只换 token。 |
@@ -334,9 +334,21 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
   决定提交走 `AgentTeamSaveEmployee`（员工库，不装配）还是
   `AgentTeamInstantiateRole`（当前会话入职）。
   **团队面板的成员表**（`renderTeamMemberList`）：行序即发言顺序，行上带序号 + 身份
-  + 「✕ 移除」，整行可拖拽调序；也能**从员工库把行拖进来**（落点在某位成员上 = 插
-  到它之前）。行序在提交时由 `agentTeamEntryFromForm` 序列化成
-  `order_roles`（`user → main → 成员`）——成员顺序是团队库条目的一部分。
+  + 生态位 chip（`role_kind` 的短标签）+ 「✕ 移除」，整行可拖拽调序；也能**从员工库
+  把行拖进来**（落点在某位成员上 = 插到它之前）。行序在提交时由
+  `agentTeamEntryFromForm` 序列化成 `order_roles`（`user → main → 成员`）——成员顺序
+  是团队库条目的一部分。
+  **成员带的是整份 RoleSpec，不是只有名字**（`teamRoleSpec` / `teamMemberSpecMap` /
+  `teamEntryFromMembers`）：每行把这份规格挂在 `data-team-member-spec` 上跟着行走
+  （加人 / 删人 / 调序重绘都不丢），保存时按行序写回条目。归属两条口径——
+  **生态位**（`role_kind` / `join_policy` / `presence_policy` / `directive_schema` /
+  `order_priority`）由**团队形态 preset** 定义（goal-a2a 的 tl 就是 techlead +
+  `on_goal_create` + verdict 指令集；`seatPlan` 按 RoleKind 派生座位，techlead 才有
+  ADVISOR 评审座位）；**人的档案**（提示词 / 权限档 / 逐格权限 / 模型档）由员工库 /
+  本会话在编定义，条目里存过的那份次之。形态级 `gate_policy` / `compact_policy` 表单
+  里没有编辑入口，随形态带入、原样保存（`data-team-form-gate` / `data-team-form-compact`）。
+  团队库行的「规模」只说"几个人 + 什么顺序策略"，**真实顺序进 title**——策略名不承诺
+  班底（成员表可以加工人，写死 "user → main ↔ TL" 就是一句和事实不符的话）。
 - **提示词优化**：员工面板里的「优化提示词」按钮调 `Bridge.AgentTeamOptimizePrompt`
   （一次有界 LLM 回合），结果只渲染成候选 + 改动理由，点「应用到提示词」才写回
   输入框；落盘仍走「入职 / 保存修改」。

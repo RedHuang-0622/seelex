@@ -31,6 +31,14 @@ const ROLE_KIND_LABEL = {
   timer: "定时"
 };
 
+// roleKindLabel 是 RoleKind 的短标签（成员行 / 详情用）。未知取值**原样显示**，
+// 不折成 agent：后端加新生态位时，前端把它显示成 agent 就是把事实说错。
+export function roleKindLabel(kind) {
+  const value = String(kind || "").trim();
+  if (!value) return "";
+  return ROLE_KIND_LABEL[value] || value;
+}
+
 // roleDisplayName 把逻辑角色名映射成用户可读的 agent 身份：DS-A2A 里
 // main 是 EXEC（执行会话 a），tl/techlead 是 ADVISOR（评审会话 b）。
 // 两个 agent 的正文此前都渲染成同一个 AGENT/Seelex，用户无法区分。
@@ -48,8 +56,11 @@ function shortID(value) {
   return text.length > 12 ? `${text.slice(0, 12)}…` : text;
 }
 
+// POLICY_LABEL 只说"谁决定顺序"这条策略本身，**不承诺成员班底**：一支 goal_loop
+// 团队的成员由条目/形态决定（成员表可以直接加工人），写死 "user → main ↔ TL"
+// 会让加过成员的团队在库里显示一句与事实不符的话。真实顺序挂在行 title 上。
 const POLICY_LABEL = {
-  goal_loop: "固定循环 user → main ↔ TL",
+  goal_loop: "固定循环",
   user_main_decided: "由 user / main 编排",
   scheduled_only: "仅定时插话"
 };
@@ -240,6 +251,10 @@ export function normalizeTeamLibrary(library) {
         orderPolicy: typeof entry.order_policy === "string" ? entry.order_policy : "",
         orderRoles: Array.isArray(entry.order_roles) ? entry.order_roles.filter(name => typeof name === "string" && name) : [],
         origin: typeof entry.origin === "string" ? entry.origin : "",
+        // 门禁 / 压缩是团队形态级策略，条目里存着（dto.TeamLibraryEntry）。归一化漏掉
+        // 它们 = 面板看不见、保存时清空：编辑一次就把这支团队的门禁口径抹了。
+        gatePolicy: typeof entry.gate_policy === "string" ? entry.gate_policy : "",
+        compactPolicy: typeof entry.compact_policy === "string" ? entry.compact_policy : "",
         roles: normalizeRoleSpecs(entry.roles)
       }))
   };
@@ -372,7 +387,11 @@ function normalizeRoleSpecs(items) {
       permissionGroups: normalizePermissionGroups(item.permission_groups),
       modelPolicy: typeof item.model_policy === "string" ? item.model_policy : "",
       joinPolicy: typeof item.join_policy === "string" ? item.join_policy : "",
-      presencePolicy: typeof item.presence_policy === "string" ? item.presence_policy : ""
+      presencePolicy: typeof item.presence_policy === "string" ? item.presence_policy : "",
+      // 生态位的两个字段（dto.RoleSpec 里有，座位派生与治理指令集读它们）：
+      // 归一化不认识它们 = 团队面板看不见、保存时丢。
+      directiveSchema: Array.isArray(item.directive_schema) ? item.directive_schema.filter(step => typeof step === "string" && step) : [],
+      orderPriority: Number.isInteger(item.order_priority) ? item.order_priority : 0
     }));
 }
 
@@ -473,12 +492,15 @@ function teamLibraryBlock(team, presets, library) {
   const rows = library.teams.map(entry => {
     const members = entry.roles.length;
     const active = entry.teamKind === team.teamKind;
+    // 规模列只说"几个人 + 什么顺序策略"（策略名不承诺班底），**真实顺序**进 title：
+    // 成员表是可编辑的草稿，行里那句写死的 "user → main ↔ TL" 早就不是事实了。
+    const orderText = (Array.isArray(entry.orderRoles) ? entry.orderRoles : []).filter(Boolean).join(" → ") || "—";
     return teamRow([
       `<span class="team-staff-main">
         <button type="button" class="text-button team-library-name" data-team-edit-team="${escapeHtml(entry.teamID)}" data-tip="打开团队面板：成员与发言顺序 / 从员工库加人 / 保存" aria-label="打开团队 ${escapeHtml(entry.teamID)}">${escapeHtml(entry.name || entry.teamID)}</button>
         <span class="chip">${escapeHtml(entry.teamKind || "team")}</span>
       </span>`,
-      `<span class="team-library-meta" title="角色数 / 顺序策略">${members} 人 · ${escapeHtml(POLICY_LABEL[entry.orderPolicy] || entry.orderPolicy || "—")}</span>`,
+      `<span class="team-library-meta" title="${escapeHtml(`角色数 / 顺序策略；实际顺序：${orderText}`)}">${members} 人 · ${escapeHtml(POLICY_LABEL[entry.orderPolicy] || entry.orderPolicy || "—")}</span>`,
       `<span class="team-library-actions">
         <button type="button" class="text-button" data-team-materialize-team="${escapeHtml(entry.teamID)}"${active ? ' title="重复装配是幂等的，不会新建第二个角色会话"' : ' data-tip="把这支团队装配到当前会话"'}>${active ? "已装配" : "装配"}</button>
         <button type="button" class="image-button" data-team-delete-team="${escapeHtml(entry.teamID)}" aria-label="从团队库删除 ${escapeHtml(entry.teamID)}" data-tip="从团队库删除">${icon("close", 12)}</button>
@@ -703,20 +725,164 @@ export function teamMemberNames(entry) {
   return names;
 }
 
+// ── 团队成员带哪一份 RoleSpec（"生态位 vs 人"）────────────────────────
+//
+// 后端团队库条目存的是**整套 RoleSpec**（dto.TeamLibraryEntry.Roles），不只角色名。
+// 团队面板此前只搬 role_name/role_kind/tools_policy/system_prompt，于是"保存团队"
+// 这一步就把其余字段静默丢掉：一支 goal-a2a 存回库里时，tl 的 techlead 规格
+// （role_kind + join_policy/presence_policy/directive_schema）降级成 agent ——
+// 装配后座位派生按 RoleKind 走（seatPlan：techlead → ADVISOR 座位，agent → 员工
+// 执行面座位），ADVISOR 就这么没了。
+//
+// 两条口径，别混：
+//   - **生态位**（role_kind / join_policy / presence_policy / directive_schema /
+//     order_priority）由**团队形态 preset**定义：goal-a2a 的 tl 就是 techlead +
+//     on_goal_create + online_when_goal_active + verdict 指令集；
+//   - **人**（系统提示词 / 权限档 / 逐格权限 / 模型档）由**员工库 / 本会话在编**定义，
+//     没登记的才回落到条目里已存的那一份。
+// 表单里没暴露的字段（门禁 / 压缩策略）属于形态，随形态带入、原样保存。
+export const TEAM_ROLE_SPEC_FIELDS = [
+  "role_kind",
+  "join_policy",
+  "presence_policy",
+  "directive_schema",
+  "order_priority",
+  "tools_policy",
+  "permission_groups",
+  "model_policy",
+  "system_prompt"
+];
+
+// 生态位字段（形态优先的那一组）：其余字段算"人的档案"。
+const TEAM_SEAT_FIELDS = ["role_kind", "join_policy", "presence_policy", "directive_schema", "order_priority"];
+
+// 字段两种拼法都认，输出一律是**协议拼法**（snake_case）：Bridge 下发的 preset 是
+// snake_case，前端归一化后的库条目 / 员工池 / 在编是 camelCase，团队面板同时消费
+// 这两种来源——只认一种就是把另一半来源的字段当"没登记"丢掉。
+const ROLE_SPEC_ALIASES = {
+  role_kind: "roleKind",
+  join_policy: "joinPolicy",
+  presence_policy: "presencePolicy",
+  directive_schema: "directiveSchema",
+  order_priority: "orderPriority",
+  tools_policy: "toolsPolicy",
+  permission_groups: "permissionGroups",
+  model_policy: "modelPolicy",
+  system_prompt: "systemPrompt"
+};
+
+// teamRoleNameOf 取角色名（两种拼法都认）：协议载荷用 role_name，归一化对象用 roleName。
+export function teamRoleNameOf(role) {
+  const value = role?.roleName ?? role?.role_name;
+  return typeof value === "string" ? value.trim() : "";
+}
+
+// teamRoleSpec 从任意来源（preset 角色 / 库条目角色 / 员工库那一份 RoleSpec）摘出
+// 团队库条目能存的字段：空值不落盘（空 = 未登记，由后端默认值兜底，不伪造成"登记了空"）。
+export function teamRoleSpec(source) {
+  const out = {};
+  if (!source || typeof source !== "object") return out;
+  for (const field of TEAM_ROLE_SPEC_FIELDS) {
+    const value = source[field] ?? source[ROLE_SPEC_ALIASES[field]];
+    if (value === undefined || value === null || value === "") continue;
+    // 数值 0 = 未登记（order_priority 在 Go 侧是 omitempty 的 int，0 就是"没设"）：
+    // 不把它写成事实，免得"没设"和"设成 0"两件事在条目里分不开。
+    if (value === 0) continue;
+    if (Array.isArray(value)) {
+      const items = value.filter(item => item !== undefined && item !== null && item !== "");
+      if (!items.length) continue;
+      out[field] = items;
+      continue;
+    }
+    out[field] = value;
+  }
+  return out;
+}
+
+// teamMemberSpecMap 算出成员表里每个成员该带的 RoleSpec：形态给生态位，员工库/条目
+// 给人的档案。形态里没有的角色（例如自己加的 worker/reviewer）整体走"人的档案"。
+export function teamMemberSpecMap(names, { entry = null, preset = null, pool = [] } = {}) {
+  const index = source => new Map(
+    (Array.isArray(source) ? source : [])
+      .map(item => [teamRoleNameOf(item), item])
+      .filter(([name]) => name)
+  );
+  const entryRoles = index(entry?.roles);
+  const presetRoles = index(preset?.roles);
+  const poolRoles = index(pool);
+  const map = {};
+  for (const name of Array.isArray(names) ? names : []) {
+    if (typeof name !== "string" || !name) continue;
+    const presetRole = teamRoleSpec(presetRoles.get(name));
+    const storedRole = teamRoleSpec(entryRoles.get(name));
+    const personRole = teamRoleSpec(poolRoles.get(name));
+    // 人的档案：形态那套当底，条目（这一支团队存过的事实）次之，员工库/在编最高优先。
+    const spec = { ...presetRole, ...storedRole, ...personRole };
+    // 生态位：形态说了算（形态定义了角色名就按形态；没定义才回落到条目 / 员工库）。
+    for (const field of TEAM_SEAT_FIELDS) {
+      const value = presetRole[field] ?? storedRole[field] ?? personRole[field];
+      if (value === undefined) continue;
+      spec[field] = value;
+    }
+    map[name] = spec;
+  }
+  return map;
+}
+
+// teamEntryFromMembers 把团队面板的草稿换算成团队库条目载荷。抽成纯函数是为了让它
+// 可被单测：字段丢失是这个面板最容易悄悄回归的地方（丢一个 role_kind 就是丢一个座位）。
+export function teamEntryFromMembers({
+  teamID = "",
+  teamKind = "",
+  name = "",
+  orderPolicy = "",
+  gatePolicy = "",
+  compactPolicy = "",
+  members = [],
+  origin = "custom"
+} = {}) {
+  const list = (Array.isArray(members) ? members : [])
+    .map(member => ({ roleName: String(member?.roleName || "").trim(), spec: teamRoleSpec(member?.spec) }))
+    .filter(member => member.roleName);
+  return {
+    team_id: String(teamID || "").trim() || String(name || "").trim(),
+    team_kind: String(teamKind || "").trim(),
+    name: String(name || "").trim(),
+    order_policy: String(orderPolicy || "").trim(),
+    order_roles: ["user", "main", ...list.map(member => member.roleName)],
+    roles: list.map(member => ({ role_name: member.roleName, ...member.spec })),
+    gate_policy: String(gatePolicy || "").trim(),
+    compact_policy: String(compactPolicy || "").trim(),
+    origin
+  };
+}
+
 // renderTeamMemberList 渲染团队面板里的成员表：行序就是发言顺序。行上带 ✕（移除）
 // 与整行拖拽（调序），也可以承接从「员工库」拖过来的员工。
-export function renderTeamMemberList(names, pool = []) {
+//
+// 每行还挂两件事实：**生态位**（role_kind 的短标签，可见）与**这份 RoleSpec 载荷**
+// （data-team-member-spec，JSON）——草稿活在 DOM 里，保存时按行序读回来，所以规格
+// 必须跟着行一起走，否则"改一次顺序/删一个人"就把规格丢掉。
+export function renderTeamMemberList(names, pool = [], specs = {}) {
   const list = Array.isArray(names) ? names : [];
   if (!list.length) {
     return '<div class="team-member-empty muted" data-team-member-empty="1">还没有成员：从下面挑一个，或把「员工库」里的人拖进来</div>';
   }
-  const kindOf = new Map((Array.isArray(pool) ? pool : []).map(role => [role.roleName, role.roleKind]));
-  return list.map((name, index) => `<div class="team-member-item" data-team-member-item="${escapeHtml(name)}" data-team-member-drag="${escapeHtml(name)}" draggable="true" title="拖拽调整顺序（拖到某位成员上 = 插到它之前）">
+  const specOf = specs && typeof specs === "object" ? specs : {};
+  const poolKind = new Map((Array.isArray(pool) ? pool : []).map(role => [teamRoleNameOf(role), role.roleKind || role.role_kind || ""]));
+  return list.map((name, index) => {
+    const spec = teamRoleSpec(specOf[name]);
+    const kind = String(spec.role_kind || poolKind.get(name) || "");
+    const kindLabel = roleKindLabel(kind);
+    const payload = JSON.stringify(spec);
+    return `<div class="team-member-item" data-team-member-item="${escapeHtml(name)}" data-team-member-drag="${escapeHtml(name)}" draggable="true" data-team-member-kind="${escapeHtml(kind)}" data-team-member-spec="${escapeHtml(payload)}" title="拖拽调整顺序（拖到某位成员上 = 插到它之前）">
       <span class="team-member-idx">${index + 1}</span>
-      <span class="team-member-label">${escapeHtml(roleDisplayName(name, kindOf.get(name) || ""))}</span>
+      <span class="team-member-label">${escapeHtml(roleDisplayName(name, kind))}</span>
+      ${kindLabel ? `<span class="chip team-member-kind" title="生态位（role_kind）：决定装配后的座位（techlead = ADVISOR 评审座位）">${escapeHtml(kindLabel)}</span>` : ""}
       <span class="team-member-role">${escapeHtml(name)}</span>
       <button type="button" class="team-member-drop" data-team-member-remove="${escapeHtml(name)}" aria-label="移除 ${escapeHtml(name)}" title="从这个团队里移除">${icon("close", 12)}</button>
-    </div>`).join("");
+    </div>`;
+  }).join("");
 }
 
 // teamEditorPanel 是「新建 / 编辑团队」的冷加载面板：团队库条目的增改都从这里走。
@@ -728,9 +894,18 @@ export function teamEditorPanel(team, entry, presets, pool = []) {
   const data = entry || {};
   const employees = Array.isArray(pool) ? pool : [];
   const memberNames = teamMemberNames(data);
-  const templates = (Array.isArray(presets) ? presets : [])
+  const presetList = Array.isArray(presets) ? presets : [];
+  // 形态是"生态位"的定义者：条目里的 team_kind 命中内置形态时，成员的 role_kind /
+  // join / presence / directive 以形态为准（其余字段仍看条目与员工库那一份）。
+  const shape = presetList.find(item => item?.team_kind && item.team_kind === (data.teamKind || data.teamID)) || null;
+  const memberSpecs = teamMemberSpecMap(memberNames, { entry: data, preset: shape, pool: employees });
+  // 门禁 / 压缩是形态级策略，表单里没有编辑入口：随形态带入、原样保存。**不做这一步
+  // 保存就是把它们清空**（此前这里根本不带这两个字段）。
+  const gatePolicy = data.gatePolicy ?? shape?.gate_policy ?? "";
+  const compactPolicy = data.compactPolicy ?? shape?.compact_policy ?? "";
+  const templates = presetList
     .filter(preset => preset && typeof preset.team_kind === "string" && preset.team_kind)
-    .map(preset => `<button type="button" class="text-button" data-team-template="${escapeHtml(preset.team_kind)}" data-tip="用这个内置形态填充成员与顺序策略">${escapeHtml(preset.team_kind)}</button>`)
+    .map(preset => `<button type="button" class="text-button" data-team-template="${escapeHtml(preset.team_kind)}" data-tip="用这个内置形态填充成员、生态位与顺序策略">${escapeHtml(preset.team_kind)}</button>`)
     .join("");
   const candidates = employees.filter(role => !memberNames.includes(role.roleName));
   const pickOptions = candidates
@@ -745,16 +920,19 @@ export function teamEditorPanel(team, entry, presets, pool = []) {
       <button type="button" class="team-editor-close" data-team-editor-close="1" title="关闭面板（Esc）" aria-label="关闭团队面板">${icon("close", 12)}</button>
     </div>
     <form class="team-team-form" data-team-form autocomplete="off">
+      <input type="hidden" name="gate_policy" data-team-form-gate value="${escapeHtml(gatePolicy)}">
+      <input type="hidden" name="compact_policy" data-team-form-compact value="${escapeHtml(compactPolicy)}">
       ${fieldGroup("身份", [
         fieldItem(1, "团队名", `<input type="text" name="name" data-team-form-name placeholder="我的评审队" value="${escapeHtml(data.name || "")}" required>`, "会话里显示的团队名。"),
         fieldItem(2, "团队 ID", `<input type="text" name="team_id" data-team-form-id placeholder="my-review-team" value="${escapeHtml(data.teamID || "")}"${editing ? " readonly" : ""}>`, "团队库主键；编辑时不可改（要改就新建一支）。")
       ])}
       ${fieldGroup("形态与顺序", [
         fieldItem(3, "团队形态", `<input type="text" name="team_kind" data-team-form-kind placeholder="留空 = 用团队 ID" value="${escapeHtml(data.teamKind || "")}">`, "装配后写进会话的 team_kind。"),
-        fieldItem(4, "顺序策略", `<select name="order_policy" data-team-form-policy>${options(POLICY_OPTIONS, data.orderPolicy || "user_main_decided")}</select>`, "谁决定发言顺序（user_main_decided = 用户/主管点将）。")
+        fieldItem(4, "顺序策略", `<select name="order_policy" data-team-form-policy>${options(POLICY_OPTIONS, data.orderPolicy || "user_main_decided")}</select>`, "谁决定发言顺序（user_main_decided = 用户/主管点将）。"),
+        `<span class="team-editor-hint muted" data-team-form-shape>门禁 ${escapeHtml(gatePolicy || "—")} · 压缩 ${escapeHtml(compactPolicy || "—")}（随团队形态带入，保存时原样保留）</span>`
       ])}
       ${fieldGroup("成员与发言顺序", [
-        fieldItem(5, "成员（行序即发言顺序）", `<div class="team-member-list" data-team-member-list>${renderTeamMemberList(memberNames, employees)}</div>`, "user / main 自动包含。"),
+        fieldItem(5, "成员（行序即发言顺序）", `<div class="team-member-list" data-team-member-list>${renderTeamMemberList(memberNames, employees, memberSpecs)}</div>`, "user / main 自动包含；每行的生态位（role_kind）决定装配后的座位，由团队形态定义。"),
         fieldItem(6, "添加成员", `<span class="team-member-add"><select data-team-member-pick aria-label="从员工库选择员工">${pickOptions}</select><button type="button" class="text-button" data-team-member-add="1"${candidates.length ? "" : " disabled"}>添加</button></span>`, "候选 = 员工库 ∪ 本会话在编（不含 timer）。")
       ])}
       <div class="team-editor-actions">

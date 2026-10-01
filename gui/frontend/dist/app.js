@@ -21,7 +21,7 @@ import { compactionRangeText, compactionReasonLabel, mergeCompactionProgress } f
 import { renderGoalInFlight, renderGoalStack, renderGoalSteps } from "./goal-stack-view.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
 import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
-import { agentTeamOrderForDrag, employeePool, hirePanel, isPinnedRole, nextAgentTeamOrder, normalizeAgentTeam, normalizeTeamGlobal, normalizeTeamLibrary, PERMISSION_CUSTOM_TOOLS, PERMISSION_GROUPS, PERMISSION_BITS, renderAgentTeam, renderRoleSessionDetail, renderTeamMemberList, roleDisplayName, teamEditorPanel, teamMemberNames } from "./agent-team-view.js";
+import { agentTeamOrderForDrag, employeePool, hirePanel, isPinnedRole, nextAgentTeamOrder, normalizeAgentTeam, normalizeTeamGlobal, normalizeTeamLibrary, PERMISSION_CUSTOM_TOOLS, PERMISSION_GROUPS, PERMISSION_BITS, renderAgentTeam, renderRoleSessionDetail, renderTeamMemberList, roleDisplayName, teamEditorPanel, teamEntryFromMembers, teamMemberNames, teamMemberSpecMap, teamRoleSpec } from "./agent-team-view.js";
 import { renderHistorySearchResults } from "./history-search.js";
 import { createThemeController, loadThemeManifest } from "./theme.js";
 import {
@@ -2619,6 +2619,47 @@ function teamMemberListNames(list) {
   return [...list.querySelectorAll("[data-team-member-item]")].map(node => node.dataset.teamMemberItem);
 }
 
+// teamMemberListSpecs 读回成员表当前挂着的 RoleSpec 载荷（每行 data-team-member-spec）。
+// 成员表是**独立草稿**：加减人、调序都会重绘 DOM，规格必须跟着现有行一起回流，
+// 否则"删掉一个不相关的人"就把别人的生态位（role_kind）与权限一起洗掉。
+function teamMemberListSpecs(list) {
+  const specs = {};
+  if (!list) return specs;
+  for (const node of list.querySelectorAll("[data-team-member-item]")) {
+    const raw = node.dataset.teamMemberSpec;
+    if (!raw) continue;
+    try {
+      specs[node.dataset.teamMemberItem] = JSON.parse(raw);
+    } catch {
+      // 畸形载荷忽略：宁可少一份规格，也不让一个坏属性把整张表单卡死。
+    }
+  }
+  return specs;
+}
+
+// teamMemberPoolSpecs 把"员工库 / 本会话在编"那一份换算成成员规格（没登记就不编造）。
+function teamMemberPoolSpecs(names) {
+  const specs = {};
+  for (const name of Array.isArray(names) ? names : []) {
+    const payload = agentTeamRolePayload(name);
+    if (payload) specs[name] = teamRoleSpec(payload);
+  }
+  return specs;
+}
+
+// teamMemberSpecsForWrite 重绘成员表时的规格来源：**已有行带的那份优先**（草稿是
+// 用户正在编的事实，含形态带入的生态位），新来的成员按员工库 / 本会话在编那一份补。
+// 两条来源都没有就不编造字段，交给后端默认值。
+function teamMemberSpecsForWrite(list, names) {
+  const kept = teamMemberListSpecs(list);
+  const pool = teamMemberPoolSpecs(names);
+  const specs = {};
+  for (const name of Array.isArray(names) ? names : []) {
+    specs[name] = { ...(pool[name] || {}), ...(kept[name] || {}) };
+  }
+  return specs;
+}
+
 // teamMemberListFilter 重排 / 增删成员表：keep(name) 决定保留谁，append 追加到末尾。
 function teamMemberListFilter(keep, append = "") {
   const slot = agentTeamSlot("team");
@@ -2626,13 +2667,15 @@ function teamMemberListFilter(keep, append = "") {
   if (!list) return;
   const names = teamMemberListNames(list).filter(keep);
   if (append && !names.includes(append)) names.push(append);
-  writeTeamMemberList(list, names, slot);
+  writeTeamMemberList(list, names, slot, teamMemberSpecsForWrite(list, names));
 }
 
 // writeTeamMemberList 用新的成员顺序重绘成员表与"添加成员"下拉（候选随成员变化）。
-function writeTeamMemberList(list, names, slot = agentTeamSlot("team")) {
+// specs 缺省 = 按池里那一份兜底重算（拖拽进来的员工没有任何草稿规格）。
+function writeTeamMemberList(list, names, slot = agentTeamSlot("team"), specs = null) {
   const pool = agentTeamEmployeePool();
-  list.innerHTML = renderTeamMemberList(names, pool);
+  const effective = specs && typeof specs === "object" ? specs : teamMemberSpecMap(names, { pool });
+  list.innerHTML = renderTeamMemberList(names, pool, effective);
   const pick = slot?.querySelector?.("[data-team-member-pick]");
   if (!pick) return;
   const previous = pick.value;
@@ -2789,7 +2832,7 @@ elements["team-view"]?.addEventListener("click", async event => {
       .map(member => member.roleName);
     const slot = agentTeamSlot("team");
     const list = slot?.querySelector?.("[data-team-member-list]");
-    if (list) writeTeamMemberList(list, names, slot);
+    if (list) writeTeamMemberList(list, names, slot, teamMemberSpecsForWrite(list, names));
     return;
   }
   const template = event.target.closest?.("[data-team-template]");
@@ -2799,7 +2842,10 @@ elements["team-view"]?.addEventListener("click", async event => {
 });
 
 // fillAgentTeamFormFromPreset 用内置形态起手（只填表单，不落盘）：用户改完点
-// 「新建团队」才写团队库。
+// 「新建团队」才写团队库。形态带来的是一**整套口径**——成员 + 各自的生态位
+// （role_kind / join_policy / presence_policy / directive_schema）+ 顺序策略 +
+// 门禁/压缩；只搬角色名等于把后面这些全丢掉（这样存出来的 goal-a2a 会把 tl 的
+// techlead 规格降级成 agent，装配后 ADVISOR 座位跟着没）。
 function fillAgentTeamFormFromPreset(kind) {
   const slot = agentTeamSlot("team");
   const preset = (agentTeamPresets || []).find(item => item?.team_kind === kind);
@@ -2810,8 +2856,20 @@ function fillAgentTeamFormFromPreset(kind) {
   slot.querySelector("[data-team-form-name]").value = kind;
   slot.querySelector("[data-team-form-kind]").value = kind;
   slot.querySelector("[data-team-form-policy]").value = preset.order_policy || "user_main_decided";
+  writeTeamFormShape(slot, preset.gate_policy, preset.compact_policy);
   const list = slot.querySelector("[data-team-member-list]");
-  if (list) writeTeamMemberList(list, names, slot);
+  if (list) writeTeamMemberList(list, names, slot, teamMemberSpecMap(names, { preset, pool: agentTeamEmployeePool() }));
+}
+
+// writeTeamFormShape 落"形态级策略"（门禁 / 压缩）：表单里没有编辑入口，随形态带入、
+// 保存时原样送回后端（不带 = 一次保存把它们清空）。
+function writeTeamFormShape(slot, gatePolicy = "", compactPolicy = "") {
+  const gate = slot?.querySelector?.("[data-team-form-gate]");
+  const compact = slot?.querySelector?.("[data-team-form-compact]");
+  if (gate) gate.value = gatePolicy || "";
+  if (compact) compact.value = compactPolicy || "";
+  const hint = slot?.querySelector?.("[data-team-form-shape]");
+  if (hint) hint.textContent = `门禁 ${gatePolicy || "—"} · 压缩 ${compactPolicy || "—"}（随团队形态带入，保存时原样保留）`;
 }
 
 // optimizeAgentTeamPrompt 跑一次有界 LLM 回合优化提示词；结果只渲染成候选
@@ -2921,7 +2979,7 @@ function dropAgentTeamMember(source, beforeRole) {
   const insertAt = at < 0 ? rest.length : current.slice(0, at).filter(name => name !== source).length;
   rest.splice(insertAt, 0, source);
   if (rest.join("\u0000") === current.join("\u0000")) return;
-  writeTeamMemberList(list, rest, slot);
+  writeTeamMemberList(list, rest, slot, teamMemberSpecsForWrite(list, rest));
 }
 
 // dropAgentTeamOrder 把一次拖拽落到会话发言顺序上：已在编的员工直接改顺序；只在
@@ -3036,32 +3094,34 @@ elements["team-view"]?.addEventListener("submit", async event => {
 });
 
 // agentTeamEntryFromForm 把"新建/编辑团队"表单换算成团队库条目：成员表行序 =
-// 发言顺序（user → main → 成员），角色配置的细节（提示词/权限）在员工库/员工栏里
-// 逐个编辑，团队库只回答"有谁、什么顺序"。成员规格优先取员工库里的那一份，
-// 库里没有的（只在本会话在编）回落到注册表的角色配置。
+// 发言顺序（user → main → 成员），每个成员带**行上挂着的那份 RoleSpec**（形态定义的
+// 生态位 + 员工库那一份人的档案），形态级门禁 / 压缩原样带回后端。
+//
+// 以前这里只搬 role_name/role_kind/tools_policy/system_prompt、并用 `|| "agent"`
+// 兜底：保存一次就把 role_kind（tl 的 techlead → agent）、join/presence/directive
+// 与门禁/压缩静默丢掉，装配后按 RoleKind 派生的 ADVISOR 座位也跟着没了。
 function agentTeamEntryFromForm(form) {
   const name = String(form.querySelector("[data-team-form-name]")?.value || "").trim();
   if (!name) return null;
   const teamID = String(form.querySelector("[data-team-form-id]")?.value || "").trim() || name;
   const kind = String(form.querySelector("[data-team-form-kind]")?.value || "").trim() || teamID;
   const memberNames = teamFormMemberNames(form);
-  const roles = memberNames.map(roleName => {
-    const known = agentTeamRolePayload(roleName);
-    const role = { role_name: roleName, role_kind: known?.role_kind || "agent", tools_policy: known?.tools_policy || "", system_prompt: known?.system_prompt || "" };
-    // 团队库条目也要带上逐格装配的权限：库里存的是一整套员工配置，装配团队时
-    // 按它复原——不带就等于"从库里装配一次，权限被降级成档位默认"。
-    if (known?.permission_groups) role.permission_groups = known.permission_groups;
-    return role;
-  });
-  return {
-    team_id: teamID,
-    team_kind: kind,
+  const list = form.querySelector("[data-team-member-list]");
+  const draftSpecs = teamMemberListSpecs(list);
+  const poolSpecs = teamMemberPoolSpecs(memberNames);
+  return teamEntryFromMembers({
+    teamID,
+    teamKind: kind,
     name,
-    order_policy: form.querySelector("[data-team-form-policy]")?.value || "",
-    order_roles: ["user", "main", ...memberNames],
-    roles,
+    orderPolicy: form.querySelector("[data-team-form-policy]")?.value || "",
+    gatePolicy: form.querySelector("[data-team-form-gate]")?.value || "",
+    compactPolicy: form.querySelector("[data-team-form-compact]")?.value || "",
+    members: memberNames.map(roleName => ({
+      roleName,
+      spec: { ...(poolSpecs[roleName] || {}), ...(draftSpecs[roleName] || {}) }
+    })),
     origin: "custom"
-  };
+  });
 }
 
 elements["team-view"]?.addEventListener("change", async event => {
