@@ -417,7 +417,15 @@ func (service *Service) AgentTeamSaveTeam(mainSessionID string, entry dto.TeamLi
 	if err != nil {
 		return dto.TeamLibrary{}, err
 	}
-	return library.SaveTeam(entry)
+	view, err := library.SaveTeam(entry)
+	if err != nil {
+		return dto.TeamLibrary{}, err
+	}
+	// 母本 CRUD 也发 team.changed：团队库是面板数据的一部分（团队库表），
+	// 写它同样让"面板缓存"过期——不发的旧口径只在会话装配面发声，库的增删改
+	// 只能靠发起方自己重取，别的观察者（另一窗口/切回来）会停在旧库。
+	service.publishTeamChanged(mainSessionID)
+	return view, nil
 }
 
 // AgentTeamSaveCurrentTeam 把当前会话在编的员工表存成一条团队库条目
@@ -449,7 +457,12 @@ func (service *Service) AgentTeamSaveCurrentTeam(mainSessionID, name, teamID str
 	if err != nil {
 		return dto.TeamLibrary{}, err
 	}
-	return library.SaveTeam(entry)
+	view, err := library.SaveTeam(entry)
+	if err != nil {
+		return dto.TeamLibrary{}, err
+	}
+	service.publishTeamChanged(mainSessionID)
+	return view, nil
 }
 
 // AgentTeamDeleteTeam 删除一条团队库条目（幂等）。
@@ -458,7 +471,12 @@ func (service *Service) AgentTeamDeleteTeam(mainSessionID, teamID string) (dto.T
 	if err != nil {
 		return dto.TeamLibrary{}, err
 	}
-	return library.DeleteTeam(teamID)
+	view, err := library.DeleteTeam(teamID)
+	if err != nil {
+		return dto.TeamLibrary{}, err
+	}
+	service.publishTeamChanged(mainSessionID)
+	return view, nil
 }
 
 // AgentTeamMaterializeTeam 把团队库里的一支团队装配到会话：库条目 → TeamSpec →
@@ -548,7 +566,12 @@ func (service *Service) AgentTeamSaveEmployee(mainSessionID string, role dto.Rol
 	if err != nil {
 		return dto.EmployeeLibrary{}, err
 	}
-	return global.SaveEmployee(role)
+	view, err := global.SaveEmployee(role)
+	if err != nil {
+		return dto.EmployeeLibrary{}, err
+	}
+	service.publishTeamChanged(mainSessionID)
+	return view, nil
 }
 
 // AgentTeamDeleteEmployee 删除全局员工库里的一个员工（幂等）。
@@ -557,7 +580,12 @@ func (service *Service) AgentTeamDeleteEmployee(mainSessionID, roleName string) 
 	if err != nil {
 		return dto.EmployeeLibrary{}, err
 	}
-	return global.DeleteEmployee(roleName)
+	view, err := global.DeleteEmployee(roleName)
+	if err != nil {
+		return dto.EmployeeLibrary{}, err
+	}
+	service.publishTeamChanged(mainSessionID)
+	return view, nil
 }
 
 // AgentTeamSetDefaultOrder 写全局默认顺序（母本发言次序）。
@@ -566,7 +594,12 @@ func (service *Service) AgentTeamSetDefaultOrder(mainSessionID, policy string, o
 	if err != nil {
 		return dto.DefaultOrder{}, err
 	}
-	return global.SetOrder(policy, orderRoles)
+	view, err := global.SetOrder(policy, orderRoles)
+	if err != nil {
+		return dto.DefaultOrder{}, err
+	}
+	service.publishTeamChanged(mainSessionID)
+	return view, nil
 }
 
 // AgentTeamPublishToGlobal 是「确认·普及搭配到全局」：把当前会话副本的
@@ -617,6 +650,8 @@ func (service *Service) AgentTeamPublishToGlobal(mainSessionID, name, teamID str
 	if _, err := library.SaveTeam(entry); err != nil {
 		return dto.TeamGlobalConfig{}, err
 	}
+	// 普及是母本写：发一条 team.changed，让面板（员工库/团队库/默认顺序）热更新。
+	service.publishTeamChanged(mainSessionID)
 	return service.AgentTeamGlobalConfig(mainSessionID)
 }
 

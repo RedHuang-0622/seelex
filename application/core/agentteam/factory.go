@@ -79,7 +79,7 @@ func (factory *Factory) Materialize(mainSessionID string, spec dto.TeamSpec, joi
 
 	sessions := make([]dto.TeamRoleSession, 0, len(normalized.Roles))
 	for _, role := range registeredRoles(normalized) {
-		roleSessionID := RoleSessionID(normalized.TeamID, role.RoleName)
+		roleSessionID := RoleSessionID(mainSessionID, normalized.TeamID, role.RoleName)
 		created, err := factory.port.EnsureRoleSession(mainSessionID, role.RoleName, roleSessionID, joinSeq)
 		if err != nil {
 			return dto.TeamMaterializeResult{}, fmt.Errorf("agentteam: ensure role session %s: %w", role.RoleName, err)
@@ -186,7 +186,7 @@ func (factory *Factory) InstantiateRole(mainSessionID string, role dto.RoleSpec,
 	if teamID == "" {
 		teamID = string(dto.DefaultTeamKind)
 	}
-	roleSessionID := RoleSessionID(teamID, normalized.RoleName)
+	roleSessionID := RoleSessionID(mainSessionID, teamID, normalized.RoleName)
 	created, err := factory.port.EnsureRoleSession(mainSessionID, normalized.RoleName, roleSessionID, joinSeq)
 	if err != nil {
 		return dto.RoleInstantiation{}, fmt.Errorf("agentteam: ensure role session %s: %w", normalized.RoleName, err)
@@ -304,11 +304,11 @@ func assembleView(sessionID string, registry dto.TeamRegistry, policy string, or
 	inOrder := make(map[string]struct{}, len(orderRoles))
 	for index, name := range orderRoles {
 		inOrder[name] = struct{}{}
-		members = append(members, buildMember(registry.TeamID, name, index, true, byName))
+		members = append(members, buildMember(sessionID, registry.TeamID, name, index, true, byName))
 	}
 	for _, role := range registry.Roles {
 		if role.RoleKind == dto.RoleKindTimer {
-			scheduled = append(scheduled, buildMember(registry.TeamID, role.RoleName, -1, false, byName))
+			scheduled = append(scheduled, buildMember(sessionID, registry.TeamID, role.RoleName, -1, false, byName))
 			continue
 		}
 		if _, ok := inOrder[role.RoleName]; ok {
@@ -317,7 +317,7 @@ func assembleView(sessionID string, registry dto.TeamRegistry, policy string, or
 		if _, ok := builtinKinds[role.RoleName]; ok {
 			continue
 		}
-		members = append(members, buildMember(registry.TeamID, role.RoleName, -1, false, byName))
+		members = append(members, buildMember(sessionID, registry.TeamID, role.RoleName, -1, false, byName))
 	}
 
 	view := dto.TeamView{
@@ -360,7 +360,7 @@ var builtinKinds = map[string]dto.RoleKind{
 	string(dto.RoleKindMain): dto.RoleKindMain,
 }
 
-func buildMember(teamID, name string, orderIndex int, inOrder bool, byName map[string]dto.RoleSpec) dto.TeamMember {
+func buildMember(mainSessionID, teamID, name string, orderIndex int, inOrder bool, byName map[string]dto.RoleSpec) dto.TeamMember {
 	kind, ok := builtinKinds[name]
 	role, registered := byName[name]
 	if !ok {
@@ -392,7 +392,7 @@ func buildMember(teamID, name string, orderIndex int, inOrder bool, byName map[s
 			}
 		}
 		if needsRoleSession(kind) {
-			member.RoleSessionID = RoleSessionID(teamID, name)
+			member.RoleSessionID = RoleSessionID(mainSessionID, teamID, name)
 		}
 	}
 	return member

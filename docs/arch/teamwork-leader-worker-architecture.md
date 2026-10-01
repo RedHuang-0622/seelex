@@ -150,7 +150,6 @@ type Option func(*options)
 func WithExecutor(Executor) Option                  // 注册执行体
 func WithLimits(Limits) Option                      // 在途上限/记录槽/硬上限/输出上限/节流
 func WithSubjectResolver(func(ctx) string) Option   // 从执行 ctx 解析主体（emp_<role>）
-func WithEventSink(event.Sink) Option
 func WithReclaimer(func(ctx, Scope) error) Option   // 作用域回收钩子（见 3.2 / §10.1）
 ```
 
@@ -170,7 +169,7 @@ func WithReclaimer(func(ctx, Scope) error) Option   // 作用域回收钩子（�
 
 ### 3.3 事件与信号
 
-- 生命周期事件经 Seele `event.Recorder` 发 `queued/running/terminal`，活动作用域用 `event.HeartbeatPolicy`（对齐 `workplan` 现有做法）。
+- **事件流由 Seelex 构建，框架只给信号口与读面**：`jobs` 不 import `event`、不建 `event.Recorder`、不发 `event.Sink`（没有 `WithEventSink`）。理由：`event.Sink` 的实现必须在 `jobs.Manager` 的**构造期**定下，而构造期拿不到"这条作业属于哪个会话的哪条事件流"——框架的 `Recorder` 是单例、**序号全局**，会话事件库却是**按会话**追加/排序的。这样发出来的事件 **append 不到会话事件流的尾部**，只能由产品事后**回填**会话归属，且全局序号在按会话排序下不成立。Seelex 侧（`seelebridge/jobs_events.go`）改为订阅 `Events()`，用 `Snapshot` 取到 `Record.Scope.Session` 之后自行投影并追加（补 `agent.runtime` 定位、序号取时间基 `uint64(at.UnixNano())`，与 Seelex 既有事件同策略）。
 - `Events()` 是**变更信号口**：派发/终态/新字节三类触发；容量 1、latest-wins、**不推进游标、不进上下文**。
 - **无 push 唤醒**：框架**绝不**把结果投递进忙会话（详见 §6.1）。
 
@@ -210,7 +209,11 @@ jobs/
 ### 4.2 teammate 模型（一人一会话一 worktree / 一角色一 teammate，D2+D8）
 
 - **绑定关系（唯一事实）**：`teammate ≙ { role_name, role_session_id, worktree, permission_groups }`。
-  `role_session_id` 由 `agentteam.RoleSessionID(teamID, roleName)` 派生（`(team_id, role_name)` 决定，重复装配幂等）。
+  `role_session_id` 由 `agentteam.RoleSessionID(mainSessionID, teamID, roleName)` 派生
+  （`(主会话, team_id, role_name)` 决定，重复装配幂等）。
+  **主会话身份是必需分量**（2026-10-01，用例 2）：两个会话召唤同一支团队时，各自拿到
+  工厂派发的自己的成员实例；不含主会话身份时角色引擎槽、项目根绑定、权责反查都会把
+  两边当成同一个人。
 - **一角色一 teammate、禁止重复**：`agentteam.Normalize` 已在装配侧拒重复（`agentteam: duplicate role %q`，`spec.go`）；
   新计划层**必须再校验一次**（计划可被 leader 改写，不能只靠装配侧）。
 - **禁内置角色当 teammate**：`user`/`main` 复用主会话（`needsRoleSession`），不得作为 worker 派发。

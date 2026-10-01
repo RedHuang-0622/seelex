@@ -157,6 +157,35 @@ export function memberPermLabel(role) {
   return toolsPolicyLabel(role?.toolsPolicy);
 }
 
+// employeeFieldRows 把一个员工档案摊成 **k→v 全字段**（E3「表格化」）：员工行此前
+// 只在行内回显几个 chip，全字段藏在懒加载的编辑面板里——用户口径是"表格化"，
+// 所以每个员工行都能展开一张 k→v 表，一栏一行，空栏也照列（"这一栏为空"本身是
+// 一条事实，值渲染成"继承/未登记"，不藏起来）。
+export function employeeFieldRows(role) {
+  const source = role && typeof role === "object" ? role : {};
+  const groups = normalizePermissionGroups(source.permissionGroups);
+  return [
+    { key: "role_kind", label: "类型", value: ROLE_KIND_LABEL[source.roleKind] || source.roleKind || "agent" },
+    { key: "join_policy", label: "入职", value: JOIN_POLICY_LABEL[source.joinPolicy] || source.joinPolicy || "入职即入顺序" },
+    { key: "presence_policy", label: "在席", value: source.presencePolicy || "继承" },
+    { key: "tools_policy", label: "权限档", value: source.toolsPolicy ? toolsPolicyLabel(source.toolsPolicy) : "继承" },
+    { key: "permission_groups", label: "权限格", value: groups ? permissionGroupsLabel(groups) : "未装配" },
+    { key: "model_policy", label: "模型", value: source.modelPolicy || "继承" },
+    { key: "system_prompt", label: "提示词", value: source.systemPrompt ? `${String(source.systemPrompt).length} 字符` : "未登记" }
+  ];
+}
+
+// employeeFieldTable 把 employeeFieldRows 渲染成一张 k→v 表（可折叠进员工行）。
+function employeeFieldTable(role) {
+  const items = employeeFieldRows(role).map(row =>
+    `<div class="team-kv-row" data-team-kv="${escapeHtml(row.key)}"><dt>${escapeHtml(row.label)}</dt><dd title="${escapeHtml(row.value)}">${escapeHtml(row.value)}</dd></div>`
+  ).join("");
+  return `<details class="team-kv" data-team-employee-kv="${escapeHtml(role?.roleName || "")}">
+      <summary title="展开这个员工的全部字段（k→v）：表里一行一栏，空栏也照列">字段</summary>
+      <dl class="team-kv-list">${items}</dl>
+    </details>`;
+}
+
 const ROLE_KIND_OPTIONS = [
   ["agent", "agent"],
   ["techlead", "techlead"],
@@ -169,6 +198,9 @@ const JOIN_POLICY_OPTIONS = [
   ["scheduled", "定时触发（不入顺序）"],
   ["on_demand", "按需（手动编排）"]
 ];
+
+// JOIN_POLICY_LABEL 把登记的 join_policy 折成短词（员工行 k→v 用）。
+const JOIN_POLICY_LABEL = Object.fromEntries(JOIN_POLICY_OPTIONS);
 
 // normalizeAgentTeam 归一化 Bridge 下发的 TeamView（防御畸形载荷：
 // 非对象 → 未装配空态；成员/定时分区非数组 → []；缺 role_name 的条目丢弃）。
@@ -304,6 +336,7 @@ function employeeLibraryBlock(global, team) {
         <span class="team-member-role" title="逻辑角色名（metadata，不是 provider role）">${escapeHtml(role.roleName)}</span>
         <span class="chip">${escapeHtml(ROLE_KIND_LABEL[role.roleKind] || role.roleKind || "agent")}</span>
         <span class="team-perm-chip${role.toolsPolicy || role.permissionGroups ? "" : " is-inherit"}" title="工具权限（员工库档案；库里有就以库里的为准）">${escapeHtml(memberPermLabel(role))}</span>
+        ${employeeFieldTable(role)}
       </span>`,
       `<span class="team-source-chip${role.inLibrary ? "" : " is-session"}" title="${role.inLibrary ? "员工库（全局母本）" : "只在本会话在编名单里"}">${role.inLibrary ? "库" : "本会话"}</span>`,
       `<span class="team-library-actions">${actions.join("")}</span>`
@@ -423,7 +456,13 @@ export function renderAgentTeam(view, presets, library, global) {
   if (team.configured) {
     blocks.push(teamSection(team));
   }
-  return `<div class="team-panel">${blocks.join("")}</div>`;
+  // 手动刷新键（E3）：Agent Team 没有心跳（用户口径），热更新靠事件驱动
+  // （team.changed / 母本 CRUD 事件），事件之外再给一枚常驻的手动刷新——"我现在就要
+  // 最新读数"不用切会话、也不用把面板收起再展开。
+  const toolbar = `<div class="team-panel-toolbar">
+      <button type="button" class="image-button" data-team-refresh="1" title="立即重取员工库 / 团队库 / 本会话员工（手动刷新键；Agent Team 无心跳，平时靠事件热更新）" aria-label="刷新 Agent Team 面板">${icon("refresh", 12)}</button>
+    </div>`;
+  return `<div class="team-panel">${toolbar}${blocks.join("")}</div>`;
 }
 
 // teamLibraryBlock 是「团队库」：一行一支用户自己的团队（点团队名打开团队面板）。
@@ -923,9 +962,36 @@ export function normalizeRoleSession(snapshot) {
   };
 }
 
-export function renderRoleSessionDetail(snapshot) {
+// renderRoleSessionSwitcher 渲染「切员工」切换条：对话视图（员工会话）顶部的一排
+// 员工 chip，点谁就把视图目标换成谁的角色会话——不用关掉视图再回列表点下一位。
+// 只在拿到在职员工名单时渲染（旧宿主/单员工时不摆一条只有一个 chip 的条）。
+export function renderRoleSessionSwitcher(members, currentRoleName) {
+  const list = (Array.isArray(members) ? members : [])
+    .filter(member => member && typeof member.roleName === "string" && member.roleName);
+  if (list.length <= 1) return "";
+  const current = String(currentRoleName || "");
+  const chips = list.map(member => {
+    const active = member.roleName === current;
+    const display = roleDisplayName(member.roleName, member.roleKind);
+    return `<button type="button" class="role-session-switch-chip${active ? " is-active" : ""}" data-role-session-switch="${escapeHtml(member.roleName)}" data-role-session-switch-sid="${escapeHtml(member.roleSessionID || "")}"${active ? ' aria-current="true" title="正在看这一位"' : ` title="切到 ${escapeHtml(display)} 的会话"`}>${escapeHtml(display)}</button>`;
+  }).join("");
+  return `<div class="role-session-switcher" role="tablist" aria-label="切换员工会话">${chips}</div>`;
+}
+
+export function renderRoleSessionDetail(snapshot, identity = null) {
   const view = normalizeRoleSession(snapshot);
+  const roleName = String(identity?.roleName || view.roleName || "");
+  const roleSessionID = String(identity?.roleSessionID ?? view.roleSessionID ?? "");
   const display = roleDisplayName(view.roleName);
+  // 手动刷新键（E1）：员工运行详情没有心跳推送——后端的 team.changed 只在"会话团队
+  // 事实变了"时发一条空载荷，而员工会话正文/草稿的变化不都走那条事件。所以详情视图
+  // 自带一枚刷新键（重取 AgentTeamRoleSnapshot），ident 带上身份好让刷新原样重放。
+  const toolbar = `<div class="role-session-toolbar">
+      <span class="role-session-toolbar-hint muted">运行详情 · 事件驱动，可手动刷新</span>
+      <button type="button" class="image-button" data-role-session-refresh="1" data-role-session-role="${escapeHtml(roleName)}" data-role-session-sid="${escapeHtml(roleSessionID)}" title="重新拉取这个员工会话的读数（运行详情没有心跳）" aria-label="刷新员工运行详情">${icon("refresh", 12)}</button>
+    </div>`;
+  // 「切员工」切换条（用例 5 的对话视图）：把视图目标从一个员工会话换成另一个。
+  const switcher = renderRoleSessionSwitcher(identity?.members, roleName);
   const warnings = view.designWarnings.length
     ? `<div class="team-notice" role="status">${view.designWarnings.map(escapeHtml).join("；")}</div>`
     : "";
@@ -946,10 +1012,10 @@ export function renderRoleSessionDetail(snapshot) {
     : "";
   const drafts = renderRoleDraftBlock(view, display);
   if (!published && !drafts && !record) {
-    return `<div class="role-session-detail" data-role-session="${escapeHtml(view.roleName)}">${warnings}${header}
+    return `<div class="role-session-detail" data-role-session="${escapeHtml(view.roleName)}">${switcher}${toolbar}${warnings}${header}
       <div class="role-session-empty muted">该角色还没有独立会话行（未发言或尚未同步）。</div></div>`;
   }
-  return `<div class="role-session-detail" data-role-session="${escapeHtml(view.roleName)}">${warnings}${header}${record}${published}${drafts}</div>`;
+  return `<div class="role-session-detail" data-role-session="${escapeHtml(view.roleName)}">${switcher}${toolbar}${warnings}${header}${record}${published}${drafts}</div>`;
 }
 
 // renderPublishedRoleRow 是**已发布**的角色行（同步进 message 之后的行，有 seq）。

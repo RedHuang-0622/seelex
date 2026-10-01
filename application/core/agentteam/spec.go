@@ -208,14 +208,28 @@ func resolveOrderRoles(spec dto.TeamSpec, registered map[string]struct{}) ([]str
 	return order, nil
 }
 
-// RoleSessionID 派生角色会话号：同一个 (team_id, role_name) 永远得到同一个值，
-// 这是重复装配幂等的键（不是展示名）。
-func RoleSessionID(teamID, roleName string) string {
+// RoleSessionID 派生角色会话号：同一个 (主会话, team_id, role_name) 永远得到同一个
+// 值，这是重复装配幂等的键（不是展示名）。
+//
+// **主会话身份编进角色会话号**（2026-10-01，用例 2「团队会话粒度」）：改前只由
+// (team_id, role_name) 决定，于是"两个会话召唤了同一支团队"会得到同一个角色会话号
+// ——存储面侥幸没串（角色子树挂在各自主会话下），但**运行面**按这个号做键的地方全串：
+// 角色引擎槽（`roleTurnState.sessions`）、项目根绑定（`ProjectScope.BindFor`）、
+// 权责反查（`agentteam_role_index`）都会把两个会话的同名员工当成同一个人。把主会话
+// 编进来，隔离由**标识**保证，而不是靠下游各自记得再拼一次主会话。
+//
+// mainSessionID 为空 = 无会话归属的退化形态（仅桩/测试构造用）；生产调用方一律带会话号。
+func RoleSessionID(mainSessionID, teamID, roleName string) string {
 	teamID = strings.TrimSpace(teamID)
 	if teamID == "" {
 		teamID = dto.DefaultTeamKind
 	}
-	return teamID + "-" + strings.TrimSpace(roleName)
+	roleName = strings.TrimSpace(roleName)
+	mainSessionID = strings.TrimSpace(mainSessionID)
+	if mainSessionID == "" {
+		return teamID + "-" + roleName
+	}
+	return mainSessionID + "-" + teamID + "-" + roleName
 }
 
 // needsRoleSession 判定该角色是否需要独立角色会话子树：user/main 复用主会话，

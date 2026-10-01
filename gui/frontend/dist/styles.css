@@ -4679,6 +4679,39 @@ button.team-library-name:hover { color: var(--accent); text-decoration: underlin
 .team-preset-chip:hover { color: var(--accent); border-color: var(--accent); }
 .team-preset-chip.is-active { color: var(--status-done); border-color: var(--border-done); }
 
+/* E3：员工行 k→v 全字段（折叠进员工行的字段表：一行一栏，空栏也照列） */
+.team-kv { width: 100%; margin-top: 3px; }
+.team-kv > summary {
+  cursor: pointer;
+  color: var(--text-mid);
+  font: 9.5px var(--font-mono);
+  list-style: none;
+}
+.team-kv > summary:hover { color: var(--accent); }
+.team-kv-list { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 0; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; }
+.team-kv-row { display: flex; align-items: baseline; gap: 6px; }
+.team-kv-row dt { flex: 0 0 44px; color: var(--text-mid); font: 9.5px var(--font-mono); }
+.team-kv-row dd { flex: 1 1 auto; min-width: 0; margin: 0; color: var(--text-strong); font: 10px var(--font-mono); overflow-wrap: anywhere; }
+
+/* E3：面板手动刷新键（Agent Team 无心跳，事件驱动之外的兜底） */
+.team-panel-toolbar { display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 0 0 2px; }
+
+/* E1：员工会话视图（运行详情）的工具栏与「切员工」切换条 */
+.role-session-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 2px 0 6px; }
+.role-session-toolbar-hint { font-size: 10px; }
+.role-session-switcher { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 2px 0 4px; }
+.role-session-switch-chip {
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text-mid);
+  background: transparent;
+  cursor: pointer;
+  font: 9.5px var(--font-mono);
+}
+.role-session-switch-chip:hover { color: var(--accent); border-color: var(--accent); }
+.role-session-switch-chip.is-active { color: var(--status-done); border-color: var(--border-done); }
+
 /* 装配参数：一行 chip（形态 / 顺序策略 / 发言权） */
 .team-meta-row { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 2px 0 4px; }
 .team-meta-row .team-policy-select { max-width: 100%; }

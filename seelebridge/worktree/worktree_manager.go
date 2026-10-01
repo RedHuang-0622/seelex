@@ -103,6 +103,13 @@ func (w *WorktreeManager) Begin(scope model.NodeScope, nodeID string) *NodeWorkt
 	if scope.Role != model.RoleSubAgent {
 		return nil
 	}
+	// 幂等：同一 nodeID 已有在册现场就直接复用，绝不重建。路径/分支只按 nodeID
+	// 命名（`<repo>-seelex-<nodeID>` / `seelex/<nodeID>`），所以跨会话、跨批次同名
+	// 的第二次 Begin 会指向**同一个目录**——重建前那句 `worktree remove --force`
+	// 会把一个正在被使用的现场删掉。
+	if existing := w.worktreeFor(nodeID); existing != nil {
+		return existing
+	}
 	root := w.deps.Root()
 	if root == "" || !w.isGitRepository(root) {
 		return nil
@@ -118,6 +125,12 @@ func (w *WorktreeManager) Begin(scope model.NodeScope, nodeID string) *NodeWorkt
 	wtPath := filepath.Join(filepath.Dir(root), fmt.Sprintf("%s-seelex-%s", filepath.Base(root), nodeID))
 	branch := "seelex/" + nodeID
 	if _, err := w.git(root, "worktree", "add", "-b", branch, wtPath, "HEAD"); err != nil {
+		// 清理只针对**本管理器不认得的**残留目录：在册现场（可能正被另一个会话的
+		// 同名节点使用）不是残留，删它等于删别人的现场。那种情况一律降级为共享
+		// 工作区，而不是毁掉一个活着的现场。
+		if w.pathRegistered(wtPath) {
+			return nil
+		}
 		if _, cleanErr := w.git(root, "worktree", "remove", "--force", wtPath); cleanErr == nil {
 			_, _ = w.git(root, "branch", "-D", branch)
 			if _, retryErr := w.git(root, "worktree", "add", "-b", branch, wtPath, "HEAD"); retryErr != nil {
@@ -189,6 +202,10 @@ func (w *WorktreeManager) Release(nodeID string) {
 // Restore 从持久化记录重建 worktree 注册表（重启/恢复锚点）：
 // 崩溃遗留节点的现场信息（path/branch/baseCommit）重新登记，
 // NodeWorktreeInfoFor 恢复可用。
+//
+// **已不存在的目录不登记**：手工删掉目录（或它从未真正建成）后，把路径重新登记成
+// 「现场」会造出幽灵条目——`Info` 会报一个不存在的路径，`team_retire` 步 2 会对着
+// 它跑 `git status` 而失败。恢复的判据是「锚点 + 目录真的在」。
 func (w *WorktreeManager) Restore(records []sessionstore.NodeSessionRecord) {
 	if w == nil || len(records) == 0 {
 		return
@@ -198,6 +215,9 @@ func (w *WorktreeManager) Restore(records []sessionstore.NodeSessionRecord) {
 	for _, record := range records {
 		wt := record.Worktree
 		if record.NodeID == "" || wt.Path == "" || wt.Branch == "" {
+			continue
+		}
+		if info, err := os.Stat(wt.Path); err != nil || !info.IsDir() {
 			continue
 		}
 		w.worktrees[record.NodeID] = &NodeWorktree{
@@ -216,6 +236,137 @@ func (w *WorktreeManager) Info(nodeID string) (NodeWorktreeInfo, bool) {
 		return NodeWorktreeInfo{}, false
 	}
 	return NodeWorktreeInfo{Path: wt.Path, Branch: wt.Branch, MainBranch: wt.MainBranch}, true
+}
+
+// pathRegistered 报告某个 worktree 路径是否是本管理器**在册**的现场
+// （可能正被某个节点使用，因此不是可以随手删掉的残留）。
+func (w *WorktreeManager) pathRegistered(path string) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, wt := range w.worktrees {
+		if wt.Path == path {
+			return true
+		}
+	}
+	return false
+}
+
+// registeredPaths 返回在册现场路径的集合快照。
+func (w *WorktreeManager) registeredPaths() map[string]bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	paths := make(map[string]bool, len(w.worktrees))
+	for _, wt := range w.worktrees {
+		paths[wt.Path] = true
+	}
+	return paths
+}
+
+// PruneResult 是一次残留回收的读数：Removed = 已回收的孤儿 worktree 路径，
+// Kept = 因有未提交改动而**故意保留**的现场路径。
+type PruneResult struct {
+	Removed []string
+	Kept    []string
+}
+
+// Prune 回收**孤儿 worktree**：磁盘上仍是本仓库的 worktree（路径符合本管理器的
+// 命名），但注册表里没有它。
+//
+// 为什么需要兜底清理器：worktree 只在成功收尾时 `git worktree remove`；失败/中断的
+// 现场按设计「一律保留」（`Release` 只解除注册、不删磁盘），而全仓没有第二处清理——
+// 每个残留 = 一份完整项目检出 + 一个 `seelex/<id>` 分支，磁盘随历史失败数无界增长。
+//
+// 判据（两条**都要**成立才删）：
+//   - **不在册**：注册表（会话作用域的现场锚点）里没有它。恢复锚点必须先经 `Restore`
+//     登记，否则恢复出来的现场会被这里当残留删掉——调用方务必先恢复、后清理。
+//   - **干净**：没有未提交改动。现场的未提交产出是人的资产，框架不替人做
+//     「丢还是留」的决定（与 `ErrUncommittedChanges` 同一口径）。
+//
+// 未列在本仓库 worktree 清单里的路径一律不碰；`.git/worktrees` 里已经 prunable 的
+// 元数据（手工删过目录）顺手用 `git worktree prune` 清掉。
+func (w *WorktreeManager) Prune() (PruneResult, error) {
+	result := PruneResult{}
+	if w == nil {
+		return result, nil
+	}
+	root := w.deps.Root()
+	if root == "" || !w.isGitRepository(root) {
+		return result, nil
+	}
+	entries, err := w.listWorktrees(root)
+	if err != nil {
+		return result, err
+	}
+	registered := w.registeredPaths()
+	for _, entry := range entries {
+		if entry.path == root || !w.isManagedPath(root, entry.path) || registered[entry.path] {
+			continue
+		}
+		dirty, dirtyErr := w.pathDirty(entry.path)
+		if dirtyErr != nil || dirty {
+			result.Kept = append(result.Kept, entry.path)
+			continue
+		}
+		if _, removeErr := w.git(root, "worktree", "remove", "--force", entry.path); removeErr != nil {
+			result.Kept = append(result.Kept, entry.path)
+			continue
+		}
+		if entry.branch != "" {
+			_, _ = w.git(root, "branch", "-D", entry.branch)
+		}
+		result.Removed = append(result.Removed, entry.path)
+	}
+	// 手删目录会留下 .git/worktrees 下的 prunable 元数据，且没有任何别的路径会清它。
+	_, _ = w.git(root, "worktree", "prune")
+	return result, nil
+}
+
+// worktreeEntry 是 `git worktree list --porcelain` 的一条读数。
+type worktreeEntry struct{ path, branch string }
+
+// listWorktrees 列出本仓库的全部 worktree（main + 各现场）。
+func (w *WorktreeManager) listWorktrees(root string) ([]worktreeEntry, error) {
+	out, err := w.git(root, "worktree", "list", "--porcelain")
+	if err != nil {
+		return nil, err
+	}
+	var entries []worktreeEntry
+	current := worktreeEntry{}
+	flush := func() {
+		if current.path != "" {
+			entries = append(entries, current)
+		}
+		current = worktreeEntry{}
+	}
+	for _, raw := range strings.Split(out, "\n") {
+		line := strings.TrimSpace(raw)
+		switch {
+		case line == "":
+			flush()
+		case strings.HasPrefix(line, "worktree "):
+			current.path = strings.TrimPrefix(line, "worktree ")
+		case strings.HasPrefix(line, "branch "):
+			current.branch = strings.TrimPrefix(strings.TrimPrefix(line, "branch "), "refs/heads/")
+		}
+	}
+	flush()
+	return entries, nil
+}
+
+// isManagedPath 判定一个 worktree 路径是否由本管理器命名（`<repoBase>-seelex-<nodeID>`，
+// 与 Begin 同一条命名规则）。
+func (w *WorktreeManager) isManagedPath(root, path string) bool {
+	prefix := filepath.Base(root) + "-seelex-"
+	return strings.HasPrefix(filepath.Base(path), prefix)
+}
+
+// pathDirty 报告某个 worktree 是否有未提交改动。
+func (w *WorktreeManager) pathDirty(path string) (bool, error) {
+	out, err := w.git(path, "status", "--porcelain")
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(out) != "", nil
 }
 
 // approve 合并前审批：复用 SetPlanApprovalGate 注入的审批门；gate 未注入 → 放行。

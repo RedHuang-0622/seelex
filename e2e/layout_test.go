@@ -65,6 +65,10 @@ func TestModuleReadmesMermaidBlocksAreStructurallyValid(t *testing.T) {
 	skipped := map[string]bool{
 		".git": true, "dist": true, "_tmp": true, "tmp": true,
 		"node_modules": true, ".gocache": true, ".venv": true,
+		// 本地草稿目录（`.gitignore` 已忽略：`_scratch/` 是补丁与提交信息的现场，
+		// `local/` 是个人工具目录）。它们里面的 .go 不是仓库模块，也不受 README
+		// 约定约束；不跳过就会让门禁被草稿文件点亮，把真正的红淹没掉。
+		"_scratch": true, "local": true,
 	}
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
@@ -243,6 +247,10 @@ func TestEveryGoPackageDirectoryHasReadme(t *testing.T) {
 	skipped := map[string]bool{
 		".git": true, "dist": true, "_tmp": true, "tmp": true,
 		"node_modules": true, ".gocache": true, ".venv": true,
+		// 本地草稿目录（`.gitignore` 已忽略：`_scratch/` 是补丁与提交信息的现场，
+		// `local/` 是个人工具目录）。它们里面的 .go 不是仓库模块，也不受 README
+		// 约定约束；不跳过就会让门禁被草稿文件点亮，把真正的红淹没掉。
+		"_scratch": true, "local": true,
 		// vendor/ 是第三方依赖的只读副本：它的包目录既不是仓库模块，也不受
 		// AGENTS.md 的模块 README 约定约束（`go mod vendor` 会整体重写它）。
 		// 漏掉这一项会让门禁在每一个 vendor 子包上失败，把真正的红淹没掉。

@@ -732,6 +732,9 @@ function renderIncremental(snapshot, kind, payload) {
     // `@` 召唤、goal 自动装配与面板 RPC 一键装配都走同一条路，前端不再从自己的
     // 输入文本里猜"这次提交会不会改团队"。
     invalidateAgentTeam();
+    // 员工会话视图（运行详情）也按这条事件热更新：视图开着时重取当前目标，
+    // 关着时不做任何事（没有"最后心跳时间"这类推着走的东西）。
+    if (roleSessionDetail) refreshRoleSessionDetail();
   }
 }
 
@@ -2652,6 +2655,13 @@ elements["team-section"]?.addEventListener("toggle", () => {
 });
 
 elements["team-view"]?.addEventListener("click", async event => {
+  // 0) 手动刷新键：事件驱动之外唯一的重取入口（Agent Team 无心跳）。强制重取，
+  // 不做"缓存命中就早退"——用户按了刷新就是"现在要最新"。
+  if (event.target.closest?.("[data-team-refresh]")) {
+    agentTeamDirty = true;
+    await refreshAgentTeam({ force: true });
+    return;
+  }
   // 1) 装配内置形态 / 按团队库条目装配。
   const materializeTemplate = event.target.closest?.("[data-team-materialize]");
   if (materializeTemplate?.dataset.teamMaterialize) {
@@ -3069,30 +3079,79 @@ elements["team-view"]?.addEventListener("change", async event => {
   await runAgentTeamAction(() => invoke("AgentTeamSetOrder", "", select.value, team.orderRoles));
 });
 
+// roleSessionDetail 记录当前打开的员工会话视图目标（身份 + 视图内可切换的员工名单）：
+// 刷新键、切员工、以及 team.changed 事件都要靠它原样重放/换人，而不是从 DOM 里猜。
+let roleSessionDetail = null;
+
+// roleSessionTargets 汇总「员工会话视图」里可切换的员工（本会话在编，含定时）：
+// 每行给 roleName / roleKind / roleSessionID（会话未建时为空串，切过去由后端兜底解析）。
+function roleSessionTargets() {
+  const team = normalizeAgentTeam(agentTeamView);
+  return team.members.map(member => ({
+    roleName: member.roleName, roleKind: member.roleKind, roleSessionID: member.roleSessionID
+  }));
+}
+
 // openRoleSessionDetail 打开某个角色的独立会话（成员行「查看」）：DS-A2A 里
 // EXEC（main）与 ADVISOR（tl）是两个会话，主对话只显示 EXEC 的可见消息，
 // 这里按角色身份单独展示该 agent 自己的行，避免两个 agent 都渲染成 AGENT。
+// 视图顶部的「切员工」条把目标换成同会话的另一位员工——这就是"对话视图切员工"。
 async function openRoleSessionDetail(roleName, roleSessionID) {
   const name = String(roleName || "").trim();
   if (!name) return;
   try {
     const snapshot = await invoke("AgentTeamRoleSnapshot", "", name, String(roleSessionID || ""));
-    elements["role-session-modal-title"].innerHTML = `<span class="eyebrow">Agent Team · 角色会话</span><h2>${escapeHtml(roleDisplayName(name))}</h2>`;
-    elements["role-session-view"].className = "role-session-view";
-    elements["role-session-view"].innerHTML = renderRoleSessionDetail(snapshot);
+    roleSessionDetail = { roleName: name, roleSessionID: String(roleSessionID || ""), members: roleSessionTargets() };
+    renderRoleSessionView(snapshot);
     setModal("role-session-modal", true);
   } catch (error) {
     showToast(error);
   }
 }
 
+// renderRoleSessionView 只重绘视图内容（标题 + 正文），不动弹窗开合：刷新键与切员工
+// 都复用它，避免"刷新一下弹窗闪一下"。
+function renderRoleSessionView(snapshot) {
+  const detail = roleSessionDetail || { roleName: "", roleSessionID: "", members: [] };
+  elements["role-session-modal-title"].innerHTML = `<span class="eyebrow">Agent Team · 员工会话</span><h2>${escapeHtml(roleDisplayName(detail.roleName))}</h2>`;
+  elements["role-session-view"].className = "role-session-view";
+  elements["role-session-view"].innerHTML = renderRoleSessionDetail(snapshot, detail);
+}
+
+// refreshRoleSessionDetail 重取当前视图目标的快照（刷新键 / team.changed 事件）：
+// 员工运行详情是**事件驱动 + 手动刷新**，没有心跳（用户口径）。
+async function refreshRoleSessionDetail() {
+  const detail = roleSessionDetail;
+  if (!detail || !detail.roleName) return;
+  if (elements["role-session-modal"]?.classList?.contains("hidden")) return;
+  try {
+    const snapshot = await invoke("AgentTeamRoleSnapshot", "", detail.roleName, detail.roleSessionID);
+    // 取数期间用户可能已切到别人/关掉视图：只有目标还是同一份时才回写。
+    if (roleSessionDetail === detail) renderRoleSessionView(snapshot);
+  } catch (error) {
+    showToast(error);
+  }
+}
+
 function closeRoleSessionDetail() {
+  roleSessionDetail = null;
   setModal("role-session-modal", false);
 }
 
 elements["role-session-close"]?.addEventListener("click", closeRoleSessionDetail);
 elements["role-session-modal"]?.addEventListener("click", event => {
-  if (event.target === elements["role-session-modal"]) closeRoleSessionDetail();
+  if (event.target === elements["role-session-modal"]) {
+    closeRoleSessionDetail();
+    return;
+  }
+  if (event.target.closest?.("[data-role-session-refresh]")) {
+    refreshRoleSessionDetail();
+    return;
+  }
+  const swap = event.target.closest?.("[data-role-session-switch]");
+  if (swap?.dataset.roleSessionSwitch) {
+    openRoleSessionDetail(swap.dataset.roleSessionSwitch, swap.dataset.roleSessionSwitchSid);
+  }
 });
 document.addEventListener("keydown", event => {
   if (event.key === "Escape") closeRoleSessionDetail();

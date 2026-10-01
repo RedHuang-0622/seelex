@@ -139,7 +139,7 @@ func schedulerSkipDir(name string) bool {
 		return true
 	}
 	switch name {
-	case "tmp", "dist", "node_modules", "vendor":
+	case "tmp", "dist", "node_modules", "vendor", "_tmp", "_scratch", "local":
 		return true
 	}
 	return false

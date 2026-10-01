@@ -36,11 +36,19 @@ const (
 // 分量（与 sessionstore 的 emp 主体同名，权限面因此不需要第二套映射）。
 func SubjectForRole(role string) string { return "emp_" + role }
 
-// DefaultRoleSessionID 派生角色会话号：同一个 (team_id, role) 永远得到同一个值
-// （重复装配幂等）。与 agentteam.RoleSessionID 同形；装配层可用
+// DefaultRoleSessionID 派生角色会话号：同一个 (主会话, team_id, role) 永远得到同一
+// 个值（重复装配幂等）。与 agentteam.RoleSessionID 同形；装配层可用
 // Options.DeriveRoleSessionID 注入权威实现。
-func DefaultRoleSessionID(teamID, roleName string) string {
-	return teamID + "-" + roleName
+//
+// 主会话身份是**必需分量**（2026-10-01，用例 2「团队会话粒度」）：两个会话召唤同一
+// 支团队时，worker 的角色会话必须各自独立——否则角色引擎槽、项目根绑定、权责反查
+// 会把两条会话的同名员工当成同一个人（详见 agentteam.RoleSessionID 的说明）。
+func DefaultRoleSessionID(mainSessionID, teamID, roleName string) string {
+	mainSessionID = strings.TrimSpace(mainSessionID)
+	if mainSessionID == "" {
+		return teamID + "-" + roleName
+	}
+	return mainSessionID + "-" + teamID + "-" + roleName
 }
 
 // PlanStore 是计划的持久面（生产实现 = sessionstore.TeamworkRepository）。
@@ -149,7 +157,7 @@ type Options struct {
 	// MaxTurns 是每个 teammate 作业的回合上限（0 = 装配层默认）。
 	MaxTurns int
 	// DeriveRoleSessionID 覆盖角色会话号的派生（默认 DefaultRoleSessionID）。
-	DeriveRoleSessionID func(teamID, roleName string) string
+	DeriveRoleSessionID func(mainSessionID, teamID, roleName string) string
 	// Clock 覆盖墙钟（测试用）。
 	Clock func() time.Time
 }
@@ -168,7 +176,7 @@ type Coordinator struct {
 	sessions   SessionResetter
 	maxMembers int
 	maxTurns   int
-	derive     func(teamID, roleName string) string
+	derive     func(mainSessionID, teamID, roleName string) string
 	clock      func() time.Time
 }
 

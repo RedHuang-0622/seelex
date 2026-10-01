@@ -56,6 +56,7 @@ stateDiagram-v2
 |---|---|
 | `worktree_manager.go` | `WorktreeManager`、`WorktreeManagerDeps`、`NodeWorktree`/`NodeWorktreeInfo`、`GitRunner`/`CleanupWorktree`/`ConflictFilesIn` |
 | `worktree_manager_test.go` | fakeGit 驱动的生命周期单元测试 |
+| `worktree_prune_test.go` | 残留回收（`Prune`）与幽灵现场（`Restore`）判据 |
 | `worktree_failure_smoke_test.go` | B1/B2/B4 收尾失败现场保留冒烟 |
 
 ## 核心实现
@@ -65,6 +66,18 @@ stateDiagram-v2
 `Finish` 流程：`branchBehindBase` → 落后则 rebase（冲突报错保留现场）→ `commitCountSince` 判定 → 有提交则 `approve`（审批门可拒）→ merge → `cleanup`；任一步失败返回可识别错误，调用方据此保留现场。
 
 失败是**可分类**的：`commitCountSince` 判定为"工作区脏且无提交"（子代理未执行收尾协议 `git add -A && git commit`）时，返回包装了 `ErrUncommittedChanges` 的错误，并由 `IsUncommittedChanges(err)`（`errors.Is`）判定。语义边界：现场一律保留（绝不静默删除子代理产出），但该失败**不表示节点结论无效**——调用方（`node/` 域）据此把它降级为产出中的显式警告，避免 workplan fail-fast 取其失败连坐同批兄弟节点。其余失败（rebase 冲突、审批被拒、merge 冲突/失败）仍是硬失败，不可降级。
+
+**残留回收（`Prune`）**：成功收尾才 `git worktree remove`，失败/中断的现场按设计保留，因此必须有兜底清理器，否则每个残留 = 一份完整检出 + 一个 `seelex/<id>` 分支，磁盘随历史失败数无界增长。`Prune` 走本仓库自己的 `git worktree list`，只回收**同时满足**两条的现场：
+
+- **不在册**：注册表里没有它（发/收现场锚点）。恢复得到的现场由 `Restore` 先登记，因此不会被当残留删掉；
+- **干净**：没有未提交改动。有改动的现场一律保留（`PruneResult.Kept`），与 `ErrUncommittedChanges` 同一口径——框架不替人决定产出「丢还是留」。
+
+命名不属于本管理器（`<repoBase>-seelex-<nodeID>`）的 worktree 一律不碰；顺手跑一次 `git worktree prune` 清掉手工删目录留下的 prunable 元数据。**调用顺序是判据的一部分**：先 `Restore`、后 `Prune`（根包 `RestoreSubagentAnchors` 即按此顺序）。
+
+**两个生命周期修正**：
+
+- `Restore` 不再登记**目录已不存在**的路径：否则 `Info` 会报一个不存在的路径、`team_retire` 步 2 会对着它跑 `git status` 而失败（幽灵条目）。
+- `Begin` 对同一 `nodeID` **幂等**（已有在册现场直接复用），且不再对**仍在册**的路径做 `worktree remove --force`。路径与分支都只按 nodeID 命名，跨会话/跨批次的第二次 `Begin` 会指向同一目录，旧行为会把一个正在使用的现场删掉。
 
 ## 数据流或生命周期
 
@@ -91,7 +104,8 @@ stateDiagram-v2
 - 失败路径是否必然保留现场（不能误清理）；
 - 审批门拒绝/超时是否不会删除 worktree；
 - CRLF 幻影脏是否会被误判为"脏未提交"而中断节点；
-- 脏未提交失败是否走 `ErrUncommittedChanges` 分类（调用方降级为警告），而不是与 rebase/审批/merge 硬失败混为一谈。
+- 脏未提交失败是否走 `ErrUncommittedChanges` 分类（调用方降级为警告），而不是与 rebase/审批/merge 硬失败混为一谈；
+- 残留回收是否只删「不在册 **且** 干净」的现场，且调用方确实是先 `Restore` 后 `Prune`。
 
 ## 测试与验证
 

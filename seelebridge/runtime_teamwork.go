@@ -73,12 +73,20 @@ func (r *Runtime) SetTeamworkBackend(backend TeamworkBackend) error {
 	if err != nil {
 		return fmt.Errorf("teamwork: 装配 jobs.Manager 失败: %w", err)
 	}
+	// 作业事件流（Seelex 侧构建，见 jobs_events.go）：订阅 jobs.Events() 的变更
+	// 信号，把在册作业的新状态按会话追加到事件库——框架侧不发事件（event.Sink 在
+	// 构造期定不下会话、序号全局，只 append 不到尾部）。
+	// 停机顺序 = 登记逆序：先登记 manager.Close、后登记 stream.close，于是停机时
+	// 先停投影、再取消在途作业（不为停机合成一批 killed 事件）。
+	stream := newJobsEventStream(manager, r.currentEventPersister)
 	r.teamworkMu.Lock()
 	r.teamworkBackend = &backend
 	r.teamworkJobs = manager
 	r.teamworkCoords = map[sessionstore.Key]*teamwork.Coordinator{}
 	r.lifecycle = append(r.lifecycle, func() { _ = manager.Close(context.Background()) })
+	r.lifecycle = append(r.lifecycle, stream.close)
 	r.teamworkMu.Unlock()
+	stream.start()
 	// 装配即注册 leader 工具面：RegisterBuiltins 在组合根更早处跑（那时 router /
 	// workspace 还没就绪），因此工具注册跟在 backend 注入之后。
 	r.registerTeamworkTools()
@@ -294,7 +302,6 @@ func (r *Runtime) RunWorker(ctx context.Context, request teamwork.WorkerRequest,
 	if mainSessionID == "" {
 		mainSessionID = seeletelemetry.SessionIDFromContext(ctx)
 	}
-	sink.Progress(fmt.Sprintf("worker 起跑 role=%s stage=%s worktree=%s", request.Role, request.Stage, request.Worktree))
 	r.bindWorkerProjectRoot(mainSessionID, request.RoleSessionID, request.Worktree)
 	maxLoops := request.MaxTurns
 	if maxLoops <= 0 {

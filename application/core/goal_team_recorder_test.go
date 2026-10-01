@@ -104,7 +104,7 @@ func draftRecordingFixture(t *testing.T, sessionID string) (*draftRecordingSessi
 func TestRecordTLRoundAppendsThenSyncsInTheSameRound(t *testing.T) {
 	sessionID := "sess-tl-record"
 	sessions, recorder, view := draftRecordingFixture(t, sessionID)
-	roleSessionID := agentteam.RoleSessionID(view.TeamID, "tl")
+	roleSessionID := agentteam.RoleSessionID(sessionID, view.TeamID, "tl")
 	if roleSessionID == "" {
 		t.Fatalf("goal-a2a 团队的 tl 角色会话号必须可派生（team_id=%q）", view.TeamID)
 	}

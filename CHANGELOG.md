@@ -35,6 +35,31 @@ version when it lands.
 
 ### Changed
 
+- **The employee side of the Agent Team panel now updates the way the panel itself does — by event,
+  plus a manual refresh key, never by heartbeat.** ClaudeTeamwork judges liveness from file heartbeats
+  (`.teamwork/heartbeats/`); this side's job table already *is* the liveness fact (`running` / `done` /
+  `killed` are terminal states), so nothing here invents a "last seen" timer. Four gaps the six-case
+  audit had left open are closed. (1) The role-session detail (the member row's "查看" popup) was a
+  one-shot fetch: it now carries its own refresh key, and while it is open it refetches its current
+  target on `team.changed` (`refreshRoleSessionDetail`; the target identity — `role_name` +
+  `role_session_id` — travels on the key so a refresh replays it exactly). (2) The panel had no manual
+  refresh at all; it now has a standing one (`data-team-refresh`, forcing `refreshAgentTeam({force:true})`
+  instead of short-circuiting on a cache hit). (3) An employee's full key→value profile lived only
+  inside the lazy edit panel, with a couple of chips echoed in the row; each employee library row can now
+  expand a `k→v` table (`employeeFieldRows` / `.team-kv`) that lists every field — including the empty
+  ones, whose emptiness is itself a fact. (4) The question "switch the conversation view to an employee"
+  is answered where it can be: the detail view carries a "切员工" switcher (`renderRoleSessionSwitcher`,
+  shown only when there is more than one member) that re-targets the **existing** session view to another
+  employee's `role_session_id`. Boundary, stated rather than papered over: a role session is a *subtree*
+  of the main session root (`role_<hash>/`, `goal_<hash>/`), while the GUI's view switch (`ResumeSession`)
+  operates on top-level sessions — pointing the main conversation pane at a role session would need a new
+  "view target = nested session" backend channel and is out of scope. On the backend side the master CRUD
+  paths (employee library / team library / default order / publish-to-global) now publish the
+  session-scoped `team.changed` the assembly paths already published: they are panel data too, and
+  without the event only the caller refetched while any other observer stayed on the stale library.
+  Pinned by `agent-team-view.test.mjs` / `agent-team-refresh.test.mjs` and, on the Go side,
+  `TestMasterCRUDsPublishTeamChanged`.
+
 - **The goal seat loop is now a `jobs.KindSeat` executor: one driver, one loop body, two ways in.** The
   governance seating loop used to be a second driver running beside the job face — `AdvanceAfterChat`
   walked it synchronously while jobs did their own thing — so "everything long-running is a job" stayed a
@@ -108,6 +133,81 @@ version when it lands.
   session and `{Session, Subject}` one teammate, for both listing and reclamation. Seelex consumes it
   through a temporary local `replace` in `go.mod` (the same discipline as the three earlier local
   replace integrations: it is removed once Seele tags the capability).
+
+- **The jobs event stream is built here, not in the framework — and the reason is structural.** Seele's
+  `jobs` originally shipped an `event.Sink` hook (`WithEventSink`) that published `running` / terminal
+  lifecycle events from inside the manager. That shape cannot produce a *session* event log: the sink
+  has to be fixed at `jobs.New` time, when nothing yet knows which session's stream a job belongs to,
+  and the framework's `event.Recorder` is a single process-wide instance with a **global** sequence
+  number, while this side's event store (`sessionstore.EventStore`) appends and sorts **per session**.
+  Events built that way can therefore never be appended to the tail of a session's stream — the session
+  attribution can only be **backfilled** afterwards (exactly what `correlateMainSessionID` does for
+  workplan runner events), and a global sequence is meaningless under per-session ordering. The hook has
+  been reverted out of `jobs` (the `Sink` contract is back to `Note` / `SignalBytes` / `Exit` /
+  `Complete`), and the stream now lives on this side: `seelebridge/jobs_events.go` subscribes to
+  `Events()` (the change-signal port), takes a `Snapshot` per wake, and projects each **new** state into
+  the job's own session log with an `agent.runtime` location and a time-based sequence — observation
+  only, never a push into a busy session.
+
+- **A quota-exhausted account now hands the turn to the next one instead of killing the run.** The
+  account pool deliberately does not retry (Seele `accountpool/README.md`: the module does not own
+  retry — "those policies are composed by the caller"), so the gap was on this side, and it was fatal:
+  the session loop classified provider failures into context / invalid-history / timeout / server
+  only, a **402 payment-required** matched none of them, and the whole run died carrying the raw
+  upstream text. The classification now lives where it can act: `seelebridge/account/failure.go`
+  separates "this account is not eligible" (quota exhausted / credentials rejected) from "the network
+  or the upstream wobbled", and the streaming completer (`seelebridge/internal/stream`) consumes it
+  *after* releasing the lease — an eligible-account failure drops the pin (a pin means **prefer this
+  one**, not **only this one**: a first choice with no quota must fall through to the second), excludes
+  that account through a request-scoped predicate (never a pool-wide `Disable`, which is a global side
+  effect nobody re-enables) and retries within a bounded number of attempts. A transport or upstream
+  error is re-raised untouched, so one blip is never amplified into "hit every account with the same
+  error". Pinned by two tests: `TestStreamingCompleterFailsOverOnQuotaRejection` and
+  `TestStreamingCompleterDoesNotFailOverOnTransportError`.
+
+- **Worktree residue finally has a collector, and two lifecycle bugs went with it.** A worktree is
+  removed only on a clean finish, and a failed or interrupted scene is deliberately kept (`Release`
+  unregisters without deleting) — but nothing else ever cleaned up, so every historical failure left
+  a **full project checkout** plus a `seelex/<id>` branch on disk, growing without bound. Now
+  `WorktreeManager.Prune` is that collector: it walks the repository's own worktree list and removes
+  what is *unregistered* **and** *clean* (deleting the branch too), never touching a scene with
+  uncommitted changes — the framework does not decide "drop or keep" for a human's work, the same
+  rule `ErrUncommittedChanges` already states. It runs on session-anchor restore and strictly *after*
+  the anchors are registered, because a restored scene is by definition not an orphan. The two bugs:
+  `Restore` no longer re-registers a path whose directory is gone (a ghost scene made `Info` report a
+  path that does not exist and made `team_retire` fail running `git status` inside it), and `Begin` is
+  now idempotent per `nodeID` and never `worktree remove --force`s a path that is still registered —
+  both the path and the branch are named from the node id alone, so a second `Begin` for the same id
+  (another session, another batch) used to delete a scene that was still in use.
+
+- **Three repo gates that had gone red were brought back to green.** The embedded config pack had
+  drifted from `config/seelex.yaml` (the spec is the single source of truth, the pack is a byte copy
+  produced by `scripts/sync-bootseed-defaults.ps1`), so a fresh install would have initialised without
+  the team ceiling the spec file had grown. `seelebridge/teamwork` — the package this release turns
+  into the coordination surface — had shipped without a `README.md`, and two repository-level walkers
+  (`e2e` package-layout, `agentteam` scheduler wiring) were scanning local scratch directories
+  (`_scratch/`, `_tmp/`) that `.gitignore` already excludes, so a stray draft file could trip a gate
+  and drown the real red.
+
+- **A summoned team is now session-scoped: two sessions that summon the same team get their own member
+  instances.** The role-session identifier was derived from `(team_id, role_name)` alone, so two main
+  sessions summoning the same team produced the *same* identifier. Storage happened to survive (role
+  subtrees hang under each main session), but everything keyed by that identifier at runtime did not:
+  the role engine slot (`roleTurnState.sessions`) handed the second session's turn to the first
+  session's engine (histories bleeding into each other), the project-root binding
+  (`ProjectScope.BindFor`) let the later session overwrite the earlier one's root, and the permission
+  reverse-index — which had already documented this exact defect ("the role session id does not carry
+  the main session identity … removing the ambiguity at the root would mean encoding it and migrating
+  the storage format, out of scope here") — had to vote "most restrictive" to stay fail-closed. The
+  identity now includes the main session
+  (`agentteam.RoleSessionID(mainSessionID, teamID, roleName)`, with the same derivation propagated to
+  the goal TL seat and to `teamwork.DefaultRoleSessionID`), so isolation is guaranteed by the
+  identifier instead of by every downstream map remembering to re-compose it. Repeat assembly within
+  one session stays idempotent. Pinned by
+  `TestMaterializeSameTeamIntoTwoSessionsDispatchesOwnMembers` and
+  `TestTeamMemberInstancesAreSessionScoped`. This is also a storage-format migration: the role subtree
+  directory is `role_<hash(roleSessionID)>`, so pre-existing role subtrees are left orphaned — they
+  are a derived in-process execution surface, not a source of truth.
 
 - **Teamwork now has a plan, a place to keep it, and a real audit trail — with the two open questions
   answered.** The leader/worker architecture (`docs/arch/teamwork-leader-worker-architecture.md`) left

@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   agentTeamOrderForDrag,
+  employeeFieldRows,
   employeePool,
   hirePanel,
   isPinnedRole,
@@ -12,6 +13,7 @@ import {
   normalizeTeamLibrary,
   renderAgentTeam,
   renderRoleSessionDetail,
+  renderRoleSessionSwitcher,
   renderTeamMemberList,
   roleDisplayName,
   teamEditorPanel,
@@ -617,4 +619,60 @@ test("global master escapes employee names, never interpolates raw", () => {
   const html = renderAgentTeam(goalView, presets, library, hostile);
   assert.doesNotMatch(html, /<img src=x/);
   assert.match(html, /&lt;img src=x/);
+});
+
+// ── E：员工运行详情（刷新键 + 切员工）与员工行 k→v 表格化 ─────────────
+//
+// 用户口径：Agent Team 没有心跳（不搞"最后心跳时间"），员工侧的两件事靠
+// **事件驱动 + 手动刷新键**——面板一枚刷新键、运行详情视图一枚刷新键；员工行
+// 不再只回显 chip，而是能展开一张 k→v 全字段表；运行详情里能直接「切员工」。
+
+test("员工行表格化 k→v：全字段一行一栏，空栏照列（不藏起来）", () => {
+  const rows = employeeFieldRows({ roleName: "tl", roleKind: "techlead", toolsPolicy: "readonly", systemPrompt: "你是评审官" });
+  const byKey = Object.fromEntries(rows.map(row => [row.key, row.value]));
+  assert.equal(byKey.role_kind, "TL");
+  assert.equal(byKey.tools_policy, "只读");
+  assert.equal(byKey.permission_groups, "未装配");
+  assert.equal(byKey.presence_policy, "继承");
+  assert.equal(byKey.system_prompt, "5 字符");
+  // 空载荷也不抛：全字段仍逐栏列出（值退化成"继承/未登记"）。
+  assert.equal(employeeFieldRows(null).length, 7);
+
+  const html = renderAgentTeam(goalView, presets, library, globalConfig);
+  assert.match(html, /data-team-employee-kv="auditor"/);
+  assert.match(html, /data-team-employee-kv="tl"/);
+  assert.match(html, /data-team-kv="tools_policy"/);
+  assert.match(html, /data-team-kv="system_prompt"/);
+});
+
+test("Agent Team 面板带常驻手动刷新键（无心跳，事件驱动之外的兜底）", () => {
+  const html = renderAgentTeam(goalView, presets, library);
+  assert.match(html, /class="team-panel-toolbar"/);
+  assert.match(html, /data-team-refresh="1"/);
+  // 未装配的会话也有刷新键：面板数据按需 RPC 拉，刷新不分装配与否。
+  const unconfigured = renderAgentTeam({ configured: false, members: [], scheduled: [] }, presets, library);
+  assert.match(unconfigured, /data-team-refresh="1"/);
+});
+
+test("员工运行详情带刷新键，并把身份带在键上（刷新原样重放）", () => {
+  const html = renderRoleSessionDetail({ role_name: "tl", role_session_id: "goal-a2a-tl", role_rows: [] }, { roleName: "tl", roleSessionID: "goal-a2a-tl" });
+  assert.match(html, /class="role-session-toolbar"/);
+  assert.match(html, /data-role-session-refresh="1"[^>]*data-role-session-role="tl"[^>]*data-role-session-sid="goal-a2a-tl"/);
+});
+
+test("运行详情「切员工」：给多员工名单摆一排 chip，当前位高亮", () => {
+  const members = [
+    { roleName: "tl", roleKind: "techlead", roleSessionID: "goal-a2a-tl" },
+    { roleName: "auditor", roleKind: "agent", roleSessionID: "role-auditor" }
+  ];
+  const bar = renderRoleSessionSwitcher(members, "tl");
+  assert.match(bar, /role-session-switcher/);
+  assert.match(bar, /data-role-session-switch="tl"[^>]*aria-current="true"/);
+  assert.match(bar, /data-role-session-switch="auditor"[^>]*data-role-session-switch-sid="role-auditor"/);
+  // 只有一位（或没有名单）不摆一条只有一个 chip 的条。
+  assert.equal(renderRoleSessionSwitcher([members[0]], "tl"), "");
+  assert.equal(renderRoleSessionSwitcher(null, "tl"), "");
+
+  const html = renderRoleSessionDetail({ role_name: "tl", role_rows: [] }, { roleName: "tl", roleSessionID: "goal-a2a-tl", members });
+  assert.match(html, /data-role-session-switch="auditor"/);
 });

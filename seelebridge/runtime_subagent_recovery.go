@@ -135,6 +135,15 @@ func (r *Runtime) RestoreSubagentAnchors(sessionID string) error {
 	}
 	if r.worktreeMgr != nil {
 		r.worktreeMgr.Restore(records)
+		// 现场登记之后再清残留：恢复得到的现场不在册就会被误删（顺序是判据的一部分，
+		// 见 WorktreeManager.Prune）。
+		pruned, pruneErr := r.worktreeMgr.Prune()
+		if pruneErr != nil {
+			log.Printf("seelebridge: 回收 worktree 残留失败：%v", pruneErr)
+		} else if len(pruned.Removed) > 0 || len(pruned.Kept) > 0 {
+			log.Printf("seelebridge: worktree 残留回收：删除 %d（孤儿），保留 %d（有未提交改动）",
+				len(pruned.Removed), len(pruned.Kept))
+		}
 	}
 	conclusions, err := loadSubagentConclusions(context.Background(), router, projectID, sessionID)
 	if err != nil {

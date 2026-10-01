@@ -145,6 +145,15 @@ limits:
   # 启动守护进程并重跑一次（默认开启；关闭需显式 disable_docker_auto_start: true）
   # disable_docker_auto_start: false
   # docker_start_timeout: 60     # 启动等待上限（秒；默认 60）
+  # ── teamwork（leader + 异步 worker 作业面）───────────────────────
+  # 产品级约束块（docs/arch/teamwork-leader-worker-architecture.md §4.3）。
+  # 为什么不能只靠框架的 jobs 在途上限：teammate 不挂子代理（D6 硬移除
+  # fork_subagents）⇒ worktree 数量被 teammate 数量封顶 ⇒「人数上限」就是
+  # 「工作区不累积残留」的那条产品级约束；框架的 InFlight（32）只是兜底，
+  # 撞到它说明这条产品约束已经失效。超限的 team_plan / team_dispatch 显式
+  # 拒绝，不静默排队（排队会把"人满了"伪装成"在跑"）。
+  team:
+    max_teammates: 6             # 同时在编 teammate 人数上限（默认 6，与 resident_limit 同量级；负值启动期报错）
   # ── v8 会话存储参数（my_design §11；全部缺省 = 存储内置默认，注释即为默认值）
   # 覆盖链：存储内置默认 ← 本段 ← 数据根内 session-storage.json。
   session_storage:

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 
 	"github.com/RedHuang-0622/Seele/jobs"
 )
@@ -39,7 +38,6 @@ func (e *workerExecutor) Start(ctx context.Context, spec jobs.Spec, sink jobs.Si
 	if request.MaxTurns == 0 {
 		request.MaxTurns = e.maxTurns
 	}
-	sink.Progress(fmt.Sprintf("worker 起跑 role=%s stage=%s worktree=%s", request.Role, request.Stage, request.Worktree))
 	if err := e.runner.RunWorker(ctx, request, sink); err != nil {
 		sink.Note("\n[teamwork] worker 回合失败：" + err.Error() + "\n")
 		sink.Exit(1)
@@ -76,7 +74,6 @@ func (e *seatExecutor) Start(ctx context.Context, spec jobs.Spec, sink jobs.Sink
 			return nil
 		}
 	}
-	sink.Progress(fmt.Sprintf("seat 起跑 goal=%s stage=%s", request.GoalID, request.Stage))
 	if err := e.runner.RunSeat(ctx, request, sink); err != nil {
 		sink.Note("\n[teamwork] 座位循环失败：" + err.Error() + "\n")
 		sink.Exit(1)

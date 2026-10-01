@@ -292,3 +292,64 @@ func TestStreamingCompleterFallsBackToSyncCompleter(t *testing.T) {
 		t.Fatalf("fallback chunks = %v", chunks)
 	}
 }
+
+// staticStreamCompleter 立即返回固定结果（或固定错误）——账号换号回退的探针。
+type staticStreamCompleter struct {
+	content string
+	err     error
+}
+
+func (c *staticStreamCompleter) Complete(context.Context, []types.Message, []types.Tool) (types.Message, error) {
+	return types.Message{}, errors.New("static stream completer does not complete synchronously")
+}
+
+func (c *staticStreamCompleter) CompleteStream(context.Context, []types.Message, []types.Tool, func(string)) (string, string, []types.ToolCall, error) {
+	if c.err != nil {
+		return "", "", nil, c.err
+	}
+	return c.content, "", nil, nil
+}
+
+func pinnedTo(id string) bridge.AccountRequestSelector {
+	return func(context.Context, []types.Message, []types.Tool) accountpool.AcquireRequest {
+		return accountpool.AcquireRequest{AccountID: id}
+	}
+}
+
+// TestStreamingCompleterFailsOverOnQuotaRejection 钉住「第一志愿没额度 → 第二志愿」：
+// 账号池不做重试（Seele accountpool/README.md），因此回退必须由本适配器实现——
+// 第一志愿（显式 pin）返回 402 时取消 pin、排除该账号，换同族下一个账号重试。
+func TestStreamingCompleterFailsOverOnQuotaRejection(t *testing.T) {
+	pool := newStreamPool(t, map[string]agent.Completer{
+		"agent-1": &staticStreamCompleter{err: errors.New("ChatClient stream: HTTP 402 payment required (insufficient balance)")},
+		"agent-2": &staticStreamCompleter{content: "streamed-by-second"},
+	})
+	completer := &streamingAccountCompleter{pool: pool, selector: pinnedTo("agent-1")}
+
+	content, _, _, err := completer.CompleteStream(context.Background(), nil, nil, nil)
+	if err != nil {
+		t.Fatalf("换号回退后仍失败：%v", err)
+	}
+	if content != "streamed-by-second" {
+		t.Fatalf("content = %q, want 第二志愿的产出", content)
+	}
+}
+
+// TestStreamingCompleterDoesNotFailOverOnTransportError 钉住换号的**边界**：
+// 网络/上游故障不是账号资格问题，换号不会改变结果，必须原样上抛（否则一次抖动会被
+// 放大成「把所有账号逐个撞一遍」）。
+func TestStreamingCompleterDoesNotFailOverOnTransportError(t *testing.T) {
+	pool := newStreamPool(t, map[string]agent.Completer{
+		"agent-1": &staticStreamCompleter{err: errors.New("read tcp 10.0.0.1:443: connection reset by peer")},
+		"agent-2": &staticStreamCompleter{content: "streamed-by-second"},
+	})
+	completer := &streamingAccountCompleter{pool: pool, selector: pinnedTo("agent-1")}
+
+	content, _, _, err := completer.CompleteStream(context.Background(), nil, nil, nil)
+	if err == nil {
+		t.Fatalf("传输错误必须上抛，却被回退掉了：content=%q", content)
+	}
+	if content != "" {
+		t.Fatalf("传输错误不得返回第二志愿的内容：%q", content)
+	}
+}

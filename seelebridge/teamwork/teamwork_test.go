@@ -200,8 +200,8 @@ func TestSetPlanDerivesRoleSessionIDsAndAudits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
-	if plan.Members[0].RoleSessionID != "v-model-pm" {
-		t.Fatalf("role_session_id 未按 (team_id, role) 派生: %q", plan.Members[0].RoleSessionID)
+	if plan.Members[0].RoleSessionID != "s-v-model-pm" {
+		t.Fatalf("role_session_id 未按 (主会话, team_id, role) 派生: %q", plan.Members[0].RoleSessionID)
 	}
 	if kinds := fixture.store.kinds(); len(kinds) != 1 || kinds[0] != sessionstore.TeamworkEventPlan {
 		t.Fatalf("计划改写必须留下审计行: %v", kinds)
@@ -251,7 +251,7 @@ func TestDispatchJoinMilestoneLifecycle(t *testing.T) {
 		t.Fatalf("Retire: %v", err)
 	}
 	calls := fixture.calls.snapshot()
-	if len(calls) != 2 || calls[0] != "worktree:exec" || calls[1] != "session:v-model-exec" {
+	if len(calls) != 2 || calls[0] != "worktree:exec" || calls[1] != "session:s-v-model-exec" {
 		t.Fatalf("退场步骤顺序错了: %v", calls)
 	}
 	if _, ok := fixture.jobs.Observe(handle); ok {
@@ -299,11 +299,15 @@ func TestDispatchRefusesWhenTeamIsFull(t *testing.T) {
 		t.Fatalf("SetPlan: %v", err)
 	}
 	// 直接把"在跑人数"顶到上限（模拟同会话里已经跑着的两个 teammate 作业）。
+	// 载荷必须**可解码**：worker 执行体在载荷解码失败时会把作业立刻判失败终态，
+	// 占位作业就顶不住人数——机器负载高时"派发 → 终态"的窗口被压缩，本用例会偶发
+	// 假绿（2026-10-01 全量串行跑时复现）。
 	for index := 0; index < 2; index++ {
 		if _, err := fixture.jobs.Dispatch(ctx, jobs.Spec{
 			Kind:        KindWorker,
 			Scope:       jobs.Scope{Session: "s", Subject: fmt.Sprintf("emp_other%d", index)},
 			Description: "占位",
+			Payload:     []byte(fmt.Sprintf(`{"main_session_id":"s","role":"other%d"}`, index)),
 		}); err != nil {
 			t.Fatalf("Dispatch: %v", err)
 		}

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/application/core/agentteam"
 	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 )
@@ -391,5 +392,60 @@ func TestRoleEngineDefaultKeepsRoleSessionIdentity(t *testing.T) {
 	}
 	if got := engine.SessionID(); got != "goal-a2a-tl" {
 		t.Fatalf("角色会话引擎身份 = %q, want goal-a2a-tl", got)
+	}
+}
+
+// TestTeamMemberInstancesAreSessionScoped（用例 2「团队会话粒度」，修前 RED）：
+// 两个主会话召唤同一支团队的同一个角色时，各自拿到**自己的**成员实例（角色引擎），
+// 不是一个被两边共用的实例。
+//
+// 判据取"每会话一个引擎"的桩：修前角色会话号只由 (team_id, role_name) 派生，两个
+// 会话落到同一个键上——第二个会话的回合被扣进第一个会话的引擎（历史串味、项目根被
+// 覆盖），这里只会造出 1 个引擎。修后角色会话号带主会话身份，两个会话各造一个。
+func TestTeamMemberInstancesAreSessionScoped(t *testing.T) {
+	runtime := newTestRuntime(t)
+	runtime.SetPermissionConfig(seeltools.DefaultPermissionConfig(), nil)
+	var mu sync.Mutex
+	engines := map[string]*fakeRoleEngine{}
+	runtime.SetRoleEngineFactory(func(sessionID string) (roleEngine, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		engine := &fakeRoleEngine{id: sessionID, output: "本轮结论"}
+		engines[sessionID] = engine
+		return engine, nil
+	})
+
+	const teamID, role = "goal-a2a", "reviewer"
+	mainSessions := []string{"sess-a", "sess-b"}
+	ids := make([]string, 0, len(mainSessions))
+	for _, mainSession := range mainSessions {
+		// 身份派生走生产口径：工厂按 (主会话, team_id, role_name) 派发成员实例。
+		roleSessionID := agentteam.RoleSessionID(mainSession, teamID, role)
+		ids = append(ids, roleSessionID)
+		if _, err := runtime.RunRoleTurn(context.Background(), dto.RoleTurnRequest{
+			SessionID:     mainSession,
+			RoleName:      role,
+			RoleSessionID: roleSessionID,
+			ToolsPolicy:   dto.ToolPolicyReadonly,
+			Input:         "同一个团队的同一个角色，来自 " + mainSession,
+		}); err != nil {
+			t.Fatalf("会话 %s 的员工回合: %v", mainSession, err)
+		}
+	}
+	if ids[0] == ids[1] {
+		t.Fatalf("两个会话召唤同一团队得到同一个角色会话号 %q（成员实例没按会话派发）", ids[0])
+	}
+	if len(engines) != 2 {
+		t.Fatalf("两个会话应各持有自己的员工引擎，得到 %d 个：%v", len(engines), ids)
+	}
+	for _, id := range ids {
+		engine := engines[id]
+		if engine == nil {
+			t.Fatalf("角色会话 %q 没有自己的引擎", id)
+		}
+		_, _, calls, _ := engine.snapshot()
+		if calls != 1 {
+			t.Fatalf("角色会话 %q 的回合数 = %d, want 1（不与其他会话合流）", id, calls)
+		}
 	}
 }

@@ -404,7 +404,7 @@ func (service *Service) publishAdvisorDirectiveRows(sessionID string, directives
 }
 
 // advisorRoleSessionID 解析 ADVISOR（tl）的角色会话号：按工厂口径
-// (team_id, role_name) 派生，与 goal 回合记录器写入 draft 的会话号同源。
+// (主会话, team_id, role_name) 派生，与 goal 回合记录器写入 draft 的会话号同源。
 // 未装配 AgentTeam（旧会话/测试桩）时返回空——不伪造角色会话号。
 func (service *Service) advisorRoleSessionID(sessionID string) string {
 	if service == nil || strings.TrimSpace(sessionID) == "" {
@@ -414,7 +414,7 @@ func (service *Service) advisorRoleSessionID(sessionID string) string {
 	if err != nil || !view.Configured {
 		return ""
 	}
-	return agentteam.RoleSessionID(view.TeamID, RoleNameTL)
+	return agentteam.RoleSessionID(sessionID, view.TeamID, RoleNameTL)
 }
 
 // goalBeginHandler 是 goal_begin 工具 handler（main.go 注册）。

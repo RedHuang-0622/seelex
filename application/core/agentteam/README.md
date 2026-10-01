@@ -19,7 +19,7 @@ A2A 角色团队的**通用装配能力面**：把「`TeamSpec`/`RoleSpec` → �
 - **隐式**：`GoalBeginFor` 在 goal 落栈成功后调
   `MaterializeAgentTeamPreset(sessionID, "goal-a2a", 0)`——因为 `goal-a2a` 的
   TL 声明了 `JoinPolicy=on_goal_create`，"goal 上线"就该把 TL 团队拉起来。
-  幂等由工厂保证（同 `(team_id, role_name)` 派生同一 `role_session_id`）；
+  幂等由工厂保证（同 `(主会话, team_id, role_name)` 派生同一 `role_session_id`）；
   宿主未装配团队存储时只记日志、不阻塞 goal（`ensureGoalAgentTeam`）。
 
 ## 职责与非职责
@@ -136,7 +136,7 @@ sequenceDiagram
 | 员工提示词优化 | **已接线**：一次有界 LLM 回合（`RolePromptPort`），只产出候选文本 + 改动理由，不落盘、不写会话消息；落盘仍走入职/保存 | `seelebridge/runtime_role_prompt.go`（`OptimizeRolePrompt`）、`application/core/agentteam_service.go`（`AgentTeamOptimizeRolePrompt`） |
 | `TurnScheduler`（channel + 链表轮转 / team work 前缀） | **部分接线**：`Runtime`（会话级发言调度运行态）持有它并同步注册表顺序（环成员 = `order_roles` − `user`）；生产实际消费的是 `Order()`（座位存在性）、`NoteTurn()`（逃生记账）、`SyncOrder()` 与 `Snapshot()`，**`Next()`/`Advance()` 没有生产消费者**（"下一个谁发言"是表头扫描的静态投影，不随轮转变化）；真正驱动轮次的是 goal 治理的座位循环（见上一行「运行时轮次驱动」）。含三条**逃生路径**（轮次上限 / 连续无进展 / 无执行者） | 本包 `runtime.go` + `scheduler.go`；守卫用例 `scheduler_wiring_test.go`、`runtime_test.go`（`Next`/`Advance` 的行为用例、`TestRuntimeRingExcludesUser`）；消费点 `application/core/agentteam_service.go`（`teamRuntimeFor`）与 `goal_coordinator.go`（按顺序装座位 + `NoteTurn` 逃生记账） |
 | `@` 召唤的"开工"判据 | **已接线（2026-09-17）**：`@<团队> <附言>` 除装配外还落一个 goal（附言 = 目标陈述），主会话这一轮即 EXEC 座位、回合尾 Governor 让 teammate 上场；不带附言仍只装配（待命） | `application/core/input_team.go`（`beginGoalForSummon`）、用例 `application/core/input_team_work_test.go` |
-| 团队离场（干完就走人） | **已接线（2026-09-17）**：目标收口（栈里没有 active goal）→ 删角色注册表 + 复位顺序；角色会话子树保留（装配幂等键 `(team_id, role_name)` 不变，再次召唤复用同一棵） | `application/core/agentteam/factory.go`（`Dismiss`/`DismissPort`）、`sessionstore/team_registry.go`（`removeTeamRegistry`）、`application/core/agentteam_service.go`（`DismissAgentTeam`）、`application/core/goal_service.go`（`dismissTeamWhenGoalClosed`） |
+| 团队离场（干完就走人） | **已接线（2026-09-17）**：目标收口（栈里没有 active goal）→ 删角色注册表 + 复位顺序；角色会话子树保留（装配幂等键 `(主会话, team_id, role_name)` 不变，再次召唤复用同一棵） | `application/core/agentteam/factory.go`（`Dismiss`/`DismissPort`）、`sessionstore/team_registry.go`（`removeTeamRegistry`）、`application/core/agentteam_service.go`（`DismissAgentTeam`）、`application/core/goal_service.go`（`dismissTeamWhenGoalClosed`） |
 | `review-team` / `research-team` 的成员 | **只有装配、没有执行者**：`reviewer`/`researcher` 建得出角色会话，但不会自动产生回合（`TeamView.DesignNotice` 会明说） | `factory.go`（`RolesWithExecutor` / `unexecutedRoles`） |
 
 结论口径（2026-09-17 复核）：`TurnScheduler` 的链表顺序（`Move`/`Remove`/`Restore`）与 `SetPrefix` 现在有生产消费者：
@@ -180,8 +180,11 @@ user**（环头扫描会落到它），与「其余时间都是 agent teammate �
 - `FloorPort`（可选）是运行态读面：`ReadFloorRole` 读主会话 `message head.floor`。
   未实现的宿主（旧端口/测试桩）不填充 `TeamView.FloorRole`，也不报错——可选而不是
   塞进 `Port`，是为了不给每个装配桩加编译期义务。读失败只进 `DesignNotice`。
-- `Factory.Materialize` 的幂等键是 `(team_id, role_name)` → `RoleSessionID`；重复装配
+- `Factory.Materialize` 的幂等键是 `(主会话, team_id, role_name)` → `RoleSessionID`；重复装配
   不产生第二个角色会话，返回结果里 `TeamRoleSession.Created=false`。
+  **主会话身份编进角色会话号**（2026-10-01，用例 2「团队会话粒度」）：两个会话召唤同一
+  支团队时，各自拿到自己的成员实例——改前只按 `(team_id, role_name)` 派生，运行面按这个
+  号做键的地方（角色引擎槽、项目根绑定、权责反查）会把两边当成同一个人。
 - `resolveOrderRoles` 是顺序唯一入口：定时角色（`RoleKindTimer`）不得进顺序；
   显式顺序必须是「`user` + `main` + 已注册角色」的子集；未给定时按
   `user → main → 其余角色（OrderPriority 升序）` 推导。
@@ -234,7 +237,8 @@ presence 与 `message head.floor` 提供，不在本包落盘；`Registry.View`/
 
 - 顺序是不是只落 `lifecycle`？有没有在别处复制一份 `order_roles`（环成员是它的投影，不是第二份事实）？
 - 定时角色有没有漏进 `order_roles`？subagent 有没有被当成团队成员？
-- 角色会话号是否稳定（`(team_id, role_name)`）？重复装配会不会建出第二棵子树？
+- 角色会话号是否稳定（`(主会话, team_id, role_name)`）？重复装配会不会建出第二棵子树？
+- 两个会话召唤同一支团队时，角色会话号会不会碰撞（碰撞 = 成员实例被共用）？
 - `View` 是否偷偷写盘（读路径必须零写入）？
 - `role_name` 是否只做了 metadata：没有被当成 provider role 使用？
 - `floor_role` 是不是每次读都重新取（有没有把运行态值缓存/落盘）？读失败是否被静默吞掉？
@@ -463,7 +467,7 @@ go test -race ./application/core/agentteam -count=1
 - `func ValidToolPolicy(policy string) bool` — ValidToolPolicy 报告 tools_policy 是否落在枚举内（dto.ToolPolicy*）。
 - `func resolveRoleKind(roleName string, kind dto.RoleKind) dto.RoleKind` — resolveRoleKind 让内置角色名（user/main）永远取内置 kind；其它角色 kind 缺省
 - `func resolveOrderRoles(spec dto.TeamSpec, registered map[string]struct{}) ([]string, error)` — resolveOrderRoles 决定工作顺序：显式给定时必须是 [user, main + 已注册角色] 的
-- `func RoleSessionID(teamID, roleName string) string` — RoleSessionID 派生角色会话号：同一个 (team_id, role_name) 永远得到同一个值，
+- `func RoleSessionID(mainSessionID, teamID, roleName string) string` — RoleSessionID 派生角色会话号：同一个 (主会话, team_id, role_name) 永远得到同一个值，
 - `func needsRoleSession(kind dto.RoleKind) bool` — needsRoleSession 判定该角色是否需要独立角色会话子树：user/main 复用主会话，
 - `func registeredRoles(spec dto.TeamSpec) []dto.RoleSpec` — registeredRoles 返回需要角色会话的已注册角色。
 

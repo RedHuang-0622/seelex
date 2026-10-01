@@ -347,6 +347,28 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
   `AgentTeamSetDefaultOrder` 在 Application/Bridge 面上健在（headless 与工具面可用，
   `gui/README.md` 有说明），只是 GUI 不再直接暴露这三个"整表级"入口。
 
+**员工侧的刷新与视图（2026-10-01 · E）**：Agent Team 没有心跳（用户口径：不引入
+"最后活动时间"这种需要定时器推的东西），员工侧的两件事都用**事件驱动 + 手动刷新键**：
+
+- 面板常驻一枚手动刷新键（`data-team-refresh`，工具栏 `.team-panel-toolbar` 右端、
+  `data-icon="refresh"`）：强制 `refreshAgentTeam({force: true})`，不走"缓存命中就
+  早退"——用户按了刷新就是"现在要最新"。
+- 员工库每行可展开一张 **k→v 全字段表**（`employeeFieldRows` / `.team-kv`，一行一栏；
+  空栏也照列，值退化成"继承 / 未登记"）——不再只有行内几个 chip；全字段此前只藏在
+  懒加载的编辑面板里。
+- 员工运行详情（成员行「查看」开的 `AgentTeamRoleSnapshot` 弹窗）自带一枚刷新键
+  （`data-role-session-refresh`，键上带 `role_name` / `role_session_id` 身份，刷新
+  原样重放）；`team.changed` 到达时若视图开着就重取当前目标
+  （`refreshRoleSessionDetail`），关着则什么都不做。
+- **对话视图切员工**（用例 5）：弹窗顶部是「切员工」切换条
+  （`renderRoleSessionSwitcher`，多名员工时才摆），点谁就把视图目标换成谁的角色会话，
+  不用关掉再回列表点下一位。口径：把**已存在的会话视图**的目标换成员工会话，不是
+  新造一个"员工会话"概念（目标身份 = 该员工的 `role_session_id`）。
+- **母本 CRUD 也发 `team.changed`**：员工库 / 团队库 / 默认顺序 / 「普及到全局」这几条
+  全局母本写在 core 里补发会话级 `team.changed`（`publishTeamChanged`）——它们同样是
+  面板数据的一部分；不发就只能靠发起方自己重取，别的观察者（另一窗口、切回来）会停在
+  旧库。
+
 ### 页签与折叠口径（2026-09 交互改版）
 
 - **选中页签 = 静止胶囊（2026-09-24 换代，取代纸质笔记本书签拟物）**：选中态统一成

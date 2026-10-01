@@ -29,7 +29,7 @@ func (c *Coordinator) Audit(ctx context.Context) ([]sessionstore.TeamworkEvent, 
 func (c *Coordinator) SetPlan(ctx context.Context, plan sessionstore.TeamworkPlan) error {
 	for index := range plan.Members {
 		if strings.TrimSpace(plan.Members[index].RoleSessionID) == "" {
-			plan.Members[index].RoleSessionID = c.derive(plan.TeamID, plan.Members[index].Role)
+			plan.Members[index].RoleSessionID = c.derive(c.key.SessionID, plan.TeamID, plan.Members[index].Role)
 		}
 	}
 	if err := c.store.WritePlan(ctx, c.key, plan, c.maxMembers); err != nil {

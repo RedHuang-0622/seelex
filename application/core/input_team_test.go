@@ -369,3 +369,54 @@ func TestSigilMigrationHintsPointAtTheRightPrefix(t *testing.T) {
 		t.Fatalf("@review 缺迁移提示：%q", text)
 	}
 }
+
+// TestMasterCRUDsPublishTeamChanged 钉住「母本 CRUD 也发 team.changed」：员工库 /
+// 团队库 / 默认顺序都是面板数据的一部分（员工库表、团队库表、Team 栏），写它们
+// 同样让面板缓存过期。旧口径只在会话装配面（MaterializeAgentTeam 等）发声，库的
+// 增删改只能靠发起方自己重取——另一个观察者（另一窗口、切回来）会停在旧库。
+// 这里逐条钉：每一条母本写都要落一条会话级 team.changed（sid = 发起会话）。
+func TestMasterCRUDsPublishTeamChanged(t *testing.T) {
+	cases := []struct {
+		name string
+		call func(service *Service) error
+	}{
+		{"save-employee", func(service *Service) error {
+			_, err := service.AgentTeamSaveEmployee("sess-summon", dto.RoleSpec{RoleName: "auditor", RoleKind: dto.RoleKindAgent})
+			return err
+		}},
+		{"delete-employee", func(service *Service) error {
+			_, err := service.AgentTeamDeleteEmployee("sess-summon", "auditor")
+			return err
+		}},
+		{"save-team", func(service *Service) error {
+			_, err := service.AgentTeamSaveTeam("sess-summon", dto.TeamLibraryEntry{TeamID: "audit-team", Name: "审计小队"})
+			return err
+		}},
+		{"delete-team", func(service *Service) error {
+			_, err := service.AgentTeamDeleteTeam("sess-summon", "audit-team")
+			return err
+		}},
+		{"set-default-order", func(service *Service) error {
+			_, err := service.AgentTeamSetDefaultOrder("sess-summon", dto.OrderPolicyUserMainDecided, []string{"user", "main"})
+			return err
+		}},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			service := summonService(t, newLibrarySessions())
+			subscription, err := service.SubscribeSession("sess-summon", 64)
+			if err != nil {
+				t.Fatalf("SubscribeSession: %v", err)
+			}
+			defer subscription.Close()
+
+			if err := testCase.call(service); err != nil {
+				t.Fatalf("%s: %v", testCase.name, err)
+			}
+			received := waitTeamChanged(t, subscription, "sess-summon")
+			if received.Revision != 0 {
+				t.Fatalf("team.changed 的 revision = %d, want 0", received.Revision)
+			}
+		})
+	}
+}

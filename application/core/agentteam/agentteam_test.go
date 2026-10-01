@@ -115,7 +115,7 @@ func TestGoalPresetMaterializeIsIdempotent(t *testing.T) {
 	if len(first.Sessions) != 1 || first.Sessions[0].RoleName != "tl" || !first.Sessions[0].Created {
 		t.Fatalf("sessions = %+v", first.Sessions)
 	}
-	if first.Sessions[0].RoleSessionID != "goal-a2a-tl" {
+	if first.Sessions[0].RoleSessionID != "main-1-goal-a2a-tl" {
 		t.Fatalf("role session id = %q", first.Sessions[0].RoleSessionID)
 	}
 	if port.policy != dto.OrderPolicyGoalLoop || strings.Join(port.order, ",") != "user,main,tl" {
@@ -137,7 +137,7 @@ func TestGoalPresetMaterializeIsIdempotent(t *testing.T) {
 		t.Fatalf("members = %+v", first.View.Members)
 	}
 	if first.View.Members[2].RoleName != "tl" || !first.View.Members[2].InOrder ||
-		first.View.Members[2].RoleSessionID != "goal-a2a-tl" {
+		first.View.Members[2].RoleSessionID != "main-1-goal-a2a-tl" {
 		t.Fatalf("tl member = %+v", first.View.Members[2])
 	}
 	if len(first.View.DesignNotice) != 0 {
@@ -249,5 +249,61 @@ func TestRegistryCRUDAndOrder(t *testing.T) {
 	}
 	if len(port.order) != 2 || port.order[1] != "main" {
 		t.Fatalf("order after delete = %v", port.order)
+	}
+}
+
+// TestMaterializeSameTeamIntoTwoSessionsDispatchesOwnMembers（用例 2「团队会话粒度」）：
+// 两个会话召唤**同一支团队**时，各自拿到工厂派发的**自己的**成员实例。
+//
+// 修前的形态（RED）：角色会话号只由 `(team_id, role_name)` 派生，两个会话落到同一个
+// 号上——第二次装配 `Created=false`（复用第一个会话的角色会话），两个会话共用同一个
+// 成员实例；运行面按这个号做键的地方（角色引擎槽、项目根绑定、权责反查）跟着串。
+// 修后主会话身份编进角色会话号，隔离由标识保证；同一会话重复装配仍幂等。
+func TestMaterializeSameTeamIntoTwoSessionsDispatchesOwnMembers(t *testing.T) {
+	port := newFakePort()
+	factory, err := NewFactory(port)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, err := Preset(string(dto.TeamKindGoalA2A))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := factory.Materialize("sess-a", spec, 1)
+	if err != nil {
+		t.Fatalf("会话 A 装配: %v", err)
+	}
+	second, err := factory.Materialize("sess-b", spec, 1)
+	if err != nil {
+		t.Fatalf("会话 B 装配: %v", err)
+	}
+	if !first.Sessions[0].Created || !second.Sessions[0].Created {
+		t.Fatalf("两个会话必须各自派发自己的成员实例：A.created=%v B.created=%v",
+			first.Sessions[0].Created, second.Sessions[0].Created)
+	}
+	idA, idB := first.Sessions[0].RoleSessionID, second.Sessions[0].RoleSessionID
+	if idA == idB {
+		t.Fatalf("两个会话召唤同一团队得到同一个角色会话号 %q——成员实例没按会话派发", idA)
+	}
+	if !strings.Contains(idA, "sess-a") || !strings.Contains(idB, "sess-b") {
+		t.Fatalf("角色会话号必须带主会话身份：A=%q B=%q", idA, idB)
+	}
+	// 成员表也按会话投影同一件事（前端「员工运行详情」按它取员工会话）。
+	if first.View.Members[2].RoleSessionID != idA || second.View.Members[2].RoleSessionID != idB {
+		t.Fatalf("成员表角色会话号与会话装配结果不一致：A=%q B=%q",
+			first.View.Members[2].RoleSessionID, second.View.Members[2].RoleSessionID)
+	}
+
+	// 幂等仍在：同一会话重复装配复用同一棵角色会话子树，不派发第二个实例。
+	again, err := factory.Materialize("sess-a", spec, 1)
+	if err != nil {
+		t.Fatalf("会话 A 重复装配: %v", err)
+	}
+	if again.Sessions[0].Created || again.Sessions[0].RoleSessionID != idA {
+		t.Fatalf("同一会话重复装配必须幂等复用：%+v", again.Sessions[0])
+	}
+	if len(port.created) != 2 {
+		t.Fatalf("角色会话派发次数 = %v, want 2（每个会话各一次）", port.created)
 	}
 }
