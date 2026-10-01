@@ -62,7 +62,7 @@ manifest 由 `plugin.Loader` 读取，Tool filter 由 `seelebridge.Runtime` 注�
 ## Review
 
 - 新全局 Skill 是否真的适用于所有形态；领域专用 Skill 应放到对应 Plugin。
-- 不要用 default 绕过 project scope、PathGate 或 approval。
+- 不要用 default 绕过 project scope 或 approval。
 
 ## 验证
 

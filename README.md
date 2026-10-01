@@ -60,7 +60,7 @@ Seelex 把这些能力组织成可替换、可测试的模块，而不是把它�
 | 代理团队与工作台 | TeamSpec 团队工厂（团队库条目显式装配）、成员与发言顺序注册表；plan / tasklist / subagent / todo 四源合一的工作台投影与 traceboard |
 | 上下文治理 | Prompt Stack 稳定前缀、滑动窗口、预算控制、压缩 DAG、超大工具结果归档为 <code>result_ref</code> 与按页/过滤读回；装配逼近硬阈值（默认 98% 预算）时**探测即主动压缩**为有界 checkpoint 帧，<code>compact_context</code> 工具与 <code>/compact</code> 命令可手动触发同一压缩 |
 | 记忆与检索 | 相关记忆块（词法 top-K）、以压缩栈为索引的历史检索读回、跨会话稳定前缀复用、CLI/项目级 <code>MEMORY.md</code> 索引 |
-| 项目安全 | ProjectScope 按会话分格的路径约束、PathGate / LMRW 规则；工具权责模型为「主体 × 路由组 × 位」（root / sub / emp_ro / emp_rw，ro / rw / rw_session / rw_desktop / ctl / adm），子代理在结构上缺 <code>ctl</code>/<code>adm</code> 位 |
+| 项目安全 | ProjectScope 按会话分格的路径约束、`seele.yaml` 的 LMRW 权限规则与权限 gate；工具权责模型为「主体 × 路由组 × 位」（root / sub / emp_ro / emp_rw，ro / rw / rw_session / rw_desktop / ctl / adm），子代理在结构上缺 <code>ctl</code>/<code>adm</code> 位 |
 | 权限档位 | 主会话有序档位表 <code>manual</code> / <code>edit</code> / <code>auto</code> / <code>full</code>，按会话解析；档位只剪掉 <code>ask</code> 规则，从不覆盖危险 <code>deny</code>，<code>full</code> 短路仅作用于 root，员工越权仍走审批提权 |
 | 多模态输入 | 图片与文档附件进入模型请求；截屏画面落会话媒体分区（内容寻址、配额独立记账）并随下一次请求送入；文档无原生解码时兜底为内联文本 |
 | 桌面操作 | computer use 工具族（截屏/窗口枚举/可滚动面板识别/聚焦/点击/移动/拖拽/滚动/输入/按键/等待）：平台门控 + <code>SEELEX_COMPUTER_USE</code> 总开关，输入注入默认逐次审批，子代理只见只读观察类（<code>computer_screenshot</code>/<code>computer_windows</code>/<code>computer_scroll_targets</code>/<code>computer_wait</code>） |
@@ -207,7 +207,7 @@ flowchart LR
     REQ --> MODEL["模型流式响应"]
     MODEL --> DISP["工具调度"]
     DISP -->|ask| APV["人工审批"]
-    DISP --> SCOPE["ProjectScope + PathGate"]
+    DISP --> SCOPE["ProjectScope + Permission Gate"]
     APV --> SCOPE
     SCOPE --> TOOLR["工具结果"]
     TOOLR --> BIG{"超出预算？"}
@@ -236,7 +236,7 @@ flowchart LR
 ┌───────────────▼────────────┐  ┌──────────▼──────────────────┐
 │ seelebridge/               │  │ seelexctx/                  │
 │ Runtime · Tools · Plan     │  │ Assemble · Compact · DAG    │
-│ Account · MCP · PathGate   │  │ Memory · Search · Merge     │
+│ Account · MCP · Security    │  │ Memory · Search · Merge     │
 └───────────────┬────────────┘  └──────────┬──────────────────┘
                 │                          │
 ┌───────────────▼──────────────────────────▼──────────────────┐
@@ -337,9 +337,9 @@ Seelex 把 **Context Engineering** 实现为可组合的 Session Components：
 Seelex 没有只依赖 Prompt 告诉模型“不要访问项目外文件”。所有文件和 Shell 工具先经过：
 
 1. **ProjectScope**：把目标解析为 canonical absolute path，并验证它仍位于绑定 workspace root 内。
-2. **PathGate / Permission Gate**：在合法项目范围内进一步计算 allow、ask 或 deny。
+2. **Permission Gate**：在合法项目范围内进一步计算 allow、ask 或 deny（`seele.yaml` 的 LMRW 规则经 Seele 的权限 gate 判定）。
 
-ProjectScope 解决“能否逃出项目目录”的物理边界；PathGate 解决“项目内哪些操作仍需要审批”的策略边界。两者不能互相替代。
+ProjectScope 解决“能否逃出项目目录”的物理边界；Permission Gate 解决“项目内哪些操作仍需要审批”的策略边界。两者不能互相替代。
 
 默认权限模式是 <code>manual</code>。Plugin tool visibility、Human-in-the-loop approval 和 scoped tool dispatch 在请求时共同生效，隐藏工具即使被模型构造出调用也会被拒绝。Windows Shell 使用显式系统 PowerShell、<code>-NoProfile</code> 和 <code>-NonInteractive</code>，降低 profile 注入、WSL shim 命中和交互阻塞风险。
 
@@ -618,7 +618,7 @@ permission:
 | 目录 | 职责 |
 |---|---|
 | [<code>application/</code>](application/README.md) | 稳定应用层：Chat、Task、Plan、Goal/Govern、AgentTeam、Worktable、审批、会话、项目和 Snapshot/Event |
-| [<code>seelebridge/</code>](seelebridge/README.md) | Seele 防腐层、工具面（含 computer use）、账号池、Plan、MCP、多模态与附件、ProjectScope 与 PathGate |
+| [<code>seelebridge/</code>](seelebridge/README.md) | Seele 防腐层、工具面（含 computer use）、账号池、Plan、MCP、多模态与附件、ProjectScope 项目路径约束 |
 | [<code>seelexctx/</code>](seelexctx/README.md) | 上下文装配、预算、压缩 DAG、记忆、检索、快照和父子 Agent merge-back |
 | [<code>sessionstore/</code>](sessionstore/README.md) | JSON v8 持久化、顺序日志、模块 head、三栈通道与媒体分区；退役后端枚举与接口契约 |
 | [<code>session/</code>](session/README.md) | 会话领域模型与投影 |

@@ -42,17 +42,6 @@ type TurnAction struct {
 	Note string
 }
 
-// ShouldBreak 是每轮结束时的断环判定：任一参与者请求打破循环即停。
-// 供 Governor 实现（或外部驱动）在收集完一轮 actions 后调用。
-func ShouldBreak(actions []TurnAction) bool {
-	for _, action := range actions {
-		if action.BreakLoop {
-			return true
-		}
-	}
-	return false
-}
-
 // Seat 是桌游里的"一个座位"：表示某个参与者在循环中的身份与行动入口。
 // 同一个物理实现可以以不同身份坐多个座位（例如同一条 LLM 通道既当 EXEC
 // 又当 TL），因此身份由 Seat 携带，不放在实现对象上。

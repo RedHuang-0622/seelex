@@ -443,7 +443,6 @@ go test -race ./application/core/goal/ -count=1
 
 ### record.go
 
-- `func ParseStatus(value string) (Status, error)` — ParseStatus 解析并校验状态字符串。
 - `func IsTerminal(status Status) bool` — IsTerminal 报告状态是否终态（不再停留在 goal 栈上）。
 - `func (b Budget) Normalized() Budget` — Normalized 返回带默认值的预算副本。
 - `func (r *GoalRecord) Clone() *GoalRecord` — Clone 深拷贝记录（返回副本，避免锁外读到栈内可变引用）。

@@ -538,26 +538,6 @@ func (c *Coordinator) forkContextRecord(location Location, parentID string, cut 
 	return data, frames, nil
 }
 
-func forkContextPlanFrames(frames []sessionstore.PlanFrame, cutTime time.Time) []sessionstore.PlanFrame {
-	result := make([]sessionstore.PlanFrame, 0, len(frames))
-	for _, frame := range frames {
-		if frame.EnteredAt.IsZero() || !frame.EnteredAt.After(cutTime) {
-			result = append(result, frame)
-		}
-	}
-	return result
-}
-
-func forkContextTaskFrames(frames []sessionstore.TaskFrame, cutTime time.Time) []sessionstore.TaskFrame {
-	result := make([]sessionstore.TaskFrame, 0, len(frames))
-	for _, frame := range frames {
-		if frame.EnteredAt.IsZero() || !frame.EnteredAt.After(cutTime) {
-			result = append(result, frame)
-		}
-	}
-	return result
-}
-
 func forkContextSkillFrames(frames []sessionstore.SkillFrame, cutTime time.Time) []sessionstore.SkillFrame {
 	result := make([]sessionstore.SkillFrame, 0, len(frames))
 	for _, frame := range frames {

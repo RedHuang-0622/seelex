@@ -104,7 +104,7 @@ Linux CI 另外运行 `-race -covermode=atomic -coverpkg=./...`。Windows 本地
 - session 读写是否携带正确 project scope，切换项目是否造成历史串写。
 - Router/Repository 的读写是否保持原子性，配置切换是否等待旧操作结束。
 - Plugin 激活失败是否完整回滚 Tool、Skill 和 MCP 状态。
-- 路径是否经过 `ProjectScope`/`PathGate`，是否可能逃逸项目根目录。
+- 路径是否经过 `ProjectScope`，是否可能逃逸项目根目录。
 - Snapshot/Event 的 revision、seq、增量和 resync 语义是否同步更新前端 reducer。
 - goroutine、订阅、数据库、MCP 和 Wails 关闭路径是否可终止且不会泄漏。
 - 文档是否准确标注“已实现”和“规划”，是否暴露本机路径或秘密。

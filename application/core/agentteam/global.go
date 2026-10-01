@@ -151,30 +151,6 @@ func (global *Global) SetOrder(policy string, orderRoles []string) (dto.DefaultO
 	return global.Order()
 }
 
-// NormalizeEmployeeLibrary 规整整份员工库：role_name 必填、内置角色剔除、同名后者
-// 覆盖前者（与 InstantiateRole 的就地覆盖同口径）。
-func NormalizeEmployeeLibrary(library dto.EmployeeLibrary) (dto.EmployeeLibrary, error) {
-	index := make(map[string]int, len(library.Employees))
-	employees := make([]dto.RoleSpec, 0, len(library.Employees))
-	for _, role := range library.Employees {
-		normalized, err := NormalizeRole(role)
-		if err != nil {
-			return dto.EmployeeLibrary{}, err
-		}
-		if isBuiltinRoleName(normalized.RoleName) {
-			continue
-		}
-		if at, ok := index[normalized.RoleName]; ok {
-			employees[at] = normalized
-			continue
-		}
-		index[normalized.RoleName] = len(employees)
-		employees = append(employees, normalized)
-	}
-	library.Employees = employees
-	return library, nil
-}
-
 // NormalizeDefaultOrder 规整默认顺序：策略校验、顺序表去空去重**保序**、只保留
 // user/main 与员工库里存在的角色、user/main 自动补齐到规范位置。
 func NormalizeDefaultOrder(order dto.DefaultOrder, employees []dto.RoleSpec) (dto.DefaultOrder, error) {

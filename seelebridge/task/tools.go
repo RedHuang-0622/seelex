@@ -46,10 +46,6 @@ func NewTools(deps Deps) *Tools {
 	return &Tools{deps: deps}
 }
 
-func validTodoStatus(status TodoItemStatus) bool {
-	return status == TodoItemPending || status == TodoItemDoing || status == TodoItemDone
-}
-
 // RegisterTodoTools 注册 todo 清单工具族：规范名 todo_init/add/done/status，
 // 并保留 todolist_* 兼容别名（deprecated，迁移窗口内并存）。
 func (t *Tools) RegisterTodoTools() {

@@ -125,7 +125,6 @@ go test ./application/core/goal/ -run 'TestGovernor|TestAdvisorSeat' -count=1
 
 ### governance.go
 
-- `func ShouldBreak(actions []TurnAction) bool` — ShouldBreak 是每轮结束时的断环判定：任一参与者请求打破循环即停。
 - `func NewTurnGovernor(seats []Seat, maxRounds int) Governor` — NewTurnGovernor 构造一个固定座次的回合制治理循环。
 - `func SnapshotOf(g Governor) Snapshot` — SnapshotOf 从任意 Governor 快照出可 JSON 化的读面。
 - `func newTurnGovernor(seats []Seat, maxRounds int) *turnGovernor`

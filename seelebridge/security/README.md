@@ -8,7 +8,6 @@
   根按**会话键**分格：`BindFor(sessionKey, root)` / `Resolve*For(sessionKey, …)`
   让每个会话用自己的项目根（多项目并行/后台会话不借用视图会话的根）；空键
   （`DefaultScopeKey`）是进程默认根（当前视图会话），未绑定会话键回退默认根。
-- `pathgate.go`：`PathGate` allow/ask/deny 权限规则（读取 `seele.yaml` permission 段）。
 - `sandbox.go`：`CommandSandbox` shell 执行隔离端口（项目 cwd 门禁 + 凭据环境清洗 +
   超时，非 OS 级隔离）；`ScrubEnvironment`/`FileExists` 供根包命令路径复用。
 - `command_class.go`：`ClassifyCommand(command) bool` —— `bash_read` 的**服务端只读
@@ -32,11 +31,6 @@ flowchart TB
         DEFAULT["DefaultScopeKey：进程默认根<br/>未绑定会话键回退"]
     end
 
-    subgraph GATE["PathGate：策略边界"]
-        RULES["seele.yaml permission 段<br/>zone 级 read/write = allow / deny"]
-        DEC["AllowRead / AllowWrite"]
-    end
-
     subgraph CMD["CommandSandbox：执行边界"]
         CWD["项目 cwd 门禁"]
         SCRUB["ScrubEnvironment：凭据环境清洗"]
@@ -44,18 +38,20 @@ flowchart TB
     end
 
     TOOL["scoped_tools / Router"] --> SCOPE
-    SCOPE --> GATE
-    GATE --> CMD
+    SCOPE --> CMD
     SCHED["scheduler / docker / worktree"] --> SCOPE
     ROOT["seelebridge 根包"] --> SCOPE
-    ROOT --> GATE
     ROOT --> CMD
     NOTE["注意：CommandSandbox 不是 OS 级隔离<br/>进程一旦跑出去不受本模块约束"]
     CMD -.-> NOTE
 ```
 
-两层边界必须同时成立：`ProjectScope` 决定「能不能逃出项目目录」，
-`PathGate` 决定「项目内哪些操作仍需审批」，两者不能互相替代。
+本模块给的是**物理边界**：`ProjectScope` 决定「能不能逃出项目目录」，
+`CommandSandbox` 决定「命令在什么环境、什么 cwd 下跑」。项目内「哪些操作仍需
+审批」是**策略边界**，由 `seele.yaml` 权限段经 Seele 的 permission gate 判定——
+它不在本模块，也不与 `ProjectScope` 互相替代。`PathGate`（曾在此文件里）自
+2026-10-01 起作为**无调用点的死代码**退场（见
+`docs/devlog/2026-10-01-m4-deadcode-round1.md`）。
 
 ## 验证
 

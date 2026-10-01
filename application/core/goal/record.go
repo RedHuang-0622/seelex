@@ -46,21 +46,6 @@ const (
 	StatusWaitingHuman Status = "waiting_human" // 预算耗尽/越权，等人工
 )
 
-var validStatuses = map[Status]bool{
-	StatusActive: true, StatusPaused: true, StatusReviewing: true,
-	StatusCompleted: true, StatusFailed: true, StatusAborted: true,
-	StatusWaitingHuman: true,
-}
-
-// ParseStatus 解析并校验状态字符串。
-func ParseStatus(value string) (Status, error) {
-	status := Status(value)
-	if !validStatuses[status] {
-		return "", fmt.Errorf("%w: 非法状态 %q", ErrInvalidStatus, value)
-	}
-	return status, nil
-}
-
 // IsTerminal 报告状态是否终态（不再停留在 goal 栈上）。
 func IsTerminal(status Status) bool {
 	switch status {
@@ -73,7 +58,6 @@ func IsTerminal(status Status) bool {
 // 域错误（哨兵 + 可包装）。
 var (
 	ErrInvalidArgument  = errors.New("goal: 非法参数")
-	ErrInvalidStatus    = errors.New("goal: 非法状态")
 	ErrStackEmpty       = errors.New("goal: 无 active goal")
 	ErrStackFull        = errors.New("goal: goal 栈已满（会话单例：先 finish 当前目标或显式 aborted）")
 	ErrGoalNotActive    = errors.New("goal: 仅 active goal 可更新")

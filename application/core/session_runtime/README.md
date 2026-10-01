@@ -248,8 +248,6 @@ go test ./application/core/session_runtime -count=1
 - `func reachableToolResultRefs(events []sessionstore.Event, record model.SessionRecord, frames []sessionstore.CompactFrame) map[string]struct` — reachableToolResultRefs 汇总**会话分叉（ForkSession）**子会话可达的
 - `func forkToolResultRegistry(refs []model.ToolResultRef, reachable map[string]struct{}) []model.ToolResultRef`
 - `func (c *Coordinator) forkContextRecord(location Location, parentID string, cut uint64, cutTime time.Time, cutMessageID string) ([]byte, []sessionstore.CompactFrame, error)` — forkContextRecord 重写父 context 为子会话独立起点：Skill 记录按进入时间
-- `func forkContextPlanFrames(frames []sessionstore.PlanFrame, cutTime time.Time) []sessionstore.PlanFrame`
-- `func forkContextTaskFrames(frames []sessionstore.TaskFrame, cutTime time.Time) []sessionstore.TaskFrame`
 - `func forkContextSkillFrames(frames []sessionstore.SkillFrame, cutTime time.Time) []sessionstore.SkillFrame`
 - `func rewriteForkCompactStack(frames []sessionstore.CompactFrame, cut uint64, cutMessageID string) []sessionstore.CompactFrame` — rewriteForkCompactStack 处理压缩帧内的 fork 切断：整帧继承 + 范围重写
 

@@ -320,7 +320,6 @@ go test -race ./application/core/agentteam -count=1
 - `func (global *Global) DeleteEmployee(roleName string) (dto.EmployeeLibrary, error)` — DeleteEmployee 删除全局员工库里的一个员工（幂等：不存在时原样返回，不报错）。
 - `func (global *Global) Order() (dto.DefaultOrder, error)` — Order 返回全局默认顺序。
 - `func (global *Global) SetOrder(policy string, orderRoles []string) (dto.DefaultOrder, error)` — SetOrder 写全局默认顺序：引用了员工库不存在的角色会被剔除，user/main 自动补齐
-- `func NormalizeEmployeeLibrary(library dto.EmployeeLibrary) (dto.EmployeeLibrary, error)` — NormalizeEmployeeLibrary 规整整份员工库：role_name 必填、内置角色剔除、同名后者
 - `func NormalizeDefaultOrder(order dto.DefaultOrder, employees []dto.RoleSpec) (dto.DefaultOrder, error)` — NormalizeDefaultOrder 规整默认顺序：策略校验、顺序表去空去重**保序**、只保留
 - `func normalizeEmployeeRole(role dto.RoleSpec) (dto.RoleSpec, error)` — normalizeEmployeeRole 规整单个员工（复用 NormalizeRole 的默认值口径）并拒绝内置
 

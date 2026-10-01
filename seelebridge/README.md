@@ -83,7 +83,7 @@ flowchart TB
 
 | 子包 | 内容 |
 |---|---|
-| `security/` | `ProjectScope` 项目根 containment + `PathGate` allow/ask/deny + `CommandSandbox` shell 隔离（见 `security/README.md`） |
+| `security/` | `ProjectScope` 项目根 containment + `CommandSandbox` shell 隔离（见 `security/README.md`） |
 | `fs/` | `FileSystem` 文件系统 actor（写路径分片串行化，见 `fs/README.md`） |
 | `plan/` | Plan 执行域：`Executor`/`ToolProvider`/`PlanPolicy`/`PlanPreflight`/`PlanNodeEvent`/`ReplanGuard`/`SeelexNodeInput`/`PlanBranchBinding`/`BuildNode` 等（见 `plan/README.md`） |
 | `task/` | `TaskRegistry` actor、`TaskRecord`/`TodoItem` 共享 DTO、`TaskTerminalProvider`/`Tools`（见 `task/README.md`） |
@@ -171,9 +171,9 @@ min(token1, token2)）；同时它也是真空区补压的唯一触发点。应�
 
 子代理节点通过 `NodeScope.Role == RoleSubAgent` 识别。工具 middleware 发布 `running/success/error`，worktree 编排发布 `worktree_creating/rebasing/merging`；阶段事实沿用 Plan binding，并在存在 session ID 时写入 `agent.runtime` Location。
 
-## ProjectScope 与 PathGate
+## ProjectScope（项目根 containment）
 
-ProjectScope 先把用户路径解析为 canonical absolute target，再验证它位于绑定 root。read 需要目标存在；write 允许目标尚不存在但父级必须安全；workdir 必须是目录。PathGate 在 scope 内进一步给出 allow/ask/deny 意图。
+ProjectScope 先把用户路径解析为 canonical absolute target，再验证它位于绑定 root。read 需要目标存在；write 允许目标尚不存在但父级必须安全；workdir 必须是目录。「项目内哪些操作仍需审批」是策略边界，由 `seele.yaml` 的 LMRW 规则经 Seele 的权限 gate 判定（旧的 `PathGate` 无调用点，已于 2026-10-01 作为死代码退场）。
 
 项目根按**会话键**分格（`ProjectScope.BindFor` + `BindProjectRootFor`）：工具从执行
 ctx 取会话键（`tools.Deps.SessionKey` = telemetry 会话 ID），只解析该会话自己的根；
