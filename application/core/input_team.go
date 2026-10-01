@@ -2,25 +2,24 @@ package core
 
 // input_team.go — `@` 前缀（手动召唤团队）的落点。
 //
-// 生态位：`@` 是**人**的显式召唤入口。goal 上线时 goal 治理会自己装配
-// goal-a2a（见 service.goal_service.ensureGoalAgentTeam 的自动路径），那条路
-// 只在 goal 存在时成立；本文件给的是"用户在会话里点名一支团队"的对称入口：
-// 同一个工厂、同一份 TeamSpec、同一条装配通道（建角色会话 + 写会话注册表 +
-// 写 lifecycle 顺序），不新增第二份团队事实。
+// 生态位：`@` 是**人**的显式召唤入口——把**团队库里的一支团队**装配到当前会话，
+// 与目标态里"leader 按 team plan 组装团队"是同一条装配通道（同一个工厂、同一份
+// TeamSpec：建角色会话 + 写会话注册表 + 写 lifecycle 顺序），不新增第二份团队事实。
+//
+// **没有内置形态这条路了**（2026-10-01）：内置形态目录（goal-a2a / review-team /
+// research-team 三支代码模板）已删除，所以 `@` 只认团队库条目；goal 也不再在
+// 上线时自动装配团队（见 service.GoalBeginForFor 的说明）。
 //
 // 入伙切点：joinSeq 取装配那一刻主会话已提交的 message 尾 seq（
-// service.teamJoinSeqFor），与自动路径同一条判据——teammate 的记录从"它入伙的
+// service.teamJoinSeqFor），与其它装配来路同一条判据——teammate 的记录从"它入伙的
 // 那一回合"开始，而不是把整段历史都算成它记得的上下文。
-//
-// 解析顺序（都是零/一次 I/O，便于在 Submit 路径上跑）：
-//  1. 内置形态（agentteam.Presets，零 I/O，team_id == team_kind）；
-//  2. 团队库条目（一次读，按 team_id 或 name 匹配）——用户自己存的团队也能召唤。
 //
 // 写法：`@<团队>` 只装配；`@<团队> <附言>` 装配后把附言作为一条输入下发
 // （与 `$<skill> <args>` 同一条口径）。团队名可以含空格，所以切分不按空格硬切，
 // 而是"最长可命中前缀 = 名字，余下 = 附言"（见 resolveTeamSummon）。
 //
-// 建议面只列内置形态，不列库条目：见 completion.go 的 teamPresetSuggestions。
+// 建议面：`@` **不弹补全**（候选在团队库里，而补全路径没有会话上下文、也不该每次
+// 按键读盘）；可用名字由 `@` 空参的 notice 列出（见 teamSummonHelp）。
 
 import (
 	"context"
@@ -29,16 +28,14 @@ import (
 	"unicode"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/application/core/agentteam"
 	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
 )
 
-// teamSummonTarget 是一条可召唤团队的解析结果：内置形态（Preset）或团队库条目。
+// teamSummonTarget 是一条可召唤团队的解析结果（团队库条目）。
 type teamSummonTarget struct {
-	ID     string // 团队库 team_id / preset 的 team_id（同一值域）
-	Kind   string // team_kind（装配时按它选形态；空 = 按 ID 解析）
-	Name   string // 展示名（库条目可能是用户起的中文名；preset 用 ID）
-	Preset bool
+	ID   string // 团队库 team_id
+	Kind string // team_kind（= 展示别名；空 = 按 ID 解析）
+	Name string // 展示名（库条目可能是用户起的中文名）
 }
 
 // submitTeam 是 `@` 前缀的落点：手动召唤一支团队到当前会话。
@@ -56,7 +53,7 @@ type teamSummonTarget struct {
 func (service *Service) submitTeam(ctx context.Context, name string) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		service.addNotice(teamSummonHelp())
+		service.addNotice(service.teamSummonHelp(service.currentViewSessionID()))
 		return nil
 	}
 	sessionID := service.currentViewSessionID()
@@ -144,25 +141,22 @@ func goalTitleForSummon(tail string) string {
 	return title
 }
 
-// materializeTeamSummon 把解析结果装配进会话（preset 与库条目各走既有方法）。
+// materializeTeamSummon 把解析结果装配进会话（走团队库条目那条既有方法）。
 func (service *Service) materializeTeamSummon(sessionID string, target teamSummonTarget) (dto.TeamMaterializeResult, error) {
 	joinSeq := service.teamJoinSeqFor(sessionID)
-	if target.Preset {
-		return service.MaterializeAgentTeamPreset(sessionID, target.Kind, joinSeq)
-	}
 	return service.AgentTeamMaterializeTeam(sessionID, target.ID, joinSeq)
 }
 
-// resolveTeamSummon 解析"名字 + 附言"：名字命中内置形态或团队库条目时返回目标与
-// 附言（= 名字之后的余量，可能为空），未命中返回 ok=false。
+// resolveTeamSummon 解析"名字 + 附言"：名字命中团队库条目时返回目标与附言
+// （= 名字之后的余量，可能为空），未命中返回 ok=false。
 //
 // 名字**可以含空格**（团队库条目由用户起名），所以不按空格硬切：候选从整串开始
 // 按空白边界逐级回退（见 teamNameCandidates），命中的最长前缀是团队名，余下的是
-// 附言。`@审计小队`、`@code review team`、`@goal-a2a 看看这个 bug` 三种写法因此
+// 附言。`@审计小队`、`@code review team`、`@my-team 看看这个 bug` 三种写法因此
 // 都能落到实处，而不是把半句话整体当名字去查库。
 //
-// 团队库只读一次（候选逐个查表，不逐个读盘）：库读不到也不该让召唤入口整体失效
-// ——内置形态仍可用，库条目只是这一轮查不到。
+// 团队库只读一次（候选逐个查表，不逐个读盘）：库读不到时召唤入口报"未知团队"
+// （不再有内置形态可退）。
 func (service *Service) resolveTeamSummon(sessionID, name string) (teamSummonTarget, string, bool) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -177,19 +171,18 @@ func (service *Service) resolveTeamSummon(sessionID, name string) (teamSummonTar
 	return teamSummonTarget{}, "", false
 }
 
-// teamSummonIndex 是一次召唤解析用的名字集合：内置形态（零 I/O）+ 团队库条目。
+// teamSummonIndex 是一次召唤解析用的名字集合（团队库条目，一次读取）。
 type teamSummonIndex struct {
-	presets []teamSummonTarget
 	library []teamSummonTarget
 }
 
-// teamSummonIndex 组装解析用的名字集合（内置形态优先，库条目一次读取）。
+// teamSummonIndex 组装解析用的名字集合（团队库一次读取）。
 func (service *Service) teamSummonIndex(sessionID string) teamSummonIndex {
-	index := teamSummonIndex{presets: teamPresetTargets()}
+	index := teamSummonIndex{}
 	library, err := service.AgentTeamLibrary(sessionID)
 	if err != nil {
-		// 库读不到（宿主未装配团队存储 / 无项目作用域）不应让召唤入口整体失效：
-		// 内置形态仍可用，库条目只是这一轮查不到。
+		// 库读不到（宿主未装配团队存储 / 无项目作用域）：没有内置形态可退，召唤面
+		// 就报"未知团队"，但入口本身不炸。
 		return index
 	}
 	for _, entry := range library.Teams {
@@ -200,16 +193,11 @@ func (service *Service) teamSummonIndex(sessionID string) teamSummonIndex {
 	return index
 }
 
-// match 按既有口径查名：内置形态看 team_id/team_kind，库条目看 team_id/名字；
-// 匹配不区分大小写。先内置后库 = 保留"内置形态优先"这条旧判据。
+// match 按既有口径查名：团队库条目看 team_id/名字（team_kind 只是别名，也能命中）；
+// 匹配不区分大小写。
 func (index teamSummonIndex) match(name string) (teamSummonTarget, bool) {
-	for _, target := range index.presets {
-		if strings.EqualFold(target.ID, name) || strings.EqualFold(target.Kind, name) {
-			return target, true
-		}
-	}
 	for _, entry := range index.library {
-		if strings.EqualFold(entry.ID, name) || strings.EqualFold(entry.Name, name) {
+		if strings.EqualFold(entry.ID, name) || strings.EqualFold(entry.Name, name) || (entry.Kind != "" && strings.EqualFold(entry.Kind, name)) {
 			return entry, true
 		}
 	}
@@ -246,18 +234,6 @@ func presumedTeamName(name string) string {
 		return fields[0]
 	}
 	return strings.TrimSpace(name)
-}
-
-// teamPresetTargets 把内置团队形态投影成召唤候选（零 I/O）。
-func teamPresetTargets() []teamSummonTarget {
-	specs := agentteam.Presets()
-	targets := make([]teamSummonTarget, 0, len(specs))
-	for _, spec := range specs {
-		targets = append(targets, teamSummonTarget{
-			ID: spec.TeamID, Kind: spec.TeamKind, Name: spec.TeamID, Preset: true,
-		})
-	}
-	return targets
 }
 
 func (target teamSummonTarget) displayName() string {
@@ -307,7 +283,7 @@ func memberNames(members []dto.TeamMember) []string {
 // 这条路径每次失败只跑一次（不是渲染循环），所以这里**可以**读一次团队库：把
 // 库里现有的 team_id 列出来，用户打错字时不至于对着一句"未知团队"干瞪眼。
 func (service *Service) unknownTeamNotice(sessionID, name string) string {
-	lines := []string{fmt.Sprintf("未知团队: %s。", name), teamSummonHelp()}
+	lines := []string{fmt.Sprintf("未知团队: %s。", name), service.teamSummonHelp(sessionID)}
 	if library, err := service.AgentTeamLibrary(sessionID); err == nil && len(library.Teams) > 0 {
 		ids := make([]string, 0, len(library.Teams))
 		for _, entry := range library.Teams {
@@ -325,13 +301,24 @@ func (service *Service) unknownTeamNotice(sessionID, name string) string {
 	return strings.Join(lines, "\n")
 }
 
-// teamSummonHelp 是 `@` 的自述：内置形态逐个列出（摘要取自形态自身的事实），
-// 并说明库条目同样可召唤。
-func teamSummonHelp() string {
+// teamSummonHelp 是 `@` 的自述：**可用团队从团队库里读**（一次读取——这条不是渲染
+// 路径：`@` 空参或打错字时各跑一次），逐个列出 team_id 与展示名；不再有"内置形态"
+// 这类模板（目录已删，见本文件头注）。
+func (service *Service) teamSummonHelp(sessionID string) string {
 	lines := []string{fmt.Sprintf("%s 手动召唤团队：%s<团队> [附言] 把一支团队装配到当前会话（入伙切点 = 当前消息尾）；写了附言就是「召唤即干活」——附言落成一个目标并作为一条输入下发，teammate 随本轮开工，目标收口后团队离场。", SigilTeam, SigilTeam)}
-	for _, suggestion := range teamPresetSuggestions() {
-		lines = append(lines, fmt.Sprintf("  %s%s  %s", SigilTeam, suggestion.Text, suggestion.Description))
+	library, err := service.AgentTeamLibrary(sessionID)
+	if err != nil || len(library.Teams) == 0 {
+		lines = append(lines, "团队库还是空的：先在 Agent Team 面板的「团队库」里新建一支团队，再用它的名字召唤。")
+		return strings.Join(lines, "\n")
 	}
-	lines = append(lines, "团队库条目（自己存的团队）也可用 team_id 或名字召唤。")
+	for _, entry := range library.Teams {
+		label := strings.TrimSpace(entry.Name)
+		if label == "" || label == entry.TeamID {
+			lines = append(lines, fmt.Sprintf("  %s%s", SigilTeam, entry.TeamID))
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("  %s%s  %s", SigilTeam, entry.TeamID, label))
+	}
+	lines = append(lines, "（team_id 或团队名都能命中；团队名可以含空格。）")
 	return strings.Join(lines, "\n")
 }

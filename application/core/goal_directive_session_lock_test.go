@@ -28,6 +28,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
 )
 
@@ -155,12 +156,29 @@ func (e *keepGoingEvaluator) count() int {
 }
 
 func TestQueuedRoundMustNotReenterSessionLock(t *testing.T) {
-	sessions := &teamRecordingSessions{mainHeadSeq: 1}
+	sessions := newLibrarySessions()
+	sessions.mainHeadSeq = 1
+	sessions.setRegistry(dto.TeamRegistry{
+		TeamID: "goal-a2a", TeamKind: "goal-a2a", OrderPolicy: dto.OrderPolicyGoalLoop,
+		Roles: []dto.RoleSpec{
+			{RoleName: "user", RoleKind: dto.RoleKindUser},
+			{RoleName: "main", RoleKind: dto.RoleKindMain},
+			{RoleName: "tl", RoleKind: dto.RoleKindTechlead, ToolsPolicy: dto.ToolPolicyReadonly},
+		},
+	})
+	sessions.setLifecycle(dto.OrderPolicyGoalLoop, []string{"user", "main", "tl"})
 	engine := newSessionLockEngine()
 	service := newTestService(t, engine, withTestSessions(sessions))
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Session.ID = "sess-summon"
 	service.ViewMu.Unlock()
+
+	// `@` 只认团队库条目（内置形态目录已删）：先把现场存成库条目，召唤才走得通。
+	if _, err := service.AgentTeamSaveCurrentTeam("sess-summon", "goal-a2a", "goal-a2a"); err != nil {
+		t.Fatalf("AgentTeamSaveCurrentTeam: %v", err)
+	}
+	sessions.setRegistry(dto.TeamRegistry{})
+	sessions.setOrder(nil)
 
 	bridge := NewToolHookBridge()
 	bridge.Bind(service)

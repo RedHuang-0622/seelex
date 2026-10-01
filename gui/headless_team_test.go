@@ -92,17 +92,20 @@ func firstNonEmptyString(values ...string) string {
 }
 
 // TestHeadlessTeamRPC 覆盖 `team.*` 的装配/成员表/角色配置/顺序设置契约。
+//
+// 口径（2026-10-01）：`team.materialize` **只接一份 TeamSpec**——内置形态目录
+// （`team.presets`）已随 products 侧 presets.go 一起删除，team_kind 不再是"从代码里
+// 选一支模板"的键。
 func TestHeadlessTeamRPC(t *testing.T) {
 	app := newFakeTeamApplication()
 	base := newHeadlessTestServer(t, app)
 
-	result := headlessRPC(t, base, "team.presets", map[string]any{})
-	if !result.OK {
-		t.Fatalf("team.presets = ok=%v err=%q", result.OK, result.Error)
-	}
-
-	result = headlessRPC(t, base, "team.materialize", map[string]any{
-		"main_session_id": "main-1", "team_kind": "goal-a2a", "join_seq_id": 4,
+	result := headlessRPC(t, base, "team.materialize", map[string]any{
+		"main_session_id": "main-1", "join_seq_id": 4,
+		"spec": map[string]any{
+			"team_id": "goal-a2a", "team_kind": "goal-a2a",
+			"order_policy": "goal_loop", "order_roles": []string{"user", "main", "reviewer"},
+		},
 	})
 	if !result.OK || app.materialized.View.TeamKind != "goal-a2a" {
 		t.Fatalf("team.materialize = ok=%v err=%q result=%+v", result.OK, result.Error, app.materialized)
@@ -110,6 +113,9 @@ func TestHeadlessTeamRPC(t *testing.T) {
 	if len(app.materialized.Sessions) != 1 || app.materialized.Sessions[0].RoleName != "reviewer" {
 		t.Fatalf("materialize sessions = %+v", app.materialized.Sessions)
 	}
+
+	// 缺 spec 的请求在校验上由 application 侧拒绝（team_id 必填，见
+	// agentteam.Normalize）；headless 是薄透传层，不在这里复制业务校验。
 
 	result = headlessRPC(t, base, "team.materialize", map[string]any{
 		"main_session_id": "main-1",

@@ -58,10 +58,7 @@ func TestDismissClearsRegistryAndOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFactory: %v", err)
 	}
-	spec, err := Preset(string(dto.TeamKindGoalA2A))
-	if err != nil {
-		t.Fatalf("Preset: %v", err)
-	}
+	spec := testGoalSpec()
 	if _, err := factory.Materialize("sess-1", spec, 0); err != nil {
 		t.Fatalf("Materialize: %v", err)
 	}

@@ -13,12 +13,39 @@ import (
 // input_team_test.go — `@` 手动召唤团队的验收。
 //
 // 口径（与 input_team.go 的边界一一对应）：
-//   - `@<内置形态>` 真装配：在编角色进注册表、发言顺序进 lifecycle、入伙切点 =
-//     装配那一刻的主会话消息尾 seq（与 goal 自动装配同一条判据）；
-//   - `@<团队库条目>` 按 team_id **和**名字都能召唤（用户自己存的团队也走得通）；
-//   - 空名 `@` 自述可用团队且不装配任何角色；未知名给可行动提示（列内置形态 +
-//     库条目），旧写法 `@off` 指出新前缀；
+//   - `@<团队库条目>` 真装配：在编角色进注册表、发言顺序进 lifecycle、入伙切点 =
+//     装配那一刻的主会话消息尾 seq，按 team_id **和**名字都能召唤；
+//   - 空名 `@` 自述团队库里的可用团队且不装配任何角色；未知名给可行动提示（列库条目），
+//     旧写法 `@off` 指出新前缀；
 //   - 旧前缀肌肉记忆：`#`/`$`/`@` 各自给出正确的迁移提示。
+//
+// **内置形态目录已删**（2026-10-01）：`@` 不再有一条"零 I/O 的内置形态"解析路径，
+// 所以这些用例都必须先有**团队库条目**——那也正是用户今天得到可召唤团队的唯一路径
+// （面板「团队库」新建，或「把当前团队存进库」）。
+
+// summonFixture 造"会话里有一支 goal 形态团队、且已存进团队库"的现场，然后清掉会话侧
+// 现场（之后装配回来的东西只可能来自库条目）。返回的 sessions 用于断言落盘事实。
+func summonFixture(t *testing.T, mainHeadSeq uint64) (*librarySessions, *Service) {
+	t.Helper()
+	sessions := newLibrarySessions()
+	sessions.mainHeadSeq = mainHeadSeq
+	sessions.setRegistry(dto.TeamRegistry{
+		TeamID: "goal-a2a", TeamKind: "goal-a2a", OrderPolicy: dto.OrderPolicyGoalLoop,
+		Roles: []dto.RoleSpec{
+			{RoleName: "user", RoleKind: dto.RoleKindUser},
+			{RoleName: "main", RoleKind: dto.RoleKindMain},
+			{RoleName: "tl", RoleKind: dto.RoleKindTechlead, ToolsPolicy: dto.ToolPolicyReadonly, SystemPrompt: "技术负责人提示词"},
+		},
+	})
+	sessions.setLifecycle(dto.OrderPolicyGoalLoop, []string{"user", "main", "tl"})
+	service := summonService(t, sessions)
+	if _, err := service.AgentTeamSaveCurrentTeam("sess-summon", "goal-a2a", "goal-a2a"); err != nil {
+		t.Fatalf("AgentTeamSaveCurrentTeam: %v", err)
+	}
+	sessions.setRegistry(dto.TeamRegistry{})
+	sessions.setOrder(nil)
+	return sessions, service
+}
 
 // summonService 造一个带团队存储面的服务，并把视图会话钉成固定 ID
 // （召唤落在"当前会话"，断言必须指向确定的那个会话）。
@@ -60,8 +87,8 @@ func waitTeamChanged(t *testing.T, subscription Subscription, sessionID string) 
 // 会话级 team.changed，且 **revision=0**（载荷不在快照里，带 revision 会被协议层的
 // "快照已表示"陈旧判据丢掉，而面板缓存不随快照翻转——见 publishTeamChanged）。
 func TestSubmitTeamPublishesTeamChanged(t *testing.T) {
-	sessions := &teamRecordingSessions{mainHeadSeq: 5}
-	service := summonService(t, sessions)
+	sessions, service := summonFixture(t, 5)
+	_ = sessions
 	subscription, err := service.SubscribeSession("sess-summon", 64)
 	if err != nil {
 		t.Fatalf("SubscribeSession: %v", err)
@@ -76,9 +103,8 @@ func TestSubmitTeamPublishesTeamChanged(t *testing.T) {
 	}
 }
 
-// TestMaterializeAgentTeamPublishesTeamChanged 钉住收口位置：goal 上线自动装配与
-// 面板 RPC「一键装配」走的都是 MaterializeAgentTeam（见 goal_service.ensureGoalAgentTeam），
-// 通告钉在这条共同路径上，而不是钉在某个调用方。
+// TestMaterializeAgentTeamPublishesTeamChanged 钉住收口位置：面板 RPC「一键装配」与
+// `@` 召唤走的都是 MaterializeAgentTeam，通告钉在这条共同路径上，而不是钉在某个调用方。
 func TestMaterializeAgentTeamPublishesTeamChanged(t *testing.T) {
 	sessions := &teamRecordingSessions{}
 	service := summonService(t, sessions)
@@ -88,8 +114,8 @@ func TestMaterializeAgentTeamPublishesTeamChanged(t *testing.T) {
 	}
 	defer subscription.Close()
 
-	if _, err := service.MaterializeAgentTeamPreset("sess-summon", dto.TeamKindGoalA2A, 0); err != nil {
-		t.Fatalf("MaterializeAgentTeamPreset: %v", err)
+	if _, err := service.MaterializeAgentTeam("sess-summon", goalTeamFixture(), 0); err != nil {
+		t.Fatalf("MaterializeAgentTeam: %v", err)
 	}
 	waitTeamChanged(t, subscription, "sess-summon")
 }
@@ -122,18 +148,17 @@ func TestReadPathDoesNotPublishTeamChanged(t *testing.T) {
 	}
 }
 
-func TestSubmitTeamSummonsPresetTeam(t *testing.T) {
-	sessions := &teamRecordingSessions{mainHeadSeq: 5}
-	service := summonService(t, sessions)
+func TestSubmitTeamSummonsLibraryTeam(t *testing.T) {
+	sessions, service := summonFixture(t, 5)
 
 	if err := service.Submit(context.Background(), "@goal-a2a"); err != nil {
 		t.Fatalf("Submit(@goal-a2a): %v", err)
 	}
 	roles := sessions.ensuredRoles()
-	// goal-a2a 的 user/main 是内建席位（JoinPolicy=builtin，不建角色会话），
+	// 库条目里的 user/main 是内建席位（JoinPolicy=builtin，不建角色会话），
 	// 真正"新入职"的是 techlead——它必须出现在装配记录里。
 	if !slices.Contains(roles, "tl") {
-		t.Fatalf("内置形态没装配出 techlead 角色会话：%v", roles)
+		t.Fatalf("库条目没装配出 techlead 角色会话：%v", roles)
 	}
 	if joins := sessions.joinSeqSnapshot(); !slices.Contains(joins, "tl|5") {
 		t.Fatalf("入伙切点必须是当前消息尾 seq=5：%v", joins)
@@ -147,21 +172,28 @@ func TestSubmitTeamSummonsPresetTeam(t *testing.T) {
 	}
 }
 
-func TestSubmitTeamWithoutNameDescribesPresets(t *testing.T) {
-	sessions := &teamRecordingSessions{}
-	service := summonService(t, sessions)
+func TestSubmitTeamWithoutNameDescribesLibrary(t *testing.T) {
+	sessions, service := summonFixture(t, 0)
 
 	if err := service.Submit(context.Background(), "@"); err != nil {
 		t.Fatalf("Submit(@): %v", err)
 	}
 	text := noticesText(service)
-	for _, want := range []string{"goal-a2a", "review-team", "research-team"} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("`@` 自述缺 %q：%q", want, text)
-		}
+	if !strings.Contains(text, "goal-a2a") {
+		t.Fatalf("`@` 自述应列出团队库里的名字：%q", text)
 	}
 	if roles := sessions.ensuredRoles(); len(roles) != 0 {
 		t.Fatalf("空名不该装配任何角色：%v", roles)
+	}
+
+	// 团队库为空时给出可行动的下一步（不再有内置形态可退）。
+	empty := newLibrarySessions()
+	emptyService := summonService(t, empty)
+	if err := emptyService.Submit(context.Background(), "@"); err != nil {
+		t.Fatalf("Submit(@) 空库: %v", err)
+	}
+	if text := noticesText(emptyService); !strings.Contains(text, "团队库还是空的") {
+		t.Fatalf("空库自述缺行动指引：%q", text)
 	}
 }
 
@@ -209,14 +241,13 @@ func TestSubmitTeamSummonsLibraryEntryByName(t *testing.T) {
 // 团队名的一部分（旧口径下整句去查库，回执是"未知团队: goal-a2a 这次启动…"，
 // 用户那句话被静默吞掉），而是装配后作为一条输入下发。
 func TestSubmitTeamTrailingTextIsSentAsInput(t *testing.T) {
-	sessions := &teamRecordingSessions{mainHeadSeq: 3}
-	service := summonService(t, sessions)
+	sessions, service := summonFixture(t, 3)
 
 	const message = "这次启动团队主要是看看整个team的工作是否打通。"
 	if err := service.Submit(context.Background(), "@goal-a2a "+message); err != nil {
 		t.Fatalf("Submit(@goal-a2a 附言): %v", err)
 	}
-	// 附言不影响装配判据：内置形态照旧装配出 techlead、顺序照旧写 lifecycle。
+	// 附言不影响装配判据：库条目照旧装配出 techlead、顺序照旧写 lifecycle。
 	if roles := sessions.ensuredRoles(); !slices.Contains(roles, "tl") {
 		t.Fatalf("附言不该影响装配：%v", roles)
 	}
@@ -323,7 +354,7 @@ func TestSubmitTeamUnknownNameGivesActionableNotice(t *testing.T) {
 		t.Fatalf("未知团队只补 notice，不该返回错误：%v", err)
 	}
 	text := noticesText(service)
-	for _, want := range []string{"未知团队: nope", "goal-a2a", "audit-team"} {
+	for _, want := range []string{"未知团队: nope", "audit-team"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("未知团队提示缺 %q：%q", want, text)
 		}

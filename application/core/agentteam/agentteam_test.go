@@ -54,6 +54,7 @@ func (port *fakePort) WriteTeamRegistry(_ string, registry dto.TeamRegistry) err
 // user→main→其余角色推导；定时角色单独分区、不入工作顺序。
 func TestNormalizeDerivesOrderAndExcludesScheduledRoles(t *testing.T) {
 	spec, err := Normalize(dto.TeamSpec{
+		TeamID: "demo-team",
 		Roles: []dto.RoleSpec{
 			{RoleName: "digest", RoleKind: dto.RoleKindTimer, OrderPriority: 0},
 			{RoleName: "reviewer", RoleKind: dto.RoleKindAgent, OrderPriority: 2},
@@ -67,8 +68,17 @@ func TestNormalizeDerivesOrderAndExcludesScheduledRoles(t *testing.T) {
 	if strings.Join(spec.OrderRoles, ",") != strings.Join(want, ",") {
 		t.Fatalf("order_roles = %v, want %v", spec.OrderRoles, want)
 	}
-	if spec.TeamKind != dto.DefaultTeamKind || spec.OrderPolicy != dto.DefaultOrderPolicy {
+	// team_kind 缺省 = team_id（形态目录删掉后不再有"缺省形态"这种回退）。
+	if spec.TeamKind != "demo-team" || spec.OrderPolicy != dto.DefaultOrderPolicy {
 		t.Fatalf("defaults = %+v", spec)
+	}
+}
+
+// TestNormalizeRejectsNamelessSpec：team_id / team_kind 都没有的 TeamSpec 是调用方
+// 的错误——旧行为是悄悄补一个内置形态名，那会让"没登记的团队"看起来像"某个已知团队"。
+func TestNormalizeRejectsNamelessSpec(t *testing.T) {
+	if _, err := Normalize(dto.TeamSpec{Roles: []dto.RoleSpec{{RoleName: "reviewer", RoleKind: dto.RoleKindAgent}}}); err == nil {
+		t.Fatal("want error for a spec without team_id/team_kind")
 	}
 }
 
@@ -80,11 +90,13 @@ func TestNormalizeRejectsBrokenOrder(t *testing.T) {
 		spec dto.TeamSpec
 	}{
 		{"scheduled in order", dto.TeamSpec{
+			TeamID:     "broken-1",
 			OrderRoles: []string{"user", "main", "digest"},
 			Roles:      []dto.RoleSpec{{RoleName: "digest", RoleKind: dto.RoleKindTimer}},
 		}},
-		{"unknown role", dto.TeamSpec{OrderRoles: []string{"user", "main", "ghost"}}},
+		{"unknown role", dto.TeamSpec{TeamID: "broken-2", OrderRoles: []string{"user", "main", "ghost"}}},
 		{"missing main", dto.TeamSpec{
+			TeamID:     "broken-3",
 			OrderRoles: []string{"user", "reviewer"},
 			Roles:      []dto.RoleSpec{{RoleName: "reviewer", RoleKind: dto.RoleKindAgent}},
 		}},
@@ -96,18 +108,15 @@ func TestNormalizeRejectsBrokenOrder(t *testing.T) {
 	}
 }
 
-// TestGoalPresetMaterializeIsIdempotent：goal preset 装配建 TL 角色会话、写顺序策略；
+// TestGoalSpecMaterializeIsIdempotent：goal 形态团队的装配建 TL 角色会话、写顺序策略；
 // 重复装配不产生第二个会话（AT6 幂等的工厂侧证据）。
-func TestGoalPresetMaterializeIsIdempotent(t *testing.T) {
+func TestGoalSpecMaterializeIsIdempotent(t *testing.T) {
 	port := newFakePort()
 	factory, err := NewFactory(port)
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec, err := Preset(string(dto.TeamKindGoalA2A))
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec := testGoalSpec()
 	first, err := factory.Materialize("main-1", spec, 7)
 	if err != nil {
 		t.Fatal(err)
@@ -153,15 +162,12 @@ func TestSecondTeamThroughSameFactory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	review, err := Preset(string(dto.TeamKindReview))
-	if err != nil {
-		t.Fatal(err)
-	}
+	review := testReviewSpec()
 	result, err := factory.Materialize("main-1", review, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Spec.TeamKind != string(dto.TeamKindReview) ||
+	if result.Spec.TeamKind != "review-team" ||
 		result.Spec.OrderPolicy != dto.OrderPolicyUserMainDecided {
 		t.Fatalf("spec = %+v", result.Spec)
 	}
@@ -179,17 +185,14 @@ func TestSecondTeamThroughSameFactory(t *testing.T) {
 	}
 }
 
-// TestResearchPresetKeepsScheduledRoleOutOfOrder：定时 agent 只出现在定时分区。
-func TestResearchPresetKeepsScheduledRoleOutOfOrder(t *testing.T) {
+// TestResearchSpecKeepsScheduledRoleOutOfOrder：定时 agent 只出现在定时分区。
+func TestResearchSpecKeepsScheduledRoleOutOfOrder(t *testing.T) {
 	port := newFakePort()
 	factory, err := NewFactory(port)
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec, err := Preset(string(dto.TeamKindResearch))
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec := testResearchSpec()
 	result, err := factory.Materialize("main-1", spec, 1)
 	if err != nil {
 		t.Fatal(err)
@@ -265,10 +268,7 @@ func TestMaterializeSameTeamIntoTwoSessionsDispatchesOwnMembers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec, err := Preset(string(dto.TeamKindGoalA2A))
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec := testGoalSpec()
 
 	first, err := factory.Materialize("sess-a", spec, 1)
 	if err != nil {

@@ -12,7 +12,6 @@ package core
 //  3. 未装配分配面（nil）时装配照常成功（老宿主/桩不因新增写面而炸）。
 
 import (
-	"context"
 	"errors"
 	"strings"
 	"sync"
@@ -20,7 +19,6 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
 )
 
 // recordingEmployeePermissions 记录装配期分配调用（并发安全：装配路径可能在
@@ -153,23 +151,25 @@ func TestAssemblyWithoutEmployeePermissionsStillWorks(t *testing.T) {
 	}
 }
 
-// TestGoalBeginAssemblyAssignsEmployeePermissions：goal 创建会自动装配 goal-a2a
-// 团队（TL 的 JoinPolicy=on_goal_create），这条自动路径同样必须分配员工权限——
-// 否则"自动装配"会成为一个绕过权限分配的入口。
-func TestGoalBeginAssemblyAssignsEmployeePermissions(t *testing.T) {
+// TestMaterializeAssignsEmployeePermissions：装配团队（面板「一键装配」/ `@` 召唤 /
+// goal 会话里用户自己装配）都必须分配员工权限——否则"装配"会成为绕过权限分配的入口。
+//
+// 修前这条断言的触发者是"goal 创建自动装配"，那条自动路径已删除（它会整份替换掉会话
+// 已有的团队，见 goal_service.GoalBeginFor），断言改为直接打在装配入口上。
+func TestMaterializeAssignsEmployeePermissions(t *testing.T) {
 	sessions := &teamRecordingSessions{}
 	recorder := &recordingEmployeePermissions{}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions), withEmployeePermissions(recorder))
 
-	if _, err := service.GoalBeginFor(context.Background(), "sess-goal-perm", goaldomain.BeginRequest{Title: "自动装配"}); err != nil {
-		t.Skipf("该夹具未物化 goal 团队（跳过自动装配断言）: %v", err)
+	if _, err := service.MaterializeAgentTeam("sess-goal-perm", goalTeamFixture(), 0); err != nil {
+		t.Fatalf("MaterializeAgentTeam: %v", err)
 	}
 	calls := recorder.snapshot()
 	if len(calls) == 0 {
-		t.Fatal("goal 自动装配团队也必须分配员工权限")
+		t.Fatal("装配团队必须分配员工权限")
 	}
 	assigned := strings.Join(assignedRoleNames(calls), ",")
 	if !strings.Contains(assigned, "tl") {
-		t.Fatalf("自动装配的角色（含 TL）应原样交给分配面，得到 %q", assigned)
+		t.Fatalf("装配的角色（含 TL）应原样交给分配面，得到 %q", assigned)
 	}
 }

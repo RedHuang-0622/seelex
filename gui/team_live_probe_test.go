@@ -79,27 +79,8 @@ func TestRealAPIAgentTeamLiveProbe(t *testing.T) {
 	}
 	notice := []string{}
 
-	// 2) preset 清单：goal 是内置实例之一，不是唯一形态。
-	presetsRaw, err := proc.rpc(ctx, "team.presets", map[string]any{})
-	if err != nil {
-		t.Fatalf("team.presets: %v", err)
-	}
-	var presets []dto.TeamSpec
-	if err := json.Unmarshal(presetsRaw, &presets); err != nil {
-		t.Fatalf("decode team.presets: %v", err)
-	}
-	kinds := map[string]bool{}
-	for _, preset := range presets {
-		kinds[preset.TeamKind] = true
-	}
-	for _, want := range []string{string(dto.TeamKindGoalA2A), string(dto.TeamKindReview)} {
-		if !kinds[want] {
-			t.Fatalf("preset %q missing from %v", want, kinds)
-		}
-	}
-
-	// 3) 用 goal preset 装配（TL 上线 + 顺序策略落 lifecycle head）。
-	first := teamLiveMaterialize(t, ctx, proc, mainSessionID, string(dto.TeamKindGoalA2A), 0)
+	// 2) 用一份 TeamSpec 装配（TL 上线 + 顺序策略落 lifecycle head）。
+	first := teamLiveMaterialize(t, ctx, proc, mainSessionID, teamLiveGoalSpec(), 0)
 	if !teamLiveHasRole(first.Sessions, "tl") {
 		t.Fatalf("goal preset must create the tl role session: %+v", first.Sessions)
 	}
@@ -134,7 +115,7 @@ func TestRealAPIAgentTeamLiveProbe(t *testing.T) {
 	}
 
 	// 4) 重复装配必须幂等：不产生第二个 tl 角色会话（AT6）。
-	second := teamLiveMaterialize(t, ctx, proc, mainSessionID, string(dto.TeamKindGoalA2A), 0)
+	second := teamLiveMaterialize(t, ctx, proc, mainSessionID, teamLiveGoalSpec(), 0)
 	for _, session := range second.Sessions {
 		if session.Created {
 			t.Fatalf("repeat materialize must not create sessions: %+v", second.Sessions)
@@ -142,9 +123,9 @@ func TestRealAPIAgentTeamLiveProbe(t *testing.T) {
 	}
 
 	// 5) 第二个团队实例：同一工厂 + 同一 RPC 面，只换 TeamSpec（AT8）。
-	review := teamLiveMaterialize(t, ctx, proc, mainSessionID, string(dto.TeamKindReview), 0)
+	review := teamLiveMaterialize(t, ctx, proc, mainSessionID, teamLiveReviewSpec(), 0)
 	if !teamLiveHasRole(review.Sessions, "reviewer") {
-		t.Fatalf("review preset must create the reviewer role session: %+v", review.Sessions)
+		t.Fatalf("review 团队必须建出 reviewer 角色会话：%+v", review.Sessions)
 	}
 	if review.Spec.OrderPolicy != dto.OrderPolicyUserMainDecided {
 		t.Fatalf("review order policy = %q", review.Spec.OrderPolicy)
@@ -235,7 +216,7 @@ func TestRealAPIAgentTeamLiveProbe(t *testing.T) {
 	}
 	report := map[string]any{
 		"main_session_id": mainSessionID,
-		"preset_kinds":    keysOf(kinds),
+		"specs":           []string{first.Spec.TeamID, review.Spec.TeamID},
 		"goal_order":      first.View.OrderRoles,
 		"review_order":    review.Spec.OrderRoles,
 		"final_order":     view.OrderRoles,
@@ -337,19 +318,47 @@ func teamLiveSyncRoleDraft(t *testing.T, ctx context.Context, proc *forkLiveProc
 	}
 }
 
-func teamLiveMaterialize(t *testing.T, ctx context.Context, proc *forkLiveProc, mainSessionID, teamKind string, joinSeq uint64) dto.TeamMaterializeResult {
+func teamLiveMaterialize(t *testing.T, ctx context.Context, proc *forkLiveProc, mainSessionID string, spec dto.TeamSpec, joinSeq uint64) dto.TeamMaterializeResult {
 	t.Helper()
 	raw, err := proc.rpc(ctx, "team.materialize", map[string]any{
-		"main_session_id": mainSessionID, "team_kind": teamKind, "join_seq_id": joinSeq,
+		"main_session_id": mainSessionID, "spec": spec, "join_seq_id": joinSeq,
 	})
 	if err != nil {
-		t.Fatalf("team.materialize(%s): %v", teamKind, err)
+		t.Fatalf("team.materialize(%s): %v", spec.TeamID, err)
 	}
 	var result dto.TeamMaterializeResult
 	if err := json.Unmarshal(raw, &result); err != nil {
-		t.Fatalf("decode team.materialize(%s): %v", teamKind, err)
+		t.Fatalf("decode team.materialize(%s): %v", spec.TeamID, err)
 	}
 	return result
+}
+
+// teamLiveGoalSpec / teamLiveReviewSpec 是这次冒烟用的两支团队。
+//
+// 它们曾经来自产品里的内置形态目录（`team.presets` 列出 goal-a2a / review-team /
+// research-team），该目录已于 2026-10-01 删除：`team.materialize` 现在只接一份
+// TeamSpec（`team.presets` 方法一并下线）。所以夹具就写在测试里——冒烟要验的是
+// "headless 的 team.* 面能把一份 TeamSpec 落成真实装配"，不是"产品内置了哪些模板"。
+func teamLiveGoalSpec() dto.TeamSpec {
+	return dto.TeamSpec{
+		TeamID: "goal-a2a", TeamKind: "goal-a2a", OrderPolicy: dto.OrderPolicyGoalLoop,
+		Roles: []dto.RoleSpec{
+			{RoleName: "user", RoleKind: dto.RoleKindUser},
+			{RoleName: "main", RoleKind: dto.RoleKindMain},
+			{RoleName: "tl", RoleKind: dto.RoleKindTechlead, OrderPriority: 1, ToolsPolicy: dto.ToolPolicyReadonly},
+		},
+	}
+}
+
+func teamLiveReviewSpec() dto.TeamSpec {
+	return dto.TeamSpec{
+		TeamID: "review-team", TeamKind: "review-team", OrderPolicy: dto.OrderPolicyUserMainDecided,
+		Roles: []dto.RoleSpec{
+			{RoleName: "user", RoleKind: dto.RoleKindUser},
+			{RoleName: "main", RoleKind: dto.RoleKindMain},
+			{RoleName: "reviewer", RoleKind: dto.RoleKindAgent, OrderPriority: 1},
+		},
+	}
 }
 
 func teamLiveHasRole(sessions []dto.TeamRoleSession, roleName string) bool {

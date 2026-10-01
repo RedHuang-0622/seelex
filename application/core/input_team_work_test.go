@@ -20,8 +20,7 @@ import (
 //   - 不带附言 = 只装配、待命（没有要干的活就不该凭空落 goal）。
 
 func TestSubmitTeamWithTrailingTextBeginsGoalAndTeamLeaves(t *testing.T) {
-	sessions := &teamRecordingSessions{mainHeadSeq: 3}
-	service := summonService(t, sessions)
+	sessions, service := summonFixture(t, 3)
 
 	const message = "把登录逻辑重构一下"
 	if err := service.Submit(context.Background(), "@goal-a2a "+message); err != nil {

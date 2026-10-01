@@ -12,19 +12,16 @@ package core
 // 由 view.OrderRoles 给出、环投影由 schedule.Order 给出，两者必须只差 user。
 
 import (
-	"context"
 	"strings"
 	"testing"
-
-	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
 )
 
 func TestTeamScheduleOrderDropsUserFromOrderRoles(t *testing.T) {
 	service := newTestService(t, &fakeEngine{}, withTestSessions(&teamRecordingSessions{}))
 	sessionID := "sess-ring-user-projection"
-	ctx := withSessionID(context.Background(), sessionID)
-	if _, err := service.GoalBeginFor(ctx, sessionID, goaldomain.BeginRequest{Title: "环投影"}); err != nil {
-		t.Skipf("goal 装配不可用于该夹具: %v", err)
+	// 装配是显式动作（goal 上线不再自动装配团队，见 goal_service.GoalBeginFor）。
+	if _, err := service.MaterializeAgentTeam(sessionID, goalTeamFixture(), 0); err != nil {
+		t.Fatalf("MaterializeAgentTeam: %v", err)
 	}
 	view, err := service.AgentTeamView(sessionID)
 	if err != nil {

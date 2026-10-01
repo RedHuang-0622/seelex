@@ -2,8 +2,6 @@ package core
 
 import (
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 // ② 的应用层接线：会话端口实现可选 floor 读面时，Agent Team 成员表带上
@@ -23,8 +21,8 @@ func TestAgentTeamViewCarriesFloorRole(t *testing.T) {
 	sessions := &floorRecordingSessions{floorRole: "tl"}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
 
-	if _, err := service.MaterializeAgentTeamPreset("sess-floor", dto.TeamKindGoalA2A, 0); err != nil {
-		t.Fatalf("MaterializeAgentTeamPreset: %v", err)
+	if _, err := service.MaterializeAgentTeam("sess-floor", goalTeamFixture(), 0); err != nil {
+		t.Fatalf("MaterializeAgentTeam: %v", err)
 	}
 	view, err := service.AgentTeamView("sess-floor")
 	if err != nil {
@@ -41,8 +39,8 @@ func TestAgentTeamViewWithoutFloorPortStaysEmpty(t *testing.T) {
 	sessions := &teamRecordingSessions{}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
 
-	if _, err := service.MaterializeAgentTeamPreset("sess-no-floor", dto.TeamKindGoalA2A, 0); err != nil {
-		t.Fatalf("MaterializeAgentTeamPreset: %v", err)
+	if _, err := service.MaterializeAgentTeam("sess-no-floor", goalTeamFixture(), 0); err != nil {
+		t.Fatalf("MaterializeAgentTeam: %v", err)
 	}
 	view, err := service.AgentTeamView("sess-no-floor")
 	if err != nil {

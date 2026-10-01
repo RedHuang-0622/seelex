@@ -81,7 +81,7 @@ ROOT_GROUPS = [
     ("context", "上下文控制相关集成测试", ["context"], []),
     ("task", "任务执行集成测试", ["task"], []),
     ("subagent", "子代理投影集成测试", ["subagent"], []),
-    ("goal", "goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回归", ["goal"], []),
+    ("goal", "goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回归", ["goal"], []),
     ("agentteam", "AgentTeam 装配适配与群聊角色会话透传（端口形状与 A2A 元数据口径）", ["agentteam", "role_session"], ["role_turn.go", "role_turn_test.go"]),
     ("composer", "输入草稿合成器的持久化与工作区绑定（重启后恢复）", ["composer"], []),
     ("archive", "会话归档与收尾语义（归档隐藏/拒绝忙碌会话、推理与工具叙述随记录持久化、运行判定与取消排空）", ["archive"], ["close_semantics_test.go"]),

@@ -16,7 +16,6 @@ import (
 type teamRPCApplication interface {
 	AgentTeamPresets() []dto.TeamSpec
 	MaterializeAgentTeam(mainSessionID string, spec dto.TeamSpec, joinSeq uint64) (dto.TeamMaterializeResult, error)
-	MaterializeAgentTeamPreset(mainSessionID, teamKind string, joinSeq uint64) (dto.TeamMaterializeResult, error)
 	AgentTeamView(mainSessionID string) (dto.TeamView, error)
 	AgentTeamPutRole(mainSessionID string, role dto.RoleSpec) (dto.TeamRegistry, error)
 	AgentTeamDeleteRole(mainSessionID, roleName string) (dto.TeamRegistry, error)
@@ -25,10 +24,9 @@ type teamRPCApplication interface {
 }
 
 type teamMaterializeRequest struct {
-	MainSessionID string        `json:"main_session_id"`
-	TeamKind      string        `json:"team_kind,omitempty"`
-	Spec          *dto.TeamSpec `json:"spec,omitempty"`
-	JoinSeqID     uint64        `json:"join_seq_id,omitempty"`
+	MainSessionID string       `json:"main_session_id"`
+	Spec          dto.TeamSpec `json:"spec"`
+	JoinSeqID     uint64       `json:"join_seq_id,omitempty"`
 }
 
 type teamViewRequest struct {
@@ -60,17 +58,14 @@ func (server *headlessServer) dispatchTeam(method string, args []json.RawMessage
 		return nil, fmt.Errorf("%s: 当前 Application 未装配 AgentTeam 管理扩展面", method)
 	}
 	switch method {
-	case "team.presets":
-		return app.AgentTeamPresets(), nil
 	case "team.materialize":
+		// 只按 TeamSpec 装配（2026-10-01）：内置形态目录已删，team_kind 不再是
+		// "从代码里选一支模板"的键，而只是团队自己的展示别名（在 spec 里）。
 		var request teamMaterializeRequest
 		if err := decodeHeadlessObject(method, args, &request); err != nil {
 			return nil, err
 		}
-		if request.Spec != nil {
-			return app.MaterializeAgentTeam(request.MainSessionID, *request.Spec, request.JoinSeqID)
-		}
-		return app.MaterializeAgentTeamPreset(request.MainSessionID, request.TeamKind, request.JoinSeqID)
+		return app.MaterializeAgentTeam(request.MainSessionID, request.Spec, request.JoinSeqID)
 	case "team.view":
 		var request teamViewRequest
 		if err := decodeHeadlessObject(method, args, &request); err != nil {

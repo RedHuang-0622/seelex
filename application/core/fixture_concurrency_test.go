@@ -89,8 +89,8 @@ func TestTeamRecordingSessionsAccessorsAreRaceFree(t *testing.T) {
 	wait.Wait()
 
 	// 注册表与库写次数同样只能通过加锁入口：
-	sessions.setRegistry(dto.TeamRegistry{TeamKind: dto.TeamKindGoalA2A})
-	if registry := sessions.registrySnapshot(); registry.TeamKind != dto.TeamKindGoalA2A {
+	sessions.setRegistry(dto.TeamRegistry{TeamKind: "goal-a2a"})
+	if registry := sessions.registrySnapshot(); registry.TeamKind != "goal-a2a" {
 		t.Fatalf("注册表快照 = %+v", registry)
 	}
 	library := newLibrarySessions()

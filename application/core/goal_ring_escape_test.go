@@ -53,6 +53,11 @@ func TestRingEscapeClosesGoalAndArchivesTLHistory(t *testing.T) {
 
 	sessionID := "sess-ring-escape"
 	ctx := withSessionID(context.Background(), sessionID)
+	// 装配是显式动作：goal 上线不再自动装配团队（2026-10-01，见
+	// service.GoalBeginFor）。这条用例要的"团队环 + tl 角色 draft"来自装配本身。
+	if _, err := service.MaterializeAgentTeam(sessionID, goalTeamFixture(), 0); err != nil {
+		t.Skipf("该夹具不能装配团队: %v", err)
+	}
 	if _, err := service.GoalBeginFor(ctx, sessionID, goaldomain.BeginRequest{Title: "逃生目标"}); err != nil {
 		t.Skipf("goal 装配不可用于该夹具: %v", err)
 	}
@@ -121,6 +126,9 @@ func TestRingEscapeWithoutGoalIsQuiet(t *testing.T) {
 
 	sessionID := "sess-ring-escape-nogoal"
 	ctx := withSessionID(context.Background(), sessionID)
+	if _, err := service.MaterializeAgentTeam(sessionID, goalTeamFixture(), 0); err != nil {
+		t.Skipf("该夹具不能装配团队: %v", err)
+	}
 	if _, err := service.GoalBeginFor(ctx, sessionID, goaldomain.BeginRequest{Title: "先建再收"}); err != nil {
 		t.Skipf("goal 装配不可用于该夹具: %v", err)
 	}

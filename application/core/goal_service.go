@@ -43,6 +43,15 @@ func (service *Service) goalCoordinatorFor(sessionID string) (*goalCoordinator, 
 }
 
 // GoalBeginFor 按显式会话注册 goal（多会话路由）。
+//
+// **不在 goal 上线时自动装配团队**（2026-10-01 删除 `ensureGoalAgentTeam`）。两个理由：
+//  1. **它会砸掉本会话已有的团队**：装配 = 注册表整份替换 + lifecycle 顺序整份替换
+//     （factory.Materialize → WriteTeamRegistry / SetLifecycleOrder），所以"开始一个 goal"
+//     会把用户手工加的 worker/reviewer 一起冲成模板那三个人。这不是自动化的边界，是事故。
+//  2. **goal 的评估链不依赖它**：没有装配团队时 `seatsFor` 返回空，治理循环走
+//     `goaldomain.NewTurnGovernorForDSA2A`（EXEC + ADVISOR(supervisor)），TL 裁决照常在。
+//     团队席位是**在编员工各自的回合**这一层的增量，属于"会话里谁在编"这件产品事实，
+//     该由用户/leader 决定（leader-worker 目标态里由 team plan 决定）。
 func (service *Service) GoalBeginFor(ctx context.Context, sessionID string, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error) {
 	coordinator, err := service.goalCoordinatorFor(sessionID)
 	if err != nil {
@@ -52,34 +61,8 @@ func (service *Service) GoalBeginFor(ctx context.Context, sessionID string, requ
 	if err != nil {
 		return nil, err
 	}
-	// goal 上线即拉起它的 A2A 团队：goal 的 TL/ADVISOR 是 AgentTeam 工厂的
-	// 第一个实例（preset goal-a2a，TL 的 JoinPolicy=on_goal_create），因此这条
-	// 装配不该等前端手动点一次「装配团队」。
-	service.ensureGoalAgentTeam(sessionID)
 	service.refreshGoalRuntimeProjection(sessionID)
 	return record, nil
-}
-
-// ensureGoalAgentTeam 确保当前会话的 goal-a2a 团队已装配（幂等）。
-//
-// 幂等来源在工厂：同一个 (team_id, role_name) 派生稳定的 role_session_id，
-// 重复创建 goal 不会产生第二个角色会话；注册表与 lifecycle 顺序整份替换，
-// 重复装配结果一致。
-//
-// best-effort：宿主未装配团队存储（旧版本宿主、测试桩）时只记一条日志，
-// 不阻塞 goal 治理本身——goal 的 supervisor + TL 评估器链路与团队存储无关。
-//
-// joinSeq 取装配那一刻主会话已提交的 message 尾 seq：角色会话可见区间（= 它自己
-// 那份 team work 记录）的判据是 seq > join_seq_id（与 storage 侧 assembleRoleWire
-// 同一条），所以 teammate 的记录从"装配它的那一回合"开始——它入伙之前的对话不在
-// 它的前缀匹配区间里（面板上以占位呈现），而不是把整段历史都算成它记得的上下文。
-func (service *Service) ensureGoalAgentTeam(sessionID string) {
-	if service == nil || strings.TrimSpace(sessionID) == "" {
-		return
-	}
-	if _, err := service.MaterializeAgentTeamPreset(sessionID, dto.TeamKindGoalA2A, service.teamJoinSeqFor(sessionID)); err != nil {
-		log.Printf("[goal] 自动装配 %s 团队失败（session=%s）：%v", dto.TeamKindGoalA2A, sessionID, err)
-	}
 }
 
 // teamJoinSeqFor 返回团队装配的 join 切点 = 主会话当前已提交的 message 尾 seq。

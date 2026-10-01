@@ -5,22 +5,23 @@
 A2A 角色团队的**通用装配能力面**：把「`TeamSpec`/`RoleSpec` → 角色会话 + 工作顺序 +
 成员表」抽成可复用装配，供 `application/core` 的 Service 门面与 headless `team.*`
 接口消费。长期边界见 [`docs/arch/a2a-agent-team-factory.md`](../../../docs/arch/a2a-agent-team-factory.md)；
-本次落地的工厂/preset/注册表口径见
+本次落地的工厂/注册表口径见
 [`docs/2026-09-10-a2a-agentteam-recovery/agentteam-management.md`](../../../docs/2026-09-10-a2a-agentteam-recovery/agentteam-management.md)。
 
 主要调用方：`application/core/agentteam_service.go`（窄转发 + 端口适配）、
-`gui/headless_team.go`（`team.*` RPC）与 `application/core/goal_service.go`
-（goal 创建时自动装配 `goal-a2a`，见下）。goal 的 TL 只是本包的内置 preset，
-不是特例。
+`gui/headless_team.go`（`team.*` RPC）。
 
-装配入口有两条：
+**没有内置团队形态目录**（2026-10-01，用户口径）：本包不再提供任何"预置团队"
+（旧的 `presets.go`：`goal-a2a` / `review-team` / `research-team` 三支模板已删除）。
+一支团队 = 调用方给的一份 `TeamSpec`，或**团队库**里的一个条目——有谁、什么顺序
+由数据说，不由代码里的模板说。配套删除的还有：`Preset`/`Presets` API、
+`AgentTeamPresets` 服务方法、`goal` 上线时的自动装配（它会整份替换掉会话已有的
+团队，是事故而不是自动化——见 `application/core/goal_service.go` 的 `GoalBeginFor`）、
+`@` 召唤的内置形态分支、输入建议面的形态候选。
 
-- **显式**：`team.materialize` / GUI 角色管理页按 preset 装配任意团队；
-- **隐式**：`GoalBeginFor` 在 goal 落栈成功后调
-  `MaterializeAgentTeamPreset(sessionID, "goal-a2a", 0)`——因为 `goal-a2a` 的
-  TL 声明了 `JoinPolicy=on_goal_create`，"goal 上线"就该把 TL 团队拉起来。
-  幂等由工厂保证（同 `(主会话, team_id, role_name)` 派生同一 `role_session_id`）；
-  宿主未装配团队存储时只记日志、不阻塞 goal（`ensureGoalAgentTeam`）。
+装配入口只有一条：**显式装配**——`team.materialize`（一份 `TeamSpec`）/ GUI 面板的
+「装配」按钮（团队库条目）/ `@<团队>`（团队库条目，可带附言）。幂等由工厂保证
+（同 `(主会话, team_id, role_name)` 派生同一 `role_session_id`）。
 
 ## 职责与非职责
 
@@ -46,7 +47,6 @@ A2A 角色团队的**通用装配能力面**：把「`TeamSpec`/`RoleSpec` → �
 ```mermaid
 flowchart TB
     subgraph SOURCE["团队规格来源"]
-        PRESET["内置 preset<br/>goal-a2a · review-team · research-team"]
         LIB["团队库<br/>&lt;root&gt;/team/library.json"]
         GLOBAL["全局母本<br/>employees.json + order.json"]
         UISPEC["GUI 角色管理页 / team.materialize"]
@@ -67,7 +67,6 @@ flowchart TB
     GOV["goal 治理座位循环<br/>真正驱动轮次"]
     FE["GUI 团队面板 / headless team.*"]
 
-    PRESET --> NORM
     LIB --> NORM
     GLOBAL --> NORM
     UISPEC --> NORM
@@ -85,7 +84,7 @@ flowchart TB
     GOV --> FE
 ```
 
-## 时序图：装配与隐式拉起
+## 时序图：装配
 
 ```mermaid
 sequenceDiagram
@@ -97,8 +96,8 @@ sequenceDiagram
     participant L as lifecycle 顺序策略
     participant G as goal 治理循环
 
-    Note over U,G: 显式路径
-    U->>S: team.materialize(preset) / 角色管理页
+    Note over U,G: 唯一路径：显式装配
+    U->>S: team.materialize(TeamSpec) / 面板「装配」/ `@<团队>`
     S->>A: Materialize(TeamSpec)
     A->>A: Normalize 规整与校验
     A->>A: 幂等派生 role_session_id（同 team_id + role_name 同键）
@@ -106,13 +105,9 @@ sequenceDiagram
     A->>L: 写 order_policy / order_roles
     A-->>S: 成员表（TeamView）
 
-    Note over U,G: 隐式路径：goal 上线即拉起 TL 团队
-    U->>S: goal_begin
-    S->>S: goal 落栈成功
-    S->>A: MaterializeAgentTeamPreset(sessionID, "goal-a2a", 0)
-    A->>R: 幂等装配（重复调用派生同一 role_session_id）
-    A->>G: 座位按 order_roles 装配
-    Note over A,S: 宿主未装配团队存储时只记日志，不阻塞 goal
+    Note over S,G: goal 上线不再自动装配团队（2026-10-01）：
+    Note over S,G: 团队有谁在编是用户/leader 的事实；
+    Note over S,G: goal 的 ADVISOR 裁决由治理循环自带的 supervisor 座位提供
 ```
 
 ## 接线现状（2026-09-14 复核）
@@ -122,9 +117,9 @@ sequenceDiagram
 
 | 能力 | 现状 | 证据 |
 |---|---|---|
-| 角色会话 + 顺序策略 + 注册表 | **已接线**：goal 创建即装配 `goal-a2a`，顺序落 `lifecycle` | `application/core/goal_service.go`（`ensureGoalAgentTeam`）、`application/core/goal_team_wiring_test.go` |
+| 角色会话 + 顺序策略 + 注册表 | **已接线（显式装配）**：面板「装配」/ `@<团队>` / `team.materialize` 装配一份 TeamSpec，顺序落 `lifecycle`。goal 上线**不再**自动装配（那会整份替换掉会话已有的团队） | `application/core/agentteam_service.go`（`MaterializeAgentTeam`）、`application/core/goal_service.go`（`GoalBeginFor` 的说明）、`application/core/goal_team_wiring_test.go`（`TestGoalBeginLeavesSessionTeamAlone`） |
 | 工作顺序（`order_policy`/`order_roles`） | **部分接线（历史字段）**：用于角色 draft 同步排序与成员表展示；**不驱动运行时轮次**。`order_policy` 更进一步——落 lifecycle 后只被回读展示（`dto.TeamView`/`dto.TeamSchedule` 与前端面板），不驱动任何行为；`order_roles` 仍是座位存在性（`newGovernor` 按它长座位）与发言顺序的事实。新事实 = team plan 的 `stages[].depends_on`（leader 掌控，见 `docs/arch/teamwork-leader-worker-architecture.md` §4.6/D4） | `sessionstore/role_session.go`（`sortRoleDraftRows`）、`application/core/goal_coordinator.go`（`seatPlan`）、退场条件见 `docs/devlog/2026-10-01-m4-deadcode-inventory.md` #5（**blocked**） |
-| 运行时轮次驱动 | **已接线（仅 goal-a2a）**：goal 治理的 Governor 座位 `exec-a` + `advisor-b`，`tl` 的 ADVISOR 回合由 goal 域 TL 评估器执行 | `application/core/goal_coordinator.go`（`newGovernor`）、`application/core/goal/adapter.go` |
+| 运行时轮次驱动 | **已接线**：goal 治理的 Governor 座位 `exec-a` + `advisor-b`；会话没装配团队时走 `NewTurnGovernorForDSA2A`（同样带 ADVISOR），装配了团队时 `tl` 的角色座位由 goal 域 TL 评估器执行 | `application/core/goal_coordinator.go`（`newGovernor`）、`application/core/goal/adapter.go` |
 | EXEC 工作内容进入 ADVISOR 输入 | **已接线**：`turn_completed.Detail`（本轮正文/工具名有界摘要）→ `work.progress` 帧 → b 回合输入正文 | `application/core/goal_work_summary.go`、`application/core/goal/techleader.go`（`flushWorkProgressLocked`） |
 | EXEC 的 computer use 证据进入 ADVISOR 输入 | **已接线**：工作摘要额外带 `screen: media:… 宽x高 foreground="…"`（截图句柄 + 画面尺寸 + 前台窗口），ADVISOR 据此"看证据评审"，而不是只看到一个工具名 | `application/core/goal_work_summary.go`（`computerUseEvidence`）、`gui/team_work_computer_use_live_probe_test.go` |
 | ADVISOR 直接读画面内容 | **尚未实现**：ADVISOR 回合是一次有界 LLM 调用（`TLEvalEvaluator`，无工具循环），它拿到的是证据**句柄与元数据**，不是像素；要读图需要给 b 回合挂图（imageattach）或给角色配独立工具循环 | 见 `docs/devlog/2026-09-15-team-work-computer-use.md` |
@@ -163,7 +158,6 @@ user**（环头扫描会落到它），与「其余时间都是 agent teammate �
 | 文件 | 职责 |
 |---|---|
 | `spec.go` | `TeamSpec` 规整与校验、角色会话号派生（`RoleSessionID`） |
-| `presets.go` | 内置实例：`goal-a2a`（固定座次 user → main → tl）、`review-team`、`research-team`（定时分区） |
 | `factory.go` | `Port` 契约、`Factory.Materialize`、成员表投影 `assembleView` |
 | `registry.go` | `Registry`：角色配置 CRUD、`SetOrder`、`View` 只读投影（含 floor 填充）、`Stored`/`PromptFor` 只读回读 |
 | `library.go` | 团队库读写面（条目 upsert/delete/`Entry`）与投影（`SpecOfEntry`/`EntryFromRegistry`/`EntryFromSpec`），含共用口径 `IsBuiltinRole`/`OrderRolesOf` |
@@ -197,7 +191,7 @@ user**（环头扫描会落到它），与「其余时间都是 agent teammate �
 ## 数据流或生命周期
 
 ```text
-TeamSpec（preset 或前端提交）
+TeamSpec（团队库条目 / 前端提交）
   → Normalize（默认值/去重/顺序校验）
   → Factory.Materialize
       → Port.EnsureRoleSession（每个非 user/main 角色一个角色会话）
@@ -220,15 +214,17 @@ presence 与 `message head.floor` 提供，不在本包落盘；`Registry.View`/
 ## 并发、存储、安全或错误语义
 
 - 装配是**幂等**的：重复 `Materialize` 复用同一角色会话；注册表与顺序整份替换。
-- 错误一律显式：未知 preset（`ErrUnknownPreset`）、未注册角色进顺序、定时角色进顺序、
-  重复 `role_name`、内置角色被改写/删除都返回错误，不静默降级。
+- 错误一律显式：未注册角色进顺序、定时角色进顺序、重复 `role_name`、内置角色被
+  改写/删除、`team_id`/`team_kind` 都缺的 TeamSpec（没有"缺省形态"可回退）都返回
+  错误，不静默降级。
 - 不做读时补写：`View` 遇到「注册表有角色但 lifecycle 无顺序」时按注册顺序推导只读
   视图，不落盘，避免读操作产生第二份事实。
 
 ## 扩展方式
 
-- 新增团队形态：在 `presets.go` 加一条 preset（角色集 + `order_policy`），或由前端直接
-  提交 `TeamSpec`；不改工厂、sequencer、message/draft/compact 形态。
+- 新增一支团队：**不用改代码**——在面板「团队库」新建（或把当前会话存进库），装配时
+  走同一条 `TeamSpec` 通道；要新角色种类才动 `dto.RoleKind` 与座位派生（`seatPlan`）。
+  本包不再有"往代码里加一支模板"这条扩展方式（形态目录已删）。
 - 新增调度策略：只在 `dto` 增加策略名并校验，替换点是 sequencer 的 role 顺序函数。
 - 新增角色字段：加在 `dto.RoleSpec` + `sessionstore.TeamRoleSpec` + 适配器映射三处，
   保持旧注册表可读（缺字段 = 未配置）。
@@ -280,10 +276,11 @@ go test -race ./application/core/agentteam -count=1
 - `func (port *fakePort) ReadTeamRegistry(string) (dto.TeamRegistry, error)`
 - `func (port *fakePort) WriteTeamRegistry(_ string, registry dto.TeamRegistry) error`
 - `func TestNormalizeDerivesOrderAndExcludesScheduledRoles(t *testing.T)` — TestNormalizeDerivesOrderAndExcludesScheduledRoles：未给 order_roles 时按
+- `func TestNormalizeRejectsNamelessSpec(t *testing.T)` — TestNormalizeRejectsNamelessSpec：team_id / team_kind 都没有的 TeamSpec 是调用方
 - `func TestNormalizeRejectsBrokenOrder(t *testing.T)` — TestNormalizeRejectsBrokenOrder：定时角色不得进顺序、顺序角色必须已注册、
-- `func TestGoalPresetMaterializeIsIdempotent(t *testing.T)` — TestGoalPresetMaterializeIsIdempotent：goal preset 装配建 TL 角色会话、写顺序策略；
+- `func TestGoalSpecMaterializeIsIdempotent(t *testing.T)` — TestGoalSpecMaterializeIsIdempotent：goal 形态团队的装配建 TL 角色会话、写顺序策略；
 - `func TestSecondTeamThroughSameFactory(t *testing.T)` — TestSecondTeamThroughSameFactory（AT8）：同一个工厂实例化 goal 之外的第二个团队，
-- `func TestResearchPresetKeepsScheduledRoleOutOfOrder(t *testing.T)` — TestResearchPresetKeepsScheduledRoleOutOfOrder：定时 agent 只出现在定时分区。
+- `func TestResearchSpecKeepsScheduledRoleOutOfOrder(t *testing.T)` — TestResearchSpecKeepsScheduledRoleOutOfOrder：定时 agent 只出现在定时分区。
 - `func TestRegistryCRUDAndOrder(t *testing.T)` — TestRegistryCRUDAndOrder：角色配置 CRUD 只改注册表；顺序设置只改 lifecycle 字段，
 - `func TestMaterializeSameTeamIntoTwoSessionsDispatchesOwnMembers(t *testing.T)` — TestMaterializeSameTeamIntoTwoSessionsDispatchesOwnMembers（用例 2「团队会话粒度」）：
 
@@ -311,7 +308,7 @@ go test -race ./application/core/agentteam -count=1
 - `func applyFloor(port Port, mainSessionID string, view *dto.TeamView)` — applyFloor 用可选的 floor 读端口填充成员表的当前发言角色（只读事实，不写盘）。
 - `func buildMember(mainSessionID, teamID, name string, orderIndex int, inOrder bool, byName map[string]dto.RoleSpec) dto.TeamMember`
 - `func viewNotices(registry dto.TeamRegistry, orderRoles []string) []string` — viewNotices 只报事实，不自动修补：注册了但不在顺序里的角色、顺序里未注册的角色、
-- `func teamKindOf(registry dto.TeamRegistry) string` — teamKindOf 返回可展示的团队形态名（空值不伪装）。
+- `func teamKindOf(registry dto.TeamRegistry) string` — teamKindOf 返回可展示的团队名（team_kind 是 team_id 的别名；空值不伪装成某个
 - `func unexecutedRoles(orderRoles []string) []string` — unexecutedRoles 返回工作顺序里没有执行者的角色（保序、去重）。
 - `func UnexecutedRoles(orderRoles []string) []string` — UnexecutedRoles 是 unexecutedRoles 的导出形态：发言调度运行态（runtime.go）
 
@@ -349,7 +346,7 @@ go test -race ./application/core/agentteam -count=1
 - `func IsBuiltinRole(roleName string) bool` — IsBuiltinRole 判定角色名是否是内置角色（user/main）。内置角色由会话本身提供，
 - `func dedupePreserveOrder(values []string) []string` — dedupePreserveOrder 去重但保序（顺序表是发言次序，不能排序）。
 - `func SpecOfEntry(entry dto.TeamLibraryEntry) dto.TeamSpec` — SpecOfEntry 把团队库条目投影成装配输入（TeamSpec）。顺序与角色配置原样带入，
-- `func EntryFromSpec(spec dto.TeamSpec, name, origin string) (dto.TeamLibraryEntry, error)` — EntryFromSpec 把一次性 TeamSpec（例如内置 preset）投影成团队库条目：前端
+- `func EntryFromSpec(spec dto.TeamSpec, name, origin string) (dto.TeamLibraryEntry, error)` — EntryFromSpec 把一次性 TeamSpec 投影成团队库条目（"把这份配置存成一支可复用团队"）。
 - `func EntryFromRegistry(registry dto.TeamRegistry, orderRoles []string, name, teamID string) (dto.TeamLibraryEntry, error)` — EntryFromRegistry 把"某个会话当前在编的员工表"投影成一条团队库条目
 - `func OrderRolesOf(roles []dto.RoleSpec) []string` — OrderRolesOf 从角色配置推导工作顺序：user → main → 其余角色（OrderPriority
 
@@ -362,7 +359,7 @@ go test -race ./application/core/agentteam -count=1
 - `func TestSpecOfEntryKeepsRolesAndOrder(t *testing.T)` — TestSpecOfEntryKeepsRolesAndOrder：库条目 → TeamSpec 必须原样带入顺序与角色
 - `func TestEntryFromRegistryDropsBuiltinsAndKeepsPrompts(t *testing.T)` — TestEntryFromRegistryDropsBuiltinsAndKeepsPrompts：把会话在编员工存进团队库时，
 - `func TestNormalizeLibraryEntryRejectsBadInput(t *testing.T)` — TestNormalizeLibraryEntryRejectsBadInput：缺 team_id / 非法顺序策略显式报错。
-- `func TestEntryFromSpecCopiesPreset(t *testing.T)` — TestEntryFromSpecCopiesPreset：内置 preset 可复制成库条目（"以模板新建团队"）。
+- `func TestEntryFromSpecCopiesShape(t *testing.T)` — TestEntryFromSpecCopiesShape：一份 TeamSpec 可复制成库条目（"以现有团队新建一支"）。
 
 ### prefix_test.go
 
@@ -374,14 +371,6 @@ go test -race ./application/core/agentteam -count=1
 - `func prefixSkipDir(name string) bool` — prefixSkipDir 报告扫描时应跳过的目录（构建产物 / 依赖缓存 / 临时现场）。
 - `func prefixRepoRoot(t *testing.T) string`
 
-### presets.go
-
-- `func goalA2APreset() dto.TeamSpec` — goalA2APreset 是第一个实例：goal 的固定座次（user → main → tl，其中 tl 是 ADVISOR 评审座）。
-- `func reviewTeamPreset() dto.TeamSpec` — reviewTeamPreset 是第二个实例（AT8 证据）：同一工厂、同一 sequencer、同一恢复
-- `func researchTeamPreset() dto.TeamSpec` — researchTeamPreset 演示「定时 agent 不入 order_roles」的第三形态。
-- `func Preset(teamKind string) (dto.TeamSpec, error)` — Preset 返回内置团队实例（goal-a2a / review-team / research-team）。
-- `func Presets() []dto.TeamSpec` — Presets 返回全部内置 preset（供前端角色管理页列出可选团队形态）。
-
 ### registry.go
 
 - `func NewRegistry(port Port) (*Registry, error)` — NewRegistry 构造注册表读写面；port 为 nil 时显式报错。
@@ -392,6 +381,7 @@ go test -race ./application/core/agentteam -count=1
 - `func (registry *Registry) DeleteRole(mainSessionID, roleName string) (dto.TeamRegistry, error)` — DeleteRole 删除一个角色配置；角色仍留在工作顺序时同步摘除，避免顺序里挂着
 - `func (registry *Registry) SetOrder(mainSessionID, policy string, orderRoles []string) (dto.TeamView, error)` — SetOrder 写工作顺序策略（`order_roles`）；校验角色已注册、定时角色不入顺序、
 - `func firstNonEmpty(values ...string) string`
+- `func registryIdentity(registry dto.TeamRegistry) (teamID, teamKind string)` — registryIdentity 返回注册表可用的团队身份（team_id / team_kind）。
 
 ### runtime.go
 
@@ -477,5 +467,11 @@ go test -race ./application/core/agentteam -count=1
 - `func (port *floorFakePort) ReadFloorRole(string) (string, error)`
 - `func TestRegistryViewFillsFloorFromOptionalPort(t *testing.T)` — TestRegistryViewFillsFloorFromOptionalPort 钉住 ②：数据在 message head 里，
 - `func TestRegistryViewReportsFloorReadFailure(t *testing.T)` — TestRegistryViewReportsFloorReadFailure 钉住错误语义：floor 是运行态读面，
-- `func TestReviewAndResearchPresetsDeclareNoExecutor(t *testing.T)` — TestReviewAndResearchPresetsDeclareNoExecutor 钉住 ④：第二个/第三个 preset 只有
+- `func TestSecondAndThirdShapesDeclareNoExecutor(t *testing.T)` — TestSecondAndThirdShapesDeclareNoExecutor 钉住 ④：只带注册配置与角色会话、没有运行时
+
+### testspecs_test.go
+
+- `func testGoalSpec() dto.TeamSpec` — testGoalSpec 是一支 goal 形态的团队：user → main → tl（tl 是 techlead，装配后由
+- `func testReviewSpec() dto.TeamSpec` — testReviewSpec 是第二支团队（AT8 证据）：换角色集与顺序策略，代码路径不变。
+- `func testResearchSpec() dto.TeamSpec` — testResearchSpec 是第三支团队：演示"定时角色不入 order_roles"的分区。
 

@@ -2,7 +2,7 @@
 
 ## 生态位
 
-goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回归
+goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回归
 
 覆盖：`goal*.go`；未归属文件由覆盖自检拦下。
 
@@ -23,6 +23,9 @@ goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回�
 - `func (g *goalCoordinator) Next(ctx context.Context, sessionID string) (bool, error)` — Next 推进治理循环一轮（惰性装配座位；返回 false = 收束）。
 - `func (g *goalCoordinator) AdvanceAfterChat(ctx context.Context, sessionID, detail string) error` — AdvanceAfterChat 在 ChatStream 返回后的锁外安全点推进一次治理：登记
 - `func (g *goalCoordinator) advanceAfterChat(ctx context.Context, sessionID, detail string) error`
+- `func (g *goalCoordinator) advanceSeatViaJobs(ctx context.Context, jobs SeatJobs, sessionID, detail string) error` — advanceSeatViaJobs 把这一轮治理推进表达为一个座位作业：派发 → 有界汇合 → 按终态
+- `func seatOutcomeError(outcome SeatJobOutcome) string` — seatOutcomeError 把非 done 的座位作业终态折成一句可读的失败原因（优先用作业面给
+- `func (g *goalCoordinator) runSeatRound(ctx context.Context, sessionID, detail string) error` — runSeatRound 是座位循环的**唯一正文**（驱动唯一化）：从当前轮次推进到 Round
 - `func (g *goalCoordinator) teamRuntimeFor(sessionID string) *agentteam.Runtime` — teamRuntimeFor 取该会话的团队发言调度运行态（未装配团队环 → nil）。
 - `func goalLoopRoundLimit(configured int) int` — goalLoopRoundLimit 把配置值解析成实际生效的轮次上限。
 - `func (g *goalCoordinator) newGovernor(sessionID string, runtime *goalSessionRuntime) govern.Governor` — newGovernor 装配治理循环座位。座位的**存在性**由团队工作顺序（链表）决定：
@@ -52,6 +55,7 @@ goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回�
 - `func (g *goalCoordinator) MarkDirectivePublished(sessionID, corr string)` — MarkDirectivePublished 记录一条指令已回放进可见会话（回合结束时记，下一次
 - `func (g *goalCoordinator) NoteInjected(sessionID string, directives []goaldomain.TLDirective)` — NoteInjected 记录一次已注入引擎受信区的 TL 指令（回合尾可见区回放）。
 - `func (g *goalCoordinator) TakeInjected(sessionID string) []goaldomain.TLDirective` — TakeInjected 取走（并清空）该会话已注入受信区的 TL 指令。
+- `func goalStepViews(steps []goaldomain.TLStep) []dto.GoalStepView` — goalStepViews 把 goal 域的评审过程步骤投影成只读 DTO（nil 进 → nil 出，
 - `func (g *goalCoordinator) GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView` — GoalGovernanceViewFor 组装只读治理视图（无 bundle/无 goal → nil，前端隐藏）。
 
 ### goal_coordinator_test.go
@@ -91,6 +95,12 @@ goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回�
 - `func advisorDirectiveRows(messages []Message) []Message` — advisorDirectiveRows 取可见会话里的 ADVISOR 裁决行（kind + 归属双条件：
 - `func TestAdvisorVerdictVisibleInProducingTurn(t *testing.T)`
 
+### goal_governance_steps_test.go
+
+- `func (e *stubStepEvaluator) Evaluate(ctx context.Context, _ goaldomain.TLSessionEmbed) (goaldomain.TLDirective, error)`
+- `func TestGoalGovernanceViewCarriesRoundSteps(t *testing.T)`
+- `func TestGoalGovernanceViewWithoutStepsHasNoEmptyShell(t *testing.T)` — TestGoalGovernanceViewWithoutStepsHasNoEmptyShell：没有步骤时不产生空壳
+
 ### goal_loop_limit_test.go
 
 - `func TestGoalLoopRoundLimitDefaults(t *testing.T)` — TestGoalLoopRoundLimitDefaults：治理循环的轮次上限解析——未配置（0）时落到
@@ -126,6 +136,17 @@ goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回�
 - `func TestAdvanceAfterChatWithoutExecutionFaceKeepsPilotShape(t *testing.T)` — TestAdvanceAfterChatWithoutExecutionFaceKeepsPilotShape 是试水形态的回归钉：
 - `func TestRoleTurnNoteTrimmed(t *testing.T)` — TestRoleTurnNoteTrimmed 保证空 Note 不产生悬空空格（面板拼接用）。
 
+### goal_seat_jobs_test.go
+
+- `func (jobs *fakeSeatJobs) DispatchSeat(ctx context.Context, sessionID, detail string) (string, error)`
+- `func (jobs *fakeSeatJobs) JoinSeat(ctx context.Context, handle string, budget time.Duration) (dto.SeatJobOutcome, error)`
+- `func (jobs *fakeSeatJobs) recorded() []fakeSeatDispatch`
+- `func (jobs *fakeSeatJobs) joined() []string`
+- `func TestAdvanceAfterChatDispatchesSeatJob(t *testing.T)` — TestAdvanceAfterChatDispatchesSeatJob：作业路径——派发（载荷带会话与正文）→ 有界
+- `func TestAdvanceAfterChatSeatJobFailureLandsInRoundError(t *testing.T)` — TestAdvanceAfterChatSeatJobFailureLandsInRoundError：作业非 done ⇒ 本轮失败原因
+- `func TestSeatJobsNilKeepsSynchronousLoop(t *testing.T)` — TestSeatJobsNilKeepsSynchronousLoop：未装配座位作业面（桩宿主 / 未接线宿主）⇒
+- `func TestRunSeatRoundExecutesSharedLoop(t *testing.T)` — TestRunSeatRoundExecutesSharedLoop：执行侧入口（Service.RunSeatRound，组合根经
+
 ### goal_seats_test.go
 
 - `func seatExecAct(context.Context) (govern.TurnAction, error)`
@@ -145,7 +166,6 @@ goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回�
 - `func (service *Service) GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView` — GoalGovernanceViewFor 返回指定会话的 goal 治理只读视图（view_state 装配
 - `func (service *Service) goalCoordinatorFor(sessionID string) (*goalCoordinator, error)`
 - `func (service *Service) GoalBeginFor(ctx context.Context, sessionID string, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error)` — GoalBeginFor 按显式会话注册 goal（多会话路由）。
-- `func (service *Service) ensureGoalAgentTeam(sessionID string)` — ensureGoalAgentTeam 确保当前会话的 goal-a2a 团队已装配（幂等）。
 - `func (service *Service) teamJoinSeqFor(sessionID string) uint64` — teamJoinSeqFor 返回团队装配的 join 切点 = 主会话当前已提交的 message 尾 seq。
 - `func (service *Service) GoalBegin(ctx context.Context, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error)` — GoalBegin 按执行 ctx 会话注册 goal（main agent 工具调用路径）。
 - `func (service *Service) GoalUpdateFor(ctx context.Context, sessionID string, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error)` — GoalUpdateFor 按显式会话更新栈顶 goal。
@@ -163,6 +183,7 @@ goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回�
 - `func (service *Service) injectGoalDirectives(sessionID string, directives []goaldomain.TLDirective)` — injectGoalDirectives 把 b→a 指令注入引擎受信区，并登记"待可见回放"：
 - `func (service *Service) injectGoalDirectivesForStart(sessionID string)` — injectGoalDirectivesForStart 在 ChatStream 开始前把 TL 回合产生的指令
 - `func (service *Service) goalAdvanceAfterChat(ctx context.Context)` — goalAdvanceAfterChat 在 ChatStream 返回后的锁外安全点推进 goal 治理
+- `func (service *Service) RunSeatRound(ctx context.Context, sessionID, detail string, note func(string)) error` — RunSeatRound 是座位循环的**执行侧**（seelebridge 的 teamwork.SeatRoundRunner，
 - `func (service *Service) dismissTeamWhenGoalClosed(sessionID string)` — dismissTeamWhenGoalClosed 让"干完就走人"成立：目标收口（栈里没有 active goal）
 - `func (service *Service) injectGoalDirectivesFor(sessionID string)` — injectGoalDirectivesFor 在 ChatStream 结束后的锁外安全点，把本回合已注入
 - `func (service *Service) publishPendingGoalDirectivesFor(sessionID string)` — publishPendingGoalDirectivesFor 把治理回合**刚产出**、仍在待注入队列里的
@@ -232,11 +253,11 @@ goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回�
 - `func (s *teamRecordingSessions) ensuredRoles() []string` — ensuredRoles 读已装配的角色会话名（加锁 + 拷贝）。
 - `func (s *teamRecordingSessions) joinSeqSnapshot() []string` — joinSeqSnapshot 读角色会话装配时的 join 切点（加锁 + 拷贝）：
 - `func (s *teamRecordingSessions) ListRoleSessions(string) ([]string, error)`
-- `func TestGoalBeginMaterializesGoalAgentTeam(t *testing.T)` — TestGoalBeginMaterializesGoalAgentTeam 钉住 goal → AgentTeam 接线：创建 goal
+- `func TestGoalBeginLeavesSessionTeamAlone(t *testing.T)` — TestGoalBeginLeavesSessionTeamAlone 钉住 2026-10-01 的口径：创建 goal **不**自动装配
 - `func TestGoalBeginWithoutTeamStorageIsBestEffort(t *testing.T)` — TestGoalBeginWithoutTeamStorageIsBestEffort 钉住降级语义：宿主没有团队存储
 - `func (s *teamRecordingSessions) wireAsksSnapshot() []string` — wireAsksSnapshot 只读前缀用例的装配请求记录（加锁 + 拷贝）。
 - `func (s *teamRecordingSessions) joinSeqsSnapshot() []string` — joinSeqsSnapshot 只读角色装配的 join_seq_id 记录（加锁 + 拷贝）。
-- `func TestGoalBeginJoinsTeammatesAtGoalTurn(t *testing.T)` — TestGoalBeginJoinsTeammatesAtGoalTurn 钉住 teammate 记录（它自己那份 team work
+- `func TestMaterializeJoinsTeammatesAtItsTurn(t *testing.T)` — TestMaterializeJoinsTeammatesAtItsTurn 钉住 teammate 记录（它自己那份 team work
 - `func TestNoteTeamWorkPrefixReadsMainSessionContext(t *testing.T)` — TestNoteTeamWorkPrefixReadsMainSessionContext 钉住前缀的作者与读取口径：
 
 ### goal_work_summary.go

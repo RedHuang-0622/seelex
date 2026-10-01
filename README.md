@@ -57,7 +57,7 @@ Seelex 把这些能力组织成可替换、可测试的模块，而不是把它�
 | Agent 执行 | 流式对话、工具调用、取消、审批交互和任务终态；Effort 四档（lite/medium/high/max）约束循环数、工具调用数与计划规模 |
 | Plan 与子 Agent | 可选 WorkPlan DAG、拓扑校验、并行分支、独立节点 Session、事件投影和结果 merge-back；<code>fork_subagents</code> 派发子代理并同步等待终态 |
 | 目标治理 | 会话级 LIFO goal 栈与状态机、独立上下文的裁决角色（ADVISOR / TechLeader）回合制评审、抽帧节流、有界指令邮箱、终态门禁与 append-only 审计 |
-| 代理团队与工作台 | TeamSpec 团队工厂与 preset 隐式拉起、成员与发言顺序注册表；plan / tasklist / subagent / todo 四源合一的工作台投影与 traceboard |
+| 代理团队与工作台 | TeamSpec 团队工厂（团队库条目显式装配）、成员与发言顺序注册表；plan / tasklist / subagent / todo 四源合一的工作台投影与 traceboard |
 | 上下文治理 | Prompt Stack 稳定前缀、滑动窗口、预算控制、压缩 DAG、超大工具结果归档为 <code>result_ref</code> 与按页/过滤读回；装配逼近硬阈值（默认 98% 预算）时**探测即主动压缩**为有界 checkpoint 帧，<code>compact_context</code> 工具与 <code>/compact</code> 命令可手动触发同一压缩 |
 | 记忆与检索 | 相关记忆块（词法 top-K）、以压缩栈为索引的历史检索读回、跨会话稳定前缀复用、CLI/项目级 <code>MEMORY.md</code> 索引 |
 | 项目安全 | ProjectScope 按会话分格的路径约束、PathGate / LMRW 规则；工具权责模型为「主体 × 路由组 × 位」（root / sub / emp_ro / emp_rw，ro / rw / rw_session / rw_desktop / ctl / adm），子代理在结构上缺 <code>ctl</code>/<code>adm</code> 位 |
@@ -395,7 +395,7 @@ Seelex 的截屏不再把 base64 塞进工具结果，而是走一条统一的�
 - **抽帧节流**：非关键信号在评估窗口（默认 3）内抑制，关键信号立即评估；回合完成后一次性抽帧，把 EXEC 的真实产出摘要带进裁决输入。
 - **缺席矩阵**：完成声明必须经裁决侧裁决；执行侧永不等待裁决侧；超时或限流按判负或转人工处理；审批请求先经裁决侧预筛（低风险代答、高风险转人工）；每次状态变更 append-only 记账。
 
-这个闭环的作用是让「任务已完成」不再由模型单方面宣告。它目前仍是**单进程内**的治理，且 review-team / research-team 的 preset 只完成装配、还没有执行者（见 [teamwork 接线修复记录](docs/devlog/2026-09-14-teamwork-wiring-fixes.md)）。
+这个闭环的作用是让「任务已完成」不再由模型单方面宣告。它目前仍是**单进程内**的治理；**团队**有谁在编由用户/leader 决定（团队库条目显式装配，没有任何内置形态模板），装配本身不等于有人在干活——只登记了配置与角色会话、没接执行者的团队成员会在成员表里被明说「暂无可执行者」（见 [teamwork 接线修复记录](docs/devlog/2026-09-14-teamwork-wiring-fixes.md)）。
 
 ## 快速开始
 

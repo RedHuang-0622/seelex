@@ -42,9 +42,6 @@
 - `func (service *Service) commandSuggestions() []Suggestion`
 - `func (service *Service) skillSuggestions() []Suggestion`
 - `func (service *Service) pluginSuggestions() []Suggestion` — pluginSuggestions 列出可切换插件；off 是"停用全部"的内置入口（与
-- `func teamPresetSuggestions() []Suggestion` — teamPresetSuggestions 列出可召唤的内置团队形态（goal-a2a / review-team /
-- `func isPresetTeam(name string) bool` — isPresetTeam 报告名字是否命中内置团队形态（team_id 与 team_kind 同值）。
-- `func teamSpecSummary(spec dto.TeamSpec) string` — teamSpecSummary 用形态自身的事实拼一句摘要（不另写一份人为描述，避免与
 
 ### completion_test.go
 

@@ -21,7 +21,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func TestAssemblyAssignsEmployeePermissions(t *testing.T)` — TestAssemblyAssignsEmployeePermissions：装配（写注册表）之后，员工权限分配被调用，
 - `func TestAssemblySurfacesEmployeePermissionFailure(t *testing.T)` — TestAssemblySurfacesEmployeePermissionFailure：分配失败必须显式上抛。
 - `func TestAssemblyWithoutEmployeePermissionsStillWorks(t *testing.T)` — TestAssemblyWithoutEmployeePermissionsStillWorks：未装配分配面时装配照常成功
-- `func TestGoalBeginAssemblyAssignsEmployeePermissions(t *testing.T)` — TestGoalBeginAssemblyAssignsEmployeePermissions：goal 创建会自动装配 goal-a2a
+- `func TestMaterializeAssignsEmployeePermissions(t *testing.T)` — TestMaterializeAssignsEmployeePermissions：装配团队（面板「一键装配」/ `@` 召唤 /
 
 ### fixture_concurrency_test.go
 

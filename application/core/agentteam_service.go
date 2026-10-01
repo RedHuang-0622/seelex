@@ -133,11 +133,6 @@ func (service *Service) agentTeamRegistry() (*agentteam.Registry, error) {
 	return agentteam.NewRegistry(agentTeamAdapter{port: port, role: role, employees: service.Deps.EmployeePermissions})
 }
 
-// AgentTeamPresets 列出内置团队形态（前端角色管理页的可选模板）。
-func (service *Service) AgentTeamPresets() []dto.TeamSpec {
-	return agentteam.Presets()
-}
-
 // publishTeamChanged 通告"会话团队事实变了"（装配/工作顺序/入职/编辑成员都要发）。
 //
 // 为什么必须发：Agent Team 面板的数据（成员表/顺序/调度）**不在**会话快照里，
@@ -155,7 +150,7 @@ func (service *Service) publishTeamChanged(mainSessionID string) {
 	service.publishSessionEvent(EventTeamChanged, 0, "", mainSessionID, nil)
 }
 
-// MaterializeAgentTeam 按 preset/自定义 TeamSpec 装配一支 AgentTeam。
+// MaterializeAgentTeam 按一份 TeamSpec 装配一支 AgentTeam。
 // joinSeq 是本次装配把角色挂到主会话的可见起点。
 func (service *Service) MaterializeAgentTeam(mainSessionID string, spec dto.TeamSpec, joinSeq uint64) (dto.TeamMaterializeResult, error) {
 	factory, err := service.agentTeamFactory()
@@ -171,27 +166,18 @@ func (service *Service) MaterializeAgentTeam(mainSessionID string, spec dto.Team
 	if schedule := service.teamScheduleFor(mainSessionID); schedule != nil {
 		result.View.Schedule = schedule
 	}
-	// 装配是所有来路（`@` 召唤 / goal 自动 / RPC 一键装配）的共同收口：面板事实
+	// 装配是所有来路（`@` 召唤 / 团队库条目 / RPC 一键装配）的共同收口：面板事实
 	// 只在这里之后成立，因此通告也钉在这里，而不是散在各个入口。
 	service.publishTeamChanged(mainSessionID)
 	return result, nil
-}
-
-// MaterializeAgentTeamPreset 按内置 preset 名装配（goal-a2a / review-team / research-team）。
-func (service *Service) MaterializeAgentTeamPreset(mainSessionID, teamKind string, joinSeq uint64) (dto.TeamMaterializeResult, error) {
-	spec, err := agentteam.Preset(teamKind)
-	if err != nil {
-		return dto.TeamMaterializeResult{}, err
-	}
-	return service.MaterializeAgentTeam(mainSessionID, spec, joinSeq)
 }
 
 // DismissAgentTeam 让本会话的在编团队离场（"干完就走人"）：删注册表 + 复位顺序，
 // 随后同步发言环并通告面板。
 //
 // 与 MaterializeAgentTeam 对称：装配是所有来路的共同收口（并在这里发 team.changed），
-// 离场同样只有这一个收口——`@` 召唤的团队、goal 自动装配的 goal-a2a、前端一键装配
-// 的团队都按同一条口径离场，不新增第二份"谁还算在编"的事实。
+// 离场同样只有这一个收口——`@` 召唤的团队、前端一键装配的团队都按同一条口径离场，
+// 不新增第二份"谁还算在编"的事实。
 func (service *Service) DismissAgentTeam(mainSessionID string) error {
 	if service == nil || strings.TrimSpace(mainSessionID) == "" {
 		return errors.New("agent team: main session ID is required")
@@ -429,7 +415,7 @@ func (service *Service) AgentTeamSaveTeam(mainSessionID string, entry dto.TeamLi
 }
 
 // AgentTeamSaveCurrentTeam 把当前会话在编的员工表存成一条团队库条目
-// （UI「把当前团队存进团队库」：团队库因此能有用户自己的团队，而不只有 preset）。
+// （UI「把当前团队存进团队库」：团队库因此能有用户自己的团队）。
 func (service *Service) AgentTeamSaveCurrentTeam(mainSessionID, name, teamID string) (dto.TeamLibrary, error) {
 	library, err := service.agentTeamLibrary(mainSessionID)
 	if err != nil {

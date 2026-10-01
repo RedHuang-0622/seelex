@@ -22,10 +22,10 @@ const (
 // **历史字段（2026-10-01）**：团队顺序的事实正在迁到 team plan 的
 // `stages[].depends_on`（leader 掌控，见 docs/arch/teamwork-leader-worker-architecture.md
 // §4.6/D4）。现状（可核对）：`order_policy` 落 lifecycle 后只被回读展示
-// （dto.TeamView / dto.TeamSchedule 与前端面板），**不驱动轮次**；`order_roles` 仍是
-// 座位存在性与发言顺序的事实（goal_coordinator 的 seatPlan、前端拖拽调序）。
-// 退场被 docs/devlog/2026-10-01-m4-deadcode-inventory.md #5 标为 blocked，故这里只
-// 标注、不删、**不改落盘取值**（旧会话里的 "goal_loop" 必须继续可读）。
+// （dto.TeamView / dto.TeamSchedule），**不驱动轮次**；`order_roles` 仍是座位存在性
+// 与发言顺序的事实（goal_coordinator 的 seatPlan）。退场被
+// docs/devlog/2026-10-01-m4-deadcode-inventory.md #5 标为 blocked，故这里只标注、
+// 不删、**不改落盘取值**（旧会话里的 "goal_loop" 必须继续可读）。
 const (
 	// Deprecated: 旧环序策略（顺序由这份固定链表给定）。顺序由 leader 编排
 	// （team plan），不要按它分支；取值仍要能读旧会话。
@@ -35,11 +35,19 @@ const (
 	// Deprecated: 同 OrderPolicyGoalLoop。
 	OrderPolicyScheduledOnly = "scheduled_only"
 	DefaultOrderPolicy       = OrderPolicyGoalLoop
-	DefaultTeamKind          = TeamKindGoalA2A
-	TeamKindGoalA2A          = "goal-a2a"
-	TeamKindReview           = "review-team"
-	TeamKindResearch         = "research-team"
 )
+
+// DefaultTeamID 是没有团队身份的会话（未装配团队就直接入职）派生角色会话号时用的
+// 缺省团队名。
+//
+// **它不是团队形态**（团队形态目录已于 2026-10-01 删除）：`team_kind` 现在只是
+// `team_id` 的展示别名，团队有谁、什么顺序由 TeamSpec/团队库条目说。这个字面量是
+// role_session_id 的派生分量——改它 = 既有角色会话号全体分裂，所以保留原值。
+//
+// 为什么保留原值而不换成中性名：`RoleSessionID(主会话, team_id, role_name)` 是
+// 重复装配幂等的键，历史上未装配团队就入职的角色用它算过号；换名会让同一名员工
+// 被当成新员工（会话子树、权责反查、项目根绑定全部错位）。要改走一次显式迁移。
+const DefaultTeamID = "goal-a2a"
 
 // ToolPolicy 是角色的工具权限口径（RoleSpec.ToolsPolicy 的枚举面）。它同时是
 // 员工入职面板里"权限"一栏的取值集合，避免前后端各写一套字符串。
@@ -67,7 +75,7 @@ const (
 )
 
 // RoleSpec 是角色注册与前端角色管理的最小单位（arch 稿 §2.1）。
-// 空字段 = 未配置，继承 preset 默认；不表示禁用。
+// 空字段 = 未配置，继承宿主默认；不表示禁用。
 type RoleSpec struct {
 	RoleName        string   `json:"role_name"`
 	RoleKind        RoleKind `json:"role_kind,omitempty"`
@@ -240,7 +248,7 @@ type TeamLibraryEntry struct {
 	Roles         []RoleSpec `json:"roles,omitempty"`
 	GatePolicy    string     `json:"gate_policy,omitempty"`
 	CompactPolicy string     `json:"compact_policy,omitempty"`
-	Origin        string     `json:"origin,omitempty"` // builtin/preset/custom/current-session
+	Origin        string     `json:"origin,omitempty"` // builtin/custom/current-session
 	UpdatedAt     time.Time  `json:"updated_at,omitempty"`
 }
 

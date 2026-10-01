@@ -74,9 +74,9 @@ sequenceDiagram
 | `shutdown.go` | 等待任一会话（含后台）运行完成的 graceful close；超时取消全部 running sid 并等待收尾。 |
 | `fork_live_probe_test.go` | 真实 API headless fork 探针（env 门控，opt-in；顶层 Submit → fork_subagents 链路 1/10/100 并发对照）。 |
 | `role_live_probe_test.go` | R2/R4 真实 API headless 冒烟（env 门控）：真实 Submit 物化主会话 → `role.*` 建 TL/写 draft/sync/floor/角色 wire → `schedule.*` → goroutine/mutex/block pprof 现场。 |
-| `headless_team.go` | AgentTeam 角色管理 RPC（`team.*`）：preset 清单、装配、成员表、角色配置 CRUD、工作顺序设置。 |
-| `team_live_probe_test.go` | AgentTeam 工厂真实 API headless 冒烟（env 门控）：真实 Submit 物化主会话 → `team.materialize`（goal/review preset）→ 角色 CRUD + `order_roles` → 设计稿不变量核对 → pprof 现场。 |
-| `goal_team_wiring_live_probe_test.go` | goal → AgentTeam **自动**接线真实 API 冒烟（env 门控）：只发 `goal.begin`、全程不调 `team.materialize`，断言 `team.view` 已出现 tl 成员与 `goal_loop` 顺序。 |
+| `headless_team.go` | AgentTeam 角色管理 RPC（`team.*`）：装配（一份 TeamSpec）、成员表、角色配置 CRUD、工作顺序设置。 |
+| `team_live_probe_test.go` | AgentTeam 工厂真实 API headless 冒烟（env 门控）：真实 Submit 物化主会话 → `team.materialize`（两份写在测试里的 TeamSpec）→ 角色 CRUD + `order_roles` → 设计稿不变量核对 → pprof 现场。 |
+| `goal_team_wiring_live_probe_test.go` | goal × AgentTeam 真实 API 冒烟（env 门控）：显式装配含 worker 的团队 → 只发 `goal.begin` → 断言 `team.view` 一字未变（禁止"goal 上线自动装配"把会话团队冲掉）。 |
 | `session_fork_live_probe_test.go` | **会话分叉**（`ForkSessionLatest`）真实 API 冒烟（env 门控）：A→B→C 分叉后制造"A 在途收尾 × C 运行"的并发窗口，断言 C 自身各轮俱在、继承前缀可见、且无 A 在途内容污染。 |
 | `seelebridge/custom_role_live_probe_test.go` | provider role 能力实验（env 门控）：把非标准逻辑角色 `tl` 放入真实请求历史，确认 provider 是否接受自定义 role 名。 |
 | [`frontend/`](frontend/README.md) | 原生 HTML/CSS/ES modules 前端。 |
@@ -139,9 +139,9 @@ task 体系增量 `task.changed`（逐任务状态/打点/retry）同样经 rela
 `taskadd` 是模型可调用的 harness 工具（注册表幂等去重），不经 Bridge。
 
 A2A 角色管理面（右侧栏「状态 → Agent Team」子页数据源）：
-`Bridge.AgentTeamPresets` / `AgentTeamView` / `AgentTeamLibrary` /
+`Bridge.AgentTeamView` / `AgentTeamLibrary` /
 `AgentTeamGlobalConfig` / `AgentTeamSaveTeam` / `AgentTeamSaveCurrentTeam` /
-`AgentTeamDeleteTeam` / `AgentTeamMaterialize` / `AgentTeamMaterializeTeam` /
+`AgentTeamDeleteTeam` / `AgentTeamMaterializeTeam` /
 `AgentTeamPutRole` / `AgentTeamDeleteRole` / `AgentTeamSetOrder` /
 `AgentTeamInstantiateRole` / `AgentTeamSaveEmployee` / `AgentTeamDeleteEmployee` /
 `AgentTeamSetDefaultOrder` / `AgentTeamPublishToGlobal` / `AgentTeamRolePrompt` /
@@ -336,8 +336,7 @@ AgentTeam 角色管理 `team.*` RPC（headless 前门禁；契约测试
 
 | 方法 | 参数 | 语义 |
 |---|---|---|
-| `team.presets` | — | 列出内置团队实例（`goal-a2a`/`review-team`/`research-team`） |
-| `team.materialize` | `main_session_id`、`team_kind` 或 `spec`、`join_seq_id` | 按 preset/自定义 `TeamSpec` 装配：幂等建角色会话 + 写注册表 + 写顺序策略 |
+| `team.materialize` | `main_session_id`、`spec`（`dto.TeamSpec`）、`join_seq_id` | 按一份 `TeamSpec` 装配：幂等建角色会话 + 写注册表 + 写顺序策略（**没有内置形态目录**：`team_kind` 只是团队自己的展示别名，不再是"从代码里选一支模板"的键） |
 | `team.view` | `main_session_id` | 成员表 + 工作顺序 + 定时分区 + 设计偏差提示 |
 | `team.put_role` | `main_session_id`、`role` | 新增/覆盖角色配置（`role_name` 幂等） |
 | `team.delete_role` | `main_session_id`、`role_name` | 删除角色配置并同步摘除 `order_roles` |

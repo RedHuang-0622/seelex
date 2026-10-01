@@ -201,35 +201,43 @@ func (s *teamRecordingSessions) ListRoleSessions(string) ([]string, error) {
 	return nil, nil
 }
 
-// TestGoalBeginMaterializesGoalAgentTeam 钉住 goal → AgentTeam 接线：创建 goal
-// 时自动装配 goal-a2a（TL 的 JoinPolicy=on_goal_create），顺序策略落 goal_loop，
-// 且 TL 是真实角色会话——不再需要前端手动点一次「装配团队」。
-func TestGoalBeginMaterializesGoalAgentTeam(t *testing.T) {
+// TestGoalBeginLeavesSessionTeamAlone 钉住 2026-10-01 的口径：创建 goal **不**自动装配
+// 团队，也不覆盖会话里已有的团队。
+//
+// 修前的行为是事故：`GoalBeginFor → ensureGoalAgentTeam` 按内置形态 goal-a2a 装配，而
+// 装配 = 注册表 + lifecycle 顺序的**整份替换**（factory.Materialize → WriteTeamRegistry /
+// SetLifecycleOrder），于是"开始一个 goal"会把用户手工加的员工（worker/reviewer）一起
+// 冲成模板那三个人。删掉自动装配后，团队由用户/leader 决定（leader-worker 目标态里由
+// team plan 决定）；goal 的 ADVISOR 裁决来自治理循环自带的 supervisor 座位
+// （goaldomain.NewTurnGovernorForDSA2A），不依赖团队装配。
+func TestGoalBeginLeavesSessionTeamAlone(t *testing.T) {
 	sessions := &teamRecordingSessions{}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
+
+	// 会话里先有一支"用户自己的"团队：tl + worker（后者是用户加的，不在任何模板里）。
+	sessions.setRegistry(dto.TeamRegistry{
+		TeamID: "my-team", TeamKind: "my-team", OrderPolicy: dto.OrderPolicyGoalLoop, Configured: true,
+		Roles: []dto.RoleSpec{
+			{RoleName: "tl", RoleKind: dto.RoleKindTechlead, ToolsPolicy: dto.ToolPolicyReadonly},
+			{RoleName: "worker", RoleKind: dto.RoleKindAgent},
+		},
+	})
+	sessions.setLifecycle(dto.OrderPolicyGoalLoop, []string{"user", "main", "tl", "worker"})
 
 	if _, err := service.GoalBeginFor(context.Background(), "sess-goal", goaldomain.BeginRequest{Title: "接线验证"}); err != nil {
 		t.Fatalf("GoalBeginFor: %v", err)
 	}
 
-	tlFound := false
-	for _, name := range sessions.ensuredRoles() {
-		if name == "tl" {
-			tlFound = true
-		}
-	}
-	if !tlFound {
-		t.Fatalf("goal 创建未装配 TL 角色会话，ensured=%v", sessions.ensuredRoles())
+	registry := sessions.registrySnapshot()
+	if registry.TeamID != "my-team" || len(registry.Roles) != 2 {
+		t.Fatalf("goal 上线不得改写会话团队：%+v", registry)
 	}
 	policy, order := sessions.lifecycleSnapshot()
-	if policy != dto.OrderPolicyGoalLoop {
-		t.Fatalf("lifecycle order policy = %q, want %q", policy, dto.OrderPolicyGoalLoop)
+	if policy != dto.OrderPolicyGoalLoop || strings.Join(order, ",") != "user,main,tl,worker" {
+		t.Fatalf("goal 上线不得改写工作顺序：policy=%q order=%v", policy, order)
 	}
-	if len(order) == 0 {
-		t.Fatalf("lifecycle order roles 未写入")
-	}
-	if registry := sessions.registrySnapshot(); registry.TeamKind != dto.TeamKindGoalA2A {
-		t.Fatalf("registry team_kind = %q, want %q", registry.TeamKind, dto.TeamKindGoalA2A)
+	if ensured := sessions.ensuredRoles(); len(ensured) != 0 {
+		t.Fatalf("goal 上线不该新建任何角色会话：%v", ensured)
 	}
 }
 
@@ -261,20 +269,23 @@ func (s *teamRecordingSessions) joinSeqsSnapshot() []string {
 	return append([]string(nil), s.joinSeqs...)
 }
 
-// TestGoalBeginJoinsTeammatesAtGoalTurn 钉住 teammate 记录（它自己那份 team work
-// 会话）的起点：goal 创建时装配的 join_seq_id = 那一刻主会话已提交的尾 seq，
-// 于是 teammate 的记录从"这一回合"算起——它入伙之前的对话不在它的前缀匹配区间里。
-func TestGoalBeginJoinsTeammatesAtGoalTurn(t *testing.T) {
+// TestMaterializeJoinsTeammatesAtItsTurn 钉住 teammate 记录（它自己那份 team work
+// 会话）的起点：装配时写入的 join_seq_id = 那一刻主会话已提交的尾 seq，于是 teammate
+// 的记录从"装配它的那一回合"算起——它入伙之前的对话不在它的前缀匹配区间里。
+//
+// 修前这条断言的触发者是"goal 创建自动装配"，那条自动路径已删除（它会整份替换掉会话
+// 已有的团队，见 goal_service.GoalBeginFor）；断言改为打在装配入口上。
+func TestMaterializeJoinsTeammatesAtItsTurn(t *testing.T) {
 	sessions := &teamRecordingSessions{mainHeadSeq: 5}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
 
-	if _, err := service.GoalBeginFor(context.Background(), "sess-join", goaldomain.BeginRequest{Title: "入伙切点"}); err != nil {
-		t.Fatalf("GoalBeginFor: %v", err)
+	if _, err := service.MaterializeAgentTeam("sess-join", goalTeamFixture(), service.teamJoinSeqFor("sess-join")); err != nil {
+		t.Fatalf("MaterializeAgentTeam: %v", err)
 	}
 
 	joined := sessions.joinSeqsSnapshot()
 	if len(joined) == 0 {
-		t.Fatal("goal 创建没有装配任何角色会话")
+		t.Fatal("装配没有建立任何角色会话")
 	}
 	tlFound := false
 	for _, entry := range joined {

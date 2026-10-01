@@ -53,10 +53,6 @@ func newFakeAgentTeamApplication(sessionID string) *fakeAgentTeamApplication {
 	return app
 }
 
-func (app *fakeAgentTeamApplication) AgentTeamPresets() []dto.TeamSpec {
-	return []dto.TeamSpec{{TeamKind: "goal-a2a"}, {TeamKind: "review-team"}}
-}
-
 func (app *fakeAgentTeamApplication) AgentTeamView(mainSessionID string) (dto.TeamView, error) {
 	app.viewSession = mainSessionID
 	return dto.TeamView{
@@ -69,9 +65,9 @@ func (app *fakeAgentTeamApplication) AgentTeamView(mainSessionID string) (dto.Te
 	}, nil
 }
 
-func (app *fakeAgentTeamApplication) MaterializeAgentTeamPreset(mainSessionID, teamKind string, joinSeq uint64) (dto.TeamMaterializeResult, error) {
-	app.materializeCalls = append(app.materializeCalls, mainSessionID+"|"+teamKind)
-	return dto.TeamMaterializeResult{Spec: dto.TeamSpec{TeamKind: teamKind}, View: dto.TeamView{SessionID: mainSessionID}}, nil
+func (app *fakeAgentTeamApplication) MaterializeAgentTeam(mainSessionID string, spec dto.TeamSpec, joinSeq uint64) (dto.TeamMaterializeResult, error) {
+	app.materializeCalls = append(app.materializeCalls, mainSessionID+"|"+spec.TeamID)
+	return dto.TeamMaterializeResult{Spec: spec, View: dto.TeamView{SessionID: mainSessionID}}, nil
 }
 
 func (app *fakeAgentTeamApplication) AgentTeamPutRole(mainSessionID string, role dto.RoleSpec) (dto.TeamRegistry, error) {
@@ -204,13 +200,6 @@ func TestBridgeAgentTeamForwardsTrimmedArguments(t *testing.T) {
 		t.Fatalf("NewBridge: %v", err)
 	}
 
-	if _, err := bridge.AgentTeamMaterialize("", "  review-team  ", 0); err != nil {
-		t.Fatalf("AgentTeamMaterialize: %v", err)
-	}
-	if len(app.materializeCalls) != 1 || app.materializeCalls[0] != "main-1|review-team" {
-		t.Fatalf("装配转发 = %v, want [main-1|review-team]", app.materializeCalls)
-	}
-
 	if _, err := bridge.AgentTeamSetOrder("", " user_main_decided ", []string{"user", "main", "reviewer"}); err != nil {
 		t.Fatalf("AgentTeamSetOrder: %v", err)
 	}
@@ -242,11 +231,6 @@ func TestBridgeAgentTeamForwardsTrimmedArguments(t *testing.T) {
 		t.Fatalf("角色删除转发 = %q/%q", app.deleteSession, app.deleteRole)
 	}
 
-	presets, err := bridge.AgentTeamPresets()
-	if err != nil || len(presets) != 2 {
-		t.Fatalf("AgentTeamPresets = %v err=%v", presets, err)
-	}
-
 	snapshot, err := bridge.AgentTeamRoleSnapshot("", " tl ", " role-1 ")
 	if err != nil {
 		t.Fatalf("AgentTeamRoleSnapshot: %v", err)
@@ -274,12 +258,6 @@ func TestBridgeAgentTeamRequiresAssembly(t *testing.T) {
 	}
 	if _, err := bridge.AgentTeamView("main-1"); err == nil {
 		t.Fatal("未装配 A2A 角色管理面时必须返回可展示错误，而不是空视图")
-	}
-	if _, err := bridge.AgentTeamPresets(); err == nil {
-		t.Fatal("未装配时 preset 清单也必须报错")
-	}
-	if _, err := bridge.AgentTeamMaterialize("", "goal-a2a", 0); err == nil {
-		t.Fatal("未装配时装配调用必须报错")
 	}
 	if _, err := bridge.AgentTeamRoleSnapshot("", "tl", "role-1"); err == nil {
 		t.Fatal("未装配时角色会话查看必须报错")

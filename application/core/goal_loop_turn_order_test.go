@@ -59,10 +59,10 @@ func waitUntil(t *testing.T, what string, ready func() bool) {
 }
 
 func TestGoalLoopTurnsAlternateExecAdvisorUntilVerdictCloses(t *testing.T) {
-	sessions := &teamRecordingSessions{mainHeadSeq: 1}
-	service := summonService(t, sessions)
+	sessions, service := summonFixture(t, 1)
 	evaluator := &scriptedTLEvaluator{}
 	service.SetGoalTLEvaluator(evaluator)
+	_ = sessions
 
 	const sessionID = "sess-summon"
 	// 起手：user 的发言机会就是这一条输入（队列提升），不是环里的座位。
@@ -88,7 +88,7 @@ func TestGoalLoopTurnsAlternateExecAdvisorUntilVerdictCloses(t *testing.T) {
 		t.Fatalf("环里不该有 user、下一个也不该指向 user：order=%v next=%q", schedule.Order, schedule.NextRole)
 	}
 	if strings.Join(schedule.Order, ",") != "main,tl" {
-		t.Fatalf("环成员 = %v, want [main tl]（goal-a2a 的顺序是 user→main→tl，去掉 user）", schedule.Order)
+		t.Fatalf("环成员 = %v, want [main tl]（库条目的顺序是 user→main→tl，去掉 user）", schedule.Order)
 	}
 
 	// 第 2 轮：再一条 user 输入驱动下一轮 exec（TL 指令在 ChatStream 回合边界注入），

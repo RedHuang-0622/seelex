@@ -5,9 +5,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/application/core/agentteam"
 )
 
 // ── 输入前缀（sigil）契约 ──────────────────────────────────────────────
@@ -18,7 +15,7 @@ import (
 //	/  可执行入口：命令 + Skill（工具**不**列出）
 //	#  切换 Plugin（含 off/none = 停用全部）
 //	$  召回 Skill（激活到当前会话）
-//	@  手动召唤团队：内置形态 + 团队库条目，装配到当前会话（可跟一句附言）
+//	@  手动召唤团队：团队库里的一支团队，装配到当前会话（可跟一句附言）
 //
 // `/` 只放"能从输入框直接执行"的东西。工具是模型侧的（由模型调用、经权限门），
 // 因此既不进建议也不进路由：一个能力要让用户打 `/名字` 显式调用，前提是它已注册
@@ -77,7 +74,8 @@ func (service *Service) Suggestions(input string) []Suggestion {
 	case SigilSkill:
 		all = append(all, service.skillSuggestions()...)
 	case SigilTeam:
-		all = append(all, teamPresetSuggestions()...)
+		// `@` 没有建议面（2026-10-01）：候选在团队库里，而这里没有会话上下文、也不该
+		// 每次按键读盘。可用团队名由召唤面自己列出（`@` 空参的 notice）。
 	}
 	lower := strings.ToLower(prefix)
 	filtered := all[:0]
@@ -144,9 +142,9 @@ func (service *Service) sigilMigrationHint(used, name string) string {
 			hints = append(hints, fmt.Sprintf("召回 Skill 用 %s%s", SigilSkill, name))
 		}
 	}
-	if used != SigilTeam && isPresetTeam(name) {
-		hints = append(hints, fmt.Sprintf("召唤团队用 %s%s", SigilTeam, name))
-	}
+	// 「召唤团队用 @xxx」这条提示已去掉（2026-10-01）：它的判据曾是内置形态名（零
+	// I/O），形态目录删除后判据变成"团队库里有这支团队" = 要读盘，不值得为错误路径
+	// 上的一句提示付这个代价。
 	if len(hints) == 0 {
 		return ""
 	}
@@ -295,41 +293,16 @@ func (service *Service) pluginSuggestions() []Suggestion {
 	})
 }
 
-// teamPresetSuggestions 列出可召唤的内置团队形态（goal-a2a / review-team /
-// research-team）。
+// teamPresetSuggestions / isPresetTeam 已随内置形态目录删除（2026-10-01）：
 //
-// 刻意**不**在这里读团队库：Suggestions 在 TUI 的 View() 渲染路径上，也在 GUI
-// 每次输入事件上被调用，加一次文件读等于把 I/O 塞进渲染循环。库条目不做建议，
-// 但在召唤时按 team_id / name 解析（见 input_team.go），因此"用户自己存的团队"
-// 仍可直接召唤——这条取舍记在 application/core/README-input.md。
-func teamPresetSuggestions() []Suggestion {
-	specs := agentteam.Presets()
-	suggestions := make([]Suggestion, 0, len(specs))
-	for _, spec := range specs {
-		suggestions = append(suggestions, Suggestion{
-			Text: spec.TeamID, Description: teamSpecSummary(spec), Kind: SuggestionKindTeam,
-		})
-	}
-	return suggestions
-}
-
-// isPresetTeam 报告名字是否命中内置团队形态（team_id 与 team_kind 同值）。
-func isPresetTeam(name string) bool {
-	for _, spec := range agentteam.Presets() {
-		if strings.EqualFold(spec.TeamID, name) || strings.EqualFold(spec.TeamKind, name) {
-			return true
-		}
-	}
-	return false
-}
-
-// teamSpecSummary 用形态自身的事实拼一句摘要（不另写一份人为描述，避免与
-// presets.go 的真值漂移）。
-func teamSpecSummary(spec dto.TeamSpec) string {
-	parts := make([]string, 0, 2)
-	if len(spec.OrderRoles) > 0 {
-		parts = append(parts, "顺序 "+strings.Join(spec.OrderRoles, "→"))
-	}
-	parts = append(parts, fmt.Sprintf("%d 个角色", len(spec.Roles)))
-	return strings.Join(parts, " · ")
-}
+//   - 团队不再有"内置形态"这个类别（三支模板随 presets.go 删除），所以 `@` 的建议面
+//     没有零 I/O 的数据源：候选其实在**团队库**里，而 Suggestions 跑在 TUI 的 View()
+//     渲染路径与 GUI 每次输入事件上——为它每次按键读一次盘，违背本文件"建议面零 I/O"
+//     的取舍（见 application/core/README-input.md）。
+//   - 于是 `@` 不再弹补全面板；可用团队名在**召唤面自己**说清楚（`@` 空参的 notice
+//     会列出团队库里的名字，那里有会话上下文，一次读取代价可以接受）。
+//   - `sigilMigrationHint` 也去掉"召唤团队用 @xxx"这条跨域提示：判据曾是内置形态名，
+//     现在判据要读库（同一条 I/O 取舍），不值得为错误路径上的提示读盘。
+//
+// teamSpecSummary 也随之删除：它只服务那条建议（用 TeamSpec 自身的事实拼摘要），
+// 形态目录没了就没有调用方。

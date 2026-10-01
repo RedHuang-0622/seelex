@@ -141,20 +141,17 @@ func TestNormalizeLibraryEntryRejectsBadInput(t *testing.T) {
 	}
 }
 
-// TestEntryFromSpecCopiesPreset：内置 preset 可复制成库条目（"以模板新建团队"）。
-func TestEntryFromSpecCopiesPreset(t *testing.T) {
-	spec, err := Preset("review-team")
+// TestEntryFromSpecCopiesShape：一份 TeamSpec 可复制成库条目（"以现有团队新建一支"）。
+func TestEntryFromSpecCopiesShape(t *testing.T) {
+	spec := testReviewSpec()
+	entry, err := EntryFromSpec(spec, "我的评审队", "custom")
 	if err != nil {
 		t.Fatal(err)
 	}
-	entry, err := EntryFromSpec(spec, "我的评审队", "preset")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if entry.TeamKind != dto.TeamKindReview || entry.Name != "我的评审队" || entry.Origin != "preset" {
+	if entry.TeamKind != "review-team" || entry.Name != "我的评审队" || entry.Origin != "custom" {
 		t.Fatalf("库条目 = %+v", entry)
 	}
 	if len(entry.Roles) != 3 || entry.OrderPolicy != dto.OrderPolicyUserMainDecided {
-		t.Fatalf("preset 角色集/策略必须带入：%+v", entry)
+		t.Fatalf("角色集/策略必须带入：%+v", entry)
 	}
 }

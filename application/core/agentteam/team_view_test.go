@@ -37,10 +37,7 @@ func TestRegistryViewFillsFloorFromOptionalPort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec, err := Preset(string(dto.TeamKindGoalA2A))
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec := testGoalSpec()
 	result, err := factory.Materialize("main-1", spec, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -57,7 +54,7 @@ func TestRegistryViewFillsFloorFromOptionalPort(t *testing.T) {
 		t.Fatalf("floor_role = %q, want %q", view.FloorRole, RoleTechlead)
 	}
 	if len(view.DesignNotice) != 0 {
-		t.Fatalf("goal preset 满执行者不应有条目: %v", view.DesignNotice)
+		t.Fatalf("满执行者的团队不应有条目: %v", view.DesignNotice)
 	}
 
 	// 未实现 FloorPort 的宿主：留空、不报错。
@@ -94,10 +91,7 @@ func TestRegistryViewReportsFloorReadFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec, err := Preset(string(dto.TeamKindGoalA2A))
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec := testGoalSpec()
 	if _, err := factory.Materialize("main-1", spec, 0); err != nil {
 		t.Fatal(err)
 	}
@@ -119,16 +113,16 @@ func TestRegistryViewReportsFloorReadFailure(t *testing.T) {
 	}
 }
 
-// TestReviewAndResearchPresetsDeclareNoExecutor 钉住 ④：第二个/第三个 preset 只有
-// 注册配置与角色会话，没有运行时执行者——成员表必须明说，否则前端「装配完成」会
-// 被读成「有人在工作」。
-func TestReviewAndResearchPresetsDeclareNoExecutor(t *testing.T) {
+// TestSecondAndThirdShapesDeclareNoExecutor 钉住 ④：只带注册配置与角色会话、没有运行时
+// 执行者的团队，成员表必须明说，否则前端「装配完成」会被读成「有人在工作」。
+func TestSecondAndThirdShapesDeclareNoExecutor(t *testing.T) {
 	cases := []struct {
-		teamKind string
-		role     string
+		name string
+		spec dto.TeamSpec
+		role string
 	}{
-		{string(dto.TeamKindReview), "reviewer"},
-		{string(dto.TeamKindResearch), "researcher"},
+		{"review-team", testReviewSpec(), "reviewer"},
+		{"research-team", testResearchSpec(), "researcher"},
 	}
 	for _, testCase := range cases {
 		port := newFakePort()
@@ -136,17 +130,13 @@ func TestReviewAndResearchPresetsDeclareNoExecutor(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		spec, err := Preset(testCase.teamKind)
-		if err != nil {
-			t.Fatal(err)
-		}
-		result, err := factory.Materialize("main-1", spec, 0)
+		result, err := factory.Materialize("main-1", testCase.spec, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
 		notice := strings.Join(result.View.DesignNotice, "\n")
 		if !strings.Contains(notice, "暂无可执行者") || !strings.Contains(notice, testCase.role) {
-			t.Fatalf("%s 的成员表必须声明无执行者（含 %s）: %v", testCase.teamKind, testCase.role, result.View.DesignNotice)
+			t.Fatalf("%s 的成员表必须声明无执行者（含 %s）: %v", testCase.name, testCase.role, result.View.DesignNotice)
 		}
 		// 视图读面同样口径（前端走 registry.View）。
 		registry, err := NewRegistry(port)
@@ -163,21 +153,17 @@ func TestReviewAndResearchPresetsDeclareNoExecutor(t *testing.T) {
 		}
 	}
 
-	// goal-a2a 的 tl 有执行者（goal 治理 ADVISOR 回合）：不得出现该条目。
+	// tl 有执行者（goal 治理 ADVISOR 回合）：不得出现该条目。
 	port := newFakePort()
 	factory, err := NewFactory(port)
 	if err != nil {
 		t.Fatal(err)
 	}
-	goalSpec, err := Preset(string(dto.TeamKindGoalA2A))
-	if err != nil {
-		t.Fatal(err)
-	}
-	goalResult, err := factory.Materialize("main-1", goalSpec, 0)
+	goalResult, err := factory.Materialize("main-1", testGoalSpec(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if notice := strings.Join(goalResult.View.DesignNotice, "\n"); strings.Contains(notice, "暂无可执行者") {
-		t.Fatalf("goal-a2a 的 tl 有执行者，不应报无执行者: %v", goalResult.View.DesignNotice)
+		t.Fatalf("tl 有执行者，不应报无执行者: %v", goalResult.View.DesignNotice)
 	}
 }

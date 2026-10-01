@@ -15,8 +15,9 @@ package agentteam
 // 并发口径（用户口径）：库的**写落全局**；读在会话侧深拷贝成私有副本后操作；
 // 会话内的改动只落会话副本，只有显式「确认普及搭配到全局」才回写库。
 //
-// 内置 preset（presets.go）不进库：它们是代码里的形态模板，库条目是用户数据；
-// 前端在"新建团队"时可以把 preset 当模板复制成一条库条目（显式动作）。
+// **没有内置团队模板**（2026-10-01）：库条目就是唯一的团队来源（用户数据）。
+// 旧的"内置形态目录"（`presets.go`：goal-a2a / review-team / research-team）已删除，
+// 所以"新建团队"不再有"从模板起手"这条路——起手方式只剩"空白"与"从当前会话填充"。
 
 import (
 	"errors"
@@ -277,8 +278,7 @@ func SpecOfEntry(entry dto.TeamLibraryEntry) dto.TeamSpec {
 	}
 }
 
-// EntryFromSpec 把一次性 TeamSpec（例如内置 preset）投影成团队库条目：前端
-// "以模板新建团队"时先把 preset 复制成一条库条目，再让用户改。
+// EntryFromSpec 把一次性 TeamSpec 投影成团队库条目（"把这份配置存成一支可复用团队"）。
 func EntryFromSpec(spec dto.TeamSpec, name, origin string) (dto.TeamLibraryEntry, error) {
 	normalized, err := Normalize(spec)
 	if err != nil {
@@ -293,7 +293,7 @@ func EntryFromSpec(spec dto.TeamSpec, name, origin string) (dto.TeamLibraryEntry
 		Roles:         append([]dto.RoleSpec(nil), normalized.Roles...),
 		GatePolicy:    normalized.GatePolicy,
 		CompactPolicy: normalized.CompactPolicy,
-		Origin:        firstNonEmpty(strings.TrimSpace(origin), "preset"),
+		Origin:        firstNonEmpty(strings.TrimSpace(origin), "custom"),
 	}
 	return NormalizeLibraryEntry(entry)
 }
@@ -311,7 +311,7 @@ func EntryFromRegistry(registry dto.TeamRegistry, orderRoles []string, name, tea
 		}
 		roles = append(roles, role)
 	}
-	teamKind := firstNonEmpty(strings.TrimSpace(registry.TeamKind), strings.TrimSpace(registry.TeamID), string(dto.DefaultTeamKind))
+	teamKind := firstNonEmpty(strings.TrimSpace(registry.TeamKind), strings.TrimSpace(registry.TeamID))
 	if len(orderRoles) == 0 {
 		orderRoles = OrderRolesOf(roles)
 	}

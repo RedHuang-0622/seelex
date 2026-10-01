@@ -44,9 +44,10 @@ func (registry *Registry) View(mainSessionID string) (dto.TeamView, error) {
 	if len(orderRoles) == 0 && len(stored.Roles) > 0 {
 		// 注册表有角色但 lifecycle 尚无顺序：按注册顺序推导只读视图，不写盘
 		// （写路径只走 Materialize/SetOrder，避免读操作产生第二份事实）。
+		teamID, teamKind := registryIdentity(stored)
 		spec, err := Normalize(dto.TeamSpec{
-			TeamID:      stored.TeamID,
-			TeamKind:    stored.TeamKind,
+			TeamID:      teamID,
+			TeamKind:    teamKind,
 			OrderPolicy: firstNonEmpty(policy, stored.OrderPolicy),
 			Roles:       stored.Roles,
 		})
@@ -214,9 +215,12 @@ func (registry *Registry) SetOrder(mainSessionID, policy string, orderRoles []st
 	if err != nil {
 		return dto.TeamView{}, err
 	}
+	// 顺序校验只关心角色集与顺序，但 Normalize 要求团队身份齐全：注册表可能来自
+	// "未装配团队就直接入职"的会话（没有 team_id），故先补身份（只用于校验，不写盘）。
+	teamID, teamKind := registryIdentity(stored)
 	spec, err := Normalize(dto.TeamSpec{
-		TeamID:      stored.TeamID,
-		TeamKind:    stored.TeamKind,
+		TeamID:      teamID,
+		TeamKind:    teamKind,
 		OrderPolicy: firstNonEmpty(strings.TrimSpace(policy), stored.OrderPolicy),
 		OrderRoles:  orderRoles,
 		Roles:       stored.Roles,
@@ -243,4 +247,16 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// registryIdentity 返回注册表可用的团队身份（team_id / team_kind）。
+//
+// 为什么需要兜底：注册表可能来自"未装配团队就直接入职"的会话（没有 team_id）。
+// View / SetOrder 两条路径要用 Normalize 校验角色集与顺序，而 Normalize 现在要求
+// 团队身份齐全（形态目录删掉后不再有"缺省形态"这种回退，见 spec.go）。兜底值只用于
+// **校验**，不写盘：身份的落盘仍只发生在 Materialize / InstantiateRole 路径。
+func registryIdentity(registry dto.TeamRegistry) (teamID, teamKind string) {
+	teamID = firstNonEmpty(strings.TrimSpace(registry.TeamID), strings.TrimSpace(registry.TeamKind), dto.DefaultTeamID)
+	teamKind = firstNonEmpty(strings.TrimSpace(registry.TeamKind), teamID)
+	return teamID, teamKind
 }

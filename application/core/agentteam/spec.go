@@ -1,9 +1,14 @@
 // Package agentteam 是 A2A 角色团队的通用装配能力面。
 //
-// 生态位：goal 的 TL 编排只是本包内置的一个 preset（`goal-a2a`）；本包把
-// 「RoleSpec/TeamSpec → 角色会话 + 顺序策略 + 成员表」抽成可复用装配，供
-// 后续 agent-team 实例与前端角色管理设置共用。权威边界见
+// 生态位：把「RoleSpec/TeamSpec → 角色会话 + 成员表」抽成可复用装配，供 Agent Team
+// 的各个来路（团队库条目装配 / 员工入职 / `@` 召唤）共用。权威边界见
 // docs/arch/a2a-agent-team-factory.md。
+//
+// **没有内置形态目录**（2026-10-01，用户口径：内置形态对 teamwork 已经过时）：
+// 本包不再提供任何"预置团队"（旧的 goal-a2a / review-team / research-team 三支已随
+// presets.go 一起删除）。一支团队就是调用方给的一份 TeamSpec（或团队库里的一个条目）：
+// 有谁、什么顺序，由数据说，不由代码里的模板说。leader-worker 目标态里顺序归 leader
+// 的 team plan（docs/arch/teamwork-leader-worker-architecture.md §4.6/D4）。
 //
 // 非职责：subagent 是 tool calling 能力，不属于 AgentTeam，本包不接纳、不排序、
 // 不为其建角色会话；message 的写入仍只由 sequencer 负责，本包不写 message。
@@ -17,19 +22,28 @@ import (
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
-// ErrUnknownPreset 表示请求的团队 preset 未注册。
-var ErrUnknownPreset = errors.New("agentteam: unknown team preset")
+// ErrUnknownPreset 已随内置形态目录删除（2026-10-01）：团队只从数据来，不再有
+// "按形态名解析"这条路径，所以没有"未知形态"这个错误类别。
 
 // Normalize 把 TeamSpec 规整成可装配形态：补默认值、去重、推导 order_roles、
 // 校正 user/main 的内置 kind。它不做角色会话创建，只做纯函数规整。
+//
+// team_id / team_kind 都必填其一（缺省互为镜像）：team_id 是身份（role_session_id
+// 的派生分量），team_kind 是展示别名——**不再有"缺省形态"这种回退**，一份没有名字的
+// TeamSpec 就是调用方的错误。
 func Normalize(spec dto.TeamSpec) (dto.TeamSpec, error) {
-	spec.TeamKind = strings.TrimSpace(spec.TeamKind)
-	if spec.TeamKind == "" {
-		spec.TeamKind = dto.DefaultTeamKind
-	}
 	spec.TeamID = strings.TrimSpace(spec.TeamID)
-	if spec.TeamID == "" {
+	spec.TeamKind = strings.TrimSpace(spec.TeamKind)
+	if spec.TeamID == "" && spec.TeamKind != "" {
 		spec.TeamID = spec.TeamKind
+	}
+	if spec.TeamKind == "" {
+		// team_kind 是 team_id 的展示别名，缺省等于 id：不塞一个假形态名，也不留空
+		// ——角色提示词里那行 <team_kind> 要说得出"这是哪支团队"。
+		spec.TeamKind = spec.TeamID
+	}
+	if spec.TeamID == "" {
+		return dto.TeamSpec{}, errors.New("agentteam: team_id is required")
 	}
 	spec.OrderPolicy = strings.TrimSpace(spec.OrderPolicy)
 	if spec.OrderPolicy == "" {
@@ -73,7 +87,7 @@ func Normalize(spec dto.TeamSpec) (dto.TeamSpec, error) {
 //   - 内置角色名（user/main）永远取内置 kind；
 //   - 其它角色 kind 缺省按 techlead 之外的通用 agent 处理；
 //   - join_policy / presence_policy / model_policy / tools_policy 留空 = 继承
-//     preset 默认（不在这里编造默认值）。
+//     宿主默认（不在这里编造默认值）。
 func NormalizeRole(role dto.RoleSpec) (dto.RoleSpec, error) {
 	role.RoleName = strings.TrimSpace(role.RoleName)
 	if role.RoleName == "" {
@@ -135,7 +149,7 @@ func resolveRoleKind(roleName string, kind dto.RoleKind) dto.RoleKind {
 	return dto.RoleKindAgent
 }
 
-// RoleTechlead 是 goal preset 的 techleader 逻辑角色名（与 sessionstore.RoleTL /
+// RoleTechlead 是 goal 团队的 techleader 逻辑角色名（与 sessionstore.RoleTL /
 // 历史 message 行的 role_name 一致；"techlead" 是 kind，不是角色名）。
 const RoleTechlead = "tl"
 
@@ -159,11 +173,21 @@ func resolveOrderRoles(spec dto.TeamSpec, registered map[string]struct{}) ([]str
 
 	if len(spec.OrderRoles) == 0 {
 		order := []string{string(dto.RoleKindUser), string(dto.RoleKindMain)}
+		seen := map[string]struct{}{
+			string(dto.RoleKindUser): {},
+			string(dto.RoleKindMain): {},
+		}
 		rest := make([]dto.RoleSpec, 0, len(spec.Roles))
 		for _, role := range spec.Roles {
 			if role.RoleKind == dto.RoleKindTimer {
 				continue
 			}
+			if _, ok := seen[role.RoleName]; ok {
+				// user/main 已经在链首：Roles 里显式声明了内置角色时不得重复入链
+				// （旧写法只在顺序显式给定时才走这里，所以这条重复一直藏着）。
+				continue
+			}
+			seen[role.RoleName] = struct{}{}
 			rest = append(rest, role)
 		}
 		for i := 1; i < len(rest); i++ {
@@ -222,7 +246,10 @@ func resolveOrderRoles(spec dto.TeamSpec, registered map[string]struct{}) ([]str
 func RoleSessionID(mainSessionID, teamID, roleName string) string {
 	teamID = strings.TrimSpace(teamID)
 	if teamID == "" {
-		teamID = dto.DefaultTeamKind
+		// 没有团队身份的会话（未装配团队就直接入职）也要能派生出稳定号：用缺省
+		// 团队名兜底。**这个字面量是身份分量，不是形态名**——改它 = 既有角色会话号
+		// 全体分裂（同名角色被当成新员工），所以它在形态目录删掉之后仍然保留。
+		teamID = dto.DefaultTeamID
 	}
 	roleName = strings.TrimSpace(roleName)
 	mainSessionID = strings.TrimSpace(mainSessionID)

@@ -184,7 +184,9 @@ func (factory *Factory) InstantiateRole(mainSessionID string, role dto.RoleSpec,
 	}
 	teamID := strings.TrimSpace(registry.TeamID)
 	if teamID == "" {
-		teamID = string(dto.DefaultTeamKind)
+		// 未装配团队的会话也要能入职：用缺省团队名派生角色会话号（身份分量，
+		// 不是形态名，见 dto.DefaultTeamID）。
+		teamID = dto.DefaultTeamID
 	}
 	roleSessionID := RoleSessionID(mainSessionID, teamID, normalized.RoleName)
 	created, err := factory.port.EnsureRoleSession(mainSessionID, normalized.RoleName, roleSessionID, joinSeq)
@@ -210,7 +212,8 @@ func (factory *Factory) InstantiateRole(mainSessionID string, role dto.RoleSpec,
 	registry.Roles = roles
 	registry.Configured = true
 	if strings.TrimSpace(registry.TeamKind) == "" {
-		registry.TeamKind = string(dto.DefaultTeamKind)
+		// team_kind 只是 team_id 的展示别名（形态目录已删）：缺省即 id。
+		registry.TeamKind = teamID
 	}
 	if err := factory.port.WriteTeamRegistry(mainSessionID, registry); err != nil {
 		return dto.RoleInstantiation{}, fmt.Errorf("agentteam: write registry: %w", err)
@@ -443,12 +446,16 @@ func viewNotices(registry dto.TeamRegistry, orderRoles []string) []string {
 	return notices
 }
 
-// teamKindOf 返回可展示的团队形态名（空值不伪装）。
+// teamKindOf 返回可展示的团队名（team_kind 是 team_id 的别名；空值不伪装成某个
+// 形态——形态目录已删，这里只说"哪支团队"）。
 func teamKindOf(registry dto.TeamRegistry) string {
 	if kind := strings.TrimSpace(registry.TeamKind); kind != "" {
 		return kind
 	}
-	return string(dto.DefaultTeamKind)
+	if teamID := strings.TrimSpace(registry.TeamID); teamID != "" {
+		return teamID
+	}
+	return "本团队"
 }
 
 // RolesWithExecutor 是当前有运行时执行者的逻辑角色名（事实表，不是配置事实）：

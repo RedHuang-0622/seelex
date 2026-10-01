@@ -11,7 +11,7 @@ Seelex is a local-first coding-agent harness built in Go. It turns LLM providers
 - parallel subagents with isolated sessions, parent-evidence injection and structured merge-back;
 - session-scoped goal stacks with an independent adjudication role (ADVISOR/TechLeader), frame-throttled
   review, a bounded directive mailbox and an append-only governance audit;
-- agent-team factory presets and a four-source work table (plan / tasklist / subagent / todo);
+- a TeamSpec agent-team factory (explicit materialize from team-library entries; no built-in team shapes) and a four-source work table (plan / tasklist / subagent / todo);
 - context-window policy, reversible compaction (compaction-as-DAG), prompt stacks and externalized tool results;
 - layered memory: related-memory blocks, history read-back indexed by the compaction stack, and
   user/project `MEMORY.md` indexes;

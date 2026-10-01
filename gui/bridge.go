@@ -158,9 +158,7 @@ type queueAwareApplication interface {
 // 仍是会话的 lifecycle.order_policy/order_roles 与角色注册表（registry）；
 // Bridge 不缓存、不推导第二份顺序。
 type agentTeamApplication interface {
-	AgentTeamPresets() []dto.TeamSpec
 	AgentTeamView(mainSessionID string) (dto.TeamView, error)
-	MaterializeAgentTeamPreset(mainSessionID, teamKind string, joinSeq uint64) (dto.TeamMaterializeResult, error)
 	AgentTeamPutRole(mainSessionID string, role dto.RoleSpec) (dto.TeamRegistry, error)
 	AgentTeamDeleteRole(mainSessionID, roleName string) (dto.TeamRegistry, error)
 	AgentTeamSetOrder(mainSessionID, policy string, orderRoles []string) (dto.TeamView, error)
@@ -937,15 +935,6 @@ func (bridge *Bridge) agentTeamSession(sessionID string) string {
 	return bridge.app.Snapshot().Session.ID
 }
 
-// AgentTeamPresets 返回内置团队形态（新建下拉的数据源）。
-func (bridge *Bridge) AgentTeamPresets() ([]dto.TeamSpec, error) {
-	app, err := bridge.agentTeamApp()
-	if err != nil {
-		return nil, err
-	}
-	return app.AgentTeamPresets(), nil
-}
-
 // AgentTeamView 返回成员表（成员 / 工作顺序 / 定时 agent 分区 / 设计提示）。
 func (bridge *Bridge) AgentTeamView(sessionID string) (dto.TeamView, error) {
 	app, err := bridge.agentTeamApp()
@@ -957,20 +946,6 @@ func (bridge *Bridge) AgentTeamView(sessionID string) (dto.TeamView, error) {
 		return dto.TeamView{}, errors.New("当前没有可装配的会话")
 	}
 	return app.AgentTeamView(session)
-}
-
-// AgentTeamMaterialize 按 preset 装配一支团队（新建 goal = 新建 TL 并上线）。
-// joinSeq 是角色加入群聊时的 message 水位；0 = 由装配方按当前 head 取。
-func (bridge *Bridge) AgentTeamMaterialize(sessionID, teamKind string, joinSeq uint64) (dto.TeamMaterializeResult, error) {
-	app, err := bridge.agentTeamApp()
-	if err != nil {
-		return dto.TeamMaterializeResult{}, err
-	}
-	session := bridge.agentTeamSession(sessionID)
-	if session == "" {
-		return dto.TeamMaterializeResult{}, errors.New("当前没有可装配的会话")
-	}
-	return app.MaterializeAgentTeamPreset(session, strings.TrimSpace(teamKind), joinSeq)
 }
 
 // AgentTeamPutRole 新增/覆盖一个角色配置（前端表单只提交改动字段）。

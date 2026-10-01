@@ -11,6 +11,10 @@ AgentTeam 装配适配与群聊角色会话透传（端口形状与 A2A 元数�
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
+### agentteam_fixture_test.go
+
+- `func goalTeamFixture() dto.TeamSpec` — goalTeamFixture 是一支 goal 形态的团队：user → main → tl（tl 是 techlead，
+
 ### agentteam_floor_wiring_test.go
 
 - `func (s *floorRecordingSessions) ReadFloorRole(string) (string, error)`
@@ -91,10 +95,8 @@ AgentTeam 装配适配与群聊角色会话透传（端口形状与 A2A 元数�
 - `func (service *Service) agentTeamPorts() (agentTeamPort, contract.RoleSessionPort, error)`
 - `func (service *Service) agentTeamFactory() (*agentteam.Factory, error)`
 - `func (service *Service) agentTeamRegistry() (*agentteam.Registry, error)`
-- `func (service *Service) AgentTeamPresets() []dto.TeamSpec` — AgentTeamPresets 列出内置团队形态（前端角色管理页的可选模板）。
 - `func (service *Service) publishTeamChanged(mainSessionID string)` — publishTeamChanged 通告"会话团队事实变了"（装配/工作顺序/入职/编辑成员都要发）。
-- `func (service *Service) MaterializeAgentTeam(mainSessionID string, spec dto.TeamSpec, joinSeq uint64) (dto.TeamMaterializeResult, error)` — MaterializeAgentTeam 按 preset/自定义 TeamSpec 装配一支 AgentTeam。
-- `func (service *Service) MaterializeAgentTeamPreset(mainSessionID, teamKind string, joinSeq uint64) (dto.TeamMaterializeResult, error)` — MaterializeAgentTeamPreset 按内置 preset 名装配（goal-a2a / review-team / research-team）。
+- `func (service *Service) MaterializeAgentTeam(mainSessionID string, spec dto.TeamSpec, joinSeq uint64) (dto.TeamMaterializeResult, error)` — MaterializeAgentTeam 按一份 TeamSpec 装配一支 AgentTeam。
 - `func (service *Service) DismissAgentTeam(mainSessionID string) error` — DismissAgentTeam 让本会话的在编团队离场（"干完就走人"）：删注册表 + 复位顺序，
 - `func (service *Service) AgentTeamView(mainSessionID string) (dto.TeamView, error)` — AgentTeamView 返回成员表（身份/顺序/定时分区/配置状态/发言调度运行态）。
 - `func (service *Service) agentTeamRawView(mainSessionID string) (dto.TeamView, error)` — agentTeamRawView 返回不带运行态的成员表（装配面内部用；避免
