@@ -817,7 +817,8 @@ func (service *Service) refreshWorkTableFromSources() {
 
 // startLifecycleConsumers 启动四个消费者 goroutine：子代理树信号 → 刷新
 // 工作表格；plan 节点事件 → 投影；task 变更 → 直发 task.changed；后台执行表变化 →
-// 重投影。数据经 channel（CSP）流转，runtime 侧不再同步回调进 application。
+// 重投影（这一路同时驱动"后台作业终态触发对话"，见 consumeAsyncRuns 的注释）。数据经
+// channel（CSP）流转，runtime 侧不再同步回调进 application。
 func (service *Service) startLifecycleConsumers() {
 	if service.Deps.Runtime == nil {
 		return
@@ -900,15 +901,28 @@ func (service *Service) consumeTaskChanges() {
 // 一路输入，复用同一条发布路径才能保证"表格里看到的"与"上下文打点块里看到的"
 // 永远同源、同一个 revision。信号是容量 1 的汇聚口，被合并掉的中间态无所谓——
 // 每次重投影读的都是登记表当下全量。
+//
+// 同一个信号口还驱动**第二件事**：后台作业终态为**空闲**会话起一个回合
+// （triggerAsyncCompletions，见 async_completion.go）。
+//
+// 为什么并进这一个消费者而不是再起一个 goroutine 抢同一个通道：信号口是容量 1 的
+// **单接收者**通道——两个消费者同时等它时，一次发送只会交给先等待的那一个（FIFO），
+// 另一个永远收不到。现场表现就是"作业完成了，可什么都没发生"（本消费者先起，于是
+// 后起的那个一次也收不到）。信号是"有事发生"，一个消费者做完整套读侧动作才与契约一致。
 func (service *Service) consumeAsyncRuns() {
 	events := service.Deps.Runtime.AsyncRunEvents()
 	if events == nil {
 		return
 	}
+	triggered := map[string]struct{}{}
 	for {
 		select {
 		case <-events:
 			service.safeLifecycleCall(service.refreshWorkTableFromSources)
+			// 开关关闭时连扫描都不做（默认关，见 limits.async_exec.trigger_conversation）。
+			if Limits().AsyncExec.TriggerConversation {
+				service.safeLifecycleCall(func() { service.triggerAsyncCompletions(triggered) })
+			}
 		case <-service.lifecycleStop:
 			return
 		}

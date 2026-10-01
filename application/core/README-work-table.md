@@ -2,9 +2,9 @@
 
 ## 生态位
 
-工作表格投影与测试
+后台作业面与工作表格投影：执行登记表的只读投影、请求尾部打点块（在途行 + 待取回的完成行）、作业终态为**空闲**会话触发对话
 
-覆盖：`work_table*.go`；未归属文件由覆盖自检拦下。
+覆盖：`work_table*.go`、`async*.go`；未归属文件由覆盖自检拦下。
 
 `worktable.changed` 既是表格增量，也是子代理树的送达通道：树内容变化时
 随包附带 `subagent_tree`（清空时显式空数组），前端详情入口据此把工作表格行
@@ -34,6 +34,12 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - 生命周期消费者由三个变四个：`consumeAsyncRuns()` 收登记表的变化信号（派发/终态/驱逐/
   去抖后的新字节），走 `refreshWorkTableFromSources()` 复用同一条发布路径，所以表格与打点块
   不会分叉。信号是容量 1 的汇聚口，中间态被合并掉无所谓：每次重投影读的都是当下全量。
+- 同一个信号还驱动**后台作业终态触发对话**（`async_completion.go`）：落到 done / failed 的
+  作业若所属会话**空闲**，就为它起一个回合（`submitConversationFor`），正文给出 handle 与
+  取回指令；忙会话不唤醒（铁律 §6.1），它走上面那条"完成行回填"。它刻意**并进**
+  `consumeAsyncRuns` 而不是再起一个消费者——信号口是容量 1 的**单接收者**通道，两个消费者
+  抢同一次发送时只有一个收得到。开关 `limits.async_exec.trigger_conversation`（默认关，
+  出厂打开）；幂等键是句柄，账本随登记表裁剪、被登记表规模封顶。
 - 锁纪律：登记表锁是**叶子锁**（tools 侧从不回调进 application，只发 channel），所以持
   `ViewMu` 时读它是安全的；必须锁外取的是 `Engine.SubAgentTree()` 那类会拿会话锁的读面。
 
@@ -41,6 +47,28 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### async_completion.go
+
+- `func (service *Service) triggerAsyncCompletions(triggered map[string]struct{})` — triggerAsyncCompletions 对登记表做一次全量扫描：把"终态 + 会话空闲 + 还没触发过"
+- `func asyncCompletionTriggers(state string) bool` — asyncCompletionTriggers 报告某个状态是否该触发对话。
+- `func (service *Service) sessionIdleForAsyncTrigger(sessionID string) bool` — sessionIdleForAsyncTrigger 报告目标会话此刻是否**空闲到可以起一个新回合**。
+- `func asyncCompletionPrompt(record dto.AsyncRunRecord) string` — asyncCompletionPrompt 组装触发回合的正文。
+- `func asyncPromptKind(kind string) string` — asyncPromptKind 是进正文前的类别兜底：类别缺失时按 process 读，与打点块同口径。
+
+### async_completion_trigger_test.go
+
+- `func asyncCompletionHarness(t *testing.T, trigger bool, engine ChatEngine) (*Service, *fakeRuntime)` — asyncCompletionHarness 造一个装配好该触发路径的 Service。
+- `func waitForTriggeredTurn(t *testing.T, service *Service, needle string) string` — waitForTriggeredTurn 轮询可见会话，直到出现一条含 needle 的用户行（= 触发回合开
+- `func assertNoTurn(t *testing.T, service *Service, needle string)` — assertNoTurn 报告可见会话里有没有含 needle 的用户行——"不该触发"的用例用它。
+- `func completedRecord(handle, state string) dto.AsyncRunRecord` — completedRecord 造一条已落到终态的作业投影记录。
+- `func TestAsyncCompletionTriggersIdleSessionTurn(t *testing.T)`
+- `func TestAsyncCompletionTriggersOnFailureToo(t *testing.T)`
+- `func TestAsyncCompletionIgnoresRunningAndKilled(t *testing.T)`
+- `func TestAsyncCompletionDoesNotWakeBusySession(t *testing.T)` — 铁律 §6.1「绝不唤醒忙会话」：正在跑的会话不被打断、也不被塞队列——条目刻意不记账，
+- `func TestAsyncCompletionTriggersOncePerHandle(t *testing.T)`
+- `func TestAsyncCompletionStaysOffWhenDisabled(t *testing.T)` — 开关默认关：不置 trigger_conversation 时信号只驱动工作表格重投影，终态不会起任何回合。
+- `func TestAsyncCompletionIgnoresJobWithoutSession(t *testing.T)` — 没有会话归属的作业（别的进程的作业归属、或会话已被删除）不该触发：没有可起的回合
 
 ### work_table.go
 

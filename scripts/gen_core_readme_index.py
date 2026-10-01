@@ -77,7 +77,7 @@ ROOT_GROUPS = [
     ("reference", "read_tool_result / read_plan 引用工具", ["reference"], []),
     ("skill", "Skill 指令信封编解码", ["skill"], []),
     ("tool", "工具事件钩子与诊断", ["tool"], []),
-    ("work-table", "工作表格投影与测试", ["work_table"], []),
+    ("work-table", "后台作业面与工作表格投影：执行登记表的只读投影、请求尾部打点块（在途行 + 待取回的完成行）、作业终态为**空闲**会话触发对话", ["work_table", "async"], []),
     ("context", "上下文控制相关集成测试", ["context"], []),
     ("task", "任务执行集成测试", ["task"], []),
     ("subagent", "子代理投影集成测试", ["subagent"], []),

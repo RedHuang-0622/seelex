@@ -201,6 +201,13 @@ limits:
   # 规格与实测：docs/2026-09-24-async-tool-deferred-ack/README.md §8/§10。
   async_exec:
     enabled: true                # 常驻开；改回 false 即整块收回
+    # 后台作业落到**终态**时，为它所属会话起一个回合，让模型自己去
+    # job_manage(op=fetch) 取回结果并继续（作业面是轮询型：模型答完就停，
+    # 结果没人取回是它的固有缺口，见 2026-09-24-async-tool-deferred-ack §10.5）。
+    # done 与 failed 都触发；killed 不触发。只在会话**空闲**时触发——忙会话不被打断、
+    # 也不进它的队列（铁律 §6.1），它下一次回合边界的打点块本来就会列出完成行。
+    # 置 false = 关（默认关，出厂打开；关就是关，无静默降级）。
+    trigger_conversation: true
   # ── 进程级启动行为（runtime）────────────────────────────────────
   # 是否同意**多进程**共用同一数据根。默认 false = 单实例：数据根独占锁
   # （sessionstore/data_root_lock.go 的 lock.owner）把「单数据根 = 单进程写者」

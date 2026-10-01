@@ -164,6 +164,21 @@ type Limits struct {
 // 因此不需要在 DefaultLimits / WithDefaults 里重复声明默认。
 type AsyncExecLimits struct {
 	Enabled bool `yaml:"enabled"`
+	// TriggerConversation 让后台作业落到**终态**时为它所属会话起一个回合：作业面
+	// 从设计起就是轮询型（模型答完就停，结果由模型自己的下一次工具调用取回），
+	// 「跨回合无人取回」是它的固有缺口（docs/2026-09-24-async-tool-deferred-ack/
+	// README.md §10.5），本开关补的就是这一步——终态 → 起回合 → 模型自己
+	// `job_manage(op=fetch)` 取回。
+	//
+	// 语义边界（写死，别在实现里漂）：
+	//   - **done 与 failed 都触发**；killed 不触发（那不是"作业有了结果"，是被终止）；
+	//   - **只在会话空闲时触发**：忙会话不被打断、也不往它的队列里塞东西——铁律见
+	//     docs/arch/teamwork-leader-worker-architecture.md §6.1，忙会话走"下一次回合
+	//     边界的打点块完成行"（work_table_async.go）；
+	//   - 每个句柄只触发一次（句柄单调、永不复用）。
+	//
+	// 零值 = 关（与 async_exec 同一套"关就是关"的纪律）。
+	TriggerConversation bool `yaml:"trigger_conversation"`
 }
 
 // CompactionSummaryLimits 是折叠处 LLM 章节化摘要的开关块。零值（含整个块
