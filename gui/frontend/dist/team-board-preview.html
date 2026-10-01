@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<title>团队看板 · 静态原型</title>
+<link rel="icon" href="data:,">
+<!-- 令牌与全局外观来自应用自己的 styles.css（不复制第二套色值）；看板自己的规则
+     由 team-board-view.js 的 TEAM_BOARD_CSS 注入，两者是同一份事实。 -->
+<link rel="stylesheet" href="./styles.css">
+<style>
+  body { margin: 0; padding: 18px 20px 40px; background: var(--surface-glass); color: var(--text-strong); font-family: var(--font-ui); font-size: var(--text-md); }
+  .page-head { max-width: 1120px; margin: 0 auto 16px; }
+  .page-head h1 { margin: 0 0 6px; font-size: var(--text-xl); }
+  .page-head p { margin: 0 0 4px; color: var(--text-mid); font-size: var(--text-sm); }
+  .page-head code { padding: 1px 4px; border: 1px solid var(--border-hairline); border-radius: 4px; background: var(--code-bg); font-family: var(--font-mono); font-size: var(--text-xs); }
+  .legend { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; font-size: var(--text-xs); color: var(--text-dim); }
+  .legend b { color: var(--text-mid); font-weight: 600; }
+  .grid { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 14px; max-width: 1200px; margin: 0 auto; }
+  .panel { display: flex; flex: 0 0 auto; flex-direction: column; gap: 6px; padding: 10px 12px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-solid); min-width: 0; }
+  .panel h2 { margin: 0; font-size: var(--text-sm); color: var(--text-mid); font-weight: 600; }
+  .panel .note { color: var(--faint); font-size: var(--text-xs); max-width: 100%; }
+  .narrow { width: 408px; }
+  .wide { width: 792px; }
+  .narrow .board-host { width: 360px; }
+  .wide .board-host { width: 720px; }
+  .board-host { min-width: 0; }
+</style>
+</head>
+<body>
+<header class="page-head">
+  <h1>团队看板 · 静态原型</h1>
+  <p>渲染件：<code>gui/frontend/dist/team-board-view.js</code>（纯函数，不碰 DOM，与 <code>goal-board-view.js</code> 同一形态）；本页只负责注入 <code>TEAM_BOARD_CSS</code> 与夹具。</p>
+  <p>本页用 ES module 载入渲染件，需要 http 源：仓库根运行 <code>python -m http.server 8100</code>，再打开 <code>http://localhost:8100/gui/frontend/dist/team-board-preview.html</code>。</p>
+  <div class="legend">
+    <span><b>阶段状态</b>（由 depends_on + 作业终态推出，不是计划字段）</span>
+    <span>pending 依赖未满足</span>
+    <span>ready 依赖已满足、可派活</span>
+    <span>running 有在途作业</span>
+    <span>done 作业全完</span>
+    <span>failed 有 failed/killed 作业</span>
+  </div>
+</header>
+
+<main class="grid">
+  <section class="panel narrow">
+    <h2>真实快照 · 右栏宽度（360px）</h2>
+    <div class="note">数据 = 会话 project-03b5b8d29af3f44b / session-b90ba1b5a3db5909 的 teamwork 模块：plan 事件（stages=3 members=3 milestones=3）+ dispatch/join 事件 + 作业 a1。</div>
+    <div class="board-host" data-fixture="real"></div>
+  </section>
+
+  <section class="panel wide">
+    <h2>真实快照 · 宽栏（720px）</h2>
+    <div class="note">同上一份数据，看阶段网格在宽栏下的分列（auto-fill 168px）。</div>
+    <div class="board-host" data-fixture="real"></div>
+  </section>
+
+  <section class="panel narrow">
+    <h2>V 模型推进中（含 failed）· 右栏宽度</h2>
+    <div class="note">夹具：$teamwork 的 V 模型阶段模板 + 三层验证的作业终态（accept 在跑 / integration 失败 / unit 待派），用来一次看全五种阶段状态。</div>
+    <div class="board-host" data-fixture="v"></div>
+  </section>
+
+  <section class="panel wide">
+    <h2>V 模型推进中（含 failed）· 宽栏</h2>
+    <div class="note">同一份夹具。8 阶段 + 6 在编 + 4 里程碑。</div>
+    <div class="board-host" data-fixture="v"></div>
+  </section>
+</main>
+
+<script type="module">
+  import { TEAM_BOARD_CSS, renderTeamBoard } from "./team-board-view.js";
+
+  const style = document.createElement("style");
+  style.textContent = TEAM_BOARD_CSS;
+  document.head.append(style);
+
+  // 夹具一：真实快照（team queue-strip-fix）。
+  const REAL = {
+    maxMembers: 6,
+    plan: {
+      team_id: "queue-strip-fix",
+      version: 1,
+      stages: [
+        { id: "fix", roles: ["impl"], depends_on: [] },
+        { id: "verify", roles: ["verify"], depends_on: ["fix"] },
+        { id: "review", roles: ["review"], depends_on: ["verify"] },
+      ],
+      members: [
+        { role: "impl", role_session_id: "draft_1790859327188580900_3-queue-strip-fix-impl", tools_policy: "readwrite" },
+        { role: "verify", role_session_id: "draft_1790859327188580900_3-queue-strip-fix-verify", tools_policy: "readwrite" },
+        { role: "review", role_session_id: "draft_1790859327188580900_3-queue-strip-fix-review", tools_policy: "readonly" },
+      ],
+      milestones: [
+        { id: "m-fix", after: ["fix"] },
+        { id: "m-verify", after: ["verify"] },
+        { id: "m-review", after: ["review"] },
+      ],
+    },
+    jobs: [
+      { handle: "a1", seq: 1, kind: "worker", state: "running", node: "fix", bytes: 0, exit_code: 0, started_at: "2026-10-01T21:34:12.8538807+08:00", scope: { session: "draft_1790859327188580900_3", subject: "emp_impl" } },
+    ],
+    events: [
+      { at: "2026-10-01T13:34:07.8545913Z", kind: "plan", team_id: "queue-strip-fix", detail: "stages=3 members=3 milestones=3" },
+      { at: "2026-10-01T13:34:12.8618115Z", kind: "dispatch", stage: "fix", role: "impl", handle: "a1", detail: "阶段 fix（team queue-strip-fix）：修好输入框上沿排队条的动作按钮（现场⑤）" },
+      { at: "2026-10-01T13:37:00.4202564Z", kind: "join", handle: "a1", detail: "汇合窗口用尽，仍在跑 1 条：a1=running" },
+    ],
+  };
+
+  // 夹具二：V 模型阶段模板 + 三层验证的作业终态。
+  const V = {
+    maxMembers: 6,
+    plan: {
+      team_id: "v-model",
+      version: 4,
+      stages: [
+        { id: "req", roles: ["pm"], depends_on: [] },
+        { id: "design", roles: ["arch"], depends_on: ["req"] },
+        { id: "contract_review", roles: ["contract_review"], depends_on: ["design"] },
+        { id: "impl", roles: ["exec"], depends_on: ["contract_review"] },
+        { id: "accept", roles: ["test_case"], depends_on: ["req", "impl"] },
+        { id: "integration", roles: ["test_case"], depends_on: ["design", "impl"] },
+        { id: "unit", roles: ["test_case"], depends_on: ["impl"] },
+        { id: "review", roles: ["tl"], depends_on: ["accept", "integration", "unit"] },
+      ],
+      members: [
+        { role: "pm", role_session_id: "draft_9-v-model-pm", worktree: "seelex/pm" },
+        { role: "arch", role_session_id: "draft_9-v-model-arch", worktree: "seelex/arch" },
+        { role: "contract_review", role_session_id: "draft_9-v-model-contract_review", tools_policy: "readonly" },
+        { role: "exec", role_session_id: "draft_9-v-model-exec", worktree: "seelex/exec" },
+        { role: "test_case", role_session_id: "draft_9-v-model-test_case", worktree: "seelex/test-case" },
+        { role: "tl", role_session_id: "draft_9-v-model-tl", tools_policy: "readonly" },
+      ],
+      milestones: [
+        { id: "m-design", after: ["design"], status: "done", content: "设计冻结：接口 team-board-view.js / 入参 plan+jobs+events / 无写入口。" },
+        { id: "m-contract", after: ["contract_review"], status: "done", content: "契约评审通过：状态五值 + 归属回落链 stage→node→emp_<role>。" },
+        { id: "m-impl", after: ["impl"], status: "done", content: "渲染件落地：22 项 node 用例全绿（orderStages / stageStatuses / 转义）。" },
+        { id: "m-verify", after: ["review"] },
+      ],
+    },
+    jobs: [
+      { handle: "a10", state: "done", node: "req", bytes: 4321, exit_code: 0, scope: { subject: "emp_pm" } },
+      { handle: "a11", state: "done", node: "design", bytes: 15320, exit_code: 0, scope: { subject: "emp_arch" } },
+      { handle: "a12", state: "done", node: "contract_review", bytes: 2048, exit_code: 0, scope: { subject: "emp_contract_review" } },
+      { handle: "a13", state: "done", node: "impl", bytes: 90210, exit_code: 0, scope: { subject: "emp_exec" } },
+      { handle: "a14", state: "running", node: "accept", bytes: 1204, exit_code: 0, scope: { subject: "emp_test_case" } },
+      { handle: "a15", state: "failed", node: "integration", bytes: 760, exit_code: 1, scope: { subject: "emp_test_case" } },
+    ],
+    events: [
+      { at: "2026-10-02T01:00:03.0000000Z", kind: "plan", team_id: "v-model", detail: "stages=8 members=6 milestones=4" },
+      { at: "2026-10-02T01:02:11.0000000Z", kind: "dispatch", stage: "req", role: "pm", handle: "a10", detail: "需求条目 ↔ 验收用例逐条对应" },
+      { at: "2026-10-02T01:20:44.0000000Z", kind: "milestone", milestone: "m-design", detail: "设计冻结：接口 team-board-view.js 入参 = plan+jobs+events" },
+      { at: "2026-10-02T01:41:09.0000000Z", kind: "dispatch", stage: "integration", role: "test_case", handle: "a15", detail: "设计接口 ↔ 集成路径" },
+      { at: "2026-10-02T01:44:52.0000000Z", kind: "milestone", milestone: "m-impl", detail: "渲染件落地：22 项 node 用例全绿" },
+      { at: "2026-10-02T01:52:30.0000000Z", kind: "retire", role: "exec", detail: "回收作业、释放 worktree、清会话内容（保留在编）" },
+    ],
+  };
+
+  const fixtures = { real: REAL, v: V };
+  for (const host of document.querySelectorAll("[data-fixture]")) {
+    host.innerHTML = renderTeamBoard(fixtures[host.dataset.fixture]);
+  }
+</script>
+</body>
+</html>
