@@ -127,6 +127,18 @@ func (r *Router) CompleteJob(handle, state string) bool {
 	return true
 }
 
+// RunningSubagentJobsFor 报告某会话**仍在跑**的子代理作业数（只读，不采样文件）。
+//
+// 它是"fork 在飞"的作业侧事实：作业化派发之后，那次工具调用立刻返回，真正在飞的
+// 是这批 Kind=subagent 作业——`Runtime.ForkInFlight` 用它兜住 application 侧的
+// "fork 期间禁止同会话继续对话"门控（否则门控静默失效）。
+func (r *Router) RunningSubagentJobsFor(sessionID string) int {
+	if r == nil || r.async == nil || !r.asyncEnabled() {
+		return 0
+	}
+	return r.async.countRunningKindFor(sessionID, asyncKindSubagent)
+}
+
 // SubagentJobHandles 返回本会话在册的**子代理作业**句柄（运行体系对账用：会话销毁、
 // 恢复时确认哪些子代理还没结清）。只读，不推进任何游标。
 func (r *Router) SubagentJobHandles(sessionID string) []string {

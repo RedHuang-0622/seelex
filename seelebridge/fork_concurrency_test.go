@@ -41,7 +41,7 @@ func (c *blockingNodeCompleter) Complete(ctx context.Context, _ []types.Message,
 // 2 个账号（各 MaxConcurrency=1）跑 8 个子代理。运行中恰好 2 个 running、
 // 其余全部 queued（无死锁、状态透明）；释放后全部 completed。
 func TestForkSubagentsExceedsConcurrencyLimitQueued(t *testing.T) {
-	runtime := newTestRuntime(t)
+	runtime := newAsyncTestRuntime(t)
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
 	first := newBlockingNodeCompleter()
@@ -55,13 +55,18 @@ func TestForkSubagentsExceedsConcurrencyLimitQueued(t *testing.T) {
 	}
 	args := `{"subagents":[` + strings.Join(specs, ",") + `]}`
 
-	done := make(chan struct{})
-	var result string
-	var forkErr error
-	go func() {
-		result, forkErr = runtime.Agent().DirectDispatch(context.Background(), "fork_subagents", args)
-		close(done)
-	}()
+	// 派发即返回（作业化）：一次调用拿到 8 个句柄，编排跑在后台。
+	receipt, err := forkDispatch(t, runtime, args)
+	if err != nil {
+		t.Fatalf("fork 派发失败: %v", err)
+	}
+	handles := make([]string, 0, len(receipt.Jobs))
+	for _, job := range receipt.Jobs {
+		handles = append(handles, job.Handle)
+	}
+	if len(handles) != subagents {
+		t.Fatalf("句柄数 = %d, want %d", len(handles), subagents)
+	}
 
 	// 前两个节点真正启动（会话挂载 → queued 转 running）。
 	for name, completer := range map[string]*blockingNodeCompleter{"first": first, "second": second} {
@@ -72,7 +77,7 @@ func TestForkSubagentsExceedsConcurrencyLimitQueued(t *testing.T) {
 		}
 	}
 	// 运行中：全部节点会话已挂载（running 语义=会话已分配），只有 2 个真正
-	// 在执行（阻塞 completer）。无死锁判据 = 释放后 fork 必然完成。
+	// 在执行（阻塞 completer）。无死锁判据 = 释放后整批必然收尾。
 	deadline := time.Now().Add(5 * time.Second)
 	running := 0
 	for {
@@ -93,16 +98,12 @@ func TestForkSubagentsExceedsConcurrencyLimitQueued(t *testing.T) {
 	close(first.release)
 	close(second.release)
 
-	select {
-	case <-done:
-	case <-time.After(30 * time.Second):
-		t.Fatal("fork did not finish after release (deadlock?)")
-	}
-	if forkErr != nil {
-		t.Fatalf("fork failed: %v", forkErr)
-	}
-	if !strings.Contains(result, `"status":"completed"`) {
-		t.Fatalf("result must complete: %s", result)
+	// 释放后整批必须在预算内收尾（无死锁）。
+	forkWaitTerminal(t, runtime, handles)
+	for _, handle := range handles {
+		if state := forkStateOf(t, runtime, handle); state != "done" {
+			t.Fatalf("作业 %s 终态 = %q, want done", handle, state)
+		}
 	}
 	// 终态：全部 completed，参与者挂好。
 	byID := make(map[string]dto.TaskRecord)

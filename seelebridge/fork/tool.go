@@ -84,19 +84,15 @@ func (t *Tool) Handle(ctx context.Context, argsJSON string) (string, error) {
 
 	// 结果复用（省 token）：若所有子代理都命中"既有已完成 task + 子代理树
 	// 保留完整输出"（典型场景：结果返回失败——final_output 被截断或
-	// read_tool_result 失败——需要 retry），直接读回已保存输出并返回，
-	// 不再重新执行。只有全部命中才短路；部分命中仍整体重跑，避免 DAG
-	// 出现混合状态（保守策略，README 注明）。
+	// read_tool_result 失败——需要 retry），这一批不重新执行，直接把已保存输出
+	// 交给作业正文。只有全部命中才走复用；部分命中仍整体重跑，避免一批作业
+	// 出现混合来源的正文（保守策略，README 注明）。
+	//
+	// 复用同样走作业面：作业照样登记（回执形状与真跑一批逐字段一致），执行体立刻
+	// 把已保存输出写进各自正文并合成终态——省 token 的效果保留，"调用即返回句柄"
+	// 这条契约不被破例。
 	if summaries, ok := t.reusableForkSummaries(sessionID, input.Subagents); ok {
-		for _, spec := range input.Subagents {
-			if taskID := taskBindings[spec.ID]; taskID != "" {
-				// bindSubagentTask 已把终态 task 置 retry（RetryCount 自增）；
-				// 复用成功 → 置回 completed，计数保留（worktable 显示 DONE，
-				// retry_count 保留，未读签名变化）。
-				_, _ = t.deps.TaskSetStatusFor(sessionID, taskID, task.TaskCompleted, "fork reused stored output")
-			}
-		}
-		return t.forkReuseResultJSON(input.Subagents, summaries)
+		return t.dispatchReusedJobs(ctx, input, taskBindings, summaries)
 	}
 
 	loaded, err := t.buildForkPlan(input, taskBindings)
@@ -112,10 +108,10 @@ func (t *Tool) Handle(ctx context.Context, argsJSON string) (string, error) {
 		parentID = scope.NodeID
 	}
 	t.deps.SubagentTreeRegisterFork(seetelemetry.SessionIDFromContext(ctx), parentID, input.Subagents)
-	// fork 超时护栏：同步编排工具总时长 = 全部子代理工作量之和；通用工具
-	// 超时会掐死长任务，故剥离外层截止时间（保留用户取消传播）改用自己的
-	// 上限。任务可按需分配：长任务不填（limits.fork_timeout，默认 2h）；
-	// 简单审查/只读任务用 input.timeout_sec 给 1200s（20 分钟）等更紧上限。
+	// fork 超时护栏：一批子代理的编排总时长 = 全部子代理工作量之和；通用工具
+	// 超时会掐死长任务，故用自己的上限。任务可按需分配：长任务不填
+	// （limits.fork_timeout，默认 2h）；简单审查/只读任务用 input.timeout_sec
+	// 给 1200s（20 分钟）等更紧上限。
 	forkTimeout := time.Duration(input.TimeoutSec) * time.Second
 	if forkTimeout <= 0 {
 		forkTimeout = time.Duration(t.deps.ForkTimeoutSec) * time.Second
@@ -125,24 +121,10 @@ func (t *Tool) Handle(ctx context.Context, argsJSON string) (string, error) {
 	}
 	// 作业化派发（打点 L-5）：这一批子代理登记成 Kind=subagent 的作业，**派发即返回**。
 	//
-	// 为什么必须在这里分叉（而不是只加一个管理工具）：阻塞调用期间模型没有下一次
+	// 为什么必须作业化（而不是在阻塞调用里同步跑）：阻塞调用期间模型没有下一次
 	// 调用，"主动查看/提前终止子代理"在阻塞形态下根本没有入口——不是缺工具，是缺
 	// 时机。作业化之后 observe / kill / done 才有意义（设计文档 §B.3）。
-	if input.Async {
-		return t.dispatchJobs(ctx, loaded, input, forkTimeout)
-	}
-	// 剥离外层截止时间（保留用户取消传播），改用 limits.fork_timeout。
-	// forkCtx 由 Background 派生会丢会话路由值，这里把执行会话 ID 重新
-	// 注入（G1-C）：fork 的 plan_run 与主会话 plan_run 同槽登记、事件
-	// 归属同一会话，绝不落进 legacy 默认槽。
-	forkCtx, forkCancel := context.WithTimeout(context.Background(), forkTimeout)
-	if sessionID := seetelemetry.SessionIDFromContext(ctx); sessionID != "" {
-		forkCtx = seetelemetry.WithSessionID(forkCtx, sessionID)
-	}
-	stop := context.AfterFunc(ctx, forkCancel) // 原 ctx 取消（用户停止）→ 同步取消 fork
-	defer stop()
-	defer forkCancel()
-	return t.deps.RunPlan(forkCtx, loaded, false)
+	return t.dispatchJobs(ctx, loaded, input, forkTimeout)
 }
 
 // dispatchJobs 把这一批子代理**作业化派发**：登记 N 条 Kind=subagent 作业 → 立刻返回
@@ -158,7 +140,8 @@ func (t *Tool) Handle(ctx context.Context, argsJSON string) (string, error) {
 //     running——否则那一行会永远显示在打点表上。
 func (t *Tool) dispatchJobs(ctx context.Context, loaded *plan.LoadedPlanDoc, input Input, timeout time.Duration) (string, error) {
 	if t.deps.Jobs == nil {
-		return "", fmt.Errorf("fork_subagents: async 模式不可用（子代理作业面未装配或后台能力未开启）；去掉 async 走阻塞模式")
+		return "", fmt.Errorf("fork_subagents: 子代理作业面不可用（未装配或 limits.async_exec.enabled=false）；" +
+			"子代理派发只走作业面，不静默退化成阻塞调用")
 	}
 	runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 	if sessionID := seetelemetry.SessionIDFromContext(ctx); sessionID != "" {
@@ -188,14 +171,27 @@ func (t *Tool) dispatchJobs(ctx context.Context, loaded *plan.LoadedPlanDoc, inp
 	go func() {
 		defer cancel()
 		output, runErr := t.deps.RunPlan(runCtx, loaded, false)
-		state := "done"
+		batchState := "done"
 		switch {
 		case runErr != nil && runCtx.Err() != nil:
-			state = "killed"
+			batchState = "killed"
 		case runErr != nil:
-			state = "failed"
+			batchState = "failed"
 		}
+		nodeStates := batchNodeStates(output)
 		for _, item := range jobs {
+			// 每条作业的终态按**它自己的节点**判定（best-effort 批次里一个兄弟失败、
+			// 其余成功时，把整批写成一个状态会让失败行看起来是 done）。
+			state := batchState
+			if state == "done" && len(nodeStates) > 0 {
+				switch nodeStates[item.spec.ID] {
+				case "completed":
+				case "aborted":
+					state = "killed"
+				default:
+					state = "failed"
+				}
+			}
 			// 每个子代理的正文 = 它自己的产出（子代理树里保存的摘要）；取不到时退回
 			// 整批结果——宁可给整批，也不要给一行空正文。
 			body := strings.TrimSpace(t.deps.SubagentTreeSummaryFor(item.spec.ID))
@@ -215,20 +211,104 @@ func (t *Tool) dispatchJobs(ctx context.Context, loaded *plan.LoadedPlanDoc, inp
 			"handle": item.handle, "id": item.spec.ID, "state": "running",
 		})
 	}
+	return acceptanceReceipt(receipts, "这批子代理已作业化派发（调用本身不等结果）。用 job_manage(op=observe, handle) "+
+		"看它们在干什么（不消费输出）、op=fetch 取回产出、op=kill 提前终止（已产出内容不丢）、"+
+		"op=done 结清终态行。注意：任意一个句柄的 kill 会取消**整批**编排（它们共用一次 plan run）。")
+}
+
+// dispatchReusedJobs 把"结果复用"的批次也作业化：作业照样登记（回执形状与真跑一批
+// 逐字段一致，模型侧看不到两套形状），执行体立刻把子代理树里已保存的输出写进各自
+// 正文并合成终态——既不重跑（省 token），也不破"调用即返回句柄"这条契约。
+//
+// 只有**全部** spec 命中才走到这里（见 reusableForkSummaries）：部分命中仍整体重跑，
+// 避免一批作业出现混合来源的正文。
+func (t *Tool) dispatchReusedJobs(ctx context.Context, input Input, taskBindings map[string]string, summaries map[string]string) (string, error) {
+	if t.deps.Jobs == nil {
+		return "", fmt.Errorf("fork_subagents: 子代理作业面不可用（未装配或 limits.async_exec.enabled=false）；" +
+			"子代理派发只走作业面，不静默退化成阻塞调用")
+	}
+	sessionID := seetelemetry.SessionIDFromContext(ctx)
+	// 取消口照挂：作业面要求每条作业都能被 kill / 会话销毁取消，即使这一批注定
+	// 立刻收尾（形状一致比"这次用不上"重要）。
+	_, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancel()
+
+	receipts := make([]map[string]string, 0, len(input.Subagents))
+	for _, spec := range input.Subagents {
+		handle, err := t.deps.Jobs.Add(SubagentJobSpec{ID: spec.ID, Goal: spec.Goal, SessionID: sessionID}, cancel)
+		if err != nil {
+			// 已登记的那些不能让它们停在 running（同 dispatchJobs 的收尾纪律）。
+			for _, created := range receipts {
+				t.deps.Jobs.Complete(created["handle"], "failed")
+			}
+			return "", fmt.Errorf("fork_subagents: 登记子代理作业失败: %w", err)
+		}
+		if body := strings.TrimSpace(summaries[spec.ID]); body != "" {
+			t.deps.Jobs.Note(handle, body+"\n")
+		}
+		t.deps.Jobs.Complete(handle, "done")
+		if taskID := taskBindings[spec.ID]; taskID != "" {
+			// bindSubagentTask 已把终态 task 置 retry（RetryCount 自增）；复用成功 →
+			// 置回 completed，计数保留（worktable 显示 DONE，retry_count 保留）。
+			_, _ = t.deps.TaskSetStatusFor(sessionID, taskID, task.TaskCompleted, "fork reused stored output")
+		}
+		receipts = append(receipts, map[string]string{
+			"handle": handle, "id": spec.ID, "state": "done",
+		})
+	}
+	return acceptanceReceipt(receipts, "这批子代理的结论**复用上次已保存输出**（未重新执行，省 token）："+
+		"句柄已是终态，用 job_manage(op=fetch, handle) 取回各自正文。如需真正重跑，先清子代理树再派发。")
+}
+
+// acceptanceReceipt 渲染作业化派发的受理回执：这是本次工具调用的**全部返回**
+// （派发即结束）。回执只带句柄与状态，绝不携带子代理产出——产出走
+// job_manage(op=fetch, handle)（消费式增量），两条路径共用同一份载荷形状。
+func acceptanceReceipt(receipts []map[string]string, hint string) (string, error) {
 	payload := map[string]any{
 		"status":     "accepted",
-		"async":      true,
 		"node_count": len(receipts),
 		"jobs":       receipts,
-		"hint": "这批子代理已作业化派发（调用本身不等结果）。用 job_manage(op=observe, handle) " +
-			"看它们在干什么（不消费输出）、op=fetch 取回产出、op=kill 提前终止（已产出内容不丢）、" +
-			"op=done 结清终态行。注意：任意一个句柄的 kill 会取消**整批**编排（它们共用一次 plan run）。",
+		"hint":       hint,
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return "", fmt.Errorf("fork_subagents: 渲染受理回执失败: %w", err)
 	}
 	return string(encoded), nil
+}
+
+// batchNodeStates 从 plan_run 的结果 JSON 里取出每个节点的终态（node_id → status）。
+//
+// 为什么要它：作业化之后，一条子代理作业的终态必须能按**它自己的节点**判定。
+// best-effort 批次（fork 的默认策略）里一个兄弟失败、其余照样跑完——把整批写成
+// 一个状态，失败那一行就会显示成 done，而"终态只由执行体判定"这条纪律读到的正是
+// 这份事实。结果 JSON 是 plan_run 的自己产物（`{"nodes":[{"node_id","status"},…]}`）。
+//
+// 解析失败（形状变了 / 结果为空）返回 nil：调用方退回整批状态，不猜。
+func batchNodeStates(output string) map[string]string {
+	trimmed := strings.TrimSpace(output)
+	if !strings.HasPrefix(trimmed, "{") {
+		return nil
+	}
+	var payload struct {
+		Nodes []struct {
+			NodeID string `json:"node_id"`
+			Status string `json:"status"`
+		} `json:"nodes"`
+	}
+	if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
+		return nil
+	}
+	if len(payload.Nodes) == 0 {
+		return nil
+	}
+	states := make(map[string]string, len(payload.Nodes))
+	for _, node := range payload.Nodes {
+		if id := strings.TrimSpace(node.NodeID); id != "" {
+			states[id] = strings.ToLower(strings.TrimSpace(node.Status))
+		}
+	}
+	return states
 }
 
 // reusableForkSummaries 检查每个 spec 是否可复用已保存输出：goal 命中的
@@ -254,34 +334,6 @@ func (t *Tool) reusableForkSummaries(sessionID string, specs []SubagentSpec) (ma
 		}
 	}
 	return summaries, true
-}
-
-// forkReuseResultJSON 构造复用结果的 JSON（与 planRunResultJSON 外形一致：
-// status/node_count/final_output；标记 reused=true 供审计，不计入重跑）。
-func (t *Tool) forkReuseResultJSON(specs []SubagentSpec, summaries map[string]string) (string, error) {
-	var builder strings.Builder
-	builder.WriteString("子代理完成情况（复用上次已保存输出，未重新执行）:\n")
-	for _, spec := range specs {
-		builder.WriteString("- ")
-		builder.WriteString(spec.ID)
-		builder.WriteString(": ")
-		summary := strings.TrimSpace(summaries[spec.ID])
-		if summary == "" {
-			builder.WriteString("(无输出)\n")
-			continue
-		}
-		builder.WriteString(strings.ReplaceAll(summary, "\n", "\n  "))
-		builder.WriteByte('\n')
-	}
-	builder.WriteString("（输出来自子代理树已保存证据；如需更新版本请清理子代理树后重跑）")
-	payload := map[string]any{
-		"status":       "completed",
-		"node_count":   len(specs),
-		"final_output": builder.String(),
-		"reused":       true,
-	}
-	encoded, err := json.Marshal(payload)
-	return string(encoded), err
 }
 
 // bindSubagentTask 解析/创建子代理 task 并返回 task_id（幂等：相同 goal

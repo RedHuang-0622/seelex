@@ -35,6 +35,28 @@ version when it lands.
 
 ### Changed
 
+- **Subagent dispatch is now background-only: `fork_subagents` returns handles, never results.** The
+  job face was always there for subagents, but behind an `async` switch that defaulted off — so the
+  model's default was a call that blocked until the whole `start → N×agent → summary` DAG finished, and
+  during that block it had no next call with which to observe or terminate anything. That switch is
+  gone: the tool now registers one `Kind=subagent` job per subagent and returns an acceptance receipt
+  with the handles (its only return shape), exactly like `bash_bg` / `read_batch`. Output comes back per
+  handle through `job_manage(op=fetch)`; progress through `op=observe`; early termination through
+  `op=kill` (already produced bytes are kept, and one kill cancels the whole batch because the batch
+  shares a single plan run); `op=done` retires the row. The result-reuse shortcut (all subagents hit a
+  completed task plus a retained tree summary) no longer short-circuits into a third return shape: the
+  batch is still registered and each job is completed immediately with the stored output, so the token
+  saving survives without breaking the dispatch contract. Each job's terminal state is decided by **its
+  own node** (the `plan_run` result JSON's `nodes[].{node_id,status}`), so in a best-effort batch a
+  failed sibling no longer shows up as `done`. The application-side fork gate that refuses further
+  conversation in a session while a fork is in flight (`Runtime.ForkInFlight` → `ErrForkRunningChat`)
+  now follows **the running subagent jobs** rather than the dispatch window: the dispatch returns
+  immediately, so counting only the call would have silently opened that gate while subagents were
+  still running in the same session. Consequence, stated rather than papered over: with
+  `limits.async_exec.enabled=false` the tool now refuses outright instead of degrading to synchronous
+  execution — the same "off is off" discipline the other dispatch tools follow. See
+  [`docs/devlog/2026-10-01-fork-subagents-background-and-job-manage-batch.md`](docs/devlog/2026-10-01-fork-subagents-background-and-job-manage-batch.md).
+
 - **The employee side of the Agent Team panel now updates the way the panel itself does — by event,
   plus a manual refresh key, never by heartbeat.** ClaudeTeamwork judges liveness from file heartbeats
   (`.teamwork/heartbeats/`); this side's job table already *is* the liveness fact (`running` / `done` /
@@ -94,6 +116,17 @@ version when it lands.
   decision can no longer disagree).
 
 ### Added
+
+- **`job_manage` can wait for and fetch a whole batch in one call.** A batch of dispatched jobs
+  (`read_batch`'s N reads, `fork_subagents`' N subagents) is one unit of work, but fetching it used to
+  be N separate calls — each of which re-waited for the slowest job. The tool now accepts `handles` (an
+  array) alongside `handle` for `op=fetch` and `op=observe`: `op=fetch` waits out a single shared
+  deadline (the largest `wait_ms`, clamped once — not multiplied per handle, so eight jobs cannot pin
+  the turn for eight budgets) and then delivers each job's own increment under `jobs`; `op=observe`
+  returns each handle's read-only reading. `kill` and `done` deliberately stay single-handle: one kill
+  terminates a batch that shares its orchestration, and retirement is a per-row confirmation. Single
+  and batch paths share one implementation (`fetchOne` / `polledPayload`) so the two shapes cannot
+  drift. Pinned by `seelebridge/tools/job_manage_batch_test.go`.
 
 - **The leader's team now has a real tool face, and a teammate cannot fork subagents — not by a
   switch, but because the tool is not in its face at all.** The leader/worker architecture left the

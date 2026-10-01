@@ -96,12 +96,17 @@ string 只会让每个调用点多做一次编解码往返；框架的 `ToolHand
 |---|---|---|---|
 | `process` | `bash_bg` | 后台 shell 子进程（进程树可终止） | 运行体系（`awaitAsync` 被动） |
 | `inline` | `read_batch` | 进程内读扇出（取消靠 ctx） | 运行体系（goroutine 收尾，被动） |
-| `subagent` | `fork_subagents`（`async=true`） | plan 节点编排（取消靠 ctx） | 运行体系（`CompleteJob`，被动）+ 模型侧 `done` 销项 |
+| `subagent` | `fork_subagents` | plan 节点编排（取消靠 ctx） | 运行体系（`CompleteJob`，被动）+ 模型侧 `done` 销项 |
+
+三类作业的派发工具都**只派发、不等结果**：`fork_subagents` 也没有"阻塞到全部跑完"
+的分支（阻塞期间模型没有下一次调用，`observe`/`kill` 就没有入口）。
 
 工具面与形状：`bash`（串行写类，**不再有 `background`**）/ `bash_read`（只读、免打断，
 handler 侧必须过服务端 `security.ClassifyCommand`）/ `bash_bg`（`Add`，**必须带
 `description`**——它是工作打点表的行标题）/ `read_batch`（一次派发 N 个读作业）/
-`job_manage`（`op=observe|fetch|kill|done`）。派发只返回**受理回执**
+`fork_subagents`（一次派发 N 个子代理作业）/ `job_manage`（`op=observe|fetch|kill|done`；
+`op=fetch`/`op=observe` 可给 `handles` 数组一次管一批——**整批共用一份等待预算**，
+不是逐条各等一次）。派发只返回**受理回执**
 （`{status:accepted, handle, log_path, state:running}`，不含作业输出），
 `tool_call`/`tool_result` 的配对就在这一次调用里完成。每一问一答都是正常的相邻工具对，
 所以历史只追加、不回写，也不需要
@@ -126,7 +131,8 @@ handler 侧必须过服务端 `security.ClassifyCommand`）/ `bash_bg`（`Add`�
 文件分工按"契约 / 表 / 执行体 / 工具面 / 探针"五份（`async_exec.go` 单文件曾长到 608 行
 且职责混合，命中仓库根 `MEMORY.md` 的上帝文件判据）：
 
-- `job_contract.go`：`JobTool` 契约 + `jobManager`（四个管理动作的唯一实现）。
+- `job_contract.go`：`JobTool` 契约 + `jobManager`（四个管理动作的唯一实现；批量入口
+  `FetchMany`/`StatusMany` 也在这里，单条与批量共用 `fetchOne`/`polledPayload`）。
 - `job_tools.go`：`job_manage` / `bash_bg` / `read_batch` 三个工具面与 schema/描述。
 - `job_run.go` / `job_subagent.go`：等待预算、子代理作业的登记与被动收尾入口。
 - `async_exec.go`：句柄表与状态机（`running/done/failed/killed`）、载荷渲染。
@@ -169,8 +175,8 @@ handler 侧必须过服务端 `security.ClassifyCommand`）/ `bash_bg`（`Add`�
   路径"的缓存纪律约束。core 侧的投影见 `application/core/work_table_async.go`。
 - 开关（`Deps.AsyncExecEnabled` ⇐ `limits.async_exec.enabled`，**出厂 true**；结构零值仍
   false，旧配置文件缺这段 = 关）：关闭时作业工具（`bash_bg` / `read_batch` /
-  `job_manage`）都不注册、`bash` 收到旧入参 `background=true` 与 `fork_subagents`
-  的 `async=true` 都直接报错。**关就是关**，不得静默降级成同步执行
+  `job_manage`）都不注册、`bash` 收到旧入参 `background=true` 与
+  `fork_subagents`（它只走作业面）都直接报错。**关就是关**，不得静默降级成同步执行
   （与 `security/sandbox.go` 头注同源）。常驻开的已知代价：这几个入口的 schema
   每轮常驻（实测三个入口约 213 token/轮，A/B 报告 §4 r1）。
 - 完成回填（打点 K-5）：终态迁移那一刻算一次**有界摘要**（≤512B：状态 + 退出码 +
@@ -232,6 +238,9 @@ bash 诊断观察者 panic 隔离。作业域：`asyncRegistry` 单锁（执行�
   失效）；新增清理路径都要问"终态是否恰好合成一次"。
 - 回执与取回的载荷必须确定性（不含时间戳/耗时）：这些字节会永久留在可缓存前缀里。
 - 取回只能交付增量并推进 `cursor`；把整份日志重播进上下文会同时烧 token 和破前缀。
+- `job_manage` 的 `handles` 批量取回共用**一份**等待预算（deadline 只建一次）：新增
+  批量路径时不得把预算按条数相乘——那是把"一次等一批"变回 N 次串行等待。`kill`/`done`
+  一次只认一条句柄（kill 会终止整批共用编排，销项是逐条的确认）。
 - 终态只由执行体判定：模型侧 `done` 只能销**已终态**的行，对在途作业必须报错并要求
   `kill`；`finish`/`CompleteJob` 必须以"状态非 running 即返回"守住"只迁移一次"。
 - 摘要与投影都必须按**字节**封顶（末行按字符截断再拼进摘要，混着算会悄悄超限）。

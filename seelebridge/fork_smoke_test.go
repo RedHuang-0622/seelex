@@ -11,8 +11,12 @@ import (
 
 	"github.com/RedHuang-0622/Seele/agent"
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/Seele/workplan/codec"
+	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/seelebridge/fork"
 	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
+	"github.com/RedHuang-0622/seelex/seelebridge/plan"
 )
 
 // scopeRecordingCompleter 记录每次请求的 NodeScope.TaskID（验证 B6 装配件
@@ -42,7 +46,7 @@ func (c *scopeRecordingCompleter) seenTaskIDs() []string {
 // 查看文件并总结，summary 节点（主侧）合并产出；同时验证 B6 task_id 注入
 // 到子代理 NodeScope（只绑 id，无内容）与注册表幂等绑定。
 func TestForkSubagentsSmokeTimeAndFileSummary(t *testing.T) {
-	runtime := newTestRuntime(t)
+	runtime := newAsyncTestRuntime(t)
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
 	if _, err := runtime.NewMainSessionWithID("sess_smoke", nil); err != nil {
@@ -57,18 +61,17 @@ func TestForkSubagentsSmokeTimeAndFileSummary(t *testing.T) {
 		"child-two": fileCompleter,
 	})
 
-	result, err := runtime.Agent().DirectDispatch(context.Background(), "fork_subagents",
+	batch := forkRun(t, runtime,
 		`{"subagents":[{"id":"time_agent","goal":"输出当前时间"},{"id":"file_agent","goal":"查看 README 并总结文件内容"}]}`)
-	if err != nil {
-		t.Fatalf("fork_subagents failed: %v", err)
+	t.Logf("=== 取回的子代理产出（主侧收到的内容）===\n%s", batch.Output)
+	for _, handle := range batch.Handles {
+		if batch.States[handle] != "done" {
+			t.Fatalf("子代理作业 %s 终态 = %q, want done（读数 %+v）", handle, batch.States[handle], batch.States)
+		}
 	}
-	t.Logf("=== fork_subagents 返回结果（主侧收到的内容）===\n%s", result)
-	if !strings.Contains(result, `"status":"completed"`) {
-		t.Fatalf("fork result must be completed, got: %s", result)
-	}
-	// 主侧 summary 合并两个子代理产出。
-	if !strings.Contains(result, now) || !strings.Contains(result, "README") {
-		t.Fatalf("summary must carry both subagent outputs, got: %s", result)
+	// 两个子代理的产出都在各自句柄的取回正文里。
+	if !strings.Contains(batch.Output, now) || !strings.Contains(batch.Output, "README") {
+		t.Fatalf("取回的产出必须含两个子代理的输出，得到: %s", batch.Output)
 	}
 
 	// B6：两个子代理都拿到注入的 task_id（作用域绑定，无内容污染）。
@@ -145,18 +148,14 @@ func (c *capturingCompleter) snapshot() ([]types.Message, string) {
 // Complete 回调抓取它实际收到的输入，验证 charter 提示词规范渲染（目标/
 // 预算/收尾协议）以及 B6 task_id 只进 NodeScope 不进 prompt。
 func TestSubagentTaskDeliveryCallbackInput(t *testing.T) {
-	runtime := newTestRuntime(t)
+	runtime := newAsyncTestRuntime(t)
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
 
 	probe := &capturingCompleter{reply: "完成：输出时间 ok"}
 	injectScriptedCompleters(t, runtime, map[string]agent.Completer{"child-one": probe})
 
-	_, err := runtime.Agent().DirectDispatch(context.Background(), "fork_subagents",
-		`{"subagents":[{"id":"time_agent","goal":"输出当前时间并格式化"}]}`)
-	if err != nil {
-		t.Fatalf("fork_subagents failed: %v", err)
-	}
+	forkAndWait(t, runtime, `{"subagents":[{"id":"time_agent","goal":"输出当前时间并格式化"}]}`)
 
 	messages, taskID := probe.snapshot()
 	if len(messages) == 0 {
@@ -215,23 +214,23 @@ func (f *failingCompleter) Complete(context.Context, []types.Message, []types.To
 	return types.Message{}, f.err
 }
 
-// TestForkSubagentsFailurePropagationSmoke 报错路径：子代理失败必须作为
-// fork 错误返回（不无声卡死），且 worktable 中该子代理任务标 failed。
+// TestForkSubagentsFailurePropagationSmoke 报错路径：子代理失败必须**显式**呈现
+// （作业终态 failed，不无声卡死），且 worktable 中该子代理任务标 failed。
 func TestForkSubagentsFailurePropagationSmoke(t *testing.T) {
-	runtime := newTestRuntime(t)
+	runtime := newAsyncTestRuntime(t)
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
 	injectScriptedCompleters(t, runtime, map[string]agent.Completer{
 		"child-one": &failingCompleter{err: errors.New("boom: subagent crashed")},
 	})
 
-	result, err := runtime.Agent().DirectDispatch(context.Background(), "fork_subagents",
-		`{"subagents":[{"id":"bad_agent","goal":"一定会失败"}]}`)
-	if err == nil {
-		t.Fatalf("fork must return an error when a subagent fails, got: %s", result)
+	batch := forkRun(t, runtime, `{"subagents":[{"id":"bad_agent","goal":"一定会失败"}]}`)
+	if state := batch.States[batch.Handles[0]]; state != "failed" {
+		t.Fatalf("失败子代理的作业终态 = %q, want failed（读数 %+v）", state, batch.States)
 	}
-	if !strings.Contains(err.Error(), "boom") {
-		t.Fatalf("fork error must carry the subagent failure: %v", err)
+	// 整批归零（唯一子代理失败）时作业正文仍带着失败原因：模型据此知道为什么没产出。
+	if !strings.Contains(batch.Output, "boom") {
+		t.Fatalf("失败子代理的作业正文必须带失败原因:\n%s", batch.Output)
 	}
 	records := runtime.TaskSnapshot()
 	found := false
@@ -249,54 +248,49 @@ func TestForkSubagentsFailurePropagationSmoke(t *testing.T) {
 }
 
 // TestForkSummaryKeeps2000ChineseRunes 汇总窗口按“字”计数：2000 汉字结论
-// 完整保留（不再被 160 字节/行截断），且结果不超限不被归档。
+// 完整保留（不再被 160 字节/行截断）。
+//
+// 2026-10-01：fork_subagents 改为作业化派发后，汇总节点不再进模型的返回（模型按句柄
+// 取回各子代理**完整产出**），汇总窗口因此按纯函数钉住——它是 summary 节点的性质，
+// 不是 fork 工具的返回形状。
 func TestForkSummaryKeeps2000ChineseRunes(t *testing.T) {
-	runtime := newTestRuntime(t)
-	defer runtime.Shutdown()
-	runtime.RegisterBuiltins()
 	// 正常长结论是多行的：20 行 × 100 字 = 2000 字，逐行不超 160 字上限。
 	lines := make([]string, 20)
 	for index := range lines {
 		lines[index] = strings.Repeat("文", 100)
 	}
-	long := strings.Join(lines, "\n")
-	injectScriptedCompleters(t, runtime, map[string]agent.Completer{
-		"child-one": newScriptedNodeCompleter(long),
-	})
-	result, err := runtime.Agent().DirectDispatch(context.Background(), "fork_subagents",
-		`{"subagents":[{"id":"s1","goal":"写长结论"}]}`)
-	if err != nil {
-		t.Fatalf("fork failed: %v", err)
+	summary, fullRunes, truncated := fork.ResultSummaryLines(strings.Join(lines, "\n"))
+	if truncated {
+		t.Fatalf("2000 字结论不应被截断（fullRunes=%d）", fullRunes)
 	}
-	if strings.Contains(result, "已截断") {
-		t.Fatalf("2000 字结论不应被截断：%s", result)
+	// fullRunes 数的是整段正文（含 19 个换行）：20×100 汉字 + 19 个 '\n'。
+	if want := 20*100 + (20 - 1); fullRunes != want {
+		t.Fatalf("完整输出字数 = %d, want %d", fullRunes, want)
 	}
-	t.Logf("result length=%d 文count=%d", len(result), strings.Count(result, "文"))
-	if strings.Count(result, "文") < 2000 {
-		t.Fatal("结论主体必须完整保留在汇总中")
+	if got := strings.Count(summary, "文"); got != 2000 {
+		t.Fatalf("结论主体必须完整保留在汇总里（文count=%d）", got)
 	}
 }
 
-// TestForkSummaryReportsTruncatedSize 超窗截断时返回完整输出字数：
+// TestForkSummaryReportsTruncatedSize 超窗截断时汇总节点附上完整输出字数：
 // 模型据此判断是否需要 read_tool_result 读回，而不是凭空重跑。
 func TestForkSummaryReportsTruncatedSize(t *testing.T) {
-	runtime := newTestRuntime(t)
-	defer runtime.Shutdown()
-	runtime.RegisterBuiltins()
 	lines := make([]string, 60)
 	for index := range lines {
 		lines[index] = fmt.Sprintf("行%d %s", index, strings.Repeat("字", 80))
 	}
-	output := strings.Join(lines, "\n")
-	injectScriptedCompleters(t, runtime, map[string]agent.Completer{
-		"child-one": newScriptedNodeCompleter(output),
+	node := fork.NewSummaryNode(codec.NodeSpec[plan.SeelexNodeInput]{
+		ID: "summary", Kind: "summary",
+		Input: plan.SeelexNodeInput{ID: "summary", Input: "summarize"},
 	})
-	result, err := runtime.Agent().DirectDispatch(context.Background(), "fork_subagents",
-		`{"subagents":[{"id":"s1","goal":"写超长结论"}]}`)
+	wc := workplanTypes.NewWorkflowContext()
+	wc.SetResultRaw("s1", strings.Join(lines, "\n"))
+
+	out, err := node.Run(context.Background(), wc)
 	if err != nil {
-		t.Fatalf("fork failed: %v", err)
+		t.Fatal(err)
 	}
-	if !strings.Contains(result, "完整输出") || !strings.Contains(result, "已截断") {
-		t.Fatalf("截断时必须附完整输出字数提示：%s", result)
+	if !strings.Contains(out, "完整输出") || !strings.Contains(out, "已截断") {
+		t.Fatalf("截断时必须附完整输出字数提示：%s", out)
 	}
 }

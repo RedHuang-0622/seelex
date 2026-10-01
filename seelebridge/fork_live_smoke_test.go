@@ -1,12 +1,13 @@
 package seelebridge
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
 // TestForkSubagentsLiveSmoke 真实 API 冒烟（非默认运行）：
@@ -33,6 +34,10 @@ func TestForkSubagentsLiveSmoke(t *testing.T) {
 		ToolCallTimeout:   5 * time.Minute,
 		ApprovalTimeout:   10 * time.Minute,
 		HeartbeatInterval: 5 * time.Second,
+		Limits: seelexctx.Limits{
+			AsyncExec:      seelexctx.AsyncExecLimits{Enabled: true},
+			ForkTimeoutSec: 15 * 60,
+		},
 	})
 	if err != nil {
 		t.Fatalf("NewRuntime: %v", err)
@@ -44,24 +49,32 @@ func TestForkSubagentsLiveSmoke(t *testing.T) {
 	}
 	runtime.SetRuntimeVisibilityProjection(RuntimeVisibilityProjection{GoalSkillActive: true})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-	defer cancel()
+	// 作业化派发：调用立刻返回句柄，结果经 job_manage(op=fetch) 取回；真实 API 下
+	// 等待窗口按 15 分钟给足。
 	started := time.Now()
-	result, err := runtime.Agent().DirectDispatch(ctx, "fork_subagents",
+	receipt, err := forkDispatch(t, runtime,
 		`{"subagents":[
 			{"id":"live_time","goal":"获取当前系统时间并格式化为 yyyy-MM-dd HH:mm:ss"},
 			{"id":"live_file","goal":"读取仓库根目录 README.md 的前 20 行，用两句话总结 Seelex 是什么"}
 		]}`)
-	elapsed := time.Since(started)
 	if err != nil {
-		t.Fatalf("fork_subagents live failed (%s): %v", elapsed, err)
+		t.Fatalf("fork_subagents live failed (%s): %v", time.Since(started), err)
 	}
-	t.Logf("=== 真实 API fork 冒烟（耗时 %s）===\n%s", elapsed, result)
-	if !strings.Contains(result, `"status":"completed"`) {
-		t.Fatalf("fork result must be completed, got: %s", result)
+	handles := make([]string, 0, len(receipt.Jobs))
+	for _, job := range receipt.Jobs {
+		handles = append(handles, job.Handle)
 	}
-	if !strings.Contains(result, "live_time") || !strings.Contains(result, "live_file") {
-		t.Fatalf("result must carry both subagent outputs: %s", result)
+	forkWaitTerminalFor(t, runtime, handles, 15*time.Minute)
+	combined := make([]string, 0, len(handles))
+	for _, handle := range handles {
+		combined = append(combined, forkFetch(t, runtime, handle))
 	}
-	t.Logf("耗时: %s；完整会话/打点见工作区子代理树", elapsed)
+	result := strings.Join(combined, "\n")
+	t.Logf("=== 真实 API fork 冒烟（耗时 %s）===\n%s", time.Since(started), result)
+	for _, id := range []string{"live_time", "live_file"} {
+		if !strings.Contains(result, id) {
+			t.Fatalf("取回的产出必须覆盖 %s: %s", id, result)
+		}
+	}
+	t.Logf("耗时: %s；完整会话/打点见工作区子代理树", time.Since(started))
 }

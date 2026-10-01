@@ -22,9 +22,12 @@ import (
 // ── job_manage：管理（Manage 的工具面）─────────────────────────────────
 
 type jobManageInput struct {
-	Op     JobOp  `json:"op"`
-	Handle string `json:"handle,omitempty"`
-	WaitMS int    `json:"wait_ms,omitempty"`
+	Op JobOp `json:"op"`
+	// Handle 是单条作业的句柄；Handles 是**多条**（一次等一批 / 一批读数）。
+	// 两者都给时合并（去重后按给定顺序），这样"只加一个 handles"不会让 handle 失效。
+	Handle  string   `json:"handle,omitempty"`
+	Handles []string `json:"handles,omitempty"`
+	WaitMS  int      `json:"wait_ms,omitempty"`
 }
 
 // scopedJobManage 是 Manage 的唯一工具入口。
@@ -49,24 +52,43 @@ func (r *Router) scopedJobManage(ctx context.Context, argsJSON string) (string, 
 	default:
 		return "", fmt.Errorf("job_manage: 未知 op %q（可用 observe | fetch | kill | done）", input.Op)
 	}
-	if op != JobOpObserve && strings.TrimSpace(input.Handle) == "" {
-		return "", fmt.Errorf("job_manage: op=%s 需要 handle", op)
+	handles := requestedHandles(input)
+	if op != JobOpObserve && len(handles) == 0 {
+		return "", fmt.Errorf("job_manage: op=%s 需要 handle（或 handles）", op)
 	}
-	handle := JobHandle{Handle: strings.TrimSpace(input.Handle), WaitMS: input.WaitMS}
+	if op == JobOpKill || op == JobOpDone {
+		// 终止/销项一次只做一条：kill 会终止整批共用编排的子代理（一条 kill 影响 N 条
+		// 作业），销项是"我确认收到这一条"的动作——两者都不该被一个数组悄悄放大。
+		if len(handles) > 1 {
+			return "", fmt.Errorf("job_manage: op=%s 一次只能给一条句柄（收到 %d 条）；多条请逐条确认", op, len(handles))
+		}
+	}
+	waitMS := input.WaitMS
 	manager := &jobManager{router: r}
 	var (
 		payload []byte
 		err     error
 	)
-	switch op {
-	case JobOpObserve:
-		payload, err = manager.Status(ctx, handle)
-	case JobOpFetch:
-		payload, err = manager.Fetch(ctx, handle)
-	case JobOpKill:
-		payload, err = manager.Kill(ctx, handle)
-	case JobOpDone:
-		payload, err = manager.Done(ctx, handle)
+	switch {
+	case op == JobOpObserve && len(handles) > 1:
+		payload, err = manager.StatusMany(ctx, handleRequests(handles, waitMS))
+	case op == JobOpFetch && len(handles) > 1:
+		payload, err = manager.FetchMany(ctx, handleRequests(handles, waitMS))
+	default:
+		handle := JobHandle{WaitMS: waitMS}
+		if len(handles) > 0 {
+			handle.Handle = handles[0]
+		}
+		switch op {
+		case JobOpObserve:
+			payload, err = manager.Status(ctx, handle)
+		case JobOpFetch:
+			payload, err = manager.Fetch(ctx, handle)
+		case JobOpKill:
+			payload, err = manager.Kill(ctx, handle)
+		case JobOpDone:
+			payload, err = manager.Done(ctx, handle)
+		}
 	}
 	if err != nil {
 		return "", err
@@ -76,23 +98,59 @@ func (r *Router) scopedJobManage(ctx context.Context, argsJSON string) (string, 
 	return string(payload), nil
 }
 
+// requestedHandles 把 handle / handles 两个入参合并成一份去重后的句柄表
+// （保持给定顺序：handle 在前）。
+func requestedHandles(input jobManageInput) []string {
+	handles := make([]string, 0, len(input.Handles)+1)
+	seen := make(map[string]struct{}, len(input.Handles)+1)
+	appendHandle := func(raw string) {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			return
+		}
+		if _, ok := seen[trimmed]; ok {
+			return
+		}
+		seen[trimmed] = struct{}{}
+		handles = append(handles, trimmed)
+	}
+	appendHandle(input.Handle)
+	for _, handle := range input.Handles {
+		appendHandle(handle)
+	}
+	return handles
+}
+
+// handleRequests 把句柄名折成请求结构（同一个 wait_ms 摊给整批：一次调用只有一份预算）。
+func handleRequests(handles []string, waitMS int) []JobHandle {
+	requests := make([]JobHandle, 0, len(handles))
+	for _, handle := range handles {
+		requests = append(requests, JobHandle{Handle: handle, WaitMS: waitMS})
+	}
+	return requests
+}
+
 // jobManageSchema 是 job_manage 的入参 schema。
 func jobManageSchema() map[string]interface{} {
 	return map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
-			"op":      map[string]interface{}{"type": "string", "description": "observe | fetch | kill | done"},
-			"handle":  map[string]interface{}{"type": "string"},
+			"op":     map[string]interface{}{"type": "string", "description": "observe | fetch | kill | done"},
+			"handle": map[string]interface{}{"type": "string"},
+			"handles": map[string]interface{}{
+				"type": "array", "items": map[string]interface{}{"type": "string"},
+				"description": "多条句柄：op=fetch 一次等一批并各自取回增量、op=observe 一次看一批。整批共用一份 wait_ms。",
+			},
 			"wait_ms": map[string]interface{}{"type": "integer"},
 		},
 		"required": []string{"op"},
 	}
 }
 
-// jobManageDescription 说明四个 op 的语义，并明确三件容易踩的事：
-// observe 不吃输出、fetch 是消费式、确认进展不必花一次往返（打点块已经列出来了）。
+// jobManageDescription 说明四个 op 的语义，并明确四件容易踩的事：
+// observe 不吃输出、fetch 是消费式、handles 可以一次管多条、确认进展不必花一次往返。
 func jobManageDescription() string {
-	return "Manage a dispatched job by handle (bash_bg / read_batch / subagent). " +
+	return "Manage dispatched jobs by handle (bash_bg / read_batch / fork_subagents). " +
 		"op=observe: read-only progress look (never advances the fetch cursor, so it never " +
 		"consumes output); with no handle it lists every job in this session. " +
 		"op=fetch: return only the bytes produced since the previous fetch for that handle " +
@@ -100,12 +158,15 @@ func jobManageDescription() string {
 		"immediately, 0 or omitted waits up to 5s, values above 60000 are capped; set it near " +
 		"the expected remaining time. A terminal job is retired once fetched (its row leaves " +
 		"the work table; the fetched result stays in the transcript). " +
+		"Give `handles` (an array) instead of `handle` to wait for and fetch a WHOLE batch in one " +
+		"call: the wait budget is shared across the batch (not multiplied per handle), and each " +
+		"job's own increment comes back under `jobs`. " +
 		"op=kill: terminate the job (whole process tree / cancellation cascade); output already " +
-		"produced is kept and still fetchable. " +
+		"produced is kept and still fetchable. One handle only. " +
 		"op=done: retire a terminal job (terminal state is only ever decided by the execution " +
-		"body, so done on a running job is refused — use kill). Repeat calls are idempotent. " +
-		"Handles are scoped to the calling session. Do not call observe just to check whether a " +
-		"job is still running: the work-table trace block already lists every live job."
+		"body, so done on a running job is refused — use kill). One handle only. Repeat calls are " +
+		"idempotent. Handles are scoped to the calling session. Do not call observe just to check " +
+		"whether a job is still running: the work-table trace block already lists every live job."
 }
 
 // ── bash_bg：后台受管命令（Add 的工具面）───────────────────────────────

@@ -8,12 +8,21 @@ import (
 // SubagentsContractDescription 是 fork_subagents 工具的契约描述（追加在
 // 工具 Description 后，指导模型使用）。
 const SubagentsContractDescription = `
-- Fork N isolated subagents in parallel (worktree-isolated) and return their structured outputs.
+- The call returns an acceptance receipt with one job handle per subagent and NEVER waits
+  for results: this is background dispatch, the same job face as bash_bg / read_batch.
+- Fetch each subagent's output with job_manage(op=fetch, handle); look at progress with
+  op=observe (handle or none = list this session's jobs); terminate early with op=kill
+  (already produced output is kept); retire the row with op=done once it is terminal.
+  One kill cancels the WHOLE batch (they share a single plan run).
 - max_concurrency: optional cap on parallel subagents (default: policy limit).
-- Returns a summary JSON with each subagent's output.
 `
 
 // Input 是 fork_subagents 的参数契约。
+//
+// 这一批子代理**只走作业化派发**（打点 L-5）：调用立刻返回每个子代理的句柄，产出经
+// `job_manage(op=fetch, handle)` 取回。没有"阻塞到全部跑完"的分支——串行派发会把
+// "观察/提前终止子代理"变成不可能（阻塞期间模型没有下一次调用，不是缺工具，是缺时机），
+// 而这条能力正是它与 bash_bg / read_batch 同属一个作业面的原因。
 type Input struct {
 	Subagents      []SubagentSpec `json:"subagents"`
 	MaxConcurrency int            `json:"max_concurrency,omitempty"`
@@ -21,12 +30,6 @@ type Input struct {
 	// limits.fork_timeout，默认 2h）；简单审查/只读任务按需给 1200（20 分钟）
 	// 等更紧的上限，避免排队或异常时挂太久。
 	TimeoutSec int `json:"timeout_sec,omitempty"`
-	// Async 打开**作业化派发**（打点 L-5）：这一批子代理登记成 Kind=subagent 的作业，
-	// 调用立刻返回受理回执（每个子代理一个句柄），结果经 job_manage(op=fetch) 取回。
-	//
-	// 默认 false = 保持既有语义（阻塞到全部子代理与 summary 节点跑完，直接返回结果）。
-	// 打开后才可能"在子代理跑动中观察/干预"——阻塞调用期间模型根本没有下一次调用。
-	Async bool `json:"async,omitempty"`
 }
 
 // SubagentSpec 是单个子代理的派工规格。

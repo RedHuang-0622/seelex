@@ -351,6 +351,25 @@ func (g *asyncRegistry) countRunningFor(sessionID string) int {
 	return count
 }
 
+// countRunningKindFor 在锁内数"某会话仍在跑的某一类作业"（不做任何文件 I/O）：
+// 它是 `Runtime.ForkInFlight` 的作业侧读面——门控会被每次用户输入读到，不能顺带
+// 采样每个作业的日志文件（那是探针的活）。
+func (g *asyncRegistry) countRunningKindFor(sessionID, kind string) int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	count := 0
+	for _, run := range g.runs {
+		if run.kind != kind || run.state != asyncStateRunning {
+			continue
+		}
+		if sessionID != "" && run.sessionID != sessionID {
+			continue
+		}
+		count++
+	}
+	return count
+}
+
 // evictLocked 驱逐最老的已完成记录（连带去重键）把表封顶，返回**待删的输出文件
 // 路径**（调用方在锁外删）。在途项永不丢。
 //
@@ -917,6 +936,12 @@ func renderAccepted(run asyncRun, repeated bool) ([]byte, error) {
 
 // renderPolled 渲染一次取回：running 带增量，终态带 exit_code、有界摘要与末尾增量。
 func renderPolled(run asyncRun, delta string, truncated bool) ([]byte, error) {
+	return encodeAsync(polledPayload(run, delta, truncated))
+}
+
+// polledPayload 是"一次取回"的载荷（与 renderPolled 同一份内容）：单条取回与
+// 批量取回（job_manage 的 handles）共用它，免得两条路径各写一份字段。
+func polledPayload(run asyncRun, delta string, truncated bool) asyncPayload {
 	status, hint := "progress", "仍在运行。需要结果就再调一次 job_manage(op=fetch, handle)。"
 	switch run.state {
 	case asyncStateRunning:
@@ -930,10 +955,43 @@ func renderPolled(run asyncRun, delta string, truncated bool) ([]byte, error) {
 	if truncated {
 		hint += " 输出已按上限截断，完整内容读 log_path。"
 	}
-	return encodeAsync(asyncPayload{
+	return asyncPayload{
 		Status: status, Handle: run.handle, Kind: run.kind, State: run.state, ExitCode: run.exit,
 		LogPath: run.logPath, Output: delta, Summary: run.summary, Truncated: truncated, Hint: hint,
-	})
+	}
+}
+
+// asyncBatchPayload 是**一次取回多条作业**的载荷（job_manage 的 handles）：每条带
+// 自己那份增量与终态，外层给一个总数与一句提示。
+type asyncBatchPayload struct {
+	Status string         `json:"status"`
+	Count  int            `json:"count"`
+	Jobs   []asyncPayload `json:"jobs"`
+	Hint   string         `json:"hint"`
+}
+
+// encodeAsyncBatch 渲染批量取回：任一条还在跑就报 progress（并说清还有几条），
+// 全部终态才报 finished——与单条取回的 status 口径一致。
+func encodeAsyncBatch(jobs []asyncPayload) ([]byte, error) {
+	running := 0
+	for _, job := range jobs {
+		if job.State == asyncStateRunning {
+			running++
+		}
+	}
+	status := "finished"
+	hint := fmt.Sprintf("%d 条件业已各自取回增量（消费式：取过的字节不会再给第二次）。"+
+		"终态的作业已销项（行从工作打点表消失）。", len(jobs))
+	if running > 0 {
+		status = "progress"
+		hint = fmt.Sprintf("%d 条件业里仍有 %d 条在跑：以上是本轮各自的增量，游标已推进。"+
+			"想把它们一次等到终态，就给 wait_ms 一个接近预期剩余时长的值再调一次。", len(jobs), running)
+	}
+	encoded, err := json.Marshal(asyncBatchPayload{Status: status, Count: len(jobs), Jobs: jobs, Hint: hint})
+	if err != nil {
+		return nil, fmt.Errorf("job: 渲染批量取回载荷失败: %w", err)
+	}
+	return encoded, nil
 }
 
 // renderObserved 渲染一次观察（只读旁路：**不推进游标**、不进上下文正文）。

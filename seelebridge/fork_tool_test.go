@@ -2,15 +2,18 @@ package seelebridge
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/RedHuang-0622/Seele/agent"
 	"github.com/RedHuang-0622/Seele/workplan/codec"
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/fork"
+	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/seelebridge/plan"
 	"github.com/RedHuang-0622/seelex/seelebridge/task"
 )
@@ -18,9 +21,9 @@ import (
 // ── fork_subagents（切片 5，docs/2026-08-03-subagent-fork-architecture/plan.md §4）──
 
 // TestForkSubagentsEndToEnd 验证 fork 全链路：两个并行子代理（确定性
-// completer）→ summary 拼接 → plan_run 结果含全部输出。
+// completer）→ 各自一条作业（派发即返回句柄）→ 取回的正文里有各自产出。
 func TestForkSubagentsEndToEnd(t *testing.T) {
-	runtime := newTestRuntime(t)
+	runtime := newAsyncTestRuntime(t)
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
 	// 两个子代理路由到不同账号（并行）。
@@ -29,23 +32,17 @@ func TestForkSubagentsEndToEnd(t *testing.T) {
 		"sub-2": newScriptedNodeCompleter("fork-right: audit module B done"),
 	})
 
-	result, err := runtime.Agent().DirectDispatch(context.Background(), "fork_subagents",
-		`{"subagents":[{"id":"s1","goal":"audit module A"},{"id":"s2","goal":"audit module B"}]}`)
-	if err != nil {
-		t.Fatalf("fork_subagents failed: %v", err)
-	}
-	if !strings.Contains(result, `"status":"completed"`) {
-		t.Fatalf("fork result must be completed, got: %s", result)
-	}
-	// 两个子代理输出都在结果里（nodes 数组 + summary 紧凑行；T1：对话区
-	// 只带单行摘要，完整输出在工作区子代理树/详情弹窗）。
-	for _, want := range []string{"fork-left: audit module A done", "fork-right: audit module B done", "- s1:", "- s2:"} {
-		if !strings.Contains(result, want) {
-			t.Errorf("fork result missing %q:\n%s", want, result)
+	batch := forkRun(t, runtime, `{"subagents":[{"id":"s1","goal":"audit module A"},{"id":"s2","goal":"audit module B"}]}`)
+	for _, handle := range batch.Handles {
+		if batch.States[handle] != "done" {
+			t.Fatalf("子代理作业 %s 终态 = %q, want done（读数 %+v）", handle, batch.States[handle], batch.States)
 		}
 	}
-	if strings.Contains(result, `"## `) {
-		t.Errorf("fork summary must not use old full-output format (##):\n%s", result)
+	// 两个子代理的产出都在各自句柄的正文里（消费式增量取回）。
+	for _, want := range []string{"fork-left: audit module A done", "fork-right: audit module B done"} {
+		if !strings.Contains(batch.Output, want) {
+			t.Errorf("取回的产出缺 %q:\n%s", want, batch.Output)
+		}
 	}
 	// 结束后详情数据面：结构化上下文快照（Goal/MessageCount；只读子代理 actor）。
 	snap, ok := runtime.NodeContextSnapshot("s1")
@@ -65,7 +62,7 @@ func TestForkSubagentsEndToEnd(t *testing.T) {
 // fork 直接返回已保存输出，不重新执行（省 token）；task 状态经 retry
 // 计数后回到 completed。
 func TestForkSubagentsReuseStoredOutputSavesTokens(t *testing.T) {
-	runtime := newTestRuntime(t)
+	runtime := newAsyncTestRuntime(t)
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
 
@@ -95,26 +92,27 @@ func TestForkSubagentsReuseStoredOutputSavesTokens(t *testing.T) {
 	runtime.subagentTree.CompleteSubagentNode("s1", seed[0].summary, nil)
 	runtime.subagentTree.CompleteSubagentNode("s2", seed[1].summary, nil)
 
-	// 若误执行，scripted completer 会返回与 SEEDED 不同的输出——断言结果
+	// 若误执行，scripted completer 会返回与 SEEDED 不同的输出——断言取回的正文
 	// 只含已保存摘要即可证明未重跑。
 	injectScriptedCompleters(t, runtime, map[string]agent.Completer{
 		"s1": newScriptedNodeCompleter("FRESH-RUN-A"),
 		"s2": newScriptedNodeCompleter("FRESH-RUN-B"),
 	})
 
-	result, err := runtime.Agent().DirectDispatch(context.Background(), "fork_subagents",
-		`{"subagents":[{"id":"s1","goal":"audit module A"},{"id":"s2","goal":"audit module B"}]}`)
-	if err != nil {
-		t.Fatalf("fork_subagents failed: %v", err)
+	batch := forkRun(t, runtime, `{"subagents":[{"id":"s1","goal":"audit module A"},{"id":"s2","goal":"audit module B"}]}`)
+	for _, handle := range batch.Handles {
+		if batch.States[handle] != "done" {
+			t.Fatalf("复用批次的作业终态 = %q, want done（读数 %+v）", batch.States[handle], batch.States)
+		}
 	}
-	for _, want := range []string{`"status":"completed"`, `"reused":true`, seed[0].summary, seed[1].summary, "复用上次已保存输出"} {
-		if !strings.Contains(result, want) {
-			t.Errorf("reuse result missing %q:\n%s", want, result)
+	for _, want := range []string{seed[0].summary, seed[1].summary} {
+		if !strings.Contains(batch.Output, want) {
+			t.Errorf("复用结果缺 %q:\n%s", want, batch.Output)
 		}
 	}
 	for _, fresh := range []string{"FRESH-RUN-A", "FRESH-RUN-B"} {
-		if strings.Contains(result, fresh) {
-			t.Errorf("reuse result must not re-run subagent (leaked %q):\n%s", fresh, result)
+		if strings.Contains(batch.Output, fresh) {
+			t.Errorf("复用批次必须不重跑子代理（泄漏了 %q）:\n%s", fresh, batch.Output)
 		}
 	}
 	// task 状态：completed（复用成功），retry_count=1（重试计数保留）。
@@ -134,17 +132,16 @@ func TestForkSubagentsReuseStoredOutputSavesTokens(t *testing.T) {
 // 置 retry（计数自增），子代理树无输出 → 正常重跑 → 完成后状态回到
 // completed、retry_count 保留。
 func TestForkSubagentsRetryRunsWhenNoStoredOutput(t *testing.T) {
-	runtime := newTestRuntime(t)
+	runtime := newAsyncTestRuntime(t)
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
 	injectScriptedCompleters(t, runtime, map[string]agent.Completer{
 		"s1": newScriptedNodeCompleter("retry-run: audit module A done"),
 	})
 
-	// 第一次执行：正常完成，task 落 completed。
-	if _, err := runtime.Agent().DirectDispatch(context.Background(), "fork_subagents",
-		`{"subagents":[{"id":"s1","goal":"audit module A"}]}`); err != nil {
-		t.Fatal(err)
+	// 第一次派发：跑完，task 落 completed。
+	if got := forkAndWait(t, runtime, `{"subagents":[{"id":"s1","goal":"audit module A"}]}`); !strings.Contains(got, "retry-run: audit module A done") {
+		t.Fatalf("first run output:\n%s", got)
 	}
 	before, found, err := runtime.ResolveTaskByKey(task.TaskKeyForGoal("audit module A"))
 	if err != nil || !found || before.Status != dto.TaskCompleted || before.RetryCount != 0 {
@@ -155,13 +152,9 @@ func TestForkSubagentsRetryRunsWhenNoStoredOutput(t *testing.T) {
 	if err := runtime.ClearSubagentTree(); err != nil {
 		t.Fatal(err)
 	}
-	result, err := runtime.Agent().DirectDispatch(context.Background(), "fork_subagents",
-		`{"subagents":[{"id":"s1","goal":"audit module A"}]}`)
-	if err != nil {
-		t.Fatalf("fork retry failed: %v", err)
-	}
-	if !strings.Contains(result, "retry-run: audit module A done") {
-		t.Fatalf("retry must actually re-run subagent, got:\n%s", result)
+	got := forkAndWait(t, runtime, `{"subagents":[{"id":"s1","goal":"audit module A"}]}`)
+	if !strings.Contains(got, "retry-run: audit module A done") {
+		t.Fatalf("retry must actually re-run subagent, got:\n%s", got)
 	}
 	after, found, err := runtime.ResolveTaskByKey(task.TaskKeyForGoal("audit module A"))
 	if err != nil || !found {
@@ -174,7 +167,7 @@ func TestForkSubagentsRetryRunsWhenNoStoredOutput(t *testing.T) {
 
 // TestForkSubagentsValidation 验证护栏：空列表 / 重复 id / 缺 goal / 超数量上限。
 func TestForkSubagentsValidation(t *testing.T) {
-	runtime := newTestRuntime(t)
+	runtime := newAsyncTestRuntime(t)
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
 	runtime.SetPlanPolicy(dto.PlanPolicy{Effort: "test", MaxNodes: 2})
@@ -193,6 +186,49 @@ func TestForkSubagentsValidation(t *testing.T) {
 		if _, err := runtime.Agent().DirectDispatch(context.Background(), "fork_subagents", tc.args); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: error = %v, want contains %q", tc.name, err, tc.want)
 		}
+	}
+}
+
+// TestForkInFlightTracksRunningSubagentJobs 钉住 fork 门控的**作业侧事实**：
+// 派发立刻返回之后，"fork 在飞"不再由那次工具调用代表，而是由这一批 Kind=subagent
+// 作业还在跑代表。application 侧的 `ErrForkRunningChat`（fork 期间禁止同会话继续
+// 对话）靠 `Runtime.ForkInFlight` 读它——只数派发窗口会让门控静默失效。
+func TestForkInFlightTracksRunningSubagentJobs(t *testing.T) {
+	runtime := newAsyncTestRuntime(t)
+	defer runtime.Shutdown()
+	runtime.RegisterBuiltins()
+	blocking := newBlockingNodeCompleter()
+	injectScriptedCompleters(t, runtime, map[string]agent.Completer{"child-one": blocking})
+
+	const sessionID = "sess-fork-gate"
+	ctx := seetelemetry.WithSessionID(context.Background(), sessionID)
+	raw, err := runtime.Agent().DirectDispatch(ctx, "fork_subagents",
+		`{"subagents":[{"id":"s1","goal":"长任务"}]}`)
+	if err != nil {
+		t.Fatalf("fork 派发失败: %v", err)
+	}
+	var receipt forkReceipt
+	if err := json.Unmarshal([]byte(raw), &receipt); err != nil {
+		t.Fatalf("受理回执不是合法 JSON: %v (%q)", err, raw)
+	}
+	handles := make([]string, 0, len(receipt.Jobs))
+	for _, job := range receipt.Jobs {
+		handles = append(handles, job.Handle)
+	}
+
+	select {
+	case <-blocking.started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("子代理一直没启动")
+	}
+	if !runtime.ForkInFlight(sessionID) {
+		t.Fatal("子代理作业还在跑时 ForkInFlight 必须为真（application 的 fork 门控靠它）")
+	}
+	close(blocking.release)
+	forkWaitTerminal(t, runtime, handles)
+	// 终态之后门控放开（不要求模型先取回——"在飞"是"还在跑"，不是"还没结清"）。
+	if runtime.ForkInFlight(sessionID) {
+		t.Fatal("子代理作业终态之后 ForkInFlight 必须为假")
 	}
 }
 

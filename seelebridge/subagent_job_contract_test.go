@@ -53,16 +53,15 @@ func TestForkSubagentsAsyncRunsAsJobs(t *testing.T) {
 	// ① 派发即返回：回执里是句柄，不是子代理结果。
 	startedAt := time.Now()
 	raw, err := runtime.Agent().DirectDispatch(ctx, "fork_subagents",
-		`{"async":true,"subagents":[{"id":"s1","goal":"audit module A"},{"id":"s2","goal":"audit module B"}]}`)
+		`{"subagents":[{"id":"s1","goal":"audit module A"},{"id":"s2","goal":"audit module B"}]}`)
 	if err != nil {
 		t.Fatalf("async fork 派发失败: %v", err)
 	}
 	if elapsed := time.Since(startedAt); elapsed > 20*time.Second {
-		t.Fatalf("派发用了 %v：async 模式必须派发即返回", elapsed)
+		t.Fatalf("派发用了 %v：作业化派发必须派发即返回", elapsed)
 	}
 	var receipt struct {
 		Status string `json:"status"`
-		Async  bool   `json:"async"`
 		Jobs   []struct {
 			Handle string `json:"handle"`
 			ID     string `json:"id"`
@@ -71,8 +70,8 @@ func TestForkSubagentsAsyncRunsAsJobs(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &receipt); err != nil {
 		t.Fatalf("受理回执不是合法 JSON: %v (%q)", err, raw)
 	}
-	if receipt.Status != "accepted" || !receipt.Async || len(receipt.Jobs) != 2 {
-		t.Fatalf("回执 = %+v, want accepted/async/2 句柄", receipt)
+	if receipt.Status != "accepted" || len(receipt.Jobs) != 2 {
+		t.Fatalf("回执 = %+v, want accepted/2 句柄", receipt)
 	}
 	if strings.Contains(raw, "findings") {
 		t.Fatalf("受理回执不得携带子代理产出: %q", raw)

@@ -65,9 +65,9 @@ func (c *countingBlockingCompleter) peakInFlight() int {
 //  1. every subagent is really executed (completer sees N requests); none is
 //     canceled while queued;
 //  2. the task registry holds N subagent tasks, all completed;
-//  3. the tool returns completed, not context.Canceled ("task stopped").
+//  3. every subagent job reaches done (no job is left running / canceled).
 func TestForkManySubagentsSharedAccountQueued(t *testing.T) {
-	runtime := newTestRuntime(t)
+	runtime := newAsyncTestRuntime(t)
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
 	if _, err := runtime.NewMainSession(nil); err != nil {
@@ -88,13 +88,20 @@ func TestForkManySubagentsSharedAccountQueued(t *testing.T) {
 	}
 	args := `{"subagents":[` + strings.Join(specs, ",") + `]}`
 	started := time.Now()
-	result, err := runtime.Agent().DirectDispatch(context.Background(), "fork_subagents", args)
-	t.Logf("fork_subagents took %v", time.Since(started))
+	receipt, err := forkDispatch(t, runtime, args)
+	t.Logf("fork_subagents 派发耗时 %v（作业化派发：不等结果）", time.Since(started))
 	if err != nil {
 		t.Fatalf("fork_subagents failed: %v", err)
 	}
-	if !strings.Contains(result, `"status":"completed"`) {
-		t.Fatalf("fork_subagents did not complete: %s", result)
+	handles := make([]string, 0, len(receipt.Jobs))
+	for _, job := range receipt.Jobs {
+		handles = append(handles, job.Handle)
+	}
+	forkWaitTerminal(t, runtime, handles)
+	for _, handle := range handles {
+		if state := forkStateOf(t, runtime, handle); state != "done" {
+			t.Fatalf("作业 %s 终态 = %q, want done（排队中的子代理被取消？）", handle, state)
+		}
 	}
 
 	// Assertion 1: all subagents were really executed.
@@ -134,7 +141,7 @@ func TestForkManySubagentsSharedAccountQueued(t *testing.T) {
 // acquire inside Complete. Waiting subagents therefore show running in the
 // worktable while the account semaphore is their real wait queue.
 func TestForkManySubagentsSharedAccountDeadlockProbe(t *testing.T) {
-	runtime := newTestRuntime(t)
+	runtime := newAsyncTestRuntime(t)
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
 	if _, err := runtime.NewMainSession(nil); err != nil {
@@ -155,13 +162,14 @@ func TestForkManySubagentsSharedAccountDeadlockProbe(t *testing.T) {
 	}
 	args := `{"subagents":[` + strings.Join(specs, ",") + `]}`
 
-	done := make(chan struct{})
-	var result string
-	var forkErr error
-	go func() {
-		result, forkErr = runtime.Agent().DirectDispatch(context.Background(), "fork_subagents", args)
-		close(done)
-	}()
+	receipt, err := forkDispatch(t, runtime, args)
+	if err != nil {
+		t.Fatalf("fork 派发失败: %v", err)
+	}
+	handles := make([]string, 0, len(receipt.Jobs))
+	for _, job := range receipt.Jobs {
+		handles = append(handles, job.Handle)
+	}
 
 	// First subagent really started (blocked inside Complete).
 	select {
@@ -174,17 +182,7 @@ func TestForkManySubagentsSharedAccountDeadlockProbe(t *testing.T) {
 
 	// Release the account: all queued subagents must finish in order, no deadlock.
 	close(blocking.release)
-	select {
-	case <-done:
-	case <-time.After(60 * time.Second):
-		t.Fatal("fork did not finish after release (deadlock?)")
-	}
-	if forkErr != nil {
-		t.Fatalf("fork failed: %v", forkErr)
-	}
-	if !strings.Contains(result, `"status":"completed"`) {
-		t.Fatalf("fork did not complete: %s", result)
-	}
+	forkWaitTerminal(t, runtime, handles)
 	if peak := blocking.peakInFlight(); peak != 1 {
 		t.Fatalf("account pool allowed %d concurrent completes, want 1 (MaxConcurrency not enforced)", peak)
 	}

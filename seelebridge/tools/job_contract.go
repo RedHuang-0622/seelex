@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // 作业契约（打点 K-1）：**凡"有进程添加与管理"的工具都实现这两个函数**。
@@ -166,41 +167,128 @@ func (m *jobManager) Status(ctx context.Context, handle JobHandle) ([]byte, erro
 	return renderObserved([]string{m.router.async.observeLine(run)})
 }
 
+// StatusMany 一次观察多条作业（`job_manage` 的 `handles`）：只读读数，**不推进
+// 游标**、不消费输出——与单条 observe 同一口径，只是把多次调用折成一次。
+func (m *jobManager) StatusMany(ctx context.Context, handles []JobHandle) ([]byte, error) {
+	if m.router == nil || m.router.async == nil {
+		return nil, fmt.Errorf("job_manage: %s", asyncDisabledText)
+	}
+	if len(handles) == 0 {
+		return nil, fmt.Errorf("job_manage: op=observe 的 handles 不能为空")
+	}
+	sessionID := m.sessionID(ctx)
+	lines := make([]string, 0, len(handles))
+	for _, handle := range handles {
+		run, ok := m.router.async.snapshot(handle.Handle)
+		if !ok {
+			if state, retired := m.router.async.retiredState(handle.Handle); retired {
+				lines = append(lines, fmt.Sprintf(
+					"- %s %s 已销项（终态已回填过一次；输出已在那次 fetch 的结果里）", handle.Handle, state))
+				continue
+			}
+			return nil, fmt.Errorf("job_manage: 未知句柄 %q（可能已被销项或驱逐，或进程重启后登记表已清空）", handle.Handle)
+		}
+		if run.sessionID != sessionID {
+			return nil, fmt.Errorf("job_manage: 句柄 %q 不属于本会话", handle.Handle)
+		}
+		lines = append(lines, m.router.async.observeLine(run))
+	}
+	return renderObserved(lines)
+}
+
 // Fetch 取回增量（**消费式**：取过的增量不会再给第二次）。
 //
 // 终态作业取回之后**销项**（设计文档 §A.3 的行生命周期）：history 里的这次结果成为
 // 唯一事实，投影里的那一行随之消失。在途作业取回不销项——它还在跑。
 func (m *jobManager) Fetch(ctx context.Context, handle JobHandle) ([]byte, error) {
-	sessionID := m.sessionID(ctx)
 	if handle.Handle == "" {
-		return nil, fmt.Errorf("job_manage: op=fetch 需要 handle")
+		return nil, fmt.Errorf("job_manage: op=fetch 需要 handle（或用 handles 一次取回多条）")
 	}
+	payload, err := m.fetchOne(ctx, m.sessionID(ctx), handle)
+	if err != nil {
+		return nil, err
+	}
+	return encodeAsync(payload)
+}
+
+// FetchMany 一次**等一批作业**并各自取回增量（`job_manage` 的 `handles`）。
+//
+// 为什么需要它：一批派发出去的作业（read_batch 的 N 个读、fork 的一批子代理）本来
+// 就是一个工作单元——逐个 fetch 会把"等最慢的那个"变成 N 次往返，而且每次都是一次
+// 独立工具调用，模型得自己记住哪些已经取过。
+//
+// 预算语义：整批**共用一条 deadline**（取各自 wait_ms 的最大值，按同一套上限归一），
+// 不是每条各等一次——否则 8 条件业各等 60s 会把一次调用钉住 8 分钟。
+func (m *jobManager) FetchMany(ctx context.Context, handles []JobHandle) ([]byte, error) {
+	if m.router == nil || m.router.async == nil {
+		return nil, fmt.Errorf("job_manage: %s", asyncDisabledText)
+	}
+	if len(handles) == 0 {
+		return nil, fmt.Errorf("job_manage: op=fetch 需要 handle（或 handles）")
+	}
+	sessionID := m.sessionID(ctx)
+	requested := -1
+	for _, handle := range handles {
+		if handle.WaitMS > requested {
+			requested = handle.WaitMS
+		}
+	}
+	deadline := time.Now().Add(time.Duration(clampAsyncWaitMS(requested)) * time.Millisecond)
+	for _, handle := range handles {
+		run, ok := m.router.async.snapshot(handle.Handle)
+		if !ok {
+			// 未知句柄交给取回阶段统一报错：这里的等待阶段不该先替它下结论。
+			continue
+		}
+		if run.sessionID != sessionID {
+			return nil, fmt.Errorf("job_manage: 句柄 %q 不属于本会话", handle.Handle)
+		}
+		if run.state != asyncStateRunning {
+			continue
+		}
+		if remaining := int(time.Until(deadline) / time.Millisecond); remaining > 0 {
+			awaitAsyncDeadline(ctx, run.done, remaining)
+		}
+	}
+	jobs := make([]asyncPayload, 0, len(handles))
+	for _, handle := range handles {
+		// 等待已经在上面一次性做过（整批共用一份预算）；这里必须**不再等**，
+		// 否则每条又各等一次 wait_ms，一次调用就被乘成 N 倍。
+		payload, err := m.fetchOne(ctx, sessionID, JobHandle{Handle: handle.Handle, WaitMS: -1})
+		if err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, payload)
+	}
+	return encodeAsyncBatch(jobs)
+}
+
+// fetchOne 是单条取回的唯一实现（单条与批量两条路径共用）：等预算 → 取增量 → 推进
+// 游标 → 终态即销项。返回**载荷**（不编码），批量路径要把它嵌进 batch 里。
+func (m *jobManager) fetchOne(ctx context.Context, sessionID string, handle JobHandle) (asyncPayload, error) {
 	run, ok := m.router.async.snapshot(handle.Handle)
 	if !ok {
 		if state, retired := m.router.async.retiredState(handle.Handle); retired {
-			return nil, fmt.Errorf("job_manage: 句柄 %q 已销项（终态 %s）：输出已在销项前那次取回的结果里", handle.Handle, state)
+			return asyncPayload{}, fmt.Errorf("job_manage: 句柄 %q 已销项（终态 %s）：输出已在销项前那次取回的结果里", handle.Handle, state)
 		}
-		return nil, fmt.Errorf("job_manage: 未知句柄 %q（可能已被驱逐，或进程重启后登记表已清空）", handle.Handle)
+		return asyncPayload{}, fmt.Errorf("job_manage: 未知句柄 %q（可能已被驱逐，或进程重启后登记表已清空）", handle.Handle)
 	}
 	if run.sessionID != sessionID {
-		return nil, fmt.Errorf("job_manage: 句柄 %q 不属于本会话", handle.Handle)
+		return asyncPayload{}, fmt.Errorf("job_manage: 句柄 %q 不属于本会话", handle.Handle)
 	}
 	if run.state == asyncStateRunning {
 		awaitAsyncDeadline(ctx, run.done, handle.WaitMS)
 	}
 	next, delta, truncated, ok := m.router.async.advanceTail(handle.Handle, asyncPollTailBudget)
 	if !ok {
-		return nil, fmt.Errorf("job_manage: 句柄 %q 已不在登记表里", handle.Handle)
+		return asyncPayload{}, fmt.Errorf("job_manage: 句柄 %q 已不在登记表里", handle.Handle)
 	}
 	m.router.async.markCursor(handle.Handle, next, truncated)
 	fresh, ok := m.router.async.snapshot(handle.Handle)
 	if !ok {
-		return nil, fmt.Errorf("job_manage: 句柄 %q 已不在登记表里", handle.Handle)
+		return asyncPayload{}, fmt.Errorf("job_manage: 句柄 %q 已不在登记表里", handle.Handle)
 	}
-	payload, err := renderPolled(fresh, delta, truncated)
-	if err != nil {
-		return nil, err
-	}
+	payload := polledPayload(fresh, delta, truncated)
 	if fresh.state != asyncStateRunning {
 		// 终态 + 已交付 ⇒ 销项：行从投影里消失（回填的生命周期终点）。
 		m.router.async.retire(handle.Handle)

@@ -214,11 +214,22 @@ Plan 策略、分支绑定、run ID、事件通道、重规划护栏、审批门
 `nodeDeps`，见 `runtime_plan.go`）仍留在 Runtime，因为 `SeelexAgentNode` 依赖
 Runtime 的节点作用域与子代理上下文服务。
 
-### `fork_subagents` 的结果边界
+### `fork_subagents` 的派发边界
 
-`fork_subagents` 是上述 Plan 的轻量入口：它程序化构造 `start → N 个 agent → summary`，随后在工具调用内同步执行 `runPlan`。因此外层工具在整个子代理 DAG 和 summary 节点结束前不会返回；诊断运行状态时应读取 Plan 的节点事件、工具活动和子会话快照，而不是只看外层工具卡的等待文案。
+`fork_subagents` 是上述 Plan 的轻量入口，也是**作业化派发工具**：它程序化构造
+`start → N 个 agent → summary`，把这一批登记成 `Kind=subagent` 的作业，**调用立刻返回
+受理回执**（每个子代理一个句柄），编排在后台跑。产出走 `job_manage(op=fetch, handle)`
+（消费式增量；一批一次等用 `handles`），过程用 `op=observe` 看、提前终止用 `op=kill`
+（已产出内容不丢；一条 kill 取消整批共用编排），结清用 `op=done`。要看更细的运行状态，
+另可读 Plan 的节点事件、工具活动与子会话快照。
 
-summary 当前按节点 ID 拼接前驱输出并写入 `final_output`。它适合小型、结构化交付，不是无界 transcript 传输通道：大结果可能超过 provider 的单条上下文预算。调用方必须将“结果被省略/过大”视为未读取的证据，并通过可分页的结果引用或节点详情读取原文；在可靠的有界摘要与引用映射完成前，不能凭外层结果声称已审查完整子代理产出。
+为什么不再提供"阻塞到全部跑完"的入口：阻塞调用期间模型没有下一次调用，"观察/提前终止
+子代理"就没有入口——不是缺工具，是缺时机（设计文档 §B.3）。作业面关闭
+（`limits.async_exec.enabled=false`）时该工具**显式报错**，不静默退化成阻塞执行。
+
+summary 节点仍按节点 ID 拼接前驱输出并写入 `final_output`，它是**整批作业正文的兜底**
+（某个子代理没有可复用摘要时用它）：适合小型、结构化交付，不是无界 transcript 传输通道。
+单个子代理的完整产出按它自己的句柄取回；调用方必须将“结果被省略/过大”视为未读取的证据。
 
 ### 子代理上下文继承与重试复用
 
@@ -236,9 +247,10 @@ stack（now using 栈顶）与按当前查询召回的 memory——插在节点�
 
 **结果复用（省 token）**：若结果返回失败需要重试（`final_output` 被截断或
 `read_tool_result` 失败），且全部子代理都命中“既有已完成 task + 子代理树
-保留完整输出”（`subagentTree.summaryFor`），`fork_subagents` 直接读回已保存
-输出返回（`reused:true`），不再重新执行；task 经 retry 计数后回到 completed。
-只有全部命中才短路；部分命中仍整体重跑（保守策略，避免 DAG 混合状态）。
+保留完整输出”（`subagentTree.summaryFor`），这一批**照常登记成作业**但执行体立刻把
+已保存输出写进各自正文并合成 `done`——不重跑（省 token），也不破“调用即返回句柄”
+这条契约；task 经 retry 计数后回到 completed。只有全部命中才走复用；部分命中仍整体
+重跑（保守策略，避免 DAG 混合状态）。
 
 ## Effort PlanPolicy
 

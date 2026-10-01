@@ -24,7 +24,7 @@ flowchart LR
     FORK --> TASK["task：幂等登记 / 结果复用"]
     FORK --> SESSION["session：结果经 merge-back 合回主会话"]
     FORK --> SUMMARY["SummaryNode：有界摘要"]
-    SUMMARY --> OUTER["外层工具结果"]
+    SUMMARY --> OUTER["作业正文兜底（无摘要时）"]
     OUTER --> BACK["完整结果走 read-back 引用"]
 ```
 
@@ -38,6 +38,7 @@ sequenceDiagram
     autonumber
     participant T as 主代理（工具调用）
     participant F as fork.Tool
+    participant J as 作业面（Kind=subagent）
     participant P as plan
     participant N as node.AgentNode
     participant S as session（子代理会话）
@@ -45,13 +46,19 @@ sequenceDiagram
     T->>F: fork_subagents(specs)
     F->>F: 校验 id 唯一 + 数量不超过 policy.MaxNodes
     F->>P: buildForkPlan：start → s1..sN → summary
+    F->>J: 登记 N 条作业（每条挂取消口）
+    F-->>T: 受理回执（N 个句柄；调用到此结束）
     P->>N: 并行执行 agent 节点
     N->>S: 每节点独立会话 + NodeScope + PromptBlocks
     S-->>N: findings / decisions / progress
     N-->>P: 节点终态
-    P->>F: SummaryNode 有界拼接
-    F-->>T: 外层工具结果（Waiting for output 期间即预期行为）
+    P->>J: 逐条写正文 + 合成终态（按**各自节点**判 done/failed）
+    T->>J: job_manage(op=fetch, handle|handles) 取回产出
 ```
+
+`fork_subagents` **只派发、不等结果**（与 `bash_bg` / `read_batch` 同一个作业面）：
+调用立刻返回句柄，产出经 `job_manage(op=fetch)` 取回，过程用 `op=observe` 看、提前终止用
+`op=kill`（一条 kill 取消整批，因为整批共用一次 plan run）、结清用 `op=done`。
 
 ## 批次失败策略（best-effort）
 
@@ -59,12 +66,13 @@ fork 批次的节点彼此独立（各自 worktree、各自账号、各自 goal�
 `plan.newPlanRunner` 显式把 fork 批次的失败策略设为 `forkexec.PolicyBestEffort`
 （框架默认是 fail-fast）：
 
-- 任一节点失败**不再** cancel 整批上下文——同批兄弟节点跑完，产出照常回到父代理；
+- 任一节点失败**不再** cancel 整批上下文——同批兄弟节点跑完，产出按各自句柄取回；
 - 失败仍必须可见：`planRunResultJSON` 按节点终态派生结果状态——有 failed 节点时
   `status:"failed"` + `error` 点名失败节点（REQ-006：任一分支失败不得报整体
-  completed），`nodes[].status` 逐行可见；
+  completed），`nodes[].status` 逐行可见；作业面按 `nodes[].status` 把它落成对应作业的
+  `failed` 终态（成功兄弟仍是 `done`）；
 - 只有**整批 agent 节点无一幸存**时才回到工具错误（错误会顶掉工具结果内容，
-  有幸存产出时不能再走错误通道）。
+  有幸存产出时不能再走错误通道）——作业化之后这条体现为整批作业 `failed` + 正文带原因。
 
 背景（2026-09-29 事故）：`fix-return-to-latest` 的流在 22:02:33 起满 300s 被
 整请求超时掐断（failed），旧 fail-fast 立刻 cancel 整批，`fix-coldload-interference`

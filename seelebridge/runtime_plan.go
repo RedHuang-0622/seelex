@@ -241,7 +241,7 @@ type subagentJobsAdapter struct{ runtime *Runtime }
 func (a subagentJobsAdapter) Add(spec fork.SubagentJobSpec, cancel context.CancelFunc) (string, error) {
 	router := a.router()
 	if router == nil {
-		return "", fmt.Errorf("子代理作业面不可用（工具路由未装配）：去掉 async 走阻塞模式")
+		return "", fmt.Errorf("子代理作业面不可用（工具路由未装配）；子代理派发只走作业面，不退化成阻塞调用")
 	}
 	return router.AddSubagentJob(seeltools.JobSpec{
 		Kind:      seeltools.JobKindSubagent,
@@ -267,8 +267,8 @@ func (a subagentJobsAdapter) Complete(handle, state string) {
 }
 
 // router 延迟解析工具路由：fork 域在 **NewRuntime 构造期**就拿到这个端口（那时
-// 工具路由还没装配），必须在调用时现取——否则会把 nil 记一辈子，async 模式永远
-// 报"作业面未装配"。
+// 工具路由还没装配），必须在调用时现取——否则会把 nil 记一辈子，作业面永远
+// 报"未装配"。
 func (a subagentJobsAdapter) router() *seeltools.Router {
 	if a.runtime == nil {
 		return nil
@@ -276,8 +276,9 @@ func (a subagentJobsAdapter) router() *seeltools.Router {
 	return a.runtime.scopedTools
 }
 
-// subagentJobs 返回子代理作业端口（延迟解析，见 router）；能力关闭时 Add 会以
-// "去掉 async 走阻塞模式"显式失败——fork 的 async 模式绝不静默退化成阻塞调用。
+// subagentJobs 返回子代理作业端口（延迟解析，见 router）；能力关闭（未装配或
+// limits.async_exec.enabled=false）时 Add 显式失败——子代理派发只走作业面，
+// 绝不静默退化成阻塞调用。
 func (r *Runtime) subagentJobs() fork.SubagentJobs {
 	if r == nil {
 		return nil
@@ -364,9 +365,13 @@ func (r *Runtime) nodeSessionID(systemPrompt string) string {
 }
 
 // registerForkTool 注册 fork_subagents（RegisterBuiltins 内调用）。
+//
+// 这一批子代理**只走作业化派发**（与 bash_bg / read_batch 同一个作业面）：调用立刻
+// 返回每个子代理的句柄，产出经 job_manage(op=fetch, handle) 取回。没有"阻塞到全部
+// 跑完"的分支——阻塞期间模型没有下一次调用，"观察/提前终止子代理"就无从谈起。
 func (r *Runtime) registerForkTool() {
 	r.RegisterTool("fork_subagents",
-		"Fork N isolated subagents in parallel (worktree-isolated) and return their structured outputs."+fork.SubagentsContractDescription,
+		"Fork N isolated subagents in parallel (worktree-isolated) as background jobs."+fork.SubagentsContractDescription,
 		map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -387,12 +392,6 @@ func (r *Runtime) registerForkTool() {
 					"type":        "integer",
 					"minimum":     1,
 					"description": "本批 fork 总超时（秒）。长任务可省略（默认 limits.fork_timeout，2h）；简单审查/只读任务建议给 1200（20 分钟）等更紧上限，避免排队或异常时挂太久。",
-				},
-				"async": map[string]interface{}{
-					"type": "boolean",
-					"description": "true = 作业化派发：立刻返回每个子代理的句柄，结果用 " +
-						"job_manage(op=fetch, handle) 取回，期间可 observe/kill（存在 job_manage）；" +
-						"false/省略 = 阻塞到全部子代理跑完并直接返回结果。",
 				},
 			},
 			"required": []string{"subagents"},

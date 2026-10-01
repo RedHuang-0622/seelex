@@ -652,7 +652,7 @@ failed）、goal、Assignee 与 parent dependency；行「详情」打开节点�
 fork 子代理不在活跃 Plan 里时（计划已清除）详情弹窗回退到子代理树投影
 数据，会话记录/上下文仍由 `SubagentSessionDetail` 承载。
 
-`fork_subagents` 的外层工具在 summary 完成前保持运行态；这时应点击 Plan 节点查看真实进度，不能仅以 `Waiting for output…` 判定卡死。若外层工具报告子代理结果过大，详情中的会话、功能打点和工具活动才是可核验的证据面；renderer 不把过大的 `final_output` 当作完整审查结果的替代品。
+`fork_subagents` 是**后台作业派发**：调用立刻返回每个子代理的句柄，工具卡不会停在"等结果"上。产出按句柄取回（`job_manage(op=fetch, handle)`；一批一次等用 `handles`），过程用 `op=observe` 看、提前终止用 `op=kill`；Plan 节点则是更细的进度证据面。renderer 不把兜底的整批正文（summary 节点输出）当作完整审查结果的替代品——单个子代理的完整产出在它自己的句柄里。
 
 点击新建会话只调用 `BeginNewSession` 进入编辑草稿：草稿从新建即持有早分配
 的真实 SID（`HasSession=false`，不建引擎 bundle）。「任务会话」是真正未关联

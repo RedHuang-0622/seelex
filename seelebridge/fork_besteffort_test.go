@@ -39,9 +39,10 @@ func (c *goalFailingCompleter) Complete(ctx context.Context, messages []types.Me
 }
 
 // TestForkSubagentsBestEffortKeepsSiblingAlive 验证一个子代理失败时，同批兄弟
-// 不被连坐取消：慢的那个跑完、产出回到父代理结果；失败的那个仍以失败行呈现。
+// 不被连坐取消：慢的那个跑完、产出回到各自的作业正文；失败的那个**按它自己的
+// 节点**判成 failed（不被整批状态抹平）。
 func TestForkSubagentsBestEffortKeepsSiblingAlive(t *testing.T) {
-	runtime := newTestRuntime(t)
+	runtime := newAsyncTestRuntime(t)
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
 
@@ -51,21 +52,23 @@ func TestForkSubagentsBestEffortKeepsSiblingAlive(t *testing.T) {
 		"sub-2": completer,
 	})
 
-	result, err := runtime.Agent().DirectDispatch(context.Background(), "fork_subagents",
+	batch := forkRun(t, runtime,
 		`{"subagents":[{"id":"s1","goal":"audit module A"},{"id":"s2","goal":"audit module B"}]}`)
-	if err != nil {
-		t.Fatalf("best-effort 批次不得因单节点失败而整体失败（兄弟被连坐）: %v", err)
+
+	// 幸存兄弟节点的产出必须回到它自己的作业正文。
+	if !strings.Contains(batch.Output, "SIBLING-SURVIVED") {
+		t.Fatalf("幸存兄弟节点的产出必须可取回:\n%s", batch.Output)
 	}
-	if !strings.Contains(result, "SIBLING-SURVIVED") {
-		t.Fatalf("幸存兄弟节点的产出必须回到父代理结果:\n%s", result)
+	// 终态按节点判定：失败的那个 failed，幸存的那个 done。
+	if got := batch.States[batch.IDs["s1"]]; got != "failed" {
+		t.Fatalf("失败节点 s1 的作业终态 = %q, want failed（读数 %+v）", got, batch.States)
 	}
-	if !strings.Contains(result, "failed") {
-		t.Fatalf("失败节点仍必须显式报出:\n%s", result)
+	if got := batch.States[batch.IDs["s2"]]; got != "done" {
+		t.Fatalf("幸存节点 s2 的作业终态 = %q, want done（读数 %+v）", got, batch.States)
 	}
-	// REQ-006：有节点失败时整体状态不得报 completed（best-effort 下框架不再回错误，
-	// 这条通道由 planRunResultJSON 按节点终态派生）。
-	if !strings.Contains(result, `"status":"failed"`) {
-		t.Fatalf("部分失败必须反映在整体状态上（不得报 completed）:\n%s", result)
+	// 失败节点仍必须显式报出原因（整批归零以外的情形：作业正文带失败原因）。
+	if !strings.Contains(batch.Output, "failed") {
+		t.Fatalf("失败节点仍必须显式报出:\n%s", batch.Output)
 	}
-	t.Logf("best-effort 批次结果: %s", result)
+	t.Logf("best-effort 批次取回正文: %s", batch.Output)
 }

@@ -1,7 +1,6 @@
 package seelebridge
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -296,11 +295,11 @@ func TestSubAgentTreeEmptyAndOrphan(t *testing.T) {
 	}
 }
 
-// TestForkSubagentsRecordsTree 验证 fork 全链路：两个并行子代理完成后树
+// TestForkSubagentsRecordsTree 验证 fork 全链路：两个并行子代理跑完后树
 // 保留 done 节点（有界），详情数据面（上下文快照/会话记录）仍在
 // nodeSessions 注册表独立保留。
 func TestForkSubagentsRecordsTree(t *testing.T) {
-	runtime := newTestRuntime(t)
+	runtime := newAsyncTestRuntime(t)
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
 	injectScriptedCompleters(t, runtime, map[string]agent.Completer{
@@ -308,13 +307,12 @@ func TestForkSubagentsRecordsTree(t *testing.T) {
 		"sub-2": newScriptedNodeCompleter("fork-right: audit module B done"),
 	})
 
-	result, err := runtime.Agent().DirectDispatch(context.Background(), "fork_subagents",
+	batch := forkRun(t, runtime,
 		`{"subagents":[{"id":"s1","goal":"audit module A"},{"id":"s2","goal":"audit module B"}]}`)
-	if err != nil {
-		t.Fatalf("fork_subagents failed: %v", err)
-	}
-	if !strings.Contains(result, `"status":"completed"`) {
-		t.Fatalf("fork result must be completed, got: %s", result)
+	for _, handle := range batch.Handles {
+		if batch.States[handle] != "done" {
+			t.Fatalf("子代理作业 %s 终态 = %q, want done（读数 %+v）", handle, batch.States[handle], batch.States)
+		}
 	}
 	// 两个子代理都完成后树保留 done 节点（工作表格被动证据）。
 	tree := runtime.SubAgentTree()

@@ -11,6 +11,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
 // TestNodeFirstPersonLiveSmoke 真实 API 冒烟（非默认运行）：
@@ -42,6 +43,10 @@ func TestNodeFirstPersonLiveSmoke(t *testing.T) {
 		ToolCallTimeout:   5 * time.Minute,
 		ApprovalTimeout:   10 * time.Minute,
 		HeartbeatInterval: 5 * time.Second,
+		Limits: seelexctx.Limits{
+			AsyncExec:      seelexctx.AsyncExecLimits{Enabled: true},
+			ForkTimeoutSec: 20 * 60,
+		},
 	})
 	if err != nil {
 		t.Fatalf("NewRuntime: %v", err)
@@ -67,15 +72,62 @@ func TestNodeFirstPersonLiveSmoke(t *testing.T) {
 		t.Fatalf("history before fork = %d, want 0", len(historyBefore))
 	}
 
-	// fork 在后台运行，主测试 goroutine 即时消费实时流。
+	// fork 作业化派发：调用立刻返回句柄；这个 goroutine 负责**等它收尾并取回**，
+	// 主测试 goroutine 在等待期间即时消费实时流。
 	forkDone := make(chan struct{})
 	var forkResult string
 	var forkErr error
 	go func() {
 		defer close(forkDone)
 		started := time.Now()
-		forkResult, forkErr = runtime.Agent().DirectDispatch(ctx, "fork_subagents",
+		raw, dispatchErr := runtime.Agent().DirectDispatch(ctx, "fork_subagents",
 			`{"subagents":[{"id":"`+nodeID+`","goal":"分三步完成：1) 获取当前系统时间；2) 读取仓库根目录 README.md 的前 20 行；3) 用一句话总结 Seelex 是什么"}]}`)
+		if dispatchErr != nil {
+			forkErr = dispatchErr
+			return
+		}
+		var receipt forkReceipt
+		if unmarshalErr := json.Unmarshal([]byte(raw), &receipt); unmarshalErr != nil {
+			forkErr = unmarshalErr
+			return
+		}
+		handles := make([]string, 0, len(receipt.Jobs))
+		for _, job := range receipt.Jobs {
+			handles = append(handles, job.Handle)
+		}
+		deadline := time.Now().Add(20 * time.Minute)
+		for {
+			live := false
+			for _, record := range runtime.AsyncRunsSnapshot() {
+				if record.State != "running" {
+					continue
+				}
+				for _, handle := range handles {
+					if record.Handle == handle {
+						live = true
+					}
+				}
+			}
+			if !live || time.Now().After(deadline) {
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		parts := make([]string, 0, len(handles))
+		for _, handle := range handles {
+			out, fetchErr := runtime.Agent().DirectDispatch(context.Background(), "job_manage",
+				`{"op":"fetch","handle":"`+handle+`","wait_ms":-1}`)
+			if fetchErr != nil {
+				forkErr = fetchErr
+				return
+			}
+			var payload struct {
+				Output string `json:"output"`
+			}
+			_ = json.Unmarshal([]byte(out), &payload)
+			parts = append(parts, payload.Output)
+		}
+		forkResult = strings.Join(parts, "\n")
 		t.Logf("=== 真实 API fork 完成（耗时 %s）===", time.Since(started))
 	}()
 

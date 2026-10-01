@@ -38,8 +38,8 @@ import (
 	"github.com/RedHuang-0622/seelex/seelebridge/security"
 	subagentsession "github.com/RedHuang-0622/seelex/seelebridge/session"
 	"github.com/RedHuang-0622/seelex/seelebridge/task"
-	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
+	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/sessionstore"
@@ -761,13 +761,25 @@ func (r *Runtime) ForkEnd(sessionID string) {
 }
 
 // ForkInFlight 报告指定会话当前是否有 fork_subagents 正在执行。
+//
+// "在飞"有两段（2026-10-01 作业化之后）：**派发那一刻**（`forkSubagentsHandler` 的
+// ForkBegin/ForkEnd 包住的那一段）与**这一批子代理作业还在跑**的那一段。只数前一段
+// 会让 application 侧"fork 期间禁止同会话继续对话"（`ErrForkRunningChat`）静默失效——
+// 派发立刻返回，计数当场归零，而子代理其实还在同一个会话里跑。
 func (r *Runtime) ForkInFlight(sessionID string) bool {
 	if r == nil || sessionID == "" {
 		return false
 	}
 	r.forkMu.Lock()
-	defer r.forkMu.Unlock()
-	return r.forkActive[sessionID] > 0
+	dispatched := r.forkActive[sessionID] > 0
+	r.forkMu.Unlock()
+	if dispatched {
+		return true
+	}
+	if r.scopedTools == nil {
+		return false
+	}
+	return r.scopedTools.RunningSubagentJobsFor(sessionID) > 0
 }
 
 // UnbindProjectRoot makes filesystem and shell tools fail closed until a

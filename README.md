@@ -55,7 +55,7 @@ Seelex 把这些能力组织成可替换、可测试的模块，而不是把它�
 | 能力 | 当前实现 |
 |---|---|
 | Agent 执行 | 流式对话、工具调用、取消、审批交互和任务终态；Effort 四档（lite/medium/high/max）约束循环数、工具调用数与计划规模 |
-| Plan 与子 Agent | 可选 WorkPlan DAG、拓扑校验、并行分支、独立节点 Session、事件投影和结果 merge-back；<code>fork_subagents</code> 派发子代理并同步等待终态 |
+| Plan 与子 Agent | 可选 WorkPlan DAG、拓扑校验、并行分支、独立节点 Session、事件投影和结果 merge-back；<code>fork_subagents</code> 以后台作业派发子代理（句柄 + <code>job_manage</code> 取回） |
 | 目标治理 | 会话级 LIFO goal 栈与状态机、独立上下文的裁决角色（ADVISOR / TechLeader）回合制评审、抽帧节流、有界指令邮箱、终态门禁与 append-only 审计 |
 | 代理团队与工作台 | TeamSpec 团队工厂（团队库条目显式装配）、成员与发言顺序注册表；plan / tasklist / subagent / todo 四源合一的工作台投影与 traceboard |
 | 上下文治理 | Prompt Stack 稳定前缀、滑动窗口、预算控制、压缩 DAG、超大工具结果归档为 <code>result_ref</code> 与按页/过滤读回；装配逼近硬阈值（默认 98% 预算）时**探测即主动压缩**为有界 checkpoint 帧，<code>compact_context</code> 工具与 <code>/compact</code> 命令可手动触发同一压缩 |
@@ -311,9 +311,9 @@ Plan 在执行前完成：
 
 #### 子代理的进度与结果
 
-`fork_subagents` 会在运行时构造 `start → subagent(s) → summary` 的 DAG，并同步等待该 DAG 到达终态。因此，外层工具在子代理仍运行时显示 `Waiting for output…` 是预期行为，不能仅据此判定为死锁。执行中的权威状态来自 Plan 事件：在 GUI 右侧 Plan 中点击子代理节点，即可查看会话记录、功能打点、事件时间线、工具活动和最终输出。
+`fork_subagents` 会在运行时构造 `start → subagent(s) → summary` 的 DAG，并把这一批登记成**后台作业**：调用立刻返回每个子代理的句柄，**不等结果**。产出按句柄取回（<code>job_manage(op=fetch, handle)</code>；一批一次等用 <code>handles</code>），过程用 <code>op=observe</code> 看、提前终止用 <code>op=kill</code>（已产出内容不丢；一条 kill 取消整批）。执行中的权威状态另可看 Plan 事件：在 GUI 右侧 Plan 中点击子代理节点，即可查看会话记录、功能打点、事件时间线、工具活动和最终输出。
 
-当前 summary 节点会拼接各子代理输出；长审查或大量工具输出可能使外层工具结果超过单条 provider context 的预算。出现“结果过大、无法读取完整内容”时，不能据此转述或推断审查结论，应以节点详情中的会话与工具证据为准。完整结果的可靠交付需要有界摘要和可分页的结果引用；在该交付契约落地前，不应把外层 `final_output` 当作大结果的唯一读取通道。
+summary 节点仍拼接各子代理输出，它是**整批作业正文的兜底**（某个子代理没有可复用摘要时用它）。单个子代理的完整产出按它自己的句柄取回；把外层兜底正文当作大结果的唯一读取通道，或者据此转述、推断审查结论，都是不允许的。
 
 ### 4. 上下文不是无限聊天记录，而是一条有预算的 Context Pipeline
 
