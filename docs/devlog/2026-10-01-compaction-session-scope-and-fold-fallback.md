@@ -1,4 +1,4 @@
-# 上下文压缩的两个现场：跨会话污染（已修）+ 压缩失败只能回退折叠（已复现、待裁决）
+# 上下文压缩的两个现场：跨会话污染（已修）+ 压缩失败只能回退折叠（已复现、已按读法 A 落地）
 
 - 日期：2026-10-01
 - 范围：`application/core/session_draft.go`（+ 新用例）、`gui/frontend/dist/{snapshot-shape.js,client-state.js}`（+ 用例）、
@@ -63,7 +63,7 @@ node --test "gui/frontend/dist/*.test.mjs"                        → exit 0（�
 
 ---
 
-## 2. 现象②：上下文"频繁压缩然后又没压缩" —— 已复现、根因已定，回退语义待裁决
+## 2. 现象②：上下文"频繁压缩然后又没压缩" —— 已复现、根因已定、回退语义已落地
 
 ### 2.1 复现与观测
 
@@ -117,11 +117,12 @@ node --test "gui/frontend/dist/*.test.mjs"                        → exit 0（�
 ① 折叠换不来余量（`ineffectiveFold`）；② 同一 progress 纪元已压过（epoch 节流）。
 **"这次写不出模型读后感"不在这两条里**。
 
-### 2.4 待裁决：回退语义要往哪边改（两读法相反，实现与代价都不同）
+### 2.4 回退语义：已裁决采纳读法 A（2026-10-01），并在 `a50aad3` 加严
 
-用户这句话可以读成两种，且两种改法互相抵消，必须由用户拍定：
+用户口径直接给了终点：「回退路径从折叠变成不做压缩、持续上下文 append」。当时把它读成两种相反改法，
+**裁决为读法 A**；两种读法与各自代价存档如下（B 被否）：
 
-- **读法 A（把「折不出读后感」变成折叠的前置条件）**：判据里补一条"这次有没有模型摘要可用"
+- **读法 A（已采纳）**：把「折不出读后感」变成折叠的前置条件——判据里补一条"这次有没有模型摘要可用"
   （可经窄可选能力探测：装配层 `Summarizer` 是否注入 + 有无重放素材）。命中即
   `compacting=false`、走 append-only、终局 Detail 写 `skipped=no-summary`。
   可实现范围：**结构性出口**（开关关闭 / 无重放素材）能在折叠前判掉；**调用失败**
@@ -131,9 +132,18 @@ node --test "gui/frontend/dist/*.test.mjs"                        → exit 0（�
   **代价（必须先说清）**：不折之后请求一路 append 到全量预算上限，终点只有两个——自主 checkpoint
   折叠（`compressExecutionHistory`，本质仍是一次折叠）或 `ErrProviderContextBudgetExceeded` 拒发
   （`coordinator.go` 的"拒绝优于模型失忆"）。也就是"不做压缩"能把折叠延迟，但到不了"永不折"。
-- **读法 B（现状即回归：跳过太多，要恢复折叠）**：把 `ineffectiveFold` 的跳过收窄或去掉，
+- **读法 B（已否）**：现状即回归、跳过太多要恢复折叠——把 `ineffectiveFold` 的跳过收窄或去掉，
   让判据命中就折。代价：回到 2026-09-29 的现场（同一会话每轮一条记录、区间恒从 `message-1` 起），
   而那正是 `TestContextBudgetSkipsFoldWithoutMargin` 与出厂档余量上调所钉住的回归。
+
+**落地（已实现，2026-10-01）**：折叠门补一条窄可选探针 `compactionSummaryProbe`
+（`application/core/context_compact.go`；未实现它的 fake/harness 行为逐位不变），命中即
+`compacting=false` 走 append-only，终局 `CompactSkippedNoSummary`（`skipped=no_summary`，前端
+`compactionOutcomeLabel` 可读）。独立提交 `a50aad3` 补上三条折叠入口里唯一漏闸的那条——自主压缩：
+`commitFold` 原按 `newCheckpoint || autonomous` 置位，改为 `if !noSummary && estimated > budget.HardThreshold`。
+用例 `context_compact_no_summary_test.go::TestFoldWithoutModelSummaryLeavesContextAndStackUntouched`
+（提交时先红后绿，红原文见 `a50aad3` 提交信息）。代价照读法 A 所述：no-summary 宿主一路 append，
+到不了「永不折」，真超全量预算时按既有语义显式报错。
 
 ---
 
@@ -142,11 +152,13 @@ node --test "gui/frontend/dist/*.test.mjs"                        → exit 0（�
 1. 现象①只修了"新建会话（草稿）"这一条换代路径；`switchViewToSession` 与 `unloadSession` 已有同口径清理
    （本次未改动，只把三处口径写进注释）。前端归一闸只管草稿态：非草稿会话的 `task` 原样放行
    （测试里 `stripDraftSessionFacts keeps tasks for real sessions` 钉住）。
-2. 现象②**未改代码**：回退语义两读法相反（2.4），先请求裁决再落实现。已给出的证据可复现：
+2. 现象②**已改代码**（读法 A 已落地，见 2.4）：`compactionSummaryProbe` 窄探针 + 终局
+   `CompactSkippedNoSummary`，外加 `a50aad3` 的自主压缩补闸。判据面证据仍可复现：
    `dag.go` 的兜底唯一性、开关零值即关、`ineffectiveFold`/epoch 两条跳过判据与 append-only 落点。
 3. 真 API 冒烟（`compactlive`）本轮未跑：改动是会话事实清理与前端归一，判定面在离线夹具与 node 用例；
    真 API 证据断档问题照旧归发布门禁（见 `docs/2026-09-29-context-compaction-fold-review.md` P1-C）。
 4. GUI 真机点检未做：运行中的 GUI 是旧构建（`dist/*.js` 需重启进程才加载），
    本轮只做了暂存产物无关的离线验证；重开进程后按 `docs/test/2026-10-01-computer-use-smoke-checklist.md`
    的 S1/S2（新建会话 / 切换会话）点一遍即可复核。
-5. 按仓库规范 §7 未自动提交。
+5. 提交状态：本批已按用户明确指示提交（`85e31e0` 现象①②+会话 ID 去 `draft_` 前缀、
+   `a50aad3` 自主压缩补闸；附带现场 `ca0a9ec`、`b07bbb4`）。除这些外未自动提交（仓库规范 §7）。
