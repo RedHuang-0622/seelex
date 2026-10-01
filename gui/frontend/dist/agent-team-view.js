@@ -56,20 +56,32 @@ function shortID(value) {
   return text.length > 12 ? `${text.slice(0, 12)}…` : text;
 }
 
-// POLICY_LABEL 只说"谁决定顺序"这条策略本身，**不承诺成员班底**：一支 goal_loop
-// 团队的成员由条目/形态决定（成员表可以直接加工人），写死 "user → main ↔ TL"
-// 会让加过成员的团队在库里显示一句与事实不符的话。真实顺序挂在行 title 上。
+// POLICY_LABEL 是顺序策略字段（order_policy）的回读话术：只说"这份链表怎么定顺序"，
+// **不承诺成员班底、也不用"循环"说话**——一支 goal_loop 团队的成员由条目/形态决定
+// （成员表可以直接加工人），写死 "user → main ↔ TL" 会让加过成员的团队在库里显示一句
+// 与事实不符的话；而"循环"是旧环序模型的说法，leader-worker 口径下顺序由 leader 掌控
+// （team plan 的 stages[].depends_on，见 docs/arch/teamwork-leader-worker-architecture.md
+// §4.6/D4）。真实顺序挂在行 title 上。
 const POLICY_LABEL = {
-  goal_loop: "固定循环",
+  goal_loop: "固定座次",
   user_main_decided: "由 user / main 编排",
   scheduled_only: "仅定时插话"
 };
 
-const POLICY_OPTIONS = [
-  ["goal_loop", "固定循环"],
-  ["user_main_decided", "user / main 编排"],
-  ["scheduled_only", "仅定时插话"]
-];
+// ORDER_POLICY_LEGACY_NOTE 是顺序策略的**历史字段**口径（挂在 title 上，不再摆可编辑
+// 控件）：order_policy 落 lifecycle 之后只被回读展示（快照 / 面板），**不驱动轮次**
+// （见 application/core/agentteam/README.md「工作顺序」一行）；它的退场被 M4 死代码
+// 清单 #5 标为 blocked（座位派生与前端拖拽调序仍读 order_roles）。
+export const ORDER_POLICY_LEGACY_NOTE =
+  "历史字段：顺序由 leader 掌控（team plan 的 stages[].depends_on）；order_policy 只回读展示、不驱动轮次，保存时原样保留";
+
+// orderPolicyLabel 把历史字段的取值翻成展示名：未知取值**原样显示**（不折成默认值，
+// 免得把"没见过的取值"说成"已知的策略"），空值明说"未登记"。
+export function orderPolicyLabel(policy) {
+  const value = String(policy || "").trim();
+  if (!value) return "未登记";
+  return POLICY_LABEL[value] || value;
+}
 
 // Pinned 角色不可从工作顺序里摘除：群聊的起手与收口必须存在。
 const PINNED_ROLES = new Set(["user", "main"]);
@@ -417,8 +429,8 @@ export function normalizeSchedule(value) {
 const STOP_REASON_LABEL = {
   round_limit: "到达轮次上限",
   no_progress: "连续无进展",
-  no_executor: "环内无执行者",
-  empty_ring: "空环",
+  no_executor: "顺序里没有执行者",
+  empty_ring: "发言顺序为空",
   external_break: "外部停止（裁决/中断）"
 };
 
@@ -452,8 +464,8 @@ function normalizeMembers(items) {
 //   「团队库」= 全局：用户自己的团队（点团队名开团队面板）+ 内置形态 chip + 新建团队；
 //   「员工栏」= 本会话：在编员工 + 发言顺序（拖拽 ≡ 直接调序）+ 入职 + 摘除/移出本会话；
 //     档案只回显、不在这里改（改档案回「员工库」，再入职一次即覆盖副本）；
-//   「发言调度」= 运行态：轮次 / 下一个 / 收束（顺序串珠条，不是表格；环成员不含
-//   user——用户经回合尾的消息队列提升发言，不占环内排班位）。
+//   「发言调度」= 运行态：轮次 / 下一个 / 收束（顺序串珠条，不是表格；串珠条里不含
+//   user——用户经回合尾的消息队列提升发言，不占排班位）。
 export function renderAgentTeam(view, presets, library, global) {
   const team = normalizeAgentTeam(view);
   const presetList = Array.isArray(presets) ? presets.filter(item => item && typeof item.team_kind === "string" && item.team_kind) : [];
@@ -492,15 +504,16 @@ function teamLibraryBlock(team, presets, library) {
   const rows = library.teams.map(entry => {
     const members = entry.roles.length;
     const active = entry.teamKind === team.teamKind;
-    // 规模列只说"几个人 + 什么顺序策略"（策略名不承诺班底），**真实顺序**进 title：
-    // 成员表是可编辑的草稿，行里那句写死的 "user → main ↔ TL" 早就不是事实了。
+    // 规模列只说"几个人 + 什么顺序策略"（策略名不承诺班底，也不用"循环"说话），
+    // **真实顺序**进 title：成员表是可编辑的草稿，行里那句写死的 "user → main ↔ TL"
+    // 早就不是事实了；顺序策略本身也只回读展示（历史字段，title 里点明）。
     const orderText = (Array.isArray(entry.orderRoles) ? entry.orderRoles : []).filter(Boolean).join(" → ") || "—";
     return teamRow([
       `<span class="team-staff-main">
         <button type="button" class="text-button team-library-name" data-team-edit-team="${escapeHtml(entry.teamID)}" data-tip="打开团队面板：成员与发言顺序 / 从员工库加人 / 保存" aria-label="打开团队 ${escapeHtml(entry.teamID)}">${escapeHtml(entry.name || entry.teamID)}</button>
         <span class="chip">${escapeHtml(entry.teamKind || "team")}</span>
       </span>`,
-      `<span class="team-library-meta" title="${escapeHtml(`角色数 / 顺序策略；实际顺序：${orderText}`)}">${members} 人 · ${escapeHtml(POLICY_LABEL[entry.orderPolicy] || entry.orderPolicy || "—")}</span>`,
+      `<span class="team-library-meta" title="${escapeHtml(`角色数 / 顺序策略 · ${ORDER_POLICY_LEGACY_NOTE}；实际顺序：${orderText}`)}">${members} 人 · ${escapeHtml(orderPolicyLabel(entry.orderPolicy))}</span>`,
       `<span class="team-library-actions">
         <button type="button" class="text-button" data-team-materialize-team="${escapeHtml(entry.teamID)}"${active ? ' title="重复装配是幂等的，不会新建第二个角色会话"' : ' data-tip="把这支团队装配到当前会话"'}>${active ? "已装配" : "装配"}</button>
         <button type="button" class="image-button" data-team-delete-team="${escapeHtml(entry.teamID)}" aria-label="从团队库删除 ${escapeHtml(entry.teamID)}" data-tip="从团队库删除">${icon("close", 12)}</button>
@@ -928,7 +941,7 @@ export function teamEditorPanel(team, entry, presets, pool = []) {
       ])}
       ${fieldGroup("形态与顺序", [
         fieldItem(3, "团队形态", `<input type="text" name="team_kind" data-team-form-kind placeholder="留空 = 用团队 ID" value="${escapeHtml(data.teamKind || "")}">`, "装配后写进会话的 team_kind。"),
-        fieldItem(4, "顺序策略", `<select name="order_policy" data-team-form-policy>${options(POLICY_OPTIONS, data.orderPolicy || "user_main_decided")}</select>`, "谁决定发言顺序（user_main_decided = 用户/主管点将）。"),
+        fieldItem(4, "顺序策略（历史）", `<span class="team-field-static" data-team-form-policy-label title="${escapeHtml(ORDER_POLICY_LEGACY_NOTE)}">${escapeHtml(orderPolicyLabel(data.orderPolicy))}</span><input type="hidden" name="order_policy" data-team-form-policy value="${escapeHtml(data.orderPolicy || "")}">`),
         `<span class="team-editor-hint muted" data-team-form-shape>门禁 ${escapeHtml(gatePolicy || "—")} · 压缩 ${escapeHtml(compactPolicy || "—")}（随团队形态带入，保存时原样保留）</span>`
       ])}
       ${fieldGroup("成员与发言顺序", [
@@ -999,9 +1012,9 @@ function teamEmptyRow(text) {
 // 表达，不摆 项/值 表（窄栏里表头比内容还宽）。没有 schedule（旧宿主/未接线）时
 // 整块隐藏，不拿静态顺序冒充运行态。
 //
-// 串珠条就是**发言环**：成员 = order_roles − user（user 的发言机会是回合尾消息队列
-// 被整批提升为下一轮，不是排班位），所以这里不会出现 user 珠子，"下一个"也永远不
-// 会指向 user。
+// 串珠条就是**发言顺序**（旧环序的运行态投影）：成员 = order_roles − user（user 的
+// 发言机会是回合尾消息队列被整批提升为下一轮，不是排班位），所以这里不会出现 user
+// 珠子，"下一个"也永远不会指向 user。
 function scheduleBlock(team) {
   const schedule = team.schedule;
   if (!schedule) return "";
@@ -1013,7 +1026,7 @@ function scheduleBlock(team) {
     const isNext = !stopped && roleName === schedule.nextRole;
     const idle = unexecuted.has(roleName);
     const tip = idle
-      ? `第 ${index + 1} 位 · 环内没有执行者：占位但不会自动产生回合`
+      ? `第 ${index + 1} 位 · 顺序里没有执行者：占位但不会自动产生回合`
       : `第 ${index + 1} 位${onFloor ? " · 当前发言权" : ""}${isNext ? " · 下一个发言" : ""}`;
     const cls = ["schedule-pill", onFloor ? "is-floor" : "", isNext ? "is-next" : "", idle ? "is-idle" : ""].filter(Boolean).join(" ");
     return `<span class="${cls}" role="listitem" title="${escapeHtml(tip)}">
@@ -1031,22 +1044,24 @@ function scheduleBlock(team) {
     <div class="schedule-strip" role="list" aria-label="发言顺序">${pills || '<span class="muted">顺序里还没有员工</span>'}</div>
     <div class="schedule-meta">
       ${stopChip}
-      ${schedule.unexecuted.length ? `<span class="schedule-note" title="环内没有执行者的角色：占位但不会自动产生回合">无执行者 ${escapeHtml(schedule.unexecuted.join("、"))}</span>` : ""}
+      ${schedule.unexecuted.length ? `<span class="schedule-note" title="顺序里没有执行者的角色：占位但不会自动产生回合">无执行者 ${escapeHtml(schedule.unexecuted.join("、"))}</span>` : ""}
     </div>
   </div>`;
 }
 
 // metaRow 是 Team 栏的装配参数（形态 / 顺序策略 / 当前发言权）：一行 chip 表达，
-// 不再摆 项/值 表。
+// 不再摆 项/值 表。顺序策略在这里是**只读历史字段**：旧面板给它一枚下拉，可它改完
+// 不驱动任何轮次（只回读展示），"能点"本身就是误导；chip 仍带 data-team-policy
+// （= 当前取值），拖拽调序提交 SetOrder 时原样带上，事实不丢。
 function metaRow(team) {
-  const policyLabel = POLICY_LABEL[team.orderPolicy] || team.orderPolicy || "未设置顺序策略";
-  const select = `<select class="team-policy-select" data-team-policy aria-label="顺序策略" title="${escapeHtml(policyLabel)}">${options(POLICY_OPTIONS, team.orderPolicy)}</select>`;
+  const policy = String(team.orderPolicy || "");
+  const chip = `<span class="chip team-policy-static" data-team-policy="${escapeHtml(policy)}" title="${escapeHtml(`顺序策略 · ${ORDER_POLICY_LEGACY_NOTE}`)}" aria-label="顺序策略（历史字段）">${escapeHtml(orderPolicyLabel(policy))}</span>`;
   const floor = team.floorRole
     ? `<span class="team-floor" title="当前发言权（floor 随 message head 发布）">发言中 ${escapeHtml(team.floorRole)}</span>`
     : '<span class="team-floor is-empty" title="还没有角色拿到发言权">暂无发言权</span>';
   return `<div class="team-meta-row">
     <span class="chip" title="会话的 team_kind">${escapeHtml(team.teamKind || "team")}</span>
-    ${select}
+    ${chip}
     ${floor}
   </div>`;
 }

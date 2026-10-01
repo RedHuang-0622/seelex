@@ -18,15 +18,27 @@ const (
 )
 
 // OrderPolicy 是 sequencer 的 role 顺序函数口径（唯一可替换点）。
+//
+// **历史字段（2026-10-01）**：团队顺序的事实正在迁到 team plan 的
+// `stages[].depends_on`（leader 掌控，见 docs/arch/teamwork-leader-worker-architecture.md
+// §4.6/D4）。现状（可核对）：`order_policy` 落 lifecycle 后只被回读展示
+// （dto.TeamView / dto.TeamSchedule 与前端面板），**不驱动轮次**；`order_roles` 仍是
+// 座位存在性与发言顺序的事实（goal_coordinator 的 seatPlan、前端拖拽调序）。
+// 退场被 docs/devlog/2026-10-01-m4-deadcode-inventory.md #5 标为 blocked，故这里只
+// 标注、不删、**不改落盘取值**（旧会话里的 "goal_loop" 必须继续可读）。
 const (
-	OrderPolicyGoalLoop        = "goal_loop"
+	// Deprecated: 旧环序策略（顺序由这份固定链表给定）。顺序由 leader 编排
+	// （team plan），不要按它分支；取值仍要能读旧会话。
+	OrderPolicyGoalLoop = "goal_loop"
+	// Deprecated: 同 OrderPolicyGoalLoop。
 	OrderPolicyUserMainDecided = "user_main_decided"
-	OrderPolicyScheduledOnly   = "scheduled_only"
-	DefaultOrderPolicy         = OrderPolicyGoalLoop
-	DefaultTeamKind            = TeamKindGoalA2A
-	TeamKindGoalA2A            = "goal-a2a"
-	TeamKindReview             = "review-team"
-	TeamKindResearch           = "research-team"
+	// Deprecated: 同 OrderPolicyGoalLoop。
+	OrderPolicyScheduledOnly = "scheduled_only"
+	DefaultOrderPolicy       = OrderPolicyGoalLoop
+	DefaultTeamKind          = TeamKindGoalA2A
+	TeamKindGoalA2A          = "goal-a2a"
+	TeamKindReview           = "review-team"
+	TeamKindResearch         = "research-team"
 )
 
 // ToolPolicy 是角色的工具权限口径（RoleSpec.ToolsPolicy 的枚举面）。它同时是
@@ -74,6 +86,10 @@ type RoleSpec struct {
 }
 
 // TeamSpec 是 AgentTeamFactory 的装配输入（arch 稿 §2.2）。
+//
+// OrderPolicy / OrderRoles 是**旧的群聊顺序字段**（历史/只读，见 OrderPolicy 常量的
+// 说明）：写入面仍在（装配 / 入职 / 团队库保存），读面只用来派座位与展示。新事实 =
+// team plan 的 `stages[].depends_on`（leader 掌控）；旧字段退场前不得删。
 type TeamSpec struct {
 	TeamID        string     `json:"team_id,omitempty"`
 	TeamKind      string     `json:"team_kind,omitempty"`
@@ -132,13 +148,15 @@ type TeamView struct {
 	DesignNotice []string      `json:"design_notice,omitempty"`
 }
 
-// TeamSchedule 是团队发言调度的只读运行态快照：**谁下一个说**、循环走到第几轮、
+// TeamSchedule 是团队发言调度的只读运行态快照：**谁下一个说**、轮次走到第几轮、
 // 逃生路径有没有被触发。事实来源是 agentteam 的链表调度器（顺序仍只有
 // lifecycle.order_policy/order_roles 一份，这里只是运行态投影，不落盘）。
+//
+// OrderPolicy 是**历史字段**（同 OrderPolicy 常量）：这里只是回读展示，不驱动轮次。
 type TeamSchedule struct {
 	OrderPolicy string `json:"order_policy,omitempty"`
-	// Order 是调度器当前维护的**发言环成员**（= order_roles − user：user 的发言
-	// 机会是回合尾消息队列被整批提升为下一轮，不占环内座位；见 agentteam.ringOrder）。
+	// Order 是调度器当前维护的**发言顺序成员**（= order_roles − user：user 的发言
+	// 机会是回合尾消息队列被整批提升为下一轮，不占顺序里的排班位；见 agentteam.ringOrder）。
 	Order []string `json:"order,omitempty"`
 	// NextRole 是下一次该发言的角色（空 = 环内没有人可以发言）。
 	NextRole string `json:"next_role,omitempty"`

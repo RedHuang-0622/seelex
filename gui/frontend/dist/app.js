@@ -21,7 +21,7 @@ import { compactionRangeText, compactionReasonLabel, mergeCompactionProgress } f
 import { renderGoalInFlight, renderGoalStack, renderGoalSteps } from "./goal-stack-view.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
 import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
-import { agentTeamOrderForDrag, employeePool, hirePanel, isPinnedRole, nextAgentTeamOrder, normalizeAgentTeam, normalizeTeamGlobal, normalizeTeamLibrary, PERMISSION_CUSTOM_TOOLS, PERMISSION_GROUPS, PERMISSION_BITS, renderAgentTeam, renderRoleSessionDetail, renderTeamMemberList, roleDisplayName, teamEditorPanel, teamEntryFromMembers, teamMemberNames, teamMemberSpecMap, teamRoleSpec } from "./agent-team-view.js";
+import { agentTeamOrderForDrag, employeePool, hirePanel, isPinnedRole, nextAgentTeamOrder, normalizeAgentTeam, normalizeTeamGlobal, normalizeTeamLibrary, orderPolicyLabel, PERMISSION_CUSTOM_TOOLS, PERMISSION_GROUPS, PERMISSION_BITS, renderAgentTeam, renderRoleSessionDetail, renderTeamMemberList, roleDisplayName, teamEditorPanel, teamEntryFromMembers, teamMemberNames, teamMemberSpecMap, teamRoleSpec } from "./agent-team-view.js";
 import { renderHistorySearchResults } from "./history-search.js";
 import { createThemeController, loadThemeManifest } from "./theme.js";
 import {
@@ -2416,11 +2416,13 @@ let agentTeamDirty = false;
 let agentTeamDragRole = "";
 let agentTeamDragSource = "";
 
-// agentTeamCurrentPolicy 取本次提交的顺序策略：优先用面板里用户选中的值，
-// 面板未渲染时回退到视图自带策略（不做隐式猜测，空值直接拒绝提交）。
+// agentTeamCurrentPolicy 取本次提交的顺序策略（历史字段）：面板上用一枚只读 chip
+// 挂当前取值（data-team-policy），chip 在册就用它，面板未渲染时回退到视图自带策略
+// （不做隐式猜测，空值直接拒绝提交）。
 function agentTeamCurrentPolicy() {
-  const select = elements["team-view"]?.querySelector?.("[data-team-policy]");
-  if (select && select.value) return select.value;
+  const node = elements["team-view"]?.querySelector?.("[data-team-policy]");
+  const fromPanel = node?.value || node?.getAttribute?.("data-team-policy") || "";
+  if (fromPanel) return fromPanel;
   const team = normalizeAgentTeam(agentTeamView);
   return team.orderPolicy;
 }
@@ -2855,10 +2857,21 @@ function fillAgentTeamFormFromPreset(kind) {
     .filter(name => typeof name === "string" && name && !isPinnedRole(name));
   slot.querySelector("[data-team-form-name]").value = kind;
   slot.querySelector("[data-team-form-kind]").value = kind;
-  slot.querySelector("[data-team-form-policy]").value = preset.order_policy || "user_main_decided";
+  writeTeamFormPolicy(slot, preset.order_policy || "");
   writeTeamFormShape(slot, preset.gate_policy, preset.compact_policy);
   const list = slot.querySelector("[data-team-member-list]");
   if (list) writeTeamMemberList(list, names, slot, teamMemberSpecMap(names, { preset, pool: agentTeamEmployeePool() }));
+}
+
+// writeTeamFormPolicy 落"顺序策略"（**历史字段**）：团队面板上没有可编辑控件，只把
+// 取值写进隐藏字段（保存时原样送回后端）+ 把只读展示刷成它的展示名。没有这一步，
+// 「用内置形态起手」带进来的 order_policy 就只有隐藏字段变了、用户看到的还是旧标签。
+function writeTeamFormPolicy(slot, policy = "") {
+  const value = String(policy || "").trim();
+  const hidden = slot?.querySelector?.("[data-team-form-policy]");
+  if (hidden) hidden.value = value;
+  const label = slot?.querySelector?.("[data-team-form-policy-label]");
+  if (label) label.textContent = orderPolicyLabel(value);
 }
 
 // writeTeamFormShape 落"形态级策略"（门禁 / 压缩）：表单里没有编辑入口，随形态带入、
@@ -3124,19 +3137,18 @@ function agentTeamEntryFromForm(form) {
   });
 }
 
-elements["team-view"]?.addEventListener("change", async event => {
+elements["team-view"]?.addEventListener("change", event => {
   // 权限下拉的「逐格装配」：只是**展开/收起**权限位面板（不落盘、不发请求）——
   // 用户还没保存，只是想让格子可见。
+  //
+  // 这里**不再有顺序策略分支**：顺序策略是历史字段（面板上是只读 chip，见
+  // agent-team-view.js 的 ORDER_POLICY_LEGACY_NOTE），改了不驱动任何轮次，于是连
+  // "改"的入口都没有了；拖拽调序仍走 AgentTeamSetOrder，取值由 agentTeamCurrentPolicy
+  // 从 chip 上原样带回。
   const toolsSelect = event.target.closest?.("[data-team-hire-tools]");
-  if (toolsSelect) {
-    const grid = toolsSelect.closest("[data-team-hire-form]")?.querySelector("[data-team-hire-perm-grid]");
-    if (grid) grid.hidden = toolsSelect.value !== PERMISSION_CUSTOM_TOOLS;
-    return;
-  }
-  const select = event.target.closest?.("[data-team-policy]");
-  if (!select?.value) return;
-  const team = normalizeAgentTeam(agentTeamView);
-  await runAgentTeamAction(() => invoke("AgentTeamSetOrder", "", select.value, team.orderRoles));
+  if (!toolsSelect) return;
+  const grid = toolsSelect.closest("[data-team-hire-form]")?.querySelector("[data-team-hire-perm-grid]");
+  if (grid) grid.hidden = toolsSelect.value !== PERMISSION_CUSTOM_TOOLS;
 });
 
 // roleSessionDetail 记录当前打开的员工会话视图目标（身份 + 视图内可切换的员工名单）：

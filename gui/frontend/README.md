@@ -123,8 +123,8 @@ flowchart TB
   气泡（`#ui-tooltip`，一条 DOM、`[data-tip]` 委托触发、`\n` 分行）一起给出；
   ⋯ 段同一时刻只开一条，点空白 / Esc / 执行动作即收起。
 - Agent Team 是两个东西：「员工栏」管人（员工名单表 + 一步实例化表单，
-  同名角色就地覆盖），「Team 栏」管装配与编排（装配形态、顺序策略、工作顺序表、
-  发言调度、定时 agent 表）。两栏都是条目化表格，别再往 chip 混排的自由布局里加字段。
+  同名角色就地覆盖），「Team 栏」管装配与编排（装配形态、顺序策略（只读历史字段）、
+  工作顺序表、发言调度、定时 agent 表）。两栏都是条目化表格，别再往 chip 混排的自由布局里加字段。
 - 动效克制：只保留一个加载指示（`runtime-spinner`），装饰性动画（扫光、连点、辉光、呼吸）已移除；`prefers-reduced-motion` 全局生效。
 - 交互口径（拟物但克制：北欧家居式极简 + 锤子式短促回弹）：
   - 焦点提示只作用于**外框**：`1px solid var(--focus-ring)` + `box-shadow: var(--focus-glow)`（`0 0 12px 1px`，零偏移、纯发散模糊）；内部 `textarea` 的 focus ring 显式清掉。
@@ -349,6 +349,13 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
   里没有编辑入口，随形态带入、原样保存（`data-team-form-gate` / `data-team-form-compact`）。
   团队库行的「规模」只说"几个人 + 什么顺序策略"，**真实顺序进 title**——策略名不承诺
   班底（成员表可以加工人，写死 "user → main ↔ TL" 就是一句和事实不符的话）。
+  **顺序策略（`order_policy`）是只读历史字段**（`ORDER_POLICY_LEGACY_NOTE`）：它落
+  lifecycle 后只被回读展示、不驱动轮次，所以面板不再给它下拉（旧下拉是一个"改了不驱动
+  任何行为"的旋钮）——团队编辑器里它是一个虚线只读框 + 隐藏字段
+  （`data-team-form-policy` / `data-team-form-policy-label`，取值原样保存），Team 栏里
+  是一枚只读 chip（`data-team-policy`，拖拽调序提交 `AgentTeamSetOrder` 时由
+  `agentTeamCurrentPolicy` 从它上面带回）。文案同样不再用"循环"说 teamwork：`goal_loop`
+  显示为「固定座次」，发言调度的收束原因显示为「顺序里没有执行者 / 发言顺序为空」。
 - **提示词优化**：员工面板里的「优化提示词」按钮调 `Bridge.AgentTeamOptimizePrompt`
   （一次有界 LLM 回合），结果只渲染成候选 + 改动理由，点「应用到提示词」才写回
   输入框；落盘仍走「入职 / 保存修改」。

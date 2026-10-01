@@ -6,7 +6,12 @@ import (
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
-// goalA2APreset 是第一个实例：goal 的 user→main↔tl 固定循环。
+// goalA2APreset 是第一个实例：goal 的固定座次（user → main → tl，其中 tl 是 ADVISOR 评审座）。
+//
+// 「固定座次」说的是**顺序由这份 order_roles 链表给定**，不是 teamwork 的组织模型：
+// leader-worker 口径下顺序由 leader 掌控（team plan 的 `stages[].depends_on`，见
+// docs/arch/teamwork-leader-worker-architecture.md §4.6/D4）；order_policy 只回读展示、
+// 不驱动轮次（历史字段，见 dto.OrderPolicyGoalLoop 的说明）。
 //
 // 它是 preset 而不是特例：顺序策略、角色集合、gate 都由 TeamSpec 描述，换成
 // review/research 实例时只换这份描述，不换工厂、sequencer 或恢复形态。

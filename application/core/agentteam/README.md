@@ -123,7 +123,7 @@ sequenceDiagram
 | 能力 | 现状 | 证据 |
 |---|---|---|
 | 角色会话 + 顺序策略 + 注册表 | **已接线**：goal 创建即装配 `goal-a2a`，顺序落 `lifecycle` | `application/core/goal_service.go`（`ensureGoalAgentTeam`）、`application/core/goal_team_wiring_test.go` |
-| 工作顺序（`order_policy`/`order_roles`） | **部分接线**：用于角色 draft 同步排序与成员表展示；**不驱动运行时轮次** | `sessionstore/role_session.go`（`sortRoleDraftRows`） |
+| 工作顺序（`order_policy`/`order_roles`） | **部分接线（历史字段）**：用于角色 draft 同步排序与成员表展示；**不驱动运行时轮次**。`order_policy` 更进一步——落 lifecycle 后只被回读展示（`dto.TeamView`/`dto.TeamSchedule` 与前端面板），不驱动任何行为；`order_roles` 仍是座位存在性（`newGovernor` 按它长座位）与发言顺序的事实。新事实 = team plan 的 `stages[].depends_on`（leader 掌控，见 `docs/arch/teamwork-leader-worker-architecture.md` §4.6/D4） | `sessionstore/role_session.go`（`sortRoleDraftRows`）、`application/core/goal_coordinator.go`（`seatPlan`）、退场条件见 `docs/devlog/2026-10-01-m4-deadcode-inventory.md` #5（**blocked**） |
 | 运行时轮次驱动 | **已接线（仅 goal-a2a）**：goal 治理的 Governor 座位 `exec-a` + `advisor-b`，`tl` 的 ADVISOR 回合由 goal 域 TL 评估器执行 | `application/core/goal_coordinator.go`（`newGovernor`）、`application/core/goal/adapter.go` |
 | EXEC 工作内容进入 ADVISOR 输入 | **已接线**：`turn_completed.Detail`（本轮正文/工具名有界摘要）→ `work.progress` 帧 → b 回合输入正文 | `application/core/goal_work_summary.go`、`application/core/goal/techleader.go`（`flushWorkProgressLocked`） |
 | EXEC 的 computer use 证据进入 ADVISOR 输入 | **已接线**：工作摘要额外带 `screen: media:… 宽x高 foreground="…"`（截图句柄 + 画面尺寸 + 前台窗口），ADVISOR 据此"看证据评审"，而不是只看到一个工具名 | `application/core/goal_work_summary.go`（`computerUseEvidence`）、`gui/team_work_computer_use_live_probe_test.go` |
@@ -163,7 +163,7 @@ user**（环头扫描会落到它），与「其余时间都是 agent teammate �
 | 文件 | 职责 |
 |---|---|
 | `spec.go` | `TeamSpec` 规整与校验、角色会话号派生（`RoleSessionID`） |
-| `presets.go` | 内置实例：`goal-a2a`（TL 循环）、`review-team`、`research-team`（定时分区） |
+| `presets.go` | 内置实例：`goal-a2a`（固定座次 user → main → tl）、`review-team`、`research-team`（定时分区） |
 | `factory.go` | `Port` 契约、`Factory.Materialize`、成员表投影 `assembleView` |
 | `registry.go` | `Registry`：角色配置 CRUD、`SetOrder`、`View` 只读投影（含 floor 填充）、`Stored`/`PromptFor` 只读回读 |
 | `library.go` | 团队库读写面（条目 upsert/delete/`Entry`）与投影（`SpecOfEntry`/`EntryFromRegistry`/`EntryFromSpec`），含共用口径 `IsBuiltinRole`/`OrderRolesOf` |
@@ -285,6 +285,7 @@ go test -race ./application/core/agentteam -count=1
 - `func TestSecondTeamThroughSameFactory(t *testing.T)` — TestSecondTeamThroughSameFactory（AT8）：同一个工厂实例化 goal 之外的第二个团队，
 - `func TestResearchPresetKeepsScheduledRoleOutOfOrder(t *testing.T)` — TestResearchPresetKeepsScheduledRoleOutOfOrder：定时 agent 只出现在定时分区。
 - `func TestRegistryCRUDAndOrder(t *testing.T)` — TestRegistryCRUDAndOrder：角色配置 CRUD 只改注册表；顺序设置只改 lifecycle 字段，
+- `func TestMaterializeSameTeamIntoTwoSessionsDispatchesOwnMembers(t *testing.T)` — TestMaterializeSameTeamIntoTwoSessionsDispatchesOwnMembers（用例 2「团队会话粒度」）：
 
 ### dismiss_test.go
 
@@ -308,7 +309,7 @@ go test -race ./application/core/agentteam -count=1
 - `func placeRoleInOrder(role dto.RoleSpec, orderRoles []string) ([]string, bool, []string)` — placeRoleInOrder 按 join_policy 决定新角色是否自动进入工作顺序：
 - `func assembleView(sessionID string, registry dto.TeamRegistry, policy string, orderRoles []string) (dto.TeamView, error)` — assembleView 把注册表 + 生命周期顺序投影成前端消费的成员表。
 - `func applyFloor(port Port, mainSessionID string, view *dto.TeamView)` — applyFloor 用可选的 floor 读端口填充成员表的当前发言角色（只读事实，不写盘）。
-- `func buildMember(teamID, name string, orderIndex int, inOrder bool, byName map[string]dto.RoleSpec) dto.TeamMember`
+- `func buildMember(mainSessionID, teamID, name string, orderIndex int, inOrder bool, byName map[string]dto.RoleSpec) dto.TeamMember`
 - `func viewNotices(registry dto.TeamRegistry, orderRoles []string) []string` — viewNotices 只报事实，不自动修补：注册了但不在顺序里的角色、顺序里未注册的角色、
 - `func teamKindOf(registry dto.TeamRegistry) string` — teamKindOf 返回可展示的团队形态名（空值不伪装）。
 - `func unexecutedRoles(orderRoles []string) []string` — unexecutedRoles 返回工作顺序里没有执行者的角色（保序、去重）。
@@ -375,7 +376,7 @@ go test -race ./application/core/agentteam -count=1
 
 ### presets.go
 
-- `func goalA2APreset() dto.TeamSpec` — goalA2APreset 是第一个实例：goal 的 user→main↔tl 固定循环。
+- `func goalA2APreset() dto.TeamSpec` — goalA2APreset 是第一个实例：goal 的固定座次（user → main → tl，其中 tl 是 ADVISOR 评审座）。
 - `func reviewTeamPreset() dto.TeamSpec` — reviewTeamPreset 是第二个实例（AT8 证据）：同一工厂、同一 sequencer、同一恢复
 - `func researchTeamPreset() dto.TeamSpec` — researchTeamPreset 演示「定时 agent 不入 order_roles」的第三形态。
 - `func Preset(teamKind string) (dto.TeamSpec, error)` — Preset 返回内置团队实例（goal-a2a / review-team / research-team）。
@@ -467,7 +468,7 @@ go test -race ./application/core/agentteam -count=1
 - `func ValidToolPolicy(policy string) bool` — ValidToolPolicy 报告 tools_policy 是否落在枚举内（dto.ToolPolicy*）。
 - `func resolveRoleKind(roleName string, kind dto.RoleKind) dto.RoleKind` — resolveRoleKind 让内置角色名（user/main）永远取内置 kind；其它角色 kind 缺省
 - `func resolveOrderRoles(spec dto.TeamSpec, registered map[string]struct{}) ([]string, error)` — resolveOrderRoles 决定工作顺序：显式给定时必须是 [user, main + 已注册角色] 的
-- `func RoleSessionID(mainSessionID, teamID, roleName string) string` — RoleSessionID 派生角色会话号：同一个 (主会话, team_id, role_name) 永远得到同一个值，
+- `func RoleSessionID(mainSessionID, teamID, roleName string) string` — RoleSessionID 派生角色会话号：同一个 (主会话, team_id, role_name) 永远得到同一个
 - `func needsRoleSession(kind dto.RoleKind) bool` — needsRoleSession 判定该角色是否需要独立角色会话子树：user/main 复用主会话，
 - `func registeredRoles(spec dto.TeamSpec) []dto.RoleSpec` — registeredRoles 返回需要角色会话的已注册角色。
 

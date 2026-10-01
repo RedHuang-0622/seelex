@@ -3852,7 +3852,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .team-member-actions { flex: none; }
 .team-order-actions .text-button,
 .team-member-actions .text-button { min-width: 42px; padding: 2px 6px; font-size: 10.5px; }
-.team-policy-select { min-height: 26px; padding: 2px 8px; font-size: 11.5px; }
+.team-policy-static { min-height: 26px; padding: 2px 8px; font-size: 11.5px; }
 .team-scheduled-note {
   min-width: 0;
   overflow: hidden;
@@ -3936,7 +3936,8 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .team-table-row .team-floor-chip { overflow: visible; }
 .team-cell-key { color: var(--faint); font: 700 10px var(--font-mono); }
 .team-cell-value { color: var(--text-mid); font-size: 11px; overflow-wrap: anywhere; }
-.team-policy-select { padding: 2px 6px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); color: var(--text-soft); font: 10px var(--font-mono); }
+/* 顺序策略是历史字段：只读形态（虚线边 = 不是输入控件），与下拉在视觉上区分开 */
+.team-policy-static { padding: 2px 6px; border: 1px dashed var(--border); border-radius: var(--r-sm); background: var(--surface); color: var(--text-soft); font: 10px var(--font-mono); }
 .team-floor { color: var(--status-running); font: 700 10px var(--font-mono); }
 .team-order-index { color: var(--faint); font: 10px var(--font-mono); text-align: right; }
 .team-order-role, .team-member-name { overflow: hidden; color: var(--text-strong); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
@@ -4231,6 +4232,8 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   text-align: center;
 }
 .team-field-hint { color: var(--faint); font-size: 9.5px; line-height: 1.5; }
+/* 只读历史字段：值显示出来但改不了，虚线边说明"这不是输入控件" */
+.team-field-static { padding: 4px 7px; border: 1px dashed var(--border); border-radius: var(--r-sm); color: var(--text-soft); font: 11.5px var(--font-mono); }
 /* 逐格权限（路由组 × r/w/x）：一行一个组，左侧组名、右侧三个勾选框。
    右栏窄，所以用 compress 的密集网格而不是表格。 */
 .team-perm-grid { display: grid; gap: 2px; }
@@ -4714,7 +4717,7 @@ button.team-library-name:hover { color: var(--accent); text-decoration: underlin
 
 /* 装配参数：一行 chip（形态 / 顺序策略 / 发言权） */
 .team-meta-row { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 2px 0 4px; }
-.team-meta-row .team-policy-select { max-width: 100%; }
+.team-meta-row .team-policy-static { max-width: 100%; }
 
 /* 发言调度：顺序串珠条（位置即次序） */
 .schedule-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 2px 0; }

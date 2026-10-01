@@ -11,6 +11,7 @@ import {
   normalizeAgentTeam,
   normalizeTeamGlobal,
   normalizeTeamLibrary,
+  orderPolicyLabel,
   renderAgentTeam,
   renderRoleSessionDetail,
   renderRoleSessionSwitcher,
@@ -221,7 +222,10 @@ test("teamEditorPanel fills from the library entry and closes itself", () => {
   assert.match(html, /data-team-member-list/);
   assert.match(html, /data-team-member-item="auditor" data-team-member-drag="auditor" draggable="true"/);
   assert.match(html, /data-team-member-remove="auditor"/);
-  assert.match(html, /data-team-form-policy[\s\S]*?<option value="user_main_decided" selected>/);
+  assert.match(html, /data-team-form-policy-label[^>]*>由 user \/ main 编排</);
+  assert.match(html, /data-team-form-policy[^>]*value="user_main_decided"/);
+  // 顺序策略是历史字段：表单里只回读展示（隐藏字段保留取值），不再给下拉。
+  assert.doesNotMatch(html, /<select[^>]*data-team-form-policy/);
   assert.match(html, /data-team-template="review-team"/);
   assert.match(html, /data-team-form-fill-current="1"/);
   assert.match(html, /当前会话：tl/);
@@ -348,11 +352,43 @@ test("团队编辑器把成员生态位与形态策略带进草稿", () => {
   assert.match(html, /data-team-form-shape/);
 });
 
-test("团队库行只说顺序策略、真实顺序进 title（不再承诺写死的班底）", () => {
+test("团队库行只说顺序策略、真实顺序进 title（不再承诺写死的班底，也不用「循环」说话）", () => {
   const html = renderAgentTeam(goalView, presets, library);
-  assert.doesNotMatch(html, /固定循环 user → main ↔ TL/);
+  assert.doesNotMatch(html, /固定循环/);
   assert.match(html, /实际顺序：user → main → auditor/);
   assert.match(html, /1 人 · 由 user \/ main 编排/);
+  // 顺序策略是历史字段：库行 title 里点明"只回读展示、不驱动轮次"。
+  assert.match(html, /历史字段：顺序由 leader 掌控（team plan 的 stages\[\]\.depends_on）/);
+});
+
+test("顺序策略是只读历史字段：面板给 chip 不给下拉，取值仍随提交带上", () => {
+  const html = renderAgentTeam(goalView, presets, library);
+  // 不再有可编辑入口：一个改了不驱动任何轮次的旋钮比没有旋钮更容易误导。
+  assert.doesNotMatch(html, /<select[^>]*data-team-policy/);
+  assert.match(html, /class="chip team-policy-static" data-team-policy="goal_loop"/);
+  // 取值照旧在册（拖拽调序提交 SetOrder 时由它带回），标签不再说"循环"。
+  assert.match(html, /data-team-policy="goal_loop"[^>]*>固定座次</);
+  // 历史字段的口径挂在 title 上（"循环"这个词不再出现在面板文案里）。
+  assert.match(html, /顺序策略 · 历史字段：顺序由 leader 掌控/);
+});
+
+test("orderPolicyLabel 只翻已知取值：未知原样、空值明说未登记", () => {
+  assert.equal(orderPolicyLabel("goal_loop"), "固定座次");
+  assert.equal(orderPolicyLabel("user_main_decided"), "由 user / main 编排");
+  assert.equal(orderPolicyLabel("future_policy"), "future_policy");
+  assert.equal(orderPolicyLabel(""), "未登记");
+  assert.equal(orderPolicyLabel(null), "未登记");
+});
+
+test("发言调度的收束文案不再说「环」：顺序里没有执行者 / 发言顺序为空", () => {
+  const stopped = {
+    ...goalView,
+    schedule: { order: ["tl"], next_role: "", stopped: true, stop_reason: "no_executor", unexecuted: ["tl"] }
+  };
+  const html = renderAgentTeam(stopped, presets, library);
+  assert.match(html, /顺序里没有执行者/);
+  assert.doesNotMatch(html, /环内无执行者/);
+  assert.doesNotMatch(html, /空环/);
 });
 
 // ── 排序纯函数 ────────────────────────────────────────────────
