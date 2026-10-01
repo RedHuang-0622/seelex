@@ -275,6 +275,7 @@ go test ./application/core/task_context -count=1
 - `func TranscriptTailHistory(events []model.TranscriptEvent, tokenBudget, maxUnits int) []contract.EngineMessage` — TranscriptTailHistory 是 TranscriptTailWindow 的窗口消息视图（多数调用方
 - `func (r TranscriptEventRange) Empty() bool` — Empty 报告该区间没有任何可记录的边界。
 - `func TranscriptPrefixRange(events []model.TranscriptEvent, end int) TranscriptEventRange` — TranscriptPrefixRange 记录 events[:end] 的区间边界：事件序号取首/末事件的
+- `func RetainedFromForCompactions(events []model.TranscriptEvent, compactions []model.ContextCompaction) int` — RetainedFromForCompactions 从压缩记录的**区间事实**推出保留窗口起点
 - `func transcriptEventMessage(event model.TranscriptEvent) contract.EngineMessage`
 - `func providerContentForEvent(event model.TranscriptEvent) string` — providerContentForEvent 返回事件在 provider wire 上的真实正文：ProviderContent
 - `func providerRoleForTranscriptEvent(event model.TranscriptEvent) string` — providerRoleForTranscriptEvent 把 transcript 事实映射为 provider 可见 role：
@@ -398,7 +399,7 @@ go test ./application/core/task_context -count=1
 - `func AppendUniqueStrings(values []string, incoming ...string) []string` — AppendUniqueStrings 追加去重后的非空字符串。
 - `func (c *Coordinator) ActivePlanProjectionLocked() *model.ActivePlanProjection` — ActivePlanProjectionLocked 返回活跃会话当前激活 Plan 的只读投影（调用方
 - `func (c *Coordinator) _ActivePlanProjectionLocked() *model.ActivePlanProjection`
-- `func (c *Coordinator) restoreTaskProjectionLocked(st *sessionTaskRuntime, projection *model.TaskContextProjection, fallbackObjective string)`
+- `func (c *Coordinator) restoreTaskProjectionLocked(st *sessionTaskRuntime, restored RestoredTaskState, sessionID string)`
 - `func (c *Coordinator) resolveObjectiveRefLocked(st *sessionTaskRuntime, objectiveRef string) string`
 - `func (c *Coordinator) RecordContextCompactionLocked(requestID string, compaction model.ContextCompaction) bool` — RecordContextCompactionLocked 记录一次上下文压缩（运行中任务，或回合已收尾
 - `func (c *Coordinator) _RecordContextCompactionLocked(requestID string, compaction model.ContextCompaction) bool`

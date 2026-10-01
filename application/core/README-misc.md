@@ -42,6 +42,12 @@
 - `func (service *Service) commandSuggestions() []Suggestion`
 - `func (service *Service) skillSuggestions() []Suggestion`
 - `func (service *Service) pluginSuggestions() []Suggestion` — pluginSuggestions 列出可切换插件；off 是"停用全部"的内置入口（与
+- `func (cache *teamLibrarySuggestions) lookup(sessionID string) ([]Suggestion, bool)` — lookup 返回该会话的快照（第二个值 = 是否有快照）。返回的切片归缓存所有，调用方
+- `func (cache *teamLibrarySuggestions) store(sessionID string, entries []Suggestion)`
+- `func (cache *teamLibrarySuggestions) forget()` — forget 丢**全部**快照：库是全局母表，写一次影响所有键，逐个键清没有意义。
+- `func (service *Service) invalidateTeamLibrarySuggestions()` — invalidateTeamLibrarySuggestions 让 `@` 的建议面快照过期（库写路径与库读回共用，
+- `func (service *Service) teamSuggestions() []Suggestion` — teamSuggestions 返回 `@` 的候选：团队库里的每一支团队。
+- `func teamSuggestion(entry dto.TeamLibraryEntry) Suggestion` — teamSuggestion 把一条库条目投影成候选项。
 
 ### completion_test.go
 

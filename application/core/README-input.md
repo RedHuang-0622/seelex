@@ -58,6 +58,16 @@
 - `func (service *Service) unknownTeamNotice(sessionID, name string) string` — unknownTeamNotice 在名字没命中任何团队时给出可行动提示。
 - `func (service *Service) teamSummonHelp(sessionID string) string` — teamSummonHelp 是 `@` 的自述：**可用团队从团队库里读**（一次读取——这条不是渲染
 
+### input_team_suggestions_repro_test.go
+
+- `func libraryTeam(teamID, name string) dto.TeamLibraryEntry` — libraryTeam 造一条团队库条目（team_id + 展示名 + 一个员工）。
+- `func (s *countingLibrarySessions) ReadTeamLibrary(sessionID string) (dto.TeamLibrary, error)`
+- `func suggestionTexts(suggestions []Suggestion) []string` — suggestionTexts 取候选的 Text 列表（断言顺序无关的包含关系）。
+- `func TestSuggestionsListTeamLibraryAndFollowLibraryWrites(t *testing.T)`
+- `func (s *perSessionLibrarySessions) ReadTeamLibrary(sessionID string) (dto.TeamLibrary, error)`
+- `func TestSuggestionsScopeTeamLibraryPerSession(t *testing.T)` — TestSuggestionsScopeTeamLibraryPerSession 钉住快照的键是**会话**：切到另一侧的
+- `func TestSuggestionsTeamEmptyLibraryStaysQuiet(t *testing.T)` — TestSuggestionsTeamEmptyLibraryStaysQuiet 钉住空库与读不到的边界：`@` 整列为空
+
 ### input_team_test.go
 
 - `func summonFixture(t *testing.T, mainHeadSeq uint64) (*librarySessions, *Service)` — summonFixture 造"会话里有一支 goal 形态团队、且已存进团队库"的现场，然后清掉会话侧

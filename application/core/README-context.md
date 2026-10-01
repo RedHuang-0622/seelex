@@ -315,6 +315,14 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 - `func returnsWithin(d time.Duration, fn func()) bool` — returnsWithin 报告 fn 是否在 d 之内返回（返回 false = 阻塞住了）。
 - `func TestExplicitCompactReproViewMuHoldAcrossFramePush(t *testing.T)` — TestExplicitCompactReproViewMuHoldAcrossFramePush：推帧进行中，交互面是否仍然可用。
 
+### context_compactions_restore_repro_test.go
+
+- `func compactedSessionStore(t *testing.T) (*archiveSessions, string, ContextCompaction, int)` — compactedSessionStore 造一份「重启前」的持久面并结束进程：第一份 Service 在
+- `func coldResume(t *testing.T, store *archiveSessions, sessionID string) *Service` — coldResume 在 store 上新建 Service（进程重启）并冷加载会话。
+- `func TestReproCompactionStackSurvivesProcessRestart(t *testing.T)` — TestReproCompactionStackSurvivesProcessRestart 应用重启后，旧会话的压缩栈
+- `func TestReproCompactionStackVisibleWithoutProjection(t *testing.T)` — TestReproCompactionStackVisibleWithoutProjection projection 缺失（老记录、
+- `func TestReproCompactionRetainedFromRestoredFromRecord(t *testing.T)` — TestReproCompactionRetainedFromRestoredFromRecord 冷恢复时保留窗口起点
+
 ### context_controller_test.go
 
 - `func (runtime runtimeWithContextLimits) ContextWindow() int`

@@ -266,6 +266,11 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 		return fmt.Errorf("load session transcript %q: %w", sessionID, transcriptErr)
 	}
 	engineHistory := history
+	// transcriptRenumbered 标记本次装载的 transcript 是**从可见会话重建**的
+	// （durable 事件流缺失/过期）。重建会把事件序号重新编码（seq = 1..N），
+	// 与压缩记录里的区间序号不再是同一套空间：任何拿序号定位的推导都必须停用
+	// （见 task_context.RetainedFromForCompactions）。
+	var transcriptRenumbered bool
 	if hasRecord {
 		// 读尾预算走 window 段的保留窗口规则（min(retain_tokens, ratio × 账号
 		// 上下文窗口)）：与压缩侧同一份配置、同一实现，读尾不再是第二套硬编码
@@ -279,6 +284,7 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 			// stale, otherwise the next prepareExecutionContext call would drop
 			// the fallback history again.
 			transcript = service.components.sessions.RecordConversationTranscript(record)
+			transcriptRenumbered = true
 		}
 		engineHistory = task_context.TranscriptTailHistory(transcript, tailBudget, CurrentWindowConfig().MinRounds)
 		// R2 运行期接线（v8 新链路）：直接装配 compact 摘要 + 尾窗 + 最近
@@ -403,15 +409,36 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 		if record.Projection != nil && record.Projection.Checkpoint.CoversEventRange.End > transcriptSeq {
 			transcriptSeq = record.Projection.Checkpoint.CoversEventRange.End
 		}
-		service.components.tasks.RestoreSessionTaskLocked(task_context.RestoredTaskState{
-			PlanStack:         session_runtime.CloneSessionPlanStack(record.PlanStack),
-			ActivePlanID:      record.ActivePlanID,
-			Transcript:        transcript,
-			TranscriptSeq:     transcriptSeq,
-			Checkpoints:       record.Checkpoints,
-			ToolResults:       record.ToolResults,
-			Projection:        record.Projection,
-			FallbackObjective: service.components.sessions.LatestUserContent(record.Conversation.Messages),
+		// 会话上下文事实（压缩栈 / 保留窗口起点）从 record.Execution.Task 还原：
+		// 它们属于**会话**，不属于回合——进程重启不该把它们丢掉（2026-09-23 修的
+		// 进程内孪生见 continuationTaskExecutionState 的注释）。不还原的两条后果：
+		// 右栏「上下文压缩」整条为空；下一次落盘（sessionRecordLocked →
+		// TaskStateFor）把 record 里的压缩历史写成空。
+		var contextCompactions []ContextCompaction
+		retainedFrom := 0
+		if storedTask := record.Execution.Task; storedTask != nil {
+			contextCompactions = append([]ContextCompaction(nil), storedTask.ContextCompactions...)
+			// 保留窗口起点只在**存储事件流**上按压缩记录的区间推（口径见
+			// task_context.RetainedFromForCompactions）：重建过的 transcript 序号
+			// 空间不同，在那里定位会把窗口错误地推到会话中段（丢历史）。
+			if !transcriptRenumbered {
+				retainedFrom = task_context.RetainedFromForCompactions(transcript, storedTask.ContextCompactions)
+			}
+		}
+		// 按**目标会话**路由装载：冷加载可能不激活视图（装载期间视图已被更新的
+		// 切换取代），此时把目标会话的任务/plan 状态写进活跃槽既是串写，也会让目标
+		// 会话自己的任务状态恒为空——它的下一次落盘就会把 record 里的压缩历史抹掉。
+		service.components.tasks.RestoreSessionTaskLockedFor(sessionID, task_context.RestoredTaskState{
+			PlanStack:           session_runtime.CloneSessionPlanStack(record.PlanStack),
+			ActivePlanID:        record.ActivePlanID,
+			Transcript:          transcript,
+			TranscriptSeq:       transcriptSeq,
+			Checkpoints:         record.Checkpoints,
+			ToolResults:         record.ToolResults,
+			Projection:          record.Projection,
+			FallbackObjective:   service.components.sessions.LatestUserContent(record.Conversation.Messages),
+			ContextCompactions:  contextCompactions,
+			ContextRetainedFrom: retainedFrom,
 		})
 	} else {
 		service.components.tasks.ResetForNewSessionLocked()

@@ -100,6 +100,11 @@ type serviceState struct {
 	// roleSessions 是"角色会话 → 归属主会话 + 权责"的反向索引（权限门读面：
 	// 判定不再依赖"用户此刻看着哪个会话"）。见 agentteam_role_index.go。
 	roleSessions roleSessionIndex
+
+	// teamLibrarySnapshots 是 `@` 建议面的团队库进程内快照（自带锁，不走
+	// Core.ViewMu：按键路径上取候选不该与视图快照事务互等）。取舍与失效边界见
+	// completion.go 末尾「`@` 的建议面」一段。
+	teamLibrarySnapshots teamLibrarySuggestions
 }
 
 // draftSlot 保留草稿状态。ID 是早分配的真实会话 ID（草稿会话键）；

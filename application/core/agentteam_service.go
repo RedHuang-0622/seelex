@@ -389,7 +389,12 @@ func (service *Service) agentTeamGlobal(mainSessionID string) (*agentteam.Global
 }
 
 // AgentTeamLibrary 返回项目团队库（团队模板清单）。未建库返回空库（不是错误）。
+//
+// 这是团队库的**公共读回**面：读回的份就是磁盘上的权威，所以顺手让 `@` 的建议面
+// 快照过期（面板 RPC / `@` 空参回执都经这里）——删缓存的代价只是下一次按键多读
+// 一次盘，比让建议面停在旧库便宜。失败路径同样清：读不到时缓存里那份更不可信。
 func (service *Service) AgentTeamLibrary(mainSessionID string) (dto.TeamLibrary, error) {
+	defer service.invalidateTeamLibrarySuggestions()
 	library, err := service.agentTeamLibrary(mainSessionID)
 	if err != nil {
 		return dto.TeamLibrary{}, err
@@ -399,6 +404,7 @@ func (service *Service) AgentTeamLibrary(mainSessionID string) (dto.TeamLibrary,
 
 // AgentTeamSaveTeam 新增/覆盖一条团队库条目（按 team_id 幂等），返回整份库。
 func (service *Service) AgentTeamSaveTeam(mainSessionID string, entry dto.TeamLibraryEntry) (dto.TeamLibrary, error) {
+	defer service.invalidateTeamLibrarySuggestions()
 	library, err := service.agentTeamLibrary(mainSessionID)
 	if err != nil {
 		return dto.TeamLibrary{}, err
@@ -417,6 +423,7 @@ func (service *Service) AgentTeamSaveTeam(mainSessionID string, entry dto.TeamLi
 // AgentTeamSaveCurrentTeam 把当前会话在编的员工表存成一条团队库条目
 // （UI「把当前团队存进团队库」：团队库因此能有用户自己的团队）。
 func (service *Service) AgentTeamSaveCurrentTeam(mainSessionID, name, teamID string) (dto.TeamLibrary, error) {
+	defer service.invalidateTeamLibrarySuggestions()
 	library, err := service.agentTeamLibrary(mainSessionID)
 	if err != nil {
 		return dto.TeamLibrary{}, err
@@ -453,6 +460,7 @@ func (service *Service) AgentTeamSaveCurrentTeam(mainSessionID, name, teamID str
 
 // AgentTeamDeleteTeam 删除一条团队库条目（幂等）。
 func (service *Service) AgentTeamDeleteTeam(mainSessionID, teamID string) (dto.TeamLibrary, error) {
+	defer service.invalidateTeamLibrarySuggestions()
 	library, err := service.agentTeamLibrary(mainSessionID)
 	if err != nil {
 		return dto.TeamLibrary{}, err
@@ -488,7 +496,11 @@ func (service *Service) AgentTeamMaterializeTeam(mainSessionID, teamID string, j
 
 // AgentTeamGlobalConfig 读全局母本（团队库 / 员工库 / 默认顺序）与当前会话副本的
 // 搭配投影。只读：读母本是深拷贝，不落盘、不隐式迁移旧布局。
+//
+// 读回团队库的那一步与 AgentTeamLibrary 同口径：让 `@` 的建议面快照过期（这条也是
+// 面板刷新母本的入口，用户刚在面板里看到的库就是缓存该重取的那一份）。
 func (service *Service) AgentTeamGlobalConfig(mainSessionID string) (dto.TeamGlobalConfig, error) {
+	defer service.invalidateTeamLibrarySuggestions()
 	global, err := service.agentTeamGlobal(mainSessionID)
 	if err != nil {
 		return dto.TeamGlobalConfig{}, err
@@ -592,6 +604,7 @@ func (service *Service) AgentTeamSetDefaultOrder(mainSessionID, policy string, o
 // {在编员工, 发言顺序} 写回全局母本——员工按 role_name 幂等写入员工库、顺序写入
 // 默认顺序，并把这份搭配存成一条全局团队库条目。只有这一步会改全局。
 func (service *Service) AgentTeamPublishToGlobal(mainSessionID, name, teamID string) (dto.TeamGlobalConfig, error) {
+	defer service.invalidateTeamLibrarySuggestions()
 	global, err := service.agentTeamGlobal(mainSessionID)
 	if err != nil {
 		return dto.TeamGlobalConfig{}, err

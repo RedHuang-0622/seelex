@@ -145,14 +145,15 @@ func TestSuggestionsAndSkillRouting(t *testing.T) {
 	if len(suggestions) != 2 || suggestions[0].Kind != "command" || suggestions[1].Kind != "skill" {
 		t.Fatalf("unexpected suggestions: %#v", suggestions)
 	}
-	// sigil 契约：每个前缀只回自己那一域（`/` 可执行入口 + `#` Plugin + `$` Skill），
-	// 不互相兜底。`/` 列命令与 Skill 两类可执行入口（工具不在这里——要用 /名字 显式
-	// 调用先把它注册成命令），因此只对它断言"含有该域候选"，其余前缀断言"整列只有
-	// 一个域"。
+	// sigil 契约：每个前缀只回自己那一域（`/` 可执行入口 + `#` Plugin + `$` Skill +
+	// `@` 团队），不互相兜底。`/` 列命令与 Skill 两类可执行入口（工具不在这里——
+	// 要用 /名字 显式调用先把它注册成命令），因此只对它断言"含有该域候选"，其余前缀
+	// 断言"整列只有一个域"。
 	//
-	// `@` **不在建议面**（2026-10-01）：候选在团队库里，而 Suggestions 跑在 TUI 的
-	// View() 渲染路径与 GUI 每次输入事件上——为它每次按键读一次盘不划算；可用团队名
-	// 由 `@` 空参的 notice 列出（那里有会话上下文）。所以这里只断言"不弹面板"。
+	// `@` 的候选来自**团队库**（不是零 I/O 的内存注册表）：Suggestions 每次读到的是
+	// 进程内快照，库在写路径/读回时让快照过期（见 completion.go 末尾）。本夹具的会话
+	// 端口没有团队库，所以 `@` 不进下面这张"必须非空"的表——它的建议面由
+	// team_summon_suggestions_repro_test.go 钉。
 	for _, testCase := range []struct {
 		input, kind, member string
 		exclusive           bool
@@ -180,13 +181,15 @@ func TestSuggestionsAndSkillRouting(t *testing.T) {
 			t.Fatalf("%q 建议里 %q 的 kind = %q, want %q（%v）", testCase.input, testCase.member, memberKind, testCase.kind, names)
 		}
 	}
-	// 未知前缀与进入参数区（含空格）都不给建议（不弹面板）；`@` 也整列为空
-	// （候选在团队库，读写面没有会话上下文，见上）。
+	// 未知前缀与进入参数区（含空格）都不给建议（不弹面板）。
 	if got := service.Suggestions("%review"); got != nil {
 		t.Fatalf("未知前缀不该给建议：%#v", got)
 	}
+	// `@` 的候选在**团队库**里，而本夹具的会话端口（fakeSessions）没有团队库读写面：
+	// 取不到库时不该炸、也不该弹一个空面板。真正的 `@` 建议面（列出库里的团队、
+	// 前缀过滤、写库/删库即时反映）由 team_summon_suggestions_repro_test.go 钉。
 	if got := service.Suggestions("@"); len(got) != 0 {
-		t.Fatalf("`@` 没有建议面（团队名从团队库来）：%#v", got)
+		t.Fatalf("宿主未装配团队库时 `@` 不该有候选：%#v", got)
 	}
 	if got := service.Suggestions("#code prompt"); got != nil {
 		t.Fatalf("参数区不该给建议：%#v", got)

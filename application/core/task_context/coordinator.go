@@ -716,6 +716,15 @@ type RestoredTaskState struct {
 	ToolResults       []model.ToolResultRef
 	Projection        *model.TaskContextProjection
 	FallbackObjective string
+	// ContextCompactions / ContextRetainedFrom 是**会话上下文事实**（压缩栈与保留
+	// 窗口起点）：它们属于会话，不属于回合——冷恢复必须从 record.Execution.Task
+	// 原样还原。进程内的孪生（continuationTaskExecutionState）已在 2026-09-23 修过：
+	// 丢掉这两项会让压缩记录从可见面消失，并让下一次装配把**已被折出的前缀**重新
+	// 计入上下文预算（长会话稳定越线、每回合重新压一次）。调用方只在事件流是
+	// **存储事件流**时才填 ContextRetainedFrom（推导口径见
+	// RetainedFromForCompactions）。
+	ContextCompactions  []model.ContextCompaction
+	ContextRetainedFrom int
 }
 
 // RestoreSessionTaskLocked 装载活跃会话恢复的任务/plan 状态（调用方持有
@@ -755,7 +764,7 @@ func (c *Coordinator) _RestoreSessionTaskLockedFor(sessionID string, restored Re
 	st.pendingProviderCalls = nil
 	st.pendingToolResults = nil
 	st.resultRefsByToolCallID = make(map[string]string)
-	c.restoreTaskProjectionLocked(st, restored.Projection, restored.FallbackObjective)
+	c.restoreTaskProjectionLocked(st, restored, sessionID)
 }
 
 // ResetForNewSessionLocked 清空活跃会话任务/plan 状态（BeginNewSession /

@@ -899,17 +899,47 @@ func (c *Coordinator) _ActivePlanProjectionLocked() *model.ActivePlanProjection 
 	return ActivePlanProjection(c.Snapshot.Runtime.Plan, st.activePlanID, st.planSequence)
 }
 
-func (c *Coordinator) restoreTaskProjectionLocked(st *sessionTaskRuntime, projection *model.TaskContextProjection, fallbackObjective string) {
+func (c *Coordinator) restoreTaskProjectionLocked(st *sessionTaskRuntime, restored RestoredTaskState, sessionID string) {
+	projection := restored.Projection
 	c.prompt.ClearSkillLayers()
 	if projection == nil {
-		st.taskExecution = nil
-		st.taskService = nil
+		// 没有 projection **不等于**没有会话上下文事实：record.Execution.Task 里的
+		// 压缩栈同样要落回 st.taskExecution，否则 VisibleTaskStateFor 恒 nil（右栏
+		// 「上下文压缩」为空），下一次落盘（sessionRecordLocked → TaskStateFor）
+		// 还会把 record 里的压缩历史写成空——磁盘上的历史被不可逆抹掉。
+		//
+		// 只在**确有压缩记录**时才造这份状态：记录为空时保持"无 projection 即无任务
+		// 面"的旧行为，不凭空造一个任务面（冷读基线不因此改变）。
+		if len(restored.ContextCompactions) == 0 {
+			st.taskExecution = nil
+			st.taskService = nil
+			c.syncGoalSkillActiveLocked()
+			return
+		}
+		state := NewTaskExecutionState("", sessionMaintenanceObjective(st.transcript), c.prompt.CurrentEffort())
+		// 冷恢复后的会话没有在飞回合：状态取 StatusIdle、请求身份留空，不伪造一个
+		// 已在进程重启时消失的回合身份（与 BeginSessionContextMaintenanceLocked 为
+		// 冷加载会话建的"上下文状态"同一口径）。
+		state.Status = StatusIdle
+		state.ContextCompactions = append([]model.ContextCompaction(nil), restored.ContextCompactions...)
+		state.ContextRetainedFrom = restored.ContextRetainedFrom
+		// 上下文版本：projection 缺失时没有权威的 checkpoint 版本，但每条压缩记录
+		// 都带着折叠那一刻的版本（record[].Version = 当时的 state.ContextVersion）。
+		// 取最大值作**已确证达到过的下界**——至少不把版本号退回 1 而与既有记录重号；
+		// 真值可能更高，这里不编。
+		for _, compaction := range state.ContextCompactions {
+			if compaction.Version > state.ContextVersion {
+				state.ContextVersion = compaction.Version
+			}
+		}
+		st.taskExecution = state
+		st.taskService = newTaskService(sessionID, c, state, c.queuedInputRefs)
 		c.syncGoalSkillActiveLocked()
 		return
 	}
 	objective := c.resolveObjectiveRefLocked(st, projection.ObjectiveRef)
 	if objective == "" {
-		objective = strings.TrimSpace(fallbackObjective)
+		objective = strings.TrimSpace(restored.FallbackObjective)
 	}
 	state := NewTaskExecutionState(projection.TaskID, objective, c.prompt.CurrentEffort())
 	state.Status = projection.Status
@@ -917,6 +947,11 @@ func (c *Coordinator) restoreTaskProjectionLocked(st *sessionTaskRuntime, projec
 	if state.ContextVersion == 0 {
 		state.ContextVersion = 1
 	}
+	// 会话上下文事实（压缩栈 / 保留窗口起点）从 record 还原：它们属于会话，不属于
+	// 回合（2026-09-23 的进程内孪生见 continuationTaskExecutionState 的注释）。
+	// 保留窗口起点推不出来时是 0——与"尚未折叠"同义，不会把不可见的前缀算错。
+	state.ContextCompactions = append([]model.ContextCompaction(nil), restored.ContextCompactions...)
+	state.ContextRetainedFrom = restored.ContextRetainedFrom
 	checkpoint := CloneTaskCheckpoint(projection.Checkpoint)
 	if HasSubstantiveCheckpoint(checkpoint) {
 		state.InheritedCheckpoint = &checkpoint
@@ -946,7 +981,9 @@ func (c *Coordinator) restoreTaskProjectionLocked(st *sessionTaskRuntime, projec
 	// 单次写入（只追加，不改写既有定稿轮次）。logged=nil 强制补落（恢复的
 	// transcript 已被整键重建，无同任务事件可判重）。
 	c.ensureActiveSkillEventsLocked(st, state.TrustedSkillLayers, nil)
-	st.taskService = newTaskService(c.activeSessionIDLocked(), c, state, c.queuedInputRefs)
+	// taskService 绑定**被恢复的那个会话**：恢复后台会话时用活跃会话 ID 会让 plan
+	// 投影 reader 读到别人的 plan 栈（会话域重构的口径：按会话路由）。
+	st.taskService = newTaskService(sessionID, c, state, c.queuedInputRefs)
 	c.syncGoalSkillActiveLocked()
 }
 
