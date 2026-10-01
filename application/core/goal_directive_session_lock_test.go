@@ -135,26 +135,6 @@ func (engine *sessionLockEngine) SetSystemPrompt(string) {
 
 func (engine *sessionLockEngine) SetSystemPromptFor(string, string) { engine.SetSystemPrompt("") }
 
-// keepGoingEvaluator 每轮都给一条「继续」裁决：回合尾治理据此把指令留在
-// 待注入队列里（事故现场就是这个状态）。
-type keepGoingEvaluator struct {
-	mu    sync.Mutex
-	calls int
-}
-
-func (e *keepGoingEvaluator) Evaluate(_ context.Context, _ goaldomain.TLSessionEmbed) (goaldomain.TLDirective, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.calls++
-	return goaldomain.TLDirective{Kind: goaldomain.DirectiveCheckpointOK, Content: "继续"}, nil
-}
-
-func (e *keepGoingEvaluator) count() int {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.calls
-}
-
 func TestQueuedRoundMustNotReenterSessionLock(t *testing.T) {
 	sessions := newLibrarySessions()
 	sessions.mainHeadSeq = 1
@@ -184,10 +164,7 @@ func TestQueuedRoundMustNotReenterSessionLock(t *testing.T) {
 	bridge.Bind(service)
 	engine.hooks = bridge.Hooks()
 
-	evaluator := &keepGoingEvaluator{}
-	service.SetGoalTLEvaluator(evaluator)
-
-	// 第 1 轮：@团队 起手（这一轮的回合尾会跑 ADVISOR 回合，产出 TL 指令）。
+	// 第 1 轮：@团队 起手（回合尾会把待注入队列里的指令回放进可见会话）。
 	if err := service.Submit(context.Background(), "@goal-a2a 跑一轮再看队列提升"); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -208,7 +185,14 @@ func TestQueuedRoundMustNotReenterSessionLock(t *testing.T) {
 		t.Fatalf("排队项 = %d, want 1（运行中提交必须进本会话队列）", queued)
 	}
 
-	// 放行第 1 轮：收尾 → ADVISOR 回合产出裁决 → 队列提升开第 2 轮。
+	// 席位轮转退场后回合尾不再自动跑 ADVISOR；直接把一条 b→a 指令放进待注入队列，
+	// 复刻"回合尾有指令待排空 + 回放"的现场——本用例的回归点是**锁纪律**（迭代钩子
+	// 不得再入会话锁），与指令的来源无关。
+	service.components.goal.bundleFor("sess-summon").sup.Mailbox().PublishDirective(
+		goaldomain.TLDirective{Corr: "corr-lock-test", Kind: goaldomain.DirectiveCorrect, Content: "先补负路径单测再收口"},
+	)
+
+	// 放行第 1 轮：收尾 → 指令回放进可见会话 → 队列提升开第 2 轮。
 	close(engine.release)
 
 	idle := make(chan error, 1)
@@ -227,9 +211,6 @@ func TestQueuedRoundMustNotReenterSessionLock(t *testing.T) {
 			dumpAllGoroutines())
 	}
 
-	if evaluator.count() == 0 {
-		t.Fatal("回合尾治理没有跑过 ADVISOR 回合：用例假设不成立")
-	}
 	snapshot := service.Snapshot()
 	if snapshot.Chat.Running {
 		t.Fatalf("收尾后仍在运行中：%+v", snapshot.Chat)

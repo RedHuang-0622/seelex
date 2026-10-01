@@ -239,9 +239,10 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 	// returns: child results travel back as tool results, never as mailbox
 	// content injected into engine history or the durable transcript.
 	service.discardPendingSubagentContextsFor(sessionID)
-	// goal A2A：回合结束（ChatStream 已返回、Session 锁已释放）驱动一轮
-	// Governor（exec 让位 → advisor TL 回合），指令在下次 ChatStream 前
-	// 注入受信区。
+	// goal A2A：回合结束（ChatStream 已返回、Session 锁已释放）做一次 goal 收尾
+	// 记账（turn_completed + 团队环逃生记账）——席位轮转退场后这里**不再**跑
+	// ADVISOR 回合；终态判定只发生在显式入口（goal_propose_finish 的 gate /
+	// 审批预筛），产出的指令在下次 ChatStream 前注入受信区。
 	service.goalAdvanceAfterChat(ctx)
 	// 前缀的作者是主会话上下文（含主会话 draft）的只读装配：在同一个锁外安全点
 	// 读一次并在环里就位。会话没有环、或读不到事实时保持原前缀不变。

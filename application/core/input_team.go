@@ -79,11 +79,11 @@ func (service *Service) submitTeam(ctx context.Context, name string) error {
 		service.addNotice(teamSummonNotice(target, result, "", nil))
 		return nil
 	}
-	// 召唤即干活：先落 goal（团队的座位由 goal 治理驱动），再把附言作为一条输入
-	// 下发（原文交给会话，与 `$<skill> <args>` 同一条口径）。
+	// 召唤即干活：先落 goal，再把附言作为一条输入下发（原文交给会话，与
+	// `$<skill> <args>` 同一条口径）。
 	//
-	// 顺序不能颠倒：goal 必须在主会话这一轮跑起来之前就在栈上，否则回合尾的
-	// AdvanceAfterChat 看不到 active goal，teammate 依旧不会上场。
+	// 顺序不能颠倒：goal 必须在主会话这一轮跑起来之前就在栈上，否则 leader 这一轮
+	// 看不到活动目标（无从按阶段派活）。
 	record, err := service.beginGoalForSummon(ctx, sessionID, tail)
 	if err != nil {
 		// 落 goal 失败不该吞掉这次召唤：团队已经装配好了，至少把附言按旧口径
@@ -100,16 +100,16 @@ func (service *Service) submitTeam(ctx context.Context, name string) error {
 }
 
 // beginGoalForSummon 是"召唤即干活"的落点：`@<团队> <附言>` 里的附言是一条要干的
-// 活，而团队的座位由 goal 治理驱动——只装配不落 goal，召唤完就停在"在编但没有
-// 人开工"（这正是"teammate 没有开始工作"的根因）。
+// 活——只装配不落 goal，召唤完就停在"在编但没有人开工"（这正是"teammate 没有开始
+// 工作"的根因）。
 //
-// 于是：装配成功后把附言落成一个 goal（附言 = 目标陈述），主会话随后的这一轮就是
-// EXEC 回合，回合尾的 Governor 让 teammate 上场；目标收口后团队离场（见
-// goal_service.go 的 dismissTeamWhenGoalClosed）。
+// 于是：装配成功后把附言落成一个 goal（附言 = 目标陈述），随后由**主代理（leader）
+// 按 team_plan 阶段派活**推进；目标收口后团队离场（见 goal_service.go 的
+// dismissTeamWhenGoalClosed）。
 //
 // 与 goal_begin 工具路径的差别：这里**不**调 ensureGoalAgentTeam——召唤已经装配了
 // 用户点名的那支团队，再补一支 goal-a2a 等于替用户改团队（召唤 review-team 却长出
-// 一个 tl）。goal-a2a 自己那条自动装配路径仍只属于 goal_begin。
+// 一个 tl）。
 func (service *Service) beginGoalForSummon(ctx context.Context, sessionID, tail string) (*goaldomain.GoalRecord, error) {
 	coordinator, err := service.goalCoordinatorFor(sessionID)
 	if err != nil {
@@ -245,12 +245,12 @@ func (target teamSummonTarget) displayName() string {
 	return target.ID
 }
 
-// teamSummonNotice 是装配回执：团队名 + 在编席位 + 发言顺序，并把 TeamView 的
+// teamSummonNotice 是装配回执：团队名 + 在编成员 + 发言顺序，并把 TeamView 的
 // DesignNotice（"有装配没执行者"这类设计期提醒）原样带上——召唤完就看见，不用
 // 再去面板里找。带附言时明说"已落目标、附言已下发、目标收口后离场"，免得用户以为
 // 那句话被吞了、或者以为召完就有人在干（两件事以前都不会被说出来）。
 func teamSummonNotice(target teamSummonTarget, result dto.TeamMaterializeResult, tail string, record *goaldomain.GoalRecord) string {
-	lines := []string{fmt.Sprintf("已召唤团队 %s：%d 个席位在编", target.displayName(), len(result.View.Members))}
+	lines := []string{fmt.Sprintf("已召唤团队 %s：%d 名成员在编", target.displayName(), len(result.View.Members))}
 	if roles := memberNames(result.View.Members); len(roles) > 0 {
 		lines = append(lines, "成员 "+strings.Join(roles, " · "))
 	}

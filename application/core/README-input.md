@@ -53,7 +53,7 @@
 - `func teamNameCandidates(name string) []string` — teamNameCandidates 给出"名字可能是哪一段"的候选，**最长优先**：整串，以及它在
 - `func presumedTeamName(name string) string` — presumedTeamName 从"名字 + 附言"里取最可能的名字（首个 token）：全部候选都没
 - `func (target teamSummonTarget) displayName() string`
-- `func teamSummonNotice(target teamSummonTarget, result dto.TeamMaterializeResult, tail string, record *goaldomain.GoalRecord) string` — teamSummonNotice 是装配回执：团队名 + 在编席位 + 发言顺序，并把 TeamView 的
+- `func teamSummonNotice(target teamSummonTarget, result dto.TeamMaterializeResult, tail string, record *goaldomain.GoalRecord) string` — teamSummonNotice 是装配回执：团队名 + 在编成员 + 发言顺序，并把 TeamView 的
 - `func memberNames(members []dto.TeamMember) []string` — memberNames 按成员表顺序取角色名（跳过空名）。
 - `func (service *Service) unknownTeamNotice(sessionID, name string) string` — unknownTeamNotice 在名字没命中任何团队时给出可行动提示。
 - `func (service *Service) teamSummonHelp(sessionID string) string` — teamSummonHelp 是 `@` 的自述：**可用团队从团队库里读**（一次读取——这条不是渲染

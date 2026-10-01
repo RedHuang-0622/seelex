@@ -155,7 +155,7 @@ func TestSubmitTeamSummonsLibraryTeam(t *testing.T) {
 		t.Fatalf("Submit(@goal-a2a): %v", err)
 	}
 	roles := sessions.ensuredRoles()
-	// 库条目里的 user/main 是内建席位（JoinPolicy=builtin，不建角色会话），
+	// 库条目里的 user/main 是内建角色（JoinPolicy=builtin，不建角色会话），
 	// 真正"新入职"的是 techlead——它必须出现在装配记录里。
 	if !slices.Contains(roles, "tl") {
 		t.Fatalf("库条目没装配出 techlead 角色会话：%v", roles)

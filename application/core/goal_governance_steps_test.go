@@ -40,8 +40,10 @@ func TestGoalGovernanceViewCarriesRoundSteps(t *testing.T) {
 	if _, err := coordinator.Begin(ctx, "session-steps", goaldomain.BeginRequest{Title: "过程可见"}); err != nil {
 		t.Fatalf("begin: %v", err)
 	}
-	if err := coordinator.AdvanceAfterChat(ctx, "session-steps", "本轮工作正文"); err != nil {
-		t.Fatalf("advance: %v", err)
+	// 席位轮转退场后回合尾不再自动跑 ADVISOR；这里显式驱动一轮 TL 回合（终态 gate /
+	// 审批预筛在真实链路里走的就是这条），验证评审过程仍能投影到只读视图。
+	if _, err := coordinator.bundleFor("session-steps").sup.RunEval(ctx, "test"); err != nil {
+		t.Fatalf("RunEval: %v", err)
 	}
 	view := coordinator.GoalGovernanceViewFor("session-steps")
 	if view == nil {
@@ -71,8 +73,8 @@ func TestGoalGovernanceViewWithoutStepsHasNoEmptyShell(t *testing.T) {
 	if _, err := coordinator.Begin(ctx, "session-nosteps", goaldomain.BeginRequest{Title: "无过程"}); err != nil {
 		t.Fatalf("begin: %v", err)
 	}
-	if err := coordinator.AdvanceAfterChat(ctx, "session-nosteps", "本轮工作正文"); err != nil {
-		t.Fatalf("advance: %v", err)
+	if _, err := coordinator.bundleFor("session-nosteps").sup.RunEval(ctx, "test"); err != nil {
+		t.Fatalf("RunEval: %v", err)
 	}
 	if view := coordinator.GoalGovernanceViewFor("session-nosteps"); view == nil || len(view.RoundSteps) != 0 {
 		t.Fatalf("没有步骤时不应产生过程空壳: %+v", view)

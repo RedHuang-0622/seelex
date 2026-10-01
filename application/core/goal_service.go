@@ -48,10 +48,10 @@ func (service *Service) goalCoordinatorFor(sessionID string) (*goalCoordinator, 
 //  1. **它会砸掉本会话已有的团队**：装配 = 注册表整份替换 + lifecycle 顺序整份替换
 //     （factory.Materialize → WriteTeamRegistry / SetLifecycleOrder），所以"开始一个 goal"
 //     会把用户手工加的 worker/reviewer 一起冲成模板那三个人。这不是自动化的边界，是事故。
-//  2. **goal 的评估链不依赖它**：没有装配团队时 `seatsFor` 返回空，治理循环走
-//     `goaldomain.NewTurnGovernorForDSA2A`（EXEC + ADVISOR(supervisor)），TL 裁决照常在。
-//     团队席位是**在编员工各自的回合**这一层的增量，属于"会话里谁在编"这件产品事实，
-//     该由用户/leader 决定（leader-worker 目标态里由 team plan 决定）。
+//  2. **goal 的评估链不依赖它**：终态 gate 在任何装配状态下都成立（b 回合由
+//     `Supervisor` 带自己的 ADVISOR 上下文跑，不需要团队装配）。
+//     团队是"会话里谁在编"这件产品事实的增量，该由用户/leader 决定
+//     （leader-worker 目标态里由 team plan 决定）。
 func (service *Service) GoalBeginFor(ctx context.Context, sessionID string, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error) {
 	coordinator, err := service.goalCoordinatorFor(sessionID)
 	if err != nil {
@@ -130,24 +130,8 @@ func (service *Service) GoalStatusFor(sessionID string) (goaldomain.StatusView, 
 	return coordinator.StatusFor(sessionID), nil
 }
 
-// GoalNextFor 按显式会话推进一轮治理循环。
-func (service *Service) GoalNextFor(ctx context.Context, sessionID string) (bool, error) {
-	coordinator, err := service.goalCoordinatorFor(sessionID)
-	if err != nil {
-		return false, err
-	}
-	more, err := coordinator.Next(ctx, sessionID)
-	if err == nil {
-		service.refreshGoalRuntimeProjection(sessionID)
-		service.dismissTeamWhenGoalClosed(sessionID)
-	}
-	return more, err
-}
-
-// GoalNext 按执行 ctx 会话推进治理循环。
-func (service *Service) GoalNext(ctx context.Context) (bool, error) {
-	return service.GoalNextFor(ctx, sessionIDFromContext(ctx))
-}
+// GoalNextFor / GoalNext / GoalBreakFor 已随席位轮转退场删除（2026-10-01 阶段三
+// W3）：不再有可"推进一轮/中断"的治理循环。goal 的收口走终态 gate。
 
 // SetGoalTLEvaluator 注入真实 TL 评估器（组合根：seelebridge 账号面 →
 // goal 域 TLEvaluator；首次会话启动前调用）。
@@ -156,20 +140,6 @@ func (service *Service) SetGoalTLEvaluator(evaluator goaldomain.TLEvaluator) {
 		return
 	}
 	service.components.goal.setEvaluator(evaluator)
-}
-
-// GoalBreakFor 按显式会话外部中断治理循环（headless goal_gov_break）。
-func (service *Service) GoalBreakFor(_ context.Context, sessionID, reason string) error {
-	coordinator, err := service.goalCoordinatorFor(sessionID)
-	if err != nil {
-		return err
-	}
-	if err := coordinator.Break(context.Background(), sessionID, reason); err != nil {
-		return err
-	}
-	service.refreshGoalRuntimeProjection(sessionID)
-	service.dismissTeamWhenGoalClosed(sessionID)
-	return nil
 }
 
 // refreshGoalRuntimeProjection 在 goal 状态迁移后刷新目标会话的 runtime
@@ -254,49 +224,25 @@ func (service *Service) injectGoalDirectivesForStart(sessionID string) {
 	service.injectGoalDirectives(sessionID, directives)
 }
 
-// goalAdvanceAfterChat 在 ChatStream 返回后的锁外安全点推进 goal 治理
-// （turn 结束 → TL 回合），让 A2A 在真实会话中可见（Round/Peer/指令）。本轮
-// EXEC 的工作正文摘要随 turn_completed 登记，ADVISOR 下一回合据此评审真实产出。
+// goalAdvanceAfterChat 在 ChatStream 返回后的锁外安全点做一次 goal 收尾记账
+// （turn_completed 登记 + 团队环逃生记账）。**席位轮转退场后这里不再跑 ADVISOR
+// 回合**：终态判定只在显式入口（goal_propose_finish 的 gate / 审批预筛）。
+//
+// 返回值不在此处上报：聊天回合本身已成功，收尾记账失败不能把它变成用户可见的
+// 聊天错误。
 func (service *Service) goalAdvanceAfterChat(ctx context.Context) {
 	sessionID := sessionIDFromContext(ctx)
 	coordinator, err := service.goalCoordinatorFor(sessionID)
 	if err != nil {
 		return
 	}
-	// 返回值不在此处上报：聊天回合本身已成功，治理失败不能把它变成用户可见的聊天
-	// 错误；失败原因由协调器登记进只读视图（GoalGovernanceView.RoundError），
-	// 面板与 TUI 据此显示「本轮治理未完成」，不靠前端墙钟猜。
 	_ = coordinator.AdvanceAfterChat(ctx, sessionID, service.goalTurnWorkSummary(sessionID))
 	// "干完就走人"：这一轮把目标收口了，团队就离场（判定见 dismissTeamWhenGoalClosed）。
 	service.dismissTeamWhenGoalClosed(sessionID)
 }
 
-// RunSeatRound 是座位循环的**执行侧**（seelebridge 的 teamwork.SeatRoundRunner，
-// 组合根经 Runtime.SetSeatRoundRunner 注入）：作业执行体在自己的 goroutine 上调它，
-// 会话归属与工作正文一律来自**载荷**——作业的执行 ctx 是 jobs.Manager 从
-// Background 派生的，不带原调用会话与 detail（这也是 SeatRequest 要带
-// SessionID/Detail 的原因）。
-//
-// 它复用**同一份** goalCoordinator.runSeatRound（驱动唯一化，D4）：作业里跑的座位
-// 循环与未装配作业面时的同步循环是同一段正文，不存在"同步一份 + 作业里再一份"。
-func (service *Service) RunSeatRound(ctx context.Context, sessionID, detail string, note func(string)) error {
-	coordinator, err := service.goalCoordinatorFor(sessionID)
-	if err != nil {
-		return err
-	}
-	if err := coordinator.runSeatRound(ctx, sessionID, detail); err != nil {
-		return err
-	}
-	// 作业输出文件里留一行可读结论（作业行的 Summaries/输出面据此有内容，
-	// 而不是一个"什么都没发生"的空作业）。治理结论本身在只读治理视图里，
-	// 这里不复制第二份裁决口径。
-	if note != nil {
-		if view := coordinator.GoalGovernanceViewFor(sessionID); view != nil {
-			note(fmt.Sprintf("goal 座位循环完成：round=%d seat=%s\n", view.Round, view.CurrentSeat))
-		}
-	}
-	return nil
-}
+// RunSeatRound 已随席位轮转退场删除（2026-10-01 阶段三 W3）：不再有座位作业面。
+// 终态 gate 在 goal_propose_finish 的调用栈上同步跑 TL 回合，不经作业。
 
 // dismissTeamWhenGoalClosed 让"干完就走人"成立：目标收口（栈里没有 active goal）
 // 之后，本会话的在编团队离场（删注册表 + 清顺序）。

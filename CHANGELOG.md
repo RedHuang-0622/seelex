@@ -12,6 +12,56 @@ version when it lands.
 
 ## [Unreleased]
 
+### Added
+
+- **工作台「目标」子页有了看板与详情（goal 看板的可见面）.** 面板主体换成一块**看板**：
+  上面是大的 **active seq**（当前目标在本会话 goal 序列里的序号，取 `goal` 记录自己的
+  `g-<n>`，不是打点条数、也不是它在栈里的位置），下面是「我发出的最近一次任务」（最近一条
+  非空用户输入，小字一行）；**目标结束（栈上没有 active 帧）看板就没有了**。点开看板出
+  一份**内容详情**（资源管理器「内容详情」口径的属性表）：序号 / 状态 / 标题 / 目标正文 /
+  完成条件 / 非目标范围 / **完整打点流水** / 创建与更新时间，嵌套压栈时逐帧一节（栈顶标
+  「当前目标」）。只读投影因此补齐了详情面缺的字段：`dto.GoalFrameView` 新增
+  `OutOfScope` / `CreatedAt` / `ProgressAll`（后者是这一帧保留的**全部**打点；`Progress`
+  仍是卡片用的最近 3 条）。看板与详情是两个纯渲染件（`gui/frontend/dist/goal-board-view.js`，
+  含 10 条 node:test），DOM 接线与弹窗在 `app.js` / `index.html`。接线由
+  `gui/goal_board_wiring_test.go` 钉住（模块没接 = 没有看板；点击落点没接 = 点了没反应；
+  弹窗元素没进 DOM = 弹窗是空的），并反向钉住 `current_seat` / `round_error` /
+  `break_reason` / `goal-gov-broken` / `goal-gov-error` 不许再从门外爬回来。
+
+### Changed
+
+- **旧 goal（席位轮换）的残余物清完：把「已退场的机制」当现存机制写的注释与文档全部改成事实.** W3
+  删掉了座位循环的代码，但一整批**注释/文档仍在陈述它还在**（`newGovernor 据此决定 main/tl
+  座位要不要长出来`、`真正驱动轮次的是 goal 治理的座位循环`、`座位存在性`、`goal.gov_break`、
+  `contract.RoleTurnPort` / `RoleSeat` 那条适配层…）——这正是简报点名的"有误导性的陈旧代码"。本次逐条改正：
+  `application/core/agentteam/{README.md,scheduler.go,runtime.go,testspecs_test.go,runtime_test.go}`、
+  `application/core/{agentteam_runtime.go,agentteam_fixture_test.go,chat.go,goal_coordinator.go,
+  goal_service.go,goal_team_wiring_test.go,input_team.go,input_team_test.go,input_team_work_test.go,
+  service_components.go,service_state.go,README.md,README-input.md}`、
+  `application/contract/dto/agentteam.go`、`application/README.md`、
+  `seelebridge/{runtime_role_turn.go,runtime_goal_tl.go,teamwork/README.md}`、
+  `gui/{README.md,headless_goal_test.go}`、`gui/frontend/{README.md,dist/agent-team-view.js,
+  dist/agent-team-view.test.mjs,dist/app.js}`、根 `README.md`、
+  `docs/arch/{README.md,agent-team-seat-vs-claim.md}`。用户可见文案也去掉座位口径
+  （装配回执「N 个席位在编」→「N 名成员在编」）。前端**死样式**一并删除：
+  `.goal-gov-broken` / `.goal-gov-error`（座位轮转断环/回合失败横幅，已无渲染点）。
+  保留的是**显式退场注记**（"已随席位轮转退场删除"这类）——它们防误读，不是残余物。
+
+- **The goal seat loop is retired end-to-end (stage-3 W3).** The per-turn governor
+  ("exec yields → advisor reviews", one seat at a time — the serial drive the user
+  called out) is gone: `AdvanceAfterChat` now only records the turn boundary (exec
+  ledger watermark + work summary) and the team-ring escape bookkeeping. goal is
+  driven by prompt-level leader dispatch (`plugins/default/goal/SKILL.md`), and
+  terminal judgement happens only at explicit entries — the `goal_propose_finish`
+  gate and the approval pre-screen. Removed: `application/core/govern` (whole
+  package), `goal/adapter.go`, the seat job face (`jobs.KindSeat` / `SeatExecutor` /
+  `SetSeatRoundRunner` / `RunSeat` / `DispatchSeat` / `JoinSeat` /
+  `teamwork.SeatRequest|SeatRunner|SeatRoundRunner`), headless `goal_gov_next` /
+  `goal_gov_break`, and the governance view's `Round` / `RoundLimit` / `CurrentSeat`
+  / `Broken` / `BreakReason` / `RoundError` fields (GUI + TUI panels updated). Kept
+  unchanged: `goal.Controller`, the `Supervisor`, the terminal gate, the approval
+  pre-screen, and escape. See `docs/devlog/2026-10-03-seat-rotation-retired.md`.
+
 ### Notes
 
 - **M0's last step — moving the background-job face onto Seele's `jobs.Manager` — is blocked on the frozen

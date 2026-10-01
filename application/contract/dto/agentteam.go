@@ -21,9 +21,9 @@ const (
 //
 // **历史字段（2026-10-01）**：团队顺序的事实正在迁到 team plan 的
 // `stages[].depends_on`（leader 掌控，见 docs/arch/teamwork-leader-worker-architecture.md
-// §4.6/D4）。现状（可核对）：`order_policy` 落 lifecycle 后只被回读展示
-// （dto.TeamView / dto.TeamSchedule），**不驱动轮次**；`order_roles` 仍是座位存在性
-// 与发言顺序的事实（goal_coordinator 的 seatPlan）。退场被
+// §4.6/D4）。现状（可核对，2026-10-03 复核）：`order_policy` 落 lifecycle 后只被回读展示
+// （dto.TeamView / dto.TeamSchedule），**不驱动任何行为**；`order_roles` 只剩发言顺序
+// 与成员表的展示事实（`seatPlan` 那套"按 order_roles 长座位"的读面已随席位轮转退场）。退场被
 // docs/devlog/2026-10-01-m4-deadcode-inventory.md #5 标为 blocked，故这里只标注、
 // 不删、**不改落盘取值**（旧会话里的 "goal_loop" 必须继续可读）。
 const (
@@ -97,7 +97,7 @@ type RoleSpec struct {
 // TeamSpec 是 AgentTeamFactory 的装配输入（arch 稿 §2.2）。
 //
 // OrderPolicy / OrderRoles 是**旧的群聊顺序字段**（历史/只读，见 OrderPolicy 常量的
-// 说明）：写入面仍在（装配 / 入职 / 团队库保存），读面只用来派座位与展示。新事实 =
+// 说明）：写入面仍在（装配 / 入职 / 团队库保存），读面只用来展示顺序。新事实 =
 // team plan 的 `stages[].depends_on`（leader 掌控）；旧字段退场前不得删。
 type TeamSpec struct {
 	TeamID        string     `json:"team_id,omitempty"`
@@ -169,8 +169,9 @@ type TeamSchedule struct {
 	Order []string `json:"order,omitempty"`
 	// NextRole 是下一次该发言的角色（空 = 环内没有人可以发言）。
 	NextRole string `json:"next_role,omitempty"`
-	// Round / RoundLimit 是逃生路径第一道：轮次上限（RoundLimit=0 表示治理层
-	// 不设上限，只靠裁决/Break 收束）。
+	// Round / RoundLimit 是逃生路径第一道：环自己的轮次上限（RoundLimit=0 表示
+	// 环不设上限，只靠显式收束）。2026-10-03 起它与 goal 治理**不同源**：
+	// goal 没有"轮次"了，这是环自己的兜底（agentteam.defaultTeamRoundLimit）。
 	Round      int `json:"round"`
 	RoundLimit int `json:"round_limit"`
 	// NoProgress / NoProgressLimit 是逃生路径第二道：连续无进展轮次上限。

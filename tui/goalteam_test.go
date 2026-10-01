@@ -41,12 +41,8 @@ func goalSnapshot() application.Snapshot {
 		GoalID:        "g-1",
 		Title:         "给员工按权限开放工具",
 		Status:        "running",
-		Round:         2,
-		RoundLimit:    6,
-		CurrentSeat:   "advisor-b",
 		PeerState:     "advisory_pending",
 		LastDirective: "[verdict_done] 两条验收证据在本次 ADVISOR 输入中均可核对",
-		RoundError:    "b 回合失败(429/超时 → B4 缺席矩阵): context deadline exceeded",
 	}
 	return snapshot
 }
@@ -111,7 +107,7 @@ func TestGoalPanelRendersGovernanceProjection(t *testing.T) {
 		t.Fatalf("Alt+G 后面板 = %q, want %q", model.panel, panelGoal)
 	}
 	panel := model.renderPanel()
-	for _, want := range []string{"GOAL", "running", "2/6", "advisor-b", "advisory_pending", "verdict_done", "g-1", "本轮治理未完成", "429"} {
+	for _, want := range []string{"GOAL", "running", "advisory_pending", "verdict_done", "g-1"} {
 		if !strings.Contains(panel, want) {
 			t.Fatalf("目标面板缺少 %q：\n%s", want, panel)
 		}
@@ -349,8 +345,8 @@ func TestStatusBarShowsGoalBadge(t *testing.T) {
 	model := NewModel(app)
 	model.showLogo = false
 	model.width = 120
-	if bar := model.renderStatusBar(); !strings.Contains(bar, "goal:2") {
-		t.Fatalf("状态行缺少 goal 轮次标记：%q", bar)
+	if bar := model.renderStatusBar(); !strings.Contains(bar, "goal") {
+		t.Fatalf("状态行缺少 goal 标记：%q", bar)
 	}
 
 	// 只有 skill 激活（治理未上线）时显示裸 badge。

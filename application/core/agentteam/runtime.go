@@ -8,7 +8,7 @@ package agentteam
 //  1. **谁来维护这张成员表**——注册表每次增删改后，环里的员工必须跟着变；
 //  2. **谁在环里**——环只装「会被轮到的发言者」：user 不进环（见 ringOrder）。
 //     用户的发言机会是**回合尾消息队列被整批提升为下一轮**这一个动作（chat
-//     轮次），它不是环里的一个排班位，因此不存在「轮到 user」这类席位口径；
+//     轮次），它不是环里的一个排班位，因此不存在「轮到 user」这类口径；
 //  3. **循环怎么逃生**——链表是闭链，没有上限就会一直转下去。
 //
 // Runtime 就是这三个问题的唯一落点，并把状态投影成 dto.TeamSchedule 供前端/
@@ -268,14 +268,13 @@ func (r *Runtime) Stopped() (bool, string) {
 // 都不动。
 //
 // 为什么必须有它：逃生路径是**终态**——Stop 一旦发生就不会自己复活（SyncOrder
-// 只改成员与顺序，不碰 stopped）。但"终态"的适用范围是**当前这一次治理循环**，
+// 只改成员与顺序，不碰 stopped）。但"终态"的适用范围是**当前这一次 goal**，
 // 不是这个会话的余生。缺了显式的复活口，上一轮 goal 的逃生结论会传染给下一轮
-// goal：goalCoordinator.AdvanceAfterChat 每次都会先看到 stopped=true 并立刻
-// Break 新装配的 Governor，ADVISOR 从此再也不会被叫起，goal 停在 active 无人收口
-// （治理面板恒 0 轮）。
+// goal：环从此一上来就是 stopped=true，收口/派活都等不到任何环上的信号（治理面板
+// 也就不再动）。
 //
-// 调用点：新 goal 上线时（goalCoordinator.Begin，与重置 gov 同一处）。顺序事实
-// 仍然只有 lifecycle.order_policy/order_roles 一份，本方法不落盘、不写 message。
+// 调用点：新 goal 上线时（goalCoordinator.Begin）。顺序事实仍然只有
+// lifecycle.order_policy/order_roles 一份，本方法不落盘、不写 message。
 func (r *Runtime) Reset() {
 	if r == nil {
 		return

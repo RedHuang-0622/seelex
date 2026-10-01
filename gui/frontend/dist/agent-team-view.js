@@ -387,7 +387,7 @@ function normalizeRoleSpecs(items) {
       modelPolicy: typeof item.model_policy === "string" ? item.model_policy : "",
       joinPolicy: typeof item.join_policy === "string" ? item.join_policy : "",
       presencePolicy: typeof item.presence_policy === "string" ? item.presence_policy : "",
-      // 生态位的两个字段（dto.RoleSpec 里有，座位派生与治理指令集读它们）：
+      // 生态位的两个字段（dto.RoleSpec 里有，权限档位派生与治理指令集读它们）：
       // 归一化不认识它们 = 团队面板看不见、保存时丢。
       directiveSchema: Array.isArray(item.directive_schema) ? item.directive_schema.filter(step => typeof step === "string" && step) : [],
       orderPriority: Number.isInteger(item.order_priority) ? item.order_priority : 0
@@ -717,9 +717,8 @@ export function teamMemberNames(entry) {
 // 后端团队库条目存的是**整套 RoleSpec**（dto.TeamLibraryEntry.Roles），不只角色名。
 // 团队面板此前只搬 role_name/role_kind/tools_policy/system_prompt，于是"保存团队"
 // 这一步就把其余字段静默丢掉：一支 goal-a2a 存回库里时，tl 的 techlead 规格
-// （role_kind + join_policy/presence_policy/directive_schema）降级成 agent ——
-// 装配后座位派生按 RoleKind 走（seatPlan：techlead → ADVISOR 座位，agent → 员工
-// 执行面座位），ADVISOR 就这么没了。
+// （role_kind + join_policy/presence_policy/directive_schema）被静默降级——生态位
+// 这份事实就此丢失。
 //
 // 两条口径，别混：
 //   - **生态位**（role_kind / join_policy / presence_policy / directive_schema /
@@ -741,7 +740,7 @@ export const TEAM_ROLE_SPEC_FIELDS = [
 ];
 
 // 生态位字段（条目优先的那一组）：其余字段算"人的档案"。
-const TEAM_SEAT_FIELDS = ["role_kind", "join_policy", "presence_policy", "directive_schema", "order_priority"];
+const TEAM_NICHE_FIELDS = ["role_kind", "join_policy", "presence_policy", "directive_schema", "order_priority"];
 
 // 字段两种拼法都认，输出一律是**协议拼法**（snake_case）：Bridge 下发的协议载荷是
 // snake_case，前端归一化后的库条目 / 员工池 / 在编是 camelCase，团队面板同时消费
@@ -808,7 +807,7 @@ export function teamMemberSpecMap(names, { entry = null, pool = [] } = {}) {
     // 人的档案：条目（这支团队存过的事实）当底，员工库/本会话在编覆盖。
     const spec = { ...storedRole, ...personRole };
     // 生态位：条目登记过就按条目；条目没有才回落到员工库那一份。
-    for (const field of TEAM_SEAT_FIELDS) {
+    for (const field of TEAM_NICHE_FIELDS) {
       const value = storedRole[field] ?? personRole[field];
       if (value === undefined) continue;
       spec[field] = value;
@@ -819,7 +818,7 @@ export function teamMemberSpecMap(names, { entry = null, pool = [] } = {}) {
 }
 
 // teamEntryFromMembers 把团队面板的草稿换算成团队库条目载荷。抽成纯函数是为了让它
-// 可被单测：字段丢失是这个面板最容易悄悄回归的地方（丢一个 role_kind 就是丢一个座位）。
+// 可被单测：字段丢失是这个面板最容易悄悄回归的地方（丢一个 role_kind 就是丢一份生态位）。
 export function teamEntryFromMembers({
   teamID = "",
   teamKind = "",
@@ -869,7 +868,7 @@ export function renderTeamMemberList(names, pool = [], specs = {}) {
     const payload = JSON.stringify(spec);
     return `<div class="team-member-item" data-team-member-item="${escapeHtml(name)}" data-team-member-kind="${escapeHtml(kind)}" data-team-member-spec="${escapeHtml(payload)}">
       <span class="team-member-label">${escapeHtml(roleDisplayName(name, kind))}</span>
-      ${kindLabel ? `<span class="chip team-member-kind" title="生态位（role_kind）：决定装配后的座位（techlead = ADVISOR 评审座位）">${escapeHtml(kindLabel)}</span>` : ""}
+      ${kindLabel ? `<span class="chip team-member-kind" title="生态位（role_kind）：角色身份标签，并决定权限档位派生">${escapeHtml(kindLabel)}</span>` : ""}
       <span class="team-member-role">${escapeHtml(name)}</span>
       <button type="button" class="team-member-drop" data-team-member-remove="${escapeHtml(name)}" aria-label="移除 ${escapeHtml(name)}" title="从这个团队里移除">${icon("close", 12)}</button>
     </div>`;
@@ -916,7 +915,7 @@ export function teamEditorPanel(team, entry, pool = []) {
         fieldItem(2, "团队 ID", `<input type="text" name="team_id" data-team-form-id placeholder="my-review-team" value="${escapeHtml(data.teamID || "")}"${editing ? " readonly" : ""}>`, "团队库主键；编辑时不可改（要改就新建一支）。")
       ])}
       ${fieldGroup("成员", [
-        fieldItem(3, "成员", `<div class="team-member-list" data-team-member-list>${renderTeamMemberList(memberNames, employees, memberSpecs)}</div>`, "user / main 自动包含；每行的生态位（role_kind）决定装配后的座位。"),
+        fieldItem(3, "成员", `<div class="team-member-list" data-team-member-list>${renderTeamMemberList(memberNames, employees, memberSpecs)}</div>`, "user / main 自动包含；每行的生态位（role_kind）是角色身份标签。"),
         fieldItem(4, "添加成员", `<span class="team-member-add"><select data-team-member-pick aria-label="从员工库选择员工">${pickOptions}</select><button type="button" class="text-button" data-team-member-add="1"${candidates.length ? "" : " disabled"}>添加</button></span>`, "候选 = 员工库 ∪ 本会话在编（不含 timer）。")
       ])}
       <div class="team-editor-actions">

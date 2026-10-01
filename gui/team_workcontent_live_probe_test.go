@@ -143,8 +143,8 @@ func TestRealAPITeamWorkContentLiveProbe(t *testing.T) {
 	}
 	report["governance"] = gov
 	report["active"] = gov.Active
-	t.Logf("[gov] active=%v round=%d seat=%q peer=%q last_directive=%q",
-		gov.Active, gov.Round, gov.CurrentSeat, gov.PeerState, truncateForLog(gov.LastDirective, 200))
+	t.Logf("[gov] active=%v peer=%q last_directive=%q",
+		gov.Active, gov.PeerState, truncateForLog(gov.LastDirective, 200))
 
 	tlSnapshot, err := roleLiveSnapshot(ctx, proc, mainSessionID, "tl", tlSessionID)
 	if err != nil {

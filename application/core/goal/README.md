@@ -15,12 +15,16 @@
 ## 生态位
 
 会话粒度的 Goal 对象与状态机（`Controller`）、DS-A2A 双会话治理编排
-（`Supervisor`/`AdvisorSession`/gate）、治理循环适配（`adapter.go`）以及
+（`Supervisor`/`AdvisorSession`/gate）以及
 会话级第五栈持久化（`sessionstore_store.go`，goal 栈随会话聊天记录同域落
 `sessionstore.SessionContextRecord.GoalStack`）。主要调用方：goal 域
-headless 契约（`headless.go`）作为外部驱动面；
-`application/core/govern` 提供通用治理循环抽象，goal 域经 `adapter.go`
-把 EXEC/TL 语义适配为治理座位。
+headless 契约（`headless.go`）作为外部驱动面。
+
+> **2026-10-03（阶段三 W3）路线变更**：goal 的**席位轮转整条退场**。
+> `govern` 治理循环抽象与 `adapter.go`（EXEC/ADVISOR → `govern.Seat`）**已删除**；
+> goal 的驱动改为**提示词驱动的 leader 派活**（`plugins/default/goal/SKILL.md`），
+> 终态判定只在显式入口：`goal_propose_finish` 的终态 gate 与审批预筛。下文若仍
+> 出现 `govern` / `adapter.go`（已删除）的字样，都是**退场前**的表述（已随本次整肃清理）。
 
 ## 职责与非职责
 
@@ -38,8 +42,8 @@ headless 契约（`headless.go`）作为外部驱动面；
 - DS-A2A 双会话治理：EXEC 事件账本（execSeq）、ADVISOR 独立上下文
   （锚点 + 帧账本 + 自身回合段，只尾部追加）、corr 信封指令、B4 缺席矩阵
   （`advisor.go`/`techleader.go`/`gate.go`）；
-- 治理循环适配：`govern.Seat` 封装（advisor 座位）、EXEC+ADVISOR 双座位
-  治理循环工厂（`adapter.go`）；
+- 终态 gate 与审批预筛（`gate.go`）——已退场的席位环曾把 EXEC/TL 语义适配成
+  `govern.Seat`（`adapter.go`，2026-10-03 已删除）；
 - headless 调教接口（`/rpc` + `/events`，`headless.go`）。
 
 非职责：
@@ -47,7 +51,6 @@ headless 契约（`headless.go`）作为外部驱动面；
 - 不持有 seelebridge/application 装配（P1 起由 application 的会话级
   goal 协调器持有 Controller/Supervisor，见 `application/core/goal_coordinator.go`；
   真实 TLEvaluator 与 gui/headless 透传为待续项）；
-- 不定义通用治理循环原语（那是 `application/core/govern`）；
 - 不接触 LLM provider/账号（`TLEvaluator` 由装配方注入，本包不持有凭据）。
 
 ## 架构图
@@ -67,10 +70,9 @@ flowchart TB
     end
 
     STORE["sessionstore_store.go<br/>会话第五栈 GoalStack + GoalAudit"]
-    ADAPTER["adapter.go<br/>EXEC / ADVISOR → govern.Seat"]
     TL["TLEvaluator（装配方注入）"]
     HEADLESS["headless.go<br/>/rpc + /events"]
-    FE["GUI Goal 面板"]
+    FE["GUI 目标面板（看板 + 详情）"]
 
     HEADLESS --> CTRL
     CTRL --> STORE
@@ -79,7 +81,6 @@ flowchart TB
     ADV --> TL
     SUP --> GATE
     GATE --> CTRL
-    ADAPTER --> SUP
     CTRL --> FE
     GATE --> FE
 ```
@@ -147,8 +148,10 @@ stateDiagram-v2
   Store.Save 全量替换会话 GoalStack、Store.Load 读回（第五栈只服务恢复与
   治理，不渲染进模型上下文）；
 - `audit.go`：审计端口与有界条目（`AuditAccount`/`AuditEntry`），
-  `ContextStateStore.AppendGoalAudit` 映射为 sessionstore GoalAuditEntry；
-- `adapter.go`：把上面语义翻译为 `govern` 治理循环的座位动作。
+  `ContextStateStore.AppendGoalAudit` 映射为 sessionstore GoalAuditEntry。
+
+（`adapter.go` 已删除：它曾把上面语义翻译为 `govern` 治理循环的座位动作，
+2026-10-03 随席位轮转退场；今天没有"座位动作"这一层。）
 
 ## 数据流或生命周期
 
@@ -163,19 +166,18 @@ AdvisorSession(b) 回合：on_eval 补帧 → 一次 LLM 调用 → TLDirective(
    └─ 429/超时 → B4 缺席矩阵（escalate / 直连回退），a 不阻塞
 ```
 
-治理循环（govern 适配）：
+b 回合的**触发入口**（2026-10-03 起只剩显式入口，没有回合尾自动推进）：
 
 ```text
-exec-a.Act（推进/登记） → advisor-b.Act（真实 TL 回合）
-   └─ 循环直到 verdict_done/escalate 断环或轮次护栏
+goal_propose_finish → 终态 gate（真实 TL 回合 → verdict_done / not_done / escalate）
+审批预筛            → 同一套 b 回合（Supervisor.PreScreenApproval）
 ```
 
 ## 依赖方向
 
-- goal 包保持叶子生态位：只依赖 `application/core/govern` 与低层持久化
+- goal 包保持叶子生态位：只依赖低层持久化
   `sessionstore`（GoalFrame 纯 DTO），不依赖 application/core 其它子包与
   seelebridge；
-- `adapter.go` 依赖 `application/core/govern`（goal → govern 单向）；
 - `sessionstore_store.go` 依赖 `sessionstore`（goal → sessionstore 单向，
   sessionstore 不反向依赖 goal）；
 - seelebridge 未来可依赖 goal（装配面），方向不反转。
@@ -193,8 +195,7 @@ exec-a.Act（推进/登记） → advisor-b.Act（真实 TL 回合）
   （`TLState.InFlight`）在 peer=evaluating 期间真的读得到——旧实现把快照挡在整轮之后；
 - 回合闸门**不可重入且不排队**（`roundInFlight` 租约）：已有回合在飞时，第二个入口
   拿到 `ErrRoundInFlight`。各调用点按自己的语义处理：`Notify` = 登记照旧、本轮不评；
-  终态 gate / 审批预筛 = B4 缺席默认（保持 active 转人工，a 永不等待 b）；治理座位 =
-  良性跳过本轮发言（不写 roundError、不断环）；
+  终态 gate / 审批预筛 = B4 缺席默认（保持 active 转人工，a 永不等待 b）；
 - 提交段复核顶栈 goal（执行段在锁外，这一期间 goal 可能被改或被收口）：
   **收口/取消** → 丢弃这一回合的结论（`ErrRoundGoalGone`，不发信封、不落回合段）；
   **同一个 goal 被改** → 结论照常落地，并补一条 `goal.update` 差异帧
@@ -222,14 +223,14 @@ goal 第五栈语义边界（docs/2026-09-08-govern-loop/design.md §2.1 澄清�
 ## 扩展方式
 
 - 新增 goal 命令：headless.go dispatch 补一行（命令本身走 Controller）；
-- 新增治理角色：实现 `govern.Seat` 后加入 `NewTurnGovernorForDSA2A`；
+- 新增评审能力：评审只发生在**终态 gate / 审批预筛**（`gate.go`）；席位轮转退场后
+  没有"加一个治理座位"这条扩展路径了。
 - 新增 DirectiveKind 断环规则：改 `DirectiveBreaksLoop`。
 
 ## Review 指南
 
 - b 回合是否携带锚点 goal 帧（防遗忘）；帧 ref_seq 是否单调/幂等；
 - 是否出现"a 等待 b"路径（违反 B4）；
-- 治理适配是否把裁决语义正确映射为断环（not_done 不该断、escalate 应断）；
 - 事件/投影是否深拷贝（锁外安全）。
 
 ## 测试与验证
@@ -257,26 +258,6 @@ go test -race ./application/core/goal/ -count=1
 - `func goalFrameOf(record *GoalRecord) GoalFrame`
 - `func (e TLSessionEmbed) Validate() error` — Validate 校验回合嵌入（有界性快检；供测试与装配护栏使用）。
 - `func TLNow() func() int64` — TLNow 提供 TL 域时间源（测试可注入）。
-
-### adapter.go
-
-- `func DirectiveBreaksLoop(directive TLDirective) bool` — DirectiveBreaksLoop 报告一条 TLDirective 是否应打破治理循环。
-- `func NewAdvisorSeat(supervisor *Supervisor, name string) govern.Seat` — NewAdvisorSeat 构造 Advisor 座位。supervisor 为 nil 或未启用时，Act
-- `func (s *advisorSeat) Name() string`
-- `func (s *advisorSeat) Kind() govern.AgentKind`
-- `func (s *advisorSeat) Act(ctx context.Context) (govern.TurnAction, error)`
-- `func NewTurnGovernorForDSA2A( execName string, execAct func(context.Context) (govern.TurnAction, error), supervisor *Supervisor, maxRounds int, ) govern.Governor` — NewTurnGovernorForDSA2A 装配"EXEC + ADVISOR"两座位的治理循环：
-- `func (f funcSeat) Name() string`
-- `func (f funcSeat) Kind() govern.AgentKind`
-- `func (f funcSeat) Act(ctx context.Context) (govern.TurnAction, error)`
-
-### adapter_test.go
-
-- `func TestGovernorDrivesAdvisorRound(t *testing.T)` — TestGovernorDrivesAdvisorRound 验证治理循环能驱动真实 TL 回合：
-- `func TestGovernorBreaksOnVerdictDone(t *testing.T)` — TestGovernorBreaksOnVerdictDone 验证完整收口闭环：
-- `func TestAdvisorSeatDisabledReportsTLDisabled(t *testing.T)` — TestAdvisorSeatDisabledReportsTLDisabled 验证无评估器（TL 缺席）时
-- `func TestAdvisorSeatVerdictDoneClosesGoal(t *testing.T)` — TestAdvisorSeatVerdictDoneClosesGoal 验证**常规治理回合**的终态裁决同样收口
-- `func TestAdvisorSeatNonTerminalKeepsGoal(t *testing.T)` — TestAdvisorSeatNonTerminalKeepsGoal 钉住反向：非终态裁决（verdict_not_done）
 
 ### advisor.go
 
@@ -408,7 +389,6 @@ go test -race ./application/core/goal/ -count=1
 
 - `func NewServer(controller *Controller) *Server` — NewServer 构造 goal Headless 服务。
 - `func (s *Server) WithTechLeader(supervisor *Supervisor) *Server` — WithTechLeader 装配 TL 监督器（启用 goal_tl_* / goal_propose_finish / goal_prescreen RPC）。
-- `func (s *Server) WithGovernor(governor govern.Governor) *Server` — WithGovernor 装配回合制治理循环（启用 goal_gov_* RPC：多代理治理测试面）。
 - `func (s *Server) Handler() http.Handler` — Handler 返回路由（/healthz /rpc /events）。
 - `func (s *Server) serveHealth(writer http.ResponseWriter, _ *http.Request)`
 - `func (s *Server) serveRPC(writer http.ResponseWriter, request *http.Request)`
@@ -419,11 +399,6 @@ go test -race ./application/core/goal/ -count=1
 - `func (c *Client) Call(ctx context.Context, method string, arg any, out any) error` — Call 调用一个 /rpc 方法；arg 可为 nil（无参）。成功时若 out 非 nil 则解码 result。
 - `func (c *Client) Health(ctx context.Context) error` — Health 探测 /healthz。
 - `func (c *Client) ReadEvents(ctx context.Context, handle func(Event) error) error` — ReadEvents 逐行读取 /events 流并调用 handle（阻塞至 ctx 取消或流结束）。
-
-### headless_gov_test.go
-
-- `func TestHeadlessGovernRPC(t *testing.T)` — TestHeadlessGovernRPC 验证 goal headless 治理测试面：
-- `func TestHeadlessGovernUnwired(t *testing.T)` — TestHeadlessGovernUnwired 验证未装配治理循环时 goal_gov_* 显式拒绝。
 
 ### headless_test.go
 
@@ -467,7 +442,6 @@ go test -race ./application/core/goal/ -count=1
 - `func TestInRoundCallbackDoesNotDeadlock(t *testing.T)` — TestInRoundCallbackDoesNotDeadlock 钉住"回合内回头找 Supervisor"的形状：同 goroutine
 - `func TestRoundDiscardedWhenGoalClosedDuringRound(t *testing.T)` — TestRoundDiscardedWhenGoalClosedDuringRound 钉住 B 语义之一：回合执行期间 goal 被
 - `func TestRoundEmitsGoalUpdateFrameWhenGoalChangedDuringRound(t *testing.T)` — TestRoundEmitsGoalUpdateFrameWhenGoalChangedDuringRound 钉住 B 语义之二：回合执行
-- `func TestAdvisorSeatSkipsWhenRoundInFlight(t *testing.T)` — TestAdvisorSeatSkipsWhenRoundInFlight 钉住治理座位的处理口径：在飞是**良性跳过**
 
 ### sessionstore_store.go
 

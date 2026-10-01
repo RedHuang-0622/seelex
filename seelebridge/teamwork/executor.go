@@ -49,42 +49,4 @@ func (e *workerExecutor) Start(ctx context.Context, spec jobs.Spec, sink jobs.Si
 	return nil
 }
 
-// SeatExecutor 返回注册进 jobs.Manager 的座位循环执行体（Kind = "seat"，D4：
-// goal 座位轮转不再是**与 jobs 并列的第二套驱动**，而是 jobs 契约下的一个实现）。
-func SeatExecutor(runner SeatRunner) jobs.Executor {
-	return &seatExecutor{runner: runner}
-}
-
-type seatExecutor struct {
-	runner SeatRunner
-}
-
-func (e *seatExecutor) Kind() jobs.Kind { return KindSeat }
-
-func (e *seatExecutor) Start(ctx context.Context, spec jobs.Spec, sink jobs.Sink) error {
-	if e.runner == nil {
-		return errors.New("teamwork: seat 执行体未装配（缺 SeatRunner）")
-	}
-	var request SeatRequest
-	if len(spec.Payload) > 0 {
-		if err := json.Unmarshal(spec.Payload, &request); err != nil {
-			sink.Note("\n[teamwork] seat 载荷解码失败：" + err.Error() + "\n")
-			sink.Exit(1)
-			sink.Complete(jobs.StateFailed, "seat 载荷解码失败")
-			return nil
-		}
-	}
-	if err := e.runner.RunSeat(ctx, request, sink); err != nil {
-		sink.Note("\n[teamwork] 座位循环失败：" + err.Error() + "\n")
-		sink.Exit(1)
-		sink.Complete(jobs.StateFailed, err.Error())
-		return nil
-	}
-	sink.Complete(jobs.StateDone, "")
-	return nil
-}
-
-var (
-	_ jobs.Executor = (*workerExecutor)(nil)
-	_ jobs.Executor = (*seatExecutor)(nil)
-)
+var _ jobs.Executor = (*workerExecutor)(nil)

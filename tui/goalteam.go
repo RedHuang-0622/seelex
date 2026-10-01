@@ -146,23 +146,19 @@ func (model Model) goalPanelLines() []string {
 		lines = append(lines, StyleMuted.Render("  ·  Esc 关闭"))
 		return lines
 	}
-	header := fmt.Sprintf("  ◆ GOAL  %s · 轮次 %d/%d · 座次 %s",
-		fallback(goal.Status, "active"), goal.Round, goal.RoundLimit, fallback(goal.CurrentSeat, "—"))
+	header := fmt.Sprintf("  ◆ GOAL  %s · %s",
+		fallback(goal.Status, "active"), fallback(goal.GoalID, "—"))
 	lines := []string{StyleTaskRunning.Render(header)}
 	if title := oneLine(goal.Title, model.textLimit()); title != "" {
-		lines = append(lines, StyleChoiceInactive.Render("  "+oneLine(goal.GoalID+" · "+title, model.textLimit())))
+		lines = append(lines, StyleChoiceInactive.Render("  "+title))
 	}
-	lines = append(lines, StyleMuted.Render("  peer: "+fallback(goal.PeerState, "—")))
-	if goal.RoundError != "" {
-		lines = append(lines, StyleError.Render("  ✖ 本轮治理未完成: "+oneLine(goal.RoundError, model.textLimit())))
-	}
-	if goal.Broken {
-		lines = append(lines, StyleError.Render("  ✖ 治理已中断: "+oneLine(fallback(goal.BreakReason, "—"), model.textLimit())))
+	if peer := oneLine(goal.PeerState, model.textLimit()); peer != "" {
+		lines = append(lines, StyleMuted.Render("  peer: "+peer))
 	}
 	if directive := oneLine(goal.LastDirective, panelDirectiveMax); directive != "" {
 		lines = append(lines, StyleChoiceInactive.Render("  TL: "+directive))
 	} else {
-		lines = append(lines, StyleMuted.Render("  TL: 暂无裁决（ADVISOR 回合尚未产出）"))
+		lines = append(lines, StyleMuted.Render("  TL: 暂无裁决（终态 gate 尚未评估）"))
 	}
 	lines = append(lines, StyleMuted.Render("  ·  Alt+T 看团队 · Esc 关闭"))
 	return lines
@@ -294,10 +290,10 @@ func shortID(id string) string {
 }
 
 // goalBadge 是状态行的 goal 短标记（与 GUI 的 GOAL badge 同口径：有活跃治理
-// 显示轮次，只有 skill 激活显示 goal）。
+// 或 skill 激活都显示 goal）。
 func goalBadge(snapshot application.Snapshot) string {
 	if goal := snapshot.Runtime.GoalGovernance; goal != nil && goal.Active {
-		return fmt.Sprintf("goal:%d", goal.Round)
+		return "goal"
 	}
 	if snapshot.Runtime.GoalSkillActive {
 		return "goal"

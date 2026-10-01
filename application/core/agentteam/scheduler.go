@@ -17,7 +17,7 @@ import (
 // 生产实际消费的四件事（`Runtime` 侧）：
 //   - SetOrder：SyncOrder 把注册表顺序 − user 同步成环（整表替换；顺序事实仍然
 //     只有 lifecycle 一份）；
-//   - Order：座位存在性（`newGovernor` 据此决定 main/tl 座位要不要长出来）与投影；
+//   - Order：顺序投影（环成员表；顺序事实仍然只有 lifecycle 一份）；
 //   - SetPrefix：team work 前缀的运行时载体（作者是存储侧的只读装配，见
 //     Runtime.NoteMainContext），推进时下发给下一名成员；
 //   - sessionsLocked：Snapshot 的"下一个谁发言"投影取会话号。
@@ -30,9 +30,10 @@ import (
 // 拖拽调序那条手势也已退场（前端只能只读 team 快照）。留下的是**一份顺序事实 +
 // 一条推进路径**：`Advance`（经 `Runtime.Next` 在其上补逃生记账）。
 //
-// 推进路径现状：`Advance` 与 `Runtime.Next` 目前**同样只有用例在走**——真正驱动
-// 轮次的是 goal 治理的座位循环（见 README「运行时轮次驱动」），所以"下一个谁发言"
-// 是表头扫描的静态投影，不随轮转变化。
+// 推进路径现状：`Advance` 与 `Runtime.Next` 目前**同样只有用例在走**——2026-10-03
+// （阶段三 W3）起 goal 的治理座位循环整条退场，**没有任何生产调用者驱动"轮到谁"**；
+// 让角色说话的是 leader 的 `team_dispatch`，环只剩逃生记账（`Runtime.NoteTurn`），
+// 所以"下一个谁发言"是表头扫描的静态投影，不随轮转变化。
 //
 // 顺序的唯一运行时事实是链表；落盘仍是 lifecycle.order_policy/order_roles
 // （本原语不写盘）。
@@ -98,9 +99,10 @@ func (s *TurnScheduler) advanceLocked() *roleNode {
 
 // Advance 按链表推进一格并返回下一名**可发言**成员。
 //
-// skip 返回 true 的成员被跳过：环内没有运行时执行者的角色、以及按 user 席位
-// 策略不该占位的 user。因为环是闭链，最多遍历一圈；一圈内全部被跳过时返回
-// ok=false（= 环内没有人能发言，调用方按逃生路径收束，不停在这里空转）。
+// skip 返回 true 的成员被跳过：环内没有运行时执行者的角色、以及不在环里的 user
+// （user 根本没有排班位，见 ringOrder）。因为环是闭链，最多遍历一圈；一圈内
+// 全部被跳过时返回 ok=false（= 环内没有人能发言，调用方按逃生路径收束，不停在
+// 这里空转）。
 //
 // 交接即带上"team work 起点 → 当前"的前缀：装配侧每次发布后用 SetPrefix 更新，
 // 这里保证下一名成员拿到当前完整前缀。

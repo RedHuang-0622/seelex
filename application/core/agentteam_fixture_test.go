@@ -9,8 +9,8 @@ import "github.com/RedHuang-0622/seelex/application/contract/dto"
 // 顺序由数据说（TeamSpec / 团队库条目），不由代码里的模板说。测试需要一份具体
 // 团队时，就地写一份夹具即可。
 
-// goalTeamFixture 是一支 goal 形态的团队：user → main → tl（tl 是 techlead，
-// 装配后由 seatPlan 派生 ADVISOR 评审座位）。
+// goalTeamFixture 是一支 goal 形态的团队：user → main → tl（tl 是 techlead，角色回合
+// 由 leader 派发的 worker 作业驱动；tl 的 ADVISOR 裁决来自 goal 域的终态 gate）。
 func goalTeamFixture() dto.TeamSpec {
 	return dto.TeamSpec{
 		TeamID:        "goal-a2a",

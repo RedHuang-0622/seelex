@@ -41,7 +41,7 @@
 | [`core/context_control/`](core/context_control/README.md) | `seele.yaml` window 配置段与窗口策略类型装载。 |
 | [`core/context_runtime/`](core/context_runtime/README.md) | provider 上下文预算/压缩/result-ref 与历史归一化。 |
 | [`core/goal/`](core/goal/README.md) | 会话级 Goal 对象与状态机、DS-A2A 治理编排、goal 栈持久化。 |
-| [`core/govern/`](core/govern/README.md) | 通用多代理回合治理原语（座次、轮次、行动、断环）。 |
+<!-- core/govern/ 已于 2026-10-03（阶段三 W3）随 goal 席位轮转退场删除 -->
 | [`core/input_router/`](core/input_router/README.md) | 输入分流（command/skill/plugin/conversation）与命令注册表。 |
 | [`core/internal/limits/`](core/internal/limits/README.md) | 进程级运行时上限（`seele.yaml` limits 段）叶子包。 |
 | [`core/internal/state/`](core/internal/state/README.md) | core 共享状态内核：唯一共享锁、Snapshot、Deps、Events、Approval。 |
@@ -77,7 +77,7 @@ flowchart TB
     subgraph CORE["application/core"]
         SVC["Service 用例门面"]
         DOM["域协调器<br/>session_runtime · task_context · context_runtime"]
-        LEAF["叶子包<br/>goal · govern · agentteam · chat · resume · worktable"]
+        LEAF["叶子包<br/>goal · agentteam · chat · resume · worktable"]
         ST["internal/state<br/>唯一共享锁 + Snapshot + Deps"]
         VIEW["view_state · subagent_view · prompt_layer<br/>input_router · context_control · internal/limits"]
     end

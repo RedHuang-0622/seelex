@@ -488,8 +488,6 @@ type goalRPCApplication interface {
 	GoalUpdateFor(context.Context, string, goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error)
 	GoalProposeFinishFor(context.Context, string, goaldomain.FinishRequest) (goaldomain.FinishProposalResult, error)
 	GoalStatusFor(string) (goaldomain.StatusView, error)
-	GoalNextFor(context.Context, string) (bool, error)
-	GoalBreakFor(context.Context, string, string) error
 	GoalGovernanceViewFor(string) *dto.GoalGovernanceView
 }
 
@@ -528,18 +526,8 @@ func (server *headlessServer) dispatchGoal(method string, args []json.RawMessage
 		return app.GoalProposeFinishFor(ctx, sessionID, request)
 	case "goal.status":
 		return app.GoalStatusFor(sessionID)
-	case "goal.gov_next":
-		return app.GoalNextFor(ctx, sessionID)
 	case "goal.gov_snapshot":
 		return app.GoalGovernanceViewFor(sessionID), nil
-	case "goal.gov_break":
-		var request struct {
-			Reason string `json:"reason"`
-		}
-		if err := decodeArg(&request); err != nil {
-			return nil, fmt.Errorf("%s 参数解码失败: %w", method, err)
-		}
-		return nil, app.GoalBreakFor(ctx, sessionID, request.Reason)
 	default:
 		return nil, fmt.Errorf("未知 goal headless 方法: %s", method)
 	}

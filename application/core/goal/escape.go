@@ -3,9 +3,10 @@ package goal
 // escape.go — 环逃生（round_limit / no_progress / empty_ring / no_executor）的
 // **唯一收口口**。
 //
-// 背景（2026-09-16 复核）：逃生此前只在 application 层调 `governor.Break(reason)`，
-// goal 仍停在 `active`——治理循环已经停了，goal 却还在等一个永远不会来的
-// ADVISOR 回合：面板恒 0 轮、用户看不到收口、同一会话的下一次 goal 还可能带着
+// 背景（2026-09-16 复核，2026-10-03 席位轮转退场后仍是同一条纪律）：逃生此前只在
+// application 层停掉治理循环（当时的 `governor.Break(reason)`，该层已删除），
+// goal 仍停在 `active`——循环已经停了，goal 却还在等一个永远不会来的
+// ADVISOR 回合：用户看不到收口、同一会话的下一次 goal 还可能带着
 // 上一轮 b 的锚点/帧继续跑（`headless.go` 的 goal_finish/goal_abort 与任何直接
 // `Controller.Finish/Abort` 的路径都不 reap peer，见 techleader.go 的
 // `unbindIfTerminal` 调用点）。结果就是"loop 不动了，但没人知道它停了"。

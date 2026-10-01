@@ -2,8 +2,9 @@ package seelebridge
 
 // runtime_goal_tl.go — seelebridge → goal 域的真实 TL 评估器（P1 装配）。
 //
-// goal/govern 保持叶子包：TLEvaluator 由装配侧（seelebridge）实现，输出经 goal 域
-// 校验的 TLDirective。组合根（main.go）在首次会话启动前经 app.SetGoalTLEvaluator 注入。
+// goal/govern 曾同处一个叶子生态位；goal 仍是叶子包（依赖低层持久化与 DTO）。
+// TLEvaluator 由装配侧（seelebridge）实现，输出经 goal 域校验的 TLDirective。
+// 组合根（main.go）在首次会话启动前经 app.SetGoalTLEvaluator 注入。
 //
 // 2026-09-16 追加：ADVISOR 回合从"一次无工具的 completer 调用"升级为**一次带只读
 // 工具的角色回合**（复用 runtime_role_turn.go 的 runRoleRound：角色会话 + 员工主体
@@ -18,8 +19,8 @@ package seelebridge
 //     执行位），本轮不宣称；
 //   - 没有工作区（embed 无主会话 id：老宿主/单测）时退回**无工具的一次 completer
 //     评审**，并在系统提示里如实说明"本回合没有工具"，不让模型以为自己有读手段；
-//   - 裁决仍必须落在 TLDirective JSON 上（输出契约不因有工具而改变）：govern 环
-//     与 gate 依赖它解析。
+//   - 裁决仍必须落在 TLDirective JSON 上（输出契约不因有工具而改变）：终态 gate
+//     与审批预筛依赖它解析。
 
 import (
 	"context"
@@ -54,7 +55,8 @@ type goalLLMEvaluator struct {
 // 为什么不是注册表里的角色会话（`<teamID>-tl`）：那是 tl **员工做工**的会话坐标
 // （消息/草稿存储的键），而评审回合是 DS-A2A 的 b 侧执行面——b 的上下文刻意与
 // a 隔离、引擎进程内、不接 DurableHistory（见 advisor.go 的模型说明）。两者是
-// 两个座位，共用一个会话号会让"评审上下文"和"员工工作上下文"互相污染。
+// 两个执行面（不是一个 b 座位与一个员工座位）——共用一个会话号会让"评审上下文"和
+// "员工工作上下文"互相污染，所以评审会话号走独立命名空间。
 // 前缀 + 主会话 id 保证：同一主会话的评审会话稳定复用（缓存前缀稳定），不同主会话
 // 互不串味。
 const advisorRoleSessionPrefix = "advisor:"

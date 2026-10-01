@@ -22,9 +22,7 @@ flowchart LR
     CO --> JOBS["Seele jobs.Manager（作业表 / 状态机 / jobs_manage）"]
     CO --> STORE["PlanStore → sessionstore.moduleTeamwork<br/>plan 头 + events.jsonl 审计"]
     JOBS --> WE["WorkerExecutor（Kind=worker）"]
-    JOBS --> SE["SeatExecutor（Kind=seat）"]
     WE --> WR["WorkerRunner 端口 → runtime_role_turn"]
-    SE --> SR["SeatRunner / SeatRoundRunner 端口 → goal 域"]
     CO --> WT["WorkspaceReleaser 端口 → worktree 域"]
     CO --> SS["SessionResetter 端口 → 角色会话内容"]
 ```
@@ -61,9 +59,9 @@ stateDiagram-v2
 
 | 文件 | 职责 |
 |---|---|
-| `teamwork.go` | 端口契约（`PlanStore` / `WorkerRunner` / `SeatRunner` / `SeatRoundRunner` / `WorkspaceReleaser` / `SessionResetter`）、`Options`、`Coordinator` 装配、计划校验、成员权限格子折叠 |
+| `teamwork.go` | 端口契约（`PlanStore` / `WorkerRunner` / `WorkspaceReleaser` / `SessionResetter`）、`Options`、`Coordinator` 装配、计划校验、成员权限格子折叠 |
 | `coordinator.go` | 五个动作：`SetPlan` / `Dispatch` / `Join` / `Milestone` / `Retire`，以及 `audit` |
-| `executor.go` | 两个作业执行体：`WorkerExecutor`（`Kind=worker`）、`SeatExecutor`（`Kind=seat`） |
+| `executor.go` | 作业执行体：`WorkerExecutor`（`Kind=worker`）（`SeatExecutor` 已随 goal 席位轮转退场） |
 | `store.go` | `sessionstore` 持久面的适配与计划读写 |
 | `teamwork_test.go` | 端口桩驱动的编排语义测试 |
 

@@ -7,13 +7,14 @@ package core
 //  1. agentteam.Runtime.Stop 是终态：SyncOrder 只改成员与顺序、不碰 stopped；
 //     NewRuntime 只在 teamRuntimeStore 槽为空时发生；store.drop 全仓无调用者。
 //  2. goalCoordinator.AdvanceAfterChat 每次 chat 结束都先做逃生记账，见到
-//     stopped=true 就立刻 runtime.gov.Break(reason) 并 return。
-//  3. goalCoordinator.Begin 在新 goal 上线时只重置 gov（runtime.gov = nil），
-//     没有重置团队环。
+//     stopped=true 就立刻断环并 return。
+//  3. goalCoordinator.Begin 在新 goal 上线时没有重置团队环。
 //
 // 合起来就是：轮次上限（默认 24）或连续无进展（默认 3）一旦触发，该会话此后每
-// 一个新 goal 都会在上线后的第一次 chat 结束被立刻断环——ADVISOR 再也不会被叫
-// 起，goal 停在 active 无人收口，治理面板恒 0 轮。
+// 一个新 goal 都会在上线后的第一次 chat 结束被立刻吞掉。
+//
+// 席位轮转退场后（2026-10-03，阶段三 W3）：AdvanceAfterChat 不再驱动任何座位，
+// 但"环逃生结论不传染下一轮 goal"这条 P0 回归仍然成立——Begin 必须重置环。
 
 import (
 	"context"
@@ -74,21 +75,9 @@ func TestNewGoalRevivesStoppedTeamRing(t *testing.T) {
 		t.Fatalf("新 goal 的记账应从 0 重新开始，实际 round=%d stopped=%v", schedule.Round, schedule.Stopped)
 	}
 
-	// 端到端：新 goal 的一轮有产出 chat 必须还能驱动 ADVISOR 回合。
-	// （修复前这里必然一次 Evaluate 都没有：AdvanceAfterChat 会先 Break 掉新 governor。）
-	before := len(evaluator.embeds)
-	service.ViewMu.Lock()
-	service.appendSessionMessageLocked(sessionID, "user", "请继续推进", nil)
-	service.appendSessionMessageLocked(sessionID, "assistant", "第二轮产出：RING-REVIVE-MARKER", nil)
-	service.ViewMu.Unlock()
-	service.goalAdvanceAfterChat(ctx)
-
-	if len(evaluator.embeds) <= before {
-		t.Fatal("新 goal 的 ADVISOR 回合被上一轮 goal 的逃生结论杀掉（治理静默）")
-	}
-	if view := service.GoalGovernanceViewFor(sessionID); view != nil && view.Broken {
-		t.Fatalf("新 governor 不应在上线后立刻断环: reason=%q", view.BreakReason)
-	}
+	// 席位轮转退场后（2026-10-03，阶段三 W3）：回合尾不再自动驱动 ADVISOR 回合，
+	// 因此这里只钉住本条 P0 回归——"上一轮 goal 的环逃生结论不传染下一轮 goal"。
+	// 终态判定改由显式入口（goal_propose_finish 的 gate）承担。
 }
 
 // TestSameGoalBeginIsIdempotentAndKeepsRing：幂等 begin（同名返回既有 active）

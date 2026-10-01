@@ -229,7 +229,7 @@ flowchart LR
                                │ Snapshot / Event / Action
 ┌──────────────────────────────▼──────────────────────────────┐
 │ application/                                                │
-│ Chat · Task · Plan · Goal/Govern · AgentTeam · Worktable    │
+│ Chat · Task · Plan · Goal · AgentTeam · Worktable           │
 │ Approval · Session · Workspace · Resume                     │
 └───────────────┬──────────────────────────┬──────────────────┘
                 │                          │
@@ -617,7 +617,7 @@ permission:
 
 | 目录 | 职责 |
 |---|---|
-| [<code>application/</code>](application/README.md) | 稳定应用层：Chat、Task、Plan、Goal/Govern、AgentTeam、Worktable、审批、会话、项目和 Snapshot/Event |
+| [<code>application/</code>](application/README.md) | 稳定应用层：Chat、Task、Plan、Goal、AgentTeam、Worktable、审批、会话、项目和 Snapshot/Event |
 | [<code>seelebridge/</code>](seelebridge/README.md) | Seele 防腐层、工具面（含 computer use）、账号池、Plan、MCP、多模态与附件、ProjectScope 项目路径约束 |
 | [<code>seelexctx/</code>](seelexctx/README.md) | 上下文装配、预算、压缩 DAG、记忆、检索、快照和父子 Agent merge-back |
 | [<code>sessionstore/</code>](sessionstore/README.md) | JSON v8 持久化、顺序日志、模块 head、三栈通道与媒体分区；退役后端枚举与接口契约 |
@@ -722,8 +722,8 @@ Linux CI 还会执行 race detector、覆盖率和发布包安全检查。
 
 - 项目仍处于 Developer Alpha，CLI、配置字段和持久化 schema 可能继续调整。
 - TUI 是默认入口；GUI 功能较完整，但仍依赖平台 WebView，属于 Alpha，真实 WebView E2E 尚未作为发布门禁。
-- 当前 Plan 是同一进程内由主 Agent 编排多个独立节点 Session，不是跨进程或跨组织的完整 A2A Protocol 实现。团队轮转的 <code>TurnScheduler</code> 属**部分接线**：链表顺序（<code>Move</code>/<code>Remove</code>/<code>Restore</code>）、<code>SetPrefix</code>、<code>NoteTurn</code>、<code>SyncOrder</code> 与 <code>Snapshot</code> 有生产消费者，而 <code>Next()</code>/<code>Advance()</code> 目前只是原语、没有生产消费者；真正驱动轮次的是 goal 治理的座位循环。
-- <code>review-team</code> 的 <code>reviewer</code> 与 <code>research-team</code> 的 <code>researcher</code> 目前只有角色会话与成员行，没有执行者（事实表 <code>RolesWithExecutor</code> 只含 <code>user</code>/<code>main</code>/<code>tl</code>）；装配面通过 <code>DesignNotice</code> 显式声明「谁还没有执行者」，不会让人误以为装配完就有人干活。角色回合执行体（<code>RunRoleTurn</code>）已落地，但只为拿到治理座位的 <code>agent</code> 角色提供承重面。
+- 当前 Plan 是同一进程内由主 Agent 编排多个独立节点 Session，不是跨进程或跨组织的完整 A2A Protocol 实现。团队轮转的 <code>TurnScheduler</code> 属**部分接线**：<code>SetPrefix</code>、<code>NoteTurn</code>、<code>SyncOrder</code> 与 <code>Snapshot</code> 有生产消费者，而 <code>Next()</code>/<code>Advance()</code> 目前只是原语、没有生产消费者；2026-10-03 起 goal 的治理座位循环整条退场，**没有任何东西在驱动"轮到谁"**——让角色说话的是主代理（leader）的 <code>team_dispatch</code>，环只剩逃生记账。
+- <code>review-team</code> 的 <code>reviewer</code> 与 <code>research-team</code> 的 <code>researcher</code> 目前只有角色会话与成员行，没有执行者（事实表 <code>RolesWithExecutor</code> 只含 <code>user</code>/<code>main</code>/<code>tl</code>）；装配面通过 <code>DesignNotice</code> 显式声明「谁还没有执行者」，不会让人误以为装配完就有人干活。角色回合执行体（<code>runRoleRound</code>）已落地，为 leader 派发的 worker 作业与终态 gate 的 ADVISOR 评审回合提供承重面。
 - OpenAI-compatible 不等于完全行为一致；工具调用、流式协议和模型参数仍需按 provider 验证。
 - 项目尚未发布 SWE-bench、Terminal-Bench 等标准化编码基准结果。
 - 覆盖率仍是短板：2026-09-14 口径全仓 **58.6%**，TUI **35.6%** 明显低于核心编排层，前端交互的回归保护弱于后端。

@@ -223,24 +223,22 @@ func TestRealAPITeamWorkComputerUseLiveProbe(t *testing.T) {
 	if err := json.Unmarshal(govRaw, &gov); err != nil {
 		t.Fatalf("decode gov_snapshot: %v", err)
 	}
-	report["governance_round"] = gov.Round
-	report["governance_seat"] = gov.CurrentSeat
 	report["governance_peer_state"] = gov.PeerState
 	report["governance_last_directive"] = gov.LastDirective
-	t.Logf("[gov] active=%v round=%d seat=%q peer=%q last_directive=%q",
-		gov.Active, gov.Round, gov.CurrentSeat, gov.PeerState, truncateForLog(gov.LastDirective, 200))
+	t.Logf("[gov] active=%v peer=%q last_directive=%q",
+		gov.Active, gov.PeerState, truncateForLog(gov.LastDirective, 200))
 	switch directiveKind {
 	case "verdict_done", "escalate_human":
 		// 终态裁决 = 收口：治理必须已下线（这正是 2026-09-16 的收口修复）。
 		if gov.Active {
-			t.Fatalf("终态裁决 %q 之后 goal 仍在线（收口失效）：active=%v round=%d seat=%q",
-				directiveKind, gov.Active, gov.Round, gov.CurrentSeat)
+			t.Fatalf("终态裁决 %q 之后 goal 仍在线（收口失效）：active=%v peer=%q",
+				directiveKind, gov.Active, gov.PeerState)
 		}
 		t.Logf("[gov] 终态裁决 %q 已收口 goal（active=false，收口语义生效）", directiveKind)
 	case "verdict_not_done", "checkpoint_ok", "correct":
 		if !gov.Active || strings.TrimSpace(gov.LastDirective) == "" {
-			t.Fatalf("非终态裁决 %q 之后治理必须仍在线且有裁决原文：active=%v round=%d seat=%q peer=%q directive=%q",
-				directiveKind, gov.Active, gov.Round, gov.CurrentSeat, gov.PeerState, truncateForLog(gov.LastDirective, 200))
+			t.Fatalf("非终态裁决 %q 之后治理必须仍在线且有裁决原文：active=%v peer=%q directive=%q",
+				directiveKind, gov.Active, gov.PeerState, truncateForLog(gov.LastDirective, 200))
 		}
 	default:
 		t.Fatalf("ADVISOR 回合原文里的裁决 kind=%q 不是已知裁决类型（回合也许没有正常产出裁决）：%s",

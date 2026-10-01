@@ -2,23 +2,22 @@ package seelebridge
 
 // runtime_role_turn.go — 「角色（员工/评审者）回合执行体」的 seelebridge 落点。
 //
-// 生态位：application/core 只声明"谁有座位、谁先谁后"（goal_coordinator.go 的
-// RoleSeat / seatPlan.seats），真正的执行体在这里：**给角色开一个自己的
-// 会话（引擎），开的同时把这个角色的权限（主体 × 路由组 × 位）分配到权责表，
-// 然后按权责口径跑一轮带工具的回合**。
+// 生态位：application/core 只声明"哪些角色要跑回合"，真正的执行体在这里：**给角色
+// 开一个自己的会话（引擎），开的同时把这个角色的权限（主体 × 路由组 × 位）分配到
+// 权责表，然后按权责口径跑一轮带工具的回合**。
 //
 // 两个消费者共用同一套原语（runRoleRound）：
 //   - **worker 作业执行体**（Runtime.RunWorker → team_dispatch）：leader 派发的
 //     teammate 在角色会话里跑一轮有界回合（员工真的干活的那一面）；
-//   - **ADVISOR 评审回合**（runtime_goal_tl.go 的 goalLLMEvaluator）：tl 座位带
+//   - **ADVISOR 评审回合**（runtime_goal_tl.go 的 goalLLMEvaluator）：评审角色带
 //     **只读**工具跑一轮，把裁决从"观点"变成"证据"（A2A-VALUE-REVIEW §2.5/§3.3）。
 //     两者共用会话生命周期/权限分配/项目根绑定/回合闸门——差别只在系统提示、
 //     输入与循环上限。
 //
-// 2026-10-01（M4）：员工**不再**由治理环按"席位"驱动（治理环只为 main 派生 EXEC
-// 让位座、为 techlead 派生 ADVISOR 评审座），因此旧的
-// `contract.RoleTurnPort` / `RunRoleTurn` 适配层与 `RoleTurnRunner` 一并退场；
-// 员工回合只剩 worker 作业这一条入口。
+// 2026-10-01（M4）与 2026-10-03（阶段三 W3）：员工**不再**由治理环按"席位"驱动
+// （治理环连同座位派生一起退场了），旧的 `contract.RoleTurnPort` / `RunRoleTurn`
+// 适配层与 `RoleTurnRunner` 一并退场；角色回合只剩两条入口——leader 派发的 worker
+// 作业，以及终态 gate / 审批预筛里的 ADVISOR 评审回合。
 //
 // 为什么必须有这一层（而不是让 application 直接调模型）：
 //   - 轮到一个角色发言时，它需要的是**一次真的会被权限门管辖的工具回合**——
@@ -51,8 +50,8 @@ import (
 	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 )
 
-// roleTurnMaxLoops 是角色回合的 ReAct 循环上限：角色回合必须**有界**——一轮员工
-// 座位不该把一个 goal 的预算烧在一个循环里，收口交给评审者（ADVISOR）。
+// roleTurnMaxLoops 是角色回合的 ReAct 循环上限：角色回合必须**有界**——一轮角色
+// 回合不该把一个 goal 的预算烧在一个循环里，收口交给终态 gate（ADVISOR 评审）。
 const roleTurnMaxLoops = 12
 
 // roleEngine 是一个角色会话的引擎最小面。*session.Session 满足它；测试可注入

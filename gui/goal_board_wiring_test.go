@@ -1,0 +1,59 @@
+package gui
+
+import (
+	"strings"
+	"testing"
+)
+
+// TestEmbeddedGoalBoardWiring：「目标」子页的看板必须在嵌入前端里真的接起来。
+//
+// 用户口径（2026-10-03）：看板出来到工作台的「目标」子页——上面是大的 active seq，
+// 下面是我发出的最近一次任务（小字），点开出一份内容详情（资源管理器「内容详情」
+// 口径）；目标结束（栈上没有 active 帧）就没有看板。
+//
+// 三处缺一，用户看到的就分别是"没有看板"（模块没接）/ "点了没反应"（点击落点没接）/
+// "弹窗是空的"（弹窗元素没进 DOM）。这里逐条钉住。
+func TestEmbeddedGoalBoardWiring(t *testing.T) {
+	t.Parallel()
+	script, err := embeddedFrontend.ReadFile("frontend/dist/app.js")
+	if err != nil {
+		t.Fatalf("embedded frontend app.js: %v", err)
+	}
+	index, err := embeddedFrontend.ReadFile("frontend/dist/index.html")
+	if err != nil {
+		t.Fatalf("embedded frontend index.html: %v", err)
+	}
+	board, err := embeddedFrontend.ReadFile("frontend/dist/goal-board-view.js")
+	if err != nil {
+		t.Fatalf("embedded frontend goal-board-view.js: %v", err)
+	}
+	app := string(script)
+	boardSource := string(board)
+
+	if !strings.Contains(app, `from "./goal-board-view.js"`) ||
+		!strings.Contains(app, "renderGoalBoard(") ||
+		!strings.Contains(app, "renderGoalDetail(") {
+		t.Fatal("看板与详情必须由 ./goal-board-view.js 的纯渲染件承担（app.js 只做接线）")
+	}
+	if !strings.Contains(app, `[data-goal-board-open]`) || !strings.Contains(app, "openGoalDetail()") {
+		t.Fatal("看板卡片的点击落点必须接上详情弹窗（否则点了没反应）")
+	}
+	for _, id := range []string{"goal-detail-modal", "goal-detail-close", "goal-detail-title", "goal-detail-view"} {
+		if !strings.Contains(string(index), `id="`+id+`"`) {
+			t.Fatalf("缺少目标详情弹窗元素 %s", id)
+		}
+	}
+	// 看板的两行与详情面：大 active seq / 小字最近输入 / 完整打点流水。
+	for _, want := range []string{"active seq", "goal-board-seq-num", "goal-board-task", "goal-detail-marks", "progress_all"} {
+		if !strings.Contains(boardSource, want) {
+			t.Fatalf("看板渲染件缺少 %q", want)
+		}
+	}
+	// 席位轮转的三个概念（轮次/座次/断环）不得从门外再爬回来：面板既不渲染它们，
+	// 也没有任何写 goal 状态的入口（前端只读，真值在后端）。
+	for _, retired := range []string{"current_seat", "round_error", "break_reason", "goal-gov-broken", "goal-gov-error"} {
+		if strings.Contains(app, retired) {
+			t.Fatalf("席位轮转已退场，app.js 不得再引用 %q", retired)
+		}
+	}
+}

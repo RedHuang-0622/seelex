@@ -1,6 +1,6 @@
 // agentteam_runtime.go 把 AgentTeam 的发言调度运行态接到 Application 能力面。
 //
-// 边界：agentteam 包负责「环里怎么转」（链表顺序、user 席位、逃生记账）；
+// 边界：agentteam 包负责「环里怎么转」（链表顺序、环成员、逃生记账）；
 // 本文件只负责**会话级持有与同步**：谁（哪个主会话）有一个环、环的顺序什么时候
 // 跟着注册表走、运行态怎么投影进 dto.TeamView。不解释顺序语义（那份事实只有
 // lifecycle.order_policy/order_roles 一份）。
@@ -65,15 +65,10 @@ func roleSessionsOf(view dto.TeamView) map[string]string {
 	return sessions
 }
 
-// goalLoopRoundLimitForTeam 取治理循环实际生效的轮次上限：环的逃生路径第一道
-// 与 Governor 的 maxRounds 必须同源，否则前端显示的"n/limit"和真正兜底的数字
-// 会打架。
-func (service *Service) goalLoopRoundLimitForTeam() int {
-	if service == nil || service.components.goal == nil {
-		return defaultGoalLoopMaxRounds
-	}
-	return goalLoopRoundLimit(service.components.goal.deps.MaxRounds)
-}
+// defaultTeamRoundLimit 是团队发言环的轮次上限（逃生路径第一道）。席位轮转退场
+// 后它**不再**与 goal 治理循环同源——goal 没有"轮次"了；环的逃生记账是它自己的
+// 兜底（到达上限即收束，见 agentteam.Runtime.NoteTurn）。
+const defaultTeamRoundLimit = 24
 
 // teamRuntimeFor 返回（需要时创建）指定主会话的发言调度运行态，并把注册表
 // 顺序同步进环。读路径不写盘：顺序事实仍然只有 lifecycle 一份。
@@ -81,7 +76,7 @@ func (service *Service) teamRuntimeFor(mainSessionID string, view dto.TeamView) 
 	runtime := service.teamRuntimes.get(mainSessionID)
 	if runtime == nil {
 		runtime = agentteam.NewRuntime(view.OrderRoles, roleSessionsOf(view), view.OrderPolicy, agentteam.RuntimeOptions{
-			RoundLimit:      service.goalLoopRoundLimitForTeam(),
+			RoundLimit:      defaultTeamRoundLimit,
 			NoProgressLimit: defaultTeamNoProgressLimit,
 		})
 		service.teamRuntimes.put(mainSessionID, runtime)
@@ -160,12 +155,13 @@ func (service *Service) teamScheduleFor(mainSessionID string) *dto.TeamSchedule 
 	return &schedule
 }
 
-// defaultTeamNoProgressLimit 是连续无进展轮次的逃生下上限：治理循环里连续
-// 这么多轮既没有新工具产出、也没有正文推进，就认为它在空转。
+// defaultTeamNoProgressLimit 是连续无进展轮次的逃生下上限：连续这么多轮既没有
+// 新工具产出、也没有正文推进，就认为它在空转。
 const defaultTeamNoProgressLimit = 3
 
-// teamRuntimeBySession 返回（需要时创建）指定会话的发言调度运行态，供治理循环
-// 装配座位使用。宿主未装配 AgentTeam 存储时返回 nil（治理循环退回内置座位）。
+// teamRuntimeBySession 返回（需要时创建）指定会话的发言调度运行态。席位轮转退场
+// 后（2026-10-03 阶段三 W3）它只剩一个生产用途：环逃生记账。宿主未装配 AgentTeam
+// 存储时返回 nil（调用方按"没有环"处理，不做任何座位派生）。
 func (service *Service) teamRuntimeBySession(sessionID string) *agentteam.Runtime {
 	if service == nil {
 		return nil
@@ -180,52 +176,5 @@ func (service *Service) teamRuntimeBySession(sessionID string) *agentteam.Runtim
 	return service.teamRuntimeFor(sessionID, view)
 }
 
-// teamRoleSeatsFor 返回该会话团队的角色座位来源（按发言链顺序），供 goal 治理循环
-// 按 **角色 kind** 派生座位，并在装配了执行面时按角色会话/权责跑员工回合。
-//
-// 关键点：顺序取 lifecycle 的 order_roles（唯一顺序事实），其余字段取成员表
-// （role_kind / role_session_id / tools_policy）——座位不按角色名匹配，
-// TL 改名或自定义预设改名都不会丢 ADVISOR 座位。
-// 未装配团队 / 读不到注册表 → nil（调用方退回退化路径）。
-func (service *Service) teamRoleSeatsFor(sessionID string) []RoleSeat {
-	if service == nil {
-		return nil
-	}
-	view, err := service.agentTeamRawView(sessionID)
-	if err != nil || !view.Configured {
-		return nil
-	}
-	members := make(map[string]dto.TeamMember, len(view.Members))
-	ordered := make([]RoleSeat, 0, len(view.Members))
-	for _, member := range view.Members {
-		roleName := strings.TrimSpace(member.RoleName)
-		if roleName == "" {
-			continue
-		}
-		members[roleName] = member
-		if !member.InOrder {
-			continue
-		}
-		ordered = append(ordered, roleSeatOf(member))
-	}
-	if len(view.OrderRoles) == 0 {
-		return ordered
-	}
-	// order_roles 是顺序事实：按它重排（不在链上的成员只用于 kind 查询）。
-	seats := make([]RoleSeat, 0, len(view.OrderRoles))
-	for _, roleName := range view.OrderRoles {
-		member, ok := members[roleName]
-		if !ok {
-			continue
-		}
-		seats = append(seats, roleSeatOf(member))
-	}
-	return seats
-}
-
-func roleSeatOf(member dto.TeamMember) RoleSeat {
-	return RoleSeat{
-		RoleName: strings.TrimSpace(member.RoleName),
-		RoleKind: member.RoleKind,
-	}
-}
+// teamRoleSeatsFor / roleSeatOf 已随席位轮转退场删除（2026-10-01 阶段三 W3）：
+// 治理循环不再按角色 kind 派生座位，团队角色只服务 leader 派活的 worker 作业。

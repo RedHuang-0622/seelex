@@ -19,6 +19,7 @@ import { createFilePreviewController } from "./file-preview.js";
 import { renderCompactionFrameModal, renderContextCompactions } from "./context-summary.js";
 import { compactionRangeText, compactionReasonLabel, mergeCompactionProgress } from "./compaction-format.js";
 import { renderGoalInFlight, renderGoalStack, renderGoalSteps } from "./goal-stack-view.js";
+import { renderGoalBoard, renderGoalDetail } from "./goal-board-view.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
 import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
 import { employeePool, hirePanel, isPinnedRole, nextAgentTeamOrder, normalizeAgentTeam, normalizeTeamGlobal, normalizeTeamLibrary, PERMISSION_CUSTOM_TOOLS, PERMISSION_GROUPS, PERMISSION_BITS, renderAgentTeam, renderRoleSessionDetail, renderTeamMemberList, roleDisplayName, teamEditorPanel, teamEntryFromMembers, teamMemberNames, teamMemberSpecMap, teamRoleSpec } from "./agent-team-view.js";
@@ -90,7 +91,7 @@ const elements = Object.fromEntries([
   "compaction-frame-modal", "compaction-frame-modal-close", "compaction-frame-modal-title", "compaction-frame-modal-meta", "compaction-frame-modal-view",
   "team-section", "team-view", "team-count",
   "role-session-modal", "role-session-close", "role-session-modal-title", "role-session-view",
-  "right-tabs", "goal-section", "goal-badge", "goal-view", "code-panes", "code-pane-tabs", "code-pane-worktree", "code-pane-gitlog", "git-log-view", "git-log-count", "code-pane-changes", "changes-view", "changes-count",
+  "right-tabs", "goal-section", "goal-badge", "goal-view", "goal-detail-modal", "goal-detail-close", "goal-detail-title", "goal-detail-view", "code-panes", "code-pane-tabs", "code-pane-worktree", "code-pane-gitlog", "git-log-view", "git-log-count", "code-pane-changes", "changes-view", "changes-count",
   "file-preview-pane", "file-preview-view", "file-preview-tabs", "file-preview-hide-panes", "file-preview-close", "file-preview-divider", "file-preview-collapse", "file-preview-rail",
   "file-save-modal", "file-save-title", "file-save-message", "file-save-keep", "file-save-discard", "file-save-cancel",
   "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "terminal-scrollback", "theme-picker", "mode-picker", "inline-suggestions",
@@ -2145,7 +2146,12 @@ function renderSkills(skills) {
 // ── 「目标」面板（工作台子页）──────────────────────────────
 // 数据源：runtime.goal_skill_active / runtime.active_skills（任务级 skill
 // 激活权威投影，backend 锁内快照）+ snapshot.task（当前任务状态/摘要）+
-// 最近用户输入（目标文本，本地派生展示）。无内容时隐藏整个 section。
+// 最近用户输入（目标文本，本地派生展示）。
+//
+// 面板的主体是一块**看板**（goal-board-view.js）：上面是大的 active seq
+// （当前目标在本会话 goal 序列里的序号），下面是我发出的最近一次任务（小字）。
+// 目标结束（栈上没有 active 帧）→ 看板就没有了（这是用户口径：结束就是没有了）。
+// 点开看板 = 详情弹窗（goal-detail-view），像资源管理器的"内容详情"那样逐项列全。
 function renderGoal(snapshot) {
   const runtime = snapshot.runtime || {};
   const task = snapshot.task || null;
@@ -2157,6 +2163,9 @@ function renderGoal(snapshot) {
   const goalSection = elements["goal-section"];
   if (!goalSection) return;
   const goalText = latestUserInput(snapshot);
+  // 详情弹窗与看板共用同一份只读输入：刷新时一起重绘（见 refreshGoalDetail）。
+  lastGoalView = { governance, goalText };
+  refreshGoalDetail();
   const hasContent = governance || goalActive || activeSkills.length > 0 || task || goalText;
   goalSection.classList.toggle("hidden", !hasContent);
   const badge = elements["goal-badge"];
@@ -2172,47 +2181,94 @@ function renderGoal(snapshot) {
     stopGoalInFlightPoller(view);
     return;
   }
-  // 活动栈分块：会话里嵌套压栈时，栈下目标也要能逐帧查看（不只是栈顶一帧）。
-  const stackLine = governance ? renderGoalStack(governance.stack) : "";
-  view.classList.remove("muted");
   const governanceLine = governance ? renderGoalGovernance(governance) : "";
+  const chips = activeSkills.length
+    ? `<div class="goal-skills">${activeSkills.map(skill => `<span class="chip">#${escapeHtml(skill)}</span>`).join("")}</div>`
+    : "";
+  view.classList.remove("muted");
+  if (governance) {
+    // 有 active goal：看板（大 active seq + 小字最近输入）+ 评审只读块 + skill chips。
+    // 旧的大字 goal-text 行不再重复渲染——它就在看板的小字那一行上。
+    view.innerHTML = `${renderGoalBoard(governance, goalText)}${governanceLine}${chips}`;
+    startGoalInFlightPoller(view, governance);
+    return;
+  }
+  // 没有 active goal（目标结束 / 只有 skill 激活）：保留原有的非看板面。
   const goalLine = goalText
     ? `<div class="goal-text" title="${escapeHtml(goalText)}">${escapeHtml(truncateGoalText(goalText))}</div>`
     : "";
   const taskLine = task
     ? `<div class="goal-task"><span class="goal-task-status is-${escapeHtml(task.status || "idle")}">${escapeHtml(task.status || "idle")}</span><span class="goal-task-summary" title="${escapeHtml(task.summary || "")}">${escapeHtml(task.summary || "任务进行中")}</span></div>`
     : "";
-  const chips = activeSkills.length
-    ? `<div class="goal-skills">${activeSkills.map(skill => `<span class="chip">#${escapeHtml(skill)}</span>`).join("")}</div>`
-    : "";
-  view.innerHTML = `${stackLine}${goalLine}${taskLine}${governanceLine}${chips}`;
-  if (governance) {
-    startGoalInFlightPoller(view, governance);
-  } else {
-    stopGoalInFlightPoller(view);
-  }
+  view.innerHTML = `${goalLine}${taskLine}${chips}`;
+  stopGoalInFlightPoller(view);
 }
 
-// renderGoalGovernance 渲染「目标 + 治理」只读面板：goal 状态/轮次/座次/
-// TL 最近指令/本轮治理未完成/断环横幅（governance 视图来自
-// runtime.goal_governance，goal 栈不入模型上下文）。
+// lastGoalView 是「目标」面板最近一次渲染的只读输入（治理视图 + 最近用户输入）：
+// 详情弹窗打开时，每个快照/轮询帧都拿它重绘，保证弹窗内容与看板同源同帧。
+let lastGoalView = { governance: null, goalText: "" };
+
+// openGoalDetail 打开详情弹窗（看板卡片的点击落点）：内容与看板同源，只读。
+function openGoalDetail() {
+  const modal = elements["goal-detail-modal"];
+  if (!modal) return;
+  refreshGoalDetail();
+  setModal("goal-detail-modal", true);
+}
+
+function closeGoalDetail() {
+  setModal("goal-detail-modal", false);
+}
+
+// refreshGoalDetail 用最近一份只读输入重绘详情弹窗。弹窗没开时**什么都不做**：
+// 没有 active goal（或没有帧）时也不留旧内容，避免下次打开看到上一轮的残留。
+function refreshGoalDetail() {
+  const modal = elements["goal-detail-modal"];
+  const view = elements["goal-detail-view"];
+  const title = elements["goal-detail-title"];
+  if (!modal || !view) return;
+  const governance = lastGoalView.governance;
+  const body = governance ? renderGoalDetail(governance, lastGoalView.goalText) : "";
+  if (!body) {
+    view.className = "goal-detail-view muted";
+    view.innerHTML = "当前无可查看的目标";
+    if (title) title.innerHTML = "<span class=\"eyebrow\">目标</span><h2>目标详情</h2>";
+    return;
+  }
+  const active = governance.stack && governance.stack.length ? governance.stack[governance.stack.length - 1] : null;
+  if (title) {
+    title.innerHTML = `<span class="eyebrow">目标 · 内容详情</span><h2>${escapeHtml(String(active?.title || governance.title || "目标"))}</h2>`;
+  }
+  view.className = "goal-detail-view";
+  view.innerHTML = body;
+}
+
+// 看板点击 → 详情弹窗；弹窗内点遮罩 / ✕ / Esc 关闭。
+elements["goal-view"]?.addEventListener("click", event => {
+  if (event.target.closest?.("[data-goal-board-open]")) openGoalDetail();
+});
+elements["goal-detail-close"]?.addEventListener("click", closeGoalDetail);
+elements["goal-detail-modal"]?.addEventListener("click", event => {
+  if (event.target === elements["goal-detail-modal"]) closeGoalDetail();
+});
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape") closeGoalDetail();
+});
+
+// renderGoalGovernance 渲染「目标」面板的治理只读块：goal 状态 / TL 最近指令 /
+// 评审过程与进行中正文（governance 视图来自 runtime.goal_governance，goal 栈不入
+// 模型上下文）。
 //
-// 面板上**没有墙钟推断**：只说后端给的事实。「治理没在推进」以前由前端用
-// heartbeat_at + 10s 猜成 governance stalled，于是"空闲等你输入"与"回合被中止"
-// 印成同一句话；现在回合失败由协调器登记成 round_error，这里直接渲染它。
+// 席位轮转退场后（2026-10-01 阶段三 W3）面板不再有"轮次 / 座次 / 断环 / 治理未
+// 完成"这些循环概念：goal 的驱动是提示词驱动的 leader 派活，终态由 gate 判。面板
+// 只显示 goal 状态 + 评审者状态 + 最近裁决 + 评审过程。
+//
+// 面板上**没有墙钟推断**：只说后端给的事实。
 function renderGoalGovernance(governance) {
   const status = escapeHtml(governance.status || "active");
-  const round = Number.isFinite(governance.round) ? governance.round : 0;
-  const seat = governance.current_seat ? escapeHtml(governance.current_seat) : "";
   const peer = governance.peer_state ? escapeHtml(governance.peer_state) : "";
   const directive = governance.last_directive
     ? `<div class="goal-gov-directive" title="${escapeHtml(governance.last_directive)}">TL: ${escapeHtml(truncateGoalText(governance.last_directive, 160))}</div>`
-    : "";
-  const roundError = governance.round_error
-    ? `<div class="goal-gov-error" title="${escapeHtml(governance.round_error)}">本轮治理未完成: ${escapeHtml(truncateGoalText(governance.round_error, 160))}</div>`
-    : "";
-  const broken = governance.broken
-    ? `<div class="goal-gov-broken">断环: ${escapeHtml(governance.break_reason || "已收束")}</div>`
     : "";
   // 进行中的 ADVISOR 正文（只读快照）：评审期间有，回合结束即清空。
   const inFlight = renderGoalInFlight(governance);
@@ -2221,11 +2277,9 @@ function renderGoalGovernance(governance) {
   const steps = renderGoalSteps(governance);
   const meta = [
     `<span class="goal-gov-status">${status}</span>`,
-    `Round ${round}`,
-    seat ? `座次 ${seat}` : "",
     peer ? `peer ${peer}` : "",
   ].filter(Boolean).join(" · ");
-  return `<div class="goal-governance"><div class="goal-gov-meta">${meta}</div>${steps}${inFlight}${directive}${roundError}${broken}</div>`;
+  return `<div class="goal-governance"><div class="goal-gov-meta">${meta}</div>${steps}${inFlight}${directive}</div>`;
 }
 
 // refreshGoalInFlight 在 ADVISOR 回合进行中按节拍补一次只读快照：治理回合是
@@ -2932,8 +2986,8 @@ elements["team-view"]?.addEventListener("submit", async event => {
 // 生态位 + 员工库那一份人的档案），条目上的门禁 / 压缩原样带回后端。
 //
 // 以前这里只搬 role_name/role_kind/tools_policy/system_prompt、并用 `|| "agent"`
-// 兜底：保存一次就把 role_kind（tl 的 techlead → agent）、join/presence/directive
-// 与门禁/压缩静默丢掉，装配后按 RoleKind 派生的 ADVISOR 座位也跟着没了。
+// 兜底：保存一次就把 role_kind、join/presence/directive 与门禁/压缩静默丢掉，
+// 角色生态位这份事实也跟着没了。
 function agentTeamEntryFromForm(form) {
   const name = String(form.querySelector("[data-team-form-name]")?.value || "").trim();
   if (!name) return null;

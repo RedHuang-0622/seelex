@@ -188,12 +188,6 @@ type Runtime struct {
 	teamworkJobs    jobs.Manager
 	teamworkCoords  map[sessionstore.Key]*teamwork.Coordinator
 
-	// seatRound 是 goal 座位循环的执行侧实现（goal 域；组合根在 initApplication
-	// 之后经 SetSeatRoundRunner 注入一次）。作业面在 SetTeamworkBackend 时就把
-	// seat 执行体注册好了（执行体拿着 Runtime 自身），因此这里只补"谁来真跑一轮"。
-	seatRoundMu sync.RWMutex
-	seatRound   teamwork.SeatRoundRunner
-
 	// 上下文控制接线（seelebridge/context_components.go）：
 	// 窗口策略（RuntimeConfig.WindowConfig 构造）、会话上下文存储与
 	// ProjectKnowledge 提供者为可选注入（会话恢复流程就绪后 Attach）。

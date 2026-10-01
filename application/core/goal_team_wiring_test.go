@@ -208,8 +208,8 @@ func (s *teamRecordingSessions) ListRoleSessions(string) ([]string, error) {
 // 装配 = 注册表 + lifecycle 顺序的**整份替换**（factory.Materialize → WriteTeamRegistry /
 // SetLifecycleOrder），于是"开始一个 goal"会把用户手工加的员工（worker/reviewer）一起
 // 冲成模板那三个人。删掉自动装配后，团队由用户/leader 决定（leader-worker 目标态里由
-// team plan 决定）；goal 的 ADVISOR 裁决来自治理循环自带的 supervisor 座位
-// （goaldomain.NewTurnGovernorForDSA2A），不依赖团队装配。
+// team plan 决定）；goal 的 ADVISOR 裁决来自 goal 域自己的 Supervisor（终态 gate /
+// 审批预筛里的真实 TL 回合），不依赖团队装配。
 func TestGoalBeginLeavesSessionTeamAlone(t *testing.T) {
 	sessions := &teamRecordingSessions{}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))

@@ -1,5 +1,14 @@
 # 席位制 team work 与认领式 teamwork：优势、代价与扬长避短（作品集版）
 
+> **口径更新（2026-10-03，阶段三 W3）**：本篇讲的**席位制那一半已经整条退场**——
+> `application/core/govern`、座位派生（`seatPlan` / `RoleSeat`）、座位作业面
+> （`jobs.KindSeat`）与 goal 的回合尾治理循环都已删除；goal 的驱动改成**提示词驱动的
+> leader 派活**（`plugins/default/goal/SKILL.md`），团队顺序的唯一事实是 team plan 的
+> `stages[].depends_on`。本篇保留的是**当时的设计动机与代价分析**（历史口径），
+> 用来解释"为什么当初这么分层、哪一半被证明是负担"；**不要把 §0 的"席位制管治理面"
+> 读成今天的实现**。退场记录见
+> [`docs/devlog/2026-10-03-seat-rotation-retired.md`](../devlog/2026-10-03-seat-rotation-retired.md)。
+
 > 用途：作品集 / 对外讲解口径。姊妹篇 [`agent-team-work-vs-market.md`](agent-team-work-vs-market.md)
 > 回答的是「和市场常见多代理方案差在哪」；**本篇回答的是「和本仓库另一条协作轴（认领制）差在哪、
 > 这样做的优势与代价是什么、怎么扬长避短」**。

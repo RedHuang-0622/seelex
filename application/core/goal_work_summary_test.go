@@ -110,8 +110,10 @@ func (e *capturingTLEvaluator) Evaluate(_ context.Context, embed goaldomain.TLSe
 }
 
 // TestGoalAdvanceAfterChatFeedsEXECWorkToAdvisor 是端到端接线用例：
-// 会话里有一轮 EXEC 产出（正文带 marker）→ goal 在线 → 回合结束推进治理 →
+// 会话里有一轮 EXEC 产出（正文带 marker）→ goal 在线 → 登记 turn_completed →
 // ADVISOR 回合输入（即送给 LLM 的正文）里必须出现该 marker 与工具名。
+//
+// 席位轮转退场后回合尾不再自动跑 ADVISOR；这里显式驱动一轮 TL 回合（gate 路径）。
 func TestGoalAdvanceAfterChatFeedsEXECWorkToAdvisor(t *testing.T) {
 	service := newTestService(t, &fakeEngine{}, withTestSessions(&fakeSessions{}))
 	evaluator := &capturingTLEvaluator{}
@@ -130,10 +132,22 @@ func TestGoalAdvanceAfterChatFeedsEXECWorkToAdvisor(t *testing.T) {
 	service.appendSessionMessageLocked(sessionID, "assistant", "已修：WORK-CONTENT-MARKER-7", nil)
 	service.ViewMu.Unlock()
 
-	service.goalAdvanceAfterChat(withSessionID(context.Background(), sessionID))
+	coordinator, err := service.goalCoordinatorFor(sessionID)
+	if err != nil {
+		t.Fatalf("goalCoordinatorFor: %v", err)
+	}
+	if err := coordinator.Notify(context.Background(), sessionID, goaldomain.TLEvalSignal{
+		Kind: goaldomain.SignalTurnCompleted, Source: "chat_end",
+		Detail: service.goalTurnWorkSummary(sessionID),
+	}); err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+	if _, err := coordinator.bundleFor(sessionID).sup.RunEval(context.Background(), "test"); err != nil {
+		t.Fatalf("RunEval: %v", err)
+	}
 
 	if len(evaluator.embeds) == 0 {
-		t.Fatal("回合结束未驱动 ADVISOR 回合（接线缺失）")
+		t.Fatal("未驱动 ADVISOR 回合（接线缺失）")
 	}
 	embed := evaluator.embeds[len(evaluator.embeds)-1]
 	text := embed.RenderText()
@@ -169,10 +183,22 @@ func TestGoalAdvanceAfterChatWithoutWorkContentStaysQuiet(t *testing.T) {
 	service.appendSessionMessageLocked(sessionID, "user", "只有输入", nil)
 	service.ViewMu.Unlock()
 
-	service.goalAdvanceAfterChat(withSessionID(context.Background(), sessionID))
+	coordinator, err := service.goalCoordinatorFor(sessionID)
+	if err != nil {
+		t.Fatalf("goalCoordinatorFor: %v", err)
+	}
+	if err := coordinator.Notify(context.Background(), sessionID, goaldomain.TLEvalSignal{
+		Kind: goaldomain.SignalTurnCompleted, Source: "chat_end",
+		Detail: service.goalTurnWorkSummary(sessionID),
+	}); err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+	if _, err := coordinator.bundleFor(sessionID).sup.RunEval(context.Background(), "test"); err != nil {
+		t.Fatalf("RunEval: %v", err)
+	}
 
 	if len(evaluator.embeds) == 0 {
-		t.Fatal("回合结束仍应驱动 ADVISOR 回合（TL 在线）")
+		t.Fatal("仍应驱动 ADVISOR 回合（TL 在线）")
 	}
 	for _, frame := range evaluator.embeds[len(evaluator.embeds)-1].Frames {
 		if frame.Kind == goaldomain.FrameWorkProgress {

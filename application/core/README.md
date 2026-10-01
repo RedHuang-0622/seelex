@@ -11,16 +11,17 @@
 
 - 零依赖叶子域：`chat/`（流式批次与可见输出）、`worktable/`（表格增量 CSP
   汇聚发布器）、`input_router/`（命令注册表 + 输入路由）、`context_control/`
-  （窗口策略配置加载）、`govern/`（多代理回合制治理循环抽象：座次/轮次/
-  断环，goal 域经 adapter 接入）、`resume/`（未完成工作恢复模板：七步顺序 +
+  （窗口策略配置加载）、`resume/`（未完成工作恢复模板：七步顺序 +
   幂等键 + 可审计 Report，领域实现走 `Port`）。
+  （`govern/` 曾是"多代理回合制治理循环抽象：座次/轮次/断环"，已随
+  2026-10-03 的 goal 席位轮转退场整包删除。）
 - 有状态域协调器：`session_runtime/`（会话持久化/目录/项目绑定）、
   `task_context/`（任务执行/checkpoint/transcript/token 审计/plan 状态）、
   `context_runtime/`（provider 上下文装配/压缩/历史安全）、`prompt_layer/`
   （system prompt 组装）、`view_state/`（Snapshot 读/写/事件发布）、
   `subagent_view/`（子代理详情/live/树投影）、`goal/`（Goal 状态机 +
-  DS-A2A 双会话治理 + 治理循环适配 + 会话级第五栈持久化）、
-  `agentteam/`（AgentTeam/角色会话通用装配：`TeamSpec` 工厂 + preset 注册表）。
+  DS-A2A 双会话治理 + 终态 gate + 会话级第五栈持久化）、
+  `agentteam/`（AgentTeam/角色会话通用装配：`TeamSpec` 工厂 + 团队库读面）。
 - 共享叶子：`internal/state`（锁 + 权威 Snapshot + 端口依赖 + 事件/审批
   内核）、`internal/limits`（运行时上限）。
 
@@ -60,7 +61,6 @@ flowchart TB
         WT["worktable"]
         IR["input_router"]
         CC["context_control"]
-        GOV["govern"]
         RES["resume"]
     end
 
@@ -185,9 +185,9 @@ flowchart LR
 | [prompt_layer/](prompt_layer/README.md) | system prompt 组装与引擎同步 |
 | [view_state/](view_state/README.md) | Snapshot 读/写/事件发布协调器 |
 | [subagent_view/](subagent_view/README.md) | 子代理详情/live/树投影 |
-| [goal/](goal/README.md) | Goal 状态机、DS-A2A 双会话治理、治理循环适配与会话级第五栈持久化 |
-| [agentteam/](agentteam/README.md) | A2A 角色团队通用装配（`TeamSpec` 工厂 + preset 注册表 + 幂等角色会话） |
-| [govern/](govern/README.md) | 多代理治理循环抽象（座次/轮次/行动/断环） |
+| [goal/](goal/README.md) | Goal 状态机、DS-A2A 双会话治理、终态 gate 与会话级第五栈持久化 |
+| [agentteam/](agentteam/README.md) | A2A 角色团队通用装配（`TeamSpec` 工厂 + 团队库读面 + 幂等角色会话） |
+<!-- govern/ 已于 2026-10-03（阶段三 W3）随 goal 席位轮转退场删除 -->
 | [resume/](resume/README.md) | 未完成工作恢复模板（七步顺序 + 幂等键 + 可审计 Report） |
 | [internal/state/](internal/state/README.md) | 共享状态内核（锁 + Snapshot + 端口依赖） |
 | [internal/limits/](internal/limits/README.md) | 运行时上限（seele.yaml limits 段） |

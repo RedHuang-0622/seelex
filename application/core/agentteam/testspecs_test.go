@@ -12,8 +12,8 @@ import "github.com/RedHuang-0622/seelex/application/contract/dto"
 // `TestSecondTeamThroughSameFactory`（AT8）要的正是"同一个工厂 + 换一份 TeamSpec
 // 就能装配第二支团队"，这份证据与"产品是否内置了模板"无关，所以夹具留在测试侧。
 
-// testGoalSpec 是一支 goal 形态的团队：user → main → tl（tl 是 techlead，装配后由
-// seatPlan 派生 ADVISOR 评审座位）。
+// testGoalSpec 是一支 goal 形态的团队：user → main → tl（tl 是 techlead，角色回合
+// 由 leader 派发的 worker 作业驱动；tl 的 ADVISOR 裁决来自 goal 域的终态 gate）。
 func testGoalSpec() dto.TeamSpec {
 	return dto.TeamSpec{
 		TeamID:        "goal-a2a",

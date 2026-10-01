@@ -45,6 +45,39 @@ func TestGoalStackFramesProjectsEveryFrame(t *testing.T) {
 	if len(frames[1].Progress) != 3 || frames[1].Progress[0].Content != "p2" {
 		t.Fatalf("每帧进度只取最近 3 条: %+v", frames[1].Progress)
 	}
+	if len(frames[1].ProgressAll) != 4 || frames[1].ProgressAll[0].Content != "p1" {
+		t.Fatalf("ProgressAll 应是这一帧保留的全部打点（详情面用）: %+v", frames[1].ProgressAll)
+	}
+}
+
+// TestGoalStackFramesCarriesDetailFields 钉住"点开看详情"需要的字段不缺：
+// 非目标范围、创建时间、完整打点流水——看板卡片只用得到一部分，属性表要全。
+func TestGoalStackFramesCarriesDetailFields(t *testing.T) {
+	stack := []*goaldomain.GoalRecord{{
+		ID: "g-2", Title: "详情面", Statement: "把该显示的字段都带上",
+		Status:     goaldomain.StatusActive,
+		Acceptance: []string{"验收 1"},
+		OutOfScope: []string{"不做 A"},
+		CreatedAt:  100,
+		UpdatedAt:  200,
+		Progress: []goaldomain.Progress{
+			{At: 1, Kind: goaldomain.ProgressMilestone, Content: "只有一条"},
+		},
+	}}
+	frames := goalStackFrames(stack)
+	if len(frames) != 1 {
+		t.Fatalf("应得到 1 帧，得 %d", len(frames))
+	}
+	frame := frames[0]
+	if len(frame.OutOfScope) != 1 || frame.OutOfScope[0] != "不做 A" {
+		t.Fatalf("非目标范围应进投影: %+v", frame)
+	}
+	if frame.CreatedAt != 100 || frame.UpdatedAt != 200 {
+		t.Fatalf("创建/更新时间应进投影: %+v", frame)
+	}
+	if len(frame.ProgressAll) != 1 || frame.ProgressAll[0].Content != "只有一条" {
+		t.Fatalf("完整打点流水应进投影: %+v", frame)
+	}
 }
 
 func TestGoalStackFramesEmptyAndNilRecords(t *testing.T) {

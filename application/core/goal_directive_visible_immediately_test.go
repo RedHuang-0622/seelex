@@ -34,11 +34,6 @@ func advisorDirectiveRows(messages []Message) []Message {
 
 func TestAdvisorVerdictVisibleInProducingTurn(t *testing.T) {
 	service := newTestService(t, &fakeEngine{chunks: []string{"收", "到"}}, withTestSessions(&fakeSessions{}))
-	service.SetGoalTLEvaluator(&stubTLEvaluator{directives: []goaldomain.TLDirective{{
-		Kind: goaldomain.DirectiveCorrect, Content: "先补负路径单测再收口",
-	}}})
-
-	// 第一轮：物化会话（与真实链路一致：会话先存在，goal 才上线）。
 	if err := service.Submit(context.Background(), "开始"); err != nil {
 		t.Fatalf("Submit(#1): %v", err)
 	}
@@ -51,13 +46,15 @@ func TestAdvisorVerdictVisibleInProducingTurn(t *testing.T) {
 		t.Fatalf("GoalBeginFor: %v", err)
 	}
 
-	// 第二轮：真实回合。回合尾会跑一轮治理（ADVISOR → 裁决）。
-	if err := service.Submit(context.Background(), "请推进"); err != nil {
-		t.Fatalf("Submit(#2): %v", err)
-	}
-	waitForSnapshot(t, service, func(snapshot Snapshot) bool { return !snapshot.Chat.Running })
+	// 席位轮转退场后，回合尾不再自动产出 ADVISOR 裁决；指令的来源改为显式入口
+	// （终态 gate / 审批预筛）。这里把一条 b→a 指令投进待注入队列，再跑**同一段
+	// 回合尾回放**（chat.go 在 ChatStream 收尾调用 publishPendingGoalDirectivesFor），
+	// 验证"产出它的那一回合就可见"与 corr 去重两条口径不变。
+	service.components.goal.bundleFor(sessionID).sup.Mailbox().PublishDirective(
+		goaldomain.TLDirective{Corr: "corr-1", Kind: goaldomain.DirectiveCorrect, Content: "先补负路径单测再收口"},
+	)
+	service.publishPendingGoalDirectivesFor(sessionID)
 
-	// 关键断言：**没有第三次提交**，裁决已经可见。
 	rows := advisorDirectiveRows(visibleConversationFor(service, sessionID))
 	if len(rows) != 1 {
 		t.Fatalf("裁决应在产出它的那一回合就可见（且只有一行）：得到 %d 行 = %+v", len(rows), rows)

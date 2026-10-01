@@ -3118,7 +3118,9 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .trajectory-row.is-flash summary { background: var(--tint-running); }
 .trajectory-think { border-left: 3px solid var(--status-info); background: var(--tint-info); }
 .trajectory-think .io-label { color: var(--status-info); }
-/* goal 治理只读面板（P3）：状态/轮次/座次/本轮治理未完成/断环横幅 */
+/* goal 治理只读面板（P3）：goal 状态 / 评审者状态 / 最近裁决 / 评审过程。
+   看板那一块（大 active seq + 小字最近输入）见下面的 .goal-board；席位轮转三个
+   概念（轮次 / 座次 / 断环）已随 2026-10-03 阶段三 W3 整条退场，不再有样式。 */
 .goal-governance {
   margin-top: 6px;
   padding: 6px 8px;
@@ -3140,14 +3142,6 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .goal-gov-directive {
   margin-top: 4px;
   color: var(--muted);
-}
-.goal-gov-broken {
-  margin-top: 4px;
-  color: var(--status-failed);
-}
-.goal-gov-error {
-  margin-top: 4px;
-  color: var(--status-failed);
 }
 
 /* ---------- 对话区泛化滚动轴（思考 / 工具过程） + 左侧调试 id ---------- */
@@ -4764,6 +4758,85 @@ button.team-library-name:hover { color: var(--accent); text-decoration: underlin
 .goal-step-args { color: var(--text-dim); margin-left: 6px; }
 .goal-step.is-result { padding-left: 14px; color: var(--text-dim); }
 .goal-step.is-error { color: var(--status-failed); }
+
+/* ── 目标看板（工作台「目标」子页）：上面大的 active seq + 下面小字的最近输入 ──
+   看板只在会话里有 active goal 时出现（目标结束就没有了，不留空壳）。
+   点开 = 详情弹窗，样式见 .goal-detail-*（资源管理器「内容详情」口径的属性表）。 */
+.goal-board { display: flex; flex-direction: column; gap: 6px; }
+.goal-board-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+.goal-board-card:hover { border-color: var(--border-strong); background: var(--panel); }
+.goal-board-card:focus-visible { outline: 1px solid var(--focus-ring); box-shadow: var(--focus-glow); }
+.goal-board-seq { display: flex; flex-direction: column; align-items: center; flex: none; min-width: 42px; }
+.goal-board-seq-num { color: var(--accent); font: 700 26px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+.goal-board-seq-unit { margin-top: 2px; color: var(--faint); font: 9px var(--font-mono); letter-spacing: .06em; text-transform: uppercase; }
+.goal-board-body { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; }
+.goal-board-title { overflow: hidden; color: var(--text-strong); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.goal-board-meta { color: var(--text-dim); font: 10.5px var(--font-mono); }
+.goal-board-hint { flex: none; color: var(--faint); font-size: 10.5px; }
+/* 小字那一行 = 我发出的最近一次任务（最近一条用户输入）。 */
+.goal-board-task {
+  overflow: hidden;
+  padding-left: 2px;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 目标详情弹窗（点开看板）：属性表逐项列全，多帧逐节。 */
+.goal-detail-card { width: min(760px, 100%); max-height: min(80vh, 720px); overflow: auto; }
+.goal-detail-view { min-height: 0; overflow: auto; padding: 2px 2px 8px; }
+.goal-detail { display: flex; flex-direction: column; gap: 12px; }
+.goal-detail-section-title {
+  margin-bottom: 5px;
+  color: var(--text-dim);
+  font: 700 10px var(--font-mono);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.goal-detail-text { color: var(--text-mid); font-size: 12px; line-height: 1.55; white-space: pre-wrap; }
+.goal-detail-frame {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--panel);
+}
+.goal-detail-frame.is-active { border-left-color: var(--accent); background: var(--surface); }
+.goal-detail-frame-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; margin-bottom: 6px; }
+.goal-detail-frame-title { overflow: hidden; color: var(--text-strong); font-size: 12.5px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.goal-detail-table { width: 100%; border-collapse: collapse; }
+.goal-detail-table th {
+  width: 74px;
+  padding: 3px 8px 3px 0;
+  color: var(--text-dim);
+  font: 400 11px var(--font-ui);
+  text-align: left;
+  white-space: nowrap;
+  vertical-align: top;
+}
+.goal-detail-table td { padding: 3px 0; color: var(--text-mid); font-size: 11.5px; line-height: 1.5; word-break: break-word; }
+.goal-detail-list { margin: 0; padding-left: 18px; }
+.goal-detail-marks { display: flex; flex-direction: column; gap: 3px; margin: 0; padding: 0; list-style: none; }
+.goal-detail-mark { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.goal-detail-mark-time { flex: none; font: 10px var(--font-mono); }
+.goal-detail-mark-text { min-width: 0; color: var(--text-mid); }
+.goal-mark-kind { flex: none; font-size: 9.5px; }
 
 /* ============================================================
    25. 下栏终端面板（VS Code 式）

@@ -63,7 +63,7 @@ flowchart TB
 | `dist/themes/` | 内置皮肤包 + `manifest.json`（schema 2：`skins[]` + `modes[]`）：皮肤只覆盖**品牌 token**（主信号 + 环境渐变，8 个 `--skin-*`），中性基座由深浅在 `styles.css` 提供（契约与 token 清单见 `themes/README.md`），皮肤不写选择器、不用 `!important`、不引远程资源。 |
 | `dist/vendor/` | 第三方资源落盘区（无 CDN、随包嵌入）：`pico.min.css` 组件库、`marked`、`highlight.js`、`DOMPurify`、`docx-preview`、`PDF.js`、`xterm/`（终端仿真器 + 容器自适应插件，见 `vendor/xterm/README.md`）。版本与许可登记见 `vendor/README.md`。 |
 | `dist/plan-dsl.js` | Plan JSON DSL 归一化、DAG → 树状布局（节点详情弹窗数据面）、节点详情弹窗。树轨事实是 `treeIsLast`/`treeAncestors`（末子标记 + 各层祖先是否续行），由 `tree-fork.treeRowAttrs` 画成缩进轨；子代理树同一套。 |
-| `dist/agent-team-view.js` | Agent Team 面板渲染（右侧栏 · 状态 → Agent Team）：**分成「员工库」（全局：员工是谁 + 档案（提示词 / 权限 / 类型）的**唯一编辑入口**；可用员工 = 全局母本 ∪ 本会话在编（读侧合并 `employeePool`），来源 chip 标 `库` / `本会话`，行内 入职（装进本会话）/ 修改 / ✕，只在本会话在编的行给「入库」）、「团队库」（一行一支用户团队，列为 团队 / 规模 / 操作；团队名是按钮 → 打开「这一支」的团队面板；行内 装配 / ✕；**没有内置形态**——形态目录已删，所以没有"内置 chip 行"）、「员工栏」（本会话在编名单 + 入职 / 摘除 / 删除；**次序 = 登记先后、不由人编排**：没有拖拽调序、没有位置列，表只留 员工（权限） / 操作 两列）、「发言调度」（运行态顺序串珠条：序号 + 身份，发言中 / 下一个各占一档高亮，轮次徽标 + 席位/收束一行 meta）**；入职与修改员工、新建与编辑团队都是**冷加载面板**（`hirePanel` / `teamEditorPanel`，点 + / 团队名才注入 slot，字段按 身份 / 编排 / 能力 / 提示词 分节条目化，✕ 图标 / Esc 关闭），团队面板的成员表（`renderTeamMemberList`）行序 = 登记先后（保存时按行序写 `order_roles`）、可 ✕ 移除、可从下拉挑员工加进来。数据源是 Application API（`Bridge.AgentTeamView/Library/GlobalConfig/SaveTeam/DeleteTeam/MaterializeTeam/PutRole/DeleteRole/SetOrder/InstantiateRole/SaveEmployee/DeleteEmployee/OptimizePrompt` 等）。各份事实各有归属：发言顺序 = 会话 `lifecycle.order_roles`（次序 = 登记先后）与只回读的 `order_policy`，员工配置（提示词/权限）= 会话角色注册表，团队库 / 员工库 / 默认顺序 = **全局**母本（数据根下 `team/`，会话读的是深拷贝副本）；本模块不缓存顺序、不做乐观重排——每次动作后重拉视图（纯函数 `employeePool` / `teamMemberNames` / `nextAgentTeamOrder` / `teamGlobalDrift` / `teamRoleSpec` / `teamMemberSpecMap` / `teamEntryFromMembers` 供共用）。团队库条目存的是**整套 `dto.RoleSpec`**：成员行把这份规格挂在 `data-team-member-spec` 上跟着行走，保存时按行序写回；生态位（`role_kind` / `join_policy` / `presence_policy` / `directive_schema` / `order_priority`）与人的档案（提示词 / 权限 / 模型）都按**条目优先、其次员工库**取自这两份数据（形态目录删掉后不再有"哪个内置形态规定生态位"这一层），条目里存的 `gate_policy` / `compact_policy` 面板不给编辑入口、随条目原样保存；`order_policy` / `team_kind` 只作隐藏字段回传、面板不展示——面板不再只搬 4 个字段（那会把 goal-a2a 的 tl 从 techlead 降级成 agent，装配后 `seatPlan` 就不再派生 ADVISOR 座位）。 |
+| `dist/agent-team-view.js` | Agent Team 面板渲染（右侧栏 · 状态 → Agent Team）：**分成「员工库」（全局：员工是谁 + 档案（提示词 / 权限 / 类型）的**唯一编辑入口**；可用员工 = 全局母本 ∪ 本会话在编（读侧合并 `employeePool`），来源 chip 标 `库` / `本会话`，行内 入职（装进本会话）/ 修改 / ✕，只在本会话在编的行给「入库」）、「团队库」（一行一支用户团队，列为 团队 / 规模 / 操作；团队名是按钮 → 打开「这一支」的团队面板；行内 装配 / ✕；**没有内置形态**——形态目录已删，所以没有"内置 chip 行"）、「员工栏」（本会话在编名单 + 入职 / 摘除 / 删除；**次序 = 登记先后、不由人编排**：没有拖拽调序、没有位置列，表只留 员工（权限） / 操作 两列）、「发言调度」（运行态顺序串珠条：序号 + 身份，发言中 / 下一个各占一档高亮，轮次徽标 + 收束原因一行 meta）**；入职与修改员工、新建与编辑团队都是**冷加载面板**（`hirePanel` / `teamEditorPanel`，点 + / 团队名才注入 slot，字段按 身份 / 编排 / 能力 / 提示词 分节条目化，✕ 图标 / Esc 关闭），团队面板的成员表（`renderTeamMemberList`）行序 = 登记先后（保存时按行序写 `order_roles`）、可 ✕ 移除、可从下拉挑员工加进来。数据源是 Application API（`Bridge.AgentTeamView/Library/GlobalConfig/SaveTeam/DeleteTeam/MaterializeTeam/PutRole/DeleteRole/SetOrder/InstantiateRole/SaveEmployee/DeleteEmployee/OptimizePrompt` 等）。各份事实各有归属：发言顺序 = 会话 `lifecycle.order_roles`（次序 = 登记先后）与只回读的 `order_policy`，员工配置（提示词/权限）= 会话角色注册表，团队库 / 员工库 / 默认顺序 = **全局**母本（数据根下 `team/`，会话读的是深拷贝副本）；本模块不缓存顺序、不做乐观重排——每次动作后重拉视图（纯函数 `employeePool` / `teamMemberNames` / `nextAgentTeamOrder` / `teamGlobalDrift` / `teamRoleSpec` / `teamMemberSpecMap` / `teamEntryFromMembers` 供共用）。团队库条目存的是**整套 `dto.RoleSpec`**：成员行把这份规格挂在 `data-team-member-spec` 上跟着行走，保存时按行序写回；生态位（`role_kind` / `join_policy` / `presence_policy` / `directive_schema` / `order_priority`）与人的档案（提示词 / 权限 / 模型）都按**条目优先、其次员工库**取自这两份数据（形态目录删掉后不再有"哪个内置形态规定生态位"这一层），条目里存的 `gate_policy` / `compact_policy` 面板不给编辑入口、随条目原样保存；`order_policy` / `team_kind` 只作隐藏字段回传、面板不展示——面板搬的是整份 `RoleSpec`（曾经的教训：只搬 4 个字段会把 goal-a2a 的 tl 从 techlead 静默降级成 agent）。 |
 | `dist/todo-view.js` | todolist 渲染组件（数据源 `runtime.todo_items` 权威投影；仍供测试与复用，右侧工作台已由工作表格接管）。 |
 | `dist/work-table.js` | 工作表格视图（弹窗内完整多维表格：阶段/任务/描述/状态/Assignee/Dependency/附件）、批次分片（批次 = chat 请求，批次头可折叠 + 各类计数）、筛选（全部/Plan/Task/Todo/Subagent，按权威 kind）、行内打点、todo 三态更新、retry 计数（RETRY n）、plan/subagent 详情入口；行区独立滚轮滚动（表头吸顶）+ 分页查看（每页 10/20/50，页码钳制）；section/行两级 keyed reconciliation + html 缓存；`workTableSignatures`/`countUnread` 提供未读角标判据。 |
 | `dist/tree-fork.js` | 树 / 分叉的统一渲染件（VS Code 观感，纯函数）。两件事：① `treeRowAttrs` 把「层级 + 是否末子 + 祖先是否续行」折算成树轨的 class/行内 style——祖先续行轨 = 行内 1px `linear-gradient` 背景（每层一道），自身连接轨 = `::before`（末子圆角弯头 / 非末子整行竖线），**零额外 DOM**；② `layoutCommitGraph` 把 git 的 parents 拓扑算成泳道（`rows[].lane` + 每行线段 + `dropped`），`commitGraphRowHTML` 逐行画 SVG（直线 / 合并贝塞尔 + 提交点），泳道色走 `--fork-lane-0..5`。像素几何只有一份（`railOffset`/`laneCenter`），CSS 只负责画，换肤只换 token。 |
@@ -312,8 +312,8 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
 - **团队库 = 用户自己的团队**：一行一支，列为 团队 / 规模 / 操作。**团队名是按钮**，
   点它打开这**这一支**团队的团队面板（面板标题写明"团队 · 名字"，右上角 ✕ 关闭）；
   行内只留「装配」（`AgentTeamMaterializeTeam`，当前装配的那支显示"已装配"，title 说明
-  重复装配幂等）与「✕」（`AgentTeamDeleteTeam`）。**没有内置形态**（2026-10-01）：形态
-  目录已随 Go 侧 `agentteam/presets.go` 删除——库里那一行就是团队的全部事实，面板上既
+  重复装配幂等）与「✕」（`AgentTeamDeleteTeam`）。**没有内置形态**（2026-10-01）：
+  Go 侧 `agentteam/presets.go` 已删除，形态目录随之消失——库里那一行就是团队的全部事实，面板上既
   没有形态 chip 行，也没有任何"按形态装配"的按钮（`agent-team-view.test.mjs` 钉住
   `team-preset` 不再出现）。规模列只说"几个人"，成员名进 title：**顺序不是这份链表对
   人的承诺**（面板不提供调序）。
@@ -330,7 +330,8 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
 - **发言调度（运行态串珠条）**：不摆 项/值 表——顺序本身是一条可视的链
   （`.schedule-pill`：序号 + 身份），"发言中"（floor）与"下一个"（`schedule.next_role`）
   各占一档高亮，其余为普通/虚线（`unexecuted` 的角色标"无执行者"）；上方徽标是
-  `轮次 / 上限`，下方一行 meta 只在有收束原因/无执行者角色时出现。环成员不含
+  `轮次 / 上限`（环自己的逃生上限，2026-10-03 起与 goal 治理不再同源），下方一行 meta
+  只在有收束原因/无执行者角色时出现。环成员不含
   `user`（用户的发言机会是回合尾消息队列被整批提升为下一轮，不是排班位），所以珠子
   里没有 `USER`、"下一个"也不会指向人。参照群聊的通行做法：顺序用位置与编号表达，
   不靠文字播报。没有 `TeamView.schedule`（旧宿主）时整块隐藏，不拿静态顺序冒充运行态。
@@ -356,12 +357,12 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
   （加人 / 删人 / 重绘都不丢），保存时按行序写回条目。归属两条口径——
   **生态位**（`role_kind` / `join_policy` / `presence_policy` / `directive_schema` /
   `order_priority`）由**团队库条目**定义（条目优先、其次员工库；形态目录删掉后不再有
-  "哪个内置形态规定生态位"这一层；`seatPlan` 按 RoleKind 派生座位，techlead 才有
-  ADVISOR 评审座位）；**人的档案**（提示词 / 权限档 / 逐格权限 / 模型档）由员工库 /
+  "哪个内置形态规定生态位"这一层；`role_kind` 的当前用途是角色展示与权限档位派生，
+  不再派生任何治理座位——那条路径已随 2026-10-03 的席位轮转退场删除）；**人的档案**（提示词 / 权限档 / 逐格权限 / 模型档）由员工库 /
   本会话在编定义，条目里存过的那份次之。条目里存的 `gate_policy` / `compact_policy` 表单
   里没有编辑入口，随条目带入、原样保存（`data-team-form-gate` / `data-team-form-compact`）。
   团队库行的「规模」只说"几个人"，成员名进 title。
-  **`order_policy` / `team_kind` 面板不再展示**（2026-10-01）：前者是只回读、不驱动轮次
+  **`order_policy` / `team_kind` 面板不再展示**（2026-10-01）：前者是只回读、不驱动任何行为
   的历史字段（旧版还给过虚线只读框与 Team 栏只读 chip，现在连展示都不给——免得被当成
   可配置项），后者只是团队名的别名、不再是设定。两者都只作**隐藏字段**原样带回
   （`data-team-form-policy`；写顺序仍由 `agentTeamCurrentPolicy` 把既有取值带上）。文案

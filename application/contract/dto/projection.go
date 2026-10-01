@@ -9,33 +9,26 @@ type RuntimeVisibilityProjection struct {
 }
 
 // GoalGovernanceView 是会话 goal 治理的只读投影（§2.2）：由 goal 协调器
-// 组装（Controller + Supervisor + Governor 读面），经 SessionRuntime 下发给
-// GUI/TUI 面板。Active=false（或 nil）表示该会话无 goal 治理，前端隐藏面板。
+// 组装（Controller + Supervisor 读面），经 SessionRuntime 下发给 GUI/TUI 面板。
+// Active=false（或 nil）表示该会话无 goal 治理，前端隐藏面板。
+//
+// 2026-10-01（阶段三 W3）席位轮转退场：视图不再有"轮次 / 座次 / 断环"这类
+// 循环概念（Round/RoundLimit/CurrentSeat/Broken/BreakReason/RoundError 一并删除）。
+// 它现在只投影 goal **看板**（活动栈 + 状态 + 最近裁决）与终态 gate / 审批预筛
+// 期间短暂有值的评审过程。
 type GoalGovernanceView struct {
 	Active bool   `json:"active"`
 	GoalID string `json:"goal_id,omitempty"`
 	Title  string `json:"title,omitempty"`
 	Status string `json:"status,omitempty"` // goal 状态
-	Round  int    `json:"round"`            // 治理轮次
-	// RoundLimit 是本会话治理循环的轮次上限（逃生路径：到达即收束；
-	// 0 = 显式不设上限）。前端据此显示"轮次 n/limit"与接近上限的提示。
-	RoundLimit    int    `json:"round_limit"`
-	CurrentSeat   string `json:"current_seat,omitempty"`
+	// PeerState 是评审者（b）的状态：只在终态 gate / 审批预筛跑真实 TL 回合时
+	// 短暂进入 evaluating / advisory_pending，其余时间为稳态。
 	PeerState     string `json:"peer_state,omitempty"`
 	LastDirective string `json:"last_directive,omitempty"`
-	Broken        bool   `json:"broken"`
-	BreakReason   string `json:"break_reason,omitempty"`
-	// RoundError 是**上一轮治理推进失败的原因**（空 = 无失败）。
-	//
-	// 为什么存在于治理视图：ADVISOR 回合失败（b 已作答但裁决不可用 / 429 / 超时）
-	// 时，goal 保持 active 是安全默认，但「轮次为什么不前进」此前既没进视图也没人
-	// 显示——调用方丢弃错误后，面板只能靠墙钟猜。这里由协调器写入分类后的原始错误
-	// 文本，成功推进一轮或新 goal 上线时清空。**只读投影，进程内，不落盘**。
-	RoundError string `json:"round_error,omitempty"`
 	// InFlight / InFlightChars 是**当前 b（ADVISOR）回合进行中**的正文近端。
 	//
-	// 为什么存在于治理视图：b 回合是同步跑完的（回合结束才推一次状态），旧实现里
-	// "评审在写什么"因此完全不可见（渲染不及时）。这里把进行中正文作为只读快照暴露，
+	// 为什么存在于治理视图：b 回合是同步跑完的（回合结束才推一次状态），"评审在
+	// 写什么"因此完全不可见（渲染不及时）。这里把进行中正文作为只读快照暴露，
 	// 前端在 peer_state=evaluating 期间轮询快照即可看到；回合结束即清空（权威正文是
 	// tl_directive 行）。**只有后端 → 前端的单向投影**。
 	InFlight      string `json:"in_flight,omitempty"`
@@ -69,7 +62,7 @@ type GoalStepView struct {
 	At     int64  `json:"at,omitempty"`
 }
 
-// GoalFrameView 是 goal 活动栈里**一帧**的只读投影（工作台按帧分块查看）。
+// GoalFrameView 是 goal 活动栈里**一帧**的只读投影（看板一行 + 详情一份属性表）。
 type GoalFrameView struct {
 	ID         string   `json:"id"`
 	Title      string   `json:"title"`
@@ -77,9 +70,18 @@ type GoalFrameView struct {
 	Status     string   `json:"status"`
 	Active     bool     `json:"active,omitempty"` // 栈顶帧 = 当前目标
 	Acceptance []string `json:"acceptance,omitempty"`
-	// Progress 是这一帧的最近若干条进度（时间升序；完整进度仍以 goal_status 为准）。
-	Progress  []GoalProgressView `json:"progress,omitempty"`
-	UpdatedAt int64              `json:"updated_at,omitempty"`
+	// OutOfScope 是这一帧声明的非目标范围（可选）。它进投影是为了**详情面**能回答
+	// "这个目标明确不做什么"——只有看板卡片时，这一条没有别的可见处。
+	OutOfScope []string `json:"out_of_scope,omitempty"`
+	// Progress 是这一帧的**最近若干条**进度（时间升序），供看板卡片写一行摘要。
+	Progress []GoalProgressView `json:"progress,omitempty"`
+	// ProgressAll 是这一帧保留的**全部**打点（时间升序，含 Progress 那几条），
+	// 供"点开看详情"渲染完整打点流水。有界：goal 域自身的环形保留上限
+	// （goal.MaxProgressItems = 32）就是它的上界，因此不需要再截一刀——
+	// 截了详情面就只能看到最后几条，等于没有详情。
+	ProgressAll []GoalProgressView `json:"progress_all,omitempty"`
+	CreatedAt   int64              `json:"created_at,omitempty"`
+	UpdatedAt   int64              `json:"updated_at,omitempty"`
 }
 
 // GoalProgressView 是逐帧进度条目的只读投影。

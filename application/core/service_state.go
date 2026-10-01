@@ -92,9 +92,9 @@ type serviceState struct {
 	// G4：会话未选择时回退该档位）。fullAccessDefault 保留为兼容读面。
 	permissionTierDefault string
 
-	// teamRuntimes 是按主会话持有的发言调度运行态（链表顺序 + user 席位 +
-	// 逃生记账；见 application/core/agentteam_runtime.go）。它自带锁，不走
-	// Core.ViewMu——调度推进不参与视图快照事务。
+	// teamRuntimes 是按主会话持有的发言调度运行态（链表顺序 + 逃生记账；
+	// 见 application/core/agentteam_runtime.go）。它自带锁，不走
+	// Core.ViewMu——调度记账不参与视图快照事务。
 	teamRuntimes teamRuntimeStore
 
 	// roleSessions 是"角色会话 → 归属主会话 + 权责"的反向索引（权限门读面：

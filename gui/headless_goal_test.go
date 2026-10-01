@@ -41,7 +41,6 @@ func (fake *goalRPCFakeApp) GoalUpdateFor(_ context.Context, sessionID string, r
 	if fake.active != nil && request.ProgressContent != "" {
 		fake.active.Progress = append(fake.active.Progress, goaldomain.Progress{Kind: request.ProgressKind, Content: request.ProgressContent})
 	}
-	fake.view.Round++
 	return fake.active, nil
 }
 
@@ -68,10 +67,6 @@ func (fake *goalRPCFakeApp) GoalStatusFor(sessionID string) (goaldomain.StatusVi
 	return view, nil
 }
 
-func (fake *goalRPCFakeApp) GoalNextFor(context.Context, string) (bool, error) { return false, nil }
-
-func (fake *goalRPCFakeApp) GoalBreakFor(context.Context, string, string) error { return nil }
-
 func (fake *goalRPCFakeApp) GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView {
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
@@ -85,8 +80,8 @@ func (fake *goalRPCFakeApp) GoalGovernanceViewFor(sessionID string) *dto.GoalGov
 
 // TestHeadlessGoalChainReplication 复刻验收 goal 治理的 gui headless 链路：
 // goal.begin → 视图 active；goal.update/status/gov_snapshot 与当前视图会话
-// 路由一致；goal.propose_finish 收口后视图复位；gov_break 可达；未知方法
-// 显式报错。
+// 路由一致；goal.propose_finish 收口后视图复位；gov_next / gov_break 已随
+// 席位轮转退场（与未知方法一样被拒，见文件末尾那条用例）。
 func TestHeadlessGoalChainReplication(t *testing.T) {
 	base := newFakeApplication()
 	base.snapshot.Session.ID = "session-gui-headless"
@@ -158,8 +153,9 @@ func TestHeadlessGoalChainReplication(t *testing.T) {
 		t.Fatalf("收口后治理视图应复位: %+v", viewAfter)
 	}
 
-	if result := headlessRPC(t, serverBase, "goal.gov_break", map[string]any{"reason": "外部中断"}); !result.OK {
-		t.Fatalf("goal.gov_break failed: %s", result.Error)
+	// gov_break 已随席位轮转退场：它现在和未知方法一样被拒。
+	if result := headlessRPC(t, serverBase, "goal.gov_break", map[string]any{"reason": "外部中断"}); result.OK {
+		t.Fatal("goal.gov_break 应随席位轮转退场而被拒")
 	}
 	if result := headlessRPC(t, serverBase, "goal.no_such"); result.OK ||
 		!strings.Contains(result.Error, "未知 goal headless 方法") {

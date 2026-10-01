@@ -18,8 +18,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application/core/govern"
 )
 
 // roundShapeTimeout 是"形状判据"的统一超时：正常实现是微秒级返回，这里给足余量，
@@ -412,47 +410,6 @@ func TestRoundEmitsGoalUpdateFrameWhenGoalChangedDuringRound(t *testing.T) {
 	}
 }
 
-// TestAdvisorSeatSkipsWhenRoundInFlight 钉住治理座位的处理口径：在飞是**良性跳过**
-// （不 break、不报 roundError），而不是把"已有评审在跑"记成一次治理失败。
-func TestAdvisorSeatSkipsWhenRoundInFlight(t *testing.T) {
-	ctl := newTestController(t, DefaultStackDepth)
-	beginTestGoal(t, ctl, "目标")
-	evaluator := newBlockingEvaluator(TLDirective{Kind: DirectiveCheckpointOK, Content: "ok"})
-	sup := NewSupervisor(ctl, evaluator, TechLeaderConfig{Enabled: true})
-
-	done := make(chan error, 1)
-	go func() {
-		_, err := sup.RunEval(testCtx, "first")
-		done <- err
-	}()
-	waitSignal(t, evaluator.entered, "回合进入执行段")
-
-	type seatTurn struct {
-		action govern.TurnAction
-		err    error
-	}
-	acted := make(chan seatTurn, 1)
-	go func() {
-		action, err := NewAdvisorSeat(sup, "advisor-b").Act(testCtx)
-		acted <- seatTurn{action: action, err: err}
-	}()
-	select {
-	case got := <-acted:
-		if got.err != nil {
-			t.Fatalf("在飞时座位发言应良性跳过，不该报治理失败: %v", got.err)
-		}
-		if got.action.BreakLoop {
-			t.Fatal("跳过不应断环")
-		}
-		if !strings.Contains(got.action.Note, "进行中") {
-			t.Fatalf("跳过应留下可读说明, 得 %q", got.action.Note)
-		}
-	case <-time.After(roundShapeTimeout):
-		t.Fatal("治理座位被排队挂住（应良性跳过）")
-	}
-
-	close(evaluator.release)
-	if err := waitRound(t, done, "在飞的回合"); err != nil {
-		t.Fatalf("在飞的回合应成功: %v", err)
-	}
-}
+//
+// TestAdvisorSeatSkipsWhenRoundInFlight 已随席位轮转退场删除（2026-10-01 阶段三
+// W3）：治理座位不存在了，"在飞时座位良性跳过"这条口径也随之消失。

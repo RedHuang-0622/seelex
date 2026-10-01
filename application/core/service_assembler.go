@@ -112,23 +112,11 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	}); ok {
 		goalStoreFor = provider.SessionContextStoreFor
 	}
-	// 座位作业面（D4）：Runtime 实现了 SeatJobs 就接线（与上面同一口径的窄可选能力
-	// 探测）。实现了但作业面没装配的宿主（没调 SetTeamworkBackend）= 等同未接线 →
-	// nil → 现状同步座位循环：约束「未装配时行为一字不变」覆盖这一类宿主。
-	var seatJobs SeatJobs
-	if provider, ok := assembler.deps.Runtime.(SeatJobs); ok {
-		if probe, ok := assembler.deps.Runtime.(SeatJobsAssembled); !ok || probe.SeatJobsAssembled() {
-			seatJobs = provider
-		}
-	}
+	// 座位作业面与角色座位读面已随席位轮转退场（2026-10-01 阶段三 W3）。
 	service.components.goal = newGoalCoordinator(goalCoordinatorDeps{
 		StoreFor:       goalStoreFor,
 		TLRecorderFor:  service.goalTLRecorderFor,
 		TeamRuntimeFor: service.teamRuntimeBySession,
-		RoleSeatsFor:   service.teamRoleSeatsFor,
-		// 座位作业面：把一轮治理推进表达为 jobs.KindSeat 作业（见 goal_coordinator.go
-		// 的 SeatJobs / runSeatRound）。
-		SeatJobs: seatJobs,
 	})
 	service.components.prompts = prompt_layer.NewCoordinator(prompt_layer.Deps{
 		Core:          kernel,

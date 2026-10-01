@@ -249,9 +249,8 @@ test("teamMemberNames / renderTeamMemberList keep the team's own order without p
 // ── 团队成员的 RoleSpec：生态位（条目）/ 人的档案（员工库·本会话）────────
 //
 // 回归背景（真事）：团队面板只搬 role_name/role_kind/tools_policy/system_prompt，
-// 保存一支 goal-a2a 就把 tl 的 techlead 规格降级成 agent —— 装配后按 RoleKind 派生
-// 座位（seatPlan：techlead → ADVISOR）的评审座位当场没了。下面这几条把"不许再丢字段"
-// 钉住。
+// 保存一支 goal-a2a 就把 tl 的 techlead 规格静默降级成 agent —— 角色的生态位这份事实
+// 当场丢了。下面这几条把"不许再丢字段"钉住。
 
 // 一支条目的生态位事实：形态目录删掉之后，条目自己就是生态位的唯一来源
 //（没有"哪个内置形态规定 tl 必须 techlead"这回事了）。
@@ -292,7 +291,7 @@ test("teamMemberSpecMap：生态位取自条目，人的档案取自员工库 / 
 });
 
 test("teamMemberSpecMap：条目登记的生态位不被员工库那一份盖掉（反之也不编造）", () => {
-  // 条目怎么写，装配后的座位就怎么派生——形态目录删掉之后没有第二份"权威生态位"，
+  // 条目怎么写，装配后的生态位就怎么传递——形态目录删掉之后没有第二份"权威生态位"，
   // 所以条目里的 role_kind 必须原样进草稿（这是"tl 被降级成 agent"那条事故的守门人：
   // 面板不许把条目已登记的 techlead 洗成员工库里的 agent）。
   const entry = {
@@ -311,7 +310,7 @@ test("teamMemberSpecMap：条目登记的生态位不被员工库那一份盖掉
   assert.equal(specs.tl.tools_policy, "full");
 });
 
-test("teamEntryFromMembers 带上整份 RoleSpec 与形态级策略（丢一个字段就是丢一个座位）", () => {
+test("teamEntryFromMembers 带上整份 RoleSpec 与形态级策略（丢一个字段就是丢一份生态位）", () => {
   const entry = teamEntryFromMembers({
     teamID: "goal-a2a",
     teamKind: "goal-a2a",

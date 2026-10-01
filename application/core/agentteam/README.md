@@ -1,5 +1,13 @@
 # core/agentteam
 
+> **2026-10-03（阶段三 W3）口径更新**：goal 的**席位轮转整条退场（已删除）**——
+> `application/core/govern`（整包，已删除）、`goal/adapter.go`（已删除）、座位作业面
+> （`jobs.KindSeat` / `SeatExecutor` / `SetSeatRoundRunner` / `RunSeat`，已删除）、座位派生
+> （`newGovernor` / `seatsFor` / `seatPlan` / `RoleSeat`，已移除）与 headless `goal_gov_*`
+> 均已删除。团队角色只服务 leader 派发的 worker 作业，顺序的唯一事实是 team plan
+> 的 `stages[].depends_on`；本包的 `Runtime` 只剩**环逃生记账**一个生产用途。
+> 详见 [`docs/devlog/2026-10-03-seat-rotation-retired.md`](../../../docs/devlog/2026-10-03-seat-rotation-retired.md)。
+
 ## 生态位
 
 A2A 角色团队的**通用装配能力面**：把「`TeamSpec`/`RoleSpec` → 角色会话 + 工作顺序 +
@@ -63,8 +71,8 @@ flowchart TB
 
     REG["Registry<br/>角色 CRUD · SetOrder · View 只读投影"]
     VIEW["TeamView / assembleView<br/>成员表 + 定时分区 + DesignNotice"]
-    RT["Runtime<br/>会话级发言调度运行态（逃生路径）"]
-    GOV["goal 治理座位循环<br/>真正驱动轮次"]
+    RT["Runtime<br/>会话级发言调度运行态（只剩环逃生记账）"]
+    PLAN["team_plan 的 stages[].depends_on<br/>顺序的唯一事实（leader 掌控）"]
     FE["GUI 团队面板 / headless team.*"]
 
     LIB --> NORM
@@ -78,10 +86,9 @@ flowchart TB
     LIFE --> REG
     REG --> VIEW
     REG --> RT
-    RT --> GOV
     VIEW --> FE
     RT --> FE
-    GOV --> FE
+    PLAN --> FE
 ```
 
 ## 时序图：装配
@@ -94,9 +101,8 @@ sequenceDiagram
     participant A as agentteam.Factory
     participant R as Registry
     participant L as lifecycle 顺序策略
-    participant G as goal 治理循环
 
-    Note over U,G: 唯一路径：显式装配
+    Note over U,L: 唯一路径：显式装配
     U->>S: team.materialize(TeamSpec) / 面板「装配」/ `@<团队>`
     S->>A: Materialize(TeamSpec)
     A->>A: Normalize 规整与校验
@@ -105,9 +111,9 @@ sequenceDiagram
     A->>L: 写 order_policy / order_roles
     A-->>S: 成员表（TeamView）
 
-    Note over S,G: goal 上线不再自动装配团队（2026-10-01）：
-    Note over S,G: 团队有谁在编是用户/leader 的事实；
-    Note over S,G: goal 的 ADVISOR 裁决由治理循环自带的 supervisor 座位提供
+    Note over S,L: goal 上线不再自动装配团队（2026-10-01）：
+    Note over S,L: 团队有谁在编是用户/leader 的事实；
+    Note over S,L: 角色干活由 leader 在 team_plan 阶段派活驱动
 ```
 
 ## 接线现状（2026-09-14 复核）
@@ -118,8 +124,8 @@ sequenceDiagram
 | 能力 | 现状 | 证据 |
 |---|---|---|
 | 角色会话 + 顺序策略 + 注册表 | **已接线（显式装配）**：面板「装配」/ `@<团队>` / `team.materialize` 装配一份 TeamSpec，顺序落 `lifecycle`。goal 上线**不再**自动装配（那会整份替换掉会话已有的团队） | `application/core/agentteam_service.go`（`MaterializeAgentTeam`）、`application/core/goal_service.go`（`GoalBeginFor` 的说明）、`application/core/goal_team_wiring_test.go`（`TestGoalBeginLeavesSessionTeamAlone`） |
-| 工作顺序（`order_policy`/`order_roles`） | **部分接线（历史字段）**：用于角色 draft 同步排序与成员表展示；**不驱动运行时轮次**。`order_policy` 更进一步——落 lifecycle 后只被回读展示（`dto.TeamView`/`dto.TeamSchedule` 与前端面板），不驱动任何行为；`order_roles` 仍是座位存在性（`newGovernor` 按它长座位）与发言顺序的事实。新事实 = team plan 的 `stages[].depends_on`（leader 掌控，见 `docs/arch/teamwork-leader-worker-architecture.md` §4.6/D4） | `sessionstore/role_session.go`（`sortRoleDraftRows`）、`application/core/goal_coordinator.go`（`seatPlan`）、退场条件见 `docs/devlog/2026-10-01-m4-deadcode-inventory.md` #5（**blocked**） |
-| 运行时轮次驱动 | **已接线**：goal 治理的 Governor 座位 `exec-a` + `advisor-b`；会话没装配团队时走 `NewTurnGovernorForDSA2A`（同样带 ADVISOR），装配了团队时 `tl` 的角色座位由 goal 域 TL 评估器执行 | `application/core/goal_coordinator.go`（`newGovernor`）、`application/core/goal/adapter.go` |
+| 工作顺序（`order_policy`/`order_roles`） | **部分接线（历史字段）**：用于角色 draft 同步排序与成员表展示；**不驱动运行时轮次**（2026-10-03 起没有任何"运行时轮次驱动"了）。`order_policy` 更进一步——落 lifecycle 后只被回读展示（`dto.TeamView`/`dto.TeamSchedule` 与前端面板），不驱动任何行为；`order_roles` 现在只是**发言顺序与成员表的展示事实**（`seatPlan` 那套"按它长座位"的读面已随席位轮转退场）。新事实 = team plan 的 `stages[].depends_on`（leader 掌控，见 `docs/arch/teamwork-leader-worker-architecture.md` §4.6/D4） | `sessionstore/role_session.go`（`sortRoleDraftRows`）、退场记录见 `docs/devlog/2026-10-03-seat-rotation-retired.md` |
+| 运行时轮次驱动 | **没有这一层了（2026-10-03 阶段三 W3）**：goal 的治理座位循环（`exec-a` / `advisor-b`、`newGovernor`、`NewTurnGovernorForDSA2A`、`goal/adapter.go`，均已删除）整条退场，回合尾不再推任何座位。goal 由**提示词驱动的 leader 派活**推进（`plugins/default/goal/SKILL.md`），角色干活走 `team_dispatch` 的 worker 作业，顺序的唯一事实是 team plan 的 `stages[].depends_on` | `docs/devlog/2026-10-03-seat-rotation-retired.md`、`plugins/default/goal/SKILL.md` |
 | EXEC 工作内容进入 ADVISOR 输入 | **已接线**：`turn_completed.Detail`（本轮正文/工具名有界摘要）→ `work.progress` 帧 → b 回合输入正文 | `application/core/goal_work_summary.go`、`application/core/goal/techleader.go`（`flushWorkProgressLocked`） |
 | EXEC 的 computer use 证据进入 ADVISOR 输入 | **已接线**：工作摘要额外带 `screen: media:… 宽x高 foreground="…"`（截图句柄 + 画面尺寸 + 前台窗口），ADVISOR 据此"看证据评审"，而不是只看到一个工具名 | `application/core/goal_work_summary.go`（`computerUseEvidence`）、`gui/team_work_computer_use_live_probe_test.go` |
 | ADVISOR 直接读画面内容 | **尚未实现**：ADVISOR 回合是一次有界 LLM 调用（`TLEvalEvaluator`，无工具循环），它拿到的是证据**句柄与元数据**，不是像素；要读图需要给 b 回合挂图（imageattach）或给角色配独立工具循环 | 见 `docs/devlog/2026-09-15-team-work-computer-use.md` |
@@ -129,14 +135,14 @@ sequenceDiagram
 | 员工提示词（`RoleSpec.SystemPrompt`）→ ADVISOR 回合 | **已接线**：装配根把"读已装配提示词"的读面注入 Runtime，ADVISOR 回合用它替换内置角色设定；**输出契约永远追加**（goal 域要解析 `TLDirective`，不能被员工提示词改掉输出格式） | `seelebridge/runtime_role_prompt.go`（`SetRolePromptProvider`）、`seelebridge/runtime_goal_tl.go`（`advisorSystemPrompt`）、`main.go` 装配点 |
 | 员工权限（`RoleSpec.ToolsPolicy`） | **登记 + 写入侧枚举校验 + 运行时承载体已就位**：值随角色注册表落盘、在员工栏与编辑面板可见；写入侧经 `NormalizeRole` 只接受 `readonly`/`readwrite`/`full`/空（枚举外的拼写错误会被**显式拒绝**——运行时把未识别值映射成 root 全权，静默接受等于把拼写错误升级为最高权限）。真正的工具拦截在 seelebridge `PermissionGate`；**按角色拦截的承载体 = 角色回合执行体**（`seelebridge` 的 `runRoleRound`：开角色会话时分配 `emp_<角色名>` 主体，回合起手按构造把主体放进 ctx，工具面据此收窄；员工干活由 leader 派发的 worker 作业驱动，`RunRoleTurn` 那条座位适配层已于 2026-10-01 退场）| `application/core/agentteam/spec.go`（`ValidToolPolicy`）、`application/contract/dto/agentteam.go`（`ToolPolicy*`）、`seelebridge/tools/permission_policy.go`（`ClassForToolsPolicy`）、`seelebridge/runtime_role_turn.go`（`runRoleRound`）、`seelebridge/tools/registry_state.go`（`PermissionGate`） |
 | 员工提示词优化 | **已接线**：一次有界 LLM 回合（`RolePromptPort`），只产出候选文本 + 改动理由，不落盘、不写会话消息；落盘仍走入职/保存 | `seelebridge/runtime_role_prompt.go`（`OptimizeRolePrompt`）、`application/core/agentteam_service.go`（`AgentTeamOptimizeRolePrompt`） |
-| `TurnScheduler`（链表轮转 / team work 前缀载体） | **部分接线**：`Runtime`（会话级发言调度运行态）持有它并同步注册表顺序（环成员 = `order_roles` − `user`）；生产实际消费的是 `Order()`（座位存在性）、`NoteTurn()`（逃生记账）、`SyncOrder()` 与 `Snapshot()`，**`Advance()`（经 `Runtime.Next`）没有生产消费者**（"下一个谁发言"是表头扫描的静态投影，不随轮转变化）；真正驱动轮次的是 goal 治理的座位循环（见上一行「运行时轮次驱动」）。含三条**逃生路径**（轮次上限 / 连续无进展 / 无执行者） | 本包 `runtime.go` + `scheduler.go`；守卫用例 `scheduler_wiring_test.go`、`runtime_test.go`（`Runtime.Next` → `Advance` 的行为用例、`TestRuntimeRingExcludesUser`）；消费点 `application/core/agentteam_service.go`（`teamRuntimeFor`）与 `goal_coordinator.go`（按顺序装座位 + `NoteTurn` 逃生记账） |
-| `@` 召唤的"开工"判据 | **已接线（2026-09-17）**：`@<团队> <附言>` 除装配外还落一个 goal（附言 = 目标陈述），主会话这一轮即 EXEC 座位、回合尾 Governor 让 teammate 上场；不带附言仍只装配（待命） | `application/core/input_team.go`（`beginGoalForSummon`）、用例 `application/core/input_team_work_test.go` |
+| `TurnScheduler`（链表轮转 / team work 前缀载体） | **部分接线**：`Runtime`（会话级发言调度运行态）持有它并同步注册表顺序（环成员 = `order_roles` − `user`）；生产实际消费的是 `Order()`（顺序投影）、`NoteTurn()`（逃生记账）、`SyncOrder()` 与 `Snapshot()`，**`Advance()`（经 `Runtime.Next`）没有生产消费者**（"下一个谁发言"是表头扫描的静态投影，不随轮转变化）。含三条**逃生路径**（轮次上限 / 连续无进展 / 无执行者）——它们是**环自己的兜底**，与 goal 治理不再同源（goal 没有"轮次"了） | 本包 `runtime.go` + `scheduler.go`；守卫用例 `scheduler_wiring_test.go`、`runtime_test.go`（`Runtime.Next` → `Advance` 的行为用例、`TestRuntimeRingExcludesUser`）；消费点 `application/core/agentteam_service.go`（`teamRuntimeFor`）与 `goal_coordinator.go`（`NoteTurn` 逃生记账） |
+| `@` 召唤的"开工"判据 | **已接线（2026-09-17，2026-10-03 换驱动）**：`@<团队> <附言>` 除装配外还落一个 goal（附言 = 目标陈述），随后由**主代理（leader）按 team_plan 阶段派活**推进；不带附言仍只装配（待命） | `application/core/input_team.go`（`beginGoalForSummon`）、用例 `application/core/input_team_work_test.go` |
 | 团队离场（干完就走人） | **已接线（2026-09-17）**：目标收口（栈里没有 active goal）→ 删角色注册表 + 复位顺序；角色会话子树保留（装配幂等键 `(主会话, team_id, role_name)` 不变，再次召唤复用同一棵） | `application/core/agentteam/factory.go`（`Dismiss`/`DismissPort`）、`sessionstore/team_registry.go`（`removeTeamRegistry`）、`application/core/agentteam_service.go`（`DismissAgentTeam`）、`application/core/goal_service.go`（`dismissTeamWhenGoalClosed`） |
 | `review-team` / `research-team` 的成员 | **只有装配、没有执行者**：`reviewer`/`researcher` 建得出角色会话，但不会自动产生回合（`TeamView.DesignNotice` 会明说） | `factory.go`（`RolesWithExecutor` / `unexecutedRoles`） |
 
-结论口径（2026-10-01 复核）：`TurnScheduler` 的链表顺序与 `SetPrefix` 有生产消费者：
-`Runtime`（`runtime.go`，2026-09-15 落地）把注册表顺序**减去 user** 同步成环（环成员 = 发言者集合，见 `ringOrder`）；生产**实际调用**的只有 `Order()`（`newGovernor` 据此决定 main/tl 座位要不要长出来）与 `NoteTurn()`（`AdvanceAfterChat` 据此收束环）与 `NoteWorkDetail()`（同一次 `AdvanceAfterChat` 把本轮正文装配成 team work 前缀 → `SetPrefix` → 交班时下发给下一名发言成员；唯一写入口在后端，前端只能 `Snapshot().Prefix` 只读查看），`Advance()`（经 `Runtime.Next`）没有生产调用者（channel 投递路径 `Requests` / `Request` / `Next`、顺序编辑三件 `Move` / `Remove` / `Restore` 与只读 getter `Prefix` 已于 2026-10-01 **已退场**，理由是同一条：没有生产消费者）。
-顺序也因此只剩**一条写入口**：`SyncOrder` → `SetOrder`（把 `order_roles` − user 整表同步成环），因此"下一个谁发言"不是排班结果（它是把表头第一格扫出来的静态投影）；真正让角色发言的仍是 goal 治理的座位循环，逃生记账只属于**当前这一轮 goal**（新 goal 上线时 `goalCoordinator.Begin` 调 `Runtime.Reset()`，否则上一轮的逃生结论会让新 goal 的 ADVISOR 永久静默）。
+结论口径（2026-10-03 复核）：`TurnScheduler` 的链表顺序与 `SetPrefix` 有生产消费者：
+`Runtime`（`runtime.go`，2026-09-15 落地）把注册表顺序**减去 user** 同步成环（环成员 = 发言者集合，见 `ringOrder`）；生产**实际调用**的只有 `Order()`（顺序投影）、`NoteTurn()`（`AdvanceAfterChat` 据此收束环）与 `NoteWorkDetail()`（同一次 `AdvanceAfterChat` 把本轮正文装配成 team work 前缀 → `SetPrefix`；唯一写入口在后端，前端只能 `Snapshot().Prefix` 只读查看），`Advance()`（经 `Runtime.Next`）没有生产调用者（channel 投递路径 `Requests` / `Request` / `Next`、顺序编辑三件 `Move` / `Remove` / `Restore` 与只读 getter `Prefix` 已于 2026-10-01 **已退场**，理由是同一条：没有生产消费者）。
+顺序也因此只剩**一条写入口**：`SyncOrder` → `SetOrder`（把 `order_roles` − user 整表同步成环），因此"下一个谁发言"不是排班结果（它是把表头第一格扫出来的静态投影）。**没有任何东西在驱动"轮到谁"**（2026-10-03 起）：让角色说话的是 leader 的 `team_dispatch`，环只剩逃生记账——逃生记账只属于**当前这一轮 goal**（新 goal 上线时 `goalCoordinator.Begin` 调 `Runtime.Reset()`，否则上一轮的逃生结论会让新 goal 一上来就"已收束"）。
 
 **user 不在环里**（2026-09-17 定稿）：user 永远在 `order_roles` 里（它是群聊的起手与收口，
 `resolveOrderRoles` 的校验也要求它必须在场），但**顺序事实 ≠ 环成员**：环成员 = `order_roles` − `user`
@@ -149,9 +155,9 @@ user**（环头扫描会落到它），与「其余时间都是 agent teammate �
 点）。它是一个动作，不是一个座位；环不需要知道队列状态，`NoteTeamUserQueued`/`noteTeamUserSeat`
 两条通知路径随之删除。
 
-**逃生路径**（不能不休止地转）：① 轮次上限 `round_limit`（缺省 24）；② 连续无进展上限 `no_progress`；
+**逃生路径**（不能不休止地转）：① 轮次上限 `round_limit`（缺省 24，2026-10-03 起是环**自己的**独立上限，不再与 goal 治理同源）；② 连续无进展上限 `no_progress`；
 ③ 环内没有任何有执行者的角色 `no_executor`；④ 空环 `empty_ring`；⑤ 外部显式停止 `external_break`
-（用户中断 / TL 裁决收口 / `goal.gov_break`）。停止是正常收束而非错误，原因随 `TeamView.schedule` 下发前端。
+（用户中断 / goal 收口）。停止是正常收束而非错误，原因随 `TeamView.schedule` 下发前端。
 
 ## 文件结构
 
@@ -223,7 +229,7 @@ presence 与 `message head.floor` 提供，不在本包落盘；`Registry.View`/
 ## 扩展方式
 
 - 新增一支团队：**不用改代码**——在面板「团队库」新建（或把当前会话存进库），装配时
-  走同一条 `TeamSpec` 通道；要新角色种类才动 `dto.RoleKind` 与座位派生（`seatPlan`）。
+  走同一条 `TeamSpec` 通道；要新角色种类才动 `dto.RoleKind`。
   本包不再有"往代码里加一支模板"这条扩展方式（形态目录已删）。
 - 新增调度策略：只在 `dto` 增加策略名并校验，替换点是 sequencer 的 role 顺序函数。
 - 新增角色字段：加在 `dto.RoleSpec` + `sessionstore.TeamRoleSpec` + 适配器映射三处，
@@ -413,7 +419,7 @@ go test -race ./application/core/agentteam -count=1
 - `func TestRuntimeEscapeRoundLimit(t *testing.T)` — TestRuntimeEscapeRoundLimit：轮次上限是逃生路径第一道——到达即停，且原因是
 - `func TestRuntimeEscapeNoProgress(t *testing.T)` — TestRuntimeEscapeNoProgress：连续无进展是逃生路径第二道——推进一次即清零，
 - `func TestRuntimeEscapeNoExecutor(t *testing.T)` — TestRuntimeEscapeNoExecutor：环里一个能发言的都没有时显式收束（no_executor /
-- `func TestRuntimeEscapeExternalStop(t *testing.T)` — TestRuntimeEscapeExternalStop：用户中断 / TL 裁决收口 / goal.gov_break 走同一
+- `func TestRuntimeEscapeExternalStop(t *testing.T)` — TestRuntimeEscapeExternalStop：用户中断 / goal 收口走同一
 - `func TestRuntimeResetRevivesEscapeState(t *testing.T)` — TestRuntimeResetRevivesEscapeState：逃生是显式结论，但**复活也必须是显式可达
 - `func TestRuntimeResetOnNilIsSafe(t *testing.T)` — TestRuntimeResetOnNilIsSafe：Reset 走 nil 接收者安全（未装配团队环的会话在
 

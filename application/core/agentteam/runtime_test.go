@@ -155,8 +155,8 @@ func TestRuntimeEscapeNoExecutor(t *testing.T) {
 	}
 }
 
-// TestRuntimeEscapeExternalStop：用户中断 / TL 裁决收口 / goal.gov_break 走同一
-// 个显式停止入口，原因原样保留。
+// TestRuntimeEscapeExternalStop：用户中断 / goal 收口走同一个显式停止入口，原因
+// 原样保留。
 func TestRuntimeEscapeExternalStop(t *testing.T) {
 	runtime := newTestRuntime([]string{"user", "main", "tl"}, dto.OrderPolicyGoalLoop, RuntimeOptions{})
 	runtime.Stop("verdict_done")
@@ -178,8 +178,7 @@ func TestRuntimeEscapeExternalStop(t *testing.T) {
 //
 // 缺口背景：停止态此前没有任何复活口（SyncOrder 不碰 stopped、NewRuntime 只在槽
 // 为空时发生、drop 无调用者），于是"上一轮 goal 的逃生结论"会传染给同会话的每一
-// 轮后续 goal：goalCoordinator.AdvanceAfterChat 每次先看到 stopped=true 就立刻
-// Break 新 governor，ADVISOR 彻底静默、goal 停在 active 无人收口。
+// 轮后续 goal：环一上来就是 stopped=true，收口/派活等不到任何环上的信号。
 func TestRuntimeResetRevivesEscapeState(t *testing.T) {
 	runtime := newTestRuntime([]string{"user", "main", "tl"}, dto.OrderPolicyGoalLoop,
 		RuntimeOptions{RoundLimit: 1, NoProgressLimit: 0})
