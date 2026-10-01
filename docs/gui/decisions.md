@@ -198,9 +198,12 @@
   2. `@` 从 Plugin 让位，是因为"手动召唤团队"此前没有入口：团队**只能**由 goal 上线时
      自动装配（`goal_service.ensureGoalAgentTeam`），人没有对称的显式动作。
 - 后果：
-  - `@` 与 goal 自动装配共用同一条通道（`MaterializeAgentTeam` + `teamJoinSeqFor`），
-    不新增第二份团队事实；召唤面只列内置形态（零 I/O —— Suggestions 在 TUI 的 `View()`
-    渲染路径上），团队库条目按 team_id 或名字同样可召唤。
+  - `@` 与面板「装配」共用同一条通道（`AgentTeamMaterializeTeam` → `MaterializeAgentTeam`
+    + `teamJoinSeqFor`），不新增第二份团队事实。**召唤面不再列候选**（2026-10-01）：候选
+    只在团队库里，而 `Suggestions` 跑在 TUI 的 `View()` 渲染路径与 GUI 每次输入事件上，
+    不能为此读盘——所以 `@` 的建议面为空，可用团队名由 `@` 空参的回执列出；库里条目按
+    team_id 或名字都可召唤。goal **上线不再自动装配团队**（那会整份替换掉会话已有的团队，
+    见 `docs/devlog/2026-10-01-no-builtin-team-shapes.md`）。
   - `@` 的载荷是 `@<团队> [附言]`：路由不按空格切分（团队名可含空格），切分在
     `application/core/input_team.go` 按"最长可命中前缀 = 名字、余下 = 附言"完成；
     附言按 `$<skill> <args>` 的同一条口径作为一条输入下发。这是对"整段余量当名字"

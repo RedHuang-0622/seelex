@@ -3461,8 +3461,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
    轴块 `.axis-segment`、关闭按钮 `.axis-detail-close` 这些自绘控件的底色一起
    干掉（轨道因此只剩文字、看着像空轨）。自绘控件靠自己的类覆盖 Pico 默认值，
    Pico 文件在前、styles.css 在后，类选择器特异性也更高。 */
-.app-shell .text-button,
-.app-shell .team-preset { border: 0; background: transparent; }
+.app-shell .text-button { border: 0; background: transparent; }
 .app-shell summary::after { display: none; } /* Pico 给 details summary 加装饰箭头，本产品用自己的 caret */
 
 /* ---------- 12.3 外壳层次 ---------- */
@@ -3841,7 +3840,6 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 /* ---------- 13.5 Agent Team：两栏表格的单元格不许换行 / 被挤掉 ---------- */
 .team-table-row { min-height: var(--row-min-h); }
 .team-order-index,
-.team-member-pos,
 .team-member-role,
 .team-order-meta,
 .team-floor,
@@ -3852,7 +3850,6 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .team-member-actions { flex: none; }
 .team-order-actions .text-button,
 .team-member-actions .text-button { min-width: 42px; padding: 2px 6px; font-size: 10.5px; }
-.team-policy-static { min-height: 26px; padding: 2px 8px; font-size: 11.5px; }
 .team-scheduled-note {
   min-width: 0;
   overflow: hidden;
@@ -3889,7 +3886,6 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .team-view.muted { color: var(--faint); font-size: 11px; line-height: 1.5; }
 .team-panel { display: grid; gap: 14px; }
 .team-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
-.team-preset.is-active { color: var(--status-done); }
 .team-refresh { margin-left: auto; }
 .team-notice { padding: 6px 8px; border: 1px solid var(--border); border-left: 2px solid var(--status-running); border-radius: var(--r-sm); background: var(--tint-running); color: var(--text-soft); font-size: 11px; line-height: 1.5; }
 .team-notice.is-error { border-left-color: var(--status-failed); background: var(--tint-failed); color: var(--text-strong); }
@@ -3936,12 +3932,10 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .team-table-row .team-floor-chip { overflow: visible; }
 .team-cell-key { color: var(--faint); font: 700 10px var(--font-mono); }
 .team-cell-value { color: var(--text-mid); font-size: 11px; overflow-wrap: anywhere; }
-/* 顺序策略是历史字段：只读形态（虚线边 = 不是输入控件），与下拉在视觉上区分开 */
-.team-policy-static { padding: 2px 6px; border: 1px dashed var(--border); border-radius: var(--r-sm); background: var(--surface); color: var(--text-soft); font: 10px var(--font-mono); }
 .team-floor { color: var(--status-running); font: 700 10px var(--font-mono); }
 .team-order-index { color: var(--faint); font: 10px var(--font-mono); text-align: right; }
 .team-order-role, .team-member-name { overflow: hidden; color: var(--text-strong); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.team-order-meta, .team-member-role, .team-member-pos {
+.team-order-meta, .team-member-role {
   color: var(--faint);
   font: 10px var(--font-mono);
   overflow: hidden;
@@ -4090,49 +4084,17 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .message.is-advisor .message-head strong { color: var(--status-running); }
 
 /* ---------- 21. Agent Team 面板（员工栏 / 团队库 / 冷加载编辑面板） ----------
-   交互口径（用户要求）：发言顺序在员工栏直接拖拽调整；入职/修改员工、新建/编辑
-   团队都是**冷加载面板**（点 + 或编辑才渲染，带关闭键）；团队用一张小表管理。 */
+   交互口径（用户要求）：面板不提供任何编排手势（次序 = 登记先后，不由人拖拽调整）；
+   入职/修改员工、新建/编辑团队都是**冷加载面板**（点 + 或编辑才渲染，带关闭键）；
+   团队用一张小表管理。 */
 .team-rail-actions { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
 .team-rail-actions .text-button { padding: 1px 7px; font-size: 10.5px; }
 
-/* 员工行：左侧拖拽条（≡）是唯一调序入口，指针样式与整行拖影给出反馈。
-   窄右栏里"员工"格承担身份 + 权限 chip（可换行），类型/位置/操作各占窄列。 */
+/* 员工行：没有拖拽条、没有"位置"列——窄右栏里"员工"格承担身份 + 权限 chip
+   （可换行），右侧只留一列操作（摘除 / 删除）。 */
 .team-staff-row { cursor: default; }
 .team-staff-main { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 6px; min-width: 0; }
 .team-member-actions { flex-wrap: wrap; }
-.team-drag-handle {
-  flex: none;
-  padding: 0 2px;
-  color: var(--faint);
-  background: transparent;
-  border: 0;
-  cursor: grab;
-  font: 12px var(--font-mono);
-  line-height: 1;
-  touch-action: none;
-}
-.team-drag-handle:active { cursor: grabbing; }
-.team-staff-row:hover .team-drag-handle { color: var(--text-soft); }
-.team-staff-row.is-dragging { opacity: .45; }
-.team-staff-row.is-drop-target { box-shadow: inset 0 2px 0 var(--accent); }
-.team-staff-row.is-drop-target::after {
-  content: attr(data-team-drop-label);
-  position: relative;
-  margin-left: 6px;
-  color: var(--accent);
-  font: 9.5px var(--font-mono);
-}
-.team-drop-end {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 18px;
-  border: 1px dashed transparent;
-  border-radius: var(--r-sm);
-  color: var(--faint);
-  font: 9.5px var(--font-mono);
-}
-.team-drop-end.is-drop-target { border-color: var(--accent); color: var(--accent); }
 .team-outside-row { color: var(--faint); }
 .team-perm-chip {
   padding: 1px 5px;
@@ -4207,8 +4169,6 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .team-library-empty { padding: 6px 0; color: var(--faint); font-size: 10.5px; line-height: 1.5; }
 /* 全局母本：会话副本与母本有差异时的提示（只提示，不改数据）。 */
 .team-drift { color: var(--status-running); font-size: 10.5px; }
-.team-template-picks { display: flex; flex-wrap: wrap; gap: 4px; }
-.team-template-picks .text-button { padding: 1px 6px; font-size: 10px; }
 
 /* 条目化字段（入职 / 修改员工 / 新建团队）：一条字段 = 一行序列化条目——
    序号 + 标签一行、控件一行、说明一行。右栏只有 220~480px，标签与控件并排会把
@@ -4232,8 +4192,6 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   text-align: center;
 }
 .team-field-hint { color: var(--faint); font-size: 9.5px; line-height: 1.5; }
-/* 只读历史字段：值显示出来但改不了，虚线边说明"这不是输入控件" */
-.team-field-static { padding: 4px 7px; border: 1px dashed var(--border); border-radius: var(--r-sm); color: var(--text-soft); font: 11.5px var(--font-mono); }
 /* 逐格权限（路由组 × r/w/x）：一行一个组，左侧组名、右侧三个勾选框。
    右栏窄，所以用 compress 的密集网格而不是表格。 */
 .team-perm-grid { display: grid; gap: 2px; }
@@ -4284,7 +4242,6 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 }
 .image-button:hover { color: var(--text-strong); border-color: var(--border); background: var(--surface-2); }
 .image-button .icon { display: block; }
-.team-drag-handle .icon { display: block; }
 
 /* 18.5 左右栏收起（收起后每条栏留一条 26px 窄脊，脊上只有 < / > 按钮） */
 .left-panel > .panel-rail-head,
@@ -4530,8 +4487,7 @@ html[data-right-collapsed="true"] #right-divider { display: none; }
 .app-shell .account-row,
 .app-shell .text-button,
 .app-shell .icon-button,
-.app-shell .perm-chip,
-.app-shell .team-preset {
+.app-shell .perm-chip {
   transition:
     transform var(--dur-fast) var(--ease-out),
     box-shadow var(--dur-fast) var(--ease-out),
@@ -4548,7 +4504,6 @@ html[data-right-collapsed="true"] #right-divider { display: none; }
 
 /* 开关态：按下即"陷进去"（全权 / 已装配 / 已置顶） */
 .perm-chip.is-on,
-.team-preset.is-active,
 .effort-control.is-locked { box-shadow: var(--press-shadow); }
 
 /* 主按钮像一片压出来的黄铜：顶部一道高光 + 轻投影，按下变成内阴影 */
@@ -4633,7 +4588,7 @@ html[data-right-collapsed="true"] #right-divider { display: none; }
    24. Agent Team 面板（2026-09-15 第二轮）
    ------------------------------------------------------------
    三处口径变化：① 员工库并库展示（全局库 ∪ 本会话在编）+ 来源 chip；
-   ② 团队库只列用户团队，内置形态退成一行 chip，点团队名开团队面板；
+   ② 团队库只列用户团队（内置形态目录已删，面板上不再有形态 chip），点团队名开团队面板；
    ③ 发言调度不再摆 项/值 表，改成顺序串珠条（位置即次序，"发言中"/"下一个"
    各占一档高亮，参照群聊的通行做法）。
    ============================================================ */
@@ -4652,8 +4607,6 @@ html[data-right-collapsed="true"] #right-divider { display: none; }
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
   border-style: dashed;
 }
-.team-library-row.is-dragging,
-.team-employee-row.is-dragging { opacity: .45; }
 
 /* 团队名 = 打开团队面板的按钮：文本观感，不是按钮块 */
 button.team-library-name {
@@ -4667,20 +4620,6 @@ button.team-library-name {
 }
 button.team-library-name:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 
-/* 内置形态：一行 chip（就地装配），不再是库条目 */
-.team-preset-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 3px 0 0; }
-.team-preset-label { font: 9.5px var(--font-mono); }
-.team-preset-chip {
-  padding: 1px 7px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  color: var(--text-mid);
-  background: transparent;
-  cursor: pointer;
-  font: 9.5px var(--font-mono);
-}
-.team-preset-chip:hover { color: var(--accent); border-color: var(--accent); }
-.team-preset-chip.is-active { color: var(--status-done); border-color: var(--border-done); }
 
 /* E3：员工行 k→v 全字段（折叠进员工行的字段表：一行一栏，空栏也照列） */
 .team-kv { width: 100%; margin-top: 3px; }
@@ -4715,9 +4654,8 @@ button.team-library-name:hover { color: var(--accent); text-decoration: underlin
 .role-session-switch-chip:hover { color: var(--accent); border-color: var(--accent); }
 .role-session-switch-chip.is-active { color: var(--status-done); border-color: var(--border-done); }
 
-/* 装配参数：一行 chip（形态 / 顺序策略 / 发言权） */
+/* 装配参数：只剩"发言权"（floor）一枚 chip——团队形态与顺序策略都不再展示 */
 .team-meta-row { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 2px 0 4px; }
-.team-meta-row .team-policy-static { max-width: 100%; }
 
 /* 发言调度：顺序串珠条（位置即次序） */
 .schedule-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 2px 0; }
@@ -4743,11 +4681,12 @@ button.team-library-name:hover { color: var(--accent); text-decoration: underlin
 .schedule-seat, .schedule-note, .schedule-meta .muted { color: var(--faint); font: 9.5px var(--font-ui); }
 .schedule-note { color: var(--status-running); }
 
-/* 团队面板的成员表：行序 = 发言顺序；行上带序号、身份、✕，整行可拖拽 */
+/* 团队面板的成员表：行序 = 登记先后（没有序号列，也不可拖拽）；行上带身份、
+   生态位 chip、✕。移除键钉在末列：生态位 chip 缺省时中间那列自动塌成 0 宽。 */
 .team-member-list { display: grid; gap: 3px; min-width: 0; }
 .team-member-item {
   display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) auto 20px;
+  grid-template-columns: minmax(0, 1fr) auto auto 18px;
   align-items: center;
   gap: 5px;
   min-height: 24px;
@@ -4755,13 +4694,10 @@ button.team-library-name:hover { color: var(--accent); text-decoration: underlin
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
   background: var(--surface);
-  cursor: grab;
 }
-.team-member-item.is-dragging { opacity: .45; }
-.team-member-item.is-drop-target { box-shadow: inset 0 2px 0 var(--accent); }
-.team-member-idx { color: var(--faint); font: 9px var(--font-mono); text-align: center; }
 .team-member-label { color: var(--text-strong); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .team-member-drop {
+  grid-column: 4;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -4787,7 +4723,6 @@ button.team-library-name:hover { color: var(--accent); text-decoration: underlin
   padding: 0 5px;
   font-size: 9.5px;
 }
-.team-member-pos { white-space: nowrap; }
 .team-staff-main .chip { padding: 0 5px; font-size: 9.5px; }
 
 /* ── 目标活动栈（工作台按帧分块）与 ADVISOR 进行中正文 ───────────────────

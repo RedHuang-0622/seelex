@@ -21,7 +21,7 @@ import { compactionRangeText, compactionReasonLabel, mergeCompactionProgress } f
 import { renderGoalInFlight, renderGoalStack, renderGoalSteps } from "./goal-stack-view.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
 import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
-import { agentTeamOrderForDrag, employeePool, hirePanel, isPinnedRole, nextAgentTeamOrder, normalizeAgentTeam, normalizeTeamGlobal, normalizeTeamLibrary, orderPolicyLabel, PERMISSION_CUSTOM_TOOLS, PERMISSION_GROUPS, PERMISSION_BITS, renderAgentTeam, renderRoleSessionDetail, renderTeamMemberList, roleDisplayName, teamEditorPanel, teamEntryFromMembers, teamMemberNames, teamMemberSpecMap, teamRoleSpec } from "./agent-team-view.js";
+import { employeePool, hirePanel, isPinnedRole, nextAgentTeamOrder, normalizeAgentTeam, normalizeTeamGlobal, normalizeTeamLibrary, PERMISSION_CUSTOM_TOOLS, PERMISSION_GROUPS, PERMISSION_BITS, renderAgentTeam, renderRoleSessionDetail, renderTeamMemberList, roleDisplayName, teamEditorPanel, teamEntryFromMembers, teamMemberNames, teamMemberSpecMap, teamRoleSpec } from "./agent-team-view.js";
 import { renderHistorySearchResults } from "./history-search.js";
 import { createThemeController, loadThemeManifest } from "./theme.js";
 import {
@@ -2391,15 +2391,14 @@ document.addEventListener("keydown", event => {
 });
 
 // ── Agent Team（右侧栏 · 状态 → Agent Team）──────────────────
-// 数据源是 Application API（Bridge.AgentTeam*）：员工表 / 发言顺序 / 团队库 /
-// 全局母本（团队库 + 员工库 + 默认顺序）/ 定时 agent 分区。各份事实各有归属，
-// 前端只提交用户改动，不做本地缓存：
-//   - 发言顺序 = 会话 lifecycle.order_policy/order_roles（员工栏就是它，拖拽
-//     只提交整表）；
+// 数据源是 Application API（Bridge.AgentTeam*）：员工表 / 团队库 / 全局母本
+// （团队库 + 员工库 + 默认顺序）/ 定时 agent 分区。各份事实各有归属，前端只提交
+// 用户改动，不做本地缓存：
+//   - 有谁在编 + 次序 = 会话 lifecycle.order_roles（次序 = 登记先后；面板**不提供**
+//     人工调序，也不提供"形态"这种设定——见 agent-team-view.js 的头注）；
 //   - 员工配置（提示词/权限）= 会话角色注册表（session/team/roles.json）；
 //   - 团队库/员工库/默认顺序 = **全局**母本（数据根下 team/），装配 = 把库条目
 //     写成会话员工表；会话读的是母本深拷贝副本，只有「确认普及」才回写母本。
-let agentTeamPresets = null;
 let agentTeamLibrary = null;
 let agentTeamGlobal = null;
 let agentTeamView = null;
@@ -2410,33 +2409,13 @@ let agentTeamLoading = false;
 // render/展开一定重取（而不是复用按会话缓存的旧成员表），但不清屏——旧数据先留在
 // 屏幕上，新数据回来再整体重绘。置位源只有后端的 team.changed 事件。
 let agentTeamDirty = false;
-// agentTeamDragRole 是"正在被拖拽的员工"：拖拽只在内部状态里过渡，落点一确定就
-// 提交整表（没有乐观重排、没有第二份顺序事实）。agentTeamDragSource 记录拖拽来源
-// （library / staff / member），落点决定这次拖拽是写会话顺序还是改团队草稿。
-let agentTeamDragRole = "";
-let agentTeamDragSource = "";
 
-// agentTeamCurrentPolicy 取本次提交的顺序策略（历史字段）：面板上用一枚只读 chip
-// 挂当前取值（data-team-policy），chip 在册就用它，面板未渲染时回退到视图自带策略
-// （不做隐式猜测，空值直接拒绝提交）。
+// agentTeamCurrentPolicy 取写顺序时要带的 order_policy（**历史字段**：只回读、不驱动
+// 任何行为，面板上既不显示也不给编辑入口）。取视图自带的那个值原样回送，避免"改一次
+// 顺序"把没展示的字段洗成空；视图拿不到就返回空串，调用方据此跳过这次写入。
 function agentTeamCurrentPolicy() {
-  const node = elements["team-view"]?.querySelector?.("[data-team-policy]");
-  const fromPanel = node?.value || node?.getAttribute?.("data-team-policy") || "";
-  if (fromPanel) return fromPanel;
   const team = normalizeAgentTeam(agentTeamView);
   return team.orderPolicy;
-}
-
-async function loadAgentTeamPresets() {
-  if (Array.isArray(agentTeamPresets)) return agentTeamPresets;
-  try {
-    const presets = await invoke("AgentTeamPresets");
-    agentTeamPresets = Array.isArray(presets) ? presets : [];
-  } catch (error) {
-    agentTeamPresets = [];
-    agentTeamError = error?.message || String(error);
-  }
-  return agentTeamPresets;
 }
 
 // loadAgentTeamLibrary 读全局团队库（团队表数据源）；失败不影响员工栏渲染
@@ -2470,7 +2449,6 @@ async function refreshAgentTeam({ force = false } = {}) {
   if (!force && !agentTeamDirty && sessionID && sessionID === agentTeamSessionID && agentTeamView) return;
   agentTeamLoading = true;
   try {
-    await loadAgentTeamPresets();
     agentTeamView = await invoke("AgentTeamView", "");
     await loadAgentTeamLibrary();
     await loadAgentTeamGlobal();
@@ -2517,7 +2495,7 @@ function renderAgentTeamPanel() {
   const team = normalizeAgentTeam(agentTeamView);
   host.className = "team-view";
   elements["team-count"].textContent = String(team.members.length + team.scheduled.length);
-  host.innerHTML = failure + renderAgentTeam(agentTeamView, agentTeamPresets || [], agentTeamLibrary, agentTeamGlobal);
+  host.innerHTML = failure + renderAgentTeam(agentTeamView, agentTeamLibrary, agentTeamGlobal);
 }
 
 // scheduleAgentTeamRefresh 只在状态子页可见且 Agent Team 区块展开时拉取，会话变更
@@ -2583,13 +2561,13 @@ function openAgentTeamTeamPanel(teamID = "") {
   const library = normalizeTeamLibrary(agentTeamLibrary);
   const entry = library.teams.find(item => item.teamID === teamID) || null;
   const team = normalizeAgentTeam(agentTeamView);
-  slot.innerHTML = teamEditorPanel(team, entry, agentTeamPresets || [], agentTeamEmployeePool(team));
+  slot.innerHTML = teamEditorPanel(team, entry, agentTeamEmployeePool(team));
   slot.hidden = false;
   slot.querySelector?.("[data-team-form-name]")?.focus?.();
 }
 
-// agentTeamEmployeePool 取面板里的"可用员工"清单（员工库 ∪ 本会话在编）：拖拽、
-// 团队面板的成员候选、入库动作共用这一份口径。
+// agentTeamEmployeePool 取面板里的"可用员工"清单（员工库 ∪ 本会话在编）：团队面板的
+// 成员候选、入职（InstantiateRole）、入库动作共用这一份口径。
 function agentTeamEmployeePool(team = normalizeAgentTeam(agentTeamView)) {
   return employeePool(normalizeTeamGlobal(agentTeamGlobal), team);
 }
@@ -2614,7 +2592,7 @@ function agentTeamRolePayload(roleName) {
 }
 
 // ── 团队面板里的成员表（草稿，保存才落盘）────────────────────
-// 行序 = 发言顺序；动作全是本地 DOM 编辑，团队表单提交时按行序序列化。
+// 行序 = 登记先后（面板不提供人工调序）；动作全是本地 DOM 编辑，团队表单提交时按它序列化。
 
 function teamMemberListNames(list) {
   if (!list) return [];
@@ -2650,7 +2628,7 @@ function teamMemberPoolSpecs(names) {
 }
 
 // teamMemberSpecsForWrite 重绘成员表时的规格来源：**已有行带的那份优先**（草稿是
-// 用户正在编的事实，含形态带入的生态位），新来的成员按员工库 / 本会话在编那一份补。
+// 用户正在编的事实，含条目带入的生态位），新来的成员按员工库 / 本会话在编那一份补。
 // 两条来源都没有就不编造字段，交给后端默认值。
 function teamMemberSpecsForWrite(list, names) {
   const kept = teamMemberListSpecs(list);
@@ -2673,7 +2651,7 @@ function teamMemberListFilter(keep, append = "") {
 }
 
 // writeTeamMemberList 用新的成员顺序重绘成员表与"添加成员"下拉（候选随成员变化）。
-// specs 缺省 = 按池里那一份兜底重算（拖拽进来的员工没有任何草稿规格）。
+// specs 缺省 = 按池里那一份兜底重算（没有草稿规格的成员走这条）。
 function writeTeamMemberList(list, names, slot = agentTeamSlot("team"), specs = null) {
   const pool = agentTeamEmployeePool();
   const effective = specs && typeof specs === "object" ? specs : teamMemberSpecMap(names, { pool });
@@ -2707,13 +2685,7 @@ elements["team-view"]?.addEventListener("click", async event => {
     await refreshAgentTeam({ force: true });
     return;
   }
-  // 1) 装配内置形态 / 按团队库条目装配。
-  const materializeTemplate = event.target.closest?.("[data-team-materialize]");
-  if (materializeTemplate?.dataset.teamMaterialize) {
-    const kind = materializeTemplate.dataset.teamMaterialize;
-    await runAgentTeamAction(() => invoke("AgentTeamMaterialize", "", kind, 0));
-    return;
-  }
+  // 1) 按团队库条目装配。
   const materializeTeam = event.target.closest?.("[data-team-materialize-team]");
   if (materializeTeam?.dataset.teamMaterializeTeam) {
     const teamID = materializeTeam.dataset.teamMaterializeTeam;
@@ -2792,8 +2764,17 @@ elements["team-view"]?.addEventListener("click", async event => {
     openAgentTeamHire("", "library");
     return;
   }
+  // 员工库行上的「入职」：把这一位装进本会话（InstantiateRole，同名就地覆盖副本）。
+  // 这是原先"从员工库拖到员工栏"那条手势的落点——面板不再提供任何拖拽编排。
+  const hireEmployee = event.target.closest?.("[data-team-employee-hire]");
+  if (hireEmployee?.dataset.teamEmployeeHire) {
+    const role = agentTeamRolePayload(hireEmployee.dataset.teamEmployeeHire);
+    if (!role) return;
+    await runAgentTeamAction(() => invoke("AgentTeamInstantiateRole", "", role, 0));
+    return;
+  }
 
-  // 4) 员工会话查看 / 顺序调整（摘除，与拖拽同一条提交路径）/ 删除。
+  // 4) 员工会话查看 / 摘除（出工作顺序、留角色）/ 删除。
   const openRole = event.target.closest?.("[data-team-role-open]");
   if (openRole?.dataset.teamRoleOpen) {
     await openRoleSessionDetail(openRole.dataset.teamRoleOpen, openRole.dataset.teamRoleSession);
@@ -2837,53 +2818,11 @@ elements["team-view"]?.addEventListener("click", async event => {
     if (list) writeTeamMemberList(list, names, slot, teamMemberSpecsForWrite(list, names));
     return;
   }
-  const template = event.target.closest?.("[data-team-template]");
-  if (template?.dataset.teamTemplate) {
-    fillAgentTeamFormFromPreset(template.dataset.teamTemplate);
-  }
 });
 
-// fillAgentTeamFormFromPreset 用内置形态起手（只填表单，不落盘）：用户改完点
-// 「新建团队」才写团队库。形态带来的是一**整套口径**——成员 + 各自的生态位
-// （role_kind / join_policy / presence_policy / directive_schema）+ 顺序策略 +
-// 门禁/压缩；只搬角色名等于把后面这些全丢掉（这样存出来的 goal-a2a 会把 tl 的
-// techlead 规格降级成 agent，装配后 ADVISOR 座位跟着没）。
-function fillAgentTeamFormFromPreset(kind) {
-  const slot = agentTeamSlot("team");
-  const preset = (agentTeamPresets || []).find(item => item?.team_kind === kind);
-  if (!slot || !preset) return;
-  const names = (Array.isArray(preset.roles) ? preset.roles : [])
-    .map(role => role?.role_name)
-    .filter(name => typeof name === "string" && name && !isPinnedRole(name));
-  slot.querySelector("[data-team-form-name]").value = kind;
-  slot.querySelector("[data-team-form-kind]").value = kind;
-  writeTeamFormPolicy(slot, preset.order_policy || "");
-  writeTeamFormShape(slot, preset.gate_policy, preset.compact_policy);
-  const list = slot.querySelector("[data-team-member-list]");
-  if (list) writeTeamMemberList(list, names, slot, teamMemberSpecMap(names, { preset, pool: agentTeamEmployeePool() }));
-}
-
-// writeTeamFormPolicy 落"顺序策略"（**历史字段**）：团队面板上没有可编辑控件，只把
-// 取值写进隐藏字段（保存时原样送回后端）+ 把只读展示刷成它的展示名。没有这一步，
-// 「用内置形态起手」带进来的 order_policy 就只有隐藏字段变了、用户看到的还是旧标签。
-function writeTeamFormPolicy(slot, policy = "") {
-  const value = String(policy || "").trim();
-  const hidden = slot?.querySelector?.("[data-team-form-policy]");
-  if (hidden) hidden.value = value;
-  const label = slot?.querySelector?.("[data-team-form-policy-label]");
-  if (label) label.textContent = orderPolicyLabel(value);
-}
-
-// writeTeamFormShape 落"形态级策略"（门禁 / 压缩）：表单里没有编辑入口，随形态带入、
-// 保存时原样送回后端（不带 = 一次保存把它们清空）。
-function writeTeamFormShape(slot, gatePolicy = "", compactPolicy = "") {
-  const gate = slot?.querySelector?.("[data-team-form-gate]");
-  const compact = slot?.querySelector?.("[data-team-form-compact]");
-  if (gate) gate.value = gatePolicy || "";
-  if (compact) compact.value = compactPolicy || "";
-  const hint = slot?.querySelector?.("[data-team-form-shape]");
-  if (hint) hint.textContent = `门禁 ${gatePolicy || "—"} · 压缩 ${compactPolicy || "—"}（随团队形态带入，保存时原样保留）`;
-}
+// `team_kind` / `order_policy` / 门禁 / 压缩是团队编辑器里的**隐藏字段**（由
+// agent-team-view.js 直接按条目渲染），保存时原样回传——面板上没有"用形态起手"这条路
+// （内置形态目录已随 Go 侧 presets.go 删除），所以这里也不需要 JS 再写一遍。
 
 // optimizeAgentTeamPrompt 跑一次有界 LLM 回合优化提示词；结果只渲染成候选
 // （应用/放弃由用户点按钮决定，不会自动改输入框）。
@@ -2917,124 +2856,6 @@ async function optimizeAgentTeamPrompt() {
   } catch (error) {
     if (state) state.textContent = error?.message || String(error);
   }
-}
-
-// ── 拖拽：员工库里的人 / 员工栏的行 / 团队面板的成员行 ──────────
-// 三类源（员工库 ≡、员工栏 ≡、团队面板成员行）与三类落点：
-//   员工栏某行 / "顺序末尾"落区 → 写会话发言顺序（AgentTeamSetOrder）；
-//   团队面板成员表 → 只改本地草稿（保存团队才落盘）；
-//   员工库里的行拖进会话时，先在会话入职（InstantiateRole），再落到拖放位置。
-elements["team-view"]?.addEventListener("dragstart", event => {
-  const handle = event.target.closest?.("[data-team-drag]");
-  const employee = event.target.closest?.("[data-team-employee-drag]");
-  const memberItem = event.target.closest?.("[data-team-member-item]");
-  const row = event.target.closest?.("[data-team-staff-role]");
-  const roleName = handle?.dataset.teamDrag || employee?.dataset.teamEmployeeDrag
-    || memberItem?.dataset.teamMemberItem || row?.dataset.teamStaffRole || "";
-  if (!roleName) return;
-  agentTeamDragRole = roleName;
-  agentTeamDragSource = employee ? "library" : memberItem ? "member" : "staff";
-  (row || memberItem)?.classList.add("is-dragging");
-  event.dataTransfer?.setData?.("text/plain", roleName);
-  if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
-});
-
-// agentTeamDropTarget 解析一次拖拽落点：团队面板成员表 / 员工栏行 / 顺序末尾。
-function agentTeamDropTarget(event) {
-  const memberList = event.target.closest?.("[data-team-member-list]");
-  const memberItem = event.target.closest?.("[data-team-member-item]");
-  if (memberList || memberItem) return { kind: "member", node: memberItem || memberList, member: memberItem?.dataset.teamMemberItem || "" };
-  const row = event.target.closest?.("[data-team-staff-role]");
-  const endZone = event.target.closest?.("[data-team-order-drop]");
-  if (row || endZone) return { kind: "order", node: row || endZone, role: row?.dataset.teamStaffRole || "" };
-  return null;
-}
-
-elements["team-view"]?.addEventListener("dragover", event => {
-  const target = agentTeamDropTarget(event);
-  if (!target) return;
-  event.preventDefault();
-  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-  clearAgentTeamDropMarkers(target.node);
-  target.node.classList.add("is-drop-target");
-});
-
-elements["team-view"]?.addEventListener("dragleave", event => {
-  const zone = event.target.closest?.("[data-team-staff-role], [data-team-order-drop], [data-team-member-item]");
-  if (zone) zone.classList.remove("is-drop-target");
-});
-
-elements["team-view"]?.addEventListener("drop", async event => {
-  const target = agentTeamDropTarget(event);
-  if (!target) return;
-  event.preventDefault();
-  const source = agentTeamDragRole || event.dataTransfer?.getData?.("text/plain") || "";
-  agentTeamDragRole = "";
-  agentTeamDragSource = "";
-  clearAgentTeamDropMarkers();
-  if (!source) return;
-  if (target.kind === "member") {
-    dropAgentTeamMember(source, target.member);
-    return;
-  }
-  await dropAgentTeamOrder(source, target.role);
-});
-
-// dropAgentTeamMember 把一次拖拽落到团队面板的成员表上（本地草稿：插到目标成员之前，
-// 空落点 = 追加到末尾）。成员的增删都只在表单里，点「保存团队」才写团队库。
-function dropAgentTeamMember(source, beforeRole) {
-  const slot = agentTeamSlot("team");
-  const list = slot?.querySelector?.("[data-team-member-list]");
-  if (!list) return;
-  const current = teamMemberListNames(list);
-  const rest = current.filter(name => name !== source);
-  const at = beforeRole ? current.indexOf(beforeRole) : -1;
-  const insertAt = at < 0 ? rest.length : current.slice(0, at).filter(name => name !== source).length;
-  rest.splice(insertAt, 0, source);
-  if (rest.join("\u0000") === current.join("\u0000")) return;
-  writeTeamMemberList(list, rest, slot, teamMemberSpecsForWrite(list, rest));
-}
-
-// dropAgentTeamOrder 把一次拖拽落到会话发言顺序上：已在编的员工直接改顺序；只在
-// 员工库里的员工先入职（等 join_policy 决定进不进顺序），再落到拖放位置。
-async function dropAgentTeamOrder(source, targetRole) {
-  const team = normalizeAgentTeam(agentTeamView);
-  if (!team.members.some(member => member.roleName === source)) {
-    const role = agentTeamRolePayload(source);
-    if (!role) return;
-    try {
-      await invoke("AgentTeamInstantiateRole", "", role, 0);
-      agentTeamView = await invoke("AgentTeamView", "");
-    } catch (error) {
-      agentTeamError = error?.message || String(error);
-      renderAgentTeamPanel();
-      showToast(error);
-      return;
-    }
-  }
-  const next = agentTeamOrderForDrag(agentTeamView, source, targetRole);
-  const policy = agentTeamCurrentPolicy();
-  if (!next) return;
-  if (!policy) {
-    // 会话还没装过团队（没有顺序策略）：入职本身已经按 join_policy 决定了顺序，
-    // 不硬塞一个空策略去写 lifecycle。
-    await refreshAgentTeam({ force: true });
-    return;
-  }
-  await runAgentTeamAction(() => invoke("AgentTeamSetOrder", "", policy, next.orderRoles));
-}
-
-elements["team-view"]?.addEventListener("dragend", () => {
-  agentTeamDragRole = "";
-  agentTeamDragSource = "";
-  clearAgentTeamDropMarkers();
-  elements["team-view"]?.querySelectorAll?.(".is-dragging").forEach(node => node.classList.remove("is-dragging"));
-});
-
-function clearAgentTeamDropMarkers(keep = null) {
-  elements["team-view"]?.querySelectorAll?.(".is-drop-target").forEach(node => {
-    if (node !== keep) node.classList.remove("is-drop-target");
-  });
 }
 
 // readHirePermissionGrid 读出"逐格装配"面板的勾选：**每个已知组都写一条**（未勾 = 0）,
@@ -3107,8 +2928,8 @@ elements["team-view"]?.addEventListener("submit", async event => {
 });
 
 // agentTeamEntryFromForm 把"新建/编辑团队"表单换算成团队库条目：成员表行序 =
-// 发言顺序（user → main → 成员），每个成员带**行上挂着的那份 RoleSpec**（形态定义的
-// 生态位 + 员工库那一份人的档案），形态级门禁 / 压缩原样带回后端。
+// 登记先后（user → main → 成员），每个成员带**行上挂着的那份 RoleSpec**（条目定义的
+// 生态位 + 员工库那一份人的档案），条目上的门禁 / 压缩原样带回后端。
 //
 // 以前这里只搬 role_name/role_kind/tools_policy/system_prompt、并用 `|| "agent"`
 // 兜底：保存一次就把 role_kind（tl 的 techlead → agent）、join/presence/directive
@@ -3141,10 +2962,10 @@ elements["team-view"]?.addEventListener("change", event => {
   // 权限下拉的「逐格装配」：只是**展开/收起**权限位面板（不落盘、不发请求）——
   // 用户还没保存，只是想让格子可见。
   //
-  // 这里**不再有顺序策略分支**：顺序策略是历史字段（面板上是只读 chip，见
-  // agent-team-view.js 的 ORDER_POLICY_LEGACY_NOTE），改了不驱动任何轮次，于是连
-  // "改"的入口都没有了；拖拽调序仍走 AgentTeamSetOrder，取值由 agentTeamCurrentPolicy
-  // 从 chip 上原样带回。
+  // 这里**不再有顺序策略分支**：顺序策略是历史字段（面板上既不显示也不给入口，见
+  // agent-team-view.js 的头注），改了不驱动任何轮次；面板也不再提供人工调序——写
+  // order_roles 的唯一动作是行内「摘除」（AgentTeamSetOrder），取值由
+  // agentTeamCurrentPolicy 从视图里原样带回。
   const toolsSelect = event.target.closest?.("[data-team-hire-tools]");
   if (!toolsSelect) return;
   const grid = toolsSelect.closest("[data-team-hire-form]")?.querySelector("[data-team-hire-perm-grid]");

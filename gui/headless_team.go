@@ -9,12 +9,12 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 // teamRPCApplication 是 Application 的 AgentTeam 管理扩展面。
 type teamRPCApplication interface {
-	AgentTeamPresets() []dto.TeamSpec
 	MaterializeAgentTeam(mainSessionID string, spec dto.TeamSpec, joinSeq uint64) (dto.TeamMaterializeResult, error)
 	AgentTeamView(mainSessionID string) (dto.TeamView, error)
 	AgentTeamPutRole(mainSessionID string, role dto.RoleSpec) (dto.TeamRegistry, error)
@@ -50,6 +50,13 @@ type teamInstantiateRequest struct {
 	Role          dto.RoleSpec `json:"role"`
 	JoinSeqID     uint64       `json:"join_seq_id,omitempty"`
 }
+
+// 编译期断言：生产 Application（application.Service = *core.Service）必须满足本
+// 扩展面。2026-10-01 删内置形态目录时，`team.presets` 分支与本接口里的
+// `AgentTeamPresets` 一起该删——分支删了、接口方法留下了，于是只剩测试假实现满足
+// 它：真机上 `dispatchTeam` 的类型断言一律失败，`team.*` 全体退化成"未装配"。
+// 与 gui/bridge.go 同一个口径：用真实类型钉死，接口再漂移就是编译错误。
+var _ teamRPCApplication = (*application.Service)(nil)
 
 // dispatchTeam 处理 `team.*`：装配、成员表、角色配置 CRUD、工作顺序设置。
 func (server *headlessServer) dispatchTeam(method string, args []json.RawMessage) (any, error) {

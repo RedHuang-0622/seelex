@@ -78,9 +78,9 @@ provider · model + 不可用标记），点击走 `#account-list` 容器委托�
 
 | 块 | 唯一职责 | 事实域（谁写、写哪） | 行内动作 |
 |---|---|---|---|
-| **员工库** | 员工是谁 + **档案（提示词 / 权限 / 类型）的唯一编辑入口** | 全局母本 `<root>/team/employees.json`（`AgentTeamSaveEmployee` / `AgentTeamDeleteEmployee`） | 库里的行：修改 / ✕；只在本会话在编的行：入库（写母本、不装配）；行首可拖进顺序（= 先入职再落到位置） |
-| **团队库** | 一支团队**有谁、按什么顺序回答**（模板） | 全局母本 `<root>/team/library.json`（`AgentTeamMaterializeTeam` / `AgentTeamDeleteTeam`） | 点团队名开团队面板 / 装配 / ✕；内置形态是 chip |
-| **员工栏** | 本会话**在编名单 + 发言顺序** | 会话副本 `session/team/roles.json` + `lifecycle.order_policy/order_roles`（`AgentTeamSetOrder` / `AgentTeamDeleteRole`） | 拖拽调序（唯一调序通道）/ ✕ 摘除（出顺序、留角色）/ 删除（连会话注册表一起删）/ 点名字看独立会话 / `+ 入职` |
+| **员工库** | 员工是谁 + **档案（提示词 / 权限 / 类型）的唯一编辑入口** | 全局母本 `<root>/team/employees.json`（`AgentTeamSaveEmployee` / `AgentTeamDeleteEmployee`） | 库里的行：入职（装进本会话 / `AgentTeamInstantiateRole`）/ 修改 / ✕；只在本会话在编的行：入库（写母本、不装配）。**没有拖拽**（2026-10-01：「入职」取代了"拖进顺序"） |
+| **团队库** | 用户自己的团队（有谁、装配后谁在编） | 全局母本 `<root>/team/library.json`（`AgentTeamMaterializeTeam` / `AgentTeamDeleteTeam`） | 点团队名开团队面板 / 装配（当前那支显示"已装配"）/ ✕。**没有内置形态**：形态目录已删（2026-10-01），面板上既没有形态 chip 行，也没有任何"按形态装配"的按钮 |
+| **员工栏** | 本会话**在编名单**（次序 = 登记先后） | 会话副本 `session/team/roles.json` + `lifecycle.order_roles`（`AgentTeamSetOrder` / `AgentTeamDeleteRole`） | ✕ 摘除（出顺序、留角色）/ 删除（连会话注册表一起删）/ 点名字看独立会话 / `+ 入职`。**面板不提供任何调序通道**（拖拽调序、位置列、↑/↓ 已删，2026-10-01：顺序归 leader 的 team plan） |
 | **发言调度（Team 栏）** | 运行态：轮次 / 下一个 / 收束 | `TeamView.schedule`（权威投影，前端不推演） | 无（只读串珠条） |
 
 **耦合点已按口径删掉（2026-09-24）**：员工栏行内原来的「编辑」打开的是**会话作用域**的
@@ -93,8 +93,15 @@ provider · model + 不可用标记），点击走 `#account-list` 容器委托�
 "栏头不摆注解文字"，所以域只在 hover 里说，不占版面（测试见 `agent-team-view.test.mjs`
 的 "head carries no annotation text" 与 "员工栏只写本会话"）。
 
-顺序的唯一事实是会话 `lifecycle.order_policy/order_roles`：前端只提交用户改动后
-的整张顺序表，不缓存、不乐观重排，每次动作后重拉视图（`Bridge.AgentTeam*`）。
+**人工编排已整体撤掉（2026-10-01）**：面板不再给任何"编排手势"——「团队形态」不是设定
+（内置形态目录已随 Go 侧 `agentteam/presets.go` 删除，`team_kind` 只是团队名的别名），
+`order_policy` 面板连只读展示都不给（它是只回读、不驱动轮次的历史字段），发言顺序的唯一
+来源是**登记（入职 / 装配）的先后**。目标态里顺序归 leader 的 team plan
+（`stages[].depends_on`），人在面板上要做的只是"谁在编"。
+
+顺序的唯一事实是会话 `lifecycle.order_roles`：前端只在**摘除**（`AgentTeamSetOrder`
+带上既有 `order_policy`）时提交整张顺序表，不缓存、不乐观重排，每次动作后重拉视图
+（`Bridge.AgentTeam*`）。
 
 角色会话详情里，**未同步草稿独立成区**（`renderRoleDraftBlock`，见
 `docs/devlog/2026-09-22-team-role-draft.md`）：草稿不混进"已发布"车道，而是排在既有

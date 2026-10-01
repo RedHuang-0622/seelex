@@ -8,6 +8,11 @@ import (
 
 // fakeTeamApplication 在 headless RPC 单测里复刻 Application 的 AgentTeam 扩展面；
 // 装配语义由 application/core/agentteam 与 sessionstore 的测试覆盖。
+//
+// 这份假实现必须与 headless_team.go 的 teamRPCApplication 逐方法对齐——接口那侧
+// 已有编译期断言（`var _ teamRPCApplication = (*application.Service)(nil)`），
+// 假实现多出或漏掉方法都不会被编译发现（2026-10-01 `AgentTeamPresets` 就是这么
+// 留下的：只有假实现满足它，真机 `team.*` 全体失败）。
 type fakeTeamApplication struct {
 	*fakeApplication
 	materialized       dto.TeamMaterializeResult
@@ -24,10 +29,6 @@ func newFakeTeamApplication() *fakeTeamApplication {
 	return &fakeTeamApplication{fakeApplication: newFakeApplication()}
 }
 
-func (app *fakeTeamApplication) AgentTeamPresets() []dto.TeamSpec {
-	return []dto.TeamSpec{{TeamID: "goal-a2a", TeamKind: "goal-a2a", OrderPolicy: dto.OrderPolicyGoalLoop}}
-}
-
 func (app *fakeTeamApplication) MaterializeAgentTeam(mainSessionID string, spec dto.TeamSpec, joinSeq uint64) (dto.TeamMaterializeResult, error) {
 	app.materialized = dto.TeamMaterializeResult{
 		Spec: spec,
@@ -37,12 +38,6 @@ func (app *fakeTeamApplication) MaterializeAgentTeam(mainSessionID string, spec 
 		}},
 	}
 	return app.materialized, nil
-}
-
-func (app *fakeTeamApplication) MaterializeAgentTeamPreset(mainSessionID, teamKind string, joinSeq uint64) (dto.TeamMaterializeResult, error) {
-	spec := dto.TeamSpec{TeamID: teamKind, TeamKind: teamKind, OrderPolicy: dto.OrderPolicyGoalLoop,
-		OrderRoles: []string{"user", "main", "tl"}}
-	return app.MaterializeAgentTeam(mainSessionID, spec, joinSeq)
 }
 
 func (app *fakeTeamApplication) AgentTeamView(mainSessionID string) (dto.TeamView, error) {

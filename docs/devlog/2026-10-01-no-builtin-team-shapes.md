@@ -132,7 +132,9 @@
 
 ## 5. 待办 / 风险
 
-- 面板那半未落地前，`app.js` 仍在调 `AgentTeamPresets`（前端已过时）——见下一笔提交。
+- 面板那半**已落地**（2026-10-01 提交二）：`app.js` 不再调 `AgentTeamPresets`，面板撤掉
+  「团队形态 chip / 顺序策略 / 拖拽调序 / 位置列」，次序 = 登记先后——见
+  [`2026-10-01-team-panel-no-shapes.md`](2026-10-01-team-panel-no-shapes.md)。
 - 新增用例覆盖：`TestNormalizeRejectsNamelessSpec`、`TestGoalBeginLeavesSessionTeamAlone`、
   `AgentTeamSaveCurrentTeam`+`@` 召唤的库路径；**未覆盖**："`DefaultTeamID` 改名会造成角色
   会话号分裂"这条只写在注释里（要验需构造历史会话夹具，属 M4 范围）。
