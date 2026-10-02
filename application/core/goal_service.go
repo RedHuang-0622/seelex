@@ -120,6 +120,33 @@ func (service *Service) GoalProposeFinish(ctx context.Context, request goaldomai
 	return service.GoalProposeFinishFor(ctx, sessionIDFromContext(ctx), request)
 }
 
+// GoalDoneFor 按显式会话**直接收口**栈顶 goal（goal_done 工具路径）。
+//
+// 口径（2026-10-02 用户裁决 B）：main agent 就是 TL 的角色，它可以自己拍板收口——不送
+// 终态 gate、不产生提议（领域侧见 goalCoordinator.FinishDirect）。teammate 子会话仍禁：
+// goal 工具族对 subagent 整族不可见（seelebridge/tools/policy.go isGoalTool）。
+//
+// 收口后的收尾与提议路径同款：刷新运行态投影 + 让"干完就走人"成立（栈里没有 active
+// goal 时在编团队离场）。目标看板不在这里封板——它跟着审计流水走（goal.finish /
+// goal.abort 由 closedInfo 从终态审计反解），多一条收口路径就是两份事实。
+func (service *Service) GoalDoneFor(ctx context.Context, sessionID string, request goaldomain.FinishRequest, abort bool) (*goaldomain.GoalRecord, error) {
+	coordinator, err := service.goalCoordinatorFor(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	record, err := coordinator.FinishDirect(ctx, sessionID, request, abort)
+	if err == nil {
+		service.refreshGoalRuntimeProjection(sessionID)
+		service.dismissTeamWhenGoalClosed(sessionID)
+	}
+	return record, err
+}
+
+// GoalDone 按执行 ctx 会话直接收口（main agent 工具调用路径）。
+func (service *Service) GoalDone(ctx context.Context, request goaldomain.FinishRequest, abort bool) (*goaldomain.GoalRecord, error) {
+	return service.GoalDoneFor(ctx, sessionIDFromContext(ctx), request, abort)
+}
+
 // GoalStatusFor 按显式会话返回 goal 栈全量视图。
 func (service *Service) GoalStatusFor(sessionID string) (goaldomain.StatusView, error) {
 	coordinator, err := service.goalCoordinatorFor(sessionID)
@@ -290,12 +317,14 @@ var errGoalDefinitionTLOnly = errors.New("goal: goal 定义的修改只有 ADVIS
 // authorizeAgentGoalMutation 判定"agent 工具面（EXEC / 员工 / 子代理）"是否可以做这次
 // goal 变更；nil = 放行。
 //
-// 权限口径（2026-09-29 定）：**goal 的修改与取消只有 TL（ADVISOR）裁决侧有资格**。
+// 权限口径（2026-09-29 定；2026-10-02 用户裁决 B 修"取消"一行）：**goal 的定义修改**
+// 只有 TL（ADVISOR）裁决侧有资格；**取消（收口）** 则主代理就够——它在团队里就是 TL 的
+// 角色（team_close 与 goal_done 是同一个人拍板），但改验收标准仍然只有裁决侧能做。
 //
 //	动作                            | agent 工具面                      | TL 裁决侧 | 人类/运维面（headless RPC）
 //	追加进度（progress_*）          | 允许                              | —         | 允许
 //	改定义（标题/正文/完成条件/范围）| **拒绝**（本函数）                 | 允许      | 允许
-//	取消（finish/abort）            | 无此工具；只有 goal_propose_finish（提议）→ TL 裁决 → 才收口 | 允许（verdict_done / 逃生 AbortOnEscape） | 允许（显式人工操作）
+//	取消（finish/abort）            | goal_done 直连收口（裁决 B）+ goal_propose_finish 提议 → TL 裁决 | 允许（verdict_done / 逃生 AbortOnEscape） | 允许（显式人工操作）
 //
 // 为什么不让 agent 直接改定义：改定义 = 在被审查的目标上单方面换掉验收标准，ADVISOR
 // 的评审依据当场失效（"回合期间 goal 被改"的 B 语义正是这件事的兜底；这里是源头收口）。
@@ -339,6 +368,34 @@ func (service *Service) goalProposeFinishHandler(ctx context.Context, argsJSON s
 	return marshalGoalResult(proposal)
 }
 
+// goalDoneHandler 是 goal_done 工具 handler（main agent 的**真收口**面，口径见 GoalDoneFor）。
+//
+// 参数：action = finish | abort（缺省 finish）+ reason / result（审计）。action 取值刻意
+// 只收这两个词表内的值：把 "done"/"complete" 这类同义词也放进来，就是让调用方猜。
+func (service *Service) goalDoneHandler(ctx context.Context, argsJSON string) (string, error) {
+	var raw struct {
+		Action string `json:"action"`
+		Reason string `json:"reason"`
+		Result string `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &raw); err != nil {
+		return "", fmt.Errorf("goal_done: invalid arguments: %w", err)
+	}
+	abort := false
+	switch action := strings.ToLower(strings.TrimSpace(raw.Action)); action {
+	case "", "finish":
+	case "abort":
+		abort = true
+	default:
+		return "", fmt.Errorf("goal_done: action 只能是 finish 或 abort（得到 %q）", raw.Action)
+	}
+	record, err := service.GoalDone(ctx, goaldomain.FinishRequest{Reason: raw.Reason, Result: raw.Result}, abort)
+	if err != nil {
+		return "", fmt.Errorf("goal_done: %w", err)
+	}
+	return marshalGoalResult(record)
+}
+
 // goalStatusHandler 是 goal_status 工具 handler。
 func (service *Service) goalStatusHandler(ctx context.Context, _ string) (string, error) {
 	status, err := service.GoalStatusFor(sessionIDFromContext(ctx))
@@ -373,4 +430,10 @@ func (service *Service) GoalStatusHandler(ctx context.Context, argsJSON string) 
 
 func (service *Service) GoalProposeFinishHandler(ctx context.Context, argsJSON string) (string, error) {
 	return service.goalProposeFinishHandler(ctx, argsJSON)
+}
+
+// GoalDoneHandler 是 goal_done 工具 handler（main agent 的真收口面；teammate 看不到这个
+// 工具——goal 工具族对 subagent 整族不可见）。
+func (service *Service) GoalDoneHandler(ctx context.Context, argsJSON string) (string, error) {
+	return service.goalDoneHandler(ctx, argsJSON)
 }

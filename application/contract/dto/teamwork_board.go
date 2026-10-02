@@ -29,12 +29,20 @@ type TeamworkBoardView struct {
 	Stale bool `json:"stale,omitempty"`
 	// Recovered 是**存档兜底**的显式化：活体给不出看板（无计划 / 计划没有阶段）时
 	// 由存档快照恢复（§6 重启恢复）。前端据此说明"这是上一次的存档，不是活体事实"。
-	Recovered  bool                    `json:"recovered,omitempty"`
-	Stages     []TeamworkStageView     `json:"stages,omitempty"`
-	Members    []TeamworkMemberView    `json:"members,omitempty"`
-	Milestones []TeamworkMilestoneView `json:"milestones,omitempty"`
-	Jobs       []TeamworkJobView       `json:"jobs,omitempty"`
-	Events     []TeamworkEventView     `json:"events,omitempty"`
+	Recovered bool `json:"recovered,omitempty"`
+	// State / ClosedAt / ClosedReason 是**整队收口**（team_close）的三字段。
+	//
+	// closed 事实的**域内权威在计划**（sessionstore.TeamworkPlan.State，U3 裁决），这里
+	// 只做搬运：没有它前端写不出「已关闭」态（存档侧 BoardLifecycle 的同名字段只是这份
+	// 事实的历史副本，读侧不得据它判定"还在不在册"）。State 空 = 未收口。
+	State        string                  `json:"state,omitempty"`
+	ClosedAt     int64                   `json:"closed_at,omitempty"`
+	ClosedReason string                  `json:"closed_reason,omitempty"`
+	Stages       []TeamworkStageView     `json:"stages,omitempty"`
+	Members      []TeamworkMemberView    `json:"members,omitempty"`
+	Milestones   []TeamworkMilestoneView `json:"milestones,omitempty"`
+	Jobs         []TeamworkJobView       `json:"jobs,omitempty"`
+	Events       []TeamworkEventView     `json:"events,omitempty"`
 }
 
 // TeamworkStageView 是一个编排阶段；DependsOn 是**顺序的唯一事实**

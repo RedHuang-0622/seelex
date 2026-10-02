@@ -320,6 +320,13 @@ function renderStageJobs(jobs) {
 }
 
 // renderTeamRoster 是在编成员表：角色 / 权责档 / 工作区 / 该角色当前作业状态。
+//
+// 角色名是**成员会话的入口**（2026-10-02 · S7）：点它打开这位员工的独立会话
+// （`data-team-role-open` / `data-team-role-session`，与团队面板成员行同一对钩子，
+// app.js 的看板委托把它们接到同一个 openRoleSessionDetail 上）——看板回答"这支团队是什么
+// 形状"，入口回答"某个人此刻在干什么"。**没有 role_session_id 就不渲染按钮**：一个点不动
+// 的入口比没有入口更坏（会话号由 (主会话, team_id, role) 派生，计划里必定非空；空值只可能
+// 来自降级输入，那时老实写文本）。
 export function renderTeamRoster(plan, jobs) {
   const members = Array.isArray(plan?.members) ? plan.members.filter(Boolean) : [];
   if (members.length === 0) return "";
@@ -336,8 +343,11 @@ export function renderTeamRoster(plan, jobs) {
     const stateChip = state
       ? `<span class="team-status is-${escapeHtml(state)}">${escapeHtml(state)}</span>`
       : '<span class="muted">空闲</span>';
+    const roleLabel = session
+      ? `<button type="button" class="team-member-role is-openable" data-team-role-open="${escapeHtml(role)}" data-team-role-session="${escapeHtml(session)}" data-tip="打开 ${escapeHtml(role)} 的员工会话（这位此刻在干什么）" aria-label="打开 ${escapeHtml(role)} 的员工会话">${escapeHtml(role)}</button>`
+      : `<span class="team-member-role">${escapeHtml(role)}</span>`;
     return `<li class="team-member" data-role="${escapeHtml(role)}">
-        <span class="team-member-role">${escapeHtml(role)}</span>
+        ${roleLabel}
         ${policyChip}
         <span class="team-member-wt" title="${escapeHtml(worktree || "未指派工作区（回退主工作区）")}">${escapeHtml(worktree || "主工作区")}</span>
         ${stateChip}
@@ -462,6 +472,9 @@ export const TEAM_BOARD_CSS = `
 .team-members, .team-milestones, .team-events { display: flex; flex-direction: column; gap: 3px; margin: 0; padding: 0; list-style: none; min-width: 0; }
 .team-member { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "role policy" "wt state"; gap: 2px 6px; padding: 4px 6px; border: 1px solid var(--border-hairline); border-radius: 5px; min-width: 0; }
 .team-member-role { grid-area: role; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); color: var(--text-strong); }
+.team-member-role.is-openable { padding: 0; border: 0; background: none; text-align: left; font-family: var(--font-mono); font-size: inherit; color: var(--text-strong); cursor: pointer; text-decoration: underline dotted var(--border-strong); text-underline-offset: 2px; }
+.team-member-role.is-openable:hover { color: var(--text-bright); text-decoration-color: var(--text-bright); }
+.team-member-role.is-openable:focus-visible { outline: 1px solid var(--border-info); outline-offset: 1px; border-radius: 3px; }
 .team-member .team-status { grid-area: state; margin-left: 0; justify-self: end; }
 .team-policy { grid-area: policy; justify-self: end; padding: 0 5px; border: 1px solid var(--border-hairline); border-radius: 4px; font-size: 10px; color: var(--text-mid); }
 .team-policy.is-readonly { color: var(--status-info); border-color: var(--border-info); background: var(--tint-info); }

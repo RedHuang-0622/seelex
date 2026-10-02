@@ -272,16 +272,20 @@ func run() error {
 		// 落 metadata/board_team.json。非 JSON 后端不实现它 → nil，读侧无从恢复，
 		// 活体投影照常工作。
 		boardRepo, _ := store.BoardsFor()
+		keyFor := func(sessionID string) (sessionstore.Key, bool) {
+			workspace, exists := wsRepo.SessionWorkspace(sessionID)
+			if !exists || strings.TrimSpace(workspace.ID) == "" {
+				return sessionstore.Key{}, false
+			}
+			return sessionstore.Key{ProjectID: workspace.ID, SessionID: sessionID}, true
+		}
 		if err := runtime.SetTeamworkBackend(seelebridge.TeamworkBackend{
 			Store:  seeteamwork.NewPlanStore(repo),
 			Boards: boardRepo,
-			KeyFor: func(sessionID string) (sessionstore.Key, bool) {
-				workspace, exists := wsRepo.SessionWorkspace(sessionID)
-				if !exists || strings.TrimSpace(workspace.ID) == "" {
-					return sessionstore.Key{}, false
-				}
-				return sessionstore.Key{ProjectID: workspace.ID, SessionID: sessionID}, true
-			},
+			// 作业输出归产品（S5）：正文落会话的 teamwork/jobs，销项 / 驱逐 / Close
+			// 都不由框架删，整队收口（team_close）时才清——"正文活到 close"。
+			JobOutputs:   seelebridge.NewTeamworkJobOutputs(repo, keyFor),
+			KeyFor:       keyFor,
 			MaxTeammates: runtimeLimits.Team.MaxTeammates,
 		}); err != nil {
 			return fmt.Errorf("装配 teamwork 编排面失败: %w", err)

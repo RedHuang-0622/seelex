@@ -48,7 +48,12 @@ const RUNNING_JOB = {
   scope: { session: "draft_1", subject: "emp_impl" },
 };
 
-// 夹具二：V 模型模板骨架（$teamwork 的「V 模型阶段模板」）——左腿四阶段 + 右腿三阶段 + 收口。
+// 夹具二：八阶段骨架（左腿四阶段 + 右腿三阶段 + 一个 `review`/`tl` 收口阶段）。
+//
+// 注意它与 `$teamwork` 当前模板**不同**：模板已去掉 `tl` 角色与末尾 `review` 阶段（复核与
+// 收口由 leader 本人做，2026-10-02）。这里刻意留着它——渲染件不认模板，**任何**计划形状
+// 都要能画，而历史计划（带 review/tl）正是会被读到的那些。夹具不是模板的副本，是渲染件的
+// 输入样本。
 const V_PLAN = {
   team_id: "v-model",
   version: 4,
@@ -301,6 +306,22 @@ test("renderTeamRoster：只读权责显形、未指派工作区写主工作区�
   assert.match(html, /title="draft_1-queue-strip-fix-review"/);
   assert.match(html, /data-role="impl"/);
   assert.equal(renderTeamRoster({ team_id: "t", members: [] }, []), "");
+});
+
+test("renderTeamRoster：在编行的角色名是成员会话入口（缺会话号退化为纯文本）", () => {
+  // 入口 = 「这位此刻在干什么」的唯一入口：钩子与团队面板成员行同款
+  // （app.js 的看板委托把它们接到同一个 openRoleSessionDetail 上）。
+  const html = renderTeamRoster(PLAN, []);
+  assert.match(html, /<button type="button" class="team-member-role is-openable" data-team-role-open="impl" data-team-role-session="draft_1-queue-strip-fix-impl"/);
+  assert.match(html, /aria-label="打开 review 的员工会话"/);
+  // 降级输入：没有 role_session_id 就不渲染按钮——点不动的入口比没有入口更坏。
+  const degraded = renderTeamRoster({ team_id: "t", members: [{ role: "pm" }, { role: "exec", role_session_id: "  " }] }, []);
+  assert.match(degraded, /<span class="team-member-role">pm<\/span>/);
+  assert.doesNotMatch(degraded, /data-team-role-open/);
+  // 角色名进属性前仍然过转义（与文本同一口径）。
+  const escaped = renderTeamRoster({ team_id: "t", members: [{ role: '<img src=x>', role_session_id: "s1" }] }, []);
+  assert.doesNotMatch(escaped, /<img src=x>/);
+  assert.match(escaped, /data-team-role-open="&lt;img src=x&gt;"/);
 });
 
 test("renderTeamMilestones：无内容写「尚无内容」，有内容按截断展示并留全文 title", () => {

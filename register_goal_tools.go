@@ -36,15 +36,23 @@ func registerGoalTools(runtime *seelebridge.Runtime, app *application.Service) {
 			"result": map[string]interface{}{"type": "string", "description": "最终结果/证据（可选）"},
 		},
 	}
+	doneSchema := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"action": map[string]interface{}{"type": "string", "enum": []string{"finish", "abort"}, "description": "finish = 目标达成收口（缺省），abort = 放弃/终止"},
+			"reason": map[string]interface{}{"type": "string", "description": "收口理由（可选，进审计）"},
+			"result": map[string]interface{}{"type": "string", "description": "最终结果/证据（可选，进审计）"},
+		},
+	}
 	runtime.RegisterTool(
 		"goal_begin",
-		"注册并压栈一个会话 goal（#goal 的工具形态；goal 治理启动入口）。压栈后由 ADVISOR 回合制评审，只有终态裁决可收口。",
+		"注册并压栈一个会话 goal（目标看板的正文 + 完成条件；$goal 的工具形态）。目标由**提示词驱动的 leader 派活**推进（没有席位轮转）；收口走 goal_done（主代理即 TL，真收口）或 goal_propose_finish（送终态 gate）。",
 		beginSchema,
 		app.GoalBeginHandler,
 	)
 	runtime.RegisterTool(
 		"goal_update",
-		"向栈顶 active goal 追加一条进度/发现（推进 goal 治理，不直接收口）。权限：agent 面只能汇报进度；改 goal 定义（标题/正文/完成条件）只有 ADVISOR 裁决侧能发起，改定义反而会让评审依据失效。",
+		"向栈顶 active goal 追加一条进度/发现（只汇报，不直接收口）。权限：agent 面只能汇报进度；改 goal 定义（标题/正文/完成条件）只有 ADVISOR 裁决侧能发起，改定义反而会让评审依据失效。",
 		updateSchema,
 		app.GoalUpdateHandler,
 	)
@@ -59,5 +67,11 @@ func registerGoalTools(runtime *seelebridge.Runtime, app *application.Service) {
 		"提议收口当前栈顶 goal（mainAgent 只能提议；终态裁决由 ADVISOR gate 给出：verdict_done 收口 / verdict_not_done 纠偏 / TL 缺席直连收口）。",
 		finishSchema,
 		app.GoalProposeFinishHandler,
+	)
+	runtime.RegisterTool(
+		"goal_done",
+		"直接收口当前栈顶 goal（main agent 的真收口面：主代理即 TL 角色，不再送 ADVISOR 提议）。action=finish|abort（缺省 finish），reason/result 进审计。员工/子代理看不到这个工具。",
+		doneSchema,
+		app.GoalDoneHandler,
 	)
 }

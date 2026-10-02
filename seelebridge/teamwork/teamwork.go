@@ -79,6 +79,14 @@ type WorkerRequest struct {
 	Goal             string           `json:"goal"`
 	// MaxTurns 是本轮在角色会话里允许的回合上限（0 = 装配层默认）。
 	MaxTurns int `json:"max_turns,omitempty"`
+	// OutputPath 是本轮正文的落点（**产品自有**文件；空 = 交回框架自建）。
+	//
+	// 随载荷带过来而不是让执行体自己去分配：路径在派发那一刻就写进
+	// jobs.Spec.OutputPath，执行体只是"按给定的落点写"——两处各算一次路径，
+	// 迟早算成两个文件。非空时框架**不建写句柄、只按偏移读**（externalOutput），
+	// 因此执行体必须自己写这个文件（sink.Note 在这种形态下是空操作），且写要经
+	// JobOutputs.WriteJobOutput——那才与"收口清目录"串行（S5 残边）。
+	OutputPath string `json:"output_path,omitempty"`
 }
 
 // WorkerRunner 在角色会话里跑有限回合。
@@ -106,6 +114,39 @@ type SessionResetter interface {
 	ResetSession(ctx context.Context, roleSessionID string) error
 }
 
+// BoardCloser 封板团队看板**存档**（closed / team.close）。
+//
+// 为什么是一个窄端口而不是让本包认识看板存档的形状：存档是**下游历史面**
+// （sessionstore 的 moduleBoardTeam），本包只说"把这支团队的看板关掉"，记录形状与
+// 写序归 seelebridge（那里已有唯一的存档写路径）。缺失 = 不写存档（域内 closed 与
+// 审计照常）——"有就有、没有就是没装配"。
+type BoardCloser interface {
+	CloseTeamBoard(ctx context.Context) error
+}
+
+// JobOutputs 是 teammate 作业**输出文件**的产品面（§4.7 输出归属）：
+//
+//   - JobOutputPath 在派发时分配一个产品自有路径。非空即接管：框架
+//     （jobs.Spec.OutputPath）不建写句柄、只按偏移读，销项 / 驱逐 / Close 都不删它
+//     ——于是"阶段收尾读一次产出"不会把正文带走，正文活到产品决定的那一刻。
+//   - WriteJobOutput 是执行体写正文的**唯一入口**：写经产品面而不是各自 os.WriteFile，
+//     于是"写"与"清目录"落在实现里的同一把锁上串行。这条串行正是"被取消的执行体最后
+//     一次写"不越过收口清目录的保证（S5 残边，devlog §4.3）。
+//   - ClearJobOutputs 在**整队收口**时清掉这一批文件：生命周期归产品，收口就是
+//     产品决定的那一刻（会话目录本身仍由会话清理兜底）。清掉的同时**作废**这一批
+//     落点，迟到的写因此被丢弃，而不是把残文件重新造出来。
+//   - LatestJobOutputPath 按**角色名**定位该角色最近一份正文。它服务于一条残边：
+//     作业行是内存态、会被框架 prune 逐出（框架没有 pin 概念），逐出之后按句柄读不到，
+//     而正文文件归产品、活到收口——读面据此按角色名回读（devlog §4.2）。
+//
+// 缺失 = 不接管（框架自建文件、按框架语义删除）——"有就有、没有就是没装配"。
+type JobOutputs interface {
+	JobOutputPath(ctx context.Context, role string) (string, error)
+	WriteJobOutput(path, text string) error
+	ClearJobOutputs(ctx context.Context) error
+	LatestJobOutputPath(ctx context.Context, role string) (string, bool, error)
+}
+
 // Options 装配一个 Coordinator。必填：Store、Jobs；其余端口按能力装配，
 // 缺失时对应的动作显式报错（不静默降级）。
 type Options struct {
@@ -121,6 +162,11 @@ type Options struct {
 	Worktrees WorkspaceReleaser
 	// Sessions 清角色会话内容（缺失 ⇒ team_retire 在第三步显式报错）。
 	Sessions SessionResetter
+	// Boards 封板团队看板存档（缺失 ⇒ Close 只做域内 closed + 审计，不写存档）。
+	Boards BoardCloser
+	// JobOutputs 分配 / 清理 teammate 作业的输出文件（缺失 ⇒ 交回框架自建文件，
+	// 按框架语义在销项 / 驱逐 / Close 时删除）。
+	JobOutputs JobOutputs
 	// MaxTeammates 是产品级人数上限（seelexctx.TeamLimits.MaxTeammates）。
 	// <= 0 = 不限制（不推荐：框架在途上限会先于产品约束生效）。
 	MaxTeammates int
@@ -144,6 +190,8 @@ type Coordinator struct {
 	workers    WorkerRunner
 	worktrees  WorkspaceReleaser
 	sessions   SessionResetter
+	boards     BoardCloser
+	jobOutputs JobOutputs
 	maxMembers int
 	maxTurns   int
 	derive     func(mainSessionID, teamID, roleName string) string
@@ -176,6 +224,8 @@ func New(options Options) (*Coordinator, error) {
 		workers:    options.Workers,
 		worktrees:  options.Worktrees,
 		sessions:   options.Sessions,
+		boards:     options.Boards,
+		jobOutputs: options.JobOutputs,
 		maxMembers: options.MaxTeammates,
 		maxTurns:   options.MaxTurns,
 		derive:     derive,

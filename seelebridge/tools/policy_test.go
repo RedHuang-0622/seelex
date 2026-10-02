@@ -92,20 +92,20 @@ func TestPolicyGoalToolsGatedByGoalActive(t *testing.T) {
 	mainCtx := context.Background()
 	got := inactive.Filter(mainCtx, []types.Tool{
 		planTool("goal_begin"), planTool("goal_update"), planTool("goal_status"),
-		planTool("goal_propose_finish"), planTool("bash"),
+		planTool("goal_propose_finish"), planTool("goal_done"), planTool("bash"),
 	})
 	if len(got) != 2 || got[0].Function.Name != "goal_begin" || got[1].Function.Name != "bash" {
 		t.Fatalf("goal-inactive main tools = %v, want goal_begin + bash", names(got))
 	}
 	active := NewPolicy(PolicyDeps{GoalActive: func() bool { return true }})
 	got = active.Filter(mainCtx, []types.Tool{
-		planTool("goal_begin"), planTool("goal_status"), planTool("bash"),
+		planTool("goal_begin"), planTool("goal_status"), planTool("goal_done"), planTool("bash"),
 	})
-	if len(got) != 3 {
-		t.Fatalf("goal-active main tools = %v, want goal_begin/goal_status/bash", names(got))
+	if len(got) != 4 {
+		t.Fatalf("goal-active main tools = %v, want goal_begin/goal_status/goal_done/bash", names(got))
 	}
 	subCtx := model.WithNodeScope(context.Background(), model.NodeScope{NodeID: "s1", Role: model.RoleSubAgent})
-	got = active.Filter(subCtx, []types.Tool{planTool("goal_begin"), planTool("bash")})
+	got = active.Filter(subCtx, []types.Tool{planTool("goal_begin"), planTool("goal_done"), planTool("bash")})
 	if len(got) != 1 || got[0].Function.Name != "bash" {
 		t.Fatalf("subagent must never see goal tools = %v", names(got))
 	}

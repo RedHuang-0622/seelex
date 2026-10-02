@@ -56,6 +56,16 @@ func (r *Runtime) archiveTeamBoard(ctx context.Context) {
 	if err != nil || len(plan.Stages) == 0 {
 		return // 没有可看的编排：存档没有意义（与读侧的空壳口径一致）。
 	}
+	if plan.State.State == sessionstore.TeamworkStateClosed {
+		// 整队已收口：连同**收口时的最终投影**一起封板（幂等）。**绝不能让下面的
+		// "新开一版"逻辑把它复活**——复活一块已关闭的看板，就是把"已关闭"当成
+		// "在册"卖给读侧（存档读侧只认 state=active）。收口之后 leader 仍可能再调
+		// team_retire/team_milestone，那些调用也会走到这里，所以这道闸卡在写侧唯一入口上。
+		if err := sealClosedTeamBoard(ctx, backend, manager, key, plan, time.Now().UTC()); err != nil {
+			log.Printf("seelebridge: 团队看板封板失败（会话 %s）：%v", sessionID, err)
+		}
+		return
+	}
 	events, err := backend.Store.ReadEvents(ctx, key)
 	if err != nil {
 		events = nil // 审计读不出来不该让整份存档作废（与采集面同口径）。

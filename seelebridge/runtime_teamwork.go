@@ -1,8 +1,8 @@
 package seelebridge
 
 // runtime_teamwork.go — teamwork 编排面在 seelebridge 的落点：leader 的硬编排工具
-// （team_plan / team_dispatch / team_join / team_milestone / team_retire）+ 框架通用
-// 管理工具 jobs_manage，以及它们背后的作业面与 Coordinator 组装。
+// （team_plan / team_dispatch / team_join / team_milestone / team_retire / team_close /
+// team_context）+ 框架通用管理工具 jobs_manage，以及它们背后的作业面与 Coordinator 组装。
 //
 // 分工（docs/arch/teamwork-leader-worker-architecture.md §2 / §4.5 / D1）：
 //   - **作业面**归 Seele 的 jobs 根能力（契约 + Manager + jobs_manage）；
@@ -22,6 +22,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -43,6 +45,10 @@ type TeamworkBackend struct {
 	// moduleBoardTeam，取用面 Router.BoardsFor）。可选：未注入 = 不刷新存档、
 	// 读侧也无从恢复——"有就有、没有就是没装配"。
 	Boards sessionstore.BoardRepository
+	// JobOutputs 是 teammate 作业输出文件的产品面（S5 / §4.7 输出归属；生产实现 =
+	// NewTeamworkJobOutputs）。可选：未注入 = Spec.OutputPath 留空，框架自建输出文件
+	// 并按框架语义在销项 / 驱逐 / Close 时删除。
+	JobOutputs teamwork.JobOutputs
 	// KeyFor 把会话 ID 解析成存储作用域键（project_id + session_id）。
 	KeyFor func(sessionID string) (sessionstore.Key, bool)
 	// MaxTeammates 是产品级人数上限（seelexctx.TeamLimits.MaxTeammates）。
@@ -68,6 +74,11 @@ func (r *Runtime) SetTeamworkBackend(backend TeamworkBackend) error {
 		jobs.WithSessionResolver(func(ctx context.Context) string {
 			return seeletelemetry.SessionIDFromContext(ctx)
 		}),
+		// 防 prune（S5）：把记录槽上限抬到"一支团队一开到底"的量级，而不是撞框架缺省的
+		// 进程级兜底 256。prune 只逐**最老的终态行**、活着的行永不驱逐，所以撞上它时
+		// 丢掉的恰好是"团队还在开、但某一轮已经跑完"的那些行——正是看板与 team_context
+		// 的证据。框架的数是一个与团队寿命无关的进程级数字，产品这一侧的界由产品自己算。
+		jobs.WithLimits(jobs.Limits{Records: teamworkJobRecordCeiling(backend.MaxTeammates)}),
 	)
 	if err != nil {
 		return fmt.Errorf("teamwork: 装配 jobs.Manager 失败: %w", err)
@@ -102,6 +113,36 @@ func (r *Runtime) teamworkEnabled() bool {
 	return r.teamworkBackend != nil && r.teamworkJobs != nil
 }
 
+// teamworkRoundsPerMember 是"一名 teammate 在整队收口前最多派多少轮"的量级取用值。
+//
+// 它是**量级**而不是契约：一条 V 模型流水线里，一个角色通常只被派 1–3 轮（三层验证共用
+// 一个 test_case 时是 3 轮）。取 64 是为了让"记录槽上限"落在数量级正确的一侧，而不是
+// 精确预估——精确值要靠经验数据，而这不是一条需要精确的约束（下面那条只抬不降的钳制
+// 保证它永远不会把上限压到框架缺省之下）。
+const teamworkRoundsPerMember = 64
+
+// teamworkJobRecordCeiling 是 teamwork 作业表的记录槽上限（jobs.Limits.Records，S5「防 prune」）。
+//
+// 为什么产品要自己给这个数：框架缺省（jobs.DefaultLimits().Records = 256）是**进程级兜底**，
+// 与"一支团队从开工到收口能派多少次活"没有关系。prune 的判据是"表长 > 上限"、且只逐最老的
+// **终态**行（活着的行永不驱逐），所以撞上它时丢掉的恰好是"团队还开着、但某一轮已经跑完"
+// 的那些行——正是看板与 team_context 在收口之前要读的证据。
+//
+// 只抬不降：上限永不低于框架缺省。记录槽只保证"行**还在册**"，真正让正文不丢的是**输出归属**
+// （Spec.OutputPath：文件归产品，销项 / 驱逐 / Close 都不删）——两条独立的路，别把后者
+// 当成前者的替代（行被驱逐时读面就找不到那个句柄了）。
+func teamworkJobRecordCeiling(maxTeammates int) int {
+	if maxTeammates <= 0 {
+		// 计划侧"不限制"（<=0）：按一名成员算，最终仍被框架缺省下限托住。
+		maxTeammates = 1
+	}
+	ceiling := maxTeammates * teamworkRoundsPerMember
+	if floor := jobs.DefaultLimits().Records; ceiling < floor {
+		return floor
+	}
+	return ceiling
+}
+
 // coordinatorFor 取（必要时建）当前会话的 Coordinator。
 //
 // 缓存按**会话作用域键**（project_id + session_id）：同一会话的多次工具调用共享
@@ -132,6 +173,8 @@ func (r *Runtime) coordinatorFor(ctx context.Context) (*teamwork.Coordinator, er
 		Workers:      r,
 		Worktrees:    r,
 		Sessions:     r,
+		Boards:       r,
+		JobOutputs:   backend.JobOutputs,
 		MaxTeammates: backend.MaxTeammates,
 		MaxTurns:     backend.MaxTurns,
 	})
@@ -145,8 +188,12 @@ func (r *Runtime) coordinatorFor(ctx context.Context) (*teamwork.Coordinator, er
 	return coordinator, nil
 }
 
-// registerTeamworkTools 注册 leader 六件套（RegisterBuiltins 内调用；未装配 backend
+// registerTeamworkTools 注册 leader 编排面（RegisterBuiltins 内调用；未装配 backend
 // 时注册面为空——没有后端就不摆出一族永远报错的工具）。
+//
+// 工具集：team_plan / team_dispatch / team_join / team_milestone / team_retire（逐人一轮）
+// + team_close（整队收口，唯一的回收点）+ team_context（成员上下文只读面）
+// + jobs_manage（框架通用管理面）。
 func (r *Runtime) registerTeamworkTools() {
 	if !r.teamworkEnabled() {
 		return
@@ -156,6 +203,12 @@ func (r *Runtime) registerTeamworkTools() {
 	r.RegisterTool("team_join", teamworkJoinDescription(), teamworkJoinSchema(), r.teamJoinHandler)
 	r.RegisterTool("team_milestone", teamworkMilestoneDescription(), teamworkMilestoneSchema(), r.teamMilestoneHandler)
 	r.RegisterTool("team_retire", teamworkRetireDescription(), teamworkRetireSchema(), r.teamRetireHandler)
+	// team_close：整队**收口**的唯一入口。它与 team_retire 的区别只在"回收作业"这一处
+	// （retire 不再回收，见 coordinator.retireSteps）：收口之前，作业正文一直留在册上。
+	r.RegisterTool("team_close", teamworkCloseDescription(), teamworkCloseSchema(), r.teamCloseHandler)
+	// team_context：成员工作上下文**读面**（要求③）。它只读、且正文走非消费读法
+	// （Manager.Peek），因此与其余 team_* 工具不同：调用它不会改变任何事实。
+	r.RegisterTool("team_context", teamworkContextDescription(), teamworkContextSchema(), r.teamworkContextHandler)
 	// jobs_manage：框架通用管理工具（jobs/builtin）。簇属按 seelex 的路由组表声明，
 	// 与 bash_bg/job_manage 同组（它就是对作业面的读/写/销项）。
 	r.teamworkMu.Lock()
@@ -298,7 +351,31 @@ func (r *Runtime) teamRetireHandler(ctx context.Context, argsJSON string) (strin
 	r.archiveTeamBoard(ctx)
 	return jsonReceipt(map[string]any{
 		"ok": true, "role": raw.Role,
-		"detail": "回收作业 → 释放 worktree → 清会话内容 → 保在线",
+		"detail": "释放 worktree → 清会话内容 → 保在线（作业不在这里回收：它活到 team_close）",
+	})
+}
+
+// teamCloseHandler 收口整支团队（team_close）：逐在编成员走同一套退场四步（回收统一
+// 收口到这一处）→ 封板团队看板（closed / team.close）→ 计划标 closed → 落一条 close 审计。
+//
+// 收口不接受参数：收口的是"这支团队"，不是某一个人（逐人退场是 team_retire）。
+// 幂等：已收口的团队第二次调用返回 already_closed=true，**不重复封板、不重复落审计**。
+//
+// 这里刻意**不**再调 archiveTeamBoard：收口路径自己已经封板（Coordinator.Close →
+// BoardCloser），而刷新逻辑在计划 closed 时会走封板分支——两次写同一件事没有必要。
+func (r *Runtime) teamCloseHandler(ctx context.Context, _ string) (string, error) {
+	coordinator, err := r.coordinatorFor(ctx)
+	if err != nil {
+		return "", err
+	}
+	alreadyClosed, err := coordinator.Close(ctx)
+	if err != nil {
+		return "", fmt.Errorf("team_close: %w", err)
+	}
+	r.invalidateTeamworkBoard()
+	return jsonReceipt(map[string]any{
+		"ok": true, "already_closed": alreadyClosed,
+		"detail": "逐在编成员：回收作业 → 释放 worktree → 清会话内容；然后封板看板（team.close）",
 	})
 }
 
@@ -330,10 +407,58 @@ func (r *Runtime) RunWorker(ctx context.Context, request teamwork.WorkerRequest,
 		MaxLoops:         maxLoops,
 	})
 	if err != nil {
+		// 产品自有输出文件时，失败正文也得落进这个文件：框架在这种形态下**不写**
+		// （externalOutput.write 是空操作），不写就等于"这一轮出过错"这件事在正文里
+		// 没有痕迹——而正文正是收口时被读的那份证据。
+		if path := strings.TrimSpace(request.OutputPath); path != "" {
+			_ = r.writeWorkerOutput(path, "worker 回合失败："+err.Error()+"\n")
+		}
 		return err
+	}
+	if path := strings.TrimSpace(request.OutputPath); path != "" {
+		// 归产品：执行体自己写（框架不写这个文件）。写失败上抛而不是退回 sink.Note——
+		// 那个 sink 在这种形态下是空操作，退回就是静默丢正文。
+		return r.writeWorkerOutput(path, output)
 	}
 	if trimmed := strings.TrimSpace(output); trimmed != "" {
 		sink.Note(trimmed + "\n")
+	}
+	return nil
+}
+
+// writeWorkerOutput 把本轮正文写进**产品自有**的输出文件（jobs.Spec.OutputPath 形态）。
+//
+// 写经**产品面**（teamwork.JobOutputs.WriteJobOutput）而不是直接落盘：产品面把"写"与
+// "收口清目录"放在同一把锁上串行，并作废已清掉那一批的落点——被取消的执行体最后一次写
+// 因此不会在清目录之后凭空造出一个残文件（S5 残边，devlog §4.3）。
+//
+// 组装矛盾（带落点却没装配产品面）时不静默丢正文：退回直接落盘，宁可少一道串行也不丢证据。
+func (r *Runtime) writeWorkerOutput(path, text string) error {
+	if outputs := r.teamworkJobOutputs(); outputs != nil {
+		return outputs.WriteJobOutput(path, text)
+	}
+	return writeWorkerOutputFile(path, text)
+}
+
+// teamworkJobOutputs 取当前装配的产品作业输出面（未装配 = nil）。
+func (r *Runtime) teamworkJobOutputs() teamwork.JobOutputs {
+	r.teamworkMu.Lock()
+	defer r.teamworkMu.Unlock()
+	if r.teamworkBackend == nil {
+		return nil
+	}
+	return r.teamworkBackend.JobOutputs
+}
+
+// writeWorkerOutputFile 是未装配产品输出面时的直接落盘（带落点却未装配 = 组装矛盾，
+// 这条分支只在那种情况下兜底）。目录先建：路径由 TeamworkJobOutputs 分配
+// （会话 teamwork/jobs），重启后目录可能已被清掉，而"上次收口清过目录"不该让这一次派发失败。
+func writeWorkerOutputFile(path, text string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("teamwork: 创建作业输出目录失败: %w", err)
+	}
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		return fmt.Errorf("teamwork: 写作业输出失败: %w", err)
 	}
 	return nil
 }

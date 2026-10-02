@@ -47,9 +47,10 @@ goal 由**提示词 + 团队作业面**驱动：没有框架侧的座位循环�
 | 模块分解（契约） | 单元测试 | 模块/函数/签名 ↔ 单元用例 |
 
 - 顺序写进 `team_plan` 的 `stages[].depends_on`（**唯一事实**）：右腿阶段依赖它配对的左腿阶段与实现阶段。
-- 末尾**必有一个 `review` 阶段**，依赖全部右腿阶段，只读权责（能跑 test/lint/编译，不改代码）。
+- 末尾**不设 `review` 阶段**（也**不设 `tl` 角色**）：复核与收口是**你本人**的活——你就是 TL，
+  不占 teammate 席位；你的裁决以「里程碑 content + 看板打点 + `team_close` 收口」的形式落在自己的回合里。
 - **先算人再铺阶段**：在编 teammate ≤ `limits.team.max_teammates`（默认 6）。骨架（需求/设计/契约评审/实现
-  + 三层验证 + 终审）正好 6 人；要加角色就先裁阶段。
+  + 三层验证，复核不占席位）正好 5 人；要加角色就先裁阶段。
 - 骨架与成员表见 `$teamwork` 的「V 模型阶段模板」，照抄后按任务改名/裁剪。
 
 ## 3. 代码工作：先契约，后实现
@@ -66,8 +67,11 @@ goal 由**提示词 + 团队作业面**驱动：没有框架侧的座位循环�
 2. **核对改动事实**：`git diff` / 该阶段的提交与文件——**版本事实归 git**，不凭 teammate 的描述。
 3. **汇总到看板**：追加阶段打点（结论 + 证据锚点 + 未决项）；证据改变了目标就改写正文/完成条件。
 4. **写里程碑**：`team_milestone(id, content)`，content **由你撰写**（交付了什么 + 证据是什么 + 下一步）。
-5. **收这一轮**：`team_retire(role)`（回收作业 + 释放 worktree + 清上下文，teammate 保持在线）。
+5. **收这一轮**：`team_retire(role)`（释放 worktree + 清上下文，teammate 保持在线）。
+   它**不回收作业**——作业与正文留到整队收口。
 6. **推进 active seq 并派下一阶段**：依赖边满足才派；同一阶段可并发多派，有共享文件写入的必须串行。
+7. **整队收口**：全部右腿证据齐 → 你亲自复核 → `team_close`（唯一回收点：逐在编成员回收作业 +
+   封板看板 + 计划标 closed）。
 
 ## 5. 测试证据至少三层（缺一层不算验过）
 
@@ -85,7 +89,8 @@ goal 由**提示词 + 团队作业面**驱动：没有框架侧的座位循环�
 - 阶段推不动时**先看证据**（`jobs_manage(op=observe|fetch)`），再决定三选一：
   **重派**（改 `goal` 正文、收窄范围）/ **收窄计划**（`team_plan` 减阶段或换角色）/ **`task_needs_user_decision`**（无法自决）。
 - 同一件事最多重派 3 次；到顶就上报，不做无限重试，不靠「再来一轮」碰运气。
-- **收口**：右腿三阶段 + `review` 阶段证据齐 → 完成条件**逐条**核对（缺条就说明为何免检）→ `goal_propose_finish`（终态由 gate 判）。
+- **收口**：右腿三阶段证据齐 → 完成条件**逐条**核对（缺条就说明为何免检）→ `team_close` 收团队
+  → `goal_done` 收目标（主代理即 TL，真收口；要让 TL 评估器裁决就改用 `goal_propose_finish`）。
 - 提前收手也要留痕：已完成、卡在哪、下一步写进看板打点，再收口或上报。
 
 ## 7. 工具面
@@ -95,8 +100,10 @@ goal 由**提示词 + 团队作业面**驱动：没有框架侧的座位循环�
 | `goal_begin` | 注册目标（标题 + 正文 + 完成条件）——看板从此有正文与完成条件 |
 | `goal_update` | 打点：`progress_kind` = milestone/finding/decision/risk + 内容 |
 | `goal_status` | 回读看板（栈顶 + 下层状态） |
-| `goal_propose_finish` | 提议收口（终态由 gate 判 done/not_done） |
-| `$teamwork` | leader 工具面：`team_plan` / `team_dispatch` / `team_join` / `team_milestone` / `team_retire` + `jobs_manage` |
+| `goal_done` | **真收口**：`action=finish\|abort`（主代理即 TL 角色，直连收口，不过 gate） |
+| `goal_propose_finish` | 提议收口（送终态 gate：verdict_done 收口 / not_done 纠偏 / TL 缺席直连） |
+| `$teamwork` | leader 工具面：`team_plan` / `team_dispatch` / `team_context` / `team_join` / `team_milestone` / `team_retire` / `team_close` + `jobs_manage` |
 | `task_check_node` / todo | 单代理顺序执行时的打点（与看板打点保持一致，不另立进度真相） |
 
-节奏：`goal_begin` → 写看板 → `team_plan` → 阶段循环（派活 → 收尾读证据 → 打点 + 里程碑 → retire）→ 全绿 → `goal_propose_finish`。
+节奏：`goal_begin` → 写看板 → `team_plan` → 阶段循环（派活 → 收尾读证据 → 打点 + 里程碑 → retire）
+→ 全绿 → `team_close` → `goal_done`。

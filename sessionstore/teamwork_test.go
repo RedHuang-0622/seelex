@@ -42,6 +42,29 @@ func samplePlan() TeamworkPlan {
 	}
 }
 
+func TestTeamworkJobOutputDirIsSessionScopedAndIdempotent(t *testing.T) {
+	repository, key := teamworkFixture(t)
+	dir, err := repository.TeamworkJobOutputDir(context.Background(), key)
+	if err != nil {
+		t.Fatalf("TeamworkJobOutputDir: %v", err)
+	}
+	want := filepath.Join(repository.layout.sessionRoot(key), "teamwork", "jobs")
+	if dir != want {
+		t.Fatalf("输出目录必须落在会话目录内的 teamwork/jobs：got %q want %q", dir, want)
+	}
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("目录必须真的被建出来（调用方拿到路径就要能写）：err=%v", err)
+	}
+	again, err := repository.TeamworkJobOutputDir(context.Background(), key)
+	if err != nil || again != dir {
+		t.Fatalf("同一会话重复取目录必须幂等：got %q err=%v", again, err)
+	}
+	if _, err := repository.TeamworkJobOutputDir(context.Background(), Key{}); err == nil {
+		t.Fatal("空作用域键必须被拒绝（否则输出会落到一个不属于任何会话的目录上）")
+	}
+}
+
 func TestTeamworkPlanRoundTrip(t *testing.T) {
 	repository, key := teamworkFixture(t)
 	plan := samplePlan()
@@ -233,5 +256,42 @@ func TestTeamworkStorageKeepsPlanAndAuditSeparate(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(repository.layout.teamworkDir(key), teamworkEventFile)); err != nil {
 		t.Fatalf("audit log missing: %v", err)
+	}
+}
+
+// TestTeamworkPlanClosedRoundTrip：闭板三字段（state / closed_at / closed_reason）
+// 必须整份落盘再读回——U3 裁决把闭板事实的域内权威放在 plan.State；未收口时三字段
+// 缺省（omitempty 的语义是"没有这条事实"，不是"合成一个默认值"）。
+func TestTeamworkPlanClosedRoundTrip(t *testing.T) {
+	repository, key := teamworkFixture(t)
+	ctx := context.Background()
+	closed := samplePlan()
+	closed.State.State = TeamworkStateClosed
+	closed.State.ClosedAt = 1760000000
+	closed.State.ClosedReason = BoardCloseTeamClose
+	if err := repository.WriteTeamworkPlan(ctx, key, closed, 6); err != nil {
+		t.Fatalf("WriteTeamworkPlan(closed): %v", err)
+	}
+	loaded, err := repository.ReadTeamworkPlan(ctx, key)
+	if err != nil {
+		t.Fatalf("ReadTeamworkPlan: %v", err)
+	}
+	if loaded.State.State != TeamworkStateClosed {
+		t.Fatalf("收口态未落盘：state=%q，want %q", loaded.State.State, TeamworkStateClosed)
+	}
+	if loaded.State.ClosedAt != closed.State.ClosedAt || loaded.State.ClosedReason != BoardCloseTeamClose {
+		t.Fatalf("收口事实未落盘：%+v", loaded.State)
+	}
+	// 未收口的计划读出来仍是"没有闭板事实"。
+	open := samplePlan()
+	if err := repository.WriteTeamworkPlan(ctx, key, open, 6); err != nil {
+		t.Fatalf("WriteTeamworkPlan(open): %v", err)
+	}
+	loaded, err = repository.ReadTeamworkPlan(ctx, key)
+	if err != nil {
+		t.Fatalf("ReadTeamworkPlan(open): %v", err)
+	}
+	if loaded.State.State != "" || loaded.State.ClosedAt != 0 || loaded.State.ClosedReason != "" {
+		t.Fatalf("未收口的计划不得带闭板事实：%+v", loaded.State)
 	}
 }

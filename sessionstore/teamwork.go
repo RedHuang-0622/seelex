@@ -29,6 +29,15 @@ import (
 // teamworkEventFile 是审计流水文件名（追加、不重写）。
 const teamworkEventFile = "events.jsonl"
 
+// teamworkJobSubdir 是 teammate 作业**输出文件**所在子目录（产品自有，见 §4.7 输出归属）。
+//
+// 为什么把输出文件放在会话目录里而不是框架的临时目录：框架缺省自建
+// `<outputDir>/<handle>.log` 并在**销项 / 驱逐 / Close** 三处删掉它，于是"阶段收尾读一次
+// 产出"就把正文带走了——而 leader 的收口（team_close）之前，那些正文正是看板与
+// team_context 的证据。把文件交给产品（jobs.Spec.OutputPath 非空时框架只按偏移读、
+// 永不删），正文就活到**产品自己决定的那一刻**（整队收口），并且跟着会话一起被清理。
+const teamworkJobSubdir = "jobs"
+
 // 内置角色复用主会话（agentteam.needsRoleSession），不得作为 teammate 派发。
 // 这里重复一次常量而不是 import agentteam：存储层不该依赖上层角色装配，
 // 而这条约束必须在**计划可被 leader 改写**的第二道校验关口上仍然成立。
@@ -51,6 +60,18 @@ const (
 	TeamworkEventJoin      = "join"
 	TeamworkEventMilestone = "milestone"
 	TeamworkEventRetire    = "retire"
+	// TeamworkEventClose 是**整队收口**（team_close）的审计行：与逐人退场（retire）
+	// 分开记——收口是团队级动作，不是"最后一次退场"。
+	TeamworkEventClose = "close"
+)
+
+// 计划的运行态取值（空 = 未收口；与里程碑状态的"空 = pending"同口径）。
+//
+// **闭板事实双写：域内权威在 plan.State**（U3 裁决）——看板存档（moduleBoardTeam）
+// 只作历史/恢复，读侧不得据存档反推域内是否已收口。
+const (
+	// TeamworkStateClosed：整队已收口（team_close）。
+	TeamworkStateClosed = "closed"
 )
 
 // TeamworkPlan 是 leader 的硬编排计划（moduleTeamwork head 的 payload）。
@@ -72,9 +93,9 @@ type TeamworkStage struct {
 
 // TeamworkMember 是一个 teammate 的在编条目（人 + 会话 + 工作区指派）。
 type TeamworkMember struct {
-	Role          string         `json:"role"`
-	RoleSessionID string         `json:"role_session_id"`
-	Worktree      string         `json:"worktree,omitempty"`
+	Role          string `json:"role"`
+	RoleSessionID string `json:"role_session_id"`
+	Worktree      string `json:"worktree,omitempty"`
 	// ToolsPolicy 是权责档（readonly / readwrite / inherit）；与 Permission 的
 	// 关系同 dto.RoleSpec：显式 Permission 非空则以格子为准，档位只用于选分支。
 	ToolsPolicy string         `json:"tools_policy,omitempty"`
@@ -98,6 +119,12 @@ type TeamworkState struct {
 	Stage      string            `json:"stage,omitempty"`
 	Jobs       map[string]string `json:"jobs,omitempty"`
 	Milestones map[string]string `json:"milestones,omitempty"`
+	// 闭板三字段（closed 事实的域内权威，U3 裁决）：State 空 = 未收口。
+	// ClosedReason 取 sessionstore 的收口原因词表（team.close）；看板存档里的同名字段
+	// 只是这份事实的历史副本，读侧判定"还在不在册"一律读这里。
+	State        string `json:"state,omitempty"`
+	ClosedAt     int64  `json:"closed_at,omitempty"`
+	ClosedReason string `json:"closed_reason,omitempty"`
 }
 
 // TeamworkEvent 是审计流水的一行：只追加，不重写。
@@ -124,6 +151,10 @@ type TeamworkRepository interface {
 	ReadTeamworkPlan(context.Context, Key) (TeamworkPlan, error)
 	AppendTeamworkEvent(context.Context, Key, TeamworkEvent) error
 	ReadTeamworkEvents(context.Context, Key) ([]TeamworkEvent, error)
+	// TeamworkJobOutputDir 返回（必要时创建）该会话 teammate 作业输出文件所在的
+	// **产品自有目录**：路径交给 jobs.Spec.OutputPath 之后，框架只按偏移读、永不删，
+	// 生命周期归产品（整队收口时清）。
+	TeamworkJobOutputDir(context.Context, Key) (string, error)
 }
 
 // Teamwork 把 Repository 收窄到 teamwork 面。JSON 后端实现它；其他后端返回 false。
@@ -155,6 +186,11 @@ func (store *storeEngine) teamworkDir(key Key) string {
 
 func (store *storeEngine) teamworkEventsPath(key Key) string {
 	return filepath.Join(store.teamworkDir(key), teamworkEventFile)
+}
+
+// teamworkJobDir 返回 teammate 作业输出文件所在目录（产品自有；见 teamworkJobSubdir）。
+func (store *storeEngine) teamworkJobDir(key Key) string {
+	return filepath.Join(store.teamworkDir(key), teamworkJobSubdir)
 }
 
 // ValidateTeamworkPlan 校验一份计划（M2 的第二道关口）。
@@ -402,4 +438,23 @@ func (repository *jsonRepository) ReadTeamworkEvents(_ context.Context, key Key)
 		events = append(events, event)
 	}
 	return events, nil
+}
+
+// TeamworkJobOutputDir 返回（并确保存在）teammate 作业输出文件所在的产品自有目录。
+//
+// 目录在**会话目录内**（`<sessionRoot>/teamwork/jobs`）：它跟着会话走，会话被清理时一并
+// 消失，不需要第二套回收机制。这里只负责"把目录交出去"，文件名与生命周期归调用方
+// （派发时分配、整队收口时清）——存储层不替产品决定"哪一轮的输出该留着"。
+func (repository *jsonRepository) TeamworkJobOutputDir(_ context.Context, key Key) (string, error) {
+	if err := key.validate(); err != nil {
+		return "", err
+	}
+	if repository.layout == nil {
+		return "", errors.New("session storage: teamwork requires the v8 layout engine")
+	}
+	dir := repository.layout.teamworkJobDir(key)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("teamwork: create job output dir: %w", err)
+	}
+	return dir, nil
 }

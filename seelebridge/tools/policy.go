@@ -104,7 +104,7 @@ func (p *Policy) goalActive() bool {
 // isGoalTool 判断 goal 工具族（goal_begin 等只对主代理、goal 治理可见）。
 func isGoalTool(name string) bool {
 	switch name {
-	case "goal_begin", "goal_update", "goal_status", "goal_propose_finish":
+	case "goal_begin", "goal_update", "goal_status", "goal_propose_finish", "goal_done":
 		return true
 	default:
 		return false

@@ -1,6 +1,6 @@
 package seelebridge
 
-// runtime_teamwork_schema.go — leader 六件套工具的输入契约（JSON Schema）。
+// runtime_teamwork_schema.go — leader 编排工具的输入契约（JSON Schema）。
 //
 // 描述与参数面向**提示词**：leader 的 skill（plugins/default/teamwork）按这里的
 // 形状调用，因此 schema 既是准入面也是文档面。
@@ -115,8 +115,9 @@ func teamworkMilestoneSchema() map[string]interface{} {
 }
 
 func teamworkRetireDescription() string {
-	return "End one teammate's round in a fixed order: reclaim its jobs, release its worktree, clear its session contents, " +
-		"keep it on the roster. A dirty worktree is an explicit error, never a silent discard."
+	return "End one teammate's round: release its worktree, clear its session contents and keep it on the roster. " +
+		"It does NOT reclaim its jobs — a dispatched job stays on the table (and its output stays readable) until " +
+		"team_close, the team's single reclamation point. A dirty worktree is an explicit error, never a silent discard."
 }
 
 func teamworkRetireSchema() map[string]interface{} {
@@ -126,5 +127,46 @@ func teamworkRetireSchema() map[string]interface{} {
 			"role": map[string]interface{}{"type": "string"},
 		},
 		"required": []string{"role"},
+	}
+}
+
+func teamworkCloseDescription() string {
+	return "Close the whole team (team_close): every enrolled member runs the same four-step retire — this is the ONE place " +
+		"that reclaims jobs, so job output stays on the table until here — then the team board is sealed (closed/team.close), " +
+		"the plan is marked closed and a close audit line is written. Idempotent: a second call returns already_closed=true " +
+		"and neither re-seals nor re-audits. Takes no arguments: closure is a team-level act, not a seat's (per-member exit is team_retire)."
+}
+
+func teamworkCloseSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type":       "object",
+		"properties": map[string]interface{}{},
+	}
+}
+
+func teamworkContextDescription() string {
+	return "Read each member's work context (roster entry + its job row + optional body) — a READ-ONLY surface: it " +
+		"never dispatches, reclaims or consumes. Body is read with a NON-consuming read (jobs.Manager.Peek): the cursor " +
+		"does not advance and a terminal job is not retired, so 'take a look at a member' never turns unread content into " +
+		"read. Body is off by default and bounded per member (default 4KB, hard cap 32KB)."
+}
+
+func teamworkContextSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"roles": map[string]interface{}{
+				"type": "array", "items": map[string]interface{}{"type": "string"},
+				"description": "只看这些角色（缺省 = 全部在编成员）",
+			},
+			"include_body": map[string]interface{}{
+				"type":        "boolean",
+				"description": "是否取作业正文（缺省 false；取法是非消费读，不推进游标）",
+			},
+			"max_bytes": map[string]interface{}{
+				"type": "integer", "minimum": 1, "maximum": 32768,
+				"description": "逐成员正文预算（字节；缺省 4096，上限 32768）",
+			},
+		},
 	}
 }

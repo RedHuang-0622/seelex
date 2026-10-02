@@ -157,11 +157,11 @@ func DefaultPermissionGroupList() []toolspermission.PermissionGroup {
 				"plan_load", "plan_clear", "plan_run",
 				// goal 栈是主代理的治理状态：policy.go 对子代理整族不可见，
 				// 因此跟着 ctl 一起断位（比设计稿 §3.2 的 rw 更贴合现有口径）。
-				"goal_begin", "goal_update", "goal_propose_finish",
+				"goal_begin", "goal_update", "goal_propose_finish", "goal_done",
 				// teamwork leader 编排面：改的是"团队顺序与作业"这条循环控制流，
 				// 与 fork_subagents/plan_* 同族——sub/员工断位（teammate 不该编排
 				// 团队），主代理（root）默认 allow。
-				"team_plan", "team_dispatch", "team_join", "team_milestone", "team_retire",
+				"team_plan", "team_dispatch", "team_join", "team_milestone", "team_retire", "team_close", "team_context",
 			},
 		},
 		{

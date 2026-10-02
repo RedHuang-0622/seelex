@@ -66,11 +66,16 @@ func buildTeamworkBoardView(plan sessionstore.TeamworkPlan, events []sessionstor
 		TeamID:     plan.TeamID,
 		Version:    plan.Version,
 		MaxMembers: maxMembers,
-		Stages:     teamworkStageViews(plan.Stages),
-		Members:    teamworkMemberViews(plan.Members),
-		Milestones: teamworkMilestoneViews(plan.Milestones),
-		Jobs:       teamworkJobViews(records),
-		Events:     teamworkEventViews(events),
+		// 闭板三字段从**计划**搬（域内权威，U3 裁决）：存档里的同名字段只是历史副本，
+		// 这里读计划才让"关闭后仍看得到已关闭态"成立（存档对 closed 是整块退场）。
+		State:        plan.State.State,
+		ClosedAt:     plan.State.ClosedAt,
+		ClosedReason: plan.State.ClosedReason,
+		Stages:       teamworkStageViews(plan.Stages),
+		Members:      teamworkMemberViews(plan.Members),
+		Milestones:   teamworkMilestoneViews(plan.Milestones),
+		Jobs:         teamworkJobViews(records),
+		Events:       teamworkEventViews(events),
 	}
 	view.Stale = teamworkProjectionStale(plan.State, view.Jobs)
 	return view

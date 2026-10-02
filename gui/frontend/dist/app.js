@@ -2252,6 +2252,26 @@ function ensureTeamBoardStyles() {
   document.head.appendChild(style);
 }
 
+// bindTeamBoardActions 绑看板自己的成员入口（S7）：在编行上的角色名 → 这位员工的工作上下文
+// （与团队面板成员行同一个 openRoleSessionDetail，不另造"员工会话"概念）。
+//
+// 为什么必须单独绑一条：Agent Team 面板的点击委托挂在 `#team-view` 上，而团队看板是另一块
+// section（`#team-board-view`）——事件不会跨子树冒泡到那个监听器。渲染件把钩子写上了却不绑
+// 监听，得到的就是一个**点不动的入口**（比没有入口更坏）。
+//
+// 只读：这里只开一个读视图（AgentTeamRoleSnapshot + team.changed 重取），不写任何后端状态
+// ——看板"单向只读投影"的口径不变。
+function bindTeamBoardActions() {
+  const host = elements["team-board-view"];
+  if (!host) return;
+  host.addEventListener("click", async event => {
+    const openRole = event.target.closest?.("[data-team-role-open]");
+    if (!openRole?.dataset.teamRoleOpen) return;
+    await openRoleSessionDetail(openRole.dataset.teamRoleOpen, openRole.dataset.teamRoleSession);
+  });
+}
+bindTeamBoardActions();
+
 // ── 「目标」面板（工作台子页）──────────────────────────────
 // 数据源：runtime.goal_governance（goal 状态机只读投影）+ runtime.active_skills
 // （任务级 skill 激活权威投影）+ 最近用户输入（目标文本，本地派生展示）。

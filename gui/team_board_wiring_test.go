@@ -83,6 +83,23 @@ func TestEmbeddedTeamBoardWiring(t *testing.T) {
 	if strings.Contains(goalBoardView, "renderGoalSteps") {
 		t.Fatal("评审过程已退场：「目标」面板不得再渲染它")
 	}
+
+	// ⑦ 成员入口（S7）：看板「在编」行的角色名 = 打开这位员工工作上下文的入口。
+	//    两处缺一即死：渲染件不写钩子 = 没有入口；app.js 不绑委托 = 点不动的入口。
+	//    委托必须挂在 `#team-board-view` 上：Agent Team 面板的那条挂在 `#team-view`，
+	//    是另一块 section，收不到看板子树里的事件。
+	if !strings.Contains(boardView, "data-team-role-open") || !strings.Contains(boardView, "data-team-role-session") {
+		t.Fatal("看板在编行必须带成员入口钩子（data-team-role-open / data-team-role-session）")
+	}
+	if !strings.Contains(boardView, "is-openable") {
+		t.Fatal("成员入口必须与纯文本区分（is-openable，否则用户看不出这一行可以点）")
+	}
+	if !strings.Contains(app, "bindTeamBoardActions(") || !strings.Contains(app, `elements["team-board-view"]`) {
+		t.Fatal("app.js 必须把成员入口的委托绑在 #team-board-view 上（不绑 = 渲染出来的按钮点不动）")
+	}
+	if !strings.Contains(app, "openRoleSessionDetail(openRole.dataset.teamRoleOpen") {
+		t.Fatal("看板的成员入口必须复用到同一个 openRoleSessionDetail（不另造一个员工会话概念）")
+	}
 }
 
 // TestEmbeddedBoardArchiveVisibilityWiring 是**存档可见面**的接线守卫（设计契约
