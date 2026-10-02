@@ -101,7 +101,7 @@
   每次压缩画一个刻度，x = 压缩发生时会话推进到的体量位置（锚定最后一条
   `started_at <= compacted_at` 的记录，`compactionMarks`）；压缩点早于已加载
   窗口时钳到轴起点并在详情注明。刻度只含公开字段（version/reason/
-  messages_before/estimated_tokens/compacted_at），点击开详情并提示折叠原文
+  messages_before/estimated_tokens/compacted_at），点击开详情并提示压缩原文
   可经 `read_compressed_turn` / `search_history` 读回。
 - 元数据块不带 `data-trajectory-key`（没有可定位的轨迹行）；点击由
   `trajectory-view.js` 分派到轴详情开关，普通轨迹块仍走定位逻辑。

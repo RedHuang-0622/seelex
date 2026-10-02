@@ -242,7 +242,7 @@ export function renderTrajectorySummary(stats) {
 //   ⑤ 错误：失败响应（模型/工具/会话级错误）。
 //   ⑥ 系统：框架产生的会话系统消息。
 //   ⑦ 通知：无法归入以上类型的兜底消息。
-//   ⑧ 压缩（元数据轨，最下）：对会话的改写事件（窗口外旧轮次折叠为摘要）。
+//   ⑧ 压缩（元数据轨，最下）：对会话的改写事件（窗口外旧轮次压缩为摘要）。
 //   为什么是这个顺序：中间六条按"一轮上下文的因果链"排——人先说（输入）→
 //   模型想（LLM）→ 模型做（工具）→ 做坏了单列（错误）→ 框架自己说的话
 //   （系统/通知）兜底；因果在上、兜底在下。两条元数据轨不参与记录序号坐标
@@ -524,7 +524,7 @@ export function compactionMarks(records = [], compactions = [], view = {}) {
       rangeText,
       cutLabel: compactionCutLabel(compaction),
       cutTitle: compactionCutTitle(compaction),
-      // 帧正文引用（后端把折叠那一刻的有界 checkpoint 帧写进会话内容存储）：
+      // 帧正文引用（后端把压缩那一刻的有界 checkpoint 帧写进会话内容存储）：
       // 详情面板据此按 ref 分页读取，不再把用户甩给模型侧工具。
       frameRef: String(compaction.frame_ref || ""),
       frameBytes: Number(compaction.frame_bytes) || 0,
@@ -540,7 +540,7 @@ export function compactionMarks(records = [], compactions = [], view = {}) {
   });
   // 会话单例分界：只给**前沿**那一个刻度打标记（被折出保留窗口的最后一条消息；
   // 判定与右栏、对话区分界共用 compactionFrontier，同一份口径）。分界说明改用
-  // 前沿的合并区间——"以上"指的是整段已折出的上下文，只报最后一次折叠会漏掉
+  // 前沿的合并区间——"以上"指的是整段已折出的上下文，只报最后一次压缩会漏掉
   // 更早的那一段。
   const frontier = compactionFrontier(list);
   if (frontier && marks[frontier.index]) {
@@ -554,7 +554,7 @@ export function compactionMarks(records = [], compactions = [], view = {}) {
 // renderAxisDetail 渲染被点中的元数据块详情（全部 escape，无未受控注入）。
 // selection = { type: "prefix", layer } 或 { type: "compression", mark, frame }。
 // frame 是视图侧已加载的帧正文页（{ loading, error, text, hasMore, nextOffset,
-// totalBytes }）；未提供 = 尚未加载（只显示"查看折叠帧正文"入口）。
+// totalBytes }）；未提供 = 尚未加载（只显示"查看压缩帧正文"入口）。
 export function renderAxisDetail(selection = {}) {
   if (!selection || typeof selection !== "object") return "";
   if (selection.type === "prefix" && selection.layer) return renderPrefixDetail(selection.layer);
@@ -602,13 +602,13 @@ function renderCompressionDetail(mark, frame) {
       ${meta ? `<span>${escapeHtml(meta)}</span>` : ""}
       <span>${escapeHtml(where)}</span>
     </div>
-    <p>该时刻窗口外的旧轮次被折叠为有界 checkpoint 帧（稳定 system 前缀 + 保留窗口 + plan）；
+    <p>该时刻窗口外的旧轮次被压缩为有界 checkpoint 帧（稳定 system 前缀 + 保留窗口 + plan）；
        对话原文仍完整保留在时间线上（呈现层不丢消息）。${escapeHtml(range)}。</p>
     ${renderCompactionFrameSection(mark, frame)}
   </section>`;
 }
 
-// renderCompactionFrameSection 渲染「折叠帧正文」区：按 ref 分页读回折叠那一刻
+// renderCompactionFrameSection 渲染「压缩帧正文」区：按 ref 分页读回压缩那一刻
 // 留下的有界 checkpoint 帧（后端把它写进会话内容存储，快照只带引用）。
 //
 // 此前详情只说"可经 read_compressed_turn / search_history 读回"——那是模型侧
@@ -623,13 +623,13 @@ function renderCompactionFrameSection(mark, frame) {
     mark.frameTokens > 0 ? `约 ${formatNumber(mark.frameTokens)} tokens` : ""
   ].filter(Boolean).join(" · ");
   const head = `<div class="axis-detail-frame-head">
-      <span class="axis-detail-frame-title">折叠帧正文</span>
+      <span class="axis-detail-frame-title">压缩帧正文</span>
       <span class="axis-detail-frame-ref" title="会话内容存储里的引用（ref），前端按 ref 分页读取">${escapeHtml(mark.frameRef)}</span>
       ${size ? `<span class="axis-detail-frame-size">${escapeHtml(size)}</span>` : ""}
     </div>`;
   if (!frame) {
     return `<div class="axis-detail-frame">${head}
-      <button type="button" class="axis-detail-frame-load" data-compact-frame-load="first">查看折叠帧正文</button>
+      <button type="button" class="axis-detail-frame-load" data-compact-frame-load="first">查看压缩帧正文</button>
     </div>`;
   }
   if (frame.loading) {
@@ -691,7 +691,7 @@ function compressionMarkWhere(mark) {
 }
 
 // renderCompressionCutRow 渲染「分界」轨：**会话单例**的一条竖向虚线，线上标注
-// 「以上 … 已被折叠」。
+// 「以上 … 已被压缩」。
 //
 // 为什么只画一条：分界想说的是"以上这些已经不发给模型了"，那是会话当前的**一个**
 // 事实。历次压缩各画一条线，读者会以为两条线之间那段还给模型（其实早折掉了）。
@@ -706,7 +706,7 @@ function renderCompressionCutRow(marks) {
   const cut = frontier && frontier.anchored && !frontier.offPage ? frontier : null;
   if (!cut) {
     const hint = !frontier
-      ? "会话还没折叠过上下文，没有压缩分界"
+      ? "会话还没压缩过上下文，没有压缩分界"
       : !frontier.anchored
         ? "会话压缩分界早于已加载窗口（分界线画不出来；压缩轨上刻度置于起点，点击可看记录）"
         : `会话压缩分界在第 ${frontier.anchorPage + 1} 页（本页看不到分界；压缩轨上该刻度可点击跳页）`;
@@ -718,7 +718,7 @@ function renderCompressionCutRow(marks) {
   const flip = cut.x > 60;
   const shift = flip ? "translateX(calc(-100% - 7px))" : "translateX(7px)";
   return `<div class="context-axis-lane is-cut">
-    <span class="axis-lane-label" title="压缩分界虚线（会话单例）：虚线以上（更早）的上下文已被折出 provider 历史；对话原文仍保留在时间线上，历次折叠记录见右栏「上下文压缩」"><span>分界</span><span class="axis-lane-count">×1</span></span>
+    <span class="axis-lane-label" title="压缩分界虚线（会话单例）：虚线以上（更早）的上下文已被折出 provider 历史；对话原文仍保留在时间线上，历次压缩记录见右栏「上下文压缩」"><span>分界</span><span class="axis-lane-count">×1</span></span>
     <div class="axis-lane-bar is-cut-bar"><i class="axis-compress-cut" style="--x:${cut.x.toFixed(3)}%" title="${escapeHtml(cut.cutTitle)}" aria-hidden="true"></i>
       <span class="axis-compress-cut-label" style="--x:${cut.x.toFixed(3)}%;transform:${shift}" title="${escapeHtml(cut.cutTitle)}">${escapeHtml(cut.cutLabel)}</span></div>
   </div>`;
@@ -730,14 +730,14 @@ function renderCompressionCutRow(marks) {
 // 内侧错位（x=100 向左、其余向右），保证每一个刻度都能被点到。
 function renderCompressionLane(marks) {
   const bar = marks.map((mark, index) => {
-    const title = `压缩 #${mark.version} · ${mark.reasonLabel}${mark.messagesBefore > 0 ? ` · ${formatNumber(mark.messagesBefore)} 条` : ""}${mark.tokens > 0 ? ` · 约 ${formatNumber(mark.tokens)} tokens` : ""} · ${mark.timeLabel} · ${mark.isFrontier ? "栈顶：当前折叠前沿" : "已被更晚的折叠取代"} · ${compressionMarkWhere(mark)} · 点击查看详情`;
+    const title = `压缩 #${mark.version} · ${mark.reasonLabel}${mark.messagesBefore > 0 ? ` · ${formatNumber(mark.messagesBefore)} 条` : ""}${mark.tokens > 0 ? ` · 约 ${formatNumber(mark.tokens)} tokens` : ""} · ${mark.timeLabel} · ${mark.isFrontier ? "栈顶：当前压缩前沿" : "已被更晚的压缩取代"} · ${compressionMarkWhere(mark)} · 点击查看详情`;
     const shift = mark.stack ? (mark.x >= 100 ? -1 : 1) * mark.stack * 6 : 0;
     const offset = shift ? `;transform:translateX(calc(-50% ${shift > 0 ? "+" : "-"} ${Math.abs(shift)}px))` : "";
     const state = mark.isFrontier ? "is-frontier" : "is-stale";
     return `<button type="button" class="axis-segment is-compress ${state}" style="--x:${mark.x.toFixed(3)}%${offset}" data-compact-idx="${index}" title="${escapeHtml(title)}" aria-label="${escapeHtml(`压缩 #${mark.version}`)}"><span>#${escapeHtml(String(mark.version))}</span></button>`;
   }).join("");
-  return `<div class="context-axis-lane is-compress" aria-label="上下文压缩刻度（虚线=一次折叠帧所在的位置；深灰=栈顶前沿、浅灰=已被更晚折叠取代，对话原文仍保留）">
-    <span class="axis-lane-label" title="软阈值达峰时把窗口外旧轮次折叠为栈顶摘要；每段虚线标一个折叠帧的位置，与记录轨共用序号坐标"><span>压缩</span><span class="axis-lane-count">×${marks.length}</span></span>
+  return `<div class="context-axis-lane is-compress" aria-label="上下文压缩刻度（虚线=一次压缩帧所在的位置；深灰=栈顶前沿、浅灰=已被更晚压缩取代，对话原文仍保留）">
+    <span class="axis-lane-label" title="软阈值达峰时把窗口外旧轮次压缩为栈顶摘要；每段虚线标一个压缩帧的位置，与记录轨共用序号坐标"><span>压缩</span><span class="axis-lane-count">×${marks.length}</span></span>
     <div class="axis-lane-bar is-meta">${bar}</div>
   </div>`;
 }
@@ -811,7 +811,7 @@ export function renderContextAxis(records = [], extras) {
   const lanes = view.lanes.map(lane => renderAxisLane(lane, view.window)).join("");
   const hints = [`横轴=页内序号槽位（每块 1 槽，本页 ${view.window.capacity} 槽）`];
   if (prefixSegments.length) hints.push("前缀注入=层文本占比");
-  if (marks.length) hints.push(`压缩 ×${marks.length}（刻度+虚线可点击，虚线以上已被折叠）`);
+  if (marks.length) hints.push(`压缩 ×${marks.length}（刻度+虚线可点击，虚线以上已被压缩）`);
   hints.push("点击块定位轨迹行 · 滚轮翻页 · Shift+滚轮调页大小");
   return `<div class="context-axis" role="group" aria-label="上下文轴：按响应类型分轨，横轴为页内记录序号（非时间轴、非体量轴）">
     <div class="context-axis-head"><strong>上下文轴</strong>${renderAxisPageInfo(view.window, options)}<span class="context-axis-note" data-axis-note>${escapeHtml(options.notice)}</span><span class="context-axis-hint">${escapeHtml(hints.join(" · "))}</span></div>
@@ -928,7 +928,7 @@ function renderThinkPanel(record, outputKey) {
       </section>`;
 }
 
-// 单栏全文（同样走 payload Map + 折叠预览）。
+// 单栏全文（同样走 payload Map + 压缩预览）。
 function renderTrajectoryTextDetail({ output, outputKey, record }) {
   const view = limitText(output, 4000, 40);
   const note = view.truncated ? `<span class="io-note">预览 ${view.total} 字符</span>` : "";

@@ -45,7 +45,7 @@ func TestPolicyHidesComputerInputToolsFromSubagents(t *testing.T) {
 }
 
 // TestPolicyHidesCompactContextFromSubagents 验证 compact_context 对子代理不可见：
-// 它折叠的是共享会话的 provider 历史（会话级单例状态），并行子代理同时压缩会
+// 它压缩的是共享会话的 provider 历史（会话级单例状态），并行子代理同时压缩会
 // 互相改写主会话上下文。主代理保持可见（权限门控另行把关）。
 func TestPolicyHidesCompactContextFromSubagents(t *testing.T) {
 	policy := NewPolicy(PolicyDeps{})

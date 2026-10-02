@@ -68,16 +68,16 @@ func (service *Service) registerBuiltinCommands() error {
 		}
 		return CommandResult{Notice: trace}, nil
 	})
-	register("compact", "压缩当前上下文（折叠为有界 checkpoint，原始轮次仍可回读）", func(ctx context.Context, _ []string) (CommandResult, error) {
+	register("compact", "压缩当前上下文（压缩为有界 checkpoint，原始轮次仍可回读）", func(ctx context.Context, _ []string) (CommandResult, error) {
 		result, err := service.CompactContextNow(ctx)
 		if err != nil {
 			return CommandResult{}, err
 		}
 		if !result.Compacted || !result.Recorded {
-			// 只有真落了压缩记录才按「记录」成句。折叠已发生但记录不产生
+			// 只有真落了压缩记录才按「记录」成句。压缩已发生但记录不产生
 			// （回合已收尾的自动压缩）时，结果面没有 reason 与区间（零值），
 			// 套记录句式就会对用户说出「已压缩上下文：v3（），…」——空原因，
-			// 且把真正解释（Note：折叠已发生、为何无记录）丢掉。此时回带 Note，
+			// 且把真正解释（Note：压缩已发生、为何无记录）丢掉。此时回带 Note，
 			// 与 compact_context 工具同一口径。
 			return CommandResult{Notice: result.Note}, nil
 		}

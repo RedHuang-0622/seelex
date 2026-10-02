@@ -108,12 +108,12 @@ func TestCarryEvidenceAndAnchorSource(t *testing.T) {
 	}
 }
 
-// TestLocalChapter2WithCarryReportsFacts：本地折叠的 Chapter 2 与决策事实一次算出
+// TestLocalChapter2WithCarryReportsFacts：本地压缩的 Chapter 2 与决策事实一次算出
 // （同一份并入量不重复计算），并入受限额约束。
 func TestLocalChapter2WithCarryReportsFacts(t *testing.T) {
 	prev := carryTestFrame("### 目标 (Goal)\n" + strings.Repeat("long previous body ", 300))
-	chapter2, facts := LocalChapter2WithCarry(LocalFoldOptions{
-		Overflow: nil, UnitCount: 2, Kind: CompactFoldOverflow,
+	chapter2, facts := LocalChapter2WithCarry(LocalCompactOptions{
+		Overflow: nil, UnitCount: 2, Kind: LocalCompactOverflow,
 		PrevTop: &prev, CarryLimitTokens: 128,
 	})
 	if !facts.Anchor {
@@ -129,8 +129,8 @@ func TestLocalChapter2WithCarryReportsFacts(t *testing.T) {
 		t.Fatalf("并入段出现次数不为 1：\n%s", chapter2)
 	}
 	// LocalChapter2 是同一实现的取值视图：两处必须逐字节一致（不做第二份拼装）。
-	if got := LocalChapter2(LocalFoldOptions{
-		Overflow: nil, UnitCount: 2, Kind: CompactFoldOverflow,
+	if got := LocalChapter2(LocalCompactOptions{
+		Overflow: nil, UnitCount: 2, Kind: LocalCompactOverflow,
 		PrevTop: &prev, CarryLimitTokens: 128,
 	}); got != chapter2 {
 		t.Fatalf("LocalChapter2 与 LocalChapter2WithCarry 结果不一致")

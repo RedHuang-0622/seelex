@@ -88,11 +88,11 @@ flowchart LR
 - 宿主注入的实现（`EnginePortDeps` 里的那些函数）不得在 `port.mu` 内被调：它们是"另一端
   的锁 + I/O"的入口（`PrepareHistory` 就是）。要交给宿主的动作按 `armHandoffLocked` +
   `runHandoff` 两段走，别在 `*Locked` 里顺手调。
-- `engineCalls` 只看目标会话自己的计数，不要拿活跃会话的计数代替（后台会话折叠的
+- `engineCalls` 只看目标会话自己的计数，不要拿活跃会话的计数代替（后台会话压缩的
   判据就是它）。
 - 别名 `port.engine` 与 `port.sessionID` 必须成对改；先 install 再 activate，反过来
   会让工厂白造一台引擎（`TestEnginePortLazyResumeCreatesOnlyRequestedSession` 钉住）。
-- 忙会话的折叠必须保留「在飞 tool_call 单元」（`withInFlightTail`），否则引擎以
+- 忙会话的压缩必须保留「在飞 tool_call 单元」（`withInFlightTail`），否则引擎以
   `ErrInFlightToolCallDropped` 拒收整次替换。
 
 ## 验证
@@ -104,7 +104,7 @@ go test ./internal/adapters -count=1
 关键测试：`engine_port_reentrance_test.go`（回合内读历史**必须立刻返回**——旧自锁断言
 的反转报警器）、`engine_port_history_test.go`（回合内替换在检查点当场生效 + 在飞下界 +
 锁外立即落地）、`engine_port_lockfuse_test.go`（写面/读面都不再把 `port.mu` 跨在等回合
-上；每条都同时断言"折叠当场返回"与"别的会话照样开回合"）、
+上；每条都同时断言"压缩当场返回"与"别的会话照样开回合"）、
 `engine_port_handoff_test.go`（宿主 `PrepareHistory` 在锁外被调：宿主回读端口不再自锁；
 序号闸丢过期交接；三条安装路径各兑现一次交接；反向护栏防止把宿主动作搬丢）。
 `e2e/scenario` 与 `application/core` 的压缩用例覆盖应用侧口径。

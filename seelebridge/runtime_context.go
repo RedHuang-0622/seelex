@@ -109,7 +109,7 @@ func (r *Runtime) nodeContextComponents() session.ContextComponents {
 // （子代理压缩帧不再写入主会话 SessionContextStore），归档上限与
 // processor / 装配层同源于 limits.MaxToolResultChars。
 //
-// 2026-09-30 起回合内不再折叠对话（见 seelexctx.Handle）：折叠是上下文压缩流程里
+// 2026-09-30 起回合内不再压缩对话（见 seelexctx.Handle）：压缩是上下文压缩流程里
 // 产出元数据的一步，折完必须由模型按章节写出读后感，只有装配层做得到——它手里握着
 // 上一次真实请求的字节前序（system/History/Tools 与 wire 同源），前缀重放才换得来
 // 前缀缓存。节点链路拿到的 ev.History 是**装配前**的引擎工作历史，注入摘要器会付
@@ -191,11 +191,11 @@ func (r *Runtime) seelexCompressor() seelectx.Compressor {
 	})
 }
 
-// seelexController 构造控制器：回合内不折叠对话，只做超大工具结果的兜底归档。
+// seelexController 构造控制器：回合内不压缩对话，只做超大工具结果的兜底归档。
 //
-// 2026-09-30 起折叠整条归装配层（application/core/context_runtime，见
-// MainCompactionDAG）：折叠是上下文压缩流程里产出元数据的一步，折完必须由模型按
-// 章节写出读后感；装配层在折叠那一刻手里握着上一次真实请求的三样原件（coordinator
+// 2026-09-30 起压缩整条归装配层（application/core/context_runtime，见
+// MainCompactionDAG）：压缩是上下文压缩流程里产出元数据的一步，折完必须由模型按
+// 章节写出读后感；装配层在压缩那一刻手里握着上一次真实请求的三样原件（coordinator
 // 的 systemPrompt/existing/tools），而控制器只拿得到**装配前**的引擎工作历史
 // （seelectx.ContextEvent.History = ReActLoop.History()）——拿它当重放素材会付一次
 // 全价调用却换不来前缀缓存（设计 §9 风险 1），折出来的帧也因此没有读后感，模型只
@@ -231,7 +231,7 @@ func (r *Runtime) replayInputTokens() int {
 // compactionSummarizer 按开关构造前缀重放厚摘要器（limits.context_compaction_summary）。
 //
 // 关闭、QuickChat 装配失败、摘要器构造失败三种情况一律返回 **nil**：nil 是
-// chapter2Node 的显式判据（`d.opts.Summarizer != nil`），落到本地确定性折叠，
+// chapter2Node 的显式判据（`d.opts.Summarizer != nil`），落到本地确定性压缩，
 // 既不报错也不静默降级成"发一次没有缓存的调用"。QuickChat 走的是与
 // seelexCompressor 同一条构造路径（共享账号 completer 的隔离调用，无工具、
 // 独立 history），不第二次装配 completer。
@@ -243,11 +243,11 @@ func (r *Runtime) compactionSummarizer() seelexctx.PrefixReplaySummarizer {
 // compactionSummarizerWithNote 是上面那一跳的唯一实现：除了摘要器，还给出
 // **为什么没有摘要器**（三种 nil 出口的分别是"开关关闭 / QuickChat 装配失败 /
 // 摘要器构造失败"）。三个出口此前都不留痕——windowsgui 构建下 log.Printf 也无处
-// 可看，现场只剩一个 `summary_source=local`；这份 note 走进折叠 DAG 的
+// 可看，现场只剩一个 `summary_source=local`；这份 note 走进压缩 DAG 的
 // SummarizerNote，最终落进帧证据与帧正文，让"模型为什么没被叫到"在帧里自答。
 func (r *Runtime) compactionSummarizerWithNote() (seelexctx.PrefixReplaySummarizer, string) {
 	if !r.limits.ContextCompactionSummary.Enabled {
-		return nil, "折叠处厚摘要开关关闭（limits.context_compaction_summary.enabled 非 true），本次不调用模型"
+		return nil, "压缩处厚摘要开关关闭（limits.context_compaction_summary.enabled 非 true），本次不调用模型"
 	}
 	quickChat, err := seelectx.NewQuickChat(r.completer)
 	if err != nil || quickChat == nil {
@@ -260,11 +260,11 @@ func (r *Runtime) compactionSummarizerWithNote() (seelexctx.PrefixReplaySummariz
 	return summarizer, ""
 }
 
-// MainCompactionDAG 返回**装配层折叠**（application/core/context_runtime，回合
+// MainCompactionDAG 返回**装配层压缩**（application/core/context_runtime，回合
 // 开始前那条路径）用的压缩 DAG 执行器。
 //
 // 与 seelexController 里那份的差别只有一处、但很关键：这份**注入 Summarizer**。
-// 装配层在折叠那一刻手里握着上一次真实请求的 system / history / tools 三样原件
+// 装配层在压缩那一刻手里握着上一次真实请求的 system / history / tools 三样原件
 // （coordinator.go 的 systemPrompt / existing / tools，全部来自产出该请求的同一
 // 条装配路径），因此重放请求能与真实请求共享字节前缀、几乎全命中缓存——详设 §9
 // 风险 1 的启用前提在这条路径上是**满足**的。控制器路径拿到的 ev.History 是否

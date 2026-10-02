@@ -8,7 +8,7 @@ import (
 )
 
 // 同会话压缩门（context_compact_gate.go）的串行语义：一轮压缩在跑时，第二次显式
-// 压缩**等它收口**再执行，而不是并发折叠——两边各自读同一段历史、各自替换，后写的
+// 压缩**等它收口**再执行，而不是并发压缩——两边各自读同一段历史、各自替换，后写的
 // 那份会把前一轮整个丢掉。
 //
 // 这条现在对**所有**调用方成立，包括落在正在跑的回合里的调用（compact_context 工具、
@@ -20,8 +20,8 @@ import (
 // 回合内做非阻塞领轮（领不到就如实报错）。那条补丁连同它的判据（引擎侧的
 // InLoopTurn / 环内把手）已随 Seele 升级一起删除——本文件钉的是删掉之后的具体行为。
 
-// seedLongRounds 与 TestCompactContextHandlerFoldsTranscript 同一份量：4 轮、每轮
-// 16 万字符，稳过软阈值，保证折叠真的发生。
+// seedLongRounds 与 TestCompactContextHandlerCompactsTranscript 同一份量：4 轮、每轮
+// 16 万字符，稳过软阈值，保证压缩真的发生。
 func seedLongRounds(t *testing.T, service *Service, requestID string) {
 	t.Helper()
 	service.ViewMu.Lock()
@@ -38,7 +38,7 @@ func seedLongRounds(t *testing.T, service *Service, requestID string) {
 }
 
 // TestCompactContextWaitsForHeldCompactionGate 钉住等待方向：门已被占用时，第二次
-// 显式压缩**等待**（不是并发折叠、也不是立刻报错），收口后照常完成并自己收口。
+// 显式压缩**等待**（不是并发压缩、也不是立刻报错），收口后照常完成并自己收口。
 func TestCompactContextWaitsForHeldCompactionGate(t *testing.T) {
 	service, _, sessionID := compactTestService(t, "task-gate-wait")
 	seedLongRounds(t, service, "task-gate-wait")
@@ -47,7 +47,7 @@ func TestCompactContextWaitsForHeldCompactionGate(t *testing.T) {
 	service.ViewMu.Unlock()
 	ctx := withSessionID(context.Background(), sessionID)
 
-	// 预置：另一个调用方已经领到这一会话的压缩轮（它正在折叠中）。
+	// 预置：另一个调用方已经领到这一会话的压缩轮（它正在压缩中）。
 	// 与被删掉的 tryAcquireCompactionRound 做的事完全一致——生产代码里没有
 	// 「非阻塞领轮」这条路径了（见 gate 文件的加锁纪律注释）。
 	service.ViewMu.Lock()

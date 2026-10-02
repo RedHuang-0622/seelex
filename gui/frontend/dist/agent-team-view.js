@@ -175,7 +175,7 @@ export function employeeFieldRows(role) {
   ];
 }
 
-// employeeFieldTable 把 employeeFieldRows 渲染成一张 k→v 表（可折叠进员工行）。
+// employeeFieldTable 把 employeeFieldRows 渲染成一张 k→v 表（可压缩进员工行）。
 function employeeFieldTable(role) {
   const items = employeeFieldRows(role).map(row =>
     `<div class="team-kv-row" data-team-kv="${escapeHtml(row.key)}"><dt>${escapeHtml(row.label)}</dt><dd title="${escapeHtml(row.value)}">${escapeHtml(row.value)}</dd></div>`

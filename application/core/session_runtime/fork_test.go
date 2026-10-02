@@ -149,7 +149,7 @@ func forkTestFixture() (*forkTestSessions, time.Time) {
 				UpdatedAt: t4,
 				ContextCompactions: []model.ContextCompaction{{
 					Version: 1, Reason: "window", MessagesBefore: 5, EstimatedTokens: 10, CompactedAt: t2,
-					// frame_ref 指向折叠帧正文（会话内容存储）：fork 点之前产生的帧，
+					// frame_ref 指向压缩帧正文（会话内容存储）：fork 点之前产生的帧，
 					// 必须跟着子会话可达，否则右栏「上下文压缩」在子会话里读不回来。
 					FrameRef: "tr-frame-before", FrameBytes: 64, FrameTokens: 20,
 				}},

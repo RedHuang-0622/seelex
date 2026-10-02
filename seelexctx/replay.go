@@ -53,7 +53,7 @@ type ReplayResult struct {
 
 // PrefixReplaySummarizer 生成 Chapter 2 厚摘要（seelexctx 定义接口，
 // 由 seelebridge 注入 QuickChat/Completer 实现）。失败返回结构化错误，
-// 调用方走本地折叠兜底，绝不让请求发送中断（详设 §4.4/§4.5）。
+// 调用方走本地压缩兜底，绝不让请求发送中断（详设 §4.4/§4.5）。
 type PrefixReplaySummarizer interface {
 	Summarize(ctx context.Context, req ReplayRequest) (ReplayResult, error)
 }
@@ -199,7 +199,7 @@ func ChunkReplayMessages(messages []types.Message, budgetTokens int) ReplayChunk
 //
 // base 提供 SystemPrompt/Tools/固定指令（History 由本函数逐片替换）；片 i>1 把
 // 上一片摘要拼进指令尾巴（ReplayRequest.Instruction），因此不需要改动摘要器
-// 契约。任何一片失败即整条退出，调用方回退本地确定性折叠（绝不中断请求）。
+// 契约。任何一片失败即整条退出，调用方回退本地确定性压缩（绝不中断请求）。
 func SummarizeChunkPlan(
 	ctx context.Context,
 	summarizer PrefixReplaySummarizer,
@@ -245,21 +245,21 @@ func carryPrompt(index, total int, previous string) string {
 	return builder.String()
 }
 
-// CompactFoldLocalEvidenceRefPrefix 标记"这次折叠落到本地确定性折叠"的证据 ref
-// 前缀：ref = `fold-local:<code>`，code 说明是哪一种降级。写这条证据的原因是
-// **静默降级**：本地折叠只有 `summary_source=local` 一个标记，而它有三种完全不同的
+// LocalCompactEvidenceRefPrefix 标记"这次压缩落到本地确定性压缩"的证据 ref
+// 前缀：ref = `compact-local:<code>`，code 说明是哪一种降级。写这条证据的原因是
+// **静默降级**：本地压缩只有 `summary_source=local` 一个标记，而它有三种完全不同的
 // 来路（开关关闭 / 无重放素材 / 重放调用失败），读帧的人无从分辨——现场排查只能
 // 靠猜。有了 code 与正文，帧自己就能回答"模型为什么没被叫到"。
-const CompactFoldLocalEvidenceRefPrefix = "fold-local:"
+const LocalCompactEvidenceRefPrefix = "compact-local:"
 
-// LocalFoldEvidence 把"为什么这次没有模型摘要"写成帧证据。与 ReplayEvidence 同一条
+// LocalCompactEvidence 把"为什么这次没有模型摘要"写成帧证据。与 ReplayEvidence 同一条
 // 纪律：没这件事（replay 成功）就不留痕。
-func LocalFoldEvidence(code, note string) []sessionstore.EvidenceRef {
+func LocalCompactEvidence(code, note string) []sessionstore.EvidenceRef {
 	if strings.TrimSpace(code) == "" {
 		return nil
 	}
 	return []sessionstore.EvidenceRef{{
-		Ref:     CompactFoldLocalEvidenceRefPrefix + code,
+		Ref:     LocalCompactEvidenceRefPrefix + code,
 		Summary: strings.TrimSpace(note),
 	}}
 }

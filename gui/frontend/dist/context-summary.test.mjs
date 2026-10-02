@@ -37,7 +37,7 @@ test("renders compaction records with range, origin and a frame entry", () => {
   assert.doesNotMatch(html, /条消息/);
 });
 
-test("expanded record reads the folded frame body back by ref", () => {
+test("expanded record reads the compacted frame body back by ref", () => {
   const compactions = [{ version: 1, reason: "context_budget", origin: "explicit", frame_ref: "tr-x", frame_bytes: 90, frame_tokens: 24 }];
   const html = renderContextCompactions(compactions, {
     sessionID: "session-a",
@@ -48,7 +48,7 @@ test("expanded record reads the folded frame body back by ref", () => {
     }
   });
 
-  assert.match(html, /折叠帧正文/);
+  assert.match(html, /压缩帧正文/);
   assert.match(html, /Context checkpoint frame v1/);
   assert.match(html, /data-compact-frame-load="more"/);
   assert.match(html, /剩余约 60 bytes/);
@@ -100,7 +100,7 @@ test("escapes unknown reason text and hides an empty list", () => {
 });
 
 // 进度条的可见性判据（app.js 的面板 hidden 由这里返回空串与否决定）：零记录时
-// 必须仍然出内容。折叠发生在写记录之前，"没有记录就不画"会让第一次压缩看不到
+// 必须仍然出内容。压缩发生在写记录之前，"没有记录就不画"会让第一次压缩看不到
 // 任何进度——正是这次修复要消掉的"看不到压缩到哪一步"。
 test("renders the gate progress bar with zero records, reusing the plan board track", () => {
   const html = renderContextCompactions([], {
@@ -129,7 +129,7 @@ test("a failed round stops at the gate it reached and shows the real error", () 
   assert.match(html, /reached=2\/6/);
   // 错误原文照实显示，不替换成一句安慰话。
   assert.match(html, /system 指令自身超预算/);
-  assert.doesNotMatch(html, /已折叠并写入压缩记录/);
+  assert.doesNotMatch(html, /已压缩并写入压缩记录/);
 });
 
 test("progress alone never claims a record outcome", () => {
@@ -147,7 +147,7 @@ test("begin frame renders the judge row as running without inventing a duration"
   assert.match(html, /context-compaction-progress is-running/);
   assert.match(html, /class="plan-board-bar" style="width:0%"/);
   assert.match(html, /context-compaction-gate is-running/);
-  assert.match(html, /判定是否需要折叠/);
+  assert.match(html, /判定是否需要压缩/);
   assert.match(html, /进行中/);
   assert.doesNotMatch(html, /共 /);
   assert.match(html, /0\/6/);
@@ -171,7 +171,7 @@ test("done frame lists every gate with its own measured duration", () => {
   assert.equal(progress.index, 6);
   assert.equal(progress.elapsedMs, 34);
   assert.match(html, /6\/6 · #2 · 共 34ms/);
-  assert.match(html, /判定是否需要折叠<\/span>\s*<em class="context-compaction-gate-ms" title="这一关实测耗时">28ms<\/em>/);
+  assert.match(html, /判定是否需要压缩<\/span>\s*<em class="context-compaction-gate-ms" title="这一关实测耗时">28ms<\/em>/);
   assert.match(html, /装配压缩上下文<\/span>\s*<em class="context-compaction-gate-ms" title="这一关实测耗时">6ms<\/em>/);
   // 不足一毫秒的关写 `&lt;1ms`：后端给的是截断毫秒，0 的含义就是"不到一毫秒"，
   // 写成 0ms 读起来像"没花时间"，凑成 1ms 是替后端编数字。
@@ -181,7 +181,7 @@ test("done frame lists every gate with its own measured duration", () => {
   assert.equal((html.match(/context-compaction-gate is-done/g) || []).length, 6);
 });
 
-// ── 折叠帧正文：内联展开 + 可调大小弹框（两种读法，同一份正文区）────────────
+// ── 压缩帧正文：内联展开 + 可调大小弹框（两种读法，同一份正文区）────────────
 
 test("每条记录同时给内联展开与弹框两个入口（同一 ref）", () => {
   const html = renderContextCompactions([{
@@ -194,7 +194,7 @@ test("每条记录同时给内联展开与弹框两个入口（同一 ref）", (
 });
 
 // 压缩栈表格的读法（用户口径 2026-09-26）：栈顶在前、按新旧下沉，栈顶那一行才是
-// 当前前沿（深灰 + 「栈顶」标记），更早的折叠降成浅灰但仍逐条可点开读正文。
+// 当前前沿（深灰 + 「栈顶」标记），更早的压缩降成浅灰但仍逐条可点开读正文。
 // 展开入口仍带**原数组下标**，但视图侧只用它取这一行的 frame_ref（点击那一刻的
 // 权威记录）；此后收起/续读只认 ref——下标会随记录重排与会话切换而漂。
 test("压缩栈按新旧下沉，只有栈顶标前沿，入口仍按原下标记账", () => {
@@ -207,16 +207,22 @@ test("压缩栈按新旧下沉，只有栈顶标前沿，入口仍按原下标�
     .map(match => ({ state: match[1], index: Number(match[2]) }));
   assert.deepEqual(rows, [{ state: "is-frontier", index: 1 }, { state: "is-stale", index: 0 }]);
   assert.equal((html.match(/class="compaction-stack-flag"/g) || []).length, 1, "前沿标记只能有一个");
-  assert.ok(html.indexOf("#2") < html.indexOf("#1"), "栈顶没排在最前");
+  // 栈顶在前：按行序读 data-compact-index（下标 1 = 更晚那次压缩）。
+  assert.ok(html.indexOf('data-compact-index="1"') < html.indexOf('data-compact-index="0"'), "栈顶没排在最前");
+  // 每次成功压缩都带一枚 seq 徽标（用户口径 2026-10-02：压缩成功之后状态里要出
+  // 一条带 seq 的压缩条目）。组件是组件库件 renderSeqBadge，色调走压缩那一档。
+  assert.equal((html.match(/class="seq-badge is-compaction"/g) || []).length, 2, "两条记录各一枚 seq 徽标");
+  assert.match(html, /seq-badge-num">2</);
+  assert.match(html, /seq-badge-unit">seq</);
   // 表头存在且只有一行表头（表格不是卡片列表）。
-  assert.match(html, /class="compaction-stack-row is-head"[^>]*>.*<span role="columnheader">栈<\/span>/s);
+  assert.match(html, /class="compaction-stack-row is-head"[^>]*>.*<span role="columnheader">seq<\/span>/s);
 });
 
 test("弹框正文区与右栏内联展开是同一段 HTML", () => {
   const record = { version: 3, frame_ref: "tr-z", frame_bytes: 120, frame_tokens: 30, estimated_tokens: 4200 };
   const detail = { loading: false, error: "", text: "frame body", hasMore: true, nextOffset: 10, totalBytes: 25 };
   const modal = renderCompactionFrameModal({ record, detail });
-  assert.match(modal, /折叠帧正文/);
+  assert.match(modal, /压缩帧正文/);
   assert.match(modal, /tr-z/);
   assert.match(modal, /frame body/);
   assert.match(modal, /data-compact-frame-load="more"/);
@@ -233,4 +239,43 @@ test("没有 ref 的弹框明说没有正文，不给一个空壳 viewer", () =>
   const html = renderCompactionFrameModal({ record: { version: 1 }, detail: { text: "x" } });
   assert.match(html, /没有可回读的正文/);
   assert.doesNotMatch(html, /axis-detail-text/);
+});
+
+// ── 压缩失败痕（用户口径 2026-10-02）────────────────────────────────
+// 「压缩失败 → 留下失败记录 → 原始上下文继续存在 → 模型仍然直接看到原来的上下文」：
+// 失败不是一次压缩，但它必须**在状态页上查得到**（此前只活在 6 秒的瞬态进度条里）。
+// 渲染上因此与成功条目同表不同行：带失败色、写清原因、没有区间/帧/动作列。
+test("压缩失败痕渲染成表里一条失败行，不带区间与帧入口", () => {
+  const html = renderContextCompactions([{
+    version: 3, reason: "context_budget", origin: "explicit", failed: true,
+    note: "no_model_summary estimated=281424 budget=163616 window=200000 overhead=9123",
+    estimated_tokens: 281424, compacted_at: "2026-07-30T10:00:00Z"
+  }]);
+  assert.match(html, /class="compaction-stack-row is-failed"/);
+  assert.match(html, /data-compact-failed="1"/);
+  assert.match(html, /<strong>压缩失败<\/strong>/);
+  assert.match(html, /拿不到模型读后感/);
+  // 原因里的数字事实原样带出：它是这次失败的证据，不是可改写的叙述。
+  assert.match(html, /estimated=281424 budget=163616 window=200000 overhead=9123/);
+  // 失败痕不带区间、不给帧入口、也不占"栈顶"。
+  assert.doesNotMatch(html, /data-compact-open/);
+  assert.doesNotMatch(html, /data-compact-frame-ref/);
+  assert.doesNotMatch(html, /compaction-stack-flag">栈顶/);
+  // seq 徽标照给（它是第几次压缩尝试），只是色调走失败色。
+  assert.match(html, /seq-badge is-compaction is-failed/);
+  assert.match(html, /上下文原样/);
+});
+
+test("失败痕与成功记录同表：失败排在栈下方，前沿仍只认成功那一条", () => {
+  // 失败痕没有区间（EventTo/message_to 恒空），因此既不能当栈顶、也不能画对话区分界
+  // ——把它读成"已压出窗口的上下文"就是造假。
+  const records = [
+    { version: 1, reason: "context_budget", message_from: "message-1", message_to: "message-9", frame_ref: "tr-old" },
+    { version: 2, reason: "context_budget", failed: true, note: "no_model_summary" }
+  ];
+  const html = renderContextCompactions(records);
+  const rows = [...html.matchAll(/data-compact-index="(\d+)"/g)].map(match => Number(match[1]));
+  assert.deepEqual(rows, [0, 1], "成功在前（栈）、失败接在末尾");
+  assert.equal((html.match(/compaction-stack-flag">栈顶/g) || []).length, 1);
+  assert.equal((html.match(/compaction-stack-row is-failed/g) || []).length, 1);
 });

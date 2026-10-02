@@ -78,7 +78,7 @@
   --text-dim: #6b6f76;
 
   /* 压缩帧灰阶（轴刻度、压缩栈表格、分界虚线共用）：栈顶/当前前沿=深灰，已被更晚
-     折叠取代的过时帧=浅灰。这里只**别名**中性 ramp，不写第二套色值——--text-strong
+     压缩取代的过时帧=浅灰。这里只**别名**中性 ramp，不写第二套色值——--text-strong
      与 --faint 在深色基座里本身就更浅/更深，所以「深色模式倒置」由深浅两套基座自动
      完成，不需要再补一份 :root[data-theme="dark"] 覆盖。 */
   --compaction-frame-latest: var(--text-strong);
@@ -473,9 +473,9 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 /* 列表行**按内容高度排**（align-content: start + grid-auto-rows: max-content），
    不按网格拉伸线平分容器高度，也不许被压扁。
    现场 A（align-content）：左栏会话列表 .stack-list 是定高网格（flex: 1 1 auto
-   + 滚动），grid 的 align-content 默认是 stretch——当分组被折叠、行内容不足时，
+   + 滚动），grid 的 align-content 默认是 stretch——当分组被压缩、行内容不足时，
    每条 .session-group 的行盒被拉成等高的大块，用户看到的是「几块空白白卡 +
-   固定高度、滚不动」（会话看起来"全没了"，其实是折叠态被撑开成空白块）。
+   固定高度、滚不动」（会话看起来"全没了"，其实是压缩态被撑开成空白块）。
    现场 B（grid-auto-rows）：左栏要的是"项目抽屉之外还有一条外层滚轮"，而
    grid-auto-rows 默认 `auto` = `minmax(auto, max-content)`——auto 那条下限取
    项目的自动最小尺寸，.session-group 是 `overflow: hidden`，自动最小尺寸就是
@@ -724,7 +724,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 }
 .queued-message-lead { display: inline-flex; flex: none; color: var(--faint); }
 /* 正文是**纯文本**：单行省略号要求这段行内内容属于该元素本身，块级 <p>（markdown
-   的产物）会让 text-overflow 失效；多行输入的连续空白折叠成单个空格，完整原文挂在
+   的产物）会让 text-overflow 失效；多行输入的连续空白压缩成单个空格，完整原文挂在
    data-tip 上（悬停/聚焦出提示，paintTip 把 \n 换成 <br>）。 */
 .queued-message-text { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--muted); font-size: var(--text-sm); text-overflow: ellipsis; white-space: nowrap; }
 .queued-message-actions { display: inline-flex; flex: none; align-items: center; gap: 2px; color: var(--faint); }
@@ -783,7 +783,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 
 /* 压缩分界（会话单例）：对话区里的一条明显分隔——左右两条虚线夹一枚说明牌。
    线以上（更早）的上下文已不再发给模型，但**原文仍在这一页里可读**，这句写在牌子上
-   而不是只藏在悬停里。一条线对应"会话当前的折叠前沿"（compactionFrontier），
+   而不是只藏在悬停里。一条线对应"会话当前的压缩前沿"（compactionFrontier），
    不是每条压缩记录一条；灰阶与轨迹「压缩」轨、右栏压缩栈共用同两个 token。 */
 .conversation-compaction-frontier {
   display: flex;
@@ -870,7 +870,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .io-expand:hover { color: var(--text); background: var(--surface-2); }
 .io-expand[disabled] { opacity: 0.6; cursor: wait; }
 .io-note { display: block; padding: 4px 10px 2px; color: var(--muted); font: 10px var(--font-mono); }
-/* 大输出折叠（根因链治本：默认 <details> 收起，全文不进渲染 DOM） */
+/* 大输出压缩（根因链治本：默认 <details> 收起，全文不进渲染 DOM） */
 .io-collapse { margin: 0; }
 .io-collapse > summary { display: flex; justify-content: space-between; gap: 8px; padding: 6px 10px; color: var(--muted); font: 10px var(--font-mono); cursor: pointer; list-style: none; user-select: none; }
 .io-collapse > summary::-webkit-details-marker { display: none; }
@@ -1893,7 +1893,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .status-value { min-width: 0; overflow: hidden; color: var(--text-strong); font-size: 11.5px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
 .context-compactions { margin-top: 12px; display: grid; gap: 7px; }
 .context-summary-title { color: var(--faint); font: 700 10px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
-/* 压缩栈表格（状态/概要 里唯一的内容块）：一行一次折叠，栈顶=当前前沿。
+/* 压缩栈表格（状态/概要 里唯一的内容块）：一行一次压缩，栈顶=当前前沿。
    与状态表同款描边与字号——右栏窄，卡片式自由布局会错位，表格行始终对齐。 */
 .compaction-stack {
   display: grid;
@@ -1931,7 +1931,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .compaction-stack-cell.is-actions { display: grid; gap: 3px; }
 .context-summary-open { text-align: center; white-space: nowrap; }
 .compaction-stack-origin { color: var(--faint); font: 9.5px var(--font-mono); font-style: normal; }
-/* 灰阶＝折叠帧的时间层次：栈顶（当前前沿）深灰，被更晚折叠取代的浅灰。
+/* 灰阶＝压缩帧的时间层次：栈顶（当前前沿）深灰，被更晚压缩取代的浅灰。
    深色模式由 --compaction-frame-* 的别名自动倒置，与轴刻度、对话区分界同一份色。 */
 .compaction-stack-row.is-frontier .compaction-stack-cell.is-version { color: var(--compaction-frame-latest); }
 .compaction-stack-row.is-frontier { background: color-mix(in srgb, var(--compaction-frame-latest) 6%, transparent); }
@@ -1962,7 +1962,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 }
 .context-summary-open:hover { border-color: var(--accent); color: var(--text); }
 .context-summary-noframe { color: var(--faint); font: 10px var(--font-mono); }
-/* 折叠帧正文弹框：正文最长、右栏最窄，所以给可调大小（同 .runtime-card 的
+/* 压缩帧正文弹框：正文最长、右栏最窄，所以给可调大小（同 .runtime-card 的
    data-resizable 约定：卡片自己 resize，正文区内滚）。 */
 .compaction-frame-card { width: min(980px, 100%); min-width: 520px; min-height: 340px; max-width: calc(100vw - 48px); max-height: min(820px, calc(100vh - 48px)); overflow: auto; resize: both; }
 .compaction-frame-modal-view { max-height: min(640px, 58vh); overflow: auto; }
@@ -2228,7 +2228,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
    这里改成 flex 列，才是「表格区吃掉卡片剩余高度」的那条链。 */
 #work-table-modal-view.work-table-view { display: flex; flex-direction: column; min-height: 0; }
 #work-table-modal-view > .work-table { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
-/* 折叠态（.is-collapsed → display: none）保持原样，这里只给展开态接上 flex 链。 */
+/* 压缩态（.is-collapsed → display: none）保持原样，这里只给展开态接上 flex 链。 */
 #work-table-modal-view .work-entry-body:not(.is-collapsed) { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
 /* 唯一滚动容器：高度由卡片剩余空间决定（不再自限 min(56vh, 560px)，限高与卡片
    max-height 叠加正是"两个滚动区"的来源），溢出仍由它自己滚。 */
@@ -2266,8 +2266,8 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   flex: 1 1 auto;
   min-height: 0;
 }
-/* 折叠态是 display:none（见 §11 的 .work-entry-body.is-collapsed）：带前缀重写
-   一次，避免被上面那条同权重更靠后的 display:flex 反超（折叠态会露出表体）。 */
+/* 压缩态是 display:none（见 §11 的 .work-entry-body.is-collapsed）：带前缀重写
+   一次，避免被上面那条同权重更靠后的 display:flex 反超（压缩态会露出表体）。 */
 .modal-card.work-table-modal-card[data-resizable] .work-entry-body.is-collapsed { display: none; }
 /* 弹窗里表格区不再自带限高：高度由卡片（可拖动调整）决定，max-height 归零后
    它才是唯一的滚动容器。 */
@@ -2980,7 +2980,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 }
 .axis-segment.is-prefix.is-identity { background-color: var(--surface-2); }
 .axis-segment.is-prefix:hover { color: var(--text); opacity: 1; }
-/* 压缩轨：刻度＝一段竖向虚线，标"折叠帧落在这里"。栈顶（当前前沿）深灰、被更晚折叠
+/* 压缩轨：刻度＝一段竖向虚线，标"压缩帧落在这里"。栈顶（当前前沿）深灰、被更晚压缩
    取代的过时帧浅灰（深色模式由 --compaction-frame-* 的别名自动倒置）。虚线而不是色块：
    这一轨说的是"某处发生过一次改写"，不是"这一段属于谁"。 */
 .context-axis-lane.is-compress { margin-top: 4px; padding-top: 4px; border-top: 1px dashed var(--border); }
@@ -2999,7 +2999,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .axis-segment.is-compress.is-frontier { background: repeating-linear-gradient(to bottom, var(--compaction-frame-latest) 0 3px, transparent 3px 6px); }
 .axis-segment.is-compress:hover { color: var(--text); opacity: 1; outline: 1px solid var(--accent); }
 
-/* ---------- 压缩分界轨（虚线 + 「以上 … 已被折叠」）----------
+/* ---------- 压缩分界轨（虚线 + 「以上 … 已被压缩」）----------
    刻度只说"这里压过"，虚线才回答"从哪以上被折掉了、那段现在在哪"。虚线向上穿过
    所有轨（超出部分由 .context-axis-track 的 overflow 裁剪），标注贴在线的上端。 */
 .context-axis-lane.is-cut {
@@ -3036,7 +3036,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   pointer-events: none;
 }
 
-/* ---------- 折叠帧正文区（压缩详情内）----------
+/* ---------- 压缩帧正文区（压缩详情内）----------
    与轨迹详情同容器（.axis-detail）同分页组件（.axis-detail-text），不自造第二套。 */
 .axis-detail-frame { padding: 0 10px 10px; }
 .axis-detail-frame-head {
@@ -3389,7 +3389,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 /* ============================================================
    12. 组件库桥接 + 外壳精致化
    ------------------------------------------------------------
-   组件库（vendor/pico.min.css）只提供元素基线：按钮/表单/表格/折叠/对话框的
+   组件库（vendor/pico.min.css）只提供元素基线：按钮/表单/表格/压缩/对话框的
    行为与默认皮。这里做两件事：
      1) 把 Pico 的 --pico-* 变量接到 Seelex token 上——皮肤包换 token，第三方
         组件一起换色，不会带进它自己的一套配色；
@@ -3713,7 +3713,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
    14. 对话列比例（消息 / 思考 / 工具过程）
    ------------------------------------------------------------
    把中间对话列接进同一套节奏：正文 13.5px、辅助信息 10.5px 下限、块间距
-   26px、折叠头 34px、折叠内容 12.5px/1.7。之前这里是 10px 标签 + 22px 间距
+   26px、折叠头 34px、压缩内容 12.5px/1.7。之前这里是 10px 标签 + 22px 间距
    各自为政，跟外壳的控件层对不上。
    ============================================================ */
 .message, .tool-run { margin-bottom: 26px; }
@@ -4644,7 +4644,7 @@ button.team-library-name {
 button.team-library-name:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 
 
-/* E3：员工行 k→v 全字段（折叠进员工行的字段表：一行一栏，空栏也照列） */
+/* E3：员工行 k→v 全字段（压缩进员工行的字段表：一行一栏，空栏也照列） */
 .team-kv { width: 100%; margin-top: 3px; }
 .team-kv > summary {
   cursor: pointer;

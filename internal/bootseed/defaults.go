@@ -11,7 +11,7 @@ import (
 //   - assets/config/seelex.yaml、assets/config/seele.yaml：与仓库 `config/` 下的
 //     规范档**逐字节相同**（规范档是唯一事实源）。同步靠
 //     `scripts/sync-bootseed-defaults.ps1`，漂移由 defaults_test.go 钉住——
-//     "包内那份冻结在旧档"正是 2026-09-29 折叠厚摘要开关那个现场。
+//     "包内那份冻结在旧档"正是 2026-09-29 压缩厚摘要开关那个现场。
 //   - assets/local/tools/<tool>/：本地工具目录的骨架（第三方脚本本体不随包分发，
 //     见该目录的 README）。
 //

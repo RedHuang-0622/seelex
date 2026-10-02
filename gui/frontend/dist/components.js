@@ -67,6 +67,25 @@ export function escapeHtml(value = "") {
 
 export const markdown = renderMarkdown;
 
+// renderSeqBadge 渲染「序号徽标」：一个大号等宽数字 + 下面一行小字单位。
+//
+// 出处是 goal 看板的 active seq（goal-board-view.js）：那里用同一形态说"这是本会话
+// 第几个目标"。它的价值不在像素，而在**一种视觉只写一份**：字号/间距/大写单位一旦
+// 两处各写一份，改配色时必然只改一处（本仓库反复防的漂移）。
+//
+// tone 只换颜色，不换结构：goal 看板用强调色（--accent），压缩条目用压缩帧那档灰
+// （--compaction-frame-latest，与轨迹刻度、对话区分界同一份色）——同一个徽标在两块
+// 面板里读起来仍然是同一件东西。
+export function renderSeqBadge({ seq, unit, title = "", tone = "", failed = false } = {}) {
+  const classes = ["seq-badge"];
+  if (tone) classes.push(`is-${tone}`);
+  if (failed) classes.push("is-failed");
+  return `<span class="${classes.join(" ")}"${title ? ` title="${escapeHtml(title)}"` : ""}>
+      <span class="seq-badge-num">${escapeHtml(String(seq ?? ""))}</span>
+      <span class="seq-badge-unit">${escapeHtml(String(unit ?? ""))}</span>
+    </span>`;
+}
+
 export function renderConversationComponent(messages = [], chat = {}, draft = "", anchor = null) {
   const model = renderConversationModel(messages, chat, draft, anchor);
   return { html: model.items.map(item => item.html).join(""), payloads: model.payloads };
@@ -82,7 +101,7 @@ export const DRAFT_ROW_KEY = "chat:draft";
 // 据此对账 DOM。
 export const COMPACTION_FRONTIER_KEY = "chat:compaction-frontier";
 
-// insertCompactionFrontier 在分界所在的那条消息之后插入一行「以上已折叠」虚线。
+// insertCompactionFrontier 在分界所在的那条消息之后插入一行「以上已压缩」虚线。
 //
 // anchor 是 compaction-format.js 里的 conversationCompactionAnchor 返回值（已算好
 // 落点与文案；null = 本页不画线）。分界是**会话单例**，因此每个对话页最多一行——
@@ -96,7 +115,7 @@ function insertCompactionFrontier(items, anchor) {
   return rows;
 }
 
-// renderCompactionFrontierRow 渲染「以上已折叠」分界行：左右两条虚线夹一枚说明牌，
+// renderCompactionFrontierRow 渲染「以上已压缩」分界行：左右两条虚线夹一枚说明牌，
 // 牌上是三件事——线在哪（label）、上方原文还能不能读（hint，明写不靠悬停）、帧正文
 // 怎么打开（按钮）。入口只携带 data 属性（data-compact-frame-ref），由 app.js 的
 // document 级委托接住——组件不持有 invoke 依赖（同排队卡片的动作按钮）。
@@ -110,7 +129,7 @@ function renderCompactionFrontierRow(anchor) {
         <strong class="conversation-compaction-frontier-label">${escapeHtml(label)}</strong>
         <em class="conversation-compaction-frontier-hint">分界以上的原文仍在下方，可继续上翻阅读；只是不再随请求发给模型</em>
         ${note ? `<span class="conversation-compaction-frontier-note">${escapeHtml(note)}</span>` : ""}
-        ${frameRef ? `<button type="button" class="conversation-compaction-frontier-open" data-compact-frame-ref="${escapeHtml(frameRef)}" title="按 ref ${escapeHtml(frameRef)} 读取折叠帧正文（弹出查看）">查看折叠帧正文</button>` : ""}
+        ${frameRef ? `<button type="button" class="conversation-compaction-frontier-open" data-compact-frame-ref="${escapeHtml(frameRef)}" title="按 ref ${escapeHtml(frameRef)} 读取压缩帧正文（弹出查看）">查看压缩帧正文</button>` : ""}
       </span>
       <span class="conversation-compaction-frontier-line" aria-hidden="true"></span>
     </div>`;
@@ -120,7 +139,7 @@ function renderCompactionFrontierRow(anchor) {
 // 未发送的草稿行 + 运行时活动带。draft 为空/全空白时绝不插行——页面不会凭空多出
 // 一条空白草稿（判据同 draft-lifecycle.js composerDraftRows）。
 // anchor 是会话单例压缩分界（conversationCompactionAnchor 的返回值；null = 本会话
-// 没折叠过、或分界不在本页），只决定「以上已折叠」那一行的落点。
+// 没压缩过、或分界不在本页），只决定「以上已压缩」那一行的落点。
 export function renderConversationModel(messages = [], chat = {}, draft = "", anchor = null) {
   const payloads = new Map();
   const items = insertCompactionFrontier(buildConversationItems(messages), anchor);
@@ -229,7 +248,7 @@ function renderQueuedMessage(input, index, length) {
 }
 
 // queueRowText 把排队正文压成单行条要的两份文本：line 是条上显示的那一行（连续
-// 空白折叠成单个空格，免得换行把一行撕出空洞），tip 是完整原文（保留换行，交给
+// 空白压缩成单个空格，免得换行把一行撕出空洞），tip 是完整原文（保留换行，交给
 // data-tip）。两份都原样交给 escapeHtml，正文里的标签不会被当成 HTML。
 function queueRowText(value) {
   const original = String(value ?? "");

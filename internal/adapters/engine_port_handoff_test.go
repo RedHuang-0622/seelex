@@ -17,7 +17,7 @@ import (
 // Runtime.PrepareMainSessionHistory → sessionBindings.mu → binding.mu →
 // DurableHistory.PrepareNextLoad，即「持全进程端口锁调宿主实现」。后果有两层：
 //
-//   - 慢活计进全局锁：每次历史替换（折叠/恢复）都在 port.mu 内走一遍宿主侧链路，期间所有
+//   - 慢活计进全局锁：每次历史替换（压缩/恢复）都在 port.mu 内走一遍宿主侧链路，期间所有
 //     会话的查表、开回合、读历史全排在这一把锁后面；
 //   - 自锁窗口：宿主实现只要回读端口（本文件的用例就是拿 HasSession 模拟这一步），持锁同步
 //     重入非重入锁即永久挂死——与本仓 2026-09-23 / 2026-09-29 那两起事故同形。

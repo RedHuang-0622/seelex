@@ -149,10 +149,10 @@ func buildGapFrame(
 	if requestFrom == "" && requestTo == "" {
 		requestFrom, requestTo = ChatQueueRequestLabels(from, gapEnd)
 	}
-	chapter2, carry := LocalChapter2WithCarry(LocalFoldOptions{
+	chapter2, carry := LocalChapter2WithCarry(LocalCompactOptions{
 		Overflow:         units,
 		UnitCount:        len(uncovered),
-		Kind:             CompactFoldGap,
+		Kind:             LocalCompactGap,
 		PrevTop:          prevTop,
 		CarryLimitTokens: opts.FrameCarryTokens,
 		Record:           opts.Record,

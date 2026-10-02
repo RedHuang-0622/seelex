@@ -255,9 +255,9 @@ tool / command 是同一个生态位**——激活后的正文是 transcript 里
 | 保留比例 `window.ratio` | 保留区占全量上下文的比例 = `token2` | `token2 = ratio × all_context` | 0.7 |
 | 保留上限（写死）`window.retain_tokens` | 保留区的绝对上限 = `token1`；0 = 未配置 | 未配置时 `token1` 取 `Budget.Window` 兜底 | 0（→ 默认实际由 ratio 决定） |
 | **保护区下限 `context_retain_floor_percent`** | 保留区的比例下限（《已落地》1） | `floor = max(最近 1 个完整协议单元, 比例 × 预算)`；判定 `clamp(min(token1,token2), floor, token1)` | 0（未配置 → 只剩「至少 1 单元」兜底） |
-| **帧摘要传递上限 `context_frame_carry_tokens`** | 本地折叠把上一帧 Chapter 2 正文并入新帧的并入量上限（《已落地》2） | 超限 → 退化为锚点（`segment_id` + request 首尾 + 一句话） | 1024 |
+| **帧摘要传递上限 `context_frame_carry_tokens`** | 本地压缩把上一帧 Chapter 2 正文并入新帧的并入量上限（《已落地》2） | 超限 → 退化为锚点（`segment_id` + request 首尾 + 一句话） | 1024 |
 | 独立触发线 `window.force_compact_tokens` | 不看比例的另一条压缩触发线 | `all_context ≥ 该值` 即触发；0 = 未配置 | 0（不触发） |
-| 轮数窗口 `window.rounds/min_rounds/max_rounds` | 框架侧按**轮**折叠的窗口（另一条独立路径） | `clamp((Window × ratio − Reserved) / AvgRoundTokens, min, max)` | 0 / 4 / 40 |
+| 轮数窗口 `window.rounds/min_rounds/max_rounds` | 框架侧按**轮**压缩的窗口（另一条独立路径） | `clamp((Window × ratio − Reserved) / AvgRoundTokens, min, max)` | 0 / 4 / 40 |
 | 窗口保留轮数 `limits.context_max_units` | 压缩后 context 最多留几轮 | — | 4 |
 | 消息分片 `limits.message_shard_size` | 原文分片粒度（事实源） | — | 100 条/片 |
 | 项目摘要上限 `limits.summary_chars` | 只作用于**项目记录摘要**，**不作用于压缩帧** | — | 800 |
@@ -271,14 +271,14 @@ tool / command 是同一个生态位**——激活后的正文是 transcript 里
 > **1227 字符 / 388 token**（10 个技能，插件级稳定）；plan 政策段 **287 字符 / 85 token**；
 > 一条典型 plan payload（含 `current_slice`）**347 字符 / 119 token**。
 
-### 压缩（折叠 compact 栈顶 + context 窗口）
+### 压缩（压缩 compact 栈顶 + context 窗口）
 
 ```text
 同一任务连续轮次（context 逐轮追加）：
 ├system(C)┼project(C)┼memory(C)┼compact(C)┼─context(轮1..N-1 已定稿,C)─┼plan+政策(S)┼task(S)┼输入(S)┤
    ↑ 稳定段 + 已定稿 context 全命中；每轮只重发 plan/政策/task/新输入
 
-context 达峰 → 压缩（折叠 compact 栈顶 + context 窗口，保留新鲜 compact 帧 + 窗口剩余）：
+context 达峰 → 压缩（压缩 compact 栈顶 + context 窗口，保留新鲜 compact 帧 + 窗口剩余）：
 ├system(C)┼project(C)┼memory(C)┼compact(+新帧,S)┼context(重置,新起点,C)┼plan+政策(S)┼task(S)┼输入(S)┤
    ↑ 压缩即整条前缀失效一次；之后 context 重新累积，恢复长命中
 ```
@@ -286,7 +286,7 @@ context 达峰 → 压缩（折叠 compact 栈顶 + context 窗口，保留新�
 实现落点：应用侧按**达峰线**触发压缩——请求估算 ≥ `SoftThreshold`（当前 130866
 ≈ 75% 预算）即发布 `Snapshot.Task.ContextCompactions`，并把 context 切换为有界
 新鲜窗口（≤ `limits.context_max_units`，当前 4 轮）；框架侧 `ContextController` 把
-窗口外轮次折叠进 CompactStack（保留窗口剩余 + compact 帧标记）。装配完成后再按
+窗口外轮次压缩进 CompactStack（保留窗口剩余 + compact 帧标记）。装配完成后再按
 `estimated` 判一次**装配上限**（当前 157039 ≈ 90% 预算）；`estimated > Budget` 直接
 报错（`ErrProviderContextBudgetExceeded`），不静默超限。plan/task 尾部消息是控制
 标记（`<!-- seelex:active-plan:v1 -->`），不参与轮次单元切分，即不参与压缩。
@@ -351,7 +351,7 @@ floor  = max(最近 1 个完整协议单元, context_retain_floor_percent × 预
 
 1. `retain_tokens` 在直觉上是**上限**（不许超过这么多）而不是下限，只有 min 表达得上；取 max 等于把用户意图读反。
 2. 失效方向单调：保留区越小 → 压缩区越大 → 越有余量、越压得动；取小的代价只是「少看一点原文」，而原文可检索回读；取大一顶到窗口上限就直接发不出去（不可挽回）。
-3. 只有保留区会收紧时，**装配上限**（当前 90% 预算）才有腾挪空间；取大会让保护区先吃掉余量，装配上限一响只剩「整段折叠 = 失忆」。
+3. 只有保留区会收紧时，**装配上限**（当前 90% 预算）才有腾挪空间；取大会让保护区先吃掉余量，装配上限一响只剩「整段压缩 = 失忆」。
 
 下限（floor）用于挡住 min 的坏方向：用户把 `retain_tokens` 写小 → 保护区被压到失忆。现状只有「至少保最新 1 个完整协议单元」这条兜底，没有比例下限。
 配置校验：`floor > retain_tokens` 必须**报错**，不许静默取小（否则「用户设了个大数」这类问题会被吞掉）。
@@ -419,7 +419,7 @@ floor  = max(最近 1 个完整协议单元, context_retain_floor_percent × 预
 1. **装配顺序对齐**：主会话最终请求 = seelexctx assembler 的 project/stacks/memory/blocks + context_runtime 的 system/plan/checkpoint/tail 两层拼接。需调整为：system → project → memory → compact → 累积 context → plan → task → 输入。
 2. **checkpoint 移出**：正常路径不再注入 `checkpointMessage`；`history_safety.go` 的恢复路径保留。
 3. **累积 context**：`RetainedSystemHistory` 语义从“仅首条 system”扩展为“稳定前缀 + 已定稿轮次”；`TranscriptTailHistory` 的有界窗口改为达峰才压缩。
-4. **plan/task 后置且不被压缩**：`RenderStackBlocks` 拆分——compact 前移，plan/task 移到尾部；压缩只折叠 compact 栈顶 + context 窗口。
+4. **plan/task 后置且不被压缩**：`RenderStackBlocks` 拆分——compact 前移，plan/task 移到尾部；压缩只压缩 compact 栈顶 + context 窗口。
 5. **fork todolist 过滤**：`truncateForkRecord` 的 `Tasks` 过滤 `kind=todo`，子会话 todolist 全新。
 
 **实现状态**：
@@ -454,7 +454,7 @@ floor  = max(最近 1 个完整协议单元, context_retain_floor_percent × 预
 7. 已实现：帧摘要传递上限 `context_frame_carry_tokens`
    （`seelexctx.CarryPreviousChapter2`，控制器 / DAG / 真空区三条路径共用）。
 8. 已实现：replay 分片链（`seelexctx.ChunkReplayMessages` / `SummarizeChunkPlan`）；
-   分片由 `CompactionDAGOptions.ReplayInputTokens` 触发，失败整条回退本地折叠。
+   分片由 `CompactionDAGOptions.ReplayInputTokens` 触发，失败整条回退本地压缩。
 9. 已实现：四区显式化（`application/core/context_runtime/layout.go` 的 `ContextLayout`）：
    判据量与报表（门禁 Detail、帧正文四区区块）读同一份 layout。
 
@@ -507,7 +507,7 @@ floor  = max(最近 1 个完整协议单元, context_retain_floor_percent × 预
      （baseline retained=1361 / floor=0 → floored retained=16476 / floor=16476，`floor_applied` 翻真）。
 
 2. **帧摘要传递上限**：新增旋钮 `limits.context_frame_carry_tokens`（默认 1024），
-   并入动作收敛到 `seelexctx.CarryPreviousChapter2`（控制器 / DAG / 真空区三条折叠路径共用）：
+   并入动作收敛到 `seelexctx.CarryPreviousChapter2`（控制器 / DAG / 真空区三条压缩路径共用）：
    并入量 ≤ 上限时原样并入；超限则退化为**锚点**（`segment_id` + request 首尾 + 一句话 +
    "正文为什么不见了"），细节靠 `search_history` / `read_compressed_turn` 回读。
    - **打点**：帧证据留一条 `frame-carry:{kept|anchor}:<carried>/<limit>`（`CarryEvidence`），
@@ -519,7 +519,7 @@ floor  = max(最近 1 个完整协议单元, context_retain_floor_percent × 预
    **不切 message**；单单元自身超预算时独占一片）与 `SummarizeChunkPlan`（逐片重放、摘要
    前向传递：片 i>1 把上一片摘要拼进指令尾巴，不改摘要器契约）。片预算由
    `CompactionDAGOptions.ReplayInputTokens` 给出（≤0 = 不分片，走原有的单次重放以保住前缀
-   缓存）；任何一片失败即整条退出，调用方回退本地确定性折叠，绝不中断请求。
+   缓存）；任何一片失败即整条退出，调用方回退本地确定性压缩，绝不中断请求。
    - **打点**：分片时帧证据留 `replay-chunked:<n>`（`ReplayEvidence`）+ `summary_source=replay`；
      未分片不留痕（避免"分片 1 片"这种无信息项）；
    - 验证：`seelexctx/replay_chunk_test.go`（片界不切工具链、片 2 携带片 1 摘要、

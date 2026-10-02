@@ -44,7 +44,7 @@ localStorage 记忆）。历史检索保留在右栏子页之下的「更多」�
 - **门禁进度条（瞬态，不进快照）**：后端每收一关发一条 `compaction.progress`
   （会话级、`revision=0`），一轮的形状是起手帧 → 六关收口 → 恰好一个终局。起手帧
   （`phase=begin`）**只有显式压缩有**（`/compact`、`compact_context`）：自动路径"要不要
-  折叠"正是判据估算的结果，提前宣告会在不折叠的那几轮里说谎。六关顺序的唯一事实在后端
+  压缩"正是判据估算的结果，提前宣告会在不压缩的那几轮里说谎。六关顺序的唯一事实在后端
   `context_runtime.CompactionGates`（判据估算→装配→替换 provider 历史→渲染帧→存帧→写记录），
   前端文案表 `compaction-format.js` 的 `compactionGateLabels` 键序钉住它（有测试盯着）。
   轨道复用 Plan 面板同款 `.plan-board-progress` / `.plan-board-bar`，不自造第二套进度组件；
@@ -53,12 +53,12 @@ localStorage 记忆）。历史检索保留在右栏子页之下的「更多」�
   条，能回答"它到底干了什么、慢在哪一关"的只有每关自己的墙钟（`elapsed_ms` 是逐段值，
   各帧相加才是总数）。生命周期一轮即结束：视图侧 `app.js: applyCompactionProgress` 在终局后
   保留 2.5s（失败 6s）让人读完结论，再自动撤条；逐帧累计是纯函数
-  `compaction-format.mergeCompactionProgress`。**没折叠就没有进度**，但"零记录 + 有进度"
-  仍要出条——折叠发生在写记录之前。
+  `compaction-format.mergeCompactionProgress`。**没压缩就没有进度**，但"零记录 + 有进度"
+  仍要出条——压缩发生在写记录之前。
 - **压缩记录条目（快照事实）**：`snapshot.task.context_compactions` 的公开元数据
   （版本 / 原因 / 来源 / 被压区间 / 估算 / 时间）。展示口径与轨迹「压缩」轨共用同一份纯函数
   （`compaction-format.js`）：两处各写一份就会出现同一条记录两种读法。
-- **折叠帧正文（按 ref 分页读回）**：条目上的「查看帧正文」经
+- **压缩帧正文（按 ref 分页读回）**：条目上的「查看帧正文」经
   `Bridge.ToolResultContent(frame_ref, offset, 12000)` 读回那一页，复用轨迹详情的同一容器与
   分页交互（`.axis-detail` / `data-compact-frame-load`），不另开面板。正文不进快照，前端只按
   ref 取；没有 `frame_ref` 的条目直说「本次没有可回读正文」，不画一个点了没反应的按钮。

@@ -1,6 +1,6 @@
 package core
 
-// 复现（一）：**折叠在持有 Core.ViewMu 的临界区里做推帧**——锁的持有时间 = 推帧
+// 复现（一）：**压缩在持有 Core.ViewMu 的临界区里做推帧**——锁的持有时间 = 推帧
 // 的耗时。推帧在生产路径上不是纯计算：
 //
 //   - seelebridge/runtime_compaction_index.go 先跑 MainCompactionDAG：
@@ -18,7 +18,7 @@ package core
 //	进度条停在 replace 关（3/7）——index 关要等推帧返回才收口。
 //
 // 修法（2026-09-29）：临界区拆成三段——锁内提交状态（A）→ **锁外**推帧与渲染
-// （B）→ 锁内落存储与写记录（C）。于是推帧进行中只有"这一次折叠自己"在等，
+// （B）→ 锁内落存储与写记录（C）。于是推帧进行中只有"这一次压缩自己"在等，
 // 交互面（快照/提交/切会话/写锁本身）不再被扣住。
 //
 // 本用例用"推帧可阻塞"的索引面桩把这段耗时变成可控的判定点：判据 = 推帧进行中
@@ -99,7 +99,7 @@ func TestExplicitCompactReproViewMuHoldAcrossFramePush(t *testing.T) {
 	service.components.tasks.BeginTask("task-viewmu", "inspect", "high", nil, TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	// 4 个已定稿大轮（约 16 万 tokens）：越软阈值，显式压缩会折出非空溢出区，
-	// 折叠才会走到推帧那一关。
+	// 压缩才会走到推帧那一关。
 	appendIndexRounds(t, service, "task-viewmu")
 	sessionID := service.Snapshot().Session.ID
 
@@ -170,7 +170,7 @@ func TestExplicitCompactReproViewMuHoldAcrossFramePush(t *testing.T) {
 			evidence = append(evidence, "推帧 ctx 不可取消（context.Background，见 compaction_index.go:68）："+
 				"这一轮只能等推帧自己回来（交互面已不受影响时不算缺陷，见本用例的判据面）")
 		}
-		t.Fatalf("折叠在持有 Core.ViewMu 期间推帧，锁被推帧扣住（交互面被冻）：%s", strings.Join(evidence, "；"))
+		t.Fatalf("压缩在持有 Core.ViewMu 期间推帧，锁被推帧扣住（交互面被冻）：%s", strings.Join(evidence, "；"))
 	}
 
 	// 推帧没回来之前 /compact 不得返回：压缩记录与帧正文都要嵌推帧回执
@@ -193,7 +193,7 @@ func TestExplicitCompactReproViewMuHoldAcrossFramePush(t *testing.T) {
 	frames := append([]compactionProgressFrame(nil), drainCompactionProgress(t, subscription)...)
 	sequence := gateSequence(frames)
 	if len(sequence) != context_runtime.CompactionGateTotal() {
-		t.Fatalf("一轮折叠应走满 %d 关，实际 %d 关：%v",
+		t.Fatalf("一轮压缩应走满 %d 关，实际 %d 关：%v",
 			context_runtime.CompactionGateTotal(), len(sequence), sequence)
 	}
 	for index, gate := range context_runtime.CompactionGates {

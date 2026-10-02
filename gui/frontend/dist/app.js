@@ -411,11 +411,11 @@ const client = createGUIClient({
     if (sessionID !== lastViewSessionID) {
       lastViewSessionID = sessionID;
       resetAckWatermark();
-      // 门禁进度按会话路由投递：跟着视图走的那条进度条属于上一个会话的折叠，
+      // 门禁进度按会话路由投递：跟着视图走的那条进度条属于上一个会话的压缩，
       // 切过来还挂着就是把别的会话的压缩说成当前会话的。权威快照随后重绘面板。
       dropCompactionProgress();
       // 帧正文视图态（右栏展开的正文 + 帧正文弹框）同属上一个会话：切过来还挂着
-      // 就是把别的会话的折叠正文说成当前会话的。清掉即"按会话重读"——用户再展开
+      // 就是把别的会话的压缩正文说成当前会话的。清掉即"按会话重读"——用户再展开
       // 时按 ref 从当前会话的内容存储重读一次。
       resetCompactionViewState();
     }
@@ -1103,14 +1103,14 @@ function reportExplorerRefreshFailure(error, info) {
   }
 }
 
-// ── 上下文压缩条目：展开查看折叠帧正文 ────────────────────────
+// ── 上下文压缩条目：展开查看压缩帧正文 ────────────────────────
 // 帧正文不进快照（快照只带 frame_ref），展开时按 ref 分页读回；展开与分页都是
 // 本地 UI 状态。容器与分页组件与轨迹详情同一套（.axis-detail +
 // data-compact-frame-load），不自造第二套面板。
 //
 // 视图态的身份是 **(会话, frame_ref)**，不是记录数组下标：下标既会随记录数组重排，
 // 更会随会话切换指向另一条记录——上一个会话读回来的正文挂在当前会话的同一序号行上，
-// 就是把别的会话的折叠说成当前会话的。ref 是内容存储里的引用，跨会话不会撞；会话
+// 就是把别的会话的压缩说成当前会话的。ref 是内容存储里的引用，跨会话不会撞；会话
 // 字段把"这份正文属于谁"写进视图态（渲染侧据此拒绝跨会话正文，见
 // renderContextCompactions 的 sessionID 选项），会话切换时整份清空（见
 // resetCompactionViewState：用户再展开就按 ref 从当前会话重读一次）。
@@ -1140,7 +1140,7 @@ function compactionViewSessionID() {
 // 切换调用（见 onSnapshot 的会话切换分支）。
 //
 // 为什么必须整份清而不是只靠 ref 判定：帧正文是**按 ref 从当前会话的内容存储**
-// 读回来的，上一个会话读回来的正文还挂在视图里，就是"把别的会话的折叠说成当前
+// 读回来的，上一个会话读回来的正文还挂在视图里，就是"把别的会话的压缩说成当前
 // 会话的"。清掉之后用户再展开会按 ref 重读一次——即用户口径的"根据会话重读压缩帧"。
 // 在途读取一并作废（两枚 token 都推进）：它们的响应不得落回切换后的视图。
 function resetCompactionViewState() {
@@ -1239,7 +1239,7 @@ async function onContextCompactionsClick(event) {
   repaintCompactions(compactions);
 }
 
-// loadCompactionFrame 按 ref 分页读取折叠帧正文。失败只更新条目内的错误文案
+// loadCompactionFrame 按 ref 分页读取压缩帧正文。失败只更新条目内的错误文案
 // （用户就在这里，不再弹全局提示）；不改变展开状态本身。
 //
 // 每次读取都把 (ref, 会话) 一起写回视图态：读取是异步的，期间可能又点了另一条记录、
@@ -1270,8 +1270,8 @@ async function loadCompactionFrame(ref, offset, previousText) {
 }
 
 // repaintCompactions 是右栏「上下文压缩」面板的唯一出口：记录列表 + 本轮门禁
-// 进度条一起画，可见性判据必须同源——折叠发生在写记录之前，"零记录"时面板
-// 仍可能有一轮压缩正在跑，按记录数判隐藏会让第一次折叠看不到进度条。
+// 进度条一起画，可见性判据必须同源——压缩发生在写记录之前，"零记录"时面板
+// 仍可能有一轮压缩正在跑，按记录数判隐藏会让第一次压缩看不到进度条。
 //
 // 块本身挂在 状态/概要 折叠区**里面**（用户口径：压缩内容放概要下面），折叠区默认
 // 收起——所以"本轮正在压 / 刚压完"这条瞬态要自己把折叠区打开（见 revealStatusPanel）；
@@ -1295,9 +1295,9 @@ function revealStatusPanel() {
   if (panel && !panel.open) panel.open = true;
 }
 
-// ── 折叠帧正文弹框 ───────────────────────────────────────────
+// ── 压缩帧正文弹框 ───────────────────────────────────────────
 // 帧正文入口（data-compact-frame-ref）出现在三处：右栏「上下文压缩」条目、对话区
-// 「以上已折叠」分界行、以及将来任何一处——委托因此挂在 document 上，一处接住所有
+// 「以上已压缩」分界行、以及将来任何一处——委托因此挂在 document 上，一处接住所有
 // 入口，组件侧只携带 ref（不持有 invoke 依赖）。
 //
 // 弹框与右栏展开共用同一份正文区（renderCompactionFrameModal → renderFrameDetail），
@@ -1349,7 +1349,7 @@ function repaintCompactionFrameModal() {
     record.compacted_at ? String(record.compacted_at) : ""
   ].filter(Boolean).join(" · ");
   if (elements["compaction-frame-modal-title"]) {
-    elements["compaction-frame-modal-title"].textContent = version > 0 ? `折叠帧正文 · 压缩 #${version}` : "折叠帧正文";
+    elements["compaction-frame-modal-title"].textContent = version > 0 ? `压缩帧正文 · 压缩 #${version}` : "压缩帧正文";
   }
   if (elements["compaction-frame-modal-meta"]) elements["compaction-frame-modal-meta"].textContent = facts;
   view.innerHTML = renderCompactionFrameModal({ record, detail: compactionFrameModal.detail });

@@ -455,7 +455,7 @@ func reachableToolResultRefs(events []sessionstore.Event, record model.SessionRe
 		}
 	}
 	// 压缩记录的帧正文（ContextCompactions[].FrameRef，**ForkSession** 口径）：右栏
-	// 「上下文压缩」与轨迹详情按它回读折叠帧正文，而子会话是整批继承压缩记录
+	// 「上下文压缩」与轨迹详情按它回读压缩帧正文，而子会话是整批继承压缩记录
 	// （见 truncateForkRecord：晚于切断点的结论不继承、压缩历史保留），所以这些
 	// 记录的 FrameRef 必须跟着可达——漏掉它，子会话里每条压缩条目都报「读取
 	// 失败」，而正文其实还在存储里（ref 不在子会话 refs 索引里，

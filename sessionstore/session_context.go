@@ -179,7 +179,7 @@ type CompactFrame struct {
 	PrevSummaryOneLine string `json:"prev_summary_one_line,omitempty"`
 
 	// SummarySource/AnchorSource 是兜底质量标记（详设 §4.5）：
-	//   SummarySource: replay（前缀重放厚摘要）| local（确定性本地折叠）
+	//   SummarySource: replay（前缀重放厚摘要）| local（确定性本地压缩）
 	//   AnchorSource:  ok（锚点完整）| degraded（一句话摘要降级为空）
 	// 空值 = 旧记录未声明。
 	SummarySource string `json:"summary_source,omitempty"`

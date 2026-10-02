@@ -77,9 +77,9 @@ type serviceState struct {
 	// 它必须独立于 ChatState.Running 存在：落在**没有在飞回合**的会话上的显式
 	// 压缩（冷加载/刚清空 → compactSessionContextWithoutEpoch）刻意不写 Running
 	// （伪造 Running 会把“有人在跑这个会话”漏进快照、任务注册表和停止按钮），
-	// 于是 Submit 的 busy 判据看不见这一轮。缺这道门时的现场：一条消息在折叠
+	// 于是 Submit 的 busy 判据看不见这一轮。缺这道门时的现场：一条消息在压缩
 	// 读完引擎历史之后、写回之前开出新回合，两边各自替换引擎历史并写上下文状态，
-	// 后写的那份把这一轮折叠整个丢掉。
+	// 后写的那份把这一轮压缩整个丢掉。
 	// compactSig 是「有会话的压缩轮已收口」的广播信号，形状与 restoreSig 相同
 	// （等待方先读通道再睡觉，醒来重读集合复判）。见 context_compact_gate.go。
 	compacting map[string]struct{}

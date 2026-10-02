@@ -36,7 +36,7 @@ export function createConversationView(container, options = {}) {
   // **只在用户真的离开尾部时**才自动翻：可见窗口是"从 history_offset 起的连续一段"
   // （后端 history_window），翻更早页会把窗口整体后退，最新的那一段随之离开 DOM。
   // 用户停在尾部时他看的就是最新内容，此时任何自动触发（IntersectionObserver 在容器
-  // display:none 后重新显示、布局变化把 sentinel 带进 rootMargin、侧栏折叠改变可用
+  // display:none 后重新显示、布局变化把 sentinel 带进 rootMargin、侧栏压缩改变可用
   // 高度）都会把最新消息静默移出窗口——这正是"看不到最新消息"最容易复现的一条。
   // 显式的「加载更早」按钮走宿主命令（invoke LoadMoreHistory），不受这里限制。
   async function loadOlder() {

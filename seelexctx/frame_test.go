@@ -12,7 +12,7 @@ import (
 // TestLocalChapter2SkeletonKeepsSections 详设 §3.2：空章节写 (none)，
 // 不丢章节骨架。
 func TestLocalChapter2SkeletonKeepsSections(t *testing.T) {
-	body := LocalChapter2(LocalFoldOptions{})
+	body := LocalChapter2(LocalCompactOptions{})
 	for _, title := range []string{
 		Chapter2SectionGoal, Chapter2SectionKeyConcepts,
 		Chapter2SectionFilesAndCode, Chapter2SectionErrorsFixes,
@@ -28,9 +28,9 @@ func TestLocalChapter2SkeletonKeepsSections(t *testing.T) {
 	}
 }
 
-// TestLocalChapter2OverflowFold 控制器本地折叠：目标/概念来自任务与计划
+// TestLocalChapter2OverflowCompact 控制器本地压缩：目标/概念来自任务与计划
 // 栈，工具名进文件小节，轮次行进当前工作小节。
-func TestLocalChapter2OverflowFold(t *testing.T) {
+func TestLocalChapter2OverflowCompact(t *testing.T) {
 	overflow := []historyUnit{
 		{messages: []types.Message{
 			textMessage("user", "请迁移模块"),
@@ -42,8 +42,8 @@ func TestLocalChapter2OverflowFold(t *testing.T) {
 		TaskStack: []sessionstore.TaskFrame{{TaskID: "task-1", Objective: "迁移上下文控制", Status: "active"}},
 		PlanStack: []sessionstore.PlanFrame{{PlanID: "plan-1", Title: "重构计划", Status: "active"}},
 	}
-	body := LocalChapter2(LocalFoldOptions{
-		Overflow: overflow, UnitCount: 1, Kind: CompactFoldOverflow, Record: record,
+	body := LocalChapter2(LocalCompactOptions{
+		Overflow: overflow, UnitCount: 1, Kind: LocalCompactOverflow, Record: record,
 	})
 	for _, want := range []string{"迁移上下文控制", "重构计划 (active)", "read_file", "溢出轮次: 1 个完整协议单元"} {
 		if !strings.Contains(body, want) {
@@ -52,13 +52,13 @@ func TestLocalChapter2OverflowFold(t *testing.T) {
 	}
 }
 
-// TestLocalChapter2GapFold 真空区折叠：文案用真空区轮次并保留上一栈顶
+// TestLocalChapter2GapCompact 真空区压缩：文案用真空区轮次并保留上一栈顶
 // Chapter 2 正文（本地路径的栈顶自足近似）。
-func TestLocalChapter2GapFold(t *testing.T) {
+func TestLocalChapter2GapCompact(t *testing.T) {
 	prev := sessionstore.CompactFrame{Summary: "## 压缩内容 (Compacted Context)\n### 当前工作 (Current Work)\n先前内容行"}
 	overflow := []historyUnit{{messages: []types.Message{textMessage("user", "round D")}}}
-	body := LocalChapter2(LocalFoldOptions{
-		Overflow: overflow, UnitCount: 4, Kind: CompactFoldGap, PrevTop: &prev,
+	body := LocalChapter2(LocalCompactOptions{
+		Overflow: overflow, UnitCount: 4, Kind: LocalCompactGap, PrevTop: &prev,
 	})
 	for _, want := range []string{
 		"真空区轮次: 4 个完整协议单元",

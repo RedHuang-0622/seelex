@@ -6,7 +6,7 @@ package core
 // 链路（每一跳都是生产接线，不是假想）：
 //
 //	prepareExecutionContextFor                       （coordinator.go:664 起持写锁）
-//	  └─ c.ViewMu.Lock()                             ← 写锁落在执行这条折叠的 goroutine 上
+//	  └─ c.ViewMu.Lock()                             ← 写锁落在执行这条压缩的 goroutine 上
 //	       └─ c.pushCompactionFrame                  （coordinator.go:721，仍在临界区内）
 //	            └─ CompactionIndexPort.PushCompactionFrame(context.Background(), …)
 //	                 （context_runtime/compaction_index.go:68 —— ctx 是 Background）
@@ -26,7 +26,7 @@ package core
 //	Snapshot 永不返回 → 会话切不动、会话列表与右栏不再刷新；
 //	Submit 的第一步（ViewMu.RLock）永不返回 → 消息连队列都进不去。
 //
-// 触发条件是「折叠折出了非空区间」（overflow 非空，才会走到归档）且装配了轮次归档器
+// 触发条件是「压缩折出了非空区间」（overflow 非空，才会走到归档）且装配了轮次归档器
 // —— 生产装配（main.go:310 注入 CompressedTurnArchiver）恒为真，所以这条路径在真实
 // 进程里是**确定性**自锁，不是概率事件，与是否打开 context_compaction_summary 无关
 // （打开时只是在自锁之前多跑一次模型调用）。
@@ -65,7 +65,7 @@ func (stub *archiverSessionsStub) commitCount() int {
 	return stub.commits
 }
 
-// productionArchiveIndexRuntime 按生产接线模拟折叠帧的推帧落点：跑完 DAG（这里以桩
+// productionArchiveIndexRuntime 按生产接线模拟压缩帧的推帧落点：跑完 DAG（这里以桩
 // 代替）后走**真实**的 CompressedTurnArchiver 归档原文，并把 ctx 原样转发——与
 // seelebridge/runtime_compaction_index.go 的第二步同形。
 type productionArchiveIndexRuntime struct {
@@ -94,7 +94,7 @@ func (runtime *productionArchiveIndexRuntime) PushCompactionFrame(
 // TestExplicitCompactFramePushSelfDeadlocksRepro：在真实归档接线（main.go:310 同形）
 // 下提交一次 `/compact`，判定交互面是否被永久冻死。
 //
-// 修法（2026-09-29）：折叠落点拆成三段——锁内提交状态（A）→ **锁外**推帧与渲染
+// 修法（2026-09-29）：压缩落点拆成三段——锁内提交状态（A）→ **锁外**推帧与渲染
 // （B）→ 锁内落存储与写记录（C）。本用例因此从"复现证据"转为**存活断言**：提交
 // 必须返回、快照仍可取、归档真的落盘。它就是这条路径的回归守卫——把推帧放回
 // 临界区，本用例立刻变红（有牙证明见 docs/devlog/2026-09-29-compaction-fold-lock-granularity.md）。
@@ -179,7 +179,7 @@ func TestExplicitCompactFramePushSelfDeadlocksRepro(t *testing.T) {
 		} else {
 			evidence = append(evidence, "新消息 1s 未进队列（Submit 第一步就取 ViewMu.RLock）")
 		}
-		t.Fatalf("装配层折叠自锁（ViewMu 写锁内再取读锁，/compact 永不返回）：%s", strings.Join(evidence, "；"))
+		t.Fatalf("装配层压缩自锁（ViewMu 写锁内再取读锁，/compact 永不返回）：%s", strings.Join(evidence, "；"))
 	}
 
 	// 走到这里说明自锁已不存在：交互面必须保持可用，且归档必须真的落盘。

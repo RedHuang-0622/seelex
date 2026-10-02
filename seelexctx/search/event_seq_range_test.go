@@ -15,11 +15,11 @@ import (
 //	单元:  [0]={seq1,seq2}     [1]={seq4}              [2]={seq6}
 //
 // 于是"事件下标 3 → 单元下标"既不是 3 也不是 3−1：孤儿与未知角色各吃掉一个下标，
-// 任何减法都会错位。这正是装配层折叠帧只能按 Seq 反查、不能推算的原因。
+// 任何减法都会错位。这正是装配层压缩帧只能按 Seq 反查、不能推算的原因。
 func orphanHeavyStream() []sessionstore.Event {
 	return []sessionstore.Event{
 		{Seq: 1, Role: "user", Content: "查一下压缩帧索引面为什么是空的"},
-		{Seq: 2, Role: "assistant", Content: "因为装配层折叠不推 CompactStack"},
+		{Seq: 2, Role: "assistant", Content: "因为装配层压缩不推 CompactStack"},
 		{Seq: 3, Role: "tool", Name: "orphan_result", Content: "孤儿工具结果，不构成单元"},
 		{Seq: 4, Role: "user", Content: "那 search_history 走的是兜底扫描"},
 		{Seq: 5, Role: "mystery", Content: "未知角色，归档证据但不成单元"},
@@ -88,14 +88,14 @@ func TestEventSeqUnitRangeRefusesToGuess(t *testing.T) {
 }
 
 // TestBuildHitPrefersEventSeqOverUnitIndex：帧同时带 From/To 与 EventSeq 时，
-// 以 EventSeq 为准。装配层折叠帧的 From/To 是 0（它算不准单元下标），若仍按
+// 以 EventSeq 为准。装配层压缩帧的 From/To 是 0（它算不准单元下标），若仍按
 // From/To clamp，就会读到事件流最开头的单元——那是**别的轮次**，而且不报错。
 func TestBuildHitPrefersEventSeqOverUnitIndex(t *testing.T) {
 	units := sessionstore.CompleteEventUnits(orphanHeavyStream())
 	candidate := memory.Candidate{
 		SegmentID: "compact-sess-1",
 		Summary:   "接通压缩帧索引面",
-		From:      0, To: 0, // 装配层折叠帧：单元下标未声明
+		From:      0, To: 0, // 装配层压缩帧：单元下标未声明
 		EventFrom: 6, EventTo: 6,
 	}
 	hit := buildHit("索引面", candidate, units, 4_000)

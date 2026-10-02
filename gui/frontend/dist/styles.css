@@ -55,7 +55,7 @@
   --text-dim: #6b6f76;
 
   /* 压缩帧灰阶（轴刻度、压缩栈表格、分界虚线共用）：栈顶/当前前沿=深灰，已被更晚
-     折叠取代的过时帧=浅灰。这里只**别名**中性 ramp，不写第二套色值——--text-strong
+     压缩取代的过时帧=浅灰。这里只**别名**中性 ramp，不写第二套色值——--text-strong
      与 --faint 在深色基座里本身就更浅/更深，所以「深色模式倒置」由深浅两套基座自动
      完成，不需要再补一份 :root[data-theme="dark"] 覆盖。 */
   --compaction-frame-latest: var(--text-strong);
@@ -450,7 +450,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 /* 列表行**按内容高度排**（align-content: start + grid-auto-rows: max-content），
    不按网格拉伸线平分容器高度，也不许被压扁。
    现场 A（align-content）：左栏会话列表 .stack-list 是定高网格（flex: 1 1 auto
-   + 滚动），grid 的 align-content 默认是 stretch——当分组被折叠、行内容不足时，
+   + 滚动），grid 的 align-content 默认是 stretch——当分组被压缩、行内容不足时，
    每条 .session-group 的行盒被拉成等高的大块，用户看到的是「几块空白白卡 +
    固定高度、滚不动」（会话看起来"全没了"，其实是折叠态被撑开成空白块）。
    现场 B（grid-auto-rows）：左栏要的是"项目抽屉之外还有一条外层滚轮"，而
@@ -701,7 +701,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 }
 .queued-message-lead { display: inline-flex; flex: none; color: var(--faint); }
 /* 正文是**纯文本**：单行省略号要求这段行内内容属于该元素本身，块级 <p>（markdown
-   的产物）会让 text-overflow 失效；多行输入的连续空白折叠成单个空格，完整原文挂在
+   的产物）会让 text-overflow 失效；多行输入的连续空白压缩成单个空格，完整原文挂在
    data-tip 上（悬停/聚焦出提示，paintTip 把 \n 换成 <br>）。 */
 .queued-message-text { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--muted); font-size: var(--text-sm); text-overflow: ellipsis; white-space: nowrap; }
 .queued-message-actions { display: inline-flex; flex: none; align-items: center; gap: 2px; color: var(--faint); }
@@ -760,7 +760,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 
 /* 压缩分界（会话单例）：对话区里的一条明显分隔——左右两条虚线夹一枚说明牌。
    线以上（更早）的上下文已不再发给模型，但**原文仍在这一页里可读**，这句写在牌子上
-   而不是只藏在悬停里。一条线对应"会话当前的折叠前沿"（compactionFrontier），
+   而不是只藏在悬停里。一条线对应"会话当前的压缩前沿"（compactionFrontier），
    不是每条压缩记录一条；灰阶与轨迹「压缩」轨、右栏压缩栈共用同两个 token。 */
 .conversation-compaction-frontier {
   display: flex;
@@ -847,7 +847,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .io-expand:hover { color: var(--text); background: var(--surface-2); }
 .io-expand[disabled] { opacity: 0.6; cursor: wait; }
 .io-note { display: block; padding: 4px 10px 2px; color: var(--muted); font: 10px var(--font-mono); }
-/* 大输出折叠（根因链治本：默认 <details> 收起，全文不进渲染 DOM） */
+/* 大输出压缩（根因链治本：默认 <details> 收起，全文不进渲染 DOM） */
 .io-collapse { margin: 0; }
 .io-collapse > summary { display: flex; justify-content: space-between; gap: 8px; padding: 6px 10px; color: var(--muted); font: 10px var(--font-mono); cursor: pointer; list-style: none; user-select: none; }
 .io-collapse > summary::-webkit-details-marker { display: none; }
@@ -1879,7 +1879,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .status-value { min-width: 0; overflow: hidden; color: var(--text-strong); font-size: 11.5px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
 .context-compactions { margin-top: 12px; display: grid; gap: 7px; }
 .context-summary-title { color: var(--faint); font: 700 10px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
-/* 压缩栈表格（状态/概要 里唯一的内容块）：一行一次折叠，栈顶=当前前沿。
+/* 压缩栈表格（状态/概要 里唯一的内容块）：一行一次压缩，栈顶=当前前沿。
    与状态表同款描边与字号——右栏窄，卡片式自由布局会错位，表格行始终对齐。 */
 .compaction-stack {
   display: grid;
@@ -1917,7 +1917,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .compaction-stack-cell.is-actions { display: grid; gap: 3px; }
 .context-summary-open { text-align: center; white-space: nowrap; }
 .compaction-stack-origin { color: var(--faint); font: 9.5px var(--font-mono); font-style: normal; }
-/* 灰阶＝折叠帧的时间层次：栈顶（当前前沿）深灰，被更晚折叠取代的浅灰。
+/* 灰阶＝压缩帧的时间层次：栈顶（当前前沿）深灰，被更晚压缩取代的浅灰。
    深色模式由 --compaction-frame-* 的别名自动倒置，与轴刻度、对话区分界同一份色。 */
 .compaction-stack-row.is-frontier .compaction-stack-cell.is-version { color: var(--compaction-frame-latest); }
 .compaction-stack-row.is-frontier { background: color-mix(in srgb, var(--compaction-frame-latest) 6%, transparent); }
@@ -1937,6 +1937,20 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   text-align: center;
 }
 .compaction-stack-detail { padding: 0 8px 8px; border-top: 1px dashed var(--border); }
+/* 压缩失败行：它不是一次压缩（没有区间、没有帧），因此不占栈的颜色层次，改用失败色
+   说清"这次没压成"。行仍然在表里——用户口径要的就是"失败要留痕，而痕要查得到"。 */
+.compaction-stack-row.is-failed { background: var(--tint-failed); }
+.compaction-stack-row.is-failed .compaction-stack-cell.is-body strong { color: var(--status-failed); }
+/* 失败原因跨整行：右栏实测量级只有 ~360px，塞进中列会被压成一条竖着的碎字（原因里
+   恰好有一串不能断行的数字事实 estimated=…/budget=…/window=…）。 */
+.compaction-stack-note {
+  grid-column: 1 / -1;
+  padding-top: 2px;
+  color: var(--text-dim);
+  font: 9.5px var(--font-mono);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
 .context-summary-open {
   padding: 2px 7px;
   border: 1px solid var(--border-strong);
@@ -1948,7 +1962,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 }
 .context-summary-open:hover { border-color: var(--accent); color: var(--text); }
 .context-summary-noframe { color: var(--faint); font: 10px var(--font-mono); }
-/* 折叠帧正文弹框：正文最长、右栏最窄，所以给可调大小（同 .runtime-card 的
+/* 压缩帧正文弹框：正文最长、右栏最窄，所以给可调大小（同 .runtime-card 的
    data-resizable 约定：卡片自己 resize，正文区内滚）。 */
 .compaction-frame-card { width: min(980px, 100%); min-width: 520px; min-height: 340px; max-width: calc(100vw - 48px); max-height: min(820px, calc(100vh - 48px)); overflow: auto; resize: both; }
 .compaction-frame-modal-view { max-height: min(640px, 58vh); overflow: auto; }
@@ -2966,7 +2980,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 }
 .axis-segment.is-prefix.is-identity { background-color: var(--surface-2); }
 .axis-segment.is-prefix:hover { color: var(--text); opacity: 1; }
-/* 压缩轨：刻度＝一段竖向虚线，标"折叠帧落在这里"。栈顶（当前前沿）深灰、被更晚折叠
+/* 压缩轨：刻度＝一段竖向虚线，标"压缩帧落在这里"。栈顶（当前前沿）深灰、被更晚压缩
    取代的过时帧浅灰（深色模式由 --compaction-frame-* 的别名自动倒置）。虚线而不是色块：
    这一轨说的是"某处发生过一次改写"，不是"这一段属于谁"。 */
 .context-axis-lane.is-compress { margin-top: 4px; padding-top: 4px; border-top: 1px dashed var(--border); }
@@ -2985,7 +2999,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .axis-segment.is-compress.is-frontier { background: repeating-linear-gradient(to bottom, var(--compaction-frame-latest) 0 3px, transparent 3px 6px); }
 .axis-segment.is-compress:hover { color: var(--text); opacity: 1; outline: 1px solid var(--accent); }
 
-/* ---------- 压缩分界轨（虚线 + 「以上 … 已被折叠」）----------
+/* ---------- 压缩分界轨（虚线 + 「以上 … 已被压缩」）----------
    刻度只说"这里压过"，虚线才回答"从哪以上被折掉了、那段现在在哪"。虚线向上穿过
    所有轨（超出部分由 .context-axis-track 的 overflow 裁剪），标注贴在线的上端。 */
 .context-axis-lane.is-cut {
@@ -3022,7 +3036,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   pointer-events: none;
 }
 
-/* ---------- 折叠帧正文区（压缩详情内）----------
+/* ---------- 压缩帧正文区（压缩详情内）----------
    与轨迹详情同容器（.axis-detail）同分页组件（.axis-detail-text），不自造第二套。 */
 .axis-detail-frame { padding: 0 10px 10px; }
 .axis-detail-frame-head {
@@ -3369,7 +3383,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 /* ============================================================
    12. 组件库桥接 + 外壳精致化
    ------------------------------------------------------------
-   组件库（vendor/pico.min.css）只提供元素基线：按钮/表单/表格/折叠/对话框的
+   组件库（vendor/pico.min.css）只提供元素基线：按钮/表单/表格/压缩/对话框的
    行为与默认皮。这里做两件事：
      1) 把 Pico 的 --pico-* 变量接到 Seelex token 上——皮肤包换 token，第三方
         组件一起换色，不会带进它自己的一套配色；
@@ -4658,7 +4672,7 @@ button.team-library-name {
 button.team-library-name:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 
 
-/* E3：员工行 k→v 全字段（折叠进员工行的字段表：一行一栏，空栏也照列） */
+/* E3：员工行 k→v 全字段（压缩进员工行的字段表：一行一栏，空栏也照列） */
 .team-kv { width: 100%; margin-top: 3px; }
 .team-kv > summary {
   cursor: pointer;
@@ -4811,9 +4825,19 @@ button.team-library-name:hover { color: var(--accent); text-decoration: underlin
 }
 .goal-board-card:hover { border-color: var(--border-strong); background: var(--panel); }
 .goal-board-card:focus-visible { outline: 1px solid var(--focus-ring); box-shadow: var(--focus-glow); }
-.goal-board-seq { display: flex; flex-direction: column; align-items: center; flex: none; min-width: 42px; }
-.goal-board-seq-num { color: var(--accent); font: 700 26px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
-.goal-board-seq-unit { margin-top: 2px; color: var(--faint); font: 9px var(--font-mono); letter-spacing: .06em; text-transform: uppercase; }
+/* ── 序号徽标（组件库件，见 components.js renderSeqBadge）──────────────
+   一件两用：goal 看板的 active seq（.is-goal-board）与压缩条目的 seq
+   （.is-compaction）。数字大、单位小是这套界面的既有形态；唯一分叉的是色调与字号
+   ——右栏压缩表第一列只有 34px，26px 的数字会把行撑成两行，所以压缩那一档收到 16px
+   并改用压缩帧那档灰（与轨迹刻度、对话区分界同一份色）。 */
+.seq-badge { display: flex; flex-direction: column; align-items: center; flex: none; min-width: 34px; }
+.seq-badge-num { color: var(--accent); font: 700 26px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+.seq-badge-unit { margin-top: 2px; color: var(--faint); font: 9px var(--font-mono); letter-spacing: .06em; text-transform: uppercase; }
+.seq-badge.is-goal-board { min-width: 42px; }
+.seq-badge.is-compaction { min-width: 22px; }
+.seq-badge.is-compaction .seq-badge-num { color: var(--compaction-frame-latest); font-size: 16px; }
+/* 压缩失败那一行不用压缩帧灰：它不是一次压缩，是一句"这次没压成"。 */
+.seq-badge.is-compaction.is-failed .seq-badge-num { color: var(--status-failed); }
 .goal-board-body { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; }
 .goal-board-title { overflow: hidden; color: var(--text-strong); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .goal-board-meta { color: var(--text-dim); font: 10.5px var(--font-mono); }

@@ -2,12 +2,12 @@
 
 // 上下文主动压缩（compact）真实 API 冒烟（opt-in，走**完整应用链路**）：
 //
-//	app.Submit（真实 provider）→ 累积上下文越过软阈值 → 装配层折叠为有界
+//	app.Submit（真实 provider）→ 累积上下文越过软阈值 → 装配层压缩为有界
 //	  checkpoint 帧（ContextCompaction 记录）→ 模型仍给出回答
 //	→ /compact 命令（同一落点）→ 压缩后链路继续可用
 //
 // 为什么需要真实 API：压缩是"装配 provider 上下文"这一步的行为，只有真跑一次
-// 请求才能证明折叠后的上下文**确实被 provider 接受**、且后续回合与手动入口在同
+// 请求才能证明压缩后的上下文**确实被 provider 接受**、且后续回合与手动入口在同
 // 一条链路上工作。离线用例（application/core/context_compact_test.go）用假
 // provider 证明落点与记录，这里补"真链路"。
 //
@@ -138,7 +138,7 @@ func TestCompactLiveSmoke(t *testing.T) {
 
 	// 累积**小片**材料直到压缩触发：单条大料一进门就被"单条超预算外置"归档成
 	// result_ref（模型只收到引用告示、provider 历史里没有正文），既挤爆窗口又测不到
-	// 折叠链路。所以每轮喂若干小片（每片 < 单条外置阈值），有界循环"攒到压缩发生"。
+	// 压缩链路。所以每轮喂若干小片（每片 < 单条外置阈值），有界循环"攒到压缩发生"。
 	// 每片都对压缩记录取证：reason 前缀 context_budget（含 _autonomous）、区间、帧。
 	var compacted model.ContextCompaction
 	round := 0
@@ -177,8 +177,8 @@ func TestCompactLiveSmoke(t *testing.T) {
 	t.Logf("压缩记录：version=%d reason=%s messages_before=%d estimated_tokens=%d at=%s",
 		compacted.Version, compacted.Reason, compacted.MessagesBefore, compacted.EstimatedTokens, compacted.CompactedAt.Format(time.RFC3339))
 
-	// 帧纪律：一次折叠一个帧、帧是终态（不再被聚合进下一个帧）。判据取事实而非感觉：
-	//   ① 每条记录的 frame_ref 唯一（同一次折叠不会有第二个 ref）；
+	// 帧纪律：一次压缩一个帧、帧是终态（不再被聚合进下一个帧）。判据取事实而非感觉：
+	//   ① 每条记录的 frame_ref 唯一（同一次压缩不会有第二个 ref）；
 	//   ② 回读帧正文，表头 "checkpoint frame v" 恰好出现一次——出现两次就意味着
 	//      上一帧的正文被当成材料又折了一遍（信息会随每次重摘要衰减）。
 	seenFrames := map[string]bool{}
@@ -231,7 +231,7 @@ func TestCompactLiveSmoke(t *testing.T) {
 
 // compactSmokePiecesPerRound 是每轮喂的小片数：单片 ≈5k tokens，几片即可越过
 // 调小窗口后的软阈值——用小片累积，而不是单条大料（大料必被"单条超预算外置"
-// 拦截成 result_ref，测到的是外置链路而非折叠链路）。
+// 拦截成 result_ref，测到的是外置链路而非压缩链路）。
 const compactSmokePiecesPerRound = 4
 
 // compactSmokePiece 生成**一小片**材料（第 round 轮第 part 片，带可检索的片号）。

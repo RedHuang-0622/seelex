@@ -14,7 +14,7 @@ import (
 // PrevSegmentID / PrevRequestFrom / PrevRequestTo 必须与栈顶逐一相等（见
 // sessionstore.SessionContextStore.PushCompact）。装配层这条推帧路径原先是靠
 // Core.ViewMu 的宽临界区**顺带**串行的；推帧移出 ViewMu 之后（见
-// prepareExecutionContextFor 的锁纪律）必须显式补回，否则两个折叠并发推同一会话
+// prepareExecutionContextFor 的锁纪律）必须显式补回，否则两个压缩并发推同一会话
 // 时，后来者会撞锚点校验——那是我们自己引入的降级。
 //
 // 判据是确定性的：探针在进入推帧时登记并发度并阻塞，于是"两条推帧是否重叠"变成
@@ -57,7 +57,7 @@ func (probe *pushConcurrencyProbe) maxConcurrent() int {
 
 // pushProbeOverflow 是一份非空的溢出素材（空溢出走 Skipped 分支，不会问索引面）。
 func pushProbeOverflow() []contract.EngineMessage {
-	content := "folded turns"
+	content := "compacted turns"
 	return []contract.EngineMessage{{Role: "user", Content: content, ContentSet: true}}
 }
 
@@ -118,7 +118,7 @@ func TestCompactionPushSerializesWithinSession(t *testing.T) {
 }
 
 // TestCompactionPushDoesNotSerializeAcrossSessions：锁必须按会话键取——
-// 不同会话的折叠互不等待（否则就把 ViewMu 那条全局串行原样搬回来了）。
+// 不同会话的压缩互不等待（否则就把 ViewMu 那条全局串行原样搬回来了）。
 func TestCompactionPushDoesNotSerializeAcrossSessions(t *testing.T) {
 	probe := &pushConcurrencyProbe{entered: make(chan string, 8), release: make(chan struct{})}
 	coordinator := &Coordinator{compactionIndex: probe}

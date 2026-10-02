@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<title>上下文压缩条目 · 静态原型</title>
+<link rel="icon" href="data:,">
+<!-- 令牌与全局外观来自应用自己的 styles.css（不复制第二套色值）；压缩条目自己的规则
+     也住在 styles.css 里（.compaction-stack-* / .seq-badge），两者是同一份事实。 -->
+<link rel="stylesheet" href="./styles.css">
+<style>
+  body { margin: 0; padding: 16px 18px 36px; background: var(--surface-glass); color: var(--text-strong); font-family: var(--font-ui); font-size: var(--text-md); }
+  .page-head { max-width: 1200px; margin: 0 auto 14px; }
+  .page-head h1 { margin: 0 0 6px; font-size: var(--text-xl); }
+  .page-head p { margin: 0 0 4px; color: var(--text-mid); font-size: var(--text-sm); }
+  .page-head code { padding: 1px 4px; border: 1px solid var(--border-hairline); border-radius: 4px; background: var(--code-bg); font-family: var(--font-mono); font-size: var(--text-xs); }
+  .grid { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 14px; max-width: 1200px; margin: 0 auto; }
+  /* 右栏实测量级：360px 内容宽。压缩条目就在这么窄的地方排版。 */
+  .panel { width: 360px; padding: 10px 12px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+  .panel h2 { margin: 0 0 8px; font-size: var(--text-sm); color: var(--text-mid); font-weight: 600; }
+  .panel .note { margin: 0 0 8px; color: var(--faint); font-size: var(--text-xs); }
+  .host { min-width: 0; }
+</style>
+</head>
+<body>
+<header class="page-head">
+  <h1>右栏「状态 / 概要」的上下文压缩条目 · 静态原型</h1>
+  <p>渲染件：<code>gui/frontend/dist/context-summary.js</code>（纯函数，不碰 DOM）+ <code>components.js renderSeqBadge</code>（序号徽标：goal 看板与压缩条目共用同一件）。本页只负责注入夹具与真实样式。</p>
+  <p>本页用 ES module 载入渲染件，需要 http 源：仓库根运行 <code>python -m http.server 8100</code>（或任意静态服务器），再打开 <code>http://localhost:8100/gui/frontend/dist/compaction-preview.html</code>。</p>
+</header>
+
+<main class="grid">
+  <section class="panel">
+    <h2>一次成功压缩</h2>
+    <p class="note">seq 徽标 = 压缩版本号（第几次压缩），栈顶标「栈顶」深灰。</p>
+    <div class="host" data-fixture="single"></div>
+  </section>
+
+  <section class="panel">
+    <h2>多次成功压缩（栈顶 + 更早）</h2>
+    <p class="note">按新旧下沉：栈顶最深，被更晚压缩取代的降成浅灰，仍逐条可点开读帧正文。</p>
+    <div class="host" data-fixture="stack"></div>
+  </section>
+
+  <section class="panel">
+    <h2>压缩失败（留痕）+ 一次成功</h2>
+    <p class="note">失败不是一次压缩：无区间、无帧、不带「栈顶」，但**必须查得到**（此前只活在 6 秒的瞬态进度条里）。</p>
+    <div class="host" data-fixture="failure"></div>
+  </section>
+
+  <section class="panel">
+    <h2>压缩失败（换不来余量）</h2>
+    <p class="note">另一种失败成因：压缩落点仍够不到判据线（幂等/有效性校验），折了也白折。</p>
+    <div class="host" data-fixture="ineffective"></div>
+  </section>
+
+  <section class="panel">
+    <h2>本轮门禁进度（瞬态）</h2>
+    <p class="note">一轮压缩的门禁进度条 + 逐关耗时清单（复用 Plan 面板轨道）。</p>
+    <div class="host" data-fixture="progress"></div>
+  </section>
+</main>
+
+<script type="module">
+import { renderContextCompactions } from "./context-summary.js";
+
+const success = (version, reason, from, to, frameRef, at, extra = {}) => ({
+  version, reason, origin: "auto", message_from: from, message_to: to,
+  event_from: version, event_to: version + 2, estimated_tokens: 148_000 - version * 12_000,
+  compacted_at: at, frame_ref: frameRef, frame_bytes: 4_100, frame_tokens: 1_020, ...extra
+});
+
+const fixtures = {
+  single: [success(1, "context_budget", "message-1", "message-663", "tr-9f2c41", "2026-10-02T23:04:00Z")],
+  stack: [
+    success(3, "context_budget_autonomous", "message-1", "message-1103", "tr-latest", "2026-10-02T23:12:00Z"),
+    success(2, "large_tool_output", "message-1", "message-663", "tr-mid", "2026-10-02T23:04:00Z"),
+    success(1, "context_budget", "message-1", "message-210", "tr-old", "2026-10-02T22:40:00Z")
+  ],
+  failure: [
+    success(3, "context_budget", "message-1", "message-1103", "tr-latest", "2026-10-02T23:12:00Z"),
+    {
+      version: 4, reason: "context_budget", origin: "explicit", failed: true,
+      note: "no_model_summary estimated=281424 budget=163616 window=200000 overhead=9123",
+      estimated_tokens: 281_424, compacted_at: "2026-10-02T23:18:00Z"
+    }
+  ],
+  ineffective: [{
+    version: 7, reason: "context_budget", origin: "auto", failed: true,
+    note: "ineffective_compact landing=162900 soft=158700 overhead=5400 retained=157500 all=214000",
+    estimated_tokens: 214_000, compacted_at: "2026-10-02T23:20:00Z"
+  }],
+  progress: []
+};
+
+for (const host of document.querySelectorAll("[data-fixture]")) {
+  const name = host.dataset.fixture;
+  if (name === "progress") {
+    host.innerHTML = renderContextCompactions([], {
+      progress: {
+        state: "running", phase: "begin", gate: "store", index: 5, total: 7,
+        version: 4, origin: "explicit", elapsedMs: 61,
+        detail: "reached=5/7",
+        gates: [
+          { gate: "judge", ms: 28 }, { gate: "assemble", ms: 6 }, { gate: "replace", ms: 0 },
+          { gate: "index", ms: 12 }, { gate: "frame", ms: 33 }, { gate: "store", ms: 1 }
+        ]
+      }
+    });
+    continue;
+  }
+  host.innerHTML = renderContextCompactions(fixtures[name], { sessionID: "session-preview" });
+}
+</script>
+</body>
+</html>

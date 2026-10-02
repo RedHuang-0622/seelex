@@ -40,7 +40,7 @@ func TestRejectToolResultsPreservesPairingWithoutPreview(t *testing.T) {
 }
 
 // TestPrepareExecutionContextCountsActiveSystemPrompt：system 提示自身就超出
-// 预算时，自主压缩也无从下手（压缩只折叠 transcript，不改写 system 指令）——
+// 预算时，自主压缩也无从下手（压缩只压缩 transcript，不改写 system 指令）——
 // 这种结构性超限仍必须显式返回 ErrProviderContextBudgetExceeded。
 func TestPrepareExecutionContextCountsActiveSystemPrompt(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})

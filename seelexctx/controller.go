@@ -180,12 +180,12 @@ func NewMemoryCompactStack() CompactStackStore {
 
 // ControllerOptions 控制器的全部注入依赖。
 //
-// 折叠编排（窗口推导 / 压缩帧 / ReplaceHistory）已于 2026-09-30 整体移出控制器：
-// 折叠是上下文压缩流程里**产出元数据**的一步，折完必须由模型按章节写出读后感，
+// 压缩编排（窗口推导 / 压缩帧 / ReplaceHistory）已于 2026-09-30 整体移出控制器：
+// 压缩是上下文压缩流程里**产出元数据**的一步，折完必须由模型按章节写出读后感，
 // 只有装配层（application/core/context_runtime，下一轮开始前那次）做得到。
 // 控制器因此只剩一件事——超大工具结果的兜底归档，依赖也就是归档器与它的字符预算；
 // 原先的 Policy/Window/Tokens/Budget/Stacks/Turns/SessionIDProvider/Compaction/
-// FrameCarryTokens 九个注入项随折叠编排一并摘除，不留"留着但没人读"的配置面。
+// FrameCarryTokens 九个注入项随压缩编排一并摘除，不留"留着但没人读"的配置面。
 type ControllerOptions struct {
 	// Archive 超大工具结果归档（nil → 内存归档）。控制器只做兜底归档：
 	// 归档器按调用 ID 幂等，与 processor 共用同一份实现时不会重复入库。
@@ -197,7 +197,7 @@ type ControllerOptions struct {
 
 	// Stacks 会话级压缩栈（nil → 内存态）。控制器自己不再折帧，但栈顶帧的
 	// From 是"溢出起点"的去重基准（见 chatUnits / compactedUnitBase）：
-	// 窗口外轮次的划分要接着上一次折叠的落点算，否则同一段内容会被反复计入
+	// 窗口外轮次的划分要接着上一次压缩的落点算，否则同一段内容会被反复计入
 	// 溢出区间。
 	Stacks CompactStackStore
 }
@@ -220,7 +220,7 @@ func NewContextController(opts ControllerOptions) seelectx.ContextController {
 
 // Handle 实现 seelectx.ContextController。
 //
-// 循环内不再折叠对话（2026-09-30 起，见包文档）：折叠是上下文压缩流程里**产出
+// 循环内不再压缩对话（2026-09-30 起，见包文档）：压缩是上下文压缩流程里**产出
 // 元数据**的一步，折完必须由模型按章节写出读后感；而这一步只有装配层做得到
 // ——它手里握着上一次真实请求的原件，能接着发起摘要调用。回合内控制器拿到的只有
 // 引擎工作历史（system/项目/记忆/前缀栈/工具面都还没进去），叫不动模型写读后感，
@@ -256,7 +256,7 @@ func (c *seelexContextController) maxToolResultChars() int {
 }
 
 // renderUnitLine 渲染一个单元的单行摘要（用户输入前 80 字符 + 工具名）。
-// maxUnitPreviewRunes 是轮次行预览的 rune 上限：本地折叠是**索引**，每轮只留
+// maxUnitPreviewRunes 是轮次行预览的 rune 上限：本地压缩是**索引**，每轮只留
 // 一眼可辨的首段正文（用户问题与助手答复各一行），完整原文经 read_compressed_turn
 // / search_history 回读。
 //
@@ -269,13 +269,13 @@ const maxUnitPreviewRunes = 80
 // （rune 上限 maxUnitPreviewRunes），工具只出调用名/工具名。
 //
 // 助手侧正文此前**完全不进帧**（只出工具调用名），于是被折轮次在模型可见面上
-// 只剩"某人问了什么"，回答了什么一个字都没有——本地折叠的 Chapter 2 是模型唯一
-// 能看到的被折内容（assembler 只渲染栈顶帧 Chapter 2），压缩因此变成"折叠掉上下文"
+// 只剩"某人问了什么"，回答了什么一个字都没有——本地压缩的 Chapter 2 是模型唯一
+// 能看到的被折内容（assembler 只渲染栈顶帧 Chapter 2），压缩因此变成"压缩掉上下文"
 // 而不是"总结上下文"（2026-09-30 重启恢复现场：重启后模型对早先对话只剩索引）。
-// 把助手答复的首段一并留下，折叠产物才既有定位（索引）又有内容（可读首段）。
+// 把助手答复的首段一并留下，压缩产物才既有定位（索引）又有内容（可读首段）。
 //
 // 这条渲染路径现在只剩装配层的降级分支在用（摘要器不可用时 chapter2Node 落本地
-// 折叠）：回合内控制器已不折帧（2026-09-30），但"折出来的东西必须让人和模型看得见
+// 压缩）：回合内控制器已不折帧（2026-09-30），但"折出来的东西必须让人和模型看得见
 // 内容"这条要求不变。
 func renderUnitLine(unit []types.Message) string {
 	var builder strings.Builder

@@ -180,7 +180,7 @@ Core 输出 `CardSurface`，其中补充 revision、status、created/updated tim
 | 内容 | `Text` | plain text、variant |
 | 内容 | `Markdown` | 现有安全 Markdown 子集 |
 | 内容 | `Code` | language、只读 content、copy |
-| 内容 | `Diff` | unified diff、折叠、文件 label |
+| 内容 | `Diff` | unified diff、压缩、文件 label |
 | 数据 | `Table` | 列定义、行数据、对齐、最大行数 |
 | 数据 | `Metric` | label/value/unit/tone |
 | 状态 | `Badge` | label、有限 tone |

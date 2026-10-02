@@ -39,7 +39,7 @@ func TestContextBudgetFallsBackForLegacyRuntime(t *testing.T) {
 // 单条外置阈值，且默认值只来自 seelexctx.DefaultLimits（窗口/8、98%、80%、50%）。
 // 报表口径与判据口径必须来自同一份数字，这个用例把它钉死。
 //
-// 2026-09-30 起只剩一条线（取消软线提前量，见 context_runtime 的折叠判据）：
+// 2026-09-30 起只剩一条线（取消软线提前量，见 context_runtime 的压缩判据）：
 // SoftThreshold 与 HardThreshold 同值——报告面因此不会出现"报表说已过软线、
 // 系统却没折"的口径分裂；limits.context_soft_percent 不再被消费（保留键兼容旧配置）。
 func TestContextBudgetRatiosComeFromLimits(t *testing.T) {

@@ -136,7 +136,7 @@ func nodeScopeExcludedTool(name string) bool {
 		"task_complete", "task_failed", "task_needs_user_decision",
 		"fork_subagents", // fork 会递归派生子代理（无深度控制），同 plan 工具族理由
 		"switch_plugin", "switch_mode", "skill_activate",
-		// compact_context 折叠的是**共享会话**的可变 transcript：子代理并行
+		// compact_context 压缩的是**共享会话**的可变 transcript：子代理并行
 		// 执行时压缩会同时改写主会话的 provider 历史，属会话级单例状态。
 		"compact_context":
 		return true

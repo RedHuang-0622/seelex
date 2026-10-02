@@ -40,7 +40,7 @@ export function createTrajectoryView(container, options = {}) {
   let axisPrefixSegments = [];
   let axisCompactionMarks = [];
   let axisDetailKey = "";
-  // axisFrame 是已打开的压缩详情里「折叠帧正文」的本地状态
+  // axisFrame 是已打开的压缩详情里「压缩帧正文」的本地状态
   // （{ loading, error, text, hasMore, nextOffset, totalBytes } 或 null）：
   // 按 ref 从会话内容存储分页读取，不进 Snapshot，切换详情即清空。
   let axisFrame = null;
@@ -100,7 +100,7 @@ container.innerHTML = [
       closeAxisDetail();
       return;
     }
-    // 压缩详情里的「折叠帧正文」入口：首次加载 / 续读下一页 / 收起正文。
+    // 压缩详情里的「压缩帧正文」入口：首次加载 / 续读下一页 / 收起正文。
     const frameButton = event.target.closest("[data-compact-frame-load]");
     if (!frameButton) return;
     const mark = axisCompactionMarks[Number(String(axisDetailKey).split(":")[1])];
@@ -133,7 +133,7 @@ container.innerHTML = [
         const current = axisCompactionMarks[Number(compactIndex)] || mark;
         const wasOpen = axisDetailKey === `compact:${compactIndex}`;
         toggleAxisDetail(`compact:${compactIndex}`, { type: "compression", mark: current });
-        // 打开即取折叠帧正文（后端把帧写进会话内容存储、快照只带 ref）：用户
+        // 打开即取压缩帧正文（后端把帧写进会话内容存储、快照只带 ref）：用户
         // 点一下就看到"压掉了什么、留下了什么"，而不是被指向模型侧工具。
         if (!wasOpen && current.frameRef) loadCompactionFrame(current, "first");
         return;
@@ -290,7 +290,7 @@ container.innerHTML = [
   }
 
   // renderAxisDetailContent 渲染详情；内容未变化时跳过（流式重渲染不闪烁）。
-  // selection 里的 frame = 已加载的折叠帧正文页（视图本地状态，不进 Snapshot）。
+  // selection 里的 frame = 已加载的压缩帧正文页（视图本地状态，不进 Snapshot）。
   function renderAxisDetailContent(selection) {
     const merged = selection && selection.type === "compression" ? { ...selection, frame: axisFrame } : selection;
     const html = renderAxisDetail(merged);
@@ -306,7 +306,7 @@ container.innerHTML = [
     detailEl.hidden = false;
   }
 
-  // loadCompactionFrame 按 ref 分页读取「折叠帧正文」（会话内容存储里的有界
+  // loadCompactionFrame 按 ref 分页读取「压缩帧正文」（会话内容存储里的有界
   // checkpoint 帧）。offset=0 首次加载；page="more" 续读下一页；"hide" 收起正文
   // （保留详情本身）。失败只更新详情内的错误文案，不弹全局提示（用户就在这里）。
   async function loadCompactionFrame(mark, mode = "first") {

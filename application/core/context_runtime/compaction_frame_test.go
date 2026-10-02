@@ -65,7 +65,7 @@ func TestCompactionFrameBodyIsJSONMetadataPlusReadingNotes(t *testing.T) {
 		"tokens: compared ",
 		"injected: no ——",
 		"injected: yes ——",
-		"folded: 本次没有可记的区间边界",
+		"compacted: 本次没有可记的区间边界",
 		"## Context zones",
 	} {
 		if strings.Contains(body, stale) {
@@ -73,19 +73,19 @@ func TestCompactionFrameBodyIsJSONMetadataPlusReadingNotes(t *testing.T) {
 		}
 	}
 	// 读后感那一半必须在（此处无栈帧摘要 → 本地兜底材料）。
-	if !strings.Contains(body, "## 折叠材料 (Folded Material)") {
+	if !strings.Contains(body, "## 压缩材料 (Folded Material)") {
 		t.Fatalf("帧正文缺少 Markdown 一半：\n%s", body)
 	}
 }
 
-// TestCompactionFrameBodyMetadataCarriesFoldFacts：元数据块里的每个字段都对得上
-// 这次折叠的事实，不重算、不推算。injected 尤其不能撒谎——普通折叠走保留窗口
+// TestCompactionFrameBodyMetadataCarriesCompactionFacts：元数据块里的每个字段都对得上
+// 这次压缩的事实，不重算、不推算。injected 尤其不能撒谎——普通压缩走保留窗口
 // 路径，并没有把读后感注入 provider 历史，写成 true 等于告诉读者"模型看得到"。
-func TestCompactionFrameBodyMetadataCarriesFoldFacts(t *testing.T) {
+func TestCompactionFrameBodyMetadataCarriesCompactionFacts(t *testing.T) {
 	layout := ContextLayout{
 		Zones: []ContextZone{
 			{Kind: ZoneStable, Tokens: 4_200, Messages: 1, Source: "system"},
-			{Kind: ZoneFolded, Tokens: 90_000, Messages: 132, Source: "transcript"},
+			{Kind: ZoneCompacted, Tokens: 90_000, Messages: 132, Source: "transcript"},
 		},
 		Retain:          RetainDecision{AllContextTokens: 200_000, BudgetTokens: 174_488, Retained: 91_000},
 		ComparedTokens:  129_409,
@@ -102,7 +102,7 @@ func TestCompactionFrameBodyMetadataCarriesFoldFacts(t *testing.T) {
 		SegmentID:     "compact-sess-1",
 		SummarySource: "replay",
 		Injected:      false,
-		Range: compactionFoldedRange{
+		Range: compactionCompactedRange{
 			MessageFrom: "message-1", MessageTo: "message-103",
 			EventFrom: 1, EventTo: 6, Units: 5,
 			Label: "消息 message-1..message-103 / 事件 1..6",
@@ -119,12 +119,12 @@ func TestCompactionFrameBodyMetadataCarriesFoldFacts(t *testing.T) {
 	if meta.Injected {
 		t.Fatalf("保留窗口路径不得报 injected=true：%+v", meta)
 	}
-	if meta.Folded == nil {
-		t.Fatal("有区间边界时 folded 不得为空")
+	if meta.Compacted == nil {
+		t.Fatal("有区间边界时 compacted 不得为空")
 	}
-	if meta.Folded.EventFrom != 1 || meta.Folded.EventTo != 6 || meta.Folded.Units != 5 ||
-		meta.Folded.MessageTo != "message-103" {
-		t.Fatalf("被折区间不是记录值：%+v", meta.Folded)
+	if meta.Compacted.EventFrom != 1 || meta.Compacted.EventTo != 6 || meta.Compacted.Units != 5 ||
+		meta.Compacted.MessageTo != "message-103" {
+		t.Fatalf("被折区间不是记录值：%+v", meta.Compacted)
 	}
 	// 四区与判据量只嵌 layout 一份，不另立 tokens 区块重复同样的数字。
 	if len(meta.Layout.Zones) != 2 || meta.Layout.ComparedTokens != 129_409 ||
@@ -138,19 +138,19 @@ func TestCompactionFrameBodyMetadataCarriesFoldFacts(t *testing.T) {
 		t.Fatalf("细筛入口的工具结果句柄不对：%+v", meta.Readback)
 	}
 	if !meta.At.Equal(time.Date(2026, 9, 28, 16, 40, 2, 0, time.UTC)) {
-		t.Fatalf("折叠时刻不对：%s", meta.At)
+		t.Fatalf("压缩时刻不对：%s", meta.At)
 	}
 }
 
-// TestCompactionFrameBodyOmitsEmptyFoldedRange：没有可记的区间边界时 folded 整个
+// TestCompactionFrameBodyOmitsEmptyRange：没有可记的区间边界时 compacted 整个
 // 字段缺席（omitempty），而不是留一个全零对象——空区间不是"区间为 0..0"，
 // 是"没有边界可记"，两者必须能区分。
-func TestCompactionFrameBodyOmitsEmptyFoldedRange(t *testing.T) {
+func TestCompactionFrameBodyOmitsEmptyRange(t *testing.T) {
 	meta := frameMetadataFrom(t, compactionFrameBody(compactionFrameInput{
 		Version: 2, Reason: "context_budget_autonomous", Origin: "auto", Injected: true,
 	}))
-	if meta.Folded != nil {
-		t.Fatalf("空区间不得渲染 folded 对象：%+v", meta.Folded)
+	if meta.Compacted != nil {
+		t.Fatalf("空区间不得渲染 compacted 对象：%+v", meta.Compacted)
 	}
 	if !meta.Injected {
 		t.Fatalf("自主压缩帧正文确实注入了 provider 历史，必须报 injected=true：%+v", meta)
@@ -173,7 +173,7 @@ func TestCompactionFrameBodyEmbedsSummaryVerbatim(t *testing.T) {
 		t.Fatalf("读后感没有原样嵌入：\n%s", body)
 	}
 	// 有真摘要时不得退回本地兜底材料，也不得声称"没有模型生成的读后感"。
-	for _, unwanted := range []string{"## 折叠材料 (Folded Material)", "本次没有模型生成的读后感"} {
+	for _, unwanted := range []string{"## 压缩材料 (Folded Material)", "本次没有模型生成的读后感"} {
 		if strings.Contains(body, unwanted) {
 			t.Fatalf("有栈帧摘要时不得出现兜底措辞 %q：\n%s", unwanted, body)
 		}
@@ -181,7 +181,7 @@ func TestCompactionFrameBodyEmbedsSummaryVerbatim(t *testing.T) {
 }
 
 // TestCompactionFrameBodyAdmitsMissingEvidence：没有栈帧摘要（开关默认关、重放失败
-// 回退本地折叠）时走兜底材料，并**明说这不是对被折原文的总结**。这条是默认路径
+// 回退本地压缩）时走兜底材料，并**明说这不是对被折原文的总结**。这条是默认路径
 // （limits.context_compaction_summary 默认关），所以它不能是空壳，也不能假装是摘要。
 func TestCompactionFrameBodyAdmitsMissingEvidence(t *testing.T) {
 	withEvidence := compactionFrameBody(compactionFrameInput{
@@ -211,7 +211,7 @@ func TestCompactionFrameBodyAdmitsMissingEvidence(t *testing.T) {
 }
 
 // TestCompactionFrameBodyReadbackSaysWhyNoDrillDown：缺 segment_id 时，正文必须
-// 说清"为什么没有 read_compressed_turn 这一跳"。装配层折叠此前从不推帧，模型对
+// 说清"为什么没有 read_compressed_turn 这一跳"。装配层压缩此前从不推帧，模型对
 // 这段区间根本拿不到细筛入口；"看起来有原文、其实没有入口"比明说没有更糟。
 // 推帧失败时还要带上真实原因，不能只说"没有"。
 func TestCompactionFrameBodyReadbackSaysWhyNoDrillDown(t *testing.T) {
@@ -234,7 +234,7 @@ func TestCompactionFrameBodyReadbackSaysWhyNoDrillDown(t *testing.T) {
 		t.Fatalf("推帧失败必须带真实原因：%+v", failed.Readback)
 	}
 
-	// 索引面已就绪、只是这次折叠没有折出任何完整协议单元（区间为空）：必须说这
+	// 索引面已就绪、只是这次压缩没有折出任何完整协议单元（区间为空）：必须说这
 	// 一种，不能顺手说成"索引面未启用"——那是把"这次没事可做"报成"这一跳没接"，
 	// 读帧的人会去查一个并不存在的配置事故。
 	skipped := frameMetadataFrom(t, compactionFrameBody(compactionFrameInput{
@@ -249,7 +249,7 @@ func TestCompactionFrameBodyReadbackSaysWhyNoDrillDown(t *testing.T) {
 	}
 }
 
-// TestCompactionFrameBodyWritesWhyNoModelSummary：落到本地折叠时，正文必须写出
+// TestCompactionFrameBodyWritesWhyNoModelSummary：落到本地压缩时，正文必须写出
 // **为什么没有模型摘要**（开关关闭 / 无重放素材 / 重放调用失败及其真实报错）。
 //
 // 此前这里只有一句"开关未开启，或前缀重放失败"的 or 措辞，读帧的人分不清是哪一种
@@ -258,7 +258,7 @@ func TestCompactionFrameBodyReadbackSaysWhyNoDrillDown(t *testing.T) {
 // 还是"调用失败"。
 func TestCompactionFrameBodyWritesWhyNoModelSummary(t *testing.T) {
 	const failure = "account lease refused: rate limited"
-	const note = "前缀重放两次调用均失败，已回退本地折叠：" + failure
+	const note = "前缀重放两次调用均失败，已回退本地压缩：" + failure
 	input := compactionFrameInput{
 		Version: 7, Reason: "context_budget", Origin: "explicit_after_turn",
 		SummarySource: "local", SummaryNote: note,
@@ -275,13 +275,13 @@ func TestCompactionFrameBodyWritesWhyNoModelSummary(t *testing.T) {
 	body := compactionFrameBody(input)
 	for _, want := range []string{"前缀重放两次调用均失败", failure} {
 		if !strings.Contains(body, want) {
-			t.Fatalf("折叠材料一段应写出 %q：\n%s", want, body)
+			t.Fatalf("压缩材料一段应写出 %q：\n%s", want, body)
 		}
 	}
 
 	// 没有原因（更早版本写的帧、推帧失败）：保留兜底措辞，不编一个原因。
 	plain := compactionFrameBody(compactionFrameInput{Version: 1, Reason: "context_budget"})
-	if !strings.Contains(plain, "折叠摘要开关未开启，或前缀重放失败已回退本地折叠") {
+	if !strings.Contains(plain, "压缩摘要开关未开启，或前缀重放失败已回退本地压缩") {
 		t.Fatalf("没有原因时应保留兜底措辞：\n%s", plain)
 	}
 	if !strings.Contains(plain, "不是**对被折原文的总结") {

@@ -29,10 +29,10 @@ func compactTestService(t *testing.T, requestID string) (*Service, *fakeEngine, 
 	return service, engine, sessionID
 }
 
-// TestCompactContextHandlerFoldsTranscript：compact_context 工具（= /compact
-// 的同一落点）在达到压缩阈值时主动折叠 transcript：留下压缩记录、丢掉窗口外
+// TestCompactContextHandlerCompactsTranscript：compact_context 工具（= /compact
+// 的同一落点）在达到压缩阈值时主动压缩 transcript：留下压缩记录、丢掉窗口外
 // 的旧轮次，并把结果以结构化 JSON 返回给模型。
-func TestCompactContextHandlerFoldsTranscript(t *testing.T) {
+func TestCompactContextHandlerCompactsTranscript(t *testing.T) {
 	service, engine, sessionID := compactTestService(t, "task-compact-1")
 	// 4 个已定稿轮，每轮约 4 万 tokens（16 万 ASCII 字符）→ 合计约 16 万，
 	// 超过软阈值 125106，触发压缩；每轮内容带唯一前缀，便于断言"最旧轮被
@@ -91,13 +91,13 @@ func TestCompactContextHandlerFoldsTranscript(t *testing.T) {
 	}
 }
 
-// TestCompactManualFoldsBelowThreshold：显式压缩（/compact、compact_context）
-// **不设阈值前提**——上下文远低于软阈值时照样折叠，并如实报告判据量。
+// TestCompactManualCompactsBelowThreshold：显式压缩（/compact、compact_context）
+// **不设阈值前提**——上下文远低于软阈值时照样压缩，并如实报告判据量。
 //
 // 这是「手动命令被上限挡住」的直接来源：此前显式路径仍以「超过软阈值」为前提，
 // 未达阈值就回一句「未达压缩阈值」，而且句子里塞的是**装配后估算**（不是判据量），
 // 于是能说出「129409 tokens，未达压缩阈值 118962」这种自相矛盾的话。
-func TestCompactManualFoldsBelowThreshold(t *testing.T) {
+func TestCompactManualCompactsBelowThreshold(t *testing.T) {
 	service, engine, sessionID := compactTestService(t, "task-compact-2")
 	service.ViewMu.Lock()
 	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
@@ -118,7 +118,7 @@ func TestCompactManualFoldsBelowThreshold(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !result.Compacted || result.Version == 0 || !result.Recorded {
-		t.Fatalf("显式压缩必须在低阈值下也折叠并留记录：%+v", result)
+		t.Fatalf("显式压缩必须在低阈值下也压缩并留记录：%+v", result)
 	}
 	if result.ComparedTokens >= result.SoftThreshold {
 		t.Fatalf("夹具应是低阈值场景（判据量 %d < 软阈值 %d），否则这条测试没有判别力",
@@ -133,17 +133,17 @@ func TestCompactManualFoldsBelowThreshold(t *testing.T) {
 	if len(compactions) != 1 || compactions[0].Reason != "context_budget" {
 		t.Fatalf("显式压缩应留下一条 context_budget 记录：%#v", compactions)
 	}
-	// 低阈值场景折叠后引擎历史仍带着两轮内容（窗口宽），不是"压没了"。
+	// 低阈值场景压缩后引擎历史仍带着两轮内容（窗口宽），不是"压没了"。
 	if len(engine.History()) == 0 {
-		t.Fatal("折叠后引擎历史不应为空")
+		t.Fatal("压缩后引擎历史不应为空")
 	}
 }
 
 // TestCompactManualAfterTurnRecordsExplicitOrigin：回合已收尾（任务状态不再是
-// Running）后用户打 /compact 或模型调 compact_context：折叠照做，**记录也照写**，
+// Running）后用户打 /compact 或模型调 compact_context：压缩照做，**记录也照写**，
 // 来源标记为 explicit_after_turn。
 //
-// 这正是此前必落 folded_without_record 的场景（用户 2026-09-23 实测回执：
+// 这正是此前必落 compacted_without_record 的场景（用户 2026-09-23 实测回执：
 // 「该回合的任务执行已收尾，压缩记录只在执行中产生，故本次不留记录」）：
 // 记录门槛只看 Running，而"回合之间手动压缩"恰恰是最自然的用法，于是前端完全
 // 看不到压缩（状态页「上下文压缩」区块为空、轨迹压缩轨整条不渲染）。
@@ -169,7 +169,7 @@ func TestCompactManualAfterTurnRecordsExplicitOrigin(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !result.Compacted {
-		t.Fatalf("折叠应发生在结果面报告为已压缩：%+v", result)
+		t.Fatalf("压缩应发生在结果面报告为已压缩：%+v", result)
 	}
 	if !result.Recorded {
 		t.Fatalf("回合收尾后的显式压缩必须留记录（否则前端看不到任何压缩）：%+v", result)
@@ -267,7 +267,7 @@ func TestAutoCompactionAfterTurnKeepsRecordGate(t *testing.T) {
 	service, _, sessionID := compactTestService(t, "task-auto-finished")
 	service.ViewMu.Lock()
 	// 夹具：判据量过软阈值（4 轮 × 16 万字符 ≈ 16 万 tokens），且这批进展尚未被
-	// 自动压过（CompactedEpoch != ProgressEpoch）→ 自动路径会折叠。
+	// 自动压过（CompactedEpoch != ProgressEpoch）→ 自动路径会压缩。
 	for index := 0; index < 4; index++ {
 		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
 			TaskID: "task-auto-finished", Role: "user", Content: "question-" + string(rune('a'+index)),
@@ -290,7 +290,7 @@ func TestAutoCompactionAfterTurnKeepsRecordGate(t *testing.T) {
 	records := service.components.tasks.CurrentTaskExecution().ContextCompactions
 	service.ViewMu.RUnlock()
 	if after == before {
-		t.Fatalf("夹具应触发自动折叠（否则这条测试没有判别力）：ContextVersion %d → %d", before, after)
+		t.Fatalf("夹具应触发自动压缩（否则这条测试没有判别力）：ContextVersion %d → %d", before, after)
 	}
 	if len(records) != 0 {
 		t.Fatalf("自动路径在回合收尾后不得补记（门槛只对显式要求放宽）：%#v", records)
@@ -298,13 +298,13 @@ func TestAutoCompactionAfterTurnKeepsRecordGate(t *testing.T) {
 }
 
 // TestCompactContextWithoutTaskExecutionCompactsImmediately：会话没有任务执行
-// 纪元（刚冷加载/刚清空）时**当场折叠已装载的上下文**，不再只回一句「已登记」。
+// 纪元（刚冷加载/刚清空）时**当场压缩已装载的上下文**，不再只回一句「已登记」。
 //
 // 触发：用户在冷加载的会话里按下 `/compact`，只拿到「已登记：下一条消息组装
 // 上下文前立即压缩」，而他接着问「我需要你的摘要内容」——那时命令早已结束，
 // 登记的兑现要等下一条消息，用户看到的是「什么都没发生」。冷加载的会话并不缺
-// 可折叠的上下文（transcript 与引擎历史都已装载），缺的只是「一个在飞回合的
-// RequestID」；这条用例钉住会话级维护身份把这件事补上：折叠、落记录、出帧正文
+// 可压缩的上下文（transcript 与引擎历史都已装载），缺的只是「一个在飞回合的
+// RequestID」；这条用例钉住会话级维护身份把这件事补上：压缩、落记录、出帧正文
 // 一次做完。
 func TestCompactContextWithoutTaskExecutionCompactsImmediately(t *testing.T) {
 	runtime := runtimeWithContextLimits{fakeRuntime: &fakeRuntime{}, window: 200_000, output: 8_192}
@@ -313,7 +313,7 @@ func TestCompactContextWithoutTaskExecutionCompactsImmediately(t *testing.T) {
 	sessionID := service.Snapshot().Session.ID
 	marks := appendWindowRounds(t, service, "task-cold", 4, 2_000)
 	// 冷加载的引擎历史：稳定 system 前缀 + 一段**不属于 transcript** 的旧对话
-	// （真实冷恢复会装载它）。折叠后这段必须退出 provider 历史，否则「折叠」
+	// （真实冷恢复会装载它）。压缩后这段必须退出 provider 历史，否则「压缩」
 	// 只是记录里的说法。
 	if err := service.replaceEngineHistory(sessionID, []EngineMessage{
 		{Role: "system", Content: "cold-load system prefix", ContentSet: true},
@@ -358,7 +358,7 @@ func TestCompactContextWithoutTaskExecutionCompactsImmediately(t *testing.T) {
 		joined += message.Content + "\n"
 	}
 	if strings.Contains(joined, "stale-question-not-in-transcript") {
-		t.Fatal("折叠后旧引擎历史仍在 provider 历史里——折叠没真的发生")
+		t.Fatal("压缩后旧引擎历史仍在 provider 历史里——压缩没真的发生")
 	}
 	if !strings.Contains(joined, "cold-load system prefix") {
 		t.Fatal("压缩后稳定 system 前缀必须保留（缓存友好）")
@@ -419,7 +419,7 @@ func TestCompactWithoutEpochKeepsExecutionFacesClean(t *testing.T) {
 	}
 }
 
-// TestCompactEmptySessionRegistersAndRedeemsOnNextMessage：会话真的没有可折叠
+// TestCompactEmptySessionRegistersAndRedeemsOnNextMessage：会话真的没有可压缩
 // 材料（新建/刚清空的空会话）时，等待登记仍是如实的回答——把空上下文折一遍只会
 // 产出一条区间为空的记录，那是把「没做事」记成「做了事」。这条用例同时钉住登记
 // 的兑现路径：下一条消息组装上下文时先压后发。
@@ -434,7 +434,7 @@ func TestCompactEmptySessionRegistersAndRedeemsOnNextMessage(t *testing.T) {
 		t.Fatalf("CompactContextNow: %v", err)
 	}
 	if result.Compacted || !result.Scheduled {
-		t.Fatalf("没有可折叠材料时应登记而不是假装压缩：%+v", result)
+		t.Fatalf("没有可压缩材料时应登记而不是假装压缩：%+v", result)
 	}
 	if !strings.Contains(result.Note, "已登记") {
 		t.Fatalf("结果面应说明已登记：%q", result.Note)
@@ -453,12 +453,12 @@ func TestCompactEmptySessionRegistersAndRedeemsOnNextMessage(t *testing.T) {
 		t.Fatalf("装配 provider 上下文: %v", err)
 	}
 	if kept := retainedRounds(engine.History(), marks); kept >= len(marks) {
-		t.Fatalf("登记的强压未兑现：kept=%d want<%d（低阈值也应折叠）", kept, len(marks))
+		t.Fatalf("登记的强压未兑现：kept=%d want<%d（低阈值也应压缩）", kept, len(marks))
 	}
 }
 
 // TestCompactCommandRegisteredAndSharesPath：/compact 命令注册成功，且与工具
-// 走同一条落点——显式路径不设阈值前提，低上下文也照样折叠。
+// 走同一条落点——显式路径不设阈值前提，低上下文也照样压缩。
 func TestCompactCommandRegisteredAndSharesPath(t *testing.T) {
 	service, _, _ := compactTestService(t, "task-compact-3")
 	command, ok := service.commands.Get("compact")
@@ -480,10 +480,10 @@ func TestCompactCommandRegisteredAndSharesPath(t *testing.T) {
 	}
 }
 
-// TestCompactCommandWithoutEpochFoldsImmediately：命令入口（用户真的按回车的
-// 那条路）在冷加载会话上同样当场折叠，回执必须说明"不必等下一条消息"，并且
+// TestCompactCommandWithoutEpochCompactsImmediately：命令入口（用户真的按回车的
+// 那条路）在冷加载会话上同样当场压缩，回执必须说明"不必等下一条消息"，并且
 // 帧正文引用随回执回带——用户接着问"我需要你的摘要内容"时读的就是它。
-func TestCompactCommandWithoutEpochFoldsImmediately(t *testing.T) {
+func TestCompactCommandWithoutEpochCompactsImmediately(t *testing.T) {
 	runtime := runtimeWithContextLimits{fakeRuntime: &fakeRuntime{}, window: 200_000, output: 8_192}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 	appendWindowRounds(t, service, "task-command-cold", 2, 400)
@@ -516,7 +516,7 @@ func TestCompactCommandWithoutEpochFoldsImmediately(t *testing.T) {
 	}
 }
 
-// TestCompactCommandNoticeReportsFoldedRange：记录分支的提示只说**记录里已有的
+// TestCompactCommandNoticeReportsCompactedRange：记录分支的提示只说**记录里已有的
 // 区间字段**（message_from/to、event_from/to），不再印 MessagesBefore。
 //
 // 该夹具正是"装配前引擎历史为空"的场景（只往 transcript 追加事件、没有引擎
@@ -524,7 +524,7 @@ func TestCompactCommandWithoutEpochFoldsImmediately(t *testing.T) {
 // 「压缩前 %d 条消息」在这里会说出"压缩前 0 条消息"——一个与事实相反的数字
 // （真实用户在 2026-09-23 会话里看到的就是它，同族句式还能说出"压缩前 2 条消息"，
 // 那 2 条其实是引擎里的 system 行）。
-func TestCompactCommandNoticeReportsFoldedRange(t *testing.T) {
+func TestCompactCommandNoticeReportsCompactedRange(t *testing.T) {
 	service, _, _ := compactTestService(t, "task-command-range")
 	service.ViewMu.Lock()
 	for index := 0; index < 4; index++ {
@@ -597,14 +597,14 @@ func TestCompactionRangeLabel(t *testing.T) {
 	}
 }
 
-// TestCompactCommandNeverReportsFoldWithoutRecord：/compact 是显式路径，只要
-// 折叠真的发生就必然落记录（含回合已收尾的 explicit_after_turn），因此回执里
+// TestCompactCommandNeverReportsCompactionWithoutRecord：/compact 是显式路径，只要
+// 压缩真的发生就必然落记录（含回合已收尾的 explicit_after_turn），因此回执里
 // 不得再出现"不留记录"的说法——用户 2026-09-23 看到的那句「该回合的任务执行已
 // 收尾…故本次不留记录」必须消失。
 //
 // 该分支的判别力在于：Reason/区间/帧引用都非零（记录句式才成立），若命令又
 // 回落到"没有记录"的分支，就说明门槛或来源标记被改回去了。
-func TestCompactCommandNeverReportsFoldWithoutRecord(t *testing.T) {
+func TestCompactCommandNeverReportsCompactionWithoutRecord(t *testing.T) {
 	service, _, _ := compactTestService(t, "task-command-after-turn")
 	service.ViewMu.Lock()
 	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
@@ -622,7 +622,7 @@ func TestCompactCommandNeverReportsFoldWithoutRecord(t *testing.T) {
 		t.Fatalf("/compact: %v", err)
 	}
 	if strings.Contains(result.Notice, "不留记录") || strings.Contains(result.Notice, "已收尾") {
-		t.Fatalf("显式路径折叠必留记录，不得再说不留记录：%q", result.Notice)
+		t.Fatalf("显式路径压缩必留记录，不得再说不留记录：%q", result.Notice)
 	}
 	if !strings.Contains(result.Notice, "已压缩上下文：") {
 		t.Fatalf("回执应按记录成句：%q", result.Notice)

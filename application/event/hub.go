@@ -133,7 +133,7 @@ type CompactionProgressState string
 const (
 	// CompactionProgressRunning 一条门禁已收口，Gate/Index 说明走到哪。
 	CompactionProgressRunning CompactionProgressState = "running"
-	// CompactionProgressDone 本轮压缩正常收口（含"折叠了但按规则不落记录"）。
+	// CompactionProgressDone 本轮压缩正常收口（含"压缩了但按规则不落记录"）。
 	CompactionProgressDone CompactionProgressState = "done"
 	// CompactionProgressFailed 本轮压缩中途报错；Outcome 携带真实原因。
 	CompactionProgressFailed CompactionProgressState = "failed"
@@ -146,11 +146,11 @@ const (
 // 界面上这段时间是完全空白的——用户看到的是"按了没反应"，几毫秒（大上下文里
 // 可达数百毫秒）后突然冒出一条"已完成"的压缩记录，于是合理地怀疑"根本没接线"。
 //
-// 只有显式路径能提前发：自动路径要不要折叠正是这次估算的结果，估完才知道。
-// 这也保证"没折叠就没有进度"（起手帧只在确定会折叠的轮次里发）。
+// 只有显式路径能提前发：自动路径要不要压缩正是这次估算的结果，估完才知道。
+// 这也保证"没压缩就没有进度"（起手帧只在确定会压缩的轮次里发）。
 const CompactionPhaseBegin = "begin"
 
-// CompactionProgress 是 compaction.progress 的载荷：一轮折叠的门禁进度。
+// CompactionProgress 是 compaction.progress 的载荷：一轮压缩的门禁进度。
 //
 // 会话/请求归属在事件信封（Event.SessionID / Event.RequestID）里，载荷不重复
 // 一份同事实。Gate 是枚举 id（文案在前端 compaction-format.js，与压缩来源

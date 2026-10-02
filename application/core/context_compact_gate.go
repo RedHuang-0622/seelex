@@ -15,13 +15,13 @@ import (
 //
 // 归属：门是**会话生命周期**的判据（谁能在这个会话上开回合），不是上下文装配
 // 算法的一部分，因此住在 application/core（提交入口这一侧）；领轮/收口由显式
-// 压缩入口 CompactContextNow 包住折叠那一段（context_compact.go）。
+// 压缩入口 CompactContextNow 包住压缩那一段（context_compact.go）。
 //
 // 加锁纪律（破坏任一条都会变成挂死而不是排队）：
 //  1. 领轮/收口/复判只在 Core.ViewMu 内做，**持锁期间不等任何东西**；
 //  2. 等待方睡在信号通道上：锁内先把通道读出来，锁外 select；
 //  3. 压缩轮自己绝不 await 自己的门（领轮是阻塞获取，拿到就跑、跑完即收口），
-//     因此折叠内部（装配路径）不需要也不能再查这道门。
+//     因此压缩内部（装配路径）不需要也不能再查这道门。
 //
 // 为什么"阻塞领轮"现在是安全的（此前不是）：Seele 的回合准入已改为闸门 + 工作状态
 // 短临界区，回合进行中不持任何会话锁，`History`/`ReplaceHistory` 也不等回合（忙会话
@@ -62,7 +62,7 @@ func (service *Service) compactionSignalLocked() <-chan struct{} {
 
 // acquireCompactionRound 领取该会话的压缩轮：已有轮在跑时先等它收口（同会话
 // 串行），别的会话不受影响。返回 nil 表示轮已归调用方，必须配对 release。
-// ctx 取消时返回 ctx.Err()，调用方不得继续折叠。
+// ctx 取消时返回 ctx.Err()，调用方不得继续压缩。
 func (service *Service) acquireCompactionRound(ctx context.Context, sessionID string) error {
 	for {
 		service.ViewMu.Lock()

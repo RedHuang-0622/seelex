@@ -36,7 +36,7 @@ type EnginePort struct {
 	engineCalls map[string]int
 	// pendingHistory 是「目标会话此刻有回合在飞，等它收尾再装」的历史登记表，
 	// 按会话键控。为什么不能是单槽（一份历史 + 一个目标会话号）：S3b 之后，
-	// **任何**会话（含非活跃会话）在飞时折叠都要登记待安装，单槽既装不下多个
+	// **任何**会话（含非活跃会话）在飞时压缩都要登记待安装，单槽既装不下多个
 	// 会话，也让 legacy ChatStream 把别的会话的待安装装到自己头上。
 	pendingHistory map[string][]types.Message
 	prepareHistory func(string, []types.Message)
@@ -130,7 +130,7 @@ type ReactorEngine interface {
 //
 // 为什么它是宿主迁移的支点：回合进行中，引擎把替换**排队到下一个检查点**（模型调用
 // 前 / assistant 落历史后 / tool 结果 append 前后），空闲时立即应用；因此宿主不再需要
-// 「等这个会话的回合收尾，再换一台新引擎把历史装上去」那套登记表。折叠在下一次模型
+// 「等这个会话的回合收尾，再换一台新引擎把历史装上去」那套登记表。压缩在下一次模型
 // 请求前就生效，这也正是自动压缩要的语义（它本就要在下一次请求才生效）。
 //
 // 没有实现它的引擎（只支持 Clear/Append 的旧替身与 legacy 引擎）仍走 pendingHistory
@@ -679,7 +679,7 @@ func (port *EnginePort) installSessionEngineLocked(sessionID string, history []t
 	port.engines[sessionID] = fresh
 	port.engineCalls[sessionID] = 0
 	if port.sessionID == sessionID {
-		// 只有目标就是活跃会话时才换别名；后台会话的折叠不得把活跃会话切走。
+		// 只有目标就是活跃会话时才换别名；后台会话的压缩不得把活跃会话切走。
 		port.engine = fresh
 		_, port.sessionBacked = fresh.(*frameworkSession.Session)
 	}

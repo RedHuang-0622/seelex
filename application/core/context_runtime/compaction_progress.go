@@ -9,15 +9,15 @@ import (
 	"github.com/RedHuang-0622/seelex/application/event"
 )
 
-// 压缩门禁 id：一轮折叠从「判据估算」到「写压缩记录」实际经过的关口。顺序 =
+// 压缩门禁 id：一轮压缩从「判据估算」到「写压缩记录」实际经过的关口。顺序 =
 // prepareExecutionContextFor 里的执行顺序，不是愿望清单：每关都在代码里真实
 // 收口（见 coordinator.go 的 progress.gate 调用点），因此进度条走的每一步都有
 // 对应的事实发生。id 是协议字面量，前端文案在 compaction-format.js（同一处
 // 只放一种语言），两侧由配对测试互钉。
 const (
-	// CompactionGateJudge 达峰判定：token 计数 + 折叠判据 + 纪元节流。
+	// CompactionGateJudge 达峰判定：token 计数 + 压缩判据 + 纪元节流。
 	CompactionGateJudge = "judge"
-	// CompactionGateAssemble 装配：保留窗口截断、历史拟合、必要时自主折叠。
+	// CompactionGateAssemble 装配：保留窗口截断、历史拟合、必要时自主压缩。
 	CompactionGateAssemble = "assemble"
 	// CompactionGateReplace 替换 provider 历史并归一化引擎缓存。
 	CompactionGateReplace = "replace"
@@ -73,8 +73,8 @@ func CompactionGateIndex(gate string) int {
 	return 0
 }
 
-// compactionProgress 是一轮压缩的进度发射器：一条折叠只对应一个实例，
-// 由 prepareExecutionContextFor 在判定要折叠后创建，函数返回时收口。
+// compactionProgress 是一轮压缩的进度发射器：一条压缩只对应一个实例，
+// 由 prepareExecutionContextFor 在判定要压缩后创建，函数返回时收口。
 //
 // 三件事由类型保证，而不是靠调用点自觉：
 //   - 终局恰好一条（settled 幂等门）——少一条，前端进度条永远停在半途；
@@ -104,13 +104,13 @@ type compactionProgress struct {
 	// 调用方（/compact 回执）要能把"这一轮走了哪几关、各花了多久"如实带回用户，
 	// 否则回执只能说"已压缩"，用户看不出慢在哪一关。
 	timings []CompactionGateTiming
-	// note 是本轮的非门禁事实（例如「被纪元节流：只折叠、不落记录」），拼进
+	// note 是本轮的非门禁事实（例如「被纪元节流：只压缩、不落记录」），拼进
 	// settle 的 Detail。终局必须能自答「进度条走完了，为什么没有记录」——否则
 	// 用户只能看到 ran 到 replace 的进度条然后什么都没有，合理地怀疑后端没接线。
 	note string
-	// outcome 是本轮"没有落记录"时的**结果分类**（空 → settle 按 folded_without_record
+	// outcome 是本轮"没有落记录"时的**结果分类**（空 → settle 按 compacted_without_record
 	// 兜底）。纪元节流与「没有模型读后感所以不折」是两种完全不同的终局：前端文案
-	// 不该把后者读成"折叠了，只是没记"。
+	// 不该把后者读成"压缩了，只是没记"。
 	outcome string
 }
 
@@ -220,7 +220,7 @@ func (p *compactionProgress) setVersion(version uint64) {
 	p.mu.Unlock()
 }
 
-// skip 记下「本轮折叠了但不落记录」的原因（settle 时拼进 Detail）。没有它，读者
+// skip 记下「本轮压缩了但不落记录」的原因（settle 时拼进 Detail）。没有它，读者
 // 只能看到一个走到 replace 的进度条然后什么都没有。
 func (p *compactionProgress) skip(reason string) {
 	if p == nil {
@@ -236,7 +236,7 @@ func (p *compactionProgress) skip(reason string) {
 }
 
 // skipOutcome 记下本轮"没有落记录"的结果分类（settle 时优先于默认的
-// folded_without_record）。callers 用它把「没有模型读后感所以不折」与「被纪元
+// compacted_without_record）。callers 用它把「没有模型读后感所以不折」与「被纪元
 // 节流」分开：前者什么都没动，后者折了上下文只是没记。
 func (p *compactionProgress) skipOutcome(outcome CompactOutcome) {
 	if p == nil {
@@ -248,7 +248,7 @@ func (p *compactionProgress) skipOutcome(outcome CompactOutcome) {
 }
 
 // settle 收口本轮：err 非空即失败终局（Outcome 带真实原因），否则按是否落了
-// 压缩记录给出 compacted / folded_without_record。幂等——重复调用只发一条。
+// 压缩记录给出 compacted / compacted_without_record。幂等——重复调用只发一条。
 func (p *compactionProgress) settle(err error, recorded bool, outcome string) {
 	if p == nil {
 		return
@@ -274,7 +274,7 @@ func (p *compactionProgress) settle(err error, recorded bool, outcome string) {
 		} else if p.outcome != "" {
 			outcome = p.outcome
 		} else {
-			outcome = string(CompactFoldedUnrecorded)
+			outcome = string(CompactUnrecorded)
 		}
 	}
 	payload := event.CompactionProgress{

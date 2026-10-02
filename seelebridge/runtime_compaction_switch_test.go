@@ -14,7 +14,7 @@ import (
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
-// 折叠处厚摘要开关（limits.context_compaction_summary）的两臂钉子。
+// 压缩处厚摘要开关（limits.context_compaction_summary）的两臂钉子。
 //
 // 审查报告 docs/2026-09-29-context-compaction-fold-review.md 的 P1-B 记的是"打开也不
 // 生效"；推帧接线（application/core/context_runtime 的 pushCompactionFrame →
@@ -32,13 +32,13 @@ import (
 //   - 开：摘要器非 nil、completer 恰好被调用一次，请求是"system 同源 + 历史字节原样 +
 //     可见工具 + 固定指令尾巴"的前缀重放形态，回执与栈顶都是 summary_source=replay。
 //
-// 两臂都走**生产入口**（Runtime.PushCompactionFrame，即装配层折叠推帧那一跳），用真
+// 两臂都走**生产入口**（Runtime.PushCompactionFrame，即装配层压缩推帧那一跳），用真
 // Runtime + 绑定到该会话的 SessionContextStore + 确定性 completer（无网络）：不拿桩替换
 // 被测对象，也不第二次装配 completer（QuickChat 与 seelexCompressor 同一条构造路径）。
 
 // compactionSwitchReply 是确定性 completer 给出的"厚摘要"回复：带小节骨架，因此
 // 帧里出现它就等于"真摘要进了帧"，而不是"帧里只有任务台账的元数据投影"。
-const compactionSwitchReply = "### 目标 (Goal)\n把折叠处的 Chapter 2 换成真摘要\n" +
+const compactionSwitchReply = "### 目标 (Goal)\n把压缩处的 Chapter 2 换成真摘要\n" +
 	"### 错误与修复 (Errors and Fixes)\n开关关着时按 replay 断言必然失败\n" +
 	"### 下一步 (Next Step)\n复跑 compactlive 三件套"
 
@@ -118,10 +118,10 @@ func (fixture *compactionSwitchFixture) stackTop(t *testing.T) sessionstore.Comp
 	return stack[0]
 }
 
-// TestCompactionSummarySwitchClosedKeepsLocalFold：关臂 = "关就是关"的全部含义——
+// TestCompactionSummarySwitchClosedKeepsLocalCompact：关臂 = "关就是关"的全部含义——
 // 摘要器为 nil（chapter2Node 的显式判据 `d.opts.Summarizer != nil`）、付费调用一次都不
 // 发、栈帧 summary_source=local；不报错，也不静默降级成"发一次没有缓存的调用"。
-func TestCompactionSummarySwitchClosedKeepsLocalFold(t *testing.T) {
+func TestCompactionSummarySwitchClosedKeepsLocalCompact(t *testing.T) {
 	fixture := newCompactionSwitchFixture(t, false)
 	if summarizer := fixture.runtime.compactionSummarizer(); summarizer != nil {
 		t.Fatalf("开关关闭时摘要器应为 nil，实际 %T", summarizer)
@@ -131,7 +131,7 @@ func TestCompactionSummarySwitchClosedKeepsLocalFold(t *testing.T) {
 	if receipt.SummarySource != seelexctx.CompactSummarySourceLocal {
 		t.Fatalf("关臂 summary_source = %q，want %q", receipt.SummarySource, seelexctx.CompactSummarySourceLocal)
 	}
-	if strings.Contains(receipt.Summary, "把折叠处的 Chapter 2 换成真摘要") {
+	if strings.Contains(receipt.Summary, "把压缩处的 Chapter 2 换成真摘要") {
 		t.Fatalf("关臂不该把模型回复写进帧：\n%s", receipt.Summary)
 	}
 	requests, tools := fixture.scripted.recorded()
@@ -146,8 +146,8 @@ func TestCompactionSummarySwitchClosedKeepsLocalFold(t *testing.T) {
 	if !strings.Contains(receipt.SummaryNote, "开关关闭") {
 		t.Fatalf("关臂 summary_note 应说明开关关闭，实际 %q", receipt.SummaryNote)
 	}
-	if !hasFoldLocalEvidence(fixture.stackTop(t), "no-summarizer") {
-		t.Fatalf("关臂栈帧应留 fold-local:no-summarizer 证据，实际 %+v", fixture.stackTop(t).Evidence)
+	if !hasLocalCompactEvidence(fixture.stackTop(t), "no-summarizer") {
+		t.Fatalf("关臂栈帧应留 compact-local:no-summarizer 证据，实际 %+v", fixture.stackTop(t).Evidence)
 	}
 }
 
@@ -155,9 +155,9 @@ func TestCompactionSummarySwitchClosedKeepsLocalFold(t *testing.T) {
 // 让每一次模型调用稳定报错。用例钉的是"重放失败时帧里必须写出真实报错"，
 // 不是网络行为。
 
-func hasFoldLocalEvidence(frame sessionstore.CompactFrame, code string) bool {
+func hasLocalCompactEvidence(frame sessionstore.CompactFrame, code string) bool {
 	for _, evidence := range frame.Evidence {
-		if evidence.Ref == seelexctx.CompactFoldLocalEvidenceRefPrefix+code {
+		if evidence.Ref == seelexctx.LocalCompactEvidenceRefPrefix+code {
 			return true
 		}
 	}
@@ -181,7 +181,7 @@ func TestCompactionSummarySwitchOpenReplayFailureWritesReason(t *testing.T) {
 
 	receipt := fixture.push(t)
 	if receipt.SummarySource != seelexctx.CompactSummarySourceLocal {
-		t.Fatalf("重放失败后应回退本地折叠，summary_source = %q", receipt.SummarySource)
+		t.Fatalf("重放失败后应回退本地压缩，summary_source = %q", receipt.SummarySource)
 	}
 	for _, want := range []string{"前缀重放两次调用均失败", failure} {
 		if !strings.Contains(receipt.SummaryNote, want) {
@@ -189,8 +189,8 @@ func TestCompactionSummarySwitchOpenReplayFailureWritesReason(t *testing.T) {
 		}
 	}
 	top := fixture.stackTop(t)
-	if !hasFoldLocalEvidence(top, "replay-failed") {
-		t.Fatalf("栈帧应留 fold-local:replay-failed 证据，实际 %+v", top.Evidence)
+	if !hasLocalCompactEvidence(top, "replay-failed") {
+		t.Fatalf("栈帧应留 compact-local:replay-failed 证据，实际 %+v", top.Evidence)
 	}
 	if !strings.Contains(top.Evidence[len(top.Evidence)-1].Summary, failure) {
 		t.Fatalf("证据正文应带真实报错，实际 %q", top.Evidence[len(top.Evidence)-1].Summary)
@@ -213,7 +213,7 @@ func TestCompactionSummarySwitchOpenReplaysPrefixIntoStackFrame(t *testing.T) {
 	if receipt.SummarySource != seelexctx.CompactSummarySourceReplay {
 		t.Fatalf("开臂 summary_source = %q，want replay", receipt.SummarySource)
 	}
-	if !strings.Contains(receipt.Summary, "把折叠处的 Chapter 2 换成真摘要") {
+	if !strings.Contains(receipt.Summary, "把压缩处的 Chapter 2 换成真摘要") {
 		t.Fatalf("开臂帧正文应原样嵌入模型厚摘要：\n%s", receipt.Summary)
 	}
 	if top := fixture.stackTop(t); top.SummarySource != seelexctx.CompactSummarySourceReplay {
@@ -222,7 +222,7 @@ func TestCompactionSummarySwitchOpenReplaysPrefixIntoStackFrame(t *testing.T) {
 
 	requests, tools := fixture.scripted.recorded()
 	if len(requests) != 1 {
-		t.Fatalf("开臂每次折叠恰好一次付费调用，实际 %d 次", len(requests))
+		t.Fatalf("开臂每次压缩恰好一次付费调用，实际 %d 次", len(requests))
 	}
 	request := requests[0]
 	history := compactionSwitchReplayHistory()
@@ -268,7 +268,7 @@ func TestShippedCompactionSummarySwitchShipsOpen(t *testing.T) {
 		t.Fatalf("LoadLimits(%s): %v", path, err)
 	}
 	if !limits.ContextCompactionSummary.Enabled {
-		t.Fatalf("出厂配置应打开折叠处厚摘要（%s 的 limits.context_compaction_summary.enabled）", path)
+		t.Fatalf("出厂配置应打开压缩处厚摘要（%s 的 limits.context_compaction_summary.enabled）", path)
 	}
 }
 

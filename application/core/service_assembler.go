@@ -165,10 +165,10 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		Limits: Limits,
 	})
 	service.components.sessions.BindView(service.components.view)
-	// 索引面（折叠帧进会话压缩栈）是**窄可选**能力：Runtime 实现了
+	// 索引面（压缩帧进会话压缩栈）是**窄可选**能力：Runtime 实现了
 	// context_runtime.CompactionIndexPort 才注入。不塞进 contract.RuntimePort，
 	// 也不必让每个 fake/harness 长出空方法——探测失败的正确行为本来就是"不索引"，
-	// 折叠照常成立（见 context_runtime.CompactionIndexPort 的注释）。
+	// 压缩照常成立（见 context_runtime.CompactionIndexPort 的注释）。
 	var compactionIndex context_runtime.CompactionIndexPort
 	if provider, ok := assembler.deps.Runtime.(context_runtime.CompactionIndexPort); ok {
 		compactionIndex = provider

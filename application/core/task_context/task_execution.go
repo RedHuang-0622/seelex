@@ -72,7 +72,7 @@ type TaskExecutionState struct {
 	ProgressEpoch  uint64
 	ContextVersion uint64
 	// ContextRetainedFrom 是当前保留窗口在 transcript 事件序列中的**绝对起点**：
-	// 0 = 尚未折叠，累积上下文从会话头部开始；> 0 = 上一次折叠已覆盖
+	// 0 = 尚未压缩，累积上下文从会话头部开始；> 0 = 上一次压缩已覆盖
 	// events[:ContextRetainedFrom]，provider 侧累积上下文 = events[ContextRetainedFrom:]。
 	// 回合边界的达峰判据与累积装配都从这里往后看——否则每次装配都把已被折出的
 	// 前缀重新计入，长会话会稳定越线、每回合重新压一次。
@@ -106,7 +106,7 @@ func continuationTaskExecutionState(requestID, objective, effort string, previou
 	// 回合：回合收尾（completed）、冷加载维护身份结束（idle）之后开新回合，它们
 	// 都必须原样继承，而不是被当成「上一个回合的事实」丢掉。
 	//
-	// 丢掉的现场表现有两层（用户报告：折叠执行之后的下一轮对话压缩
+	// 丢掉的现场表现有两层（用户报告：压缩执行之后的下一轮对话压缩
 	// 「不见所踪」）：压缩记录从快照与状态页消失；保留窗口起点归零让下一次装配把
 	// **已被折出的前缀**重新计入（见 ContextRetainedFrom 的注释：长会话会稳定越线、
 	// 每回合重新压一次）。`session_context_maintenance.go` 的维护身份注释也把这条

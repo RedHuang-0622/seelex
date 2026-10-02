@@ -924,7 +924,7 @@ func (c *Coordinator) restoreTaskProjectionLocked(st *sessionTaskRuntime, restor
 		state.ContextCompactions = append([]model.ContextCompaction(nil), restored.ContextCompactions...)
 		state.ContextRetainedFrom = restored.ContextRetainedFrom
 		// 上下文版本：projection 缺失时没有权威的 checkpoint 版本，但每条压缩记录
-		// 都带着折叠那一刻的版本（record[].Version = 当时的 state.ContextVersion）。
+		// 都带着压缩那一刻的版本（record[].Version = 当时的 state.ContextVersion）。
 		// 取最大值作**已确证达到过的下界**——至少不把版本号退回 1 而与既有记录重号；
 		// 真值可能更高，这里不编。
 		for _, compaction := range state.ContextCompactions {
@@ -949,7 +949,7 @@ func (c *Coordinator) restoreTaskProjectionLocked(st *sessionTaskRuntime, restor
 	}
 	// 会话上下文事实（压缩栈 / 保留窗口起点）从 record 还原：它们属于会话，不属于
 	// 回合（2026-09-23 的进程内孪生见 continuationTaskExecutionState 的注释）。
-	// 保留窗口起点推不出来时是 0——与"尚未折叠"同义，不会把不可见的前缀算错。
+	// 保留窗口起点推不出来时是 0——与"尚未压缩"同义，不会把不可见的前缀算错。
 	state.ContextCompactions = append([]model.ContextCompaction(nil), restored.ContextCompactions...)
 	state.ContextRetainedFrom = restored.ContextRetainedFrom
 	checkpoint := CloneTaskCheckpoint(projection.Checkpoint)
@@ -1022,9 +1022,9 @@ func (c *Coordinator) _RecordContextCompactionLocked(requestID string, compactio
 		return false
 	}
 	// 记录门槛：任务执行中的压缩一律可记；显式压缩（/compact、compact_context）
-	// 在回合已收尾时同样记——折叠确实发生了（引擎历史已换成有界 checkpoint 帧
+	// 在回合已收尾时同样记——压缩确实发生了（引擎历史已换成有界 checkpoint 帧
 	// 并按会话落盘），只因为"记录只在 Running 时写"就查无实据，前端便完全看不到
-	// 压缩（2026-09-23 实测：回合之间的 /compact 必落 folded_without_record）。
+	// 压缩（2026-09-23 实测：回合之间的 /compact 必落 compacted_without_record）。
 	// 自动路径保持原口径：收尾后不补记，避免把上一回合的收尾状态误标成
 	// "该回合压缩过"。
 	if state.Status != StatusRunning && !model.ExplicitCompactionOrigin(compaction.Origin) {

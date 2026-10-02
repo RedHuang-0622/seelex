@@ -2,7 +2,7 @@
 
 // 前缀链路《压缩四区模型》落地的真·API 冒烟（opt-in，走**完整应用链路**）：
 //
-//	app.Submit（真实 provider）→ /compact 显式折叠 → 压缩记录 + 帧正文
+//	app.Submit（真实 provider）→ /compact 显式压缩 → 压缩记录 + 帧正文
 //	→ 改配置再压一次 → 两次的**决策事实**必须如实反映配置差异
 //
 // 断言三件只有真链路才能证的事：
@@ -183,10 +183,10 @@ func TestPrefixChainRetainFloorLiveSmoke(t *testing.T) {
 			baselineRetained, baselineFloor, flooredRetained, flooredFloor)
 	}
 	if !flooredMeta.Layout.Retain.FloorApplied {
-		t.Fatalf("配置生效的这次折叠必须报告 floor_applied=true：\n%s", truncateForLog(floored.Body))
+		t.Fatalf("配置生效的这次压缩必须报告 floor_applied=true：\n%s", truncateForLog(floored.Body))
 	}
 	if baselineMeta.Layout.Retain.FloorApplied {
-		t.Fatalf("未配置下限的这次折叠必须报告 floor_applied=false：\n%s", truncateForLog(baseline.Body))
+		t.Fatalf("未配置下限的这次压缩必须报告 floor_applied=false：\n%s", truncateForLog(baseline.Body))
 	}
 	t.Logf("下限生效实测：baseline retained=%d floor=%d → floored retained=%d floor=%d all=%d",
 		baselineRetained, baselineFloor, flooredRetained, flooredFloor, flooredAll)
@@ -237,13 +237,13 @@ func TestPrefixChainRetainFloorLiveSmoke(t *testing.T) {
 	t.Logf("门禁打点实测：judge=%q assemble=%q", judgeDetail, assembleDetail)
 }
 
-// prefixLiveFrame 是一次折叠的压缩记录与帧正文。
+// prefixLiveFrame 是一次压缩的压缩记录与帧正文。
 type prefixLiveFrame struct {
 	Record model.ContextCompaction
 	Body   string
 }
 
-// prefixLiveCompactAndReadFrame 走显式 /compact 折叠一次并回读帧正文。
+// prefixLiveCompactAndReadFrame 走显式 /compact 压缩一次并回读帧正文。
 func prefixLiveCompactAndReadFrame(
 	t *testing.T,
 	harness fullChainHarness,

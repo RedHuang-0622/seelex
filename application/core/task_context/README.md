@@ -19,7 +19,7 @@ result-ref、token 审计（`CalibratedTokenCounter`）、plan 帧状态与 ReAc
   reasoning 草稿，`MergeToolNarration` 把只进过视图的工具轮说明正文并入
   tool_call 事件（重启恢复的轨迹保留工具轮间的 LLM 输出与草稿）。
 - 做：**累积上下文起点与可选尺子的尾窗收敛**。`TaskExecutionState.ContextRetainedFrom`
-  记录上一次折叠覆盖到的 transcript 绝对事件下标（0 = 尚未折叠），压缩判据与
+  记录上一次压缩覆盖到的 transcript 绝对事件下标（0 = 尚未压缩），压缩判据与
   累积装配只从该起点往后看，跨回合由 `continuationTaskExecutionState` 继承
   （2026-09-28：**无条件**继承 `ContextVersion` / `ContextRetainedFrom` /
   `ContextCompactions`——它们是**会话**的上下文事实，而回合续接判据
@@ -31,7 +31,7 @@ result-ref、token 审计（`CalibratedTokenCounter`）、plan 帧状态与 ReAc
   使裁剪预算与压缩判据/保留窗口共用同一把尺子（默认 `TranscriptTailWindow`
   仍按事件自带 `TokenCount` 记录值，供冷读装载使用）。
 - 做：**会话级上下文维护身份**（`session_context_maintenance.go`）。会话没有
-  在飞回合时（冷加载、刚清空）没有 `RequestID` 可折叠，`/compact` 过去只能
+  在飞回合时（冷加载、刚清空）没有 `RequestID` 可压缩，`/compact` 过去只能
   登记到"下一条消息"。`BeginSessionContextMaintenanceLocked` 给这种会话开一个
   **带前缀的维护身份**（`SessionMaintenanceRequestPrefix`）并（在没有任务状态
   时）按会话自己的事实建一份上下文状态：`RequestID` 与真实回合 ID 不可能混淆，

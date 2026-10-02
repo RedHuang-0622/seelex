@@ -79,7 +79,7 @@ test("renderGoalPanel 转义 skill 名，不把 skill 名当结构", () => {
 test("renderGoalBoard 上面是大 active seq，下面是最近一次输入的小字", () => {
   const html = renderGoalBoard(GOVERNANCE, "把 goal 看板搬到工作台，点开能看详情");
   assert.match(html, /data-goal-board data-goal-seq="3"/);
-  assert.match(html, /class="goal-board-seq-num">3</);
+  assert.match(html, /class="seq-badge is-goal-board"/);
   assert.match(html, /active seq/);
   assert.match(html, /class="goal-board-title"[^>]*>把 goal 看板搬到工作台</);
   assert.match(html, /打点 3 条/);
@@ -97,7 +97,7 @@ test("renderGoalBoard 目标结束（无 active 帧）时没有看板", () => {
 test("renderGoalBoard 没有用户输入时只显示看板本身，不编造小字", () => {
   const html = renderGoalBoard(GOVERNANCE, "");
   assert.ok(!html.includes("goal-board-task"), "没有输入就不留小字壳");
-  assert.match(html, /goal-board-seq-num">3</);
+  assert.match(html, /seq-badge-num">3</);
 });
 
 test("renderGoalBoard 的 recovered 标记：存档兜底出来的那一帧显形，活体帧不显", () => {

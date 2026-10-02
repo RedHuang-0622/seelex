@@ -31,13 +31,13 @@ func dagInput(messages []frameworktypes.Message) CompactionInput {
 	return CompactionInput{
 		Record:   sessionstore.SessionContextRecord{},
 		Messages: messages,
-		Kind:     CompactFoldOverflow,
+		Kind:     LocalCompactOverflow,
 	}
 }
 
-// TestCompactionDAGLocalFold 无重放素材（Summarizer=nil）→ 本地折叠：
+// TestCompactionDAGLocalCompact 无重放素材（Summarizer=nil）→ 本地压缩：
 // 两章节 Summary、summary_source=local、request 覆盖标签 chat-N。
-func TestCompactionDAGLocalFold(t *testing.T) {
+func TestCompactionDAGLocalCompact(t *testing.T) {
 	dag := NewCompactionDAG(CompactionDAGOptions{SessionIDProvider: func() string { return "sess-dag" }})
 	frame, err := dag.Execute(context.Background(), dagInput(roundHistory(10)))
 	if err != nil {
@@ -87,7 +87,7 @@ func TestCompactionDAGChainFields(t *testing.T) {
 	secondInput := CompactionInput{
 		Record:   sessionstore.SessionContextRecord{CompactStack: []sessionstore.CompactFrame{first}},
 		Messages: roundHistory(3),
-		Kind:     CompactFoldOverflow,
+		Kind:     LocalCompactOverflow,
 	}
 	second, err := dag.Execute(context.Background(), secondInput)
 	if err != nil {
@@ -113,7 +113,7 @@ func TestCompactionDAGChainFields(t *testing.T) {
 }
 
 // TestCompactionDAGReplayThick 注入 Summarizer 且带 History → 前缀重放生成
-// Chapter 2（summary_source=replay）；失败两次 → 回退本地折叠。
+// Chapter 2（summary_source=replay）；失败两次 → 回退本地压缩。
 func TestCompactionDAGReplayThick(t *testing.T) {
 	replay := &countingReplaySummarizer{
 		chapter: "## " + CompactChapter2Title + "\n### 目标 (Goal)\n厚摘要完成",
@@ -141,7 +141,7 @@ func TestCompactionDAGReplayThick(t *testing.T) {
 		t.Fatalf("chapter2 must carry replay output:\n%s", body)
 	}
 
-	// 失败两次（一次重试后）→ 本地折叠，不抛错、不再消耗模型 token。
+	// 失败两次（一次重试后）→ 本地压缩，不抛错、不再消耗模型 token。
 	failing := &countingReplaySummarizer{err: errors.New("replay boom")}
 	dag = NewCompactionDAG(CompactionDAGOptions{Summarizer: failing})
 	input = dagInput(roundHistory(4))

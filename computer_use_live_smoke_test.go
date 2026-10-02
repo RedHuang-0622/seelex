@@ -302,7 +302,7 @@ func latestVisibleAssistant(conversation []model.Message) string {
 	return ""
 }
 
-// normalizeTitleText 折叠空白与标点（标题里的连接符/空格在不同渲染下可能不同）。
+// normalizeTitleText 压缩空白与标点（标题里的连接符/空格在不同渲染下可能不同）。
 func normalizeTitleText(value string) string {
 	var builder strings.Builder
 	for _, r := range value {

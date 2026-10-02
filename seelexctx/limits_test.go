@@ -179,7 +179,7 @@ func TestLoadLimitsRejectsNegative(t *testing.T) {
 
 // TestLoadLimitsRejectsSoftAtOrAboveHard：软线必须**严格低于**硬线。这条约束此前只写在
 // config/seelex.yaml 的注释里，代码不校验（LoadLimits 只查了每项落在 [0,100]），配反了
-// 会让自主折叠每轮抢跑——症状是"一轮对话压一次"，而配置里看不出任何异常。
+// 会让自主压缩每轮抢跑——症状是"一轮对话压一次"，而配置里看不出任何异常。
 //
 // 判定必须落在**生效值**上：只写 soft: 100（hard 缺省 98）与只把 hard 调到 90（soft 缺省
 // 95）都是非法组合，而原始解析结果里"另一侧是 0"，只看原始值这两种写法都会溜过去。

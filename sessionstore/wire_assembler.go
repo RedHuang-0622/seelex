@@ -56,7 +56,7 @@ type wireParams struct {
 	K int `json:"k,omitempty"`
 	// Budget 是装配阈值 ＝ §5.2 的**软阈值**（WireBudgetTokens × WireSoftRatio）：
 	// 达到即在最近完整协议单元边界停止扩窗并收口，置 need_compact 由压缩路径
-	// 折叠溢出。生产路径由 storageSettings.applyWireBudget 解析后注入。
+	// 压缩溢出。生产路径由 storageSettings.applyWireBudget 解析后注入。
 	Budget int  `json:"budget,omitempty"`
 	Repair bool `json:"repair,omitempty"`
 }

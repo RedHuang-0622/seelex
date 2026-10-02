@@ -73,20 +73,34 @@ type ContextCompaction struct {
 	MessageTo   string `json:"message_to,omitempty"`
 	EventFrom   uint64 `json:"event_from,omitempty"`
 	EventTo     uint64 `json:"event_to,omitempty"`
-	// SegmentID 是本次折叠在**会话压缩栈**（sessionstore.CompactFrame）里那一帧的
+	// SegmentID 是本次压缩在**会话压缩栈**（sessionstore.CompactFrame）里那一帧的
 	// 标识，是快照侧记录与栈帧之间的互链键，同时是 read_compressed_turn 的必选
 	// 入参。没有它，模型对这段被折出的区间就拿不到细筛入口——原文明明还在盘上，
 	// 却只能靠 search_history 碰运气。
-	// 空串 = 本次没有推帧（索引面未启用、栈不可用或推帧失败）；折叠本身照样成立，
+	// 空串 = 本次没有推帧（索引面未启用、栈不可用或推帧失败）；压缩本身照样成立，
 	// 只是少了这一跳。帧正文的 readback 段会如实说明缺的是哪一跳、为什么。
 	SegmentID string `json:"segment_id,omitempty"`
-	// FrameRef 是可回读的帧正文引用：折叠发生那一刻的「有界 checkpoint 帧」
+	// FrameRef 是可回读的帧正文引用：压缩发生那一刻的「有界 checkpoint 帧」
 	// 正文（JSON 元数据 + Markdown 读后感）已写进会话内容存储，前端按 ref 分页
 	// 读取（application.ToolResultContent / Bridge.ToolResultContent），
 	// 因此快照只带引用、不带正文。空串 = 本次没有可回读正文（例如摘要为空）。
 	FrameRef    string `json:"frame_ref,omitempty"`
 	FrameBytes  int    `json:"frame_bytes,omitempty"`
 	FrameTokens int    `json:"frame_tokens,omitempty"`
+	// Failed 标记这条记录描述的是**一次压缩失败**：判据命中了，但这次压不下去
+	// （拿不到模型读后感，或压缩换不来余量）。失败痕进同一个列表（状态页一行一条、
+	// 跨轮次存活），但区间与帧字段恒空——这次什么都没动：上下文原样 append、
+	// compact stack top 不动、上下文版本不推进（用户口径 2026-10-02）。
+	//
+	// 失败痕的四个恒等式（下游据此区分两种条目）：
+	//   Failed=true  → MessageFrom/To、EventFrom/To、FrameRef 全为空；
+	//   Failed=false → 这是一次真的压缩（区间来自窗口决策的记录值）。
+	// 正因为它不带区间（EventTo=0），RetainedFromForCompactions 与前端分界
+	// （compactionFrontier）都不会把它读成"已被压出窗口的上下文"。
+	Failed bool `json:"failed,omitempty"`
+	// Note 说明这次为什么压不成（失败痕专用；成功记录为空）。只写**数字事实与
+	// 原因**（判据量、预算、窗口、读数来源），不写正文——与会话记录的口径一致。
+	Note string `json:"note,omitempty"`
 }
 
 // 压缩来源（ContextCompaction.Origin）。
@@ -97,7 +111,7 @@ const (
 	// 工具显式要求的压缩（任务状态仍是 Running）。
 	CompactionOriginExplicit = "explicit"
 	// CompactionOriginExplicitAfterTurn 是回合已收尾（任务状态不再是 Running）
-	// 后由 /compact 命令或 compact_context 工具显式要求的压缩：折叠照做，
+	// 后由 /compact 命令或 compact_context 工具显式要求的压缩：压缩照做，
 	// 记录同样写——否则"回合之间压缩"这一最自然的用法在前端完全不可见。
 	CompactionOriginExplicitAfterTurn = "explicit_after_turn"
 )

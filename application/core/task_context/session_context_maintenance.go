@@ -7,7 +7,7 @@ import (
 )
 
 // 会话级上下文维护：给**没有在飞回合**的会话（冷加载、刚清空）提供一次可
-// 折叠的执行身份，使显式压缩（`/compact`、`compact_context`）能立刻折叠已
+// 压缩的执行身份，使显式压缩（`/compact`、`compact_context`）能立刻压缩已
 // 装载的上下文，而不是登记到"下一条消息"才兑现。
 //
 // 为什么不直接伪造一个回合纪元（2026-09-23 的结论仍然成立）：真实纪元一旦
@@ -31,7 +31,7 @@ import (
 //
 // 生命周期（调用方 context_runtime.Coordinator）：
 //
-//	BeginSessionContextMaintenanceLocked → 折叠 → EndSessionContextMaintenanceLocked
+//	BeginSessionContextMaintenanceLocked → 压缩 → EndSessionContextMaintenanceLocked
 const SessionMaintenanceRequestPrefix = "session-maintenance:"
 
 // StatusIdle 表示"会话持有上下文状态，但没有在飞回合"。它不是回合终态

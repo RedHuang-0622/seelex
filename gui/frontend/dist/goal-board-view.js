@@ -1,4 +1,4 @@
-import { escapeHtml } from "./components.js";
+import { escapeHtml, renderSeqBadge } from "./components.js";
 import { renderGoalInFlight, renderGoalStack } from "./goal-stack-view.js";
 
 // goal-board-view.js 是「目标」面板的**面板件 / 看板件 / 详情件**三个纯渲染件（不碰
@@ -106,10 +106,7 @@ export function renderGoalBoard(governance, goalText = "") {
   const task = String(goalText || "").trim();
   return `<div class="goal-board" data-goal-board data-goal-seq="${escapeHtml(String(seq))}">
       <button type="button" class="goal-board-card" data-goal-board-open title="点开查看目标详情">
-        <span class="goal-board-seq" title="active seq：当前目标在本会话 goal 序列里的序号">
-          <span class="goal-board-seq-num">${escapeHtml(String(seq))}</span>
-          <span class="goal-board-seq-unit">active seq</span>
-        </span>
+        ${renderSeqBadge({ seq, unit: "active seq", title: "active seq：当前目标在本会话 goal 序列里的序号", tone: "goal-board" })}
         <span class="goal-board-body">
           <span class="goal-board-title" title="${escapeHtml(title)}">${escapeHtml(truncate(title, BOARD_TITLE_LIMIT))}</span>
           <span class="goal-board-meta">${escapeHtml(meta)}</span>

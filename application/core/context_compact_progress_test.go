@@ -17,7 +17,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application/model"
 )
 
-// 压缩门禁进度（compaction.progress）：一轮折叠从「判据估算」到「写压缩记录」
+// 压缩门禁进度（compaction.progress）：一轮压缩从「判据估算」到「写压缩记录」
 // 要经过若干关口，每关收口时后端投一条事件，前端进度条据此推进，终局
 // （done/failed）后生命周期结束。这几条测试钉的是进度面的**事实性**：
 //
@@ -25,7 +25,7 @@ import (
 //   - 每一轮**恰好一条**终局事件——少了，进度条永远停在半途；多了，前端会在
 //     同一条上反复开合；
 //   - 装配报错时也要收口（失败终局），否则一次失败就留下一个永久进度条；
-//   - 没有折叠发生时就**不该有**进度事件（登记为下一次兑现不是"压缩进行中"）。
+//   - 没有压缩发生时就**不该有**进度事件（登记为下一次兑现不是"压缩进行中"）。
 
 // compactionProgressFrame 是一条进度事件的外壳 + 载荷：会话/请求归属属于事件
 // 信封（Event.SessionID / Event.RequestID），载荷里不再重复一份同事实。
@@ -188,7 +188,7 @@ func assertBeginFrame(t *testing.T, frames []compactionProgressFrame) {
 	}
 }
 
-// TestExplicitCompactEmitsOrderedProgressGates：/compact 显式折叠时逐关报告，
+// TestExplicitCompactEmitsOrderedProgressGates：/compact 显式压缩时逐关报告，
 // 顺序与 context_runtime.CompactionGates 一致，并把压缩记录上的版本/来源如实
 // 带在进度面上（前端据此把进度条对到记录条目）。
 func TestExplicitCompactEmitsOrderedProgressGates(t *testing.T) {
@@ -219,7 +219,7 @@ func TestExplicitCompactEmitsOrderedProgressGates(t *testing.T) {
 		t.Fatalf("CompactContextNow: %v", err)
 	}
 	if !result.Compacted {
-		t.Fatalf("本轮应真折叠，结果 = %+v", result)
+		t.Fatalf("本轮应真压缩，结果 = %+v", result)
 	}
 	frames := drainCompactionProgress(t, subscription)
 	assertProgressShape(t, frames, sessionID)
@@ -254,7 +254,7 @@ func TestExplicitCompactEmitsOrderedProgressGates(t *testing.T) {
 	}
 }
 
-// TestAutoCompactionEmitsProgressGates：自动路径（软阈值）在回合执行中折叠时
+// TestAutoCompactionEmitsProgressGates：自动路径（软阈值）在回合执行中压缩时
 // 同样逐关报告——进度条不是显式命令的专属装饰，逼近上限那一轮最需要它。
 func TestAutoCompactionEmitsProgressGates(t *testing.T) {
 	service, _, sessionID := compactTestService(t, "task-progress-auto")
@@ -284,10 +284,10 @@ func TestAutoCompactionEmitsProgressGates(t *testing.T) {
 		t.Fatalf("自动路径首帧 = %+v，want judge/index=1（判据关收口）", first)
 	}
 	for _, frame := range frames {
-		// 自动路径**不能**有起手帧：要不要折叠正是判据估算的结果，估完才知道。
+		// 自动路径**不能**有起手帧：要不要压缩正是判据估算的结果，估完才知道。
 		// 提前发一帧等于先告诉用户"要压缩了"，而这一轮可能根本不压。
 		if frame.event.Phase == event.CompactionPhaseBegin {
-			t.Fatalf("自动路径不该有起手帧（折叠与否要估完才知道）：%+v", frame.event)
+			t.Fatalf("自动路径不该有起手帧（压缩与否要估完才知道）：%+v", frame.event)
 		}
 		if frame.event.Origin != model.CompactionOriginAuto {
 			t.Fatalf("自动路径来源 = %q，want auto", frame.event.Origin)
@@ -334,7 +334,7 @@ func TestExplicitCompactGateTimeline(t *testing.T) {
 		t.Fatalf("CompactContextNow: %v", err)
 	}
 	if !result.Compacted {
-		t.Fatalf("本轮应真折叠，结果 = %+v", result)
+		t.Fatalf("本轮应真压缩，结果 = %+v", result)
 	}
 
 	frames := drainCompactionProgress(t, subscription)
@@ -368,7 +368,7 @@ func TestExplicitCompactGateTimeline(t *testing.T) {
 }
 
 // TestCompactProgressTerminatesOnAssemblyError：装配失败也必须收口。结构性超限
-// （system 指令自身超预算）在折叠中途返回错误——没有终局事件，进度条就永远
+// （system 指令自身超预算）在压缩中途返回错误——没有终局事件，进度条就永远
 // 停在半途，比没有进度条更糟。
 func TestCompactProgressTerminatesOnAssemblyError(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
@@ -392,7 +392,7 @@ func TestCompactProgressTerminatesOnAssemblyError(t *testing.T) {
 	}
 	frames := drainCompactionProgress(t, subscription)
 	if len(frames) == 0 {
-		t.Fatal("折叠中途报错却没有进度事件，前端进度条会永久卡住")
+		t.Fatal("压缩中途报错却没有进度事件，前端进度条会永久卡住")
 	}
 	assertProgressShape(t, frames, sessionID)
 	terminal := frames[len(frames)-1].event
@@ -404,7 +404,7 @@ func TestCompactProgressTerminatesOnAssemblyError(t *testing.T) {
 	}
 }
 
-// TestNoProgressEventsWithoutFold：没折叠就没有进度。「登记为下一条消息兑现」
+// TestNoProgressEventsWithoutFold：没压缩就没有进度。「登记为下一条消息兑现」
 // 不是压缩进行中——在这里发事件，进度条会对一件没发生的事走动。
 func TestNoProgressEventsWithoutFold(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
@@ -425,7 +425,7 @@ func TestNoProgressEventsWithoutFold(t *testing.T) {
 		t.Fatalf("无执行纪元时应登记为下一次装配兑现，结果 = %+v", result)
 	}
 	if frames := drainCompactionProgress(t, subscription); len(frames) != 0 {
-		t.Fatalf("没有折叠却发了进度事件：%+v", frames)
+		t.Fatalf("没有压缩却发了进度事件：%+v", frames)
 	}
 }
 
@@ -455,7 +455,7 @@ func TestMaintenanceCompactEmitsOrderedProgressGates(t *testing.T) {
 		t.Fatalf("CompactContextNow: %v", err)
 	}
 	if !result.Compacted || !result.NoEpoch {
-		t.Fatalf("冷加载会话应走会话级维护身份当场折叠，结果 = %+v", result)
+		t.Fatalf("冷加载会话应走会话级维护身份当场压缩，结果 = %+v", result)
 	}
 	frames := drainCompactionProgress(t, subscription)
 	assertProgressShape(t, frames, sessionID)
@@ -507,7 +507,7 @@ func TestCompactReceiptCarriesGateChecklist(t *testing.T) {
 	}
 }
 
-// gateLabelLine 匹配前端文案表里的一行：`judge: "判定是否需要折叠",`。
+// gateLabelLine 匹配前端文案表里的一行：`judge: "判定是否需要压缩",`。
 var gateLabelLine = regexp.MustCompile(`^\s*([a-z_]+):\s*"([^"]*)"\s*,?\s*$`)
 
 // TestFrontendGateLabelsMatchBackendOrder：门禁 id 是跨语言协议字面量——后端

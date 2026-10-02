@@ -51,20 +51,20 @@ func (h *HistoryCoordinator) PrepareProviderHistory() error {
 // 安全：先补齐中断（残缺）工具链缺失的 tool 结果（协议占位），再恢复空
 // 正文。sessionID 指明目标会话。
 //
-// 它与折叠同源取历史、同源写回（会话路由端口）：装配路径里它紧跟在折叠之后，
+// 它与压缩同源取历史、同源写回（会话路由端口）：装配路径里它紧跟在压缩之后，
 // 两边写的是同一份工作历史；写回在忙会话上由引擎排队到下一个检查点，因此不会
 // 因为"这一轮正在跑"而丢掉。
 func (h *HistoryCoordinator) PrepareProviderHistoryFor(sessionID string) error {
-	history := h.foldHistory(sessionID)
+	history := h.sessionHistory(sessionID)
 	prepared, repaired := RepairInterruptedToolChains(history)
 	if repaired {
-		if err := h.replaceFoldHistory(sessionID, prepared); err != nil {
+		if err := h.replaceSessionHistory(sessionID, prepared); err != nil {
 			return fmt.Errorf("repair interrupted tool chains: %w", err)
 		}
 	}
 	final, repairedContent := RepairEmptyHistoryContent(prepared)
 	if repairedContent {
-		if err := h.replaceFoldHistory(sessionID, final); err != nil {
+		if err := h.replaceSessionHistory(sessionID, final); err != nil {
 			return fmt.Errorf("repair empty provider history content: %w", err)
 		}
 	}
@@ -77,12 +77,12 @@ func (h *HistoryCoordinator) PrepareProviderHistoryFor(sessionID string) error {
 // PrepareProviderHistoryFor 执行 —— 避免把"即将执行"的工具调用误判为
 // 中断丢失而注入占位。
 func (h *HistoryCoordinator) PrepareNewHistoryContentFor(sessionID string) error {
-	history := h.foldHistory(sessionID)
+	history := h.sessionHistory(sessionID)
 	prepared, repaired := RepairEmptyHistoryContent(history)
 	if !repaired {
 		return nil
 	}
-	return h.replaceFoldHistory(sessionID, prepared)
+	return h.replaceSessionHistory(sessionID, prepared)
 }
 
 // replaceEngineHistory 会话内替换指定会话引擎历史（会话路由引擎用

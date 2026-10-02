@@ -10,7 +10,7 @@ package core
 // toolResults——**会话上下文事实**（压缩记录、保留窗口起点、上下文版本）在这条
 // 路上没有从 record 还原回来。
 //
-// 这是 2026-09-23 修过的「折叠之后的下一轮压缩不见所踪」
+// 这是 2026-09-23 修过的「压缩之后的下一轮压缩不见所踪」
 // （`context_compact_across_rounds_repro_test.go`）在**重启/冷恢复**上的孪生：
 // 会话上下文事实属于会话、不属于回合，进程重启同样不该把它丢掉。
 //
@@ -34,9 +34,9 @@ import "testing"
 const restartCompactionRequestID = "task-restart-compaction"
 
 // compactedSessionStore 造一份「重启前」的持久面并结束进程：第一份 Service 在
-// 会话里跑出 4 个已定稿轮次（上下文压力越软阈值）、显式折叠一次（记录进状态、
+// 会话里跑出 4 个已定稿轮次（上下文压力越软阈值）、显式压缩一次（记录进状态、
 // 进快照、并按会话落盘），session 的事件流与 record 都留在 store 上。返回的
-// retained 是折叠推前后的保留窗口起点（重启前的事实）。
+// retained 是压缩推前后的保留窗口起点（重启前的事实）。
 func compactedSessionStore(t *testing.T) (*archiveSessions, string, ContextCompaction, int) {
 	t.Helper()
 	store := &archiveSessions{}
@@ -54,7 +54,7 @@ func compactedSessionStore(t *testing.T) (*archiveSessions, string, ContextCompa
 	}
 	appendWindowRounds(t, first, restartCompactionRequestID, 4, 32_000)
 
-	// 折叠一次（`/compact`、`compact_context` 同一落点）。
+	// 压缩一次（`/compact`、`compact_context` 同一落点）。
 	compacted := compactNow(t, first, sessionID)
 	if compacted.EventTo == 0 {
 		t.Fatalf("夹具前提：压缩记录应带被压区间（事件序号）：%+v", compacted)
@@ -69,10 +69,10 @@ func compactedSessionStore(t *testing.T) (*archiveSessions, string, ContextCompa
 	}
 	first.ViewMu.RUnlock()
 	if state == nil || len(state.ContextCompactions) != 1 {
-		t.Fatalf("夹具前提：折叠后应有一条压缩记录：%#v", state)
+		t.Fatalf("夹具前提：压缩后应有一条压缩记录：%#v", state)
 	}
 	if retained <= 0 {
-		t.Fatalf("夹具前提：折叠应推前保留窗口起点（ContextRetainedFrom>0）")
+		t.Fatalf("夹具前提：压缩应推前保留窗口起点（ContextRetainedFrom>0）")
 	}
 	if persisted := store.record.Execution.Task; persisted == nil || len(persisted.ContextCompactions) != 1 {
 		t.Fatalf("夹具前提：重启前落盘的 record 应带压缩记录：%+v", persisted)
@@ -167,7 +167,7 @@ func TestReproCompactionStackVisibleWithoutProjection(t *testing.T) {
 // TestReproCompactionRetainedFromRestoredFromRecord 冷恢复时保留窗口起点
 // （`ContextRetainedFrom`）按压缩记录的区间事实还原：它是"已被折出的前缀"的
 // 边界，归零会让下一次装配重新计入这段前缀（长会话会稳定越线、每回合重新压
-// 一次）。这里用**存储事件流**（seq 空间与折叠当时同一套）作为推导前提。
+// 一次）。这里用**存储事件流**（seq 空间与压缩当时同一套）作为推导前提。
 func TestReproCompactionRetainedFromRestoredFromRecord(t *testing.T) {
 	store, sessionID, _, retained := compactedSessionStore(t)
 	service := coldResume(t, store, sessionID)

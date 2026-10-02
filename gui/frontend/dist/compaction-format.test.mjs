@@ -8,18 +8,20 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  compactionFailureText,
   compactionFrontier,
   compactionGateDurationText,
+  compactionOutcomeLabel,
   compactionRangeText,
   conversationCompactionAnchor,
   mergeCompactionProgress,
   messageOrdinal
 } from "./compaction-format.js";
 
-const fold = (...frames) => frames.reduce((acc, frame) => mergeCompactionProgress(acc, frame), null);
+const mergeFrames = (...frames) => frames.reduce((acc, frame) => mergeCompactionProgress(acc, frame), null);
 
 test("a begin frame opens a round with nothing counted and nothing timed", () => {
-  const progress = fold({ state: "running", phase: "begin", gate: "judge", index: 0, total: 6, origin: "explicit" });
+  const progress = mergeFrames({ state: "running", phase: "begin", gate: "judge", index: 0, total: 6, origin: "explicit" });
   assert.equal(progress.state, "running");
   assert.equal(progress.phase, "begin");
   assert.equal(progress.index, 0);
@@ -30,7 +32,7 @@ test("a begin frame opens a round with nothing counted and nothing timed", () =>
 });
 
 test("gate frames accumulate in execution order with their own durations", () => {
-  const progress = fold(
+  const progress = mergeFrames(
     { state: "running", phase: "begin", gate: "judge", index: 0, total: 6 },
     { state: "running", gate: "judge", index: 1, total: 6, elapsed_ms: 28, detail: "compared=163925" },
     { state: "running", gate: "assemble", index: 2, total: 6, elapsed_ms: 6, detail: "assembled=83887" },
@@ -44,7 +46,7 @@ test("gate frames accumulate in execution order with their own durations", () =>
 });
 
 test("a re-sent gate replaces its row instead of duplicating it", () => {
-  const progress = fold(
+  const progress = mergeFrames(
     { state: "running", gate: "judge", index: 1, total: 6, elapsed_ms: 28 },
     { state: "running", gate: "judge", index: 1, total: 6, elapsed_ms: 31, detail: "compared=2" }
   );
@@ -54,7 +56,7 @@ test("a re-sent gate replaces its row instead of duplicating it", () => {
 });
 
 test("the terminal frame carries the version, outcome and total elapsed", () => {
-  const progress = fold(
+  const progress = mergeFrames(
     { state: "running", gate: "judge", index: 1, total: 6, elapsed_ms: 28 },
     { state: "running", gate: "record", index: 6, total: 6, elapsed_ms: 2, detail: "recorded=true version=2" },
     { state: "done", index: 6, total: 6, version: 2, origin: "explicit", outcome: "compacted", detail: "reached=6/6" }
@@ -71,7 +73,7 @@ test("the terminal frame carries the version, outcome and total elapsed", () => 
 test("a failed round stops at the gate it really reached", () => {
   // 后端终局帧恒给 index=total（"本轮已收口"），但那不代表六关真走完：中途报错的
   // 那一轮必须停在它实际到过的格子上，否则进度条会被终局帧推成满格。
-  const progress = fold(
+  const progress = mergeFrames(
     { state: "running", gate: "judge", index: 1, total: 6, elapsed_ms: 20 },
     { state: "running", gate: "assemble", index: 2, total: 6, elapsed_ms: 4 },
     { state: "failed", index: 6, total: 6, origin: "auto", outcome: "context: 结构性超限", detail: "reached=2/6" }
@@ -83,9 +85,9 @@ test("a failed round stops at the gate it really reached", () => {
 });
 
 test("a new round never inherits the previous round's checklist", () => {
-  // 自动路径没有起手帧（要不要折叠正是判据估算的结果），新轮的第一帧就是判据关
+  // 自动路径没有起手帧（要不要压缩正是判据估算的结果），新轮的第一帧就是判据关
   // 收口。判新轮的判据只能是"上一轮已收口"——否则两轮的耗时会被读成一轮。
-  const first = fold(
+  const first = mergeFrames(
     { state: "running", phase: "begin", gate: "judge", index: 0, total: 6 },
     { state: "running", gate: "judge", index: 1, total: 6, elapsed_ms: 28 },
     { state: "done", index: 6, total: 6, version: 2, outcome: "compacted" }
@@ -104,7 +106,7 @@ test("a new round never inherits the previous round's checklist", () => {
 });
 
 test("an unusable frame leaves the round untouched", () => {
-  const progress = fold({ state: "running", gate: "judge", index: 1, total: 6, elapsed_ms: 28 });
+  const progress = mergeFrames({ state: "running", gate: "judge", index: 1, total: 6, elapsed_ms: 28 });
   for (const payload of [null, undefined, 7, "x", {}, { state: "running", gate: "judge" }, { state: "running", total: 0 }]) {
     assert.equal(mergeCompactionProgress(progress, payload), progress);
   }
@@ -122,7 +124,7 @@ test("durations below a millisecond say so instead of claiming zero", () => {
 // 起手帧这一屏会在判据关上出现两行（清单一行凭空 <1ms + 起手帧自己的"进行中"一行），
 // 而在判据关收口之前就失败的那一轮，会把一个并不存在的耗时写进清单。
 test("the begin frame never becomes a checklist row of its own", () => {
-  const running = fold({ state: "running", phase: "begin", gate: "judge", index: 0, total: 6, origin: "explicit" });
+  const running = mergeFrames({ state: "running", phase: "begin", gate: "judge", index: 0, total: 6, origin: "explicit" });
   assert.deepEqual(running.gates, []);
   assert.equal(running.elapsedMs, 0);
   assert.equal(running.index, 0);
@@ -135,7 +137,7 @@ test("the begin frame never becomes a checklist row of its own", () => {
 // ── 压缩分界（会话单例）的判定与落点 ─────────────────────────────
 // 分界不是"每条压缩记录一条"：它说的是会话当前的一个事实（以上这些已经不发给模型），
 // 因此判定只返回一个前沿，区间取整段已折出的上下文（起点最早、终点最新）——只报最后
-// 一次折叠，会让更早折掉的那段看起来还发给模型。
+// 一次压缩，会让更早折掉的那段看起来还发给模型。
 
 test("messageOrdinal reads the event number, tool rows included", () => {
   assert.equal(messageOrdinal("message-663"), 663);
@@ -145,7 +147,30 @@ test("messageOrdinal reads the event number, tool rows included", () => {
   assert.equal(messageOrdinal(undefined), null);
 });
 
-test("compactionFrontier takes the last folded message and the earliest start", () => {
+test("compactionFrontier 不把失败痕读成已压出窗口的上下文", () => {
+  // 失败痕的 message_to / event_to 恒空（这次什么都没动）。它一旦参与前沿判定，
+  // 对话区就会凭空画出一条"以上已被压缩"的假线——而那段上下文明明还发给模型。
+  const frontier = compactionFrontier([
+    { version: 1, message_from: "message-1", message_to: "message-9", event_from: 1, event_to: 3, frame_ref: "tr-1" },
+    { version: 2, failed: true, note: "no_model_summary" }
+  ]);
+  assert.equal(frontier.message_to, "message-9");
+  assert.equal(frontier.index, 0);
+  assert.equal(frontier.count, 2, "失败痕仍在记录列表里（要查得到），只是不参与分界");
+});
+
+test("压缩失败：回执文案说「压缩失败」并把原因字面量翻成人话", () => {
+  assert.equal(compactionOutcomeLabel("compact_failed"), "压缩失败：上下文原样继续");
+  assert.match(compactionFailureText({ note: "no_model_summary estimated=281424 budget=163616" }), /拿不到模型读后感/);
+  assert.match(compactionFailureText({ note: "no_model_summary estimated=281424 budget=163616" }), /estimated=281424 budget=163616/);
+  assert.match(compactionFailureText({ note: "ineffective_compact landing=1 soft=2" }), /换不来余量/);
+  // 未留原因的失败也不许装成"没有失败"。
+  assert.match(compactionFailureText({}), /未留下原因/);
+  // 后端新增失败种类而前端没跟时：原样显示，不吞成一句笼统的"压缩失败"。
+  assert.equal(compactionFailureText({ note: "brand_new_reason why=x" }), "brand_new_reason；why=x");
+});
+
+test("compactionFrontier takes the last compacted message and the earliest start", () => {
   const frontier = compactionFrontier([
     { version: 1, message_from: "message-1", message_to: "message-20", event_from: 1, event_to: 3, frame_ref: "tr-1" },
     { version: 2, message_from: "message-21", message_to: "message-103", event_from: 4, event_to: 9, frame_ref: "tr-2" }
@@ -166,7 +191,7 @@ test("compactionFrontier declines to guess when no record carries a message id",
   assert.equal(compactionFrontier([{ version: 1, reason: "context_budget", messages_before: 88 }]), null);
 });
 
-test("conversationCompactionAnchor places one divider after the last folded message", () => {
+test("conversationCompactionAnchor places one divider after the last compacted message", () => {
   const messages = [
     { id: "message-1", role: "user" }, { id: "message-2", role: "assistant" },
     { id: "message-3", role: "user" }, { id: "message-4", role: "assistant" }
@@ -176,12 +201,12 @@ test("conversationCompactionAnchor places one divider after the last folded mess
     { version: 2, message_from: "message-3", message_to: "message-4", compacted_at: "t2" }
   ]);
   assert.equal(anchor.messageID, "message-4");
-  assert.equal(anchor.label, "以上 消息 message-1..message-4已被折叠");
-  assert.match(anchor.note, /会话共折叠 2 次/);
+  assert.equal(anchor.label, "以上 消息 message-1..message-4已被压缩");
+  assert.match(anchor.note, /会话共压缩 2 次/);
 });
 
-test("conversationCompactionAnchor keeps the divider off pages that hold nothing folded", () => {
-  // 前沿在更早的那一页：本页消息都在分界之后 —— 这里没有任何已折叠的内容，凭空插一行
+test("conversationCompactionAnchor keeps the divider off pages that hold nothing compacted", () => {
+  // 前沿在更早的那一页：本页消息都在分界之后 —— 这里没有任何已压缩的内容，凭空插一行
   // 虚线就是假线。
   const anchor = conversationCompactionAnchor([{ id: "message-9" }, { id: "message-10" }], [
     { version: 1, message_from: "message-1", message_to: "message-4", compacted_at: "t1" }

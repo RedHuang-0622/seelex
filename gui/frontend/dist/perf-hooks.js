@@ -80,7 +80,7 @@ export function createPerfHooks({ getStats, onError } = {}) {
         truncated: stats?.truncated_outputs || 0,
         archived: stats?.archived_bytes || 0
       });
-      // 大块输出出现时打点一次到控制台（对照前端折叠是否生效）。
+      // 大块输出出现时打点一次到控制台（对照前端压缩是否生效）。
       if (sample.largest > 4000 || sample.truncated > 0) {
         console.debug("[perf] 大输出样本:", sample);
       }

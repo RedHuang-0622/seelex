@@ -75,7 +75,7 @@ func (config WindowConfig) WithDefaults() WindowConfig {
 // 未配置（<= 0）的候选不参与比较；两个候选都不可用时全量保留（比值只增不
 // 缩的场景）。返回值 ∈ [1, allContextTokens]；allContextTokens <= 0 时返回 0
 // （调用方不做窗口决策，保持原目标）。窗口外部分（allContextTokens − 返回值）
-// 尽数交给 compact_context 折叠，原始轮次仍在会话存储里按引用回读。
+// 尽数交给 compact_context 压缩，原始轮次仍在会话存储里按引用回读。
 func (config WindowConfig) RetainedContextTokens(allContextTokens, fallbackTokens int) int {
 	if allContextTokens <= 0 {
 		return 0

@@ -30,14 +30,14 @@ type ContextCompactionResult struct {
 	Recorded  bool `json:"recorded,omitempty"`
 	Scheduled bool `json:"scheduled,omitempty"`
 	// NoEpoch 标记这次压缩发生在**没有在飞回合**的会话上（冷加载、刚清空）：
-	// 折叠按会话级维护身份执行（task_context.SessionMaintenanceRequestPrefix），
+	// 压缩按会话级维护身份执行（task_context.SessionMaintenanceRequestPrefix），
 	// 当场生效、不依赖下一条消息。回执据此说明为什么"按了就有结果"。
 	NoEpoch bool   `json:"no_epoch,omitempty"`
 	Version uint64 `json:"version,omitempty"`
 	Reason  string `json:"reason,omitempty"`
 	// MessagesBefore 是**装配前的引擎历史条数**（engineHistory 长度），不是被压
 	// 的 transcript 消息数：冷加载/路由会话里它合法为 0，而同一时刻的区间字段
-	// （MessageFrom/To、EventFrom/To）仍然记得住"从哪压到哪"。用户可见的折叠
+	// （MessageFrom/To、EventFrom/To）仍然记得住"从哪压到哪"。用户可见的压缩
 	// 范围一律走 compactionRangeLabel，不要拿这个数字当"压缩前 N 条消息"。
 	MessagesBefore  int `json:"messages_before,omitempty"`
 	EstimatedTokens int `json:"estimated_tokens,omitempty"`
@@ -69,7 +69,12 @@ type ContextCompactionResult struct {
 	FrameRef    string `json:"frame_ref,omitempty"`
 	FrameBytes  int    `json:"frame_bytes,omitempty"`
 	FrameTokens int    `json:"frame_tokens,omitempty"`
-	Note        string `json:"note"`
+	// Failure 是这次压缩**没做成**的原因（空 = 没失败，见 context_runtime 的
+	// compactDecision.Failure）。形状是「字面量 + 数字事实」，例如
+	// `no_model_summary estimated=281424 budget=163616 window=200000 overhead=9123`：
+	// 字面量说明成因（下一步查什么），数字说明"这次是带着多大的上下文发出去的"。
+	Failure string `json:"failure,omitempty"`
+	Note    string `json:"note"`
 }
 
 // CompactionGateTiming 是压缩回执里的逐关耗时（门禁 id + 本关毫秒）。
@@ -99,6 +104,34 @@ func compactionReasonLabel(reason string) string {
 	}
 }
 
+// failureReasonLabel 渲染压缩失败的原因（用户可读），并把数字事实原样带在括号里。
+//
+// 只翻**字面量那一段**：原因串的形状是「字面量 + 数字事实」（见
+// ContextCompactionResult.Failure），数字段是这次失败的证据（带着多大的上下文、
+// 相对哪个上限），翻不动也不该翻——它是判据本身，改写就成了二次叙述。
+// 未知原因原样返回（后端新增失败种类而这里没跟时，回执要显示"有这么一种失败"，
+// 而不是吞成一句笼统的"压缩失败"）。
+func failureReasonLabel(failure string) string {
+	trimmed := strings.TrimSpace(failure)
+	if trimmed == "" {
+		return ""
+	}
+	literal, facts, _ := strings.Cut(trimmed, " ")
+	label := ""
+	switch literal {
+	case "no_model_summary":
+		label = "拿不到模型读后感（摘要器未装配或重放调用失败）"
+	case "ineffective_compact":
+		label = "压缩换不来余量（压缩落点仍够不到判据线）"
+	default:
+		return trimmed
+	}
+	if facts = strings.TrimSpace(facts); facts != "" {
+		return label + "；" + facts
+	}
+	return label
+}
+
 // compactionRecordNote 渲染「压缩已落记录」的回执：版本 + 原因 + 被压区间 +
 // 估算量，并指明帧正文与原始轮次怎么回读。
 //
@@ -112,7 +145,7 @@ func compactionRecordNote(result ContextCompactionResult) string {
 	var builder strings.Builder
 	if result.NoEpoch {
 		builder.WriteString("会话没有在飞回合（冷加载或刚清空），已按会话级显式压缩立即执行" +
-			"（折叠已装载的上下文并落记录，无需下一条消息）：")
+			"（压缩已装载的上下文并落记录，无需下一条消息）：")
 	}
 	builder.WriteString("已压缩上下文：v")
 	builder.WriteString(strconv.FormatUint(result.Version, 10))
@@ -143,7 +176,7 @@ func compactionRecordNote(result ContextCompactionResult) string {
 // `reached=7/7 judge<1ms assemble 4ms replace<1ms index 12ms frame 33ms store<1ms record<1ms`。
 //
 // 只报门禁 id 与毫秒：关卡中文名是前端的文案表（同一处只放一种语言）。清单为空
-// （没折叠、或这轮没走到任何一关）时返回空串，调用方跳过这一段——不拿别的量顶替。
+// （没压缩、或这轮没走到任何一关）时返回空串，调用方跳过这一段——不拿别的量顶替。
 func compactionGateChecklist(gates []CompactionGateTiming) string {
 	if len(gates) == 0 {
 		return ""
@@ -179,11 +212,11 @@ func compactionRangeLabel(result ContextCompactionResult) string {
 // CompactContextNow 压缩当前执行会话（命令/工具共用）：会话从 ctx 解析，
 // ctx 没带时回退视图会话。
 //
-// 会话**有没有在飞回合都当场压缩**：有匹配 request 的执行纪元就按该纪元折叠；
+// 会话**有没有在飞回合都当场压缩**：有匹配 request 的执行纪元就按该纪元压缩；
 // 只有已装载的上下文而没有在飞回合（冷加载、刚清空）时按会话级维护身份立刻
-// 折叠已装载的上下文——用户按下回车就是要看到结果，不能要求他再发一条消息。
-// 唯一例外是会话真的没有可折叠材料（空会话）：此时登记为"下一条消息组装时
-// 立即压缩"（CompactScheduled），"没有可折叠的活"不是错误。
+// 压缩已装载的上下文——用户按下回车就是要看到结果，不能要求他再发一条消息。
+// 唯一例外是会话真的没有可压缩材料（空会话）：此时登记为"下一条消息组装时
+// 立即压缩"（CompactScheduled），"没有可压缩的活"不是错误。
 func (service *Service) CompactContextNow(ctx context.Context) (ContextCompactionResult, error) {
 	if service == nil {
 		return ContextCompactionResult{}, errors.New("compact context: service is unavailable")
@@ -197,10 +230,10 @@ func (service *Service) CompactContextNow(ctx context.Context) (ContextCompactio
 	if sessionID == "" {
 		return ContextCompactionResult{}, errors.New("compact context: 当前没有可压缩的会话")
 	}
-	// 同会话串行：先领到这一会话的压缩轮再折叠（已有轮在跑时等它收口）。领到的
-	// 这段覆盖折叠、落盘与回执构造，期间该会话的新提交挂到收口之后再开回合——
-	// 没有这道门，一条消息就能在折叠读完引擎历史之后、写回之前开出新回合，两边
-	// 各自替换历史，后写的那份把这轮折叠整个丢掉。门见 context_compact_gate.go。
+	// 同会话串行：先领到这一会话的压缩轮再压缩（已有轮在跑时等它收口）。领到的
+	// 这段覆盖压缩、落盘与回执构造，期间该会话的新提交挂到收口之后再开回合——
+	// 没有这道门，一条消息就能在压缩读完引擎历史之后、写回之前开出新回合，两边
+	// 各自替换历史，后写的那份把这轮压缩整个丢掉。门见 context_compact_gate.go。
 	//
 	// 这里可以放心阻塞：调用方即使在回合内（compact_context 工具、回合内的
 	// /compact），手里也没有会话锁——Seele 的回合准入是闸门、工作历史是短临界区，
@@ -219,8 +252,8 @@ func (service *Service) CompactContextNow(ctx context.Context) (ContextCompactio
 		// 无在飞回合的会话级压缩由 compactionRecordNote 在同一句里说明
 		// （命令与工具共用那一句，见其 doc 注释）。
 		return newContextCompactionResult(outcome), nil
-	case context_runtime.CompactFoldedUnrecorded:
-		// 折叠确实发生了（引擎历史已换成有界 checkpoint 并按会话落盘），只是
+	case context_runtime.CompactUnrecorded:
+		// 压缩确实发生了（引擎历史已换成有界 checkpoint 并按会话落盘），只是
 		// 这一轮是**自动路径**（软/硬阈值）且执行已收尾——自动压缩记录只在
 		// 任务执行中写，故不补记。如实说明，不谎报"未达阈值"。
 		if outcome.NoEpoch {
@@ -231,7 +264,7 @@ func (service *Service) CompactContextNow(ctx context.Context) (ContextCompactio
 				ComparedTokens:  outcome.ComparedTokens,
 				SoftThreshold:   outcome.SoftThreshold,
 				HardThreshold:   outcome.HardThreshold,
-				Note: "会话没有在飞回合（冷加载或刚清空），已按会话级显式压缩立刻折叠已装载的上下文" +
+				Note: "会话没有在飞回合（冷加载或刚清空），已按会话级显式压缩立刻压缩已装载的上下文" +
 					"（引擎历史已换成压缩形态并按会话落盘）；但这条压缩没有进记录面（该会话的上下文状态被新回合替换），" +
 					"故本次不留记录。原始轮次仍在会话存储里，可用 read_tool_result / read_compressed_turn / search_history 回读。",
 			}, nil
@@ -243,32 +276,38 @@ func (service *Service) CompactContextNow(ctx context.Context) (ContextCompactio
 			ComparedTokens:  outcome.ComparedTokens,
 			SoftThreshold:   outcome.SoftThreshold,
 			HardThreshold:   outcome.HardThreshold,
-			Note: "可变 transcript 已折叠为有界 checkpoint 帧并按会话落盘（引擎历史已换成压缩形态）；" +
-				"但这次折叠来自自动路径（软/硬阈值）且该回合的任务执行已收尾，自动压缩记录只在执行中写，" +
+			Note: "可变 transcript 已压缩为有界 checkpoint 帧并按会话落盘（引擎历史已换成压缩形态）；" +
+				"但这次压缩来自自动路径（软/硬阈值）且该回合的任务执行已收尾，自动压缩记录只在执行中写，" +
 				"故本次不留记录。原始轮次仍在会话存储里，可用 read_tool_result / read_compressed_turn / search_history 回读。",
 		}, nil
-	case context_runtime.CompactSkippedNoSummary:
-		// 判据命中了，但这次折叠拿不到模型读后感（折叠处厚摘要开关关闭 / QuickChat
-		// 装配失败）。折出来的帧只有元数据、对检索毫无用处，却会作废一段 provider
-		// 前缀缓存，因此**不折上下文、不推压缩栈顶**，上下文原样继续 append
-		// （用户口径 2026-10-01：只有出了读后感才更新 compact stack top）。
+	case context_runtime.CompactFailed:
+		// 判据命中了，但这次压不成：拿不到模型读后感（压缩处厚摘要开关关闭 / 摘要器
+		// 装配失败 / 重放调用在运行时失败），或压缩换不来余量（幂等/有效性校验）。
+		// 两种成因都按同一条口径收口——**不折上下文、不推压缩栈顶、上下文版本不推进**，
+		// 上下文原样继续 append，只留一条失败痕（用户口径 2026-10-01 / 2026-10-02）。
+		//
+		// 原因按字面量带回：它是这次失败的**证据**，回执不能拿一句笼统的"压缩失败"盖住
+		// 两种下一步完全不同的成因（查配置 vs 查调用 vs 查窗口余量）。
 		return ContextCompactionResult{
 			ComparedTokens:  outcome.ComparedTokens,
 			EstimatedTokens: outcome.AssembledTokens,
 			SoftThreshold:   outcome.SoftThreshold,
 			HardThreshold:   outcome.HardThreshold,
-			Note: fmt.Sprintf("压缩判据已命中（判据量 %d tokens ≥ 硬阈值 %d），但这次折叠拿不到模型读后感"+
-				"（折叠处厚摘要开关未开启，或摘要器装配失败）：按口径**不折上下文、不推压缩栈顶**，"+
-				"上下文原样继续 append。打开 limits.context_compaction_summary.enabled 后这次折叠才会真正执行。",
-				outcome.ComparedTokens, outcome.HardThreshold),
+			Failure:         outcome.Failure,
+			Gates:           contextCompactionGates(outcome.Gates),
+			Note: fmt.Sprintf("压缩失败：判据已命中（判据量 %d tokens ≥ 硬阈值 %d），但这次压不下去"+
+				"（原因 %s）。按口径**不折上下文、不推压缩栈顶、不推进上下文版本**——"+
+				"上下文原样继续 append，模型看到的仍是原来的会话历史（不需要 search_history 也知道之前发生了什么）；"+
+				"本次只留一条失败记录。已经落了一条失败记录，可在状态页「上下文压缩」里查到。",
+				outcome.ComparedTokens, outcome.HardThreshold, failureReasonLabel(outcome.Failure)),
 		}, nil
 	case context_runtime.CompactScheduled:
-		// 没有在飞回合、也没有已装载的对话材料（空会话）：不伪造纪元，也不折叠
+		// 没有在飞回合、也没有已装载的对话材料（空会话）：不伪造纪元，也不压缩
 		// 空上下文（那只会产出一条区间为空的记录，等于把"没做事"记成"做了事"），
 		// 登记为下一次装配兑现。
 		return ContextCompactionResult{
 			Scheduled: true,
-			Note: "会话没有在飞回合（刚冷加载或刚清空），也没有已装载的对话材料（空会话）：现在没有可折叠的请求上下文；" +
+			Note: "会话没有在飞回合（刚冷加载或刚清空），也没有已装载的对话材料（空会话）：现在没有可压缩的请求上下文；" +
 				"已登记：下一条消息组装上下文前立即压缩，压缩结果对那条消息生效。",
 		}, nil
 	default:
@@ -277,7 +316,7 @@ func (service *Service) CompactContextNow(ctx context.Context) (ContextCompactio
 			EstimatedTokens: outcome.AssembledTokens,
 			SoftThreshold:   outcome.SoftThreshold,
 			HardThreshold:   outcome.HardThreshold,
-			Note: fmt.Sprintf("压缩判据未命中：判据量（全量累积/缓存峰值请求估算）%d tokens < 软阈值 %d，未折叠、未改写状态"+
+			Note: fmt.Sprintf("压缩判据未命中：判据量（全量累积/缓存峰值请求估算）%d tokens < 软阈值 %d，未压缩、未改写状态"+
 				"（附带：装配后请求估算 %d tokens，硬阈值 %d）。",
 				outcome.ComparedTokens, outcome.SoftThreshold, outcome.AssembledTokens, outcome.HardThreshold),
 		}, nil

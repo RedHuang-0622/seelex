@@ -32,7 +32,7 @@ const (
 	ActiveSkillPrefix       = "<!-- seelex:active-skill:v1 -->"
 	ToolResultOmittedPrefix = "<seelex-tool-result-omitted>"
 	// AutonomousCompactionPrefix 标记自主压缩帧：正常有界窗口装不下全量预算
-	// 时，装配层主动把可变 transcript 折叠为有界 checkpoint 摘要（而不是直接
+	// 时，装配层主动把可变 transcript 压缩为有界 checkpoint 摘要（而不是直接
 	// 拒绝发送）。属动态尾部消息 → 不进保留前缀，回合结束由应用清理路径移除。
 	AutonomousCompactionPrefix = "<!-- seelex:context-compact:v1 -->"
 	// 恢复/预算终局前缀：与根包 history_safety.go / chat.go 同源协议字符串
@@ -65,7 +65,7 @@ type Coordinator struct {
 
 	// pendingCompactMu 保护 pendingForceCompact：显式压缩（/compact、
 	// compact_context）落在**还没有执行纪元**的会话上时（冷加载、刚清空），
-	// 没有 RequestID 可以折叠，也不伪造一个——改登记为"该会话下一次装配
+	// 没有 RequestID 可以压缩，也不伪造一个——改登记为"该会话下一次装配
 	// provider 上下文时按显式路径压缩"。本锁只在装配入口最前面短暂持有，
 	// 不与 Core.ViewMu 构成嵌套。
 	pendingCompactMu    sync.Mutex
@@ -81,7 +81,7 @@ type Coordinator struct {
 //
 // 为什么需要一条**只包推帧**的窄串行：压缩栈是链式结构，PushCompact 会校验
 // PrevSegmentID / PrevRequestFrom / PrevRequestTo 必须与栈顶逐一相等（见
-// sessionstore.SessionContextStore.PushCompact）。两个折叠并发推同一会话时，
+// sessionstore.SessionContextStore.PushCompact）。两个压缩并发推同一会话时，
 // 后者按自己读到的栈顶填锚点，必然撞上这条校验。推帧原先在 Core.ViewMu 的临界
 // 区里，这条串行是**顺带**得到的；推帧移出锁（见 prepareExecutionContextFor 的
 // 锁纪律）之后必须显式补回，否则就是我们在缩小锁粒度时把一条既有不变量丢了。
@@ -119,10 +119,10 @@ func NewCoordinator(deps Deps) *Coordinator {
 // ScheduleForceCompact 登记「该会话下一次装配 provider 上下文时按显式路径压缩」。
 //
 // 用途：`/compact` / compact_context 打在还没有执行纪元的会话上——刚冷加载、
-// 刚清空的会话只有已装载的历史，没有 TaskExecutionState.RequestID 可以折叠
+// 刚清空的会话只有已装载的历史，没有 TaskExecutionState.RequestID 可以压缩
 // （prepareExecutionContextFor 在 state == nil 时按设计直接返回）。这里不伪造
 // 纪元（伪造会把"有人在跑这个会话"写进状态），而是把"用户要求现在就压"记成
-// 一件待办：下一条消息组装上下文时先折叠再发送，压缩对那条消息立即生效。
+// 一件待办：下一条消息组装上下文时先压缩再发送，压缩对那条消息立即生效。
 func (c *Coordinator) ScheduleForceCompact(sessionID string) {
 	sessionID = strings.TrimSpace(sessionID)
 	if c == nil || sessionID == "" {
@@ -177,9 +177,9 @@ func (c *Coordinator) CompactTaskContext(requestID string) error {
 // 的 checkpoint（引擎迭代 hook 调用，绝不持有 Core.ViewMu）。
 //
 // 这是**维护入口**：调用目的本身就是要折出有界 checkpoint（见 prepareOptions
-// 的 maintenanceFold），因此不受自动路径的幂等校验约束。
+// 的 maintenanceCompact），因此不受自动路径的幂等校验约束。
 func (c *Coordinator) CompactTaskContextFor(sessionID, requestID string) error {
-	return c.compactTaskContextFor(sessionID, requestID, prepareOptions{maintenanceFold: true})
+	return c.compactTaskContextFor(sessionID, requestID, prepareOptions{maintenanceCompact: true})
 }
 
 // forceCompactTaskContextFor 是显式压缩入口（/compact、compact_context）：
@@ -209,21 +209,36 @@ func (c *Coordinator) compactTaskContextFor(sessionID, requestID string, options
 	return nil
 }
 
-// CompactOutcome 是主动压缩的结果分类：已压缩并落记录 / 已折叠但未落记录 /
+// CompactOutcome 是主动压缩的结果分类：已压缩并落记录 / 已压缩但未落记录 /
 // 已登记（无执行纪元，下一次装配兑现）/ 判据未达（兜底）。调用方据此给出准确
 // 提示，而不是把"没做事"混成"出错了"，也不拿与判据无关的数字拼一句自相矛盾的话。
 type CompactOutcome string
 
 const (
-	CompactDone             CompactOutcome = "compacted"
-	CompactFoldedUnrecorded CompactOutcome = "folded_without_record"
-	// CompactSkippedNoSummary：这次折叠注定产不出模型读后感（摘要器未装配 /
-	// 无重放素材 / 重放调用失败），因此**不折上下文、不推压缩栈顶**，只留痕。
-	// 与 CompactFoldedUnrecorded（折叠发生了、只是没落记录）是两种终局：前者
-	// 什么都没动，后者动了上下文。
-	CompactSkippedNoSummary CompactOutcome = "skipped_no_summary"
-	CompactScheduled        CompactOutcome = "scheduled"
-	CompactBelowThreshold   CompactOutcome = "below_threshold"
+	CompactDone       CompactOutcome = "compacted"
+	CompactUnrecorded CompactOutcome = "compacted_without_record"
+	// CompactFailed：这次压缩**没做成**——判据命中了，但压不下去（拿不到模型读后感，
+	// 或压缩换不来余量）。后果只有一句话：这次什么都没动。上下文原样 append、
+	// compact stack top 不动、上下文版本不推进，只留一条失败痕（Outcome 进瞬态进度，
+	// 失败痕进记录面；两处写同一个原因字面量，见 compactDecision.Failure）。
+	//
+	// 与 CompactUnrecorded（压缩发生了、只是没落记录）是两种终局：后者动了上下文，
+	// 前者什么都没动。前端文案据此分开（「压缩失败」vs「已压缩、未落记录」）。
+	CompactFailed         CompactOutcome = "compact_failed"
+	CompactScheduled      CompactOutcome = "scheduled"
+	CompactBelowThreshold CompactOutcome = "below_threshold"
+)
+
+// 压缩失败的原因（与 CompactOutcome 分开：Outcome 说的是"这一轮以什么终局收口"，
+// 失败原因是"为什么压不下去"）。它是**跨包/跨语言协议字面量**（application/core 的
+// 回执与前端文案都按它分支），因此在这里导出、只此一处定义：三处各写一份字符串
+// 必然漂移成"回执说 A、状态页说 B"。
+const (
+	// CompactionFailureNoModelSummary：拿不到模型读后感（摘要器未装配 / 重放调用失败）。
+	CompactionFailureNoModelSummary = "no_model_summary"
+	// CompactionFailureIneffective：压缩落点够不到判据线（幂等/有效性校验命中），
+	// 折了也换不来余量。
+	CompactionFailureIneffective = "ineffective_compact"
 )
 
 // CompactResult 是主动压缩的结果面：结果分类 + 判据事实 + 压缩记录（落记录时）。
@@ -248,9 +263,12 @@ type CompactResult struct {
 	// ~2.5s 撤条，只靠它用户按完回车再抬头就什么都看不到了。
 	Gates []CompactionGateTiming
 	// NoEpoch 标记本次压缩落在**没有在飞回合**的会话上（冷加载、刚清空）：
-	// 折叠按会话级维护身份执行（见 task_context.SessionMaintenanceRequestPrefix），
+	// 压缩按会话级维护身份执行（见 task_context.SessionMaintenanceRequestPrefix），
 	// 而不是登记到"下一条消息"再兑现。回执据此说明这次压缩为什么能立刻生效。
 	NoEpoch bool
+	// Failure 是本次压缩**没做成**的原因（空 = 没失败）。与失败痕记录里的 Note、
+	// 门禁 Detail、瞬态进度的 outcome 同源，调用方不再自造第二套说法。
+	Failure string
 }
 
 // CompactContextNow 主动压缩指定会话的可变 transcript（`/compact` 命令与
@@ -258,17 +276,17 @@ type CompactResult struct {
 // 路径，但走**显式语义**——不设阈值前提（用户/模型明确要求即压）。
 //
 // 会话有没有在飞回合走两条路，**两条都当场压缩**：
-//   - 有匹配当前 request 的执行纪元 → 按该纪元折叠（显式路径正常落记录）；
-//   - 没有执行纪元（冷加载、刚清空）→ 打开会话级维护身份，立刻折叠**已装载**
+//   - 有匹配当前 request 的执行纪元 → 按该纪元压缩（显式路径正常落记录）；
+//   - 没有执行纪元（冷加载、刚清空）→ 打开会话级维护身份，立刻压缩**已装载**
 //     的上下文（含落盘、落记录、出帧正文），不再只登记到"下一条消息组装时
 //     兑现"——用户按下回车就是要现在看到结果，不能要求他再发一条消息。
-//     只有会话真的没有可折叠内容（transcript 与引擎历史都没有对话材料）时，
+//     只有会话真的没有可压缩内容（transcript 与引擎历史都没有对话材料）时，
 //     才回落到登记语义（CompactScheduled）。
 //
 // 三种提前返回都如实分类，不伪造压缩、也不谎报理由：
-//   - 没有可折叠的请求上下文（空会话）→ 登记"下一条消息组装时立即压缩"
+//   - 没有可压缩的请求上下文（空会话）→ 登记"下一条消息组装时立即压缩"
 //     （CompactScheduled），不伪造一个假回合；
-//   - 折叠已发生但记录被拒 → CompactFoldedUnrecorded。显式路径正常必落记录
+//   - 压缩已发生但记录被拒 → CompactUnrecorded。显式路径正常必落记录
 //     （记录门槛对显式来源放宽到"回合已收尾也记"），走到这里只可能是该请求的
 //     执行面已被新回合替换；自动路径在回合收尾后按口径不补记，也会落到这一类；
 //   - 判据没命中（显式路径正常不会发生，兜底）→ CompactBelowThreshold。
@@ -277,8 +295,8 @@ func (c *Coordinator) CompactContextNow(ctx context.Context, sessionID string) (
 	if sessionID == "" {
 		return CompactResult{}, errors.New("compact context: session id is required")
 	}
-	// 冷加载/刚清空：当场折叠已装载的上下文（返回 handled=false 表示这次该由
-	// 既有纪元路径处理：并发开了回合，或会话没有任何可折叠材料）。
+	// 冷加载/刚清空：当场压缩已装载的上下文（返回 handled=false 表示这次该由
+	// 既有纪元路径处理：并发开了回合，或会话没有任何可压缩材料）。
 	if result, handled, err := c.compactSessionContextWithoutEpoch(ctx, sessionID); handled {
 		return result, err
 	}
@@ -305,10 +323,12 @@ func (c *Coordinator) CompactContextNow(ctx context.Context, sessionID string) (
 	case decision.NoEpoch:
 		c.ScheduleForceCompact(sessionID)
 		result.Outcome = CompactScheduled
-	case decision.NoSummary:
-		// 判据命中了，但这次折叠拿不到模型读后感：不折上下文、不推压缩栈顶，
-		// 上下文原样继续 append（用户口径 2026-10-01）。
-		result.Outcome = CompactSkippedNoSummary
+	case decision.Failure != "":
+		// 判据命中了，但这次压不下去（拿不到模型读后感 / 压缩换不来余量）：
+		// 上下文原样继续 append、compact stack top 不动、版本不推进，只留失败痕
+		// （用户口径 2026-10-01 / 2026-10-02）。原因随结果带回调用方。
+		result.Outcome = CompactFailed
+		result.Failure = decision.Failure
 	case !decision.Folded:
 		result.Outcome = CompactBelowThreshold
 	case decision.Recorded:
@@ -317,21 +337,21 @@ func (c *Coordinator) CompactContextNow(ctx context.Context, sessionID string) (
 			result.Record = updated.ContextCompactions[len(updated.ContextCompactions)-1]
 		}
 	default:
-		result.Outcome = CompactFoldedUnrecorded
+		result.Outcome = CompactUnrecorded
 	}
 	return result, nil
 }
 
 // compactSessionContextWithoutEpoch 处理"会话没有在飞回合"（冷加载、刚清空）
-// 的显式压缩：**立刻**折叠已装载的上下文，而不是登记到下一次装配。
+// 的显式压缩：**立刻**压缩已装载的上下文，而不是登记到下一次装配。
 //
 // handled=false 表示本次不该由本分支负责，调用方继续按纪元路径处理：
 //   - 会话此刻已有在飞回合（并发开了新回合）；
-//   - 会话没有可折叠材料（引擎历史里没有对话消息、transcript 为空）——空会话
-//     折叠只会产出一条区间为空的记录，那是把"没做事"记成"做了事"，所以这里
+//   - 会话没有可压缩材料（引擎历史里没有对话消息、transcript 为空）——空会话
+//     压缩只会产出一条区间为空的记录，那是把"没做事"记成"做了事"，所以这里
 //     维持既有语义：登记下一条消息兑现（handled=true + CompactScheduled）。
 //
-// 维护身份的作用范围严格限定在这一次折叠内：拿到身份 → 折叠（落记录、出帧正文、
+// 维护身份的作用范围严格限定在这一次压缩内：拿到身份 → 压缩（落记录、出帧正文、
 // 替换引擎历史、按会话落盘）→ 撤销身份。期间不写 ChatState.Running、不设
 // Snapshot.Chat.RequestID、不建任务注册表条目，因此可见面上没有"有人在跑这个
 // 会话"的假信号。
@@ -339,8 +359,8 @@ func (c *Coordinator) compactSessionContextWithoutEpoch(ctx context.Context, ses
 	if state := c.tasks.CurrentTaskExecutionFor(sessionID); state != nil && strings.TrimSpace(state.RequestID) != "" {
 		return CompactResult{}, false, nil
 	}
-	if !c.hasFoldableSessionContext(sessionID) {
-		// 空会话：折叠只会产出一条区间为空的记录（把"没做事"记成"做了事"），
+	if !c.hasCompactableSessionContext(sessionID) {
+		// 空会话：压缩只会产出一条区间为空的记录（把"没做事"记成"做了事"），
 		// 因此维持既有语义——登记为"下一条消息组装上下文时先压后发"。
 		c.ScheduleForceCompact(sessionID)
 		return CompactResult{Outcome: CompactScheduled}, true, nil
@@ -373,8 +393,9 @@ func (c *Coordinator) compactSessionContextWithoutEpoch(ctx context.Context, ses
 		NoEpoch:         true,
 	}
 	switch {
-	case decision.NoSummary:
-		result.Outcome = CompactSkippedNoSummary
+	case decision.Failure != "":
+		result.Outcome = CompactFailed
+		result.Failure = decision.Failure
 	case !decision.Folded:
 		result.Outcome = CompactBelowThreshold
 	case decision.Recorded:
@@ -383,19 +404,19 @@ func (c *Coordinator) compactSessionContextWithoutEpoch(ctx context.Context, ses
 			result.Record = updated.ContextCompactions[len(updated.ContextCompactions)-1]
 		}
 	default:
-		result.Outcome = CompactFoldedUnrecorded
+		result.Outcome = CompactUnrecorded
 	}
 	return result, true, nil
 }
 
-// hasFoldableSessionContext 判定会话是否装载了**可折叠的对话材料**：transcript
-// 有事件，或引擎历史里有非 system 消息（纯 system 前缀折叠不出任何区间，不算
+// hasCompactableSessionContext 判定会话是否装载了**可压缩的对话材料**：transcript
+// 有事件，或引擎历史里有非 system 消息（纯 system 前缀压缩不出任何区间，不算
 // 材料）。
-func (c *Coordinator) hasFoldableSessionContext(sessionID string) bool {
+func (c *Coordinator) hasCompactableSessionContext(sessionID string) bool {
 	if len(c.tasks.TranscriptFor(sessionID)) > 0 {
 		return true
 	}
-	for _, message := range c.foldHistory(sessionID) {
+	for _, message := range c.sessionHistory(sessionID) {
 		if !strings.EqualFold(strings.TrimSpace(message.Role), "system") {
 			return true
 		}
@@ -438,7 +459,7 @@ func (c *Coordinator) PrepareExecutionContextFor(sessionID, requestID, currentIn
 // compactDecision 是一次装配在压缩判据上的**事实面**：显式入口（/compact、
 // compact_context）据此如实报告结果，而不是拿别的数字（如装配后估算）反推。
 type compactDecision struct {
-	Folded          bool // 本次是否折叠了可变 transcript（原 compacting 判据）
+	Folded          bool // 本次是否压缩了可变 transcript（原 compacting 判据）
 	Recorded        bool // 是否落了压缩记录（由 task_context 的记录门槛判定）
 	Version         uint64
 	ComparedTokens  int // 判据量：全量累积/引擎缓存峰值的请求估算（rawTokens）
@@ -450,12 +471,13 @@ type compactDecision struct {
 	// （revision=0、不进快照、终局后 ~2.5s 撤条），只靠它，用户按完回车再抬头
 	// 就什么都看不到了——回执必须自己拿得住这份事实。
 	Gates   []CompactionGateTiming
-	NoEpoch bool // 没有可折叠的执行纪元（state == nil 或 requestID 不匹配）
-	// NoSummary 报告这次折叠因"没有模型读后感"被跳过（用户口径：没读后感就不折
-	// 上下文、不推压缩栈顶）。它与 Folded=false 一起出现：调用方据此区分"判据没
-	// 命中"（CompactBelowThreshold）与"判据命中了、但没有读后感所以不动"
-	// （CompactSkippedNoSummary）——两种终局给用户的下一步完全不同。
-	NoSummary bool
+	NoEpoch bool // 没有可压缩的执行纪元（state == nil 或 requestID 不匹配）
+	// Failure 报告这次压缩**没做成**的原因（空 = 没失败）：判据命中了，但压不下去。
+	// 两个取值见 CompactionFailureNoModelSummary / CompactionFailureIneffective，
+	// 与失败痕 Note、门禁 Detail、瞬态进度的 outcome 同源——调用方据此区分
+	// 「判据没命中」（CompactBelowThreshold）与「判据命中了、但这次压不成」
+	// （CompactFailed）：两种终局给用户的下一步完全不同。
+	Failure string
 }
 
 // prepareOptions 是装配的可选语义（零值 = 自动路径）。
@@ -464,19 +486,19 @@ type prepareOptions struct {
 	// 不设阈值前提（不再等软阈值），也不受"每个 progress epoch 只压一次"的
 	// 自动节流。显式路径的硬前提只有一条：该会话有匹配当前 request 的执行纪元。
 	forceCompact bool
-	// maintenanceFold 表示这次装配来自**维护入口**（CompactTaskContextFor：
-	// 引擎迭代 hook / 控制器驱动的折叠）——调用目的本身就是要折出一个私有、
+	// maintenanceCompact 表示这次装配来自**维护入口**（CompactTaskContextFor：
+	// 引擎迭代 hook / 控制器驱动的压缩）——调用目的本身就是要折出一个私有、
 	// 有界的 checkpoint，而不是"为发出某一条真实请求顺带压一次"。
 	//
-	// 自动路径的幂等校验（ineffectiveFold）只对后者有意义：它防的是"每轮达峰
-	// 重压一次"（同一件事反复做、余量名义化），而维护入口的契约就是这次折叠
+	// 自动路径的幂等校验（ineffectiveCompact）只对后者有意义：它防的是"每轮达峰
+	// 重压一次"（同一件事反复做、余量名义化），而维护入口的契约就是这次压缩
 	// 必须发生，跳过即违约（TestContextController* 系列钉住这一点）。
-	maintenanceFold bool
+	maintenanceCompact bool
 	// decision 是出参：非 nil 时由装配过程回填压缩判据事实（见 compactDecision）。
 	decision *compactDecision
 }
 
-// compactionOrigin 判定一轮折叠的来源：自动路径（软/硬阈值、自主压缩）记 auto，
+// compactionOrigin 判定一轮压缩的来源：自动路径（软/硬阈值、自主压缩）记 auto，
 // 显式要求（/compact、compact_context）记 explicit；回合已收尾时的显式要求记
 // explicit_after_turn——记录门槛按它放行，否则「回合之间压缩」在前端彻底不可见。
 func compactionOrigin(options prepareOptions, state *task_context.TaskExecutionState) string {
@@ -491,7 +513,7 @@ func compactionOrigin(options prepareOptions, state *task_context.TaskExecutionS
 
 func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentInput string, options prepareOptions) (out string, err error) {
 	// 显式压缩的「下一条消息兑现」：没有执行纪元时登记的强压在这里取走，
-	// 本次装配即按显式路径折叠（先压后发，压缩对本条消息立即生效）。
+	// 本次装配即按显式路径压缩（先压后发，压缩对本条消息立即生效）。
 	if !options.forceCompact && c.consumePendingForceCompact(sessionID) {
 		options.forceCompact = true
 	}
@@ -510,11 +532,11 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	}
 	budget := task_context.ContextBudgetFor(c.Deps.Runtime)
 	tools := c.Deps.Runtime.VisibleTools(context.Background())
-	existing := c.foldHistory(sessionID)
+	existing := c.sessionHistory(sessionID)
 	c.ViewMu.RLock()
 	systemPrompt := c.prompts.SystemPromptForActiveTaskLockedFor(sessionID)
 	c.ViewMu.RUnlock()
-	c.setFoldSystemPrompt(sessionID, systemPrompt)
+	c.setSessionSystemPrompt(sessionID, systemPrompt)
 
 	runtimeModel := c.Deps.Runtime.Model()
 	c.ViewMu.Lock()
@@ -528,7 +550,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	}
 	events := append([]model.TranscriptEvent(nil), c.tasks.TranscriptFor(sessionID)...)
 	events = excludeCurrentInputEvent(events, requestID, currentInput)
-	// 累积上下文的绝对起点：上一次折叠已经覆盖的 transcript 前缀不再回填。
+	// 累积上下文的绝对起点：上一次压缩已经覆盖的 transcript 前缀不再回填。
 	// 判据、保留窗口与装配都从同一起点往后看——否则每次装配都把已折出的前缀
 	// 重新算进“全量累积”，长会话稳定越线、每回合重新压一次。
 	retainedFrom := 0
@@ -542,9 +564,9 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	// 段时间里完全空白（用户看到的是"按了没反应"，然后突然冒出一条已完成的压缩
 	// 记录，于是合理地怀疑"只有前端、后端没接线"）。
 	//
-	// 自动路径提前不了：要不要折叠正是这次估算的结果。显式路径可以——fold 判据里
+	// 自动路径提前不了：要不要压缩正是这次估算的结果。显式路径可以——fold 判据里
 	// forceCompact 恒为真（fold := ... || options.forceCompact），所以这里开轮与
-	// 下方 `if fold` 一定配对，"没折叠"的轮次不会为不存在的事发进度。
+	// 下方 `if fold` 一定配对，"没压缩"的轮次不会为不存在的事发进度。
 	//
 	// 起手帧的版本号此刻还不存在（新版本在下方 newCheckpoint 里定稿），发 0 表示
 	// "未定"；判据关收口时用 setVersion 补正，绝不先猜一个版本号。
@@ -555,7 +577,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 		progress.begin()
 		defer func() { progress.settle(err, recorded, "") }()
 	}
-	// 达峰判定以**未被折叠覆盖**的全量累积 context 为准（而非可能已被框架
+	// 达峰判定以**未被压缩覆盖**的全量累积 context 为准（而非可能已被框架
 	// 压缩的引擎历史）：与引擎缓存估算取峰值，压缩是唯一使累积前缀失效的事件。
 	// 尾窗选择注入请求同款估算器（TranscriptTailWindowBy），裁剪量与判据量
 	// 才是同一把尺子；否则一边按事件记录值裁、一边按当前校准值判，保留窗口
@@ -572,54 +594,54 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	//	         保留前缀 = min(token1, token2)，token1 = 配置里硬编码的
 	//	         保留窗口 token 数（未配置回退账号上下文窗口），
 	//	         token2 = ratio × all_context（全量上下文 token 数）；
-	//	         窗口外部分尽数交给 compact_context 折叠。
+	//	         窗口外部分尽数交给 compact_context 压缩。
 	//	硬压缩 = all_context ≥ window.force_compact_tokens（必须自主压缩，
 	//	         不再等比例阈值：长任务下比例阈值可能永远不触发）。
 	windowConfig := context_control.Current()
 	allContextTokens := c.tasks.CountRequestTokens("", fullContext, "", nil)
 	hardCompact := windowConfig.MustCompact(allContextTokens)
-	// 保留窗口决策（③ 的边界）提前到判据之前：它的值就是「折叠后整条请求最多能到
+	// 保留窗口决策（③ 的边界）提前到判据之前：它的值就是「压缩后整条请求最多能到
 	// 哪」，判据要拿它做下面的**幂等/有效性校验**。纯算术 + 一次配置读取，提前
-	// 计算不改变任何既有语义（下方折叠分支直接复用这一份，不再重算第二遍）。
+	// 计算不改变任何既有语义（下方压缩分支直接复用这一份，不再重算第二遍）。
 	retain := retainWindowDecision(windowConfig, allContextTokens, budget, limits.Get().ContextRetainFloorPercent)
 	// 固定开销 = 整条请求估算 − transcript 一侧估算：system 稳定层 + plan 上下文 +
-	// 工具 + 当轮输入。这部分**不参与折叠**，因此它独立于保留窗口决策存在。
+	// 工具 + 当轮输入。这部分**不参与压缩**，因此它独立于保留窗口决策存在。
 	requestOverhead := rawTokens - allContextTokens
 	if requestOverhead < 0 {
 		requestOverhead = 0
 	}
-	// 折叠判据（三条，命中任一条即折叠）：
+	// 压缩判据（三条，命中任一条即压缩）：
 	//	① 自动路径的唯一阈值：rawTokens ≥ budget.HardThreshold（2026-09-30 起取消
-	//	   软线提前量：折叠会改写请求前缀，provider 的前缀缓存整段作废，折回来的
+	//	   软线提前量：压缩会改写请求前缀，provider 的前缀缓存整段作废，折回来的
 	//	   余量不值得付这份代价——只有真的逼近上限才折一次）；
 	//	② 硬阈值：all_context ≥ window.force_compact_tokens（必须压，不等比例）；
 	//	③ 显式路径：options.forceCompact（/compact、compact_context）——用户/模型
 	//	   明确要求现在就压缩时**不设阈值前提**（"还没到线"不是拒绝理由）。
 	fold := rawTokens >= budget.HardThreshold || hardCompact || options.forceCompact
-	// ── 幂等/有效性校验（自动路径折叠）────────────────────────────────────
+	// ── 幂等/有效性校验（自动路径压缩）────────────────────────────────────
 	//
-	// 折叠只裁 transcript 一侧，装配又把**整条请求**收口到保留窗口决策的落点上
+	// 压缩只裁 transcript 一侧，装配又把**整条请求**收口到保留窗口决策的落点上
 	// （见 fitExecutionHistory：target = retain.Retained 时判的是全量请求估算）。
-	// 于是「这次折叠之后请求能到哪」= retain.Retained + 固定开销，而上限是
-	// retain.Retained（装配保证 ≤ target）。落点不落到判据线以下时，这次折叠换不来
+	// 于是「这次压缩之后请求能到哪」= retain.Retained + 固定开销，而上限是
+	// retain.Retained（装配保证 ≤ target）。落点不落到判据线以下时，这次压缩换不来
 	// 任何余量：下一轮达峰判据会以同一个数字再越线，于是**同一个会话每一轮都压
 	// 一次**——现场（2026-09-29 21:19~21:23，同一会话 3.5 分钟内落 3 条记录，
 	// 帧区间每次都从 message-1 起、`estimated_tokens` 贴着软线）。
 	//
-	// 此时不折叠，把额度留给硬线/自主压缩那条真能把请求压下去的路径（它折的是
+	// 此时不压缩，把额度留给硬线/自主压缩那条真能把请求压下去的路径（它折的是
 	// 帧而不是 transcript，因此不受这条上限约束）。判据事实照旧进判据关的 Detail
 	// 与终局 Detail，读进度的人能自答"为什么这次没压"。
 	//
 	// 显式要求（/compact、compact_context）、硬线与维护入口**不受此校验约束**：
 	// 它们分别是"用户/模型现在就要求压"、"必须压"与"这次调用就是要折出 checkpoint"
 	// 的语义，跳过即违约。
-	ineffectiveFold := fold && !options.forceCompact && !options.maintenanceFold && !hardCompact &&
+	ineffectiveCompact := fold && !options.forceCompact && !options.maintenanceCompact && !hardCompact &&
 		retain.Retained+requestOverhead >= budget.HardThreshold
 	// ── 没有模型读后感就不折 ──────────────────────────────────────────────
 	//
 	// 一帧的价值分配是「元数据 + 模型读后感」（见 compaction_frame.go 的文件头）：
-	// 缺了读后感的一帧对检索毫无用处，而折叠本身会改写请求前缀、把 provider 的
-	// 整段前缀缓存作废。因此当这次折叠注定落成**本地确定性折叠**（生效配置里折叠处
+	// 缺了读后感的一帧对检索毫无用处，而压缩本身会改写请求前缀、把 provider 的
+	// 整段前缀缓存作废。因此当这次压缩注定落成**本地确定性压缩**（生效配置里压缩处
 	// 厚摘要开关关闭、QuickChat 装配失败、或这条链路结构上不注入摘要器）时，正确的
 	// 动作是**不折**：上下文原样 append、压缩栈顶不动，只把这次判据如实留痕。
 	//
@@ -631,14 +653,14 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	// 不受节流挡下（用户/模型明确要求时不接受"等下一批进展再说"，硬阈值必须压）。
 	//
 	// 额外放行"本执行还没有任何压缩记录"（len(ContextCompactions) == 0）：会话/执行的
-	// 第一次折叠必须留痕。progress epoch 与 CompactedEpoch 的初值都是"未开始"语义，
-	// 只看"两值不等"会把首轮折叠判成本纪元已压过——前三关照跑（进度报表都出来了）、
+	// 第一次压缩必须留痕。progress epoch 与 CompactedEpoch 的初值都是"未开始"语义，
+	// 只看"两值不等"会把首轮压缩判成本纪元已压过——前三关照跑（进度报表都出来了）、
 	// 却不落记录不落帧，用户看到"压缩了"却查不到压了哪段。首压留痕，同纪元后续再挡。
-	newCheckpoint := fold && !ineffectiveFold && !noSummary && (options.forceCompact || hardCompact ||
+	newCheckpoint := fold && !ineffectiveCompact && !noSummary && (options.forceCompact || hardCompact ||
 		state.CompactedEpoch != state.ProgressEpoch || len(state.ContextCompactions) == 0)
-	// 版本推进**推迟**到「这次折叠到底有没有模型读后感」落定之后（见下方的实测
-	// 读数闸）：判据命中但重放拿不到读后感时这次折叠不会发生，推进版本会在版本史
-	// 上留下一次并不存在的折叠。这里只算出候选版本——checkpoint 正文本来就不含
+	// 版本推进**推迟**到「这次压缩到底有没有模型读后感」落定之后（见下方的实测
+	// 读数闸）：判据命中但重放拿不到读后感时这次压缩不会发生，推进版本会在版本史
+	// 上留下一次并不存在的压缩。这里只算出候选版本——checkpoint 正文本来就不含
 	// 版本号，候选值先写进去，读数把它否掉时在锁外改回旧值即可。
 	checkpoint := c.tasks.BuildTaskCheckpointLocked(state)
 	candidateVersion := state.ContextVersion
@@ -646,14 +668,14 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 		candidateVersion++
 	}
 	checkpoint.Version = candidateVersion
-	// 压缩来源在折叠这一刻判定一次：进度面与压缩记录必须写同一个 origin，两处
-	// 分别采样 status 会让同一次折叠对不上号。
+	// 压缩来源在压缩这一刻判定一次：进度面与压缩记录必须写同一个 origin，两处
+	// 分别采样 status 会让同一次压缩对不上号。
 	origin := compactionOrigin(options, state)
 	summary := state.ContextSummary()
 	planMessage := c.planContextMessageLocked(sessionID)
 	c.ViewMu.Unlock()
 
-	// 门禁进度：只有真的要折叠才开一轮。"没有纪元、登记为下一条消息兑现"与
+	// 门禁进度：只有真的要压缩才开一轮。"没有纪元、登记为下一条消息兑现"与
 	// "未达判据"都不是压缩进行中——为没发生的事画进度条，比没有进度条更糟。
 	// 显式路径的轮次已在估算之前开好（见上），这里只补正版本号。
 	if fold {
@@ -669,28 +691,28 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 		// ——判据量 + 保留窗口决策（含保护区下限），两者同源、同一次采样
 		// （all= 由保留窗口决策给出，不在这里重复一份同值事实）。
 		progress.gate(CompactionGateJudge, fmt.Sprintf("compared=%d soft=%d hard=%d overhead=%d ineffective=%t %s",
-			rawTokens, budget.SoftThreshold, budget.HardThreshold, requestOverhead, ineffectiveFold, retain.Terse()))
+			rawTokens, budget.SoftThreshold, budget.HardThreshold, requestOverhead, ineffectiveCompact, retain.Terse()))
 	}
 
 	// ── 读过再折：把「这次有没有模型读后感」从结构判断升级成实测读数 ────────
 	//
 	// compactionSummaryProbe 只回答「摘要器装没装」——一次**结构**判断。现场真正
 	// 的事故是「装好了、重放调用却在运行时失败」：两次尝试全挂，chapter2 落回本地
-	// 确定性折叠（summary_source=local）。旧路径要等到推帧（发生在
-	// replaceFoldHistory **之后**）才知道这件事，那时 agent 的上下文已经被换成折叠
+	// 确定性压缩（summary_source=local）。旧路径要等到推帧（发生在
+	// replaceSessionHistory **之后**）才知道这件事，那时 agent 的上下文已经被换成压缩
 	// 窗口——一帧只有元数据、对检索毫无用处，却把上文顶掉了。
 	//
-	// 用户口径（2026-10-02）：折叠只是压缩失败的一条记录，失败的压缩不该覆盖 agent
+	// 用户口径（2026-10-02）：压缩只是压缩失败的一条记录，失败的压缩不该覆盖 agent
 	// 已经看见的上下文；只有压缩成功（有 llm 读后感返回）才让 agent 从新的 compact
-	// 栈顶开始上下文。因此读数提到折叠**之前**：读不到 → 这次不折（noSummary），
+	// 栈顶开始上下文。因此读数提到压缩**之前**：读不到 → 这次不折（noSummary），
 	// 上下文原样 append、不推栈顶、不落记录，只留一条失败痕；读到了 → 摘要随推帧
-	// 带下去（PrecomputedSummary），同一次折叠不重复调用模型。
+	// 带下去（PrecomputedSummary），同一次压缩不重复调用模型。
 	//
 	// 探针缺省（fake/harness、不接摘要的宿主）→ attempted=false，行为与改动前逐位
 	// 相同：判据照常折、推帧照常推。
 	precomputedSummary := ""
 	readbackNote := ""
-	if fold && !ineffectiveFold && !noSummary && len(accumulated) > 0 {
+	if fold && !ineffectiveCompact && !noSummary && len(accumulated) > 0 {
 		replayMaterial := existing
 		if len(replayMaterial) == 0 {
 			replayMaterial = fullContext
@@ -707,13 +729,13 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 		}
 	}
 	if noSummary && newCheckpoint {
-		// 读数把这次折叠降级成「压缩失败」：不推进候选版本、不留 checkpoint。
+		// 读数把这次压缩降级成「压缩失败」：不推进候选版本、不留 checkpoint。
 		newCheckpoint = false
 		checkpoint.Version = state.ContextVersion
 	}
 
-	systems := RetainedSystemHistory(c.foldHistory(sessionID))
-	// 折叠留下的保留窗口是 transcript 的**后缀**，已由 accumulated 从头重建；
+	systems := RetainedSystemHistory(c.sessionHistory(sessionID))
+	// 压缩留下的保留窗口是 transcript 的**后缀**，已由 accumulated 从头重建；
 	// 保留段只留 system 前缀，避免窗口内容与累积段重复计入。
 	if retainedFrom > 0 {
 		systems = RetainedSystemOnly(systems)
@@ -721,13 +743,39 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	// 保留前缀窗口（软压缩）：min(token1, token2)，见上方 windowConfig 注释。
 	// 窗口外部分尽数送进 compact_context；保留窗口按完整协议单元边界收敛
 	// （单元不可拆分），因此不再叠加配置单元上限做第二次截断。
-	// 无效折叠（幂等校验命中）不折叠：装配照常走未折叠路径，保留窗口决策这一轮
+	// 无效压缩（幂等校验命中）不压缩：装配照常走未压缩路径，保留窗口决策这一轮
 	// 不参与落点（target 仍是全量预算）。
-	compacting := fold && !ineffectiveFold && !noSummary
+	compacting := fold && !ineffectiveCompact && !noSummary
+	// ── 压缩失败：判据命中了，但这次压不下去 ────────────────────────────────
+	//
+	// 两种成因分开记，读者据此知道下一步该查什么：
+	//   no_model_summary —— 拿不到模型读后感（摘要器未装配 / 重放调用失败）；
+	//   ineffective_compact —— 压缩落点够不到判据线（幂等/有效性校验），折了也白折。
+	//
+	// 共同后果只有一句话：**这次什么都没动**。上下文原样 append、compact stack top
+	// 不动、上下文版本不推进；本轮只留一条失败痕（见下方 A 段的失败记录）。
+	compactionFailure := ""
+	if fold && !compacting {
+		if noSummary {
+			compactionFailure = CompactionFailureNoModelSummary
+		} else {
+			compactionFailure = CompactionFailureIneffective
+		}
+	}
 	target := budget.Budget
-	if compacting {
+	switch {
+	case compacting:
 		if retain.Retained > 0 {
 			target = retain.Retained
+		}
+	case compactionFailure != "":
+		// 压缩失败时装配上限换成 **provider 真实窗口**：这是模型物理上能收下的最大量。
+		// 按内部安全线（budget = 窗口 − 输出预留 − 安全预留）截断会把**本来装得进窗口**
+		// 的旧轮次悄悄丢掉——用户口径（2026-10-02）：压缩失败时原始上下文继续存在，
+		// 模型仍然直接看到原来的上下文，不需要 search_history 也能知道之前的会话历史。
+		// 安全线以下的那点余量本来就是"留给下一轮压缩"的，这次压不成，余量也就没有意义。
+		if budget.Window > target {
+			target = budget.Window
 		}
 	}
 	// transcript 压缩区间的记事基准：累积模式可能丢掉已覆盖前缀，记录边界
@@ -758,14 +806,14 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	assembled, retainedWindowFrom, estimated := c.fitExecutionHistory(systemPrompt, systems, planMessage, windowEvents, currentInput, tools, target, compacting, 0)
 	// 自主压缩（探测即主动触发）：装配结果一旦逼近硬阈值（limits.context_hard_percent，
 	// 默认 98%），说明
-	// 可变 transcript 已经压不动——此时立刻折叠为有界 checkpoint 帧（稳定
+	// 可变 transcript 已经压不动——此时立刻压缩为有界 checkpoint 帧（稳定
 	// system 前缀 + 任务证据摘要 + plan + 当前输入），而不是把贴着上限的历史
 	// 发出去、等下一次超过全量预算再兜底。触发点是"探测到接近上限"，不是
 	// "已经超限"：主动压缩给下一轮留出确定余量，也避免在窗口边缘反复抖动。
 	//
 	// 原始轮次仍完整留在会话存储里，模型需要细节时按结果引用/分页回读；
 	// 只有压缩形态自身仍超全量预算（如 system 指令自身超窗口）才拒绝发送。
-	// 自主压缩是**最后一道**折叠，它和普通折叠折出的是同一种帧（元数据 + 读后感），
+	// 自主压缩是**最后一道**压缩，它和普通压缩折出的是同一种帧（元数据 + 读后感），
 	// 因此「没有模型读后感就不折」这条口径同样管它：缺了读后感的一帧对检索无用，却会
 	// 改写请求前缀、把 provider 的整段前缀缓存作废。此前只有 newCheckpoint 与
 	// compacting 带了 noSummary 闸，这条路径漏了 —— "没有读后感"的宿主仍会被自主压缩
@@ -776,7 +824,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 			assembled, estimated, autonomous = compressed, compressedTokens, true
 		}
 	}
-	// 本次折叠覆盖到的 transcript 绝对边界：普通折叠 = 已折出前缀的终点
+	// 本次压缩覆盖到的 transcript 绝对边界：普通压缩 = 已折出前缀的终点
 	// （保留窗口从它开始），自主压缩 = 整个 transcript 都被 checkpoint 替代。
 	// 记录区间与下一回合的累积起点都读这一份事实，不再各自重算。
 	compressedTo := retainedFrom + discardedEvents + retainedWindowFrom
@@ -796,10 +844,33 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	progress.gate(CompactionGateAssemble, fmt.Sprintf("assembled=%d target=%d autonomous=%t %s",
 		estimated, target, autonomous, layout.ZonesTerse()))
 	if estimated > budget.Budget {
-		return "", fmt.Errorf("%w: estimated=%d budget=%d", ErrProviderContextBudgetExceeded, estimated, budget.Budget)
+		// ── 压缩失败不再把会话锁死（用户口径 2026-10-02）─────────────────────
+		//
+		// 现场：压缩失败（拿不到模型读后感）→ 上下文按口径原样留着 → 下一轮装配仍超
+		// 安全线 → 这里返回 ErrProviderContextBudgetExceeded，会话被这句内部错误中断
+		// （用户看到的 `provider context exceeds the safe token budget:
+		// estimated=281424 budget=163616`）。而用户要的旅程是「压缩失败 → 留下失败记录
+		// → 原始上下文继续存在 → 模型仍然直接看到原来的上下文，**不中断继续工作**」。
+		//
+		// 于是这里分两种情形：
+		//   ① 压不下去（compactionFailure 非空）而**不可压缩的那部分自己还装得下**
+		//      （system 指令 + 工具 schema + 当轮输入 + plan ≤ 预算）→ best-effort 发出。
+		//      这是唯一还能让会话继续的选择：安全线是我们自设的余量（budget = 窗口 −
+		//      输出预留 − 安全预留），估算器又是保守的（校准因子向上取整），"超安全线"
+		//      不等于"provider 收不下"。
+		//   ② 其余情形（不可压缩部分自己就超预算，或这次压缩没有失败）→ 照旧拒绝：
+		//      那时任何压缩都救不了（例如 system 指令自身就超出窗口），发出去必然被
+		//      provider 拒，拒绝优于把注定失败的请求送出去。
+		if compactionFailure == "" || requestOverhead > budget.Budget {
+			return "", fmt.Errorf("%w: estimated=%d budget=%d", ErrProviderContextBudgetExceeded, estimated, budget.Budget)
+		}
+		// 失败痕带上真实数字：这一次是"带着超安全线的上下文发出去的"，读者据此
+		// 判断该不该去调窗口/预留，而不是只看到一句"压缩失败"。
+		compactionFailure += fmt.Sprintf(" estimated=%d budget=%d window=%d overhead=%d",
+			estimated, budget.Budget, budget.Window, requestOverhead)
 	}
 	replacement := c.withInFlightTail(existing, assembled)
-	if err := c.replaceFoldHistory(sessionID, replacement); err != nil {
+	if err := c.replaceSessionHistory(sessionID, replacement); err != nil {
 		return "", fmt.Errorf("assemble provider context: %w", err)
 	}
 	if err := c.history.PrepareProviderHistoryFor(sessionID); err != nil {
@@ -807,7 +878,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	}
 	progress.gate(CompactionGateReplace, fmt.Sprintf("messages=%d", len(replacement)))
 
-	// ── 折叠落点的锁纪律：ViewMu 内只留内存提交，慢活一律在锁外 ─────────────
+	// ── 压缩落点的锁纪律：ViewMu 内只留内存提交，慢活一律在锁外 ─────────────
 	//
 	// 这一段原先是**单个** ViewMu 临界区里做完三件事：推进会话状态、推帧
 	// （CompactionIndexPort → 前缀重放 DAG + 原文归档 + 压缩栈写盘）、帧正文落
@@ -820,7 +891,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	//	   RWMutex 不可重入 → 永久阻塞，没有超时、外部取消也进不来。观感是整块
 	//	   交互面冻死：进度条停在 index 关之前（replace 3/7），/compact 不返回，
 	//	   快照取不到（会话切不动、列表与右栏不刷新），新消息连队列都进不去。
-	//	② 锁的持有时间 = 推帧耗时：软线折叠在回合里跑，于是**一个**会话的折叠
+	//	② 锁的持有时间 = 推帧耗时：软线压缩在回合里跑，于是**一个**会话的压缩
 	//	   把它自己连同其它会话的提交、快照、切会话一起堵在这把全局锁上。与
 	//	   2026-09-23 message 读路径那条教训同形（读路径持写锁做整段解码）。
 	//
@@ -833,13 +904,16 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	stateMatched := state != nil && state.RequestID == requestID
 	var revision uint64
 	// B/C 两段的材料：只有拿到执行纪元（stateMatched）且本轮要落记录时才有效。
-	commitFold := false
+	commitCompaction := false
+	// failureRecorded 报告本轮是否落了一条**失败痕**（与 recorded 分开：失败痕不是
+	// 一次压缩，不得被读成"这次压成了"，但它同样是可见面变化，要翻修订号并发快照）。
+	failureRecorded := false
 	compactedRange := task_context.TranscriptEventRange{}
 	record := model.ContextCompaction{}
 	reason := ""
 	if stateMatched {
-		// 本次折叠后累积上下文的起点前移到新的保留窗口/checkpoint 边界；
-		// 未折叠不动（保留窗口没有变化）。跨回合由 continuationTaskExecutionState
+		// 本次压缩后累积上下文的起点前移到新的保留窗口/checkpoint 边界；
+		// 未压缩不动（保留窗口没有变化）。跨回合由 continuationTaskExecutionState
 		// 继承，避免下一回合从 transcript 头部重新累积。
 		if compacting || autonomous {
 			state.ContextRetainedFrom = compressedTo
@@ -850,8 +924,8 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 			TargetAfterCompaction: budget.TargetAfterCompaction, EstimatedPromptTokens: estimated,
 			ActualPromptTokens: state.TokenAudit.ActualPromptTokens, UpdatedAt: time.Now(),
 		}
-		// 版本推进在这里落定（上方读数闸把候选版本算好了，但只有这次折叠真的
-		// 发生才写进 state）：拿不到模型读后感的折叠不该在版本史上留痕。
+		// 版本推进在这里落定（上方读数闸把候选版本算好了，但只有这次压缩真的
+		// 发生才写进 state）：拿不到模型读后感的压缩不该在版本史上留痕。
 		if newCheckpoint {
 			state.ContextVersion = candidateVersion
 			state.CompactedEpoch = state.ProgressEpoch
@@ -884,15 +958,15 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 				MessageFrom: compactedRange.MessageFrom, MessageTo: compactedRange.MessageTo,
 				EventFrom: compactedRange.EventFrom, EventTo: compactedRange.EventTo,
 			}
-			commitFold = true
+			commitCompaction = true
 		} else if fold {
-			// 折叠真的发生了（前三关照跑），但没有走到落记录：三条原因，都把事实
+			// 压缩真的发生了（前三关照跑），但没有走到落记录：三条原因，都把事实
 			// 写进终局 Detail——进度条不该走到一半就沉默，读者需要一个能自答的句号。
 			if noSummary {
-				// 没有模型读后感：这次折叠只会产出"元数据 + 无读后感"的一帧，对检索
+				// 没有模型读后感：这次压缩只会产出"元数据 + 无读后感"的一帧，对检索
 				// 毫无用处，却会改写请求前缀、作废一段 provider 缓存。因此不折上下文、
 				// 不推压缩栈顶，只把这次判据留痕（用户口径 2026-10-01 / 2026-10-02）。
-				progress.skipOutcome(CompactSkippedNoSummary)
+				progress.skipOutcome(CompactFailed)
 				skipReason := "reason=no_model_summarizer"
 				if readbackNote != "" {
 					// 读数闸命中：结构与配置都没问题，是这次重放**在运行时**没拿到
@@ -900,10 +974,10 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 					skipReason = "reason=no_model_readback " + readbackNote
 				}
 				progress.skip("skipped=no_summary " + skipReason)
-			} else if ineffectiveFold {
-				// 幂等/有效性校验命中：这次折叠的落点仍在软线之上（保留区 + 固定开销
+			} else if ineffectiveCompact {
+				// 幂等/有效性校验命中：这次压缩的落点仍在软线之上（保留区 + 固定开销
 				// ≥ 软线），折了也只是把同一件事再做一遍。跳过它，等硬线/自主压缩。
-				progress.skip(fmt.Sprintf("skipped=ineffective_fold landing=%d soft=%d overhead=%d retained=%d all=%d",
+				progress.skip(fmt.Sprintf("skipped=ineffective_compact landing=%d soft=%d overhead=%d retained=%d all=%d",
 					retain.Retained+requestOverhead, budget.SoftThreshold,
 					requestOverhead, retain.Retained, allContextTokens))
 			} else {
@@ -912,12 +986,44 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 				progress.skip(fmt.Sprintf("skipped=epoch_throttled compacted_epoch=%d progress_epoch=%d context_version=%d",
 					state.CompactedEpoch, state.ProgressEpoch, state.ContextVersion))
 			}
+			// ── 压缩失败留痕（用户口径 2026-10-02）──────────────────────────
+			//
+			// 压缩失败**只留痕**：判据命中了，但这次压不下去（拿不到模型读后感 /
+			// 压缩换不来余量）。留痕此前只活在瞬态门禁进度里（成功终局 2.5s、失败
+			// 终局 6.0s 后自动撤条）与显式入口的回执文本里，于是用户按完回车再抬头
+			// 就查无实据——而这条旅程要的恰恰是「压缩失败 → **留下失败记录** →
+			// 原始上下文继续存在 → 模型仍然直接看到原来的上下文」。
+			//
+			// 记录形状与成功记录同构，只是 Failed=true 且区间/帧字段恒空：它**不**
+			// 参与保留窗口起点推导（EventTo=0）、**不**画对话区分界（MessageTo 空）、
+			// 也**不**占用压缩栈的一格——它不是一次压缩，是"这次没折"的证据。
+			//
+			// 幂等：同一上下文版本 + 同一原因只留一条。失败会一直持续到某次压缩真的
+			// 成功（那时版本推进），因此"每轮装配都追加一条失败痕"会把列表写成流水账。
+			if compactionFailure != "" {
+				failure := model.ContextCompaction{
+					Version:         state.ContextVersion,
+					Reason:          "context_budget",
+					Origin:          origin,
+					Failed:          true,
+					Note:            compactionFailure,
+					MessagesBefore:  len(existing),
+					EstimatedTokens: rawTokens,
+					CompactedAt:     time.Now(),
+				}
+				if !sameCompactionFailure(state.ContextCompactions, failure) {
+					if c.tasks.RecordContextCompactionLocked(requestID, failure) {
+						failureRecorded = true
+						revision = c.view.BumpLocked()
+					}
+				}
+			}
 		}
 	}
 	c.ViewMu.Unlock()
 
 	// ── B 段（锁外）：推帧 + 帧正文渲染 ────────────────────────────────────
-	if commitFold {
+	if commitCompaction {
 		// 推帧：把这次折出保留窗口的区间推进会话压缩栈（窄可选能力，见
 		// CompactionIndexPort）。**必须在渲染帧正文之前**——正文要嵌入回执
 		// 里的 segment_id、摘要来源与降级原因，否则读帧的人只能看到"没有
@@ -931,9 +1037,9 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 		// 重放素材（ReplayHistory）首选 existing——上一次真实请求的历史字节，
 		// 与产出该请求是同一条装配路径（前缀重放靠它命中前缀缓存）。但它**在
 		// 没有在飞请求时必然为空**：冷加载/刚清空的会话还没有物化引擎历史，
-		// 而这类会话的折叠恰恰是最常见的一次（/compact、会话级维护身份、以及
-		// 冷加载后第一条消息触发的自动折叠）。此时素材改取 fullContext——本次
-		// 装配从 transcript 投影出的那份历史（"如果这次不折叠，就会发出去的
+		// 而这类会话的压缩恰恰是最常见的一次（/compact、会话级维护身份、以及
+		// 冷加载后第一条消息触发的自动压缩）。此时素材改取 fullContext——本次
+		// 装配从 transcript 投影出的那份历史（"如果这次不压缩，就会发出去的
 		// 对话内容"）。否则每一帧都落在 no-replay-material 上：帧里只有一句
 		// "本次不调用模型"，模型从未被问到，而读帧的人无从知道差的就是这份素材
 		// （2026-09-29 现场）。
@@ -951,7 +1057,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 		push := compactionIndexPush{}
 		if compacting || autonomous {
 			push = c.pushCompactionFrame(sessionID, requestID,
-				task_context.TranscriptEventMessages(foldedOverflowEvents(transcript, retainedFrom, compressedTo)),
+				task_context.TranscriptEventMessages(overflowEvents(transcript, retainedFrom, compressedTo)),
 				replayMaterial, compactedRange, precomputedSummary)
 			progress.gate(CompactionGateStackPush, push.gateDetail())
 		}
@@ -971,7 +1077,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 			Summary:      push.Summary,
 			IndexError:   push.indexError(),
 			IndexSkipped: push.Skipped,
-			Range: compactionFoldedRange{
+			Range: compactionCompactedRange{
 				MessageFrom: record.MessageFrom,
 				MessageTo:   record.MessageTo,
 				EventFrom:   record.EventFrom,
@@ -1008,7 +1114,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 		// 压缩判据事实（显式入口据此如实报告，不拿别的数字反推）：
 		options.decision.Folded = compacting
 		options.decision.Recorded = recorded
-		options.decision.NoSummary = noSummary
+		options.decision.Failure = compactionFailure
 		options.decision.Version = checkpoint.Version
 		options.decision.ComparedTokens = rawTokens
 		options.decision.AssembledTokens = estimated
@@ -1018,7 +1124,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 		// 清单不会缺最后一关。
 		options.decision.Gates = progress.GateTimings()
 	}
-	if recorded {
+	if recorded || failureRecorded {
 		if hub, ok := c.Events.(event.SessionAwareHub); ok {
 			hub.PublishSession(event.EventSnapshotChanged, revision, requestID, sessionID, nil)
 		} else {
@@ -1100,7 +1206,7 @@ func (c *Coordinator) transcriptUnitTokens(unit []model.TranscriptEvent) int {
 }
 
 // compressExecutionHistory 是自主压缩兜底：正常有界窗口装不下全量预算时，
-// 把可变 transcript 折叠为「稳定 system 前缀 + 有界 checkpoint 摘要 + plan +
+// 把可变 transcript 压缩为「稳定 system 前缀 + 有界 checkpoint 摘要 + plan +
 // 当前输入」。摘要由 TaskExecutionState.ContextSummary 提供
 // （objective/plan/evidence/已完成工具结果的恢复材料，正文受
 // limits.max_tool_result_chars 约束）；原始轮次仍完整留在会话存储里，模型
@@ -1131,7 +1237,7 @@ func (c *Coordinator) compressExecutionHistory(
 
 // AutonomousCompactionMessage 渲染自主压缩帧正文（system 消息）：显式告知
 // 模型上下文已被框架压缩、必须从有界 checkpoint 继续，并以窄化工具调用
-// 补取细节——避免模型基于想象补全被折叠的内容。
+// 补取细节——避免模型基于想象补全被压缩的内容。
 func AutonomousCompactionMessage(summary string) string {
 	var builder strings.Builder
 	builder.WriteString(AutonomousCompactionPrefix)
@@ -1279,7 +1385,7 @@ const FrameworkToolOutputTruncatedMarker = "\n...[truncated]"
 // rejectOversizedToolResults 把超限输出替换为显式重试指令（不给头部/尾部
 // 预览，避免基于误导片段的推理；目标会话显式传入）。
 func (c *Coordinator) rejectOversizedToolResults(sessionID string, maxChars int) (bool, error) {
-	history := c.foldHistory(sessionID)
+	history := c.sessionHistory(sessionID)
 	c.ViewMu.RLock()
 	refs := c.tasks.ResultRefsByCallIDFor(sessionID)
 	c.ViewMu.RUnlock()
@@ -1287,7 +1393,7 @@ func (c *Coordinator) rejectOversizedToolResults(sessionID string, maxChars int)
 	if !changed {
 		return false, nil
 	}
-	if err := c.replaceFoldHistory(sessionID, filtered); err != nil {
+	if err := c.replaceSessionHistory(sessionID, filtered); err != nil {
 		return false, fmt.Errorf("reject oversized tool results: %w", err)
 	}
 	return true, nil

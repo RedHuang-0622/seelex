@@ -79,8 +79,8 @@ var (
 	_ contract.TeamworkBoardProjection    = RuntimePort{}
 	_ context_runtime.CompactionIndexPort = RuntimePort{}
 	// compactionReadbackProbe（context_runtime/compaction_index.go，包内命名接口）：
-	// 折叠**之前**先试一次模型读后感的读数闸。断言失败 = 读数闸缺省，于是"重放
-	// 运行时失败"的折叠仍会改写 agent 的上下文（现场：折叠之后看不见上文）。
+	// 压缩**之前**先试一次模型读后感的读数闸。断言失败 = 读数闸缺省，于是"重放
+	// 运行时失败"的压缩仍会改写 agent 的上下文（现场：压缩之后看不见上文）。
 	_ interface {
 		ReadbackCompactionSummary(context.Context, string, context_runtime.CompactionIndexRequest) (context_runtime.CompactionIndexReceipt, error)
 	} = RuntimePort{}

@@ -8,7 +8,7 @@ import "testing"
 //	token1 = 配置里的硬编码保留窗口 token 数（window.retain_tokens；未配置回退账号窗口）
 //	token2 = 占比窗口 = ratio × 全量上下文 token 数
 //
-// 窗口外部分尽数交给 compact_context 折叠（不进 provider 请求前缀）。
+// 窗口外部分尽数交给 compact_context 压缩（不进 provider 请求前缀）。
 func TestRetainedContextTokensMinOfTwoWindows(t *testing.T) {
 	cases := []struct {
 		name         string

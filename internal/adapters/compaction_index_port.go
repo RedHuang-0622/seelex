@@ -7,7 +7,7 @@ import (
 	"github.com/RedHuang-0622/seelex/seelebridge"
 )
 
-// PushCompactionFrame 实现 context_runtime.CompactionIndexPort：把装配层折叠产出的
+// PushCompactionFrame 实现 context_runtime.CompactionIndexPort：把装配层压缩产出的
 // 帧推进会话压缩栈，让 search_history 的帧索引与记忆块初筛有东西可选。
 //
 // 本层只做两件事：**类型转换**（contract.EngineMessage → types.Message，复用
@@ -15,7 +15,7 @@ import (
 // 区间校验都在 seelebridge 侧，因为它们要读压缩栈与归档器，那是 Runtime 的家。
 //
 // 这是个**可选**能力：调用方用类型断言探测（见 context_runtime.CompactionIndexPort
-// 的注释）。断言失败 = 不索引，折叠本身照常成立——所以 RuntimePort 之外的
+// 的注释）。断言失败 = 不索引，压缩本身照常成立——所以 RuntimePort 之外的
 // fake/harness 不需要实现它，也不必被迫长出一个空方法。
 func (port RuntimePort) PushCompactionFrame(
 	ctx context.Context,
@@ -29,7 +29,7 @@ func (port RuntimePort) PushCompactionFrame(
 		Overflow:      restoreMessages(request.Overflow),
 		UnitCount:     request.UnitCount,
 		ReplayHistory: restoreMessages(request.ReplayHistory),
-		// 折叠之前已经拿到的模型读后感（读数闸）：转发下去，推帧不再重复调用模型。
+		// 压缩之前已经拿到的模型读后感（读数闸）：转发下去，推帧不再重复调用模型。
 		PrecomputedSummary: request.PrecomputedSummary,
 		EventFrom:          request.EventFrom,
 		EventTo:            request.EventTo,
@@ -48,12 +48,12 @@ func (port RuntimePort) PushCompactionFrame(
 }
 
 // ReadbackCompactionSummary 实现 context_runtime 的窄可选探针
-// compactionReadbackProbe：把「折叠之前先试一次模型读后感」这一跳转发到
-// seelebridge。装配层据此决定这次折叠要不要发生——读不到模型读后感就不折上下文
+// compactionReadbackProbe：把「压缩之前先试一次模型读后感」这一跳转发到
+// seelebridge。装配层据此决定这次压缩要不要发生——读不到模型读后感就不折上下文
 // （失败的压缩不该覆盖 agent 已经看见的上下文）。
 //
 // 与 PushCompactionFrame 一样是**窄可选**能力：断言的另一侧（context_runtime）
-// 在断言失败时沿用既有行为（折叠照常），因此不实现它的 fake/harness 不受影响。
+// 在断言失败时沿用既有行为（压缩照常），因此不实现它的 fake/harness 不受影响。
 func (port RuntimePort) ReadbackCompactionSummary(
 	ctx context.Context,
 	sessionID string,

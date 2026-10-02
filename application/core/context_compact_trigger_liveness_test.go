@@ -2,7 +2,7 @@ package core
 
 // 触发场景全覆盖的**存活断言**（把 2026-09-29 那条守卫从显式路径扩到全部入口）。
 //
-// 历史：装配层折叠的落点（prepareExecutionContextFor）原先把「推进状态 + 推帧 +
+// 历史：装配层压缩的落点（prepareExecutionContextFor）原先把「推进状态 + 推帧 +
 // 帧正文落存储」放在**单个** Core.ViewMu 写锁临界区里，而生产推帧会回调宿主读面
 // （main.go 注入的 CompressedTurnArchiver.SessionIDProvider 读 app.Snapshot()），
 // 于是同 goroutine 持写锁再取读锁 = 确定性自锁（f643f2d 修，见
@@ -12,7 +12,7 @@ package core
 //   - context_compact_selfdeadlock_repro_test.go（/compact + 生产归档接线）
 //   - context_compact_viewmu_hold_repro_test.go（/compact + 推帧可阻塞的索引面桩）
 //
-// 但折叠的入口不止一条（自动硬阈值 / 维护入口 / 无在飞回合的会话级 / 显式与自动
+// 但压缩的入口不止一条（自动硬阈值 / 维护入口 / 无在飞回合的会话级 / 显式与自动
 // 并发）。本文件把**同一条判据面**铺到这些入口上：推帧进行中，交互面
 // （ViewMu 写锁本身 / Snapshot / 提交入口 / 切会话）必须照常返回。
 //
@@ -132,9 +132,9 @@ func assertInteractionFaceLive(t *testing.T, service *Service, what string) {
 	}
 }
 
-// TestAutoFoldPushKeepsInteractionFaceLive：**自动**入口（rawTokens ≥ 硬阈值，
-// 无显式压缩门）推帧进行中，交互面必须照常。这条入口是真实进程里最常发生的折叠。
-func TestAutoFoldPushKeepsInteractionFaceLive(t *testing.T) {
+// TestAutoCompactionPushKeepsInteractionFaceLive：**自动**入口（rawTokens ≥ 硬阈值，
+// 无显式压缩门）推帧进行中，交互面必须照常。这条入口是真实进程里最常发生的压缩。
+func TestAutoCompactionPushKeepsInteractionFaceLive(t *testing.T) {
 	const requestID = "task-trigger-auto"
 	service, runtime, sessionID := triggerLivenessFixture(t, requestID)
 	release := releaseGate(runtime)
@@ -146,8 +146,8 @@ func TestAutoFoldPushKeepsInteractionFaceLive(t *testing.T) {
 		assembled <- err
 	}()
 
-	awaitPushEntered(t, runtime, assembled, "自动装配折叠")
-	assertInteractionFaceLive(t, service, "自动折叠")
+	awaitPushEntered(t, runtime, assembled, "自动装配压缩")
+	assertInteractionFaceLive(t, service, "自动压缩")
 
 	release()
 	select {
@@ -160,29 +160,29 @@ func TestAutoFoldPushKeepsInteractionFaceLive(t *testing.T) {
 	}
 }
 
-// TestMaintenanceFoldPushKeepsInteractionFaceLive：**维护入口**
-// （CompactTaskContextFor，引擎迭代 hook / 控制器驱动的折叠）推帧进行中，
+// TestMaintenanceCompactionPushKeepsInteractionFaceLive：**维护入口**
+// （CompactTaskContextFor，引擎迭代 hook / 控制器驱动的压缩）推帧进行中，
 // 交互面必须照常——它是唯一一条"调用目的本身就是折出 checkpoint"的入口。
-func TestMaintenanceFoldPushKeepsInteractionFaceLive(t *testing.T) {
+func TestMaintenanceCompactionPushKeepsInteractionFaceLive(t *testing.T) {
 	const requestID = "task-trigger-maintenance"
 	service, runtime, sessionID := triggerLivenessFixture(t, requestID)
 	release := releaseGate(runtime)
 	defer release()
 
-	folded := make(chan error, 1)
-	go func() { folded <- service.components.context.CompactTaskContextFor(sessionID, requestID) }()
+	compacted := make(chan error, 1)
+	go func() { compacted <- service.components.context.CompactTaskContextFor(sessionID, requestID) }()
 
-	awaitPushEntered(t, runtime, folded, "维护入口折叠")
-	assertInteractionFaceLive(t, service, "维护入口折叠")
+	awaitPushEntered(t, runtime, compacted, "维护入口压缩")
+	assertInteractionFaceLive(t, service, "维护入口压缩")
 
 	release()
 	select {
-	case err := <-folded:
+	case err := <-compacted:
 		if err != nil {
-			t.Fatalf("释放推帧后维护折叠失败：%v", err)
+			t.Fatalf("释放推帧后维护压缩失败：%v", err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("释放推帧后维护折叠仍未返回")
+		t.Fatal("释放推帧后维护压缩仍未返回")
 	}
 }
 
@@ -224,18 +224,18 @@ func TestSessionLevelCompactPushKeepsInteractionFaceLive(t *testing.T) {
 	}
 }
 
-// TestExplicitFoldWhileAutoFoldInFlightDoesNotInterlock：**显式与自动并发**。
+// TestExplicitCompactionWhileAutoCompactionInFlightDoesNotInterlock：**显式与自动并发**。
 //
-// 自动折叠（回合开始前的装配，不经显式压缩门）与显式 `/compact` 可以同时在同一
-// 会话上折叠；两者共用一条按会话键的推帧串行锁（compactionPushLock）。本用例把
+// 自动压缩（回合开始前的装配，不经显式压缩门）与显式 `/compact` 可以同时在同一
+// 会话上压缩；两者共用一条按会话键的推帧串行锁（compactionPushLock）。本用例把
 // 那个交叉点变成判定点：
 //
-//	自动折叠：持 pushLock → 读视图快照（ViewMu.RLock）→ 阻塞在推帧里；
-//	显式折叠：持压缩门 → 走到推帧 → 等 pushLock。
+//	自动压缩：持 pushLock → 读视图快照（ViewMu.RLock）→ 阻塞在推帧里；
+//	显式压缩：持压缩门 → 走到推帧 → 等 pushLock。
 //
 // 显式这一侧**不得**在持 ViewMu 的情况下等 pushLock（否则与"推帧持 pushLock 读
 // 快照"构成 AB-BA）。判据就是交互面的写锁判据：能不能拿到 ViewMu 写锁。
-func TestExplicitFoldWhileAutoFoldInFlightDoesNotInterlock(t *testing.T) {
+func TestExplicitCompactionWhileAutoCompactionInFlightDoesNotInterlock(t *testing.T) {
 	const requestID = "task-trigger-both"
 	service, runtime, sessionID := triggerLivenessFixture(t, requestID)
 	release := releaseGate(runtime)
@@ -246,7 +246,7 @@ func TestExplicitFoldWhileAutoFoldInFlightDoesNotInterlock(t *testing.T) {
 		_, err := service.components.context.PrepareExecutionContextFor(sessionID, requestID, "")
 		autoDone <- err
 	}()
-	awaitPushEntered(t, runtime, autoDone, "自动装配折叠（并发夹具）")
+	awaitPushEntered(t, runtime, autoDone, "自动装配压缩（并发夹具）")
 
 	commandDone := make(chan struct{})
 	go func() {
@@ -255,7 +255,7 @@ func TestExplicitFoldWhileAutoFoldInFlightDoesNotInterlock(t *testing.T) {
 	}()
 	// 让显式这一侧走到推帧排队（或自己收口）；无论哪种，交互面都必须活着。
 	time.Sleep(200 * time.Millisecond)
-	assertInteractionFaceLive(t, service, "显式与自动并发折叠")
+	assertInteractionFaceLive(t, service, "显式与自动并发压缩")
 
 	release()
 	select {

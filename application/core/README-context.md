@@ -59,17 +59,17 @@ wire）。守卫用例：`TestToolNarrationStaysWithOwningIteration`、
 `context_runtime/history.go` 的 doc 注释和研究文档 §7/§8 为准（本 README 不复制易变
 状态）。
 
-## 冷加载会话的 `/compact`：当场折叠，不再只登记（2026-09-24）
+## 冷加载会话的 `/compact`：当场压缩，不再只登记（2026-09-24）
 
 **触发**：用户在刚冷加载的会话里执行 `/compact`，拿到的是「当前会话没有进行中的
-执行纪元（例如刚冷加载或刚清空），现在没有可折叠的请求上下文；已登记：下一条消息
+执行纪元（例如刚冷加载或刚清空），现在没有可压缩的请求上下文；已登记：下一条消息
 组装上下文前立即压缩」。他接着想问「我需要你的摘要内容」——而命令早已结束，登记的
 兑现要等下一条消息，用户看到的是「按了没反应」。
 
 **根因**：显式压缩的入口判据是「该会话有匹配当前 request 的执行纪元」
 （`CompactContextNow` 在 `state == nil || state.RequestID == ""` 时只登记）。冷加载
 会话的 transcript 与引擎历史**都已装载**，缺的只是"一个在飞回合的 RequestID"——
-把"没有在飞回合"读成了"没有可折叠的上下文"。2026-09-23 那轮拒绝"伪造纪元"是对的
+把"没有在飞回合"读成了"没有可压缩的上下文"。2026-09-23 那轮拒绝"伪造纪元"是对的
 （伪造会把"有人在跑这个会话"写进可见面），但落成了"只登记"，等于把用户明确要求的
 压缩推迟到他自己再发一条消息。
 
@@ -77,16 +77,16 @@ wire）。守卫用例：`TestToolNarrationStaysWithOwningIteration`、
 `BeginSessionContextMaintenanceLocked` 给这类会话开一个带前缀的维护 `RequestID`
 （`session-maintenance:<sessionID>`），没有任务状态时按会话自己的事实（最后一条真实
 用户输入作 objective）建一份上下文状态，状态标记 `idle`；`CompactContextNow` 用它跑
-同一条显式折叠路径（判据量照算、记录照落、帧正文照出、引擎历史照换、按会话落盘），
+同一条显式压缩路径（判据量照算、记录照落、帧正文照出、引擎历史照换、按会话落盘），
 结束后 `EndSessionContextMaintenanceLocked` 撤销身份并保留压缩产生的
 `ContextVersion`/`ContextCompactions`/checkpoint。三条诚实约束：不写
 `ChatState.Running`、不设快照 `Chat.RequestID`、不建任务注册表条目；已有在飞回合时
 **拒绝**发放身份（退回纪元路径），压缩失败也**必须**撤销身份。空会话（transcript 与
-引擎历史都没有对话消息）维持登记语义——折叠空上下文只会产出一条区间为空的记录。
+引擎历史都没有对话消息）维持登记语义——压缩空上下文只会产出一条区间为空的记录。
 
 **回执**：`explicit_after_turn` 来源不变，但结果面新增 `NoEpoch`（工具 JSON 字段
 `no_epoch`，omitempty），命令与工具共用的 `compactionRecordNote` 因此能说出
-「会话没有在飞回合（冷加载或刚清空），已按会话级显式压缩立即执行（折叠已装载的
+「会话没有在飞回合（冷加载或刚清空），已按会话级显式压缩立即执行（压缩已装载的
 上下文并落记录，无需下一条消息）：已压缩上下文：v…」，并照旧回带帧正文 `frame_ref`
 （用户问「摘要内容」时读到的就是它，状态页「上下文压缩」条目可展开）。空区间时只有
 登记语义仍保留旧措辞，且把原因改成「没有在飞回合、也没有已装载的对话材料（空会话）」。
@@ -124,26 +124,26 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
                             （检查点：模型调用前 / assistant 落历史后 / tool 结果 append 前后）
 ```
 
-- 宿主不再需要判断"我在不在环内"，也不再需要把 ctx 透传进折叠：`context_runtime` 的
-  `loopHistoryChannel` 与 `contract.InLoopEngine` 整条删除，折叠统一走 `foldHistory` /
-  `replaceFoldHistory`（按会话路由到 `HistoryFor` / `ReplaceHistoryFor`）。
-- 回合内折叠**仍然当场生效**，落点从"锁内直写"变成"下一个检查点"：`compact_context` 在工具
+- 宿主不再需要判断"我在不在环内"，也不再需要把 ctx 透传进压缩：`context_runtime` 的
+  `loopHistoryChannel` 与 `contract.InLoopEngine` 整条删除，压缩统一走 `sessionHistory` /
+  `replaceSessionHistory`（按会话路由到 `HistoryFor` / `ReplaceHistoryFor`）。
+- 回合内压缩**仍然当场生效**，落点从"锁内直写"变成"下一个检查点"：`compact_context` 在工具
   handler 里提交替换，循环紧接着（tool 结果 append **之前**）排空它，因此同回合的下一次模型请求
-  读到的已是折叠后的历史——对压缩正是期望语义（它本就要在下一次请求才生效）。
-- 忙会话的**锁外**折叠也不再"登记待安装 + 等回合收尾换引擎"：`EnginePort.replaceRawHistoryFor`
-  把替换直接交给引擎排队（`queueSessionHistory`），登记表只在引擎不具备该能力时兜底。折叠因此对
+  读到的已是压缩后的历史——对压缩正是期望语义（它本就要在下一次请求才生效）。
+- 忙会话的**锁外**压缩也不再"登记待安装 + 等回合收尾换引擎"：`EnginePort.replaceRawHistoryFor`
+  把替换直接交给引擎排队（`queueSessionHistory`），登记表只在引擎不具备该能力时兜底。压缩因此对
   下一次请求生效，而不是等下一次装载。
-- 下界不变：折叠产物必须保留「assistant 已带 tool_calls、其结果尚未 append」的在飞尾部
+- 下界不变：压缩产物必须保留「assistant 已带 tool_calls、其结果尚未 append」的在飞尾部
   （`withInFlightTail`，现在对**所有**路径都做），否则引擎以 `ErrInFlightToolCallDropped` 拒收，
   紧随其后 append 的结果行成孤儿。多保留的是本轮自己的消息，**不参与压缩判据**。
 - 观测面读历史（`/history`、工作区切换、子代理落账）不再需要"循环发布的检查点快照"：
   `History()` 任何时刻都返回当前工作历史，且不会因长流式阻塞。
-- 同会话压缩门（`context_compact_gate.go`）仍在：并发折叠会各自读同一段历史、各自替换，后写的
+- 同会话压缩门（`context_compact_gate.go`）仍在：并发压缩会各自读同一段历史、各自替换，后写的
   那份把前一轮整个丢掉。区别是现在**所有**调用方都走阻塞领轮——没有谁持着"对方要用的锁"，等待只
   会排队。
 
 **有牙证明**（`internal/adapters/engine_port_history_test.go`，真实 Session）：
-`TestReplaceHistoryInsideTurnTakesEffectInSameTurn`（同回合下一次请求已带折叠帧；终态历史 =
+`TestReplaceHistoryInsideTurnTakesEffectInSameTurn`（同回合下一次请求已带压缩帧；终态历史 =
 帧 + 在飞 assistant + tool 结果 + 收尾 assistant）、`TestReplaceHistoryDropsInFlightTailIsRefused`
 （丢在飞尾部被拒且不动历史）、`TestReplaceHistoryOutsideTurnAppliesImmediately`（锁外立即落地）；
 `engine_port_reentrance_test.go` 的 `TestEngineHistoryFromToolHandlerReturnsPromptly` 是旧自锁
@@ -170,8 +170,8 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 
 ### context_budget_margin_idempotency_test.go
 
-- `func pinIneffectiveFoldRatios(t *testing.T)` — pinIneffectiveFoldRatios 把压缩比例钉成「折叠落点够不到软线」的**合法**档：
-- `func TestContextBudgetSkipsFoldWithoutMargin(t *testing.T)` — TestContextBudgetSkipsFoldWithoutMargin 钉住软线折叠的**幂等/有效性校验**：
+- `func pinIneffectiveCompactRatios(t *testing.T)` — pinIneffectiveCompactRatios 把压缩比例钉成「压缩落点够不到软线」的**合法**档：
+- `func TestContextBudgetSkipsCompactionWithoutMargin(t *testing.T)` — TestContextBudgetSkipsCompactionWithoutMargin 钉住软线压缩的**幂等/有效性校验**：
 
 ### context_cache_divergence_probe_test.go
 
@@ -254,7 +254,7 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 
 ### context_compact_gate_test.go
 
-- `func seedLongRounds(t *testing.T, service *Service, requestID string)` — seedLongRounds 与 TestCompactContextHandlerFoldsTranscript 同一份量：4 轮、每轮
+- `func seedLongRounds(t *testing.T, service *Service, requestID string)` — seedLongRounds 与 TestCompactContextHandlerCompactsTranscript 同一份量：4 轮、每轮
 - `func TestCompactContextWaitsForHeldCompactionGate(t *testing.T)` — TestCompactContextWaitsForHeldCompactionGate 钉住等待方向：门已被占用时，第二次
 
 ### context_compact_index_test.go
@@ -262,23 +262,23 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 - `func (recorder *compactionIndexRecorder) push( _ context.Context, sessionID string, request context_runtime.CompactionIndexRequest, ) (context_runtime.CompactionIndexReceipt, error)`
 - `func (recorder *compactionIndexRecorder) snapshot() ([]context_runtime.CompactionIndexRequest, []string)`
 - `func (runtime *compactionIndexRuntime) PushCompactionFrame( ctx context.Context, sessionID string, request context_runtime.CompactionIndexRequest, ) (context_runtime.CompactionIndexReceipt, error)`
-- `func indexGateDetail(t *testing.T, frames []compactionProgressFrame) string` — indexGateDetail 取出本轮进度里门禁 index 的事实行（找不到直接失败：一轮真折叠
+- `func indexGateDetail(t *testing.T, frames []compactionProgressFrame) string` — indexGateDetail 取出本轮进度里门禁 index 的事实行（找不到直接失败：一轮真压缩
 - `func appendIndexRounds(t *testing.T, service *Service, taskID string)` — appendIndexRounds 追加 4 个已定稿轮（每轮约 4 万 tokens），足以越过软阈值触发
-- `func TestFoldPushesCompactionFrameIntoIndex(t *testing.T)` — TestFoldPushesCompactionFrameIntoIndex：装配层折叠必须把这次折出的区间推进会话
-- `func TestFoldWithoutIndexFaceReportsDegradedGate(t *testing.T)` — TestFoldWithoutIndexFaceReportsDegradedGate：索引面未装配（Runtime 不实现
-- `func TestFoldPushFailureIsReportedNotFatal(t *testing.T)` — TestFoldPushFailureIsReportedNotFatal：索引面在、推帧报错时，折叠与本次请求
-- `func TestFoldWithoutOverflowReportsSkippedNotUnavailable(t *testing.T)` — TestFoldWithoutOverflowReportsSkippedNotUnavailable：索引面在，但这次折叠**没有
+- `func TestCompactionPushesFrameIntoIndex(t *testing.T)` — TestCompactionPushesFrameIntoIndex：装配层压缩必须把这次折出的区间推进会话
+- `func TestCompactionWithoutIndexFaceReportsDegradedGate(t *testing.T)` — TestCompactionWithoutIndexFaceReportsDegradedGate：索引面未装配（Runtime 不实现
+- `func TestCompactionPushFailureIsReportedNotFatal(t *testing.T)` — TestCompactionPushFailureIsReportedNotFatal：索引面在、推帧报错时，压缩与本次请求
+- `func TestCompactionWithoutOverflowReportsSkippedNotUnavailable(t *testing.T)` — TestCompactionWithoutOverflowReportsSkippedNotUnavailable：索引面在，但这次压缩**没有
 
 ### context_compact_local_fallback_repro_test.go
 
 - `func (runtime *compactionReadbackRuntime) ReadbackCompactionSummary( _ context.Context, _ string, _ context_runtime.CompactionIndexRequest, ) (context_runtime.CompactionIndexReceipt, error)`
-- `func TestFoldWithFailedModelReadbackLeavesContextUntouched(t *testing.T)` — TestFoldWithFailedModelReadbackLeavesContextUntouched（现场复现）：
-- `func TestFoldWithModelReadbackStillFolds(t *testing.T)` — TestFoldWithModelReadbackStillFolds：对照组——读数**拿到了**模型读后感
+- `func TestCompactionFailureWithFailedReadbackLeavesContextUntouched(t *testing.T)` — TestCompactionFailureWithFailedReadbackLeavesContextUntouched（现场复现）：
+- `func TestCompactionWithReadbackStillCompacts(t *testing.T)` — TestCompactionWithReadbackStillCompacts：对照组——读数**拿到了**模型读后感
 
 ### context_compact_no_summary_test.go
 
 - `func (runtime *compactionIndexNoSummaryRuntime) CompactionSummaryAvailable() bool`
-- `func TestFoldWithoutModelSummaryLeavesContextAndStackUntouched(t *testing.T)` — TestFoldWithoutModelSummaryLeavesContextAndStackUntouched 钉住用户口径
+- `func TestCompactionFailureLeavesContextAndStackUntouched(t *testing.T)` — TestCompactionFailureLeavesContextAndStackUntouched 钉住用户口径
 
 ### context_compact_progress_test.go
 
@@ -286,11 +286,11 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 - `func gateSequence(frames []compactionProgressFrame) []string` — gateSequence 抽出运行中门禁的 id 序列（终局事件不带 gate；起手帧不是"某一关
 - `func assertProgressShape(t *testing.T, frames []compactionProgressFrame, wantSession string)` — assertProgressShape 校验所有来路都要守的公共形状：路由键齐、序号单调、总数
 - `func assertBeginFrame(t *testing.T, frames []compactionProgressFrame)` — assertBeginFrame 钉起手帧的事实性：显式压缩在动第一个重活之前就把"这一轮开始
-- `func TestExplicitCompactEmitsOrderedProgressGates(t *testing.T)` — TestExplicitCompactEmitsOrderedProgressGates：/compact 显式折叠时逐关报告，
-- `func TestAutoCompactionEmitsProgressGates(t *testing.T)` — TestAutoCompactionEmitsProgressGates：自动路径（软阈值）在回合执行中折叠时
+- `func TestExplicitCompactEmitsOrderedProgressGates(t *testing.T)` — TestExplicitCompactEmitsOrderedProgressGates：/compact 显式压缩时逐关报告，
+- `func TestAutoCompactionEmitsProgressGates(t *testing.T)` — TestAutoCompactionEmitsProgressGates：自动路径（软阈值）在回合执行中压缩时
 - `func TestExplicitCompactGateTimeline(t *testing.T)` — TestExplicitCompactGateTimeline：逐关计时是这一轮压缩**串行工作**的唯一证据。
 - `func TestCompactProgressTerminatesOnAssemblyError(t *testing.T)` — TestCompactProgressTerminatesOnAssemblyError：装配失败也必须收口。结构性超限
-- `func TestNoProgressEventsWithoutFold(t *testing.T)` — TestNoProgressEventsWithoutFold：没折叠就没有进度。「登记为下一条消息兑现」
+- `func TestNoProgressEventsWithoutCompaction(t *testing.T)` — TestNoProgressEventsWithoutCompaction：没压缩就没有进度。「登记为下一条消息兑现」
 - `func TestMaintenanceCompactEmitsOrderedProgressGates(t *testing.T)` — TestMaintenanceCompactEmitsOrderedProgressGates：会话级维护身份路径（冷加载、
 - `func TestCompactReceiptCarriesGateChecklist(t *testing.T)` — TestCompactReceiptCarriesGateChecklist：回执自带门禁清单（逐关 id + 毫秒）。
 - `func TestFrontendGateLabelsMatchBackendOrder(t *testing.T)` — TestFrontendGateLabelsMatchBackendOrder：门禁 id 是跨语言协议字面量——后端
@@ -305,20 +305,20 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 ### context_compact_test.go
 
 - `func compactTestService(t *testing.T, requestID string) (*Service, *fakeEngine, string)` — compactTestService 构造带活跃任务执行的会话：主动压缩绑定请求纪元
-- `func TestCompactContextHandlerFoldsTranscript(t *testing.T)` — TestCompactContextHandlerFoldsTranscript：compact_context 工具（= /compact
-- `func TestCompactManualFoldsBelowThreshold(t *testing.T)` — TestCompactManualFoldsBelowThreshold：显式压缩（/compact、compact_context）
+- `func TestCompactContextHandlerCompactsTranscript(t *testing.T)` — TestCompactContextHandlerCompactsTranscript：compact_context 工具（= /compact
+- `func TestCompactManualCompactsBelowThreshold(t *testing.T)` — TestCompactManualCompactsBelowThreshold：显式压缩（/compact、compact_context）
 - `func TestCompactManualAfterTurnRecordsExplicitOrigin(t *testing.T)` — TestCompactManualAfterTurnRecordsExplicitOrigin：回合已收尾（任务状态不再是
 - `func TestCompactAfterTurnSurfacesRecordWithoutTaskFace(t *testing.T)` — TestCompactAfterTurnSurfacesRecordWithoutTaskFace：快照里还没有任务面时
 - `func TestCompactionFrameBodyIsReadableByRef(t *testing.T)` — TestCompactionFrameBodyIsReadableByRef：记录里的 frame_ref 真能读回帧正文——
 - `func TestAutoCompactionAfterTurnKeepsRecordGate(t *testing.T)` — TestAutoCompactionAfterTurnKeepsRecordGate：自动路径（软/硬阈值）在回合已
 - `func TestCompactContextWithoutTaskExecutionCompactsImmediately(t *testing.T)` — TestCompactContextWithoutTaskExecutionCompactsImmediately：会话没有任务执行
 - `func TestCompactWithoutEpochKeepsExecutionFacesClean(t *testing.T)` — TestCompactWithoutEpochKeepsExecutionFacesClean：会话级维护身份不得在可见面
-- `func TestCompactEmptySessionRegistersAndRedeemsOnNextMessage(t *testing.T)` — TestCompactEmptySessionRegistersAndRedeemsOnNextMessage：会话真的没有可折叠
+- `func TestCompactEmptySessionRegistersAndRedeemsOnNextMessage(t *testing.T)` — TestCompactEmptySessionRegistersAndRedeemsOnNextMessage：会话真的没有可压缩
 - `func TestCompactCommandRegisteredAndSharesPath(t *testing.T)` — TestCompactCommandRegisteredAndSharesPath：/compact 命令注册成功，且与工具
-- `func TestCompactCommandWithoutEpochFoldsImmediately(t *testing.T)` — TestCompactCommandWithoutEpochFoldsImmediately：命令入口（用户真的按回车的
-- `func TestCompactCommandNoticeReportsFoldedRange(t *testing.T)` — TestCompactCommandNoticeReportsFoldedRange：记录分支的提示只说**记录里已有的
+- `func TestCompactCommandWithoutEpochCompactsImmediately(t *testing.T)` — TestCompactCommandWithoutEpochCompactsImmediately：命令入口（用户真的按回车的
+- `func TestCompactCommandNoticeReportsCompactedRange(t *testing.T)` — TestCompactCommandNoticeReportsCompactedRange：记录分支的提示只说**记录里已有的
 - `func TestCompactionRangeLabel(t *testing.T)` — TestCompactionRangeLabel：区间渲染只在**有边界**时成段——空区间返回空串
-- `func TestCompactCommandNeverReportsFoldWithoutRecord(t *testing.T)` — TestCompactCommandNeverReportsFoldWithoutRecord：/compact 是显式路径，只要
+- `func TestCompactCommandNeverReportsCompactionWithoutRecord(t *testing.T)` — TestCompactCommandNeverReportsCompactionWithoutRecord：/compact 是显式路径，只要
 
 ### context_compact_trigger_liveness_test.go
 
@@ -327,10 +327,10 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 - `func releaseGate(runtime *reentrantGateIndexRuntime) func()` — releaseGate 造一个**幂等**放行器：返回的函数可以反复调用（含 defer + 显式调用），
 - `func awaitPushEntered[T any](t *testing.T, runtime *reentrantGateIndexRuntime, inFlight <-chan T, what string)` — awaitPushEntered 等到夹具真的走到推帧（否则判据是空集上的真命题）。
 - `func assertInteractionFaceLive(t *testing.T, service *Service, what string)` — assertInteractionFaceLive 断言交互面四个入口在推帧进行中照常返回。任一被冻 =
-- `func TestAutoFoldPushKeepsInteractionFaceLive(t *testing.T)` — TestAutoFoldPushKeepsInteractionFaceLive：**自动**入口（rawTokens ≥ 硬阈值，
-- `func TestMaintenanceFoldPushKeepsInteractionFaceLive(t *testing.T)` — TestMaintenanceFoldPushKeepsInteractionFaceLive：**维护入口**
+- `func TestAutoCompactionPushKeepsInteractionFaceLive(t *testing.T)` — TestAutoCompactionPushKeepsInteractionFaceLive：**自动**入口（rawTokens ≥ 硬阈值，
+- `func TestMaintenanceCompactionPushKeepsInteractionFaceLive(t *testing.T)` — TestMaintenanceCompactionPushKeepsInteractionFaceLive：**维护入口**
 - `func TestSessionLevelCompactPushKeepsInteractionFaceLive(t *testing.T)` — TestSessionLevelCompactPushKeepsInteractionFaceLive：**无在飞回合的会话级**
-- `func TestExplicitFoldWhileAutoFoldInFlightDoesNotInterlock(t *testing.T)` — TestExplicitFoldWhileAutoFoldInFlightDoesNotInterlock：**显式与自动并发**。
+- `func TestExplicitCompactionWhileAutoCompactionInFlightDoesNotInterlock(t *testing.T)` — TestExplicitCompactionWhileAutoCompactionInFlightDoesNotInterlock：**显式与自动并发**。
 - `func TestCompactionChurnOnOneSessionDoesNotHang(t *testing.T)` — TestCompactionChurnOnOneSessionDoesNotHang：把触发入口混在一起反复跑（显式压缩
 
 ### context_compact_viewmu_hold_repro_test.go

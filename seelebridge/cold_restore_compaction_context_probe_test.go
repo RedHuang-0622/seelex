@@ -5,17 +5,17 @@
 //
 // 用户口径（现场）：
 //
-//	① 重启（冷加载）之后，模型对早先的对话没有内容——只剩一份"折叠记录"；
+//	① 重启（冷加载）之后，模型对早先的对话没有内容——只剩一份"压缩记录"；
 //	② 现象时有时无，疑似与压缩的**时机/链路**有关；
 //	③ 现场的帧常常是 summary_source=local：压缩发生了，但**没有调用模型**做内容摘要。
 //
-// 本探针在同一条会话上把两条折叠链各跑一遍，再在同一份存储上重新装配（= 重启），把
+// 本探针在同一条会话上把两条压缩链各跑一遍，再在同一份存储上重新装配（= 重启），把
 // "模型能看到的压缩上下文块"原样打印，并按需求本身断言（修复前为红；红在哪一行就是
 // 缺陷在哪一处）：
 //
 //	R1 被折轮次的内容必须进模型可见面
 //	   ——现在只有 "溢出轮次: 163 个完整协议单元" + 每轮 80 字截断的用户行，
-//	     助手侧正文一个字都没有（"压缩完了只是折叠了上下文"）；
+//	     助手侧正文一个字都没有（"压缩完了只是压缩了上下文"）；
 //	R2 "这次为什么没有模型摘要"的自答必须与事实一致
 //	   ——开关是开的，帧却写"开关关闭或 QuickChat 装配失败"，读帧的人只会去查配置；
 //	R3 帧链必须跨重启存活（探针保真度自检：红在 R1/R2 而不是读不到帧）。
@@ -44,10 +44,10 @@ import (
 const (
 	restoreProbeSession = "session-restore-probe"
 	restoreProbeSystem  = "你是 Seelex，按证据工作的工程代理。"
-	// restoreProbeFoldedRootCause 只出现在**被折轮次**的助手正文里：它是"模型有没有
+	// restoreProbeCompactedRootCause 只出现在**被折轮次**的助手正文里：它是"模型有没有
 	// 拿到被折内容"的判据串。
-	restoreProbeFoldedRootCause = "根因：A3 写者在提交临界区里重入了读路径，第二条用例因此拿到过期快照。"
-	// restoreProbeSummaryRootCause 只出现在**装配层折叠产出的厚摘要**里。
+	restoreProbeCompactedRootCause = "根因：A3 写者在提交临界区里重入了读路径，第二条用例因此拿到过期快照。"
+	// restoreProbeSummaryRootCause 只出现在**装配层压缩产出的厚摘要**里。
 	restoreProbeSummaryRootCause = "摘要正文：二十七号那批 flaky 用例的高频失败点集中在提交临界区的锁序。"
 )
 
@@ -112,7 +112,7 @@ func roundMessages(n, answerChars int) []types.Message {
 	messages := make([]types.Message, 0, n*2)
 	for index := 0; index < n; index++ {
 		question := fmt.Sprintf("第 %d 轮问题：这里的根因是什么？", index)
-		answer := fmt.Sprintf("第 %d 轮答复：%s", index, restoreProbeFoldedRootCause+strings.Repeat("C", answerChars))
+		answer := fmt.Sprintf("第 %d 轮答复：%s", index, restoreProbeCompactedRootCause+strings.Repeat("C", answerChars))
 		messages = append(messages,
 			types.Message{Role: "user", Content: &question},
 			types.Message{Role: "assistant", Content: &answer})
@@ -169,7 +169,7 @@ func TestRestoreProbeModelSeesNoPriorContent(t *testing.T) {
 		fixture.runtime.limits.ContextCompactionSummary.Enabled, policy.Window, policy.Budget(),
 		policy.SoftThreshold(), policy.HardThreshold(), fixture.runtime.limits.ContextFrameCarryTokens)
 
-	// 链 ①：装配层折叠（回合开始前那条路径 → seelebridge.MainCompactionDAG）——注入了摘要器。
+	// 链 ①：装配层压缩（回合开始前那条路径 → seelebridge.MainCompactionDAG）——注入了摘要器。
 	assemblyReceipt, err := fixture.runtime.PushCompactionFrame(ctx, restoreProbeSession, CompactionFrameRequest{
 		Overflow: []types.Message{
 			{Role: "user", Content: pointer("把保留窗口外的轮次折进 checkpoint 帧。")},
@@ -183,10 +183,10 @@ func TestRestoreProbeModelSeesNoPriorContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PushCompactionFrame: %v", err)
 	}
-	t.Logf("链① 装配层折叠: source=%q note=%q 模型调用累计=%d",
+	t.Logf("链① 装配层压缩: source=%q note=%q 模型调用累计=%d",
 		assemblyReceipt.SummarySource, assemblyReceipt.SummaryNote, fixture.calls())
 
-	// 链 ②：回合内控制器折叠（seelexctx/controller.go 的 after_assistant 软线触发）。
+	// 链 ②：回合内控制器压缩（seelexctx/controller.go 的 after_assistant 软线触发）。
 	before := fixture.calls()
 	decision, err := fixture.runtime.seelexController().Handle(ctx, seelectx.ContextEvent{
 		Kind: seelectx.ContextAfterAssistant, History: rounds, Query: "当前输入",
@@ -195,7 +195,7 @@ func TestRestoreProbeModelSeesNoPriorContent(t *testing.T) {
 		t.Fatalf("controller.Handle: %v", err)
 	}
 	controllerCalls := fixture.calls() - before
-	t.Logf("链② 回合内控制器折叠: replace=%v 本次模型调用=%d（累计 %d）", decision.ReplaceHistory, controllerCalls, fixture.calls())
+	t.Logf("链② 回合内控制器压缩: replace=%v 本次模型调用=%d（累计 %d）", decision.ReplaceHistory, controllerCalls, fixture.calls())
 
 	stack := fixture.store.Snapshot().CompactStack
 	if len(stack) == 0 {
@@ -215,16 +215,16 @@ func TestRestoreProbeModelSeesNoPriorContent(t *testing.T) {
 	block := modelVisibleCompactBlock(record)
 
 	report := &strings.Builder{}
-	fmt.Fprintf(report, "# 重启恢复探针现场\n\n## 重启前\n\n- 链① 装配层折叠: source=%q note=%q 模型调用累计=%d\n",
+	fmt.Fprintf(report, "# 重启恢复探针现场\n\n## 重启前\n\n- 链① 装配层压缩: source=%q note=%q 模型调用累计=%d\n",
 		assemblyReceipt.SummarySource, assemblyReceipt.SummaryNote, fixture.calls())
-	fmt.Fprintf(report, "- 链② 回合内控制器折叠: replace=%v 本次模型调用=%d 累计=%d\n", decision.ReplaceHistory, controllerCalls, fixture.calls())
+	fmt.Fprintf(report, "- 链② 回合内控制器压缩: replace=%v 本次模型调用=%d 累计=%d\n", decision.ReplaceHistory, controllerCalls, fixture.calls())
 	fmt.Fprintf(report, "- 栈 %d 帧；栈顶 source=%q\n  evidence=%v\n", len(stack), top.SummarySource, top.Evidence)
 	fmt.Fprintf(report, "\n## 重启后\n\n- 压缩栈 %d 帧\n", len(record.CompactStack))
 	fmt.Fprintf(report, "\n## 重启后模型可见的压缩上下文块\n\n```json\n%s\n```\n", block)
 	dumpProbeReport(t, report.String())
 	t.Logf("重启后模型可见的压缩上下文块（节选）:\n%s", clipMiddle(block, 1600))
 	t.Logf("模型可见面自检: 被折轮次助手正文=%v 装配层厚摘要正文=%v 80 字用户行=%v",
-		strings.Contains(block, restoreProbeFoldedRootCause),
+		strings.Contains(block, restoreProbeCompactedRootCause),
 		strings.Contains(block, restoreProbeSummaryRootCause),
 		strings.Contains(block, "第 0 轮问题"))
 
@@ -240,9 +240,9 @@ func TestRestoreProbeModelSeesNoPriorContent(t *testing.T) {
 			fixture.runtime.limits.ContextCompactionSummary.Enabled, controllerCalls)
 	}
 	// R1：被折轮次的内容必须进模型可见面。
-	if !strings.Contains(block, restoreProbeFoldedRootCause) {
+	if !strings.Contains(block, restoreProbeCompactedRootCause) {
 		t.Errorf("R1: 被折的 163 个轮次的正文（助手侧含判据串 %q）一条都没进模型可见面——模型拿到的只是「溢出轮次: N 个完整协议单元」+ 每轮 80 字用户行",
-			restoreProbeFoldedRootCause)
+			restoreProbeCompactedRootCause)
 	}
 }
 

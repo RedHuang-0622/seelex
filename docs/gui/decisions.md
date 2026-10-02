@@ -62,7 +62,7 @@
 ## ADR-GUI-008：Markdown 自有安全子集，think 使用 details
 
 - 状态：已采用
-- 决策：实现项目所需的 block/inline 子集，先转义原始 HTML，只允许 http/https/mailto 与受控相对链接；`<think>` 转成折叠 details，未闭合流式块保持展开。
+- 决策：实现项目所需的 block/inline 子集，先转义原始 HTML，只允许 http/https/mailto 与受控相对链接；`<think>` 转成压缩 details，未闭合流式块保持展开。
 - 替代方案：引入第三方 Markdown + sanitizer。
 - 理由：当前无 npm runtime/build pipeline，安全边界可测试且功能范围明确。
 - 后果：不追求完整 CommonMark；新增语法必须先补安全测试。

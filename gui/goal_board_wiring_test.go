@@ -47,9 +47,21 @@ func TestEmbeddedGoalBoardWiring(t *testing.T) {
 		}
 	}
 	// 看板的两行与详情面：大 active seq / 小字最近输入 / 完整打点流水。
-	for _, want := range []string{"active seq", "goal-board-seq-num", "goal-board-task", "goal-detail-marks", "progress_all"} {
+	// 「序号徽标」2026-10-02 抽成组件库件（components.js renderSeqBadge）：goal 看板与
+	// 右栏压缩条目共用同一件，所以这里同时钉"看板复用它"与"徽标本体在组件库里"——
+	// 只钉 boardSource 里的类名会让"两处各写一份"重新长回来。
+	components, err := embeddedFrontend.ReadFile("frontend/dist/components.js")
+	if err != nil {
+		t.Fatalf("embedded frontend components.js: %v", err)
+	}
+	for _, want := range []string{"active seq", "renderSeqBadge(", "goal-board-task", "goal-detail-marks", "progress_all"} {
 		if !strings.Contains(boardSource, want) {
 			t.Fatalf("看板渲染件缺少 %q", want)
+		}
+	}
+	for _, want := range []string{"export function renderSeqBadge", "seq-badge-num", "seq-badge-unit"} {
+		if !strings.Contains(string(components), want) {
+			t.Fatalf("序号徽标组件（components.js）缺少 %q", want)
 		}
 	}
 	// 席位轮转的三个概念（轮次/座次/断环）不得从门外再爬回来：面板既不渲染它们，

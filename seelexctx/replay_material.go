@@ -3,12 +3,12 @@
 // 为什么需要：前缀重放的素材是「最近一次真实请求的历史字节原样重放」，但素材的
 // 来源快照**早于**请求出口的协议修复，两处都取不到修复后的字节：
 //
-//   - 装配层折叠：装配开始时读一次引擎历史（application/core/context_runtime
-//     coordinator.go 的 `existing := c.foldHistory(sessionID)`），而残缺工具链的
+//   - 装配层压缩：装配开始时读一次引擎历史（application/core/context_runtime
+//     coordinator.go 的 `existing := c.sessionHistory(sessionID)`），而残缺工具链的
 //     补齐（PrepareProviderHistoryFor → RepairInterruptedToolChains）发生在同一
 //     条装配路径的**替换之后**——被中断的回合（assistant 宣告了工具调用、结果
 //     丢失）因此原样进重放请求；
-//   - in-loop 折叠：直接拿活跃 ReAct 的工作历史（controller.go 的 ev.History），
+//   - in-loop 压缩：直接拿活跃 ReAct 的工作历史（controller.go 的 ev.History），
 //     那一刻它的尾巴可能正是一条还没有回执的 tool_call。
 //
 // 两者对 provider 都是硬违规：每条 assistant(tool_calls) 之后必须紧跟（相邻、
@@ -18,8 +18,8 @@
 //	messages responding to each 'tool_call_id'. (insufficient tool messages
 //	following tool_calls message)
 //
-// 2026-09-29 现场：会话在工具轮被中断（结果未记录）后冷加载，装配层折叠触发，
-// 前缀重放两次都在 provider 侧被 400 拒收，折叠每次静默降级本地折叠——素材本身
+// 2026-09-29 现场：会话在工具轮被中断（结果未记录）后冷加载，装配层压缩触发，
+// 前缀重放两次都在 provider 侧被 400 拒收，压缩每次静默降级本地压缩——素材本身
 // 忠实复刻了历史，错在**没有经过请求出口的协议规整**。
 //
 // 两条规则，都不发明事实：
@@ -34,7 +34,7 @@
 //     （见 interruptedToolResultContent），素材因此仍与已发出字节对齐。
 //
 // 规整之后仍不合法的素材不再发出去：ValidateReplayProtocol 指名违规位置，调用方
-// 按"重放失败"降级本地折叠并把原因写进帧证据——可自答的失败，而不是一次 provider
+// 按"重放失败"降级本地压缩并把原因写进帧证据——可自答的失败，而不是一次 provider
 // 400 之后再去猜。
 package seelexctx
 
@@ -49,7 +49,7 @@ import (
 
 // CompactReplayMaterialEvidenceRefPrefix 标记"重放素材被规整过"的帧证据 ref。
 // 素材被动过是**事实**，必须可从帧读出来：否则读者只能看到一次没有模型摘要的
-// 折叠，无从判断素材是不是早就坏了。
+// 压缩，无从判断素材是不是早就坏了。
 const CompactReplayMaterialEvidenceRefPrefix = "replay-material:"
 
 // ReplayMaterialReport 是一次素材规整的事实（零值 = 逐字未动）。
@@ -100,7 +100,7 @@ func (r ReplayMaterialReport) Terse() string {
 	return builder.String()
 }
 
-// ReplayMaterialEvidence 把素材规整事实写成帧证据。与 ReplayEvidence / LocalFoldEvidence
+// ReplayMaterialEvidence 把素材规整事实写成帧证据。与 ReplayEvidence / LocalCompactEvidence
 // 同一条纪律：没有这件事（素材逐字未动）就不留痕。
 func ReplayMaterialEvidence(report ReplayMaterialReport) []sessionstore.EvidenceRef {
 	if !report.Repaired() {

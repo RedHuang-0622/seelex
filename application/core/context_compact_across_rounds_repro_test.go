@@ -7,12 +7,12 @@ import (
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
 )
 
-// 红灯复现（用户现象）：**折叠执行之后的下一轮对话，压缩记录已经不见所踪**。
+// 红灯复现（用户现象）：**压缩执行之后的下一轮对话，压缩记录已经不见所踪**。
 //
 // 用户形状（现场）：
-//  1. 会话冷加载（打开一个早先的会话）后执行了一次折叠（`/compact`、自动达峰或
+//  1. 会话冷加载（打开一个早先的会话）后执行了一次压缩（`/compact`、自动达峰或
 //     冷加载维护身份下的显式压缩）——状态页「上下文压缩」里有条目、对话区有
-//     那条折叠分界；
+//     那条压缩分界；
 //  2. 用户接着发下一条消息；
 //  3. 条目与分界一起消失：`snapshot.task.context_compactions` 空了，保留窗口
 //     起点（`ContextRetainedFrom`）退回 0，上下文版本退回 1。
@@ -33,14 +33,14 @@ import (
 // 不属于回合。本文件把这句话钉成判据。
 
 // TestReproCompactionRecordSurvivesNextRoundAfterColdMaintenance 冷加载维护
-// 身份（`StatusIdle`）下折叠一次之后，下一回合必须继承这份上下文事实。
+// 身份（`StatusIdle`）下压缩一次之后，下一回合必须继承这份上下文事实。
 func TestReproCompactionRecordSurvivesNextRoundAfterColdMaintenance(t *testing.T) {
 	runtime := runtimeWithContextLimits{fakeRuntime: &fakeRuntime{}, window: 200_000, output: 8_192}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 	sessionID := service.Snapshot().Session.ID
 	appendWindowRounds(t, service, "task-cold-repro", 2, 400)
 
-	// 1. 冷加载会话的显式折叠（与 TestCompactWithoutEpochKeepsExecutionFacesClean 同一入口）。
+	// 1. 冷加载会话的显式压缩（与 TestCompactWithoutEpochKeepsExecutionFacesClean 同一入口）。
 	if _, err := service.CompactContextNow(task_context.WithSessionID(context.Background(), sessionID)); err != nil {
 		t.Fatalf("CompactContextNow: %v", err)
 	}
@@ -50,15 +50,15 @@ func TestReproCompactionRecordSurvivesNextRoundAfterColdMaintenance(t *testing.T
 	snapshotBefore := service.Core.Snapshot.Task
 	service.ViewMu.RUnlock()
 	if before == nil || len(before.ContextCompactions) != 1 {
-		t.Fatalf("折叠后应留下一条压缩记录：%#v", before)
+		t.Fatalf("压缩后应留下一条压缩记录：%#v", before)
 	}
 	if snapshotBefore == nil || len(snapshotBefore.ContextCompactions) != 1 {
-		t.Fatalf("折叠记录应进快照可见面：%#v", snapshotBefore)
+		t.Fatalf("压缩记录应进快照可见面：%#v", snapshotBefore)
 	}
 	retained := before.ContextRetainedFrom
 	version := before.ContextVersion
 	if retained == 0 {
-		t.Fatalf("折叠应推前保留窗口起点（ContextRetainedFrom>0）：%#v", before)
+		t.Fatalf("压缩应推前保留窗口起点（ContextRetainedFrom>0）：%#v", before)
 	}
 
 	// 2. 下一轮对话：与 startChatFor 完全同形——取当前状态当 previous，再开新回合。
@@ -76,7 +76,7 @@ func TestReproCompactionRecordSurvivesNextRoundAfterColdMaintenance(t *testing.T
 		t.Fatal("下一回合应有任务状态")
 	}
 	if len(next.ContextCompactions) != 1 {
-		t.Fatalf("压缩记录在下一回合被丢掉：%d 条（want 1）——用户现象「折叠之后下一轮就不见了」", len(next.ContextCompactions))
+		t.Fatalf("压缩记录在下一回合被丢掉：%d 条（want 1）——用户现象「压缩之后下一轮就不见了」", len(next.ContextCompactions))
 	}
 	if next.ContextRetainedFrom != retained {
 		t.Fatalf("保留窗口起点被重置：%d → %d（want %d）——已被折出的前缀会被重新计入，每回合重新压一次",
@@ -86,14 +86,14 @@ func TestReproCompactionRecordSurvivesNextRoundAfterColdMaintenance(t *testing.T
 		t.Fatalf("上下文版本被重置：%d → %d（want %d）", version, next.ContextVersion, version)
 	}
 	if snapshotNext == nil || len(snapshotNext.ContextCompactions) != 1 {
-		t.Fatalf("快照可见面的压缩记录在下一回合消失（前端「上下文压缩」列表与折叠分界的唯一来路）：%#v", snapshotNext)
+		t.Fatalf("快照可见面的压缩记录在下一回合消失（前端「上下文压缩」列表与压缩分界的唯一来路）：%#v", snapshotNext)
 	}
 }
 
 // TestReproContextFactsSurviveCompletedTurnBoundary 回合**正常收尾**
 // （`StatusCompleted`）之后开新回合，同样不得丢掉会话上下文事实。
 //
-// 现场形状：回合 1 达峰折叠 → 回合 1 收尾（completed）→ 用户发第二条消息。
+// 现场形状：回合 1 达峰压缩 → 回合 1 收尾（completed）→ 用户发第二条消息。
 // 若这里丢掉 `ContextRetainedFrom`，下一次装配就会从 transcript 头部重新累积，
 // 稳定越过软阈值——「一发消息一条压缩记录」。
 func TestReproContextFactsSurviveCompletedTurnBoundary(t *testing.T) {
@@ -110,7 +110,7 @@ func TestReproContextFactsSurviveCompletedTurnBoundary(t *testing.T) {
 	state := service.components.tasks.CurrentTaskExecutionFor(sessionID)
 	if state == nil || len(state.ContextCompactions) != 1 {
 		service.ViewMu.Unlock()
-		t.Fatalf("夹具前提：折叠后应有一条压缩记录：%#v", state)
+		t.Fatalf("夹具前提：压缩后应有一条压缩记录：%#v", state)
 	}
 	// 回合收尾（task_service 的终态落点）。
 	state.Status = task_context.StatusCompleted

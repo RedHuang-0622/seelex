@@ -285,7 +285,7 @@ test("compaction events mark the conversation axis at their anchor time", () => 
   const compressBlock = html.match(/<button type="button" class="axis-segment is-compress[^"]*"[^>]*>/)?.[0] || "";
   assert.doesNotMatch(compressBlock, /data-trajectory-key/);
   assert.match(compressBlock, /data-compact-idx="0"/);
-  // 折叠帧的先后层次靠灰阶：栈顶（前沿）深灰、被更晚折叠取代的浅灰。前沿的判定
+  // 压缩帧的先后层次靠灰阶：栈顶（前沿）深灰、被更晚压缩取代的浅灰。前沿的判定
   // 只看被压区间终点（compactionFrontier），这条记录没有消息边界 ⇒ 判不出前沿，
   // 刻度留在浅灰——不用别的量（时间/版本号）顶替，否则三处读数会分叉。
   assert.match(compressBlock, /is-stale/);
@@ -296,8 +296,8 @@ test("compaction events mark the conversation axis at their anchor time", () => 
   const framedHTML = renderContextAxis(records, { compactions: framed });
   const frontierBlock = framedHTML.match(/<button type="button" class="axis-segment is-compress is-frontier"[^>]*>/)?.[0] || "";
   const staleBlocks = framedHTML.match(/<button type="button" class="axis-segment is-compress is-stale"[^>]*>/g) || [];
-  assert.ok(frontierBlock, "最新一次折叠的刻度没标 is-frontier");
-  assert.equal(staleBlocks.length, 1, "过时折叠的刻度数不对（灰阶会把读序带错）");
+  assert.ok(frontierBlock, "最新一次压缩的刻度没标 is-frontier");
+  assert.equal(staleBlocks.length, 1, "过时压缩的刻度数不对（灰阶会把读序带错）");
 });
 
 test("compaction earlier than the loaded window clamps to the axis start", () => {
@@ -349,7 +349,7 @@ test("axis detail renders compaction range, origin and read-back entry", () => {
   assert.doesNotMatch(html, /88 条/);
 });
 
-test("axis detail reads back the folded frame body page by page", () => {
+test("axis detail reads back the compacted frame body page by page", () => {
   const records = buildTrajectory([userMessage("u1", "hi")]);
   const compactions = [
     { version: 4, reason: "context_budget", frame_ref: "tr-frame", frame_bytes: 90, frame_tokens: 20 }
@@ -359,9 +359,9 @@ test("axis detail reads back the folded frame body page by page", () => {
   assert.match(loading, /读取中…/);
   const first = renderAxisDetail({
     type: "compression", mark,
-    frame: { loading: false, error: "", text: "# Context checkpoint frame v4\nfolded: 消息 message-1..message-8", hasMore: true, nextOffset: 40, totalBytes: 90 }
+    frame: { loading: false, error: "", text: "# Context checkpoint frame v4\ncompacted: 消息 message-1..message-8", hasMore: true, nextOffset: 40, totalBytes: 90 }
   });
-  assert.match(first, /折叠帧正文/);
+  assert.match(first, /压缩帧正文/);
   assert.match(first, /Context checkpoint frame v4/);
   assert.match(first, /data-compact-frame-load="more"/);
   assert.match(first, /剩余约 50 bytes/);
@@ -390,7 +390,7 @@ test("compactionRangeText keeps to recorded boundaries", () => {
   assert.equal(compactionRangeText({ messages_before: 88 }), "");
 });
 
-test("compression cut line marks where the prefix was folded", () => {
+test("compression cut line marks where the prefix was compacted", () => {
   const records = buildTrajectory([userMessage("u1", "hi"), llmMessage("a1", "hello")]);
   const compactions = [
     { version: 5, reason: "context_budget", message_from: "message-1", message_to: "message-2", event_from: 1, event_to: 4,
@@ -398,8 +398,8 @@ test("compression cut line marks where the prefix was folded", () => {
   ];
   const html = renderContextAxis(records, { compactions });
   assert.match(html, /axis-compress-cut/);
-  assert.match(html, /以上 消息 message-1\.\.message-2（事件 1\.\.4）已被折叠/);
-  assert.match(html, /虚线以上已被折叠/);
+  assert.match(html, /以上 消息 message-1\.\.message-2（事件 1\.\.4）已被压缩/);
+  assert.match(html, /虚线以上已被压缩/);
 });
 
 test("compression cut line stays out of clamped ticks", () => {
@@ -432,7 +432,7 @@ test("axis draws one cut line for the session frontier, not one per record", () 
   ];
   const html = renderContextAxis(records, { compactions });
   assert.equal((html.match(/class="axis-compress-cut"/g) || []).length, 1);
-  assert.match(html, /以上 消息 message-1\.\.message-4（事件 1\.\.4）已被折叠/);
+  assert.match(html, /以上 消息 message-1\.\.message-4（事件 1\.\.4）已被压缩/);
   // 两个刻度都还在（历次记录可逐条查看），但只有前沿那个被标记为分界。
   const marks = compactionMarks(records, compactions, {});
   assert.equal(marks.length, 2);

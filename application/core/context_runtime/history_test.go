@@ -86,12 +86,12 @@ func TestAutonomousCompactionMessageIsBoundedAndDynamicTail(t *testing.T) {
 	}
 }
 
-// TestCompactionFrameNeverReentersFoldInput：帧是**终态**——一次折叠产生的帧绝不
-// 能再被聚合成下一次折叠的输入（对摘要再摘要会丢事实，且失真不可追溯）。
+// TestCompactionFrameNeverReentersCompactionInput：帧是**终态**——一次压缩产生的帧绝不
+// 能再被聚合成下一次压缩的输入（对摘要再摘要会丢事实，且失真不可追溯）。
 // 两道闸门各自兜底：RetainedSystemHistory 丢掉动态尾（帧属动态尾），
-// RetainedSystemOnly 只留首条产品指令。这里把第二道闸门也钉死，并明确折叠输入的
+// RetainedSystemOnly 只留首条产品指令。这里把第二道闸门也钉死，并明确压缩输入的
 // 形状：产品指令 + 任务证据摘要 + plan + 当前输入，不含任何已落帧。
-func TestCompactionFrameNeverReentersFoldInput(t *testing.T) {
+func TestCompactionFrameNeverReentersCompactionInput(t *testing.T) {
 	frame := AutonomousCompactionMessage("objective: chunk-1 evidence")
 	history := []contract.EngineMessage{
 		{Role: "system", Content: "product instruction", ContentSet: true},
@@ -104,7 +104,7 @@ func TestCompactionFrameNeverReentersFoldInput(t *testing.T) {
 	}
 	only := RetainedSystemOnly(retained)
 	if got := retainedContents(only); !reflect.DeepEqual(got, []string{"product instruction"}) {
-		t.Fatalf("折叠输入只能带首条产品指令，不得携带帧，got %v", got)
+		t.Fatalf("压缩输入只能带首条产品指令，不得携带帧，got %v", got)
 	}
 }
 

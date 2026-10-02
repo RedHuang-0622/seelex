@@ -257,7 +257,7 @@ func collectHits(query string, selected []memory.Candidate, units [][]sessionsto
 // 区间定位有两条路，优先级不可颠倒：
 //
 //  1. 帧声明了 EventSeq 区间（EventTo > 0）→ 按 Seq 在这份 units 上**反查**单元下标。
-//     这是权威路径：装配层折叠（回合开始前那条，也是实际最常发生的那条）手里的
+//     这是权威路径：装配层压缩（回合开始前那条，也是实际最常发生的那条）手里的
 //     事实就是 EventSeq；而 units 由 CompleteEventUnits 切出，会跳过孤儿 tool 与
 //     未知角色，因此"事件下标 → 单元下标"**不是减法**，只能按 Seq 查找。
 //     反查不到 → 空命中 + 在 Summary 里写明原因，绝不 clamp 猜。

@@ -142,7 +142,7 @@ func contentionGatePureWorker(worker int) error {
 		if _, facts := CarryPreviousChapter2(&prev, 64); facts.LimitTokens == 0 {
 			return fmt.Errorf("worker %d: carry facts missing", worker)
 		}
-		if _, carry := LocalChapter2WithCarry(LocalFoldOptions{
+		if _, carry := LocalChapter2WithCarry(LocalCompactOptions{
 			UnitCount: 2, PrevTop: &prev, CarryLimitTokens: 64,
 		}); carry.LimitTokens == 0 {
 			return fmt.Errorf("worker %d: local fold carry facts missing", worker)
@@ -155,7 +155,7 @@ func contentionGatePureWorker(worker int) error {
 	return nil
 }
 
-// contentionGateSharedWorker 跑真实形状：每 worker 一份折叠产物 + 一个 DAG，共用一把压缩栈锁。
+// contentionGateSharedWorker 跑真实形状：每 worker 一份压缩产物 + 一个 DAG，共用一把压缩栈锁。
 func contentionGateSharedWorker(worker int, shared CompactStackStore) error {
 	sessionID := fmt.Sprintf("sess-gate-%d", worker)
 	dag := NewCompactionDAG(CompactionDAGOptions{
@@ -166,7 +166,7 @@ func contentionGateSharedWorker(worker int, shared CompactStackStore) error {
 	})
 	for iteration := 0; iteration < contentionGateIterations; iteration++ {
 		history := roundHistory(8)
-		// 写共享压缩栈：2026-09-30 起回合内控制器不再折帧，写栈的只剩装配层折叠
+		// 写共享压缩栈：2026-09-30 起回合内控制器不再折帧，写栈的只剩装配层压缩
 		// 路径——这里按它同一条契约（PushCompact）造真竞争。否则 B 臂的探针会
 		// 退化成"空集上的真命题"（本文件头注释警告的那件事）。
 		if err := shared.PushCompact(sessionstore.CompactFrame{
@@ -181,7 +181,7 @@ func contentionGateSharedWorker(worker int, shared CompactStackStore) error {
 		}); err != nil {
 			return fmt.Errorf("dag.Execute: %w", err)
 		}
-		// 共享栈读写：折叠路径写帧、真空区覆盖/报表读。
+		// 共享栈读写：压缩路径写帧、真空区覆盖/报表读。
 		_ = shared.Snapshot()
 	}
 	return nil

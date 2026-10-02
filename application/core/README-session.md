@@ -453,7 +453,7 @@
 - `func (service *Service) sessionInputWindowLoaded(sessionID string, total int) (model.SessionInputWindow, []string)` — sessionInputWindowLoaded 返回目标会话的已加载窗口元数据与窗口内已加载的
 - `func buildSessionInputIndex(conversation []model.Message, loaded []string, limit int) []model.SessionInputIndexRow` — buildSessionInputIndex 从完整可见会话构建全量用户输入索引（纯函数）。
 - `func inputIndexUserText(message model.Message) string` — inputIndexUserText 返回一条可见消息作为「用户输入」的展示正文；非用户输入
-- `func summarizeInputIndexText(text string, limit int) (string, int)` — summarizeInputIndexText 把正文压成有界摘要：空白折叠 + rune 截断（末尾省略号）。
+- `func summarizeInputIndexText(text string, limit int) (string, int)` — summarizeInputIndexText 把正文压成有界摘要：空白压缩 + rune 截断（末尾省略号）。
 - `func alignLoadedInputTexts(texts, loaded []string) (int, int)` — alignLoadedInputTexts 把「窗口内已加载的用户输入」对齐到全量输入序列：
 
 ### session_input_index_test.go

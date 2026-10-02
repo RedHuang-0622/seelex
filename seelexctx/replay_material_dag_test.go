@@ -131,7 +131,7 @@ func TestCompactionDAGLegalMaterialStaysByteForByteAndSilent(t *testing.T) {
 }
 
 // TestCompactionDAGMaterialTrimmedToEmptyFallsBackToLocal：素材整体就是一个未落定
-// 的工具调用单元 → 规整后为空，不发一次没有正文的重放，改走本地折叠并把原因写成
+// 的工具调用单元 → 规整后为空，不发一次没有正文的重放，改走本地压缩并把原因写成
 // `no-replay-material`（不猜、不静默）。
 func TestCompactionDAGMaterialTrimmedToEmptyFallsBackToLocal(t *testing.T) {
 	summarizer := &recordingSummarizer{}
@@ -154,7 +154,7 @@ func TestCompactionDAGMaterialTrimmedToEmptyFallsBackToLocal(t *testing.T) {
 	}
 	found := false
 	for _, evidence := range frame.Evidence {
-		if evidence.Ref == CompactFoldLocalEvidenceRefPrefix+"no-replay-material" {
+		if evidence.Ref == LocalCompactEvidenceRefPrefix+"no-replay-material" {
 			found = true
 			if !strings.Contains(evidence.Summary, "t1") {
 				t.Fatalf("降级原因必须指名未回执的调用：%q", evidence.Summary)

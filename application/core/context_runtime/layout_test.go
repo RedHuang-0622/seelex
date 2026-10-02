@@ -46,7 +46,7 @@ func TestContextZonesClassifiesFourZones(t *testing.T) {
 		tokens   int
 	}{
 		{ZoneStable, 3, 10 * 3}, // engine system prompt + 2 条 system（计数注入在 messages 上）
-		{ZoneFolded, 1, 10},
+		{ZoneCompacted, 1, 10},
 		{ZoneProtected, 2, 20},
 		{ZoneTail, 1, 10},
 		{ZoneInput, 1, len("current input")},
@@ -64,10 +64,10 @@ func TestContextZonesClassifiesFourZones(t *testing.T) {
 	if other := ContextZones("", assembled, "", nil); other != nil {
 		t.Fatalf("没有计数器时不产出分区，得到 %+v", other)
 	}
-	// 未折叠时 ② 为 0（没有任何内容被折出），③ 即全部累积的已定稿轮次。
+	// 未压缩时 ② 为 0（没有任何内容被折出），③ 即全部累积的已定稿轮次。
 	accumulating := ContextZones("", assembled[3:5], "", layoutTestCounter)
 	if accumulating[1].Tokens != 0 || accumulating[2].Tokens != 20 {
-		t.Fatalf("未折叠轮次的四区口径不对：%+v", accumulating)
+		t.Fatalf("未压缩轮次的四区口径不对：%+v", accumulating)
 	}
 }
 
@@ -114,7 +114,7 @@ func TestContextLayoutTerseAndZonesRender(t *testing.T) {
 	layout := ContextLayout{
 		Zones: []ContextZone{
 			{Kind: ZoneStable, Tokens: 1200, Messages: 2, Source: "system"},
-			{Kind: ZoneFolded, Tokens: 90_000, Messages: 1, Source: "folded units"},
+			{Kind: ZoneCompacted, Tokens: 90_000, Messages: 1, Source: "compacted units"},
 			{Kind: ZoneProtected, Tokens: 20_000, Messages: 8, Source: "retained window"},
 			{Kind: ZoneTail, Tokens: 200, Messages: 1, Source: "plan tail"},
 			{Kind: ZoneInput, Tokens: 30, Messages: 1, Source: "current input"},
@@ -127,7 +127,7 @@ func TestContextLayoutTerseAndZonesRender(t *testing.T) {
 		Compacting:      true,
 	}
 	terse := layout.ZonesTerse()
-	for _, want := range []string{"stable_prefix=1200", "folded=90000", "protected_window=20000", "tail=200", "current_input=30"} {
+	for _, want := range []string{"stable_prefix=1200", "compacted=90000", "protected_window=20000", "tail=200", "current_input=30"} {
 		if !strings.Contains(terse, want) {
 			t.Fatalf("分区一行事实缺少 %q：%s", want, terse)
 		}
@@ -138,7 +138,7 @@ func TestContextLayoutTerseAndZonesRender(t *testing.T) {
 			t.Fatalf("保留窗口一行事实缺少 %q：%s", want, retain)
 		}
 	}
-	if layout.zone(ZoneFolded).Tokens != 90_000 || layout.zone("unknown").Tokens != 0 {
+	if layout.zone(ZoneCompacted).Tokens != 90_000 || layout.zone("unknown").Tokens != 0 {
 		t.Fatalf("zone 查询口径不对：%+v", layout.zone("unknown"))
 	}
 }

@@ -8,13 +8,13 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 )
 
-// 本地确定性折叠（索引）的内容面：被折轮次的**助手答复**必须进帧。
+// 本地确定性压缩（索引）的内容面：被折轮次的**助手答复**必须进帧。
 //
-// 背景（2026-09-30 重启恢复现场）：本地折叠的 Chapter 2 是模型唯一能看到的被折内容
+// 背景（2026-09-30 重启恢复现场）：本地压缩的 Chapter 2 是模型唯一能看到的被折内容
 // （assembler 只渲染栈顶帧 Chapter 2）。此前 renderUnitLine 的 assistant 分支只输出
 // 工具调用名，助手正文一个字都不进帧——于是重启（冷加载）后，被折掉的轮次在模型眼里
 // 只剩"- 用户: 前 80 字"的索引，"助手回答了什么"完全不见，压缩从"总结上下文"退化成
-// "折叠掉上下文"。
+// "压缩掉上下文"。
 
 // TestLocalChapter2CarriesAssistantAnswerPreview 有牙：删掉 renderUnitLine 里
 // assistant 的正文预览分支，本用例即红。
@@ -24,17 +24,17 @@ func TestLocalChapter2CarriesAssistantAnswerPreview(t *testing.T) {
 		textMessage("user", "这里的根因是什么？"),
 		textMessage("assistant", answer+strings.Repeat("C", 4000)),
 	}}}
-	body := LocalChapter2(LocalFoldOptions{Overflow: overflow, UnitCount: 1, Kind: CompactFoldOverflow})
+	body := LocalChapter2(LocalCompactOptions{Overflow: overflow, UnitCount: 1, Kind: LocalCompactOverflow})
 	if !strings.Contains(body, "- 助手: ") {
-		t.Fatalf("本地折叠必须留下助手答复行（否则模型看不到被折内容）：\n%s", body)
+		t.Fatalf("本地压缩必须留下助手答复行（否则模型看不到被折内容）：\n%s", body)
 	}
 	if !strings.Contains(body, answer) {
 		t.Fatalf("助手答复首段必须进帧（截断不得吃掉开头）：\n%s", body)
 	}
 	// 判据 R1 的另一半：索引不含正文这件事要与回读入口一起写出来。
-	for _, want := range []string{"折叠索引", "read_compressed_turn", "search_history"} {
+	for _, want := range []string{"压缩索引", "read_compressed_turn", "search_history"} {
 		if !strings.Contains(body, want) {
-			t.Fatalf("本地折叠应写明这是索引并给出回读入口 %q：\n%s", want, body)
+			t.Fatalf("本地压缩应写明这是索引并给出回读入口 %q：\n%s", want, body)
 		}
 	}
 }
@@ -85,11 +85,11 @@ func TestCompactionDAGNoSummarizerNoteStaysHonest(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, evidence := range frame.Evidence {
-			if evidence.Ref == CompactFoldLocalEvidenceRefPrefix+"no-summarizer" {
+			if evidence.Ref == LocalCompactEvidenceRefPrefix+"no-summarizer" {
 				return evidence.Summary
 			}
 		}
-		t.Fatalf("本地折叠应留 fold-local:no-summarizer 证据：%+v", frame.Evidence)
+		t.Fatalf("本地压缩应留 compact-local:no-summarizer 证据：%+v", frame.Evidence)
 		return ""
 	}
 	defaultNote := noteOf(t, CompactionDAGOptions{})

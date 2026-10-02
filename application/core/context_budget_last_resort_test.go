@@ -77,7 +77,7 @@ func TestContextBudgetOvershootKeepsNewestSettledRound(t *testing.T) {
 
 // TestContextBudgetProactivelyCompactsAtHardThreshold：装配结果落在硬阈值
 // （预算 90% = 150127）与全量预算（166808）之间时，必须**探测即主动压缩**——
-// 折叠为有界 checkpoint 帧，而不是把贴着上限的历史发出去、等超过全量预算
+// 压缩为有界 checkpoint 帧，而不是把贴着上限的历史发出去、等超过全量预算
 // 再被动兜底（旧行为：这种请求会照发，下一次超限才报错）。
 func TestContextBudgetProactivelyCompactsAtHardThreshold(t *testing.T) {
 	pinMechanismCompactionRatios(t)
@@ -111,7 +111,7 @@ func TestContextBudgetProactivelyCompactsAtHardThreshold(t *testing.T) {
 			frameIndex = index
 		}
 		if strings.Contains(message.Content, huge) {
-			t.Fatal("round above the hard threshold must be folded proactively, not sent near the budget edge")
+			t.Fatal("round above the hard threshold must be compacted proactively, not sent near the budget edge")
 		}
 	}
 	if frameIndex < 0 {
@@ -127,7 +127,7 @@ func TestContextBudgetProactivelyCompactsAtHardThreshold(t *testing.T) {
 
 // TestContextBudgetOvershootCompactsWhenNewestExceedsFullBudget：最新轮自身
 // 就大于全量预算时，装配不得直接拒绝发送，而应自主压缩——把可变 transcript
-// 折叠为有界 checkpoint 帧（原始超限轮次不再进入 provider 历史），并留下
+// 压缩为有界 checkpoint 帧（原始超限轮次不再进入 provider 历史），并留下
 // 一条自主压缩记录。
 func TestContextBudgetOvershootCompactsWhenNewestExceedsFullBudget(t *testing.T) {
 	runtime := runtimeWithContextLimits{

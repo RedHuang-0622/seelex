@@ -76,8 +76,8 @@ type HistoryPort interface {
 	PrepareProviderHistoryFor(sessionID string) error
 }
 
-// CompactionIndexRequest 是一次「把装配层折叠产出的帧推进会话压缩栈」的入参：
-// 全部是折叠那一刻已经在手的事实，不含任何需要接收方重算的量。
+// CompactionIndexRequest 是一次「把装配层压缩产出的帧推进会话压缩栈」的入参：
+// 全部是压缩那一刻已经在手的事实，不含任何需要接收方重算的量。
 //
 // 为什么区间只给 EventSeq / MessageID 而不给单元下标：装配层手里的权威事实就是
 // EventSeq（TranscriptPrefixRange 的产物），而"单元下标"属于持久化事件流的空间
@@ -92,7 +92,7 @@ type CompactionIndexRequest struct {
 	// ReplayHistory 是**上一次真实请求的历史字节**（前缀重放素材）。它与
 	// SystemPrompt/Tools 一起决定重放请求能否命中 provider 前缀缓存；必须来自
 	// 产出该请求的同一条装配路径，不能从事件流重拼（seelexctx/replay.go 的
-	// 字节级一致性契约）。空 → 接收方走本地确定性折叠，不消耗模型 token。
+	// 字节级一致性契约）。空 → 接收方走本地确定性压缩，不消耗模型 token。
 	ReplayHistory []contract.EngineMessage
 	// EventFrom/EventTo 是被折区间的 transcript 事件序号（含端点；0 = 无边界可记）。
 	EventFrom uint64
@@ -100,18 +100,18 @@ type CompactionIndexRequest struct {
 	// MessageFrom/MessageTo 是被折区间的 UI 消息号（可空）。
 	MessageFrom string
 	MessageTo   string
-	// PrecomputedSummary 是调用方**在折叠之前**已经拿到的模型读后感（前缀重放
-	// 厚摘要）。非空 → 接收方直接把它当本次折叠的 Chapter 2，不再调用模型：同一
-	// 份重放素材、同一次折叠只该有一次模型调用，而「这次到底有没有读后感」必须
+	// PrecomputedSummary 是调用方**在压缩之前**已经拿到的模型读后感（前缀重放
+	// 厚摘要）。非空 → 接收方直接把它当本次压缩的 Chapter 2，不再调用模型：同一
+	// 份重放素材、同一次压缩只该有一次模型调用，而「这次到底有没有读后感」必须
 	// 在改写上下文之前就知道（见 compactionReadbackProbe）。
 	PrecomputedSummary string
-	// RequestID 是触发这次折叠的回合标识（可空；冷加载维护身份也带前缀标识）。
+	// RequestID 是触发这次压缩的回合标识（可空；冷加载维护身份也带前缀标识）。
 	RequestID string
 }
 
 // CompactionIndexReceipt.SummarySource 的协议字面量：只有 replay 才是**一次成功
-// 的模型回读**，local 是本地确定性折叠（拿不到模型读后感）。装配层据此决定这次
-// 折叠要不要改写 agent 的上下文（见 compactionReadbackProbe 的注释）。
+// 的模型回读**，local 是本地确定性压缩（拿不到模型读后感）。装配层据此决定这次
+// 压缩要不要改写 agent 的上下文（见 compactionReadbackProbe 的注释）。
 const (
 	CompactionSummarySourceReplay = "replay"
 	CompactionSummarySourceLocal  = "local"
@@ -125,27 +125,27 @@ type CompactionIndexReceipt struct {
 	// Summary 是栈帧的两章节摘要正文（Markdown 读后感）。帧正文**原样嵌入**它，
 	// 绝不另写一份——两份措辞会漂移，而栈帧才是权威。
 	Summary string
-	// SummarySource 是摘要来源：replay（前缀重放厚摘要）| local（本地确定性折叠）。
+	// SummarySource 是摘要来源：replay（前缀重放厚摘要）| local（本地确定性压缩）。
 	// 它是"重放到底成没成"的唯一证据：两次尝试都失败会静默落回 local。
 	SummarySource string
 	// SummaryNote 说明"这次为什么没有模型摘要"（空 = 有模型摘要）。local 有三种
 	// 来路（开关关闭 / 无重放素材 / 重放调用失败，后者还带真实报错），只有
-	// summary_source 一个标记读不出是哪一种；这份 note 由折叠 DAG 记下、经栈帧证据
+	// summary_source 一个标记读不出是哪一种；这份 note 由压缩 DAG 记下、经栈帧证据
 	// 带上来，最终写进帧正文，让帧自己回答"模型为什么没被叫到"。
 	SummaryNote string
 }
 
 // ErrCompactionIndexUnavailable 表示索引面不可用（Runtime 缺失或未装配压缩栈）。
 // 它是**降级**信号而非故障：调用方据此把 SegmentID 留空、门禁 Detail 记明原因，
-// 折叠与请求照常。
+// 压缩与请求照常。
 var ErrCompactionIndexUnavailable = errors.New("context_runtime: compaction index is unavailable")
 
-// CompactionIndexPort 是「折叠帧进会话压缩栈」的**窄可选**能力。
+// CompactionIndexPort 是「压缩帧进会话压缩栈」的**窄可选**能力。
 //
 // 刻意做成可选（调用方类型断言探测，照 task_context.ContextBudgetFor 对
 // contextLimitProvider 的既有姿势），而不是加进 contract.RuntimePort：加进大接口
 // 会迫使每一个 fake/harness 都实现它，而断言失败时的正确行为本来就是"不索引"——
-// 折叠照样成立、请求照样发出，只是少了检索入口。降级方向天然安全，因此不必
+// 压缩照样成立、请求照样发出，只是少了检索入口。降级方向天然安全，因此不必
 // 把它变成所有实现方的义务。
 //
 // 实现方必须自己处理压缩栈的链锚点校验（非首帧的 PrevSegmentID / PrevRequestFrom /
@@ -164,8 +164,8 @@ type Deps struct {
 	Prompts  PromptPort
 	View     ViewPort
 	History  HistoryPort
-	// CompactionIndex 是「折叠帧进会话压缩栈」的注入口（见 CompactionIndexPort）。
-	// nil = 索引面未装配：折叠与本次请求照常成立，只是不推栈，帧正文与门禁如实
+	// CompactionIndex 是「压缩帧进会话压缩栈」的注入口（见 CompactionIndexPort）。
+	// nil = 索引面未装配：压缩与本次请求照常成立，只是不推栈，帧正文与门禁如实
 	// 写明"索引面未启用"，检索回读那一跳因此缺席。装配根源包在装配期用类型断言
 	// 探测 Runtime 是否实现该窄接口（见 application/core/service_assembler.go）——
 	// 探测失败的正确行为本来就是"不索引"，不该强迫每个 fake/harness 长出空方法。

@@ -235,7 +235,7 @@ test("分界行插在被折出保留窗口的最后一条消息之后", () => {
     { id: "message-2", role: "assistant", content: "二" },
     { id: "message-3", role: "user", content: "三" }
   ];
-  const anchor = { messageID: "message-2", label: "以上 消息 message-1..message-2已被折叠", title: "t", note: "", frameRef: "tr-1" };
+  const anchor = { messageID: "message-2", label: "以上 消息 message-1..message-2已被压缩", title: "t", note: "", frameRef: "tr-1" };
   const model = renderConversationModel(messages, {}, "", anchor);
   const index = model.items.findIndex(item => item.key === COMPACTION_FRONTIER_KEY);
   assert.equal(index, 2);
@@ -243,9 +243,9 @@ test("分界行插在被折出保留窗口的最后一条消息之后", () => {
   assert.equal(model.items[index + 1].key, "message:message-3");
   assert.equal(model.items[index].meta.kind, "frontier");
   assert.match(model.items[index].html, /class="conversation-compaction-frontier"/);
-  assert.match(model.items[index].html, /以上 消息 message-1\.\.message-2已被折叠/);
+  assert.match(model.items[index].html, /以上 消息 message-1\.\.message-2已被压缩/);
   assert.match(model.items[index].html, /data-compact-frame-ref="tr-1"/);
-  assert.match(model.items[index].html, /查看折叠帧正文/);
+  assert.match(model.items[index].html, /查看压缩帧正文/);
   // 分界不是消息：不带轨迹 key，免得被当成会话里的一条。
   assert.doesNotMatch(model.items[index].html, /data-trajectory-key/);
 });
@@ -262,7 +262,7 @@ test("锚点不在本页或没有锚点时绝不插行", () => {
 test("分界行 escape 说明文字与 ref", () => {
   const anchor = {
     messageID: "message-1",
-    label: "以上 <script>alert(1)</script>已被折叠",
+    label: "以上 <script>alert(1)</script>已被压缩",
     title: "<b>tip</b>",
     note: "<i>2 次</i>",
     frameRef: "tr-\"1\""

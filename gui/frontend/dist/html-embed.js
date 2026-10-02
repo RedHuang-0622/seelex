@@ -49,7 +49,7 @@ export const EMBED_GESTURE_WINDOW_MS = 1500;
 // EMBED_ACTION_SPECS 是动作表：**唯一可跨出沙箱的动词集合**。
 //   - `driving: true` 的动作会改变会话状态（替用户发一条消息），需要块级自愿（围栏
 //     `interactive=1`）+ 块内真实手势 + 宿主侧限流；`false` 的动作只碰宿主本地
-//     （剪贴板/输入框/源码折叠）——但同样只走这一张白名单，没有"顺手支持一下"。
+//     （剪贴板/输入框/源码压缩）——但同样只走这一张白名单，没有"顺手支持一下"。
 //   - `maxText` 是载荷里 `text` 的字符上限（0 = 该动作不收文本）。
 export const EMBED_ACTION_SPECS = Object.freeze({
   "ask-agent": { driving: true, maxText: 4000 },

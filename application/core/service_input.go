@@ -154,7 +154,7 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 	// 同会话压缩门（延后语义，判据与上面的 restoring 门同形）：一轮显式压缩可以
 	// 在**没有在飞回合**的会话上运行，而它刻意不写 ChatState.Running（伪造 Running
 	// 会把"有人在跑这个会话"漏进快照与停止按钮），所以这里的 busy 判据必须自己
-	// 看见它——否则新回合的装配与折叠读写同一份引擎历史，后写的那份把折叠丢掉。
+	// 看见它——否则新回合的装配与压缩读写同一份引擎历史，后写的那份把压缩丢掉。
 	// 不排队：显式压缩没有回合，队列的正常提升点（回合结束）永远不会到来。
 	if service.isCompactingLocked(sessionID) {
 		service.ViewMu.Unlock()

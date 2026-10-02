@@ -12,7 +12,7 @@
 # 保留前缀的口径：保留前缀只由下面的 min(token1, token2) token 规则决定。
 #
 # 压缩保留前缀窗口（软压缩）：保留前缀 token 预算 = min(token1, token2)，取两个
-# 窗口的较小者，窗口外部分尽数交给 compact_context 折叠（原始轮次仍在会话存储里）：
+# 窗口的较小者，窗口外部分尽数交给 compact_context 压缩（原始轮次仍在会话存储里）：
 #   token1 = retain_tokens（硬编码在配置里的保留窗口 token 数；0 = 未配置 → 回退账号
 #            上下文窗口 accounts.yaml context_window）
 #   token2 = ratio × all_context（全量上下文 token 数 × 可用比例）
@@ -63,20 +63,20 @@ limits:
   # 下面各百分比都以 budget 为基数。各键的消费者**逐个列明**：
   #   context_safety_reserve_divisor / context_hard_percent
   #     → 装配层消费（application/core/task_context，发请求前每次算一次）：请求估算
-  #       （与引擎缓存峰值取大）≥ budget×hard% 就折叠可变 transcript——这是自动路径
+  #       （与引擎缓存峰值取大）≥ budget×hard% 就压缩可变 transcript——这是自动路径
   #       **唯一**的阈值；显式入口（/compact、compact_context）与 window.force_compact_tokens
   #       不受它约束。
-  #   context_soft_percent → **2026-09-30 起不再被消费（取消软线提前量）**：折叠会改写
+  #   context_soft_percent → **2026-09-30 起不再被消费（取消软线提前量）**：压缩会改写
   #       请求前缀，provider 的前缀缓存整段作废，折回来的余量不值得每轮付这份代价，
   #       所以只在真的逼近上限时折一次。键保留只为兼容既有配置（报告面展示的 soft 与
   #       hard 同源，不再出现"报表说已过软线、系统却没折"的口径分裂）；下一版连同
   #       seelexctx.LoadLimits 的 soft<hard 校验一起摘除。
-  #   context_target_percent     → 折叠后落点（装配层保留窗口决策的硬上限）
+  #   context_target_percent     → 压缩后落点（装配层保留窗口决策的硬上限）
   #   context_single_item_percent → 装配层消费（单条超大输入外置）
   #   context_retain_floor_percent → 保留窗口下限（装配层决策 + main 启动期校验）
   # 回合内框架控制器（seelexctx）2026-09-30 起**不再折对话**：它只拿得到装配前的引擎
   # 工作历史（system/项目/记忆/前缀栈/工具面都还没进去），折出来的帧没有读后感——而
-  # 折叠是"产出元数据 + 由模型按章节写读后感"这条流程里的一步，只有握着上一次真实请求
+  # 压缩是"产出元数据 + 由模型按章节写读后感"这条流程里的一步，只有握着上一次真实请求
   # 原件的装配层做得到。控制器现在只剩一个动作：超大工具结果的兜底归档。
   # 出厂档（本文件）= 10/95/98/65/50；代码内置兜底档 = 8/95/98/80/50。软线已不参与
   # 判据，两档都留着它，免得旧配置读回来"键没了"。
@@ -88,46 +88,46 @@ limits:
   # ErrProviderContextBudgetExceeded），而不是把你想要的原文硬塞进去。
   context_safety_reserve_divisor: 10  # 安全预留 = 窗口 ÷ 该值。调小（如 4）→ 预留更多、预算更小、更早开始压缩
   context_soft_percent: 95            # 已不参与判据（2026-09-30 取消软线，见上）；保留键兼容旧配置
-  context_hard_percent: 98            # 自动折叠的唯一阈值：请求估算 ≥ budget×98% 就折叠可变 transcript。调低 → 更"绝不贴边发送"；调高 → 允许历史更满
-  context_target_percent: 65          # 压缩目标：折叠后把请求大小压回 budget×65% 附近（保留区硬上限），给下一轮留 hard − target = 33% 预算的确定余量。与 hard 的差 = 每次压掉的量；落点够不到判据线时装配层跳过这次折叠（幂等/有效性校验）
+  context_hard_percent: 98            # 自动压缩的唯一阈值：请求估算 ≥ budget×98% 就压缩可变 transcript。调低 → 更"绝不贴边发送"；调高 → 允许历史更满
+  context_target_percent: 65          # 压缩目标：压缩后把请求大小压回 budget×65% 附近（保留区硬上限），给下一轮留 hard − target = 33% 预算的确定余量。与 hard 的差 = 每次压掉的量；落点够不到判据线时装配层跳过这次压缩（幂等/有效性校验）
   context_single_item_percent: 50     # 单条输入外置阈值：一条输入超 budget×50% 就先归档为 result_ref，请求里只放引用
   # 保留区下限（占预算 %；0 = 未配置 → 下限只剩「至少 1 个完整协议单元」兜底）：
   # 保留区 = clamp(占比 × 全量, floor, retain_tokens)，floor = max(最近 1 个完整协议单元, 该比例 × 预算)。
   # floor > window.retain_tokens 是非法组合，启动期直接报错（不许静默取小）。
   context_retain_floor_percent: 0
-  # 帧摘要传递上限（token；本地折叠把上一帧 Chapter 2 正文并入新帧的并入量上限，
+  # 帧摘要传递上限（token；本地压缩把上一帧 Chapter 2 正文并入新帧的并入量上限，
   # 超出部分退化为锚点：segment_id + request 首尾 + 一句话，细节靠检索回读）。
   # 该份正文是唯一进上下文、进缓存前缀的帧内容，不设上限会随帧数膨胀。
   # 2026-09-29 由 1024 上调到 4096：现场帧（本会话 21:21:42 / 21:23:19 两条）的
   # Chapter 2 正文分别是 4159 / 3087 token，原上限让**每一条**帧都在并入那一步
   # 退化成锚点——帧里只剩"前一帧在哪"，用户读到的就是"压缩的内容很小"。
   context_frame_carry_tokens: 4096
-  # ── 折叠处 LLM 章节化摘要（前缀重放厚摘要）─────────────────────
+  # ── 压缩处 LLM 章节化摘要（前缀重放厚摘要）─────────────────────
   # 出厂**打开**（本文件 enabled: true，2026-09-29 起）。注意口径分两层：**代码零值
-  # 仍是关**（整块缺失或 enabled: false 都恒走本地确定性折叠，帧 summary_source=local，
+  # 仍是关**（整块缺失或 enabled: false 都恒走本地确定性压缩，帧 summary_source=local，
   # 一次模型调用都不发，不静默降级、可一键回滚，与 async_exec 同一套纪律）；变的是
   # **出厂文件的选择**，不是字段语义——所以这行本身有测试钉着
   # （seelebridge/runtime_compaction_switch_test.go 的 TestShippedCompactionSummarySwitchShipsOpen）。
   #
-  # 打开的代价：这是**新增的、无人值守的付费调用**——每次折叠一次；溢出区超过
+  # 打开的代价：这是**新增的、无人值守的付费调用**——每次压缩一次；溢出区超过
   # input_tokens 片预算时分片重放，按片多次。
   # 打开的收益：帧 Chapter 2 从"任务台账的元数据投影"变成真摘要，
   # 「错误与修复 / 待办 / 下一步」三节不再恒 (none)，从而给 search_history 的
   # 词法初筛提供有区分度的关键词（检索器是确定性词法匹配，没有 embedding、
   # 没有同义词表，摘要是唯一能注入别名的地方）。
   #
-  # 只在**装配层折叠**（回合开始前那条路径）注入：那里手里握着上一次真实请求的
+  # 只在**装配层压缩**（回合开始前那条路径）注入：那里手里握着上一次真实请求的
   # system/history/tools 三样原件，重放请求能与真实请求共享字节前缀、几乎全命中
   # 缓存。回合内控制器路径的字节同源性尚未验证，暂不注入（会付全价却拿不到缓存）。
-  # 接线（2026-09-29）：装配层折叠推帧这一跳现在真的会走这条 DAG
+  # 接线（2026-09-29）：装配层压缩推帧这一跳现在真的会走这条 DAG
   # （application/core/context_runtime 的 pushCompactionFrame →
   # seelebridge/runtime_compaction_index.go 的 PushCompactionFrame →
   # MainCompactionDAG），因此**打开就生效**：栈帧 summary_source=replay、帧正文原样
-  # 嵌入该摘要；关闭恒本地折叠（summary_source=local）。
+  # 嵌入该摘要；关闭恒本地压缩（summary_source=local）。
   # 两臂都有离线用例钉住（见上面那个测试文件）：关 → 摘要器 nil + 零付费调用 +
   # summary_source=local；开 → 摘要器非 nil + 恰好一次前缀重放调用 + summary_source=replay。
   context_compaction_summary:
-    enabled: true            # 2026-09-29 打开：此后每次装配层折叠多一次无人值守的付费调用
+    enabled: true            # 2026-09-29 打开：此后每次装配层压缩多一次无人值守的付费调用
     input_tokens: 0          # 分片重放片预算；0 = 沿用既有推导（账号窗口 × 3/4），不是"不分片"
     chapter2_tokens: 0       # 厚摘要输出预算；0 → 2048
   tool_token_overhead: 64        # 工具 token 估算开销（默认 64）

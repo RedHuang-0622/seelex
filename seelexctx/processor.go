@@ -39,7 +39,7 @@ func (f ToolResultArchiverFunc) Store(ctx context.Context, callID, tool, raw str
 }
 
 // TurnArchiver 持久化压缩轮次的原文消息，返回读回句柄（ref）。
-// 压缩把窗口外轮次折叠为 Summary 后，原文经此归档到持久存储，
+// 压缩把窗口外轮次合并为 Summary 后，原文经此归档到持久存储，
 // 模型可经 read_compressed_turn 工具读回——压缩丢失可逆，减少幻觉。
 // 同一 segmentID 重复归档应返回同一引用（幂等），由实现保证。
 type TurnArchiver interface {
@@ -112,9 +112,9 @@ func (a *InMemoryToolResultArchiver) RetainedBytes() int {
 
 // Release 丢弃全部归档内容并返回释放的字节数。
 //
-// 语义边界：归档内容是"被折叠进 working history 的超大工具结果原文"，只在
+// 语义边界：归档内容是"被压缩进 working history 的超大工具结果原文"，只在
 // 该会话/子代理还活着的时候有意义（read_tool_result 回读、界面展开大结果）。
-// 子代理节点走到终态后这条能力已经没有消费者，而每个被折叠的结果都是整串
+// 子代理节点走到终态后这条能力已经没有消费者，而每个被压缩的结果都是整串
 // 常驻内存——所以终态即释放，避免"已完成却一直背着几十个大结果原文"。
 func (a *InMemoryToolResultArchiver) Release() int {
 	if a == nil {

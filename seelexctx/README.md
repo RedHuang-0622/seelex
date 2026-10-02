@@ -68,7 +68,7 @@ flowchart LR
 | `gap.go` | 真空区覆盖：滑动窗口与压缩内容之间的未压缩轮次，Load 时检测并压入合并帧。边界取自存储层选窗时回报的**尾窗起始单元下标**（与压缩栈顶 `To` 同一计数空间），不做跨列表减法，因此无需保守 clamp 与事后去重。下标必须落在单元空间内：尾窗起点超出 `[0, 单元数]` 或栈顶 `To < -1` 时报错返回、不落帧（不做越界切片）。 |
 | `frame.go` | CompactFrame 两章节 Summary 纯函数（Chapter 1 链锚点 + Chapter 2 厚内容）、渲染截取、一句话摘要与 request 覆盖标签。 |
 | `replay.go` | 前缀重放摘要协议：`PrefixReplaySummarizer` + QuickChat 实现（字节级同源素材由调用方保证）。 |
-| `dag.go` | 压缩 DAG 执行器：codec 文档装配 + workplan runner 串行执行，Chapter 2 失败回退本地折叠。 |
+| `dag.go` | 压缩 DAG 执行器：codec 文档装配 + workplan runner 串行执行，Chapter 2 失败回退本地压缩。 |
 | `history_safety.go` | Provider 历史安全配对规则（assistant/tool 配对、恢复信封）。 |
 | `bridge.go` | Export/ExportWithGoal/Import 兼容 API（委托子包）。 |
 | `seele.go` | re-export 仍被使用的 Seele `seelectx` 压缩函数；`EstimateTokens` 兼容变量已改为 `tokens` 脚本感知估算。 |
@@ -81,14 +81,14 @@ flowchart LR
 | 配置键 | 作用 | 注入点 |
 |---|---|---|
 | `context_safety_reserve_divisor` | 安全预留 = 窗口 ÷ 该值，决定预算基数 | `NewContextWindowPolicy(window, output, r.limits)` |
-| `context_soft_percent` | 软压缩线：请求估算到达 `预算 × %`（默认 95）就折叠窗口外轮次 | 同上 |
+| `context_soft_percent` | 软压缩线：请求估算到达 `预算 × %`（默认 95）就压缩窗口外轮次 | 同上 |
 | `context_hard_percent` | 硬阈值路径：收缩窗口时以此为可用上限（默认 98） | 同上 |
-| `context_target_percent` | 压缩后目标，同时是保留区硬上限（默认 80；`soft − target` 即每次折叠留给下一轮的余量） | 同上 |
+| `context_target_percent` | 压缩后目标，同时是保留区硬上限（默认 80；`soft − target` 即每次压缩留给下一轮的余量） | 同上 |
 | `max_tool_result_chars` | 单条工具结果多大算"超大"（→ 归档为 `result_ref`） | `ControllerOptions.MaxToolResultChars` 与 `NewToolResultProcessor(limit, …)` |
 
 **触发点**：Seele ReActLoop 每次迭代发 `before_model` / `after_assistant` /
 `after_tool` 三个事件，本包只处理后两个（`controller.go` 的 `Handle`）——压缩边界
-必须落在完整协议单元上，`before_model` 处单元尚未闭合，不在那里折叠。
+必须落在完整协议单元上，`before_model` 处单元尚未闭合，不在那里压缩。
 
 **注入而非全局**：`Limits` 类型属于本包，`application/core/internal/limits` 只是这
 同一份结构的进程持有者（它 import 本包，反向即成环）。因此沿用 `FrameCarryTokens`
@@ -162,7 +162,7 @@ history_window = 200k tokens（填充 ▓ 每字符 ≈ 10k，宽度按占比）
 > 已实现（任务 A/B/C）：装配顺序为「system → project → memory → 稳定前缀栈
 > （skill/compact）→ 累积 context（达峰前 append-only 全量已定稿轮次）→
 > plan → task → 当前输入」，checkpoint 正常路径不再进入 LLM 上下文（异常
-> 恢复路径保留）。达峰才压缩：达到软阈值时折叠 compact 栈顶 + context 窗口，
+> 恢复路径保留）。达峰才压缩：达到软阈值时压缩 compact 栈顶 + context 窗口，
 > 保留新鲜 compact 帧与窗口剩余；plan/task 不参与压缩。设计见
 > [docs/arch/context-prefix-chain.md](../docs/arch/context-prefix-chain.md)。
 
@@ -171,7 +171,7 @@ history_window = 200k tokens（填充 ▓ 每字符 ≈ 10k，宽度按占比）
 > `PushCompact` 追加链不变量；Summary 固定两章节、模型可见范围只取栈顶
 > Chapter 2；压缩经 workplan DAG 表达（先串行）。前缀重放 `PrefixReplaySummarizer`
 > 协议与 QuickChat 实现已就绪，但生产注入前提 = 字节级装配出口快照固化
-> （系统/历史/工具与真实请求同源），未确认前 Chapter 2 恒本地折叠。详设见
+> （系统/历史/工具与真实请求同源），未确认前 Chapter 2 恒本地压缩。详设见
 > [docs/2026-09-06-compaction-dag/design.md](../docs/2026-09-06-compaction-dag/design.md)。
 
 ## 测试

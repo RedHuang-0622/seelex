@@ -19,7 +19,7 @@ import (
 //	        token2 = ratio × 全量上下文 token 数（占比窗口）
 //	硬压缩：all_context ≥ force_compact_tokens 即必须自主压缩（不等比例阈值）
 //
-// 窗口外部分尽数交给 compact_context 折叠：会话里留下压缩记录，记录带**被压
+// 窗口外部分尽数交给 compact_context 压缩：会话里留下压缩记录，记录带**被压
 // 区间**（事件序号 + 消息号），边界取自窗口决策本身而不是事后推算。
 
 // applyWindowConfig 应用 window 段并在测试结束恢复（进程内生效配置）。

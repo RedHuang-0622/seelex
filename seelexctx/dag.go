@@ -10,7 +10,7 @@
 //   - select_range：溢出单元切分 + request 定界素材收集（纯计算）；
 //   - chapter1_anchor：栈顶 → 锚点/一句话（降级标记 degraded）；
 //   - chapter2_thick：PrefixReplaySummarizer（一次重试）→ 失败回退本地
-//     确定性折叠（summary_source=local，不消耗模型 token）；
+//     确定性压缩（summary_source=local，不消耗模型 token）；
 //   - merge_frame：纯函数拼装 CompactFrame（SegmentID/From/To/Evidence/
 //     两章节 Summary + 链锚字段）；
 //   - publish_stack：适配点（当前由 controller/gap 在去重与原文归档后
@@ -78,15 +78,15 @@ type CompactionInput struct {
 	// UnitCount 是本次新覆盖的完整协议单元数（0 → 由 Messages 切分推导）。
 	UnitCount int
 	// History 是最近一次真实请求的历史字节素材（前缀重放用；nil/空 →
-	// Chapter 2 走本地折叠，不消耗模型 token）。
+	// Chapter 2 走本地压缩，不消耗模型 token）。
 	History []frameworktypes.Message
-	// PrecomputedSummary 是调用方在**折叠之前**已经拿到的模型读后感（前缀重放
-	// 厚摘要）。非空 → chapter2 直接用它，不再调用模型：同一次折叠只该有一次模型
+	// PrecomputedSummary 是调用方在**压缩之前**已经拿到的模型读后感（前缀重放
+	// 厚摘要）。非空 → chapter2 直接用它，不再调用模型：同一次压缩只该有一次模型
 	// 调用，而调用方必须先知道"这次到底有没有读后感"才决定要不要折上下文
 	// （见 application/core/context_runtime 的 compactionReadbackProbe）。
 	PrecomputedSummary string
-	// Kind 决定本地折叠的 Current Work 文案（溢出 / 真空区）。
-	Kind LocalFoldKind
+	// Kind 决定本地压缩的 Current Work 文案（溢出 / 真空区）。
+	Kind LocalCompactKind
 	// RequestFrom/RequestTo 是本次覆盖的 request 首尾（空 → 按 ChatQueue
 	// 单元标签推导 chat-N；元数据，不进模型正文）。
 	RequestFrom string
@@ -101,7 +101,7 @@ type CompactionDAGOptions struct {
 	// SegmentPrefix 是 SegmentID 前缀（空 → "compact"；gap 路径可传
 	// "compact-gap" 保持命名一致）。
 	SegmentPrefix string
-	// Summarizer 是前缀重放厚摘要器（nil → 恒本地折叠）。
+	// Summarizer 是前缀重放厚摘要器（nil → 恒本地压缩）。
 	Summarizer PrefixReplaySummarizer
 	// SummarizerNote 说明"摘要器为什么不可用"：开关关闭 / QuickChat 装配失败 /
 	// 摘要器构造失败（装配层三种 nil 出口），以及**这条链路结构上不注入摘要器**
@@ -117,7 +117,7 @@ type CompactionDAGOptions struct {
 	// QuickChat 通道未透传预算时仅作记录）。
 	Chapter2MaxTokens int
 	// FrameCarryTokens 是帧摘要传递上限（limits.context_frame_carry_tokens；
-	// ≤0 → DefaultFrameCarryTokens）：本地折叠把上一栈顶帧 Chapter 2 正文并入
+	// ≤0 → DefaultFrameCarryTokens）：本地压缩把上一栈顶帧 Chapter 2 正文并入
 	// 新帧时的并入量上限，超出退化为锚点（见 CarryPreviousChapter2）。
 	FrameCarryTokens int
 	// ReplayInputTokens 是**分片重放的片预算**（模型输入侧；≤0 → 不分片，走原有
@@ -171,7 +171,7 @@ type compactionDAGState struct {
 
 // Execute 运行压缩 DAG 并返回拼装完成的 CompactFrame（不含 PushCompact；
 // 压栈与去重由调用方保留，见文件头注释）。失败时按详设 §4.5 逐级兜底：
-// Chapter 2 失败 → 本地折叠；装配/未执行失败 → 串行化兜底。
+// Chapter 2 失败 → 本地压缩；装配/未执行失败 → 串行化兜底。
 func (d *CompactionDAG) Execute(ctx context.Context, input CompactionInput) (sessionstore.CompactFrame, error) {
 	if d == nil {
 		return sessionstore.CompactFrame{}, fmt.Errorf("seelexctx: compaction dag is nil")
@@ -274,7 +274,7 @@ func markStarted(state *compactionDAGState, id string) {
 }
 
 // degrade 记录"这次为什么没有模型摘要"。后写的覆盖先写的：先分片链失败、再单次
-// 重放失败，留下的该是**最后一次**的原因。只有最终落到本地折叠时才进帧证据
+// 重放失败，留下的该是**最后一次**的原因。只有最终落到本地压缩时才进帧证据
 // （见 mergeNode），重放成功会被 clearDegrade 清掉。
 func (state *compactionDAGState) degrade(code, note string) {
 	state.degradeCode = code
@@ -321,7 +321,7 @@ func (d *CompactionDAG) chapter1Node(state *compactionDAGState) func(context.Con
 	}
 }
 
-// chapter2Node：前缀重放厚摘要（一次重试）→ 失败/无重放素材回退本地折叠。
+// chapter2Node：前缀重放厚摘要（一次重试）→ 失败/无重放素材回退本地压缩。
 //
 // 重放素材先过 wire 协议规整（PrepareReplayMaterial，见 replay_material.go）：素材
 // 是"请求出口修复之前"的历史快照，未回执的工具调用会让整条重放请求被 provider
@@ -330,17 +330,17 @@ func (d *CompactionDAG) chapter1Node(state *compactionDAGState) func(context.Con
 //
 // 溢出区自身超过片预算（ReplayInputTokens）时走**分片重放链**：按协议单元切片
 // 逐片重放，摘要前向传递（SummarizeChunkPlan），除首片外不追求前缀缓存命中
-// （正确性与「不重复送原文」优先）。任何一片失败即整条回退本地折叠。
+// （正确性与「不重复送原文」优先）。任何一片失败即整条回退本地压缩。
 //
-// 每条降级出口都留下 (code, note)：这是本轮折叠"没有模型摘要"的唯一解释来源。
+// 每条降级出口都留下 (code, note)：这是本轮压缩"没有模型摘要"的唯一解释来源。
 // 早前三种出口（摘要器 nil / 无重放素材 / 重放调用失败）都不留痕，现场只有一个
 // summary_source=local，排查只能靠猜配置、猜账号、猜调用——一个 458ms 的 index
 // 门禁到底是"没调用"还是"调用失败"读不出来。
 func (d *CompactionDAG) chapter2Node(state *compactionDAGState) func(context.Context) error {
 	return func(ctx context.Context) error {
 		markStarted(state, "chapter2_thick")
-		// 调用方已在折叠之前拿到模型读后感（装配层的读数闸，见 CompactionInput.
-		// PrecomputedSummary）：直接用，不重复调用模型。同一次折叠只该有一次模型
+		// 调用方已在压缩之前拿到模型读后感（装配层的读数闸，见 CompactionInput.
+		// PrecomputedSummary）：直接用，不重复调用模型。同一次压缩只该有一次模型
 		// 调用，而"有没有读后感"必须在改写上下文之前就知道。
 		if precomputed := strings.TrimSpace(state.input.PrecomputedSummary); precomputed != "" {
 			state.chapter2 = normalizeReplayChapter2(precomputed)
@@ -359,7 +359,7 @@ func (d *CompactionDAG) chapter2Node(state *compactionDAGState) func(context.Con
 				// **装配层**的 nil 出口，未装配这一层的调用方未必适用。把没验证
 				// 过的原因写成自答，读帧的人会去查一个并不存在的配置事故
 				// （2026-09-30 现场：控制器链路的结构性 nil 被答成了开关问题）。
-				note = "摘要器未装配（这条折叠链路没有注入摘要器，调用方未说明原因）"
+				note = "摘要器未装配（这条压缩链路没有注入摘要器，调用方未说明原因）"
 			}
 			state.degrade("no-summarizer", note)
 		case len(state.input.History) == 0:
@@ -392,7 +392,7 @@ func (d *CompactionDAG) chapter2Node(state *compactionDAGState) func(context.Con
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
-				// 分片链失败 → 落回单次重放/本地折叠（不中断请求）。这里的失败原因
+				// 分片链失败 → 落回单次重放/本地压缩（不中断请求）。这里的失败原因
 				// 先记下：若随后单次重放成功，它会被 clearDegrade 清掉。
 				state.degrade("chunk-replay-failed",
 					fmt.Sprintf("分片重放（%d 片）失败，已落回单次重放：%v", plan.ChunkCount(), err))
@@ -415,10 +415,10 @@ func (d *CompactionDAG) chapter2Node(state *compactionDAGState) func(context.Con
 					lastErr = err
 				}
 			}
-			// 两次尝试均失败 → 本地折叠兜底（不消耗模型 token 的确定性路径）。
-			state.degrade("replay-failed", fmt.Sprintf("前缀重放两次调用均失败，已回退本地折叠：%v", lastErr))
+			// 两次尝试均失败 → 本地压缩兜底（不消耗模型 token 的确定性路径）。
+			state.degrade("replay-failed", fmt.Sprintf("前缀重放两次调用均失败，已回退本地压缩：%v", lastErr))
 		}
-		chapter2, carry := LocalChapter2WithCarry(LocalFoldOptions{
+		chapter2, carry := LocalChapter2WithCarry(LocalCompactOptions{
 			Overflow:         state.overflow,
 			UnitCount:        state.unitCount,
 			Kind:             state.input.Kind,
@@ -486,7 +486,7 @@ func (d *CompactionDAG) mergeNode(state *compactionDAGState) func(context.Contex
 				append(CarryEvidence(state.carry),
 					append(ReplayEvidence(state.replay),
 						append(ReplayMaterialEvidence(state.replayMaterial),
-							LocalFoldEvidence(state.degradeCode, state.degradeNote)...)...)...)...),
+							LocalCompactEvidence(state.degradeCode, state.degradeNote)...)...)...)...),
 			CompressedAt: time.Now(),
 		}
 		if state.prevTop != nil {

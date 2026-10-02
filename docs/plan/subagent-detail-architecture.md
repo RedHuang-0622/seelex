@@ -49,7 +49,7 @@ Runtime 内部：nodeSessions map[string]*session.Session（nodeID → 子代理
 
 ```
 子代理 History() → 详情对话流：
-  - system/节点目标  → 折叠为 "目标" 行
+  - system/节点目标  → 压缩为 "目标" 行
   - user             → 用户输入（节点请求/后续轮次）
   - assistant(含工具调用) → 回复 + 工具调用声明
   - tool             → 工具结果（截断 ≤ evidence_chars）

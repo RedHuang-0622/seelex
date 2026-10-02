@@ -10,7 +10,7 @@ embeddedFrontend 读取资源，**没有网络访问**。第三方样式/脚本�
 
 | 文件 | 用途 | 版本 | 许可 |
 |---|---|---|---|
-| `pico.min.css` | 组件库：元素基线 + 通用组件皮（按钮/表单/表格/折叠/对话框） | @picocss/pico 2.1.1 | MIT（见 `PICO-LICENSE.md`） |
+| `pico.min.css` | 组件库：元素基线 + 通用组件皮（按钮/表单/表格/压缩/对话框） | @picocss/pico 2.1.1 | MIT（见 `PICO-LICENSE.md`） |
 | `marked/marked.min.js` | Markdown 渲染（文件预览） | marked | MIT |
 | `highlightjs/highlight.min.js`、`languages.all.min.js` | 代码高亮 | highlight.js | BSD-3-Clause |
 | `purify/purify.min.js` | 预览 HTML 净化（DOMPurify） | DOMPurify | Apache-2.0 / MPL-2.0 |
@@ -24,7 +24,7 @@ embeddedFrontend 读取资源，**没有网络访问**。第三方样式/脚本�
 ## 使用方式与边界
 
 - `index.html` 在 `styles.css` **之前**引入 `vendor/pico.min.css`：Pico 提供
-  元素级基线与通用组件皮（按钮/表单/表格/详情折叠/对话框），Seelex 的
+  元素级基线与通用组件皮（按钮/表单/表格/详情压缩/对话框），Seelex 的
   `styles.css` 里所有类选择器特异性更高，因此既有组件外观不会被它改掉；
 - `styles.css` 末尾的「组件库桥接」段把 `--pico-*` 变量映射到 Seelex token
   （黄铜主信号 + 铁蓝石墨底 + 暖纸白正文），第三方组件因此不会带进自己的一套

@@ -98,8 +98,8 @@ export function compactionFrontier(compactions = []) {
     index: frontierIndex,
     count: list.length,
     messageToOrdinal: frontierOrdinal,
-    // 分界以上指的是"整段已折出的上下文"，不是最后一次折叠的那一段：起点取最早、
-    // 终点取最新。只报最后一段会让更早的折叠看起来还发给模型。
+    // 分界以上指的是"整段已折出的上下文"，不是最后一次压缩的那一段：起点取最早、
+    // 终点取最新。只报最后一段会让更早的压缩看起来还发给模型。
     message_from: messageFrom || String(frontier.message_to || ""),
     event_from: eventFrom,
     event_to: eventTo
@@ -107,7 +107,7 @@ export function compactionFrontier(compactions = []) {
 }
 
 // compactionStackOrder 把压缩记录按「栈」的顺序排出**下标序列**：栈顶 = 最新一次
-// 折叠（被压区间终点序号最大者，与 compactionFrontier 同一把尺），往下依次更早。
+// 压缩（被压区间终点序号最大者，与 compactionFrontier 同一把尺），往下依次更早。
 //
 // 返回下标而不是重排后的记录：右栏的展开态（data-compact-open）与帧正文都按下标记账
 // （app.js 用 compactions[index] 取记录），排序若换了数组，点开第 1 行就会读到第 2 行
@@ -125,13 +125,13 @@ export function compactionStackOrder(compactions = []) {
     .map(entry => entry.index);
 }
 
-// conversationCompactionAnchor 求对话区那条「以上已折叠」分界该落在哪一条消息之后
+// conversationCompactionAnchor 求对话区那条「以上已压缩」分界该落在哪一条消息之后
 // （纯函数；null = 本页不画线）。渲染层只拿到"落在哪条消息之后 + 已格式化的文案"，
 // 不必再懂压缩口径——口径只在 compaction-format.js 一处。
 //
 // 落点：本页最后一条"消息号 <= 前沿消息号"的消息。前沿消息通常就在本页；往回翻页时
 // 整页都可能更早，分界落在本页末尾（读作"这一页以上都被折了"）。整页都在前沿之后
-// （前沿在更早的那一页）返回 null：分界不在这一页，这里没有任何已折叠的内容，凭空插
+// （前沿在更早的那一页）返回 null：分界不在这一页，这里没有任何已压缩的内容，凭空插
 // 一行就是假线。
 export function conversationCompactionAnchor(messages = [], compactions = []) {
   const frontier = compactionFrontier(compactions);
@@ -148,17 +148,17 @@ export function conversationCompactionAnchor(messages = [], compactions = []) {
   return {
     messageID,
     label: compactionCutLabel(frontier),
-    title: `${compactionCutTitle(frontier)} · 分界是会话单例：历次折叠记录见右栏「上下文压缩」与轨迹「压缩」轨`,
-    note: count > 1 ? `会话共折叠 ${count} 次，这里只标最新一次的终点` : "",
+    title: `${compactionCutTitle(frontier)} · 分界是会话单例：历次压缩记录见右栏「上下文压缩」与轨迹「压缩」轨`,
+    note: count > 1 ? `会话共压缩 ${count} 次，这里只标最新一次的终点` : "",
     frameRef: String(frontier.frame_ref || "")
   };
 }
 
-// compactionCutLabel 渲染压缩分界虚线的说明：这条线以上（更早）的上下文已被折出
+// compactionCutLabel 渲染压缩分界虚线的说明：这条线以上（更早）的上下文已被压出
 // provider 历史。区间未知时只说"更早的上下文"，不编造范围。
 export function compactionCutLabel(compaction = {}) {
   const range = compactionRangeText(compaction);
-  return range ? `以上 ${range}已被折叠` : "以上更早的上下文已被折叠";
+  return range ? `以上 ${range}已被压缩` : "以上更早的上下文已被压缩";
 }
 
 // compactionGateLabels 是压缩门禁进度条的文案表，键序 = 后端
@@ -166,7 +166,7 @@ export function compactionCutLabel(compaction = {}) {
 // 历史→推帧进压缩栈→渲染帧→存帧→写记录）。两处顺序一旦漂移，进度条会把
 // 「存帧」画在「写记录」之后——frontend 测试照着这份键序钉后端字面量。
 export const compactionGateLabels = {
-  judge: "判定是否需要折叠",
+  judge: "判定是否需要压缩",
   assemble: "装配压缩上下文",
   replace: "替换 provider 历史",
   index: "推帧进压缩栈",
@@ -194,7 +194,7 @@ export function compactionGateDurationText(ms) {
 // mergeCompactionProgress 把一帧 compaction.progress 并入本轮进度面（纯函数，
 // 视图层只负责存与重绘）。
 //
-// 为什么需要"轮次"概念：自动路径没有起手帧（要不要折叠正是判据估算的结果，估完
+// 为什么需要"轮次"概念：自动路径没有起手帧（要不要压缩正是判据估算的结果，估完
 // 才知道），所以不能只靠 phase=begin 判新轮——否则上一轮留下的清单会被新一轮的
 // 格子续写，用户读到的是两轮混在一起的耗时。判据是"上一轮的 running 已结束"。
 //
@@ -241,22 +241,54 @@ export function mergeCompactionProgress(previous, payload) {
 // 不能替它编一句"压缩未完成"把真实原因盖掉。
 export function compactionOutcomeLabel(outcome) {
   switch (String(outcome || "")) {
-  case "compacted": return "已折叠并写入压缩记录";
-  case "folded_without_record": return "已折叠，本轮纪元未到期不写记录";
-  // 判据命中了，但这次折叠拿不到模型读后感（厚摘要开关未开/摘要器装配失败）：
-  // 按口径不折上下文、不推压缩栈顶，上下文原样继续 append。与上一行是两种终局
-  // ——前者折了上下文只是没记，后者什么都没动。
-  case "skipped_no_summary": return "没有模型读后感：不折叠，上下文原样继续";
+  case "compacted": return "已压缩并写入压缩记录";
+  case "compacted_without_record": return "已压缩，本轮纪元未到期不写记录";
+  // 判据命中了，但这次**压不下去**（拿不到模型读后感 / 压缩换不来余量）：按口径不折
+  // 上下文、不推压缩栈顶、上下文版本不推进，上下文原样继续 append。与上一行是两种
+  // 终局——前者压了上下文只是没记，后者什么都没动。"压缩"这套说法已废止（它曾同时
+  // 指"压了"与"没压成"，见下一条注释）。
+  case "compact_failed": return "压缩失败：上下文原样继续";
   default: return String(outcome || "");
   }
 }
 
-// compactionCutTitle 是分界虚线的悬停说明：把"折叠了什么""原文在哪""谁要的"一次说清。
+// compactionFailureText 渲染一条**压缩失败痕**的原因（记录里的 Failed=true 那一条）。
+//
+// 后端把原因写成「字面量 + 数字事实」（如
+// `no_model_summary estimated=281424 budget=163616 window=200000 overhead=9123`）：
+// 字面量说明成因（下一步查什么），数字是这次失败的证据。这里只翻字面量那一段，
+// 数字原样带出——它是判据本身，改写就成了二次叙述。
+//
+// 未知字面量原样返回：后端新增失败种类而前端没跟时，条目要显示"有这么一种失败"，
+// 而不是吞成一句笼统的"压缩失败"。
+export function compactionFailureText(compaction = {}) {
+  const note = String(compaction?.note || "").trim();
+  if (!note) return "压缩失败（未留下原因）";
+  const [literal, facts] = splitLiteral(note);
+  const label = FAILURE_LABELS[literal] || literal;
+  return facts ? `${label}；${facts}` : label;
+}
+
+// FAILURE_LABELS 是压缩失败原因的文案表，键 = 后端协议字面量
+// （context_runtime.CompactionFailure*，只此两处定义，两侧由配对口径互钉）。
+const FAILURE_LABELS = {
+  no_model_summary: "拿不到模型读后感（摘要器未装配或重放调用失败）",
+  ineffective_compact: "压缩换不来余量（压缩落点仍够不到判据线）"
+};
+
+// splitLiteral 把「字面量 + 空格 + 数字事实」拆开；没有数字事实时第二段为空。
+function splitLiteral(note) {
+  const at = note.indexOf(" ");
+  if (at < 0) return [note, ""];
+  return [note.slice(0, at), note.slice(at + 1).trim()];
+}
+
+// compactionCutTitle 是分界虚线的悬停说明：把"压缩了什么""原文在哪""谁要的"一次说清。
 export function compactionCutTitle(compaction = {}) {
   const origin = compactionOriginLabel(compaction.origin);
   return [
     compactionCutLabel(compaction),
-    "这段被折出 provider 历史；对话原文仍完整保留在时间线上，折叠帧正文可按 ref 回读",
+    "这段被折出 provider 历史；对话原文仍完整保留在时间线上，压缩帧正文可按 ref 回读",
     origin ? `来源 ${origin}` : ""
   ].filter(Boolean).join(" · ");
 }

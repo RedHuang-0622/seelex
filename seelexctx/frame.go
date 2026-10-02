@@ -33,7 +33,7 @@ const (
 const (
 	// CompactSummarySourceReplay 表示 Chapter 2 由前缀重放生成（厚摘要）。
 	CompactSummarySourceReplay = "replay"
-	// CompactSummarySourceLocal 表示 Chapter 2 由本地确定性折叠生成（薄摘要）。
+	// CompactSummarySourceLocal 表示 Chapter 2 由本地确定性压缩生成（薄摘要）。
 	CompactSummarySourceLocal = "local"
 	// CompactAnchorSourceOK 表示链锚点完整（含一句话摘要）。
 	CompactAnchorSourceOK = "ok"
@@ -60,14 +60,14 @@ const (
 	maxOneLineRunes = 80
 )
 
-// LocalFoldKind 区分本地确定性折叠的 Current Work 文案（controller/gap 共用）。
-type LocalFoldKind int
+// LocalCompactKind 区分本地确定性压缩的 Current Work 文案（controller/gap 共用）。
+type LocalCompactKind int
 
 const (
-	// CompactFoldOverflow 是窗口外溢出轮次折叠（控制器路径）。
-	CompactFoldOverflow LocalFoldKind = iota
-	// CompactFoldGap 是真空区补压缩折叠（gap 路径）。
-	CompactFoldGap
+	// LocalCompactOverflow 是窗口外溢出轮次压缩（控制器路径）。
+	LocalCompactOverflow LocalCompactKind = iota
+	// LocalCompactGap 是真空区补压缩压缩（gap 路径）。
+	LocalCompactGap
 )
 
 // DefaultFrameCarryTokens 是帧摘要传递上限的兜底值（limits.context_frame_carry_tokens
@@ -89,7 +89,7 @@ type CarryDiagnostics struct {
 //	超出 → 退化为锚点（segment_id + request 首尾 + 一句话）+ 显式降级说明，
 //	        细节靠 search_history / read_compressed_turn 回读。
 //
-// 为什么必须有上限：本地折叠是把上一帧正文**原样并入**新帧，而这一份正文是唯一
+// 为什么必须有上限：本地压缩是把上一帧正文**原样并入**新帧，而这一份正文是唯一
 // 进模型上下文、进缓存前缀的帧内容——不设上限，栈顶帧会随帧数线性膨胀，把压缩
 // 的收益又还回去。降级方向是"少给正文、多给定位"（原文可检索回读），与保护区
 // 下限同一条取舍原则。
@@ -155,16 +155,16 @@ func CarryEvidence(carry CarryDiagnostics) []sessionstore.EvidenceRef {
 	}}
 }
 
-// LocalFoldOptions 是本地确定性折叠的全部输入（controller/gap 共用）。
-type LocalFoldOptions struct {
+// LocalCompactOptions 是本地确定性压缩的全部输入（controller/gap 共用）。
+type LocalCompactOptions struct {
 	// Overflow 本次新覆盖的完整协议单元（原文消息）。
 	Overflow []historyUnit
 	// UnitCount 本次新覆盖的单元数（0 → 用 len(Overflow)）。
 	UnitCount int
 	// Kind 决定 Current Work 的轮次文案（溢出 / 真空区）。
-	Kind LocalFoldKind
+	Kind LocalCompactKind
 	// PrevTop 上一栈顶帧（非 nil 时把其 Chapter 2 正文并入 Current Work，
-	// 维持本地折叠路径的栈顶自足；不复制 Chapter 1 锚点，避免递归嵌套）。
+	// 维持本地压缩路径的栈顶自足；不复制 Chapter 1 锚点，避免递归嵌套）。
 	// 并入量受 CarryLimitTokens 约束（超限退化为锚点，见 CarryPreviousChapter2）。
 	PrevTop *sessionstore.CompactFrame
 	// CarryLimitTokens 是帧摘要传递上限（limits.context_frame_carry_tokens；
@@ -175,15 +175,15 @@ type LocalFoldOptions struct {
 }
 
 // LocalChapter2 生成 Chapter 2 正文（不含外层 "## 压缩内容" 标题）：
-// 确定性本地折叠，按 DSH 小节骨架输出；空小节写 (none)。
-func LocalChapter2(opts LocalFoldOptions) string {
+// 确定性本地压缩，按 DSH 小节骨架输出；空小节写 (none)。
+func LocalChapter2(opts LocalCompactOptions) string {
 	chapter2, _ := LocalChapter2WithCarry(opts)
 	return chapter2
 }
 
 // LocalChapter2WithCarry 与 LocalChapter2 同值，并回报「上一帧摘要并入」的决策
 // 事实（controller / DAG 在拼帧时用它打点，避免同一份并入量算两遍、两处漂移）。
-func LocalChapter2WithCarry(opts LocalFoldOptions) (string, CarryDiagnostics) {
+func LocalChapter2WithCarry(opts LocalCompactOptions) (string, CarryDiagnostics) {
 	currentWork, carry := localCurrentWork(opts)
 	sections := []string{
 		sectionHeading(Chapter2SectionGoal) + sectionBody(localGoal(opts.Record)),
@@ -201,7 +201,7 @@ func LocalChapter2WithCarry(opts LocalFoldOptions) (string, CarryDiagnostics) {
 // Chapter2Skeleton 返回全部小节为 (none) 的骨架正文（保留章节骨架，
 // 供输出缺失/空结果的占位使用）。
 func Chapter2Skeleton() string {
-	return LocalChapter2(LocalFoldOptions{})
+	return LocalChapter2(LocalCompactOptions{})
 }
 
 func sectionHeading(title string) string { return "### " + title + "\n" }
@@ -273,9 +273,9 @@ func localFilesAndCode(overflow []historyUnit) string {
 }
 
 // localCurrentWork 渲染当前工作小节：轮次计数 + 逐单元行 + 上一栈顶的
-// Chapter 2 正文（本地折叠保持栈顶自足的近似手段）。并入量受帧摘要传递上限
+// Chapter 2 正文（本地压缩保持栈顶自足的近似手段）。并入量受帧摘要传递上限
 // 约束（见 CarryPreviousChapter2），第二个返回值是并入决策事实。
-func localCurrentWork(opts LocalFoldOptions) (string, CarryDiagnostics) {
+func localCurrentWork(opts LocalCompactOptions) (string, CarryDiagnostics) {
 	count := opts.UnitCount
 	if count <= 0 {
 		count = len(opts.Overflow)
@@ -283,7 +283,7 @@ func localCurrentWork(opts LocalFoldOptions) (string, CarryDiagnostics) {
 	var builder strings.Builder
 	if count > 0 || len(opts.Overflow) > 0 {
 		roundLabel := "溢出轮次"
-		if opts.Kind == CompactFoldGap {
+		if opts.Kind == LocalCompactGap {
 			roundLabel = "真空区轮次"
 		}
 		builder.WriteString(fmt.Sprintf("%s: %d 个完整协议单元", roundLabel, count))
@@ -297,7 +297,7 @@ func localCurrentWork(opts LocalFoldOptions) (string, CarryDiagnostics) {
 		// 模型看到这帧时唯一能依赖的就是"每轮首段预览 + 回读句柄"。把"这里没有
 		// 全文"说破，模型才知道何时该去 read_compressed_turn / search_history
 		// 取回细节，而不是把索引当全文、以为上下文只剩这些。
-		builder.WriteString("（以上为折叠索引：每轮只留首段预览，被折轮次正文不在本帧；完整原文经 read_compressed_turn / search_history 回读。）\n")
+		builder.WriteString("（以上为压缩索引：每轮只留首段预览，被折轮次正文不在本帧；完整原文经 read_compressed_turn / search_history 回读。）\n")
 	}
 	previous, carry := CarryPreviousChapter2(opts.PrevTop, opts.CarryLimitTokens)
 	if previous != "" {

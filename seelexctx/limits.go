@@ -88,16 +88,16 @@ type Limits struct {
 	// 预算 = window − output_reserve_tokens − window/context_safety_reserve_divisor；
 	// 下面各个百分比都以此为基数。默认 8/95/98/80/50（2026-09-26 起压缩阈值上调：
 	// 旧 75/90 的保留窗口落点贴着软线，长会话会一轮一压；target 80 同时是保留区
-	// 硬上限，soft − target 是每次折叠留给下一轮的余量）。
+	// 硬上限，soft − target 是每次压缩留给下一轮的余量）。
 	// 取值超界（不在 [0,100]）在 LoadLimits 显式报错，不再静默回退默认值。
 	ContextSafetyReserveDivisor int `yaml:"context_safety_reserve_divisor"` // 安全预留除数（默认 8 → 窗口/8）
 	ContextSoftPercent          int `yaml:"context_soft_percent"`           // 软压缩线（占预算 %，默认 95）。**2026-09-30 起已不参与判据**（取消软线
-	// 提前量：折叠改写请求前缀、provider 前缀缓存整段作废，折回来的余量不值得
-	// 每轮付这份代价）——装配层自动折叠的唯一阈值改由 context_hard_percent 给出，
+	// 提前量：压缩改写请求前缀、provider 前缀缓存整段作废，折回来的余量不值得
+	// 每轮付这份代价）——装配层自动压缩的唯一阈值改由 context_hard_percent 给出，
 	// 报告面的 soft 与 hard 同源。键与下面的 soft<hard 校验保留只为兼容既有配置，
 	// 下一版一并摘除。
 	ContextHardPercent       int `yaml:"context_hard_percent"`        // 硬阈值线（占预算 %，默认 98）
-	ContextTargetPercent     int `yaml:"context_target_percent"`      // 压缩后目标（占预算 %，默认 80）；同时是折叠后保留区/请求落点的硬上限（RetainDecision.TargetTokens），必须低于 soft 才有余量
+	ContextTargetPercent     int `yaml:"context_target_percent"`      // 压缩后目标（占预算 %，默认 80）；同时是压缩后保留区/请求落点的硬上限（RetainDecision.TargetTokens），必须低于 soft 才有余量
 	ContextSingleItemPercent int `yaml:"context_single_item_percent"` // 单条输入外置阈值（占预算 %，默认 50）
 	// ── 保留区下限与帧摘要传递上限（《压缩四区模型》边界判定 / 《待落地》1、2）──
 	// ContextRetainFloorPercent 是**保护区下限**（占预算 %）：
@@ -106,7 +106,7 @@ type Limits struct {
 	// 「至少 1 个完整协议单元」兜底，与引入该旋钮之前逐位一致）。
 	// 取值超界（不在 [0,100]）在 LoadLimits 显式报错，不再静默回退默认值。
 	ContextRetainFloorPercent int `yaml:"context_retain_floor_percent"`
-	// ContextFrameCarryTokens 是**帧摘要传递上限**（token）：本地折叠把上一帧
+	// ContextFrameCarryTokens 是**帧摘要传递上限**（token）：本地压缩把上一帧
 	// Chapter 2 正文并入新帧时的并入量上限；超出部分退化为锚点（segment_id +
 	// request 首尾 + 一句话），细节靠 search_history / read_compressed_turn 回读。
 	// 该份正文是唯一进上下文、进缓存前缀的帧内容，不设上限会随帧数膨胀。
@@ -142,11 +142,11 @@ type Limits struct {
 	// 关就是关（不静默降级成同步执行），可一键回滚。
 	// 规格：docs/2026-09-24-async-tool-deferred-ack/README.md §8。
 	AsyncExec AsyncExecLimits `yaml:"async_exec"`
-	// ContextCompactionSummary 是**折叠处 LLM 章节化摘要**（前缀重放厚摘要）的
-	// 开关块。默认 false = 关闭：折叠恒走本地确定性折叠（summary_source=local），
+	// ContextCompactionSummary 是**压缩处 LLM 章节化摘要**（前缀重放厚摘要）的
+	// 开关块。默认 false = 关闭：压缩恒走本地确定性压缩（summary_source=local），
 	// 一次模型调用都不发。关就是关（不静默降级），可一键回滚。
 	//
-	// 打开的代价必须写清楚：这是**新增的、无人值守的付费调用**——每次折叠一次，
+	// 打开的代价必须写清楚：这是**新增的、无人值守的付费调用**——每次压缩一次，
 	// 溢出区超过片预算时分片重放会按片多次。收益是帧 Chapter 2 从"元数据投影"
 	// 变成真摘要（Errors and Fixes / Pending / Next Step 三节不再恒 (none)），
 	// 从而给 search_history 的词法初筛提供有区分度的关键词。
@@ -181,7 +181,7 @@ type AsyncExecLimits struct {
 	TriggerConversation bool `yaml:"trigger_conversation"`
 }
 
-// CompactionSummaryLimits 是折叠处 LLM 章节化摘要的开关块。零值（含整个块
+// CompactionSummaryLimits 是压缩处 LLM 章节化摘要的开关块。零值（含整个块
 // 缺失）= 关闭，因此同样不需要在 DefaultLimits / WithDefaults 里声明默认。
 //
 // 两个 token 字段的零值各自回退到消费方的既有兜底常量（InputTokens → 不分片；
@@ -267,7 +267,7 @@ func DefaultLimits() Limits {
 		PreflightRetry:         2,
 		OutputReserveTokens:    512,
 		// 压缩预算比例：窗口/8、95%、98%、80%、50%。soft/target 的差即每次
-		// 折叠留给下一轮的余量；target 同时是保留区硬上限（见 RetainDecision）。
+		// 压缩留给下一轮的余量；target 同时是保留区硬上限（见 RetainDecision）。
 		ContextSafetyReserveDivisor: 8,
 		ContextSoftPercent:          95,
 		ContextHardPercent:          98,
@@ -503,8 +503,8 @@ func LoadLimits(path string) (Limits, error) {
 		}
 	}
 	// 相对关系同样是配置的一部分（与保留区下限 > retain_tokens 的那条启动期报错同一条
-	// 纪律：静默接受非法组合，问题只会以性能症状出现）。软线是"到达就折叠"的主判据，
-	// 硬线是"装配后仍越线就立刻自主折叠"的抢跑路径：软线 ≥ 硬线时抢跑每轮都成立，
+	// 纪律：静默接受非法组合，问题只会以性能症状出现）。软线是"到达就压缩"的主判据，
+	// 硬线是"装配后仍越线就立刻自主压缩"的抢跑路径：软线 ≥ 硬线时抢跑每轮都成立，
 	// 表现为"一轮对话压一次"，而配置里看不出任何异常。
 	//
 	// 判定用 WithDefaults 之后的**生效值**，不是原始解析结果：只写了 soft: 100 而没写
@@ -513,7 +513,7 @@ func LoadLimits(path string) (Limits, error) {
 	if effective.ContextSoftPercent >= effective.ContextHardPercent {
 		return Limits{}, fmt.Errorf(
 			"limits: context_soft_percent (%d) must be < context_hard_percent (%d)"+
-				"（软线到达即折叠；软线 ≥ 硬线会让自主折叠每轮抢跑）",
+				"（软线到达即压缩；软线 ≥ 硬线会让自主压缩每轮抢跑）",
 			effective.ContextSoftPercent, effective.ContextHardPercent)
 	}
 	return check, nil

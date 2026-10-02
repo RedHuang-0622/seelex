@@ -66,7 +66,7 @@ func roundHistory(rounds int) []types.Message {
 }
 
 // controllerTestLimits 是控制器**机制**用例的显式阈值注入：这组用例验证窗口
-// 溢出/折叠/归档/去重本身，不验证出厂默认档。默认档口径（2026-09-26 起
+// 溢出/压缩/归档/去重本身，不验证出厂默认档。默认档口径（2026-09-26 起
 // 95/98/80）由 limits_test.go 钉住——机制用例显式给出自己假设的比例，默认档
 // 调整不会把机制用例带红，也不会让"配置被消费"的断言变成对默认值的隐式依赖。
 func controllerTestLimits() Limits {
@@ -81,9 +81,9 @@ func controllerTestLimits() Limits {
 
 // newController 构造注入压缩栈的控制器。
 //
-// 2026-09-30 起控制器只剩"超大工具结果兜底归档"一件事（折叠整条归装配层）：
+// 2026-09-30 起控制器只剩"超大工具结果兜底归档"一件事（压缩整条归装配层）：
 // 注入面因此只有归档器与压缩栈——栈顶帧的 From 是"溢出起点"的去重基准
-// （见 chatUnits / compactedUnitBase），窗口外轮次的划分要接着上次折叠的落点算。
+// （见 chatUnits / compactedUnitBase），窗口外轮次的划分要接着上次压缩的落点算。
 func newController(stacks CompactStackStore) *seelexContextController {
 	return &seelexContextController{opts: ControllerOptions{Stacks: stacks}}
 }

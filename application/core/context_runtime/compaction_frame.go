@@ -8,11 +8,11 @@ import (
 	"time"
 )
 
-// 折叠帧正文（会话内容存储里按 frame_ref 回读的那一份）的**规范形状**：
+// 压缩帧正文（会话内容存储里按 frame_ref 回读的那一份）的**规范形状**：
 //
 //	一帧 = JSON 元数据 + Markdown 读后感
 //
-// 读后感**不能单独作为压缩帧存在**：它只是帧的一半。另一半是"这一次折叠到底动了
+// 读后感**不能单独作为压缩帧存在**：它只是帧的一半。另一半是"这一次压缩到底动了
 // 什么"的结构化事实——版本号、原因、来源、被折区间、判据量与四区、逐关门禁耗时、
 // 细筛句柄。两半合起来才构成一帧，缺元数据的摘要无法审计也无法定位原文，缺摘要的
 // 元数据则对检索毫无用处。
@@ -44,13 +44,13 @@ const (
 	// 历史帧：v1 正文仍然可读，只是没有可解析的元数据块。
 	compactionFrameMarkerV1 = "<!-- seelex:context-checkpoint-frame:v1 -->"
 	// compactionFrameTool 是帧正文在会话内容存储里登记的工具名：前端/审计据此分辨
-	// "这不是工具输出，而是折叠那一刻留下的有界 checkpoint 帧"。
+	// "这不是工具输出，而是压缩那一刻留下的有界 checkpoint 帧"。
 	compactionFrameTool = "context_compaction_frame"
 	// compactionFrameSchema 是元数据块的 schema 标识（写进 JSON，供读侧判版本）。
 	compactionFrameSchema = "seelex.context-compaction-frame/v2"
 )
 
-// compactionFrameInput 是渲染帧正文所需的**事实**：全部取自这次折叠本身，
+// compactionFrameInput 是渲染帧正文所需的**事实**：全部取自这次压缩本身，
 // 不做二次推算（区间取记录值、token 取判据量与装配量）。
 type compactionFrameInput struct {
 	Version         uint64
@@ -58,8 +58,8 @@ type compactionFrameInput struct {
 	Origin          string
 	At              time.Time
 	SegmentID       string // 压缩栈帧标识；空 = 本次没有推帧（栈不可用或推帧失败）
-	SummarySource   string // replay（前缀重放厚摘要）| local（本地确定性折叠）| 空 = 没有栈帧
-	SummaryNote     string // 落到本地折叠的原因（空 = 这次真有模型摘要）
+	SummarySource   string // replay（前缀重放厚摘要）| local（本地确定性压缩）| 空 = 没有栈帧
+	SummaryNote     string // 落到本地压缩的原因（空 = 这次真有模型摘要）
 	Summary         string // 读后感（栈帧 Summary 原样；空 → 走本地兜底材料）
 	ComparedTokens  int
 	AssembledTokens int
@@ -69,7 +69,7 @@ type compactionFrameInput struct {
 	PlanMessage     string // 随帧保留的 plan 尾部（可能为空）
 	Injected        bool   // 帧正文是否真的进了 provider 历史（自主压缩 = 是）
 	// Range 是被折出保留窗口、送进 compact_context 的 transcript 前缀边界。
-	Range compactionFoldedRange
+	Range compactionCompactedRange
 	// Layout 是这次装配的四区显式化（分区 + 各区 token 数与来源）与保留窗口决策。
 	// 判据量与阈值也在这份里（ContextLayout 自带 ComparedTokens/EstimatedTokens/
 	// Soft/Hard），因此元数据块**只嵌 layout 一份**，不再另立 tokens 区块重复同样的
@@ -81,23 +81,23 @@ type compactionFrameInput struct {
 	// "报表口径与判据口径分叉"。它的两个既有家不变：进度事件（瞬态）与压缩回执
 	// （options.decision.Gates，全部关收口之后才取）。
 	//
-	// ReadbackToolResults 是本次折叠区间内可继续细筛的工具结果句柄
+	// ReadbackToolResults 是本次压缩区间内可继续细筛的工具结果句柄
 	// （result:<callID>，read_tool_result 的入参）。
 	ReadbackToolResults []string
 	// IndexError 是推帧失败的真实原因（空 = 没失败/没尝试/无区间）。有值时正文如实
 	// 写出"为什么这一帧没有细筛入口"，不留空段也不假装可读回。
 	IndexError string
-	// IndexSkipped 报告"索引面已就绪，但这次折叠没有折出任何完整协议单元"（例如
+	// IndexSkipped 报告"索引面已就绪，但这次压缩没有折出任何完整协议单元"（例如
 	// 尚未越过任何保留窗口就显式 /compact：区间为空，没有原文可归档）。它与
 	// "索引面未启用"是两种事实——前者说明接线是好的、只是这次无事可做，后者说明
 	// 这一跳在本宿主上根本不存在。混为一谈会让前者读起来像一次配置事故。
 	IndexSkipped bool
 }
 
-// compactionFoldedRange 是被折叠区间的边界事实（记录值，不推算）。
+// compactionCompactedRange 是被压缩区间的边界事实（记录值，不推算）。
 // Label 是人读的一行（model.CompactionRangeLabel 的产物）；其余字段是机器读的原始
 // 边界，两套并存是因为读侧要按 EventSeq 定位原文，人要一眼看出压了哪一段。
-type compactionFoldedRange struct {
+type compactionCompactedRange struct {
 	MessageFrom string `json:"message_from,omitempty"`
 	MessageTo   string `json:"message_to,omitempty"`
 	EventFrom   uint64 `json:"event_from,omitempty"`
@@ -107,7 +107,7 @@ type compactionFoldedRange struct {
 }
 
 // Empty 报告这份区间没有任何可记录的边界。
-func (r compactionFoldedRange) Empty() bool {
+func (r compactionCompactedRange) Empty() bool {
 	return r.MessageFrom == "" && r.MessageTo == "" && r.EventFrom == 0 && r.EventTo == 0 && r.Units == 0
 }
 
@@ -121,18 +121,18 @@ type compactionReadback struct {
 
 // compactionFrameMetadata 是帧正文里那个 JSON 块的结构。字段名即口径。
 type compactionFrameMetadata struct {
-	Schema        string                 `json:"schema"`
-	Version       uint64                 `json:"version"`
-	Reason        string                 `json:"reason"`
-	Origin        string                 `json:"origin"`
-	At            time.Time              `json:"at"`
-	SegmentID     string                 `json:"segment_id,omitempty"`
-	SummarySource string                 `json:"summary_source,omitempty"`
-	SummaryNote   string                 `json:"summary_note,omitempty"`
-	Injected      bool                   `json:"injected"`
-	Folded        *compactionFoldedRange `json:"folded,omitempty"`
-	Layout        ContextLayout          `json:"layout"`
-	Readback      compactionReadback     `json:"readback"`
+	Schema        string                    `json:"schema"`
+	Version       uint64                    `json:"version"`
+	Reason        string                    `json:"reason"`
+	Origin        string                    `json:"origin"`
+	At            time.Time                 `json:"at"`
+	SegmentID     string                    `json:"segment_id,omitempty"`
+	SummarySource string                    `json:"summary_source,omitempty"`
+	SummaryNote   string                    `json:"summary_note,omitempty"`
+	Injected      bool                      `json:"injected"`
+	Compacted     *compactionCompactedRange `json:"compacted,omitempty"`
+	Layout        ContextLayout             `json:"layout"`
+	Readback      compactionReadback        `json:"readback"`
 }
 
 // metadata 把渲染输入投影为元数据结构（纯映射，不重算任何数字）。
@@ -146,7 +146,7 @@ func (input compactionFrameInput) metadata() compactionFrameMetadata {
 		SegmentID:     input.SegmentID,
 		SummarySource: input.SummarySource,
 		SummaryNote:   input.SummaryNote,
-		// Injected 必须如实：普通折叠走保留窗口路径，provider 历史 = 稳定 system
+		// Injected 必须如实：普通压缩走保留窗口路径，provider 历史 = 稳定 system
 		// 前缀 + 保留窗口 + plan，**并没有**把读后感注入历史；只有自主压缩才注入。
 		// 把两者写成同一句话，等于告诉读者"模型看得到这份摘要"，而那是假的。
 		Injected: input.Injected,
@@ -155,13 +155,13 @@ func (input compactionFrameInput) metadata() compactionFrameMetadata {
 	}
 	if !input.Range.Empty() {
 		rangeValue := input.Range
-		meta.Folded = &rangeValue
+		meta.Compacted = &rangeValue
 	}
 	return meta
 }
 
 // readback 组装细筛入口。segment_id 缺失时如实说明为什么没有这一跳——
-// 装配层折叠此前从不推帧，模型对这段区间根本拿不到 read_compressed_turn 的入参，
+// 装配层压缩此前从不推帧，模型对这段区间根本拿不到 read_compressed_turn 的入参，
 // 而"看起来有原文、其实没有入口"比明说没有更糟。
 func (input compactionFrameInput) readback() compactionReadback {
 	out := compactionReadback{
@@ -175,7 +175,7 @@ func (input compactionFrameInput) readback() compactionReadback {
 		out.Note = "本次没有压缩栈帧（推帧失败：" + input.IndexError +
 			"），因此没有 read_compressed_turn 入口；原始轮次仍在会话存储里，可用 search_history 检索。"
 	case input.IndexSkipped:
-		out.Note = "本次没有压缩栈帧（这次折叠没有折出任何完整协议单元，没有原文可归档），" +
+		out.Note = "本次没有压缩栈帧（这次压缩没有折出任何完整协议单元，没有原文可归档），" +
 			"因此没有 read_compressed_turn 入口；原始轮次仍在会话存储里，可用 search_history 检索。"
 	default:
 		out.Note = "本次没有压缩栈帧（索引面未启用），因此没有 read_compressed_turn 入口；" +
@@ -184,10 +184,10 @@ func (input compactionFrameInput) readback() compactionReadback {
 	return out
 }
 
-// compactionFrameBody 渲染折叠帧正文：v2 标记 + JSON 元数据块 + Markdown 读后感块。
+// compactionFrameBody 渲染压缩帧正文：v2 标记 + JSON 元数据块 + Markdown 读后感块。
 //
-// 三件事必须都能从这份正文里如实读到：折叠把哪一段折出了 provider 历史（JSON 的
-// folded + layout）、模型现在拿到的替代物是什么（injected）、留下的有界证据与细筛
+// 三件事必须都能从这份正文里如实读到：压缩把哪一段折出了 provider 历史（JSON 的
+// compacted + layout）、模型现在拿到的替代物是什么（injected）、留下的有界证据与细筛
 // 入口是什么（readback + 读后感）。
 func compactionFrameBody(input compactionFrameInput) string {
 	var builder strings.Builder
@@ -214,15 +214,15 @@ func marshalFrameMetadata(meta compactionFrameMetadata) string {
 	return string(encoded)
 }
 
-// localFoldReason 说明这次为什么没有模型读后感。有降级原因（折叠 DAG 记下的开关
+// localCompactReason 说明这次为什么没有模型读后感。有降级原因（压缩 DAG 记下的开关
 // 状态，或重放失败时的真实报错）就原样写出：此前这里是一句"开关未开启，或前缀重放
 // 失败"的 or 措辞，读帧的人分不清是哪一种，而两件事的处置完全不同——一个是配置、
 // 一个是故障。没有原因（更早版本写的帧、或推帧失败）时保留原来的兜底措辞。
-func (input compactionFrameInput) localFoldReason() string {
+func (input compactionFrameInput) localCompactReason() string {
 	if note := strings.TrimSpace(input.SummaryNote); note != "" {
 		return note + "。"
 	}
-	return "折叠摘要开关未开启，或前缀重放失败已回退本地折叠。"
+	return "压缩摘要开关未开启，或前缀重放失败已回退本地压缩。"
 }
 
 // readingNotes 渲染帧的 Markdown 一半。
@@ -231,7 +231,7 @@ func (input compactionFrameInput) localFoldReason() string {
 // 「上一压缩栈摘要 / 压缩内容」两章节标题（seelexctx.RenderFrameSummary），
 // 再包一层就成了双重目录；而且另写一份必然与栈帧漂移。
 //
-// 没有栈帧摘要（开关关闭、前缀重放失败回退本地折叠、或推帧失败）→ 渲染本地兜底
+// 没有栈帧摘要（开关关闭、前缀重放失败回退本地压缩、或推帧失败）→ 渲染本地兜底
 // 材料。这条路是**默认路径**（limits.context_compaction_summary 默认关），所以它
 // 不能是空壳：任务证据与 plan 尾部照旧给出，并明说这不是对原文的总结。
 func (input compactionFrameInput) readingNotes() string {
@@ -239,15 +239,15 @@ func (input compactionFrameInput) readingNotes() string {
 		return summary + "\n"
 	}
 	var builder strings.Builder
-	builder.WriteString("## 折叠材料 (Folded Material)\n\n")
-	builder.WriteString("（本次没有模型生成的读后感：" + input.localFoldReason() +
+	builder.WriteString("## 压缩材料 (Folded Material)\n\n")
+	builder.WriteString("（本次没有模型生成的读后感：" + input.localCompactReason() +
 		"下面是任务台账的有界证据，**不是**对被折原文的总结；原文按上面 readback 段的句柄回读。）\n\n")
 	builder.WriteString("### 任务证据检查点 (Task Evidence Checkpoint)\n")
 	if evidence := strings.TrimSpace(input.Evidence); evidence != "" {
 		builder.WriteString(evidence)
 		builder.WriteString("\n")
 	} else {
-		builder.WriteString("（本次折叠没有可回读的任务证据摘要：objective、检查点证据与工具结果都不足。）\n")
+		builder.WriteString("（本次压缩没有可回读的任务证据摘要：objective、检查点证据与工具结果都不足。）\n")
 	}
 	if plan := strings.TrimSpace(input.PlanMessage); plan != "" {
 		builder.WriteString("\n### 计划尾部 (Plan Tail，仍保留在 provider 历史里)\n")

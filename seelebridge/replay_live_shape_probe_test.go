@@ -4,11 +4,11 @@
 // 用真实账号复现「前缀重放厚摘要」这条调用的
 // 请求形态，把摘要器的**真实报错**打出来。
 //
-// 背景：18:06:19 那次装配层折叠（新进程、已读到 enabled: true）折出的帧仍是
-// summary_source=local，而它自己的回执写着 `index 458ms`——比"纯本地折叠"的
+// 背景：18:06:19 那次装配层压缩（新进程、已读到 enabled: true）折出的帧仍是
+// summary_source=local，而它自己的回执写着 `index 458ms`——比"纯本地压缩"的
 // 12~23ms 大二十倍，又远小于一次 ~10 万 token 模型调用该有的耗时。这指向
 // "一次或两次**很快失败**的重放调用"，但错误文本被 chapter2Node 吞掉了
-// （两次尝试都失败 → 静默落本地折叠）。
+// （两次尝试都失败 → 静默落本地压缩）。
 //
 // 运行：
 //
@@ -76,7 +76,7 @@ func TestReplayProbeShape(t *testing.T) {
 
 	summarizer := runtime.compactionSummarizer()
 	if summarizer == nil {
-		t.Fatalf("摘要器为 nil（开关关闭或 QuickChat 装配失败）——这就是 local 折叠的一种原因")
+		t.Fatalf("摘要器为 nil（开关关闭或 QuickChat 装配失败）——这就是 local 压缩的一种原因")
 	}
 	t.Logf("摘要器就位：%T", summarizer)
 

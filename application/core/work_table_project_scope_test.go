@@ -13,8 +13,8 @@ package core
 //
 // 与压缩时机的关系（两条装配路径都要复现，见 ...AcrossCompaction）：
 //   ① 未压缩装配：块直接前置进首轮请求（污染原样发给 provider）；
-//   ② 压缩时机：块的注入在折叠判据**之前**（coordinator.go 里先拼 currentInput
-//      再算 rawTokens / 折叠），所以污染同时进判据量、进压缩后的请求——折叠
+//   ② 压缩时机：块的注入在压缩判据**之前**（coordinator.go 里先拼 currentInput
+//      再算 rawTokens / 压缩），所以污染同时进判据量、进压缩后的请求——压缩
 //      不会把它洗掉，下一轮装配照样重新拼一遍（污染按轮持续）。
 //
 // 边界（本靶场刻意钉住，避免"修成另一个 bug"）：
@@ -161,10 +161,10 @@ func TestProjectSwitchDoesNotInjectForeignWorkTableRows(t *testing.T) {
 }
 
 // TestProjectSwitchWorkTableBlockStaysCleanAcrossCompaction —— 时机②：切换项目
-// 后的**折叠轮**与折叠之后的下一轮。
+// 后的**压缩轮**与压缩之后的下一轮。
 //
-// 判别力在两处：这一轮必须真的折叠（否则它与时机①同一条路径），以及折叠前后
-// 的请求输入都不含旧项目的行——污染在折叠判据之前就进了 currentInput，折叠不是
+// 判别力在两处：这一轮必须真的压缩（否则它与时机①同一条路径），以及压缩前后
+// 的请求输入都不含旧项目的行——污染在压缩判据之前就进了 currentInput，压缩不是
 // 一次清洗，切项目后它按轮重拼。
 func TestProjectSwitchWorkTableBlockStaysCleanAcrossCompaction(t *testing.T) {
 	pinMechanismCompactionRatios(t)
@@ -172,7 +172,7 @@ func TestProjectSwitchWorkTableBlockStaysCleanAcrossCompaction(t *testing.T) {
 	harness.enterProjectA(t)
 	harness.switchToProjectB(t)
 
-	// 折叠轮：给新会话攒够越线材料（20 轮 × 约 8k token），并建立执行纪元。
+	// 压缩轮：给新会话攒够越线材料（20 轮 × 约 8k token），并建立执行纪元。
 	// 材料与纪元都按**显式的会话**落（For 变体）：这条用例问的是"切换项目后新
 	// 会话的上下文干净不干净"，不拿"材料/回合登记落在哪个会话"当自变量——后者
 	// 由 TestProjectSwitchRebindsTaskRegistryToNewSession 单独盯。
@@ -183,19 +183,19 @@ func TestProjectSwitchWorkTableBlockStaysCleanAcrossCompaction(t *testing.T) {
 	harness.service.ViewMu.Unlock()
 
 	out, err := harness.service.components.context.PrepareExecutionContextFor(
-		harness.sessionB, "task-b-fold", "B 的折叠轮")
+		harness.sessionB, "task-b-fold", "B 的压缩轮")
 	if err != nil {
-		t.Fatalf("装配项目 B 折叠轮上下文: %v", err)
+		t.Fatalf("装配项目 B 压缩轮上下文: %v", err)
 	}
 	records := compactionRecords(harness.service, harness.sessionB)
 	if len(records) == 0 {
-		t.Fatal("夹具应触发自动折叠（否则两条时机其实是同一条路径，用例没有判别力）")
+		t.Fatal("夹具应触发自动压缩（否则两条时机其实是同一条路径，用例没有判别力）")
 	}
 	if strings.Contains(out, foreignTaskLabel) {
-		t.Errorf("跨项目工作表格污染（折叠轮）：项目 A 的活动任务进了项目 B 折叠后的请求输入：\n%s", out)
+		t.Errorf("跨项目工作表格污染（压缩轮）：项目 A 的活动任务进了项目 B 压缩后的请求输入：\n%s", out)
 	}
 
-	// 折叠之后的下一轮：块按轮重拼，污染不会随压缩消失。
+	// 压缩之后的下一轮：块按轮重拼，污染不会随压缩消失。
 	harness.service.ViewMu.Lock()
 	previous := harness.service.components.tasks.CurrentTaskExecutionFor(harness.sessionB)
 	harness.service.components.tasks.BeginTaskFor(harness.sessionB, "task-b-next", "B 的下一轮", "high", previous, TaskCheckpoint{})
@@ -203,13 +203,13 @@ func TestProjectSwitchWorkTableBlockStaysCleanAcrossCompaction(t *testing.T) {
 	next, err := harness.service.components.context.PrepareExecutionContextFor(
 		harness.sessionB, "task-b-next", "B 的下一轮")
 	if err != nil {
-		t.Fatalf("装配项目 B 折叠后下一轮上下文: %v", err)
+		t.Fatalf("装配项目 B 压缩后下一轮上下文: %v", err)
 	}
 	if strings.Contains(next, foreignTaskLabel) {
-		t.Errorf("跨项目工作表格污染（折叠后）：折叠之后仍把项目 A 的行拼进项目 B 的请求输入：\n%s", next)
+		t.Errorf("跨项目工作表格污染（压缩后）：压缩之后仍把项目 A 的行拼进项目 B 的请求输入：\n%s", next)
 	}
 	if block := harness.service.workTableTraceBlockFor(harness.sessionB); block != "" {
-		t.Errorf("跨项目工作表格污染（折叠后数据面）：新会话打点块非空：\n%s", block)
+		t.Errorf("跨项目工作表格污染（压缩后数据面）：新会话打点块非空：\n%s", block)
 	}
 }
 

@@ -118,7 +118,7 @@ func TestCompactFrameBodyCarriesZoneLayout(t *testing.T) {
 	// 不再是 v1 的 "## Context zones" 散文区块。
 	for _, want := range []string{
 		`"kind": "stable_prefix"`,
-		`"kind": "folded"`,
+		`"kind": "compacted"`,
 		`"kind": "protected_window"`,
 		`"cap_tokens": 9000`,
 		`"retained":`,

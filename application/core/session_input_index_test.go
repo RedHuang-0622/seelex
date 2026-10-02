@@ -160,7 +160,7 @@ func TestSessionInputIndexTruncatesSummary(t *testing.T) {
 		t.Fatalf("chars = %d, want %d（原文长度）", row.Chars, len([]rune(long)))
 	}
 
-	// 纯函数逐项：短文本不截断、空白折叠计入 chars、边界值不截断。
+	// 纯函数逐项：短文本不截断、空白压缩计入 chars、边界值不截断。
 	cases := []struct {
 		name      string
 		text      string

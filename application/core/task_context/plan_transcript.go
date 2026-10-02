@@ -259,14 +259,14 @@ func TranscriptPrefixRange(events []model.TranscriptEvent, end int) TranscriptEv
 // （transcript 事件下标；0 = 推不出来），供冷恢复还原
 // `TaskExecutionState.ContextRetainedFrom`。判据与口径：
 //
-//   - 取全部记录里最大的事件序号终点（EventTo）：折叠总是在既有前缀之上继续
-//     （events[:compressedTo] 单调变长），最大值即最后一次折叠覆盖到的边界；
+//   - 取全部记录里最大的事件序号终点（EventTo）：压缩总是在既有前缀之上继续
+//     （events[:compressedTo] 单调变长），最大值即最后一次压缩覆盖到的边界；
 //   - 该终点必须能在给定事件流里**按事件序号定位**（存在 Seq == EventTo 的
 //     事件），命中的下一条就是保留窗口的首个事件——这与
 //     `TaskExecutionState.ContextRetainedFrom` 的语义同源：events[:n] 是已被
 //     折出窗口的前缀，events[n:] 才是 provider 侧累积上下文；
 //   - 定位不到（老记录没有区间字段、区间落在本次读回的窗口之外）就返回 0，
-//     **不猜**：0 与"尚未折叠"同义，后果只是下一次装配可能把已经不在事件流里
+//     **不猜**：0 与"尚未压缩"同义，后果只是下一次装配可能把已经不在事件流里
 //     的旧前缀再计入一次预算（那段前缀本身不可见时会重新生成一个帧，不会重复
 //     进上下文），比推一个错边界（可能在会话中段切断历史）安全得多；
 //   - 调用方只应在**存储事件流**上用这个函数：从可见会话重建的事件流会重新编码

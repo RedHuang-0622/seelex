@@ -82,7 +82,7 @@ func TestChunkReplayMessagesSplitsOnProtocolUnits(t *testing.T) {
 }
 
 // TestSummarizeChunkPlanFailsSafely：缺少摘要器 / 空计划 / 任一片失败都必须整条
-// 退出（由调用方回退本地确定性折叠，绝不中断请求）。
+// 退出（由调用方回退本地确定性压缩，绝不中断请求）。
 func TestSummarizeChunkPlanFailsSafely(t *testing.T) {
 	plan := ReplayChunkPlan{Chunks: [][]types.Message{replayTestTurns(1), replayTestTurns(1)}}
 	if _, err := SummarizeChunkPlan(context.Background(), nil, ReplayRequest{}, plan); err == nil {
@@ -93,7 +93,7 @@ func TestSummarizeChunkPlanFailsSafely(t *testing.T) {
 	}
 	failing := &recordingSummarizer{failOn: 2}
 	if _, err := SummarizeChunkPlan(context.Background(), failing, ReplayRequest{}, plan); err == nil {
-		t.Fatal("片失败必须整条退出（由调用方回退本地折叠）")
+		t.Fatal("片失败必须整条退出（由调用方回退本地压缩）")
 	}
 	if len(failing.requests) != 2 {
 		t.Fatalf("失败前应恰好请求 2 片，得到 %d", len(failing.requests))

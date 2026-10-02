@@ -14,7 +14,7 @@ import (
 // historyReadRow 是 R1 输出的一行：事件行 + 展示标记。
 type historyReadRow struct {
 	Event
-	// Internal 标记 internal_user/context 行（前端可过滤或折叠展示）。
+	// Internal 标记 internal_user/context 行（前端可过滤或压缩展示）。
 	Internal bool `json:"internal,omitempty"`
 	// Placeholder 标记 LRU 已淘汰区摘要占位（无正文原文）。
 	Placeholder bool `json:"placeholder,omitempty"`

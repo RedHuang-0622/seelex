@@ -4,7 +4,7 @@
 // 证明「前缀重放素材没做 wire 协议规整」就是
 // 现场那个 400 的充分原因，并证明规整后**同一素材**可以成功重放。
 //
-// 现场（2026-09-29 18:06 / 19:18 两次装配层折叠）的 provider 报文：
+// 现场（2026-09-29 18:06 / 19:18 两次装配层压缩）的 provider 报文：
 //
 //	HTTP 400 An assistant message with 'tool_calls' must be followed by tool
 //	messages responding to each 'tool_call_id'. (insufficient tool messages

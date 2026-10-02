@@ -7,11 +7,11 @@ import (
 )
 
 // TestContextBudgetDoesNotRecompactWithoutNewContent 钉住回合边界达峰判据的
-// 幂等边界：一次折叠已经把保留窗口收敛到软阈值以下后，**没有新增 transcript
+// 幂等边界：一次压缩已经把保留窗口收敛到软阈值以下后，**没有新增 transcript
 // 内容**的下一回合不得再压一次。
 //
 // 复现的真实链路（见 context_runtime.prepareExecutionContextFor）：
-//  1. 回合 1 的 transcript 尾窗落在预算内、软阈值之上 → 折叠并落一条压缩记录；
+//  1. 回合 1 的 transcript 尾窗落在预算内、软阈值之上 → 压缩并落一条压缩记录；
 //  2. 回合 2 只有新一轮的用户输入（装配前已被 excludeCurrentInputEvent 排除），
 //     transcript 事实未增长；
 //  3. 判据若仍从**整个 transcript 头部**重新累积，就会再次越过软阈值 → 每个
@@ -21,7 +21,7 @@ func TestContextBudgetDoesNotRecompactWithoutNewContent(t *testing.T) {
 	applyWindowConfig(t, WindowConfig{})
 	service, engine, sessionID := compactTestService(t, "task-frequency-1")
 	// 20 轮 × 约 8k token ≈ 160k token：高于生效软阈值、低于生效预算 ——
-	// 首轮必须折叠，且折叠落点必须从"占比保留"（ratio × all）再
+	// 首轮必须压缩，且压缩落点必须从"占比保留"（ratio × all）再
 	// 收口到生效配置的压缩目标（context_target_percent × 预算），给下一轮留出
 	// 确定余量。两个数字都从生效预算读取，不在用例里写死。
 	appendWindowRounds(t, service, "task-frequency-1", 20, 32_000)
@@ -30,16 +30,16 @@ func TestContextBudgetDoesNotRecompactWithoutNewContent(t *testing.T) {
 		t.Fatalf("首个回合装配: %v", err)
 	}
 	if records := compactionRecords(service, sessionID); len(records) != 1 {
-		t.Fatalf("首轮压缩记录 = %d 条, want 1（用例前提：首轮达峰折叠一次）", len(records))
+		t.Fatalf("首轮压缩记录 = %d 条, want 1（用例前提：首轮达峰压缩一次）", len(records))
 	}
-	// 折叠后的历史（判据/装配同款估算器）必须收口到**配置的压缩目标**，而不是
+	// 压缩后的历史（判据/装配同款估算器）必须收口到**配置的压缩目标**，而不是
 	// 停在占比保留窗口。目标从生效预算读取，不在用例里写死百分比。
 	budget := task_context.ContextBudgetFor(service.Deps.Runtime)
 	if budget.TargetAfterCompaction <= 0 {
 		t.Fatalf("生效预算没有压缩目标：%+v", budget)
 	}
 	if historyTokens := service.components.tasks.CountRequestTokens("", engine.History(), "", nil); historyTokens > budget.TargetAfterCompaction {
-		t.Fatalf("折叠后历史 = %d tokens, want ≤ %d（context_target_percent 应决定落点）",
+		t.Fatalf("压缩后历史 = %d tokens, want ≤ %d（context_target_percent 应决定落点）",
 			historyTokens, budget.TargetAfterCompaction)
 	}
 

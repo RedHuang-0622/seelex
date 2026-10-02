@@ -53,12 +53,12 @@ flowchart TB
 | `dist/runtime-events.js` | Wails `EventsOn` 就绪探测、幂等绑定与 ready/event 转发（ready 走 `acceptBaseline`）。 |
 | `dist/conversation-view.js` / `chat-view.js` | 变高 keyed conversation、顶部 history sentinel（自动翻更早页由 `shouldAutoLoadOlder` 把关：**停在尾部时一律不翻**）、chat activity 渲染；历史加载用「按消息 key 的锚点」保持阅读位置。 |
 | `dist/conversation-wheel.js` | 右侧「会话内用户输入索引」：一条刻度 = 一条用户输入，且**覆盖整会话**（刻度表来自后端全量索引 `Bridge.SessionInputIndex`，含尚未加载到窗口的早期轮次；`app.js` 推入 + 宿主回读通道 `locateInput`）。位置：已加载轮次用问题节点在内容里的真实高度比例，未加载轮次按确定性比例布点；只索引用户输入（不再退回助手步骤/多类别刻度），当前输入高亮、悬停出摘要、点击跳到对应输入——未加载的目标先按页回读（`planInputLocate`/`locateInput`）再定位，回读通道未装配时只提示不空转；键盘 ↑↓/PgUp/PgDn/Home/End 只作用于用户输入刻度。纯函数（`normalizeInputIndex`/`planInputLocate`/`inputAtOffset`/`activeInputIndex`/`scrollTopForFraction`）可离线单测。空态只做视觉隐藏（`display:none` 会让轨道高度量成 0，轮轴再也出不来）。 |
-| `dist/trajectory.js` | 轨迹（Network 风格响应日志）纯函数：响应类型分类（input/llm/tool/error/system/notice；`role=system`/`kind=system` 独立成「系统」轨，`message.kind` 显式类别优先，无 kind 的旧数据回退 role 判定）、tool 请求/响应配对、过滤、统计、表格渲染与多线谱分轨上下文轴。多线谱语义集中在 `AXIS_LANES`（轨定义与顺序单一事实源）：每类响应占一条固定轨，块宽只表达该记录在轴上的相对体量（`contextAxisWeight`），入轨与定位由 `axisBlocks` 统一计算，不再出现同一块两套位置语义。轴还内联前缀注入（`prefixLayerSegments`，Bridge.PromptLayers）、压缩刻度（`compactionMarks`，snapshot.task.context_compactions）与压缩分界虚线（`renderCompressionCutRow`：每个压缩点一条竖向虚线 + 「以上 … 已被折叠」，只画锚定在本页的刻度——钳到页边界的刻度位置不真实，不画假线）三条元数据轨与 `renderAxisDetail` 详情（压缩详情内按 `frame_ref` 分页读回折叠帧正文）。 |
+| `dist/trajectory.js` | 轨迹（Network 风格响应日志）纯函数：响应类型分类（input/llm/tool/error/system/notice；`role=system`/`kind=system` 独立成「系统」轨，`message.kind` 显式类别优先，无 kind 的旧数据回退 role 判定）、tool 请求/响应配对、过滤、统计、表格渲染与多线谱分轨上下文轴。多线谱语义集中在 `AXIS_LANES`（轨定义与顺序单一事实源）：每类响应占一条固定轨，块宽只表达该记录在轴上的相对体量（`contextAxisWeight`），入轨与定位由 `axisBlocks` 统一计算，不再出现同一块两套位置语义。轴还内联前缀注入（`prefixLayerSegments`，Bridge.PromptLayers）、压缩刻度（`compactionMarks`，snapshot.task.context_compactions）与压缩分界虚线（`renderCompressionCutRow`：每个压缩点一条竖向虚线 + 「以上 … 已被压缩」，只画锚定在本页的刻度——钳到页边界的刻度位置不真实，不画假线）三条元数据轨与 `renderAxisDetail` 详情（压缩详情内按 `frame_ref` 分页读回压缩帧正文）。 |
 | `dist/compaction-format.js` | 压缩记录的展示口径（纯函数、零依赖）：原因/来源标签、被压区间（`compactionRangeText`）、分界标注（`compactionCutLabel`）——右栏「上下文压缩」条目与轨迹压缩轨/详情共用同一份，避免同一条记录两种读法。区间只取记录里已有的边界字段，绝不用 `messages_before`（装配前的引擎历史条数）冒充消息条数。还有门禁进度的累计与耗时文案：`mergeCompactionProgress`（把一帧 `compaction.progress` 并进本轮，判轮次边界、累加逐关耗时、终局沿用最后一条 running 的序号，见 `dist/compaction-format.test.mjs`）与 `compactionGateDurationText`（不足 1ms 写 `<1ms`，不写 `0ms` 也不凑成 1ms）。 |
-| `dist/context-summary.js` | 右栏「状态」子页的「上下文压缩」条目：版本/原因/来源/被压区间/估算/时间 + 展开后按 `frame_ref` 分页读回的折叠帧正文（与轨迹详情同一容器与分页组件）。此前只有一句硬编码英文占位句，没有区间、没有来源、不可展开。条目上方还有一轮压缩的门禁进度条（复用 Plan 面板的轨道）+ **逐关耗时清单**：压缩整轮只有几十毫秒，进度条不可能「慢慢走」，能看见串行工作的就是这份清单（每关一行 + 该关实测毫秒；起手帧那一关还没有数字，写「进行中」而不编耗时）。 |
+| `dist/context-summary.js` | 右栏「状态」子页的「上下文压缩」条目：**seq 徽标**（= 压缩版本号，复用 `components.js renderSeqBadge`：goal 看板 active seq 与压缩条目共用同一件）/原因/来源/被压区间/估算/时间 + 展开后按 `frame_ref` 分页读回的压缩帧正文（与轨迹详情同一容器与分页组件）。**压缩失败**在同一张表里排一条痕（`failed=true`：失败色 + 「失败」标记 + 原因跨整行 + 动作列写「上下文原样」，无区间/无帧），因为它不是一次压缩——但它必须查得到（此前只活在 6 秒的瞬态进度条里）。此前只有一句硬编码英文占位句，没有区间、没有来源、不可展开。条目上方还有一轮压缩的门禁进度条（复用 Plan 面板的轨道）+ **逐关耗时清单**：压缩整轮只有几十毫秒，进度条不可能「慢慢走」，能看见串行工作的就是这份清单（每关一行 + 该关实测毫秒；起手帧那一关还没有数字，写「进行中」而不编耗时）。静态原型见 `dist/compaction-preview.html`（真渲染件 + 真样式，五格夹具）。 |
 | `dist/trajectory-view.js` | 轨迹视图组件：对话区「轨迹」子页的上下文轴（记录轨 + 前缀注入/压缩元数据轨）/轴详情/过滤条/摘要/表格 keyed 渲染，行内复制/展开/result_ref 分页读回，本地过滤状态；普通轴块点击切回全量并定位轨迹行，元数据块点击开轴详情。**上下文轴分页**：滚轮在轴区域内翻页（`axisWheelStep` 累积阈值、一页一屏语义）、`Shift+滚轮`换页大小（`AXIS_PAGE_SIZE_STEPS`/`stepAxisPageSize`，带页码与页大小提示），分页窗口计算是纯函数（`resolveAxisPage`/`axisPageWindow`/`axisPageForIndex`）；翻到尚未加载的更早区间时提示并以既有 `loadMore` 通道回读，不静默跳位。 |
 | `dist/components.js` | message/tool/queue 等纯渲染组件；对话滚动轴（thinking / tool 各自可展开收起，LLM 正文内联）与左侧调试 id。 |
-| `dist/html-embed.js` | 会话内 HTML 渲染块：`seelex-html`（别名 `html-preview`）围栏 → **沙箱 iframe**（`sandbox="allow-scripts"`，**无 `allow-same-origin`**）+ srcdoc 内嵌 CSP（`default-src 'none'`、断网、仅 data: 图片）+ 源码折叠；`title=`/`height=` 参数，高度钳制 120–640px；`interactive=1` 表示这一块自愿驱动会话（说明牌同步显示）。**跨帧动作协议**住在这里（标签、`data-seelex-action`/`data-seelex-payload`、动作表、注入脚本）——零 import，测试按 data: URL 内联它。普通 ```html 仍是源码块。 |
+| `dist/html-embed.js` | 会话内 HTML 渲染块：`seelex-html`（别名 `html-preview`）围栏 → **沙箱 iframe**（`sandbox="allow-scripts"`，**无 `allow-same-origin`**）+ srcdoc 内嵌 CSP（`default-src 'none'`、断网、仅 data: 图片）+ 源码压缩；`title=`/`height=` 参数，高度钳制 120–640px；`interactive=1` 表示这一块自愿驱动会话（说明牌同步显示）。**跨帧动作协议**住在这里（标签、`data-seelex-action`/`data-seelex-payload`、动作表、注入脚本）——零 import，测试按 data: URL 内联它。普通 ```html 仍是源码块。 |
 | `dist/embed-bridge.js` | 会话内 HTML 渲染块的**动作通道宿主侧判据**（iframe → 宿主 · postMessage）：解析 → 动作白名单（`ask-agent` / `fill-composer` / `copy-text` / `open-source`）→ 载荷上限 → 块级自愿（driving 动作要求围栏 `interactive=1`）→ 滑动窗口限流与同正文去重。身份按 **`event.source`** 比对（沙箱 iframe 是 opaque origin，`event.origin` 恒为 `"null"`，按 origin 判等于不判）；有后果的动作还要求块内 1.5s 内的**真实手势**（帧内脚本按 `event.isTrusted` 记时，`onload`/timer 自动重放被丢）。落点在 `app.js`：复制 / 写输入框（不发送）/ 走 `SubmitToSession` 发一条请求 / 展开该块源码。纯函数，含 `embed-bridge.test.mjs`。 |
 | `dist/theme.js` | 换肤加载层（**两轴**：深浅 × 皮肤）：读 `themes/manifest.json` → 归一化 → 切 `<html data-theme>`（深浅）与皮肤 `<link>`（品牌）；id 限 `[a-z0-9-]`、路径只允许 `themes/<id>.css`（防路径逃逸）；皮肤记 `localStorage["seelex.skin"]`、深浅记 `localStorage["seelex.mode"]`。 |
 | `dist/themes/` | 内置皮肤包 + `manifest.json`（schema 2：`skins[]` + `modes[]`）：皮肤只覆盖**品牌 token**（主信号 + 环境渐变，8 个 `--skin-*`），中性基座由深浅在 `styles.css` 提供（契约与 token 清单见 `themes/README.md`），皮肤不写选择器、不用 `!important`、不引远程资源。 |
@@ -239,7 +239,7 @@ retry 状态展示 `RETRY n`（retry_count）。
 右栏默认三个子页（`.right-tabs`，默认激活「状态」）：
 
 - **状态**：项目状态表（状态/会话/消息/任务/文件数）+「概要」= 压缩栈表格
-  （一行一次折叠，点行读帧正文；原「状态」面板整体移入）。
+  （一行一次压缩，点行读帧正文；原「状态」面板整体移入）。
 - **工作台**：「目标」面板 + 工作表格入口 + 定时任务面板。
 - **代码**（资源管理器）：左右分栏——左「内容详情」抽屉 + 右**三个平级子页**
   （工作树 / 提交记录 / 工作区更改）。子页用一条内嵌页签切换（`role=tablist`，
@@ -423,7 +423,7 @@ excel-grid 改成**一条回合一行**（行号 = seq，时间自上而下；�
 `—`，不冒充它记得的上下文）。样式在 `styles.css` 的 `.role-record-*`（不再依赖
 `.excel-grid`）。
 
-### 页签与折叠口径（2026-09 交互改版）
+### 页签与压缩口径（2026-09 交互改版）
 
 - **选中页签 = 静止胶囊（2026-09-24 换代，取代纸质笔记本书签拟物）**：选中态统一成
   "同色系薄底 + 同色系重字"（`--hl-fill` / `--hl-ink`，`styles.css` 第 27 节 j），
@@ -528,7 +528,7 @@ composer 的输入前缀是一份**跨前后端契约**，前端只消费不发�
   内容回卷，再点还是同一页」）。
 - **自动翻页只在用户离开尾部时发生**（`conversation-view.js` 的
   `shouldAutoLoadOlder`）：窗口整体后退会把尾部那段移出 DOM，所以用户停在尾部时
-  sentinel 的任何几何触发（容器 `display:none` 后重新显示、侧栏折叠、布局抖动
+  sentinel 的任何几何触发（容器 `display:none` 后重新显示、侧栏压缩、布局抖动
   把 sentinel 带进 `rootMargin`）都不得翻页——否则"最新消息"会在用户没做任何
   操作的情况下从 DOM 消失。「加载更早」按钮走宿主命令，不受这条限制。
 - 回看更早历史期间（`history_offset + 窗口条数 < total_messages`，前端判据
@@ -553,7 +553,7 @@ composer 的输入前缀是一份**跨前后端契约**，前端只消费不发�
 没有 user 轮时（长会话翻到中段）退回按助手步骤分段，右侧不会空着。刻度表随
 DOM 重新测量：加载更早历史、增量新消息、容器缩放后自动重建，不需要任何
 「刻度加载」状态。类型与摘要来自渲染层写入的 `data-wheel-kind`/`data-wheel-label`。
-轨迹子页仍保留全部工具 IN/OUT 与思考全文，不做折叠。
+轨迹子页仍保留全部工具 IN/OUT 与思考全文，不做压缩。
 
 回答里需要图表/示意图时，用显式标记的围栏块让前端渲染 HTML：
 
@@ -654,19 +654,19 @@ background:transparent }`` 这类规则特异性高于自绘控件的类规则�
 未激活时只缓存数据面（懒渲染），增量事件到达时重新投影。顶部上下文轴在
 六条响应类型轨之外内联两条元数据轨：「前缀注入」轨（Bridge.PromptLayers
 的会话级当前层，段宽=层文本占比、横跨整轴，点击开详情看全文——替代旧独立
-「前缀注入」面板）、「压缩」轨（`snapshot.task.context_compactions` 的折叠帧刻度，
+「前缀注入」面板）、「压缩」轨（`snapshot.task.context_compactions` 的压缩帧刻度，
 锚定压缩发生时会话推进位置；**每段是竖向虚线**，栈顶/当前前沿用
-`--compaction-frame-latest`（浅底深灰）、被更晚折叠取代的用
+`--compaction-frame-latest`（浅底深灰）、被更晚压缩取代的用
 `--compaction-frame-stale`（浅底浅灰）——两个 token 只是中性 ramp 的别名，
 所以深色模式的倒置由深浅基座自己完成，不写第二套色值）与「分界」轨（**会话单例**：
-只画当前前沿那一条竖向虚线 + 「以上 消息 …（事件 …）已被折叠」标注，历次折叠各画
+只画当前前沿那一条竖向虚线 + 「以上 消息 …（事件 …）已被压缩」标注，历次压缩各画
 一条会让读者以为两条线之间那段还发给模型）。刻度与虚线都可点：详情按公开元数据
-（版本/原因/来源/被压区间/时间）如实展开，并给出「折叠帧正文」入口——正文不进快照，
+（版本/原因/来源/被压区间/时间）如实展开，并给出「压缩帧正文」入口——正文不进快照，
 前端按记录里的 `frame_ref` 经 `Bridge.ToolResultContent` 分页读回（同一个分页组件，
-不再把用户指向模型侧工具）。system prompt 与压缩的注入/折叠均可 trace 到轴上，
+不再把用户指向模型侧工具）。system prompt 与压缩的注入/压缩均可 trace 到轴上，
 粒度到会话级当前层与每次压缩事件）。
 
-右栏「状态」子页的「概要」区**有且仅有压缩栈表格**（2026-09-26 口径：一行一次折叠，
+右栏「状态」子页的「概要」区**有且仅有压缩栈表格**（2026-09-26 口径：一行一次压缩，
 栈顶在前、按新旧下沉，前沿行标「栈顶」并取深灰，过时行降为浅灰；点行读本帧正文，
 弹框入口同排）。原先挤在同一区的英文作用域说明已删——它说的两件事由项目名/根路径
 与上面的状态表承载。表格与轨迹压缩详情、对话区分界共用同一份口径函数
@@ -773,7 +773,7 @@ containment/敏感过滤/符号链接拒绝/上限钳制/截断/二进制探测�
 ## Context compression summary
 
 Overview in the status sub-page holds **only** the compaction stack, rendered as a table: one row per successful compression, newest first, the frontier row flagged 栈顶, and the frame body read back on demand by reference — the body stays in the session content store and is paged through `Bridge.ToolResultContent` (`frame_ref`). The English scope sentence that used to sit in the same section is gone (the project name, root path and the status table already carry it), and the card list it shared the section with is replaced, because free-layout cards misalign in a ~300px rail. Prompt text, tool payloads and raw conversation history are still not part of the snapshot; the entry no longer claims “details can be re-read when needed” without offering an entry point.
-The trajectory axis marks each frame with a **dashed** vertical tick — frontier frame in `--compaction-frame-latest`, superseded frames in `--compaction-frame-stale`; both alias the neutral ramp, so the dark-mode inversion needs no second palette — plus exactly one cut line for the current frontier, captioned `以上 消息 …（事件 …）已被折叠`, so the folded prefix reads as a boundary rather than a bare tick. In the conversation column the same frontier is a dashed separator whose chip states in visible text that the messages above it remain readable and are simply no longer sent to the model.
+The trajectory axis marks each frame with a **dashed** vertical tick — frontier frame in `--compaction-frame-latest`, superseded frames in `--compaction-frame-stale`; both alias the neutral ramp, so the dark-mode inversion needs no second palette — plus exactly one cut line for the current frontier, captioned `以上 消息 …（事件 …）已被压缩`, so the compacted prefix reads as a boundary rather than a bare tick. In the conversation column the same frontier is a dashed separator whose chip states in visible text that the messages above it remain readable and are simply no longer sent to the model.
 
 A compression round is also visible **while it runs**. The backend publishes `compaction.progress` (one frame per gate, exactly one terminal frame; session-routed, `revision=0`, so it never enters the snapshot) and the right column renders a gate progress bar over the plan-board track plus a per-gate duration list. The block itself lives **inside the 状态 fold, right after 概要** (user口径: “上下文压缩内容需要放到状态的概要下面”); because that fold starts collapsed, `repaintCompactions` reveals it (`revealStatusPanel`) whenever a round is in flight — records alone never force it open, so a manual collapse is not fought back (`gui/frontend/dist/status-panel.test.mjs` pins both halves). Two properties make the round readable rather than a single green flash: the explicit path (`/compact`, `compact_context`) emits a **begin frame before the first expensive step** — the round has two silent stretches otherwise, the judge gate (22–40 ms on a 640 KB fixture: two whole-request token estimates, full accumulated context + engine cache peak) and the frame gate (15–19 ms) — so pressing Enter gives feedback immediately instead of "no reaction"; and every frame carries the wall-clock milliseconds of the segment that just finished (`elapsed_ms`, 0 for the begin frame), so the list answers "which gate was slow" for a round that is over in tens of milliseconds. The automatic path deliberately has no begin frame (whether to fold *is* the outcome of that estimate), which keeps the older rule intact: no fold, no progress. Gates whose segment is under a millisecond print `<1ms`; the begin frame's gate prints `进行中` and never takes a checklist row of its own — the UI never invents a duration it does not have.
 

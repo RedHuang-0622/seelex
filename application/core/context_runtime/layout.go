@@ -10,7 +10,7 @@ import (
 	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
-// 本文件把《上下文前缀链路 · 压缩四区模型》的四区显式化，并把与折叠有关的决策
+// 本文件把《上下文前缀链路 · 压缩四区模型》的四区显式化，并把与压缩有关的决策
 // 收敛成**同一份**结构：判据（软硬阈值、保留窗口）与报表（门禁 Detail、帧正文的
 // 四区区块）都读 ContextLayout，不再各算一份。此前的教训正是"报表口径与判据口径
 // 分开演化"：界面上显示"超了硬线"而实际什么都没发生，两处数字对不上。
@@ -20,9 +20,9 @@ const (
 	// ZoneStable 是 ① 绝不压的前缀：system 稳定层（identity/plugin/effort/
 	// instructions）+ 插件级 skill 目录 + 稳定栈块（compact 栈顶帧摘要）。
 	ZoneStable = "stable_prefix"
-	// ZoneFolded 是 ② 被压掉的上下文：折出保留窗口的完整协议单元 → 折成
+	// ZoneCompacted 是 ② 被压掉的上下文：折出保留窗口的完整协议单元 → 折成
 	// 有界 checkpoint 帧（wire 上只留帧标记块）。
-	ZoneFolded = "folded"
+	ZoneCompacted = "compacted"
 	// ZoneProtected 是 ③ 窗口保护的上下文：保留窗口内的完整协议单元，
 	// 整条 message 不切。
 	ZoneProtected = "protected_window"
@@ -142,13 +142,13 @@ type zoneCounter func(systemPrompt string, history []contract.EngineMessage, cur
 // 分区判据全部是**消息自身的事实**（role + 前缀标记），不做位置推算：
 //
 //	① stable_prefix   —— role=system 且不是 plan 尾部/自主压缩帧的消息
-//	② folded          —— 压缩帧标记块（compact-context / 自主压缩帧）：被折出
+//	② compacted       —— 压缩帧标记块（compact-context / 自主压缩帧）：被折出
 //	                     窗口的上下文在 wire 上只剩这一块
 //	③ protected_window—— 其余历史消息（保留窗口内的完整协议单元）
 //	④ tail            —— plan 上下文消息（含政策段）
 //	⑤ current_input   —— 当轮输入（含 worktable 打点块）
 //
-// 未折叠时 ② 为 0（没有任何内容被折出），③ 即全部累积的已定稿轮次——与
+// 未压缩时 ② 为 0（没有任何内容被折出），③ 即全部累积的已定稿轮次——与
 // 《压缩四区模型》"要判定的只是 ③ 从哪里开始"一致。
 //
 // 口径边界（不粉饰）：本层能看见的是**引擎消息数组**加引擎级 system prompt。
@@ -166,7 +166,7 @@ func ContextZones(
 	}
 	sources := map[string]string{
 		ZoneStable:    "system 稳定层 + 插件级 skill 目录 + 稳定栈块",
-		ZoneFolded:    "折出窗口的完整协议单元（wire 上只剩 checkpoint 帧标记）",
+		ZoneCompacted: "折出窗口的完整协议单元（wire 上只剩 checkpoint 帧标记）",
 		ZoneProtected: "保留窗口内的完整协议单元",
 		ZoneTail:      "plan 上下文消息（含 plan 政策段）",
 		ZoneInput:     "当轮输入（含 worktable 打点块）",
@@ -178,7 +178,7 @@ func ContextZones(
 			buckets[ZoneTail] = append(buckets[ZoneTail], message)
 		case strings.HasPrefix(message.Content, seelexctx.CompactContextMarker),
 			strings.HasPrefix(message.Content, AutonomousCompactionPrefix):
-			buckets[ZoneFolded] = append(buckets[ZoneFolded], message)
+			buckets[ZoneCompacted] = append(buckets[ZoneCompacted], message)
 		case message.Role == "system":
 			buckets[ZoneStable] = append(buckets[ZoneStable], message)
 		default:
@@ -193,7 +193,7 @@ func ContextZones(
 		}}, buckets[ZoneStable]...)
 	}
 	zones := make([]ContextZone, 0, len(sources))
-	for _, kind := range []string{ZoneStable, ZoneFolded, ZoneProtected, ZoneTail} {
+	for _, kind := range []string{ZoneStable, ZoneCompacted, ZoneProtected, ZoneTail} {
 		messages := buckets[kind]
 		zones = append(zones, ContextZone{
 			Kind: kind, Tokens: count("", messages, "", nil),
@@ -235,8 +235,8 @@ func retainWindowDecision(
 	// 在报表里报成生效（否则「我明明配了下限」会变成另一个不可对账的数字）。
 	decision.FloorApplied = decision.FloorTokens > 0 &&
 		decision.Retained > config.RetainedContextTokens(allContextTokens, budget.Window)
-	// target 是折叠后的请求落点（limits.context_target_percent），作为保留区的
-	// 最终硬上限：与 soft 的差就是每次折叠留下的余量。不设上限时（0）保持旧行为。
+	// target 是压缩后的请求落点（limits.context_target_percent），作为保留区的
+	// 最终硬上限：与 soft 的差就是每次压缩留下的余量。不设上限时（0）保持旧行为。
 	decision.TargetTokens = budget.TargetAfterCompaction
 	if decision.TargetTokens > 0 && decision.Retained > decision.TargetTokens {
 		decision.Retained = decision.TargetTokens

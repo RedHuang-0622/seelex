@@ -61,7 +61,7 @@ func TestGoalStackNotUsedForCompactionSummary(t *testing.T) {
 			GoalID: "goal-1", Title: "这是栈内目标，不得冒充压缩目标", Status: "active",
 		}},
 	}
-	body := LocalChapter2(LocalFoldOptions{Record: record})
+	body := LocalChapter2(LocalCompactOptions{Record: record})
 	section := sectionBodyBetween(body, Chapter2SectionGoal)
 	if section != "" && strings.Contains(section, "这是栈内目标") {
 		t.Fatalf("goal stack must not feed compaction summary Goal section:\n%s", body)

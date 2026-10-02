@@ -250,7 +250,7 @@ func formatWorkDuration(duration time.Duration) string {
 // 两个输入都必须是**锁外采样**后按值传进来的：任务注册表快照与后台作业投影都要读
 // 宿主，而后台作业投影会对每条记录做 stat + 读日志末窗（文件 I/O）。持进程级视图
 // 写锁采样 = 把整块交互面押在一次慢活上（2026-09-29 锁面审计 §2.5，与 2026-09-29
-// 折叠持 ViewMu 推帧的"后果②"同形）。
+// 压缩持 ViewMu 推帧的"后果②"同形）。
 func (state *serviceState) refreshWorkTableLocked(tasks []dto.TaskRecord, asyncRuns []dto.AsyncRunRecord) {
 	rows := buildWorkTable(
 		state.Snapshot.Runtime.Plan,

@@ -38,7 +38,7 @@
 | GUI-DOM-001 | keyed DOM 局部更新 | [Render §4](modules/conversation-rendering.md#4-keyed-dom-协调) | `components.js:50-66`；`conversation-view.js:41-70` | `components.test.mjs:41` + 手工 WebView | 有条件通过：key model 已测，DOM reconciliation 待 E2E |
 | GUI-DOM-002 | 自动跟随与阅读位置保护 | [Render §5](modules/conversation-rendering.md#5-滚动策略) | `conversation-view.js:97-117` | 手工 WebView | 有条件通过：算法明确，缺 DOM layout 自动测试 |
 | GUI-MD-001 | 安全 Markdown 子集 | [Render §7](modules/conversation-rendering.md#7-markdown-与-think) | `markdown.js:6-53,86-201,264-275` | `markdown.test.mjs:8-55` | 通过：原始 HTML、危险 URL 和 code inert 均覆盖 |
-| GUI-MD-002 | think 折叠与流式展开 | [Render §7](modules/conversation-rendering.md#7-markdown-与-think) | `markdown.js:55-84` | `markdown.test.mjs:57-82` | 通过：闭合、未闭合、fence 三种边界覆盖 |
+| GUI-MD-002 | think 压缩与流式展开 | [Render §7](modules/conversation-rendering.md#7-markdown-与-think) | `markdown.js:55-84` | `markdown.test.mjs:57-82` | 通过：闭合、未闭合、fence 三种边界覆盖 |
 | GUI-SHL-001 | 三栏项目工作区 | [Shell §2](modules/shell-and-interactions.md#2-页面信息架构) | `index.html:10-82`；`app.js:108-125`；`styles.css` layout sections | embedded asset test + 手工 WebView | 有条件通过：结构稳定，响应式待多平台截图/E2E |
 | GUI-SHL-002 | Runtime 弹层 | [Shell §7](modules/shell-and-interactions.md#7-runtime-effort-与审批交互) | `index.html:84-105`；`app.js:166-235,256-265` | Bridge switch tests + 手工 modal | 有条件通过：业务动作有 test，弹层交互待 E2E |
 | GUI-EFF-001 | Effort 常驻且独立于弹窗 | [Effort §1,6](modules/effort-control.md#1-目标与边界) | `index.html:14-22`；`bridge_test.go:228-241` | `bridge_test.go:187-244` | 通过：嵌入资源契约固定 topbar/modal 边界 |

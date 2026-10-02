@@ -13,7 +13,7 @@
 - 做：`PrepareExecutionContext`、`CompactTaskContext`、超限工具结果拒绝、
   `RemoveTaskContextCheckpoints`、`PrepareProviderHistory`。装配顺序为
   system → 累积 context（达峰前 append-only 全量已定稿轮次）→ plan 尾部；
-  达到软阈值时压缩（折叠 compact 栈顶 + context 窗口，发布
+  达到软阈值时压缩（压缩 compact 栈顶 + context 窗口，发布
   `RecordContextCompactionLocked`），压缩后为有界新鲜窗口。checkpoint 正常
   路径不再注入 LLM 上下文，只保留恢复路径（根包 `history_safety.go` 的
   provider 504 / history-safety 信封）与持久化数据面（`RememberCheckpointLocked`）。
@@ -22,29 +22,29 @@
   兜底不再走 `events=nil` 的空历史分支；真正超出全量预算时由
   `PrepareExecutionContextFor` 返回 `ErrProviderContextBudgetExceeded`。
 - **达峰判据的累积起点**：`TaskExecutionState.ContextRetainedFrom` 记录上一次
-  折叠覆盖到的 transcript 绝对事件下标。判据量、保留窗口与累积装配都只从该
+  压缩覆盖到的 transcript 绝对事件下标。判据量、保留窗口与累积装配都只从该
   起点往后看——被折出的前缀不再回填，否则长会话每次装配都重新累积全量、
   稳定越线，表现为"一发消息压一次"。折出后起点前移到新的保留窗口边界；
-  未折叠的回合不动，跨回合由 `continuationTaskExecutionState` 继承。
+  未压缩的回合不动，跨回合由 `continuationTaskExecutionState` 继承。
 - **同一把 token 尺子**：尾窗选择走 `TranscriptTailWindowBy` 注入请求装配
   所用的估算器（`Coordinator.transcriptUnitTokens`）。事件自带的 `TokenCount`
   是落盘那一刻的估算值，校准因子变化后与当前估算漂移；按记录值裁窗、按当前
   值判峰会得到"裁完仍越线"的循环。冷读装载仍用记录值口径（只装载、不做
   压缩判据）。
-- **落点由配置收口**：折叠目标 = `RetainDecision.Retained`，在
+- **落点由配置收口**：压缩目标 = `RetainDecision.Retained`，在
   `min(token1, ratio × all)` 与保护区下限之外再受
   `limits.context_target_percent × 预算` 硬上限约束（`TargetTokens`/
   `TargetApplied` 是同一份决策事实，`Terse()` 与帧正文照实渲染）。保留窗口
-  与 soft 之间的差额就是每次折叠留下的余量；两者相等或反超会退化成每回合重压。
-- 做：**显式压缩（`/compact`、`compact_context`）两条路径都当场折叠**
-  （`CompactContextNow`）：有匹配 request 的执行纪元 → 按该纪元折叠；会话没有
+  与 soft 之间的差额就是每次压缩留下的余量；两者相等或反超会退化成每回合重压。
+- 做：**显式压缩（`/compact`、`compact_context`）两条路径都当场压缩**
+  （`CompactContextNow`）：有匹配 request 的执行纪元 → 按该纪元压缩；会话没有
   在飞回合（冷加载、刚清空）→ 向 task 域借一个**会话级维护身份**
-  （`BeginSessionContextMaintenanceLocked`）折叠已装载的上下文，折叠结束即撤销
+  （`BeginSessionContextMaintenanceLocked`）压缩已装载的上下文，压缩结束即撤销
   身份（`EndSessionContextMaintenanceLocked`）。这条路径不伪造回合：不写
   `ChatState.Running`、不设快照 `Chat.RequestID`、不建任务注册表条目；压缩记录与
-  帧正文照常落到该会话的上下文状态与可见快照。只有会话真的没有可折叠材料
-  （`hasFoldableSessionContext`：transcript 与引擎历史都没有对话消息）时才回到
-  登记语义（`ScheduleForceCompact` → 下一条消息装配时先压后发）——折叠空上下文
+  帧正文照常落到该会话的上下文状态与可见快照。只有会话真的没有可压缩材料
+  （`hasCompactableSessionContext`：transcript 与引擎历史都没有对话消息）时才回到
+  登记语义（`ScheduleForceCompact` → 下一条消息装配时先压后发）——压缩空上下文
   只会产出一条区间为空的记录，那是把"没做事"记成"做了事"。
 - 做：**工具配对归一化**（`RepairInterruptedToolChains`，随
   `PrepareProviderHistory` 一起跑）。provider 的规则是"每条 `tool` 消息必须
@@ -74,7 +74,7 @@ flowchart LR
     PREP --> BUDGET["ContextBudgetFor<br/>窗口 - 输出预留 - 安全余量"]
     BUDGET --> SOFT{"达到软阈值？"}
     SOFT -->|否| ASC["装配：system → 累积 context（append-only）→ plan 尾部"]
-    SOFT -->|是| COMPACT["压缩：折叠 compact 栈顶 + context 窗口"]
+    SOFT -->|是| COMPACT["压缩：压缩 compact 栈顶 + context 窗口"]
     COMPACT --> FRAME["RecordContextCompactionLocked<br/>发布有界 checkpoint 帧"]
     FRAME --> ASC
     ASC --> REPLACE["锁外 ReplaceHistory"]
@@ -129,14 +129,14 @@ session loop 0）。同一行里**空 ID**与**行内重复 ID**的调用永远�
 `PrepareExecutionContext` 锁内读 task 权威状态 → 锁外 ReplaceHistory →
 锁内记 checkpoint → 锁外 Publish。
 
-**折叠落点的锁纪律（三段式，2026-09-29）**：`prepareExecutionContextFor` 把
+**压缩落点的锁纪律（三段式，2026-09-29）**：`prepareExecutionContextFor` 把
 「提交状态（A，锁内，微秒级内存操作）→ 推帧与帧正文渲染（B，**锁外**）→ 帧正文进
 内容存储 + 写压缩记录 + 翻转视图修订（C，锁内）」分开。理由两条，都在现场发生过：
 ① 推帧会回调到装配根注入的实现——`CompressedTurnArchiver` 在 ctx 没有会话归属时读
 `app.Snapshot()`，而 Snapshot 要 `ViewMu.RLock`；同一 goroutine 持写锁再取读锁，
 `sync.RWMutex` 不可重入 = **永久自锁**，`/compact` 返回、快照、提交、切会话一起冻死；
 ② 推帧在生产路径上不是纯计算（前缀重放厚摘要的**模型调用** + 原文归档 + 压缩栈写盘），
-持锁跑它等于把**一个**会话的折叠变成全进程停摆。
+持锁跑它等于把**一个**会话的压缩变成全进程停摆。
 跨段传递的只有**值拷贝**（压缩记录、被折区间、帧输入），锁内对象的指针不出锁；
 C 段由 `RecordContextCompactionLocked` 按 requestID 自己复核归属（回合已换人 →
 `recorded=false`，无主记录不落）。
@@ -146,19 +146,35 @@ C 段由 `RecordContextCompactionLocked` 按 requestID 自己复核归属（回�
 已知边界：推帧仍跑在 `context.Background()` 上（`compaction_index.go`），
 因此"停止"不会中断在飞的厚摘要模型调用——但交互面已不再被它扣住。
 
-**读过再折（折叠的运行时读数闸，2026-10-02）**：折叠要改写的两样东西——agent 的
-上下文（引擎历史）与压缩栈顶——都只能由**真拿到了模型读后感**的那次折叠改动。
+**读过再折（压缩的运行时读数闸，2026-10-02）**：压缩要改写的两样东西——agent 的
+上下文（引擎历史）与压缩栈顶——都只能由**真拿到了模型读后感**的那次压缩改动。
 `compactionSummaryProbe` 只说"摘要器装没装"（结构判断）；现场事故是"装好了、重放
 调用在运行时失败"（回执 `summary_source=local`），而旧路径要等到推帧——那已经在
-`replaceFoldHistory` **之后**——才知道，于是失败的折叠照样把上文顶掉了。因此
-`prepareExecutionContextFor` 在折叠判据之后、装配之前经窄可选探针
+`replaceSessionHistory` **之后**——才知道，于是失败的压缩照样把上文顶掉了。因此
+`prepareExecutionContextFor` 在压缩判据之后、装配之前经窄可选探针
 `compactionReadbackProbe` 实测一次读数：读不到模型读后感 → 这次不折（`noSummary`），
 上下文原样 append、不推栈顶、不落记录、不推进上下文版本，只留一条失败痕（终局
-`skipped_no_summary reason=no_model_readback`）；读到了 → 摘要经
-`CompactionIndexRequest.PrecomputedSummary` 随推帧带下去，**同一次折叠不重复调用
+`compact_failed reason=no_model_readback`）；读到了 → 摘要经
+`CompactionIndexRequest.PrecomputedSummary` 随推帧带下去，**同一次压缩不重复调用
 模型**。探针缺省（fake/harness、不接摘要的宿主）→ 行为与改动前逐位相同；读数闸
 不改变 `CompactionGates` 的门禁顺序，但把判据关提到读数之前收口（进度条不该在
 模型调用的十几秒里停在起手帧上）。
+
+**压缩失败：只留痕、不动上下文、不中断会话（2026-10-02）**。判据命中但压不下去
+（拿不到模型读后感 / 换不来余量，见 `CompactionFailure*`）时，`compactDecision.Failure`
+把成因带回调用方（`compact_failed`），三件事同时成立：
+
+- **留痕**：A 段追加一条 `Failed=true` 的压缩记录（区间与 `FrameRef` 恒空、`Note`
+  写字面量 + 数字事实）。它与成功记录同列表、同可见面（状态页一行），因此**跨轮次存活**；
+  同时按「同一上下文版本 + 同一原因只留一条」幂等——失败会一直持续到某次压缩真成功，
+  不然一条长会话会每轮追加一条痕（`sameCompactionFailure`）。
+- **上下文照旧**：不折（`ContextRetainedFrom` 不动）、不推栈顶、不推进版本；装配上限
+  从内部安全线（`budget`）换成 **provider 真实窗口**（`budget.Window`）——按安全线截断
+  会把本来装得进窗口的旧轮次静默丢掉（"偷偷把旧消息折叠掉"）。
+- **不中断**：装配后仍越安全线时，只要**不可压缩的那部分自己还装得下**
+  （`requestOverhead <= budget`）就 best-effort 发出（估算器保守，超安全线 ≠ provider 收不下），
+  并把 `estimated/budget/window/overhead` 写进失败痕；不可压缩部分自己超预算（如 system
+  指令超窗口）或这次压缩没失败 → 照旧返回 `ErrProviderContextBudgetExceeded`。
 
 ## 扩展与 Review
 
@@ -170,8 +186,8 @@ Review 重点：持锁不得调用外部端口、压缩后历史必须保留 sys
 投影不得事后补写（工具轮正文归零、空工具结果保持空，否则跨轮前缀失效）。
 达峰判据另有三条边界：① 累积起点必须取 `ContextRetainedFrom`（含跨回合
 继承），不得每次从 transcript 头部重算；② 尾窗选择与判据/装配必须同一估算器
-（`TranscriptTailWindowBy`），记录值只用于装载；③ 折叠后必须回写新的起点
-（普通折叠 = 保留窗口起点，自主压缩 = transcript 末尾），否则下一回合会把
+（`TranscriptTailWindowBy`），记录值只用于装载；③ 压缩后必须回写新的起点
+（普通压缩 = 保留窗口起点，自主压缩 = transcript 末尾），否则下一回合会把
 已折出的前缀再算一遍。
 无纪元显式压缩（冷加载会话）另有三条：① 不得伪造真实回合纪元——只能用
 会话级维护身份，且身份必须成对撤销（异常路径也要撤销，否则会话停在假身份
@@ -182,7 +198,7 @@ Review 重点：持锁不得调用外部端口、压缩后历史必须保留 sys
 **结果必须与声明相邻**（归一化重排）——只补不排就是 2026-09-17 的 400。
 新增/修改归一化规则时同步 `looksLikeProviderValidToolPairs`（provider 规则的
 本地编码），让"修完仍会被拒"在用例里红灯，而不是在线上。
-折叠落点新增任何"慢活"（模型调用、写盘、外部端口回调、宿主注入实现）时必须放进
+压缩落点新增任何"慢活"（模型调用、写盘、外部端口回调、宿主注入实现）时必须放进
 B 段（锁外），不得回填进 A/C；跨段只传值拷贝。推帧新增并发入口时按会话键取锁，
 不要用全局锁——链锚点校验要求同会话一次只推一帧，跨会话必须并行。
 
@@ -203,35 +219,35 @@ go test ./application/core/context_runtime -count=1
 
 ### compaction_frame.go
 
-- `func (r compactionFoldedRange) Empty() bool` — Empty 报告这份区间没有任何可记录的边界。
+- `func (r compactionCompactedRange) Empty() bool` — Empty 报告这份区间没有任何可记录的边界。
 - `func (input compactionFrameInput) metadata() compactionFrameMetadata` — metadata 把渲染输入投影为元数据结构（纯映射，不重算任何数字）。
 - `func (input compactionFrameInput) readback() compactionReadback` — readback 组装细筛入口。segment_id 缺失时如实说明为什么没有这一跳——
-- `func compactionFrameBody(input compactionFrameInput) string` — compactionFrameBody 渲染折叠帧正文：v2 标记 + JSON 元数据块 + Markdown 读后感块。
+- `func compactionFrameBody(input compactionFrameInput) string` — compactionFrameBody 渲染压缩帧正文：v2 标记 + JSON 元数据块 + Markdown 读后感块。
 - `func marshalFrameMetadata(meta compactionFrameMetadata) string` — marshalFrameMetadata 序列化元数据块。这些结构体不含 channel/func，Marshal 不会
-- `func (input compactionFrameInput) localFoldReason() string` — localFoldReason 说明这次为什么没有模型读后感。有降级原因（折叠 DAG 记下的开关
+- `func (input compactionFrameInput) localCompactReason() string` — localCompactReason 说明这次为什么没有模型读后感。有降级原因（压缩 DAG 记下的开关
 - `func (input compactionFrameInput) readingNotes() string` — readingNotes 渲染帧的 Markdown 一半。
 
 ### compaction_frame_test.go
 
 - `func frameMetadataFrom(t *testing.T, body string) compactionFrameMetadata` — frameMetadataFrom 抽出帧正文里那个 fenced json 块并解析。抽不出/解析不了直接
 - `func TestCompactionFrameBodyIsJSONMetadataPlusReadingNotes(t *testing.T)` — TestCompactionFrameBodyIsJSONMetadataPlusReadingNotes 钉住规范形状：
-- `func TestCompactionFrameBodyMetadataCarriesFoldFacts(t *testing.T)` — TestCompactionFrameBodyMetadataCarriesFoldFacts：元数据块里的每个字段都对得上
-- `func TestCompactionFrameBodyOmitsEmptyFoldedRange(t *testing.T)` — TestCompactionFrameBodyOmitsEmptyFoldedRange：没有可记的区间边界时 folded 整个
+- `func TestCompactionFrameBodyMetadataCarriesCompactionFacts(t *testing.T)` — TestCompactionFrameBodyMetadataCarriesCompactionFacts：元数据块里的每个字段都对得上
+- `func TestCompactionFrameBodyOmitsEmptyRange(t *testing.T)` — TestCompactionFrameBodyOmitsEmptyRange：没有可记的区间边界时 compacted 整个
 - `func TestCompactionFrameBodyEmbedsSummaryVerbatim(t *testing.T)` — TestCompactionFrameBodyEmbedsSummaryVerbatim：有栈帧摘要时**原样嵌入**，
 - `func TestCompactionFrameBodyAdmitsMissingEvidence(t *testing.T)` — TestCompactionFrameBodyAdmitsMissingEvidence：没有栈帧摘要（开关默认关、重放失败
 - `func TestCompactionFrameBodyReadbackSaysWhyNoDrillDown(t *testing.T)` — TestCompactionFrameBodyReadbackSaysWhyNoDrillDown：缺 segment_id 时，正文必须
-- `func TestCompactionFrameBodyWritesWhyNoModelSummary(t *testing.T)` — TestCompactionFrameBodyWritesWhyNoModelSummary：落到本地折叠时，正文必须写出
+- `func TestCompactionFrameBodyWritesWhyNoModelSummary(t *testing.T)` — TestCompactionFrameBodyWritesWhyNoModelSummary：落到本地压缩时，正文必须写出
 
 ### compaction_index.go
 
-- `func (c *Coordinator) pushCompactionFrame( sessionID, requestID string, overflow, replay []contract.EngineMessage, window task_context.TranscriptEventRange, precomputedSummary string, ) compactionIndexPush` — pushCompactionFrame 把这次折叠折出保留窗口的区间推进会话压缩栈。
+- `func (c *Coordinator) pushCompactionFrame( sessionID, requestID string, overflow, replay []contract.EngineMessage, window task_context.TranscriptEventRange, precomputedSummary string, ) compactionIndexPush` — pushCompactionFrame 把这次压缩折出保留窗口的区间推进会话压缩栈。
 - `func (p compactionIndexPush) gateDetail() string` — gateDetail 渲染门禁 index 关的 Detail：这一步的**事实**（有没有尝试、成没成、
 - `func (p compactionIndexPush) sourceLabel() string` — sourceLabel 报告摘要来源；缺省写 (none) 而不是留空——空段会被读成"格式没写对"，
 - `func (p compactionIndexPush) indexError() string` — indexError 返回推帧失败的真实原因（空 = 没失败、也没跳过）。帧正文据此如实写出
-- `func (c *Coordinator) readbackCompactionSummary( sessionID string, overflow, replay []contract.EngineMessage, ) (CompactionIndexReceipt, bool)` — readbackCompactionSummary 在折叠之前试一次模型回读。attempted=false 表示这条
+- `func (c *Coordinator) readbackCompactionSummary( sessionID string, overflow, replay []contract.EngineMessage, ) (CompactionIndexReceipt, bool)` — readbackCompactionSummary 在压缩之前试一次模型回读。attempted=false 表示这条
 - `func (r CompactionIndexReceipt) hasModelSummary() bool` — hasModelSummary 报告回执里有没有**模型**读后感：只有 replay 才算一次成功的
-- `func (c *Coordinator) compactionSummaryAvailable() bool` — compactionSummaryAvailable 探测这次折叠能不能拿到模型读后感。索引面未装配、
-- `func foldedOverflowEvents(events []model.TranscriptEvent, from, to int) []model.TranscriptEvent` — foldedOverflowEvents 截取被折出保留窗口的 transcript 区间（events[from:to]）。
+- `func (c *Coordinator) compactionSummaryAvailable() bool` — compactionSummaryAvailable 探测这次压缩能不能拿到模型读后感。索引面未装配、
+- `func overflowEvents(events []model.TranscriptEvent, from, to int) []model.TranscriptEvent` — overflowEvents 截取被折出保留窗口的 transcript 区间（events[from:to]）。
 
 ### compaction_progress.go
 
@@ -243,7 +259,7 @@ go test ./application/core/context_runtime -count=1
 - `func (p *compactionProgress) GateTimings() []CompactionGateTiming` — GateTimings 返回本轮已收口门禁的实测耗时（副本）。调用点在本轮收口之后
 - `func (p *compactionProgress) elapsedLocked() int` — elapsedLocked 返回距上一帧的毫秒数并推进计时基准。调用方持锁。
 - `func (p *compactionProgress) setVersion(version uint64)` — setVersion 在自主压缩另开新纪元时校正本轮版本：判定关拿到的版本号可能还是
-- `func (p *compactionProgress) skip(reason string)` — skip 记下「本轮折叠了但不落记录」的原因（settle 时拼进 Detail）。没有它，读者
+- `func (p *compactionProgress) skip(reason string)` — skip 记下「本轮压缩了但不落记录」的原因（settle 时拼进 Detail）。没有它，读者
 - `func (p *compactionProgress) skipOutcome(outcome CompactOutcome)` — skipOutcome 记下本轮"没有落记录"的结果分类（settle 时优先于默认的
 - `func (p *compactionProgress) settle(err error, recorded bool, outcome string)` — settle 收口本轮：err 非空即失败终局（Outcome 带真实原因），否则按是否落了
 - `func (p *compactionProgress) publish(payload event.CompactionProgress)`
@@ -273,11 +289,11 @@ go test ./application/core/context_runtime -count=1
 - `func (c *Coordinator) compactTaskContextFor(sessionID, requestID string, options prepareOptions) error`
 - `func (c *Coordinator) CompactContextNow(ctx context.Context, sessionID string) (CompactResult, error)` — CompactContextNow 主动压缩指定会话的可变 transcript（`/compact` 命令与
 - `func (c *Coordinator) compactSessionContextWithoutEpoch(ctx context.Context, sessionID string) (CompactResult, bool, error)` — compactSessionContextWithoutEpoch 处理"会话没有在飞回合"（冷加载、刚清空）
-- `func (c *Coordinator) hasFoldableSessionContext(sessionID string) bool` — hasFoldableSessionContext 判定会话是否装载了**可折叠的对话材料**：transcript
+- `func (c *Coordinator) hasCompactableSessionContext(sessionID string) bool` — hasCompactableSessionContext 判定会话是否装载了**可压缩的对话材料**：transcript
 - `func (c *Coordinator) sessionLocationLocked(sessionID string) session_runtime.Location` — sessionLocationLocked 返回指定会话的持久化定位（workspace 绑定优先；
 - `func (c *Coordinator) PrepareExecutionContext(requestID, currentInput string) (string, error)` — PrepareExecutionContext 从 durable task 状态与完整 transcript 单元重建
 - `func (c *Coordinator) PrepareExecutionContextFor(sessionID, requestID, currentInput string) (string, error)` — PrepareExecutionContextFor 从 durable task 状态与完整 transcript 单元重建
-- `func compactionOrigin(options prepareOptions, state *task_context.TaskExecutionState) string` — compactionOrigin 判定一轮折叠的来源：自动路径（软/硬阈值、自主压缩）记 auto，
+- `func compactionOrigin(options prepareOptions, state *task_context.TaskExecutionState) string` — compactionOrigin 判定一轮压缩的来源：自动路径（软/硬阈值、自主压缩）记 auto，
 - `func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentInput string, options prepareOptions) (out string, err error)`
 - `func (c *Coordinator) fitExecutionHistory( systemPrompt string, systems []contract.EngineMessage, planMessage string, events []model.TranscriptEvent, currentInput string, tools []model.Tool, target int, windowed bool, maxUnits int, ) ([]contract.EngineMessage, int, int)` — fitExecutionHistory 按目标预算装配 provider 历史：稳定前缀（system）→
 - `func (c *Coordinator) tryFitExecutionHistory( systemPrompt string, systems []contract.EngineMessage, planMessage string, events []model.TranscriptEvent, currentInput string, tools []model.Tool, target int, maxUnits int, ) ([]contract.EngineMessage, int, int)` — tryFitExecutionHistory 装配一次 system → context → plan 历史并估算 token，
@@ -315,12 +331,12 @@ go test ./application/core/context_runtime -count=1
 
 ### fold_history.go
 
-- `func (c *Coordinator) foldHistory(sessionID string) []contract.EngineMessage` — foldHistory 读指定会话的引擎历史（会话路由端口优先）。
-- `func (c *Coordinator) replaceFoldHistory(sessionID string, history []contract.EngineMessage) error` — replaceFoldHistory 写指定会话的引擎历史：替换经会话路由端口下发，落点由引擎
-- `func (c *Coordinator) setFoldSystemPrompt(sessionID, prompt string)` — setFoldSystemPrompt 把本会话 system prompt 推进引擎历史。它不改写进程级 prompt
-- `func (h *HistoryCoordinator) foldHistory(sessionID string) []contract.EngineMessage` — foldHistory / replaceFoldHistory 是 HistoryCoordinator 的同款入口（provider 历史
-- `func (h *HistoryCoordinator) replaceFoldHistory(sessionID string, history []contract.EngineMessage) error`
-- `func (c *Coordinator) withInFlightTail(existing, assembled []contract.EngineMessage) []contract.EngineMessage` — withInFlightTail 把「正在飞的那一截」接回折叠产物尾部。
+- `func (c *Coordinator) sessionHistory(sessionID string) []contract.EngineMessage` — sessionHistory 读指定会话的引擎历史（会话路由端口优先）。
+- `func (c *Coordinator) replaceSessionHistory(sessionID string, history []contract.EngineMessage) error` — replaceSessionHistory 写指定会话的引擎历史：替换经会话路由端口下发，落点由引擎
+- `func (c *Coordinator) setSessionSystemPrompt(sessionID, prompt string)` — setSessionSystemPrompt 把本会话 system prompt 推进引擎历史。它不改写进程级 prompt
+- `func (h *HistoryCoordinator) sessionHistory(sessionID string) []contract.EngineMessage` — sessionHistory / replaceSessionHistory 是 HistoryCoordinator 的同款入口（provider 历史
+- `func (h *HistoryCoordinator) replaceSessionHistory(sessionID string, history []contract.EngineMessage) error`
+- `func (c *Coordinator) withInFlightTail(existing, assembled []contract.EngineMessage) []contract.EngineMessage` — withInFlightTail 把「正在飞的那一截」接回压缩产物尾部。
 - `func inFlightTail(history []contract.EngineMessage) []contract.EngineMessage` — inFlightTail 返回历史末尾那段「assistant 带 tool_calls、其中至少一个 call 还没有
 - `func sameToolCalls(left, right []contract.EngineToolCall) bool`
 
@@ -363,7 +379,7 @@ go test ./application/core/context_runtime -count=1
 - `func TestRepairEmptyHistoryContentKeepsToolCallAssistantContentEmpty(t *testing.T)`
 - `func TestRetainedSystemHistoryKeepsStablePrefixAndSettledContext(t *testing.T)`
 - `func TestAutonomousCompactionMessageIsBoundedAndDynamicTail(t *testing.T)` — TestAutonomousCompactionMessageIsBoundedAndDynamicTail：自主压缩帧带协议
-- `func TestCompactionFrameNeverReentersFoldInput(t *testing.T)` — TestCompactionFrameNeverReentersFoldInput：帧是**终态**——一次折叠产生的帧绝不
+- `func TestCompactionFrameNeverReentersCompactionInput(t *testing.T)` — TestCompactionFrameNeverReentersCompactionInput：帧是**终态**——一次压缩产生的帧绝不
 - `func retainedContents(history []contract.EngineMessage) []string`
 - `func TestRetainedSystemHistoryKeepsActiveSkillEvent(t *testing.T)` — TestRetainedSystemHistoryKeepsActiveSkillEvent：激活技能事件是 append-only
 
