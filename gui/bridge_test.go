@@ -1727,6 +1727,78 @@ func TestEmbeddedScheduledToggleInline(t *testing.T) {
 	}
 }
 
+// TestEmbeddedEffortHitAreaOverlayOnRail：Effort 的隐形 range 必须保持"铺满滑轨的
+// 绝对定位覆盖层"，否则拖动位置与活塞填充错位。
+//
+// 现场（用户报告）："拖动 effort 条的位置和 effort 条前端显示的位置有差，拖动的位置
+// 在显示的位置偏右"。根因不在控件自己——`.syringe-input` 写着 position: absolute;
+// inset: 0——而在 vendor/pico.min.css：它把 [role=group] 当"相邻输入组"，对组里的
+// input 写 `position:relative; flex:1 1 auto`（0-2-1）与 `margin-left:-1px`（0-3-1）。
+// `.syringe-input` 只有 0-1-0，压不过，于是隐形 range 不是覆盖层，而是作为 flex 项
+// 排在 .syringe-barrel 右边、只占滑轨一半宽：可见滑轨整条点不到，唯一能拖的感应带
+// 落在滑轨**右侧**（拖动的位置因此总是比填充偏右）。
+// 修法：12.9「Pico 的 role 组件归位」里用 0-4-1 的选择器把它钉回覆盖层。
+//
+// 实测（headless Chrome/Edge 154，1440x900，连续拖动扫过整条滑轨）：
+//
+//	修前：输入盒 [961.7,987.1] 落在滑轨 [936.3,962.7] 右侧（宽 25.4 vs 26.4），
+//	      轨内单击不改档位，|显示−拖动| 最大 16.4px；
+//	修后：输入盒 == 滑轨盒（同起同止，宽 50.83），档位边界 17.1%/50.6%/86%
+//	      （理想 16.7%/50%/83.3%），活塞右缘与拖动点偏差全轨最大 10.8px
+//	      ——那是四档离散吸附的固有量（相邻两档相距 17px），不是错位。
+func TestEmbeddedEffortHitAreaOverlayOnRail(t *testing.T) {
+	t.Parallel()
+	styles, err := embeddedFrontend.ReadFile("frontend/dist/styles.css")
+	if err != nil {
+		t.Fatalf("embedded frontend styles.css: %v", err)
+	}
+	source := string(styles)
+
+	// 归位规则必须按元素压在 Pico 的 [role=group] 之上（0-4-1 > 0-3-1），
+	// 且把 Pico 偷走的三条属性都钉回去：定位、弹性、外边距。
+	const pin = ".app-shell .effort-control .effort-syringe > input.syringe-input {"
+	at := strings.Index(source, pin)
+	if at < 0 {
+		t.Fatalf("Effort 的隐形 range 必须被钉回覆盖层，缺少归位规则：%s", pin)
+	}
+	body := source[at:]
+	if end := strings.Index(body, "}"); end >= 0 {
+		body = body[:end]
+	}
+	for _, want := range []string{"position: absolute;", "flex: none;", "margin: 0;"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("归位规则必须钉住 %s（Pico 会把 [role=group] 里的 input 改成相邻输入组样式：relative + flex:1 1 auto + margin-left:-1px）", want)
+		}
+	}
+
+	// 覆盖层的几何仍由控件自己声明；几何一旦只写在归位规则里，换个挂载点就会失效。
+	if !strings.Contains(source, ".syringe-input {\n  position: absolute;") ||
+		!strings.Contains(source, ".syringe-input {\n  position: absolute;\n  z-index: 2;\n  inset: 0;\n  width: 100%;\n  height: 100%;") {
+		t.Fatal("`.syringe-input` 自己必须仍是 position: absolute + inset: 0 + 100% 铺满滑轨")
+	}
+
+	// Pico 那条规则只要还在，这条归位就不能删；它哪天没了/换了写法，这里要重新复核。
+	pico, err := embeddedFrontend.ReadFile("frontend/dist/vendor/pico.min.css")
+	if err != nil {
+		t.Fatalf("embedded frontend vendor/pico.min.css: %v", err)
+	}
+	vendor := string(pico)
+	if !strings.Contains(vendor, "[role=group] input:not([type=checkbox],[type=radio]),[role=group] select,[role=group]>*") ||
+		!strings.Contains(vendor, "{position:relative;flex:1 1 auto;margin-bottom:0}") ||
+		!strings.Contains(vendor, "margin-left:calc(var(--pico-border-width) * -1)") {
+		t.Fatal("vendor/pico.min.css 的 [role=group] 输入组规则变了：请复核 12.9 的归位是否还压得住（`.syringe-input` 只有 0-1-0）")
+	}
+
+	// 归位选择器里的 `input.syringe-input` 必须与标记对得上，否则这条规则静默不生效。
+	page, err := embeddedFrontend.ReadFile("frontend/dist/index.html")
+	if err != nil {
+		t.Fatalf("embedded frontend index.html: %v", err)
+	}
+	if !strings.Contains(string(page), `id="effort-range" class="syringe-input" type="range"`) {
+		t.Fatal("滑轨上的隐形 range 必须仍是 <input id=\"effort-range\" class=\"syringe-input\" type=\"range\">：归位规则按元素+类名匹配它")
+	}
+}
+
 // TestEmbeddedLeftPanelScrollerChain：左栏保留两条纵向滚轮——会话列表与每个展开的
 // 会话分组（项目粒度），只删掉多余的那条：面板自身。
 //

@@ -3629,7 +3629,8 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
    `width:100%` + `[role=group]>*{flex:1 1 auto}`。Seelex 用同一个 role 表达
    语义分组（上下文轴 / Effort 控件 / todo 状态组），于是：
      - 上下文轴的标题与轨道被排成左右两栏、轨道塌成一条窄带（比例错乱的根因）；
-     - Effort 控件被加了 16px 下外边距，在输入区里比同排控件高一截。
+     - Effort 控件被加了 16px 下外边距，在输入区里比同排控件高一截；
+     - Effort 的隐形 range 被排成滑轨右侧的 flex 项，可见滑轨点不到、拖动与填充错位。
    这里按元素归位（不用通配 role 重置，避免误伤自绘组件）。 */
 .app-shell .context-axis[role="group"] {
   display: block;
@@ -3640,6 +3641,20 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .app-shell .context-axis[role="group"] > * { flex: none; }
 .app-shell .work-todo-status[role="group"] { width: auto; margin-bottom: 0; }
 .app-shell .effort-control[role="group"] { margin-bottom: 0; }
+/* Effort 的隐形 range（.syringe-input）本该是铺满滑轨的绝对定位覆盖层，但
+   `.syringe-input` 自己只有 0-1-0 的比特，压不过 Pico 给 `[role=group]` 里的
+   input 定的相邻输入组样式：`position:relative; flex:1 1 auto`（0-2-1）加
+   `margin-left:calc(var(--pico-border-width) * -1)`（0-3-1）。于是它不再是覆盖层，
+   而是作为 flex 项排在 `.syringe-barrel` 右边、只占滑轨一半宽——可见滑轨整条点不到，
+   唯一能拖的感应带落在滑轨**右侧**（用户口径：拖动的位置比显示的位置偏右），
+   活塞填充自然追不上鼠标。这里把它钉回覆盖层；inset/width/height 仍由
+   `.syringe-input` 自己声明，命中映射与活塞百分比因此共用同一把尺子。
+   选择器 0-4-1，明确压过 Pico 的 0-2-1 / 0-3-1，不靠加载顺序决胜。 */
+.app-shell .effort-control .effort-syringe > input.syringe-input {
+  position: absolute;
+  flex: none;
+  margin: 0;
+}
 
 /* ---------- 12.10 上下文轴比例 ----------
    分轨图的读法是"轨道 = 主线，标签 = 刻度名"，所以标签列要放得下中文（64px）、

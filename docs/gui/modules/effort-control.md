@@ -15,7 +15,8 @@ Effort 控件把 Core 已有的 `lite / medium / high / max` 四档能力变成�
 - Controller：`gui/frontend/dist/effort-control.js:1-77`；
 - Composition：`gui/frontend/dist/app.js:41-50`、`app.js:166-177`；
 - Core 动作：`application/app.go:213-229`；
-- 视觉状态：`gui/frontend/dist/styles.css` 的 `/* Effort */` 段（`.effort-control` 系列选择器）。
+- 视觉状态：`gui/frontend/dist/styles.css` 的 `/* Effort */` 段（`.effort-control` 系列选择器）；
+- 命中区归位：`styles.css` 的 `12.9 Pico 的 role 组件归位` 段（见第 6 节）。
 
 ## 2. 四档数据模型
 
@@ -69,8 +70,10 @@ Runtime Snapshot ──→ setLevel(level) ──→ Committed(level)
 ## 6. 布局与可访问性
 
 - 控件位于 composer，独立于 Runtime modal；嵌入资源契约在 `gui/bridge_test.go:641-652` 固定该边界（`id="effort-control"` 先于 `id="runtime-modal"`，且 modal 内不得出现 `id="effort-range"`）。
+- **命中区 = 显示区**：`.syringe-input` 是铺满 `.syringe-barrel` 的绝对定位覆盖层（`inset: 0` / `100%`），活塞的百分比也按同一条轨的量。这条覆盖关系必须由 `styles.css` 的 12.9 段显式压过 `vendor/pico.min.css`：Pico 把 `[role=group]` 当"相邻输入组"，对组里的 input 写 `position:relative; flex:1 1 auto`（0-2-1）与 `margin-left:-1px`（0-3-1），而 `.syringe-input` 只有 0-1-0。压不过的后果不是"手感差一点"：隐形 range 会变成排在滑轨**右侧**的 flex 项（只占滑轨一半宽，实测 1440x900：输入盒 `[961.7,987.1]` vs 滑轨 `[936.3,962.7]`）——可见滑轨整条点不到，唯一能拖的感应带落在滑轨右侧，于是"拖动的位置总比填充偏右"。改这条链时必须同时复核：输入盒与滑轨盒同起同止、轨内任意处单击都能改档位。
+- 命中尺与填充尺是同一把（实测档位边界 17.1% / 50.6% / 86%，理想 16.7% / 50% / 83.3%）。拖动时活塞只在四档上落位，因此**档位中心处偏差为 0、一条档位带内最大偏差 = 带宽的一半**（本控件轨道 50.83px 时实测全轨最大 10.8px）；那是四档离散吸附的固有量，不是错位。要让填充沿始终贴着鼠标，只能改成连续填充或延长轨道（改前请先确认口径）。
 - `role=group` + `aria-label` 描述控件用途；range 使用 `aria-valuetext` 暴露 Lite/Medium/High/Max，而不是裸数字。
-- 若 HTML 挂载了 `id="effort-value"`，Controller 会同步其文本；当前未挂载，档位由两端标签与 `aria-valuetext` 表达。
+- 已挂载的 `id="effort-value"`（composer 里的档位文字）由 Controller 同步文本，颜色走 `.effort-value` 的 `--effort-tone`；档位因此不只靠滑轨长度表达。
 - 键盘可使用方向键和 Home/End 操作原生 range。
 - 780px 以下压缩滑杆宽度，provider/model 文本收起但连接状态点保留（`styles.css` 响应式段）。
 - Max 不能只靠颜色表达：右端 `Max` 标签常驻，range 的 `aria-valuetext` 同步为 `Max`。
@@ -92,9 +95,12 @@ Runtime Snapshot ──→ setLevel(level) ──→ Committed(level)
 - `effort-control.test.mjs:43-52`：Runtime Max 状态、ARIA、CSS selector 数据；
 - `effort-control.test.mjs:53-64`：拖动只预览、change 单次提交；
 - `effort-control.test.mjs:66-77`：Bridge 失败回滚；
+- `bridge_test.go::TestEmbeddedEffortHitAreaOverlayOnRail`：隐形 range 的归位规则（0-4-1）与它压过的 Pico 规则、覆盖层几何仍写在 `.syringe-input` 自己身上、标记仍是 `input.syringe-input`；删掉归位规则即红；
 - `application/command_test.go:564-574`：Core `SwitchEffort("max")`；
 - `gui/bridge_test.go:104-143`：Bridge 动作委托；
 - `gui/bridge_test.go:228-241`：控件在 modal 外且 app.js 使用独立 Controller。
+
+第 6 节的几何数字来自一次性探针，方法：静态服务 `gui/frontend/dist` + Bridge mock，无头 Chrome/Edge 经 CDP 连续拖动扫过整条滑轨，逐步读回 `input.value` 与活塞 `getBoundingClientRect()`。它**不进仓库也不进 CI**（CI 无浏览器）；需要复核 12.9 的归位或改动滑轨结构时照上面这四步重跑即可。
 
 ## 9. 审查清单
 
@@ -102,5 +108,6 @@ Runtime Snapshot ──→ setLevel(level) ──→ Committed(level)
 - 新的档位是否同步更新 range max、映射测试和 Core 校验？
 - `input` 是否保持纯预览，只有 `change` 才调用 Bridge？
 - 失败是否回滚到最后一份权威 committed 状态？
+- 隐形 range 是否仍是**铺满滑轨**的覆盖层（改动 §6 的 12.9 归位规则后，轨内任意处单击都要能改档位；Pico 的 `[role=group]` 会把它排成滑轨右侧的 flex 项）？
 - Effort 视觉是否保持克制（无辉光/流光/常驻动画）并支持 reduced-motion？
 - Effort 是否仍可在不打开任何 modal 的情况下看到和操作？
