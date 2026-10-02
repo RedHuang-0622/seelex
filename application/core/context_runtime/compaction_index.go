@@ -2,6 +2,7 @@ package context_runtime
 
 import (
 	"context"
+	"strings"
 
 	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
@@ -62,6 +63,7 @@ func (c *Coordinator) pushCompactionFrame(
 	sessionID, requestID string,
 	overflow, replay []contract.EngineMessage,
 	window task_context.TranscriptEventRange,
+	precomputedSummary string,
 ) compactionIndexPush {
 	if c == nil || c.compactionIndex == nil {
 		return compactionIndexPush{}
@@ -75,13 +77,14 @@ func (c *Coordinator) pushCompactionFrame(
 	lock.Lock()
 	defer lock.Unlock()
 	receipt, err := c.compactionIndex.PushCompactionFrame(context.Background(), sessionID, CompactionIndexRequest{
-		Overflow:      overflow,
-		ReplayHistory: replay,
-		EventFrom:     window.EventFrom,
-		EventTo:       window.EventTo,
-		MessageFrom:   window.MessageFrom,
-		MessageTo:     window.MessageTo,
-		RequestID:     requestID,
+		Overflow:           overflow,
+		ReplayHistory:      replay,
+		PrecomputedSummary: precomputedSummary,
+		EventFrom:          window.EventFrom,
+		EventTo:            window.EventTo,
+		MessageFrom:        window.MessageFrom,
+		MessageTo:          window.MessageTo,
+		RequestID:          requestID,
 	})
 	if err != nil {
 		return compactionIndexPush{Attempted: true, Err: err}
@@ -147,6 +150,68 @@ type compactionSummaryProbe interface {
 	// CompactionSummaryAvailable 报告本次折叠能否拿到模型生成的读后感（true =
 	// 折叠处厚摘要可用，折叠照常；false = 只能本地折叠，因此这次不折）。
 	CompactionSummaryAvailable() bool
+}
+
+// compactionReadbackProbe 是「折叠**之前**先试一次前缀重放厚摘要」的窄可选探针。
+//
+// 为什么需要它：compactionSummaryProbe 只能回答「摘要器装没装」——一次**结构**
+// 判断。而现场真正的失败是：摘要器装好了、重放调用却在运行时失败（两次尝试全挂
+// → chapter2 落回本地确定性折叠，回执 summary_source=local）。等这个事实被知道
+// 时，旧路径已经把 agent 的上下文换成了折叠窗口（推帧发生在 replaceFoldHistory
+// **之后**），于是「折叠之后看不见上文」——而那一帧只有元数据、对检索毫无用处。
+//
+// 用户口径（2026-10-02）：折叠只是压缩失败的一条记录——**失败的压缩不该覆盖
+// agent 已经看见的上下文**；只有压缩成功（有 llm 读后感返回）才能让 agent 从新的
+// compact 栈顶开始上下文。
+//
+// 因此把「这次到底有没有模型读后感」从结构判断升级成实测读数，且读数发生在折叠
+// 之前：读数没有模型读后感 → 这次不折（noSummary），上下文原样 append，只留一条
+// 失败痕。读数成功 → 摘要随推帧请求带下去（CompactionIndexRequest.
+// PrecomputedSummary），同一次折叠不重复调用模型。
+//
+// 与 compactionSummaryProbe 一样刻意做成**窄可选**：未实现它的 fake/harness 与
+// 不关心摘要的宿主沿用既有行为（折叠照常）——探测失败的正确行为本来就是"按老
+// 样子走"，不该强迫每个 fake 长出空方法。
+type compactionReadbackProbe interface {
+	// ReadbackCompactionSummary 用本次折叠的重放素材跑一次模型回读，返回回执
+	// （SummarySource=replay 才算拿到模型读后感）。**不得有副作用**：读不到原文
+	// 也不压栈、不归档——折叠还没决定要不要发生。
+	ReadbackCompactionSummary(ctx context.Context, sessionID string, request CompactionIndexRequest) (CompactionIndexReceipt, error)
+}
+
+// readbackCompactionSummary 在折叠之前试一次模型回读。attempted=false 表示这条
+// 链路没有实现探针（沿用既有行为：折叠照常）；attempted=true 时回执就是这次折叠
+// 的读后感事实（err 或非 replay 都等于「没拿到」，调用方据此不折）。
+//
+// overflow 只用于读数这一次 DAG 运行的本地兜底正文（读不到模型读后感时它会被
+// 丢弃），因此调用方给「本次可能被折出的区间」即可，不必与最终折叠区间逐字相等。
+func (c *Coordinator) readbackCompactionSummary(
+	sessionID string,
+	overflow, replay []contract.EngineMessage,
+) (CompactionIndexReceipt, bool) {
+	if c == nil || c.compactionIndex == nil {
+		return CompactionIndexReceipt{}, false
+	}
+	probe, ok := c.compactionIndex.(compactionReadbackProbe)
+	if !ok {
+		return CompactionIndexReceipt{}, false
+	}
+	receipt, err := probe.ReadbackCompactionSummary(context.Background(), sessionID, CompactionIndexRequest{
+		Overflow:      overflow,
+		ReplayHistory: replay,
+		RequestID:     "",
+	})
+	if err != nil {
+		// 试了但失败：与「回执里没有模型读后感」同一结论——这次不折。
+		return CompactionIndexReceipt{}, true
+	}
+	return receipt, true
+}
+
+// hasModelSummary 报告回执里有没有**模型**读后感：只有 replay 才算一次成功的
+// 模型回读，local 是本地确定性折叠（读不到就退化成它）。
+func (r CompactionIndexReceipt) hasModelSummary() bool {
+	return r.SummarySource == CompactionSummarySourceReplay && strings.TrimSpace(r.Summary) != ""
 }
 
 // compactionSummaryAvailable 探测这次折叠能不能拿到模型读后感。索引面未装配、

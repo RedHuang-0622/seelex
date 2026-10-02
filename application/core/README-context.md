@@ -269,6 +269,12 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 - `func TestFoldPushFailureIsReportedNotFatal(t *testing.T)` — TestFoldPushFailureIsReportedNotFatal：索引面在、推帧报错时，折叠与本次请求
 - `func TestFoldWithoutOverflowReportsSkippedNotUnavailable(t *testing.T)` — TestFoldWithoutOverflowReportsSkippedNotUnavailable：索引面在，但这次折叠**没有
 
+### context_compact_local_fallback_repro_test.go
+
+- `func (runtime *compactionReadbackRuntime) ReadbackCompactionSummary( _ context.Context, _ string, _ context_runtime.CompactionIndexRequest, ) (context_runtime.CompactionIndexReceipt, error)`
+- `func TestFoldWithFailedModelReadbackLeavesContextUntouched(t *testing.T)` — TestFoldWithFailedModelReadbackLeavesContextUntouched（现场复现）：
+- `func TestFoldWithModelReadbackStillFolds(t *testing.T)` — TestFoldWithModelReadbackStillFolds：对照组——读数**拿到了**模型读后感
+
 ### context_compact_no_summary_test.go
 
 - `func (runtime *compactionIndexNoSummaryRuntime) CompactionSummaryAvailable() bool`

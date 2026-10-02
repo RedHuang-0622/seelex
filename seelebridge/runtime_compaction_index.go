@@ -34,6 +34,10 @@ type CompactionFrameRequest struct {
 	UnitCount int
 	// ReplayHistory 是上一次真实请求的历史字节（前缀重放素材）。空 → 本地折叠。
 	ReplayHistory []types.Message
+	// PrecomputedSummary 是调用方在折叠之前已经拿到的模型读后感（装配层读数闸，
+	// 见 context_runtime 的 compactionReadbackProbe）：非空 → 不再调用模型，直接
+	// 用它当这次的 Chapter 2。
+	PrecomputedSummary string
 	// EventFrom/EventTo 是被折区间的 transcript 事件序号（含端点；0 = 无边界可记）。
 	// 这是装配层唯一能给出的**权威**区间事实，检索侧据此按 Seq 反查单元下标。
 	EventFrom uint64
@@ -79,6 +83,48 @@ func (r *Runtime) CompactionSummaryAvailable() bool {
 	return r.compactionSummarizer() != nil
 }
 
+// ReadbackCompactionSummary 在折叠**之前**试一次前缀重放厚摘要，把「这次到底有
+// 没有模型读后感」从结构判断（CompactionSummaryAvailable）升级成实测读数。
+//
+// 它是 context_runtime 的窄可选探针 compactionReadbackProbe 的实现：装配层据此
+// 决定这次折叠要不要发生——读不到模型读后感就不折上下文（用户口径 2026-10-02：
+// 失败的压缩不该覆盖 agent 已经看见的上下文，只有出了读后感才让 agent 从新的
+// compact 栈顶开始上下文）。
+//
+// **不得有副作用**：这里只跑 DAG 拿 Chapter 2 与降级事实，不归档原文、不压栈
+// ——折叠还没决定要不要发生。回执里的 segment_id 因此为空：真正的读回入口由随后
+// 的 PushCompactionFrame 给出。同一次折叠不会重复调用模型：读数拿到的正文经
+// CompactionFrameRequest.PrecomputedSummary 原样交给推帧。
+func (r *Runtime) ReadbackCompactionSummary(
+	ctx context.Context,
+	_ string,
+	request CompactionFrameRequest,
+) (CompactionFrameReceipt, error) {
+	if r == nil {
+		return CompactionFrameReceipt{}, errors.New("compaction index: runtime is unavailable")
+	}
+	store := r.sessionContextStore()
+	if store == nil {
+		return CompactionFrameReceipt{}, errors.New("compaction index: 会话上下文存储未绑定（压缩栈不可用）")
+	}
+	frame, err := r.MainCompactionDAG().Execute(ctx, seelexctx.CompactionInput{
+		Record:             store.Snapshot(),
+		Messages:           request.Overflow,
+		UnitCount:          request.UnitCount,
+		History:            request.ReplayHistory,
+		PrecomputedSummary: request.PrecomputedSummary,
+		Kind:               seelexctx.CompactFoldOverflow,
+	})
+	if err != nil {
+		return CompactionFrameReceipt{}, fmt.Errorf("compaction index: readback summary: %w", err)
+	}
+	return CompactionFrameReceipt{
+		Summary:       frame.Summary,
+		SummarySource: frame.SummarySource,
+		SummaryNote:   frameSummaryNote(frame),
+	}, nil
+}
+
 // PushCompactionFrame 生成一帧并压入该会话的压缩栈，返回回执。
 //
 // 三步都不允许"静默半成"：DAG 失败 → 返回错误（调用方只记日志、折叠照常）；
@@ -102,7 +148,10 @@ func (r *Runtime) PushCompactionFrame(
 		Messages:  request.Overflow,
 		UnitCount: request.UnitCount,
 		History:   request.ReplayHistory,
-		Kind:      seelexctx.CompactFoldOverflow,
+		// 折叠之前已经拿到的模型读后感（装配层读数闸）：非空则 chapter2 不再调用
+		// 模型，同一次折叠只发生一次模型调用。
+		PrecomputedSummary: request.PrecomputedSummary,
+		Kind:               seelexctx.CompactFoldOverflow,
 		// RequestFrom/RequestTo 刻意留空。装配层折掉的前缀跨多个更早的回合，
 		// 而 PushCompact 要求这两个字段按**字符串序**非倒置；回合标识不保证字典序
 		// 单调（"task-9" > "task-10"），填了就可能被拒。留空是校验允许的组合，

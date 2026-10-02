@@ -78,13 +78,19 @@ func (port RuntimePort) ReplanMetricsFor(sessionID string) dto.ReplanMetrics {
 var (
 	_ contract.TeamworkBoardProjection    = RuntimePort{}
 	_ context_runtime.CompactionIndexPort = RuntimePort{}
+	// compactionReadbackProbe（context_runtime/compaction_index.go，包内命名接口）：
+	// 折叠**之前**先试一次模型读后感的读数闸。断言失败 = 读数闸缺省，于是"重放
+	// 运行时失败"的折叠仍会改写 agent 的上下文（现场：折叠之后看不见上文）。
+	_ interface {
+		ReadbackCompactionSummary(context.Context, string, context_runtime.CompactionIndexRequest) (context_runtime.CompactionIndexReceipt, error)
+	} = RuntimePort{}
 	_ interface {
 		SessionContextStoreFor(string) *sessionstore.SessionContextStore
 	} = RuntimePort{}
 	_ interface {
 		ReplanMetricsFor(string) dto.ReplanMetrics
 	} = RuntimePort{}
-	_ interface{ ForkInFlight(string) bool } = RuntimePort{}
+	_ interface{ ForkInFlight(string) bool }  = RuntimePort{}
 	_ interface{ PerSessionExecution() bool } = RuntimePort{}
 	_ interface {
 		TaskSnapshotFor(string) []dto.TaskRecord

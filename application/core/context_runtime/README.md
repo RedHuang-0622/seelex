@@ -146,6 +146,20 @@ C 段由 `RecordContextCompactionLocked` 按 requestID 自己复核归属（回�
 已知边界：推帧仍跑在 `context.Background()` 上（`compaction_index.go`），
 因此"停止"不会中断在飞的厚摘要模型调用——但交互面已不再被它扣住。
 
+**读过再折（折叠的运行时读数闸，2026-10-02）**：折叠要改写的两样东西——agent 的
+上下文（引擎历史）与压缩栈顶——都只能由**真拿到了模型读后感**的那次折叠改动。
+`compactionSummaryProbe` 只说"摘要器装没装"（结构判断）；现场事故是"装好了、重放
+调用在运行时失败"（回执 `summary_source=local`），而旧路径要等到推帧——那已经在
+`replaceFoldHistory` **之后**——才知道，于是失败的折叠照样把上文顶掉了。因此
+`prepareExecutionContextFor` 在折叠判据之后、装配之前经窄可选探针
+`compactionReadbackProbe` 实测一次读数：读不到模型读后感 → 这次不折（`noSummary`），
+上下文原样 append、不推栈顶、不落记录、不推进上下文版本，只留一条失败痕（终局
+`skipped_no_summary reason=no_model_readback`）；读到了 → 摘要经
+`CompactionIndexRequest.PrecomputedSummary` 随推帧带下去，**同一次折叠不重复调用
+模型**。探针缺省（fake/harness、不接摘要的宿主）→ 行为与改动前逐位相同；读数闸
+不改变 `CompactionGates` 的门禁顺序，但把判据关提到读数之前收口（进度条不该在
+模型调用的十几秒里停在起手帧上）。
+
 ## 扩展与 Review
 
 新增压缩策略改 `fitExecutionHistory`；替换 token 估算走 `TaskPort` 计数面。
@@ -210,10 +224,12 @@ go test ./application/core/context_runtime -count=1
 
 ### compaction_index.go
 
-- `func (c *Coordinator) pushCompactionFrame( sessionID, requestID string, overflow, replay []contract.EngineMessage, window task_context.TranscriptEventRange, ) compactionIndexPush` — pushCompactionFrame 把这次折叠折出保留窗口的区间推进会话压缩栈。
+- `func (c *Coordinator) pushCompactionFrame( sessionID, requestID string, overflow, replay []contract.EngineMessage, window task_context.TranscriptEventRange, precomputedSummary string, ) compactionIndexPush` — pushCompactionFrame 把这次折叠折出保留窗口的区间推进会话压缩栈。
 - `func (p compactionIndexPush) gateDetail() string` — gateDetail 渲染门禁 index 关的 Detail：这一步的**事实**（有没有尝试、成没成、
 - `func (p compactionIndexPush) sourceLabel() string` — sourceLabel 报告摘要来源；缺省写 (none) 而不是留空——空段会被读成"格式没写对"，
 - `func (p compactionIndexPush) indexError() string` — indexError 返回推帧失败的真实原因（空 = 没失败、也没跳过）。帧正文据此如实写出
+- `func (c *Coordinator) readbackCompactionSummary( sessionID string, overflow, replay []contract.EngineMessage, ) (CompactionIndexReceipt, bool)` — readbackCompactionSummary 在折叠之前试一次模型回读。attempted=false 表示这条
+- `func (r CompactionIndexReceipt) hasModelSummary() bool` — hasModelSummary 报告回执里有没有**模型**读后感：只有 replay 才算一次成功的
 - `func (c *Coordinator) compactionSummaryAvailable() bool` — compactionSummaryAvailable 探测这次折叠能不能拿到模型读后感。索引面未装配、
 - `func foldedOverflowEvents(events []model.TranscriptEvent, from, to int) []model.TranscriptEvent` — foldedOverflowEvents 截取被折出保留窗口的 transcript 区间（events[from:to]）。
 

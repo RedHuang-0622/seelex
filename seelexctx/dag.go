@@ -80,6 +80,11 @@ type CompactionInput struct {
 	// History 是最近一次真实请求的历史字节素材（前缀重放用；nil/空 →
 	// Chapter 2 走本地折叠，不消耗模型 token）。
 	History []frameworktypes.Message
+	// PrecomputedSummary 是调用方在**折叠之前**已经拿到的模型读后感（前缀重放
+	// 厚摘要）。非空 → chapter2 直接用它，不再调用模型：同一次折叠只该有一次模型
+	// 调用，而调用方必须先知道"这次到底有没有读后感"才决定要不要折上下文
+	// （见 application/core/context_runtime 的 compactionReadbackProbe）。
+	PrecomputedSummary string
 	// Kind 决定本地折叠的 Current Work 文案（溢出 / 真空区）。
 	Kind LocalFoldKind
 	// RequestFrom/RequestTo 是本次覆盖的 request 首尾（空 → 按 ChatQueue
@@ -334,6 +339,15 @@ func (d *CompactionDAG) chapter1Node(state *compactionDAGState) func(context.Con
 func (d *CompactionDAG) chapter2Node(state *compactionDAGState) func(context.Context) error {
 	return func(ctx context.Context) error {
 		markStarted(state, "chapter2_thick")
+		// 调用方已在折叠之前拿到模型读后感（装配层的读数闸，见 CompactionInput.
+		// PrecomputedSummary）：直接用，不重复调用模型。同一次折叠只该有一次模型
+		// 调用，而"有没有读后感"必须在改写上下文之前就知道。
+		if precomputed := strings.TrimSpace(state.input.PrecomputedSummary); precomputed != "" {
+			state.chapter2 = normalizeReplayChapter2(precomputed)
+			state.summarySource = CompactSummarySourceReplay
+			state.clearDegrade()
+			return nil
+		}
 		material, materialReport := PrepareReplayMaterial(state.input.History)
 		state.replayMaterial = materialReport
 		materialErr := ValidateReplayProtocol(material)

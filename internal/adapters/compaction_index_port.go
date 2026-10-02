@@ -29,16 +29,47 @@ func (port RuntimePort) PushCompactionFrame(
 		Overflow:      restoreMessages(request.Overflow),
 		UnitCount:     request.UnitCount,
 		ReplayHistory: restoreMessages(request.ReplayHistory),
-		EventFrom:     request.EventFrom,
-		EventTo:       request.EventTo,
-		MessageFrom:   request.MessageFrom,
-		MessageTo:     request.MessageTo,
+		// 折叠之前已经拿到的模型读后感（读数闸）：转发下去，推帧不再重复调用模型。
+		PrecomputedSummary: request.PrecomputedSummary,
+		EventFrom:          request.EventFrom,
+		EventTo:            request.EventTo,
+		MessageFrom:        request.MessageFrom,
+		MessageTo:          request.MessageTo,
 	})
 	if err != nil {
 		return context_runtime.CompactionIndexReceipt{}, err
 	}
 	return context_runtime.CompactionIndexReceipt{
 		SegmentID:     receipt.SegmentID,
+		Summary:       receipt.Summary,
+		SummarySource: receipt.SummarySource,
+		SummaryNote:   receipt.SummaryNote,
+	}, nil
+}
+
+// ReadbackCompactionSummary 实现 context_runtime 的窄可选探针
+// compactionReadbackProbe：把「折叠之前先试一次模型读后感」这一跳转发到
+// seelebridge。装配层据此决定这次折叠要不要发生——读不到模型读后感就不折上下文
+// （失败的压缩不该覆盖 agent 已经看见的上下文）。
+//
+// 与 PushCompactionFrame 一样是**窄可选**能力：断言的另一侧（context_runtime）
+// 在断言失败时沿用既有行为（折叠照常），因此不实现它的 fake/harness 不受影响。
+func (port RuntimePort) ReadbackCompactionSummary(
+	ctx context.Context,
+	sessionID string,
+	request context_runtime.CompactionIndexRequest,
+) (context_runtime.CompactionIndexReceipt, error) {
+	if port.Runtime == nil {
+		return context_runtime.CompactionIndexReceipt{}, context_runtime.ErrCompactionIndexUnavailable
+	}
+	receipt, err := port.Runtime.ReadbackCompactionSummary(ctx, sessionID, seelebridge.CompactionFrameRequest{
+		Overflow:      restoreMessages(request.Overflow),
+		ReplayHistory: restoreMessages(request.ReplayHistory),
+	})
+	if err != nil {
+		return context_runtime.CompactionIndexReceipt{}, err
+	}
+	return context_runtime.CompactionIndexReceipt{
 		Summary:       receipt.Summary,
 		SummarySource: receipt.SummarySource,
 		SummaryNote:   receipt.SummaryNote,

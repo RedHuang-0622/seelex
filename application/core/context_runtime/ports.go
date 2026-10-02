@@ -100,9 +100,22 @@ type CompactionIndexRequest struct {
 	// MessageFrom/MessageTo 是被折区间的 UI 消息号（可空）。
 	MessageFrom string
 	MessageTo   string
+	// PrecomputedSummary 是调用方**在折叠之前**已经拿到的模型读后感（前缀重放
+	// 厚摘要）。非空 → 接收方直接把它当本次折叠的 Chapter 2，不再调用模型：同一
+	// 份重放素材、同一次折叠只该有一次模型调用，而「这次到底有没有读后感」必须
+	// 在改写上下文之前就知道（见 compactionReadbackProbe）。
+	PrecomputedSummary string
 	// RequestID 是触发这次折叠的回合标识（可空；冷加载维护身份也带前缀标识）。
 	RequestID string
 }
+
+// CompactionIndexReceipt.SummarySource 的协议字面量：只有 replay 才是**一次成功
+// 的模型回读**，local 是本地确定性折叠（拿不到模型读后感）。装配层据此决定这次
+// 折叠要不要改写 agent 的上下文（见 compactionReadbackProbe 的注释）。
+const (
+	CompactionSummarySourceReplay = "replay"
+	CompactionSummarySourceLocal  = "local"
+)
 
 // CompactionIndexReceipt 是推帧的回执。
 type CompactionIndexReceipt struct {

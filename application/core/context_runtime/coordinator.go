@@ -636,12 +636,16 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	// 却不落记录不落帧，用户看到"压缩了"却查不到压了哪段。首压留痕，同纪元后续再挡。
 	newCheckpoint := fold && !ineffectiveFold && !noSummary && (options.forceCompact || hardCompact ||
 		state.CompactedEpoch != state.ProgressEpoch || len(state.ContextCompactions) == 0)
-	if newCheckpoint {
-		state.ContextVersion++
-		state.CompactedEpoch = state.ProgressEpoch
-	}
+	// 版本推进**推迟**到「这次折叠到底有没有模型读后感」落定之后（见下方的实测
+	// 读数闸）：判据命中但重放拿不到读后感时这次折叠不会发生，推进版本会在版本史
+	// 上留下一次并不存在的折叠。这里只算出候选版本——checkpoint 正文本来就不含
+	// 版本号，候选值先写进去，读数把它否掉时在锁外改回旧值即可。
 	checkpoint := c.tasks.BuildTaskCheckpointLocked(state)
-	checkpoint.Version = state.ContextVersion
+	candidateVersion := state.ContextVersion
+	if newCheckpoint {
+		candidateVersion++
+	}
+	checkpoint.Version = candidateVersion
 	// 压缩来源在折叠这一刻判定一次：进度面与压缩记录必须写同一个 origin，两处
 	// 分别采样 status 会让同一次折叠对不上号。
 	origin := compactionOrigin(options, state)
@@ -661,6 +665,51 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 			// 否则进度条上的 #N 会缺一截，或者对到上一条压缩记录上。
 			progress.setVersion(checkpoint.Version)
 		}
+		// 判据关在保留窗口决策**之后**收口：这一关的事实就是"拿什么数字比的"
+		// ——判据量 + 保留窗口决策（含保护区下限），两者同源、同一次采样
+		// （all= 由保留窗口决策给出，不在这里重复一份同值事实）。
+		progress.gate(CompactionGateJudge, fmt.Sprintf("compared=%d soft=%d hard=%d overhead=%d ineffective=%t %s",
+			rawTokens, budget.SoftThreshold, budget.HardThreshold, requestOverhead, ineffectiveFold, retain.Terse()))
+	}
+
+	// ── 读过再折：把「这次有没有模型读后感」从结构判断升级成实测读数 ────────
+	//
+	// compactionSummaryProbe 只回答「摘要器装没装」——一次**结构**判断。现场真正
+	// 的事故是「装好了、重放调用却在运行时失败」：两次尝试全挂，chapter2 落回本地
+	// 确定性折叠（summary_source=local）。旧路径要等到推帧（发生在
+	// replaceFoldHistory **之后**）才知道这件事，那时 agent 的上下文已经被换成折叠
+	// 窗口——一帧只有元数据、对检索毫无用处，却把上文顶掉了。
+	//
+	// 用户口径（2026-10-02）：折叠只是压缩失败的一条记录，失败的压缩不该覆盖 agent
+	// 已经看见的上下文；只有压缩成功（有 llm 读后感返回）才让 agent 从新的 compact
+	// 栈顶开始上下文。因此读数提到折叠**之前**：读不到 → 这次不折（noSummary），
+	// 上下文原样 append、不推栈顶、不落记录，只留一条失败痕；读到了 → 摘要随推帧
+	// 带下去（PrecomputedSummary），同一次折叠不重复调用模型。
+	//
+	// 探针缺省（fake/harness、不接摘要的宿主）→ attempted=false，行为与改动前逐位
+	// 相同：判据照常折、推帧照常推。
+	precomputedSummary := ""
+	readbackNote := ""
+	if fold && !ineffectiveFold && !noSummary && len(accumulated) > 0 {
+		replayMaterial := existing
+		if len(replayMaterial) == 0 {
+			replayMaterial = fullContext
+		}
+		if receipt, attempted := c.readbackCompactionSummary(sessionID,
+			task_context.TranscriptEventMessages(accumulated), replayMaterial); attempted {
+			if receipt.hasModelSummary() {
+				precomputedSummary = receipt.Summary
+			} else {
+				noSummary = true
+				readbackNote = fmt.Sprintf("readback=no_model_summary source=%q note=%q",
+					receipt.SummarySource, receipt.SummaryNote)
+			}
+		}
+	}
+	if noSummary && newCheckpoint {
+		// 读数把这次折叠降级成「压缩失败」：不推进候选版本、不留 checkpoint。
+		newCheckpoint = false
+		checkpoint.Version = state.ContextVersion
 	}
 
 	systems := RetainedSystemHistory(c.foldHistory(sessionID))
@@ -680,13 +729,6 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 		if retain.Retained > 0 {
 			target = retain.Retained
 		}
-	}
-	if fold {
-		// 判据关在保留窗口决策**之后**收口：这一关的事实就是"拿什么数字比的"
-		// ——判据量 + 保留窗口决策（含保护区下限），两者同源、同一次采样
-		// （all= 由保留窗口决策给出，不在这里重复一份同值事实）。
-		progress.gate(CompactionGateJudge, fmt.Sprintf("compared=%d soft=%d hard=%d overhead=%d ineffective=%t %s",
-			rawTokens, budget.SoftThreshold, budget.HardThreshold, requestOverhead, ineffectiveFold, retain.Terse()))
 	}
 	// transcript 压缩区间的记事基准：累积模式可能丢掉已覆盖前缀，记录边界
 	// 时用原始 events（未裁剪）＋丢弃条数还原绝对下标。
@@ -808,6 +850,13 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 			TargetAfterCompaction: budget.TargetAfterCompaction, EstimatedPromptTokens: estimated,
 			ActualPromptTokens: state.TokenAudit.ActualPromptTokens, UpdatedAt: time.Now(),
 		}
+		// 版本推进在这里落定（上方读数闸把候选版本算好了，但只有这次折叠真的
+		// 发生才写进 state）：拿不到模型读后感的折叠不该在版本史上留痕。
+		if newCheckpoint {
+			state.ContextVersion = candidateVersion
+			state.CompactedEpoch = state.ProgressEpoch
+			checkpoint.Version = candidateVersion
+		}
 		// 自主压缩也开启一个新压缩纪元：checkpoint 版本前进，下一轮达峰判定
 		// 与压缩记录不重复（压缩帧本身是动态尾部，不参与保留前缀）。
 		if autonomous && !newCheckpoint {
@@ -842,9 +891,15 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 			if noSummary {
 				// 没有模型读后感：这次折叠只会产出"元数据 + 无读后感"的一帧，对检索
 				// 毫无用处，却会改写请求前缀、作废一段 provider 缓存。因此不折上下文、
-				// 不推压缩栈顶，只把这次判据留痕（用户口径 2026-10-01）。
+				// 不推压缩栈顶，只把这次判据留痕（用户口径 2026-10-01 / 2026-10-02）。
 				progress.skipOutcome(CompactSkippedNoSummary)
-				progress.skip("skipped=no_summary reason=no_model_summarizer")
+				skipReason := "reason=no_model_summarizer"
+				if readbackNote != "" {
+					// 读数闸命中：结构与配置都没问题，是这次重放**在运行时**没拿到
+					// 模型读后感——两种成因给读者的下一步完全不同（查配置 vs 查调用）。
+					skipReason = "reason=no_model_readback " + readbackNote
+				}
+				progress.skip("skipped=no_summary " + skipReason)
 			} else if ineffectiveFold {
 				// 幂等/有效性校验命中：这次折叠的落点仍在软线之上（保留区 + 固定开销
 				// ≥ 软线），折了也只是把同一件事再做一遍。跳过它，等硬线/自主压缩。
@@ -897,7 +952,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 		if compacting || autonomous {
 			push = c.pushCompactionFrame(sessionID, requestID,
 				task_context.TranscriptEventMessages(foldedOverflowEvents(transcript, retainedFrom, compressedTo)),
-				replayMaterial, compactedRange)
+				replayMaterial, compactedRange, precomputedSummary)
 			progress.gate(CompactionGateStackPush, push.gateDetail())
 		}
 		// 帧正文（同样在锁外渲染；纯函数，只读上面这份值事实）：快照只带 ref，
