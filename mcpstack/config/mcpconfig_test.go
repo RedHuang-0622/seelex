@@ -124,6 +124,40 @@ accounts:
 	}
 }
 
+func TestLoadMCPServersConfig_ToolNotes(t *testing.T) {
+	tmpFile := t.TempDir() + "/notes.yaml"
+	content := `
+mcp_servers:
+  - name: "playwright"
+    command: "node"
+    tool_notes:
+      - >-
+        only url-form calls return results
+      - "do not retry the same call shape"
+  - name: "no-notes"
+    command: "node"
+`
+	if err := os.WriteFile(tmpFile, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Load(tmpFile)
+	if len(cfg) != 2 {
+		t.Fatalf("expected 2 servers, got %d", len(cfg))
+	}
+	if len(cfg[0].ToolNotes) != 2 {
+		t.Fatalf("expected 2 tool_notes, got %v", cfg[0].ToolNotes)
+	}
+	if cfg[0].ToolNotes[0] != "only url-form calls return results" {
+		t.Errorf("folded scalar not unfolded: %q", cfg[0].ToolNotes[0])
+	}
+	if cfg[0].ToolNotes[1] != "do not retry the same call shape" {
+		t.Errorf("unexpected second note: %q", cfg[0].ToolNotes[1])
+	}
+	if len(cfg[1].ToolNotes) != 0 {
+		t.Errorf("server without tool_notes should stay empty, got %v", cfg[1].ToolNotes)
+	}
+}
+
 func TestRegisterMCPServers_EmptyServers(t *testing.T) {
 	// Passing empty file should not panic
 	tmpFile := t.TempDir() + "/empty_mcp.yaml"

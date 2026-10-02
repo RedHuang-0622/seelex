@@ -23,6 +23,10 @@ type Server struct {
 	Args      []string
 	Env       []string
 	URL       string
+	// ToolNotes 追加到该 server 每个工具描述末尾的「使用须知」（模型可见）。
+	// 工具描述由 MCP server 自己给出，这一项是宿主侧的补充点：把实测出来的
+	// 调用纪律写进工具定义，而不是写进 Skill 等模型自己去翻。
+	ToolNotes []string
 }
 
 // RegistryPort 是 Manager 需要的工具注册表表面（重挂载 provider 用）。
@@ -40,6 +44,11 @@ type Manager struct {
 
 	lazyMu sync.RWMutex
 	lazy   map[string]Server
+
+	// notes 是 server name → 追加到该 server 工具描述末尾的注记。登记或连接
+	// 时写入，注册进 registry 时由 notesProvider 读取（见 notes.go）。
+	notesMu sync.RWMutex
+	notes   map[string][]string
 
 	closeMu sync.Mutex
 	closed  bool
@@ -104,6 +113,7 @@ func (m *Manager) Attach(ctx context.Context, cfg Server) error {
 	if err := provider.Attach(ctx, frameworkCfg); err != nil {
 		return fmt.Errorf("seelebridge: attach MCP %q: %w", cfg.Name, err)
 	}
+	m.setNotes(cfg.Name, cfg.ToolNotes)
 	m.refreshTools(provider)
 	return nil
 }
@@ -167,6 +177,9 @@ func (m *Manager) RegisterLazy(name string, cfg Server) error {
 		m.lazy = make(map[string]Server)
 	}
 	m.lazy[name] = cfg
+	// 登记即记下注记：冷启动路径只存配置不连接，但一旦 mcp_load 连上，工具
+	// 描述就该带上这段使用须知。
+	m.setNotes(name, cfg.ToolNotes)
 	return nil
 }
 
@@ -244,12 +257,52 @@ func (m *Manager) RefreshTools() {
 }
 
 // refreshTools 重新挂载 MCP provider 到注册表，重建可见工具快照。
+// 挂上去的是注记装饰器（见 notes.go）而不是裸 provider：工具描述是模型唯一
+// 能看到的调用说明，宿主侧的实测纪律必须挂在它上面。
 func (m *Manager) refreshTools(provider *frameworkmcp.Provider) {
 	if m.registry == nil {
 		return
 	}
-	_ = m.registry.Unregister(provider.ProviderName())
-	_ = m.registry.Register(provider)
+	decorated := &notesProvider{inner: provider, notes: m.notesSnapshot()}
+	_ = m.registry.Unregister(decorated.ProviderName())
+	_ = m.registry.Register(decorated)
+}
+
+// setNotes 记录一个 server 的工具描述注记。空白注记不写（也**不覆盖**已有
+// 值：连接路径的 cfg 可能不带注记，此时应保留登记时记下的那份）。
+func (m *Manager) setNotes(name string, notes []string) {
+	if name == "" {
+		return
+	}
+	clean := make([]string, 0, len(notes))
+	for _, note := range notes {
+		if trimmed := strings.TrimSpace(note); trimmed != "" {
+			clean = append(clean, trimmed)
+		}
+	}
+	if len(clean) == 0 {
+		return
+	}
+	m.notesMu.Lock()
+	defer m.notesMu.Unlock()
+	if m.notes == nil {
+		m.notes = make(map[string][]string)
+	}
+	m.notes[name] = clean
+}
+
+// notesSnapshot 取一份注记副本（注册时用；返回 nil 表示无注记）。
+func (m *Manager) notesSnapshot() map[string][]string {
+	m.notesMu.RLock()
+	defer m.notesMu.RUnlock()
+	if len(m.notes) == 0 {
+		return nil
+	}
+	snapshot := make(map[string][]string, len(m.notes))
+	for name, notes := range m.notes {
+		snapshot[name] = append([]string(nil), notes...)
+	}
+	return snapshot
 }
 
 // ToFramework 把 Seelex 的传输中立配置转换为框架 ServerConfig（校验契约）。

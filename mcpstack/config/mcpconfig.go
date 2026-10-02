@@ -18,6 +18,11 @@ type MCPServerConfig struct {
 	Args      []string `yaml:"args"`
 	Env       []string `yaml:"env"`
 	URL       string   `yaml:"url"`
+	// ToolNotes 是宿主侧追加到该 server 每个工具描述末尾的「使用须知」
+	// （模型可见）。MCP 工具的描述本来完全由 server 自己给出，而「在本机
+	// 实测出来的调用纪律」——哪种入参形态能拿回结果、失败长什么样——只有
+	// 宿主知道。它写在工具定义里，模型在第一次调用之前就看得见。
+	ToolNotes []string `yaml:"tool_notes"`
 }
 
 // mcpServersWrapper 用于解析 YAML 中的 mcp_servers 列表。

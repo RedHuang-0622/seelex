@@ -739,7 +739,7 @@ func registerMCPServers(runtime *seelebridge.Runtime, accountsPath string) {
 
 		cfg := seelebridge.MCPServer{
 			Name: s.Name, Transport: transport, Command: s.Command,
-			Args: s.Args, Env: s.Env, URL: s.URL,
+			Args: s.Args, Env: s.Env, URL: s.URL, ToolNotes: s.ToolNotes,
 		}
 		if err := runtime.RegisterLazyMCP(s.Name, cfg); err != nil {
 			fmt.Fprintf(os.Stderr, "⚠ MCP 服务器 %q 配置无效: %v\n", s.Name, err)
