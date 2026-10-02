@@ -412,7 +412,10 @@ func run() error {
 			SessionIDFromContext: coretask.SessionIDFromContext,
 		},
 		SubagentToolCallback: app.HandleSubagentToolEvent,
-		SkillRegistry:        skillRegistry,
+		// 员工回合的工具活动：subagent 那条的对称面。装配根只做搬运，投影与事件发布
+		// 都在 application（HandleRoleToolActivity）。
+		RoleToolCallback: app.HandleRoleToolActivity,
+		SkillRegistry:    skillRegistry,
 		ScheduledPromptExecutor: func(ctx context.Context, prompt, sessionID string) (string, error) {
 			// 会话绑定：显式 sessionID 必须匹配当前主会话（切换后跳过，
 			// 不误投递）；空 = 执行时当前 main session。

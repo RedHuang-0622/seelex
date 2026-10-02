@@ -36,6 +36,10 @@ type RuntimeDeps struct {
 	PlanNodeCallback func(dto.PlanNodeEvent)
 	// SubagentToolCallback 子代理工具活动观察者（委托 session.ToolEventState）。
 	SubagentToolCallback func(subagentsession.SubagentToolEvent)
+	// RoleToolCallback **员工回合**工具活动观察者（subagent 那条的对称面：子代理按
+	// NodeID 归到 Plan 节点，员工按角色会话归位）。application 侧把它投影成会话级
+	// 事件 teammate.tool.started/completed，前端据此实时更新开着的员工详情。
+	RoleToolCallback func(dto.RoleToolActivity)
 	// SkillRegistry 子代理 skill 目录 actor（nil 关闭 skill 块，降级）。
 	SkillRegistry *skill.Registry
 	// ScheduledPromptExecutor 周期提示词任务执行器（nil = 禁用 prompt 任务）。
@@ -73,6 +77,9 @@ func (r *Runtime) ApplyDeps(deps RuntimeDeps) {
 	}
 	if deps.SubagentToolCallback != nil {
 		r.SetSubagentToolCallback(deps.SubagentToolCallback)
+	}
+	if deps.RoleToolCallback != nil {
+		r.SetRoleToolCallback(deps.RoleToolCallback)
 	}
 	if deps.SkillRegistry != nil {
 		r.SetSkillRegistry(deps.SkillRegistry)

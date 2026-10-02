@@ -11,6 +11,7 @@ import {
   normalizeTeamGlobal,
   normalizeTeamLibrary,
   renderAgentTeam,
+  renderRoleLiveTools,
   renderRoleSessionDetail,
   renderRoleSessionSwitcher,
   renderTeamMemberList,
@@ -458,7 +459,7 @@ test("role session detail escapes content and tolerates an empty session", () =>
   assert.match(empty, /还没有独立会话行/);
 });
 
-test("role record table lanes mark main turns outside the teammate prefix match", () => {
+test("role record table is vertical: one round per row, lane per column", () => {
   const html = renderRoleSessionDetail({
     role_name: "tl",
     prefix_cut_seq: 5,
@@ -472,25 +473,63 @@ test("role record table lanes mark main turns outside the teammate prefix match"
     ],
     role_rows: [{ seq: 8, role: "assistant", content: "tl 这一回合" }]
   });
-  assert.match(html, /<table class="excel-grid role-record-table" data-role-record-table>/);
-  assert.match(html, /role-record-lane-head">车道</);
+  // 竖排：回合当行、车道当列——不再有 excel-grid 横向网格，也不再有"车道行"。
+  assert.match(html, /<table class="role-record-table" data-role-record-table>/);
+  assert.doesNotMatch(html, /excel-grid/);
+  assert.doesNotMatch(html, /role-record-lane[^\-]/);
+  assert.match(html, /<th class="role-record-seq" scope="col">回合<\/th>/);
+  assert.match(html, /<th class="role-record-lane-head" scope="col">main<\/th>/);
+  assert.match(html, /<th class="role-record-lane-head is-own" scope="col" title="ADVISOR">tl<\/th>/);
   assert.match(html, /data-record-cut="5"/);
   assert.match(html, /data-record-outside="5"/);
   assert.match(html, /data-record-visible="2"/);
-  // 两条车道各一行，列头 = 回合号
-  assert.match(html, /<tr class="role-record-lane is-main" data-lane="main">/);
-  assert.match(html, /<tr class="role-record-lane is-own" data-lane="tl">/);
-  assert.match(html, /<th>8<\/th>/);
-  // 入伙前的两个回合在它那一行只是占位，不冒充它记得的上下文
+  // 一条回合一行：行号 = seq，时间自上而下（6 在 7 前，7 在 8 前）。
+  assert.match(html, /<tr class="role-record-round" data-seq="1">\s*<th class="role-record-seq" scope="row">1<\/th>/);
+  assert.match(html, /<tr class="role-record-round" data-seq="8">/);
+  assert.ok(html.indexOf('data-seq="6"') < html.indexOf('data-seq="7"'));
+  assert.ok(html.indexOf('data-seq="7"') < html.indexOf('data-seq="8"'));
+  // 入伙前的两个回合在它那一栏只是占位，不冒充它记得的上下文。
   assert.match(html, /class="role-record-cell is-outside" data-seq="1"/);
   assert.match(html, /class="role-record-cell is-outside" data-seq="5"/);
-  // 占位、不冒充：它那一行的这两列只显示 —（主会话自己那一行仍显示自己的回合）
   assert.doesNotMatch(html, /class="role-record-cell is-shared" data-seq="(?:1|5)"/);
-  // 入伙后的共享回合 + 它自己的回合都在
+  // 入伙后的共享回合 + 它自己的回合都在；它自己那一回合 main 栏是空位。
   assert.match(html, /class="role-record-cell is-shared" data-seq="6"[^>]*>goal 这一回合</);
   assert.match(html, /class="role-record-cell is-shared" data-seq="7"[^>]*>exec 这一回合</);
   assert.match(html, /class="role-record-cell is-own" data-seq="8"[^>]*>tl 这一回合</);
+  assert.match(html, /class="role-record-cell is-empty" data-seq="8"/);
   assert.match(html, /前缀匹配自 seq 6 起/);
+});
+
+test("role session detail renders the teammate's live tool activity (实时区)", () => {
+  // 数据来源是 teammate.tool.* 事件的载荷（不进快照的瞬态）：一条一步、最新在下。
+  const live = [
+    { id: "read_file#1#0a1b2c3d", name: "read_file", status: "success", result: "package a" },
+    { id: "bash_git_status#2#0f0f0f0f", name: "bash", status: "running", arguments: "git status --short" }
+  ];
+  const html = renderRoleSessionDetail(
+    { role_name: "tl", role_rows: [{ seq: 8, role: "assistant", content: "已发布的裁决" }] },
+    { roleName: "tl", roleSessionID: "goal-a2a-tl", liveTools: live }
+  );
+  assert.match(html, /class="team-block role-live-tools" data-role-live-tools="2"/);
+  assert.match(html, /正在做（实时）<\/span><span class="badge">2<\/span>/);
+  assert.match(html, /data-live-id="bash_git_status#2#0f0f0f0f"/);
+  // 状态未知时原样显示，不折成 running（后端加新状态时前端不该把事实说错）。
+  assert.match(html, /role-live-status is-running">进行中</);
+  assert.match(html, /role-live-status is-success">完成</);
+  assert.ok(html.indexOf("read_file#1#0a1b2c3d") < html.indexOf("bash_git_status#2#0f0f0f0f"));
+  // 实时区排在记录表之前：先看它此刻在动什么，再看它的记录。
+  assert.ok(html.indexOf("role-live-tools") < html.indexOf("role-record-table"));
+  // 没有活动 → 不留空壳（这是"没有正在做的事"，不是"加载失败"）。
+  assert.equal(renderRoleLiveTools([]), "");
+  assert.equal(renderRoleLiveTools(null), "");
+  assert.doesNotMatch(renderRoleSessionDetail({ role_name: "tl", role_rows: [] }), /role-live-tools/);
+});
+
+test("live tool activity is escaped like any other payload", () => {
+  const html = renderRoleLiveTools([{ id: "<b>1</b>", name: "<img src=x>", status: "<svg>", result: "<script>alert(1)</script>" }]);
+  assert.doesNotMatch(html, /<img src=x/);
+  assert.doesNotMatch(html, /<script>alert\(1\)/);
+  assert.match(html, /&lt;img src=x&gt;/);
 });
 
 test("main role record table carries the whole session without placeholders", () => {
@@ -588,20 +627,22 @@ test("unsynced role drafts get their own region with a count badge and pending w
   assert.equal((html.match(/role-session-row is-draft/g) || []).length, 2);
 });
 
-test("role record table keeps draft cells but marks them is-draft, never as seq 0", () => {
+test("role record table keeps draft rows but marks them is-draft, never as seq 0", () => {
   const html = renderRoleSessionDetail(unsyncedDraftSnapshot());
-  // 列头：已发布回合用 seq，草稿列用「草稿N」——草稿没有 seq，不能冒充第 0 回合。
-  assert.match(html, /<th[^>]*>草稿1<\/th>/);
-  assert.match(html, /<th[^>]*>草稿2<\/th>/);
+  // 行号：已发布回合用 seq，草稿行用「草稿N」——草稿没有 seq，不能冒充第 0 回合。
+  assert.match(html, /<th class="role-record-seq is-draft" scope="row"[^>]*>草稿1<\/th>/);
+  assert.match(html, /<th class="role-record-seq is-draft" scope="row"[^>]*>草稿2<\/th>/);
   assert.doesNotMatch(html, /data-seq="0"/);
   assert.match(html, /data-record-own="1"/);
   assert.match(html, /data-record-draft="2"/);
-  // 两条草稿各自一格，不因 seq 相同互相吞掉（旧实现按 seq 建 map → 只剩最后一条）。
+  // 两条草稿各自一行，不因 seq 相同互相吞掉（旧实现按 seq 建 map → 只剩最后一条）。
   assert.equal((html.match(/class="role-record-cell is-own is-draft"/g) || []).length, 2);
   assert.match(html, /class="role-record-cell is-own is-draft" data-draft="1"[^>]*title="[^"]*未同步草稿[^"]*"[^>]*>本轮送给 ADVISOR 的原文</);
   assert.match(html, /class="role-record-cell is-own is-draft" data-draft="2"[^>]*>本轮裁决原文</);
-  // main 车道在草稿列只是空位，不冒充它记得的上下文。
-  assert.match(html, /class="role-record-cell is-empty" data-draft="1">·</);
+  // main 车道在草稿行只是空位，不冒充它记得的上下文。
+  assert.match(html, /class="role-record-cell is-empty" data-draft="1"[^>]*>·</);
+  // 草稿行排在已发布回合行之后（时间自上而下 = 最后发生的最下面）。
+  assert.ok(html.indexOf('data-seq="8"') < html.indexOf('data-draft="1"'));
 });
 
 test("draft content, kind and identity are escaped like any other row", () => {

@@ -82,8 +82,8 @@ func buildTeamworkBoardView(plan sessionstore.TeamworkPlan, events []sessionstor
 }
 
 // TeamworkBoardSnapshot 实现 contract.TeamworkBoardProjection：返回某会话的团队看板
-// 只读投影。未装配 teamwork / 解析不出作用域 / 该会话尚无计划 → nil（前端与 TUI
-// 据此整块退场，不留空壳）。
+// 只读投影。未装配 teamwork / 解析不出作用域 / 该会话尚无计划 / **计划已收口** → nil
+// （前端与 TUI 据此整块退场，不留空壳；"结束就是没有了"）。
 func (r *Runtime) TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoardView {
 	if r == nil {
 		return nil
@@ -108,6 +108,8 @@ func (r *Runtime) TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoardView
 	cached, hit := cache[key]
 	if !hit {
 		plan, err := backend.Store.ReadPlan(context.Background(), key)
+		// 注：已收口的计划**不进存档兜底**——退场由下面的分支一处说了算，这里为真
+		// 的唯一后果是"不必再去读一块注定被拒的存档"（收口时存档已封板）。
 		// 读失败**不上抛**：快照路径上的错误没有消费者（面板该做的是退场，
 		// 而不是把存储错误渗进会话快照）。缺计划与读失败在这里同解，并**进负缓存**。
 		missing := err != nil
@@ -130,6 +132,18 @@ func (r *Runtime) TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoardView
 		}
 		r.teamworkBoardCache[key] = cached
 		r.teamworkMu.Unlock()
+	}
+
+	// 已收口（team_close）→ 看板**整块退场**，口径同"没有计划"：结束就是没有了。
+	//
+	// 为什么 retiring 而不是"照常出图、前端写已关闭"：看板是**在册编排**的只读投影，
+	// 收口之后没有在册编排可看；把已收口的计划继续画成一块看板，会让收口后的在编名册
+	// （成员行）残留在面板上，读侧分不清"还在跑"与"早收口了"（2026-10-03 现场）。
+	// 域内 closed 事实归计划（plan.State），它管的是"还在不在册"；投影这一侧只回答
+	// "有没有在册编排可看"。存档侧本来就是同一口径（readTeamBoardArchive 只恢复 active），
+	// 这里改完，活体与存档不再自相矛盾。
+	if cached.plan.State.State == sessionstore.TeamworkStateClosed {
+		return nil
 	}
 
 	if cached.planMissing || len(cached.plan.Stages) == 0 {

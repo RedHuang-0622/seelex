@@ -285,6 +285,45 @@ go test -race ./application/core/goal/ -count=1
 - `func TestAuditSourceSessionProvenanceRoundTrip(t *testing.T)` — TestAuditSourceSessionProvenanceRoundTrip 验证"用户在其它会话完成 goal"
 - `func TestAuditPerSessionIsolation(t *testing.T)` — TestAuditPerSessionIsolation 验证审计按会话隔离：两会话各自审计独立
 
+### board_archive.go
+
+- `func isTerminalAuditKind(kind string) bool` — isTerminalAuditKind 报告审计条目是否 goal 终态（收口账本的派生来源）。
+- `func (s *ContextStateStore) auditLedger() []sessionstore.GoalAuditEntry` — auditLedger 返回本会话的 goal 审计账本（未装配会话存储 → nil）。
+- `func (s *ContextStateStore) refreshGoalBoard(ctx context.Context, records []*GoalRecord) error` — refreshGoalBoard 组装并（按指纹节流后）写入 goal 看板存档。
+- `func (s *ContextStateStore) refreshBoardAfterAudit(ctx context.Context, entry AuditEntry) error` — refreshBoardAfterAudit 在审计追加成功后刷新看板：只有终态条目
+- `func reportBoardWriteFailure(state string, err error) error` — reportBoardWriteFailure 决定一次看板存档失败是否上报（§7 的显式口径）。
+- `func planGoalBoard( prev sessionstore.GoalBoardMeta, active *sessionstore.GoalBoardActive, audit []sessionstore.GoalAuditEntry, now time.Time, ) (sessionstore.GoalBoardMeta, bool)` — planGoalBoard 组装看板载荷并判断是否需要写盘（指纹节流）。
+- `func mergeBoardHistory( prev sessionstore.GoalBoardMeta, active *sessionstore.GoalBoardActive, audit []sessionstore.GoalAuditEntry, ) []sessionstore.GoalBoardHistory` — mergeBoardHistory 计算收口账本的**并集**：存档已有条目 ∪ 由审计终态条目
+- `func closedInfo(prev sessionstore.GoalBoardMeta, audit []sessionstore.GoalAuditEntry, now time.Time) (int64, string)` — closedInfo 返回关闭时间（unix 秒）与原因：权威来源是**刚离开活动栈那个 goal**
+- `func terminalAuditFor(audit []sessionstore.GoalAuditEntry, goalID string) (sessionstore.GoalAuditEntry, bool)` — terminalAuditFor 在审计账本里找终态条目：优先 goalID 匹配的那条，否则退回
+- `func activeFrame(records []*GoalRecord) *sessionstore.GoalBoardActive` — activeFrame 把栈顶（records 末元素）投影成看板当前帧快照；空栈 → nil。
+- `func boardFingerprint(meta sessionstore.GoalBoardMeta) string` — boardFingerprint 计算看板载荷的内容指纹：对"去掉 Seq/UpdatedAt/Fingerprint"
+
+### board_archive_boundary_test.go
+
+- `func TestGoalBoardArchiveStaysOutOfDecisionFiles(t *testing.T)`
+
+### board_archive_test.go
+
+- `func newBoardArchiveRouter(t *testing.T) *sessionstore.Router` — newBoardArchiveRouter 建一个临时会话存储（看板存档落在会话目录的 metadata 下）。
+- `func newBoardArchiveStore(t *testing.T, router *sessionstore.Router, sessionID string) ( *ContextStateStore, sessionstore.SessionBoards, *sessionstore.SessionContextStore, )` — newBoardArchiveStore 装配"会话存储 + 看板存档面"的 goal 域适配器。
+- `func readBoardArchive(t *testing.T, boards sessionstore.SessionBoards) sessionstore.GoalBoardMeta` — readBoardArchive 读回看板存档（读取失败直接失败：这些用例都先写过）。
+- `func historyFor(meta sessionstore.GoalBoardMeta, goalID string) int` — historyFor 返回账本里某个 goal 的条目条数（"不会重复进 history"的判据）。
+- `func TestGoalBoardArchiveSeparatesActiveFrameFromHistory(t *testing.T)` — TestGoalBoardArchiveSeparatesActiveFrameFromHistory 验证 active/history 分离：
+- `func TestGoalBoardArchiveHistoryIsAppendOnlyPerGoal(t *testing.T)` — TestGoalBoardArchiveHistoryIsAppendOnlyPerGoal 验证账本**只追加不重写**：收口后
+- `func TestGoalBoardArchiveSurvivesColdRead(t *testing.T)` — TestGoalBoardArchiveSurvivesColdRead 验证**重启快照**语义：换一个会话存储/
+- `func (r *failingBoardRepository) WriteGoalBoard(context.Context, sessionstore.GoalBoardMeta) error`
+- `func (r *failingBoardRepository) ReadGoalBoard(context.Context) (sessionstore.GoalBoardMeta, error)`
+- `func (r *failingBoardRepository) WriteTeamBoard(context.Context, sessionstore.TeamBoardMeta) error`
+- `func (r *failingBoardRepository) ReadTeamBoard(context.Context) (sessionstore.TeamBoardMeta, error)`
+- `func TestGoalBoardArchiveWriteFailurePolicy(t *testing.T)` — TestGoalBoardArchiveWriteFailurePolicy 钉住写失败的**显式决定**（§7）：
+- `func (r *stubBoardRepository) WriteGoalBoard(context.Context, sessionstore.GoalBoardMeta) error`
+- `func (r *stubBoardRepository) ReadGoalBoard(context.Context) (sessionstore.GoalBoardMeta, error)`
+- `func (r *stubBoardRepository) WriteTeamBoard(context.Context, sessionstore.TeamBoardMeta) error`
+- `func (r *stubBoardRepository) ReadTeamBoard(context.Context) (sessionstore.TeamBoardMeta, error)`
+- `func TestGoalDomainDecisionsIgnoreBoardArchive(t *testing.T)` — TestGoalDomainDecisionsIgnoreBoardArchive 钉住 I1：**领域判定不吃存档**。
+- `func TestGoalBoardArchiveThrottlesUnchangedPayload(t *testing.T)` — TestGoalBoardArchiveThrottlesUnchangedPayload 验证**指纹节流**：载荷内容
+
 ### controller.go
 
 - `func viewOf(record *GoalRecord) *View`
@@ -445,7 +484,9 @@ go test -race ./application/core/goal/ -count=1
 
 ### sessionstore_store.go
 
-- `func NewContextStateStore(session *sessionstore.SessionContextStore) *ContextStateStore` — NewContextStateStore 构造适配器。session 为 nil 时 Load/Save 返回
+- `func NewContextStateStore(session *sessionstore.SessionContextStore, boards ...sessionstore.SessionBoards) *ContextStateStore` — NewContextStateStore 构造适配器。session 为 nil 时 Load/Save 返回
+- `func (s *ContextStateStore) BindBoards(boards sessionstore.SessionBoards)` — BindBoards 注入会话看板存档取用面（sessionstore.Router.BoardsForSession 的产物）。
+- `func (s *ContextStateStore) boardRepository() (sessionstore.SessionBoards, bool)` — boardRepository 返回看板存档取用面（**绑定会话**的面）；未装配返回 false。
 - `func (s *ContextStateStore) Load(ctx context.Context) ([]*GoalRecord, error)` — Load 实现 Store：从会话 GoalStack 读取当前栈（空栈返回空切片）。
 - `func (s *ContextStateStore) Save(ctx context.Context, records []*GoalRecord) error` — Save 实现 Store：全量替换会话 GoalStack 并持久化。写入前先确保会话
 - `func goalFramesFromRecords(records []*GoalRecord) []sessionstore.GoalFrame` — goalFramesFromRecords 把 goal 域记录投影为 sessionstore 第五栈帧

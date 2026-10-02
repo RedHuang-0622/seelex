@@ -1,11 +1,19 @@
 package seelebridge
 
-// runtime_teamwork_board_closed_test.go — 钉住看板投影的**闭板三字段**（S3）。
+// runtime_teamwork_board_closed_test.go — 钉住「整队收口 ⇒ 看板退场」（2026-10-03 口径修正）。
 //
-// 为什么这一片必须单独钉：closed 事实的域内权威在计划（sessionstore.TeamworkPlan.State，
-// U3 裁决），而看板存档对 closed 是**整块退场**（readTeamBoardArchive 只恢复 state=active）。
-// 所以"收口之后还看得见「已关闭」态"这件事，只能靠活体投影把计划里的三字段搬出来——
-// 搬运漏一处，前端就只剩一个说不清状态的空壳。
+// 口径：`team_close` 之后看板**整块退场**，与目标看板「结束就是没有了」同一口径。
+//
+// 为什么改（修前事实，Confirmed）：改前活体投影对已收口计划**照常出图**——计划里
+// stages 还在，只有 plan.State.State=closed，于是 `TeamworkBoardSnapshot` 照旧返回一块
+// 看板，GUI 的「团队看板」section 与 TUI 的看板节都不退场，连同在编名册（成员行）一起
+// 残留在收口之后。读侧因此分不清"这支队还在跑"与"早就收口了"。
+//
+// 三份事实的分工不变：closed 的**域内权威仍是计划**（sessionstore.TeamworkPlan.State），
+// 它管的是"还在不在册"；本文件管的是投影侧的口径——**不在册就没有看板**。存档侧本来就是
+// 同一口径（readTeamBoardArchive 只恢复 state=active），活体与存档因此不再自相矛盾。
+//
+// 计划留在原处（不删、不改落盘形状）：收口原因、收口时间仍是可核对的事实，只是不再上板。
 
 import (
 	"context"
@@ -14,7 +22,7 @@ import (
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
-func TestTeamworkBoardViewCarriesClosedState(t *testing.T) {
+func TestTeamworkBoardSnapshotRetiresClosedPlan(t *testing.T) {
 	r := newTestRuntime(t)
 	defer r.Shutdown()
 	store := &memPlanStore{}
@@ -23,7 +31,7 @@ func TestTeamworkBoardViewCarriesClosedState(t *testing.T) {
 	}
 	key := sessionstore.Key{ProjectID: "p-team", SessionID: "s-team"}
 
-	// 未收口：三字段必须是零值（空 = 未收口；这是"还在册"的判据面）。
+	// 未收口：计划在册 → 看板在（这是"还在册"的正例，别把退场读成"看板从来不出现"）。
 	if err := store.WritePlan(context.Background(), key, boardPlanFixture(), 6); err != nil {
 		t.Fatalf("WritePlan: %v", err)
 	}
@@ -31,12 +39,11 @@ func TestTeamworkBoardViewCarriesClosedState(t *testing.T) {
 	if open == nil {
 		t.Fatal("未收口的计划必须给得出看板")
 	}
-	if open.State != "" || open.ClosedAt != 0 || open.ClosedReason != "" {
-		t.Fatalf("未收口时闭板三字段应为零值，得到 state=%q closed_at=%d reason=%q",
-			open.State, open.ClosedAt, open.ClosedReason)
+	if open.State != "" {
+		t.Fatalf("未收口时 state 应为零值，得到 %q", open.State)
 	}
 
-	// 收口：计划标 closed 之后，看板必须照原样搬出三字段（存档侧此时已整块退场）。
+	// 收口：计划标 closed（域内权威），看板必须退场——不留空壳、不留残留的在编名册。
 	closed := boardPlanFixture()
 	closed.State = sessionstore.TeamworkState{
 		State:        sessionstore.TeamworkStateClosed,
@@ -48,17 +55,12 @@ func TestTeamworkBoardViewCarriesClosedState(t *testing.T) {
 	}
 	r.invalidateTeamworkBoard()
 
-	board := r.TeamworkBoardSnapshot("s-team")
-	if board == nil {
-		t.Fatal("已收口的计划仍要给得出看板——否则「已关闭」态在 UI 上写不出来")
+	if board := r.TeamworkBoardSnapshot("s-team"); board != nil {
+		t.Fatalf("已收口的计划必须让看板退场（结束就是没有了），得到 %+v（在编 %d 人仍残留）",
+			board, len(board.Members))
 	}
-	if board.State != sessionstore.TeamworkStateClosed {
-		t.Fatalf("state 必须从计划搬出来（域内权威）：%q", board.State)
-	}
-	if board.ClosedReason != sessionstore.BoardCloseTeamClose {
-		t.Fatalf("closed_reason 必须是收口原因词表里的 %q：%q", sessionstore.BoardCloseTeamClose, board.ClosedReason)
-	}
-	if board.ClosedAt != 1759392000 {
-		t.Fatalf("closed_at 必须原样搬运：%d", board.ClosedAt)
+	// 退场是稳定的：再采集一次也不能"活过来"（负缓存/存档兜底都不许把它复活）。
+	if board := r.TeamworkBoardSnapshot("s-team"); board != nil {
+		t.Fatalf("收口后的看板退场必须稳定，第二次采集又拿到了 %+v", board)
 	}
 }

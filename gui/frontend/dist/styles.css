@@ -3991,8 +3991,27 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
    docs/gui/modules/right-sidebar.md 的 Agent Team 小节。 */
 .role-session-row.is-draft { border-style: dashed; border-color: var(--status-running); background: var(--surface-glass); }
 .role-session-row.is-draft .role-session-row-head strong { color: var(--status-running); }
-.role-record-draft-head { color: var(--status-running); font-style: italic; }
+.role-record-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 11px; }
+.role-record-table th, .role-record-table td { padding: 4px 6px; border-bottom: 1px solid var(--border-hairline); text-align: left; vertical-align: top; }
+.role-record-head th { color: var(--faint); font: 700 10px var(--font-mono); letter-spacing: .04em; }
+.role-record-seq { width: 64px; color: var(--text-mid); font: 10px var(--font-mono); }
+.role-record-seq.is-draft { color: var(--status-running); font-style: italic; }
+.role-record-round.is-draft { background: var(--surface-glass); }
+.role-record-cell { color: var(--text-mid); overflow-wrap: anywhere; }
+.role-record-cell.is-main { color: var(--text-strong); }
+.role-record-cell.is-shared { color: var(--text-mid); }
+.role-record-cell.is-outside, .role-record-cell.is-empty { color: var(--faint); }
 .role-record-cell.is-draft { color: var(--status-running); border-left: 2px dashed var(--status-running); }
+/* 「正在做（实时）」：teammate.tool.* 事件驱动的瞬态区（不进快照）。
+   一条一步、最新在下；进行中的一步用运行色，失败用失败色。 */
+.role-live-tools { border: 1px dashed var(--border-strong); border-radius: 8px; padding: 6px 8px; }
+.role-live-steps { display: flex; flex-direction: column; gap: 3px; margin: 0; padding: 0; list-style: none; }
+.role-live-step { display: flex; align-items: baseline; gap: 6px; min-width: 0; font-size: 11px; }
+.role-live-status { padding: 0 5px; border-radius: 4px; font-size: 10px; color: var(--text-mid); border: 1px solid var(--border-hairline); }
+.role-live-step.is-running .role-live-status { color: var(--status-running); border-color: var(--border-running); background: var(--tint-running); }
+.role-live-step.is-error .role-live-status { color: var(--status-failed); border-color: var(--border-failed); background: var(--tint-failed); }
+.role-live-name { flex: none; color: var(--text-strong); font: 10.5px var(--font-mono); }
+.role-live-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
 .chip.is-draft { border-color: var(--status-running); color: var(--status-running); }
 
 /* ---------- 18. 2026-09-15 收敛：Agent Team 管理面 / 线框降噪 / 侧栏收起 ---------- */

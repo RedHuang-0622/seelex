@@ -179,6 +179,12 @@ type Runtime struct {
 	// 分离——角色回合是派生的、可丢弃的执行面，不该进活跃会话/持久化路由。
 	roleTurnsMu sync.Mutex
 	roleTurns   *roleTurnState
+	// roleToolObserver 是**员工回合**里工具活动的观察者（`SubagentToolCallback` 的
+	// 对称面）：子代理的工具调用经 `session.ToolEventState` 中间件投影成实时事件，
+	// 员工回合此前没有任何出口——本字段补上那一格。装配期经 SetRoleToolCallback
+	// 写入一次，回合内只读；nil = 没人订阅（零成本 no-op）。
+	roleToolMu       sync.Mutex
+	roleToolObserver func(dto.RoleToolActivity)
 
 	// teamwork 编排面（runtime_teamwork.go）：leader 的硬编排工具（team_*）与
 	// jobs 作业面。backend 由组合根注入（PlanStore + KeyFor）；未注入 = **不注册**

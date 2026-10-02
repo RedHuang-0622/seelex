@@ -110,6 +110,8 @@ const (
 	EventSubagentToolCompleted = event.EventSubagentToolCompleted
 	EventRuntimeChanged        = event.EventRuntimeChanged
 	EventTeamChanged           = event.EventTeamChanged
+	EventTeammateToolStarted   = event.EventTeammateToolStarted
+	EventTeammateToolCompleted = event.EventTeammateToolCompleted
 	EventInteractionOpened     = event.EventInteractionOpened
 	EventInteractionClosed     = event.EventInteractionClosed
 	EventError                 = event.EventError

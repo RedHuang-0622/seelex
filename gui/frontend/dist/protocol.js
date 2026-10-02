@@ -3,6 +3,7 @@ export const SUPPORTED_PROTOCOL_VERSION = 1;
 const INCREMENTAL_KINDS = new Set([
   "message.added", "message.delta", "tool.started", "tool.completed",
   "subagent.changed", "subagent.tool.started", "subagent.tool.completed",
+  "teammate.tool.started", "teammate.tool.completed",
   "chat.changed", "runtime.changed", "worktable.changed", "task.changed",
   "interaction.opened", "interaction.closed", "team.changed", "compaction.progress"
 ]);
@@ -108,6 +109,15 @@ function applyIncremental(snapshot, event, payload) {
   case "subagent.tool.started":
   case "subagent.tool.completed":
     return applySubagentToolEvent(snapshot, payload);
+  case "teammate.tool.started":
+  case "teammate.tool.completed":
+    // 员工回合的工具活动（subagent.tool.* 的员工侧对称面）：**不进快照**——员工的权威
+    // 记录在角色会话里（AgentTeamRoleSnapshot 是读面），这条只送"它刚动了"这一件事。
+    // 因此 reducer 只校验形状并透传载荷，由应用层把它并进员工详情的实时区。
+    if (!payload || typeof payload !== "object") return false;
+    if (typeof payload.id !== "string" || !payload.id) return false;
+    if (typeof payload.role_session_id !== "string" || !payload.role_session_id) return false;
+    return true;
   case "runtime.changed":
     if (!payload || typeof payload !== "object") return false;
     snapshot.runtime = payload;

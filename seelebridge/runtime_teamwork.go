@@ -396,16 +396,7 @@ func (r *Runtime) RunWorker(ctx context.Context, request teamwork.WorkerRequest,
 	if maxLoops <= 0 {
 		maxLoops = roleTurnMaxLoops
 	}
-	output, err := r.runRoleRound(ctx, roleRoundSpec{
-		MainSessionID:    mainSessionID,
-		RoleName:         request.Role,
-		RoleSessionID:    request.RoleSessionID,
-		ToolsPolicy:      request.ToolsPolicy,
-		PermissionGroups: request.PermissionGroups,
-		SystemPrompt:     r.roleTurnSystemPrompt(request.Role),
-		Input:            workerRoundInput(request),
-		MaxLoops:         maxLoops,
-	})
+	output, err := r.runRoleRound(ctx, r.workerRoleRoundSpec(request, mainSessionID, maxLoops))
 	if err != nil {
 		// 产品自有输出文件时，失败正文也得落进这个文件：框架在这种形态下**不写**
 		// （externalOutput.write 是空操作），不写就等于"这一轮出过错"这件事在正文里
@@ -424,6 +415,29 @@ func (r *Runtime) RunWorker(ctx context.Context, request teamwork.WorkerRequest,
 		sink.Note(trimmed + "\n")
 	}
 	return nil
+}
+
+// workerRoleRoundSpec 组装一个 teammate 作业回合的执行面入参。
+//
+// 抽成方法而不是内联：`WorkScope` 这一格是**实时观察面的唯一入口**（见 roleWorkScope）——
+// 漏掉它，员工在做工时的工具活动就一条也发不出去，前端又回到"等这一轮跑完才看得到结果"
+// 的老现场，而那种回归在类型上是合法的（空 WorkScope 只是"不发活动"），只能靠用例钉。
+func (r *Runtime) workerRoleRoundSpec(request teamwork.WorkerRequest, mainSessionID string, maxLoops int) roleRoundSpec {
+	return roleRoundSpec{
+		MainSessionID:    mainSessionID,
+		RoleName:         request.Role,
+		RoleSessionID:    request.RoleSessionID,
+		ToolsPolicy:      request.ToolsPolicy,
+		PermissionGroups: request.PermissionGroups,
+		SystemPrompt:     r.roleTurnSystemPrompt(request.Role),
+		Input:            workerRoundInput(request),
+		MaxLoops:         maxLoops,
+		WorkScope: roleWorkScope{
+			MainSessionID: mainSessionID,
+			RoleName:      request.Role,
+			RoleSessionID: request.RoleSessionID,
+		},
+	}
 }
 
 // writeWorkerOutput 把本轮正文写进**产品自有**的输出文件（jobs.Spec.OutputPath 形态）。

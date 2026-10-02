@@ -320,6 +320,19 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 - `func TestCompactionRangeLabel(t *testing.T)` — TestCompactionRangeLabel：区间渲染只在**有边界**时成段——空区间返回空串
 - `func TestCompactCommandNeverReportsFoldWithoutRecord(t *testing.T)` — TestCompactCommandNeverReportsFoldWithoutRecord：/compact 是显式路径，只要
 
+### context_compact_trigger_liveness_test.go
+
+- `func (runtime *reentrantGateIndexRuntime) PushCompactionFrame( _ context.Context, sessionID string, _ context_runtime.CompactionIndexRequest, ) (context_runtime.CompactionIndexReceipt, error)`
+- `func triggerLivenessFixture(t *testing.T, requestID string) (*Service, *reentrantGateIndexRuntime, string)` — triggerLivenessFixture 是一个"已越过硬阈值、必折出非空溢出区"的会话：
+- `func releaseGate(runtime *reentrantGateIndexRuntime) func()` — releaseGate 造一个**幂等**放行器：返回的函数可以反复调用（含 defer + 显式调用），
+- `func awaitPushEntered[T any](t *testing.T, runtime *reentrantGateIndexRuntime, inFlight <-chan T, what string)` — awaitPushEntered 等到夹具真的走到推帧（否则判据是空集上的真命题）。
+- `func assertInteractionFaceLive(t *testing.T, service *Service, what string)` — assertInteractionFaceLive 断言交互面四个入口在推帧进行中照常返回。任一被冻 =
+- `func TestAutoFoldPushKeepsInteractionFaceLive(t *testing.T)` — TestAutoFoldPushKeepsInteractionFaceLive：**自动**入口（rawTokens ≥ 硬阈值，
+- `func TestMaintenanceFoldPushKeepsInteractionFaceLive(t *testing.T)` — TestMaintenanceFoldPushKeepsInteractionFaceLive：**维护入口**
+- `func TestSessionLevelCompactPushKeepsInteractionFaceLive(t *testing.T)` — TestSessionLevelCompactPushKeepsInteractionFaceLive：**无在飞回合的会话级**
+- `func TestExplicitFoldWhileAutoFoldInFlightDoesNotInterlock(t *testing.T)` — TestExplicitFoldWhileAutoFoldInFlightDoesNotInterlock：**显式与自动并发**。
+- `func TestCompactionChurnOnOneSessionDoesNotHang(t *testing.T)` — TestCompactionChurnOnOneSessionDoesNotHang：把触发入口混在一起反复跑（显式压缩
+
 ### context_compact_viewmu_hold_repro_test.go
 
 - `func (runtime *blockingIndexRuntime) PushCompactionFrame( ctx context.Context, _ string, _ context_runtime.CompactionIndexRequest, ) (context_runtime.CompactionIndexReceipt, error)`

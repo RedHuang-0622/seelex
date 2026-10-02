@@ -729,6 +729,16 @@ function renderIncremental(snapshot, kind, payload) {
     if (activeNodeDetailKey) refreshOpenNodeDetail();
     return;
   }
+  if (kind === "teammate.tool.started" || kind === "teammate.tool.completed") {
+    // 员工在做工：这是**逐帧**的实时钩子（subagent.tool.* 的员工侧对称面）。载荷不进
+    // 快照（员工的权威记录在角色会话里），所以这里不整份重绘、也不跑 RPC——把这一帧并进
+    // 员工详情的实时区即可。开着的正是这一位时立刻重绘；否则只记忆（切过去带出来）。
+    //
+    // 修前事实：员工侧只有 team.changed（装配/母本 CRUD 才发）+ 手动刷新键，于是
+    // "这一轮到底在干什么"要等它跑完才看得到（2026-10-03 现场）。
+    applyTeammateToolActivity(payload);
+    return;
+  }
   if (kind === "interaction.opened" || kind === "interaction.closed") renderInteraction(snapshot.interaction);
   if (kind === "team.changed") {
     // 团队面板的数据不在快照里（按需 RPC 拉取），这条事件只带来"变了"：作废面板
@@ -3128,7 +3138,10 @@ async function openRoleSessionDetail(roleName, roleSessionID) {
   if (!name) return;
   try {
     const snapshot = await invoke("AgentTeamRoleSnapshot", "", name, String(roleSessionID || ""));
-    roleSessionDetail = { roleName: name, roleSessionID: String(roleSessionID || ""), members: roleSessionTargets() };
+    roleSessionDetail = {
+      roleName: name, roleSessionID: String(roleSessionID || ""),
+      members: roleSessionTargets(), snapshot
+    };
     renderRoleSessionView(snapshot);
     setModal("role-session-modal", true);
   } catch (error) {
@@ -3136,17 +3149,51 @@ async function openRoleSessionDetail(roleName, roleSessionID) {
   }
 }
 
-// renderRoleSessionView 只重绘视图内容（标题 + 正文），不动弹窗开合：刷新键与切员工
-// 都复用它，避免"刷新一下弹窗闪一下"。
+// roleSessionLiveTools 是按**角色会话**缓存的有界实时工具活动（teammate.tool.* 载荷）。
+//
+// 它刻意不进快照：那是"此刻在做什么"的瞬态，权威记录在角色会话投影里（AgentTeamRoleSnapshot）。
+// 缓存按角色会话分组 → 打开的是哪一位就只画哪一位；没打开的在缓存里等着（切回来立刻有）。
+// 有界（只留最近 ROLE_LIVE_TOOL_LIMIT 条）：一轮 ReAct 可以跑很多步，无界积累会把详情
+// 面板撑成流水账。
+const ROLE_LIVE_TOOL_LIMIT = 40;
+const roleSessionLiveTools = new Map();
+
+// applyTeammateToolActivity 收下一条 teammate 工具活动（started/completed 同 ID → upsert）。
+//
+// 这是**逐帧**的热更新路径（subagent.tool.* 的员工侧对称面）：不改快照、不跑 RPC——
+// 载荷本身就是这一步的读数，直接并进缓存后重绘开着的详情。视图没开、或开的不是这位，
+// 就只记忆不重绘（切过去时自然带出来）。
+function applyTeammateToolActivity(payload) {
+  const roleSessionID = String(payload?.role_session_id || "");
+  const id = String(payload?.id || "");
+  if (!roleSessionID || !id) return;
+  const steps = roleSessionLiveTools.get(roleSessionID) || [];
+  const index = steps.findIndex(step => step.id === id);
+  if (index >= 0) steps[index] = payload;
+  else steps.push(payload);
+  if (steps.length > ROLE_LIVE_TOOL_LIMIT) steps.splice(0, steps.length - ROLE_LIVE_TOOL_LIMIT);
+  roleSessionLiveTools.set(roleSessionID, steps);
+
+  const detail = roleSessionDetail;
+  if (!detail || detail.roleSessionID !== roleSessionID) return;
+  if (elements["role-session-modal"]?.classList?.contains("hidden")) return;
+  if (!detail.snapshot) return;
+  renderRoleSessionView(detail.snapshot);
+}
+
+// renderRoleSessionView 只重绘视图内容（标题 + 正文），不动弹窗开合：刷新键、切员工
+// 与实时工具活动都复用它，避免"刷新一下弹窗闪一下"。
 function renderRoleSessionView(snapshot) {
   const detail = roleSessionDetail || { roleName: "", roleSessionID: "", members: [] };
   elements["role-session-modal-title"].innerHTML = `<span class="eyebrow">Agent Team · 员工会话</span><h2>${escapeHtml(roleDisplayName(detail.roleName))}</h2>`;
   elements["role-session-view"].className = "role-session-view";
-  elements["role-session-view"].innerHTML = renderRoleSessionDetail(snapshot, detail);
+  // 实时工具活动按角色会话取（没有就是空数组：渲染件据此不画空壳）。
+  const liveTools = roleSessionLiveTools.get(detail.roleSessionID) || [];
+  elements["role-session-view"].innerHTML = renderRoleSessionDetail(snapshot, { ...detail, liveTools });
 }
 
 // refreshRoleSessionDetail 重取当前视图目标的快照（刷新键 / team.changed 事件）：
-// 员工运行详情是**事件驱动 + 手动刷新**，没有心跳（用户口径）。
+// 权威读数走这条**拉取**路；"此刻在做什么"走 teammate.tool.* 的**推送**路（不进快照）。
 async function refreshRoleSessionDetail() {
   const detail = roleSessionDetail;
   if (!detail || !detail.roleName) return;
@@ -3154,7 +3201,10 @@ async function refreshRoleSessionDetail() {
   try {
     const snapshot = await invoke("AgentTeamRoleSnapshot", "", detail.roleName, detail.roleSessionID);
     // 取数期间用户可能已切到别人/关掉视图：只有目标还是同一份时才回写。
-    if (roleSessionDetail === detail) renderRoleSessionView(snapshot);
+    if (roleSessionDetail === detail) {
+      detail.snapshot = snapshot;
+      renderRoleSessionView(snapshot);
+    }
   } catch (error) {
     showToast(error);
   }

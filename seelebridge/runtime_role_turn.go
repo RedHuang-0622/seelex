@@ -39,8 +39,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
@@ -141,6 +143,47 @@ type roleRoundSpec struct {
 	// （用户看到的"渲染不及时"）。它只把**后端产生的分片单向**送出去，不接收任何
 	// 输入，也不参与回合结果（结果仍以返回值/裁决为准）。
 	OnDelta func(delta string)
+	// WorkScope 非空时表示这是**员工做工回合**（team_dispatch 派出的 teammate 在做活），
+	// 本回合的每次工具调用都要发一份实时活动投影（见 roleWorkScope 与 roleLoopHooks）。
+	//
+	// 为什么由调用方给而不是执行面自己猜：同一个执行原语同时服务 ADVISOR 评审与员工
+	// 做工，两者的观察面**不同**（评审走 goal 域的 TLStep sink，员工走 teammate 活动
+	// 事件）——"这一轮是谁的活"只有调用方知道，猜错了就会把评审回合的活动也当员工活动
+	// 播出去（或反之），两边的面板都开始说谎。空值 = 只走 TLStep sink（评审/内部回合）。
+	WorkScope roleWorkScope
+}
+
+// roleWorkScope 是本轮"员工做工"的身份：谁在做工（角色名）、在哪个角色会话里、
+// 属于哪个主会话。
+//
+// 它进 ctx（见 runRoleRound），因为 ReAct 钩子是挂在**引擎**上的（一个角色会话开一次，
+// 活得比一轮长），而"这一轮是员工做工"是**按轮**的事实：钩子只能从本轮 ctx 里读它。
+type roleWorkScope struct {
+	MainSessionID string
+	RoleName      string
+	RoleSessionID string
+}
+
+// roleWorkScopeKey 携带本轮员工做工身份。
+type roleWorkScopeKey struct{}
+
+func withRoleWorkScope(ctx context.Context, scope roleWorkScope) context.Context {
+	if scope.RoleSessionID == "" && scope.MainSessionID == "" && scope.RoleName == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, roleWorkScopeKey{}, scope)
+}
+
+// roleWorkScopeFrom 取本轮员工做工身份；不是员工做工回合时返回 (零值, false)。
+func roleWorkScopeFrom(ctx context.Context) (roleWorkScope, bool) {
+	if ctx == nil {
+		return roleWorkScope{}, false
+	}
+	scope, ok := ctx.Value(roleWorkScopeKey{}).(roleWorkScope)
+	if !ok || strings.TrimSpace(scope.MainSessionID) == "" || strings.TrimSpace(scope.RoleSessionID) == "" {
+		return roleWorkScope{}, false
+	}
+	return scope, true
 }
 
 // SetRoleEngineFactory 注入角色会话引擎的构造器（nil = 回退默认的框架 Session）。
@@ -212,6 +255,9 @@ func (r *Runtime) runRoleRound(ctx context.Context, spec roleRoundSpec) (string,
 	// 与它派生的工具调用因此都能看到"这一轮正在跑哪个角色会话"，本轮之内的重入请求
 	// 才会被拦下（调用方自己的 ctx 不受影响）。
 	turnCtx = withRoleRoundInFlight(turnCtx, roleSessionID)
+	// 员工做工身份也挂在本轮 ctx 上：ReAct 钩子是挂在引擎上的（活得比一轮长），
+	// 只有 ctx 能告诉它"这一轮是谁的活"（见 roleRoundSpec.WorkScope）。
+	turnCtx = withRoleWorkScope(turnCtx, spec.WorkScope)
 
 	// 闸门只包"跑一轮"这一段（准入在内、执行在外）。引擎读在闸门外：handle 经
 	// state.mu 发布、engine 在发布前写入，因此是安全的只读。
@@ -316,11 +362,16 @@ func (r *Runtime) newRoleEngine(sessionID string) (roleEngine, error) {
 		Agent:     teammateToolFace(r.agt),
 		Context:   context,
 		Telemetry: r.hook,
-		// ReAct 钩子把角色回合的**工具步骤**接到 goal 域的过程观察面（tl_steps.go）：
-		// ADVISOR 评审的只读工具调用因此能被前端看见（"评审过程"），而不是只活在
-		// 这个进程内会话里。钩子按 ctx 取 sink：员工回合没有 sink（取到 nil），
-		// 因此这条路径对员工回合是零成本 no-op。
-		Hooks:     roleLoopHooks(),
+		// ReAct 钩子把角色回合的**工具步骤**接到两处观察面（按本轮身份分流，见
+		// roleRoundSpec.WorkScope）：
+		//   ① 员工做工回合（team_dispatch 派出的 teammate）→ **teammate 工具活动事件**
+		//      （roleLoopHooks 里那条 work scope 分支）：前端据此实时更新开着的员工详情。
+		//      修前这一路是缺的——钩子只送 goal 域的 TLStep sink，而那个 sink 只有
+		//      ADVISOR 回合挂得上，于是 teammate 在做工时前端一无所知，只能等这一轮
+		//      跑完（leader 写里程碑那一刻）才看得到结果（2026-10-03 现场）。
+		//   ② ADVISOR 评审回合 → goal 域的过程观察面（tl_steps.go）：评审的只读工具
+		//      调用因此能被看见（"评审过程"）。钩子按 ctx 取 sink，员工回合取到 nil。
+		Hooks:     r.roleLoopHooks(),
 		SessionID: sessionID,
 		ModelName: r.model,
 		Config:    session.SessionConfig{MaxLoops: roleTurnMaxLoops},
@@ -331,20 +382,27 @@ func (r *Runtime) newRoleEngine(sessionID string) (roleEngine, error) {
 	return sess, nil
 }
 
-// roleLoopHooks 返回角色回合的 ReAct 钩子集合：只做一件事——把工具调用与返回
-// 转成 goal 域的过程步骤（TLStep），送到**本轮 ctx 上挂的 sink**。
+// roleLoopHooks 返回角色回合的 ReAct 钩子集合：把工具调用与返回送到**按本轮身份选定的**
+// 观察面。
+//
+// 两条路（互不相同的一件事，别把它们读成同一份数据的两份）：
+//   - **员工做工回合**（ctx 上有 roleWorkScope）：送 `RoleToolActivity` → 装配根 →
+//     application → 会话级事件 `teammate.tool.started/completed`。它就是 subagent 那条
+//     实时钩子的员工侧对称面（子代理按 NodeID 归到 Plan 节点，员工按角色会话归位）。
+//   - **ADVISOR 评审回合**（ctx 上挂了 goal 域的 TLStep sink）：送过程步骤（tl_steps.go），
+//     评审的工具调用因此能被看见（"评审过程"）。
 //
 // 为什么用 ctx 而不是给 Session 传固定回调：角色会话引擎是**按角色会话缓存**的
-// （一个角色开一次），而 sink 是**按回合**的（每轮 Supervisor 都会重新挂）。把
-// sink 放 ctx 正好让"引擎活得久、回调只活一轮"两件事各归其位；流程结束 sink 失效，
-// 不会把上一轮的观察面带到下一轮。
+// （一个角色开一次），而"这一轮是谁的活"与 sink 都是**按回合**的。把两者放 ctx 正好让
+// "引擎活得久、回调只活一轮"两件事各归其位；流程结束即失效，不会把上一轮的观察面带到下一轮。
 //
 // 为什么只送工具步骤、不送模型正文：正文分片已经由 OnDelta 通道负责（见
 // runtime_goal_tl.go）；两句分开可以让面板分别控制粒度——工具步骤是"可核对的事实"，
 // 模型正文是"正在写什么"。
-func roleLoopHooks() *session.LoopHooks {
+func (r *Runtime) roleLoopHooks() *session.LoopHooks {
 	return &session.LoopHooks{
 		OnToolStart: func(ctx context.Context, info session.ToolCallInfo) {
+			r.reportRoleToolStart(ctx, info)
 			sink := goaldomain.TLStepSinkFrom(ctx)
 			if sink == nil {
 				return
@@ -355,6 +413,7 @@ func roleLoopHooks() *session.LoopHooks {
 			})
 		},
 		OnToolComplete: func(ctx context.Context, info session.ToolCallInfo) {
+			r.reportRoleToolComplete(ctx, info)
 			sink := goaldomain.TLStepSinkFrom(ctx)
 			if sink == nil {
 				return
@@ -369,6 +428,100 @@ func roleLoopHooks() *session.LoopHooks {
 			sink(step)
 		},
 	}
+}
+
+// roleToolActivityLimit 是员工工具活动里入参/结果的 rune 上限。
+//
+// 与子代理那一侧的口径一致：观察面要的是"这一步在做什么"，不是完整载荷（完整的
+// 结果在会话记录里）；截断按 rune——切半个中文字是损坏，不是截断。
+const roleToolActivityLimit = 600
+
+// reportRoleToolStart 报告员工回合的一次工具调用开始（非员工回合 = 零成本 no-op）。
+func (r *Runtime) reportRoleToolStart(ctx context.Context, info session.ToolCallInfo) {
+	scope, ok := roleWorkScopeFrom(ctx)
+	if !ok {
+		return
+	}
+	r.publishRoleToolActivity(dto.RoleToolActivity{
+		ID:            roleToolActivityID(info),
+		MainSessionID: scope.MainSessionID,
+		RoleName:      scope.RoleName,
+		RoleSessionID: scope.RoleSessionID,
+		Name:          info.Name,
+		Arguments:     truncateRunes(info.Arguments, roleToolActivityLimit),
+		Status:        "running",
+		StartedAt:     time.Now(),
+		Turn:          info.Turn,
+	})
+}
+
+// reportRoleToolComplete 报告员工回合的一次工具调用收口（成功/出错都在这一条上）。
+func (r *Runtime) reportRoleToolComplete(ctx context.Context, info session.ToolCallInfo) {
+	scope, ok := roleWorkScopeFrom(ctx)
+	if !ok {
+		return
+	}
+	status, message := "success", ""
+	if info.Error != nil {
+		status, message = "error", info.Error.Error()
+	}
+	r.publishRoleToolActivity(dto.RoleToolActivity{
+		ID:            roleToolActivityID(info),
+		MainSessionID: scope.MainSessionID,
+		RoleName:      scope.RoleName,
+		RoleSessionID: scope.RoleSessionID,
+		Name:          info.Name,
+		Arguments:     truncateRunes(info.Arguments, roleToolActivityLimit),
+		Status:        status,
+		Result:        truncateRunes(info.Result, roleToolActivityLimit),
+		Error:         message,
+		// 开始时刻由耗时反推：框架的 ToolComplete 只补 Result/Error/Duration
+		// （见 session.ToolCallInfo），没有开始时刻可取——不编造一个"现在"。
+		StartedAt: time.Now().Add(-info.Duration),
+		Duration:  info.Duration,
+		Turn:      info.Turn,
+	})
+}
+
+// roleToolActivityID 给出同一次工具调用的稳定标识：started 与 completed 两帧同值，
+// 前端据此 upsert，而不是把一次调用读成两条（与子代理侧 subtool-<n> 同一目的）。
+//
+// 判据是框架给得出的全部信息（轮次 + 工具名 + 入参指纹）：`ToolCallInfo` 没有调用 ID
+// 这一栏，因此"同一轮里同名同参的两次调用"会合并成一条——这是框架层缺字段的诚实后果，
+// 不是这里偷偷丢数据（同名不同参不会合并：入参指纹不同）。
+func roleToolActivityID(info session.ToolCallInfo) string {
+	return fmt.Sprintf("%s#%d#%08x", info.Name, info.Turn, crc32.ChecksumIEEE([]byte(info.Arguments)))
+}
+
+// publishRoleToolActivity 把一条员工工具活动交给观察者（未订阅 = 丢弃，不排队、不落盘）。
+//
+// 单向：只有后端 → 观察面。观察者不得回写本 Runtime 的状态（它是"正在发生什么"的
+// 播报，不是控制面），因此这里在锁外调用，避免把订阅方的耗时带进回合路径。
+func (r *Runtime) publishRoleToolActivity(activity dto.RoleToolActivity) {
+	if r == nil {
+		return
+	}
+	r.roleToolMu.Lock()
+	observer := r.roleToolObserver
+	r.roleToolMu.Unlock()
+	if observer == nil {
+		return
+	}
+	observer(activity)
+}
+
+// SetRoleToolCallback 注入**员工回合**工具活动的观察者（nil = 取消订阅）。
+//
+// 与 SetSubagentToolCallback 对称：那条把子代理工具活动投影到 Plan 节点，这条把员工
+// 回合的工具活动投影到角色会话。装配根（main.go）把它接到 application 的
+// HandleRoleToolActivity，再作为会话级事件下发。
+func (r *Runtime) SetRoleToolCallback(callback func(dto.RoleToolActivity)) {
+	if r == nil {
+		return
+	}
+	r.roleToolMu.Lock()
+	r.roleToolObserver = callback
+	r.roleToolMu.Unlock()
 }
 
 // roleTurnSystemPrompt 组装员工回合的系统提示：**已登记的员工提示词优先**

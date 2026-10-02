@@ -519,6 +519,32 @@ test("dispatches team.changed without a snapshot refresh, even above the revisio
   assert.equal(stale.needsRefresh, false);
 });
 
+// teammate.tool.started/completed（员工做工的实时工具活动）与 team.changed 同口径：
+// 载荷不进快照（员工的权威记录在角色会话里），后端按 revision=0 发布。丢了它，前端又
+// 回到"等这一轮跑完才看得到员工在干什么"；带 revision 则会被"快照已表示"的陈旧判据吃掉。
+test("dispatches teammate tool-activity frames without a snapshot refresh", () => {
+  const current = { ...snapshot(), revision: 9 };
+  const payload = {
+    id: "read_file#1#0a1b2c3d", main_session_id: "main-1",
+    role_name: "tl", role_session_id: "goal-a2a-tl",
+    name: "read_file", status: "running", turn: 1
+  };
+  const result = applyEvent(current, {
+    protocol_version: 1, delivery_seq: 21, revision: 0, kind: "teammate.tool.started", payload
+  }, 20, 9);
+  assert.equal(result.needsRefresh, false);
+  assert.equal(result.changed, "teammate.tool.started");
+  assert.equal(result.payload.role_session_id, "goal-a2a-tl");
+  assert.equal(result.snapshot.revision, 9);
+
+  // 形状不全（缺调用 ID / 缺角色会话）的帧不认：认了就是让视图按一条不完整的读数重绘。
+  const broken = applyEvent(current, {
+    protocol_version: 1, delivery_seq: 22, revision: 0, kind: "teammate.tool.completed",
+    payload: { name: "read_file" }
+  }, 21, 9);
+  assert.notEqual(broken.changed, "teammate.tool.completed");
+});
+
 // compaction.progress（压缩门禁进度）与 team.changed 同口径：载荷不进快照、按
 // revision=0 发布，reducer 只校验形状并把载荷透传给视图侧的进度条。丢了它，用户
 // 只看得到"压缩完了"，看不到"压到哪一关"；带 revision 则会被中途的权威快照判成

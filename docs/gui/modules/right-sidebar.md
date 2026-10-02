@@ -106,8 +106,18 @@ provider · model + 不可用标记），点击走 `#account-list` 容器委托�
 角色会话详情里，**未同步草稿独立成区**（`renderRoleDraftBlock`，见
 `docs/devlog/2026-09-22-team-role-draft.md`）：草稿不混进"已发布"车道，而是排在既有
 行之后、按 `round/unit` 成列，每行带 `is-draft` 类 + 「未同步」chip +
-`data-draft-round/-unit/-kind` 凭据；记录表里对应的列头与格子同样标成草稿
-（`.role-record-draft-head` / `.role-record-cell.is-draft`，样式在 `styles.css`）。
+`data-draft-round/-unit/-kind` 凭据；记录表里对应的行同样标成草稿
+（`.role-record-seq.is-draft` / `.role-record-cell.is-draft`，样式在 `styles.css`）。
+
+记录表本身是**竖排**的（2026-10-03）：一条回合一行（行号 = `seq`，时间自上而下），
+两栏 = main 车道 / 它自己那条车道；末尾接「草稿N」行（草稿还没有发布 `seq`，
+不能冒充第 0 回合）。四类归属不变（`.role-record-cell.is-main/-own/-shared/-outside`）。
+修前是"车道当行、回合号当列"的横向 `excel-grid`——回合一多，窄弹窗里要横向滚动才读得完，
+而这块记录要回答的恰恰是"这位在时间轴上依次经历了什么"。
+
+运行详情里还有一节**「正在做（实时）」**（`renderRoleLiveTools`，2026-10-03）：数据来自
+`teammate.tool.started/completed` 事件的载荷（**不进快照**的瞬态，逐帧推送），一条一步、
+最新在下。它是"此刻在做什么"，与下面的记录表（权威投影，拉取面）分工——两者不互相冒充。
 
 判据只来自后端投影，前端不推演：会话工作区把 `draft_rows` 与 `main_rows/role_rows`
 分列返回（`sessionstore/role_session.go` 的 `syncRoleDraft` / `readRoleSnapshot`），

@@ -156,6 +156,8 @@ const (
 	EventWorkTableChanged      = event.EventWorkTableChanged
 	EventTaskChanged           = event.EventTaskChanged
 	EventTeamChanged           = event.EventTeamChanged
+	EventTeammateToolStarted   = event.EventTeammateToolStarted
+	EventTeammateToolCompleted = event.EventTeammateToolCompleted
 	EventInteractionOpened     = event.EventInteractionOpened
 	EventInteractionClosed     = event.EventInteractionClosed
 	EventError                 = event.EventError

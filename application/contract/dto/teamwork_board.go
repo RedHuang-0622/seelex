@@ -32,9 +32,10 @@ type TeamworkBoardView struct {
 	Recovered bool `json:"recovered,omitempty"`
 	// State / ClosedAt / ClosedReason 是**整队收口**（team_close）的三字段。
 	//
-	// closed 事实的**域内权威在计划**（sessionstore.TeamworkPlan.State，U3 裁决），这里
-	// 只做搬运：没有它前端写不出「已关闭」态（存档侧 BoardLifecycle 的同名字段只是这份
-	// 事实的历史副本，读侧不得据它判定"还在不在册"）。State 空 = 未收口。
+	// closed 事实的**域内权威在计划**（sessionstore.TeamworkPlan.State，U3 裁决）。它们
+	// 进投影只服务**存档载荷**（封板时那一版与下发同形）：已经收口的计划在下发侧整块
+	// 退场（TeamworkBoardSnapshot 对它返回 nil——"结束就是没有了"），所以消费方在活体
+	// 路径上不会看到非空 State。存档侧同样只恢复 state=active，两份读侧口径一致。
 	State        string                  `json:"state,omitempty"`
 	ClosedAt     int64                   `json:"closed_at,omitempty"`
 	ClosedReason string                  `json:"closed_reason,omitempty"`

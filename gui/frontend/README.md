@@ -397,8 +397,31 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
   新造一个"员工会话"概念（目标身份 = 该员工的 `role_session_id`）。
 - **母本 CRUD 也发 `team.changed`**：员工库 / 团队库 / 默认顺序 / 「普及到全局」这几条
   全局母本写在 core 里补发会话级 `team.changed`（`publishTeamChanged`）——它们同样是
-  面板数据的一部分；不发就只能靠发起方自己重取，别的观察者（另一窗口、切回来）会停在
-  旧库。
+  面板数据的一部分；不发就只能靠发起方自己重取，别的观察者（另一窗口、切回来）会停在旧库。
+
+**员工在做什么：实时区（2026-10-03 口径修正）**：上面那条"员工侧没有心跳"只覆盖
+**权威读数**（角色会话投影 / 面板成员表）——那两份是拉取面，配刷新键。但"这位此刻在
+干什么"**不该**等这一轮跑完才看得到（修前就是这样：角色回合的 ReAct 钩子只把工具步骤
+送进 goal 域的评审观察面，而那个 sink 只有 ADVISOR 挂得上——teammate 在做工时前端一无所知，
+只能等 leader 写里程碑那一刻）：
+
+- 后端：员工做工回合（`team_dispatch` 派出的 teammate）的每次工具调用 → `RoleToolActivity`
+  → 装配根（`RuntimeDeps.RoleToolCallback` = `app.HandleRoleToolActivity`）→ 会话级事件
+  `teammate.tool.started` / `teammate.tool.completed`（载荷不进快照，`revision=0`）；
+  它就是 `subagent.tool.*` 的员工侧对称面。
+- 前端：`app.js` 的 `applyTeammateToolActivity` 把帧并进按角色会话分组的**有界**缓存
+  （`roleSessionLiveTools`，上限 `ROLE_LIVE_TOOL_LIMIT`），开着的正是这一位时立刻重绘
+  （不跑 RPC）；`renderRoleLiveTools` 把它画成「正在做（实时）」一节（一条一步、最新在下），
+  排在记录表之前。切员工时各自带出自己的那一份。
+- 边界：实时区是**瞬态**（不进快照、不落盘、关掉面板即不再更新），权威记录仍是角色会话
+  投影；两者不互相冒充——"它刚动了"归事件，"它记录里有什么"归拉取。
+
+**员工记录表：竖排（2026-10-03）**：`role-record-table` 从"车道当行、回合号当列"的横向
+excel-grid 改成**一条回合一行**（行号 = seq，时间自上而下；末尾是「草稿N」行——草稿还没有
+发布 seq，不能冒充第 0 回合）。两栏 = main 车道 / 它自己那条车道，四类归属不变：
+`is-main` / `is-own` / `is-shared` / `is-outside`（入伙前或已被压缩掉的回合两栏都是占位
+`—`，不冒充它记得的上下文）。样式在 `styles.css` 的 `.role-record-*`（不再依赖
+`.excel-grid`）。
 
 ### 页签与折叠口径（2026-09 交互改版）
 

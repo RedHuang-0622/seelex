@@ -63,6 +63,37 @@ test("app.js wires the employee-session detail refresh key and hot-updates it on
   );
 });
 
+// 2026-10-03（口径修正）：员工侧不只是"事件驱动 + 手动刷新"——**它自己那一轮的实时工具
+// 活动**走 teammate.tool.started/completed 的推送路（subagent.tool.* 的员工侧对称面）。
+// 这里钉的是接线：消费这两个 kind、把载荷并进按角色会话分组的缓存、开着的正是这一位时
+// 立刻重绘（不跑 RPC）、并且**不**把这一帧当快照重绘。
+test("app.js hot-updates the teammate detail from teammate.tool.* frames", () => {
+  assert.ok(
+    appSource.includes('kind === "teammate.tool.started"') && appSource.includes('kind === "teammate.tool.completed"'),
+    "app.js must consume the teammate tool-activity frames (they are the employee-side twin of subagent.tool.*)"
+  );
+  assert.ok(
+    appSource.includes("applyTeammateToolActivity(payload)"),
+    "the frames must be applied through one function (no ad-hoc DOM writes in the event switch)"
+  );
+  assert.ok(
+    appSource.includes("roleSessionLiveTools.set(roleSessionID, steps)"),
+    "live frames must be buffered per role session, so switching to another member shows their own activity"
+  );
+  assert.ok(
+    appSource.includes("roleSessionLiveTools.set(roleSessionID, steps)") && appSource.includes("ROLE_LIVE_TOOL_LIMIT"),
+    "the live buffer must be bounded (a ReAct round can take many steps)"
+  );
+  assert.ok(
+    appSource.includes("detail.roleSessionID !== roleSessionID") && appSource.includes("renderRoleSessionView(detail.snapshot)"),
+    "an arriving frame must only repaint when the open detail is that teammate, and it must repaint from the last snapshot + the new frame (no RPC)"
+  );
+  assert.ok(
+    appSource.includes("liveTools"),
+    "the live frames must reach the renderer (otherwise they are collected and never shown)"
+  );
+});
+
 test("app.js switches the employee-session view to another member (对话视图切员工)", () => {
   assert.ok(
     appSource.includes('"[data-role-session-switch]"'),

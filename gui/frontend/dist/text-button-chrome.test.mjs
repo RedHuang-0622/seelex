@@ -62,8 +62,30 @@ function classTokens(tag) {
   return literal.split(/\s+/).filter(token => /^[a-z][a-z0-9-]*$/.test(token));
 }
 
-test("裸类名的行内按钮必须自己抹掉组件库的按钮皮", async () => {
+// allRules 汇总**所有**会作用到页面上的样式规则。
+//
+// 两处来源，缺一不可：
+//   - `styles.css`：全局样式；
+//   - 渲染件导出的模块 CSS（`export const XXX_CSS = \`…\``）：按契约它**不抄进**
+//     styles.css（抄一份就是两处色值，改一处漏一处），而是由 app.js 在首次渲染时
+//     注入一个 `<style>`。只看 styles.css 会把"皮写在模块里"的按钮误判成裸按钮
+//     （2026-10-03：团队看板的成员入口 `team-member-role.is-openable` 就是这样
+//     被判红的——它的 background 就在 team-board-view.js 的 TEAM_BOARD_CSS 里）。
+async function allRules() {
   const rules = cssRules(await read("styles.css"));
+  const moduleCSSFiles = (await readdir(DIR))
+    .filter(name => name.endsWith(".js") && !name.endsWith(".test.mjs"));
+  for (const file of moduleCSSFiles.sort()) {
+    const source = await read(file);
+    for (const match of source.matchAll(/export const [A-Z][A-Z_]*CSS = `([\s\S]*?)`;/g)) {
+      rules.push(...cssRules(match[1]));
+    }
+  }
+  return rules;
+}
+
+test("裸类名的行内按钮必须自己抹掉组件库的按钮皮", async () => {
+  const rules = await allRules();
   const files = (await readdir(DIR)).filter(name => name.endsWith(".js") && !name.endsWith(".test.mjs"));
 
   const offenders = [];

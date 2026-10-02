@@ -65,7 +65,7 @@ MISC_FILES = [
 # 覆盖规则 = 命中任一前缀 **或** 在显式名单中；每个根包 .go 必须恰好命中一卷，
 # 由 verify_coverage 兜底（新增文件不归卷即失败，不静默漏文档）。
 ROOT_GROUPS = [
-    ("service", "Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/测试夹具）", ["service"], ["employee_permission_assembly_test.go", "fixture_concurrency_test.go"]),
+    ("service", "Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/测试夹具）", ["service"], ["employee_permission_assembly_test.go", "fixture_concurrency_test.go", "teamwork_service.go", "teamwork_board_projection_test.go", "role_tool_activity_test.go"]),
     ("session", "会话草稿/恢复/存储用例与集成测试；运行中切到未驻留会话走异步冷加载（restoring 空壳 + 后台装载 + epoch 判定发布基线）", ["session"], SESSION_EXTRA),
     ("chat", "聊天主循环与可见输出集成（含可见会话的群聊角色归属载荷）", ["chat"],
      ["visible_output_test.go", "reasoning_visible_test.go", "visible_role_attribution_test.go"]),

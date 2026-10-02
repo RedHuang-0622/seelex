@@ -3,7 +3,9 @@ package core
 
 import (
 	"errors"
+	"strings"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/model"
 	seelsession "github.com/RedHuang-0622/seelex/seelebridge/session"
 )
@@ -92,6 +94,46 @@ func (service *Service) PublishRuntimeProjections() {
 // 发布一次前端增量。
 func (service *Service) HandleSubagentToolEvent(event seelsession.SubagentToolEvent) {
 	service.components.subagent.HandleSubagentToolEvent(event)
+}
+
+// HandleRoleToolActivity 把 Runtime 的**员工回合**工具活动投影成会话级实时事件
+// （`teammate.tool.started/completed`）。
+//
+// 生态位（与 HandleSubagentToolEvent 对称，不是它的第二份实现）：子代理那条把活动
+// 落进 Plan 节点的有界 `tool_events`（详情面板有权威投影可读）；员工这条**不落快照**
+// ——员工的权威记录在它自己的角色会话里（`AgentTeamRoleSnapshot` 是读面），这里只负责
+// "它刚动了"这一件事的实时送达。所以：
+//
+//   - 载荷 = 这一次工具调用的有界投影（`dto.RoleToolActivity`），按 `Limits().EvidenceChars`
+//     截断（与子代理同一把尺子，不另立一份上限）；
+//   - `revision = 0`（同 `team.changed` 口径）：载荷不进快照，带 revision 会被"快照比
+//     事件新"的陈旧判据吃掉，逐帧的进度就又变成"等这一轮跑完才看得到"；
+//   - 路由键 = `MainSessionID`（这位 teammate 所属的主会话）；缺它不发布——宁可丢弃也不
+//     回填到别的会话（同 jobs_events.go 的口径）。
+//
+// 单向只读：它只播报"正在发生什么"，不写任何状态，也不唤醒任何忙会话。
+func (service *Service) HandleRoleToolActivity(event dto.RoleToolActivity) {
+	if service == nil || service.Events == nil {
+		return
+	}
+	sessionID := strings.TrimSpace(event.MainSessionID)
+	if sessionID == "" || strings.TrimSpace(event.ID) == "" {
+		return
+	}
+	limit := Limits().EvidenceChars
+	event.Arguments = truncateWorkEvidence(event.Arguments, limit)
+	event.Result = truncateWorkEvidence(event.Result, limit)
+	event.Error = truncateWorkEvidence(event.Error, limit)
+
+	kind := EventTeammateToolCompleted
+	if strings.TrimSpace(event.Status) == "running" {
+		kind = EventTeammateToolStarted
+	}
+	requestID := ""
+	if service.Core != nil {
+		requestID = service.Core.Snapshot.Chat.RequestID
+	}
+	service.publishSessionEvent(kind, 0, requestID, sessionID, event)
 }
 
 // SubagentSessionDetail 返回节点子代理的详情数据（截断会话 + 上下文快照 +

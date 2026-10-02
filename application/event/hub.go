@@ -38,6 +38,16 @@ const (
 	// 发布端用 revision=0（同 chat.changed 口径），否则"快照比事件新"的陈旧
 	// 判据会把它丢掉，而面板缓存并不随快照翻转。
 	EventTeamChanged EventKind = "team.changed"
+	// EventTeammateToolStarted / EventTeammateToolCompleted 通告"某个 teammate 在它
+	// 自己的角色会话里刚发起 / 收口了一次工具调用"（载荷 = dto.RoleToolActivity）。
+	//
+	// 它们是 subagent.tool.* 的**员工侧对称面**：子代理那条按 NodeID 落进 Plan 节点的
+	// 有界 tool_events（详情有权威投影可读）；员工这条**不落快照**——员工的权威记录在
+	// 角色会话里（AgentTeamRoleSnapshot 是读面），这里只送"它刚动了"这一件事。因此
+	// 与 team.changed 同口径用 revision=0：载荷不进快照，带 revision 会被"快照比事件新"
+	// 的陈旧判据吃掉，逐帧的进度就又退化成"等这一轮跑完才看得到"。
+	EventTeammateToolStarted   EventKind = "teammate.tool.started"
+	EventTeammateToolCompleted EventKind = "teammate.tool.completed"
 	// EventCompactionProgress 通告"一轮上下文压缩正在逐关收口"（判据估算→装配
 	// →替换 provider 历史→渲染帧→存帧→写记录），前端进度条据此推进。载荷不进
 	// 快照（压缩记录本身才进），因此与 team.changed 同口径用 revision=0：否则

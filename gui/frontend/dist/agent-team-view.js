@@ -1141,12 +1141,13 @@ export function renderRoleSessionDetail(snapshot, identity = null) {
   const roleName = String(identity?.roleName || view.roleName || "");
   const roleSessionID = String(identity?.roleSessionID ?? view.roleSessionID ?? "");
   const display = roleDisplayName(view.roleName);
-  // 手动刷新键（E1）：员工运行详情没有心跳推送——后端的 team.changed 只在"会话团队
-  // 事实变了"时发一条空载荷，而员工会话正文/草稿的变化不都走那条事件。所以详情视图
-  // 自带一枚刷新键（重取 AgentTeamRoleSnapshot），ident 带上身份好让刷新原样重放。
+  // 手动刷新键（E1）：权威读数（角色会话投影）是**拉取**面，刷新键是"我现在就要最新"的
+  // 兜底。但"此刻在做什么"不靠它——那条走 teammate.tool.started/completed 的**推送**
+  // 路（见 renderRoleLiveTools 与 app.js 的 applyTeammateToolActivity）：员工一动手，
+  // 这一节就逐帧长出来，不必等这一轮跑完（2026-10-03 口径修正）。
   const toolbar = `<div class="role-session-toolbar">
-      <span class="role-session-toolbar-hint muted">运行详情 · 事件驱动，可手动刷新</span>
-      <button type="button" class="image-button" data-role-session-refresh="1" data-role-session-role="${escapeHtml(roleName)}" data-role-session-sid="${escapeHtml(roleSessionID)}" title="重新拉取这个员工会话的读数（运行详情没有心跳）" aria-label="刷新员工运行详情">${icon("refresh", 12)}</button>
+      <span class="role-session-toolbar-hint muted">运行详情 · 实时（teammate.tool.*）+ 手动刷新</span>
+      <button type="button" class="image-button" data-role-session-refresh="1" data-role-session-role="${escapeHtml(roleName)}" data-role-session-sid="${escapeHtml(roleSessionID)}" title="重新拉取这个员工会话的读数（权威记录是拉取面）" aria-label="刷新员工运行详情">${icon("refresh", 12)}</button>
     </div>`;
   // 「切员工」切换条（用例 5 的对话视图）：把视图目标从一个员工会话换成另一个。
   const switcher = renderRoleSessionSwitcher(identity?.members, roleName);
@@ -1163,17 +1164,52 @@ export function renderRoleSessionDetail(snapshot, identity = null) {
       main ${escapeHtml(shortID(view.mainSessionID) || "—")} · join_seq ${view.joinSeqID} · policy ${escapeHtml(view.orderPolicy || "—")}${view.orderRoles.length ? ` · order ${escapeHtml(view.orderRoles.join(" → "))}` : ""}
     </div>`;
   const record = renderRoleRecordTable(snapshot);
+  // 「正在做（实时）」——这一节的数据**不进快照**：它来自 teammate.tool.started/completed
+  // 事件（见 app.js 的 applyTeammateToolActivity），是"此刻在做什么"的瞬态。放在记录表
+  // 之前：先看它此刻在动什么，再看它的记录。
+  const live = renderRoleLiveTools(identity?.liveTools);
   // 已发布的 message 行与未同步草稿**各自成区**：草稿是 sequencer 的 WAL，还没成为
   // 这个角色的 message；混在一起时用户看不出"哪一行还没同步"。
   const published = view.roleRows.length
     ? `<div class="role-session-rows">${view.roleRows.map(row => renderPublishedRoleRow(row, display)).join("")}</div>`
     : "";
   const drafts = renderRoleDraftBlock(view, display);
-  if (!published && !drafts && !record) {
+  if (!published && !drafts && !record && !live) {
     return `<div class="role-session-detail" data-role-session="${escapeHtml(view.roleName)}">${switcher}${toolbar}${warnings}${header}
       <div class="role-session-empty muted">该角色还没有独立会话行（未发言或尚未同步）。</div></div>`;
   }
-  return `<div class="role-session-detail" data-role-session="${escapeHtml(view.roleName)}">${switcher}${toolbar}${warnings}${header}${record}${published}${drafts}</div>`;
+  return `<div class="role-session-detail" data-role-session="${escapeHtml(view.roleName)}">${switcher}${toolbar}${warnings}${header}${live}${record}${published}${drafts}</div>`;
+}
+
+// ROLE_LIVE_STATUS_LABEL 把 teammate.tool.* 载荷的状态翻成面板上的短词。
+// 未知取值**原样显示**（后端加新状态时，前端把它写死成 running 就是把事实说错）。
+const ROLE_LIVE_STATUS_LABEL = { running: "进行中", success: "完成", error: "失败" };
+
+// renderRoleLiveTools 渲染「正在做（实时）」一节：这位 teammate 此刻的工具活动。
+//
+// 数据来源是 `teammate.tool.started/completed` 事件的载荷（**不进快照**的瞬态，与
+// subagent 详情里的 tool_events 同一形态）：一条一步、最新在下。它是"正在发生什么"，
+// 不是权威记录——权威记录在下面的记录表与已发布/草稿行里（那两份来自角色会话投影，
+// 这一份来自事件流）。没有活动 → 不渲染空壳。
+export function renderRoleLiveTools(steps) {
+  const list = (Array.isArray(steps) ? steps : []).filter(step => step && step.id);
+  if (list.length === 0) return "";
+  const rows = list.map(step => {
+    const status = String(step.status || "").trim();
+    const label = ROLE_LIVE_STATUS_LABEL[status] || status || "—";
+    const detail = String(step.result || step.error || step.arguments || "").replace(/\s+/g, " ").trim();
+    const shown = detail.length > 160 ? `${detail.slice(0, 159)}…` : detail;
+    return `<li class="role-live-step is-${escapeHtml(status)}" data-live-id="${escapeHtml(String(step.id))}">
+        <span class="chip role-live-status is-${escapeHtml(status)}">${escapeHtml(label)}</span>
+        <code class="role-live-name">${escapeHtml(String(step.name || "?"))}</code>
+        ${shown ? `<span class="role-live-detail" title="${escapeHtml(detail)}">${escapeHtml(shown)}</span>` : ""}
+      </li>`;
+  }).join("");
+  return `<section class="team-block role-live-tools" data-role-live-tools="${list.length}">
+      <div class="section-title sub-title"><span>正在做（实时）</span><span class="badge">${list.length}</span></div>
+      <div class="role-session-meta muted">每一行都来自 ${escapeHtml("teammate.tool.*")} 事件（不进快照的瞬态）：这一轮还没跑完时，这里就是它此刻在做什么。</div>
+      <ul class="role-live-steps">${rows}</ul>
+    </section>`;
 }
 
 // renderPublishedRoleRow 是**已发布**的角色行（同步进 message 之后的行，有 seq）。
@@ -1219,19 +1255,20 @@ function draftRowMeta(row) {
   return parts.length ? parts.join(" · ") : "未分配回合号";
 }
 
-// renderRoleRecordTable 用**一张专用表格**表达该 teammate 自己那份 team work 记录：
-// 一行一条车道（main 车道 / 它自己），一列一个回合（seq）。
+// renderRoleRecordTable 用**竖排记录**表达该 teammate 自己那份 team work 记录：
+// **一条回合一行**，行里两栏 = main 车道 / 它自己那条车道。
+//
+// 为什么竖排（2026-10-03 现场口径）：修前是横向 excle-grid——车道当行、回合号当列，
+// 时间往右长。回合一多，窄弹窗里横向滚动才有内容，读起来是"一张表"而不是"一条过程"；
+// 而这块记录要回答的恰恰是"这位在时间轴上依次经历了什么"。改成回合当行之后，时间
+// 自上而下，回合序号就是行号，草稿行接在末尾（"草稿N"当行号——草稿还没有发布 seq，
+// 不能冒充第 0 回合）。
 //
 //   main 车道 = 主会话自己的回合（整段）；
 //   自身车道 = 它入伙之后的共享回合（seq > prefix_cut_seq，标成 is-shared）
 //              + 它自己的行（标成 is-own）；
-//              入伙之前（或已被压缩掉）的列渲染成占位 —（is-outside），
+//              入伙之前（或已被压缩掉）的回合两栏都是占位 —（is-outside）：
 //              **不冒充它记得的上下文**。
-//
-// 未同步草稿单独排在右端「草稿N」列（自身的车道里，标成 is-own is-draft）：
-// 草稿还没有发布 seq（seq 由 sequencer 在同步时分配），所以它不能占一个 seq 列——
-// 早先的实现把草稿并进按 seq 索引的车道，同一批草稿（seq 全是 0）只剩最后一条，
-// 前面的行被静默吞掉。
 //
 // 切点来自后端只读投影（prefix_cut_seq，判据与角色 wire 装配一致：join_seq_id，
 // compact 后取更大的 applied_seq；main 复用主会话本身、切点恒为 0）。前端只渲染，
@@ -1246,42 +1283,44 @@ export function renderRoleRecordTable(snapshot) {
   const mainBySeq = new Map(view.mainRows.map(row => [seqOf(row), row]));
   const ownBySeq = new Map(ownRows.map(row => [seqOf(row), row]));
   const seqs = [...new Set([...mainBySeq.keys(), ...ownBySeq.keys()])].sort((a, b) => a - b);
-  const draftHead = draftRows
-    .map((_, index) => `<th class="role-record-draft-head" title="未同步草稿：同步后才分配 seq">草稿${index + 1}</th>`)
-    .join("");
-  const head = seqs.map(seq => `<th>${seq}</th>`).join("") + draftHead;
-  const mainDraftCells = draftRows.map((_, index) => `<td class="role-record-cell is-empty" data-draft="${index + 1}">·</td>`).join("");
-  const mainCells = seqs.map(seq => mainBySeq.has(seq)
+  const mainCell = (seq) => mainBySeq.has(seq)
     ? `<td class="role-record-cell is-main" data-seq="${seq}" title="主会话自己的回合">${escapeHtml(recordCellText(mainBySeq.get(seq)))}</td>`
-    : `<td class="role-record-cell is-empty" data-seq="${seq}">·</td>`).join("") + mainDraftCells;
-  const ownSeqCells = seqs.map(seq => {
+    : `<td class="role-record-cell is-empty" data-seq="${seq}" title="这一回合主会话没有行">·</td>`;
+  const ownCell = (seq) => {
     if (ownBySeq.has(seq)) {
       return `<td class="role-record-cell is-own" data-seq="${seq}" title="${escapeHtml(display)} 自己的回合">${escapeHtml(recordCellText(ownBySeq.get(seq)))}</td>`;
     }
-    if (!mainBySeq.has(seq)) return `<td class="role-record-cell is-empty" data-seq="${seq}">·</td>`;
+    if (!mainBySeq.has(seq)) {
+      return `<td class="role-record-cell is-empty" data-seq="${seq}" title="这一回合谁都没有行">·</td>`;
+    }
     if (cut > 0 && seq <= cut) {
       return `<td class="role-record-cell is-outside" data-seq="${seq}" title="不在 ${escapeHtml(display)} 的前缀匹配区间">—</td>`;
     }
     return `<td class="role-record-cell is-shared" data-seq="${seq}" title="共享上下文（它能看到的 main 回合）">${escapeHtml(recordCellText(mainBySeq.get(seq)))}</td>`;
-  }).join("");
-  const ownDraftCells = draftRows.map((row, index) =>
-    `<td class="role-record-cell is-own is-draft" data-draft="${index + 1}" title="未同步草稿：本轮结束（完成或取消）同步后才写进 message">${escapeHtml(recordCellText(row))}</td>`
-  ).join("");
-  const ownCells = ownSeqCells + ownDraftCells;
+  };
+  // 轮次行：一条回合一行（时间自上而下）；两条车道的归属各自成栏。
+  const rounds = seqs.map(seq => `<tr class="role-record-round" data-seq="${seq}">
+        <th class="role-record-seq" scope="row">${seq}</th>
+        ${mainCell(seq)}
+        ${ownCell(seq)}
+      </tr>`).join("");
+  // 草稿行接在末尾：行号是「草稿N」而不是 seq（seq 由 sequencer 在同步时分配）。
+  const drafts = draftRows.map((row, index) => `<tr class="role-record-round is-draft" data-draft="${index + 1}">
+        <th class="role-record-seq is-draft" scope="row" title="未同步草稿：同步后才分配 seq">草稿${index + 1}</th>
+        <td class="role-record-cell is-empty" data-draft="${index + 1}" title="草稿只属于它自己的车道">·</td>
+        <td class="role-record-cell is-own is-draft" data-draft="${index + 1}" title="未同步草稿：本轮结束（完成或取消）同步后才写进 message">${escapeHtml(recordCellText(row))}</td>
+      </tr>`).join("");
   const legend = cut > 0
     ? `前缀匹配自 seq ${cut + 1} 起：更早的 ${view.outsidePrefixMainRows} 行不在它的记录里（占位 —）`
     : "该会话整段都在它的记录里";
   const draftNote = draftRows.length
-    ? `；右侧 ${draftRows.length} 个「草稿N」格是未同步草稿，同步后才成为 message 行（还没有 seq）`
+    ? `；末尾 ${draftRows.length} 行「草稿N」是未同步草稿，同步后才成为 message 行（还没有 seq）`
     : "";
   return `<div class="role-record" data-record-cut="${cut}" data-record-outside="${view.outsidePrefixMainRows}" data-record-visible="${view.visibleMainRows}" data-record-own="${ownRows.length}" data-record-draft="${draftRows.length}">
       <div class="role-record-legend muted">${escapeHtml(legend + draftNote)}</div>
-      <table class="excel-grid role-record-table" data-role-record-table>
-        <thead><tr class="excel-head-row"><th class="role-record-lane-head">车道</th>${head}</tr></thead>
-        <tbody>
-          <tr class="role-record-lane is-main" data-lane="main"><th class="role-record-lane-name">main</th>${mainCells}</tr>
-          <tr class="role-record-lane is-own" data-lane="${escapeHtml(view.roleName)}"><th class="role-record-lane-name" title="${escapeHtml(display)}">${escapeHtml(view.roleName || display)}</th>${ownCells}</tr>
-        </tbody>
+      <table class="role-record-table" data-role-record-table>
+        <thead><tr class="role-record-head"><th class="role-record-seq" scope="col">回合</th><th class="role-record-lane-head" scope="col">main</th><th class="role-record-lane-head is-own" scope="col" title="${escapeHtml(display)}">${escapeHtml(view.roleName || display)}</th></tr></thead>
+        <tbody>${rounds}${drafts}</tbody>
       </table>
     </div>`;
 }

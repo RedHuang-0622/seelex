@@ -80,7 +80,7 @@ stateDiagram-v2
 
 ## 核心实现
 
-- `EventKind`：消息新增/增量、主代理工具、子代理生命周期/工具、Runtime、聊天运行态（`chat.changed`）、Interaction、Snapshot 和 Error 等事件类型；另有两条**载荷不进快照**的通告类 kind（`team.changed` 作废前端面板缓存、`compaction.progress` 逐关进度），二者都用 `revision = 0`。
+- `EventKind`：消息新增/增量、主代理工具、子代理生命周期/工具、**员工回合工具活动**（`teammate.tool.started` / `teammate.tool.completed`，载荷 `dto.RoleToolActivity`——`subagent.tool.*` 的员工侧对称面：子代理按 `NodeID` 落进 Plan 节点的有界 `tool_events`，员工按角色会话归位、**不落快照**，只作"它刚动了"的推送）、Runtime、聊天运行态（`chat.changed`）、Interaction、Snapshot 和 Error 等事件类型；另有四条**载荷不进快照**的通告类 kind（`team.changed` 作废前端面板缓存、`teammate.tool.*` 驱动员工详情的实时区、`compaction.progress` 逐关进度），这些一律用 `revision = 0`。
 - `CompactionProgress`（`compaction.progress` 载荷）：一轮上下文压缩的门禁进度。`state` =
   `running`/`done`/`failed`（三态之外没有第四种）；`phase` 为空表示"该关刚刚收口"，
   `begin` 是起手帧（判据估算还没出结果：`index=0`、`version=0` 表示"未定"，判据关收口时才补正）；

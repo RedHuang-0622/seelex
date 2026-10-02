@@ -87,6 +87,11 @@ type TeamworkEventView struct {
 
 - `Stages[].DependsOn` 是**顺序的唯一事实**（`sessionstore.TeamworkPlan.Stages[].DependsOn`
   同名搬运）；渲染件的拓扑+层号只从它算，不从派发姿势猜。
+- `State` / `ClosedAt` / `ClosedReason` 是整队收口的三字段。**收口之后看板整块退场**
+  （2026-10-03 口径修正）：`TeamworkBoardSnapshot` 对 `state=closed` 的计划返回 `nil`，
+  与"没有计划"同解——看板是在册编排的只读投影，收口之后没有在册编排可看。三字段因此
+  只服务**存档载荷**（封板那一版与下发同形）；活体路径的消费方不会看到非空 `State`。
+  存档读侧本来就是同一口径（只恢复 `state=active`），两端不再自相矛盾。
 - `Jobs[].Stage` / `Jobs[].Role` 是**权威归属**，由桥给出；渲染件里那条
   `job.stage → job.node → job.scope.subject` 的回落链只是过渡口径，接线后 stage 一定命中。
 - `Jobs[].State` 的字面量与 `jobs.State` 同源；**开放取值**——只有 `done` 与
@@ -189,8 +194,9 @@ application/model/state.go      SessionRuntime.TeamworkBoard  json:"teamwork_boa
   已经有一个 TEAM 标记。
 - **样式**：`team-board-view.js` 导出 `TEAM_BOARD_CSS`。app.js 在首次渲染时把它注入一个
   `<style id="team-board-styles">`（**唯一来源**，不往 `styles.css` 里抄第二份——抄一份就是两处色值漂移）。
-- **退场语义**：`teamwork_board` 缺失 / 无 `stages` / `renderTeamBoard` 返回 `""`
-  → `#team-board-section` 加 `hidden`、`#team-board-view` 清空。**不留空壳**。
+- **退场语义**：`teamwork_board` 缺失 / 无 `stages` / **计划已收口**（`state=closed`）/
+  `renderTeamBoard` 返回 `""` → `#team-board-section` 加 `hidden`、`#team-board-view` 清空。
+  **不留空壳**（"结束就是没有了"，与目标看板同口径）。
 
 ---
 
@@ -202,7 +208,7 @@ application/model/state.go      SessionRuntime.TeamworkBoard  json:"teamwork_boa
 - 头部一行：`team_id · v<version> · 阶段 n · 在编 n[/max] · 作业 跑/完/败`；
 - 阶段行：按计划声明顺序，逐行 `id 角色 deps:…`，紧随其下是该阶段的作业行（`job.stage` 归属）；
 - 里程碑行：`id status · 内容摘要`；
-- 退场语义：`nil` 或无阶段 → **不追加任何行**（不留空壳，口径同 GUI）；
+- 退场语义：`nil` / 无阶段 / **计划已收口** → **不追加任何行**（不留空壳，口径同 GUI）；
 - 仍受 `clampLines(lines, panelLineLimit)` 约束（超长折叠成一行提示）。
 
 **两处数据源的分工（同一面板里不许出现两份名册）**：面板上半段的「TEAM + 成员表」来自
@@ -216,7 +222,7 @@ application/model/state.go      SessionRuntime.TeamworkBoard  json:"teamwork_boa
 ## 7. 不变式
 
 1. **单向只读**：整条链路上没有任何前端 → 后端的写入口；渲染结果不回写。
-2. **无计划 = 退场**：`nil` / 无阶段 → GUI 与 TUI 两端都不渲染空壳。
+2. **无计划 = 退场**：`nil` / 无阶段 / 计划已收口 → GUI 与 TUI 两端都不渲染空壳。
 3. **顺序唯一事实**：`stages[].depends_on`；看板的排序/层号是它的**派生**，不是第二份事实。
 4. **句柄只是投影**（jobs I-4）：句柄活在内存，进程重启后计划里残留的 `state.jobs` 一律视为过期；
    `Stale=true` 就是这条的显式化（计划里有句柄、句柄表里查不到），渲染件据此打「句柄投影可能过期」chip。
