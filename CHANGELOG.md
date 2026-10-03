@@ -99,12 +99,13 @@ version when it lands.
   做任何会再取锁或走外部端口的调用；`sessionLoaded` 的既有调用方 `resumeSession` 本来就持读锁，所以收口落在**调用点**而不是
   函数内部（`sync.RWMutex` 不支持递归读锁）。
   验证：`-race` 下该用例 40/60 轮连跑、根包全量多轮与 `application/core` 全量均无 `DATA RACE`。
-  另：同一次排查确认该作业还有**第二个、与本次修复无关**的偶发源——`TestBackgroundCompletionWhileSwitchingToC` 用阻塞
-  provider 制造「某一轮长时间不返回」，而流式传输层的 `streamHeaderTimeout` 是硬编码 60s
-  （`seelebridge/account/transport.go`）：慢机器或 `-race` 下用例自身的编排就可能超过 60s，那一轮以
-  `net/http: timeout awaiting response headers` 提前结束，依赖「仍在阻塞」的断言随之超时（对照实验：把本次并发修复
-  `git stash` 掉后复现结果逐字一致，同样 90.06s 处失败）。修它需要放宽/配置化该常量或重排用例编排，属产品侧取舍，
-  未纳入本次改动。
+  另：同一作业还有第二个、与并发修复**无关**的偶发源，本次一并修掉——`TestBackgroundCompletionWhileSwitchingToC` 的阻塞
+  provider 在阻塞前不落地响应头，而客户端传输层的 `ResponseHeaderTimeout` 是硬编码 60s（`seelebridge/account/transport.go`）：
+  慢机器或 `-race` 下用例自身的编排超过 60s，那一轮就以 `net/http: timeout awaiting response headers` 提前结束，
+  「该轮仍在阻塞」的断言随之失真（CI run 37118931912 的 race-and-coverage 就是这样红的：60s 处报该错误、90s 处
+  `C second turn did not block`）。修法是让模拟更贴近真实 provider——阻塞前先 `Flush` 响应头（真实 provider 此刻早把
+  200 + SSE 头发回来了），阻塞语义不变，体侧 idle 超时 300s 足够；对照实验（`git stash` 掉并发修复后复现结果逐字一致）
+  证明它与并发修复无关。
 
 ### Notes
 

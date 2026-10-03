@@ -228,6 +228,17 @@ func (p *blockingProvider) serve(t *testing.T, writer http.ResponseWriter, reque
 		http.Error(writer, "streaming unsupported", http.StatusInternalServerError)
 		return
 	}
+	// 先把响应头落地，再进入「阻塞这一轮」的等待。
+	//
+	// 客户端传输层用 ResponseHeaderTimeout 兜「连响应头都拿不到」的挂死
+	// （seelebridge/account/transport.go，硬编码 60s）；而本 provider 要模拟的是
+	// 「模型这一轮长时间不出结果」——真实 provider 此刻早就把 200 + SSE 头发回来了。
+	// 不先 Flush，阻塞一旦超过 60s 就会被头超时打断，那一轮提前结束，用例里
+	// 「该轮仍在阻塞」的断言随之失真（CI run 37118931912 的 race-and-coverage：
+	// TestBackgroundCompletionWhileSwitchingToC 在 90s 处以 "C second turn did not
+	// block" 收场，日志里正是 60s 处的 timeout awaiting response headers）。
+	// 流体的 idle 超时是 300s，足够用例把阻塞维持到释放。
+	flusher.Flush()
 	if release, blocked := p.release[requestNumber]; blocked {
 		closeOnce := sync.Once{}
 		closeOnce.Do(func() { close(p.seen[requestNumber]) })
