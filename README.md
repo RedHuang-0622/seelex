@@ -512,8 +512,23 @@ go build -tags "gui,desktop,production" -trimpath `
   -o dist/stage-gui/seelex-gui.exe .
 
 # 完整 GUI 发布包（zip + sha256，只含 example 配置）
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-gui.ps1 -BuildKind Publish -Version v0.1.0
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-gui.ps1 -BuildKind Publish -Version v0.1.1
 ~~~
+
+Linux GUI 是 cgo + GTK3 + WebKit2GTK 产物，**Windows / macOS 上交叉编译不出来**（`CGO_ENABLED=0 GOOS=linux` 会 `undefined: Frontend`），走独立入口 <code>scripts/build-linux-gui.sh</code>：默认先烘一次 <code>seelex-linux-gui-builder:&lt;abi&gt;</code> 构建镜像（GTK/WebKit 开发包 + Go 都在里面，之后每次只跑 <code>go build</code>）。
+
+~~~bash
+# Docker 构建（Windows / macOS 上同样能出 Linux GUI 包）
+bash scripts/build-linux-gui.sh --version v0.1.1
+# 国内网络换 apt 源，省掉 archive.ubuntu.com 的十几分钟
+bash scripts/build-linux-gui.sh --version v0.1.1 --apt-mirror https://mirrors.aliyun.com
+# 在 Linux 主机/虚拟机里就地构建（不需要 Docker）
+bash scripts/build-linux-gui.sh --version v0.1.1 --native
+# 二进制已在别处构建好时，只补交付树
+bash scripts/build-linux-gui.sh --version v0.1.1 --pack-only --binary /path/seelex-gui
+~~~
+
+ABI 由构建 tag 决定，装错发行版会直接起不来：默认 <code>webkit2gtk-4.0</code> + <code>libsoup-2.4</code>（Ubuntu 22.04 类），<code>--webkit 41</code> 换成 <code>webkit2gtk-4.1</code> + <code>libsoup-3.0</code>（Ubuntu 24.04 类）。产物落 P6 分区 <code>dist/linux-amd64-gui/</code>（<code>seelex-gui</code> + <code>config/</code> + <code>plugins/</code> + 品牌图），归档为 <code>dist/archive/seelex-v&lt;版本&gt;-linux-amd64-gui.tar.gz</code> 与同名 <code>.sha256</code>。
 
 GUI 使用系统 WebView，当前仍处于 Alpha 阶段。日常开发和问题排查建议优先使用 TUI。
 
@@ -673,6 +688,10 @@ go test ./gui -run TestRealAPITeamWorkComputerUseLiveProbe -count=1 -v -timeout=
 
 Linux CI 还会执行 race detector、覆盖率和发布包安全检查。
 
+打 tag 会触发 <code>.github/workflows/release.yml</code>：<code>validate</code> 之后并行跑 <code>cli</code>（darwin-amd64 / darwin-arm64 / linux-amd64 / windows-amd64）与 <code>gui-windows</code>、<code>gui-linux</code>，再由 <code>publish</code> 汇总成一次 Release。产物共 6 个归档（4 个 CLI + 2 个 GUI，各带 <code>.sha256</code>），每个包在发布前都要过一遍「无 <code>.seelex</code> / 无 <code>config/accounts.yaml</code> / 无 <code>*.local.yaml</code>、<code>*.secret.yaml</code>」的安全审计。
+
+其中 Linux GUI 这条腿此前不在流水线里，只能靠 Linux 侧手工执行脚本再手传（v0.1.0 的 <code>linux-amd64-gui</code> 就是这么补的）；2026-10-03 起并入流水线（<code>gui-linux</code> job：<code>ubuntu-22.04</code> + <code>libgtk-3-dev</code> / <code>libwebkit2gtk-4.0-dev</code>，走脚本的 <code>--native</code> 分支），ABI 与手工路径保持一致。
+
 2026-09-14 在当前工作树执行 `go test ./... -covermode=count -coverprofile=coverage.out` 的可复现结果为全仓 **58.6%**（全部包通过）；关键包分布为 `application/core` **74.4%**、`seelebridge` **65.1%**、`seelexctx` **84.6%**、`sessionstore` **73.9%**、`plugin` **83.4%**、`gui` **69.0%**、`workspace` **78.1%**、`tui` **35.6%**。这个分布也暴露了剩余风险：TUI 仍明显低于核心编排层，不应只用全仓平均值掩盖前端交互测试不足。CI 使用同类命令，并叠加 `-race -covermode=atomic -coverpkg=./...`，上传 `coverage.out` 与 `coverage-summary.txt` 供复核。
 
 ## 性能测试与基准（历史基线）
@@ -730,6 +749,7 @@ Linux CI 还会执行 race detector、覆盖率和发布包安全检查。
 - SQLite、PostgreSQL、Redis 会话后端已退役，需按接口重写；MCP 和外部 Web Search 的真实部署仍需要各自服务与配置。
 - 媒体分区已有配额与引用式回收（<code>CollectMedia</code>，支持 dry-run），但按会话生命周期的自动 GC 策略仍需补齐。
 - GUI 渲染有内存截断线：单条工具输出超过 8000 字符时快照只保留预览，完整内容需经 <code>result_ref</code> 读回。
+- Linux GUI 依赖宿主发行版的 WebKit2GTK ABI：发布包按 22.04 类（4.0 + libsoup-2.4）构建，24.04 类发行版需用 <code>--webkit 41</code> 自行重建。
 
 如果你正在寻找稳定 API 或无人值守生产服务，请先审查对应模块 README、测试和变更记录，再决定是否采用。
 
