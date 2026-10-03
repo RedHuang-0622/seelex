@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
+	"github.com/RedHuang-0622/seelex/internal/testutil"
 )
 
 // reentrantGateIndexRuntime 是"生产形状"的索引面桩：
@@ -297,7 +298,10 @@ func TestCompactionChurnOnOneSessionDoesNotHang(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s：%v", what, err)
 			}
-		case <-time.After(15 * time.Second):
+		// 6 个并发迭代 × 整条压缩链路，是这一族存活断言里最重的一条：
+		// `-race` 下把预算放宽（testutil.Budget 在 race 构建里 ×4），
+		// 否则量到的是插桩开销而不是"挂没挂住"。
+		case <-time.After(testutil.Budget(15 * time.Second)):
 			t.Fatalf("%s 在 15s 内没返回（压缩链路某一步挂住了）", what)
 		}
 	}

@@ -361,7 +361,9 @@ func TestBackgroundCompletionWhileSwitchingToC(t *testing.T) {
 		t.Fatal(err)
 	}
 	harness := newFullChainHarness(t, accountsPath, tempDir, 30*time.Second)
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	// 预算与同文件的兄弟用例对齐（它们用 90s）：race 下整条全链更慢，
+	// 60s 曾在 CI（run 37105792167 的 race-and-coverage）压线失败。
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
 	if err := harness.app.Submit(ctx, "first A"); err != nil {

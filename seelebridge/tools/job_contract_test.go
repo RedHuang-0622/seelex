@@ -187,8 +187,18 @@ func TestReadBatchDispatchesJobsAndReturnsImmediately(t *testing.T) {
 	}
 
 	// 同一张表：在途计数看得到它们，取回拿得到内容，会话销毁能清掉。
-	if got := router.AsyncPendingFor("sess-batch"); got != 3 {
-		t.Fatalf("AsyncPendingFor = %d, want 3（inline 作业必须与进程作业同一张表）", got)
+	pending := 0
+	// 派发即返回 ⇒ 登记也是异步落表的（-race 下把顺序放大）：这里**有界等**它到 3。
+	// 原先这里是立刻断言，run 37105792167 的 race-and-coverage 上就拿到 0 而红。
+	for until := time.Now().Add(5 * time.Second); ; {
+		pending = router.AsyncPendingFor("sess-batch")
+		if pending == 3 || time.Now().After(until) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if pending != 3 {
+		t.Fatalf("AsyncPendingFor = %d, want 3（inline 作业必须与进程作业同一张表）", pending)
 	}
 	for _, job := range receipt.Jobs {
 		// 派发即返回 ⇒ 取回可能撞上"还没读完"：这里等它收尾，再断言内容。
