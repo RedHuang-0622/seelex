@@ -319,11 +319,16 @@ func gitTopLevel(root string) string {
 
 // workspacePathPrefix 计算仓库根 → 工作区根的前缀（"sub/" 形式，/ 分隔）；
 // 工作区根即仓库根（或不是 git 仓库）时返回空串。
+//
+// 两侧都先归一到真实路径再比：`git rev-parse --show-toplevel` 报的是**真实路径**
+// （git 自己 realpath 过），而调用方给进来的 root 可能带着被链接过的祖先——macOS 上
+// t.TempDir() 落在 /var/folders/...（→ /private/var/folders/...）就是这个形状。不归一
+// 的话 filepath.Rel 会算出一串 ".."，工作区根被误判成"不在该仓库内"，剥前缀整个失效。
 func workspacePathPrefix(topLevel, rootAbs string) string {
 	if strings.TrimSpace(topLevel) == "" {
 		return ""
 	}
-	rel, err := filepath.Rel(filepath.Clean(topLevel), rootAbs)
+	rel, err := filepath.Rel(resolveRealPath(topLevel), resolveRealPath(rootAbs))
 	if err != nil || rel == "." || rel == "" {
 		return ""
 	}
@@ -333,6 +338,18 @@ func workspacePathPrefix(topLevel, rootAbs string) string {
 		return ""
 	}
 	return filepath.ToSlash(rel) + "/"
+}
+
+// resolveRealPath 尽力把路径归一到真实路径（解掉路径上所有符号链接）；解不出来
+// （路径不存在、无权限等）时退回 Clean 后的原路径。
+//
+// 它只服务"两侧可比"这一类比较（见 workspacePathPrefix），不改调用方手里那个 root：
+// 回显、-C 参数、结果里的 Root 字段都仍用调用方给的写法。
+func resolveRealPath(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return filepath.Clean(resolved)
+	}
+	return filepath.Clean(path)
 }
 
 // relativeToWorkspace 把仓库根基准的路径转成工作区根基准。返回 ok=false 表示
