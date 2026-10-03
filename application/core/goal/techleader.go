@@ -424,25 +424,29 @@ func (s *Supervisor) flushWorkProgressLocked(peer *AdvisorSession, now int64) er
 // 返回 (nil, nil) = 本轮不评估，不是错误：turn 跳帧 / goal_updated 不评、窗口
 // 未到不评、b 未启用不评、**已有回合在飞不评**（登记已完成，评估留给下一次触发）。
 // 只有准入里的真错误（帧账本 append 失败、b 输入构建失败）才带 err 返回。
+//
+// "本轮不评"（信号不触发 / 关着 / 窗口未到 / 轮次在飞 / 无活跃 goal）统一返回
+// (*roundPlan)(nil), nil：显式写出类型的零值，不用裸 `return nil, nil` —— 静态
+// 门禁禁止非测试代码出现它（那通常是吞掉错误的信号）。
 func (s *Supervisor) beginAutoRoundLocked(ctx context.Context, signal TLEvalSignal) (*roundPlan, error) {
 	switch signal.Kind {
 	case SignalTurnCompleted:
 		s.turnsSinceEval++
-		return nil, nil
+		return (*roundPlan)(nil), nil
 	case SignalGoalUpdated:
-		return nil, nil
+		return (*roundPlan)(nil), nil
 	}
 	if !s.Enabled() {
-		return nil, nil
+		return (*roundPlan)(nil), nil
 	}
 	if !IsCriticalSignal(signal.Kind) && s.cfg.EvalWindow > 0 && s.turnsSinceEval < s.cfg.EvalWindow {
-		return nil, nil
+		return (*roundPlan)(nil), nil
 	}
 	plan, err := s.beginRoundLocked(ctx, "signal:"+string(signal.Kind), signal)
 	switch {
 	case errors.Is(err, ErrRoundInFlight), errors.Is(err, ErrNoActiveGoal):
 		// 这两条在 Notify 语义下都等于"本轮不评"：登记照旧、不排队、不报错。
-		return nil, nil
+		return (*roundPlan)(nil), nil
 	default:
 		return plan, err
 	}

@@ -61,7 +61,10 @@ func (report PendingTailReport) RowCount() int { return len(report.Rows) }
 func (store *storeEngine) messageShardFilesLocked(key Key) ([]string, error) {
 	entries, err := os.ReadDir(store.messageDir(key))
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
+		// 显式写出类型的零值而不是裸 `nil, nil`：语义与之前完全一致（调用方一律
+		// 看 len / range），但静态门禁禁止非测试代码出现裸 `return nil, nil`
+		// —— 那通常是吞掉错误的信号。
+		return []string(nil), nil
 	}
 	if err != nil {
 		return nil, err

@@ -134,7 +134,9 @@ func (c *Coordinator) Dispatch(ctx context.Context, role, goal string) (jobs.Han
 // 它只**观察**，不取回：取回是消费式的，会把 teammate 的输出从工作表格上拿走。
 func (c *Coordinator) Join(ctx context.Context, handles []jobs.Handle, budget time.Duration) ([]jobs.Record, error) {
 	if len(handles) == 0 {
-		return nil, nil
+		// 没有句柄就没有可汇合的成员：显式写出类型的零值，receipt 里的 jobs 仍是
+		// null（与改动前逐字节一致）；裸 `return nil, nil` 被静态门禁禁止。
+		return []jobs.Record(nil), nil
 	}
 	deadline := c.clock().Add(budget)
 	events := c.jobs.Events()

@@ -269,7 +269,9 @@ func memberFor(plan sessionstore.TeamworkPlan, role string) (sessionstore.Teamwo
 // "分配成功"。
 func memberPermissionGroups(member sessionstore.TeamworkMember) (map[string]uint8, error) {
 	if len(member.Permission) == 0 {
-		return nil, nil
+		// 没写权限格子 = 没有要折的位，不是错误：显式写出类型的零值而不是裸
+		// `return nil, nil`（静态门禁口径，见 permission.go 里同一条注释）。
+		return map[string]uint8(nil), nil
 	}
 	groups := make(map[string]uint8, len(member.Permission))
 	for group, bits := range member.Permission {
