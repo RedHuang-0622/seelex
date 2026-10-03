@@ -6,9 +6,13 @@ package seelebridge
 // 形状调用，因此 schema 既是准入面也是文档面。
 
 func teamworkPlanDescription() string {
-	return "Define or replace the team's hard orchestration plan (stage order, members, milestones). " +
-		"Order is the single fact carried by stages[].depends_on; one role per teammate; built-in roles " +
-		"(main/user) are refused; the member ceiling is enforced. Anchors: docs/arch/teamwork-leader-worker-architecture.md §4.6."
+	return "Define or replace the team's hard orchestration plan (milestones, members and the work inside them). " +
+		"Milestones are barriers and milestones[].depends_on is the order fact between them: a milestone may only be " +
+		"arranged after every milestone it depends on is done, so you lay out one milestone at a time. Inside one " +
+		"milestone the Work Items run in parallel following their own depends_on DAG (one Work Item = one teammate = " +
+		"one Session + one git worktree). stages[] is the legacy stage-era shape, kept only for reading old plans. " +
+		"One role per teammate; built-in roles (main/user) are refused; the member ceiling is enforced. " +
+		"Anchors: docs/arch/teamwork-leader-worker-architecture.md §4.6."
 }
 
 func teamworkPlanSchema() map[string]interface{} {
@@ -19,7 +23,7 @@ func teamworkPlanSchema() map[string]interface{} {
 			"version": map[string]interface{}{"type": "integer", "minimum": 1, "description": "计划版本（缺省 1）"},
 			"stages": map[string]interface{}{
 				"type":        "array",
-				"description": "编排阶段；depends_on 是顺序/依赖的唯一事实",
+				"description": "阶段制时代的历史口径（只为读旧计划）：阶段的 depends_on 是那时的顺序唯一事实；新计划的顺序一律走 milestones[].depends_on + 里程碑内工作项的 depends_on",
 				"items": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -49,19 +53,31 @@ func teamworkPlanSchema() map[string]interface{} {
 				},
 			},
 			"milestones": map[string]interface{}{
-				"type": "array",
+				"type":        "array",
+				"description": "里程碑：屏障（depends_on 是里程碑之间的顺序唯一事实）；里程碑内的工作项按各自 depends_on 并行",
 				"items": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
-						"id":       map[string]interface{}{"type": "string"},
-						"after":    map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-						"required": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+						"id":   map[string]interface{}{"type": "string", "description": "里程碑 id（计划内唯一）"},
+						"name": map[string]interface{}{"type": "string", "description": "里程碑名称"},
+						"depends_on": map[string]interface{}{
+							"type": "array", "items": map[string]interface{}{"type": "string"},
+							"description": "前置里程碑 id（屏障：未 done 的里程碑不进入可排活）",
+						},
+						"after": map[string]interface{}{
+							"type": "array", "items": map[string]interface{}{"type": "string"},
+							"description": "历史字段（阶段制时代指阶段 id），只为读旧计划保留",
+						},
+						"required": map[string]interface{}{
+							"type": "array", "items": map[string]interface{}{"type": "string"},
+							"description": "历史字段（阶段制时代指角色名），只为读旧计划保留",
+						},
 					},
 					"required": []string{"id"},
 				},
 			},
 		},
-		"required": []string{"team_id", "stages", "members"},
+		"required": []string{"team_id", "members"},
 	}
 }
 
