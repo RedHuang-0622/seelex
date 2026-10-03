@@ -75,7 +75,16 @@ func (r *Runtime) MergeWorkspace(ctx context.Context, binding teamwork.Workspace
 	if wt == nil {
 		return nil // 没有现场可合并（降级共享主工作区）
 	}
-	return r.worktreeMgr.Finish(ctx, nodeID, wt)
+	if err := r.worktreeMgr.Finish(ctx, nodeID, wt); err != nil {
+		return err
+	}
+	// 收尾成功 = 现场已在**磁盘上**被回收（Finish 的 cleanup 已 `git worktree remove`）。
+	// 必须配一次 Release 把**注册表**也清掉——否则账本/注册表里还留着一份"已不存在的
+	// 绑定"，accept 的释放步骤会对它再动手一次（缺陷 A：exit status 128）。这与
+	// node/AgentNode.Run 成功分支的 Finish→Release 是同一口径（`Finish` 的两条成功
+	// 路径都清目录，调用方负责配对 Release）。
+	r.worktreeMgr.Release(nodeID)
+	return nil
 }
 
 // ReleaseWorkspaceItem 实现 teamwork.Workspaces：释放这件事的现场（验收通过 /

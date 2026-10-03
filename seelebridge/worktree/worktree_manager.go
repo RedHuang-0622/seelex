@@ -494,14 +494,80 @@ func GitRunner(root string, args ...string) (string, error) {
 	return strings.TrimSpace(out.String()), nil
 }
 
-// cleanupWorktree 删除 worktree 及其分支（合并完成后或无可合并提交时）。
+// CleanupWorktree 删除 worktree 及其分支（合并完成后或无可合并提交时）。
 // 包级薄包装：worktree_test.go 直接调用；组件内部走 w.cleanup 以支持 fake git 注入。
+//
+// **释放幂等**（2026-10-03 缺陷 A）：现场可能已被**上游**先收走——worker 回合结束的
+// 自动尾插（MergeWorkspace → WorktreeManager.Finish → cleanup）在"有提交已合并 / 无
+// 提交且干净"两条成功路径上都会 `git worktree remove`，但**没有**配一次 Release，于是
+// 注册表与账本里的绑定还在、磁盘上的目录已经没了。随即 `team_accept` 的释放步骤对
+// 同一份绑定**再动手一次**，就会对着一个已不存在的路径跑 `git worktree remove --force`，
+// git 报 `exit status 128 / '<path>' is not a working tree`，把工作项卡在 review、
+// 下游里程碑闸门打不开。释放因此按"目录 / 分支 / git 登记任一已不存在 = 已释放"处理。
+//
+// 真正的问题**不掩盖**：目录还在、且仍在 `git worktree list` 里，而 `git worktree
+// remove --force` 失败时，照旧把 git 的原文返回（调用方显式报错）。
 func CleanupWorktree(root string, wt *NodeWorktree) error {
+	if wt == nil {
+		return nil
+	}
+	if _, err := os.Stat(wt.Path); err != nil {
+		// 目录已不在：现场已（被上游或手工）回收；只清可能残留的分支名。
+		deleteWorktreeBranch(root, wt.Branch)
+		return nil
+	}
 	if _, err := GitRunner(root, "worktree", "remove", "--force", wt.Path); err != nil {
+		if !gitWorktreeRegistered(root, wt.Path) {
+			// 目录还在，但 git 已不认识这个 worktree（登记被 prune / 手工移过）：
+			// 这也是"已释放过"，不是 remove 失败。
+			deleteWorktreeBranch(root, wt.Branch)
+			return nil
+		}
 		return err
 	}
-	_, _ = GitRunner(root, "branch", "-D", wt.Branch)
+	deleteWorktreeBranch(root, wt.Branch)
 	return nil
+}
+
+// deleteWorktreeBranch 删除本地分支，忽略"分支不存在"（释放幂等的另一半：分支可能
+// 已被上游一并删掉）。
+func deleteWorktreeBranch(root, branch string) {
+	if strings.TrimSpace(branch) == "" {
+		return
+	}
+	_, _ = GitRunner(root, "branch", "-D", branch)
+}
+
+// gitWorktreeRegistered 报告某个路径是否仍在 `git worktree list` 的清单里
+// （登记还在 = 还没释放；已不在 = 已释放，CleanupWorktree 据此幂等）。
+func gitWorktreeRegistered(root, path string) bool {
+	out, err := GitRunner(root, "worktree", "list")
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// 行格式 `<path>  <sha> [<branch>]`：路径与后面的列以**两个空格**分隔。
+		if i := strings.Index(line, "  "); i > 0 {
+			line = line[:i]
+		}
+		if worktreePathEqual(line, path) {
+			return true
+		}
+	}
+	return false
+}
+
+// worktreePathEqual 比较两个路径是否是同一个 worktree：git 在 Windows 上输出的分隔符
+// 与盘符大小写可能与本地拼出的路径不同，统一分隔符与大小写后再比。
+func worktreePathEqual(a, b string) bool {
+	norm := func(p string) string {
+		return strings.TrimRight(filepath.ToSlash(filepath.Clean(p)), "/")
+	}
+	return strings.EqualFold(norm(a), norm(b))
 }
 
 // ConflictFilesIn 列出目录（worktree 或主工作区）中的冲突文件
