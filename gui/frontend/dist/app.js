@@ -2168,11 +2168,11 @@ function renderSkills(skills) {
 // 数据源：runtime.teamwork_board（后端只读投影：计划 + 作业行 + 审计流水）。
 //
 // 面板只做**搬运**：把 DTO 喂给纯渲染件 renderTeamBoard（team-board-view.js）——
-// 拓扑排序、依赖层号、阶段状态折算全在渲染件里，这里不重算一遍（重算就是第二份事实）。
-// 单向：只读快照，前端没有任何写入口。
+// 里程碑屏障的拓扑排序、工作项 DAG 的层号与"被依赖卡住"折算全在渲染件里，这里不重算一遍
+// （重算就是第二份事实）。单向：只读快照，前端没有任何写入口。
 //
-// 退场语义与「目标」面板同口径：没有计划（快照里没有 teamwork_board、或计划里没有阶段）
-// 就是没有了——整块退场，不留空壳。
+// 退场语义与「目标」面板同口径：没有计划（快照里没有 teamwork_board、或计划里没有里程碑
+// 也没有工作项）就是没有了——整块退场，不留空壳。
 function renderTeam(snapshot) {
   const section = elements["team-board-section"];
   const view = elements["team-board-view"];
@@ -2192,14 +2192,21 @@ function renderTeam(snapshot) {
   view.innerHTML = html;
   if (badge) {
     badge.classList.remove("hidden");
-    // 徽标写阶段数（与同栏「工作表格 / 定时任务」的计数徽标同口径）。不写 "TEAM"：
+    // 徽标写里程碑数（与同栏「工作表格 / 定时任务」的计数徽标同口径）。不写 "TEAM"：
     // 渲染件自己在看板头里已经有一个 TEAM 标记，再来一个就是同屏两个 TEAM。
-    badge.textContent = String(input.plan.stages.length);
-    badge.title = `团队 ${input.plan.team_id || "—"} · v${input.plan.version || 0} · ${input.plan.stages.length} 个阶段`;
+    // 也不写阶段数：阶段口径已退场，看板的单位是里程碑与工作项。
+    const milestones = input.plan.milestones.length;
+    const items = input.plan.work_items.length;
+    badge.textContent = String(milestones);
+    badge.title = `团队 ${input.plan.team_id || "—"} · v${input.plan.version || 0} · ${milestones} 个里程碑 · ${items} 个工作项`;
   }
 }
 
-// teamBoardInput 把后端 DTO 搬成渲染件的入参；没有计划 → null（调用方据此退场）。
+// teamBoardInput 把后端 DTO 搬成渲染件的入参；没有可看的编排 → null（调用方据此退场）。
+//
+// 「可看的编排」的判据 = 有阶段**或**里程碑**或**工作项（与后端 teamworkPlanHasOrchestration
+// 同口径）：Work Item 口径的计划（2026-10-03）没有 stages，只看 stages 会把一份排得好好的
+// 计划当成"没有计划"整块退场——工作项与里程碑的关系就永远看不见了。
 //
 // events[].at 由后端给 **unix 秒**：这里转成 "YYYY-MM-DDTHH:MM"（**本地时间**，与渲染件
 // formatEventTime 的正则同形）。不转成 toISOString()：那是 UTC，面板上会显示成差 8 小时的
@@ -2207,14 +2214,35 @@ function renderTeam(snapshot) {
 function teamBoardInput(runtime) {
   const board = runtime?.teamwork_board;
   const stages = Array.isArray(board?.stages) ? board.stages : [];
-  if (!board || stages.length === 0) return null;
+  const milestones = Array.isArray(board?.milestones) ? board.milestones : [];
+  const workItems = Array.isArray(board?.work_items) ? board.work_items : [];
+  if (!board || (stages.length === 0 && milestones.length === 0 && workItems.length === 0)) return null;
   return {
     plan: {
       team_id: board.team_id || "",
       version: board.version || 0,
       stages,
       members: Array.isArray(board.members) ? board.members : [],
-      milestones: Array.isArray(board.milestones) ? board.milestones : [],
+      milestones,
+      // 工作项是**扁平**投影（每条自带 milestone），按 milestone 分组由渲染件做。
+      // 之前这里漏搬了 work_items，甘特里每个里程碑都只剩"尚未排活"——工作项与里程碑的
+      // 关系因此在看板上不可见（用户当面指出的那条）。
+      work_items: workItems.map(item => ({
+        id: item?.id || "",
+        milestone: item?.milestone || "",
+        role: item?.role || "",
+        name: item?.name || "",
+        description: item?.description || "",
+        goal: item?.goal || "",
+        depends_on: Array.isArray(item?.depends_on) ? item.depends_on : [],
+        status: item?.status || "",
+        session_id: item?.session_id || "",
+        worktree: item?.worktree || "",
+        handle: item?.handle || "",
+        note: item?.note || "",
+        live: item?.live === true,
+        interrupted: item?.interrupted === true,
+      })),
     },
     // 在编上限来自后端（TeamworkBackend.MaxTeammates）；缺失/0 = 不限制，
     // 渲染件据此把「在编 n」写成「在编 n/max」。
