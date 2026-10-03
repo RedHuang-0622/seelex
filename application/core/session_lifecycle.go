@@ -104,6 +104,10 @@ func (service *Service) hotAttachSession(sessionID string) error {
 			service.Deps.Engine.SetSystemPrompt(systemPrompt)
 		}
 	}
+	// 会话运行原件的**重建**（2026-10-04）：热挂载换了视图指针，但目标会话的 runtime
+	// 槽可能已被卸载路径清空（或从未采过）——必须在发布快照**之前**重采一次，否则
+	// 切回来第一帧就缺 teamwork_board（前端整块退场），要等下一轮才回来。
+	service.refreshRuntimeProjectionForSession(sessionID)
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 	service.publishRuntimeProjections()
 	service.components.sessions.RequestCatalogRefresh()

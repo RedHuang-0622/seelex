@@ -72,7 +72,7 @@ flowchart TB
     REG["Registry<br/>角色 CRUD · SetOrder · View 只读投影"]
     VIEW["TeamView / assembleView<br/>成员表 + 定时分区 + DesignNotice"]
     RT["Runtime<br/>会话级发言调度运行态（只剩环逃生记账）"]
-    PLAN["team_plan 的 stages[].depends_on<br/>顺序的唯一事实（leader 掌控）"]
+    PLAN["team plan 的顺序边<br/>milestones[].depends_on（屏障）<br/>+ items[].depends_on（里程碑内 DAG）<br/>顺序的唯一事实（leader 掌控）"]
     FE["GUI 团队面板 / headless team.*"]
 
     LIB --> NORM
@@ -124,8 +124,8 @@ sequenceDiagram
 | 能力 | 现状 | 证据 |
 |---|---|---|
 | 角色会话 + 顺序策略 + 注册表 | **已接线（显式装配）**：面板「装配」/ `@<团队>` / `team.materialize` 装配一份 TeamSpec，顺序落 `lifecycle`。goal 上线**不再**自动装配（那会整份替换掉会话已有的团队） | `application/core/agentteam_service.go`（`MaterializeAgentTeam`）、`application/core/goal_service.go`（`GoalBeginFor` 的说明）、`application/core/goal_team_wiring_test.go`（`TestGoalBeginLeavesSessionTeamAlone`） |
-| 工作顺序（`order_policy`/`order_roles`） | **部分接线（历史字段）**：用于角色 draft 同步排序与成员表展示；**不驱动运行时轮次**（2026-10-03 起没有任何"运行时轮次驱动"了）。`order_policy` 更进一步——落 lifecycle 后只被回读展示（`dto.TeamView`/`dto.TeamSchedule` 与前端面板），不驱动任何行为；`order_roles` 现在只是**发言顺序与成员表的展示事实**（`seatPlan` 那套"按它长座位"的读面已随席位轮转退场）。新事实 = team plan 的 `stages[].depends_on`（leader 掌控，见 `docs/arch/teamwork-leader-worker-architecture.md` §4.6/D4） | `sessionstore/role_session.go`（`sortRoleDraftRows`）、退场记录见 `docs/devlog/2026-10-03-seat-rotation-retired.md` |
-| 运行时轮次驱动 | **没有这一层了（2026-10-03 阶段三 W3）**：goal 的治理座位循环（`exec-a` / `advisor-b`、`newGovernor`、`NewTurnGovernorForDSA2A`、`goal/adapter.go`，均已删除）整条退场，回合尾不再推任何座位。goal 由**提示词驱动的 leader 派活**推进（`plugins/default/goal/SKILL.md`），角色干活走 `team_dispatch` 的 worker 作业，顺序的唯一事实是 team plan 的 `stages[].depends_on` | `docs/devlog/2026-10-03-seat-rotation-retired.md`、`plugins/default/goal/SKILL.md` |
+| 工作顺序（`order_policy`/`order_roles`） | **部分接线（历史字段）**：用于角色 draft 同步排序与成员表展示；**不驱动运行时轮次**（2026-10-03 起没有任何"运行时轮次驱动"了）。`order_policy` 更进一步——落 lifecycle 后只被回读展示（`dto.TeamView`/`dto.TeamSchedule` 与前端面板），不驱动任何行为；`order_roles` 现在只是**发言顺序与成员表的展示事实**（`seatPlan` 那套"按它长座位"的读面已随席位轮转退场）。新事实 = team plan 的 `milestones[].depends_on`（屏障）+ `items[].depends_on`（里程碑内 DAG，leader 掌控，见 `docs/arch/teamwork-leader-worker-architecture.md` §4.6/D4） | `sessionstore/role_session.go`（`sortRoleDraftRows`）、退场记录见 `docs/devlog/2026-10-03-seat-rotation-retired.md` |
+| 运行时轮次驱动 | **没有这一层了（2026-10-03 阶段三 W3）**：goal 的治理座位循环（`exec-a` / `advisor-b`、`newGovernor`、`NewTurnGovernorForDSA2A`、`goal/adapter.go`，均已删除）整条退场，回合尾不再推任何座位。goal 由**提示词驱动的 leader 派活**推进（`plugins/default/goal/SKILL.md`），角色干活走 `team_dispatch` 的 worker 作业，顺序的唯一事实是 team plan 的 `milestones[].depends_on`（屏障）与 `items[].depends_on`（里程碑内 DAG） | `docs/devlog/2026-10-03-seat-rotation-retired.md`、`plugins/default/goal/SKILL.md` |
 | EXEC 工作内容进入 ADVISOR 输入 | **已接线**：`turn_completed.Detail`（本轮正文/工具名有界摘要）→ `work.progress` 帧 → b 回合输入正文 | `application/core/goal_work_summary.go`、`application/core/goal/techleader.go`（`flushWorkProgressLocked`） |
 | EXEC 的 computer use 证据进入 ADVISOR 输入 | **已接线**：工作摘要额外带 `screen: media:… 宽x高 foreground="…"`（截图句柄 + 画面尺寸 + 前台窗口），ADVISOR 据此"看证据评审"，而不是只看到一个工具名 | `application/core/goal_work_summary.go`（`computerUseEvidence`）、`gui/team_work_computer_use_live_probe_test.go` |
 | ADVISOR 直接读画面内容 | **尚未实现**：ADVISOR 回合是一次有界 LLM 调用（`TLEvalEvaluator`，无工具循环），它拿到的是证据**句柄与元数据**，不是像素；要读图需要给 b 回合挂图（imageattach）或给角色配独立工具循环 | 见 `docs/devlog/2026-09-15-team-work-computer-use.md` |

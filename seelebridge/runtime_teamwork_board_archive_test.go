@@ -93,12 +93,12 @@ func archiveBackend(plans *memPlanStore, boards *memBoardStore, sessionID string
 	}
 }
 
-// boardPlanArgs 造一份最小合法计划（一个阶段 + 一个在编角色）。
+// boardPlanArgs 造一份最小合法计划（一个里程碑 + 一个在编角色；阶段口径已退场）。
 func boardPlanArgs(teamID string, version int) string {
 	payload := map[string]any{
 		"team_id": teamID,
 		"version": version,
-		"stages":  []map[string]any{{"id": "design", "roles": []string{"arch"}}},
+		"milestones": []map[string]any{{"id": "m-design", "name": "设计"}},
 		"members": []map[string]any{{"role": "arch"}},
 	}
 	encoded, _ := json.Marshal(payload)
@@ -198,7 +198,7 @@ func TestTeamworkBoardSnapshotRecoversFromArchive(t *testing.T) {
 		t.Fatalf("SetTeamworkBackend: %v", err)
 	}
 	key := sessionstore.Key{ProjectID: "p-team", SessionID: "s-team"}
-	snapshot := json.RawMessage(`{"team_id":"t-archive","version":3,"stages":[{"id":"design","roles":["arch"]}]}`)
+	snapshot := json.RawMessage(`{"team_id":"t-archive","version":3,"milestones":[{"id":"m-design","name":"设计"}]}`)
 	if err := boards.WriteTeamBoard(context.Background(), key, sessionstore.TeamBoardMeta{
 		BoardLifecycle: sessionstore.BoardLifecycle{
 			Kind: sessionstore.BoardKindTeam, State: sessionstore.BoardStateActive, Seq: 2,
@@ -221,8 +221,8 @@ func TestTeamworkBoardSnapshotRecoversFromArchive(t *testing.T) {
 	if board.TeamID != "t-archive" || board.Version != 3 {
 		t.Fatalf("恢复出的计划身份必须来自存档：%+v", board)
 	}
-	if len(board.Stages) != 1 || board.Stages[0].ID != "design" {
-		t.Fatalf("恢复出的阶段必须来自存档快照：%+v", board.Stages)
+	if len(board.Milestones) != 1 || board.Milestones[0].ID != "m-design" {
+		t.Fatalf("恢复出的里程碑必须来自存档快照：%+v", board.Milestones)
 	}
 }
 
@@ -241,7 +241,7 @@ func TestTeamworkBoardSnapshotNilWhenArchiveClosed(t *testing.T) {
 			ClosedAt: 1760000000, ClosedReason: sessionstore.BoardCloseTeamClose,
 		},
 		TeamID: "t-archive", Version: 1,
-		Snapshot: json.RawMessage(`{"team_id":"t-archive","version":1,"stages":[{"id":"design"}]}`),
+		Snapshot: json.RawMessage(`{"team_id":"t-archive","version":1,"milestones":[{"id":"m-design"}]}`),
 	}); err != nil {
 		t.Fatalf("WriteTeamBoard: %v", err)
 	}

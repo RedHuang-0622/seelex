@@ -16,7 +16,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
+	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
@@ -86,16 +88,25 @@ func boardPlanFixture() sessionstore.TeamworkPlan {
 	return sessionstore.TeamworkPlan{
 		TeamID:  "team-board-gui-tui",
 		Version: 2,
-		Stages: []sessionstore.TeamworkStage{
-			{ID: "design", Roles: []string{"arch"}},
-			{ID: "impl", Roles: []string{"impl_core", "impl_ui"}, DependsOn: []string{"design"}},
-		},
 		Members: []sessionstore.TeamworkMember{
 			{Role: "arch", RoleSessionID: "s-team-arch", ToolsPolicy: "readwrite"},
 			{Role: "impl_ui", RoleSessionID: "s-team-impl_ui", ToolsPolicy: "readwrite", Worktree: "wt-ui"},
 		},
+		// 里程碑 = 屏障（depends_on）+ 里程碑内的工作项 DAG。**没有阶段**（2026-10-04
+		// 阶段口径整条退场）：一个角色归哪个里程碑，看它在哪个里程碑的工作项里出现。
 		Milestones: []sessionstore.TeamworkMilestone{
-			{ID: "m-design", After: []string{"design"}, Content: "契约定稿", Status: "done"},
+			{
+				ID: "m-design", Name: "设计", Content: "契约定稿", Required: []string{"arch"}, Status: "done",
+				Items: []sessionstore.TeamworkWorkItem{
+					{ID: "wi-design", Milestone: "m-design", Role: "arch", Name: "契约定稿"},
+				},
+			},
+			{
+				ID: "m-impl", Name: "实现", DependsOn: []string{"m-design"},
+				Items: []sessionstore.TeamworkWorkItem{
+					{ID: "wi-impl", Milestone: "m-impl", Role: "impl_ui", Name: "实现 UI"},
+				},
+			},
 		},
 	}
 }
@@ -133,9 +144,8 @@ func TestTeamworkBoardSnapshotProjectsPlan(t *testing.T) {
 	if _, err := r.teamPlanHandler(ctx, `{
 		"team_id": "team-board-gui-tui",
 		"version": 2,
-		"stages": [{"id":"design","roles":["arch"]},{"id":"impl","roles":["impl_ui"],"depends_on":["design"]}],
 		"members": [{"role":"arch","role_session_id":"s-team-arch","tools_policy":"readwrite"}],
-		"milestones": [{"id":"m-design","after":["design"],"content":"契约定稿"}]
+		"milestones": [{"id":"m-design","name":"设计","content":"契约定稿"}]
 	}`); err != nil {
 		t.Fatalf("team_plan: %v", err)
 	}
@@ -150,16 +160,15 @@ func TestTeamworkBoardSnapshotProjectsPlan(t *testing.T) {
 	if board.MaxMembers != 6 {
 		t.Fatalf("在编上限必须来自 TeamworkBackend.MaxTeammates（看板要能区分正常与顶到上限）：%d", board.MaxMembers)
 	}
-	if len(board.Stages) != 2 || board.Stages[1].ID != "impl" ||
-		len(board.Stages[1].DependsOn) != 1 || board.Stages[1].DependsOn[0] != "design" {
-		t.Fatalf("阶段与依赖边必须原样搬运（顺序的唯一事实）：%+v", board.Stages)
+	if len(board.Milestones) != 1 || board.Milestones[0].ID != "m-design" || board.Milestones[0].Name != "设计" {
+		t.Fatalf("里程碑必须原样搬运（顺序的唯一事实是它的 depends_on）：%+v", board.Milestones)
 	}
 	if len(board.Members) != 1 || board.Members[0].RoleSessionID != "s-team-arch" ||
 		board.Members[0].ToolsPolicy != "readwrite" {
 		t.Fatalf("在编成员搬运不一致：%+v", board.Members)
 	}
-	if len(board.Milestones) != 1 || board.Milestones[0].After[0] != "design" {
-		t.Fatalf("里程碑搬运不一致：%+v", board.Milestones)
+	if board.Members[0].Status != "free" {
+		t.Fatalf("没有在跑的工作项时 teammate 状态必须是 free（只有 running/free 两值）：%q", board.Members[0].Status)
 	}
 	// team_plan 落一条审计：看板必须能看到它（口径：审计是派发/里程碑/retire 的事实流水）。
 	if len(board.Events) == 0 || board.Events[0].Kind != "plan" {
@@ -208,7 +217,7 @@ func TestTeamworkBoardSnapshotCachesFileReads(t *testing.T) {
 	}
 	ctx := seeletelemetry.WithSessionID(context.Background(), "s-team")
 	if _, err := r.teamPlanHandler(ctx, `{
-		"team_id": "t", "stages": [{"id":"a","roles":["x"]}],
+		"team_id": "t", "milestones": [{"id":"m-a"}],
 		"members": [{"role":"x","role_session_id":"s-team-x"}]
 	}`); err != nil {
 		t.Fatalf("team_plan: %v", err)
@@ -232,7 +241,7 @@ func TestTeamworkBoardSnapshotCachesFileReads(t *testing.T) {
 
 	// team_* 成功返回后必须失效：下一次采集恰好再读一次。
 	if _, err := r.teamPlanHandler(ctx, `{
-		"team_id": "t", "version": 2, "stages": [{"id":"a","roles":["x"]}],
+		"team_id": "t", "version": 2, "milestones": [{"id":"m-a"}],
 		"members": [{"role":"x","role_session_id":"s-team-x"}]
 	}`); err != nil {
 		t.Fatalf("team_plan(2): %v", err)
@@ -246,6 +255,64 @@ func TestTeamworkBoardSnapshotCachesFileReads(t *testing.T) {
 	if planReads-afterWrite != 1 {
 		t.Fatalf("team_plan 之后下一次采集应恰好再读一次计划，实际 %d", planReads-afterWrite)
 	}
+}
+
+// TestSettleWorkItemInvalidatesBoardCache 钉住「自动尾插」这条**非工具**写路径也让看板缓存失效。
+//
+// 为什么必须钉：缓存靠"team_* 工具成功返回后失效"，而 teammate 跑完的尾插（工作项状态 →
+// 待验收 + 回执进消息队列 + 一条 settle 审计行）**根本不经过工具**。少了这一处，看板会一直
+// 显示"这件事还在跑、没有回执"，直到下一次 team_* 调用把它撞醒——2026-10-04 headless 冒烟的
+// 现场就是：计划里已经 review，看板还停在 running、Messages 空（"跑完了看不见回执"再现，
+// 根因在投影缓存而不在尾插）。
+func TestSettleWorkItemInvalidatesBoardCache(t *testing.T) {
+	r := newTestRuntime(t)
+	defer r.Shutdown()
+	store := &memPlanStore{}
+	backend := teamworkTestBackend(store, "s-team")
+	if err := r.SetTeamworkBackend(backend); err != nil {
+		t.Fatalf("SetTeamworkBackend: %v", err)
+	}
+	ctx := seeletelemetry.WithSessionID(context.Background(), "s-team")
+	key := sessionstore.Key{ProjectID: "p-team", SessionID: "s-team"}
+
+	plan := boardPlanFixture()
+	plan.Milestones[1].Items[0].Status = sessionstore.TeamworkItemRunning
+	plan.Milestones[1].Items[0].SessionID = "s-team-impl_ui-wi-wi-impl"
+	plan.Milestones[1].Items[0].Handle = "a1"
+	if err := store.WritePlan(ctx, key, plan, backend.MaxTeammates); err != nil {
+		t.Fatalf("WritePlan: %v", err)
+	}
+
+	// 先采一次：把「计划 + 审计」两份文件读灌进缓存（会话快照是高频路径，这是常态）。
+	board := r.TeamworkBoardSnapshot("s-team")
+	if board == nil || boardWorkItemStatus(board, "wi-impl") != sessionstore.TeamworkItemRunning {
+		t.Fatalf("前置：看板应显示这件事在跑：%+v", board)
+	}
+
+	// 自动尾插（不是工具调用）：缓存不能指望 team_* 那条失效点。
+	if err := r.SettleWorkItem(ctx, teamwork.WorkerRequest{
+		MainSessionID: "s-team", WorkItemID: "wi-impl", Role: "impl_ui",
+	}, nil); err != nil {
+		t.Fatalf("SettleWorkItem: %v", err)
+	}
+
+	board = r.TeamworkBoardSnapshot("s-team")
+	if board == nil {
+		t.Fatal("尾插之后看板不该消失")
+	}
+	if status := boardWorkItemStatus(board, "wi-impl"); status != sessionstore.TeamworkItemReview {
+		t.Fatalf("尾插之后看板应显示待验收（缓存没失效就会停在 running）：%q", status)
+	}
+}
+
+// boardWorkItemStatus 取看板里某个工作项的状态（空串 = 投影里没有这一条）。
+func boardWorkItemStatus(board *dto.TeamworkBoardView, id string) string {
+	for _, item := range board.WorkItems {
+		if item.ID == id {
+			return item.Status
+		}
+	}
+	return ""
 }
 
 // TestTeamworkBoardCarriesWorkItemsAndTeammateQueue 钉住 Work Item 口径的看板搬运
@@ -324,9 +391,69 @@ func TestTeamworkBoardCarriesWorkItemsAndTeammateQueue(t *testing.T) {
 		if len(member.Queue) != 1 || member.Queue[0] != "实现" {
 			t.Fatalf("teammate 的队列应是「未完成的工作项名称」：%+v", member)
 		}
-		if member.Status != "idle" {
-			t.Fatalf("没有在跑 / 待验收的工作项时人是 idle：%q", member.Status)
+		if member.Status != "free" {
+			t.Fatalf("没有在跑的工作项时人是 free（teammate 状态只有 running/free）：%q", member.Status)
 		}
+	}
+}
+
+// TestTeamworkBoardCarriesMemberCurrentSession 钉住 teammate 段的**当前会话**归属
+// （2026-10-04 用户口径：看板点开的要是"当前的 teammate 的会话"，不是员工的长期历史会话）。
+//
+// 判据链：在跑的工作项 > 等验收的 > 最近开过工的那件；一件都没开过 → 两个字段都空
+// （前端退回角色会话，并在提示里说明）。
+func TestTeamworkBoardCarriesMemberCurrentSession(t *testing.T) {
+	r := newTestRuntime(t)
+	defer r.Shutdown()
+	store := &memPlanStore{}
+	if err := r.SetTeamworkBackend(teamworkTestBackend(store, "s-team")); err != nil {
+		t.Fatalf("SetTeamworkBackend: %v", err)
+	}
+	key := sessionstore.Key{ProjectID: "p-team", SessionID: "s-team"}
+	plan := sessionstore.TeamworkPlan{
+		TeamID: "t-current", Version: 1,
+		Members: []sessionstore.TeamworkMember{
+			{Role: "exec", RoleSessionID: "s-team-exec"},
+			{Role: "verify", RoleSessionID: "s-team-verify"},
+			{Role: "fresh", RoleSessionID: "s-team-fresh"},
+		},
+		Milestones: []sessionstore.TeamworkMilestone{{
+			ID: "m-impl",
+			Items: []sessionstore.TeamworkWorkItem{
+				{ID: "wi-impl", Milestone: "m-impl", Role: "exec", Name: "实现", Status: sessionstore.TeamworkItemRunning, SessionID: "s-team-exec-wi-wi-impl"},
+				{ID: "wi-verify", Milestone: "m-impl", Role: "verify", Name: "复核", Status: sessionstore.TeamworkItemReview, SessionID: "s-team-verify-wi-wi-verify"},
+			},
+		}},
+	}
+	if err := store.WritePlan(context.Background(), key, plan, 6); err != nil {
+		t.Fatalf("WritePlan: %v", err)
+	}
+
+	board := r.TeamworkBoardSnapshot("s-team")
+	if board == nil {
+		t.Fatal("有计划就必须给出看板投影")
+	}
+	byRole := map[string]dto.TeamworkMemberView{}
+	for _, member := range board.Members {
+		byRole[member.Role] = member
+	}
+	exec := byRole["exec"]
+	if exec.Status != "running" {
+		t.Fatalf("有在跑的工作项时人是 running：%+v", exec)
+	}
+	if exec.CurrentSessionID != "s-team-exec-wi-wi-impl" || exec.CurrentWorkItem != "wi-impl" {
+		t.Fatalf("在跑的人必须指向**这件事自己的会话**（不是角色会话 %q）：%+v", exec.RoleSessionID, exec)
+	}
+	verify := byRole["verify"]
+	if verify.Status != "free" {
+		t.Fatalf("等验收的人不是 running（人没在干活，状态只有 running/free）：%+v", verify)
+	}
+	if verify.CurrentSessionID != "s-team-verify-wi-wi-verify" || verify.CurrentWorkItem != "wi-verify" {
+		t.Fatalf("等验收的人仍指向那件事的会话：%+v", verify)
+	}
+	fresh := byRole["fresh"]
+	if fresh.CurrentSessionID != "" || fresh.CurrentWorkItem != "" {
+		t.Fatalf("一件都没开过的人没有「当前的会话」可指（前端退到角色会话）：%+v", fresh)
 	}
 }
 
@@ -381,7 +508,7 @@ func TestTeamworkBoardSnapshotNegativeCache(t *testing.T) {
 	// team_plan 之后失效：下一次采集必须看到新计划（负缓存不得把面板永久钉在"没有"）。
 	ctx := seeletelemetry.WithSessionID(context.Background(), "s-team")
 	if _, err := r.teamPlanHandler(ctx, `{
-		"team_id": "t", "stages": [{"id":"a","roles":["x"]}],
+		"team_id": "t", "milestones": [{"id":"m-a"}],
 		"members": [{"role":"x","role_session_id":"s-team-x"}]
 	}`); err != nil {
 		t.Fatalf("team_plan: %v", err)

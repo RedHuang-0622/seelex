@@ -63,6 +63,37 @@ func (port RuntimePort) SessionContextStoreFor(sessionID string) *sessionstore.S
 	return port.Runtime.SessionContextStoreFor(sessionID)
 }
 
+// TeammateSessionLive 实现 contract.TeammateSessionProjection：**当前 teammate 会话**
+// 的实时只读投影（这件事的会话此刻在说什么）。漏了它，"查看这件事的会话"就只能从会话库
+// 读——而 teammate 的一轮活是进程内执行面、正文不落盘，读出来的是主会话的历史（用户报
+// 的就是"全是历史会话，不是当前的 teammate 的会话"）。
+func (port RuntimePort) TeammateSessionLive(sessionID string) dto.TeammateSessionLiveView {
+	if port.Runtime == nil {
+		return dto.TeammateSessionLiveView{SessionID: sessionID}
+	}
+	return port.Runtime.TeammateSessionLive(sessionID)
+}
+
+// TeamworkJobCompletions / TeamworkJobEvents 实现 contract.TeamworkJobCompletion：teammate
+// 作业（jobs.Manager 里的 worker 作业）的终态只读投影与变化信号口——「做完自动返回」那条
+// 链的输入。漏了它**不会报错**：core 侧的类型断言失败 ⇒ 信号口读成 nil ⇒ 空闲会话的触发
+// 回合静默消失（leader 上下文里永远没有"谁跑完了"的回声，这正是 2026-10-04 的现场）。
+// 两张作业表的取回工具不是同一个（jobs_manage vs job_manage），因此这一路投影只搬 teammate
+// 那一张表的读数，不合表。
+func (port RuntimePort) TeamworkJobCompletions() []dto.TeamworkJobCompletionRecord {
+	if port.Runtime == nil {
+		return nil
+	}
+	return port.Runtime.TeamworkJobCompletions()
+}
+
+func (port RuntimePort) TeamworkJobEvents() <-chan struct{} {
+	if port.Runtime == nil {
+		return nil
+	}
+	return port.Runtime.TeamworkJobEvents()
+}
+
 // ReplanMetricsFor 实现 view_state 的 per-session replan 指标面。漏了它不会报错：
 // 调用方会静默回退到**进程级合计**，于是"这个会话的 replan 花了多少"在多会话下
 // 变成"所有会话加起来"，读数看着正常但答的不是被问的那个问题。
@@ -77,6 +108,8 @@ func (port RuntimePort) ReplanMetricsFor(sessionID string) dto.ReplanMetrics {
 // 生产包装都必须满足。少一个方法，这里就编译不过——不留"运行时静默 false"。
 var (
 	_ contract.TeamworkBoardProjection    = RuntimePort{}
+	_ contract.TeammateSessionProjection  = RuntimePort{}
+	_ contract.TeamworkJobCompletion      = RuntimePort{}
 	_ context_runtime.CompactionIndexPort = RuntimePort{}
 	// compactionReadbackProbe（context_runtime/compaction_index.go，包内命名接口）：
 	// 压缩**之前**先试一次模型读后感的读数闸。断言失败 = 读数闸缺省，于是"重放

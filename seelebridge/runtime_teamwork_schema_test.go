@@ -2,7 +2,8 @@ package seelebridge
 
 // runtime_teamwork_schema_test.go — 钉住 team_plan 的输入契约是**里程碑口径**：
 // 里程碑是屏障（milestones[].depends_on），里程碑内按 Work Item 的 depends_on DAG
-// 并行；stages 只是阶段制时代的历史口径，既不在 required 里、也不承载顺序事实。
+// 并行；**没有 stages**（2026-10-04 阶段口径整条退场：属性、required、description
+// 里一处都不许再出现——留着属性，leader 就会照旧写阶段，两套顺序语义又长回来）。
 //
 // 为什么值得钉：schema 同时是提示词面（leader 的 skill 照它调用）与准入面，
 // 口径一漂移，"里程碑 + Work Item"这条运行时时序就会被读成"阶段制"。
@@ -43,39 +44,52 @@ func TestTeamworkPlanSchemaCarriesMilestoneVocabulary(t *testing.T) {
 		}
 	}
 
-	// 2) after / required 保留，但必须被标注为历史字段（读旧计划用）。
-	for _, legacy := range []string{"after", "required"} {
-		field, ok := milestoneProps[legacy].(map[string]interface{})
-		if !ok {
-			t.Fatalf("历史字段 %q 应保留（旧计划仍可读）", legacy)
-		}
-		description, _ := field["description"].(string)
-		if !strings.Contains(description, "历史") {
-			t.Fatalf("%q 应被标注为历史字段，得 description=%q", legacy, description)
-		}
+	// 2) after 必须**整条退场**：它是阶段制时代的字段（指向阶段 id）。required 保留，
+	// 但它现在是"这个里程碑需要哪些在编角色"，与顺序无关。
+	if _, exists := milestoneProps["after"]; exists {
+		t.Fatal("after 指向阶段 id，阶段口径退场后这个字段不该还在 schema 里")
+	}
+	requiredField, ok := milestoneProps["required"].(map[string]interface{})
+	if !ok {
+		t.Fatal("required 应保留（里程碑需要哪些在编角色）")
+	}
+	description, _ := requiredField["description"].(string)
+	if !strings.Contains(description, "角色") {
+		t.Fatalf("required 应说明它是角色声明（不参与顺序判定），得 description=%q", description)
 	}
 }
 
-func TestTeamworkPlanSchemaDropsStagesFromRequired(t *testing.T) {
+// TestTeamworkPlanSchemaHasNoStages：阶段口径整条退场——属性没有、required 没有、
+// description 里也不提"历史口径的阶段"（那句话本身就是留在提示词面的一条后门：
+// leader 读了会照旧写 stages，而写进去的阶段不再被任何读侧认作顺序事实）。
+func TestTeamworkPlanSchemaHasNoStages(t *testing.T) {
 	schema := teamworkPlanSchema()
 
+	if _, exists := teamworkPlanSchemaProps(t)["stages"]; exists {
+		t.Fatal("stages 属性必须整条删除（阶段口径已退场）")
+	}
 	required, ok := schema["required"].([]string)
 	if !ok {
 		t.Fatal("team_plan schema 的 required 应是 []string")
 	}
 	for _, key := range required {
 		if key == "stages" {
-			t.Fatal("stages 是历史口径，不应在 required 里（milestones-only 计划必须合法）")
+			t.Fatal("stages 不该在 required 里")
 		}
 	}
-	// 保留属性，但读法与里程碑一致：属性在、required 不在。
-	stages, ok := teamworkPlanSchemaProps(t)["stages"].(map[string]interface{})
-	if !ok {
-		t.Fatal("stages 属性应保留（历史口径，只为读旧计划）")
+	// 里程碑是计划的最小形状（校验层也这么要求），所以它必须在 required 里——
+	// 否则 leader 会以为可以只写成员不写里程碑。
+	found := false
+	for _, key := range required {
+		if key == "milestones" {
+			found = true
+		}
 	}
-	description, _ := stages["description"].(string)
-	if !strings.Contains(description, "历史") {
-		t.Fatalf("stages 应被标注为历史口径，得 description=%q", description)
+	if !found {
+		t.Fatalf("milestones 必须在 required 里（计划的最小形状）：%v", required)
+	}
+	if strings.Contains(teamworkPlanDescription(), "stages[") {
+		t.Fatalf("description 里不该再讲 stages 口径：%q", teamworkPlanDescription())
 	}
 }
 

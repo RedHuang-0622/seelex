@@ -12,11 +12,11 @@
 //     与 Seelex 自己的时间基序号（`uint64(at.UnixNano())`，见
 //     `events_unified.go` / `plan.AppendPhase`）也对不齐。
 //
-// 所以这里只消费框架给的**信号口 + 读面**：订阅 `jobs.Manager.Events()`
-// （容量 1、latest-wins 的变更信号；它不推进游标、不进上下文），每次被唤醒就对在册
-// 作业做一次 `Snapshot`，把**新出现的状态**投影成 `frameworkevent.Event`——补上
-// `agent.runtime` 会话定位、序号取时间基——再经装配期注入的 persister 追加到该会话
-// 的事件库。
+// 所以这里只消费框架给的**信号口 + 读面**：订阅 `jobs.Manager.Events()`——**经一次扇出**
+// （`teamwork_job_signals.go`：上游是容量 1 的单接收者通道，而"事件投影"与"终态触发回合"
+// 两个读侧动作都要跟着它走）——每次被唤醒就对在册作业做一次 `Snapshot`，把**新出现的状态**
+// 投影成 `frameworkevent.Event`——补上 `agent.runtime` 会话定位、序号取时间基——再经装配期
+// 注入的 persister 追加到该会话的事件库。
 //
 // 事件是**观察**，不是唤醒：它绝不把作业结果投递进忙会话（seelebridge/runtime_teamwork.go
 // 的铁律 §6.1）。
@@ -48,7 +48,10 @@ const jobsMainAgentID = "seelex-main"
 type jobsEventStream struct {
 	manager   jobs.Manager
 	persister func() func(context.Context, frameworkevent.Event) error
-	clock     func() time.Time
+	// signals 是**扇出后**的变化信号口（见 teamwork_job_signals.go）：上游
+	// jobs.Manager.Events() 只能有一个读者，本投影读它的一份订阅。
+	signals <-chan struct{}
+	clock   func() time.Time
 
 	stop chan struct{}
 	done chan struct{}
@@ -60,13 +63,15 @@ type jobsEventStream struct {
 
 // newJobsEventStream 构造事件流；persister 是**延迟读取**的持久化钩子取用器——
 // 装配顺序上 SetTeamworkBackend 可能早于 SetEventPersister，因此不能在构造期取定。
-func newJobsEventStream(manager jobs.Manager, persister func() func(context.Context, frameworkevent.Event) error) *jobsEventStream {
+// signals 由装配层从扇出器订阅（nil = 没有信号可读，投影就只做一次全量对齐）。
+func newJobsEventStream(manager jobs.Manager, persister func() func(context.Context, frameworkevent.Event) error, signals <-chan struct{}) *jobsEventStream {
 	if manager == nil {
 		return nil
 	}
 	return &jobsEventStream{
 		manager:   manager,
 		persister: persister,
+		signals:   signals,
 		clock:     time.Now,
 		stop:      make(chan struct{}),
 		done:      make(chan struct{}),
@@ -96,7 +101,7 @@ func (s *jobsEventStream) loop() {
 	defer close(s.done)
 	// 先做一次全量对齐：装配之前已存在的在册作业也必须出现在事件流里。
 	s.drain()
-	signals := s.manager.Events()
+	signals := s.signals
 	for {
 		select {
 		case <-s.stop:

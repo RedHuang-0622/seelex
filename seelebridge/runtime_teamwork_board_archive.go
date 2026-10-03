@@ -162,7 +162,7 @@ func (r *Runtime) readTeamBoardArchive(backend *TeamworkBackend, key sessionstor
 	if err := json.Unmarshal(meta.Snapshot, &view); err != nil {
 		return nil
 	}
-	if len(view.Stages) == 0 {
+	if len(view.Milestones) == 0 {
 		return nil // 存档里也没有可看的编排：不留空壳。
 	}
 	view.Recovered = true

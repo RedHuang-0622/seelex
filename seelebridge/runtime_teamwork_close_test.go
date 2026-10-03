@@ -92,7 +92,7 @@ func TestTeamCloseSealsBoardAndIsIdempotent(t *testing.T) {
 
 	// 计划落盘（members 为空：本用例只验收口的收口面，逐人退场由 coordinator 用例覆盖）+
 	// 一版在册的存档，收口要能把这一版关掉。
-	if _, err := r.teamPlanHandler(ctx, `{"team_id":"team-close","stages":[{"id":"impl","roles":["exec"]}],"members":[]}`); err != nil {
+	if _, err := r.teamPlanHandler(ctx, `{"team_id":"team-close","milestones":[{"id":"m-impl"}],"members":[]}`); err != nil {
 		t.Fatalf("team_plan: %v", err)
 	}
 	if err := boards.WriteTeamBoard(ctx, key, sessionstore.TeamBoardMeta{

@@ -366,7 +366,6 @@ func (c *Coordinator) DispatchItem(ctx context.Context, itemID string) (jobs.Han
 		ToolsPolicy:      member.ToolsPolicy,
 		PermissionGroups: groups,
 		Worktree:         binding.Worktree,
-		Stage:            milestone.ID,
 		WorkItemID:       item.ID,
 		Milestone:        milestone.ID,
 		Goal:             workItemGoal(*item),

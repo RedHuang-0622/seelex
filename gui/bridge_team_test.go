@@ -106,6 +106,14 @@ func (app *fakeAgentTeamApplication) RoleSnapshot(mainSessionID, roleName, roleS
 	}, nil
 }
 
+func (app *fakeAgentTeamApplication) TeammateSessionLiveFor(sessionID string) dto.TeammateSessionLiveView {
+	app.roleSnapshotID = sessionID
+	return dto.TeammateSessionLiveView{
+		SessionID: sessionID, Role: "exec", Live: true, Running: true,
+		Messages: []dto.TeammateSessionLiveMessage{{Role: "assistant", Text: "这件事自己的会话"}},
+	}
+}
+
 func (app *fakeAgentTeamApplication) AgentTeamLibrary(mainSessionID string) (dto.TeamLibrary, error) {
 	app.librarySession = mainSessionID
 	return dto.TeamLibrary{Configured: true, Teams: []dto.TeamLibraryEntry{{TeamID: "review-team", Name: "评审"}}}, nil

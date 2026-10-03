@@ -17,15 +17,15 @@ func TestCloneRuntimeStateDeepCopiesTeamworkBoard(t *testing.T) {
 		TeamworkBoard: &dto.TeamworkBoardView{
 			TeamID:  "team-board-gui-tui",
 			Version: 2,
-			Stages: []dto.TeamworkStageView{
-				{ID: "design", Roles: []string{"arch"}, DependsOn: []string{"req"}},
-			},
-			Members: []dto.TeamworkMemberView{{Role: "arch", ToolsPolicy: "readwrite"}},
+			Members: []dto.TeamworkMemberView{{Role: "arch", ToolsPolicy: "readwrite", Status: "running"}},
 			Milestones: []dto.TeamworkMilestoneView{
-				{ID: "m-1", After: []string{"design"}, Content: "契约定稿"},
+				{ID: "m-1", Name: "设计", DependsOn: []string{"m-0"}, Required: []string{"arch"}, Content: "契约定稿"},
 			},
-			Jobs:   []dto.TeamworkJobView{{Handle: "a7", Stage: "design"}},
-			Events: []dto.TeamworkEventView{{Kind: "plan"}},
+			WorkItems: []dto.TeamworkWorkItemView{
+				{ID: "wi-impl", Milestone: "m-1", Role: "exec", DependsOn: []string{"wi-design"}},
+			},
+			Jobs:   []dto.TeamworkJobView{{Handle: "a7", Node: "wi-impl", Role: "exec"}},
+			Events: []dto.TeamworkEventView{{Kind: "plan", Milestone: "m-1"}},
 		},
 	}
 	cloned := CloneRuntimeState(runtime)
@@ -47,18 +47,19 @@ func TestCloneRuntimeStateDeepCopiesTeamworkBoard(t *testing.T) {
 		t.Fatal("审计切片必须独立")
 	}
 
-	// 内嵌切片独立（漏这一层就是"外层换了、内层还指着同一数组"）。
-	cloned.TeamworkBoard.Stages[0].Roles[0] = "改了"
-	if runtime.TeamworkBoard.Stages[0].Roles[0] != "arch" {
-		t.Fatal("阶段角色（内嵌切片）必须独立")
+	// 内嵌切片独立（漏这一层就是"外层换了、内层还指着同一数组"）——里程碑屏障与
+	// 工作项依赖是**顺序的两份唯一事实**，共享底层数组就是让两个读者看到一半的写。
+	cloned.TeamworkBoard.Milestones[0].DependsOn[0] = "改了"
+	if runtime.TeamworkBoard.Milestones[0].DependsOn[0] != "m-0" {
+		t.Fatal("里程碑屏障（内嵌切片）必须独立")
 	}
-	cloned.TeamworkBoard.Stages[0].DependsOn[0] = "改了"
-	if runtime.TeamworkBoard.Stages[0].DependsOn[0] != "req" {
-		t.Fatal("阶段依赖（内嵌切片）必须独立")
+	cloned.TeamworkBoard.Milestones[0].Required[0] = "改了"
+	if runtime.TeamworkBoard.Milestones[0].Required[0] != "arch" {
+		t.Fatal("里程碑角色声明（内嵌切片）必须独立")
 	}
-	cloned.TeamworkBoard.Milestones[0].After[0] = "改了"
-	if runtime.TeamworkBoard.Milestones[0].After[0] != "design" {
-		t.Fatal("里程碑判据（内嵌切片）必须独立")
+	cloned.TeamworkBoard.WorkItems[0].DependsOn[0] = "改了"
+	if runtime.TeamworkBoard.WorkItems[0].DependsOn[0] != "wi-design" {
+		t.Fatal("工作项依赖（内嵌切片）必须独立")
 	}
 }
 

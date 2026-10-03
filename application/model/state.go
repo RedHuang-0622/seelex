@@ -902,27 +902,28 @@ func CloneRuntimeState(runtime RuntimeState) RuntimeState {
 }
 
 // CloneTeamworkBoardView 深拷贝团队看板投影：切片**与元素内嵌的切片**都要独立。
-// 快照是并发读者的共享值，浅拷贝会让前端读到一半的写（stages[].roles 这类
-// 内嵌切片最容易被漏掉——外层切片换新、内层仍指向同一底层数组）。
+// 快照是并发读者的共享值，浅拷贝会让前端读到一半的写（work_items[].depends_on /
+// milestones[].depends_on 这类内嵌切片最容易被漏掉——外层切片换新、内层仍指向同一
+// 底层数组）。
 func CloneTeamworkBoardView(view *dto.TeamworkBoardView) *dto.TeamworkBoardView {
 	if view == nil {
 		return nil
 	}
 	cloned := *view
-	if view.Stages != nil {
-		cloned.Stages = make([]dto.TeamworkStageView, len(view.Stages))
-		for index, stage := range view.Stages {
-			cloned.Stages[index] = stage
-			cloned.Stages[index].Roles = append([]string(nil), stage.Roles...)
-			cloned.Stages[index].DependsOn = append([]string(nil), stage.DependsOn...)
-		}
-	}
 	cloned.Members = append([]dto.TeamworkMemberView(nil), view.Members...)
 	if view.Milestones != nil {
 		cloned.Milestones = make([]dto.TeamworkMilestoneView, len(view.Milestones))
 		for index, milestone := range view.Milestones {
 			cloned.Milestones[index] = milestone
-			cloned.Milestones[index].After = append([]string(nil), milestone.After...)
+			cloned.Milestones[index].DependsOn = append([]string(nil), milestone.DependsOn...)
+			cloned.Milestones[index].Required = append([]string(nil), milestone.Required...)
+		}
+	}
+	if view.WorkItems != nil {
+		cloned.WorkItems = make([]dto.TeamworkWorkItemView, len(view.WorkItems))
+		for index, item := range view.WorkItems {
+			cloned.WorkItems[index] = item
+			cloned.WorkItems[index].DependsOn = append([]string(nil), item.DependsOn...)
 		}
 	}
 	cloned.Jobs = append([]dto.TeamworkJobView(nil), view.Jobs...)

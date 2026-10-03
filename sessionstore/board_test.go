@@ -52,7 +52,7 @@ func sampleTeamBoard(t *testing.T) TeamBoardMeta {
 	snapshot, err := json.Marshal(map[string]any{
 		"team_id": "v-model",
 		"version": 2,
-		"stages":  []map[string]any{{"id": "impl", "roles": []string{"exec"}}},
+		"milestones": []map[string]any{{"id": "m-impl", "name": "实现"}},
 		"jobs":    []map[string]any{{"handle": "a7", "state": "running", "bytes": 128}},
 	})
 	if err != nil {
@@ -104,9 +104,9 @@ func TestTeamBoardRoundTrip(t *testing.T) {
 		t.Fatalf("团队看板头丢了：%+v", loaded)
 	}
 	var snapshot struct {
-		Stages []struct {
+		Milestones []struct {
 			ID string `json:"id"`
-		} `json:"stages"`
+		} `json:"milestones"`
 		Jobs []struct {
 			Handle string `json:"handle"`
 		} `json:"jobs"`
@@ -114,7 +114,7 @@ func TestTeamBoardRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(loaded.Snapshot, &snapshot); err != nil {
 		t.Fatalf("快照不是原样的 JSON：%v", err)
 	}
-	if len(snapshot.Stages) != 1 || snapshot.Stages[0].ID != "impl" || snapshot.Jobs[0].Handle != "a7" {
+	if len(snapshot.Milestones) != 1 || snapshot.Milestones[0].ID != "m-impl" || snapshot.Jobs[0].Handle != "a7" {
 		t.Fatalf("快照内容变了：%+v", snapshot)
 	}
 }

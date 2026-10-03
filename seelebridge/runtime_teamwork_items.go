@@ -32,6 +32,13 @@ func (r *Runtime) SettleWorkItem(ctx context.Context, request teamwork.WorkerReq
 	if err != nil {
 		return err
 	}
+	// 看板缓存在**这里也要失效**：settle 是**不是工具调用**的那条写路径（teammate 跑完
+	// 自动尾插：工作项状态 → 待验收/失败 + 回执进消息队列 + 一条 settle 审计行）。
+	// 只靠 team_* 工具返回后失效的话，看板会一直显示"这件事还在跑、没有回执"，直到下一次
+	// team_* 调用把它撞醒——现场（2026-10-04 headless 冒烟）：落盘已经是 review，
+	// 看板还停在 running、Messages 空，于是"跑完了看不见回执"又出现一次，只是这次
+	// 根因在投影缓存，不在尾插。
+	defer r.invalidateTeamworkBoard()
 	return coordinator.SettleWorkItem(ctx, request, runErr)
 }
 

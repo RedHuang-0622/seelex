@@ -20,7 +20,7 @@ import { createFilePreviewController } from "./file-preview.js";
 import { renderCompactionFrameModal, renderContextCompactions } from "./context-summary.js";
 import { compactionRangeText, compactionReasonLabel, mergeCompactionProgress } from "./compaction-format.js";
 import { renderGoalDetail, renderGoalPanel } from "./goal-board-view.js";
-import { TEAM_BOARD_CSS, renderTeamBoard } from "./team-board-view.js";
+import { TEAM_BOARD_CSS, renderTeamBoard, renderTeammateLiveSession } from "./team-board-view.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
 import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
 import { employeePool, hirePanel, isPinnedRole, nextAgentTeamOrder, normalizeAgentTeam, normalizeTeamGlobal, normalizeTeamLibrary, PERMISSION_CUSTOM_TOOLS, PERMISSION_GROUPS, PERMISSION_BITS, renderAgentTeam, renderRoleSessionDetail, renderTeamMemberList, roleDisplayName, teamEditorPanel, teamEntryFromMembers, teamMemberNames, teamMemberSpecMap, teamRoleSpec } from "./agent-team-view.js";
@@ -2204,24 +2204,22 @@ function renderTeam(snapshot) {
 
 // teamBoardInput 把后端 DTO 搬成渲染件的入参；没有可看的编排 → null（调用方据此退场）。
 //
-// 「可看的编排」的判据 = 有阶段**或**里程碑**或**工作项（与后端 teamworkPlanHasOrchestration
-// 同口径）：Work Item 口径的计划（2026-10-03）没有 stages，只看 stages 会把一份排得好好的
-// 计划当成"没有计划"整块退场——工作项与里程碑的关系就永远看不见了。
+// 「可看的编排」的判据 = 有里程碑**或**工作项（与后端 teamworkPlanHasOrchestration
+// 同口径）。**没有 stages 这个概念**（2026-10-04）：阶段口径整条退场，把它留在搬运里
+// 就等于把已退场的形状又接回前端一次。
 //
 // events[].at 由后端给 **unix 秒**：这里转成 "YYYY-MM-DDTHH:MM"（**本地时间**，与渲染件
 // formatEventTime 的正则同形）。不转成 toISOString()：那是 UTC，面板上会显示成差 8 小时的
 // 时间——面板要的是"用户看到几点"。
 function teamBoardInput(runtime) {
   const board = runtime?.teamwork_board;
-  const stages = Array.isArray(board?.stages) ? board.stages : [];
   const milestones = Array.isArray(board?.milestones) ? board.milestones : [];
   const workItems = Array.isArray(board?.work_items) ? board.work_items : [];
-  if (!board || (stages.length === 0 && milestones.length === 0 && workItems.length === 0)) return null;
+  if (!board || (milestones.length === 0 && workItems.length === 0)) return null;
   return {
     plan: {
       team_id: board.team_id || "",
       version: board.version || 0,
-      stages,
       members: Array.isArray(board.members) ? board.members : [],
       milestones,
       // 工作项是**扁平**投影（每条自带 milestone），按 milestone 分组由渲染件做。
@@ -2252,7 +2250,7 @@ function teamBoardInput(runtime) {
       state: job?.state || "",
       exit_code: job?.exit_code || 0,
       bytes: job?.bytes || 0,
-      stage: job?.stage || "",
+      // 归属只有一格：node（工作项 id / 里程碑 id）。阶段口径已退场，不再搬 stage。
       node: job?.node || "",
       role: job?.role || "",
       scope: job?.scope || {},
@@ -2307,12 +2305,19 @@ function bindTeamBoardActions() {
     // 那个子页面（同一个 openRoleSessionDetail），不另造"工作项页面"概念。
     const openItem = event.target.closest?.("[data-team-item-open]");
     if (openItem?.dataset.teamItemOpen) {
-      await openRoleSessionDetail(openItem.dataset.teamItemRole || "", openItem.dataset.teamItemSession || "");
+      // 工作项行 = **这件事自己的会话**（一 Work Item 一套 Session）：第三个参数是工作项 id，
+      // 有它就打开"当前的 teammate 的会话"（实时执行面），而不是员工的长期角色会话。
+      await openRoleSessionDetail(
+        openItem.dataset.teamItemRole || "", openItem.dataset.teamItemSession || "", openItem.dataset.teamItemOpen
+      );
       return;
     }
     const openRole = event.target.closest?.("[data-team-role-open]");
     if (!openRole?.dataset.teamRoleOpen) return;
-    await openRoleSessionDetail(openRole.dataset.teamRoleOpen, openRole.dataset.teamRoleSession);
+    // 在编行同理：有"此刻那件事"就开那件事的会话（data-team-item 由渲染件按当前工作项写）。
+    await openRoleSessionDetail(
+      openRole.dataset.teamRoleOpen, openRole.dataset.teamRoleSession, openRole.dataset.teamItem || ""
+    );
   });
 }
 bindTeamBoardActions();
@@ -3168,20 +3173,47 @@ function roleSessionTargets() {
 // EXEC（main）与 ADVISOR（tl）是两个会话，主对话只显示 EXEC 的可见消息，
 // 这里按角色身份单独展示该 agent 自己的行，避免两个 agent 都渲染成 AGENT。
 // 视图顶部的「切员工」条把目标换成同会话的另一位员工——这就是"对话视图切员工"。
-async function openRoleSessionDetail(roleName, roleSessionID) {
+async function openRoleSessionDetail(roleName, roleSessionID, workItemID) {
   const name = String(roleName || "").trim();
   if (!name) return;
+  const workItem = String(workItemID || "").trim();
   try {
+    if (workItem) {
+      // 这件事自己的会话：读**实时执行面**（进程内、正文不落盘）。读不到时渲染件会如实
+      // 说明（而不是把主会话历史画成"当前会话"）。
+      const live = await invoke("TeammateSessionLive", String(roleSessionID || ""));
+      roleSessionDetail = {
+        roleName: name, roleSessionID: String(roleSessionID || ""), workItem,
+        live: true, members: roleSessionTargets(), snapshot: null
+      };
+      renderTeammateSessionView(live);
+      setModal("role-session-modal", true);
+      return;
+    }
     const snapshot = await invoke("AgentTeamRoleSnapshot", "", name, String(roleSessionID || ""));
     roleSessionDetail = {
-      roleName: name, roleSessionID: String(roleSessionID || ""),
-      members: roleSessionTargets(), snapshot
+      roleName: name, roleSessionID: String(roleSessionID || ""), workItem: "",
+      live: false, members: roleSessionTargets(), snapshot
     };
     renderRoleSessionView(snapshot);
     setModal("role-session-modal", true);
   } catch (error) {
     showToast(error);
   }
+}
+
+// renderTeammateSessionView 画"这件事自己的会话"（实时执行面那一路）。
+//
+// 与 renderRoleSessionView 分开：两者读的是**两个不同的东西**（进程内执行面 vs 落盘的
+// 角色会话），标题也各自说清是哪个——混成一个标题，用户就分不清看到的是当前的活还是历史。
+function renderTeammateSessionView(live) {
+  const detail = roleSessionDetail || { roleName: "", roleSessionID: "", workItem: "" };
+  elements["role-session-modal-title"].innerHTML =
+    `<span class="eyebrow">Agent Team · 这件事的会话</span><h2>${escapeHtml(roleDisplayName(detail.roleName))} · ${escapeHtml(detail.workItem || "—")}</h2>`;
+  elements["role-session-view"].className = "role-session-view";
+  elements["role-session-view"].innerHTML = renderTeammateLiveSession(live, {
+    role: detail.roleName, work_item: detail.workItem
+  });
 }
 
 // roleSessionLiveTools 是按**角色会话**缓存的有界实时工具活动（teammate.tool.* 载荷）。
@@ -3219,6 +3251,10 @@ function applyTeammateToolActivity(payload) {
 // renderRoleSessionView 只重绘视图内容（标题 + 正文），不动弹窗开合：刷新键、切员工
 // 与实时工具活动都复用它，避免"刷新一下弹窗闪一下"。
 function renderRoleSessionView(snapshot) {
+  if (roleSessionDetail?.live) {
+    // 实时那一路由 renderTeammateSessionView 独占（形状不同：它是这件事自己的会话）。
+    return;
+  }
   const detail = roleSessionDetail || { roleName: "", roleSessionID: "", members: [] };
   elements["role-session-modal-title"].innerHTML = `<span class="eyebrow">Agent Team · 员工会话</span><h2>${escapeHtml(roleDisplayName(detail.roleName))}</h2>`;
   elements["role-session-view"].className = "role-session-view";
@@ -3234,6 +3270,13 @@ async function refreshRoleSessionDetail() {
   if (!detail || !detail.roleName) return;
   if (elements["role-session-modal"]?.classList?.contains("hidden")) return;
   try {
+    if (detail.live) {
+      const live = await invoke("TeammateSessionLive", detail.roleSessionID);
+      if (roleSessionDetail === detail) {
+        renderTeammateSessionView(live);
+      }
+      return;
+    }
     const snapshot = await invoke("AgentTeamRoleSnapshot", "", detail.roleName, detail.roleSessionID);
     // 取数期间用户可能已切到别人/关掉视图：只有目标还是同一份时才回写。
     if (roleSessionDetail === detail) {

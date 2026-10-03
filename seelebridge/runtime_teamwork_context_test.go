@@ -71,8 +71,8 @@ func TestTeamworkContextNoBodyByDefault(t *testing.T) {
 		t.Fatalf("缺省应给出全部在编成员：%+v", view.Members)
 	}
 	arch := view.Members[0]
-	if arch.Role != "arch" || arch.Stage != "design" {
-		t.Fatalf("成员的归属阶段必须来自 stages[].roles（arch → design）：%+v", arch)
+	if arch.Role != "arch" || arch.Milestone != "m-design" {
+		t.Fatalf("成员的归属里程碑必须来自它出现的工作项（arch → m-design）：%+v", arch)
 	}
 	if arch.Handle != "a7" || arch.State != string(jobs.StateRunning) || !arch.Running {
 		t.Fatalf("在跑成员必须带得出它的作业行：%+v", arch)
@@ -90,8 +90,8 @@ func TestTeamworkContextNoBodyByDefault(t *testing.T) {
 	if idle.Role != "impl_ui" || !idle.Idle || idle.Handle != "" {
 		t.Fatalf("没派过活的成员应显式标空闲（不是靠 handle 为空反推）：%+v", idle)
 	}
-	if idle.Stage != "impl" {
-		t.Fatalf("impl_ui 的归属阶段应为 impl：%+v", idle)
+	if idle.Milestone != "m-impl" {
+		t.Fatalf("impl_ui 的归属里程碑应为 m-impl：%+v", idle)
 	}
 }
 
@@ -175,7 +175,7 @@ func TestTeamContextToolReportsIdleMembers(t *testing.T) {
 		t.Fatal("注入 backend 后 team_context 应在工具面里（成员上下文读面）")
 	}
 	ctx := seeletelemetry.WithSessionID(context.Background(), "s-team")
-	if _, err := r.teamPlanHandler(ctx, `{"team_id":"ctx","stages":[{"id":"impl","roles":["exec"]}],"members":[{"role":"exec"}]}`); err != nil {
+	if _, err := r.teamPlanHandler(ctx, `{"team_id":"ctx","milestones":[{"id":"m-impl"}],"members":[{"role":"exec"}]}`); err != nil {
 		t.Fatalf("team_plan: %v", err)
 	}
 	receipt, err := r.teamworkContextHandler(ctx, `{}`)

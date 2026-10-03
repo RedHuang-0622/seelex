@@ -4,8 +4,10 @@ package sessionstore
 //
 // 口径（docs/arch/teamwork-leader-worker-architecture.md §4.6 / D3 / D4）：
 //
-//   - **顺序的唯一事实**是 plan.stages[].depends_on，取代旧的
-//     lifecycle.order_policy / order_roles；
+//   - **顺序的唯一事实**是 plan.milestones[].depends_on（里程碑屏障）+ 里程碑内
+//     plan.milestones[].items[].depends_on（DAG），取代旧的 lifecycle.order_policy /
+//     order_roles 与阶段制时代的 plan.stages[]（2026-10-04 阶段口径整条退场：阶段与
+//     里程碑的语义耦合一处也不留）；
 //   - 存储分两件：**计划**（谁、什么顺序）落 moduleTeamwork 的 head，等价于
 //     plan.json——整份替换型内容，原子发布 + 校验和自愈；**审计**落同模块的
 //     数据文件 teamwork/events.jsonl——只追加、不重写，是派发 / 里程碑 /
@@ -86,20 +88,17 @@ const (
 )
 
 // TeamworkPlan 是 leader 的硬编排计划（moduleTeamwork head 的 payload）。
+//
+// **没有 stages**（2026-10-04）：阶段口径整条退场，顺序的唯一事实是里程碑屏障
+// （Milestones[].DependsOn）+ 里程碑内的工作项 DAG（Items[].DependsOn）。读一份
+// 阶段制时代留下的旧计划时，`stages` 这个未知字段被 JSON 解码直接忽略——旧计划
+// 因此照常读得出来，只是它的"顺序"不再被任何读侧认作事实。
 type TeamworkPlan struct {
 	TeamID     string              `json:"team_id"`
 	Version    int                 `json:"version"`
-	Stages     []TeamworkStage     `json:"stages"`
 	Members    []TeamworkMember    `json:"members"`
 	Milestones []TeamworkMilestone `json:"milestones,omitempty"`
 	State      TeamworkState       `json:"state,omitempty"`
-}
-
-// TeamworkStage 是一个编排阶段；DependsOn 是顺序/依赖的唯一事实。
-type TeamworkStage struct {
-	ID        string   `json:"id"`
-	Roles     []string `json:"roles"`
-	DependsOn []string `json:"depends_on,omitempty"`
 }
 
 // TeamworkMember 是一个 teammate 的在编条目（人 + 会话 + 工作区指派）。
@@ -116,15 +115,15 @@ type TeamworkMember struct {
 // TeamworkMilestone 是 leader 声明的里程碑（内容由 leader 撰写，见 §4.5）。
 //
 // 它同时是**屏障**：里程碑之间串行（DependsOn 是里程碑层的顺序唯一事实），
-// 里程碑内部才按 Items 的依赖 DAG 并行。After / Required 是阶段制时代的遗留字段
-// （after 指阶段 id），保留只为读旧计划——新计划的顺序一律走 DependsOn + Items。
+// 里程碑内部才按 Items 的依赖 DAG 并行。阶段制时代的 `after`（指向阶段 id）已随
+// 阶段口径一起退场——留一个指向不存在的东西的字段，就是把两套语义继续焊在一起。
 type TeamworkMilestone struct {
 	ID   string `json:"id"`
 	Name string `json:"name,omitempty"`
 	// DependsOn 是里程碑之间的依赖（屏障）：依赖未 done 的里程碑不进入"可排活"。
 	DependsOn []string `json:"depends_on,omitempty"`
-	// After / Required 是历史字段（阶段 id / 角色名），读旧计划时仍被校验。
-	After    []string `json:"after,omitempty"`
+	// Required 是"这个里程碑需要哪些在编角色"的声明（**角色名**，不是阶段 id）；
+	// 它只做校验（必须在编），不参与顺序判定——顺序归 DependsOn。
 	Required []string `json:"required,omitempty"`
 	Status   string   `json:"status,omitempty"`
 	Content  string   `json:"content,omitempty"`
@@ -133,12 +132,11 @@ type TeamworkMilestone struct {
 	Items []TeamworkWorkItem `json:"items,omitempty"`
 }
 
-// TeamworkState 是计划的运行态投影（阶段/作业句柄/里程碑结论）。
+// TeamworkState 是计划的运行态投影（作业句柄/里程碑结论）。
 //
 // 注意：jobs 里的句柄只是**投影**，不是事实来源（jobs I-4：句柄只在内存，
 // 进程重启后这里的值一律视为过期，由调用方以 Observe 的返回为准）。
 type TeamworkState struct {
-	Stage      string            `json:"stage,omitempty"`
 	Jobs       map[string]string `json:"jobs,omitempty"`
 	Milestones map[string]string `json:"milestones,omitempty"`
 	// 闭板三字段（closed 事实的域内权威，U3 裁决）：State 空 = 未收口。
@@ -154,12 +152,11 @@ type TeamworkEvent struct {
 	At        time.Time `json:"at"`
 	Kind      string    `json:"kind"`
 	TeamID    string    `json:"team_id,omitempty"`
-	Stage     string    `json:"stage,omitempty"`
 	Role      string    `json:"role,omitempty"`
 	Handle    string    `json:"handle,omitempty"`
 	Node      string    `json:"node,omitempty"`
 	Milestone string    `json:"milestone,omitempty"`
-	// WorkItem 是 Work Item 口径的归属（甘特节点 id）；阶段制时代的行留空。
+	// WorkItem 是 Work Item 口径的归属（甘特节点 id）。
 	WorkItem string `json:"work_item,omitempty"`
 	// RoleSessionID 是**尾插落点**的键（teammate 的消息队列按它读）。只有 message
 	// 一类事件带它；其余行留空——不是所有事实都属于某个会话。
@@ -272,37 +269,10 @@ func ValidateTeamworkPlan(plan TeamworkPlan, maxTeammates int) error {
 		sessions[sessionID] = struct{}{}
 	}
 
-	// 顺序事实至少要有一样：阶段（历史口径）或里程碑（Work Item 口径）。
-	// 两者都空 = 这份计划没有任何可读的顺序，拒绝落盘。
-	if len(plan.Stages) == 0 && len(plan.Milestones) == 0 {
-		return errors.New("teamwork: plan.stages / plan.milestones 至少要有一份（顺序必须有唯一事实）")
-	}
-	stageIDs := make(map[string]struct{}, len(plan.Stages))
-	for index, stage := range plan.Stages {
-		id := strings.TrimSpace(stage.ID)
-		if id == "" {
-			return fmt.Errorf("teamwork: plan.stages[%d].id is required", index)
-		}
-		if _, duplicate := stageIDs[id]; duplicate {
-			return fmt.Errorf("teamwork: 阶段 id %q 重复", id)
-		}
-		stageIDs[id] = struct{}{}
-		if len(stage.Roles) == 0 {
-			return fmt.Errorf("teamwork: 阶段 %q 至少要指定一个角色", id)
-		}
-	}
-	for _, stage := range plan.Stages {
-		for _, dependency := range stage.DependsOn {
-			if dependency == stage.ID {
-				return fmt.Errorf("teamwork: 阶段 %q 依赖自己", stage.ID)
-			}
-			if _, exists := stageIDs[dependency]; !exists {
-				return fmt.Errorf("teamwork: 阶段 %q 依赖不存在的阶段 %q", stage.ID, dependency)
-			}
-		}
-	}
-	if err := validateStageAcyclic(plan.Stages); err != nil {
-		return err
+	// 顺序事实只有一样：里程碑（阶段口径已退场，2026-10-04）。没有里程碑 = 这份
+	// 计划没有任何可读的顺序，拒绝落盘。
+	if len(plan.Milestones) == 0 {
+		return errors.New("teamwork: plan.milestones 至少要有一份（顺序必须有唯一事实）")
 	}
 
 	milestoneIDs := make(map[string]struct{}, len(plan.Milestones))
@@ -315,11 +285,6 @@ func ValidateTeamworkPlan(plan TeamworkPlan, maxTeammates int) error {
 			return fmt.Errorf("teamwork: 里程碑 id %q 重复", id)
 		}
 		milestoneIDs[id] = struct{}{}
-		for _, after := range milestone.After {
-			if _, exists := stageIDs[after]; !exists {
-				return fmt.Errorf("teamwork: 里程碑 %q 的 after 指向不存在的阶段 %q", id, after)
-			}
-		}
 		for _, role := range milestone.Required {
 			if _, exists := roles[role]; !exists {
 				return fmt.Errorf("teamwork: 里程碑 %q 的 required 指向不在编的角色 %q", id, role)
@@ -333,41 +298,6 @@ func ValidateTeamworkPlan(plan TeamworkPlan, maxTeammates int) error {
 	}
 	// 第二道：里程碑图（屏障 DAG）与工作项（里程碑内的甘特节点）。
 	return validateTeamworkWorkItems(plan, roles)
-}
-
-// validateStageAcyclic 用 Kahn 拓扑消元检出依赖环。环会让 leader 的派发永远
-// 等不到可跑的阶段，而配置里看不出任何异常——所以它是硬错误而不是告警。
-func validateStageAcyclic(stages []TeamworkStage) error {
-	remaining := make(map[string]int, len(stages))
-	dependents := make(map[string][]string, len(stages))
-	for _, stage := range stages {
-		remaining[stage.ID] = len(stage.DependsOn)
-		for _, dependency := range stage.DependsOn {
-			dependents[dependency] = append(dependents[dependency], stage.ID)
-		}
-	}
-	queue := make([]string, 0, len(stages))
-	for id, count := range remaining {
-		if count == 0 {
-			queue = append(queue, id)
-		}
-	}
-	resolved := 0
-	for len(queue) > 0 {
-		id := queue[0]
-		queue = queue[1:]
-		resolved++
-		for _, dependent := range dependents[id] {
-			remaining[dependent]--
-			if remaining[dependent] == 0 {
-				queue = append(queue, dependent)
-			}
-		}
-	}
-	if resolved != len(stages) {
-		return errors.New("teamwork: plan.stages 的 depends_on 存在环（顺序必须是可拓扑排序的 DAG）")
-	}
-	return nil
 }
 
 // WriteTeamworkPlan 写入（整份替换）一份计划。maxTeammates <= 0 = 只做结构性校验。

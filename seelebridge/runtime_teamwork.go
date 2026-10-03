@@ -88,13 +88,23 @@ func (r *Runtime) SetTeamworkBackend(backend TeamworkBackend) error {
 	// 构造期定不下会话、序号全局，只 append 不到尾部）。
 	// 停机顺序 = 登记逆序：先登记 manager.Close、后登记 stream.close，于是停机时
 	// 先停投影、再取消在途作业（不为停机合成一批 killed 事件）。
-	stream := newJobsEventStream(manager, r.currentEventPersister)
+	//
+	// **信号口要先扇出**（teamwork_job_signals.go）：上游 jobs.Manager.Events() 是
+	// 容量 1 的单接收者通道，而现在有两个读侧动作要跟它走（事件投影 + 终态触发回合）。
+	// 这里读一次、广播出去，两个订阅者各一条通道；"取回"仍只从读面走（信号不推数据）。
+	signals := newTeamworkJobSignals()
+	signals.start(manager.Events())
+	appJobEvents := signals.subscribe()
+	stream := newJobsEventStream(manager, r.currentEventPersister, signals.subscribe())
 	r.teamworkMu.Lock()
 	r.teamworkBackend = &backend
 	r.teamworkJobs = manager
 	r.teamworkCoords = map[sessionstore.Key]*teamwork.Coordinator{}
+	r.teamworkJobSignals = signals
+	r.teamworkJobEvents = appJobEvents
 	r.lifecycle = append(r.lifecycle, func() { _ = manager.Close(context.Background()) })
 	r.lifecycle = append(r.lifecycle, stream.close)
+	r.lifecycle = append(r.lifecycle, signals.close)
 	r.teamworkMu.Unlock()
 	stream.start()
 	// 装配即注册 leader 工具面：RegisterBuiltins 在组合根更早处跑（那时 router /
@@ -247,7 +257,6 @@ func (r *Runtime) teamPlanHandler(ctx context.Context, argsJSON string) (string,
 	var raw struct {
 		TeamID     string                           `json:"team_id"`
 		Version    int                              `json:"version"`
-		Stages     []sessionstore.TeamworkStage     `json:"stages"`
 		Members    []sessionstore.TeamworkMember    `json:"members"`
 		Milestones []sessionstore.TeamworkMilestone `json:"milestones"`
 	}
@@ -259,7 +268,7 @@ func (r *Runtime) teamPlanHandler(ctx context.Context, argsJSON string) (string,
 	}
 	plan := sessionstore.TeamworkPlan{
 		TeamID: raw.TeamID, Version: raw.Version,
-		Stages: raw.Stages, Members: raw.Members, Milestones: raw.Milestones,
+		Members: raw.Members, Milestones: raw.Milestones,
 	}
 	coordinator, err := r.coordinatorFor(ctx)
 	if err != nil {
@@ -271,7 +280,7 @@ func (r *Runtime) teamPlanHandler(ctx context.Context, argsJSON string) (string,
 	r.invalidateTeamworkBoard()
 	r.archiveTeamBoard(ctx)
 	return jsonReceipt(map[string]any{
-		"ok": true, "team_id": plan.TeamID, "stages": len(plan.Stages),
+		"ok": true, "team_id": plan.TeamID,
 		"members": len(plan.Members), "milestones": len(plan.Milestones),
 	})
 }
@@ -303,14 +312,14 @@ func (r *Runtime) teamDispatchHandler(ctx context.Context, argsJSON string) (str
 			"hint": "受理回执即返回，不等待：继续你的关键路径，需要时用 jobs_manage(op=observe/fetch) 或 team_join 观察。",
 		})
 	}
-	handle, stage, err := coordinator.Dispatch(ctx, strings.TrimSpace(raw.Role), raw.Goal)
+	handle, err := coordinator.Dispatch(ctx, strings.TrimSpace(raw.Role), raw.Goal)
 	if err != nil {
 		return "", fmt.Errorf("team_dispatch: %w", err)
 	}
 	r.invalidateTeamworkBoard()
 	r.archiveTeamBoard(ctx)
 	return jsonReceipt(map[string]any{
-		"ok": true, "handle": string(handle), "stage": stage,
+		"ok": true, "handle": string(handle),
 		"hint": "受理回执即返回，不等待：继续你的关键路径，需要时用 jobs_manage(op=observe/fetch) 或 team_join 观察。",
 	})
 }
@@ -741,8 +750,10 @@ func workerRoundInput(request teamwork.WorkerRequest) string {
 		goal = "（本轮没有新的工作正文）"
 	}
 	header := ""
-	if stage := strings.TrimSpace(request.Stage); stage != "" {
-		header = "<stage>" + stage + "</stage>\n"
+	// 归属标签只认里程碑（阶段口径已退场，2026-10-04）：worker 因此永远看得到
+	// "我这一轮是哪一步的活"，而不是一个已经不存在的阶段 id。
+	if milestone := strings.TrimSpace(request.Milestone); milestone != "" {
+		header = "<milestone>" + milestone + "</milestone>\n"
 	}
 	return header + "<round_input>\n" + goal + "\n</round_input>\n\n" +
 		"<task>\n以 " + request.Role + " 的身份完成这一轮：给出本轮的结论与下一步（≤800 字）。\n</task>"

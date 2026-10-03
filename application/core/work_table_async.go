@@ -218,6 +218,70 @@ func asyncTraceLine(record dto.AsyncRunRecord) string {
 	return "- " + strings.Join(fields, " ")
 }
 
+// teamworkTraceLines 生成打点块里的 **teammate 作业行**（与 asyncTraceLines 同一块、
+// 同一目的：让 leader 在回合边界读到"谁跑完了"）。
+//
+// 为什么 teammate 作业也要进这块（2026-10-04）：它们的终态触发（triggerTeamworkJobCompletions）
+// **绝不唤醒忙会话**——leader 正在跑的时候，那条回执只能靠这一块被看见。少了它，忙碌期的
+// 完成回执就只能等 leader 自己想起来去 team_items / jobs_manage 问一遍。
+//
+// 与 async 行刻意分开两件事：
+//   - 行首打 `teamwork:<handle>`：句柄空间与 tools 那张表独立，取回工具也不同
+//     （jobs_manage vs job_manage）——合并成同一种行，模型就会拿错工具；
+//   - 只取**本会话**的行（与 asyncTraceLines 同口径：打点块注入在组装请求的那个会话尾部）。
+func teamworkTraceLines(records []dto.TeamworkJobCompletionRecord, sessionID string) []string {
+	lines := make([]string, 0, len(records))
+	var running, finished []dto.TeamworkJobCompletionRecord
+	for _, record := range records {
+		if sessionID != "" && record.SessionID != sessionID {
+			continue
+		}
+		if record.State == dto.AsyncStateRunning {
+			running = append(running, record)
+			continue
+		}
+		finished = append(finished, record)
+	}
+	ordered := append(append([]dto.TeamworkJobCompletionRecord(nil), running...), finished...)
+	for _, record := range ordered {
+		lines = append(lines, teamworkTraceLine(record))
+	}
+	return lines
+}
+
+// teamworkTraceLine 渲染一条 teammate 作业行：句柄、状态、归属（teammate/工作项）、
+// 摘要（完成行）或标题（在途行）。
+func teamworkTraceLine(record dto.TeamworkJobCompletionRecord) string {
+	fields := []string{"teamwork:" + record.Handle, asyncPromptKind(record.Kind), record.State}
+	if owner := teamworkOwnerText(record); owner != "" {
+		fields = append(fields, owner)
+	}
+	if record.State != dto.AsyncStateRunning {
+		if summary := truncateWorkEvidence(record.Summary, Limits().EvidenceChars); summary != "" {
+			fields = append(fields, summary)
+		}
+		return "- " + strings.Join(fields, " ")
+	}
+	if detail := truncateWorkEvidence(record.Description, 40); detail != "" {
+		fields = append(fields, detail)
+	}
+	return "- " + strings.Join(fields, " ")
+}
+
+// teamworkOwnerText 是 teammate 行的归属文本（`<role>/<work item>`）。
+func teamworkOwnerText(record dto.TeamworkJobCompletionRecord) string {
+	role := strings.TrimSpace(record.Role)
+	item := strings.TrimSpace(record.WorkItem)
+	switch {
+	case role != "" && item != "":
+		return role + "/" + item
+	case role != "":
+		return role
+	default:
+		return item
+	}
+}
+
 // formatAsyncBytes 把字节数写成便于扫读的量级（界面与打点块共用一个口径）。
 func formatAsyncBytes(bytes int64) string {
 	switch {

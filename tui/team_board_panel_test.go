@@ -4,7 +4,8 @@ package tui
 //
 // 口径（契约 docs/arch/team-board-gui-tui-contract.md §6）：TUI 与 GUI「团队看板」子页
 // **同源**——两边都只读 Snapshot.Runtime.TeamworkBoard，不另起一套取值；没有计划
-// （nil 或无阶段）→ 不追加任何行（不留空壳）。
+// （nil 或无里程碑也无工作项）→ 不追加任何行（不留空壳）。**没有阶段**（2026-10-04
+// 阶段口径整条退场）：终端与前端都只认里程碑 + 工作项。
 
 import (
 	"strings"
@@ -21,18 +22,19 @@ func boardSnapshot() application.Snapshot {
 		TeamID:     "team-board-gui-tui",
 		Version:    2,
 		MaxMembers: 6,
-		Stages: []dto.TeamworkStageView{
-			{ID: "design", Roles: []string{"arch"}},
-			{ID: "impl_ui", Roles: []string{"impl_ui"}, DependsOn: []string{"design"}},
-		},
 		Members: []dto.TeamworkMemberView{
-			{Role: "arch", RoleSessionID: "sess-arch", ToolsPolicy: "readwrite"},
+			{Role: "impl_ui", RoleSessionID: "sess-impl", ToolsPolicy: "readwrite", Status: "running"},
 		},
 		Milestones: []dto.TeamworkMilestoneView{
-			{ID: "m-design", After: []string{"design"}, Content: "契约定稿", Status: "done"},
+			{ID: "m-impl", Name: "实现", Content: "契约定稿", Status: "active"},
+			{ID: "m-ship", Name: "发布", DependsOn: []string{"m-impl"}, Status: "pending"},
+		},
+		WorkItems: []dto.TeamworkWorkItemView{
+			{ID: "wi-impl", Milestone: "m-impl", Role: "impl_ui", Name: "实现 UI", Status: "running", SessionID: "sess-impl"},
+			{ID: "wi-ship", Milestone: "m-ship", Role: "impl_ui", Name: "发布", Status: "pending", DependsOn: []string{"wi-impl"}},
 		},
 		Jobs: []dto.TeamworkJobView{
-			{Handle: "a7", State: "running", Bytes: 2048, Stage: "impl_ui", Role: "impl_ui"},
+			{Handle: "a7", State: "running", Bytes: 2048, Node: "wi-impl", Role: "impl_ui"},
 		},
 	}
 	return snapshot
@@ -54,15 +56,14 @@ func TestTeamPanelShowsTeamBoardProjection(t *testing.T) {
 	model = updated.(Model)
 
 	panel := model.renderPanel()
-	// 看板头：team_id / 版本 / 阶段数 / 在编 / 作业计数。
+	// 看板头：team_id / 版本 / 里程碑数 / 在编 / 作业计数。
+	// 面板只有 12 行（panelLineLimit），所以断言只覆盖**前两节**能排下的东西。
 	for _, want := range []string{
-		"团队看板", "team-board-gui-tui", "v2", "阶段 2", "在编 1/6", "作业 1 跑/0 完/0 败",
-		// 阶段行：id / 角色 / 依赖边（顺序的唯一事实）。
-		"design", "arch", "deps:—", "impl_ui", "deps:design",
-		// 该阶段的作业行（权威归属由桥给：job.stage）。
-		"a7", "running", "2.0KiB",
-		// 里程碑：id / 状态 / leader 撰写的内容。
-		"m-design", "done", "契约定稿",
+		"团队看板", "team-board-gui-tui", "v2", "里程碑 2", "在编 1/6", "作业 1 跑/0 完/0 败",
+		// 里程碑：id / 状态 / 屏障 / leader 撰写的内容。
+		"m-impl", "active", "屏障:—", "契约定稿",
+		// 里程碑下的工作项行 + 它的作业行（权威归属只有一格：job.node = 工作项 id）。
+		"wi-impl", "实现 UI", "impl_ui", "a7", "running", "2.0KiB",
 	} {
 		if !strings.Contains(panel, want) {
 			t.Fatalf("团队面板缺少 %q：\n%s", want, panel)

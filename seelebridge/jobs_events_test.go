@@ -37,6 +37,11 @@ func TestJobsEventStreamProjectsLifecycleIntoSessionLog(t *testing.T) {
 
 	var mu sync.Mutex
 	var appends []frameworkevent.Event
+	// 信号口来自**扇出器**（生产装配同形，见 teamwork_job_signals.go）：上游是容量 1 的
+	// 单接收者通道，本投影只读它的一份订阅。
+	signals := newTeamworkJobSignals()
+	signals.start(manager.Events())
+	t.Cleanup(signals.close)
 	stream := newJobsEventStream(manager, func() func(context.Context, frameworkevent.Event) error {
 		return func(_ context.Context, event frameworkevent.Event) error {
 			mu.Lock()
@@ -44,7 +49,7 @@ func TestJobsEventStreamProjectsLifecycleIntoSessionLog(t *testing.T) {
 			mu.Unlock()
 			return nil
 		}
-	})
+	}, signals.subscribe())
 	stream.start()
 	t.Cleanup(stream.close)
 

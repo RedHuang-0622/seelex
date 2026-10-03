@@ -102,12 +102,9 @@ func TestDispatchAssignsProductOwnedOutput(t *testing.T) {
 	if err := coordinator.SetPlan(ctx, vmodelPlan()); err != nil {
 		t.Fatalf("SetPlan: %v", err)
 	}
-	handle, stage, err := coordinator.Dispatch(ctx, "exec", "写实现")
+	handle, err := coordinator.Dispatch(ctx, "exec", "写实现")
 	if err != nil {
 		t.Fatalf("Dispatch: %v", err)
-	}
-	if stage != "impl" {
-		t.Fatalf("阶段归属应为首个出现该角色的阶段：%q", stage)
 	}
 	record := waitTerminal(t, manager, handle)
 
@@ -135,7 +132,7 @@ func TestDispatchWithoutOutputsKeepsFrameworkOwnedFile(t *testing.T) {
 	if err := coordinator.SetPlan(ctx, vmodelPlan()); err != nil {
 		t.Fatalf("SetPlan: %v", err)
 	}
-	handle, _, err := coordinator.Dispatch(ctx, "exec", "写实现")
+	handle, err := coordinator.Dispatch(ctx, "exec", "写实现")
 	if err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
@@ -157,7 +154,7 @@ func TestRetireKeepsJobOutputsUntilClose(t *testing.T) {
 	if err := coordinator.SetPlan(ctx, vmodelPlan()); err != nil {
 		t.Fatalf("SetPlan: %v", err)
 	}
-	handle, _, err := coordinator.Dispatch(ctx, "exec", "写实现")
+	handle, err := coordinator.Dispatch(ctx, "exec", "写实现")
 	if err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}

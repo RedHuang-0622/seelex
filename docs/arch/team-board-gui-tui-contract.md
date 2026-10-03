@@ -30,18 +30,30 @@ type TeamworkBoardView struct {
     Version    int                     `json:"version,omitempty"`
     MaxMembers int                     `json:"max_members,omitempty"` // TeamworkBackend.MaxTeammates；0 = 不限制
     Stale      bool                    `json:"stale,omitempty"`
-    Stages     []TeamworkStageView     `json:"stages,omitempty"`
     Members    []TeamworkMemberView    `json:"members,omitempty"`
     Milestones []TeamworkMilestoneView `json:"milestones,omitempty"`
+    WorkItems  []TeamworkWorkItemView  `json:"work_items,omitempty"`
     Jobs       []TeamworkJobView       `json:"jobs,omitempty"`
     Events     []TeamworkEventView     `json:"events,omitempty"`
 }
 
-type TeamworkStageView struct {
+type TeamworkMilestoneView struct {
     ID        string   `json:"id"`
-    Roles     []string `json:"roles,omitempty"`
-    DependsOn []string `json:"depends_on,omitempty"`
+    Name      string   `json:"name,omitempty"`
+    DependsOn []string `json:"depends_on,omitempty"` // 里程碑之间的**屏障**（串行）
+    Status    string   `json:"status,omitempty"`
+    Content   string   `json:"content,omitempty"`
 }
+
+type TeamworkWorkItemView struct {
+    ID        string   `json:"id"`
+    Milestone string   `json:"milestone,omitempty"`
+    Role      string   `json:"role,omitempty"`
+    DependsOn []string `json:"depends_on,omitempty"` // 里程碑内的 **DAG**（并行）
+    Status    string   `json:"status,omitempty"`
+    SessionID string   `json:"session_id,omitempty"` // 这件事**自己的**会话（一 Work Item 一套）
+}
+// 没有 stages：阶段口径整条退场（见 §7 不变式 3）
 
 type TeamworkMemberView struct {
     Role          string `json:"role"`
@@ -177,8 +189,8 @@ application/model/state.go      SessionRuntime.TeamworkBoard  json:"teamwork_boa
 
   | DTO | 渲染件入参 |
   |---|---|
-  | `teamwork_board.stages/members/milestones` | `plan.{stages,members,milestones}`（字段名同名，直接透传） |
-  | `teamwork_board.jobs[]` | `jobs[]`（`{handle,state,exit_code,bytes,stage,node,role,scope}`） |
+  | `teamwork_board.members/milestones/work_items` | `plan.{members,milestones,work_items}`（字段名同名，直接透传） |
+  | `teamwork_board.jobs[]` | `jobs[]`（`{handle,state,exit_code,bytes,node,role,scope}`；归属只有 `node` 一格，**没有 stage**） |
   | `teamwork_board.events[]` | `events[]`，`at` 由 unix 秒转 **本地时间**的 `YYYY-MM-DDTHH:MM` |
   | `teamwork_board.max_members` | `maxMembers`（缺失/0 = 不限制，渲染件只写「在编 n」） |
   | `teamwork_board.stale` | `stale`（句柄投影过期标记） |
@@ -189,12 +201,12 @@ application/model/state.go      SessionRuntime.TeamworkBoard  json:"teamwork_boa
   抛错污染整块面板。
 - **id 必须同时登记进 app.js 的 `elements` 白名单**（`app.js` 的 `elements` 表）：只写
   `index.html` 不登记，`document.getElementById` 拿到 null、`renderTeam` 静默返回，
-  且 `element-registry.test.mjs` 会红。徽标口径：`#team-board-badge` 写**阶段数**
+  且 `element-registry.test.mjs` 会红。徽标口径：`#team-board-badge` 写**工作项数**
   （与同栏工作表格 / 定时任务的计数徽标同口径），不写 "TEAM"——渲染件自己的看板头里
   已经有一个 TEAM 标记。
 - **样式**：`team-board-view.js` 导出 `TEAM_BOARD_CSS`。app.js 在首次渲染时把它注入一个
   `<style id="team-board-styles">`（**唯一来源**，不往 `styles.css` 里抄第二份——抄一份就是两处色值漂移）。
-- **退场语义**：`teamwork_board` 缺失 / 无 `stages` / **计划已收口**（`state=closed`）/
+- **退场语义**：`teamwork_board` 缺失 / 无 `milestones` 且无 `work_items` / **计划已收口**（`state=closed`）/
   `renderTeamBoard` 返回 `""` → `#team-board-section` 加 `hidden`、`#team-board-view` 清空。
   **不留空壳**（"结束就是没有了"，与目标看板同口径）。
 
@@ -205,10 +217,10 @@ application/model/state.go      SessionRuntime.TeamworkBoard  json:"teamwork_boa
 `tui/goalteam.go` `teamPanelLines()` 末尾追加「团队看板」一节，数据源 = `model.snapshot.Runtime.TeamworkBoard`
 （**同源投影**，不另走 `TeamConfigFor` 那类异步取值）：
 
-- 头部一行：`team_id · v<version> · 阶段 n · 在编 n[/max] · 作业 跑/完/败`；
-- 阶段行：按计划声明顺序，逐行 `id 角色 deps:…`，紧随其下是该阶段的作业行（`job.stage` 归属）；
-- 里程碑行：`id status · 内容摘要`；
-- 退场语义：`nil` / 无阶段 / **计划已收口** → **不追加任何行**（不留空壳，口径同 GUI）；
+- 头部一行：`team_id · v<version> · 里程碑 n · 工作项 n · 在编 n[/max] · 作业 跑/完/败`；
+- 里程碑行：按屏障依赖排序，逐行 `id 屏障:deps · status · 内容摘要`，紧随其下是该里程碑名下的
+  工作项行（`item.depends_on` 归属与状态）；
+- 退场语义：`nil` / 无里程碑且无工作项 / **计划已收口** → **不追加任何行**（不留空壳，口径同 GUI）；
 - 仍受 `clampLines(lines, panelLineLimit)` 约束（超长折叠成一行提示）。
 
 **两处数据源的分工（同一面板里不许出现两份名册）**：面板上半段的「TEAM + 成员表」来自
@@ -222,8 +234,10 @@ application/model/state.go      SessionRuntime.TeamworkBoard  json:"teamwork_boa
 ## 7. 不变式
 
 1. **单向只读**：整条链路上没有任何前端 → 后端的写入口；渲染结果不回写。
-2. **无计划 = 退场**：`nil` / 无阶段 / 计划已收口 → GUI 与 TUI 两端都不渲染空壳。
-3. **顺序唯一事实**：`stages[].depends_on`；看板的排序/层号是它的**派生**，不是第二份事实。
+2. **无计划 = 退场**：`nil` / 无里程碑且无工作项 / 计划已收口 → GUI 与 TUI 两端都不渲染空壳。
+3. **顺序唯一事实**：`milestones[].depends_on`（**屏障**，里程碑之间）+ `work_items[].depends_on`
+   （**DAG**，里程碑内）；看板的排序/层号是它的**派生**，不是第二份事实。
+   `stages` 已**整条退场**（计划结构、DTO、投影、工具 schema、前端、TUI 里都没有它）。
 4. **句柄只是投影**（jobs I-4）：句柄活在内存，进程重启后计划里残留的 `state.jobs` 一律视为过期；
    `Stale=true` 就是这条的显式化（计划里有句柄、句柄表里查不到），渲染件据此打「句柄投影可能过期」chip。
 

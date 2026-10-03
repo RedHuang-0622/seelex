@@ -193,6 +193,11 @@ type Runtime struct {
 	teamworkBackend *TeamworkBackend
 	teamworkJobs    jobs.Manager
 	teamworkCoords  map[sessionstore.Key]*teamwork.Coordinator
+	// teamworkJobSignals / teamworkJobEvents 是 teammate 作业信号口的一次扇出与
+	// application 侧那条订阅（见 teamwork_job_signals.go）：上游 jobs.Manager.Events()
+	// 是单接收者通道，而"事件投影"与"终态触发回合"两个读侧动作都要跟着它走。
+	teamworkJobSignals *teamworkJobSignals
+	teamworkJobEvents  <-chan struct{}
 	// teamworkBoardCache 是「计划 + 审计」的按会话缓存（见 runtime_teamwork_board.go）：
 	// 会话快照是高频采集路径，不允许每次都做 O(events) 的文件读；team_* 工具成功
 	// 返回后失效（作业行不进缓存——jobs.Manager.Snapshot 是内存读，随取随新）。

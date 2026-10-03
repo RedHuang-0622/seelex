@@ -28,6 +28,10 @@ var narrowPortForwarded = map[string]string{
 	// contract.TeamworkBoardProjection（application/core/teamwork_service.go）。
 	// **本轮补**：漏了它 = 团队看板投影恒 nil = 面板整块退场。
 	"contract.TeamworkBoardProjection": "TeamworkBoardSnapshot",
+	// contract.TeammateSessionProjection（application/core/teamwork_service.go）。
+	// **本轮补**：漏了它 = "查看这件事的会话"只能读会话库，而 teammate 的一轮活是
+	// 进程内执行面、正文不落盘 → 读出来是主会话的历史（用户报"全是历史会话"）。
+	"contract.TeammateSessionProjection": "TeammateSessionLive",
 	// context_runtime.CompactionIndexPort（service_assembler.go）。
 	"context_runtime.CompactionIndexPort": "PushCompactionFrame",
 	// goal 第五栈的会话上下文存储取用面（service_assembler.go）。

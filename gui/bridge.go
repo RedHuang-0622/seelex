@@ -164,6 +164,9 @@ type agentTeamApplication interface {
 	AgentTeamSetOrder(mainSessionID, policy string, orderRoles []string) (dto.TeamView, error)
 	AgentTeamInstantiateRole(mainSessionID string, role dto.RoleSpec, joinSeq uint64) (dto.RoleInstantiation, error)
 	RoleSnapshot(mainSessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error)
+	// TeammateSessionLiveFor 是**当前 teammate 会话**的实时读面（这件事自己的会话——
+	// 进程内执行面，正文不在会话库里）。
+	TeammateSessionLiveFor(sessionID string) dto.TeammateSessionLiveView
 	// 团队库（**全局**团队模板）：列表 / 保存 / 从当前会话存 / 删除 / 装配。
 	AgentTeamLibrary(mainSessionID string) (dto.TeamLibrary, error)
 	AgentTeamSaveTeam(mainSessionID string, entry dto.TeamLibraryEntry) (dto.TeamLibrary, error)
@@ -1035,6 +1038,28 @@ func (bridge *Bridge) AgentTeamRoleSnapshot(sessionID, roleName, roleSessionID s
 		return dto.RoleSnapshot{}, fmt.Errorf("角色 %s 还没有独立会话（未装配或未创建）", roleName)
 	}
 	return app.RoleSnapshot(session, roleName, roleSessionID)
+}
+
+// TeammateSessionLive 读取**当前 teammate 会话**的实时只读投影（"这件事的会话此刻在
+// 说什么"）——团队看板里点开一个工作项/一位 teammate 时用它，而不是读会话库。
+//
+// 为什么要单开一个读面（2026-10-04 用户口径：查看 teammate 的会话"全是历史会话"）：
+// 员工的角色会话是落盘的长期历史（跨工作项、跨轮次）；而一 Work Item 有**自己的会话**
+// （一 Work Item 一套 Session + worktree），那一轮活是**进程内执行面**（刻意不接
+// DurableHistory）——从会话库读它只会读到主会话的历史。
+//
+// 只读，不写任何状态；会话不在本进程里 → Running=false 的视图（调用方据此如实说明，
+// 而不是假装"看到的是空的当前会话"）。
+func (bridge *Bridge) TeammateSessionLive(roleSessionID string) (dto.TeammateSessionLiveView, error) {
+	app, err := bridge.agentTeamApp()
+	if err != nil {
+		return dto.TeammateSessionLiveView{}, err
+	}
+	roleSessionID = strings.TrimSpace(roleSessionID)
+	if roleSessionID == "" {
+		return dto.TeammateSessionLiveView{}, errors.New("会话号不能为空（工作项自己的会话号）")
+	}
+	return app.TeammateSessionLiveFor(roleSessionID), nil
 }
 
 // ── 全局母本（团队库 / 员工库 / 默认顺序）与角色提示词 ──────────────

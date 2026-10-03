@@ -19,13 +19,15 @@ const (
 
 // OrderPolicy 是 sequencer 的 role 顺序函数口径（唯一可替换点）。
 //
-// **历史字段（2026-10-01）**：团队顺序的事实正在迁到 team plan 的
-// `stages[].depends_on`（leader 掌控，见 docs/arch/teamwork-leader-worker-architecture.md
-// §4.6/D4）。现状（可核对，2026-10-03 复核）：`order_policy` 落 lifecycle 后只被回读展示
+// **历史字段（2026-10-01）**：团队顺序的事实已经迁到 team plan 里
+// （`milestones[].depends_on` 屏障 + `milestones[].items[].depends_on` 里程碑内 DAG，
+// leader 掌控，见 docs/arch/teamwork-leader-worker-architecture.md §4.6/D4）。
+// 现状（可核对，2026-10-03 复核）：`order_policy` 落 lifecycle 后只被回读展示
 // （dto.TeamView / dto.TeamSchedule），**不驱动任何行为**；`order_roles` 只剩发言顺序
 // 与成员表的展示事实（`seatPlan` 那套"按 order_roles 长座位"的读面已随席位轮转退场）。退场被
 // docs/devlog/2026-10-01-m4-deadcode-inventory.md #5 标为 blocked，故这里只标注、
 // 不删、**不改落盘取值**（旧会话里的 "goal_loop" 必须继续可读）。
+// （team plan 里的 `stages` 是另一回事：那个形状已整条退场。）
 const (
 	// Deprecated: 旧环序策略（顺序由这份固定链表给定）。顺序由 leader 编排
 	// （team plan），不要按它分支；取值仍要能读旧会话。
@@ -97,8 +99,9 @@ type RoleSpec struct {
 // TeamSpec 是 AgentTeamFactory 的装配输入（arch 稿 §2.2）。
 //
 // OrderPolicy / OrderRoles 是**旧的群聊顺序字段**（历史/只读，见 OrderPolicy 常量的
-// 说明）：写入面仍在（装配 / 入职 / 团队库保存），读面只用来展示顺序。新事实 =
-// team plan 的 `stages[].depends_on`（leader 掌控）；旧字段退场前不得删。
+// 说明）：写入面仍在（装配 / 入职 / 团队库保存），读面只用来展示顺序。新事实 = team plan 的
+// 里程碑屏障 `milestones[].depends_on` 与里程碑内 DAG `items[].depends_on`（leader 掌控）；
+// 旧字段退场前不得删。
 type TeamSpec struct {
 	TeamID        string     `json:"team_id,omitempty"`
 	TeamKind      string     `json:"team_kind,omitempty"`

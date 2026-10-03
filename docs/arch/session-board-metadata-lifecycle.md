@@ -29,7 +29,7 @@
 | goal | goal 生命周期审计 | `SessionContextRecord.GoalAudit`（context blob，append-only） | ✅ 恢复 | 与下面那份不是一回事 |
 | goal | 终态帧的会话内审计（`goal.Controller.History`） | 进程内 | ❌ 丢 | 已知且是文档写明的边界 |
 | goal | 评审过程（`round_steps`）/ 进行中正文 | 进程内（ADVISOR 回合现场） | ❌ 丢 | **已随用户裁决退场**（不再可见，也不打算恢复） |
-| team | 计划（阶段 / 顺序 / 在编 / 里程碑） | `metadata/teamwork.json`（`moduleTeamwork` head，整份替换） | ✅ 恢复 | `stages[].depends_on` 是顺序的唯一事实 |
+| team | 计划（里程碑 / 顺序 / 在编 / 工作项） | `metadata/teamwork.json`（`moduleTeamwork` head，整份替换） | ✅ 恢复 | `milestones[].depends_on`（屏障）+ `items[].depends_on`（里程碑内 DAG）是顺序的唯一事实 |
 | team | 审计流水（plan / dispatch / join / milestone / retire） | `teamwork/events.jsonl`（append-only） | ✅ 恢复 | 看板只取最近 32 条 |
 | team | **作业行**（handle / state / bytes / exit） | `jobs.Manager` 内存表 | ❌ **丢**（jobs I-4） | 现在靠 `stale` 位显式提示"句柄投影可能过期" |
 | 两者 | **生命周期** | — | — | goal 看板随 active 帧消失（**已正确**）；**团队看板没有退场**：计划 head 一旦写入就永远在，团队散了看板也不走 |

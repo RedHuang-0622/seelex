@@ -9,8 +9,9 @@
 //     由装配层注入——本包因此能在没有引擎、没有 git 的测试里把编排语义
 //     （顺序、超员拒绝、作用域回收、退场四步）全部跑完。
 //
-// 顺序的唯一事实是计划的 stages[].depends_on（D4），不是 leader 的调用姿势，
-// 也不是任何"上一轮是谁"的隐式状态。
+// 顺序的唯一事实是计划的顺序边：里程碑之间是 milestones[].depends_on（屏障），
+// 里程碑内是 work_items[].depends_on（DAG）；不是 leader 的调用姿势，也不是任何
+// "上一轮是谁"的隐式状态。（阶段口径已整条退场：没有 stages 这个形状了。）
 package teamwork
 
 import (
@@ -79,10 +80,12 @@ type WorkerRequest struct {
 	ToolsPolicy      string           `json:"tools_policy,omitempty"`
 	PermissionGroups map[string]uint8 `json:"permission_groups,omitempty"`
 	Worktree         string           `json:"worktree,omitempty"`
-	Stage            string           `json:"stage"`
 	// WorkItemID / Milestone 是这一轮工作属于甘特图的哪个节点。**一 Work Item 一个
 	// Session + 一个 worktree** 的隔离与回收都以它为准（空 = 非 Work Item 口径的
 	// 派发，走 teammate 级的老口径）。
+	//
+	// 归属只有这一个形状（2026-10-04）：阶段口径已退场，`stage` 字段整条删除——
+	// 留着它就会出现"作业归属到底是 stage 还是 milestone"的两套答案。
 	WorkItemID string `json:"work_item_id,omitempty"`
 	Milestone  string `json:"milestone,omitempty"`
 	Goal       string `json:"goal"`
@@ -309,18 +312,6 @@ func (c *Coordinator) Key() sessionstore.Key { return c.key }
 func (c *Coordinator) audit(ctx context.Context, event sessionstore.TeamworkEvent) error {
 	event.At = c.clock().UTC()
 	return c.store.AppendEvent(ctx, c.key, event)
-}
-
-// stageFor 返回某个角色所属的阶段 id（第一个声明的阶段优先）。
-func stageFor(plan sessionstore.TeamworkPlan, role string) string {
-	for _, stage := range plan.Stages {
-		for _, candidate := range stage.Roles {
-			if candidate == role {
-				return stage.ID
-			}
-		}
-	}
-	return ""
 }
 
 // memberFor 返回在编成员。

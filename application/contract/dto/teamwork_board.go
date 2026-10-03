@@ -10,13 +10,16 @@ package dto
 // 前端没有任何写入口，渲染结果不回写。
 //
 // 形状刻意与渲染件 `gui/frontend/dist/team-board-view.js` 的入参同名同义
-// （plan.stages / plan.members / plan.milestones / jobs / events）——前端只做搬运，
-// 不在搬运里做判定；任何判定（阶段状态折算、拓扑排序、层号）都归渲染件的纯函数。
+// （plan.members / plan.milestones / plan.work_items / jobs / events）——前端只做搬运，
+// 不在搬运里做判定；任何判定（里程碑状态折算、拓扑排序、层号）都归渲染件的纯函数。
+//
+// **没有 stages**（2026-10-04）：阶段口径整条退场，顺序的唯一事实是里程碑屏障
+// （milestones[].depends_on）+ 里程碑内的工作项 DAG（work_items[].depends_on）。
 
 // TeamworkBoardView 是某会话的团队看板只读投影。
 //
-// nil 或 Stages 为空 = 该会话没有团队计划：GUI 与 TUI **都不渲染空壳**（口径同目标看板，
-// 「结束就是没有了」）。
+// nil 或 milestones/work_items 都为空 = 该会话没有团队计划：GUI 与 TUI **都不渲染空壳**
+// （口径同目标看板，「结束就是没有了」）。
 type TeamworkBoardView struct {
 	TeamID  string `json:"team_id,omitempty"`
 	Version int    `json:"version,omitempty"`
@@ -27,7 +30,7 @@ type TeamworkBoardView struct {
 	// Stale 是 **jobs I-4 的显式化**：句柄只在内存（进程重启即作废），当计划里残留着
 	// 句柄投影、而本进程的句柄表里查不到它时置真。它只影响一行提示，不改变任何判定。
 	Stale bool `json:"stale,omitempty"`
-	// Recovered 是**存档兜底**的显式化：活体给不出看板（无计划 / 计划没有阶段）时
+	// Recovered 是**存档兜底**的显式化：活体给不出看板（无计划 / 计划没有可看的编排）时
 	// 由存档快照恢复（§6 重启恢复）。前端据此说明"这是上一次的存档，不是活体事实"。
 	Recovered bool `json:"recovered,omitempty"`
 	// State / ClosedAt / ClosedReason 是**整队收口**（team_close）的三字段。
@@ -39,7 +42,6 @@ type TeamworkBoardView struct {
 	State        string                  `json:"state,omitempty"`
 	ClosedAt     int64                   `json:"closed_at,omitempty"`
 	ClosedReason string                  `json:"closed_reason,omitempty"`
-	Stages       []TeamworkStageView     `json:"stages,omitempty"`
 	Members      []TeamworkMemberView    `json:"members,omitempty"`
 	Milestones   []TeamworkMilestoneView `json:"milestones,omitempty"`
 	// WorkItems 是全部工作项的**扁平**投影（甘特图的数据面；按 milestone 分组由
@@ -47,14 +49,6 @@ type TeamworkBoardView struct {
 	WorkItems []TeamworkWorkItemView `json:"work_items,omitempty"`
 	Jobs      []TeamworkJobView      `json:"jobs,omitempty"`
 	Events    []TeamworkEventView    `json:"events,omitempty"`
-}
-
-// TeamworkStageView 是一个编排阶段；DependsOn 是**顺序的唯一事实**
-// （与 sessionstore.TeamworkStage 同名搬运，不从派发姿势猜顺序）。
-type TeamworkStageView struct {
-	ID        string   `json:"id"`
-	Roles     []string `json:"roles,omitempty"`
-	DependsOn []string `json:"depends_on,omitempty"`
 }
 
 // TeamworkMemberView 是一个在编 teammate。
@@ -66,8 +60,21 @@ type TeamworkMemberView struct {
 	RoleSessionID string `json:"role_session_id,omitempty"`
 	Worktree      string `json:"worktree,omitempty"`
 	ToolsPolicy   string `json:"tools_policy,omitempty"`
-	// Status 是这个人的实时状态（idle|running|review），由工作项状态折算。
+	// Status 是这个人的实时状态，**只有两个值**（2026-10-04 用户口径）：
+	// `running`（此刻手上真有在跑的工作项）/ `free`（没有在跑的；含"活干完了等验收"）。
+	// 不存在 done：teammate 的状态回答的是"这个人此刻在不在干活"，而"这件事做完没"
+	// 是工作项自己的状态（status 列）——两个问题两个字段，不合并。
 	Status string `json:"status,omitempty"`
+	// CurrentSessionID / CurrentWorkItem 是这位 teammate **此刻那件事的会话**
+	// （2026-10-04 用户口径：看板点开的要是"当前的 teammate 的会话"，不是员工的
+	// 历史会话）。
+	//
+	// 语义：优先"在跑的工作项"，其次"等验收的"，都没有就退到这位最近一次开工的
+	// 工作项；一个都没开过 → 两个字段都空（前端退回角色会话，并按文案说明）。
+	// 这条区分是必要的：RoleSessionID 是**员工的长期会话**（跨工作项、跨轮次），
+	// 而一个 Work Item 有**自己的会话**（一 Work Item 一套 Session + worktree）。
+	CurrentSessionID string `json:"current_session_id,omitempty"`
+	CurrentWorkItem  string `json:"current_work_item,omitempty"`
 	// Queue 是"这个人负责、且还没完成"的工作项名称（已销项的不再占队列）。
 	Queue []string `json:"queue,omitempty"`
 	// Messages 是尾插进这个人消息队列的回执（有界：近若干条，最近的在后面）。
@@ -84,7 +91,7 @@ type TeamworkMilestoneView struct {
 	ID        string   `json:"id"`
 	Name      string   `json:"name,omitempty"`
 	DependsOn []string `json:"depends_on,omitempty"`
-	After     []string `json:"after,omitempty"`
+	Required  []string `json:"required,omitempty"`
 	Status    string   `json:"status,omitempty"`
 	Content   string   `json:"content,omitempty"`
 }
@@ -113,14 +120,13 @@ type TeamworkWorkItemView struct {
 	Interrupted bool     `json:"interrupted,omitempty"`
 }
 
-// TeamworkJobView 是一行作业投影。Stage / Role 是桥给出的**权威归属**：渲染件里那条
-// job.stage → job.node → job.scope.subject 的回落链只是过渡口径，接线后 stage 必定命中。
+// TeamworkJobView 是一行作业投影。Node / Role 是桥给出的**权威归属**（Node = 工作项 id
+// 或里程碑 id，Role = 作用域主体 emp_<role> 的反解）；渲染件不再从派发姿势猜归属。
 type TeamworkJobView struct {
 	Handle   string               `json:"handle"`
 	State    string               `json:"state,omitempty"` // running|done|failed|killed（开放取值）
 	ExitCode int                  `json:"exit_code,omitempty"`
 	Bytes    int64                `json:"bytes,omitempty"`
-	Stage    string               `json:"stage,omitempty"`
 	Node     string               `json:"node,omitempty"`
 	Role     string               `json:"role,omitempty"`
 	Scope    TeamworkJobScopeView `json:"scope,omitempty"`
@@ -138,11 +144,11 @@ type TeamworkJobScopeView struct {
 type TeamworkEventView struct {
 	At        int64  `json:"at,omitempty"`
 	Kind      string `json:"kind,omitempty"`
-	Stage     string `json:"stage,omitempty"`
 	Role      string `json:"role,omitempty"`
 	Handle    string `json:"handle,omitempty"`
+	Node      string `json:"node,omitempty"`
 	Milestone string `json:"milestone,omitempty"`
-	// WorkItem 是 Work Item 口径的归属（甘特节点 id）；阶段制时代的行留空。
+	// WorkItem 是 Work Item 口径的归属（甘特节点 id）。
 	WorkItem string `json:"work_item,omitempty"`
 	Detail   string `json:"detail,omitempty"`
 }

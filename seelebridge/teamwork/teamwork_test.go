@@ -185,21 +185,28 @@ func newFixture(t *testing.T, maxTeammates int) *fixture {
 	return &fixture{coordinator: coordinator, store: store, jobs: manager, runner: runner, calls: log}
 }
 
+// vmodelPlan 是 V 模型口径的计划：**里程碑屏障**（m-req → m-impl）+ 里程碑内的工作项。
+// **没有阶段**（2026-10-04 阶段口径整条退场）：顺序的唯一事实是 milestones[].depends_on
+// 与 items[].depends_on。
 func vmodelPlan() sessionstore.TeamworkPlan {
 	return sessionstore.TeamworkPlan{
 		TeamID:  "v-model",
 		Version: 1,
-		Stages: []sessionstore.TeamworkStage{
-			{ID: "req", Roles: []string{"pm"}},
-			{ID: "impl", Roles: []string{"exec"}, DependsOn: []string{"req"}},
-			{ID: "test", Roles: []string{"test_case"}, DependsOn: []string{"impl"}},
-		},
 		Members: []sessionstore.TeamworkMember{
 			{Role: "pm"},
 			{Role: "exec", Worktree: "seelex/exec"},
 			{Role: "test_case"},
 		},
-		Milestones: []sessionstore.TeamworkMilestone{{ID: "m-impl", After: []string{"impl"}, Required: []string{"exec"}}},
+		Milestones: []sessionstore.TeamworkMilestone{
+			{
+				ID: "m-req", Name: "需求", Required: []string{"pm"},
+				Items: []sessionstore.TeamworkWorkItem{{ID: "wi-req", Milestone: "m-req", Role: "pm", Name: "需求"}},
+			},
+			{
+				ID: "m-impl", Name: "实现", Required: []string{"exec"}, DependsOn: []string{"m-req"},
+				Items: []sessionstore.TeamworkWorkItem{{ID: "wi-impl", Milestone: "m-impl", Role: "exec", Name: "实现"}},
+			},
+		},
 	}
 }
 
@@ -243,22 +250,22 @@ func TestDispatchJoinMilestoneLifecycle(t *testing.T) {
 	if err := fixture.coordinator.SetPlan(ctx, vmodelPlan()); err != nil {
 		t.Fatalf("SetPlan: %v", err)
 	}
-	handle, stage, err := fixture.coordinator.Dispatch(ctx, "exec", "实现 v-model 的 impl 阶段")
+	handle, err := fixture.coordinator.Dispatch(ctx, "exec", "实现 v-model 的 impl 里程碑")
 	if err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
-	if stage != "impl" {
-		t.Fatalf("阶段归属 = %q, want impl", stage)
-	}
 	record := waitTerminal(t, fixture.jobs, handle)
-	if record.Scope.Subject != "emp_exec" || record.Node != "impl" {
-		t.Fatalf("作业作用域/归属错了: %+v", record)
+	if record.Scope.Subject != "emp_exec" {
+		t.Fatalf("作业作用域错了: %+v", record)
 	}
 	if record.Description == "" {
 		t.Fatal("作业行标题必须来自派发时那句话")
 	}
 
-	// 里程碑：after 的阶段已派发过 ⇒ 允许声明。
+	// 里程碑：屏障（m-req）已 done ⇒ 允许声明内容并收口。
+	if err := fixture.coordinator.Milestone(ctx, "m-req", "需求定稿"); err != nil {
+		t.Fatalf("前置里程碑收口: %v", err)
+	}
 	if err := fixture.coordinator.Milestone(ctx, "m-impl", "impl 完成，进入 test"); err != nil {
 		t.Fatalf("Milestone: %v", err)
 	}
@@ -295,14 +302,17 @@ func TestDispatchJoinMilestoneLifecycle(t *testing.T) {
 	}
 }
 
-func TestMilestoneRefusesStageThatNeverRan(t *testing.T) {
+// TestMilestoneRefusesMilestoneBehindTheBarrier：屏障（依赖的里程碑）还没 done 就声明
+// 里程碑内容必须被拒——"里程碑"不能是一句没有事实支撑的口号。阶段制时代这条判据看的是
+// `after` 里的阶段派发过没有；阶段口径退场后，判据回到唯一那份顺序事实：depends_on。
+func TestMilestoneRefusesMilestoneBehindTheBarrier(t *testing.T) {
 	fixture := newFixture(t, 6)
 	ctx := context.Background()
 	if err := fixture.coordinator.SetPlan(ctx, vmodelPlan()); err != nil {
 		t.Fatalf("SetPlan: %v", err)
 	}
 	if err := fixture.coordinator.Milestone(ctx, "m-impl", "x"); err == nil {
-		t.Fatal("依赖阶段没派发过就声明里程碑必须被拒")
+		t.Fatal("依赖的里程碑（m-req）还没 done 就声明里程碑必须被拒")
 	}
 }
 
@@ -312,7 +322,7 @@ func TestDispatchRefusesUnknownRole(t *testing.T) {
 	if err := fixture.coordinator.SetPlan(ctx, vmodelPlan()); err != nil {
 		t.Fatalf("SetPlan: %v", err)
 	}
-	if _, _, err := fixture.coordinator.Dispatch(ctx, "ghost", "x"); err == nil {
+	if _, err := fixture.coordinator.Dispatch(ctx, "ghost", "x"); err == nil {
 		t.Fatal("不在编的角色必须被拒")
 	}
 }
@@ -341,7 +351,7 @@ func TestDispatchRefusesWhenTeamIsFull(t *testing.T) {
 			t.Fatalf("Dispatch: %v", err)
 		}
 	}
-	_, _, err := fixture.coordinator.Dispatch(ctx, "exec", "第三个")
+	_, err := fixture.coordinator.Dispatch(ctx, "exec", "第三个")
 	if err == nil || !strings.Contains(err.Error(), "max_teammates") {
 		t.Fatalf("超员必须显式拒绝并点明上限，得到 %v", err)
 	}
@@ -356,11 +366,11 @@ func TestDispatchDedupsSameRole(t *testing.T) {
 	if err := fixture.coordinator.SetPlan(ctx, vmodelPlan()); err != nil {
 		t.Fatalf("SetPlan: %v", err)
 	}
-	first, _, err := fixture.coordinator.Dispatch(ctx, "exec", "第一轮")
+	first, err := fixture.coordinator.Dispatch(ctx, "exec", "第一轮")
 	if err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
-	second, _, err := fixture.coordinator.Dispatch(ctx, "exec", "第一轮")
+	second, err := fixture.coordinator.Dispatch(ctx, "exec", "第一轮")
 	if err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
@@ -381,11 +391,11 @@ func TestRetireKeepsJobOnRosterAndTouchesOnlyThatTeammate(t *testing.T) {
 	if err := fixture.coordinator.SetPlan(ctx, vmodelPlan()); err != nil {
 		t.Fatalf("SetPlan: %v", err)
 	}
-	execHandle, _, err := fixture.coordinator.Dispatch(ctx, "exec", "impl")
+	execHandle, err := fixture.coordinator.Dispatch(ctx, "exec", "impl")
 	if err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
-	testHandle, _, err := fixture.coordinator.Dispatch(ctx, "test_case", "test")
+	testHandle, err := fixture.coordinator.Dispatch(ctx, "test_case", "test")
 	if err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
@@ -433,7 +443,7 @@ func TestRetireRequiresWorkspaceAndSessionPorts(t *testing.T) {
 func TestSetPlanDelegatesStructuralValidation(t *testing.T) {
 	fixture := newFixture(t, 6)
 	plan := vmodelPlan()
-	plan.Stages[0].DependsOn = []string{"test"} // 环
+	plan.Milestones[0].DependsOn = []string{"m-impl"} // 环（m-impl 依赖 m-req）
 	if err := fixture.coordinator.SetPlan(context.Background(), plan); err == nil {
 		t.Fatal("带环的计划必须在落盘那一步就被拒")
 	}
@@ -491,7 +501,7 @@ func TestCoordinatorCloseSealsBoard(t *testing.T) {
 	if err := fixture.coordinator.SetPlan(ctx, vmodelPlan()); err != nil {
 		t.Fatalf("SetPlan: %v", err)
 	}
-	execHandle, _, err := fixture.coordinator.Dispatch(ctx, "exec", "impl")
+	execHandle, err := fixture.coordinator.Dispatch(ctx, "exec", "impl")
 	if err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
@@ -619,12 +629,12 @@ func TestRedispatchAfterRetireIsNotRefusedByCapacity(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Dispatch(占位): %v", err)
 	}
-	first, _, err := fixture.coordinator.Dispatch(ctx, "pm", "需求")
+	first, err := fixture.coordinator.Dispatch(ctx, "pm", "需求")
 	if err != nil {
 		t.Fatalf("Dispatch(pm): %v", err)
 	}
 	// 上限已满：真超员（另一个角色）照旧显式拒绝并点明上限。
-	if _, _, err := fixture.coordinator.Dispatch(ctx, "exec", "第三个"); err == nil || !strings.Contains(err.Error(), "max_teammates") {
+	if _, err := fixture.coordinator.Dispatch(ctx, "exec", "第三个"); err == nil || !strings.Contains(err.Error(), "max_teammates") {
 		t.Fatalf("真超员必须显式拒绝并点明上限，得到 %v", err)
 	}
 	// 退场 pm：作业仍在跑（本轮语义），它仍占着名额。
@@ -635,15 +645,15 @@ func TestRedispatchAfterRetireIsNotRefusedByCapacity(t *testing.T) {
 		t.Fatal("Retire 不得回收作业（回收统一收口到整队 Close）")
 	}
 	// 重派（同样内容）：必须被受理，且折叠到在跑的那一条。
-	again, stage, err := fixture.coordinator.Dispatch(ctx, "pm", "需求")
+	again, err := fixture.coordinator.Dispatch(ctx, "pm", "需求")
 	if err != nil {
 		t.Fatalf("退场后重派同一角色不得撞 max_teammates: %v", err)
 	}
-	if again != first || stage != "req" {
-		t.Fatalf("同样内容的重派应折叠到在跑的那一条: %s vs %s (stage=%s)", again, first, stage)
+	if again != first {
+		t.Fatalf("同样内容的重派应折叠到在跑的那一条: %s vs %s", again, first)
 	}
 	// 重派（新内容）：同样必须被受理——这是本轮口径要求的"不得误计上限"。
-	fresh, _, err := fixture.coordinator.Dispatch(ctx, "pm", "下一批工作正文")
+	fresh, err := fixture.coordinator.Dispatch(ctx, "pm", "下一批工作正文")
 	if err != nil {
 		t.Fatalf("退场后重派同一角色（新内容）不得撞 max_teammates: %v", err)
 	}

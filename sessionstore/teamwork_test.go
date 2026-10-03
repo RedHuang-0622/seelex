@@ -23,12 +23,6 @@ func samplePlan() TeamworkPlan {
 	return TeamworkPlan{
 		TeamID:  "v-model",
 		Version: 1,
-		Stages: []TeamworkStage{
-			{ID: "req", Roles: []string{"pm"}},
-			{ID: "impl", Roles: []string{"exec"}, DependsOn: []string{"req"}},
-			{ID: "test", Roles: []string{"test_case"}, DependsOn: []string{"impl"}},
-			{ID: "review", Roles: []string{"tl"}, DependsOn: []string{"test"}},
-		},
 		Members: []TeamworkMember{
 			{Role: "pm", RoleSessionID: "v-model-pm"},
 			{Role: "exec", RoleSessionID: "v-model-exec", Worktree: "seelex/exec"},
@@ -36,9 +30,10 @@ func samplePlan() TeamworkPlan {
 			{Role: "tl", RoleSessionID: "v-model-tl"},
 		},
 		Milestones: []TeamworkMilestone{
-			{ID: "m-impl", After: []string{"impl"}, Required: []string{"exec"}, Status: "pending"},
+			{ID: "m-req", Name: "需求", Required: []string{"pm"}, Status: "pending"},
+			{ID: "m-impl", Name: "实现", Required: []string{"exec"}, DependsOn: []string{"m-req"}, Status: "pending"},
 		},
-		State: TeamworkState{Stage: "impl", Jobs: map[string]string{"exec": "a12"}},
+		State: TeamworkState{Jobs: map[string]string{"exec": "a12"}},
 	}
 }
 
@@ -78,11 +73,11 @@ func TestTeamworkPlanRoundTrip(t *testing.T) {
 	if loaded.TeamID != plan.TeamID || loaded.Version != plan.Version {
 		t.Fatalf("plan header mismatch: %+v", loaded)
 	}
-	if len(loaded.Stages) != 4 || len(loaded.Members) != 4 || len(loaded.Milestones) != 1 {
+	if len(loaded.Members) != 4 || len(loaded.Milestones) != 2 {
 		t.Fatalf("plan shape mismatch: %+v", loaded)
 	}
-	if loaded.Stages[1].DependsOn[0] != "req" {
-		t.Fatalf("depends_on lost: %+v", loaded.Stages[1])
+	if loaded.Milestones[1].DependsOn[0] != "m-req" {
+		t.Fatalf("depends_on lost: %+v", loaded.Milestones[1])
 	}
 	if loaded.State.Jobs["exec"] != "a12" {
 		t.Fatalf("state lost: %+v", loaded.State)
@@ -117,24 +112,21 @@ func TestTeamworkPlanRejectsDynamicViolations(t *testing.T) {
 		{"missing session", func(plan *TeamworkPlan) {
 			plan.Members[0].RoleSessionID = ""
 		}, 6, "role_session_id"},
-		{"cyclic stages", func(plan *TeamworkPlan) {
-			plan.Stages[0].DependsOn = []string{"review"}
+		{"cyclic milestones", func(plan *TeamworkPlan) {
+			plan.Milestones[0].DependsOn = []string{"m-impl"}
 		}, 6, "环"},
-		{"unknown dependency", func(plan *TeamworkPlan) {
-			plan.Stages[1].DependsOn = []string{"nope"}
-		}, 6, "不存在的阶段"},
+		{"unknown milestone dependency", func(plan *TeamworkPlan) {
+			plan.Milestones[1].DependsOn = []string{"nope"}
+		}, 6, "不存在的里程碑"},
 		{"self dependency", func(plan *TeamworkPlan) {
-			plan.Stages[1].DependsOn = []string{"impl"}
+			plan.Milestones[1].DependsOn = []string{"m-impl"}
 		}, 6, "依赖自己"},
-		{"milestone after unknown stage", func(plan *TeamworkPlan) {
-			plan.Milestones[0].After = []string{"nope"}
-		}, 6, "after"},
+		{"no milestones", func(plan *TeamworkPlan) {
+			plan.Milestones = nil
+		}, 6, "milestones"},
 		{"milestone required unknown role", func(plan *TeamworkPlan) {
 			plan.Milestones[0].Required = []string{"ghost"}
 		}, 6, "required"},
-		{"stage without roles", func(plan *TeamworkPlan) {
-			plan.Stages[0].Roles = nil
-		}, 6, "至少要指定一个角色"},
 		{"zero version", func(plan *TeamworkPlan) {
 			plan.Version = 0
 		}, 6, "version"},
@@ -175,8 +167,8 @@ func TestTeamworkAuditIsAppendOnly(t *testing.T) {
 	repository, key := teamworkFixture(t)
 	ctx := context.Background()
 	rows := []TeamworkEvent{
-		{Kind: TeamworkEventPlan, TeamID: "v-model", Detail: "stages=4"},
-		{Kind: TeamworkEventDispatch, TeamID: "v-model", Stage: "impl", Role: "exec", Handle: "a12", Node: "impl"},
+		{Kind: TeamworkEventPlan, TeamID: "v-model", Detail: "members=4 milestones=2"},
+		{Kind: TeamworkEventDispatch, TeamID: "v-model", Role: "exec", Handle: "a12", Node: "wi-impl"},
 		{Kind: TeamworkEventMilestone, TeamID: "v-model", Milestone: "m-impl", Detail: "impl 完成"},
 		{Kind: TeamworkEventRetire, TeamID: "v-model", Role: "exec"},
 	}

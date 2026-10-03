@@ -6,6 +6,7 @@ import (
 	"log"
 	"strings"
 
+	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
@@ -153,4 +154,131 @@ func asyncPromptKind(kind string) string {
 		return trimmed
 	}
 	return "process"
+}
+
+// ── teammate 作业终态触发对话（2026-10-04）────────────────────────────
+//
+// 用户口径：「teammate 干完了、内容我取回来了，但不是像 subagent 那样**自动**回来的」。
+// 根因是**两张作业表只有一张接了这条链**：subagent / bash_bg / read_batch 活在 tools 的
+// 后台执行登记表（上面那套 AsyncRunsSnapshot + AsyncRunEvents），teammate 作业活在
+// Seele 的 jobs.Manager 里（contract.TeamworkJobCompletion），于是"跑完了"这件事在
+// teammate 侧既不在投影里、也不在信号口上——同一件事两条链只有一条会醒。
+//
+// 本函数把第二张表接上，口径与上面逐条对齐：终态（done/failed）触发、killed 不触发、
+// **绝不唤醒忙会话**（忙会话走回合边界打点块，见 work_table_async.go 的 teamworkTraceLines）、
+// 幂等（句柄单调不复用，进程内一个集合就够）、随登记表裁剪。
+//
+// 一处**刻意不同**：正文指向 `jobs_manage` 与 `team_context`，不是 `job_manage`——
+// 两张表的取回工具不是同一个，指错了模型就会去一个取不到这条作业的地方捞。
+
+// teamworkTriggeredPrefix 是幂等账的键前缀：两张表的句柄空间是**各自独立**的
+// （都是 `a<seq>` 起步），不做前缀区分就会互相压制（一张表里已触发过的句柄，让另一张表
+// 里同号的作业永远不触发）。
+const teamworkTriggeredPrefix = "teamwork:"
+
+// triggerTeamworkJobCompletions 对 teammate 作业表做一次全量扫描：把"终态 + 会话空闲 +
+// 还没触发过"的作业各自起一个回合。
+//
+// 与 triggerAsyncCompletions 同一形状（全量扫描 + 幂等账 + 只唤醒空闲会话）：登记表是
+// 唯一事实源，信号只承诺"有事发生"。
+func (service *Service) triggerTeamworkJobCompletions(triggered map[string]struct{}) {
+	records := teamworkJobCompletions(service.Deps.Runtime)
+	if len(records) == 0 {
+		return
+	}
+	present := make(map[string]struct{}, len(records))
+	for _, record := range records {
+		handle := strings.TrimSpace(record.Handle)
+		if handle == "" {
+			continue
+		}
+		key := teamworkTriggeredPrefix + handle
+		present[key] = struct{}{}
+		if !asyncCompletionTriggers(record.State) {
+			continue
+		}
+		sessionID := strings.TrimSpace(record.SessionID)
+		if sessionID == "" {
+			continue
+		}
+		if _, done := triggered[key]; done {
+			continue
+		}
+		if !service.sessionIdleForAsyncTrigger(sessionID) {
+			// 忙会话不唤醒（铁律 §6.1）：不记入集合，留待下一次信号重试；忙会话那一轮
+			// 的**回合边界**会从打点块看到这条完成行（teamworkTraceLines）。
+			continue
+		}
+		triggered[key] = struct{}{}
+		if err := service.submitConversationFor(context.Background(), sessionID, teamworkCompletionPrompt(record)); err != nil {
+			log.Printf("[teamwork] teammate 作业 %s 终态触发对话失败（session=%s）：%v", handle, sessionID, err)
+		}
+	}
+	for key := range triggered {
+		if !strings.HasPrefix(key, teamworkTriggeredPrefix) {
+			continue
+		}
+		if _, ok := present[key]; !ok {
+			delete(triggered, key)
+		}
+	}
+}
+
+// teamworkJobCompletions 读窄可选端口（未装配 teamwork 的宿主 = nil）。
+func teamworkJobCompletions(runtime contract.RuntimePort) []dto.TeamworkJobCompletionRecord {
+	if runtime == nil {
+		return nil
+	}
+	completion, ok := runtime.(contract.TeamworkJobCompletion)
+	if !ok {
+		return nil
+	}
+	return completion.TeamworkJobCompletions()
+}
+
+// teamworkJobEvents 取 teammate 作业表的变化信号口（未装配 = nil；nil 通道在 select 里
+// 等于"这条链不存在"）。
+func teamworkJobEvents(runtime contract.RuntimePort) <-chan struct{} {
+	if runtime == nil {
+		return nil
+	}
+	completion, ok := runtime.(contract.TeamworkJobCompletion)
+	if !ok {
+		return nil
+	}
+	return completion.TeamworkJobEvents()
+}
+
+// teamworkCompletionPrompt 组装 teammate 完成回执的正文。
+//
+// 它是一条**用户行**（走 submitConversationFor 的正常输入路径），因此必须自带上下文：
+// 用户会看到"为什么这里多了一轮"，模型也要知道去哪收口。字段刻意收窄：只给归属
+// （teammate / 工作项）、句柄、状态、有界摘要——不给正文、不给日志路径（正文是
+// team_context / jobs_manage 的事，塞进来就是按轮数线性烧 token）。
+func teamworkCompletionPrompt(record dto.TeamworkJobCompletionRecord) string {
+	var body strings.Builder
+	body.WriteString("teammate 作业已完成，请收口：\n")
+	role := strings.TrimSpace(record.Role)
+	item := strings.TrimSpace(record.WorkItem)
+	switch {
+	case role != "" && item != "":
+		fmt.Fprintf(&body, "- teammate: %s（工作项 %s）\n", role, item)
+	case role != "":
+		fmt.Fprintf(&body, "- teammate: %s\n", role)
+	default:
+		body.WriteString("- teammate: —\n")
+	}
+	fmt.Fprintf(&body, "- handle: %s（kind=%s）\n", record.Handle, asyncPromptKind(record.Kind))
+	fmt.Fprintf(&body, "- 状态: %s · exit=%d\n", record.State, record.ExitCode)
+	if description := strings.TrimSpace(record.Description); description != "" {
+		fmt.Fprintf(&body, "- 作业: %s\n", truncateWorkEvidence(description, 200))
+	}
+	if summary := strings.TrimSpace(record.Summary); summary != "" {
+		fmt.Fprintf(&body, "- 摘要: %s\n", truncateWorkEvidence(summary, Limits().EvidenceChars))
+	}
+	fmt.Fprintf(&body,
+		"读结论用 team_context（非消费读，不推进游标）；产物正文用 jobs_manage(op=observe|fetch, handle=%q)；"+
+			"复核完用 team_accept / team_fail 收口（accept 才会打开下游依赖闸门）。",
+		record.Handle)
+	return body.String()
 }

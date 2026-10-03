@@ -7,6 +7,7 @@ import {
   itemDepsOf,
   itemStatus,
   itemsOfMilestone,
+  memberCurrentSessionOf,
   memberMessagesOf,
   memberQueueOf,
   memberStatusOf,
@@ -17,6 +18,7 @@ import {
   orderWorkItems,
   renderTeamAudit,
   renderTeamBoard,
+  renderTeammateLiveSession,
   renderTeamGantt,
   renderTeamQueue,
   renderTeamWorkItem,
@@ -67,7 +69,8 @@ const MS_PLAN = {
   ],
 };
 
-// 夹具二：老口径的计划——**只有 stages、没有里程碑也没有工作项**。看板不得回退到阶段分组。
+// 夹具二：老口径（阶段制时代）的计划——**只有 stages、没有里程碑也没有工作项**。
+// 阶段口径已整条退场：这份计划在看板上就是"没有可看的编排"（整块退场）。
 const STAGES_ONLY = {
   team_id: "legacy",
   version: 1,
@@ -112,8 +115,11 @@ test("orderWorkItems 只在里程碑内排 DAG，并把「前置没验收」标�
 test("memberQueueOf / memberStatusOf / memberMessagesOf：队列 = 没完成的工作项（销项即出队）", () => {
   assert.deepEqual(memberQueueOf(MS_PLAN, "exec"), ["实现"]);
   assert.equal(memberStatusOf(MS_PLAN, "exec"), "running");
-  assert.equal(memberStatusOf(MS_PLAN, "pm"), "idle");
-  assert.equal(memberStatusOf({ members: [{ role: "x" }] }, "x"), "idle");
+  // teammate 状态只有 running / free 两值（2026-10-04）：没在跑的人不写 idle/review/done。
+  assert.equal(memberStatusOf(MS_PLAN, "pm"), "free");
+  assert.equal(memberStatusOf({ members: [{ role: "x" }] }, "x"), "free");
+  assert.equal(memberStatusOf({ members: [{ role: "x", status: "review" }] }, "x"), "free", "待验收不是 running：人没在干活");
+  assert.equal(memberStatusOf({ members: [{ role: "x", status: "done" }] }, "x"), "free", "teammate 没有 done 这个状态");
   assert.equal(memberMessagesOf(MS_PLAN, "exec").length, 1);
   // 后端没给 queue 时按工作项自行派生（同一条判据：未完成才占队列）。
   const derived = { ...MS_PLAN, members: [{ role: "pm" }, { role: "exec" }] };
@@ -210,13 +216,39 @@ test("③ teammate 区块画名字 / 状态 / 负责的工作项名称队列 / �
   assert.match(html, /<span class="chip team-queue-item">实现<\/span>/);
   assert.match(html, /改动|等待 leader 评估|跑完/);
   // 名称 = 员工会话入口（与团队面板同一对钩子，缺会话号退化为纯文本）。
-  assert.match(html, /class="team-member-role is-openable" data-team-role-open="exec" data-team-role-session="s-v-model-exec"/);
+  // 入口开的是**这位此刻那件事的会话**（2026-10-04 用户口径）：exec 正在跑 wi-impl，
+  // 所以入口指向 wi-impl 自己的会话号，而不是 exec 的角色会话 s-v-model-exec。
+  assert.match(html, /class="team-member-role is-openable" data-team-role-open="exec" data-team-role-session="s-v-model-exec-wi-wi-impl" data-team-item="wi-impl"/);
+  assert.doesNotMatch(html, /data-team-role-session="s-v-model-exec"/, "不得再指向员工的长期角色会话");
+  // 没有在跑的工作项的成员退到角色会话，并用提示说明这不是"这件事的正文"。
+  assert.match(html, /data-team-role-open="pm" data-team-role-session="s-v-model-pm" data-team-item=""/);
+  assert.match(html, /这位此刻没有在跑的工作项/);
   assert.equal(renderTeamQueue({ members: [{ role: "a" }] }), "", "没有工作项就不画这一节（不留空壳）");
 });
 
-// ── ④ 没有 stages 也能渲染；不得回退到阶段分组 ───────────────────
+test("memberCurrentSessionOf：在跑 > 等验收 > 最近开过工；一个都没开过 → 空", () => {
+  const plan = {
+    members: [{ role: "exec" }, { role: "verify" }, { role: "fresh" }],
+    work_items: [
+      { id: "wi-done", role: "verify", status: "done", session_id: "s-done", name: "旧活" },
+      { id: "wi-review", role: "verify", status: "review", session_id: "s-review", name: "等验收" },
+      { id: "wi-two", role: "verify", status: "review", session_id: "s-review-2", name: "第二件等验收" },
+      { id: "wi-run", role: "exec", status: "running", session_id: "s-run", name: "在跑" },
+      { id: "wi-pending", role: "exec", status: "pending", name: "还没派发（没有会话号）" },
+    ],
+  };
+  assert.deepEqual(memberCurrentSessionOf(plan, "exec"), { session_id: "s-run", work_item: "wi-run", name: "在跑" });
+  // 等验收优先于更早的"等验收"（先到先得），也优先于 done 的兜底。
+  assert.equal(memberCurrentSessionOf(plan, "verify").session_id, "s-review");
+  assert.deepEqual(memberCurrentSessionOf(plan, "fresh"), { session_id: "", work_item: "", name: "" });
+  // 后端给了权威字段时以它为准（前端那份只是老快照的降级兜底）。
+  const provided = { members: [{ role: "exec", current_session_id: "s-auth", current_work_item: "wi-auth" }] };
+  assert.deepEqual(memberCurrentSessionOf(provided, "exec"), { session_id: "s-auth", work_item: "wi-auth", name: "" });
+});
 
-test("④ 计划里没有 stages 也能渲染：里程碑 + 工作项 + teammate 都在", () => {
+// ── ④ 里程碑口径：阶段不再是计划的形状 ─────────────────────────────
+
+test("④ 里程碑口径的计划照常出图：里程碑 + 工作项 + teammate 都在", () => {
   const html = renderTeamBoard({ plan: MS_PLAN, jobs: [] });
   assert.match(html, /data-team-id="v-model"/);
   assert.match(html, /data-team-gantt/);
@@ -227,7 +259,7 @@ test("④ 计划里没有 stages 也能渲染：里程碑 + 工作项 + teammate
   assert.doesNotMatch(html, /team-stage/, "阶段卡样式/类名不得再出现");
 });
 
-test("④ 只有 stages、没有里程碑与工作项 → 退场（不回退到阶段分组）", () => {
+test("④ 老口径（只有 stages）的计划 → 退场：阶段不再是可看的编排", () => {
   assert.equal(renderTeamBoard({ plan: STAGES_ONLY, jobs: [] }), "");
   assert.equal(renderTeamBoard(), "");
   assert.equal(renderTeamBoard({ plan: null }), "");
@@ -235,7 +267,7 @@ test("④ 只有 stages、没有里程碑与工作项 → 退场（不回退到�
   assert.equal(renderTeamBoard({ plan: { team_id: "t", version: 1, stages: [] } }), "");
 });
 
-test("④ 渲染件不再导出/使用阶段口径（jobsByStage / orderStages / roleOwnerStage / stagesOf）", () => {
+test("④ 渲染件没有阶段口径的残留（jobsByStage / orderStages / roleOwnerStage / stagesOf）", () => {
   for (const name of ["jobsByStage", "orderStages", "roleOwnerStage", "stagesOf", "renderTeamStageCard", "stageStatuses"]) {
     assert.doesNotMatch(SRC, new RegExp(`export function ${name}\\b`), `渲染件不得再导出 ${name}`);
   }
@@ -244,9 +276,48 @@ test("④ 渲染件不再导出/使用阶段口径（jobsByStage / orderStages /
   assert.doesNotMatch(SRC, /\.team-stage[\s,{[]/, "CSS 里不得再留一份 .team-stage 规则");
 });
 
-test("④ 接线把 work_items 搬给渲染件，且没有 stages 也能出图", () => {
+test("④ 接线把 work_items 搬给渲染件；退场判据只看里程碑与工作项", () => {
   assert.match(APP, /work_items: workItems\.map/, "app.js 必须把 DTO 的 work_items 搬给渲染件");
-  assert.match(APP, /stages\.length === 0 && milestones\.length === 0 && workItems\.length === 0/, "app.js 的退场判据必须是「无阶段且无里程碑且无工作项」");
+  assert.match(APP, /milestones\.length === 0 && workItems\.length === 0/, "app.js 的退场判据必须是「无里程碑且无工作项」（阶段口径已退场，不再参与判据）");
+  assert.doesNotMatch(APP, /board\?\.stages/, "app.js 不得再从投影里搬 stages（阶段口径已退场）");
+});
+
+// ── 当前 teammate 会话（实时执行面）子页面 ──────────────────────
+
+test("renderTeammateLiveSession：读得到就读这一轮的对话，读不到就如实说「不在本进程」", () => {
+  const live = renderTeammateLiveSession(
+    { session_id: "s-wi", role: "exec", running: true, live: true, messages: [
+      { role: "user", text: "实现渲染件" },
+      { role: "assistant", text: "改好了，用例全绿" },
+      { role: "tool", text: "（工具行不进面板）" },
+    ] },
+    { work_item: "wi-impl" }
+  );
+  assert.match(live, /data-teammate-live="s-wi"/);
+  assert.match(live, /wi-impl/);
+  assert.match(live, /实现渲染件/);
+  assert.match(live, /用例全绿/);
+  assert.match(live, /正在跑/);
+  assert.doesNotMatch(live, /工具行不进面板/, "工具行是执行细节，不进这个面板");
+  assert.doesNotMatch(live, /<table|role-row/, "子页面不画状态台账（只要条目）");
+
+  // 执行面不在本进程（重启过/已收口）：不许画空壳假装"当前会话是空的"。
+  const missing = renderTeammateLiveSession(
+    { session_id: "s-wi", role: "exec", running: false, live: false, messages: [] },
+    { work_item: "wi-impl" }
+  );
+  assert.match(missing, /不在本进程/);
+  assert.match(missing, /正文不落盘/);
+  assert.doesNotMatch(missing, /role-kv-row/, "读不到就不画对话区");
+
+  // 截断痕迹如实显示。
+  const truncated = renderTeammateLiveSession(
+    { session_id: "s-wi", role: "exec", running: true, live: false, truncated: true,
+      messages: [{ role: "assistant", text: "只留最近几条" }] },
+    { work_item: "wi-impl" }
+  );
+  assert.match(truncated, /已跑完/);
+  assert.match(truncated, /只显示最近/);
 });
 
 // ── 头部 / 转义 / 痕迹 / 子页面 / 样式 ───────────────────────────

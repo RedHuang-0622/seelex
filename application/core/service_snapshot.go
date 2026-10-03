@@ -173,6 +173,36 @@ func (service *Service) Subscribe(buffer int) Subscription {
 	return service.components.view.Subscribe(buffer)
 }
 
+// refreshRuntimeProjectionForSession 是会话（重）激活时的**重建**一步：按目标会话从
+// 宿主读面重采一次 runtime 投影，落到它的会话槽（视图会话同时镜像 Snapshot）。
+//
+// 为什么必须在这里采一次（2026-10-04 现场：切走再切回来，团队看板整块消失——数据在
+// 磁盘上，是"重建"路径断了）：
+//   - 会话运行原件（`Snapshot.Runtime`，含 teamwork_board / async_runs / todos /
+//     subagent_tree / goal_governance）只在**回合尾**（chat.go）与**工具边界**
+//     （tool_hooks.go）被写进会话槽；
+//   - 切换会话会把槽换掉：热挂载换视图指针（槽还是它自己的），冷加载则先
+//     `sessions.Remove(sessionID)`（UnloadSession）再重建单元——新建的单元 runtime 槽
+//     是**空的**；
+//   - 于是"切回来第一帧"的投影里 `teamwork_board` 缺键，前端按"没有计划即整块退场"
+//     隐藏看板，**要等用户再发一句话**（下一轮回合尾）才回来。
+//
+// 采集在 ViewMu 之外（宿主读面含文件 I/O：AsyncRunsSnapshot 会对每条作业 stat + 读日志
+// 末窗），应用在锁内——与 chat.go / tool_hooks.go 同一调用约定。
+func (service *Service) refreshRuntimeProjectionForSession(sessionID string) {
+	if service == nil || service.Deps.Runtime == nil {
+		return
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return
+	}
+	projection := service.collectRuntimeProjectionFor(context.Background(), sessionID)
+	service.ViewMu.Lock()
+	service.applyRuntimeProjectionForLocked(sessionID, projection)
+	service.ViewMu.Unlock()
+}
+
 func (service *Service) collectRuntimeProjection(ctx context.Context) view_state.RuntimeStateProjection {
 	return service.components.view.CollectRuntimeProjection(ctx)
 }

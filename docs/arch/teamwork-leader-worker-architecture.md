@@ -235,7 +235,7 @@ leader 判定某 teammate 的一轮任务结束 → `team_retire(role)`，**顺�
 
 | 步骤 | 动作 | 机制 |
 |---|---|---|
-| 1 | 回收该 teammate 名下未完成的作业 | `jobs.Manager.Reclaim(ctx, Scope{Session:"<主会话>", Subject:"emp_<role>"})`（只动这一个 teammate，不牵连同会话其他人；§10.1） |
+| 1 | 回收该 teammate 名下未完成的作业 | **只在整队收口**（`team_close`）：`jobs.Manager.Reclaim(ctx, Scope{Session:"<主会话>", Subject:"emp_<role>"})`（只动这一个 teammate，不牵连同会话其他人；§10.1）。**单角色退场 `team_retire` 不回收作业**——作业与正文留到收口，退场不撤走证据 |
 | 2 | **释放 worktree**（节约存储，D7） | `seelebridge/worktree` 的 `Release`（`git worktree remove` + 删本地分支）；**释放前若工作区脏 → 先提交或按 `ErrUncommittedChanges` 语义显式报错，不静默丢弃** |
 | 3 | 清空该 teammate 的**会话记录内容**（工作历史 + durable 快照、message 行/上下文栈） | Seele `session.Reset(ctx)` + sessionstore 清该 `role_session_id` 的消息通道 |
 | 4 | **保留 teammate 在线** | 计划里的成员条目（`role_name`/`role_session_id`/`permission_groups`）**保留**、`worktree` 字段置空待重派；前端「员工在线」态不变 |
@@ -248,12 +248,18 @@ leader 判定某 teammate 的一轮任务结束 → `team_retire(role)`，**顺�
 
 | 工具 | 作用 | 关键参数 |
 |---|---|---|
-| `team_plan` | 定义/更新硬编排计划（写 `moduleTeamwork`） | `team_id, stages[], members[], milestones[]` |
-| `team_dispatch` | 派发一个 teammate 的作业（→ `jobs.Dispatch`，带 `Scope{Session, Subject:"emp_<role>"}` + `Node`） | `role, stage, goal` |
+| `team_plan` | 定义/更新硬编排计划（写 `moduleTeamwork`） | `team_id, members[], milestones[]`（`milestones[].depends_on` 是**屏障**） |
+| `team_work` | 给**当前这一步**排活（一次只排一个里程碑；依赖未完成的里程碑拒收） | `milestone, items[]`（`{id, role, name, description, goal, depends_on}`） |
+| `team_item` | 调整**尚未开始**的工作项（已开始/已结束是既定事实） | `id, role?, name?, description?, goal?, depends_on?` |
+| `team_dispatch` | 派发**一个工作项**（→ `jobs.Dispatch`，带 `Scope{Session, Subject:"emp_<role>"}` + `Node`=工作项 id），拿 handle **不等待** | `item`（或旧的 `role, goal`） |
 | `jobs_manage` | 观察/取回/终止/销项（Seele 通用工具，D1） | `op, handle` |
+| `team_context` | **只读**看成员工作上下文（非消费读：不派发、不回收、不销项） | `roles[], include_body, max_bytes` |
+| `team_items` | 读回全部工作项（状态 / 归属 / 依赖 / 这件事的 Session 与 worktree / 是否可重派） | 无 |
+| `team_accept` | 验收通过：工作项 → done，**并结束这件事的执行隔离**（释放 worktree + 清会话），同时打开下游依赖闸门 | `id, note` |
+| `team_fail` | 判定不通过：现场与记忆**都留着**，可重派（复用同一会话号） | `id, note` |
 | `team_join` | **有界**汇合等待（真实依赖点才用） | `handles[], budget` |
 | `team_milestone` | 声明里程碑 + **leader 撰写内容** | `id, content` |
-| `team_retire` | 结束某 teammate 一轮任务（回收作业 + 释放 worktree + 清内容 + 保在线） | `role` |
+| `team_retire` | 结束某 teammate 一轮任务（释放 worktree + 清会话内容 + **保留在编**）；名下有在飞/待验收的工作项时**被拒**（现场正是那件事的证据） | `role` |
 
 提示词：把上述工具 + 计划语义写进 leader 的 skill（`plugins/default/*`），使「通过提示词原生驱动 goal 的 teamwork 所需一切」。
 
@@ -263,17 +269,21 @@ leader 判定某 teammate 的一轮任务结束 → `team_retire(role)`，**顺�
 // session/<sid>/teamwork/plan.json
 {
   "team_id": "v-model", "version": 1,
-  "stages": [ {"id":"req","roles":["pm"],"depends_on":[]},
-              {"id":"impl","roles":["exec"],"depends_on":["req"]},
-              {"id":"test","roles":["test_case"],"depends_on":["impl"]},
-              {"id":"review","roles":["tl"],"depends_on":["test"]} ],
-  "members": [ {"role":"pm","role_session_id":"v-model-pm","worktree":"","permission_groups":{"ro":4}}, ... ],
-  "milestones": [ {"id":"m-impl","after":["impl"],"required":["exec"],"status":"pending","content":""} ],
-  "state": { "stage":"impl", "jobs":{"exec":"a12"}, "milestones":{} }
+  "members": [ {"role":"exec","role_session_id":"v-model-exec","worktree":"","permission_groups":{"ro":4}},
+               {"role":"verify","role_session_id":"v-model-verify","worktree":"","permission_groups":{"ro":4}} ],
+  "milestones": [
+    {"id":"m-contract","name":"契约","depends_on":[],
+     "items":[ {"id":"wi-impl","role":"exec","name":"实现","goal":"把契约落成代码","depends_on":[]},
+               {"id":"wi-check","role":"verify","name":"复核","depends_on":["wi-impl"]} ]},
+    {"id":"m-docs","name":"文档","depends_on":["m-contract"],"items":[]} ],
+  "state": { "jobs":{}, "milestones":{} }
 }
 ```
 
-- `stages.depends_on` 是**顺序/依赖的唯一事实**（取代 `order_policy/order_roles`，D4）。
+- 顺序/依赖的唯一事实在计划里：`milestones[].depends_on` 是**屏障**（里程碑之间串行），
+  `milestones[].items[].depends_on` 是里程碑内的 **DAG**（并行）。
+  `stages` 已**整条退场**（计划结构、DTO、投影、工具 schema、前端、TUI 里都没有它），
+  D4「顺序归计划"取代 `order_policy/order_roles`」的口径不变。
 - 存储：sessionstore 新增 `moduleTeamwork`（枚举 + **独立锁 + head**；`mutexFor` 无 case 会 panic，必须补）。
   目录 `session/<sid>/teamwork/{plan.json, events.jsonl}`；与现有 `session/<sid>/team/roles.json`（在编成员）区分。
 - **不落盘的内容**：作业句柄（内存，I-4）、worktree 路径/差异/补丁（git 的事，§4.7）。
@@ -309,7 +319,8 @@ leader 判定某 teammate 的一轮任务结束 → `team_retire(role)`，**顺�
 
 ### 6.2 顺序 / 阻塞由 leader 掌握
 
-顺序写进 `stages.depends_on`（硬编排）；阻塞是**显式 join**（`team_join`，有界）；里程碑由 leader 声明并**撰写内容**。
+顺序写进计划的 `milestones[].depends_on`（屏障）与 `milestones[].items[].depends_on`（里程碑内 DAG，硬编排）；
+阻塞是**显式 join**（`team_join`，有界）；里程碑由 leader 声明并**撰写内容**。
 
 ### 6.3 leader 生态位（问询结论）
 

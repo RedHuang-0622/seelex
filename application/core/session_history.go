@@ -129,6 +129,10 @@ func (service *Service) beginAsyncRestore(sessionID string) (uint64, error) {
 	service.Core.Snapshot.Runtime.SubAgentTree = nil
 	service.Core.Snapshot.Runtime.WorkTable = nil
 	service.Core.Snapshot.Runtime.WorkTableBatches = nil
+	// 团队看板同样要清：它是**上一个会话**的运行原件（本会话的会在装载完成时重采）。
+	// 不清就有一段"B 是活跃会话、面板上却挂着 A 的团队看板"的过渡帧——数据没丢，
+	// 但那一帧在说谎。
+	service.Core.Snapshot.Runtime.TeamworkBoard = nil
 	service.Core.Snapshot.Interaction = nil
 	service.setSessionChatLockedFor(sessionID, unit.ChatState())
 	service.mirrorActiveViewLocked()
@@ -541,6 +545,11 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 		service.Deps.Runtime.SwitchSessionTasks(sessionID, record.Tasks)
 		_ = service.Deps.Runtime.ClearSubagentTree()
 		_ = service.Deps.Runtime.RestoreSubagentAnchors(sessionID)
+		// 会话运行原件的**重建**（2026-10-04）：冷加载新建的会话单元 runtime 槽是空的
+		// （UnloadSession 已经把上一份槽随单元一起拿走）。不在这里采一次，切回来/重启后
+		// 打开会话的第一帧就缺 teamwork_board（前端整块退场），要等下一轮才回来。
+		// 采集在 ViewMu 之外、发布快照之前——与热挂载路径同一口径。
+		service.refreshRuntimeProjectionForSession(sessionID)
 		service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 		service.publishRuntimeProjections()
 	}

@@ -738,6 +738,10 @@ func (state *serviceState) workTableTraceBlockFor(sessionID string) string {
 	}
 	asyncLines := asyncTraceLines(state.Deps.Runtime.AsyncRunsSnapshot(), effectiveSession)
 	lines = append(lines, asyncLines...)
+	// teammate 作业（jobs.Manager 那张表）单独成行：句柄空间与取回工具都不同
+	// （jobs_manage vs job_manage），合并成同一种行模型就会拿错工具。
+	teamworkLines := teamworkTraceLines(teamworkJobCompletions(state.Deps.Runtime), effectiveSession)
+	lines = append(lines, teamworkLines...)
 	if len(lines) == 0 {
 		return ""
 	}
@@ -754,6 +758,15 @@ func (state *serviceState) workTableTraceBlockFor(sessionID string) string {
 			"取结果用 job_manage(op=fetch, handle)、只读看进展用 op=observe、终止用 op=kill、" +
 			"销项用 op=done。"
 		budget--
+	}
+	if len(teamworkLines) > 0 {
+		// teammate 行的读法**不是** job_manage：那是另一张表（jobs.Manager）。
+		hint += "teamwork:<句柄> 行是 teammate 作业（leader 派出去的活）：" +
+			"结论用 team_context（非消费读）、产物正文用 jobs_manage(op=observe|fetch, handle)，" +
+			"复核完用 team_accept / team_fail 收口。"
+		if len(asyncLines) == 0 {
+			budget--
+		}
 	}
 	truncated := false
 	if len(lines) > budget {
@@ -911,7 +924,18 @@ func (service *Service) consumeTaskChanges() {
 // 后起的那个一次也收不到）。信号是"有事发生"，一个消费者做完整套读侧动作才与契约一致。
 func (service *Service) consumeAsyncRuns() {
 	events := service.Deps.Runtime.AsyncRunEvents()
-	if events == nil {
+	// teammate 作业表（jobs.Manager）的信号口是**另一条**（见 contract.TeamworkJobCompletion）：
+	// 两张表各有各的上游，这里并进同一个消费者等它们——一个消费者做完整套读侧动作才与
+	// 契约一致（两个 goroutine 抢同一个容量 1 的通道时，后起的那个一次也收不到）。
+	//
+	// **装配顺序是契约**：两个信号口都必须在 `application.New` 之前就绪（组合根的顺序见
+	// main.go：SetTeamworkBackend 在 initApplication 之前；测试基座同序见
+	// tool_full_chain_test.go 的 fullChainBackendInstaller）。消费者只在这里读一次通道，
+	// 后装配的宿主读到的必然是 nil——nil 在 select 里永不触发，"做完自动返回"会**静默
+	// 不存在**（不报错、不打日志）。这里不改成每次循环重读：一个消费者做完整套读侧动作
+	// 才与契约一致，靠重读掩盖顺序问题会把"装配写错了"变成"时好时坏"。
+	teamworkEvents := teamworkJobEvents(service.Deps.Runtime)
+	if events == nil && teamworkEvents == nil {
 		return
 	}
 	triggered := map[string]struct{}{}
@@ -922,6 +946,12 @@ func (service *Service) consumeAsyncRuns() {
 			// 开关关闭时连扫描都不做（默认关，见 limits.async_exec.trigger_conversation）。
 			if Limits().AsyncExec.TriggerConversation {
 				service.safeLifecycleCall(func() { service.triggerAsyncCompletions(triggered) })
+			}
+		case <-teamworkEvents:
+			// teammate 作业终态**不改工作表格的行**（那两张表分开），只走"做完自动返回"：
+			// 空闲会话起一个回合，忙会话等它自己的回合边界（打点块里的 teammate 完成行）。
+			if Limits().AsyncExec.TriggerConversation {
+				service.safeLifecycleCall(func() { service.triggerTeamworkJobCompletions(triggered) })
 			}
 		case <-service.lifecycleStop:
 			return

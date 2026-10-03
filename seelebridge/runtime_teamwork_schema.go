@@ -10,7 +10,8 @@ func teamworkPlanDescription() string {
 		"Milestones are barriers and milestones[].depends_on is the order fact between them: a milestone may only be " +
 		"arranged after every milestone it depends on is done, so you lay out one milestone at a time. Inside one " +
 		"milestone the Work Items run in parallel following their own depends_on DAG (one Work Item = one teammate = " +
-		"one Session + one git worktree). stages[] is the legacy stage-era shape, kept only for reading old plans. " +
+		"one Session + one git worktree). There are no stages: the stage-era shape is retired, and every order fact " +
+		"lives in milestones[].depends_on plus work_items[].depends_on. " +
 		"One role per teammate; built-in roles (main/user) are refused; the member ceiling is enforced. " +
 		"Anchors: docs/arch/teamwork-leader-worker-architecture.md §4.6."
 }
@@ -21,19 +22,6 @@ func teamworkPlanSchema() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"team_id": map[string]interface{}{"type": "string", "description": "团队标识（同一团队的计划整份替换）"},
 			"version": map[string]interface{}{"type": "integer", "minimum": 1, "description": "计划版本（缺省 1）"},
-			"stages": map[string]interface{}{
-				"type":        "array",
-				"description": "阶段制时代的历史口径（只为读旧计划）：阶段的 depends_on 是那时的顺序唯一事实；新计划的顺序一律走 milestones[].depends_on + 里程碑内工作项的 depends_on",
-				"items": map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"id":         map[string]interface{}{"type": "string"},
-						"roles":      map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-						"depends_on": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-					},
-					"required": []string{"id", "roles"},
-				},
-			},
 			"members": map[string]interface{}{
 				"type":        "array",
 				"description": "在编 teammate（一角色一 teammate，禁止重复）",
@@ -64,20 +52,16 @@ func teamworkPlanSchema() map[string]interface{} {
 							"type": "array", "items": map[string]interface{}{"type": "string"},
 							"description": "前置里程碑 id（屏障：未 done 的里程碑不进入可排活）",
 						},
-						"after": map[string]interface{}{
-							"type": "array", "items": map[string]interface{}{"type": "string"},
-							"description": "历史字段（阶段制时代指阶段 id），只为读旧计划保留",
-						},
 						"required": map[string]interface{}{
 							"type": "array", "items": map[string]interface{}{"type": "string"},
-							"description": "历史字段（阶段制时代指角色名），只为读旧计划保留",
+							"description": "这个里程碑需要哪些在编角色（只做校验，不参与顺序判定）",
 						},
 					},
 					"required": []string{"id"},
 				},
 			},
 		},
-		"required": []string{"team_id", "members"},
+		"required": []string{"team_id", "members", "milestones"},
 	}
 }
 

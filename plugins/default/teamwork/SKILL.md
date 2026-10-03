@@ -41,7 +41,7 @@ Teammate（在编）
 
 | 工具 | 关键参数 | 你用它做什么 |
 |---|---|---|
-| `team_plan` | `team_id, members[], milestones[]` | 定义/整份替换**在编成员与里程碑**。里程碑的 `depends_on` 是屏障。**同名里程碑下已排好的工作项与运行态会被保留**——改成员不会把已经干到一半的活抹掉。（`stages` 只是旧口径，新计划不必写。） |
+| `team_plan` | `team_id, members[], milestones[]` | 定义/整份替换**在编成员与里程碑**。里程碑的 `depends_on` 是屏障。**同名里程碑下已排好的工作项与运行态会被保留**——改成员不会把已经干到一半的活抹掉。（`stages` 已整条退场：它不在 schema 里，也不被任何读侧认作顺序事实。） |
 | `team_work` | `milestone, items[]` | 给**当前这一步**排活：`{id, role, name, description, goal, depends_on}`。依赖未完成的里程碑会被**拒收**——分里程碑排活，不是一次把全程铺好。 |
 | `team_item` | `id, role?, name?, description?, goal?, depends_on?` | 调整**尚未开始**的工作项。已开始（running/review）与已结束（done/failed）的是**既定事实**，改不了。 |
 | `team_dispatch` | `item`（或旧的 `role, goal`） | 派发**一个工作项**，立即拿 `handle`（**不等待**）。屏障没开、前置没 done、真超员，都会**显式拒绝**。 |

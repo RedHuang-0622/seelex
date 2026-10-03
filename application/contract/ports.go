@@ -263,6 +263,41 @@ type TeamworkBoardProjection interface {
 	TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoardView
 }
 
+// TeamworkJobCompletion 是**窄可选**能力面：teammate 作业（Seele jobs.Manager 里的
+// worker 作业）的终态读数 + 变化信号口。
+//
+// 为什么需要它（2026-10-04 现场：teammate 干完了，leader 上下文里没有任何回声）：
+// 后台作业的"做完自动返回"只在**一张表**上接好了——tools 的登记表（bash_bg / read_batch
+// / subagent，`AsyncRunsSnapshot` + `AsyncRunEvents`，见 async_completion.go）。teammate
+// 作业活在 jobs.Manager（另一张表），既不在那个投影里、也不在它的信号口上，于是同一件事
+// （跑完了）在两条链上只有一条会被唤醒。
+//
+// 两个成员的分工与 tools 那对完全同形：Completions 是**只读全量**（终态判据在消费方），
+// Events 是"有事发生"的信号（不进上下文、不推进任何游标）——消费方被唤醒后重读全量。
+type TeamworkJobCompletion interface {
+	// TeamworkJobCompletions 返回在册 teammate 作业的只读投影（按在册顺序）。
+	// 未装配 teamwork 的宿主返回 nil。
+	TeamworkJobCompletions() []dto.TeamworkJobCompletionRecord
+	// TeamworkJobEvents 返回 teammate 作业表的变化信号口（派发 / 终态 / 新字节）。
+	// 未装配时返回 nil（消费方的 select 会忽略 nil 通道）。
+	TeamworkJobEvents() <-chan struct{}
+}
+
+// TeammateSessionProjection 是**窄可选**能力面：**当前 teammate 会话**的实时只读投影
+// （"这件事的会话此刻在说什么"）。
+//
+// 为什么需要它（2026-10-04 用户口径：看板点开的要是"当前的 teammate 的会话"，不是员工的
+// 长期历史会话）：员工的角色会话落盘、可回读；而一个 Work Item 自己的会话是**进程内
+// 执行面**（刻意不接 DurableHistory），正文不在会话库里。于是"查看这件事的会话"这件事
+// 只能从这个读面来——会话库里没有它的正文，读出来的只会是主会话的历史（看起来像"全是
+// 历史会话"）。
+type TeammateSessionProjection interface {
+	// TeammateSessionLive 返回该会话的执行面实时读数。会话不在本进程里
+	// （重启过 / 从未开过）时返回 Running=false 的视图，而不是 nil——调用方要能
+	// 区分"没有这个会话"与"这个会话此刻是空的"。
+	TeammateSessionLive(sessionID string) dto.TeammateSessionLiveView
+}
+
 type PluginPort interface {
 	All() []model.PluginInfo
 	Activate(context.Context, string) error

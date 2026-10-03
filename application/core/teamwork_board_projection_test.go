@@ -29,13 +29,14 @@ func teamBoardFixture() *dto.TeamworkBoardView {
 		TeamID:     "team-board-gui-tui",
 		Version:    2,
 		MaxMembers: 6,
-		Stages: []dto.TeamworkStageView{
-			{ID: "design", Roles: []string{"arch"}},
-			{ID: "impl", Roles: []string{"impl_ui"}, DependsOn: []string{"design"}},
+		Members: []dto.TeamworkMemberView{{Role: "arch", RoleSessionID: "s-arch", Status: "running"}},
+		Milestones: []dto.TeamworkMilestoneView{
+			{ID: "m-1", Name: "设计", DependsOn: []string{"m-0"}},
 		},
-		Members:    []dto.TeamworkMemberView{{Role: "arch", RoleSessionID: "s-arch"}},
-		Milestones: []dto.TeamworkMilestoneView{{ID: "m-1", After: []string{"design"}}},
-		Jobs:       []dto.TeamworkJobView{{Handle: "a7", State: "running", Stage: "impl"}},
+		WorkItems: []dto.TeamworkWorkItemView{
+			{ID: "wi-impl", Milestone: "m-1", Role: "impl_ui", DependsOn: []string{"wi-design"}},
+		},
+		Jobs: []dto.TeamworkJobView{{Handle: "a7", State: "running", Node: "wi-impl"}},
 		Events:     []dto.TeamworkEventView{{At: 1790870000, Kind: "plan"}},
 	}
 }
@@ -50,7 +51,7 @@ func TestCollectRuntimeProjectionCarriesTeamworkBoard(t *testing.T) {
 	if got == nil {
 		t.Fatal("Runtime 实现了窄接口，投影里就必须有团队看板")
 	}
-	if got.TeamID != "team-board-gui-tui" || len(got.Stages) != 2 || got.MaxMembers != 6 {
+	if got.TeamID != "team-board-gui-tui" || len(got.Milestones) != 1 || len(got.WorkItems) != 1 || got.MaxMembers != 6 {
 		t.Fatalf("投影搬运不一致：%+v", got)
 	}
 
@@ -69,8 +70,8 @@ func TestCollectRuntimeProjectionCarriesTeamworkBoard(t *testing.T) {
 
 	// 冻结契约：快照是并发读者的共享值，克隆必须独立（内嵌切片也要）。
 	cloned := cloneRuntimeState(projection.Runtime)
-	cloned.TeamworkBoard.Stages[0].Roles[0] = "mutated"
-	if projection.Runtime.TeamworkBoard.Stages[0].Roles[0] != "arch" {
+	cloned.TeamworkBoard.WorkItems[0].DependsOn[0] = "mutated"
+	if projection.Runtime.TeamworkBoard.WorkItems[0].DependsOn[0] != "wi-design" {
 		t.Fatal("clone 必须深拷贝团队看板（否则前端会读到一半的写）")
 	}
 }

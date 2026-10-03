@@ -64,6 +64,9 @@ type roleEngine interface {
 	SetMaxLoops(n int)
 	ClearHistory()
 	ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error)
+	// History 是**当前 teammate 会话**那条读面的输入（见 runtime_teammate_session_live.go）：
+	// 角色会话是进程内执行面、正文不落盘，所以"这件事的会话此刻在说什么"只能从执行面读。
+	History() []types.Message
 }
 
 // roleSessionHandle 是一个角色会话的运行时槽：引擎 + 回合准入闸门。
@@ -78,9 +81,23 @@ type roleEngine interface {
 //     不排队）。非重入锁上排队等待就是永久挂死——2026-09-23"迭代边界注入撞会话锁"
 //     是同一族的真实挂死现场。
 type roleSessionHandle struct {
-	id        string
+	id string
+	// role 是这一轮的 teammate 角色名（实时读面要知道"这是谁在干"）。
+	role      string
 	engine    roleEngine
 	roundGate sync.Mutex
+}
+
+// inFlight 报告这一轮**此刻**是否还在跑（不阻塞：闸门被占着 = 有回合在飞）。
+func (h *roleSessionHandle) inFlight() bool {
+	if h == nil {
+		return false
+	}
+	if h.roundGate.TryLock() {
+		h.roundGate.Unlock()
+		return false
+	}
+	return true
 }
 
 // ErrRoleRoundReentrant 表示同一角色会话在**本轮之内**被再次驱动（同 goroutine
@@ -314,7 +331,7 @@ func (r *Runtime) roleSessionFor(spec roleRoundSpec) (*roleSessionHandle, error)
 		engine.SetMaxLoops(spec.MaxLoops)
 	}
 
-	handle := &roleSessionHandle{id: roleSessionID, engine: engine}
+	handle := &roleSessionHandle{id: roleSessionID, role: strings.TrimSpace(spec.RoleName), engine: engine}
 	state.mu.Lock()
 	if state.sessions == nil {
 		state.sessions = make(map[string]*roleSessionHandle)

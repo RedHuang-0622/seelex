@@ -18,8 +18,8 @@ import { escapeHtml } from "./components.js";
 //              真值以 Observe 的返回为准。（本件只用它报头部计数，不按它分组。）
 //   3. events 审计流水：sessionstore.TeamworkEvent[]（plan / dispatch / join / milestone / retire）。
 //
-// **阶段（stages）口径已退场**：计划里就算有 stages，看板也不再按阶段分组（那会把
-// 「哪一步做什么、谁做、做完的判据」拆成看不见的碎片）。计划里**没有 stages 也能照常出图**。
+// **没有阶段（stages）这个概念**（2026-10-04）：计划里只有里程碑 + 工作项，看板也只按
+// 这两层画。老口径的计划即便在 JSON 里还带着 stages，它也不会被当成编排形状。
 
 const TEXT_LIMIT = 160;
 const CONTENT_LIMIT = 240;
@@ -186,12 +186,49 @@ export function memberMessagesOf(plan, role) {
   return Array.isArray(member?.messages) ? member.messages.filter(message => message && message.text) : [];
 }
 
+// memberStatusOf 取某位 teammate 的实时状态：**只有 running / free 两个值**
+// （2026-10-04 用户口径）。
+//
+// 后端给什么认什么，但取值收敛到这两个：一个"没在干活的人"不该有 done / idle / review
+// 三种写法（前端各写一遍就是三份口径）。后端缺失时按 free —— 缺状态字段是降级输入，
+// 而"这个人此刻没在跑"是降级下最诚实的读法。
 export function memberStatusOf(plan, role) {
   const name = String(role || "");
   const member = (Array.isArray(plan?.members) ? plan.members : []).find(entry => entry && String(entry.role || "") === name);
   const status = String(member?.status || "").trim().toLowerCase();
-  if (status) return status;
-  return "idle";
+  if (status === "running") return "running";
+  return "free";
+}
+
+// memberCurrentSessionOf 反解"这位 teammate 此刻那件事的会话"：优先在跑的工作项，
+// 其次等验收的，都没有就退到它最近开过工的那件事；一件都没开过 → 全空（调用方退到
+// 角色会话，并在提示里说明）。
+//
+// 为什么前端也要算一份：后端已经给了 current_session_id / current_work_item（权威），
+// 这里在同一条口径上做**降级兜底**——老快照（没有这两个字段）仍然要能点出正确的入口，
+// 而不是退回"员工的长期历史会话"。两处都读同一份事实（工作项 + 状态），不存在第二份口径。
+export function memberCurrentSessionOf(plan, role) {
+  const name = String(role || "");
+  const member = (Array.isArray(plan?.members) ? plan.members : []).find(entry => entry && String(entry.role || "") === name);
+  const provided = String(member?.current_session_id || "").trim();
+  if (provided) {
+    return { session_id: provided, work_item: String(member?.current_work_item || ""), name: "" };
+  }
+  let running = null;
+  let review = null;
+  let last = null;
+  for (const item of workItemsOf(plan)) {
+    if (String(item.role || "") !== name) continue;
+    const session = String(item.session_id || "").trim();
+    if (!session) continue;
+    const status = itemStatus(item);
+    if (status === "running") running = item;
+    else if (status === "review" && !review) review = item;
+    else last = item;
+  }
+  const chosen = running || review || last;
+  if (!chosen) return { session_id: "", work_item: "", name: "" };
+  return { session_id: String(chosen.session_id || ""), work_item: String(chosen.id || ""), name: String(chosen.name || "") };
 }
 
 // summarizeTeam 是看板头部的一行计数（里程碑 / 工作项 / 在编 / 作业）。
@@ -234,8 +271,8 @@ export function jobFailed(job) {
 
 // renderTeamBoard 渲染整块看板：里程碑（它的卡片列出名下工作项）+ teammate 区块 + 审计。
 //
-// 没有里程碑也没有工作项 → ""（不留空壳，口径同目标看板）。**计划里没有 stages 也照常出图**：
-// 阶段不再参与渲染，所以"没有 stages"不等于"没有编排"。
+// 没有里程碑也没有工作项 → ""（不留空壳，口径同目标看板）。判据只看里程碑与工作项：
+// 阶段口径已删除，不存在"计划的形状里有阶段"这回事。
 export function renderTeamBoard(input = {}) {
   const { plan = null, jobs = [], events = [], maxMembers = 0, stale = false, recovered = false } = input;
   const milestones = milestonesOf(plan);
@@ -405,8 +442,17 @@ export function renderTeamQueue(plan) {
     const policyChip = policy
       ? `<span class="chip team-policy is-${escapeHtml(policy)}">${escapeHtml(policy)}</span>`
       : "";
-    const roleLabel = session
-      ? `<button type="button" class="team-member-role is-openable" data-team-role-open="${escapeHtml(role)}" data-team-role-session="${escapeHtml(session)}" data-tip="打开 ${escapeHtml(role)} 的员工会话（这位此刻在干什么）" aria-label="打开 ${escapeHtml(role)} 的员工会话">${escapeHtml(role)}</button>`
+    // 入口开的是**这位此刻那件事的会话**（2026-10-04 用户口径：点开要是"当前的
+    // teammate 的会话"，不是员工的长期历史会话）。memberCurrentSessionOf 优先给"在跑的
+    // 工作项自己的会话号"，没有才退到角色会话——退的时候在 data-tip 里说明，不让用户
+    // 以为看到的是这件事的正文。
+    const currentSession = memberCurrentSessionOf(plan, role);
+    const target = currentSession.session_id || session;
+    const tip = currentSession.session_id
+      ? `打开 ${role} 当前这件事的会话（工作项 ${currentSession.work_item}${currentSession.name ? " · " + currentSession.name : ""}）`
+      : `打开 ${role} 的会话（这位此刻没有在跑的工作项，这是它的角色会话）`;
+    const roleLabel = target
+      ? `<button type="button" class="team-member-role is-openable" data-team-role-open="${escapeHtml(role)}" data-team-role-session="${escapeHtml(target)}" data-team-item="${escapeHtml(currentSession.work_item || "")}" data-tip="${escapeHtml(tip)}" aria-label="${escapeHtml(tip)}">${escapeHtml(role)}</button>`
       : `<span class="team-member-role">${escapeHtml(role)}</span>`;
     const latest = messages.length ? messages[messages.length - 1] : null;
     const body = latest
@@ -476,6 +522,53 @@ export function renderWorkItemSessionPanel(plan, itemID) {
     </div>`;
 }
 
+// renderTeammateLiveSession 渲染**当前 teammate 会话**的实时子页面（这件事自己的会话）。
+//
+// 为什么单开一个渲染形状而不是复用 renderRoleSessionDetail（2026-10-04 用户口径：
+// 「查看 teammate 的会话，全是历史会话不是当前的 teammate 的会话」）：角色会话详情读的是
+// **员工的长期角色会话**（跨工作项、跨轮次的落盘历史），而一个 Work Item 的会话是**进程内
+// 执行面**——它的正文不在会话库里，只能从执行面实时读（后端 TeammateSessionLive 的那份
+// 投影）。把后者硬塞进前者的形状，就会出现"看到的是历史、还以为在看当前"。
+//
+// 判据诚实：`running=false` 表示这一轮的执行面不在本进程（重启过 / 已收口），此时**不画
+// 空壳**，直接说清"正文不落盘、看不到"——那正是用户这次报的那件事的反面。
+export function renderTeammateLiveSession(view, meta = {}) {
+  const session = String(view?.session_id || "");
+  const role = String(view?.role || meta.role || "");
+  const workItem = String(meta.work_item || "");
+  const chips = [
+    `<span class="chip team-item-ref">${escapeHtml(workItem || "这件事")}</span>`,
+    role ? `<span class="chip team-role">${escapeHtml(role)}</span>` : "",
+    view?.live ? '<span class="chip team-status is-running">正在跑</span>' : '<span class="chip team-status is-free">已跑完</span>',
+  ].filter(Boolean).join("");
+  const head = `<div class="role-session-head">${chips}</div>`;
+  if (!view?.running) {
+    return `<div class="role-session-view team-item-panel" data-teammate-live="${escapeHtml(session)}">
+      ${head}
+      <div class="team-item-note">这一轮的执行面不在本进程（可能重启过或已收口）。teammate 的一轮活是**进程内**执行面，正文不落盘——这里读不到，不是"会话是空的"。</div>
+      <div class="team-item-note">结论与回执走团队看板：尾插回执在 teammate 那一行，产物正文在 team_context / jobs_manage。</div>
+    </div>`;
+  }
+  const rows = (Array.isArray(view?.messages) ? view.messages : [])
+    // 只画输入与回答两类：工具行的原始载荷是执行细节（后端已经筛过一遍，这里再筛一次是
+    // 纯函数该有的自觉——渲染件不画它不理解的东西）。
+    .filter(message => message && (String(message.role || "") === "user" || String(message.role || "") === "assistant"))
+    .filter(message => String(message.text || "").trim())
+    .map(message => {
+      const who = String(message.role || "") === "user" ? "输入" : (role || "teammate");
+      const text = String(message.text || "").trim();
+      return `<div class="role-kv-row team-live-row is-${escapeHtml(String(message.role || ""))}"><span class="role-kv-key">${escapeHtml(who)}</span><span class="role-kv-value" title="${escapeHtml(text)}">${escapeHtml(text)}</span></div>`;
+    }).join("");
+  const truncated = view?.truncated
+    ? '<div class="team-item-note">（只显示最近若干条；单条过长已截断）</div>'
+    : "";
+  return `<div class="role-session-view team-item-panel" data-teammate-live="${escapeHtml(session)}">
+      ${head}
+      <div class="role-kv">${rows || '<div class="team-item-note">这一轮还没有对话（刚派发，或回合还没写第一行）。</div>'}</div>
+      ${truncated}
+    </div>`;
+}
+
 // renderTeamAudit 是审计流水的最近几行（只追加、不重写；倒序 = 最新的在最上面）。
 export function renderTeamAudit(events) {
   const list = (Array.isArray(events) ? events : []).filter(item => item && item.kind);
@@ -513,7 +606,7 @@ function truncate(text, limit) {
 
 // TEAM_BOARD_CSS 是这块看板自己的样式（只吃 styles.css 的语义 token，不写第二套色值）。
 // 接线进右栏时把它并入 styles.css 的同一节；静态预览页直接注入这一段。
-// 阶段口径已退场：不再有 .team-stage* / .team-job* 一套。
+// 阶段口径已删除（2026-10-04）：不再有 .team-stage* / .team-job* 一套。
 export const TEAM_BOARD_CSS = `
 .team-board { display: flex; flex-direction: column; gap: 8px; min-width: 0; font-size: var(--text-sm); color: var(--text-strong); }
 .team-board-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: var(--text-xs); color: var(--text-dim); }
@@ -530,7 +623,7 @@ export const TEAM_BOARD_CSS = `
 .team-status.is-failed { color: var(--status-failed); border-color: var(--border-failed); background: var(--tint-failed); }
 .team-status.is-review { color: var(--status-info); border-color: var(--border-info); background: var(--tint-info); }
 .team-status.is-pending { color: var(--status-idle); }
-.team-status.is-idle { color: var(--status-idle); }
+.team-status.is-free { color: var(--status-idle); }
 .team-label { color: var(--faint); font-size: var(--text-xs); }
 .team-deps { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; min-width: 0; }
 .team-deps .chip { padding: 0 5px; border-radius: 4px; font-size: var(--text-xs); }

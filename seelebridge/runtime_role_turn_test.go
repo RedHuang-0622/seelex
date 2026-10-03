@@ -23,6 +23,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/RedHuang-0622/Seele/types"
+
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/agentteam"
 	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
@@ -56,6 +58,17 @@ func (engine *fakeRoleEngine) SetSystemPrompt(prompt string) {
 }
 
 // ClearHistory 是 FreshContext 回合的隔离手段（评审回合每轮前清历史）。
+// History 回答当前会话的对话历史（实时读面用；假引擎记下每次 ChatStream 的输入）。
+func (engine *fakeRoleEngine) History() []types.Message {
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+	history := make([]types.Message, 0, len(engine.inputs)*2)
+	for _, input := range engine.inputs {
+		history = append(history, types.Message{Role: "user"}.WithText(input))
+	}
+	return history
+}
+
 func (engine *fakeRoleEngine) ClearHistory() {
 	engine.mu.Lock()
 	engine.clears++

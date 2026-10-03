@@ -285,14 +285,16 @@ func (model Model) teamPanelLines() []string {
 
 // teamBoardLines 渲染**团队看板**（数据源 = Snapshot.Runtime.TeamworkBoard，与 GUI
 // 「团队看板」子页**同源投影**：同一份后端只读投影，不另起一套取值）。
-// 无计划（nil 或没有阶段）→ nil：不追加空壳，口径同 GUI。
+// 无计划（nil 或没有里程碑也没有工作项）→ nil：不追加空壳，口径同 GUI。
 //
-// 这一节刻意**不重算**阶段状态与拓扑层号——那些是纯渲染件
+// 这一节刻意**不重算**状态与拓扑层号——那些是纯渲染件
 // （gui/frontend/dist/team-board-view.js）的职责，终端里再折一遍就是第二份事实。
-// 这里只把投影里已有的东西逐行说清楚：阶段（角色 / 依赖边）、该阶段的作业行、里程碑。
+// 这里只把投影里已有的东西逐行说清楚：里程碑（屏障 + 内容）、里程碑下的工作项、
+// teammate 队列。**没有阶段**：阶段口径已整条退场（2026-10-04），终端与 GUI 一样
+// 不认这个形状（前端删了、终端留着 = headless 与有前端的路径不一致）。
 func (model Model) teamBoardLines() []string {
 	board := model.snapshot.Runtime.TeamworkBoard
-	if board == nil || (len(board.Stages) == 0 && len(board.WorkItems) == 0) {
+	if board == nil || (len(board.Milestones) == 0 && len(board.WorkItems) == 0) {
 		return nil
 	}
 	width := model.textLimit()
@@ -307,29 +309,10 @@ func (model Model) teamBoardLines() []string {
 			failed++
 		}
 	}
-	header := fmt.Sprintf("  ◆ 团队看板  %s · v%d · 阶段 %d · 工作项 %d · %s · 作业 %d 跑/%d 完/%d 败",
-		fallback(board.TeamID, "—"), board.Version, len(board.Stages), len(board.WorkItems), rosterText(board),
+	header := fmt.Sprintf("  ◆ 团队看板  %s · v%d · 里程碑 %d · 工作项 %d · %s · 作业 %d 跑/%d 完/%d 败",
+		fallback(board.TeamID, "—"), board.Version, len(board.Milestones), len(board.WorkItems), rosterText(board),
 		running, done, failed)
 	lines := []string{StyleTaskRunning.Render(oneLine(header, width))}
-	for _, stage := range board.Stages {
-		roles := "—"
-		if len(stage.Roles) > 0 {
-			roles = strings.Join(stage.Roles, ",")
-		}
-		deps := "—"
-		if len(stage.DependsOn) > 0 {
-			deps = strings.Join(stage.DependsOn, ",")
-		}
-		lines = append(lines, StyleChoiceInactive.Render(oneLine(
-			fmt.Sprintf("  %s  %s  deps:%s", stage.ID, roles, deps), width)))
-		for _, job := range board.Jobs {
-			if job.Stage != stage.ID && job.Node != stage.ID {
-				continue
-			}
-			lines = append(lines, StyleMuted.Render(oneLine(
-				fmt.Sprintf("    作业 %s %s %s", job.Handle, fallback(job.State, "—"), formatByteSize(job.Bytes)), width)))
-		}
-	}
 	// 里程碑甘特：里程碑之间串行（屏障），里程碑内部是工作项依赖 DAG。终端里同样
 	// **不重算**依赖层号与状态折算（那是渲染件的职责），只把投影里的东西逐行说清楚。
 	for _, milestone := range board.Milestones {
@@ -354,6 +337,15 @@ func (model Model) teamBoardLines() []string {
 				detail += " · deps:" + strings.Join(item.DependsOn, ",")
 			}
 			lines = append(lines, StyleMuted.Render(oneLine(detail, width)))
+			// 作业行跟着工作项走（归属只有一个形状：job.Node = 工作项 id）——原来挂在
+			// 阶段下面，阶段退了就挂到甘特节点下面。
+			for _, job := range board.Jobs {
+				if job.Node != item.ID {
+					continue
+				}
+				lines = append(lines, StyleMuted.Render(oneLine(
+					fmt.Sprintf("      作业 %s %s %s", job.Handle, fallback(job.State, "—"), formatByteSize(job.Bytes)), width)))
+			}
 		}
 	}
 	// teammate 段：名字 / 状态 / 负责的工作项名称队列（看板要回答"这个人手上还有什么"）。
@@ -366,7 +358,7 @@ func (model Model) teamBoardLines() []string {
 			queue = strings.Join(member.Queue, " → ")
 		}
 		lines = append(lines, StyleMuted.Render(oneLine(
-			fmt.Sprintf("  %s %s  队列:%s", member.Role, fallback(member.Status, "idle"), queue), width)))
+			fmt.Sprintf("  %s %s  队列:%s", member.Role, fallback(member.Status, "free"), queue), width)))
 	}
 	if board.Recovered {
 		// 来自会话存档快照（活体投影给不出时才兜底）：与 GUI 同形的痕迹标记。

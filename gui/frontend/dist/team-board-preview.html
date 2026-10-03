@@ -46,25 +46,25 @@
 <main class="grid">
   <section class="panel narrow">
     <h2>真实快照 · 右栏宽度（360px）</h2>
-    <div class="note">数据 = 会话 project-03b5b8d29af3f44b / session-b90ba1b5a3db5909 的 teamwork 模块：plan 事件（stages=3 members=3 milestones=3）+ dispatch/join 事件 + 作业 a1。</div>
+    <div class="note">数据 = 会话 project-03b5b8d29af3f44b / session-b90ba1b5a3db5909 的 teamwork 模块：plan 事件（members=3 milestones=3 items=3）+ dispatch/join 事件 + 作业 a1。</div>
     <div class="board-host" data-fixture="real"></div>
   </section>
 
   <section class="panel wide">
     <h2>真实快照 · 宽栏（720px）</h2>
-    <div class="note">同上一份数据，看阶段网格在宽栏下的分列（auto-fill 168px）。</div>
+    <div class="note">同上一份数据，看里程碑卡片在宽栏下的排布。</div>
     <div class="board-host" data-fixture="real"></div>
   </section>
 
   <section class="panel narrow">
     <h2>V 模型推进中（含 failed）· 右栏宽度</h2>
-    <div class="note">夹具：$teamwork 的 V 模型阶段模板 + 三层验证的作业终态（accept 在跑 / integration 失败 / unit 待派），用来一次看全五种阶段状态。</div>
+    <div class="note">夹具：$teamwork 的 V 模型里程碑 + 三层验证的工作项终态（accept 在跑 / integration 失败 / unit 待派）。</div>
     <div class="board-host" data-fixture="v"></div>
   </section>
 
   <section class="panel wide">
     <h2>V 模型推进中（含 failed）· 宽栏</h2>
-    <div class="note">同一份夹具。8 阶段 + 6 在编 + 4 里程碑。</div>
+    <div class="note">同一份夹具。6 在编 + 4 里程碑 + 8 工作项。</div>
     <div class="board-host" data-fixture="v"></div>
   </section>
 </main>
@@ -76,83 +76,83 @@
   style.textContent = TEAM_BOARD_CSS;
   document.head.append(style);
 
-  // 夹具一：真实快照（team queue-strip-fix）。
+  // 夹具一：真实快照（team queue-strip-fix）——里程碑 + 工作项口径（阶段口径已删除）。
   const REAL = {
     maxMembers: 6,
     plan: {
       team_id: "queue-strip-fix",
       version: 1,
-      stages: [
-        { id: "fix", roles: ["impl"], depends_on: [] },
-        { id: "verify", roles: ["verify"], depends_on: ["fix"] },
-        { id: "review", roles: ["review"], depends_on: ["verify"] },
-      ],
       members: [
-        { role: "impl", role_session_id: "draft_1790859327188580900_3-queue-strip-fix-impl", tools_policy: "readwrite" },
-        { role: "verify", role_session_id: "draft_1790859327188580900_3-queue-strip-fix-verify", tools_policy: "readwrite" },
-        { role: "review", role_session_id: "draft_1790859327188580900_3-queue-strip-fix-review", tools_policy: "readonly" },
+        { role: "impl", role_session_id: "draft_1790859327188580900_3-queue-strip-fix-impl", tools_policy: "readwrite", status: "running" },
+        { role: "verify", role_session_id: "draft_1790859327188580900_3-queue-strip-fix-verify", tools_policy: "readwrite", status: "free" },
+        { role: "review", role_session_id: "draft_1790859327188580900_3-queue-strip-fix-review", tools_policy: "readonly", status: "free" },
       ],
       milestones: [
-        { id: "m-fix", after: ["fix"] },
-        { id: "m-verify", after: ["verify"] },
-        { id: "m-review", after: ["review"] },
+        { id: "m-fix", name: "修复", status: "active" },
+        { id: "m-verify", name: "验证", depends_on: ["m-fix"] },
+        { id: "m-review", name: "复核", depends_on: ["m-verify"] },
+      ],
+      work_items: [
+        { id: "wi-fix", milestone: "m-fix", role: "impl", name: "修好输入框上沿排队条的动作按钮", status: "running", session_id: "draft_1790859327188580900_3-queue-strip-fix-impl", worktree: "seelex/impl-wi-fix", live: true },
+        { id: "wi-verify", milestone: "m-verify", role: "verify", name: "复核修复现场", status: "pending", depends_on: ["wi-fix"] },
+        { id: "wi-review", milestone: "m-review", role: "review", name: "收口复核", status: "pending", depends_on: ["wi-verify"] },
       ],
     },
     jobs: [
-      { handle: "a1", seq: 1, kind: "worker", state: "running", node: "fix", bytes: 0, exit_code: 0, started_at: "2026-10-01T21:34:12.8538807+08:00", scope: { session: "draft_1790859327188580900_3", subject: "emp_impl" } },
+      { handle: "a1", seq: 1, kind: "worker", state: "running", node: "wi-fix", bytes: 0, exit_code: 0, role: "impl", scope: { subject: "emp_impl" } },
     ],
     events: [
-      { at: "2026-10-01T13:34:07.8545913Z", kind: "plan", team_id: "queue-strip-fix", detail: "stages=3 members=3 milestones=3" },
-      { at: "2026-10-01T13:34:12.8618115Z", kind: "dispatch", stage: "fix", role: "impl", handle: "a1", detail: "阶段 fix（team queue-strip-fix）：修好输入框上沿排队条的动作按钮（现场⑤）" },
+      { at: "2026-10-01T13:34:07.8545913Z", kind: "plan", team_id: "queue-strip-fix", detail: "members=3 milestones=3 items=3" },
+      { at: "2026-10-01T13:34:12.8618115Z", kind: "dispatch", role: "impl", work_item: "wi-fix", milestone: "m-fix", handle: "a1", detail: "修好输入框上沿排队条的动作按钮（现场⑤）" },
       { at: "2026-10-01T13:37:00.4202564Z", kind: "join", handle: "a1", detail: "汇合窗口用尽，仍在跑 1 条：a1=running" },
     ],
   };
 
-  // 夹具二：V 模型阶段模板 + 三层验证的作业终态。
+  // 夹具二：V 模型里程碑 + 三层验证的工作项终态。
   const V = {
     maxMembers: 6,
     plan: {
       team_id: "v-model",
       version: 4,
-      stages: [
-        { id: "req", roles: ["pm"], depends_on: [] },
-        { id: "design", roles: ["arch"], depends_on: ["req"] },
-        { id: "contract_review", roles: ["contract_review"], depends_on: ["design"] },
-        { id: "impl", roles: ["exec"], depends_on: ["contract_review"] },
-        { id: "accept", roles: ["test_case"], depends_on: ["req", "impl"] },
-        { id: "integration", roles: ["test_case"], depends_on: ["design", "impl"] },
-        { id: "unit", roles: ["test_case"], depends_on: ["impl"] },
-        { id: "review", roles: ["tl"], depends_on: ["accept", "integration", "unit"] },
-      ],
       members: [
-        { role: "pm", role_session_id: "draft_9-v-model-pm", worktree: "seelex/pm" },
-        { role: "arch", role_session_id: "draft_9-v-model-arch", worktree: "seelex/arch" },
-        { role: "contract_review", role_session_id: "draft_9-v-model-contract_review", tools_policy: "readonly" },
-        { role: "exec", role_session_id: "draft_9-v-model-exec", worktree: "seelex/exec" },
-        { role: "test_case", role_session_id: "draft_9-v-model-test_case", worktree: "seelex/test-case" },
-        { role: "tl", role_session_id: "draft_9-v-model-tl", tools_policy: "readonly" },
+        { role: "pm", role_session_id: "draft_9-v-model-pm", worktree: "seelex/pm", status: "free" },
+        { role: "arch", role_session_id: "draft_9-v-model-arch", worktree: "seelex/arch", status: "free" },
+        { role: "contract_review", role_session_id: "draft_9-v-model-contract_review", tools_policy: "readonly", status: "free" },
+        { role: "exec", role_session_id: "draft_9-v-model-exec", worktree: "seelex/exec", status: "free" },
+        { role: "test_case", role_session_id: "draft_9-v-model-test_case", worktree: "seelex/test-case", status: "running" },
+        { role: "tl", role_session_id: "draft_9-v-model-tl", tools_policy: "readonly", status: "free" },
       ],
       milestones: [
-        { id: "m-design", after: ["design"], status: "done", content: "设计冻结：接口 team-board-view.js / 入参 plan+jobs+events / 无写入口。" },
-        { id: "m-contract", after: ["contract_review"], status: "done", content: "契约评审通过：状态五值 + 归属回落链 stage→node→emp_<role>。" },
-        { id: "m-impl", after: ["impl"], status: "done", content: "渲染件落地：22 项 node 用例全绿（orderStages / stageStatuses / 转义）。" },
-        { id: "m-verify", after: ["review"] },
+        { id: "m-design", name: "设计", status: "done", content: "设计冻结：接口 team-board-view.js / 入参 plan+jobs+events / 无写入口。" },
+        { id: "m-contract", name: "契约评审", depends_on: ["m-design"], status: "done", content: "契约评审通过：状态只有 running/free + 归属只有 node。" },
+        { id: "m-impl", name: "实现", depends_on: ["m-contract"], status: "done", content: "渲染件落地：用例全绿（里程碑分组 / 工作项层号 / 转义）。" },
+        { id: "m-verify", name: "验证", depends_on: ["m-impl"], status: "active" },
+      ],
+      work_items: [
+        { id: "wi-req", milestone: "m-design", role: "pm", name: "需求条目", status: "done", session_id: "wi-req-sess" },
+        { id: "wi-design", milestone: "m-design", role: "arch", name: "设计接口", status: "done", depends_on: ["wi-req"], session_id: "wi-design-sess" },
+        { id: "wi-contract", milestone: "m-contract", role: "contract_review", name: "契约复核", status: "done", session_id: "wi-contract-sess" },
+        { id: "wi-impl", milestone: "m-impl", role: "exec", name: "实现渲染件", status: "done", session_id: "wi-impl-sess" },
+        { id: "wi-accept", milestone: "m-verify", role: "test_case", name: "验收（左腿）", status: "running", session_id: "wi-accept-sess", live: true },
+        { id: "wi-integration", milestone: "m-verify", role: "test_case", name: "集成（右腿）", status: "review", depends_on: ["wi-impl"], session_id: "wi-integration-sess" },
+        { id: "wi-unit", milestone: "m-verify", role: "test_case", name: "单元（底边）", status: "pending", depends_on: ["wi-impl"] },
+        { id: "wi-review", milestone: "m-verify", role: "tl", name: "收口复核", status: "pending", depends_on: ["wi-accept", "wi-integration", "wi-unit"] },
       ],
     },
     jobs: [
-      { handle: "a10", state: "done", node: "req", bytes: 4321, exit_code: 0, scope: { subject: "emp_pm" } },
-      { handle: "a11", state: "done", node: "design", bytes: 15320, exit_code: 0, scope: { subject: "emp_arch" } },
-      { handle: "a12", state: "done", node: "contract_review", bytes: 2048, exit_code: 0, scope: { subject: "emp_contract_review" } },
-      { handle: "a13", state: "done", node: "impl", bytes: 90210, exit_code: 0, scope: { subject: "emp_exec" } },
-      { handle: "a14", state: "running", node: "accept", bytes: 1204, exit_code: 0, scope: { subject: "emp_test_case" } },
-      { handle: "a15", state: "failed", node: "integration", bytes: 760, exit_code: 1, scope: { subject: "emp_test_case" } },
+      { handle: "a10", state: "done", node: "wi-req", bytes: 4321, exit_code: 0, scope: { subject: "emp_pm" } },
+      { handle: "a11", state: "done", node: "wi-design", bytes: 15320, exit_code: 0, scope: { subject: "emp_arch" } },
+      { handle: "a12", state: "done", node: "wi-contract", bytes: 2048, exit_code: 0, scope: { subject: "emp_contract_review" } },
+      { handle: "a13", state: "done", node: "wi-impl", bytes: 90210, exit_code: 0, scope: { subject: "emp_exec" } },
+      { handle: "a14", state: "running", node: "wi-accept", bytes: 1204, exit_code: 0, scope: { subject: "emp_test_case" } },
+      { handle: "a15", state: "failed", node: "wi-integration", bytes: 760, exit_code: 1, scope: { subject: "emp_test_case" } },
     ],
     events: [
-      { at: "2026-10-02T01:00:03.0000000Z", kind: "plan", team_id: "v-model", detail: "stages=8 members=6 milestones=4" },
-      { at: "2026-10-02T01:02:11.0000000Z", kind: "dispatch", stage: "req", role: "pm", handle: "a10", detail: "需求条目 ↔ 验收用例逐条对应" },
+      { at: "2026-10-02T01:00:03.0000000Z", kind: "plan", team_id: "v-model", detail: "members=6 milestones=4 items=8" },
+      { at: "2026-10-02T01:02:11.0000000Z", kind: "dispatch", role: "pm", handle: "a10", work_item: "wi-req", milestone: "m-design", detail: "需求条目 ↔ 验收用例逐条对应" },
       { at: "2026-10-02T01:20:44.0000000Z", kind: "milestone", milestone: "m-design", detail: "设计冻结：接口 team-board-view.js 入参 = plan+jobs+events" },
-      { at: "2026-10-02T01:41:09.0000000Z", kind: "dispatch", stage: "integration", role: "test_case", handle: "a15", detail: "设计接口 ↔ 集成路径" },
-      { at: "2026-10-02T01:44:52.0000000Z", kind: "milestone", milestone: "m-impl", detail: "渲染件落地：22 项 node 用例全绿" },
+      { at: "2026-10-02T01:41:09.0000000Z", kind: "dispatch", role: "test_case", handle: "a15", work_item: "wi-integration", milestone: "m-verify", detail: "设计接口 ↔ 集成路径" },
+      { at: "2026-10-02T01:44:52.0000000Z", kind: "milestone", milestone: "m-impl", detail: "渲染件落地，用例全绿" },
       { at: "2026-10-02T01:52:30.0000000Z", kind: "retire", role: "exec", detail: "回收作业、释放 worktree、清会话内容（保留在编）" },
     ],
   };

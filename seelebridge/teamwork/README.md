@@ -11,8 +11,9 @@
   （`seelebridge/runtime_teamwork.go`）注入——本包因此能在没有引擎、没有 git 的测试里把
   编排语义（顺序、超员拒绝、作用域回收、退场四步）全部跑完。
 
-顺序的**唯一事实**是计划的 `stages[].depends_on`，不是 leader 的调用姿势，也不是任何
-「上一轮是谁」的隐式状态。
+顺序的**唯一事实**是计划的顺序边：里程碑之间是 `milestones[].depends_on`（屏障），里程碑内是
+`work_items[].depends_on`（DAG）——不是 leader 的调用姿势，也不是任何「上一轮是谁」的隐式状态。
+（`stages` 已整条退场：它不在计划结构、DTO、投影与工具 schema 里，读侧也不再认它。）
 
 ## 与其它域的关系
 
@@ -46,8 +47,9 @@ stateDiagram-v2
     Closed --> [*]
 ```
 
-（阶段制口径仍可跑：`team_plan(stages…)` → `team_dispatch(role, goal)` → `team_join` →
-`team_milestone` → `team_retire` → `team_close`。Work Item 口径与它并存，见下。）
+（阶段制口径已退场：`team_plan(stages…)` 写进去的阶段不再被任何读侧认作顺序事实，工具 schema 里
+也没有这个属性。leader 级的老派发 `team_dispatch(role, goal)` 仍受理，但**归属只有格**——它没有
+可回执的阶段，只会拿到 handle。）
 
 ## Work Item：一里程碑一屏障、一件事一套隔离
 
@@ -68,9 +70,10 @@ stateDiagram-v2
 
 职责：
 
-- 计划校验与持久化（`SetPlan`）：一角色一成员、无内置角色（`main` / `user`）、人数上限、
-  stage id 唯一、`depends_on` 无环、里程碑引用存在——**在持久化点再校验一次**（计划可被
-  leader 重写，第二道闸必须存在）；
+- 计划校验与持久化（`SetPlan`）：会话作用域、`PlanStore` / `jobs.Manager` 装配、成员权限格子
+  合法性（0..255）、里程碑与工作项的 id 与依赖闸门、人数上限（`limits.team.max_teammates`，
+  超限**显式拒绝**，不静默排队）——**在持久化点再校验一次**（计划可被 leader 重写，
+  第二道闸必须存在）；
 - 派发（含去重与超员拒绝）、有界汇合、里程碑、退场四步与整队收口（`Close`）；
 - 追加 `plan / dispatch / join / milestone / retire / close` 审计行（append-only）。
 
@@ -137,7 +140,8 @@ stateDiagram-v2
 - 换工作区策略：实现 `WorkspaceReleaser`（须遵守 `ErrUncommittedChanges` 语义）；
 - 换看板存档面 / 作业输出面：实现 `BoardCloser` / `JobOutputs`。两者都是**可选**端口
   （"有就有、没有就是没装配"）：缺失 = 不写存档 / 交回框架自建输出文件；
-- 换顺序来源：目前唯一事实是 `stages[].depends_on`——要改顺序语义就改计划校验，而不是
+- 换顺序来源：目前唯一事实是里程碑屏障（`milestones[].depends_on`）与里程碑内依赖
+  （`work_items[].depends_on`）——要改顺序语义就改计划校验，而不是
   在执行体里加隐式状态。
 
 ## Review 指南

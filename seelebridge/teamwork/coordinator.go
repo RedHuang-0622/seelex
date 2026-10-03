@@ -60,7 +60,7 @@ func (c *Coordinator) SetPlan(ctx context.Context, plan sessionstore.TeamworkPla
 	return c.audit(ctx, sessionstore.TeamworkEvent{
 		Kind:   sessionstore.TeamworkEventPlan,
 		TeamID: plan.TeamID,
-		Detail: fmt.Sprintf("stages=%d members=%d milestones=%d items=%d", len(plan.Stages), len(plan.Members), len(plan.Milestones), countItems(plan)),
+		Detail: fmt.Sprintf("members=%d milestones=%d items=%d", len(plan.Members), len(plan.Milestones), countItems(plan)),
 	})
 }
 
@@ -77,25 +77,27 @@ func countItems(plan sessionstore.TeamworkPlan) int {
 //
 // 顺序（谁先谁后）不在这里判定——它在计划的 depends_on 里，由 leader 掌控调
 // 用时机（§6.2）。这里只管三件事：角色在编、人数未满、作用域正确。
-func (c *Coordinator) Dispatch(ctx context.Context, role, goal string) (jobs.Handle, string, error) {
+//
+// 返回值只有 handle（2026-10-04）：阶段口径退场后，这个"teammate 级老口径"的派发
+// 不再有可回执的归属（归 Work Item 的一轮走 DispatchItem，那里回 item id）。
+func (c *Coordinator) Dispatch(ctx context.Context, role, goal string) (jobs.Handle, error) {
 	if c.workers == nil {
-		return "", "", errors.New("teamwork: team_dispatch 需要 WorkerRunner（未装配）")
+		return "", errors.New("teamwork: team_dispatch 需要 WorkerRunner（未装配）")
 	}
 	plan, err := c.store.ReadPlan(ctx, c.key)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 	member, ok := memberFor(plan, role)
 	if !ok {
-		return "", "", fmt.Errorf("teamwork: 角色 %q 不在计划里（一角色一 teammate；先 team_plan 增补）", role)
+		return "", fmt.Errorf("teamwork: 角色 %q 不在计划里（一角色一 teammate；先 team_plan 增补）", role)
 	}
 	if err := c.ensureCapacity(role); err != nil {
-		return "", "", err
+		return "", err
 	}
-	stage := stageFor(plan, role)
 	groups, err := memberPermissionGroups(member)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 	// 输出归属（§4.7 / S5）：装配了产品输出面就把这一轮的正文交给产品自有文件，
 	// 否则交回框架自建（并按框架语义在销项 / 驱逐 / Close 时被删）。分配失败不降级
@@ -104,7 +106,7 @@ func (c *Coordinator) Dispatch(ctx context.Context, role, goal string) (jobs.Han
 	if c.jobOutputs != nil {
 		path, err := c.jobOutputs.JobOutputPath(ctx, role)
 		if err != nil {
-			return "", "", fmt.Errorf("teamwork: 分配作业输出路径失败: %w", err)
+			return "", fmt.Errorf("teamwork: 分配作业输出路径失败: %w", err)
 		}
 		outputPath = path
 	}
@@ -117,19 +119,17 @@ func (c *Coordinator) Dispatch(ctx context.Context, role, goal string) (jobs.Han
 		ToolsPolicy:      member.ToolsPolicy,
 		PermissionGroups: groups,
 		Worktree:         member.Worktree,
-		Stage:            stage,
 		Goal:             goal,
 		MaxTurns:         c.maxTurns,
 		OutputPath:       outputPath,
 	}
 	payload, err := json.Marshal(request)
 	if err != nil {
-		return "", "", fmt.Errorf("teamwork: 编码 worker 载荷: %w", err)
+		return "", fmt.Errorf("teamwork: 编码 worker 载荷: %w", err)
 	}
 	handle, err := c.jobs.Dispatch(ctx, jobs.Spec{
 		Kind:  KindWorker,
 		Scope: jobs.Scope{Session: c.key.SessionID, Subject: request.Subject},
-		Node:  stage,
 		// 行标题只能来自派发时这句话（作业会活过这一轮）。
 		Description: fmt.Sprintf("%s: %s", role, goal),
 		Payload:     payload,
@@ -140,24 +140,23 @@ func (c *Coordinator) Dispatch(ctx context.Context, role, goal string) (jobs.Han
 		Dedup: "teamwork:" + role,
 	})
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 	// 派发成功后才写状态：句柄只是**投影**（jobs I-4），不在册的值一律视为过期。
-	plan.State.Stage = stage
 	if plan.State.Jobs == nil {
 		plan.State.Jobs = map[string]string{}
 	}
 	plan.State.Jobs[role] = describeHandle(handle)
 	if err := c.store.WritePlan(ctx, c.key, plan, c.maxMembers); err != nil {
-		return handle, stage, err
+		return handle, err
 	}
 	if err := c.audit(ctx, sessionstore.TeamworkEvent{
-		Kind: sessionstore.TeamworkEventDispatch, TeamID: plan.TeamID, Stage: stage,
-		Role: role, Handle: describeHandle(handle), Node: stage, Detail: goal,
+		Kind: sessionstore.TeamworkEventDispatch, TeamID: plan.TeamID,
+		Role: role, Handle: describeHandle(handle), Detail: goal,
 	}); err != nil {
-		return handle, stage, err
+		return handle, err
 	}
-	return handle, stage, nil
+	return handle, nil
 }
 
 // Join 是一次**有界**汇合等待：只在该汇合点真有依赖时用（§6.2 / §6.3 的 A 姿势）。
@@ -206,8 +205,9 @@ func (c *Coordinator) Join(ctx context.Context, handles []jobs.Handle, budget ti
 
 // Milestone 声明一个里程碑并写入 leader 撰写的内容（§4.5）。
 //
-// 判据是**依赖边**而不是墙钟：after 里的每个阶段都必须至少派发过一次 teammate
-// ——否则"里程碑"就会变成一句没有事实支撑的口号。
+// 判据是**依赖边**而不是墙钟：它依赖的每个里程碑都必须已经 done——否则"里程碑"就会
+// 变成一句没有事实支撑的口号。（阶段制时代这里看的是 `after` 里的阶段派发过没有；
+// 阶段口径退场后，判据回到唯一那份顺序事实：milestones[].depends_on。）
 func (c *Coordinator) Milestone(ctx context.Context, id, content string) error {
 	plan, err := c.store.ReadPlan(ctx, c.key)
 	if err != nil {
@@ -223,9 +223,9 @@ func (c *Coordinator) Milestone(ctx context.Context, id, content string) error {
 	if index < 0 {
 		return fmt.Errorf("teamwork: 计划里没有里程碑 %q", id)
 	}
-	for _, stageID := range plan.Milestones[index].After {
-		if !stageDispatched(plan, stageID) {
-			return fmt.Errorf("teamwork: 里程碑 %q 的阶段 %q 还没有派发过任何 teammate（里程碑只能声明在依赖边之后）", id, stageID)
+	for _, dependency := range plan.Milestones[index].DependsOn {
+		if !milestoneDone(plan, dependency) {
+			return fmt.Errorf("teamwork: 里程碑 %q 依赖的里程碑 %q 还没完成（里程碑只能声明在依赖边之后）", id, dependency)
 		}
 	}
 	plan.Milestones[index].Status = sessionstore.TeamworkMilestoneDone
@@ -460,11 +460,11 @@ func (c *Coordinator) ensureCapacity(role string) error {
 	return nil
 }
 
-// stageDispatched 报告某个阶段是否已经派发过 teammate。
-func stageDispatched(plan sessionstore.TeamworkPlan, stageID string) bool {
-	for role := range plan.State.Jobs {
-		if stageFor(plan, role) == stageID {
-			return true
+// milestoneDone 报告某个里程碑是否已 done（不在计划里 = 未完成，不静默放过）。
+func milestoneDone(plan sessionstore.TeamworkPlan, id string) bool {
+	for _, milestone := range plan.Milestones {
+		if milestone.ID == id {
+			return milestone.Status == sessionstore.TeamworkMilestoneDone
 		}
 	}
 	return false

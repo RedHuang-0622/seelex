@@ -27,9 +27,9 @@ type TeamworkMemberContextView struct {
 	RoleSessionID string `json:"role_session_id,omitempty"`
 	Worktree      string `json:"worktree,omitempty"`
 	ToolsPolicy   string `json:"tools_policy,omitempty"`
-	// Stage 是这位成员**归属的阶段**（角色首次出现的阶段；顺序的唯一事实仍是
-	// plan.stages[].depends_on）。
-	Stage string `json:"stage,omitempty"`
+	// Milestone 是这位成员**当前归属的里程碑**（角色在其工作项里首次出现的里程碑；
+	// 顺序的唯一事实是 plan.milestones[].depends_on——屏障）。
+	Milestone string `json:"milestone,omitempty"`
 
 	// ── 作业行（作业表侧，内存态） ────────────────────────────────────────
 	//

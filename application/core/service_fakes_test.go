@@ -311,6 +311,10 @@ type fakeRuntime struct {
 	asyncRuns []dto.AsyncRunRecord
 	// asyncEvents 是 AsyncRunEvents 的回答口（nil = 该消费者不启动，同生产关闭能力时）。
 	asyncEvents chan struct{}
+	// teamworkRuns / teamworkEvents 是 **teammate 作业表**（jobs.Manager）的替身：
+	// 与 asyncRuns 一样是"两张表"里的另一张（contract.TeamworkJobCompletion）。
+	teamworkRuns   []dto.TeamworkJobCompletionRecord
+	teamworkEvents chan struct{}
 	// planPolicyBySession 是按会话 plan 策略槽（G1-C：镜像生产
 	// Runtime.SetPlanPolicyFor 语义；fake 需锁保护并发 runChat 写入）。
 	planPolicyMu        sync.Mutex
@@ -547,6 +551,14 @@ func (runtime *fakeRuntime) AsyncRunsSnapshot() []dto.AsyncRunRecord { return ru
 
 // AsyncRunEvents 返回测试自己持有的信号口（默认 nil = 消费者不启动）。
 func (runtime *fakeRuntime) AsyncRunEvents() <-chan struct{} { return runtime.asyncEvents }
+
+// TeamworkJobCompletions / TeamworkJobEvents 回答 teammate 作业表（jobs.Manager）的
+// 只读投影与信号口；两个字段都空 = 未装配（消费方的 select 忽略 nil 通道）。
+func (runtime *fakeRuntime) TeamworkJobCompletions() []dto.TeamworkJobCompletionRecord {
+	return runtime.teamworkRuns
+}
+
+func (runtime *fakeRuntime) TeamworkJobEvents() <-chan struct{} { return runtime.teamworkEvents }
 
 // TaskSnapshotFor 保持会话粒度（持久化落盘/请求尾部打点块用）。
 func (runtime *fakeRuntime) TaskSnapshotFor(sessionID string) []dto.TaskRecord {

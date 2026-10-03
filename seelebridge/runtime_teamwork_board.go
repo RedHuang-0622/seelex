@@ -72,7 +72,6 @@ func buildTeamworkBoardView(plan sessionstore.TeamworkPlan, events []sessionstor
 		State:        plan.State.State,
 		ClosedAt:     plan.State.ClosedAt,
 		ClosedReason: plan.State.ClosedReason,
-		Stages:       teamworkStageViews(plan.Stages),
 		Members:      teamworkMemberViews(plan, events, records),
 		Milestones:   teamworkMilestoneViews(plan.Milestones),
 		WorkItems:    teamworkWorkItemViews(plan, bindings, records),
@@ -179,10 +178,10 @@ func (r *Runtime) TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoardView
 
 // teamworkPlanHasOrchestration 报告一份计划有没有**可看的编排**。
 //
-// 判据从"有阶段"扩成"有阶段或里程碑"：Work Item 口径的计划（2026-10-03）没有 stages，
-// 只看 stages 会把一份排得好好的计划当成"没有编排"而整块退场。
+// 判据 = 有里程碑（阶段口径 2026-10-04 整条退场：计划里**没有** stages 这个概念了）。
+// 里程碑是计划的最小形状（校验层也要求至少一份），所以"没有里程碑"就等于"没有计划"。
 func teamworkPlanHasOrchestration(plan sessionstore.TeamworkPlan) bool {
-	return len(plan.Stages) > 0 || len(plan.Milestones) > 0
+	return len(plan.Milestones) > 0
 }
 
 // invalidateTeamworkBoard 丢弃看板缓存（team_* 工具成功返回后调用）。
@@ -199,27 +198,12 @@ func (r *Runtime) invalidateTeamworkBoard() {
 	r.teamworkMu.Unlock()
 }
 
-// teamworkStageViews 搬运阶段（depends_on 是顺序的唯一事实，原样搬）。
-func teamworkStageViews(stages []sessionstore.TeamworkStage) []dto.TeamworkStageView {
-	if len(stages) == 0 {
-		return nil
-	}
-	views := make([]dto.TeamworkStageView, 0, len(stages))
-	for _, stage := range stages {
-		views = append(views, dto.TeamworkStageView{
-			ID:        stage.ID,
-			Roles:     append([]string(nil), stage.Roles...),
-			DependsOn: append([]string(nil), stage.DependsOn...),
-		})
-	}
-	return views
-}
-
 // teamworkMemberViews 搬运在编成员。Permission 格子**不下发**：它是权责分配的实现细节，
 // 面板要的是"这个人是 readonly 还是 readwrite"（tools_policy 已够）。
 //
 // Status / Queue / Messages 是 **Work Item 口径**的三件（2026-10-03）：状态由这个人名下
-// 工作项折算，队列是"还没完成的工作项名称"（销项即出队），消息是尾插进来的回执。
+// 工作项折算（只有 running / free 两值），队列是"还没完成的工作项名称"（销项即出队），
+// 消息是尾插进来的回执。
 func teamworkMemberViews(plan sessionstore.TeamworkPlan, events []sessionstore.TeamworkEvent, records []jobs.Record) []dto.TeamworkMemberView {
 	if len(plan.Members) == 0 {
 		return nil
@@ -237,6 +221,7 @@ func teamworkMemberViews(plan sessionstore.TeamworkPlan, events []sessionstore.T
 			ToolsPolicy:   member.ToolsPolicy,
 			Status:        teamworkMemberStatus(plan, member),
 		}
+		view.CurrentSessionID, view.CurrentWorkItem = teamworkMemberCurrent(plan, member.Role)
 		for _, milestone := range plan.Milestones {
 			for _, item := range milestone.Items {
 				if item.Role != member.Role {
@@ -262,24 +247,73 @@ func teamworkMemberViews(plan sessionstore.TeamworkPlan, events []sessionstore.T
 	return views
 }
 
-// teamworkMemberStatus 把一个人名下工作项的状态折算成人的状态：
-// 有待验收 > 在跑 > 空闲。
+// teamworkMemberStatus 把一个人名下工作项的状态折算成人的状态，**只有两个值**
+// （2026-10-04 用户口径）：
+//
+//   - `running`：这个人名下有工作项**正在跑**（status=running）；
+//   - `free`：其余一切（没派过活 / 活跑完了在等验收 / 已销项）。
+//
+// 为什么没有 done / review：这个字段回答的是"**这个人此刻在不在干活**"。一件事做完没
+// 做完是工作项自己的 status 列，两处都写"完成"就是把同一个事实存两遍——而 teammate 的
+// 状态一旦出现 done，看板上就会出现"人 done 了但队列里还有活"这种自相矛盾的一帧。
 func teamworkMemberStatus(plan sessionstore.TeamworkPlan, member sessionstore.TeamworkMember) string {
-	status := "idle"
 	for _, milestone := range plan.Milestones {
 		for _, item := range milestone.Items {
 			if item.Role != member.Role {
 				continue
 			}
-			switch item.StatusOrPending() {
-			case sessionstore.TeamworkItemReview:
-				return "review"
-			case sessionstore.TeamworkItemRunning:
-				status = "running"
+			if item.StatusOrPending() == sessionstore.TeamworkItemRunning {
+				return teamworkMemberRunning
 			}
 		}
 	}
-	return status
+	return teamworkMemberFree
+}
+
+const (
+	// teamworkMemberRunning / teamworkMemberFree 是 teammate 状态的**全部取值**。
+	teamworkMemberRunning = "running"
+	teamworkMemberFree    = "free"
+)
+
+// teamworkMemberCurrent 反解"这个人此刻那件事的会话"：优先在跑的工作项，其次等验收的，
+// 都没有就退到它最近一次真开过工的工作项（计划顺序里最后一个带会话号的）。
+//
+// 为什么不能拿 RoleSessionID 顶替（2026-10-04 用户口径：看板点开的是"历史会话"而不是
+// 当前的 teammate 的会话）：RoleSessionID 是**员工的长期会话**（跨工作项、跨轮次），
+// 而"一 Work Item 一个 Session"的隔离意味着每一件事都有自己的会话号——面板要的是后者。
+func teamworkMemberCurrent(plan sessionstore.TeamworkPlan, role string) (sessionID, workItem string) {
+	var runningSession, runningItem string
+	var reviewSession, reviewItem string
+	var lastSession, lastItem string
+	for _, milestone := range plan.Milestones {
+		for _, item := range milestone.Items {
+			if item.Role != role || strings.TrimSpace(item.SessionID) == "" {
+				continue
+			}
+			switch item.StatusOrPending() {
+			case sessionstore.TeamworkItemRunning:
+				// 在跑的那件事优先（同一个人同时只跑一件事：派发按工作项去重）。
+				runningSession, runningItem = item.SessionID, item.ID
+			case sessionstore.TeamworkItemReview:
+				// 等验收的次之：结论已经有了，但会话还是"这件事的会话"。
+				if reviewSession == "" {
+					reviewSession, reviewItem = item.SessionID, item.ID
+				}
+			default:
+				// 其余（pending / done）：只当兜底——"这个人最近开过工的那件事"。
+				lastSession, lastItem = item.SessionID, item.ID
+			}
+		}
+	}
+	switch {
+	case runningSession != "":
+		return runningSession, runningItem
+	case reviewSession != "":
+		return reviewSession, reviewItem
+	default:
+		return lastSession, lastItem
+	}
 }
 
 // teamworkWorkItemViews 搬运工作项（甘特图的扁平数据面）。
@@ -330,7 +364,7 @@ func teamworkMilestoneViews(milestones []sessionstore.TeamworkMilestone) []dto.T
 			ID:        milestone.ID,
 			Name:      milestone.Name,
 			DependsOn: append([]string(nil), milestone.DependsOn...),
-			After:     append([]string(nil), milestone.After...),
+			Required:  append([]string(nil), milestone.Required...),
 			Status:    milestone.Status,
 			Content:   milestone.Content,
 		})
@@ -338,11 +372,9 @@ func teamworkMilestoneViews(milestones []sessionstore.TeamworkMilestone) []dto.T
 	return views
 }
 
-// teamworkJobViews 搬运作业行，并给出**权威归属**：Stage = record.Node（派发时写的是阶段 id），
-// Role = 作用域主体 emp_<role> 反解。
-//
-// 渲染件里还有一条 stage → node → subject 的回落链，那是**接线前的过渡口径**；
-// 这里把 stage/role 都填上，回落链就不会被走到。
+// teamworkJobViews 搬运作业行，并给出**权威归属**：Node = record.Node（派发时写的是
+// 工作项 id / 里程碑 id），Role = 作用域主体 emp_<role> 反解。阶段口径已退场，作业行
+// 不再有 stage 这一列（同一件事的归属只有一个：Node）。
 func teamworkJobViews(records []jobs.Record) []dto.TeamworkJobView {
 	if len(records) == 0 {
 		return nil
@@ -355,7 +387,6 @@ func teamworkJobViews(records []jobs.Record) []dto.TeamworkJobView {
 			State:    string(record.State),
 			ExitCode: record.ExitCode,
 			Bytes:    record.Bytes,
-			Stage:    record.Node,
 			Node:     record.Node,
 			Role:     roleFromSubject(subject),
 			Scope:    dto.TeamworkJobScopeView{Subject: subject},
@@ -386,10 +417,11 @@ func teamworkEventViews(events []sessionstore.TeamworkEvent) []dto.TeamworkEvent
 		views = append(views, dto.TeamworkEventView{
 			At:        event.At.Unix(),
 			Kind:      event.Kind,
-			Stage:     event.Stage,
 			Role:      event.Role,
 			Handle:    event.Handle,
+			Node:      event.Node,
 			Milestone: event.Milestone,
+			WorkItem:  event.WorkItem,
 			Detail:    event.Detail,
 		})
 	}

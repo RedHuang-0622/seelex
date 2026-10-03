@@ -114,7 +114,7 @@ func TestTeamworkPlanHandlerPersistsPlan(t *testing.T) {
 	ctx := seeletelemetry.WithSessionID(context.Background(), "s-team")
 	receipt, err := r.teamPlanHandler(ctx, `{
 		"team_id": "v-model",
-		"stages": [{"id":"req","roles":["pm"]},{"id":"impl","roles":["exec"],"depends_on":["req"]}],
+		"milestones": [{"id":"m-req","name":"需求"},{"id":"m-impl","name":"实现","depends_on":["m-req"]}],
 		"members": [{"role":"pm"},{"role":"exec"}]
 	}`)
 	if err != nil {
@@ -127,7 +127,7 @@ func TestTeamworkPlanHandlerPersistsPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("计划未落持久面: %v", err)
 	}
-	if plan.TeamID != "v-model" || len(plan.Stages) != 2 || len(plan.Members) != 2 {
+	if plan.TeamID != "v-model" || len(plan.Milestones) != 2 || len(plan.Members) != 2 {
 		t.Fatalf("计划内容不符: %+v", plan)
 	}
 	if plan.Version != 1 {
@@ -149,7 +149,7 @@ func TestTeamworkDispatchRefusesUnenrolledRole(t *testing.T) {
 		t.Fatalf("SetTeamworkBackend: %v", err)
 	}
 	ctx := seeletelemetry.WithSessionID(context.Background(), "s-team")
-	if _, err := r.teamPlanHandler(ctx, `{"team_id":"t","stages":[{"id":"req","roles":["pm"]}],"members":[{"role":"pm"}]}`); err != nil {
+	if _, err := r.teamPlanHandler(ctx, `{"team_id":"t","milestones":[{"id":"m-req"}],"members":[{"role":"pm"}]}`); err != nil {
 		t.Fatalf("team_plan: %v", err)
 	}
 	if _, err := r.teamDispatchHandler(ctx, `{"role":"ghost","goal":"x"}`); err == nil {
@@ -163,7 +163,7 @@ func TestTeamworkToolsNeedSessionScope(t *testing.T) {
 	if err := r.SetTeamworkBackend(teamworkTestBackend(&memPlanStore{}, "s-team")); err != nil {
 		t.Fatalf("SetTeamworkBackend: %v", err)
 	}
-	if _, err := r.teamPlanHandler(context.Background(), `{"team_id":"t","stages":[{"id":"a","roles":["pm"]}],"members":[{"role":"pm"}]}`); err == nil {
+	if _, err := r.teamPlanHandler(context.Background(), `{"team_id":"t","milestones":[{"id":"m-a"}],"members":[{"role":"pm"}]}`); err == nil {
 		t.Fatal("没有会话归属的调用应被拒绝（工具必须在会话回合内调用）")
 	}
 }

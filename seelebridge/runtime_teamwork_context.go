@@ -160,7 +160,7 @@ func teamworkMemberContext(ctx context.Context, plan sessionstore.TeamworkPlan, 
 		RoleSessionID: member.RoleSessionID,
 		Worktree:      member.Worktree,
 		ToolsPolicy:   member.ToolsPolicy,
-		Stage:         teamworkRoleStage(plan, member.Role),
+		Milestone:     teamworkRoleMilestone(plan, member.Role),
 	}
 	subject := teamwork.SubjectForRole(member.Role)
 	record, found := latestRecordFor(records, subject)
@@ -252,12 +252,17 @@ func latestRecordFor(records []jobs.Record, subject string) (jobs.Record, bool) 
 	return chosen, found
 }
 
-// teamworkRoleStage 反解角色的归属阶段：该角色在 stages[].roles 里首次出现的那一个。
-func teamworkRoleStage(plan sessionstore.TeamworkPlan, role string) string {
-	for _, stage := range plan.Stages {
-		for _, candidate := range stage.Roles {
-			if candidate == role {
-				return stage.ID
+// teamworkRoleMilestone 反解角色**当前归属的里程碑**：这个角色在哪个里程碑的工作项里
+// 出现过（按计划里的里程碑顺序取第一个）。
+//
+// 它是"这个人此刻在干什么"的定位坐标。阶段口径已退场：不再有"角色的归属阶段"这回事——
+// 同一个角色可以在不同里程碑的多个工作项里出现，所以这个值回答的是"它最早出现在哪一步"，
+// 而不是一条顺序事实（顺序事实是 milestones[].depends_on 与 work_items[].depends_on）。
+func teamworkRoleMilestone(plan sessionstore.TeamworkPlan, role string) string {
+	for _, milestone := range plan.Milestones {
+		for _, item := range milestone.Items {
+			if item.Role == role {
+				return milestone.ID
 			}
 		}
 	}
