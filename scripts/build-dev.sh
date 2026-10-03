@@ -73,13 +73,19 @@ sync_package_plugins() {
   if [[ ! -d "$src" ]]; then
     return
   fi
-  if command -v diff >/dev/null 2>&1 && [[ -d "$dest" ]] && diff -rq "$src" "$dest" >/dev/null 2>&1; then
+  # 判据只看"仓库里有的，包里是不是一致的"：包内**多出来**的目录不算差异
+  # （那可能是本机自加、不入库的插件，见下面的"只覆盖不删除"）。
+  if command -v diff >/dev/null 2>&1 && [[ -d "$dest" ]] &&
+     ! diff -rq "$src" "$dest" 2>/dev/null | grep -qv "Only in $dest"; then
     return
   fi
-  rm -rf "$dest"
-  mkdir -p "$(dirname "$dest")"
-  cp -r "$src" "$dest"
-  echo "[build-dev] plugins: plugins/ -> dist/seelex-gui-dev/plugins/"
+  # **只覆盖、不删除**（2026-10-03 修正）：plugins/ 里除了入库的插件，还可能放
+  # 着**本机自加、不入库**的试验插件（它们不在 git 里，仓库也就无从声明它们）。
+  # 整树镜像（rm -rf）会把这类插件一并抹掉——那是替使用者销毁现场。
+  # 代价是仓库里已删除的插件可能在包里残留（包是构建产物，残留可接受）。
+  mkdir -p "$dest"
+  cp -r "$src/." "$dest/"
+  echo "[build-dev] plugins: plugins/ -> dist/seelex-gui-dev/plugins/（只覆盖，不删包内自加目录）"
 }
 sync_package_plugins
 
