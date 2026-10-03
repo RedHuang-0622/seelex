@@ -55,6 +55,34 @@ sync_package_config() {
 }
 sync_package_config
 
+# ── 包内插件同步 ────────────────────────────────────────────────────────────
+# 与 config/ 同一条口径（2026-10-03 补齐）：运行中的 dev GUI 按 **CWD 相对路径**
+# 读 plugins/，只重建 exe、不同步 plugins/，包内那份就冻结在"上一次跑
+# build-gui.ps1 的那天"——仓库里改的 skill / plugin.md 口径在运行中的 app 上
+# 看起来"完全没生效"。
+#
+# 实例（2026-10-03）：teamwork 的 SKILL.md 改成「里程碑 + Work Item」口径之后，
+# `$teamwork` 召回的仍是阶段制纪律——包内副本停在 21:07，注入的是旧文本。
+# 与 2026-09-29 那次 config 漂移是同一个坑，只是换了个目录。
+#
+# 整树镜像（rm -rf + cp -r，与 build-linux-gui.sh 同口径）：plugins/ 是**构建
+# 产物**，仓库才是唯一事实；只 cp 不删会让仓库里已删掉的插件在包里阴魂不散。
+# 只在整树确有差异时才动（diff -rq 兜底：没有 diff 就老实镜像）。
+sync_package_plugins() {
+  local src="$ROOT/plugins" dest="$ROOT/dist/seelex-gui-dev/plugins"
+  if [[ ! -d "$src" ]]; then
+    return
+  fi
+  if command -v diff >/dev/null 2>&1 && [[ -d "$dest" ]] && diff -rq "$src" "$dest" >/dev/null 2>&1; then
+    return
+  fi
+  rm -rf "$dest"
+  mkdir -p "$(dirname "$dest")"
+  cp -r "$src" "$dest"
+  echo "[build-dev] plugins: plugins/ -> dist/seelex-gui-dev/plugins/"
+}
+sync_package_plugins
+
 mkdir -p dist/dev
 
 echo "[build-dev] CLI -> dist/dev/seelex.exe"
