@@ -19,7 +19,7 @@ go 1.25.8
 // termios（其 ssh 支持所需），Windows 不受影响。
 
 require (
-	github.com/RedHuang-0622/Seele v0.3.2
+	github.com/RedHuang-0622/Seele v0.3.3
 	github.com/atotto/clipboard v0.1.4
 	github.com/aymanbagabas/go-pty v0.2.3
 	github.com/charmbracelet/bubbles v1.0.0
@@ -32,11 +32,6 @@ require (
 	github.com/wailsapp/wails/v2 v2.13.0
 	gopkg.in/yaml.v3 v3.0.1
 )
-
-// M0（2026-10-01）：jobs 根能力先在 Seele 本地检出联调，故暂加 replace 指向
-// G:/Program/go/seele。Seele 打 tag 发布 jobs 后本段即删除，回归纯净依赖
-// （与三次本地 replace 联调的既有纪律一致）。
-replace github.com/RedHuang-0622/Seele => G:/Program/go/seele
 
 require (
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3 // indirect
