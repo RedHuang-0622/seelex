@@ -247,6 +247,7 @@ type RuntimePort interface {
 	// （GUI 历史检索面板数据源；无压缩栈时尾部扫描兜底）。
 	SearchHistory(context.Context, string, int) (seelexctxsearch.Result, error)
 }
+
 // TeamworkBoardProjection 是**窄可选**能力面：Runtime 提供某会话的团队看板只读投影
 // （计划 + 作业行 + 审计流水）。
 //

@@ -172,6 +172,7 @@ func classifyProviderFailure(err error) providerFailureKind {
 //     `session loop 0: seelebridge: stream with account "goalplan-1": ChatClient
 //     stream: HTTP 400 ... insufficient tool messages following tool_calls
 //     message` 把会话循环直接判死（恢复完却不重放，用户只看到"会话中断"）。
+//
 // 超时（504）与服务端故障刻意排除：工具副作用不确定，不得自动重放。
 func retryableAfterRecovery(err error) bool {
 	return isProviderContextExhaustion(err) || classifyProviderFailure(err) == providerFailureHistory

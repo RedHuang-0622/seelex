@@ -1,4 +1,4 @@
-﻿package core
+package core
 
 // 红灯复现：热挂载（驻留会话只换视图指针、不重建正文）时，回合「过程」里
 // 工具轮之间的 assistant 步骤在可见窗口里没有 reasoning_content。
