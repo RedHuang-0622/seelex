@@ -5,12 +5,12 @@ All notable changes to Seelex are documented in this file.
 The repository is in Developer Alpha. Source builds report <code>dev</code>;
 release builds receive their version from the Git tag through ldflags.
 
-The current release is <code>v0.1.0</code>. The stabilization batch that was
+The current release is <code>v0.1.1</code>. The stabilization batch that was
 planned under the <code>v0.0.2</code> label ships under this number; the
 breaking architectural rewrite is not yet scheduled and will take its own
 version when it lands.
 
-## [Unreleased]
+## [v0.1.1] - 2026-10-03
 
 ### Added
 
