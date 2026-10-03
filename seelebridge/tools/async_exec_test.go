@@ -327,6 +327,37 @@ func TestAsyncRegistryEvictionDropsRecordAndLog(t *testing.T) {
 	}
 }
 
+// 驱逐的"最老"在 startedAt **并列**时必须按派发序（seq）裁决：Windows 的时钟粒度粗，
+// 连着 begin 出的记录会拿到同一个 startedAt，只用 Before 比较时"谁更老"就由 map 遍历
+// 顺序决定 —— CI 的 windows 腿实测过一次：最老的已完成记录活了下来，
+// TestAsyncRegistryEvictionDropsRecordAndLog 红。这条把并列钉死。
+func TestAsyncRegistryEvictionBreaksStartedAtTiesByDispatchOrder(t *testing.T) {
+	registry := newAsyncRegistryForTest(t)
+	shared := time.Unix(1700000000, 0) // 全部钉成同一时刻：并列由构造保证，不靠时钟粒度
+	firstHandle := ""
+	for i := 0; i < asyncMaxRecords+2; i++ {
+		run, started, err := registry.begin("sess-tie", fmt.Sprintf("echo tie-%d", i), "", "")
+		if err != nil || !started {
+			t.Fatalf("begin %d: started=%v err=%v", i, started, err)
+		}
+		if i == 0 {
+			firstHandle = run.handle
+		}
+		registry.finish(run.handle, 0)
+		registry.mu.Lock()
+		if live := registry.runs[run.handle]; live != nil {
+			live.startedAt = shared
+		}
+		registry.mu.Unlock()
+	}
+	registry.mu.Lock()
+	_, stillThere := registry.runs[firstHandle]
+	registry.mu.Unlock()
+	if stillThere {
+		t.Fatalf("startedAt 并列时，必须先驱逐派发序最老的 %s", firstHandle)
+	}
+}
+
 // TestAsyncRegistryCloseRemovesOutputDir 钉住收尾把后台输出目录带走：目录是进程级
 // 资源，进程死了就没人再删——不删就是每个进程在临时目录里攒一份垃圾（实测 44 份）。
 func TestAsyncRegistryCloseRemovesOutputDir(t *testing.T) {

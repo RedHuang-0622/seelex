@@ -384,7 +384,13 @@ func (g *asyncRegistry) evictLocked() []string {
 			if run.state == asyncStateRunning {
 				continue
 			}
-			if oldest == nil || run.startedAt.Before(oldest.startedAt) {
+			// 并列判据：Windows 的时钟粒度粗，连着 begin 出的记录会拿到同一个
+			// startedAt——那时"谁更老"不能交给 map 遍历顺序，按派发序（seq，单调唯一）
+			// 裁。CI 的 windows 腿实测：只用 Before 比较时最老的已完成记录会偶尔活下来，
+			// TestAsyncRegistryEvictionDropsRecordAndLog 因此变红（Linux 上时钟细，
+			// 并列几乎不出现，所以只有那条腿能看见）。
+			if oldest == nil || run.startedAt.Before(oldest.startedAt) ||
+				(run.startedAt.Equal(oldest.startedAt) && run.seq < oldest.seq) {
 				oldestID, oldest = id, run
 			}
 		}
