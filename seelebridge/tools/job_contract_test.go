@@ -187,19 +187,26 @@ func TestReadBatchDispatchesJobsAndReturnsImmediately(t *testing.T) {
 	}
 
 	// 同一张表：在途计数看得到它们，取回拿得到内容，会话销毁能清掉。
-	pending := 0
-	// 派发即返回 ⇒ 登记也是异步落表的（-race 下把顺序放大）：这里**有界等**它到 3。
-	// 原先这里是立刻断言，run 37105792167 的 race-and-coverage 上就拿到 0 而红。
-	for until := time.Now().Add(5 * time.Second); ; {
-		pending = router.AsyncPendingFor("sess-batch")
-		if pending == 3 || time.Now().After(until) {
-			break
+	// 同一张表：句柄必须在登记表里，且归属本会话（inline 作业与进程作业共用一张表）。
+	//
+	// 这里**不能**断言瞬时在途数：read_batch 的读很短，派发返回后它们可能已经收尾，
+	// "此刻还在跑"是调度运气而不是契约（run 37107361332 的 race-and-coverage 上三条
+	// 作业在断言前就跑完了，AsyncPendingFor 5s 内恒 0 → 红）。同表这张判据按句柄问
+	// 登记表，与作业是否已收尾无关；取回内容、会话销毁能清掉在下面接着验。
+	pendingSeen := router.AsyncPendingFor("sess-batch")
+	for _, job := range receipt.Jobs {
+		run, ok := router.async.snapshot(job.Handle)
+		if !ok {
+			t.Fatalf("句柄 %s 不在登记表里（inline 作业必须与进程作业同一张表）", job.Handle)
 		}
-		time.Sleep(10 * time.Millisecond)
+		if run.sessionID != "sess-batch" {
+			t.Fatalf("句柄 %s 归属会话 %q, want sess-batch（同表也要同会话口径）", job.Handle, run.sessionID)
+		}
 	}
-	if pending != 3 {
-		t.Fatalf("AsyncPendingFor = %d, want 3（inline 作业必须与进程作业同一张表）", pending)
+	if pendingSeen > 3 {
+		t.Fatalf("AsyncPendingFor = %d, want ≤ 3（只应计到本批三条作业）", pendingSeen)
 	}
+	t.Logf("同表断言：断言时在途 %d/3（作业很短，可能已收尾）", pendingSeen)
 	for _, job := range receipt.Jobs {
 		// 派发即返回 ⇒ 取回可能撞上"还没读完"：这里等它收尾，再断言内容。
 		waitAsyncTerminalForTest(t, router, job.Handle)
