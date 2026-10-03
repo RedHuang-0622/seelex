@@ -11,3 +11,7 @@
 *.yaml text eol=lf
 *.md text eol=lf
 Makefile text eol=lf
+
+# 内嵌资产是 go:embed 的输入：字节必须稳定 —— CRLF 检出会让按内容断言的测试
+# 在 Windows 上变红（见 boot_seed_test.go 的 "API_KEY=\n" 模板断言）。
+internal/bootseed/assets/** text eol=lf
