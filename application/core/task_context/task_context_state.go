@@ -1045,6 +1045,27 @@ func (c *Coordinator) _RecordContextCompactionLocked(requestID string, compactio
 	return true
 }
 
+// LastContextCompactionFor 返回某会话任务执行面里**最后一次**上下文压缩记录的副本。
+//
+// 为什么单开这个口：CurrentTaskExecutionFor 返回的是**在飞的活状态**（拿到指针时锁已
+// 释放），在锁外读它的 ContextCompactions 会和 RecordContextCompactionLocked 的
+// append 撞同一个 slice 头 —— -race 实测（CI run 37108929291，显式 /compact 与回合内
+// 自动压缩并发）：write 在本文件 1033 行、read 在 context_runtime/coordinator.go 337 行。
+// 要读"最后一次记录"这类字段，走这里拿快照，别去解引用活状态。
+func (c *Coordinator) LastContextCompactionFor(sessionID string) (model.ContextCompaction, bool) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	state := c._CurrentTaskExecutionFor(sessionID)
+	if state == nil {
+		return model.ContextCompaction{}, false
+	}
+	items := state.ContextCompactions
+	if len(items) == 0 {
+		return model.ContextCompaction{}, false
+	}
+	return items[len(items)-1], true
+}
+
 // SetTaskStateLocked 把任务可见状态写入快照（调用方持有 Core.ViewMu；requestID
 // 反查会话）。非活跃会话（后台并行执行）跳过共享快照写入，避免污染活跃
 // 会话投影；任务内部状态由调用方独立维护。

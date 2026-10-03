@@ -333,8 +333,8 @@ func (c *Coordinator) CompactContextNow(ctx context.Context, sessionID string) (
 		result.Outcome = CompactBelowThreshold
 	case decision.Recorded:
 		result.Outcome = CompactDone
-		if updated := c.tasks.CurrentTaskExecutionFor(sessionID); updated != nil && len(updated.ContextCompactions) > 0 {
-			result.Record = updated.ContextCompactions[len(updated.ContextCompactions)-1]
+		if last, ok := c.tasks.LastContextCompactionFor(sessionID); ok {
+			result.Record = last
 		}
 	default:
 		result.Outcome = CompactUnrecorded
@@ -400,8 +400,8 @@ func (c *Coordinator) compactSessionContextWithoutEpoch(ctx context.Context, ses
 		result.Outcome = CompactBelowThreshold
 	case decision.Recorded:
 		result.Outcome = CompactDone
-		if updated := c.tasks.CurrentTaskExecutionFor(sessionID); updated != nil && len(updated.ContextCompactions) > 0 {
-			result.Record = updated.ContextCompactions[len(updated.ContextCompactions)-1]
+		if last, ok := c.tasks.LastContextCompactionFor(sessionID); ok {
+			result.Record = last
 		}
 	default:
 		result.Outcome = CompactUnrecorded

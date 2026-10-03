@@ -27,6 +27,10 @@ type TaskPort interface {
 	CountTranscriptEvent(model.TranscriptEvent) int
 	CurrentTaskExecution() *task_context.TaskExecutionState
 	CurrentTaskExecutionFor(sessionID string) *task_context.TaskExecutionState
+	// LastContextCompactionFor 取"最后一次上下文压缩记录"的**副本**：活状态
+	// （CurrentTaskExecutionFor 返回的指针）在锁外读字段会与记录写入撞车（-race 实测），
+	// 读"最后一次记录"这一类字段走这里。
+	LastContextCompactionFor(sessionID string) (model.ContextCompaction, bool)
 	// BeginSessionContextMaintenanceLocked 为没有在飞回合的会话（冷加载、刚
 	// 清空）打开会话级上下文维护身份，返回该身份；空串 = 没拿到（已有在飞
 	// 回合），调用方必须按既有纪元路径处理。调用方持有 Core.ViewMu。
