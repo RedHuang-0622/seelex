@@ -168,6 +168,14 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libgtk-3-dev libwebkit2gtk-4.0-dev pkg-config
 
+      # build-linux-gui.sh --native 走 GOFLAGS=-mod=vendor，要求工作区里有 vendor/；
+      # 而 vendor/ 被 .gitignore 排除（不入库），干净检出上并不存在 —— 缺了它 Go 直接报
+      #   go: inconsistent vendoring ... : is explicitly required in go.mod,
+      #   but not marked as explicit in vendor/modules.txt
+      # 并让 gui-linux 红掉、publish 被 skip（CI run 37120061853 就是这样，release 资产没被换）。
+      - name: 预置 vendor 目录（--native 构建要求 -mod=vendor）
+        run: go mod vendor
+
       - name: 构建 Linux GUI
         run: bash scripts/build-linux-gui.sh --version "$GITHUB_REF_NAME" --native
 
