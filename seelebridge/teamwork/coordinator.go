@@ -26,20 +26,51 @@ func (c *Coordinator) Audit(ctx context.Context) ([]sessionstore.TeamworkEvent, 
 //
 // 缺 role_session_id 的成员按 (team_id, role) 补齐：派生是幂等的，于是
 // "leader 只写角色名"也能得到一份合法计划，而不是被校验挡回来。
+//
+// **Work Item 的保留规则**（2026-10-03）：同名里程碑（按 id 匹配）里已经排好的
+// 工作项与它们的运行态**原样保留**——`team_plan` 改的是"谁、几个里程碑"，不是
+// "已经把活排到哪一步了"。不保留的话，leader 为了加一个成员再调一次 team_plan，
+// 看板上已完成的工作项连同句柄会被整份抹掉，而那是**事实**，不是配置。
 func (c *Coordinator) SetPlan(ctx context.Context, plan sessionstore.TeamworkPlan) error {
 	for index := range plan.Members {
 		if strings.TrimSpace(plan.Members[index].RoleSessionID) == "" {
 			plan.Members[index].RoleSessionID = c.derive(c.key.SessionID, plan.TeamID, plan.Members[index].Role)
 		}
 	}
+	if previous, err := c.store.ReadPlan(ctx, c.key); err == nil {
+		itemsByMilestone := make(map[string][]sessionstore.TeamworkWorkItem, len(previous.Milestones))
+		for _, milestone := range previous.Milestones {
+			if len(milestone.Items) > 0 {
+				itemsByMilestone[milestone.ID] = milestone.Items
+			}
+		}
+		for index := range plan.Milestones {
+			if len(plan.Milestones[index].Items) > 0 {
+				continue
+			}
+			if kept, ok := itemsByMilestone[plan.Milestones[index].ID]; ok {
+				plan.Milestones[index].Items = kept
+			}
+		}
+	}
+	recomputeMilestones(&plan)
 	if err := c.store.WritePlan(ctx, c.key, plan, c.maxMembers); err != nil {
 		return err
 	}
 	return c.audit(ctx, sessionstore.TeamworkEvent{
 		Kind:   sessionstore.TeamworkEventPlan,
 		TeamID: plan.TeamID,
-		Detail: fmt.Sprintf("stages=%d members=%d milestones=%d", len(plan.Stages), len(plan.Members), len(plan.Milestones)),
+		Detail: fmt.Sprintf("stages=%d members=%d milestones=%d items=%d", len(plan.Stages), len(plan.Members), len(plan.Milestones), countItems(plan)),
 	})
+}
+
+// countItems 数一份计划里的工作项总数（审计行用）。
+func countItems(plan sessionstore.TeamworkPlan) int {
+	total := 0
+	for _, milestone := range plan.Milestones {
+		total += len(milestone.Items)
+	}
+	return total
 }
 
 // Dispatch 派发一个 teammate 的作业：受理回执即 handle，调用方不等待。
@@ -272,7 +303,16 @@ func (c *Coordinator) retireSteps(ctx context.Context, role string, reclaim bool
 
 // Retire 结束某 teammate 的一轮任务：**顺序固定**四步（D7 / §4.4），与 Close 复用同一
 // 套实现，两者只差一处——Retire **不回收作业**（回收统一收口到 Close，见 retireSteps）。
+//
+// Work Item 口径下多一道闸门：这个人名下还有**在跑或待验收**的工作项时不许退场——
+// 退场会释放工作区，而现场正是那件事的证据（"开始的工作是既定的"）。
 func (c *Coordinator) Retire(ctx context.Context, role string) error {
+	if busy, err := c.busyItems(ctx, role); err != nil {
+		return err
+	} else if len(busy) > 0 {
+		return fmt.Errorf("teamwork: teammate %q 还有 %d 件工作没落定（%s）——先完成或亲手判失败再退场",
+			role, len(busy), strings.Join(busy, ", "))
+	}
 	plan, err := c.retireSteps(ctx, role, false)
 	if err != nil {
 		return err
@@ -281,6 +321,27 @@ func (c *Coordinator) Retire(ctx context.Context, role string) error {
 		Kind: sessionstore.TeamworkEventRetire, TeamID: plan.TeamID, Role: role,
 		Detail: "释放 worktree → 清会话内容 → 保在线（作业在整队 close 前仍在册）",
 	})
+}
+
+// busyItems 返回某角色名下"在跑 / 待验收"的工作项 id。
+func (c *Coordinator) busyItems(ctx context.Context, role string) ([]string, error) {
+	plan, err := c.store.ReadPlan(ctx, c.key)
+	if err != nil {
+		return nil, err
+	}
+	busy := make([]string, 0)
+	for _, milestone := range plan.Milestones {
+		for _, item := range milestone.Items {
+			if item.Role != role {
+				continue
+			}
+			switch item.StatusOrPending() {
+			case sessionstore.TeamworkItemRunning, sessionstore.TeamworkItemReview:
+				busy = append(busy, item.ID)
+			}
+		}
+	}
+	return busy, nil
 }
 
 // Close 收口整支团队（team_close）：逐在编成员走同一套四步（这里 reclaim=true，回收
@@ -305,6 +366,12 @@ func (c *Coordinator) Close(ctx context.Context) (bool, error) {
 		if _, err := c.retireSteps(ctx, member.Role, true); err != nil {
 			return false, err
 		}
+	}
+	// 收口是**整队**动作，不只逐人退场：Work Item 口径下，"一个 Work Item 一个 Session
+	// + 一个 worktree"的绑定的生命周期到此为止——所有还活着的绑定一并结束（这是
+	// "team_done 之后 Session 与 worktree 如约关掉"的唯一落点）。
+	if err := c.releaseAllItems(ctx, plan.TeamID); err != nil {
+		return false, err
 	}
 	// 清掉这一轮团队的作业输出文件（S5 / §4.7 输出归属）：正文**活到收口**是因为
 	// 文件归产品（销项 / 驱逐 / Close 都不由框架删），收口就是产品决定"不再需要"的

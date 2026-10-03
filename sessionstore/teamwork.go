@@ -63,6 +63,17 @@ const (
 	// TeamworkEventClose 是**整队收口**（team_close）的审计行：与逐人退场（retire）
 	// 分开记——收口是团队级动作，不是"最后一次退场"。
 	TeamworkEventClose = "close"
+	// TeamworkEventItem / Accept / Fail / Settle / Recover 是 **Work Item 生命周期**
+	// 的事实流水（排活 / 验收通过 / 判失败 / 尾插 / 中断恢复）。
+	TeamworkEventItem    = "item"
+	TeamworkEventAccept  = "accept"
+	TeamworkEventFail    = "fail"
+	TeamworkEventSettle  = "settle"
+	TeamworkEventRecover = "recover"
+	// TeamworkEventMessage 是**尾插**进 teammate 消息队列的一行。它落在审计流里而不是
+	// 另开一份存储：消息队列是"发生过的事实"的按人读法（过滤 role_session_id），
+	// 与审计同一条追加型事实流——两份存储只会让"看板看到的"与"审计记的"漂移。
+	TeamworkEventMessage = "message"
 )
 
 // 计划的运行态取值（空 = 未收口；与里程碑状态的"空 = pending"同口径）。
@@ -103,12 +114,23 @@ type TeamworkMember struct {
 }
 
 // TeamworkMilestone 是 leader 声明的里程碑（内容由 leader 撰写，见 §4.5）。
+//
+// 它同时是**屏障**：里程碑之间串行（DependsOn 是里程碑层的顺序唯一事实），
+// 里程碑内部才按 Items 的依赖 DAG 并行。After / Required 是阶段制时代的遗留字段
+// （after 指阶段 id），保留只为读旧计划——新计划的顺序一律走 DependsOn + Items。
 type TeamworkMilestone struct {
-	ID       string   `json:"id"`
+	ID   string `json:"id"`
+	Name string `json:"name,omitempty"`
+	// DependsOn 是里程碑之间的依赖（屏障）：依赖未 done 的里程碑不进入"可排活"。
+	DependsOn []string `json:"depends_on,omitempty"`
+	// After / Required 是历史字段（阶段 id / 角色名），读旧计划时仍被校验。
 	After    []string `json:"after,omitempty"`
 	Required []string `json:"required,omitempty"`
 	Status   string   `json:"status,omitempty"`
 	Content  string   `json:"content,omitempty"`
+	// Items 是这个里程碑下的工作项（甘特图节点；一 Work Item 一个 teammate 一套
+	// Session + worktree）。分里程碑安排工作 = 只往当前这一步的 Items 里加东西。
+	Items []TeamworkWorkItem `json:"items,omitempty"`
 }
 
 // TeamworkState 是计划的运行态投影（阶段/作业句柄/里程碑结论）。
@@ -137,7 +159,12 @@ type TeamworkEvent struct {
 	Handle    string    `json:"handle,omitempty"`
 	Node      string    `json:"node,omitempty"`
 	Milestone string    `json:"milestone,omitempty"`
-	Detail    string    `json:"detail,omitempty"`
+	// WorkItem 是 Work Item 口径的归属（甘特节点 id）；阶段制时代的行留空。
+	WorkItem string `json:"work_item,omitempty"`
+	// RoleSessionID 是**尾插落点**的键（teammate 的消息队列按它读）。只有 message
+	// 一类事件带它；其余行留空——不是所有事实都属于某个会话。
+	RoleSessionID string `json:"role_session_id,omitempty"`
+	Detail        string `json:"detail,omitempty"`
 }
 
 // TeamworkRepository 是 teamwork 模块的读 / 写面。
@@ -155,6 +182,11 @@ type TeamworkRepository interface {
 	// **产品自有目录**：路径交给 jobs.Spec.OutputPath 之后，框架只按偏移读、永不删，
 	// 生命周期归产品（整队收口时清）。
 	TeamworkJobOutputDir(context.Context, Key) (string, error)
+	// AppendTeamworkBinding / ReadTeamworkBindings 是「一个 Work Item 一个 Session +
+	// 一个 worktree」的绑定账本（追加型 JSONL，KV 语义：按 work_item 取最后一行）。
+	// 生命周期与 Session 一致：整队收口（team_close）之后一并结束。
+	AppendTeamworkBinding(context.Context, Key, TeamworkBinding) error
+	ReadTeamworkBindings(context.Context, Key) ([]TeamworkBinding, error)
 }
 
 // Teamwork 把 Repository 收窄到 teamwork 面。JSON 后端实现它；其他后端返回 false。
@@ -240,8 +272,10 @@ func ValidateTeamworkPlan(plan TeamworkPlan, maxTeammates int) error {
 		sessions[sessionID] = struct{}{}
 	}
 
-	if len(plan.Stages) == 0 {
-		return errors.New("teamwork: plan.stages must not be empty（顺序的唯一事实是 stages[].depends_on）")
+	// 顺序事实至少要有一样：阶段（历史口径）或里程碑（Work Item 口径）。
+	// 两者都空 = 这份计划没有任何可读的顺序，拒绝落盘。
+	if len(plan.Stages) == 0 && len(plan.Milestones) == 0 {
+		return errors.New("teamwork: plan.stages / plan.milestones 至少要有一份（顺序必须有唯一事实）")
 	}
 	stageIDs := make(map[string]struct{}, len(plan.Stages))
 	for index, stage := range plan.Stages {
@@ -297,7 +331,8 @@ func ValidateTeamworkPlan(plan TeamworkPlan, maxTeammates int) error {
 			return fmt.Errorf("teamwork: 里程碑 %q 的状态 %q 非法（pending|active|done）", id, milestone.Status)
 		}
 	}
-	return nil
+	// 第二道：里程碑图（屏障 DAG）与工作项（里程碑内的甘特节点）。
+	return validateTeamworkWorkItems(plan, roles)
 }
 
 // validateStageAcyclic 用 Kahn 拓扑消元检出依赖环。环会让 leader 的派发永远

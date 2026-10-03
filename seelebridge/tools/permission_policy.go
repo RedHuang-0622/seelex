@@ -30,9 +30,10 @@ import (
 //  1. **子代理没有人类在环**：任何"需要问人"的调用（组默认 ask / 规则 ask / 位缺）
 //     一律**直接拒绝**，绝不落到执行选择页面上去挂起等待。子代理的授权范围由位
 //     表达（位齐 = 授权范围内），作用域另有 worktree / ProjectScope 收窄。
-//  2. **员工有宿主人类**：位齐 → 该放行放行、该问人问人；位缺（违权）→ 走执行
-//     选择页面**提权**（人类的选择页 = sudo 口令）。显式 deny 规则仍然硬，不因
-//     提权页面而变成可放开。
+//  2. **员工有宿主人类，且赋权即免审批**：位齐（在 leader 下发的权限范围内）→
+//     **直接执行**，不再落回 rules 的"问人"；位缺 / 未分封（权外）→ 走执行选择
+//     页面**提权**（人类的选择页 = sudo 口令，单次放行）。显式 deny 规则仍然硬，
+//     不因提权页面而变成可放开。
 //  3. **主代理完全落回框架**：组默认 + rules 的判定与接线前逐条一致，权责模型
 //     对 root 只增加"位必须齐"这一道（root 全位，等价于不增加）。
 //
@@ -162,6 +163,9 @@ func DefaultPermissionGroupList() []toolspermission.PermissionGroup {
 				// 与 fork_subagents/plan_* 同族——sub/员工断位（teammate 不该编排
 				// 团队），主代理（root）默认 allow。
 				"team_plan", "team_dispatch", "team_join", "team_milestone", "team_retire", "team_close", "team_context",
+				// Work Item 口径（2026-10-03）：排活 / 调整 / 验收 / 判失败 / 中断恢复。
+				// 与上面同族——它们改的都是"团队顺序与结论"，员工与子代理一律断位。
+				"team_work", "team_item", "team_accept", "team_fail", "team_recover", "team_items",
 			},
 		},
 		{
@@ -539,8 +543,18 @@ func (state *PermissionGate) enforceSubAgent(cfg toolspermission.PermissionConfi
 	return toolspermission.ActionAllow, true
 }
 
-// enforceEmployee 是员工的授权口径：显式 deny 硬；位齐 → 交回框架（组默认 +
-// rules：allow 放行、ask 走执行选择页面）；位缺 / 未分封 → 走执行选择页面提权。
+// enforceEmployee 是员工的授权口径（**赋权即免审批**，2026-10-03 产品裁决）：
+//
+//  1. 显式 deny 硬（危险命令等）：不因赋权而放开；
+//  2. 未分封 / 位缺（超出 leader 下发的权限范围）→ **执行选择页面**提权：人类放行
+//     后本次调用执行（单次提权，不是自动放行），页面上拒绝即拒；
+//  3. 位齐（在 leader 下发的权限范围内）→ **直接执行**，不再落回框架 rules 求值。
+//     因此 write_file / edit_file / bash 这些"规则 ask"不会把员工回合挂在一张没人
+//     能答的审批页上——宿主主会话正忙着等这个 teammate 的产出（approval 折算到
+//     宿主会话），页面弹不出来就是死锁。
+//
+// 为什么不再交回框架求值：框架 rules 表达的是"主代理该不该问人"；员工的授权事实是
+// leader 在 team_plan 里**逐格下发的位**——位内即授权内（直接执行），位外才需要人类口令。
 func (state *PermissionGate) enforceEmployee(cfg toolspermission.PermissionConfig, subject toolspermission.Subject, name string, meta frameworktools.ToolMeta, argsJSON string) (toolspermission.Action, bool) {
 	if result, _ := state.decideFor(subject, name, meta, argsJSON); result == toolspermission.ResultDeny {
 		return toolspermission.ActionDeny, true
@@ -551,7 +565,7 @@ func (state *PermissionGate) enforceEmployee(cfg toolspermission.PermissionConfi
 	if visible := state.visibleFor(subject, name, meta); !visible {
 		return toolspermission.ActionAsk, true
 	}
-	return "", false
+	return toolspermission.ActionAllow, true
 }
 
 // decideFor / visibleFor 是框架 checker 的只读查询（checker 自身线程安全）。

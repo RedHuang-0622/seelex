@@ -16,8 +16,9 @@ import (
 // 三件事必须同时成立（任一被破坏都是产品口径破口）：
 //  1. 逐档位对 root 的判定与设计表一致（edit 只放写文件、auto 连命令一起放、
 //     full 短路；危险 deny 在任何档位下都硬拦）；
-//  2. **主体边界**：档位只改 root 的"问不问"，不改员工/子代理的"有没有位"
-//     （emp_rw 在 auto 下写文件仍走审批提权——需求 3 的落点）；
+//  2. **主体边界**：档位只改 root 的"问不问"，不改员工/子代理的"有没有位"。
+//     员工口径自 2026-10-03 起是**赋权即免审批**：位齐即直通（emp_rw 写文件不再弹页），
+//     位缺/未分封才走执行选择页面提权；满档（full）不得连带放行员工的位外调用；
 //  3. **会话隔离**：A 切 full 不替 B 放行，B 的起点同步不关掉 A。
 
 // tierMatrixConfig 是判定矩阵用的权责配置（默认分组 + 主体 + 规则；不叠加
@@ -180,9 +181,11 @@ func TestTierRootAutoRunsWithoutApproval(t *testing.T) {
 	}
 }
 
-// TestTierDoesNotBypassEmployeeBoundary 钉住**主体边界**（需求 3 的核心）：
-// 即便 root 档位是 full，员工的越权写文件仍走审批提权——档位只改 root 的
-// "问不问"，不改员工的"有没有位"，也绝不允许 full 档连带放行员工越权。
+// TestTierDoesNotBypassEmployeeBoundary 钉住**主体边界**：
+//  1. 员工在**权限范围内**的调用（readwrite 写文件）**直通执行**——放行依据是 leader
+//     下发的位，不是 root 的档位（赋权即免审批，2026-10-03 裁决）；
+//  2. 员工**越出范围**的调用（ctl/adm）仍走执行选择页面——即便 root 与员工会话都切到
+//     full 档，full 也绝不连带放行员工的位外能力。
 func TestTierDoesNotBypassEmployeeBoundary(t *testing.T) {
 	approvals, ran := new(int), new(int)
 	state := tierProbe(approvals, ran)
@@ -193,20 +196,23 @@ func TestTierDoesNotBypassEmployeeBoundary(t *testing.T) {
 	if err := state.SetPermissionTierFor("role-1", dto.PermissionTierFull); err != nil {
 		t.Fatal(err)
 	}
-	// 员工（readwrite）会话调用写工具：必须走执行选择页面提权，放行后才执行。
+	// 员工（readwrite）在权限范围内写文件：直接执行，不弹页（放行靠位，不靠档）。
 	empCtx := probeCtx("role-1")
 	if err := runTierTool(state, empCtx, "write_file", `{"path":"a.txt"}`, ran); err != nil {
-		t.Fatalf("员工越权（写文件）应当走审批页并可按放行执行: %v", err)
+		t.Fatalf("员工位内的写文件应当直通执行: %v", err)
 	}
-	if *approvals != 1 {
-		t.Fatalf("员工越权必须落实到审批页，approvals=%d, want 1（full 档不得连带放行）", *approvals)
+	if *approvals != 0 {
+		t.Fatalf("员工位内调用不该弹审批页，approvals=%d, want 0", *approvals)
 	}
-	// 员工碰 adm（能力面）：同样走审批页，不静默放行。
+	if *ran != 1 {
+		t.Fatalf("员工位内调用应当真的执行一次，ran=%d, want 1", *ran)
+	}
+	// 员工碰 adm（能力面）：位外 → 走审批页，不静默放行。
 	if err := runTierTool(state, empCtx, "switch_plugin", `{}`, ran); err != nil {
 		t.Fatalf("员工碰能力面应当走审批页: %v", err)
 	}
-	if *approvals != 2 {
-		t.Fatalf("员工碰能力面的审批数 = %d, want 2", *approvals)
+	if *approvals != 1 {
+		t.Fatalf("员工碰能力面的审批数 = %d, want 1（full 档不得连带放行）", *approvals)
 	}
 }
 

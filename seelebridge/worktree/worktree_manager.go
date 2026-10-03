@@ -103,6 +103,18 @@ func (w *WorktreeManager) Begin(scope model.NodeScope, nodeID string) *NodeWorkt
 	if scope.Role != model.RoleSubAgent {
 		return nil
 	}
+	return w.beginNamed(nodeID)
+}
+
+// BeginNamed 为非子代理的**编排节点**创建 worktree：teammate 的每一个 Work Item 都是
+// 这样一个节点（一 Work Item 一个 worktree）。它与 Begin 走同一条实现、同一套命名与
+// 幂等规则，只是不要求调用方先构造一个 NodeScope——编排面只认"这件事的 id"。
+func (w *WorktreeManager) BeginNamed(nodeID string) *NodeWorktree { return w.beginNamed(nodeID) }
+
+// WorktreeForNode 返回在册现场（无 → nil）。合并/释放按 id 取现场时用。
+func (w *WorktreeManager) WorktreeForNode(nodeID string) *NodeWorktree { return w.worktreeFor(nodeID) }
+
+func (w *WorktreeManager) beginNamed(nodeID string) *NodeWorktree {
 	// 幂等：同一 nodeID 已有在册现场就直接复用，绝不重建。路径/分支只按 nodeID
 	// 命名（`<repo>-seelex-<nodeID>` / `seelex/<nodeID>`），所以跨会话、跨批次同名
 	// 的第二次 Begin 会指向**同一个目录**——重建前那句 `worktree remove --force`

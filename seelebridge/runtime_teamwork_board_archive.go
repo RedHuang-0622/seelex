@@ -53,7 +53,7 @@ func (r *Runtime) archiveTeamBoard(ctx context.Context) {
 		return
 	}
 	plan, err := backend.Store.ReadPlan(ctx, key)
-	if err != nil || len(plan.Stages) == 0 {
+	if err != nil || !teamworkPlanHasOrchestration(plan) {
 		return // 没有可看的编排：存档没有意义（与读侧的空壳口径一致）。
 	}
 	if plan.State.State == sessionstore.TeamworkStateClosed {
@@ -74,7 +74,11 @@ func (r *Runtime) archiveTeamBoard(ctx context.Context) {
 	if manager != nil {
 		records = manager.Snapshot(jobs.Scope{Session: key.SessionID})
 	}
-	payload, err := json.Marshal(buildTeamworkBoardView(plan, events, records, backend.MaxTeammates))
+	bindings, bindErr := backend.Store.ReadBindings(ctx, key)
+	if bindErr != nil {
+		bindings = nil // 绑定读不出来不该让整份存档作废（与采集面同口径）。
+	}
+	payload, err := json.Marshal(buildTeamworkBoardView(plan, events, bindings, records, backend.MaxTeammates))
 	if err != nil {
 		log.Printf("seelebridge: 团队看板存档编码失败（会话 %s）：%v", sessionID, err)
 		return

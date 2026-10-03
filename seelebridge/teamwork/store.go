@@ -41,3 +41,11 @@ func (s planStore) AppendEvent(ctx context.Context, key sessionstore.Key, event 
 func (s planStore) ReadEvents(ctx context.Context, key sessionstore.Key) ([]sessionstore.TeamworkEvent, error) {
 	return s.repository.ReadTeamworkEvents(ctx, key)
 }
+
+func (s planStore) AppendBinding(ctx context.Context, key sessionstore.Key, binding sessionstore.TeamworkBinding) error {
+	return s.repository.AppendTeamworkBinding(ctx, key, binding)
+}
+
+func (s planStore) ReadBindings(ctx context.Context, key sessionstore.Key) ([]sessionstore.TeamworkBinding, error) {
+	return s.repository.ReadTeamworkBindings(ctx, key)
+}

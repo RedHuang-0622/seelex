@@ -16,9 +16,10 @@ import (
 )
 
 type memPlanStore struct {
-	mu     sync.Mutex
-	plans  map[sessionstore.Key]sessionstore.TeamworkPlan
-	events map[sessionstore.Key][]sessionstore.TeamworkEvent
+	mu       sync.Mutex
+	plans    map[sessionstore.Key]sessionstore.TeamworkPlan
+	events   map[sessionstore.Key][]sessionstore.TeamworkEvent
+	bindings map[sessionstore.Key][]sessionstore.TeamworkBinding
 }
 
 func (m *memPlanStore) WritePlan(_ context.Context, key sessionstore.Key, plan sessionstore.TeamworkPlan, _ int) error {
@@ -55,6 +56,22 @@ func (m *memPlanStore) ReadEvents(_ context.Context, key sessionstore.Key) ([]se
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return append([]sessionstore.TeamworkEvent(nil), m.events[key]...), nil
+}
+
+func (m *memPlanStore) AppendBinding(_ context.Context, key sessionstore.Key, binding sessionstore.TeamworkBinding) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.bindings == nil {
+		m.bindings = map[sessionstore.Key][]sessionstore.TeamworkBinding{}
+	}
+	m.bindings[key] = append(m.bindings[key], binding)
+	return nil
+}
+
+func (m *memPlanStore) ReadBindings(_ context.Context, key sessionstore.Key) ([]sessionstore.TeamworkBinding, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]sessionstore.TeamworkBinding(nil), m.bindings[key]...), nil
 }
 
 func teamworkTestBackend(store *memPlanStore, sessionID string) TeamworkBackend {

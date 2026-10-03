@@ -3,15 +3,25 @@ import assert from "node:assert/strict";
 import {
   TEAM_BOARD_CSS,
   formatEventTime,
+  itemStatus,
+  itemsOfMilestone,
   jobStageID,
+  memberMessagesOf,
+  memberQueueOf,
   milestoneStatus,
+  orderMilestones,
   orderStages,
+  orderWorkItems,
   ownStageStatus,
   renderTeamBoard,
+  renderTeamGantt,
   renderTeamMilestones,
+  renderTeamQueue,
   renderTeamRoster,
+  renderWorkItemSessionPanel,
   stageStatuses,
   summarizeTeam,
+  workItemsOf,
 } from "./team-board-view.js";
 
 // 夹具一：真实计划快照（team queue-strip-fix，2026-10-01 会话
@@ -356,5 +366,130 @@ test("TEAM_BOARD_CSS 只吃语义 token（不写死色值），并覆盖五种�
     assert.match(TEAM_BOARD_CSS, new RegExp(`\\.team-stage\\[data-status="${status}"\\]`));
   }
   assert.match(TEAM_BOARD_CSS, /var\(--status-running\)/);
+  assert.doesNotMatch(TEAM_BOARD_CSS, /#[0-9a-fA-F]{6}/);
+});
+
+// ── Work Item 口径（2026-10-03 重构）────────────────────────────────
+//
+// 计划里有工作项时，看板画的是**里程碑甘特 + teammate 队列**：里程碑之间串行
+// （depends_on 屏障），里程碑内部按工作项依赖 DAG 并行；一个 Work Item 一个 teammate
+// 一套 Session + worktree。
+
+const ITEM_PLAN = {
+  team_id: "v-model",
+  version: 1,
+  members: [
+    { role: "pm", role_session_id: "s-v-model-pm", status: "idle", queue: ["需求澄清"] },
+    { role: "exec", role_session_id: "s-v-model-exec", status: "running", queue: ["实现"], messages: [{ at: 1, role: "exec", work_item: "wi-impl", text: "[wi-impl] 实现：跑完，改动已合并回主工作区，等待 leader 评估" }] },
+    { role: "test_case", role_session_id: "s-v-model-test", status: "idle", queue: ["用例跟进"] },
+  ],
+  milestones: [
+    { id: "m-build", name: "构建", status: "active" },
+    { id: "m-ship", name: "发布", depends_on: ["m-build"], status: "pending" },
+  ],
+  work_items: [
+    { id: "wi-req", milestone: "m-build", role: "pm", name: "需求澄清", status: "done", session_id: "", worktree: "" },
+    { id: "wi-impl", milestone: "m-build", role: "exec", name: "实现", status: "running", depends_on: ["wi-req"], session_id: "s-v-model-exec-wi-wi-impl", worktree: "seelex/exec-wi-impl", live: true, interrupted: true, handle: "a7" },
+    { id: "wi-test", milestone: "m-build", role: "test_case", name: "用例跟进", status: "pending", depends_on: ["wi-impl"] },
+    { id: "wi-ship", milestone: "m-ship", role: "exec", name: "发布", status: "pending", depends_on: [] },
+  ],
+};
+
+test("workItemsOf / itemsOfMilestone / itemStatus 只搬事实（空状态 = pending）", () => {
+  assert.equal(workItemsOf(ITEM_PLAN).length, 4);
+  assert.equal(itemsOfMilestone(ITEM_PLAN, "m-build").length, 3);
+  assert.equal(itemStatus(ITEM_PLAN.work_items[1]), "running");
+  assert.equal(itemStatus({ id: "x", name: "x" }), "pending");
+  assert.deepEqual(workItemsOf({}), []);
+});
+
+test("orderMilestones 按屏障依赖排层号；缺依赖与成环都显形", () => {
+  const ordered = orderMilestones(ITEM_PLAN);
+  assert.deepEqual(ordered.map(entry => [entry.id, entry.depth]), [["m-build", 0], ["m-ship", 1]]);
+  const missing = orderMilestones({ milestones: [{ id: "a", depends_on: ["ghost"] }, { id: "b" }] });
+  assert.deepEqual(missing[0].missing_deps, ["ghost"]);
+  const cyclic = orderMilestones({ milestones: [{ id: "a", depends_on: ["b"] }, { id: "b", depends_on: ["a"] }] });
+  assert.equal(cyclic.filter(entry => entry.cyclic).length, 2, "成环的两个里程碑都要显形（都不静默丢）");
+});
+
+test("orderWorkItems 只在里程碑内排 DAG，并把「前置没验收」标成被卡住", () => {
+  const entries = orderWorkItems(itemsOfMilestone(ITEM_PLAN, "m-build"));
+  assert.deepEqual(entries.map(entry => entry.id), ["wi-req", "wi-impl", "wi-test"]);
+  const impl = entries.find(entry => entry.id === "wi-impl");
+  const test_ = entries.find(entry => entry.id === "wi-test");
+  assert.equal(impl.blocked, false, "前置 wi-req 已 done → 不该被卡住");
+  assert.equal(test_.blocked, true, "前置 wi-impl 还在跑 → 被依赖卡住（与后端的依赖闸门同源）");
+});
+
+test("memberQueueOf / memberMessagesOf：队列是没完成的工作项，消息是尾插回执", () => {
+  assert.deepEqual(memberQueueOf(ITEM_PLAN, "exec"), ["实现"]);
+  assert.equal(memberMessagesOf(ITEM_PLAN, "exec").length, 1);
+  // 后端没给 queue 时按工作项自行派生（同一条判据：未完成才占队列）。
+  const derived = { ...ITEM_PLAN, members: [{ role: "pm" }, { role: "exec" }] };
+  assert.deepEqual(memberQueueOf(derived, "exec"), ["实现", "发布"], "exec 名下两件未完成的事都在队列里");
+  assert.deepEqual(memberQueueOf(derived, "pm"), [], "wi-req 已 done → 已销项，不占队列");
+  assert.deepEqual(memberMessagesOf(derived, "exec"), []);
+});
+
+test("renderTeamGantt 画里程碑屏障 + 里程碑内工作项，并给出子页面入口", () => {
+  const html = renderTeamGantt(ITEM_PLAN);
+  assert.match(html, /data-team-gantt/);
+  assert.match(html, /data-milestone-id="m-build" data-status="active" data-depth="0"/);
+  assert.match(html, /data-milestone-id="m-ship" data-status="pending" data-depth="1"/);
+  assert.match(html, /<span class="team-label">屏障<\/span><span class="chip team-dep">m-build<\/span>/);
+  assert.match(html, /data-item-id="wi-impl" data-status="running"/);
+  // 子页面入口：带会话的工作项才可点（点不动的入口比没有入口更坏）。
+  assert.match(html, /data-team-item-open="wi-impl" data-team-item-session="s-v-model-exec-wi-wi-impl"/);
+  assert.doesNotMatch(html, /data-team-item-open="wi-test"/);
+  // 被依赖卡住 + 可重派 + 现场在，都要显形。
+  assert.match(html, /被依赖卡住/);
+  assert.match(html, /可重派/);
+  assert.match(html, /现场在/);
+  assert.equal(renderTeamGantt({ team_id: "t" }), "");
+});
+
+test("renderTeamGantt 不用时间表达任何东西（甘特只表示依赖）", () => {
+  const html = renderTeamGantt(ITEM_PLAN);
+  assert.doesNotMatch(html, /started_at|finished_at|datetime|duration|时长|耗时/);
+});
+
+test("renderTeamQueue 画 teammate 的名字 / 状态 / 工作项队列 / 尾插回执", () => {
+  const html = renderTeamQueue(ITEM_PLAN);
+  assert.match(html, /data-team-queue/);
+  assert.match(html, /data-role="exec" data-status="running"/);
+  assert.match(html, /<span class="chip team-queue-item">实现<\/span>/);
+  assert.match(html, /改动已合并回主工作区/);
+  assert.equal(renderTeamQueue({ members: [{ role: "a" }] }), "", "没有工作项就不画这一节（不留空壳）");
+});
+
+test("renderTeamBoard：只有工作项、没有阶段也要画出来（迁移期两块数据面并存）", () => {
+  const html = renderTeamBoard({ plan: ITEM_PLAN, jobs: [], events: [] });
+  assert.match(html, /data-team-gantt/);
+  assert.match(html, /data-team-queue/);
+  assert.match(html, /data-team-id="v-model"/);
+  assert.equal(renderTeamBoard({ plan: { team_id: "t" } }), "");
+});
+
+test("renderWorkItemSessionPanel 是执行进度子页面：只有上面的条目，没有下面的表格", () => {
+  const html = renderWorkItemSessionPanel(ITEM_PLAN, "wi-impl");
+  assert.match(html, /data-team-item-panel="wi-impl"/);
+  for (const key of ["工作项", "名称", "执行 teammate", "状态", "会话", "工作区", "结论"]) {
+    assert.match(html, new RegExp(`role-kv-key">${key}<`));
+  }
+  assert.match(html, /s-v-model-exec-wi-wi-impl/);
+  assert.match(html, /seelex\/exec-wi-impl/);
+  // 「不要下面的表格」：子页面里没有表格元素。
+  assert.doesNotMatch(html, /<table|<thead|<tbody|role-row/);
+  const gone = renderWorkItemSessionPanel(ITEM_PLAN, "wi-nope");
+  assert.match(gone, /已不在计划里/);
+  assert.equal(renderWorkItemSessionPanel({}, "x"), '<div class="role-session-view is-empty">这件事已不在计划里（可能已收口）</div>');
+});
+
+test("TEAM_BOARD_CSS 覆盖 Work Item 口径的四种状态与子页面条目", () => {
+  for (const status of ["running", "review", "done", "failed", "pending"]) {
+    assert.match(TEAM_BOARD_CSS, new RegExp(`\\.team-item\\[data-status="${status}"\\]`));
+  }
+  assert.match(TEAM_BOARD_CSS, /\.team-item-name\.is-openable/);
+  assert.match(TEAM_BOARD_CSS, /\.team-item-panel \.role-kv-value/);
   assert.doesNotMatch(TEAM_BOARD_CSS, /#[0-9a-fA-F]{6}/);
 });

@@ -398,7 +398,7 @@ func (service *Service) goalDoneHandler(ctx context.Context, argsJSON string) (s
 
 // goalStatusHandler 是 goal_status 工具 handler。
 func (service *Service) goalStatusHandler(ctx context.Context, _ string) (string, error) {
-	status, err := service.GoalStatusFor(sessionIDFromContext(ctx))
+	status, err := service.GoalStatusFor(goalReadSessionID(ctx))
 	if err != nil {
 		return "", err
 	}

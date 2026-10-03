@@ -216,7 +216,7 @@ func TestEmployeeMissingBitGoesToApprovalPage(t *testing.T) {
 	}{
 		{name: "readwrite 员工碰 ctl", policy: "readwrite", tool: "task_complete", wantPage: true},
 		{name: "readwrite 员工碰 adm", policy: "readwrite", tool: "switch_plugin", wantPage: true},
-		{name: "readwrite 员工写文件（规则 ask）", policy: "readwrite", tool: "write_file", wantPage: true},
+		{name: "readwrite 员工写文件（位齐 → 直通，不弹页）", policy: "readwrite", tool: "write_file", wantPage: false},
 		{name: "readonly 员工写文件（位缺）", policy: "readonly", tool: "write_file", wantPage: true},
 		{name: "readonly 员工读文件（位齐 + 组默认）", policy: "readonly", tool: "read_file", wantPage: false},
 	}

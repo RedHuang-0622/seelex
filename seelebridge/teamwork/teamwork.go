@@ -55,6 +55,10 @@ type PlanStore interface {
 	ReadPlan(ctx context.Context, key sessionstore.Key) (sessionstore.TeamworkPlan, error)
 	AppendEvent(ctx context.Context, key sessionstore.Key, event sessionstore.TeamworkEvent) error
 	ReadEvents(ctx context.Context, key sessionstore.Key) ([]sessionstore.TeamworkEvent, error)
+	// AppendBinding / ReadBindings 是「一个 Work Item ↔ 一个 Session + 一个 worktree」
+	// 的绑定账本（追加型 JSONL，KV 语义；见 sessionstore.TeamworkBinding）。
+	AppendBinding(ctx context.Context, key sessionstore.Key, binding sessionstore.TeamworkBinding) error
+	ReadBindings(ctx context.Context, key sessionstore.Key) ([]sessionstore.TeamworkBinding, error)
 }
 
 // WorkerRequest 是一次 teammate 作业的全部输入。它同时是作业载荷
@@ -76,7 +80,12 @@ type WorkerRequest struct {
 	PermissionGroups map[string]uint8 `json:"permission_groups,omitempty"`
 	Worktree         string           `json:"worktree,omitempty"`
 	Stage            string           `json:"stage"`
-	Goal             string           `json:"goal"`
+	// WorkItemID / Milestone 是这一轮工作属于甘特图的哪个节点。**一 Work Item 一个
+	// Session + 一个 worktree** 的隔离与回收都以它为准（空 = 非 Work Item 口径的
+	// 派发，走 teammate 级的老口径）。
+	WorkItemID string `json:"work_item_id,omitempty"`
+	Milestone  string `json:"milestone,omitempty"`
+	Goal       string `json:"goal"`
 	// MaxTurns 是本轮在角色会话里允许的回合上限（0 = 装配层默认）。
 	MaxTurns int `json:"max_turns,omitempty"`
 	// OutputPath 是本轮正文的落点（**产品自有**文件；空 = 交回框架自建）。
@@ -106,6 +115,57 @@ type WorkerRunner interface {
 // 不得静默丢弃（D7 / §4.7）。
 type WorkspaceReleaser interface {
 	ReleaseWorkspace(ctx context.Context, role string) error
+}
+
+// WorkspaceBinding 是「一个 Work Item ↔ 一个 worktree」的现场。
+//
+// Worktree 是**指派名**（进计划与账本），Path / Branch 是**现场**（git 的事，
+// 由实现回填）；协调器不认识目录布局。
+type WorkspaceBinding struct {
+	MainSessionID string `json:"main_session_id"`
+	TeamID        string `json:"team_id"`
+	Milestone     string `json:"milestone,omitempty"`
+	WorkItem      string `json:"work_item"`
+	Role          string `json:"role"`
+	SessionID     string `json:"session_id"`
+	Worktree      string `json:"worktree"`
+	Path          string `json:"path,omitempty"`
+	Branch        string `json:"branch,omitempty"`
+}
+
+// Workspaces 是**一个 Work Item 一个 worktree** 的端口：建、并、释放。
+//
+// 三段各自回答一个问题——BindWorkspace「这件事在哪里干」（隔离），
+// MergeWorkspace「这件事的改动怎么回到主干」（尾插的前置：先合并、成功才插入），
+// ReleaseWorkspaceItem「这件事的现场什么时候消失」（验收通过 / 整队收口）。
+//
+// 缺失（未装配）= 不建现场（Worktree 只是一个指派名）、不合并、不释放——"有就有、
+// 没有就是没装配"。降级是**显式**的：退场/验收时若绑定还在，实现必须自己确认
+// "没有现场可释放"而不是让协调器猜。
+type Workspaces interface {
+	BindWorkspace(ctx context.Context, binding WorkspaceBinding) (WorkspaceBinding, error)
+	MergeWorkspace(ctx context.Context, binding WorkspaceBinding) error
+	ReleaseWorkspaceItem(ctx context.Context, binding WorkspaceBinding) error
+}
+
+// TeammateMessage 是尾插进 teammate **消息队列**的一行。
+type TeammateMessage struct {
+	MainSessionID string `json:"main_session_id"`
+	TeamID        string `json:"team_id"`
+	Role          string `json:"role"`
+	RoleSessionID string `json:"role_session_id"`
+	Milestone     string `json:"milestone,omitempty"`
+	WorkItem      string `json:"work_item"`
+	Text          string `json:"text"`
+}
+
+// TeammateQueue 是 teammate 的**消息队列**（尾插的落点）。
+//
+// 为什么需要它：作业是后台跑的，结果不能 push 进忙会话（§6.1 铁律）。尾插把
+// "这件事跑完了、结果是这个、bug 是这个"追加到 teammate 自己的消息队列，由它在
+// 下一个回合边界按有界摘要读走——既不唤醒忙会话，也不让结论悬空。
+type TeammateQueue interface {
+	EnqueueTeammateMessage(ctx context.Context, message TeammateMessage) error
 }
 
 // SessionResetter 清空一个角色会话的**记录内容**（工作历史 + durable 快照），
@@ -160,6 +220,11 @@ type Options struct {
 	Workers WorkerRunner
 	// Worktrees 释放工作区（缺失 ⇒ team_retire 在第二步显式报错，不静默跳过）。
 	Worktrees WorkspaceReleaser
+	// Spaces 是「一个 Work Item 一个 worktree」的端口（建 / 并 / 释放）。缺失 =
+	// 不建现场、不合并、不释放——Work Item 仍可排活与派发，只是没有工作区隔离。
+	Spaces Workspaces
+	// Teammates 是 teammate 的消息队列（尾插落点）。缺失 = 尾插被丢弃（只留审计行）。
+	Teammates TeammateQueue
 	// Sessions 清角色会话内容（缺失 ⇒ team_retire 在第三步显式报错）。
 	Sessions SessionResetter
 	// Boards 封板团队看板存档（缺失 ⇒ Close 只做域内 closed + 审计，不写存档）。
@@ -192,6 +257,8 @@ type Coordinator struct {
 	sessions   SessionResetter
 	boards     BoardCloser
 	jobOutputs JobOutputs
+	spaces     Workspaces
+	teammates  TeammateQueue
 	maxMembers int
 	maxTurns   int
 	derive     func(mainSessionID, teamID, roleName string) string
@@ -226,6 +293,8 @@ func New(options Options) (*Coordinator, error) {
 		sessions:   options.Sessions,
 		boards:     options.Boards,
 		jobOutputs: options.JobOutputs,
+		spaces:     options.Spaces,
+		teammates:  options.Teammates,
 		maxMembers: options.MaxTeammates,
 		maxTurns:   options.MaxTurns,
 		derive:     derive,

@@ -66,12 +66,16 @@ func sealClosedTeamBoard(ctx context.Context, backend *TeamworkBackend, manager 
 	if backend.Store != nil {
 		events, _ = backend.Store.ReadEvents(ctx, key) // 审计读不出来不该让封板作废（与采集面同口径）。
 	}
+	var bindings []sessionstore.TeamworkBinding
+	if backend.Store != nil {
+		bindings, _ = backend.Store.ReadBindings(ctx, key) // 绑定读不出来同理：少了"现场在不在"这一列。
+	}
 	var records []jobs.Record
 	if manager != nil {
 		records = manager.Snapshot(jobs.Scope{Session: key.SessionID})
 	}
 	// 与下发/存档**同一条组装路径**（buildTeamworkBoardView）：封板存档也要与活体投影同形。
-	payload, err := json.Marshal(buildTeamworkBoardView(plan, events, records, backend.MaxTeammates))
+	payload, err := json.Marshal(buildTeamworkBoardView(plan, events, bindings, records, backend.MaxTeammates))
 	if err != nil {
 		return err
 	}

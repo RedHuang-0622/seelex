@@ -292,7 +292,7 @@ func (model Model) teamPanelLines() []string {
 // 这里只把投影里已有的东西逐行说清楚：阶段（角色 / 依赖边）、该阶段的作业行、里程碑。
 func (model Model) teamBoardLines() []string {
 	board := model.snapshot.Runtime.TeamworkBoard
-	if board == nil || len(board.Stages) == 0 {
+	if board == nil || (len(board.Stages) == 0 && len(board.WorkItems) == 0) {
 		return nil
 	}
 	width := model.textLimit()
@@ -307,8 +307,8 @@ func (model Model) teamBoardLines() []string {
 			failed++
 		}
 	}
-	header := fmt.Sprintf("  ◆ 团队看板  %s · v%d · 阶段 %d · %s · 作业 %d 跑/%d 完/%d 败",
-		fallback(board.TeamID, "—"), board.Version, len(board.Stages), rosterText(board),
+	header := fmt.Sprintf("  ◆ 团队看板  %s · v%d · 阶段 %d · 工作项 %d · %s · 作业 %d 跑/%d 完/%d 败",
+		fallback(board.TeamID, "—"), board.Version, len(board.Stages), len(board.WorkItems), rosterText(board),
 		running, done, failed)
 	lines := []string{StyleTaskRunning.Render(oneLine(header, width))}
 	for _, stage := range board.Stages {
@@ -330,12 +330,43 @@ func (model Model) teamBoardLines() []string {
 				fmt.Sprintf("    作业 %s %s %s", job.Handle, fallback(job.State, "—"), formatByteSize(job.Bytes)), width)))
 		}
 	}
+	// 里程碑甘特：里程碑之间串行（屏障），里程碑内部是工作项依赖 DAG。终端里同样
+	// **不重算**依赖层号与状态折算（那是渲染件的职责），只把投影里的东西逐行说清楚。
 	for _, milestone := range board.Milestones {
-		line := fmt.Sprintf("  里程碑 %s %s", milestone.ID, fallback(milestone.Status, "pending"))
+		deps := "—"
+		if len(milestone.DependsOn) > 0 {
+			deps = strings.Join(milestone.DependsOn, ",")
+		}
+		line := fmt.Sprintf("  里程碑 %s %s  屏障:%s", milestone.ID, fallback(milestone.Status, "pending"), deps)
 		if content := oneLine(milestone.Content, width/2); content != "" {
 			line += " · " + content
 		}
 		lines = append(lines, StyleMuted.Render(oneLine(line, width)))
+		for _, item := range board.WorkItems {
+			if item.Milestone != milestone.ID {
+				continue
+			}
+			detail := fmt.Sprintf("    %s %s · %s · %s", item.ID, item.Name, fallback(item.Status, "pending"), fallback(item.Role, "—"))
+			if item.Interrupted {
+				detail += " · 可重派"
+			}
+			if len(item.DependsOn) > 0 {
+				detail += " · deps:" + strings.Join(item.DependsOn, ",")
+			}
+			lines = append(lines, StyleMuted.Render(oneLine(detail, width)))
+		}
+	}
+	// teammate 段：名字 / 状态 / 负责的工作项名称队列（看板要回答"这个人手上还有什么"）。
+	for _, member := range board.Members {
+		if len(member.Queue) == 0 && member.Status == "" {
+			continue
+		}
+		queue := "空"
+		if len(member.Queue) > 0 {
+			queue = strings.Join(member.Queue, " → ")
+		}
+		lines = append(lines, StyleMuted.Render(oneLine(
+			fmt.Sprintf("  %s %s  队列:%s", member.Role, fallback(member.Status, "idle"), queue), width)))
 	}
 	if board.Recovered {
 		// 来自会话存档快照（活体投影给不出时才兜底）：与 GUI 同形的痕迹标记。

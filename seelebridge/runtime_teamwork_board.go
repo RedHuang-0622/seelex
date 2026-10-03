@@ -47,6 +47,7 @@ func teamworkSubjectPrefix() string { return teamwork.SubjectForRole("") }
 type teamworkBoardSnapshotCache struct {
 	plan        sessionstore.TeamworkPlan
 	events      []sessionstore.TeamworkEvent
+	bindings    []sessionstore.TeamworkBinding
 	planMissing bool
 	// archive 是活体给不出看板时的**存档兜底**（§6 重启恢复）：nil = 无可用存档
 	// （没写过 / state=closed / 快照坏了）。它随同一份缓存条目一起取，而不是每次
@@ -61,7 +62,7 @@ type teamworkBoardSnapshotCache struct {
 // 抽成自由函数而不是留在快照方法里：写侧（存档刷新，runtime_teamwork_board_archive.go）
 // 必须产出与下发**同形**的载荷——两处各拼一遍就是两份事实，重启恢复出的看板迟早
 // 和活体下发的不一样。
-func buildTeamworkBoardView(plan sessionstore.TeamworkPlan, events []sessionstore.TeamworkEvent, records []jobs.Record, maxMembers int) dto.TeamworkBoardView {
+func buildTeamworkBoardView(plan sessionstore.TeamworkPlan, events []sessionstore.TeamworkEvent, bindings []sessionstore.TeamworkBinding, records []jobs.Record, maxMembers int) dto.TeamworkBoardView {
 	view := dto.TeamworkBoardView{
 		TeamID:     plan.TeamID,
 		Version:    plan.Version,
@@ -72,8 +73,9 @@ func buildTeamworkBoardView(plan sessionstore.TeamworkPlan, events []sessionstor
 		ClosedAt:     plan.State.ClosedAt,
 		ClosedReason: plan.State.ClosedReason,
 		Stages:       teamworkStageViews(plan.Stages),
-		Members:      teamworkMemberViews(plan.Members),
+		Members:      teamworkMemberViews(plan, events, records),
 		Milestones:   teamworkMilestoneViews(plan.Milestones),
+		WorkItems:    teamworkWorkItemViews(plan, bindings, records),
 		Jobs:         teamworkJobViews(records),
 		Events:       teamworkEventViews(events),
 	}
@@ -114,15 +116,22 @@ func (r *Runtime) TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoardView
 		// 而不是把存储错误渗进会话快照）。缺计划与读失败在这里同解，并**进负缓存**。
 		missing := err != nil
 		var events []sessionstore.TeamworkEvent
+		var bindings []sessionstore.TeamworkBinding
 		if !missing {
 			events, err = backend.Store.ReadEvents(context.Background(), key)
 			if err != nil && !errors.Is(err, fs.ErrNotExist) {
 				// 审计读不出来不该让整块看板消失：计划还在，就先只报计划。
 				events = nil
 			}
+			// 绑定账本（一个 Work Item 一个 Session + worktree）：读不出来同理——
+			// 看板少一列"现场在不在"，但不该整块消失。
+			bindings, err = backend.Store.ReadBindings(context.Background(), key)
+			if err != nil && !errors.Is(err, fs.ErrNotExist) {
+				bindings = nil
+			}
 		}
-		cached = teamworkBoardSnapshotCache{plan: plan, events: events, planMissing: missing}
-		if missing || len(plan.Stages) == 0 {
+		cached = teamworkBoardSnapshotCache{plan: plan, events: events, bindings: bindings, planMissing: missing}
+		if missing || !teamworkPlanHasOrchestration(plan) {
 			// 活体给不出看板：同一次采集里把存档兜底也取回来（见 cache.archive 的说明）。
 			cached.archive = r.readTeamBoardArchive(backend, key)
 		}
@@ -146,8 +155,8 @@ func (r *Runtime) TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoardView
 		return nil
 	}
 
-	if cached.planMissing || len(cached.plan.Stages) == 0 {
-		// 没有计划 / 没有阶段 = 活体给不出可看的编排：回落到存档快照（§6 重启恢复）。
+	if cached.planMissing || !teamworkPlanHasOrchestration(cached.plan) {
+		// 没有计划 / 没有可看的编排：回落到存档快照（§6 重启恢复）。
 		// 仍然是 nil 就表示"看板退场"（无存档 / 存档已 closed / 快照坏了）——
 		// 与渲染件的空计划口径一致，不留空壳。
 		if cached.archive == nil {
@@ -164,8 +173,16 @@ func (r *Runtime) TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoardView
 	if manager != nil {
 		records = manager.Snapshot(jobs.Scope{Session: key.SessionID})
 	}
-	view := buildTeamworkBoardView(plan, cached.events, records, backend.MaxTeammates)
+	view := buildTeamworkBoardView(plan, cached.events, cached.bindings, records, backend.MaxTeammates)
 	return &view
+}
+
+// teamworkPlanHasOrchestration 报告一份计划有没有**可看的编排**。
+//
+// 判据从"有阶段"扩成"有阶段或里程碑"：Work Item 口径的计划（2026-10-03）没有 stages，
+// 只看 stages 会把一份排得好好的计划当成"没有编排"而整块退场。
+func teamworkPlanHasOrchestration(plan sessionstore.TeamworkPlan) bool {
+	return len(plan.Stages) > 0 || len(plan.Milestones) > 0
 }
 
 // invalidateTeamworkBoard 丢弃看板缓存（team_* 工具成功返回后调用）。
@@ -200,18 +217,104 @@ func teamworkStageViews(stages []sessionstore.TeamworkStage) []dto.TeamworkStage
 
 // teamworkMemberViews 搬运在编成员。Permission 格子**不下发**：它是权责分配的实现细节，
 // 面板要的是"这个人是 readonly 还是 readwrite"（tools_policy 已够）。
-func teamworkMemberViews(members []sessionstore.TeamworkMember) []dto.TeamworkMemberView {
-	if len(members) == 0 {
+//
+// Status / Queue / Messages 是 **Work Item 口径**的三件（2026-10-03）：状态由这个人名下
+// 工作项折算，队列是"还没完成的工作项名称"（销项即出队），消息是尾插进来的回执。
+func teamworkMemberViews(plan sessionstore.TeamworkPlan, events []sessionstore.TeamworkEvent, records []jobs.Record) []dto.TeamworkMemberView {
+	if len(plan.Members) == 0 {
 		return nil
 	}
-	views := make([]dto.TeamworkMemberView, 0, len(members))
-	for _, member := range members {
-		views = append(views, dto.TeamworkMemberView{
+	liveHandles := make(map[string]struct{}, len(records))
+	for _, record := range records {
+		liveHandles[string(record.Handle)] = struct{}{}
+	}
+	views := make([]dto.TeamworkMemberView, 0, len(plan.Members))
+	for _, member := range plan.Members {
+		view := dto.TeamworkMemberView{
 			Role:          member.Role,
 			RoleSessionID: member.RoleSessionID,
 			Worktree:      member.Worktree,
 			ToolsPolicy:   member.ToolsPolicy,
-		})
+			Status:        teamworkMemberStatus(plan, member),
+		}
+		for _, milestone := range plan.Milestones {
+			for _, item := range milestone.Items {
+				if item.Role != member.Role {
+					continue
+				}
+				if item.StatusOrPending() == sessionstore.TeamworkItemDone {
+					continue // 已销项：不占队列
+				}
+				view.Queue = append(view.Queue, item.Name)
+			}
+		}
+		for _, event := range events {
+			if event.Kind != sessionstore.TeamworkEventMessage || event.Role != member.Role {
+				continue
+			}
+			view.Messages = append(view.Messages, dto.TeamworkTeammateMessageView{
+				At: event.At.Unix(), Role: event.Role, Milestone: event.Milestone,
+				WorkItem: event.WorkItem, Text: event.Detail,
+			})
+		}
+		views = append(views, view)
+	}
+	return views
+}
+
+// teamworkMemberStatus 把一个人名下工作项的状态折算成人的状态：
+// 有待验收 > 在跑 > 空闲。
+func teamworkMemberStatus(plan sessionstore.TeamworkPlan, member sessionstore.TeamworkMember) string {
+	status := "idle"
+	for _, milestone := range plan.Milestones {
+		for _, item := range milestone.Items {
+			if item.Role != member.Role {
+				continue
+			}
+			switch item.StatusOrPending() {
+			case sessionstore.TeamworkItemReview:
+				return "review"
+			case sessionstore.TeamworkItemRunning:
+				status = "running"
+			}
+		}
+	}
+	return status
+}
+
+// teamworkWorkItemViews 搬运工作项（甘特图的扁平数据面）。
+//
+// Live / Interrupted 都是**读出来的事实**：Live = 这件事有一份未释放的工作区绑定；
+// Interrupted = 状态说在跑、而本进程作业表里查不到它的句柄（jobs I-4 的显式化——
+// 进程重启后句柄必然作废，这不是错误，是"可以重派"的信号）。
+func teamworkWorkItemViews(plan sessionstore.TeamworkPlan, bindings []sessionstore.TeamworkBinding, records []jobs.Record) []dto.TeamworkWorkItemView {
+	liveBindings := sessionstore.TeamworkBindings(bindings)
+	liveHandles := make(map[string]struct{}, len(records))
+	for _, record := range records {
+		liveHandles[string(record.Handle)] = struct{}{}
+	}
+	views := make([]dto.TeamworkWorkItemView, 0)
+	for _, milestone := range plan.Milestones {
+		for _, item := range milestone.Items {
+			_, live := liveBindings[item.ID]
+			interrupted := false
+			if item.StatusOrPending() == sessionstore.TeamworkItemRunning {
+				_, alive := liveHandles[item.Handle]
+				interrupted = !alive || item.Handle == ""
+			}
+			views = append(views, dto.TeamworkWorkItemView{
+				ID: item.ID, Milestone: item.Milestone, Role: item.Role, Name: item.Name,
+				Description: item.Description, Goal: item.Goal,
+				DependsOn: append([]string(nil), item.DependsOn...),
+				Status:    item.StatusOrPending(), SessionID: item.SessionID, Worktree: item.Worktree,
+				Handle: item.Handle, Note: item.Note,
+				StartedAt: item.StartedAt, FinishedAt: item.FinishedAt,
+				Live: live, Interrupted: interrupted,
+			})
+		}
+	}
+	if len(views) == 0 {
+		return nil
 	}
 	return views
 }
@@ -224,10 +327,12 @@ func teamworkMilestoneViews(milestones []sessionstore.TeamworkMilestone) []dto.T
 	views := make([]dto.TeamworkMilestoneView, 0, len(milestones))
 	for _, milestone := range milestones {
 		views = append(views, dto.TeamworkMilestoneView{
-			ID:      milestone.ID,
-			After:   append([]string(nil), milestone.After...),
-			Status:  milestone.Status,
-			Content: milestone.Content,
+			ID:        milestone.ID,
+			Name:      milestone.Name,
+			DependsOn: append([]string(nil), milestone.DependsOn...),
+			After:     append([]string(nil), milestone.After...),
+			Status:    milestone.Status,
+			Content:   milestone.Content,
 		})
 	}
 	return views

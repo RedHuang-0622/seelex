@@ -33,15 +33,36 @@ flowchart LR
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Enrolled: team_plan（stages + members + milestones）
-    Enrolled --> Dispatched: team_dispatch（role ∈ 在编，且未超上限）
-    Dispatched --> Observed: jobs_manage observe / fetch（消费式）/ team_context（非消费）
-    Dispatched --> Joined: team_join（有界等待，只观察不取回）
-    Joined --> Milestoned: team_milestone（依赖边判据）
-    Milestoned --> Retired: team_retire（释放工作区 → 清会话内容 → 保在线，不回收作业）
-    Retired --> Closed: team_close（逐在编成员回收作业 → 封板看板 → 计划标 closed）
+    [*] --> Enrolled: team_plan（members + milestones）
+    Enrolled --> Worked: team_work（按里程碑排活：只给依赖已 done 的里程碑）
+    Worked --> Dispatched: team_dispatch(item=…)（屏障 + 里程碑内依赖双闸门）
+    Dispatched --> Settled: 回合结束自动尾插（先合并 worktree → 有界回执进消息队列）
+    Settled --> Accepted: team_accept（销项 + 结束这件事的隔离）/ team_fail（留现场与记忆，可重派）
+    Accepted --> Worked: 本里程碑全部 done → 屏障打开 → 给下一个里程碑排活
+    Worked --> Recovered: team_recover（额度中断 / 重启：列出可重派，不动会话与现场）
+    Recovered --> Dispatched: 重派复用原会话号（记忆建在）
+    Accepted --> Retired: team_retire（名下还有没落定的活会被拒）
+    Retired --> Closed: team_close（逐在编成员回收 + 所有活绑定一并结束 + 封板）
     Closed --> [*]
 ```
+
+（阶段制口径仍可跑：`team_plan(stages…)` → `team_dispatch(role, goal)` → `team_join` →
+`team_milestone` → `team_retire` → `team_close`。Work Item 口径与它并存，见下。）
+
+## Work Item：一里程碑一屏障、一件事一套隔离
+
+- **Milestone 是屏障，Work Item 是调度单位**：`milestones[].depends_on` 管里程碑之间（串行），
+  `work_items[].depends_on` 管里程碑内（DAG 并行）。跨里程碑的 item 依赖被**显式拒绝**。
+- **一个 Work Item 一个 Session + 一个 git worktree**：会话号
+  `WorkItemSessionID(...)` = `<role_session>-wi-<itemID>`；worktree 指派名
+  `seelebridge/<role>-<itemID>`（与 worktree 管理器的 nodeID 同一套命名）。
+  绑定落**追加型 JSONL**（`teamwork/worktrees.jsonl`，KV 语义：按 work_item 取最后一行）。
+- **尾插是自动的**：`workerExecutor` 在回合结束后调 `ItemSettler.SettleWorkItem` ——
+  **先合并**这件事的 worktree，再把有界一行插进 teammate 的消息队列（= 审计流里
+  `kind=message` 的行，按 `role_session_id` 读）。合并失败也插，正文写明
+  「插入失败 → 请 leader 亲自执行」并把 bug 原文带上。
+- **中断恢复不清会话**：额度中断 / 进程重启之后，`Recover` 只把"句柄已作废、可重派"显式化；
+  重派同一个工作项会**复用原会话号**（记忆必须建在）。
 
 ## 职责与非职责
 
@@ -62,11 +83,12 @@ stateDiagram-v2
 
 | 文件 | 职责 |
 |---|---|
-| `teamwork.go` | 端口契约（`PlanStore` / `WorkerRunner` / `WorkspaceReleaser` / `SessionResetter` / `BoardCloser` / `JobOutputs`）、`Options`、`Coordinator` 装配、计划校验、成员权限格子折叠 |
-| `coordinator.go` | 六个动作：`SetPlan` / `Dispatch` / `Join` / `Milestone` / `Retire` / `Close`（`Retire` 与 `Close` 复用 `retireSteps(reclaim bool)`），以及 `audit` |
-| `executor.go` | 作业执行体：`WorkerExecutor`（`Kind=worker`）（`SeatExecutor` 已随 goal 席位轮转退场） |
-| `store.go` | `sessionstore` 持久面的适配与计划读写 |
-| `teamwork_test.go` | 端口桩驱动的编排语义测试 |
+| `teamwork.go` | 端口契约（`PlanStore` / `WorkerRunner` / `WorkspaceReleaser` / `Workspaces` / `TeammateQueue` / `SessionResetter` / `BoardCloser` / `JobOutputs` / `ItemSettler`）、`Options`、`Coordinator` 装配、计划校验、成员权限格子折叠 |
+| `coordinator.go` | 计划/派发/汇合/里程碑/退场/收口（`SetPlan` / `Dispatch` / `Join` / `Milestone` / `Retire` / `Close`，`Retire` 与 `Close` 复用 `retireSteps(reclaim bool)`），以及 `audit` |
+| `items.go` | **Work Item 生命周期**：`PlanMilestone` / `AdjustItem` / `DispatchItem` / `SettleWorkItem`（尾插）/ `AcceptItem` / `FailItem` / `Items` / `Recover`，屏障与里程碑内依赖闸门、绑定账本折叠 |
+| `executor.go` | 作业执行体：`WorkerExecutor(runner, settler, maxTurns)`（`Kind=worker`）；回合结束后**自动尾插**（`SeatExecutor` 已随 goal 席位轮转退场） |
+| `store.go` | `sessionstore` 持久面的适配与计划/绑定读写 |
+| `teamwork_test.go` / `items_test.go` | 端口桩驱动的编排语义测试（后者按 Work Item 口径逐条覆盖九类要求） |
 
 ## 核心实现
 

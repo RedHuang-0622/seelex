@@ -46,6 +46,14 @@ func (s *fakeTeamworkStore) TeamworkJobOutputDir(context.Context, sessionstore.K
 	return s.dir, nil
 }
 
+func (s *fakeTeamworkStore) AppendTeamworkBinding(context.Context, sessionstore.Key, sessionstore.TeamworkBinding) error {
+	return nil
+}
+
+func (s *fakeTeamworkStore) ReadTeamworkBindings(context.Context, sessionstore.Key) ([]sessionstore.TeamworkBinding, error) {
+	return nil, nil
+}
+
 func newOutputFixture(t *testing.T) (*TeamworkJobOutputs, string, context.Context) {
 	t.Helper()
 	dir := t.TempDir()

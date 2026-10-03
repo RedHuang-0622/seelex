@@ -2275,6 +2275,13 @@ function bindTeamBoardActions() {
   const host = elements["team-board-view"];
   if (!host) return;
   host.addEventListener("click", async event => {
+    // 工作项行的名称 = 这件事的**执行进度子页面**入口（2026-10-03）：复用员工会话
+    // 那个子页面（同一个 openRoleSessionDetail），不另造"工作项页面"概念。
+    const openItem = event.target.closest?.("[data-team-item-open]");
+    if (openItem?.dataset.teamItemOpen) {
+      await openRoleSessionDetail(openItem.dataset.teamItemRole || "", openItem.dataset.teamItemSession || "");
+      return;
+    }
     const openRole = event.target.closest?.("[data-team-role-open]");
     if (!openRole?.dataset.teamRoleOpen) return;
     await openRoleSessionDetail(openRole.dataset.teamRoleOpen, openRole.dataset.teamRoleSession);

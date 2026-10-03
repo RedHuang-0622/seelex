@@ -16,10 +16,11 @@ import (
 // ── 端口替身（本包因此可在没有引擎、没有 git 的测试里跑完编排语义）──
 
 type memoryPlanStore struct {
-	mu     sync.Mutex
-	plan   sessionstore.TeamworkPlan
-	events []sessionstore.TeamworkEvent
-	limit  int
+	mu       sync.Mutex
+	plan     sessionstore.TeamworkPlan
+	events   []sessionstore.TeamworkEvent
+	bindings []sessionstore.TeamworkBinding
+	limit    int
 }
 
 func (s *memoryPlanStore) WritePlan(_ context.Context, _ sessionstore.Key, plan sessionstore.TeamworkPlan, maxTeammates int) error {
@@ -54,6 +55,19 @@ func (s *memoryPlanStore) ReadEvents(context.Context, sessionstore.Key) ([]sessi
 	return append([]sessionstore.TeamworkEvent(nil), s.events...), nil
 }
 
+func (s *memoryPlanStore) AppendBinding(_ context.Context, _ sessionstore.Key, binding sessionstore.TeamworkBinding) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.bindings = append(s.bindings, binding)
+	return nil
+}
+
+func (s *memoryPlanStore) ReadBindings(context.Context, sessionstore.Key) ([]sessionstore.TeamworkBinding, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]sessionstore.TeamworkBinding(nil), s.bindings...), nil
+}
+
 func (s *memoryPlanStore) kinds() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -85,6 +99,12 @@ func (r *fakeRunner) RunWorker(ctx context.Context, request WorkerRequest, sink 
 	}
 	sink.Complete(jobs.StateDone, "ok")
 	return nil
+}
+
+func (r *fakeRunner) requestsSnapshot() []WorkerRequest {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]WorkerRequest(nil), r.requests...)
 }
 
 type callLog struct {
@@ -142,7 +162,7 @@ func newFixture(t *testing.T, maxTeammates int) *fixture {
 	runner := &fakeRunner{}
 	log := &callLog{}
 	manager, err := jobs.New(
-		jobs.WithExecutor(WorkerExecutor(runner, 4)),
+		jobs.WithExecutor(WorkerExecutor(runner, nil, 4)),
 		jobs.WithLimits(jobs.Limits{InFlight: 64}),
 	)
 	if err != nil {
@@ -387,7 +407,7 @@ func TestRetireKeepsJobOnRosterAndTouchesOnlyThatTeammate(t *testing.T) {
 
 func TestRetireRequiresWorkspaceAndSessionPorts(t *testing.T) {
 	store := &memoryPlanStore{}
-	manager, err := jobs.New(jobs.WithExecutor(WorkerExecutor(&fakeRunner{}, 4)))
+	manager, err := jobs.New(jobs.WithExecutor(WorkerExecutor(&fakeRunner{}, nil, 4)))
 	if err != nil {
 		t.Fatalf("jobs.New: %v", err)
 	}
@@ -443,7 +463,7 @@ func TestSubjectIsEmployeeSubject(t *testing.T) {
 }
 
 func TestWorkerExecutorWithoutRunnerFails(t *testing.T) {
-	executor := WorkerExecutor(nil, 1)
+	executor := WorkerExecutor(nil, nil, 1)
 	manager, err := jobs.New(jobs.WithExecutor(executor))
 	if err != nil {
 		t.Fatalf("jobs.New: %v", err)

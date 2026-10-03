@@ -216,13 +216,177 @@ export function milestoneStatus(milestone) {
   return status || "pending";
 }
 
+// ── Work Item（甘特节点）：计划 → 条目 / 依赖 / 队列 ─────────────────
+//
+// Work Item 口径（2026-10-03）：Milestone 是**屏障**（之间串行，milestones[].depends_on），
+// 里程碑内部按工作项依赖并行（work_items[].depends_on）。**一个 Work Item 一个 teammate
+// 一套 Session + worktree**——所以"这个人手上还有什么"从工作项算，不从调用姿势猜。
+
+const ITEM_PENDING = "pending";
+const ITEM_RUNNING = "running";
+const ITEM_REVIEW = "review";
+const ITEM_DONE = "done";
+const ITEM_FAILED = "failed";
+
+// workItemsOf 取计划里的工作项（扁平数组，每条自带 milestone）。
+export function workItemsOf(plan) {
+  return Array.isArray(plan?.work_items) ? plan.work_items.filter(item => item && item.id) : [];
+}
+
+// itemStatus 读工作项状态（空 = pending，与 sessionstore 同口径）。
+export function itemStatus(item) {
+  return String(item?.status || "").trim().toLowerCase() || ITEM_PENDING;
+}
+
+// itemDepsOf 取工作项的里程碑内依赖（去空白、去空项）。
+export function itemDepsOf(item) {
+  return (Array.isArray(item?.depends_on) ? item.depends_on : [])
+    .map(dep => String(dep || "").trim())
+    .filter(Boolean);
+}
+
+// itemsOfMilestone 取一个里程碑下的工作项（按后端给的顺序）。
+export function itemsOfMilestone(plan, milestoneID) {
+  const id = String(milestoneID || "");
+  return workItemsOf(plan).filter(item => String(item.milestone || "") === id);
+}
+
+// orderMilestones 按 depends_on 做拓扑排序 + 层号（与 orderStages 同一套口径与容错：
+// 缺依赖与成环都在看板上显形，不静默丢里程碑）。
+export function orderMilestones(plan) {
+  const milestones = milestonesOf(plan);
+  const ids = new Set(milestones.map(milestone => String(milestone.id)));
+  const deps = new Map(milestones.map(milestone => [String(milestone.id), milestoneDepsOf(milestone)]));
+  const depth = new Map();
+  const ordered = [];
+  let frontier = milestones.filter(milestone => deps.get(String(milestone.id)).filter(dep => ids.has(dep)).length === 0);
+  for (const milestone of frontier) depth.set(String(milestone.id), 0);
+  while (frontier.length) {
+    for (const milestone of frontier) ordered.push(milestoneEntry(plan, milestone, depth.get(String(milestone.id))));
+    const next = [];
+    for (const milestone of milestones) {
+      const id = String(milestone.id);
+      if (depth.has(id)) continue;
+      const pending = deps.get(id).filter(dep => ids.has(dep) && !depth.has(dep));
+      if (pending.length) continue;
+      const level = Math.max(0, ...deps.get(id).filter(dep => ids.has(dep)).map(dep => (depth.get(dep) ?? 0) + 1));
+      depth.set(id, level);
+      next.push(milestone);
+    }
+    frontier = next;
+  }
+  for (const milestone of milestones) {
+    if (!depth.has(String(milestone.id))) ordered.push(milestoneEntry(plan, milestone, 0, true));
+  }
+  return ordered;
+}
+
+export function milestoneDepsOf(milestone) {
+  return (Array.isArray(milestone?.depends_on) ? milestone.depends_on : [])
+    .map(dep => String(dep || "").trim())
+    .filter(Boolean);
+}
+
+function milestoneEntry(plan, milestone, depth, cyclic = false) {
+  const id = String(milestone.id);
+  const known = new Set(milestonesOf(plan).map(item => String(item.id)));
+  return {
+    id,
+    name: String(milestone.name || "").trim(),
+    depends_on: milestoneDepsOf(milestone),
+    missing_deps: milestoneDepsOf(milestone).filter(dep => !known.has(dep)),
+    status: milestoneStatus(milestone),
+    depth,
+    cyclic,
+    items: itemsOfMilestone(plan, id),
+  };
+}
+
+// orderWorkItems 按**里程碑内**依赖做拓扑排序 + 层号；blocked = 前置还没验收通过。
+//
+// blocked 不是"不能派"，而是"现在派会被闸门拒"——它与后端的判据同源（依赖必须 done），
+// 于是看板说"被卡住"与编排面真的拒收是同一条事实，不会各说各话。
+export function orderWorkItems(items) {
+  const list = (Array.isArray(items) ? items : []).filter(item => item && item.id);
+  const ids = new Set(list.map(item => String(item.id)));
+  const byID = new Map(list.map(item => [String(item.id), item]));
+  const depth = new Map();
+  const ordered = [];
+  let frontier = list.filter(item => itemDepsOf(item).filter(dep => ids.has(dep)).length === 0);
+  for (const item of frontier) depth.set(String(item.id), 0);
+  while (frontier.length) {
+    for (const item of frontier) ordered.push(workItemEntry(item, byID, depth.get(String(item.id))));
+    const next = [];
+    for (const item of list) {
+      const id = String(item.id);
+      if (depth.has(id)) continue;
+      const pending = itemDepsOf(item).filter(dep => ids.has(dep) && !depth.has(dep));
+      if (pending.length) continue;
+      const level = Math.max(0, ...itemDepsOf(item).filter(dep => ids.has(dep)).map(dep => (depth.get(dep) ?? 0) + 1));
+      depth.set(id, level);
+      next.push(item);
+    }
+    frontier = next;
+  }
+  for (const item of list) {
+    if (!depth.has(String(item.id))) ordered.push(workItemEntry(item, byID, 0, true));
+  }
+  return ordered;
+}
+
+function workItemEntry(item, byID, depth, cyclic = false) {
+  const deps = itemDepsOf(item);
+  return {
+    item,
+    id: String(item.id),
+    depth,
+    cyclic,
+    depends_on: deps,
+    missing_deps: deps.filter(dep => !byID.has(dep)),
+    blocked: deps.some(dep => itemStatus(byID.get(dep)) !== ITEM_DONE),
+  };
+}
+
+// memberQueueOf 取某位 teammate 的工作项名称队列：优先用后端算好的 queue，缺失时按
+// 工作项自行派生（**同一条判据**：未完成的工作项才占队列）。两种来源读法一致，
+// 所以后端降级（旧投影）时看板不会显示成"这个人无事可做"。
+export function memberQueueOf(plan, role) {
+  const name = String(role || "");
+  const member = (Array.isArray(plan?.members) ? plan.members : []).find(entry => entry && String(entry.role || "") === name);
+  if (member && Array.isArray(member.queue)) return member.queue.map(entry => String(entry || "")).filter(Boolean);
+  return workItemsOf(plan)
+    .filter(item => String(item.role || "") === name && itemStatus(item) !== ITEM_DONE)
+    .map(item => String(item.name || item.id));
+}
+
+// memberMessagesOf 取某位 teammate 的消息队列（尾插回执；后端给多少读多少）。
+export function memberMessagesOf(plan, role) {
+  const name = String(role || "");
+  const member = (Array.isArray(plan?.members) ? plan.members : []).find(entry => entry && String(entry.role || "") === name);
+  return Array.isArray(member?.messages) ? member.messages.filter(message => message && message.text) : [];
+}
+
+export function memberStatusOf(plan, role) {
+  const name = String(role || "");
+  const member = (Array.isArray(plan?.members) ? plan.members : []).find(entry => entry && String(entry.role || "") === name);
+  const status = String(member?.status || "").trim().toLowerCase();
+  if (status) return status;
+  return "idle";
+}
+
 // ── 渲染 ────────────────────────────────────────────────────────
 
-// renderTeamBoard 渲染整块看板；没有计划 / 计划里没有阶段 → ""（不留空壳，口径同目标看板）。
+// renderTeamBoard 渲染整块看板；没有计划 / 既没有阶段也没有工作项 → ""（不留空壳，
+// 口径同目标看板）。
+//
+// 两块数据面并存是**迁移期**的事实：阶段（stages）是"哪个角色先上"的老口径，
+// 工作项（work_items）是"这一步具体做什么、谁做、做完的判据"的新口径。有计划给哪块就画哪块，
+// 两块都有就都画——看板只搬事实，不替计划选口径。
 export function renderTeamBoard(input = {}) {
   const { plan = null, jobs = [], events = [], maxMembers = 0, stale = false, recovered = false } = input;
   const entries = orderStages(plan);
-  if (entries.length === 0) return "";
+  const items = workItemsOf(plan);
+  if (entries.length === 0 && items.length === 0) return "";
   const grouped = jobsByStage(plan, jobs);
   const statusById = stageStatuses(plan, jobs);
   const summary = summarizeTeam(plan, jobs);
@@ -230,10 +394,13 @@ export function renderTeamBoard(input = {}) {
   const stages = entries
     .map(entry => renderTeamStageCard(entry, { jobs: grouped.get(entry.id) || [], status: statusById.get(entry.id) }))
     .join("");
+  const stageBlock = stages ? `<div class="team-stages">${stages}</div>` : "";
   return `<div class="team-board" data-team-board data-team-id="${escapeHtml(String(plan?.team_id || ""))}">
       ${head}
-      <div class="team-stages">${stages}</div>
+      ${stageBlock}
+      ${renderTeamGantt(plan)}
       ${renderTeamRoster(plan, jobs)}
+      ${renderTeamQueue(plan)}
       ${renderTeamMilestones(plan)}
       ${renderTeamAudit(events)}
     </div>`;
@@ -360,7 +527,171 @@ export function renderTeamRoster(plan, jobs) {
     </section>`;
 }
 
-// renderTeamMilestones 是里程碑条：id / after（判据是依赖边）/ 状态 / leader 撰写的内容。
+// renderTeamGantt 是**里程碑甘特**：里程碑之间串行（屏障 + 层号），里程碑内部是工作项
+// 的依赖 DAG。它不表示时间——只表示依赖（用户口径：甘特不表示时间，只表示 Work Item 的
+// 依赖项与 Milestone 之间的依赖）。
+//
+// 每个工作项一行：名称 / 执行 teammate / 状态 / 依赖 / 这件事自己的 Session 与 worktree /
+// leader 的结论。行上的 `data-team-item-open` + `data-team-item-session` 是**子页面入口**
+// （复用员工会话那个子页面；见 app.js 的看板委托）。
+export function renderTeamGantt(plan) {
+  const entries = orderMilestones(plan);
+  if (entries.length === 0) return "";
+  const blocks = entries.map(entry => {
+    const deps = entry.depends_on.length
+      ? entry.depends_on.map(dep => `<span class="chip team-dep">${escapeHtml(dep)}</span>`).join("")
+      : '<span class="muted">—</span>';
+    const missing = entry.missing_deps.length
+      ? `<div class="team-stage-warn" title="depends_on 指向计划里不存在的里程碑">依赖缺失：${escapeHtml(entry.missing_deps.join("、"))}</div>`
+      : "";
+    const cyclic = entry.cyclic
+      ? '<div class="team-stage-warn" title="depends_on 成环，层号归 0 并接在末尾">依赖成环</div>'
+      : "";
+    const title = entry.name ? `${escapeHtml(entry.id)} · ${escapeHtml(entry.name)}` : escapeHtml(entry.id);
+    const ordered = orderWorkItems(entry.items);
+    const items = ordered.length
+      ? ordered.map(item => renderTeamWorkItem(item)).join("")
+      : '<li class="team-item is-empty">尚未排活</li>';
+    return `<article class="team-milestone-gantt" data-milestone-id="${escapeHtml(entry.id)}" data-status="${escapeHtml(entry.status)}" data-depth="${escapeHtml(String(entry.depth))}">
+        <div class="team-milestone-head">
+          <span class="team-milestone-id">${title}</span>
+          <span class="team-depth" title="屏障层号 L${escapeHtml(String(entry.depth))}（同层 = 依赖边允许并行）">L${escapeHtml(String(entry.depth))}</span>
+          <span class="team-status is-${escapeHtml(entry.status)}">${escapeHtml(entry.status)}</span>
+        </div>
+        <div class="team-stage-deps"><span class="team-label">屏障</span>${deps}</div>
+        ${missing}${cyclic}
+        <ul class="team-items">${items}</ul>
+      </article>`;
+  }).join("");
+  return `<section class="team-section" data-team-gantt>
+      <div class="team-section-title"><span>里程碑甘特</span><span class="chip team-count">${entries.length}</span></div>
+      <div class="team-gantt">${blocks}</div>
+    </section>`;
+}
+
+// renderTeamWorkItem 渲染一个工作项行。
+//
+// 「一件事一套隔离」写在行上：Session 与 worktree 是这一件事自己的，验收通过之后会被释放
+// （所以 done 的行不再显示它们）。被中断（interrupted）的行显式标出来——那是"可以重派"，
+// 不是"跑丢了"。
+export function renderTeamWorkItem(entry) {
+  const item = entry?.item || {};
+  const status = itemStatus(item);
+  const role = String(item.role || "").trim();
+  const deps = entry.depends_on.length
+    ? entry.depends_on.map(dep => `<span class="chip team-dep">${escapeHtml(dep)}</span>`).join("")
+    : "";
+  const session = String(item.session_id || "").trim();
+  const worktree = String(item.worktree || "").trim();
+  const note = String(item.note || "").replace(/\s+/g, " ").trim();
+  const marks = [
+    entry.blocked ? '<span class="chip team-blocked" title="前置工作项还没验收通过：现在派发会被闸门拒">被依赖卡住</span>' : "",
+    item.interrupted ? '<span class="chip team-interrupted" title="状态说在跑、而本进程的作业表里查不到它的句柄（jobs I-4）。可以重派——会话与现场都还在">可重派</span>' : "",
+    item.live ? '<span class="chip team-live" title="这件事现在真的有一份未释放的工作区绑定">现场在</span>' : "",
+  ].filter(Boolean).join("");
+  const name = String(item.name || item.id || "");
+  const label = session
+    ? `<button type="button" class="team-item-name is-openable" data-team-item-open="${escapeHtml(String(item.id || ""))}" data-team-item-session="${escapeHtml(session)}" data-team-item-role="${escapeHtml(role)}" data-tip="查看这件事的执行进度（子页面）">${escapeHtml(name)}</button>`
+    : `<span class="team-item-name">${escapeHtml(name)}</span>`;
+  return `<li class="team-item is-${escapeHtml(status)}" data-item-id="${escapeHtml(String(item.id || ""))}" data-status="${escapeHtml(status)}" data-depth="${escapeHtml(String(entry.depth))}">
+      <div class="team-item-head">
+        ${label}
+        ${role ? `<span class="chip team-role">${escapeHtml(role)}</span>` : ""}
+        <span class="team-status is-${escapeHtml(status)}">${escapeHtml(status)}</span>
+      </div>
+      <div class="team-item-meta">
+        ${deps ? `<span class="team-label">依赖</span>${deps}` : ""}
+        ${session ? `<span class="team-item-session" title="${escapeHtml(session)}">${escapeHtml(session)}</span>` : ""}
+        ${worktree && status !== ITEM_DONE ? `<span class="team-item-wt" title="${escapeHtml(worktree)}">${escapeHtml(worktree)}</span>` : ""}
+        ${marks}
+      </div>
+      ${note ? `<div class="team-item-note" title="${escapeHtml(note)}">${escapeHtml(truncate(note, CONTENT_LIMIT))}</div>` : ""}
+    </li>`;
+}
+
+// renderTeamQueue 是**teammate 段**：名字 / 状态 / 负责的工作项名称队列 / 尾插回执。
+//
+// 队列与状态都从工作项算（后端算好的优先）：看板回答"这个人手上还有什么"，而不是让读的人
+// 自己按 role 再分一次组。
+export function renderTeamQueue(plan) {
+  const members = Array.isArray(plan?.members) ? plan.members.filter(Boolean) : [];
+  const items = workItemsOf(plan);
+  if (members.length === 0 || items.length === 0) return "";
+  const rows = members.map(member => {
+    const role = String(member.role || "");
+    const queue = memberQueueOf(plan, role);
+    const messages = memberMessagesOf(plan, role);
+    const status = memberStatusOf(plan, role);
+    const queueChips = queue.length
+      ? queue.map(name => `<span class="chip team-queue-item">${escapeHtml(name)}</span>`).join("")
+      : '<span class="muted">空</span>';
+    const latest = messages.length ? messages[messages.length - 1] : null;
+    const body = latest
+      ? `<div class="team-member-message" title="${escapeHtml(String(latest.text || ""))}">${escapeHtml(truncate(String(latest.text || ""), CONTENT_LIMIT))}</div>`
+      : "";
+    return `<li class="team-queue" data-role="${escapeHtml(role)}" data-status="${escapeHtml(status)}">
+        <div class="team-queue-head">
+          <span class="team-member-role">${escapeHtml(role)}</span>
+          <span class="team-status is-${escapeHtml(status)}">${escapeHtml(status)}</span>
+        </div>
+        <div class="team-queue-items">${queueChips}</div>
+        ${body}
+      </li>`;
+  }).join("");
+  return `<section class="team-section" data-team-queue>
+      <div class="team-section-title"><span>teammate</span><span class="chip team-count">${rows.length}</span></div>
+      <ul class="team-queues">${rows}</ul>
+    </section>`;
+}
+
+// renderWorkItemSessionPanel 是**执行进度子页面**的主体（点工作项打开）。
+//
+// 复用目前详情子页面的形状（k→v 条目），但**不要下面的表格**——子页面回答的是"这件事做到
+// 哪一步了"，不是一份状态台账：条目给出这件事自己的会话、工作区、依赖、结论与尾插回执，
+// 表格（状态行清单）留在主面板。
+export function renderWorkItemSessionPanel(plan, itemID) {
+  const item = workItemsOf(plan).find(entry => String(entry.id || "") === String(itemID || ""));
+  if (!item) return '<div class="role-session-view is-empty">这件事已不在计划里（可能已收口）</div>';
+  const status = itemStatus(item);
+  const role = String(item.role || "").trim();
+  const rows = workItemsOf(plan);
+  const byID = new Map(rows.map(entry => [String(entry.id || ""), entry]));
+  const deps = itemDepsOf(item).map(dep => {
+    const owner = byID.get(dep);
+    const state = owner ? itemStatus(owner) : "unknown";
+    return `<span class="chip team-dep">${escapeHtml(dep)} · ${escapeHtml(state)}</span>`;
+  }).join("");
+  const entries = [
+    ["工作项", String(item.id || "")],
+    ["名称", String(item.name || "")],
+    ["执行 teammate", role],
+    ["状态", status],
+    ["里程碑", String(item.milestone || "")],
+    ["依赖", itemDepsOf(item).length ? "" : "—"],
+    ["达成目标", String(item.goal || "")],
+    ["描述", String(item.description || "")],
+    ["会话", String(item.session_id || "")],
+    ["工作区", String(item.worktree || "")],
+    ["句柄", String(item.handle || "")],
+    ["结论", String(item.note || "")],
+  ];
+  const kv = entries.map(([key, value]) => {
+    const text = String(value ?? "").trim();
+    return `<div class="role-kv-row"><span class="role-kv-key">${escapeHtml(key)}</span><span class="role-kv-value" title="${escapeHtml(text)}">${text ? escapeHtml(text) : "—"}</span></div>`;
+  }).join("");
+  const messages = memberMessagesOf(plan, role)
+    .filter(message => String(message.work_item || "") === String(item.id || ""))
+    .map(message => `<li class="team-item-message"><span class="team-event-at">${escapeHtml(formatEventTime(message.at || ""))}</span><span>${escapeHtml(String(message.text || ""))}</span></li>`)
+    .join("");
+  return `<div class="role-session-view team-item-panel" data-team-item-panel="${escapeHtml(String(item.id || ""))}">
+      <div class="role-session-head"><span class="team-status is-${escapeHtml(status)}">${escapeHtml(status)}</span></div>
+      <div class="role-kv">${kv}</div>
+      <div class="team-item-deps"><span class="team-label">依赖</span>${deps || '<span class="muted">—</span>'}</div>
+      ${messages ? `<ul class="team-item-messages">${messages}</ul>` : ""}
+    </div>`;
+}
+
+// renderTeamMilestones 是里程碑条：id / 判据（after）/ 状态 / leader 撰写的内容。
 export function renderTeamMilestones(plan) {
   const milestones = milestonesOf(plan);
   if (milestones.length === 0) return "";
@@ -498,4 +829,41 @@ export const TEAM_BOARD_CSS = `
 .team-event-target { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); color: var(--text-mid); }
 .team-event-at { flex: none; color: var(--faint); }
 .team-event-detail { flex: 1 1 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); }
+/* ── Work Item 口径（2026-10-03）：里程碑甘特 + teammate 队列 + 执行进度子页面 ── */
+.team-gantt { display: flex; flex-direction: column; gap: 6px; }
+.team-milestone-gantt { display: flex; flex-direction: column; gap: 3px; padding: 5px 7px; border: 1px solid var(--border); border-left-width: 2px; border-radius: 6px; background: var(--code-bg); min-width: 0; }
+.team-milestone-gantt[data-status="done"] { border-left-color: var(--status-done); }
+.team-milestone-gantt[data-status="active"] { border-left-color: var(--status-running); }
+.team-milestone-gantt[data-status="pending"] { border-left-color: var(--status-idle); }
+.team-items, .team-queues, .team-item-messages { display: flex; flex-direction: column; gap: 3px; margin: 0; padding: 0; list-style: none; min-width: 0; }
+.team-item { display: flex; flex-direction: column; gap: 2px; padding: 4px 6px; border: 1px solid var(--border-hairline); border-left-width: 2px; border-radius: 5px; min-width: 0; }
+.team-item[data-status="running"] { border-left-color: var(--status-running); background: var(--tint-running); }
+.team-item[data-status="review"] { border-left-color: var(--status-info); background: var(--tint-info); }
+.team-item[data-status="done"] { border-left-color: var(--status-done); }
+.team-item[data-status="failed"] { border-left-color: var(--status-failed); background: var(--tint-failed); }
+.team-item[data-status="pending"] { border-left-color: var(--status-idle); }
+.team-item.is-empty, .team-item.is-empty { color: var(--faint); font-size: var(--text-xs); border-left-color: var(--border-hairline); background: none; }
+.team-item-head { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.team-item-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-strong); }
+.team-item-name.is-openable { padding: 0; border: 0; background: none; text-align: left; font-size: inherit; color: var(--text-strong); cursor: pointer; text-decoration: underline dotted var(--border-strong); text-underline-offset: 2px; }
+.team-item-name.is-openable:hover { color: var(--text-bright); }
+.team-item-name.is-openable:focus-visible { outline: 1px solid var(--border-info); outline-offset: 1px; border-radius: 3px; }
+.team-item-head .team-status { margin-left: auto; }
+.team-item-meta { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; min-width: 0; font-size: var(--text-xs); color: var(--text-dim); }
+.team-item-session, .team-item-wt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--faint); }
+.team-item-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-mid); font-size: var(--text-xs); }
+.team-item-message { display: flex; gap: 5px; min-width: 0; font-size: var(--text-xs); color: var(--text-mid); }
+.team-interrupted { color: var(--status-failed); border-color: var(--border-failed); }
+.team-blocked { color: var(--status-idle); }
+.team-live { color: var(--status-done); border-color: var(--border-done); }
+.team-queue { display: flex; flex-direction: column; gap: 3px; padding: 4px 6px; border: 1px solid var(--border-hairline); border-radius: 5px; min-width: 0; }
+.team-queue-head { display: flex; align-items: center; gap: 5px; }
+.team-queue-head .team-status { margin-left: auto; }
+.team-queue-items { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; min-width: 0; }
+.team-queue-item { padding: 0 5px; border: 1px solid var(--border-hairline); border-radius: 4px; font-size: var(--text-xs); color: var(--text-mid); }
+.team-member-message { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-size: var(--text-xs); }
+.team-item-panel .role-kv-row { display: flex; gap: 6px; min-width: 0; }
+.team-item-panel .role-kv-key { flex: none; min-width: 72px; color: var(--faint); }
+.team-item-panel .role-kv-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-mid); }
+.team-item-deps { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
 `;
