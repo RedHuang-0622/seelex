@@ -8,6 +8,7 @@
 |---|---|---|
 | `default` | 全工具与全局能力入口 | [`default`](default/README.md) |
 | `freecad` | CAD 垂直能力验证 | [`freecad`](freecad/README.md) |
+| `impeccable` | 前端设计纪律与确定性检测器（Impeccable 移植） | [`impeccable`](impeccable/README.md) |
 
 ## 架构图
 
