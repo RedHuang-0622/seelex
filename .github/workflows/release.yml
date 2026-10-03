@@ -145,8 +145,69 @@ jobs:
             dist/archive/*-gui.zip.sha256
           if-no-files-found: error
 
+  # Linux GUI 是 cgo + GTK3 + WebKit2GTK 产物，Windows/macOS 上交叉编不出来
+  # （CGO_ENABLED=0 GOOS=linux 会 undefined: Frontend），历史上只能靠 Linux 侧手工
+  # scripts/build-linux-gui.sh 出包（v0.1.0 的 linux-amd64-gui 就是这么补的）。
+  # 这条腿把它并进流水线：ubuntu-22.04 上装 gtk3/webkit2gtk-4.0 开发包，走脚本的
+  # --native 分支原地构建，ABI 与手工路径一致（4.0 + libsoup-2.4）。
+  gui-linux:
+    needs: validate
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: 安装 GTK3 / WebKit2GTK(4.0) 构建依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-3-dev libwebkit2gtk-4.0-dev pkg-config
+
+      - name: 构建 Linux GUI
+        run: bash scripts/build-linux-gui.sh --version "$GITHUB_REF_NAME" --native
+
+      - name: 审计 Linux GUI 发布包
+        shell: bash
+        run: |
+          set -euo pipefail
+          audit="$(mktemp -d)"
+          unsafe=0
+          for archive in dist/archive/*-gui.tar.gz; do
+            dir="${audit}/$(basename "${archive}" .tar.gz)"
+            mkdir -p "${dir}"
+            tar -xzf "${archive}" -C "${dir}"
+            hits="$(find "${dir}" \( \
+              -path '*/.seelex' -o \
+              -path '*/.seelex/*' -o \
+              -path '*/config/accounts.yaml' -o \
+              -name '*.local.yaml' -o \
+              -name '*.secret.yaml' \
+            \) -print)"
+            if [ -n "${hits}" ]; then
+              echo "unsafe files found in Linux GUI release archive ${archive}:"
+              echo "${hits}"
+              unsafe=1
+            fi
+          done
+          if [ "${unsafe}" -ne 0 ]; then
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gui-linux-amd64
+          path: |
+            dist/archive/*-gui.tar.gz
+            dist/archive/*-gui.tar.gz.sha256
+          if-no-files-found: error
+
   publish:
-    needs: [cli, gui-windows]
+    needs: [cli, gui-windows, gui-linux]
     runs-on: ubuntu-latest
 
     steps:
