@@ -10,7 +10,7 @@
 
 [English README](README_EN.md)
 
-Seelex 不是一个只负责转发聊天请求的 AI Chat Client，也不是把 Prompt、Shell 和模型 API 粘在一起的薄封装。作为面向软件工程的 AI Agent Framework，它在 [Seele](https://github.com/RedHuang-0622/Seele) Agent Runtime 之上提供 Coding Agent 的产品语义：项目作用域 Tool Calling / Function Calling、Task/Plan 生命周期、Multi-Agent Orchestration、并行 Subagent、Goal 目标治理与完成裁决、Context Engineering、分层记忆、模型与账号路由、Human-in-the-loop 审批、多模态输入与桌面操控、Plugin/Agent Skills/MCP、Session Persistence，以及共享同一 Application Core 的 TUI、桌面 GUI、headless 与 backend 诊断前端。
+Seelex 不是一个只负责转发聊天请求的 AI Chat Client，也不是把 Prompt、Shell 和模型 API 粘在一起的薄封装。作为面向软件工程的 AI Agent Framework，它在 [Seele](https://github.com/RedHuang-0622/Seele) Agent Runtime 之上提供 Coding Agent 的产品语义：项目作用域 Tool Calling / Function Calling、Task/Plan 生命周期、Multi-Agent Orchestration、并行 Subagent 与后台作业面、Goal 目标治理与完成裁决、Context Engineering、分层记忆、模型与账号路由、Human-in-the-loop 审批、多模态输入与桌面操控、Plugin/Agent Skills/MCP、沙箱 HTML 可视答案、Session Persistence，以及共享同一 Application Core 的 TUI、桌面 GUI、headless 与 backend 诊断前端。
 
 当前项目处于 **Developer Alpha**。默认入口是 TUI；GUI 已可构建和使用，但仍属于 Alpha 功能。
 
@@ -18,7 +18,7 @@ Seelex 不是一个只负责转发聊天请求的 AI Chat Client，也不是把 
 
 Seelex 由两个公开层次组成：[Seele](https://github.com/RedHuang-0622/Seele) 提供 Agent、Session、Tool Registry、ReAct、WorkPlan 和 Account Pool 等运行时原语；本仓库在其上实现面向软件工程的 Application Core、Workspace Sandbox、Context Pipeline、Plugin/Skill/MCP、持久化和交互前端。两层之间通过 [Seele Bridge](seelebridge/README.md) 隔离，使 Runtime 能力与产品语义可以分别演进。
 
-主会话默认使用 ReAct 和项目作用域 Tool Calling 完成任务。面对需要拆分的长任务，模型可以按需加载 WorkPlan DAG：每个 Subagent 节点拥有独立 Session、NodeScope、PromptBlocks、账号 binding 和 token budget，并行执行后再把 findings、decisions 与 progress 合并回父会话。Plan 不是所有请求的强制前置步骤，因此简单任务不会额外承担规划延迟和 token 成本。
+主会话默认使用 ReAct 和项目作用域 Tool Calling 完成任务。面对需要拆分的长任务，模型可以按需加载 WorkPlan DAG：加载后既可以由主代理按 DAG 串行自执行（<code>tasklist</code>，主代理串行自执行、逐节点打点，最后统一收尾），也可以交给子代理并行执行（<code>plan</code>）；每个 Subagent 节点拥有独立 Session、NodeScope、PromptBlocks、账号 binding 和 token budget，并行执行后再把 findings、decisions 与 progress 合并回父会话。分钟级的 Shell 命令、批量读与子代理派发共用**后台作业面**（<code>bash_bg</code> / <code>read_batch</code> / <code>job_manage</code>）：派发只回受理回执，产出按句柄消费式取回。Plan 不是所有请求的强制前置步骤，因此简单任务不会额外承担规划延迟和 token 成本。
 
 上下文处理采用预算驱动的 Context Engineering 流程。Seelex 会为输出预留 token、保留最近对话窗口、压缩窗口外历史，并把超大 Tool Result 归档为可读回的引用。文件和 Shell 工具则同时受 ProjectScope 与 Permission Policy 约束：前者负责 workspace root 的路径 containment（按会话分格，后台与并行会话各用各的项目根），后者在合法范围内继续执行 allow、ask 或 deny，并通过 Human-in-the-loop Interaction 完成审批。桌面操控与用户图片走同一条会话媒体通道，额外受过平台门控、媒体配额与逐次审批约束；长任务则可以选择进入 goal 目标栈，由独立上下文的裁决角色评审「是否完成」。
 
@@ -55,26 +55,29 @@ Seelex 把这些能力组织成可替换、可测试的模块，而不是把它�
 | 能力 | 当前实现 |
 |---|---|
 | Agent 执行 | 流式对话、工具调用、取消、审批交互和任务终态；Effort 四档（lite/medium/high/max）约束循环数、工具调用数与计划规模 |
-| Plan 与子 Agent | 可选 WorkPlan DAG、拓扑校验、并行分支、独立节点 Session、事件投影和结果 merge-back；<code>fork_subagents</code> 以后台作业派发子代理（句柄 + <code>job_manage</code> 取回） |
-| 目标治理 | 会话级 LIFO goal 栈与状态机、独立上下文的裁决角色（ADVISOR / TechLeader）回合制评审、抽帧节流、有界指令邮箱、终态门禁与 append-only 审计 |
-| 代理团队与工作台 | TeamSpec 团队工厂（团队库条目显式装配）、成员与发言顺序注册表；plan / tasklist / subagent / todo 四源合一的工作台投影与 traceboard |
-| 上下文治理 | Prompt Stack 稳定前缀、滑动窗口、预算控制、压缩 DAG、超大工具结果归档为 <code>result_ref</code> 与按页/过滤读回；装配逼近硬阈值（默认 98% 预算）时**探测即主动压缩**为有界 checkpoint 帧，<code>compact_context</code> 工具与 <code>/compact</code> 命令可手动触发同一压缩 |
+| Plan 与子 Agent | 可选 WorkPlan DAG、拓扑校验、并行分支、独立节点 Session、事件投影和结果 merge-back；加载后按**任务级**选择两种执行模式：<code>tasklist</code>（主代理按 DAG 串行自执行，逐节点 <code>task_check_node</code> 打点、<code>task_complete</code> 收尾，无子代理）与 <code>plan</code>（<code>plan_run</code> 起子代理并行，节点完成经 Plan 事件实时投影）；<code>fork_subagents</code> 以后台作业派发子代理（句柄 + <code>job_manage</code> 取回） |
+| 目标治理 | 会话级 LIFO goal 栈与状态机、独立上下文的裁决角色（ADVISOR / TechLeader）回合制评审、抽帧节流、有界指令邮箱、终态门禁与 append-only 审计；工具面 <code>goal_begin</code> / <code>goal_update</code> / <code>goal_status</code> / <code>goal_propose_finish</code> / <code>goal_done</code>——<code>goal_done</code> 是主代理（即 TL）的真收口，<code>goal_propose_finish</code> 才送终态 gate，员工与子代理看不到 <code>goal_done</code> |
+| 代理团队与工作台 | TeamSpec 团队工厂（团队库条目显式装配）、成员与发言顺序注册表；leader 工具面 <code>team_plan</code> / <code>team_dispatch</code> / <code>team_join</code> / <code>team_milestone</code> / <code>team_retire</code> / <code>team_context</code> / <code>team_close</code>——<code>team_retire</code> 只结束一轮、不动作业，作业正文活到 <code>team_close</code>（整队收口与回收的唯一入口，幂等），在编人数上限 <code>max_teammates</code>（默认 6）超限即显式拒绝、不静默排队；plan / tasklist / subagent / todo 四源合一的工作台投影与 traceboard |
+| 后台作业面 | <code>bash_bg</code> / <code>read_batch</code> / <code>job_manage</code>（框架侧通用管理入口为 <code>jobs_manage</code>）共用一套作业契约：派发只回受理回执（<code>handle</code> + <code>log_path</code>，不含输出），结果按句柄**消费式**取回（一批一次等用 <code>handles</code>），<code>op=observe</code> 只读看进展、<code>op=kill</code> 终止整棵进程树（已产出内容不丢）、<code>op=done</code> 销项；串行 <code>bash</code>/<code>bash_read</code> 拒绝超过 5 分钟的 <code>timeout</code> 并指向 <code>bash_bg</code>，作业落终态且所属会话空闲时自动起一个回合让模型取回结果；<code>async_exec.enabled</code> 关闭即整块收回 |
+| 上下文治理 | Prompt Stack 稳定前缀、滑动窗口、预算控制、压缩 DAG、超大工具结果归档为 <code>result_ref</code> 与按页/过滤读回（<code>read_tool_result</code> / <code>read_compressed_turn</code> / <code>search_history</code>）；装配逼近硬阈值（默认 98% 预算）时**探测即主动压缩**为有界 checkpoint 帧，<code>compact_context</code> 工具与 <code>/compact</code> 命令可手动触发同一压缩；压缩失败**只留痕**——不改写 agent 的上下文、不中断会话 |
 | 记忆与检索 | 相关记忆块（词法 top-K）、以压缩栈为索引的历史检索读回、跨会话稳定前缀复用、CLI/项目级 <code>MEMORY.md</code> 索引 |
+| 项目知识 | <code>project_refresh</code> 扫描模块文档目录 + 模块元数据（<code>module_dotting.json</code>）+ 可选 <code>seelex.project.md</code>，重建项目级模块语义知识；来源 hash 未变直接复用，重建失败保留上一版本 |
 | 项目安全 | ProjectScope 按会话分格的路径约束、`seele.yaml` 的 LMRW 权限规则与权限 gate；工具权责模型为「主体 × 路由组 × 位」（root / sub / emp_ro / emp_rw，ro / rw / rw_session / rw_desktop / ctl / adm），子代理在结构上缺 <code>ctl</code>/<code>adm</code> 位 |
 | 权限档位 | 主会话有序档位表 <code>manual</code> / <code>edit</code> / <code>auto</code> / <code>full</code>，按会话解析；档位只剪掉 <code>ask</code> 规则，从不覆盖危险 <code>deny</code>，<code>full</code> 短路仅作用于 root，员工越权仍走审批提权 |
 | 多模态输入 | 图片与文档附件进入模型请求；截屏画面落会话媒体分区（内容寻址、配额独立记账）并随下一次请求送入；文档无原生解码时兜底为内联文本 |
 | 桌面操作 | computer use 工具族（截屏/窗口枚举/可滚动面板识别/聚焦/点击/移动/拖拽/滚动/输入/按键/等待）：平台门控 + <code>SEELEX_COMPUTER_USE</code> 总开关，输入注入默认逐次审批，子代理只见只读观察类（<code>computer_screenshot</code>/<code>computer_windows</code>/<code>computer_scroll_targets</code>/<code>computer_wait</code>） |
-| 扩展系统 | 声明式 Plugin、目录化 Skill、MCP Server 冷启动登记/按需加载/重挂载与工具可见性过滤，以及 plugin/skill/mcp 自管理工具 |
+| 扩展系统 | 声明式 Plugin、目录化 Skill、MCP Server 冷启动登记/按需加载/重挂载与工具可见性过滤、<code>tool_notes</code>（把本机实测的调用纪律折进 MCP 工具描述），以及 plugin/skill/mcp 自管理工具 |
 | 定时任务 | 周期（hour/day/week/month 或固定间隔）与一次性定时任务；command 白名单 argv 直传，prompt 任务复用会话执行器 |
 | Web 搜索 | <code>web_search</code> 工具与 tavily / bochaai / searxng provider 装配 |
 | 模型与账号 | OpenAI-compatible endpoint、按角色（agent / subagent / goalplan / websearch）分组的账号池、分支确定性选路和流式租约 |
 | 持久化 | JSON v8 后端；会话顺序日志、项目与 Session 隔离、模块 head 发布、消息分片、媒体分区，以及 plan/task/goal 三栈通道 |
 | 恢复与存活 | 通用恢复七步模板、子代理冷恢复同键续跑、中断轮残缺工具链截断、驻留 LRU 驱逐与 replan 并发/窗口限流 |
 | 前端 | Bubble Tea TUI（默认）、Wails/WebView GUI（Alpha）、headless 回环 RPC、backend 诊断控制台 |
+| 可视答案 | 会话内 <code>seelex-html</code> 围栏 → 沙箱 iframe（<code>sandbox="allow-scripts"</code>、无 <code>allow-same-origin</code>、内嵌 CSP 断网、仅 <code>data:</code> 图片），高度钳制 120–640px，支持 <code>title=</code>/<code>height=</code>/<code>src=</code>（工作区文件）参数；块内交互默认留在沙箱内，跨帧只走白名单动作（<code>ask-agent</code> / <code>fill-composer</code> / <code>copy-text</code> / <code>open-source</code>），驱动会话要求围栏 <code>interactive=1</code> 且块内刚发生过真实手势 |
 | 可观测性 | Snapshot/Event 协议、Plan 节点事件、工作台/traceboard、MCP 调用轨迹和运行时状态 |
 | 测试 | Go 单元/集成/E2E（无真实 LLM 的确定性场景）、GUI 协议测试、三平台 CI、race/coverage 和发布安全检查 |
 
-Plan 是可选能力。普通请求可以直接进入主 ReAct 流程；只有在任务需要结构化拆分时才加载和执行 DAG。
+Plan 是可选能力。普通请求可以直接进入主 ReAct 流程；只有在任务需要结构化拆分时才加载和执行 DAG，加载后按任务选择 <code>tasklist</code>（主代理串行自执行）或 <code>plan</code>（子代理并行）。
 
 ## 架构
 
@@ -255,7 +258,7 @@ plugin/ · skill/ · sessionstore/ · workspace/ · session/ · mcpstack/
 | Seele | Agent/Session 原语、ReAct 执行、工具注册与分发、WorkPlan 内核、账号租约、事件和遥测 |
 | Seelex | 工程任务语义、Plan 产品 DSL、项目作用域工具、上下文策略、Plugin/Skill/MCP 编排、持久化和前端 |
 
-Seelex 当前依赖 <code>github.com/RedHuang-0622/Seele v0.3.1</code>（见 <code>go.mod</code>；v0.3.1 即 Linux 式权限模型：主体 × 路由组 × rwx + sudo 与中间件判定，并包含 <code>session.InLoop</code> 环内历史把手；2026-09-15 权限模型与 2026-09-26 InLoop 两轮联调期的本地 <code>replace</code> 均已移除）。上游能力通过 <code>seelebridge/</code> 集中适配，Application 和前端不直接依赖 Seele 的内部类型。
+Seelex 当前依赖 <code>github.com/RedHuang-0622/Seele v0.3.3</code>（见 <code>go.mod</code>，无 <code>replace</code>）。版本链：v0.3.1 = Linux 式权限模型（主体 × 路由组 × rwx + sudo 与中间件判定）与 <code>session.InLoop</code> 环内历史把手；v0.3.2（2026-09-28）= 方案 B，用「回合闸门 + 短临界区工作状态」替换 InLoop 把手（<code>History</code> 永不阻塞，回合内写历史经检查点排队，宿主侧不再持有环内把手）；v0.3.3 = 当前发布 tag，作业（jobs）根能力随 tag 发布。2026-09-15 权限模型、2026-09-26 InLoop、2026-09-28 方案 B 三次联调期的本地 <code>replace</code> 均已移除。上游能力通过 <code>seelebridge/</code> 集中适配，Application 和前端不直接依赖 Seele 的内部类型。
 
 ## 数据流与机制图
 
@@ -304,6 +307,7 @@ Plan 在执行前完成：
 - 节点引用、边和拓扑校验。
 - cycle detection 与 topological order。
 - Effort 对节点数、串并行和最大并发的策略约束。
+- 执行模式是**任务级**决策而不是 Plan 策略：<code>tasklist</code> 由主代理自己按 DAG 串行执行（逐节点 <code>task_check_node</code> 打点、最后 <code>task_complete</code> 收尾），<code>plan</code> 交给 <code>plan_run</code> 起子代理并行。
 
 每个 <code>kind: agent</code> 节点获得独立 Session、NodeScope、PromptBlocks、账号 binding 和 token budget。并行分支不共享不可控的会话状态；父任务证据在执行前注入，子节点的 findings、decisions 和 progress 在完成后结构化 merge-back。
 
@@ -314,6 +318,15 @@ Plan 在执行前完成：
 `fork_subagents` 会在运行时构造 `start → subagent(s) → summary` 的 DAG，并把这一批登记成**后台作业**：调用立刻返回每个子代理的句柄，**不等结果**。产出按句柄取回（<code>job_manage(op=fetch, handle)</code>；一批一次等用 <code>handles</code>），过程用 <code>op=observe</code> 看、提前终止用 <code>op=kill</code>（已产出内容不丢；一条 kill 取消整批）。执行中的权威状态另可看 Plan 事件：在 GUI 右侧 Plan 中点击子代理节点，即可查看会话记录、功能打点、事件时间线、工具活动和最终输出。
 
 summary 节点仍拼接各子代理输出，它是**整批作业正文的兜底**（某个子代理没有可复用摘要时用它）。单个子代理的完整产出按它自己的句柄取回；把外层兜底正文当作大结果的唯一读取通道，或者据此转述、推断审查结论，都是不允许的。
+
+#### 长命令与批量读走同一个作业面
+
+子代理不是唯一的后台作业来源：分钟级的 Shell 命令与批量读走的是**同一套契约**（<code>bash_bg</code> / <code>read_batch</code> / <code>job_manage</code> 共用一张工作表格与同一台状态机），因此工作台上的每一行都能用同一种文法取回。
+
+- **派发即回回执**：<code>bash_bg</code> 只回 <code>status=accepted</code>、句柄与日志路径，不含输出；<code>description</code> 必填，成为工作表格的行标题。取结果靠 <code>job_manage(op=fetch, handle)</code>（一批一次等用 <code>handles</code>），<code>op=observe</code> 只读看进展、<code>op=kill</code> 终止整棵进程树（已产出内容不丢）、<code>op=done</code> 销掉终态行。
+- **时长线**：作业面打开时，串行的 <code>bash</code>/<code>bash_read</code> 拒绝超过 5 分钟（<code>serialBashBudget</code>）的 <code>timeout</code>，把长命令赶去后台；作业面关闭时**不**做这条审查——没有替代入口时拒绝一条长命令等于既不执行也不给路。
+- **完成触发回合**：作业落终态（done / failed，killed 不触发）且所属会话**空闲**时，自动起一个回合让模型自己去取回结果；忙会话不被打断、也不进它的队列——它下一次回合边界的打点块本来就会列出完成行。
+- **开关就是开关**：<code>seelex.yaml</code> 的 <code>async_exec.enabled</code> 置 false 即整块收回能力——三个工具都不注册，<code>fork_subagents</code> 的 async 模式与旧入参 <code>background=true</code> 显式拒绝，不静默降级成同步执行。
 
 ### 4. 上下文不是无限聊天记录，而是一条有预算的 Context Pipeline
 
@@ -394,6 +407,7 @@ Seelex 的截屏不再把 base64 塞进工具结果，而是走一条统一的�
 - 执行侧（EXEC）的事件驱动裁决侧（ADVISOR / TechLeader）在**独立上下文**中回合制评审，裁决以指令回投执行侧：指令邮箱容量 32（满则丢最旧并计数），指令正文 ≤1200 rune，信号 detail ≤400 rune。
 - **抽帧节流**：非关键信号在评估窗口（默认 3）内抑制，关键信号立即评估；回合完成后一次性抽帧，把 EXEC 的真实产出摘要带进裁决输入。
 - **缺席矩阵**：完成声明必须经裁决侧裁决；执行侧永不等待裁决侧；超时或限流按判负或转人工处理；审批请求先经裁决侧预筛（低风险代答、高风险转人工）；每次状态变更 append-only 记账。
+- **收口节奏**：整队作业由 <code>team_close</code> 收口（唯一回收点，逐在编成员回收 + 封板看板 + 计划标 closed，幂等），目标随后由 <code>goal_done</code> 收口（主代理即 TL 的真收口，不过终态 gate）；<code>team_retire</code> 只结束某个 teammate 的一轮、**不回收作业**，作业正文一直活到 <code>team_close</code>。
 
 这个闭环的作用是让「任务已完成」不再由模型单方面宣告。它目前仍是**单进程内**的治理；**团队**有谁在编由用户/leader 决定（团队库条目显式装配，没有任何内置形态模板），装配本身不等于有人在干活——只登记了配置与角色会话、没接执行者的团队成员会在成员表里被明说「暂无可执行者」（见 [teamwork 接线修复记录](docs/devlog/2026-09-14-teamwork-wiring-fixes.md)）。
 
@@ -576,10 +590,10 @@ Windows PowerShell 或 cmd 请直接使用 `scripts/*.ps1`。
 
 | Plugin | 用途 |
 |---|---|
-| <code>default</code> | 默认完整能力：不设 include/exclude，暴露全部已注册工具与全局 Skill（10 个 Skill） |
+| <code>default</code> | 默认完整能力：不设 include/exclude，暴露全部已注册工具与全局 Skill（11 个 Skill，含 <code>$plan</code> / <code>$goal</code> / <code>$teamwork</code>） |
 | <code>freecad</code> | CAD 垂直能力验证：声明 include 白名单与 stdio MCP Server（7 个 Skill） |
 
-仓库当前只有以上两个内置 Plugin，共 17 个 Skill（<code>plugins/*/&lt;skill&gt;/SKILL.md</code>）。
+仓库当前只有以上两个内置 Plugin，共 18 个 Skill（<code>plugins/*/&lt;skill&gt;/SKILL.md</code>）。
 
 每个 Plugin 通过 <code>plugin.md</code> 声明工具 include/exclude、System Prompt、Skill 和可选 MCP Server。激活失败时，Manager 会回滚工具、Skill、MCP 和当前 Plugin 状态，避免留下半激活运行时。
 
@@ -741,7 +755,7 @@ Linux CI 还会执行 race detector、覆盖率和发布包安全检查。
 
 - 项目仍处于 Developer Alpha，CLI、配置字段和持久化 schema 可能继续调整。
 - TUI 是默认入口；GUI 功能较完整，但仍依赖平台 WebView，属于 Alpha，真实 WebView E2E 尚未作为发布门禁。
-- 当前 Plan 是同一进程内由主 Agent 编排多个独立节点 Session，不是跨进程或跨组织的完整 A2A Protocol 实现。团队轮转的 <code>TurnScheduler</code> 属**部分接线**：<code>SetPrefix</code>、<code>NoteTurn</code>、<code>SyncOrder</code> 与 <code>Snapshot</code> 有生产消费者，而 <code>Next()</code>/<code>Advance()</code> 目前只是原语、没有生产消费者；2026-10-03 起 goal 的治理座位循环整条退场，**没有任何东西在驱动"轮到谁"**——让角色说话的是主代理（leader）的 <code>team_dispatch</code>，环只剩逃生记账。
+- 当前 Plan 是同一进程内由主 Agent 编排多个独立节点 Session，不是跨进程或跨组织的完整 A2A Protocol 实现。团队轮转的 <code>TurnScheduler</code> 属**部分接线**：<code>SetPrefix</code>、<code>NoteTurn</code>、<code>SyncOrder</code> 与 <code>Snapshot</code> 有生产消费者，而 <code>Next()</code>/<code>Advance()</code> 目前只是原语、没有生产消费者；2026-10-03 起 goal 的治理座位循环整条退场，**没有任何东西在驱动"轮到谁"**——让角色说话的是主代理（leader）的 <code>team_dispatch</code>，环只剩逃生记账。整队收口（<code>team_close</code>）与目标收口（<code>goal_done</code>）已落地，但两者都是同一进程内、由提示词驱动的动作，不是框架级的席位调度。
 - <code>review-team</code> 的 <code>reviewer</code> 与 <code>research-team</code> 的 <code>researcher</code> 目前只有角色会话与成员行，没有执行者（事实表 <code>RolesWithExecutor</code> 只含 <code>user</code>/<code>main</code>/<code>tl</code>）；装配面通过 <code>DesignNotice</code> 显式声明「谁还没有执行者」，不会让人误以为装配完就有人干活。角色回合执行体（<code>runRoleRound</code>）已落地，为 leader 派发的 worker 作业与终态 gate 的 ADVISOR 评审回合提供承重面。
 - OpenAI-compatible 不等于完全行为一致；工具调用、流式协议和模型参数仍需按 provider 验证。
 - 项目尚未发布 SWE-bench、Terminal-Bench 等标准化编码基准结果。
@@ -750,6 +764,7 @@ Linux CI 还会执行 race detector、覆盖率和发布包安全检查。
 - 媒体分区已有配额与引用式回收（<code>CollectMedia</code>，支持 dry-run），但按会话生命周期的自动 GC 策略仍需补齐。
 - GUI 渲染有内存截断线：单条工具输出超过 8000 字符时快照只保留预览，完整内容需经 <code>result_ref</code> 读回。
 - Linux GUI 依赖宿主发行版的 WebKit2GTK ABI：发布包按 22.04 类（4.0 + libsoup-2.4）构建，24.04 类发行版需用 <code>--webkit 41</code> 自行重建。
+- 后台作业面（<code>bash_bg</code> / <code>read_batch</code> / <code>job_manage</code>）出厂常驻开，代价是这三个工具的 schema 每轮都在工具面上；用 <code>seelex.yaml</code> 的 <code>async_exec.enabled: false</code> 可整块收回，收回后长命令只能串行执行并显式给 <code>timeout</code>。
 
 如果你正在寻找稳定 API 或无人值守生产服务，请先审查对应模块 README、测试和变更记录，再决定是否采用。
 

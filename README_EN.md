@@ -7,14 +7,28 @@ Seelex is a local-first coding-agent harness built in Go. It turns LLM providers
 ## What it implements
 
 - streaming ReAct execution with bounded Effort profiles;
-- optional WorkPlan DAG orchestration, typed nodes and task terminal states;
+- optional WorkPlan DAG orchestration with two execution modes (`tasklist`: the primary agent runs the DAG
+  serially, checking nodes off with `task_check_node` and closing with one deferred `task_complete`;
+  `plan`: `plan_run` spawns isolated subagents, and plan events check nodes off live), typed nodes and
+  task terminal states;
+- a background job surface shared by `bash_bg` / `read_batch` / `job_manage` (an acceptance receipt with
+  handle + log path, consumer-style fetch, `observe` / `kill` / `done`; serial bash refuses a `timeout`
+  above 5 minutes, and a job reaching a terminal state wakes an *idle* session so the model can fetch the
+  result), switched off wholesale by `async_exec.enabled: false`;
 - parallel subagents with isolated sessions, parent-evidence injection and structured merge-back;
 - session-scoped goal stacks with an independent adjudication role (ADVISOR/TechLeader), frame-throttled
-  review, a bounded directive mailbox and an append-only governance audit;
-- a TeamSpec agent-team factory (explicit materialize from team-library entries; no built-in team shapes) and a four-source work table (plan / tasklist / subagent / todo);
+  review, a bounded directive mailbox and an append-only governance audit; closure goes through
+  `goal_done` (the primary agent acts as TL and closes directly) or `goal_propose_finish` (a proposal into
+  the terminal-state gate), and employees/subagents cannot see `goal_done`;
+- a TeamSpec agent-team factory (explicit materialize from team-library entries; no built-in team shapes)
+  with a prompt-driven leader surface (`team_plan` / `team_dispatch` / `team_join` / `team_milestone` /
+  `team_retire` / `team_context` / `team_close`): job output lives until the idempotent `team_close`, the
+  single reclamation point, and the roster is capped by `max_teammates` (over-limit dispatches are refused
+  rather than queued); plus a four-source work table (plan / tasklist / subagent / todo);
 - context-window policy, reversible compaction (compaction-as-DAG), prompt stacks and externalized tool results;
 - layered memory: related-memory blocks, history read-back indexed by the compaction stack, and
-  user/project `MEMORY.md` indexes;
+  user/project `MEMORY.md` indexes, plus project-level module semantics rebuilt by `project_refresh`
+  (hash-reused until the sources change);
 - OpenAI-compatible endpoints, including DeepSeek deployments that satisfy the streaming and
   tool-calling contract (the provider name is a free-form string, but only OpenAI-compatible
   endpoints are exercised);
@@ -33,8 +47,13 @@ Seelex is a local-first coding-agent harness built in Go. It turns LLM providers
   desktop-changing tools (focus, mouse/keyboard injection) stay approval-gated and are invisible to
   subagents;
 - user image/document attachments, with an inline-text fallback for documents;
-- declarative plugins, Agent Skills and dynamically scoped MCP servers, plus plugin/skill/MCP
-  self-management tools;
+- declarative plugins, Agent Skills and dynamically scoped MCP servers (including `tool_notes` folded
+  into MCP tool descriptions), plus plugin/skill/MCP self-management tools;
+- sandboxed `seelex-html` embeds for visual answers: a fenced block renders inside an offline iframe
+  (`sandbox="allow-scripts"`, no same-origin, inline CSP, `data:` images only, height clamped to
+  120–640px), while cross-frame traffic is limited to the whitelisted `ask-agent` / `fill-composer` /
+  `copy-text` / `open-source` actions and driving the conversation needs `interactive=1` plus a real
+  in-frame gesture;
 - scheduled (periodic and one-shot) tasks, web search providers (tavily / bochaai / searxng) and
   worktree-scoped execution;
 - JSON v8 session persistence with an append-only order log, project/session isolation, per-module head
@@ -207,14 +226,20 @@ The important design choice is that frontends do not own the agent state machine
 - Multi-agent orchestration is in-process and is not an A2A Protocol implementation. The team turn
   scheduler (`TurnScheduler`) is only **partially wired**: linked-list order (`Move` / `Remove` /
   `Restore`), `SetPrefix`, `NoteTurn`, `SyncOrder` and `Snapshot` have production consumers, while
-  `Next()` / `Advance()` are primitives without one; the goal governance seat loop is what actually
-  drives turns.
+  `Next()` / `Advance()` are primitives without one; since 2026-10-03 the goal governance seat loop has
+  retired entirely, so nothing drives "whose turn it is" — the leader's `team_dispatch` is what makes a
+  role speak, and the ring is escape bookkeeping only. Team closure (`team_close`) and goal closure
+  (`goal_done`) are implemented, but both are in-process, prompt-driven actions rather than
+  framework-level seat scheduling.
 - The `review-team` `reviewer` and `research-team` `researcher` roles only have role sessions and member
   rows, no executor yet (`RolesWithExecutor` contains only `user` / `main` / `tl`); the assembly surface
   states this explicitly via `DesignNotice`.
 - Standard SWE-bench or Terminal-Bench results have not been published.
 - Real WebView E2E is not yet a release gate.
 - Total statement coverage is 58.6% (2026-09-14); the TUI (35.6%) trails the core orchestration packages.
+- The background job surface (`bash_bg` / `read_batch` / `job_manage`) ships enabled, at the cost of
+  keeping three tool schemas on the tool face every round; `async_exec.enabled: false` switches the whole
+  block off, after which long commands can only run serially with an explicit `timeout`.
 - The media partition enforces quotas and reference-based collection, but automatic per-session garbage
   collection is still pending.
 
