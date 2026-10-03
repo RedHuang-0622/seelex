@@ -14,7 +14,12 @@ import (
 // discardPendingSubagentContexts 排空 Runtime 持有的有界邮箱（活跃会话兼容
 // 包装）。
 func (service *Service) discardPendingSubagentContexts() {
-	service.discardPendingSubagentContextsFor(service.Core.Snapshot.Session.ID)
+	// 会话 ID 在 Core.ViewMu 读锁下取值：本方法是锁外入口（测试/活跃会话兼容
+	// 包装），裸读会与热切换写 Snapshot.Session 竞争。
+	service.ViewMu.RLock()
+	sessionID := service.Core.Snapshot.Session.ID
+	service.ViewMu.RUnlock()
+	service.discardPendingSubagentContextsFor(sessionID)
 }
 
 // discardPendingSubagentContextsFor 排空 Runtime 持有的有界邮箱（单一来源 =

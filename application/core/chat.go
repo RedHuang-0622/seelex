@@ -39,8 +39,20 @@ func (service *Service) nextChatRequestIDLocked() string {
 	return fmt.Sprintf("chat-%d-%d", time.Now().UnixNano(), service.chatSeq)
 }
 
+// startChat 在**当前视图会话**上启动 ReAct 对话。
+//
+// 会话 ID 必须持 Core.ViewMu 读取：视图指针由热挂载/冷加载在持锁段内整体改写
+// （session_lifecycle.go 的 `service.Core.Snapshot.Session = SessionState{...}`），
+// 无锁读会与「切换会话」并发构成数据竞争——CI 的 race-and-coverage 作业已在
+// TestWorkspaceSwitchConcurrentWithBackgroundPersist 上复现（Write 在 hotAttachSession、
+// 无锁 Read 就在本函数）。这里只取一次 ID；后续校验与状态机仍由 startChatFor
+// 自己持锁完成，两段之间的切换不会让本函数写错状态，只是这一轮落在调用发生时的
+// 那个会话上。
 func (service *Service) startChat(parent context.Context, request chatRequest) error {
-	return service.startChatFor(service.Core.Snapshot.Session.ID, parent, request)
+	service.ViewMu.RLock()
+	sessionID := service.Core.Snapshot.Session.ID
+	service.ViewMu.RUnlock()
+	return service.startChatFor(sessionID, parent, request)
 }
 
 // startChatFor 在指定会话启动 ReAct 对话（多会话并行：后台会话不写活跃
@@ -554,7 +566,13 @@ func (service *Service) finalizeTaskExecution(requestID string) error {
 func (service *Service) finalizeReActBudgetWithSink(ctx context.Context, requestID string, onChunk func(string)) error {
 	sessionID := sessionIDFromContext(ctx)
 	if sessionID == "" {
+		// 回退读「当前会话」必须持 Core.ViewMu：视图指针由热切换在持锁段内整体
+		// 改写（application/core/session_lifecycle.go 的 hotAttachSession），裸读
+		// 与切换并发即数据竞争——同族的 startChat 竞争已在 CI 的 race-and-coverage
+		// 作业里复现，这里一并收口。
+		service.ViewMu.RLock()
 		sessionID = service.Core.Snapshot.Session.ID
+		service.ViewMu.RUnlock()
 	}
 	budgetErr := service.components.tasks.ReActBudgetError(requestID)
 	if budgetErr != nil {

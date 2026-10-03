@@ -341,7 +341,12 @@ func (service *Service) SubmitToSession(ctx context.Context, sessionID, text str
 	if err := service.materializeDraftForSubmit(sessionID, text); err != nil {
 		return err
 	}
-	if !service.sessionLoaded(sessionID) || service.sessionContentUnloaded(sessionID) {
+	// sessionLoaded 的活跃会话回退分支会读 Snapshot.Session.ID（引擎端口不支持
+	// 会话路由时），本方法是锁外公开入口，因此在这里持 Core.ViewMu 读锁取值。
+	service.ViewMu.RLock()
+	loaded := service.sessionLoaded(sessionID)
+	service.ViewMu.RUnlock()
+	if !loaded || service.sessionContentUnloaded(sessionID) {
 		// 目标会话未加载，或可见正文已被内容 LRU 卸载：切换恢复（含正文冷
 		// 回读）后再提交——否则新回合的可见消息会落进一个没有窗口的会话视图。
 		// ActivateSession 持 TransitionLock，完成后目标即当前会话，后续显式

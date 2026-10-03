@@ -131,7 +131,11 @@ func (service *Service) HandleRoleToolActivity(event dto.RoleToolActivity) {
 	}
 	requestID := ""
 	if service.Core != nil {
+		// 快照字段统一由 Core.ViewMu 保护：本回调由 Runtime 在工具活动时直接
+		// 调用，可能与会话切换并发，裸读构成同族数据竞争。
+		service.ViewMu.RLock()
 		requestID = service.Core.Snapshot.Chat.RequestID
+		service.ViewMu.RUnlock()
 	}
 	service.publishSessionEvent(kind, 0, requestID, sessionID, event)
 }

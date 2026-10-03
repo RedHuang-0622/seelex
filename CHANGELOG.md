@@ -86,6 +86,26 @@ version when it lands.
   unchanged: `goal.Controller`, the `Supervisor`, the terminal gate, the approval
   pre-screen, and escape. See `docs/devlog/2026-10-03-seat-rotation-retired.md`.
 
+### Fixed
+
+- **会话切换与「提交 / 上下文恢复 / 角色活动」之间的数据竞争收口（race-and-coverage 作业偶发红的根因）.** `Snapshot.Session`
+  由热切换在 `Core.ViewMu` 写锁内**整体改写**（`application/core/session_lifecycle.go` 的 `hotAttachSession`：
+  `service.Core.Snapshot.Session = SessionState{...}`），而若干「回退读当前会话」的路径是**锁外裸读**——同地址读写并发即数据
+  竞争，Go 的字符串头撕裂读会让会话 ID 变成一个不存在的值。CI 已在 `TestWorkspaceSwitchConcurrentWithBackgroundPersist`
+  上复现（Write 在 `hotAttachSession`、无锁 Read 在 `startChat`），因此按同一口径收口全部读点：`Service.startChat`
+  （`application/core/chat.go`，即 CI 命中的那一处）、`finalizeReActBudgetWithSink` 与 `recoverProviderFailureFor` 的回退
+  分支、`removeProviderContextRecovery`、`discardPendingSubagentContexts`、`SubmitToSession` 里的 `sessionLoaded` 判定，
+  以及 Runtime 回调 `HandleRoleToolActivity` 读 `Snapshot.Chat.RequestID`。每个点都是「读锁 → 取值 → 立刻解锁」，锁内不
+  做任何会再取锁或走外部端口的调用；`sessionLoaded` 的既有调用方 `resumeSession` 本来就持读锁，所以收口落在**调用点**而不是
+  函数内部（`sync.RWMutex` 不支持递归读锁）。
+  验证：`-race` 下该用例 40/60 轮连跑、根包全量多轮与 `application/core` 全量均无 `DATA RACE`。
+  另：同一次排查确认该作业还有**第二个、与本次修复无关**的偶发源——`TestBackgroundCompletionWhileSwitchingToC` 用阻塞
+  provider 制造「某一轮长时间不返回」，而流式传输层的 `streamHeaderTimeout` 是硬编码 60s
+  （`seelebridge/account/transport.go`）：慢机器或 `-race` 下用例自身的编排就可能超过 60s，那一轮以
+  `net/http: timeout awaiting response headers` 提前结束，依赖「仍在阻塞」的断言随之超时（对照实验：把本次并发修复
+  `git stash` 掉后复现结果逐字一致，同样 90.06s 处失败）。修它需要放宽/配置化该常量或重排用例编排，属产品侧取舍，
+  未纳入本次改动。
+
 ### Notes
 
 - **M0's last step — moving the background-job face onto Seele's `jobs.Manager` — is blocked on the frozen

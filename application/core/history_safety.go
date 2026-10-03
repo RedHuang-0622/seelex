@@ -49,7 +49,10 @@ func (service *Service) recoverProviderFailure(err error, originalRequest string
 func (service *Service) recoverProviderFailureFor(ctx context.Context, err error, originalRequest string) (bool, error) {
 	sessionID := sessionIDFromContext(ctx)
 	if sessionID == "" {
+		// 同上：回退读当前会话需持 Core.ViewMu（裸读与热切换写 Snapshot.Session 竞争）。
+		service.ViewMu.RLock()
 		sessionID = service.Core.Snapshot.Session.ID
+		service.ViewMu.RUnlock()
 	}
 	failureKind := classifyProviderFailure(err)
 	if failureKind == providerFailureNone {
@@ -205,7 +208,11 @@ func isProviderContextExhaustion(err error) bool {
 }
 
 func (service *Service) removeProviderContextRecovery() error {
-	return service.removeProviderContextRecoveryFor(service.Core.Snapshot.Session.ID)
+	// 会话 ID 在 Core.ViewMu 读锁下取值（与 startChat 同一收口口径）。
+	service.ViewMu.RLock()
+	sessionID := service.Core.Snapshot.Session.ID
+	service.ViewMu.RUnlock()
+	return service.removeProviderContextRecoveryFor(sessionID)
 }
 
 // removeProviderContextRecoveryFor 清理引擎私有的上下文控制信封：provider
