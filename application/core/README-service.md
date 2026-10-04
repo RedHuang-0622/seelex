@@ -136,6 +136,8 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (runtime *fakeRuntime) AsyncPendingFor(string) int` — AsyncPendingFor 回答测试显式设置的在途后台命令数。
 - `func (runtime *fakeRuntime) AsyncRunsSnapshot() []dto.AsyncRunRecord` — AsyncRunsSnapshot 回答测试显式设置的后台执行投影（后台行投影用例的输入源）。
 - `func (runtime *fakeRuntime) AsyncRunEvents() <-chan struct` — AsyncRunEvents 返回测试自己持有的信号口（默认 nil = 消费者不启动）。
+- `func (runtime *fakeRuntime) TeamworkJobCompletions() []dto.TeamworkJobCompletionRecord` — TeamworkJobCompletions / TeamworkJobEvents 回答 teammate 作业表（jobs.Manager）的
+- `func (runtime *fakeRuntime) TeamworkJobEvents() <-chan struct`
 - `func (runtime *fakeRuntime) TaskSnapshotFor(sessionID string) []dto.TaskRecord` — TaskSnapshotFor 保持会话粒度（持久化落盘/请求尾部打点块用）。
 - `func (runtime *fakeRuntime) globalSnapshotLocked() []dto.TaskRecord` — globalSnapshotLocked 合并实时注册表与所有会话分区（跨会话身份去重：
 - `func (runtime *fakeRuntime) snapshotLocked() []dto.TaskRecord`
@@ -341,6 +343,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (service *Service) restoreSignalLocked() <-chan struct` — restoreSignalLocked 返回当前 restoring 变化信号（调用方持有 Core.ViewMu）。
 - `func (service *Service) nextViewEpochLocked() uint64` — nextViewEpoch 推进视图切换序号并返回新值（调用方持有 Core.ViewMu）。
 - `func (service *Service) Subscribe(buffer int) Subscription`
+- `func (service *Service) refreshRuntimeProjectionForSession(sessionID string)` — refreshRuntimeProjectionForSession 是会话（重）激活时的**重建**一步：按目标会话从
 - `func (service *Service) collectRuntimeProjection(ctx context.Context) view_state.RuntimeStateProjection`
 - `func (service *Service) collectRuntimeProjectionFor(ctx context.Context, sessionID string) view_state.RuntimeStateProjection` — collectRuntimeProjectionFor 按显式会话收集运行时投影（G1：后台会话的
 - `func (service *Service) applyRuntimeProjectionLocked(projection view_state.RuntimeStateProjection)`
@@ -419,6 +422,25 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func TestCollectRuntimeProjectionOmitsTeamworkBoardWithoutPort(t *testing.T)`
 - `func TestTeamworkBoardViewForWithoutPort(t *testing.T)`
 
+### teamwork_board_session_switch_test.go
+
+- `func (r *sessionSwitchBoardRuntime) TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoardView`
+- `func TestSessionReactivationRebuildsTeamBoardProjection(t *testing.T)`
+
+### teamwork_completion_trigger_test.go
+
+- `func teamworkCompletionHarness(t *testing.T, trigger bool, engine ChatEngine) (*Service, *fakeRuntime)` — teamworkCompletionHarness 造一个装配好 teammate 触发路径的 Service。
+- `func completedTeammateRecord(handle, state string) dto.TeamworkJobCompletionRecord` — completedTeammateRecord 造一条已落到终态的 teammate 作业记录。
+- `func TestTeamworkCompletionTriggersIdleSessionTurn(t *testing.T)`
+- `func TestTeamworkCompletionTriggersOnFailureToo(t *testing.T)`
+- `func TestTeamworkCompletionIgnoresRunningAndKilled(t *testing.T)`
+- `func TestTeamworkCompletionDoesNotWakeBusySession(t *testing.T)` — 铁律 §6.1「绝不唤醒忙会话」：忙的时候不起回合，跳过的条目**不记账**——会话回到空闲
+- `func TestTeamworkCompletionTriggersOncePerHandle(t *testing.T)` — 幂等：句柄在册期间只触发一次（句柄单调不复用，进程内一个集合就够）。
+- `func TestTeamworkCompletionDoesNotCollideWithToolHandles(t *testing.T)` — 两张表的句柄空间**各自独立**（都是从 a<seq> 起步）：同一个字面量句柄在两张表里同时
+- `func TestTeamworkCompletionStaysOffWhenDisabled(t *testing.T)` — 开关关闭时连扫描都不做（与 subagent 那条同一个开关）。
+- `func TestTeamworkTraceLinesCarryCompletionReceipt(t *testing.T)` — 忙会话的读法：**回合边界打点块**里的 teammate 完成行（这是"回执被看见"的另一半——
+
 ### teamwork_service.go
 
 - `func (service *Service) TeamworkBoardViewFor(sessionID string) *dto.TeamworkBoardView` — TeamworkBoardViewFor 返回指定会话的团队看板只读投影（无计划 / 未装配 → nil，
+- `func (service *Service) TeammateSessionLiveFor(sessionID string) dto.TeammateSessionLiveView` — TeammateSessionLiveFor 返回**当前 teammate 会话**的实时只读投影（"这件事的会话此刻在

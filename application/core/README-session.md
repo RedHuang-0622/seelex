@@ -76,6 +76,32 @@
 5. 复现与回归：`session_running_idle_submit_test.go`（草稿显式提交物化、运行中会话
    不挡新建会话）+ `session_submit_restoring_test.go`（restoring 期延后提交）。
 
+## 会话上下文存储的挂接（2026-10-04）
+
+`Runtime` 的 `SessionContextStore` 是会话级四栈与**装配层推帧**的共同依赖，且读的是
+**当前活跃 bundle**（`seelebridge.Runtime.sessionContextStore()`）——因此"让某个会话成为
+当前会话"的每条路径都必须把**该会话自己的** store 挂上去
+（`Service.attachSessionContextFor`，落在 `session_history.go`）：
+
+1. 冷恢复 / 热挂载（`resumeSession`）；
+2. 新建会话（`materializeDraftSession`，含冷启动草稿物化）——早分配 SID 就是最终键，
+   全新键上 `Load` 只落到空记录（各通道 not-found 按 S19 口径静默初始化）；
+3. 切项目另起的独立会话（`workspace_usecase.go` 的 `startFreshSession`）。
+
+漏一处，那个会话的**整段活跃期**都处于"未绑定"：`PushCompactionFrame` /
+`ReadbackCompactionSummary` 直接报 `会话上下文存储未绑定（压缩栈不可用）`
+（帧正文因此写"没有模型生成的读后感"），栈块（plan/task/skill/compact）与记忆块一律为空。
+对照：控制器路径 `runtimeCompactStacks` 在 store 为空时**退回内存栈**，装配层这条路径
+**硬失败**——同一状态两处语义不一致，这正是缺口以报错显形的地方。
+
+另一半是"离开会话"：`BeginNewSession` 只在**被离开的会话空闲时**解绑
+（`!currentRunning`）。`DetachSessionContext()` 解绑的是当前活跃 bundle，而跑着的会话
+仍在装配 provider 上下文——解绑会让它的推帧退化成同一个错误；空闲会话的"离开即解绑"
+（防四栈串台）口径不变。
+
+复现与回归：`session_draft_context_attach_test.go`（三处挂接 + 运行中会话不解绑）、
+`seelebridge/runtime_compaction_unbound_test.go`（未绑定的确切报错文案）。
+
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
@@ -276,6 +302,14 @@
 - `func (service *Service) isUnmaterializedDraftTarget(sessionID string) bool` — isUnmaterializedDraftTarget 预判显式提交的目标是否就是那份尚未物化的草稿
 - `func (service *Service) materializeDraftForSubmit(sessionID, firstInput string) error` — materializeDraftForSubmit 把「显式提交的目标恰好是未物化的草稿」接回物化路径。
 
+### session_draft_context_attach_test.go
+
+- `func TestMaterializeDraftSessionBindsContextStoreForNewSession(t *testing.T)` — TestMaterializeDraftSessionBindsContextStoreForNewSession 钉住「新会话也必须绑定
+- `func TestBeginNewSessionKeepsRunningSessionContextStore(t *testing.T)` — TestBeginNewSessionKeepsRunningSessionContextStore 钉住"离开会话"这条路上的
+- `func (sessions *contextAwareScopedSessions) AttachSessionContext(workspaceID, sessionID string) error`
+- `func (sessions *contextAwareScopedSessions) DetachSessionContext()`
+- `func TestWorkspaceSwitchFreshSessionBindsContextStore(t *testing.T)` — TestWorkspaceSwitchFreshSessionBindsContextStore 钉住第三条"让某个会话成为当前
+
 ### session_draft_context_scope_test.go
 
 - `func TestBeginNewSessionClearsPreviousSessionContextFacts(t *testing.T)` — TestBeginNewSessionClearsPreviousSessionContextFacts 钉住「新建会话」的**会话事实**
@@ -368,6 +402,7 @@
 - `func (service *Service) handleColdRestoreFailure(sessionID, previousID string, epoch uint64, cause error)` — handleColdRestoreFailure 后台冷加载失败的降级：用户若仍停留在失败的恢复
 - `func (service *Service) resetViewToDraftAfterRestoreFailure()` — resetViewToDraftAfterRestoreFailure 在“无前一会话可回退”时把视图重置到
 - `func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64) error` — resumeSessionCold 是 resumeSession 的冷加载主体：目标未驻留时重建引擎、
+- `func (service *Service) attachSessionContextFor(workspaceID, sessionID string) error` — attachSessionContextFor 把目标会话的 context 模块（system prompt + 四栈）挂到
 - `func (service *Service) ResumeSession(sessionID string) error` — ResumeSession 是 GUI/TUI 会话选择的直接应用边界。它刻意绕过命令文本解析，
 - `func (service *Service) LoadMoreHistory(limit int) error` — LoadMoreHistory 把更早的一页历史前置到可见会话（GUI 顶部 sentinel 与
 - `func (service *Service) LoadLatestHistory() error` — LoadLatestHistory 把可见会话拉回最新一页（历史浏览后的「回到最新」）。
@@ -453,7 +488,7 @@
 - `func (service *Service) sessionInputWindowLoaded(sessionID string, total int) (model.SessionInputWindow, []string)` — sessionInputWindowLoaded 返回目标会话的已加载窗口元数据与窗口内已加载的
 - `func buildSessionInputIndex(conversation []model.Message, loaded []string, limit int) []model.SessionInputIndexRow` — buildSessionInputIndex 从完整可见会话构建全量用户输入索引（纯函数）。
 - `func inputIndexUserText(message model.Message) string` — inputIndexUserText 返回一条可见消息作为「用户输入」的展示正文；非用户输入
-- `func summarizeInputIndexText(text string, limit int) (string, int)` — summarizeInputIndexText 把正文压成有界摘要：空白压缩 + rune 截断（末尾省略号）。
+- `func summarizeInputIndexText(text string, limit int) (string, int)` — summarizeInputIndexText 把正文压成有界摘要：空白折叠 + rune 截断（末尾省略号）。
 - `func alignLoadedInputTexts(texts, loaded []string) (int, int)` — alignLoadedInputTexts 把「窗口内已加载的用户输入」对齐到全量输入序列：
 
 ### session_input_index_test.go

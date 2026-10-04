@@ -403,6 +403,7 @@ go test ./application/core/task_context -count=1
 - `func (c *Coordinator) resolveObjectiveRefLocked(st *sessionTaskRuntime, objectiveRef string) string`
 - `func (c *Coordinator) RecordContextCompactionLocked(requestID string, compaction model.ContextCompaction) bool` — RecordContextCompactionLocked 记录一次上下文压缩（运行中任务，或回合已收尾
 - `func (c *Coordinator) _RecordContextCompactionLocked(requestID string, compaction model.ContextCompaction) bool`
+- `func (c *Coordinator) LastContextCompactionFor(sessionID string) (model.ContextCompaction, bool)` — LastContextCompactionFor 返回某会话任务执行面里**最后一次**上下文压缩记录的副本。
 - `func (c *Coordinator) SetTaskStateLocked(requestID string, status model.TaskStatus, summary string)` — SetTaskStateLocked 把任务可见状态写入快照（调用方持有 Core.ViewMu；requestID
 - `func (c *Coordinator) _SetTaskStateLocked(requestID string, status model.TaskStatus, summary string)`
 - `func (c *Coordinator) isActiveSessionLocked(sessionID string) bool` — isActiveSessionLocked 判定会话是否为共享快照归属会话（调用方持有

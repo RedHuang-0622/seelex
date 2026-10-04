@@ -79,9 +79,17 @@ func (service *Service) BeginNewSession() error {
 		service.clearEngineHistoryFor(sessionID)
 	}
 	service.promptStack.ClearKind("skill")
-	// 离开当前会话：解绑 context 模块，防止四栈串到新会话。
-	if store, ok := service.Deps.Sessions.(session_runtime.SessionContextPort); ok {
-		store.DetachSessionContext()
+	// 离开会话：解绑 context 模块，防止四栈串到下一个会话。**只在被离开的会话
+	// 空闲时**做（2026-10-04）：`DetachSessionContext()` 解绑的是**当前活跃
+	// bundle**，而会话还在跑时它的回合会继续装配 provider 上下文——那一步遇到
+	// 装配层压缩就会发现自己"未绑定"，PushCompactionFrame 报
+	// "会话上下文存储未绑定（压缩栈不可用）"，与新建会话那条路径同一个症状。
+	// 复用紧邻上方 `clearEngineHistoryFor` 的同一条判据：跑着的会话的状态一律不动；
+	// 空闲会话解绑后，它下次作为当前会话会走 resume/切项目那条挂接重新绑上。
+	if !currentRunning {
+		if store, ok := service.Deps.Sessions.(session_runtime.SessionContextPort); ok {
+			store.DetachSessionContext()
+		}
 	}
 	// 新会话是「任务会话」——必须真正未关联工作区：清空上一个会话继承的
 	// 项目绑定（CurrentWorkspace / Runtime project root / session store
@@ -222,9 +230,12 @@ func (service *Service) materializeDraftSession(firstQuestion string) error {
 	} else {
 		service.Deps.Runtime.SetSessionWorkspace(newID, "")
 	}
-	// 新会话无既有 context：保持解绑（Runtime 退回内存态，与 draft 一致）。
-	if store, ok := service.Deps.Sessions.(session_runtime.SessionContextPort); ok {
-		store.DetachSessionContext()
+	// 新会话绑定**它自己的** context store（与 resume 同一条挂接路径）。这里不能
+	// 只解绑：解绑状态下这个会话的整段第一生命周期都推不了压缩帧、也没有任何栈块
+	// （见 attachSessionContextFor 的注释与 2026-10-04 现场）。早分配 SID 就是本会话
+	// 的最终键，全新键上的 Load 只落到空记录——既不继承上一个会话的四栈，也不多写。
+	if err := service.attachSessionContextFor(session_runtime.WorkspaceID(workspace), newID); err != nil {
+		return err
 	}
 	service.Deps.Engine.SetSystemPrompt(service.promptStack.Render())
 	if workspace != nil && service.Deps.Workspace != nil {

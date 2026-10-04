@@ -528,10 +528,8 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 	}
 	// context 模块挂接：resume 恢复后加载会话四栈到 Runtime（下一轮 prompt
 	// 组装前就绪）。损坏的 context 显式失败，不静默降级成内存栈。
-	if store, ok := service.Deps.Sessions.(session_runtime.SessionContextPort); ok {
-		if err := store.AttachSessionContext(location.WorkspaceID, sessionID); err != nil {
-			return fmt.Errorf("attach session context %q: %w", sessionID, err)
-		}
+	if err := service.attachSessionContextFor(location.WorkspaceID, sessionID); err != nil {
+		return err
 	}
 	if mayActivate {
 		// 会话级 task 隔离（只在视图真的切到目标会话时才动）：整体替换**当前
@@ -558,6 +556,37 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 	service.touchResident(sessionID)
 	// 内容 LRU：冷加载装载了可见正文，记录内容使用序并收敛超限正文。
 	service.touchContent(sessionID)
+	return nil
+}
+
+// attachSessionContextFor 把目标会话的 context 模块（system prompt + 四栈）挂到
+// Runtime 上，供**下一轮 prompt 组装前**就绪。损坏的 context 显式失败，不静默降级成
+// 内存栈。
+//
+// 为什么必须有这一条共用挂接：生产上有三条路径要让某个会话成为**当前会话**——
+// 冷恢复/热挂载（resumeSession）、新建会话（materializeDraftSession，草稿物化）、
+// 切项目时另起的独立会话（SwitchSessionWorkspace 的 startFreshSession）——它们此前
+// 各自为政：只有 resume 挂接，另两条**只解绑不挂接**。
+//
+// 未绑定的代价（2026-10-04 现场）：Runtime 的会话上下文存储是会话级四栈与装配层推帧
+// 的共同依赖。未绑定状态下 seelebridge 的 PushCompactionFrame /
+// ReadbackCompactionSummary 直接报"会话上下文存储未绑定（压缩栈不可用）"——装配层
+// 压缩推不了帧、拿不到可回读的 segment_id，帧正文只能写一句"没有模型生成的读后感"；
+// stackBlocks（plan/task/skill/compact）与 relatedMemoryBlocks 也一律为空。而 resume
+// 之后一切自愈，于是症状只在"新开的会话"里出现（现场两帧所属的会话键都是新建会话的
+// 早分配 SID）。
+//
+// 全新会话键上挂接是安全的：store 的 Load 是惰性的，各通道 not-found 都按 S19 口径
+// 静默初始化成空记录，既不继承上一个会话的四栈，也不多写任何东西——写只发生在
+// Persist。挂接落点是**当前活跃 bundle**（会话槽化后按会话隔离），因此不会串台。
+func (service *Service) attachSessionContextFor(workspaceID, sessionID string) error {
+	store, ok := service.Deps.Sessions.(session_runtime.SessionContextPort)
+	if !ok {
+		return nil
+	}
+	if err := store.AttachSessionContext(workspaceID, sessionID); err != nil {
+		return fmt.Errorf("attach session context %q: %w", sessionID, err)
+	}
 	return nil
 }
 

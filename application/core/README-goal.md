@@ -96,6 +96,10 @@ goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回
 
 - `func TestAgentGoalUpdateCannotRewriteDefinition(t *testing.T)` — TestAgentGoalUpdateCannotRewriteDefinition 钉住 agent 工具面的收口与人类面的保留。
 
+### goal_read_session.go
+
+- `func goalReadSessionID(ctx context.Context) string` — goalReadSessionID 是「读 goal 看板」该用的会话号。
+
 ### goal_ring_escape_test.go
 
 - `func (s *escapeRecordingSessions) AppendRoleDraft(_ string, _ string, _ string, rows []dto.RoleDraftRow) error`

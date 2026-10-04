@@ -141,6 +141,14 @@ func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
 	service.Deps.Workspace.BindSession(currentSessionID, workspace.ID)
 	// framework DurableHistory 按会话 workspace 显式键落盘（R3 键漂移收敛）。
 	service.Deps.Runtime.SetSessionWorkspace(currentSessionID, workspace.ID)
+	// 另起的独立会话同样要绑定它自己的 context store（与 /new 的草稿物化、
+	// resume 共用一条挂接路径；只建引擎不挂接 = 整段活跃期未绑定，见
+	// attachSessionContextFor 的注释）。
+	if startFreshSession {
+		if err := service.attachSessionContextFor(workspace.ID, currentSessionID); err != nil {
+			return err
+		}
+	}
 	service.setWorkspaceWriteScope(workspace.ID)
 	workspaceProjection := service.collectWorkspaceProjection()
 	service.ViewMu.Lock()

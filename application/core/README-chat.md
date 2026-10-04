@@ -16,7 +16,7 @@
 - `func runChatDebug(format string, args ...any)` — runChatDebug 是 SEELEX_TEST_DEBUG=1 门控的临时诊断日志（复跑噪音点时
 - `func (service *Service) isActiveSessionLocked(sessionID string) bool` — isActiveSessionLocked 判定指定会话是否为共享快照归属会话（锁内调用；
 - `func (service *Service) nextChatRequestIDLocked() string` — nextChatRequestIDLocked 生成跨会话唯一的聊天请求 ID（调用方持有
-- `func (service *Service) startChat(parent context.Context, request chatRequest) error`
+- `func (service *Service) startChat(parent context.Context, request chatRequest) error` — startChat 在**当前视图会话**上启动 ReAct 对话。
 - `func (service *Service) startChatFor(sessionID string, parent context.Context, request chatRequest) error` — startChatFor 在指定会话启动 ReAct 对话（多会话并行：后台会话不写活跃
 - `func (service *Service) runChat(ctx context.Context, sessionID, requestID string, request chatRequest)` — runChat 在独立 goroutine 中执行一次会话提交：委托 Seele loop（9.2 边界，
 - `func (service *Service) recordUnhandledTaskErrorLocked(sessionID, requestID string, err error)`

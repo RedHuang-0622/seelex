@@ -55,6 +55,10 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - `func (service *Service) sessionIdleForAsyncTrigger(sessionID string) bool` — sessionIdleForAsyncTrigger 报告目标会话此刻是否**空闲到可以起一个新回合**。
 - `func asyncCompletionPrompt(record dto.AsyncRunRecord) string` — asyncCompletionPrompt 组装触发回合的正文。
 - `func asyncPromptKind(kind string) string` — asyncPromptKind 是进正文前的类别兜底：类别缺失时按 process 读，与打点块同口径。
+- `func (service *Service) triggerTeamworkJobCompletions(triggered map[string]struct{})` — triggerTeamworkJobCompletions 对 teammate 作业表做一次全量扫描：把"终态 + 会话空闲 +
+- `func teamworkJobCompletions(runtime contract.RuntimePort) []dto.TeamworkJobCompletionRecord` — teamworkJobCompletions 读窄可选端口（未装配 teamwork 的宿主 = nil）。
+- `func teamworkJobEvents(runtime contract.RuntimePort) <-chan struct` — teamworkJobEvents 取 teammate 作业表的变化信号口（未装配 = nil；nil 通道在 select 里
+- `func teamworkCompletionPrompt(record dto.TeamworkJobCompletionRecord) string` — teamworkCompletionPrompt 组装 teammate 完成回执的正文。
 
 ### async_completion_trigger_test.go
 
@@ -131,6 +135,9 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - `func asyncWorkStatus(state string) string` — asyncWorkStatus 把执行域状态映射到工作表格的权威状态字面量。
 - `func asyncTraceLines(records []dto.AsyncRunRecord, sessionID string) []string` — asyncTraceLines 生成打点块里的作业行，且只取本会话——打点块注入在组装请求的那个
 - `func asyncTraceLine(record dto.AsyncRunRecord) string` — asyncTraceLine 渲染一条作业行：句柄、类别、状态、（完成行）摘要或（在途行）标题。
+- `func teamworkTraceLines(records []dto.TeamworkJobCompletionRecord, sessionID string) []string` — teamworkTraceLines 生成打点块里的 **teammate 作业行**（与 asyncTraceLines 同一块、
+- `func teamworkTraceLine(record dto.TeamworkJobCompletionRecord) string` — teamworkTraceLine 渲染一条 teammate 作业行：句柄、状态、归属（teammate/工作项）、
+- `func teamworkOwnerText(record dto.TeamworkJobCompletionRecord) string` — teamworkOwnerText 是 teammate 行的归属文本（`<role>/<work item>`）。
 - `func formatAsyncBytes(bytes int64) string` — formatAsyncBytes 把字节数写成便于扫读的量级（界面与打点块共用一个口径）。
 
 ### work_table_async_test.go

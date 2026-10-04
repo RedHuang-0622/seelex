@@ -228,6 +228,7 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 ### context_compact.go
 
 - `func compactionReasonLabel(reason string) string` — compactionReasonLabel 渲染压缩原因（用户可读）。未知原因原样返回，不编造。
+- `func failureReasonLabel(failure string) string` — failureReasonLabel 渲染压缩失败的原因（用户可读），并把数字事实原样带在括号里。
 - `func compactionRecordNote(result ContextCompactionResult) string` — compactionRecordNote 渲染「压缩已落记录」的回执：版本 + 原因 + 被压区间 +
 - `func compactionGateChecklist(gates []CompactionGateTiming) string` — compactionGateChecklist 把逐关耗时渲染成一行事实清单，例如
 - `func compactionGateDuration(milliseconds int) string` — compactionGateDuration 渲染单关耗时。毫秒整数里 0 的含义是"不到一毫秒"，
@@ -241,6 +242,16 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 
 - `func TestReproCompactionRecordSurvivesNextRoundAfterColdMaintenance(t *testing.T)` — TestReproCompactionRecordSurvivesNextRoundAfterColdMaintenance 冷加载维护
 - `func TestReproContextFactsSurviveCompletedTurnBoundary(t *testing.T)` — TestReproContextFactsSurviveCompletedTurnBoundary 回合**正常收尾**
+
+### context_compact_failure_trace_repro_test.go
+
+- `func compactionFailureRuntime() *compactionReadbackRuntime` — compactionFailureRuntime 是"摘要器装好了、但这次真的拿不到模型读后感"的宿主：
+- `func appendSizedRounds(t *testing.T, service *Service, taskID string, rounds int, asciiRunes int)` — appendSizedRounds 追加 rounds 个已定稿轮次，每轮的 assistant 正文按 asciiRunes 个
+- `func startCompactionFailureSession(t *testing.T, taskID string) (*Service, *fakeEngine, string)` — startCompactionFailureSession 起一个任务执行中的会话（/compact 的显式路径）。
+- `func compactionRecordsOf(t *testing.T, service *Service) []model.ContextCompaction` — compactionRecordsOf 取会话当前的压缩记录（内存态真值，不用快照投影代替）。
+- `func historyHasContent(history []EngineMessage, needle string) bool` — historyHasContent 报告引擎工作历史里是否还留着某段正文。
+- `func TestCompactionFailureKeepsWholeContextAndLeavesTrace(t *testing.T)` — TestCompactionFailureKeepsWholeContextAndLeavesTrace（红灯复现①）
+- `func TestCompactionFailureDoesNotInterruptOverBudgetSession(t *testing.T)` — TestCompactionFailureDoesNotInterruptOverBudgetSession（红灯复现②）
 
 ### context_compact_gate.go
 
@@ -290,7 +301,7 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 - `func TestAutoCompactionEmitsProgressGates(t *testing.T)` — TestAutoCompactionEmitsProgressGates：自动路径（软阈值）在回合执行中压缩时
 - `func TestExplicitCompactGateTimeline(t *testing.T)` — TestExplicitCompactGateTimeline：逐关计时是这一轮压缩**串行工作**的唯一证据。
 - `func TestCompactProgressTerminatesOnAssemblyError(t *testing.T)` — TestCompactProgressTerminatesOnAssemblyError：装配失败也必须收口。结构性超限
-- `func TestNoProgressEventsWithoutCompaction(t *testing.T)` — TestNoProgressEventsWithoutCompaction：没压缩就没有进度。「登记为下一条消息兑现」
+- `func TestNoProgressEventsWithoutFold(t *testing.T)` — TestNoProgressEventsWithoutFold：没压缩就没有进度。「登记为下一条消息兑现」
 - `func TestMaintenanceCompactEmitsOrderedProgressGates(t *testing.T)` — TestMaintenanceCompactEmitsOrderedProgressGates：会话级维护身份路径（冷加载、
 - `func TestCompactReceiptCarriesGateChecklist(t *testing.T)` — TestCompactReceiptCarriesGateChecklist：回执自带门禁清单（逐关 id + 毫秒）。
 - `func TestFrontendGateLabelsMatchBackendOrder(t *testing.T)` — TestFrontendGateLabelsMatchBackendOrder：门禁 id 是跨语言协议字面量——后端
