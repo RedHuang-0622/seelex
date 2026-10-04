@@ -38,6 +38,23 @@ func NewLoader(roots ...string) *Loader {
 	return &Loader{roots: cleaned}
 }
 
+// PrimaryRoot 返回写侧（plugin_create / skill_create）应落盘的根：责任链上**第一个
+// 真实存在**的根。根解析是责任链之后（`main.go` 的 pluginRootChain），链首往往是
+// 交付树里的路径，本机开发场景并不存在它——脚手架必须落到用户此刻真正在用的那份
+// 插件目录，否则"创建成功但 reload 看不到"（写进 A 处、读 B 处）。
+// 链上都不存在时退回链首：与旧口径一致（Create 会把它 MkdirAll 出来）。
+func (l *Loader) PrimaryRoot() string {
+	if l == nil || len(l.roots) == 0 {
+		return ""
+	}
+	for _, root := range l.roots {
+		if info, err := os.Stat(root); err == nil && info.IsDir() {
+			return root
+		}
+	}
+	return l.roots[0]
+}
+
 func (l *Loader) LoadAll() ([]Plugin, error) {
 	seen := make(map[string]Plugin)
 	for _, root := range l.roots {

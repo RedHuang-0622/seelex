@@ -79,6 +79,13 @@ type WorkerRequest struct {
 	// 两者都空 = 继承宿主默认。
 	ToolsPolicy      string           `json:"tools_policy,omitempty"`
 	PermissionGroups map[string]uint8 `json:"permission_groups,omitempty"`
+	// Plugins 是这个 teammate 的**按会话插件装配**（能力轴；空/缺失 = 不覆盖：
+	// 工具面继承宿主当前装配 + 技能目录不注入）。与 ToolsPolicy 同构：随载荷走完
+	// 整条透传链，派发时带了、执行时不许丢。
+	//
+	// 权限**不在这里**：插件只收窄能力（工具面 ∩），永不放宽权限面——"装了插件就
+	// 有权限"是这条硬规则要挡住的那种读法。
+	Plugins []string `json:"plugins,omitempty"`
 	Worktree         string           `json:"worktree,omitempty"`
 	// WorkItemID / Milestone 是这一轮工作属于甘特图的哪个节点。**一 Work Item 一个
 	// Session + 一个 worktree** 的隔离与回收都以它为准（空 = 非 Work Item 口径的

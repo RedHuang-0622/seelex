@@ -334,18 +334,31 @@ func TestGitHubAutomationDocumentationDoesNotOverrideRepositoryReadme(t *testing
 
 func TestRepositorySkillAndPluginLayouts(t *testing.T) {
 	root := repoRoot()
-	plugins, err := plugin.NewLoader(filepath.Join(root, "plugins")).LoadAll()
+	pluginRoot := filepath.Join(root, "plugins")
+	plugins, err := plugin.NewLoader(pluginRoot).LoadAll()
 	if err != nil {
 		t.Fatal(err)
 	}
+	// plugins/ 里除三个插件目录外还躺着 curated.yaml（精选目录，旁车数据文件）。
+	// Loader 只认目录，所以"目录里多了一个文件"不该改变插件数量——这一条同时是
+	// "零改加载器"的证据。
 	if len(plugins) != 3 {
 		t.Fatalf("loaded %d plugins, want 3 (default + freecad + impeccable)", len(plugins))
 	}
 	for _, p := range plugins {
 		t.Logf("  plugin=%q skills=%d", p.Name, len(p.Skills))
 	}
-	if _, err := plugin.NewLoader(filepath.Join(root, "plugins")).Load("plan"); err == nil {
+	if _, err := plugin.NewLoader(pluginRoot).Load("plan"); err == nil {
 		t.Fatal("plan must be a default skill, not an independently loadable plugin")
+	}
+	// 精选目录与**这份 loader 读出的插件集合**交叉校验：只列已落盘插件、少一条即红。
+	// （同一份校验也在仓库根的 curated_catalog_test.go 里跑，这里钉住的是交付树视角。）
+	names := make([]string, 0, len(plugins))
+	for _, p := range plugins {
+		names = append(names, p.Name)
+	}
+	if _, err := plugin.LoadCuratedCatalog(pluginRoot, names); err != nil {
+		t.Fatalf("curated catalog: %v", err)
 	}
 	for _, p := range plugins {
 		if p.Name != "default" {
@@ -359,4 +372,85 @@ func TestRepositorySkillAndPluginLayouts(t *testing.T) {
 		t.Fatal("default plugin is missing the plan skill")
 	}
 	t.Fatal("default plugin was not loaded")
+}
+
+// TestShippedCuratedCatalogPendingIsEvidenceTagged 是"归零不静默"在**发行树**上的那一半：
+// `plugins/curated.yaml` 的 `presets[].pending` 不许退化成一句没有出处的名单——每条候选
+// 必须带 `upstream`（谁给的）、`source`（实读出处与日期）、`verified`（核到什么程度，
+// 当前只允许 listing-only）、`promote`（转正还缺什么）；且**装配到它必须被显式拒绝**，
+// 拒绝文案要点名 pending 与它的来源。空 `pending` 正是这条守卫的失效形态（我标过的那条）。
+func TestShippedCuratedCatalogPendingIsEvidenceTagged(t *testing.T) {
+	pluginRoot := filepath.Join(repoRoot(), "plugins")
+	catalog, err := plugin.LoadCuratedFromRoot(pluginRoot)
+	if err != nil {
+		t.Fatalf("curated catalog: %v", err)
+	}
+	design, ok := catalog.Preset("design")
+	if !ok {
+		t.Fatal("presets 里必须有 design（前端设计垂直面）")
+	}
+	if len(design.Pending) == 0 {
+		t.Fatal("design 的 pending 是空的：候选没被登记（空路线图正是这条守卫的失效形态）")
+	}
+	installed := make([]string, 0, len(catalog.Entries))
+	for _, entry := range catalog.Entries {
+		installed = append(installed, entry.Name)
+	}
+	for _, item := range design.Pending {
+		if item.Verified != plugin.CuratedVerifiedListingOnly {
+			t.Errorf("pending %q 的 verified = %q，want %q——只实读过清单层，不得被读成「已可用」",
+				item.Name, item.Verified, plugin.CuratedVerifiedListingOnly)
+		}
+		if item.Source.Kind != plugin.CuratedSourceCommunityListing {
+			t.Errorf("pending %q 的 source.kind = %q，want %q", item.Name, item.Source.Kind, plugin.CuratedSourceCommunityListing)
+		}
+		if strings.TrimSpace(item.Upstream) == "" || strings.TrimSpace(item.Promote) == "" {
+			t.Errorf("pending %q 缺 upstream/promote（谁给的 + 转正还缺什么）", item.Name)
+		}
+		if !strings.HasPrefix(item.Source.URL, "https://github.com/") || strings.TrimSpace(item.Source.ReadAt) == "" {
+			t.Errorf("pending %q 的 source 必须带一个可回访的实读页与日期：url=%q read_at=%q",
+				item.Name, item.Source.URL, item.Source.ReadAt)
+		}
+		// 装配这道闸：点名 pending 必须被拒，且错误里要能读到候选与出处。
+		if _, err := catalog.AssemblePlugin(item.Name, installed); err == nil {
+			t.Errorf("装配到 pending %q 必须被拒绝", item.Name)
+		} else if !strings.Contains(err.Error(), "pending") || !strings.Contains(err.Error(), item.Upstream) {
+			t.Errorf("拒绝文案必须点名 pending 与来源：%s", err.Error())
+		}
+	}
+	// 阴性对照：design 自己装的是已落盘插件，必须装得起来（否则上面那组可以靠"永远报错"通过）。
+	plan, err := catalog.AssemblePreset("design", installed)
+	if err != nil {
+		t.Fatalf("design 装配失败: %v", err)
+	}
+	if len(plan.Plugins) != 1 {
+		t.Fatalf("preset 仍是全局单选，plan = %#v", plan)
+	}
+}
+
+// TestPluginsReadmeIndexCarriesSource 钉住最小可见化的落点：`plugins_list` 的回执在
+// `main.go`（不在 plugins/**+plugin/** 这块领地），所以「这个插件是谁给的」在这里的
+// 可见面是 plugins/README.md 的索引表——每条 entry 的 source.url 必须在表里出现。
+func TestPluginsReadmeIndexCarriesSource(t *testing.T) {
+	pluginRoot := filepath.Join(repoRoot(), "plugins")
+	catalog, err := plugin.LoadCuratedFromRoot(pluginRoot)
+	if err != nil {
+		t.Fatalf("curated catalog: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(pluginRoot, "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	readme := string(data)
+	for _, entry := range catalog.Entries {
+		if !strings.Contains(readme, entry.Source.URL) {
+			t.Errorf("plugins/README.md 的索引表没写出 %q 的来源 %q（谁给的必须可读）", entry.Name, entry.Source.URL)
+		}
+	}
+	if summary, ok := catalog.SourceSummary("impeccable"); !ok || summary == "" {
+		t.Fatalf("来源读面读不出 impeccable（plugin.CuratedCatalog.SourceSummary 是可见化的机读面）")
+	}
+	if !strings.Contains(readme, "SourceSummary") {
+		t.Error("plugins/README.md 必须指明来源摘要的读面（plugin.CuratedCatalog.SourceSummary），否则可见化只剩人眼")
+	}
 }

@@ -80,3 +80,16 @@ root manager 保持唯一"插件定义"事实源；`seelebridge/plugin` 只做�
   单选"边界（解耦方案 §02.4）。
 - 写路径单入口经核查成立（全仓仅 root `plugin.Manager` 调用 backend）。
 - 多插件叠加：仍作为未来产品议题，不排期。
+
+## 7. 2026-10-05 追加：按会话的集合已落地（不推翻本文）
+
+- **全局激活态仍是单选**：`seelebridge/plugin.Manager.active`、`switch_plugin`、
+  写路径单入口一字未动；本文 §5 的"保持单选"继续有效，§6 的"全局多插件叠加
+  不排期"也不变。
+- 新增的是**角色会话侧的只读投影**（能力轴）：`team_plan members[].plugins` /
+  `RoleSpec.Plugins` 声明一个 teammate 用哪些插件，装配集合经 ctx（
+  `tools.WithRolePlugins`）落到 `plugin.VisibleName/Face`——多插件 include 取并集、
+  exclude 取并集硬拆，再与权限面相交（插件只收窄、永不放宽，权限不随插件走）。
+  root 那条路不看它，teammate 也不能改它（ADM 断位）。
+- 落地与证据：`docs/devlog/2026-10-05-teammate-plugin-assembly-impl.md`；
+  契约与接缝：`docs/devlog/2026-10-05-teammate-plugin-assembly-design.md`。

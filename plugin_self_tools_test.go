@@ -52,6 +52,18 @@ mcp_servers: []
 		t.Fatal(err)
 	}
 
+	// 插件根不再是"空着也能启动"的地方：零插件在启动期显式报错（main.go 的
+	// requirePlugins）。这里先给临时根放一个最小插件，代表"发行包自带 plugins/"，
+	// 再走自迭代闭环（plugin_create → plugins_reload 看到新增）。
+	seedDir := filepath.Join(*pluginsPaths, "seed")
+	if err := os.MkdirAll(seedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(seedDir, "plugin.md"),
+		[]byte("---\nschema_version: 1\nname: seed\ndescription: seed\n---\n# Seed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	runtime, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{
 		AccountsPath:    accountsPath,
 		StorePath:       filepath.Join(temp, "runtime"),
@@ -62,7 +74,7 @@ mcp_servers: []
 	}
 	defer runtime.Shutdown()
 	skills := initSkillSystem()
-	plugins, err := initPluginSystem(runtime, skills)
+	plugins, _, err := initPluginSystem(runtime, skills)
 	if err != nil {
 		t.Fatalf("initPluginSystem: %v", err)
 	}

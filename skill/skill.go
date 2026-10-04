@@ -192,6 +192,30 @@ func (r *Registry) PublishPluginSkills(pluginName string, skills []Skill) error 
 
 func (r *Registry) Count() int { return len(r.All()) }
 
+// PluginSkillsFor 返回**指定插件集合**的技能（按 name 排序；未发布的插件名跳过，
+// 同名技能按入参顺序先到先得）。
+//
+// 只读投影：它既不读也不改 activePlugin，Get/All 的既有掩蔽语义（有激活插件时只
+// 返回该插件的技能）逐字不变——这条是给"按会话装配"的员工面用的**侧路**（一个
+// teammate 装配了哪几个插件，就见哪几份技能目录），不是第二个全局激活态。
+// 全局单选（switch_plugin）那条路仍然只有 root 一个写入者。
+func (r *Registry) PluginSkillsFor(names []string) []Skill {
+	if r == nil || len(names) == 0 {
+		return nil
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	merged := make(map[string]Skill)
+	for _, raw := range names {
+		for name, s := range r.pluginSkills[strings.TrimSpace(raw)] {
+			if _, exists := merged[name]; !exists {
+				merged[name] = s
+			}
+		}
+	}
+	return sortedSkills(merged)
+}
+
 func sortedSkills(skills map[string]Skill) []Skill {
 	result := make([]Skill, 0, len(skills))
 	for _, s := range skills {

@@ -57,7 +57,16 @@ sequenceDiagram
 ## 文件结构
 
 - `plugin.go`：`Plugin`、`MCPServer` 和 schema version 模型。
-- `loader.go`：多 root discovery、front matter 解析、名称/schema 校验和 Skill 加载。
+- `loader.go`：多 root discovery、front matter 解析、名称/schema 校验和 Skill 加载；
+  `PrimaryRoot()` 给出**写侧**该落盘的根（链上第一个真实存在的根，与读侧同源）。
+- `curated.go`：精选目录 `plugins/curated.yaml` 的读侧与守卫（严格解码 + 交叉校验：
+  只列已落盘插件、禁止重复 include/exclude、权限档只属于 preset、`source` 五字段必填、
+  没装的只能进 `presets[].pending`——而每条 pending 必须带 `upstream`/`source`/`verified`/
+  `promote` 四项，`verified` 目前只允许 `listing-only`）。装配面两道闸也在本文件：
+  `AssemblePreset` / `AssemblePlugin` 对 pending 显式拒绝并**点名它是 pending 与它的来源**；
+  读面 `CuratedCatalog.SourceSummary(name)` 给出"哪个插件是谁给的"一行摘要。
+  转正四问 = `CuratedPromoteQuestions`。旁车文件不进 `Loader`：它只认目录。
+- `scaffold.go`：`plugin_create` / `skill_create` 的脚手架写盘（落在 `PrimaryRoot()`）。
 - `apply.go`：通用事务助手 `Transaction`（顺序执行 + 失败逆序回滚）与
   快照差异 `DiffState`（新增/删除/修改）。
 - `manager.go`：Load、Activate、Deactivate、Reload；跨 Tool/MCP/Skill 的
@@ -73,7 +82,7 @@ sequenceDiagram
 
 ## 边界
 
-本包不执行工具、不实现 MCP transport，也不解析 Skill 指令语义；这些由 backend ports 完成。`plugins/` 是数据，`plugin/` 是运行时。
+本包不执行工具、不实现 MCP transport，也不解析 Skill 指令语义；这些由 backend ports 完成。`plugins/` 是数据，`plugin/` 是运行时。插件根的**责任链**（`-plugins` > `$SEELEX_PLUGINS` > `<exe>/plugins` > `<exe>/../plugins` > CWD `plugins`）在组合根 `main.go`（`pluginRootChain`），本包只负责"多根 first-wins"地加载；"零插件"由 `main.go` 的 `requirePlugins` 显式拒绝启动。
 
 ## Review 指南
 
@@ -81,10 +90,16 @@ sequenceDiagram
 - rollback 是否同时覆盖 Tool、Skill、MCP 和 `current`。
 - runtime MCP name 是否 plugin-qualified，避免不同插件 server 冲突。
 - loader 是否拒绝路径逃逸、重复名称和不支持 schema。
+- 写侧（`plugin_create`/`skill_create`）是否落在 `PrimaryRoot()`（链上第一个存在的根），
+  而不是链首那个可能只存在于交付树里的路径（否则"创建成功但 reload 看不到"）。
+- `curated.yaml` 是否满足 `curated.go` 的铁律；`pending` 的每条是否带齐 `upstream`/`source`/`verified`/`promote`
+  （没实读正文就只准 `verified: listing-only`）；装配到 pending 是否**显式拒绝并指向来源**；
+  改完跑 `go test ./plugin/... ./e2e/ -count=1`。
 - 不要在 manager 持锁时执行可能永久阻塞的 backend；若调整并发模型需补 race/rollback tests。
 
 ## 测试
 
 ```text
-go test ./plugin -count=1
+go test ./plugin/... ./e2e/ -count=1
+go test . -run 'Curated|Plugin|Layout' -count=1   # 仓库里那份 curated.yaml 的落地守卫
 ```

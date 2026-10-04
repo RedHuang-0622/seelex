@@ -14,6 +14,12 @@ type PolicyDeps struct {
 	// 控制 goal 工具族对主代理的可见性（P1 门控）。
 	GoalActive   func() bool
 	PluginFilter func([]types.Tool) []types.Tool
+	// PluginFace 是**带 ctx 的插件收口**（按会话装配）：从 ctx 解析这一轮装配的
+	// 插件集合，算出它收窄后的工具面。非 nil 时优先于 PluginFilter（后者是宿主
+	// 全局激活态的旧收口，保留给未接装配的宿主与测试桩）。
+	//
+	// nil = 不做插件收窄（与 PluginFilter nil 同义：原样返回）。
+	PluginFace func(ctx context.Context, tools []types.Tool) []types.Tool
 	// ToolFace 回答"本次调用的主体在该工具上有没有位"（员工工具面口径）：由
 	// seelebridge/tools 的 PermissionGate.ToolFaceForContext 提供——它按 ctx 解析
 	// 主体类（root / sub / emp_ro / emp_rw），只对员工收窄，root 与 sub 一律返回
@@ -77,6 +83,12 @@ func (p *Policy) Filter(ctx context.Context, tools []types.Tool) []types.Tool {
 			continue
 		}
 		filtered = append(filtered, tool)
+	}
+	// 插件收口（能力轴，最后一道）：按 ctx 装配的集合优先，未接装配时回退到宿主
+	// 全局激活态。两条路都只**收窄**——权限面在上面已经算完，插件在这里只做减法，
+	// "权限不随插件走"这条硬规则就落在这一行的顺序上。
+	if p.deps.PluginFace != nil {
+		return p.deps.PluginFace(ctx, filtered)
 	}
 	if p.deps.PluginFilter != nil {
 		return p.deps.PluginFilter(filtered)

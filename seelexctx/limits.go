@@ -159,6 +159,9 @@ type Limits struct {
 	ContextCompactionSummary CompactionSummaryLimits `yaml:"context_compaction_summary"`
 	// Team 是 teamwork 的产品级约束块（人数上限等），见 TeamLimits。
 	Team TeamLimits `yaml:"team"`
+	// Plugins 是**按会话插件装配**的约束块（能力轴：一个 teammate 身上挂几个插件），
+	// 见 PluginLimits。
+	Plugins PluginLimits `yaml:"plugins"`
 	// Runtime 是进程级启动行为块（见 RuntimeLimits）：当前只有一个开关——
 	// 是否同意多进程共用同一数据根。零值 = 关（单实例），与既有
 	// 「单数据根 = 单进程写者」（sessionstore/data_root_lock.go）一致；
@@ -251,6 +254,27 @@ type RuntimeLimits struct {
 // 与留守引擎上限同量级；M1 实测后调，不改契约）。
 const DefaultTeamMaxTeammates = 6
 
+// PluginLimits 是**按会话插件装配**的产品级约束块（limits.plugins）。
+//
+// 与 TeamLimits 同族：都是"Seelex 自己掌控、框架不可替代"的那几个数字。这里的
+// 上限定的是**一个人身上挂几个能力包**——每多挂一个，代价不是零：技能目录每轮
+// 常驻 system prompt（见 seelebridge/runtime_role_plugins.go 的黄牌读数），工具面
+// 还要在权限面之外再做一层收窄求交。
+type PluginLimits struct {
+	// PerTeammate 是每个 teammate（每个角色会话）的插件数上限（默认 3）。
+	// 超限的 team_plan / 角色登记**显式拒绝**（不静默截断——截断会把"我声明了 5 个"
+	// 悄悄变成"装了 3 个"）。
+	//
+	// 处置口径：0 = 未配置 → 默认 3；负值在 LoadLimits 显式报错（与
+	// team.max_teammates 同一口径：负数既不是"无限制"也不是"禁用"，两种解读都会
+	// 让配置看不出来）。
+	PerTeammate int `yaml:"per_teammate"`
+}
+
+// DefaultPluginsPerTeammate 是每会话插件数上限的出厂默认值（决策：3 个；与
+// dto.MaxPluginsPerRole 同值，两处都在"没有配置"的那一侧兜底）。
+const DefaultPluginsPerTeammate = 3
+
 // DefaultLimits 返回全部默认值（与重构前的硬编码常量一一对应，行为不变）。
 func DefaultLimits() Limits {
 	return Limits{
@@ -303,6 +327,8 @@ func DefaultLimits() Limits {
 		ForkTimeoutSec:          7200,
 		// teamwork：teammate 人数上限默认 6（与留守引擎上限同量级）。
 		Team: TeamLimits{MaxTeammates: DefaultTeamMaxTeammates},
+		// 按会话插件装配：每会话上限默认 3（能力包的常驻代价见 PluginLimits）。
+		Plugins: PluginLimits{PerTeammate: DefaultPluginsPerTeammate},
 		// 压缩处厚摘要（前缀重放 LLM 章节化摘要）：**缺省即开**（2026-10-04 起，
 		// 与出厂档 config/seelex.yaml 一致）。这里声明的是缺省值，不是强制值：
 		// 显式 `enabled: false` 仍然关（LoadLimits 里显式值优先），直接构造
@@ -448,6 +474,9 @@ func (l Limits) WithDefaults() Limits {
 	if l.Team.MaxTeammates == 0 {
 		l.Team.MaxTeammates = def.Team.MaxTeammates
 	}
+	if l.Plugins.PerTeammate == 0 {
+		l.Plugins.PerTeammate = def.Plugins.PerTeammate
+	}
 	return l
 }
 
@@ -504,6 +533,7 @@ func LoadLimits(path string) (Limits, error) {
 		check.MaxToolResultChars < 0 || check.SnapshotToolOutputChars < 0 || check.DockerStartTimeoutSec < 0 ||
 		check.ForkTimeoutSec < 0 || check.ContextRetainFloorPercent < 0 || check.ContextFrameCarryTokens < 0 ||
 		check.ContextCompactionSummary.InputTokens < 0 || check.ContextCompactionSummary.Chapter2Tokens < 0 ||
+		check.Plugins.PerTeammate < 0 ||
 		check.Team.MaxTeammates < 0 {
 		return Limits{}, fmt.Errorf("limits: values must not be negative")
 	}

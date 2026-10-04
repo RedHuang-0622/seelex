@@ -423,7 +423,14 @@ func (r *Runtime) NodeContextSnapshot(nodeID string) (*snapshot.ContextSnapshot,
 // SetSkillRegistry 装配子代理 skill 目录 actor（skill.Registry 自带锁；
 // 传 nil 关闭 skill 块，降级）。
 func (r *Runtime) SetSkillRegistry(registry *skill.Registry) {
-	if r == nil || r.node == nil {
+	if r == nil {
+		return
+	}
+	// 两个读面同一份事实：子代理的 skill 块（node.SetSkills）与员工回合的技能
+	// 目录（按会话装配的集合，见 runtime_role_plugins.go）。先存再判 node：
+	// 没装配 node 时目录读面照样生效（角色回合不经过 node）。
+	r.skills.Store(registry)
+	if r.node == nil {
 		return
 	}
 	r.node.SetSkills(registry)
@@ -641,6 +648,18 @@ func (r *Runtime) ActivePlugin() string {
 		return ""
 	}
 	return r.plugins.Active()
+}
+
+// SetPluginUnassembledReason 注入"未定义插件名怎么判 / 怎么说"的判决函数（产品侧在
+// 启动期把**精选目录**的读数包成它；nil = 取消注入，回落既有"未定义"口径）。
+//
+// 它是插件域的端口（与 DefinePlugin 同族），不是插件面收窄逻辑：判决只影响
+// "这个名字收不收"与拒绝文案，不改变任何已装插件的 include/exclude。
+func (r *Runtime) SetPluginUnassembledReason(fn func(name string, installed []string) error) {
+	if r == nil || r.plugins == nil {
+		return
+	}
+	r.plugins.SetUnassembledReason(fn)
 }
 
 // ── 定时周期任务端口 ──────────────────────────────────────────────

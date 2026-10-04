@@ -94,6 +94,16 @@ type RoleSpec struct {
 	// 见 NormalizePermissionGroups：空 = 没显式装配（按 ToolsPolicy 档位派生），
 	// 非空 = 显式装配（未列出的组 = 0 位）。
 	PermissionGroups map[string]uint8 `json:"permission_groups,omitempty"`
+	// Plugins 是按会话插件装配（能力轴；见
+	// docs/devlog/2026-10-05-teammate-plugin-assembly-design.md）。空/缺失 = 不覆盖：
+	// 工具面继承宿主当前装配、技能目录不注入。
+	//
+	// 硬规则：**权限不随插件走**——插件只带能力（技能 / 提示词 / 工具收窄），
+	// tools_policy / permission_groups / MCP / hooks 一律不得由插件供货。工具面
+	// = 权限面 ∩ 插件面，插件只收窄、永不放宽。
+	//
+	// 上限 MaxPluginsPerRole 个（出厂 3；配置键 limits.plugins.per_teammate 可调）。
+	Plugins []string `json:"plugins,omitempty"`
 }
 
 // TeamSpec 是 AgentTeamFactory 的装配输入（arch 稿 §2.2）。
@@ -127,6 +137,9 @@ type TeamRoleSession struct {
 // 面板要回填原值，否则一次编辑就会把提示词/权限清空）。它不是运行时注入的
 // 私有指令，而是用户自己登记的员工配置，因此随成员表下发。
 type TeamMember struct {
+	// 这个员工行是折叠的只读回读：Plugins（按会话插件装配）也是回读面之一——前端
+	// 要回填原值，否则一次编辑就会把装配清空（与 SystemPrompt/ToolsPolicy 同一
+	// 理由）。空 = 不覆盖（继承宿主当前装配 + 技能目录不注入）。
 	RoleName       string   `json:"role_name"`
 	RoleKind       RoleKind `json:"role_kind,omitempty"`
 	RoleSessionID  string   `json:"role_session_id,omitempty"`
@@ -141,6 +154,16 @@ type TeamMember struct {
 	// PermissionGroups 是这条员工行**逐格装配**的权限回读（前端「编辑员工」面板
 	// 要回填原值，否则一次编辑就会把装配好的格子清空）。空 = 没显式装配。
 	PermissionGroups map[string]uint8 `json:"permission_groups,omitempty"`
+	// Plugins 是按会话插件装配（能力轴；见
+	// docs/devlog/2026-10-05-teammate-plugin-assembly-design.md）。空/缺失 = 不覆盖：
+	// 工具面继承宿主当前装配、技能目录不注入。
+	//
+	// 硬规则：**权限不随插件走**——插件只带能力（技能 / 提示词 / 工具收窄），
+	// tools_policy / permission_groups / MCP / hooks 一律不得由插件供货。工具面
+	// = 权限面 ∩ 插件面，插件只收窄、永不放宽。
+	//
+	// 上限 MaxPluginsPerRole 个（出厂 3；配置键 limits.plugins.per_teammate 可调）。
+	Plugins []string `json:"plugins,omitempty"`
 }
 
 // TeamView 是供前端「状态 → Agent Team」子页与角色管理设置消费的装配视图。

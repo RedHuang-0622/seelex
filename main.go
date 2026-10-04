@@ -55,7 +55,7 @@ var (
 	DefaultFrontend = buildinfo.DefaultFrontend
 
 	storePath      = flag.String("store", ".seelex/sessions", "持久化存储路径")
-	pluginsPaths   = flag.String("plugins", "plugins", "Plugin 加载路径（逗号分隔）")
+	pluginsPaths   = flag.String("plugins", "", "Plugin 根目录（逗号分隔，可多根）；留空走责任链：$SEELEX_PLUGINS > <exe>/plugins > <exe>/../plugins > plugins(CWD)")
 	permissionMode = flag.String("permission", "manual", "权限档位: manual(默认) | edit(自动改文件) | auto(自动执行) | full(全权，旧别名 full_access)")
 	frontendMode   = flag.String("frontend", DefaultFrontend, "前端模式: tui | gui | headless | backend")
 	backendPrompt  = flag.String("backend-prompt", "", "后端诊断请求（仅 -frontend backend；为空时从标准输入逐行读取）")
@@ -96,6 +96,173 @@ func runtimeConfigChain(name string) (candidates []string, seedRoot string) {
 		seedRoot = filepath.Join(exeDir, "config")
 	}
 	return candidates, seedRoot
+}
+
+// pluginRootChain 返回 Plugin 根在责任链上的候选（按优先级、去重保序）：
+//
+//  1. -plugins <paths>      显式旗标（最高优先；逗号分隔可多根，先出现的根胜出）
+//  2. $SEELEX_PLUGINS       环境变量（容器/CI/多份发行包并存时的注入点）
+//  3. <exe>/plugins         交付树自带（发行包：二进制旁边就有一份 plugins/）
+//  4. <exe>/../plugins      交付树上一级（stage 布局：exe 落在子目录里）
+//  5. plugins               CWD 相对（仓库 / go run 开发场景）
+//
+// 语义是**顺序覆盖**而不是"择一"：加载器本身是多根 first-wins（plugin/loader.go
+// 的 LoadAll：先出现的同名插件胜出、不存在的根静默跳过），所以这条链只决定"去哪里找"。
+// 显式旗标排在最前，因此 `-plugins <开发目录>` 能覆盖发行包里那份同名插件；
+// 而"到底哪个根真的供上了插件"由启动期的根报告（logPluginRoots）写明，不靠猜。
+func pluginRootChain(flagValue, envValue, exePath string) []string {
+	roots := make([]string, 0, 6)
+	roots = append(roots, splitPaths(flagValue)...)
+	roots = append(roots, splitPaths(envValue)...)
+	if exePath != "" {
+		exeDir := filepath.Dir(exePath)
+		roots = append(roots, filepath.Join(exeDir, "plugins"), filepath.Join(exeDir, "..", "plugins"))
+	}
+	roots = append(roots, "plugins")
+	return dedupRoots(roots)
+}
+
+// pluginRoots 用真实环境（旗标 / SEELEX_PLUGINS / 可执行文件位置）解析责任链。
+func pluginRoots() []string {
+	exe, err := os.Executable()
+	if err != nil {
+		exe = ""
+	}
+	return pluginRootChain(*pluginsPaths, os.Getenv("SEELEX_PLUGINS"), exe)
+}
+
+// dedupRoots 去空、去重（保序）。Windows 上路径大小写不敏感，同一份目录可能以两种
+// 写法出现在链上，重复项会让启动期的根报告出现"两个 0 个插件"的噪声行。
+func dedupRoots(roots []string) []string {
+	seen := make(map[string]bool, len(roots))
+	result := make([]string, 0, len(roots))
+	for _, root := range roots {
+		if root = strings.TrimSpace(root); root == "" {
+			continue
+		}
+		cleaned := filepath.Clean(root)
+		key := cleaned
+		if os.PathSeparator == '\\' {
+			key = strings.ToLower(cleaned)
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, cleaned)
+	}
+	return result
+}
+
+// requirePlugins 把"零插件"从静默降级变成一次显式失败。
+//
+// 没有 Plugin 的启动不是"功能少一点"：default 插件不存在 ⇒ 无 skill 目录、`#` 切换
+// 为空、模型拿不到任何领域纪律，而旧口径下日志里一个字都没有（loader 跳过不存在的根
+// → 空表不报错 → 找不到 default 就 `return nil`）。这条错误把"试过哪些根"和"怎么救"
+// 一起说出来，让故障在启动期可见，而不是以"模型什么都不会"的形式显现。
+func requirePlugins(roots []string, loaded []plugin.Plugin) error {
+	if len(loaded) > 0 {
+		return nil
+	}
+	tried := "（责任链为空）"
+	if len(roots) > 0 {
+		tried = strings.Join(roots, ", ")
+	}
+	return fmt.Errorf(
+		"零插件：责任链上 %d 个根都没有加载到任何 Plugin（试过: %s）。"+
+			"用 -plugins <路径> 或 $SEELEX_PLUGINS 显式指定插件根；发行包应把 plugins/ 放在二进制旁边（<exe>/plugins）",
+		len(roots), tried)
+}
+
+// pluginRootReport 生成"插件到底从哪来"的**一条读数**：责任链上每个根各供上了几个
+// 插件，以及每个插件最终来自哪个根（多根 first-wins，同名插件只算链上先出现的那个）。
+//
+// 这条读数**两处共写**：终端日志（logPluginRoots）与 UI 面（run() 里进启动通知）。
+// 旧口径只有前者，于是同一条事实在 GUI 里根本看不到——所以"广播"那个词名不副实；
+// 现在它是"启动读数"，两处同源（改一处两处一起变，不会出现两份对不上的读数）。
+func pluginRootReport(roots []string, loaded []plugin.Plugin) string {
+	absLoaded := make([]string, 0, len(loaded))
+	for _, p := range loaded {
+		if abs, err := filepath.Abs(p.RootDir); err == nil {
+			absLoaded = append(absLoaded, abs)
+		}
+	}
+	parts := make([]string, 0, len(roots))
+	for _, root := range roots {
+		count := 0
+		if abs, err := filepath.Abs(root); err == nil {
+			prefix := abs + string(os.PathSeparator)
+			for _, dir := range absLoaded {
+				if dir == abs || strings.HasPrefix(dir, prefix) {
+					count++
+				}
+			}
+		}
+		parts = append(parts, fmt.Sprintf("%s=%d", root, count))
+	}
+	origins := make([]string, 0, len(loaded))
+	for _, p := range loaded {
+		origins = append(origins, fmt.Sprintf("%s←%s", p.Name, p.RootDir))
+	}
+	report := fmt.Sprintf("根 %s（共加载 %d 个插件）", strings.Join(parts, ", "), len(loaded))
+	if len(origins) > 0 {
+		report += "；来源 " + strings.Join(origins, ", ")
+	}
+	return report
+}
+
+// logPluginRoots 把根读数写成启动期一行终端日志。**它不再是唯一出口**：同一条读数由
+// run() 送进 UI 面（启动通知），见 pluginRootReport。返回这行读数，供调用方复用同一份
+// 字节（两处各生成一次就会出现两份对不上的读数）。
+//
+// 这是"一处发现、处处可用"的可观察面——静默降级被这条读数替换掉（0 个插件的根会
+// 明明白白显示为 0），排障不必再靠猜二进制旁边有没有 plugins/。
+func logPluginRoots(roots []string, loaded []plugin.Plugin) string {
+	report := pluginRootReport(roots, loaded)
+	log.Printf("plugin: %s", report)
+	return report
+}
+
+// resolveCuratedRead 从**已解析的插件根**（责任链，多根 first-wins）读一次精选目录。
+//
+// 语义三条：
+//   - **first-wins**：链上第一个带 curated.yaml 的根说话（与加载器"同名插件先出现的
+//     根胜出"同一姿势）；第一个存在的那份读不动就**当场报**，不悄悄退到下一个根——
+//     退让会把"这份目录坏了"藏成"目录里没有这个名字"。
+//   - **交叉校验用真实加载集合**：installed 取的是本次启动**真正加载出来**的插件名
+//     （多根并集），不是某一个根的 LoadAll ——目录必须与"这台机器此刻有的东西"对得上。
+//   - **缺失/解析失败留成 Err**：调用方据此出声（启动警告）并让装配面显式拒绝，
+//     绝不静默当空目录。
+func resolveCuratedRead(roots []string, loaded []plugin.Plugin) plugin.CuratedRead {
+	installed := make([]string, 0, len(loaded))
+	for _, p := range loaded {
+		installed = append(installed, p.Name)
+	}
+	for _, root := range roots {
+		path := filepath.Join(root, plugin.CuratedFileName)
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		catalog, err := plugin.LoadCuratedCatalog(root, installed)
+		if err != nil {
+			return plugin.CuratedRead{Roots: roots, Path: path, Err: err}
+		}
+		return plugin.CuratedRead{Catalog: catalog, Roots: roots, Path: path}
+	}
+	return plugin.CuratedRead{Roots: roots, Err: fmt.Errorf(
+		"责任链上 %d 个根都没有 %s（根解析见 pluginRootChain；用 -plugins 或 $SEELEX_PLUGINS 指定插件根）",
+		len(roots), plugin.CuratedFileName)}
+}
+
+// curatedAssemblyJudge 把精选目录读数包成装配面的判决函数（"未定义的名字怎么判/怎么说"）。
+//
+// 判定的分支与文案全在 `plugin.CuratedRead.Judge`：那里同时有目录（entries / pending /
+// 实读页）与"已装名单"，是唯一能一次说清三件事的地方；本函数只负责把**运行时的事实**
+// （本进程已定义插件名）递进去，不复制判定。
+func curatedAssemblyJudge(read plugin.CuratedRead) func(name string, installed []string) error {
+	return func(name string, installed []string) error {
+		return read.Judge(name, installed)
+	}
 }
 
 // ensureConfigFile 按责任链给出配置文件路径（口径见 internal/bootseed）：
@@ -192,7 +359,7 @@ func run() error {
 	console.LogStageIf(backendTrace, "startup.builtins.ready")
 	skillRegistry := initSkillSystem()
 	console.LogStageIf(backendTrace, "startup.skills.ready")
-	pluginManager, err := initPluginSystem(runtime, skillRegistry)
+	pluginManager, pluginStartup, err := initPluginSystem(runtime, skillRegistry)
 	if err != nil {
 		return err
 	}
@@ -306,12 +473,36 @@ func run() error {
 	for _, warning := range startupWarnings {
 		app.AddNotice("⚠ 启动配置警告: " + warning)
 	}
+	// 插件根读数（加载了几个插件、从哪个根）**进 UI 面**：旧口径里这条只写进终端
+	// 日志（logPluginRoots），GUI 里根本看不到——所以"广播"那个词名不副实（它既不是
+	// 广播，也没有第二个读者）。现在终端与 UI 两处写的是**同一条读数**（pluginRootReport
+	// 生成一次，两处引用同一份字节）。
+	if pluginStartup.RootReading != "" {
+		app.AddNotice("插件: " + pluginStartup.RootReading)
+	}
+	if pluginStartup.Curated != "" {
+		app.AddNotice("⚠ 启动配置警告: " + pluginStartup.Curated)
+	}
 	registerTaskTerminalTools(runtime, app)
 	registerGoalTools(runtime, app)
 	// P1：真实 TL 评估器装配（seelebridge 账号 completer → goal 域
 	// TLEvaluator）；注入发生在首次会话启动前，Supervisor 首次 bind 即启用。
 	// ADVISOR 的角色提示词来自 Agent Team 的员工登记：装配根先把"读已装配
 	// 提示词"的读面注入 Runtime（未登记 → 内置角色设定；输出契约永远追加）。
+	// 能力轴（按会话插件装配）的角色自带读面：与提示词同源同姿势。注册表里
+	// RoleSpec.Plugins 登记了什么，这个角色的回合就装配什么（空 = 不覆盖：工具面
+	// 继承宿主当前装配 + 技能目录不注入）。
+	runtime.SetRolePluginsProvider(func(roleName string) []string {
+		sessionID := app.Snapshot().Session.ID
+		if sessionID == "" {
+			return nil
+		}
+		plugins, err := app.AgentTeamRolePlugins(sessionID, roleName)
+		if err != nil {
+			return nil
+		}
+		return plugins
+	})
 	runtime.SetRolePromptProvider(func(roleName string) string {
 		sessionID := app.Snapshot().Session.ID
 		if sessionID == "" {
@@ -678,20 +869,56 @@ func initSkillSystem() *skill.Registry {
 	return skill.NewRegistry()
 }
 
+// pluginStartup 是一次插件系统启动的读数（终端日志与 UI 面**同源**，见 pluginRootReport）：
+//
+//	RootReading —— 根读数（加载了几个插件、从哪个根；进终端日志 + UI 启动通知）
+//	Curated     —— 精选目录读不到时的出声（空 = 目录已读到，无声；非空 = 启动期警告）
+type pluginStartup struct {
+	RootReading string
+	Curated     string
+}
+
 func initPluginSystem(
 	runtime *seelebridge.Runtime,
 	skills *skill.Registry,
-) (*plugin.Manager, error) {
-	loader := plugin.NewLoader(splitPaths(*pluginsPaths)...)
+) (*plugin.Manager, pluginStartup, error) {
+	// 根解析 = 责任链（-plugins > $SEELEX_PLUGINS > <exe>/plugins > <exe>/../plugins
+	// > plugins(CWD)），见 pluginRootChain；加载器是多根 first-wins。
+	roots := pluginRoots()
+	loader := plugin.NewLoader(roots...)
 	manager := plugin.NewManager(loader, runtime, runtime, skills)
 	if err := manager.Load(); err != nil {
-		return nil, fmt.Errorf("加载 Plugin 失败: %w", err)
+		return nil, pluginStartup{}, fmt.Errorf("加载 Plugin 失败: %w", err)
 	}
-	return manager, nil
+	loaded := manager.All()
+	if err := requirePlugins(roots, loaded); err != nil {
+		return nil, pluginStartup{}, err
+	}
+	startup := pluginStartup{RootReading: logPluginRoots(roots, loaded)}
+	// 精选目录（A：从"声明面"变成"装配面"）：**启动时**从已解析的插件根读一次，
+	// 读到的判决函数接进运行期的装配校验（team_plan members[].plugins）——
+	// pending 候选（路线图）要能点名上游来源、认不出的名字要说清两边都不在。
+	//
+	// 读不到（缺失/解析失败）**不得静默当空目录**：这里出声（终端 + UI 启动警告），
+	// 同时判决函数仍会被注入（它对每个未定义名显式拒绝并说清"用哪个根找过"），
+	// 所以"目录坏了"在装配面上同样是显式失败，而不是"没有 pending"。
+	curated := resolveCuratedRead(roots, loaded)
+	runtime.SetPluginUnassembledReason(curatedAssemblyJudge(curated))
+	if curated.Err != nil {
+		message := fmt.Sprintf(
+			"%s 读不到（%v；责任链上找过的根: %s）——装配面的名字判定会显式拒绝未定义的名字，不会静默当空目录",
+			plugin.CuratedFileName, curated.Err, curated.Page())
+		log.Printf("plugin: %s", message)
+		startup.Curated = message
+	}
+	return manager, startup, nil
 }
 
 func activateDefaultPlugin(manager *plugin.Manager, eng *frameworkSession.Session) error {
 	if _, err := pluginByName(manager.All(), "default"); err != nil {
+		// 同一条静默降级链的另一半：插件加载到了，但没有 default（启动基线）。
+		// 这里不阻断启动（自定义根可以只带一个垂直插件），但不许无声无息。
+		log.Printf("plugin: 没有 default 插件——启动基线未激活（skill 目录与 `#` 切换为空）；可用插件见 plugins/curated.yaml 的 entries")
 		return nil
 	}
 	if err := manager.Activate(context.Background(), "default"); err != nil {

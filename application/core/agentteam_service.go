@@ -664,6 +664,19 @@ func (service *Service) AgentTeamRolePrompt(mainSessionID, roleName string) (str
 	return registry.PromptFor(mainSessionID, roleName)
 }
 
+// AgentTeamRolePlugins 读某个角色登记的**按会话插件装配**（RoleSpec.Plugins；
+// nil = 未登记 = 不覆盖：工具面继承宿主当前装配 + 技能目录不注入）。
+//
+// 与 AgentTeamRolePrompt 同构：只读查询，不建环、不改任何事实。装配根把它注入
+// seelebridge（SetRolePluginsProvider），角色回合据此在自己的 ctx 上装配能力面。
+func (service *Service) AgentTeamRolePlugins(mainSessionID, roleName string) ([]string, error) {
+	registry, err := service.agentTeamRegistry()
+	if err != nil {
+		return nil, err
+	}
+	return registry.PluginsFor(mainSessionID, roleName)
+}
+
 // AgentTeamOptimizeRolePrompt 跑一次有界 LLM 回合优化员工提示词（不写会话消息、
 // 不落盘：落盘仍走入职/保存）。未装配提示词优化端口时返回可展示错误。
 //

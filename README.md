@@ -574,7 +574,7 @@ Windows PowerShell 或 cmd 请直接使用 `scripts/*.ps1`。
 |---|---|---|
 | <code>-frontend</code> | <code>tui</code> | 选择 <code>tui</code>、<code>gui</code>、<code>headless</code> 或 <code>backend</code> |
 | <code>-store</code> | <code>.seelex/sessions</code> | 会话持久化路径 |
-| <code>-plugins</code> | <code>plugins</code> | Plugin 搜索路径，多个路径用逗号分隔 |
+| <code>-plugins</code> | — | Plugin 根目录（逗号分隔可多根）。留空走责任链：<code>$SEELEX_PLUGINS</code> → <code>&lt;exe&gt;/plugins</code> → <code>&lt;exe&gt;/../plugins</code> → <code>plugins</code>(CWD)，多根 first-wins；一个插件都没加载到则显式拒绝启动 |
 | <code>-permission</code> | <code>manual</code> | 进程默认权限档位，取值 <code>manual</code> / <code>edit</code> / <code>auto</code> / <code>full</code>；会话内可在运行状态面板或 composer 芯片单独切档，旧值 <code>full_access</code> 等价于 <code>full</code> |
 | <code>-backend-prompt</code> | — | 仅 <code>-frontend backend</code>：启动后立即执行的提示词 |
 | <code>-backend-timeout</code> | <code>2m</code> | 仅 <code>-frontend backend</code>：等待提示词完成的超时 |

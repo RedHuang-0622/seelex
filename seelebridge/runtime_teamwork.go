@@ -270,6 +270,25 @@ func (r *Runtime) teamPlanHandler(ctx context.Context, argsJSON string) (string,
 		TeamID: raw.TeamID, Version: raw.Version,
 		Members: raw.Members, Milestones: raw.Milestones,
 	}
+	// 插件装配（能力轴）在这里做两道**显式拒绝**——只有这一层手里同时有插件定义与
+	// 配置上限（validateMemberPlugins）：
+	//   ① 未知名：不静默忽略（静默忽略会让 leader 以为装上了、员工那头一个能力也
+	//      没有，而且要到员工跑完才发现）；
+	//   ② 超过每会话上限（limits.plugins.per_teammate）：不静默截断（截断会把
+	//      "我声明了 5 个"悄悄变成"装了 3 个"）。
+	// 语法规整（去空白/去空项/**重复显式拒绝**）走 dto.NormalizePlugins：与写入侧
+	// （RoleSpec）同一份口径，不在这里另写一遍。
+	//
+	// 精选目录闸（**先做**，见 runtime_teamwork_curated.go）：名字**未定义**时多问一句
+	// "它是谁"——pending 候选（路线图）要点名上游来源，谁都不认识要说清"不在已装插件、
+	// 也不在精选目录"，精选目录没读到要出声（读不到不得静默当空目录）。已装插件不问、
+	// 行为不变；语法与上限仍由 validateMemberPlugins 报。
+	if err := r.rejectUnassembledMemberPlugins(plan.Members); err != nil {
+		return "", fmt.Errorf("team_plan: %w", err)
+	}
+	if err := validateMemberPlugins(plan.Members, r.maxPluginsPerTeammate(), r.plugins.Defined); err != nil {
+		return "", fmt.Errorf("team_plan: %w", err)
+	}
 	coordinator, err := r.coordinatorFor(ctx)
 	if err != nil {
 		return "", err
@@ -282,7 +301,68 @@ func (r *Runtime) teamPlanHandler(ctx context.Context, argsJSON string) (string,
 	return jsonReceipt(map[string]any{
 		"ok": true, "team_id": plan.TeamID,
 		"members": len(plan.Members), "milestones": len(plan.Milestones),
+		// 装配回执**必须带读数**（契约 7 / 黄牌不拒）：逐成员的集合 + 技能目录字节
+		// 与 token 估算 + 黄牌；空集显式写成 inherit-host（"不覆盖"不靠字段缺失暗示）。
+		"plugin_limit_per_teammate": r.maxPluginsPerTeammate(),
+		"assemblies":                r.assemblyViews(plan.Members),
 	})
+}
+
+// dispatchAssemblyReading 给**派发回执**补一条装配读数（与运行面同一判据：见
+// pluginFaceJudgement）。
+//
+// 为什么派发这一跳也要读数：`team_plan` 的读数只能表达"声明当时合法"——未知名在那一步
+// 就被**显式拒绝**了，所以"声明过、之后被撤销"这种失灵在计划的回执里永远不会出现。
+// 而失灵的后果正落在派发之后的运行面上（空工具面）。于是派发回执是唯一能把失灵**说出来**
+// 的回执：leader 因此看到的是"声明 docs，现已失灵，工具面为空"，而不是等员工跑完才发现
+// 一个工具都没有（那时已经烧掉一整轮）。
+//
+// 失灵**不拒绝派发**：排活/派发是既定事实，失灵是运行面的读数（拒绝会把"插件被撤"变成
+// 另一个语义完全不同的错误）。
+func (r *Runtime) dispatchAssemblyReading(ctx context.Context, coordinator *teamwork.Coordinator, role string) *rolePluginAssemblyView {
+	if r == nil || coordinator == nil {
+		return nil
+	}
+	role = strings.TrimSpace(role)
+	if role == "" {
+		return nil
+	}
+	plan, err := coordinator.Plan(ctx)
+	if err != nil {
+		return nil
+	}
+	for _, member := range plan.Members {
+		if member.Role != role {
+			continue
+		}
+		views := r.assemblyViews([]sessionstore.TeamworkMember{member})
+		if len(views) == 0 {
+			return nil
+		}
+		return &views[0]
+	}
+	return nil
+}
+
+// dispatchItemRole 在计划里按工作项 id 找它的执行角色（派发回执的读数要按**这个工作项**
+// 的执行人算，而不是按 leader 在参数里写的角色）。
+func dispatchItemRole(ctx context.Context, coordinator *teamwork.Coordinator, itemID string) string {
+	if coordinator == nil {
+		return ""
+	}
+	plan, err := coordinator.Plan(ctx)
+	if err != nil {
+		return ""
+	}
+	itemID = strings.TrimSpace(itemID)
+	for _, milestone := range plan.Milestones {
+		for _, item := range milestone.Items {
+			if strings.TrimSpace(item.ID) == itemID {
+				return item.Role
+			}
+		}
+	}
+	return ""
 }
 
 func (r *Runtime) teamDispatchHandler(ctx context.Context, argsJSON string) (string, error) {
@@ -309,10 +389,14 @@ func (r *Runtime) teamDispatchHandler(ctx context.Context, argsJSON string) (str
 		r.archiveTeamBoard(ctx)
 		return jsonReceipt(map[string]any{
 			"ok": true, "handle": string(handle), "item": itemID,
-			"hint": "受理回执即返回，不等待：继续你的关键路径，需要时用 jobs_manage(op=observe/fetch) 或 team_join 观察。",
+			// 装配读数：这一轮真的会按哪份装配跑（**失灵在这里被说出来**——plan 的回执
+			// 表达不了它，见 dispatchAssemblyReading）。
+			"plugin_face": r.dispatchAssemblyReading(ctx, coordinator, dispatchItemRole(ctx, coordinator, itemID)),
+			"hint":        "受理回执即返回，不等待：继续你的关键路径，需要时用 jobs_manage(op=observe/fetch) 或 team_join 观察。",
 		})
 	}
-	handle, err := coordinator.Dispatch(ctx, strings.TrimSpace(raw.Role), raw.Goal)
+	role := strings.TrimSpace(raw.Role)
+	handle, err := coordinator.Dispatch(ctx, role, raw.Goal)
 	if err != nil {
 		return "", fmt.Errorf("team_dispatch: %w", err)
 	}
@@ -320,7 +404,8 @@ func (r *Runtime) teamDispatchHandler(ctx context.Context, argsJSON string) (str
 	r.archiveTeamBoard(ctx)
 	return jsonReceipt(map[string]any{
 		"ok": true, "handle": string(handle),
-		"hint": "受理回执即返回，不等待：继续你的关键路径，需要时用 jobs_manage(op=observe/fetch) 或 team_join 观察。",
+		"plugin_face": r.dispatchAssemblyReading(ctx, coordinator, role),
+		"hint":        "受理回执即返回，不等待：继续你的关键路径，需要时用 jobs_manage(op=observe/fetch) 或 team_join 观察。",
 	})
 }
 
@@ -609,6 +694,7 @@ func (r *Runtime) workerRoleRoundSpec(request teamwork.WorkerRequest, mainSessio
 		RoleSessionID:    request.RoleSessionID,
 		ToolsPolicy:      request.ToolsPolicy,
 		PermissionGroups: request.PermissionGroups,
+		Plugins:          request.Plugins,
 		SystemPrompt:     r.roleTurnSystemPrompt(request.Role),
 		Input:            workerRoundInput(request),
 		MaxLoops:         maxLoops,

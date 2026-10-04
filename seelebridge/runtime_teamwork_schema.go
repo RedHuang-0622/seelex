@@ -31,7 +31,11 @@ func teamworkPlanSchema() map[string]interface{} {
 						"role":            map[string]interface{}{"type": "string"},
 						"role_session_id": map[string]interface{}{"type": "string", "description": "缺省由 (team_id, role) 派生"},
 						"worktree":        map[string]interface{}{"type": "string", "description": "git worktree 指派名（缺省回退共享主工作区）"},
-						"tools_policy":    map[string]interface{}{"type": "string", "description": "权责档 readonly|readwrite（缺省继承宿主默认）"},
+						"plugins": map[string]interface{}{
+							"type": "array", "items": map[string]interface{}{"type": "string"},
+							"description": "按会话插件装配（能力轴）：这个 teammate 用哪些插件，上限 limits.plugins.per_teammate（缺省 3），超限 / 未知名 / 重复**显式拒绝**（不静默忽略、不静默截断、不静默去重）；空/缺失 = 不覆盖（工具面继承宿主当前装配 + 技能目录不注入）。**只收窄权限面、不相对宿主装配**：装配集合替换宿主那一份收窄，可以比它更宽（声明一个 include/exclude 皆空的插件就等于拿到全工具面），也可以比它更窄；权限面与它相交后只会更小。对已开着的角色会话自下一轮生效",
+						},
+						"tools_policy": map[string]interface{}{"type": "string", "description": "权责档 readonly|readwrite（缺省继承宿主默认）"},
 						"permission_groups": map[string]interface{}{
 							"type": "object", "description": "路由组 → 位（逐格分配，优先于档位）",
 							"additionalProperties": map[string]interface{}{"type": "integer"},

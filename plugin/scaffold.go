@@ -28,9 +28,11 @@ type CreateSpec struct {
 	MCPServers  []MCPServer `json:"mcp_servers,omitempty"`
 }
 
-// Create 在首个 loader root 下脚手架一个插件目录
+// Create 在**责任链上第一个存在的根**（`Loader.PrimaryRoot`）下脚手架一个插件目录
 // （plugin.md manifest + README.md + 可选 skill 目录），**不改变运行时状态**；
 // 写盘后调用 plugins_reload 生效（自迭代闭环：创建 → 加载 → 立即可用）。
+// 写侧与读侧同源：读侧是"多根 first-wins"，写侧必须落到那份真正在用的目录，
+// 否则会出现"创建成功但 reload 看不到"。
 func (m *Manager) Create(spec CreateSpec) ([]string, error) {
 	if m == nil || m.loader == nil || len(m.loader.roots) == 0 {
 		return nil, fmt.Errorf("plugin create: loader root is not configured")
@@ -38,7 +40,7 @@ func (m *Manager) Create(spec CreateSpec) ([]string, error) {
 	if !validPluginName.MatchString(spec.Name) {
 		return nil, fmt.Errorf("plugin create: invalid plugin name %q", spec.Name)
 	}
-	root, err := filepath.Abs(m.loader.roots[0])
+	root, err := filepath.Abs(m.loader.PrimaryRoot())
 	if err != nil {
 		return nil, fmt.Errorf("plugin create root: %w", err)
 	}
@@ -115,7 +117,7 @@ func (m *Manager) CreateSkill(pluginName string, spec SkillSpec) (string, error)
 		if m.loader == nil || len(m.loader.roots) == 0 {
 			return "", fmt.Errorf("skill create: plugin %q not loaded and loader root is not configured", pluginName)
 		}
-		root, err := filepath.Abs(m.loader.roots[0])
+		root, err := filepath.Abs(m.loader.PrimaryRoot())
 		if err != nil {
 			return "", fmt.Errorf("skill create root: %w", err)
 		}

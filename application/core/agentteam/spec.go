@@ -110,6 +110,15 @@ func NormalizeRole(role dto.RoleSpec) (dto.RoleSpec, error) {
 		return dto.RoleSpec{}, fmt.Errorf("agentteam: 角色 %q 的权限格子非法: %w", role.RoleName, err)
 	}
 	role.PermissionGroups = groups
+	// 插件装配同样在**写入侧**拦（去空白/去空项/**重复显式拒绝**/上限）：拼错的名字、
+	// 超限的清单、重复的清单不该写进注册表后再由运行时解释成"没装配"或"只装了一份"
+	// （与 ValidToolPolicy 同一理由）。名字是否存在**不在这里判**——插件目录的事实不在
+	// 这一层（语义校验在编排入口：seelebridge 的 teamPlanHandler 手里有插件定义）。
+	plugins, err := dto.NormalizePlugins(role.Plugins, 0)
+	if err != nil {
+		return dto.RoleSpec{}, fmt.Errorf("agentteam: 角色 %q 的插件装配非法: %w", role.RoleName, err)
+	}
+	role.Plugins = plugins
 	return role, nil
 }
 

@@ -110,6 +110,10 @@ type TeamworkMember struct {
 	// 关系同 dto.RoleSpec：显式 Permission 非空则以格子为准，档位只用于选分支。
 	ToolsPolicy string         `json:"tools_policy,omitempty"`
 	Permission  map[string]int `json:"permission_groups,omitempty"`
+	// Plugins 是这个 teammate 的**按会话插件装配**（能力轴）：插件名清单，空/缺失
+	// = 不覆盖（工具面继承宿主当前装配 + 技能目录不注入）。权限不在这里——插件只
+	// 收窄能力，永不放宽权限面。
+	Plugins []string `json:"plugins,omitempty"`
 }
 
 // TeamworkMilestone 是 leader 声明的里程碑（内容由 leader 撰写，见 §4.5）。
@@ -267,6 +271,27 @@ func ValidateTeamworkPlan(plan TeamworkPlan, maxTeammates int) error {
 			return fmt.Errorf("teamwork: role_session_id %q 重复（一人一会话）", sessionID)
 		}
 		sessions[sessionID] = struct{}{}
+		// 插件装配（能力轴）在这一层只做**结构**校验：去首尾空白、去重（重复 = 显式
+		// 拒绝）、单项非空。名字是否存在于插件目录**不在这里判**——那是插件域的事实，
+		// 存储层看不到也不该 import 插件域（语义校验在编排入口 team_plan）。每会话数量
+		// 上限由配置面（limits.plugins.per_teammate）在编排入口拦，这里不重复声明一个
+		// 数字。
+		//
+		// 这条"重复显式拒绝"与 dto.NormalizePlugins（写入侧/编排侧的语法规整）**同一
+		// 口径**：修前上游静默去重，于是这里这条拒绝不可达，两条路给出相反的答案
+		// （2026-10-05 对抗复核 D）。现在两处都是"显式拒绝"，本层是**落盘前的最后一道**
+		// ——leader 改写、并发路径、以及任何绕过编排入口的写入都还要在这里被挡一次。
+		seenPlugins := make(map[string]struct{}, len(member.Plugins))
+		for pluginIndex, raw := range member.Plugins {
+			name := strings.TrimSpace(raw)
+			if name == "" {
+				return fmt.Errorf("teamwork: plan.members[%d].plugins[%d] 为空项（插件名不得为空）", index, pluginIndex)
+			}
+			if _, duplicate := seenPlugins[name]; duplicate {
+				return fmt.Errorf("teamwork: plan.members[%d].plugins 里插件 %q 重复（显式拒绝，不静默去重）", index, name)
+			}
+			seenPlugins[name] = struct{}{}
+		}
 	}
 
 	// 顺序事实只有一样：里程碑（阶段口径已退场，2026-10-04）。没有里程碑 = 这份

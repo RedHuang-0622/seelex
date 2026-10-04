@@ -371,6 +371,7 @@ func (c *Coordinator) DispatchItem(ctx context.Context, itemID string) (jobs.Han
 		Subject:          SubjectForRole(item.Role),
 		ToolsPolicy:      member.ToolsPolicy,
 		PermissionGroups: groups,
+		Plugins:          member.Plugins,
 		Worktree:         binding.Worktree,
 		WorkItemID:       item.ID,
 		Milestone:        milestone.ID,

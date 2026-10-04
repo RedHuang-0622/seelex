@@ -99,6 +99,25 @@ func (registry *Registry) PromptFor(mainSessionID, roleName string) (string, err
 	return "", nil
 }
 
+// PluginsFor 读某个角色登记的**按会话插件装配**（RoleSpec.Plugins；nil = 未登记）。
+//
+// 只读，与 PromptFor 同一姿势：召唤路径（ADVISOR 回合 / 一步入职后的角色回合）由
+// seelebridge 的 rolePluginsFor 每次现取。装配的**合法性**（名字是否存在、是否超
+// 上限）在写入侧（NormalizeRole）与编排侧（team_plan）判，这里只回读事实。
+func (registry *Registry) PluginsFor(mainSessionID, roleName string) ([]string, error) {
+	stored, err := registry.Stored(mainSessionID)
+	if err != nil {
+		return nil, err
+	}
+	roleName = strings.TrimSpace(roleName)
+	for _, role := range stored.Roles {
+		if role.RoleName == roleName {
+			return append([]string(nil), role.Plugins...), nil
+		}
+	}
+	return nil, nil
+}
+
 // PutRole 新增或覆盖一个角色配置（按 role_name 幂等）。
 func (registry *Registry) PutRole(mainSessionID string, role dto.RoleSpec) (dto.TeamRegistry, error) {
 	if registry == nil || registry.port == nil {

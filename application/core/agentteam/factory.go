@@ -394,6 +394,11 @@ func buildMember(mainSessionID, teamID, name string, orderIndex int, inOrder boo
 				member.PermissionGroups[group] = bits
 			}
 		}
+		// 插件装配回读（同一个理由：成员表是回读的唯一构造点，少这一行就会出现
+		// "装配好的插件被一次编辑清空"的静默丢失）。
+		if len(role.Plugins) > 0 {
+			member.Plugins = append([]string(nil), role.Plugins...)
+		}
 		if needsRoleSession(kind) {
 			member.RoleSessionID = RoleSessionID(mainSessionID, teamID, name)
 		}

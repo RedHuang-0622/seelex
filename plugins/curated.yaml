@@ -1,0 +1,168 @@
+# plugins/curated.yaml —— 精选目录（本地简化版 marketplace 清单）
+#
+# 定位：这是**目录**（catalog），不是商店（store）。
+#   外部 marketplace 的清单形如
+#     {name, description, owner:{name}, plugins:[{name, source:"./plugins/x", description}]}
+#   用 `name@marketplace` 标识安装，有 `claude plugin validate <dir>` 校验命令，作用域
+#   user/project/local。我们只保留「这份发行包里到底带什么、是谁给的、按哪个权限档装配」
+#   三件事：不做下载、不做版本解析、不做远程源合并（读侧实现见 plugin/curated.go）。
+#
+# 三条铁律（由 plugin/curated.go 的严格解码 + 校验机检，不靠人眼评审）：
+#   1. 只列**已落盘**插件：entries 与插件根下真实可加载的插件一一对应，多一条少一条都红。
+#      没装的东西只能出现在 presets[].pending —— 它是路线图，不是可用集合：
+#      **装配到 pending 里的插件必须显式拒绝**（插件目录里没有它，加载必然失败；
+#      拒绝在这里说清，而不是让它变成一个空插件面）。两道装配闸在 plugin/curated.go 的
+#      AssemblePreset / AssemblePlugin：错误文案会**点名它是 pending 并指向它的来源**。
+#   2. **禁止在这里重复 include/exclude**：那是 plugins/<name>/plugin.md 的事实源；
+#      **权限档也只出现在 preset**（插件的包可以被覆盖，权限不能由"别人给的包"供货）。
+#      entries 下冒出一个 include:/exclude:/permission_tier: 就是 unknown field 解码错误。
+#   3. 每条 entry 必有 source（kind/url/license/pinned/read_at）：一眼看出哪个插件是谁给的。
+#
+# pending 的记法（2026-10-05 起）：每条候选必须写清四件事——
+#   upstream：清单里那条候选的**字面标识**（一般是 owner/repo），这是"谁给的"；
+#   source  ：这次实读的出处（kind=community-listing 表示"社区清单/主题页的一次实读"，
+#             url 指向被实读的那一页），五项必填；
+#   verified：**核到什么程度**。当前只有 listing-only =「仓库存在 + 官方一句话定位」，
+#             **没有**读进任何 skill 正文 —— 因此这些条目**不得被读成"已可用"**；
+#   promote ：一句话写清转正还缺什么。
+# 晋升路径：pending 里的名字只有在**实读正文 + 过可装载性四问**之后，才能挪进 entries
+# 并把名字加进 presets[].plugins（此时它必须已经落盘，否则校验会红）：
+#   ① 可装载性：正文能否被 skill.LoadPluginDir 装载（目录/frontmatter/name 合法）；
+#   ② 不带权限面：不携带权限档、hooks 或插件级 MCP 权限（权限只能由 preset 给）；
+#   ③ 许可证：上游 LICENSE 明确且允许再分发；
+#   ④ 成本：装配后每轮进上下文的 name+description 体积可接受。
+#   四问的机器可引用版本 = plugin/curated.go 的 CuratedPromoteQuestions。
+#
+# 尚未进入任何 pending 的**发现面**（不是候选，别误读成路线图条目）：
+#   https://github.com/topics/claude-code-skills —— 实读 2026-10-05，页面原话
+#   "2,031 public repositories matching this topic"；它给的是"这个生态已成型"的量级，
+#   不是某一条候选的证据。
+#
+# 装配语义：全局激活保持**单选**（docs/2026-08-14-decoupling/05-plugin-dual-track-decision.md:71），
+# preset 只表达「切到哪个插件 + 用哪个权限档」，不表达「同时叠加几个插件」（`:82` 仍不排期）。
+# 旁车文件放在插件根里不影响加载器：plugin/loader.go 只认目录，curated.yaml 带点号也不匹配
+# validPluginName（门禁用例：plugin/curated_test.go 的 TestCuratedCatalogSideCarIsNotAPlugin）。
+
+schema_version: 1
+kind: curated-catalog
+read_at: 2026-10-05
+
+entries:
+  - name: default
+    description: 所有已注册工具与全局 Skill（启动基线）
+    installed: true
+    source:
+      kind: builtin
+      url: https://github.com/RedHuang-0622/seelex
+      license: MIT（本仓库 LICENSE）
+      pinned: 随发行包（git 提交即版本；plugins/ 由 scripts/build.sh:71 / Makefile:71 等整目录复制）
+      read_at: 2026-10-05
+  - name: freecad
+    description: FreeCAD 计算机辅助设计（垂直能力样板：MCP + 批处理脚本 + 领域 Skill）
+    installed: true
+    source:
+      kind: builtin
+      url: https://github.com/RedHuang-0622/seelex
+      license: MIT（本仓库 LICENSE）
+      pinned: 随发行包（git 提交即版本；外部依赖 FreeCAD 本机安装，见 plugins/freecad/README.md）
+      read_at: 2026-10-05
+  - name: impeccable
+    description: 前端设计纪律与确定性检测器（Impeccable 移植）
+    installed: true
+    source:
+      kind: vendored
+      url: https://github.com/pbakaus/impeccable
+      license: Apache-2.0（上游仓库 LICENSE；本目录下游内容受同一许可约束，保留出处）
+      pinned: 上游未固定 commit；craft-floor.md 为逐字 vendored 副本并带出处头（见 plugins/impeccable/README.md）
+      read_at: 2026-10-05
+
+presets:
+  - name: baseline
+    description: 启动基线——default 插件，全工具面 + 全局 Skill（activateDefaultPlugin 装配的就是它）
+    permission_tier: manual
+    plugins: [default]
+    pending: []
+  - name: cad
+    description: CAD 垂直面——freecad 插件（工具面按 plugin.md 收窄；需要本机 FreeCAD 与 MCP）
+    permission_tier: manual
+    plugins: [freecad]
+    pending: []
+  - name: design
+    description: 前端设计垂直面——切到 impeccable；pending 是"还想要、但没实读过正文"的前端候选（路线图，不是可用集合）
+    permission_tier: manual
+    plugins: [impeccable]
+    # 下面每一条都只核到「仓库存在 + 官方一句话定位」（verified: listing-only），
+    # 全部来自 docs/research/2026-10-05-teammate-plugin-assembly-external-research.md §4
+    # 的 Playwright 实读。**任何一条都不代表已可用**：装配到它们必须显式拒绝，错误里会
+    # 带出 upstream 与实读出处（见 plugin/curated_test.go 的装配拒绝用例）。
+    pending:
+      - name: frontend-design
+        upstream: anthropics/frontend-design
+        source:
+          kind: community-listing
+          url: https://github.com/VoltAgent/awesome-agent-skills
+          license: 未核实（清单未声明；转正前按四问③核对上游 LICENSE）
+          pinned: 未固定 commit（清单条目只有 owner/repo，无版本）
+          read_at: 2026-10-05
+        verified: listing-only
+        promote: 实读该 skill 正文（四问①）并核对上游仓库真实存在；清单原话是 "Frontend design and UI/UX development tools"
+      - name: brand-guidelines
+        upstream: anthropics/brand-guidelines
+        source:
+          kind: community-listing
+          url: https://github.com/VoltAgent/awesome-agent-skills
+          license: 未核实（清单未声明；转正前按四问③核对上游 LICENSE）
+          pinned: 未固定 commit（清单条目只有 owner/repo，无版本）
+          read_at: 2026-10-05
+        verified: listing-only
+        promote: 实读正文 + 过可装载性四问；与 frontend-design 同属一条清单条目的姊妹包
+      - name: theme-factory
+        upstream: anthropics/theme-factory
+        source:
+          kind: community-listing
+          url: https://github.com/VoltAgent/awesome-agent-skills
+          license: 未核实（清单未声明；转正前按四问③核对上游 LICENSE）
+          pinned: 未固定 commit（清单条目只有 owner/repo，无版本）
+          read_at: 2026-10-05
+        verified: listing-only
+        promote: 实读正文 + 过可装载性四问；先确认它与 impeccable 的主题/设计纪律面是否重叠（重叠则不必装）
+      - name: web-artifacts-builder
+        upstream: anthropics/web-artifacts-builder
+        source:
+          kind: community-listing
+          url: https://github.com/VoltAgent/awesome-agent-skills
+          license: 未核实（清单未声明；转正前按四问③核对上游 LICENSE）
+          pinned: 未固定 commit（清单条目只有 owner/repo，无版本）
+          read_at: 2026-10-05
+        verified: listing-only
+        promote: 实读正文 + 过可装载性四问；重点看四问④（它可能带来可观的上下文成本）
+      - name: canvas-design
+        upstream: anthropics/canvas-design
+        source:
+          kind: community-listing
+          url: https://github.com/VoltAgent/awesome-agent-skills
+          license: 未核实（清单未声明；转正前按四问③核对上游 LICENSE）
+          pinned: 未固定 commit（清单条目只有 owner/repo，无版本）
+          read_at: 2026-10-05
+        verified: listing-only
+        promote: 实读正文 + 过可装载性四问；先确认它是否需要超出工具面的运行时（四问①）
+      - name: agent-skills
+        upstream: mblode/agent-skills
+        source:
+          kind: community-listing
+          url: https://github.com/VoltAgent/awesome-agent-skills
+          license: 未核实（清单未声明；转正前按四问③核对上游 LICENSE）
+          pinned: 未固定 commit（清单只给 owner/repo 与安装通路 npx skills add mblode/agent-skills）
+          read_at: 2026-10-05
+        verified: listing-only
+        promote: 实读正文 + 过可装载性四问；清单原话 "Nobody ships AI slop on purpose. These skills make sure you don't. UI audits, typography, docs, PR review, and releases."——直接对标"去 AI 味"，但**没有**读过一条正文
+      - name: agentic-awesome-skills
+        upstream: sickn33/agentic-awesome-skills
+        source:
+          kind: community-listing
+          url: https://github.com/sickn33/agentic-awesome-skills
+          license: 未核实（清单未声明；转正前按四问③核对上游 LICENSE）
+          pinned: 未固定 commit（自述 47.2k star，无版本）
+          read_at: 2026-10-05
+        verified: listing-only
+        promote: 先定"装它的哪一部分"——它自述是 catalog/MCP/plugins 组成的控制面（2,400+ skills），不是单个插件；四问①在它身上要拆成"哪一块能被 Loader 装载"

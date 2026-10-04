@@ -181,6 +181,36 @@ func (m *Manager) All() []Plugin {
 	return result
 }
 
+// ActivateFromCatalog 是"精选目录 → 运行时"的装配入口：先把 preset 解析成计划
+// （`AssemblePreset` 对 pending 显式拒绝并点名来源），再复用既有事务路径 Activate。
+// 拒绝发生在**任何副作用之前**：pending 不会先激活一半再报错。
+//
+// 全局单选（docs/2026-08-14-decoupling/05-plugin-dual-track-decision.md:71）仍是产品口径，
+// 所以这里要求 preset 恰好解析出**一个**插件；多于一个说明目录被写成了"叠加"语义，
+// 显式拒绝而不是悄悄只激活第一个。
+func (m *Manager) ActivateFromCatalog(ctx context.Context, catalog CuratedCatalog, presetName string) error {
+	if m == nil {
+		return fmt.Errorf("装配被拒绝：manager 未配置")
+	}
+	m.mu.Lock()
+	installed := make([]string, 0, len(m.plugins))
+	for name := range m.plugins {
+		installed = append(installed, name)
+	}
+	m.mu.Unlock()
+
+	plan, err := catalog.AssemblePreset(presetName, installed)
+	if err != nil {
+		return err
+	}
+	if len(plan.Plugins) != 1 {
+		return fmt.Errorf(
+			"装配 preset %q 被拒绝：本产品仍是**全局单选**（docs/2026-08-14-decoupling/05-plugin-dual-track-decision.md:71），"+
+				"preset 必须恰好切到一个插件，这里解析出 %v", presetName, plan.Plugins)
+	}
+	return m.Activate(ctx, plan.Plugins[0])
+}
+
 // ReloadReport 是一次 plugins_reload 的差异摘要（自迭代审计面）。
 type ReloadReport struct {
 	Added   []string `json:"added"`

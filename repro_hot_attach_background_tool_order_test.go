@@ -65,7 +65,7 @@ func newToolInlineHarness(t *testing.T, accountsPath, projectRoot string, toolTi
 	runtimeBridge.SetEventPersister(sessionstore.NewEventStore(store).Append)
 
 	skills := initSkillSystem()
-	plugins, err := initPluginSystem(runtimeBridge, skills)
+	plugins, _, err := initPluginSystem(runtimeBridge, skills)
 	if err != nil {
 		t.Fatal(err)
 	}

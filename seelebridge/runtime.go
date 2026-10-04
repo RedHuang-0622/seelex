@@ -118,13 +118,22 @@ type Runtime struct {
 	subagentContext *subagentsession.SubagentContextActor
 	// skills 是子代理 skill 目录的 actor 资源：skill.Registry 内部自锁
 	// （读写即消息进出：All/Get 读、Register/Reload 写），见 skill/skill.go。
-	// 装配一次性写入、运行期只读消费，与 filesystem actor 同构，无需外层锁。
-	skills *skill.Registry
+	// 装配一次性写入、运行期只读消费，与 filesystem actor 同构。
+	//
+	// 用 atomic.Pointer 而不是裸字段：它有两个读面——子代理的 skill 块（经
+	// SetSkillRegistry → node.SetSkills）与**员工回合的技能目录**（按会话装配的
+	// 集合，每轮现算）。两者都在并发回合里读，装配点又在启动期，裸字段是数据竞争。
+	skills atomic.Pointer[skill.Registry]
 	// rolePrompt 是"已装配员工提示词"的读面（装配根在首次会话启动前注入）：
 	// ADVISOR 回合用它取用户在 Agent Team 面板里登记的提示词；未注入或未登记
 	// 时回退内置提示词。读面只读角色注册表，不建环、不改任何事实。
 	rolePromptMu sync.RWMutex
 	rolePrompt   func(roleName string) string
+	// rolePlugins 是"角色自带的插件装配"读面（RoleSpec.Plugins，召唤路径）：与
+	// rolePrompt 同构的一次注入只读面，见 runtime_role_plugins.go。
+	rolePluginsMu sync.RWMutex
+	rolePlugins   func(roleName string) []string
+
 	projectScope *security.ProjectScope
 	filesystem   fs.FileSystem             // 文件系统 actor（写路径分片串行化，filesystem_actor.go）
 	sandbox      security.CommandSandbox   // shell 执行隔离端口（security/sandbox.go；默认 native cwd-gate）
@@ -399,6 +408,22 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 			return r.permission.ToolFaceForContext(ctx, toolName)
 		},
 		PluginFilter: r.plugins.Filter,
+		// 插件面收口（能力轴，**按会话装配**）：从本轮 ctx 解析装配集合，现算收窄
+		// 后的工具面。空集 = 不覆盖：早退到宿主全局装配（r.plugins.Filter），
+		// 与"插件缺失 = 今天的行为"逐字一致。
+		//
+		// 集合引用了**本进程未定义**的插件（root 撤销过 / 名字漂了）：不静默放宽
+		// （丢掉某份收窄就是放宽），也不假装收窄——显式失灵（空工具面），让下一次
+		// 派发/编排的显式校验报出来。这条只在"声明时合法、之后被撤"时才可能走到。
+		//
+		// 判据只有一份：pluginFaceJudgement（读数与运行面共用），所以回执里那个数
+		// **不会**与这里算出来的面相反（缺陷 C 修的就是"回执报满面、运行面为空"）。
+		PluginFace: func(ctx context.Context, tools []types.Tool) []types.Tool {
+			if r.plugins == nil {
+				return tools
+			}
+			return r.pluginFaceJudgement(seeltools.RolePluginsFromContext(ctx)).face(tools)
+		},
 	})
 
 	// 5. Agent 装配：agent.NewWithComponents（不启动 Hub / 账号池 / 网关）

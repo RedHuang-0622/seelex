@@ -64,8 +64,41 @@ func (c *Coordinator) SetPlan(ctx context.Context, plan sessionstore.TeamworkPla
 	return c.audit(ctx, sessionstore.TeamworkEvent{
 		Kind:   sessionstore.TeamworkEventPlan,
 		TeamID: plan.TeamID,
-		Detail: fmt.Sprintf("members=%d milestones=%d items=%d", len(plan.Members), len(plan.Milestones), countItems(plan)),
+		Detail: fmt.Sprintf("members=%d milestones=%d items=%d plugins=%s",
+			len(plan.Members), len(plan.Milestones), countItems(plan), pluginAssemblySummary(plan.Members)),
 	})
+}
+
+// pluginAssemblySummary 把成员的插件装配压成一行**审计摘要**（与回执同一口径：
+// 空集写成 inherit-host，不覆盖是"说出来的事实"，不是缺失的字段）。
+//
+// 全员没声明时给 "none"：那时每个成员的语义都是"继承宿主当前装配"，逐人写一遍
+// inherit-host 只会把不装插件的团队的审计行拉长到没人看——一条 none 比四行噪音更
+// 接近事实。
+func pluginAssemblySummary(members []sessionstore.TeamworkMember) string {
+	if len(members) == 0 {
+		return "none"
+	}
+	parts := make([]string, 0, len(members))
+	anyDeclared := false
+	for _, member := range members {
+		names := make([]string, 0, len(member.Plugins))
+		for _, raw := range member.Plugins {
+			if name := strings.TrimSpace(raw); name != "" {
+				names = append(names, name)
+			}
+		}
+		if len(names) == 0 {
+			parts = append(parts, member.Role+"=inherit-host")
+			continue
+		}
+		anyDeclared = true
+		parts = append(parts, member.Role+"="+strings.Join(names, "+"))
+	}
+	if !anyDeclared {
+		return "none"
+	}
+	return strings.Join(parts, ";")
 }
 
 // countItems 数一份计划里的工作项总数（审计行用）。
@@ -124,6 +157,7 @@ func (c *Coordinator) Dispatch(ctx context.Context, role, goal string) (jobs.Han
 		Subject:          SubjectForRole(role),
 		ToolsPolicy:      member.ToolsPolicy,
 		PermissionGroups: groups,
+		Plugins:          member.Plugins,
 		Worktree:         member.Worktree,
 		Goal:             goal,
 		MaxTurns:         c.maxTurns,

@@ -140,9 +140,16 @@ type roleRoundSpec struct {
 	RoleSessionID    string
 	ToolsPolicy      string
 	PermissionGroups map[string]uint8
-	SystemPrompt     string
-	Input            string
-	MaxLoops         int
+	// Plugins 是这一轮的角色会话装配的插件集合（能力轴）。**空/缺失 = 不覆盖**：
+	// 工具面继承宿主当前装配、技能目录不注入（system 字节逐字不变）。
+	//
+	// 集合由调用方给（worker 作业来自 WorkerRequest.Plugins = team_plan 的成员
+	// 声明），执行面不再去反查一遍——"派发时带了、执行时丢了"这种静默降级只能靠
+	// 单一透传链堵住（见 teamwork.WorkerRequest 的同名说明）。
+	Plugins      []string
+	SystemPrompt string
+	Input        string
+	MaxLoops     int
 	// FreshContext 表示"本轮的模型上下文完全由 Input 自带"，因此每次回合前清空引擎
 	// 历史（回合之间不共享隐式记忆）。
 	//
@@ -249,6 +256,13 @@ func (r *Runtime) runRoleRound(ctx context.Context, spec roleRoundSpec) (string,
 	}
 	spec.RoleName, spec.RoleSessionID = roleName, roleSessionID
 
+	// 按会话装配（能力轴）：显式声明替换集合 → 角色自带 → 空集（不覆盖）。
+	// 空集时目录段为空串 ⇒ system prompt 与"没有这个特性"时逐字一致（回归纪律）。
+	assembly := r.rolePluginAssembly(spec)
+	if catalog := r.roleSkillCatalog(assembly); catalog != "" {
+		spec.SystemPrompt = appendSkillCatalog(spec.SystemPrompt, catalog)
+	}
+
 	// 同 goroutine 重入检测放在**任何副作用之前**（不开角色会话、不分配权限）：同一
 	// 角色会话在本轮之内被再次驱动时（工具/回调里同步再发起一轮，用的是本轮向下传的
 	// ctx），回合闸门不可重入——排队即永久挂死，所以显式失败。
@@ -265,6 +279,10 @@ func (r *Runtime) runRoleRound(ctx context.Context, spec roleRoundSpec) (string,
 	// 按构造把角色主体放进 ctx：不依赖任何反查（roleSessionClass 的索引可能冷），
 	// 且工具面按这个角色自己的主体算（同档位的两个角色可以有不同能力面）。
 	turnCtx := seeltools.WithEmployeeGrant(ctx, roleName, spec.ToolsPolicy, spec.PermissionGroups)
+	// 能力轴也按构造放进本轮 ctx（与主体类同一个姿势）：工具可见性每轮从 ctx
+	// 现算，**不在句柄上缓存"当前装配"**——两个 teammate 并发回合时，缓存会被
+	// 后写的那份覆盖（并发丢失更新的另一面）。
+	turnCtx = seeltools.WithRolePlugins(turnCtx, assembly)
 	// telemetry 标签写成角色会话：角色回合的 llm/tool 事件可按角色归因（审计面）。
 	turnCtx = WithTelemetrySessionID(turnCtx, roleSessionID)
 
@@ -280,6 +298,9 @@ func (r *Runtime) runRoleRound(ctx context.Context, spec roleRoundSpec) (string,
 	// state.mu 发布、engine 在发布前写入，因此是安全的只读。
 	engine := handle.engine
 	handle.roundGate.Lock()
+	// 系统提示按轮重设：技能目录随装配集合变，而引擎的 prompt 是建会话那一刻
+	// 定死的（同值重设幂等；空集时不改动任何字节）。
+	engine.SetSystemPrompt(spec.SystemPrompt)
 	if spec.FreshContext {
 		// 隔离由构造保证：本轮的上下文完全由 spec.Input 自带（见 roleRoundSpec.FreshContext）。
 		engine.ClearHistory()

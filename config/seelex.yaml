@@ -165,6 +165,16 @@ limits:
   # 拒绝，不静默排队（排队会把"人满了"伪装成"在跑"）。
   team:
     max_teammates: 6             # 同时在编 teammate 人数上限（默认 6，与 resident_limit 同量级；负值启动期报错）
+  # ── 插件装配（能力轴；与 teammate 的权限轴 tools_policy/permission_groups 正交）
+  # teammate 的装配是两个正交轴：**权限**（能给什么位，只有 leader/宿主能给）与
+  # **能力**（挂哪些插件 = skills + 工具收窄 + 提示词，可以随插件分发）。外部一手
+  # 实读印证了这条边界：从插件加载的子代理，permissionMode/hooks/mcpServers 一律被
+  # 忽略（https://code.claude.com/docs/en/sub-agents，2026-10-05）。
+  # 上限超出的 team_plan **显式拒绝**（不静默截断：截断会让"我装配了"与实际生效
+  # 不一致）；未知名同样显式拒绝。每个插件每轮都要把技能目录（name+description）
+  # 放进上下文，所以上限是产品级约束而不是性能调优。
+  plugins:
+    per_teammate: 3              # 每会话插件装配上限（出厂 3；非正值按出厂默认）
   # ── v8 会话存储参数（my_design §11；全部缺省 = 存储内置默认，注释即为默认值）
   # 覆盖链：存储内置默认 ← 本段 ← 数据根内 session-storage.json。
   session_storage:
