@@ -145,10 +145,29 @@ _ contract.TeamworkJobCompletion = RuntimePort{}
    `team_work` 的拒绝原文（"里程碑 m-docs 依赖的里程碑 m-contract 还没完成"）在会话里
    被通用文案（"该工具未能完成本次操作…"）盖掉——模型与用户都看不到具体原因。
    这是**根因可见性**问题，不是团队面的问题，归工具执行面。
-2. **worktree 合并偶发失败**：`git [rev-list --count …]: fork/exec G:\Tools\Git\…\git.exe:
-   The directory name is invalid`。同一条链上一次合并**成功**（回执写"改动已合并回主工作区"），
-   一次失败（回执写"插入失败 → 请 leader 亲自执行"）——尾插的降级路径是对的（失败也插、
-   写明原因），但 git 侧那句报错要现场复现定位（cwd 失效？路径重复？）。
+2. **worktree 合并偶发失败——已复现并定因（原样保留为例外路径的证据）**：
+   `git [rev-list --count <base>..HEAD]: fork/exec …\git.exe: The directory name is invalid`。
+   - **成因**：一条链上的两个动作对**同一份现场**并发动手——尾插
+     （`SettleWorkItem → MergeWorkspace → WorktreeManager.Finish`，两条 git 都跑在
+     `wt.Path`）与验收释放（`AcceptItem → releaseItem → ReleaseWorkspaceItem →
+     CleanupWorktree → git worktree remove --force`）。目录一没，后面的 git 连子进程都
+     起不来（cwd 不存在），Go 在 CreateProcess 上报 ERROR_DIRECTORY，**git 自己一句话
+     都没说**。放行的判据是 `AcceptItem` 的 `case TeamworkItemReview, TeamworkItemRunning:`
+     ——running = 作业还在飞 = 尾插还没跑完（`team_close` 的 `releaseAllItems` 同理，
+     它释放的是**全部**活绑定，不看状态）。
+   - **指纹**：报错指向哪条命令，就是对端在哪一拍动手——现场报的是第二条
+     （`commitCountSince`），所以释放发生在 `branchBehindBase` 与它**之间**。
+   - **复现**：`seelebridge/worktree/worktree_vanished_scene_repro_test.go`
+     （真实 git，两种时序各一条，逐字复现报错原文）+
+     `seelebridge/teamwork/items_accept_running_repro_test.go`（把 worker 停在半路，
+     钉住"在跑的工作项被放行验收 ⇒ 现场被释放"）。
+   - **后果（比报错本身更重）**：那条交错里合并被**跳过**，而 `CleanupWorktree` 释放时
+     会 `git branch -D seelex/<item>` —— teammate 这一轮的提交因此只剩 reflog 可达，
+     而尾插回执还在教 leader「请 leader 亲自执行合并」（那时已经没现场可合了）。
+   - **修法（二选一，都会改变可见行为，需要产品裁决）**：① 收紧验收闸门——handle 还活着
+     就不许 `team_accept`（与 `team_retire`「名下有在跑的活会被拒」同口径）；② 让合并侧
+     把"现场已被释放"当成显式的幂等结局（回执如实写"已被验收释放、未合并"），而不是报错。
+     倾向 ①：它把竞态从"两条路都能动同一份现场"变成"谁先谁后都不丢产出"。
 3. **`stages` 退场后没有"只读计划入口"**：确认里程碑/工作项仍靠 `team_items` + 拒绝原文。
 
 ---
