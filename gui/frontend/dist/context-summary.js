@@ -1,7 +1,7 @@
 import { escapeHtml, renderSeqBadge } from "./components.js";
 // 压缩记录的展示口径与轨迹「压缩」轨共用同一份纯函数（compaction-format.js）：
 // 两处各写一份就会出现同一条记录两种读法的漂移。
-import { compactionFailureText, compactionFrontier, compactionGateDurationText, compactionGateLabel, compactionOriginLabel, compactionOutcomeLabel, compactionRangeText, compactionReasonLabel, compactionStackOrder } from "./compaction-format.js";
+import { compactionFailureError, compactionFailureText, compactionFrontier, compactionGateDurationText, compactionGateLabel, compactionOriginLabel, compactionOutcomeLabel, compactionRangeText, compactionReasonLabel, compactionStackOrder } from "./compaction-format.js";
 
 // 压缩栈表格（右栏 状态/概要 里唯一的内容块）。
 //
@@ -13,7 +13,9 @@ import { compactionFailureText, compactionFrontier, compactionGateDurationText, 
 // 带一枚 **seq 徽标**（复用 goal 看板 active seq 的同一件组件，见 components.js
 // renderSeqBadge）——用户口径：压缩成功之后状态里要有一条带 seq 的压缩条目。
 // 压缩失败也留一条痕（`Failed=true`，无区间无帧），排在栈下方并用失败色标明它不是
-// 一次压缩（用户口径：压缩失败 → 留下失败记录 → 原始上下文继续存在）。
+// 一次压缩（用户口径：压缩失败 → 留下失败记录 → 原始上下文继续存在）。痕里先写原因
+// （成因字面量 + 数字事实），再单独一行写**报错原文**（note 末段的 ` error=`）：
+// 那是失败痕里唯一无法从其它字段反推的事实，不能只活在瞬态的进度条里。
 // 点开某行读该帧正文（detail 由视图侧按 frame_ref 分页读回来），没有帧引用的行不给
 // 展开入口。
 //
@@ -108,6 +110,7 @@ function renderFailureRow(compaction, index) {
   const origin = compactionOriginLabel(compaction.origin);
   const time = formatTime(compaction.compacted_at);
   const reason = compactionFailureText(compaction);
+  const error = compactionFailureError(compaction);
   const facts = [time, origin].filter(Boolean).join(" · ");
   return [
     `<div class="compaction-stack-row is-failed" role="row" data-compact-index="${index}" data-compact-failed="1" title="${escapeHtml(reason)}">`,
@@ -120,6 +123,10 @@ function renderFailureRow(compaction, index) {
     // 原因跨整行：右栏实测量级只有 ~360px，把它塞进中列会被压成一条竖着的碎字
     // （而原因里恰好有一串不能断行的数字事实 estimated=…/budget=…/window=…）。
     `<span class="compaction-stack-note" role="cell">${escapeHtml(reason)}</span>`,
+    // 报错原文再单独起一行，贴在原因**下面**（用户口径 2026-10-04）：读数闸这次
+    // 报了什么错，是失败痕里唯一无法从其它字段反推的事实——它此前只活在 6 秒的
+    // 瞬态进度条与 /compact 的回执文本里，用户按完回车再抬头就查无实据。
+    error ? `<span class="compaction-stack-error" role="cell" title="读数闸这次调用的报错原文（前缀重放 / 模型回读为什么没成）">报错：${escapeHtml(error)}</span>` : "",
     "</div>"
   ].join("");
 }

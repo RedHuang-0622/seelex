@@ -120,13 +120,12 @@ func (s *quickChatPrefixReplaySummarizer) Summarize(ctx context.Context, req Rep
 
 // normalizeReplayChapter2 归一化模型输出的 Chapter 2：去除外层重复标题与
 // 首尾空白，保留 ### 小节骨架。
+//
+// 与 FrameChapter2 / Chapter2Body 走**同一个**归一化件：模型（或某个上游出口）
+// 把整份两章节摘要交回来时，两条路必须给出一致的正文——两个实现必然漂移，而
+// 漂移的后果是"读回来被裁成空"这种只有现场才看得见的事。
 func normalizeReplayChapter2(text string) string {
-	text = strings.TrimSpace(text)
-	title := "## " + CompactChapter2Title
-	for strings.HasPrefix(text, title) {
-		text = strings.TrimSpace(strings.TrimPrefix(text, title))
-	}
-	return text
+	return Chapter2Body(text)
 }
 
 // ── 分片重放链（《待落地》3）──────────────────────────────────────
@@ -251,6 +250,12 @@ func carryPrompt(index, total int, previous string) string {
 // 来路（开关关闭 / 无重放素材 / 重放调用失败），读帧的人无从分辨——现场排查只能
 // 靠猜。有了 code 与正文，帧自己就能回答"模型为什么没被叫到"。
 const LocalCompactEvidenceRefPrefix = "compact-local:"
+
+// PrecomputedLocalDegradeCode 是"调用方预读到的读后感本身不是模型产物"的降级码：
+// 装配层读数闸先试了一次前缀重放，读数没拿到模型读后感（落在本地确定性压缩上），
+// 却仍把那份正文交下来。它与 `replay-failed` 分开记，因为处置不同——那一次重放的
+// 成败已经由读数闸定性，这一条要交代的是"预读结果被如实沿用，没有被盖成 replay"。
+const PrecomputedLocalDegradeCode = "precomputed-local"
 
 // LocalCompactEvidence 把"为什么这次没有模型摘要"写成帧证据。与 ReplayEvidence 同一条
 // 纪律：没这件事（replay 成功）就不留痕。

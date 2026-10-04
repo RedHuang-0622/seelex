@@ -398,6 +398,23 @@ func (c *Coordinator) SessionRecordLocked(sessionID string, tasks []dto.TaskReco
 	return c.sessionRecordLocked(sessionID, tasks)
 }
 
+// LoadSessionCompactionRecords 读取该会话的持久压缩记录（可选能力：未装配该
+// 端口的宿主返回 ok=false，调用方回退 record.Execution.Task）。
+//
+// 传 Location 而不是裸 sessionID：与 record 读面同一把键（项目作用域显式化，
+// 阶段 0 的键漂移修复），否则跨项目同名会话会读到别人的压缩历史。
+func (c *Coordinator) LoadSessionCompactionRecords(location Location, sessionID string) ([]model.ContextCompaction, bool, error) {
+	store, ok := c.Core.Deps.Sessions.(SessionCompactionFactPort)
+	if !ok {
+		return nil, false, nil
+	}
+	records, err := store.LoadCompactionRecordsWorkspace(location.WorkspaceID, sessionID)
+	if err != nil {
+		return nil, true, err
+	}
+	return records, true, nil
+}
+
 // LoadSessionRecord 读取会话归档 record（可选能力：无 record 端口或版本/
 // ID 不匹配时返回 (零值, false, nil)）。
 func (c *Coordinator) LoadSessionRecord(location Location, sessionID string) (model.SessionRecord, bool, error) {

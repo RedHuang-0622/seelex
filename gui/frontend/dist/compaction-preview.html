@@ -82,7 +82,10 @@ const fixtures = {
     success(3, "context_budget", "message-1", "message-1103", "tr-latest", "2026-10-02T23:12:00Z"),
     {
       version: 4, reason: "context_budget", origin: "explicit", failed: true,
-      note: "no_model_summary estimated=281424 budget=163616 window=200000 overhead=9123",
+      // note 形状 =「原因字面量 + 数字事实 + error=报错原文」：末段是读数闸这次留下的
+      // 报错证据，前端把它单独渲染在原因下面（用户口径 2026-10-04）。
+      note: "no_model_summary estimated=281424 budget=163616 window=200000 overhead=9123"
+        + " error=compact-local:replay-failed 前缀重放两次调用均失败，已回退本地确定性压缩：connect: connection refused",
       estimated_tokens: 281_424, compacted_at: "2026-10-02T23:18:00Z"
     }
   ],

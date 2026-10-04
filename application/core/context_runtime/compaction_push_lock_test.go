@@ -67,7 +67,7 @@ func startPush(coordinator *Coordinator, sessionID string) chan struct{} {
 	go func() {
 		defer close(done)
 		_ = coordinator.pushCompactionFrame(sessionID, "task-"+sessionID,
-			pushProbeOverflow(), nil, task_context.TranscriptEventRange{EventFrom: 1, EventTo: 2}, "")
+			pushProbeOverflow(), nil, task_context.TranscriptEventRange{EventFrom: 1, EventTo: 2}, "", "", "")
 	}()
 	return done
 }

@@ -3,6 +3,8 @@ package core
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -73,8 +75,15 @@ func appendSizedRounds(t *testing.T, service *Service, taskID string, rounds int
 // startCompactionFailureSession 起一个任务执行中的会话（/compact 的显式路径）。
 func startCompactionFailureSession(t *testing.T, taskID string) (*Service, *fakeEngine, string) {
 	t.Helper()
+	return startCompactionFailureSessionWith(t, compactionFailureRuntime(), taskID)
+}
+
+// startCompactionFailureSessionWith 同上，但宿主由调用方给——两种失败形态（回执里
+// 只有本地压缩 / 读数调用本身就报错）只有 readback 那一格不同，不该各写一套装配。
+func startCompactionFailureSessionWith(t *testing.T, runtime RuntimePort, taskID string) (*Service, *fakeEngine, string) {
+	t.Helper()
 	engine := &fakeEngine{}
-	service := newTestService(t, engine, withTestRuntime(compactionFailureRuntime()))
+	service := newTestService(t, engine, withTestRuntime(runtime))
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: taskID}
 	service.components.tasks.BeginTask(taskID, "inspect", "high", nil, TaskCheckpoint{})
@@ -234,5 +243,108 @@ func TestCompactionFailureDoesNotInterruptOverBudgetSession(t *testing.T) {
 	}
 	if _, err := service.components.context.PrepareExecutionContext(taskID, "continue"); err != nil {
 		t.Fatalf("压缩失败之后装配不得再被安全线拒绝（不中断继续工作）：%v", err)
+	}
+}
+
+// TestCompactionFailureNoteCarriesReadbackEvidence（② 的留痕补丁，先红后绿）
+//
+// 现场：失败痕的 note 只写 `no_model_summary estimated=… budget=… window=… overhead=…`
+// ——判据量、预算、窗口都写了，"这次为什么读不到读后感"却一个字没有。而那句话
+// （读数闸这次调用的真实报错，或落回本地压缩时的降级原因＋底层报错）无法从记录的
+// 任何其它字段反推：没有它，读痕的人只知道"没拿到读后感"，不知道该去查配置、查
+// 重放素材，还是查那一次调用。
+//
+// 判别力：note 里必须出现 ` error=` 与夹具那句报错原文；只在**内存态**留痕不算——
+// 右栏「上下文压缩」读的是快照投影（唯一来路）。
+func TestCompactionFailureNoteCarriesReadbackEvidence(t *testing.T) {
+	const taskID = "task-compact-failure-readback-evidence"
+	// 夹具（compactionFailureRuntime）：读数闸回执 summary_source=local，note 带着
+	// 重放失败的真实报错——生产形态就是这一句（见 seelebridge 的 frameSummaryNote）。
+	const evidence = "connect: connection refused"
+	service, _, sessionID := startCompactionFailureSession(t, taskID)
+	appendSizedRounds(t, service, taskID, 4, 164_000)
+
+	ctx := task_context.WithSessionID(context.Background(), sessionID)
+	result, err := service.CompactContextNow(ctx)
+	if err != nil {
+		t.Fatalf("压缩失败不得中断会话：%v", err)
+	}
+	if result.Failure == "" {
+		t.Fatalf("夹具前提：这次压缩应当是失败的（读数拿不到模型读后感）：%+v", result)
+	}
+	if !strings.Contains(result.Failure, evidence) {
+		t.Fatalf("回执里的失败原因应带上读数闸的报错原文（err 也写进 note）：%q", result.Failure)
+	}
+
+	records := compactionRecordsOf(t, service)
+	if len(records) != 1 || !records[0].Failed {
+		t.Fatalf("压缩失败应恰好留一条失败记录：%+v", records)
+	}
+	if !strings.Contains(records[0].Note, " error=") || !strings.Contains(records[0].Note, evidence) {
+		t.Fatalf("失败痕的 note 必须带上这次为什么读不到读后感的证据（缺了它，"+
+			"读者只知道「没拿到读后感」，不知道下一步该查什么）：%q", records[0].Note)
+	}
+
+	// 可见面同源：右栏只读快照投影，内存态留痕而投影不带等于没留。
+	task := service.Snapshot().Task
+	if task == nil || len(task.ContextCompactions) != 1 {
+		t.Fatalf("失败痕必须进快照可见面：%+v", task)
+	}
+	if !strings.Contains(task.ContextCompactions[0].Note, evidence) {
+		t.Fatalf("快照里的失败痕没带上读数闸报错（前端因此渲染不出这一句）：%q",
+			task.ContextCompactions[0].Note)
+	}
+}
+
+// TestCompactionFailureNoteCarriesReadbackProbeError：读数闸**调用本身报错**（不是
+// "调用成功了但只有本地压缩"）时，err 同样必须进 note。这条路径此前把 err 整个丢掉、
+// 交回**零值**回执，于是失败痕里连 `source=`/`note=` 都写的是空——同一句
+// `no_model_summary` 背后，差的是"重放素材为空"「调用被打断」还是「配置没开」，
+// 三者下一步完全不同，却读出同一行字。
+func TestCompactionFailureNoteCarriesReadbackProbeError(t *testing.T) {
+	const taskID = "task-compact-failure-probe-error"
+	// 生产形态：回读这一跳的调用报错（seelebridge 的 readback summary: %w 包装）。
+	const probeError = "compaction index: readback summary: seelexctx: prefix replay requires history bytes"
+	runtime := compactionFailureRuntime()
+	runtime.readback = context_runtime.CompactionIndexReceipt{}
+	runtime.readbackErr = errors.New(probeError)
+	service, _, sessionID := startCompactionFailureSessionWith(t, runtime, taskID)
+	appendSizedRounds(t, service, taskID, 4, 164_000)
+
+	ctx := task_context.WithSessionID(context.Background(), sessionID)
+	result, err := service.CompactContextNow(ctx)
+	if err != nil {
+		t.Fatalf("读数闸调用报错不得中断会话：%v", err)
+	}
+	if result.Failure == "" {
+		t.Fatalf("读数闸调用报错 = 这次压不下去（只留痕）：%+v", result)
+	}
+	records := compactionRecordsOf(t, service)
+	if len(records) != 1 || !records[0].Failed {
+		t.Fatalf("压缩失败应恰好留一条失败记录：%+v", records)
+	}
+	if !strings.Contains(records[0].Note, probeError) {
+		t.Fatalf("读数闸调用报错的原文必须进失败痕的 note（此前 err 被丢掉，"+
+			"note 里连 source/note 都是空的）：%q", records[0].Note)
+	}
+}
+
+// TestFrontendCompactionFailureErrorMarkerMatchesBackend：失败痕 note 的报错段标记是
+// **跨语言协议字面量**——后端按它把报错原文接在 note 末尾（自由文本只有放末尾才不必
+// 引号转义），前端 compactionFailureError 按它取末段渲染「报错：…」那一行。两处一旦
+// 漂移，失败条目上只是**静默少一行**：读者再也看不到"读数闸这次报了什么"，而这正是
+// 失败痕里唯一无法从其它字段反推的事实。所以在测试里钉死两份字面量。
+func TestFrontendCompactionFailureErrorMarkerMatchesBackend(t *testing.T) {
+	path := filepath.Join("..", "..", "gui", "frontend", "dist", "compaction-format.js")
+	source, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("读取前端压缩记录格式化件失败（前端文件搬迁要同步这里）: %v", err)
+	}
+	marker := context_runtime.CompactionFailureNoteErrorMarker
+	want := `const marker = "` + marker + `";`
+	if !strings.Contains(string(source), want) {
+		t.Fatalf("报错段标记与后端漂移：后端 %q（%s），前端 compaction-format.js 里应有 `%s`；"+
+			"漂移的后果是右栏失败条目上的「报错：」静默消失。", marker,
+			"CompactionFailureNoteErrorMarker", want)
 	}
 }

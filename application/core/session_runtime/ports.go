@@ -62,6 +62,23 @@ type SessionTranscriptPort interface {
 	LoadToolResultWorkspace(string, string, string) (model.StoredToolResult, error)
 }
 
+// SessionCompactionFactPort 是压缩记录（会话事实）的持久读回面（可选能力断言）。
+//
+// 压缩记录说的是「这个会话的上下文被折出过窗口 / 有过一次压不成」，属**会话**
+// 事实而非回合事实：进程重启后右栏「上下文压缩」（压缩栈表 + 失败痕 + seq 徽标）、
+// 轨迹「压缩」轨、对话区「以上 … 已被压缩」分界，以及保留窗口起点
+// （ContextRetainedFrom）都要靠它还原。
+//
+// 为什么单独一条通道：这些记录过去只随 record.Execution.Task 落盘，而现行存储
+// 布局（v8/S20）里 record 通道已退役（`SaveRecordRaw` 只写穿 status/title，
+// `LoadRecordRaw` 交回按 message head 派生的最小 record）——于是重启后
+// 「压缩帧在（compact 通道）、压缩记录不在」，可见面整条为空。
+type SessionCompactionFactPort interface {
+	// LoadCompactionRecordsWorkspace 按显式项目作用域读取该会话压缩记录
+	// （写入顺序）。未实现/未 v8 化时调用方回退 record 通道。
+	LoadCompactionRecordsWorkspace(projectID, sessionID string) ([]model.ContextCompaction, error)
+}
+
 // SessionConversationRangePort 是可见会话分页读回面（可选能力断言）。
 type SessionConversationRangePort interface {
 	LoadConversationRangeWorkspace(string, string, int, int) ([]model.Message, int, error)

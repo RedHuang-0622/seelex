@@ -241,6 +241,16 @@ const (
 	CompactionFailureIneffective = "ineffective_compact"
 )
 
+// CompactionFailureNoteErrorMarker 是失败痕 note 里**报错原文**那一段的标记。note 的
+// 形状因此是「原因字面量 [数字事实…] [<标记>报错原文]」——报错原文是自由文本（可能含
+// 空格、引号、冒号），只有放在**末尾**才不必引号转义："最后一个标记之后到结尾"即原文。
+//
+// 它同样是**跨语言协议字面量**：前端 compaction-format.js 的 compactionFailureError
+// 按它取末段，右栏失败条目据此渲染「报错：…」那一行。两处漂移的后果是静默的——前端
+// 取不到就不渲染，条目上只是少一行，读者再也看不到"读数闸这次报了什么"。
+// 两侧由 TestFrontendCompactionFailureErrorMarkerMatchesBackend 互钉。
+const CompactionFailureNoteErrorMarker = " error="
+
 // CompactResult 是主动压缩的结果面：结果分类 + 判据事实 + 压缩记录（落记录时）。
 //
 // 三个数字含义不同，混用就会说出「129409 tokens 未达压缩阈值 118962」这种话：
@@ -711,7 +721,19 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	// 探针缺省（fake/harness、不接摘要的宿主）→ attempted=false，行为与改动前逐位
 	// 相同：判据照常折、推帧照常推。
 	precomputedSummary := ""
+	// precomputedSource / precomputedNote 与 precomputedSummary 同生共死：只带正文
+	// 不带来源，推帧就只能猜一个 source（旧代码一律写 replay），"读数闸这次其实没
+	// 拿到模型读后感"这件事就再也读不出来了——而它是"压缩看起来成功、帧却是空
+	// 骨架、模型为什么没被叫到又查不到"的全部成因（用户口径 2026-10-04）。
+	precomputedSource := ""
+	precomputedNote := ""
 	readbackNote := ""
+	// readbackError 是读数闸这次留下的**报错证据**（调用失败时的真实错误，或落回本地
+	// 确定性压缩时的降级原因＋底层报错）。它与 readbackNote 分工不同：readbackNote 进
+	// 门禁的瞬态进度（6 秒后撤条），readbackError 进**失败痕的 note**——失败痕是"这次
+	// 为什么压不成"的唯一持久证据，而"读数闸报了什么"无法从记录的其它字段反推：只写
+	// 一个 no_model_summary，读者拿不到下一步该查什么的线索（用户口径 2026-10-04）。
+	readbackError := ""
 	if fold && !ineffectiveCompact && !noSummary && len(accumulated) > 0 {
 		replayMaterial := existing
 		if len(replayMaterial) == 0 {
@@ -721,8 +743,11 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 			task_context.TranscriptEventMessages(accumulated), replayMaterial); attempted {
 			if receipt.hasModelSummary() {
 				precomputedSummary = receipt.Summary
+				precomputedSource = receipt.SummarySource
+				precomputedNote = strings.TrimSpace(receipt.SummaryNote)
 			} else {
 				noSummary = true
+				readbackError = strings.TrimSpace(receipt.SummaryNote)
 				readbackNote = fmt.Sprintf("readback=no_model_summary source=%q note=%q",
 					receipt.SummarySource, receipt.SummaryNote)
 			}
@@ -868,6 +893,18 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 		// 判断该不该去调窗口/预留，而不是只看到一句"压缩失败"。
 		compactionFailure += fmt.Sprintf(" estimated=%d budget=%d window=%d overhead=%d",
 			estimated, budget.Budget, budget.Window, requestOverhead)
+	}
+	// err 也写进 note（用户口径 2026-10-04）：读数闸这次留下的报错证据接在**末尾**
+	// ——失败痕是"这次为什么压不成"的唯一持久证据，而"读数闸报了什么错"无法从记录的
+	// 其它字段反推（只写 no_model_summary，读者拿不到下一步该查什么的线索）。
+	//
+	// 位置说明：这里是 compactionFailure 定稿前最后一个追加点（数字事实之后），
+	// 下游两个消费者因此看到同一份文本——落记录的失败痕 note 与带回调用方的
+	// 回执 Failure（/compact 的 notice 读它）。报错原文是自由文本（可能含空格、
+	// 引号、冒号），只有放在末尾才不必引号转义：前端按最后一个 ` error=` 之后
+	// 取到结尾即原文。
+	if compactionFailure != "" && readbackError != "" {
+		compactionFailure += CompactionFailureNoteErrorMarker + readbackError
 	}
 	replacement := c.withInFlightTail(existing, assembled)
 	if err := c.replaceSessionHistory(sessionID, replacement); err != nil {
@@ -1058,7 +1095,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 		if compacting || autonomous {
 			push = c.pushCompactionFrame(sessionID, requestID,
 				task_context.TranscriptEventMessages(overflowEvents(transcript, retainedFrom, compressedTo)),
-				replayMaterial, compactedRange, precomputedSummary)
+				replayMaterial, compactedRange, precomputedSummary, precomputedSource, precomputedNote)
 			progress.gate(CompactionGateStackPush, push.gateDetail())
 		}
 		// 帧正文（同样在锁外渲染；纯函数，只读上面这份值事实）：快照只带 ref，

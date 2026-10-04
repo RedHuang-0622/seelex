@@ -222,6 +222,12 @@ type Commit struct {
 	Events          []Event
 	State           []byte
 	ToolResults     []ToolResult
+	// CompactionRecords 是本次提交时要对齐的压缩记录**全量列表**（应用侧
+	// ContextCompaction 的序列化原文，append-only、只追加不重排）。存储层按
+	// 水位（metadata/compaction.json 的 count）只追加新增的尾部行——重复提交同
+	// 一份列表是幂等空操作。调用方每次落盘都传全量，因为「盘上已有多少条」只有
+	// 水位知道，而水位是存储层的私有事实。
+	CompactionRecords []json.RawMessage
 }
 
 func (key Key) validate() error {
@@ -632,6 +638,39 @@ func (router *Router) CompactFramesWorkspace(projectID, sessionID string) ([]Com
 		return nil
 	})
 	return frames, handled, err
+}
+
+// LoadCompactionRecordsWorkspace 读取该会话的压缩记录通道（应用侧压缩记录的
+// 序列化原文，按 Seq 升序）。handled=false 表示当前后端未 v8 化（调用方保留
+// record 通道承载）。
+//
+// 这是「重启后压缩栈还在吗」的唯一读回面：压缩帧（compact 通道）一直能跨重启，
+// 而记录过去只活在 record.Execution.Task 里——那条通道在 v8/S20 已退役，因此
+// 重启后右栏压缩栈与保留窗口起点会一起消失。把记录搬到本通道后，帧与记录同属
+// 会话自己的持久事实，重启只是重新读一遍盘。
+func (router *Router) LoadCompactionRecordsWorkspace(projectID, sessionID string) ([]json.RawMessage, bool, error) {
+	var records []json.RawMessage
+	handled := false
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		jsonRepository, ok := repository.(*jsonRepository)
+		if !ok {
+			return nil
+		}
+		handled = true
+		rows, err := jsonRepository.layout.readCompactionRecords(Key{ProjectID: projectID, SessionID: sessionID})
+		if err != nil {
+			return err
+		}
+		records = make([]json.RawMessage, 0, len(rows))
+		for _, row := range rows {
+			records = append(records, row.Payload)
+		}
+		return nil
+	})
+	if !handled {
+		return nil, false, err
+	}
+	return records, true, err
 }
 
 // LayoutV8 报告当前后端是否 v8 JSON 布局（S19 消费面迁移判据）。

@@ -276,6 +276,22 @@ const FAILURE_LABELS = {
   ineffective_compact: "压缩换不来余量（压缩落点仍够不到判据线）"
 };
 
+// compactionFailureError 从失败痕的 note 里取出**报错原文**（末段 ` error=<原文>`）。
+//
+// 后端把读数闸这次留下的报错证据接在 note **末尾**（原因字面量与数字事实之后），
+// 理由只有一个：报错原文是自由文本（可能含空格、引号、冒号），放在末尾就不必引号
+// 转义——"最后一个 ` error=` 之后到结尾"即原文，不会与前面的数字事实混起来。
+//
+// 取不到返回 ""：不编报错，也不拿数字事实冒充报错。未知形状（后端换了写法）同样
+// 返回 ""——条目上只是少一行，不会把别的东西显示成报错。
+export function compactionFailureError(compaction = {}) {
+  const note = String(compaction?.note || "");
+  const marker = " error=";
+  const at = note.lastIndexOf(marker);
+  if (at < 0) return "";
+  return note.slice(at + marker.length).trim();
+}
+
 // splitLiteral 把「字面量 + 空格 + 数字事实」拆开；没有数字事实时第二段为空。
 function splitLiteral(note) {
   const at = note.indexOf(" ");

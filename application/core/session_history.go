@@ -413,21 +413,35 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 		if record.Projection != nil && record.Projection.Checkpoint.CoversEventRange.End > transcriptSeq {
 			transcriptSeq = record.Projection.Checkpoint.CoversEventRange.End
 		}
-		// 会话上下文事实（压缩栈 / 保留窗口起点）从 record.Execution.Task 还原：
-		// 它们属于**会话**，不属于回合——进程重启不该把它们丢掉（2026-09-23 修的
-		// 进程内孪生见 continuationTaskExecutionState 的注释）。不还原的两条后果：
-		// 右栏「上下文压缩」整条为空；下一次落盘（sessionRecordLocked →
-		// TaskStateFor）把 record 里的压缩历史写成空。
+		// 会话上下文事实（压缩栈 / 保留窗口起点）从 record.Execution.Task 与
+		// **本会话自己的压缩记录通道**两处还原：它们属于**会话**，不属于回合
+		// ——进程重启不该把它们丢掉（2026-09-23 修的进程内孪生见
+		// continuationTaskExecutionState 的注释）。不还原的两条后果：右栏
+		// 「上下文压缩」整条为空；下一次落盘（sessionRecordLocked →
+		// TaskStateFor）把压缩历史写成空。
+		//
+		// 两处的关系：record.Execution.Task 是旧址（非 v8 布局、旧记录仍有），
+		// 压缩记录通道是新址（v8/S20 起 record 通道停写停读，压缩记录只住在
+		// 这里，见 sessionstore/compaction_records.go）。旧址有值就以它为准
+		// ——同一份事实的两处副本不该被新址的空结果覆盖；旧址为空才读新址。
 		var contextCompactions []ContextCompaction
 		retainedFrom := 0
 		if storedTask := record.Execution.Task; storedTask != nil {
 			contextCompactions = append([]ContextCompaction(nil), storedTask.ContextCompactions...)
-			// 保留窗口起点只在**存储事件流**上按压缩记录的区间推（口径见
-			// task_context.RetainedFromForCompactions）：重建过的 transcript 序号
-			// 空间不同，在那里定位会把窗口错误地推到会话中段（丢历史）。
-			if !transcriptRenumbered {
-				retainedFrom = task_context.RetainedFromForCompactions(transcript, storedTask.ContextCompactions)
+		}
+		if len(contextCompactions) == 0 {
+			// 读不出来（通道损坏/未装配该端口）不阻断恢复：少的是可见面的一份
+			// 事实，恢复本身（对话/计划/事件流）不该因此失败。未装配端口时
+			// ok=false，与"这个会话还没压过"走同一条路。
+			if records, ok, _ := service.components.sessions.LoadSessionCompactionRecords(location, sessionID); ok {
+				contextCompactions = records
 			}
+		}
+		// 保留窗口起点只在**存储事件流**上按压缩记录的区间推（口径见
+		// task_context.RetainedFromForCompactions）：重建过的 transcript 序号
+		// 空间不同，在那里定位会把窗口错误地推到会话中段（丢历史）。
+		if !transcriptRenumbered {
+			retainedFrom = task_context.RetainedFromForCompactions(transcript, contextCompactions)
 		}
 		// 按**目标会话**路由装载：冷加载可能不激活视图（装载期间视图已被更新的
 		// 切换取代），此时把目标会话的任务/plan 状态写进活跃槽既是串写，也会让目标

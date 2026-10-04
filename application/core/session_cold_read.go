@@ -66,6 +66,19 @@ func (service *Service) snapshotOfCold(sessionID string) (SessionSnapshot, error
 		taskCopy.ContextCompactions = append([]ContextCompaction(nil), task.ContextCompactions...)
 		snapshot.Task = &taskCopy
 	}
+	// v8/S20：record 通道退役后 record.Execution.Task 恒空，压缩记录住在本会话
+	// 自己的通道里（见 sessionstore/compaction_records.go）。非驻留会话的右栏
+	// 「上下文压缩」读的就是这里——不还原它，未驻留旧会话的压缩栈在重启后为空。
+	if snapshot.Task == nil || len(snapshot.Task.ContextCompactions) == 0 {
+		if records, ok, _ := service.components.sessions.LoadSessionCompactionRecords(location, sessionID); ok && len(records) > 0 {
+			snapshot.Task = &TaskState{
+				// 冷读面没有回合身份（无 RequestID），状态取 idle：这是"这个会话
+				// 当前没在跑"的如实说法，不是伪造一个已收尾的回合。
+				Status:             TaskStatus(task_context.StatusIdle),
+				ContextCompactions: append([]ContextCompaction(nil), records...),
+			}
+		}
+	}
 	return snapshot, nil
 }
 

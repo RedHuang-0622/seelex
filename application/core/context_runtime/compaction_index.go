@@ -63,7 +63,7 @@ func (c *Coordinator) pushCompactionFrame(
 	sessionID, requestID string,
 	overflow, replay []contract.EngineMessage,
 	window task_context.TranscriptEventRange,
-	precomputedSummary string,
+	precomputedSummary, precomputedSource, precomputedNote string,
 ) compactionIndexPush {
 	if c == nil || c.compactionIndex == nil {
 		return compactionIndexPush{}
@@ -80,11 +80,16 @@ func (c *Coordinator) pushCompactionFrame(
 		Overflow:           overflow,
 		ReplayHistory:      replay,
 		PrecomputedSummary: precomputedSummary,
-		EventFrom:          window.EventFrom,
-		EventTo:            window.EventTo,
-		MessageFrom:        window.MessageFrom,
-		MessageTo:          window.MessageTo,
-		RequestID:          requestID,
+		// 来源与原因必须一起交下去：只交正文，推帧就只能猜一个 source（旧代码一律
+		// 写 replay），于是"读数闸其实落在本地确定性压缩上"这件事在帧里被抹掉——
+		// 现场读到的就是"压缩成功（replay）、正文却是一具空骨架、报错一个字不剩"。
+		PrecomputedSummarySource: precomputedSource,
+		PrecomputedSummaryNote:   precomputedNote,
+		EventFrom:                window.EventFrom,
+		EventTo:                  window.EventTo,
+		MessageFrom:              window.MessageFrom,
+		MessageTo:                window.MessageTo,
+		RequestID:                requestID,
 	})
 	if err != nil {
 		return compactionIndexPush{Attempted: true, Err: err}
@@ -176,12 +181,18 @@ type compactionReadbackProbe interface {
 	// ReadbackCompactionSummary 用本次压缩的重放素材跑一次模型回读，返回回执
 	// （SummarySource=replay 才算拿到模型读后感）。**不得有副作用**：读不到原文
 	// 也不压栈、不归档——压缩还没决定要不要发生。
+	//
+	// 返回的 err 不被丢弃：调用方把它写进回执的 note（SummaryNote），失败痕据此
+	// 带上"这次为什么读不到读后感"的原文（用户口径 2026-10-04）。
 	ReadbackCompactionSummary(ctx context.Context, sessionID string, request CompactionIndexRequest) (CompactionIndexReceipt, error)
 }
 
 // readbackCompactionSummary 在压缩之前试一次模型回读。attempted=false 表示这条
 // 链路没有实现探针（沿用既有行为：压缩照常）；attempted=true 时回执就是这次压缩
 // 的读后感事实（err 或非 replay 都等于「没拿到」，调用方据此不折）。
+//
+// err 不丢：调用失败时回执交回的是 {SummaryNote: err.Error()}（见实现），调用方
+// 因此拿得到"这次差在哪一步"的原文——它进失败痕的 note，与回执文案同源。
 //
 // overflow 只用于读数这一次 DAG 运行的本地兜底正文（读不到模型读后感时它会被
 // 丢弃），因此调用方给「本次可能被压出的区间」即可，不必与最终压缩区间逐字相等。
@@ -203,7 +214,14 @@ func (c *Coordinator) readbackCompactionSummary(
 	})
 	if err != nil {
 		// 试了但失败：与「回执里没有模型读后感」同一结论——这次不折。
-		return CompactionIndexReceipt{}, true
+		//
+		// **err 也写进 note**：此前这里把 err 丢掉、交回**零值**回执（source/note
+		// 全空），于是下游的失败痕只剩一个 `no_model_summary` 字面量——而"这次到底
+		// 差在哪一步"（摘要器没装 / 重放素材空 / 重放调用报错）恰恰是记录的其它字段
+		// 都反推不出来的那条事实。回执的 note 就是这句话的位置（与 summary_source
+		// 同一处定义，见 CompactionIndexReceipt.SummaryNote），装配层把它原样带进
+		// 失败痕的 note。
+		return CompactionIndexReceipt{SummaryNote: err.Error()}, true
 	}
 	return receipt, true
 }

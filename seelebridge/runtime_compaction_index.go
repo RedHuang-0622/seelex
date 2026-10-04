@@ -37,7 +37,16 @@ type CompactionFrameRequest struct {
 	// PrecomputedSummary 是调用方在压缩之前已经拿到的模型读后感（装配层读数闸，
 	// 见 context_runtime 的 compactionReadbackProbe）：非空 → 不再调用模型，直接
 	// 用它当这次的 Chapter 2。
+	//
+	// 语义是 **Chapter 2 正文**：读数闸的回执天然带整份两章节摘要，交到这里之前
+	// 由调用侧归一化（Chapter2Body）——整份摘要当正文用会让帧出现双重标题，且
+	// 再读回来时正文被裁成空。
 	PrecomputedSummary string
+	// PrecomputedSummarySource / PrecomputedSummaryNote 是上面那份预读读后感的
+	// 来源与原因（空 Source → 按 replay）。两者必须一起带下来：预读若落在本地
+	// 确定性压缩上，帧要如实写 local + 那条原因，而不是盖成 replay 再把原因丢掉。
+	PrecomputedSummarySource string
+	PrecomputedSummaryNote   string
 	// EventFrom/EventTo 是被折区间的 transcript 事件序号（含端点；0 = 无边界可记）。
 	// 这是装配层唯一能给出的**权威**区间事实，检索侧据此按 Seq 反查单元下标。
 	EventFrom uint64
@@ -95,6 +104,10 @@ func (r *Runtime) CompactionSummaryAvailable() bool {
 // ——压缩还没决定要不要发生。回执里的 segment_id 因此为空：真正的读回入口由随后
 // 的 PushCompactionFrame 给出。同一次压缩不会重复调用模型：读数拿到的正文经
 // CompactionFrameRequest.PrecomputedSummary 原样交给推帧。
+//
+// 回执的 Summary 是 **Chapter 2 正文**（不是整份两章节摘要）——它的下一个消费者
+// 是"这次的 Chapter 2"那个字段，边界在这里对齐；SummarySource / SummaryNote 同样
+// 原样带下去，推帧据此如实标注来源与"为什么没有模型读后感"。
 func (r *Runtime) ReadbackCompactionSummary(
 	ctx context.Context,
 	_ string,
@@ -118,8 +131,13 @@ func (r *Runtime) ReadbackCompactionSummary(
 	if err != nil {
 		return CompactionFrameReceipt{}, fmt.Errorf("compaction index: readback summary: %w", err)
 	}
+	// Summary 交回的是 **Chapter 2 正文**，不是整份帧摘要：调用方（装配层）把它
+	// 存成 precomputedSummary、再当"这次的 Chapter 2"交回推帧（见
+	// CompactionFrameRequest.PrecomputedSummary）。整份摘要当正文用会让帧出现双重
+	// 标题，而且再读回来时正文被裁成空——现场那句「压缩成功，帧却是一具空骨架」
+	// 就是这条边界错位。整份帧摘要仍留在 frame.Summary 里（推帧回执才用它）。
 	return CompactionFrameReceipt{
-		Summary:       frame.Summary,
+		Summary:       seelexctx.FrameChapter2(frame),
 		SummarySource: frame.SummarySource,
 		SummaryNote:   frameSummaryNote(frame),
 	}, nil
@@ -149,9 +167,12 @@ func (r *Runtime) PushCompactionFrame(
 		UnitCount: request.UnitCount,
 		History:   request.ReplayHistory,
 		// 压缩之前已经拿到的模型读后感（装配层读数闸）：非空则 chapter2 不再调用
-		// 模型，同一次压缩只发生一次模型调用。
-		PrecomputedSummary: request.PrecomputedSummary,
-		Kind:               seelexctx.LocalCompactOverflow,
+		// 模型，同一次压缩只发生一次模型调用。来源与原因一起带下去——预读落在本地
+		// 确定性压缩上时，帧要如实写 local + 那条原因（见 CompactionFrameRequest）。
+		PrecomputedSummary:       request.PrecomputedSummary,
+		PrecomputedSummarySource: request.PrecomputedSummarySource,
+		PrecomputedSummaryNote:   request.PrecomputedSummaryNote,
+		Kind:                     seelexctx.LocalCompactOverflow,
 		// RequestFrom/RequestTo 刻意留空。装配层折掉的前缀跨多个更早的回合，
 		// 而 PushCompact 要求这两个字段按**字符串序**非倒置；回合标识不保证字典序
 		// 单调（"task-9" > "task-10"），填了就可能被拒。留空是校验允许的组合，

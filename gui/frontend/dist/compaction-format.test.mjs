@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  compactionFailureError,
   compactionFailureText,
   compactionFrontier,
   compactionGateDurationText,
@@ -168,6 +169,27 @@ test("压缩失败：回执文案说「压缩失败」并把原因字面量翻�
   assert.match(compactionFailureText({}), /未留下原因/);
   // 后端新增失败种类而前端没跟时：原样显示，不吞成一句笼统的"压缩失败"。
   assert.equal(compactionFailureText({ note: "brand_new_reason why=x" }), "brand_new_reason；why=x");
+});
+
+// 失败痕的报错原文（note 末段 ` error=`）：后端把它接在末尾，因为报错是自由文本，
+// 只有放在末尾才不必引号转义。这里钉三个判据：取得到原文、原文里的空格与引号不被
+// 截断、以及**没有这一段就不给报错行**（不拿数字事实冒充报错）。
+test("压缩失败痕的报错原文从 note 末段取回，取不到就不编", () => {
+  const note = "no_model_summary estimated=197421 budget=166808 window=200000 overhead=4986"
+    + " error=compact-local:replay-failed 前缀重放两次调用均失败，已回退本地确定性压缩：connect: connection refused";
+  assert.equal(
+    compactionFailureError({ note }),
+    "compact-local:replay-failed 前缀重放两次调用均失败，已回退本地确定性压缩：connect: connection refused"
+  );
+  // 报错里带引号/等号也不影响：切分点是**最后一个** ` error=` 标记。
+  assert.equal(
+    compactionFailureError({ note: "no_model_summary err=inner error=readback: \"prefix replay requires history bytes\"" }),
+    "readback: \"prefix replay requires history bytes\""
+  );
+  // 没有这一段（旧痕、或本条压缩失败没走到读数闸）→ 空串：条目上少一行，不编报错。
+  assert.equal(compactionFailureError({ note: "ineffective_compact landing=1 soft=2" }), "");
+  assert.equal(compactionFailureError({}), "");
+  assert.equal(compactionFailureError({ note: "no_model_summary" }), "");
 });
 
 test("compactionFrontier takes the last compacted message and the earliest start", () => {

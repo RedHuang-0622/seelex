@@ -30,11 +30,14 @@ func (port RuntimePort) PushCompactionFrame(
 		UnitCount:     request.UnitCount,
 		ReplayHistory: restoreMessages(request.ReplayHistory),
 		// 压缩之前已经拿到的模型读后感（读数闸）：转发下去，推帧不再重复调用模型。
-		PrecomputedSummary: request.PrecomputedSummary,
-		EventFrom:          request.EventFrom,
-		EventTo:            request.EventTo,
-		MessageFrom:        request.MessageFrom,
-		MessageTo:          request.MessageTo,
+		// 来源与原因一并转发：帧据此如实标注 source 与"为什么不是模型读后感"。
+		PrecomputedSummary:       request.PrecomputedSummary,
+		PrecomputedSummarySource: request.PrecomputedSummarySource,
+		PrecomputedSummaryNote:   request.PrecomputedSummaryNote,
+		EventFrom:                request.EventFrom,
+		EventTo:                  request.EventTo,
+		MessageFrom:              request.MessageFrom,
+		MessageTo:                request.MessageTo,
 	})
 	if err != nil {
 		return context_runtime.CompactionIndexReceipt{}, err

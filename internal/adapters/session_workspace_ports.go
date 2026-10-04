@@ -413,10 +413,11 @@ func (port SessionPort) SaveSessionSnapshot(
 		return fmt.Errorf("encode session record: %w", err)
 	}
 	commit := sessionstore.Commit{
-		ProviderHistory: restoreMessages(providerHistory),
-		Events:          storeTranscriptEvents(events),
-		State:           payload,
-		ToolResults:     storeToolResults(results),
+		ProviderHistory:   restoreMessages(providerHistory),
+		Events:            storeTranscriptEvents(events),
+		State:             payload,
+		ToolResults:       storeToolResults(results),
+		CompactionRecords: compactionRecordPayloads(record),
 	}
 	return port.granular().SaveCommit("", id, commit)
 }
@@ -446,10 +447,11 @@ func (port SessionPort) SaveSessionSnapshotWorkspace(
 		return fmt.Errorf("encode session record: %w", err)
 	}
 	commit := sessionstore.Commit{
-		ProviderHistory: restoreMessages(providerHistory),
-		Events:          storeTranscriptEvents(events),
-		State:           payload,
-		ToolResults:     storeToolResults(results),
+		ProviderHistory:   restoreMessages(providerHistory),
+		Events:            storeTranscriptEvents(events),
+		State:             payload,
+		ToolResults:       storeToolResults(results),
+		CompactionRecords: compactionRecordPayloads(record),
 	}
 	if err := port.granular().SaveCommit(projectID, sessionID, commit); err != nil {
 		return err
@@ -969,6 +971,60 @@ func storeToolResults(results []model.StoredToolResult) []sessionstore.ToolResul
 		}
 	}
 	return stored
+}
+
+// compactionRecordPayloads 把会话记录里的压缩记录投影成存储通道的原始行。
+//
+// 为什么落在这条通道：压缩记录过去只活在 record.Execution.Task 里，而 v8/S20
+// 已停写/停读 state 通道（SaveRecordRaw 只写穿 status/title），于是「压缩帧在、
+// 压缩记录不在」——重启后前端右栏整条为空、保留窗口起点归零。record 在写快照时
+// 一定带着这份列表（TaskStateFor 按会话取），所以在构建 Commit 的同一处顺手把它
+// 交给存储层，是唯一不需要新增写点、也不会两处漂移的落点。
+//
+// 传**全量**列表：存储层按自己的水位（已发布行数）只追加尾部的增量，重复提交同一
+// 份列表是幂等空操作。
+func compactionRecordPayloads(record model.SessionRecord) []json.RawMessage {
+	if record.Execution.Task == nil || len(record.Execution.Task.ContextCompactions) == 0 {
+		return nil
+	}
+	payloads := make([]json.RawMessage, 0, len(record.Execution.Task.ContextCompactions))
+	for _, compaction := range record.Execution.Task.ContextCompactions {
+		payload, err := json.Marshal(compaction)
+		if err != nil {
+			// 单条记录编不出来不该让整次落盘失败：跳过它，剩下的记录照常落盘
+			// （压缩记录是可见面事实，不是装配依赖）。
+			continue
+		}
+		payloads = append(payloads, payload)
+	}
+	return payloads
+}
+
+// adaptCompactionRecords 把压缩记录通道的原始行还原成应用侧记录。解析不了的行
+// 跳过——一条坏行不该让整条压缩栈从可见面上消失。
+func adaptCompactionRecords(payloads []json.RawMessage) []model.ContextCompaction {
+	records := make([]model.ContextCompaction, 0, len(payloads))
+	for _, payload := range payloads {
+		var record model.ContextCompaction
+		if json.Unmarshal(payload, &record) != nil {
+			continue
+		}
+		records = append(records, record)
+	}
+	return records
+}
+
+// LoadCompactionRecordsWorkspace 读取会话的持久压缩记录（应用侧可见面事实源）。
+// 读不出来返回空列表：冷恢复按「这个会话还没压过」处理，绝不因此让恢复整体失败。
+func (port SessionPort) LoadCompactionRecordsWorkspace(workspaceID, id string) ([]model.ContextCompaction, error) {
+	records, err := port.granular().LoadCompactionRecords(workspaceID, id)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return adaptCompactionRecords(records), nil
 }
 
 func (port SessionPort) LoadSessionRecord(id string) (model.SessionRecord, error) {

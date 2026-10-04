@@ -19,14 +19,22 @@ import (
 type compactionReadbackRuntime struct {
 	compactionIndexRuntime
 	readback context_runtime.CompactionIndexReceipt
+	// readbackErr 是夹具给的读数闸**调用**报错（非 nil = 这次回读本身失败，回执
+	// 因此无效）。它与 readback 是两种形态：readback 说"调用成功了，但回执里只有
+	// 本地压缩"（summary_source=local），readbackErr 说"调用就没跑成"。
+	readbackErr error
+	// lastReadback 记录读数闸最后一次收到的入参：重启/冷恢复到底剥夺了哪些输入
+	// （重放素材是空、还是装配出来的那份历史），只能靠这个实测，不能靠猜。
+	lastReadback context_runtime.CompactionIndexRequest
 }
 
 func (runtime *compactionReadbackRuntime) ReadbackCompactionSummary(
 	_ context.Context,
 	_ string,
-	_ context_runtime.CompactionIndexRequest,
+	request context_runtime.CompactionIndexRequest,
 ) (context_runtime.CompactionIndexReceipt, error) {
-	return runtime.readback, nil
+	runtime.lastReadback = request
+	return runtime.readback, runtime.readbackErr
 }
 
 // TestCompactionFailureWithFailedReadbackLeavesContextUntouched（现场复现）：

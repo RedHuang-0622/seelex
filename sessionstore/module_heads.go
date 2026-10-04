@@ -66,6 +66,12 @@ const (
 	// 写（goal 域 / teamwork 域），共用一个模块就是给它们造一个共享串行点。
 	moduleBoardGoal storageModule = "board_goal"
 	moduleBoardTeam storageModule = "board_team"
+	// moduleCompaction 是本会话的**压缩记录**通道（compaction-records.jsonl +
+	// metadata/compaction.json 水位）：一行一次压缩（成功记录或失败痕）。它与
+	// moduleCompact（帧摘要水位）是两件事：帧是模型侧的检索素材，记录是可见面
+	// （右栏压缩栈 / 轨迹压缩轨 / 保留窗口起点）的事实源。record 通道退役后
+	// （v8/S20），压缩记录只能住在这里。
+	moduleCompaction storageModule = "compaction"
 )
 
 // guide 是会话读索引/路由（不持有模块数据，I9）。模块清单变更（首写某
@@ -144,7 +150,12 @@ type sessionModuleLocks struct {
 	// 模块共用一把（共用就会把"写看板存档"与"写领域事实"串成一个串行点）。
 	boardGoalMu sync.Mutex
 	boardTeamMu sync.Mutex
-	guideMu     sync.Mutex
+	// compactionMu 是压缩记录通道的独立锁：它由回合收尾的会话落盘写（应用侧），
+	// 既不与 message 提交共用（共用会把"落压缩记录"与"落消息"串成一个串行点），
+	// 也不与 compact 帧通道共用（帧由 seelebridge 推，记录由 application/core 写，
+	// 两个写者共用一把锁就是给它们造一个共享串行点）。
+	compactionMu sync.Mutex
+	guideMu      sync.Mutex
 
 	stackViews [4]atomic.Pointer[stackView]
 	// anchor 是 message 通道最近一次发布的坐标（栈通道取锚用，避免打开
@@ -242,6 +253,8 @@ func (locks *sessionModuleLocks) mutexFor(mod storageModule) *sync.Mutex {
 		return &locks.boardGoalMu
 	case moduleBoardTeam:
 		return &locks.boardTeamMu
+	case moduleCompaction:
+		return &locks.compactionMu
 	default:
 		// 禁止静默别名：枚举是包内编译期常量，未映射只可能是"加了 storageModule
 		// 忘了加 case"。猜一个锁（旧行为）等于把两把语义不同的锁合成一把——那正是
@@ -499,8 +512,9 @@ func (store *storeEngine) carryModuleHeadCommitID(key Key, module storageModule)
 // S15）。**调用方必须已持该模块锁**：重建结果与 writer 的发布必须互斥。cause
 // 是触发重建的原始校验错误——重建失败时原样上报，不返回旧值也不判损坏。
 //
-// message/event/compact/stack_* 有完整数据文件可重建；其余模块（lifecycle
-// 自带 lc-repair、retention/subagent/media 无独立数据文件）保留原错误。
+// message/event/compact/compaction/stack_* 有完整数据文件可重建；其余模块
+// （lifecycle 自带 lc-repair、retention/subagent/media 无独立数据文件）保留
+// 原错误。
 func (store *storeEngine) repairModuleHeadLocked(key Key, module storageModule, cause error) (moduleHeadFile, error) {
 	if err := store.repairModuleHeadFromData(key, module); err != nil {
 		return moduleHeadFile{}, cause
@@ -531,6 +545,12 @@ func (store *storeEngine) repairModuleHeadFromData(key Key, module storageModule
 		payload = head
 	case moduleCompact:
 		head, err := store.rebuildCompactHeadFromData(key)
+		if err != nil {
+			return err
+		}
+		payload = head
+	case moduleCompaction:
+		head, err := store.rebuildCompactionHeadFromData(key)
 		if err != nil {
 			return err
 		}

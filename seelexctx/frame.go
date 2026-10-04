@@ -360,10 +360,38 @@ func FrameChapter1(frame sessionstore.CompactFrame) string {
 // FrameChapter2 返回帧 Summary 的 Chapter 2 正文；旧记录（无章节标记）
 // 退化为整段摘要（模型可见范围保持兼容）。
 func FrameChapter2(frame sessionstore.CompactFrame) string {
-	if body := frameChapter(frame.Summary, "## "+CompactChapter2Title); body != "" {
-		return body
+	return Chapter2Body(frame.Summary)
+}
+
+// Chapter2Body 把一段「可能是 Chapter 2 正文、也可能是一整份两章节摘要」的文本
+// 归一化成 Chapter 2 正文。
+//
+// 为什么需要这道归一化：帧摘要的内部边界是两章节（Chapter 1 链锚点 / Chapter 2
+// 厚内容），而它在链上有两个出口会把**整份摘要**当正文交出去——装配层读数闸的
+// 回执（它交回的是整份帧摘要，见 seelebridge.ReadbackCompactionSummary）与已经
+// 嵌套过的旧帧。整份摘要直接当 Chapter 2 用会得到双重标题帧；更要紧的是再读回来
+// 时 frameChapter 在 Chapter 2 标题后立刻撞上另一个 "## " 标题、正文被裁成空串，
+// 于是记忆块 / OneLineSummary / carry 这些读者拿到的都不是正文——现场那句话
+// 「压缩成功，帧却是一具空骨架」就出在这里。
+//
+// 取**最后一个** Chapter 2 标题：对正常帧与整份摘要同值，对已经嵌套过的帧剥到
+// 最内层那段真正文（自愈），而不是把嵌套原样带走。整段文本里根本没有 Chapter 2
+// 标题时原样返回——旧记录（无章节标记）的兼容语义不变。
+func Chapter2Body(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
 	}
-	return strings.TrimSpace(frame.Summary)
+	marker := "## " + CompactChapter2Title
+	index := strings.LastIndex(text, marker)
+	if index < 0 {
+		return text
+	}
+	body := text[index+len(marker):]
+	if next := strings.Index(body, "\n## "); next >= 0 {
+		body = body[:next]
+	}
+	return strings.TrimSpace(body)
 }
 
 // frameChapter 截取 title 之后的正文，止于下一个 "## " 标题。

@@ -108,7 +108,18 @@ type CompactionIndexRequest struct {
 	// 厚摘要）。非空 → 接收方直接把它当本次压缩的 Chapter 2，不再调用模型：同一
 	// 份重放素材、同一次压缩只该有一次模型调用，而「这次到底有没有读后感」必须
 	// 在改写上下文之前就知道（见 compactionReadbackProbe）。
+	//
+	// 语义是 **Chapter 2 正文**：读数闸回执天然带整份两章节摘要，交到这里之前按
+	// Chapter2Body 归一化（seelebridge.ReadbackCompactionSummary 已经在出口一侧
+	// 对齐）。整份摘要当正文用会让帧出现双重标题，且再读回来时正文被裁成空。
 	PrecomputedSummary string
+	// PrecomputedSummarySource 是上面那份读后感的来源（replay | local；空 →
+	// 按 replay）。PrecomputedSummaryNote 是"它为什么不是模型读后感"（空 = 是模型
+	// 读后感）。两者与正文一起交下去：预读落在本地确定性压缩上时，帧要如实写
+	// local + 那条原因，而不是盖成 replay 再把原因丢掉——那正是「压缩看起来成功、
+	// 帧却是空骨架、模型为什么没被叫到又查不到」的成因。
+	PrecomputedSummarySource string
+	PrecomputedSummaryNote   string
 	// RequestID 是触发这次压缩的回合标识（可空；冷加载维护身份也带前缀标识）。
 	RequestID string
 }

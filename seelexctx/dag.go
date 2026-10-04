@@ -84,7 +84,18 @@ type CompactionInput struct {
 	// 厚摘要）。非空 → chapter2 直接用它，不再调用模型：同一次压缩只该有一次模型
 	// 调用，而调用方必须先知道"这次到底有没有读后感"才决定要不要折上下文
 	// （见 application/core/context_runtime 的 compactionReadbackProbe）。
+	//
+	// 语义是 **Chapter 2 正文**，不是整份两章节摘要：读数闸回执天然带整份摘要，
+	// 传进来之前要经 Chapter2Body 归一化（本字段的第二个消费者就栽在这里）。
 	PrecomputedSummary string
+	// PrecomputedSummarySource 是上面那份读后感的来源（replay | local）。空 →
+	// 按 replay 处理（旧调用方的语义：它只在拿到模型读后感时才带 PrecomputedSummary）。
+	PrecomputedSummarySource string
+	// PrecomputedSummaryNote 说明"这份预读为什么没有模型读后感"（空 = 有模型
+	// 读后感）。它与 Source 必须一起带下来：预读落在本地确定性压缩上时，帧要如实
+	// 写 local + 这条原因，而不是盖成 replay 再把原因丢掉——那正是"压缩看起来成功、
+	// 帧却是空骨架、模型为什么没被叫到又查不到"的成因。
+	PrecomputedSummaryNote string
 	// Kind 决定本地压缩的 Current Work 文案（溢出 / 真空区）。
 	Kind LocalCompactKind
 	// RequestFrom/RequestTo 是本次覆盖的 request 首尾（空 → 按 ChatQueue
@@ -343,10 +354,29 @@ func (d *CompactionDAG) chapter2Node(state *compactionDAGState) func(context.Con
 		// PrecomputedSummary）：直接用，不重复调用模型。同一次压缩只该有一次模型
 		// 调用，而"有没有读后感"必须在改写上下文之前就知道。
 		if precomputed := strings.TrimSpace(state.input.PrecomputedSummary); precomputed != "" {
-			state.chapter2 = normalizeReplayChapter2(precomputed)
-			state.summarySource = CompactSummarySourceReplay
-			state.clearDegrade()
-			return nil
+			// 调用方交回的是「这次压缩的读后感正文」，但链上有一个出口会把**整份
+			// 两章节摘要**当成正文交过来（装配层读数闸回执）。先归一化到 Chapter 2：
+			// 整份摘要直接当 Chapter 2 用，会让 Chapter 1 锚点在帧里出现两次，而且
+			// 再读回来时正文被裁成空（见 Chapter2Body）——现场那句「压缩成功，帧却
+			// 是一具空骨架」就是这一条。
+			if body := Chapter2Body(precomputed); body != "" {
+				state.chapter2 = body
+				state.summarySource = strings.TrimSpace(state.input.PrecomputedSummarySource)
+				if state.summarySource == "" {
+					state.summarySource = CompactSummarySourceReplay
+				}
+				state.clearDegrade()
+				// 预读回执自带的降级原因照带：它不是"这次压成了"的解释，而是"这次
+				// 为什么没有模型读后感"的唯一证据（预读落在本地确定性压缩上）。丢掉
+				// 它，帧就只剩一个 source 标记让人猜。
+				if note := strings.TrimSpace(state.input.PrecomputedSummaryNote); note != "" {
+					state.degrade(PrecomputedLocalDegradeCode, note)
+				}
+				return nil
+			}
+			// 归一化后没有任何 Chapter 2 正文（例如传进来的整份摘要，它自己的
+			// Chapter 2 就是那具全 (none) 骨架）：它不是读后感，不能拿它冒充——
+			// 落回下面的常规路径，由本地压缩 + 真实降级原因给出可读的交代。
 		}
 		material, materialReport := PrepareReplayMaterial(state.input.History)
 		state.replayMaterial = materialReport

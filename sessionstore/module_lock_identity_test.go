@@ -24,6 +24,7 @@ func allStorageModules() []storageModule {
 		moduleSystem, moduleCheckpoint, moduleMedia,
 		moduleTeamwork,
 		moduleBoardGoal, moduleBoardTeam,
+		moduleCompaction,
 	}
 }
 

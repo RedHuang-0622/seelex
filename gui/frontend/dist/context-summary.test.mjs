@@ -279,3 +279,28 @@ test("失败痕与成功记录同表：失败排在栈下方，前沿仍只认�
   assert.equal((html.match(/compaction-stack-flag">栈顶/g) || []).length, 1);
   assert.equal((html.match(/compaction-stack-row is-failed/g) || []).length, 1);
 });
+
+// 失败的**报错原文**要落在失败条目的可视化**下面**（用户口径 2026-10-04）：原因行
+// 说的是"这次没压成"，报错行说的是"读数闸这次报了什么"——两句都在，读者才能自答
+// 下一步（查配置 / 查素材 / 查那次调用）。此前报错只活在 6 秒的瞬态进度条里。
+test("失败痕把报错原文渲染在原因下面，后端没给就不给这一行", () => {
+  const note = "no_model_summary estimated=197421 budget=166808 window=200000 overhead=4986"
+    + " error=compact-local:replay-failed 前缀重放两次调用均失败，已回退本地确定性压缩：connect: connection refused";
+  const html = renderContextCompactions([{ version: 3, reason: "context_budget", failed: true, note }]);
+  assert.match(html, /class="compaction-stack-error"[^>]*>报错：compact-local:replay-failed/);
+  assert.match(html, /connect: connection refused/);
+  // 位置：原因行在上、报错行在下（"下面"是字面要求，不是修辞）。
+  assert.ok(html.indexOf("compaction-stack-note") < html.indexOf("compaction-stack-error"), "报错行应在原因行下面");
+
+  // 报错是外部文本，照样要转义。
+  const escaped = renderContextCompactions([{
+    version: 3, failed: true, note: "no_model_summary error=<script>alert(1)</script>"
+  }]);
+  assert.doesNotMatch(escaped, /<script>/);
+  assert.match(escaped, /&lt;script&gt;/);
+
+  // 后端没给报错段（旧痕 / 这次没走到读数闸）→ 不给报错行，也不拿数字事实冒充报错。
+  const plain = renderContextCompactions([{ version: 3, failed: true, note: "no_model_summary estimated=1 budget=2" }]);
+  assert.doesNotMatch(plain, /compaction-stack-error/);
+  assert.doesNotMatch(plain, /报错：/);
+});

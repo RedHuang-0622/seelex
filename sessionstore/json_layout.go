@@ -96,6 +96,14 @@ func (repository *jsonRepository) writeCommitLayout(key Key, commit Commit) erro
 			return err
 		}
 	}
+	// 3) 压缩记录通道（应用侧可见面的持久事实源，见 compaction_records.go）：
+	// 与 message 提交同一次落盘，但走自己的模块锁与自己的水位。失败即整次提交
+	// 失败——半写等于"上一次装配把前缀折出了窗口，而盘上查不到这件事"。
+	if len(commit.CompactionRecords) > 0 {
+		if _, _, err := repository.layout.commitCompactionRecords(key, commit.CompactionRecords); err != nil {
+			return err
+		}
+	}
 	// D9/S20：state.json 通道停写（SESSION 无独立文件；可见状态按 §2.5.4
 	// 从 message head.Meta + lifecycle 派生）。
 	return nil

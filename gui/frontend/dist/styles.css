@@ -1951,6 +1951,18 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
+/* 压缩失败的**报错原文**：贴在失败条目的原因下面再起一行。它读的是失败痕 note
+   末段的 ` error=`（读数闸这次调用的真实报错 / 落回本地压缩的降级原因），是"这次
+   为什么压不成"里唯一无法从记录的其它字段反推的事实，因此单独一行给失败色——读者
+   一眼分得清"发生了什么"（原因，暗色）与"底层报了什么"（报错，失败色）。 */
+.compaction-stack-error {
+  grid-column: 1 / -1;
+  padding-top: 1px;
+  color: var(--status-failed);
+  font: 9.5px var(--font-mono);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
 .context-summary-open {
   padding: 2px 7px;
   border: 1px solid var(--border-strong);

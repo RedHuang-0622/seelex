@@ -558,6 +558,19 @@ func (store *SessionGranularStore) SaveCommit(projectID, sessionID string, commi
 	return store.router.SaveCommitWorkspace(store.projectID(projectID), sessionID, commit)
 }
 
+// LoadCompactionRecords 读取该会话的压缩记录（应用侧记录原文，按写入顺序）。
+// 空结果 = 该会话从未压缩过（或后端未 v8 化，调用方回退 record 通道）。
+func (store *SessionGranularStore) LoadCompactionRecords(projectID, sessionID string) ([]json.RawMessage, error) {
+	if store == nil || store.router == nil {
+		return nil, nil
+	}
+	records, _, err := store.router.LoadCompactionRecordsWorkspace(store.projectID(projectID), sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return records, nil
+}
+
 // CurrentGeneration 返回会话当前已发布 generation（fork 血缘来源）。
 func (store *SessionGranularStore) CurrentGeneration(projectID, sessionID string) (string, error) {
 	if store == nil || store.router == nil {
