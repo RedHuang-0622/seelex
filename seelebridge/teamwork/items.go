@@ -156,6 +156,8 @@ func resolveMilestoneStatus(plan *sessionstore.TeamworkPlan, index int, memo map
 // 闸门：该里程碑的依赖必须都已 done。这条闸门就是"完成一个里程碑之后再做下一个
 // 里程碑的工作安排"——不靠 leader 自觉，靠编排面拒收。
 func (c *Coordinator) PlanMilestone(ctx context.Context, milestoneID string, specs []WorkItemSpec) error {
+	c.lockPlan()
+	defer c.unlockPlan()
 	milestoneID = strings.TrimSpace(milestoneID)
 	plan, err := c.store.ReadPlan(ctx, c.key)
 	if err != nil {
@@ -222,6 +224,8 @@ func (c *Coordinator) PlanMilestone(ctx context.Context, milestoneID string, spe
 // 铁律：已经开始的（running / review）与已经有结论的（done / failed）都是**既定事实**，
 // 改它们等于改历史；要改就先把结论落下来再做新的一条。
 func (c *Coordinator) AdjustItem(ctx context.Context, itemID string, spec WorkItemSpec) error {
+	c.lockPlan()
+	defer c.unlockPlan()
 	plan, err := c.store.ReadPlan(ctx, c.key)
 	if err != nil {
 		return err
@@ -276,6 +280,8 @@ func (c *Coordinator) AdjustItem(ctx context.Context, itemID string, spec WorkIt
 // 它一次做完四件事：屏障闸门（里程碑）、依赖闸门（里程碑内 DAG）、执行隔离
 // （这件事自己的会话与工作区）、作业派发（后台跑，受理即返回）。
 func (c *Coordinator) DispatchItem(ctx context.Context, itemID string) (jobs.Handle, error) {
+	c.lockPlan()
+	defer c.unlockPlan()
 	if c.workers == nil {
 		return "", errors.New("teamwork: 派发工作项需要 WorkerRunner（未装配）")
 	}
@@ -434,27 +440,50 @@ func (c *Coordinator) SettleWorkItem(ctx context.Context, request WorkerRequest,
 	if itemID == "" {
 		return nil // 非 Work Item 口径的派发：没有尾插的落点
 	}
+	// ── 阶段 A（临界区内，只读 + 判定）─────────────────────────────────
+	// 确认这件事还在跑（幂等闸门），并取出合并要用的现场。**合并这一步不在这里**：
+	// 它是慢 git 操作（300 提交的成功变基实测 ≈114s），关进临界区就等于把整支团队的
+	// 编排面冻结几十秒，并发 settle 也会排成一条长队。
+	c.lockPlan()
 	plan, err := c.store.ReadPlan(ctx, c.key)
 	if err != nil {
+		c.unlockPlan()
 		return err
 	}
-	milestone, item, ok := findItem(&plan, itemID)
-	if !ok {
-		return nil
-	}
-	if item.StatusOrPending() != sessionstore.TeamworkItemRunning {
+	if _, item, ok := findItem(&plan, itemID); !ok || item.StatusOrPending() != sessionstore.TeamworkItemRunning {
+		c.unlockPlan()
 		return nil // 已经收口过了（幂等：尾插恰好一次）
 	}
 	bindings, err := c.store.ReadBindings(ctx, c.key)
 	if err != nil {
+		c.unlockPlan()
 		return err
 	}
 	binding, hasBinding := sessionstore.TeamworkBindings(bindings)[itemID]
-	// 步 1：合并。合并是"改动回到主干"的动作，插在**插入之前**——顺序反了就会
-	// 出现"leader 已经看到结论、而主干上还没有这份改动"。
+	teamID := plan.TeamID
+	c.unlockPlan()
+
+	// ── 步 1：合并（**在计划锁之外**）──────────────────────────────────
+	// 合并是"改动回到主干"的动作，插在**插入之前**——顺序反了就会出现"leader 已经看到
+	// 结论、而主干上还没有这份改动"。可观察顺序因此仍是：合并 → 尾插 → 状态。
 	var mergeErr error
 	if hasBinding && c.spaces != nil && strings.TrimSpace(binding.Worktree) != "" {
-		mergeErr = c.spaces.MergeWorkspace(ctx, c.workspaceBinding(binding, plan.TeamID))
+		mergeErr = c.spaces.MergeWorkspace(ctx, c.workspaceBinding(binding, teamID))
+	}
+
+	// ── 阶段 B（临界区内，读-改-写）────────────────────────────────────
+	// 重读计划（合并这段时间里计划可能已被别人改写——leader 的手动处置、另一次 settle），
+	// 再次确认这件事仍是 running，然后 步 2 尾插 → 步 3 写态。这一整段读-改-写在同一把
+	// 计划锁内完成，因此并发 settle **不会**再互相覆盖（这正是本条修复的丢失更新）。
+	c.lockPlan()
+	defer c.unlockPlan()
+	plan, err = c.store.ReadPlan(ctx, c.key)
+	if err != nil {
+		return err
+	}
+	milestone, item, ok := findItem(&plan, itemID)
+	if !ok || item.StatusOrPending() != sessionstore.TeamworkItemRunning {
+		return nil // 合并期间已被收口：幂等返回（不再重复尾插 / 写态）
 	}
 	// 步 2：尾插（有界一行；bug 原文与合并失败说明都在里面）。
 	text := settleMessage(*item, *milestone, mergeErr, runErr)
@@ -501,6 +530,8 @@ func (c *Coordinator) SettleWorkItem(ctx context.Context, request WorkerRequest,
 // 册 = 这一件事真的还在飞（→ 拒绝，让它把尾插走完）。handle 已作废（进程重启 / 已被回收）
 // 则相反：尾插不会再跑，验收就此成了清理动作（→ 放行，这正是"重启后收尾"那条路）。
 func (c *Coordinator) AcceptItem(ctx context.Context, itemID, note string) error {
+	c.lockPlan()
+	defer c.unlockPlan()
 	plan, err := c.store.ReadPlan(ctx, c.key)
 	if err != nil {
 		return err
@@ -552,6 +583,8 @@ func (c *Coordinator) AcceptItem(ctx context.Context, itemID, note string) error
 
 // FailItem 是 leader 的**判定不通过**：状态 → failed（现场与记忆都留着，可重派）。
 func (c *Coordinator) FailItem(ctx context.Context, itemID, note string) error {
+	c.lockPlan()
+	defer c.unlockPlan()
 	plan, err := c.store.ReadPlan(ctx, c.key)
 	if err != nil {
 		return err

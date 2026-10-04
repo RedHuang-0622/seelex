@@ -32,6 +32,10 @@ func (c *Coordinator) Audit(ctx context.Context) ([]sessionstore.TeamworkEvent, 
 // "已经把活排到哪一步了"。不保留的话，leader 为了加一个成员再调一次 team_plan，
 // 看板上已完成的工作项连同句柄会被整份抹掉，而那是**事实**，不是配置。
 func (c *Coordinator) SetPlan(ctx context.Context, plan sessionstore.TeamworkPlan) error {
+	// 整份替换也是读-改-写（读回旧计划以保留同名里程碑里已排好的工作项），必须与
+	// 并发的 item 级变更共用同一把计划锁——否则"改成员"会与"排活/派发"互相覆盖。
+	c.lockPlan()
+	defer c.unlockPlan()
 	for index := range plan.Members {
 		if strings.TrimSpace(plan.Members[index].RoleSessionID) == "" {
 			plan.Members[index].RoleSessionID = c.derive(c.key.SessionID, plan.TeamID, plan.Members[index].Role)
@@ -81,6 +85,8 @@ func countItems(plan sessionstore.TeamworkPlan) int {
 // 返回值只有 handle（2026-10-04）：阶段口径退场后，这个"teammate 级老口径"的派发
 // 不再有可回执的归属（归 Work Item 的一轮走 DispatchItem，那里回 item id）。
 func (c *Coordinator) Dispatch(ctx context.Context, role, goal string) (jobs.Handle, error) {
+	c.lockPlan()
+	defer c.unlockPlan()
 	if c.workers == nil {
 		return "", errors.New("teamwork: team_dispatch 需要 WorkerRunner（未装配）")
 	}
@@ -209,6 +215,8 @@ func (c *Coordinator) Join(ctx context.Context, handles []jobs.Handle, budget ti
 // 变成一句没有事实支撑的口号。（阶段制时代这里看的是 `after` 里的阶段派发过没有；
 // 阶段口径退场后，判据回到唯一那份顺序事实：milestones[].depends_on。）
 func (c *Coordinator) Milestone(ctx context.Context, id, content string) error {
+	c.lockPlan()
+	defer c.unlockPlan()
 	plan, err := c.store.ReadPlan(ctx, c.key)
 	if err != nil {
 		return err
@@ -242,8 +250,19 @@ func (c *Coordinator) Milestone(ctx context.Context, id, content string) error {
 	})
 }
 
-// retireSteps 是 Retire（单个人一轮结束）与 Close（整队收口）复用的**同一套**四步实现
+// retireStepsLocked 是 Retire（单个人一轮结束）与 Close（整队收口）复用的**同一套**四步实现
 // （D7 / §4.4）。两者只有一处不同：**回收作业**只发生在整队收口时（reclaim=true）。
+//
+// **调用约定**：本方法假定调用方**已经持有计划锁**（c.lockPlan），因此它自己不再取锁
+// （锁不可重入）。Retire 与 Close 都在自己的最外层取一次锁，然后调这里——这样"退场四步"
+// 与随后的计划写入落在同一个临界区里，中途不会被并发的派发/尾插插进来。
+//
+// 关于 c.jobs.Reclaim（步 1）在锁内的安全性：它取消并**等待**目标作业终结（上限
+// jobs.Limits.DefaultWait），而 worker 执行体在收尾时会回调 SettleWorkItem（要取同一把
+// 计划锁）。这条"等待"不会成环，因为 reclaim=true 只在 Close 里出现，而 Close 的
+// unsettledItems 闸门已经保证：此刻不存在"还在 running 的工作项尾插"（真在跑会被闸门
+// 拒收）。于是 Reclaim 只可能等到"非 Work Item 口径的作业"（其 SettleWorkItem 在读到
+// WorkItemID == "" 时**在取锁之前**就返回）或"已终结的作业"（live=false，不必等）。
 //
 // 为什么把回收从 Retire 里摘出来（2026-10-02，要求④）：Retire 不再 Reclaim 之后，
 // "谁还在跑"在整队 Close 之前一直留在册上（作业正文不会被一次退场悄悄撤走），回收
@@ -255,7 +274,7 @@ func (c *Coordinator) Milestone(ctx context.Context, id, content string) error {
 //  4. 保留 teammate 在编，worktree 字段置空待重派；回收时清掉句柄投影
 //
 // 顺序不能换：先停作业再清记忆，否则会"清完记忆还在写"。
-func (c *Coordinator) retireSteps(ctx context.Context, role string, reclaim bool) (sessionstore.TeamworkPlan, error) {
+func (c *Coordinator) retireStepsLocked(ctx context.Context, role string, reclaim bool) (sessionstore.TeamworkPlan, error) {
 	plan, err := c.store.ReadPlan(ctx, c.key)
 	if err != nil {
 		return plan, err
@@ -307,13 +326,15 @@ func (c *Coordinator) retireSteps(ctx context.Context, role string, reclaim bool
 // Work Item 口径下多一道闸门：这个人名下还有**在跑或待验收**的工作项时不许退场——
 // 退场会释放工作区，而现场正是那件事的证据（"开始的工作是既定的"）。
 func (c *Coordinator) Retire(ctx context.Context, role string) error {
+	c.lockPlan()
+	defer c.unlockPlan()
 	if busy, err := c.busyItems(ctx, role); err != nil {
 		return err
 	} else if len(busy) > 0 {
 		return fmt.Errorf("teamwork: teammate %q 还有 %d 件工作没落定（%s）——先完成或亲手判失败再退场",
 			role, len(busy), strings.Join(busy, ", "))
 	}
-	plan, err := c.retireSteps(ctx, role, false)
+	plan, err := c.retireStepsLocked(ctx, role, false)
 	if err != nil {
 		return err
 	}
@@ -381,6 +402,11 @@ func (c *Coordinator) unsettledItems(plan sessionstore.TeamworkPlan) []string {
 // 上抛——存档里还写着 active 的收口看板会在重启恢复时冒充"在册"（board.go 对 goal
 // 看板的同一条口径）。封板失败时域内尚未标 closed，重试是一次干净的收口。
 func (c *Coordinator) Close(ctx context.Context) (bool, error) {
+	// 收口是一段**长的**读-改-写（闸门判定 → 逐人退场 → 释放现场 → 封板 → 标 closed），
+	// 全程持计划锁：否则闸门放行之后、标 closed 之前，一次并发 DispatchItem 就能把"已收口的
+	// 计划"重新写回 running。持锁期间不做任何 git 合并（那在尾插里，见 SettleWorkItem）。
+	c.lockPlan()
+	defer c.unlockPlan()
 	plan, err := c.store.ReadPlan(ctx, c.key)
 	if err != nil {
 		return false, err
@@ -404,7 +430,7 @@ func (c *Coordinator) Close(ctx context.Context) (bool, error) {
 			len(unsettled), strings.Join(unsettled, ", "))
 	}
 	for _, member := range plan.Members {
-		if _, err := c.retireSteps(ctx, member.Role, true); err != nil {
+		if _, err := c.retireStepsLocked(ctx, member.Role, true); err != nil {
 			return false, err
 		}
 	}

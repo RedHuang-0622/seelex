@@ -29,7 +29,7 @@ func (s *memoryPlanStore) WritePlan(_ context.Context, _ sessionstore.Key, plan 
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.plan = plan
+	s.plan = clonePlan(plan)
 	return nil
 }
 
@@ -39,7 +39,7 @@ func (s *memoryPlanStore) ReadPlan(context.Context, sessionstore.Key) (sessionst
 	if s.plan.TeamID == "" {
 		return sessionstore.TeamworkPlan{}, errors.New("teamwork: 计划不存在")
 	}
-	return s.plan, nil
+	return clonePlan(s.plan), nil
 }
 
 func (s *memoryPlanStore) AppendEvent(_ context.Context, _ sessionstore.Key, event sessionstore.TeamworkEvent) error {

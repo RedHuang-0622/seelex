@@ -24,6 +24,10 @@ type fakeSpaces struct {
 	released []string
 	// mergeErr 让"合并失败"这条残边可复现（插入失败 → 让 leader 亲自执行）。
 	mergeErr error
+	// mergeGate（可选）在"合并"这一步被调用（参数是这次合并的现场）。并发用例用它把
+	// 各家 settle 的"合并"钉成确定的会合点——陈旧快照的窗口因此变成被安排好的时序，
+	// 而不是靠调度碰运气（见 items_concurrent_test.go 的 rendezvous）。
+	mergeGate func(binding WorkspaceBinding)
 }
 
 func (s *fakeSpaces) BindWorkspace(_ context.Context, binding WorkspaceBinding) (WorkspaceBinding, error) {
@@ -34,6 +38,9 @@ func (s *fakeSpaces) BindWorkspace(_ context.Context, binding WorkspaceBinding) 
 }
 
 func (s *fakeSpaces) MergeWorkspace(_ context.Context, binding WorkspaceBinding) error {
+	if s.mergeGate != nil {
+		s.mergeGate(binding)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.merged = append(s.merged, binding.WorkItem)
