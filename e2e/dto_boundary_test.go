@@ -74,9 +74,10 @@ func fileImports(t *testing.T, path string) map[string]struct{} {
 // 与前端都按这些字段名读写，改名会同时打断 headless 巡检与 GUI 渲染。
 func TestRoleSessionDTOFieldsMatchWireContract(t *testing.T) {
 	sources := map[string]string{
-		filepath.Join("application", "contract", "dto", "rolesession.go"): readRepoFile(t, "application", "contract", "dto", "rolesession.go"),
-		filepath.Join("application", "contract", "dto", "agentteam.go"):   readRepoFile(t, "application", "contract", "dto", "agentteam.go"),
-		filepath.Join("application", "model", "state.go"):                 readRepoFile(t, "application", "model", "state.go"),
+		filepath.Join("application", "contract", "dto", "rolesession.go"):           readRepoFile(t, "application", "contract", "dto", "rolesession.go"),
+		filepath.Join("application", "contract", "dto", "agentteam.go"):             readRepoFile(t, "application", "contract", "dto", "agentteam.go"),
+		filepath.Join("application", "contract", "dto", "teammate_session_live.go"): readRepoFile(t, "application", "contract", "dto", "teammate_session_live.go"),
+		filepath.Join("application", "model", "state.go"):                           readRepoFile(t, "application", "model", "state.go"),
 	}
 	required := map[string]map[string][]string{
 		filepath.Join("application", "contract", "dto", "rolesession.go"): {
@@ -98,6 +99,13 @@ func TestRoleSessionDTOFieldsMatchWireContract(t *testing.T) {
 		// 又退回"两个 teammate 都叫 AGENT"。
 		filepath.Join("application", "model", "state.go"): {
 			"Message": {"role_name", "role_session_id", "round_id", "unit_seq"},
+		},
+		// 「这件事的会话」实时读面（team-board-view.js 的 renderTeammateLiveSession
+		// 按这些键读；2026-10-04 现场：没有 json tag ⇒ wire 上是 Go 字段名 ⇒ GUI 永远
+		// 读到一份空对象，而两端用例各自都绿）。
+		filepath.Join("application", "contract", "dto", "teammate_session_live.go"): {
+			"TeammateSessionLiveView":    {"session_id", "role", "live", "running", "messages", "truncated"},
+			"TeammateSessionLiveMessage": {"role", "text"},
 		},
 	}
 	for path, types := range required {

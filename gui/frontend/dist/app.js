@@ -20,7 +20,7 @@ import { createFilePreviewController } from "./file-preview.js";
 import { renderCompactionFrameModal, renderContextCompactions } from "./context-summary.js";
 import { compactionRangeText, compactionReasonLabel, mergeCompactionProgress } from "./compaction-format.js";
 import { renderGoalDetail, renderGoalPanel } from "./goal-board-view.js";
-import { TEAM_BOARD_CSS, renderTeamBoard, renderTeammateLiveSession } from "./team-board-view.js";
+import { TEAM_BOARD_CSS, renderTeamBoard, renderTeammateLiveSession, teammateSessionEntry } from "./team-board-view.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
 import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
 import { employeePool, hirePanel, isPinnedRole, nextAgentTeamOrder, normalizeAgentTeam, normalizeTeamGlobal, normalizeTeamLibrary, PERMISSION_CUSTOM_TOOLS, PERMISSION_GROUPS, PERMISSION_BITS, renderAgentTeam, renderRoleSessionDetail, renderTeamMemberList, roleDisplayName, teamEditorPanel, teamEntryFromMembers, teamMemberNames, teamMemberSpecMap, teamRoleSpec } from "./agent-team-view.js";
@@ -2173,12 +2173,21 @@ function renderSkills(skills) {
 //
 // 退场语义与「目标」面板同口径：没有计划（快照里没有 teamwork_board、或计划里没有里程碑
 // 也没有工作项）就是没有了——整块退场，不留空壳。
+//
+// currentTeamPlan 是最近一帧看板计划（没有看板 = null）：只服务"会话入口"这一处
+// （openRoleSessionDetail 解析"这位 teammate 此刻那件事的会话"，见那里的注释）。
+let currentTeamPlan = null;
+
 function renderTeam(snapshot) {
   const section = elements["team-board-section"];
   const view = elements["team-board-view"];
   const badge = elements["team-board-badge"];
   if (!section || !view) return;
   const input = teamBoardInput(snapshot?.runtime || {});
+  // 「这位 teammate 此刻那件事的会话」的解析面留给会话入口用（见 openRoleSessionDetail）：
+  // 团队看板是这条事实的权威投影，Agent Team 面板的成员行只有角色名与"员工的长期角色会话号"，
+  // 少了这一份就会退到角色会话（那是主代理的会话，不是 teammate 自己的）。
+  currentTeamPlan = input ? input.plan : null;
   const html = input ? renderTeamBoard(input) : "";
   if (!html) {
     section.classList.add("hidden");
@@ -3173,26 +3182,47 @@ function roleSessionTargets() {
 // EXEC（main）与 ADVISOR（tl）是两个会话，主对话只显示 EXEC 的可见消息，
 // 这里按角色身份单独展示该 agent 自己的行，避免两个 agent 都渲染成 AGENT。
 // 视图顶部的「切员工」条把目标换成同会话的另一位员工——这就是"对话视图切员工"。
+//
+// **teammate 的会话口径**（2026-10-04，用户口径修正：查看 teammate 的会话"总是看到主代理
+// 的会话"）：成员行只带角色名与"员工的长期角色会话号"，而那条读面（`AgentTeamRoleSnapshot`
+// → `RoleSnapshot`）是**群聊车道**形状——main 车道 = 主会话整段，teammate 自己那条车道在
+// 存储里从来没有行（worker 回合是进程内执行面，不写存储）。于是"没有工作项上下文"的调用
+// 会把主代理的会话画成这位的会话。修法：**同一份事实只有一个判定面**——`teammateSessionEntry`
+// 按团队看板（看板的 teammate 行就是按它写入口的）判定一次：
+//   - live：这位是 teammate 且有"这件事自己的会话" → 走实时读面（那才是 teammate 自己的正文）；
+//   - none：这位是 teammate 但此刻没有自己的会话 → **不开**（如实说一句，而不是退回角色会话）；
+//   - role：不是 teammate（goal-a2a 的 tl 等真有自己角色会话的角色）→ 照旧走角色会话。
 async function openRoleSessionDetail(roleName, roleSessionID, workItemID) {
   const name = String(roleName || "").trim();
   if (!name) return;
-  const workItem = String(workItemID || "").trim();
+  let workItem = String(workItemID || "").trim();
+  let sessionID = String(roleSessionID || "").trim();
+  if (!workItem && currentTeamPlan) {
+    const entry = teammateSessionEntry(currentTeamPlan, name);
+    if (entry.kind === "live") {
+      workItem = String(entry.work_item || "");
+      sessionID = String(entry.session_id || "");
+    } else if (entry.kind === "none") {
+      showToast(new Error(entry.reason));
+      return;
+    }
+  }
   try {
     if (workItem) {
       // 这件事自己的会话：读**实时执行面**（进程内、正文不落盘）。读不到时渲染件会如实
       // 说明（而不是把主会话历史画成"当前会话"）。
-      const live = await invoke("TeammateSessionLive", String(roleSessionID || ""));
+      const live = await invoke("TeammateSessionLive", sessionID);
       roleSessionDetail = {
-        roleName: name, roleSessionID: String(roleSessionID || ""), workItem,
+        roleName: name, roleSessionID: sessionID, workItem,
         live: true, members: roleSessionTargets(), snapshot: null
       };
       renderTeammateSessionView(live);
       setModal("role-session-modal", true);
       return;
     }
-    const snapshot = await invoke("AgentTeamRoleSnapshot", "", name, String(roleSessionID || ""));
+    const snapshot = await invoke("AgentTeamRoleSnapshot", "", name, sessionID);
     roleSessionDetail = {
-      roleName: name, roleSessionID: String(roleSessionID || ""), workItem: "",
+      roleName: name, roleSessionID: sessionID, workItem: "",
       live: false, members: roleSessionTargets(), snapshot
     };
     renderRoleSessionView(snapshot);

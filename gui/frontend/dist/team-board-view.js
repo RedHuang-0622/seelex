@@ -201,8 +201,9 @@ export function memberStatusOf(plan, role) {
 }
 
 // memberCurrentSessionOf 反解"这位 teammate 此刻那件事的会话"：优先在跑的工作项，
-// 其次等验收的，都没有就退到它最近开过工的那件事；一件都没开过 → 全空（调用方退到
-// 角色会话，并在提示里说明）。
+// 其次等验收的，都没有就退到它最近开过工的那件事；一件都没开过 → 全空（**调用方不挂
+// 入口**：teammate 的角色会话读面是群聊车道形状——main 车道 = 主会话整段，而它自己的
+// 行从来不写在那里，退过去就是把主代理的会话冒充成这位的会话，见 renderTeamQueue）。
 //
 // 为什么前端也要算一份：后端已经给了 current_session_id / current_work_item（权威），
 // 这里在同一条口径上做**降级兜底**——老快照（没有这两个字段）仍然要能点出正确的入口，
@@ -229,6 +230,38 @@ export function memberCurrentSessionOf(plan, role) {
   const chosen = running || review || last;
   if (!chosen) return { session_id: "", work_item: "", name: "" };
   return { session_id: String(chosen.session_id || ""), work_item: String(chosen.id || ""), name: String(chosen.name || "") };
+}
+
+// teammateSessionEntry 决定"查看这一位的会话"该开什么——**两条入口共用这一份判定**
+// （看板的 teammate 行 + Agent Team 面板成员行的「查看」）。
+//
+// 判据只有一条事实：这位是不是这份团队计划里的 teammate。
+//   - 是，且有"这件事自己的会话" → `{kind:"live", session_id, work_item}`：开实时读面
+//     （一 Work Item 一套 Session，那一轮活跑在**进程内执行面**上，正文只能实时读）；
+//   - 是，但没有（还没派活 / 已验收销项）→ `{kind:"none", reason}`：**不打开**。
+//     为什么"不打开"而不是"退回角色会话"（2026-10-04 用户口径修正：查看 teammate 的
+//     会话"总是看到主代理的会话"）：teammate 的角色会话读面是**群聊车道**形状——main
+//     车道 = **主会话整段**，而 teammate 自己那条车道在存储里从来没有行（worker 回合不写
+//     存储）。退过去，用户看到的就是主代理的会话被当成这位的会话。宁可不给入口。
+//   - 不是 teammate（goal-a2a 的 tl 等真有自己角色的会话）→ `{kind:"role"}`：照旧走角色会话。
+export function teammateSessionEntry(plan, role) {
+  const name = String(role || "").trim();
+  if (!name) return { kind: "none", reason: "角色名为空" };
+  const current = memberCurrentSessionOf(plan, name);
+  if (current.session_id) {
+    return { kind: "live", session_id: current.session_id, work_item: current.work_item, name: current.name };
+  }
+  const member = (Array.isArray(plan?.members) ? plan.members : []).find(entry => entry && String(entry.role || "") === name);
+  if (member) {
+    return { kind: "none", reason: noOwnSessionNote(name) };
+  }
+  return { kind: "role" };
+}
+
+// noOwnSessionNote 是"这一位此刻没有自己的会话"的同一句话（看板上是 title，面板上是提示）：
+// 一句话只写一次，用户在两处读到的是同一份解释。
+function noOwnSessionNote(role) {
+  return `${role} 这一位此刻没有自己的会话：teammate 的每一件事各自一套 Session（一 Work Item 一套），没有在跑或待验收的工作项就没有可看的正文`;
 }
 
 // summarizeTeam 是看板头部的一行计数（里程碑 / 工作项 / 在编 / 作业）。
@@ -414,16 +447,25 @@ export function renderTeamWorkItem(entry) {
     </li>`;
 }
 
-// renderTeamQueue 是**teammate 区块**：名称（角色名 = 员工会话入口）/ 状态 / 它负责的
+// renderTeamQueue 是**teammate 区块**：名称（角色名 = **这件事的会话**入口）/ 状态 / 它负责的
 // Work Item 名称队列 / 权责与工作区 / 尾插回执。
 //
 // 队列与状态都从工作项算（后端算好的优先）：看板回答"这个人手上还有什么"，而不是让读的人
 // 自己按 role 再分一次组。
 //
-// 角色名是**成员会话的入口**（2026-10-02 · S7）：点它打开这位员工的独立会话
+// 角色名是**成员会话的入口**（2026-10-02 · S7）：点它打开这位 teammate 的会话
 // （`data-team-role-open` / `data-team-role-session`，与团队面板成员行同一对钩子，
-// app.js 的看板委托把它们接到同一个 openRoleSessionDetail 上）。**没有 role_session_id
-// 就不渲染按钮**：一个点不动的入口比没有入口更坏（空值只可能来自降级输入，那时老实写文本）。
+// app.js 的看板委托把它们接到同一个 openRoleSessionDetail 上）。
+//
+// **入口只指向"这件事自己的会话"**（2026-10-04，用户口径修正：查看 teammate 的会话
+// "总是看到主代理的会话"）。原因是一条**读面事实**，不是偏好：
+//   - teammate 的一轮活跑在**这件事自己的会话**上（一 Work Item 一套 Session），
+//     而那是**进程内执行面**（刻意不接 DurableHistory），正文只在它活着的时候读得到；
+//   - 而"员工的长期角色会话"（role_session_id）是**群聊车道**形状的读面：它在存储里
+//     从来没有 teammate 自己的行（worker 回合不写存储），`RoleSnapshot` 的 main 车道
+//     却是**主会话整段**——于是打开它，用户看到的就是主代理的会话，被当成了这位的会话。
+// 所以没有"这件事自己的会话"时**不挂入口**（纯文本 + 说清为什么），而不是回退到角色会话
+// ——一个内容错的入口比没有入口更坏。
 export function renderTeamQueue(plan) {
   const members = Array.isArray(plan?.members) ? plan.members.filter(Boolean) : [];
   const items = workItemsOf(plan);
@@ -432,7 +474,6 @@ export function renderTeamQueue(plan) {
     const role = String(member.role || "");
     const policy = String(member.tools_policy || "").trim();
     const worktree = String(member.worktree || "").trim();
-    const session = String(member.role_session_id || "").trim();
     const queue = memberQueueOf(plan, role);
     const messages = memberMessagesOf(plan, role);
     const status = memberStatusOf(plan, role);
@@ -443,17 +484,15 @@ export function renderTeamQueue(plan) {
       ? `<span class="chip team-policy is-${escapeHtml(policy)}">${escapeHtml(policy)}</span>`
       : "";
     // 入口开的是**这位此刻那件事的会话**（2026-10-04 用户口径：点开要是"当前的
-    // teammate 的会话"，不是员工的长期历史会话）。memberCurrentSessionOf 优先给"在跑的
-    // 工作项自己的会话号"，没有才退到角色会话——退的时候在 data-tip 里说明，不让用户
-    // 以为看到的是这件事的正文。
-    const currentSession = memberCurrentSessionOf(plan, role);
-    const target = currentSession.session_id || session;
-    const tip = currentSession.session_id
-      ? `打开 ${role} 当前这件事的会话（工作项 ${currentSession.work_item}${currentSession.name ? " · " + currentSession.name : ""}）`
-      : `打开 ${role} 的会话（这位此刻没有在跑的工作项，这是它的角色会话）`;
-    const roleLabel = target
-      ? `<button type="button" class="team-member-role is-openable" data-team-role-open="${escapeHtml(role)}" data-team-role-session="${escapeHtml(target)}" data-team-item="${escapeHtml(currentSession.work_item || "")}" data-tip="${escapeHtml(tip)}" aria-label="${escapeHtml(tip)}">${escapeHtml(role)}</button>`
-      : `<span class="team-member-role">${escapeHtml(role)}</span>`;
+    // teammate 的会话"，不是员工的长期历史会话，更不是主代理的会话）。判定与面板成员行
+    // 共用一份（teammateSessionEntry）：只认"这件事自己的会话"，没有就不挂入口。
+    const entry = teammateSessionEntry(plan, role);
+    const tip = entry.kind === "live"
+      ? `打开 ${role} 当前这件事的会话（工作项 ${entry.work_item}${entry.name ? " · " + entry.name : ""}）`
+      : String(entry.reason || "");
+    const roleLabel = entry.kind === "live"
+      ? `<button type="button" class="team-member-role is-openable" data-team-role-open="${escapeHtml(role)}" data-team-role-session="${escapeHtml(entry.session_id)}" data-team-item="${escapeHtml(entry.work_item || "")}" data-tip="${escapeHtml(tip)}" aria-label="${escapeHtml(tip)}">${escapeHtml(role)}</button>`
+      : `<span class="team-member-role" title="${escapeHtml(tip)}">${escapeHtml(role)}</span>`;
     const latest = messages.length ? messages[messages.length - 1] : null;
     const body = latest
       ? `<div class="team-member-message" title="${escapeHtml(String(latest.text || ""))}">${escapeHtml(truncate(String(latest.text || ""), CONTENT_LIMIT))}</div>`

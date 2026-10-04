@@ -70,7 +70,9 @@ type TeamworkMemberView struct {
 	// 历史会话）。
 	//
 	// 语义：优先"在跑的工作项"，其次"等验收的"，都没有就退到这位最近一次开工的
-	// 工作项；一个都没开过 → 两个字段都空（前端退回角色会话，并按文案说明）。
+	// 工作项；一个都没开过 → 两个字段都空（**前端因此不挂入口**——teammate 的
+	// 角色会话读面恒带主代理的 main 行、自己那条车道为空，"退回角色会话"就是把主代理
+	// 的会话冒充成这位的会话，见 gui/frontend/dist/team-board-view.js 的 renderTeamQueue）。
 	// 这条区分是必要的：RoleSessionID 是**员工的长期会话**（跨工作项、跨轮次），
 	// 而一个 Work Item 有**自己的会话**（一 Work Item 一套 Session + worktree）。
 	CurrentSessionID string `json:"current_session_id,omitempty"`

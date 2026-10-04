@@ -24,6 +24,7 @@ import {
   renderTeamWorkItem,
   renderWorkItemSessionPanel,
   summarizeTeam,
+  teammateSessionEntry,
   workItemsOf,
 } from "./team-board-view.js";
 
@@ -220,10 +221,36 @@ test("③ teammate 区块画名字 / 状态 / 负责的工作项名称队列 / �
   // 所以入口指向 wi-impl 自己的会话号，而不是 exec 的角色会话 s-v-model-exec。
   assert.match(html, /class="team-member-role is-openable" data-team-role-open="exec" data-team-role-session="s-v-model-exec-wi-wi-impl" data-team-item="wi-impl"/);
   assert.doesNotMatch(html, /data-team-role-session="s-v-model-exec"/, "不得再指向员工的长期角色会话");
-  // 没有在跑的工作项的成员退到角色会话，并用提示说明这不是"这件事的正文"。
-  assert.match(html, /data-team-role-open="pm" data-team-role-session="s-v-model-pm" data-team-item=""/);
-  assert.match(html, /这位此刻没有在跑的工作项/);
+  // 没有"这件事自己的会话"的成员**不是入口**（2026-10-04 用户口径修正：查看 teammate
+  // 的会话看到的总是主代理的会话——因为那位员工在存储里的角色会话从不写 teammate 自己的行，
+  // RoleSnapshot 的 main 车道就是主会话整段）。回退到角色会话 = 把主代理的会话冒充成
+  // teammate 的会话，所以这里退化成纯文本 + 说清为什么。
+  assert.doesNotMatch(html, /data-team-role-open="pm"/, "没有自己的会话就不许挂入口");
+  assert.doesNotMatch(html, /data-team-role-session="s-v-model-pm"/, "不得回退到员工的长期角色会话");
+  assert.match(html, /<span class="team-member-role" title="[^"]*这一位此刻没有自己的会话/);
   assert.equal(renderTeamQueue({ members: [{ role: "a" }] }), "", "没有工作项就不画这一节（不留空壳）");
+});
+
+test("③ teammate 会话入口只指向「这件事自己的会话」，绝不回退到员工的历史角色会话", () => {
+  // 只给角色会话号（员工长期会话）而没有工作项会话号：这一位此刻没有自己的会话——
+  // 点开它会读到主代理的会话（角色会话读面恒带 main_rows，而 teammate 自己那条车道为空），
+  // 所以入口必须退场，而不是"先给一个看起来能点的入口"。
+  const plan = {
+    members: [{ role: "exec", role_session_id: "s-v-model-exec", status: "free" }],
+    work_items: [{ id: "wi-impl", role: "exec", name: "实现", status: "pending" }],
+  };
+  const html = renderTeamQueue(plan);
+  assert.match(html, /<span class="team-member-role"/, "没有自己的会话：名字是纯文本");
+  assert.doesNotMatch(html, /data-team-role-open/, "不许挂入口");
+  assert.doesNotMatch(html, /s-v-model-exec/, "角色会话号不得出现在入口上");
+  assert.match(html, /这一位此刻没有自己的会话/);
+  // 有在跑的工作项时才是入口（同一份计划，补上这件事自己的会话号）。
+  const withSession = renderTeamQueue({
+    members: [{ role: "exec", role_session_id: "s-v-model-exec", status: "running" }],
+    work_items: [{ id: "wi-impl", role: "exec", name: "实现", status: "running", session_id: "s-v-model-exec-wi-wi-impl" }],
+  });
+  assert.match(withSession, /data-team-role-session="s-v-model-exec-wi-wi-impl" data-team-item="wi-impl"/);
+  assert.doesNotMatch(withSession, /s-v-model-exec"/, "指向的是这件事自己的会话，不是角色会话");
 });
 
 test("memberCurrentSessionOf：在跑 > 等验收 > 最近开过工；一个都没开过 → 空", () => {
@@ -244,6 +271,28 @@ test("memberCurrentSessionOf：在跑 > 等验收 > 最近开过工；一个都�
   // 后端给了权威字段时以它为准（前端那份只是老快照的降级兜底）。
   const provided = { members: [{ role: "exec", current_session_id: "s-auth", current_work_item: "wi-auth" }] };
   assert.deepEqual(memberCurrentSessionOf(provided, "exec"), { session_id: "s-auth", work_item: "wi-auth", name: "" });
+});
+
+test("teammateSessionEntry：teammate 只开「这件事自己的会话」，没有就不开；非 teammate 才走角色会话", () => {
+  const plan = {
+    members: [{ role: "exec", role_session_id: "s-v-model-exec" }, { role: "pm", role_session_id: "s-v-model-pm" }],
+    work_items: [
+      { id: "wi-impl", role: "exec", name: "实现", status: "running", session_id: "s-v-model-exec-wi-wi-impl" },
+      { id: "wi-req", role: "pm", name: "需求", status: "done" },
+    ],
+  };
+  // teammate + 有"这件事自己的会话" → 实时读面（工作项上下文一起带上）。
+  assert.deepEqual(teammateSessionEntry(plan, "exec"), {
+    kind: "live", session_id: "s-v-model-exec-wi-wi-impl", work_item: "wi-impl", name: "实现"
+  });
+  // teammate + 没有 → **不开**（退回角色会话只会拿到主代理的 main 行）。
+  const none = teammateSessionEntry(plan, "pm");
+  assert.equal(none.kind, "none");
+  assert.match(none.reason, /这一位此刻没有自己的会话/);
+  // 不是 teammate（goal-a2a 的 tl 等真有自己角色的会话）→ 角色会话，行为不变。
+  assert.deepEqual(teammateSessionEntry(plan, "tl"), { kind: "role" });
+  // 没有计划（没有团队看板）→ 判不了 teammate 身份，按老路径走角色会话。
+  assert.deepEqual(teammateSessionEntry(null, "tl"), { kind: "role" });
 });
 
 // ── ④ 里程碑口径：阶段不再是计划的形状 ─────────────────────────────

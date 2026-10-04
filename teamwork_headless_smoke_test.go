@@ -588,6 +588,7 @@ func runGit(root string, args ...string) error {
 //	P4 派发 + 尾插            —— 受理回执拿 handle → 作业终态 → 工作项 review + 尾插回执
 //	P5 做完自动返回            —— 空闲会话被起一个回合（正文指向 team_context / team_accept）
 //	P6 当前 teammate 会话      —— 这件事自己的会话读得到（不是员工的长期历史会话）
+//	P6b 实时读数的 wire 形状    —— 应用层那一面（GUI 经 Wails 拿的 JSON）带前端要读的键
 //	P7 验收收口               —— accept 通过（幂等释放）+ 下游依赖闸门打开（wi-check 可派）
 func TestTeamworkHeadlessSmoke(t *testing.T) {
 	if testing.Short() {
@@ -783,6 +784,26 @@ func TestTeamworkHeadlessSmoke(t *testing.T) {
 	}
 	smoke.report.add("P6 当前 teammate 会话", "session=%s role=%s 行数=%d（含本轮工作正文）",
 		live.SessionID, live.Role, len(live.Messages))
+
+	// ── P6b：**和前端同形的那一跳**（Wails 拿的是 JSON，不是 Go 结构体）──────
+	// GUI 的「查看 teammate 的会话」经 `Service.TeammateSessionLiveFor`（窄端口）拿读数，
+	// 再按 snake_case 键读它（`renderTeammateLiveSession`）。少了这一跳，Go 侧全绿而前端
+	// 读到的是一份"全是 undefined"的对象——2026-10-04 现场：这条读面在 GUI 上永远走
+	// "执行面不在本进程"的分支（字段缺 json tag ⇒ wire 上是 Go 字段名）。
+	// 探针取的是**应用层**那一面（不是 runtime 的直接调用），所以窄端口漏转发也会在这里红。
+	liveWire, err := json.Marshal(smoke.app.TeammateSessionLiveFor(itemSession))
+	if err != nil {
+		t.Fatalf("P6b 编码实时读数：%v", err)
+	}
+	for _, key := range []string{`"session_id"`, `"role"`, `"live"`, `"running"`, `"messages"`} {
+		if !strings.Contains(string(liveWire), key) {
+			t.Fatalf("P6b 断言失败：实时读数的 JSON 里没有前端要读的键 %s：%s", key, liveWire)
+		}
+	}
+	if !strings.Contains(string(liveWire), `"running":true`) {
+		t.Fatalf("P6b 断言失败：这件事的执行面还在，running 必须是 true：%s", liveWire)
+	}
+	smoke.report.add("P6b 实时读数的 wire 形状", "应用层读数（%d 字节）带前端要读的 snake_case 键", len(liveWire))
 
 	// ── P7：验收收口 + 下游闸门 ──────────────────────────────────────
 	// 验收由冒烟**自己驱动**：自动返回那一回合只回正文（见 provider 的 triggeredTurn 分支），
