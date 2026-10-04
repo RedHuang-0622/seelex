@@ -260,7 +260,12 @@ func TestCompactionSummarySwitchOpenReplaysPrefixIntoStackFrame(t *testing.T) {
 
 // TestShippedCompactionSummarySwitchShipsOpen：出厂配置"打开"这一事实本身也要有牙。
 // 字段语义没变（代码零值仍是关，见上面第一条用例），变的是 config/seelex.yaml 这一行；
-// 没有这条用例，一次静默回滚（改回 false 或把整块注释回去）不会有任何红。
+// 没有这条用例，一次静默回滚（把 `enabled: true` 改成 false）不会有任何红。
+//
+// 注意 2026-10-04 起"把整块注释回去"已不再是回滚手法：缺省（整块缺失 / 没写 enabled
+// 键）按**开**处理，回滚只有 `enabled: false` 一条路。缺省那一侧的口径由
+// seelexctx/limits_test.go 的 TestLimitsCompactionSummaryDefaultsOpen 钉住，本用例
+// 只认出厂档这一行。
 func TestShippedCompactionSummarySwitchShipsOpen(t *testing.T) {
 	path := filepath.Join("..", "config", "seelex.yaml")
 	limits, err := seelexctx.LoadLimits(path)

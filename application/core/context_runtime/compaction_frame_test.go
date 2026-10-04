@@ -288,3 +288,45 @@ func TestCompactionFrameBodyWritesWhyNoModelSummary(t *testing.T) {
 		t.Fatalf("兜底措辞里「这不是总结」的口径不能丢：\n%s", plain)
 	}
 }
+
+// TestCompactionFrameBodyBlamesTheRecordedPushFailure：帧自己记着"连栈帧都没推成"时，
+// 兜底措辞不得把这次压缩读成**开关问题**。
+//
+// 现场（2026-10-04，dev GUI 折出的一帧）：同一帧里两句话互相矛盾——JSON 的
+// readback.note 写着 `推帧失败：compaction index: 会话上下文存储未绑定（压缩栈不可用）`，
+// Markdown 正文却写着"压缩摘要开关未开启，或前缀重放失败已回退本地压缩"。前者是
+// **接线**（那一跳没有可用的会话上下文存储），后者是**配置**：读帧的人按后者去查，
+// 会去查一个并不存在的配置事故（当时配置里 `enabled: true`，开关是开的）。用户据此
+// 提问"压缩摘要开关怎么开启"——一次接线故障被表述成了配置事故。
+//
+// 判据：帧里已有的推帧事实必须被用上。有 IndexError → 写出真实的推帧失败原因；
+// IndexSkipped → 说清"没有可归档区间"；两者都没有（更早版本写的帧）才回到原来的
+// 兜底措辞（口径由上面那条用例钉住）。
+func TestCompactionFrameBodyBlamesTheRecordedPushFailure(t *testing.T) {
+	const pushFailure = "compaction index: 会话上下文存储未绑定（压缩栈不可用）"
+
+	failed := compactionFrameBody(compactionFrameInput{
+		Version: 2, Reason: "context_budget_autonomous", Origin: "auto",
+		IndexError: pushFailure,
+	})
+	if strings.Contains(failed, "压缩摘要开关未开启") {
+		t.Fatalf("帧自己记着推帧失败，正文不得把这次压缩说成开关问题：\n%s", failed)
+	}
+	if !strings.Contains(failed, pushFailure) {
+		t.Fatalf("正文应带上帧里已有的推帧失败原因（不是换一种说法，是原样带出）：\n%s", failed)
+	}
+	if meta := frameMetadataFrom(t, failed); !strings.Contains(meta.Readback.Note, pushFailure) {
+		t.Fatalf("readback.note 应照旧写出推帧失败（同一事实两处不换口径）：%+v", meta.Readback)
+	}
+
+	// 索引面就绪、只是这次没有可归档区间：也不是开关问题。
+	skipped := compactionFrameBody(compactionFrameInput{
+		Version: 3, Reason: "context_budget", Origin: "manual", IndexSkipped: true,
+	})
+	if strings.Contains(skipped, "压缩摘要开关未开启") {
+		t.Fatalf("没有折出区间不是开关问题：\n%s", skipped)
+	}
+	if !strings.Contains(skipped, "没有折出任何完整协议单元") {
+		t.Fatalf("没有折出区间应如实写出这一种：\n%s", skipped)
+	}
+}

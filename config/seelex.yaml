@@ -103,11 +103,22 @@ limits:
   # 退化成锚点——帧里只剩"前一帧在哪"，用户读到的就是"压缩的内容很小"。
   context_frame_carry_tokens: 4096
   # ── 压缩处 LLM 章节化摘要（前缀重放厚摘要）─────────────────────
-  # 出厂**打开**（本文件 enabled: true，2026-09-29 起）。注意口径分两层：**代码零值
-  # 仍是关**（整块缺失或 enabled: false 都恒走本地确定性压缩，帧 summary_source=local，
-  # 一次模型调用都不发，不静默降级、可一键回滚，与 async_exec 同一套纪律）；变的是
-  # **出厂文件的选择**，不是字段语义——所以这行本身有测试钉着
-  # （seelebridge/runtime_compaction_switch_test.go 的 TestShippedCompactionSummarySwitchShipsOpen）。
+  # 出厂**打开**（本文件 enabled: true，2026-09-29 起），且**缺省即开**（2026-10-04
+  # 起）。口径分三层，别互相搬：
+  #   · 整块缺失 / 块在但没写 enabled 键 → **开**（"没表态"按出厂档走；判定在
+  #     seelexctx.LoadLimits 与 DefaultLimits——bool 字段的零值分不清"没写"与
+  #     "写了 false"，所以这份区分留在配置入口）；
+  #   · 显式 enabled: false → **关**：恒走本地确定性压缩（帧 summary_source=local），
+  #     一次模型调用都不发，不静默降级——这一个值就是回滚臂；
+  #   · 直接构造 Limits{} 的宿主/测试 → 关（字段零值不变，WithDefaults 不补这一位）。
+  # 出厂文件这一行有测试钉着
+  # （seelebridge/runtime_compaction_switch_test.go 的 TestShippedCompactionSummarySwitchShipsOpen；
+  #   缺省语义由 seelexctx/limits_test.go 的 TestLimitsCompactionSummaryDefaultsOpen 钉住）。
+  #
+  # 打开一次失败的排障入口：帧正文 JSON 的 readback.note 与 Markdown 的
+  # 「压缩材料」段都会写出这次**为什么没有模型读后感**（开关关闭 / 无重放素材 /
+  # 重放调用失败 / 连栈帧都没推成）。2026-10-04 现场：那一跳的会话上下文存储未绑定
+  # → 推帧失败，帧里只剩任务台账证据——这种是**接线**问题，与开关无关。
   #
   # 打开的代价：这是**新增的、无人值守的付费调用**——每次压缩一次；溢出区超过
   # input_tokens 片预算时分片重放，按片多次。

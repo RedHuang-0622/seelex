@@ -143,8 +143,14 @@ type Limits struct {
 	// 规格：docs/2026-09-24-async-tool-deferred-ack/README.md §8。
 	AsyncExec AsyncExecLimits `yaml:"async_exec"`
 	// ContextCompactionSummary 是**压缩处 LLM 章节化摘要**（前缀重放厚摘要）的
-	// 开关块。默认 false = 关闭：压缩恒走本地确定性压缩（summary_source=local），
-	// 一次模型调用都不发。关就是关（不静默降级），可一键回滚。
+	// 开关块。**缺省即开**（2026-10-04 起）：配置里整块缺失、或块在但没写
+	// `enabled` 键，都按打开处理（与出厂档 config/seelex.yaml 一致）；只有**显式**
+	// `enabled: false` 才关闭（压缩恒走本地确定性压缩 summary_source=local、一次模型
+	// 调用都不发），这就是回滚臂。
+	//
+	// 为什么把缺省放在"开"一侧：关掉时帧会退化成"元数据投影 + 一句本地兜底措辞"，
+	// 而那次退化的现场极难归因（2026-10-04：用户读到"压缩摘要开关未开启"，配置里却是
+	// `enabled: true`）。缺省与出厂档一致，"关"就只剩显式一个来源。
 	//
 	// 打开的代价必须写清楚：这是**新增的、无人值守的付费调用**——每次压缩一次，
 	// 溢出区超过片预算时分片重放会按片多次。收益是帧 Chapter 2 从"元数据投影"
@@ -181,8 +187,14 @@ type AsyncExecLimits struct {
 	TriggerConversation bool `yaml:"trigger_conversation"`
 }
 
-// CompactionSummaryLimits 是压缩处 LLM 章节化摘要的开关块。零值（含整个块
-// 缺失）= 关闭，因此同样不需要在 DefaultLimits / WithDefaults 里声明默认。
+// CompactionSummaryLimits 是压缩处 LLM 章节化摘要的开关块。
+//
+// 两层口径**刻意分开**，不要把其中一层的话搬到另一层：
+//   - **配置文件层**：缺省 = 开（整块缺失 / 没写 enabled 键都算没表态）。判定在
+//     LoadLimits（YAML 的键在不在，只有它看得见）与 DefaultLimits（连文件都没有）；
+//     bool 字段的零值分不清"没写"与"写了 false"，所以这份区分必须留在配置入口。
+//   - **字段层**：显式 false 仍然 = 关；直接构造 Limits{} 的宿主/测试保持"零值 = 关"
+//     的旧行为（WithDefaults 不补这一位——补了就把回滚臂吞掉了）。
 //
 // 两个 token 字段的零值各自回退到消费方的既有兜底常量（InputTokens → 不分片；
 // Chapter2Tokens → seelexctx.PrefixReplayMaxTokens），不在这里重复声明，避免
@@ -291,6 +303,11 @@ func DefaultLimits() Limits {
 		ForkTimeoutSec:          7200,
 		// teamwork：teammate 人数上限默认 6（与留守引擎上限同量级）。
 		Team: TeamLimits{MaxTeammates: DefaultTeamMaxTeammates},
+		// 压缩处厚摘要（前缀重放 LLM 章节化摘要）：**缺省即开**（2026-10-04 起，
+		// 与出厂档 config/seelex.yaml 一致）。这里声明的是缺省值，不是强制值：
+		// 显式 `enabled: false` 仍然关（LoadLimits 里显式值优先），直接构造
+		// Limits{} 的宿主/测试也仍然是关（字段零值不变）。
+		ContextCompactionSummary: CompactionSummaryLimits{Enabled: true},
 	}
 }
 
@@ -467,6 +484,10 @@ func LoadLimits(path string) (Limits, error) {
 	if !ok {
 		return DefaultLimits(), nil
 	}
+	// limits 段的键存在性：压缩处厚摘要开关的缺省语义要读它（见
+	// compactionSummaryDefaultsOpen）。取值一律走下面的 Decode，这份映射只回答
+	// "写没写这个键"。
+	limitsContent := documentContent(limitsNode)
 	var check Limits
 	if err := limitsNode.Decode(&check); err != nil {
 		return Limits{}, fmt.Errorf("limits: parse config: %w", err)
@@ -516,21 +537,59 @@ func LoadLimits(path string) (Limits, error) {
 				"（软线到达即压缩；软线 ≥ 硬线会让自主压缩每轮抢跑）",
 			effective.ContextSoftPercent, effective.ContextHardPercent)
 	}
+	// 压缩处厚摘要开关的缺省语义（2026-10-04 起 = 开，与出厂档一致）：整块缺失、或
+	// 块在但没写 enabled 键，都按打开处理；写了 enabled 就是显式值，显式值优先
+	// （`enabled: false` 是回滚臂，不许被默认值吞掉）。判定只能在这里做——bool 字段
+	// 的零值分不清"没写"与"写了 false"，而这一段的 YAML 键就在手边。
+	if compactionSummaryDefaultsOpen(limitsContent) {
+		check.ContextCompactionSummary.Enabled = true
+	}
 	return check, nil
 }
 
-// documentContent 返回 YAML 文档根映射（忽略 null/空文档）。
+// compactionSummaryDefaultsOpen 报告配置里的压缩处厚摘要开关是否落在"缺省"一侧
+// （缺省 = 开）：整块缺失、或块在但没写 enabled 键（含空块）= 缺省；写了 enabled
+// 键 = 显式值（true/false 都算），显式值不做缺省补正。
+//
+// limitsContent 是 limits 段按 **键存在性** 组织的映射（见 documentContent）：
+// 只读"写没写"，不猜"写了什么"——取值一律由 Decode 负责，这里不复制一份取值逻辑。
+func compactionSummaryDefaultsOpen(limitsContent map[string]*yaml.Node) bool {
+	block, written := limitsContent["context_compaction_summary"]
+	if !written {
+		return true
+	}
+	_, hasEnabled := documentContent(block)["enabled"]
+	return !hasEnabled
+}
+
+// documentContent 返回 YAML 节点按**键存在性**组织的映射：文档节点取根映射，
+// 映射节点（如 limits 段的值节点）直接读它自己的键；null/空文档与非映射节点 → nil。
+//
+// 两种入参都要支持，是因为"写没写这个键"既可能问文档（整个 limits 段），也可能问
+// 某一段（context_compaction_summary.enabled），而调用方手里只有那一个节点——为
+// 第二种再写一份取键逻辑，就是同一件事两处维护。
 func documentContent(document *yaml.Node) map[string]*yaml.Node {
-	if document == nil || len(document.Content) == 0 {
+	if document == nil {
 		return nil
 	}
-	root := document.Content[0]
-	if root.Kind != yaml.MappingNode {
+	if document.Kind == yaml.MappingNode {
+		return mappingContent(document)
+	}
+	if len(document.Content) == 0 {
 		return nil
 	}
-	content := make(map[string]*yaml.Node, len(root.Content)/2)
-	for index := 0; index+1 < len(root.Content); index += 2 {
-		content[root.Content[index].Value] = root.Content[index+1]
+	return mappingContent(document.Content[0])
+}
+
+// mappingContent 把映射节点的键值对收进 map；非映射（含 null / 标量）→ nil。
+// 只读键与节点，不取值——取值一律由 yaml 的 Decode 负责。
+func mappingContent(node *yaml.Node) map[string]*yaml.Node {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return nil
+	}
+	content := make(map[string]*yaml.Node, len(node.Content)/2)
+	for index := 0; index+1 < len(node.Content); index += 2 {
+		content[node.Content[index].Value] = node.Content[index+1]
 	}
 	return content
 }

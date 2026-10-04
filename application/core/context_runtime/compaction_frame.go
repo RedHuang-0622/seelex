@@ -217,10 +217,25 @@ func marshalFrameMetadata(meta compactionFrameMetadata) string {
 // localCompactReason 说明这次为什么没有模型读后感。有降级原因（压缩 DAG 记下的开关
 // 状态，或重放失败时的真实报错）就原样写出：此前这里是一句"开关未开启，或前缀重放
 // 失败"的 or 措辞，读帧的人分不清是哪一种，而两件事的处置完全不同——一个是配置、
-// 一个是故障。没有原因（更早版本写的帧、或推帧失败）时保留原来的兜底措辞。
+// 一个是故障。
+//
+// 帧自己就记着"这次连栈帧都没推成"（IndexError / IndexSkipped）时，兜底措辞必须先
+// 认这条事实：把一次**接线故障**读成一次**配置事故**，读帧的人会去查一个并不存在的
+// 开关（2026-10-04 现场：正文写"压缩摘要开关未开启"，同一帧 JSON 的 readback.note
+// 写着"推帧失败：会话上下文存储未绑定"，而配置里开关是打开的——两句话同在一帧里
+// 自相矛盾）。
+//
+// 没有任何原因（更早版本写的帧、也没有推帧事实）时保留原来的兜底措辞：不编原因，
+// 也不把"没有解释"说成"没有降级"。
 func (input compactionFrameInput) localCompactReason() string {
 	if note := strings.TrimSpace(input.SummaryNote); note != "" {
 		return note + "。"
+	}
+	if failure := strings.TrimSpace(input.IndexError); failure != "" {
+		return "推帧失败（" + failure + "），本次压缩没有留下可读的栈帧。"
+	}
+	if input.IndexSkipped {
+		return "本次压缩没有折出任何完整协议单元，没有留下可读的栈帧。"
 	}
 	return "压缩摘要开关未开启，或前缀重放失败已回退本地压缩。"
 }

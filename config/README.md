@@ -44,9 +44,14 @@ flowchart LR
   不跨进程，并发写同一会话/同一模块会互相覆盖。谁保证一致性 = 使用者（典型用法是
   只读的旁路进程，或把并发写分给不同数据根）。
 - 代码零值 = 关（`seelexctx.RuntimeLimits.AllowMultiProcess` 的零值 false），与既有
-  `async_exec` / `context_compaction_summary` 同一套「整块缺失或显式 false 都走
-  不允许路径、可一键回滚」的纪律；两臂各有用例钉住（`seelexctx` 解析两臂 +
-  `sessionstore` 数据根锁两臂）。
+  `async_exec` 同一套「整块缺失或显式 false 都走不允许路径、可一键回滚」的纪律；
+  两臂各有用例钉住（`seelexctx` 解析两臂 + `sessionstore` 数据根锁两臂）。
+  **`context_compaction_summary` 刻意不在这套纪律里**：它自 2026-10-04 起**缺省即开**
+  （整块缺失、或块在但没写 `enabled` 键，都按出厂档打开；只有显式
+  `enabled: false` 才关），因为关掉时帧会退化成"元数据投影"、现场极难归因。
+  钉子：`seelexctx/limits_test.go` 的 `TestLimitsCompactionSummaryDefaultsOpen`
+  （缺省/显式两臂）与 `seelebridge/runtime_compaction_switch_test.go` 的
+  `TestShippedCompactionSummarySwitchShipsOpen`（出厂档那一行）。
 
 ## 启动期自愈（责任链 + 缺失即初始化）
 

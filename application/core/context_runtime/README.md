@@ -237,6 +237,7 @@ go test ./application/core/context_runtime -count=1
 - `func TestCompactionFrameBodyAdmitsMissingEvidence(t *testing.T)` — TestCompactionFrameBodyAdmitsMissingEvidence：没有栈帧摘要（开关默认关、重放失败
 - `func TestCompactionFrameBodyReadbackSaysWhyNoDrillDown(t *testing.T)` — TestCompactionFrameBodyReadbackSaysWhyNoDrillDown：缺 segment_id 时，正文必须
 - `func TestCompactionFrameBodyWritesWhyNoModelSummary(t *testing.T)` — TestCompactionFrameBodyWritesWhyNoModelSummary：落到本地压缩时，正文必须写出
+- `func TestCompactionFrameBodyBlamesTheRecordedPushFailure(t *testing.T)` — TestCompactionFrameBodyBlamesTheRecordedPushFailure：帧自己记着"连栈帧都没推成"时，
 
 ### compaction_index.go
 
@@ -329,17 +330,6 @@ go test ./application/core/context_runtime -count=1
 - `func (c *Coordinator) clearEngineHistory(sessionID string)` — clearEngineHistory 清空指定会话引擎历史（会话路由引擎用 ClearHistoryFor，
 - `func (c *Coordinator) appendEngineHistory(sessionID string, msg types.Message)` — appendEngineHistory 追加消息到指定会话引擎历史（会话路由引擎用
 
-### fold_history.go
-
-- `func (c *Coordinator) sessionHistory(sessionID string) []contract.EngineMessage` — sessionHistory 读指定会话的引擎历史（会话路由端口优先）。
-- `func (c *Coordinator) replaceSessionHistory(sessionID string, history []contract.EngineMessage) error` — replaceSessionHistory 写指定会话的引擎历史：替换经会话路由端口下发，落点由引擎
-- `func (c *Coordinator) setSessionSystemPrompt(sessionID, prompt string)` — setSessionSystemPrompt 把本会话 system prompt 推进引擎历史。它不改写进程级 prompt
-- `func (h *HistoryCoordinator) sessionHistory(sessionID string) []contract.EngineMessage` — sessionHistory / replaceSessionHistory 是 HistoryCoordinator 的同款入口（provider 历史
-- `func (h *HistoryCoordinator) replaceSessionHistory(sessionID string, history []contract.EngineMessage) error`
-- `func (c *Coordinator) withInFlightTail(existing, assembled []contract.EngineMessage) []contract.EngineMessage` — withInFlightTail 把「正在飞的那一截」接回压缩产物尾部。
-- `func inFlightTail(history []contract.EngineMessage) []contract.EngineMessage` — inFlightTail 返回历史末尾那段「assistant 带 tool_calls、其中至少一个 call 还没有
-- `func sameToolCalls(left, right []contract.EngineToolCall) bool`
-
 ### history.go
 
 - `func interruptedToolResultContent(name string) string` — interruptedToolResultContent 生成缺失 tool 结果的协议占位正文：明示该
@@ -401,4 +391,16 @@ go test ./application/core/context_runtime -count=1
 - `func TestRetainWindowDecisionRecordsFacts(t *testing.T)` — TestRetainWindowDecisionRecordsFacts：保留窗口决策把"拿什么数字比的"全部记下
 - `func TestContextLayoutTerseAndZonesRender(t *testing.T)` — TestContextLayoutTerseAndZonesRender：门禁 Detail 与帧正文读同一份 layout——
 - `func TestCompactionFrameBodyCarriesZoneLayout(t *testing.T)` — TestCompactionFrameBodyCarriesZoneLayout：帧正文必须带上四区事实——否则记录里
+
+### session_history.go
+
+- `func (c *Coordinator) sessionHistory(sessionID string) []contract.EngineMessage` — sessionHistory 读指定会话的引擎历史（会话路由端口优先）。
+- `func (c *Coordinator) replaceSessionHistory(sessionID string, history []contract.EngineMessage) error` — replaceSessionHistory 写指定会话的引擎历史：替换经会话路由端口下发，落点由引擎
+- `func (c *Coordinator) setSessionSystemPrompt(sessionID, prompt string)` — setSessionSystemPrompt 把本会话 system prompt 推进引擎历史。它不改写进程级 prompt
+- `func (h *HistoryCoordinator) sessionHistory(sessionID string) []contract.EngineMessage` — sessionHistory / replaceSessionHistory 是 HistoryCoordinator 的同款入口（provider 历史
+- `func (h *HistoryCoordinator) replaceSessionHistory(sessionID string, history []contract.EngineMessage) error`
+- `func (c *Coordinator) withInFlightTail(existing, assembled []contract.EngineMessage) []contract.EngineMessage` — withInFlightTail 把「正在飞的那一截」接回压缩产物尾部。
+- `func inFlightTail(history []contract.EngineMessage) []contract.EngineMessage` — inFlightTail 返回历史末尾那段「assistant 带 tool_calls、其中至少一个 call 还没有
+- `func sameToolCalls(left, right []contract.EngineToolCall) bool`
+- `func sameCompactionFailure(records []model.ContextCompaction, failure model.ContextCompaction) bool` — sameCompactionFailure 判定失败的压缩是否**同一次**：同一上下文版本 + 同一原因
 

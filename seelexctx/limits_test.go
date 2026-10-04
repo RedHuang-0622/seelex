@@ -295,3 +295,69 @@ func TestLimitsAsyncExecDefaultsOff(t *testing.T) {
 		t.Fatal("显式 enabled: true 必须打开后台命令切片")
 	}
 }
+
+// TestLimitsCompactionSummaryDefaultsOpen：压缩处厚摘要开关的**缺省语义 = 开**
+// （2026-10-04 起，与出厂档 config/seelex.yaml 一致）。
+//
+// 为什么把它放在上面那条（async_exec 缺省 = 关）旁边：两者都是"新增的、无人值守的
+// 外部调用"，缺省方向却**刻意相反**——async_exec 关闭时能力根本不可实施，拒绝是安全侧；
+// 厚摘要关闭时只是帧退化成元数据投影，而帧退化的现场极难归因（2026-10-04 现场：用户
+// 读到的帧正文写着"压缩摘要开关未开启"，配置里却是 `enabled: true`，真正的原因是那一跳
+// 的会话上下文存储没绑定）。所以配置**没表态**时按出厂档（开）走，把"关"留给显式
+// `enabled: false`——这一个值就是回滚臂。
+//
+// 三层口径一次钉全：
+//   - 整块缺失 / 块在但没写 enabled 键（含空块）→ 开（都是"没表态"）；
+//   - 显式 false → 关（不许被默认值吞掉，也不许顺手带歪别的字段）；
+//   - 显式 true → 开。
+func TestLimitsCompactionSummaryDefaultsOpen(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		want    bool
+	}{
+		{"缺 limits 段", "", true},
+		{"limits 段缺整块", "limits:\n  tool_call_timeout: 60\n", true},
+		{"块在但没写 enabled", "limits:\n  context_compaction_summary:\n    chapter2_tokens: 2048\n", true},
+		{"空块", "limits:\n  context_compaction_summary: {}\n", true},
+		{"显式关", "limits:\n  context_compaction_summary:\n    enabled: false\n", false},
+		{"显式开", "limits:\n  context_compaction_summary:\n    enabled: true\n", true},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "seelex.yaml")
+			if testCase.content != "" {
+				if err := os.WriteFile(path, []byte(testCase.content), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			limits, err := LoadLimits(path)
+			if err != nil {
+				t.Fatalf("LoadLimits: %v", err)
+			}
+			if got := limits.WithDefaults().ContextCompactionSummary.Enabled; got != testCase.want {
+				t.Fatalf("压缩处厚摘要开关 = %t，want %t（content=%q）", got, testCase.want, testCase.content)
+			}
+		})
+	}
+
+	// 缺文件（配置一个都没有）走 DefaultLimits：那条路径同样是"没表态"，同样是开。
+	if !DefaultLimits().ContextCompactionSummary.Enabled {
+		t.Fatal("DefaultLimits 的压缩处厚摘要开关应为开（缺省 = 开）")
+	}
+
+	// 显式关这一臂不能顺手把别的字段带歪。
+	path := filepath.Join(t.TempDir(), "seelex.yaml")
+	content := "limits:\n  tool_call_timeout: 60\n  context_compaction_summary:\n    enabled: false\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	limits, err := LoadLimits(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if merged := limits.WithDefaults(); merged.ContextCompactionSummary.Enabled || merged.ToolCallTimeoutSec != 60 {
+		t.Fatalf("显式关 + 其它字段并存必须互不影响：%+v timeout=%d",
+			merged.ContextCompactionSummary, merged.ToolCallTimeoutSec)
+	}
+}
