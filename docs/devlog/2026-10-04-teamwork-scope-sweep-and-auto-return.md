@@ -181,14 +181,28 @@ _ contract.TeamworkJobCompletion = RuntimePort{}
      ≈ 114s，~380ms/提交）以及"取消之后 worker 自身的收尾"。
      原先的破口是：收口直接 `retireSteps(reclaim=true)` → `releaseAllItems` 拆掉全部 per-item
      现场，Reclaim 等不到（5s）也照拆。**已按用户裁决堵住**：`Close` 前置闸门
-     `unsettledItems`——在跑 / 待验收 / **失败**都拒收（失败也拦，因为 failed 的现场正是留给
-     leader 人工解冲突/变基/合并的，收口拆掉它等于把 leader 要用的东西删了，分支也一并删），
-     并给出路：待验收 ⇒ `team_accept`/`team_fail`；在跑 ⇒ 等回执或 `jobs_manage(op=kill)`；
-     失败 ⇒ 人工处置后 `team_accept` 销项（为此 `AcceptItem` 放行 failed：链尾只有一个销项
-     动作）或 `team_dispatch` 重派。闸门在 `retireSteps`/`Reclaim` **之前**，所以"还有活没落定"
-     时根本走不到 Reclaim——5s 那个上限不再是"先合并再收口"的破口。用例：
-     `seelebridge/teamwork/items_chain_gate_test.go`（两端四条：验收端在跑的拒/句柄作废的放；
-     收口端 running/review/failed 三拒 + 销项后放行）。
+     `unsettledItems`——**在跑且 handle 还在册**、以及**失败**，两者都拒收（failed 的现场正是
+     留给 leader 人工解冲突/变基/合并的，收口拆掉它等于把 leader 要用的东西删了，分支也一并
+     删）；**待验收不拦**（尾插已走完、合并已落地，释放它的现场是安全的）。出路：在跑 ⇒ 等
+     回执或 `jobs_manage(op=kill)`；失败 ⇒ 人工处置后 `team_accept` 销项（为此 `AcceptItem`
+     放行 failed：链尾只有一个销项口）或 `team_dispatch` 重派；要更严（收口前必须全部销项）
+     是一档可调的口径。闸门在 `retireSteps`/`Reclaim` **之前**，所以"还有活没落定"时根本走不
+     到 Reclaim——5s 那个上限不再是"先合并再收口"的破口。用例：
+     `seelebridge/teamwork/items_chain_gate_test.go`（两端四条：验收端在跑的拒 / 句柄作废的放；
+     收口端 running 拒且**不动现场与作业** / failed 拒、销项后放行）。既有用例
+     `TestTeamCloseEndsEveryLiveBinding` 是"中途提前 team_done 一并结束活绑定"的**旧口径**，
+     已被本裁决取代（改用例并注明日期，不偷偷改绿）。
+   - **裁决（2026-10-04，保持现状）：不给尾插里的 git 加取消链。** 尾插的合并/变基**不是工具
+     调用**——它是作业体里框架自己起的 git 子进程（`job 执行体 → settler → SettleWorkItem →
+     MergeWorkspace → WorktreeManager.Finish`），所以不在"停止按钮的终止秩序"里：`GitRunner`
+     的 ctx 由 `context.Background()` 派生（`worktree_manager.go:478`：`WithTimeout(Background(),
+     60s)` → `exec.CommandContext`），任何 ctx 取消都够不到它——停止按钮（`CancelChat` 取消前台
+     回合）够不到、`jobs_manage(op=kill)`（取消作业 ctx）也够不到。因此 **rebase 一旦起来必然
+     跑完**（每条命令上限 60s），随后尾插照常落回执与状态（这一轮被取消时落 failed，等 leader
+     销项）。理由（用户裁决）：变基结果不想要可以在 git 层回滚（reset/branch），而"强行终止"会
+     留下半截变基（`.git/rebase-merge` 中间态），害到后续所有合并。口径对齐：rebase 期间
+     `team_accept`/`team_close` 都被闸门拦住，leader 只有"等它落定"或"kill 作业（它仍会跑完）"
+     两条路。
 3. **`stages` 退场后没有"只读计划入口"**：确认里程碑/工作项仍靠 `team_items` + 拒绝原文。
 
 ---
