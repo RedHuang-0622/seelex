@@ -164,10 +164,21 @@ _ contract.TeamworkJobCompletion = RuntimePort{}
    - **后果（比报错本身更重）**：那条交错里合并被**跳过**，而 `CleanupWorktree` 释放时
      会 `git branch -D seelex/<item>` —— teammate 这一轮的提交因此只剩 reflog 可达，
      而尾插回执还在教 leader「请 leader 亲自执行合并」（那时已经没现场可合了）。
-   - **修法（二选一，都会改变可见行为，需要产品裁决）**：① 收紧验收闸门——handle 还活着
-     就不许 `team_accept`（与 `team_retire`「名下有在跑的活会被拒」同口径）；② 让合并侧
-     把"现场已被释放"当成显式的幂等结局（回执如实写"已被验收释放、未合并"），而不是报错。
-     倾向 ①：它把竞态从"两条路都能动同一份现场"变成"谁先谁后都不丢产出"。
+   - **已定责（2026-10-04，按用户裁决落地方案 ①）**：产出的责任链只有一条——
+     **合并（尾插步 1）→ 回执（步 2）→ 状态（步 3）→ leader 审查 → 验收入账 / 重新派活 /
+     整队收口**；下游动作只许在上游走完之后动手。落地：`AcceptItem` 对「在跑」拒收
+     （判据沿用既有的 `running && handleAlive`——与 `DispatchItem` 的重复派发、
+     看板 Interrupted 投影同一处口径；handle 已作废＝这一件事的尾插不会再跑 ⇒ 仍放行，
+     保住"重启后收尾"那条路）；`team_accept` 的工具描述同步写明这条链。用例：
+     `seelebridge/teamwork/items_accept_chain_gate_test.go`（在跑 ⇒ 拒且**不动现场**；
+     handle 作废 ⇒ 放行）。
+   - **残留窗口（未堵，如实记）**：整队收口这条路**已经**是"先合并再释放"——`retireSteps`
+     步 1 的 `jobs.Reclaim` 会 cancel **并等作业体结束**，而作业体里就含尾插（合并 → 回执
+     → 状态），且 store 与 `GitRunner` 都不吃 ctx 取消（取消不会把合并拦腰截断）。但
+     `Reclaim` 的等待有上限：`jobs.Limits.DefaultWait` 默认 **5s**
+     （vendor `jobs/options.go:41`）——合并/rebase 超过 5s，Reclaim 就带着"作业还在跑"
+     返回，随后的释放仍可能抢在合并前面。要不要再收（例如释放侧复核一次 `handleAlive`）
+     留待后续。
 3. **`stages` 退场后没有"只读计划入口"**：确认里程碑/工作项仍靠 `team_items` + 拒绝原文。
 
 ---

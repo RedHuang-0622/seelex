@@ -140,7 +140,10 @@ func teamworkAcceptDescription() string {
 	return "Accept one work item after your review (status -> done). Acceptance also ends that item's execution isolation: " +
 		"its git worktree is released and its Session contents are cleared, so the teammate opens a fresh Session + worktree " +
 		"for its next work item. A work item whose upstream dependencies are not done cannot be dispatched, so acceptance is " +
-		"also what opens the next step of a within-milestone DAG."
+		"also what opens the next step of a within-milestone DAG. " +
+		"Acceptance is the LAST link of the settle chain — merge worktree -> enqueue receipt -> status -> your review -> accept — " +
+		"so a work item whose job is still running is refused: releasing its worktree mid-flight would race the automatic merge. " +
+		"Wait for its receipt (team_items) or kill the job first."
 }
 
 func teamworkAcceptSchema() map[string]interface{} {

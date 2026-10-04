@@ -486,6 +486,20 @@ func (c *Coordinator) SettleWorkItem(ctx context.Context, request WorkerRequest,
 
 // AcceptItem 是 leader 的**验收通过**：工作项 → done，销项，并结束这一件事的执行隔离
 // （释放 worktree + 清这一件事的会话），teammate 下一件事重新开一套。
+//
+// **责任链（一条链，顺序即责任）**：
+//
+//	合并（尾插步 1：MergeWorkspace）→ 回执（步 2）→ 状态（步 3：review/failed）
+//	→ leader 审查 → 验收入账（本方法）/ 重新派活 / 整队收口
+//
+// 验收是链尾，它要**释放现场**（删 worktree 目录 + 删分支），所以只许在尾插走完之后
+// 动手——下游抢在上游前面，就会对一份正在被合并使用的现场下手。真实 git 上的现场形状
+// 是 `fork/exec …git.exe: The directory name is invalid`（复现：
+// seelebridge/worktree/worktree_vanished_scene_repro_test.go）。
+//
+// 「在跑」的判据沿用 DispatchItem 与看板投影的**同一处**口径：running **且** handle 还在
+// 册 = 这一件事真的还在飞（→ 拒绝，让它把尾插走完）。handle 已作废（进程重启 / 已被回收）
+// 则相反：尾插不会再跑，验收就此成了清理动作（→ 放行，这正是"重启后收尾"那条路）。
 func (c *Coordinator) AcceptItem(ctx context.Context, itemID, note string) error {
 	plan, err := c.store.ReadPlan(ctx, c.key)
 	if err != nil {
@@ -496,7 +510,13 @@ func (c *Coordinator) AcceptItem(ctx context.Context, itemID, note string) error
 		return fmt.Errorf("teamwork: 计划里没有工作项 %q", itemID)
 	}
 	switch item.StatusOrPending() {
-	case sessionstore.TeamworkItemReview, sessionstore.TeamworkItemRunning:
+	case sessionstore.TeamworkItemReview:
+		// 尾插已走完（合并 → 回执 → 状态）：链尾该动的地方，放行。
+	case sessionstore.TeamworkItemRunning:
+		if c.handleAlive(item.Handle) {
+			return fmt.Errorf("teamwork: 工作项 %q 还在跑（handle %s 还在册），不能验收——先等它的回执（尾插会先合并、再插回执），或先 jobs_manage(op=kill, handle=\"%s\") 把它停掉，那时现场才归你处置",
+				item.ID, item.Handle, item.Handle)
+		}
 	case sessionstore.TeamworkItemDone:
 		return nil // 幂等
 	default:
