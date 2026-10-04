@@ -344,6 +344,32 @@ func (c *Coordinator) busyItems(ctx context.Context, role string) ([]string, err
 	return busy, nil
 }
 
+// unsettledItems 返回"没落定"的工作项（`id(状态)` 口径），供收口闸门拒收用：
+//
+//	running 且 handle 还在册 —— 尾插还在飞（现场正被合并使用）
+//	failed                  —— 尾插把现场留给 leader 人工处置
+//
+// 待验收（review）不算：尾插已走完、合并已落地，释放它的现场是安全的。与 `busyItems`
+// 的分工要分清：那个是 **team_retire** 的尺子（单角色名下"在跑 / 待验收"就不许退场，
+// 它只放角色的共用工作区、不动 per-item 现场）；收口会把**所有** per-item 现场一并拆掉，
+// 所以尺子另外量一遍（见 Close 的注释）。
+func (c *Coordinator) unsettledItems(plan sessionstore.TeamworkPlan) []string {
+	unsettled := make([]string, 0)
+	for _, milestone := range plan.Milestones {
+		for _, item := range milestone.Items {
+			switch item.StatusOrPending() {
+			case sessionstore.TeamworkItemRunning:
+				if c.handleAlive(item.Handle) {
+					unsettled = append(unsettled, item.ID+"(running)")
+				}
+			case sessionstore.TeamworkItemFailed:
+				unsettled = append(unsettled, item.ID+"(failed)")
+			}
+		}
+	}
+	return unsettled
+}
+
 // Close 收口整支团队（team_close）：逐在编成员走同一套四步（这里 reclaim=true，回收
 // 统一收口到这一处）→ 封板团队看板（closed/team.close）→ 计划标 closed → 落一条
 // close 审计。
@@ -361,6 +387,21 @@ func (c *Coordinator) Close(ctx context.Context) (bool, error) {
 	}
 	if plan.State.State == sessionstore.TeamworkStateClosed {
 		return true, nil
+	}
+	// 收口闸门（责任链的下游端）：收口是**唯一**会拆 per-item 现场的地方（releaseAllItems
+	// 把每件活绑定的 worktree 目录与分支一并删掉），所以"还被尾插拿着"与"留给 leader 人工
+	// 处置"这两类现场不许被它静默拆掉——
+	//   - running 且 handle 还在册：尾插还在飞。**慢变基**就落在这段窗口里（本机实测：
+	//     300 提交的成功变基 ≈ 114s，而 Reclaim 只等 5s，见 jobs.Limits.DefaultWait）；
+	//   - failed：尾插把现场留给了 leader（解冲突 / 变基 / 合并）。收口拆掉它等于把 leader
+	//     要用的东西删了，分支也一并删——产出只剩 reflog。
+	// 待验收（review）**不拦**：尾插已走完、合并已落地，释放它的现场是安全的；pending
+	// 没有现场；running 而 handle 已作废（重启后）也不会再被合并使用（可重派/可清理）。
+	if unsettled := c.unsettledItems(plan); len(unsettled) > 0 {
+		return false, fmt.Errorf("teamwork: 还有 %d 件工作没落定（%s）——整队收口会把它们的现场一并拆掉，"+
+			"先把账收干净：还在跑的先等它的回执（尾插会先合并、再插回执），或 jobs_manage(op=kill) 停掉；"+
+			"失败/合并冲突的先人工处置（在它的 worktree 里解冲突、变基、合并）再 team_accept 销项，要重做就 team_dispatch 重派",
+			len(unsettled), strings.Join(unsettled, ", "))
 	}
 	for _, member := range plan.Members {
 		if _, err := c.retireSteps(ctx, member.Role, true); err != nil {

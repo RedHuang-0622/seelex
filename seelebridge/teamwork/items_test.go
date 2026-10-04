@@ -459,7 +459,14 @@ func TestTeamCloseEndsEveryLiveBinding(t *testing.T) {
 		// wi-impl 依赖 wi-req：此刻还没 done，闸门照旧拦它——本用例只用 wi-req。
 		t.Logf("下游被依赖闸门拦下（符合预期）：%v", err)
 	}
-	// leader 中途提前 team_done：所有活绑定一并结束。
+	// leader 想中途提前 team_done：**在跑时会被收口闸门拦下**（2026-10-04 口径——收口是
+	// 唯一会拆 per-item 现场的地方，"还在被尾插使用的现场"不许被它静默拆掉；见
+	// TestCloseRefusesWhileItemRunning）。先把这一件落定，再收口：活着的绑定到此为止。
+	if _, err := fixture.coordinator.Close(ctx); err == nil {
+		t.Fatal("还在跑时收口必须被拦（现场正被尾插使用）")
+	}
+	close(block)
+	waitItemStatus(t, fixture, "wi-req", sessionstore.TeamworkItemReview)
 	alreadyClosed, err := fixture.coordinator.Close(ctx)
 	if err != nil {
 		t.Fatalf("Close: %v", err)
@@ -478,7 +485,6 @@ func TestTeamCloseEndsEveryLiveBinding(t *testing.T) {
 	if len(report.Bindings) != 0 {
 		t.Fatalf("收口之后不该还有活绑定: %+v", report.Bindings)
 	}
-	close(block)
 }
 
 // ── 用例 9：中断恢复（额度不够 / 重启）────────────────────────────────

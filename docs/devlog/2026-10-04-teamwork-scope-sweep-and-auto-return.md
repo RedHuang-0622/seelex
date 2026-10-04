@@ -172,13 +172,23 @@ _ contract.TeamworkJobCompletion = RuntimePort{}
      保住"重启后收尾"那条路）；`team_accept` 的工具描述同步写明这条链。用例：
      `seelebridge/teamwork/items_accept_chain_gate_test.go`（在跑 ⇒ 拒且**不动现场**；
      handle 作废 ⇒ 放行）。
-   - **残留窗口（未堵，如实记）**：整队收口这条路**已经**是"先合并再释放"——`retireSteps`
-     步 1 的 `jobs.Reclaim` 会 cancel **并等作业体结束**，而作业体里就含尾插（合并 → 回执
-     → 状态），且 store 与 `GitRunner` 都不吃 ctx 取消（取消不会把合并拦腰截断）。但
-     `Reclaim` 的等待有上限：`jobs.Limits.DefaultWait` 默认 **5s**
-     （vendor `jobs/options.go:41`）——合并/rebase 超过 5s，Reclaim 就带着"作业还在跑"
-     返回，随后的释放仍可能抢在合并前面。要不要再收（例如释放侧复核一次 `handleAlive`）
-     留待后续。
+   - **残留窗口（收口端已堵，2026-10-04）**：先说清那个数——`jobs.Limits.DefaultWait` 默认
+     **5s**（vendor `jobs/options.go:41`），它**不是 rebase 的预算**：它的本行用途是
+     `job_manage(op=fetch)` 没给 wait_ms 时的等待上限，`Reclaim`/`Kill` 只是借它当"取消之后等
+     作业体收敛多久"的上限（且 `Reclaim` 超时是**静默**的：无错误分支，直接退记录返回 nil；
+     `Kill` 超时才报错）。实测（本机）：**冲突变基 ~0.5s 就失败返回**，所以"变基冲突"并不是
+     吃掉 5s 的东西；真正能把作业体拖过 5s 的是**成功但提交数多的变基**（实测 300 提交
+     ≈ 114s，~380ms/提交）以及"取消之后 worker 自身的收尾"。
+     原先的破口是：收口直接 `retireSteps(reclaim=true)` → `releaseAllItems` 拆掉全部 per-item
+     现场，Reclaim 等不到（5s）也照拆。**已按用户裁决堵住**：`Close` 前置闸门
+     `unsettledItems`——在跑 / 待验收 / **失败**都拒收（失败也拦，因为 failed 的现场正是留给
+     leader 人工解冲突/变基/合并的，收口拆掉它等于把 leader 要用的东西删了，分支也一并删），
+     并给出路：待验收 ⇒ `team_accept`/`team_fail`；在跑 ⇒ 等回执或 `jobs_manage(op=kill)`；
+     失败 ⇒ 人工处置后 `team_accept` 销项（为此 `AcceptItem` 放行 failed：链尾只有一个销项
+     动作）或 `team_dispatch` 重派。闸门在 `retireSteps`/`Reclaim` **之前**，所以"还有活没落定"
+     时根本走不到 Reclaim——5s 那个上限不再是"先合并再收口"的破口。用例：
+     `seelebridge/teamwork/items_chain_gate_test.go`（两端四条：验收端在跑的拒/句柄作废的放；
+     收口端 running/review/failed 三拒 + 销项后放行）。
 3. **`stages` 退场后没有"只读计划入口"**：确认里程碑/工作项仍靠 `team_items` + 拒绝原文。
 
 ---

@@ -517,6 +517,11 @@ func (c *Coordinator) AcceptItem(ctx context.Context, itemID, note string) error
 			return fmt.Errorf("teamwork: 工作项 %q 还在跑（handle %s 还在册），不能验收——先等它的回执（尾插会先合并、再插回执），或先 jobs_manage(op=kill, handle=\"%s\") 把它停掉，那时现场才归你处置",
 				item.ID, item.Handle, item.Handle)
 		}
+	case sessionstore.TeamworkItemFailed:
+		// 链尾只有**一个**销项动作，就是验收：failed 的现场与记忆都留给 leader
+		// （人工解冲突 / 变基 / 合并，或判定放弃），处置完由此销项。收口的闸门要求
+		// 账先收干净（见 Close 的 unsettledItems），所以这条路必须留着——否则一个
+		// failed 的工作项既不能验收、又挡着收口，整队就永远收不了。
 	case sessionstore.TeamworkItemDone:
 		return nil // 幂等
 	default:

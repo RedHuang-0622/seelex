@@ -245,7 +245,10 @@ func teamworkCloseDescription() string {
 	return "Close the whole team (team_close): every enrolled member runs the same four-step retire — this is the ONE place " +
 		"that reclaims jobs, so job output stays on the table until here — then the team board is sealed (closed/team.close), " +
 		"the plan is marked closed and a close audit line is written. Idempotent: a second call returns already_closed=true " +
-		"and neither re-seals nor re-audits. Takes no arguments: closure is a team-level act, not a seat's (per-member exit is team_retire)."
+		"and neither re-seals nor re-audits. Takes no arguments: closure is a team-level act, not a seat's (per-member exit is team_retire). " +
+		"Refused while any work item is unsettled (running / awaiting review / failed): closing is the one place that tears down every " +
+		"per-item worktree, so settle the account first — team_accept (or team_fail) an item awaiting review, wait for a running item's " +
+		"receipt (or kill the job), and resolve a failed item's worktree by hand (conflicts, rebase, merge) before accepting it."
 }
 
 func teamworkCloseSchema() map[string]interface{} {
