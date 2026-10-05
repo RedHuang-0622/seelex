@@ -99,7 +99,7 @@ func (l teamLifecycleLayer) Kind() workunit.Kind { return workunit.KindTeammate 
 // SessionPath 是本层的会话路径 = 归属主会话号（账本键由父按团队归属解析到团队账本）。
 func (l teamLifecycleLayer) SessionPath() string { return l.mainSessionID }
 
-// Ownership 是归属读数：团队 / 角色 / 工作项 / 这一轮的目标。
+// Ownership 是归属读数：团队 / 角色 / 工作项 / 这一轮的目标 / 显式现场名。
 func (l teamLifecycleLayer) Ownership() lifeOwnership {
 	return lifeOwnership{
 		TeamID:        strings.TrimSpace(l.scene.TeamID),
@@ -108,6 +108,7 @@ func (l teamLifecycleLayer) Ownership() lifeOwnership {
 		ItemID:        strings.TrimSpace(l.request.WorkItemID),
 		RoleSessionID: strings.TrimSpace(l.request.RoleSessionID),
 		Goal:          strings.TrimSpace(l.request.Goal),
+		Worktree:      strings.TrimSpace(l.request.Worktree),
 	}
 }
 

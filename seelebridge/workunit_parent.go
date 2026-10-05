@@ -69,6 +69,7 @@ type lifeOwnership struct {
 	ItemID        string // 工作项（团队归属）
 	RoleSessionID string // 这件事自己的会话（一件活一条）
 	Goal          string // 这一轮的目标（恢复说明要读）
+	Worktree      string // 现场指派名的**显式**读数（空 = 由父按命名约定派生一次）
 }
 
 // ── 父：唯一实现，持有全部端口（字段不导出）──────────────────────────────
@@ -151,11 +152,14 @@ func (h *lifecycleHost) Begin(ctx context.Context, layer lifecycleLayer) (workun
 		SessionID: own.RoleSessionID,
 	}
 	if h.teamOwned(ctx, layer) {
-		// 现场指派名与"一个 Work Item 一个 worktree"是同一条命名（只有一处换算：
-		// teamwork 的两个派生函数，这里不另拼一次）。
-		scene.Worktree = teamwork.WorkItemWorktreeName(own.Role, own.ItemID)
-		if strings.TrimSpace(own.ItemID) == "" {
-			scene.Worktree = teamwork.TeammateWorktreeName(own.Role)
+		// 现场指派名：调用方显式给了就用它（同一个命名约定派生的结果），否则由父按
+		// teamwork 的两个派生函数算一次——命名只有一处来源，不在这里另拼一次。
+		scene.Worktree = strings.TrimSpace(own.Worktree)
+		if scene.Worktree == "" {
+			scene.Worktree = teamwork.WorkItemWorktreeName(own.Role, own.ItemID)
+			if strings.TrimSpace(own.ItemID) == "" {
+				scene.Worktree = teamwork.TeammateWorktreeName(own.Role)
+			}
 		}
 		bound, err := h.r.BindWorkspace(ctx, teamwork.WorkspaceBinding{
 			MainSessionID: layer.SessionPath(),
