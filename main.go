@@ -909,6 +909,15 @@ func initPluginSystem(
 	//   - 目录能读、但与这台机器**已装集合有差异** ⇒ 只写终端一行（本机自装/退役插件）。
 	// 无论哪一档，判决函数都会被注入：它对每个未定义名显式拒绝并说清"用哪个根找过"，
 	// 所以"没有目录/目录坏了"在装配面上同样是显式失败，而不是"没有 pending"。
+	// 发现 → 读回 → 落进 yaml：磁盘是事实，精选目录是事实的读数。运行树里的插件可能是
+	// agent 自己长出来的（plugin_create）、也可能是手工/上一次会话放进来的——先登记，再读
+	// 判决面；否则它们只会被读成"漂移"，使用者只能自己把机器该做的簿记抄进 YAML。
+	if registered, err := manager.RegisterDiscoveredPlugins(); err != nil {
+		log.Printf("plugin: 精选目录登记失败（目录保持原样，不影响启动）: %v", err)
+	} else if len(registered) > 0 {
+		log.Printf("plugin: 已发现并登记本机自建插件进 %s: %s",
+			plugin.CuratedFileName, strings.Join(registered, ", "))
+	}
 	curated := resolveCuratedRead(roots, loaded)
 	runtime.SetPluginUnassembledReason(curatedAssemblyJudge(curated))
 	switch {
@@ -1160,6 +1169,14 @@ func registerPluginSelfTools(runtime *seelebridge.Runtime, plugins *plugin.Manag
 			if err != nil {
 				return "", fmt.Errorf("plugins_reload: %w", err)
 			}
+			// 发现 → 读回 → 落进 yaml：刚写盘的插件（plugin_create / skill_create / 别的
+			// 工具放进去的）在这一步被登记进精选目录——"创建 → 加载 → 目录跟上"是同一个闭环，
+			// 别让使用者手抄插件清单。登记失败不改判定：回执里留一条读数，启动期还会重试。
+			registered, rerr := plugins.RegisterDiscoveredPlugins()
+			if rerr != nil {
+				log.Printf("plugin: 精选目录登记失败（目录保持原样）: %v", rerr)
+			}
+			report.CatalogRegistered = registered
 			encoded, _ := json.Marshal(report)
 			return string(encoded), nil
 		},

@@ -66,6 +66,11 @@ sequenceDiagram
   `AssemblePreset` / `AssemblePlugin` 对 pending 显式拒绝并**点名它是 pending 与它的来源**；
   读面 `CuratedCatalog.SourceSummary(name)` 给出"哪个插件是谁给的"一行摘要。
   转正四问 = `CuratedPromoteQuestions`。旁车文件不进 `Loader`：它只认目录。
+- `curated_write.go`：精选目录的**写侧**——发现 → 读回 → 落进 yaml。`RegisterDiscoveredPlugins`
+  把"已落盘但目录里没登记"的本机自建插件补进 `entries`（`source.kind = local`）并挂进 `local`
+  preset；只追加（文本插入，注释与已有条目逐字节保留）、只登记本根下的插件、幂等、写回前自检
+  （坏目录拒绝改写、没有目录不硬造）。`Manager.RegisterDiscoveredPlugins` 是走读侧同一条
+  first-wins 责任链的入口。
 - `scaffold.go`：`plugin_create` / `skill_create` 的脚手架写盘（落在 `PrimaryRoot()`）。
 - `apply.go`：通用事务助手 `Transaction`（顺序执行 + 失败逆序回滚）与
   快照差异 `DiffState`（新增/删除/修改）。

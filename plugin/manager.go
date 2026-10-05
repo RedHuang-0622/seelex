@@ -217,6 +217,9 @@ type ReloadReport struct {
 	Removed []string `json:"removed"`
 	Updated []string `json:"updated"`
 	Active  string   `json:"active"`
+	// CatalogRegistered 是本次**被登记进精选目录**的本机自建插件（发现 → 读回 → 落进
+	// yaml 的回执面）。空 = 目录已与磁盘一致，没有需要补的簿记。
+	CatalogRegistered []string `json:"catalog_registered,omitempty"`
 }
 
 // Reload 重新扫描磁盘插件目录并与当前状态 diff 后**事务式**应用：

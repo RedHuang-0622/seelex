@@ -33,6 +33,8 @@ plugin: 根 plugins=3, dist/dev/plugins=0（共加载 3 个插件）
 
 写侧（`plugin_create` / `skill_create`）落在链上**第一个真实存在**的根（`Loader.PrimaryRoot`），与读侧同源，避免"创建成功但 `plugins_reload` 看不到"。
 
+**写侧还要把新插件登记进精选目录**（`plugin.RegisterDiscoveredPlugins`，`plugin/curated_write.go`）：启动期与每次 `plugins_reload` 之后，磁盘上有、目录里没有的本机自建插件会被补一条 `entries`（`source.kind: local`，url 指向它所在的本机根）并挂进 `local` preset——**发现 → 读回 → 落进 yaml**。理由：agent 自己长出来的插件（`plugin_create` 可以带 skill）如果只能被读成"漂移"，使用者就得手工把机器该做的簿记抄进 YAML。登记只**追加**、逐字节保留已有条目与注释，且只登记**落在本根下面**的插件（多根 first-wins 下，别的根供上来的插件不属于这份目录）；写回前自检，坏目录拒绝改写。
+
 ## 精选目录（`curated.yaml`）
 
 它是内置 marketplace 清单的**本地简化版**：外部清单形如 `{name, description, owner, plugins:[{name, source}]}`、用 `name@marketplace` 标识安装、有 `claude plugin validate <dir>` 校验；我们只保留「带什么、谁给的、哪个权限档」三件事，不做下载与版本解析。三条铁律由 `plugin/curated.go` 机检（读侧 + 严格解码），不靠人眼评审：
