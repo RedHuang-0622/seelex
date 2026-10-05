@@ -75,8 +75,29 @@ sync_package_plugins() {
   fi
   # 判据只看"仓库里有的，包里是不是一致的"：包内**多出来**的目录不算差异
   # （那可能是本机自加、不入库的插件，见下面的"只覆盖不删除"）。
-  if command -v diff >/dev/null 2>&1 && [[ -d "$dest" ]] &&
-     ! diff -rq "$src" "$dest" 2>/dev/null | grep -qv "Only in $dest"; then
+  #
+  # 2026-10-05 修：这里原来是
+  #   ! diff -rq "$src" "$dest" | grep -qv "Only in $dest"
+  # 本脚本第 15 行是 `set -o pipefail`，管道退出码取**最右非零成员**，于是这句取反
+  # 读到的是 diff 的 1（"有差异"），恒为真 ⇒ 每次都 early return，同步**从未真正执行过**。
+  # 后果（证据链）：运行树 dist/seelex-gui-dev/plugins/ 里的文件带着仓库侧源文件的 mtime
+  # （bash `cp -r` 不保 mtime，实测；PowerShell `Copy-Item` 保），说明那份载荷是别的
+  # 途径写进去的、此后一直冻结；仓库 10-05 02:23 的提交（94f7ae4，正是把 curated.yaml
+  # 加进仓库的那次）跑过本脚本（dist/dev 与 dist/seelex-gui-dev 两个 exe 的 mtime 可证），
+  # 但包内那份 curated.yaml 至今缺席，启动期因此报"精选目录读不到"。
+  # 现在改成不依赖管道退出码的逐文件比对（有差异才覆盖，语义与原来一致）。
+  local stale=1 file rel
+  if [[ -d "$dest" ]]; then
+    stale=0
+    while IFS= read -r -d '' file; do
+      rel="${file#"$src"/}"
+      if [[ ! -f "$dest/$rel" ]] || ! cmp -s "$file" "$dest/$rel"; then
+        stale=1
+        break
+      fi
+    done < <(find "$src" -type f -print0)
+  fi
+  if [[ "$stale" == "0" ]]; then
     return
   fi
   # **只覆盖、不删除**（2026-10-03 修正）：plugins/ 里除了入库的插件，还可能放

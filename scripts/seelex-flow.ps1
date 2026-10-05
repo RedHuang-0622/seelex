@@ -10,9 +10,12 @@
 #   Smoke     -> headless smoke (version + backend boot); report kept in
 #                tmp/build/smoke/ (timestamped, never overwritten)
 #   Deploy    -> check running seelex processes; after confirmation and exit,
-#                stash the current baseline binary, then overwrite
-#                dist/seelex-gui-dev/seelex-gui.exe (binary only; user data in
-#                config/, .seelex/, plugins/ is never touched)
+#                refresh the shipped plugin payload (repo plugins/ -> P2
+#                plugins/, overwrite-only: locally added plugin dirs are kept
+#                and reported), stash the current baseline binary, then
+#                overwrite dist/seelex-gui-dev/seelex-gui.exe (user data in
+#                config/accounts.yaml and .seelex/ is never touched)
+#   SyncPlugins -> refresh the shipped plugin payload only (no binary change)
 #   Rollback  -> restore the previous baseline from stash (same gates)
 #   Release   -> build cross-platform CLI packages + Windows GUI package
 #                (Publish, example config only - never accounts.yaml /
@@ -26,6 +29,7 @@
 #   .\scripts\seelex-flow.ps1 -Stage Stage [-Version "v0.0.2"]
 #   .\scripts\seelex-flow.ps1 -Stage Smoke [-SmokeTarget <path>] [-Version "v0.0.2"]
 #   .\scripts\seelex-flow.ps1 -Stage Deploy [-Version "v0.0.2"] [-Yes]
+#   .\scripts\seelex-flow.ps1 -Stage SyncPlugins        # 只刷插件载荷，不动二进制
 #   .\scripts\seelex-flow.ps1 -Stage Rollback [-Version "v0.0.2"] [-Yes]
 #   .\scripts\seelex-flow.ps1 -Stage Release -Version "v0.0.2" [-Yes]
 #   .\scripts\seelex-flow.ps1 -Stage All -Version "v0.0.2" [-Yes]
@@ -34,7 +38,7 @@
 # interactive confirmation gates (for Agent / automation use).
 # ============================================================================
 param(
-    [ValidateSet("Stage", "Smoke", "Deploy", "Rollback", "Release", "All")]
+    [ValidateSet("Stage", "Smoke", "Deploy", "Rollback", "Release", "SyncPlugins", "All")]
     [string]$Stage = "All",
     [string]$Version = "",
     [string]$SmokeTarget = "",
@@ -290,14 +294,16 @@ function Invoke-Deploy {
     Write-Host "将覆盖:" -ForegroundColor Yellow
     Write-Host "  目标: $BaselineExe" -ForegroundColor Yellow
     Write-Host "  来源: $StagedExe (version=$stagedVer, SHA256 $($stagedHash.Substring(0, 16))...)" -ForegroundColor Yellow
-    Write-Host "  影响: 仅替换该二进制文件; 基线工作区内的 config/accounts.yaml、" -ForegroundColor Yellow
-    Write-Host "        config/seelex.yaml、config/seele.yaml、.seelex/ 会话记录与 plugins/ 均保持不变。" -ForegroundColor Yellow
+    Write-Host "  影响: 替换该二进制文件 + 把仓库 plugins/ 的随包载荷刷进基线 plugins/（只覆盖、" -ForegroundColor Yellow
+    Write-Host "        不删：本机自加的插件目录保留并报出来）；config/accounts.yaml、config/seelex.yaml、" -ForegroundColor Yellow
+    Write-Host "        config/seele.yaml 与 .seelex/ 会话记录保持不变。" -ForegroundColor Yellow
     Write-Host "  可恢复: 覆盖前自动把当前二进制存入 stash 回滚区 $StashRoot," -ForegroundColor Yellow
     Write-Host "        可用 make rollback-gui 一键回滚。" -ForegroundColor Yellow
 
     if (-not (Confirm-Step "是否继续部署?")) { throw "部署已取消" }
     Wait-ForProcessesGone
 
+    Invoke-SyncPlugins
     Save-StashCopy $BaselineExe
     Copy-Item -LiteralPath $StagedExe -Destination $BaselineExe -Force
     $newHash = (Get-FileHash -LiteralPath $BaselineExe -Algorithm SHA256).Hash
@@ -333,6 +339,16 @@ function Invoke-Rollback {
     $newHash = (Get-FileHash -LiteralPath $BaselineExe -Algorithm SHA256).Hash
     if ($newHash -ne $stashHash) { throw "回滚后校验失败" }
     Write-Host "[回滚] 完成: $BaselineExe 已恢复为 stash 中的上一个可用版本" -ForegroundColor Green
+}
+
+# ---------- 插件载荷刷新（Deploy 会调用；也可单独跑 -Stage SyncPlugins） ----------
+# 为什么放在部署路径上：运行树 plugins/ 是**构建产物**，仓库才是唯一事实源。只换二进制
+# 会让这份载荷永久冻结——2026-10-05 的事故就是这样：仓库把 curated.yaml 加进来之后，包内
+# 那份一直缺席，app 启动期报"精选目录读不到（责任链上 3 个根都没有）"。规则见
+# scripts/sync-dev-plugins.ps1（只覆盖、不删除；本机自加的插件目录保留并报出来）。
+function Invoke-SyncPlugins {
+    Write-Step "插件载荷: 仓库 plugins/ -> P2 基线 plugins/"
+    & (Join-Path $PSScriptRoot "sync-dev-plugins.ps1")
 }
 
 # ---------- 阶段 4: Release ----------
@@ -426,6 +442,7 @@ switch ($Stage) {
     "Deploy"   { Invoke-Deploy }
     "Rollback" { Invoke-Rollback }
     "Release"  { Invoke-Release }
+    "SyncPlugins" { Invoke-SyncPlugins }
     "All"      { Invoke-All }
 }
 

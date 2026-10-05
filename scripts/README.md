@@ -53,7 +53,8 @@ tmp/build/                          流程中间态（可整体删除）
 | `build-dev.sh` | post-commit 快速重建 dev 二进制（CLI→`dist/dev/seelex.exe`，GUI→P2）。 |
 | `build-gui.ps1` | Wails GUI 发布包（Publish/Dev），产物只进 `dist/archive/`。 |
 | `build-linux-gui.sh` | **Linux GUI 构建入口（P6）**：Docker（默认 `ubuntu:22.04` + `webkit2_40`）/ `--native` / `--pack-only`，产物落 `dist/linux-amd64-gui/` 并归档到 `dist/archive/`。 |
-| `seelex-flow.ps1` | 分阶段构建/部署/回滚/发布流程（Stage → Smoke → Deploy → Release）。 |
+| `seelex-flow.ps1` | 分阶段构建/部署/回滚/发布流程（Stage → Smoke → Deploy → Release，另可单独 `-Stage SyncPlugins`）。 |
+| `sync-dev-plugins.ps1` | 把仓库 `plugins/` 的随包载荷刷进 P2 运行树（`dist/seelex-gui-dev/plugins/`）：只覆盖、不删本机自加目录；Deploy 会自动调用它。 |
 | `make-icon.sh` | 图标资源链：品牌图 → 多尺寸 `.ico` + 前端品牌图，再 `windres` 成根目录 `rsrc_windows_amd64.syso`（缺 Pillow/windres 时降级跳过，不挡构建）。 |
 | `sync-claudecode-account.ps1` | 从本机 Claude Code 设置生成 local account 配置。 |
 | `gen_core_readme_index.py` | 生成 `application/core` 的「文件与函数索引」（根包按前缀分卷）。 |
@@ -80,8 +81,10 @@ tmp/build/                          流程中间态（可整体删除）
 2. `make smoke-gui`：对暂存区二进制做无头冒烟（`-version` + backend 启动链路），
    报告保留在 `tmp/build/smoke/`（时间戳独立文件，可作恢复参照）。
 3. `make deploy-gui`：检查运行中的 seelex 进程；无进程或进程退出且确认后，
-   先把当前基线二进制存入 `tmp/build/stash/seelex-gui-dev/`，再覆盖
-   `dist/seelex-gui-dev/seelex-gui.exe`。只替换二进制，`config/` 与 `.seelex/` 不变。
+   先把**仓库 `plugins/` 的随包载荷**刷进 `dist/seelex-gui-dev/plugins/`（只覆盖、
+   不删本机自加目录），再把当前基线二进制存入 `tmp/build/stash/seelex-gui-dev/`，
+   最后覆盖 `dist/seelex-gui-dev/seelex-gui.exe`。`config/accounts.yaml` 与 `.seelex/`
+   不变；只想刷插件载荷、不换二进制时用 `make sync-dev-plugins`。
 4. `make rollback-gui`：从 stash 恢复上一个可用版本（同样有进程检查与确认门禁）。
 5. `make release-dev VERSION=vX.Y.Z`：构建各平台 CLI 发布包 + Windows GUI
    发布包（仅 example 配置，绝不含 `accounts.yaml` / `*.local.yaml`），

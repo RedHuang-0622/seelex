@@ -293,6 +293,13 @@ type CuratedRead struct {
 	Roots []string
 	// Err 是"没读到"的原因（缺失 / 解析失败 / 校验失败）。**非 nil 不得当空目录**。
 	Err error
+	// Drift 是"目录 ↔ 这台机器此刻的已装集合"的差异（本机自装插件、退役插件…）。它是
+	// **回报**不是错误：目录照样能用于装配判定，启动期也不该因此报一条警告。
+	Drift []string
+	// Absent 表示责任链上的根**都没有** curated.yaml：自建根/用户树本来可以不带精选
+	// 目录，这是合法现场。Err 仍非 nil（装配判定要能说清"没有目录可比对"），但它不是
+	// 配置缺陷，不该进启动警告。
+	Absent bool
 }
 
 // Page 返回"这份读数是从哪里来的"一行（无路径时给找过的根），供拒绝文案与回执引用。
@@ -320,6 +327,16 @@ func (read CuratedRead) Page() string {
 // "已装"这个事实的判据仍是调用方手里的定义表，本函数不复制它。
 func (read CuratedRead) Judge(name string, installed []string) error {
 	if read.Err != nil {
+		// 目录缺席（自建根/用户树）与目录坏掉（存在却读不动）是两件事：前者是合法现场，
+		// 只是"没有目录可比对"；后者是配置缺陷。两者都必须**显式拒绝**（读不到不等于
+		// 目录里没有它），但只有后者算启动警告。
+		if read.Absent {
+			return fmt.Errorf(
+				"装配被拒绝：%q 无法判定——责任链上的根都没有 %s（找过: %s；本进程已定义插件: %s）。"+
+					"这不是配置缺陷：自建根/用户树可以不带精选目录；但\"目录读不到\"不等于\"目录里没有它\"，"+
+					"所以这里显式拒绝，不静默当空目录（否则路线图候选会被读成错别字）",
+				name, CuratedFileName, read.Page(), curatedNameList(installed))
+		}
 		return fmt.Errorf(
 			"装配被拒绝：%q 无法判定——精选目录**没读到**（%v；责任链上找过的根: %s）。"+
 				"读不到不等于\"目录里没有它\"：不许静默当空目录（否则路线图候选会被读成错别字）",
@@ -392,14 +409,48 @@ func ParseCuratedCatalog(data []byte) (CuratedCatalog, error) {
 	return catalog, nil
 }
 
+// LoadCuratedForRuntime 读 `root/curated.yaml` 供**运行期装配面**使用：目录**自身**的问题
+// （读不动 / 解析失败 / 字段缺失 / 证据档非法）照旧是硬错误，但"目录与这台机器此刻的已装
+// 集合不一致"退成**回报**（drift），不是错误。
+//
+// 为什么必须这么分（2026-10-05 实读）：运行树是使用者的现场——他放个自装插件、删一个不
+// 用的插件，都不该让 app 每次启动都报一条配置警告。旧口径下 entries 与已装集合必须一一
+// 对应，于是**任何本地改动**都会把这份目录判成"校验失败"，使用者看到的是一句他改不动、
+// 也不该由他改的发行侧警告。一一对应仍是**发行守卫**的口径（ValidateCuratedCatalog /
+// LoadCuratedCatalog，仓库与交付树的测试都在用它），只是不再拿它去卡运行期。
+func LoadCuratedForRuntime(root string, installed []string) (CuratedCatalog, []string, error) {
+	path := filepath.Join(root, CuratedFileName)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return CuratedCatalog{}, nil, fmt.Errorf("精选目录 %s: %w", path, err)
+	}
+	catalog, err := ParseCuratedCatalog(data)
+	if err != nil {
+		return CuratedCatalog{}, nil, fmt.Errorf("精选目录 %s: %w", path, err)
+	}
+	if problems := validateCuratedCatalogStructure(catalog); len(problems) > 0 {
+		return CuratedCatalog{}, nil, fmt.Errorf("精选目录 %s: 校验失败:\n  - %s", path, strings.Join(problems, "\n  - "))
+	}
+	return catalog, curatedInstalledDrift(catalog, installed), nil
+}
+
 // ValidateCuratedCatalog 校验精选目录与"实际落盘的插件集合"一致，并逐条报告问题
 // （一次列全，而不是只报第一条——否则修一轮只能前进一格）。
+//
+// 这是**发行守卫**的口径（仓库 / 交付树 / preset 装配闸），运行期走 LoadCuratedForRuntime。
 func ValidateCuratedCatalog(catalog CuratedCatalog, installed []string) error {
-	problems := make([]string, 0, 8)
-	installedSet := make(map[string]bool, len(installed))
-	for _, name := range installed {
-		installedSet[name] = true
+	problems := append(validateCuratedCatalogStructure(catalog), curatedInstalledDrift(catalog, installed)...)
+	if len(problems) > 0 {
+		return fmt.Errorf("精选目录校验失败:\n  - %s", strings.Join(problems, "\n  - "))
 	}
+	return nil
+}
+
+// validateCuratedCatalogStructure 只校验目录**自身**成立与否（与"这台机器装了什么"无关）：
+// schema/kind/read_at、逐条 entry 的字段与来源、逐条 preset 的权限档与 pending 证据档、
+// baseline 存在且含 default。这一半是"文件本身错了"，运行期也必须红。
+func validateCuratedCatalogStructure(catalog CuratedCatalog) []string {
+	problems := make([]string, 0, 8)
 
 	if catalog.SchemaVersion != CurrentSchemaVersion {
 		problems = append(problems, fmt.Sprintf("schema_version = %d，want %d", catalog.SchemaVersion, CurrentSchemaVersion))
@@ -426,9 +477,6 @@ func ValidateCuratedCatalog(catalog CuratedCatalog, installed []string) error {
 			problems = append(problems, fmt.Sprintf("%s: 重复条目", where))
 		} else {
 			listed[entry.Name] = true
-			if !installedSet[entry.Name] {
-				problems = append(problems, fmt.Sprintf("%s: 插件目录不存在（精选目录只能列已落盘插件；未安装的放 presets[].pending）", where))
-			}
 		}
 		if strings.TrimSpace(entry.Description) == "" {
 			problems = append(problems, fmt.Sprintf("%s: description 缺失", where))
@@ -449,18 +497,11 @@ func ValidateCuratedCatalog(catalog CuratedCatalog, installed []string) error {
 			}
 		}
 	}
-	// 反向：已落盘但不在册 = 目录漂移（新增插件忘了登记）。
-	for _, name := range installed {
-		if !listed[name] {
-			problems = append(problems, fmt.Sprintf("已落盘插件 %q 不在 entries 里（新增插件必须登记精选目录）", name))
-		}
-	}
 
 	if len(catalog.Presets) == 0 {
 		problems = append(problems, "presets 为空：没有可装配的权限档组合")
 	}
 	seenPresets := make(map[string]bool, len(catalog.Presets))
-	covered := make(map[string]bool, len(installed))
 	for index, preset := range catalog.Presets {
 		where := fmt.Sprintf("presets[%d]", index)
 		if preset.Name != "" {
@@ -493,11 +534,6 @@ func ValidateCuratedCatalog(catalog CuratedCatalog, installed []string) error {
 				continue
 			}
 			presetPlugins[name] = true
-			if !installedSet[name] {
-				problems = append(problems, fmt.Sprintf("%s: plugins 引用了不存在的插件 %q", where, name))
-				continue
-			}
-			covered[name] = true
 		}
 		seenPending := make(map[string]bool, len(preset.Pending))
 		for pendingIndex, item := range preset.Pending {
@@ -510,8 +546,6 @@ func ValidateCuratedCatalog(catalog CuratedCatalog, installed []string) error {
 				problems = append(problems, fmt.Sprintf("%s: name %q 不是合法插件名（pending 里的名字就是将来落盘的那个插件名）", pendingWhere, item.Name))
 			case seenPending[item.Name]:
 				problems = append(problems, fmt.Sprintf("%s: pending 重复 %q", where, item.Name))
-			case installedSet[item.Name]:
-				problems = append(problems, fmt.Sprintf("%s: pending 里的 %q 其实已落盘（装上了就请登记进 entries 与 plugins）", where, item.Name))
 			case presetPlugins[item.Name]:
 				problems = append(problems, fmt.Sprintf("%s: %q 同时在 plugins 与 pending 里", where, item.Name))
 			}
@@ -541,24 +575,75 @@ func ValidateCuratedCatalog(catalog CuratedCatalog, installed []string) error {
 			}
 		}
 	}
-	for _, name := range installed {
-		if !covered[name] {
-			problems = append(problems, fmt.Sprintf("已落盘插件 %q 不属于任何 preset（没有装配路径）", name))
-		}
-	}
 	baseline, ok := catalog.Preset(CuratedBaselinePreset)
 	if !ok {
 		problems = append(problems, fmt.Sprintf("缺少 %q preset（启动基线必须有名字）", CuratedBaselinePreset))
 	} else if !containsString(baseline.Plugins, "default") {
 		problems = append(problems, fmt.Sprintf("%q preset 必须含 default（启动基线就是 default 插件）", CuratedBaselinePreset))
 	}
-
-	if len(problems) > 0 {
-		return fmt.Errorf("精选目录校验失败:\n  - %s", strings.Join(problems, "\n  - "))
-	}
-	return nil
+	return problems
 }
 
+// curatedInstalledDrift 报"目录 ↔ 这台机器此刻的已装集合"的差异（两个方向都报，一次列全）：
+// 目录里有、这台机器上没有；这台机器上有、目录里没登记；preset 引用了没有的插件；
+// 已装插件没有装配路径。
+//
+// 同一份读数两处用：发行守卫把它当**错误**（三处必须一一对应），运行期把它当**回报**
+// （本机自装插件/退役插件都是使用者的合法现场，不该变成启动警告）。
+func curatedInstalledDrift(catalog CuratedCatalog, installed []string) []string {
+	problems := make([]string, 0, 4)
+	installedSet := make(map[string]bool, len(installed))
+	for _, name := range installed {
+		installedSet[name] = true
+	}
+
+	listed := make(map[string]bool, len(catalog.Entries))
+	for index, entry := range catalog.Entries {
+		if entry.Name == "" {
+			continue
+		}
+		where := fmt.Sprintf("entries[%d] (%s)", index, entry.Name)
+		if listed[entry.Name] {
+			continue
+		}
+		listed[entry.Name] = true
+		if !installedSet[entry.Name] {
+			problems = append(problems, fmt.Sprintf("%s: 插件目录不存在（精选目录只能列已落盘插件；未安装的放 presets[].pending）", where))
+		}
+	}
+	// 反向：这台机器上有、目录里没登记（本机自装，或新增插件忘了登记）。
+	for _, name := range installed {
+		if !listed[name] {
+			problems = append(problems, fmt.Sprintf("已落盘插件 %q 不在 entries 里（本机自装，或新增插件忘了登记精选目录）", name))
+		}
+	}
+
+	covered := make(map[string]bool, len(installed))
+	for index, preset := range catalog.Presets {
+		where := fmt.Sprintf("presets[%d]", index)
+		if preset.Name != "" {
+			where = fmt.Sprintf("presets[%d] (%s)", index, preset.Name)
+		}
+		for _, name := range preset.Plugins {
+			if !installedSet[name] {
+				problems = append(problems, fmt.Sprintf("%s: plugins 引用了不存在的插件 %q", where, name))
+				continue
+			}
+			covered[name] = true
+		}
+		for pendingIndex, item := range preset.Pending {
+			if installedSet[item.Name] {
+				problems = append(problems, fmt.Sprintf("%s pending[%d]: %q 其实已落盘（装上了就请登记进 entries 与 plugins）", where, pendingIndex, item.Name))
+			}
+		}
+	}
+	for _, name := range installed {
+		if !covered[name] {
+			problems = append(problems, fmt.Sprintf("已落盘插件 %q 不属于任何 preset（没有装配路径）", name))
+		}
+	}
+	return problems
+}
 func containsString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {

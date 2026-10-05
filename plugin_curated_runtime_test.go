@@ -78,8 +78,13 @@ func TestResolveCuratedReadReadsFromResolvedRootsAndJudges(t *testing.T) {
 	curatedWantError(t, "entries 有但进程没有", err, "entries", "已落盘", "docs", wantPath)
 }
 
-// TestResolveCuratedReadMissIsLoud 钉住"缺失/解析失败不得静默当空目录"。
-func TestResolveCuratedReadMissIsLoud(t *testing.T) {
+// TestResolveCuratedReadMissIsExplicitButNotAStartupWarning 钉住 2026-10-05 重排后的口径：
+// 责任链上一个根都没有 curated.yaml ⇒ **装配面照样显式拒绝**（不得静默当空目录），但这是
+// 合法现场（自建根/用户树可以不带精选目录），**不进启动警告**——使用者自己装的插件不该让
+// app 每次启动都背一条与他无关的发行侧警告。
+//
+// 反过来，"文件存在却读不动"是配置缺陷：Absent 为假 ⇒ 调用方照旧出声（终端 + UI 启动警告）。
+func TestResolveCuratedReadMissIsExplicitButNotAStartupWarning(t *testing.T) {
 	empty := t.TempDir()
 	other := t.TempDir()
 	roots := []string{empty, other}
@@ -88,19 +93,28 @@ func TestResolveCuratedReadMissIsLoud(t *testing.T) {
 	if read.Err == nil {
 		t.Fatal("责任链上一个根都没有 curated.yaml 时必须留 Err（静默当空目录会把 pending 判成错别字）")
 	}
+	if !read.Absent {
+		t.Fatal("一个根都没有 ⇒ Absent 必须为真（调用方据此只写终端一行，不进启动警告）")
+	}
+	if len(read.Drift) != 0 {
+		t.Errorf("目录都没读到，不该有漂移读数: %v", read.Drift)
+	}
 	judge := curatedAssemblyJudge(read)
 	err := judge(curatedFixtureRoadmap, []string{"default"})
 	if err == nil {
-		t.Fatal("目录没读到时的装配必须被拒绝")
+		t.Fatal("目录缺席时的装配必须被拒绝（不得静默当空目录）")
 	}
-	curatedWantError(t, "目录缺失", err, "没读到", plugin.CuratedFileName, empty, other, "静默当空目录")
+	curatedWantError(t, "目录缺席", err, plugin.CuratedFileName, empty, other, "显式拒绝", "静默当空目录", "default")
 
-	// 解析失败（字段缺失/未知字段）也算"没读到"，且要点名那一份坏文件。
+	// 解析失败（字段缺失）算"存在却读不动"：Absent 为假，且要点名那一份坏文件。
 	broken := t.TempDir()
 	writeCuratedRootFile(t, broken, "schema_version: 1\nkind: curated-catalog\n")
 	read = resolveCuratedRead([]string{broken}, nil)
 	if read.Err == nil {
 		t.Fatal("坏目录必须留 Err")
+	}
+	if read.Absent {
+		t.Fatal("文件存在却读不动 ≠ 目录缺席：Absent 必须为假（这一档要进启动警告）")
 	}
 	if read.Path != filepath.Join(broken, plugin.CuratedFileName) {
 		t.Fatalf("坏目录也要点名实读页，得 %q", read.Path)
@@ -109,49 +123,47 @@ func TestResolveCuratedReadMissIsLoud(t *testing.T) {
 		"没读到", plugin.CuratedFileName)
 }
 
-// TestResolveCuratedReadFirstRootWins 钉住"多根 first-wins"：链上第一个带 curated.yaml
-// 的根说话（与加载器"同名插件先出现的根胜出"同一姿势）；坏的那份**不退让**到下一个根。
-func TestResolveCuratedReadFirstRootWins(t *testing.T) {
-	first, second := t.TempDir(), t.TempDir()
-	for _, root := range []string{first, second} {
-		writeCuratedRootPlugin(t, root, "default")
-	}
-	writeCuratedRootFile(t, first, curatedFixtureYAMLWithRoadmap([]string{"default"}, "next-cad"))
-	writeCuratedRootFile(t, second, curatedFixtureYAMLWithRoadmap([]string{"default"}, "second-only"))
+// TestResolveCuratedReadToleratesLocalPluginDrift 钉住"使用者自己改插件不该被自己的 app 警告"：
+// 运行树里多出本机自装插件（entries 里没登记它）、目录里登记了一个这台机器上没有的插件，
+// 都**不是错误**——目录照样读得出来、pending 照样能点名来源，差异只留在 Drift 里供终端回报。
+//
+// 同时钉住另一半：一一对应仍是**发行守卫**的口径（ValidateCuratedCatalog 照旧红），
+// 运行期的宽容不许把那条守卫悄悄放掉。
+func TestResolveCuratedReadToleratesLocalPluginDrift(t *testing.T) {
+	root := t.TempDir()
+	writeCuratedRootPlugin(t, root, "default")
+	writeCuratedRootPlugin(t, root, "local-tool") // 本机自装：不在 curated.yaml 的 entries 里
+	writeCuratedRootFile(t, root, curatedFixtureYAML("default", "ghost"))
 
-	read := resolveCuratedRead([]string{first, second}, loadCuratedRootPlugins(t, first))
+	installed := loadCuratedRootPlugins(t, root)
+	read := resolveCuratedRead([]string{root}, installed)
 	if read.Err != nil {
-		t.Fatalf("链首那份是合法的，必须读它：%v", read.Err)
+		t.Fatalf("本机自装/退役插件只是差异、不是错误，目录必须读得出来：%v", read.Err)
 	}
-	if read.Path != filepath.Join(first, plugin.CuratedFileName) {
-		t.Fatalf("first-wins 应读链首那份，得 %q", read.Path)
+	if read.Absent {
+		t.Fatal("目录读到了就不该是 Absent")
 	}
-	if _, _, ok := read.Catalog.PendingEntry("next-cad"); !ok {
-		t.Fatal("读到的应是链首那份目录（它登记 next-cad）")
+	drift := strings.Join(read.Drift, "\n")
+	for _, want := range []string{"local-tool", "不在 entries 里", "ghost", "插件目录不存在"} {
+		if !strings.Contains(drift, want) {
+			t.Errorf("漂移读数必须点出 %q（两个方向都要报），得: %s", want, drift)
+		}
 	}
-
-	// 链首那份坏掉时**当场报**，不悄悄退到第二个根（退让会把"这份目录坏了"藏成"目录里没有这个名字"）。
-	brokenFirst := t.TempDir()
-	writeCuratedRootPlugin(t, brokenFirst, "default")
-	writeCuratedRootFile(t, brokenFirst, "kind: curated-catalog\n")
-	read = resolveCuratedRead([]string{brokenFirst, second}, loadCuratedRootPlugins(t, brokenFirst))
-	if read.Err == nil || read.Path != filepath.Join(brokenFirst, plugin.CuratedFileName) {
-		t.Fatalf("链首的坏目录必须当场报（err=%v path=%q）", read.Err, read.Path)
+	if _, _, ok := read.Catalog.PendingEntry(curatedFixtureRoadmap); !ok {
+		t.Fatalf("目录读到之后 pending %q 必须照样可用（判定的信息面不许被降级）", curatedFixtureRoadmap)
+	}
+	if err := plugin.ValidateCuratedCatalog(read.Catalog, installedNames(installed)); err == nil {
+		t.Fatal("发行守卫口径必须仍然红：entries 与已装集合一一对应")
 	}
 }
 
-// TestResolveCuratedReadCrossValidatesLoadedSet 钉住"交叉校验用真实加载集合"：
-// 目录里列了一个这个根下并不存在的插件 ⇒ 目录与事实不符，必须红。
-func TestResolveCuratedReadCrossValidatesLoadedSet(t *testing.T) {
-	root := t.TempDir()
-	writeCuratedRootPlugin(t, root, "default")
-	writeCuratedRootFile(t, root, curatedFixtureYAML("default", "ghost"))
-
-	read := resolveCuratedRead([]string{root}, loadCuratedRootPlugins(t, root))
-	if read.Err == nil {
-		t.Fatal("目录 entries 列了未落盘的插件必须报错")
+// installedNames 把加载出来的插件渲染成名字清单（与 resolveCuratedRead 内部同一口径）。
+func installedNames(plugins []plugin.Plugin) []string {
+	names := make([]string, 0, len(plugins))
+	for _, p := range plugins {
+		names = append(names, p.Name)
 	}
-	curatedWantError(t, "目录漂移", read.Err, "插件目录不存在", "ghost")
+	return names
 }
 
 // ── B：根读数进 UI 面 ──────────────────────────────────────────────────────

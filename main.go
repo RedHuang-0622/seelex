@@ -230,9 +230,12 @@ func logPluginRoots(roots []string, loaded []plugin.Plugin) string {
 //     根胜出"同一姿势）；第一个存在的那份读不动就**当场报**，不悄悄退到下一个根——
 //     退让会把"这份目录坏了"藏成"目录里没有这个名字"。
 //   - **交叉校验用真实加载集合**：installed 取的是本次启动**真正加载出来**的插件名
-//     （多根并集），不是某一个根的 LoadAll ——目录必须与"这台机器此刻有的东西"对得上。
-//   - **缺失/解析失败留成 Err**：调用方据此出声（启动警告）并让装配面显式拒绝，
-//     绝不静默当空目录。
+//     （多根并集），不是某一个根的 LoadAll。
+//   - **差异是回报、不是错误**：目录与这台机器已装集合不一致（本机自装插件、退役插件）
+//     不阻断、不报警告，只留成 Drift 供日志回报——否则使用者"自己改下插件"就会永远
+//     背着一条他改不动、也不该由他改的发行侧警告。
+//   - **一个根都没有 ⇒ Absent**：自建根/用户树可以不带精选目录。Err 仍非 nil（装配面
+//     要显式拒绝并说清"没有目录可比对"），但它不是配置缺陷、不进启动警告。
 func resolveCuratedRead(roots []string, loaded []plugin.Plugin) plugin.CuratedRead {
 	installed := make([]string, 0, len(loaded))
 	for _, p := range loaded {
@@ -243,13 +246,14 @@ func resolveCuratedRead(roots []string, loaded []plugin.Plugin) plugin.CuratedRe
 		if _, err := os.Stat(path); err != nil {
 			continue
 		}
-		catalog, err := plugin.LoadCuratedCatalog(root, installed)
+		// 运行期读数：目录**自身**的问题才是错误；"与这台机器已装集合不一致"退成回报。
+		catalog, drift, err := plugin.LoadCuratedForRuntime(root, installed)
 		if err != nil {
 			return plugin.CuratedRead{Roots: roots, Path: path, Err: err}
 		}
-		return plugin.CuratedRead{Catalog: catalog, Roots: roots, Path: path}
+		return plugin.CuratedRead{Catalog: catalog, Roots: roots, Path: path, Drift: drift}
 	}
-	return plugin.CuratedRead{Roots: roots, Err: fmt.Errorf(
+	return plugin.CuratedRead{Roots: roots, Absent: true, Err: fmt.Errorf(
 		"责任链上 %d 个根都没有 %s（根解析见 pluginRootChain；用 -plugins 或 $SEELEX_PLUGINS 指定插件根）",
 		len(roots), plugin.CuratedFileName)}
 }
@@ -899,17 +903,27 @@ func initPluginSystem(
 	// 读到的判决函数接进运行期的装配校验（team_plan members[].plugins）——
 	// pending 候选（路线图）要能点名上游来源、认不出的名字要说清两边都不在。
 	//
-	// 读不到（缺失/解析失败）**不得静默当空目录**：这里出声（终端 + UI 启动警告），
-	// 同时判决函数仍会被注入（它对每个未定义名显式拒绝并说清"用哪个根找过"），
-	// 所以"目录坏了"在装配面上同样是显式失败，而不是"没有 pending"。
+	// 三档出声（2026-10-05 重排：使用者自己改插件不该被自己的 app 警告）：
+	//   - 目录**缺席**（自建根/用户树没这份文件）⇒ 只写终端一行：合法现场，不是警告；
+	//   - 目录**存在却读不动**（解析/结构失败）⇒ 终端 + UI 启动警告（这是配置缺陷）；
+	//   - 目录能读、但与这台机器**已装集合有差异** ⇒ 只写终端一行（本机自装/退役插件）。
+	// 无论哪一档，判决函数都会被注入：它对每个未定义名显式拒绝并说清"用哪个根找过"，
+	// 所以"没有目录/目录坏了"在装配面上同样是显式失败，而不是"没有 pending"。
 	curated := resolveCuratedRead(roots, loaded)
 	runtime.SetPluginUnassembledReason(curatedAssemblyJudge(curated))
-	if curated.Err != nil {
+	switch {
+	case curated.Absent:
+		log.Printf("plugin: 没有精选目录——%v（找过: %s）；自建根/用户树可以不带它，装配面对未定义名仍显式拒绝",
+			curated.Err, curated.Page())
+	case curated.Err != nil:
 		message := fmt.Sprintf(
 			"%s 读不到（%v；责任链上找过的根: %s）——装配面的名字判定会显式拒绝未定义的名字，不会静默当空目录",
 			plugin.CuratedFileName, curated.Err, curated.Page())
 		log.Printf("plugin: %s", message)
 		startup.Curated = message
+	case len(curated.Drift) > 0:
+		log.Printf("plugin: %s 与本次已装集合有差异（不是错误，是回报）：%s",
+			curated.Path, strings.Join(curated.Drift, "；"))
 	}
 	return manager, startup, nil
 }

@@ -20,7 +20,7 @@ make guard-dist-layout        # dist 根只允许规范分区，多出任何条�
 | 分区 | 固定文件夹 | 内容 | 写入方 | clean 可删 |
 |------|-----------|------|--------|-----------|
 | P1 平台发布树 | `dist/<os>-<arch>/` | CLI 二进制 `seelex[.exe]` + `config/`(example) + `plugins/` + 许可/说明 + 品牌图 `seelex-logo.png` | `make build` / `build.ps1` / `build.sh` / flow `Release` | 是 |
-| P2 dev GUI 基线 | `dist/seelex-gui-dev/` | `seelex-gui.exe` + 用户 `config/accounts.yaml`、`seelex.yaml`、`.seelex/`、`plugins/` | flow `Deploy`/`Rollback`、post-commit hook | **否（除非 `CLEAN_DEV=1`）** |
+| P2 dev GUI 基线 | `dist/seelex-gui-dev/` | `seelex-gui.exe` + 用户 `config/accounts.yaml`、`seelex.yaml`、`.seelex/`、`plugins/`（插件载荷是**构建产物**：由 `build-dev.sh` / `sync-dev-plugins.ps1` 从仓库 `plugins/` 刷新，只覆盖不删） | flow `Deploy`/`Rollback`、post-commit hook、`make sync-dev-plugins` | **否（除非 `CLEAN_DEV=1`）** |
 | P3 发布归档区 | `dist/archive/` | `seelex-v<v>-<os>-<arch>[-gui].(zip|tar.gz)` + `.sha256` | `make package` / `build.ps1` / `build-gui.ps1` / flow `Release` | 是 |
 | P4 本地快速构建区 | `dist/dev/` | post-commit 快速构建 CLI `seelex.exe`；本地诊断二进制（如 `seelex-gui-pprof.exe`） | `.githooks/post-commit` → `build-dev.sh`；手写诊断构建 | 是 |
 | P5 GUI 暂存区 | `dist/stage-gui/` | `seelex-gui.exe` + `version.txt`（待发布/待部署单个 exe 的放置区） | flow `Stage` | 是 |
@@ -68,7 +68,8 @@ make guard-dist-layout        # dist 根只允许规范分区，多出任何条�
 | Linux GUI 交付树 | `make build-linux-gui VERSION=vX.Y.Z`（Docker `ubuntu:22.04` + `webkit2_40`） | `dist/linux-amd64-gui/` |
 | Linux GUI 交付树（已有二进制） | `make pack-linux-gui` | `dist/linux-amd64-gui/` |
 | dev GUI 分阶段流程 | `make dev-flow VERSION=vX.Y.Z`（或 `scripts/seelex-flow.ps1`） | Stage→`dist/stage-gui`，Deploy→`dist/seelex-gui-dev/`，Smoke→`tmp/build/smoke`，Rollback→`tmp/build/stash/...`，Release→`dist/<os>-<arch>/`+`dist/archive/` |
-| 提交后快速重建 dev | post-commit hook（`build-dev.sh`） | CLI→`dist/dev/seelex.exe`，GUI→`dist/seelex-gui-dev/seelex-gui.exe` |
+| 提交后快速重建 dev | post-commit hook（`build-dev.sh`） | CLI→`dist/dev/seelex.exe`，GUI→`dist/seelex-gui-dev/seelex-gui.exe`，并把仓库 `plugins/` 刷进 P2 `plugins/`（只覆盖不删） |
+| 刷新运行树插件载荷 | `make sync-dev-plugins`（或 flow `Deploy`，它会自动跑） | `dist/seelex-gui-dev/plugins/` |
 | 全量清理（保留 P2） | `make clean`（`CLEAN_DEV=1` 才删 P2） | P1/P3/P4/P5/P6 |
 
 ## 构建约束（Go）

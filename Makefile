@@ -25,7 +25,7 @@ BRAND_LOGO := gui/icons/seelex-logo.png
 # 目标平台: OS/ARCH
 PLATFORMS := windows/amd64 linux/amd64 darwin/amd64 darwin/arm64
 
-.PHONY: all release rebuild clean build package clean-gui build-gui dev-build-gui publish-build-gui rebuild-gui publish-rebuild-gui stage-gui smoke-gui deploy-gui rollback-gui release-dev dev-flow guard-dist guard-dist-layout guard-version guard-local-config build-linux-gui pack-linux-gui clean-linux-gui help
+.PHONY: all release rebuild clean build package clean-gui build-gui dev-build-gui sync-dev-plugins publish-build-gui rebuild-gui publish-rebuild-gui stage-gui smoke-gui deploy-gui rollback-gui release-dev dev-flow guard-dist guard-dist-layout guard-version guard-local-config build-linux-gui pack-linux-gui clean-linux-gui help
 
 ## all: 安全清理、构建所有平台并打包
 all: release
@@ -174,6 +174,12 @@ rebuild-gui: clean-gui
 ## publish-rebuild-gui: 清理并重建只含 example 的可发布 Windows GUI
 publish-rebuild-gui: clean-gui
 	@$(MAKE) publish-build-gui VERSION="$(VERSION)" DIST="$(DIST)" POWERSHELL="$(POWERSHELL)"
+
+## sync-dev-plugins: 把仓库 plugins/ 的随包载荷刷进 P2 dev GUI 基线（只覆盖、不删本机自加目录）
+##   Deploy 会自动跑它；单独跑用于"只想让运行树跟上仓库、不换二进制"的场景。
+sync-dev-plugins:
+	@$(POWERSHELL) -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+		-File scripts/sync-dev-plugins.ps1
 
 ## stage-gui: 阶段1 构建新 GUI 二进制到暂存区 dist/stage-gui（P5，不触碰基线工作区）
 stage-gui: guard-version
