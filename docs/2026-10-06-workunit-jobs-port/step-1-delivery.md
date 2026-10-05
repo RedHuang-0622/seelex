@@ -375,3 +375,28 @@ scope 直接驱动。已写进任务书 §3 的「① 落地版」，并进 `see
   两条都在步骤② 的收编里验。
 - **U6（仍开放）**：统一实时事件（第二批）的粒度上限需先写"事件载荷字段表"（`assistant` 正文增量
   只有子代理侧有）。
+
+---
+
+## leader 复核（2026-10-06，verdict：**PASS**）
+
+按判据 A–H 对**源码**逐条复核（不引用本文件自述），逐条给锚点：
+
+| 判据 | 结论 | 复核锚点 |
+|---|---|---|
+| A 完整作业面 + 断言在原处 | ✔ | `workunit/contract.go:219/228/241/253/263`（四格 + 合成）＋ `:277 var _ Jobs = (jobs.Manager)(nil)` |
+| B tools 表断言（行为零变化） | ✔ | `tools/async_exec.go:197 var _ workunit.JobSignals = (*asyncRegistry)(nil)`；diff = 1 行 import + 注释 + 断言行 |
+| C 实现里无具体类型 | ✔ | 机械门禁 `e2e/workunit_ports_test.go:170` + 阴性对照 `:224`；装配处断言 `workunit_assembly.go:106-108` |
+| D 读面定形 + 是否有生产调用者明说 | ✔ | `workunit/progress.go:49/58/81/115/141/165`；§6.1 明说"无生产调用者"（并给 grep 依据） |
+| E 六条原始读数 | ✔ | §4（另附 §4.1 旁证：`go vet ./...`、根包测试）|
+| F async 用例一条未改 | ✔ | 触碰的文件只有 `tools/async_exec.go`（断言行），无 `async_*_test.go` |
+| G 删除清单 | ✔（"无"+ 逐条说明为什么 ① 注定没有）| §5 |
+| H 未决项（tools 表缺几格） | ✔ | §6.2 缺 **7 格**，逐格对照 |
+
+独立复核门禁由 leader 自己在合并后重跑（`build` / `vet` / e2e 全包含新机械门禁 / workunit·tools·teamwork·worktree·session 定向），读数记在
+`step-2-handoff-prompt.md` 头部——交付自述与独立读数分开列，互不背书。
+
+**一处口径纠正（已改回任务书）**：本文件 §6.2 把"两张作业表合一"列为步骤② 的先行项。`docs/arch/teamwork-leader-worker-architecture.md`
+**§12.4（2026-10-01 裁决）** 已否决该路径（`event.Sink` 必须构造期定死 + 框架全局序号 vs Seelex 按会话追加），
+并明写"**本步不再开工、§12.3 降级为留档、不构成待办**"。因此 ② 收窄为"并判据/读法/容器"，**不含合表**；
+`docs/arch/workunit-ports-and-assembly.md` §5② 与本文 §6.2 结论的重叠部分以任务书为准。

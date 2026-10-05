@@ -100,7 +100,8 @@
   `jobs.Manager` 的名字（`Dispatch` / `Observe`），否则 `var _ Jobs = (jobs.Manager)(nil)` 钉不住。
   概念别名写在各方法注释里。
 - **tools 那张表的断言**：见上文第 2 条的更正。`JobSignals` 是它今天唯一同形的一格（同一形状、
-  同一语义：容量 1 + latest-wins 的变更信号）；其余七格是 §5② 的先行项。
+  同一语义：容量 1 + latest-wins 的变更信号）；其余七格**既不在 ① 也不在 ②**——② 已按 §12.4 收窄为
+  "并判据/读法/容器"，不含合表（见下文 ②）。
 - **`UnitReader` 的入参**：读面勘定原文给的是三参构造，但记录形状里**没有 `Kind` 这一格**
   （两层共用同一张记录表），所以落地版多两个入参：`kind`（这一层的读数标注）与 `owned`
   （归属过滤，可为 nil）——否则 `Read`/`List` 只能替调用方猜归属，那正是勘定 §U5 要避免的。
@@ -108,20 +109,38 @@
 **前置**：`seelebridge/workunit/contract.go` 当前由在做父实现重构的 `a1` 占用（分支 `seelex/lifecycle-parent`）。
 先确认那条分支已落地且工作区干净，再动这个文件——两个改动同时落在同一文件必冲突。
 
-### ② 之后做：两张作业表合一（高风险跨层，独立一波）
+### ② 之后做：并掉剩余的本质重复（**不是**合表）
 
-**七点不一致（原文并列为"七点"，`docs/arch/teamwork-leader-worker-architecture.md` §12 有探针证据）**：
+**先纠正本文初版的口径**：本文 2026-10-06 初版把 ② 写成"两张作业表合一（迁到 Seele `jobs.Manager`）"，
+这与 `docs/arch/teamwork-leader-worker-architecture.md` **§12.4（2026-10-01 的用户裁决）** 直接冲突。
+那条路**已走过并认定失败**：`event.Sink`（`WithEventSink`）必须在 `jobs.New` **构造期**定死，而那一刻
+还不知道"这条作业属于哪个会话的哪条事件流"；框架的 `event.Recorder` 是**单例 + 全局序号**，而 Seelex 的
+会话事件库是**按会话追加/排序**——发出的作业事件 append 不到会话事件流尾部。裁决原文：**"本步不再开工，
+也不必等 §12.3 的契约增补；§12.3 降级为留档，不构成待办。"**（七点不一致与六个契约增补，都只作为
+"当年为什么绕不过去"的留档。）
 
-1. `Dispatch` 要求非空 `Description`；钉住的用例用**空描述**调 `begin`。
-2. `Dispatch` 立刻启动执行体并**打开/持有**每作业输出文件；钉住的用例把 `begin` 当"只登记"，
-   并要求作业登记期间输出目录可删（Windows `RemoveAll` 因句柄被持有而失败——Go 打开时没带 `FILE_SHARE_DELETE`）。
-3. `Fetch` 一步完成"推进游标 + 自动销项"；工具面是**两阶段**（`advanceTail` 读，再 `markCursor`）。
-4. 管理器除执行体的 `Sink` 外**没有**外部"合成终态"入口；而 `registry.finish(handle, exit)` 是用例直接调的公开方法。
-5. 管理器不保留可读的"已销项"状态字面量（只有 `ErrRetired`）。
-6. 管理器**从不删除**每作业的输出文件。
-7. 执行体**无法从 `Spec` 里知道自己的句柄**。
+**所以 ② 收窄成"并判据 / 读法 / 容器"，不并表**：
 
-**做法**：先照着 §12 列的"六个最小 `jobs` 增补"，把上面几点逐条解决（多数是**语义差异**，不是纯搬家），
-再让迁移以"行为逐字不变的门面"落地；期间既有 `async_*_test.go` 一条不改。
+| # | 重复 | 今天几份 | 并到哪 | 锚点 | 代价 |
+|---|---|---|---|---|---|
+| 1 | 「记录 → 进度」折算 | 3 份手写 | `workunit.ProgressOf`（① 已定形） | `session/subagent_sessions.go` 写侧/读侧、`workunit_team_records.go` | 改两条链的落盘/回读路径 = 行为迁移 |
+| 2 | 阶段 JSON 编解码 | 2 份 | `workunit.EncodeStages`·`DecodeStages`（① 已定形） | 同上 | 同上 |
+| 3 | teammate 阶段打点恒单元素 | 1 处语义缺口 | 走同一套 `Stage` | `workunit_team_records.go` 的 `teamUnitStages` | 会改回灌文案（勘定 U3/U4 要复验） |
+| 4 | 恢复说明容器 | 2 份（已收一半） | `workunit.RecoveryNote`（已有） | `runtime_subagent_resume.go:386`、`workunit_team.go:383` | 小 |
 
-**不做**（非目标）：这一波不碰前端读面、不碰调度闸门、不改作业的输出文件语义。
+**登记为分层事实、不再当缺陷的两张表**（写进 `workunit/README.md` 的依赖方向段）：
+
+- 表① 框架 `jobs.Manager` = **团队作业面**：`jobs_manage` 是框架 builtin
+  （`runtime_teamwork.go:248`）、`Scope{Session,Subject}`、`Events()` 信号扇出；
+- 表② Seelex tools 作业表 = **工具后台作业面**：`job_manage`、进程树、输出文件语义、Windows `RemoveAll` 约束。
+
+两者只在 `workunit` 的作业端口后面以同一形状被调用（① 的成果），**各自的服务对象不同——长得像，但不是同一件事**。
+
+**完成判据**：① 折算只剩一份（唯一实现 + 两处调用点转调）；② 抽一条**跨层一致性用例**——同一份收尾脚本
+在 subagent 与 teammate 上跑出同一份 `Stage` 序列；③ 既有用例一条不改；④ ① 的两条编译期断言仍在原处。
+
+**要重启"迁到 Seele"怎么办**：那是**重新裁决**，不是继续旧计划——先撤 §12.4 的结论、先解决会话事件流归属
+（失败根因），再谈 §12.3 的六个增补。**反向合一**（teammate 也搬离 `jobs.Manager`）同理要重新裁决：
+代价是框架的 `jobs_manage` 变成空壳、`Events()` 投影与信号扇出重做。
+
+**不做**（非目标）：这一波不碰前端读面渲染、不碰调度闸门、不改作业的输出文件语义、不动 `seelebridge/worktree/**`。
