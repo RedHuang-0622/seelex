@@ -515,18 +515,30 @@ func (r *Runtime) teamFailHandler(ctx context.Context, argsJSON string) (string,
 
 // teamRecoverHandler 做中断恢复（额度中断 / 重启）：读回计划与绑定，把"句柄已作废、
 // 可重派"显式化。它**不动**任何会话与工作区——记忆与现场都要留着。
+//
+// 同一次调用还做契约 `Unit.Recover` 那一半（见 workunit_team.go 的 RecoverTeamworkUnits）：
+// 认领团队现场（**在 Prune 之前**）→ 读回 teammate 单元的会话记录 → 把"记录说在跑、
+// 本进程已无它的执行面"判成**中断** → 给该角色下一次装配注入恢复说明（一次性读完即消）。
+// 两半共用一次读：`resume` 就是各成员"回到哪一步"的读数，不再另取一份进度真相。
 func (r *Runtime) teamRecoverHandler(ctx context.Context, _ string) (string, error) {
-	coordinator, err := r.coordinatorFor(ctx)
-	if err != nil {
+	if _, err := r.coordinatorFor(ctx); err != nil {
 		return "", err
 	}
-	report, err := coordinator.Recover(ctx)
+	sessionID := strings.TrimSpace(seeletelemetry.SessionIDFromContext(ctx))
+	recovery, err := r.RecoverTeamworkUnits(ctx, sessionID)
 	if err != nil {
 		return "", fmt.Errorf("team_recover: %w", err)
 	}
 	r.invalidateTeamworkBoard()
 	r.archiveTeamBoard(ctx)
-	return jsonReceipt(map[string]any{"ok": true, "report": report})
+	return jsonReceipt(map[string]any{
+		"ok": true, "report": recovery.Report,
+		// 契约侧的读数：认领回来的现场数 / 回灌回来的会话数 / 中断清单（记录说在跑、
+		// 本进程已无执行面 → 可重派或待人工处置）。恢复说明已经记在该角色会话名下，
+		// 等它下一次装配时读走。
+		"resume": recovery.Resume,
+		"hint":   "现场与会话都不动：重派同一工作项会复用它的会话号（记忆建在这上面）。",
+	})
 }
 
 // teamItemsHandler 读回全部工作项（甘特图的数据面）。
@@ -612,13 +624,17 @@ func (r *Runtime) teamCloseHandler(ctx context.Context, _ string) (string, error
 	if err != nil {
 		return "", err
 	}
+	sessionID := strings.TrimSpace(seeletelemetry.SessionIDFromContext(ctx))
 	alreadyClosed, err := coordinator.Close(ctx)
 	if err != nil {
 		return "", fmt.Errorf("team_close: %w", err)
 	}
+	// 收口 = 这支团队唯一"不再算残留"的时刻：现场拆了、会话内容清了，那么"这件事跑到哪"
+	// 的单元记录也没有事实可指（契约的会话面在收口时清，见 workunit_team.go）。
+	cleared := r.clearTeamUnitRecords(sessionID)
 	r.invalidateTeamworkBoard()
 	return jsonReceipt(map[string]any{
-		"ok": true, "already_closed": alreadyClosed,
+		"ok": true, "already_closed": alreadyClosed, "cleared_records": cleared,
 		"detail": "逐在编成员：回收作业 → 释放 worktree → 清会话内容；然后封板看板（team.close）",
 	})
 }
@@ -636,6 +652,10 @@ func (r *Runtime) RunWorker(ctx context.Context, request teamwork.WorkerRequest,
 		mainSessionID = seeletelemetry.SessionIDFromContext(ctx)
 	}
 	r.bindWorkerProjectRoot(mainSessionID, request.RoleSessionID, request.Worktree)
+	// 运行期落盘（契约 workunit 的会话面）：这一轮跑到哪、现场在哪。角色会话此前**只在
+	// 内存**（重启即失忆），记录是重启回灌唯一的依据——所以它在**开跑之前**写。
+	teamKey := teamUnitKeyFor(request)
+	r.markTeamUnitRunning(mainSessionID, teamKey)
 	maxLoops := request.MaxTurns
 	if maxLoops <= 0 {
 		maxLoops = roleTurnMaxLoops
@@ -648,8 +668,10 @@ func (r *Runtime) RunWorker(ctx context.Context, request teamwork.WorkerRequest,
 		if path := strings.TrimSpace(request.OutputPath); path != "" {
 			_ = r.writeWorkerOutput(path, "worker 回合失败："+err.Error()+"\n")
 		}
+		r.recordTeamUnitRoundOutput(mainSessionID, teamKey, err.Error())
 		return err
 	}
+	r.recordTeamUnitRoundOutput(mainSessionID, teamKey, output)
 	if path := strings.TrimSpace(request.OutputPath); path != "" {
 		// 归产品：执行体自己写（框架不写这个文件）。写失败上抛而不是退回 sink.Note——
 		// 那个 sink 在这种形态下是空操作，退回就是静默丢正文。
@@ -666,7 +688,16 @@ func (r *Runtime) RunWorker(ctx context.Context, request teamwork.WorkerRequest,
 // 抽成方法而不是内联：`WorkScope` 这一格是**实时观察面的唯一入口**（见 roleWorkScope）——
 // 漏掉它，员工在做工时的工具活动就一条也发不出去，前端又回到"等这一轮跑完才看得到结果"
 // 的老现场，而那种回归在类型上是合法的（空 WorkScope 只是"不发活动"），只能靠用例钉。
+//
+// 系统提示里还夹一件事：**中断恢复说明**（teamResume，见 workunit_team.go）。它与子代理
+// 的 `SubagentResumeNote` 同形同语义——system 事实、只进被执行单元自己的上下文、
+// 读完即消；落点不同（subagent 在节点装配 PromptBlocks 时读，teammate 在角色装配这里读），
+// 但两层的文案来自同一份构建器 `workunit.RecoveryNote`（前缀族因此是同一种东西）。
 func (r *Runtime) workerRoleRoundSpec(request teamwork.WorkerRequest, mainSessionID string, maxLoops int) roleRoundSpec {
+	systemPrompt := r.roleTurnSystemPrompt(request.Role)
+	if note := r.consumeTeamResumeNote(request.RoleSessionID); note != "" {
+		systemPrompt = systemPrompt + "\n\n" + note
+	}
 	return roleRoundSpec{
 		MainSessionID:    mainSessionID,
 		RoleName:         request.Role,
@@ -674,7 +705,7 @@ func (r *Runtime) workerRoleRoundSpec(request teamwork.WorkerRequest, mainSessio
 		ToolsPolicy:      request.ToolsPolicy,
 		PermissionGroups: request.PermissionGroups,
 		Plugins:          request.Plugins,
-		SystemPrompt:     r.roleTurnSystemPrompt(request.Role),
+		SystemPrompt:     systemPrompt,
 		Input:            workerRoundInput(request),
 		MaxLoops:         maxLoops,
 		WorkScope: roleWorkScope{
@@ -797,6 +828,11 @@ func (r *Runtime) ReleaseWorkspace(ctx context.Context, role string) error {
 // ResetSession 实现 teamwork.SessionResetter：清一个角色会话的**记录内容**
 // （工作历史），保留在编。角色会话是**进程内**执行面（刻意不接 DurableHistory），
 // 因此清内存历史 + 落掉引擎槽即"内容已清"；下一次派发以干净上下文重开。
+//
+// 同时丢掉这个会话还没被读走的恢复说明（teamResume）：说明的落点就是这个会话，
+// 会话没了它没有落点。**单元记录**的清点不在这里：那需要主会话号（存储键），而这条
+// 端口只认角色会话号——记录由两处清，都是"这份现场被回收"的那一刻：
+// per-unit 的 `teamUnit.Reclaim`，与整队收口的 `Runtime.clearTeamUnitRecords`。
 func (r *Runtime) ResetSession(_ context.Context, roleSessionID string) error {
 	if r == nil || strings.TrimSpace(roleSessionID) == "" {
 		return nil
@@ -809,6 +845,7 @@ func (r *Runtime) ResetSession(_ context.Context, roleSessionID string) error {
 	if handle != nil && handle.engine != nil {
 		handle.engine.ClearHistory()
 	}
+	r.clearTeamResumeNote(roleSessionID)
 	return nil
 }
 

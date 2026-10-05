@@ -25,6 +25,7 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/Seele/jobs"
+	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
@@ -78,6 +79,13 @@ func WorkItemWorktreeName(role, itemID string) string {
 // 两边各拼一次名字，迟早拼成两个目录。
 func TeammateWorktreeName(role string) string {
 	return worktreeNamePrefix + strings.TrimSpace(role)
+}
+
+// SceneNodeID 返回一个 Work Item 的现场 **nodeID**（`<role>-<itemID>`）——契约
+// （seelebridge/workunit 的 Scene）用的命名，与 WorkItemWorktreeName 的指派名去
+// 前缀**同值**：换算只有这一处，调用方不许再拼一次。
+func SceneNodeID(role, itemID string) string {
+	return strings.TrimPrefix(WorkItemWorktreeName(role, itemID), worktreeNamePrefix)
 }
 
 // milestoneIndex 返回里程碑在计划里的下标（不存在 = -1）。
@@ -418,6 +426,10 @@ func (c *Coordinator) DispatchItem(ctx context.Context, itemID string) (jobs.Han
 	}
 	now := c.clock().UTC().Unix()
 	item.Status = sessionstore.TeamworkItemRunning
+	// 重派 = 这一格描述的事实已经变了：上一次留下的"未合并"标记属于旧现场。
+	if plan.State.Unmerged != nil {
+		delete(plan.State.Unmerged, item.ID)
+	}
 	item.SessionID = sessionID
 	item.Worktree = binding.Worktree
 	item.Handle = describeHandle(handle)
@@ -453,9 +465,24 @@ func (c *Coordinator) DispatchItem(ctx context.Context, itemID string) (jobs.Han
 // 它由 worker 执行体在回合结束后调用（见 executor.go），因此是**自动**的：不依赖
 // leader 记得来收，也不唤醒任何忙会话（§6.1）——尾插落在 teammate 自己的消息队列上。
 func (c *Coordinator) SettleWorkItem(ctx context.Context, request WorkerRequest, runErr error) error {
+	_, err := c.settleWorkItem(ctx, request, runErr)
+	return err
+}
+
+// SettleWorkItemOutcome 与 SettleWorkItem 是**同一段**尾插程序，只是把这一轮的收尾
+// 分类一并交回（workunit.Unit 的 Finish 要的就是这个读数：只回答"这一轮怎么结束的"，
+// 不拆现场）。两处共用一份实现，是"分类只有一份"这句保证的落点。
+//
+// 幂等路径（这件事已经收口过）返回零值 Outcome：不重复合并、不重复尾插，也不在
+// 这里二次判定——结论已经落盘在计划里（team_items 读得到）。
+func (c *Coordinator) SettleWorkItemOutcome(ctx context.Context, request WorkerRequest, runErr error) (workunit.Outcome, error) {
+	return c.settleWorkItem(ctx, request, runErr)
+}
+
+func (c *Coordinator) settleWorkItem(ctx context.Context, request WorkerRequest, runErr error) (workunit.Outcome, error) {
 	itemID := strings.TrimSpace(request.WorkItemID)
 	if itemID == "" {
-		return nil // 非 Work Item 口径的派发：没有尾插的落点
+		return workunit.Outcome{}, nil // 非 Work Item 口径的派发：没有尾插的落点
 	}
 	// ── 阶段 A（临界区内，只读 + 判定）─────────────────────────────────
 	// 确认这件事还在跑（幂等闸门），并取出合并要用的现场。**合并这一步不在这里**：
@@ -465,16 +492,16 @@ func (c *Coordinator) SettleWorkItem(ctx context.Context, request WorkerRequest,
 	plan, err := c.store.ReadPlan(ctx, c.key)
 	if err != nil {
 		c.unlockPlan()
-		return err
+		return workunit.Outcome{}, err
 	}
 	if _, item, ok := findItem(&plan, itemID); !ok || item.StatusOrPending() != sessionstore.TeamworkItemRunning {
 		c.unlockPlan()
-		return nil // 已经收口过了（幂等：尾插恰好一次）
+		return workunit.Outcome{}, nil // 已经收口过了（幂等：尾插恰好一次）
 	}
 	bindings, err := c.store.ReadBindings(ctx, c.key)
 	if err != nil {
 		c.unlockPlan()
-		return err
+		return workunit.Outcome{}, err
 	}
 	binding, hasBinding := sessionstore.TeamworkBindings(bindings)[itemID]
 	teamID := plan.TeamID
@@ -496,11 +523,11 @@ func (c *Coordinator) SettleWorkItem(ctx context.Context, request WorkerRequest,
 	defer c.unlockPlan()
 	plan, err = c.store.ReadPlan(ctx, c.key)
 	if err != nil {
-		return err
+		return workunit.Outcome{}, err
 	}
 	milestone, item, ok := findItem(&plan, itemID)
 	if !ok || item.StatusOrPending() != sessionstore.TeamworkItemRunning {
-		return nil // 合并期间已被收口：幂等返回（不再重复尾插 / 写态）
+		return workunit.Outcome{}, nil // 合并期间已被收口：幂等返回（不再重复尾插 / 写态）
 	}
 	// 步 2：尾插（有界一行；bug 原文与合并失败说明都在里面）。
 	text := settleMessage(*item, *milestone, mergeErr, runErr)
@@ -513,21 +540,53 @@ func (c *Coordinator) SettleWorkItem(ctx context.Context, request WorkerRequest,
 			text += "（尾插失败：" + err.Error() + "）"
 		}
 	}
-	// 步 3：状态 → 待验收 / 失败（失败是可重派/待处置的静态，不抹掉现场与记忆）。
-	item.Status = sessionstore.TeamworkItemReview
-	item.Note = "跑完待验收"
-	if runErr != nil || mergeErr != nil {
-		item.Status = sessionstore.TeamworkItemFailed
-		item.Note = text
-	}
+	// 步 3：状态 ← 收尾分类（**与 node 同一份** workunit.ClassifyFinish，见
+	// applySettleOutcome 的映射表）。判死只留给"这一轮本身失败"与"合并撞了别的错"；
+	// 未提交 / 主工作区挡路进待验收并带上未合并标记——现场与产出都留。
+	outcome := workunit.ClassifyFinish(workunit.Result{Summary: text, Err: runErr}, mergeErr)
+	applySettleOutcome(&plan, item, outcome, text)
 	item.FinishedAt = c.clock().UTC().Unix()
 	if err := c.store.WritePlan(ctx, c.key, plan, c.maxMembers); err != nil {
-		return err
+		return outcome, err
 	}
-	return c.audit(ctx, sessionstore.TeamworkEvent{
+	if err := c.audit(ctx, sessionstore.TeamworkEvent{
 		Kind: sessionstore.TeamworkEventSettle, TeamID: plan.TeamID, Milestone: milestone.ID,
 		Role: item.Role, Handle: item.Handle, WorkItem: item.ID, Detail: text,
-	})
+	}); err != nil {
+		return outcome, err
+	}
+	return outcome, nil
+}
+
+// applySettleOutcome 把收尾分类写到工作项上（**唯一**映射，写回与读侧都认这一张表）：
+//
+//	Settled      → review（待验收）：跑完且改动已合进去。
+//	Uncommitted  → review + 未合并标记：现场有未提交改动，**不判死**——一份已完成的
+//	               产出不该被说成"得重派"，leader 处置完（补提交并合并）再销项。
+//	MergeBlocked → review + 未合并标记：主工作区的在途改动挡住了合并，同族；处置动作是
+//	               "先让主工作区干净，再重试合并"，不是判死。
+//	Failed       → failed：可重派 / 待人工处置（现场与记忆都留着）。
+//
+// 未合并标记（plan.State.Unmerged）不是第二份状态，它只给**收口闸门**用：这类现场里
+// 还留着没合进去的改动，静默拆掉就是丢产出（闸门不允许反向放松，见 unsettledItems）。
+func applySettleOutcome(plan *sessionstore.TeamworkPlan, item *sessionstore.TeamworkWorkItem, outcome workunit.Outcome, receipt string) {
+	// 先清这一格的旧值：这一格描述的现场事实刚刚被重新判定过（避免重派/重跑留下残值）。
+	if plan.State.Unmerged != nil {
+		delete(plan.State.Unmerged, item.ID)
+	}
+	switch outcome.Kind {
+	case workunit.OutcomeFailed:
+		item.Status = sessionstore.TeamworkItemFailed
+		item.Note = receipt
+		return
+	case workunit.OutcomeUncommitted, workunit.OutcomeMergeBlocked:
+		if plan.State.Unmerged == nil {
+			plan.State.Unmerged = map[string]string{}
+		}
+		plan.State.Unmerged[item.ID] = outcome.Notice
+	}
+	item.Status = sessionstore.TeamworkItemReview
+	item.Note = strings.TrimSpace(outcome.Notice + "；" + receipt)
 }
 
 // AcceptItem 是 leader 的**验收通过**：工作项 → done，销项。**不动现场与会话**——
@@ -580,6 +639,12 @@ func (c *Coordinator) AcceptItem(ctx context.Context, itemID, note string) error
 	// 现场与会话**不动**（这里删掉的是旧的 releaseItem("accept") 调用）：teammate 的
 	// session/worktree 归 team 托管，只由整队收口（team_close）回收。验收留下的
 	// SessionID/Worktree 是收口要用的现场指针，不许在这里抹掉。
+	//
+	// 未合并标记随裁决一起销：leader 验收入账 = 这份现场怎么处置已经定了（补提交并入账，
+	// 或明确接受现状），收口闸门因此不再拦它。
+	if plan.State.Unmerged != nil {
+		delete(plan.State.Unmerged, item.ID)
+	}
 	item.Status = sessionstore.TeamworkItemDone
 	if trimmed := strings.TrimSpace(note); trimmed != "" {
 		item.Note = trimmed
@@ -654,7 +719,7 @@ func (c *Coordinator) Items(ctx context.Context) ([]ItemView, error) {
 // RecoveryReport 是中断恢复的读数（token 额度中断 / 进程重启之后的样子）。
 type RecoveryReport struct {
 	// Items 是计划里的工作项总数；Pending/Running/Review/Done/Failed 是分状态计数。
-	Items                          int `json:"items"`
+	Items                                  int `json:"items"`
 	Pending, Running, Review, Done, Failed int
 	// Interrupted 是"状态说在跑、而本进程作业表里查不到句柄"的工作项（可重派）。
 	Interrupted []string `json:"interrupted,omitempty"`

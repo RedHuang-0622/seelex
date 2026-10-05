@@ -27,17 +27,19 @@ import (
 	"strings"
 )
 
-// teamSceneNodeIDs 返回本会话团队现场的全部 nodeID（计划 + 账本，去重保序）。
+// teamSceneEntry 是一个团队现场的名单项：nodeID（契约命名，`<role>[-<itemID>]`）+
+// 归属（角色 / 工作项）。归属只是**标注**（审计与契约侧定位要用），不是"该拆哪一级"的判据。
+type teamSceneEntry struct {
+	NodeID   string
+	Role     string
+	WorkItem string
+}
+
+// teamSceneIndex 返回本会话团队现场的名单与归属（计划 + 账本原始行，按 nodeID 去重保序）。
 //
-// 两个来源都要读，缺一不可：
-//   - **计划**：`item.Worktree`（派发时写进计划，是账本之外唯一的线索）与
-//     `member.Worktree`（teammate 级现场）；
-//   - **账本**：绑定流水（追加型 JSONL）。已释放（`Released`）的行表示这一份绑定已经
-//     结束，不再认领。
-//
-// 未装配 teamwork 后端 / 会话没有作用域键 → 返回空：不猜、不扫目录（"恢复链只据计划 +
-// 账本回灌注册表"）。
-func (r *Runtime) teamSceneNodeIDs(sessionID string) []string {
+// 契约侧（session 落盘 / 回灌）要按 nodeID 找记录、按角色回灌说明，因此需要归属；
+// `teamSceneNodeIDs` 是它的只取名字的投影（认领现场只用得上名字）。
+func (r *Runtime) teamSceneIndex(sessionID string) []teamSceneEntry {
 	if r == nil || strings.TrimSpace(sessionID) == "" {
 		return nil
 	}
@@ -53,22 +55,24 @@ func (r *Runtime) teamSceneNodeIDs(sessionID string) []string {
 	}
 	ctx := context.Background()
 	seen := make(map[string]bool, 4)
-	nodeIDs := make([]string, 0, 4)
-	add := func(assigned string) {
+	entries := make([]teamSceneEntry, 0, 4)
+	add := func(assigned, role, itemID string) {
 		nodeID := workItemNodeID(assigned)
 		if nodeID == "" || seen[nodeID] {
 			return
 		}
 		seen[nodeID] = true
-		nodeIDs = append(nodeIDs, nodeID)
+		entries = append(entries, teamSceneEntry{
+			NodeID: nodeID, Role: strings.TrimSpace(role), WorkItem: strings.TrimSpace(itemID),
+		})
 	}
 	if plan, err := backend.Store.ReadPlan(ctx, key); err == nil {
 		for _, member := range plan.Members {
-			add(member.Worktree)
+			add(member.Worktree, member.Role, "")
 		}
 		for _, milestone := range plan.Milestones {
 			for _, item := range milestone.Items {
-				add(item.Worktree)
+				add(item.Worktree, item.Role, item.ID)
 			}
 		}
 	}
@@ -80,8 +84,30 @@ func (r *Runtime) teamSceneNodeIDs(sessionID string) []string {
 			if row.Released {
 				continue
 			}
-			add(row.Worktree)
+			add(row.Worktree, row.Role, row.WorkItem)
 		}
+	}
+	return entries
+}
+
+// teamSceneNodeIDs 返回本会话团队现场的全部 nodeID（计划 + 账本，去重保序）。
+//
+// 两个来源都要读，缺一不可：
+//   - **计划**：`item.Worktree`（派发时写进计划，是账本之外唯一的线索）与
+//     `member.Worktree`（teammate 级现场）；
+//   - **账本**：绑定流水（追加型 JSONL）。已释放（`Released`）的行表示这一份绑定已经
+//     结束，不再认领。
+//
+// 未装配 teamwork 后端 / 会话没有作用域键 → 返回空：不猜、不扫目录（"恢复链只据计划 +
+// 账本回灌注册表"）。
+func (r *Runtime) teamSceneNodeIDs(sessionID string) []string {
+	entries := r.teamSceneIndex(sessionID)
+	if len(entries) == 0 {
+		return nil
+	}
+	nodeIDs := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		nodeIDs = append(nodeIDs, entry.NodeID)
 	}
 	return nodeIDs
 }

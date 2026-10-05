@@ -39,7 +39,15 @@ func (r *Runtime) SettleWorkItem(ctx context.Context, request teamwork.WorkerReq
 	// 看板还停在 running、Messages 空，于是"跑完了看不见回执"又出现一次，只是这次
 	// 根因在投影缓存，不在尾插。
 	defer r.invalidateTeamworkBoard()
-	return coordinator.SettleWorkItem(ctx, request, runErr)
+	// 收尾分类是**同一份**（workunit.ClassifyFinish，在 settleWorkItem 步 3 里算），
+	// 这里取它的读数只为把"这一轮怎么结束的"写进 teammate 单元的会话记录
+	// （见 workunit_team.go：记录 = 重启回灌的依据）。
+	outcome, err := coordinator.SettleWorkItemOutcome(ctx, request, runErr)
+	if err != nil {
+		return err
+	}
+	r.settleTeamUnitRecord(request.MainSessionID, teamUnitKeyFor(request), outcome)
+	return nil
 }
 
 // BindWorkspace 实现 teamwork.Workspaces：为这件事建（或复用）一个 git worktree。

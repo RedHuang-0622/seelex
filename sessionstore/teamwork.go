@@ -145,6 +145,16 @@ type TeamworkMilestone struct {
 type TeamworkState struct {
 	Jobs       map[string]string `json:"jobs,omitempty"`
 	Milestones map[string]string `json:"milestones,omitempty"`
+	// Unmerged 是"尾插把现场留给了 leader"的工作项（工作项 id → 未落地的原因）。
+	//
+	// 它不是第二份状态：工作项的状态仍是 review（**不判死**——一份已完成的产出不该
+	// 被说成"得重派"），这一格只回答"它的现场里还留着没合进去的改动"。收口闸门据此
+	// 把它算作**没落定**：整队收口是唯一会拆 per-item 现场的地方，把一份未合并的产出
+	// 连同分支一起静默删掉，与 failed 的后果同族（产出只剩 reflog）。
+	//
+	// 清除点有三处，都是"这一格描述的事实已经变了"：重新派发（这次没合并的现场不再是
+	// 它的现场）、下一次尾插落定（重新按分类记）、leader 验收销项（裁决已下）。
+	Unmerged map[string]string `json:"unmerged,omitempty"`
 	// 闭板三字段（closed 事实的域内权威，U3 裁决）：State 空 = 未收口。
 	// ClosedReason 取 sessionstore 的收口原因词表（team.close）；看板存档里的同名字段
 	// 只是这份事实的历史副本，读侧判定"还在不在册"一律读这里。

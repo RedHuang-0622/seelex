@@ -56,6 +56,27 @@ func (c *Coordinator) SetPlan(ctx context.Context, plan sessionstore.TeamworkPla
 				plan.Milestones[index].Items = kept
 			}
 		}
+		// 未合并标记与工作项一样是**事实**（那份现场里还留着没合进去的产出），不是配置：
+		// 整份替换时按 item id 保留仍然存在的那几条。不保留的话，leader 为了改一个成员
+		// 再调一次 team_plan，收口闸门就跟着松一格（"这份现场还能不能拆"的判据被抹掉）
+		// ——闸门不允许反向放松。
+		if len(previous.State.Unmerged) > 0 {
+			present := map[string]bool{}
+			for _, milestone := range plan.Milestones {
+				for _, item := range milestone.Items {
+					present[item.ID] = true
+				}
+			}
+			for itemID, reason := range previous.State.Unmerged {
+				if !present[itemID] {
+					continue
+				}
+				if plan.State.Unmerged == nil {
+					plan.State.Unmerged = map[string]string{}
+				}
+				plan.State.Unmerged[itemID] = reason
+			}
+		}
 	}
 	recomputeMilestones(&plan)
 	if err := c.store.WritePlan(ctx, c.key, plan, c.maxMembers); err != nil {
@@ -360,28 +381,8 @@ func (c *Coordinator) closeStepsLocked(ctx context.Context, role string) (sessio
 	if err != nil {
 		return plan, err
 	}
-	member, ok := memberFor(plan, role)
-	if !ok {
-		return plan, fmt.Errorf("teamwork: 角色 %q 不在计划里", role)
-	}
-	// 步 1：只回收这一个主体名下的作业，同会话其他人不受影响。
-	if err := c.jobs.Reclaim(ctx, jobs.Scope{Session: c.key.SessionID, Subject: SubjectForRole(role)}); err != nil {
-		return plan, fmt.Errorf("teamwork: 收口步 1（回收作业）失败: %w", err)
-	}
-	// 步 2：释放该 teammate 的**全部**现场（角色级 + 该角色名下每一个已派发 Work
-	// Item）。缺端口 = 显式报错：静默跳过会让 worktree 悄悄累积。
-	if c.worktrees == nil {
-		return plan, errors.New("teamwork: 收口步 2 需要 WorkspaceReleaser（未装配）")
-	}
-	if err := c.releaseTeammateScenes(ctx, plan.TeamID, role, "team_close"); err != nil {
-		return plan, fmt.Errorf("teamwork: 收口步 2（释放工作区）失败: %w", err)
-	}
-	// 步 3：清会话内容（删的是对话记忆与工作区检出，不是注册/在编）。
-	if c.sessions == nil {
-		return plan, errors.New("teamwork: 收口步 3 需要 SessionResetter（未装配）")
-	}
-	if err := c.sessions.ResetSession(ctx, member.RoleSessionID); err != nil {
-		return plan, fmt.Errorf("teamwork: 收口步 3（清会话内容）失败: %w", err)
+	if err := c.reclaimStepsLocked(ctx, plan, role); err != nil {
+		return plan, err
 	}
 	// 步 4：留在编，worktree 指派名与句柄投影一并清掉（现场已经拆了，地址不该再留着）。
 	for index := range plan.Members {
@@ -396,14 +397,65 @@ func (c *Coordinator) closeStepsLocked(ctx context.Context, role string) (sessio
 	return plan, nil
 }
 
+// Reclaim 回收**一个 teammate 单元**：步 1 回收它名下的作业 → 步 2 拆它的现场（角色级
+// + 它名下每个 Work Item；**只拆自己这一份**，不牵连同会话其他人）→ 步 3 清它的会话内容。
+//
+// 它就是整队收口四步的前三步（`closeStepsLocked` 步 4 的名册动作只属于整队收口），也是
+// 契约（seelebridge/workunit）里 `Unit.Reclaim` 的落点——"拆现场 + 清会话 + 回收作业"
+// 只有这一份实现，适配器不另写一套。幂等：三步各自幂等（无作业可收 / 无现场可拆 /
+// 无会话可清都是 no-op）。
+func (c *Coordinator) Reclaim(ctx context.Context, role string) error {
+	c.lockPlan()
+	defer c.unlockPlan()
+	plan, err := c.store.ReadPlan(ctx, c.key)
+	if err != nil {
+		return err
+	}
+	return c.reclaimStepsLocked(ctx, plan, role)
+}
+
+// reclaimStepsLocked 是收口四步的**前三步**（步 1–3）的唯一实现。
+//
+// **调用约定**：假定调用方已持有计划锁（同 closeStepsLocked 的理由：锁不可重入）。
+func (c *Coordinator) reclaimStepsLocked(ctx context.Context, plan sessionstore.TeamworkPlan, role string) error {
+	member, ok := memberFor(plan, role)
+	if !ok {
+		return fmt.Errorf("teamwork: 角色 %q 不在计划里", role)
+	}
+	// 步 1：只回收这一个主体名下的作业，同会话其他人不受影响。
+	if err := c.jobs.Reclaim(ctx, jobs.Scope{Session: c.key.SessionID, Subject: SubjectForRole(role)}); err != nil {
+		return fmt.Errorf("teamwork: 收口步 1（回收作业）失败: %w", err)
+	}
+	// 步 2：释放该 teammate 的**全部**现场（角色级 + 该角色名下每一个已派发 Work
+	// Item）。缺端口 = 显式报错：静默跳过会让 worktree 悄悄累积。
+	if c.worktrees == nil {
+		return errors.New("teamwork: 收口步 2 需要 WorkspaceReleaser（未装配）")
+	}
+	if err := c.releaseTeammateScenes(ctx, plan.TeamID, role, "team_close"); err != nil {
+		return fmt.Errorf("teamwork: 收口步 2（释放工作区）失败: %w", err)
+	}
+	// 步 3：清会话内容（删的是对话记忆与工作区检出，不是注册/在编）。
+	if c.sessions == nil {
+		return errors.New("teamwork: 收口步 3 需要 SessionResetter（未装配）")
+	}
+	if err := c.sessions.ResetSession(ctx, member.RoleSessionID); err != nil {
+		return fmt.Errorf("teamwork: 收口步 3（清会话内容）失败: %w", err)
+	}
+	return nil
+}
+
 // unsettledItems 返回"没落定"的工作项（`id(状态)` 口径），供收口闸门拒收用：
 //
 //	running 且 handle 还在册 —— 尾插还在飞（现场正被合并使用）
 //	failed                  —— 尾插把现场留给 leader 人工处置
+//	review 且带未合并标记     —— 尾插没能把改动合进去（未提交 / 主工作区挡路）：
+//	                           不判死（一份已完成的产出不该被说成"得重派"），但现场里
+//	                           还留着没落地的产出，静默拆掉就是丢产出
 //
-// 待验收（review）不算：尾插已走完、合并已落地，释放它的现场是安全的。这把尺子量的是
-// **每一件工作项**（不按角色分档）：收口会把**所有** per-item 现场连同角色级现场一并拆掉，
-// 所以凡是"还被尾插拿着"或"留给 leader 人工处置"的现场都不许被它静默拆掉（见 Close 的注释）。
+// 待验收（review）**本身**不算没落定：尾插已走完、合并已落地，释放它的现场是安全的。
+// 这把尺子量的是**每一件工作项**（不按角色分档）：收口会把**所有** per-item 现场连同
+// 角色级现场一并拆掉，所以凡是"还被尾插拿着"或"留给 leader 人工处置"或"改动还没合进去"
+// 的现场都不许被它静默拆掉（见 Close 的注释）。
 func (c *Coordinator) unsettledItems(plan sessionstore.TeamworkPlan) []string {
 	unsettled := make([]string, 0)
 	for _, milestone := range plan.Milestones {
@@ -415,10 +467,41 @@ func (c *Coordinator) unsettledItems(plan sessionstore.TeamworkPlan) []string {
 				}
 			case sessionstore.TeamworkItemFailed:
 				unsettled = append(unsettled, item.ID+"(failed)")
+			case sessionstore.TeamworkItemReview:
+				if _, unmerged := plan.State.Unmerged[item.ID]; unmerged {
+					unsettled = append(unsettled, item.ID+"(review:改动未合并)")
+				}
 			}
 		}
 	}
 	return unsettled
+}
+
+// AliveSceneNodes 返回计划里"本进程还有执行面"的现场 nodeID 集合（契约命名：
+// Work Item 级 = `<role>-<itemID>`，teammate 级 = `<role>`）。
+//
+// 它是**投影**而不是事实：句柄只在内存（jobs I-4），进程重启之后这个集合必然是空的——
+// 那正是"这些单元可以重派/需要人工处置"的信号。会话回灌（workunit 契约的 Recover）用它
+// 与"角色会话句柄还在册"一起判定"记录说在跑、而本进程已无它的执行面"。
+func (c *Coordinator) AliveSceneNodes(ctx context.Context) (map[string]bool, error) {
+	plan, err := c.store.ReadPlan(ctx, c.key)
+	if err != nil {
+		return nil, err
+	}
+	alive := map[string]bool{}
+	for _, milestone := range plan.Milestones {
+		for _, item := range milestone.Items {
+			if item.StatusOrPending() == sessionstore.TeamworkItemRunning && c.handleAlive(item.Handle) {
+				alive[SceneNodeID(item.Role, item.ID)] = true
+			}
+		}
+	}
+	for _, member := range plan.Members {
+		if c.handleAlive(plan.State.Jobs[member.Role]) {
+			alive[strings.TrimSpace(member.Role)] = true
+		}
+	}
+	return alive, nil
 }
 
 // Close 收口整支团队（team_close）：逐在编成员走同一套四步（这里 reclaim=true，回收
@@ -456,7 +539,8 @@ func (c *Coordinator) Close(ctx context.Context) (bool, error) {
 	if unsettled := c.unsettledItems(plan); len(unsettled) > 0 {
 		return false, fmt.Errorf("teamwork: 还有 %d 件工作没落定（%s）——整队收口会把它们的现场一并拆掉，"+
 			"先把账收干净：还在跑的先等它的回执（尾插会先合并、再插回执），或 jobs_manage(op=kill) 停掉；"+
-			"失败/合并冲突的先人工处置（在它的 worktree 里解冲突、变基、合并）再 team_accept 销项，要重做就 team_dispatch 重派",
+			"失败/合并冲突/改动未合并的先人工处置（在它的 worktree 里解冲突、变基、合并）再 team_accept 销项，"+
+			"要重做就 team_fail 后 team_dispatch 重派",
 			len(unsettled), strings.Join(unsettled, ", "))
 	}
 	for _, member := range plan.Members {
