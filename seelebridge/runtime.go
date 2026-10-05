@@ -225,9 +225,10 @@ type Runtime struct {
 	// runtime_subagent_resume.go。
 	subagentResume subagentResumeState
 	// teamResume 保存 teammate 单元中断恢复期的 system 恢复说明（角色会话 →
-	// 说明；只进它自己的下一次装配，读完即消）。见 workunit_team.go：契约
-	// （seelebridge/workunit）的 RecoveryNote 在这里落地。
-	teamResume       teamResumeState
+	// 说明；只进它自己的下一次装配，读完即消）。**容器只有一份**（resumeNotes，
+	// 见 resume_notes.go）；正文也只有一份（见 workunit_team_records.go 的
+	// `workunit.RecoveryNote` 接线）。
+	teamResume       resumeNotes
 	eventPersisterMu sync.Mutex
 	eventPersister   func(context.Context, frameworkevent.Event) error
 	lazyMCPServerMu  sync.RWMutex

@@ -12,10 +12,8 @@ package seelebridge
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 	"strings"
-	"sync"
 
 	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
 	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
@@ -83,8 +81,8 @@ func (r *Runtime) saveTeamUnitRecord(mainSessionID string, key teamUnitRecordKey
 		MainSessionID: scope.SessionID,
 		Goal:          key.Goal,
 		Status:        status,
-		Summary:       clipTeamPreview(summary),
-		StagesJSON:    teamUnitStages(stage, summary),
+		Summary:       workunit.ClipPreview(summary),
+		StagesJSON:    workunit.EncodeStages([]workunit.Stage{{Stage: stage, Preview: summary}}),
 		Worktree:      r.teamUnitWorktreeRecord(key.NodeID),
 	}
 	if err := ledger.Save(scope.ProjectID, scope.SessionID, record); err != nil {
@@ -107,33 +105,6 @@ func (r *Runtime) teamUnitWorktreeRecord(nodeID string) sessionstore.NodeWorktre
 	return sessionstore.NodeWorktreeRecord{Path: info.Path, Branch: info.Branch}
 }
 
-// teamUnitStages 把一条打点（阶段 + 预览）编成记录里的 StagesJSON——形状与子代理节点
-// 记录同一份（`[{"stage":…,"preview":…}]`），恢复说明据此说出"中断前到哪一步"。
-func teamUnitStages(stage, preview string) []byte {
-	stage = strings.TrimSpace(stage)
-	if stage == "" {
-		return nil
-	}
-	payload, err := json.Marshal([]map[string]string{{"stage": stage, "preview": clipTeamPreview(preview)}})
-	if err != nil {
-		return nil
-	}
-	return payload
-}
-
-// teamUnitPreviewLimit 是记录里预览的字符上限：记录要能进恢复说明（system 注入），
-// 必须有界。
-const teamUnitPreviewLimit = 240
-
-// clipTeamPreview 把一段正文压成有界的一行。
-func clipTeamPreview(text string) string {
-	flat := strings.Join(strings.Fields(text), " ")
-	if runes := []rune(flat); len(runes) > teamUnitPreviewLimit {
-		return string(runes[:teamUnitPreviewLimit]) + "…"
-	}
-	return flat
-}
-
 // markTeamUnitRunning 落"这一轮开始了、现场在哪"（运行期落盘：崩溃/重启后回灌的依据）。
 func (r *Runtime) markTeamUnitRunning(mainSessionID string, key teamUnitRecordKey) {
 	r.saveTeamUnitRecord(mainSessionID, key, teamUnitStatusRunning, key.Goal, "running")
@@ -142,7 +113,7 @@ func (r *Runtime) markTeamUnitRunning(mainSessionID string, key teamUnitRecordKe
 // recordTeamUnitRoundOutput 把这一轮的产出预览补进记录（记录回答"跑到哪"：中断之后
 // 恢复说明里"中断前结论"那一行就是它）。
 func (r *Runtime) recordTeamUnitRoundOutput(mainSessionID string, key teamUnitRecordKey, output string) {
-	preview := clipTeamPreview(output)
+	preview := workunit.ClipPreview(output)
 	if preview == "" {
 		return
 	}
@@ -182,9 +153,15 @@ func (r *Runtime) clearTeamUnitRecord(mainSessionID, roleSessionID string) {
 // 会话号取调用方给的主会话号（不是 `MainSessionID()`）：收口发生在**某个会话**上，
 // 而"当前活跃会话"是视图指针，不该拿它当存储键。
 func (r *Runtime) clearTeamUnitRecords(sessionID string) int {
+	reader := r.teamUnitReader(sessionID, r.teamSceneIndex(sessionID))
+	list, err := reader.List()
+	if err != nil {
+		log.Printf("seelebridge: 读回 teammate 单元记录（会话 %s）失败：%v", sessionID, err)
+		return 0
+	}
 	cleared := 0
-	for _, record := range r.teamUnitRecords(sessionID, r.teamSceneIndex(sessionID)) {
-		r.clearTeamUnitRecord(sessionID, record.SessionID)
+	for _, unit := range list {
+		r.clearTeamUnitRecord(sessionID, unit.SessionID)
 		cleared++
 	}
 	return cleared
@@ -192,28 +169,17 @@ func (r *Runtime) clearTeamUnitRecords(sessionID string) int {
 
 // ── 恢复说明：一次性注入（与 SubagentResumeNote 同形）──────────────────
 
-// teamResumeState 保存 teammate 单元的恢复说明（按**角色会话号**存：角色会话是回灌的
-// 落点，说明只进它自己的下一次装配）。
-//
-// 与 `subagentResumeState.notes` 同一形状、同一语义（system 注入、读完即消），只是键与
-// 落点不同：subagent 的键是节点 id、在节点装配 PromptBlocks 时读；teammate 的键是角色
-// 会话号、在 worker 回合装配系统提示时读。
-type teamResumeState struct {
-	mu    sync.Mutex
-	notes map[string]string
-}
+// teammate 单元的恢复说明按**角色会话号**存：角色会话是回灌的落点，说明只进它自己的下一次
+// 装配。容器只有一份（`resumeNotes`，见 resume_notes.go）——**键语义留在这里**：subagent 的键
+// 是节点 id、在节点装配 PromptBlocks 时读；teammate 的键是角色会话号、在 worker 回合装配系统
+// 提示时读。正文也只有一份（`workunit.RecoveryNote`）。
 
 // setTeamResumeNote 记下该角色会话下一次装配要带的恢复说明。
 func (r *Runtime) setTeamResumeNote(roleSessionID, note string) {
-	if r == nil || strings.TrimSpace(roleSessionID) == "" || strings.TrimSpace(note) == "" {
+	if r == nil {
 		return
 	}
-	r.teamResume.mu.Lock()
-	if r.teamResume.notes == nil {
-		r.teamResume.notes = map[string]string{}
-	}
-	r.teamResume.notes[strings.TrimSpace(roleSessionID)] = note
-	r.teamResume.mu.Unlock()
+	r.teamResume.set(roleSessionID, note)
 }
 
 // consumeTeamResumeNote 取走该角色会话的恢复说明并**清掉**（一次装配读完即消：恢复
@@ -222,15 +188,7 @@ func (r *Runtime) consumeTeamResumeNote(roleSessionID string) string {
 	if r == nil {
 		return ""
 	}
-	roleSessionID = strings.TrimSpace(roleSessionID)
-	if roleSessionID == "" {
-		return ""
-	}
-	r.teamResume.mu.Lock()
-	defer r.teamResume.mu.Unlock()
-	note := r.teamResume.notes[roleSessionID]
-	delete(r.teamResume.notes, roleSessionID)
-	return note
+	return r.teamResume.take(roleSessionID)
 }
 
 // clearTeamResumeNote 丢掉该角色会话还没被读走的恢复说明（收口清会话内容时用：会话内容
@@ -239,9 +197,7 @@ func (r *Runtime) clearTeamResumeNote(roleSessionID string) {
 	if r == nil {
 		return
 	}
-	r.teamResume.mu.Lock()
-	delete(r.teamResume.notes, strings.TrimSpace(roleSessionID))
-	r.teamResume.mu.Unlock()
+	r.teamResume.clear(roleSessionID)
 }
 
 // ── 重启回灌 ───────────────────────────────────────────────────────────
@@ -276,8 +232,17 @@ func (r *Runtime) RecoverTeamworkUnits(ctx context.Context, sessionID string) (T
 	// ① 现场：认领（不重建、不清理）。无现场 = 0（幂等 no-op）。
 	recovery.Resume.Scenes = r.adoptTeamworkScenes(sessionID)
 	index := r.teamSceneIndex(sessionID)
-	records := r.teamUnitRecords(sessionID, index)
-	recovery.Resume.Sessions = len(records)
+	// 读法只有一份（workunit.UnitReader）：List → 按现场名单过滤 → 折算成读数
+	// （workunit.ProgressOf）；此前这里是"自己 List + 自己按名单过滤 + 自己判 InFlight"的
+	// 第三份实现，与子代理侧、与生命周期的记录读面各写一遍。
+	reader := r.teamUnitReader(sessionID, index)
+	list, err := reader.List()
+	if err != nil {
+		log.Printf("seelebridge: 读回 teammate 单元记录（会话 %s）失败：%v", sessionID, err)
+		list = nil
+	}
+	progress := teamUnitProgressMap(list)
+	recovery.Resume.Sessions = len(progress)
 	// ② 团队账本读数（可重派清单）。未装配编排面 = 只按记录回灌。
 	coordinator, coordErr := r.coordinatorForSession(sessionID)
 	if coordErr != nil {
@@ -303,20 +268,24 @@ func (r *Runtime) RecoverTeamworkUnits(ctx context.Context, sessionID string) (T
 		seen[nodeID] = true
 		interrupted = append(interrupted, nodeID)
 	}
-	surface := func(entry teamSceneEntry, record sessionstore.NodeSessionRecord) bool {
-		return r.teamUnitSurfaceAlive(entry, record, alive)
+	surface := func(entry teamSceneEntry, sessionID string) bool {
+		return r.teamUnitSurfaceAlive(entry, sessionID, alive)
 	}
 	for _, entry := range index {
-		record, ok := records[entry.NodeID]
-		if !ok || !workunit.InFlight(record.Status) {
+		unit, ok := progress[entry.NodeID]
+		if !ok || !unit.InFlight {
 			continue
 		}
-		if surface(entry, record) {
+		if surface(entry, unit.SessionID) {
 			continue
 		}
 		addInterrupted(entry.NodeID)
 		// ④ 恢复说明：事实来自记录本身（不编造），注入该角色会话的下一次装配。
-		r.setTeamResumeNote(record.SessionID, workunit.RecoveryNote(workunit.KindTeammate, record))
+		//    正文的构建器只有一份（workunit.RecoveryNote，收的是记录）；原始记录从同一份
+		//    读面取（定位与归属过滤与 List 同一条实现）。
+		if record, found, err := reader.Record(entry.NodeID); err == nil && found {
+			r.setTeamResumeNote(unit.SessionID, workunit.RecoveryNote(workunit.KindTeammate, record))
+		}
 	}
 	// 账本侧的同一条事实（状态说在跑、句柄却不在册）也一并列出：**记录缺席**时不至于漏掉
 	// 这一件可重派的工作。有执行面的（角色会话还在跑）不算中断——它现在就在本进程里。
@@ -331,7 +300,7 @@ func (r *Runtime) RecoverTeamworkUnits(ctx context.Context, sessionID string) (T
 		if !ok {
 			continue
 		}
-		if record, has := records[entry.NodeID]; has && surface(entry, record) {
+		if unit, has := progress[entry.NodeID]; has && surface(entry, unit.SessionID) {
 			continue
 		}
 		addInterrupted(entry.NodeID)
@@ -340,35 +309,37 @@ func (r *Runtime) RecoverTeamworkUnits(ctx context.Context, sessionID string) (T
 	return recovery, nil
 }
 
-// teamUnitRecords 读回这支团队在本会话里的单元记录（按 nodeID 索引）。
+// teamUnitReader 组装 teammate 侧的读面（`workunit.UnitReader`）：作用域解析仍只有
+// `teamUnitScope` 一处，**归属过滤**在这里给出。
 //
-// 记录文件与子代理节点记录**共用**同一个 `subagents/` 目录，所以这里必须按现场名单过滤：
+// 记录文件与子代理节点记录**共用**同一个 `subagents/` 目录，所以必须按现场名单过滤：
 // 只有 nodeID 落在本会话团队现场名单（计划 + 账本）里的记录才属于 teammate 单元——
-// 不猜、不扫目录。
-func (r *Runtime) teamUnitRecords(sessionID string, index []teamSceneEntry) map[string]sessionstore.NodeSessionRecord {
-	records := map[string]sessionstore.NodeSessionRecord{}
-	if r == nil || r.nodeSessionStore == nil || len(index) == 0 {
-		return records
+// 不猜、不扫目录（过滤本身由读面的 `owned` 回调表达，读法不在这里复制一遍）。
+func (r *Runtime) teamUnitReader(sessionID string, index []teamSceneEntry) *workunit.UnitReader {
+	if r == nil || len(index) == 0 {
+		return workunit.NewUnitReader(nil, "", "", workunit.KindTeammate, nil)
 	}
 	scope, ok := r.teamUnitScope(sessionID)
 	if !ok {
-		return records
-	}
-	stored, err := r.nodeSessionStore.List(scope.ProjectID, scope.SessionID)
-	if err != nil {
-		log.Printf("seelebridge: 读回 teammate 单元记录（会话 %s）失败：%v", sessionID, err)
-		return records
+		return workunit.NewUnitReader(nil, "", "", workunit.KindTeammate, nil)
 	}
 	wanted := make(map[string]bool, len(index))
 	for _, entry := range index {
-		wanted[entry.NodeID] = true
+		wanted[strings.TrimSpace(entry.NodeID)] = true
 	}
-	for _, record := range stored {
-		if wanted[strings.TrimSpace(record.NodeID)] {
-			records[record.NodeID] = record
-		}
+	return workunit.NewUnitReader(r.teamUnitLedger(), scope.ProjectID, scope.SessionID, workunit.KindTeammate,
+		func(record sessionstore.NodeSessionRecord) bool {
+			return wanted[strings.TrimSpace(record.NodeID)]
+		})
+}
+
+// teamUnitProgressMap 把一次读数清单索引成 "nodeID → 读数"（调用点只关心"跑到哪"）。
+func teamUnitProgressMap(list []workunit.Progress) map[string]workunit.Progress {
+	progress := make(map[string]workunit.Progress, len(list))
+	for _, unit := range list {
+		progress[unit.NodeID] = unit
 	}
-	return records
+	return progress
 }
 
 // teamUnitSurfaceAlive 报告这个单元在本进程里还有没有**执行面**：
@@ -376,8 +347,8 @@ func (r *Runtime) teamUnitRecords(sessionID string, index []teamSceneEntry) map[
 //   - 计划里这一件事（或这个角色）的作业句柄还在册。
 //
 // 两者都没有 = 记录说的"在跑"其实已经随进程一起没了 ⇒ 中断（交上层重派或人工处置）。
-func (r *Runtime) teamUnitSurfaceAlive(entry teamSceneEntry, record sessionstore.NodeSessionRecord, alive map[string]bool) bool {
-	if r.roleSessionLive(record.SessionID) {
+func (r *Runtime) teamUnitSurfaceAlive(entry teamSceneEntry, roleSessionID string, alive map[string]bool) bool {
+	if r.roleSessionLive(roleSessionID) {
 		return true
 	}
 	if alive[entry.NodeID] {

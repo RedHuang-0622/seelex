@@ -14,10 +14,16 @@ package workunit
 //	③ `Progress` 的每个字段都逐一对应记录里**已有**的字段：不新增存储、不新增事件流、不新增
 //	   归属（`Kind` 只是描述性标注）。
 //
-// **本轮只把读法定形**（本文件是"形状"），三份手写折算的**合并**归下一波步骤②——它跨
-// `seelebridge/session/` 与 `seelebridge/workunit_team_records.go`，与两张作业表合一同一批做。
-// 因此本文件今天**还没有生产调用者**（见交付报告「未决项」），这不要紧：形状先立住，
-// 合并时只做"转调"而不改语义。
+// 步骤②的落点（本文件从"形状"转成**生产接线**）：
+//
+//	① 折算唯一：`ProgressOf` 是"记录 → 进度读数"的**唯一**一份实现。三条读侧的手写折算
+//	   转调它——生命周期的记录读面（`seelebridge/workunit_assembly.go` 的 hostPorts：
+//	   Status / Readout / Clear）、子代理恢复定位（`runtime_subagent_resume.go` 的 Locate）、
+//	   teammate 会话级读回（`workunit_team_records.go` 的 teamUnitRecords）。
+//	② 编解码唯一：`EncodeStages` / `DecodeStages` 收掉 teammate 那份 `[]map[string]string`
+//	   自编载荷、子代理恢复说明里那份匿名结构自解载荷。
+//	③ 预览上界唯一：`ClipPreview` 收掉四份实现（阶段钩子的 200 字节、teammate 的 240 rune、
+//	   恢复说明的 240 字节、本文件的 240 rune）——同一件事两个上界、两种计量单位。
 //
 // 刻意**不**进这里（列出来才是"没有强塞"）：
 //
@@ -37,9 +43,13 @@ import (
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
-// StagePreviewLimit 是一条打点的预览字符上限：记录会进恢复说明（system 注入）与详情面板，
-// 必须有界。240 与 teammate 侧既有的 `teamUnitPreviewLimit` 同口径——合并折算时不会因为它
-// 而改变任何一条现存记录的落盘内容。
+// StagePreviewLimit 是一条打点的预览字符上限（按 rune 计）：记录会进恢复说明（system 注入）
+// 与详情面板，必须有界。
+//
+// 它是**唯一**一份预览上界：`ClipPreview` 是唯一一份裁剪实现，三处生产者全部转调它——
+// 阶段钩子（子代理写侧 `internal/telemetry`）、teammate 记录写侧（`workunit_team_records.go`）、
+// 恢复说明（`runtime_subagent_resume.go`）。此前这里写了四份实现、两个上界（200 字节 /
+// 240 rune / 240 字节），同一份判据各裁各的：超长中文预览会被按字节切断（产出非法 UTF-8）。
 const StagePreviewLimit = 240
 
 // Stage 是一条打点（阶段 + 有界预览）：与 `NodeSessionRecord.StagesJSON` 的载荷同形状。
@@ -62,7 +72,7 @@ func EncodeStages(stages []Stage) []byte {
 		if name == "" {
 			continue
 		}
-		normalized = append(normalized, Stage{Stage: name, Preview: clipStagePreview(stage.Preview)})
+		normalized = append(normalized, Stage{Stage: name, Preview: ClipPreview(stage.Preview)})
 	}
 	if len(normalized) == 0 {
 		return nil
@@ -96,8 +106,14 @@ func DecodeStages(payload []byte) []Stage {
 	return stages
 }
 
-// clipStagePreview 把一段正文压成有界的一行（按 rune 裁，避免切断多字节字符）。
-func clipStagePreview(text string) string {
+// ClipPreview 把一段正文压成有界的一行（按 rune 裁，避免切断多字节字符）——**唯一一份**
+// 预览裁剪。
+//
+// 三层共用：阶段钩子（子代理写侧）、记录写侧（teammate）、恢复说明（子代理）全部转调它。
+// 收口前同一件事写了四份，其中两份按**字节**裁（`stagePreviewMax` 200、
+// `truncateSubagentResumePreview` 240）：超长中文预览会被切成非法 UTF-8，而"有界"这件事
+// 本身也漂成了两个数。
+func ClipPreview(text string) string {
 	flat := strings.Join(strings.Fields(text), " ")
 	if runes := []rune(flat); len(runes) > StagePreviewLimit {
 		return string(runes[:StagePreviewLimit]) + "…"
@@ -134,10 +150,10 @@ type Progress struct {
 
 // ProgressOf 把一条会话记录折成进度读数——**唯一一份折算**。
 //
-// 收编目标（步骤②）：subagent 写侧兜底与读侧还原（`seelebridge/session/subagent_sessions.go`
-// 的 `buildRecordLocked` / `restoreLocked`）、teammate 折算（`workunit_team_records.go` 的
-// `saveTeamUnitRecord` / `teamUnitRecords`）全部转调这里。本轮只把折算**形状**定下来：
-// 它**不编造**记录里没有的事实，也不替任何一层写终态词表。
+// 收编（步骤②已落地）：subagent 读侧（`runtime_subagent_resume.go` 的 `Locate`）、
+// teammate 会话级读回（`workunit_team_records.go` 的 `teamUnitRecords`）与生命周期的记录读面
+// （`workunit_assembly.go` 的 hostPorts）全部经 `UnitReader` 转调这里；写侧只负责把"这一轮的
+// 事实"塞进 record。它**不编造**记录里没有的事实，也不替任何一层写终态词表。
 func ProgressOf(kind Kind, record sessionstore.NodeSessionRecord) Progress {
 	return Progress{
 		Kind:      kind,
@@ -157,9 +173,9 @@ func ProgressOf(kind Kind, record sessionstore.NodeSessionRecord) Progress {
 // UnitReader 是"**按 nodeID 读一件事此刻的进度**"的读面：把契约已钉住的 `SessionLedger`
 // （Save/List）包成一份按 NodeID 定位的读法。
 //
-// 为什么需要它：两条链现在都在手写"List → 线性查找 → 折算"（subagent 的 `ledgerRecord`、
-// teammate 的 `teamUnitRecords`），读法已经是同一件事的第二、第三份；包成一份之后，前端要读
-// 的"这件事跑到哪"只有一个后端入口。
+// 为什么需要它：两条链此前各手写"List → 线性查找/过滤 → 折算"（生命周期的记录读面
+// `workunit_assembly.go` 的 `sessionRecords`/`recordFor`、子代理恢复的 `Locate`、teammate 的
+// `teamUnitRecords`）；包成一份之后，"这件事跑到哪"只有一个后端入口。
 //
 // 它**不新增依赖、不新增存储**：只读 `SessionLedger`。
 type UnitReader struct {
@@ -203,6 +219,34 @@ func (r *UnitReader) Read(nodeID string) (Progress, bool, error) {
 		return ProgressOf(r.kind, record), true, nil
 	}
 	return Progress{}, false, nil
+}
+
+// Records 返回本读面的**原始记录清单**（归属过滤已生效）：层专有格（`History` /
+// `ContextJSON` / `ResultJSON`，以及子代理打点载荷里的 turn/at）只有这里读得到。
+//
+// 需要**读数**时用 `Read` / `List`（它们把记录折成 `Progress`）；需要原始记录时用这里或
+// `Record`——但"List"这件事只有本读面这一处，调用方不再自己拿账本列一遍。
+func (r *UnitReader) Records() ([]sessionstore.NodeSessionRecord, error) {
+	return r.records()
+}
+
+// Record 返回一件事**原始**的会话记录：层专有格（`History` / `ContextJSON` / `ResultJSON`，
+// 以及子代理打点载荷里的 turn/at）不在 `Progress` 里（那是两层交集），需要它们时读这里。
+//
+// 定位与归属过滤与 `Read` 走**同一条**实现：多一条读法就是多一份"按 nodeID 找记录"的实现。
+// 无存储 / 无记录 / 被归属过滤掉 → found=false（正常读数，不是错误）。
+func (r *UnitReader) Record(nodeID string) (sessionstore.NodeSessionRecord, bool, error) {
+	records, err := r.records()
+	if err != nil {
+		return sessionstore.NodeSessionRecord{}, false, err
+	}
+	nodeID = strings.TrimSpace(nodeID)
+	for _, record := range records {
+		if strings.TrimSpace(record.NodeID) == nodeID {
+			return record, true, nil
+		}
+	}
+	return sessionstore.NodeSessionRecord{}, false, nil
 }
 
 // List 返回本账本里**归属于本读面**的全部单元进度读数（按 NodeID 稳定排序）。

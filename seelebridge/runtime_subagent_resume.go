@@ -44,14 +44,15 @@ const SubagentRecoveryNoteRole = workunit.RecoveryNoteRole
 const subagentRecoveryNotePrefix = "[Seelex recovery note: interrupted subagent"
 
 // subagentResumeState 在 Runtime 内保存恢复期状态：
-//   - notes：节点 → 恢复说明（仅该节点的下一次装配读取，收敛后清除）；
+//   - notes：节点 → 恢复说明（仅该节点的下一次装配读取，收敛后清除；容器只有一份，
+//     见 resume_notes.go —— 键是节点 id 这一件事留在本层）；
 //   - parentRepair：父侧历史补齐钩子（application 组合根注入）。
 type subagentResumeState struct {
 	mu           sync.Mutex
-	notes        map[string]string
+	notes        resumeNotes
 	parentRepair func(sessionID string) error
 	// redispatch 覆盖“同键重跑”的传输实现（默认 DirectDispatch fork_subagents；
-	// 测试与替换传输用）。与 notes/parentRepair 同锁保护。
+	// 测试与替换传输用）。与 parentRepair 同锁保护。
 	redispatch func(ctx context.Context, nodeID, goal string) (string, error)
 }
 
@@ -68,35 +69,26 @@ func (r *Runtime) SetSubagentParentRepairer(fn func(sessionID string) error) {
 }
 
 // SubagentResumeNote 返回节点当前的恢复说明（node 装配 PromptBlocks 时读取；
-// 非恢复轮次返回空串）。
+// 非恢复轮次返回空串）。**非消费读**：同一个节点的同一次装配可能读多次。
 func (r *Runtime) SubagentResumeNote(nodeID string) string {
-	if r == nil || strings.TrimSpace(nodeID) == "" {
+	if r == nil {
 		return ""
 	}
-	r.subagentResume.mu.Lock()
-	defer r.subagentResume.mu.Unlock()
-	return r.subagentResume.notes[nodeID]
+	return r.subagentResume.notes.peek(nodeID)
 }
 
 func (r *Runtime) setSubagentResumeNote(nodeID, note string) {
-	if r == nil || nodeID == "" || note == "" {
+	if r == nil {
 		return
 	}
-	r.subagentResume.mu.Lock()
-	if r.subagentResume.notes == nil {
-		r.subagentResume.notes = map[string]string{}
-	}
-	r.subagentResume.notes[nodeID] = note
-	r.subagentResume.mu.Unlock()
+	r.subagentResume.notes.set(nodeID, note)
 }
 
 func (r *Runtime) clearSubagentResumeNote(nodeID string) {
-	if r == nil || nodeID == "" {
+	if r == nil {
 		return
 	}
-	r.subagentResume.mu.Lock()
-	delete(r.subagentResume.notes, nodeID)
-	r.subagentResume.mu.Unlock()
+	r.subagentResume.notes.clear(nodeID)
 }
 
 // setSubagentRedispatchHook 覆盖同键重跑的传输实现（nil = 默认
@@ -304,7 +296,11 @@ type subagentResumePort struct {
 //   - status=queued/running 且无结论 → active，需要重启续跑；
 //   - status=done/failed → 终结，不重启。
 func (p *subagentResumePort) Locate(ctx context.Context) ([]resume.Unit, error) {
-	records, err := p.runtime.nodeSessionStore.List(p.projectID, p.mainSessionID)
+	// 读法只有一份（`workunit.UnitReader`：List → 定位 → 折算）；折算也只有一份
+	// （`workunit.ProgressOf`）——此前这里是"自己 List + 自己判 InFlight + 自己取字段"的
+	// 第二份实现，与 teammate 侧、与生命周期的记录读面各写一遍。
+	reader := workunit.NewUnitReader(p.runtime.nodeSessionStore, p.projectID, p.mainSessionID, workunit.KindSubagent, nil)
+	records, err := reader.Records()
 	if err != nil {
 		return nil, fmt.Errorf("list node sessions: %w", err)
 	}
@@ -316,9 +312,10 @@ func (p *subagentResumePort) Locate(ctx context.Context) ([]resume.Unit, error) 
 	p.records = make(map[string]sessionstore.NodeSessionRecord, len(records))
 	units := make([]resume.Unit, 0, len(records))
 	for _, record := range records {
-		key := record.NodeID
+		progress := workunit.ProgressOf(workunit.KindSubagent, record)
+		key := progress.NodeID
 		if key == "" {
-			key = record.SessionID
+			key = progress.SessionID
 		}
 		if key == "" {
 			continue
@@ -326,11 +323,11 @@ func (p *subagentResumePort) Locate(ctx context.Context) ([]resume.Unit, error) 
 		p.records[key] = record
 		status := resume.UnitDone
 		switch {
-		// "还在跑"的判据只有一份（workunit.InFlight）：与 teammate 侧、与树投影
-		// 用的是同一条，不再在这里写一遍字面量。
-		case workunit.InFlight(record.Status):
+		// "还在跑"的判据只有一份（workunit.InFlight / Progress.InFlight）：与 teammate 侧、
+		// 与树投影用的是同一条，不再在这里写一遍字面量。
+		case progress.InFlight:
 			status = resume.UnitActive
-		case record.Status == "failed":
+		case progress.Status == subagentNodeStatusFailed:
 			status = resume.UnitFailed
 		}
 		if _, concluded := conclusions[key]; concluded {
@@ -339,12 +336,23 @@ func (p *subagentResumePort) Locate(ctx context.Context) ([]resume.Unit, error) 
 		}
 		units = append(units, resume.Unit{
 			Key: key, Kind: subagentResumeKind, Status: status,
-			SessionID: record.SessionID, ParentSessionID: p.mainSessionID,
-			Goal: record.Goal, UpdatedAt: record.UpdatedAt,
+			SessionID: progress.SessionID, ParentSessionID: p.mainSessionID,
+			Goal: progress.Goal, UpdatedAt: progress.UpdatedAt,
 		})
 	}
 	return units, nil
 }
+
+// ── 子代理那一层的终态词表（本层自己的字面量，只有一处）──────────────────
+//
+// 终态**不进契约**：它由记录写方按自己的语义定名（teammate 记 done|failed，子代理记它自己的
+// 两个词），契约只钉"在跑"那两个（workunit.StatusQueued / StatusRunning + InFlight）。
+// 因此这两个字面量住在本层、且只写一遍（Locate 判"是否终结"、ensureConclusion 判"记录本身
+// 已是终结态"都读这里）。
+const (
+	subagentNodeStatusDone   = "done"
+	subagentNodeStatusFailed = "failed"
+)
 
 // RepairParent 补齐父侧历史：缺失的子代理结果 → provider-only tool 占位。
 func (p *subagentResumePort) RepairParent(ctx context.Context, _ resume.Unit) error {
@@ -503,7 +511,7 @@ func (p *subagentResumePort) ensureConclusion(ctx context.Context, unit resume.U
 		record = latest
 		p.records[unit.Key] = latest
 	}
-	if record.Status != "done" && record.Status != "failed" {
+	if record.Status != subagentNodeStatusDone && record.Status != subagentNodeStatusFailed {
 		return nil
 	}
 	record.MainSessionID = p.mainSessionID
@@ -531,30 +539,26 @@ func (r *Runtime) subagentConclusionSet(ctx context.Context, projectID, sessionI
 }
 
 // lastSubagentStagePreview 读取阶段日志里最后一条预览（恢复说明的“之前做到哪”）。
+//
+// 解码走契约那**唯一一份**（`workunit.DecodeStages`）：此前这里手写了一个匿名结构自己解
+// 同一串载荷——同一件事的第二份解码实现，载荷形状一变只有一处会跟着改。
 func lastSubagentStagePreview(record sessionstore.NodeSessionRecord) string {
-	if len(record.StagesJSON) == 0 {
-		return ""
-	}
-	var stages []struct {
-		Stage   string `json:"stage"`
-		Preview string `json:"preview"`
-	}
-	if err := json.Unmarshal(record.StagesJSON, &stages); err != nil || len(stages) == 0 {
+	stages := workunit.DecodeStages(record.StagesJSON)
+	if len(stages) == 0 {
 		return ""
 	}
 	last := stages[len(stages)-1]
 	if last.Preview == "" {
 		return last.Stage
 	}
-	return last.Stage + ": " + truncateSubagentResumePreview(last.Preview)
+	return last.Stage + ": " + last.Preview
 }
 
-// truncateSubagentResumePreview 截断摘要（报告/恢复说明用）。
+// truncateSubagentResumePreview 截断摘要（报告/恢复说明用）——转调契约那**唯一一份**预览
+// 裁剪（`workunit.ClipPreview`：按 rune 裁）。
+//
+// 此前这里是第四份实现，而且按**字节**裁：超过 240 字节的中文摘要会被从多字节字符中间切开，
+// 恢复说明与报告里因此会出现非法 UTF-8；同一件事的"有界"也漂成了两个数（200 / 240）。
 func truncateSubagentResumePreview(value string) string {
-	value = strings.TrimSpace(value)
-	const limit = 240
-	if len(value) <= limit {
-		return value
-	}
-	return value[:limit] + "…"
+	return workunit.ClipPreview(value)
 }

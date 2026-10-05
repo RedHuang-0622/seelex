@@ -269,13 +269,17 @@ func (p *hostPorts) SceneRegistered(nodeID string) bool {
 	return p.r.nodeWorktreeFor(nodeID) != nil
 }
 
-// Status 读回本单元那一份记录的 status（会话记录面的一格读数）。
+// Status 读回本单元那一份记录的 status（会话记录面的一格读数；折算走 `ProgressOf` 那一份）。
 func (p *hostPorts) Status(ctx context.Context, own workunit.Ownership, nodeID, sessionPath string) (string, bool, error) {
-	record, found, err := p.recordFor(ctx, own, nodeID, sessionPath)
+	reader, _, ok := p.unitReader(ctx, own, sessionPath)
+	if !ok {
+		return "", false, nil
+	}
+	progress, found, err := reader.Read(nodeID)
 	if err != nil || !found {
 		return "", false, err
 	}
-	return record.Status, true, nil
+	return progress.Status, true, nil
 }
 
 // Readout 按会话路径读回该会话的全部单元记录，并折成回灌读数：
@@ -283,23 +287,36 @@ func (p *hostPorts) Status(ctx context.Context, own workunit.Ownership, nodeID, 
 //	Sessions    —— 读回了几条记录（**会话级**粒度：契约的 Recover 是按会话路径回灌的）；
 //	Interrupted —— 记录说在跑、而本进程已无它的执行面的那一条（只报本单元）。
 //
+// 读法与折算都不在这里：List/定位是 `workunit.UnitReader`，折算（含 `InFlight`）是
+// `workunit.ProgressOf`——本格只做"这一层要不要更上一层判据"（recordBelongsToCurrentMain）。
+//
 // 认领现场（`AdoptScenes`）不在这里：它是**现场**那一格的动作，而"认领先于 Prune"的顺序由
 // 调用方（lifecycleHost.Recover）保证——顺序是判据的一部分，因此写在读得见的地方。
 func (p *hostPorts) Readout(ctx context.Context, own workunit.Ownership, nodeID, sessionPath string) (workunit.Resume, error) {
-	records, err := p.sessionRecords(ctx, own, sessionPath)
-	if err != nil {
-		return workunit.Resume{}, err
+	reader, _, ok := p.unitReader(ctx, own, sessionPath)
+	if !ok {
+		return workunit.Resume{}, nil
 	}
-	resume := workunit.Resume{Sessions: len(records)}
-	for _, record := range records {
-		if record.NodeID != nodeID || !workunit.InFlight(record.Status) {
-			continue
-		}
-		// 记录说在跑、而本进程已无它的执行面 ⇒ 中断（交上层重跑或人工处置）。
-		// 判定复用既有的 recordBelongsToCurrentMain（不另立第二条判据）。
-		if p.r.recordBelongsToCurrentMain(record) {
-			resume.Interrupted = []string{nodeID}
-		}
+	list, err := reader.List()
+	if err != nil {
+		return workunit.Resume{}, fmt.Errorf("workunit: list session records for %q: %w", sessionPath, err)
+	}
+	resume := workunit.Resume{Sessions: len(list)}
+	record, found, err := reader.Record(nodeID)
+	if err != nil {
+		return workunit.Resume{}, fmt.Errorf("workunit: read session record for %q: %w", nodeID, err)
+	}
+	if !found {
+		return resume, nil
+	}
+	progress := workunit.ProgressOf("", record)
+	if !progress.InFlight {
+		return resume, nil
+	}
+	// 记录说在跑、而本进程已无它的执行面 ⇒ 中断（交上层重跑或人工处置）。
+	// 判定复用既有的 recordBelongsToCurrentMain（不另立第二条判据）。
+	if p.r.recordBelongsToCurrentMain(record) {
+		resume.Interrupted = []string{nodeID}
 	}
 	return resume, nil
 }
@@ -332,7 +349,11 @@ func (p *hostPorts) Clear(ctx context.Context, own workunit.Ownership, nodeID, s
 		p.r.clearTeamUnitRecord(sessionPath, own.RoleSessionID)
 		return nil
 	}
-	record, found, err := p.recordFor(ctx, own, nodeID, sessionPath)
+	reader, key, ok := p.unitReader(ctx, own, sessionPath)
+	if !ok {
+		return nil
+	}
+	record, found, err := reader.Record(nodeID)
 	if err != nil {
 		return err
 	}
@@ -343,50 +364,31 @@ func (p *hostPorts) Clear(ctx context.Context, own workunit.Ownership, nodeID, s
 	if ledger == nil {
 		return nil
 	}
-	key, ok := p.sessionScope(ctx, own, sessionPath)
-	if !ok {
-		return nil
-	}
 	if err := ledger.Delete(key.ProjectID, key.SessionID, record.SessionID); err != nil {
 		return fmt.Errorf("workunit: reclaim session record for %q: %w", nodeID, err)
 	}
 	return nil
 }
 
-// recordFor 读回**本单元**的会话记录（会话级读回的一个切片；没有存储/没有记录 = false）。
-func (p *hostPorts) recordFor(ctx context.Context, own workunit.Ownership, nodeID, sessionPath string) (sessionstore.NodeSessionRecord, bool, error) {
-	records, err := p.sessionRecords(ctx, own, sessionPath)
-	if err != nil {
-		return sessionstore.NodeSessionRecord{}, false, err
-	}
-	nodeID = strings.TrimSpace(nodeID)
-	for _, record := range records {
-		if record.NodeID == nodeID {
-			return record, true, nil
-		}
-	}
-	return sessionstore.NodeSessionRecord{}, false, nil
-}
-
-// sessionRecords 按**会话路径**读回该会话的全部单元记录（恢复的粒度是会话级：
-// 两层读的是同一份记录清单，差别只在账本键怎么解析——解析在 sessionScope 一处）。
-func (p *hostPorts) sessionRecords(ctx context.Context, own workunit.Ownership, sessionPath string) ([]sessionstore.NodeSessionRecord, error) {
+// unitReader 组装本层的记录读面：**作用域解析仍只有 `sessionScope` 一处**，而
+// "List → 按 nodeID 定位 → 折算"全部由 `workunit.UnitReader` / `ProgressOf` 提供——本格
+// 此前自己列一遍账本、自己线性查找、自己取字段，是同一件事的第二份实现。
+//
+// Kind 留空（`Progress.Kind` 是描述性标注）：本格是**两层共用**的记录端口（父实现的服务面），
+// 给读数贴一个层标注就是说谎——调用方不需要它，需要时按自己的层给。
+func (p *hostPorts) unitReader(ctx context.Context, own workunit.Ownership, sessionPath string) (*workunit.UnitReader, sessionstore.Key, bool) {
 	if p == nil || p.r == nil {
-		return nil, nil
+		return nil, sessionstore.Key{}, false
 	}
 	ledger := p.r.teamUnitLedger()
 	if ledger == nil {
-		return nil, nil
+		return nil, sessionstore.Key{}, false
 	}
 	key, ok := p.sessionScope(ctx, own, sessionPath)
 	if !ok {
-		return nil, nil
+		return nil, sessionstore.Key{}, false
 	}
-	records, err := ledger.List(key.ProjectID, key.SessionID)
-	if err != nil {
-		return nil, fmt.Errorf("workunit: list session records for %q: %w", sessionPath, err)
-	}
-	return records, nil
+	return workunit.NewUnitReader(ledger, key.ProjectID, key.SessionID, "", nil), key, true
 }
 
 // sessionScope 解析本层的会话账本作用域（**唯一一处解析**）：团队归属的单元记在团队账本

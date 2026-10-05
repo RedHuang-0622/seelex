@@ -13,8 +13,10 @@ import (
 // progress_test.go — 读面（progress.go）的形状证据：打点编解码只有一份、折算不编造事实、
 // 按 nodeID 的读法把"List → 查找 → 折算"收成一份。
 //
-// 这些用例守的是**形状**（本轮读面只定形，三份手写折算的合并归步骤②），因此它们不碰任何
-// 生产装配：给一个假账本、喂记录、断言读数。
+// 这些用例守的是**形状**（读面本身不碰生产装配）：给一个假账本、喂记录、断言读数。
+// 步骤②的**生产接线**（宿主记录读面 / 子代理恢复定位 / teammate 会话级读回转调本读面）
+// 由 `seelebridge` 包里的用例守（workunit_assembly_test.go、runtime_subagent_resume_test.go、
+// workunit_team_test.go）。
 
 // 作业面按能力切开之后，`jobs.Manager` 必须**逐格**满足（合成面见 contract.go 的断言）。
 // 每一格单独可判，接手的人因此知道"哪一格漂了"，而不是只看见一条合成断言红。
@@ -166,6 +168,29 @@ func TestUnitReaderReadsByNodeIDAndFiltersOwnership(t *testing.T) {
 	}
 	if list, err := empty.List(); err != nil || len(list) != 0 {
 		t.Fatalf("未装配账本时 List 必须为空：%+v err=%v", list, err)
+	}
+}
+
+// TestUnitReaderRecordSharesTheSameLookup：层专有格（History/ContextJSON/ResultJSON、
+// 子代理打点里的 turn/at）不在 `Progress` 里——需要它们时读 `Record`，而**定位与归属过滤**
+// 与 `Read` 走同一条实现（多一条读法就是多一份"按 nodeID 找记录"）。
+func TestUnitReaderRecordSharesTheSameLookup(t *testing.T) {
+	ledger := &fakeLedger{records: []sessionstore.NodeSessionRecord{
+		{NodeID: "exec-wi-1", SessionID: "s1", Status: StatusRunning, ResultJSON: []byte(`{"ok":true}`)},
+		{NodeID: "wu-2", SessionID: "s2", Status: "done"},
+	}}
+	reader := NewUnitReader(ledger, "p", "sess", KindTeammate, func(record sessionstore.NodeSessionRecord) bool {
+		return record.NodeID == "exec-wi-1"
+	})
+	record, found, err := reader.Record("exec-wi-1")
+	if err != nil || !found || string(record.ResultJSON) != `{"ok":true}` {
+		t.Fatalf("Record 必须交回原始记录：%+v found=%v err=%v", record, found, err)
+	}
+	if _, found, err := reader.Record("wu-2"); err != nil || found {
+		t.Fatalf("归属过滤对 Record 同样生效：found=%v err=%v", found, err)
+	}
+	if _, found, err := reader.Record("nobody"); err != nil || found {
+		t.Fatalf("没有这条记录 = found=false：found=%v err=%v", found, err)
 	}
 }
 

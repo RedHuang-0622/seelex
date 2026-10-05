@@ -6,6 +6,7 @@ import (
 
 	frameworktelemetry "github.com/RedHuang-0622/Seele/telemetry"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
 )
 
 // StageRecorder 是 node 第一视角阶段日志的记录面（由 session.SubagentSessions
@@ -14,8 +15,9 @@ type StageRecorder interface {
 	RecordStage(nodeID string, log model.NodeStageLog)
 }
 
-// stagePreviewMax 阶段日志预览的有界长度。
-const stagePreviewMax = 200
+// StagePreviewLimit 已收口到契约（`workunit.StagePreviewLimit` / `ClipPreview`）：阶段预览与
+// 记录预览是**同一件事**（"这一格给人看的正文必须有界"），此前四份实现、两个上界、两种计量
+// 单位（这里按字节裁到 200，契约里按 rune 裁到 240），超长中文预览会被从多字节字符中间切开。
 
 // StageHook 复用现有 telemetry 边界记录 node 第一视角阶段日志：node 会话的
 // ctx 携带 NodeScope，llm/tool 事件在此被投影为同节点的阶段日志；主会话
@@ -63,10 +65,7 @@ func (hook *StageHook) record(nodeID, stage string, action frameworktelemetry.Ac
 			preview = strings.TrimSpace(preview + " (" + modelName + ")")
 		}
 	}
-	if len(preview) > stagePreviewMax {
-		preview = preview[:stagePreviewMax] + "…"
-	}
-	hook.recorder.RecordStage(nodeID, model.NodeStageLog{Stage: stage, Preview: preview})
+	hook.recorder.RecordStage(nodeID, model.NodeStageLog{Stage: stage, Preview: workunit.ClipPreview(preview)})
 }
 
 // noopHook 是 next 为 nil 时的降级实现。
