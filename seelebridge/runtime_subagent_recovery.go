@@ -135,6 +135,14 @@ func (r *Runtime) RestoreSubagentAnchors(sessionID string) error {
 	}
 	if r.worktreeMgr != nil {
 		r.worktreeMgr.Restore(records)
+		// 团队现场（teammate / Work Item 级）**不在**子代理节点记录里（`NoteWorktree`
+		// 全仓只有 `beginNodeWorktree` 一处调用点），必须从团队计划 + 绑定账本认领回来。
+		// 这一步夹在 `Restore` 与 `Prune` 之间是**判据的一部分**：`Prune` 的判据是
+		// "不在册 + 干净"，认领晚了现场就已经被当孤儿删掉了（见
+		// worktree.WorktreeManager.Prune 与 runtime_teamwork_scene.go）。
+		if adopted := r.adoptTeamworkScenes(sessionID); adopted > 0 {
+			log.Printf("seelebridge: 认领团队现场 %d 个（来源：团队计划 + 绑定账本）", adopted)
+		}
 		// 现场登记之后再清残留：恢复得到的现场不在册就会被误删（顺序是判据的一部分，
 		// 见 WorktreeManager.Prune）。
 		pruned, pruneErr := r.worktreeMgr.Prune()

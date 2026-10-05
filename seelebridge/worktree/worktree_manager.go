@@ -114,6 +114,17 @@ func (w *WorktreeManager) BeginNamed(nodeID string) *NodeWorktree { return w.beg
 // WorktreeForNode 返回在册现场（无 → nil）。合并/释放按 id 取现场时用。
 func (w *WorktreeManager) WorktreeForNode(nodeID string) *NodeWorktree { return w.worktreeFor(nodeID) }
 
+// beginNamed 为 nodeID 开一个现场（幂等）。四种情况**分清楚**，任何一条路径都
+// 不得对已存在的现场执行 `git worktree remove --force`：
+//
+//	① 目录已在本 repo 的 worktree 清单里 → 认领（重启后重派同一 nodeID 走这一条）；
+//	② 目录在、却不是本管理器认得的工作树 → 不碰它，降级共享工作区；
+//	③ 目录不在而 `seelex/<nodeID>` 分支已在 → 用**既有分支**建现场（不加 `-b`）；
+//	④ 目录与分支都不在 → 新建（`-b`）。
+//
+// 修复前的第 ①/③ 两条都不存在：第 ① 条被当成"残留"（`worktree remove --force` 丢掉
+// 未提交产出 + `branch -D`），第 ③ 条因 `add -b` 撞上已存在的分支而必然失败——两条合在
+// 一起就是"重启后现场被当孤儿删掉 / 重派丢未提交产出"（F4/F5）。
 func (w *WorktreeManager) beginNamed(nodeID string) *NodeWorktree {
 	// 幂等：同一 nodeID 已有在册现场就直接复用，绝不重建。路径/分支只按 nodeID
 	// 命名（`<repo>-seelex-<nodeID>` / `seelex/<nodeID>`），所以跨会话、跨批次同名
@@ -134,29 +145,137 @@ func (w *WorktreeManager) beginNamed(nodeID string) *NodeWorktree {
 	if err != nil {
 		return nil
 	}
-	wtPath := filepath.Join(filepath.Dir(root), fmt.Sprintf("%s-seelex-%s", filepath.Base(root), nodeID))
+	wtPath := w.scenePath(root, nodeID)
 	branch := "seelex/" + nodeID
-	if _, err := w.git(root, "worktree", "add", "-b", branch, wtPath, "HEAD"); err != nil {
-		// 清理只针对**本管理器不认得的**残留目录：在册现场（可能正被另一个会话的
-		// 同名节点使用）不是残留，删它等于删别人的现场。那种情况一律降级为共享
-		// 工作区，而不是毁掉一个活着的现场。
-		if w.pathRegistered(wtPath) {
-			return nil
-		}
-		if _, cleanErr := w.git(root, "worktree", "remove", "--force", wtPath); cleanErr == nil {
-			_, _ = w.git(root, "branch", "-D", branch)
-			if _, retryErr := w.git(root, "worktree", "add", "-b", branch, wtPath, "HEAD"); retryErr != nil {
-				return nil
-			}
-		} else {
-			return nil
-		}
+
+	// ① 既有现场：认领而不是重建。重启（新管理器、空注册表）之后重派同一个 nodeID
+	//    走的就是这一条——旧目录与它里面的未提交产出原样留下。
+	if adopted := w.Adopt(nodeID); adopted != nil {
+		return adopted
 	}
-	wt := &NodeWorktree{Path: wtPath, Branch: branch, BaseCommit: baseCommit, MainBranch: mainBranch}
+	// ② 目录在、却不在 `git worktree list` 里：那不是本管理器的资产（别人放的目录、
+	//    或不是工作树的残留）。删它等于替人决定丢东西——不碰，降级。
+	if _, statErr := os.Stat(wtPath); statErr == nil {
+		return nil
+	}
+	// ③ 分支已在而目录不在：用**既有分支**建现场（`worktree add <path> <branch>`，
+	//    不用 `-b`）。分支上已经提交的产出因此能找回，而不是被 `branch -D` 丢掉。
+	if w.branchExists(root, branch) {
+		if _, err := w.git(root, "worktree", "add", wtPath, branch); err != nil {
+			return nil
+		}
+		return w.register(nodeID, &NodeWorktree{
+			Path: wtPath, Branch: branch,
+			BaseCommit: w.baselineFor(branch, mainBranch), MainBranch: mainBranch,
+		})
+	}
+	// ④ 目录与分支都不在：新建。
+	if _, err := w.git(root, "worktree", "add", "-b", branch, wtPath, "HEAD"); err != nil {
+		return nil
+	}
+	return w.register(nodeID, &NodeWorktree{
+		Path: wtPath, Branch: branch, BaseCommit: baseCommit, MainBranch: mainBranch,
+	})
+}
+
+// Adopt 认领一个**既有的**现场（按 nodeID）：把磁盘上已经建好、且确实是本 repo 的
+// worktree 的目录重新登记进注册表——不重建、不 remove、不 branch -D。
+//
+// 为什么必须有它：Begin/beginNamed 的幂等只看内存注册表，而注册表是进程态。重启之后
+// 一个"已经被建出来"的现场在新管理器眼里等于不存在（F4 探针实测：`worktree add -b`
+// 因分支已存在而失败 → 落到残留清理分支 → 目录与 `seelex/<nodeID>` 分支一起没了）。
+// 认领把它重新变成在册现场，下游两件事因此成立：`bindWorkerProjectRoot` 能拿到现场
+// 路径（而不是回退主会话根），`Prune` 的"不在册"判据不再误判它是孤儿。
+//
+// 判据（三条都要成立，任一不成立一律返回 nil，绝不猜测、绝不清理）：
+//   - 路径符合本管理器的命名（`<repoBase>-seelex-<nodeID>`）；
+//   - 目录真的在；
+//   - 它是本 repo 在 `git worktree list` 里的一行。
+//
+// 已在册 → 直接返回既有登记（幂等）。
+func (w *WorktreeManager) Adopt(nodeID string) *NodeWorktree {
+	if w == nil || strings.TrimSpace(nodeID) == "" {
+		return nil
+	}
+	if existing := w.worktreeFor(nodeID); existing != nil {
+		return existing
+	}
+	root := w.deps.Root()
+	if root == "" || !w.isGitRepository(root) {
+		return nil
+	}
+	wtPath := w.scenePath(root, nodeID)
+	if !w.isManagedPath(root, wtPath) {
+		return nil
+	}
+	entry, ok := w.worktreeEntryAt(root, wtPath)
+	if !ok {
+		return nil
+	}
+	branch := strings.TrimSpace(entry.branch)
+	if branch == "" {
+		branch = "seelex/" + nodeID
+	}
+	mainBranch, _ := w.git(root, "rev-parse", "--abbrev-ref", "HEAD")
+	return w.register(nodeID, &NodeWorktree{
+		Path: wtPath, Branch: branch,
+		BaseCommit: w.baselineFor(branch, mainBranch), MainBranch: mainBranch,
+	})
+}
+
+// scenePath 返回 nodeID 的现场路径（与 beginNamed 同一条命名）。
+func (w *WorktreeManager) scenePath(root, nodeID string) string {
+	return filepath.Join(filepath.Dir(root), fmt.Sprintf("%s-seelex-%s", filepath.Base(root), nodeID))
+}
+
+// register 把一份现场登记进注册表并返回它。
+func (w *WorktreeManager) register(nodeID string, wt *NodeWorktree) *NodeWorktree {
 	w.mu.Lock()
 	w.worktrees[nodeID] = wt
 	w.mu.Unlock()
 	return wt
+}
+
+// worktreeEntryAt 返回某路径在 `git worktree list` 里的登记（目录不在或不在册 → false）。
+//
+// 这是"认领"与"扫目录"的分界：判据来自 git 自己的登记，而不是"磁盘上有个同名目录"。
+func (w *WorktreeManager) worktreeEntryAt(root, path string) (worktreeEntry, bool) {
+	info, err := os.Stat(path)
+	if err != nil || !info.IsDir() {
+		return worktreeEntry{}, false
+	}
+	entries, err := w.listWorktrees(root)
+	if err != nil {
+		return worktreeEntry{}, false
+	}
+	for _, entry := range entries {
+		if worktreePathEqual(entry.path, path) {
+			return entry, true
+		}
+	}
+	return worktreeEntry{}, false
+}
+
+// branchExists 报告本地分支是否已存在。判据取"rev-parse 拿到了一个非空输出"：
+// 分支不存在时 git 报错，形状因版本而异，空输出不算存在。
+func (w *WorktreeManager) branchExists(root, branch string) bool {
+	out, err := w.git(root, "rev-parse", "--verify", "refs/heads/"+branch)
+	return err == nil && strings.TrimSpace(out) != ""
+}
+
+// baselineFor 返回分支与主分支的分叉点，作为合并判定基线（BaseCommit）。
+// 算不出来（分支/主分支名缺失、git 不可用）→ 退回主分支 HEAD。
+func (w *WorktreeManager) baselineFor(branch, mainBranch string) string {
+	root := w.deps.Root()
+	if root != "" && branch != "" && mainBranch != "" {
+		if out, err := w.git(root, "merge-base", branch, mainBranch); err == nil {
+			if trimmed := strings.TrimSpace(out); trimmed != "" {
+				return trimmed
+			}
+		}
+	}
+	out, _ := w.git(root, "rev-parse", "HEAD")
+	return strings.TrimSpace(out)
 }
 
 // Finish 收尾：变基兜底 → 提交判定 → 合并审批 → merge → 清理。
@@ -250,28 +369,22 @@ func (w *WorktreeManager) Info(nodeID string) (NodeWorktreeInfo, bool) {
 	return NodeWorktreeInfo{Path: wt.Path, Branch: wt.Branch, MainBranch: wt.MainBranch}, true
 }
 
-// pathRegistered 报告某个 worktree 路径是否是本管理器**在册**的现场
+// sceneRegistered 报告某个 worktree 路径是否是本管理器**在册**的现场
 // （可能正被某个节点使用，因此不是可以随手删掉的残留）。
-func (w *WorktreeManager) pathRegistered(path string) bool {
+//
+// 比较走 `worktreePathEqual` 而不是逐字符相等：`git worktree list` 在 Windows 上输出的
+// 分隔符（`/`）与盘符大小写可能与本地用 `filepath.Join` 拼出的路径（`\`）不同。逐字符比
+// 会把一个**在册**的现场判成"不在册"——这正是"恢复出来的现场仍被 Prune 当孤儿删掉"的
+// 第二个成因（第一个成因是现场根本没被登记，见 Adopt）。
+func (w *WorktreeManager) sceneRegistered(path string) bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	for _, wt := range w.worktrees {
-		if wt.Path == path {
+		if worktreePathEqual(wt.Path, path) {
 			return true
 		}
 	}
 	return false
-}
-
-// registeredPaths 返回在册现场路径的集合快照。
-func (w *WorktreeManager) registeredPaths() map[string]bool {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	paths := make(map[string]bool, len(w.worktrees))
-	for _, wt := range w.worktrees {
-		paths[wt.Path] = true
-	}
-	return paths
 }
 
 // PruneResult 是一次残留回收的读数：Removed = 已回收的孤儿 worktree 路径，
@@ -291,6 +404,8 @@ type PruneResult struct {
 // 判据（两条**都要**成立才删）：
 //   - **不在册**：注册表（会话作用域的现场锚点）里没有它。恢复锚点必须先经 `Restore`
 //     登记，否则恢复出来的现场会被这里当残留删掉——调用方务必先恢复、后清理。
+//     （"在册"按 `sceneRegistered` 规范化后比较：git 输出的分隔符/盘符大小写与本地拼出的
+//     路径可能不同，逐字符比会把在册现场误判成孤儿。）
 //   - **干净**：没有未提交改动。现场的未提交产出是人的资产，框架不替人做
 //     「丢还是留」的决定（与 `ErrUncommittedChanges` 同一口径）。
 //
@@ -309,9 +424,8 @@ func (w *WorktreeManager) Prune() (PruneResult, error) {
 	if err != nil {
 		return result, err
 	}
-	registered := w.registeredPaths()
 	for _, entry := range entries {
-		if entry.path == root || !w.isManagedPath(root, entry.path) || registered[entry.path] {
+		if entry.path == root || !w.isManagedPath(root, entry.path) || w.sceneRegistered(entry.path) {
 			continue
 		}
 		dirty, dirtyErr := w.pathDirty(entry.path)
