@@ -92,7 +92,7 @@
 | 3 | 现场 / 编排账本 / 会话记录三格端口 + 装配处 | `seelebridge/workunit_assembly.go` |
 | 4 | 生命周期实现只持端口（无按层分支、无具体类型） | `seelebridge/workunit_parent.go` |
 | 5 | 读面定形（`Stage` / `EncodeStages`·`DecodeStages` / `ProgressOf` / `UnitReader`） | `seelebridge/workunit/progress.go` |
-| 6 | 机械门禁（按层分支 + 具体类型 + 每个实现的编译期断言 + 契约包 worktree 依赖例外），带阴性对照 | `e2e/workunit_ports_test.go` |
+| 6 | 机械门禁（按层分支 + 具体类型 + 每个实现的编译期断言 + **契约包 import 实现包零命中**），带阴性对照 | `e2e/workunit_ports_test.go` |
 
 三处**文档口径更正**（仓库现状优先，按"先改文档并说明理由"处理）：
 
@@ -151,6 +151,13 @@
 现场清理幂等（#2）、「工作区是否脏」判定三份（#3）、进程树装配序列两份（#5）、「现场是否在册」路径比较（#9），
 外加 §10.2 的红灯先行与待决的 `classify.go` 哨兵（把哨兵搬出 `worktree`，撤掉门禁例外项）。
 明细与提示词：`docs/2026-10-06-workunit-jobs-port/step-3-handoff-prompt.md`。
+
+**③ 已落地（2026-10-06）**：A 现场清理幂等（`cleanupWorktreeWith` 唯一实现）、B 脏判定
+（`pathDirtyWith`/`PathDirty` 唯一实现）、C 进程树装配（`newProcessTreeCommand`/`startWithProcessTree`，
+超时策略有意不并）、D 在册比较与命名（`worktreePathEqual` + `sceneDirName` 一族）、
+E 哨兵搬进契约（`workunit.ErrUncommittedChanges` / `ErrMergeBlockedByMain`，依赖方向翻成
+实现 → 契约，门禁例外撤掉改成零命中）。② 也已落地：`ProgressOf`/`UnitReader` 接进三条读路、
+`EncodeStages`/`DecodeStages` 唯一编解码、`ClipPreview` 唯一预览上界、`resumeNotes` 唯一恢复说明容器。
 
 暂不入 ③ 的三项：#1 恢复名单登记（与 ② 交叠，且"认领先于 Prune"是硬顺序）、
 #7 teammate 恢复续跑（要过 leader 闸门/屏障/在编校验，单独一波）、**#8 作业面合表（§12.4 已裁决关闭）**。

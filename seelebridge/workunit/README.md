@@ -63,14 +63,19 @@
 | 文件 | 内容 |
 |---|---|
 | `contract.go` | `Kind` / `Scene` / `Result` / `Outcome(Kind)` / `Ownership`（归属读数）/ `Unit`（层读数：`Kind` `ID` `SessionPath` `Policy` `Owns`）/ `Lifecycle`（父实现契约面：`Begin` `Finish` `Reclaim` `Recover` `AlreadySettled` `Notice`）/ `FinishPolicy`（`Immediate`、`AtTeamClose`）/ **作业面四格 + 合成** `Jobs`（`JobSubmitter`：`Dispatch`；`JobReader`：`Observe` `Peek` `Snapshot`；`JobController`：`Kill` `Done` `Reclaim`；`JobSignals`：`Events`） |
-| `classify.go` | `ClassifyFinish(result, mergeErr)`：三层**唯一一份**收尾分类（跑失败判死 → 未提交（不判死）→ 主工作区挡路（不判死）→ 其他合并错误判死 → 落定）+ `bounded` |
+| `classify.go` | `ClassifyFinish(result, mergeErr)`：三层**唯一一份**收尾分类（跑失败判死 → 未提交（不判死）→ 主工作区挡路（不判死）→ 其他合并错误判死 → 落定）+ `bounded` + 它认的两个哨兵 `ErrUncommittedChanges` / `ErrMergeBlockedByMain`（与 `Is*` 判据；定义在这里 = 依赖方向是 实现 → 契约） |
 | `session.go` | `SessionLedger`（结构上就是 `*sessionstore.NodeSessionStore`）/ `Resume` / `RecoveryNoteRole` / `RecoveryNotePrefix` / `RecoveryNote(kind, record)` |
-| `progress.go` | 进度**读面**：`Stage` + `EncodeStages`/`DecodeStages`（打点载荷的唯一一份编解码）+ `Progress`/`ProgressOf`（记录 → 进度的唯一一份折算）+ `UnitReader`（按 nodeID 读一件事的进度）。本轮只**定形**，三份手写折算的合并归步骤②（见文件头注） |
+| `progress.go` | 进度**读面**：`Stage` + `EncodeStages`/`DecodeStages`（打点载荷的唯一一份编解码 + `ClipPreview` 唯一一份预览裁剪）+ `Progress`/`ProgressOf`（记录 → 进度的唯一一份折算）+ `UnitReader`（按 nodeID 读一件事的进度：`Read`/`Record`/`List`/`Records`）。步骤②已把它接进生产读路（宿主记录读面 / 子代理恢复定位 / teammate 会话级读回） |
 
-**依赖方向的一处已记录例外**：`classify.go` import `worktree`（用它的两个哨兵错误
-`ErrUncommittedChanges` / `ErrMergeBlockedByMain` 判"没合进去"的两族）。把这两个哨兵搬出
-`worktree` 就等于改它的公共 API（本轮明确不动 worktree），因此保留这唯一一条 `workunit →
-worktree` 依赖，其余实现包（`teamwork` / `session` / `node`）一律只被**反向**依赖。
+**依赖方向**（步骤③E 之后）：契约包**不 import 任何实现包**——`classify.go` 认的两个哨兵错误
+（`ErrUncommittedChanges` / `ErrMergeBlockedByMain`）现在**定义在契约里**（判据在哪、哨兵就在哪），
+现场实现（`worktree`）反过来 import 契约去构造它们。`teamwork` / `session` / `node` 同理只被**反向**
+依赖。原先"契约包依赖 `worktree` 的唯一一处已记录例外"（`classify.go`）已撤掉，
+`e2e/workunit_ports_test.go` 把这条钉成**零命中**的硬判据（带阴性对照）。
+
+`worktree` 侧保留了同名入口（`worktree.ErrUncommittedChanges` 等）作为**引用**而非定义：现场
+的调用点读起来还是本包的话，而判据只剩契约那一份（`workunit.Is*`，`errors.Is` 链上是同一个值），
+既有调用点与既有用例因此零改动。
 
 ## 三、五条不变式
 
@@ -108,4 +113,4 @@ go test ./e2e/ -run TestWorkunitPortGate -count=1   # 装配与作业面的机�
 `AtTeamClose` 不得自己拆现场、`SessionLedger` 与既有存储的同名同签名（编译期断言）、
 恢复说明的前缀族与有界性；`progress_test.go` 守读面（打点编解码只有一份、折算不编造事实、
 按 nodeID 的读法与归属过滤）；`e2e/workunit_ports_test.go` 守装配（实现里没有按层分支与具体
-类型、每个实现都带编译期断言、契约包依赖 worktree 的只有 `classify.go`）。
+类型、每个实现都带编译期断言、契约包 **import 实现包零命中**）。

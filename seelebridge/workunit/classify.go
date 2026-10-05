@@ -1,26 +1,54 @@
 package workunit
 
 import (
+	"errors"
 	"fmt"
 	"strings"
-
-	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
 )
 
-// ClassifyFinish 是三层**唯一一份**收尾分类：把"这一轮怎么结束的"归到四类之一。
+// ── 收尾合并的两个哨兵错误（契约自己的词表）──────────────────────────────
 //
-// 此前这份判断写了两处，且第二处是漂移的：node 侧（agent_node.go 的 Run 尾部）
-// 分 uncommitted / merge_blocked / 其他三支，teammate 侧（SettleWorkItem）只有一句
-// "有错就 failed"——同一份"跑完了但没合进去"在一条路上是警告、在另一条路上是判死。
+// 它们是「这一轮跑完了，但产出没合进去」的**两族**事实——契约早就用 `OutcomeUncommitted` /
+// `OutcomeMergeBlocked` 给这两族起了名（而且这两族**不判死**：产出有效，只是没合进去）。
+// 既然分类的判据在这里，判据认的那两个哨兵也只能在这里——否则契约包就要 import 现场实现包
+// （`worktree`）去认它们，依赖方向就反了：**契约不 import 实现包，实现包 import 契约**。
+//
+// 这一次搬迁（步骤③E）把依赖方向正了过来：
+//
+//	搬之前：workunit/classify.go → worktree（契约依赖实现；门禁里登记为"唯一一处已记录例外"）
+//	搬之后：worktree → workunit（实现依赖契约；哨兵由**产生它的那一层**用契约的词表构造）
+//
+// 语义零变化：哨兵是**同一批错误值**，`errors.Is` 链上一路照旧（`worktree` 那边只是把
+// 定义处换成引用处）；`ClassifyFinish` 的签名与判定顺序一个字没动。
+var (
+	// ErrUncommittedChanges 是"现场收尾协议未执行"这一族的哨兵：子代理/teammate 在自己
+	// 的现场里留下了未提交改动。它只说明**改动没有合进去**，不说明产出无效——因此分类器
+	// 判它**不判死**（现场保留、结论照常交付；2026-09-11 事故：收尾失败 fail-fast 连坐同批
+	// 兄弟节点，两份已完成产出全丢）。
+	ErrUncommittedChanges = errors.New("workunit: scene finish protocol not executed")
+
+	// ErrMergeBlockedByMain 是"合并被主工作区的在途改动挡住"这一族的哨兵：与上面同族——
+	// 处置动作是"先让主工作区干净，再重试合并"，不是判死。产生点上，现场的合并错误必须
+	// 包着它（`%w` / `Unwrap`），否则分类器认不出来。
+	ErrMergeBlockedByMain = errors.New("workunit: merge blocked by in-flight changes in the main workspace")
+)
+
+// IsUncommittedChanges 报告 err 是不是"现场收尾协议未执行"那一族（判据**唯一一份**）。
+func IsUncommittedChanges(err error) bool { return errors.Is(err, ErrUncommittedChanges) }
+
+// IsMergeBlockedByMain 报告 err 是不是"合并被主工作区挡路"那一族（判据**唯一一份**）。
+func IsMergeBlockedByMain(err error) bool { return errors.Is(err, ErrMergeBlockedByMain) }
+
+// ClassifyFinish 是三层**唯一一份**收尾分类：把"这一轮怎么结束的"归到四类之一。
 //
 // 判据顺序即语义：
 //
 //  1. runErr 非空 —— 这一轮本身失败：判死。合并状态此时不改变结论（node 侧的 switch
 //     整段在 `if err == nil` 之内，同一口径）。
-//  2. 未提交改动（worktree.ErrUncommittedChanges）—— 只说明"改动没合进去"，**不代表
+//  2. 未提交改动（workunit.ErrUncommittedChanges）—— 只说明"改动没合进去"，**不代表
 //     产出无效**：现场保留、结论照常交付（2026-09-11 事故：收尾失败 fail-fast 连坐
 //     同批兄弟节点，两份已完成产出全丢）。
-//  3. 主工作区挡路（worktree.ErrMergeBlockedByMain）—— 同族：处置动作是"先让主工作区
+//  3. 主工作区挡路（workunit.ErrMergeBlockedByMain）—— 同族：处置动作是"先让主工作区
 //     干净，再重试合并"，不是判死。
 //  4. 其余合并错误 —— 判死。
 //  5. 都没有 —— 落定，待验收。
@@ -35,9 +63,9 @@ func ClassifyFinish(result Result, mergeErr error) Outcome {
 	switch {
 	case result.Err != nil:
 		return compose(OutcomeFailed, "跑失败：", result.Err)
-	case worktree.IsUncommittedChanges(mergeErr):
+	case IsUncommittedChanges(mergeErr):
 		return compose(OutcomeUncommitted, "现场有未提交改动，本次未合并：", mergeErr)
-	case worktree.IsMergeBlockedByMain(mergeErr):
+	case IsMergeBlockedByMain(mergeErr):
 		return compose(OutcomeMergeBlocked, "合并被主工作区的在途改动挡住，本次未合并：", mergeErr)
 	case mergeErr != nil:
 		return compose(OutcomeFailed, "收尾失败：", mergeErr)

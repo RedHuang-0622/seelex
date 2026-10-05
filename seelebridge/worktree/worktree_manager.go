@@ -2,7 +2,6 @@ package worktree
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -18,6 +17,7 @@ import (
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/actor"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/security"
+	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
@@ -57,12 +57,17 @@ type NodeWorktreeInfo = dto.NodeWorktreeInfo
 // （node 域）据此把它降级为显式警告，避免把一个已完成节点的结论连同同批
 // 兄弟节点的产出一起丢掉（2026-09-11 事故：lit-en 收尾失败 → fail-fast
 // 连坐 lit-cn → 整个 fork 失败，两个子代理产出全丢）。
-var ErrUncommittedChanges = errors.New("worktree finish protocol not executed")
+//
+// **定义在契约里**（`workunit.ErrUncommittedChanges`，步骤③E）：这两个哨兵是收尾分类
+// （`workunit.ClassifyFinish`）自己的词表，判据在哪、哨兵就在哪——否则契约包要反过来
+// import 本包去认它们。这里是**引用**而不是定义，`errors.Is` 链上一路照旧。
+var ErrUncommittedChanges = workunit.ErrUncommittedChanges
 
 // IsUncommittedChanges 判定 err 是否属于「未提交改动」类收尾失败。
-func IsUncommittedChanges(err error) bool {
-	return errors.Is(err, ErrUncommittedChanges)
-}
+//
+// 转调契约那唯一一份判据（本包不再自己写 `errors.Is`）：卫语句留在这里只为"本包的调用点
+// 不必都带 workunit 前缀"，判定本身只有一处。
+func IsUncommittedChanges(err error) bool { return workunit.IsUncommittedChanges(err) }
 
 // ErrMergeBlockedByMain 标记「合并被主工作区的在途改动挡住」这一类收尾失败：与
 // ErrUncommittedChanges 同族——**不代表节点产出无效**，只是"这次没合进去"。典型
@@ -73,12 +78,12 @@ func IsUncommittedChanges(err error) bool {
 // 干净），超预算才把本错误交回调用方。调用方（node 域）据此降级为显式警告：现场
 // 保留 + 产出照常交付，并把"先提交/暂存主工作区的在途改动，再重试合并"写进结果
 // 文本，交给父代理或用户处理。
-var ErrMergeBlockedByMain = errors.New("merge blocked by in-flight changes in the main workspace")
+//
+// 同 ErrUncommittedChanges：定义在契约里（`workunit.ErrMergeBlockedByMain`），这里是引用。
+var ErrMergeBlockedByMain = workunit.ErrMergeBlockedByMain
 
-// IsMergeBlockedByMain 判定 err 是否属于「被主工作区挡住」类收尾失败。
-func IsMergeBlockedByMain(err error) bool {
-	return errors.Is(err, ErrMergeBlockedByMain)
-}
+// IsMergeBlockedByMain 判定 err 是否属于「被主工作区挡住」类收尾失败（转调契约那份判据）。
+func IsMergeBlockedByMain(err error) bool { return workunit.IsMergeBlockedByMain(err) }
 
 // mergeBlockedError 携带 git 的原始证据（被挡住的路径/索引争用正文）与现场路径，
 // Unwrap 到 ErrMergeBlockedByMain 供调用方分类。

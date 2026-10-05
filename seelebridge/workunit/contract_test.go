@@ -6,16 +6,18 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
 )
 
 // TestClassifyFinishIsTheOneClassification：三层唯一一份收尾分类的判据表。
 // 修复类口径：node 侧原有的三支（uncommitted / merge_blocked / 其他）在这份实现里
 // 必须逐条对得上，否则"同一份分类"就只是换了个人抄。
+//
+// 步骤③E：哨兵错误搬进本包（`ErrUncommittedChanges` / `ErrMergeBlockedByMain`），夹具因此
+// 改用本包的名字——断言的语义一字未改（同一个错值、同一张判据表；包内不再 import worktree，
+// 否则与 `worktree → workunit` 成环）。
 func TestClassifyFinishIsTheOneClassification(t *testing.T) {
-	uncommitted := fmt.Errorf("worktree %q: subagent left uncommitted changes: %w", "exec-wi-1", worktree.ErrUncommittedChanges)
-	blocked := fmt.Errorf("worktree %q: merge blocked: %w", "exec-wi-1", worktree.ErrMergeBlockedByMain)
+	uncommitted := fmt.Errorf("worktree %q: subagent left uncommitted changes: %w", "exec-wi-1", ErrUncommittedChanges)
+	blocked := fmt.Errorf("worktree %q: merge blocked: %w", "exec-wi-1", ErrMergeBlockedByMain)
 	other := errors.New("git merge 撞了别的错")
 
 	cases := []struct {
@@ -30,7 +32,7 @@ func TestClassifyFinishIsTheOneClassification(t *testing.T) {
 		{"跑完但合并撞别的错 → 判死", Result{Summary: "done"}, other, OutcomeFailed},
 		{"这一轮就失败了 → 判死", Result{Err: errors.New("模型超时")}, nil, OutcomeFailed},
 		{"这一轮失败 + 合并挡路 → 仍判死（runErr 主导）", Result{Err: errors.New("模型超时")}, blocked, OutcomeFailed},
-		{"两种收尾失败同时具备 → 未提交优先（先判现场没交）", Result{}, errors.Join(worktree.ErrUncommittedChanges, worktree.ErrMergeBlockedByMain), OutcomeUncommitted},
+		{"两种收尾失败同时具备 → 未提交优先（先判现场没交）", Result{}, errors.Join(ErrUncommittedChanges, ErrMergeBlockedByMain), OutcomeUncommitted},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {

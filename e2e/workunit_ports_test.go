@@ -11,15 +11,16 @@ package e2e
 //	③ **每个作业面/生命周期实现都带编译期断言**（契约那份 Jobs 的实现、tools 自建表的同形那一格、
 //	   生命周期实现本身、装配处三格端口）。
 //
-// 外加一条**已登记例外**的门禁：契约包（seelebridge/workunit）里依赖 worktree 的只允许
-// classify.go 一个文件（它用 worktree 的两个哨兵错误分类"没合进去"的两族；搬走它们等于改
-// worktree 的公共 API，本轮明确不动）。这条口径写在 workunit/README.md 与
-// workunit-ports-and-assembly.md；把它也钉成机器可查，防止"顺手再加一处"。
+// 外加一条**依赖方向**门禁：契约包（seelebridge/workunit）**不得** import `worktree`（判据是
+// 零命中）。这一条原先是"已登记例外"（只允许 `classify.go` 用 worktree 的两个哨兵错误），
+// 步骤③E 把哨兵搬进了契约（`workunit.ErrUncommittedChanges` / `ErrMergeBlockedByMain`）——
+// 依赖方向正了过来（实现包 import 契约，而不是反过来），例外因此撤掉，门禁改成硬判据。
 //
 // 判据本体的**阴性对照在本文件里**（TestWorkunitPortGateCatchesViolations 用故意违规的样例喂
 // 给同一套扫描函数，断言它真的会红）——门禁不靠"我肉手改一次源码试过了"。
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -133,12 +134,14 @@ func requireSnippetCount(file, source, snippet string, want int, reason string) 
 	return []portGateViolation{{file: file, reason: reason + "（断言 " + snippet + " 只找到 " + strconv.Itoa(strings.Count(source, snippet)) + " 处，少于 " + strconv.Itoa(want) + "）"}}
 }
 
-// worktreeDependentsInWorkunit 返回契约包里 import worktree 的文件名（相对 seelebridge/workunit）。
-func worktreeDependentsInWorkunit(t *testing.T, root string) []string {
-	t.Helper()
-	entries, err := os.ReadDir(filepath.Join(root, "seelebridge", "workunit"))
+// worktreeDependentsIn 返回 dir 下 import worktree 的 `.go` 文件名（不含 `_test.go`）。
+//
+// dir 就是契约包目录（生产：`<root>/seelebridge/workunit`）。做成"给目录"而不是"给仓库根"，
+// 是为了让阴性对照能拿一个**临时假目录**喂它（门禁必须有对照，不能只靠肉手试一次）。
+func worktreeDependentsIn(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
 	var dependents []string
 	for _, entry := range entries {
@@ -146,14 +149,14 @@ func worktreeDependentsInWorkunit(t *testing.T, root string) []string {
 		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		path := filepath.Join(root, "seelebridge", "workunit", name)
+		path := filepath.Join(dir, name)
 		source, err := os.ReadFile(path)
 		if err != nil {
-			t.Fatal(err)
+			return nil, err
 		}
 		parsed, err := parser.ParseFile(token.NewFileSet(), path, source, parser.ImportsOnly)
 		if err != nil {
-			t.Fatalf("%s 解析失败：%v", path, err)
+			return nil, fmt.Errorf("%s 解析失败：%w", path, err)
 		}
 		for _, imported := range parsed.Imports {
 			importPath, unquoteErr := strconv.Unquote(imported.Path.Value)
@@ -163,7 +166,7 @@ func worktreeDependentsInWorkunit(t *testing.T, root string) []string {
 		}
 	}
 	sort.Strings(dependents)
-	return dependents
+	return dependents, nil
 }
 
 // TestWorkunitPortGate 是门禁本体：扫真源码，任何一条不成立就红。
@@ -201,11 +204,17 @@ func TestWorkunitPortGate(t *testing.T) {
 		"(*hostPorts)(nil)", 3,
 		"装配处建的三格端口（现场/编排/记录）必须逐格钉住实现")...)
 
-	// 已登记例外：契约包里 import worktree 的只允许 classify.go。
-	if dependents := worktreeDependentsInWorkunit(t, root); len(dependents) != 1 || dependents[0] != "classify.go" {
+	// 依赖方向（③E 起是硬判据）：契约包**不得** import worktree——哨兵错误已经在契约里
+	// （`workunit.ErrUncommittedChanges` / `ErrMergeBlockedByMain`），现场实现反过来 import
+	// 契约去构造它们。这里判"零命中"，没有例外名单。
+	dependents, err := worktreeDependentsIn(filepath.Join(root, "seelebridge", "workunit"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dependents) != 0 {
 		violations = append(violations, portGateViolation{
 			file:   "seelebridge/workunit",
-			reason: "契约包依赖 worktree 的文件只允许 classify.go（两个哨兵错误，已登记例外），实际：" + strings.Join(dependents, ", "),
+			reason: "契约包不得 import worktree（哨兵错误已搬进契约；依赖方向是 实现 → 契约），实际依赖它的文件：" + strings.Join(dependents, ", "),
 		})
 	}
 
@@ -269,5 +278,41 @@ var _ workunit.Lifecycle = (*lifecycleHost)(nil)
 	}
 	if violations := requireSnippetCount(assemblyFile, "package seelebridge\n", "(*hostPorts)(nil)", 3, "装配处三格端口都要钉住"); len(violations) == 0 {
 		t.Fatal("装配处少了端口断言，门禁没有报出来")
+	}
+
+	// ④ 依赖方向：一个**真的** import 了 worktree 的假契约包目录必须被逮住（③E 撤掉例外之后
+	// 这条判据是"零命中"，对照用临时目录喂同一个扫描函数）。
+	fakeRoot := t.TempDir()
+	fakeUnit := filepath.Join(fakeRoot, "seelebridge", "workunit")
+	if err := os.MkdirAll(fakeUnit, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dirty := `package workunit
+
+import "github.com/RedHuang-0622/seelex/seelebridge/worktree"
+
+var _ = worktree.ErrUncommittedChanges
+`
+	if err := os.WriteFile(filepath.Join(fakeUnit, "classify.go"), []byte(dirty), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dependents, err := worktreeDependentsIn(fakeUnit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dependents) != 1 || dependents[0] != "classify.go" {
+		t.Fatalf("契约包 import worktree 的样例没有被门禁逮住，得到 %v", dependents)
+	}
+	// 干净目录（只有注释里提到 worktree）不得误报。
+	cleanUnit := filepath.Join(t.TempDir(), "seelebridge", "workunit")
+	if err := os.MkdirAll(cleanUnit, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	innocent := "package workunit\n\n// 注释里可以照常讨论 worktree.ErrUncommittedChanges 的去向。\nvar _ = 1\n"
+	if err := os.WriteFile(filepath.Join(cleanUnit, "classify.go"), []byte(innocent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if dependents, err := worktreeDependentsIn(cleanUnit); err != nil || len(dependents) != 0 {
+		t.Fatalf("干净样例被误报：%v err=%v", dependents, err)
 	}
 }
