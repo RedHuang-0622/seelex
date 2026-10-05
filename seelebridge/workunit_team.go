@@ -44,14 +44,10 @@ const (
 )
 
 // teamUnitInFlight 报告一条记录是不是"说自己在跑"（回灌据此判中断）。
-func teamUnitInFlight(status string) bool {
-	switch strings.TrimSpace(status) {
-	case "queued", teamUnitStatusRunning:
-		return true
-	default:
-		return false
-	}
-}
+//
+// 判据只在契约里有一份（`workunit.InFlight`）：这里只转调，不再各写一份 queued/running
+// 字面量——同一个判据两处实现，一处改了另一处不会跟着改。
+func teamUnitInFlight(status string) bool { return workunit.InFlight(status) }
 
 // teamUnitStatusFor 把收尾分类折成记录的终态：**不判死的那两类（未提交 / 主工作区挡路）
 // 记 done**——这一轮跑完了、产出还在现场，记录不该把它说成"这一轮失败了"；未合并这件事

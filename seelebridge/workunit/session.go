@@ -48,6 +48,30 @@ func (r Resume) Empty() bool {
 	return r.Scenes == 0 && r.Sessions == 0 && len(r.Interrupted) == 0
 }
 
+// 会话记录的「在跑」词表：只有这两个取值算"这一轮还没结束"。
+//
+// **三层共用这一份**——回灌判中断（`Resume.Interrupted`）就是拿它判的；而此前 node 侧
+// （`record.Status == "queued" || record.Status == "running"`）与 teammate 侧
+// （`teamUnitInFlight`）各写了一份字面量：同一个判据两处实现，一处改了另一处不会跟着改。
+//
+// 终态（done / failed …）**不进契约**：它由记录写方按自己的语义定名（teammate 记
+// done|failed，subagent 记它自己的终态），契约不替别的层写死词表；判中断只依赖这一侧。
+const (
+	StatusQueued  = "queued"
+	StatusRunning = "running"
+)
+
+// InFlight 报告一条会话记录的 status 是不是"说自己在跑"：记录说在跑、而本进程已无它的
+// 执行面 ⇒ 这件事中断了（进 `Resume.Interrupted`，交上层重跑或人工处置）。
+func InFlight(status string) bool {
+	switch strings.TrimSpace(status) {
+	case StatusQueued, StatusRunning:
+		return true
+	default:
+		return false
+	}
+}
+
 // RecoveryNoteRole 是恢复说明的注入 role：恒为 system——它是 Seelex 的编排事实，不是模型
 // 发言，也不是用户输入（与既有的 SubagentRecoveryNoteRole 同一口径）。
 const RecoveryNoteRole = "system"

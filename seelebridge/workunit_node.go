@@ -129,9 +129,9 @@ func (u *nodeWorkUnit) Recover(context.Context) (workunit.Resume, error) {
 	if u.runtime.nodeWorktreeFor(u.nodeID) != nil {
 		resume.Scenes = 1
 	}
-	// 记录说在跑（queued/running）而本进程已无它的执行面 ⇒ 中断：交上层重跑或
-	// 人工处置。判定复用既有的 recordBelongsToCurrentMain（不另立第二条判据）。
-	if record.Status == "queued" || record.Status == "running" {
+	// 记录说在跑（`workunit.InFlight`：queued/running）而本进程已无它的执行面 ⇒ 中断：
+	// 交上层重跑或人工处置。判定复用既有的 recordBelongsToCurrentMain（不另立第二条判据）。
+	if workunit.InFlight(record.Status) {
 		if u.runtime.recordBelongsToCurrentMain(record) {
 			resume.Interrupted = []string{u.nodeID}
 		}
