@@ -12,6 +12,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application/core/resume"
 	"github.com/RedHuang-0622/seelex/seelebridge/fork"
 	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
+	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
@@ -32,9 +33,14 @@ const subagentResumeKind = "subagent"
 //
 // 恒为 system：恢复说明是 Seelex 编排事实，不是模型发言，也不是用户输入
 // （AT9）。自定义角色名不被 provider 接受，身份只能走 role_name metadata。
-const SubagentRecoveryNoteRole = "system"
+// 取值直接绑契约（workunit.RecoveryNoteRole）：两层注入同一个 role，不许各写一份。
+const SubagentRecoveryNoteRole = workunit.RecoveryNoteRole
 
 // subagentRecoveryNotePrefix 是恢复说明的稳定前缀（测试与审计据此识别）。
+//
+// 它是契约前缀族 workunit.RecoveryNotePrefix（`[Seelex recovery note: interrupted`）
+// 的 subagent 一支——`workunit.RecoveryNote(KindSubagent, record)` 生成的正文必然以
+// 本前缀开头（workunit_node_test.go 把这条等式钉成硬断言）。
 const subagentRecoveryNotePrefix = "[Seelex recovery note: interrupted subagent"
 
 // subagentResumeState 在 Runtime 内保存恢复期状态：
@@ -370,11 +376,35 @@ func (p *subagentResumePort) RestoreScene(_ context.Context, unit resume.Unit) (
 
 // InjectNote 生成并以 system 注入恢复说明：只进被执行单元自己的上下文
 // （节点装配 PromptBlocks 时按节点 ID 读取），不进 main 历史。
+//
+// 正文来自契约的唯一构建器（workunit.RecoveryNote）：前缀族与事实项集合
+// （目标/状态/阶段/结论/错误/现场）与 teammate 层因此是同一份东西。契约 builder
+// 不收的两个字段——阶段打点推出的"最后已知进展"与回灌的历史长度——在 builder
+// **外面**追上去，不丢事实。
 func (p *subagentResumePort) InjectNote(_ context.Context, unit resume.Unit, scene resume.Scene) error {
 	record := p.records[unit.Key]
-	note := subagentRecoveryNote(record, scene.Summary)
+	note := workunit.RecoveryNote(workunit.KindSubagent, record) +
+		subagentResumeExtraFacts(record, scene.Summary)
 	p.runtime.setSubagentResumeNote(unit.Key, note)
 	return nil
+}
+
+// subagentResumeExtraFacts 追加契约 builder 之外的记录事实（可以为空）：
+//
+//   - last known progress：阶段打点里最后一条预览（人可读的"之前做到哪"）；
+//   - recovered messages：回灌回来的历史长度。
+//
+// 两条都有界（progress 已被 RestoreScene 截到 240 字节内，条数是一个整数）。
+func subagentResumeExtraFacts(record sessionstore.NodeSessionRecord, progress string) string {
+	builder := &strings.Builder{}
+	if progress = strings.TrimSpace(progress); progress != "" {
+		builder.WriteString("\n- last known progress: ")
+		builder.WriteString(progress)
+	}
+	if len(record.History) > 0 {
+		builder.WriteString(fmt.Sprintf("\n- recovered messages: %d", len(record.History)))
+	}
+	return builder.String()
 }
 
 // Reexecute 以同一幂等键（节点 ID = fork 子代理 id）重新派发：
@@ -496,36 +526,6 @@ func (r *Runtime) subagentConclusionSet(ctx context.Context, projectID, sessionI
 		}
 	}
 	return set, nil
-}
-
-// subagentRecoveryNote 生成 system 恢复说明：这是恢复、之前做到哪、接下来
-// 继续什么。正文不谎称执行成功，也不把未完成状态写成模型发言。
-func subagentRecoveryNote(record sessionstore.NodeSessionRecord, progress string) string {
-	builder := &strings.Builder{}
-	builder.WriteString(subagentRecoveryNotePrefix)
-	builder.WriteString(": parent process stopped before the result was recorded.")
-	builder.WriteString(" This dispatch was re-issued with the same node id, so continue the work instead of restarting it.]\n")
-	builder.WriteString("- node_id: ")
-	builder.WriteString(record.NodeID)
-	builder.WriteString("\n- goal: ")
-	builder.WriteString(strings.TrimSpace(record.Goal))
-	if summary := strings.TrimSpace(record.Summary); summary != "" {
-		builder.WriteString("\n- recorded summary: ")
-		builder.WriteString(summary)
-	}
-	if progress = strings.TrimSpace(progress); progress != "" {
-		builder.WriteString("\n- last known progress: ")
-		builder.WriteString(progress)
-	}
-	if record.Worktree.Path != "" {
-		builder.WriteString("\n- worktree: ")
-		builder.WriteString(record.Worktree.Path)
-	}
-	if len(record.History) > 0 {
-		builder.WriteString(fmt.Sprintf("\n- recovered messages: %d", len(record.History)))
-	}
-	builder.WriteString("\nContinue the unfinished part, verify side effects before redoing anything, and report the result once.")
-	return builder.String()
 }
 
 // lastSubagentStagePreview 读取阶段日志里最后一条预览（恢复说明的“之前做到哪”）。

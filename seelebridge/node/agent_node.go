@@ -23,6 +23,7 @@ import (
 	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/seelebridge/plan"
 	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
+	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/seelexctx/provider"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
@@ -115,7 +116,7 @@ var now = time.Now
 // NodeScope.WorkspaceID 指向它，执行结束后变基仓库 + 合并审批 + merge + 清理。
 // 收尾失败的处理分两类：rebase/merge/审批失败与 Chat 失败一样让节点失败；
 // 而「子代理未提交改动」只降级为产出中的显式警告（现场保留、节点成功），
-// 判定见下方 worktree.IsUncommittedChanges 分支。
+// 分类判定见下方 workunit.ClassifyFinish 分支。
 func (n *AgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowContext) (string, error) {
 	scope := n.scope()
 	if scope.Role == model.RoleSubAgent {
@@ -184,10 +185,13 @@ func (n *AgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowContext) (
 	if wt != nil {
 		if err == nil {
 			finishErr := n.deps.FinishNodeWorktree(ctx, n.ID(), wt)
-			switch {
-			case finishErr == nil:
+			// 收尾分类只从契约取：workunit.ClassifyFinish 是 job/subagent/teammate
+			// 三层唯一一份判据（本文件不再自己判 IsUncommittedChanges/IsMergeBlocked）。
+			// 这里 err 已被上面守卫定为 nil，分类由「收尾那一维」单独决定。
+			switch workunit.ClassifyFinish(workunit.Result{Err: err}, finishErr).Kind {
+			case workunit.OutcomeSettled:
 				n.deps.ReleaseNodeWorktree(n.ID())
-			case worktree.IsUncommittedChanges(finishErr):
+			case workunit.OutcomeUncommitted:
 				// 收尾协议未执行：子代理在自己 worktree 里留下未提交改动。
 				// 该失败只说明"改动没有合并"，不说明节点结论无效——把整节点
 				// 判失败会让 workplan fail-fast 连坐同批兄弟节点，并丢弃全部
@@ -197,14 +201,15 @@ func (n *AgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowContext) (
 				//   3. 节点按 Chat 结果判定成功，兄弟节点不再被连坐取消。
 				n.deps.AppendNodePhase(ctx, n.ID(), "worktree_unmerged")
 				result = withWorktreeUnmergedNotice(result, finishErr)
-			case worktree.IsMergeBlockedByMain(finishErr):
-				// 主工作区挡路（未提交改动压在本次合并路径上 / 索引被别的 git 进程占用）：
-				// 与"未提交改动"同族——**不代表节点产出无效**，只说明"这次没合上"。收尾段
-				// 已在预算内重试过，这里保留现场（不 Release）并把处置办法写进产出：父代理
-				// 或用户先提交/暂存主工作区的在途改动，随后重试合并即可。
+			case workunit.OutcomeMergeBlocked:
+				// 合并被主工作区的在途改动挡住：与「未提交改动」同族——**不代表
+				// 节点产出无效**，只是"这次没合进去"。处置动作是"先让主工作区
+				// 干净（提交或暂存），再重试合并"；判死会让一份已完成产出连现场
+				// 一起留在没人看的角落。现场同样保留（不 Release）。
 				n.deps.AppendNodePhase(ctx, n.ID(), "merge_blocked")
 				result = withWorktreeMergeBlockedNotice(result, finishErr)
 			default:
+				// OutcomeFailed：收尾真的失败了（rebase/审批/合并撞别的错）——判死。
 				err = finishErr
 			}
 		}
@@ -226,16 +231,13 @@ func withWorktreeUnmergedNotice(result string, finishErr error) string {
 	return result + notice
 }
 
-// withWorktreeMergeBlockedNotice 在节点产出末尾附加「待合并」警告：改动没进主工作区，
-// 但不是"产出无效"，处置动作是"先让主工作区干净，再重试合并"。
-//
-// 为什么把处置办法写进产出而不是把节点判失败：fork/teammate 的收尾是**回合之外**发生的，
-// 判失败等于把一份已完成的产出连同现场一起留给没人看的角落；写进产出则父代理（在同一轮
-// 或下一轮的作业回执里）与用户都能看到该动手做什么。
+// withWorktreeMergeBlockedNotice 在节点产出末尾附加「合并被主工作区挡住」的警告。
+// 与「未提交改动」同一处置口径：节点结论照常交付、现场保留（不 Release），只是
+// 这次没合进去；可操作的动作是"先提交/暂存主工作区的在途改动，再重试合并"。
+// 判死会让一份已完成产出连现场一起留在没人看的角落——挡路不是确定性失败。
 func withWorktreeMergeBlockedNotice(result string, finishErr error) string {
-	notice := "\n\n[收尾警告] 本次改动**未合并进主工作区**（等主工作区干净后重试合并）：" +
-		finishErr.Error() +
-		"\n处置：把主工作区里未提交的在途改动提交或暂存（git stash），然后重新合并该分支即可。"
+	notice := "\n\n[收尾警告] 主工作区的在途改动挡住了本次合并，子代理的改动未合并进主工作区；" +
+		"现场已保留，可先提交/暂存主工作区的在途改动再重试合并。原因：" + finishErr.Error()
 	if strings.TrimSpace(result) == "" {
 		return strings.TrimSpace(notice)
 	}
