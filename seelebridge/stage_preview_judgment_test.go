@@ -19,6 +19,7 @@ import (
 
 	frameworktelemetry "github.com/RedHuang-0622/Seele/telemetry"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
@@ -103,6 +104,33 @@ func TestResumeNotePreviewNeverSplitsARune(t *testing.T) {
 	}
 	if want := "round_output: " + wantClipPreview(long); got != want {
 		t.Errorf("恢复说明的预览 = %q，想要 %q（唯一一份裁切口径）", got, want)
+	}
+}
+
+// TestSubagentStatusVocabularyAgreesWithTheWire：**记录里的状态词**与**对外契约的状态词**
+// 必须是同一份（同一件事的第二份字面量就是漂移的起点）。
+//
+// 判据分两半：
+//   - 契约那一半（`workunit.StatusQueued/StatusRunning`：判"还在不在跑"的词表）与
+//     `dto.SubAgentQueued` / `dto.SubAgentRunning` 同值；
+//   - 本层那一半（`subagentNodeStatusDone/Failed`：子代理记录自己的终态词，终态不进契约）
+//     与 `dto.SubAgentDone` / `dto.SubAgentFailed` 同值。
+//
+// 任一侧改了字面量而没改另一侧，这里立刻红——跨包的字面量靠这条用例互锁，而不是靠"我记得"。
+func TestSubagentStatusVocabularyAgreesWithTheWire(t *testing.T) {
+	for _, pair := range []struct {
+		who  string
+		got  string
+		want string
+	}{
+		{"workunit.StatusQueued", workunit.StatusQueued, string(dto.SubAgentQueued)},
+		{"workunit.StatusRunning", workunit.StatusRunning, string(dto.SubAgentRunning)},
+		{"subagentNodeStatusDone", subagentNodeStatusDone, string(dto.SubAgentDone)},
+		{"subagentNodeStatusFailed", subagentNodeStatusFailed, string(dto.SubAgentFailed)},
+	} {
+		if pair.got != pair.want {
+			t.Errorf("%s = %q，对外契约词表是 %q——记录词与 wire 词必须同值", pair.who, pair.got, pair.want)
+		}
 	}
 }
 

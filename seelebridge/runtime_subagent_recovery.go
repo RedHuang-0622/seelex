@@ -94,7 +94,7 @@ func (r *Runtime) persistSubagentConclusion(mainSessionID string, record session
 			IDs:  map[string]string{"session_id": mainSessionID},
 		}},
 	}
-	if record.Status == "failed" {
+	if record.Status == subagentNodeStatusFailed {
 		event.Status = frameworkevent.StatusFailed
 	}
 	if err := persister(context.Background(), event); err != nil {
