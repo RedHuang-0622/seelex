@@ -4,7 +4,7 @@
 
 ## 审查结论（leader 于 2026-10-06，供下一会话建立上下文）
 
-- **main = `0beae37`（本交接文档那次提交；其后 main 只会前进这一笔）**，三件活都已合并且门禁全绿（`build-exit=0` / `vet-exit=0` / `seelebridge` 全包 `ok` / e2e 布局 `ok`）。
+- **main 头 = 本文件所在提交**（开工前 `git log --oneline -6` 应看到 82e4361 / 17f37c4 / 599aef4 / c4492ab / e3594bf 五个交接点），三件活都已合并且门禁全绿（`build-exit=0` / `vet-exit=0` / `seelebridge` 全包 `ok` / e2e 布局 `ok`）。
 - **a1（父实现）**：`workunit.Lifecycle` 契约面（`seelebridge/workunit/contract.go`）+ `lifecycleHost`（`workunit_parent.go:51` 编译期断言）；
   两个注册点退化成纯转发（`workunit_node.go` 58 行 / `workunit_team.go` 127 行，方法体全是 `return u.host.Xxx(ctx, u.read)`）；
   策略收口成同一个析构（`Immediate` 调 `lifecycle.Reclaim`，`AtTeamClose` 返回 `nil`）；在跑词表收成 `workunit/session.go:64` 一处；
@@ -110,9 +110,9 @@ subagent / `bash_bg` 走 tools 自己那张登记表（隔离键只有 `SessionI
 ==================== 一、前置（新会话必须知道的事实与环境） ====================
 
 仓库：G:/Program/go/seelex（Windows + PowerShell；go 可用）。
-基线：main 头（本交接文档提交之后的头；开工前先 `git log --oneline -5` 核对，应看到
-  0beae37 = 交接文档、599aef4 = 读面端口落定、c4492ab = 父实现、e3594bf = merge 踢人修复 四个交接点），
-  工作区干净。三件前置活都已合并、门禁全绿：
+基线：main 头 = 本文件所在提交（开工前先 `git log --oneline -6` 核对，应看到五个交接点：
+  82e4361 = 现状与目标、17f37c4 = 交接提示词、599aef4 = 读面端口落定、c4492ab = 父实现、
+  e3594bf = merge 踢人修复），工作区干净。三件前置活都已合并、门禁全绿：
   - a1 父实现：workunit.Lifecycle 契约面 + lifecycleHost 唯一实现（workunit_parent.go:51 编译期断言），
     两个注册点纯转发（workunit_node.go 58 行 / workunit_team.go 127 行），已接生产链
     （runtime_teamwork_items.go:42、workunit_parent.go:443/462）。
