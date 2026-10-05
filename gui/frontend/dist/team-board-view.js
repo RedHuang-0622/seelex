@@ -463,8 +463,13 @@ export function renderTeamWorkItem(entry) {
 //   replace      → 每个插件一枚 chip + 一行读数（技能 n / 目录 xB · ≈y tok / 工具面 a/b）
 //                  + 黄牌（title = yellow_reason）；黄牌**只报不拒**，不遮其它读数；
 //   inherit-host → 显式写「继承宿主」（空集 = 不覆盖：工具面继承宿主 + 技能目录不注入）；
-//   assembly 缺失 → 显式写「继承宿主」并标明这是读数缺失的降级（桥这一侧给不出，
-//                  不是"0 个工具 0 份技能"）。
+//   **assembly 为 nil → 不显示装配格**（2026-10-05 审查 P0 修正，回到契约原文）：
+//                  `dto/teamwork_board.go` 的 Assembly 注释写的是"nil 表示**桥这一侧给不出
+//                  读数**（未装配插件域 / 成员行不在读数里）：前端据此不显示装配格，而不是
+//                  把缺失读成'0 个工具、0 份技能'"。所以这里既不许写「按不覆盖处理」（读数
+//                  缺失 ≠ 空集），也不许写「继承宿主」——前者把缺失当读数，后者替后端断言了
+//                  前端无从知道的语义（"空集 = 不覆盖"只能由 mode=inherit-host 回答）。
+//                   有声明面时只列声明 chips（计划的事实），一个 mode 结论都不写。
 // plugin_face_faulted / plugin_face_missing 是**失灵读数**：声明过的插件在本进程已无定义
 // （root 撤销过 / 名字漂了）。它们与"没装配"**语义相反**，所以**绝不**渲染成继承宿主那
 // 一支——Mode 仍是 replace、声明仍是那一份，本件只在此之上加「失灵 / 已撤」标记 + Note。
@@ -479,6 +484,19 @@ export function renderMemberAssembly(member) {
   const chips = declared.map(name =>
     `<span class="chip team-assembly-plugin" title="${escapeHtml(name)}">${escapeHtml(truncate(name, 48))}</span>`
   ).join("");
+  const scope = `<span class="team-assembly-scope" title="装配声明在 teammate 级：一位 teammate = 一条长期角色会话 + 每个工作项自己的会话；这份装配对它手上的每个工作项会话都生效">teammate 级 · 对这位每个工作项会话都生效</span>`;
+  // **读数给不出 / 没写明 mode ⟹ 不下 mode 结论**（契约：Assembly 为 nil = 桥这一侧给不出
+  // 读数 → 前端不显示装配格）。声明面是**计划**的事实、与读数无关：有声明时就只列声明 chips
+  // ——它既不否认也不证实任何 mode，所以一个字都不说「继承宿主」（"被要求装了两个插件"与
+  // "继承宿主"互斥，同屏就是自相矛盾）；没有声明面就整格退场，不留空壳。
+  if (!assembly || (mode !== "replace" && mode !== "inherit-host")) {
+    if (declared.length === 0) return "";
+    return `<div class="team-member-assembly">
+        <span class="team-label">装配</span>
+        ${chips}
+        ${scope}
+      </div>`;
+  }
   // 黄牌：目录段超阈值（6k token 估算 / 上下文窗口 2%）。**只报不拒**——它是一句提示，
   // 不改变这一位能不能干活，所以和读数同屏、不替换读数。
   const yellow = assembly?.yellow === true
@@ -494,17 +512,18 @@ export function renderMemberAssembly(member) {
     ? `<span class="chip team-assembly-missing" title="${escapeHtml("已被撤销 / 名字漂移（本进程已无定义）：" + missing.join("、"))}">已撤 ${escapeHtml(String(missing.length))}</span>`
     : "";
   const note = String(assembly?.plugin_face_note || "").trim();
-  const scope = `<span class="team-assembly-scope" title="装配声明在 teammate 级：一位 teammate = 一条长期角色会话 + 每个工作项自己的会话；这份装配对它手上的每个工作项会话都生效">teammate 级 · 对这位每个工作项会话都生效</span>`;
   let readout;
   if (mode === "replace") {
     const count = value => Number(value) || 0;
-    readout = `<span class="team-assembly-readout" title="生效读数：插件面工具数是上界（全量工具里过得了插件收窄的那些，实际可见面还要与权限面相交，只会更小）">`
-      + `技能 ${count(assembly?.skill_count)} / 目录 ${count(assembly?.skill_catalog_runes)}B · ≈${count(assembly?.skill_catalog_tokens_est)} tok / 工具面 ${count(assembly?.plugin_face_tools)}/${count(assembly?.total_tools)}</span>`;
+    // 窄栏里这一行会被省略号吃掉（审查 Hypothesis）：title 里放**同一句话的全文** +
+    // 上界口径说明，悬停就能读到被截掉的部分，而不是让读者猜。
+    const readoutText = `技能 ${count(assembly?.skill_count)} / 目录 ${count(assembly?.skill_catalog_runes)}B · ≈${count(assembly?.skill_catalog_tokens_est)} tok / 工具面 ${count(assembly?.plugin_face_tools)}/${count(assembly?.total_tools)}`;
+    const readoutTip = `${readoutText}（生效读数：插件面工具数是上界——全量工具里过得了插件收窄的那些，实际可见面还要与权限面相交，只会更小）`;
+    readout = `<span class="team-assembly-readout" title="${escapeHtml(readoutTip)}">${escapeHtml(readoutText)}</span>`;
   } else {
-    const degraded = assembly ? "" : '<span class="team-assembly-note">装配读数缺失（桥未给出），按不覆盖处理</span>';
-    readout = `<span class="team-assembly-inherit" title="空集 = 不覆盖：工具面继承宿主当前装配，技能目录不注入（运行事实，不是读数没算）">继承宿主</span>${degraded}`;
+    readout = `<span class="team-assembly-inherit" title="空集 = 不覆盖：工具面继承宿主当前装配，技能目录不注入（运行事实，不是读数没算）">继承宿主</span>`;
   }
-  return `<div class="team-member-assembly" data-assembly-mode="${escapeHtml(mode || "inherit-host")}">
+  return `<div class="team-member-assembly" data-assembly-mode="${escapeHtml(mode)}">
         <span class="team-label">装配</span>
         ${chips}
         ${readout}

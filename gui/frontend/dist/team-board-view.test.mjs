@@ -467,6 +467,8 @@ test("⑤ replace 装配：每个插件一枚 chip + 技能/目录/token/工具�
   assert.match(html, /<span class="chip team-assembly-plugin" title="impeccable">impeccable<\/span>/);
   assert.match(html, /<span class="chip team-assembly-plugin" title="board-kit">board-kit<\/span>/);
   assert.match(html, /技能 3 \/ 目录 1200B · ≈400 tok \/ 工具面 5\/12/);
+  // 窄栏会被省略号吃掉（审查 Hypothesis）：title 里放同一句话的全文，悬停可读全。
+  assert.match(html, /title="技能 3 \/ 目录 1200B · ≈400 tok \/ 工具面 5\/12（生效读数：插件面工具数是上界/);
   // 文案说清这是 teammate 级的：对这位手上的每个工作项会话都生效。
   assert.match(html, /teammate 级 · 对这位每个工作项会话都生效/);
 });
@@ -479,11 +481,38 @@ test("⑤ inherit-host：显式写「继承宿主」，不靠字段缺失暗示�
   assert.doesNotMatch(html, /team-assembly-plugin/, "空集不装插件：没有声明 chips");
 });
 
-test("⑤ assembly 缺失 → 降级也显式写「继承宿主」（不是留空让人猜）", () => {
+// 2026-10-05 审查 P0 修正：`dto/teamwork_board.go` 的 Assembly 注释写的是
+// "Assembly 为 nil 表示**桥这一侧给不出读数**（未装配插件域 / 成员行不在读数里）：
+//  前端据此**不显示装配格**，而不是把缺失读成'0 个工具、0 份技能'"。
+// 所以"缺失"既不许写成「按不覆盖处理」（那是把缺失当读数），也不许写成「继承宿主」
+// （那是替后端断言前端无从知道的语义——"空集 = 不覆盖"只能由 mode=inherit-host 回答）。
+test("⑤ assembly 为 nil → 不显示装配格（钉住「没有装配格」，不留空壳也不自称继承宿主）", () => {
   const html = renderTeamQueue(assemblyPlan({ plugins: [] }));
-  assert.match(html, /继承宿主/);
-  assert.match(html, /装配读数缺失（桥未给出），按不覆盖处理/);
+  assert.doesNotMatch(html, /team-member-assembly/, "读数给不出：整格退场");
+  assert.doesNotMatch(html, /继承宿主/, "缺失 ≠ 空集，不许自称继承宿主");
+  assert.doesNotMatch(html, /装配读数缺失|按不覆盖处理/, "降级文案连同降级分支一起删掉");
+  assert.doesNotMatch(html, /data-assembly-mode/, "没有读数就没有 mode 结论");
   assert.doesNotMatch(html, /技能 \d+ \/ 目录/);
+});
+
+test("⑤ 声明非空 + assembly 为 nil → 只列声明 chips，不写任何 mode 结论（不同屏自相矛盾）", () => {
+  const html = renderTeamQueue(assemblyPlan({ plugins: ["impeccable", "board-kit"] }));
+  // 声明面是**计划**的事实：照列（title 留全名），这一格不假装自己知道生效面。
+  assert.match(html, /<span class="chip team-assembly-plugin" title="impeccable">impeccable<\/span>/);
+  assert.match(html, /<span class="chip team-assembly-plugin" title="board-kit">board-kit<\/span>/);
+  assert.doesNotMatch(html, /继承宿主/, "声明了插件就不许再自称继承宿主（两句互斥，同屏即自相矛盾）");
+  assert.doesNotMatch(html, /data-assembly-mode/, "读数缺失：不下 mode 结论");
+  assert.doesNotMatch(html, /team-assembly-readout|team-assembly-inherit/);
+  assert.doesNotMatch(html, /装配读数缺失|按不覆盖处理/);
+});
+
+test("⑤ 读数在但没写明 mode → 同样不下 mode 结论（不靠字段缺失暗示）", () => {
+  const declared = renderTeamQueue(assemblyPlan({ plugins: ["impeccable"], assembly: {} }));
+  assert.match(declared, /team-assembly-plugin/);
+  assert.doesNotMatch(declared, /继承宿主/);
+  assert.doesNotMatch(declared, /data-assembly-mode/);
+  const bare = renderTeamQueue(assemblyPlan({ plugins: [], assembly: {} }));
+  assert.doesNotMatch(bare, /team-member-assembly/);
 });
 
 test("⑤ 黄牌：显式标记且 title = yellow_reason；只报不拒，与读数/插件 chips 同屏", () => {
