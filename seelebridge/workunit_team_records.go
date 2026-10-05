@@ -236,12 +236,20 @@ func (r *Runtime) RecoverTeamworkUnits(ctx context.Context, sessionID string) (T
 	// （workunit.ProgressOf）；此前这里是"自己 List + 自己按名单过滤 + 自己判 InFlight"的
 	// 第三份实现，与子代理侧、与生命周期的记录读面各写一遍。
 	reader := r.teamUnitReader(sessionID, index)
-	list, err := reader.List()
+	records, err := reader.Records()
 	if err != nil {
 		log.Printf("seelebridge: 读回 teammate 单元记录（会话 %s）失败：%v", sessionID, err)
-		list = nil
+		records = nil
 	}
-	progress := teamUnitProgressMap(list)
+	// 一次读、两份视图：读数（判在跑）与原始记录（恢复说明的正文）。**只读一次账本**——
+	// 读面返回原始清单，折算仍只有 `ProgressOf` 那一处。
+	progress := make(map[string]workunit.Progress, len(records))
+	stored := make(map[string]sessionstore.NodeSessionRecord, len(records))
+	for _, record := range records {
+		unit := workunit.ProgressOf(workunit.KindTeammate, record)
+		progress[unit.NodeID] = unit
+		stored[unit.NodeID] = record
+	}
 	recovery.Resume.Sessions = len(progress)
 	// ② 团队账本读数（可重派清单）。未装配编排面 = 只按记录回灌。
 	coordinator, coordErr := r.coordinatorForSession(sessionID)
@@ -281,9 +289,9 @@ func (r *Runtime) RecoverTeamworkUnits(ctx context.Context, sessionID string) (T
 		}
 		addInterrupted(entry.NodeID)
 		// ④ 恢复说明：事实来自记录本身（不编造），注入该角色会话的下一次装配。
-		//    正文的构建器只有一份（workunit.RecoveryNote，收的是记录）；原始记录从同一份
-		//    读面取（定位与归属过滤与 List 同一条实现）。
-		if record, found, err := reader.Record(entry.NodeID); err == nil && found {
+		//    正文的构建器只有一份（workunit.RecoveryNote，收的是记录）；记录来自上面那
+		//    一次账本读（同一个读面的定位与归属过滤）。
+		if record, found := stored[entry.NodeID]; found {
 			r.setTeamResumeNote(unit.SessionID, workunit.RecoveryNote(workunit.KindTeammate, record))
 		}
 	}
@@ -331,15 +339,6 @@ func (r *Runtime) teamUnitReader(sessionID string, index []teamSceneEntry) *work
 		func(record sessionstore.NodeSessionRecord) bool {
 			return wanted[strings.TrimSpace(record.NodeID)]
 		})
-}
-
-// teamUnitProgressMap 把一次读数清单索引成 "nodeID → 读数"（调用点只关心"跑到哪"）。
-func teamUnitProgressMap(list []workunit.Progress) map[string]workunit.Progress {
-	progress := make(map[string]workunit.Progress, len(list))
-	for _, unit := range list {
-		progress[unit.NodeID] = unit
-	}
-	return progress
 }
 
 // teamUnitSurfaceAlive 报告这个单元在本进程里还有没有**执行面**：

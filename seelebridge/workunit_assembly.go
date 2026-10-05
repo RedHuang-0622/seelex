@@ -297,26 +297,22 @@ func (p *hostPorts) Readout(ctx context.Context, own workunit.Ownership, nodeID,
 	if !ok {
 		return workunit.Resume{}, nil
 	}
-	list, err := reader.List()
+	records, err := reader.Records()
 	if err != nil {
 		return workunit.Resume{}, fmt.Errorf("workunit: list session records for %q: %w", sessionPath, err)
 	}
-	resume := workunit.Resume{Sessions: len(list)}
-	record, found, err := reader.Record(nodeID)
-	if err != nil {
-		return workunit.Resume{}, fmt.Errorf("workunit: read session record for %q: %w", nodeID, err)
-	}
-	if !found {
-		return resume, nil
-	}
-	progress := workunit.ProgressOf("", record)
-	if !progress.InFlight {
-		return resume, nil
-	}
-	// 记录说在跑、而本进程已无它的执行面 ⇒ 中断（交上层重跑或人工处置）。
-	// 判定复用既有的 recordBelongsToCurrentMain（不另立第二条判据）。
-	if p.r.recordBelongsToCurrentMain(record) {
-		resume.Interrupted = []string{nodeID}
+	resume := workunit.Resume{Sessions: len(records)}
+	nodeID = strings.TrimSpace(nodeID)
+	for _, record := range records {
+		progress := workunit.ProgressOf("", record)
+		if progress.NodeID != nodeID || !progress.InFlight {
+			continue
+		}
+		// 记录说在跑、而本进程已无它的执行面 ⇒ 中断（交上层重跑或人工处置）。
+		// 判定复用既有的 recordBelongsToCurrentMain（不另立第二条判据）。
+		if p.r.recordBelongsToCurrentMain(record) {
+			resume.Interrupted = []string{nodeID}
+		}
 	}
 	return resume, nil
 }
