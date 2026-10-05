@@ -282,20 +282,22 @@ func TestDispatchJoinMilestoneLifecycle(t *testing.T) {
 		t.Fatalf("Join 没有收敛: %+v", joined)
 	}
 
-	// 退场：名册动作——不动现场、不清会话、不回收作业（回收唯一入口 = 整队收口）。
-	if err := fixture.coordinator.Retire(ctx, "exec"); err != nil {
-		t.Fatalf("Retire: %v", err)
-	}
-	calls := fixture.calls.snapshot()
-	if len(calls) != 0 {
-		t.Fatalf("退场不动现场、不清会话（现场与会话归 team 托管），却调了 %v", calls)
-	}
+	// 回收的唯一入口是整队收口：Close 之前作业与现场都还在册（没有任何别的动作会撤走它）。
 	if _, ok := fixture.jobs.Observe(handle); !ok {
-		t.Fatal("Retire 不得回收作业：回收统一收口到整队 Close（作业正文在整队关闭前一直在册）")
+		t.Fatal("整队收口之前作业必须在册：回收统一收口到 team_close 这一处")
+	}
+	if calls := fixture.calls.snapshot(); len(calls) != 0 {
+		t.Fatalf("收口之前不该动现场、清会话（现场与会话归 team 托管），却调了 %v", calls)
+	}
+	if _, err := fixture.coordinator.Close(ctx); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if _, ok := fixture.jobs.Observe(handle); ok {
+		t.Fatal("整队收口必须回收作业（唯一的回收点）")
 	}
 	plan, _ = fixture.coordinator.Plan(ctx)
 	if len(plan.Members) != 3 {
-		t.Fatal("退场删的是会话内容与检出，不是注册/在编")
+		t.Fatal("收口结束的是作业与会话内容，不是注册/在编")
 	}
 }
 
@@ -377,10 +379,10 @@ func TestDispatchDedupsSameRole(t *testing.T) {
 	close(eventually)
 }
 
-// TestRetireKeepsJobOnRosterAndTouchesOnlyThatTeammate：Retire 是**名册动作**——不动现场、
-// 不清会话、**不回收作业**（回收统一收口到整队 Close）——作业正文在整队关闭前一直在册；
-// 且退场只动这一个 teammate，邻居的作业不受牵连。
-func TestRetireKeepsJobOnRosterAndTouchesOnlyThatTeammate(t *testing.T) {
+// TestCloseReclaimsEveryJobOnTheRoster：回收统一在整队收口这一处——Close 之前两个角色
+// 在跑的作业都还在册（不提前撤走证据），Close 之后都不在册。守的是"结束/回收只有 team_close
+// 一个入口"这条事实（旧口径的"退场不动作业"断言已随 team_retire 整条删除）。
+func TestCloseReclaimsEveryJobOnTheRoster(t *testing.T) {
 	fixture := newFixture(t, 6)
 	eventually := make(chan struct{})
 	fixture.runner.block = eventually
@@ -390,30 +392,37 @@ func TestRetireKeepsJobOnRosterAndTouchesOnlyThatTeammate(t *testing.T) {
 	}
 	execHandle, err := fixture.coordinator.Dispatch(ctx, "exec", "impl")
 	if err != nil {
-		t.Fatalf("Dispatch: %v", err)
+		t.Fatalf("Dispatch(exec): %v", err)
 	}
 	testHandle, err := fixture.coordinator.Dispatch(ctx, "test_case", "test")
 	if err != nil {
-		t.Fatalf("Dispatch: %v", err)
+		t.Fatalf("Dispatch(test_case): %v", err)
 	}
-	if err := fixture.coordinator.Retire(ctx, "exec"); err != nil {
-		t.Fatalf("Retire: %v", err)
-	}
+	// Close 之前：两件作业都在册，且没有任何现场/会话被提前动过。
 	if _, ok := fixture.jobs.Observe(execHandle); !ok {
-		t.Fatal("Retire 不得回收作业：作业正文在整队 Close 之前一直在册（回收统一收口）")
+		t.Fatal("整队收口之前作业必须在册：回收统一收口到 team_close 这一处")
 	}
 	if _, ok := fixture.jobs.Observe(testHandle); !ok {
-		t.Fatal("退场只动这一个 teammate，邻居的作业不该被牵连")
+		t.Fatal("整队收口之前邻居的作业也必须在册：回收不在别处发生")
 	}
-	calls := fixture.calls.snapshot()
-	if len(calls) != 0 {
-		t.Fatalf("退场不动现场、不清会话（现场与会话归 team 托管），却调了 %v", calls)
+	if calls := fixture.calls.snapshot(); len(calls) != 0 {
+		t.Fatalf("收口之前不该动现场、清会话（现场与会话归 team 托管），却调了 %v", calls)
+	}
+	// Close = 唯一的回收点：两个人的作业一起回收。
+	if _, err := fixture.coordinator.Close(ctx); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if _, ok := fixture.jobs.Observe(execHandle); ok {
+		t.Fatal("整队收口必须回收 exec 的作业")
+	}
+	if _, ok := fixture.jobs.Observe(testHandle); ok {
+		t.Fatal("整队收口必须回收 test_case 的作业")
 	}
 	close(eventually)
 }
 
 // TestCloseRequiresWorkspaceAndSessionPorts：回收唯一入口是整队收口——缺工作区端口时
-// 必须在收口步 2 显式报错；退场是名册动作，不需要这两个端口。
+// 必须在收口步 2 显式报错（缺端口 = 显式错误，不是静默跳过）。
 func TestCloseRequiresWorkspaceAndSessionPorts(t *testing.T) {
 	store := &memoryPlanStore{}
 	manager, err := jobs.New(jobs.WithExecutor(WorkerExecutor(&fakeRunner{}, nil, 4)))
@@ -432,9 +441,6 @@ func TestCloseRequiresWorkspaceAndSessionPorts(t *testing.T) {
 	ctx := context.Background()
 	if err := coordinator.SetPlan(ctx, vmodelPlan()); err != nil {
 		t.Fatalf("SetPlan: %v", err)
-	}
-	if err := coordinator.Retire(ctx, "exec"); err != nil {
-		t.Fatalf("退场不动现场与会话，不该要求这两个端口: %v", err)
 	}
 	_, err = coordinator.Close(ctx)
 	if err == nil || !strings.Contains(err.Error(), "步 2") {
@@ -514,7 +520,7 @@ func TestCoordinatorCloseSealsBoard(t *testing.T) {
 	if alreadyClosed {
 		t.Fatal("首次收口不得报 already_closed")
 	}
-	// 1. 回收：Retire 不做的那一步收口到这里（作业不再在册）。
+	// 1. 回收：唯一的回收点就在这一处（作业不再在册）。
 	if _, ok := fixture.jobs.Observe(execHandle); ok {
 		t.Fatal("整队收口必须回收在编成员的作业")
 	}
@@ -551,7 +557,7 @@ func TestCoordinatorCloseSealsBoard(t *testing.T) {
 			t.Fatalf("成员 %q 的 worktree 指派名应清空待重派: %+v", member.Role, member)
 		}
 	}
-	// 4. 审计：恰好一条 close，且没有逐人 retire（收口是团队级动作）。
+	// 4. 审计：恰好一条 close；旧口径的 retire 审计不再有新写入（常量保留只为读回历史）。
 	closes, retires := 0, 0
 	for _, kind := range fixture.store.kinds() {
 		switch kind {
@@ -604,15 +610,15 @@ func TestCloseIdempotentAlreadyClosed(t *testing.T) {
 	}
 }
 
-// TestRedispatchAfterRetireIsNotRefusedByCapacity：Retire 不再回收作业的**连锁**处置——
-// "在跑作业数"不再等于"未被退场的在编人数"（已退场但作业仍在跑的成员会一直占名额）。
-// 派发**同一个角色**时不计它自己那一条，于是退场后重派不会自己把自己顶在上限外；
-// 真超员（另一个角色顶到上限）照旧显式拒绝。
+// TestRedispatchSameRoleIsNotRefusedByCapacity：作业只在一处回收（整队收口），于是"在跑
+// 作业数"在收口之前并不等于"在编人数"——在编成员里在跑的那个作业会一直占着名额。派发
+// **同一个角色**时不计它自己那一条，于是重派同一个角色不会自己把自己顶在上限外；真超员
+// （另一个角色顶到上限）照旧显式拒绝。
 //
 // 已知残差（回执里记为未决项，本用例只钉"受理"这一条，不替它盖章）：框架的 dedup 判据是
 // 载荷**逐字节相同**（Seele jobs manager.dedupLocked），因此重派带新内容时同一角色会有两条
 // 在跑作业（下面 t.Logf 把事实记下来）。
-func TestRedispatchAfterRetireIsNotRefusedByCapacity(t *testing.T) {
+func TestRedispatchSameRoleIsNotRefusedByCapacity(t *testing.T) {
 	fixture := newFixture(t, 2)
 	eventually := make(chan struct{})
 	fixture.runner.block = eventually
@@ -639,17 +645,15 @@ func TestRedispatchAfterRetireIsNotRefusedByCapacity(t *testing.T) {
 	if _, err := fixture.coordinator.Dispatch(ctx, "exec", "第三个"); err == nil || !strings.Contains(err.Error(), "max_teammates") {
 		t.Fatalf("真超员必须显式拒绝并点明上限，得到 %v", err)
 	}
-	// 退场 pm：作业仍在跑（本轮语义），它仍占着名额。
-	if err := fixture.coordinator.Retire(ctx, "pm"); err != nil {
-		t.Fatalf("Retire: %v", err)
-	}
+	// 同一角色在跑的作业仍占着名额（回收只在整队收口，收口之前不会被撤走）——这正是
+	// 下面必须扣掉自己那一条的原因。
 	if _, ok := fixture.jobs.Observe(first); !ok {
-		t.Fatal("Retire 不得回收作业（回收统一收口到整队 Close）")
+		t.Fatal("整队收口之前作业必须在册（回收统一收口到 team_close）")
 	}
 	// 重派（同样内容）：必须被受理，且折叠到在跑的那一条。
 	again, err := fixture.coordinator.Dispatch(ctx, "pm", "需求")
 	if err != nil {
-		t.Fatalf("退场后重派同一角色不得撞 max_teammates: %v", err)
+		t.Fatalf("重派同一角色（作业仍在跑）不得撞 max_teammates: %v", err)
 	}
 	if again != first {
 		t.Fatalf("同样内容的重派应折叠到在跑的那一条: %s vs %s", again, first)
@@ -657,7 +661,7 @@ func TestRedispatchAfterRetireIsNotRefusedByCapacity(t *testing.T) {
 	// 重派（新内容）：同样必须被受理——这是本轮口径要求的"不得误计上限"。
 	fresh, err := fixture.coordinator.Dispatch(ctx, "pm", "下一批工作正文")
 	if err != nil {
-		t.Fatalf("退场后重派同一角色（新内容）不得撞 max_teammates: %v", err)
+		t.Fatalf("重派同一角色（新内容，作业仍在跑）不得撞 max_teammates: %v", err)
 	}
 	if fresh == first {
 		t.Logf("意外折叠：新内容与在跑载荷不同，框架 dedup 不该合并（若真合并，本用例的残差说明已过时）")

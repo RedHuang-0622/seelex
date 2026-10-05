@@ -532,7 +532,7 @@ func (c *Coordinator) SettleWorkItem(ctx context.Context, request WorkerRequest,
 
 // AcceptItem 是 leader 的**验收通过**：工作项 → done，销项。**不动现场与会话**——
 // teammate 的 session/worktree 归 team 托管，回收的唯一入口是整队收口
-// （team_close → releaseAllItems；单角色退场 team_retire 也不动现场）。
+// （team_close → closeStepsLocked + releaseAllItems；整队收口是唯一的回收点）。
 //
 // **责任链（一条链，顺序即责任）**：
 //

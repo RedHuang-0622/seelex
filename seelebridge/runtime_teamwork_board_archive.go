@@ -60,7 +60,7 @@ func (r *Runtime) archiveTeamBoard(ctx context.Context) {
 		// 整队已收口：连同**收口时的最终投影**一起封板（幂等）。**绝不能让下面的
 		// "新开一版"逻辑把它复活**——复活一块已关闭的看板，就是把"已关闭"当成
 		// "在册"卖给读侧（存档读侧只认 state=active）。收口之后 leader 仍可能再调
-		// team_retire/team_milestone，那些调用也会走到这里，所以这道闸卡在写侧唯一入口上。
+		// team_milestone 之类的团队级工具，那些调用也会走到这里，所以这道闸卡在写侧唯一入口上。
 		if err := sealClosedTeamBoard(ctx, backend, manager, key, plan, time.Now().UTC(), r.teamBoardAssemblies(plan)); err != nil {
 			log.Printf("seelebridge: 团队看板封板失败（会话 %s）：%v", sessionID, err)
 		}

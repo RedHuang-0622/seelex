@@ -96,7 +96,7 @@ func TestPruneRunsGitWorktreePrune(t *testing.T) {
 
 // TestRestoreSkipsWorktreesThatNoLongerExist 钉住「幽灵条目」修复：锚点还在、目录
 // 已经不在的 worktree 不得重新登记——否则 Info 会报一个不存在的路径，
-// team_retire 步 2 会对着它跑 git status 而失败。
+// team_close 收口步 2 会对着它跑 git status 而失败。
 func TestRestoreSkipsWorktreesThatNoLongerExist(t *testing.T) {
 	root := t.TempDir()
 	mgr, _, _ := newTestWorktreeManager(root)

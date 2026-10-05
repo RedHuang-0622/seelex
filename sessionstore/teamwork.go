@@ -61,8 +61,10 @@ const (
 	TeamworkEventDispatch  = "dispatch"
 	TeamworkEventJoin      = "join"
 	TeamworkEventMilestone = "milestone"
-	TeamworkEventRetire    = "retire"
-	// TeamworkEventClose 是**整队收口**（team_close）的审计行：与逐人退场（retire）
+	// TeamworkEventRetire 是**旧口径**（team_retire，已整条删除）留在历史审计里的取值：
+	// 常量保留是为了老审计还能读回，**不再有新写入**（本轮结束只有 team_close 一个入口）。
+	TeamworkEventRetire = "retire"
+	// TeamworkEventClose 是**整队收口**（team_close）的审计行：与旧口径的 retire
 	// 分开记——收口是团队级动作，不是"最后一次退场"。
 	TeamworkEventClose = "close"
 	// TeamworkEventItem / Accept / Fail / Settle / Recover 是 **Work Item 生命周期**

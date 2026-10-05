@@ -1,12 +1,12 @@
 package seelebridge
 
 // runtime_teamwork.go — teamwork 编排面在 seelebridge 的落点：leader 的硬编排工具
-// （team_plan / team_dispatch / team_join / team_milestone / team_retire / team_close /
+// （team_plan / team_dispatch / team_join / team_milestone / team_close /
 // team_context）+ 框架通用管理工具 jobs_manage，以及它们背后的作业面与 Coordinator 组装。
 //
 // 分工（docs/arch/teamwork-leader-worker-architecture.md §2 / §4.5 / D1）：
 //   - **作业面**归 Seele 的 jobs 根能力（契约 + Manager + jobs_manage）；
-//   - **硬编排**归 seelebridge/teamwork（计划 + 派发 + 汇合 + 里程碑 + 退场）；
+//   - **硬编排**归 seelebridge/teamwork（计划 + 派发 + 汇合 + 里程碑 + 整队收口）；
 //   - **执行体 / 工作区 / 会话复位**是端口，由本文件把 Runtime 的能力接上去：
 //     worker 执行体 = 角色会话里跑一轮有界回合；worktree = 释放 git worktree；
 //     session reset = 清角色会话的工作历史（保留在编）。
@@ -214,9 +214,8 @@ func (r *Runtime) coordinatorForKey(key sessionstore.Key) (*teamwork.Coordinator
 // registerTeamworkTools 注册 leader 编排面（RegisterBuiltins 内调用；未装配 backend
 // 时注册面为空——没有后端就不摆出一族永远报错的工具）。
 //
-// 工具集：team_plan / team_dispatch / team_join / team_milestone / team_retire（逐人一轮）
-// + team_close（整队收口，唯一的回收点）+ team_context（成员上下文只读面）
-// + jobs_manage（框架通用管理面）。
+// 工具集：team_plan / team_dispatch / team_join / team_milestone / team_close（整队收口，
+// 唯一的回收点）+ team_context（成员上下文只读面）+ jobs_manage（框架通用管理面）。
 func (r *Runtime) registerTeamworkTools() {
 	if !r.teamworkEnabled() {
 		return
@@ -225,9 +224,9 @@ func (r *Runtime) registerTeamworkTools() {
 	r.RegisterTool("team_dispatch", teamworkDispatchDescription(), teamworkDispatchSchema(), r.teamDispatchHandler)
 	r.RegisterTool("team_join", teamworkJoinDescription(), teamworkJoinSchema(), r.teamJoinHandler)
 	r.RegisterTool("team_milestone", teamworkMilestoneDescription(), teamworkMilestoneSchema(), r.teamMilestoneHandler)
-	r.RegisterTool("team_retire", teamworkRetireDescription(), teamworkRetireSchema(), r.teamRetireHandler)
 	// team_close：整队**收口**的唯一入口：作业回收、现场拆除、会话内容清空都落在这一处
-	// （team_retire 是名册动作，什么都不拆——见 coordinator.Retire / closeStepsLocked）。
+	// （唯一的回收实现 = coordinator.closeStepsLocked + releaseAllItems；逐人退场那条
+	// 口径已整条删除，2026-10-06）。
 	r.RegisterTool("team_close", teamworkCloseDescription(), teamworkCloseSchema(), r.teamCloseHandler)
 	// team_context：成员工作上下文**读面**（要求③）。它只读、且正文走非消费读法
 	// （Manager.Peek），因此与其余 team_* 工具不同：调用它不会改变任何事实。
@@ -598,33 +597,12 @@ func (r *Runtime) teamMilestoneHandler(ctx context.Context, argsJSON string) (st
 	return jsonReceipt(map[string]any{"ok": true, "id": raw.ID})
 }
 
-func (r *Runtime) teamRetireHandler(ctx context.Context, argsJSON string) (string, error) {
-	var raw struct {
-		Role string `json:"role"`
-	}
-	if err := json.Unmarshal([]byte(argsJSON), &raw); err != nil {
-		return "", fmt.Errorf("team_retire: 参数解析失败: %w", err)
-	}
-	coordinator, err := r.coordinatorFor(ctx)
-	if err != nil {
-		return "", err
-	}
-	if err := coordinator.Retire(ctx, strings.TrimSpace(raw.Role)); err != nil {
-		return "", fmt.Errorf("team_retire: %w", err)
-	}
-	r.invalidateTeamworkBoard()
-	r.archiveTeamBoard(ctx)
-	return jsonReceipt(map[string]any{
-		"ok": true, "role": raw.Role,
-		"detail": "本轮结束（留在编）：现场与会话归 team 托管、不动；作业与现场统一活到 team_close",
-	})
-}
-
 // teamCloseHandler 收口整支团队（team_close）：逐在编成员走同一套收口四步（作业回收、
 // 现场拆除、会话内容清空统一落在这一处）→ 封板团队看板（closed / team.close）→ 计划标
 // closed → 落一条 close 审计。
 //
-// 收口不接受参数：收口的是"这支团队"，不是某一个人（逐人退场是 team_retire）。
+// 收口不接受参数：收口的是"这支团队"，不是某一个人（逐人退场那条口径已整条删除，
+// 一轮的结束只有这一个入口）。
 // 幂等：已收口的团队第二次调用返回 already_closed=true，**不重复封板、不重复落审计**。
 //
 // 这里刻意**不**再调 archiveTeamBoard：收口路径自己已经封板（Coordinator.Close →

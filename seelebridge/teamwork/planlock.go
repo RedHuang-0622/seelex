@@ -57,6 +57,6 @@ func planLockFor(key sessionstore.Key) *sync.Mutex {
 // lockPlan / unlockPlan 成对使用，包住一段「读计划 → 改 → 写计划」的临界区。
 //
 // **不可重入**：临界区里只许调用不取同一把锁的东西。Coordinator 内部需要嵌套的场合
-// （Retire / Close → retireSteps）一律走 `...Locked` 变体，由外层持锁、内层不取锁。
+// （Close → closeStepsLocked）一律走 `...Locked` 变体，由外层持锁、内层不取锁。
 func (c *Coordinator) lockPlan()   { planLockFor(c.key).Lock() }
 func (c *Coordinator) unlockPlan() { planLockFor(c.key).Unlock() }

@@ -97,7 +97,7 @@ func TestTeamworkToolsRegisteredOnlyWithBackend(t *testing.T) {
 		t.Fatalf("SetTeamworkBackend: %v", err)
 	}
 	r.registerTeamworkTools()
-	for _, name := range []string{"team_plan", "team_dispatch", "team_join", "team_milestone", "team_retire", "jobs_manage"} {
+	for _, name := range []string{"team_plan", "team_dispatch", "team_join", "team_milestone", "team_close", "jobs_manage"} {
 		if _, ok := r.registry.FindTool(name); !ok {
 			t.Fatalf("注入 backend 后 %s 应在工具面里", name)
 		}

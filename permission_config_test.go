@@ -43,7 +43,7 @@ var permissionToolNames = []string{
 	"ask_approve", "fork_subagents", "plan_load", "plan_clear", "plan_run",
 	"goal_begin", "goal_update", "goal_propose_finish",
 	// teamwork leader 编排面（ctl 簇）
-	"team_plan", "team_dispatch", "team_join", "team_milestone", "team_retire",
+	"team_plan", "team_dispatch", "team_join", "team_milestone",
 	// adm 属主簇
 	"switch_plugin", "switch_mode", "skill_activate", "plugins_reload", "mcp_create", "mcp_load",
 }
@@ -106,7 +106,7 @@ func TestMainAgentToolDecisions(t *testing.T) {
 		"plan_load": true, "plan_clear": true, "plan_run": true,
 		"goal_begin": true, "goal_update": true, "goal_propose_finish": true,
 		"jobs_manage": true,
-		"team_plan":   true, "team_dispatch": true, "team_join": true, "team_milestone": true, "team_retire": true,
+		"team_plan":   true, "team_dispatch": true, "team_join": true, "team_milestone": true,
 	}
 	ask := map[string]bool{
 		"write_file": true, "edit_file": true, "plugin_create": true, "skill_create": true,

@@ -7,11 +7,11 @@ package teamwork
 //   - `Dispatch(role, goal)` 从头到尾没有一次 `BindWorkspace`：`WorkerRequest.Worktree`
 //     取的是 `member.Worktree`，而那个字段的唯一写点把它清成空 ⇒ 老口径派发的
 //     teammate 一定落在主工作区（bindWorkerProjectRoot 查空后回退主会话根）；
-//   - 退场步 2 只拿**角色名**去查一次现场，而注册键是裸 nodeID（Work Item 级 =
+//   - 收口步 2 只拿**角色名**去查一次现场（老缺陷），而注册键是裸 nodeID（Work Item 级 =
 //     `<role>-<itemID>`）⇒ 那些现场永远留在盘上，"脏工作区显式报错"这条保证也永不
 //     触发（查不到现场 = 幂等返回）。
 //
-// 本文件钉住三条事实：① 派发建现场（`seelex/<role>`）+ 账本留行；④ 退场释放该角色
+// 本文件钉住三条事实：① 派发建现场（`seelex/<role>`）+ 账本留行；④ 整队收口释放该角色
 // **全部**现场（角色级 + 每一件已派发的 Work Item）；⑤ 某一份现场释放失败时必须点明
 // 是哪一个、且不牵连同批其余（Runtime 侧的两条——真释放与脏现场报错——见
 // seelebridge/runtime_teamwork_items_test.go）。
@@ -97,10 +97,13 @@ func TestDispatchBindsTeammateSceneAndRecordsLedger(t *testing.T) {
 	}
 }
 
-// TestRetireKeepsEverySceneOfRole —— ④ 一角色两 Work Item + 角色级现场：退场是**名册
-// 动作**，现场一个都不动（teammate 的现场与会话归 team 托管）；两件活的绑定照旧在册，
-// 回收统一落在整队收口。
-func TestRetireKeepsEverySceneOfRole(t *testing.T) {
+// TestCloseReleasesEverySceneOfRole —— ④ 一角色两 Work Item + 角色级现场：收口是**唯一
+// 回收点**——收口之前现场一个都不动（两件活的绑定照旧在册、指派名照实留着）；Close 把该
+// 角色的全部现场（角色级 + 名下每一个 Work Item）一并释放，并结束这些绑定。
+//
+// （与 items_test.go 的 TestTeamCloseEndsEveryLiveBinding 不重复：那条只用一件工作项钉
+// "活着绑定的收尾"，本条钉的是"角色级 + 同角色多件工作项都要一并释放、不得只释放一个"。）
+func TestCloseReleasesEverySceneOfRole(t *testing.T) {
 	fixture := newItemFixture(t, 6)
 	ctx := context.Background()
 	if err := fixture.coordinator.SetPlan(ctx, itemPlan()); err != nil {
@@ -116,7 +119,7 @@ func TestRetireKeepsEverySceneOfRole(t *testing.T) {
 	if _, err := fixture.coordinator.Dispatch(ctx, "exec", "角色级的一轮"); err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
-	// 两件 Work Item 各自的现场：跑完置 failed（现场与记忆都留着，且不拦退场）。
+	// 两件 Work Item 各自的现场：跑完置 failed（现场与记忆都留着，等 leader 人工处置）。
 	for _, id := range []string{"wi-a", "wi-b"} {
 		if _, err := fixture.coordinator.DispatchItem(ctx, id); err != nil {
 			t.Fatalf("DispatchItem(%s): %v", id, err)
@@ -131,15 +134,16 @@ func TestRetireKeepsEverySceneOfRole(t *testing.T) {
 		t.Fatalf("Plan: %v", err)
 	}
 	memberBefore, _ := memberFor(before, "exec")
-
-	if err := fixture.coordinator.Retire(ctx, "exec"); err != nil {
-		t.Fatalf("Retire: %v", err)
+	if memberBefore.Worktree == "" {
+		t.Fatal("角色级现场应在册（收口之前不改动它）")
 	}
+
+	// 收口之前：现场一个都不动、会话不清（现场与会话归 team 托管），绑定照旧在册。
 	if calls := fixture.calls.snapshot(); len(calls) != 0 {
-		t.Fatalf("退场不动现场、不清会话（回收唯一入口是整队收口），却调了 %v", calls)
+		t.Fatalf("收口之前不该动现场、清会话（回收唯一入口是整队收口），却调了 %v", calls)
 	}
 	if _, _, released := fixture.spaces.snapshot(); len(released) != 0 {
-		t.Fatalf("退场不该释放任何现场，却释放了 %v", released)
+		t.Fatalf("收口之前不该释放任何现场，却释放了 %v", released)
 	}
 	rows, err := fixture.store.ReadBindings(ctx, fixture.coordinator.Key())
 	if err != nil {
@@ -148,7 +152,7 @@ func TestRetireKeepsEverySceneOfRole(t *testing.T) {
 	live := sessionstore.TeamworkBindings(rows)
 	for _, id := range []string{"wi-a", "wi-b"} {
 		if _, ok := live[id]; !ok {
-			t.Fatalf("退场后 %q 的绑定应当还在册（收口才结束它）: %+v", id, live)
+			t.Fatalf("收口之前 %q 的绑定应当还在册（收口才结束它）: %+v", id, live)
 		}
 	}
 	after, err := fixture.coordinator.Plan(ctx)
@@ -157,7 +161,7 @@ func TestRetireKeepsEverySceneOfRole(t *testing.T) {
 	}
 	memberAfter, _ := memberFor(after, "exec")
 	if memberAfter.Worktree != memberBefore.Worktree {
-		t.Fatalf("退场不动现场，指派名照实留着：%q → %q", memberBefore.Worktree, memberAfter.Worktree)
+		t.Fatalf("收口之前不动现场，指派名照实留着：%q → %q", memberBefore.Worktree, memberAfter.Worktree)
 	}
 
 	// 唯一回收点：先人工处置（销项）再整队收口，角色的全部现场一并结束。
@@ -186,6 +190,13 @@ func TestRetireKeepsEverySceneOfRole(t *testing.T) {
 		if binding.Role == "exec" {
 			t.Fatalf("收口后该角色名下不该还有活绑定: %+v", binding)
 		}
+	}
+	after, err = fixture.coordinator.Plan(ctx)
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	if member, _ := memberFor(after, "exec"); member.Worktree != "" {
+		t.Fatalf("收口后该角色的指派名应清空待重派，得 %q", member.Worktree)
 	}
 }
 

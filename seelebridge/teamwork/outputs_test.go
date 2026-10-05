@@ -15,11 +15,12 @@ import (
 //  ① 输出**归属**：派发时把产品自有的落点同时交给 jobs.Spec.OutputPath 与作业载荷。
 //     框架侧因此不建写句柄、只按偏移读，销项 / 驱逐 / Close 都不删它——正文活到产品
 //     自己决定的那一刻。
-//  ② 清理**时机**：逐人退场（team_retire）不清理正文；整队收口（team_close）清一次，
-//     且发生在"逐成员退场"之后（先停作业再清文件，顺序不能换）。
+//  ② 清理**时机**：正文活到**整队收口**——Close 之外没有任何动作会清它（"逐人退场"那条
+//     口径已整条删除）；Close 清一次，且发生在"逐成员收口"之后（先停作业再清文件，顺序
+//     不能换）。
 //
 // 这两条都是"没有别人会替你做"的接线：缺 ① 则框架自建文件、阶段收尾一 fetch 就带走正文；
-// 缺 ② 则目录随收口次数无界累积，或反过来在退场那一刻就把正文清掉。
+// 缺 ② 则目录随收口次数无界累积，或反过来在收口那一刻之前就把正文清掉。
 
 // fakeJobOutputs 是 JobOutputs 的替身：路径可预测（`jobs/<role>-<n>.log`），并把
 // 分配 / 清理记进同一条调用流水（顺序断言因此和 worktree/session 共表）。
@@ -147,7 +148,7 @@ func TestDispatchWithoutOutputsKeepsFrameworkOwnedFile(t *testing.T) {
 	}
 }
 
-func TestRetireKeepsJobOutputsUntilClose(t *testing.T) {
+func TestJobOutputsSurviveUntilClose(t *testing.T) {
 	t.Parallel()
 	coordinator, manager, _, _, log, _ := newOutputFixture(t, true)
 	ctx := context.Background()
@@ -160,22 +161,22 @@ func TestRetireKeepsJobOutputsUntilClose(t *testing.T) {
 	}
 	waitTerminal(t, manager, handle)
 
-	// 逐人退场：只释放工作区 + 清会话内容，**不**碰作业输出（正文活到收口）。
-	if err := coordinator.Retire(ctx, "exec"); err != nil {
-		t.Fatalf("Retire: %v", err)
-	}
+	// 收口之前：没有任何动作会碰作业输出与作业本身——正文一直活到收口。
 	for _, call := range log.snapshot() {
 		if call == "output:clear" {
-			t.Fatal("team_retire 不该清理作业输出（正文活到 team_close）")
+			t.Fatal("team_close 之前不该清理作业输出（正文活到收口）")
 		}
 	}
 	if _, ok := manager.Observe(handle); !ok {
-		t.Fatal("team_retire 不该销项作业（回收统一收口到 team_close）")
+		t.Fatal("team_close 之前不该销项作业（回收统一收口到 team_close）")
 	}
 
-	// 整队收口：清一次，且发生在"逐成员退场"之后（先停作业再清文件）。
+	// 整队收口：清一次，且发生在"逐成员收口"之后（先停作业再清文件）。
 	if _, err := coordinator.Close(ctx); err != nil {
 		t.Fatalf("Close: %v", err)
+	}
+	if _, ok := manager.Observe(handle); ok {
+		t.Fatal("整队收口必须销项作业（唯一的回收点）")
 	}
 	calls := log.snapshot()
 	clearIndex := -1
@@ -191,7 +192,7 @@ func TestRetireKeepsJobOutputsUntilClose(t *testing.T) {
 		switch {
 		case strings.HasPrefix(call, "worktree:"), strings.HasPrefix(call, "session:"), strings.HasPrefix(call, "output:alloc:"):
 		default:
-			t.Fatalf("清理必须发生在逐成员退场之后，之前的调用只应是退场两步与派发时的分配：%v", calls)
+			t.Fatalf("清理必须发生在逐成员收口之后，之前的调用只应是收口两步与派发时的分配：%v", calls)
 		}
 	}
 }

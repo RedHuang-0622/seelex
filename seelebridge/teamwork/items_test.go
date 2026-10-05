@@ -430,9 +430,9 @@ func TestWorktreeAndSessionSurviveUntilTeamClose(t *testing.T) {
 	if _, err := fixture.coordinator.DispatchItem(ctx, "wi-req"); err != nil {
 		t.Fatalf("DispatchItem: %v", err)
 	}
-	// 在跑期间：退场被拒（现场是这件事的证据），绑定还在。
-	if err := fixture.coordinator.Retire(ctx, "pm"); err == nil || !strings.Contains(err.Error(), "没落定") {
-		t.Fatalf("还有在跑的工作项时退场必须被拒，得到 %v", err)
+	// 在跑期间：整队收口被 unsettled 闸门拦下（现场正是这件事的证据），绑定还在。
+	if _, err := fixture.coordinator.Close(ctx); err == nil || !strings.Contains(err.Error(), "没落定") {
+		t.Fatalf("还有在跑的工作项时整队收口必须被拒（unsettled 闸门），得到 %v", err)
 	}
 	_, _, released := fixture.spaces.snapshot()
 	if len(released) != 0 {

@@ -325,7 +325,7 @@ func TestTeamBoardArchiveSurvivesColdRuntime(t *testing.T) {
 //
 // 为什么是静态断言而不是行为用例：行为用例只能覆盖已经接上的那条路径，而"漏焊"的表现
 // 恰恰是某个 handler 少了这两行——文件级断言在这里最直接（也是本仓既有的守卫风格）。
-// 动作清单对齐契约 §5 的 update 时机表：plan / dispatch / join / milestone / retire。
+// 动作清单对齐契约 §5 的 update 时机表：plan / dispatch / join / milestone。
 func TestEveryTeamworkMutationHandlerRefreshesBoardArchive(t *testing.T) {
 	source, err := os.ReadFile("runtime_teamwork.go")
 	if err != nil {
@@ -334,7 +334,7 @@ func TestEveryTeamworkMutationHandlerRefreshesBoardArchive(t *testing.T) {
 	text := string(source)
 	for _, handler := range []string{
 		"teamPlanHandler", "teamDispatchHandler", "teamJoinHandler",
-		"teamMilestoneHandler", "teamRetireHandler",
+		"teamMilestoneHandler",
 	} {
 		body, ok := teamworkHandlerBody(text, handler)
 		if !ok {

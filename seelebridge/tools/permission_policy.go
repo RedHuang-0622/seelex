@@ -162,7 +162,7 @@ func DefaultPermissionGroupList() []toolspermission.PermissionGroup {
 				// teamwork leader 编排面：改的是"团队顺序与作业"这条循环控制流，
 				// 与 fork_subagents/plan_* 同族——sub/员工断位（teammate 不该编排
 				// 团队），主代理（root）默认 allow。
-				"team_plan", "team_dispatch", "team_join", "team_milestone", "team_retire", "team_close", "team_context",
+				"team_plan", "team_dispatch", "team_join", "team_milestone", "team_close", "team_context",
 				// Work Item 口径（2026-10-03）：排活 / 调整 / 验收 / 判失败 / 中断恢复。
 				// 与上面同族——它们改的都是"团队顺序与结论"，员工与子代理一律断位。
 				"team_work", "team_item", "team_accept", "team_fail", "team_recover", "team_items",

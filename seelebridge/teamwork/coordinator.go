@@ -17,7 +17,7 @@ func (c *Coordinator) Plan(ctx context.Context) (sessionstore.TeamworkPlan, erro
 	return c.store.ReadPlan(ctx, c.key)
 }
 
-// Audit 读回审计流水（派发 / 里程碑 / 退场的事实顺序）。
+// Audit 读回审计流水（派发 / 里程碑 / 收口的事实顺序）。
 func (c *Coordinator) Audit(ctx context.Context) ([]sessionstore.TeamworkEvent, error) {
 	return c.store.ReadEvents(ctx, c.key)
 }
@@ -328,34 +328,30 @@ func (c *Coordinator) Milestone(ctx context.Context, id, content string) error {
 	})
 }
 
-// retireStepsLocked 是 Retire（单个人一轮结束）与 Close（整队收口）复用的**同一套**四步实现
-// （D7 / §4.4）。两者只有一处不同：**回收作业**只发生在整队收口时（reclaim=true）。
+// closeStepsLocked 是**整队收口**里对单个在编成员做的四步（Close 的唯一实现），也是整个
+// 团队唯一一处回收实现（D7 / §4.4；此前还有一条"单角色退场"的口径，2026-10-06 整条删除）。
 //
 // **调用约定**：本方法假定调用方**已经持有计划锁**（c.lockPlan），因此它自己不再取锁
-// （锁不可重入）。Retire 与 Close 都在自己的最外层取一次锁，然后调这里——这样"退场四步"
-// 与随后的计划写入落在同一个临界区里，中途不会被并发的派发/尾插插进来。
+// （锁不可重入）。Close 在自己的最外层取一次锁，然后调这里——这样"收口四步"与随后的
+// 计划写入落在同一个临界区里，中途不会被并发的派发/尾插插进来。
 //
 // 关于 c.jobs.Reclaim（步 1）在锁内的安全性：它取消并**等待**目标作业终结（上限
 // jobs.Limits.DefaultWait），而 worker 执行体在收尾时会回调 SettleWorkItem（要取同一把
-// 计划锁）。这条"等待"不会成环，因为 reclaim=true 只在 Close 里出现，而 Close 的
-// unsettledItems 闸门已经保证：此刻不存在"还在 running 的工作项尾插"（真在跑会被闸门
-// 拒收）。于是 Reclaim 只可能等到"非 Work Item 口径的作业"（其 SettleWorkItem 在读到
-// WorkItemID == "" 时**在取锁之前**就返回）或"已终结的作业"（live=false，不必等）。
+// 计划锁）。这条"等待"不会成环，因为 Close 的 unsettledItems 闸门已经保证：此刻不存在
+// "还在 running 的工作项尾插"（真在跑会被闸门拒收）。于是 Reclaim 只可能等到"非 Work Item
+// 口径的作业"（其 SettleWorkItem 在读到 WorkItemID == "" 时**在取锁之前**就返回）或
+// "已终结的作业"（live=false，不必等）。
 //
-// 为什么把回收从 Retire 里摘出来（2026-10-02，要求④）：Retire 不再 Reclaim 之后，
-// "谁还在跑"在整队 Close 之前一直留在册上（作业正文不会被一次退场悄悄撤走），回收
-// 统一收口到 Close 这一处；实现仍只有一份，用一个开关区分，不复制四步。
+// 为什么回收只在这一处（2026-10-02 拆出来、2026-10-06 唯一化）：整队收口之前，"谁还在跑"
+// 一直留在册上——作业正文不会被任何"退场"动作悄悄撤走；实现也只有这一份，不复制四步。
 //
-//  1. reclaim=true 时回收该 teammate 名下未完成的作业（只动这一个 teammate）
+//  1. 回收该 teammate 名下未完成的作业（只动这一个 teammate，不牵连同会话其他人）
 //  2. 释放该 teammate 的**全部**现场：角色级（nodeID = 角色名）+ 该角色名下每一个
 //     已派发 Work Item 的现场（逐个释放；脏工作区由实现按语义报错，不静默丢弃）
 //  3. 清空该 teammate 的会话记录内容（工作历史 + durable 快照）
 //  4. 保留 teammate 在编，worktree 字段置空待重派；回收时清掉句柄投影
 //
 // 顺序不能换：先停作业再清记忆，否则会"清完记忆还在写"。
-// closeStepsLocked 是**整队收口**里对单个在编成员做的四步（Close 的唯一实现）。
-// 单角色退场（team_retire）**不再**走这里：teammate 的现场与会话归 team 托管，回收的
-// 唯一入口是整队收口（2026-10-06 口径；此前退场也会拆现场、清会话）。
 //
 //	步 1 回收这个主体名下的作业 → 步 2 拆它的全部现场（角色级 + 名下每个 Work Item）
 //	→ 步 3 清会话内容 → 步 4 名册动作（指派名与句柄投影清掉，成员留在编）
@@ -400,65 +396,14 @@ func (c *Coordinator) closeStepsLocked(ctx context.Context, role string) (sessio
 	return plan, nil
 }
 
-// Retire 结束某 teammate 的一轮任务：**名册动作**——人留在编，现场（worktree）与会话内容
-// **都不动**。teammate 的 session/worktree 归 team 托管，回收的唯一入口是整队收口
-// （team_close → Close 的四步 + releaseAllItems）。所以退场之后这个人接着干下一件事时，
-// 还是同一套现场与会话（记忆建在），而不是像 subagent 那样"派出即建、收尾即清"。
-//
-// Work Item 口径下有一道闸门：这个人名下还有**在跑或待验收**的工作项时不许退场——
-// "开始的工作是既定的"，先把它落定（或亲手判失败）。
-func (c *Coordinator) Retire(ctx context.Context, role string) error {
-	c.lockPlan()
-	defer c.unlockPlan()
-	if busy, err := c.busyItems(ctx, role); err != nil {
-		return err
-	} else if len(busy) > 0 {
-		return fmt.Errorf("teamwork: teammate %q 还有 %d 件工作没落定（%s）——先完成或亲手判失败再退场",
-			role, len(busy), strings.Join(busy, ", "))
-	}
-	plan, err := c.store.ReadPlan(ctx, c.key)
-	if err != nil {
-		return err
-	}
-	if _, ok := memberFor(plan, role); !ok {
-		return fmt.Errorf("teamwork: 角色 %q 不在计划里", role)
-	}
-	return c.audit(ctx, sessionstore.TeamworkEvent{
-		Kind: sessionstore.TeamworkEventRetire, TeamID: plan.TeamID, Role: role,
-		Detail: "本轮结束（留在编）：现场与会话归 team 托管、不动；回收统一在 team_close",
-	})
-}
-
-// busyItems 返回某角色名下"在跑 / 待验收"的工作项 id。
-func (c *Coordinator) busyItems(ctx context.Context, role string) ([]string, error) {
-	plan, err := c.store.ReadPlan(ctx, c.key)
-	if err != nil {
-		return nil, err
-	}
-	busy := make([]string, 0)
-	for _, milestone := range plan.Milestones {
-		for _, item := range milestone.Items {
-			if item.Role != role {
-				continue
-			}
-			switch item.StatusOrPending() {
-			case sessionstore.TeamworkItemRunning, sessionstore.TeamworkItemReview:
-				busy = append(busy, item.ID)
-			}
-		}
-	}
-	return busy, nil
-}
-
 // unsettledItems 返回"没落定"的工作项（`id(状态)` 口径），供收口闸门拒收用：
 //
 //	running 且 handle 还在册 —— 尾插还在飞（现场正被合并使用）
 //	failed                  —— 尾插把现场留给 leader 人工处置
 //
-// 待验收（review）不算：尾插已走完、合并已落地，释放它的现场是安全的。与 `busyItems`
-// 的分工要分清：那个是 **team_retire** 的尺子（单角色名下"在跑 / 待验收"就不许退场，
-// 它只放角色的共用工作区、不动 per-item 现场）；收口会把**所有** per-item 现场一并拆掉，
-// 所以尺子另外量一遍（见 Close 的注释）。
+// 待验收（review）不算：尾插已走完、合并已落地，释放它的现场是安全的。这把尺子量的是
+// **每一件工作项**（不按角色分档）：收口会把**所有** per-item 现场连同角色级现场一并拆掉，
+// 所以凡是"还被尾插拿着"或"留给 leader 人工处置"的现场都不许被它静默拆掉（见 Close 的注释）。
 func (c *Coordinator) unsettledItems(plan sessionstore.TeamworkPlan) []string {
 	unsettled := make([]string, 0)
 	for _, milestone := range plan.Milestones {
@@ -584,10 +529,10 @@ func (c *Coordinator) observe(handles []jobs.Handle) ([]jobs.Record, int) {
 //
 // 它必须先于框架的 jobs 在途上限生效：撞到框架兜底说明这条产品约束已经失效。
 //
-// 口径（2026-10-02 收口改造后）：Retire 不再回收作业，"在跑作业数"因此不再等于"未被
-// 退场的在编人数"——已退场但作业仍在跑的成员会一直占着名额。派发**同一个角色**时不
-// 计它自己那一条：同一角色的重复派发会折叠到在跑的那一条（见 Dispatch 的 Dedup），
-// 它不新增名额；不扣掉自己，退场后重派同一个角色就会自己把自己顶在上限外
+// 口径（2026-10-06 回收唯一化后）：作业只在一处回收（整队收口），因此"在跑作业数"在收口
+// 之前并不等于"在编人数"——在编成员各自在跑的作业会一直占着名额。派发**同一个
+// 角色**时不计它自己那一条：同一角色的重复派发会折叠到在跑的那一条（见 Dispatch 的 Dedup），
+// 它不新增名额；不扣掉自己，重派同一个角色就会自己把自己顶在上限外
 // （max_teammates = 在编人数时的必然撞车）。
 func (c *Coordinator) ensureCapacity(role string) error {
 	if c.maxMembers <= 0 {

@@ -229,29 +229,13 @@ func teamworkMilestoneSchema() map[string]interface{} {
 	}
 }
 
-func teamworkRetireDescription() string {
-	return "End one teammate's round: a ROSTER-ONLY act. The member stays enrolled and its worktree and session contents " +
-		"are NOT touched — a teammate's scene outlives individual work items and is owned by the team, so the ONE place " +
-		"that releases it (and reclaims its jobs) is team_close. A dispatched job therefore stays on the table, and its " +
-		"output stays readable, until that close. Refused while the teammate has work not yet settled (running / awaiting review)."
-}
-
-func teamworkRetireSchema() map[string]interface{} {
-	return map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"role": map[string]interface{}{"type": "string"},
-		},
-		"required": []string{"role"},
-	}
-}
-
 func teamworkCloseDescription() string {
 	return "Close the whole team (team_close): every enrolled member runs the same four close steps (reclaim its jobs → " +
 		"release its worktree(s) → clear its session contents → keep it on the roster) — this is the ONE place that reclaims " +
 		"jobs, so job output stays on the table until here — then the team board is sealed (closed/team.close), " +
 		"the plan is marked closed and a close audit line is written. Idempotent: a second call returns already_closed=true " +
-		"and neither re-seals nor re-audits. Takes no arguments: closure is a team-level act, not a seat's (per-member exit is team_retire). " +
+		"and neither re-seals nor re-audits. Takes no arguments: closure is a team-level act — it is the ONLY way a round ends " +
+		"(the old per-member exit tool has been removed). " +
 		"Refused while any work item is unsettled (running / awaiting review / failed): closing is the one place that tears down every " +
 		"per-item worktree, so settle the account first — team_accept (or team_fail) an item awaiting review, wait for a running item's " +
 		"receipt (or kill the job), and resolve a failed item's worktree by hand (conflicts, rebase, merge) before accepting it."
