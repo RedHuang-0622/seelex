@@ -104,6 +104,10 @@ const (
 )
 
 // Outcome 是一次收尾的结论：分类 + 给人看的说明（有界，进回执与看板）。
+//
+// **说明非空**是合同的一部分：非落定的每一类都必须带上**给人看的处置办法**（现场在哪、
+// 下一步谁做什么），因为那一条正是 leader/用户唯一看得见的收尾信息。分类器
+// （ClassifyFinish）负责把"原因 + 处置办法"拼齐，实现不许把它清空或替换成裸错误。
 type Outcome struct {
 	Kind   OutcomeKind `json:"kind"`
 	Notice string      `json:"notice,omitempty"`
@@ -113,11 +117,18 @@ type Outcome struct {
 //
 // 方法语义（实现必须守，见包注释的不变式）：
 //
-//	Begin   —— 建现场与会话；幂等。
-//	Finish  —— 这一轮怎么结束：分类 + 合并 + 回执；不拆现场。
-//	Reclaim —— 拆现场 + 清会话 + 回收作业；幂等；唯一入口。
-//	Recover —— 重启回灌：先认领现场（必须在 Prune 之前），再回灌会话并注入恢复说明；
-//	           记录说在跑而本进程已无执行面的，记进 Resume.Interrupted（见 session.go）。
+//	Begin        —— 建现场与会话；幂等。
+//	Finish       —— 这一轮怎么结束：分类 + 合并 + 回执；不拆现场。幂等（已经收过尾 ⇒
+//	                零值结论，不重复合并、不重复回执）；`mergeErr` 非空即采信（调用方
+//	                已经合过一次），只有为空时才由实现去合并一次。
+//	Reclaim      —— 拆现场 + 清会话 + 回收作业；幂等；唯一入口。
+//	Recover      —— 重启回灌：先认领现场（必须在 Prune 之前），再回灌会话并注入恢复说明；
+//	                读回粒度是**会话级**（按会话路径取回该会话全部单元，本单元那一份才是
+//	                结论）；记录说在跑而本进程已无执行面的，记进 Resume.Interrupted
+//	                （见 session.go）。
+//	FinishPolicy —— 什么时候回收：三层之间**唯一**允许出现的差异点，因此它是接口的一部分，
+//	                不再是各实现自造的一个可选方法（此前每层各写一遍类型断言去够它，
+//	                断言就是"合同没抽对"的证据）。
 //
 // 一个实现只管**自己这一份**现场与会话（粒度见包注释）。
 type Unit interface {
@@ -126,6 +137,7 @@ type Unit interface {
 	Finish(ctx context.Context, result Result, mergeErr error) (Outcome, error)
 	Reclaim(ctx context.Context) error
 	Recover(ctx context.Context) (Resume, error)
+	FinishPolicy() FinishPolicy
 }
 
 // Jobs 是"作业面"的窄端口：只取"回收一个作用域下的全部作业"这一件事。契约里只有 teammate 的

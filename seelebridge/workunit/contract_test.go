@@ -116,3 +116,6 @@ func (f *fakeUnit) Recover(context.Context) (Resume, error) {
 	f.recovers++
 	return Resume{}, nil
 }
+
+// FinishPolicy 是契约 Unit 的一部分（"什么时候回收"）：替身恒用 Immediate。
+func (f *fakeUnit) FinishPolicy() FinishPolicy { return Immediate{} }

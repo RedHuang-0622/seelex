@@ -56,16 +56,16 @@ func (u *chainStubUnit) Recover(context.Context) (workunit.Resume, error) {
 	return workunit.Resume{}, nil
 }
 
+// FinishPolicy 是契约 Unit 的一部分（"什么时候回收"）：替身恒用 Immediate。
+func (u *chainStubUnit) FinishPolicy() workunit.FinishPolicy { return workunit.Immediate{} }
+
 var _ workunit.Unit = (*chainStubUnit)(nil)
 
-// chainPolicyOf 取一个 Unit 声明的收尾策略（契约的 Unit 不含该读数，实现各自暴露它）。
+// chainPolicyOf 取一个 Unit 声明的收尾策略。策略是**契约的一部分**（`Unit.FinishPolicy()`），
+// 因此这里直接读——不再写"实现各自暴露它"的类型断言（那是合同没抽对的证据）。
 func chainPolicyOf(t *testing.T, unit workunit.Unit) workunit.FinishPolicy {
 	t.Helper()
-	policyHolder, ok := unit.(interface{ FinishPolicy() workunit.FinishPolicy })
-	if !ok {
-		t.Fatalf("%T 没有声明收尾策略：「什么时候回收」必须由实现自己回答，不能让调用方猜", unit)
-	}
-	policy := policyHolder.FinishPolicy()
+	policy := unit.FinishPolicy()
 	if policy == nil {
 		t.Fatalf("%T 的收尾策略是 nil", unit)
 	}
@@ -312,10 +312,6 @@ func TestChainInFlightVocabularyHasOneSource(t *testing.T) {
 	for _, row := range rows {
 		if got := workunit.InFlight(row.status); got != row.want {
 			t.Errorf("workunit.InFlight(%q) = %v，想要 %v", row.status, got, row.want)
-		}
-		if got := teamUnitInFlight(row.status); got != workunit.InFlight(row.status) {
-			t.Errorf("teammate 侧判据与契约漂移：InFlight(%q) = %v，teamUnitInFlight = %v",
-				row.status, workunit.InFlight(row.status), got)
 		}
 	}
 }

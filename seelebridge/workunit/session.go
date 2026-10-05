@@ -31,6 +31,9 @@ import (
 type SessionLedger interface {
 	Save(projectID, mainSessionID string, record sessionstore.NodeSessionRecord) error
 	List(projectID, mainSessionID string) ([]sessionstore.NodeSessionRecord, error)
+	// Delete 清掉一条记录：清会话是生命周期（Reclaim）的**动作**，不是另一件事——
+	// 端口只开一半，回收就只能绕回具体类型，那是第二份接线。
+	Delete(projectID, mainSessionID, subSessionID string) error
 }
 
 // 编译期钉住"复用"这件事：接口一旦与既有存储漂移，这里先红。

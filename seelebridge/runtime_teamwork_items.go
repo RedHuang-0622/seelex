@@ -17,6 +17,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
 	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
+	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
 )
 
 // SettleWorkItem 实现 teamwork.ItemSettler：worker 一轮跑完之后**自动**做尾插
@@ -28,10 +29,6 @@ func (r *Runtime) SettleWorkItem(ctx context.Context, request teamwork.WorkerReq
 	if strings.TrimSpace(request.WorkItemID) == "" {
 		return nil // 非 Work Item 口径的派发：没有尾插的落点
 	}
-	coordinator, err := r.coordinatorForSession(request.MainSessionID)
-	if err != nil {
-		return err
-	}
 	// 看板缓存在**这里也要失效**：settle 是**不是工具调用**的那条写路径（teammate 跑完
 	// 自动尾插：工作项状态 → 待验收/失败 + 回执进消息队列 + 一条 settle 审计行）。
 	// 只靠 team_* 工具返回后失效的话，看板会一直显示"这件事还在跑、没有回执"，直到下一次
@@ -39,15 +36,18 @@ func (r *Runtime) SettleWorkItem(ctx context.Context, request teamwork.WorkerReq
 	// 看板还停在 running、Messages 空，于是"跑完了看不见回执"又出现一次，只是这次
 	// 根因在投影缓存，不在尾插。
 	defer r.invalidateTeamworkBoard()
-	// 收尾分类是**同一份**（workunit.ClassifyFinish，在 settleWorkItem 步 3 里算），
-	// 这里取它的读数只为把"这一轮怎么结束的"写进 teammate 单元的会话记录
-	// （见 workunit_team.go：记录 = 重启回灌的依据）。
-	outcome, err := coordinator.SettleWorkItemOutcome(ctx, request, runErr)
+	// 收尾交回**唯一一份生命周期实现**（workunit_parent.go 的 lifecycleHost）：
+	// 重入怎么回答、合并只做一次、分类、落定之后按策略回收——全在那边。本函数只负责
+	// "把这一轮的结果交给它"，不自己判定、不自己合并、也不自己写会话记录。
+	unit, err := newTeamUnit(r, request.MainSessionID, request.Role, workunit.Scene{
+		TeamID:   strings.TrimSpace(request.TeamID),
+		WorkItem: strings.TrimSpace(request.WorkItemID),
+	}, request)
 	if err != nil {
 		return err
 	}
-	r.settleTeamUnitRecord(request.MainSessionID, teamUnitKeyFor(request), outcome)
-	return nil
+	_, err = unit.Finish(ctx, workunit.Result{Err: runErr}, nil)
+	return err
 }
 
 // BindWorkspace 实现 teamwork.Workspaces：为这件事建（或复用）一个 git worktree。

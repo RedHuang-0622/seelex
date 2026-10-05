@@ -24,10 +24,13 @@ import (
 //     干净，再重试合并"，不是判死。
 //  4. 其余合并错误 —— 判死。
 //  5. 都没有 —— 落定，待验收。
+//
+// 说明（Outcome.Notice）对**非落定**的每一类都带上给人看的处置办法（见 remedyFor）：
+// 合同要求它非空，而"原因 + 下一步"就是这一行必须承载的全部信息。
 func ClassifyFinish(result Result, mergeErr error) Outcome {
 	// 说明一律"先拼齐、再整体裁"：裁的是进回执与看板的**那一行**，不是它的某一段。
 	compose := func(kind OutcomeKind, prefix string, err error) Outcome {
-		return Outcome{Kind: kind, Notice: bounded(prefix + err.Error())}
+		return Outcome{Kind: kind, Notice: bounded(prefix + err.Error() + "（" + remedyFor(kind) + "）")}
 	}
 	switch {
 	case result.Err != nil:
@@ -40,6 +43,30 @@ func ClassifyFinish(result Result, mergeErr error) Outcome {
 		return compose(OutcomeFailed, "收尾失败：", mergeErr)
 	default:
 		return Outcome{Kind: OutcomeSettled, Notice: "跑完待验收"}
+	}
+}
+
+// remedyFor 是每一类收尾结论的**处置办法**（非落定必带，合同见 Outcome）。
+//
+// 它与分类本身绑在一处：写在别处就会漂成第二份口径（"未提交"到底是补提交还是重派，
+// 只有这张表说了算）。落定不需要处置办法——它要的是验收。
+const (
+	remedyUncommitted  = "处置：现场已原样保留，请补提交（或人工检查）后重试合并"
+	remedyMergeBlocked = "处置：先让主工作区干净（提交或暂存），再重试合并"
+	remedyFailed       = "处置：可重派；现场与记忆都保留，供人工检查"
+)
+
+// remedyFor 返回该结论的处置办法（落定为空 —— 它走验收，不走处置）。
+func remedyFor(kind OutcomeKind) string {
+	switch kind {
+	case OutcomeUncommitted:
+		return remedyUncommitted
+	case OutcomeMergeBlocked:
+		return remedyMergeBlocked
+	case OutcomeFailed:
+		return remedyFailed
+	default:
+		return ""
 	}
 }
 

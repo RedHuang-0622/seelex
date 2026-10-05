@@ -303,19 +303,23 @@ func (r *Runtime) nodeDeps() seenode.Deps {
 		CurrentAgentFactory:      r.currentAgentFactory,
 		CurrentPlanBranchBinding: r.currentPlanBranchBinding,
 		AppendNodePhase:          r.node.AppendPhase,
-		BeginNodeWorktree:        r.beginNodeWorktree,
-		FinishNodeWorktree:       r.finishNodeWorktree,
-		ReleaseNodeWorktree:      r.releaseNodeWorktree,
-		RegisterNodeSession:      r.node.RegisterSession,
-		UnregisterNodeSession:    r.node.UnregisterSession,
-		CompleteSubagentNode:     r.node.CompleteSubagentNode,
-		NodeParentEvidence:       r.node.ParentEvidence,
-		MergeBackIntoParent:      r.mergeBackIntoParent,
-		RecordNodeStage:          r.node.RecordStage,
-		RecordNodeResult:         r.node.RecordResult,
-		RecordNodeAssistant:      r.recordNodeAssistant,
-		NodeBudget:               r.node.Budget,
-		NodePromptBlocks:         r.node.PromptBlocks,
+		// 生命周期（建现场 / 收尾 / 释放）只有一份：这三个回调都驱动 subagent 层的
+		// 工作单元（父实现见 workunit_parent.go），现场的唯一建法与收尾仍在既有实现里
+		// 被父调用。ReleaseNodeWorktree 保留原实现（收尾落定时父的策略已经回收过，
+		// 这里是幂等确认——节点域的 Deps 契约与用例都按它断言）。
+		BeginNodeWorktree:     r.beginNodeUnit,
+		FinishNodeWorktree:    r.finishNodeUnit,
+		ReleaseNodeWorktree:   r.releaseNodeWorktree,
+		RegisterNodeSession:   r.node.RegisterSession,
+		UnregisterNodeSession: r.node.UnregisterSession,
+		CompleteSubagentNode:  r.node.CompleteSubagentNode,
+		NodeParentEvidence:    r.node.ParentEvidence,
+		MergeBackIntoParent:   r.mergeBackIntoParent,
+		RecordNodeStage:       r.node.RecordStage,
+		RecordNodeResult:      r.node.RecordResult,
+		RecordNodeAssistant:   r.recordNodeAssistant,
+		NodeBudget:            r.node.Budget,
+		NodePromptBlocks:      r.node.PromptBlocks,
 		Tracer: func() provider.TraceSource {
 			return r.Tracer()
 		},

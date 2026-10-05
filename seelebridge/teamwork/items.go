@@ -479,10 +479,53 @@ func (c *Coordinator) SettleWorkItemOutcome(ctx context.Context, request WorkerR
 	return c.settleWorkItem(ctx, request, runErr)
 }
 
+// settleWorkItem 是尾插程序的完整一段：合并半段 + 写态半段，**合并只做一次**。
 func (c *Coordinator) settleWorkItem(ctx context.Context, request WorkerRequest, runErr error) (workunit.Outcome, error) {
+	return c.SettleWorkItemWith(ctx, request, runErr, c.MergeWorkItem(ctx, request))
+}
+
+// ItemStatus 读一件事在计划里的状态（第二返回值 = 计划里有没有它）。
+//
+// 生命周期用它回答两个问题：这件事**归不归团队托管**（计划里有没有它），以及它是不是
+// **已经收过尾**（状态不再是 running）。这是全仓唯一一处按工作项 id 读计划状态的地方
+// ——同一份判据写在第二处，迟早给出两个答案。
+func (c *Coordinator) ItemStatus(ctx context.Context, itemID string) (string, bool) {
+	itemID = strings.TrimSpace(itemID)
+	if itemID == "" {
+		return "", false
+	}
+	c.lockPlan()
+	defer c.unlockPlan()
+	plan, err := c.store.ReadPlan(ctx, c.key)
+	if err != nil {
+		return "", false
+	}
+	_, item, ok := findItem(&plan, itemID)
+	if !ok {
+		return "", false
+	}
+	return item.StatusOrPending(), true
+}
+
+// ItemSettled 报告这件事是不是已经收过尾（计划里已经不是 running）。
+//
+// 它是生命周期"重入"判据的**团队那一支**，也是"收过尾了吗"的唯一实现：
+// 父实现（workunit_parent.go 的 AlreadySettled）与尾插的闸门都读它，因此不会出现
+// "一个说还在跑、一个说收过了"。
+func (c *Coordinator) ItemSettled(ctx context.Context, itemID string) bool {
+	status, ok := c.ItemStatus(ctx, itemID)
+	return ok && status != sessionstore.TeamworkItemRunning
+}
+
+// MergeWorkItem 是尾插程序的**合并半段**：只回答"改动并回主工作区了吗"，返回合并失败
+// 原文（nil = 合并成功 / 没有可并的现场 / 这件事已经收过尾）。
+//
+// 它与 SettleWorkItemWith 分开，是为了让"合并只做一次"成为可执行的规则：调用方已经拿到
+// 合并结果（非空）时**不许**再调它一次；只有报告"还没有合并结果"（nil）的那一方才负责合。
+func (c *Coordinator) MergeWorkItem(ctx context.Context, request WorkerRequest) error {
 	itemID := strings.TrimSpace(request.WorkItemID)
 	if itemID == "" {
-		return workunit.Outcome{}, nil // 非 Work Item 口径的派发：没有尾插的落点
+		return nil // 非 Work Item 口径的派发：没有合并的落点
 	}
 	// ── 阶段 A（临界区内，只读 + 判定）─────────────────────────────────
 	// 确认这件事还在跑（幂等闸门），并取出合并要用的现场。**合并这一步不在这里**：
@@ -492,16 +535,16 @@ func (c *Coordinator) settleWorkItem(ctx context.Context, request WorkerRequest,
 	plan, err := c.store.ReadPlan(ctx, c.key)
 	if err != nil {
 		c.unlockPlan()
-		return workunit.Outcome{}, err
+		return err
 	}
 	if _, item, ok := findItem(&plan, itemID); !ok || item.StatusOrPending() != sessionstore.TeamworkItemRunning {
 		c.unlockPlan()
-		return workunit.Outcome{}, nil // 已经收口过了（幂等：尾插恰好一次）
+		return nil // 已经收口过了（幂等：合并恰好一次）
 	}
 	bindings, err := c.store.ReadBindings(ctx, c.key)
 	if err != nil {
 		c.unlockPlan()
-		return workunit.Outcome{}, err
+		return err
 	}
 	binding, hasBinding := sessionstore.TeamworkBindings(bindings)[itemID]
 	teamID := plan.TeamID
@@ -510,18 +553,30 @@ func (c *Coordinator) settleWorkItem(ctx context.Context, request WorkerRequest,
 	// ── 步 1：合并（**在计划锁之外**）──────────────────────────────────
 	// 合并是"改动回到主干"的动作，插在**插入之前**——顺序反了就会出现"leader 已经看到
 	// 结论、而主干上还没有这份改动"。可观察顺序因此仍是：合并 → 尾插 → 状态。
-	var mergeErr error
 	if hasBinding && c.spaces != nil && strings.TrimSpace(binding.Worktree) != "" {
-		mergeErr = c.spaces.MergeWorkspace(ctx, c.workspaceBinding(binding, teamID))
+		return c.spaces.MergeWorkspace(ctx, c.workspaceBinding(binding, teamID))
 	}
+	return nil
+}
 
+// SettleWorkItemWith 是尾插程序的**写态半段**：合并结果由调用方给（非空即采信，绝不
+// 自己再合一次），这里只做 尾插（回执）→ 状态（收尾分类）→ 审计。
+//
+// 分类是**同一份** workunit.ClassifyFinish（与 node 侧同一张表），判死只留给"这一轮本身
+// 失败"与"合并撞了别的错"；未提交 / 主工作区挡路进待验收并带上未合并标记——现场与产出
+// 都留。
+func (c *Coordinator) SettleWorkItemWith(ctx context.Context, request WorkerRequest, runErr, mergeErr error) (workunit.Outcome, error) {
+	itemID := strings.TrimSpace(request.WorkItemID)
+	if itemID == "" {
+		return workunit.Outcome{}, nil // 非 Work Item 口径的派发：没有尾插的落点
+	}
 	// ── 阶段 B（临界区内，读-改-写）────────────────────────────────────
 	// 重读计划（合并这段时间里计划可能已被别人改写——leader 的手动处置、另一次 settle），
 	// 再次确认这件事仍是 running，然后 步 2 尾插 → 步 3 写态。这一整段读-改-写在同一把
 	// 计划锁内完成，因此并发 settle **不会**再互相覆盖（这正是本条修复的丢失更新）。
 	c.lockPlan()
 	defer c.unlockPlan()
-	plan, err = c.store.ReadPlan(ctx, c.key)
+	plan, err := c.store.ReadPlan(ctx, c.key)
 	if err != nil {
 		return workunit.Outcome{}, err
 	}
@@ -541,8 +596,7 @@ func (c *Coordinator) settleWorkItem(ctx context.Context, request WorkerRequest,
 		}
 	}
 	// 步 3：状态 ← 收尾分类（**与 node 同一份** workunit.ClassifyFinish，见
-	// applySettleOutcome 的映射表）。判死只留给"这一轮本身失败"与"合并撞了别的错"；
-	// 未提交 / 主工作区挡路进待验收并带上未合并标记——现场与产出都留。
+	// applySettleOutcome 的映射表）。
 	outcome := workunit.ClassifyFinish(workunit.Result{Summary: text, Err: runErr}, mergeErr)
 	applySettleOutcome(&plan, item, outcome, text)
 	item.FinishedAt = c.clock().UTC().Unix()
