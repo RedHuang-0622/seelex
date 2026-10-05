@@ -77,7 +77,7 @@ sequenceDiagram
 
 | 文件 | 职责 |
 |---|---|
-| `agent_node.go` | `Deps`、`AgentNode`、`Run`/`mergeBack`、`withWorktreeUnmergedNotice`、`NodeScopeFor`、`RoleForPlanBranch`、`NodeSubagentCharter`、`MatchNodeSkills`、`WithNodePromptBlocks` |
+| `agent_node.go` | `Deps`、`AgentNode`、`Run`/`mergeBack`、`withWorktreeUnmergedNotice`/`withWorktreeMergeBlockedNotice`、`NodeScopeFor`、`RoleForPlanBranch`、`NodeSubagentCharter`、`MatchNodeSkills`、`WithNodePromptBlocks` |
 | `coordinator.go` | `SessionPort`/`TreePort`/`TaskPort` 接口、`Coordinator`（含阶段日志与语义结果委托） |
 
 ## 核心实现
@@ -86,7 +86,7 @@ sequenceDiagram
 
 `AgentNode.Run` 生命周期：`scope()`（惰性解析，plan_run 时 binding 已冻结）→ `BeginNodeWorktree`（RoleSubAgent）→ `WithNodeScope` → `AppendNodePhase(running)` → `WithNodePromptBlocks` → `factory.NewAgent` → `RegisterNodeSession` + `Chat` → `CompleteSubagentNode` → `mergeBack`（失败也执行，幂等）→ `FinishNodeWorktree`/`ReleaseNodeWorktree`。
 
-收尾失败分两类处理：rebase/审批/merge 失败与 `Chat` 失败一样让节点失败（现场保留）；而 `worktree.IsUncommittedChanges` 判定的"子代理未提交改动"只降级为**产出末尾的显式警告**（`withWorktreeUnmergedNotice`）——节点按 Chat 结果判定成功、不 `Release`（现场保留供人工检查或补提交）、并补记 `worktree_unmerged` 阶段事件。这样单个子代理忘记执行收尾协议不会让 workplan fail-fast 取消同批兄弟节点、丢掉它们的产出。
+收尾分类**只从契约取**（`workunit.ClassifyFinish`，job/subagent/teammate 三层唯一一份判据），节点只按分类做三件事：落定 → `ReleaseNodeWorktree`；「未提交改动」（`worktree_unmerged` 阶段 + `withWorktreeUnmergedNotice`）与「主工作区挡路」（`merge_blocked` 阶段 + `withWorktreeMergeBlockedNotice`）都**降级为产出末尾的显式警告**——节点按 Chat 结果判定成功、不 `Release`（现场保留供人工检查或补提交）；其余收尾失败才判死。这样单个子代理忘记执行收尾协议、或主工作区被在途改动挡住，都不会让 workplan fail-fast 取消同批兄弟节点、丢掉它们的产出。
 
 ## 数据流或生命周期
 
@@ -94,7 +94,7 @@ sequenceDiagram
 
 ## 依赖方向
 
-`node` → `internal/model`、`plan`、`worktree`、`skill`、`seelexctx`、`internal/promptassets`。**禁止反向依赖 seelebridge 根包**（这是拆包打破循环依赖的硬约束）。
+`node` → `internal/model`、`plan`、`worktree`、`workunit`（收尾分类与恢复说明的契约）、`skill`、`seelexctx`、`internal/promptassets`。**禁止反向依赖 seelebridge 根包**（这是拆包打破循环依赖的硬约束）。
 
 ## 并发、存储、安全或错误语义
 
