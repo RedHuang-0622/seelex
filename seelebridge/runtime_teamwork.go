@@ -806,7 +806,7 @@ func (r *Runtime) ReleaseWorkspace(ctx context.Context, role string) error {
 		return nil // 无现场：无可释放（幂等）
 	}
 	if path := strings.TrimSpace(info.Path); path != "" {
-		dirty, err := worktreeDirty(path)
+		dirty, err := worktree.PathDirty(path)
 		if err != nil {
 			return fmt.Errorf("teamwork: 释放工作区前检查失败: %w", err)
 		}
@@ -856,14 +856,10 @@ func (r *Runtime) ResetSession(_ context.Context, roleSessionID string) error {
 // killSeatBestEffort / seatJobDescription / RunSeat 已随席位轮转退场删除
 // （2026-10-01 阶段三 W3）。
 
-// worktreeDirty 报告工作区是否有未提交改动（git status --porcelain 非空）。
-func worktreeDirty(root string) (bool, error) {
-	out, err := worktree.GitRunner(root, "status", "--porcelain")
-	if err != nil {
-		return false, err
-	}
-	return strings.TrimSpace(out) != "", nil
-}
+// worktreeDirty（编排面的第三份拷贝）已收口删除：脏判定的唯一实现在
+// seelebridge/worktree（`worktree.PathDirty` / 组件 `w.pathDirty` / `w.worktreeDirty`
+// 都转调它）。判据一份的收益是**修一处即全修**——CRLF 幻影脏的修复点只剩
+// worktree_manager.go 里 `status --porcelain` 那一行。
 
 // workerRoundInput 组装 worker 这一轮的工作正文：把 goal 包成有界的 round_input，
 // 明确"做完给结论与下一步"，与员工回合同一口径。

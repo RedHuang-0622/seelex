@@ -738,9 +738,29 @@ func (w *WorktreeManager) isManagedPath(root, path string) bool {
 	return strings.HasPrefix(filepath.Base(path), prefix)
 }
 
-// pathDirty 报告某个 worktree 是否有未提交改动。
+// pathDirty 报告某个 worktree 是否有未提交改动。判据只有一份，见 pathDirtyWith。
 func (w *WorktreeManager) pathDirty(path string) (bool, error) {
-	out, err := w.git(path, "status", "--porcelain")
+	return pathDirtyWith(w.git, path)
+}
+
+// PathDirty 报告某个工作区是否有未提交改动（包级入口：编排面用它）。
+// 与组件内部（w.pathDirty / w.worktreeDirty）**同一份判据**，只是 git 注入点不同
+// （GitRunner / w.git）。
+func PathDirty(path string) (bool, error) {
+	return pathDirtyWith(GitRunner, path)
+}
+
+// pathDirtyWith 是**脏判定的唯一实现**：`git status --porcelain` 非空即脏。
+//
+// ⚠ CRLF 幻影脏的**唯一修复点就是下面这一行**（`status --porcelain`）：本仓库
+// `core.autocrlf=true`，行尾差异会让"内容其实一样"的文件被判成已修改。事故形状
+// （见 docs/self_judgement.md）：收尾段这条判据在 worktree 里报 62 个"已修改"文件，
+// 而 `git diff --ignore-cr-at-eol` 比完是空的、文件内容哈希 主工作区 == worktree。
+// 要收窄这个判据（例如换成 `git diff --ignore-cr-at-eol --quiet`，或显式关掉
+// autocrlf 再比）只在这里改一处——**但那是一次语义变更，得先有红灯用例**，
+// 不许顺手改（本轮的 e2e/workunit_ports_test.go 那条"既有一律不动"的口径同样适用）。
+func pathDirtyWith(git gitFn, path string) (bool, error) {
+	out, err := git(path, "status", "--porcelain")
 	if err != nil {
 		return false, err
 	}
@@ -800,12 +820,9 @@ func (w *WorktreeManager) commitCountSince(wt *NodeWorktree) (int, error) {
 	return count, nil
 }
 
+// worktreeDirty 报告某个现场是否有未提交改动：转调唯一实现（键 = wt.Path）。
 func (w *WorktreeManager) worktreeDirty(wt *NodeWorktree) (bool, error) {
-	out, err := w.git(wt.Path, "status", "--porcelain")
-	if err != nil {
-		return false, err
-	}
-	return strings.TrimSpace(out) != "", nil
+	return w.pathDirty(wt.Path)
 }
 
 func (w *WorktreeManager) conflictFilesIn(dir string) ([]string, error) {
