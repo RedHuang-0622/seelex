@@ -343,15 +343,17 @@ func (p *subagentResumePort) Locate(ctx context.Context) ([]resume.Unit, error) 
 	return units, nil
 }
 
-// ── 子代理那一层的终态词表（本层自己的字面量，只有一处）──────────────────
+// ── 记录那一格的终态词表（字面量只有一份，在对外契约里）────────────────────
 //
-// 终态**不进契约**：它由记录写方按自己的语义定名（teammate 记 done|failed，子代理记它自己的
-// 两个词），契约只钉"在跑"那两个（workunit.StatusQueued / StatusRunning + InFlight）。
-// 因此这两个字面量住在本层、且只写一遍（Locate 判"是否终结"、ensureConclusion 判"记录本身
-// 已是终结态"都读这里）。
+// 终态**不进 workunit 契约**：它由记录写方按自己的语义定名（teammate 记 done|failed，子代理
+// 记它自己的两个词），契约只钉"在跑"那两个（workunit.StatusQueued / StatusRunning + InFlight）。
+// 但"终态不进契约"不等于"每个写方各写一份字面量"——③U6 之后四个取值面只有 `dto.SubAgent*`
+// 一份（记录词 = wire 词，逐条互锁见 TestSubagentStatusVocabularyAgreesWithTheWire），
+// 本层这两个常量是**转调**：Locate 判"是否终结"、ensureConclusion 判"记录本身已是终结态"
+// 都读这里，teammate 侧（teamUnitStatusDone/Failed）读同一处。
 const (
-	subagentNodeStatusDone   = "done"
-	subagentNodeStatusFailed = "failed"
+	subagentNodeStatusDone   = string(dto.SubAgentDone)
+	subagentNodeStatusFailed = string(dto.SubAgentFailed)
 )
 
 // RepairParent 补齐父侧历史：缺失的子代理结果 → provider-only tool 占位。

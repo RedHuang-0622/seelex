@@ -20,6 +20,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
 	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
 )
@@ -31,10 +32,13 @@ import (
 // 的事——两处各记一份就会漂移）。
 const (
 	// teamUnitStatusRunning 复用契约的词表（"在跑"只有一份，见 workunit.StatusRunning /
-	// InFlight）；两个终态**不进契约**——它由记录写方按自己的语义定名。
+	// InFlight）；两个终态**不进 workunit 契约**——它由记录写方按自己的语义定名。但"不进
+	// workunit 契约"不等于"各写一份字面量"：③U6 之后记录那一格的四个取值面只有对外契约
+	// `dto.SubAgent*` 一份（记录词 = wire 词，由 TestSubagentStatusVocabularyAgreesWithTheWire
+	// 逐条互锁），这里与子代理侧都是**转调**。
 	teamUnitStatusRunning = workunit.StatusRunning
-	teamUnitStatusDone    = "done"
-	teamUnitStatusFailed  = "failed"
+	teamUnitStatusDone    = string(dto.SubAgentDone)
+	teamUnitStatusFailed  = string(dto.SubAgentFailed)
 )
 
 // teamUnitStatusFor 把收尾分类折成记录的终态：**不判死的那两类（未提交 / 主工作区挡路）

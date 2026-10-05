@@ -22,6 +22,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
+	"github.com/RedHuang-0622/seelex/seelebridge/session"
 	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
@@ -113,8 +114,9 @@ func TestResumeNotePreviewNeverSplitsARune(t *testing.T) {
 // 判据分两半：
 //   - 契约那一半（`workunit.StatusQueued/StatusRunning`：判"还在不在跑"的词表）与
 //     `dto.SubAgentQueued` / `dto.SubAgentRunning` 同值；
-//   - 本层那一半（`subagentNodeStatusDone/Failed`：子代理记录自己的终态词，终态不进契约）
-//     与 `dto.SubAgentDone` / `dto.SubAgentFailed` 同值。
+//   - 记录那一半（`subagentNodeStatusDone/Failed` 与 teammate 侧 `teamUnitStatusDone/Failed`：
+//     子代理/teammate 记录自己的终态词，终态不进 workunit 契约）与 `dto.SubAgentDone` /
+//     `dto.SubAgentFailed` 同值，`session` 包的再导出（`SubAgent*`）一并锁进来。
 //
 // 任一侧改了字面量而没改另一侧，这里立刻红——跨包的字面量靠这条用例互锁，而不是靠"我记得"。
 func TestSubagentStatusVocabularyAgreesWithTheWire(t *testing.T) {
@@ -127,6 +129,15 @@ func TestSubagentStatusVocabularyAgreesWithTheWire(t *testing.T) {
 		{"workunit.StatusRunning", workunit.StatusRunning, string(dto.SubAgentRunning)},
 		{"subagentNodeStatusDone", subagentNodeStatusDone, string(dto.SubAgentDone)},
 		{"subagentNodeStatusFailed", subagentNodeStatusFailed, string(dto.SubAgentFailed)},
+		// 记录那一格的**四个取值面**（③U6）：teammate 侧的终态词与 session 包的再导出都在表里，
+		// 任何一处被改成另一个词，这里立刻红——不再有"改了一份、漏了另一份"的余地。
+		{"teamUnitStatusRunning", teamUnitStatusRunning, string(dto.SubAgentRunning)},
+		{"teamUnitStatusDone", teamUnitStatusDone, string(dto.SubAgentDone)},
+		{"teamUnitStatusFailed", teamUnitStatusFailed, string(dto.SubAgentFailed)},
+		{"session.SubAgentQueued", string(session.SubAgentQueued), string(dto.SubAgentQueued)},
+		{"session.SubAgentRunning", string(session.SubAgentRunning), string(dto.SubAgentRunning)},
+		{"session.SubAgentDone", string(session.SubAgentDone), string(dto.SubAgentDone)},
+		{"session.SubAgentFailed", string(session.SubAgentFailed), string(dto.SubAgentFailed)},
 	} {
 		if pair.got != pair.want {
 			t.Errorf("%s = %q，对外契约词表是 %q——记录词与 wire 词必须同值", pair.who, pair.got, pair.want)
