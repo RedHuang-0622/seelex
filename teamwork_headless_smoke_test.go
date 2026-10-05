@@ -83,6 +83,17 @@ type teamworkSmokeProvider struct {
 	// triggeredTurns 数"做完自动返回"起的回合（正文由 application 侧那条回执认出来）。
 	triggeredTurns int
 	seenLeader     []string
+	// workers 是逐次 worker 回合的采样（含**本轮 system prompt 原文**）：装配的落点
+	// （技能目录段有没有进员工的 system）只有在 wire 上才看得见。
+	workers []workerSample
+}
+
+// workerSample 是一次 worker 回合的采样。SystemPrompt 是请求里第一条 system 消息的
+// 正文——员工回合的装配面（装配进来的技能目录段）就落在这一条上。
+type workerSample struct {
+	Role         string
+	SystemPrompt string
+	LastUser     string
 }
 
 func (p *teamworkSmokeProvider) serve(t *testing.T, writer http.ResponseWriter, request *http.Request) {
@@ -105,7 +116,12 @@ func (p *teamworkSmokeProvider) serve(t *testing.T, writer http.ResponseWriter, 
 	// user 行留在会话里，按"整段里有没有"判会把**此后每一个回合**都认成自动返回回合，
 	// 那些回合的脚本回应（验收、派下游）就永远发不出去。
 	body, lastUser := requestBodyText(payload.Messages)
-	workerTurn := strings.Contains(lastUser, "<round_input>") && strings.Contains(lastUser, "以 exec 的身份")
+	// worker 回合的判据建在**语义**上：工作正文被包进 `<round_input>`，尾部是
+	// 「以 <role> 的身份完成这一轮」那条 task 行（见 seelebridge 的 workerRoundInput）。
+	// 不写死某个角色名：写死会在换角色时把 worker 回合误判成 leader 回合，
+	// 脚本游标于是被 worker 吃掉，整条冒烟的每一跳都错位。
+	workerTurn := strings.Contains(lastUser, "<round_input>") &&
+		strings.Contains(lastUser, " 的身份完成这一轮")
 	// 自动返回回合：正文是 application 侧那条回执（见 async_completion.go 的
 	// teamworkCompletionPrompt）。它**不消费脚本游标**——验收交给冒烟自己驱动（P7）。
 	// 否则验收会与 P5/P6 的观测抢跑：accept 一到，这件事的会话就被释放，P6 连
@@ -119,6 +135,11 @@ func (p *teamworkSmokeProvider) serve(t *testing.T, writer http.ResponseWriter, 
 	switch {
 	case workerTurn:
 		p.workerTurns++
+		p.workers = append(p.workers, workerSample{
+			Role:         roleFromWorkerInput(lastUser),
+			SystemPrompt: requestSystemPrompt(payload.Messages),
+			LastUser:     lastUser,
+		})
 		response = scriptedResponse{text: "worker[exec]：这一轮做完了，结论见回执。"}
 	case triggeredTurn:
 		p.triggeredTurns++
@@ -247,6 +268,50 @@ func messageContentText(content any) string {
 	default:
 		return ""
 	}
+}
+
+// requestSystemPrompt 取请求里**第一条 system 消息**的正文：员工回合的装配面（装配
+// 进来的技能目录段与那一行口径纠正）就落在这一条上，因此它是"装配有没有落到真回合"
+// 唯一可核的那一面。
+func requestSystemPrompt(raw json.RawMessage) string {
+	var messages []struct {
+		Role    string `json:"role"`
+		Content any    `json:"content"`
+	}
+	if err := json.Unmarshal(raw, &messages); err != nil {
+		return ""
+	}
+	for _, message := range messages {
+		if message.Role == "system" {
+			return messageContentText(message.Content)
+		}
+	}
+	return ""
+}
+
+// roleFromWorkerInput 从 worker 的工作正文里取角色名（尾部 task 行
+// 「以 <role> 的身份完成这一轮」；组装它的地方是 seelebridge 的 workerRoundInput）。
+// 取不到就返回空串——那说明这一轮的输入形状变了，样本按"不知道是谁"记下来。
+func roleFromWorkerInput(lastUser string) string {
+	const prefix = "以 "
+	const suffix = " 的身份完成这一轮"
+	start := strings.LastIndex(lastUser, prefix)
+	if start < 0 {
+		return ""
+	}
+	rest := lastUser[start+len(prefix):]
+	end := strings.Index(rest, suffix)
+	if end < 0 {
+		return ""
+	}
+	return strings.TrimSpace(rest[:end])
+}
+
+// workerSamples 是逐次 worker 回合的采样（装配落点的取证面）。
+func (p *teamworkSmokeProvider) workerSamples() []workerSample {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]workerSample(nil), p.workers...)
 }
 
 func (p *teamworkSmokeProvider) counts() (leader, worker int) {
