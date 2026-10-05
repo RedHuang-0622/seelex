@@ -24,6 +24,8 @@ import { TEAM_BOARD_CSS, renderTeamBoard, renderTeammateLiveSession, teammateSes
 import { createRuntimeEventBinder } from "./runtime-events.js";
 import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
 import { employeePool, hirePanel, isPinnedRole, nextAgentTeamOrder, normalizeAgentTeam, normalizeTeamGlobal, normalizeTeamLibrary, PERMISSION_CUSTOM_TOOLS, PERMISSION_GROUPS, PERMISSION_BITS, renderAgentTeam, renderRoleSessionDetail, renderTeamMemberList, roleDisplayName, teamEditorPanel, teamEntryFromMembers, teamMemberNames, teamMemberSpecMap, teamRoleSpec } from "./agent-team-view.js";
+// 提交侧的装配（按会话插件）规整：**只 trim + 丢空项，不去重**（重复由后端显式拒绝）。
+import { withPluginAssembly } from "./plugin-source.js";
 import { renderHistorySearchResults } from "./history-search.js";
 import { createThemeController, loadThemeManifest } from "./theme.js";
 import {
@@ -2781,7 +2783,9 @@ function agentTeamRolePayload(roleName) {
   // 逐格装配的权限要跟着角色一起走：入库/入职是"把这个员工搬过去"，只带档位不带
   // 格子 = 搬过去的人被降级成档位默认（静默丢权限）。
   if (found.permissionGroups) payload.permission_groups = found.permissionGroups;
-  return payload;
+  // 装配（按会话插件，能力轴）同一条理由：漏了它 = 搬过去的人被清空装配——正是本轮
+  // 要除的那种静默丢失。空 = **不写该键**（不覆盖，不是空数组）。
+  return withPluginAssembly(payload, found.plugins);
 }
 
 // ── 团队面板里的成员表（草稿，保存才落盘）────────────────────
@@ -3094,6 +3098,10 @@ elements["team-view"]?.addEventListener("submit", async event => {
     // undefined 的键在 JSON 序列化时被丢掉 = 不装配格子（继承/按档位判），
     // 而不是提交一份空 map（那是"装配了一个空格子"的另一回事）。
     if (!customPermission) delete role.permission_groups;
+    // 装配（按会话插件，能力轴）与权限格同一条：面板里改了装配就得随提交一起走，
+    // 否则「修改员工」这条老路仍会把已登记的装配静默清空。字段分隔认逗号 / 顿号 /
+    // 空格（规整见 plugin-source.js）；空 = 不写键（不覆盖），重复原样交后端裁决。
+    withPluginAssembly(role, hireForm.querySelector("[data-team-hire-plugins]")?.value ?? "");
     try {
       // 员工库作用域：只写全局事实，不装配、不建角色会话；请求与"入库"同一套字段。
       if (hireForm.dataset.teamHireScope === "library") {
