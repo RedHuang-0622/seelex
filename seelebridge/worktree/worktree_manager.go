@@ -607,6 +607,13 @@ func (w *WorktreeManager) Release(nodeID string) {
 // 登记进来的路径**按记录原样保存**（记录是持久化事实，不做改写）；**比较**一律走
 // `worktreePathEqual`（`sceneRegistered` / `worktreeEntryAt` / `Prune` 的清单过滤）：
 // git 输出的 `/` 与本地 `filepath.Join` 拼出的 `\`、盘符大小写都可能不同。
+//
+// **已在册的 nodeID 不覆盖**（U2）：现场有两个登记来源（`Adopt` 走计划/账本、本函数走记录
+// 投影），而记录是**投影**——teammate 记录只写 Path/Branch（`teamUnitWorktreeRecord`），
+// MainBranch/BaseCommit 天生是空的，而这两栏正是收尾要用的事实（`alignMergeTarget` 读
+// MainBranch 决定合回哪条分支、变基读 BaseCommit）。本进程在册的那一份来自 `beginNamed` /
+// `Adopt`（同一现场、更准），覆盖它等于把"合回现场记录的分支"静默降级成"合进当前 HEAD"
+// ——所以这里与 `Adopt`/`beginNamed` 同一条判据：**谁先到都一样**，先到的那份留下。
 func (w *WorktreeManager) Restore(records []sessionstore.NodeSessionRecord) {
 	if w == nil || len(records) == 0 {
 		return
@@ -616,6 +623,10 @@ func (w *WorktreeManager) Restore(records []sessionstore.NodeSessionRecord) {
 	for _, record := range records {
 		wt := record.Worktree
 		if record.NodeID == "" || wt.Path == "" || wt.Branch == "" {
+			continue
+		}
+		if w.worktrees[record.NodeID] != nil {
+			// 已在册：这一份比记录更接近现场（记录可能缺栏位、可能过期）。
 			continue
 		}
 		if info, err := os.Stat(wt.Path); err != nil || !info.IsDir() {
