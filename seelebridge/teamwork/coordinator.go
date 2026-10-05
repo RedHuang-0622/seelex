@@ -401,7 +401,7 @@ func (c *Coordinator) closeStepsLocked(ctx context.Context, role string) (sessio
 // + 它名下每个 Work Item；**只拆自己这一份**，不牵连同会话其他人）→ 步 3 清它的会话内容。
 //
 // 它就是整队收口四步的前三步（`closeStepsLocked` 步 4 的名册动作只属于整队收口），也是
-// 契约（seelebridge/workunit）里 `Unit.Reclaim` 的落点——"拆现场 + 清会话 + 回收作业"
+// 契约（seelebridge/workunit）里 `Lifecycle.Reclaim` 的落点——"拆现场 + 清会话 + 回收作业"
 // 只有这一份实现，适配器不另写一套。幂等：三步各自幂等（无作业可收 / 无现场可拆 /
 // 无会话可清都是 no-op）。
 func (c *Coordinator) Reclaim(ctx context.Context, role string) error {

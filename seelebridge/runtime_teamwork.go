@@ -516,7 +516,7 @@ func (r *Runtime) teamFailHandler(ctx context.Context, argsJSON string) (string,
 // teamRecoverHandler 做中断恢复（额度中断 / 重启）：读回计划与绑定，把"句柄已作废、
 // 可重派"显式化。它**不动**任何会话与工作区——记忆与现场都要留着。
 //
-// 同一次调用还做契约 `Unit.Recover` 那一半（见 workunit_team.go 的 RecoverTeamworkUnits）：
+// 同一次调用还做契约 `Lifecycle.Recover` 那一半（见 workunit_team.go 的 RecoverTeamworkUnits）：
 // 认领团队现场（**在 Prune 之前**）→ 读回 teammate 单元的会话记录 → 把"记录说在跑、
 // 本进程已无它的执行面"判成**中断** → 给该角色下一次装配注入恢复说明（一次性读完即消）。
 // 两半共用一次读：`resume` 就是各成员"回到哪一步"的读数，不再另取一份进度真相。

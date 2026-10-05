@@ -39,7 +39,7 @@ type SessionLedger interface {
 // 编译期钉住"复用"这件事：接口一旦与既有存储漂移，这里先红。
 var _ SessionLedger = (*sessionstore.NodeSessionStore)(nil)
 
-// Resume 是一次重启回灌的读数（`Unit.Recover` 的返回）。
+// Resume 是一次重启回灌的读数（`Lifecycle.Recover` 的返回）。
 type Resume struct {
 	Scenes      int      `json:"scenes"`      // 认领回来的现场数（不重建、不清理）
 	Sessions    int      `json:"sessions"`    // 回灌回来的会话数

@@ -16,21 +16,42 @@
 两条关键口径：
 
 - **`job` 层不实现 `Unit`**：它不是"少一份现场的工作单元"，它根本不是工作单元（没有现场也没有
-  持久会话）。让 job 去实现 `Unit` 只会得到四个空实现 + 一个永远为 nil 的 `mergeErr`——那正是
-  「为接口而接口」。作业面只在 teammate 的 `Reclaim` 里被需要，端口是 `Jobs`。
+  持久会话）。让 job 去实现 `Unit` 只会得到五个空读数——那正是「为接口而接口」。作业面只在
+  teammate 的 `Reclaim` 里被需要，端口是 `Jobs`。
 - **一个 `Unit` = 一件事 = 一份现场 + 一条会话**。粒度差异不靠分支表达：teammate 的角色级现场
   就是 teammate 单元自己那一份，Work Item 级的现场属于该 Work Item 的 subagent 单元。于是
   `Reclaim` 永远只拆"我自己这一份"。
+
+## 一之二、两个接口，方向相反（接口先行）
+
+| 接口 | 是谁的面 | 形状 |
+|---|---|---|
+| `Lifecycle` | **父实现**的契约面（**一份实现**） | `Begin` / `Finish` / `Reclaim` / `Recover` / `AlreadySettled` / `Notice`，入参是 `Unit` |
+| `Unit` | 层的**读数**（两层各一份数据） | `Kind` / `ID` / `SessionPath` / `Policy` / `Owns` —— 只有身份与策略，没有逻辑 |
+
+- **依赖倒置**：调用方只依赖 `Lifecycle`，不依赖具体类型。实现（`seelebridge` 的
+  `lifecycleHost`）端口字段**不导出**；两个注册点在 `new` 时注入它，**只持有
+  `workunit.Lifecycle` + 自己的 `Unit` 读数**，方法体一律转发。要两层不同实现 = 再写一个
+  `Lifecycle` 实现 + 改装配处一行。
+- **归属用契约自己的小结构**：`Ownership`（teamID / itemID / role / milestone / roleSessionID /
+  goal / worktree）。`teamwork.WorkerRequest` 不进契约包——依赖方向只能是
+  `teamwork → workunit`，反过来就是把实现类型引进契约。
+
 
 ## 二、文件
 
 | 文件 | 内容 |
 |---|---|
-| `contract.go` | `Kind` / `Scene` / `Result` / `Outcome(Kind)` / `Unit`（`Begin` `Finish` `Reclaim` `Recover`）/ `FinishPolicy`（`Immediate`、`AtTeamClose`）/ `Jobs` 端口 |
+| `contract.go` | `Kind` / `Scene` / `Result` / `Outcome(Kind)` / `Ownership`（归属读数）/ `Unit`（层读数：`Kind` `ID` `SessionPath` `Policy` `Owns`）/ `Lifecycle`（父实现契约面：`Begin` `Finish` `Reclaim` `Recover` `AlreadySettled` `Notice`）/ `FinishPolicy`（`Immediate`、`AtTeamClose`）/ `Jobs` 端口 |
 | `classify.go` | `ClassifyFinish(result, mergeErr)`：三层**唯一一份**收尾分类（跑失败判死 → 未提交（不判死）→ 主工作区挡路（不判死）→ 其他合并错误判死 → 落定）+ `bounded` |
 | `session.go` | `SessionLedger`（结构上就是 `*sessionstore.NodeSessionStore`）/ `Resume` / `RecoveryNoteRole` / `RecoveryNotePrefix` / `RecoveryNote(kind, record)` |
 
-## 三、四条不变式
+**依赖方向的一处已记录例外**：`classify.go` import `worktree`（用它的两个哨兵错误
+`ErrUncommittedChanges` / `ErrMergeBlockedByMain` 判"没合进去"的两族）。把这两个哨兵搬出
+`worktree` 就等于改它的公共 API（本轮明确不动 worktree），因此保留这唯一一条 `workunit →
+worktree` 依赖，其余实现包（`teamwork` / `session` / `node`）一律只被**反向**依赖。
+
+## 三、五条不变式
 
 1. **现场是人的资产**：未提交产出的现场**不许**被框架悄悄丢；只有"回收"这一条路能拆现场，
    而回收只有一个入口（teammate 侧 = `team_close`）。
@@ -40,6 +61,9 @@
    在另一条路上是判死（旧实现就是这样漂移的）。
 4. **恢复说明只有一族**：`RecoveryNote` 的稳定前缀 + `system` 注入 role；三层在审计里因此是
    同一种东西，而不是三份自造说明。
+5. **策略不是实现，只是调用点**：`Immediate` 与 `AtTeamClose` 调的是**同一个** `Lifecycle.Reclaim`
+   ——析构只有一份（拆现场 + 清会话 + 回收作业），差别只在什么时候调：subagent 收尾当场调，
+   teammate 留到整队收口调。
 
 ## 四、会话恢复（重启回灌）
 

@@ -206,10 +206,10 @@ func TestRecoveryNoteIsOneFamilyAcrossLayers(t *testing.T) {
 	}
 }
 
-// ── 3. workunit.Unit 适配器：建 → 跑 → 收尾 → 回收 → 恢复 单一一路跑通 ────────
+// ── 3. subagent 层注册点：建 → 跑 → 收尾 → 回收 → 恢复 单一一路跑通 ────────
 
-// TestNodeWorkUnitSinglePath：subagent 层的 Unit 实现只转调既有方法——本用例让
-// 这条路整条跑一遍（真 git 现场 + 真会话账本），并钉住四件事：现场按命名约定建出、
+// TestNodeWorkUnitSinglePath：subagent 层的注册点只做"注册 + 转发"——本用例让这条路
+// 整条跑一遍（真 git 现场 + 真会话账本），并钉住四件事：现场按命名约定建出、
 // 收尾由契约分类、回收拆现场且清会话记录、恢复读数随账本变化。
 func TestNodeWorkUnitSinglePath(t *testing.T) {
 	runtime := newTestRuntime(t)
@@ -233,17 +233,19 @@ func TestNodeWorkUnitSinglePath(t *testing.T) {
 
 	scope := seenode.NodeScope{NodeID: "wu-1", Role: model.RoleSubAgent, BranchID: "wu-1"}
 	adapter := runtime.newNodeWorkUnit("sess_main", "wu-1", scope)
-	var unit workunit.Unit = adapter // 编译期：这就是契约的一份实现
+	// 编译期：注册点的两个面各归其位——**读数**实现契约的 Unit，**父实现**是契约的 Lifecycle。
+	var _ workunit.Unit = adapter.read
+	var _ workunit.Lifecycle = adapter.host
 
-	if unit.Kind() != workunit.KindSubagent {
-		t.Fatalf("Kind = %s，想要 %s", unit.Kind(), workunit.KindSubagent)
+	if adapter.read.Kind() != workunit.KindSubagent {
+		t.Fatalf("Kind = %s，想要 %s", adapter.read.Kind(), workunit.KindSubagent)
 	}
 	if _, ok := adapter.FinishPolicy().(workunit.Immediate); !ok {
 		t.Fatal("subagent 层的策略必须是 Immediate（收尾即回收）")
 	}
 
 	// 建：真 git 现场，指派名与分支名同一约定。
-	scene, err := unit.Begin(context.Background())
+	scene, err := adapter.Begin(context.Background())
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
@@ -267,7 +269,7 @@ func TestNodeWorkUnitSinglePath(t *testing.T) {
 	}
 
 	// 恢复读数（账本里有一条在跑、本进程没有它的执行面）：认领现场 + 报中断。
-	resume, err := unit.Recover(context.Background())
+	resume, err := adapter.Recover(context.Background())
 	if err != nil {
 		t.Fatalf("Recover: %v", err)
 	}
@@ -276,7 +278,7 @@ func TestNodeWorkUnitSinglePath(t *testing.T) {
 	}
 
 	// 收尾：现场无提交且干净 → 契约分类为落定（真 git：现场被清理）。
-	outcome, err := unit.Finish(context.Background(), workunit.Result{Summary: "done"}, nil)
+	outcome, err := adapter.Finish(context.Background(), workunit.Result{Summary: "done"}, nil)
 	if err != nil {
 		t.Fatalf("Finish: %v", err)
 	}
@@ -285,7 +287,7 @@ func TestNodeWorkUnitSinglePath(t *testing.T) {
 	}
 
 	// 回收：策略 Immediate → Reclaim（拆现场 + 清会话记录），且幂等。
-	if err := adapter.FinishPolicy().AfterFinish(context.Background(), unit); err != nil {
+	if err := adapter.FinishPolicy().AfterFinish(context.Background(), adapter.host, adapter.read); err != nil {
 		t.Fatalf("AfterFinish: %v", err)
 	}
 	if _, ok := runtime.worktreeMgr.Info("wu-1"); ok {
@@ -298,12 +300,12 @@ func TestNodeWorkUnitSinglePath(t *testing.T) {
 	if len(records) != 0 {
 		t.Fatalf("回收之后会话记录必须删除：%+v", records)
 	}
-	if err := unit.Reclaim(context.Background()); err != nil {
+	if err := adapter.Reclaim(context.Background()); err != nil {
 		t.Fatalf("Reclaim 必须幂等：%v", err)
 	}
 
 	// 恢复（回路终点）：回收之后没有残留可回灌，读数为空且不报错。
-	resume, err = unit.Recover(context.Background())
+	resume, err = adapter.Recover(context.Background())
 	if err != nil {
 		t.Fatalf("Recover(after reclaim): %v", err)
 	}

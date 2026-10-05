@@ -607,7 +607,7 @@ func TestTeamUnitFinishPolicyKeepsTheScene(t *testing.T) {
 	if _, ok := policy.(workunit.AtTeamClose); !ok {
 		t.Fatalf("teammate 的策略必须是 AtTeamClose（回收唯一入口 = team_close），得到 %T", policy)
 	}
-	if err := policy.AfterFinish(ctx, unit); err != nil {
+	if err := policy.AfterFinish(ctx, unit.host, unit.read); err != nil {
 		t.Fatalf("AtTeamClose.AfterFinish: %v", err)
 	}
 	if _, ok := fixture.runtime.worktreeMgr.Info("exec-wi-1"); !ok {
@@ -618,7 +618,7 @@ func TestTeamUnitFinishPolicyKeepsTheScene(t *testing.T) {
 	}
 
 	// 对照：Immediate 那一档才在收尾之后回收——而且**只拆自己这一份**。
-	if err := (workunit.Immediate{}).AfterFinish(ctx, unit); err != nil {
+	if err := (workunit.Immediate{}).AfterFinish(ctx, unit.host, unit.read); err != nil {
 		t.Fatalf("Immediate.AfterFinish: %v", err)
 	}
 	if _, ok := fixture.runtime.worktreeMgr.Info("exec-wi-1"); ok {

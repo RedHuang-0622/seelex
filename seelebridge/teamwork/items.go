@@ -470,7 +470,7 @@ func (c *Coordinator) SettleWorkItem(ctx context.Context, request WorkerRequest,
 }
 
 // SettleWorkItemOutcome 与 SettleWorkItem 是**同一段**尾插程序，只是把这一轮的收尾
-// 分类一并交回（workunit.Unit 的 Finish 要的就是这个读数：只回答"这一轮怎么结束的"，
+// 分类一并交回（workunit.Lifecycle 的 Finish 要的就是这个读数：只回答"这一轮怎么结束的"，
 // 不拆现场）。两处共用一份实现，是"分类只有一份"这句保证的落点。
 //
 // 幂等路径（这件事已经收口过）返回零值 Outcome：不重复合并、不重复尾插，也不在

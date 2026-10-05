@@ -253,7 +253,7 @@ type TeamRecovery struct {
 	Resume workunit.Resume
 }
 
-// RecoverTeamworkUnits 重启回灌本会话的 teammate 单元（契约 `Unit.Recover` 的落点）：
+// RecoverTeamworkUnits 重启回灌本会话的 teammate 单元（契约 `Lifecycle.Recover` 的落点）：
 //
 //	① 认领现场：`adoptTeamworkScenes`（**必须在 `Prune` 之前**——顺序是判据的一部分，
 //	   否则"干净但还没合并"的现场会被当孤儿连分支一起删，F4）；

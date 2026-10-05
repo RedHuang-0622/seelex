@@ -33,39 +33,53 @@ import (
 // 这里刻意不断言机制（谁建了目录、谁写了哪条记录），只断言**两层必须一致的四件事**：
 // 收尾分类只有一份、策略是唯一允许的层间差异、恢复说明只有一族、在跑词表只有一份。
 
-// chainStubUnit 是契约层的最小 Unit 桩：只数 Reclaim 被调用几次。用它把"策略"从"实现"里
-// 分出来单独断言——策略是三层唯一允许出现的差异点，不该藏在某个实现的分支里。
-type chainStubUnit struct{ reclaims int }
+// chainStubReadings 是契约层的最小**读数**桩（Unit）：只有身份与策略。契约里 Unit 是层的
+// 读数（没有逻辑、不持端口），只有 Lifecycle 才是那份唯一实现——桩的形状因此跟着分两半。
+type chainStubReadings struct{ kind workunit.Kind }
 
-func (u *chainStubUnit) Kind() workunit.Kind { return workunit.KindSubagent }
+func (u chainStubReadings) Kind() workunit.Kind           { return u.kind }
+func (u chainStubReadings) ID() string                    { return "chain-stub" }
+func (u chainStubReadings) SessionPath() string           { return "chain-stub-session" }
+func (u chainStubReadings) Policy() workunit.FinishPolicy { return workunit.Immediate{} }
+func (u chainStubReadings) Owns() workunit.Ownership      { return workunit.Ownership{} }
 
-func (u *chainStubUnit) Begin(context.Context) (workunit.Scene, error) {
-	return workunit.Scene{Kind: u.Kind(), NodeID: "chain-stub"}, nil
+var _ workunit.Unit = chainStubReadings{}
+
+// chainStubLifecycle 是父实现替身：只数 Reclaim 被调用几次。用它把"策略"从"实现"里分出
+// 来单独断言——策略是三层唯一允许出现的差异点，且两个策略调的是**同一个**析构函数
+// （`Lifecycle.Reclaim`），不该藏在某个实现的分支里。
+type chainStubLifecycle struct{ reclaims int }
+
+func (l *chainStubLifecycle) Begin(context.Context, workunit.Unit) (workunit.Scene, error) {
+	return workunit.Scene{NodeID: "chain-stub"}, nil
 }
 
-func (u *chainStubUnit) Finish(context.Context, workunit.Result, error) (workunit.Outcome, error) {
+func (l *chainStubLifecycle) Finish(context.Context, workunit.Unit, workunit.Result, error) (workunit.Outcome, error) {
 	return workunit.Outcome{Kind: workunit.OutcomeSettled, Notice: "跑完待验收"}, nil
 }
 
-func (u *chainStubUnit) Reclaim(context.Context) error {
-	u.reclaims++
+func (l *chainStubLifecycle) Reclaim(context.Context, workunit.Unit) error {
+	l.reclaims++
 	return nil
 }
 
-func (u *chainStubUnit) Recover(context.Context) (workunit.Resume, error) {
+func (l *chainStubLifecycle) Recover(context.Context, workunit.Unit) (workunit.Resume, error) {
 	return workunit.Resume{}, nil
 }
 
-// FinishPolicy 是契约 Unit 的一部分（"什么时候回收"）：替身恒用 Immediate。
-func (u *chainStubUnit) FinishPolicy() workunit.FinishPolicy { return workunit.Immediate{} }
+func (l *chainStubLifecycle) AlreadySettled(context.Context, workunit.Unit) (bool, error) {
+	return false, nil
+}
 
-var _ workunit.Unit = (*chainStubUnit)(nil)
+func (l *chainStubLifecycle) Notice(workunit.Outcome) string { return "" }
 
-// chainPolicyOf 取一个 Unit 声明的收尾策略。策略是**契约的一部分**（`Unit.FinishPolicy()`），
+var _ workunit.Lifecycle = (*chainStubLifecycle)(nil)
+
+// chainPolicyOf 取一个 Unit 声明的收尾策略。策略是**契约的一部分**（`Unit.Policy()`），
 // 因此这里直接读——不再写"实现各自暴露它"的类型断言（那是合同没抽对的证据）。
 func chainPolicyOf(t *testing.T, unit workunit.Unit) workunit.FinishPolicy {
 	t.Helper()
-	policy := unit.FinishPolicy()
+	policy := unit.Policy()
 	if policy == nil {
 		t.Fatalf("%T 的收尾策略是 nil", unit)
 	}
@@ -188,17 +202,18 @@ func TestChainFinishPolicyIsTheOnlyLayerDifference(t *testing.T) {
 		{"teammate / AtTeamClose：留给 team_close 统一回收", workunit.AtTeamClose{}, 0},
 	}
 	for _, row := range rows {
-		stub := &chainStubUnit{}
-		if err := row.policy.AfterFinish(context.Background(), stub); err != nil {
+		host := &chainStubLifecycle{}
+		stub := chainStubReadings{kind: workunit.KindSubagent}
+		if err := row.policy.AfterFinish(context.Background(), host, stub); err != nil {
 			t.Fatalf("%s：AfterFinish 返回错误：%v", row.name, err)
 		}
-		if stub.reclaims != row.want {
-			t.Errorf("%s：Reclaim 被调用 %d 次，想要 %d 次", row.name, stub.reclaims, row.want)
+		if host.reclaims != row.want {
+			t.Errorf("%s：Reclaim 被调用 %d 次，想要 %d 次", row.name, host.reclaims, row.want)
 		}
 	}
 }
 
-// TestChainTwoRealLayersDeclareTheirPolicy 用**两个真实实现**（零值、只读声明）核对上一条：
+// TestChainTwoRealLayersDeclareTheirPolicy 用**两个真实读数**（零值、只读声明）核对上一条：
 // subagent 单元声明 Immediate、teammate 单元声明 AtTeamClose，且各自的 Kind 正确。
 //
 // 为什么用零值就能断言：策略与 Kind 是本层的**常量事实**，不该依赖任何运行期状态；能靠零值
@@ -210,8 +225,8 @@ func TestChainTwoRealLayersDeclareTheirPolicy(t *testing.T) {
 		kind   workunit.Kind
 		policy any
 	}{
-		{"subagent 层", (*nodeWorkUnit)(nil), workunit.KindSubagent, workunit.Immediate{}},
-		{"teammate 层", (*teamUnit)(nil), workunit.KindTeammate, workunit.AtTeamClose{}},
+		{"subagent 层读数", nodeUnitReadings{}, workunit.KindSubagent, workunit.Immediate{}},
+		{"teammate 层读数", teamUnitReadings{}, workunit.KindTeammate, workunit.AtTeamClose{}},
 	}
 	for _, row := range units {
 		if got := row.unit.Kind(); got != row.kind {
@@ -219,8 +234,15 @@ func TestChainTwoRealLayersDeclareTheirPolicy(t *testing.T) {
 		}
 		policy := chainPolicyOf(t, row.unit)
 		if got, want := policy, row.policy; got != want {
-			t.Errorf("%s：FinishPolicy() = %#v，想要 %#v", row.name, got, want)
+			t.Errorf("%s：Policy() = %#v，想要 %#v", row.name, got, want)
 		}
+	}
+	// 注册点只转发读数：nil 接收者也能答出本层的常量策略（不碰任何运行期状态）。
+	if got, want := any((*nodeWorkUnit)(nil).FinishPolicy()), any(workunit.Immediate{}); got != want {
+		t.Errorf("nodeWorkUnit.FinishPolicy() = %#v，想要 %#v", got, want)
+	}
+	if got, want := any((*teamUnit)(nil).FinishPolicy()), any(workunit.AtTeamClose{}); got != want {
+		t.Errorf("teamUnit.FinishPolicy() = %#v，想要 %#v", got, want)
 	}
 }
 

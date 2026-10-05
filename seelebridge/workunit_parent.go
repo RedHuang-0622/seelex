@@ -5,9 +5,11 @@ package seelebridge
 //
 // 口径（docs/arch/workunit-single-lifecycle-one-implementation.md）：一个工作单元的生命周期
 // （建现场 → 收尾 → 回收 → 重启接着做）只有**一份实现**；subagent 与 teammate 只做
-// **在父实现上注册 + 转发**。层与层之间唯一的差别是窄 hook `lifecycleLayer` 给的读数：
+// **在父实现上注册 + 转发**。层与层之间唯一的差别是注册点交进来的**读数**
+// （contract.go 的 `workunit.Unit`）：
 //
-//	Kind / NodeID / SessionPath（主会话号）/ Policy（什么时候回收）/ 归属（TeamID·Role·ItemID…）
+//	Kind / ID（本单元现场的身份）/ SessionPath（自己的会话路径）/ Policy（什么时候回收）/
+//	Owns（归属：团队 · 工作项 · 角色 · 这一轮的目标 · 显式现场名）
 //
 // 父持有全部端口（字段不导出，只有父能拿到）：
 //
@@ -18,7 +20,7 @@ package seelebridge
 //
 // 为什么不是"包一层"：四个动作的**判据与顺序**（重入怎么回答、合并只做一次、恢复的粒度、
 // 拆的时候收不收作业）此前在两个实现里各写了一遍且互相漂移；现在它们只写在下面这四个
-// 方法里，子层结构体的方法体一律是 `return u.host.Xxx(ctx, u.layer)`。
+// 方法里，注册点的方法体一律是 `return u.host.Xxx(ctx, u.read)`。
 
 import (
 	"context"
@@ -35,52 +37,18 @@ import (
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
-// ── 层差异：只有读数，没有逻辑 ────────────────────────────────────────────
-
-// lifecycleLayer 是父实现看到的「层差异」窄 hook。它**只回答读数**：
-//
-//	Kind()         —— 我是谁（描述性的：日志 / 审计 / 恢复说明前缀族，不是分支判据）；
-//	SessionPath()  —— 我的会话在哪（主会话号；账本键由父按归属解析，解析只有父一处）；
-//	Ownership()    —— 我归谁（团队 / 角色 / 工作项 / 这一轮的目标）；
-//	FinishPolicy() —— 我什么时候回收（契约 Unit 的一部分）。
-//
-// 读数之外的一切（建现场、合并、回收、恢复、落盘）都在父里，因此这一层里不许出现
-// 任何 store / worktree / jobs / 账本的写入。
-type lifecycleLayer interface {
-	// Kind 报告这一层：契约里它是描述性的（日志 / 审计 / 恢复说明前缀族），不是分支判据。
-	Kind() workunit.Kind
-	// NodeID 是本单元现场的身份：subagent 是节点 id，teammate 是 `<role>-<itemID>`（角色级
-	// 是 `<role>`）。它是定位键，不是判据。
-	NodeID() string
-	// SessionPath 是本层的会话路径：主会话号。它同时是会话账本作用域的定位键
-	// （团队归属的单元归团队账本，subagent 单元归会话工作区绑定——解析由父做）。
-	SessionPath() string
-	// Ownership 是本单元的归属读数（零值 = 没有团队归属，即 subagent 层）。
-	Ownership() lifeOwnership
-	// Policy 是本层的收尾策略（"什么时候回收"，三层之间唯一的差异点）。
-	Policy() workunit.FinishPolicy
-}
-
-// lifeOwnership 是一个工作单元的归属读数（**数据**，不是实现，也不是端口）。
-type lifeOwnership struct {
-	TeamID        string // 团队 id；空 = 没有团队归属（subagent 层）
-	Role          string // 角色（决定"要不要一份独立现场"：entry 角色共享主工作区）
-	Milestone     string // 里程碑（团队归属）
-	ItemID        string // 工作项（团队归属）
-	RoleSessionID string // 这件事自己的会话（一件活一条）
-	Goal          string // 这一轮的目标（恢复说明要读）
-	Worktree      string // 现场指派名的**显式**读数（空 = 由父按命名约定派生一次）
-}
-
 // ── 父：唯一实现，持有全部端口（字段不导出）──────────────────────────────
 
-// lifecycleHost 是一件活的生命周期的唯一实现。端口**不导出**：子层结构体只持有
-// `*lifecycleHost` 与自己的 `lifecycleLayer`，拿不到下面任何一个端口。
+// lifecycleHost 是一件活的生命周期的唯一实现。端口**不导出**：两个注册点只持有
+// `workunit.Lifecycle`（就是它）与自己的 `workunit.Unit` 读数，拿不到下面任何一个端口。
 type lifecycleHost struct {
 	r      *Runtime
 	ledger workunit.SessionLedger
 	spaces *worktree.WorktreeManager
 }
+
+// 编译期钉住"这就是契约那份父实现"：契约漂移先红。
+var _ workunit.Lifecycle = (*lifecycleHost)(nil)
 
 // errLifecycleHostUnavailable 是缺装配时的显式错误（缺的是宿主，不是"静默降级"）。
 var errLifecycleHostUnavailable = errors.New("workunit: 生命周期宿主未装配")
@@ -99,15 +67,15 @@ func newLifecycleHost(r *Runtime) *lifecycleHost {
 // teamOwned 报告这一份是不是**归团队托管**（生命周期里的数据判据：有作业面与团队账本的
 // 那一层）。归属读数里没有 TeamID 时（老口径派发的载荷不带它），按工作项 id 去计划里认
 // 一次——事实只有一个来源（计划），不猜、也不另立一份归属表。
-func (h *lifecycleHost) teamOwned(ctx context.Context, layer lifecycleLayer) bool {
-	own := layer.Ownership()
+func (h *lifecycleHost) teamOwned(ctx context.Context, u workunit.Unit) bool {
+	own := u.Owns()
 	if strings.TrimSpace(own.TeamID) != "" {
 		return true
 	}
 	if strings.TrimSpace(own.ItemID) == "" {
 		return false
 	}
-	coordinator, err := h.r.coordinatorForSession(layer.SessionPath())
+	coordinator, err := h.r.coordinatorForSession(u.SessionPath())
 	if err != nil {
 		return false
 	}
@@ -117,15 +85,15 @@ func (h *lifecycleHost) teamOwned(ctx context.Context, layer lifecycleLayer) boo
 
 // sessionKey 解析本层的会话账本作用域（**唯一一处解析**）：团队归属的单元记在团队账本
 // 同一个键上（组合根注入的 KeyFor），subagent 单元记在会话自己的工作区绑定上。
-func (h *lifecycleHost) sessionKey(ctx context.Context, layer lifecycleLayer) (sessionstore.Key, bool) {
+func (h *lifecycleHost) sessionKey(ctx context.Context, u workunit.Unit) (sessionstore.Key, bool) {
 	if h == nil || h.r == nil {
 		return sessionstore.Key{}, false
 	}
-	sessionID := strings.TrimSpace(layer.SessionPath())
+	sessionID := strings.TrimSpace(u.SessionPath())
 	if sessionID == "" {
 		return sessionstore.Key{}, false
 	}
-	if h.teamOwned(ctx, layer) {
+	if h.teamOwned(ctx, u) {
 		return h.r.teamUnitScope(sessionID)
 	}
 	key := sessionstore.Key{ProjectID: h.r.sessionProjectIDFor(sessionID), SessionID: sessionID}
@@ -139,19 +107,19 @@ func (h *lifecycleHost) sessionKey(ctx context.Context, layer lifecycleLayer) (s
 //	没有团队归属（subagent）→ 按角色读数给现场（entry 角色降级共享主工作区 = 没有独立现场）。
 //
 // 分支依据是**归属读数**，不是 Kind：契约里 Kind 是描述性的，不是分支判据。
-func (h *lifecycleHost) Begin(ctx context.Context, layer lifecycleLayer) (workunit.Scene, error) {
+func (h *lifecycleHost) Begin(ctx context.Context, u workunit.Unit) (workunit.Scene, error) {
 	if h == nil || h.r == nil {
 		return workunit.Scene{}, errLifecycleHostUnavailable
 	}
-	own := layer.Ownership()
+	own := u.Owns()
 	scene := workunit.Scene{
-		Kind:      layer.Kind(),
-		NodeID:    layer.NodeID(),
+		Kind:      u.Kind(),
+		NodeID:    u.ID(),
 		TeamID:    own.TeamID,
 		WorkItem:  own.ItemID,
 		SessionID: own.RoleSessionID,
 	}
-	if h.teamOwned(ctx, layer) {
+	if h.teamOwned(ctx, u) {
 		// 现场指派名：调用方显式给了就用它（同一个命名约定派生的结果），否则由父按
 		// teamwork 的两个派生函数算一次——命名只有一处来源，不在这里另拼一次。
 		scene.Worktree = strings.TrimSpace(own.Worktree)
@@ -162,7 +130,7 @@ func (h *lifecycleHost) Begin(ctx context.Context, layer lifecycleLayer) (workun
 			}
 		}
 		bound, err := h.r.BindWorkspace(ctx, teamwork.WorkspaceBinding{
-			MainSessionID: layer.SessionPath(),
+			MainSessionID: u.SessionPath(),
 			TeamID:        own.TeamID,
 			Milestone:     own.Milestone,
 			WorkItem:      own.ItemID,
@@ -179,7 +147,7 @@ func (h *lifecycleHost) Begin(ctx context.Context, layer lifecycleLayer) (workun
 		if nodeID := workItemNodeID(scene.Worktree); nodeID != "" {
 			scene.NodeID = nodeID
 		}
-		h.record(ctx, layer, teamUnitStatusRunning, own.Goal, "running")
+		h.record(ctx, u, teamUnitStatusRunning, own.Goal, "running")
 		return scene, nil
 	}
 	scope := model.NodeScope{NodeID: scene.NodeID, Role: model.AccountRole(own.Role)}
@@ -196,25 +164,28 @@ func (h *lifecycleHost) Begin(ctx context.Context, layer lifecycleLayer) (workun
 //
 // 已经收过尾时 `Finish` 交回**零值结论**：不重复合并、不重复回执、不重复判定——
 // 结论已经落盘（计划 / 会话记录里读得到）。
-func (h *lifecycleHost) AlreadySettled(ctx context.Context, layer lifecycleLayer) bool {
+func (h *lifecycleHost) AlreadySettled(ctx context.Context, u workunit.Unit) (bool, error) {
 	if h == nil || h.r == nil {
-		return false
+		return false, errLifecycleHostUnavailable
 	}
-	own := layer.Ownership()
-	if h.teamOwned(ctx, layer) {
-		coordinator, err := h.r.coordinatorForSession(layer.SessionPath())
+	own := u.Owns()
+	if h.teamOwned(ctx, u) {
+		coordinator, err := h.r.coordinatorForSession(u.SessionPath())
 		if err != nil {
-			return false
+			return false, err
 		}
-		return coordinator.ItemSettled(ctx, own.ItemID)
+		return coordinator.ItemSettled(ctx, own.ItemID), nil
 	}
-	record, found, err := h.recordFor(ctx, layer)
-	if err != nil || !found {
+	record, found, err := h.recordFor(ctx, u)
+	if err != nil {
+		return false, err
+	}
+	if !found {
 		// 没有记录：只有"现场也不在了"才算收过尾（现场在 = 这一轮还没收过；两者都不在
 		// = 已经回收过，没有可收的尾）。
-		return err == nil && !found && h.r.nodeWorktreeFor(layer.NodeID()) == nil
+		return h.r.nodeWorktreeFor(u.ID()) == nil, nil
 	}
-	return !workunit.InFlight(record.Status)
+	return !workunit.InFlight(record.Status), nil
 }
 
 // Finish 只回答"这一轮怎么结束的"：分类 + 合并 + 回执；不拆现场。唯一实现。
@@ -224,35 +195,40 @@ func (h *lifecycleHost) AlreadySettled(ctx context.Context, layer lifecycleLayer
 //	① 重入：已经收过尾 ⇒ 零值结论（AlreadySettled）；
 //	② 合并**只做一次**：调用方已经拿到的合并结果非空即采信，不再合第二次；
 //	③ 分类只有一份（workunit.ClassifyFinish）：未提交 / 挡路不判死、其余合并错误判死；
-//	④ 落定之后才按策略回收（FinishPolicy.AfterFinish 恰一次）——未落定时现场保留，
-//	   因为"未提交改动"是人的资产（契约不变式 1）。
-func (h *lifecycleHost) Finish(ctx context.Context, unit workunit.Unit, layer lifecycleLayer, result workunit.Result, mergeErr error) (workunit.Outcome, error) {
+//	④ 落定之后才按策略回收（FinishPolicy.AfterFinish 恰一次，调的是同一个 Reclaim）——
+//	   未落定时现场保留，因为"未提交改动"是人的资产（契约不变式 1）。
+func (h *lifecycleHost) Finish(ctx context.Context, u workunit.Unit, result workunit.Result, mergeErr error) (workunit.Outcome, error) {
 	if h == nil || h.r == nil {
 		return workunit.Outcome{}, errLifecycleHostUnavailable
 	}
-	if h.AlreadySettled(ctx, layer) {
+	settled, err := h.AlreadySettled(ctx, u)
+	if err != nil {
+		// 读不回来 = 不知道，按"还没收过尾"继续（与既有口径一致）：一次账本读失败
+		// 不该被当成"这件事已经收过尾"而静默丢掉收尾动作，也不该判死整件事。
+		log.Printf("seelebridge: 判定 %q 是否已收尾失败（按未收尾继续）：%v", u.ID(), err)
+	} else if settled {
 		return workunit.Outcome{}, nil
 	}
-	own := layer.Ownership()
+	own := u.Owns()
 	if mergeErr == nil {
-		mergeErr = h.merge(ctx, layer)
+		mergeErr = h.merge(ctx, u)
 	}
-	if h.teamOwned(ctx, layer) {
+	if h.teamOwned(ctx, u) {
 		// 团队托管：回执（尾插）与状态写回计划是团队那条路的事（结束事实各有各的载体）。
 		// 分类仍然只有一份（workunit.ClassifyFinish，就在它的写态半段里），这里只交回读数。
-		coordinator, err := h.r.coordinatorForSession(layer.SessionPath())
+		coordinator, err := h.r.coordinatorForSession(u.SessionPath())
 		if err != nil {
 			return workunit.Outcome{}, err
 		}
-		outcome, err := coordinator.SettleWorkItemWith(ctx, teamUnitRequest(layer), result.Err, mergeErr)
+		outcome, err := coordinator.SettleWorkItemWith(ctx, teamUnitRequest(u), result.Err, mergeErr)
 		if err != nil {
 			return outcome, err
 		}
 		if outcome.Kind == "" {
 			return outcome, nil // 再确认一次：收尾期间已被收口（幂等）
 		}
-		h.r.settleTeamUnitRecord(layer.SessionPath(), teamUnitRecordKey{
-			NodeID:        layer.NodeID(),
+		h.r.settleTeamUnitRecord(u.SessionPath(), teamUnitRecordKey{
+			NodeID:        u.ID(),
 			RoleSessionID: own.RoleSessionID,
 			Goal:          own.Goal,
 		}, outcome)
@@ -263,7 +239,7 @@ func (h *lifecycleHost) Finish(ctx context.Context, unit workunit.Unit, layer li
 	}
 	outcome := workunit.ClassifyFinish(result, mergeErr)
 	if outcome.Settled() {
-		if err := layer.Policy().AfterFinish(ctx, unit); err != nil {
+		if err := u.Policy().AfterFinish(ctx, h, u); err != nil {
 			return outcome, err
 		}
 	}
@@ -278,26 +254,30 @@ func (h *lifecycleHost) Finish(ctx context.Context, unit workunit.Unit, layer li
 //	   `Coordinator.Reclaim`；步 4 的名册动作只属于整队收口）；
 //	没有作业面的层（subagent）：拆现场 + 清会话记录（一件活跑完就结束，它名下没有作业
 //	  面，所以这里**不收作业**——"要不要收作业"是数据判据：有没有作业面）。
-func (h *lifecycleHost) Reclaim(ctx context.Context, layer lifecycleLayer) error {
+//
+// **两个策略调的都是这一个函数**，差别只在调用点：`Immediate` 在 Finish 落定时调它，
+// `AtTeamClose` 留到整队收口调它（那条路落在 `Coordinator.reclaimStepsLocked` 上，
+// 与这里共用同一份"拆现场 + 清会话 + 回收作业"）。
+func (h *lifecycleHost) Reclaim(ctx context.Context, u workunit.Unit) error {
 	if h == nil || h.r == nil {
 		return errLifecycleHostUnavailable
 	}
-	own := layer.Ownership()
-	if h.teamOwned(ctx, layer) {
-		coordinator, err := h.r.coordinatorForSession(layer.SessionPath())
+	own := u.Owns()
+	if h.teamOwned(ctx, u) {
+		coordinator, err := h.r.coordinatorForSession(u.SessionPath())
 		if err != nil {
 			return err
 		}
 		if err := coordinator.Reclaim(ctx, own.Role); err != nil {
 			return err
 		}
-		h.r.clearTeamUnitRecord(layer.SessionPath(), own.RoleSessionID)
+		h.r.clearTeamUnitRecord(u.SessionPath(), own.RoleSessionID)
 		return nil
 	}
 	if h.spaces != nil {
-		h.spaces.Release(layer.NodeID())
+		h.spaces.Release(u.ID())
 	}
-	record, found, err := h.recordFor(ctx, layer)
+	record, found, err := h.recordFor(ctx, u)
 	if err != nil {
 		return err
 	}
@@ -307,12 +287,12 @@ func (h *lifecycleHost) Reclaim(ctx context.Context, layer lifecycleLayer) error
 	if h.ledger == nil {
 		return nil
 	}
-	key, ok := h.sessionKey(ctx, layer)
+	key, ok := h.sessionKey(ctx, u)
 	if !ok {
 		return nil
 	}
 	if err := h.ledger.Delete(key.ProjectID, key.SessionID, record.SessionID); err != nil {
-		return fmt.Errorf("workunit: reclaim session record for %q: %w", layer.NodeID(), err)
+		return fmt.Errorf("workunit: reclaim session record for %q: %w", u.ID(), err)
 	}
 	return nil
 }
@@ -322,15 +302,15 @@ func (h *lifecycleHost) Reclaim(ctx context.Context, layer lifecycleLayer) error
 //
 //	团队托管：`RecoverTeamworkUnits`（认领团队现场 → 团队账本读数 → 会话回灌 → 注入恢复说明）；
 //	subagent：`RestoreSubagentAnchors`（认领 + 回灌 + Prune）+ 读回该会话全部单元记录。
-func (h *lifecycleHost) Recover(ctx context.Context, layer lifecycleLayer) (workunit.Resume, error) {
+func (h *lifecycleHost) Recover(ctx context.Context, u workunit.Unit) (workunit.Resume, error) {
 	if h == nil || h.r == nil {
 		return workunit.Resume{}, errLifecycleHostUnavailable
 	}
-	sessionID := strings.TrimSpace(layer.SessionPath())
+	sessionID := strings.TrimSpace(u.SessionPath())
 	if sessionID == "" {
 		return workunit.Resume{}, nil
 	}
-	if h.teamOwned(ctx, layer) {
+	if h.teamOwned(ctx, u) {
 		recovery, err := h.r.RecoverTeamworkUnits(ctx, sessionID)
 		if err != nil {
 			return recovery.Resume, err
@@ -340,22 +320,22 @@ func (h *lifecycleHost) Recover(ctx context.Context, layer lifecycleLayer) (work
 	if err := h.r.RestoreSubagentAnchors(sessionID); err != nil {
 		return workunit.Resume{}, err
 	}
-	records, err := h.sessionRecords(ctx, layer)
+	records, err := h.sessionRecords(ctx, u)
 	if err != nil {
 		return workunit.Resume{}, err
 	}
 	resume := workunit.Resume{Sessions: len(records)}
-	if h.r.nodeWorktreeFor(layer.NodeID()) != nil {
+	if h.r.nodeWorktreeFor(u.ID()) != nil {
 		resume.Scenes = 1
 	}
 	for _, record := range records {
-		if record.NodeID != layer.NodeID() || !workunit.InFlight(record.Status) {
+		if record.NodeID != u.ID() || !workunit.InFlight(record.Status) {
 			continue
 		}
 		// 记录说在跑、而本进程已无它的执行面 ⇒ 中断（交上层重跑或人工处置）。
 		// 判定复用既有的 recordBelongsToCurrentMain（不另立第二条判据）。
 		if h.r.recordBelongsToCurrentMain(record) {
-			resume.Interrupted = []string{layer.NodeID()}
+			resume.Interrupted = []string{u.ID()}
 		}
 	}
 	return resume, nil
@@ -378,38 +358,38 @@ func (h *lifecycleHost) Notice(outcome workunit.Outcome) string {
 // ── 父的内部动作（只有父能拿到端口）──────────────────────────────────────
 
 // merge 合并这一份现场一次（**只做一次**）：团队托管走团队的合并面，其余走现场端口。
-func (h *lifecycleHost) merge(ctx context.Context, layer lifecycleLayer) error {
-	if h.teamOwned(ctx, layer) {
-		coordinator, err := h.r.coordinatorForSession(layer.SessionPath())
+func (h *lifecycleHost) merge(ctx context.Context, u workunit.Unit) error {
+	if h.teamOwned(ctx, u) {
+		coordinator, err := h.r.coordinatorForSession(u.SessionPath())
 		if err != nil {
 			return err
 		}
-		return coordinator.MergeWorkItem(ctx, teamUnitRequest(layer))
+		return coordinator.MergeWorkItem(ctx, teamUnitRequest(u))
 	}
-	return h.r.finishNodeWorktree(ctx, layer.NodeID(), h.r.nodeWorktreeFor(layer.NodeID()))
+	return h.r.finishNodeWorktree(ctx, u.ID(), h.r.nodeWorktreeFor(u.ID()))
 }
 
 // record 落一条本层的会话记录（"这一轮跑到哪、现场在哪"）：团队那条路复用既有的
 // 记录写面（`saveTeamUnitRecord`，唯一实现），不在父里再写第二份记录格式。
-func (h *lifecycleHost) record(ctx context.Context, layer lifecycleLayer, status, summary, stage string) {
-	own := layer.Ownership()
-	if !h.teamOwned(ctx, layer) {
+func (h *lifecycleHost) record(ctx context.Context, u workunit.Unit, status, summary, stage string) {
+	own := u.Owns()
+	if !h.teamOwned(ctx, u) {
 		return // subagent 的记录由节点会话面自己写（RegisterNodeSession 那条路）
 	}
-	h.r.saveTeamUnitRecord(layer.SessionPath(), teamUnitRecordKey{
-		NodeID:        layer.NodeID(),
+	h.r.saveTeamUnitRecord(u.SessionPath(), teamUnitRecordKey{
+		NodeID:        u.ID(),
 		RoleSessionID: own.RoleSessionID,
 		Goal:          own.Goal,
 	}, status, summary, stage)
 }
 
 // recordFor 读回**本单元**的会话记录（会话级读回的一个切片；没有存储/没有记录 = false）。
-func (h *lifecycleHost) recordFor(ctx context.Context, layer lifecycleLayer) (sessionstore.NodeSessionRecord, bool, error) {
-	records, err := h.sessionRecords(ctx, layer)
+func (h *lifecycleHost) recordFor(ctx context.Context, u workunit.Unit) (sessionstore.NodeSessionRecord, bool, error) {
+	records, err := h.sessionRecords(ctx, u)
 	if err != nil {
 		return sessionstore.NodeSessionRecord{}, false, err
 	}
-	nodeID := layer.NodeID()
+	nodeID := u.ID()
 	for _, record := range records {
 		if record.NodeID == nodeID {
 			return record, true, nil
@@ -420,27 +400,27 @@ func (h *lifecycleHost) recordFor(ctx context.Context, layer lifecycleLayer) (se
 
 // sessionRecords 按**会话路径**读回该会话的全部单元记录（恢复的粒度是会话级：
 // 两层读的是同一份记录清单，差别只在账本键怎么解析——解析在 sessionKey 一处）。
-func (h *lifecycleHost) sessionRecords(ctx context.Context, layer lifecycleLayer) ([]sessionstore.NodeSessionRecord, error) {
+func (h *lifecycleHost) sessionRecords(ctx context.Context, u workunit.Unit) ([]sessionstore.NodeSessionRecord, error) {
 	if h.ledger == nil {
 		return nil, nil
 	}
-	key, ok := h.sessionKey(ctx, layer)
+	key, ok := h.sessionKey(ctx, u)
 	if !ok {
 		return nil, nil
 	}
 	records, err := h.ledger.List(key.ProjectID, key.SessionID)
 	if err != nil {
-		return nil, fmt.Errorf("workunit: list session records for %q: %w", layer.SessionPath(), err)
+		return nil, fmt.Errorf("workunit: list session records for %q: %w", u.SessionPath(), err)
 	}
 	return records, nil
 }
 
 // teamUnitRequest 把归属读数折成团队收尾那条路认识的载荷（它只读 WorkItemID 与归属，
 // 因此不需要重新搬一遍派发时的全部字段）。
-func teamUnitRequest(layer lifecycleLayer) teamwork.WorkerRequest {
-	own := layer.Ownership()
+func teamUnitRequest(u workunit.Unit) teamwork.WorkerRequest {
+	own := u.Owns()
 	return teamwork.WorkerRequest{
-		MainSessionID: layer.SessionPath(),
+		MainSessionID: u.SessionPath(),
 		TeamID:        own.TeamID,
 		Role:          own.Role,
 		RoleSessionID: own.RoleSessionID,

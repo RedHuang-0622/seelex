@@ -62,21 +62,27 @@ func TestClassifyFinishNoticeIsBounded(t *testing.T) {
 
 // TestFinishPolicyIsTheOnlyDifference：三层之间唯一的差异点是"什么时候回收"——
 // 立刻回收（job / subagent）vs 留给 team_close 扫账本（teammate）。
+//
+// 两个策略调的是**同一个**析构函数（`Lifecycle.Reclaim`），差别只在调用点；因此断言落在
+// "那一个函数被调了几次"上：`Immediate` 恰一次、`AtTeamClose` 零次（它的调用点在整队收口，
+// 不在 Finish 这里）。
 func TestFinishPolicyIsTheOnlyDifference(t *testing.T) {
-	subagent := &fakeUnit{kind: KindSubagent}
-	if err := (Immediate{}).AfterFinish(context.Background(), subagent); err != nil {
+	subagent := fakeUnit{kind: KindSubagent}
+	host := &fakeLifecycle{}
+	if err := (Immediate{}).AfterFinish(context.Background(), host, subagent); err != nil {
 		t.Fatalf("Immediate.AfterFinish: %v", err)
 	}
-	if subagent.reclaims != 1 {
-		t.Fatalf("Immediate 策略应立刻回收现场一次，实际 %d 次", subagent.reclaims)
+	if host.reclaims != 1 {
+		t.Fatalf("Immediate 策略应立刻回收现场一次，实际 %d 次", host.reclaims)
 	}
 
-	teammate := &fakeUnit{kind: KindTeammate}
-	if err := (AtTeamClose{}).AfterFinish(context.Background(), teammate); err != nil {
+	teammate := fakeUnit{kind: KindTeammate}
+	other := &fakeLifecycle{}
+	if err := (AtTeamClose{}).AfterFinish(context.Background(), other, teammate); err != nil {
 		t.Fatalf("AtTeamClose.AfterFinish: %v", err)
 	}
-	if teammate.reclaims != 0 {
-		t.Fatalf("AtTeamClose 策略不得自己拆现场（回收唯一入口 = team_close），实际回收 %d 次", teammate.reclaims)
+	if other.reclaims != 0 {
+		t.Fatalf("AtTeamClose 策略不得自己拆现场（回收唯一入口 = team_close），实际回收 %d 次", other.reclaims)
 	}
 
 	// 策略是对 Unit 的行为，不看 Kind：同一份策略在两层的语义必须一致，
@@ -87,35 +93,42 @@ func TestFinishPolicyIsTheOnlyDifference(t *testing.T) {
 	if _, ok := any(AtTeamClose{}).(FinishPolicy); !ok {
 		t.Fatal("AtTeamClose 必须实现 FinishPolicy")
 	}
+	if subagent.Policy() == nil || teammate.Policy() == nil {
+		t.Fatal("策略是 Unit 的一部分（Unit.Policy()）：读数必须答得出它")
+	}
 }
 
-// fakeUnit 是策略用例的替身：只记"被回收了几次"。
+// fakeUnit 是读数替身：契约里 Unit 的全部面（只有身份与策略，没有逻辑）。
 type fakeUnit struct {
-	kind      Kind
-	reclaims  int
-	begins    int
-	recovers  int
-	lastScene Scene
+	kind Kind
 }
 
-func (f *fakeUnit) Kind() Kind { return f.kind }
+func (f fakeUnit) Kind() Kind           { return f.kind }
+func (f fakeUnit) ID() string           { return "fake-" + string(f.kind) }
+func (f fakeUnit) SessionPath() string  { return "sess-fake" }
+func (f fakeUnit) Policy() FinishPolicy { return Immediate{} }
+func (f fakeUnit) Owns() Ownership      { return Ownership{} }
 
-func (f *fakeUnit) Begin(context.Context) (Scene, error) {
-	f.begins++
-	f.lastScene = Scene{Kind: f.kind, NodeID: "fake-1"}
-	return f.lastScene, nil
+var _ Unit = fakeUnit{}
+
+// fakeLifecycle 是父实现替身：只记"Reclaim 被调了几次"（策略断言据此分辨"现在回收"与
+// "留给收口"）。
+type fakeLifecycle struct {
+	reclaims int
 }
 
-func (f *fakeUnit) Finish(context.Context, Result, error) (Outcome, error) {
+func (f *fakeLifecycle) Begin(context.Context, Unit) (Scene, error) { return Scene{}, nil }
+
+func (f *fakeLifecycle) Finish(context.Context, Unit, Result, error) (Outcome, error) {
 	return Outcome{Kind: OutcomeSettled, Notice: "跑完待验收"}, nil
 }
 
-func (f *fakeUnit) Reclaim(context.Context) error { f.reclaims++; return nil }
+func (f *fakeLifecycle) Reclaim(context.Context, Unit) error { f.reclaims++; return nil }
 
-func (f *fakeUnit) Recover(context.Context) (Resume, error) {
-	f.recovers++
-	return Resume{}, nil
-}
+func (f *fakeLifecycle) Recover(context.Context, Unit) (Resume, error) { return Resume{}, nil }
 
-// FinishPolicy 是契约 Unit 的一部分（"什么时候回收"）：替身恒用 Immediate。
-func (f *fakeUnit) FinishPolicy() FinishPolicy { return Immediate{} }
+func (f *fakeLifecycle) AlreadySettled(context.Context, Unit) (bool, error) { return false, nil }
+
+func (f *fakeLifecycle) Notice(Outcome) string { return "" }
+
+var _ Lifecycle = (*fakeLifecycle)(nil)
