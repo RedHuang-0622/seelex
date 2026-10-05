@@ -372,9 +372,24 @@ func (w *WorktreeManager) Adopt(nodeID string) *NodeWorktree {
 	})
 }
 
+// sceneNameInfix 是现场目录名的**唯一拼法**：`<repoBase>-seelex-<nodeID>`（分支同源，
+// `seelex/<nodeID>`）。建现场（beginNamed/Adopt）、认现场（isManagedPath）都从这里拼，
+// 不许再各写一遍字面量——两处各拼一遍的代价是改名时漏一处，现场立刻"没人认识"。
+const sceneNameInfix = "-seelex-"
+
+// sceneDirName 拼一个 nodeID 的现场目录名。
+func sceneDirName(repoBase, nodeID string) string {
+	return repoBase + sceneNameInfix + nodeID
+}
+
+// sceneDirPrefix 是"由本管理器命名的现场"目录名前缀（isManagedPath 的判据）。
+func sceneDirPrefix(repoBase string) string {
+	return repoBase + sceneNameInfix
+}
+
 // scenePath 返回 nodeID 的现场路径（与 beginNamed 同一条命名）。
 func (w *WorktreeManager) scenePath(root, nodeID string) string {
-	return filepath.Join(filepath.Dir(root), fmt.Sprintf("%s-seelex-%s", filepath.Base(root), nodeID))
+	return filepath.Join(filepath.Dir(root), sceneDirName(filepath.Base(root), nodeID))
 }
 
 // register 把一份现场登记进注册表并返回它。
@@ -583,6 +598,10 @@ func (w *WorktreeManager) Release(nodeID string) {
 // **已不存在的目录不登记**：手工删掉目录（或它从未真正建成）后，把路径重新登记成
 // 「现场」会造出幽灵条目——`Info` 会报一个不存在的路径，`team_close` 收口步 2 会对着
 // 它跑 `git status` 而失败。恢复的判据是「锚点 + 目录真的在」。
+//
+// 登记进来的路径**按记录原样保存**（记录是持久化事实，不做改写）；**比较**一律走
+// `worktreePathEqual`（`sceneRegistered` / `worktreeEntryAt` / `Prune` 的清单过滤）：
+// git 输出的 `/` 与本地 `filepath.Join` 拼出的 `\`、盘符大小写都可能不同。
 func (w *WorktreeManager) Restore(records []sessionstore.NodeSessionRecord) {
 	if w == nil || len(records) == 0 {
 		return
@@ -671,7 +690,9 @@ func (w *WorktreeManager) Prune() (PruneResult, error) {
 		return result, err
 	}
 	for _, entry := range entries {
-		if entry.path == root || !w.isManagedPath(root, entry.path) || w.sceneRegistered(entry.path) {
+		// 主工作区（root 自己）不是现场：这一条比较同样走 worktreePathEqual——
+		// git 输出的分隔符/盘符大小写与本地拼出的 root 可能不同，逐字符比会漏判。
+		if worktreePathEqual(entry.path, root) || !w.isManagedPath(root, entry.path) || w.sceneRegistered(entry.path) {
 			continue
 		}
 		dirty, dirtyErr := w.pathDirty(entry.path)
@@ -734,8 +755,7 @@ func parseWorktreeList(out string) []worktreeEntry {
 // isManagedPath 判定一个 worktree 路径是否由本管理器命名（`<repoBase>-seelex-<nodeID>`，
 // 与 Begin 同一条命名规则）。
 func (w *WorktreeManager) isManagedPath(root, path string) bool {
-	prefix := filepath.Base(root) + "-seelex-"
-	return strings.HasPrefix(filepath.Base(path), prefix)
+	return strings.HasPrefix(filepath.Base(path), sceneDirPrefix(filepath.Base(root)))
 }
 
 // pathDirty 报告某个 worktree 是否有未提交改动。判据只有一份，见 pathDirtyWith。
