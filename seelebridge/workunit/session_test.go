@@ -29,21 +29,26 @@ func TestResumeNoticeStatesFactsAndNextStep(t *testing.T) {
 		StagesJSON: []byte(`[{"stage":"running","preview":"改 worktree_manager"}]`),
 		Worktree:   sessionstore.NodeWorktreeRecord{Path: "/tmp/wt/exec-wi-1", Branch: "seelex/exec-wi-1"},
 	}
-	notice := ResumeNotice(record)
+	notice := RecoveryNote(KindSubagent, record)
 	for _, want := range []string{"exec-wi-1", "role-sess-1", "把 scene 生命周期接进契约", "running", "worktree 认领", "seelex/exec-wi-1", "下一步"} {
 		if !strings.Contains(notice, want) {
 			t.Fatalf("恢复说明缺事实 %q：\n%s", want, notice)
 		}
 	}
-	if !strings.HasPrefix(notice, "[恢复说明]") {
-		t.Fatalf("恢复说明要有稳定前缀（便于人一眼认出这是注入的说明）：%q", notice)
+	// 前缀族与既有的 subagent 说明同源（`seelebridge` 侧的前缀常量 = 本族 + " subagent"）：
+	// 两层在审计里因此能被同一条判据认出来。
+	if !strings.HasPrefix(notice, RecoveryNotePrefix+" "+string(KindSubagent)) {
+		t.Fatalf("恢复说明要用稳定前缀族：%q", notice)
 	}
 	if runes := len([]rune(notice)); runes > resumeNoticeLimit {
 		t.Fatalf("恢复说明 %d rune 超过上限 %d", runes, resumeNoticeLimit)
 	}
 
 	// 空记录也要给得出一份说明（不 panic、不撒谎）：没有的事实写成"记录里没有"。
-	empty := ResumeNotice(sessionstore.NodeSessionRecord{})
+	empty := RecoveryNote(KindTeammate, sessionstore.NodeSessionRecord{})
+	if !strings.HasPrefix(empty, RecoveryNotePrefix+" "+string(KindTeammate)) {
+		t.Fatalf("teammate 的恢复说明应落在同一前缀族里（前缀尾换成 teammate）：%q", empty)
+	}
 	if !strings.Contains(empty, "记录里没有目标正文") {
 		t.Fatalf("空记录也要给得出一份说明（不 panic、不撒谎）：缺的事实要写成「记录里没有」，而不是编造：%q", empty)
 	}

@@ -48,20 +48,30 @@ func (r Resume) Empty() bool {
 	return r.Scenes == 0 && r.Sessions == 0 && len(r.Interrupted) == 0
 }
 
+// RecoveryNoteRole 是恢复说明的注入 role：恒为 system——它是 Seelex 的编排事实，不是模型
+// 发言，也不是用户输入（与既有的 SubagentRecoveryNoteRole 同一口径）。
+const RecoveryNoteRole = "system"
+
+// RecoveryNotePrefix 是恢复说明的稳定前缀族（测试与审计据此识别）：完整前缀 =
+// 本前缀 + " " + kind。既有的 subagent 前缀（`seelebridge` 的 `subagentRecoveryNotePrefix`）
+// 正好是本族 + " subagent"——两层在审计里因此是**同一种东西**，而不是两份自造说明。
+const RecoveryNotePrefix = "[Seelex recovery note: interrupted"
+
 // resumeNoticeLimit 是恢复说明的长度上限：它要进 system 注入，必须有界。
 const resumeNoticeLimit = 1200
 
-// ResumeNotice 组装"这件事重启前跑到哪、下一步做什么"的恢复说明。三层共用一份，
-// 与 subagent 冷恢复注入的说明同形状：**事实在前（目标/状态/阶段/结论/错误），动作在后**。
+// RecoveryNote 组装"这件事重启前跑到哪、下一步做什么"的恢复说明。三层**共用这一份构建器**
+// （前缀族、事实项集合、有界性一致；kind 只决定前缀尾）：**事实在前（目标/状态/阶段/结论/
+// 错误/现场），动作在后**；注入时用 RecoveryNoteRole。
 //
 // 不编造：记录里没有的事实（例如"还差什么"）不写，只把记录里的东西摆出来。
-func ResumeNotice(record sessionstore.NodeSessionRecord) string {
+func RecoveryNote(kind Kind, record sessionstore.NodeSessionRecord) string {
 	goal := strings.TrimSpace(record.Goal)
 	if goal == "" {
 		goal = "（记录里没有目标正文）"
 	}
 	var builder strings.Builder
-	builder.WriteString("[恢复说明] 这件事在本进程重启之前已经开始，它的执行面已不在内存里。记录里的事实：\n")
+	fmt.Fprintf(&builder, "%s %s] 这件事在本进程重启之前已经开始，它的执行面已不在内存里。记录里的事实：\n", RecoveryNotePrefix, kind)
 	fmt.Fprintf(&builder, "- 节点：%s（会话 %s）\n", record.NodeID, record.SessionID)
 	fmt.Fprintf(&builder, "- 目标：%s\n", goal)
 	if status := strings.TrimSpace(record.Status); status != "" {

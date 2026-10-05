@@ -3,10 +3,17 @@
 //
 // 层链（只增不减，与目标正文同一口径）：
 //
-//	job       —— 纯后台运行 + 结果回传；**无现场、无持久会话**（Scene 零值）。
-//	subagent  —— 增：worktree 现场 + 一件活自己的异步会话 + 存储与自己的合并纪律。
-//	teammate  —— 增：听 leader 调度 + 装配（plugin / 系统提示词 / skill 前缀复用）；
-//	             现场与会话的生命周期**归 team**：team_close 才算真正结束与删除。
+//	job       —— **基线，不实现 Unit**：纯后台运行 + 结果回传，没有现场、没有持久会话。
+//	             它不是"少一份现场的工作单元"，它根本不是工作单元（作业面只被 teammate 的
+//	             Reclaim 需要，端口见 Jobs）。
+//	subagent  —— 第一份 Unit 实现：worktree 现场 + 一件活自己的异步会话 + 存储与合并纪律。
+//	teammate  —— 增：听 leader 调度 + 装配（plugin / 系统提示词 / skill 前缀复用）。它**不另写
+//	             一套执行面**——每件活都是一个 subagent 单元（独立会话 + 独立现场），team 只托管
+//	             这些单元的生命周期（team_close 才算真正结束与删除，见 AtTeamClose）。
+//
+// **一个 Unit = 一件事 = 一份现场 + 一条会话**。粒度差异不靠分支表达：teammate 的角色级现场就是
+// teammate 单元自己那一份，Work Item 级的现场属于那个 Work Item 的 subagent 单元。于是 `Reclaim`
+// 永远只拆"我自己这一份"，实现里不会出现"该拆角色级还是 item 级"的判断。
 //
 // 为什么要有这份契约：同一件事（建现场 → 收尾 → 回收 → 恢复）此前在三层各手写了一遍，
 // 第三遍抄漏了。F2（派发不建现场）、F3（释放拿角色名查注册表 = 空操作）、F4（恢复漏了
@@ -35,11 +42,15 @@
 //     （记录携带 History / StagesJSON / Worktree）。
 package workunit
 
-import "context"
+import (
+	"context"
 
-// Kind 标记一个工作单元属于哪一层。它是描述性的（给日志、审计、看板用），
-// **不是**实现里的分支判据：实现若出现 `if kind == KindTeammate` 这类判断，
-// 说明契约没抽对。
+	"github.com/RedHuang-0622/Seele/jobs"
+)
+
+// Kind 标记一个工作单元属于哪一层。它是描述性的（日志、审计、看板，以及恢复说明的前缀族
+// 见 RecoveryNote），**不是**实现里的分支判据：实现若出现 `if kind == KindTeammate` 这类
+// 判断，说明契约没抽对。注意 `KindJob` 是**基线标注**：job 层不实现 Unit（见包注释）。
 type Kind string
 
 const (
@@ -55,13 +66,14 @@ const (
 
 // Scene 是一个工作单元的现场：worktree 指派名 + 会话号 + 归属。
 //
-// 命名契约（唯一事实，不许各处再拼一次）：现场 nodeID 在 subagent 层是节点 id，
-// 在 teammate 层是 `<role>-<itemID>`（角色级现场是 `<role>`）；指派名一律
-// `seelex/<nodeID>`，换算只有一处（teamwork 的 workItemNodeID 同口径）。
+// 命名契约（唯一事实，不许各处再拼一次）：现场 nodeID 在 subagent 层是节点 id，在 teammate
+// 层是 `<role>-<itemID>`；指派名一律 `seelex/<nodeID>`，换算只有一处（teamwork 的
+// workItemNodeID 同口径）。`TeamID` / `WorkItem` 是**归属标注**（审计与看板要读），不是
+// "该拆哪一级现场"的判据——一个 Unit 只有它自己这一份现场。
 type Scene struct {
 	Kind      Kind   `json:"kind"`
 	NodeID    string `json:"node_id"`
-	Worktree  string `json:"worktree,omitempty"`   // 指派名 seelex/<nodeID>；空 = 无现场（job 层）
+	Worktree  string `json:"worktree,omitempty"`   // 指派名 seelex/<nodeID>；空 = 这件事没有独立现场（降级共享工作区）
 	SessionID string `json:"session_id,omitempty"` // 这件活自己的会话
 	TeamID    string `json:"team_id,omitempty"`    // 归属团队（teammate 层）
 	WorkItem  string `json:"work_item,omitempty"`  // 归属工作项（角色级现场留空）
@@ -97,15 +109,17 @@ type Outcome struct {
 	Notice string      `json:"notice,omitempty"`
 }
 
-// Unit 是一个工作单元的生命周期。三层各实现一份；上层持有下层，只写自己的增量。
+// Unit 是一个工作单元的生命周期。subagent 是第一份实现（job 层不实现它，见包注释）。
 //
 // 方法语义（实现必须守，见包注释的不变式）：
 //
 //	Begin   —— 建现场与会话；幂等。
 //	Finish  —— 这一轮怎么结束：分类 + 合并 + 回执；不拆现场。
 //	Reclaim —— 拆现场 + 清会话 + 回收作业；幂等；唯一入口。
-//	// Recover —— 重启回灌：先认领现场（必须在 Prune 之前），再回灌会话并注入恢复说明；
-//	            记录说在跑而本进程已无执行面的，记进 Resume.Interrupted（见 session.go）。
+//	Recover —— 重启回灌：先认领现场（必须在 Prune 之前），再回灌会话并注入恢复说明；
+//	           记录说在跑而本进程已无执行面的，记进 Resume.Interrupted（见 session.go）。
+//
+// 一个实现只管**自己这一份**现场与会话（粒度见包注释）。
 type Unit interface {
 	Kind() Kind
 	Begin(ctx context.Context) (Scene, error)
@@ -114,17 +128,32 @@ type Unit interface {
 	Recover(ctx context.Context) (Resume, error)
 }
 
-// FinishPolicy 决定"什么时候回收"——三层之间**唯一**允许出现的差异点。
+// Jobs 是"作业面"的窄端口：只取"回收一个作用域下的全部作业"这一件事。契约里只有 teammate 的
+// Reclaim 需要它——一件活跑完就结束，不需要回收作业；整队收口才要把名下仍在飞的作业收回来。
 //
-// 它不是一条统一事件流（那是过度设计）：三层的结束事实各有各的载体，这条策略只回答
-// 一个问题——`Finish` 落定之后，现场与会话**现在**回收，还是留给 team_close 统一回收。
+// `jobs.Manager`（Seele/jobs，经 vendor）**结构上**就满足它——与 SessionLedger 同一手法：不写
+// 适配器，也不另立第二份作业模型。
+type Jobs interface {
+	Reclaim(ctx context.Context, scope jobs.Scope) error
+}
+
+// 编译期钉住"复用"：Seele 的作业管理器接口一旦与这里漂移，先红。
+var _ Jobs = (jobs.Manager)(nil)
+
+// FinishPolicy 决定"什么时候回收"——现场与会话的**生命周期**上唯一允许出现的差异点。
+//
+// 它不是一条统一事件流（那是过度设计）：结束事实各有各的载体（作业回执 / 子代理节点记录 /
+// 团队账本），这条策略只回答一个问题——`Finish` 落定之后，现场与会话**现在**回收，还是留给
+// team_close 统一回收。
+//
+// 层与层之间其余的差别（有没有现场、装配多少、谁来调度）是**内容**上的差别，不是策略上的分支：
+// 实现里出现按层判断的 `if`，说明契约没抽对。
 type FinishPolicy interface {
 	// AfterFinish 在一次 Finish 落定之后被调用恰好一次。
 	AfterFinish(ctx context.Context, unit Unit) error
 }
 
-// Immediate 是 job / subagent 的策略：这一轮落定之后立刻回收现场与会话
-// （subagent 现场是临时的：派出即建、收尾即清）。
+// Immediate 是"现场临时"的层的策略（subagent 即此：派出即建、收尾即清）。
 type Immediate struct{}
 
 // AfterFinish 立刻回收。Reclaim 幂等，因此重复调用安全。
