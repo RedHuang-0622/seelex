@@ -441,3 +441,94 @@ test("TEAM_BOARD_CSS 只吃语义 token，覆盖工作项状态且不再有阶�
   assert.doesNotMatch(TEAM_BOARD_CSS, /\.team-stage[\s,{[]/, "阶段口径已退场，CSS 里不得再有 .team-stage*");
   assert.doesNotMatch(TEAM_BOARD_CSS, /\.team-job[\s,{[]/);
 });
+
+// ── ⑤ 成员行的插件装配（2026-10-05）：声明面 chips + 生效读数 + 黄牌 / 失灵 ──
+//
+// 数据两格（后端 commit 39a8b63，app.js 原样透传 members）：member.plugins = 声明面，
+// member.assembly = 生效读数。装配是**teammate 级**，所以夹具里配一个工作项，行才出得来。
+
+function assemblyPlan(member) {
+  return {
+    members: [{ role: "exec", ...member }],
+    work_items: [{ id: "wi-1", role: "exec", name: "实现", status: "running" }],
+  };
+}
+
+test("⑤ replace 装配：每个插件一枚 chip + 技能/目录/token/工具面一行读数 + teammate 级文案", () => {
+  const html = renderTeamQueue(assemblyPlan({
+    plugins: ["impeccable", "board-kit"],
+    assembly: {
+      mode: "replace", plugin_count: 2,
+      skill_count: 3, skill_catalog_runes: 1200, skill_catalog_tokens_est: 400,
+      plugin_face_tools: 5, total_tools: 12,
+    },
+  }));
+  assert.match(html, /data-assembly-mode="replace"/);
+  assert.match(html, /<span class="chip team-assembly-plugin" title="impeccable">impeccable<\/span>/);
+  assert.match(html, /<span class="chip team-assembly-plugin" title="board-kit">board-kit<\/span>/);
+  assert.match(html, /技能 3 \/ 目录 1200B · ≈400 tok \/ 工具面 5\/12/);
+  // 文案说清这是 teammate 级的：对这位手上的每个工作项会话都生效。
+  assert.match(html, /teammate 级 · 对这位每个工作项会话都生效/);
+});
+
+test("⑤ inherit-host：显式写「继承宿主」，不靠字段缺失暗示，也不给读数行", () => {
+  const html = renderTeamQueue(assemblyPlan({ plugins: [], assembly: { mode: "inherit-host" } }));
+  assert.match(html, /data-assembly-mode="inherit-host"/);
+  assert.match(html, /team-assembly-inherit[^>]*>继承宿主</);
+  assert.doesNotMatch(html, /技能 \d+ \/ 目录/, "继承宿主没有目录段读数");
+  assert.doesNotMatch(html, /team-assembly-plugin/, "空集不装插件：没有声明 chips");
+});
+
+test("⑤ assembly 缺失 → 降级也显式写「继承宿主」（不是留空让人猜）", () => {
+  const html = renderTeamQueue(assemblyPlan({ plugins: [] }));
+  assert.match(html, /继承宿主/);
+  assert.match(html, /装配读数缺失（桥未给出），按不覆盖处理/);
+  assert.doesNotMatch(html, /技能 \d+ \/ 目录/);
+});
+
+test("⑤ 黄牌：显式标记且 title = yellow_reason；只报不拒，与读数/插件 chips 同屏", () => {
+  const html = renderTeamQueue(assemblyPlan({
+    plugins: ["big"],
+    assembly: { mode: "replace", skill_count: 9, yellow: true, yellow_reason: "技能目录超阈值：≈8200 tok > 6k" },
+  }));
+  assert.match(html, /<span class="chip team-assembly-yellow" title="技能目录超阈值：≈8200 tok &gt; 6k">黄牌<\/span>/);
+  assert.match(html, /team-assembly-plugin/, "黄牌只报不拒：插件 chips 仍在");
+  assert.match(html, /技能 9 \/ 目录 0B · ≈0 tok/, "黄牌不替换读数");
+});
+
+test("⑤ 失灵 / 已撤：显式标记，且**不得**被渲染成「没装配」（继承宿主）", () => {
+  const html = renderTeamQueue(assemblyPlan({
+    plugins: ["gone", "moved"],
+    assembly: {
+      mode: "replace", plugin_face_tools: 0, total_tools: 12,
+      plugin_face_faulted: true, plugin_face_missing: ["gone"],
+      plugin_face_note: "声明 gone / moved，现已失灵，工具面为空",
+    },
+  }));
+  assert.match(html, /data-assembly-mode="replace"/, "失灵仍是 replace：不许落进继承宿主那一支");
+  assert.match(html, /<span class="chip team-assembly-faulted"[^>]*>失灵<\/span>/);
+  assert.match(html, /<span class="chip team-assembly-missing"[^>]*>已撤 1<\/span>/);
+  assert.match(html, /声明 gone \/ moved，现已失灵，工具面为空/);
+  assert.doesNotMatch(html, /继承宿主/, "失灵与没装配语义相反，不许混渲染");
+});
+
+test("⑤ 长插件名不撑破行：chips 容器换行 + 单枚限宽截断（title 留全名）", () => {
+  const long = "a-very-long-plugin-name-that-would-overflow-the-member-row-".repeat(2);
+  const html = renderTeamQueue(assemblyPlan({ plugins: [long], assembly: { mode: "replace" } }));
+  assert.match(html, new RegExp(`title="${long}"`), "title 里保留全名");
+  const visible = html.match(/<span class="chip team-assembly-plugin"[^>]*>([^<]*)<\/span>/)[1];
+  assert.ok(visible.length < long.length, "行内可见文本要截断");
+  assert.match(TEAM_BOARD_CSS, /\.team-assembly-plugin\s*\{[^}]*max-width:\s*160px/);
+  assert.match(TEAM_BOARD_CSS, /\.team-assembly-plugin\s*\{[^}]*text-overflow:\s*ellipsis/);
+  assert.match(TEAM_BOARD_CSS, /\.team-member-assembly\s*\{[^}]*flex-wrap:\s*wrap/);
+});
+
+test("⑤ 装配读数转义（注入 <img onerror=...> 不许出裸标签）", () => {
+  const html = renderTeamQueue(assemblyPlan({
+    plugins: ['<img src=x onerror="boom">'],
+    assembly: { mode: "replace", yellow: true, yellow_reason: '<img src=x onerror="boom">' },
+  }));
+  assert.doesNotMatch(html, /<img/);
+  assert.doesNotMatch(html, /<script|<\/script>/);
+  assert.match(html, /&lt;img src=x onerror=&quot;boom&quot;&gt;/);
+});

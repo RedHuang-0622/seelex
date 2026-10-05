@@ -447,6 +447,73 @@ export function renderTeamWorkItem(entry) {
     </li>`;
 }
 
+// renderMemberAssembly 渲染一位 teammate 的**插件装配**（声明面 + 生效读数）。
+//
+// 数据两格（2026-10-05 · leader 冻结的契约，后端 commit 39a8b63）：
+//   - member.plugins  = **声明面**（计划 members[].plugins 规整后那一份；空 = 不覆盖）；
+//   - member.assembly = **生效读数**（mode / 技能目录字节 / 插件面工具数 / 黄牌 / 失灵）。
+// 两格合成一件事的两个侧面：只有声明面说不清"空集 = 继承宿主"还是"装了个不存在的名字"
+// （前者 inherit-host，后者 plugin_face_faulted）；只有读数说不清"这位被**要求**装什么"。
+//
+// **装配是 teammate 级的**：一位 teammate = 一条长期角色会话 + 每个工作项**自己的**会话，
+// 声明落在这一位身上，对它手上的**每个工作项会话**都生效——所以这一行的文案要说这句，
+// 而不是让读的人以为这是"某个工作项"的装配。
+//
+// 口径（照写，不自由发挥）：mode 的每个取值都**显式写出来**，不靠字段缺失暗示——
+//   replace      → 每个插件一枚 chip + 一行读数（技能 n / 目录 xB · ≈y tok / 工具面 a/b）
+//                  + 黄牌（title = yellow_reason）；黄牌**只报不拒**，不遮其它读数；
+//   inherit-host → 显式写「继承宿主」（空集 = 不覆盖：工具面继承宿主 + 技能目录不注入）；
+//   assembly 缺失 → 显式写「继承宿主」并标明这是读数缺失的降级（桥这一侧给不出，
+//                  不是"0 个工具 0 份技能"）。
+// plugin_face_faulted / plugin_face_missing 是**失灵读数**：声明过的插件在本进程已无定义
+// （root 撤销过 / 名字漂了）。它们与"没装配"**语义相反**，所以**绝不**渲染成继承宿主那
+// 一支——Mode 仍是 replace、声明仍是那一份，本件只在此之上加「失灵 / 已撤」标记 + Note。
+export function renderMemberAssembly(member) {
+  const declared = (Array.isArray(member?.plugins) ? member.plugins : [])
+    .map(name => String(name ?? "").trim())
+    .filter(Boolean);
+  const assembly = member?.assembly && typeof member.assembly === "object" ? member.assembly : null;
+  const mode = String(assembly?.mode || "").trim();
+  // 声明面 chips：复用本文件既有 chip 类。长插件名不许撑破行——三层一起兜（chips 容器
+  // 换行 + 单枚 max-width + 文本截断），title 里留全名。
+  const chips = declared.map(name =>
+    `<span class="chip team-assembly-plugin" title="${escapeHtml(name)}">${escapeHtml(truncate(name, 48))}</span>`
+  ).join("");
+  // 黄牌：目录段超阈值（6k token 估算 / 上下文窗口 2%）。**只报不拒**——它是一句提示，
+  // 不改变这一位能不能干活，所以和读数同屏、不替换读数。
+  const yellow = assembly?.yellow === true
+    ? `<span class="chip team-assembly-yellow" title="${escapeHtml(String(assembly?.yellow_reason || "技能目录超阈值（只报不拒）"))}">黄牌</span>`
+    : "";
+  const missing = (Array.isArray(assembly?.plugin_face_missing) ? assembly.plugin_face_missing : [])
+    .map(name => String(name ?? "").trim())
+    .filter(Boolean);
+  const faulted = assembly?.plugin_face_faulted === true
+    ? `<span class="chip team-assembly-faulted" title="${escapeHtml(String(assembly?.plugin_face_note || "声明过的插件在本进程已无定义（工具面为空）"))}">失灵</span>`
+    : "";
+  const withdrawn = missing.length
+    ? `<span class="chip team-assembly-missing" title="${escapeHtml("已被撤销 / 名字漂移（本进程已无定义）：" + missing.join("、"))}">已撤 ${escapeHtml(String(missing.length))}</span>`
+    : "";
+  const note = String(assembly?.plugin_face_note || "").trim();
+  const scope = `<span class="team-assembly-scope" title="装配声明在 teammate 级：一位 teammate = 一条长期角色会话 + 每个工作项自己的会话；这份装配对它手上的每个工作项会话都生效">teammate 级 · 对这位每个工作项会话都生效</span>`;
+  let readout;
+  if (mode === "replace") {
+    const count = value => Number(value) || 0;
+    readout = `<span class="team-assembly-readout" title="生效读数：插件面工具数是上界（全量工具里过得了插件收窄的那些，实际可见面还要与权限面相交，只会更小）">`
+      + `技能 ${count(assembly?.skill_count)} / 目录 ${count(assembly?.skill_catalog_runes)}B · ≈${count(assembly?.skill_catalog_tokens_est)} tok / 工具面 ${count(assembly?.plugin_face_tools)}/${count(assembly?.total_tools)}</span>`;
+  } else {
+    const degraded = assembly ? "" : '<span class="team-assembly-note">装配读数缺失（桥未给出），按不覆盖处理</span>';
+    readout = `<span class="team-assembly-inherit" title="空集 = 不覆盖：工具面继承宿主当前装配，技能目录不注入（运行事实，不是读数没算）">继承宿主</span>${degraded}`;
+  }
+  return `<div class="team-member-assembly" data-assembly-mode="${escapeHtml(mode || "inherit-host")}">
+        <span class="team-label">装配</span>
+        ${chips}
+        ${readout}
+        ${yellow}${faulted}${withdrawn}
+        ${note ? `<span class="team-assembly-note" title="${escapeHtml(note)}">${escapeHtml(truncate(note, CONTENT_LIMIT))}</span>` : ""}
+        ${scope}
+      </div>`;
+}
+
 // renderTeamQueue 是**teammate 区块**：名称（角色名 = **这件事的会话**入口）/ 状态 / 它负责的
 // Work Item 名称队列 / 权责与工作区 / 尾插回执。
 //
@@ -504,6 +571,7 @@ export function renderTeamQueue(plan) {
           <span class="team-member-wt" title="${escapeHtml(worktree || "未指派工作区（回退主工作区）")}">${escapeHtml(worktree || "主工作区")}</span>
           <span class="team-status is-${escapeHtml(status)}">${escapeHtml(status)}</span>
         </div>
+        ${renderMemberAssembly(member)}
         <div class="team-queue-items">${queueChips}</div>
         ${body}
       </li>`;
@@ -730,4 +798,14 @@ export const TEAM_BOARD_CSS = `
 .team-item-panel .role-kv-key { flex: none; min-width: 72px; color: var(--faint); }
 .team-item-panel .role-kv-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-mid); }
 .team-item-deps { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+/* ── 插件装配（2026-10-05）：声明面 chips + 生效读数 + 黄牌 / 失灵（teammate 级） ── */
+.team-member-assembly { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; min-width: 0; font-size: var(--text-xs); }
+.team-assembly-plugin { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 5px; border: 1px solid var(--border-hairline); border-radius: 4px; font-size: var(--text-xs); color: var(--text-mid); }
+.team-assembly-readout { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); color: var(--text-dim); }
+.team-assembly-inherit { padding: 0 5px; border: 1px dashed var(--border-strong); border-radius: 4px; color: var(--text-dim); }
+.team-assembly-scope { color: var(--faint); font-size: var(--text-xs); }
+.team-assembly-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-mid); }
+.team-assembly-yellow { color: var(--status-running); border-color: var(--border-running); background: var(--tint-running); }
+.team-assembly-faulted { color: var(--status-failed); border-color: var(--border-failed); background: var(--tint-failed); }
+.team-assembly-missing { color: var(--status-info); border-color: var(--border-info); }
 `;
