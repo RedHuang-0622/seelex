@@ -11,7 +11,6 @@ import {
   normalizePluginNames,
   normalizeTeamGlobal,
   normalizeTeamLibrary,
-  PLUGIN_LIMIT_DEFAULT,
   pluginsLabel,
   renderAgentTeam,
   renderRoleLiveTools,
@@ -946,8 +945,9 @@ test("员工面板给装配编辑入口：回填原值 + 上限提示 + 留空�
   const filled = hirePanel(team, { ...member, plugins: ["repo-guard", "doc-tools"] });
   assert.match(filled, /name="plugins" data-team-hire-plugins/);
   assert.match(filled, /data-team-hire-plugins[^>]*value="repo-guard, doc-tools"/);
-  // 上限提示（出厂 3 + 配置键）挂在控件 title 上，可见处只留一行标签；不静默截断
-  assert.match(filled, new RegExp(`装配（上限 ${PLUGIN_LIMIT_DEFAULT} 个）`));
+  // 上限提示：读不到生效值就不复述写死的数字，可见标签只留口径，配置键挂在 title 上
+  assert.match(filled, /装配（上限以配置为准）/);
+  assert.doesNotMatch(filled, /装配（上限 3 个）/);
   assert.match(filled, /data-team-hire-plugins[^>]*title="[^"]*limits\.plugins\.per_teammate/);
   assert.match(filled, /data-team-hire-plugins[^>]*title="[^"]*留空 = 不覆盖/);
   // 没登记装配时文本框是空的（空 = 不提交该键，不是"提交空数组"）

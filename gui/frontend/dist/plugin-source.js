@@ -47,9 +47,15 @@ export function withPluginAssembly(payload, value) {
 //   source_url   身份：kind=local 时是 `local:<那个根>`，否则是上游地址
 //   source_root  这个插件**实际**从哪个根载入（多根 first-wins：同名只算链上先出现的那个）
 //
-// 三条口径（本模块是它们的唯一落点，app.js 只摆位）：
-//   ① 缺失来源面 ⇒ **只显示名字**，不编来源：键缺席 / 空串都算缺失，绝不默认成 builtin
-//      （"不知道谁给的"与"随发行包"是两回事，编个默认值等于伪造出处）；
+// 四条口径（本模块是它们的唯一落点，app.js 只摆位）：
+//   ① 缺失来源**类型** ⇒ 不编来源：source_kind 键缺席 / 空串都算缺失，绝不默认成
+//      builtin（"不知道谁给的"与"随发行包"是两回事，编个默认值等于伪造出处）；
+//   ①' 但**载入位置不是来源类型**：source_root 在场就照报「载入根 <root>」——
+//      后端对未登记插件**刻意**只下发这一个键（application/model/state.go 的
+//      source_root；断言见 application/core/plugin_source_projection_test.go
+//      「未登记插件的载入位置仍必须可读」），而用户当面问的「这些插件我没在我的
+//      plugins/ 下见过」正是靠这句解释。类型 / 地址 / 根三条事实**全缺**才整块退场
+//      （那时只剩插件名，一句都不编）；
 //   ② local 必须**显式可见**（不能只靠 tooltip 里的路径才看得出是本机自建）；
 //   ③ 本模块的输出会被直接拼进 innerHTML，所以转义在**这里**做（escapePluginSourceText）。
 
@@ -58,6 +64,12 @@ export const PLUGIN_SOURCE_LABELS = Object.freeze({
   vendored: "第三方移植",
   local: "本机自建",
 });
+
+// UNREGISTERED_SOURCE_LABEL 是**来源类型未登记**时那枚可见标签。它不进
+// PLUGIN_SOURCE_LABELS：那份词表与后端枚举（builtin / vendored / local）一一对应，
+// 混进一个 UI 专有取值会让"已登记的取值集合"变成两回事。它说的是"我们不知道谁给的"，
+// 不是第四种来源。
+export const UNREGISTERED_SOURCE_LABEL = "来源未登记";
 
 const LOCAL_SOURCE_PREFIX = "local:";
 
@@ -95,20 +107,24 @@ export function shortenSourceUrl(url) {
 
 // pluginSourceBadge 把一行的来源读数翻成 UI 要的四块**纯文本**（调用方负责摆位与转义）：
 //   { hasSource, kind, label, note, hint }
-//   label  可见短标签（"随发行包 / 第三方移植 / 本机自建"）；
+//   label  可见短标签（"随发行包 / 第三方移植 / 本机自建"；**类型未登记**时是"来源未登记"）；
 //   note   完整旁注（多行）：来源地址 + 载入根 —— 进 title，路径不截断；
 //   hint   有界单行旁注：给可见的第二行用，长路径收口。
-// 缺失来源面 → 全空 + hasSource=false（判据①）；认不得的 kind **原样显形**，不塞进三档
-// （那是另一套判定，前端不替后端猜）。
+// 判据（见文件头①/①'）：**类型与载入位置是两条独立的事实**——
+//   缺 kind 不编类型（绝不默认成 builtin），但根在场就照报「载入根 <root>」；
+//   三条事实全缺（类型 / 地址 / 根）⇒ hasSource=false，四块全空，调用方只显示名字。
+// 认不得的 kind **原样显形**，不塞进三档（那是另一套判定，前端不替后端猜）。
 export function pluginSourceBadge(plugin) {
   const kind = typeof plugin?.source_kind === "string" ? plugin.source_kind.trim() : "";
-  if (!kind) return { hasSource: false, kind: "", label: "", note: "", hint: "" };
-  const url = typeof plugin.source_url === "string" ? plugin.source_url.trim() : "";
-  const root = typeof plugin.source_root === "string" ? plugin.source_root.trim() : "";
+  const url = typeof plugin?.source_url === "string" ? plugin.source_url.trim() : "";
+  const root = typeof plugin?.source_root === "string" ? plugin.source_root.trim() : "";
+  if (!kind && !url && !root) {
+    return { hasSource: false, kind: "", label: "", note: "", hint: "" };
+  }
   return {
     hasSource: true,
     kind,
-    label: PLUGIN_SOURCE_LABELS[kind] || kind,
+    label: kind ? (PLUGIN_SOURCE_LABELS[kind] || kind) : UNREGISTERED_SOURCE_LABEL,
     note: [url ? `来源 ${url}` : "", root ? `载入根 ${root}` : ""].filter(Boolean).join("\n"),
     hint: [url ? `来源 ${shortenSourceUrl(url)}` : "", root ? `载入根 ${shortenRootPath(root)}` : ""]
       .filter(Boolean).join(" · "),

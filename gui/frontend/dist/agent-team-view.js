@@ -160,7 +160,12 @@ export function permissionGroupsLabel(groups) {
 // 上限只做**提示**，不在前端静默截断：后端的 NormalizePlugins 对超限/重复是**显式
 // 拒绝**（application/contract/dto/plugin_assembly.go），前端悄悄砍到 3 个会让"我登记
 // 的"和"落盘的"变成两件事——那是同一类事故的另一面。
-export const PLUGIN_LIMIT_DEFAULT = 3; // dto.MaxPluginsPerRole；配置键 limits.plugins.per_teammate 可调
+//
+// 而**提示里的数字也不在这里写死**（2026-10-05 收口）：生效上限由配置
+// limits.plugins.per_teammate 决定，前端不掌握配置——写死的"上限 3 个"在配置抬高之后
+// 就是一句失真提示。这个数字在 Go 侧已有两侧兜底（seelexctx.DefaultPluginsPerTeammate /
+// dto.MaxPluginsPerRole），在 JS 再抄一份就是"第二份事实"。所以：取不到生效值 ⇒ 提示
+// 只报**配置键**；调用方真读到上限（hirePanel 的 pluginLimit）时才报数字。
 
 // normalizePluginNames 归一插件清单：字符串（逗号/空格/顿号分隔，表单输入）与数组
 // （Bridge 下发的协议载荷）两种来源都认；trim / 丢空 / **保序去重**；空 → null
@@ -645,7 +650,7 @@ function staffRow(member, orderIndex, team, scheduled = false) {
 // 选项标签自己就把话说完了（"只读（不写文件 / 不执行命令）"），不再在下面复述一遍。
 // scope 决定落盘位置：session = 当前会话在编员工（入职/覆盖），library = 员工库
 // （全局事实，不装配到任何会话）——员工库的增删改与团队解耦，走的就是后者。
-export function hirePanel(team, member, scope = "session", { pluginLimit = PLUGIN_LIMIT_DEFAULT } = {}) {
+export function hirePanel(team, member, scope = "session", { pluginLimit = null } = {}) {
   const editing = Boolean(member && member.roleName);
   const role = member || {};
   const toLibrary = scope === "library";
@@ -662,7 +667,12 @@ export function hirePanel(team, member, scope = "session", { pluginLimit = PLUGI
   const modelOptions = options(MODEL_POLICY_OPTIONS, role.modelPolicy || "");
   // 装配（能力轴）的回填：只列插件名（逗号分隔的可编辑文本），空 = 不覆盖。
   const pluginValue = (normalizePluginNames(role.plugins) || []).join(", ");
-  const pluginLimitValue = Number.isInteger(pluginLimit) && pluginLimit > 0 ? pluginLimit : PLUGIN_LIMIT_DEFAULT;
+  // 上限**读数**：只有调用方真读到生效上限（正整数）时才报数字；默认（读不到）只报
+  // 配置键——前端不复述一个写死的数字（见文件头）。
+  const limitKnown = Number.isInteger(pluginLimit) && pluginLimit > 0;
+  const limitText = limitKnown
+    ? `上限 ${pluginLimit} 个（配置键 limits.plugins.per_teammate）`
+    : "上限以配置 limits.plugins.per_teammate 为准";
   const title = toLibrary
     ? (editing ? `修改员工 · ${escapeHtml(roleDisplayName(role.roleName, role.roleKind))}` : "新建员工 · 员工库")
     : (editing ? `修改员工 · ${escapeHtml(roleDisplayName(role.roleName, role.roleKind))}` : "入职员工");
@@ -677,9 +687,11 @@ export function hirePanel(team, member, scope = "session", { pluginLimit = PLUGI
   fields.push(fieldBlock(6, "权限位", permissionGrid(role, customPermission)));
   // 装配的最小可用编辑入口：一个文本框（逗号 / 空格分隔），上限只提示不截断
   //（后端对超限/重复是显式拒绝，前端砍一刀会让"登记的"和"落盘的"分家）。
-  // 留空 = **不提交该键**（不覆盖、继承宿主装配），不是"装配了零个"。
-  fields.push(fieldItem(7, `装配（上限 ${pluginLimitValue} 个）`,
-    `<input type="text" name="plugins" data-team-hire-plugins placeholder="plugin-a, plugin-b" value="${escapeHtml(pluginValue)}" title="按会话插件装配（能力轴）：逗号或空格分隔；上限 ${pluginLimitValue} 个（出厂 3，配置键 limits.plugins.per_teammate）。留空 = 不覆盖：工具面继承宿主当前装配、技能目录不注入——不是「装配了零个」。插件只收窄工具面、永不放宽">`));
+  // 标签里**不写死数字**：读不到生效上限就只说"以配置为准"，键名与完整口径走 title
+  //（面板口径：说明一律走 title）。留空 = **不提交该键**（不覆盖、继承宿主装配），
+  // 不是"装配了零个"。
+  fields.push(fieldItem(7, limitKnown ? `装配（上限 ${pluginLimit} 个）` : "装配（上限以配置为准）",
+    `<input type="text" name="plugins" data-team-hire-plugins placeholder="plugin-a, plugin-b" value="${escapeHtml(pluginValue)}" title="按会话插件装配（能力轴）：逗号或空格分隔；${limitText}。留空 = 不覆盖：工具面继承宿主当前装配、技能目录不注入——不是「装配了零个」。插件只收窄工具面、永不放宽">`));
   fields.push(fieldItem(8, "模型", `<select name="model_policy" data-team-hire-model title="这一位用哪个模型档位（供应商与模型在「账号」页配）">${modelOptions}</select>`));
   fields.push(fieldItem(9, "员工提示词",
     `<textarea name="system_prompt" data-team-hire-prompt placeholder="这个员工怎么干活：职责边界、输入、输出格式、约束" title="装配时会作为该角色会话的系统提示词">${escapeHtml(role.systemPrompt || "")}</textarea>`));

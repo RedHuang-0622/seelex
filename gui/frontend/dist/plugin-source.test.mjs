@@ -2,11 +2,15 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+import { escapeHtml } from "./components.js";
+import { hirePanel, normalizePluginNames } from "./agent-team-view.js";
 import { escapePluginSourceText, pluginSourceBadge, shortenRootPath, shortenSourceUrl, submitPluginNames, withPluginAssembly } from "./plugin-source.js";
 
-// wi-editor 提交侧接线的验收（本轮口径，leader 2026-10-05 裁决）：
+// wi-editor 提交侧接线的验收（leader 2026-10-05 裁决）：
 //   ① 提交载荷带 plugins；② 空 = 不写该键；③ 重复项**原样提交**，由后端显式拒绝。
-// 回读 / 展示侧（agent-team-view.js 的 normalizePluginNames，会去重）不在本轮改动内。
+// 回读 / 展示侧（agent-team-view.js 的 normalizePluginNames，会去重）**不做**改动：
+// 它只作为 ⑩ 的对照物被 import 进来（两份切分只在"去重"上不同）。
+// ⑨/⑪ 同理：只为了把"同一件事写了两遍"的两处行为摆到一起比（见各用例注释）。
 const appSource = await readFile(new URL("./app.js", import.meta.url), "utf8");
 
 test("① 提交载荷带 plugins：表单输入按 逗号/顿号/空格/分号 切分并 trim", () => {
@@ -100,25 +104,50 @@ test("④ 来源标签映射：builtin=随发行包 / vendored=第三方移植 /
   assert.ok(local.note.includes("载入根 " + localRoot + "\\frontend"), local.note);
 });
 
-test("⑤ 缺失来源面 = 只显示名字：整键缺席 / 空串都不编来源（不默认成 builtin）", () => {
+test("⑤ 缺失来源类型 ≠ 缺失载入根：不编 kind，但载入根照报（不默认成 builtin）", () => {
+  // 后端对**未登记**插件**刻意**只下发 source_root——类型两键整键缺席（omitempty），
+  // 载入位置必须可读（application/model/state.go 的 source_root；断言见
+  // application/core/plugin_source_projection_test.go「未登记插件的载入位置仍必须可读」）。
+  // 用户当面问的「这些插件我没在我的 plugins/ 下见过」正是靠这句载入根解释 ⇒
+  // 无 kind 时**不得**整块退场（那会让这批行"裸奔"成只有插件名）。
+  const unlisted = pluginSourceBadge({ name: "unlisted", source_root: "/local/unlisted" });
+  assert.equal(unlisted.hasSource, true, "载入根在场就是一条来源事实");
+  assert.equal(unlisted.kind, "");
+  assert.equal(unlisted.label, "来源未登记", "类型未登记要可见，但绝不得编成 builtin");
+  assert.notEqual(unlisted.label, "随发行包");
+  assert.equal(unlisted.note, "载入根 /local/unlisted", "载入根这条事实必须在 note（title）里");
+  assert.equal(unlisted.hint, "载入根 /local/unlisted", "也要给可见的第二行");
+  // 空串 = 同样缺失类型，但 root 在场 ⇒ 照报。
+  const blank = pluginSourceBadge({ name: "unlisted", source_kind: "", source_url: "", source_root: "/x/u" });
+  assert.equal(blank.kind, "");
+  assert.equal(blank.label, "来源未登记");
+  assert.equal(blank.note, "载入根 /x/u");
+
+  // 三条事实（类型 / 地址 / 根）**全缺**才整块退场：只剩插件名，一句都不编。
   for (const plugin of [
-    { name: "unlisted", source_root: "/local/unlisted" },                      // 未登记：来源两键整缺
-    { name: "unlisted", source_kind: "", source_url: "", source_root: "/x/u" }, // 空串 = 同样缺失
-    { name: "unlisted", source_kind: null, source_url: null },
+    { name: "x" },
+    { name: "x", source_kind: null, source_url: null },
+    { name: "x", source_kind: "  ", source_url: "", source_root: "" },
   ]) {
     const badge = pluginSourceBadge(plugin);
-    assert.equal(badge.hasSource, false, `缺失来源不得 hasSource：${JSON.stringify(plugin)}`);
+    assert.equal(badge.hasSource, false, `无任何来源事实不得 hasSource：${JSON.stringify(plugin)}`);
     assert.equal(badge.label, "", "不得编出标签");
     assert.equal(badge.note, "");
     assert.equal(badge.hint, "");
   }
   // 认不得的 kind 既不塞进三档、也不吃掉：原样显形（前端不替后端猜来源）。
   assert.equal(pluginSourceBadge({ name: "x", source_kind: "fork" }).label, "fork");
+  assert.notEqual(pluginSourceBadge({ name: "x", source_kind: "fork" }).label, "来源未登记");
   // 只有 kind、没地址没根：标签照显，note/hint 里没有的项不硬凑。
   const bare = pluginSourceBadge({ name: "x", source_kind: "local" });
   assert.equal(bare.label, "本机自建");
   assert.equal(bare.note, "");
   assert.equal(bare.hint, "");
+  // 只有地址没根（未登记类型）：类型不编，地址照报。
+  const urlOnly = pluginSourceBadge({ name: "x", source_url: "local:/r/p" });
+  assert.equal(urlOnly.label, "来源未登记");
+  assert.equal(urlOnly.note, "来源 local:/r/p");
+  assert.equal(urlOnly.hint, "来源 local:/r/p");
 });
 
 test("⑥ 文本一律转义：来源读数进 innerHTML 前先过 escapePluginSourceText（与 components.escapeHtml 同口径）", () => {
@@ -173,8 +202,86 @@ test("⑧ 接线：面板每行标来源 + 面板上方那句『当前进程加�
 
   const html = await readFile(new URL("./index.html", import.meta.url), "utf8");
   assert.match(html, /这份列表是当前进程加载到的那一份插件（多根 first-wins）；与仓库 plugins\/ 下的不一定是同一份。/);
+  // 面板上方那句要一并说清"未登记只报载入根"（用户困惑的正解），否则行内的旁注仍会被当成噪声。
+  assert.match(html, /精选目录里没有登记的那个只报这一句事实，不编来源/);
   // 那句说明必须落在 Plugins 区、列表之上。
   const note = html.indexOf("当前进程加载到的那一份");
   const list = html.indexOf('id="plugin-list"');
   assert.ok(note !== -1 && list !== -1 && note < list, "说明必须在 #plugin-list 之上");
+});
+
+// ── 第二份事实的等价用例（P2 收口）────────────────────────────────────────────
+// 两条"同一件事写了两遍"的实现，各自钉一条**等价**用例：不复述实现，只钉两处**行为相同**。
+// 生产代码里两份都得留着（escapePluginSourceText 那条注释说明了为什么不能 import
+// components：本模块要能被 node --test 直接 import），所以只能在用例里把两者摆到一起比。
+
+test("⑨ 转义同口径：escapePluginSourceText 与 components.escapeHtml 在同一语料上逐字相等", () => {
+  // 语料 = 来源面真实会出现的文本（标签 / 地址 / 根路径）+ 会打穿 innerHTML 的畸形串。
+  const corpus = [
+    "", "default", "本机自建", "第三方移植", "随发行包",
+    "/payload/default", "C:\\Users\\me\\src\\seelex\\plugins",
+    "local:C:\\Users\\me\\src\\seelex\\plugins", "…\\plugins\\frontend",
+    "https://github.com/pbakaus/impeccable?a=1&b=2", "https://github.com/RedHuang-0622/seelex",
+    '<img src=x onerror="alert(1)">', "<script>alert('x')</script>", '/tmp/"><b>x</b>',
+    "5 > 3 && 2 < 4", "a&b'c\"d", "&amp;", "&#039;", "<>&\"'",
+  ];
+  for (const text of corpus) {
+    assert.equal(escapePluginSourceText(text), escapeHtml(text), `同一语料必须逐字相等：${JSON.stringify(text)}`);
+  }
+  // 唯一分歧面（显式钉住，别让它变成"悄悄漂移"或"顺手统一"）：null 字面量。
+  //   escapeHtml(null)               = "null"（String(null)）
+  //   escapePluginSourceText(null)   = ""（缺失口径：未登记与 null 一视同仁）
+  // 展示侧永远只喂字符串（label / note / hint 都由 pluginSourceBadge 先 trim 成串），
+  // 所以这条分歧不落在任何渲染路径上；语义不同就该被看见，而不是被抹平。
+  assert.equal(escapeHtml(null), "null");
+  assert.equal(escapePluginSourceText(null), "");
+  assert.deepEqual([escapeHtml(undefined), escapePluginSourceText(undefined)], ["", ""]);
+});
+
+test("⑩ 切分同口径：submitPluginNames 与 normalizePluginNames 只在『去重』上不同", () => {
+  // 两份实现（提交侧 / 回读侧）的分隔符与 trim 口径必须逐项相等，**唯一**差别是回读侧
+  // 会去重（保序）。同一语料喂两边作断言——任一侧改了分隔符 / 空值口径，这条就会红。
+  const corpus = [
+    " cad, docs、design ", "cad docs；design;draw", "cad, cad，cad", "docs; docs",
+    "cad,，、 ； docs", "   ", "、 ； ", "单一", ",", "a\u00a0b", "a\tb\nc",
+    [" cad ", "", "docs"], ["cad", " cad ", "docs"], ["docs", "docs"], [], ["", "   "], [null, 5, "cad"],
+    null, undefined, 5, {}, true,
+  ];
+  for (const input of corpus) {
+    const submit = submitPluginNames(input);
+    const readback = normalizePluginNames(input);
+    assert.deepEqual(readback, submit ? [...new Set(submit)] : null,
+      `两边只差去重：${JSON.stringify(input)}`);
+  }
+  // 反向对照（阴性）：确实有语料能让两者**不相等**，否则上一条断言是空的。
+  assert.deepEqual(submitPluginNames("cad, cad"), ["cad", "cad"]);
+  assert.deepEqual(normalizePluginNames("cad, cad"), ["cad"]);
+  // 空值口径两边同形：空 → null（调用方据此不写该键）。
+  for (const empty of ["", "   ", ",", [], null, undefined]) {
+    assert.equal(submitPluginNames(empty), null);
+    assert.equal(normalizePluginNames(empty), null);
+  }
+});
+
+// ── 装配上限提示（P1 收口）────────────────────────────────────────────────────
+test("⑪ 装配上限提示不复述写死的数字：读不到生效值就只报配置键", () => {
+  // 生效上限由配置 limits.plugins.per_teammate 决定（Go 侧 seelexctx.PluginLimits.PerTeammate；
+  // 前端不掌握配置，快照 / 看板投影里也没有这一项——它只出现在 team_plan 回执里）。
+  // 所以默认提示**只报配置键**：写死的"上限 3 个"在配置抬高之后就是失真提示。
+  const panel = hirePanel({ members: [] }, null);
+  assert.doesNotMatch(panel, /上限 3 个/, "读不到上限时不得出现写死的数字");
+  assert.doesNotMatch(panel, /出厂 3/);
+  assert.match(panel, /limits\.plugins\.per_teammate/, "要指向配置键");
+  assert.match(panel, /装配（上限以配置为准）/, "可见标签只留「以配置为准」，不编数字");
+  assert.match(panel, /上限以配置 limits\.plugins\.per_teammate 为准/, "完整口径在 title 里");
+  assert.match(panel, /data-team-hire-plugins/);
+  assert.match(panel, /留空 = 不覆盖/, "老口径（留空不提交该键）不许被这轮改动带走");
+  // 接线口留着：调用方真读到生效上限就报数字（app.js 拿到读数时传进来即可）。
+  assert.match(hirePanel({ members: [] }, null, "session", { pluginLimit: 5 }), /装配（上限 5 个）/);
+  // 非法读数（0 / 负数 / 非整数）= 没读到 ⇒ 回到配置键，不编一个 0。
+  for (const bogus of [0, -1, "5", 1.5, NaN]) {
+    const html = hirePanel({ members: [] }, null, "session", { pluginLimit: bogus });
+    assert.doesNotMatch(html, /上限 0 个|上限 -1 个|上限 1\.5 个|上限 NaN 个/, `非法读数 ${String(bogus)}`);
+    assert.match(html, /limits\.plugins\.per_teammate/);
+  }
 });

@@ -2067,13 +2067,16 @@ function renderPermissionMenu(runtime) {
 // 哪来"——用户当面问过「这些前端显示出来的 plugin 我没在我的 plugins/ 下见过」。
 // 来源读数（source_kind/source_url/source_root）由后端下发，判定与文案全在 plugin-source.js
 // 的纯函数里，这里只做**摆位 + 转义**（文本一律转义，判据④）。
-// 缺失来源面（未登记 = 整键缺席）⇒ 只显示名字，不编来源（判据③）。
+// **类型与载入位置是两条独立的事实**：未登记（source_kind 键缺席）不编类型，但后端刻意
+// 只下发的 source_root 照报「载入根 …」——那句正是"我没在 plugins/ 下见过它"的答案；
+// 三条事实全缺时才只剩名字。
 function renderPlugins(runtime) {
   const plugins = runtime.plugins || [];
   elements["plugin-count"].textContent = String(plugins.length);
   elements["plugin-list"].innerHTML = plugins.map(plugin => {
     const source = pluginSourceBadge(plugin);
-    // 来源标签**可见**（不能只靠 tooltip）：local 必须一眼看出是"本机自建"（判据①）。
+    // 来源标签**可见**（不能只靠 tooltip）：local 必须一眼看出是"本机自建"；类型未登记
+    // 时这枚标签是"来源未登记"（判据①：那是"不知道谁给的"，不是"随发行包"）。
     const badge = source.label
       ? ` <span class="chip" title="${escapePluginSourceText(source.note)}">${escapePluginSourceText(source.label)}</span>`
       : "";
