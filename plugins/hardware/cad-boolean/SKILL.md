@@ -26,7 +26,7 @@ description: 批量布尔操作 — 多工具一次性切割，避免逐条布�
 ### 方式一：cad-core 内置函数
 
 ```python
-exec(open('G:/Program/go/seelex/plugins/freecad/cad-core/freecad_core.py').read())
+exec(open('G:/Program/go/seelex/dist/seelex-gui-dev/plugins/hardware/cad-core/freecad_core.py').read())
 
 # multi_cut 已包含在 cad-core 中
 tools = [

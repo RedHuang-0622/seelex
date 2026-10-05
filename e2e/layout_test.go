@@ -25,7 +25,7 @@ var repositoryModules = []string{
 	"docs/arch", "docs/devlog", "docs/gui", "docs/gui/schemas", "docs/product", "docs/research",
 	"docs/test", "e2e", "e2e/scenario", "gui", "gui/frontend", "internal", "internal/adapters",
 	"internal/buildinfo", "internal/frontmatter", "mcpstack", "mcpstack/config", "plugin", "plugins", "plugins/default",
-	"plugins/freecad", "plugins/impeccable", "scripts",
+	"plugins/hardware", "plugins/impeccable", "scripts",
 	"seelebridge", "seelebridge/fork", "seelebridge/fs", "seelebridge/internal/config",
 	"seelebridge/internal/model", "seelebridge/internal/stream",
 	"seelebridge/internal/telemetry", "seelebridge/plan",
@@ -343,7 +343,7 @@ func TestRepositorySkillAndPluginLayouts(t *testing.T) {
 	// Loader 只认目录，所以"目录里多了一个文件"不该改变插件数量——这一条同时是
 	// "零改加载器"的证据。
 	if len(plugins) != 3 {
-		t.Fatalf("loaded %d plugins, want 3 (default + freecad + impeccable)", len(plugins))
+		t.Fatalf("loaded %d plugins, want 3 (default + hardware + impeccable)", len(plugins))
 	}
 	for _, p := range plugins {
 		t.Logf("  plugin=%q skills=%d", p.Name, len(p.Skills))

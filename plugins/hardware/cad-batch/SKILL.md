@@ -11,7 +11,7 @@ MCP 逐条调用 = 50 次往返 + 50 次 recompute。批量执行 = 1 次 bash �
 ## 用法
 
 ```bash
-FreeCADCmd G:/Program/go/seelex/plugins/freecad/cad-batch/cad_batch.py \
+FreeCADCmd G:/Program/go/seelex/dist/seelex-gui-dev/plugins/hardware/cad-batch/cad_batch.py \
   --params C:/temp/cad_params.json \
   --output C:/temp/result.step
 ```

@@ -18,7 +18,7 @@ FreeCAD Part Fillet 在边数过多时计算失败。采用**分批倒角**策�
 ### 方式一：cad-core + 手动分批
 
 ```python
-exec(open('G:/Program/go/seelex/plugins/freecad/cad-core/freecad_core.py').read())
+exec(open('G:/Program/go/seelex/dist/seelex-gui-dev/plugins/hardware/cad-core/freecad_core.py').read())
 
 doc = get_doc()
 obj = doc.getObject("TargetObject")
@@ -61,7 +61,7 @@ current_obj.Label = 'FinalFilleted'
 ## 手动步骤
 
 1. 打开 FreeCAD → View → Panels → Python console
-2. 加载 cad-core: `exec(open('G:/Program/go/seelex/plugins/freecad/cad-core/freecad_core.py').read())`
+2. 加载 cad-core: `exec(open('G:/Program/go/seelex/dist/seelex-gui-dev/plugins/hardware/cad-core/freecad_core.py').read())`
 3. 用 `classify_edges()` 分析边
 4. 修改目标对象名
 5. 粘贴分批圆角代码执行

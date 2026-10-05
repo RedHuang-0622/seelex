@@ -57,14 +57,14 @@ entries:
       license: MIT（本仓库 LICENSE）
       pinned: 随发行包（git 提交即版本；plugins/ 由 scripts/build.sh:71 / Makefile:71 等整目录复制）
       read_at: 2026-10-05
-  - name: freecad
-    description: FreeCAD 计算机辅助设计（垂直能力样板：MCP + 批处理脚本 + 领域 Skill）
+  - name: hardware
+    description: 硬件/CAD 工程能力（FreeCAD 垂直样板：MCP + 批处理脚本 + 领域 Skill；由 2026-10-05 的 freecad→hardware 归并而来）
     installed: true
     source:
       kind: builtin
       url: https://github.com/RedHuang-0622/seelex
       license: MIT（本仓库 LICENSE）
-      pinned: 随发行包（git 提交即版本；外部依赖 FreeCAD 本机安装，见 plugins/freecad/README.md）
+      pinned: 随发行包（git 提交即版本；外部依赖 FreeCAD 本机安装，见 plugins/hardware/README.md）
       read_at: 2026-10-05
   - name: impeccable
     description: 前端设计纪律与确定性检测器（Impeccable 移植）
@@ -83,9 +83,9 @@ presets:
     plugins: [default]
     pending: []
   - name: cad
-    description: CAD 垂直面——freecad 插件（工具面按 plugin.md 收窄；需要本机 FreeCAD 与 MCP）
+    description: CAD 垂直面——hardware 插件（工具面按 plugin.md 收窄；需要本机 FreeCAD 与 MCP）
     permission_tier: manual
-    plugins: [freecad]
+    plugins: [hardware]
     pending: []
   - name: design
     description: 前端设计垂直面——切到 impeccable；pending 是"还想要、但没实读过正文"的前端候选（路线图，不是可用集合）

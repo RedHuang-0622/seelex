@@ -12,7 +12,7 @@
 ```mermaid
 stateDiagram-v2
     [*] --> DefaultActive: 启动基线（include / exclude 均为空）
-    DefaultActive --> Specialized: 激活专用 Plugin（如 freecad）
+    DefaultActive --> Specialized: 激活专用 Plugin（如 hardware）
     Specialized --> DefaultActive: 停用专用 Plugin
     note right of DefaultActive
         工具：全部已注册工具

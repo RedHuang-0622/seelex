@@ -34,7 +34,7 @@ func TestShippedCuratedCatalogMatchesInstalledPlugins(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(loaded) != 3 {
-		t.Fatalf("loaded %d plugins, want 3 (default + freecad + impeccable)", len(loaded))
+		t.Fatalf("loaded %d plugins, want 3 (default + hardware + impeccable)", len(loaded))
 	}
 	for _, p := range loaded {
 		entry, ok := catalog.Entry(p.Name)

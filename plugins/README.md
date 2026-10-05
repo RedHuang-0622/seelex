@@ -7,7 +7,7 @@
 | Plugin | 生态位 | 来源（谁给的） | README |
 |---|---|---|---|
 | `default` | 全工具与全局能力入口 | `builtin` · <https://github.com/RedHuang-0622/seelex>（随发行包） | [`default`](default/README.md) |
-| `freecad` | CAD 垂直能力验证 | `builtin` · <https://github.com/RedHuang-0622/seelex>（随发行包；外部依赖 FreeCAD） | [`freecad`](freecad/README.md) |
+| `hardware` | 硬件/CAD 工程能力（FreeCAD 批处理脚本 + stdio MCP） | `builtin` · <https://github.com/RedHuang-0622/seelex>（随发行包；外部依赖 FreeCAD） | [`hardware`](hardware/README.md) |
 | `impeccable` | 前端设计纪律与确定性检测器（Impeccable 移植） | `vendored` · <https://github.com/pbakaus/impeccable>（Apache-2.0，未固定 commit） | [`impeccable`](impeccable/README.md) |
 
 **「来源」这一列的归属说明**：`plugins_list` 的回执在组合根 `main.go`（不在 `plugins/**`+`plugin/**` 这块领地），所以这一列是「这个插件是谁给的」在当前领地内的最小可见化；机读面是同源的一份读数——`plugin.CuratedCatalog.SourceSummary(name)` 给出同样的一行摘要（`entries` 读落盘来源，`pending` 读「未落盘 + 出处 + 证据档」）。两处都由 `e2e/layout_test.go` 的 `TestPluginsReadmeIndexCarriesSource` 钉在 `curated.yaml` 上（entry 的 `source.url` 不在表里就红）。

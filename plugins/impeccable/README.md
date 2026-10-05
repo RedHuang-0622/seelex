@@ -2,7 +2,7 @@
 
 ## 生态位
 
-`plugins/default` 是「全工具入口」，`plugins/freecad` 是 CAD 垂直验证，
+`plugins/default` 是「全工具入口」，`plugins/hardware` 是 CAD 垂直验证，
 `plugins/impeccable` 是**前端设计垂直面**的专业能力：**纪律 + 命令路由 + 确定性检测器**。
 
 它解决的具体问题是「AI 生成前端的模板化」——所有模型都在同一批 SaaS 模板上训练，

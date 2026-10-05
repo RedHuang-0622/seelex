@@ -376,7 +376,7 @@ Provider History、append-only Transcript Event、Application State 和 immutabl
 3. 成功后拆除旧 MCP。
 4. 任一步失败都按逆序恢复先前状态。
 
-工具可见性以请求级 snapshot 传入 Runtime，避免正在执行的请求观察到一半新、一半旧的能力集合。这使 Plugin 可以作为 Agent 的专业形态切换机制，而不必为只读检索、代码修改、Git、Shell 或 CAD 工作流分别维护多套二进制（仓库内置 <code>default</code> 与垂直领域的 <code>freecad</code>）。
+工具可见性以请求级 snapshot 传入 Runtime，避免正在执行的请求观察到一半新、一半旧的能力集合。这使 Plugin 可以作为 Agent 的专业形态切换机制，而不必为只读检索、代码修改、Git、Shell 或 CAD 工作流分别维护多套二进制（仓库内置 <code>default</code> 与垂直领域的 <code>hardware</code>）。
 
 ### 8. 账号池按角色和分支路由，并把租约保持到流结束
 
@@ -591,7 +591,7 @@ Windows PowerShell 或 cmd 请直接使用 `scripts/*.ps1`。
 | Plugin | 用途 |
 |---|---|
 | <code>default</code> | 默认完整能力：不设 include/exclude，暴露全部已注册工具与全局 Skill（11 个 Skill，含 <code>$plan</code> / <code>$goal</code> / <code>$teamwork</code>） |
-| <code>freecad</code> | CAD 垂直能力验证：声明 include 白名单与 stdio MCP Server（7 个 Skill） |
+| <code>hardware</code> | 硬件/CAD 工程能力：声明 include 白名单与 stdio MCP Server（7 个 Skill） |
 
 仓库当前只有以上两个内置 Plugin，共 18 个 Skill（<code>plugins/*/&lt;skill&gt;/SKILL.md</code>）。
 

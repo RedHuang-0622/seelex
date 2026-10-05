@@ -9,7 +9,7 @@ description: FreeCAD 核心操作库 — 所有体素构造、布尔运算、变
 ## 加载
 
 ```python
-exec(open('G:/Program/go/seelex/plugins/freecad/cad-core/freecad_core.py').read())
+exec(open('G:/Program/go/seelex/dist/seelex-gui-dev/plugins/hardware/cad-core/freecad_core.py').read())
 ```
 
 或在 FreeCAD 宏中导入。
@@ -104,7 +104,7 @@ exec(open('G:/Program/go/seelex/plugins/freecad/cad-core/freecad_core.py').read(
 ### 零件建模（Part 工作流）
 
 ```python
-exec(open('G:/Program/go/seelex/plugins/freecad/cad-core/freecad_core.py').read())
+exec(open('G:/Program/go/seelex/dist/seelex-gui-dev/plugins/hardware/cad-core/freecad_core.py').read())
 
 doc = new_doc("PartDesign")
 

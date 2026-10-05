@@ -1,7 +1,7 @@
 # freecad_core.py — FreeCAD 核心操作库
 # 替代 MCP：所有基础体素构造 + 布尔运算 + 变换 + 导出
 # 用法: 在 FreeCAD Python 控制台中粘贴运行
-#       exec(open('G:/Program/go/seelex/plugins/freecad/cad-core/freecad_core.py').read())
+#       exec(open('G:/Program/go/seelex/dist/seelex-gui-dev/plugins/hardware/cad-core/freecad_core.py').read())
 #       然后调用函数: make_box(doc, 'MyBox', 100, 50, 20)
 
 import FreeCAD as App

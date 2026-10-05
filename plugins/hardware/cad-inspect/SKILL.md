@@ -9,7 +9,7 @@ description: 对象诊断 — 检查文档状态、对象属性、体积/质量�
 ## 快速诊断
 
 ```python
-exec(open('G:/Program/go/seelex/plugins/freecad/cad-core/freecad_core.py').read())
+exec(open('G:/Program/go/seelex/dist/seelex-gui-dev/plugins/hardware/cad-core/freecad_core.py').read())
 
 # 列出所有对象
 list_all()

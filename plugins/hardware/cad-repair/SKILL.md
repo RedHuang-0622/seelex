@@ -11,7 +11,7 @@ description: 修复与恢复 — 系统异常时诊断→清理→恢复→验�
 ## 标准修复流程
 
 ```python
-exec(open('G:/Program/go/seelex/plugins/freecad/cad-core/freecad_core.py').read())
+exec(open('G:/Program/go/seelex/dist/seelex-gui-dev/plugins/hardware/cad-core/freecad_core.py').read())
 
 doc = get_doc()
 

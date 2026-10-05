@@ -1,7 +1,7 @@
 ---
 schema_version: 1
-name: freecad
-description: FreeCAD 计算机辅助设计
+name: hardware
+description: 硬件与嵌入式工程：电路/PCB/CAD/固件相关 Skill 的归置插件
 include: [switch_plugin, switch_mode, get_time, read_file, grep_search, glob, "write*", "edit*", bash]
 exclude: []
 mcp_servers:
@@ -14,9 +14,31 @@ mcp_servers:
       - "FREECAD_TIMEOUT_MS=120000"
 ---
 
-# FreeCAD 计算机辅助设计
+# Hardware
 
-## 操作策略（重要）
+硬件与嵌入式工程 plugin：机械 CAD、电路/PCB、嵌入式固件相关的 Skill 都归到这里。
+
+## 当前 Skill
+
+| Skill | 用途 |
+|-------|------|
+| `cad-core` | 🔑 FreeCAD 核心操作库（40+ 函数，替代 MCP 的 83 个工具） |
+| `cad-batch` | ⚡ 批量执行（MCP 兜底 + 省 token） |
+| `cad-boolean` | 批量布尔剪切、阵列 |
+| `cad-fillet` | 分批圆角 |
+| `cad-inspect` | 对象诊断 |
+| `cad-repair` | 修复恢复 |
+| `cad-template` | 参数化模板参考 |
+
+出处：`cad-*` 七个 Skill 原属独立插件 `freecad`（2026-10-05 并入本插件，逐字节保留，仅改正文里的路径口径）。
+
+## 路径口径
+
+本插件根 = `<插件根>/hardware`。本机运行树为
+`G:/Program/go/seelex/dist/seelex-gui-dev/plugins/hardware/`，下列 Skill 正文中的绝对路径都指向它。
+发行包内对应 `<发行包根>/plugins/hardware/`。
+
+## FreeCAD 操作策略（重要）
 
 ```
 MCP（首选）→ 逐步交互，灵活探索
@@ -44,7 +66,7 @@ Bash FreeCADCmd（最后手段）
 ```bash
 # 1. 用 write_file 写入参数 JSON
 # 2. 用 bash 执行
-FreeCADCmd G:/Program/go/seelex/plugins/freecad/cad-batch/cad_batch.py \
+FreeCADCmd G:/Program/go/seelex/dist/seelex-gui-dev/plugins/hardware/cad-batch/cad_batch.py \
   --params C:/temp/cad_params.json \
   --output C:/temp/result.step
 ```

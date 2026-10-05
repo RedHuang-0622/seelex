@@ -11,7 +11,7 @@ description: 参数化模板 — 定义参数 → 自动化执行 → 输出，�
 ## 模板结构
 
 ```python
-exec(open('G:/Program/go/seelex/plugins/freecad/cad-core/freecad_core.py').read())
+exec(open('G:/Program/go/seelex/dist/seelex-gui-dev/plugins/hardware/cad-core/freecad_core.py').read())
 
 doc = new_doc("TemplateName")
 
