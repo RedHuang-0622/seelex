@@ -79,8 +79,15 @@ func TestAcceptRefusesItemStillRunning(t *testing.T) {
 	if err := fixture.coordinator.AcceptItem(ctx, "wi-req", "通过"); err != nil {
 		t.Fatalf("尾插走完之后的验收必须通过: %v", err)
 	}
+	// 验收**不动现场**（2026-10-06 口径）：现场归 team 托管，回收唯一入口是整队收口。
+	if _, _, released := fixture.spaces.snapshot(); len(released) != 0 {
+		t.Fatalf("验收不该再释放现场（现场活到收口），得到 %v", released)
+	}
+	if _, err := fixture.coordinator.Close(ctx); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 	if _, _, released := fixture.spaces.snapshot(); len(released) != 1 || released[0] != "wi-req" {
-		t.Fatalf("验收应释放这份现场，得到 %v", released)
+		t.Fatalf("整队收口应把这份现场一并结束，得到 %v", released)
 	}
 }
 
@@ -98,10 +105,17 @@ func TestAcceptAllowsRunningItemWhoseHandleIsGone(t *testing.T) {
 		t.Fatalf("前置：重启后状态仍是 running（句柄作废不是错误，是「可重派」的信号），得到 %q", status)
 	}
 	if err := restarted.coordinator.AcceptItem(context.Background(), "wi-req", "重启后清理现场"); err != nil {
-		t.Fatalf("handle 已作废时验收必须放行（清理动作）: %v", err)
+		t.Fatalf("handle 已作废时验收必须放行（销项动作）: %v", err)
+	}
+	// 放行的验收同样**不动现场**：回收只剩一个入口——整队收口。
+	if _, _, released := restarted.spaces.snapshot(); len(released) != 0 {
+		t.Fatalf("验收不该释放现场（现场活到收口），得到 %v", released)
+	}
+	if _, err := restarted.coordinator.Close(context.Background()); err != nil {
+		t.Fatalf("Close: %v", err)
 	}
 	if _, _, released := restarted.spaces.snapshot(); len(released) != 1 || released[0] != "wi-req" {
-		t.Fatalf("验收应释放现场，得到 %v", released)
+		t.Fatalf("整队收口应释放现场，得到 %v", released)
 	}
 }
 

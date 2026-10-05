@@ -230,9 +230,10 @@ func teamworkMilestoneSchema() map[string]interface{} {
 }
 
 func teamworkRetireDescription() string {
-	return "End one teammate's round: release its worktree, clear its session contents and keep it on the roster. " +
-		"It does NOT reclaim its jobs — a dispatched job stays on the table (and its output stays readable) until " +
-		"team_close, the team's single reclamation point. A dirty worktree is an explicit error, never a silent discard."
+	return "End one teammate's round: a ROSTER-ONLY act. The member stays enrolled and its worktree and session contents " +
+		"are NOT touched — a teammate's scene outlives individual work items and is owned by the team, so the ONE place " +
+		"that releases it (and reclaims its jobs) is team_close. A dispatched job therefore stays on the table, and its " +
+		"output stays readable, until that close. Refused while the teammate has work not yet settled (running / awaiting review)."
 }
 
 func teamworkRetireSchema() map[string]interface{} {
@@ -246,8 +247,9 @@ func teamworkRetireSchema() map[string]interface{} {
 }
 
 func teamworkCloseDescription() string {
-	return "Close the whole team (team_close): every enrolled member runs the same four-step retire — this is the ONE place " +
-		"that reclaims jobs, so job output stays on the table until here — then the team board is sealed (closed/team.close), " +
+	return "Close the whole team (team_close): every enrolled member runs the same four close steps (reclaim its jobs → " +
+		"release its worktree(s) → clear its session contents → keep it on the roster) — this is the ONE place that reclaims " +
+		"jobs, so job output stays on the table until here — then the team board is sealed (closed/team.close), " +
 		"the plan is marked closed and a close audit line is written. Idempotent: a second call returns already_closed=true " +
 		"and neither re-seals nor re-audits. Takes no arguments: closure is a team-level act, not a seat's (per-member exit is team_retire). " +
 		"Refused while any work item is unsettled (running / awaiting review / failed): closing is the one place that tears down every " +

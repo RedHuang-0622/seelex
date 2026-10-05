@@ -228,14 +228,14 @@ type Options struct {
 	Jobs jobs.Manager
 	// Workers 是 teammate 执行体（缺失 ⇒ team_dispatch 拒绝）。
 	Workers WorkerRunner
-	// Worktrees 释放工作区（缺失 ⇒ team_retire 在第二步显式报错，不静默跳过）。
+	// Worktrees 释放工作区（缺失 ⇒ team_close 的收口第二步显式报错，不静默跳过）。
 	Worktrees WorkspaceReleaser
 	// Spaces 是「一个 Work Item 一个 worktree」的端口（建 / 并 / 释放）。缺失 =
 	// 不建现场、不合并、不释放——Work Item 仍可排活与派发，只是没有工作区隔离。
 	Spaces Workspaces
 	// Teammates 是 teammate 的消息队列（尾插落点）。缺失 = 尾插被丢弃（只留审计行）。
 	Teammates TeammateQueue
-	// Sessions 清角色会话内容（缺失 ⇒ team_retire 在第三步显式报错）。
+	// Sessions 清角色会话内容（缺失 ⇒ team_close 的收口第三步显式报错）。
 	Sessions SessionResetter
 	// Boards 封板团队看板存档（缺失 ⇒ Close 只做域内 closed + 审计，不写存档）。
 	Boards BoardCloser

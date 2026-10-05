@@ -530,22 +530,24 @@ func (c *Coordinator) SettleWorkItem(ctx context.Context, request WorkerRequest,
 	})
 }
 
-// AcceptItem 是 leader 的**验收通过**：工作项 → done，销项，并结束这一件事的执行隔离
-// （释放 worktree + 清这一件事的会话），teammate 下一件事重新开一套。
+// AcceptItem 是 leader 的**验收通过**：工作项 → done，销项。**不动现场与会话**——
+// teammate 的 session/worktree 归 team 托管，回收的唯一入口是整队收口
+// （team_close → releaseAllItems；单角色退场 team_retire 也不动现场）。
 //
 // **责任链（一条链，顺序即责任）**：
 //
 //	合并（尾插步 1：MergeWorkspace）→ 回执（步 2）→ 状态（步 3：review/failed）
 //	→ leader 审查 → 验收入账（本方法）/ 重新派活 / 整队收口
 //
-// 验收是链尾，它要**释放现场**（删 worktree 目录 + 删分支），所以只许在尾插走完之后
-// 动手——下游抢在上游前面，就会对一份正在被合并使用的现场下手。真实 git 上的现场形状
-// 是 `fork/exec …git.exe: The directory name is invalid`（复现：
+// 链尾与现场的关系（2026-10-06 口径，此前是"验收即释放"）：验收**只销状态**，把
+// SessionID/Worktree 留在账上——它们指向的现场活到收口那一刻，收口拿它们把现场一并拆掉。
+// 这样就不会再出现"下游抢在上游前面拆现场"的时间窗（旧口径要在尾插走完之后才敢 release，
+// 真实 git 上的现场形状是 `fork/exec …git.exe: The directory name is invalid`，复现：
 // seelebridge/worktree/worktree_vanished_scene_repro_test.go）。
 //
 // 「在跑」的判据沿用 DispatchItem 与看板投影的**同一处**口径：running **且** handle 还在
 // 册 = 这一件事真的还在飞（→ 拒绝，让它把尾插走完）。handle 已作废（进程重启 / 已被回收）
-// 则相反：尾插不会再跑，验收就此成了清理动作（→ 放行，这正是"重启后收尾"那条路）。
+// 则相反：尾插不会再跑，验收就此成了销项动作（→ 放行，这正是"重启后收尾"那条路）。
 func (c *Coordinator) AcceptItem(ctx context.Context, itemID, note string) error {
 	c.lockPlan()
 	defer c.unlockPlan()
@@ -575,18 +577,17 @@ func (c *Coordinator) AcceptItem(ctx context.Context, itemID, note string) error
 	default:
 		return fmt.Errorf("teamwork: 工作项 %q 还没跑完（状态 %s），不能验收", item.ID, item.StatusOrPending())
 	}
-	if err := c.releaseItem(ctx, *item, plan.TeamID, "accept"); err != nil {
-		return err
-	}
+	// 现场与会话**不动**（这里删掉的是旧的 releaseItem("accept") 调用）：teammate 的
+	// session/worktree 归 team 托管，只由整队收口（team_close）回收。验收留下的
+	// SessionID/Worktree 是收口要用的现场指针，不许在这里抹掉。
 	item.Status = sessionstore.TeamworkItemDone
 	if trimmed := strings.TrimSpace(note); trimmed != "" {
 		item.Note = trimmed
 	} else if strings.TrimSpace(item.Note) == "" {
 		item.Note = "验收通过"
 	}
+	// 作业句柄可以清：这一轮作业已经终态（作业本身由收口统一 Reclaim，不靠这条句柄）。
 	item.Handle = ""
-	item.SessionID = ""
-	item.Worktree = ""
 	item.FinishedAt = c.clock().UTC().Unix()
 	recomputeMilestones(&plan)
 	if err := c.store.WritePlan(ctx, c.key, plan, c.maxMembers); err != nil {
@@ -714,22 +715,9 @@ func (c *Coordinator) Recover(ctx context.Context) (RecoveryReport, error) {
 	return report, nil
 }
 
-// releaseItem 结束一个工作项的执行隔离：释放 worktree → 清这一件事的会话 → 追加
-// 绑定释放行（账本是追加型，释放是再记一行而不是删行）。
-func (c *Coordinator) releaseItem(ctx context.Context, item sessionstore.TeamworkWorkItem, teamID, reason string) error {
-	bindings, err := c.store.ReadBindings(ctx, c.key)
-	if err != nil {
-		return err
-	}
-	binding, ok := sessionstore.TeamworkBindings(bindings)[item.ID]
-	if !ok {
-		return nil // 没有活绑定：无可释放（幂等）
-	}
-	return c.releaseBinding(ctx, binding, teamID, reason)
-}
-
 // releaseBinding 结束一份绑定的执行隔离：释放现场 → 清这件事的会话内容 → 追加释放
-// 行。三处调用（验收销项 / 退场步 2 / 整队收口）语义相同，只有 reason 不同。
+// 行。调用点只剩整队收口两处（Close 步 2 的逐角色释放 / releaseAllItems 的一并结束），
+// 语义相同（reason = team_close）。
 func (c *Coordinator) releaseBinding(ctx context.Context, binding sessionstore.TeamworkBinding, teamID, reason string) error {
 	if c.spaces != nil {
 		if err := c.spaces.ReleaseWorkspaceItem(ctx, c.workspaceBinding(binding, teamID)); err != nil {
@@ -753,8 +741,8 @@ func (c *Coordinator) appendReleasedBinding(ctx context.Context, binding session
 	})
 }
 
-// releaseRoleItemScenes 释放某角色名下**每一个**已派发 Work Item 的现场（退场 /
-// 收口步 2 的后半）。
+// releaseRoleItemScenes 释放某角色名下**每一个**已派发 Work Item 的现场（收口步 2
+// 的后半）。
 //
 // 逐个都试、一个失败不牵连同批其余（"不得只释放一个"）；失败逐条攒起来一次性上报，
 // 每条点明是哪一个工作项——"说不清是哪一个"的失败没法定位。失败的那一份不记释放行：
@@ -810,7 +798,7 @@ func (c *Coordinator) markTeammateBindingReleased(ctx context.Context, role, rea
 }
 
 // releaseTeammateScenes 释放一个 teammate 的**全部**现场：角色级 + 该角色名下每一个
-// 仍在册的 Work Item（退场 / 收口步 2 的唯一实现）。
+// 仍在册的 Work Item（收口步 2 的唯一实现）。
 //
 // 为什么两半都要（2026-10-05 F2/F3）：老口径派发的 teammate 过去**没有**现场（F2），
 // 而这一步只拿角色名去查一次（F3）——于是 `seelex/<role>-<item>` 那些现场永远留在
@@ -835,14 +823,6 @@ func (c *Coordinator) releaseTeammateScenes(ctx context.Context, teamID, role, r
 		return errors.Join(failures...)
 	}
 	return nil
-}
-
-// retireReason 是账本里「这一轮为什么释放现场」的理由词（整队收口 vs 单角色退场）。
-func retireReason(reclaim bool) string {
-	if reclaim {
-		return "team_close"
-	}
-	return "team_retire"
 }
 
 // releaseAllItems 是整队收口时的**一并结束**：所有活绑定（会话 + 工作区）到此为止。

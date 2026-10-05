@@ -353,14 +353,18 @@ func TestTeammateRunsMultipleItemsEachWithItsOwnSessionAndWorktree(t *testing.T)
 	}
 	itemA := itemState(t, fixture, "wi-a")
 	itemB := itemState(t, fixture, "wi-b")
-	if itemA.Worktree != "" || itemA.SessionID != "" {
-		t.Fatalf("验收通过后 A 的会话与工作区应当已经结束（下一件事重新开一套）: %+v", itemA)
+	// 验收**只销状态**：A 的现场与会话指针留着（归 team 托管，收口时才拆）。
+	if itemA.StatusOrPending() != sessionstore.TeamworkItemDone {
+		t.Fatalf("A 应当已验收: %+v", itemA)
+	}
+	if itemA.SessionID == "" || itemA.Worktree == "" {
+		t.Fatalf("验收不该抹掉现场指针（现场活到 team_close）: %+v", itemA)
 	}
 	if itemB.SessionID == "" || itemB.Worktree == "" {
 		t.Fatalf("B 应当有自己的会话与工作区: %+v", itemB)
 	}
-	if itemB.SessionID == itemA.SessionID {
-		t.Fatalf("两件事不能共用一个会话：%q", itemB.SessionID)
+	if itemB.SessionID == itemA.SessionID || itemB.Worktree == itemA.Worktree {
+		t.Fatalf("两件事不能共用一套会话/现场：A=%+v B=%+v", itemA, itemB)
 	}
 	bound, _, released := fixture.spaces.snapshot()
 	if len(bound) != 2 {
@@ -369,8 +373,16 @@ func TestTeammateRunsMultipleItemsEachWithItsOwnSessionAndWorktree(t *testing.T)
 	if bound[0] == bound[1] {
 		t.Fatalf("两件事的工作区不能同名：%v", bound)
 	}
-	if len(released) != 1 || released[0] != "wi-a" {
-		t.Fatalf("只该释放 A 的工作区，得到 %v", released)
+	if len(released) != 0 {
+		t.Fatalf("验收不再是回收点（唯一入口是整队收口），却释放了 %v", released)
+	}
+	// 唯一回收点：收口把两件事的现场一并结束（先把 B 的事落定，收口闸门才放行）。
+	waitItemStatus(t, fixture, "wi-b", sessionstore.TeamworkItemReview)
+	if _, err := fixture.coordinator.Close(ctx); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if _, _, released = fixture.spaces.snapshot(); len(released) != 2 {
+		t.Fatalf("整队收口应把两件事的现场一并结束，得到 %v", released)
 	}
 	// 校验会话号按 (主会话, team, 角色, work_item) 派生。
 	want := WorkItemSessionID(fixture.coordinator.derive, "s", "v-model", "exec", "wi-b")
@@ -407,9 +419,9 @@ func TestDispatchItemReturnsBeforeTheRoundFinishes(t *testing.T) {
 	waitItemStatus(t, fixture, "wi-req", sessionstore.TeamworkItemReview)
 }
 
-// ── 用例 2：worktree / Session 生命周期 ───────────────────────────────
+// ── 用例 2：worktree / Session 生命周期（归 team 托管，收口才结束）────────
 
-func TestWorktreeAndSessionSurviveUntilTheItemSettles(t *testing.T) {
+func TestWorktreeAndSessionSurviveUntilTeamClose(t *testing.T) {
 	fixture := newItemFixture(t, 6)
 	setupItemPlan(t, fixture)
 	block := make(chan struct{})
@@ -433,13 +445,21 @@ func TestWorktreeAndSessionSurviveUntilTheItemSettles(t *testing.T) {
 	if len(released) != 0 {
 		t.Fatalf("跑完但还没验收，工作区不该提前挂掉: %v", released)
 	}
-	// 验收通过 → 这一件事的隔离如约结束。
+	// 验收通过 → **仍然不动现场**：teammate 的现场与会话归 team 托管。
 	if err := fixture.coordinator.AcceptItem(ctx, "wi-req", "通过"); err != nil {
 		t.Fatalf("AcceptItem: %v", err)
 	}
 	_, _, released = fixture.spaces.snapshot()
+	if len(released) != 0 {
+		t.Fatalf("验收不再是回收点（现场活到整队收口），却释放了 %v", released)
+	}
+	// 整队收口 = 唯一回收点：现场 + 会话内容一并结束。
+	if _, err := fixture.coordinator.Close(ctx); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	_, _, released = fixture.spaces.snapshot()
 	if len(released) != 1 || released[0] != "wi-req" {
-		t.Fatalf("验收通过应当释放这件事的工作区: %v", released)
+		t.Fatalf("整队收口应当释放这件事的现场: %v", released)
 	}
 	calls := fixture.calls.snapshot()
 	found := false
@@ -449,7 +469,7 @@ func TestWorktreeAndSessionSurviveUntilTheItemSettles(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("验收通过应当清这件事的会话内容（下一件事重新开）: %v", calls)
+		t.Fatalf("整队收口应当清这件事的会话内容: %v", calls)
 	}
 }
 

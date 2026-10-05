@@ -282,21 +282,18 @@ func TestDispatchJoinMilestoneLifecycle(t *testing.T) {
 		t.Fatalf("Join 没有收敛: %+v", joined)
 	}
 
-	// 退场：四步顺序固定。
+	// 退场：名册动作——不动现场、不清会话、不回收作业（回收唯一入口 = 整队收口）。
 	if err := fixture.coordinator.Retire(ctx, "exec"); err != nil {
 		t.Fatalf("Retire: %v", err)
 	}
 	calls := fixture.calls.snapshot()
-	if len(calls) != 2 || calls[0] != "worktree:exec" || calls[1] != "session:s-v-model-exec" {
-		t.Fatalf("退场步骤顺序错了: %v", calls)
+	if len(calls) != 0 {
+		t.Fatalf("退场不动现场、不清会话（现场与会话归 team 托管），却调了 %v", calls)
 	}
 	if _, ok := fixture.jobs.Observe(handle); !ok {
 		t.Fatal("Retire 不得回收作业：回收统一收口到整队 Close（作业正文在整队关闭前一直在册）")
 	}
 	plan, _ = fixture.coordinator.Plan(ctx)
-	if plan.Members[1].Worktree != "" {
-		t.Fatalf("退场后 worktree 指派名应清空待重派: %+v", plan.Members[1])
-	}
 	if len(plan.Members) != 3 {
 		t.Fatal("退场删的是会话内容与检出，不是注册/在编")
 	}
@@ -380,9 +377,9 @@ func TestDispatchDedupsSameRole(t *testing.T) {
 	close(eventually)
 }
 
-// TestRetireKeepsJobOnRosterAndTouchesOnlyThatTeammate：Retire 只做"释放 worktree → 清
-// 会话内容 → 保在线"，**不回收作业**（回收统一收口到整队 Close）——作业正文在整队
-// 关闭前一直在册；且退场只动这一个 teammate，邻居的作业不受牵连。
+// TestRetireKeepsJobOnRosterAndTouchesOnlyThatTeammate：Retire 是**名册动作**——不动现场、
+// 不清会话、**不回收作业**（回收统一收口到整队 Close）——作业正文在整队关闭前一直在册；
+// 且退场只动这一个 teammate，邻居的作业不受牵连。
 func TestRetireKeepsJobOnRosterAndTouchesOnlyThatTeammate(t *testing.T) {
 	fixture := newFixture(t, 6)
 	eventually := make(chan struct{})
@@ -409,13 +406,15 @@ func TestRetireKeepsJobOnRosterAndTouchesOnlyThatTeammate(t *testing.T) {
 		t.Fatal("退场只动这一个 teammate，邻居的作业不该被牵连")
 	}
 	calls := fixture.calls.snapshot()
-	if len(calls) != 2 || calls[0] != "worktree:exec" || calls[1] != "session:s-v-model-exec" {
-		t.Fatalf("退场的「释放工作区 → 清会话内容」两步照旧要发生: %v", calls)
+	if len(calls) != 0 {
+		t.Fatalf("退场不动现场、不清会话（现场与会话归 team 托管），却调了 %v", calls)
 	}
 	close(eventually)
 }
 
-func TestRetireRequiresWorkspaceAndSessionPorts(t *testing.T) {
+// TestCloseRequiresWorkspaceAndSessionPorts：回收唯一入口是整队收口——缺工作区端口时
+// 必须在收口步 2 显式报错；退场是名册动作，不需要这两个端口。
+func TestCloseRequiresWorkspaceAndSessionPorts(t *testing.T) {
 	store := &memoryPlanStore{}
 	manager, err := jobs.New(jobs.WithExecutor(WorkerExecutor(&fakeRunner{}, nil, 4)))
 	if err != nil {
@@ -434,9 +433,12 @@ func TestRetireRequiresWorkspaceAndSessionPorts(t *testing.T) {
 	if err := coordinator.SetPlan(ctx, vmodelPlan()); err != nil {
 		t.Fatalf("SetPlan: %v", err)
 	}
-	err = coordinator.Retire(ctx, "exec")
+	if err := coordinator.Retire(ctx, "exec"); err != nil {
+		t.Fatalf("退场不动现场与会话，不该要求这两个端口: %v", err)
+	}
+	_, err = coordinator.Close(ctx)
 	if err == nil || !strings.Contains(err.Error(), "步 2") {
-		t.Fatalf("缺工作区端口时必须在步 2 显式报错，得到 %v", err)
+		t.Fatalf("缺工作区端口时必须在收口步 2 显式报错，得到 %v", err)
 	}
 }
 

@@ -97,10 +97,10 @@ func TestDispatchBindsTeammateSceneAndRecordsLedger(t *testing.T) {
 	}
 }
 
-// TestRetireReleasesEverySceneOfRole —— ④ 一角色两 Work Item + 角色级现场：退场必须
-// **全部**释放（角色级走 WorkspaceReleaser，两件 Work Item 逐个走 Workspaces），
-// 不得只释放一个。
-func TestRetireReleasesEverySceneOfRole(t *testing.T) {
+// TestRetireKeepsEverySceneOfRole —— ④ 一角色两 Work Item + 角色级现场：退场是**名册
+// 动作**，现场一个都不动（teammate 的现场与会话归 team 托管）；两件活的绑定照旧在册，
+// 回收统一落在整队收口。
+func TestRetireKeepsEverySceneOfRole(t *testing.T) {
 	fixture := newItemFixture(t, 6)
 	ctx := context.Background()
 	if err := fixture.coordinator.SetPlan(ctx, itemPlan()); err != nil {
@@ -126,33 +126,66 @@ func TestRetireReleasesEverySceneOfRole(t *testing.T) {
 			t.Fatalf("FailItem(%s): %v", id, err)
 		}
 	}
+	before, err := fixture.coordinator.Plan(ctx)
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	memberBefore, _ := memberFor(before, "exec")
+
 	if err := fixture.coordinator.Retire(ctx, "exec"); err != nil {
 		t.Fatalf("Retire: %v", err)
 	}
-	if calls := fixture.calls.snapshot(); !containsName(calls, "worktree:exec") {
-		t.Fatalf("退场必须释放角色级现场（脏检查在这条路上），端口调用见 %v", calls)
+	if calls := fixture.calls.snapshot(); len(calls) != 0 {
+		t.Fatalf("退场不动现场、不清会话（回收唯一入口是整队收口），却调了 %v", calls)
 	}
-	_, _, released := fixture.spaces.snapshot()
-	for _, id := range []string{"wi-a", "wi-b"} {
-		if !containsName(released, id) {
-			t.Fatalf("工作项 %q 的现场没有释放（已释放 %v）——不得只释放一个", id, released)
-		}
+	if _, _, released := fixture.spaces.snapshot(); len(released) != 0 {
+		t.Fatalf("退场不该释放任何现场，却释放了 %v", released)
 	}
 	rows, err := fixture.store.ReadBindings(ctx, fixture.coordinator.Key())
 	if err != nil {
 		t.Fatalf("ReadBindings: %v", err)
 	}
-	for _, binding := range sessionstore.TeamworkBindings(rows) {
-		if binding.Role == "exec" {
-			t.Fatalf("退场后该角色名下不该还有活绑定: %+v", binding)
+	live := sessionstore.TeamworkBindings(rows)
+	for _, id := range []string{"wi-a", "wi-b"} {
+		if _, ok := live[id]; !ok {
+			t.Fatalf("退场后 %q 的绑定应当还在册（收口才结束它）: %+v", id, live)
 		}
 	}
-	plan, err := fixture.coordinator.Plan(ctx)
+	after, err := fixture.coordinator.Plan(ctx)
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
-	if member, ok := memberFor(plan, "exec"); ok && member.Worktree != "" {
-		t.Fatalf("退场后成员的现场指派名应清空待重派: %+v", member)
+	memberAfter, _ := memberFor(after, "exec")
+	if memberAfter.Worktree != memberBefore.Worktree {
+		t.Fatalf("退场不动现场，指派名照实留着：%q → %q", memberBefore.Worktree, memberAfter.Worktree)
+	}
+
+	// 唯一回收点：先人工处置（销项）再整队收口，角色的全部现场一并结束。
+	for _, id := range []string{"wi-a", "wi-b"} {
+		if err := fixture.coordinator.AcceptItem(ctx, id, "现场已处置，销项"); err != nil {
+			t.Fatalf("AcceptItem(%s): %v", id, err)
+		}
+	}
+	if _, err := fixture.coordinator.Close(ctx); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if calls := fixture.calls.snapshot(); !containsName(calls, "worktree:exec") {
+		t.Fatalf("收口必须释放角色级现场（脏检查在这条路上），端口调用见 %v", calls)
+	}
+	_, _, released := fixture.spaces.snapshot()
+	for _, id := range []string{"wi-a", "wi-b"} {
+		if !containsName(released, id) {
+			t.Fatalf("收口应释放工作项 %q 的现场（已释放 %v）——不得只释放一个", id, released)
+		}
+	}
+	rows, err = fixture.store.ReadBindings(ctx, fixture.coordinator.Key())
+	if err != nil {
+		t.Fatalf("ReadBindings: %v", err)
+	}
+	for _, binding := range sessionstore.TeamworkBindings(rows) {
+		if binding.Role == "exec" {
+			t.Fatalf("收口后该角色名下不该还有活绑定: %+v", binding)
+		}
 	}
 }
 
@@ -213,10 +246,10 @@ func newSceneFixture(t *testing.T, spaces *failingSpaces) *itemFixture {
 	}
 }
 
-// TestRetireNamesTheItemWhoseSceneFailedToRelease —— 退场释放 Work Item 级现场时，
+// TestCloseNamesTheItemWhoseSceneFailedToRelease —— 收口释放 Work Item 级现场时，
 // 失败必须**说清是哪一个**；同一批里其余现场照旧释放（不得只释放一个），失败的那一
 // 份不记释放行（现场还在，账不能先销）。
-func TestRetireNamesTheItemWhoseSceneFailedToRelease(t *testing.T) {
+func TestCloseNamesTheItemWhoseSceneFailedToRelease(t *testing.T) {
 	spaces := &failingSpaces{
 		fakeSpaces: &fakeSpaces{},
 		fail:       map[string]error{"wi-b": errors.New("worktree: 未提交改动")},
@@ -237,13 +270,14 @@ func TestRetireNamesTheItemWhoseSceneFailedToRelease(t *testing.T) {
 			t.Fatalf("DispatchItem(%s): %v", id, err)
 		}
 		waitItemStatus(t, fixture, id, sessionstore.TeamworkItemReview)
-		if err := fixture.coordinator.FailItem(ctx, id, "留现场待处置"); err != nil {
-			t.Fatalf("FailItem(%s): %v", id, err)
+		// 销项（现场仍归 team 托管：验收不再是回收点），让收口闸门放行。
+		if err := fixture.coordinator.AcceptItem(ctx, id, "销项，现场留到收口"); err != nil {
+			t.Fatalf("AcceptItem(%s): %v", id, err)
 		}
 	}
-	err := fixture.coordinator.Retire(ctx, "exec")
+	_, err := fixture.coordinator.Close(ctx)
 	if err == nil {
-		t.Fatal("有现场释放不了时退场必须显式报错，不得静默跳过")
+		t.Fatal("有现场释放不了时收口必须显式报错，不得静默跳过")
 	}
 	if !strings.Contains(err.Error(), "wi-b") {
 		t.Fatalf("错误必须点明失败的是哪一个工作项，得到 %v", err)

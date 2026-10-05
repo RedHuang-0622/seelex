@@ -226,8 +226,8 @@ func (r *Runtime) registerTeamworkTools() {
 	r.RegisterTool("team_join", teamworkJoinDescription(), teamworkJoinSchema(), r.teamJoinHandler)
 	r.RegisterTool("team_milestone", teamworkMilestoneDescription(), teamworkMilestoneSchema(), r.teamMilestoneHandler)
 	r.RegisterTool("team_retire", teamworkRetireDescription(), teamworkRetireSchema(), r.teamRetireHandler)
-	// team_close：整队**收口**的唯一入口。它与 team_retire 的区别只在"回收作业"这一处
-	// （retire 不再回收，见 coordinator.retireSteps）：收口之前，作业正文一直留在册上。
+	// team_close：整队**收口**的唯一入口：作业回收、现场拆除、会话内容清空都落在这一处
+	// （team_retire 是名册动作，什么都不拆——见 coordinator.Retire / closeStepsLocked）。
 	r.RegisterTool("team_close", teamworkCloseDescription(), teamworkCloseSchema(), r.teamCloseHandler)
 	// team_context：成员工作上下文**读面**（要求③）。它只读、且正文走非消费读法
 	// （Manager.Peek），因此与其余 team_* 工具不同：调用它不会改变任何事实。
@@ -616,12 +616,13 @@ func (r *Runtime) teamRetireHandler(ctx context.Context, argsJSON string) (strin
 	r.archiveTeamBoard(ctx)
 	return jsonReceipt(map[string]any{
 		"ok": true, "role": raw.Role,
-		"detail": "释放该角色的全部现场（角色级 + 名下各 Work Item）→ 清会话内容 → 保在线（作业不在这里回收：它活到 team_close）",
+		"detail": "本轮结束（留在编）：现场与会话归 team 托管、不动；作业与现场统一活到 team_close",
 	})
 }
 
-// teamCloseHandler 收口整支团队（team_close）：逐在编成员走同一套退场四步（回收统一
-// 收口到这一处）→ 封板团队看板（closed / team.close）→ 计划标 closed → 落一条 close 审计。
+// teamCloseHandler 收口整支团队（team_close）：逐在编成员走同一套收口四步（作业回收、
+// 现场拆除、会话内容清空统一落在这一处）→ 封板团队看板（closed / team.close）→ 计划标
+// closed → 落一条 close 审计。
 //
 // 收口不接受参数：收口的是"这支团队"，不是某一个人（逐人退场是 team_retire）。
 // 幂等：已收口的团队第二次调用返回 already_closed=true，**不重复封板、不重复落审计**。

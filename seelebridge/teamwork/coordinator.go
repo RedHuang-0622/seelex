@@ -353,7 +353,13 @@ func (c *Coordinator) Milestone(ctx context.Context, id, content string) error {
 //  4. 保留 teammate 在编，worktree 字段置空待重派；回收时清掉句柄投影
 //
 // 顺序不能换：先停作业再清记忆，否则会"清完记忆还在写"。
-func (c *Coordinator) retireStepsLocked(ctx context.Context, role string, reclaim bool) (sessionstore.TeamworkPlan, error) {
+// closeStepsLocked 是**整队收口**里对单个在编成员做的四步（Close 的唯一实现）。
+// 单角色退场（team_retire）**不再**走这里：teammate 的现场与会话归 team 托管，回收的
+// 唯一入口是整队收口（2026-10-06 口径；此前退场也会拆现场、清会话）。
+//
+//	步 1 回收这个主体名下的作业 → 步 2 拆它的全部现场（角色级 + 名下每个 Work Item）
+//	→ 步 3 清会话内容 → 步 4 名册动作（指派名与句柄投影清掉，成员留在编）
+func (c *Coordinator) closeStepsLocked(ctx context.Context, role string) (sessionstore.TeamworkPlan, error) {
 	plan, err := c.store.ReadPlan(ctx, c.key)
 	if err != nil {
 		return plan, err
@@ -362,49 +368,45 @@ func (c *Coordinator) retireStepsLocked(ctx context.Context, role string, reclai
 	if !ok {
 		return plan, fmt.Errorf("teamwork: 角色 %q 不在计划里", role)
 	}
-	// 步 1：只回收这一个主体名下的作业，同会话其他人不受影响。整队收口（Close）才做。
-	if reclaim {
-		if err := c.jobs.Reclaim(ctx, jobs.Scope{Session: c.key.SessionID, Subject: SubjectForRole(role)}); err != nil {
-			return plan, fmt.Errorf("teamwork: 收口步 1（回收作业）失败: %w", err)
-		}
+	// 步 1：只回收这一个主体名下的作业，同会话其他人不受影响。
+	if err := c.jobs.Reclaim(ctx, jobs.Scope{Session: c.key.SessionID, Subject: SubjectForRole(role)}); err != nil {
+		return plan, fmt.Errorf("teamwork: 收口步 1（回收作业）失败: %w", err)
 	}
 	// 步 2：释放该 teammate 的**全部**现场（角色级 + 该角色名下每一个已派发 Work
-	// Item）。缺端口 = 显式报错：静默跳过会让 worktree 悄悄累积，而"teammate 不挂
-	// 子代理 ⇒ worktree 数量被人数封顶"这条前提正是靠它成立。
+	// Item）。缺端口 = 显式报错：静默跳过会让 worktree 悄悄累积。
 	if c.worktrees == nil {
-		return plan, errors.New("teamwork: 退场步 2 需要 WorkspaceReleaser（未装配）")
+		return plan, errors.New("teamwork: 收口步 2 需要 WorkspaceReleaser（未装配）")
 	}
-	if err := c.releaseTeammateScenes(ctx, plan.TeamID, role, retireReason(reclaim)); err != nil {
-		return plan, fmt.Errorf("teamwork: 退场步 2（释放工作区）失败: %w", err)
+	if err := c.releaseTeammateScenes(ctx, plan.TeamID, role, "team_close"); err != nil {
+		return plan, fmt.Errorf("teamwork: 收口步 2（释放工作区）失败: %w", err)
 	}
 	// 步 3：清会话内容（删的是对话记忆与工作区检出，不是注册/在编）。
 	if c.sessions == nil {
-		return plan, errors.New("teamwork: 退场步 3 需要 SessionResetter（未装配）")
+		return plan, errors.New("teamwork: 收口步 3 需要 SessionResetter（未装配）")
 	}
 	if err := c.sessions.ResetSession(ctx, member.RoleSessionID); err != nil {
-		return plan, fmt.Errorf("teamwork: 退场步 3（清会话内容）失败: %w", err)
+		return plan, fmt.Errorf("teamwork: 收口步 3（清会话内容）失败: %w", err)
 	}
-	// 步 4：留在编，worktree 指派名清空待重派；句柄投影只在回收时清（没回收时作业
-	// 还在册，投影照实留着——它是看板上的"谁还在跑"）。
+	// 步 4：留在编，worktree 指派名与句柄投影一并清掉（现场已经拆了，地址不该再留着）。
 	for index := range plan.Members {
 		if plan.Members[index].Role == role {
 			plan.Members[index].Worktree = ""
 		}
 	}
-	if reclaim {
-		delete(plan.State.Jobs, role)
-	}
+	delete(plan.State.Jobs, role)
 	if err := c.store.WritePlan(ctx, c.key, plan, c.maxMembers); err != nil {
 		return plan, err
 	}
 	return plan, nil
 }
 
-// Retire 结束某 teammate 的一轮任务：**顺序固定**四步（D7 / §4.4），与 Close 复用同一
-// 套实现，两者只差一处——Retire **不回收作业**（回收统一收口到 Close，见 retireSteps）。
+// Retire 结束某 teammate 的一轮任务：**名册动作**——人留在编，现场（worktree）与会话内容
+// **都不动**。teammate 的 session/worktree 归 team 托管，回收的唯一入口是整队收口
+// （team_close → Close 的四步 + releaseAllItems）。所以退场之后这个人接着干下一件事时，
+// 还是同一套现场与会话（记忆建在），而不是像 subagent 那样"派出即建、收尾即清"。
 //
-// Work Item 口径下多一道闸门：这个人名下还有**在跑或待验收**的工作项时不许退场——
-// 退场会释放工作区，而现场正是那件事的证据（"开始的工作是既定的"）。
+// Work Item 口径下有一道闸门：这个人名下还有**在跑或待验收**的工作项时不许退场——
+// "开始的工作是既定的"，先把它落定（或亲手判失败）。
 func (c *Coordinator) Retire(ctx context.Context, role string) error {
 	c.lockPlan()
 	defer c.unlockPlan()
@@ -414,13 +416,16 @@ func (c *Coordinator) Retire(ctx context.Context, role string) error {
 		return fmt.Errorf("teamwork: teammate %q 还有 %d 件工作没落定（%s）——先完成或亲手判失败再退场",
 			role, len(busy), strings.Join(busy, ", "))
 	}
-	plan, err := c.retireStepsLocked(ctx, role, false)
+	plan, err := c.store.ReadPlan(ctx, c.key)
 	if err != nil {
 		return err
 	}
+	if _, ok := memberFor(plan, role); !ok {
+		return fmt.Errorf("teamwork: 角色 %q 不在计划里", role)
+	}
 	return c.audit(ctx, sessionstore.TeamworkEvent{
 		Kind: sessionstore.TeamworkEventRetire, TeamID: plan.TeamID, Role: role,
-		Detail: "释放该角色的全部现场（角色级 seelex/" + role + " + 名下各 Work Item）→ 清会话内容 → 保在线（作业在整队 close 前仍在册）",
+		Detail: "本轮结束（留在编）：现场与会话归 team 托管、不动；回收统一在 team_close",
 	})
 }
 
@@ -510,7 +515,7 @@ func (c *Coordinator) Close(ctx context.Context) (bool, error) {
 			len(unsettled), strings.Join(unsettled, ", "))
 	}
 	for _, member := range plan.Members {
-		if _, err := c.retireStepsLocked(ctx, member.Role, true); err != nil {
+		if _, err := c.closeStepsLocked(ctx, member.Role); err != nil {
 			return false, err
 		}
 	}
