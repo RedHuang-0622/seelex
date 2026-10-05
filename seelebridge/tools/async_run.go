@@ -9,9 +9,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/internal/winhide"
-	"github.com/RedHuang-0622/seelex/seelebridge/security"
 )
 
 // 后台命令的轮询型执行域·执行体：派发、收尾、终止与资源回收。
@@ -240,20 +237,12 @@ func (r *Router) startInlineJob(ctx context.Context, run asyncRun, spec JobSpec)
 // 存活上限由执行体自带的 asyncHardCap 兜住。
 //
 // 进程树两件事缺一不可：ConfigureProcessTree 让 bash 自成一组（否则杀不到孙进程），
-// cmd.Cancel 把 ctx 到点的默认"只杀直接子进程"换成整组终止。
+// cmd.Cancel 把 ctx 到点的默认"只杀直接子进程"换成整组终止。装配与同步链**同一份**
+// （newProcessTreeCommand）；只有 runCtx 是有意不同的那一件（见该函数注释）。
 func (r *Router) startAsync(ctx context.Context, run asyncRun, command, workdir string) error {
-	tree := security.NewProcessTree()
 	shell, shellArgs := scopedBashCommand(command)
 	runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), asyncHardCap)
-	cmd := exec.CommandContext(runCtx, shell, shellArgs...)
-	winhide.Apply(cmd)
-	cmd.Dir = workdir
-	security.ConfigureHiddenCommand(cmd)
-	security.ConfigureProcessTree(cmd)
-	// ctx 到点时 exec 默认只杀直接子进程（bash），它派出的孙进程照活——硬超时
-	// 因此必须换成"终止整棵树"。
-	cmd.Cancel = func() error { return tree.Terminate() }
-	cmd.WaitDelay = asyncWaitDelay
+	cmd, tree := newProcessTreeCommand(runCtx, shell, shellArgs, workdir)
 
 	file, err := os.Create(run.logPath)
 	if err != nil {
@@ -264,16 +253,10 @@ func (r *Router) startAsync(ctx context.Context, run asyncRun, command, workdir 
 	// stdout+stderr 交错写同一文件：顺序本身是信息（同一次报错的上下文）。
 	writer := &cappedLogWriter{registry: r.async, handle: run.handle, file: file, remain: asyncLogCap}
 	cmd.Stdout, cmd.Stderr = writer, writer
-	if err := cmd.Start(); err != nil {
+	if err := startWithProcessTree(cmd, tree); err != nil {
 		cancel()
 		_ = file.Close()
-		tree.Close()
 		return fmt.Errorf("bash: %w", err)
-	}
-	if cmd.Process != nil {
-		// 挂不上树（Job 建不出、OpenProcess 被拒）不放弃执行：派发已经发生，
-		// 退化成"只杀直接子进程"比报错有用。差别由 tree.Degraded() 说得出。
-		_ = tree.Attach(cmd.Process.Pid)
 	}
 	if !r.async.attach(run.handle, tree) {
 		// 记录已不在（极端：派发后立刻被驱逐/关停）。树再也没人关，自己收。

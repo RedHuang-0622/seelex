@@ -543,15 +543,24 @@ func (r *Router) scopedBashRead(ctx context.Context, argsJSON string) (output st
 	return r.executeScopedBash(ctx, input.Command, input.Timeout, workdir)
 }
 
-// newScopedCommand 构造一条"整棵树可终止"的同步命令。
+// newProcessTreeCommand 组装一条"整棵树可终止"的命令——**进程树装配只有这一份**：
+// 同步链（executeScopedBash 及其重试）与后台链（async_run.startAsync）都转调它。
 //
 // exec.CommandContext 的默认取消只杀直接子进程（bash/powershell），它 fork 出来的孙
 // 进程照活：既继续产出（用户以为停了），又继续持有输出管道，于是 cmd.Wait 要等到孙进程
 // 自己退出才返回——"停止工具调用"就变成"点了停止还要再等几十秒"。进程树（Windows
-// Job Object / POSIX 进程组）覆盖整棵树，与后台执行域同源（见 async_run.startAsync）。
+// Job Object / POSIX 进程组）覆盖整棵树，两条链同源。
 //
 // WaitDelay 是兜底：孙进程握管道而终止实现失效时，收尾仍能在预算内返回，不被按住。
-func newScopedCommand(runCtx context.Context, shell string, shellArgs []string, workdir string) (*exec.Cmd, *security.ProcessTree) {
+//
+// runCtx 由调用方给——**超时/取消策略有意不并**，两者语义不同：
+//   - 后台（startAsync）：`context.WithTimeout(context.WithoutCancel(ctx), asyncHardCap)`
+//     ——受理回执一返回，本次工具调用的 ctx 就失效，沿用它会把刚起的命令连带杀掉；
+//   - 同步（executeScopedBash）：`context.WithTimeout(ctx, r.scopedToolTimeout(...))`
+//     ——受本次工具调用预算约束、可被"停止"取消。
+//
+// 装配（树 + 起命令位 + 取消换整组终止 + WaitDelay）没有理由分家，策略有。
+func newProcessTreeCommand(runCtx context.Context, shell string, shellArgs []string, workdir string) (*exec.Cmd, *security.ProcessTree) {
 	tree := security.NewProcessTree()
 	cmd := exec.CommandContext(runCtx, shell, shellArgs...)
 	winhide.Apply(cmd)
@@ -563,9 +572,9 @@ func newScopedCommand(runCtx context.Context, shell string, shellArgs []string, 
 	return cmd, tree
 }
 
-// startScopedCommand 起命令并把进程挂进树。挂不上不放弃执行：派发已经发生，退化成
-// "只杀直接子进程"比报错有用，差别由 tree.Degraded() 说得出。
-func startScopedCommand(cmd *exec.Cmd, tree *security.ProcessTree) error {
+// startWithProcessTree 起命令并把进程挂进树（两条链共用）。挂不上不放弃执行：派发
+// 已经发生，退化成"只杀直接子进程"比报错有用，差别由 tree.Degraded() 说得出。
+func startWithProcessTree(cmd *exec.Cmd, tree *security.ProcessTree) error {
 	if err := cmd.Start(); err != nil {
 		tree.Close()
 		return err
@@ -587,11 +596,11 @@ func (r *Router) executeScopedBash(ctx context.Context, command string, timeoutS
 	timeout := r.scopedToolTimeout(timeoutSec)
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd, tree := newScopedCommand(runCtx, shell, shellArgs, workdir)
+	cmd, tree := newProcessTreeCommand(runCtx, shell, shellArgs, workdir)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	r.observeBash(BashDiagnosticEvent{Stage: "bash.process.starting", Shell: filepath.Base(shell)})
-	if err := startScopedCommand(cmd, tree); err != nil {
+	if err := startWithProcessTree(cmd, tree); err != nil {
 		r.observeBash(BashDiagnosticEvent{Stage: "bash.process.start.error", Shell: filepath.Base(shell), Err: err})
 		return "", fmt.Errorf("bash: %w", err)
 	}
@@ -631,10 +640,10 @@ func (r *Router) executeScopedBash(ctx context.Context, command string, timeoutS
 		if startErr == nil {
 			// 重跑（新超时上下文；原 runCtx 可能已耗尽）。
 			retryCtx, retryCancel := context.WithTimeout(ctx, timeout)
-			retryCmd, retryTree := newScopedCommand(retryCtx, shell, shellArgs, workdir)
+			retryCmd, retryTree := newProcessTreeCommand(retryCtx, shell, shellArgs, workdir)
 			var retryOut, retryErrBuf bytes.Buffer
 			retryCmd.Stdout, retryCmd.Stderr = &retryOut, &retryErrBuf
-			runErr := startScopedCommand(retryCmd, retryTree)
+			runErr := startWithProcessTree(retryCmd, retryTree)
 			if runErr == nil {
 				runErr = retryCmd.Wait()
 				retryTree.Close()
