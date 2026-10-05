@@ -17,7 +17,7 @@
 | 1 | **作业面** `JobFace` | 一件在飞的活：提交、句柄、状态、增量读、取消、销项、按作用域回收、事件 | `Submit(ctx, Spec)(Handle,err)` / `Status` / `Peek`（增量读、不推进游标）/ `Kill` / `Done` / `Reclaim(ctx, Scope)` / `Events()` / `Snapshot(Scope)` | Seele `jobs.Manager`（teammate 现在）、`tools` 那张 async 表（subagent / bash_bg 现在） | 装配处（new） |
 | 2 | **现场** `SceneFace` | 一件活的现场：建、收尾合并、回收、重启认领 | `Begin(ctx, identity)(Scene,err)` / `Finish(ctx, scene, result, mergeErr)(Outcome,err)` / `Reclaim(ctx, scene)` / `Adopt/Restore(ctx)` | `*worktree.WorktreeManager`（已是一份实现） | 装配处（new） |
 | 3 | **会话/记录** `SessionFace` | 跑到哪、现场在哪、重启怎么回灌 | `Save/Load/List/Delete(record)` / `Recover(ctx, scope)(Resume,err)` / `InFlight(status)` | `*sessionstore.NodeSessionStore`（`SessionLedger` 已有编译期断言） | 装配处（new） |
-| 4 | **读面** `ReadFace` | 进度 / 阶段 / 结论 / 在跑与否（只读，不新起事实源） | 待勘定（`a3` 交付 `docs/arch/workunit-progress-read-surface.md`） | 投影自 ① + ③，**不新增一张表** | 装配处（new） |
+| 4 | **读面** `ReadFace` | 进度 / 阶段 / 结论 / 在跑与否（只读，不新起事实源） | `Stage` / `EncodeStages·DecodeStages` / `Progress·ProgressOf` / `UnitReader`（`a3` 勘定：`docs/arch/workunit-progress-read-surface.md`，建议落 `seelebridge/workunit/progress.go`） | 投影自 ① + ③，**不新增一张表** | 装配处（new） |
 | 5 | 编排闸门 | 屏障、依赖、在编校验 | —— | leader 侧（`teamwork.Coordinator`） | **不进 workunit**，以回调/端口接 |
 | 6 | 装配 | plugin / 系统提示词 / skill 前缀 | —— | `runtime_role_turn` 一侧 | **不进 workunit**，以回调/端口接 |
 | 7 | 账本/看板 | 谁的活、哪一件、终态归档 | —— | team plan + board | **不进 workunit**，以端口接 |
@@ -61,7 +61,11 @@
    让"两个父实现同形"从今天起就被编译器钉住；**不改**它的行为、**不动**迁移。
 3. 契约里写清：`Peek`（增量、不推进游标）与 `Snapshot`（全量）是两个用法；`Reclaim` 只按 scope 回收。
 4. 装配表落地一版：生命周期实现只持有端口，不持有 `teamwork` / `worktree` / `session` 的具体类型。
-5. 验证：`gofmt` / `go build ./...` / `go vet` / 相关包 `-count=1` 真跑并记录；**不做**行为迁移，
+5. 读面按 `a3` 的勘定收口一版：`workunit/progress.go`（`Stage` 编解码 + `ProgressOf` + `UnitReader`）；
+   `a3` 已钉出真因不是形状不统一（两层本来就落同一张 `sessionstore.NodeSessionRecord`、走同一个
+   `workunit.SessionLedger`），而是"记录→进度折算"**三份手写** + teammate 阶段打点恒为单元素。
+   折算的合并归 ② 那一波（它跨 `session/` 与 `workunit_team_records.go`），① 只先把读法定形。
+6. 验证：`gofmt` / `go build ./...` / `go vet` / 相关包 `-count=1` 真跑并记录；**不做**行为迁移，
    既有用例一条不动（动了就是迁移，越界）。
 
 **前置**：`seelebridge/workunit/contract.go` 当前由在做父实现重构的 `a1` 占用（分支 `seelex/lifecycle-parent`）。
