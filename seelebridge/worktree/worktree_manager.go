@@ -494,6 +494,9 @@ func (w *WorktreeManager) finishExclusive(ctx context.Context, nodeID string, wt
 			return err
 		}
 	}
+	if err := w.alignMergeTarget(root, nodeID, wt); err != nil {
+		return err
+	}
 	w.deps.Phase(ctx, nodeID, "merging")
 	if out, mergeErr := w.git(root, "merge", "--no-edit", wt.Branch); mergeErr != nil {
 		if isMergeBlockedEvidence(out, mergeErr) {
@@ -505,6 +508,46 @@ func (w *WorktreeManager) finishExclusive(ctx context.Context, nodeID string, wt
 		return fmt.Errorf("worktree %q: merge %s into %s failed (resolve conflicts in the main workspace, or git merge --abort): %v\n%s\n冲突文件: %v", nodeID, wt.Branch, wt.MainBranch, mergeErr, out, conflicts)
 	}
 	return w.cleanup(root, wt)
+}
+
+// alignMergeTarget 把主工作区切到**现场记录的那条收尾分支**（`wt.MainBranch`，建现场
+// 时记下）再合并。
+//
+// 为什么必须有这一步：收尾段里有**三处**要用"这次合到哪条分支"这一个事实——
+// 变基目标（`git rebase wt.MainBranch`）、落后判定（`HEAD..wt.MainBranch`）与合并目标。
+// 前两处读的是现场记录，而 `git merge` 默认合进**主工作区当前所在的分支**：主工作区的
+// 当前分支一旦在工作途中漂走（leader 切分支、另一次会话/人工把项目根绑到别的工作区、
+// 人工 rebase），同一批里先收尾的就落在旧分支、后收尾的落在新分支——先前那份"已经合
+// 回来"的产出被踢成另一个分支上的孤儿（2026-10-06 红灯用例：A 合进 side、B 合进 main，
+// 收尾 B 之后主分支上只剩 B）。
+//
+// 判据只有一处：目标分支 = 现场记录的分支；不一致就**先切回去再合**。切不动（主工作区
+// 有在途改动挡路、分支已不存在）按既有的两类语义收口：挡路 → 可重试的
+// ErrMergeBlockedByMain（等主工作区干净后由 Finish 的预算循环重来），其余 → 硬失败并
+// 带上 git 原文（现场保留）。
+func (w *WorktreeManager) alignMergeTarget(root, nodeID string, wt *NodeWorktree) error {
+	target := strings.TrimSpace(wt.MainBranch)
+	if target == "" || target == "HEAD" {
+		// 建现场时主工作区是游离 HEAD / 没读到分支名：没有可切的目标，维持原语义
+		// （合并进当前 HEAD）。
+		return nil
+	}
+	current, err := w.git(root, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		// 读不到当前分支：不新增失败面，交给下面的 merge 自己去失败/成功。
+		return nil
+	}
+	if strings.TrimSpace(current) == target {
+		return nil
+	}
+	if out, checkoutErr := w.git(root, "checkout", target); checkoutErr != nil {
+		if isMergeBlockedEvidence(out, checkoutErr) {
+			return &mergeBlockedError{nodeID: nodeID, path: wt.Path, detail: firstEvidenceLine(out, checkoutErr)}
+		}
+		return fmt.Errorf("worktree %q: 主工作区在分支 %q 上，本次收尾要合回现场记录的 %q，切不回去（现场保留在 %s）：%v\n%s",
+			nodeID, strings.TrimSpace(current), target, wt.Path, checkoutErr, out)
+	}
+	return nil
 }
 
 // firstEvidenceLine 从 git 证据里取一行摘要（原文可能多行；诊断取首行）。
