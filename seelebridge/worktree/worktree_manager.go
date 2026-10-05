@@ -150,10 +150,15 @@ const (
 	phaseAwaitingMerge = "awaiting_merge"
 )
 
+// gitFn 是 worktree 包内的 git 注入点：组件走 w.git（测试可替换为 fake），包级入口
+// 走 GitRunner。同一份实现同时服务"收尾自动释放"与"验收释放"两条入口，靠的就是把
+// git 当参数传下去，而不是各写一份。
+type gitFn func(root string, args ...string) (string, error)
+
 type WorktreeManager struct {
 	mu        sync.Mutex
 	worktrees map[string]*NodeWorktree // nodeID → worktree（仅 RoleSubAgent 节点）
-	git       func(root string, args ...string) (string, error)
+	git       gitFn
 	deps      WorktreeManagerDeps
 	// finishActor 是收尾段的**单写者**：rebase / merge / cleanup 都要动主工作区的
 	// 索引与 .git，而 fork 的一批子代理是**并发收工**的——谁都不排队就会撞
@@ -697,6 +702,12 @@ func (w *WorktreeManager) listWorktrees(root string) ([]worktreeEntry, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseWorktreeList(out), nil
+}
+
+// parseWorktreeList 解析 `git worktree list --porcelain` 的读数——**worktree 清单
+// 只有这一份解析**（在册判定与列表都转调它，不再各自去啃人读格式）。
+func parseWorktreeList(out string) []worktreeEntry {
 	var entries []worktreeEntry
 	current := worktreeEntry{}
 	flush := func() {
@@ -717,7 +728,7 @@ func (w *WorktreeManager) listWorktrees(root string) ([]worktreeEntry, error) {
 		}
 	}
 	flush()
-	return entries, nil
+	return entries
 }
 
 // isManagedPath 判定一个 worktree 路径是否由本管理器命名（`<repoBase>-seelex-<nodeID>`，
@@ -819,12 +830,10 @@ func (w *WorktreeManager) diffStat(wt *NodeWorktree) (string, error) {
 	return out, nil
 }
 
+// cleanup 是收尾自动释放的入口（Finish 的两条成功路径）。释放判据只有一份，见
+// cleanupWorktreeWith：这里只把本组件的 git 注入点传下去。
 func (w *WorktreeManager) cleanup(root string, wt *NodeWorktree) error {
-	if _, err := w.git(root, "worktree", "remove", "--force", wt.Path); err != nil {
-		return err
-	}
-	_, _ = w.git(root, "branch", "-D", wt.Branch)
-	return nil
+	return cleanupWorktreeWith(w.git, root, wt)
 }
 
 // gitRunner 执行 git 命令（worktree 测试可用真实 git；命令经 ConfigureHiddenCommand
@@ -850,7 +859,15 @@ func GitRunner(root string, args ...string) (string, error) {
 }
 
 // CleanupWorktree 删除 worktree 及其分支（合并完成后或无可合并提交时）。
-// 包级薄包装：worktree_test.go 直接调用；组件内部走 w.cleanup 以支持 fake git 注入。
+// 包级薄包装：worktree_test.go 与 seelebridge 的验收释放直接调用；组件内部走
+// w.cleanup——两条入口转调**同一份实现**（cleanupWorktreeWith），只是 git 注入点不同
+// （GitRunner / w.git），因此不可能再出现"同一个现场、两条入口两个结论"。
+func CleanupWorktree(root string, wt *NodeWorktree) error {
+	return cleanupWorktreeWith(GitRunner, root, wt)
+}
+
+// cleanupWorktreeWith 是**现场释放的唯一实现**：判据 = 「git 登记不在（或 remove 成功）
+// = 已释放；登记还在而 `worktree remove --force` 失败 = 真失败，把 git 原文交回调用方」。
 //
 // **释放幂等**（2026-10-03 缺陷 A）：现场可能已被**上游**先收走——worker 回合结束的
 // 自动尾插（MergeWorkspace → WorktreeManager.Finish → cleanup）在"有提交已合并 / 无
@@ -858,58 +875,74 @@ func GitRunner(root string, args ...string) (string, error) {
 // 注册表与账本里的绑定还在、磁盘上的目录已经没了。随即 `team_accept` 的释放步骤对
 // 同一份绑定**再动手一次**，就会对着一个已不存在的路径跑 `git worktree remove --force`，
 // git 报 `exit status 128 / '<path>' is not a working tree`，把工作项卡在 review、
-// 下游里程碑闸门打不开。释放因此按"目录 / 分支 / git 登记任一已不存在 = 已释放"处理。
+// 下游里程碑闸门打不开。
+//
+// 判据重复的代价（2026-10-06 收口）：幂等口径当时只落在包级那一份，收尾自动释放那一份
+// 照旧非幂等，于是**同一个现场、两条入口两个结论**——见 worktree_release_judgment_test.go。
+// 现在两条入口共用本函数。
 //
 // 真正的问题**不掩盖**：目录还在、且仍在 `git worktree list` 里，而 `git worktree
-// remove --force` 失败时，照旧把 git 的原文返回（调用方显式报错）。
-func CleanupWorktree(root string, wt *NodeWorktree) error {
+// remove --force` 失败时，照旧把 git 的原文（runner 的第一个返回值就是这条命令的
+// stderr）带在报错里返回（调用方显式报错）。
+func cleanupWorktreeWith(git gitFn, root string, wt *NodeWorktree) error {
 	if wt == nil {
 		return nil
 	}
-	if _, err := os.Stat(wt.Path); err != nil {
-		// 目录已不在：现场已（被上游或手工）回收；只清可能残留的分支名。
-		deleteWorktreeBranch(root, wt.Branch)
+	// 顺序有意如此：**先动手、再按 git 登记判定**（不看 os.Stat）。
+	// 权威不是"目录在不在"，而是"git 还认不认这份登记"：目录不在了而登记还在时，
+	// `git worktree remove --force` 自己就把登记清掉（exit 0）；反过来，登记被
+	// 上游收走了，这条命令会以 128 失败——那才是"已释放过"。把"目录不在了"当成
+	// "已经放干净了"会漏掉真正的失败，也会让"收尾自动释放"与"验收释放"两条入口
+	// 又分岔（2026-10-06 之前就是这样分岔的）。
+	stderr, err := git(root, "worktree", "remove", "--force", wt.Path)
+	if err == nil {
+		deleteWorktreeBranchWith(git, root, wt.Branch)
 		return nil
 	}
-	if _, err := GitRunner(root, "worktree", "remove", "--force", wt.Path); err != nil {
-		if !gitWorktreeRegistered(root, wt.Path) {
-			// 目录还在，但 git 已不认识这个 worktree（登记被 prune / 手工移过）：
-			// 这也是"已释放过"，不是 remove 失败。
-			deleteWorktreeBranch(root, wt.Branch)
-			return nil
-		}
-		return err
+	if !worktreeRegisteredWith(git, root, wt.Path) {
+		// git 已不认识这个 worktree（登记被上游/手工收走，或本就没登记过）：
+		// 这是"已释放过"，不是 remove 失败；只清可能残留的分支名。
+		deleteWorktreeBranchWith(git, root, wt.Branch)
+		return nil
 	}
-	deleteWorktreeBranch(root, wt.Branch)
-	return nil
+	return worktreeRemoveError(wt.Path, stderr, err)
 }
 
-// deleteWorktreeBranch 删除本地分支，忽略"分支不存在"（释放幂等的另一半：分支可能
+// worktreeRemoveError 把 git 的原文留在报错里：注入的 runner 的第一个返回值就是这条
+// 命令的 stderr（例如 `fatal: cannot remove a locked working tree; use 'remove -f -f'
+// to override or unlock first`），只回 `exit status 128` 等于把"为什么没删掉"丢掉。
+func worktreeRemoveError(path, stderr string, err error) error {
+	if detail := strings.TrimSpace(stderr); detail != "" {
+		return fmt.Errorf("git worktree remove --force %s: %s: %w", path, detail, err)
+	}
+	return fmt.Errorf("git worktree remove --force %s: %w", path, err)
+}
+
+// deleteWorktreeBranchWith 删除本地分支，忽略"分支不存在"（释放幂等的另一半：分支可能
 // 已被上游一并删掉）。
-func deleteWorktreeBranch(root, branch string) {
+func deleteWorktreeBranchWith(git gitFn, root, branch string) {
 	if strings.TrimSpace(branch) == "" {
 		return
 	}
-	_, _ = GitRunner(root, "branch", "-D", branch)
+	_, _ = git(root, "branch", "-D", branch)
 }
 
 // gitWorktreeRegistered 报告某个路径是否仍在 `git worktree list` 的清单里
-// （登记还在 = 还没释放；已不在 = 已释放，CleanupWorktree 据此幂等）。
+// （登记还在 = 还没释放；已不在 = 已释放，释放据此幂等）。包级薄包装：接线真实 git；
+// 解析与比较只有一份（parseWorktreeList + worktreePathEqual）。
 func gitWorktreeRegistered(root, path string) bool {
-	out, err := GitRunner(root, "worktree", "list")
+	return worktreeRegisteredWith(GitRunner, root, path)
+}
+
+// worktreeRegisteredWith 用注入的 git 判定"这条路径还在不在册"：清单按 porcelain 解析
+// （唯一解析），路径比较统一走 worktreePathEqual。
+func worktreeRegisteredWith(git gitFn, root, path string) bool {
+	out, err := git(root, "worktree", "list", "--porcelain")
 	if err != nil {
 		return false
 	}
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		// 行格式 `<path>  <sha> [<branch>]`：路径与后面的列以**两个空格**分隔。
-		if i := strings.Index(line, "  "); i > 0 {
-			line = line[:i]
-		}
-		if worktreePathEqual(line, path) {
+	for _, entry := range parseWorktreeList(out) {
+		if worktreePathEqual(entry.path, path) {
 			return true
 		}
 	}
