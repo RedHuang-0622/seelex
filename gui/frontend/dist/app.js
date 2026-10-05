@@ -25,7 +25,7 @@ import { createRuntimeEventBinder } from "./runtime-events.js";
 import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
 import { employeePool, hirePanel, isPinnedRole, nextAgentTeamOrder, normalizeAgentTeam, normalizeTeamGlobal, normalizeTeamLibrary, PERMISSION_CUSTOM_TOOLS, PERMISSION_GROUPS, PERMISSION_BITS, renderAgentTeam, renderRoleSessionDetail, renderTeamMemberList, roleDisplayName, teamEditorPanel, teamEntryFromMembers, teamMemberNames, teamMemberSpecMap, teamRoleSpec } from "./agent-team-view.js";
 // 提交侧的装配（按会话插件）规整：**只 trim + 丢空项，不去重**（重复由后端显式拒绝）。
-import { withPluginAssembly } from "./plugin-source.js";
+import { escapePluginSourceText, pluginSourceBadge, withPluginAssembly } from "./plugin-source.js";
 import { renderHistorySearchResults } from "./history-search.js";
 import { createThemeController, loadThemeManifest } from "./theme.js";
 import {
@@ -2063,13 +2063,29 @@ function renderPermissionMenu(runtime) {
     </button>`).join("");
 }
 
+// renderPlugins 渲染运行状态面板里的插件列表。每行除名字 / 描述，还要回答"这个插件从
+// 哪来"——用户当面问过「这些前端显示出来的 plugin 我没在我的 plugins/ 下见过」。
+// 来源读数（source_kind/source_url/source_root）由后端下发，判定与文案全在 plugin-source.js
+// 的纯函数里，这里只做**摆位 + 转义**（文本一律转义，判据④）。
+// 缺失来源面（未登记 = 整键缺席）⇒ 只显示名字，不编来源（判据③）。
 function renderPlugins(runtime) {
   const plugins = runtime.plugins || [];
   elements["plugin-count"].textContent = String(plugins.length);
-  elements["plugin-list"].innerHTML = plugins.map(plugin => `
-    <button class="stack-button ${runtime.plugin === plugin.name ? "active" : ""}" data-plugin="${escapeHtml(plugin.name)}">
-      ${escapeHtml(plugin.name)}<small>${escapeHtml(plugin.description || "")}</small>
-    </button>`).join("");
+  elements["plugin-list"].innerHTML = plugins.map(plugin => {
+    const source = pluginSourceBadge(plugin);
+    // 来源标签**可见**（不能只靠 tooltip）：local 必须一眼看出是"本机自建"（判据①）。
+    const badge = source.label
+      ? ` <span class="chip" title="${escapePluginSourceText(source.note)}">${escapePluginSourceText(source.label)}</span>`
+      : "";
+    // 旁注是可见第二行：走收口过的单行文本（长根路径由 CSS 省略号再兜一层），
+    // 完整 local:<根> 与载入根在 title（按钮 + 标签两处）里。
+    const note = source.hint ? `<small>${escapePluginSourceText(source.hint)}</small>` : "";
+    const title = source.note ? ` title="${escapePluginSourceText(source.note)}"` : "";
+    return `
+    <button class="stack-button ${runtime.plugin === plugin.name ? "active" : ""}" data-plugin="${escapeHtml(plugin.name)}"${title}>
+      ${escapeHtml(plugin.name)}${badge}<small>${escapeHtml(plugin.description || "")}</small>${note}
+    </button>`;
+  }).join("");
 }
 
 // 插件切换：容器上一条委托（列表每次重绘不再逐行绑监听）。单飞语义保留——
