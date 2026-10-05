@@ -197,6 +197,13 @@ func (n *AgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowContext) (
 				//   3. 节点按 Chat 结果判定成功，兄弟节点不再被连坐取消。
 				n.deps.AppendNodePhase(ctx, n.ID(), "worktree_unmerged")
 				result = withWorktreeUnmergedNotice(result, finishErr)
+			case worktree.IsMergeBlockedByMain(finishErr):
+				// 主工作区挡路（未提交改动压在本次合并路径上 / 索引被别的 git 进程占用）：
+				// 与"未提交改动"同族——**不代表节点产出无效**，只说明"这次没合上"。收尾段
+				// 已在预算内重试过，这里保留现场（不 Release）并把处置办法写进产出：父代理
+				// 或用户先提交/暂存主工作区的在途改动，随后重试合并即可。
+				n.deps.AppendNodePhase(ctx, n.ID(), "merge_blocked")
+				result = withWorktreeMergeBlockedNotice(result, finishErr)
 			default:
 				err = finishErr
 			}
@@ -213,6 +220,22 @@ func (n *AgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowContext) (
 func withWorktreeUnmergedNotice(result string, finishErr error) string {
 	notice := "\n\n[收尾警告] 子代理在 worktree 留下未提交改动，本次改动未合并进主工作区；" +
 		"现场已保留，可人工检查或补提交。原因：" + finishErr.Error()
+	if strings.TrimSpace(result) == "" {
+		return strings.TrimSpace(notice)
+	}
+	return result + notice
+}
+
+// withWorktreeMergeBlockedNotice 在节点产出末尾附加「待合并」警告：改动没进主工作区，
+// 但不是"产出无效"，处置动作是"先让主工作区干净，再重试合并"。
+//
+// 为什么把处置办法写进产出而不是把节点判失败：fork/teammate 的收尾是**回合之外**发生的，
+// 判失败等于把一份已完成的产出连同现场一起留给没人看的角落；写进产出则父代理（在同一轮
+// 或下一轮的作业回执里）与用户都能看到该动手做什么。
+func withWorktreeMergeBlockedNotice(result string, finishErr error) string {
+	notice := "\n\n[收尾警告] 本次改动**未合并进主工作区**（等主工作区干净后重试合并）：" +
+		finishErr.Error() +
+		"\n处置：把主工作区里未提交的在途改动提交或暂存（git stash），然后重新合并该分支即可。"
 	if strings.TrimSpace(result) == "" {
 		return strings.TrimSpace(notice)
 	}

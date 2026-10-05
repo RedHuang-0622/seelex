@@ -15,6 +15,7 @@ import (
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/winhide"
+	"github.com/RedHuang-0622/seelex/seelebridge/internal/actor"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/security"
 	"github.com/RedHuang-0622/seelex/sessionstore"
@@ -23,10 +24,17 @@ import (
 // ─── 子代理 worktree 生命周期管理器（Runtime 装配件拆分 Step 1）───
 //
 // 原 Runtime 直接持有 wt *worktreeState（worktree.go）。本组件把 worktree 注册表
-// 与生命周期（begin → finish → release）收进独立组件：git 子进程天然串行，组件内
-// 单锁即可；git 执行经可注入的 git 字段（默认 gitRunner，测试可替换为 fake），
-// 不依赖 Runtime / ProjectScope / PlanEventSink——项目根、阶段事件与审批门经
-// worktreeManagerDeps 注入，保持单向依赖。
+// 与生命周期（begin → finish → release）收进独立组件；git 执行经可注入的 git
+// 字段（默认 GitRunner，测试可替换为 fake），不依赖 Runtime / ProjectScope /
+// PlanEventSink——项目根、阶段事件与审批门经 WorktreeManagerDeps 注入，保持单向
+// 依赖。
+//
+// 串行化（2026-10-05 修正）：本组件曾经假设「git 子进程由调用方串行」，而调用方
+// 恰好不串行——fork 的一批子代理是**并发收尾**的，两个节点同时 rebase/merge/cleanup
+// 同一个主工作区就会撞 .git/index.lock、交错合并。收尾段（rebase → 提交判定 → 审批
+// → merge → cleanup）因此收进 **finishActor 单写者**：同一时刻只有一个收尾在动主
+// 工作区。主工作区被在途改动挡住时不再把节点判死，而是有界重试（阶段
+// awaiting_merge），超预算返回 ErrMergeBlockedByMain（现场保留、结论照常交付）。
 //
 // 失败现场语义保留：Release 仅在成功路径由调用方触发；任何 Finish 错误返回后
 // worktree 保留在磁盘，供前端“工作区现场”展示与手动恢复。
@@ -56,30 +64,166 @@ func IsUncommittedChanges(err error) bool {
 	return errors.Is(err, ErrUncommittedChanges)
 }
 
+// ErrMergeBlockedByMain 标记「合并被主工作区的在途改动挡住」这一类收尾失败：与
+// ErrUncommittedChanges 同族——**不代表节点产出无效**，只是"这次没合进去"。典型
+// 成因是主工作区里有未提交改动，正好压在本次合并要改的路径上（git 拒绝覆盖本地
+// 改动而中止），或 .git 索引被别的 git 进程短暂占用。
+//
+// 处置口径（与"判死"的区别）：收尾段会先有界重试（阶段 awaiting_merge，等主工作区
+// 干净），超预算才把本错误交回调用方。调用方（node 域）据此降级为显式警告：现场
+// 保留 + 产出照常交付，并把"先提交/暂存主工作区的在途改动，再重试合并"写进结果
+// 文本，交给父代理或用户处理。
+var ErrMergeBlockedByMain = errors.New("merge blocked by in-flight changes in the main workspace")
+
+// IsMergeBlockedByMain 判定 err 是否属于「被主工作区挡住」类收尾失败。
+func IsMergeBlockedByMain(err error) bool {
+	return errors.Is(err, ErrMergeBlockedByMain)
+}
+
+// mergeBlockedError 携带 git 的原始证据（被挡住的路径/索引争用正文）与现场路径，
+// Unwrap 到 ErrMergeBlockedByMain 供调用方分类。
+type mergeBlockedError struct {
+	nodeID string
+	path   string
+	detail string
+}
+
+func (e *mergeBlockedError) Error() string {
+	return fmt.Sprintf("worktree %q: merge blocked by in-flight changes in the main workspace: %s（现场保留在 %s）", e.nodeID, e.detail, e.path)
+}
+
+func (e *mergeBlockedError) Unwrap() error { return ErrMergeBlockedByMain }
+
+// mergeBlockedMarkers 是 git 的「主工作区挡路」判据（大小写不敏感子串）：
+//
+//   - 「本地改动会被覆盖」族：merge/checkout 拒绝覆盖未提交改动；
+//   - 未跟踪文件会被覆盖：同样是"主工作区里有东西挡着"；
+//   - 索引/引用锁争用：另一个 git 进程正在动同一个 .git（收尾串行化之后这一条
+//     只应来自**主代理自己的 git 命令**，属可重试的瞬时态）。
+//
+// 判据全部来自"这次合并**没开始**就中止"，因此重试是安全的：主工作区没被改成
+// 半成品（真冲突不在此列——它会把 MERGE_HEAD 与冲突索引留在主工作区，属确定性
+// 失败，必须由人或主代理收拾）。
+var mergeBlockedMarkers = []string{
+	"would be overwritten by merge",
+	"would be overwritten by checkout",
+	"please commit your changes or stash them",
+	"your local changes to the following files",
+	"untracked working tree files would be overwritten",
+	"index.lock",
+	"cannot lock ref",
+	"another git process seems to be running",
+	"unable to create '",
+}
+
+// isMergeBlockedEvidence 判定一次失败的 git 调用是否属于「主工作区挡路」。
+func isMergeBlockedEvidence(stderr string, callErr error) bool {
+	evidence := strings.ToLower(stderr)
+	if callErr != nil {
+		evidence += " " + strings.ToLower(callErr.Error())
+	}
+	for _, marker := range mergeBlockedMarkers {
+		if strings.Contains(evidence, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 type WorktreeManagerDeps struct {
 	Root  func() string                                    // 项目根（原 r.projectScope.Root）
 	Phase func(ctx context.Context, nodeID, status string) // 阶段事件（原 r.appendNodePhase）
 	Gate  func() approve.ApprovalGate                      // 合并审批门（原 r.currentApprovalGate）
 }
 
+// 收尾串行化与重试常量。
+const (
+	// finishMailboxCap 是收尾命令待办上限：积压只可能来自"很多节点同时收工"。
+	finishMailboxCap = 256
+	// finishSubmitTimeout 是投递上限：actor 已关闭或队列异常时调用方不被无限挂住。
+	finishSubmitTimeout = 2 * time.Second
+	// defaultMergeRetryBudget / defaultMergeRetryInterval 是「主工作区挡路」的默认
+	// 重试预算：等待**不占 actor**（其他节点照常收尾），超预算落 ErrMergeBlockedByMain。
+	defaultMergeRetryBudget   = 2 * time.Minute
+	defaultMergeRetryInterval = 5 * time.Second
+	// phaseAwaitingMerge 是"等主工作区干净"的阶段名（→ node 阶段 → 前端可见）。
+	phaseAwaitingMerge = "awaiting_merge"
+)
+
 type WorktreeManager struct {
 	mu        sync.Mutex
 	worktrees map[string]*NodeWorktree // nodeID → worktree（仅 RoleSubAgent 节点）
 	git       func(root string, args ...string) (string, error)
 	deps      WorktreeManagerDeps
+	// finishActor 是收尾段的**单写者**：rebase / merge / cleanup 都要动主工作区的
+	// 索引与 .git，而 fork 的一批子代理是**并发收工**的——谁都不排队就会撞
+	// index.lock、交错合并、cleanup 撞车。唯一消费者 = 同一时刻只有一个收尾在跑。
+	// （nil = 未装配 actor，直接执行；测试用它做"无串行化"对照。）
+	finishActor *actor.Actor[finishCommand]
+	// mergeRetryBudget / mergeRetryInterval 见 defaultMergeRetry*（可注入以便测试）。
+	mergeRetryBudget   time.Duration
+	mergeRetryInterval time.Duration
+}
+
+// finishCommand 是投给 finishActor 的一条收尾命令。
+type finishCommand struct {
+	ctx          context.Context
+	nodeID       string
+	wt           *NodeWorktree
+	skipApproval bool // 重试不再重复询问审批门（同一个 nodeID 只问一次）
+	reply        chan error
 }
 
 func NewWorktreeManager(deps WorktreeManagerDeps) *WorktreeManager {
-	return &WorktreeManager{
-		worktrees: make(map[string]*NodeWorktree),
-		git:       GitRunner,
-		deps:      deps,
+	manager := &WorktreeManager{
+		worktrees:          make(map[string]*NodeWorktree),
+		git:                GitRunner,
+		deps:               deps,
+		mergeRetryBudget:   defaultMergeRetryBudget,
+		mergeRetryInterval: defaultMergeRetryInterval,
+	}
+	manager.finishActor = actor.New(manager.handleFinish, actor.WithCap(finishMailboxCap))
+	return manager
+}
+
+// handleFinish 是 finishActor 的唯一消费者：串行执行收尾段并把结果回给投递方。
+func (w *WorktreeManager) handleFinish(command finishCommand) {
+	err := w.finishExclusive(command.ctx, command.nodeID, command.wt, command.skipApproval)
+	select {
+	case command.reply <- err:
+	default:
+		// 投递方已放弃等待（超时/上下文取消）：不阻塞消费者。
 	}
 }
 
-// Close 幂等关闭：组件无后台 goroutine（git 子进程由调用方串行），空实现满足
-// Shutdown 关闭契约，便于后续演进为 actor。
-func (w *WorktreeManager) Close() {}
+// submitFinish 把一次收尾投给单写者并等结果。
+func (w *WorktreeManager) submitFinish(ctx context.Context, nodeID string, wt *NodeWorktree, skipApproval bool) error {
+	if w.finishActor == nil {
+		return w.finishExclusive(ctx, nodeID, wt, skipApproval)
+	}
+	reply := make(chan error, 1)
+	command := finishCommand{ctx: ctx, nodeID: nodeID, wt: wt, skipApproval: skipApproval, reply: reply}
+	if !w.finishActor.SendTimeout(command, finishSubmitTimeout) {
+		return fmt.Errorf("worktree %q: finish queue is closed or saturated", nodeID)
+	}
+	select {
+	case err := <-reply:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-w.finishActor.Done():
+		return fmt.Errorf("worktree %q: worktree manager is closed", nodeID)
+	}
+}
+
+// Close 幂等关闭：停收尾单写者（处理完当前命令即退出）并等它收工。
+func (w *WorktreeManager) Close() {
+	if w == nil || w.finishActor == nil {
+		return
+	}
+	w.finishActor.Close()
+	w.finishActor.Wait()
+}
 
 // worktreeFor 返回节点的 worktree（无 → nil）。
 func (w *WorktreeManager) worktreeFor(nodeID string) *NodeWorktree {
@@ -278,9 +422,42 @@ func (w *WorktreeManager) baselineFor(branch, mainBranch string) string {
 	return strings.TrimSpace(out)
 }
 
-// Finish 收尾：变基兜底 → 提交判定 → 合并审批 → merge → 清理。
-// 返回错误时节点 failed 且 worktree 保留现场。
+// Finish 收尾：由**单写者 actor** 串行执行 变基兜底 → 提交判定 → 合并审批 → merge
+// → 清理（同批子代理并发收工也不会撞 .git）。任何错误返回时 worktree 保留现场。
+//
+// 「主工作区挡路」（未提交改动正好压在本次合并要改的路径上、或索引被别的 git 进程
+// 短暂占用）**不是确定性失败**：预算内有界重试（阶段 awaiting_merge，且不再重复询问
+// 审批门），超预算才返回 ErrMergeBlockedByMain——现场保留、产出照常交付，由父代理或
+// 用户先提交/暂存主工作区的在途改动，随后重试即可合上。
 func (w *WorktreeManager) Finish(ctx context.Context, nodeID string, wt *NodeWorktree) error {
+	if wt == nil {
+		return nil
+	}
+	deadline := time.Now().Add(w.mergeRetryBudget)
+	attempt := 0
+	skipApproval := false
+	for {
+		attempt++
+		err := w.submitFinish(ctx, nodeID, wt, skipApproval)
+		if err == nil || !IsMergeBlockedByMain(err) {
+			return err
+		}
+		if ctx.Err() != nil || time.Now().After(deadline) {
+			return fmt.Errorf("%w：%v（本次已尝试 %d 次；先提交或暂存主工作区的在途改动，再重试合并）", ErrMergeBlockedByMain, err, attempt)
+		}
+		w.deps.Phase(ctx, nodeID, phaseAwaitingMerge)
+		select {
+		case <-time.After(w.mergeRetryInterval):
+		case <-ctx.Done():
+			return fmt.Errorf("%w：%v（等待被取消；现场保留）", ErrMergeBlockedByMain, err)
+		}
+		skipApproval = true // 审批门对同一个 nodeID 只问一次
+	}
+}
+
+// finishExclusive 是收尾段的实际实现：只由 finishActor 串行调用（同一时刻只有一个
+// 收尾在改主工作区），因此这里不再自带互斥。skipApproval = 重试路径，跳过重复审批。
+func (w *WorktreeManager) finishExclusive(ctx context.Context, nodeID string, wt *NodeWorktree, skipApproval bool) error {
 	root := w.deps.Root()
 	w.deps.Phase(ctx, nodeID, "rebasing")
 	behind, err := w.branchBehindBase(wt)
@@ -288,6 +465,7 @@ func (w *WorktreeManager) Finish(ctx context.Context, nodeID string, wt *NodeWor
 		return err
 	}
 	if behind {
+		// 落后就在**子代理自己的现场**里变基：主工作区一动不动，不需要人出手。
 		if out, rebaseErr := w.git(wt.Path, "rebase", wt.MainBranch); rebaseErr != nil {
 			conflicts, _ := w.conflictFilesIn(wt.Path)
 			return fmt.Errorf("worktree %q: rebase onto %s failed (resolve conflicts in %s): %v\n%s\n冲突文件: %v", nodeID, wt.MainBranch, wt.Path, rebaseErr, out, conflicts)
@@ -307,19 +485,39 @@ func (w *WorktreeManager) Finish(ctx context.Context, nodeID string, wt *NodeWor
 		}
 		return w.cleanup(root, wt)
 	}
-	summary, err := w.diffStat(wt)
-	if err != nil {
-		summary = "diff stat unavailable"
-	}
-	if err := w.approve(ctx, nodeID, wt, summary); err != nil {
-		return err
+	if !skipApproval {
+		summary, err := w.diffStat(wt)
+		if err != nil {
+			summary = "diff stat unavailable"
+		}
+		if err := w.approve(ctx, nodeID, wt, summary); err != nil {
+			return err
+		}
 	}
 	w.deps.Phase(ctx, nodeID, "merging")
 	if out, mergeErr := w.git(root, "merge", "--no-edit", wt.Branch); mergeErr != nil {
+		if isMergeBlockedEvidence(out, mergeErr) {
+			// 合并**没开始就被主工作区挡下**：可重试态（重试由 Finish 的预算循环驱动；
+			// 主工作区没被改成半成品，所以重试是安全的）。
+			return &mergeBlockedError{nodeID: nodeID, path: wt.Path, detail: firstEvidenceLine(out, mergeErr)}
+		}
 		conflicts, _ := w.conflictFilesIn(root)
 		return fmt.Errorf("worktree %q: merge %s into %s failed (resolve conflicts in the main workspace, or git merge --abort): %v\n%s\n冲突文件: %v", nodeID, wt.Branch, wt.MainBranch, mergeErr, out, conflicts)
 	}
 	return w.cleanup(root, wt)
+}
+
+// firstEvidenceLine 从 git 证据里取一行摘要（原文可能多行；诊断取首行）。
+func firstEvidenceLine(stderr string, callErr error) string {
+	for _, line := range strings.Split(stderr, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			return trimmed
+		}
+	}
+	if callErr != nil {
+		return callErr.Error()
+	}
+	return "main workspace is not mergeable"
 }
 
 // Release 在节点结束时从注册表移除（成功路径已清理；失败路径保留现场但解除注册，
@@ -335,7 +533,7 @@ func (w *WorktreeManager) Release(nodeID string) {
 // NodeWorktreeInfoFor 恢复可用。
 //
 // **已不存在的目录不登记**：手工删掉目录（或它从未真正建成）后，把路径重新登记成
-// 「现场」会造出幽灵条目——`Info` 会报一个不存在的路径，`team_retire` 步 2 会对着
+// 「现场」会造出幽灵条目——`Info` 会报一个不存在的路径，`team_close` 收口步 2 会对着
 // 它跑 `git status` 而失败。恢复的判据是「锚点 + 目录真的在」。
 func (w *WorktreeManager) Restore(records []sessionstore.NodeSessionRecord) {
 	if w == nil || len(records) == 0 {
