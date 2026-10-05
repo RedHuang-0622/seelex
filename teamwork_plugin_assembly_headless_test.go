@@ -27,6 +27,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/plugin"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	"github.com/RedHuang-0622/seelex/seelexctx"
@@ -36,25 +37,15 @@ import (
 // assemblyProbeMarker 是塞进工作项 goal 的探针标记：worker 回合靠它辨认"这轮是不是我派的活"。
 const assemblyProbeMarker = "ASSEMBLY-PROBE "
 
-// assemblyView 是回执里一条逐成员装配读数（键与 runtime_role_plugins.go 的
-// rolePluginAssemblyView 对齐）。
-type assemblyView struct {
-	Role                  string   `json:"role"`
-	Mode                  string   `json:"mode"`
-	Plugins               []string `json:"plugins"`
-	PluginCount           int      `json:"plugin_count"`
-	SkillCount            int      `json:"skill_count"`
-	SkillCatalogRunes     int      `json:"skill_catalog_runes"`
-	SkillCatalogTokensEst int      `json:"skill_catalog_tokens_est"`
-	PluginFaceTools       int      `json:"plugin_face_tools"`
-	TotalTools            int      `json:"total_tools"`
-	Yellow                bool     `json:"yellow"`
-}
-
+// assemblyReceipt 是 team_plan 受理回执里与装配有关的那一段。
+//
+// 逐成员读数**直接解到 dto.PluginAssemblyView**（2026-10-05）：回执与团队看板共用同一份
+// 字段与 tag（seelebridge 的 rolePluginAssemblyView 是它的别名），所以这里不再手抄一份
+// 同名字段的结构体——手抄的那一份会与 wire 形状悄悄漂移，而两端用例各自都绿。
 type assemblyReceipt struct {
-	TeamID      string         `json:"team_id"`
-	PluginLimit *int           `json:"plugin_limit_per_teammate"`
-	Assemblies  []assemblyView `json:"assemblies"`
+	TeamID      string                   `json:"team_id"`
+	PluginLimit *int                     `json:"plugin_limit_per_teammate"`
+	Assemblies  []dto.PluginAssemblyView `json:"assemblies"`
 }
 
 func TestTeamworkPluginAssemblyHeadlessSmoke(t *testing.T) {
@@ -253,7 +244,7 @@ func decodeAssemblyReceipt(t *testing.T, text string) assemblyReceipt {
 	return receipt
 }
 
-func assemblyViewFor(t *testing.T, receipt assemblyReceipt, role string) assemblyView {
+func assemblyViewFor(t *testing.T, receipt assemblyReceipt, role string) dto.PluginAssemblyView {
 	t.Helper()
 	for _, view := range receipt.Assemblies {
 		if view.Role == role {
@@ -261,7 +252,7 @@ func assemblyViewFor(t *testing.T, receipt assemblyReceipt, role string) assembl
 		}
 	}
 	t.Fatalf("回执里没有成员 %q 的装配读数：%+v", role, receipt.Assemblies)
-	return assemblyView{}
+	return dto.PluginAssemblyView{}
 }
 
 // assemblyDispatchHandles 从派发受理回执里取句柄（受理回执是 JSON，但工具结果可能被

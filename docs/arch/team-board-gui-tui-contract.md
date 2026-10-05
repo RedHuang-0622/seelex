@@ -62,6 +62,34 @@ type TeamworkMemberView struct {
     ToolsPolicy   string `json:"tools_policy,omitempty"`
 }
 
+// 装配两格（2026-10-05）：声明面 + 生效面读数。两格都 omitempty，
+// 且**与编排回执共用同一个类型**（见下）——不是"同形的新类型"。
+type TeamworkMemberView struct {
+    // ...
+    Plugins  []string              `json:"plugins,omitempty"`  // 计划 members[].plugins（空 = 不覆盖）
+    Assembly *PluginAssemblyView   `json:"assembly,omitempty"` // 生效面读数（nil = 给不出读数）
+}
+
+// PluginAssemblyView 是**回执与看板共用**的那一份字段与 tag
+// （seelebridge 的 rolePluginAssemblyView 是它的别名）。
+type PluginAssemblyView struct {
+    Role                  string   `json:"role,omitempty"`
+    Mode                  string   `json:"mode,omitempty"`    // replace | inherit-host
+    Plugins               []string `json:"plugins,omitempty"`
+    PluginCount           int      `json:"plugin_count,omitempty"`
+    SkillCount            int      `json:"skill_count,omitempty"`
+    SkillCatalogRunes     int      `json:"skill_catalog_runes,omitempty"`
+    SkillCatalogTokensEst int      `json:"skill_catalog_tokens_est,omitempty"`
+    PluginFaceTools       int      `json:"plugin_face_tools,omitempty"`
+    TotalTools            int      `json:"total_tools,omitempty"`
+    PluginFaceFaulted     bool     `json:"plugin_face_faulted,omitempty"`
+    PluginFaceMissing     []string `json:"plugin_face_missing,omitempty"`
+    PluginFaceNote        string   `json:"plugin_face_note,omitempty"`
+    Yellow                bool     `json:"yellow,omitempty"`
+    YellowReason          string   `json:"yellow_reason,omitempty"`
+}
+```
+
 type TeamworkMilestoneView struct {
     ID      string   `json:"id"`
     After   []string `json:"after,omitempty"`
@@ -97,6 +125,14 @@ type TeamworkEventView struct {
 
 字段口径（不许省）：
 
+- `Members[].Plugins` / `Members[].Assembly` 是 **teammate 的装配两格**（2026-10-05）。
+  `Plugins` 是计划里 `members[].plugins` 的规整后那一份（**空 = 不覆盖**：工具面继承宿主
+  当前装配 + 技能目录不注入）；`Assembly` 是**生效面读数**，与编排回执同一条判据
+  （`pluginFaceJudgement`）现算。判据只有一份：装 A / 装 B / 空集三种成员的
+  `mode` / `plugin_count` / `skill_count` / `skill_catalog_runes` / `plugin_face_tools`
+  由它给出，**空集显式写成 `inherit-host`**（不靠字段缺失暗示），失灵
+  （声明还在、定义没了）写成 `plugin_face_faulted + plugin_face_note` 且
+  `plugin_face_tools = 0`——`mode` 仍是 `replace`（失灵 ≠ 没装配）。
 - `Stages[].DependsOn` 是**顺序的唯一事实**（`sessionstore.TeamworkPlan.Stages[].DependsOn`
   同名搬运）；渲染件的拓扑+层号只从它算，不从派发姿势猜。
 - `State` / `ClosedAt` / `ClosedReason` 是整队收口的三字段。**收口之后看板整块退场**

@@ -61,7 +61,7 @@ func (r *Runtime) archiveTeamBoard(ctx context.Context) {
 		// "新开一版"逻辑把它复活**——复活一块已关闭的看板，就是把"已关闭"当成
 		// "在册"卖给读侧（存档读侧只认 state=active）。收口之后 leader 仍可能再调
 		// team_retire/team_milestone，那些调用也会走到这里，所以这道闸卡在写侧唯一入口上。
-		if err := sealClosedTeamBoard(ctx, backend, manager, key, plan, time.Now().UTC()); err != nil {
+		if err := sealClosedTeamBoard(ctx, backend, manager, key, plan, time.Now().UTC(), r.teamBoardAssemblies(plan)); err != nil {
 			log.Printf("seelebridge: 团队看板封板失败（会话 %s）：%v", sessionID, err)
 		}
 		return
@@ -78,7 +78,7 @@ func (r *Runtime) archiveTeamBoard(ctx context.Context) {
 	if bindErr != nil {
 		bindings = nil // 绑定读不出来不该让整份存档作废（与采集面同口径）。
 	}
-	payload, err := json.Marshal(buildTeamworkBoardView(plan, events, bindings, records, backend.MaxTeammates))
+	payload, err := json.Marshal(buildTeamworkBoardView(plan, events, bindings, records, backend.MaxTeammates, r.teamBoardAssemblies(plan)))
 	if err != nil {
 		log.Printf("seelebridge: 团队看板存档编码失败（会话 %s）：%v", sessionID, err)
 		return

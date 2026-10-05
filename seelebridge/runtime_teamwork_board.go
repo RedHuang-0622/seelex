@@ -56,13 +56,15 @@ type teamworkBoardSnapshotCache struct {
 	archive *dto.TeamworkBoardView
 }
 
-// buildTeamworkBoardView 是把（计划 + 审计 + 作业行）组装成下发前端的
+// buildTeamworkBoardView 是把（计划 + 审计 + 作业行 + 装配读数）组装成下发前端的
 // dto.TeamworkBoardView 的**唯一一条**路径。
 //
 // 抽成自由函数而不是留在快照方法里：写侧（存档刷新，runtime_teamwork_board_archive.go）
 // 必须产出与下发**同形**的载荷——两处各拼一遍就是两份事实，重启恢复出的看板迟早
-// 和活体下发的不一样。
-func buildTeamworkBoardView(plan sessionstore.TeamworkPlan, events []sessionstore.TeamworkEvent, bindings []sessionstore.TeamworkBinding, records []jobs.Record, maxMembers int) dto.TeamworkBoardView {
+// 和活体下发的不一样。装配读数（assemblies）因此是**参数**而不是在这里现算：算它需要
+// Runtime 的插件域与工具面，自由函数手里没有；三个调用方各自把 r.assemblyViews 的结果
+// 传进来，走的是同一条判据。
+func buildTeamworkBoardView(plan sessionstore.TeamworkPlan, events []sessionstore.TeamworkEvent, bindings []sessionstore.TeamworkBinding, records []jobs.Record, maxMembers int, assemblies []dto.PluginAssemblyView) dto.TeamworkBoardView {
 	view := dto.TeamworkBoardView{
 		TeamID:     plan.TeamID,
 		Version:    plan.Version,
@@ -72,7 +74,7 @@ func buildTeamworkBoardView(plan sessionstore.TeamworkPlan, events []sessionstor
 		State:        plan.State.State,
 		ClosedAt:     plan.State.ClosedAt,
 		ClosedReason: plan.State.ClosedReason,
-		Members:      teamworkMemberViews(plan, events, records),
+		Members:      teamworkMemberViews(plan, events, records, assemblies),
 		Milestones:   teamworkMilestoneViews(plan.Milestones),
 		WorkItems:    teamworkWorkItemViews(plan, bindings, records),
 		Jobs:         teamworkJobViews(records),
@@ -80,6 +82,18 @@ func buildTeamworkBoardView(plan sessionstore.TeamworkPlan, events []sessionstor
 	}
 	view.Stale = teamworkProjectionStale(plan.State, view.Jobs)
 	return view
+}
+
+// teamBoardAssemblies 算一次下发/存档需要的逐成员装配读数。
+//
+// 读数走**已经存在的那一条判据**（r.assemblyViews → pluginFaceJudgement）：看板不另写
+// 一份"收窄算法"——另写一份就是第二个事实源，回执与看板迟早对同一个人给出两个工具面。
+// nil Runtime（未装配桥）→ nil：成员行的 Assembly 留 nil，前端据此不显示装配格。
+func (r *Runtime) teamBoardAssemblies(plan sessionstore.TeamworkPlan) []dto.PluginAssemblyView {
+	if r == nil || len(plan.Members) == 0 {
+		return nil
+	}
+	return r.assemblyViews(plan.Members)
 }
 
 // TeamworkBoardSnapshot 实现 contract.TeamworkBoardProjection：返回某会话的团队看板
@@ -172,7 +186,7 @@ func (r *Runtime) TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoardView
 	if manager != nil {
 		records = manager.Snapshot(jobs.Scope{Session: key.SessionID})
 	}
-	view := buildTeamworkBoardView(plan, cached.events, cached.bindings, records, backend.MaxTeammates)
+	view := buildTeamworkBoardView(plan, cached.events, cached.bindings, records, backend.MaxTeammates, r.teamBoardAssemblies(plan))
 	return &view
 }
 
@@ -204,13 +218,22 @@ func (r *Runtime) invalidateTeamworkBoard() {
 // Status / Queue / Messages 是 **Work Item 口径**的三件（2026-10-03）：状态由这个人名下
 // 工作项折算（只有 running / free 两值），队列是"还没完成的工作项名称"（销项即出队），
 // 消息是尾插进来的回执。
-func teamworkMemberViews(plan sessionstore.TeamworkPlan, events []sessionstore.TeamworkEvent, records []jobs.Record) []dto.TeamworkMemberView {
+//
+// Plugins / Assembly 是**装配两格**（2026-10-05）：声明面从计划搬（`members[].plugins`），
+// 生效面取调用方算好的读数（r.teamBoardAssemblies → 同一条 pluginFaceJudgement 判据）。
+// 两格都**拷贝**而不是共享底层数组：计划来自看板缓存（同一份计划会被多个快照与并发读者
+// 共享），让 DTO 指回缓存就是给"前端读到一半的写"留口子。
+func teamworkMemberViews(plan sessionstore.TeamworkPlan, events []sessionstore.TeamworkEvent, records []jobs.Record, assemblies []dto.PluginAssemblyView) []dto.TeamworkMemberView {
 	if len(plan.Members) == 0 {
 		return nil
 	}
 	liveHandles := make(map[string]struct{}, len(records))
 	for _, record := range records {
 		liveHandles[string(record.Handle)] = struct{}{}
+	}
+	assemblyByRole := make(map[string]dto.PluginAssemblyView, len(assemblies))
+	for _, assembly := range assemblies {
+		assemblyByRole[assembly.Role] = assembly
 	}
 	views := make([]dto.TeamworkMemberView, 0, len(plan.Members))
 	for _, member := range plan.Members {
@@ -220,6 +243,13 @@ func teamworkMemberViews(plan sessionstore.TeamworkPlan, events []sessionstore.T
 			Worktree:      member.Worktree,
 			ToolsPolicy:   member.ToolsPolicy,
 			Status:        teamworkMemberStatus(plan, member),
+			Plugins:       append([]string(nil), member.Plugins...),
+		}
+		if assembly, ok := assemblyByRole[member.Role]; ok {
+			copied := assembly
+			copied.Plugins = append([]string(nil), assembly.Plugins...)
+			copied.PluginFaceMissing = append([]string(nil), assembly.PluginFaceMissing...)
+			view.Assembly = &copied
 		}
 		view.CurrentSessionID, view.CurrentWorkItem = teamworkMemberCurrent(plan, member.Role)
 		for _, milestone := range plan.Milestones {

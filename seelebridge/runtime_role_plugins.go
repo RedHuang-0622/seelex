@@ -303,37 +303,16 @@ func skillInfosOf(skills []skill.Skill) []model.SkillInfo {
 	return infos
 }
 
-// rolePluginAssemblyView 是一个成员的装配读数（编排回执与审计行用它）。
-type rolePluginAssemblyView struct {
-	Role string `json:"role"`
-	// Mode 显式写明空集语义：replace = 显式声明替换集合；inherit-host = 空集 =
-	// 不覆盖（工具面继承宿主当前装配 + 技能目录不注入）。
-	Mode        string   `json:"mode"`
-	Plugins     []string `json:"plugins,omitempty"`
-	PluginCount int      `json:"plugin_count"`
-	// SkillCount / SkillCatalogRunes / SkillCatalogTokensEst 是**目录段的读数**
-	// （真正会进 system prompt 的那几个字节）。
-	SkillCount            int `json:"skill_count"`
-	SkillCatalogRunes     int `json:"skill_catalog_runes"`
-	SkillCatalogTokensEst int `json:"skill_catalog_tokens_est"`
-	// PluginFaceTools / TotalTools 是插件面的**上界读数**（全量工具里有多少个过
-	// 得了插件收窄；实际可见面还要与权限面相交，只会更小）。
-	//
-	// 它与运行面**同一个判据**（pluginFaceFor）：inherit-host 的成员也报真数
-	// （继承面多少就报多少），不是 0/0 的占位。
-	PluginFaceTools int `json:"plugin_face_tools"`
-	TotalTools      int `json:"total_tools"`
-	// PluginFaceFaulted / PluginFaceMissing / PluginFaceNote 是**失灵读数**：声明过的
-	// 插件在本进程已经没有定义（root 撤销过 / 名字漂了）。失灵时 PluginFaceTools = 0
-	// 且**不能**被读成"没装配"——Mode 仍是 replace、Plugins 仍是声明的那一份，Note
-	// 把"声明 X，现已失灵，工具面为空"写成一句话（回执要能自证，不靠调用方从 0 猜）。
-	PluginFaceFaulted bool     `json:"plugin_face_faulted,omitempty"`
-	PluginFaceMissing []string `json:"plugin_face_missing,omitempty"`
-	PluginFaceNote    string   `json:"plugin_face_note,omitempty"`
-	// Yellow 是黄牌：目录段超阈值（6k token 或窗口 2%）。**只报不拒**。
-	Yellow       bool   `json:"yellow,omitempty"`
-	YellowReason string `json:"yellow_reason,omitempty"`
-}
+// rolePluginAssemblyView 是 dto.PluginAssemblyView 的**别名**（`=`，不是新类型）。
+//
+// 别名而不是"同形的新类型"：回执 JSON（team_plan 的 assemblies[] / team_dispatch 的
+// plugin_face）与团队看板的 member.assembly 从此在类型系统上就是**同一个**东西——
+// 两份手抄字段的结构体会漂移（改一处漏一处，两个读面对同一个人给出两个形状而两端用例
+// 都绿），别名连漂移的语法空间都不存在。
+//
+// 字段与 tag 的**唯一一份定义**在 application/contract/dto/teamwork_board.go
+// （PluginAssemblyView）；本文件只留"怎么算"（assemblyViews）与 mode 字面量。
+type rolePluginAssemblyView = dto.PluginAssemblyView
 
 // assemblyViews 生成逐成员的装配读数（回执用；members 为空时返回空切片）。
 //

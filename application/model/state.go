@@ -916,6 +916,17 @@ func CloneTeamworkBoardView(view *dto.TeamworkBoardView) *dto.TeamworkBoardView 
 	}
 	cloned := *view
 	cloned.Members = append([]dto.TeamworkMemberView(nil), view.Members...)
+	for index, member := range view.Members {
+		// 装配两格也要独立：Plugins 是内嵌切片（同 depends_on 那一类），Assembly 是
+		// **指针**（浅拷贝就是两个读者共享同一条读数，其中一人改一下两边都变）。
+		cloned.Members[index].Plugins = append([]string(nil), member.Plugins...)
+		if member.Assembly != nil {
+			assembly := *member.Assembly
+			assembly.Plugins = append([]string(nil), member.Assembly.Plugins...)
+			assembly.PluginFaceMissing = append([]string(nil), member.Assembly.PluginFaceMissing...)
+			cloned.Members[index].Assembly = &assembly
+		}
+	}
 	if view.Milestones != nil {
 		cloned.Milestones = make([]dto.TeamworkMilestoneView, len(view.Milestones))
 		for index, milestone := range view.Milestones {

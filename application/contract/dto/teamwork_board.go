@@ -51,6 +51,53 @@ type TeamworkBoardView struct {
 	Events    []TeamworkEventView    `json:"events,omitempty"`
 }
 
+// PluginAssemblyView 是一个 teammate 的**插件装配读数**：声明面（要装哪些能力包）
+// + 生效面（这一装真的收窄出什么：技能目录字节、插件面工具数、黄牌、失灵）。
+//
+// **单一形状**（2026-10-05，leader 冻结的契约）：编排回执（team_plan 的 `assemblies[]` /
+// team_dispatch 的 `plugin_face`）与团队看板的 `member.assembly` 是**同一份字段与 tag**——
+// seelebridge 的 `rolePluginAssemblyView` 是本类型的**别名**（`type X = PluginAssemblyView`），
+// 不是同形的新类型。两份手抄字段的结构体会漂移：改一处漏一处，回执与看板对同一个人
+// 给出两个形状，而两端各自的用例都绿。
+//
+// mode 只有两个取值（**空集语义必须写出来**，不靠字段缺失暗示），字面量与 seelebridge 的
+// assemblyMode* 常量同源：
+//
+//	replace      = 显式声明了集合（工具面按这份集合收窄 + 技能目录注入）；
+//	inherit-host = 空集 = 不覆盖（工具面继承宿主当前装配 + 技能目录不注入）。
+//
+// 全部字段 omitempty：这是**读数**，0 与"没有这一项"在前端是同一个意思（面板不该被
+// 一串 0 占满），而"到底哪个 mode"由 Mode 显式回答——不靠哪个字段缺失来暗示。
+type PluginAssemblyView struct {
+	Role string `json:"role,omitempty"`
+	// Mode 见上（replace / inherit-host）。
+	Mode    string   `json:"mode,omitempty"`
+	Plugins []string `json:"plugins,omitempty"`
+	// PluginCount 是声明面的条目数（= len(Plugins)；单独一列是为了前端不必自己数）。
+	PluginCount int `json:"plugin_count,omitempty"`
+	// SkillCount / SkillCatalogRunes / SkillCatalogTokensEst 是**技能目录段的读数**
+	// （真正会进员工 system prompt 的那几个字节）：inherit-host 时恒为 0——目录段
+	// 只在显式装配时注入，这是运行事实而不是"读数没算"。
+	SkillCount            int `json:"skill_count,omitempty"`
+	SkillCatalogRunes     int `json:"skill_catalog_runes,omitempty"`
+	SkillCatalogTokensEst int `json:"skill_catalog_tokens_est,omitempty"`
+	// PluginFaceTools / TotalTools 是插件面的**上界读数**（全量工具里有多少个过得了
+	// 插件收窄；实际可见面还要与权限面相交，只会更小）。它与运行面同一个判据，所以
+	// inherit-host 的成员也报真数，不是 0/0 的占位。
+	PluginFaceTools int `json:"plugin_face_tools,omitempty"`
+	TotalTools      int `json:"total_tools,omitempty"`
+	// PluginFaceFaulted / PluginFaceMissing / PluginFaceNote 是**失灵读数**：声明过的
+	// 插件在本进程已经没有定义（root 撤销过 / 名字漂了）。失灵时 PluginFaceTools = 0
+	// 且**不能**被读成"没装配"——Mode 仍是 replace、Plugins 仍是声明的那一份，Note 把
+	// "声明 X，现已失灵，工具面为空"写成一句话。三个键与回执沿用同一份字面量。
+	PluginFaceFaulted bool     `json:"plugin_face_faulted,omitempty"`
+	PluginFaceMissing []string `json:"plugin_face_missing,omitempty"`
+	PluginFaceNote    string   `json:"plugin_face_note,omitempty"`
+	// Yellow 是黄牌：目录段超阈值（6k token 估算或上下文窗口的 2%）。**只报不拒**。
+	Yellow       bool   `json:"yellow,omitempty"`
+	YellowReason string `json:"yellow_reason,omitempty"`
+}
+
 // TeamworkMemberView 是一个在编 teammate。
 //
 // Queue 是它负责的**工作项名称队列**（按里程碑顺序、里程碑内按排活顺序）：看板要回答
@@ -60,6 +107,20 @@ type TeamworkMemberView struct {
 	RoleSessionID string `json:"role_session_id,omitempty"`
 	Worktree      string `json:"worktree,omitempty"`
 	ToolsPolicy   string `json:"tools_policy,omitempty"`
+	// Plugins / Assembly 是这位 teammate 的**装配两格**（2026-10-05）：
+	//
+	//	Plugins  = 声明面：计划里 `members[].plugins` 的规整后那一份（空 = 不覆盖）。
+	//	           它是**计划**的事实，与"这一装真的收窄出什么"无关；
+	//	Assembly = 生效面读数：走与编排回执同一条判据（pluginFaceJudgement）现算的
+	//	           读数（mode / 技能目录字节 / 插件面工具数 / 黄牌 / 失灵）。
+	//
+	// 为什么两格都要：只有声明面，看板说不清"空集 = 继承宿主"还是"装了个不存在的
+	// 名字"（前者 Mode=inherit-host，后者 PluginFaceFaulted=true）；只有读数，看板
+	// 说不清"这个人被**要求**装什么"。两格合成一件事的两个侧面，前端按 Mode 显示。
+	Plugins []string `json:"plugins,omitempty"`
+	// Assembly 为 nil 表示**桥这一侧给不出读数**（未装配插件域 / 成员行不在读数里）：
+	// 前端据此不显示装配格，而不是把缺失读成"0 个工具、0 份技能"。
+	Assembly *PluginAssemblyView `json:"assembly,omitempty"`
 	// Status 是这个人的实时状态，**只有两个值**（2026-10-04 用户口径）：
 	// `running`（此刻手上真有在跑的工作项）/ `free`（没有在跑的；含"活干完了等验收"）。
 	// 不存在 done：teammate 的状态回答的是"这个人此刻在不在干活"，而"这件事做完没"

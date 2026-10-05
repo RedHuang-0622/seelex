@@ -21,6 +21,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/jobs"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
@@ -58,7 +59,7 @@ func (r *Runtime) CloseTeamBoard(ctx context.Context) error {
 //
 // 与 CloseTeamBoard 的分工：后者在"计划尚未标 closed"时被收口流程调用（只关板），
 // 本函数在计划已 closed 的**刷新**路径上被调用（关板 + 刷新快照），两者共用 sealTeamBoard。
-func sealClosedTeamBoard(ctx context.Context, backend *TeamworkBackend, manager jobs.Manager, key sessionstore.Key, plan sessionstore.TeamworkPlan, now time.Time) error {
+func sealClosedTeamBoard(ctx context.Context, backend *TeamworkBackend, manager jobs.Manager, key sessionstore.Key, plan sessionstore.TeamworkPlan, now time.Time, assemblies []dto.PluginAssemblyView) error {
 	if backend == nil || backend.Boards == nil {
 		return nil
 	}
@@ -75,7 +76,7 @@ func sealClosedTeamBoard(ctx context.Context, backend *TeamworkBackend, manager 
 		records = manager.Snapshot(jobs.Scope{Session: key.SessionID})
 	}
 	// 与下发/存档**同一条组装路径**（buildTeamworkBoardView）：封板存档也要与活体投影同形。
-	payload, err := json.Marshal(buildTeamworkBoardView(plan, events, bindings, records, backend.MaxTeammates))
+	payload, err := json.Marshal(buildTeamworkBoardView(plan, events, bindings, records, backend.MaxTeammates, assemblies))
 	if err != nil {
 		return err
 	}
