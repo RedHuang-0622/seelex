@@ -8,15 +8,20 @@ import {
   isPinnedRole,
   nextAgentTeamOrder,
   normalizeAgentTeam,
+  normalizePluginNames,
   normalizeTeamGlobal,
   normalizeTeamLibrary,
+  PLUGIN_LIMIT_DEFAULT,
+  pluginsLabel,
   renderAgentTeam,
   renderRoleLiveTools,
   renderRoleSessionDetail,
   renderRoleSessionSwitcher,
   renderTeamMemberList,
+  ROLE_SPEC_ALIASES,
   roleDisplayName,
   roleKindLabel,
+  TEAM_ROLE_SPEC_FIELDS,
   teamEditorPanel,
   teamEntryFromMembers,
   teamGlobalDrift,
@@ -200,8 +205,8 @@ test("员工面板不摆小字备注（说明只在 title 里）", () => {
   assert.match(panels[2], /data-team-hire-submit title="[^"]*员工库/);
   // 「优化提示词」的运行态回执照旧小字显示（空态不占位），它自己的类与备注分开。
   assert.match(panels[0], /class="team-prompt-state" data-team-optimize-state/);
-  // 面板骨架与字段数不变（7 个字段一条流水线，编号还在）。
-  assert.equal((panels[0].match(/class="team-field-no"/g) || []).length, 8);
+  // 面板骨架与字段数随装配入口 +1（9 个字段一条流水线，编号还在）。
+  assert.equal((panels[0].match(/class="team-field-no"/g) || []).length, 9);
   assert.match(panels[0], /data-team-hire-prompt/);
 });
 
@@ -822,16 +827,136 @@ test("员工行表格化 k→v：全字段一行一栏，空栏照列（不藏�
   assert.equal(byKey.role_kind, "TL");
   assert.equal(byKey.tools_policy, "只读");
   assert.equal(byKey.permission_groups, "未装配");
+  // 装配（插件能力轴）也进 k→v：没登记就照列"继承宿主"，不藏起来。
+  assert.equal(byKey.plugins, "继承宿主");
   assert.equal(byKey.presence_policy, "继承");
   assert.equal(byKey.system_prompt, "5 字符");
   // 空载荷也不抛：全字段仍逐栏列出（值退化成"继承/未登记"）。
-  assert.equal(employeeFieldRows(null).length, 7);
+  assert.equal(employeeFieldRows(null).length, 8);
 
   const html = renderAgentTeam(goalView, library, globalConfig);
   assert.match(html, /data-team-employee-kv="auditor"/);
   assert.match(html, /data-team-employee-kv="tl"/);
   assert.match(html, /data-team-kv="tools_policy"/);
+  assert.match(html, /data-team-kv="plugins"/);
   assert.match(html, /data-team-kv="system_prompt"/);
+});
+
+// ── 按会话插件装配（能力轴）：档案回读 + 编辑回填 + 保存保真 ─────────────
+//
+// 回归背景（真事）：字段表 / 别名表里没有 plugins，于是「保存团队 / 修改员工」这一趟
+// 就把已登记的装配静默清空——dto.TeamMember.Plugins 与 dto.RoleSpec.Plugins 的注释
+// 把理由写死了："前端要回填原值，否则一次编辑就会把装配清空"。下面几条把它钉住。
+
+test("档案面回读「装配」：插件名照列，空 = 继承宿主（不伪造成空清单）", () => {
+  const view = {
+    ...goalView,
+    members: goalView.members.map(member => member.role_name === "tl"
+      ? { ...member, plugins: ["repo-guard", "doc-tools"] }
+      : member)
+  };
+  const master = {
+    ...globalConfig,
+    employees: {
+      configured: true,
+      employees: [
+        { role_name: "auditor", role_kind: "agent", tools_policy: "readonly", plugins: ["doc-tools"] },
+        { role_name: "plain", role_kind: "agent" }
+      ]
+    }
+  };
+  const html = renderAgentTeam(view, library, master);
+  // 本会话在编那一份回读得到
+  assert.match(html, /data-team-employee-kv="tl"[\s\S]*?data-team-kv="plugins"[\s\S]*?repo-guard、doc-tools/);
+  // 员工库那一份也随行合并（合并时丢装配 = 编辑面板回填不到原值）
+  assert.match(html, /data-team-employee-kv="auditor"[\s\S]*?data-team-kv="plugins"[\s\S]*?doc-tools/);
+  // 没登记的行写「继承宿主」——空本身是一条事实。
+  assert.match(html, /data-team-employee-kv="plain"[\s\S]*?data-team-kv="plugins"[\s\S]*?>继承宿主</);
+  assert.equal(pluginsLabel(["repo-guard", "doc-tools"]), "repo-guard、doc-tools");
+  assert.equal(pluginsLabel([]), "继承宿主");
+});
+
+test("保存映射保真装配：teamRoleSpec / teamMemberSpecMap / teamEntryFromMembers 都不丢 plugins", () => {
+  // 条目角色（协议拼法）与员工库那一份（归一化 camelCase）都带装配 → 草稿两处都在
+  const entry = {
+    team_id: "goal-a2a",
+    team_kind: "goal-a2a",
+    order_roles: ["user", "main", "tl"],
+    roles: [{ role_name: "tl", role_kind: "techlead", plugins: ["repo-guard"] }]
+  };
+  const specs = teamMemberSpecMap(["tl", "worker"], {
+    entry,
+    pool: [{ roleName: "worker", roleKind: "agent", plugins: ["doc-tools", "doc-tools"] }]
+  });
+  assert.deepEqual(specs.tl.plugins, ["repo-guard"]);
+  assert.deepEqual(specs.worker.plugins, ["doc-tools"]);
+
+  // 团队库条目载荷按协议拼法写回：保存团队这一趟不丢装配
+  const payload = teamEntryFromMembers({
+    teamID: "goal-a2a",
+    members: [{ roleName: "tl", spec: { role_kind: "techlead", plugins: ["repo-guard", "doc-tools"] } }]
+  });
+  assert.deepEqual(payload.roles[0].plugins, ["repo-guard", "doc-tools"]);
+  assert.deepEqual(teamRoleSpec({ plugins: ["repo-guard"] }), { plugins: ["repo-guard"] });
+});
+
+test("两拼法一致：字段表 ↔ 别名表一一对应，plugins 与 permission_groups 同位置", () => {
+  assert.ok(TEAM_ROLE_SPEC_FIELDS.includes("plugins"));
+  for (const field of TEAM_ROLE_SPEC_FIELDS) {
+    assert.equal(typeof ROLE_SPEC_ALIASES[field], "string", `${field} 没登记别名`);
+  }
+  assert.equal(ROLE_SPEC_ALIASES.permission_groups, "permissionGroups");
+  // plugins 的两种拼法同形（json 名就是 plugins）：登记在表里，与 permission_groups 同一处口径。
+  assert.equal(ROLE_SPEC_ALIASES.plugins, "plugins");
+  // 同一份事实的两种来源 → 同一份输出（一律协议拼法 snake_case）
+  const snake = teamRoleSpec({ role_name: "tl", permission_groups: { ro: 4 }, plugins: ["repo-guard"] });
+  const camel = teamRoleSpec({ roleName: "tl", permissionGroups: { ro: 4 }, plugins: ["repo-guard"] });
+  assert.deepEqual(snake, { permission_groups: { ro: 4 }, plugins: ["repo-guard"] });
+  assert.deepEqual(snake, camel);
+});
+
+test("空装配不落盘：空 = 不覆盖（不伪造成「装配了零个」）", () => {
+  // 归一：空字符串 / 空数组 / 纯空白项 → null（= 不覆盖）
+  assert.equal(normalizePluginNames(""), null);
+  assert.equal(normalizePluginNames([]), null);
+  assert.equal(normalizePluginNames(" , ，、 "), null);
+  assert.equal(normalizePluginNames(undefined), null);
+  assert.equal(normalizePluginNames({ nope: 1 }), null);
+  // 规整：trim / 丢空 / 保序去重；表单文本（逗号 / 空格 / 顿号）与协议数组同一条路
+  assert.deepEqual(normalizePluginNames(" repo-guard ,, doc-tools  repo-guard "), ["repo-guard", "doc-tools"]);
+  assert.deepEqual(normalizePluginNames(["  doc-tools ", "", "repo-guard"]), ["doc-tools", "repo-guard"]);
+  // 落盘：空清单不进条目（键都不出现，不是一个空数组）
+  assert.deepEqual(teamRoleSpec({ plugins: [] }), {});
+  assert.deepEqual(teamRoleSpec({ plugins: ["", "  "] }), {});
+  const payload = teamEntryFromMembers({
+    teamID: "t1",
+    members: [{ roleName: "worker", spec: { role_kind: "agent", plugins: [] } }]
+  });
+  assert.equal("plugins" in payload.roles[0], false);
+  // 回读归一：空 = null（编辑面板据此留空文本框）
+  assert.equal(normalizeAgentTeam({
+    order_roles: ["user", "main", "w"],
+    members: [{ role_name: "w", role_kind: "agent", plugins: [] }]
+  }).members.find(m => m.roleName === "w").plugins, null);
+});
+
+test("员工面板给装配编辑入口：回填原值 + 上限提示 + 留空即不覆盖", () => {
+  const team = normalizeAgentTeam(goalView);
+  const member = team.members.find(item => item.roleName === "tl");
+  const filled = hirePanel(team, { ...member, plugins: ["repo-guard", "doc-tools"] });
+  assert.match(filled, /name="plugins" data-team-hire-plugins/);
+  assert.match(filled, /data-team-hire-plugins[^>]*value="repo-guard, doc-tools"/);
+  // 上限提示（出厂 3 + 配置键）挂在控件 title 上，可见处只留一行标签；不静默截断
+  assert.match(filled, new RegExp(`装配（上限 ${PLUGIN_LIMIT_DEFAULT} 个）`));
+  assert.match(filled, /data-team-hire-plugins[^>]*title="[^"]*limits\.plugins\.per_teammate/);
+  assert.match(filled, /data-team-hire-plugins[^>]*title="[^"]*留空 = 不覆盖/);
+  // 没登记装配时文本框是空的（空 = 不提交该键，不是"提交空数组"）
+  const empty = hirePanel(team, member);
+  assert.match(empty, /data-team-hire-plugins[^>]*value=""/);
+  // 上限可注入（配置面可调），只改提示文案
+  assert.match(hirePanel(team, member, "session", { pluginLimit: 5 }), /装配（上限 5 个）/);
+  // 面板不摆小字备注的老口径不破：说明只在 title 里（无 team-field-hint）
+  assert.doesNotMatch(filled, /team-field-hint/);
 });
 
 test("Agent Team 面板带常驻手动刷新键（无心跳，事件驱动之外的兜底）", () => {

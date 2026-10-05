@@ -150,6 +150,41 @@ export function permissionGroupsLabel(groups) {
   return parts.length ? parts.join("+") : "无权限";
 }
 
+// ── 按会话插件装配（能力轴）────────────────────────────────────────────
+//
+// 字段口径与后端 **逐字对齐**（dto.RoleSpec.Plugins / dto.TeamMember.Plugins）：
+// json 名是 `plugins`（snake_case 与 camelCase 同形），空/缺失 = **不覆盖**——工具面
+// 继承宿主当前装配、技能目录不注入。后端注释明说这两处回读面存在的理由就是"前端要
+// 回填原值，否则一次编辑就会把装配清空"（application/contract/dto/agentteam.go:105/:165）。
+//
+// 上限只做**提示**，不在前端静默截断：后端的 NormalizePlugins 对超限/重复是**显式
+// 拒绝**（application/contract/dto/plugin_assembly.go），前端悄悄砍到 3 个会让"我登记
+// 的"和"落盘的"变成两件事——那是同一类事故的另一面。
+export const PLUGIN_LIMIT_DEFAULT = 3; // dto.MaxPluginsPerRole；配置键 limits.plugins.per_teammate 可调
+
+// normalizePluginNames 归一插件清单：字符串（逗号/空格/顿号分隔，表单输入）与数组
+// （Bridge 下发的协议载荷）两种来源都认；trim / 丢空 / **保序去重**；空 → null
+// （= 不覆盖，不伪造成"装配了零个"——与 normalizePermissionGroups 的空值口径一致）。
+export function normalizePluginNames(value) {
+  const items = typeof value === "string"
+    ? value.split(/[,，、;；\s]+/)
+    : (Array.isArray(value) ? value : null);
+  if (!items) return null;
+  const out = [];
+  for (const raw of items) {
+    const name = String(raw ?? "").trim();
+    if (!name || out.includes(name)) continue;
+    out.push(name);
+  }
+  return out.length ? out : null;
+}
+
+// pluginsLabel 把装配清单折成一行展示（档案面 k→v 用）；空 = 继承宿主装配。
+export function pluginsLabel(plugins) {
+  const names = normalizePluginNames(plugins);
+  return names ? names.join("、") : "继承宿主";
+}
+
 // memberPermLabel 员工行的权限标签：**装配了格子就以格子为准**（档位只是"没精调"
 // 时的预设）；两者都没有 = 继承宿主默认。
 export function memberPermLabel(role) {
@@ -170,6 +205,9 @@ export function employeeFieldRows(role) {
     { key: "presence_policy", label: "在席", value: source.presencePolicy || "继承" },
     { key: "tools_policy", label: "权限档", value: source.toolsPolicy ? toolsPolicyLabel(source.toolsPolicy) : "继承" },
     { key: "permission_groups", label: "权限格", value: groups ? permissionGroupsLabel(groups) : "未装配" },
+    // 装配（按会话插件，能力轴）：空值本身是一条事实（继承宿主当前装配 + 技能目录
+    // 不注入），照列不藏——这与权限格"未装配"同一口径。
+    { key: "plugins", label: "装配", value: pluginsLabel(source.plugins) },
     { key: "model_policy", label: "模型", value: source.modelPolicy || "继承" },
     { key: "system_prompt", label: "提示词", value: source.systemPrompt ? `${String(source.systemPrompt).length} 字符` : "未登记" }
   ];
@@ -301,14 +339,17 @@ export function employeePool(global, team) {
   const push = (role, source) => {
     if (!role || !role.roleName) return;
     const entry = pool.get(role.roleName) || {
-      roleName: role.roleName, roleKind: "", toolsPolicy: "", permissionGroups: null, systemPrompt: "",
-      modelPolicy: "", joinPolicy: "", presencePolicy: "", inLibrary: false, inSession: false
+      roleName: role.roleName, roleKind: "", toolsPolicy: "", permissionGroups: null, plugins: null,
+      systemPrompt: "", modelPolicy: "", joinPolicy: "", presencePolicy: "", inLibrary: false, inSession: false
     };
     if (!entry.roleKind && role.roleKind) entry.roleKind = role.roleKind;
     if (!entry.toolsPolicy && role.toolsPolicy) entry.toolsPolicy = role.toolsPolicy;
     if (!entry.permissionGroups && normalizePermissionGroups(role.permissionGroups)) {
       entry.permissionGroups = normalizePermissionGroups(role.permissionGroups);
     }
+    // 装配也随行合并：员工库那一份（母本优先）说了算，否则编辑面板回填不到原值，
+    // 保存一次就把装配清空。
+    if (!entry.plugins && normalizePluginNames(role.plugins)) entry.plugins = normalizePluginNames(role.plugins);
     if (!entry.systemPrompt && role.systemPrompt) entry.systemPrompt = role.systemPrompt;
     if (!entry.modelPolicy && role.modelPolicy) entry.modelPolicy = role.modelPolicy;
     if (!entry.joinPolicy && role.joinPolicy) entry.joinPolicy = role.joinPolicy;
@@ -384,6 +425,8 @@ function normalizeRoleSpecs(items) {
       systemPrompt: typeof item.system_prompt === "string" ? item.system_prompt : "",
       toolsPolicy: typeof item.tools_policy === "string" ? item.tools_policy : "",
       permissionGroups: normalizePermissionGroups(item.permission_groups),
+      // 装配（能力轴）与权限格同位置：漏了这一格 = 档案面看不见、保存时清空。
+      plugins: normalizePluginNames(item.plugins),
       modelPolicy: typeof item.model_policy === "string" ? item.model_policy : "",
       joinPolicy: typeof item.join_policy === "string" ? item.join_policy : "",
       presencePolicy: typeof item.presence_policy === "string" ? item.presence_policy : "",
@@ -434,6 +477,8 @@ function normalizeMembers(items) {
       joinPolicy: typeof item.join_policy === "string" ? item.join_policy : "",
       toolsPolicy: typeof item.tools_policy === "string" ? item.tools_policy : "",
       permissionGroups: normalizePermissionGroups(item.permission_groups),
+      // 成员行的装配回读：编辑面板要回填原值（dto.TeamMember.Plugins 的同一条理由）。
+      plugins: normalizePluginNames(item.plugins),
       systemPrompt: typeof item.system_prompt === "string" ? item.system_prompt : "",
       modelPolicy: typeof item.model_policy === "string" ? item.model_policy : "",
       presencePolicy: typeof item.presence_policy === "string" ? item.presence_policy : ""
@@ -600,7 +645,7 @@ function staffRow(member, orderIndex, team, scheduled = false) {
 // 选项标签自己就把话说完了（"只读（不写文件 / 不执行命令）"），不再在下面复述一遍。
 // scope 决定落盘位置：session = 当前会话在编员工（入职/覆盖），library = 员工库
 // （全局事实，不装配到任何会话）——员工库的增删改与团队解耦，走的就是后者。
-export function hirePanel(team, member, scope = "session") {
+export function hirePanel(team, member, scope = "session", { pluginLimit = PLUGIN_LIMIT_DEFAULT } = {}) {
   const editing = Boolean(member && member.roleName);
   const role = member || {};
   const toLibrary = scope === "library";
@@ -615,6 +660,9 @@ export function hirePanel(team, member, scope = "session") {
     customPermission ? PERMISSION_CUSTOM_TOOLS : (role.toolsPolicy || "")
   );
   const modelOptions = options(MODEL_POLICY_OPTIONS, role.modelPolicy || "");
+  // 装配（能力轴）的回填：只列插件名（逗号分隔的可编辑文本），空 = 不覆盖。
+  const pluginValue = (normalizePluginNames(role.plugins) || []).join(", ");
+  const pluginLimitValue = Number.isInteger(pluginLimit) && pluginLimit > 0 ? pluginLimit : PLUGIN_LIMIT_DEFAULT;
   const title = toLibrary
     ? (editing ? `修改员工 · ${escapeHtml(roleDisplayName(role.roleName, role.roleKind))}` : "新建员工 · 员工库")
     : (editing ? `修改员工 · ${escapeHtml(roleDisplayName(role.roleName, role.roleKind))}` : "入职员工");
@@ -627,8 +675,13 @@ export function hirePanel(team, member, scope = "session") {
     `<input type="text" name="presence_policy" data-team-hire-presence placeholder="留空继承（online_when_goal_active…）" value="${escapeHtml(role.presencePolicy || "")}" title="留空 = 继承团队 / 会话默认">`));
   fields.push(fieldItem(5, "权限", `<select name="tools_policy" data-team-hire-tools title="档位预设：readonly 只读 / readwrite 读写 / full 全权；留空继承宿主默认。要精调就选「逐格装配」">${toolsOptions}</select>`));
   fields.push(fieldBlock(6, "权限位", permissionGrid(role, customPermission)));
-  fields.push(fieldItem(7, "模型", `<select name="model_policy" data-team-hire-model title="这一位用哪个模型档位（供应商与模型在「账号」页配）">${modelOptions}</select>`));
-  fields.push(fieldItem(8, "员工提示词",
+  // 装配的最小可用编辑入口：一个文本框（逗号 / 空格分隔），上限只提示不截断
+  //（后端对超限/重复是显式拒绝，前端砍一刀会让"登记的"和"落盘的"分家）。
+  // 留空 = **不提交该键**（不覆盖、继承宿主装配），不是"装配了零个"。
+  fields.push(fieldItem(7, `装配（上限 ${pluginLimitValue} 个）`,
+    `<input type="text" name="plugins" data-team-hire-plugins placeholder="plugin-a, plugin-b" value="${escapeHtml(pluginValue)}" title="按会话插件装配（能力轴）：逗号或空格分隔；上限 ${pluginLimitValue} 个（出厂 3，配置键 limits.plugins.per_teammate）。留空 = 不覆盖：工具面继承宿主当前装配、技能目录不注入——不是「装配了零个」。插件只收窄工具面、永不放宽">`));
+  fields.push(fieldItem(8, "模型", `<select name="model_policy" data-team-hire-model title="这一位用哪个模型档位（供应商与模型在「账号」页配）">${modelOptions}</select>`));
+  fields.push(fieldItem(9, "员工提示词",
     `<textarea name="system_prompt" data-team-hire-prompt placeholder="这个员工怎么干活：职责边界、输入、输出格式、约束" title="装配时会作为该角色会话的系统提示词">${escapeHtml(role.systemPrompt || "")}</textarea>`));
   return `<div class="team-editor" data-team-editor="hire">
     <div class="team-editor-head">
@@ -639,8 +692,8 @@ export function hirePanel(team, member, scope = "session") {
     <form class="team-hire-form" data-team-hire-form data-team-hire-scope="${toLibrary ? "library" : "session"}" autocomplete="off">
       ${fieldGroup("身份", fields.slice(0, 2))}
       ${fieldGroup("编排", fields.slice(2, 4))}
-      ${fieldGroup("能力", fields.slice(4, 7))}
-      ${fieldGroup("提示词", fields.slice(7))}
+      ${fieldGroup("能力", fields.slice(4, 8))}
+      ${fieldGroup("提示词", fields.slice(8))}
       <div class="team-prompt-actions">
         <button type="button" class="text-button" data-team-optimize="1" data-tip="让模型把这个提示词改写成更明确可执行的版本（只产出候选，点保存才落盘）">优化提示词</button>
         <span class="team-prompt-state" data-team-optimize-state></span>
@@ -724,8 +777,8 @@ export function teamMemberNames(entry) {
 //   - **生态位**（role_kind / join_policy / presence_policy / directive_schema /
 //     order_priority）由**团队库条目**定义：这一支团队存过的规格说了算，条目没登记
 //     才回落到员工库那一份（形态目录删掉后没有了"哪个内置形态规定生态位"这一层）；
-//   - **人**（系统提示词 / 权限档 / 逐格权限 / 模型档）由**员工库 / 本会话在编**定义，
-//     没登记的才回落到条目里已存的那一份。
+//   - **人**（系统提示词 / 权限档 / 逐格权限 / 插件装配 / 模型档）由**员工库 /
+//     本会话在编**定义，没登记的才回落到条目里已存的那一份。
 // 表单里没暴露的字段（门禁 / 压缩策略）随条目带入、原样保存。
 export const TEAM_ROLE_SPEC_FIELDS = [
   "role_kind",
@@ -735,6 +788,9 @@ export const TEAM_ROLE_SPEC_FIELDS = [
   "order_priority",
   "tools_policy",
   "permission_groups",
+  // 装配（按会话插件，能力轴）也是条目里存的 RoleSpec 字段之一：漏了它，「保存团队」
+  // 这一趟就把已登记的装配静默清掉——正是本文件顶部那条教训的同一个形状。
+  "plugins",
   "model_policy",
   "system_prompt"
 ];
@@ -745,7 +801,10 @@ const TEAM_NICHE_FIELDS = ["role_kind", "join_policy", "presence_policy", "direc
 // 字段两种拼法都认，输出一律是**协议拼法**（snake_case）：Bridge 下发的协议载荷是
 // snake_case，前端归一化后的库条目 / 员工池 / 在编是 camelCase，团队面板同时消费
 // 这两种来源——只认一种就是把另一半来源的字段当"没登记"丢掉。
-const ROLE_SPEC_ALIASES = {
+//
+// 导出是为了让"字段表 ↔ 别名表一一对应"这条不变式可被单测钉住（漏一个字段 = 一次
+// 保存静默清空一份事实，正是本文件顶部那条教训）。
+export const ROLE_SPEC_ALIASES = {
   role_kind: "roleKind",
   join_policy: "joinPolicy",
   presence_policy: "presencePolicy",
@@ -753,6 +812,9 @@ const ROLE_SPEC_ALIASES = {
   order_priority: "orderPriority",
   tools_policy: "toolsPolicy",
   permission_groups: "permissionGroups",
+  // 装配的两种拼法**同形**（json 名就是 `plugins`）：仍显式登记一条，让"字段表 /
+  // 别名表"两处始终保持一一对应——将来有哪个来源给它换拼法，这里就地生效。
+  plugins: "plugins",
   model_policy: "modelPolicy",
   system_prompt: "systemPrompt"
 };
@@ -775,7 +837,10 @@ export function teamRoleSpec(source) {
     // 不把它写成事实，免得"没设"和"设成 0"两件事在条目里分不开。
     if (value === 0) continue;
     if (Array.isArray(value)) {
-      const items = value.filter(item => item !== undefined && item !== null && item !== "");
+      const items = field === "plugins"
+        // 装配沿用同一份规整（trim / 丢空 / 保序去重）：清单里的脏项不在条目里落成事实。
+        ? (normalizePluginNames(value) || [])
+        : value.filter(item => item !== undefined && item !== null && item !== "");
       if (!items.length) continue;
       out[field] = items;
       continue;
