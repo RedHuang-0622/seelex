@@ -33,15 +33,31 @@ func (port PluginPort) Current() (model.PluginInfo, bool) {
 	if !ok {
 		return model.PluginInfo{}, false
 	}
-	return adaptPlugin(current), true
+	return port.pluginInfo(current), true
 }
 func (port PluginPort) All() []model.PluginInfo {
 	plugins := port.Manager.All()
 	result := make([]model.PluginInfo, 0, len(plugins))
 	for _, item := range plugins {
-		result = append(result, adaptPlugin(item))
+		result = append(result, port.pluginInfo(item))
 	}
 	return result
+}
+
+// pluginInfo 把加载器的 Plugin 投影成应用模型，并补上「从哪来」两个面：
+//   - SourceRoot 是**载入位置**（RootDir；多根 first-wins 后就是链上先出现的那个根）；
+//   - SourceKind/SourceURL 是**来源类型**，判定来自 manager 挂着的精选目录
+//     （plugin.CuratedCatalog.ReadSource，与 SourceSummary 同源同一次判定）。
+//
+// 未登记（目录里没这个名字 / 目录根本没读到）⇒ 两项留空，**不编默认值**：缺失来源与
+// "随发行包（builtin）"是两件完全不同的事，编一个默认值就等于伪造出处。
+func (port PluginPort) pluginInfo(item plugin.Plugin) model.PluginInfo {
+	info := adaptPlugin(item)
+	info.SourceRoot = item.RootDir
+	if reading, ok := port.Manager.SourceReading(item.Name); ok {
+		info.SourceKind, info.SourceURL = reading.Kind, reading.URL
+	}
+	return info
 }
 
 type WorkspacePort struct{ Repo *workspace.Repo }

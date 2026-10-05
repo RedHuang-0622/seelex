@@ -919,6 +919,11 @@ func initPluginSystem(
 			plugin.CuratedFileName, strings.Join(registered, ", "))
 	}
 	curated := resolveCuratedRead(roots, loaded)
+	// 来源读数（「这个插件从哪来」）的判定源挂到 manager 上：运行期视图经 adapters 的
+	// PluginPort 读它，把 source_kind/source_url 补进每个插件——判定与文案全在
+	// plugin.CuratedCatalog.ReadSource，前端不复制判定、组合根也不复制。
+	// 目录缺席/损坏时传的是零值 ⇒ 来源面留空（缺失来源不编默认值）。
+	manager.SetCuratedCatalog(curated.Catalog)
 	runtime.SetPluginUnassembledReason(curatedAssemblyJudge(curated))
 	switch {
 	case curated.Absent:

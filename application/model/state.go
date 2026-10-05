@@ -688,6 +688,20 @@ type PluginInfo struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	Prompt      string `json:"-"`
+	// 「这个插件从哪来」（2026-10-05）：一块在前端**必须看得见**的读数——用户当面问过
+	// 「这些前端显示出来的 plugin 我没有在我的 plugin 下面见过」，而此前模型里只有
+	// Name/Description/Prompt，面板里一个字都没说。
+	//
+	// SourceKind/SourceURL 是**来源面**（builtin / vendored / local …；kind=local 时 URL
+	// 是 `local:<根>`）：判定与文案同源，都来自 plugin.CuratedCatalog.ReadSource（即
+	// plugins/README.md 声明的那条机读面），本处只是把那一行拆成两个字段。
+	// **未登记就留空**——"不知道"不编成 builtin（缺失来源不得被读成"随发行包"）。
+	SourceKind string `json:"source_kind,omitempty"`
+	SourceURL  string `json:"source_url,omitempty"`
+	// SourceRoot 是这个插件**实际**从哪个根加载进来的（多根 first-wins 的结果：同名
+	// 插件只算链上先出现的那个根）。它不是来源类型，而是载入位置——"包里的那份"与
+	// "你本机那份"同名时，靠它区分。
+	SourceRoot string `json:"source_root,omitempty"`
 }
 type AccountInfo struct {
 	Name     string `json:"name"`

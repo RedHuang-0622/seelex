@@ -184,19 +184,57 @@ func (c CuratedCatalog) PendingEntry(name string) (CuratedPending, string, bool)
 	return CuratedPending{}, "", false
 }
 
+// PluginSource 是一个插件「从哪来」的**机读面**：kind 是来源类型
+// （builtin / vendored / local / …），url 是它的身份（kind=local 时是 `local:<根>`）。
+//
+// 它与 SourceSummary 出自**同一处判定**（下面的 ReadSource），所以"哪个插件是谁给的"
+// 只有一个答案；本类型只是把那一行摘要拆成两个字段，给运行期视图（runtime.plugins）
+// 用，不另建一套来源判定。
+type PluginSource struct {
+	Kind string
+	URL  string
+}
+
+// SourceReading 是一次来源读数的完整形态：机读的两个字段 + 可读的一行摘要。
+// **它是唯一的判定点**：SourceSummary 与 PluginSource 都从它派生（第二套判定迟早与
+// 这一份不一致，届时"谁给的"就会有两个答案）。
+type SourceReading struct {
+	PluginSource
+	Summary string
+}
+
+// ReadSource 给出某个插件的来源读数。found=false 表示这个名字既不在 entries 也不在
+// 任何 pending 里 —— 此时**什么都不编**：留空而不是给一个默认 kind（"不知道"与
+// "它是 builtin"是两回事）。
+func (c CuratedCatalog) ReadSource(name string) (SourceReading, bool) {
+	if entry, ok := c.Entry(name); ok {
+		return SourceReading{
+			PluginSource: PluginSource{Kind: entry.Source.Kind, URL: entry.Source.URL},
+			Summary: fmt.Sprintf("%s ← %s %s（许可证 %s；固定 %s；实读 %s）",
+				entry.Name, entry.Source.Kind, entry.Source.URL, entry.Source.License, entry.Source.Pinned, entry.Source.ReadAt),
+		}, true
+	}
+	if item, fromPreset, ok := c.PendingEntry(name); ok {
+		return SourceReading{
+			PluginSource: PluginSource{Kind: item.Source.Kind, URL: item.Source.URL},
+			Summary: fmt.Sprintf("%s ← %s（%s；已实读 %s；**pending，未落盘**，登记在 preset %q；证据档 %s）",
+				item.Name, item.Upstream, item.Source.URL, item.Source.ReadAt, fromPreset, item.Verified),
+		}, true
+	}
+	return SourceReading{}, false
+}
+
 // SourceSummary 是"这个插件是谁给的"的一行摘要（读面）。`plugins_list` 之类的回执
 // 直接嵌这一行即可，不必各自去解析 curated.yaml。found=false 表示这个名字既不在
 // entries 也不在任何 pending 里。
+//
+// 它不自己判定：正文来自 ReadSource（与机读的 PluginSource 同源同一次判定）。
 func (c CuratedCatalog) SourceSummary(name string) (string, bool) {
-	if entry, ok := c.Entry(name); ok {
-		return fmt.Sprintf("%s ← %s %s（许可证 %s；固定 %s；实读 %s）",
-			entry.Name, entry.Source.Kind, entry.Source.URL, entry.Source.License, entry.Source.Pinned, entry.Source.ReadAt), true
+	reading, ok := c.ReadSource(name)
+	if !ok {
+		return "", false
 	}
-	if item, fromPreset, ok := c.PendingEntry(name); ok {
-		return fmt.Sprintf("%s ← %s（%s；已实读 %s；**pending，未落盘**，登记在 preset %q；证据档 %s）",
-			item.Name, item.Upstream, item.Source.URL, item.Source.ReadAt, fromPreset, item.Verified), true
-	}
-	return "", false
+	return reading.Summary, true
 }
 
 // AssemblyPlan 是一次装配解析的结果：preset 名、权限档、以及**要激活的已落盘插件**。

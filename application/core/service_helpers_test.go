@@ -18,6 +18,13 @@ func withTestRuntime(runtime RuntimePort) testServiceOption {
 	return func(deps *Dependencies) { deps.Runtime = runtime }
 }
 
+// withTestPlugins 注入自定义插件端口（默认桩只给一个不含来源的 default）。来源面
+// （source_kind/source_url/source_root）要落到会话快照，就得从**真实**的
+// adapters.PluginPort 走一遍，所以这个口子必须存在。
+func withTestPlugins(plugins PluginPort) testServiceOption {
+	return func(deps *Dependencies) { deps.Plugins = plugins }
+}
+
 // newTestService 构造一个带默认 fakes 的 Service（测试夹具），并在测试
 // 结束时自动 Shutdown（catalog worker 随 teardown 停止）。
 func newTestService(t testing.TB, engine ChatEngine, options ...testServiceOption) *Service {

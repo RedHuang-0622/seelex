@@ -369,6 +369,40 @@ func TestActivateFromCatalogRejectsMultiPluginPreset(t *testing.T) {
 	}
 }
 
+// TestReadSourceSharesOneJudgement 钉住"来源判定只有一套"：机读面（ReadSource 给出的
+// kind/url）与人读面（SourceSummary 的那一行）必须出自**同一次判定**——否则运行期视图说
+// builtin、plugins_list 说别的，用户手里的"谁给的"就有了两个答案。
+//
+// 同时钉住"缺失来源不编"：未登记的名字两项留空、found=false，而不是给个默认 kind。
+func TestReadSourceSharesOneJudgement(t *testing.T) {
+	catalog := designCatalog()
+	for _, name := range []string{"impeccable", "default", "frontend-design", "nobody"} {
+		summary, summaryOK := catalog.SourceSummary(name)
+		reading, readingOK := catalog.ReadSource(name)
+		if summaryOK != readingOK {
+			t.Fatalf("%s: 两个读面判定不一致（summary ok=%v，reading ok=%v）", name, summaryOK, readingOK)
+		}
+		if !readingOK {
+			if reading.Kind != "" || reading.URL != "" || reading.Summary != "" {
+				t.Fatalf("%s: 未登记就必须整条留空（不编默认值），得 %+v", name, reading)
+			}
+			if entry, ok := catalog.Entry(name); ok {
+				t.Fatalf("%s: 判定说没登记，entries 里却有它：%+v", name, entry)
+			}
+			continue
+		}
+		if reading.Summary != summary {
+			t.Fatalf("%s: 同一判定必须给同一行摘要\n summary=%q\n reading=%q", name, summary, reading.Summary)
+		}
+		if reading.Kind == "" || reading.URL == "" {
+			t.Fatalf("%s: 已登记的来源必须给出机读的 kind/url，得 %+v", name, reading)
+		}
+		if entry, ok := catalog.Entry(name); ok && (reading.Kind != entry.Source.Kind || reading.URL != entry.Source.URL) {
+			t.Fatalf("%s: 机读面必须落在 entries 的 source 上：%+v vs %+v", name, reading.PluginSource, entry.Source)
+		}
+	}
+}
+
 // TestSourceSummaryIsReadable 钉住"这个插件是谁给的"这一最小可见化读面：
 // entries 读出落盘来源，pending 读出"未落盘 + 出处 + 证据档"，未知名读不出。
 func TestSourceSummaryIsReadable(t *testing.T) {

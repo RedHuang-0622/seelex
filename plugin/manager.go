@@ -40,6 +40,9 @@ type Manager struct {
 	plugins  map[string]Plugin
 	current  string
 	attached map[string][]string
+	// curated 是本次启动从插件根读到的精选目录（来源读数的判定源）。零值 = 没读到
+	// （自建根/用户树可以不带这份文件）⇒ 来源面一律留空，不编默认值。
+	curated CuratedCatalog
 }
 
 func NewManager(loader *Loader, tools ToolBackend, mcp MCPBackend, skills SkillBackend) *Manager {
@@ -47,6 +50,24 @@ func NewManager(loader *Loader, tools ToolBackend, mcp MCPBackend, skills SkillB
 		loader: loader, tools: tools, mcp: mcp, skills: skills,
 		plugins: make(map[string]Plugin), attached: make(map[string][]string),
 	}
+}
+
+// SetCuratedCatalog 把本次启动读到的精选目录挂到 manager 上，供来源读数
+// （SourceReading）使用。**不参与加载语义**：它只回答"这个插件是谁给的"，加载与否
+// 仍只由 loader 的根链决定。目录缺席/损坏时传零值即可 —— 那时来源面留空，不编默认值。
+func (m *Manager) SetCuratedCatalog(catalog CuratedCatalog) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.curated = catalog
+}
+
+// SourceReading 给出某个已加载插件「从哪来」的读数（机读 kind/url + 一行摘要）。
+// 判定与文案全在 CuratedCatalog.ReadSource —— 本方法只取目录、不复制判定。
+func (m *Manager) SourceReading(name string) (SourceReading, bool) {
+	m.mu.Lock()
+	catalog := m.curated
+	m.mu.Unlock()
+	return catalog.ReadSource(name)
 }
 
 func (m *Manager) Load() error {
