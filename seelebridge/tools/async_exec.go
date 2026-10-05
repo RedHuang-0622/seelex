@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
 )
 
 // 后台命令的轮询型执行域·登记表与状态机（规格见
@@ -183,6 +185,16 @@ func (g *asyncRegistry) Events() <-chan struct{} {
 	}
 	return g.changed
 }
+
+// 作业面的**结构证据**（docs/arch/workunit-ports-and-assembly.md §5① 2）：tools 自建表今天只在
+// "变更信号"这一格上与 Seele 的 `jobs.Manager` **同形**——同一形状（`<-chan struct{}`）、同一
+// 语义（容量 1 + latest-wins：派发 / 终态 / 新字节各发一次，消费方自己汇聚）。
+//
+// 其余七格（提交 / 状态 / 增量读 / 全量读 / 取消 / 销项 / 按作用域回收）仍在 tools 自己的名字与
+// 签名上（`beginJob` / `snapshot` / `advanceTail` / `markCursor` / `killHandle` / `retire` /
+// `killSession`），**不是** `workunit.Jobs` 的形状：那是步骤②（两张作业表合一）的先行项，
+// 本轮只把这**已经同形**的一格钉住（编译器钉住 > 人记得）。
+var _ workunit.JobSignals = (*asyncRegistry)(nil)
 
 // asyncKey 是去重键：同一会话同一条命令在途期间只有一个执行体。
 func asyncKey(sessionID, command string) string {

@@ -4,8 +4,8 @@
 // 层链（只增不减，与目标正文同一口径）：
 //
 //	job       —— **基线，不实现 Unit**：纯后台运行 + 结果回传，没有现场、没有持久会话。
-//	             它不是"少一份现场的工作单元"，它根本不是工作单元（作业面只被 teammate 的
-//	             Reclaim 需要，端口见 Jobs）。
+//	             它不是"少一份现场的工作单元"，它根本不是工作单元（作业面见 Jobs —
+//	             job 不实现 Unit，但它就是作业面这一格本身）。
 //	subagent  —— 第一份**读数**（Unit）+ 在唯一实现上注册：worktree 现场 + 一件活自己的
 //	             异步会话 + 存储与合并纪律。
 //	teammate  —— 增：听 leader 调度 + 装配（plugin / 系统提示词 / skill 前缀复用）。它**不另写
@@ -197,16 +197,83 @@ type Lifecycle interface {
 	Notice(outcome Outcome) string
 }
 
-// Jobs 是"作业面"的窄端口：只取"回收一个作用域下的全部作业"这一件事。契约里只有 teammate 的
-// Reclaim 需要它——一件活跑完就结束，不需要回收作业；整队收口才要把名下仍在飞的作业收回来。
+// ── 作业面（JobFace）：一件"在飞的活"─────────────────────────────────────
 //
-// `jobs.Manager`（Seele/jobs，经 vendor）**结构上**就满足它——与 SessionLedger 同一手法：不写
-// 适配器，也不另立第二份作业模型。
-type Jobs interface {
+// 作业面回答的是：一件活**提交 / 读数 / 增量读 / 取消 / 销项 / 按作用域回收 / 变更信号**
+// 各是什么形状。它是**一组按能力切开的窄端口**（四格），不是一个胖接口——"每个形态只装配它
+// 需要的那几格"：后台命令（`bash_bg`）只要"提交 + 增量读"；整队收口只要"按作用域回收"；
+// 看板只要"全量读 + 变更信号"。`Jobs` 是四格的**合成**，给需要完整面的实现（生命周期实现、
+// 将来的合表实现）持有。
+//
+// 词汇用 Seele 的 `jobs`（`jobs.Spec` / `jobs.Handle` / `jobs.Record` / `jobs.Scope` /
+// `jobs.FetchBudget`）：`github.com/RedHuang-0622/Seele/jobs` 是 vendored 的外部契约，
+// 本包**不改它**，只做它方法面的**窄投影** + 编译期断言（先例：SessionLedger）。因此这里的
+// 方法名就是 `jobs.Manager` 的方法名（概念别名写在各自的方法注释里）——换个名字
+// `var _ Jobs = (jobs.Manager)(nil)` 这条就钉不住了（接口是结构化的，名字也是结构的一部分）。
+//
+// 两张作业表（本轮的既有事实，见 docs/arch/workunit-ports-and-assembly.md §5②）：teammate 走
+// `jobs.Manager`（`jobs.Scope{Session, Subject}`），subagent / `bash_bg` 走 tools 自建 async 表
+// （`JobSpec.SessionID`）。**本轮只让两者接口同形**（结构上满足 + 编译期断言），一张表都不搬。
+
+// JobSubmitter 是作业面的"提交"一格：谁想跑谁提交，提交即返回句柄（不等输出）。
+type JobSubmitter interface {
+	// Dispatch 提交一件活（概念名 = Submit）：校验 + 登记 + 起执行体 + 立刻交出句柄；
+	// 被去重规则合并的提交返回**在跑那条**的句柄。
+	Dispatch(ctx context.Context, spec jobs.Spec) (jobs.Handle, error)
+}
+
+// JobReader 是作业面的"读数"三格：状态 / 增量读 / 全量读。三者的差别就是"动不动作业游标、
+// 给的是这一条还是全量"——这正是"正文给模型用 Peek（增量、不推进游标）、看板给界面用
+// Snapshot（全量）"两种用法落在同一个端口上的原因。
+type JobReader interface {
+	// Observe 一条在飞作业的只读读数（概念名 = Status）：**不推进游标**、不消费输出、
+	// 不销项；它只回答"此刻它在不在动、动到哪一行"。
+	Observe(handle jobs.Handle) (jobs.Record, bool)
+	// Peek 取**未消费的增量**，且**不推进游标**、**不把终态作业销项**：两阶段读
+	// （先看、再取）与"看一眼不算读过"的探针走这条。
+	Peek(ctx context.Context, handle jobs.Handle, budget jobs.FetchBudget) (string, jobs.Record, error)
+	// Snapshot **全量**读一个作用域下在册的作业行（内存读，不动任何游标）。空字段 = 通配：
+	// {Session} = 该会话全部；{Session, Subject} = 只那一个主体。
+	Snapshot(scope jobs.Scope) []jobs.Record
+}
+
+// JobController 是作业面的"控制"三格：取消 / 销项 / 按作用域回收。
+type JobController interface {
+	// Kill 终止执行体（进程树 / 取消级联）：**已产出的内容保留**、仍可读回。
+	Kill(ctx context.Context, handle jobs.Handle) error
+	// Done 销项一件**已经终态**的作业（幂等）：在途作业被拒——终态只由执行体判定，
+	// 想停它用 Kill。
+	Done(ctx context.Context, handle jobs.Handle) error
+	// Reclaim 按**作用域**回收：取消并销项该作用域下的全部作业。{Session} = 会话级回收；
+	// {Session, Subject} = 只动那一个主体（不牵连同会话其他人）。
 	Reclaim(ctx context.Context, scope jobs.Scope) error
 }
 
+// JobSignals 是作业面的"变更信号"一格：派发 / 终态 / 新字节。
+type JobSignals interface {
+	// Events 返回变更信号口：容量 1 + latest-wins，**不推进游标、不进上下文**；消费方
+	// （看板 / 打点表）自己收敛成一次重投影。
+	Events() <-chan struct{}
+}
+
+// Jobs 是**完整作业面**：上面四格的合成。
+//
+// 生命周期实现（`seelebridge` 的 lifecycleHost）与将来的合表实现持有它；只用到一部分的
+// 形态按需持有更窄的那一格（`JobReader` / `JobController` / `JobSignals`）。
+type Jobs interface {
+	JobSubmitter
+	JobReader
+	JobController
+	JobSignals
+}
+
 // 编译期钉住"复用"：Seele 的作业管理器接口一旦与这里漂移，先红。
+//
+// 这条断言同时是"完整作业面"的**形状证据**：`jobs.Manager` 的这八格（提交 / 状态 / 增量读 /
+// 全量读 / 取消 / 销项 / 按作用域回收 / 变更信号）与契约逐字对齐——不写适配器、不另立第二份
+// 作业模型。tools 自建 async 表是第二个作业面实现候选，它今天只在 `JobSignals` 这一格上
+// 与这里同形（断言落在 `seelebridge/tools/async_exec.go`），其余七格的名字与签名都不同：
+// 那是 docs/arch/workunit-ports-and-assembly.md §5② 的先行项，不在本轮。
 var _ Jobs = (jobs.Manager)(nil)
 
 // FinishPolicy 决定"什么时候回收"——现场与会话的**生命周期**上唯一允许出现的差异点。

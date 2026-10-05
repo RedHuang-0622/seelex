@@ -1,6 +1,7 @@
 # workunit 的父（端口）清单与装配方式
 
-状态：**接口清单 + 两步计划**。配套口径见 `workunit-single-lifecycle-one-implementation.md`（§3 接口先行、
+状态：**接口清单 + 两步计划（① 已落地，见 §5「① 落地记录」；② 未开始）**。配套口径见
+`workunit-single-lifecycle-one-implementation.md`（§3 接口先行、
 §7 纪律、§8 交集与析构、§9 读面、§10 红灯）；现状锚点见 `workunit-duplication-inventory.md`。
 一句话：**没有"一个上帝父结构体"，而是一组按职责切开的父（端口），每个形态只装配它需要的那几个。**
 
@@ -14,7 +15,7 @@
 
 | # | 父/端口 | 它回答什么 | 方法面 | 现有实现候选 | 谁注入 |
 |---|---|---|---|---|---|
-| 1 | **作业面** `JobFace` | 一件在飞的活：提交、句柄、状态、增量读、取消、销项、按作用域回收、事件 | `Submit(ctx, Spec)(Handle,err)` / `Status` / `Peek`（增量读、不推进游标）/ `Kill` / `Done` / `Reclaim(ctx, Scope)` / `Events()` / `Snapshot(Scope)` | Seele `jobs.Manager`（teammate 现在）、`tools` 那张 async 表（subagent / bash_bg 现在） | 装配处（new） |
+| 1 | **作业面** `JobFace` | 一件在飞的活：提交、句柄、状态、增量读、取消、销项、按作用域回收、变更信号 | 按能力切成的**四格 + 一个合成**：`JobSubmitter`（`Dispatch`=提交）/ `JobReader`（`Observe`=状态、`Peek`=增量读不推进游标、`Snapshot`=全量）/ `JobController`（`Kill` / `Done` / `Reclaim(ctx, Scope)` 按作用域）/ `JobSignals`（`Events()`）；`Jobs` = 四格的合成 | Seele `jobs.Manager`（teammate 现在）：**八格逐字对齐**，`contract.go` 的 `var _ Jobs = (jobs.Manager)(nil)`；`tools` 那张 async 表（subagent / `bash_bg` 现在）：今天只在 `JobSignals` 那一格同形（断言在 `seelebridge/tools/async_exec.go`） | 装配处（new） |
 | 2 | **现场** `SceneFace` | 一件活的现场：建、收尾合并、回收、重启认领 | `Begin(ctx, identity)(Scene,err)` / `Finish(ctx, scene, result, mergeErr)(Outcome,err)` / `Reclaim(ctx, scene)` / `Adopt/Restore(ctx)` | `*worktree.WorktreeManager`（已是一份实现） | 装配处（new） |
 | 3 | **会话/记录** `SessionFace` | 跑到哪、现场在哪、重启怎么回灌 | `Save/Load/List/Delete(record)` / `Recover(ctx, scope)(Resume,err)` / `InFlight(status)` | `*sessionstore.NodeSessionStore`（`SessionLedger` 已有编译期断言） | 装配处（new） |
 | 4 | **读面** `ReadFace` | 进度 / 阶段 / 结论 / 在跑与否（只读，不新起事实源） | `Stage` / `EncodeStages·DecodeStages` / `Progress·ProgressOf` / `UnitReader`（`a3` 勘定：`docs/arch/workunit-progress-read-surface.md`，建议落 `seelebridge/workunit/progress.go`） | 投影自 ① + ③，**不新增一张表** | 装配处（new） |
@@ -24,6 +25,16 @@
 
 **切分判据**：第 5–7 条是"编排内容"，不是两层的交集（§8）——它们通过**端口/回调**接进来，
 生命周期实现不许认识它们的类型。
+
+**① 落地版（2026-10-06）**：生命周期实现（`seelebridge/workunit_parent.go` 的 `lifecycleHost`）
+只持**三格宿主端口**——`sceneFace`（现场）/ `unitFace`（编排闸门 + 账本）/ `recordFace`
+（会话记录）；这三格的唯一实现是 `seelebridge/workunit_assembly.go` 的 `hostPorts`，`teamwork` /
+`worktree` / `sessionstore` 的具体类型只允许出现在那个文件里（机械门禁：
+`e2e/workunit_ports_test.go`）。会话记录端口的**记录形状**仍是契约自己声明的
+`sessionstore.NodeSessionRecord` / `sessionstore.Key`（`session.go` 的 `SessionLedger` 就是它）
+——那是"复用同一份记录、不另立第二种真相"的落点，不是"持具体实现"。
+作业面（第 1 行）今天由 `unitFace` 那一格驱动（`Coordinator.reclaimStepsLocked` 步 1 是全仓唯一
+的作业回收调用点），宿主**先不**直接驱动它：多一个调用点就是第二条回收路径，那是 §5② 的落点。
 
 ## 3. 装配矩阵：不同父的不同用法 → 不同形态（全部非上帝）
 
@@ -57,8 +68,12 @@
 
 1. `seelebridge/workunit/contract.go`：把 `Jobs` 从"只有 `Reclaim`"扩成**完整作业面**（§2 第 1 行的方法面，
    只收现在真正用到的几家）；**保留** `var _ Jobs = (jobs.Manager)(nil)` 这条编译期断言。
-2. 给 `tools` 那张 async 作业表也补**结构上满足**的编译期断言（`var _ workunit.Jobs = ...`），
-   让"两个父实现同形"从今天起就被编译器钉住；**不改**它的行为、**不动**迁移。
+2. 给 `tools` 那张 async 作业表也补**结构上满足**的编译期断言，让"两个实现同形"从今天起就被
+   编译器钉住；**不改**它的行为、**不动**迁移。
+   （2026-10-06 口径更正：原文写的是 `var _ workunit.Jobs = ...`，但 tools 自建表今天**不满足**
+   完整作业面——它的七格名字与签名都不同。落地的是它**已经同形**的那一格
+   `var _ workunit.JobSignals = (*asyncRegistry)(nil)`；完整面的断言在契约那份实现上
+   （`var _ Jobs = (jobs.Manager)(nil)`）。两表同形要等 §5② 先解决七点语义差异。）
 3. 契约里写清：`Peek`（增量、不推进游标）与 `Snapshot`（全量）是两个用法；`Reclaim` 只按 scope 回收。
 4. 装配表落地一版：生命周期实现只持有端口，不持有 `teamwork` / `worktree` / `session` 的具体类型。
 5. 读面按 `a3` 的勘定收口一版：`workunit/progress.go`（`Stage` 编解码 + `ProgressOf` + `UnitReader`）；
@@ -67,6 +82,28 @@
    折算的合并归 ② 那一波（它跨 `session/` 与 `workunit_team_records.go`），① 只先把读法定形。
 6. 验证：`gofmt` / `go build ./...` / `go vet` / 相关包 `-count=1` 真跑并记录；**不做**行为迁移，
    既有用例一条不动（动了就是迁移，越界）。
+
+### ① 落地记录（2026-10-06，交付报告见 `docs/2026-10-06-workunit-jobs-port/step-1-delivery.md`）
+
+| # | 落地物 | 位置 |
+|---|---|---|
+| 1 | 作业面四格 + 合成 `Jobs`；`var _ Jobs = (jobs.Manager)(nil)` 保留原处 | `seelebridge/workunit/contract.go` |
+| 2 | tools 自建表同形那一格的断言（只加断言行，行为零变化） | `seelebridge/tools/async_exec.go` |
+| 3 | 现场 / 编排账本 / 会话记录三格端口 + 装配处 | `seelebridge/workunit_assembly.go` |
+| 4 | 生命周期实现只持端口（无按层分支、无具体类型） | `seelebridge/workunit_parent.go` |
+| 5 | 读面定形（`Stage` / `EncodeStages`·`DecodeStages` / `ProgressOf` / `UnitReader`） | `seelebridge/workunit/progress.go` |
+| 6 | 机械门禁（按层分支 + 具体类型 + 每个实现的编译期断言 + 契约包 worktree 依赖例外），带阴性对照 | `e2e/workunit_ports_test.go` |
+
+三处**文档口径更正**（仓库现状优先，按"先改文档并说明理由"处理）：
+
+- **方法名**：§2 第 1 行原写的 `Submit` / `Status` 是**概念名**，契约里的 Go 方法名必须是
+  `jobs.Manager` 的名字（`Dispatch` / `Observe`），否则 `var _ Jobs = (jobs.Manager)(nil)` 钉不住。
+  概念别名写在各方法注释里。
+- **tools 那张表的断言**：见上文第 2 条的更正。`JobSignals` 是它今天唯一同形的一格（同一形状、
+  同一语义：容量 1 + latest-wins 的变更信号）；其余七格是 §5② 的先行项。
+- **`UnitReader` 的入参**：读面勘定原文给的是三参构造，但记录形状里**没有 `Kind` 这一格**
+  （两层共用同一张记录表），所以落地版多两个入参：`kind`（这一层的读数标注）与 `owned`
+  （归属过滤，可为 nil）——否则 `Read`/`List` 只能替调用方猜归属，那正是勘定 §U5 要避免的。
 
 **前置**：`seelebridge/workunit/contract.go` 当前由在做父实现重构的 `a1` 占用（分支 `seelex/lifecycle-parent`）。
 先确认那条分支已落地且工作区干净，再动这个文件——两个改动同时落在同一文件必冲突。

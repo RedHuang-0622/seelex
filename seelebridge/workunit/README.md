@@ -38,13 +38,34 @@
   `teamwork → workunit`，反过来就是把实现类型引进契约。
 
 
+## 一之三、作业面（`Jobs`）：四格 + 一个合成，两张表只求同形
+
+作业面回答的是"一件**在飞的活**"的形状：提交 / 读数 / 增量读 / 取消 / 销项 / 按作用域回收 /
+变更信号。它按能力切成**四格**（`JobSubmitter` / `JobReader` / `JobController` / `JobSignals`），
+`Jobs` 是四格的合成——"每个形态只装配它需要的那几格"（后台命令只提交 + 增量读；整队收口只要
+按作用域回收；看板只要全量读 + 变更信号）。
+
+| 事实 | 现状 |
+|---|---|
+| 词汇 | 用 Seele 的 `jobs`（`Spec`/`Handle`/`Record`/`Scope`/`FetchBudget`）；`github.com/RedHuang-0622/Seele/jobs` 是 vendored 的外部契约，**不改它**，只做窄投影 + 编译期断言（先例：`SessionLedger`） |
+| 方法名 | 就是 `jobs.Manager` 的名字（`Dispatch` = 提交、`Observe` = 状态读数……）——换名字 `var _ Jobs = (jobs.Manager)(nil)` 这条就钉不住（接口是结构化的，名字也是结构的一部分） |
+| 实现一（teammate） | `jobs.Manager`：**八格逐字对齐**，编译期断言在 `contract.go` |
+| 实现二（subagent / `bash_bg`） | tools 自建 async 表：今天只在 **`JobSignals`** 那一格上与这里同形（`seelebridge/tools/async_exec.go` 的断言）；其余七格的名字与签名都不同 |
+| 两张表 | **本轮只求同形，一张都不搬**——搬表是步骤②（`CHANGELOG.md:112-116` 已登记七点不一致，`docs/arch/workunit-ports-and-assembly.md` §5② 是路线） |
+
+`docs/arch/workunit-ports-and-assembly.md` §2 把这一族端口与现场/会话/读面并列；生命周期实现
+（`seelebridge` 的 `lifecycleHost`）只持**三格宿主端口**（现场 / 编排账本 / 会话记录，见
+`seelebridge/README.md` 的 workunit 一节），作业面今天由编排那一格驱动（回收的唯一调用点在
+`Coordinator.reclaimStepsLocked` 步 1），宿主直接驱动它是步骤② 的落点。
+
 ## 二、文件
 
 | 文件 | 内容 |
 |---|---|
-| `contract.go` | `Kind` / `Scene` / `Result` / `Outcome(Kind)` / `Ownership`（归属读数）/ `Unit`（层读数：`Kind` `ID` `SessionPath` `Policy` `Owns`）/ `Lifecycle`（父实现契约面：`Begin` `Finish` `Reclaim` `Recover` `AlreadySettled` `Notice`）/ `FinishPolicy`（`Immediate`、`AtTeamClose`）/ `Jobs` 端口 |
+| `contract.go` | `Kind` / `Scene` / `Result` / `Outcome(Kind)` / `Ownership`（归属读数）/ `Unit`（层读数：`Kind` `ID` `SessionPath` `Policy` `Owns`）/ `Lifecycle`（父实现契约面：`Begin` `Finish` `Reclaim` `Recover` `AlreadySettled` `Notice`）/ `FinishPolicy`（`Immediate`、`AtTeamClose`）/ **作业面四格 + 合成** `Jobs`（`JobSubmitter`：`Dispatch`；`JobReader`：`Observe` `Peek` `Snapshot`；`JobController`：`Kill` `Done` `Reclaim`；`JobSignals`：`Events`） |
 | `classify.go` | `ClassifyFinish(result, mergeErr)`：三层**唯一一份**收尾分类（跑失败判死 → 未提交（不判死）→ 主工作区挡路（不判死）→ 其他合并错误判死 → 落定）+ `bounded` |
 | `session.go` | `SessionLedger`（结构上就是 `*sessionstore.NodeSessionStore`）/ `Resume` / `RecoveryNoteRole` / `RecoveryNotePrefix` / `RecoveryNote(kind, record)` |
+| `progress.go` | 进度**读面**：`Stage` + `EncodeStages`/`DecodeStages`（打点载荷的唯一一份编解码）+ `Progress`/`ProgressOf`（记录 → 进度的唯一一份折算）+ `UnitReader`（按 nodeID 读一件事的进度）。本轮只**定形**，三份手写折算的合并归步骤②（见文件头注） |
 
 **依赖方向的一处已记录例外**：`classify.go` import `worktree`（用它的两个哨兵错误
 `ErrUncommittedChanges` / `ErrMergeBlockedByMain` 判"没合进去"的两族）。把这两个哨兵搬出
@@ -80,8 +101,11 @@ worktree` 依赖，其余实现包（`teamwork` / `session` / `node`）一律只
 ```powershell
 go vet ./seelebridge/workunit/
 go test ./seelebridge/workunit/ -count=1
+go test ./e2e/ -run TestWorkunitPortGate -count=1   # 装配与作业面的机械门禁（含阴性对照）
 ```
 
 用例守着的是**语义**而不是实现细节：分类表（含"两种收尾失败同时具备 → 未提交优先"）、
 `AtTeamClose` 不得自己拆现场、`SessionLedger` 与既有存储的同名同签名（编译期断言）、
-恢复说明的前缀族与有界性。
+恢复说明的前缀族与有界性；`progress_test.go` 守读面（打点编解码只有一份、折算不编造事实、
+按 nodeID 的读法与归属过滤）；`e2e/workunit_ports_test.go` 守装配（实现里没有按层分支与具体
+类型、每个实现都带编译期断言、契约包依赖 worktree 的只有 `classify.go`）。
