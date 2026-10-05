@@ -746,12 +746,19 @@ func writeWorkerOutputFile(path, text string) error {
 // bindWorkerProjectRoot 把角色会话的工具根绑到它这一轮该看到的工作区：有 worktree
 // 指派且已建现场就绑 worktree，否则回退主会话项目根（与 worktree_manager.Begin 的
 // 降级语义一致——缺失不等于失败）。
+//
+// **两处命名必须是同一个键**：进计划与账本的 Worktree 是**指派名**（带 `seelex/`
+// 分支前缀，见 teamwork.WorkItemWorktreeName），而 worktree 管理器的注册键是**裸
+// nodeID**（branch = "seelex/" + nodeID，见 workItemNodeID）。拿指派名直接查注册表
+// 必然查空 → 静默回退主会话项目根，teammate 的 read_file/write_file/bash 因此全落在
+// main 上（"worktree 的归属总是去到 main"）。去前缀的换算只有 workItemNodeID 一处，
+// 这里复用它，不重新拼命名。
 func (r *Runtime) bindWorkerProjectRoot(mainSessionID, roleSessionID, worktreeName string) {
 	if r == nil || r.projectScope == nil || strings.TrimSpace(roleSessionID) == "" {
 		return
 	}
 	root := ""
-	if name := strings.TrimSpace(worktreeName); name != "" && r.worktreeMgr != nil {
+	if name := workItemNodeID(worktreeName); name != "" && r.worktreeMgr != nil {
 		if info, ok := r.worktreeMgr.Info(name); ok {
 			root = strings.TrimSpace(info.Path)
 		}
