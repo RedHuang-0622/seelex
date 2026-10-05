@@ -12,6 +12,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/fork"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/seelexctx/provider"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
@@ -413,12 +414,14 @@ func (s *SubagentTree) Restore(records []sessionstore.NodeSessionRecord, mainSes
 // 假象），done/failed 原样保留，未知 → interrupted（保守口径：残留记录
 // 说明父会话没有等到它收敛）。
 func restoredSubAgentStatus(status string) SubAgentNodeStatus {
-	switch status {
-	case "running", "queued":
+	// "还在跑"的判据只有一份（workunit.InFlight）：记录里说 queued/running 的这一格
+	// 与回灌判中断（Resume.Interrupted）用的是同一条。
+	switch {
+	case workunit.InFlight(status):
 		return SubAgentInterrupted
-	case "done":
+	case status == "done":
 		return SubAgentDone
-	case "failed":
+	case status == "failed":
 		return SubAgentFailed
 	default:
 		return SubAgentInterrupted

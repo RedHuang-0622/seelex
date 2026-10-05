@@ -11,6 +11,7 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/actor"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/seelexctx/provider"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
@@ -512,9 +513,11 @@ func (s *SubagentSessions) buildRecordLocked(nodeID string) sessionstore.NodeSes
 		record.Summary = outcome.summary
 		record.Error = outcome.errMsg
 	} else if _, running := s.sessions[nodeID]; running {
-		record.Status = "running"
+		// 词表只有一份（workunit.StatusRunning / StatusQueued）：这一格与"在跑"判据
+		// （workunit.InFlight）是同一份事实，不许在这里再写一遍字面量。
+		record.Status = workunit.StatusRunning
 	} else {
-		record.Status = "queued"
+		record.Status = workunit.StatusQueued
 	}
 	return record
 }

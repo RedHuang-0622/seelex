@@ -325,10 +325,12 @@ func (p *subagentResumePort) Locate(ctx context.Context) ([]resume.Unit, error) 
 		}
 		p.records[key] = record
 		status := resume.UnitDone
-		switch record.Status {
-		case "queued", "running":
+		switch {
+		// "还在跑"的判据只有一份（workunit.InFlight）：与 teammate 侧、与树投影
+		// 用的是同一条，不再在这里写一遍字面量。
+		case workunit.InFlight(record.Status):
 			status = resume.UnitActive
-		case "failed":
+		case record.Status == "failed":
 			status = resume.UnitFailed
 		}
 		if _, concluded := conclusions[key]; concluded {

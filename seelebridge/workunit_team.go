@@ -30,7 +30,9 @@ import (
 // 终态：记录回答的是"这一轮跑到哪"，不是"leader 验收了没有"（那是计划里 item.Status
 // 的事——两处各记一份就会漂移）。
 const (
-	teamUnitStatusRunning = "running"
+	// teamUnitStatusRunning 复用契约的词表（"在跑"只有一份，见 workunit.StatusRunning /
+	// InFlight）；两个终态**不进契约**——它由记录写方按自己的语义定名。
+	teamUnitStatusRunning = workunit.StatusRunning
 	teamUnitStatusDone    = "done"
 	teamUnitStatusFailed  = "failed"
 )
