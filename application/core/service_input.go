@@ -97,11 +97,18 @@ func (service *Service) Submit(ctx context.Context, text string) error {
 }
 
 func (service *Service) submitConversation(ctx context.Context, input string) error {
-	// fork 门控：fork_subagents 运行中禁止当前视图会话继续对话（含排队）。
-	if forkGate, ok := service.Deps.Runtime.(interface{ ForkInFlight(string) bool }); ok &&
-		forkGate.ForkInFlight(service.currentViewSessionID()) {
-		return ErrForkRunningChat
-	}
+	// fork 执行期**不再拒绝输入**（2026-10-05 退役 fork 门控）。fork_subagents 派发
+	// 即后台化之后，"父回合还在、子代理作业在跑"是常态，把用户挡在门外只是把
+	// "并发"换成"拒绝"——输入照样要发，只是发得晚一点。
+	//
+	// 现在走**既有那条链路**：本会话有回合在跑 → 入队（下面的 Enqueue 分支），
+	// 回合收尾整批提升为下一轮（chat.go 的 queuedChatRequests/combineChatRequests，
+	// durable queue 与调序/撤回同源）；没有回合在跑 → 照常开新回合。
+	//
+	// 并发写主工作区的风险改由合并侧收口，而不是靠拒绝输入回避：
+	// seelebridge/worktree 的收尾单写者 actor 把"可能的并行 merge"串行化，
+	// 主工作区脏/真冲突时落 ErrMergeBlockedByMain 待合并（保留现场 + 提示），
+	// 不再把一个子代理的产出判死。
 	request := newChatRequest(input, service.promptStack.Layers())
 	effort := service.effortForSession(service.currentViewSessionID())
 	request.budget = reactBudgetFor(effort)
@@ -183,11 +190,9 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 // submitConversationFor 在指定（后台）会话提交对话：目标会话运行中则投递
 // 到该会话自己的队列，否则在其上下文中后台启动（不切换活跃会话）。
 func (service *Service) submitConversationFor(ctx context.Context, sessionID, input string) error {
-	// fork 门控：fork_subagents 运行中禁止同会话继续对话（含排队输入）。
-	if forkGate, ok := service.Deps.Runtime.(interface{ ForkInFlight(string) bool }); ok &&
-		forkGate.ForkInFlight(sessionID) {
-		return ErrForkRunningChat
-	}
+	// fork 执行期不再拒绝输入（同 submitConversation 的退役口径）：目标会话有回合
+	// 在跑 → 投进该会话自己的队列，回合收尾整批提升；没有回合在跑 → 在它的上下文
+	// 里后台启动。门控退役之后，teammate/fork 两条链在输入面上走的是同一条链路。
 	request := newChatRequest(input, service.promptStack.Layers())
 	effort := service.effortForSession(sessionID)
 	request.budget = reactBudgetFor(effort)
