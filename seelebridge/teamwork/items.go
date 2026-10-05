@@ -58,10 +58,26 @@ func WorkItemSessionID(derive func(mainSessionID, teamID, roleName string) strin
 	return derive(mainSessionID, teamID, role) + "-wi-" + itemID
 }
 
-// WorkItemWorktreeName 派生「一个 Work Item 一个 worktree」的指派名。
+// worktreeNamePrefix 是现场**指派名**的前缀，与 worktree 管理器的分支名同一条约定
+// （branch = 前缀 + nodeID）。这里只做**正向**拼装：指派名 → nodeID 的反向换算只有
+// 一处（seelebridge 的 workItemNodeID 去前缀），新调用方不许另拼一次命名。
+const worktreeNamePrefix = "seelex/"
+
+// WorkItemWorktreeName 派生「一个 Work Item 一个 worktree」的指派名
+// （nodeID = `<role>-<itemID>`）。
 func WorkItemWorktreeName(role, itemID string) string {
 	sanitized := strings.NewReplacer("/", "-", "\\", "-", " ", "-", ":", "-").Replace(strings.TrimSpace(itemID))
-	return "seelex/" + strings.TrimSpace(role) + "-" + sanitized
+	return worktreeNamePrefix + strings.TrimSpace(role) + "-" + sanitized
+}
+
+// TeammateWorktreeName 派生 **teammate 级**（非 Work Item）现场的指派名。
+//
+// teammate 级现场的 nodeID 就是角色名（契约：teammate 级 nodeID = `<role>`；
+// Work Item 级 = `<role>-<itemID>`），所以指派名是 `seelex/<role>`。老口径派发
+// （Coordinator.Dispatch）与它的释放（Runtime.ReleaseWorkspace）都以它为键——
+// 两边各拼一次名字，迟早拼成两个目录。
+func TeammateWorktreeName(role string) string {
+	return worktreeNamePrefix + strings.TrimSpace(role)
 }
 
 // milestoneIndex 返回里程碑在计划里的下标（不存在 = -1）。
@@ -709,21 +725,124 @@ func (c *Coordinator) releaseItem(ctx context.Context, item sessionstore.Teamwor
 	if !ok {
 		return nil // 没有活绑定：无可释放（幂等）
 	}
+	return c.releaseBinding(ctx, binding, teamID, reason)
+}
+
+// releaseBinding 结束一份绑定的执行隔离：释放现场 → 清这件事的会话内容 → 追加释放
+// 行。三处调用（验收销项 / 退场步 2 / 整队收口）语义相同，只有 reason 不同。
+func (c *Coordinator) releaseBinding(ctx context.Context, binding sessionstore.TeamworkBinding, teamID, reason string) error {
 	if c.spaces != nil {
 		if err := c.spaces.ReleaseWorkspaceItem(ctx, c.workspaceBinding(binding, teamID)); err != nil {
-			return fmt.Errorf("teamwork: 释放工作项 %q 的工作区失败: %w", item.ID, err)
+			return fmt.Errorf("teamwork: 释放工作项 %q 的工作区失败: %w", binding.WorkItem, err)
 		}
 	}
 	if c.sessions != nil && strings.TrimSpace(binding.SessionID) != "" {
 		if err := c.sessions.ResetSession(ctx, binding.SessionID); err != nil {
-			return fmt.Errorf("teamwork: 清工作项 %q 的会话内容失败: %w", item.ID, err)
+			return fmt.Errorf("teamwork: 清工作项 %q 的会话内容失败: %w", binding.WorkItem, err)
 		}
 	}
+	return c.appendReleasedBinding(ctx, binding, reason)
+}
+
+// appendReleasedBinding 追加一行「这份绑定已释放」（账本 KV 语义：最后一行说了算）。
+func (c *Coordinator) appendReleasedBinding(ctx context.Context, binding sessionstore.TeamworkBinding, reason string) error {
 	return c.store.AppendBinding(ctx, c.key, sessionstore.TeamworkBinding{
-		WorkItem: item.ID, Milestone: binding.Milestone, Role: binding.Role,
+		WorkItem: binding.WorkItem, Milestone: binding.Milestone, Role: binding.Role,
 		SessionID: binding.SessionID, Worktree: binding.Worktree,
 		At: c.clock().UTC().Unix(), Released: true, Reason: reason,
 	})
+}
+
+// releaseRoleItemScenes 释放某角色名下**每一个**已派发 Work Item 的现场（退场 /
+// 收口步 2 的后半）。
+//
+// 逐个都试、一个失败不牵连同批其余（"不得只释放一个"）；失败逐条攒起来一次性上报，
+// 每条点明是哪一个工作项——"说不清是哪一个"的失败没法定位。失败的那一份不记释放行：
+// 账本不先销，现场还在。
+//
+// 角色级那一行（指派名 `seelex/<role>`）不在这里处理：它的清理走 WorkspaceReleaser
+// 那条路（"脏工作区显式报错、不静默丢"的语义在那边），这里只负责 Work Item 级现场。
+func (c *Coordinator) releaseRoleItemScenes(ctx context.Context, role, teamID, reason string) error {
+	rows, err := c.store.ReadBindings(ctx, c.key)
+	if err != nil {
+		return err
+	}
+	failures := make([]error, 0)
+	for _, binding := range sessionstore.TeamworkBindings(rows) {
+		if strings.TrimSpace(binding.Role) != strings.TrimSpace(role) {
+			continue
+		}
+		if teammateLevelBinding(binding, role) {
+			continue
+		}
+		if err := c.releaseBinding(ctx, binding, teamID, reason); err != nil {
+			failures = append(failures, fmt.Errorf("teammate %q 的工作项 %q: %w", role, binding.WorkItem, err))
+		}
+	}
+	if len(failures) > 0 {
+		return errors.Join(failures...)
+	}
+	return nil
+}
+
+// teammateLevelBinding 报告一行账本是不是**角色级**（teammate 级）现场：它的指派名
+// 就是 `seelex/<role>`（nodeID = 角色名），没有里程碑归属。
+func teammateLevelBinding(binding sessionstore.TeamworkBinding, role string) bool {
+	if strings.TrimSpace(binding.Milestone) != "" {
+		return false
+	}
+	return strings.TrimSpace(binding.Worktree) == TeammateWorktreeName(role)
+}
+
+// markTeammateBindingReleased 把角色级现场那一行账本记成已释放（现场已经由
+// WorkspaceReleaser 清掉）。没有这一行 = 没建过角色级现场（幂等）。
+func (c *Coordinator) markTeammateBindingReleased(ctx context.Context, role, reason string) error {
+	rows, err := c.store.ReadBindings(ctx, c.key)
+	if err != nil {
+		return err
+	}
+	for _, binding := range sessionstore.TeamworkBindings(rows) {
+		if teammateLevelBinding(binding, role) {
+			return c.appendReleasedBinding(ctx, binding, reason)
+		}
+	}
+	return nil
+}
+
+// releaseTeammateScenes 释放一个 teammate 的**全部**现场：角色级 + 该角色名下每一个
+// 仍在册的 Work Item（退场 / 收口步 2 的唯一实现）。
+//
+// 为什么两半都要（2026-10-05 F2/F3）：老口径派发的 teammate 过去**没有**现场（F2），
+// 而这一步只拿角色名去查一次（F3）——于是 `seelex/<role>-<item>` 那些现场永远留在
+// 盘上，"脏工作区显式报错"这条保证也永不触发（查不到现场 = 幂等返回）。
+//
+// 两个口径各有自己的释放路径，不能互相代替：
+//   - 角色级 → WorkspaceReleaser：语义里有"脏工作区显式报错、不静默丢"；
+//   - Work Item 级 → Workspaces.ReleaseWorkspaceItem：与验收销项同一套清理。
+//
+// 释放失败的那一份不记释放行（现场还在，账不能先销）；失败逐条攒起来一次上报。
+func (c *Coordinator) releaseTeammateScenes(ctx context.Context, teamID, role, reason string) error {
+	failures := make([]error, 0)
+	if err := c.worktrees.ReleaseWorkspace(ctx, role); err != nil {
+		failures = append(failures, fmt.Errorf("teammate %q 的角色级现场 %s: %w", role, TeammateWorktreeName(role), err))
+	} else if err := c.markTeammateBindingReleased(ctx, role, reason); err != nil {
+		return err
+	}
+	if err := c.releaseRoleItemScenes(ctx, role, teamID, reason); err != nil {
+		failures = append(failures, err)
+	}
+	if len(failures) > 0 {
+		return errors.Join(failures...)
+	}
+	return nil
+}
+
+// retireReason 是账本里「这一轮为什么释放现场」的理由词（整队收口 vs 单角色退场）。
+func retireReason(reclaim bool) string {
+	if reclaim {
+		return "team_close"
+	}
+	return "team_retire"
 }
 
 // releaseAllItems 是整队收口时的**一并结束**：所有活绑定（会话 + 工作区）到此为止。
@@ -735,22 +854,8 @@ func (c *Coordinator) releaseAllItems(ctx context.Context, teamID string) error 
 	// 先折叠成"当前绑定"（KV 语义：一个 work item 只有最后一行说了算），再逐个结束——
 	// 否则历史行会被重复释放，而且同一个 work item 会被当成多份现场。
 	for _, binding := range sessionstore.TeamworkBindings(rows) {
-		if c.spaces != nil {
-			if err := c.spaces.ReleaseWorkspaceItem(ctx, c.workspaceBinding(binding, teamID)); err != nil {
-				return fmt.Errorf("teamwork: 收口释放工作项 %q 的工作区失败: %w", binding.WorkItem, err)
-			}
-		}
-		if c.sessions != nil && strings.TrimSpace(binding.SessionID) != "" {
-			if err := c.sessions.ResetSession(ctx, binding.SessionID); err != nil {
-				return fmt.Errorf("teamwork: 收口清工作项 %q 的会话内容失败: %w", binding.WorkItem, err)
-			}
-		}
-		if err := c.store.AppendBinding(ctx, c.key, sessionstore.TeamworkBinding{
-			WorkItem: binding.WorkItem, Milestone: binding.Milestone, Role: binding.Role,
-			SessionID: binding.SessionID, Worktree: binding.Worktree,
-			At: c.clock().UTC().Unix(), Released: true, Reason: "team_close",
-		}); err != nil {
-			return err
+		if err := c.releaseBinding(ctx, binding, teamID, "team_close"); err != nil {
+			return fmt.Errorf("teamwork: 收口释放工作项 %q 的现场失败: %w", binding.WorkItem, err)
 		}
 	}
 	return nil

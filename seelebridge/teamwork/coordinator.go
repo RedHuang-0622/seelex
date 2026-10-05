@@ -138,6 +138,30 @@ func (c *Coordinator) Dispatch(ctx context.Context, role, goal string) (jobs.Han
 	if err != nil {
 		return "", err
 	}
+	// 建现场（2026-10-05 F2）：老口径派发的 teammate 也要有自己的 worktree——它过去
+	// 从头到尾没有一次 BindWorkspace，于是 WorkerRequest.Worktree 永远为空，
+	// bindWorkerProjectRoot 查空后回退主会话根：teammate 的读写全落在 main 上。
+	//
+	// nodeID = 角色名（契约：teammate 级 nodeID = `<role>`），指派名 = `seelex/<role>`；
+	// 建现场**只经** Workspaces 端口——coordinator 不碰 git、不碰文件系统。
+	nodeID := strings.TrimSpace(role)
+	binding := WorkspaceBinding{
+		MainSessionID: c.key.SessionID, TeamID: plan.TeamID,
+		WorkItem: nodeID, Role: role, SessionID: member.RoleSessionID,
+		Worktree: TeammateWorktreeName(nodeID),
+	}
+	created := ""
+	if c.spaces != nil {
+		bound, bindErr := c.spaces.BindWorkspace(ctx, binding)
+		if bindErr != nil {
+			return "", fmt.Errorf("teamwork: 为 teammate %q 建工作区失败: %w", role, bindErr)
+		}
+		if strings.TrimSpace(bound.Worktree) != "" {
+			binding.Worktree = bound.Worktree
+		}
+		binding.Path, binding.Branch = bound.Path, bound.Branch
+		created = binding.Worktree
+	}
 	// 输出归属（§4.7 / S5）：装配了产品输出面就把这一轮的正文交给产品自有文件，
 	// 否则交回框架自建（并按框架语义在销项 / 驱逐 / Close 时被删）。分配失败不降级
 	// 成"悄悄退回框架文件"——那会让"正文活到 close"这条保证时真时假。
@@ -158,7 +182,7 @@ func (c *Coordinator) Dispatch(ctx context.Context, role, goal string) (jobs.Han
 		ToolsPolicy:      member.ToolsPolicy,
 		PermissionGroups: groups,
 		Plugins:          member.Plugins,
-		Worktree:         member.Worktree,
+		Worktree:         binding.Worktree,
 		Goal:             goal,
 		MaxTurns:         c.maxTurns,
 		OutputPath:       outputPath,
@@ -180,6 +204,11 @@ func (c *Coordinator) Dispatch(ctx context.Context, role, goal string) (jobs.Han
 		Dedup: "teamwork:" + role,
 	})
 	if err != nil {
+		// 刚建的现场随失败的派发一起撤掉（与 DispatchItem 同一口径）：绑定描述的是
+		// "这一轮在跑"，没跑起来就不该占着。
+		if created != "" && c.spaces != nil {
+			_ = c.spaces.ReleaseWorkspaceItem(ctx, binding)
+		}
 		return "", err
 	}
 	// 派发成功后才写状态：句柄只是**投影**（jobs I-4），不在册的值一律视为过期。
@@ -187,7 +216,22 @@ func (c *Coordinator) Dispatch(ctx context.Context, role, goal string) (jobs.Han
 		plan.State.Jobs = map[string]string{}
 	}
 	plan.State.Jobs[role] = describeHandle(handle)
+	// 现场指派名写回在编成员：绑根侧（WorkerRequest.Worktree）与看板都要看得到它。
+	for index := range plan.Members {
+		if plan.Members[index].Role == role {
+			plan.Members[index].Worktree = binding.Worktree
+		}
+	}
 	if err := c.store.WritePlan(ctx, c.key, plan, c.maxMembers); err != nil {
+		return handle, err
+	}
+	// 账本：teammate 级绑定一行（KV 语义，读侧取最后一行）。WorkItem 列记的是它的
+	// **现场 nodeID**（= 角色名）——账本的这一列是非空主键，而 teammate 级没有 Work
+	// Item 可记；用 nodeID 填这一格，与 Worktree 的去前缀换算互为同一个键。
+	if err := c.store.AppendBinding(ctx, c.key, sessionstore.TeamworkBinding{
+		WorkItem: nodeID, Role: role, SessionID: member.RoleSessionID,
+		Worktree: binding.Worktree, At: c.clock().UTC().Unix(),
+	}); err != nil {
 		return handle, err
 	}
 	if err := c.audit(ctx, sessionstore.TeamworkEvent{
@@ -303,7 +347,8 @@ func (c *Coordinator) Milestone(ctx context.Context, id, content string) error {
 // 统一收口到 Close 这一处；实现仍只有一份，用一个开关区分，不复制四步。
 //
 //  1. reclaim=true 时回收该 teammate 名下未完成的作业（只动这一个 teammate）
-//  2. 释放 worktree（节约存储；脏工作区由实现按语义报错，不静默丢弃）
+//  2. 释放该 teammate 的**全部**现场：角色级（nodeID = 角色名）+ 该角色名下每一个
+//     已派发 Work Item 的现场（逐个释放；脏工作区由实现按语义报错，不静默丢弃）
 //  3. 清空该 teammate 的会话记录内容（工作历史 + durable 快照）
 //  4. 保留 teammate 在编，worktree 字段置空待重派；回收时清掉句柄投影
 //
@@ -323,12 +368,13 @@ func (c *Coordinator) retireStepsLocked(ctx context.Context, role string, reclai
 			return plan, fmt.Errorf("teamwork: 收口步 1（回收作业）失败: %w", err)
 		}
 	}
-	// 步 2：释放工作区。缺端口 = 显式报错：静默跳过会让 worktree 悄悄累积，
-	// 而"teammate 不挂子代理 ⇒ worktree 数量被人数封顶"这条前提正是靠它成立。
+	// 步 2：释放该 teammate 的**全部**现场（角色级 + 该角色名下每一个已派发 Work
+	// Item）。缺端口 = 显式报错：静默跳过会让 worktree 悄悄累积，而"teammate 不挂
+	// 子代理 ⇒ worktree 数量被人数封顶"这条前提正是靠它成立。
 	if c.worktrees == nil {
 		return plan, errors.New("teamwork: 退场步 2 需要 WorkspaceReleaser（未装配）")
 	}
-	if err := c.worktrees.ReleaseWorkspace(ctx, role); err != nil {
+	if err := c.releaseTeammateScenes(ctx, plan.TeamID, role, retireReason(reclaim)); err != nil {
 		return plan, fmt.Errorf("teamwork: 退场步 2（释放工作区）失败: %w", err)
 	}
 	// 步 3：清会话内容（删的是对话记忆与工作区检出，不是注册/在编）。
@@ -374,7 +420,7 @@ func (c *Coordinator) Retire(ctx context.Context, role string) error {
 	}
 	return c.audit(ctx, sessionstore.TeamworkEvent{
 		Kind: sessionstore.TeamworkEventRetire, TeamID: plan.TeamID, Role: role,
-		Detail: "释放 worktree → 清会话内容 → 保在线（作业在整队 close 前仍在册）",
+		Detail: "释放该角色的全部现场（角色级 seelex/" + role + " + 名下各 Work Item）→ 清会话内容 → 保在线（作业在整队 close 前仍在册）",
 	})
 }
 

@@ -616,7 +616,7 @@ func (r *Runtime) teamRetireHandler(ctx context.Context, argsJSON string) (strin
 	r.archiveTeamBoard(ctx)
 	return jsonReceipt(map[string]any{
 		"ok": true, "role": raw.Role,
-		"detail": "释放 worktree → 清会话内容 → 保在线（作业不在这里回收：它活到 team_close）",
+		"detail": "释放该角色的全部现场（角色级 + 名下各 Work Item）→ 清会话内容 → 保在线（作业不在这里回收：它活到 team_close）",
 	})
 }
 
@@ -772,32 +772,46 @@ func (r *Runtime) bindWorkerProjectRoot(mainSessionID, roleSessionID, worktreeNa
 	_ = r.projectScope.BindFor(roleSessionID, root)
 }
 
-// ReleaseWorkspace 实现 teamwork.WorkspaceReleaser：释放一个 teammate 的工作区。
+// ReleaseWorkspace 实现 teamwork.WorkspaceReleaser：释放一个 teammate 的**角色级**
+// 现场（teammate 级 nodeID = 角色名，指派名 `seelex/<role>`）。
 //
 // 脏工作区**显式报错**（ErrUncommittedChanges 语义）而不是静默丢弃——现场是人的
 // 资产，框架不替人做"丢还是留"的决定。无现场 = 无可释放（幂等）。
+//
+// 换算与建现场**同一个键**：现场注册在裸 nodeID 下（teammate 级 = 角色名；去
+// `seelex/` 前缀的换算见 workItemNodeID），所以这里拿角色名查注册表是对的。过去这
+// 条路一直是空操作，根因是角色级现场从来没被建出来（F2）——"查不到现场"因此成了
+// 唯一分支。Work Item 级现场（`seelex/<role>-<item>`）不在这里释放：它们的绑定在
+// 账本里，按账本逐个释放（见 teamwork 的 releaseTeammateScenes）。
 func (r *Runtime) ReleaseWorkspace(ctx context.Context, role string) error {
 	if r == nil || r.worktreeMgr == nil {
 		return errors.New("teamwork: 释放工作区需要 worktree 管理器（未装配）")
 	}
-	info, ok := r.worktreeMgr.Info(role)
-	if !ok {
+	nodeID := strings.TrimSpace(role)
+	if nodeID == "" {
 		return nil
 	}
-	if strings.TrimSpace(info.Path) != "" {
-		if dirty, err := worktreeDirty(info.Path); err != nil {
+	info, ok := r.worktreeMgr.Info(nodeID)
+	if !ok {
+		return nil // 无现场：无可释放（幂等）
+	}
+	if path := strings.TrimSpace(info.Path); path != "" {
+		dirty, err := worktreeDirty(path)
+		if err != nil {
 			return fmt.Errorf("teamwork: 释放工作区前检查失败: %w", err)
-		} else if dirty {
-			return fmt.Errorf("teamwork: teammate %q 的工作区有未提交改动（%s）: %w", role, info.Path, worktree.ErrUncommittedChanges)
+		}
+		if dirty {
+			return fmt.Errorf("teamwork: teammate %q 的工作区有未提交改动（%s）: %w", role, path, worktree.ErrUncommittedChanges)
 		}
 	}
-	mainSessionID := strings.TrimSpace(seeletelemetry.SessionIDFromContext(ctx))
-	if r.projectScope != nil && mainSessionID != "" {
-		if root := strings.TrimSpace(r.projectScope.RootFor(mainSessionID)); root != "" {
-			_ = worktree.CleanupWorktree(root, &worktree.NodeWorktree{Path: info.Path, Branch: info.Branch})
+	// 清目录 + 删分支：复用 worktree 既有的**幂等**清理（目录/分支已不在 = 已释放），
+	// 编排面不重写 git 调用；随后清注册表。
+	if root := r.workspaceRootFor(seeletelemetry.SessionIDFromContext(ctx)); root != "" {
+		if err := worktree.CleanupWorktree(root, &worktree.NodeWorktree{Path: info.Path, Branch: info.Branch}); err != nil {
+			return fmt.Errorf("teamwork: 释放 teammate %q 的工作区失败（%s）: %w", role, info.Path, err)
 		}
 	}
-	r.worktreeMgr.Release(role)
+	r.worktreeMgr.Release(nodeID)
 	return nil
 }
 
