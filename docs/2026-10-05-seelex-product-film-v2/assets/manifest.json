@@ -1,0 +1,256 @@
+{
+  "schema": "seelex-film-v2/ui-asset-manifest@1",
+  "generated_at": "2026-10-05T17:52:00+08:00",
+  "generated_by": "asset_scout (milestone m-film)",
+  "source": {
+    "what": "Running Seelex GUI (Wails desktop app), screenshots cropped to the app window",
+    "device": "1920x1080 desktop; app window captured at 1800x1080 (all PNGs)",
+    "note": "Label text below is transcribed from the pixels of each PNG (read back by opening the file), not from docs."
+  },
+  "images": [
+    {
+      "path": "assets/ui/01-conversation.png",
+      "pixels": [1800, 1080],
+      "captured_at_local": "2026-10-05T17:38:07+08:00",
+      "view": "Conversation (对话) tab active; right dock on 状态",
+      "panels": [
+        {
+          "name": "top-chrome",
+          "labels": ["Seelex", "dev", "openai", "deepseek-flash 0", "渲染 4915 节点 · JS 74.4MB · 快照 7KB"]
+        },
+        {
+          "name": "left-icon-rail",
+          "labels": ["(session rail, 会话, search, plan, worktable, trace, goal, team, explorer icons)"]
+        },
+        {
+          "name": "left-session-tree",
+          "labels": ["会话 42 +", "App 1", "AppData 3", "coder_hq 3", "introduce_myself 12", "Seele 4", "seelex 14", "<:-- seelexa 运行中", "TEAM", "目前来看 teamwork3", "提交", "emmmmen你主要是把", "目前 teamwork 的 tea", "你需要做的事情是，", "你看下打包的内容里", "本次没有模型生成的", "目前符合这样的要求", "文档也 Skill 前缀写6"]
+        },
+        {
+          "name": "center-conversation",
+          "labels": ["对话", "轨迹", "message-235", "EXEC R1 17:36", "message-250", "EXEC R1 17:37", "message-259", "EXEC R1 17:38", "工具过程 4 次 · computer_click / computer_wait / computer_screenshot / bash", "工具过程 5 次 · bash / computer_screenshot", "工具过程 2 次 · computer_focus", "展开 / 收起", "执行中 ···", "继续输入，Enter 加入队列", "全权", "LITE", "MAX", "HIGH"]
+        },
+        {
+          "name": "right-dock-state",
+          "labels": ["项目", "seelex", "G:\\Program\\go\\seelex", "状态", "工作台", "资源管理器", "▸ 状态", "▾ 账户 3", "openai 3", "○ deepseek-flash  agent-1", "○ deepseek-flash  goal-plan-1", "○ deepseek-flash  subagent-1", "▸ Agent Team 0", "历史检索"]
+        }
+      ],
+      "film_crops_norm": [
+        {"name": "right-account-pool", "box": [0.806, 0.278, 1.0, 0.556], "why": "openai + 3 deepseek-flash role channels; proves model routing per role"},
+        {"name": "center-conversation", "box": [0.206, 0.139, 0.65, 0.602], "why": "message ids + EXEC timestamps + 工具过程 rows; proves a real agent loop"},
+        {"name": "left-session-tree", "box": [0.033, 0.102, 0.2, 0.995], "why": "real session list (会话 42) and nested task threads"},
+        {"name": "right-dock-header", "box": [0.8, 0.102, 1.0, 0.296], "why": "project path + 状态/工作台/资源管理器 dock tabs"}
+      ]
+    },
+    {
+      "path": "assets/ui/02-trajectory.png",
+      "pixels": [1800, 1080],
+      "captured_at_local": "2026-10-05T17:38:15+08:00",
+      "view": "Trajectory (轨迹) tab + 上下文轴 (context axis); right dock on 状态",
+      "panels": [
+        {
+          "name": "top-chrome",
+          "labels": ["openai", "deepseek-flash 0", "渲染 7516 节点 · JS 89.2MB · 快照 594KB"]
+        },
+        {
+          "name": "trajectory-header",
+          "labels": ["已加载窗口 201 / 会话共 401 条消息", "更早的回合尚未加载——轨迹与上下文轴只覆盖已加载的窗口", "加载更早", "上下文轴", "第 6/6 页 · 第 81-84 条 · 共 84 条 · 每页 16 条（滚动翻页，Shift+滚轮调页大小）"]
+        },
+        {
+          "name": "context-axis-lanes",
+          "labels": ["简档", "输入", "LLM", "工具", "错误", "系统", "通知", "comput computer_wait"]
+        },
+        {
+          "name": "trajectory-filter+rows",
+          "labels": ["全部 84", "输入 1", "LLM 8", "工具 74", "错误 0", "系统 1", "通知 0", "共 84 条 · 成功 82", "17:22:16 系统 SYSTEM − 35 B", "16:26:32 工具 read_batch OK 82 B", "16:26:33 工具 bash OK 197 B", "16:26:37 工具 read_batch OK 1014 B"]
+        },
+        {
+          "name": "right-dock-state",
+          "labels": ["项目", "seelex", "G:\\Program\\go\\seelex", "状态", "工作台", "资源管理器", "账户 3", "openai", "deepseek-flash agent-1", "deepseek-flash goal-plan-1", "deepseek-flash subagent-1", "Agent Team", "历史检索"]
+        }
+      ],
+      "film_crops_norm": [
+        {"name": "context-axis-lanes", "box": [0.217, 0.222, 0.756, 0.472], "why": "the signature lane/chip visualisation of a turn"},
+        {"name": "filter-bar", "box": [0.217, 0.5, 0.556, 0.602], "why": "hard counts per channel (全部 84 = 1+8+74+0+1+0)"},
+        {"name": "tool-rows", "box": [0.217, 0.574, 0.8, 0.833], "why": "timestamped tool results with byte sizes"},
+        {"name": "right-account-pool", "box": [0.806, 0.278, 1.0, 0.556], "why": "account pool, same as 01"}
+      ]
+    },
+    {
+      "path": "assets/ui/03-worktable.png",
+      "pixels": [1800, 1080],
+      "captured_at_local": "2026-10-05T17:38:30+08:00",
+      "view": "Trajectory tab; right dock on 工作台",
+      "panels": [
+        {
+          "name": "top-chrome",
+          "labels": ["openai", "deepseek-flash 0", "渲染 7474 节点 · JS 111.7MB · 快照 7KB"]
+        },
+        {
+          "name": "trajectory-header",
+          "labels": ["已加载窗口 201 / 会话共 419 条消息", "上下文轴", "第 6/6 页 · 第 81-84 条 · 共 84 条 · 每页 16 条（滚动翻页，Shift+滚轮调页大小）"]
+        },
+        {
+          "name": "right-dock-worktable",
+          "labels": ["项目", "seelex", "G:\\Program\\go\\seelex", "状态", "工作台", "资源管理器", "点击切换，拖拽可排序：拖到另一栏可与其对齐", "定时任务 0 +", "0 项任务  点击查看完整表格", "历史检索"]
+        },
+        {
+          "name": "filter+rows",
+          "labels": ["全部 84", "输入 1", "LLM 8", "工具 74", "错误 0", "系统 1", "通知 0", "共 84 条 · 成功 82", "16:28:46 工具 bash_read OK 81 B", "16:28:45 工具 bash_read OK 144 B"]
+        }
+      ],
+      "film_crops_norm": [
+        {"name": "right-dock-worktable", "box": [0.8, 0.278, 1.0, 0.648], "why": "工作台 panel (定时任务 / 0 项任务)"},
+        {"name": "context-axis-lanes", "box": [0.217, 0.222, 0.756, 0.472], "why": "lane visualisation"},
+        {"name": "left-session-tree", "box": [0.033, 0.102, 0.2, 0.995], "why": "session list"},
+        {"name": "center-conversation", "box": [0.206, 0.139, 0.65, 0.602], "why": "message/tool stream"}
+      ]
+    },
+    {
+      "path": "assets/ui/04-explorer.png",
+      "pixels": [1800, 1080],
+      "captured_at_local": "2026-10-05T17:38:37+08:00",
+      "view": "Trajectory tab; right dock on 资源管理器 · 工作区更改",
+      "panels": [
+        {
+          "name": "top-chrome",
+          "labels": ["openai", "deepseek-flash 0", "渲染 7353 节点 · JS 123.7MB · 快照 7KB"]
+        },
+        {
+          "name": "trajectory-header",
+          "labels": ["已加载窗口 201 / 会话共 428 条消息", "上下文轴", "第 6/6 页 · 第 81-82 条 · 共 82 条 · 每页 16 条（滚动翻页，Shift+滚轮调页大小）"]
+        },
+        {
+          "name": "filter+rows",
+          "labels": ["全部 82", "共 82 条 · 成功 80", "17:22:16 系统 SYSTEM − 35 B", "16:20:48 工具 grep_search OK 2.7 KB", "16:20:48 工具 grep_search OK 832 B", "16:20:51 工具 read_file OK 1.9 KB"]
+        },
+        {
+          "name": "right-dock-explorer",
+          "labels": ["项目", "seelex", "G:\\Program\\go\\seelex", "状态", "工作台", "资源管理器", "点击切换，拖拽可排序，拖到另一栏可与其对齐", "工作树", "提交记录", "工作区更改", "工作区更改 39", "main 未跟踪 39", "docs/2026-10-05-seelex-multi…", "历史检索"]
+        }
+      ],
+      "film_crops_norm": [
+        {"name": "explorer-workspace-changes", "box": [0.806, 0.278, 1.0, 0.926], "why": "39 untracked changes under main; the git working tree behind the session"},
+        {"name": "tool-rows", "box": [0.217, 0.556, 0.803, 0.85], "why": "four typed tool results with OK status and byte sizes"},
+        {"name": "filter-bar", "box": [0.217, 0.5, 0.556, 0.611], "why": "channel counts (全部 82)"},
+        {"name": "context-axis-lanes", "box": [0.217, 0.222, 0.756, 0.481], "why": "lane visualisation"}
+      ]
+    },
+    {
+      "path": "assets/ui/05-conversation-teamwork.png",
+      "pixels": [1800, 1080],
+      "captured_at_local": "2026-10-05T17:40:18+08:00",
+      "view": "Conversation tab; team tool calls visible in the stream",
+      "panels": [
+        {
+          "name": "top-chrome",
+          "labels": ["openai", "deepseek-flash 0", "渲染 7469 节点 · JS 183.2MB · 快照 7KB"]
+        },
+        {
+          "name": "center-conversation",
+          "labels": ["对话", "轨迹", "message-250", "message-259", "EXEC R1 17:38", "message-265", "EXEC R1 17:38", "message-340", "EXEC R1 17:39", "工具过程 3 次 · bash / computer_screenshot", "工具过程 2 次 · computer_focus / computer_screenshot", "工具过程 25 次 · computer_click / computer_wait / computer_screenshot / bash", "工具过程 7 次 · team_plan / team_work / team_dispatch / bash / computer_focus", "执行中 ···", "继续输入，Enter 加入队列"]
+        },
+        {
+          "name": "right-dock-state",
+          "labels": ["项目", "seelex", "G:\\Program\\go\\seelex", "状态", "工作台", "资源管理器", "账户 3", "openai 3", "deepseek-flash agent-1", "deepseek-flash goal-plan-1", "deepseek-flash subagent-1", "Agent Team 0", "历史检索"]
+        }
+      ],
+      "film_crops_norm": [
+        {"name": "team-tool-rows", "box": [0.042, 0.352, 0.644, 0.722], "why": "conversation rows naming team_plan / team_work / team_dispatch — the teamwork dispatch loop on screen"},
+        {"name": "center-conversation", "box": [0.206, 0.139, 0.65, 0.787], "why": "message + tool stream"},
+        {"name": "right-account-pool", "box": [0.806, 0.278, 1.0, 0.556], "why": "account pool"}
+      ]
+    },
+    {
+      "path": "assets/ui/06-employee-library.png",
+      "pixels": [1800, 1080],
+      "captured_at_local": "2026-10-05T17:41:02+08:00",
+      "view": "Conversation tab; right dock 状态 expanded to the 员工库 (employee library)",
+      "panels": [
+        {
+          "name": "top-chrome",
+          "labels": ["openai", "deepseek-flash 0", "渲染 7131 节点 · JS 218.4MB · 快照 7KB"]
+        },
+        {
+          "name": "center-conversation",
+          "labels": ["对话", "轨迹", "message-259", "EXEC R1 17:38", "message-265", "EXEC R1 17:38", "message-340", "EXEC R1 17:39", "工具过程 3 次 · bash / computer_screenshot", "工具过程 25 次 · computer_click / computer_wait / computer_screenshot / bash", "工具过程 24 次 · team_plan / team_work / team_dispatch / bash / computer_focus / computer_screenshot / compute…", "执行中 ···", "继续输入，Enter 加入队列"]
+        },
+        {
+          "name": "right-dock-employee-library",
+          "labels": ["项目", "seelex", "G:\\Program\\go\\seelex", "状态", "工作台", "资源管理器", "▸ 状态", "▸ 账户 3", "▾ Agent Team 0", "员工库 4", "+新建员工", "员工", "来源", "操作", "reviewer  reviewer · agent  只读  字段", "techleader  techleader · agent  继承  字段", "ADVISOR  tl · agent  读写  字段", "worker  worker · agent  读写  字段", "库", "入职", "本会话在编名单与员工库有差异：会话里的行点「入库」写回母本", "历史检索"]
+        }
+      ],
+      "film_crops_norm": [
+        {"name": "employee-library", "box": [0.669, 0.435, 1.0, 0.88], "why": "the four named teammates and their access level — the clearest 'who works here' shot"},
+        {"name": "employee-library-with-team", "box": [0.667, 0.315, 1.0, 0.88], "why": "same, plus 状态 / 账户 / Agent Team rows for context"},
+        {"name": "center-conversation", "box": [0.206, 0.139, 0.65, 0.815], "why": "message + tool stream"},
+        {"name": "left-session-tree", "box": [0.033, 0.102, 0.2, 0.995], "why": "session list"}
+      ]
+    },
+    {
+      "path": "assets/ui/07-team-tool-calls.png",
+      "pixels": [1800, 1080],
+      "captured_at_local": "2026-10-05T17:41:25+08:00",
+      "view": "Conversation tab; team dispatch tool rows + 员工库 in the right dock",
+      "panels": [
+        {
+          "name": "top-chrome",
+          "labels": ["openai", "deepseek-flash 0", "渲染 6719 节点 · JS 213.2MB · 快照 263KB"]
+        },
+        {
+          "name": "center-conversation",
+          "labels": ["对话", "轨迹", "message-250", "message-259", "EXEC R1 17:38", "message-265", "EXEC R1 17:38", "message-340", "EXEC R1 17:39", "工具过程 2 次 · computer_focus / computer_screenshot", "工具过程 25 次 · computer_click / computer_wait / computer_screenshot / bash", "工具过程 33 次 · team_plan / team_work / team_dispatch / bash / computer_focus / computer_screenshot / compute…", "执行中 ···", "我的意思是参考"]
+        },
+        {
+          "name": "right-dock-employee-library",
+          "labels": ["项目", "seelex", "G:\\Program\\go\\seelex", "状态", "工作台", "资源管理器", "▸ 状态", "▸ 账户 3", "▸ Agent Team 0", "员工库 4", "+新建员工", "员工", "来源", "操作", "reviewer  reviewer · agent  只读", "techleader  techleader · agent  继承", "ADVISOR  tl · agent  读写", "worker  worker · agent  读写", "本会话在编名单与员工库有差异：会话里的行点「入库」写回母本"]
+        }
+      ],
+      "film_crops_norm": [
+        {"name": "team-dispatch-rows", "box": [0.042, 0.352, 0.645, 0.722], "why": "conversation rows listing team_plan / team_work / team_dispatch tool calls"},
+        {"name": "right-employee-library", "box": [0.667, 0.315, 1.0, 0.88], "why": "员工库 with the four teammates"},
+        {"name": "center-conversation", "box": [0.206, 0.139, 0.65, 0.815], "why": "message + tool stream"}
+      ]
+    }
+  ],
+  "crops": [
+    {
+      "path": "assets/ui/crop-account-pool.png",
+      "pixels": [340, 286],
+      "source": "assets/ui/01-conversation.png",
+      "box_px": [1460, 314, 1800, 600],
+      "box_norm": [0.8111, 0.2907, 1.0, 0.5556],
+      "labels": ["账户 3", "openai 3", "○ deepseek-flash  agent-1", "○ deepseek-flash  goal-plan-1", "○ deepseek-flash  subagent-1", "Agent Team 0"]
+    },
+    {
+      "path": "assets/ui/crop-trajectory-filter-bar.png",
+      "pixels": [610, 106],
+      "source": "assets/ui/02-trajectory.png",
+      "box_px": [390, 542, 1000, 648],
+      "box_norm": [0.2167, 0.5019, 0.5556, 0.6],
+      "labels": ["全部 84", "输入 1", "LLM 8", "工具 74", "错误 0", "系统 1", "通知 0", "共 84 条 · 成功 82"]
+    },
+    {
+      "path": "assets/ui/crop-tool-call-rows.png",
+      "pixels": [1055, 318],
+      "source": "assets/ui/04-explorer.png",
+      "box_px": [390, 600, 1445, 918],
+      "box_norm": [0.2167, 0.5556, 0.8028, 0.85],
+      "labels": ["共 82 条 · 成功 80", "17:22:16 系统 SYSTEM − 35 B", "16:20:48 工具 grep_search OK 2.7 KB", "16:20:48 工具 grep_search OK 832 B", "16:20:51 工具 read_file OK 1.9 KB"]
+    },
+    {
+      "path": "assets/ui/crop-employee-library.png",
+      "pixels": [595, 480],
+      "source": "assets/ui/06-employee-library.png",
+      "box_px": [1205, 470, 1800, 950],
+      "box_norm": [0.6694, 0.4352, 1.0, 0.8796],
+      "labels": ["员工库 4", "+新建员工", "员工", "来源", "操作", "reviewer  reviewer · agent  只读  字段", "techleader  techleader · agent  继承  字段", "ADVISOR  tl · agent  读写  字段", "worker  worker · agent  读写  字段", "库", "入职", "本会话在编名单与员工库有差异：会话里的行点「入库」写回母本"]
+    }
+  ],
+  "facts_check": [
+    "所有 labels 均逐个像素读回自对应 PNG（在图片查看器中放大核对），未从文档转写",
+    "账户池三条 deepseek-flash 通道的角色名 agent-1 / goal-plan-1 / subagent-1 见 01、02",
+    "员工库四行 reviewer / techleader / ADVISOR / worker 见 06、07",
+    "轨迹过滤器条计数满足 输入1+LLM8+工具74+错误0+系统1+通知0 = 全部84（自洽）"
+  ]
+}

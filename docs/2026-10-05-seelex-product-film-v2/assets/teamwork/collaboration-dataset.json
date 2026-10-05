@@ -1,0 +1,93 @@
+{
+  "schema": "seelex-film-v2/collaboration-dataset@1",
+  "generated_at": "2026-10-05T17:52:00+08:00",
+  "generated_by": "asset_scout (milestone m-film)",
+  "provenance": {
+    "sources": [
+      "assets/teamwork/teamwork-plan.json",
+      "assets/teamwork/worktrees.jsonl",
+      "assets/teamwork/events.jsonl"
+    ],
+    "rule": "every value below is copied from those files; nothing is invented. Fields absent from the record are omitted."
+  },
+  "team": {
+    "team_id": "seelex-multiangle-review",
+    "session_id": "seelex-1791187852978294100-1",
+    "member_count": 6,
+    "milestone_count": 2,
+    "work_item_count": 6,
+    "worktree_count": 6,
+    "state": "closed",
+    "closed_at_utc": "2026-10-05T08:53:03.4263111Z",
+    "closed_reason": "team.close"
+  },
+  "members": [
+    {"role": "front_auditor", "tools_policy": "readonly", "plugins": ["frontend"]},
+    {"role": "ux_auditor", "tools_policy": "readonly", "plugins": ["frontend"]},
+    {"role": "feature_auditor", "tools_policy": "readonly", "plugins": ["default"]},
+    {"role": "arch_auditor", "tools_policy": "readonly", "plugins": ["default"]},
+    {"role": "market_researcher", "tools_policy": "readonly", "plugins": ["default"]},
+    {"role": "artist", "tools_policy": "readwrite", "plugins": ["artist"]}
+  ],
+  "milestones": [
+    {"id": "m-audit", "name": "多角度审查与市场调研", "status": "done", "item_count": 5},
+    {"id": "m-product", "name": "更新产品片制作", "status": "done", "depends_on": ["m-audit"], "item_count": 1}
+  ],
+  "work_items": [
+    {"id": "wi-front-code", "role": "front_auditor", "milestone": "m-audit", "name": "前端代码规范与工程化审查", "status": "done", "started_at": 1791188188, "finished_at": 1791188475},
+    {"id": "wi-front-ux", "role": "ux_auditor", "milestone": "m-audit", "name": "前端体验与视觉设计审查", "status": "done", "started_at": 1791188189, "finished_at": 1791188475},
+    {"id": "wi-feature", "role": "feature_auditor", "milestone": "m-audit", "name": "应用特色机制审查（teamwork / goal / plan / 作业面 / 权限）", "status": "done", "started_at": 1791188191, "finished_at": 1791188475},
+    {"id": "wi-arch", "role": "arch_auditor", "milestone": "m-audit", "name": "架构与工程质量审查", "status": "done", "started_at": 1791188192, "finished_at": 1791188475},
+    {"id": "wi-market", "role": "market_researcher", "milestone": "m-audit", "name": "市场与竞品调研：我们领先还是落后", "status": "done", "started_at": 1791188193, "finished_at": 1791188475},
+    {"id": "wi-film", "role": "artist", "milestone": "m-product", "name": "更新产品片（ruic-motion-reel 15s 成片）", "status": "done", "started_at": 1791188491, "finished_at": 1791190381}
+  ],
+  "worktrees": [
+    {"work_item": "wi-front-code", "role": "front_auditor", "worktree": "seelex/front_auditor-wi-front-code"},
+    {"work_item": "wi-front-ux", "role": "ux_auditor", "worktree": "seelex/ux_auditor-wi-front-ux"},
+    {"work_item": "wi-feature", "role": "feature_auditor", "worktree": "seelex/feature_auditor-wi-feature"},
+    {"work_item": "wi-arch", "role": "arch_auditor", "worktree": "seelex/arch_auditor-wi-arch"},
+    {"work_item": "wi-market", "role": "market_researcher", "worktree": "seelex/market_researcher-wi-market"},
+    {"work_item": "wi-film", "role": "artist", "worktree": "seelex/artist-wi-film"}
+  ],
+  "timeline": [
+    {"at": "2026-10-05T08:16:12.0675832Z", "kind": "plan", "detail": "members=6 milestones=2 items=0 plugins=front_auditor=frontend;ux_auditor=frontend;feature_auditor=default;arch_auditor=default;market_researcher=default;artist=artist"},
+    {"at": "2026-10-05T08:16:26.3791776Z", "kind": "item", "role": "front_auditor", "milestone": "m-audit", "work_item": "wi-front-code", "detail": "排活：前端代码规范与工程化审查"},
+    {"at": "2026-10-05T08:16:26.3804006Z", "kind": "item", "role": "ux_auditor", "milestone": "m-audit", "work_item": "wi-front-ux", "detail": "排活：前端体验与视觉设计审查"},
+    {"at": "2026-10-05T08:16:26.3804006Z", "kind": "item", "role": "feature_auditor", "milestone": "m-audit", "work_item": "wi-feature", "detail": "排活：应用特色机制审查（teamwork / goal / plan / 作业面 / 权限）"},
+    {"at": "2026-10-05T08:16:26.3825243Z", "kind": "item", "role": "arch_auditor", "milestone": "m-audit", "work_item": "wi-arch", "detail": "排活：架构与工程质量审查"},
+    {"at": "2026-10-05T08:16:26.3825243Z", "kind": "item", "role": "market_researcher", "milestone": "m-audit", "work_item": "wi-market", "detail": "排活：市场与竞品调研：我们领先还是落后"},
+    {"at": "2026-10-05T08:16:28.8097951Z", "kind": "dispatch", "role": "front_auditor", "handle": "a1", "milestone": "m-audit", "work_item": "wi-front-code", "detail": "前端代码规范与工程化审查"},
+    {"at": "2026-10-05T08:16:29.9266525Z", "kind": "dispatch", "role": "ux_auditor", "handle": "a2", "milestone": "m-audit", "work_item": "wi-front-ux", "detail": "前端体验与视觉设计审查"},
+    {"at": "2026-10-05T08:16:31.0862473Z", "kind": "dispatch", "role": "feature_auditor", "handle": "a3", "milestone": "m-audit", "work_item": "wi-feature", "detail": "应用特色机制审查（teamwork / goal / plan / 作业面 / 权限）"},
+    {"at": "2026-10-05T08:16:32.4932942Z", "kind": "dispatch", "role": "arch_auditor", "handle": "a4", "milestone": "m-audit", "work_item": "wi-arch", "detail": "架构与工程质量审查"},
+    {"at": "2026-10-05T08:16:33.990278Z", "kind": "dispatch", "role": "market_researcher", "handle": "a5", "milestone": "m-audit", "work_item": "wi-market", "detail": "市场与竞品调研：我们领先还是落后"},
+    {"at": "2026-10-05T08:18:07.1597995Z", "kind": "settle", "role": "market_researcher", "handle": "a5", "milestone": "m-audit", "work_item": "wi-market", "detail": "跑完，改动已合并回主工作区，等待 leader 评估"},
+    {"at": "2026-10-05T08:19:01.0347701Z", "kind": "settle", "role": "ux_auditor", "handle": "a2", "milestone": "m-audit", "work_item": "wi-front-ux", "detail": "跑完，改动已合并回主工作区，等待 leader 评估"},
+    {"at": "2026-10-05T08:19:18.9274582Z", "kind": "settle", "role": "feature_auditor", "handle": "a3", "milestone": "m-audit", "work_item": "wi-feature", "detail": "跑完，改动已合并回主工作区，等待 leader 评估"},
+    {"at": "2026-10-05T08:20:07.9207048Z", "kind": "settle", "role": "front_auditor", "handle": "a1", "milestone": "m-audit", "work_item": "wi-front-code", "detail": "跑完，改动已合并回主工作区，等待 leader 评估"},
+    {"at": "2026-10-05T08:20:28.9700735Z", "kind": "settle", "role": "arch_auditor", "handle": "a4", "milestone": "m-audit", "work_item": "wi-arch", "detail": "跑完，改动已合并回主工作区，等待 leader 评估"},
+    {"at": "2026-10-05T08:20:29.0556345Z", "kind": "join", "detail": "5 条作业：a1=done a2=done a3=done a4=done a5=done"},
+    {"at": "2026-10-05T08:21:15.4255206Z", "kind": "accept", "role": "front_auditor", "milestone": "m-audit", "work_item": "wi-front-code", "detail": "leader 验收通过"},
+    {"at": "2026-10-05T08:21:15.4653836Z", "kind": "accept", "role": "ux_auditor", "milestone": "m-audit", "work_item": "wi-front-ux", "detail": "leader 验收通过"},
+    {"at": "2026-10-05T08:21:15.5083247Z", "kind": "accept", "role": "feature_auditor", "milestone": "m-audit", "work_item": "wi-feature", "detail": "leader 验收通过"},
+    {"at": "2026-10-05T08:21:15.5524484Z", "kind": "accept", "role": "arch_auditor", "milestone": "m-audit", "work_item": "wi-arch", "detail": "leader 验收通过"},
+    {"at": "2026-10-05T08:21:15.5899296Z", "kind": "accept", "role": "market_researcher", "milestone": "m-audit", "work_item": "wi-market", "detail": "leader 验收通过"},
+    {"at": "2026-10-05T08:21:29.2013061Z", "kind": "item", "role": "artist", "milestone": "m-product", "work_item": "wi-film", "detail": "排活：更新产品片（ruic-motion-reel 15s 成片）"},
+    {"at": "2026-10-05T08:21:31.7822365Z", "kind": "dispatch", "role": "artist", "handle": "a6", "milestone": "m-product", "work_item": "wi-film", "detail": "更新产品片（ruic-motion-reel 15s 成片）"},
+    {"at": "2026-10-05T08:32:21.2261594Z", "kind": "join", "detail": "汇合窗口用尽，仍在跑 1 条：a6=running"},
+    {"at": "2026-10-05T08:42:23.7737813Z", "kind": "join", "detail": "汇合窗口用尽，仍在跑 1 条：a6=running"},
+    {"at": "2026-10-05T08:52:33.2764273Z", "kind": "join", "detail": "汇合窗口用尽，仍在跑 1 条：a6=running"},
+    {"at": "2026-10-05T08:52:37.6832651Z", "kind": "settle", "role": "artist", "handle": "a6", "milestone": "m-product", "work_item": "wi-film", "detail": "跑完，改动已合并回主工作区，等待 leader 评估"},
+    {"at": "2026-10-05T08:52:37.7824875Z", "kind": "join", "detail": "1 条作业：a6=done"},
+    {"at": "2026-10-05T08:53:01.6597357Z", "kind": "accept", "role": "artist", "milestone": "m-product", "work_item": "wi-film", "detail": "产品片验收通过：docs/2026-10-05-seelex-product-film/out/seelex-harness-15s.mp4"},
+    {"at": "2026-10-05T08:53:03.4263111Z", "kind": "close", "detail": "收口：回收 6 名在编成员的作业 → 封板 team.close"}
+  ],
+  "derived_numbers": {
+    "m_audit_dispatch_span_seconds": 5,
+    "m_audit_first_dispatch_utc": "2026-10-05T08:16:28.8097951Z",
+    "m_audit_all_accepted_utc": "2026-10-05T08:21:15.5899296Z",
+    "m_audit_wall_seconds_first_dispatch_to_last_accept": 287,
+    "a6_running_joins": 3,
+    "a6_wall_seconds_dispatch_to_settle": 1866
+  }
+}
