@@ -543,6 +543,13 @@ func (r *Router) scopedBashRead(ctx context.Context, argsJSON string) (output st
 	return r.executeScopedBash(ctx, input.Command, input.Timeout, workdir)
 }
 
+// newExecProcessTree 建"整棵树可终止"的执行域（Windows Job Object / POSIX 进程组）。
+//
+// 做成变量只为一条用例：**"Job 建不出来"（受限环境 / 组策略）这条退化路径没法在真机上按需
+// 复现**（本机建得出来，走不到那一步），而"退化时同步链说什么"正是 U5 要钉的事实。
+// 生产路径与既有用例都不碰它；`&security.ProcessTree{}` 就是"Job 没建成"的真实形态。
+var newExecProcessTree = security.NewProcessTree
+
 // newProcessTreeCommand 组装一条"整棵树可终止"的命令——**进程树装配只有这一份**：
 // 同步链（executeScopedBash 及其重试）与后台链（async_run.startAsync）都转调它。
 //
@@ -561,7 +568,7 @@ func (r *Router) scopedBashRead(ctx context.Context, argsJSON string) (output st
 //
 // 装配（树 + 起命令位 + 取消换整组终止 + WaitDelay）没有理由分家，策略有。
 func newProcessTreeCommand(runCtx context.Context, shell string, shellArgs []string, workdir string) (*exec.Cmd, *security.ProcessTree) {
-	tree := security.NewProcessTree()
+	tree := newExecProcessTree()
 	cmd := exec.CommandContext(runCtx, shell, shellArgs...)
 	winhide.Apply(cmd)
 	cmd.Dir = workdir
@@ -605,6 +612,9 @@ func (r *Router) executeScopedBash(ctx context.Context, command string, timeoutS
 		return "", fmt.Errorf("bash: %w", err)
 	}
 	r.observeBash(BashDiagnosticEvent{Stage: "bash.process.started", Shell: filepath.Base(shell)})
+	// 起命令之后的**唯一一处**退化读数（两条起命令点都读它）：树挂不上时把"终止只及直接
+	// 子进程"说出去，否则这件事对调用方不可见（③U5）。
+	r.noteProcessTreeDegraded(filepath.Base(shell), tree)
 	waitErr := cmd.Wait()
 	tree.Close()
 	if runCtx.Err() == context.DeadlineExceeded {
@@ -645,6 +655,7 @@ func (r *Router) executeScopedBash(ctx context.Context, command string, timeoutS
 			retryCmd.Stdout, retryCmd.Stderr = &retryOut, &retryErrBuf
 			runErr := startWithProcessTree(retryCmd, retryTree)
 			if runErr == nil {
+				r.noteProcessTreeDegraded(filepath.Base(shell), retryTree)
 				runErr = retryCmd.Wait()
 				retryTree.Close()
 				if errors.Is(runErr, exec.ErrWaitDelay) {
@@ -683,6 +694,28 @@ func (r *Router) observeBash(event BashDiagnosticEvent) {
 	defer func() { _ = recover() }()
 	r.deps.ObserveBash(event)
 }
+
+// noteProcessTreeDegraded 是同步链**唯一的退化读数落点**：树挂不上时，"这条命令的终止只及
+// 直接子进程"必须说得出口。
+//
+// 为什么要有它（③U5）：装配早就只有一份（newProcessTreeCommand + startWithProcessTree），
+// 但读数只有后台链有——探针把 `Degraded` 折进 `AsyncRunInfo.Degraded`（工作表格那一栏）与
+// 观察行"· 进程树挂不上，终止只及直接子进程"（async_probe.go）。同步链过去把树放在局部变量
+// 里，从头到尾没人读过 `Degraded()`，于是同一件事对前台调用方**完全不可见**：命令照跑、
+// 输出照给，用户不知道"停止"打不到孙进程。
+//
+// 判据只有一处（`tree.Degraded()`），两条链读的是同一棵树上的同一个事实；后台链不需要这条
+// 事件（它的读数比一行日志细），所以这里只服务同步链。不退化时一个字都不说——正常机器上
+// Job 建得出来，同步链的诊断阶段序列与从前一致。
+func (r *Router) noteProcessTreeDegraded(shell string, tree *security.ProcessTree) {
+	if r == nil || tree == nil || !tree.Degraded() {
+		return
+	}
+	r.observeBash(BashDiagnosticEvent{Stage: bashProcessDegradedStage, Shell: shell})
+}
+
+// bashProcessDegradedStage 是退化读数的阶段名（一个常量，免得两处起命令点各写一遍字面量）。
+const bashProcessDegradedStage = "bash.process.degraded"
 
 // scopedBashCommand chooses a shell that honors the public bash tool's syntax.
 // Git for Windows supplies Bash on supported Windows development hosts; using
