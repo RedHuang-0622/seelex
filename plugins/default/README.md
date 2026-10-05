@@ -40,7 +40,7 @@ stateDiagram-v2
 | Skill | 定位 |
 |---|---|
 | `$goal` | 目标看板维护者：agent 自总结的 goal 看板（正文 + 完成条件 + 每阶段打点，位置由 active seq 钉住），并驱动团队按 V 模型阶段推进 |
-| `$teamwork` | leader 工具面：`team_plan` / `team_dispatch` / `team_join` / `team_milestone` / `team_retire` + `jobs_manage` 的用法、V 模型阶段模板与铁律 |
+| `$teamwork` | leader 工具面：`team_plan` / `team_dispatch` / `team_join` / `team_milestone` / `team_close` + `jobs_manage` 的用法、V 模型阶段模板与铁律 |
 | `$plan` | WorkPlan：`plan_load` / `plan_run` 的 DAG 规划与执行 |
 | `$plan-design` | 启发式方案设计：标杆调研、方案对比、技术选型 |
 | `$plan-efficiency` | 规划式效率方案：打点表、活动图、SubAgent 调度 |

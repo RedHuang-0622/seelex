@@ -76,7 +76,7 @@ goal 由**提示词 + 团队作业面**驱动：没有框架侧的座位循环�
 4. **写里程碑**：`team_milestone(id, content)`，content **由你撰写**（交付了什么 + 证据是什么 + 下一步）。
 5. **验收这一件事**：`team_accept(id, note)`（通过 → 工作项 done，**同时释放它的 worktree 与会话**，
    并打开下游依赖闸门）或 `team_fail(id, note)`（现场与记忆都留着，可重派）。
-   `team_retire(role)` 不是这里的动作：名下还有在飞的工作项时它会被拒。
+   `team_retire` 这一整条口径**已删除**：结束、归档、删除只有一个口径 = `team_close`（整队收口是唯一回收点）。
 6. **推进 active seq 并派下一件事**：依赖边满足才派；同一里程碑内可并发多派，
    有共享文件写入的必须串行。
 7. **整队收口**：全部证据齐 → 你亲自复核 → `team_close`（唯一回收点：逐在编成员回收作业 +
@@ -111,7 +111,7 @@ goal 由**提示词 + 团队作业面**驱动：没有框架侧的座位循环�
 | `goal_status` | 回读看板（栈顶 + 下层状态） |
 | `goal_done` | **真收口**：`action=finish\|abort`（主代理即 TL 角色，直连收口，不过 gate） |
 | `goal_propose_finish` | 提议收口（送终态 gate：verdict_done 收口 / not_done 纠偏 / TL 缺席直连） |
-| `$teamwork` | leader 工具面：`team_plan` / `team_work` / `team_item` / `team_dispatch` / `team_context` / `team_items` / `team_join` / `team_accept` / `team_fail` / `team_recover` / `team_milestone` / `team_retire` / `team_close` + `jobs_manage` |
+| `$teamwork` | leader 工具面：`team_plan` / `team_work` / `team_item` / `team_dispatch` / `team_context` / `team_items` / `team_join` / `team_accept` / `team_fail` / `team_recover` / `team_milestone` / `team_close` + `jobs_manage` |
 | `task_check_node` / todo | 单代理顺序执行时的打点（与看板打点保持一致，不另立进度真相） |
 
 节奏：`goal_begin` → 写看板 → `team_plan` → 分里程碑排活（`team_work`）→ 派活 → 收尾读证据

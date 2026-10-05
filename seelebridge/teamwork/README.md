@@ -42,8 +42,7 @@ stateDiagram-v2
     Accepted --> Worked: 本里程碑全部 done → 屏障打开 → 给下一个里程碑排活
     Worked --> Recovered: team_recover（额度中断 / 重启：列出可重派，不动会话与现场）
     Recovered --> Dispatched: 重派复用原会话号（记忆建在）
-    Accepted --> Retired: team_retire（名下还有没落定的活会被拒）
-    Retired --> Closed: team_close（逐在编成员回收 + 所有活绑定一并结束 + 封板）
+    Accepted --> Closed: team_close（唯一收口点：逐在编成员回收 + 所有活绑定一并结束 + 封板）
     Closed --> [*]
 ```
 
