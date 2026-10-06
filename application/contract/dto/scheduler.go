@@ -70,7 +70,7 @@ type ScheduledTaskStatus struct {
 	Running     bool      `json:"running"`
 	NextRunAt   time.Time `json:"next_run_at,omitempty"`
 	LastRunAt   time.Time `json:"last_run_at,omitempty"`
-	LastStatus  string    `json:"last_status,omitempty"`
+	LastStatus  ScheduleRunStatus `json:"last_status,omitempty"`
 	LastResult  string    `json:"last_result,omitempty"`
 	LastError   string    `json:"last_error,omitempty"`
 	LogTail     []string  `json:"log_tail,omitempty"`

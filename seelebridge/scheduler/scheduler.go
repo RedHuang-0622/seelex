@@ -29,12 +29,15 @@ var (
 const schedulerShutdownWait = 3 * time.Second
 
 // 状态字与展示界限。
+//
+// "上次运行结果"这一格的词**只有一份**，住在契约（`dto.ScheduleRunStatus`）：
+// 这里不再写第二份字面量，写方引枚举（词与 JSON 形状都没变）。
 const (
-	scheduledStatusPending = "pending" // 未运行过
-	scheduledStatusRunning = "running" // 运行中
-	scheduledStatusOK      = "ok"      // 上次运行成功
-	scheduledStatusFailed  = "failed"  // 上次运行失败
-	scheduledStatusSkipped = "skipped" // 上次被跳过（运行中被取消等）
+	scheduledStatusPending = dto.ScheduleRunPending
+	scheduledStatusRunning = dto.ScheduleRunRunning
+	scheduledStatusOK      = dto.ScheduleRunOK
+	scheduledStatusFailed  = dto.ScheduleRunFailed
+	scheduledStatusSkipped = dto.ScheduleRunSkipped
 )
 
 const (

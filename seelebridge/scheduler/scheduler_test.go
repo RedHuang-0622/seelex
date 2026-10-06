@@ -193,7 +193,7 @@ func TestScheduledOneShotTaskRunsOnceThenDisables(t *testing.T) {
 	}
 
 	status := waitForStatus(t, state, created.ID, func(status ScheduledTaskStatus) bool {
-		return status.RunCount >= 1 && status.LastStatus == "ok"
+		return status.RunCount >= 1 && status.LastStatus == dto.ScheduleRunOK
 	})
 	if status.Enabled {
 		t.Fatalf("one-shot must auto-disable after run: %+v", status)
@@ -296,9 +296,9 @@ func TestScheduledCommandTaskRunsAndRecordsResult(t *testing.T) {
 	}
 
 	status := waitForStatus(t, state, created.ID, func(status ScheduledTaskStatus) bool {
-		return status.RunCount >= 1 && status.LastStatus == "ok"
+		return status.RunCount >= 1 && status.LastStatus == dto.ScheduleRunOK
 	})
-	if status.LastStatus != "ok" {
+	if status.LastStatus != dto.ScheduleRunOK {
 		t.Fatalf("last status = %q", status.LastStatus)
 	}
 	if status.LastResult == "" || !containsText(status.LastResult, "helper-output-ok") {
@@ -335,7 +335,7 @@ func TestScheduledCommandFailureExit(t *testing.T) {
 		t.Fatal(err)
 	}
 	status := waitForStatus(t, state, created.ID, func(status ScheduledTaskStatus) bool {
-		return status.RunCount >= 1 && status.LastStatus == "failed"
+		return status.RunCount >= 1 && status.LastStatus == dto.ScheduleRunFailed
 	})
 	if status.LastError == "" {
 		t.Fatal("failure must record last error")
@@ -392,7 +392,7 @@ func TestScheduledPromptTaskDelegatesToExecutor(t *testing.T) {
 		t.Fatal(err)
 	}
 	status := waitForStatus(t, state, created.ID, func(status ScheduledTaskStatus) bool {
-		return status.RunCount >= 1 && status.LastStatus == "ok"
+		return status.RunCount >= 1 && status.LastStatus == dto.ScheduleRunOK
 	})
 	if gotPrompt != "每隔一小时检查发布状态" || gotSession != "sess_main" {
 		t.Fatalf("executor args = %q / %q", gotPrompt, gotSession)
@@ -421,7 +421,7 @@ func TestScheduledPromptTaskErrorPropagates(t *testing.T) {
 		t.Fatal(err)
 	}
 	status := waitForStatus(t, state, created.ID, func(status ScheduledTaskStatus) bool {
-		return status.RunCount >= 1 && status.LastStatus == "failed"
+		return status.RunCount >= 1 && status.LastStatus == dto.ScheduleRunFailed
 	})
 	if !containsText(status.LastError, "会话已切换") {
 		t.Fatalf("last error = %q", status.LastError)

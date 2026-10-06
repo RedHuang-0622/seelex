@@ -314,6 +314,41 @@ func TestNodeStatusFromFrameworkFoldsStartedAndRejectsPhases(t *testing.T) {
 	}
 }
 
+// 格 I：定时任务上次运行结果（`ScheduledTaskStatus.LastStatus`；GUI 面板数据源）。
+func TestScheduleRunStatusEnumWire(t *testing.T) {
+	cases := []struct {
+		status ScheduleRunStatus
+		word   string
+	}{
+		{ScheduleRunUnknown, "unknown"},
+		{ScheduleRunPending, "pending"},
+		{ScheduleRunRunning, "running"},
+		{ScheduleRunOK, "ok"},
+		{ScheduleRunFailed, "failed"},
+		{ScheduleRunSkipped, "skipped"},
+	}
+	for _, entry := range cases {
+		status := entry.status
+		assertStateWire(t, stateWireCase{
+			grid:  "定时任务上次运行结果",
+			state: status,
+			word:  entry.word,
+			parse: func(text string) (fmt.Stringer, bool) {
+				parsed, ok := ParseScheduleRunStatus(text)
+				return parsed, ok
+			},
+			read: func(data []byte) error { return json.Unmarshal(data, &status) },
+		})
+	}
+	// 边界：别的格子的词不许被这一格认下（"running" 在这一格里是**任务在跑**，
+	// 不是回合在跑、也不是节点在跑——词面重叠，机器不同格）。
+	for _, foreign := range []string{"progressing", "done", "completed", "killed"} {
+		if _, ok := ParseScheduleRunStatus(foreign); ok {
+			t.Errorf("定时任务上次运行结果认下了别的格子的词 %q", foreign)
+		}
+	}
+}
+
 // 落盘那一格：老形状（字符串）的记录必须能读回，认不得的词**不炸**、也不被当成终态。
 func TestRecordStatusReadsOldShapedRecords(t *testing.T) {
 	var legacy struct {

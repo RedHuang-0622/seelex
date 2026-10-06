@@ -193,6 +193,16 @@ var statusVocabularyScopes = []statusVocabularyScope{
 			"aborted": true, "skipped": true, "canceled": true, "panicked": true,
 		},
 	},
+	{
+		name: "定时任务上次运行结果",
+		files: map[string]string{
+			"seelebridge/scheduler/scheduler.go": "写：上一次运行的落点（pending|running|ok|failed|skipped）",
+		},
+		// 这一格的取值面 = dto.ScheduleRun*（ScheduledTaskStatus.LastStatus）。
+		words: map[string]bool{
+			"pending": true, "running": true, "ok": true, "failed": true, "skipped": true,
+		},
+	},
 }
 
 // statusAllowedLiteral 是白名单条目：另一张词表的一处字面量 + 理由（"为什么像却不并"）。
