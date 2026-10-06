@@ -21,6 +21,7 @@ import {
   renderTeamBoard,
   renderTeammateLiveSession,
   TEAMMATE_LIVE_PAGE_SIZE,
+  ganttModel,
   renderTeamGantt,
   renderTeamQueue,
   renderTeamWorkItem,
@@ -623,36 +624,53 @@ test("renderWorkItemSessionPanel 是执行进度子页面：只有条目，没�
 
 // ── ⑥ 依赖边（口径 6）与两通道正交（口径 3/13）────────────────────
 
-test("(6) 依赖边真的画出来：覆盖全内容的 SVG 正交折线 + 末端箭头；边一律中性灰", () => {
+test("(6) 依赖边真的画出来：正交折线（横段 + 竖段）+ 末端箭头；边一律中性色", () => {
   const html = renderTeamGantt(MS_PLAN);
-  assert.match(html, /<svg class="team-dag-edges" aria-hidden="true" preserveAspectRatio="none" viewBox="0 0 100 \d+"/);
-  const paths = [...html.matchAll(/class="team-dag-edge" d="M (\d+) (\d+) H (\d+) V (\d+) H (\d+)"/g)];
-  // wi-impl←wi-req 与 wi-test←wi-impl 两条（wi-ship 没有依赖）。
-  assert.equal(paths.length, 2, "有几条依赖边就画几条");
-  for (const [, xs, ys, lane, yd, xd] of paths) {
-    assert.equal(xs, xd, "起点与终点都在节点锚点上（同一条 lane 折回去）");
-    assert.ok(Number(lane) > Number(xs), "lane 在节点右侧（左 gutter 里）");
-    assert.ok(Number(ys) < Number(yd), "被依赖的行在上，依赖它的行在下");
+  assert.match(html, /<div class="team-dag-edges" aria-hidden="true">/);
+  // 边 = 一组绝对定位的线段，位置/长度都是 calc 算式（x = labelW + 槽位 × slotW），
+  // 所以窄栏压小几何时线段跟着一起缩，不需要量 rect、不需要重绘。
+  const edges = [...html.matchAll(/<span class="team-dag-edge" data-edge="([^"]+)" data-kind="item" data-gap="(-?\d+)">([\s\S]*?)<\/span>/g)];
+  assert.equal(edges.length, 2, "有几条依赖边就画几条（wi-impl←wi-req、wi-test←wi-impl；wi-ship 没有依赖）");
+  for (const [, id, gap, body] of edges) {
+    const h = [...body.matchAll(/class="team-dag-edge-seg is-h" style="left:([^;]+);top:([^;]+);width:([^"]+)"/g)];
+    const v = [...body.matchAll(/class="team-dag-edge-seg is-v" style="left:([^;]+);top:([^;]+);height:([^"]+)"/g)];
+    assert.ok(h.length >= 1, `${id}（gap=${gap}）至少有一段横线`);
+    assert.ok(v.length >= 1, `${id}（gap=${gap}）至少有一段竖线（正交折线）`);
+    for (const [, left] of h) assert.match(left, /var\(--team-dag-slot-w\)/, "横段的 x 落在槽位网格上");
+    assert.equal([...body.matchAll(/class="team-dag-edge-arrow"/g)].length, 1, `${id} 一条边一个箭头`);
+    const arrow = body.match(/class="team-dag-edge-arrow" style="left:([^;]+);top:([^;]+)"/);
+    assert.match(arrow[1], /-7px/, "箭尾比目标条左端少一个箭头长（箭头尖正好落在条左端）");
   }
-  assert.equal([...html.matchAll(/class="team-dag-edge-arrow"/g)].length, 2, "每条边一个箭头");
-  // 边不吃状态色、不吃 teammate 色：唯一来源是 --team-dag-edge（= --faint）。
-  assert.match(TEAM_BOARD_CSS, /--team-dag-edge:\s*var\(--faint\)/);
-  assert.match(TEAM_BOARD_CSS, /\.team-dag-edge\s*\{[^}]*stroke:\s*var\(--team-dag-edge\)/);
+  // 同槽（gap = 0，紧贴的 finish→start）不画退化的零长线：往下绕一个钩（5 段以内），
+  // 也就是横段不止一段（右伸 → 落到条下的搁板 → 折回条左端）。
+  const sameGap = edges.find(([, , gap]) => gap === "0");
+  assert.ok(sameGap, "夹具里必然有 gap = 0 的边");
+  assert.ok([...sameGap[3].matchAll(/is-h"/g)].length >= 2, "gap = 0 时走绕行钩，不是零长直线");
+  // 边不吃状态色、不吃 teammate 色：唯一来源是 --team-dag-edge（本件自造、限定 .team-board 作用域）。
+  assert.match(TEAM_BOARD_CSS, /\.team-board\s*\{[^}]*--team-dag-edge:\s*#[0-9a-f]{6}/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-edge-seg\s*\{[^}]*background:\s*var\(--team-dag-edge\)/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-edge-arrow\s*\{[^}]*border-left:\s*7px solid var\(--team-dag-edge\)/);
   assert.match(TEAM_BOARD_CSS, /\.team-dag-edges\s*\{[^}]*position:\s*absolute/);
-  assert.match(TEAM_BOARD_CSS, /\.team-dag-edges\s*\{[^}]*width:\s*var\(--team-dag-gutter\)/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-edges\s*\{[^}]*pointer-events:\s*none/);
+  assert.doesNotMatch(TEAM_BOARD_CSS, /\.team-dag-edge[^{]*\{[^}]*--row-line/, "连线不许借状态色");
 });
 
-test("(3/13) 两条颜色通道正交：边框/底色只吃状态令牌；teammate 色只走色带 + 色点", () => {
+test("(3/13) 两条颜色通道正交：条描边只吃状态令牌；teammate 色只走条填充 + cap + 色点", () => {
   const [entry] = orderWorkItems(itemsOfMilestone(MS_PLAN, "m-build")).filter(item => item.id === "wi-impl");
   const html = renderTeamWorkItem(entry);
-  assert.match(html, /data-eff="failed"/, "线框色由 data-eff 决定");
+  assert.match(html, /data-eff="failed"/, "条描边由 data-eff 决定");
   assert.match(html, /style="--team-dag-role-color:var\(--team-dag-role-\d\)"/, "归属色只以变量形式挂在行上");
-  assert.match(html, /<span class="team-dag-band"/);
+  assert.match(html, /<i class="team-dag-band/, "条左端的实色 cap 读的就是这个归属色");
   assert.match(html, /<i class="team-dag-dot"><\/i>/, "role chip 里的色点");
-  // CSS：状态色只给 --row-line/--row-tint；role 色只给色带与色点 —— 谁也不越界。
+  // CSS：状态色只进 --row-line / --row-tint（条描边读它）；role 色只进条填充 / cap / 色点。
   assert.match(TEAM_BOARD_CSS, /\.team-dag-row\[data-eff="failed"\]\s*\{[^}]*--row-line:\s*var\(--status-failed\)[^}]*--row-tint:\s*var\(--tint-failed\)/);
-  assert.doesNotMatch(TEAM_BOARD_CSS, /\.team-dag-(card|row)[^{]*\{[^}]*--team-dag-role-color/);
-  assert.doesNotMatch(TEAM_BOARD_CSS, /\.team-dag-(band|dot)[^{]*\{[^}]*--row-line/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-bar\s*\{[^}]*border:\s*1px solid var\(--row-line,\s*var\(--status-idle\)\)/, "条描边 = 状态");
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-bar\s*\{[^}]*background:\s*color-mix\(in srgb,\s*var\(--team-dag-role-color/, "条填充 = 归属色淡色");
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-band\s*\{[^}]*background:\s*var\(--team-dag-role-color/, "条左端 cap = 归属色");
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-dot\s*\{[^}]*background:\s*var\(--team-dag-role-color/, "色点 = 归属色");
+  assert.doesNotMatch(TEAM_BOARD_CSS, /\.team-dag-(card|row)[^{]*\{[^}]*--team-dag-role-color/, "归属色是行上的内联变量，不写进 CSS 规则");
+  assert.doesNotMatch(TEAM_BOARD_CSS, /\.team-dag-(band|dot)[^{]*\{[^}]*--row-line/, "归属色的元素不吃状态色");
+  assert.doesNotMatch(TEAM_BOARD_CSS, /--team-dag-role-color:\s*var\(--status-/, "归属色不许拿状态令牌顶替");
   // 色板必须定义在 .team-board 作用域里（不泄露到全局）。
   assert.match(TEAM_BOARD_CSS, /\.team-board\s*\{[^}]*--team-dag-role-0:/);
   assert.doesNotMatch(TEAM_BOARD_CSS, /:root\s*\{[^}]*--team-dag-role-0:/);
@@ -685,7 +703,7 @@ test("(11) role 超过 6 个 → 色板回绕，slot≥6 的色带叠斜纹第�
     const slot = roleSlotOf(role);
     const expectWrapped = slot >= 6;
     if (expectWrapped) wrapped += 1;
-    const band = rows[index].match(/<span class="team-dag-band([^"]*)"/)[1];
+    const band = rows[index].match(/<[a-z]+ class="team-dag-band([^"]*)"/)[1];
     assert.equal(band.includes("is-wrapped"), expectWrapped, `${role}（slot ${slot}）的斜纹标记必须与「是否回绕」一致`);
     assert.match(rows[index], new RegExp(`--team-dag-role-${slot % 6}\\)`), "回绕时复用 6 色里对应的那一格");
   });
@@ -695,18 +713,21 @@ test("(11) role 超过 6 个 → 色板回绕，slot≥6 的色带叠斜纹第�
 
 // ── ⑦ 样式与几何（口径 7/10/12/13）───────────────────────────────
 
-test("(d) TEAM_BOARD_CSS：滚动容器 max-height + 框头 sticky + 四状态行描边各一条", () => {
+test("(d) TEAM_BOARD_CSS：滚动容器 max-height + 刻度尺/框头 sticky + 五状态描边各一条", () => {
   assert.match(TEAM_BOARD_CSS, /\.team-dag-scroll\s*\{[^}]*max-height:\s*var\(--team-dag-scroll-max-h,\s*380px\)/);
-  assert.match(TEAM_BOARD_CSS, /\.team-dag-scroll\s*\{[^}]*overflow-y:\s*auto/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-scroll\s*\{[^}]*overflow:\s*auto/);
   assert.match(TEAM_BOARD_CSS, /\.team-dag-scroll\s*\{[^}]*overscroll-behavior:\s*contain/);
+  // 刻度尺 sticky 在滚动容器顶边；框头 sticky 在**刻度尺下沿**（不是 top:0，否则会盖住尺子）。
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-ruler\s*\{[^}]*position:\s*sticky/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-ruler\s*\{[^}]*top:\s*0/);
   assert.match(TEAM_BOARD_CSS, /\.team-dag-frame-head\s*\{[^}]*position:\s*sticky/);
-  assert.match(TEAM_BOARD_CSS, /\.team-dag-frame-head\s*\{[^}]*top:\s*0/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-frame-head\s*\{[^}]*top:\s*var\(--team-dag-ruler-h\)/);
   for (const eff of ["running", "done", "review", "failed"]) {
-    assert.match(TEAM_BOARD_CSS, new RegExp(`\\.team-dag-row\\[data-eff="${eff}"\\]\\s*\\{[^}]*--row-line:`), `缺 ${eff} 的行描边`);
+    assert.match(TEAM_BOARD_CSS, new RegExp(`\\.team-dag-row\\[data-eff="${eff}"\\]\\s*\\{[^}]*--row-line:`), `缺 ${eff} 的条描边`);
   }
-  // pending 也有一条（灰 + 虚线）。
+  // pending 也有一条（灰 + 虚线）——虚线落在**条**上（条描边才是状态通道）。
   assert.match(TEAM_BOARD_CSS, /\.team-dag-row\[data-eff="pending"\]\s*\{[^}]*--row-line:\s*var\(--status-idle\)/);
-  assert.match(TEAM_BOARD_CSS, /\[data-eff="pending"\]\s+\.team-dag-card\s*\{[^}]*border-style:\s*dashed/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-row\[data-eff="pending"\]\s+\.team-dag-bar\s*\{[^}]*border-style:\s*dashed/);
   // 细滚动条随主题 + 框头吸附的承载。
   assert.match(TEAM_BOARD_CSS, /\.team-dag-scroll::-webkit-scrollbar-thumb\s*\{[^}]*var\(--border-strong\)/);
 });
@@ -716,35 +737,237 @@ test("(12/13) 滚动上限是定值 380px（在 .team-board 作用域里），�
   assert.doesNotMatch(TEAM_BOARD_CSS, /--team-dag-scroll-max-h:[^;]*vh/);
 });
 
-test("(10) 窄栏自适应用 container query：收缩 gutter + 折叠次级信息，纯 CSS", () => {
+test("(10) 窄栏自适应用 container query：压小几何常量 + 折叠次级信息，纯 CSS", () => {
   assert.match(TEAM_BOARD_CSS, /\.team-board\s*\{[^}]*container-type:\s*inline-size/);
   assert.match(TEAM_BOARD_CSS, /@container\s*\(max-width:\s*520px\)/);
   const block = TEAM_BOARD_CSS.slice(TEAM_BOARD_CSS.indexOf("@container (max-width"));
-  assert.match(block, /--team-dag-gutter:\s*44px/, "窄栏收缩 gutter");
+  // 几何整体压小：槽位/名列/条高/行高/尺高 —— 渲染件的边坐标是 calc 算式，会跟着一起缩。
+  assert.match(block, /--team-dag-slot-w:\s*40px/, "窄栏槽位宽 40px");
+  assert.match(block, /--team-dag-label-w:\s*118px/);
+  assert.match(block, /--team-dag-row-h:\s*30px/);
+  assert.match(block, /--team-dag-bar-h:\s*16px/);
+  assert.match(block, /--team-dag-ruler-h:\s*28px/);
   assert.match(block, /\.team-dag-ms-content[^{]*\{[^}]*display:\s*none/, "折叠次级信息");
-  // 折叠不许动到几何常量：行高不变，依赖边才不会错位。
-  assert.doesNotMatch(block, /--team-dag-row-h:/);
-  assert.doesNotMatch(block, /--team-dag-head-h:/);
+  assert.match(block, /\.team-dag-label-sub/, "折叠的只是次级信息（全文仍在 title 与 .team-dag-full 里）");
+  // 折叠不许动到"滚动上限"（口径 12：380px 是定值）。
+  assert.doesNotMatch(block, /--team-dag-scroll-max-h/);
 });
 
-test("几何只在两处写：CSS 的 --team-dag-* 与渲染件的 DAG 常量必须逐字相同", () => {
+test("几何只在两处写：CSS 的 --team-dag-* 与渲染件的 GANTT 常量必须逐字相同", () => {
   const pairs = [
-    ["--team-dag-content-pad-top", 4],
-    ["--team-dag-frame-pad", 4],
+    ["--team-dag-ruler-h", 30],
     ["--team-dag-head-h", 26],
-    ["--team-dag-row-h", 72],
-    ["--team-dag-row-gap", 4],
+    ["--team-dag-sum-h", 22],
+    ["--team-dag-row-h", 38],
     ["--team-dag-gate-h", 18],
-    ["--team-dag-gate-margin", 2],
-    ["--team-dag-frame-border", 1],
+    ["--team-dag-label-w", 208],
+    ["--team-dag-slot-w", 64],
+    ["--team-dag-bar-h", 18],
   ];
   for (const [name, value] of pairs) {
-    assert.match(TEAM_BOARD_CSS, new RegExp(`${name}:\\s*${value}px`), `${name} 必须与渲染件的 DAG 常量一致（差一线，线就落不到节点上）`);
+    assert.match(TEAM_BOARD_CSS, new RegExp(`${name}:\\s*${value}px`), `${name} 必须与渲染件的 GANTT 常量一致（差一线，条就量不回槽位）`);
   }
   // 渲染件那边的同一组数字（改一处必须改两处，这条用例就是那条绳子）。
-  assert.match(SRC, /rowH:\s*72,/);
+  assert.match(SRC, /rulerH:\s*30,/);
   assert.match(SRC, /headH:\s*26,/);
+  assert.match(SRC, /sumH:\s*22,/);
+  assert.match(SRC, /rowH:\s*38,/);
   assert.match(SRC, /gateH:\s*18,/);
+  assert.match(SRC, /labelW:\s*208,/);
+  assert.match(SRC, /slotW:\s*64,/);
+  assert.match(SRC, /barH:\s*18,/);
+  // 不随窄栏变的那几个（渲染件按字面 px 写进 calc 算式，CSS 也写死）：
+  assert.match(SRC, /contentPadTop:\s*4,/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-content\s*\{[^}]*padding-top:\s*4px/);
+  assert.match(SRC, /frameGap:\s*4,/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-frame\s*\{[^}]*margin:\s*4px 0/);
+  assert.match(SRC, /framePadBottom:\s*4,/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-frame\s*\{[^}]*padding-bottom:\s*4px/);
+  assert.match(SRC, /gateMargin:\s*2,/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-gate\s*\{[^}]*margin:\s*2px 4px/);
+  assert.match(SRC, /frameBorder:\s*1,/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-frame\s*\{[^}]*border:\s*1px solid var\(--team-dag-ms-tone/);
+  // 上一版的 72px 卡片行必须退场（几何整条换过了）。
+  assert.doesNotMatch(SRC, /rowH:\s*72,/);
+});
+
+// ── ⑦ 真甘特几何：槽位从依赖算出来，不从数组序猜 ─────────────────────
+//
+// 这份夹具是**倒序声明**的：里程碑与工作项数组都是反的，还带两条并行分支（b/c 同槽）、
+// 一条跨里程碑的工作项依赖（e←d）、一个**空里程碑**（m3：在它里面没有任何排活）。
+const GANTT_PLAN = {
+  team_id: "gantt",
+  version: 1,
+  milestones: [
+    { id: "m2", name: "第二块", depends_on: ["m1"], status: "done" },
+    { id: "m1", name: "第一块", status: "done" },
+    { id: "m3", name: "空的一块", depends_on: ["m2"], status: "pending" },
+  ],
+  work_items: [
+    { id: "d", milestone: "m1", role: "r1", name: "第四", status: "pending", depends_on: ["b"] },
+    { id: "c", milestone: "m1", role: "r1", name: "第三", status: "pending", depends_on: ["a"] },
+    { id: "b", milestone: "m1", role: "r2", name: "第二", status: "done", depends_on: ["a"] },
+    { id: "a", milestone: "m1", role: "r1", name: "第一", status: "done" },
+    { id: "e", milestone: "m2", role: "r2", name: "跨块", status: "pending", depends_on: ["d"] },
+  ],
+};
+
+test("(a) slot = max(end(deps))（finish→start 紧贴前驱右端）；倒序声明也一样", () => {
+  const model = ganttModel(GANTT_PLAN);
+  const byID = new Map(model.rows.map(row => [row.id, row]));
+  assert.deepEqual(model.rows.map(row => `${row.id}@${row.slot}-${row.end}`),
+    ["a@0-1", "c@1-2", "b@1-2", "d@2-3", "e@3-4"], "槽位只由 depends_on 决定（同槽并行的 c/b 都落在 1；行序是同层回落声明序）");
+  for (const row of model.rows) {
+    const deps = row.depends_on.filter(dep => byID.has(dep));
+    const expect = deps.length ? Math.max(...deps.map(dep => byID.get(dep).end)) : 0;
+    assert.equal(row.slot, expect, `${row.id} 的槽位必须是 max(end(deps))`);
+    assert.equal(row.dur, 1, "dur 恒 1：计划里没有工时事实，条长不编");
+    assert.equal(row.end, row.slot + row.dur);
+    for (const dep of deps) {
+      assert.ok(byID.get(dep).end <= row.slot, `${row.id} 必须紧贴/晚于 ${dep} 的右端（finish→start）`);
+    }
+  }
+  assert.equal(model.slots, 4);
+});
+
+test("(b) 条的 x 与宽：x = labelW + slot × slotW，宽 = 1 槽 − 2px（相邻槽留缝）", () => {
+  const html = renderTeamGantt(GANTT_PLAN);
+  const rows = [...html.matchAll(/data-item-id="([^"]+)"[^>]*data-slot="(\d+)" data-dur="(\d+)" data-end="(\d+)"/g)]
+    .map(m => ({ id: m[1], slot: Number(m[2]), dur: Number(m[3]), end: Number(m[4]) }));
+  assert.equal(rows.length, 5);
+  const plots = [...html.matchAll(/<div class="team-dag-plot" style="--s:(\d+);--d:(\d+)">/g)]
+    .map(m => ({ s: Number(m[1]), d: Number(m[2]) }));
+  assert.equal(plots.length, rows.length, "每一行一个绘图区（含一根条）");
+  rows.forEach((row, index) => {
+    assert.equal(plots[index].s, row.slot, `${row.id} 的条起点 = 它的槽位`);
+    assert.equal(plots[index].d, row.dur);
+    assert.equal(row.end, row.slot + row.dur, "data-end 与 data-slot/dur 自洽");
+  });
+  assert.deepEqual(rows.map(row => `${row.id}@${row.slot}`), ["a@0", "c@1", "b@1", "d@2", "e@3"]);
+  // 几何写成 calc（不写死像素）：x = labelW + slot × slotW；宽 = 槽宽 − 2px 的缝。
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-plot\s*\{[^}]*position:\s*relative/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-bar\s*\{[^}]*left:\s*calc\(var\(--s, 0\) \* var\(--team-dag-slot-w\)\)/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-bar\s*\{[^}]*width:\s*calc\(var\(--d, 1\) \* var\(--team-dag-slot-w\) - 2px\)/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-bar\s*\{[^}]*height:\s*var\(--team-dag-bar-h\)/);
+  // 绘图区从 label 列右侧开始（x 的基准就是 --team-dag-label-w）。
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-card\s*\{[^}]*grid-template-columns:\s*var\(--team-dag-label-w\) 1fr/);
+});
+
+test("(c) 汇总条跨度 = 名下条目的 min(start)..max(end)", () => {
+  const model = ganttModel(GANTT_PLAN);
+  const m1 = model.frames.find(frame => frame.id === "m1");
+  const m2 = model.frames.find(frame => frame.id === "m2");
+  assert.deepEqual([m1.sum.s, m1.sum.e], [0, 3]);
+  assert.deepEqual([m2.sum.s, m2.sum.e], [3, 4]);
+  const html = renderTeamGantt(GANTT_PLAN);
+  assert.match(html, /data-ms="m1" data-sum-start="0" data-sum-end="3" data-empty="false"/);
+  assert.match(html, /<span class="team-dag-sum-bar" data-ms="m1" data-empty="false" style="--s:0;--e:3"/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-sum-bar\s*\{[^}]*left:\s*calc\(var\(--s\) \* var\(--team-dag-slot-w\)\)/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-sum-bar\s*\{[^}]*width:\s*calc\(\(var\(--e\) - var\(--s\)\) \* var\(--team-dag-slot-w\)\)/);
+  // 两端向下短折。
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-sum-cap-l\s*\{\s*left:\s*0/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-sum-cap-r\s*\{\s*right:\s*0/);
+});
+
+test("(d) 空里程碑 = 零宽菱形（不画空条），落在屏障前驱汇总条的右端", () => {
+  const model = ganttModel(GANTT_PLAN);
+  const empty = model.frames.find(frame => frame.id === "m3");
+  assert.equal(empty.sum.empty, true);
+  assert.equal(empty.sum.s, empty.sum.e, "零宽（s === e）");
+  assert.equal(empty.sum.s, 4, "落在屏障前驱 m2 汇总条的右端");
+  const html = renderTeamGantt(GANTT_PLAN);
+  assert.match(html, /data-ms="m3" data-sum-start="4" data-sum-end="4" data-empty="true"/);
+  assert.match(html, /<span class="team-dag-sum-bar" data-ms="m3" data-empty="true" style="--s:4;--e:4"/);
+  assert.match(html, /<span class="team-dag-sum-diamond" data-ms="m3" data-empty="true" style="--s:4;--e:4"/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-sum-bar\[data-empty="true"\]\s*\{\s*display:\s*none/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-sum-diamond\[data-empty="false"\]\s*\{\s*display:\s*none/);
+  // 空里程碑没有汇总条 → 端点画不出来 → 它的边也不画。
+  assert.deepEqual(model.edges.filter(edge => edge.kind === "milestone").map(edge => `${edge.from}->${edge.to}`), ["m1->m2"]);
+});
+
+test("(e) 五状态各一条条描边（只引既有令牌）；pending 另加虚线", () => {
+  const tokens = { running: "--status-running", done: "--status-done", review: "--status-info", failed: "--status-failed", pending: "--status-idle" };
+  for (const [eff, token] of Object.entries(tokens)) {
+    assert.match(TEAM_BOARD_CSS, new RegExp(`\\.team-dag-row\\[data-eff="${eff}"\\]\\s*\\{[^}]*--row-line:\\s*var\\(${token}\\)`), `${eff} 的描边色必须是 ${token}`);
+  }
+  const lines = TEAM_BOARD_CSS.split("\n").filter(line => /--row-line:/.test(line));
+  assert.equal(lines.length, 5, "五条状态描边，一条不多一条不少");
+  for (const line of lines) assert.match(line, /var\(--status-(running|done|info|failed|idle)\)/, "只吃既有状态令牌");
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-row\[data-eff="pending"\]\s+\.team-dag-bar\s*\{[^}]*border-style:\s*dashed/);
+});
+
+test("(f) 条左端 cap 的归属色沿登记不变；色板回绕时叠斜纹", () => {
+  const plan = {
+    milestones: [{ id: "m", status: "done" }],
+    work_items: [
+      { id: "w1", milestone: "m", role: "zz-cap-a", status: "done" },
+      { id: "w2", milestone: "m", role: "zz-cap-b", status: "done" },
+      { id: "w3", milestone: "m", role: "zz-cap-a", status: "done" },
+    ],
+  };
+  const html = renderTeamGantt(plan);
+  const caps = [...html.matchAll(/<i class="team-dag-band([^"]*)"/g)].map(match => match[1]);
+  assert.equal(caps.length, 3);
+  assert.equal(caps[0], caps[2], "同一位 teammate 的 cap 同一个色（行上的变量同源）");
+  assert.match(html, new RegExp(`--team-dag-role-${roleSlotOf("zz-cap-a") % 6}\\)`));
+  assert.equal(renderTeamGantt(plan), html, "重渲染不改色（登记表 append-only）");
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-band\.is-wrapped\s*\{[^}]*repeating-linear-gradient/);
+});
+
+test("(g) 面板 = 定值 max-height 内滚；刻度尺与框头 sticky；窄栏容器查询", () => {
+  assert.match(TEAM_BOARD_CSS, /\.team-board\s*\{[^}]*--team-dag-scroll-max-h:\s*380px/);
+  assert.doesNotMatch(TEAM_BOARD_CSS, /--team-dag-scroll-max-h:[^;]*vh/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-scroll\s*\{[^}]*max-height:\s*var\(--team-dag-scroll-max-h,\s*380px\)/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-scroll\s*\{[^}]*overflow:\s*auto/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-scroll\s*\{[^}]*overscroll-behavior:\s*contain/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-ruler\s*\{[^}]*position:\s*sticky/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-frame-head\s*\{[^}]*top:\s*var\(--team-dag-ruler-h\)/);
+  assert.match(TEAM_BOARD_CSS, /\.team-board\s*\{[^}]*container-type:\s*inline-size/);
+});
+
+test("(h) 幂等：同一份夹具连渲两次逐字节相同（无时间戳/随机数/自增 id）", () => {
+  assert.equal(renderTeamGantt(GANTT_PLAN), renderTeamGantt(GANTT_PLAN));
+  assert.equal(renderTeamGantt(MS_PLAN), renderTeamGantt(MS_PLAN));
+  assert.equal(renderTeamBoard({ plan: MS_PLAN, jobs: [] }), renderTeamBoard({ plan: MS_PLAN, jobs: [] }));
+});
+
+test("(i) 恶意名字/依赖名零注入（条、机读属性、全文都不例外）", () => {
+  const bad = '"><img src=x onerror="alert(1)">';
+  const plan = {
+    team_id: bad,
+    milestones: [{ id: bad, name: bad, content: bad }],
+    work_items: [{ id: "w1", milestone: bad, role: bad, name: bad, status: "pending", depends_on: [bad], session_id: bad, worktree: bad, goal: bad, description: bad, note: bad }],
+  };
+  const html = renderTeamGantt(plan);
+  assert.doesNotMatch(html, /<img/);
+  assert.doesNotMatch(html, /<script/);
+  assert.match(html, /&lt;img src=x onerror=&quot;alert\(1\)&quot;&gt;/, "名字要转义（进 title 也不许出裸标签）");
+  // 边上的两个 id 也是外部文本：单独拿一份**有边**的夹具核（上面那份只有一个工作项，画不出边）。
+  const edgePlan = {
+    milestones: [{ id: "m", name: "M" }],
+    work_items: [
+      { id: "z1", milestone: "m", role: "r", name: "甲" },
+      { id: "z2", milestone: "m", role: "r", name: "乙", depends_on: ["z1"] },
+    ],
+  };
+  assert.match(renderTeamGantt(edgePlan), /data-edge="z1-&gt;z2"/, "边上的 id 走同一套转义");
+  const badEdge = renderTeamGantt({
+    milestones: [{ id: "m", name: "M" }],
+    work_items: [
+      { id: bad, milestone: "m", role: "r", name: "甲" },
+      { id: "z2", milestone: "m", role: "r", name: "乙", depends_on: [bad] },
+    ],
+  });
+  assert.doesNotMatch(badEdge, /<img/);
+  assert.match(badEdge, /data-edge="[^"]*-&gt;z2"/, "坏名字在边属性里也是转义后的文本");
+});
+
+test("(j) styles.css 里没有第二份甘特 CSS（唯一来源是 TEAM_BOARD_CSS）", () => {
+  const styles = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+  for (const token of ["team-dag-", "team-dag-slot-w", "team-dag-bar", "team-dag-frame", "team-dag-edge", "team-dag-ruler"]) {
+    assert.equal(styles.includes(token), false, `styles.css 不得出现 ${token}（两份口径 = 改一处漏一处）`);
+  }
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-bar\s*\{/, "唯一来源就在 TEAM_BOARD_CSS 里");
 });
 
 test("TEAM_BOARD_CSS 只吃仓库既有令牌：自造色值只许出现在作用域内的归属色/框描边色板里", () => {
@@ -754,7 +977,7 @@ test("TEAM_BOARD_CSS 只吃仓库既有令牌：自造色值只许出现在作�
   assert.match(TEAM_BOARD_CSS, /var\(--border-failed\)/);
   for (const line of TEAM_BOARD_CSS.split("\n")) {
     if (/#[0-9a-fA-F]{3,8}/.test(line)) {
-      assert.match(line.trim(), /^--team-dag-(role|ms-tone)-[0-9]+:/, `字面色值只许出现在自造色板里，实际：${line.trim()}`);
+      assert.match(line.trim(), /^--team-dag-(role|ms-tone)-[0-9]+:|^--team-dag-edge:/, `字面色值只许出现在自造色板（归属色 / 框描边色 / 连线中性色）里，实际：${line.trim()}`);
     }
   }
   assert.doesNotMatch(TEAM_BOARD_CSS, /\.team-stage[\s,{[]/, "阶段口径已退场，CSS 里不得再有 .team-stage*");
