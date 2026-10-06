@@ -805,7 +805,7 @@ export function renderTeamQueue(plan) {
       </li>`;
   }).join("");
   return `<section class="team-section" data-team-queue>
-      <div class="team-section-title"><span>teammate</span><span class="chip team-count">${rows.length}</span></div>
+      <div class="team-section-title"><span>teammate</span><span class="chip team-count">${members.length}</span></div>
       <ul class="team-queues">${rows}</ul>
     </section>`;
 }

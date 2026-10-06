@@ -314,6 +314,21 @@ test("③ teammate 区块画名字 / 状态 / 负责的工作项名称队列 / �
   assert.equal(renderTeamQueue({ members: [{ role: "a" }] }), "", "没有工作项就不画这一节（不留空壳）");
 });
 
+// 回归：这一节的计数 chip 曾写成 `${rows.length}`，而 `rows` 是**拼好的 HTML 串** ——
+// 于是 3 位在编会被显示成几百（实测 581）。计数只该报「在编几位」，与同栏里程碑那枚
+// chip 同口径（那里数的是 frames）。这条用例把口径钉住，不让它悄悄长回去。
+test("③ teammate 小节计数 = 在编人数（不是拼好的 HTML 串长度）", () => {
+  const html = renderTeamQueue({
+    members: [{ role: "a" }, { role: "b" }],
+    work_items: [
+      { id: "w1", role: "a", name: "甲", status: "pending" },
+      { id: "w2", role: "b", name: "乙", status: "pending" },
+    ],
+  });
+  assert.match(html, /<span class="chip team-count">2<\/span>/);
+  assert.doesNotMatch(html, /<span class="chip team-count">\d{3,}<\/span>/, "不许把 HTML 串长度当计数");
+});
+
 test("③ teammate 会话入口只指向「这件事自己的会话」，绝不回退到员工的历史角色会话", () => {
   // 只给角色会话号（员工长期会话）而没有工作项会话号：这一位此刻没有自己的会话——
   // 点开它会读到主代理的会话（角色会话读面恒带 main_rows，而 teammate 自己那条车道为空），
