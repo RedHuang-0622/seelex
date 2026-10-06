@@ -93,13 +93,17 @@ func ConfigureProcessTree(cmd *exec.Cmd) {
 
 // ProcessTree 是一次执行体的可终止域。
 //
-// job != 0 时以 Job 为准（覆盖整棵树）；Job 建不出来时退化为按 PID 的 taskkill /T，
-// 那种退化只杀得到直接子进程——调用方不得据此主张"整棵树已终止"。
+// job != 0 时以 Job 为准（覆盖整棵树）；Job 建不出来、或进程**没挂进 Job** 时退化为按 PID 的
+// taskkill /T，那种退化只杀得到直接子进程——调用方不得据此主张"整棵树已终止"。两种形态
+// 都由 Degraded() 说得清（U5 残②：过去只认第一种，"挂不上"被瞒下）。
 type ProcessTree struct {
 	mu     sync.Mutex
 	job    syscall.Handle
 	pid    int
 	closed bool
+	// attachFailed 记"这个进程没进这棵树所属的 Job"（OpenProcess 打不开 / 分配进 Job 失败）。
+	// 它和 job == 0 是同一件事的两种形态：终止打不到没进去的进程，被漏掉的是它的孙进程。
+	attachFailed bool
 }
 
 // NewProcessTree 建 Job 并设 KILL_ON_JOB_CLOSE：句柄一旦关闭，Job 里剩下的进程全部
@@ -123,18 +127,29 @@ func NewProcessTree() *ProcessTree {
 	return &ProcessTree{job: syscall.Handle(handle)}
 }
 
-// Degraded 报告这棵树是否只能按 PID 杀（Job 没建成）。true 时不得对外主张
-// "整棵进程树已终止"。
+// Degraded 报告这棵树是否只能按 PID 杀。true 时不得对外主张"整棵进程树已终止"。
+//
+// 两种形态都算退化：① Job 没建成（job == 0）；② Job 建成了但**这个进程没挂进去**
+// （attachFailed）——后者过去不算，于是"挂不上"这件事对调用方不可见（U5 残②）。
 func (t *ProcessTree) Degraded() bool {
 	if t == nil {
 		return true
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.job == 0
+	return t.job == 0 || t.attachFailed
 }
 
-// Attach 把已启动的进程纳入 Job。失败不致命：退化成按 PID 杀。
+// markAttachFailed 记下"这个进程没进 Job"。只有真的调用失败才置位：参数非法一类由
+// Attach 的入参检查挡在前面，不进退化判据（那是调用方的 bug，不是环境退化）。
+func (t *ProcessTree) markAttachFailed() {
+	t.mu.Lock()
+	t.attachFailed = true
+	t.mu.Unlock()
+}
+
+// Attach 把已启动的进程纳入 Job。失败不致命：退化成按 PID 杀，但**要记进退化判据**
+// （Degraded 会说 true）——"整棵树已终止"这句话从此不成立。
 func (t *ProcessTree) Attach(pid int) error {
 	if t == nil || pid <= 0 {
 		return errNoProcessTree
@@ -148,10 +163,12 @@ func (t *ProcessTree) Attach(pid int) error {
 	}
 	proc, err := syscall.OpenProcess(processSetQuota|processTerminateAccess, false, uint32(pid))
 	if err != nil {
+		t.markAttachFailed()
 		return fmt.Errorf("OpenProcess(%d): %w", pid, err)
 	}
 	defer syscall.CloseHandle(proc)
 	if assigned, _, callErr := procAssignProcessToJobObject.Call(uintptr(job), uintptr(proc)); assigned == 0 {
+		t.markAttachFailed()
 		return fmt.Errorf("AssignProcessToJobObject(%d): %w", pid, callErr)
 	}
 	return nil

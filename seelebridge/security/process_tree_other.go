@@ -44,7 +44,8 @@ func NewProcessTree() *ProcessTree {
 	return &ProcessTree{}
 }
 
-// Degraded 在 POSIX 上恒为 false：Setpgid + kill(-pgid) 覆盖整棵树。
+// Degraded 在 POSIX 上恒为 false：Setpgid + kill(-pgid) 覆盖整棵树，没有"挂不上"这一形态
+// （Windows 的 Job 才可能建不出来或分配失败——见同目录 windows 变体与 U5 残②）。
 func (t *ProcessTree) Degraded() bool { return false }
 
 // Attach 绑定进程组号（= 首进程 PID，因为 Setpgid）。
