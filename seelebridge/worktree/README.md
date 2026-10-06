@@ -94,7 +94,7 @@ stateDiagram-v2
 
 - 单锁 + git 子进程串行；60s git 超时防挂起；
 - 失败保留现场是显式语义：`Release` 只由成功路径触发；
-- 已知风险：`worktreeDirty` 用裸 `git status --porcelain`，Windows/WSL 下 `.gitattributes` 未覆盖文件的 CRLF 转换可能造成"幻影脏"（待修复方向：CRLF 不敏感判定）。
+- 已知风险：脏判定用裸 `git status --porcelain`（`worktree_manager.go:798` 的 `pathDirtyWith`，**唯一实现**；组件 `w.pathDirty` / `w.worktreeDirty` 与包级 `PathDirty` 都转调它，全仓判定调用只剩这一行 `:799`），Windows/WSL 下 `.gitattributes` 未覆盖文件的 CRLF 转换可能造成"幻影脏"（待修复方向：CRLF 不敏感判定；语义变更要先有红灯用例，只在这一行改一处）。
 
 ## 扩展方式
 
