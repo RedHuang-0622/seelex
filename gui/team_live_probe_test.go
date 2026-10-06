@@ -156,9 +156,14 @@ func TestRealAPIAgentTeamLiveProbe(t *testing.T) {
 	if strings.Join(orderView.OrderRoles, ",") != "user,main,reviewer,auditor" {
 		t.Fatalf("order roles = %v", orderView.OrderRoles)
 	}
-	if len(orderView.DesignNotice) != 0 {
-		notice = append(notice, orderView.DesignNotice...)
-	}
+	// review-team 的工作顺序含 reviewer / auditor 两个**没有自动执行者**的角色：
+	// 按设计，factory 会在这里如实声明它（DesignNotice）。这条声明是**设计事实**，
+	// 不是"链路偏差"——旧判据把任何 notice 一律当偏差，于是对一条完全正常的装配报红
+	// （2026-10-06 现场：1.82s 红在这里，产品没有任何回归）。
+	// 分桶：`暂无可执行者` 声明进 declaredNotice，其余（goal-a2a 不该出现的声明、
+	// 注册/顺序类警告）仍进 notice 当偏差查。
+	declaredNotice, orderDeviations := splitTeamAssemblyNotice(orderView.DesignNotice)
+	notice = append(notice, orderDeviations...)
 
 	// 7) 设计稿不变量：定时 agent 不得进入 order_roles（必须显式报错）。
 	if _, err := proc.rpc(ctx, "team.put_role", map[string]any{
@@ -215,16 +220,17 @@ func TestRealAPIAgentTeamLiveProbe(t *testing.T) {
 		t.Fatalf("race 检测到数据竞争:\n%s", stderr)
 	}
 	report := map[string]any{
-		"main_session_id": mainSessionID,
-		"specs":           []string{first.Spec.TeamID, review.Spec.TeamID},
-		"goal_order":      first.View.OrderRoles,
-		"review_order":    review.Spec.OrderRoles,
-		"final_order":     view.OrderRoles,
-		"scheduled":       view.Scheduled,
-		"design_notice":   notice,
-		"real_turn":       realTurn,
-		"race_clean":      raceClean,
-		"observed_at":     time.Now().Format(time.RFC3339),
+		"main_session_id":        mainSessionID,
+		"specs":                  []string{first.Spec.TeamID, review.Spec.TeamID},
+		"goal_order":             first.View.OrderRoles,
+		"review_order":           review.Spec.OrderRoles,
+		"final_order":            view.OrderRoles,
+		"scheduled":              view.Scheduled,
+		"design_notice":          notice,
+		"design_notice_declared": declaredNotice,
+		"real_turn":              realTurn,
+		"race_clean":             raceClean,
+		"observed_at":            time.Now().Format(time.RFC3339),
 	}
 	if usePprof {
 		forkLiveDumpGoroutines(t, pprofAddr, repoRoot, "team-live")
@@ -241,9 +247,33 @@ func TestRealAPIAgentTeamLiveProbe(t *testing.T) {
 	}
 	report["healthz"] = response.StatusCode
 	teamLiveWriteReport(t, repoRoot, report)
+	// review-team 的无执行者声明是设计事实，必须**恰好一条且点明那两个角色**：
+	// 少了它才是偏差（面板就真会让人以为装配完有人干活）；多了/串味同样是偏差。
+	if len(declaredNotice) != 1 ||
+		!strings.Contains(declaredNotice[0], "reviewer") || !strings.Contains(declaredNotice[0], "auditor") {
+		t.Fatalf("review-team 的无执行者声明应当恰有一条且点明 reviewer/auditor，实际：%v", declaredNotice)
+	}
 	if len(notice) != 0 {
 		t.Fatalf("链路出现不符合设计稿的偏差: %v", notice)
 	}
+}
+
+// splitTeamAssemblyNotice 把装配面的 notice 分成"按设计必须出现的声明"与"偏差"两桶。
+//
+// 判据取向：`unexecutedRoles` 那句声明（factory.go，"暂无可执行者"）是**设计事实**——
+// 角色只有注册配置与角色会话、装配本身不产生回合（真回合要 leader 派活），装配面必须
+// 把它说出来；把它当"偏差"正是旧判据的病根。其余任何 notice（goal-a2a 不该出现的声明、
+// 注册/顺序类警告）仍然是偏差。
+func splitTeamAssemblyNotice(notices []string) (declared []string, deviated []string) {
+	const unexecutedMarker = "暂无可执行者"
+	for _, notice := range notices {
+		if strings.Contains(notice, unexecutedMarker) {
+			declared = append(declared, notice)
+			continue
+		}
+		deviated = append(deviated, notice)
+	}
+	return declared, deviated
 }
 
 // teamLiveAssertRealTurnLanded 用 target 角色的 role.snapshot 读主文档行，确认真实

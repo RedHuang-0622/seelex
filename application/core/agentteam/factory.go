@@ -442,7 +442,7 @@ func viewNotices(registry dto.TeamRegistry, orderRoles []string) []string {
 	}
 	if unexecuted := unexecutedRoles(orderRoles); len(unexecuted) > 0 {
 		notices = append(notices, fmt.Sprintf(
-			"本团队（%s）暂无可执行者：%s 目前只有注册配置与角色会话，装配后不会自动产生回合（需要宿主为它接执行者）",
+			"本团队（%s）暂无可执行者：%s 目前只有注册配置与角色会话，装配本身不会产生回合（leader 用 team_dispatch 派活才会跑真回合）",
 			teamKindOf(registry), strings.Join(unexecuted, "、")))
 	}
 	if len(notices) == 0 {
@@ -469,9 +469,14 @@ func teamKindOf(registry dto.TeamRegistry) string {
 //   - tl：goal 治理的 ADVISOR 回合执行者（goal 域 TL 评估器真实跑一轮）。
 //
 // 其余注册角色（review-team 的 reviewer、research-team 的 researcher、自定义
-// agent/timer 角色）目前都没有执行者：角色会话建得出来、成员表列得出来，但不会
-// 自动产生回合。装配面必须把这个状态说出来（DesignNotice），否则 UI 会让人以为
-// 装配完就有人干活。
+// agent/timer 角色）目前都没有**自动**执行者：角色会话建得出来、成员表列得出来，但
+// 装配本身不会产生回合。装配面必须把这个状态说出来（DesignNotice），否则 UI 会让人
+// 以为装配完就有人干活。
+//
+// 措辞只许说"装配不等于干活"：真回合要 leader 派活才会跑（team_dispatch → 作业 →
+// Runtime.RunWorker → runRoleRound，角色不限 tl/exec）。"宿主没有它的执行者"是旧的
+// 静态三人表口径，已经不准（2026-10-06 现场复现：review-team 的 notice 让面板对
+// 一个**可派活**的角色说"暂无可执行者"，而用户此时恰恰是打算派活）。
 var RolesWithExecutor = map[string]bool{
 	string(dto.RoleKindUser): true,
 	string(dto.RoleKindMain): true,
