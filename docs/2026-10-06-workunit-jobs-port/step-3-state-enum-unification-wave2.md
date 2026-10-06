@@ -91,9 +91,9 @@ ok  	github.com/RedHuang-0622/seelex/application/core	0.225s
 | goal 四处存档写出 + 三处测试 | `string(record.Status)` / `string(StatusCompleted)` | `.String()` |
 | 两个既有用例（`session_archive_test.go` / `task_execution_test.go`） | `Checkpoint(..., string(NodeCompleted), ...)` → 用例先红：`restored projection ... CompletedWork 数量对不上` | `.String()` |
 
-门禁侧：`stateFieldCastWhitelist` 从 3 条收到 **1 条**（旧 3 条里 2 条是 `work_table.go` 的
-`string(node.Status)`、1 条是 `task_service.go` 的 `string(plan.Status)`——三处都因为
-"那一格收成枚举"而必须改成 `.String()`，过期条目被门禁逼着删掉）。
+门禁侧：`stateFieldCastWhitelist` 从 3 条收到 **0 条（空）**——旧 3 条里 2 条是 `work_table.go`
+的 `string(node.Status)`、1 条是 `task_service.go` 的 `string(plan.Status)`：三处都因为"那一格
+收成枚举"而必须改成 `.String()`，过期条目被门禁逼着删掉，"没有白名单"本身就是这一格的读数。
 
 ## 3. 改动清单（文件 → 干了什么）
 
@@ -135,7 +135,8 @@ ok  	github.com/RedHuang-0622/seelex/application/core	0.225s
 - `e2e/subagent_status_vocabulary_gate_test.go`：新增 **7 格**范围（回合 / 会话可见 / 计划 /
   节点 / 定时任务上次运行结果 / goal / 评审者）；「后台作业状态」补上 `tui/goalteam.go` 这个读方；
   白名单从 3 条增到 4 条（新增节点格里"工具调用视图词"那一条，写清同词不同格与去向）。
-- `e2e/state_enum_cast_gate_test.go`：白名单 3 → 1 条。
+- `e2e/state_enum_cast_gate_test.go`：白名单 3 → **0** 条（空；三处旧条目都因为那一格收成枚举
+  而必须改成 `.String()`）。
 
 ## 4. 既有用例的机械适配清单（逐条列明理由）
 
