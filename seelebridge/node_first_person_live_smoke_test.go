@@ -187,7 +187,7 @@ forkFinished:
 	}
 	successTools := 0
 	for _, tool := range liveTools {
-		if tool.Status == "success" {
+		if tool.Status == dto.ToolEventSuccess {
 			successTools++
 		}
 	}

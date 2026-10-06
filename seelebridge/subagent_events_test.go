@@ -3,6 +3,7 @@ package seelebridge
 import (
 	"context"
 	"errors"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
 	session "github.com/RedHuang-0622/seelex/seelebridge/session"
@@ -43,10 +44,10 @@ func TestSubagentToolMiddlewareProjectsStartedAndCompleted(t *testing.T) {
 		t.Fatalf("events = %#v, want started and completed", events)
 	}
 	started, completed := events[0], events[1]
-	if started.ID == "" || started.ID != completed.ID || started.NodeID != "node-a" || started.Status != "running" {
+	if started.ID == "" || started.ID != completed.ID || started.NodeID != "node-a" || started.Status != dto.ToolEventRunning {
 		t.Fatalf("started = %#v", started)
 	}
-	if completed.Status != "success" || completed.Result != result || completed.Duration < 0 {
+	if completed.Status != dto.ToolEventSuccess || completed.Result != result || completed.Duration < 0 {
 		t.Fatalf("completed = %#v", completed)
 	}
 }
@@ -69,7 +70,7 @@ func TestSubagentToolMiddlewareProjectsPermissionOrHandlerFailure(t *testing.T) 
 	if _, err := runtime.Agent().DirectDispatch(ctx, "event_failure", `{}`); err == nil {
 		t.Fatal("handler failure was not returned")
 	}
-	if len(events) != 2 || events[1].Status != "error" || events[1].Error != "probe failed" {
+	if len(events) != 2 || events[1].Status != dto.ToolEventError || events[1].Error != "probe failed" {
 		t.Fatalf("events = %#v", events)
 	}
 }

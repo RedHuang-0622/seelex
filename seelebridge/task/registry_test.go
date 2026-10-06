@@ -50,7 +50,7 @@ func TestTaskRegistryRejectsInvalidOperations(t *testing.T) {
 	if err := registry.ReplaceTodo([]TodoItem{{Text: "a"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := registry.SetStatus("todo:1", "whatever", ""); err == nil || !strings.Contains(err.Error(), "not found") {
+	if _, err := registry.SetStatus("todo:1", TaskCompleted, ""); err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("unknown id must be rejected, got %v", err)
 	}
 }

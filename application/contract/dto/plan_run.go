@@ -1,10 +1,5 @@
 package dto
 
-import (
-	"encoding/json"
-	"fmt"
-)
-
 // plan_run 结果状态：枚举（唯一一份定义）。
 //
 // `plan_run` 的工具结果是一段 JSON（写方见 seelebridge/plan 的 planRunResultJSON），它跨两层：
@@ -38,39 +33,22 @@ var planRunStatusWords = [...]string{
 	PlanRunStatusAborted:   "aborted",
 }
 
+// planRunStatusCodec 把这张表接到**唯一一份编码口径**上（见 state_codec.go）。
+var planRunStatusCodec = stateCodec{name: "plan_run 结果状态", words: planRunStatusWords[:]}
+
 // String 给出对外词（plan_run 结果 JSON 里的 status）。
-func (s PlanRunStatus) String() string {
-	if int(s) < len(planRunStatusWords) {
-		return planRunStatusWords[s]
-	}
-	return planRunStatusWords[PlanRunStatusUnknown]
-}
+func (s PlanRunStatus) String() string { return planRunStatusCodec.word(uint8(s)) }
 
 // ParsePlanRunStatus 把对外词读回枚举；第二个返回值报告它是不是这一格的词。
 func ParsePlanRunStatus(text string) (PlanRunStatus, bool) {
-	for index, word := range planRunStatusWords {
-		if word == text {
-			return PlanRunStatus(index), true
-		}
-	}
-	return PlanRunStatusUnknown, false
+	ordinal, ok := planRunStatusCodec.ordinal(text)
+	return PlanRunStatus(ordinal), ok
 }
 
 // MarshalJSON 保住 wire 形状：JSON 里仍是 "completed" 这样的词。
-func (s PlanRunStatus) MarshalJSON() ([]byte, error) {
-	return json.Marshal(s.String())
-}
+func (s PlanRunStatus) MarshalJSON() ([]byte, error) { return planRunStatusCodec.marshal(uint8(s)) }
 
 // UnmarshalJSON 读回对外词；认不得的词报错（含框架的节点状态词——它不属于这一格）。
 func (s *PlanRunStatus) UnmarshalJSON(data []byte) error {
-	var text string
-	if err := json.Unmarshal(data, &text); err != nil {
-		return err
-	}
-	status, ok := ParsePlanRunStatus(text)
-	if !ok {
-		return fmt.Errorf("dto: %q 不是 plan_run 结果状态词（认得：%v）", text, planRunStatusWords[:])
-	}
-	*s = status
-	return nil
+	return planRunStatusCodec.unmarshal(data, (*uint8)(s))
 }

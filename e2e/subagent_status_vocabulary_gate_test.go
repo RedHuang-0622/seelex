@@ -93,6 +93,29 @@ var statusVocabularyScopes = []statusVocabularyScope{
 		// 这一格的取值面 = dto.PlanRunStatus*（plan_run 工具结果的 status）。
 		words: map[string]bool{"completed": true, "failed": true, "aborted": true},
 	},
+	{
+		name: "工具事件状态",
+		files: map[string]string{
+			"seelebridge/session/tool_events.go":            "写：工具调用事件的三种状态（发布/落态）",
+			"application/core/tool_hooks.go":                "写：工具完成钩子把结果折成成功/失败",
+			"application/core/subagent_view/coordinator.go": "读：详情投影判「在跑」",
+			"tui/state.go": "读：TUI 判「在跑」（转调契约枚举的对外词）",
+		},
+		// 这一格的取值面 = dto.ToolEvent*（SubagentTool/SubagentToolEvent.Status）。
+		words: map[string]bool{"running": true, "success": true, "error": true},
+	},
+	{
+		name: "task 状态",
+		files: map[string]string{
+			"seelebridge/task/task.go":       "写：task 注册表的状态迁移与打点状态",
+			"application/core/work_table.go": "读：折成工作表格行（子代理行沿用 done 的显示映射）",
+		},
+		// 这一格的取值面 = dto.Task*（TaskRecord.Status / TaskTracePoint.Status）。
+		words: map[string]bool{
+			"pending": true, "queued": true, "running": true, "doing": true,
+			"completed": true, "failed": true, "retry": true, "interrupted": true,
+		},
+	},
 }
 
 // statusAllowedLiteral 是白名单条目：另一张词表的一处字面量 + 理由（"为什么像却不并"）。
@@ -272,7 +295,7 @@ import "github.com/RedHuang-0622/seelex/application/contract/dto"
 
 const asyncStateDone = dto.AsyncStateDone
 
-func done(status string) bool { return status == dto.AsyncStateDone || status == string(dto.SubAgentDone) }
+func done(status string) bool { return status == dto.AsyncStateDone || status == dto.SubAgentDone.String() }
 `
 	found, err := scanStatusWordLiterals("clean.go", []byte(clean), words)
 	if err != nil {

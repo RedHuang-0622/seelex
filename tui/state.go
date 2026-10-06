@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 const CellSoftLimit = 500
@@ -31,11 +32,11 @@ func (cell Cell) Render(_ int) string {
 		}
 		icon := "→"
 		switch cell.Tool.Status {
-		case "running":
+		case dto.ToolEventRunning.String():
 			icon = StyleTaskRunning.Render("●")
-		case "success":
+		case dto.ToolEventSuccess.String():
 			icon = StyleTaskDone.Render("✓")
-		case "error":
+		case dto.ToolEventError.String():
 			icon = StyleError.Render("✗")
 		}
 		arguments := cell.Tool.Arguments
@@ -43,7 +44,7 @@ func (cell Cell) Render(_ int) string {
 			arguments = arguments[:80] + "..."
 		}
 		line := fmt.Sprintf("  %s %s(%s)", icon, cell.Tool.Name, arguments)
-		if cell.Tool.Duration > 0 && cell.Tool.Status != "running" {
+		if cell.Tool.Duration > 0 && cell.Tool.Status != dto.ToolEventRunning.String() {
 			line += StyleMuted.Render(fmt.Sprintf("  %s", cell.Tool.Duration.Round(100*time.Millisecond)))
 		}
 		return StyleToolCall.Render(line)

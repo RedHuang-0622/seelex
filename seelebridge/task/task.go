@@ -357,7 +357,7 @@ func addTaskLocked(spec TaskSpec, state *TaskRegistryState) (TaskRecord, bool) {
 		CreatedAt:    now,
 		StartedAt:    now,
 		Trace: []TaskTracePoint{{
-			At: now, Status: string(TaskPending), Operation: taskAddOperation(spec.Kind),
+			At: now, Status: TaskPending, Operation: taskAddOperation(spec.Kind),
 		}},
 	}}
 	// 被动上名单：创建即把 Assignee 加入 Participants（去重），AI 不参与。
@@ -424,7 +424,7 @@ func setTaskStatusLocked(id string, status TaskStatus, evidence string, state *T
 	case TaskCompleted, TaskFailed:
 		record.record.EndedAt = now
 	}
-	record.record.Trace = append(record.record.Trace, TaskTracePoint{At: now, Status: string(status), Evidence: evidence})
+	record.record.Trace = append(record.record.Trace, TaskTracePoint{At: now, Status: status, Evidence: evidence})
 	if limit := taskTraceLimit; limit > 0 && len(record.record.Trace) > limit {
 		record.record.Trace = record.record.Trace[len(record.record.Trace)-limit:]
 	}

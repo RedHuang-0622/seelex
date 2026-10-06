@@ -98,16 +98,16 @@ func (s *ToolEventState) Middleware() tools.Middleware {
 			id := fmt.Sprintf("subtool-%d", s.seq.Add(1))
 			s.Publish(SubagentToolEvent{
 				ID: id, NodeID: scope.NodeID, Name: name, Arguments: argsJSON,
-				Status: "running", StartedAt: startedAt,
+				Status: dto.ToolEventRunning, StartedAt: startedAt,
 			})
 			result, err := next.Execute(ctx, argsJSON)
 			completed := SubagentToolEvent{
 				ID: id, NodeID: scope.NodeID, Name: name, Arguments: argsJSON,
-				Result: result, Status: "success", StartedAt: startedAt,
+				Result: result, Status: dto.ToolEventSuccess, StartedAt: startedAt,
 				Duration: time.Since(startedAt),
 			}
 			if err != nil {
-				completed.Status = "error"
+				completed.Status = dto.ToolEventError
 				completed.Error = err.Error()
 			}
 			s.Publish(completed)

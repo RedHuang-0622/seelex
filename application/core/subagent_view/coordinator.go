@@ -81,7 +81,7 @@ func (c *Coordinator) HandleSubagentToolEvent(e seelsession.SubagentToolEvent) {
 	c.ViewMu.Unlock()
 
 	kind := event.EventSubagentToolCompleted
-	if e.Status == "running" {
+	if e.Status == dto.ToolEventRunning {
 		kind = event.EventSubagentToolStarted
 	}
 	if hub, ok := c.Events.(event.SessionAwareHub); ok {
@@ -278,17 +278,21 @@ func nodeStatusFromSubagentStatus(status dto.SubAgentNodeStatus) model.NodeStatu
 }
 
 // nodeStatusFromTaskStatus 把任务注册表状态映射为详情状态（未知 → ""）。
+//
+// 边界映射：subject 是**工作表格行**的状态字段——那是混合值（task 行的词来自 dto.Task*，
+// 子代理行沿用记录词的显示映射 done/failed，见 application/core/work_table.go）。所以这里
+// 是**读 wire 词的边界**，但词不再写第二份字面量：一律从契约枚举取对外词。
 func nodeStatusFromTaskStatus(status string) model.NodeStatus {
 	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "pending":
+	case dto.TaskPending.String():
 		return model.NodePending
-	case "queued":
+	case dto.TaskQueued.String():
 		return model.NodeQueued
-	case "running", "doing":
+	case dto.TaskRunning.String(), dto.TaskDoing.String():
 		return model.NodeRunning
-	case "completed", "done":
+	case dto.TaskCompleted.String(), dto.SubAgentDone.String():
 		return model.NodeCompleted
-	case "failed", "interrupted":
+	case dto.TaskFailed.String(), dto.TaskInterrupted.String():
 		return model.NodeFailed
 	default:
 		return ""

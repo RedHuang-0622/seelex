@@ -121,7 +121,7 @@ func (r *Runtime) ListSubagentRecovery(sessionID string) ([]dto.SubagentRecovery
 			NodeID:          unit.Key,
 			SessionID:       record.SessionID,
 			Goal:            unit.Goal,
-			Status:          record.Status,
+			Status:          nodeStateOfRecord(record.Status),
 			Active:          unit.Active(),
 			ConclusionFound: concluded,
 			Resumable:       unit.Active() && !concluded,
@@ -327,7 +327,7 @@ func (p *subagentResumePort) Locate(ctx context.Context) ([]resume.Unit, error) 
 		// 与树投影用的是同一条，不再在这里写一遍字面量。
 		case progress.InFlight:
 			status = resume.UnitActive
-		case progress.Status == subagentNodeStatusFailed:
+		case nodeStateOfRecord(progress.Status) == dto.SubAgentFailed:
 			status = resume.UnitFailed
 		}
 		if _, concluded := conclusions[key]; concluded {
@@ -349,12 +349,23 @@ func (p *subagentResumePort) Locate(ctx context.Context) ([]resume.Unit, error) 
 // 记它自己的两个词），契约只钉"在跑"那两个（workunit.StatusQueued / StatusRunning + InFlight）。
 // 但"终态不进契约"不等于"每个写方各写一份字面量"——③U6 之后四个取值面只有 `dto.SubAgent*`
 // 一份（记录词 = wire 词，逐条互锁见 TestSubagentStatusVocabularyAgreesWithTheWire），
-// 本层这两个常量是**转调**：Locate 判"是否终结"、ensureConclusion 判"记录本身已是终结态"
+// 本层这两个名是**转调**：Locate 判"是否终结"、ensureConclusion 判"记录本身已是终结态"
 // 都读这里，teammate 侧（teamUnitStatusDone/Failed）读同一处。
-const (
-	subagentNodeStatusDone   = string(dto.SubAgentDone)
-	subagentNodeStatusFailed = string(dto.SubAgentFailed)
-)
+//
+// nodeStateOfRecord 把**落盘记录里的状态词**折成契约枚举——落盘格的唯一转换点。
+//
+// sessionstore 在契约之下（存的是词，不是枚举），所以这里折一次。认不得的词落
+// dto.SubAgentUnknown：**读旧文件/外来文件不许炸**，而且 Unknown **不是终态**——
+// "读不懂"绝不会被折算成"已完成"（判定面在 Locate/ensureConclusion 的保守分支里）。
+//
+// 与进程内 wire 的严格口径（dto.UnmarshalJSON 认不得就报错）是**两种取舍**，不是重复：
+// 进程内的词由我们同一份代码写出，读不懂就是 bug；落盘的词要跨版本、跨机器读回来。
+func nodeStateOfRecord(wire string) dto.SubAgentNodeStatus {
+	if state, ok := dto.ParseSubAgentNodeStatus(wire); ok {
+		return state
+	}
+	return dto.SubAgentUnknown
+}
 
 // RepairParent 补齐父侧历史：缺失的子代理结果 → provider-only tool 占位。
 func (p *subagentResumePort) RepairParent(ctx context.Context, _ resume.Unit) error {
@@ -513,7 +524,7 @@ func (p *subagentResumePort) ensureConclusion(ctx context.Context, unit resume.U
 		record = latest
 		p.records[unit.Key] = latest
 	}
-	if record.Status != subagentNodeStatusDone && record.Status != subagentNodeStatusFailed {
+	if state := nodeStateOfRecord(record.Status); state != dto.SubAgentDone && state != dto.SubAgentFailed {
 		return nil
 	}
 	record.MainSessionID = p.mainSessionID

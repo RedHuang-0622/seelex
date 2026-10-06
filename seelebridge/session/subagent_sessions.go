@@ -205,7 +205,7 @@ func (s *SubagentSessions) handle(cmd subagentSessionCmd) {
 			return
 		}
 		if _, ok := s.outcomes[cmd.nodeID]; !ok {
-			s.outcomes[cmd.nodeID] = subagentOutcome{status: string(SubAgentDone)}
+			s.outcomes[cmd.nodeID] = subagentOutcome{status: SubAgentDone.String()}
 		}
 		var snap *snapshot.ContextSnapshot
 		// 节点结束路径：ChatStream 已返回（UnregisterNodeSession 在 defer 中

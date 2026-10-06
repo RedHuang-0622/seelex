@@ -1212,7 +1212,7 @@ func TestBridgeRelaysToolCompletedEventToFrontend(t *testing.T) {
 
 	want := application.Message{
 		ID: "tool-result-1", Role: "tool_result", Content: `{"stdout":"ok"}`,
-		Tool: &application.ToolCall{ID: "tool-1", Name: "bash", Status: "success", Result: `{"stdout":"ok"}`},
+		Tool: &application.ToolCall{ID: "tool-1", Name: "bash", Status: dto.ToolEventSuccess.String(), Result: `{"stdout":"ok"}`},
 	}
 	published := fake.hub.Publish(application.EventToolCompleted, 2, "request-1", want)
 	relayed := waitEmitted(t, emitted)
@@ -1254,7 +1254,7 @@ func TestBridgeRelaysSubagentToolEventsToSeelexEvent(t *testing.T) {
 
 	payload := application.SubagentToolEvent{
 		ID: "subtool-1", NodeID: "worker", Name: "read_file",
-		Status: "success", Result: "done",
+		Status: dto.ToolEventSuccess, Result: "done",
 	}
 	published := fake.hub.Publish(application.EventSubagentToolCompleted, 3, "request-1", payload)
 	relayed := waitEmitted(t, emitted)

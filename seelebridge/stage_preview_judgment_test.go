@@ -125,19 +125,17 @@ func TestSubagentStatusVocabularyAgreesWithTheWire(t *testing.T) {
 		got  string
 		want string
 	}{
-		{"workunit.StatusQueued", workunit.StatusQueued, string(dto.SubAgentQueued)},
-		{"workunit.StatusRunning", workunit.StatusRunning, string(dto.SubAgentRunning)},
-		{"subagentNodeStatusDone", subagentNodeStatusDone, string(dto.SubAgentDone)},
-		{"subagentNodeStatusFailed", subagentNodeStatusFailed, string(dto.SubAgentFailed)},
+		{"workunit.StatusQueued", workunit.StatusQueued, dto.SubAgentQueued.String()},
+		{"workunit.StatusRunning", workunit.StatusRunning, dto.SubAgentRunning.String()},
 		// 记录那一格的**四个取值面**（③U6）：teammate 侧的终态词与 session 包的再导出都在表里，
 		// 任何一处被改成另一个词，这里立刻红——不再有"改了一份、漏了另一份"的余地。
-		{"teamUnitStatusRunning", teamUnitStatusRunning, string(dto.SubAgentRunning)},
-		{"teamUnitStatusDone", teamUnitStatusDone, string(dto.SubAgentDone)},
-		{"teamUnitStatusFailed", teamUnitStatusFailed, string(dto.SubAgentFailed)},
-		{"session.SubAgentQueued", string(session.SubAgentQueued), string(dto.SubAgentQueued)},
-		{"session.SubAgentRunning", string(session.SubAgentRunning), string(dto.SubAgentRunning)},
-		{"session.SubAgentDone", string(session.SubAgentDone), string(dto.SubAgentDone)},
-		{"session.SubAgentFailed", string(session.SubAgentFailed), string(dto.SubAgentFailed)},
+		{"teamUnitStatusRunning", teamUnitStatusRunning, dto.SubAgentRunning.String()},
+		{"teamUnitStatusDone", teamUnitStatusDone, dto.SubAgentDone.String()},
+		{"teamUnitStatusFailed", teamUnitStatusFailed, dto.SubAgentFailed.String()},
+		{"session.SubAgentQueued", session.SubAgentQueued.String(), dto.SubAgentQueued.String()},
+		{"session.SubAgentRunning", session.SubAgentRunning.String(), dto.SubAgentRunning.String()},
+		{"session.SubAgentDone", session.SubAgentDone.String(), dto.SubAgentDone.String()},
+		{"session.SubAgentFailed", session.SubAgentFailed.String(), dto.SubAgentFailed.String()},
 	} {
 		if pair.got != pair.want {
 			t.Errorf("%s = %q，对外契约词表是 %q——记录词与 wire 词必须同值", pair.who, pair.got, pair.want)

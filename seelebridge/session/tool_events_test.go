@@ -1,6 +1,10 @@
 package session
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
+)
 
 // TestToolEventStateMultiObserver 验证工具事件多观察者：
 // SetCallback（main 路径）+ Subscribe（实时流路径）并行收到，取消后不再收到。
@@ -15,9 +19,9 @@ func TestToolEventStateMultiObserver(t *testing.T) {
 		observerSeen = append(observerSeen, event.ID)
 	})
 
-	state.Publish(SubagentToolEvent{ID: "t1", Status: "running"})
+	state.Publish(SubagentToolEvent{ID: "t1", Status: dto.ToolEventRunning})
 	cancel()
-	state.Publish(SubagentToolEvent{ID: "t2", Status: "success"})
+	state.Publish(SubagentToolEvent{ID: "t2", Status: dto.ToolEventSuccess})
 
 	if len(callbackSeen) != 2 {
 		t.Fatalf("callback seen = %v, want 2 events", callbackSeen)

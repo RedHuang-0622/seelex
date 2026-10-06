@@ -252,11 +252,11 @@ func TestHandleSubagentToolEventProjectsBoundedIncrementals(t *testing.T) {
 	long := strings.Repeat("x", Limits().EvidenceChars+20)
 	started := seelsession.SubagentToolEvent{
 		ID: "subtool-1", NodeID: "worker", Name: "read_file", Arguments: long,
-		Status: "running", StartedAt: time.Now(),
+		Status: dto.ToolEventRunning, StartedAt: time.Now(),
 	}
 	service.HandleSubagentToolEvent(started)
 	completed := started
-	completed.Status = "success"
+	completed.Status = dto.ToolEventSuccess
 	completed.Result = long
 	completed.Duration = time.Second
 	service.HandleSubagentToolEvent(completed)
@@ -266,7 +266,7 @@ func TestHandleSubagentToolEventProjectsBoundedIncrementals(t *testing.T) {
 	if node == nil || len(node.ToolEvents) != 1 {
 		t.Fatalf("worker tool events = %#v", node)
 	}
-	if node.ToolEvents[0].Status != "success" || len(node.ToolEvents[0].Arguments) > Limits().EvidenceChars+3 || len(node.ToolEvents[0].Result) > Limits().EvidenceChars+3 {
+	if node.ToolEvents[0].Status != dto.ToolEventSuccess || len(node.ToolEvents[0].Arguments) > Limits().EvidenceChars+3 || len(node.ToolEvents[0].Result) > Limits().EvidenceChars+3 {
 		t.Fatalf("projected tool event = %#v", node.ToolEvents[0])
 	}
 
@@ -289,7 +289,7 @@ func TestHandleSubagentToolEventProjectsBoundedIncrementals(t *testing.T) {
 	if err := json.Unmarshal(second.Payload, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.ID != "subtool-1" || payload.NodeID != "worker" || payload.Status != "success" {
+	if payload.ID != "subtool-1" || payload.NodeID != "worker" || payload.Status != dto.ToolEventSuccess {
 		t.Fatalf("completed payload = %#v", payload)
 	}
 }

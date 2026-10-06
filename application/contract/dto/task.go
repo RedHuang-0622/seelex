@@ -8,20 +8,57 @@ import (
 )
 
 // TaskStatus 是 task 生命周期状态。
-type TaskStatus string
+//
+// 枚举（int + iota）：取值只能从下面这组常量来，比较只能发生在枚举之间；对外词只在
+// taskStatusWords 里出现一次——JSON、GUI、以及落盘的工作表条目都走它。
+type TaskStatus uint8
 
 const (
-	TaskPending   TaskStatus = "pending"
-	TaskQueued    TaskStatus = "queued"
-	TaskRunning   TaskStatus = "running"
-	TaskDoing     TaskStatus = "doing"
-	TaskCompleted TaskStatus = "completed"
-	TaskFailed    TaskStatus = "failed"
-	TaskRetry     TaskStatus = "retry"
+	// TaskStatusUnknown 是零值：落盘的词我们认不得时落到它上面。它**不是终态**。
+	TaskStatusUnknown TaskStatus = iota
+	TaskPending
+	TaskQueued
+	TaskRunning
+	TaskDoing
+	TaskCompleted
+	TaskFailed
+	TaskRetry
 	// TaskInterrupted 是进程中断/崩溃遗留的工作表条目状态（重启后可见；
 	// 由子代理树 interrupted 节点投影而来，供用户在父会话重跑）。
-	TaskInterrupted TaskStatus = "interrupted"
+	TaskInterrupted
 )
+
+// taskStatusWords 是"枚举 ↔ 对外词"的对照表（本格唯一一份）。
+var taskStatusWords = [...]string{
+	TaskStatusUnknown: "unknown",
+	TaskPending:       "pending",
+	TaskQueued:        "queued",
+	TaskRunning:       "running",
+	TaskDoing:         "doing",
+	TaskCompleted:     "completed",
+	TaskFailed:        "failed",
+	TaskRetry:         "retry",
+	TaskInterrupted:   "interrupted",
+}
+
+var taskStatusCodec = stateCodec{name: "task 状态", words: taskStatusWords[:]}
+
+// String 给出对外词。
+func (s TaskStatus) String() string { return taskStatusCodec.word(uint8(s)) }
+
+// ParseTaskStatus 把对外词读回枚举；第二个返回值报告认不认得。
+func ParseTaskStatus(text string) (TaskStatus, bool) {
+	ordinal, ok := taskStatusCodec.ordinal(text)
+	return TaskStatus(ordinal), ok
+}
+
+// MarshalJSON 保住 wire 形状：JSON 里仍是 "completed" 这样的词。
+func (s TaskStatus) MarshalJSON() ([]byte, error) { return taskStatusCodec.marshal(uint8(s)) }
+
+// UnmarshalJSON 读回对外词；认不得的词报错，不动原值。
+func (s *TaskStatus) UnmarshalJSON(data []byte) error {
+	return taskStatusCodec.unmarshal(data, (*uint8)(s))
+}
 
 // TaskPhase* 是 worktable 条目阶段常量（前端筛选/渲染依赖这些字符串）。
 const (
@@ -33,11 +70,11 @@ const (
 
 // TaskTracePoint 是 task 打点（与 worktable trace 同形；evidence 有界）。
 type TaskTracePoint struct {
-	At        time.Time `json:"at,omitempty"`
-	Status    string    `json:"status"`
-	Operation string    `json:"operation,omitempty"`
-	Evidence  string    `json:"evidence,omitempty"`
-	Duration  string    `json:"duration,omitempty"`
+	At        time.Time  `json:"at,omitempty"`
+	Status    TaskStatus `json:"status"`
+	Operation string     `json:"operation,omitempty"`
+	Evidence  string     `json:"evidence,omitempty"`
+	Duration  string     `json:"duration,omitempty"`
 }
 
 // TaskRecord 是 task 的只读快照 DTO（字段与 worktable WorkItem 同构）。

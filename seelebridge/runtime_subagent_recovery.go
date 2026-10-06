@@ -9,6 +9,7 @@ import (
 	"time"
 
 	frameworkevent "github.com/RedHuang-0622/Seele/event"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
@@ -94,7 +95,7 @@ func (r *Runtime) persistSubagentConclusion(mainSessionID string, record session
 			IDs:  map[string]string{"session_id": mainSessionID},
 		}},
 	}
-	if record.Status == subagentNodeStatusFailed {
+	if nodeStateOfRecord(record.Status) == dto.SubAgentFailed {
 		event.Status = frameworkevent.StatusFailed
 	}
 	if err := persister(context.Background(), event); err != nil {

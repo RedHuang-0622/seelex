@@ -30,15 +30,16 @@ import (
 // 会话记录的 status 词表（`NodeSessionRecord.Status` 的取值面）。只有"在跑"与两种
 // 终态：记录回答的是"这一轮跑到哪"，不是"leader 验收了没有"（那是计划里 item.Status
 // 的事——两处各记一份就会漂移）。
-const (
+// var 而非 const：`dto.SubAgent*.String()` 不是常量表达式；词仍只有契约枚举一处。
+var (
 	// teamUnitStatusRunning 复用契约的词表（"在跑"只有一份，见 workunit.StatusRunning /
 	// InFlight）；两个终态**不进 workunit 契约**——它由记录写方按自己的语义定名。但"不进
 	// workunit 契约"不等于"各写一份字面量"：③U6 之后记录那一格的四个取值面只有对外契约
 	// `dto.SubAgent*` 一份（记录词 = wire 词，由 TestSubagentStatusVocabularyAgreesWithTheWire
 	// 逐条互锁），这里与子代理侧都是**转调**。
 	teamUnitStatusRunning = workunit.StatusRunning
-	teamUnitStatusDone    = string(dto.SubAgentDone)
-	teamUnitStatusFailed  = string(dto.SubAgentFailed)
+	teamUnitStatusDone    = dto.SubAgentDone.String()
+	teamUnitStatusFailed  = dto.SubAgentFailed.String()
 )
 
 // teamUnitStatusFor 把收尾分类折成记录的终态：**不判死的那两类（未提交 / 主工作区挡路）

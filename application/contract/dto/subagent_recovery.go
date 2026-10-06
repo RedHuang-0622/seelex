@@ -15,8 +15,9 @@ type SubagentRecoveryView struct {
 	SessionID string `json:"session_id,omitempty"`
 	// Goal 是原始派发目标。
 	Goal string `json:"goal,omitempty"`
-	// Status 是持久化状态：queued | running | done | failed。
-	Status string `json:"status"`
+	// Status 是持久化状态（枚举：queued | running | done | failed | interrupted；
+	// 认不得的落盘词折成 Unknown，见 seelebridge 的 nodeStateOfRecord）。
+	Status SubAgentNodeStatus `json:"status"`
 	// Active 表示单元未终结（派发已发生、结果未记录），需要重启续跑。
 	Active bool `json:"active"`
 	// ConclusionFound 表示父级事件库已有该节点的结论（幂等键已收敛）。

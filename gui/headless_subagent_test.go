@@ -49,7 +49,7 @@ func TestHeadlessSubagentRPC(t *testing.T) {
 		fakeApplication: newFakeApplication(),
 		views: []dto.SubagentRecoveryView{{
 			NodeID: "sub-1", SessionID: "node-hash-1", Goal: "inspect",
-			Status: "running", Active: true, Resumable: true,
+			Status: dto.SubAgentRunning, Active: true, Resumable: true,
 		}},
 		report: dto.SubagentResumeReport{
 			SessionID: "main-1", Located: 1, Resumed: []string{"sub-1"},

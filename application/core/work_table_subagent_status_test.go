@@ -19,11 +19,13 @@ func TestTaskStatusForSubagentInterrupted(t *testing.T) {
 		{sub: dto.SubAgentDone, want: dto.TaskCompleted},
 		{sub: dto.SubAgentFailed, want: dto.TaskFailed},
 		{sub: dto.SubAgentInterrupted, want: dto.TaskInterrupted},
-		{sub: "", want: dto.TaskInterrupted},
+		// 空/认不得的状态（枚举化前是空字符串，现在是 SubAgentUnknown 这个**声明过的**值）
+		// 按保守口径同样标 interrupted——"读不懂"绝不许被当成"已完成"。
+		{sub: dto.SubAgentUnknown, want: dto.TaskInterrupted},
 	}
 	for _, tc := range cases {
 		if got := taskStatusForSubagent(tc.sub); got != tc.want {
-			t.Fatalf("taskStatusForSubagent(%q) = %q, want %q", tc.sub, got, tc.want)
+			t.Fatalf("taskStatusForSubagent(%s) = %s, want %s", tc.sub, got, tc.want)
 		}
 	}
 }

@@ -73,12 +73,12 @@ func taskRecordToWorkItem(record dto.TaskRecord) WorkItem {
 	trace := make([]WorkTracePoint, 0, len(record.Trace))
 	for _, point := range record.Trace {
 		trace = append(trace, WorkTracePoint{
-			At: point.At, Status: point.Status, Operation: point.Operation,
+			At: point.At, Status: point.Status.String(), Operation: point.Operation,
 			Evidence: truncateWorkEvidence(point.Evidence, Limits().EvidenceChars), Duration: point.Duration,
 		})
 	}
 	trace = boundWorkTrace(trace)
-	status := string(record.Status)
+	status := record.Status.String()
 	if record.Kind == "todo" && record.Status == dto.TaskCompleted {
 		// todo 三态契约：done（前端状态按钮 active 判定兼容）。
 		status = "done"
@@ -202,7 +202,7 @@ func planNodeTrace(node PlanNode, tasklistMode bool) []WorkTracePoint {
 			evidence = tool.Arguments
 		}
 		points = append(points, WorkTracePoint{
-			At: tool.StartedAt, Status: tool.Status, Operation: tool.Name,
+			At: tool.StartedAt, Status: tool.Status.String(), Operation: tool.Name,
 			Evidence: truncateWorkEvidence(evidence, Limits().EvidenceChars),
 			Duration: formatWorkDuration(tool.Duration),
 		})

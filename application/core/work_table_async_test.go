@@ -49,7 +49,7 @@ func TestAsyncRunProjectsEveryVisibleColumn(t *testing.T) {
 	if row.Kind != "task" || row.SourceID != "async:a3" || row.Phase != "task" {
 		t.Fatalf("行身份不符（裁定 2：kind=task + source_id=async:<handle>）: %+v", row)
 	}
-	if row.Status != string(dto.TaskRunning) {
+	if row.Status != dto.TaskRunning.String() {
 		t.Fatalf("在跑的后台执行状态 = %q", row.Status)
 	}
 	if row.Task != "跑一整轮集成测试" {
@@ -104,9 +104,9 @@ func TestAsyncTerminalStatesMapToWorkStatus(t *testing.T) {
 
 	rows := buildWorkTable(nil, nil, nil, []dto.AsyncRunRecord{base, failed, killed})
 	for id, want := range map[string]string{
-		"async:a9": string(dto.TaskCompleted),
-		"async:a8": string(dto.TaskFailed),
-		"async:a7": string(dto.TaskFailed),
+		"async:a9": dto.TaskCompleted.String(),
+		"async:a8": dto.TaskFailed.String(),
+		"async:a7": dto.TaskFailed.String(),
 	} {
 		row, ok := workItemByID(rows, id)
 		if !ok {

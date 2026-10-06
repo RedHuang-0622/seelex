@@ -87,7 +87,7 @@ func TestSnapshotOfColdSessionAssemblesReadOnlyBaseline(t *testing.T) {
 		}},
 		ActivePlanID: "plan-1",
 		Tasks: []dto.TaskRecord{{
-			Key: "plan:n1", Task: "cold task", Status: "done",
+			Key: "plan:n1", Task: "cold task", Status: dto.TaskCompleted,
 		}},
 		UpdatedAt: now,
 	}); err != nil {

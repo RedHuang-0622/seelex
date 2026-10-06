@@ -132,11 +132,11 @@ func asyncProbePoint(record dto.AsyncRunRecord, elapsed time.Duration) WorkTrace
 func asyncWorkStatus(state dto.AsyncState) string {
 	switch state {
 	case dto.AsyncStateRunning:
-		return string(dto.TaskRunning)
+		return dto.TaskRunning.String()
 	case dto.AsyncStateDone:
-		return string(dto.TaskCompleted)
+		return dto.TaskCompleted.String()
 	default:
-		return string(dto.TaskFailed)
+		return dto.TaskFailed.String()
 	}
 }
 

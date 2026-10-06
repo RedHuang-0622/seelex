@@ -131,10 +131,10 @@ func (c *Coordinator) CompleteSubagentNode(nodeID, summary string, err error) {
 	if c.deps.Sessions != nil {
 		// 记录那一格的状态词只有一份（dto.SubAgent*，③U6）：这里写的是**会话记录**的终态，
 		// 与 SubagentTree 那份读法同词同源，不再自写字面量。
-		status := string(dto.SubAgentDone)
+		status := dto.SubAgentDone.String()
 		errMsg := ""
 		if err != nil {
-			status = string(dto.SubAgentFailed)
+			status = dto.SubAgentFailed.String()
 			errMsg = err.Error()
 		}
 		c.deps.Sessions.NoteOutcome(nodeID, status, summary, errMsg)

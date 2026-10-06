@@ -72,7 +72,7 @@ func heavyTestPlan(nodes int) *PlanState {
 			})
 			tools = append(tools, SubagentToolEvent{
 				ID: "tool", NodeID: id, Name: "read_file", Arguments: "证据参数", Result: "证据结果",
-				Status: "success", StartedAt: time.Now(), Duration: 1234 * time.Millisecond,
+				Status: dto.ToolEventSuccess, StartedAt: time.Now(), Duration: 1234 * time.Millisecond,
 			})
 		}
 		plan.Nodes = append(plan.Nodes, PlanNode{

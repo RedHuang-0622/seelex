@@ -419,9 +419,9 @@ func restoredSubAgentStatus(status string) SubAgentNodeStatus {
 	switch {
 	case workunit.InFlight(status):
 		return SubAgentInterrupted
-	case status == string(SubAgentDone):
+	case status == SubAgentDone.String():
 		return SubAgentDone
-	case status == string(SubAgentFailed):
+	case status == SubAgentFailed.String():
 		return SubAgentFailed
 	default:
 		return SubAgentInterrupted

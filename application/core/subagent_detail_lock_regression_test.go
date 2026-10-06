@@ -32,7 +32,7 @@ func TestSubagentDetailNoViewMuSessionLockInversion(t *testing.T) {
 	engine := &lockOrderEngine{fakeEngine: &fakeEngine{}}
 	engine.mu.Lock()
 	engine.subAgentTree = []dto.SubAgentTreeNode{{
-		ID: "node-1", Status: "running", SessionID: "sub-session-1",
+		ID: "node-1", Status: dto.SubAgentRunning, SessionID: "sub-session-1",
 	}}
 	engine.mu.Unlock()
 
@@ -54,7 +54,7 @@ func TestSubagentDetailNoViewMuSessionLockInversion(t *testing.T) {
 		engine.sessionMu.Lock()
 		defer engine.sessionMu.Unlock()
 		service.HandleSubagentToolEvent(subagentsession.SubagentToolEvent{
-			NodeID: "node-1", ID: "tool-1", Status: "running",
+			NodeID: "node-1", ID: "tool-1", Status: dto.ToolEventRunning,
 		})
 	}()
 	// 前端详情读取：锁外取子树 → 锁内读 Plan/WorkTable 快照。

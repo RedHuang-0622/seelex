@@ -1,10 +1,6 @@
 package dto
 
-import (
-	"encoding/json"
-	"fmt"
-	"time"
-)
+import "time"
 
 // AsyncRunRecord 是一次**作业**（bash_bg / read_batch / subagent）的**只读投影记录**。
 //
@@ -93,40 +89,23 @@ var asyncStateWords = [...]string{
 	AsyncStateKilled:  "killed",
 }
 
+// asyncStateCodec 把这张表接到**唯一一份编码口径**上（见 state_codec.go）。
+var asyncStateCodec = stateCodec{name: "后台作业状态", words: asyncStateWords[:]}
+
 // String 给出对外词。
-func (s AsyncState) String() string {
-	if int(s) < len(asyncStateWords) {
-		return asyncStateWords[s]
-	}
-	return asyncStateWords[AsyncStateUnknown]
-}
+func (s AsyncState) String() string { return asyncStateCodec.word(uint8(s)) }
 
 // ParseAsyncState 把对外词读回枚举；第二个返回值报告它是不是我们认得的词。
 func ParseAsyncState(text string) (AsyncState, bool) {
-	for index, word := range asyncStateWords {
-		if word == text {
-			return AsyncState(index), true
-		}
-	}
-	return AsyncStateUnknown, false
+	ordinal, ok := asyncStateCodec.ordinal(text)
+	return AsyncState(ordinal), ok
 }
 
 // MarshalJSON 保住 wire 形状：JSON 里仍是 "running" 这样的词，不是枚举的整数值。
-func (s AsyncState) MarshalJSON() ([]byte, error) {
-	return json.Marshal(s.String())
-}
+func (s AsyncState) MarshalJSON() ([]byte, error) { return asyncStateCodec.marshal(uint8(s)) }
 
 // UnmarshalJSON 读回对外词。认不得的词**报错**，不静默折成零值——那会把"读不懂"变成
 // "还在跑"，两者差一整个作业生命周期。
 func (s *AsyncState) UnmarshalJSON(data []byte) error {
-	var text string
-	if err := json.Unmarshal(data, &text); err != nil {
-		return err
-	}
-	state, ok := ParseAsyncState(text)
-	if !ok {
-		return fmt.Errorf("dto: %q 不是后台作业状态词（认得：%v）", text, asyncStateWords[:])
-	}
-	*s = state
-	return nil
+	return asyncStateCodec.unmarshal(data, (*uint8)(s))
 }

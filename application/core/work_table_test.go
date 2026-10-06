@@ -27,7 +27,7 @@ func TestBuildWorkTableMapsPlanNodes(t *testing.T) {
 					{Status: NodeCompleted, At: completedAt, Output: "ok"},
 				},
 				ToolEvents: []SubagentToolEvent{
-					{ID: "t1", NodeID: "n1", Name: "read_file", Status: "success", StartedAt: toolAt, Result: "源码", Duration: 1500 * time.Millisecond},
+					{ID: "t1", NodeID: "n1", Name: "read_file", Status: dto.ToolEventSuccess, StartedAt: toolAt, Result: "源码", Duration: 1500 * time.Millisecond},
 				},
 				Elapsed: "2m",
 			},
@@ -167,15 +167,15 @@ func TestBuildWorkTableMapsSubagentTasks(t *testing.T) {
 		{
 			ID: "subagent:s1", Phase: "subagent", Task: "g1", Status: dto.TaskRunning,
 			Assignee: "s1", Kind: "subagent", SourceID: "s1", StartedAt: startedAt,
-			Trace: []dto.TaskTracePoint{{At: startedAt, Status: "running", Operation: "subagent.lifecycle"}},
+			Trace: []dto.TaskTracePoint{{At: startedAt, Status: dto.TaskRunning, Operation: "subagent.lifecycle"}},
 		},
 		{
 			ID: "subagent:s1a", Phase: "subagent", Task: "g1a", Description: "完成", Status: dto.TaskCompleted,
 			Assignee: "s1a", Kind: "subagent", SourceID: "s1a", Dependencies: []string{"subagent:s1"},
 			StartedAt: startedAt, EndedAt: endedAt,
 			Trace: []dto.TaskTracePoint{
-				{At: startedAt, Status: "running", Operation: "subagent.lifecycle"},
-				{At: endedAt, Status: "done", Operation: "subagent.lifecycle"},
+				{At: startedAt, Status: dto.TaskRunning, Operation: "subagent.lifecycle"},
+				{At: endedAt, Status: dto.TaskCompleted, Operation: "subagent.lifecycle"},
 			},
 		},
 	}
@@ -193,7 +193,7 @@ func TestBuildWorkTableMapsSubagentTasks(t *testing.T) {
 	if s1a.Task != "g1a" || s1a.Description != "完成" || s1a.Status != "done" || len(s1a.Dependencies) != 1 || s1a.Dependencies[0] != "subagent:s1" {
 		t.Fatalf("s1a = %+v", s1a)
 	}
-	if len(s1a.Trace) != 2 || s1a.Trace[0].Status != "done" || s1a.Trace[1].Status != "running" {
+	if len(s1a.Trace) != 2 || s1a.Trace[0].Status != dto.TaskCompleted.String() || s1a.Trace[1].Status != dto.TaskRunning.String() {
 		t.Fatalf("s1a trace = %+v", s1a.Trace)
 	}
 }
@@ -214,7 +214,7 @@ func TestBuildWorkTableBoundsRowsAndTruncatesEvidence(t *testing.T) {
 	long := strings.Repeat("x", Limits().EvidenceChars*2)
 	row := buildWorkTable(nil, []dto.TaskRecord{{
 		ID: "task:1", Phase: "task", Task: long, Description: long, Kind: "task",
-		Trace: []dto.TaskTracePoint{{Status: "pending", Operation: "task.add", Evidence: long}},
+		Trace: []dto.TaskTracePoint{{Status: dto.TaskPending, Operation: "task.add", Evidence: long}},
 	}}, nil, nil)[0]
 	if !strings.HasSuffix(row.Description, "…") || len([]rune(row.Description)) != Limits().EvidenceChars+1 {
 		t.Fatalf("description truncation = %d runes", len([]rune(row.Description)))

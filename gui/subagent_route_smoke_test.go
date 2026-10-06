@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 func TestHeadlessSubagentRouteSmoke(t *testing.T) {
@@ -54,9 +55,9 @@ func TestHeadlessSubagentRouteSmoke(t *testing.T) {
 		}
 	}()
 
-	toolPayload := application.SubagentToolEvent{ID: "subtool-1", NodeID: "node-fk1", Name: "bash", Arguments: "{}", Status: "running"}
+	toolPayload := application.SubagentToolEvent{ID: "subtool-1", NodeID: "node-fk1", Name: "bash", Arguments: "{}", Status: dto.ToolEventRunning}
 	mainStarted := fake.hub.PublishSession(application.EventSubagentToolStarted, 2, "request-fork", "main-session", toolPayload)
-	toolPayload.Status = "success"
+	toolPayload.Status = dto.ToolEventSuccess
 	toolPayload.Result = "ok"
 	mainCompleted := fake.hub.PublishSession(application.EventSubagentToolCompleted, 3, "request-fork", "main-session", toolPayload)
 	otherChanged := fake.hub.PublishSession(application.EventSubagentChanged, 4, "request-background", "background-session", map[string]any{
