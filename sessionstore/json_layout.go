@@ -401,7 +401,7 @@ func (repository *jsonRepository) commitCompactFrameWorkspace(key Key, frame Com
 		MessageFromSeq: fromSeq,
 		MessageToSeq:   toSeq,
 		Summary:        frame.Summary,
-		BoundaryStatus: "complete",
+		BoundaryStatus: CompactBoundaryComplete,
 		CompressedAt:   frame.CompressedAt,
 	}
 	if record.CompressedAt.IsZero() {

@@ -18,6 +18,16 @@ import (
 	"time"
 )
 
+// compact frame 的 BoundaryStatus 取值面（这一帧的边界是否已闭合）。这两个词写在
+// 契约这一层之外（store 在契约之下，只存词），所以在这里登记一次，写出点引常量：
+//
+//	complete —— 边界已闭合（压缩边界落在轮次起点上）
+//	open     —— 边界尚未闭合（残缺/在途，轮次被切开）
+const (
+	CompactBoundaryComplete = "complete"
+	CompactBoundaryOpen     = "open"
+)
+
 // compactFrameRecord 是一行摘要帧。
 type compactFrameRecord struct {
 	FrameID string `json:"frame_id"`
@@ -29,7 +39,7 @@ type compactFrameRecord struct {
 	MessageFromSeq uint64    `json:"message_from_seq"`
 	MessageToSeq   uint64    `json:"message_to_seq"`
 	Summary        string    `json:"summary"`
-	BoundaryStatus string    `json:"boundary_status"` // complete|open
+	BoundaryStatus string    `json:"boundary_status"` // CompactBoundaryComplete | CompactBoundaryOpen
 	CommitID       string    `json:"commit_id"`
 	CompressedAt   time.Time `json:"compressed_at"`
 }

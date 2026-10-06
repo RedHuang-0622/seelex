@@ -40,15 +40,33 @@ const (
 	StackKindSubagent StackKind = "subagent"
 )
 
-// terminalStackStatus 是「批次内该项已完成」的状态集合：批次内全部条目落在这
+// terminalStackStatus 是「批次内该项已完成」的状态词集合：批次内全部条目落在这
 // 一集合内才整批弹栈归档。needs_user_decision / paused / active 不算完成。
+//
+// 这一张表是**跨域并集**——因为"完成"这件事各域各有词表，而栈通道只认识词（store 在
+// 契约之下，不认识各域的类型）。逐词写明它的主人，免得下一次有人顺手再塞一个进来：
+//
+//	计划帧（PlanFrame.Status）：closed
+//	任务帧（TaskFrame.Status）：completed | failed
+//	goal 帧（GoalFrame.Status；dto.GoalStatus 的三种终态）：completed | failed | aborted
+//	子代理帧（子代理记录状态那一格）：done
+//	归档态（会话粒度记录 sessionstore.Status）：archived
+const (
+	stackStatusPlanClosed    = "closed"    // 计划帧：批次已闭合
+	stackStatusTaskCompleted = "completed" // 任务帧 / goal 帧
+	stackStatusTaskFailed    = "failed"    // 任务帧 / goal 帧
+	stackStatusGoalAborted   = "aborted"   // goal 帧
+	stackStatusSubagentDone  = "done"      // 子代理帧
+	stackStatusArchived      = "archived"  // 归档态
+)
+
 var terminalStackStatus = map[string]bool{
-	"closed":    true,
-	"completed": true,
-	"failed":    true,
-	"aborted":   true,
-	"archived":  true,
-	"done":      true,
+	stackStatusPlanClosed:    true,
+	stackStatusTaskCompleted: true,
+	stackStatusTaskFailed:    true,
+	stackStatusGoalAborted:   true,
+	stackStatusSubagentDone:  true,
+	stackStatusArchived:      true,
 }
 
 // StackItemInput 是一次入栈请求的条目（payload 为该域自有结构，栈通道按原样
