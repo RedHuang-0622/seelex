@@ -5,10 +5,73 @@ All notable changes to Seelex are documented in this file.
 The repository is in Developer Alpha. Source builds report <code>dev</code>;
 release builds receive their version from the Git tag through ldflags.
 
-The current release is <code>v0.1.1</code>. The stabilization batch that was
-planned under the <code>v0.0.2</code> label ships under this number; the
-breaking architectural rewrite is not yet scheduled and will take its own
-version when it lands.
+The current release is <code>v0.1.2</code> — the workunit / teamwork / subagent
+convergence batch. The stabilization batch that was planned under the
+<code>v0.0.2</code> label shipped as <code>v0.1.1</code>; the breaking
+architectural rewrite is not yet scheduled and will take its own version when it
+lands.
+
+## [v0.1.2] - 2026-10-07
+
+这一版是**工作单元（workunit）与团队现场（worktree）的收束批**：把「一件事 = 一个 Unit = 一套
+Session + worktree」从作业端口长成完整生命周期契约，subagent 与 teammate 两条链都留了真机 /
+真 git 的验收读数。
+
+### Added
+
+- **workunit 从「作业端口」长成完整生命周期契约.** 作业面四格（提交 / 读数 / 控制 / 信号）+ 合成，
+  端口形状在编译期钉住；父子契约面拆成 `Lifecycle`（一份实现 + 两个注册点：`lifecycleHost` 收口
+  生命周期，两个注册点只留读数与转发）+ `Unit` 读数 + `Ownership`；现场名读数显式化（父只在调用方
+  没给时按命名约定派生）；subagent 侧与 teammate 侧各自接线（`ClassifyFinish` 分类、恢复说明前缀族、
+  Unit 适配器、会话落盘与回灌）。
+- **会话恢复（重启回灌）进契约.** `SessionLedger` 结构上复用 `NodeSessionStore`，配 `Resume` 与恢复
+  说明容器；重启后认领团队现场、重派同一 `nodeID` 不丢未提交产出。
+- **teammate 的插件装配（权限 × 能力两轴专业化）.** 计划成员条目可带插件装配（上限
+  `limits.plugins.per_teammate`），精选目录写侧支持「发现 → 读回 → 落进 yaml」（agent 自建插件自动
+  登记），装配读数进团队看板 / 员工档案 / 编辑面板 / 提交侧。
+- **回放窗口分页.** subagent 按节点、teammate 按会话，实时读法从「只有尾巴」改成「有界窗口 + 分页」。
+- **合并挡路有自己的分类**（`ErrMergeBlockedByMain`）+ 收尾合并串行化 + 节点 `merge_blocked`；
+  后台作业在跑时提交走既有消息队列（fork 执行门控退役）。
+
+### Changed
+
+- **装配面不再说假话：「自动回合」与「派活回合」拆成两件事.** 旧口径把 `RolesWithExecutor` 当成
+  "谁有执行者"，于是对一支**正要派活**的团队说「暂无可执行者 …需要宿主为它接执行者」——而
+  `team_dispatch` → 作业 → `Runtime.RunWorker` → `runRoleRound` 对任何在编角色都跑真回合。现在：符号
+  `AutomaticTurnRoles` / `rolesWithoutAutomaticTurn` / `StopNoAutomaticTurn`，wire
+  `TeamSchedule.Unexecuted` → `NoAutomaticTurn`（`json:"no_automatic_turn"`）、停止原因词
+  `no_executor` → `no_automatic_turn`（dto / TUI / 前端标签与徽标），文案改成「没有自动回合（装配
+  本身不产生回合）；要 leader 派活（team_dispatch）才会跑真回合」。真机读数：`design_notice_declared`
+  恰一条、`design_notice=[]`、真回合 1 助理 / 1 用户行。
+- **状态面统一成契约枚举（int + iota），编码口径唯一一份.** 回合 / 会话可见状态 / 计划 / 节点 / 目标 /
+  评审者 / 定时任务上次结果 / 恢复单元 / 工具事件 / 异步作业 / 计划批次结果等格子都改用具名枚举，
+  `String()/Parse/MarshalJSON/UnmarshalJSON` 一律转调 `application/contract/dto/state_codec.go`；落盘格
+  保留 wire 字符串，但转换点只留一个具名函数（未知词不炸、也不静默当终态或成功）。两道门禁钉住：
+  `e2e/state_enum_cast_gate_test.go`（`string(枚举值)` 全仓零白名单）、
+  `e2e/subagent_status_vocabulary_gate_test.go`（按格声明写方 / 读方与取值面）。
+- **阶段口径整条退场**：团队计划改里程碑（`Milestone` 屏障）+ Work Item（一 Work Item = 一 Session +
+  一 worktree），`team_plan` 增 `name` / `depends_on`，看板去阶段分组。
+- **对外形状变更（明说）**：headless / 面板读到的 `TeamSchedule.unexecuted` 字段与停止原因词
+  `no_executor` 换成 `no_automatic_turn`；`model.ToolCall.Status` 的取值面并成 `dto.ToolEventStatus`
+  （`running|success|error`）。老会话与老记录仍可读（宽松 `UnmarshalJSON`，落盘词不变）。
+
+### Fixed
+
+- 缺陷 A：`team_accept` 释放幂等——worktree 已回收时不再报 exit 128。
+- teammate 工具根绑到自己的 worktree（指派名去前缀后再查现场）；teammate 会话入口只认「这件事自己的
+  会话」，不再看到主代理的会话。
+- 收口端闸门：变基 / 合并没落定不许 `team_done`；验收是链尾，在跑的工作项拒收（不再与尾插抢现场）。
+- 收尾合并目标取自现场记录的 `MainBranch`（对齐后再合，后一个单元不再把先前已合回来的那件踢成另一支）。
+- **恢复侧记录记身份**（`NodeUnitRecord.Kind`）：teammate 单元记录不再以 `interrupted` 长成子代理树
+  节点 / 工作表格假行（现网现象已复现并修掉）。
+- 压缩记录另开持久通道 + 帧 Chapter 2 边界对齐（重启后记录不丢）；新会话必须绑定会话上下文存储。
+- 计划头读-改-写原子化（按 Key 分片的计划锁 + 尾插两段式，慢合并移出临界区）。
+- **CI 门禁「检查 return nil, nil」转绿**：10 处改成显式零值 `[]T(nil), nil` 并就地写明为什么——nil
+  在这些格子里是「空结果 / 不覆盖 / 未登记」的事实，不是吞错。
+
+### Removed
+
+- `team_retire`：结束 / 归档 / 删除只剩 `team_close`（回收唯一入口）。fork 执行门控退役。
 
 ## [v0.1.1] - 2026-10-03
 

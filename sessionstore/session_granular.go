@@ -562,7 +562,8 @@ func (store *SessionGranularStore) SaveCommit(projectID, sessionID string, commi
 // 空结果 = 该会话从未压缩过（或后端未 v8 化，调用方回退 record 通道）。
 func (store *SessionGranularStore) LoadCompactionRecords(projectID, sessionID string) ([]json.RawMessage, error) {
 	if store == nil || store.router == nil {
-		return nil, nil
+		// 显式零值：没有 store/router = nil 记录（调用方一律看 len）；门禁禁的是裸 `return nil, nil`。
+		return []json.RawMessage(nil), nil
 	}
 	records, _, err := store.router.LoadCompactionRecordsWorkspace(store.projectID(projectID), sessionID)
 	if err != nil {

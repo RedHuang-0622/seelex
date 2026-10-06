@@ -1036,7 +1036,8 @@ func (port SessionPort) LoadCompactionRecordsWorkspace(workspaceID, id string) (
 	records, err := port.granular().LoadCompactionRecords(workspaceID, id)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
+			// 显式零值：记录不存在 = nil（调用方一律看 len / range）；门禁禁的是裸 `return nil, nil`。
+			return []model.ContextCompaction(nil), nil
 		}
 		return nil, err
 	}

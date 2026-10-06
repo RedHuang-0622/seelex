@@ -268,7 +268,8 @@ func (r *UnitReader) List() ([]Progress, error) {
 // records 读回本会话的单元记录（未装配账本 = 空读数；归属过滤在这里统一落地）。
 func (r *UnitReader) records() ([]sessionstore.NodeSessionRecord, error) {
 	if r == nil || r.ledger == nil {
-		return nil, nil
+		// 显式零值：没有账本 = nil 记录（调用方一律看 len）；门禁禁的是裸 `return nil, nil`。
+		return []sessionstore.NodeSessionRecord(nil), nil
 	}
 	records, err := r.ledger.List(r.projectID, r.mainSessionID)
 	if err != nil {

@@ -93,7 +93,8 @@ func RegisterDiscoveredPlugins(root string, loaded []Plugin) ([]string, error) {
 	path := filepath.Join(root, CuratedFileName)
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
+		// 显式零值：清单文件不存在 = nil（首启场景，调用方只看 len）；门禁禁的是裸 `return nil, nil`。
+		return []string(nil), nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("精选目录登记: 读 %s: %w", path, err)
@@ -126,7 +127,8 @@ func RegisterDiscoveredPlugins(root string, loaded []Plugin) ([]string, error) {
 		names = append(names, p.Name)
 	}
 	if len(missing) == 0 {
-		return nil, nil
+		// 显式零值：没有新登记 = nil（调用方只看 len）；门禁禁的是裸 `return nil, nil`。
+		return []string(nil), nil
 	}
 
 	localPlugins := make([]string, 0, len(missing))
@@ -328,7 +330,8 @@ func writeFileAtomic(path string, data []byte) error {
 // 没有任何根带目录时返回 (nil, nil)——那是合法现场，不是失败。
 func (m *Manager) RegisterDiscoveredPlugins() ([]string, error) {
 	if m == nil || m.loader == nil {
-		return nil, nil
+		// 显式零值：没装载器 = nil（调用方只看 len）；门禁禁的是裸 `return nil, nil`。
+		return []string(nil), nil
 	}
 	for _, root := range m.loader.roots {
 		if _, err := os.Stat(filepath.Join(root, CuratedFileName)); err != nil {
@@ -336,5 +339,6 @@ func (m *Manager) RegisterDiscoveredPlugins() ([]string, error) {
 		}
 		return RegisterDiscoveredPlugins(root, m.All())
 	}
-	return nil, nil
+	// 显式零值：没有根目录 = nil（调用方只看 len）；门禁禁的是裸 `return nil, nil`。
+	return []string(nil), nil
 }

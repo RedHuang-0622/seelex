@@ -115,7 +115,8 @@ func (registry *Registry) PluginsFor(mainSessionID, roleName string) ([]string, 
 			return append([]string(nil), role.Plugins...), nil
 		}
 	}
-	return nil, nil
+	// 显式零值：与上面那支 `append([]string(nil), role.Plugins...)` 同一形态（nil = 未登记/没写装配）。
+	return []string(nil), nil
 }
 
 // PutRole 新增或覆盖一个角色配置（按 role_name 幂等）。

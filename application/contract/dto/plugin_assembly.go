@@ -43,7 +43,8 @@ func NormalizePlugins(names []string, limit int) ([]string, error) {
 		limit = MaxPluginsPerRole
 	}
 	if len(names) == 0 {
-		return nil, nil
+		// 显式零值：空输入 = nil（“不覆盖”信号，见本函数注释）；门禁禁的是裸 `return nil, nil`。
+		return []string(nil), nil
 	}
 	cleaned := make([]string, 0, len(names))
 	seen := make(map[string]struct{}, len(names))
@@ -64,7 +65,8 @@ func NormalizePlugins(names []string, limit int) ([]string, error) {
 			limit, len(cleaned), strings.Join(cleaned, ", "))
 	}
 	if len(cleaned) == 0 {
-		return nil, nil
+		// 显式零值：清完为空 = nil（同一个“不覆盖”信号），刻意不用空切片（见函数注释）。
+		return []string(nil), nil
 	}
 	return cleaned, nil
 }
