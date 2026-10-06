@@ -25,7 +25,8 @@
      但得到的是控制字符（`string(3)` = `"\x03"`）。本波踩到过（用例外先红抓到），
      现有门禁：`e2e/state_enum_cast_gate_test.go`（全仓扫，无白名单）。
   3. **字面量门禁** — `e2e/subagent_status_vocabulary_gate_test.go` 按"格子"声明写方/读方与取值面，
-     查五种形态（比较/赋值/字段/switch 分支/常量声明）。
+     查**六**种形态（比较/赋值/字段/switch 分支/常量声明/**map 状态键**——`map[string]string{"state":
+     "running"}` 这种只有 map 的载荷，前五种都看不见它）。
 
 ## 1. 已统一（状态面 → 契约枚举）
 
@@ -79,6 +80,7 @@
 | `application/core/resume` 的 `UnitStatus` | **已收口**：`dto.UnitStatus`（由记录状态折一次） |
 | 工具调用视图词（`model.ToolCall.Status`） | **已收口 · 第三波**：与**工具事件状态**本来就是同格（取值面 `running \| success \| error`，不是"同词不同格"）；字段换成 `dto.ToolEventStatus`，落盘读回走 `model.ToolCallStatusOfRecord`，门禁加了这一格。原先记的 `running\|completed\|failed` 与代码事实不符（唯一写 `completed` 的地方就是子代理详情投影的一处漂移） |
 | todo 三态（`dto.TodoItemStatus`） | **刻意不动**（见 §2）：已在移除窗口内 |
+| teammate 人状态（`dto.TeamworkMemberView.Status`：`running`\|`free`） | **只登记，未动**：取值面只有"这个人此刻在不在干活"两值，`dto` 里没有对应枚举；两个写点常量在 `seelebridge/runtime_teamwork_board.go:305–306`（`teamworkMemberRunning` / `teamworkMemberFree`）。**归哪一格待定**（自成一格 `dto.TeamworkMemberStatus`，还是折进"记录状态"的读侧投影），登记在 U6 残留点那一批（`step-3-u6-residual-points.md` §6） |
 
 ## 4. 怎么继续（免得又变成"每格各写一套"）
 

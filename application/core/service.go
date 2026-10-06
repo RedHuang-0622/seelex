@@ -122,7 +122,10 @@ func (service *Service) HandleRoleToolActivity(event dto.RoleToolActivity) {
 	event.Error = truncateWorkEvidence(event.Error, limit)
 
 	kind := EventTeammateToolCompleted
-	if strings.TrimSpace(event.Status) == "running" {
+	// 「在跑」这件事按**工具事件状态那一格**判（`dto.ToolEventStatus`，与
+	// `SubagentToolEvent.Status` 同格）——本函数是这一格的读方，不再抄一份字面量。
+	// 认不得的词沿用原语义（不当"在跑"，即 completed 帧）。
+	if status, ok := dto.ParseToolEventStatus(strings.TrimSpace(event.Status)); ok && status == dto.ToolEventRunning {
 		kind = EventTeammateToolStarted
 	}
 	requestID := ""

@@ -353,7 +353,9 @@ func (s *TaskService) applyCheckNodeLocked(ctx context.Context, input taskTermin
 		return "", fmt.Errorf("%s: unknown node %q", ToolCheckNode, input.NodeID)
 	}
 	encoded, _ := json.Marshal(map[string]string{
-		"status": "accepted", "node_id": input.NodeID, "node_status": "completed",
+		// 这一栏是**节点状态那一格**（`dto.NodeStatus`）——本函数上面给打点写的
+		// 就是同一格的 `model.NodeCompleted`，回执不许再写一份词。
+		"status": "accepted", "node_id": input.NodeID, "node_status": model.NodeCompleted.String(),
 	})
 	return string(encoded), nil
 }

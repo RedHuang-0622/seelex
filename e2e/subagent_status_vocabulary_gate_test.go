@@ -8,13 +8,15 @@ package e2e
 //
 // 为什么要有门禁而不是"我记得"：状态词漂移不会编译报错，也不会让既有用例变红——写的那一处
 // 从 "done" 换成别的词，读的那一处照样编译、照样通过，直到"记录说已完成、看板说还在跑"。
-// 所以门禁按**形态**查五处最容易被漏掉的位置：
+// 所以门禁按**形态**查六处最容易被漏掉的位置：
 //
 //	① 状态比较：`status == "done"` / `!= "failed"` …（`case status == "x":` 同形）
 //	② 状态赋值：`status := "done"` / `status = "failed"` …
-//	③ 状态字段：`subagentOutcome{status: "done"}` …
+//	③ 状态字段：`subagentOutcome{status: "done"}` …（标识符键）
 //	④ switch 状态分支：`switch nr.Status { case "failed": … }`
 //	⑤ 状态常量声明：`asyncStateDone = "done"`（**第二份定义**的典型长相，前四种都抓不到它）
+//	⑥ map 状态键：`map[string]string{"state": "running"}`（受理回执这类"没有结构体、只有
+//	   map"的载荷——前五种都抓不到它，而本项目里它就在 `seelebridge/fork/tool.go`）
 //
 // **门禁的边界写在这里**（免得它变成一块越界的大毯子）：只扫下面 `statusVocabularyScopes` 里
 // 逐条声明的文件。没进清单的同形词表由各自的一批收口，本门禁不越界判它们（越界判 = 只能靠
@@ -30,6 +32,9 @@ package e2e
 //     `application/core/plan_tools.go`（同一文件里既读计划批次结果、又读节点状态）**故意不进
 //     计划批次那一格的清单**；它读批次结果的那三个分支改成引契约常量，由编译器钉住；
 //   - 统一事件摘要状态（failed|completed）是 Seele 框架 `SummaryEvent.Status` 的词；
+//   - `seelebridge/fork/tool.go` 折子代理作业终态时读的 `completed` / `aborted` 是 **plan_run
+//     结果里的框架节点状态词**（框架 workplan 的 `NodeBase.Status`，与 `plan/tool_provider.go`
+//     那条边界同源），不在"后台作业状态"这一格的取值面里——门禁按取值面判，不越界判它；
 //   - todo 三态（`application/core/work_table.go`）与"回执状态"（finished|already_finished）。
 
 import (
@@ -73,6 +78,7 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "后台作业状态",
 		files: map[string]string{
+			"seelebridge/fork/tool.go":             "写：子代理作业化派发的受理回执（jobs[].state 那一栏）与整批终态",
 			"seelebridge/tools/async_exec.go":      "写：登记表的状态词表（本层常量）与状态迁移",
 			"seelebridge/tools/async_probe.go":     "读：探针把状态折进工作表格/观察行",
 			"seelebridge/tools/async_run.go":       "写：执行体落终态",
@@ -99,9 +105,11 @@ var statusVocabularyScopes = []statusVocabularyScope{
 		name: "工具事件状态",
 		files: map[string]string{
 			"seelebridge/session/tool_events.go":            "写：工具调用事件的三种状态（发布/落态）",
+			"seelebridge/runtime_role_turn.go":              "写：员工回合的工具活动投影两帧（dto.RoleToolActivity.Status）",
 			"application/core/tool_hooks.go":                "写：工具完成钩子把结果折成成功/失败",
 			"application/core/subagent_view/coordinator.go": "读：详情投影判「在跑」",
-			"tui/state.go": "读：TUI 判「在跑」（转调契约枚举的对外词）",
+			"application/core/service.go":                   "读：员工工具活动投影判「在跑」（折成 teammate.tool.started/completed）",
+			"tui/state.go":                                  "读：TUI 判「在跑」（转调契约枚举的对外词）",
 		},
 		// 这一格的取值面 = dto.ToolEvent*（SubagentTool/SubagentToolEvent.Status）。
 		words: map[string]bool{"running": true, "success": true, "error": true},
@@ -444,7 +452,45 @@ func done(status string) bool { return status == dto.AsyncStateDone || status ==
 	}
 }
 
-// scanStatusWordLiterals 在一份源码里找"状态词字面量"的五种形态（判据见文件头）。
+// TestSubagentStatusVocabularyGateCatchesMapStateKey 是**第六形态**（map 状态键）的阴性对照：
+// 只有 map 的载荷（受理回执那种 `map[string]string{"state": "running"}`）必须被同一套扫描
+// 函数判红——前五种形态都看不见它（键是字符串字面量，不是标识符），而本项目里它就在
+// `seelebridge/fork/tool.go` 的 jobs[].state 那一栏。
+func TestSubagentStatusVocabularyGateCatchesMapStateKey(t *testing.T) {
+	words := map[string]bool{"running": true, "done": true, "failed": true, "killed": true}
+
+	dirty := `package p
+
+func receipt(handle string) map[string]string {
+	return map[string]string{"handle": handle, "state": "running"}
+}
+`
+	found, err := scanStatusWordLiterals("sample.go", []byte(dirty), words)
+	if err != nil {
+		t.Fatalf("样例必须能解析：%v", err)
+	}
+	if len(found) != 1 || found[0].word != "running" || found[0].form != "map 状态键" {
+		t.Fatalf("map 状态键上的状态词必须被判红（running / map 状态键），实际命中：%v", found)
+	}
+
+	// 反向对照：两把尺子都要过才判——键不是状态位（"hint"）、或词不在取值面上（"accepted"），
+	// 都不许判红（否则门禁会变成"见到熟悉的词就报"）。
+	clean := `package p
+
+func receipt() map[string]string {
+	return map[string]string{"hint": "running", "state": "accepted"}
+}
+`
+	cleanFound, err := scanStatusWordLiterals("clean.go", []byte(clean), words)
+	if err != nil {
+		t.Fatalf("样例必须能解析：%v", err)
+	}
+	if len(cleanFound) != 0 {
+		t.Fatalf("非状态键/非本格词不该被判红，实际命中：%v", cleanFound)
+	}
+}
+
+// scanStatusWordLiterals 在一份源码里找"状态词字面量"的六种形态（判据见文件头）。
 // words 是这一格的取值面：不在取值面里的字符串字面量不判（各格互不越界）。
 func scanStatusWordLiterals(relative string, source []byte, words map[string]bool) ([]statusWordViolation, error) {
 	fset := token.NewFileSet()
@@ -489,12 +535,22 @@ func scanStatusWordLiterals(relative string, source []byte, words map[string]boo
 				}
 			}
 		case *ast.KeyValueExpr:
-			identifier, ok := typed.Key.(*ast.Ident)
-			if !ok || !isStatusName(identifier.Name) {
+			if identifier, ok := typed.Key.(*ast.Ident); ok && isStatusName(identifier.Name) {
+				if literal, ok := typed.Value.(*ast.BasicLit); ok {
+					report(literal, "状态字段")
+				}
 				return true
 			}
-			if literal, ok := typed.Value.(*ast.BasicLit); ok {
-				report(literal, "状态字段")
+			// 键是**字符串字面量**的状态位：`map[string]string{"state": "running"}`。
+			// 上面那一支只认标识符键，看不见受理回执这类"没有结构体、只有 map"的载荷——
+			// 本项目里它就是这么写的（`fork_subagents` / `fork_subagents` 复用档的 jobs[].state）。
+			if key, ok := typed.Key.(*ast.BasicLit); ok && key.Kind == token.STRING {
+				name, unquoteErr := strconv.Unquote(key.Value)
+				if unquoteErr == nil && isStatusName(name) {
+					if literal, ok := typed.Value.(*ast.BasicLit); ok {
+						report(literal, "map 状态键")
+					}
+				}
 			}
 		case *ast.ValueSpec:
 			// 常量/变量声明就是"第二份定义"本人：`asyncStateDone = "done"`。

@@ -209,7 +209,9 @@ func (t *Tool) dispatchJobs(ctx context.Context, loaded *plan.LoadedPlanDoc, inp
 	receipts := make([]map[string]string, 0, len(jobs))
 	for _, item := range jobs {
 		receipts = append(receipts, map[string]string{
-			"handle": item.handle, "id": item.spec.ID, "state": "running",
+			// 这一栏是**后台作业状态那一格**（`dto.AsyncState*`）——同文件下面调
+			// `deps.Jobs.Complete` 时用的就是同一格的枚举，回执不许再写一份词。
+			"handle": item.handle, "id": item.spec.ID, "state": dto.AsyncStateRunning.String(),
 		})
 	}
 	return acceptanceReceipt(receipts, "这批子代理已作业化派发（调用本身不等结果）。用 job_manage(op=observe, handle) "+
@@ -254,7 +256,7 @@ func (t *Tool) dispatchReusedJobs(ctx context.Context, input Input, taskBindings
 			_, _ = t.deps.TaskSetStatusFor(sessionID, taskID, task.TaskCompleted, "fork reused stored output")
 		}
 		receipts = append(receipts, map[string]string{
-			"handle": handle, "id": spec.ID, "state": "done",
+			"handle": handle, "id": spec.ID, "state": dto.AsyncStateDone.String(),
 		})
 	}
 	return acceptanceReceipt(receipts, "这批子代理的结论**复用上次已保存输出**（未重新执行，省 token）："+

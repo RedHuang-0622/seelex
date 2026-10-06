@@ -487,7 +487,7 @@ func (r *Runtime) reportRoleToolStart(ctx context.Context, info session.ToolCall
 		RoleSessionID: scope.RoleSessionID,
 		Name:          info.Name,
 		Arguments:     truncateRunes(info.Arguments, roleToolActivityLimit),
-		Status:        "running",
+		Status:        dto.ToolEventRunning.String(),
 		StartedAt:     time.Now(),
 		Turn:          info.Turn,
 	})
@@ -499,9 +499,9 @@ func (r *Runtime) reportRoleToolComplete(ctx context.Context, info session.ToolC
 	if !ok {
 		return
 	}
-	status, message := "success", ""
+	status, message := dto.ToolEventSuccess, ""
 	if info.Error != nil {
-		status, message = "error", info.Error.Error()
+		status, message = dto.ToolEventError, info.Error.Error()
 	}
 	r.publishRoleToolActivity(dto.RoleToolActivity{
 		ID:            roleToolActivityID(info),
@@ -510,7 +510,7 @@ func (r *Runtime) reportRoleToolComplete(ctx context.Context, info session.ToolC
 		RoleSessionID: scope.RoleSessionID,
 		Name:          info.Name,
 		Arguments:     truncateRunes(info.Arguments, roleToolActivityLimit),
-		Status:        status,
+		Status:        status.String(),
 		Result:        truncateRunes(info.Result, roleToolActivityLimit),
 		Error:         message,
 		// 开始时刻由耗时反推：框架的 ToolComplete 只补 Result/Error/Duration
