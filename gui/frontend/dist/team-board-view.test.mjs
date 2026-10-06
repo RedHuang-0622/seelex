@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   TEAM_BOARD_CSS,
+  effStatus,
   formatEventTime,
   itemDepsOf,
   itemStatus,
@@ -24,6 +25,7 @@ import {
   renderTeamQueue,
   renderTeamWorkItem,
   renderWorkItemSessionPanel,
+  roleSlotOf,
   summarizeTeam,
   teammateSessionEntry,
   workItemsOf,
@@ -35,7 +37,8 @@ const APP = readFileSync(new URL("./app.js", import.meta.url), "utf8");
 // 夹具一：里程碑 + 工作项口径的计划（**没有 stages**，2026-10-03 Work Item 形状）。
 // 一个 Work Item 一个 teammate 一套 Session + worktree。
 //
-// 覆盖：里程碑屏障（m-ship 依赖 m-build）+ 里程碑内 DAG（wi-impl←wi-req、wi-test←wi-impl）。
+// 覆盖：里程碑屏障（m-ship 依赖 m-build）+ 里程碑内 DAG（wi-impl←wi-req、wi-test←wi-impl）
+// + 一条 interrupted（抬红的线框色，仍是"可重派"）。
 const MS_PLAN = {
   team_id: "v-model",
   version: 7,
@@ -64,7 +67,7 @@ const MS_PLAN = {
       id: "wi-impl", milestone: "m-build", role: "exec", name: "实现",
       description: "改 team-board-view.js 的渲染口径", goal: "看板能看见里程碑下的工作项",
       status: "running", depends_on: ["wi-req"], session_id: "s-v-model-exec-wi-wi-impl",
-      worktree: "seelex/exec-wi-impl", live: true, interrupted: true, handle: "a7",
+      worktree: "seelex/exec-wi-impl", live: true, interrupted: true, handle: "a7", note: "实现：跑完，等 leader 评估",
     },
     { id: "wi-test", milestone: "m-build", role: "test_case", name: "用例跟进", status: "pending", depends_on: ["wi-impl"] },
     { id: "wi-ship", milestone: "m-ship", role: "exec", name: "发布", status: "pending" },
@@ -83,6 +86,20 @@ const STAGES_ONLY = {
   members: [{ role: "impl", role_session_id: "s-legacy-impl" }],
 };
 
+// 夹具三：**数组序不是拓扑序**的计划（里程碑与工作项都倒着声明）。
+// 用它钉住口径 1：行序只能是依赖拓扑序，不许按数组序硬排。
+const SHUFFLED = {
+  team_id: "shuffled",
+  version: 1,
+  milestones: [{ id: "m2", depends_on: ["m1"] }, { id: "m1" }],
+  work_items: [
+    { id: "b2", milestone: "m2", role: "r2", status: "pending", depends_on: ["b1"] },
+    { id: "b1", milestone: "m2", role: "r2", status: "pending" },
+    { id: "a2", milestone: "m1", role: "r1", status: "pending", depends_on: ["a1"] },
+    { id: "a1", milestone: "m1", role: "r1", status: "pending" },
+  ],
+};
+
 // ── 纯函数：里程碑 / 工作项 ──────────────────────────────────────
 
 test("milestonesOf / workItemsOf / itemStatus 只搬事实（空状态 = pending）", () => {
@@ -96,6 +113,23 @@ test("milestonesOf / workItemsOf / itemStatus 只搬事实（空状态 = pending
   assert.deepEqual(milestoneDepsOf(MS_PLAN.milestones[1]), ["m-build"]);
   assert.deepEqual(itemDepsOf(MS_PLAN.work_items[1]), ["wi-req"]);
   assert.deepEqual(workItemsOf({}), []);
+});
+
+test("(c) effStatus 是线框色的**唯一判据**：四色映射 + interrupted 抬红 + killed 同一条红", () => {
+  assert.equal(effStatus({ id: "x", status: "running" }), "running");
+  assert.equal(effStatus({ id: "x", status: "review" }), "review");
+  assert.equal(effStatus({ id: "x", status: "done" }), "done");
+  assert.equal(effStatus({ id: "x", status: "failed" }), "failed");
+  assert.equal(effStatus({ id: "x", status: "killed" }), "failed", "killed 与 failed 同一条红（不裂成两条）");
+  assert.equal(effStatus({ id: "x", status: "pending" }), "pending");
+  assert.equal(effStatus({ id: "x" }), "pending");
+  assert.equal(effStatus({ id: "x", status: "running", interrupted: true }), "failed", "interrupted 抬成红");
+  assert.equal(effStatus({ id: "x", status: "done", interrupted: true }), "failed", "interrupted 压过 status");
+  assert.equal(effStatus({ id: "x", status: "weird" }), "pending", "认不出的状态退到 pending（不冒充 done）");
+  // 渲染面：线框色的 data-eff 与 effStatus 同源（wi-impl 是 running+interrupted → 红）。
+  const html = renderTeamGantt(MS_PLAN);
+  assert.match(html, /data-item-id="wi-impl" data-status="running" data-eff="failed"/);
+  assert.match(html, /<span class="team-status is-failed" data-eff="failed"[^>]*>running · 可重派</);
 });
 
 test("orderMilestones 按屏障依赖排层号；缺依赖与成环都显形（不静默丢里程碑）", () => {
@@ -151,27 +185,25 @@ function hasKey(object, key) {
   return Object.prototype.hasOwnProperty.call(object, key);
 }
 
-// ── ① 里程碑卡片列出它名下的 Work Item ───────────────────────────
+// ── ① 里程碑 = 一个大框，罩住它名下的工作项 ───────────────────────
 
-test("① 每个里程碑卡片列出名下工作项（名称 / 描述 / 达成目标 / 执行 teammate / 依赖）", () => {
+test("① 每个里程碑是一个大框，罩住它名下相邻的若干行（行数正确、行不跨框）", () => {
   const html = renderTeamGantt(MS_PLAN);
   assert.match(html, /data-team-gantt/);
-  // m-build 名下列 3 件（含全部要求的字段），m-ship 列 1 件。
-  assert.match(html, /data-milestone-id="m-build" data-status="active" data-depth="0"/);
-  assert.match(html, /data-milestone-id="m-ship" data-status="pending" data-depth="1"/);
-  assert.match(html, /data-item-id="wi-impl" data-status="running"/);
-  assert.match(html, /data-item-id="wi-ship" data-status="pending"/);
-  // 名称（带会话 = 可点子页面入口）。
-  assert.match(html, /data-team-item-open="wi-impl" data-team-item-session="s-v-model-exec-wi-wi-impl"/);
-  // 描述 + 达成目标（goal）。
-  assert.match(html, /class="team-item-desc"[^>]*>改 team-board-view\.js 的渲染口径</);
-  assert.match(html, /<span class="team-label">达成目标<\/span>看板能看见里程碑下的工作项</);
-  // 执行的 teammate。
-  assert.match(html, /<span class="chip team-role">exec<\/span>/);
-  // work_items[].depends_on。
-  assert.match(html, /<span class="team-label">依赖<\/span><span class="chip team-dep">wi-req<\/span>/);
-  // 「前置没验收」显形。
-  assert.match(html, /被依赖卡住/);
+  assert.match(html, /class="team-dag-scroll"/);
+  assert.match(html, /class="team-dag-content"/);
+  // 框自带 里程碑 id / status / 屏障层号 / 解锁态。
+  assert.match(html, /class="team-dag-frame" data-milestone-id="m-build" data-status="active" data-layer="0" data-locked="false"/);
+  assert.match(html, /class="team-dag-frame" data-milestone-id="m-ship" data-status="pending" data-layer="1" data-locked="true"/);
+
+  // (b) 框真的包住自己名下的行，且框内行数正确 —— 不是"看起来在一起"。
+  const chunks = html.split('<section class="team-dag-frame"').slice(1);
+  assert.equal(chunks.length, 2, "两个里程碑 = 两个大框");
+  const idsOf = chunk => [...chunk.matchAll(/data-item-id="([^"]+)"/g)].map(match => match[1]);
+  assert.deepEqual(idsOf(chunks[0]), ["wi-req", "wi-impl", "wi-test"], "m-build 的三个行都在它自己的框里，且是拓扑序");
+  assert.deepEqual(idsOf(chunks[1]), ["wi-ship"], "m-ship 的行没有漏到别的框里");
+  assert.match(chunks[0], /team-dag-ms-count">3 items</);
+  assert.match(chunks[1], /team-dag-ms-count">1 items</);
   // 没有里程碑 → 不留空壳。
   assert.equal(renderTeamGantt({ team_id: "t" }), "");
 });
@@ -179,27 +211,69 @@ test("① 每个里程碑卡片列出名下工作项（名称 / 描述 / 达成�
 test("① renderTeamWorkItem 一个工作项就是一行：名称/描述/达成目标/teammate/依赖/状态", () => {
   const [entry] = orderWorkItems(itemsOfMilestone(MS_PLAN, "m-build")).filter(item => item.id === "wi-impl");
   const html = renderTeamWorkItem(entry);
-  assert.match(html, /<li class="team-item is-running" data-item-id="wi-impl" data-status="running"/);
-  assert.match(html, /team-role">exec</);
-  assert.match(html, /team-dep">wi-req</);
-  assert.match(html, /team-item-desc/);
-  assert.match(html, /team-item-goal/);
-  // 可重派 / 现场在都要显形（这是一个在跑但被中断的工作项）。
+  assert.match(html, /<article class="team-dag-row" data-item-id="wi-impl" data-status="running" data-eff="failed"/);
+  assert.match(html, /class="chip team-role" title="teammate"><i class="team-dag-dot"><\/i>exec</);
+  assert.match(html, /class="chip team-dep">wi-req</);
+  // 名称（带会话 = 可点子页面入口）。
+  assert.match(html, /class="team-dag-name is-openable" data-team-item-open="wi-impl" data-team-item-session="s-v-model-exec-wi-wi-impl"/);
+  // 口径 9：一行里 名称 / role / status / 依赖 / 会话 / 工作区 / 达成目标 / 描述 / 结论 都在。
+  for (const text of ["实现", "exec", "running", "wi-req", "s-v-model-exec-wi-wi-impl", "seelex/exec-wi-impl", "看板能看见里程碑下的工作项", "改 team-board-view.js 的渲染口径", "等 leader 评估"]) {
+    assert.ok(html.includes(text) || html.includes(text.replace(/&/g, "&amp;")), `行里读不到 ${text}`);
+  }
+  // 三个标记：可重派 / 现场在（这一行是 running + interrupted + live）。
   assert.match(html, /可重派/);
   assert.match(html, /现场在/);
 });
 
-// ── ② 里程碑之间的屏障（甘特只表示依赖）──────────────────────────
+test("(a) 每一行都排在其全部依赖之后（拓扑不变量），且不按数组序硬排", () => {
+  const order = [...renderTeamGantt(MS_PLAN).matchAll(/<article class="team-dag-row" data-item-id="([^"]+)"/g)].map(match => match[1]);
+  assert.deepEqual(order, ["wi-req", "wi-impl", "wi-test", "wi-ship"]);
+  const position = new Map(order.map((id, index) => [id, index]));
+  for (const item of MS_PLAN.work_items) {
+    for (const dep of itemDepsOf(item)) {
+      if (!position.has(dep)) continue;
+      assert.ok(position.get(dep) < position.get(item.id), `${item.id} 必须排在其依赖 ${dep} 之后`);
+    }
+  }
+  // 数组序**不是**拓扑序的夹具：行序必须被重排成拓扑序（里程碑之间也重排）。
+  const shuffled = [...renderTeamGantt(SHUFFLED).matchAll(/<article class="team-dag-row" data-item-id="([^"]+)"/g)].map(match => match[1]);
+  assert.deepEqual(shuffled, ["a1", "a2", "b1", "b2"], "倒着声明的计划也必须排成拓扑序");
+});
 
-test("② 里程碑卡片显示 depends_on 屏障；甘特不表示时间", () => {
+// ── ② 里程碑框头 / 屏障 / 闸门 ───────────────────────────────────
+
+test("② 框头读得到 id · name · L<n> · status chip · 屏障 deps · 判据 · 🔒/🔓 · n items · content", () => {
   const html = renderTeamGantt(MS_PLAN);
+  assert.match(html, /<span class="team-dag-ms-id">m-build<\/span>[\s\S]{0,80}<span class="team-dag-ms-name">构建<\/span>/);
+  assert.match(html, /title="屏障层号 L0（同层 = 依赖边允许并行）">L0</);
+  assert.match(html, /<span class="team-status is-active">active<\/span>/);
   assert.match(html, /<span class="team-label">屏障<\/span><span class="chip team-dep">m-build<\/span>/);
+  assert.match(html, /<span class="team-label">判据<\/span><span class="chip team-dep">accept<\/span>/);
+  assert.match(html, /🔒 待解锁/);
+  assert.match(html, /🔓 已解锁/);
+  assert.match(html, /team-dag-ms-count">3 items</);
+  assert.match(html, /team-dag-ms-content" title="构建通过：四件工作项全部落地">构建通过：四件工作项全部落地</);
   // L0 无屏障 → —。
   assert.match(html, /<span class="team-label">屏障<\/span><span class="muted">—<\/span>/);
-  // 判据（after）与屏障分开。
-  assert.match(html, /<span class="team-label">判据<\/span><span class="chip team-dep">accept<\/span>/);
-  // 不表示时间。
+  // 甘特不表示时间。
   assert.doesNotMatch(html, /started_at|finished_at|datetime|duration|时长|耗时/);
+});
+
+test("(5) 屏障 = 完成上一个才能进下一个：未解锁框虚线 + 降透明度；闸门带写明在等谁/已放行", () => {
+  const html = renderTeamGantt(MS_PLAN);
+  assert.match(html, /class="team-dag-gate" data-gate="m-build-&gt;m-ship" data-open="false"/);
+  assert.match(html, /闸门 → 上一层全部 done 才放行（等 m-build）/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-frame\[data-locked="true"\]\s*\{[^}]*border-style:\s*dashed/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-frame\[data-locked="true"\]\s*\{[^}]*opacity:\s*\.55/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-gate\[data-open="true"\]\s*\{[^}]*--team-dag-gate-tone:\s*var\(--status-done\)/);
+  // 上一层全 done → 框解锁、闸门转绿并写「闸门已放行」。
+  const opened = renderTeamGantt({
+    milestones: [{ id: "m-build", name: "构建", status: "done" }, { id: "m-ship", name: "发布", depends_on: ["m-build"], status: "pending" }],
+    work_items: [{ id: "wi-ship", milestone: "m-ship", role: "exec", name: "发布", status: "pending" }],
+  });
+  assert.match(opened, /data-gate="m-build-&gt;m-ship" data-open="true"/);
+  assert.match(opened, /闸门已放行 → m-build 全部 done/);
+  assert.match(opened, /data-milestone-id="m-ship"[^>]*data-locked="false"/);
 });
 
 test("② 里程碑屏障的缺失依赖与成环都显形", () => {
@@ -207,6 +281,14 @@ test("② 里程碑屏障的缺失依赖与成环都显形", () => {
   assert.match(missing, /依赖缺失：ghost/);
   const cyclic = renderTeamGantt({ milestones: [{ id: "a", depends_on: ["b"] }, { id: "b", depends_on: ["a"] }] });
   assert.match(cyclic, /依赖成环/);
+});
+
+test("② 工作项级的缺失依赖也显形（不许静默丢依赖）", () => {
+  const html = renderTeamGantt({
+    milestones: [{ id: "m", name: "M" }],
+    work_items: [{ id: "wi-1", milestone: "m", role: "r", name: "甲", status: "pending", depends_on: ["wi-ghost"] }],
+  });
+  assert.match(html, /依赖缺失：wi-ghost/);
 });
 
 // ── ③ teammate 区块：名称 / 状态 / 工作项名称队列 ────────────────
@@ -427,9 +509,14 @@ test("转义所有外部文本（team_id / 工作项名 / 描述都不能注入�
   const html = renderTeamBoard({ plan, jobs: [] });
   assert.doesNotMatch(html, /<img/);
   assert.doesNotMatch(html, /<script|<\/script>/);
-  assert.doesNotMatch(html, /<svg|<em>n<\/em>/);
+  assert.doesNotMatch(html, /<u>n<\/u>|<em>n<\/em>/);
+  assert.doesNotMatch(html, /<svg\/>/, "工作项里的 <svg/> 必须转义（画布上那张 SVG 是渲染件自己的）");
+  assert.match(html, /&lt;u&gt;n&lt;\/u&gt;/, "工作项名要转义");
+  assert.match(html, /&lt;em&gt;n&lt;\/em&gt;/, "里程碑名要转义");
   assert.match(html, /&lt;img src=x onerror=&quot;boom&quot;&gt;/);
-  assert.match(html, /<span class="chip team-role">&lt;i&gt;r&lt;\/i&gt;<\/span>/);
+  assert.match(html, /<span class="chip team-role" title="teammate"><i class="team-dag-dot"><\/i>&lt;i&gt;r&lt;\/i&gt;<\/span>/);
+  assert.match(html, /&lt;b&gt;m&lt;\/b&gt;/, "里程碑 id 里的标签要转义");
+  assert.match(html, /&lt;svg\/&gt;/, "达成目标里的 <svg/> 要转义");
 });
 
 test("句柄投影过期 / 自快照恢复都显形，且与 stale 同屏而不互斥", () => {
@@ -467,16 +554,146 @@ test("renderWorkItemSessionPanel 是执行进度子页面：只有条目，没�
   assert.equal(renderWorkItemSessionPanel({}, "x"), '<div class="role-session-view is-empty">这件事已不在计划里（可能已收口）</div>');
 });
 
-test("TEAM_BOARD_CSS 只吃语义 token，覆盖工作项状态且不再有阶段规则", () => {
-  assert.match(TEAM_BOARD_CSS, /\.team-board\s*\{/);
-  for (const status of ["running", "review", "done", "failed", "pending"]) {
-    assert.match(TEAM_BOARD_CSS, new RegExp(`\\.team-item\\[data-status="${status}"\\]`));
+// ── ⑥ 依赖边（口径 6）与两通道正交（口径 3/13）────────────────────
+
+test("(6) 依赖边真的画出来：覆盖全内容的 SVG 正交折线 + 末端箭头；边一律中性灰", () => {
+  const html = renderTeamGantt(MS_PLAN);
+  assert.match(html, /<svg class="team-dag-edges" aria-hidden="true" preserveAspectRatio="none" viewBox="0 0 100 \d+"/);
+  const paths = [...html.matchAll(/class="team-dag-edge" d="M (\d+) (\d+) H (\d+) V (\d+) H (\d+)"/g)];
+  // wi-impl←wi-req 与 wi-test←wi-impl 两条（wi-ship 没有依赖）。
+  assert.equal(paths.length, 2, "有几条依赖边就画几条");
+  for (const [, xs, ys, lane, yd, xd] of paths) {
+    assert.equal(xs, xd, "起点与终点都在节点锚点上（同一条 lane 折回去）");
+    assert.ok(Number(lane) > Number(xs), "lane 在节点右侧（左 gutter 里）");
+    assert.ok(Number(ys) < Number(yd), "被依赖的行在上，依赖它的行在下");
   }
-  assert.match(TEAM_BOARD_CSS, /\.team-item-name\.is-openable/);
+  assert.equal([...html.matchAll(/class="team-dag-edge-arrow"/g)].length, 2, "每条边一个箭头");
+  // 边不吃状态色、不吃 teammate 色：唯一来源是 --team-dag-edge（= --faint）。
+  assert.match(TEAM_BOARD_CSS, /--team-dag-edge:\s*var\(--faint\)/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-edge\s*\{[^}]*stroke:\s*var\(--team-dag-edge\)/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-edges\s*\{[^}]*position:\s*absolute/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-edges\s*\{[^}]*width:\s*var\(--team-dag-gutter\)/);
+});
+
+test("(3/13) 两条颜色通道正交：边框/底色只吃状态令牌；teammate 色只走色带 + 色点", () => {
+  const [entry] = orderWorkItems(itemsOfMilestone(MS_PLAN, "m-build")).filter(item => item.id === "wi-impl");
+  const html = renderTeamWorkItem(entry);
+  assert.match(html, /data-eff="failed"/, "线框色由 data-eff 决定");
+  assert.match(html, /style="--team-dag-role-color:var\(--team-dag-role-\d\)"/, "归属色只以变量形式挂在行上");
+  assert.match(html, /<span class="team-dag-band"/);
+  assert.match(html, /<i class="team-dag-dot"><\/i>/, "role chip 里的色点");
+  // CSS：状态色只给 --row-line/--row-tint；role 色只给色带与色点 —— 谁也不越界。
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-row\[data-eff="failed"\]\s*\{[^}]*--row-line:\s*var\(--status-failed\)[^}]*--row-tint:\s*var\(--tint-failed\)/);
+  assert.doesNotMatch(TEAM_BOARD_CSS, /\.team-dag-(card|row)[^{]*\{[^}]*--team-dag-role-color/);
+  assert.doesNotMatch(TEAM_BOARD_CSS, /\.team-dag-(band|dot)[^{]*\{[^}]*--row-line/);
+  // 色板必须定义在 .team-board 作用域里（不泄露到全局）。
+  assert.match(TEAM_BOARD_CSS, /\.team-board\s*\{[^}]*--team-dag-role-0:/);
+  assert.doesNotMatch(TEAM_BOARD_CSS, /:root\s*\{[^}]*--team-dag-role-0:/);
+});
+
+test("(3) 同一位 teammate 的颜色跨行一致、跨重渲染不变；不同位不同色", () => {
+  const plan = {
+    milestones: [{ id: "m", status: "pending" }],
+    work_items: [
+      { id: "i1", milestone: "m", role: "zz-same", status: "done" },
+      { id: "i2", milestone: "m", role: "zz-other", status: "done" },
+      { id: "i3", milestone: "m", role: "zz-same", status: "done" },
+    ],
+  };
+  const varOf = (html, id) => html.match(new RegExp(`data-item-id="${id}"[^>]*style="--team-dag-role-color:var\\(([^)]+)\\)"`))[1];
+  const first = renderTeamGantt(plan);
+  assert.equal(varOf(first, "i1"), varOf(first, "i3"), "同一位 teammate 的每一行同一个色带");
+  assert.notEqual(varOf(first, "i1"), varOf(first, "i2"), "不同位 teammate 不同色");
+  assert.equal(renderTeamGantt(plan), first, "同一输入连渲两次逐字相同（无时间戳/随机数/自增 id）");
+  assert.equal(varOf(renderTeamGantt(plan), "i1"), varOf(first, "i1"), "重渲染不改色");
+});
+
+test("(11) role 超过 6 个 → 色板回绕，slot≥6 的色带叠斜纹第二通道", () => {
+  const roles = Array.from({ length: 10 }, (_, index) => `zz-wrap-${index}`);
+  const plan = { milestones: [{ id: "m", status: "done" }], work_items: roles.map((role, index) => ({ id: `w${index}`, milestone: "m", role, status: "done" })) };
+  const rows = [...renderTeamGantt(plan).matchAll(/<article class="team-dag-row" data-item-id="w\d+"[\s\S]*?<\/article>/g)].map(match => match[0]);
+  assert.equal(rows.length, 10);
+  let wrapped = 0;
+  roles.forEach((role, index) => {
+    const slot = roleSlotOf(role);
+    const expectWrapped = slot >= 6;
+    if (expectWrapped) wrapped += 1;
+    const band = rows[index].match(/<span class="team-dag-band([^"]*)"/)[1];
+    assert.equal(band.includes("is-wrapped"), expectWrapped, `${role}（slot ${slot}）的斜纹标记必须与「是否回绕」一致`);
+    assert.match(rows[index], new RegExp(`--team-dag-role-${slot % 6}\\)`), "回绕时复用 6 色里对应的那一格");
+  });
+  assert.ok(wrapped > 0, "10 位 teammate 必然有人落到回绕区（否则这条用例没验到东西）");
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-band\.is-wrapped\s*\{[^}]*repeating-linear-gradient/);
+});
+
+// ── ⑦ 样式与几何（口径 7/10/12/13）───────────────────────────────
+
+test("(d) TEAM_BOARD_CSS：滚动容器 max-height + 框头 sticky + 四状态行描边各一条", () => {
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-scroll\s*\{[^}]*max-height:\s*var\(--team-dag-scroll-max-h,\s*380px\)/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-scroll\s*\{[^}]*overflow-y:\s*auto/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-scroll\s*\{[^}]*overscroll-behavior:\s*contain/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-frame-head\s*\{[^}]*position:\s*sticky/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-frame-head\s*\{[^}]*top:\s*0/);
+  for (const eff of ["running", "done", "review", "failed"]) {
+    assert.match(TEAM_BOARD_CSS, new RegExp(`\\.team-dag-row\\[data-eff="${eff}"\\]\\s*\\{[^}]*--row-line:`), `缺 ${eff} 的行描边`);
+  }
+  // pending 也有一条（灰 + 虚线）。
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-row\[data-eff="pending"\]\s*\{[^}]*--row-line:\s*var\(--status-idle\)/);
+  assert.match(TEAM_BOARD_CSS, /\[data-eff="pending"\]\s+\.team-dag-card\s*\{[^}]*border-style:\s*dashed/);
+  // 细滚动条随主题 + 框头吸附的承载。
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-scroll::-webkit-scrollbar-thumb\s*\{[^}]*var\(--border-strong\)/);
+});
+
+test("(12/13) 滚动上限是定值 380px（在 .team-board 作用域里），不跟 vh", () => {
+  assert.match(TEAM_BOARD_CSS, /\.team-board\s*\{[^}]*--team-dag-scroll-max-h:\s*380px/);
+  assert.doesNotMatch(TEAM_BOARD_CSS, /--team-dag-scroll-max-h:[^;]*vh/);
+});
+
+test("(10) 窄栏自适应用 container query：收缩 gutter + 折叠次级信息，纯 CSS", () => {
+  assert.match(TEAM_BOARD_CSS, /\.team-board\s*\{[^}]*container-type:\s*inline-size/);
+  assert.match(TEAM_BOARD_CSS, /@container\s*\(max-width:\s*520px\)/);
+  const block = TEAM_BOARD_CSS.slice(TEAM_BOARD_CSS.indexOf("@container (max-width"));
+  assert.match(block, /--team-dag-gutter:\s*44px/, "窄栏收缩 gutter");
+  assert.match(block, /\.team-dag-ms-content[^{]*\{[^}]*display:\s*none/, "折叠次级信息");
+  // 折叠不许动到几何常量：行高不变，依赖边才不会错位。
+  assert.doesNotMatch(block, /--team-dag-row-h:/);
+  assert.doesNotMatch(block, /--team-dag-head-h:/);
+});
+
+test("几何只在两处写：CSS 的 --team-dag-* 与渲染件的 DAG 常量必须逐字相同", () => {
+  const pairs = [
+    ["--team-dag-content-pad-top", 4],
+    ["--team-dag-frame-pad", 4],
+    ["--team-dag-head-h", 26],
+    ["--team-dag-row-h", 72],
+    ["--team-dag-row-gap", 4],
+    ["--team-dag-gate-h", 18],
+    ["--team-dag-gate-margin", 2],
+    ["--team-dag-frame-border", 1],
+  ];
+  for (const [name, value] of pairs) {
+    assert.match(TEAM_BOARD_CSS, new RegExp(`${name}:\\s*${value}px`), `${name} 必须与渲染件的 DAG 常量一致（差一线，线就落不到节点上）`);
+  }
+  // 渲染件那边的同一组数字（改一处必须改两处，这条用例就是那条绳子）。
+  assert.match(SRC, /rowH:\s*72,/);
+  assert.match(SRC, /headH:\s*26,/);
+  assert.match(SRC, /gateH:\s*18,/);
+});
+
+test("TEAM_BOARD_CSS 只吃仓库既有令牌：自造色值只许出现在作用域内的归属色/框描边色板里", () => {
+  assert.match(TEAM_BOARD_CSS, /\.team-board\s*\{/);
   assert.match(TEAM_BOARD_CSS, /var\(--status-running\)/);
-  assert.doesNotMatch(TEAM_BOARD_CSS, /#[0-9a-fA-F]{6}/);
+  assert.match(TEAM_BOARD_CSS, /var\(--tint-done\)/);
+  assert.match(TEAM_BOARD_CSS, /var\(--border-failed\)/);
+  for (const line of TEAM_BOARD_CSS.split("\n")) {
+    if (/#[0-9a-fA-F]{3,8}/.test(line)) {
+      assert.match(line.trim(), /^--team-dag-(role|ms-tone)-[0-9]+:/, `字面色值只许出现在自造色板里，实际：${line.trim()}`);
+    }
+  }
   assert.doesNotMatch(TEAM_BOARD_CSS, /\.team-stage[\s,{[]/, "阶段口径已退场，CSS 里不得再有 .team-stage*");
   assert.doesNotMatch(TEAM_BOARD_CSS, /\.team-job[\s,{[]/);
+  assert.doesNotMatch(TEAM_BOARD_CSS, /\.team-milestone-gantt/, "老里程碑卡片样式必须随旧结构一起退场");
+  assert.doesNotMatch(TEAM_BOARD_CSS, /\.team-gantt[\s,{[]/, "老甘特容器样式必须退场");
 });
 
 // ── ⑤ 成员行的插件装配（2026-10-05）：声明面 chips + 生效读数 + 黄牌 / 失灵 ──
