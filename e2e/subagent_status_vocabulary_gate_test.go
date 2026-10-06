@@ -20,10 +20,11 @@ package e2e
 // 逐条声明的文件。没进清单的同形词表由各自的一批收口，本门禁不越界判它们（越界判 = 只能靠
 // 白名单放过，白名单一长就等于没有判据）。已经登记、尚未收口的格子：
 //
-//   - 子代理工具事件状态（running|success|error，`dto.SubagentToolEvent.Status`）与
-//     工具调用状态（running|completed|failed，`contract.ToolCall.Status`）在
-//     `session/tool_events.go`、`application/core/tool_hooks.go`、
-//     `application/core/subagent_view/coordinator.go` 三处交织，**收口前先把读方点清点**；
+//   - 子代理工具事件状态与工具调用视图词**本来就是同一格**（running|success|error）：前者落在
+//     `dto.SubagentToolEvent.Status`，后者是快照/存档/事件 wire 上的 `model.ToolCall.Status`。
+//     两处现已都进本清单（工具事件状态 / 工具调用视图词）；后者是**落盘**格，读回经具名转换点
+//     `model.ToolCallStatusOfRecord`（未知词落 unknown，不折成成功），存储面那名词由
+//     `internal/adapters` 的 TestToolCallStatusOfRecordLocksTheStoreVocabulary 互锁；
 //   - 计划节点状态（queued|running|completed|failed|skipped|canceled|aborted|panicked）来自
 //     框架 workplan 的 `NodeBase.Status`，**不是我们这一格的词**——所以
 //     `application/core/plan_tools.go`（同一文件里既读计划批次结果、又读节点状态）**故意不进
@@ -103,6 +104,23 @@ var statusVocabularyScopes = []statusVocabularyScope{
 			"tui/state.go": "读：TUI 判「在跑」（转调契约枚举的对外词）",
 		},
 		// 这一格的取值面 = dto.ToolEvent*（SubagentTool/SubagentToolEvent.Status）。
+		words: map[string]bool{"running": true, "success": true, "error": true},
+	},
+	{
+		name: "工具调用视图词",
+		files: map[string]string{
+			"application/model/state.go":                    "定义：这一格的字段类型与落盘读法（转换点 ToolCallStatusOfRecord）",
+			"application/core/tool_hooks.go":                "写：工具调起（running）与完成（success|error）的可见行 + 视图回写",
+			"application/core/chat.go":                      "写：引擎历史回灌的可见工具行",
+			"application/core/session_history.go":           "写：引擎消息折成可见消息时的工具行",
+			"application/core/session_runtime/archive.go":   "写：存档投影里的工具行",
+			"application/core/subagent_view/coordinator.go": "写：子代理详情会话的工具行（曾经写 completed，本格不收）",
+			"internal/adapters/session_workspace_ports.go":  "读：存储面的词 → 枚举（转换点 ToolCallStatusOfRecord）",
+			"tui/state.go": "读：工具行图标与耗时（精确判 running）",
+		},
+		// 这一格的取值面 = dto.ToolEvent*（model.ToolCall.Status；与工具事件状态同格）。
+		// store 那一侧（sessionstore.ConversationToolCall.Status）是契约之下的 wire，本层不 import
+		// 契约包；它写出的词由 internal/adapters 的 TestToolCallStatusOfRecordLocksTheStoreVocabulary 互锁。
 		words: map[string]bool{"running": true, "success": true, "error": true},
 	},
 	{
@@ -264,13 +282,6 @@ var allowedStatusLiterals = []statusAllowedLiteral{
 	{
 		scope: "计划批次结果状态", file: "seelebridge/plan/tool_provider.go", word: "completed",
 		reason: "同上（框架节点状态词的另一半）",
-	},
-	{
-		scope: "节点状态", file: "application/core/subagent_view/coordinator.go", word: "completed",
-		reason: "写的是**工具调用视图词**（`model.ToolCall.Status`：running|completed|failed）——与节点状态" +
-			"同词不同格，而且按总表 §2 它是**边界字段**（transcript/快照 wire 的混合面，本格不覆盖）：" +
-			"它表达的是「详情页里这条历史工具调用已经跑完」，不是「这个 plan 节点处在哪一步」。" +
-			"工具调用视图词这一格要连读方清单一起收，登记在总表 §2（刻意不枚举）",
 	},
 }
 

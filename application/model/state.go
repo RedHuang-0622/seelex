@@ -256,13 +256,16 @@ type MessageOrigin struct {
 	Kind string
 }
 type ToolCall struct {
-	ID        string        `json:"id"`
-	Name      string        `json:"name"`
-	Arguments string        `json:"arguments,omitempty"`
-	Result    string        `json:"result,omitempty"`
-	Error     string        `json:"error,omitempty"`
-	Status    string        `json:"status"`
-	Duration  time.Duration `json:"duration,omitempty"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Arguments string `json:"arguments,omitempty"`
+	Result    string `json:"result,omitempty"`
+	Error     string `json:"error,omitempty"`
+	// Status 是"工具调用视图词"那一格：与**工具事件状态**同格
+	// （`dto.ToolEvent*`：running | success | error）。它同时是快照 / 事件 wire 与存档
+	// 的形状，所以字段本身是枚举、读回按词折一次——转换点 `ToolCallStatusOfRecord`。
+	Status   dto.ToolEventStatus `json:"status"`
+	Duration time.Duration       `json:"duration,omitempty"`
 	// ResultRef 是完整工具输出的归档引用（仅当输出超过快照截断阈值时
 	// 设置）：快照里的 Result 只含预览，前端"加载完整输出"经
 	// ToolResultContent 按此 ref 分页读回。空 = 输出未截断（Result 即全文）。

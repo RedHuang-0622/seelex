@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 )
 
@@ -60,14 +61,14 @@ func TestBackendEventLoggerLogsToolStagesWithoutPayloadContent(t *testing.T) {
 	logger := NewEventLogger(&output, func() time.Time { return now })
 	logger.LogSubmit("do not print this input")
 
-	started, err := json.Marshal(application.Message{ID: "tool-1", Role: "tool", Tool: &application.ToolCall{ID: "bash-1", Name: "bash", Status: "running", Arguments: `{"command":"secret-command"}`}})
+	started, err := json.Marshal(application.Message{ID: "tool-1", Role: "tool", Tool: &application.ToolCall{ID: "bash-1", Name: "bash", Status: dto.ToolEventRunning, Arguments: `{"command":"secret-command"}`}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	logger.LogEvent(application.Event{Kind: application.EventMessageAdded, RequestID: "request-1"})
 	now = now.Add(12 * time.Millisecond)
 	logger.LogEvent(application.Event{Kind: application.EventToolStarted, RequestID: "request-1", Payload: started})
-	completed, err := json.Marshal(application.Message{ID: "tool-1", Role: "tool_result", Tool: &application.ToolCall{ID: "bash-1", Name: "bash", Status: "success", Result: "secret-result", Duration: 7 * time.Millisecond}})
+	completed, err := json.Marshal(application.Message{ID: "tool-1", Role: "tool_result", Tool: &application.ToolCall{ID: "bash-1", Name: "bash", Status: dto.ToolEventSuccess, Result: "secret-result", Duration: 7 * time.Millisecond}})
 	if err != nil {
 		t.Fatal(err)
 	}

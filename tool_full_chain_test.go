@@ -17,6 +17,7 @@ import (
 
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/adapters"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	"github.com/RedHuang-0622/seelex/seelebridge/security"
@@ -103,7 +104,7 @@ func TestFullAccessBashToolCompletionReachesApplication(t *testing.T) {
 
 	var toolResult string
 	for _, message := range app.Snapshot().Conversation {
-		if message.Tool != nil && message.Tool.Name == "bash" && message.Tool.Status == "success" {
+		if message.Tool != nil && message.Tool.Name == "bash" && message.Tool.Status == dto.ToolEventSuccess {
 			toolResult = message.Tool.Result
 			break
 		}
@@ -158,7 +159,7 @@ func TestFullAccessUnboundBashFailureReachesApplication(t *testing.T) {
 	if err := json.Unmarshal(completed.Payload, &completedMessage); err != nil {
 		t.Fatalf("decode tool.completed payload: %v", err)
 	}
-	if completedMessage.Tool == nil || completedMessage.Tool.Status != "error" || completedMessage.Content == "" {
+	if completedMessage.Tool == nil || completedMessage.Tool.Status != dto.ToolEventError || completedMessage.Content == "" {
 		t.Fatalf("unbound bash completion = %#v, want visible terminal error", completedMessage)
 	}
 
@@ -444,7 +445,7 @@ func waitForToolStatus(t *testing.T, ctx context.Context, events <-chan applicat
 			if err := json.Unmarshal(event.Payload, &message); err != nil {
 				t.Fatalf("decode tool.completed message: %v", err)
 			}
-			if message.Tool != nil && message.Tool.Name == name && message.Tool.Status == status {
+			if message.Tool != nil && message.Tool.Name == name && message.Tool.Status.String() == status {
 				return event
 			}
 		case <-ctx.Done():

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/chat"
 	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
@@ -1083,7 +1084,7 @@ func adaptEngineMessage(msg EngineMessage) Message {
 	message := Message{Role: msg.Role, Content: content, ReasoningContent: msg.ReasoningContent}
 	for _, toolCall := range msg.ToolCalls {
 		message.Tool = &ToolCall{
-			ID: toolCall.ID, Name: toolCall.Name, Arguments: toolCall.Arguments, Status: "success",
+			ID: toolCall.ID, Name: toolCall.Name, Arguments: toolCall.Arguments, Status: dto.ToolEventSuccess,
 		}
 	}
 	return message

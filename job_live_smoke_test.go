@@ -99,7 +99,7 @@ func TestManualSmokeRealAccountJobContract(t *testing.T) {
 					continue
 				}
 				mu.Lock()
-				calls = append(calls, liveToolCall{name: message.Tool.Name, status: message.Tool.Status, result: message.Tool.Result})
+				calls = append(calls, liveToolCall{name: message.Tool.Name, status: message.Tool.Status.String(), result: message.Tool.Result})
 				mu.Unlock()
 			}
 		}

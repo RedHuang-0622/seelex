@@ -237,7 +237,7 @@ func newBackfillCollector(subscription application.Subscription) *backfillCollec
 			}
 			collector.mu.Lock()
 			collector.calls = append(collector.calls, liveToolCall{
-				name: message.Tool.Name, status: message.Tool.Status, result: message.Tool.Result,
+				name: message.Tool.Name, status: message.Tool.Status.String(), result: message.Tool.Result,
 			})
 			collector.mu.Unlock()
 		}

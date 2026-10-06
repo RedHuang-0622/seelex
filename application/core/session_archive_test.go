@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
@@ -577,10 +578,10 @@ func TestResumeSessionContinuationKeepsToolStepsWithoutEmptyAssistantEvents(t *t
 				{ID: "message-1", Role: "user", Content: "original question"},
 				{ID: "seq-2", Role: "assistant", ReasoningContent: "先读文件"},
 				{ID: "seq-2#tool-1", Role: "tool", Tool: &ToolCall{
-					ID: "call-1", Name: "read", Arguments: `{"path":"a.go"}`, Status: "success",
+					ID: "call-1", Name: "read", Arguments: `{"path":"a.go"}`, Status: dto.ToolEventSuccess,
 				}},
 				{ID: "message-3", Role: "tool_result", Content: "package a", Tool: &ToolCall{
-					ID: "call-1", Name: "read", Result: "package a", Status: "success",
+					ID: "call-1", Name: "read", Result: "package a", Status: dto.ToolEventSuccess,
 				}},
 				{ID: "message-4", Role: "assistant", Content: "original answer"},
 			}},

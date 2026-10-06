@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/chat"
 	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
@@ -1076,13 +1077,13 @@ func (service *Service) appendHistoryLockedFor(sessionID string, history []Engin
 			}
 		}
 		for _, call := range historyMessage.ToolCalls {
-			service.appendSessionMessageWithOriginLocked(sessionID, "tool", "", &ToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Status: "success"}, origin)
+			service.appendSessionMessageWithOriginLocked(sessionID, "tool", "", &ToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Status: dto.ToolEventSuccess}, origin)
 		}
 		if historyMessage.Role == "tool" {
 			visible, ref, truncated, totalChars := service.boundToolResultForSnapshot(historyMessage.Name, historyMessage.Content)
 			service.appendSessionMessageWithOriginLocked(sessionID, "tool_result", visible, &ToolCall{
 				ID: historyMessage.ToolCallID, Name: historyMessage.Name,
-				Result: visible, Status: "success",
+				Result: visible, Status: dto.ToolEventSuccess,
 				ResultRef: ref, Truncated: truncated, TotalChars: totalChars,
 			}, origin)
 		}

@@ -152,7 +152,7 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	}
 	loaded := false
 	for _, message := range snapshot.Conversation {
-		if message.Tool != nil && message.Tool.Name == "plan_load" && message.Tool.Status == "success" {
+		if message.Tool != nil && message.Tool.Name == "plan_load" && message.Tool.Status == dto.ToolEventSuccess {
 			loaded = true
 			break
 		}
@@ -168,7 +168,7 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	}
 	mediumPlanLoads := 0
 	for _, message := range snapshot.Conversation {
-		if message.Role == "tool" && message.Tool != nil && message.Tool.Name == "plan_load" && message.Tool.Status == "success" {
+		if message.Role == "tool" && message.Tool != nil && message.Tool.Name == "plan_load" && message.Tool.Status == dto.ToolEventSuccess {
 			mediumPlanLoads++
 		}
 	}
@@ -203,7 +203,7 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 		if message.Role == "tool" && message.Tool != nil && message.Tool.Name == "plan_load" {
 			highPlanLoads++
 			highPlanEvents = append(highPlanEvents, message.Role+":"+message.Tool.Status+":"+truncateSmokeReply(message.Tool.Error, 300))
-			if message.Tool.Status != "success" {
+			if message.Tool.Status != dto.ToolEventSuccess {
 				t.Fatalf("voluntary high plan_load status = %q error=%q", message.Tool.Status, truncateSmokeReply(message.Tool.Error, 500))
 			}
 		}
@@ -267,7 +267,7 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	control := app.Snapshot()
 	controlLoaded := false
 	for _, message := range control.Conversation[controlStart:] {
-		if message.Tool != nil && message.Tool.Name == "plan_load" && message.Tool.Status == "success" {
+		if message.Tool != nil && message.Tool.Name == "plan_load" && message.Tool.Status == dto.ToolEventSuccess {
 			controlLoaded = true
 			break
 		}

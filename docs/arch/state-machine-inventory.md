@@ -34,7 +34,8 @@
 | 后台作业状态 | running\|done\|failed\|killed | `dto.AsyncState` | 登记表在内存（不落盘）；teammate 作业表复用同一格 |
 | plan_run 批次结果 | completed\|failed\|aborted | `dto.PlanRunStatus` | 跨 plan 写方 / core 读方的 JSON |
 | **记录状态**（子代理节点生命周期） | queued\|running\|done\|failed\|interrupted | `dto.SubAgentNodeStatus` | **落盘**：`sessionstore.NodeSessionRecord.Status` 仍是字符串（store 在契约之下），边界 `seelebridge` 的 `subagentNodeStatusDone/Failed`、`session.SubAgent*` 转调对外词；未知词 → `SubAgentUnknown`（**不是终态**） |
-| **工具事件状态** | running\|success\|error | `dto.ToolEventStatus` | `dto.SubagentTool.Status` 与 `dto.SubagentToolEvent.Status` 两处字段同格；transcript/快照 wire（`model.ToolCall.Status`）保持字符串，边界 `.String()` |
+| **工具事件状态** | running\|success\|error | `dto.ToolEventStatus` | `dto.SubagentTool.Status` 与 `dto.SubagentToolEvent.Status` 两处字段同格 |
+| **工具调用视图词**（快照 / 事件 wire / 存档里的工具行） | running\|success\|error | `dto.ToolEventStatus`（**与工具事件状态同格**） | `model.ToolCall.Status` 从字符串换成枚举；**落盘**（`model.SessionArchive` 存档 + 事件 payload 的 JSON）读回经具名转换点 `model.ToolCallStatusOfRecord`（认不得的词与空词 → `ToolEventUnknown`，**不折成成功**）；store 那一侧的名词 `sessionstore.ConversationToolCallStatusSuccess` 由 `internal/adapters` 的 `TestToolCallStatusOfRecordLocksTheStoreVocabulary` 互锁。原来的漂移写点（子代理详情投影写 `completed`）已修正——这个词从来不在本格取值面里 |
 | **task 状态** | pending\|queued\|running\|doing\|completed\|failed\|retry\|interrupted | `dto.TaskStatus` | `TaskRecord.Status`、`TaskTracePoint.Status`；打点状态与条目状态同格 |
 | **回合状态** | idle\|progressing\|completed\|needs_user_decision\|blocked\|interrupted\|failed | `dto.TurnStatus` | 同一格两个面：可见面 `Snapshot.Task.Status`、存档面 `TaskContextProjection.Status`；存档老词 `running` 由 `task_context.TurnStatusOfRecord` 读回（**不再**是 `model.TaskStatus` + `task_context.Status*` 两份词表） |
 | **会话可见状态** | draft\|idle\|running\|queued\|awaiting_approval\|archived\|restoring | `dto.SessionStatus` | 持久子集在 `sessionstore.Status`（契约之下）；转换点 `adapters.sessionStatusOfRecord` |
@@ -53,7 +54,7 @@
 | 框架节点状态 `NodeBase.Status`（completed\|failed\|skipped\|…） | 框架 workplan 的词 |
 | 统一事件摘要 `SummaryEvent.Status`（failed\|completed） | 框架 Seele 的词 |
 | 视图/混合字段：`WorkItem.Status`（task 行 + 子代理行沿用 done 的显示映射）、`WorkTracePoint.Status`、`dto/teamwork_board.go:190` 的"开放取值" | 一个字段承载两格（或明确开放取值），是**展示投影**不是判定面；边界处 `.String()` 显式转换 |
-| 落盘 wire：`sessionstore` 的各状态字段、`model.ToolCall.Status` | store/model 在契约之下，存的是**词**；契约类型在上面，转换点逐格命名（如 `nodeStateOfRecord`） |
+| 落盘 wire：`sessionstore` 的各状态字段 | store 在契约之下，存的是**词**；契约类型在上面，转换点逐格命名（如 `nodeStateOfRecord`）。同理 `sessionstore.ConversationToolCall.Status`（工具行）——它的名词是与契约互锁的 `ConversationToolCallStatusSuccess` |
 | git 类字段（porcelain XY、git 名状态）、`TaskPhase*`（plan\|tasklist\|task\|subagent） | 不是状态机：一个是外部工具的原始输出，一个是**类别**不是状态 |
 | 事件字段 `dto.PlanNodeEvent.Status` / `model.PlanNodeEventInfo.Status` | **混合面**：本格节点状态词 + 框架 workplan 词 + 我们自己的 worktree 收尾阶段词（`worktree_unmerged` / `merge_blocked`）混在同一个字段里。它不是"节点状态那一格"：认不得的词**不许覆盖节点状态**（旧写法 `default → pending` 会让跑完的节点显示成"待开始"，有回归用例 `plan_node_phase_word_test.go`）。阶段词本身登记在 `seelebridge/node/node_phase_words.go` |
 | 工具调用视图词（`model.ToolCall.Status`：running\|completed\|failed） | 与**工具事件状态**（running\|success\|error）同词不同格：详情页里"这条历史工具调用跑完了"是展示口径（快照/transcript wire），不是判定面；收口要连读方清单一起做，登记为下一批 |
@@ -64,7 +65,8 @@
 ## 3. 还没统一（下一波候选，逐条写清为什么它是一格）
 
 第二波（`docs/2026-10-06-workunit-jobs-port/step-3-state-enum-unification-wave2.md`）把 §3 原清单
-逐条判完并收口——**剩下的只有两处刻意不动**（都在 §2 登记了理由）：
+逐条判完并收口；第三波（`step-3-state-enum-unification-wave3.md`）收掉了"工具调用视图词"。
+**剩下的只剩一处刻意不动**（todo 三态，理由在 §2）：
 
 | 格 | 结论 |
 |---|---|
@@ -75,7 +77,7 @@
 | ~~goal 的 `Status` / `PeerState`~~ | **已收口**：`dto.GoalStatus` / `dto.PeerState`；看板 `open\|closed` 判定为 store wire（契约之下） |
 | ~~`sessionstore` 的其余状态字段~~ | **已收口**：逐个判定为"契约之下的 wire + 具名转换点"；唯一的跨域判据（`terminalStackStatus`）逐词登记主人 |
 | `application/core/resume` 的 `UnitStatus` | **已收口**：`dto.UnitStatus`（由记录状态折一次） |
-| 工具调用视图词（`model.ToolCall.Status`） | **刻意不动**（见 §2）：要连读方清单一起收，本轮登记理由与去向 |
+| 工具调用视图词（`model.ToolCall.Status`） | **已收口 · 第三波**：与**工具事件状态**本来就是同格（取值面 `running \| success \| error`，不是"同词不同格"）；字段换成 `dto.ToolEventStatus`，落盘读回走 `model.ToolCallStatusOfRecord`，门禁加了这一格。原先记的 `running\|completed\|failed` 与代码事实不符（唯一写 `completed` 的地方就是子代理详情投影的一处漂移） |
 | todo 三态（`dto.TodoItemStatus`） | **刻意不动**（见 §2）：已在移除窗口内 |
 
 ## 4. 怎么继续（免得又变成"每格各写一套"）
@@ -84,5 +86,9 @@
    再把字段类型换掉——**编译器会把所有"拿字符串比状态"的点列出来**。
 2. 落盘格：字段留在 store 侧当 wire 字符串，转换点写成**一个具名函数**（`nodeStateOfRecord` 这种），
    未知词取舍写在那个函数上（"不炸、也不静默当终态"）。
+   若落盘格**同时是 wire 形状本身**（一个结构既要落盘又要上事件总线，例如 `model.ToolCall`）：
+   字段可以就是枚举，但要在那个类型上挂一个**宽松的 `UnmarshalJSON`**（别名类型避递归），把
+   词读进来经同一个具名转换点折一次——**别把契约枚举那套"认不得就报错"的严格读法直接顶上去**，
+   否则老文件里一个没见过的词 = 整个会话读不回来（第三波的反证原文见落地记录 §3）。
 3. 加门禁范围：`statusVocabularyScopes` 加一格（写方/读方清单 + 取值面），
    顺手确认 `e2e/state_enum_cast_gate_test.go` 仍然绿（不许 `string(枚举值)`）。

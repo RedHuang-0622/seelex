@@ -1120,7 +1120,7 @@ func adaptStoredConversationMessage(message sessionstore.ConversationMessage) mo
 		tool := *message.Tool
 		adapted.Tool = &model.ToolCall{
 			ID: tool.ID, Name: tool.Name, Arguments: tool.Arguments,
-			Result: tool.Result, Error: tool.Error, Status: tool.Status, Duration: tool.Duration,
+			Result: tool.Result, Error: tool.Error, Status: model.ToolCallStatusOfRecord(tool.Status), Duration: tool.Duration,
 		}
 	}
 	return adapted

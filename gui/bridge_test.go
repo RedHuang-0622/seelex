@@ -1212,7 +1212,7 @@ func TestBridgeRelaysToolCompletedEventToFrontend(t *testing.T) {
 
 	want := application.Message{
 		ID: "tool-result-1", Role: "tool_result", Content: `{"stdout":"ok"}`,
-		Tool: &application.ToolCall{ID: "tool-1", Name: "bash", Status: dto.ToolEventSuccess.String(), Result: `{"stdout":"ok"}`},
+		Tool: &application.ToolCall{ID: "tool-1", Name: "bash", Status: dto.ToolEventSuccess, Result: `{"stdout":"ok"}`},
 	}
 	published := fake.hub.Publish(application.EventToolCompleted, 2, "request-1", want)
 	relayed := waitEmitted(t, emitted)
@@ -1230,7 +1230,7 @@ func TestBridgeRelaysToolCompletedEventToFrontend(t *testing.T) {
 	if err := json.Unmarshal(event.Payload, &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Tool == nil || got.Tool.Name != "bash" || got.Tool.Status != "success" || got.Tool.Result != want.Tool.Result {
+	if got.Tool == nil || got.Tool.Name != "bash" || got.Tool.Status != dto.ToolEventSuccess || got.Tool.Result != want.Tool.Result {
 		t.Fatalf("frontend tool completion payload = %#v", got)
 	}
 }

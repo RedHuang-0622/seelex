@@ -32,11 +32,11 @@ func (cell Cell) Render(_ int) string {
 		}
 		icon := "→"
 		switch cell.Tool.Status {
-		case dto.ToolEventRunning.String():
+		case dto.ToolEventRunning:
 			icon = StyleTaskRunning.Render("●")
-		case dto.ToolEventSuccess.String():
+		case dto.ToolEventSuccess:
 			icon = StyleTaskDone.Render("✓")
-		case dto.ToolEventError.String():
+		case dto.ToolEventError:
 			icon = StyleError.Render("✗")
 		}
 		arguments := cell.Tool.Arguments
@@ -44,7 +44,7 @@ func (cell Cell) Render(_ int) string {
 			arguments = arguments[:80] + "..."
 		}
 		line := fmt.Sprintf("  %s %s(%s)", icon, cell.Tool.Name, arguments)
-		if cell.Tool.Duration > 0 && cell.Tool.Status != dto.ToolEventRunning.String() {
+		if cell.Tool.Duration > 0 && cell.Tool.Status != dto.ToolEventRunning {
 			line += StyleMuted.Render(fmt.Sprintf("  %s", cell.Tool.Duration.Round(100*time.Millisecond)))
 		}
 		return StyleToolCall.Render(line)

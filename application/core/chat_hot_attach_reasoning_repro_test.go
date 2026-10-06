@@ -10,6 +10,7 @@ package core
 // 永远看不到思考过程。
 
 import (
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"testing"
 )
 
@@ -33,9 +34,9 @@ func TestHotMountKeepsStepReasoningInVisibleWindow(t *testing.T) {
 	service.ViewMu.Lock()
 	service.appendMessageLocked("user", "看看项目", nil)
 	service.appendMessageLocked("assistant", "", nil)
-	service.appendMessageLocked("tool", "", &ToolCall{ID: "call-1", Name: "read", Status: "success"})
+	service.appendMessageLocked("tool", "", &ToolCall{ID: "call-1", Name: "read", Status: dto.ToolEventSuccess})
 	service.appendMessageLocked("assistant", "", nil)
-	service.appendMessageLocked("tool", "", &ToolCall{ID: "call-2", Name: "read", Status: "success"})
+	service.appendMessageLocked("tool", "", &ToolCall{ID: "call-2", Name: "read", Status: dto.ToolEventSuccess})
 	service.appendMessageLocked("assistant", "结论", nil)
 	service.ViewMu.Unlock()
 

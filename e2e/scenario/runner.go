@@ -97,7 +97,7 @@ func (runner *Runner) executeStep(ctx context.Context, recorder *eventRecorder, 
 	case "tool_status":
 		return runner.waitForSnapshot(ctx, recorder, func(snapshot application.Snapshot) bool {
 			for _, message := range snapshot.Conversation {
-				if message.Tool != nil && message.Tool.Name == step.Tool && message.Tool.Status == step.Status {
+				if message.Tool != nil && message.Tool.Name == step.Tool && message.Tool.Status.String() == step.Status {
 					return true
 				}
 			}

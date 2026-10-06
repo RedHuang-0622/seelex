@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"strings"
 	"testing"
 	"time"
@@ -81,7 +82,7 @@ func TestToolEventsUpdateSnapshot(t *testing.T) {
 	snapshot := service.Snapshot()
 	found := false
 	for _, message := range snapshot.Conversation {
-		if message.Tool != nil && message.Tool.ID == "read-1" && message.Tool.Status == "success" {
+		if message.Tool != nil && message.Tool.ID == "read-1" && message.Tool.Status == dto.ToolEventSuccess {
 			found = true
 		}
 	}

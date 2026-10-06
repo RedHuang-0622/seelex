@@ -539,7 +539,7 @@ func (s *teamworkSmoke) toolStatuses(name string) []string {
 		if message.Role != "tool" || message.Tool == nil || message.Tool.Name != name {
 			continue
 		}
-		statuses = append(statuses, message.Tool.Status)
+		statuses = append(statuses, message.Tool.Status.String())
 	}
 	return statuses
 }

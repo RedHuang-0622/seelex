@@ -206,7 +206,7 @@ func (h *prefixProbeHarness) toolRound(name, callID, arguments, result string) {
 	h.service.components.tasks.AttributeToolNarrationLocked(h.session,
 		TranscriptToolCall{ID: "tool-" + callID, Name: name, Arguments: arguments},
 		h.service.streamedAssistantTextLocked(h.session))
-	h.service.appendMessageLocked("tool", "", &ToolCall{ID: callID, Name: name, Arguments: arguments, Status: "running"})
+	h.service.appendMessageLocked("tool", "", &ToolCall{ID: callID, Name: name, Arguments: arguments, Status: dto.ToolEventRunning})
 	providerResult, _ := h.service.components.tasks.RecordToolTranscriptLocked(h.session, name, callID, arguments, result, nil)
 	h.service.components.tasks.ObserveTool(task_context.ToolObservation{RequestID: prefixProbeRequestID, Name: name, Result: providerResult})
 	h.service.ViewMu.Unlock()

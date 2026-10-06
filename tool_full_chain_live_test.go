@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/gui"
 )
 
@@ -42,7 +43,7 @@ func TestManualSmokeRealAccountBashFullChain(t *testing.T) {
 	if err := json.Unmarshal(completed.Payload, &completedMessage); err != nil {
 		t.Fatalf("decode live tool.completed payload: %v", err)
 	}
-	if completedMessage.Tool == nil || completedMessage.Tool.Status != "success" {
+	if completedMessage.Tool == nil || completedMessage.Tool.Status != dto.ToolEventSuccess {
 		t.Fatalf("live bash completion = %#v", completedMessage.Tool)
 	}
 	var result struct {
@@ -106,7 +107,7 @@ func TestManualSmokeRealAccountGUIBridgeBashFullChain(t *testing.T) {
 	if err := json.Unmarshal(completed.Payload, &completedMessage); err != nil {
 		t.Fatalf("decode GUI Bridge live tool.completed payload: %v", err)
 	}
-	if completedMessage.Tool == nil || completedMessage.Tool.Status != "success" {
+	if completedMessage.Tool == nil || completedMessage.Tool.Status != dto.ToolEventSuccess {
 		t.Fatalf("GUI Bridge live bash completion = %#v", completedMessage.Tool)
 	}
 	var result struct {
@@ -156,7 +157,7 @@ func TestManualSmokeRealAccountTodoFullChain(t *testing.T) {
 	if err := json.Unmarshal(completed.Payload, &completedMessage); err != nil {
 		t.Fatalf("decode live tool.completed payload: %v", err)
 	}
-	if completedMessage.Tool == nil || completedMessage.Tool.Status != "success" {
+	if completedMessage.Tool == nil || completedMessage.Tool.Status != dto.ToolEventSuccess {
 		t.Fatalf("live todolist completion = %#v", completedMessage.Tool)
 	}
 	if !strings.Contains(completedMessage.Tool.Result, `"total":1`) {

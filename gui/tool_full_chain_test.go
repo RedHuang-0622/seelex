@@ -297,7 +297,7 @@ func TestGUIBackendPortRelaysToolCompletion(t *testing.T) {
 			t.Fatal("GUI backend port did not relay tool.completed")
 		}
 	}
-	if completed.Tool.Name != "todolist_init" || completed.Tool.Status != "success" {
+	if completed.Tool.Name != "todolist_init" || completed.Tool.Status != dto.ToolEventSuccess {
 		t.Fatalf("GUI tool completion = %#v", completed.Tool)
 	}
 	idleContext, idleCancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -307,7 +307,7 @@ func TestGUIBackendPortRelaysToolCompletion(t *testing.T) {
 	}
 	found := false
 	for _, message := range bridge.Snapshot().Conversation {
-		if message.Tool != nil && message.Tool.Name == "todolist_init" && message.Tool.Status == "success" {
+		if message.Tool != nil && message.Tool.Name == "todolist_init" && message.Tool.Status == dto.ToolEventSuccess {
 			found = true
 		}
 	}

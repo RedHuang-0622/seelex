@@ -407,7 +407,7 @@ func (c *Coordinator) adaptSubagentConversation(messages []types.Message) []mode
 		message := model.Message{Role: msg.Role, Content: content}
 		if msg.Name != "" || msg.ToolCallID != "" {
 			message.Tool = &model.ToolCall{
-				ID: msg.ToolCallID, Name: msg.Name, Status: "completed",
+				ID: msg.ToolCallID, Name: msg.Name, Status: dto.ToolEventSuccess,
 			}
 		}
 		adapted = append(adapted, message)

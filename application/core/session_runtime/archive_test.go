@@ -3,6 +3,7 @@ package session_runtime
 import (
 	"testing"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/model"
 )
 
@@ -13,8 +14,8 @@ func TestEnrichTranscriptMessageIDsPairsEventsToMessages(t *testing.T) {
 	record := model.SessionRecord{Conversation: model.ConversationRecord{Messages: []model.Message{
 		{ID: "message-1", Role: "user", Content: "inspect the repo"},
 		{ID: "message-2", Role: "assistant", Content: "let me read files"},
-		{ID: "message-3", Role: "tool", Tool: &model.ToolCall{ID: "call-1", Name: "read", Status: "success"}},
-		{ID: "message-4", Role: "tool_result", Tool: &model.ToolCall{ID: "call-1", Name: "read", Status: "success"}},
+		{ID: "message-3", Role: "tool", Tool: &model.ToolCall{ID: "call-1", Name: "read", Status: dto.ToolEventSuccess}},
+		{ID: "message-4", Role: "tool_result", Tool: &model.ToolCall{ID: "call-1", Name: "read", Status: dto.ToolEventSuccess}},
 	}}}
 	events := []model.TranscriptEvent{
 		{Seq: 1, Role: "user", Content: "inspect the repo"},

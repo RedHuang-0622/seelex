@@ -341,7 +341,7 @@ func (c *Coordinator) conversationFromTranscriptLocked(events []model.Transcript
 						// 消息 ID，避免前端按 ID 增量路由时串更新。
 						ID:   fmt.Sprintf("message-%d-%d", event.Seq, callIndex),
 						Role: "tool", Kind: model.TranscriptEventKindToolCall, CreatedAt: event.CreatedAt,
-						Tool:     &model.ToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Status: "success"},
+						Tool:     &model.ToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Status: dto.ToolEventSuccess},
 						RoleName: event.RoleName, RoleSessionID: event.RoleSessionID,
 						RoundID: event.RoundID, UnitSeq: event.UnitSeq,
 					})
@@ -351,7 +351,7 @@ func (c *Coordinator) conversationFromTranscriptLocked(events []model.Transcript
 		case "tool":
 			message.Role = "tool_result"
 			message.Kind = model.TranscriptEventKindToolOutput
-			message.Tool = &model.ToolCall{ID: event.ToolCallID, Name: event.Name, Result: event.Content, Status: "success"}
+			message.Tool = &model.ToolCall{ID: event.ToolCallID, Name: event.Name, Result: event.Content, Status: dto.ToolEventSuccess}
 		}
 		messages = append(messages, message)
 	}
