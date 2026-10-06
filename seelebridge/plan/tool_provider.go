@@ -19,6 +19,8 @@ import (
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
 	"github.com/RedHuang-0622/Seele/workplan/runtime/forkexec"
 	workplanrunner "github.com/RedHuang-0622/Seele/workplan/runtime/runner"
+
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 const planLoadContractDescription = `
@@ -439,17 +441,17 @@ func newPlanRunID() string {
 //   - agent 节点全部失败（无幸存者）→ 仍以工具错误返回，保留整批归零的硬失败；
 //     有幸存者时只给内容（错误会顶掉工具结果内容，幸存产出就传不回父代理）。
 func planRunResultJSON(result *workplanTypes.WorkPlanResult, err error, withNodeOutputs bool) (string, error) {
-	status := "completed"
+	status := dto.PlanRunStatusCompleted
 	nodeError := ""
 	outcome := summarizeNodeOutcomes(result)
 	switch {
 	case err != nil:
-		status = "failed"
+		status = dto.PlanRunStatusFailed
 		nodeError = err.Error()
 	case result != nil && result.Aborted:
-		status = "aborted"
+		status = dto.PlanRunStatusAborted
 	case len(outcome.failed) > 0:
-		status = "failed"
+		status = dto.PlanRunStatusFailed
 		nodeError = outcome.failureMessage()
 	}
 	out := struct {

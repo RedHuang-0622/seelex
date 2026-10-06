@@ -133,7 +133,7 @@ func asyncWorkStatus(state string) string {
 	switch state {
 	case dto.AsyncStateRunning:
 		return string(dto.TaskRunning)
-	case "done":
+	case dto.AsyncStateDone:
 		return string(dto.TaskCompleted)
 	default:
 		return string(dto.TaskFailed)

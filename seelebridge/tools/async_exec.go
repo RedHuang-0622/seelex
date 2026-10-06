@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
 )
 
@@ -29,11 +30,13 @@ import (
 // 本文件只管表与状态；执行体在 async_run.go，工具面在 async_tools.go。
 
 const (
-	asyncStateRunning = "running"
-	asyncStateDone    = "done"
-	asyncStateFailed  = "failed"
+	// 状态词表只有一份定义（application/contract/dto 的 AsyncState*）：本层这几个名字是**转调**，
+	// 改词只改契约那一处（③U6）。
+	asyncStateRunning = dto.AsyncStateRunning
+	asyncStateDone    = dto.AsyncStateDone
+	asyncStateFailed  = dto.AsyncStateFailed
 	// asyncStateKilled = 由 job_manage(op=kill) 或会话销毁终止，与"命令自己退非零"可分。
-	asyncStateKilled = "killed"
+	asyncStateKilled = dto.AsyncStateKilled
 
 	// asyncMaxRunning 是在途上限；asyncMaxRecords 是记录总槽（只为兜内存，
 	// 超了驱逐最老的已完成项）。上限只数在跑的，否则长会话累计到 32 条就再也发不出。

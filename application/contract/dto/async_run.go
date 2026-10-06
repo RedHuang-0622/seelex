@@ -55,5 +55,16 @@ type AsyncRunRecord struct {
 	EndedAt   time.Time `json:"ended_at,omitempty"`
 }
 
-// AsyncStateRunning 是"还在跑"的唯一状态字面量（core 投影据此决定行进不进打点块）。
-const AsyncStateRunning = "running"
+// ── 后台作业状态词表（唯一一份）───────────────────────────────────────────
+//
+// 这一格回答"这个作业还在不在跑"。取值面就是 AsyncRunRecord.State 注释里的四个词；四个词
+// 只在这里定义**一次**——登记表（seelebridge/tools 的 async_exec.go）、探针与作业面、
+// 触发口径（application/core 的 async_completion.go 与 work_table_async.go）都引它，不再
+// 各写一份字面量（③U6：跨包的同一份词靠这一处 + e2e 的源码门禁互锁）。
+const (
+	AsyncStateRunning = "running"
+	AsyncStateDone    = "done"
+	AsyncStateFailed  = "failed"
+	// AsyncStateKilled = 由 job_manage(op=kill) 或会话销毁终止，与"命令自己退非零"可分。
+	AsyncStateKilled = "killed"
+)

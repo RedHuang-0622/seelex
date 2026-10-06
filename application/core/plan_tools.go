@@ -96,12 +96,12 @@ func (service *Service) updatePlanFromRunResult(resultJSON string) {
 	plan := service.Core.Snapshot.Runtime.Plan
 
 	switch out.Status {
-	case "completed":
+	case dto.PlanRunStatusCompleted:
 		plan.Status = PlanCompleted
 		plan.Progress = 1.0
-	case "failed":
+	case dto.PlanRunStatusFailed:
 		plan.Status = PlanFailed
-	case "aborted":
+	case dto.PlanRunStatusAborted:
 		plan.Status = PlanAborted
 	default:
 		plan.Status = PlanRunning
@@ -452,10 +452,10 @@ func (service *Service) handlePlanRunFailureLocked(errMsg, resultJSON string) *I
 		if err := json.Unmarshal([]byte(resultJSON), &out); err == nil && len(out.Nodes) > 0 {
 			// 从 result 中的 status 更新计划状态
 			switch out.Status {
-			case "completed":
+			case dto.PlanRunStatusCompleted:
 				plan.Status = PlanCompleted
 				plan.Progress = 1.0
-			case "aborted":
+			case dto.PlanRunStatusAborted:
 				plan.Status = PlanAborted
 			default:
 				plan.Status = PlanFailed
@@ -642,7 +642,7 @@ func planRunFailure(resultJSON string) string {
 		Status string `json:"status"`
 		Error  string `json:"error"`
 	}
-	if err := json.Unmarshal([]byte(resultJSON), &result); err != nil || result.Status != "failed" {
+	if err := json.Unmarshal([]byte(resultJSON), &result); err != nil || result.Status != dto.PlanRunStatusFailed {
 		return ""
 	}
 	if result.Error != "" {

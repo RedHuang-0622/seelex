@@ -39,13 +39,11 @@ import (
 // 开关：`limits.async_exec.trigger_conversation`（默认 false = 关，与 async_exec
 // 同一套"关就是关"的纪律）；关闭时调用方连扫描都不做。
 
-// asyncStateDone / asyncStateFailed 是触发口径认的两个终态。
-//
-// 字面量与 seelebridge 的登记表同源（dto.AsyncRunRecord.State 的注释：
-// running | done | failed | killed），这里不新增第二套状态机，只是给触发口径起名。
+// asyncStateDone / asyncStateFailed 是触发口径认的两个终态：**转调契约的词表**
+// （dto.AsyncState*，字面量只有那一处），这里只是给触发口径起名，不新增第二套状态机。
 const (
-	asyncStateDone   = "done"
-	asyncStateFailed = "failed"
+	asyncStateDone   = dto.AsyncStateDone
+	asyncStateFailed = dto.AsyncStateFailed
 )
 
 // triggerAsyncCompletions 对登记表做一次全量扫描：把"终态 + 会话空闲 + 还没触发过"
