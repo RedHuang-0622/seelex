@@ -297,3 +297,44 @@ REPLAY cap=512；最后一个 tool 事件的下标=-1（其后事件数=512）
 - **恢复链的收尾判据**：老现场登记缺 `MainBranch` 栏 ⇒ 自动合并一律失败、要 leader 手工合。现场保留、不猜，行为是对的，但"恢复后的收尾必然要人推一把"值得单独收口。
 - **路 B-heavy**：`RolesWithExecutor` 由静态事实表换成宿主提供的动态事实（新 Port + 回执断言）；本轮只在文案与注释上消除那句假话，事实表形状未动。
 - 第一条团队线遗留的四个 interrupted 作业（工作表上仍可见）。
+
+## 7. 第四轮（2026-10-07 凌晨，主干 `701d363`）：C 链路的**语义**修完（不是把判据放松）
+
+§6 的 ③C 当时只做了一半：判据分桶 + 文案改成"装配本身不会产生回合"，但**符号与 wire 仍在说"没有执行者"**，
+而"暂无可执行者"这个说法本身就是假话——用户在真机上恰恰是**打算派活**。
+
+这一轮把一件事拆成两件（这才是"修语义"）：
+
+| | 是什么 | 谁 |
+|---|---|---|
+| **自动回合** | 没人派活时宿主自己产生的回合 | `user`（输入）/ `main`（主会话 ChatStream）/ `tl`（goal 治理 ADVISOR 回合） |
+| **派活回合** | leader 用 `team_dispatch` 派活 → 作业 → `Runtime.RunWorker` → `runRoleRound` | **任何在编角色**（角色不限 tl/exec） |
+
+改名与改写（23 文件，+127/−112，提交 `701d363`）：
+
+- 符号：`RolesWithExecutor` → `AutomaticTurnRoles`；`unexecutedRoles`/`UnexecutedRoles` →
+  `rolesWithoutAutomaticTurn`/`RolesWithoutAutomaticTurn`；`StopNoExecutor` → `StopNoAutomaticTurn`；
+- wire：`TeamSchedule.Unexecuted` → `NoAutomaticTurn`（`json:"no_automatic_turn"`）、停止原因词
+  `no_executor` → `no_automatic_turn`（dto/TUI/前端标签）、前端徽标"无执行者" → "无自动回合"；
+- 文案：入职回执与成员表声明 = 「…没有自动回合（装配本身不产生回合）；要 leader 派活
+  （team_dispatch）才会跑真回合」。
+
+判据（`gui/team_live_probe_test.go`）**收紧**：① 声明必须恰一条且点明 reviewer/auditor；② 声明里不许出现
+「暂无可执行者 / 没有执行者 / 无执行者 / 只读成员」（`noExecutorClaimIn`）。
+
+读数：
+
+- 真机 `TestRealAPIAgentTeamLiveProbe` **PASS 1.77s**（`tmp/headless-smoke/reports/team-live-20261007-003430.json`）：
+  `design_notice_declared=["本团队（review-team）：reviewer、auditor 没有自动回合（只有注册配置与角色会话，装配本身不产生回合）；要 leader 派活（team_dispatch）才会跑真回合"]`、
+  `design_notice=[]`、`real_turn={assistant_rows:1,user_rows:1}`、`race_clean=true`、`healthz=200`。
+- `go build ./...` = 0、`go vet ./...` = 0、`go test ./... -count=1` = **73 ok / 0 FAIL / exit 0**、
+  `node --test gui/frontend/dist/*.test.mjs` = tests 652 / pass 652 / fail 0。
+- 一处**不稳定读数**（登记）：同树首次全量跑（作业 a24）尾部报了 `FAIL` 但失败包名未取回；同树复跑
+  （作业 a25）73 ok / 0 FAIL。不是语义回归，但成因未见，若再现需追。
+
+仍开放：
+
+- `dto.RoleInstantiation.Executor` 仍是"自动回合的推手"（`user`/`main`/`tl` = 角色名、timer = `scheduler`、
+  其余为空 + 声明）；"谁跑它"这件事今天对所有角色都有答案（leader 派活），字段形状未动。
+- 状态机总表 `docs/arch/state-machine-inventory.md` 未登记这一格（停止原因词是 agentteam 内的字符串常量表，
+  不在 §1 统一面内）——要不要收编进枚举，待定。
