@@ -1,0 +1,1756 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Seelex · teamwork 里程碑甘特图（依赖槽位）· 静态 UI 稿</title>
+<style>
+/* ============================================================
+   Tokens —— 逐字取自 gui/frontend/dist/styles.css（既有语义色，不另造 hex）
+   浅色基座 @ :root / 深色基座 @ :root[data-theme="dark"]
+   本稿新增三组 --team-dag-* ：甘特几何 / teammate 色板 / 里程碑汇总条淡色。
+   ============================================================ */
+:root{
+  --bg:#f7f6f2; --panel:#fbfaf6; --surface:#ffffff; --surface-2:#f1f0ea; --surface-3:#e8e6de;
+  --border:#e7e7e4; --border-strong:#d6d2c6;
+  --text:#1f2328; --muted:#6b6f76; --faint:#9096a0; --text-strong:#1f2328; --text-soft:#3c4148; --text-mid:#4e545c;
+
+  --status-running:#b26a00; --status-done:#1f9c63; --status-failed:#d64545; --status-info:#2e6be6; --status-idle:#9aa0a8;
+  --tint-running:rgba(178,106,0,.10); --tint-done:rgba(31,156,99,.10); --tint-failed:rgba(214,69,69,.10); --tint-info:rgba(46,107,230,.10);
+  --border-running:rgba(178,106,0,.38); --border-done:rgba(31,156,99,.38); --border-failed:rgba(214,69,69,.38); --border-info:rgba(46,107,230,.38);
+
+  --font-ui:"Segoe UI Variable Text","Segoe UI Variable","Segoe UI",system-ui,-apple-system,"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif;
+  --font-mono:ui-monospace,SFMono-Regular,"Cascadia Mono","JetBrains Mono",Consolas,monospace;
+  --text-xs:11px; --text-sm:12px; --text-md:13.5px; --text-lg:15px;
+  --r-sm:6px; --r-md:8px; --r-lg:10px;
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px;
+  --shadow-sm:0 1px 2px rgba(24,28,36,.05), 0 8px 20px rgba(24,28,36,.07);
+
+  /* --- 本轮新增：甘特几何（宽栏基座） --- */
+  --team-dag-slot-w:64px;        /* 槽宽 56–72（leader 冻结区间） */
+  --team-dag-label-w:208px;      /* 左侧任务名列宽 */
+  --team-dag-bar-h:18px;         /* 条高 18–22 */
+  --team-dag-row-h:38px;         /* 行高，显著小于上一版 72px（38 vs 72） */
+  --team-dag-ruler-h:30px;       /* 刻度尺高度（sticky） */
+  --team-dag-scroll-max-h:380px; /* 面板最大高度；超出内部滚动 */
+  --team-dag-edge:#3f93d0;       /* 依赖连线（非状态通道；见 README §5.3 选色理由） */
+  --team-dag-grid:var(--border);
+
+  /* --- teammate 色板（按 role 首次出现次序分配；append-only） --- */
+  --team-dag-role-0:#6f5bd6; /* 紫罗兰 */
+  --team-dag-role-1:#a4538f; /* 梅红 */
+  --team-dag-role-2:#0f8f9e; /* 青 */
+  --team-dag-role-3:#6b7f2e; /* 橄榄 */
+  --team-dag-role-4:#4b4fa8; /* 靛 */
+  --team-dag-role-5:#5a5f68; /* 石墨 */
+
+  /* --- 里程碑汇总条淡色（低饱和，不与状态色/teammate 色抢信号） --- */
+  --team-dag-ms-0:#6a7fa8;
+  --team-dag-ms-1:#8a7fa8;
+  --team-dag-ms-2:#6f8f7f;
+  --team-dag-ms-3:#a08a6a;
+  --team-dag-ms-4:#8f6f7f;
+}
+:root[data-theme="dark"]{
+  --bg:#181818; --panel:#1f1f1f; --surface:#262626; --surface-2:#2e2e2e; --surface-3:#3a3a3a;
+  --border:#333333; --border-strong:#474747;
+  --text:#e4e4e4; --muted:#a3a3a3; --faint:#7e7e7e; --text-strong:#e4e4e4; --text-soft:#c8c8c8; --text-mid:#b4b4b4;
+
+  --status-running:#e0a45c; --status-done:#4cc38a; --status-failed:#f0716a; --status-info:#6ba6ff; --status-idle:#8c8c93;
+  --tint-running:rgba(224,164,92,.12); --tint-done:rgba(76,195,138,.12); --tint-failed:rgba(240,113,106,.12); --tint-info:rgba(107,166,255,.12);
+  --border-running:rgba(224,164,92,.42); --border-done:rgba(76,195,138,.42); --border-failed:rgba(240,113,106,.42); --border-info:rgba(107,166,255,.42);
+
+  --shadow-sm:0 3px 12px rgba(0,0,0,.34);
+
+  --team-dag-role-0:#a08bf0;
+  --team-dag-role-1:#c98fc3;
+  --team-dag-role-2:#45c2bd;
+  --team-dag-role-3:#a9c46a;
+  --team-dag-role-4:#8f93e0;
+  --team-dag-role-5:#9aa0aa;
+
+  --team-dag-ms-0:#8fa6c8;
+  --team-dag-ms-1:#a89ac4;
+  --team-dag-ms-2:#8fb09a;
+  --team-dag-ms-3:#c4ab84;
+  --team-dag-ms-4:#b894a4;
+
+  --team-dag-edge:#6fb6e0;
+  --team-dag-grid:var(--border);
+}
+
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size:var(--text-md);-webkit-font-smoothing:antialiased;}
+
+/* ---------- topbar ---------- */
+.topbar{display:flex;align-items:center;gap:10px;padding:9px 16px;background:var(--panel);border-bottom:1px solid var(--border);}
+.topbar .brand{font-weight:700;letter-spacing:.02em;}
+.topbar .sub{color:var(--faint);font:400 11px var(--font-mono);}
+.topbar .spacer{flex:1;}
+.topbar .round{font:700 10.5px var(--font-mono);color:var(--muted);background:var(--surface-2);border:1px solid var(--border);border-radius:999px;padding:3px 9px;}
+.btn{font:600 var(--text-sm) var(--font-ui);color:var(--text);background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--r-sm);padding:4px 10px;cursor:pointer;}
+.btn:hover{background:var(--surface-2);}
+.btn:active{transform:translateY(1px);}
+
+/* ---------- legend（图例：三条语法 + 两通道各自的可采样色例） ---------- */
+.legend{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:7px 16px;background:var(--surface-2);border-bottom:1px solid var(--border);font:600 10.5px var(--font-mono);color:var(--muted);}
+.legend .legend-title{color:var(--text-mid);letter-spacing:.04em;}
+.legend .sep{width:1px;height:14px;background:var(--border-strong);}
+.sw{display:inline-flex;align-items:center;gap:5px;}
+.sw i{display:inline-block;width:12px;height:12px;border-radius:3px;border:1px solid var(--border);}
+.sw[data-status="running"] i{background:var(--status-running);}
+.sw[data-status="done"] i{background:var(--status-done);}
+.sw[data-status="failed"] i{background:var(--status-failed);}
+.sw[data-status="review"] i{background:var(--status-info);}
+.sw[data-status="pending"] i{background:var(--status-idle);}
+/* 语法三条：细条 / 粗条 / 箭头 */
+.sw-syn{display:inline-flex;align-items:center;gap:6px;}
+.sw-syn .thin{display:inline-block;width:26px;height:9px;border:1px solid var(--status-running);background:color-mix(in srgb, var(--team-dag-role-0) 14%, var(--surface));border-radius:2px;}
+.sw-syn .thick{display:inline-block;width:26px;height:7px;background:var(--team-dag-ms-0);border-radius:2px;}
+.sw-syn svg{width:26px;height:12px;overflow:visible;}
+.sw-syn svg path{fill:none;stroke:var(--team-dag-edge);stroke-width:1.5;}
+.sw-syn svg path.h{fill:var(--team-dag-edge);stroke:none;}
+
+/* ---------- stage / viewport ---------- */
+.stage{display:flex;flex-wrap:wrap;gap:16px;padding:16px;align-items:flex-start;}
+.viewport{flex:0 0 auto;min-width:0;padding:8px;border:1px dashed var(--border-strong);border-radius:var(--r-lg);background:var(--surface-2);}
+.viewport[data-width="360"]{width:360px;}
+.viewport[data-width="720"]{width:720px;}
+.vp-head{display:flex;justify-content:space-between;gap:8px;margin:0 2px 6px;font:700 10.5px var(--font-mono);color:var(--muted);}
+.vp-head span:last-child{color:var(--faint);font-weight:400;}
+
+/* ---------- 面板容器 + 滚动区 ---------- */
+.board-host{container-type:inline-size;}          /* 容器查询宿主 */
+.board{border:1px solid var(--border);border-radius:var(--r-md);background:var(--panel);box-shadow:var(--shadow-sm);}
+.board-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--border);}
+.board-head .t{font-weight:700;font-size:var(--text-sm);color:var(--text-strong);}
+.board-head .meta{font:400 10.5px var(--font-mono);color:var(--faint);}
+.board-scroll{
+  max-height:var(--team-dag-scroll-max-h,380px);
+  overflow-y:auto;overflow-x:hidden;
+  overscroll-behavior:contain;
+  scrollbar-width:thin;scrollbar-color:var(--border-strong) transparent;
+}
+.board-scroll::-webkit-scrollbar{width:10px;height:10px;}
+.board-scroll::-webkit-scrollbar-track{background:transparent;}
+.board-scroll::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:999px;border:2px solid var(--panel);}
+.board-scroll::-webkit-scrollbar-thumb:hover{background:var(--faint);}
+
+/* ---------- 甘特骨架：两列（任务名列 | 绘图区），刻度尺与每一行共用同一套列宽 ---------- */
+.gantt{position:relative;}
+.ruler-line,.wi-row,.ms-sum{display:grid;grid-template-columns:var(--team-dag-label-w) 1fr;}
+
+/* 刻度尺（第 2 条）：顶部刻度 + 竖向网格线；滚动时 sticky */
+.gantt-ruler{
+  position:sticky;top:0;z-index:6;
+  padding:0 1px;height:var(--team-dag-ruler-h);
+  background:var(--surface);border-bottom:1px solid var(--border-strong);
+}
+.gantt-ruler .ruler-label{display:flex;align-items:center;padding:0 8px 0 10px;font:700 10.5px var(--font-mono);color:var(--text-mid);border-right:1px solid var(--border);}
+.gantt-ruler .ruler-plot{position:relative;overflow:hidden;}
+.ruler-tick{position:absolute;top:0;bottom:0;left:calc(var(--i) * var(--team-dag-slot-w));}
+.ruler-tick i{position:absolute;left:0;top:16px;bottom:0;width:1px;background:var(--border-strong);}
+.ruler-tick b{position:absolute;left:3px;top:15px;font:700 9.5px var(--font-mono);color:var(--faint);}
+.ruler-cap{position:absolute;right:8px;top:15px;font:400 10px var(--font-mono);color:var(--faint);white-space:nowrap;}
+.ruler-basis{position:absolute;left:2px;top:1px;font:700 9.5px var(--font-mono);color:var(--muted);white-space:nowrap;}
+
+/* 网格层（与条共用同一 x 原点；1px 内缩对齐框内边界） */
+.gantt-body{position:relative;}
+.grid-layer{position:absolute;left:1px;right:1px;top:0;bottom:0;z-index:0;pointer-events:none;}
+.grid-line{position:absolute;top:0;bottom:0;left:calc(var(--team-dag-label-w) + var(--i) * var(--team-dag-slot-w));width:1px;background:var(--team-dag-grid);}
+.grid-line[data-i="0"]{background:var(--border-strong);}
+
+/* 依赖连线层（在条之下） */
+.gantt-edges{position:absolute;left:0;top:0;z-index:1;pointer-events:none;overflow:visible;}
+.gantt-edges path.edge{fill:none;stroke:var(--team-dag-edge);stroke-width:1.5;stroke-linejoin:miter;stroke-linecap:butt;}
+.gantt-edges path.head{fill:var(--team-dag-edge);stroke:none;}
+
+/* ---------- 里程碑框（第 5/6 条）：框住自己名下的行 ---------- */
+.ms-frame{position:relative;z-index:2;margin:4px 0;border:1px solid var(--ms-tone,var(--border-strong));border-radius:var(--r-lg);background:color-mix(in srgb, var(--ms-tone,transparent) 5%, transparent);}
+.ms-frame[data-locked="true"]{border-style:dashed;opacity:.55;}   /* 未解锁：虚线 + 降透明度 + 🔒 */
+
+.ms-head{
+  position:sticky;top:var(--team-dag-ruler-h);z-index:5;
+  display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-height:28px;padding:3px 8px;
+  border-bottom:1px solid var(--border);
+  background:var(--panel);border-radius:var(--r-lg) var(--r-lg) 0 0;
+}
+.ms-head>*{white-space:nowrap;}
+.ms-id{font:700 11.5px var(--font-mono);color:var(--ms-tone,var(--text-strong));}
+.ms-name{font-weight:700;color:var(--text-strong);font-size:var(--text-sm);}
+.ms-layer,.ms-count,.ms-deps,.ms-content{font:400 10.5px var(--font-mono);color:var(--muted);}
+.ms-layer{color:var(--faint);font-weight:700;}
+.ms-content{color:var(--faint);flex:1 1 60px;min-width:0;overflow:hidden;text-overflow:ellipsis;}
+.ms-lock{font:700 10px var(--font-mono);color:var(--status-idle);border:1px solid var(--border-strong);border-radius:999px;padding:1px 6px;background:var(--surface);}
+.ms-lock.is-open{color:var(--status-done);border-color:var(--border-done);background:var(--tint-done);}
+.chip{border:1px solid var(--border);border-radius:var(--r-sm);padding:1px 5px;background:var(--surface);font:700 10px var(--font-mono);}
+.chip[data-status="active"]{color:var(--status-running);border-color:var(--border-running);background:var(--tint-running);}
+.chip[data-status="done"]{color:var(--status-done);border-color:var(--border-done);background:var(--tint-done);}
+.chip[data-status="pending"]{color:var(--status-idle);}
+
+/* 汇总条（第 5 条）：横跨名下全部工作项条的总跨度，两端向下短折 */
+.ms-sum{height:22px;padding:0;}
+.sum-label{display:flex;align-items:center;gap:6px;padding:0 8px 0 10px;font:700 10px var(--font-mono);color:var(--faint);overflow:hidden;}
+.sum-plot{position:relative;}
+.sum-bar{position:absolute;top:5px;height:9px;left:calc(var(--s) * var(--team-dag-slot-w));width:calc((var(--e) - var(--s)) * var(--team-dag-slot-w));background:var(--ms-tone);border-radius:2px;}
+.sum-bar[data-empty="true"]{display:none;}
+.sum-cap{position:absolute;top:14px;width:2px;height:6px;background:var(--ms-tone);}
+.sum-cap-l{left:0;}
+.sum-cap-r{right:0;}
+.sum-diamond{position:absolute;top:6px;left:calc(var(--s) * var(--team-dag-slot-w));width:0;height:0;margin-left:-1px;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:9px solid var(--ms-tone);transform:rotate(45deg);}
+.sum-diamond[data-empty="false"]{display:none;}
+.sum-note{position:absolute;top:6px;left:calc(var(--e) * var(--team-dag-slot-w) + 8px);font:400 10px var(--font-mono);color:var(--faint);white-space:nowrap;}
+
+/* ---------- 工作项行（第 1/3 条）：label 列 + 绘图区一根横条 ---------- */
+.ms-rows{display:flex;flex-direction:column;}
+.wi-row{position:relative;z-index:2;height:var(--team-dag-row-h);}
+.wi-label{position:relative;display:flex;align-items:center;gap:6px;padding:0 8px 0 10px;overflow:hidden;border-right:1px solid transparent;}
+.wi-id{font:700 10.5px var(--font-mono);color:var(--text-strong);flex:0 0 auto;}
+.wi-name{font-weight:600;font-size:var(--text-sm);color:var(--text-strong);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;cursor:pointer;}
+.wi-name:hover{text-decoration:underline;}
+.wi-flags{display:flex;gap:3px;flex:0 0 auto;}
+.wi-flag{font:700 9px var(--font-mono);border:1px solid var(--border);border-radius:3px;padding:0 3px;background:var(--surface);color:var(--faint);}
+.wi-flag[data-on="false"]{opacity:.28;}
+.wi-flag[data-flag="blocked"][data-on="true"]{color:var(--status-idle);border-color:var(--border-strong);}
+.wi-flag[data-flag="interrupted"][data-on="true"]{color:var(--status-failed);border-color:var(--border-failed);background:var(--tint-failed);}
+.wi-flag[data-flag="live"][data-on="true"]{color:var(--status-running);border-color:var(--border-running);background:var(--tint-running);}
+/* 全文（goal/desc/note/session/worktree）不进版面但**在 DOM 里**，供 verify 逐项查找 */
+.wi-full{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;}
+
+.wi-plot{position:relative;}
+/* depends_on 小字挂在条左端上方 */
+.wi-depnote{position:absolute;top:0;left:calc(var(--s) * var(--team-dag-slot-w) + 2px);font:400 9.5px/10px var(--font-mono);color:var(--faint);white-space:nowrap;pointer-events:none;}
+/* 条：x = 槽位，宽 = 1 槽 - 2px 视觉缝；描边=状态，填充+左端 cap=teammate（两通道正交） */
+.wi-bar{
+  position:absolute;top:calc((var(--team-dag-row-h) - var(--team-dag-bar-h)) / 2);
+  left:calc(var(--s) * var(--team-dag-slot-w));
+  width:calc(var(--d) * var(--team-dag-slot-w) - 2px);
+  height:var(--team-dag-bar-h);
+  border:1px solid var(--row-line,var(--status-idle));
+  background:color-mix(in srgb, var(--role-color) 14%, var(--surface));
+  border-radius:0;
+}
+.wi-row[data-eff="running"]{--row-line:var(--status-running);}
+.wi-row[data-eff="done"]{--row-line:var(--status-done);}
+.wi-row[data-eff="failed"]{--row-line:var(--status-failed);}
+.wi-row[data-eff="review"]{--row-line:var(--status-info);}
+.wi-row[data-eff="pending"]{--row-line:var(--status-idle);}
+.wi-row[data-eff="pending"] .wi-bar{border-style:dashed;}            /* pending = 虚线描边 */
+.wi-cap{position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--role-color);}   /* 左端 4px 实色 cap */
+.wi-bar-name{position:absolute;left:6px;right:4px;top:0;bottom:0;display:flex;align-items:center;font:600 10.5px var(--font-ui);color:var(--text-strong);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;}
+/* 条后：role chip（色点）+ 状态 chip */
+.wi-after{position:absolute;top:calc((var(--team-dag-row-h) - 18px) / 2);left:calc((var(--s) + var(--d)) * var(--team-dag-slot-w) + 10px);display:flex;align-items:center;gap:5px;}
+.role-chip{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface);padding:1px 5px;font:700 10px var(--font-mono);color:var(--text-mid);cursor:pointer;}
+.role-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--role-color);}
+.status-chip{border:1px solid var(--border);border-radius:var(--r-sm);padding:1px 5px;background:var(--surface);font:700 10px var(--font-mono);color:var(--muted);}
+.status-chip[data-eff="running"]{color:var(--status-running);border-color:var(--border-running);background:var(--tint-running);}
+.status-chip[data-eff="done"]{color:var(--status-done);border-color:var(--border-done);background:var(--tint-done);}
+.status-chip[data-eff="failed"]{color:var(--status-failed);border-color:var(--border-failed);background:var(--tint-failed);}
+.status-chip[data-eff="review"]{color:var(--status-info);border-color:var(--border-info);background:var(--tint-info);}
+.status-chip[data-eff="pending"]{color:var(--status-idle);}
+.session-chip{border:1px dashed var(--border-strong);border-radius:var(--r-sm);padding:1px 5px;background:var(--surface);font:400 10px var(--font-mono);color:var(--faint);cursor:pointer;}
+
+/* ---------- 闸门带（第 5 条保留）：两框之间的横向虚线 + 三支文案 ---------- */
+.gate-band{position:relative;z-index:2;display:flex;align-items:center;gap:8px;height:18px;margin:0 6px;--gate-tone:var(--status-idle);}
+.gate-band[data-open="true"]{--gate-tone:var(--status-done);}
+.gate-line{flex:1;border-top:1.5px dashed var(--gate-tone);}
+.gate-label{font:700 10px var(--font-mono);color:var(--gate-tone);border:1px dashed var(--gate-tone);border-radius:999px;padding:1px 7px;background:var(--panel);}
+
+/* ---------- 窄栏（≤520px 宿主）：容器查询自适应，纯 CSS ---------- */
+@container (max-width:520px){
+  .gantt{--team-dag-slot-w:40px;--team-dag-label-w:118px;--team-dag-bar-h:16px;--team-dag-row-h:30px;--team-dag-ruler-h:28px;}  .wi-depnote,.role-chip,.session-chip,.ruler-cap,.ms-content{display:none;}   /* 隐藏次级列，不动数据 */
+  .wi-name{font-size:11px;}
+  .sum-note{display:none;}
+  .ruler-basis{font-size:9.5px;}
+}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <span class="brand">teamwork 甘特图</span>
+  <span class="sub">左列=任务（id · name）· 右列绘图区 x = 依赖槽位 · 一行一根条</span>
+  <span class="spacer"></span>
+  <span class="round" id="round-label">round 0 · base</span>
+  <button class="btn" id="advance" type="button">推进一轮</button>
+  <button class="btn" id="reset" type="button">重置</button>
+  <button class="btn" id="demo-toggle" type="button">夹具：真实故事</button>
+  <button class="btn" id="theme-toggle" type="button">切到 dark</button>
+</header>
+
+<div class="legend">
+  <span class="legend-title">语法</span>
+  <span class="sw-syn" title="工作项：1 槽长的细条"><i class="thin"></i>细条 = 工作项</span>
+  <span class="sw-syn" title="里程碑：横跨名下全部条的总跨度"><i class="thick"></i>粗条 = 里程碑汇总</span>
+  <span class="sw-syn" title="finish→start"><svg viewBox="0 0 26 12"><path d="M0 3 H10 V9 H18"></path><path class="h" d="M18 9 l 6 -3 l 0 6 Z" transform="translate(-5,0)"></path></svg>箭头 = finish→start</span>
+  <span class="sep"></span>
+  <span class="legend-title">条描边 = 状态</span>
+  <span class="sw" data-status="running"><i></i>running</span>
+  <span class="sw" data-status="done"><i></i>done</span>
+  <span class="sw" data-status="review"><i></i>review</span>
+  <span class="sw" data-status="failed"><i></i>failed/interrupted</span>
+  <span class="sw" data-status="pending"><i></i>pending(虚线)</span>
+  <span class="sep"></span>
+  <span class="legend-title">条填充 + 左端 cap = teammate</span>
+  <span id="legend-roles"><span class="sw" data-role="artist" style="margin-right:10px"><i style="background:var(--team-dag-role-0)"></i>artist <span style="color:var(--faint)">slot 0</span></span><span class="sw" data-role="frontend" style="margin-right:10px"><i style="background:var(--team-dag-role-1)"></i>frontend <span style="color:var(--faint)">slot 1</span></span><span class="sw" data-role="verify" style="margin-right:10px"><i style="background:var(--team-dag-role-2)"></i>verify <span style="color:var(--faint)">slot 2</span></span></span>
+</div>
+
+<main class="stage" id="stage"><section class="viewport" data-width="720"><div class="vp-head"><span>720px · story</span><span>内部滚动 max-height 380 · 刻度尺与框头 sticky</span></div><div class="board-host" id="host-0"><div class="board" data-board="board-wide" data-fixture="[object Object]"><div class="board-head"><span class="t">team-gantt-design</span><span class="meta">plan v4 · 3 里程碑 · 6 工作项 · 4 槽</span><span class="meta">夹具：story</span><span class="meta" data-cyclic="false">cyclic=false</span></div><div class="board-scroll"><div class="board-content"><div class="gantt"><div class="gantt-ruler ruler-line" data-role="ruler"><div class="ruler-label">任务（id · name）</div><div class="ruler-plot"><span class="ruler-tick" data-tick="0" style="--i:0"><i></i><b>0</b></span><span class="ruler-tick" data-tick="1" style="--i:1"><i></i><b>1</b></span><span class="ruler-tick" data-tick="2" style="--i:2"><i></i><b>2</b></span><span class="ruler-tick" data-tick="3" style="--i:3"><i></i><b>3</b></span><span class="ruler-tick" data-tick="4" style="--i:4"><i></i><b>4</b></span><span class="ruler-basis">横轴 = 依赖槽位（非时间）</span><span class="ruler-cap">1 槽 = 1 层依赖 · 条长恒 1 槽</span></div></div><div class="gantt-body"><div class="grid-layer"><span class="grid-line" data-i="0" style="--i:0"></span><span class="grid-line" data-i="1" style="--i:1"></span><span class="grid-line" data-i="2" style="--i:2"></span><span class="grid-line" data-i="3" style="--i:3"></span><span class="grid-line" data-i="4" style="--i:4"></span></div><svg class="gantt-edges" aria-hidden="true" width="690" height="436" viewBox="0 0 690 436"><path class="edge" d="M 271 108 H 278 V 240 H 264 V 224 H 266"></path><path class="head" d="M 273 224 l -7 -3.5 l 0 7 Z"></path><path class="edge" d="M 335 224 H 342 V 278 H 328 V 262 H 330"></path><path class="head" d="M 337 262 l -7 -3.5 l 0 7 Z"></path><path class="edge" d="M 335 224 H 342 V 394 H 328 V 378 H 330"></path><path class="head" d="M 337 378 l -7 -3.5 l 0 7 Z"></path><path class="edge" d="M 399 378 H 406 V 432 H 392 V 416 H 394"></path><path class="head" d="M 401 416 l -7 -3.5 l 0 7 Z"></path><path class="edge" d="M 399 262 H 413 V 432 H 386 V 416 H 394"></path><path class="head" d="M 401 416 l -7 -3.5 l 0 7 Z"></path><path class="edge" d="M 273 38.5 H 280 V 208.5 H 264 V 192.5 H 266"></path><path class="head" d="M 273 192.5 l -7 -3.5 l 0 7 Z"></path><path class="edge" d="M 401 192.5 H 408 V 362.5 H 328 V 346.5 H 330"></path><path class="head" d="M 337 346.5 l -7 -3.5 l 0 7 Z"></path></svg><section class="ms-frame" data-ms="m-design" data-locked="false" data-status="active" data-layer="0" data-sum-start="0" data-sum-end="1" data-sum-empty="false" style="--ms-tone:var(--team-dag-ms-0)" data-ms-deps=""><header class="ms-head" data-ms="m-design"><span class="ms-id">m-design</span><span class="ms-name">设计</span><span class="ms-layer" title="屏障链层号（milestones[].depends_on 拓扑序）">L0</span><span class="chip" data-status="active">active</span><span class="ms-deps" title="屏障依赖 milestones[].depends_on">屏障 ← （入口层）</span><span class="ms-lock is-open">🔓 已解锁</span><span class="ms-count">2 items</span><span class="ms-content" title="出图：真·甘特图静态 UI 稿">出图：真·甘特图静态 UI 稿</span></header><div class="ms-sum" data-ms="m-design" style="--s:0;--e:1"><div class="sum-label">milestone</div><div class="sum-plot"><span class="sum-bar" data-ms="m-design" data-empty="false" style="--s:0;--e:1"><i class="sum-cap sum-cap-l"></i><i class="sum-cap sum-cap-r"></i></span><span class="sum-diamond" data-ms="m-design" data-empty="false" style="--s:0;--e:1"></span><span class="sum-note">槽 0–1</span></div></div><div class="ms-rows"><article class="wi-row" data-item="wi-frame" data-role="frontend" data-status="done" data-eff="done" data-slot="0" data-dur="1" data-end="1" data-depth="0" data-order="0" data-ms="m-design" data-blocked="false" data-interrupted="false" data-live="false" data-session="sess-gantt-frontend-00" data-worktree="seelex-frontend-wi-gantt-frame" data-line="done" style="--role-color:var(--team-dag-role-1);--s:0;--d:1" title="wi-frame · 线框与令牌核稿 | role: frontend | status: done | depends_on: — | session: sess-gantt-frontend-00 | worktree: seelex-frontend-wi-gantt-frame | goal: 条描边只走 --status-* 令牌，不新造色值 | description: 核对色板与几何常量 | note: 已随 m-design 收口" data-deps=""><div class="wi-label"><code class="wi-id">wi-frame</code><span class="wi-name" data-team-item-open="wi-frame" title="线框与令牌核稿">线框与令牌核稿</span><span class="wi-flags"><span class="wi-flag" data-flag="blocked" data-on="false" title="blocked：还有前驱没 done">blocked</span><span class="wi-flag" data-flag="interrupted" data-on="false" title="interrupted：中断待恢复">interrupted</span><span class="wi-flag" data-flag="live" data-on="false" title="live：正在跑">live</span></span><span class="wi-full" aria-hidden="true">id: wi-frame; role: frontend; status: done; depends_on: —; session_id: sess-gantt-frontend-00; worktree: seelex-frontend-wi-gantt-frame; goal: 条描边只走 --status-* 令牌，不新造色值; description: 核对色板与几何常量; note: 已随 m-design 收口; blocked: false; interrupted: false; live: false</span></div><div class="wi-plot"><span class="wi-depnote" title="无依赖 → 槽 0">无依赖 → 槽 0</span><span class="wi-bar" data-item="wi-frame" style="--s:0;--d:1"><i class="wi-cap"></i><span class="wi-bar-name">线框与令牌核稿</span></span><span class="wi-after"><span class="role-chip" data-team-role-open="frontend" title="teammate"><i class="role-dot"></i>frontend</span><span class="status-chip" data-eff="done">done</span><span class="session-chip" data-team-session="sess-gantt-frontend-00" title="session_id">sess-gantt-frontend-00</span></span></div></article><article class="wi-row" data-item="wi-design" data-role="artist" data-status="running" data-eff="running" data-slot="0" data-dur="1" data-end="1" data-depth="0" data-order="1" data-ms="m-design" data-blocked="false" data-interrupted="false" data-live="true" data-session="sess-gantt-artist-01" data-worktree="seelex-artist-wi-gantt-design" data-line="running" style="--role-color:var(--team-dag-role-0);--s:0;--d:1" title="wi-design · 出图：真·甘特图静态稿 | role: artist | status: running | depends_on: — | session: sess-gantt-artist-01 | worktree: seelex-artist-wi-gantt-design | goal: 单文件自包含甘特稿 + README + 三张 PNG 证据 | description: index.html + README.md + evidence/ | note: 几何映射由 leader 冻结，照抄" data-deps=""><div class="wi-label"><code class="wi-id">wi-design</code><span class="wi-name" data-team-item-open="wi-design" title="出图：真·甘特图静态稿">出图：真·甘特图静态稿</span><span class="wi-flags"><span class="wi-flag" data-flag="blocked" data-on="false" title="blocked：还有前驱没 done">blocked</span><span class="wi-flag" data-flag="interrupted" data-on="false" title="interrupted：中断待恢复">interrupted</span><span class="wi-flag" data-flag="live" data-on="true" title="live：正在跑">live</span></span><span class="wi-full" aria-hidden="true">id: wi-design; role: artist; status: running; depends_on: —; session_id: sess-gantt-artist-01; worktree: seelex-artist-wi-gantt-design; goal: 单文件自包含甘特稿 + README + 三张 PNG 证据; description: index.html + README.md + evidence/; note: 几何映射由 leader 冻结，照抄; blocked: false; interrupted: false; live: true</span></div><div class="wi-plot"><span class="wi-depnote" title="无依赖 → 槽 0">无依赖 → 槽 0</span><span class="wi-bar" data-item="wi-design" style="--s:0;--d:1"><i class="wi-cap"></i><span class="wi-bar-name">出图：真·甘特图静态稿</span></span><span class="wi-after"><span class="role-chip" data-team-role-open="artist" title="teammate"><i class="role-dot"></i>artist</span><span class="status-chip" data-eff="running">running</span><span class="session-chip" data-team-session="sess-gantt-artist-01" title="session_id">sess-gantt-artist-01</span></span></div></article></div></section><div class="gate-band" data-gate="m-design-&gt;m-impl" data-open="false"><span class="gate-line"></span><span class="gate-label">闸门 → 上一层全部 done 才放行（等 m-design）</span><span class="gate-line"></span></div><section class="ms-frame" data-ms="m-impl" data-locked="true" data-status="pending" data-layer="1" data-sum-start="1" data-sum-end="3" data-sum-empty="false" style="--ms-tone:var(--team-dag-ms-1)" data-ms-deps="m-design"><header class="ms-head" data-ms="m-impl"><span class="ms-id">m-impl</span><span class="ms-name">实现</span><span class="ms-layer" title="屏障链层号（milestones[].depends_on 拓扑序）">L1</span><span class="chip" data-status="pending">pending</span><span class="ms-deps" title="屏障依赖 milestones[].depends_on">屏障 ← m-design</span><span class="ms-lock">🔒 待解锁</span><span class="ms-count">2 items</span><span class="ms-content" title="按稿落地甘特条 + 汇总条（frontend）">按稿落地甘特条 + 汇总条（frontend）</span></header><div class="ms-sum" data-ms="m-impl" style="--s:1;--e:3"><div class="sum-label">milestone</div><div class="sum-plot"><span class="sum-bar" data-ms="m-impl" data-empty="false" style="--s:1;--e:3"><i class="sum-cap sum-cap-l"></i><i class="sum-cap sum-cap-r"></i></span><span class="sum-diamond" data-ms="m-impl" data-empty="false" style="--s:1;--e:3"></span><span class="sum-note">槽 1–3</span></div></div><div class="ms-rows"><article class="wi-row" data-item="wi-impl" data-role="frontend" data-status="pending" data-eff="pending" data-slot="1" data-dur="1" data-end="2" data-depth="1" data-order="2" data-ms="m-impl" data-blocked="true" data-interrupted="false" data-live="false" data-session="" data-worktree="seelex-frontend-wi-gantt-impl" data-line="pending" style="--role-color:var(--team-dag-role-1);--s:1;--d:1" title="wi-impl · 甘特条 + 汇总条落地 | role: frontend | status: pending | depends_on: wi-design | session: — | worktree: seelex-frontend-wi-gantt-impl | goal: 条的 left/width 由 start()/dur 推出，不许编条长 | description: CSS 变量 --s/--d | note: 等 wi-design 出图" data-deps="wi-design"><div class="wi-label"><code class="wi-id">wi-impl</code><span class="wi-name" data-team-item-open="wi-impl" title="甘特条 + 汇总条落地">甘特条 + 汇总条落地</span><span class="wi-flags"><span class="wi-flag" data-flag="blocked" data-on="true" title="blocked：还有前驱没 done">blocked</span><span class="wi-flag" data-flag="interrupted" data-on="false" title="interrupted：中断待恢复">interrupted</span><span class="wi-flag" data-flag="live" data-on="false" title="live：正在跑">live</span></span><span class="wi-full" aria-hidden="true">id: wi-impl; role: frontend; status: pending; depends_on: wi-design; session_id: —; worktree: seelex-frontend-wi-gantt-impl; goal: 条的 left/width 由 start()/dur 推出，不许编条长; description: CSS 变量 --s/--d; note: 等 wi-design 出图; blocked: true; interrupted: false; live: false</span></div><div class="wi-plot"><span class="wi-depnote" title="depends_on: wi-design → 槽 1">depends_on: wi-design → 槽 1</span><span class="wi-bar" data-item="wi-impl" style="--s:1;--d:1"><i class="wi-cap"></i><span class="wi-bar-name">甘特条 + 汇总条落地</span></span><span class="wi-after"><span class="role-chip" data-team-role-open="frontend" title="teammate"><i class="role-dot"></i>frontend</span><span class="status-chip" data-eff="pending">pending</span></span></div></article><article class="wi-row" data-item="wi-tests" data-role="frontend" data-status="pending" data-eff="pending" data-slot="2" data-dur="1" data-end="3" data-depth="2" data-order="3" data-ms="m-impl" data-blocked="true" data-interrupted="false" data-live="false" data-session="" data-worktree="seelex-frontend-wi-gantt-tests" data-line="pending" style="--role-color:var(--team-dag-role-1);--s:2;--d:1" title="wi-tests · 槽位与拓扑单测 | role: frontend | status: pending | depends_on: wi-impl | session: — | worktree: seelex-frontend-wi-gantt-tests | goal: 数组倒序声明仍得拓扑序 | description: 覆盖成环 / 缺失依赖兜底 | note: 等 wi-impl" data-deps="wi-impl"><div class="wi-label"><code class="wi-id">wi-tests</code><span class="wi-name" data-team-item-open="wi-tests" title="槽位与拓扑单测">槽位与拓扑单测</span><span class="wi-flags"><span class="wi-flag" data-flag="blocked" data-on="true" title="blocked：还有前驱没 done">blocked</span><span class="wi-flag" data-flag="interrupted" data-on="false" title="interrupted：中断待恢复">interrupted</span><span class="wi-flag" data-flag="live" data-on="false" title="live：正在跑">live</span></span><span class="wi-full" aria-hidden="true">id: wi-tests; role: frontend; status: pending; depends_on: wi-impl; session_id: —; worktree: seelex-frontend-wi-gantt-tests; goal: 数组倒序声明仍得拓扑序; description: 覆盖成环 / 缺失依赖兜底; note: 等 wi-impl; blocked: true; interrupted: false; live: false</span></div><div class="wi-plot"><span class="wi-depnote" title="depends_on: wi-impl → 槽 2">depends_on: wi-impl → 槽 2</span><span class="wi-bar" data-item="wi-tests" style="--s:2;--d:1"><i class="wi-cap"></i><span class="wi-bar-name">槽位与拓扑单测</span></span><span class="wi-after"><span class="role-chip" data-team-role-open="frontend" title="teammate"><i class="role-dot"></i>frontend</span><span class="status-chip" data-eff="pending">pending</span></span></div></article></div></section><div class="gate-band" data-gate="m-impl-&gt;m-verify" data-open="false"><span class="gate-line"></span><span class="gate-label">闸门 → 上一层全部 done 才放行（等 m-impl）</span><span class="gate-line"></span></div><section class="ms-frame" data-ms="m-verify" data-locked="true" data-status="pending" data-layer="2" data-sum-start="2" data-sum-end="4" data-sum-empty="false" style="--ms-tone:var(--team-dag-ms-2)" data-ms-deps="m-impl"><header class="ms-head" data-ms="m-verify"><span class="ms-id">m-verify</span><span class="ms-name">验证</span><span class="ms-layer" title="屏障链层号（milestones[].depends_on 拓扑序）">L2</span><span class="chip" data-status="pending">pending</span><span class="ms-deps" title="屏障依赖 milestones[].depends_on">屏障 ← m-impl</span><span class="ms-lock">🔒 待解锁</span><span class="ms-count">2 items</span><span class="ms-content" title="独立渲染量测 / 像素复核 / 验收收口">独立渲染量测 / 像素复核 / 验收收口</span></header><div class="ms-sum" data-ms="m-verify" style="--s:2;--e:4"><div class="sum-label">milestone</div><div class="sum-plot"><span class="sum-bar" data-ms="m-verify" data-empty="false" style="--s:2;--e:4"><i class="sum-cap sum-cap-l"></i><i class="sum-cap sum-cap-r"></i></span><span class="sum-diamond" data-ms="m-verify" data-empty="false" style="--s:2;--e:4"></span><span class="sum-note">槽 2–4</span></div></div><div class="ms-rows"><article class="wi-row" data-item="wi-render" data-role="verify" data-status="pending" data-eff="pending" data-slot="2" data-dur="1" data-end="3" data-depth="2" data-order="4" data-ms="m-verify" data-blocked="true" data-interrupted="false" data-live="false" data-session="" data-worktree="seelex-verify-wi-gantt-render" data-line="pending" style="--role-color:var(--team-dag-role-2);--s:2;--d:1" title="wi-render · PNG 逐行区间量测 | role: verify | status: pending | depends_on: wi-impl | session: — | worktree: seelex-verify-wi-gantt-render | goal: PIL 扫条实色 x 区间 → 反推槽位 | description: 三张 PNG + 读数表 | note: 等 wi-impl 合入" data-deps="wi-impl"><div class="wi-label"><code class="wi-id">wi-render</code><span class="wi-name" data-team-item-open="wi-render" title="PNG 逐行区间量测">PNG 逐行区间量测</span><span class="wi-flags"><span class="wi-flag" data-flag="blocked" data-on="true" title="blocked：还有前驱没 done">blocked</span><span class="wi-flag" data-flag="interrupted" data-on="false" title="interrupted：中断待恢复">interrupted</span><span class="wi-flag" data-flag="live" data-on="false" title="live：正在跑">live</span></span><span class="wi-full" aria-hidden="true">id: wi-render; role: verify; status: pending; depends_on: wi-impl; session_id: —; worktree: seelex-verify-wi-gantt-render; goal: PIL 扫条实色 x 区间 → 反推槽位; description: 三张 PNG + 读数表; note: 等 wi-impl 合入; blocked: true; interrupted: false; live: false</span></div><div class="wi-plot"><span class="wi-depnote" title="depends_on: wi-impl → 槽 2">depends_on: wi-impl → 槽 2</span><span class="wi-bar" data-item="wi-render" style="--s:2;--d:1"><i class="wi-cap"></i><span class="wi-bar-name">PNG 逐行区间量测</span></span><span class="wi-after"><span class="role-chip" data-team-role-open="verify" title="teammate"><i class="role-dot"></i>verify</span><span class="status-chip" data-eff="pending">pending</span></span></div></article><article class="wi-row" data-item="wi-accept" data-role="verify" data-status="pending" data-eff="pending" data-slot="3" data-dur="1" data-end="4" data-depth="3" data-order="5" data-ms="m-verify" data-blocked="true" data-interrupted="false" data-live="false" data-session="" data-worktree="seelex-verify-wi-gantt-accept" data-line="pending" style="--role-color:var(--team-dag-role-2);--s:3;--d:1" title="wi-accept · 验收收口 | role: verify | status: pending | depends_on: wi-render, wi-tests | session: — | worktree: seelex-verify-wi-gantt-accept | goal: 两种宽度 + 双主题可读，量测表对得上公式 | description: 复核 start()/dur/汇总条跨度 | note: 等 wi-render 与 wi-tests" data-deps="wi-render,wi-tests"><div class="wi-label"><code class="wi-id">wi-accept</code><span class="wi-name" data-team-item-open="wi-accept" title="验收收口">验收收口</span><span class="wi-flags"><span class="wi-flag" data-flag="blocked" data-on="true" title="blocked：还有前驱没 done">blocked</span><span class="wi-flag" data-flag="interrupted" data-on="false" title="interrupted：中断待恢复">interrupted</span><span class="wi-flag" data-flag="live" data-on="false" title="live：正在跑">live</span></span><span class="wi-full" aria-hidden="true">id: wi-accept; role: verify; status: pending; depends_on: wi-render, wi-tests; session_id: —; worktree: seelex-verify-wi-gantt-accept; goal: 两种宽度 + 双主题可读，量测表对得上公式; description: 复核 start()/dur/汇总条跨度; note: 等 wi-render 与 wi-tests; blocked: true; interrupted: false; live: false</span></div><div class="wi-plot"><span class="wi-depnote" title="depends_on: wi-render, wi-tests → 槽 3">depends_on: wi-render, wi-tests → 槽 3</span><span class="wi-bar" data-item="wi-accept" style="--s:3;--d:1"><i class="wi-cap"></i><span class="wi-bar-name">验收收口</span></span><span class="wi-after"><span class="role-chip" data-team-role-open="verify" title="teammate"><i class="role-dot"></i>verify</span><span class="status-chip" data-eff="pending">pending</span></span></div></article></div></section></div></div></div></div></div></div></section></main>
+
+<pre id="gantt-probe" hidden="">{
+ "dpr": 1,
+ "innerW": 782,
+ "innerH": 1304,
+ "docW": 782,
+ "docH": 1304,
+ "theme": "light",
+ "view": "wide",
+ "demo": "story",
+ "round": 0,
+ "geometry": {
+  "dur": "1",
+  "start": "0 无依赖；否则 max(start(d)+1)",
+  "barX": "slot*slotW",
+  "barW": "dur*slotW-2px",
+  "summary": "min(start)..max(end)",
+  "dir": "finish→start"
+ },
+ "chromeRect": {
+  "topbar": {
+   "l": 0,
+   "t": 0,
+   "w": 782,
+   "h": 61
+  },
+  "legend": {
+   "l": 0,
+   "t": 61,
+   "w": 782,
+   "h": 77
+  }
+ },
+ "idempotent": true,
+ "hashA": "5be4ac0e",
+ "hashB": "5be4ac0e",
+ "scrollKeep": true,
+ "scrollBefore": 60,
+ "scrollAfter": 60,
+ "stickyRuler": true,
+ "stickyHead": true,
+ "stickyHeadStuck": true,
+ "stickyHeadInvariant": true,
+ "stickyRulerDelta": 0,
+ "stickyHeadDelta": 0,
+ "roleIndex": {
+  "artist": 0,
+  "frontend": 1,
+  "verify": 2
+ },
+ "legendSwap": {
+  "status": {
+   "running": {
+    "l": 549.7,
+    "t": 69,
+    "w": 12,
+    "h": 12
+   },
+   "done": {
+    "l": 619.78,
+    "t": 69,
+    "w": 12,
+    "h": 12
+   },
+   "review": {
+    "l": 671.39,
+    "t": 69,
+    "w": 12,
+    "h": 12
+   },
+   "failed": {
+    "l": 16,
+    "t": 93,
+    "w": 12,
+    "h": 12
+   },
+   "pending": {
+    "l": 153.75,
+    "t": 93,
+    "w": 12,
+    "h": 12
+   }
+  },
+  "role": {
+   "artist": {
+    "l": 16,
+    "t": 116,
+    "w": 12,
+    "h": 12
+   },
+   "frontend": {
+    "l": 121.84,
+    "t": 116,
+    "w": 12,
+    "h": 12
+   },
+   "verify": {
+    "l": 239.98,
+    "t": 116,
+    "w": 12,
+    "h": 12
+   }
+  }
+ },
+ "viewports": [
+  {
+   "width": "720",
+   "rect": {
+    "l": 16,
+    "t": 154,
+    "w": 720,
+    "h": 449
+   }
+  }
+ ],
+ "boards": [
+  {
+   "id": "board-wide",
+   "fixture": "[object Object]",
+   "hostW": 702,
+   "slotW": 64,
+   "labelW": 208,
+   "barH": 18,
+   "rowH": 38,
+   "scrollMaxH": 380,
+   "scroll": {
+    "clientH": 380,
+    "scrollH": 474,
+    "scrollTop": 0,
+    "rect": {
+     "l": 26,
+     "t": 213,
+     "w": 700,
+     "h": 380
+    }
+   },
+   "ruler": {
+    "rect": {
+     "l": 26,
+     "t": 213,
+     "w": 690,
+     "h": 30
+    },
+    "plot": {
+     "l": 235,
+     "t": 213,
+     "w": 480,
+     "h": 29
+    },
+    "ticks": [
+     {
+      "i": 0,
+      "x": 0
+     },
+     {
+      "i": 1,
+      "x": 64
+     },
+     {
+      "i": 2,
+      "x": 128
+     },
+     {
+      "i": 3,
+      "x": 192
+     },
+     {
+      "i": 4,
+      "x": 256
+     }
+    ]
+   },
+   "svg": {
+    "w": 690,
+    "h": 436,
+    "edges": 7,
+    "heads": 7
+   },
+   "itemEdges": [
+    {
+     "src": "wi-design",
+     "dst": "wi-impl",
+     "k": 0,
+     "path": "M 271 108 H 278 V 240 H 264 V 224 H 266",
+     "srcAnchor": [
+      271,
+      108
+     ],
+     "dstAnchor": [
+      273,
+      224
+     ],
+     "srcView": [
+      297,
+      355
+     ],
+     "dstView": [
+      299,
+      471
+     ]
+    },
+    {
+     "src": "wi-impl",
+     "dst": "wi-tests",
+     "k": 0,
+     "path": "M 335 224 H 342 V 278 H 328 V 262 H 330",
+     "srcAnchor": [
+      335,
+      224
+     ],
+     "dstAnchor": [
+      337,
+      262
+     ],
+     "srcView": [
+      361,
+      471
+     ],
+     "dstView": [
+      363,
+      509
+     ]
+    },
+    {
+     "src": "wi-impl",
+     "dst": "wi-render",
+     "k": 0,
+     "path": "M 335 224 H 342 V 394 H 328 V 378 H 330",
+     "srcAnchor": [
+      335,
+      224
+     ],
+     "dstAnchor": [
+      337,
+      378
+     ],
+     "srcView": [
+      361,
+      471
+     ],
+     "dstView": [
+      363,
+      625
+     ]
+    },
+    {
+     "src": "wi-render",
+     "dst": "wi-accept",
+     "k": 0,
+     "path": "M 399 378 H 406 V 432 H 392 V 416 H 394",
+     "srcAnchor": [
+      399,
+      378
+     ],
+     "dstAnchor": [
+      401,
+      416
+     ],
+     "srcView": [
+      425,
+      625
+     ],
+     "dstView": [
+      427,
+      663
+     ]
+    },
+    {
+     "src": "wi-tests",
+     "dst": "wi-accept",
+     "k": 1,
+     "path": "M 399 262 H 413 V 432 H 386 V 416 H 394",
+     "srcAnchor": [
+      399,
+      262
+     ],
+     "dstAnchor": [
+      401,
+      416
+     ],
+     "srcView": [
+      425,
+      509
+     ],
+     "dstView": [
+      427,
+      663
+     ]
+    }
+   ],
+   "msEdges": [
+    {
+     "src": "m-design",
+     "dst": "m-impl",
+     "k": 0,
+     "path": "M 273 38.5 H 280 V 208.5 H 264 V 192.5 H 266",
+     "srcAnchor": [
+      273,
+      38.5
+     ],
+     "dstAnchor": [
+      273,
+      192.5
+     ],
+     "srcView": [
+      299,
+      285.5
+     ],
+     "dstView": [
+      299,
+      439.5
+     ]
+    },
+    {
+     "src": "m-impl",
+     "dst": "m-verify",
+     "k": 0,
+     "path": "M 401 192.5 H 408 V 362.5 H 328 V 346.5 H 330",
+     "srcAnchor": [
+      401,
+      192.5
+     ],
+     "dstAnchor": [
+      337,
+      346.5
+     ],
+     "srcView": [
+      427,
+      439.5
+     ],
+     "dstView": [
+      363,
+      593.5
+     ]
+    }
+   ],
+   "frames": [
+    {
+     "ms": "m-design",
+     "status": "active",
+     "locked": false,
+     "layer": 0,
+     "items": 2,
+     "rowIds": [
+      "wi-frame",
+      "wi-design"
+     ],
+     "sumStart": 0,
+     "sumEnd": 1,
+     "sumEmpty": false,
+     "sumBar": {
+      "l": 235,
+      "t": 281,
+      "w": 64,
+      "h": 9
+     },
+     "sumPlot": {
+      "l": 235,
+      "t": 276,
+      "w": 480,
+      "h": 22
+     },
+     "sumLeftInPlot": 0,
+     "sumWidth": 64,
+     "sumHits": [],
+     "rect": {
+      "l": 26,
+      "t": 247,
+      "w": 690,
+      "h": 128
+     }
+    },
+    {
+     "ms": "m-impl",
+     "status": "pending",
+     "locked": true,
+     "layer": 1,
+     "items": 2,
+     "rowIds": [
+      "wi-impl",
+      "wi-tests"
+     ],
+     "sumStart": 1,
+     "sumEnd": 3,
+     "sumEmpty": false,
+     "sumBar": {
+      "l": 299,
+      "t": 435,
+      "w": 128,
+      "h": 9
+     },
+     "sumPlot": {
+      "l": 235,
+      "t": 430,
+      "w": 480,
+      "h": 22
+     },
+     "sumLeftInPlot": 64,
+     "sumWidth": 128,
+     "sumHits": [],
+     "rect": {
+      "l": 26,
+      "t": 401,
+      "w": 690,
+      "h": 128
+     }
+    },
+    {
+     "ms": "m-verify",
+     "status": "pending",
+     "locked": true,
+     "layer": 2,
+     "items": 2,
+     "rowIds": [
+      "wi-render",
+      "wi-accept"
+     ],
+     "sumStart": 2,
+     "sumEnd": 4,
+     "sumEmpty": false,
+     "sumBar": {
+      "l": 363,
+      "t": 589,
+      "w": 128,
+      "h": 9
+     },
+     "sumPlot": {
+      "l": 235,
+      "t": 584,
+      "w": 480,
+      "h": 22
+     },
+     "sumLeftInPlot": 128,
+     "sumWidth": 128,
+     "sumHits": [],
+     "rect": {
+      "l": 26,
+      "t": 555,
+      "w": 690,
+      "h": 128
+     }
+    }
+   ],
+   "rows": [
+    {
+     "item": "wi-frame",
+     "ms": "m-design",
+     "role": "frontend",
+     "status": "done",
+     "eff": "done",
+     "slot": 0,
+     "dur": 1,
+     "depth": 0,
+     "order": 0,
+     "blocked": false,
+     "interrupted": false,
+     "live": false,
+     "deps": "",
+     "full": "id: wi-frame; role: frontend; status: done; depends_on: —; session_id: sess-gantt-frontend-00; worktree: seelex-frontend-wi-gantt-frame; goal: 条描边只走 --status-* 令牌，不新造色值; description: 核对色板与几何常量; note: 已随 m-design 收口; blocked: false; interrupted: false; live: false",
+     "bar": {
+      "l": 235,
+      "t": 308,
+      "w": 62,
+      "h": 18
+     },
+     "plot": {
+      "l": 235,
+      "t": 298,
+      "w": 480,
+      "h": 38
+     },
+     "label": {
+      "l": 27,
+      "t": 298,
+      "w": 208,
+      "h": 38
+     },
+     "barLeftInPlot": 0,
+     "barWidth": 62
+    },
+    {
+     "item": "wi-design",
+     "ms": "m-design",
+     "role": "artist",
+     "status": "running",
+     "eff": "running",
+     "slot": 0,
+     "dur": 1,
+     "depth": 0,
+     "order": 1,
+     "blocked": false,
+     "interrupted": false,
+     "live": true,
+     "deps": "",
+     "full": "id: wi-design; role: artist; status: running; depends_on: —; session_id: sess-gantt-artist-01; worktree: seelex-artist-wi-gantt-design; goal: 单文件自包含甘特稿 + README + 三张 PNG 证据; description: index.html + README.md + evidence/; note: 几何映射由 leader 冻结，照抄; blocked: false; interrupted: false; live: true",
+     "bar": {
+      "l": 235,
+      "t": 346,
+      "w": 62,
+      "h": 18
+     },
+     "plot": {
+      "l": 235,
+      "t": 336,
+      "w": 480,
+      "h": 38
+     },
+     "label": {
+      "l": 27,
+      "t": 336,
+      "w": 208,
+      "h": 38
+     },
+     "barLeftInPlot": 0,
+     "barWidth": 62
+    },
+    {
+     "item": "wi-impl",
+     "ms": "m-impl",
+     "role": "frontend",
+     "status": "pending",
+     "eff": "pending",
+     "slot": 1,
+     "dur": 1,
+     "depth": 1,
+     "order": 2,
+     "blocked": true,
+     "interrupted": false,
+     "live": false,
+     "deps": "wi-design",
+     "full": "id: wi-impl; role: frontend; status: pending; depends_on: wi-design; session_id: —; worktree: seelex-frontend-wi-gantt-impl; goal: 条的 left/width 由 start()/dur 推出，不许编条长; description: CSS 变量 --s/--d; note: 等 wi-design 出图; blocked: true; interrupted: false; live: false",
+     "bar": {
+      "l": 299,
+      "t": 462,
+      "w": 62,
+      "h": 18
+     },
+     "plot": {
+      "l": 235,
+      "t": 452,
+      "w": 480,
+      "h": 38
+     },
+     "label": {
+      "l": 27,
+      "t": 452,
+      "w": 208,
+      "h": 38
+     },
+     "barLeftInPlot": 64,
+     "barWidth": 62
+    },
+    {
+     "item": "wi-tests",
+     "ms": "m-impl",
+     "role": "frontend",
+     "status": "pending",
+     "eff": "pending",
+     "slot": 2,
+     "dur": 1,
+     "depth": 2,
+     "order": 3,
+     "blocked": true,
+     "interrupted": false,
+     "live": false,
+     "deps": "wi-impl",
+     "full": "id: wi-tests; role: frontend; status: pending; depends_on: wi-impl; session_id: —; worktree: seelex-frontend-wi-gantt-tests; goal: 数组倒序声明仍得拓扑序; description: 覆盖成环 / 缺失依赖兜底; note: 等 wi-impl; blocked: true; interrupted: false; live: false",
+     "bar": {
+      "l": 363,
+      "t": 500,
+      "w": 62,
+      "h": 18
+     },
+     "plot": {
+      "l": 235,
+      "t": 490,
+      "w": 480,
+      "h": 38
+     },
+     "label": {
+      "l": 27,
+      "t": 490,
+      "w": 208,
+      "h": 38
+     },
+     "barLeftInPlot": 128,
+     "barWidth": 62
+    },
+    {
+     "item": "wi-render",
+     "ms": "m-verify",
+     "role": "verify",
+     "status": "pending",
+     "eff": "pending",
+     "slot": 2,
+     "dur": 1,
+     "depth": 2,
+     "order": 4,
+     "blocked": true,
+     "interrupted": false,
+     "live": false,
+     "deps": "wi-impl",
+     "full": "id: wi-render; role: verify; status: pending; depends_on: wi-impl; session_id: —; worktree: seelex-verify-wi-gantt-render; goal: PIL 扫条实色 x 区间 → 反推槽位; description: 三张 PNG + 读数表; note: 等 wi-impl 合入; blocked: true; interrupted: false; live: false",
+     "bar": {
+      "l": 363,
+      "t": 616,
+      "w": 62,
+      "h": 18
+     },
+     "plot": {
+      "l": 235,
+      "t": 606,
+      "w": 480,
+      "h": 38
+     },
+     "label": {
+      "l": 27,
+      "t": 606,
+      "w": 208,
+      "h": 38
+     },
+     "barLeftInPlot": 128,
+     "barWidth": 62
+    },
+    {
+     "item": "wi-accept",
+     "ms": "m-verify",
+     "role": "verify",
+     "status": "pending",
+     "eff": "pending",
+     "slot": 3,
+     "dur": 1,
+     "depth": 3,
+     "order": 5,
+     "blocked": true,
+     "interrupted": false,
+     "live": false,
+     "deps": "wi-render,wi-tests",
+     "full": "id: wi-accept; role: verify; status: pending; depends_on: wi-render, wi-tests; session_id: —; worktree: seelex-verify-wi-gantt-accept; goal: 两种宽度 + 双主题可读，量测表对得上公式; description: 复核 start()/dur/汇总条跨度; note: 等 wi-render 与 wi-tests; blocked: true; interrupted: false; live: false",
+     "bar": {
+      "l": 427,
+      "t": 654,
+      "w": 62,
+      "h": 18
+     },
+     "plot": {
+      "l": 235,
+      "t": 644,
+      "w": 480,
+      "h": 38
+     },
+     "label": {
+      "l": 27,
+      "t": 644,
+      "w": 208,
+      "h": 38
+     },
+     "barLeftInPlot": 192,
+     "barWidth": 62
+    }
+   ],
+   "gates": [
+    {
+     "gate": "m-design-&gt;m-impl",
+     "open": false,
+     "text": "闸门 → 上一层全部 done 才放行（等 m-design）"
+    },
+    {
+     "gate": "m-impl-&gt;m-verify",
+     "open": false,
+     "text": "闸门 → 上一层全部 done 才放行（等 m-impl）"
+    }
+   ],
+   "contentH": 470
+  }
+ ]
+}</pre>
+
+<script>
+(function(){
+  'use strict';
+
+  /* ============================================================
+     1. fixture —— 数据形状照抄 leader 冻结的 { plan:{...} }
+        (a) 真实故事（3 teammate）  (b) 用户 sketch  (c) 推进中/异常变体
+        两个主夹具都**故意倒序声明** milestones/work_items：
+        行序与槽位必须只由 depends_on 决定，与数组声明序无关。
+     ============================================================ */
+  var STORY = { plan: {
+    team_id: "team-gantt-design",
+    version: 4,
+    members: [
+      { role: "artist",   tools_policy: "read,write,edit", status: "running" },
+      { role: "frontend", tools_policy: "read,write,edit", status: "done" },
+      { role: "verify",   tools_policy: "read,bash_test",  status: "pending" }
+    ],
+    milestones: [
+      { id:"m-verify", name:"验证", status:"pending", depends_on:["m-impl"],   content:"独立渲染量测 / 像素复核 / 验收收口" },
+      { id:"m-impl",   name:"实现", status:"pending", depends_on:["m-design"], content:"按稿落地甘特条 + 汇总条（frontend）" },
+      { id:"m-design", name:"设计", status:"active",  depends_on:[],           content:"出图：真·甘特图静态 UI 稿" }
+    ],
+    work_items: [
+      { id:"wi-accept", milestone:"m-verify", role:"verify",   name:"验收收口",       status:"pending", depends_on:["wi-render","wi-tests"], session_id:null, worktree:"seelex-verify-wi-gantt-accept",
+        goal:"两种宽度 + 双主题可读，量测表对得上公式", description:"复核 start()/dur/汇总条跨度", note:"等 wi-render 与 wi-tests" },
+      { id:"wi-render", milestone:"m-verify", role:"verify",   name:"PNG 逐行区间量测", status:"pending", depends_on:["wi-impl"], session_id:null, worktree:"seelex-verify-wi-gantt-render",
+        goal:"PIL 扫条实色 x 区间 → 反推槽位", description:"三张 PNG + 读数表", note:"等 wi-impl 合入" },
+      { id:"wi-tests",  milestone:"m-impl",   role:"frontend", name:"槽位与拓扑单测",   status:"pending", depends_on:["wi-impl"], session_id:null, worktree:"seelex-frontend-wi-gantt-tests",
+        goal:"数组倒序声明仍得拓扑序", description:"覆盖成环 / 缺失依赖兜底", note:"等 wi-impl" },
+      { id:"wi-impl",   milestone:"m-impl",   role:"frontend", name:"甘特条 + 汇总条落地", status:"pending", depends_on:["wi-design"], session_id:null, worktree:"seelex-frontend-wi-gantt-impl",
+        goal:"条的 left/width 由 start()/dur 推出，不许编条长", description:"CSS 变量 --s/--d", note:"等 wi-design 出图" },
+      { id:"wi-frame",  milestone:"m-design", role:"frontend", name:"线框与令牌核稿",   status:"done",    depends_on:[], session_id:"sess-gantt-frontend-00", worktree:"seelex-frontend-wi-gantt-frame", live:false,
+        goal:"条描边只走 --status-* 令牌，不新造色值", description:"核对色板与几何常量", note:"已随 m-design 收口" },
+      { id:"wi-design", milestone:"m-design", role:"artist",   name:"出图：真·甘特图静态稿", status:"running", depends_on:[], session_id:"sess-gantt-artist-01", worktree:"seelex-artist-wi-gantt-design", live:true,
+        goal:"单文件自包含甘特稿 + README + 三张 PNG 证据", description:"index.html + README.md + evidence/", note:"几何映射由 leader 冻结，照抄" }
+    ]
+  }};
+
+  /* (b) 用户 sketch 原样：a/b/c/d，c→d、b→a、d→a → 期望 b0 / c0 / d1 / a2 */
+  var SKETCH = { plan: {
+    team_id: "team-sketch",
+    version: 1,
+    members: [ { role:"artist", tools_policy:"read,write,edit", status:"running" } ],
+    milestones: [ { id:"m-sketch", name:"用户 sketch", status:"active", depends_on:[], content:"a/b/c/d · c→d、b→a、d→a" } ],
+    work_items: [
+      { id:"a", milestone:"m-sketch", role:"artist", name:"a（d 与 b 都做完才起步）", status:"pending", depends_on:["b","d"], session_id:null, worktree:"sketch/a", goal:"收敛", description:"—", note:"—" },
+      { id:"d", milestone:"m-sketch", role:"artist", name:"d（等 c）",   status:"pending", depends_on:["c"], session_id:null, worktree:"sketch/d", goal:"—", description:"—", note:"—" },
+      { id:"c", milestone:"m-sketch", role:"artist", name:"c（最左）",   status:"done",    depends_on:[], session_id:"sess-sketch-c", worktree:"sketch/c", goal:"—", description:"—", note:"—" },
+      { id:"b", milestone:"m-sketch", role:"artist", name:"b（最左）",   status:"done",    depends_on:[], session_id:"sess-sketch-b", worktree:"sketch/b", goal:"—", description:"—", note:"—" }
+    ]
+  }};
+
+  /* (c) 变体：failed/interrupted（红）+ review（蓝）+ running（黄）+ done（绿）+ 空里程碑（零宽菱形） */
+  var MIXED = { plan: {
+    team_id: "team-mixed",
+    version: 1,
+    members: [
+      { role: "artist",   tools_policy: "read,write,edit", status: "pending" },
+      { role: "frontend", tools_policy: "read,write,edit", status: "running" },
+      { role: "verify",   tools_policy: "read,bash_test",  status: "running" }
+    ],
+    milestones: [
+      { id:"m-empty", name:"空里程碑（零宽菱形）", status:"pending", depends_on:["m-mixed"], content:"名下没有工作项 → 画零宽菱形，不画空条" },
+      { id:"m-mixed", name:"推进中 / 异常", status:"active", depends_on:[], content:"一条 done(绿) / review(蓝) / failed+interrupted(红) / running(黄)" }
+    ],
+    work_items: [
+      { id:"wi-mx-4", milestone:"m-mixed", role:"frontend", name:"正在做的一行（黄）", status:"running", depends_on:["wi-mx-2"], session_id:"sess-mixed-4", worktree:"wt/m-mixed/frontend", live:true, goal:"—", description:"—", note:"—" },
+      { id:"wi-mx-3", milestone:"m-mixed", role:"verify",   name:"中断待恢复的一行（红）", status:"failed", depends_on:["wi-mx-1"], session_id:"sess-mixed-3", worktree:"wt/m-mixed/verify", interrupted:true, goal:"—", description:"—", note:"可重派" },
+      { id:"wi-mx-2", milestone:"m-mixed", role:"frontend", name:"等 review 的一行（蓝）", status:"review", depends_on:["wi-mx-1"], session_id:"sess-mixed-2", worktree:"wt/m-mixed/frontend", goal:"—", description:"—", note:"—" },
+      { id:"wi-mx-1", milestone:"m-mixed", role:"artist",   name:"已完成的一行（绿）", status:"done", depends_on:[], session_id:"sess-mixed-1", worktree:"wt/m-mixed/artist", goal:"—", description:"—", note:"—" }
+    ]
+  }};
+
+  /* ============================================================
+     2. teammate 配色登记处：append-only，按 role 首次出现次序分配
+     ============================================================ */
+  var ROLE_SLOT = new Map();
+  function roleSlot(role){ if(!ROLE_SLOT.has(role)) ROLE_SLOT.set(role, ROLE_SLOT.size % 6); return ROLE_SLOT.get(role); }
+  function roleColorVar(role){ return 'var(--team-dag-role-' + roleSlot(role) + ')'; }
+  function seedRoles(plan){
+    (plan.members || []).forEach(function(m){ roleSlot(m.role); });
+    (plan.work_items || []).forEach(function(w){ roleSlot(w.role); });
+  }
+  seedRoles(STORY.plan); seedRoles(SKETCH.plan); seedRoles(MIXED.plan);
+
+  /* ============================================================
+     3. 语义 + 几何（映射由 leader 冻结，照抄）
+        dur(i)   = 1
+        start(i) = 0（无依赖）；否则 max(start(d) + dur(d))
+        end(i)   = start(i) + dur(i)
+        条 x = 槽 * slotW ；宽 = dur*slotW（相邻槽留 2px 缝）
+        里程碑汇总条 = min(start)..max(end)；无工作项 → 零宽菱形
+        里程碑间箭头 = 被依赖汇总条右端 → 依赖方汇总条左端
+     ============================================================ */
+  function restatus(raw){
+    if (raw === 'failed' || raw === 'killed') return 'failed';
+    if (raw === 'review') return 'review';
+    if (raw === 'done')   return 'done';
+    if (raw === 'running') return 'running';
+    return 'pending';
+  }
+  function effStatus(it){ return it.interrupted === true ? 'failed' : restatus(it.status); }
+
+  function esc(s){
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+    });
+  }
+  function hash(s){
+    var h = 0x811c9dc5;
+    for (var i=0;i<s.length;i++){ h ^= s.charCodeAt(i); h = (h * 0x01000193) >>> 0; }
+    return ('00000000' + h.toString(16)).slice(-8);
+  }
+
+  function buildModel(plan){
+    var msById = {}, itemById = {}, idx = {}, msIdx = {};
+    plan.milestones.forEach(function(m,i){ msById[m.id]=m; msIdx[m.id]=i; });
+    plan.work_items.forEach(function(w,i){ itemById[w.id]=w; idx[w.id]=i; });
+
+    var cyclic = false, msCyclic = false;
+
+    function topo(ids, depsFn, orderFn, cyclicFlag){
+      var pending = {}, out = [], guard = 0;
+      ids.forEach(function(id){ pending[id] = true; });
+      while (Object.keys(pending).length && guard++ < 500){
+        var ready = Object.keys(pending).filter(function(id){
+          return (depsFn(id)||[]).every(function(d){ return !pending[d]; });
+        });
+        if (!ready.length) ready = Object.keys(pending);   // 环兜底：不静默丢行
+        ready.sort(function(a,b){ return orderFn(a) - orderFn(b); });
+        ready.forEach(function(id){ out.push(id); delete pending[id]; });
+      }
+      if (guard >= 500) cyclicFlag();
+      return out;
+    }
+
+    var msOrder = topo(plan.milestones.map(function(m){ return m.id; }),
+                       function(id){ return (msById[id].depends_on||[]).filter(function(d){ return msById[d]; }); },
+                       function(id){ return msIdx[id]; },
+                       function(){ msCyclic = true; });
+
+    var locked = {};
+    msOrder.forEach(function(msId){
+      locked[msId] = (msById[msId].depends_on||[]).some(function(d){
+        return !msById[d] || (msById[d].status || 'pending') !== 'done';
+      });
+    });
+
+    var rows = [];
+    msOrder.forEach(function(msId, layer){
+      var ids = plan.work_items.filter(function(w){ return w.milestone === msId; }).map(function(w){ return w.id; });
+      var seq = topo(ids,
+        function(id){ return (itemById[id].depends_on||[]).filter(function(d){ return ids.indexOf(d) >= 0; }); },
+        function(id){ return idx[id]; },
+        function(){ cyclic = true; });
+      seq.forEach(function(id){
+        rows.push({ item:itemById[id], ms:msId, msName:(msById[msId].name||''), layer:layer, order:rows.length });
+      });
+    });
+
+    /* start()：FS 语义，紧贴最后一个前驱的右端；自指/成环走 seen 集合兜底，不递归爆栈 */
+    var start = {}, seen = {};
+    function startOf(id){
+      if (start[id] != null) return start[id];
+      if (seen[id]) { cyclic = true; return 0; }         // 环：当 0 处理，不假造槽位
+      seen[id] = true;
+      var w = itemById[id];
+      var deps = w ? (w.depends_on||[]).filter(function(d){ return itemById[d]; }) : [];
+      var s = deps.length ? Math.max.apply(null, deps.map(function(d){ return startOf(d) + 1; })) : 0;
+      seen[id] = false;
+      start[id] = s;
+      return s;
+    }
+    rows.forEach(function(r){
+      r.dur = 1;
+      r.start = startOf(r.item.id);
+      r.end = r.start + r.dur;
+      r.depth = r.start;
+      r.deps = (r.item.depends_on||[]).filter(function(d){ return itemById[d]; });
+      r.missingDeps = (r.item.depends_on||[]).filter(function(d){ return !itemById[d]; });
+      r.blocked = r.deps.some(function(d){ var w = itemById[d]; return restatus(w.status) !== 'done'; });
+      r.interrupted = r.item.interrupted === true;
+      r.live = restatus(r.item.status) === 'running';
+    });
+
+    /* 汇总条跨度 */
+    var sum = {};
+    msOrder.forEach(function(msId){
+      var rs = rows.filter(function(r){ return r.ms === msId; });
+      if (rs.length){
+        sum[msId] = { s: Math.min.apply(null, rs.map(function(r){ return r.start; })),
+                      e: Math.max.apply(null, rs.map(function(r){ return r.end; })), empty:false };
+      } else {
+        sum[msId] = { s:0, e:0, empty:true };
+      }
+    });
+    /* 空里程碑：零宽菱形放在它的屏障前驱汇总条右端（无前驱 → 槽 0） */
+    msOrder.forEach(function(msId){
+      if (!sum[msId].empty) return;
+      var at = 0;
+      (msById[msId].depends_on||[]).forEach(function(d){ if (sum[d]) at = Math.max(at, sum[d].e); });
+      sum[msId].s = at; sum[msId].e = at;
+    });
+
+    var slots = 1;
+    rows.forEach(function(r){ if (r.end > slots) slots = r.end; });
+    msOrder.forEach(function(msId){ if (sum[msId].e > slots) slots = sum[msId].e; });
+
+    return { msOrder:msOrder, msById:msById, itemById:itemById, locked:locked, rows:rows, sum:sum,
+             slots:slots, cyclic:cyclic, msCyclic:msCyclic };
+  }
+
+  /* ============================================================
+     4. 渲染：DOM = fixture(+登记处) 的纯函数
+     ============================================================ */
+  function rowHtml(row){
+    var it = row.item, eff = effStatus(it), deps = it.depends_on || [];
+    var full = 'id: ' + it.id + '; role: ' + it.role + '; status: ' + it.status
+             + '; depends_on: ' + (deps.length ? deps.join(', ') : '—')
+             + '; session_id: ' + (it.session_id || '—') + '; worktree: ' + (it.worktree || '—')
+             + '; goal: ' + (it.goal || '—') + '; description: ' + (it.description || '—')
+             + '; note: ' + (it.note || '—')
+             + '; blocked: ' + row.blocked + '; interrupted: ' + row.interrupted + '; live: ' + row.live;
+    var title = it.id + ' · ' + it.name + ' | role: ' + it.role + ' | status: ' + it.status
+             + ' | depends_on: ' + (deps.length ? deps.join(', ') : '—')
+             + ' | session: ' + (it.session_id || '—') + ' | worktree: ' + (it.worktree || '—')
+             + ' | goal: ' + (it.goal || '—') + ' | description: ' + (it.description || '—')
+             + ' | note: ' + (it.note || '—');
+    var depnote = deps.length ? ('depends_on: ' + deps.join(', ') + ' → 槽 ' + row.start) : ('无依赖 → 槽 0');
+    if (row.missingDeps.length) depnote += ' · 缺失依赖: ' + row.missingDeps.join(', ');
+    var h = '';
+    h += '<article class="wi-row"'
+       + ' data-item="' + esc(it.id) + '" data-role="' + esc(it.role) + '"'
+       + ' data-status="' + esc(it.status) + '" data-eff="' + eff + '"'
+       + ' data-slot="' + row.start + '" data-dur="' + row.dur + '" data-end="' + row.end + '"'
+       + ' data-depth="' + row.depth + '" data-order="' + row.order + '" data-ms="' + esc(it.milestone) + '"'
+       + ' data-blocked="' + row.blocked + '" data-interrupted="' + row.interrupted + '" data-live="' + row.live + '"'
+       + ' data-session="' + esc(it.session_id || '') + '" data-worktree="' + esc(it.worktree || '') + '"'
+       + ' data-line="' + eff + '"'
+       + ' style="--role-color:' + roleColorVar(it.role) + ';--s:' + row.start + ';--d:' + row.dur + '"'
+       + ' title="' + esc(title) + '">';
+    /* --- label 列：id · name（可点进子页）+ 三个标记（DOM 里常驻） --- */
+    h += '<div class="wi-label">';
+    h += '<code class="wi-id">' + esc(it.id) + '</code>';
+    h += '<span class="wi-name" data-team-item-open="' + esc(it.id) + '" title="' + esc(it.name) + '">' + esc(it.name) + '</span>';
+    h += '<span class="wi-flags">'
+       + '<span class="wi-flag" data-flag="blocked" data-on="' + row.blocked + '" title="blocked：还有前驱没 done">blocked</span>'
+       + '<span class="wi-flag" data-flag="interrupted" data-on="' + row.interrupted + '" title="interrupted：中断待恢复">interrupted</span>'
+       + '<span class="wi-flag" data-flag="live" data-on="' + row.live + '" title="live：正在跑">live</span>'
+       + '</span>';
+    h += '<span class="wi-full" aria-hidden="true">' + esc(full) + '</span>';
+    h += '</div>';
+    /* --- 绘图区：depends_on 小字 + 一根条 + 条后 role/status/session chip --- */
+    h += '<div class="wi-plot">';
+    h += '<span class="wi-depnote" title="' + esc(depnote) + '">' + esc(depnote) + '</span>';
+    h += '<span class="wi-bar" data-item="' + esc(it.id) + '" style="--s:' + row.start + ';--d:' + row.dur + '">'
+       + '<i class="wi-cap"></i><span class="wi-bar-name">' + esc(it.name) + '</span></span>';
+    h += '<span class="wi-after">';
+    h += '<span class="role-chip" data-team-role-open="' + esc(it.role) + '" title="teammate"><i class="role-dot"></i>' + esc(it.role) + '</span>';
+    h += '<span class="status-chip" data-eff="' + eff + '">' + esc(it.status) + (row.interrupted ? ' · 可重派' : '') + '</span>';
+    if (it.session_id) h += '<span class="session-chip" data-team-session="' + esc(it.session_id) + '" title="session_id">' + esc(it.session_id) + '</span>';
+    h += '</span>';
+    h += '</div></article>';
+    return h;
+  }
+
+  function boardHtml(fixture, opts){
+    var plan = fixture.plan, model = buildModel(plan), out = '';
+    var ticks = '', grid = '';
+    for (var i = 0; i <= model.slots; i++){
+      ticks += '<span class="ruler-tick" data-tick="' + i + '" style="--i:' + i + '"><i></i><b>' + i + '</b></span>';
+      grid  += '<span class="grid-line" data-i="' + i + '" style="--i:' + i + '"></span>';
+    }
+    out += '<div class="board" data-board="' + esc(opts.id) + '" data-fixture="' + esc(opts.fixture) + '">';
+    out += '<div class="board-head"><span class="t">' + esc(plan.team_id) + '</span>'
+         + '<span class="meta">plan v' + esc(plan.version) + ' · ' + plan.milestones.length + ' 里程碑 · '
+         + plan.work_items.length + ' 工作项 · ' + model.slots + ' 槽</span>'
+         + '<span class="meta">夹具：' + esc(opts.fixtureName) + '</span>'
+         + '<span class="meta" data-cyclic="' + model.cyclic + '">cyclic=' + model.cyclic + '</span></div>';
+    out += '<div class="board-scroll"><div class="board-content"><div class="gantt">';
+    /* 刻度尺（sticky）：横轴不是时间，是依赖槽位 */
+    out += '<div class="gantt-ruler ruler-line" data-role="ruler">'
+         + '<div class="ruler-label">任务（id · name）</div>'
+         + '<div class="ruler-plot">' + ticks
+         + '<span class="ruler-basis">横轴 = 依赖槽位（非时间）</span>'
+         + '<span class="ruler-cap">1 槽 = 1 层依赖 · 条长恒 1 槽</span>'
+         + '</div></div>';
+    out += '<div class="gantt-body"><div class="grid-layer">' + grid + '</div>'
+         + '<svg class="gantt-edges" aria-hidden="true"></svg>';
+    model.msOrder.forEach(function(msId, layer){
+      var ms = model.msById[msId], locked = model.locked[msId];
+      var rows = model.rows.filter(function(r){ return r.ms === msId; });
+      var tone = 'var(--team-dag-ms-' + (layer % 5) + ')';
+      var s = model.sum[msId];
+      out += '<section class="ms-frame" data-ms="' + esc(msId) + '" data-locked="' + locked + '"'
+           + ' data-status="' + esc(ms.status || 'pending') + '" data-layer="' + layer + '"'
+           + ' data-sum-start="' + s.s + '" data-sum-end="' + s.e + '" data-sum-empty="' + s.empty + '"'
+           + ' style="--ms-tone:' + tone + '">';
+      out += '<header class="ms-head" data-ms="' + esc(msId) + '">'
+           + '<span class="ms-id">' + esc(msId) + '</span>'
+           + '<span class="ms-name">' + esc(ms.name) + '</span>'
+           + '<span class="ms-layer" title="屏障链层号（milestones[].depends_on 拓扑序）">L' + layer + '</span>'
+           + '<span class="chip" data-status="' + esc(ms.status || 'pending') + '">' + esc(ms.status || 'pending') + '</span>'
+           + '<span class="ms-deps" title="屏障依赖 milestones[].depends_on">屏障 ← ' + esc((ms.depends_on && ms.depends_on.length) ? ms.depends_on.join(' + ') : '（入口层）') + '</span>'
+           + '<span class="ms-lock' + (locked ? '' : ' is-open') + '">' + (locked ? '🔒 待解锁' : (ms.status === 'done' ? '✅ 已完成' : '🔓 已解锁')) + '</span>'
+           + '<span class="ms-count">' + rows.length + ' items</span>'
+           + '<span class="ms-content" title="' + esc(ms.content) + '">' + esc(ms.content) + '</span>'
+           + '</header>';
+      /* 汇总条：横跨名下全部工作项条的总跨度；两端向下短折；无工作项 → 零宽菱形 */
+      out += '<div class="ms-sum" data-ms="' + esc(msId) + '" style="--s:' + s.s + ';--e:' + s.e + '">'
+           + '<div class="sum-label">milestone</div>'
+           + '<div class="sum-plot">'
+           + '<span class="sum-bar" data-ms="' + esc(msId) + '" data-empty="' + s.empty + '" style="--s:' + s.s + ';--e:' + s.e + '">'
+           + '<i class="sum-cap sum-cap-l"></i><i class="sum-cap sum-cap-r"></i></span>'
+           + '<span class="sum-diamond" data-ms="' + esc(msId) + '" data-empty="' + s.empty + '" style="--s:' + s.s + ';--e:' + s.e + '"></span>'
+           + '<span class="sum-note">槽 ' + s.s + '–' + s.e + (s.empty ? ' · 空' : '') + '</span>'
+           + '</div></div>';
+      out += '<div class="ms-rows">';
+      rows.forEach(function(row){ out += rowHtml(row); });
+      out += '</div></section>';
+      /* 闸门带：三支文案 */
+      var next = model.msOrder[layer+1];
+      if (next){
+        var nextMs = model.msById[next];
+        var deps = (nextMs.depends_on || []);
+        var open = !model.locked[next];
+        var txt;
+        if (!deps.length) txt = '无屏障 → ' + next + ' 未声明 depends_on';
+        else if (open)    txt = '闸门已放行 → ' + deps.join(' + ') + ' 全部 done';
+        else              txt = '闸门 → 上一层全部 done 才放行（等 ' + deps.join(' + ') + '）';
+        out += '<div class="gate-band" data-gate="' + esc(msId) + '->' + esc(next) + '" data-open="' + open + '">'
+             + '<span class="gate-line"></span><span class="gate-label">' + esc(txt) + '</span><span class="gate-line"></span></div>';
+      }
+    });
+    out += '</div></div></div></div></div>';
+    return out;
+  }
+
+  /* ============================================================
+     5. 依赖连线：finish→start（前驱条右端 → 后继条左端），正交折线 + 箭头
+        多条边按 k 分层避让；gap 太窄（同槽并行）时向下绕一个 hook
+     ============================================================ */
+  function drawEdges(board){
+    var body = board.querySelector('.gantt-body');
+    var svg  = body.querySelector('.gantt-edges');
+    if (!svg) return { items:[], ms:[], okItems:0, okMs:0 };
+    var b = body.getBoundingClientRect();
+    function barAnchor(itemId, side){
+      var el = body.querySelector('.wi-bar[data-item="' + cssEsc(itemId) + '"]');
+      if (!el) return null;
+      var r = el.getBoundingClientRect();
+      return { x: (side === 'r' ? r.right : r.left) - b.left, y: r.top - b.top + r.height / 2 };
+    }
+    function sumAnchor(msId, side){
+      var el = body.querySelector('.sum-bar[data-ms="' + cssEsc(msId) + '"]');
+      if (!el || el.getAttribute('data-empty') === 'true') return null;
+      var r = el.getBoundingClientRect();
+      return { x: (side === 'r' ? r.right : r.left) - b.left, y: r.top - b.top + r.height / 2 };
+    }
+    var parts = [], items = [], msEdges = [];
+
+    function link(src, dst, k){
+      var lane, d;
+      var gap = dst.x - src.x;
+      if (gap >= 16){
+        lane = Math.min(src.x + 10 + k * 8, dst.x - 6);
+        d = 'M ' + r1(src.x) + ' ' + r1(src.y) + ' H ' + r1(lane) + ' V ' + r1(dst.y) + ' H ' + r1(dst.x - 7);
+      } else {
+        var hook = src.x + 7 + k * 7;
+        d = 'M ' + r1(src.x) + ' ' + r1(src.y) + ' H ' + r1(hook) + ' V ' + r1(dst.y + 16)
+          + ' H ' + r1(dst.x - 9 - k * 6) + ' V ' + r1(dst.y) + ' H ' + r1(dst.x - 7);
+      }
+      parts.push('<path class="edge" d="' + d + '"></path>');
+      parts.push('<path class="head" d="M ' + r1(dst.x) + ' ' + r1(dst.y) + ' l -7 -3.5 l 0 7 Z"></path>');
+      return { d:d, lane:(lane != null ? lane : null) };
+    }
+    function r1(n){ return Math.round(n * 10) / 10; }
+    function cssEsc(s){ return String(s).replace(/"/g, '\\"'); }
+
+    /* 工作项之间（含跨里程碑） */
+    [].slice.call(board.querySelectorAll('.wi-row')).forEach(function(row){
+      var it = row.getAttribute('data-item');
+      var dst = barAnchor(it, 'l');
+      if (!dst) return;
+      (row.getAttribute('data-deps') || '').split(',').forEach(function(dep, k){
+        dep = dep.trim(); if (!dep) return;
+        var src = barAnchor(dep, 'r');
+        if (!src) return;
+        var g = link(src, dst, k);
+        items.push({ src:dep, dst:it, k:k, path:g.d, srcAnchor:[r1(src.x), r1(src.y)], dstAnchor:[r1(dst.x), r1(dst.y)],
+                     srcView:[r1(src.x + b.left), r1(src.y + b.top)], dstView:[r1(dst.x + b.left), r1(dst.y + b.top)] });
+      });
+    });
+    /* 里程碑之间：同一套语法，画在汇总条之间 */
+    [].slice.call(board.querySelectorAll('.ms-frame')).forEach(function(frame){
+      var ms = frame.getAttribute('data-ms');
+      var dst = sumAnchor(ms, 'l');
+      if (!dst) return;
+      (frame.getAttribute('data-ms-deps') || '').split(',').forEach(function(dep, k){
+        dep = dep.trim(); if (!dep) return;
+        var src = sumAnchor(dep, 'r');
+        if (!src) return;
+        var g = link(src, dst, k);
+        msEdges.push({ src:dep, dst:ms, k:k, path:g.d, srcAnchor:[r1(src.x), r1(src.y)], dstAnchor:[r1(dst.x), r1(dst.y)],
+                       srcView:[r1(src.x + b.left), r1(src.y + b.top)], dstView:[r1(dst.x + b.left), r1(dst.y + b.top)] });
+      });
+    });
+
+    svg.setAttribute('width', Math.round(body.scrollWidth));
+    svg.setAttribute('height', Math.round(body.scrollHeight));
+    svg.setAttribute('viewBox', '0 0 ' + Math.round(body.scrollWidth) + ' ' + Math.round(body.scrollHeight));
+    svg.innerHTML = parts.join('');
+    return { items:items, ms:msEdges };
+  }
+
+  /* ============================================================
+     6. 挂载 + 重渲染（幂等 / 滚动保持 / 不闪）
+     ============================================================ */
+  var ROUNDS = [
+    { label:'r1 wi-design 完成 · m-design done · wi-impl 起跑',
+      items:{ 'wi-design':{status:'done',live:false}, 'wi-impl':{status:'running',live:true} },
+      ms:{ 'm-design':'done', 'm-impl':'active' } },
+    { label:'r2 wi-impl done · m-impl done · 测试与量测起跑',
+      items:{ 'wi-impl':{status:'done',live:false}, 'wi-tests':{status:'running',live:true}, 'wi-render':{status:'running',live:true} },
+      ms:{ 'm-impl':'done', 'm-verify':'active' } },
+    { label:'r3 一条 review · 一条 failed+interrupted',
+      items:{ 'wi-render':{status:'review',live:false}, 'wi-tests':{status:'failed',interrupted:true,live:false} },
+      ms:{} }
+  ];
+  var K = 0;
+  function currentFixture(plan){
+    var f = JSON.parse(JSON.stringify(plan));      // 入参是 plan 本体（不是 {plan:...} 包装）
+    for (var i=0;i<K;i++){
+      var r = ROUNDS[i];
+      Object.keys(r.items||{}).forEach(function(id){
+        var w = f.work_items.filter(function(x){ return x.id === id; })[0];
+        if (w) Object.keys(r.items[id]).forEach(function(kk){ w[kk] = r.items[id][kk]; });
+      });
+      Object.keys(r.ms||{}).forEach(function(id){
+        var m = f.milestones.filter(function(x){ return x.id === id; })[0];
+        if (m) m.status = r.ms[id];
+      });
+    }
+    return f;
+  }
+
+  var VIEWS = [];
+  function planOf(demo){
+    if (demo === 'sketch') return { plan: SKETCH.plan, name: 'sketch' };
+    if (demo === 'mixed')  return { plan: MIXED.plan,  name: 'mixed' };
+    return { plan: STORY.plan, name: 'story' };
+  }
+  function viewList(){
+    var primary = planOf(DEMO);
+    if (VIEW) {                                        // 证据用：一页一块板
+      var fx = (DEMO === 'story') ? primary : primary;   // story 走轮次夹具（mount 内处理）
+      return [ { host: (VIEW === 'narrow') ? 360 : 720, fixture: fx, id: 'board-' + VIEW, name: primary.name } ];
+    }
+    return [
+      { host: 720, fixture: primary, id: 'board-wide', name: primary.name },
+      { host: 360, fixture: planOf('story'), id: 'board-narrow', name: '真实故事 · 窄栏' },
+      { host: 720, fixture: planOf('sketch'), id: 'board-sketch', name: '用户 sketch' },
+      { host: 720, fixture: planOf('mixed'), id: 'board-mixed', name: '推进中/异常 + 空里程碑' }
+    ];
+  }
+
+  function mount(host, opts){
+    var fixture = (opts.fixture.name === 'story')
+      ? { plan: currentFixture(opts.fixture.plan), name: 'story' }
+      : opts.fixture;
+    var scrollEl = host.querySelector('.board-scroll');
+    var keep = scrollEl ? scrollEl.scrollTop : 0;
+    var tmp = document.createElement('div');
+    tmp.innerHTML = boardHtml(fixture, opts);
+    var next = tmp.firstElementChild;
+    if (!host.firstElementChild) host.appendChild(next);
+    else host.replaceChild(next, host.firstElementChild);
+    var board = next;
+    /* 把 depends_on 挂到 DOM 上供 drawEdges 用（不改 fixture 形状，只加 data-* 派生属性） */
+    var plan = fixture.plan, byId = {};
+    plan.work_items.forEach(function(w){ byId[w.id] = w; });
+    [].slice.call(board.querySelectorAll('.wi-row')).forEach(function(r){
+      var w = byId[r.getAttribute('data-item')];
+      r.setAttribute('data-deps', (w && w.depends_on ? w.depends_on : []).join(','));
+    });
+    [].slice.call(board.querySelectorAll('.ms-frame')).forEach(function(f){
+      var m = plan.milestones.filter(function(x){ return x.id === f.getAttribute('data-ms'); })[0];
+      f.setAttribute('data-ms-deps', (m && m.depends_on ? m.depends_on : []).join(','));
+    });
+    board._edge = drawEdges(board);
+    var sc = board.querySelector('.board-scroll');
+    sc.scrollTop = Math.min(keep, Math.max(0, sc.scrollHeight - sc.clientHeight));
+    return board;
+  }
+
+  /* ============================================================
+     7. 自证：幂等 / 滚动保持 / sticky（读数写进 #gantt-probe）
+     ============================================================ */
+  var EVID = { idempotent:false, hashA:'', hashB:'', scrollKeep:false, scrollBefore:0, scrollAfter:0,
+               stickyRuler:false, stickyHead:false, rulerDelta:null, headDelta:null };
+
+  function rectOf(el){
+    var r = el.getBoundingClientRect();
+    return { l:Math.round(r.left*100)/100, t:Math.round(r.top*100)/100, w:Math.round(r.width*100)/100, h:Math.round(r.height*100)/100 };
+  }
+
+  function selfTest(){
+    var host = document.querySelector('.board-host');
+    if (!host) return;
+    var content = host.querySelector('.board-content');
+    EVID.hashA = hash(content.innerHTML);
+    if (hosts[0]) mount(host, hosts[0]);
+    EVID.hashB = hash(host.querySelector('.board-content').innerHTML);
+    EVID.idempotent = (EVID.hashA === EVID.hashB);
+
+    /* 滚动保持 + sticky：滚到「刻度尺高 + 30」——这个量能让第一条框头恰好吸住（再多就会被框尾顶上去） */
+    var sc = host.querySelector('.board-scroll');
+    var ruler0 = host.querySelector('.gantt-ruler');
+    var rulerH0 = ruler0 ? parseFloat(getComputedStyle(ruler0).height) : 30;
+    var target = Math.min(rulerH0 + 30, Math.max(0, sc.scrollHeight - sc.clientHeight));
+    sc.scrollTop = target; EVID.scrollBefore = sc.scrollTop;
+    if (hosts[0]) mount(host, hosts[0]);
+    sc = host.querySelector('.board-scroll');
+    EVID.scrollAfter = sc.scrollTop;
+    EVID.scrollKeep = (EVID.scrollBefore === EVID.scrollAfter && EVID.scrollBefore > 0);
+
+    sc.scrollTop = target;
+    var sr = sc.getBoundingClientRect();
+    var ruler = host.querySelector('.gantt-ruler'), head = host.querySelector('.ms-head');
+    var rulerH = ruler ? parseFloat(getComputedStyle(ruler).height) : 0;
+    if (ruler){ var rr = ruler.getBoundingClientRect(); EVID.rulerDelta = Math.round((rr.top - sr.top)*100)/100; EVID.stickyRuler = Math.abs(rr.top - sr.top) <= 1.5; }
+    if (head){
+      /* sticky 的不变量：任何框头都不许跑到刻度尺下面去（top ≥ 容器顶 + 刻度尺高）；
+         只有当内容够长、能真的「吸住」时才额外要求某条框头正好贴在下沿。 */
+      var okInv = true, stuck = false;
+      [].slice.call(host.querySelectorAll('.ms-head')).forEach(function(h){
+        var d = h.getBoundingClientRect().top - (sr.top + rulerH);
+        if (d < -1.5) okInv = false;
+        if (Math.abs(d) <= 2.5) stuck = true;
+      });
+      var h0 = host.querySelector('.ms-head');
+      EVID.headDelta = h0 ? Math.round((h0.getBoundingClientRect().top - (sr.top + rulerH))*100)/100 : null;
+      EVID.headStuck = stuck;
+      EVID.headInvariant = okInv;
+      EVID.stickyHead = okInv;
+    }
+    sc.scrollTop = 0;
+  }
+
+  function probeBoard(host){
+    var board = host.querySelector('.board');
+    if (!board) return null;
+    var sc = board.querySelector('.board-scroll');
+    var gantt = board.querySelector('.gantt');
+    var cs = getComputedStyle(gantt);
+    var slotW = parseFloat(cs.getPropertyValue('--team-dag-slot-w'));
+    var labelW = parseFloat(cs.getPropertyValue('--team-dag-label-w'));
+    var ruler = board.querySelector('.gantt-ruler');
+    var b = {
+      id: board.getAttribute('data-board'), fixture: board.getAttribute('data-fixture'),
+      hostW: Math.round(host.getBoundingClientRect().width),
+      slotW: slotW, labelW: labelW,
+      barH: parseFloat(cs.getPropertyValue('--team-dag-bar-h')),
+      rowH: parseFloat(cs.getPropertyValue('--team-dag-row-h')),
+      scrollMaxH: parseFloat(cs.getPropertyValue('--team-dag-scroll-max-h')),
+      scroll: { clientH: sc.clientHeight, scrollH: sc.scrollHeight, scrollTop: sc.scrollTop, rect: rectOf(sc) },
+      ruler: ruler ? { rect: rectOf(ruler),
+                       plot: rectOf(ruler.querySelector('.ruler-plot')),
+                       ticks: [].slice.call(board.querySelectorAll('.ruler-tick')).map(function(t){
+                         return { i: Number(t.getAttribute('data-tick')), x: Math.round((t.getBoundingClientRect().left - ruler.querySelector('.ruler-plot').getBoundingClientRect().left) * 100) / 100 };
+                       }) } : null,
+      svg: { w: Number(board.querySelector('.gantt-edges').getAttribute('width')),
+             h: Number(board.querySelector('.gantt-edges').getAttribute('height')),
+             edges: board.querySelectorAll('path.edge').length,
+             heads: board.querySelectorAll('path.head').length },
+      itemEdges: (board._edge ? board._edge.items : []),
+      msEdges: (board._edge ? board._edge.ms : []),
+      frames: [], rows: [], gates: []
+    };
+    [].slice.call(board.querySelectorAll('.ms-frame')).forEach(function(f){
+      var rows = [].slice.call(f.querySelectorAll('.wi-row'));
+      var sb = f.querySelector('.sum-bar'), sp = f.querySelector('.sum-plot');
+      var hits = [];
+      if (sp && HitTest){
+        var pr = sp.getBoundingClientRect();
+        [[6, 0.5], [20, 0.5], [40, 0.5], [60, 0.2]].forEach(function(pt){
+          var el = document.elementFromPoint(Math.round(pr.left + pt[0]), Math.round(pr.top + pt[1] * pr.height));
+          hits.push({ at:[Math.round(pr.left + pt[0]), Math.round(pr.top + pt[1] * pr.height)],
+                      el: el ? (el.tagName.toLowerCase() + '.' + (el.className || '')) : null,
+                      cls: el ? String(el.className) : null });
+        });
+      }
+      b.frames.push({
+        ms: f.getAttribute('data-ms'), status: f.getAttribute('data-status'),
+        locked: f.getAttribute('data-locked') === 'true', layer: Number(f.getAttribute('data-layer')),
+        items: rows.length, rowIds: rows.map(function(r){ return r.getAttribute('data-item'); }),
+        sumStart: Number(f.getAttribute('data-sum-start')), sumEnd: Number(f.getAttribute('data-sum-end')),
+        sumEmpty: f.getAttribute('data-sum-empty') === 'true',
+        sumBar: sb ? rectOf(sb) : null, sumPlot: sp ? rectOf(sp) : null,
+        sumLeftInPlot: (sb && sp) ? Math.round((sb.getBoundingClientRect().left - sp.getBoundingClientRect().left) * 100) / 100 : null,
+        sumWidth: sb ? Math.round(sb.getBoundingClientRect().width * 100) / 100 : null,
+        sumHits: hits,
+        rect: rectOf(f)
+      });
+    });
+    [].slice.call(board.querySelectorAll('.wi-row')).forEach(function(r){
+      var bar = r.querySelector('.wi-bar'), plot = r.querySelector('.wi-plot'), label = r.querySelector('.wi-label');
+      b.rows.push({
+        item: r.getAttribute('data-item'), ms: r.getAttribute('data-ms'), role: r.getAttribute('data-role'),
+        status: r.getAttribute('data-status'), eff: r.getAttribute('data-eff'),
+        slot: Number(r.getAttribute('data-slot')), dur: Number(r.getAttribute('data-dur')),
+        depth: Number(r.getAttribute('data-depth')), order: Number(r.getAttribute('data-order')),
+        blocked: r.getAttribute('data-blocked') === 'true',
+        interrupted: r.getAttribute('data-interrupted') === 'true',
+        live: r.getAttribute('data-live') === 'true',
+        deps: (r.getAttribute('data-deps') || ''),
+        full: (r.querySelector('.wi-full') || { textContent:'' }).textContent,
+        bar: rectOf(bar), plot: rectOf(plot), label: rectOf(label),
+        barLeftInPlot: Math.round((bar.getBoundingClientRect().left - plot.getBoundingClientRect().left) * 100) / 100,
+        barWidth: Math.round(bar.getBoundingClientRect().width * 100) / 100
+      });
+    });
+    [].slice.call(board.querySelectorAll('.gate-band')).forEach(function(g){
+      b.gates.push({ gate: g.getAttribute('data-gate'), open: g.getAttribute('data-open') === 'true',
+                     text: g.querySelector('.gate-label').textContent });
+    });
+    b.contentH = board.querySelector('.board-content').scrollHeight;
+    return b;
+  }
+
+  function writeProbe(){
+    refreshEdges();                                    // 先按当前布局重画连线，再读尺寸 → 边锚点与条永不错位
+    var status = {}, roles = {};
+    [].slice.call(document.querySelectorAll('.legend .sw[data-status]')).forEach(function(s){
+      status[s.getAttribute('data-status')] = rectOf(s.querySelector('i'));
+    });
+    [].slice.call(document.querySelectorAll('#legend-roles .sw')).forEach(function(s){
+      roles[s.getAttribute('data-role')] = rectOf(s.querySelector('i'));
+    });
+    var boards = [].slice.call(document.querySelectorAll('.board-host')).map(probeBoard);
+    var payload = {
+      dpr: window.devicePixelRatio, innerW: window.innerWidth, innerH: window.innerHeight,
+      docW: document.documentElement.clientWidth, docH: document.documentElement.scrollHeight,
+      theme: document.documentElement.getAttribute('data-theme'),
+      view: VIEW || 'gallery', demo: DEMO, round: K,
+      geometry: { dur:'1', start:'0 无依赖；否则 max(start(d)+1)', barX:'slot*slotW', barW:'dur*slotW-2px',
+                  summary:'min(start)..max(end)', dir:'finish→start' },
+      chromeRect: { topbar: rectOf(document.querySelector('.topbar')), legend: rectOf(document.querySelector('.legend')) },
+      idempotent: EVID.idempotent, hashA: EVID.hashA, hashB: EVID.hashB,
+      scrollKeep: EVID.scrollKeep, scrollBefore: EVID.scrollBefore, scrollAfter: EVID.scrollAfter,
+      stickyRuler: EVID.stickyRuler, stickyHead: EVID.stickyHead,
+      stickyHeadStuck: EVID.headStuck, stickyHeadInvariant: EVID.headInvariant,
+      stickyRulerDelta: EVID.rulerDelta, stickyHeadDelta: EVID.headDelta,
+      roleIndex: (function(){ var o = {}; ROLE_SLOT.forEach(function(v,k){ o[k]=v; }); return o; })(),
+      legendSwap: { status:status, role:roles },
+      viewports: [].slice.call(document.querySelectorAll('.viewport')).map(function(v){
+        return { width: v.getAttribute('data-width'), rect: rectOf(v) };
+      }),
+      boards: boards
+    };
+    document.getElementById('gantt-probe').textContent = JSON.stringify(payload, null, 1);
+  }
+
+  /* ============================================================
+     8. 装配：query 参数 / 舞台 / 交互
+     ============================================================ */
+  var qs = (location.search || '');
+  var mView = /[?&]view=(\w+)/.exec(qs);
+  var mDemo = /[?&]demo=(\w+)/.exec(qs);
+  var mAdv  = /[?&]advance=(\d+)/.exec(qs);
+  var mScroll = /[?&]scroll=(\d+)/.exec(qs);
+  var VIEW = mView ? mView[1] : null;                  // wide | narrow
+  var DEMO = mDemo ? mDemo[1] : 'story';
+  var HitTest = /[?&]hit=1/.test(qs);                  // 自证用：把「这个像素归属哪个元素」也写进探针
+  if (mAdv) K = Math.min(Number(mAdv[1]), ROUNDS.length);
+  if (qs.indexOf('theme=dark') >= 0) document.documentElement.setAttribute('data-theme','dark');
+
+  var hosts = [];
+  function legendRoles(){
+    var box = document.getElementById('legend-roles');
+    var html = '';
+    ROLE_SLOT.forEach(function(slot, role){
+      html += '<span class="sw" data-role="' + esc(role) + '" style="margin-right:10px">'
+            + '<i style="background:var(--team-dag-role-' + slot + ')"></i>' + esc(role)
+            + ' <span style="color:var(--faint)">slot ' + slot + '</span></span>';
+    });
+    box.innerHTML = html;
+  }
+  function buildStage(){
+    var stage = document.getElementById('stage');
+    stage.innerHTML = '';
+    hosts = [];
+    viewList().forEach(function(v, i){
+      var sec = document.createElement('section');
+      sec.className = 'viewport';
+      sec.setAttribute('data-width', String(v.host));
+      sec.innerHTML = '<div class="vp-head"><span>' + v.host + 'px · ' + esc(v.name) + '</span>'
+        + '<span>内部滚动 max-height 380 · 刻度尺与框头 sticky</span></div>'
+        + '<div class="board-host" id="host-' + i + '"></div>';
+      stage.appendChild(sec);
+      var host = sec.querySelector('.board-host');
+      var opts = { id: v.id, fixture: v.fixture, fixtureName: v.name };
+      hosts.push(opts);
+      mount(host, opts);
+    });
+  }
+  function renderAll(){
+    [].slice.call(document.querySelectorAll('.board-host')).forEach(function(host, i){
+      if (hosts[i]) mount(host, hosts[i]);
+    });
+    document.getElementById('round-label').textContent = 'round ' + K + ' · ' + (K === 0 ? 'base' : ROUNDS[K-1].label);
+  }
+  function syncThemeBtn(){
+    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    document.getElementById('theme-toggle').textContent = dark ? '切到 light' : '切到 dark';
+  }
+  function syncDemoBtn(){
+    var nm = (DEMO === 'sketch') ? '用户 sketch' : (DEMO === 'mixed' ? '推进中/异常' : '真实故事');
+    document.getElementById('demo-toggle').textContent = '夹具：' + nm;
+  }
+
+  legendRoles();
+  buildStage();
+  selfTest();
+  renderAll();
+  if (mScroll){                                   // 证据用：滚动后再写探针，读数与截图同态
+    var n = Number(mScroll[1]);
+    [].slice.call(document.querySelectorAll('.board-scroll')).forEach(function(s){
+      s.scrollTop = Math.min(n, s.scrollHeight - s.clientHeight);
+    });
+  }
+  writeProbe();
+
+  document.getElementById('theme-toggle').addEventListener('click', function(){
+    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    document.documentElement.setAttribute('data-theme', dark ? 'light' : 'dark');
+    syncThemeBtn(); writeProbe();
+  });
+  document.getElementById('advance').addEventListener('click', function(){
+    K = (K + 1) % (ROUNDS.length + 1);
+    renderAll(); writeProbe();
+  });
+  document.getElementById('reset').addEventListener('click', function(){
+    K = 0; renderAll(); writeProbe();
+  });
+  document.getElementById('demo-toggle').addEventListener('click', function(){
+    DEMO = (DEMO === 'sketch') ? 'story' : 'sketch';
+    syncDemoBtn(); buildStage(); renderAll(); writeProbe();
+  });
+  syncThemeBtn(); syncDemoBtn();
+
+  /* 布局会因字体加载 / 窗口变化而微移 → 依赖连线要跟着重画，探针要跟着重写（否则边锚点会与条错位） */
+  function refreshEdges(){
+    [].slice.call(document.querySelectorAll('.board')).forEach(function(b){
+      if (b.querySelector('.gantt-body')) b._edge = drawEdges(b);   // 必须回写 _edge，否则探针读到的还是旧几何
+    });
+  }
+  function refreshAll(){ refreshEdges(); writeProbe(); }
+  window.addEventListener('load', refreshAll);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(refreshAll);
+  window.addEventListener('resize', refreshAll);
+  /* 字体替换/换行会让整页位移（条与线跟着走）：头 2 秒逐帧重画连线，并在几个检查点重写探针 */
+  (function settle(){
+    var n = 0, marks = { 2:1, 6:1, 12:1, 24:1, 48:1, 96:1, 150:1 };
+    (function tick(){
+      refreshEdges();
+      if (marks[n]) writeProbe();
+      if (++n <= 150) requestAnimationFrame(tick);
+      else writeProbe();
+    })();
+  })();
+  if (window.ResizeObserver){
+    var ro = new ResizeObserver(function(){ refreshEdges(); });
+    [].slice.call(document.querySelectorAll('.gantt-body')).forEach(function(el){ ro.observe(el); });
+  }
+})();
+</script>
+
+
+</body></html>

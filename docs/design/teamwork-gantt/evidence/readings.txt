@@ -1,0 +1,4082 @@
+{
+ "shots": {
+  "wide": {
+   "png": "evidence/gantt-wide.png",
+   "dom": "evidence/dom-wide.html",
+   "png_size": [
+    800,
+    1400
+   ],
+   "query": "?view=wide",
+   "desc": "宽栏 704px 宿主 · 真实故事（3 里程碑 / 6 工作项）· scrollTop=0",
+   "core": true,
+   "theme": "light",
+   "round": 0,
+   "demo": "story",
+   "ruler_band_png": [
+    189,
+    217
+   ],
+   "calib": {
+    "dy_px": -24,
+    "ruler_top_probe": 213,
+    "why": "Chrome --dump-dom 与 --screenshot 的页面宽度/换行差（dump 侧页面滚动条占 18px → legend 多折一行）；本脚本把该差值量出来用于取窗口，x 量测完全走 PNG"
+   },
+   "png_plot_l": 235,
+   "png_slot_w": 64,
+   "dom_plot_l": 235,
+   "dom_slot_w": 64,
+   "idempotent": true,
+   "stickyRuler": true,
+   "stickyHead": true,
+   "roleIndex": {
+    "artist": 0,
+    "frontend": 1,
+    "verify": 2
+   },
+   "boards": [
+    {
+     "board": "board-wide",
+     "hostW": 702,
+     "domSlotW": 64,
+     "labelW": 208,
+     "rowH": 38,
+     "barH": 18,
+     "scroll": {
+      "clientH": 380,
+      "scrollH": 474,
+      "scrollTop": 0,
+      "rect": {
+       "l": 26,
+       "t": 213,
+       "w": 700,
+       "h": 380
+      }
+     },
+     "scrollMax": 380,
+     "svg": {
+      "w": 690,
+      "h": 436,
+      "edges": 7,
+      "heads": 7
+     },
+     "nItemEdges": 5,
+     "nMsEdges": 2,
+     "frames": [
+      {
+       "ms": "m-design",
+       "status": "active",
+       "locked": false,
+       "layer": 0,
+       "items": 2,
+       "rowIds": [
+        "wi-frame",
+        "wi-design"
+       ],
+       "sumStart": 0,
+       "sumEnd": 1,
+       "sumEmpty": false,
+       "sumBar": {
+        "l": 235,
+        "t": 281,
+        "w": 64,
+        "h": 9
+       },
+       "sumPlot": {
+        "l": 235,
+        "t": 276,
+        "w": 480,
+        "h": 22
+       },
+       "sumLeftInPlot": 0,
+       "sumWidth": 64,
+       "sumHits": [],
+       "rect": {
+        "l": 26,
+        "t": 247,
+        "w": 690,
+        "h": 128
+       }
+      },
+      {
+       "ms": "m-impl",
+       "status": "pending",
+       "locked": true,
+       "layer": 1,
+       "items": 2,
+       "rowIds": [
+        "wi-impl",
+        "wi-tests"
+       ],
+       "sumStart": 1,
+       "sumEnd": 3,
+       "sumEmpty": false,
+       "sumBar": {
+        "l": 299,
+        "t": 435,
+        "w": 128,
+        "h": 9
+       },
+       "sumPlot": {
+        "l": 235,
+        "t": 430,
+        "w": 480,
+        "h": 22
+       },
+       "sumLeftInPlot": 64,
+       "sumWidth": 128,
+       "sumHits": [],
+       "rect": {
+        "l": 26,
+        "t": 401,
+        "w": 690,
+        "h": 128
+       }
+      },
+      {
+       "ms": "m-verify",
+       "status": "pending",
+       "locked": true,
+       "layer": 2,
+       "items": 2,
+       "rowIds": [
+        "wi-render",
+        "wi-accept"
+       ],
+       "sumStart": 2,
+       "sumEnd": 4,
+       "sumEmpty": false,
+       "sumBar": {
+        "l": 363,
+        "t": 589,
+        "w": 128,
+        "h": 9
+       },
+       "sumPlot": {
+        "l": 235,
+        "t": 584,
+        "w": 480,
+        "h": 22
+       },
+       "sumLeftInPlot": 128,
+       "sumWidth": 128,
+       "sumHits": [],
+       "rect": {
+        "l": 26,
+        "t": 555,
+        "w": 690,
+        "h": 128
+       }
+      }
+     ],
+     "gates": [
+      {
+       "gate": "m-design-&gt;m-impl",
+       "open": false,
+       "text": "闸门 → 上一层全部 done 才放行（等 m-design）"
+      },
+      {
+       "gate": "m-impl-&gt;m-verify",
+       "open": false,
+       "text": "闸门 → 上一层全部 done 才放行（等 m-impl）"
+      }
+     ],
+     "rows": [
+      {
+       "item": "wi-frame",
+       "ms": "m-design",
+       "role": "frontend",
+       "status": "done",
+       "eff": "done",
+       "locked": false,
+       "formula_slot": 0,
+       "dom_slot": 0,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 235,
+       "png_x1": 296,
+       "png_slot": 0,
+       "png_width_px": 62,
+       "how": "v-edge col done(286..299)",
+       "expect_px": [
+        235,
+        297
+       ],
+       "dom_bar": [
+        235,
+        308,
+        62,
+        18
+       ],
+       "blocked": false,
+       "interrupted": false,
+       "live": false,
+       "deps": "",
+       "ok": true,
+       "measured": true
+      },
+      {
+       "item": "wi-design",
+       "ms": "m-design",
+       "role": "artist",
+       "status": "running",
+       "eff": "running",
+       "locked": false,
+       "formula_slot": 0,
+       "dom_slot": 0,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 235,
+       "png_x1": 296,
+       "png_slot": 0,
+       "png_width_px": 62,
+       "how": "v-edge col running(324..337)",
+       "expect_px": [
+        235,
+        297
+       ],
+       "dom_bar": [
+        235,
+        346,
+        62,
+        18
+       ],
+       "blocked": false,
+       "interrupted": false,
+       "live": true,
+       "deps": "",
+       "ok": true,
+       "measured": true
+      },
+      {
+       "item": "wi-impl",
+       "ms": "m-impl",
+       "role": "frontend",
+       "status": "pending",
+       "eff": "pending",
+       "locked": true,
+       "formula_slot": 1,
+       "dom_slot": 1,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 299,
+       "png_x1": 360,
+       "png_slot": 1,
+       "png_width_px": 62,
+       "how": "v-edge col pending(440..453)",
+       "expect_px": [
+        299,
+        361
+       ],
+       "dom_bar": [
+        299,
+        462,
+        62,
+        18
+       ],
+       "blocked": true,
+       "interrupted": false,
+       "live": false,
+       "deps": "wi-design",
+       "ok": true,
+       "measured": true
+      },
+      {
+       "item": "wi-tests",
+       "ms": "m-impl",
+       "role": "frontend",
+       "status": "pending",
+       "eff": "pending",
+       "locked": true,
+       "formula_slot": 2,
+       "dom_slot": 2,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 363,
+       "png_x1": 424,
+       "png_slot": 2,
+       "png_width_px": 62,
+       "how": "v-edge col pending(478..491)",
+       "expect_px": [
+        363,
+        425
+       ],
+       "dom_bar": [
+        363,
+        500,
+        62,
+        18
+       ],
+       "blocked": true,
+       "interrupted": false,
+       "live": false,
+       "deps": "wi-impl",
+       "ok": true,
+       "measured": true
+      },
+      {
+       "item": "wi-render",
+       "ms": "m-verify",
+       "role": "verify",
+       "status": "pending",
+       "eff": "pending",
+       "locked": true,
+       "formula_slot": 2,
+       "dom_slot": 2,
+       "dur": 1,
+       "visible": false,
+       "png_x0": null,
+       "png_x1": null,
+       "png_slot": null,
+       "png_width_px": null,
+       "how": "skipped: 被滚动视口裁掉 / 被 sticky 刻度尺遮住（该行在别的图里量）",
+       "expect_px": [
+        363,
+        425
+       ],
+       "dom_bar": [
+        363,
+        616,
+        62,
+        18
+       ],
+       "blocked": true,
+       "interrupted": false,
+       "live": false,
+       "deps": "wi-impl",
+       "ok": false,
+       "measured": false
+      },
+      {
+       "item": "wi-accept",
+       "ms": "m-verify",
+       "role": "verify",
+       "status": "pending",
+       "eff": "pending",
+       "locked": true,
+       "formula_slot": 3,
+       "dom_slot": 3,
+       "dur": 1,
+       "visible": false,
+       "png_x0": null,
+       "png_x1": null,
+       "png_slot": null,
+       "png_width_px": null,
+       "how": "skipped: 被滚动视口裁掉 / 被 sticky 刻度尺遮住（该行在别的图里量）",
+       "expect_px": [
+        427,
+        489
+       ],
+       "dom_bar": [
+        427,
+        654,
+        62,
+        18
+       ],
+       "blocked": true,
+       "interrupted": false,
+       "live": false,
+       "deps": "wi-render,wi-tests",
+       "ok": false,
+       "measured": false
+      }
+     ],
+     "sums": [
+      {
+       "ms": "m-design",
+       "empty": false,
+       "formula_s": 0,
+       "formula_e": 1,
+       "dom_s": 0,
+       "dom_e": 1,
+       "sumLeftInPlot": 0,
+       "sumWidth": 64,
+       "png_x": [
+        235,
+        297
+       ],
+       "expect_x": [
+        235,
+        298
+       ]
+      },
+      {
+       "ms": "m-impl",
+       "empty": false,
+       "formula_s": 1,
+       "formula_e": 3,
+       "dom_s": 1,
+       "dom_e": 3,
+       "sumLeftInPlot": 64,
+       "sumWidth": 128,
+       "png_x": [
+        299,
+        426
+       ],
+       "expect_x": [
+        299,
+        426
+       ]
+      },
+      {
+       "ms": "m-verify",
+       "empty": false,
+       "formula_s": 2,
+       "formula_e": 4,
+       "dom_s": 2,
+       "dom_e": 4,
+       "sumLeftInPlot": 128,
+       "sumWidth": 128,
+       "png_x": null,
+       "expect_x": [
+        363,
+        490
+       ]
+      }
+     ],
+     "topo_violations": [],
+     "edge_anchor_ok": 5,
+     "edge_anchor_total": 5
+    }
+   ],
+   "gateTexts": [
+    "闸门 → 上一层全部 done 才放行（等 m-design）",
+    "闸门 → 上一层全部 done 才放行（等 m-impl）",
+    "' + esc(txt) + '"
+   ]
+  },
+  "narrow": {
+   "png": "evidence/gantt-narrow.png",
+   "dom": "evidence/dom-narrow.html",
+   "png_size": [
+    420,
+    1500
+   ],
+   "query": "?view=narrow",
+   "desc": "窄栏 344px 宿主（容器查询生效）· scrollTop=0",
+   "core": true,
+   "theme": "light",
+   "round": 0,
+   "demo": "story",
+   "ruler_band_png": [
+    319,
+    345
+   ],
+   "calib": {
+    "dy_px": 0,
+    "ruler_top_probe": 319,
+    "why": "Chrome --dump-dom 与 --screenshot 的页面宽度/换行差（dump 侧页面滚动条占 18px → legend 多折一行）；本脚本把该差值量出来用于取窗口，x 量测完全走 PNG"
+   },
+   "png_plot_l": 145,
+   "png_slot_w": 40,
+   "dom_plot_l": 145,
+   "dom_slot_w": 40,
+   "idempotent": true,
+   "stickyRuler": true,
+   "stickyHead": true,
+   "roleIndex": {
+    "artist": 0,
+    "frontend": 1,
+    "verify": 2
+   },
+   "boards": [
+    {
+     "board": "board-narrow",
+     "hostW": 342,
+     "domSlotW": 40,
+     "labelW": 118,
+     "rowH": 30,
+     "barH": 16,
+     "scroll": {
+      "clientH": 380,
+      "scrollH": 481,
+      "scrollTop": 0,
+      "rect": {
+       "l": 26,
+       "t": 319,
+       "w": 340,
+       "h": 380
+      }
+     },
+     "scrollMax": 380,
+     "svg": {
+      "w": 342,
+      "h": 445,
+      "edges": 7,
+      "heads": 7
+     },
+     "nItemEdges": 5,
+     "nMsEdges": 2,
+     "frames": [
+      {
+       "ms": "m-design",
+       "status": "active",
+       "locked": false,
+       "layer": 0,
+       "items": 2,
+       "rowIds": [
+        "wi-frame",
+        "wi-design"
+       ],
+       "sumStart": 0,
+       "sumEnd": 1,
+       "sumEmpty": false,
+       "sumBar": {
+        "l": 145,
+        "t": 404,
+        "w": 40,
+        "h": 9
+       },
+       "sumPlot": {
+        "l": 145,
+        "t": 399,
+        "w": 210,
+        "h": 22
+       },
+       "sumLeftInPlot": 0,
+       "sumWidth": 40,
+       "sumHits": [],
+       "rect": {
+        "l": 26,
+        "t": 351,
+        "w": 330,
+        "h": 131
+       }
+      },
+      {
+       "ms": "m-impl",
+       "status": "pending",
+       "locked": true,
+       "layer": 1,
+       "items": 2,
+       "rowIds": [
+        "wi-impl",
+        "wi-tests"
+       ],
+       "sumStart": 1,
+       "sumEnd": 3,
+       "sumEmpty": false,
+       "sumBar": {
+        "l": 185,
+        "t": 561,
+        "w": 80,
+        "h": 9
+       },
+       "sumPlot": {
+        "l": 145,
+        "t": 556,
+        "w": 210,
+        "h": 22
+       },
+       "sumLeftInPlot": 40,
+       "sumWidth": 80,
+       "sumHits": [],
+       "rect": {
+        "l": 26,
+        "t": 508,
+        "w": 330,
+        "h": 131
+       }
+      },
+      {
+       "ms": "m-verify",
+       "status": "pending",
+       "locked": true,
+       "layer": 2,
+       "items": 2,
+       "rowIds": [
+        "wi-render",
+        "wi-accept"
+       ],
+       "sumStart": 2,
+       "sumEnd": 4,
+       "sumEmpty": false,
+       "sumBar": {
+        "l": 225,
+        "t": 718,
+        "w": 80,
+        "h": 9
+       },
+       "sumPlot": {
+        "l": 145,
+        "t": 713,
+        "w": 210,
+        "h": 22
+       },
+       "sumLeftInPlot": 80,
+       "sumWidth": 80,
+       "sumHits": [],
+       "rect": {
+        "l": 26,
+        "t": 665,
+        "w": 330,
+        "h": 131
+       }
+      }
+     ],
+     "gates": [
+      {
+       "gate": "m-design-&gt;m-impl",
+       "open": false,
+       "text": "闸门 → 上一层全部 done 才放行（等 m-design）"
+      },
+      {
+       "gate": "m-impl-&gt;m-verify",
+       "open": false,
+       "text": "闸门 → 上一层全部 done 才放行（等 m-impl）"
+      }
+     ],
+     "rows": [
+      {
+       "item": "wi-frame",
+       "ms": "m-design",
+       "role": "frontend",
+       "status": "done",
+       "eff": "done",
+       "locked": false,
+       "formula_slot": 0,
+       "dom_slot": 0,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 145,
+       "png_x1": 182,
+       "png_slot": 0,
+       "png_width_px": 38,
+       "how": "v-edge col done(430..441)",
+       "expect_px": [
+        145,
+        183
+       ],
+       "dom_bar": [
+        145,
+        428,
+        38,
+        16
+       ],
+       "blocked": false,
+       "interrupted": false,
+       "live": false,
+       "deps": "",
+       "ok": true,
+       "measured": true
+      },
+      {
+       "item": "wi-design",
+       "ms": "m-design",
+       "role": "artist",
+       "status": "running",
+       "eff": "running",
+       "locked": false,
+       "formula_slot": 0,
+       "dom_slot": 0,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 145,
+       "png_x1": 182,
+       "png_slot": 0,
+       "png_width_px": 38,
+       "how": "v-edge col running(460..471)",
+       "expect_px": [
+        145,
+        183
+       ],
+       "dom_bar": [
+        145,
+        458,
+        38,
+        16
+       ],
+       "blocked": false,
+       "interrupted": false,
+       "live": true,
+       "deps": "",
+       "ok": true,
+       "measured": true
+      },
+      {
+       "item": "wi-impl",
+       "ms": "m-impl",
+       "role": "frontend",
+       "status": "pending",
+       "eff": "pending",
+       "locked": true,
+       "formula_slot": 1,
+       "dom_slot": 1,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 185,
+       "png_x1": 222,
+       "png_slot": 1,
+       "png_width_px": 38,
+       "how": "v-edge col pending(587..598)",
+       "expect_px": [
+        185,
+        223
+       ],
+       "dom_bar": [
+        185,
+        585,
+        38,
+        16
+       ],
+       "blocked": true,
+       "interrupted": false,
+       "live": false,
+       "deps": "wi-design",
+       "ok": true,
+       "measured": true
+      },
+      {
+       "item": "wi-tests",
+       "ms": "m-impl",
+       "role": "frontend",
+       "status": "pending",
+       "eff": "pending",
+       "locked": true,
+       "formula_slot": 2,
+       "dom_slot": 2,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 225,
+       "png_x1": 262,
+       "png_slot": 2,
+       "png_width_px": 38,
+       "how": "v-edge col pending(617..628)",
+       "expect_px": [
+        225,
+        263
+       ],
+       "dom_bar": [
+        225,
+        615,
+        38,
+        16
+       ],
+       "blocked": true,
+       "interrupted": false,
+       "live": false,
+       "deps": "wi-impl",
+       "ok": true,
+       "measured": true
+      },
+      {
+       "item": "wi-render",
+       "ms": "m-verify",
+       "role": "verify",
+       "status": "pending",
+       "eff": "pending",
+       "locked": true,
+       "formula_slot": 2,
+       "dom_slot": 2,
+       "dur": 1,
+       "visible": false,
+       "png_x0": null,
+       "png_x1": null,
+       "png_slot": null,
+       "png_width_px": null,
+       "how": "skipped: 被滚动视口裁掉 / 被 sticky 刻度尺遮住（该行在别的图里量）",
+       "expect_px": [
+        225,
+        263
+       ],
+       "dom_bar": [
+        225,
+        742,
+        38,
+        16
+       ],
+       "blocked": true,
+       "interrupted": false,
+       "live": false,
+       "deps": "wi-impl",
+       "ok": false,
+       "measured": false
+      },
+      {
+       "item": "wi-accept",
+       "ms": "m-verify",
+       "role": "verify",
+       "status": "pending",
+       "eff": "pending",
+       "locked": true,
+       "formula_slot": 3,
+       "dom_slot": 3,
+       "dur": 1,
+       "visible": false,
+       "png_x0": null,
+       "png_x1": null,
+       "png_slot": null,
+       "png_width_px": null,
+       "how": "skipped: 被滚动视口裁掉 / 被 sticky 刻度尺遮住（该行在别的图里量）",
+       "expect_px": [
+        265,
+        303
+       ],
+       "dom_bar": [
+        265,
+        772,
+        38,
+        16
+       ],
+       "blocked": true,
+       "interrupted": false,
+       "live": false,
+       "deps": "wi-render,wi-tests",
+       "ok": false,
+       "measured": false
+      }
+     ],
+     "sums": [
+      {
+       "ms": "m-design",
+       "empty": false,
+       "formula_s": 0,
+       "formula_e": 1,
+       "dom_s": 0,
+       "dom_e": 1,
+       "sumLeftInPlot": 0,
+       "sumWidth": 40,
+       "png_x": [
+        145,
+        183
+       ],
+       "expect_x": [
+        145,
+        184
+       ]
+      },
+      {
+       "ms": "m-impl",
+       "empty": false,
+       "formula_s": 1,
+       "formula_e": 3,
+       "dom_s": 1,
+       "dom_e": 3,
+       "sumLeftInPlot": 40,
+       "sumWidth": 80,
+       "png_x": [
+        185,
+        264
+       ],
+       "expect_x": [
+        185,
+        264
+       ]
+      },
+      {
+       "ms": "m-verify",
+       "empty": false,
+       "formula_s": 2,
+       "formula_e": 4,
+       "dom_s": 2,
+       "dom_e": 4,
+       "sumLeftInPlot": 80,
+       "sumWidth": 80,
+       "png_x": null,
+       "expect_x": [
+        225,
+        304
+       ]
+      }
+     ],
+     "topo_violations": [],
+     "edge_anchor_ok": 5,
+     "edge_anchor_total": 5
+    }
+   ],
+   "gateTexts": [
+    "闸门 → 上一层全部 done 才放行（等 m-design）",
+    "闸门 → 上一层全部 done 才放行（等 m-impl）",
+    "' + esc(txt) + '"
+   ]
+  },
+  "advance1": {
+   "png": "evidence/gantt-advance1.png",
+   "dom": "evidence/dom-advance1.html",
+   "png_size": [
+    800,
+    1400
+   ],
+   "query": "?view=wide&advance=1",
+   "desc": "推进一轮（wi-design done · wi-impl running · m-impl 闸门放行）",
+   "core": true,
+   "theme": "light",
+   "round": 1,
+   "demo": "story",
+   "ruler_band_png": [
+    189,
+    217
+   ],
+   "calib": {
+    "dy_px": -40,
+    "ruler_top_probe": 229,
+    "why": "Chrome --dump-dom 与 --screenshot 的页面宽度/换行差（dump 侧页面滚动条占 18px → legend 多折一行）；本脚本把该差值量出来用于取窗口，x 量测完全走 PNG"
+   },
+   "png_plot_l": 235,
+   "png_slot_w": 64,
+   "dom_plot_l": 235,
+   "dom_slot_w": 64,
+   "idempotent": true,
+   "stickyRuler": true,
+   "stickyHead": true,
+   "roleIndex": {
+    "artist": 0,
+    "frontend": 1,
+    "verify": 2
+   },
+   "boards": [
+    {
+     "board": "board-wide",
+     "hostW": 702,
+     "domSlotW": 64,
+     "labelW": 208,
+     "rowH": 38,
+     "barH": 18,
+     "scroll": {
+      "clientH": 380,
+      "scrollH": 474,
+      "scrollTop": 0,
+      "rect": {
+       "l": 26,
+       "t": 229,
+       "w": 700,
+       "h": 380
+      }
+     },
+     "scrollMax": 380,
+     "svg": {
+      "w": 690,
+      "h": 436,
+      "edges": 7,
+      "heads": 7
+     },
+     "nItemEdges": 5,
+     "nMsEdges": 2,
+     "frames": [
+      {
+       "ms": "m-design",
+       "status": "done",
+       "locked": false,
+       "layer": 0,
+       "items": 2,
+       "rowIds": [
+        "wi-frame",
+        "wi-design"
+       ],
+       "sumStart": 0,
+       "sumEnd": 1,
+       "sumEmpty": false,
+       "sumBar": {
+        "l": 235,
+        "t": 297,
+        "w": 64,
+        "h": 9
+       },
+       "sumPlot": {
+        "l": 235,
+        "t": 292,
+        "w": 480,
+        "h": 22
+       },
+       "sumLeftInPlot": 0,
+       "sumWidth": 64,
+       "sumHits": [],
+       "rect": {
+        "l": 26,
+        "t": 263,
+        "w": 690,
+        "h": 128
+       }
+      },
+      {
+       "ms": "m-impl",
+       "status": "active",
+       "locked": false,
+       "layer": 1,
+       "items": 2,
+       "rowIds": [
+        "wi-impl",
+        "wi-tests"
+       ],
+       "sumStart": 1,
+       "sumEnd": 3,
+       "sumEmpty": false,
+       "sumBar": {
+        "l": 299,
+        "t": 451,
+        "w": 128,
+        "h": 9
+       },
+       "sumPlot": {
+        "l": 235,
+        "t": 446,
+        "w": 480,
+        "h": 22
+       },
+       "sumLeftInPlot": 64,
+       "sumWidth": 128,
+       "sumHits": [],
+       "rect": {
+        "l": 26,
+        "t": 417,
+        "w": 690,
+        "h": 128
+       }
+      },
+      {
+       "ms": "m-verify",
+       "status": "pending",
+       "locked": true,
+       "layer": 2,
+       "items": 2,
+       "rowIds": [
+        "wi-render",
+        "wi-accept"
+       ],
+       "sumStart": 2,
+       "sumEnd": 4,
+       "sumEmpty": false,
+       "sumBar": {
+        "l": 363,
+        "t": 605,
+        "w": 128,
+        "h": 9
+       },
+       "sumPlot": {
+        "l": 235,
+        "t": 600,
+        "w": 480,
+        "h": 22
+       },
+       "sumLeftInPlot": 128,
+       "sumWidth": 128,
+       "sumHits": [],
+       "rect": {
+        "l": 26,
+        "t": 571,
+        "w": 690,
+        "h": 128
+       }
+      }
+     ],
+     "gates": [
+      {
+       "gate": "m-design-&gt;m-impl",
+       "open": true,
+       "text": "闸门已放行 → m-design 全部 done"
+      },
+      {
+       "gate": "m-impl-&gt;m-verify",
+       "open": false,
+       "text": "闸门 → 上一层全部 done 才放行（等 m-impl）"
+      }
+     ],
+     "rows": [
+      {
+       "item": "wi-frame",
+       "ms": "m-design",
+       "role": "frontend",
+       "status": "done",
+       "eff": "done",
+       "locked": false,
+       "formula_slot": 0,
+       "dom_slot": 0,
+       "dur": 1,
+       "visible": false,
+       "png_x0": null,
+       "png_x1": null,
+       "png_slot": null,
+       "png_width_px": null,
+       "how": "skipped: 被滚动视口裁掉 / 被 sticky 刻度尺遮住（该行在别的图里量）",
+       "expect_px": [
+        235,
+        297
+       ],
+       "dom_bar": [
+        235,
+        324,
+        62,
+        18
+       ],
+       "blocked": false,
+       "interrupted": false,
+       "live": false,
+       "deps": "",
+       "ok": false,
+       "measured": false
+      },
+      {
+       "item": "wi-design",
+       "ms": "m-design",
+       "role": "artist",
+       "status": "done",
+       "eff": "done",
+       "locked": false,
+       "formula_slot": 0,
+       "dom_slot": 0,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 235,
+       "png_x1": 296,
+       "png_slot": 0,
+       "png_width_px": 62,
+       "how": "v-edge col done(324..337)",
+       "expect_px": [
+        235,
+        297
+       ],
+       "dom_bar": [
+        235,
+        362,
+        62,
+        18
+       ],
+       "blocked": false,
+       "interrupted": false,
+       "live": false,
+       "deps": "",
+       "ok": true,
+       "measured": true
+      },
+      {
+       "item": "wi-impl",
+       "ms": "m-impl",
+       "role": "frontend",
+       "status": "running",
+       "eff": "running",
+       "locked": false,
+       "formula_slot": 1,
+       "dom_slot": 1,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 299,
+       "png_x1": 360,
+       "png_slot": 1,
+       "png_width_px": 62,
+       "how": "v-edge col running(440..453)",
+       "expect_px": [
+        299,
+        361
+       ],
+       "dom_bar": [
+        299,
+        478,
+        62,
+        18
+       ],
+       "blocked": false,
+       "interrupted": false,
+       "live": true,
+       "deps": "wi-design",
+       "ok": true,
+       "measured": true
+      },
+      {
+       "item": "wi-tests",
+       "ms": "m-impl",
+       "role": "frontend",
+       "status": "pending",
+       "eff": "pending",
+       "locked": false,
+       "formula_slot": 2,
+       "dom_slot": 2,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 363,
+       "png_x1": 424,
+       "png_slot": 2,
+       "png_width_px": 62,
+       "how": "v-edge col pending(478..491)",
+       "expect_px": [
+        363,
+        425
+       ],
+       "dom_bar": [
+        363,
+        516,
+        62,
+        18
+       ],
+       "blocked": true,
+       "interrupted": false,
+       "live": false,
+       "deps": "wi-impl",
+       "ok": true,
+       "measured": true
+      },
+      {
+       "item": "wi-render",
+       "ms": "m-verify",
+       "role": "verify",
+       "status": "pending",
+       "eff": "pending",
+       "locked": true,
+       "formula_slot": 2,
+       "dom_slot": 2,
+       "dur": 1,
+       "visible": false,
+       "png_x0": null,
+       "png_x1": null,
+       "png_slot": null,
+       "png_width_px": null,
+       "how": "skipped: 被滚动视口裁掉 / 被 sticky 刻度尺遮住（该行在别的图里量）",
+       "expect_px": [
+        363,
+        425
+       ],
+       "dom_bar": [
+        363,
+        632,
+        62,
+        18
+       ],
+       "blocked": true,
+       "interrupted": false,
+       "live": false,
+       "deps": "wi-impl",
+       "ok": false,
+       "measured": false
+      },
+      {
+       "item": "wi-accept",
+       "ms": "m-verify",
+       "role": "verify",
+       "status": "pending",
+       "eff": "pending",
+       "locked": true,
+       "formula_slot": 3,
+       "dom_slot": 3,
+       "dur": 1,
+       "visible": false,
+       "png_x0": null,
+       "png_x1": null,
+       "png_slot": null,
+       "png_width_px": null,
+       "how": "skipped: 被滚动视口裁掉 / 被 sticky 刻度尺遮住（该行在别的图里量）",
+       "expect_px": [
+        427,
+        489
+       ],
+       "dom_bar": [
+        427,
+        670,
+        62,
+        18
+       ],
+       "blocked": true,
+       "interrupted": false,
+       "live": false,
+       "deps": "wi-render,wi-tests",
+       "ok": false,
+       "measured": false
+      }
+     ],
+     "sums": [
+      {
+       "ms": "m-design",
+       "empty": false,
+       "formula_s": 0,
+       "formula_e": 1,
+       "dom_s": 0,
+       "dom_e": 1,
+       "sumLeftInPlot": 0,
+       "sumWidth": 64,
+       "png_x": [
+        235,
+        297
+       ],
+       "expect_x": [
+        235,
+        298
+       ]
+      },
+      {
+       "ms": "m-impl",
+       "empty": false,
+       "formula_s": 1,
+       "formula_e": 3,
+       "dom_s": 1,
+       "dom_e": 3,
+       "sumLeftInPlot": 64,
+       "sumWidth": 128,
+       "png_x": [
+        299,
+        425
+       ],
+       "expect_x": [
+        299,
+        426
+       ]
+      },
+      {
+       "ms": "m-verify",
+       "empty": false,
+       "formula_s": 2,
+       "formula_e": 4,
+       "dom_s": 2,
+       "dom_e": 4,
+       "sumLeftInPlot": 128,
+       "sumWidth": 128,
+       "png_x": null,
+       "expect_x": [
+        363,
+        490
+       ]
+      }
+     ],
+     "topo_violations": [],
+     "edge_anchor_ok": 5,
+     "edge_anchor_total": 5
+    }
+   ],
+   "gateTexts": [
+    "闸门已放行 → m-design 全部 done",
+    "闸门 → 上一层全部 done 才放行（等 m-impl）",
+    "' + esc(txt) + '"
+   ]
+  },
+  "wide-bottom": {
+   "png": "evidence/gantt-wide-bottom.png",
+   "dom": "evidence/dom-wide-bottom.html",
+   "png_size": [
+    800,
+    1400
+   ],
+   "query": "?view=wide&scroll=94",
+   "desc": "宽栏滚到底（看 m-verify 的两行）",
+   "core": false,
+   "theme": "light",
+   "round": 0,
+   "demo": "story",
+   "ruler_band_png": [
+    189,
+    217
+   ],
+   "calib": {
+    "dy_px": -24,
+    "ruler_top_probe": 213,
+    "why": "Chrome --dump-dom 与 --screenshot 的页面宽度/换行差（dump 侧页面滚动条占 18px → legend 多折一行）；本脚本把该差值量出来用于取窗口，x 量测完全走 PNG"
+   },
+   "png_plot_l": 235,
+   "png_slot_w": 64,
+   "dom_plot_l": 235,
+   "dom_slot_w": 64,
+   "idempotent": true,
+   "stickyRuler": true,
+   "stickyHead": true,
+   "roleIndex": {
+    "artist": 0,
+    "frontend": 1,
+    "verify": 2
+   },
+   "boards": [
+    {
+     "board": "board-wide",
+     "hostW": 702,
+     "domSlotW": 64,
+     "labelW": 208,
+     "rowH": 38,
+     "barH": 18,
+     "scroll": {
+      "clientH": 380,
+      "scrollH": 474,
+      "scrollTop": 94,
+      "rect": {
+       "l": 26,
+       "t": 213,
+       "w": 700,
+       "h": 380
+      }
+     },
+     "scrollMax": 380,
+     "svg": {
+      "w": 690,
+      "h": 436,
+      "edges": 7,
+      "heads": 7
+     },
+     "nItemEdges": 5,
+     "nMsEdges": 2,
+     "frames": [
+      {
+       "ms": "m-design",
+       "status": "active",
+       "locked": false,
+       "layer": 0,
+       "items": 2,
+       "rowIds": [
+        "wi-frame",
+        "wi-design"
+       ],
+       "sumStart": 0,
+       "sumEnd": 1,
+       "sumEmpty": false,
+       "sumBar": {
+        "l": 235,
+        "t": 187,
+        "w": 64,
+        "h": 9
+       },
+       "sumPlot": {
+        "l": 235,
+        "t": 182,
+        "w": 480,
+        "h": 22
+       },
+       "sumLeftInPlot": 0,
+       "sumWidth": 64,
+       "sumHits": [],
+       "rect": {
+        "l": 26,
+        "t": 153,
+        "w": 690,
+        "h": 128
+       }
+      },
+      {
+       "ms": "m-impl",
+       "status": "pending",
+       "locked": true,
+       "layer": 1,
+       "items": 2,
+       "rowIds": [
+        "wi-impl",
+        "wi-tests"
+       ],
+       "sumStart": 1,
+       "sumEnd": 3,
+       "sumEmpty": false,
+       "sumBar": {
+        "l": 299,
+        "t": 341,
+        "w": 128,
+        "h": 9
+       },
+       "sumPlot": {
+        "l": 235,
+        "t": 336,
+        "w": 480,
+        "h": 22
+       },
+       "sumLeftInPlot": 64,
+       "sumWidth": 128,
+       "sumHits": [],
+       "rect": {
+        "l": 26,
+        "t": 307,
+        "w": 690,
+        "h": 128
+       }
+      },
+      {
+       "ms": "m-verify",
+       "status": "pending",
+       "locked": true,
+       "layer": 2,
+       "items": 2,
+       "rowIds": [
+        "wi-render",
+        "wi-accept"
+       ],
+       "sumStart": 2,
+       "sumEnd": 4,
+       "sumEmpty": false,
+       "sumBar": {
+        "l": 363,
+        "t": 495,
+        "w": 128,
+        "h": 9
+       },
+       "sumPlot": {
+        "l": 235,
+        "t": 490,
+        "w": 480,
+        "h": 22
+       },
+       "sumLeftInPlot": 128,
+       "sumWidth": 128,
+       "sumHits": [],
+       "rect": {
+        "l": 26,
+        "t": 461,
+        "w": 690,
+        "h": 128
+       }
+      }
+     ],
+     "gates": [
+      {
+       "gate": "m-design-&gt;m-impl",
+       "open": false,
+       "text": "闸门 → 上一层全部 done 才放行（等 m-design）"
+      },
+      {
+       "gate": "m-impl-&gt;m-verify",
+       "open": false,
+       "text": "闸门 → 上一层全部 done 才放行（等 m-impl）"
+      }
+     ],
+     "rows": [
+      {
+       "item": "wi-frame",
+       "ms": "m-design",
+       "role": "frontend",
+       "status": "done",
+       "eff": "done",
+       "locked": false,
+       "formula_slot": 0,
+       "dom_slot": 0,
+       "dur": 1,
+       "visible": false,
+       "png_x0": null,
+       "png_x1": null,
+       "png_slot": null,
+       "png_width_px": null,
+       "how": "skipped: 被滚动视口裁掉 / 被 sticky 刻度尺遮住（该行在别的图里量）",
+       "expect_px": [
+        235,
+        297
+       ],
+       "dom_bar": [
+        235,
+        214,
+        62,
+        18
+       ],
+       "blocked": false,
+       "interrupted": false,
+       "live": false,
+       "deps": "",
+       "ok": false,
+       "measured": false
+      },
+      {
+       "item": "wi-design",
+       "ms": "m-design",
+       "role": "artist",
+       "status": "running",
+       "eff": "running",
+       "locked": false,
+       "formula_slot": 0,
+       "dom_slot": 0,
+       "dur": 1,
+       "visible": false,
+       "png_x0": null,
+       "png_x1": null,
+       "png_slot": null,
+       "png_width_px": null,
+       "how": "skipped: 被滚动视口裁掉 / 被 sticky 刻度尺遮住（该行在别的图里量）",
+       "expect_px": [
+        235,
+        297
+       ],
+       "dom_bar": [
+        235,
+        252,
+        62,
+        18
+       ],
+       "blocked": false,
+       "interrupted": false,
+       "live": true,
+       "deps": "",
+       "ok": false,
+       "measured": false
+      },
+      {
+       "item": "wi-impl",
+       "ms": "m-impl",
+       "role": "frontend",
+       "status": "pending",
+       "eff": "pending",
+       "locked": true,
+       "formula_slot": 1,
+       "dom_slot": 1,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 299,
+       "png_x1": 360,
+       "png_slot": 1,
+       "png_width_px": 62,
+       "how": "v-edge col pending(346..359)",
+       "expect_px": [
+        299,
+        361
+       ],
+       "dom_bar": [
+        299,
+        368,
+        62,
+        18
+       ],
+       "blocked": true,
+       "interrupted": false,
+       "live": false,
+       "deps": "wi-design",
+       "ok": true,
+       "measured": true
+      },
+      {
+       "item": "wi-tests",
+       "ms": "m-impl",
+       "role": "frontend",
+       "status": "pending",
+       "eff": "pending",
+       "locked": true,
+       "formula_slot": 2,
+       "dom_slot": 2,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 363,
+       "png_x1": 424,
+       "png_slot": 2,
+       "png_width_px": 62,
+       "how": "v-edge col pending(384..397)",
+       "expect_px": [
+        363,
+        425
+       ],
+       "dom_bar": [
+        363,
+        406,
+        62,
+        18
+       ],
+       "blocked": true,
+       "interrupted": false,
+       "live": false,
+       "deps": "wi-impl",
+       "ok": true,
+       "measured": true
+      },
+      {
+       "item": "wi-render",
+       "ms": "m-verify",
+       "role": "verify",
+       "status": "pending",
+       "eff": "pending",
+       "locked": true,
+       "formula_slot": 2,
+       "dom_slot": 2,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 363,
+       "png_x1": 424,
+       "png_slot": 2,
+       "png_width_px": 62,
+       "how": "v-edge col pending(500..513)",
+       "expect_px": [
+        363,
+        425
+       ],
+       "dom_bar": [
+        363,
+        522,
+        62,
+        18
+       ],
+       "blocked": true,
+       "interrupted": false,
+       "live": false,
+       "deps": "wi-impl",
+       "ok": true,
+       "measured": true
+      },
+      {
+       "item": "wi-accept",
+       "ms": "m-verify",
+       "role": "verify",
+       "status": "pending",
+       "eff": "pending",
+       "locked": true,
+       "formula_slot": 3,
+       "dom_slot": 3,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 427,
+       "png_x1": 488,
+       "png_slot": 3,
+       "png_width_px": 62,
+       "how": "v-edge col pending(538..551)",
+       "expect_px": [
+        427,
+        489
+       ],
+       "dom_bar": [
+        427,
+        560,
+        62,
+        18
+       ],
+       "blocked": true,
+       "interrupted": false,
+       "live": false,
+       "deps": "wi-render,wi-tests",
+       "ok": true,
+       "measured": true
+      }
+     ],
+     "sums": [
+      {
+       "ms": "m-design",
+       "empty": false,
+       "formula_s": 0,
+       "formula_e": 1,
+       "dom_s": 0,
+       "dom_e": 1,
+       "sumLeftInPlot": 0,
+       "sumWidth": 64,
+       "png_x": null,
+       "expect_x": [
+        235,
+        298
+       ]
+      },
+      {
+       "ms": "m-impl",
+       "empty": false,
+       "formula_s": 1,
+       "formula_e": 3,
+       "dom_s": 1,
+       "dom_e": 3,
+       "sumLeftInPlot": 64,
+       "sumWidth": 128,
+       "png_x": [
+        299,
+        426
+       ],
+       "expect_x": [
+        299,
+        426
+       ]
+      },
+      {
+       "ms": "m-verify",
+       "empty": false,
+       "formula_s": 2,
+       "formula_e": 4,
+       "dom_s": 2,
+       "dom_e": 4,
+       "sumLeftInPlot": 128,
+       "sumWidth": 128,
+       "png_x": [
+        363,
+        490
+       ],
+       "expect_x": [
+        363,
+        490
+       ]
+      }
+     ],
+     "topo_violations": [],
+     "edge_anchor_ok": 5,
+     "edge_anchor_total": 5
+    }
+   ],
+   "gateTexts": [
+    "闸门 → 上一层全部 done 才放行（等 m-design）",
+    "闸门 → 上一层全部 done 才放行（等 m-impl）",
+    "' + esc(txt) + '"
+   ]
+  },
+  "narrow-bottom": {
+   "png": "evidence/gantt-narrow-bottom.png",
+   "dom": "evidence/dom-narrow-bottom.html",
+   "png_size": [
+    420,
+    1500
+   ],
+   "query": "?view=narrow&scroll=44",
+   "desc": "窄栏滚到底",
+   "core": false,
+   "theme": "light",
+   "round": 0,
+   "demo": "story",
+   "ruler_band_png": [
+    319,
+    345
+   ],
+   "calib": {
+    "dy_px": 0,
+    "ruler_top_probe": 319,
+    "why": "Chrome --dump-dom 与 --screenshot 的页面宽度/换行差（dump 侧页面滚动条占 18px → legend 多折一行）；本脚本把该差值量出来用于取窗口，x 量测完全走 PNG"
+   },
+   "png_plot_l": 145,
+   "png_slot_w": 40,
+   "dom_plot_l": 145,
+   "dom_slot_w": 40,
+   "idempotent": true,
+   "stickyRuler": true,
+   "stickyHead": true,
+   "roleIndex": {
+    "artist": 0,
+    "frontend": 1,
+    "verify": 2
+   },
+   "boards": [
+    {
+     "board": "board-narrow",
+     "hostW": 342,
+     "domSlotW": 40,
+     "labelW": 118,
+     "rowH": 30,
+     "barH": 16,
+     "scroll": {
+      "clientH": 380,
+      "scrollH": 481,
+      "scrollTop": 44,
+      "rect": {
+       "l": 26,
+       "t": 319,
+       "w": 340,
+       "h": 380
+      }
+     },
+     "scrollMax": 380,
+     "svg": {
+      "w": 342,
+      "h": 445,
+      "edges": 7,
+      "heads": 7
+     },
+     "nItemEdges": 5,
+     "nMsEdges": 2,
+     "frames": [
+      {
+       "ms": "m-design",
+       "status": "active",
+       "locked": false,
+       "layer": 0,
+       "items": 2,
+       "rowIds": [
+        "wi-frame",
+        "wi-design"
+       ],
+       "sumStart": 0,
+       "sumEnd": 1,
+       "sumEmpty": false,
+       "sumBar": {
+        "l": 145,
+        "t": 360,
+        "w": 40,
+        "h": 9
+       },
+       "sumPlot": {
+        "l": 145,
+        "t": 355,
+        "w": 210,
+        "h": 22
+       },
+       "sumLeftInPlot": 0,
+       "sumWidth": 40,
+       "sumHits": [],
+       "rect": {
+        "l": 26,
+        "t": 307,
+        "w": 330,
+        "h": 131
+       }
+      },
+      {
+       "ms": "m-impl",
+       "status": "pending",
+       "locked": true,
+       "layer": 1,
+       "items": 2,
+       "rowIds": [
+        "wi-impl",
+        "wi-tests"
+       ],
+       "sumStart": 1,
+       "sumEnd": 3,
+       "sumEmpty": false,
+       "sumBar": {
+        "l": 185,
+        "t": 517,
+        "w": 80,
+        "h": 9
+       },
+       "sumPlot": {
+        "l": 145,
+        "t": 512,
+        "w": 210,
+        "h": 22
+       },
+       "sumLeftInPlot": 40,
+       "sumWidth": 80,
+       "sumHits": [],
+       "rect": {
+        "l": 26,
+        "t": 464,
+        "w": 330,
+        "h": 131
+       }
+      },
+      {
+       "ms": "m-verify",
+       "status": "pending",
+       "locked": true,
+       "layer": 2,
+       "items": 2,
+       "rowIds": [
+        "wi-render",
+        "wi-accept"
+       ],
+       "sumStart": 2,
+       "sumEnd": 4,
+       "sumEmpty": false,
+       "sumBar": {
+        "l": 225,
+        "t": 674,
+        "w": 80,
+        "h": 9
+       },
+       "sumPlot": {
+        "l": 145,
+        "t": 669,
+        "w": 210,
+        "h": 22
+       },
+       "sumLeftInPlot": 80,
+       "sumWidth": 80,
+       "sumHits": [],
+       "rect": {
+        "l": 26,
+        "t": 621,
+        "w": 330,
+        "h": 131
+       }
+      }
+     ],
+     "gates": [
+      {
+       "gate": "m-design-&gt;m-impl",
+       "open": false,
+       "text": "闸门 → 上一层全部 done 才放行（等 m-design）"
+      },
+      {
+       "gate": "m-impl-&gt;m-verify",
+       "open": false,
+       "text": "闸门 → 上一层全部 done 才放行（等 m-impl）"
+      }
+     ],
+     "rows": [
+      {
+       "item": "wi-frame",
+       "ms": "m-design",
+       "role": "frontend",
+       "status": "done",
+       "eff": "done",
+       "locked": false,
+       "formula_slot": 0,
+       "dom_slot": 0,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 145,
+       "png_x1": 182,
+       "png_slot": 0,
+       "png_width_px": 38,
+       "how": "v-edge col done(386..397)",
+       "expect_px": [
+        145,
+        183
+       ],
+       "dom_bar": [
+        145,
+        384,
+        38,
+        16
+       ],
+       "blocked": false,
+       "interrupted": false,
+       "live": false,
+       "deps": "",
+       "ok": true,
+       "measured": true
+      },
+      {
+       "item": "wi-design",
+       "ms": "m-design",
+       "role": "artist",
+       "status": "running",
+       "eff": "running",
+       "locked": false,
+       "formula_slot": 0,
+       "dom_slot": 0,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 145,
+       "png_x1": 182,
+       "png_slot": 0,
+       "png_width_px": 38,
+       "how": "v-edge col running(416..427)",
+       "expect_px": [
+        145,
+        183
+       ],
+       "dom_bar": [
+        145,
+        414,
+        38,
+        16
+       ],
+       "blocked": false,
+       "interrupted": false,
+       "live": true,
+       "deps": "",
+       "ok": true,
+       "measured": true
+      },
+      {
+       "item": "wi-impl",
+       "ms": "m-impl",
+       "role": "frontend",
+       "status": "pending",
+       "eff": "pending",
+       "locked": true,
+       "formula_slot": 1,
+       "dom_slot": 1,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 185,
+       "png_x1": 222,
+       "png_slot": 1,
+       "png_width_px": 38,
+       "how": "v-edge col pending(543..554)",
+       "expect_px": [
+        185,
+        223
+       ],
+       "dom_bar": [
+        185,
+        541,
+        38,
+        16
+       ],
+       "blocked": true,
+       "interrupted": false,
+       "live": false,
+       "deps": "wi-design",
+       "ok": true,
+       "measured": true
+      },
+      {
+       "item": "wi-tests",
+       "ms": "m-impl",
+       "role": "frontend",
+       "status": "pending",
+       "eff": "pending",
+       "locked": true,
+       "formula_slot": 2,
+       "dom_slot": 2,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 225,
+       "png_x1": 262,
+       "png_slot": 2,
+       "png_width_px": 38,
+       "how": "v-edge col pending(573..584)",
+       "expect_px": [
+        225,
+        263
+       ],
+       "dom_bar": [
+        225,
+        571,
+        38,
+        16
+       ],
+       "blocked": true,
+       "interrupted": false,
+       "live": false,
+       "deps": "wi-impl",
+       "ok": true,
+       "measured": true
+      },
+      {
+       "item": "wi-render",
+       "ms": "m-verify",
+       "role": "verify",
+       "status": "pending",
+       "eff": "pending",
+       "locked": true,
+       "formula_slot": 2,
+       "dom_slot": 2,
+       "dur": 1,
+       "visible": false,
+       "png_x0": null,
+       "png_x1": null,
+       "png_slot": null,
+       "png_width_px": null,
+       "how": "skipped: 被滚动视口裁掉 / 被 sticky 刻度尺遮住（该行在别的图里量）",
+       "expect_px": [
+        225,
+        263
+       ],
+       "dom_bar": [
+        225,
+        698,
+        38,
+        16
+       ],
+       "blocked": true,
+       "interrupted": false,
+       "live": false,
+       "deps": "wi-impl",
+       "ok": false,
+       "measured": false
+      },
+      {
+       "item": "wi-accept",
+       "ms": "m-verify",
+       "role": "verify",
+       "status": "pending",
+       "eff": "pending",
+       "locked": true,
+       "formula_slot": 3,
+       "dom_slot": 3,
+       "dur": 1,
+       "visible": false,
+       "png_x0": null,
+       "png_x1": null,
+       "png_slot": null,
+       "png_width_px": null,
+       "how": "skipped: 被滚动视口裁掉 / 被 sticky 刻度尺遮住（该行在别的图里量）",
+       "expect_px": [
+        265,
+        303
+       ],
+       "dom_bar": [
+        265,
+        728,
+        38,
+        16
+       ],
+       "blocked": true,
+       "interrupted": false,
+       "live": false,
+       "deps": "wi-render,wi-tests",
+       "ok": false,
+       "measured": false
+      }
+     ],
+     "sums": [
+      {
+       "ms": "m-design",
+       "empty": false,
+       "formula_s": 0,
+       "formula_e": 1,
+       "dom_s": 0,
+       "dom_e": 1,
+       "sumLeftInPlot": 0,
+       "sumWidth": 40,
+       "png_x": null,
+       "expect_x": [
+        145,
+        184
+       ]
+      },
+      {
+       "ms": "m-impl",
+       "empty": false,
+       "formula_s": 1,
+       "formula_e": 3,
+       "dom_s": 1,
+       "dom_e": 3,
+       "sumLeftInPlot": 40,
+       "sumWidth": 80,
+       "png_x": [
+        185,
+        264
+       ],
+       "expect_x": [
+        185,
+        264
+       ]
+      },
+      {
+       "ms": "m-verify",
+       "empty": false,
+       "formula_s": 2,
+       "formula_e": 4,
+       "dom_s": 2,
+       "dom_e": 4,
+       "sumLeftInPlot": 80,
+       "sumWidth": 80,
+       "png_x": [
+        225,
+        304
+       ],
+       "expect_x": [
+        225,
+        304
+       ]
+      }
+     ],
+     "topo_violations": [],
+     "edge_anchor_ok": 5,
+     "edge_anchor_total": 5
+    }
+   ],
+   "gateTexts": [
+    "闸门 → 上一层全部 done 才放行（等 m-design）",
+    "闸门 → 上一层全部 done 才放行（等 m-impl）",
+    "' + esc(txt) + '"
+   ]
+  },
+  "sketch": {
+   "png": "evidence/gantt-sketch.png",
+   "dom": "evidence/dom-sketch.html",
+   "png_size": [
+    800,
+    1400
+   ],
+   "query": "?view=wide&demo=sketch",
+   "desc": "用户 sketch：a/b/c/d（c→d、b→a、d→a）",
+   "core": false,
+   "theme": "light",
+   "round": 0,
+   "demo": "sketch",
+   "ruler_band_png": [
+    189,
+    217
+   ],
+   "calib": {
+    "dy_px": -24,
+    "ruler_top_probe": 213,
+    "why": "Chrome --dump-dom 与 --screenshot 的页面宽度/换行差（dump 侧页面滚动条占 18px → legend 多折一行）；本脚本把该差值量出来用于取窗口，x 量测完全走 PNG"
+   },
+   "png_plot_l": 235,
+   "png_slot_w": 64,
+   "dom_plot_l": 235,
+   "dom_slot_w": 64,
+   "idempotent": true,
+   "stickyRuler": true,
+   "stickyHead": true,
+   "roleIndex": {
+    "artist": 0,
+    "frontend": 1,
+    "verify": 2
+   },
+   "boards": [
+    {
+     "board": "board-wide",
+     "hostW": 702,
+     "domSlotW": 64,
+     "labelW": 208,
+     "rowH": 38,
+     "barH": 18,
+     "scroll": {
+      "clientH": 242,
+      "scrollH": 242,
+      "scrollTop": 0,
+      "rect": {
+       "l": 26,
+       "t": 213,
+       "w": 700,
+       "h": 242
+      }
+     },
+     "scrollMax": 380,
+     "svg": {
+      "w": 700,
+      "h": 204,
+      "edges": 3,
+      "heads": 3
+     },
+     "nItemEdges": 3,
+     "nMsEdges": 0,
+     "frames": [
+      {
+       "ms": "m-sketch",
+       "status": "active",
+       "locked": false,
+       "layer": 0,
+       "items": 4,
+       "rowIds": [
+        "c",
+        "b",
+        "d",
+        "a"
+       ],
+       "sumStart": 0,
+       "sumEnd": 3,
+       "sumEmpty": false,
+       "sumBar": {
+        "l": 235,
+        "t": 281,
+        "w": 192,
+        "h": 9
+       },
+       "sumPlot": {
+        "l": 235,
+        "t": 276,
+        "w": 490,
+        "h": 22
+       },
+       "sumLeftInPlot": 0,
+       "sumWidth": 192,
+       "sumHits": [],
+       "rect": {
+        "l": 26,
+        "t": 247,
+        "w": 700,
+        "h": 204
+       }
+      }
+     ],
+     "gates": [],
+     "rows": [
+      {
+       "item": "c",
+       "ms": "m-sketch",
+       "role": "artist",
+       "status": "done",
+       "eff": "done",
+       "locked": false,
+       "formula_slot": 0,
+       "dom_slot": 0,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 235,
+       "png_x1": 296,
+       "png_slot": 0,
+       "png_width_px": 62,
+       "how": "v-edge col done(286..299)",
+       "expect_px": [
+        235,
+        297
+       ],
+       "dom_bar": [
+        235,
+        308,
+        62,
+        18
+       ],
+       "blocked": false,
+       "interrupted": false,
+       "live": false,
+       "deps": "",
+       "ok": true,
+       "measured": true
+      },
+      {
+       "item": "b",
+       "ms": "m-sketch",
+       "role": "artist",
+       "status": "done",
+       "eff": "done",
+       "locked": false,
+       "formula_slot": 0,
+       "dom_slot": 0,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 235,
+       "png_x1": 296,
+       "png_slot": 0,
+       "png_width_px": 62,
+       "how": "v-edge col done(324..337)",
+       "expect_px": [
+        235,
+        297
+       ],
+       "dom_bar": [
+        235,
+        346,
+        62,
+        18
+       ],
+       "blocked": false,
+       "interrupted": false,
+       "live": false,
+       "deps": "",
+       "ok": true,
+       "measured": true
+      },
+      {
+       "item": "d",
+       "ms": "m-sketch",
+       "role": "artist",
+       "status": "pending",
+       "eff": "pending",
+       "locked": false,
+       "formula_slot": 1,
+       "dom_slot": 1,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 299,
+       "png_x1": 360,
+       "png_slot": 1,
+       "png_width_px": 62,
+       "how": "v-edge col pending(362..375)",
+       "expect_px": [
+        299,
+        361
+       ],
+       "dom_bar": [
+        299,
+        384,
+        62,
+        18
+       ],
+       "blocked": false,
+       "interrupted": false,
+       "live": false,
+       "deps": "c",
+       "ok": true,
+       "measured": true
+      },
+      {
+       "item": "a",
+       "ms": "m-sketch",
+       "role": "artist",
+       "status": "pending",
+       "eff": "pending",
+       "locked": false,
+       "formula_slot": 2,
+       "dom_slot": 2,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 363,
+       "png_x1": 424,
+       "png_slot": 2,
+       "png_width_px": 62,
+       "how": "v-edge col pending(400..413)",
+       "expect_px": [
+        363,
+        425
+       ],
+       "dom_bar": [
+        363,
+        422,
+        62,
+        18
+       ],
+       "blocked": true,
+       "interrupted": false,
+       "live": false,
+       "deps": "b,d",
+       "ok": true,
+       "measured": true
+      }
+     ],
+     "sums": [
+      {
+       "ms": "m-sketch",
+       "empty": false,
+       "formula_s": 0,
+       "formula_e": 3,
+       "dom_s": 0,
+       "dom_e": 3,
+       "sumLeftInPlot": 0,
+       "sumWidth": 192,
+       "png_x": [
+        235,
+        425
+       ],
+       "expect_x": [
+        235,
+        426
+       ]
+      }
+     ],
+     "topo_violations": [],
+     "edge_anchor_ok": 3,
+     "edge_anchor_total": 3
+    }
+   ],
+   "gateTexts": [
+    "' + esc(txt) + '"
+   ]
+  },
+  "mixed": {
+   "png": "evidence/gantt-mixed.png",
+   "dom": "evidence/dom-mixed.html",
+   "png_size": [
+    800,
+    1400
+   ],
+   "query": "?view=wide&demo=mixed",
+   "desc": "变体：done/review/failed+interrupted + 空里程碑（零宽菱形）",
+   "core": false,
+   "theme": "light",
+   "round": 0,
+   "demo": "mixed",
+   "ruler_band_png": [
+    189,
+    217
+   ],
+   "calib": {
+    "dy_px": -24,
+    "ruler_top_probe": 213,
+    "why": "Chrome --dump-dom 与 --screenshot 的页面宽度/换行差（dump 侧页面滚动条占 18px → legend 多折一行）；本脚本把该差值量出来用于取窗口，x 量测完全走 PNG"
+   },
+   "png_plot_l": 235,
+   "png_slot_w": 64,
+   "dom_plot_l": 235,
+   "dom_slot_w": 64,
+   "idempotent": true,
+   "stickyRuler": true,
+   "stickyHead": true,
+   "roleIndex": {
+    "artist": 0,
+    "frontend": 1,
+    "verify": 2
+   },
+   "boards": [
+    {
+     "board": "board-wide",
+     "hostW": 702,
+     "domSlotW": 64,
+     "labelW": 208,
+     "rowH": 38,
+     "barH": 18,
+     "scroll": {
+      "clientH": 320,
+      "scrollH": 320,
+      "scrollTop": 0,
+      "rect": {
+       "l": 26,
+       "t": 213,
+       "w": 700,
+       "h": 320
+      }
+     },
+     "scrollMax": 380,
+     "svg": {
+      "w": 700,
+      "h": 282,
+      "edges": 3,
+      "heads": 3
+     },
+     "nItemEdges": 3,
+     "nMsEdges": 0,
+     "frames": [
+      {
+       "ms": "m-mixed",
+       "status": "active",
+       "locked": false,
+       "layer": 0,
+       "items": 4,
+       "rowIds": [
+        "wi-mx-1",
+        "wi-mx-3",
+        "wi-mx-2",
+        "wi-mx-4"
+       ],
+       "sumStart": 0,
+       "sumEnd": 3,
+       "sumEmpty": false,
+       "sumBar": {
+        "l": 235,
+        "t": 281,
+        "w": 192,
+        "h": 9
+       },
+       "sumPlot": {
+        "l": 235,
+        "t": 276,
+        "w": 490,
+        "h": 22
+       },
+       "sumLeftInPlot": 0,
+       "sumWidth": 192,
+       "sumHits": [],
+       "rect": {
+        "l": 26,
+        "t": 247,
+        "w": 700,
+        "h": 204
+       }
+      },
+      {
+       "ms": "m-empty",
+       "status": "pending",
+       "locked": true,
+       "layer": 1,
+       "items": 0,
+       "rowIds": [],
+       "sumStart": 3,
+       "sumEnd": 3,
+       "sumEmpty": true,
+       "sumBar": {
+        "l": 0,
+        "t": 0,
+        "w": 0,
+        "h": 0
+       },
+       "sumPlot": {
+        "l": 235,
+        "t": 506,
+        "w": 490,
+        "h": 22
+       },
+       "sumLeftInPlot": -235,
+       "sumWidth": 0,
+       "sumHits": [],
+       "rect": {
+        "l": 26,
+        "t": 477,
+        "w": 700,
+        "h": 52
+       }
+      }
+     ],
+     "gates": [
+      {
+       "gate": "m-mixed-&gt;m-empty",
+       "open": false,
+       "text": "闸门 → 上一层全部 done 才放行（等 m-mixed）"
+      }
+     ],
+     "rows": [
+      {
+       "item": "wi-mx-1",
+       "ms": "m-mixed",
+       "role": "artist",
+       "status": "done",
+       "eff": "done",
+       "locked": false,
+       "formula_slot": 0,
+       "dom_slot": 0,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 235,
+       "png_x1": 296,
+       "png_slot": 0,
+       "png_width_px": 62,
+       "how": "v-edge col done(286..299)",
+       "expect_px": [
+        235,
+        297
+       ],
+       "dom_bar": [
+        235,
+        308,
+        62,
+        18
+       ],
+       "blocked": false,
+       "interrupted": false,
+       "live": false,
+       "deps": "",
+       "ok": true,
+       "measured": true
+      },
+      {
+       "item": "wi-mx-3",
+       "ms": "m-mixed",
+       "role": "verify",
+       "status": "failed",
+       "eff": "failed",
+       "locked": false,
+       "formula_slot": 1,
+       "dom_slot": 1,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 299,
+       "png_x1": 360,
+       "png_slot": 1,
+       "png_width_px": 62,
+       "how": "v-edge col failed(324..337)",
+       "expect_px": [
+        299,
+        361
+       ],
+       "dom_bar": [
+        299,
+        346,
+        62,
+        18
+       ],
+       "blocked": false,
+       "interrupted": true,
+       "live": false,
+       "deps": "wi-mx-1",
+       "ok": true,
+       "measured": true
+      },
+      {
+       "item": "wi-mx-2",
+       "ms": "m-mixed",
+       "role": "frontend",
+       "status": "review",
+       "eff": "review",
+       "locked": false,
+       "formula_slot": 1,
+       "dom_slot": 1,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 299,
+       "png_x1": 360,
+       "png_slot": 1,
+       "png_width_px": 62,
+       "how": "v-edge col review(362..375)",
+       "expect_px": [
+        299,
+        361
+       ],
+       "dom_bar": [
+        299,
+        384,
+        62,
+        18
+       ],
+       "blocked": false,
+       "interrupted": false,
+       "live": false,
+       "deps": "wi-mx-1",
+       "ok": true,
+       "measured": true
+      },
+      {
+       "item": "wi-mx-4",
+       "ms": "m-mixed",
+       "role": "frontend",
+       "status": "running",
+       "eff": "running",
+       "locked": false,
+       "formula_slot": 2,
+       "dom_slot": 2,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 363,
+       "png_x1": 424,
+       "png_slot": 2,
+       "png_width_px": 62,
+       "how": "v-edge col running(400..413)",
+       "expect_px": [
+        363,
+        425
+       ],
+       "dom_bar": [
+        363,
+        422,
+        62,
+        18
+       ],
+       "blocked": true,
+       "interrupted": false,
+       "live": true,
+       "deps": "wi-mx-2",
+       "ok": true,
+       "measured": true
+      }
+     ],
+     "sums": [
+      {
+       "ms": "m-mixed",
+       "empty": false,
+       "formula_s": 0,
+       "formula_e": 3,
+       "dom_s": 0,
+       "dom_e": 3,
+       "sumLeftInPlot": 0,
+       "sumWidth": 192,
+       "png_x": [
+        235,
+        425
+       ],
+       "expect_x": [
+        235,
+        426
+       ]
+      },
+      {
+       "ms": "m-empty",
+       "empty": true,
+       "formula_s": null,
+       "formula_e": null,
+       "dom_s": 3,
+       "dom_e": 3,
+       "sumLeftInPlot": -235,
+       "sumWidth": 0,
+       "png_x": null,
+       "expect_x": null
+      }
+     ],
+     "topo_violations": [],
+     "edge_anchor_ok": 3,
+     "edge_anchor_total": 3
+    }
+   ],
+   "gateTexts": [
+    "闸门 → 上一层全部 done 才放行（等 m-mixed）",
+    "' + esc(txt) + '"
+   ]
+  },
+  "dark": {
+   "png": "evidence/gantt-dark.png",
+   "dom": "evidence/dom-dark.html",
+   "png_size": [
+    800,
+    1400
+   ],
+   "query": "?view=wide&theme=dark",
+   "desc": "深色基座",
+   "core": false,
+   "theme": "dark",
+   "round": 0,
+   "demo": "story",
+   "ruler_band_png": [
+    189,
+    217
+   ],
+   "calib": {
+    "dy_px": -24,
+    "ruler_top_probe": 213,
+    "why": "Chrome --dump-dom 与 --screenshot 的页面宽度/换行差（dump 侧页面滚动条占 18px → legend 多折一行）；本脚本把该差值量出来用于取窗口，x 量测完全走 PNG"
+   },
+   "png_plot_l": 235,
+   "png_slot_w": 64,
+   "dom_plot_l": 235,
+   "dom_slot_w": 64,
+   "idempotent": true,
+   "stickyRuler": true,
+   "stickyHead": true,
+   "roleIndex": {
+    "artist": 0,
+    "frontend": 1,
+    "verify": 2
+   },
+   "boards": [
+    {
+     "board": "board-wide",
+     "hostW": 702,
+     "domSlotW": 64,
+     "labelW": 208,
+     "rowH": 38,
+     "barH": 18,
+     "scroll": {
+      "clientH": 380,
+      "scrollH": 474,
+      "scrollTop": 0,
+      "rect": {
+       "l": 26,
+       "t": 213,
+       "w": 700,
+       "h": 380
+      }
+     },
+     "scrollMax": 380,
+     "svg": {
+      "w": 690,
+      "h": 436,
+      "edges": 7,
+      "heads": 7
+     },
+     "nItemEdges": 5,
+     "nMsEdges": 2,
+     "frames": [
+      {
+       "ms": "m-design",
+       "status": "active",
+       "locked": false,
+       "layer": 0,
+       "items": 2,
+       "rowIds": [
+        "wi-frame",
+        "wi-design"
+       ],
+       "sumStart": 0,
+       "sumEnd": 1,
+       "sumEmpty": false,
+       "sumBar": {
+        "l": 235,
+        "t": 281,
+        "w": 64,
+        "h": 9
+       },
+       "sumPlot": {
+        "l": 235,
+        "t": 276,
+        "w": 480,
+        "h": 22
+       },
+       "sumLeftInPlot": 0,
+       "sumWidth": 64,
+       "sumHits": [],
+       "rect": {
+        "l": 26,
+        "t": 247,
+        "w": 690,
+        "h": 128
+       }
+      },
+      {
+       "ms": "m-impl",
+       "status": "pending",
+       "locked": true,
+       "layer": 1,
+       "items": 2,
+       "rowIds": [
+        "wi-impl",
+        "wi-tests"
+       ],
+       "sumStart": 1,
+       "sumEnd": 3,
+       "sumEmpty": false,
+       "sumBar": {
+        "l": 299,
+        "t": 435,
+        "w": 128,
+        "h": 9
+       },
+       "sumPlot": {
+        "l": 235,
+        "t": 430,
+        "w": 480,
+        "h": 22
+       },
+       "sumLeftInPlot": 64,
+       "sumWidth": 128,
+       "sumHits": [],
+       "rect": {
+        "l": 26,
+        "t": 401,
+        "w": 690,
+        "h": 128
+       }
+      },
+      {
+       "ms": "m-verify",
+       "status": "pending",
+       "locked": true,
+       "layer": 2,
+       "items": 2,
+       "rowIds": [
+        "wi-render",
+        "wi-accept"
+       ],
+       "sumStart": 2,
+       "sumEnd": 4,
+       "sumEmpty": false,
+       "sumBar": {
+        "l": 363,
+        "t": 589,
+        "w": 128,
+        "h": 9
+       },
+       "sumPlot": {
+        "l": 235,
+        "t": 584,
+        "w": 480,
+        "h": 22
+       },
+       "sumLeftInPlot": 128,
+       "sumWidth": 128,
+       "sumHits": [],
+       "rect": {
+        "l": 26,
+        "t": 555,
+        "w": 690,
+        "h": 128
+       }
+      }
+     ],
+     "gates": [
+      {
+       "gate": "m-design-&gt;m-impl",
+       "open": false,
+       "text": "闸门 → 上一层全部 done 才放行（等 m-design）"
+      },
+      {
+       "gate": "m-impl-&gt;m-verify",
+       "open": false,
+       "text": "闸门 → 上一层全部 done 才放行（等 m-impl）"
+      }
+     ],
+     "rows": [
+      {
+       "item": "wi-frame",
+       "ms": "m-design",
+       "role": "frontend",
+       "status": "done",
+       "eff": "done",
+       "locked": false,
+       "formula_slot": 0,
+       "dom_slot": 0,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 235,
+       "png_x1": 296,
+       "png_slot": 0,
+       "png_width_px": 62,
+       "how": "v-edge col done(286..299)",
+       "expect_px": [
+        235,
+        297
+       ],
+       "dom_bar": [
+        235,
+        308,
+        62,
+        18
+       ],
+       "blocked": false,
+       "interrupted": false,
+       "live": false,
+       "deps": "",
+       "ok": true,
+       "measured": true
+      },
+      {
+       "item": "wi-design",
+       "ms": "m-design",
+       "role": "artist",
+       "status": "running",
+       "eff": "running",
+       "locked": false,
+       "formula_slot": 0,
+       "dom_slot": 0,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 235,
+       "png_x1": 296,
+       "png_slot": 0,
+       "png_width_px": 62,
+       "how": "v-edge col running(324..337)",
+       "expect_px": [
+        235,
+        297
+       ],
+       "dom_bar": [
+        235,
+        346,
+        62,
+        18
+       ],
+       "blocked": false,
+       "interrupted": false,
+       "live": true,
+       "deps": "",
+       "ok": true,
+       "measured": true
+      },
+      {
+       "item": "wi-impl",
+       "ms": "m-impl",
+       "role": "frontend",
+       "status": "pending",
+       "eff": "pending",
+       "locked": true,
+       "formula_slot": 1,
+       "dom_slot": 1,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 299,
+       "png_x1": 360,
+       "png_slot": 1,
+       "png_width_px": 62,
+       "how": "v-edge col pending(440..453)",
+       "expect_px": [
+        299,
+        361
+       ],
+       "dom_bar": [
+        299,
+        462,
+        62,
+        18
+       ],
+       "blocked": true,
+       "interrupted": false,
+       "live": false,
+       "deps": "wi-design",
+       "ok": true,
+       "measured": true
+      },
+      {
+       "item": "wi-tests",
+       "ms": "m-impl",
+       "role": "frontend",
+       "status": "pending",
+       "eff": "pending",
+       "locked": true,
+       "formula_slot": 2,
+       "dom_slot": 2,
+       "dur": 1,
+       "visible": true,
+       "png_x0": 363,
+       "png_x1": 424,
+       "png_slot": 2,
+       "png_width_px": 62,
+       "how": "v-edge col pending(478..491)",
+       "expect_px": [
+        363,
+        425
+       ],
+       "dom_bar": [
+        363,
+        500,
+        62,
+        18
+       ],
+       "blocked": true,
+       "interrupted": false,
+       "live": false,
+       "deps": "wi-impl",
+       "ok": true,
+       "measured": true
+      },
+      {
+       "item": "wi-render",
+       "ms": "m-verify",
+       "role": "verify",
+       "status": "pending",
+       "eff": "pending",
+       "locked": true,
+       "formula_slot": 2,
+       "dom_slot": 2,
+       "dur": 1,
+       "visible": false,
+       "png_x0": null,
+       "png_x1": null,
+       "png_slot": null,
+       "png_width_px": null,
+       "how": "skipped: 被滚动视口裁掉 / 被 sticky 刻度尺遮住（该行在别的图里量）",
+       "expect_px": [
+        363,
+        425
+       ],
+       "dom_bar": [
+        363,
+        616,
+        62,
+        18
+       ],
+       "blocked": true,
+       "interrupted": false,
+       "live": false,
+       "deps": "wi-impl",
+       "ok": false,
+       "measured": false
+      },
+      {
+       "item": "wi-accept",
+       "ms": "m-verify",
+       "role": "verify",
+       "status": "pending",
+       "eff": "pending",
+       "locked": true,
+       "formula_slot": 3,
+       "dom_slot": 3,
+       "dur": 1,
+       "visible": false,
+       "png_x0": null,
+       "png_x1": null,
+       "png_slot": null,
+       "png_width_px": null,
+       "how": "skipped: 被滚动视口裁掉 / 被 sticky 刻度尺遮住（该行在别的图里量）",
+       "expect_px": [
+        427,
+        489
+       ],
+       "dom_bar": [
+        427,
+        654,
+        62,
+        18
+       ],
+       "blocked": true,
+       "interrupted": false,
+       "live": false,
+       "deps": "wi-render,wi-tests",
+       "ok": false,
+       "measured": false
+      }
+     ],
+     "sums": [
+      {
+       "ms": "m-design",
+       "empty": false,
+       "formula_s": 0,
+       "formula_e": 1,
+       "dom_s": 0,
+       "dom_e": 1,
+       "sumLeftInPlot": 0,
+       "sumWidth": 64,
+       "png_x": [
+        235,
+        297
+       ],
+       "expect_x": [
+        235,
+        298
+       ]
+      },
+      {
+       "ms": "m-impl",
+       "empty": false,
+       "formula_s": 1,
+       "formula_e": 3,
+       "dom_s": 1,
+       "dom_e": 3,
+       "sumLeftInPlot": 64,
+       "sumWidth": 128,
+       "png_x": [
+        299,
+        425
+       ],
+       "expect_x": [
+        299,
+        426
+       ]
+      },
+      {
+       "ms": "m-verify",
+       "empty": false,
+       "formula_s": 2,
+       "formula_e": 4,
+       "dom_s": 2,
+       "dom_e": 4,
+       "sumLeftInPlot": 128,
+       "sumWidth": 128,
+       "png_x": null,
+       "expect_x": [
+        363,
+        490
+       ]
+      }
+     ],
+     "topo_violations": [],
+     "edge_anchor_ok": 5,
+     "edge_anchor_total": 5
+    }
+   ],
+   "gateTexts": [
+    "闸门 → 上一层全部 done 才放行（等 m-design）",
+    "闸门 → 上一层全部 done 才放行（等 m-impl）",
+    "' + esc(txt) + '"
+   ]
+  }
+ },
+ "checks": [
+  {
+   "shot": "wide",
+   "items": [
+    {
+     "label": "幂等（同输入重渲染 DOM 串逐字相同 hashA=hashB）",
+     "ok": true
+    },
+    {
+     "label": "滚动保持（重渲染后 scrollTop 不跳）",
+     "ok": true
+    },
+    {
+     "label": "刻度尺 sticky（滚动时刻度尺吸附容器顶边）",
+     "ok": true
+    },
+    {
+     "label": "框头 sticky（吸在刻度尺下沿）",
+     "ok": true
+    },
+    {
+     "label": "面板 max-height = 380（内容超出时内部滚动；单屏夹具不适用）",
+     "ok": true
+    },
+    {
+     "label": "PNG 刻度竖线逐条落在 plot_l + i*slotW 上",
+     "ok": true
+    },
+    {
+     "label": "空里程碑画零宽菱形 / 非空不画（菱形 data-empty 与框 data-sum-empty 一致，且有对应 CSS）",
+     "ok": true
+    }
+   ]
+  },
+  {
+   "shot": "narrow",
+   "items": [
+    {
+     "label": "幂等（同输入重渲染 DOM 串逐字相同 hashA=hashB）",
+     "ok": true
+    },
+    {
+     "label": "滚动保持（重渲染后 scrollTop 不跳）",
+     "ok": true
+    },
+    {
+     "label": "刻度尺 sticky（滚动时刻度尺吸附容器顶边）",
+     "ok": true
+    },
+    {
+     "label": "框头 sticky（吸在刻度尺下沿）",
+     "ok": true
+    },
+    {
+     "label": "面板 max-height = 380（内容超出时内部滚动；单屏夹具不适用）",
+     "ok": true
+    },
+    {
+     "label": "PNG 刻度竖线逐条落在 plot_l + i*slotW 上",
+     "ok": true
+    },
+    {
+     "label": "空里程碑画零宽菱形 / 非空不画（菱形 data-empty 与框 data-sum-empty 一致，且有对应 CSS）",
+     "ok": true
+    }
+   ]
+  },
+  {
+   "shot": "advance1",
+   "items": [
+    {
+     "label": "幂等（同输入重渲染 DOM 串逐字相同 hashA=hashB）",
+     "ok": true
+    },
+    {
+     "label": "滚动保持（重渲染后 scrollTop 不跳）",
+     "ok": true
+    },
+    {
+     "label": "刻度尺 sticky（滚动时刻度尺吸附容器顶边）",
+     "ok": true
+    },
+    {
+     "label": "框头 sticky（吸在刻度尺下沿）",
+     "ok": true
+    },
+    {
+     "label": "面板 max-height = 380（内容超出时内部滚动；单屏夹具不适用）",
+     "ok": true
+    },
+    {
+     "label": "PNG 刻度竖线逐条落在 plot_l + i*slotW 上",
+     "ok": true
+    },
+    {
+     "label": "空里程碑画零宽菱形 / 非空不画（菱形 data-empty 与框 data-sum-empty 一致，且有对应 CSS）",
+     "ok": true
+    }
+   ]
+  },
+  {
+   "shot": "wide-bottom",
+   "items": [
+    {
+     "label": "幂等（同输入重渲染 DOM 串逐字相同 hashA=hashB）",
+     "ok": true
+    },
+    {
+     "label": "滚动保持（重渲染后 scrollTop 不跳）",
+     "ok": true
+    },
+    {
+     "label": "刻度尺 sticky（滚动时刻度尺吸附容器顶边）",
+     "ok": true
+    },
+    {
+     "label": "框头 sticky（吸在刻度尺下沿）",
+     "ok": true
+    },
+    {
+     "label": "面板 max-height = 380（内容超出时内部滚动；单屏夹具不适用）",
+     "ok": true
+    },
+    {
+     "label": "PNG 刻度竖线逐条落在 plot_l + i*slotW 上",
+     "ok": true
+    },
+    {
+     "label": "空里程碑画零宽菱形 / 非空不画（菱形 data-empty 与框 data-sum-empty 一致，且有对应 CSS）",
+     "ok": true
+    }
+   ]
+  },
+  {
+   "shot": "narrow-bottom",
+   "items": [
+    {
+     "label": "幂等（同输入重渲染 DOM 串逐字相同 hashA=hashB）",
+     "ok": true
+    },
+    {
+     "label": "滚动保持（重渲染后 scrollTop 不跳）",
+     "ok": true
+    },
+    {
+     "label": "刻度尺 sticky（滚动时刻度尺吸附容器顶边）",
+     "ok": true
+    },
+    {
+     "label": "框头 sticky（吸在刻度尺下沿）",
+     "ok": true
+    },
+    {
+     "label": "面板 max-height = 380（内容超出时内部滚动；单屏夹具不适用）",
+     "ok": true
+    },
+    {
+     "label": "PNG 刻度竖线逐条落在 plot_l + i*slotW 上",
+     "ok": true
+    },
+    {
+     "label": "空里程碑画零宽菱形 / 非空不画（菱形 data-empty 与框 data-sum-empty 一致，且有对应 CSS）",
+     "ok": true
+    }
+   ]
+  },
+  {
+   "shot": "sketch",
+   "items": [
+    {
+     "label": "幂等（同输入重渲染 DOM 串逐字相同 hashA=hashB）",
+     "ok": true
+    },
+    {
+     "label": "滚动保持（重渲染后 scrollTop 不跳）",
+     "ok": true
+    },
+    {
+     "label": "刻度尺 sticky（滚动时刻度尺吸附容器顶边）",
+     "ok": true
+    },
+    {
+     "label": "框头 sticky（吸在刻度尺下沿）",
+     "ok": true
+    },
+    {
+     "label": "面板 max-height = 380（内容超出时内部滚动；单屏夹具不适用）",
+     "ok": true
+    },
+    {
+     "label": "PNG 刻度竖线逐条落在 plot_l + i*slotW 上",
+     "ok": true
+    },
+    {
+     "label": "空里程碑画零宽菱形 / 非空不画（菱形 data-empty 与框 data-sum-empty 一致，且有对应 CSS）",
+     "ok": true
+    }
+   ]
+  },
+  {
+   "shot": "mixed",
+   "items": [
+    {
+     "label": "幂等（同输入重渲染 DOM 串逐字相同 hashA=hashB）",
+     "ok": true
+    },
+    {
+     "label": "滚动保持（重渲染后 scrollTop 不跳）",
+     "ok": true
+    },
+    {
+     "label": "刻度尺 sticky（滚动时刻度尺吸附容器顶边）",
+     "ok": true
+    },
+    {
+     "label": "框头 sticky（吸在刻度尺下沿）",
+     "ok": true
+    },
+    {
+     "label": "面板 max-height = 380（内容超出时内部滚动；单屏夹具不适用）",
+     "ok": true
+    },
+    {
+     "label": "PNG 刻度竖线逐条落在 plot_l + i*slotW 上",
+     "ok": true
+    },
+    {
+     "label": "空里程碑画零宽菱形 / 非空不画（菱形 data-empty 与框 data-sum-empty 一致，且有对应 CSS）",
+     "ok": true
+    }
+   ]
+  },
+  {
+   "shot": "dark",
+   "items": [
+    {
+     "label": "幂等（同输入重渲染 DOM 串逐字相同 hashA=hashB）",
+     "ok": true
+    },
+    {
+     "label": "滚动保持（重渲染后 scrollTop 不跳）",
+     "ok": true
+    },
+    {
+     "label": "刻度尺 sticky（滚动时刻度尺吸附容器顶边）",
+     "ok": true
+    },
+    {
+     "label": "框头 sticky（吸在刻度尺下沿）",
+     "ok": true
+    },
+    {
+     "label": "面板 max-height = 380（内容超出时内部滚动；单屏夹具不适用）",
+     "ok": true
+    },
+    {
+     "label": "PNG 刻度竖线逐条落在 plot_l + i*slotW 上",
+     "ok": true
+    },
+    {
+     "label": "空里程碑画零宽菱形 / 非空不画（菱形 data-empty 与框 data-sum-empty 一致，且有对应 CSS）",
+     "ok": true
+    }
+   ]
+  }
+ ],
+ "problems": [],
+ "rows_all": [
+  {
+   "shot": "wide",
+   "item": "wi-frame",
+   "board": "board-wide",
+   "x0": 235,
+   "x1": 296,
+   "slot": 0,
+   "expect": 0,
+   "width": 62,
+   "ok": true
+  },
+  {
+   "shot": "wide",
+   "item": "wi-design",
+   "board": "board-wide",
+   "x0": 235,
+   "x1": 296,
+   "slot": 0,
+   "expect": 0,
+   "width": 62,
+   "ok": true
+  },
+  {
+   "shot": "wide",
+   "item": "wi-impl",
+   "board": "board-wide",
+   "x0": 299,
+   "x1": 360,
+   "slot": 1,
+   "expect": 1,
+   "width": 62,
+   "ok": true
+  },
+  {
+   "shot": "wide",
+   "item": "wi-tests",
+   "board": "board-wide",
+   "x0": 363,
+   "x1": 424,
+   "slot": 2,
+   "expect": 2,
+   "width": 62,
+   "ok": true
+  },
+  {
+   "shot": "narrow",
+   "item": "wi-frame",
+   "board": "board-narrow",
+   "x0": 145,
+   "x1": 182,
+   "slot": 0,
+   "expect": 0,
+   "width": 38,
+   "ok": true
+  },
+  {
+   "shot": "narrow",
+   "item": "wi-design",
+   "board": "board-narrow",
+   "x0": 145,
+   "x1": 182,
+   "slot": 0,
+   "expect": 0,
+   "width": 38,
+   "ok": true
+  },
+  {
+   "shot": "narrow",
+   "item": "wi-impl",
+   "board": "board-narrow",
+   "x0": 185,
+   "x1": 222,
+   "slot": 1,
+   "expect": 1,
+   "width": 38,
+   "ok": true
+  },
+  {
+   "shot": "narrow",
+   "item": "wi-tests",
+   "board": "board-narrow",
+   "x0": 225,
+   "x1": 262,
+   "slot": 2,
+   "expect": 2,
+   "width": 38,
+   "ok": true
+  },
+  {
+   "shot": "advance1",
+   "item": "wi-design",
+   "board": "board-wide",
+   "x0": 235,
+   "x1": 296,
+   "slot": 0,
+   "expect": 0,
+   "width": 62,
+   "ok": true
+  },
+  {
+   "shot": "advance1",
+   "item": "wi-impl",
+   "board": "board-wide",
+   "x0": 299,
+   "x1": 360,
+   "slot": 1,
+   "expect": 1,
+   "width": 62,
+   "ok": true
+  },
+  {
+   "shot": "advance1",
+   "item": "wi-tests",
+   "board": "board-wide",
+   "x0": 363,
+   "x1": 424,
+   "slot": 2,
+   "expect": 2,
+   "width": 62,
+   "ok": true
+  },
+  {
+   "shot": "wide-bottom",
+   "item": "wi-impl",
+   "board": "board-wide",
+   "x0": 299,
+   "x1": 360,
+   "slot": 1,
+   "expect": 1,
+   "width": 62,
+   "ok": true
+  },
+  {
+   "shot": "wide-bottom",
+   "item": "wi-tests",
+   "board": "board-wide",
+   "x0": 363,
+   "x1": 424,
+   "slot": 2,
+   "expect": 2,
+   "width": 62,
+   "ok": true
+  },
+  {
+   "shot": "wide-bottom",
+   "item": "wi-render",
+   "board": "board-wide",
+   "x0": 363,
+   "x1": 424,
+   "slot": 2,
+   "expect": 2,
+   "width": 62,
+   "ok": true
+  },
+  {
+   "shot": "wide-bottom",
+   "item": "wi-accept",
+   "board": "board-wide",
+   "x0": 427,
+   "x1": 488,
+   "slot": 3,
+   "expect": 3,
+   "width": 62,
+   "ok": true
+  },
+  {
+   "shot": "narrow-bottom",
+   "item": "wi-frame",
+   "board": "board-narrow",
+   "x0": 145,
+   "x1": 182,
+   "slot": 0,
+   "expect": 0,
+   "width": 38,
+   "ok": true
+  },
+  {
+   "shot": "narrow-bottom",
+   "item": "wi-design",
+   "board": "board-narrow",
+   "x0": 145,
+   "x1": 182,
+   "slot": 0,
+   "expect": 0,
+   "width": 38,
+   "ok": true
+  },
+  {
+   "shot": "narrow-bottom",
+   "item": "wi-impl",
+   "board": "board-narrow",
+   "x0": 185,
+   "x1": 222,
+   "slot": 1,
+   "expect": 1,
+   "width": 38,
+   "ok": true
+  },
+  {
+   "shot": "narrow-bottom",
+   "item": "wi-tests",
+   "board": "board-narrow",
+   "x0": 225,
+   "x1": 262,
+   "slot": 2,
+   "expect": 2,
+   "width": 38,
+   "ok": true
+  },
+  {
+   "shot": "sketch",
+   "item": "c",
+   "board": "board-wide",
+   "x0": 235,
+   "x1": 296,
+   "slot": 0,
+   "expect": 0,
+   "width": 62,
+   "ok": true
+  },
+  {
+   "shot": "sketch",
+   "item": "b",
+   "board": "board-wide",
+   "x0": 235,
+   "x1": 296,
+   "slot": 0,
+   "expect": 0,
+   "width": 62,
+   "ok": true
+  },
+  {
+   "shot": "sketch",
+   "item": "d",
+   "board": "board-wide",
+   "x0": 299,
+   "x1": 360,
+   "slot": 1,
+   "expect": 1,
+   "width": 62,
+   "ok": true
+  },
+  {
+   "shot": "sketch",
+   "item": "a",
+   "board": "board-wide",
+   "x0": 363,
+   "x1": 424,
+   "slot": 2,
+   "expect": 2,
+   "width": 62,
+   "ok": true
+  },
+  {
+   "shot": "mixed",
+   "item": "wi-mx-1",
+   "board": "board-wide",
+   "x0": 235,
+   "x1": 296,
+   "slot": 0,
+   "expect": 0,
+   "width": 62,
+   "ok": true
+  },
+  {
+   "shot": "mixed",
+   "item": "wi-mx-3",
+   "board": "board-wide",
+   "x0": 299,
+   "x1": 360,
+   "slot": 1,
+   "expect": 1,
+   "width": 62,
+   "ok": true
+  },
+  {
+   "shot": "mixed",
+   "item": "wi-mx-2",
+   "board": "board-wide",
+   "x0": 299,
+   "x1": 360,
+   "slot": 1,
+   "expect": 1,
+   "width": 62,
+   "ok": true
+  },
+  {
+   "shot": "mixed",
+   "item": "wi-mx-4",
+   "board": "board-wide",
+   "x0": 363,
+   "x1": 424,
+   "slot": 2,
+   "expect": 2,
+   "width": 62,
+   "ok": true
+  },
+  {
+   "shot": "dark",
+   "item": "wi-frame",
+   "board": "board-wide",
+   "x0": 235,
+   "x1": 296,
+   "slot": 0,
+   "expect": 0,
+   "width": 62,
+   "ok": true
+  },
+  {
+   "shot": "dark",
+   "item": "wi-design",
+   "board": "board-wide",
+   "x0": 235,
+   "x1": 296,
+   "slot": 0,
+   "expect": 0,
+   "width": 62,
+   "ok": true
+  },
+  {
+   "shot": "dark",
+   "item": "wi-impl",
+   "board": "board-wide",
+   "x0": 299,
+   "x1": 360,
+   "slot": 1,
+   "expect": 1,
+   "width": 62,
+   "ok": true
+  },
+  {
+   "shot": "dark",
+   "item": "wi-tests",
+   "board": "board-wide",
+   "x0": 363,
+   "x1": 424,
+   "slot": 2,
+   "expect": 2,
+   "width": 62,
+   "ok": true
+  }
+ ],
+ "sums_all": [
+  {
+   "shot": "wide",
+   "ms": "m-design",
+   "png_x": [
+    235,
+    297
+   ],
+   "expect_x": [
+    235,
+    298
+   ],
+   "dl": 0,
+   "dr": -1
+  },
+  {
+   "shot": "wide",
+   "ms": "m-impl",
+   "png_x": [
+    299,
+    426
+   ],
+   "expect_x": [
+    299,
+    426
+   ],
+   "dl": 0,
+   "dr": 0
+  },
+  {
+   "shot": "narrow",
+   "ms": "m-design",
+   "png_x": [
+    145,
+    183
+   ],
+   "expect_x": [
+    145,
+    184
+   ],
+   "dl": 0,
+   "dr": -1
+  },
+  {
+   "shot": "narrow",
+   "ms": "m-impl",
+   "png_x": [
+    185,
+    264
+   ],
+   "expect_x": [
+    185,
+    264
+   ],
+   "dl": 0,
+   "dr": 0
+  },
+  {
+   "shot": "advance1",
+   "ms": "m-design",
+   "png_x": [
+    235,
+    297
+   ],
+   "expect_x": [
+    235,
+    298
+   ],
+   "dl": 0,
+   "dr": -1
+  },
+  {
+   "shot": "advance1",
+   "ms": "m-impl",
+   "png_x": [
+    299,
+    425
+   ],
+   "expect_x": [
+    299,
+    426
+   ],
+   "dl": 0,
+   "dr": -1
+  },
+  {
+   "shot": "wide-bottom",
+   "ms": "m-impl",
+   "png_x": [
+    299,
+    426
+   ],
+   "expect_x": [
+    299,
+    426
+   ],
+   "dl": 0,
+   "dr": 0
+  },
+  {
+   "shot": "wide-bottom",
+   "ms": "m-verify",
+   "png_x": [
+    363,
+    490
+   ],
+   "expect_x": [
+    363,
+    490
+   ],
+   "dl": 0,
+   "dr": 0
+  },
+  {
+   "shot": "narrow-bottom",
+   "ms": "m-impl",
+   "png_x": [
+    185,
+    264
+   ],
+   "expect_x": [
+    185,
+    264
+   ],
+   "dl": 0,
+   "dr": 0
+  },
+  {
+   "shot": "narrow-bottom",
+   "ms": "m-verify",
+   "png_x": [
+    225,
+    304
+   ],
+   "expect_x": [
+    225,
+    304
+   ],
+   "dl": 0,
+   "dr": 0
+  },
+  {
+   "shot": "sketch",
+   "ms": "m-sketch",
+   "png_x": [
+    235,
+    425
+   ],
+   "expect_x": [
+    235,
+    426
+   ],
+   "dl": 0,
+   "dr": -1
+  },
+  {
+   "shot": "mixed",
+   "ms": "m-mixed",
+   "png_x": [
+    235,
+    425
+   ],
+   "expect_x": [
+    235,
+    426
+   ],
+   "dl": 0,
+   "dr": -1
+  },
+  {
+   "shot": "dark",
+   "ms": "m-design",
+   "png_x": [
+    235,
+    297
+   ],
+   "expect_x": [
+    235,
+    298
+   ],
+   "dl": 0,
+   "dr": -1
+  },
+  {
+   "shot": "dark",
+   "ms": "m-impl",
+   "png_x": [
+    299,
+    425
+   ],
+   "expect_x": [
+    299,
+    426
+   ],
+   "dl": 0,
+   "dr": -1
+  }
+ ],
+ "slot_table_md": [
+  "| 图 | item | role | 状态(eff) | 量到 x0..x1(px) | 换算槽位 | 期望槽位 | 条宽 px | 判 |",
+  "|---|---|---|---|---|---|---|---|---|",
+  "| wide | `wi-frame` | frontend | done | 235..296 | **0** | 0 | 62 | OK |",
+  "| wide | `wi-design` | artist | running | 235..296 | **0** | 0 | 62 | OK |",
+  "| wide | `wi-impl` | frontend | pending | 299..360 | **1** | 1 | 62 | OK |",
+  "| wide | `wi-tests` | frontend | pending | 363..424 | **2** | 2 | 62 | OK |",
+  "| narrow | `wi-frame` | frontend | done | 145..182 | **0** | 0 | 38 | OK |",
+  "| narrow | `wi-design` | artist | running | 145..182 | **0** | 0 | 38 | OK |",
+  "| narrow | `wi-impl` | frontend | pending | 185..222 | **1** | 1 | 38 | OK |",
+  "| narrow | `wi-tests` | frontend | pending | 225..262 | **2** | 2 | 38 | OK |",
+  "| advance1 | `wi-design` | artist | done | 235..296 | **0** | 0 | 62 | OK |",
+  "| advance1 | `wi-impl` | frontend | running | 299..360 | **1** | 1 | 62 | OK |",
+  "| advance1 | `wi-tests` | frontend | pending | 363..424 | **2** | 2 | 62 | OK |",
+  "| sketch | `c` | artist | done | 235..296 | **0** | 0 | 62 | OK |",
+  "| sketch | `b` | artist | done | 235..296 | **0** | 0 | 62 | OK |",
+  "| sketch | `d` | artist | pending | 299..360 | **1** | 1 | 62 | OK |",
+  "| sketch | `a` | artist | pending | 363..424 | **2** | 2 | 62 | OK |"
+ ]
+}
