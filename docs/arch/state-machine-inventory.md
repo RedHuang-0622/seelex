@@ -36,6 +36,14 @@
 | **记录状态**（子代理节点生命周期） | queued\|running\|done\|failed\|interrupted | `dto.SubAgentNodeStatus` | **落盘**：`sessionstore.NodeSessionRecord.Status` 仍是字符串（store 在契约之下），边界 `seelebridge` 的 `subagentNodeStatusDone/Failed`、`session.SubAgent*` 转调对外词；未知词 → `SubAgentUnknown`（**不是终态**） |
 | **工具事件状态** | running\|success\|error | `dto.ToolEventStatus` | `dto.SubagentTool.Status` 与 `dto.SubagentToolEvent.Status` 两处字段同格；transcript/快照 wire（`model.ToolCall.Status`）保持字符串，边界 `.String()` |
 | **task 状态** | pending\|queued\|running\|doing\|completed\|failed\|retry\|interrupted | `dto.TaskStatus` | `TaskRecord.Status`、`TaskTracePoint.Status`；打点状态与条目状态同格 |
+| **回合状态** | idle\|progressing\|completed\|needs_user_decision\|blocked\|interrupted\|failed | `dto.TurnStatus` | 同一格两个面：可见面 `Snapshot.Task.Status`、存档面 `TaskContextProjection.Status`；存档老词 `running` 由 `task_context.TurnStatusOfRecord` 读回（**不再**是 `model.TaskStatus` + `task_context.Status*` 两份词表） |
+| **会话可见状态** | draft\|idle\|running\|queued\|awaiting_approval\|archived\|restoring | `dto.SessionStatus` | 持久子集在 `sessionstore.Status`（契约之下）；转换点 `adapters.sessionStatusOfRecord` |
+| **计划状态** | pending\|running\|completed\|failed\|aborted | `dto.PlanStatus` | 与 **plan_run 批次结果**（`dto.PlanRunStatus`，只有终态词）分两格，边界写在两格文件头 |
+| **节点状态** | pending\|queued\|running\|worktree_creating\|rebasing\|merging\|completed\|failed\|aborted\|skipped\|canceled\|panicked | `dto.NodeStatus` | 框架 workplan 词 + 我们的 worktree 词；折法 `dto.NodeStatusFromFramework`（**带 ok**）；`PlanNodeEvent.Status` 是混合面，不属于本格 |
+| **定时任务上次运行结果** | pending\|running\|ok\|failed\|skipped | `dto.ScheduleRunStatus` | GUI 定时任务面板数据源 |
+| **goal 状态** | active\|paused\|reviewing\|completed\|failed\|aborted\|waiting_human | `dto.GoalStatus` | 存档面（`sessionstore.GoalFrame.Status`）读回走 `goal.StatusOfRecord`；终态判定在枚举上（`Terminal()`） |
+| **评审者状态** | detached\|bound\|evaluating\|advisory_pending\|reaped | `dto.PeerState` | 治理投影 `peer_state`（ADVISOR 那一侧的生命周期） |
+| **恢复单元状态** | active\|done\|failed | `dto.UnitStatus` | 恢复模板的**粗分三桶**（由记录状态折一次）；`Unit.Active()` 转调枚举 |
 
 ## 2. 刻意**不枚举**（边界格：词不由我们定义，或字段本身是混合值）
 
@@ -47,17 +55,28 @@
 | 视图/混合字段：`WorkItem.Status`（task 行 + 子代理行沿用 done 的显示映射）、`WorkTracePoint.Status`、`dto/teamwork_board.go:190` 的"开放取值" | 一个字段承载两格（或明确开放取值），是**展示投影**不是判定面；边界处 `.String()` 显式转换 |
 | 落盘 wire：`sessionstore` 的各状态字段、`model.ToolCall.Status` | store/model 在契约之下，存的是**词**；契约类型在上面，转换点逐格命名（如 `nodeStateOfRecord`） |
 | git 类字段（porcelain XY、git 名状态）、`TaskPhase*`（plan\|tasklist\|task\|subagent） | 不是状态机：一个是外部工具的原始输出，一个是**类别**不是状态 |
+| 事件字段 `dto.PlanNodeEvent.Status` / `model.PlanNodeEventInfo.Status` | **混合面**：本格节点状态词 + 框架 workplan 词 + 我们自己的 worktree 收尾阶段词（`worktree_unmerged` / `merge_blocked`）混在同一个字段里。它不是"节点状态那一格"：认不得的词**不许覆盖节点状态**（旧写法 `default → pending` 会让跑完的节点显示成"待开始"，有回归用例 `plan_node_phase_word_test.go`）。阶段词本身登记在 `seelebridge/node/node_phase_words.go` |
+| 工具调用视图词（`model.ToolCall.Status`：running\|completed\|failed） | 与**工具事件状态**（running\|success\|error）同词不同格：详情页里"这条历史工具调用跑完了"是展示口径（快照/transcript wire），不是判定面；收口要连读方清单一起做，登记为下一批 |
+| todo 三态（`dto.TodoItemStatus`：pending\|doing\|done） | **已在移除窗口内**的兼容面（权威状态是 `TaskRecord.Status`，文件头写了移除窗口）；唯一转换点是 `seelebridge/task.TodoToTaskStatus`（一处映射）。给它套枚举等于给一个待删面化妆 |
+| 存储层的跨域"完成"判据（`sessionstore/stack_channel.go` 的 `terminalStackStatus`） | 计划帧 `closed` / 任务帧 `completed\|failed` / goal 帧 `completed\|failed\|aborted` / 子代理帧 `done` / 归档态 `archived`：这是"整批都完成才弹栈归档"的判据，而 store 不认识各域的类型（在契约之下，只存词）。逐词登记主人，不当成某一格 |
+| `CompactBoundaryComplete/Open`（complete\|open）、`StackItem.Status`、`TeamworkState*`、`BoardState*`、`TaskFrame.Status`（active\|completed\|failed\|needs_user_decision）、`PlanFrame.Status`（active\|closed） | store 在契约之下：存的是词；同格类型在上层，转换点逐格具名 |
 
 ## 3. 还没统一（下一波候选，逐条写清为什么它是一格）
 
-| 格 | 取值面 / 位置 | 备注 |
-|---|---|---|
-| `workunit.Status*` | queued\|running\|…（`seelebridge/workunit`） | 与**记录状态**同词面（`stage_preview_judgment_test.go` 的守卫逐词断言两者相等）——先判定"是不是同一格"，是则转调契约 |
-| `application/model` 平行词表 | `model.TaskStatus`（progressing\|completed\|blocked\|interrupted\|failed…）、`model.SessionStatus*`、`model.NodeStatus`（pending\|queued\|running\|completed\|failed） | **同名不同机器 + 与 `dto` 平行**：这正是"状态机没有枚举统一"的核心症状。要逐格定：合并、改名、还是登记为独立格 |
-| `application/core/task_context` 的 `StatusRunning/StatusFailed` | 任务执行状态 | 与 `model.TaskStatus` 的关系要先点清 |
-| `seelebridge/scheduler` 的 `scheduledStatusPending/Running` | 定时任务状态 | 独立一格 |
-| `application/core/goal` 的 `Status` / `PeerState` / 看板 `state(open\|closed)` | goal 生命周期与看板 | 落盘（goal 存档） |
-| `sessionstore` 的其余状态字段 | `fork_store`(running\|archived\|merged)、`pending_tail`、`attempt_cache`、`board`、`compact_frames`(complete\|open)、`conversation`、`project_record` | 逐个判定词表归属（落盘 wire 还是我们的状态机） |
+第二波（`docs/2026-10-06-workunit-jobs-port/step-3-state-enum-unification-wave2.md`）把 §3 原清单
+逐条判完并收口——**剩下的只有两处刻意不动**（都在 §2 登记了理由）：
+
+| 格 | 结论 |
+|---|---|
+| ~~`workunit.Status*`~~ | **已收口**：与记录状态同格，现在直接引 `dto.SubAgentQueued/SubAgentRunning`（构造上同一份，不再靠用例比对上另一份） |
+| ~~`application/model` 平行词表~~ | **已收口**：四格全部并成契约枚举（回合 / 会话可见 / 计划 / 节点），`model.*` 只剩别名 |
+| ~~`core/task_context` 的 `Status*`~~ | **已收口**：与回合状态同格（"running" 统一成 `progressing`，存档老词由 `TurnStatusOfRecord` 读回） |
+| ~~`seelebridge/scheduler` 的 `scheduledStatus*`~~ | **已收口**：`dto.ScheduleRunStatus` |
+| ~~goal 的 `Status` / `PeerState`~~ | **已收口**：`dto.GoalStatus` / `dto.PeerState`；看板 `open\|closed` 判定为 store wire（契约之下） |
+| ~~`sessionstore` 的其余状态字段~~ | **已收口**：逐个判定为"契约之下的 wire + 具名转换点"；唯一的跨域判据（`terminalStackStatus`）逐词登记主人 |
+| `application/core/resume` 的 `UnitStatus` | **已收口**：`dto.UnitStatus`（由记录状态折一次） |
+| 工具调用视图词（`model.ToolCall.Status`） | **刻意不动**（见 §2）：要连读方清单一起收，本轮登记理由与去向 |
+| todo 三态（`dto.TodoItemStatus`） | **刻意不动**（见 §2）：已在移除窗口内 |
 
 ## 4. 怎么继续（免得又变成"每格各写一套"）
 
