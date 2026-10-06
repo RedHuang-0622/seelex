@@ -430,7 +430,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 ### teamwork_completion_trigger_test.go
 
 - `func teamworkCompletionHarness(t *testing.T, trigger bool, engine ChatEngine) (*Service, *fakeRuntime)` — teamworkCompletionHarness 造一个装配好 teammate 触发路径的 Service。
-- `func completedTeammateRecord(handle, state string) dto.TeamworkJobCompletionRecord` — completedTeammateRecord 造一条已落到终态的 teammate 作业记录。
+- `func completedTeammateRecord(handle string, state dto.AsyncState) dto.TeamworkJobCompletionRecord` — completedTeammateRecord 造一条已落到终态的 teammate 作业记录。
 - `func TestTeamworkCompletionTriggersIdleSessionTurn(t *testing.T)`
 - `func TestTeamworkCompletionTriggersOnFailureToo(t *testing.T)`
 - `func TestTeamworkCompletionIgnoresRunningAndKilled(t *testing.T)`

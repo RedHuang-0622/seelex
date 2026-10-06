@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/workplan/codec"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/seelebridge/plan"
@@ -161,7 +162,7 @@ func (t *Tool) dispatchJobs(ctx context.Context, loaded *plan.LoadedPlanDoc, inp
 			// 已经登记的那些不能让它们停在 running：合成失败终态（终态只由执行体判定
 			// 的纪律在这里的落实是"编排根本没起来"）。
 			for _, created := range jobs {
-				t.deps.Jobs.Complete(created.handle, "failed")
+				t.deps.Jobs.Complete(created.handle, dto.AsyncStateFailed)
 			}
 			return "", fmt.Errorf("fork_subagents: 登记子代理作业失败: %w", err)
 		}
@@ -171,25 +172,25 @@ func (t *Tool) dispatchJobs(ctx context.Context, loaded *plan.LoadedPlanDoc, inp
 	go func() {
 		defer cancel()
 		output, runErr := t.deps.RunPlan(runCtx, loaded, false)
-		batchState := "done"
+		batchState := dto.AsyncStateDone
 		switch {
 		case runErr != nil && runCtx.Err() != nil:
-			batchState = "killed"
+			batchState = dto.AsyncStateKilled
 		case runErr != nil:
-			batchState = "failed"
+			batchState = dto.AsyncStateFailed
 		}
 		nodeStates := batchNodeStates(output)
 		for _, item := range jobs {
 			// 每条作业的终态按**它自己的节点**判定（best-effort 批次里一个兄弟失败、
 			// 其余成功时，把整批写成一个状态会让失败行看起来是 done）。
 			state := batchState
-			if state == "done" && len(nodeStates) > 0 {
+			if state == dto.AsyncStateDone && len(nodeStates) > 0 {
 				switch nodeStates[item.spec.ID] {
 				case "completed":
 				case "aborted":
-					state = "killed"
+					state = dto.AsyncStateKilled
 				default:
-					state = "failed"
+					state = dto.AsyncStateFailed
 				}
 			}
 			// 每个子代理的正文 = 它自己的产出（子代理树里保存的摘要）；取不到时退回
@@ -239,14 +240,14 @@ func (t *Tool) dispatchReusedJobs(ctx context.Context, input Input, taskBindings
 		if err != nil {
 			// 已登记的那些不能让它们停在 running（同 dispatchJobs 的收尾纪律）。
 			for _, created := range receipts {
-				t.deps.Jobs.Complete(created["handle"], "failed")
+				t.deps.Jobs.Complete(created["handle"], dto.AsyncStateFailed)
 			}
 			return "", fmt.Errorf("fork_subagents: 登记子代理作业失败: %w", err)
 		}
 		if body := strings.TrimSpace(summaries[spec.ID]); body != "" {
 			t.deps.Jobs.Note(handle, body+"\n")
 		}
-		t.deps.Jobs.Complete(handle, "done")
+		t.deps.Jobs.Complete(handle, dto.AsyncStateDone)
 		if taskID := taskBindings[spec.ID]; taskID != "" {
 			// bindSubagentTask 已把终态 task 置 retry（RetryCount 自增）；复用成功 →
 			// 置回 completed，计数保留（worktable 显示 DONE，retry_count 保留）。

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/agent"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
@@ -110,7 +111,7 @@ func TestForkSubagentsAsyncRunsAsJobs(t *testing.T) {
 	for {
 		done := true
 		for _, record := range runtime.AsyncRunsSnapshot() {
-			if record.Kind == "subagent" && record.State == "running" {
+			if record.Kind == "subagent" && record.State == dto.AsyncStateRunning {
 				done = false
 			}
 		}

@@ -15,8 +15,10 @@ type TeamworkJobCompletionRecord struct {
 	Handle string
 	// Kind 是作业类别（worker）。
 	Kind string
-	// State 是作业状态字面量（running|done|failed|killed，与 jobs 同源）。
-	State string
+	// State 是作业状态（枚举，与 tools 那张表同一套词：running|done|failed|killed）。
+	// 词来自框架 jobs.Manager（jobs.State*），在 seelebridge 的投影处**一次性折成枚举**
+	// （teamworkJobCompletionFrom / asyncStateFromJobs），到这里已经是类型，不再是散字符串。
+	State AsyncState
 	// ExitCode 只在终态有意义（-1 = 未跑完）。
 	ExitCode int
 	// SessionID 是**派发它的主会话**（leader 会话）：触发回合的落点。

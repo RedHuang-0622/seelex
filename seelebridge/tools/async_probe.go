@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 // 后台命令的轮询型执行域·实时探针：把登记表里的一次执行采样成"能看懂的一眼"，
@@ -23,17 +25,17 @@ import (
 type AsyncRunInfo struct {
 	Handle      string
 	SessionID   string
-	Description string    // 模型写的"这条命令在干什么"
-	Command     string    // 命令行原文（探针侧不脱敏，GUI 才需要看得懂）
-	State       string    // running | done | failed | killed
-	Exit        int       // 终态退出码；running 时为 -1
-	LogPath     string    // 输出文件（绝对路径，只上 GUI 的附件列）
-	LogBytes    int64     // 已落盘字节数：真实进展信号，不是墙钟猜的
-	LastByteAt  time.Time // 输出文件最后修改时间（无输出则零值）
-	Tail        string    // 末行采样（已压成单行、限长）
-	Truncated   bool      // 输出是否已按上限截断
-	Degraded    bool      // 进程树挂不上：终止只能打到直接子进程
-	BatchID     string    // 派发它的那次 chat 请求（工作表格批次归属）
+	Description string         // 模型写的"这条命令在干什么"
+	Command     string         // 命令行原文（探针侧不脱敏，GUI 才需要看得懂）
+	State       dto.AsyncState // running | done | failed | killed
+	Exit        int            // 终态退出码；running 时为 -1
+	LogPath     string         // 输出文件（绝对路径，只上 GUI 的附件列）
+	LogBytes    int64          // 已落盘字节数：真实进展信号，不是墙钟猜的
+	LastByteAt  time.Time      // 输出文件最后修改时间（无输出则零值）
+	Tail        string         // 末行采样（已压成单行、限长）
+	Truncated   bool           // 输出是否已按上限截断
+	Degraded    bool           // 进程树挂不上：终止只能打到直接子进程
+	BatchID     string         // 派发它的那次 chat 请求（工作表格批次归属）
 	StartedAt   time.Time
 	EndedAt     time.Time // 零值 = 还没终态
 	// Kind = process | inline | subagent（打点 K-2）：决定读取口与 kill 语义。

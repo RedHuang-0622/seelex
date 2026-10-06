@@ -121,7 +121,7 @@ func asyncProbePoint(record dto.AsyncRunRecord, elapsed time.Duration) WorkTrace
 		evidence += " · 进程树挂不上，终止只及直接子进程"
 	}
 	return WorkTracePoint{
-		At: at, Status: record.State, Operation: asyncProbeOperation,
+		At: at, Status: record.State.String(), Operation: asyncProbeOperation,
 		Evidence: truncateWorkEvidence(evidence, Limits().EvidenceChars),
 		Duration: formatWorkDuration(elapsed),
 	}
@@ -129,7 +129,7 @@ func asyncProbePoint(record dto.AsyncRunRecord, elapsed time.Duration) WorkTrace
 
 // asyncWorkStatus 把执行域状态映射到工作表格的权威状态字面量。
 // killed 归 failed：表格状态机没有"被杀"这一档，被杀本来就是没跑完。
-func asyncWorkStatus(state string) string {
+func asyncWorkStatus(state dto.AsyncState) string {
 	switch state {
 	case dto.AsyncStateRunning:
 		return string(dto.TaskRunning)
@@ -202,7 +202,7 @@ func asyncTraceLine(record dto.AsyncRunRecord) string {
 	if kind == "" {
 		kind = "process"
 	}
-	fields := []string{asyncWorkRowPrefix + record.Handle, kind, record.State, formatAsyncBytes(record.LogBytes)}
+	fields := []string{asyncWorkRowPrefix + record.Handle, kind, record.State.String(), formatAsyncBytes(record.LogBytes)}
 	if record.State != dto.AsyncStateRunning {
 		// 完成行带**有界摘要**（回填的全部内容）。
 		if summary := truncateWorkEvidence(record.Summary, Limits().EvidenceChars); summary != "" {
@@ -252,7 +252,7 @@ func teamworkTraceLines(records []dto.TeamworkJobCompletionRecord, sessionID str
 // teamworkTraceLine 渲染一条 teammate 作业行：句柄、状态、归属（teammate/工作项）、
 // 摘要（完成行）或标题（在途行）。
 func teamworkTraceLine(record dto.TeamworkJobCompletionRecord) string {
-	fields := []string{"teamwork:" + record.Handle, asyncPromptKind(record.Kind), record.State}
+	fields := []string{"teamwork:" + record.Handle, asyncPromptKind(record.Kind), record.State.String()}
 	if owner := teamworkOwnerText(record); owner != "" {
 		fields = append(fields, owner)
 	}

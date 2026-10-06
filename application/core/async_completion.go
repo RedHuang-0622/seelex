@@ -96,7 +96,7 @@ func (service *Service) triggerAsyncCompletions(triggered map[string]struct{}) {
 
 // asyncCompletionTriggers 报告某个状态是否该触发对话。
 // done / failed 触发（用户口径 2026-10-01）；killed 与 running 都不触发。
-func asyncCompletionTriggers(state string) bool {
+func asyncCompletionTriggers(state dto.AsyncState) bool {
 	return state == asyncStateDone || state == asyncStateFailed
 }
 

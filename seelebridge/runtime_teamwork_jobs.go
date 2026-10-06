@@ -63,7 +63,7 @@ func teamworkJobCompletionFrom(record jobs.Record) dto.TeamworkJobCompletionReco
 	return dto.TeamworkJobCompletionRecord{
 		Handle:      string(record.Handle),
 		Kind:        string(record.Kind),
-		State:       string(record.State),
+		State:       asyncStateFromJobs(record.State),
 		ExitCode:    record.ExitCode,
 		SessionID:   record.Scope.Session,
 		Role:        roleFromSubject(subject),
@@ -72,4 +72,24 @@ func teamworkJobCompletionFrom(record jobs.Record) dto.TeamworkJobCompletionReco
 		Summary:     record.Summary,
 		Bytes:       record.Bytes,
 	}
+}
+
+// asyncStateFromJobs 把框架 jobs.Manager 的状态折成契约枚举。
+//
+// 词的来源是**框架**（jobs.State*：running|done|failed|killed），与我们那张作业状态词表同形
+// 但不由我们定义——所以折一次，而且**只在这里折一次**：投影面从此搬的是类型，不是散字符串。
+// 折不动的（框架将来加了新状态、或读到空值）落到 dto.AsyncStateUnknown：投影照搬，
+// 判定留给消费方——"认不得"不许被折成"还在跑"。
+func asyncStateFromJobs(state jobs.State) dto.AsyncState {
+	switch state {
+	case jobs.StateRunning:
+		return dto.AsyncStateRunning
+	case jobs.StateDone:
+		return dto.AsyncStateDone
+	case jobs.StateFailed:
+		return dto.AsyncStateFailed
+	case jobs.StateKilled:
+		return dto.AsyncStateKilled
+	}
+	return dto.AsyncStateUnknown
 }

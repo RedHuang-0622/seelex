@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 // 作业契约的**工具面**（打点 L-1/L-2/L-3）：
@@ -343,7 +345,7 @@ func (r *Router) scopedReadBatch(ctx context.Context, argsJSON string) (string, 
 		}
 		handle := decodeJobReceipt(payload)
 		receipts = append(receipts, map[string]string{
-			"handle": handle.Handle, "path": path, "state": asyncStateRunning,
+			"handle": handle.Handle, "path": path, "state": asyncStateRunning.String(),
 		})
 	}
 	payload := map[string]interface{}{
@@ -389,9 +391,9 @@ func readBatchDescription() string {
 // 字节是唯一不需要第二份句柄来源的做法——两份来源必然漂移。
 func decodeJobReceipt(payload []byte) JobHandle {
 	var accepted struct {
-		Handle  string `json:"handle"`
-		LogPath string `json:"log_path"`
-		State   string `json:"state"`
+		Handle  string         `json:"handle"`
+		LogPath string         `json:"log_path"`
+		State   dto.AsyncState `json:"state"`
 	}
 	_ = json.Unmarshal(payload, &accepted)
 	return JobHandle{Handle: accepted.Handle, LogPath: accepted.LogPath}

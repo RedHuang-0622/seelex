@@ -1,6 +1,10 @@
 package dto
 
-import "time"
+import (
+	"encoding/json"
+	"fmt"
+	"time"
+)
 
 // AsyncRunRecord 是一次**作业**（bash_bg / read_batch / subagent）的**只读投影记录**。
 //
@@ -28,8 +32,8 @@ type AsyncRunRecord struct {
 	// （那次 bash 调用的入参），投影到界面不构成新增暴露面。
 	Command string `json:"command,omitempty"`
 	// State = running | done | failed | killed（与 seelebridge 的终态口径同源）。
-	State    string `json:"state"`
-	ExitCode int    `json:"exit_code"` // running 时为 -1，不是 0
+	State    AsyncState `json:"state"`
+	ExitCode int        `json:"exit_code"` // running 时为 -1，不是 0
 	// LogBytes 是已落盘字节数：真实的进展信号。打点块用它，不用墙钟猜状态。
 	LogBytes int64 `json:"log_bytes"`
 	// Summary 是终态**有界摘要**（≤512B）：完成行回填进打点块的就是它，全文只走 fetch。
@@ -55,16 +59,74 @@ type AsyncRunRecord struct {
 	EndedAt   time.Time `json:"ended_at,omitempty"`
 }
 
-// ── 后台作业状态词表（唯一一份）───────────────────────────────────────────
+// ── 后台作业状态：枚举（唯一一份定义）────────────────────────────────────
 //
-// 这一格回答"这个作业还在不在跑"。取值面就是 AsyncRunRecord.State 注释里的四个词；四个词
-// 只在这里定义**一次**——登记表（seelebridge/tools 的 async_exec.go）、探针与作业面、
-// 触发口径（application/core 的 async_completion.go 与 work_table_async.go）都引它，不再
-// 各写一份字面量（③U6：跨包的同一份词靠这一处 + e2e 的源码门禁互锁）。
+// 这一格回答"这个作业还在不在跑"。它过去是四个散落的字符串字面量，后来收成了契约里的一处常量
+// ——但那仍是**无类型字符串**，谁都能再写一个字面量直接跟它比。现在是**枚举**：
+// `AsyncState` + iota，取值只能从下面这一组来，写错词是**编译错误**，不是运行期对不上。
+//
+// 对外词（JSON / 工具结果 / 看板展示）只在 `asyncStateWords` 里出现一次，边界处一律
+// `String()` 转出去（`MarshalJSON` 就是这么做的）；枚举的整数值不出本进程。
+//
+// 认得的词共五个：running | done | failed | killed | unknown（unknown 只在"记录没带状态"时出现）。
+type AsyncState uint8
+
 const (
-	AsyncStateRunning = "running"
-	AsyncStateDone    = "done"
-	AsyncStateFailed  = "failed"
+	// AsyncStateUnknown 是零值：只有"没带状态的记录"（半成品/外来 JSON）会落到它上面。
+	AsyncStateUnknown AsyncState = iota
+	// AsyncStateRunning = 还在跑。
+	AsyncStateRunning
+	// AsyncStateDone = 正常退出。
+	AsyncStateDone
+	// AsyncStateFailed = 自己退了非零，或起不来。
+	AsyncStateFailed
 	// AsyncStateKilled = 由 job_manage(op=kill) 或会话销毁终止，与"命令自己退非零"可分。
-	AsyncStateKilled = "killed"
+	AsyncStateKilled
 )
+
+// asyncStateWords 是"枚举 ↔ 对外词"的唯一对照表：String 与 Parse 都走它，不再各写一遍。
+var asyncStateWords = [...]string{
+	AsyncStateUnknown: "unknown",
+	AsyncStateRunning: "running",
+	AsyncStateDone:    "done",
+	AsyncStateFailed:  "failed",
+	AsyncStateKilled:  "killed",
+}
+
+// String 给出对外词。
+func (s AsyncState) String() string {
+	if int(s) < len(asyncStateWords) {
+		return asyncStateWords[s]
+	}
+	return asyncStateWords[AsyncStateUnknown]
+}
+
+// ParseAsyncState 把对外词读回枚举；第二个返回值报告它是不是我们认得的词。
+func ParseAsyncState(text string) (AsyncState, bool) {
+	for index, word := range asyncStateWords {
+		if word == text {
+			return AsyncState(index), true
+		}
+	}
+	return AsyncStateUnknown, false
+}
+
+// MarshalJSON 保住 wire 形状：JSON 里仍是 "running" 这样的词，不是枚举的整数值。
+func (s AsyncState) MarshalJSON() ([]byte, error) {
+	return json.Marshal(s.String())
+}
+
+// UnmarshalJSON 读回对外词。认不得的词**报错**，不静默折成零值——那会把"读不懂"变成
+// "还在跑"，两者差一整个作业生命周期。
+func (s *AsyncState) UnmarshalJSON(data []byte) error {
+	var text string
+	if err := json.Unmarshal(data, &text); err != nil {
+		return err
+	}
+	state, ok := ParseAsyncState(text)
+	if !ok {
+		return fmt.Errorf("dto: %q 不是后台作业状态词（认得：%v）", text, asyncStateWords[:])
+	}
+	*s = state
+	return nil
+}

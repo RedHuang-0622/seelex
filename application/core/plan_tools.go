@@ -72,10 +72,10 @@ func (service *Service) updatePlanFromLoad(argsJSON string) {
 // 解析格式对齐框架 NodeBase 的 snake_case JSON 标签（平铺，非嵌套）。
 func (service *Service) updatePlanFromRunResult(resultJSON string) {
 	var out struct {
-		Status      string `json:"status"`
-		NodeCount   int    `json:"node_count"`
-		FinalOutput string `json:"final_output"`
-		AbortReason string `json:"abort_reason,omitempty"`
+		Status      dto.PlanRunStatus `json:"status"`
+		NodeCount   int               `json:"node_count"`
+		FinalOutput string            `json:"final_output"`
+		AbortReason string            `json:"abort_reason,omitempty"`
 		Nodes       []struct {
 			NodeID    string `json:"node_id"`
 			Kind      string `json:"kind"`
@@ -434,10 +434,10 @@ func (service *Service) handlePlanRunFailureLocked(errMsg, resultJSON string) *I
 	// 尝试解析 resultJSON 中的部分节点结果（framework 返回失败点之前的节点）
 	if resultJSON != "" {
 		var out struct {
-			Status      string `json:"status"`
-			NodeCount   int    `json:"node_count"`
-			FinalOutput string `json:"final_output"`
-			AbortReason string `json:"abort_reason,omitempty"`
+			Status      dto.PlanRunStatus `json:"status"`
+			NodeCount   int               `json:"node_count"`
+			FinalOutput string            `json:"final_output"`
+			AbortReason string            `json:"abort_reason,omitempty"`
 			Nodes       []struct {
 				NodeID    string `json:"node_id"`
 				Kind      string `json:"kind"`
@@ -639,8 +639,8 @@ func (service *Service) replanFailedWork(ctx context.Context, interactionID, fai
 
 func planRunFailure(resultJSON string) string {
 	var result struct {
-		Status string `json:"status"`
-		Error  string `json:"error"`
+		Status dto.PlanRunStatus `json:"status"`
+		Error  string            `json:"error"`
 	}
 	if err := json.Unmarshal([]byte(resultJSON), &result); err != nil || result.Status != dto.PlanRunStatusFailed {
 		return ""

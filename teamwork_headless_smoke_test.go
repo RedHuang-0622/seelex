@@ -484,7 +484,7 @@ func (s *teamworkSmoke) waitJobTerminal(t *testing.T, handle string) dto.Teamwor
 	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
 		for _, record := range s.harness.runtime.TeamworkJobCompletions() {
-			if record.Handle == handle && record.State != string("running") {
+			if record.Handle == handle && record.State != dto.AsyncStateRunning {
 				return record
 			}
 		}

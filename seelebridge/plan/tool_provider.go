@@ -455,7 +455,7 @@ func planRunResultJSON(result *workplanTypes.WorkPlanResult, err error, withNode
 		nodeError = outcome.failureMessage()
 	}
 	out := struct {
-		Status      string                   `json:"status"`
+		Status      dto.PlanRunStatus        `json:"status"`
 		Error       string                   `json:"error,omitempty"`
 		NodeCount   int                      `json:"node_count"`
 		FinalOutput string                   `json:"final_output"`

@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 )
 
@@ -15,7 +16,7 @@ func TestAsyncRunRecordMappingCarriesEveryColumn(t *testing.T) {
 	lastByte := ended.Add(-time.Second)
 	info := seeltools.AsyncRunInfo{
 		Handle: "a3", SessionID: "sess-1", Description: "跑集成测试", Command: "go test ./...",
-		State: "failed", Exit: 2, LogPath: `C:\Temp\seelex-async-1\a3.log`, LogBytes: 2048,
+		State: dto.AsyncStateFailed, Exit: 2, LogPath: `C:\Temp\seelex-async-1\a3.log`, LogBytes: 2048,
 		LastByteAt: lastByte, Tail: "FAIL seelebridge/tools", Truncated: true, Degraded: true,
 		BatchID: "req-9", StartedAt: started, EndedAt: ended,
 		// 打点 K-2 的行 schema：类别 / 有界摘要 / 行数 / 回填位 / 同批下标。

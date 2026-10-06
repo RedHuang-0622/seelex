@@ -87,7 +87,7 @@ func TestTeamworkJobCompletionsProjectsRecords(t *testing.T) {
 	}
 
 	record := waitTeammateRecord(t, r, string(handle))
-	if record.State != string(jobs.StateFailed) {
+	if record.State != dto.AsyncStateFailed {
 		t.Fatalf("载荷解码失败的作业应落 failed 终态：%+v", record)
 	}
 	if record.Kind != string(teamwork.KindWorker) {
@@ -131,7 +131,7 @@ func waitTeammateRecord(t *testing.T, r *Runtime, handle string) dto.TeamworkJob
 				continue
 			}
 			found = record
-			if record.State != string(jobs.StateRunning) {
+			if record.State != dto.AsyncStateRunning {
 				return record
 			}
 		}

@@ -99,7 +99,7 @@ func TestNodeFirstPersonLiveSmoke(t *testing.T) {
 		for {
 			live := false
 			for _, record := range runtime.AsyncRunsSnapshot() {
-				if record.State != "running" {
+				if record.State != dto.AsyncStateRunning {
 					continue
 				}
 				for _, handle := range handles {

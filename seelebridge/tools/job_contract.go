@@ -435,7 +435,7 @@ func renderJobAccepted(handle JobHandle) ([]byte, error) {
 // jobSummaryLine 是**投影**用的一行（观察读数与工作打点表共用同一口径）：
 // 句柄、类别、状态、字节数、标题（或命令短截断）。
 func jobSummaryLine(run asyncRun, logBytes int64) string {
-	fields := []string{asyncWorkRowPrefixForLine + run.handle, run.kind, run.state, formatBytesCompact(logBytes)}
+	fields := []string{asyncWorkRowPrefixForLine + run.handle, run.kind, run.state.String(), formatBytesCompact(logBytes)}
 	if run.state != asyncStateRunning {
 		// 终态带**有界摘要**（K-5 的回填内容）：退出码 + 行数 + 字节数 + 末行。
 		if run.summary != "" {

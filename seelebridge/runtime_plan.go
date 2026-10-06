@@ -260,7 +260,7 @@ func (a subagentJobsAdapter) Note(handle, text string) {
 }
 
 // Complete 合成终态（运行体系被动 done）。
-func (a subagentJobsAdapter) Complete(handle, state string) {
+func (a subagentJobsAdapter) Complete(handle string, state dto.AsyncState) {
 	if router := a.router(); router != nil {
 		router.CompleteJob(handle, state)
 	}

@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
@@ -143,7 +144,7 @@ func forkRun(t *testing.T, runtime *Runtime, args string) forkBatch {
 
 	states := make(map[string]string, len(handles))
 	for _, record := range runtime.AsyncRunsSnapshot() {
-		states[record.Handle] = record.State
+		states[record.Handle] = record.State.String()
 	}
 	parts := make([]string, 0, len(handles))
 	for _, handle := range handles {
@@ -175,7 +176,7 @@ func forkWaitTerminalFor(t *testing.T, runtime *Runtime, handles []string, budge
 	for {
 		live := 0
 		for _, record := range runtime.AsyncRunsSnapshot() {
-			if record.State != "running" {
+			if record.State != dto.AsyncStateRunning {
 				continue
 			}
 			if _, ok := wanted[record.Handle]; ok {
@@ -197,7 +198,7 @@ func forkStateOf(t *testing.T, runtime *Runtime, handle string) string {
 	t.Helper()
 	for _, record := range runtime.AsyncRunsSnapshot() {
 		if record.Handle == handle {
-			return record.State
+			return record.State.String()
 		}
 	}
 	return ""

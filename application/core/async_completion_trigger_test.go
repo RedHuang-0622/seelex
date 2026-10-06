@@ -63,7 +63,7 @@ func assertNoTurn(t *testing.T, service *Service, needle string) {
 }
 
 // completedRecord 造一条已落到终态的作业投影记录。
-func completedRecord(handle, state string) dto.AsyncRunRecord {
+func completedRecord(handle string, state dto.AsyncState) dto.AsyncRunRecord {
 	return dto.AsyncRunRecord{
 		SessionID: "session-a", Handle: handle, Kind: "process", State: state,
 		ExitCode: 0, LogBytes: 128, Lines: 3, Notified: true,
@@ -110,7 +110,7 @@ func TestAsyncCompletionIgnoresRunningAndKilled(t *testing.T) {
 	if asyncCompletionTriggers(dto.AsyncStateRunning) {
 		t.Fatal("running 不是终态，不该触发")
 	}
-	if asyncCompletionTriggers("killed") {
+	if asyncCompletionTriggers(dto.AsyncStateKilled) {
 		t.Fatal("killed 是被终止而不是有了结果，不该触发")
 	}
 	if !asyncCompletionTriggers(asyncStateDone) || !asyncCompletionTriggers(asyncStateFailed) {
@@ -121,7 +121,7 @@ func TestAsyncCompletionIgnoresRunningAndKilled(t *testing.T) {
 	service, runtime := asyncCompletionHarness(t, true, &fakeEngine{sessionID: "session-a"})
 	running := completedRecord("a9", dto.AsyncStateRunning)
 	running.ExitCode = -1
-	runtime.asyncRuns = []dto.AsyncRunRecord{running, completedRecord("a10", "killed")}
+	runtime.asyncRuns = []dto.AsyncRunRecord{running, completedRecord("a10", dto.AsyncStateKilled)}
 	runtime.asyncEvents <- struct{}{}
 
 	assertNoTurn(t, service, "a9")

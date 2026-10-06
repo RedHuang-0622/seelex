@@ -104,7 +104,7 @@ type asyncRun struct {
 	description string
 	command     string
 	batchID     string
-	state       string
+	state       dto.AsyncState
 	exit        int
 	logPath     string
 	cursor      int64 // 已交付给模型的文件偏移，决定"增量"从哪算
@@ -585,7 +585,7 @@ func (g *asyncRegistry) retire(handle string) bool {
 }
 
 // noteRetiredLocked 记一枚销项墓碑（FIFO 封顶）。调用方必须已持有 g.mu。
-func (g *asyncRegistry) noteRetiredLocked(handle, state string) {
+func (g *asyncRegistry) noteRetiredLocked(handle string, state dto.AsyncState) {
 	if g.retired == nil {
 		g.retired = map[string]string{}
 	}
@@ -595,7 +595,7 @@ func (g *asyncRegistry) noteRetiredLocked(handle, state string) {
 	if _, exists := g.retired[handle]; !exists {
 		g.retiredRing = append(g.retiredRing, handle)
 	}
-	g.retired[handle] = state
+	g.retired[handle] = state.String()
 	for len(g.retiredRing) > g.retiredMaxLen {
 		oldest := g.retiredRing[0]
 		g.retiredRing = g.retiredRing[1:]
@@ -767,10 +767,10 @@ func (g *asyncRegistry) appendNote(handle, text string) error {
 // 全文只走 job_manage(op=fetch)（消费式增量）或 log_path。
 //
 // 为什么不在锁内做：这是文件 I/O。调用方（finish）先取快照、锁外算、再进锁迁移。
-func summarizeLog(logPath string, exitCode int, state string) (string, int) {
+func summarizeLog(logPath string, exitCode int, state dto.AsyncState) (string, int) {
 	bytes, _, tail := sampleLog(logPath)
 	lines := countLogLines(logPath)
-	parts := []string{state, fmt.Sprintf("exit=%d", exitCode), fmt.Sprintf("%d 行", lines), formatBytesCompact(bytes)}
+	parts := []string{state.String(), fmt.Sprintf("exit=%d", exitCode), fmt.Sprintf("%d 行", lines), formatBytesCompact(bytes)}
 	if tail != "" {
 		parts = append(parts, "末行: "+truncateRunes(tail, asyncSummaryTailRunes))
 	}
@@ -922,17 +922,17 @@ func (g *asyncRegistry) removeDir() {
 // asyncPayload 是派发回执、观察/取回结果与终止回执的共同载荷。字段刻意不含时间戳与耗时：
 // 它会随所在轮次永久留在可缓存前缀里，任何"每次都不一样"的字节都在白烧 token。
 type asyncPayload struct {
-	Status    string `json:"status"`
-	Handle    string `json:"handle"`
-	Kind      string `json:"kind,omitempty"`
-	State     string `json:"state"`
-	ExitCode  int    `json:"exit_code"`
-	LogPath   string `json:"log_path,omitempty"`
-	Output    string `json:"output,omitempty"`
-	Summary   string `json:"summary,omitempty"`
-	Repeated  bool   `json:"repeated,omitempty"`
-	Truncated bool   `json:"truncated,omitempty"`
-	Hint      string `json:"hint"`
+	Status    string         `json:"status"`
+	Handle    string         `json:"handle"`
+	Kind      string         `json:"kind,omitempty"`
+	State     dto.AsyncState `json:"state"`
+	ExitCode  int            `json:"exit_code"`
+	LogPath   string         `json:"log_path,omitempty"`
+	Output    string         `json:"output,omitempty"`
+	Summary   string         `json:"summary,omitempty"`
+	Repeated  bool           `json:"repeated,omitempty"`
+	Truncated bool           `json:"truncated,omitempty"`
+	Hint      string         `json:"hint"`
 }
 
 // encodeAsync 把载荷渲染成**字节**（JSON）。契约层的出参一律 []byte：那份字节

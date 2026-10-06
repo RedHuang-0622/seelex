@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 // job_subagent.go — 子代理作业（Kind=subagent）的契约面（打点 L-5）。
@@ -105,7 +107,7 @@ func (r *Router) NoteJob(handle, text string) error {
 //     它既不迁移终态，也不允许对在途作业使用——终态只由执行体判定。
 //
 // 幂等：已经是终态的句柄返回 false，不产生第二次迁移（K-5 的 K-4 约束）。
-func (r *Router) CompleteJob(handle, state string) bool {
+func (r *Router) CompleteJob(handle string, state dto.AsyncState) bool {
 	if r == nil || r.async == nil {
 		return false
 	}
@@ -113,7 +115,7 @@ func (r *Router) CompleteJob(handle, state string) bool {
 	if !ok || snapshot.state != asyncStateRunning {
 		return false
 	}
-	switch strings.ToLower(strings.TrimSpace(state)) {
+	switch state {
 	case asyncStateDone:
 		r.async.finish(handle, 0)
 	case asyncStateFailed:

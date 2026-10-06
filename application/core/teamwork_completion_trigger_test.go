@@ -35,7 +35,7 @@ func teamworkCompletionHarness(t *testing.T, trigger bool, engine ChatEngine) (*
 }
 
 // completedTeammateRecord 造一条已落到终态的 teammate 作业记录。
-func completedTeammateRecord(handle, state string) dto.TeamworkJobCompletionRecord {
+func completedTeammateRecord(handle string, state dto.AsyncState) dto.TeamworkJobCompletionRecord {
 	return dto.TeamworkJobCompletionRecord{
 		Handle: handle, Kind: "worker", State: state, ExitCode: 0,
 		SessionID: "session-a", Role: "exec", WorkItem: "wi-impl",
@@ -85,7 +85,7 @@ func TestTeamworkCompletionIgnoresRunningAndKilled(t *testing.T) {
 	service, runtime := teamworkCompletionHarness(t, true, &fakeEngine{sessionID: "session-a"})
 
 	running := completedTeammateRecord("ab9", dto.AsyncStateRunning)
-	killed := completedTeammateRecord("ab10", "killed")
+	killed := completedTeammateRecord("ab10", dto.AsyncStateKilled)
 	runtime.teamworkRuns = []dto.TeamworkJobCompletionRecord{running, killed}
 	runtime.teamworkEvents <- struct{}{}
 

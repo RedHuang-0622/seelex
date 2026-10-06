@@ -65,7 +65,7 @@ func TestAsyncRunProjectsEveryVisibleColumn(t *testing.T) {
 		t.Fatalf("探针打点条数 = %d", len(row.Trace))
 	}
 	point := row.Trace[0]
-	if point.Operation != asyncProbeOperation || point.Status != dto.AsyncStateRunning {
+	if point.Operation != asyncProbeOperation || point.Status != dto.AsyncStateRunning.String() {
 		t.Fatalf("探针打点身份不符: %+v", point)
 	}
 	for _, want := range []string{"1.3KiB", "ok seelebridge/tools 6.5s"} {
@@ -95,12 +95,12 @@ func TestAsyncRunProjectsEveryVisibleColumn(t *testing.T) {
 // 终态映射：done→completed，failed/killed→failed（表格状态机没有"被杀"这一档）。
 func TestAsyncTerminalStatesMapToWorkStatus(t *testing.T) {
 	base := runningAsyncRecord("a9")
-	base.State = "done"
+	base.State = dto.AsyncStateDone
 	base.ExitCode = 0
 	failed := base
-	failed.Handle, failed.State, failed.ExitCode = "a8", "failed", 2
+	failed.Handle, failed.State, failed.ExitCode = "a8", dto.AsyncStateFailed, 2
 	killed := base
-	killed.Handle, killed.State, killed.ExitCode = "a7", "killed", 137
+	killed.Handle, killed.State, killed.ExitCode = "a7", dto.AsyncStateKilled, 137
 
 	rows := buildWorkTable(nil, nil, nil, []dto.AsyncRunRecord{base, failed, killed})
 	for id, want := range map[string]string{
@@ -140,7 +140,7 @@ func TestAsyncTraceLinesCarryNoPathsOrLogContent(t *testing.T) {
 
 	// 终态 + 已回填（Notified）⇒ 进块，带**有界摘要**。
 	terminal := record
-	terminal.State = "done"
+	terminal.State = dto.AsyncStateDone
 	terminal.Notified = true
 	terminal.Summary = "done · exit=0 · 12 行 · 1.3KiB · 末行: ok seelebridge/tools"
 	terminalLines := asyncTraceLines([]dto.AsyncRunRecord{terminal}, "session-a")
@@ -158,7 +158,7 @@ func TestAsyncTraceLinesCarryNoPathsOrLogContent(t *testing.T) {
 
 	// 终态但**没回填过**（Notified=false）= 状态机与投影不一致，不得当成结果进块。
 	unnotified := record
-	unnotified.State = "done"
+	unnotified.State = dto.AsyncStateDone
 	if got := asyncTraceLines([]dto.AsyncRunRecord{unnotified}, "session-a"); len(got) != 0 {
 		t.Fatalf("没回填过的终态行进了块: %v", got)
 	}
@@ -186,7 +186,7 @@ func TestAsyncRunAloneMaterializesTraceBlock(t *testing.T) {
 
 	// 完成后：行**带着摘要留在块里**（这正是"回填的内容 = 表格的内容"）。
 	done := runningAsyncRecord("a3")
-	done.State = "done"
+	done.State = dto.AsyncStateDone
 	done.Notified = true
 	done.Summary = "done · exit=0 · 3 行 · 12B · 末行: ok"
 	runtime.asyncRuns = []dto.AsyncRunRecord{done}
@@ -258,7 +258,7 @@ func TestAsyncRowsAreCappedAndNeverEvictTasks(t *testing.T) {
 	records := make([]dto.AsyncRunRecord, 0, asyncWorkMaxRows+20)
 	for index := range asyncWorkMaxRows + 20 {
 		record := runningAsyncRecord(fmt.Sprintf("t%d", index))
-		record.State = "done"
+		record.State = dto.AsyncStateDone
 		records = append(records, record)
 	}
 	records = append(records, runningAsyncRecord("a999"))
@@ -291,7 +291,7 @@ func TestAsyncBackfillStaysBounded(t *testing.T) {
 	records := make([]dto.AsyncRunRecord, 0, 120)
 	for index := range 100 {
 		record := runningAsyncRecord(fmt.Sprintf("f%d", index))
-		record.State = "done"
+		record.State = dto.AsyncStateDone
 		record.Notified = true
 		record.Summary = fmt.Sprintf("done · exit=0 · %d 行 · 1.3KiB · 末行: ok", index)
 		record.EndedAt = time.Now().Add(time.Duration(index) * time.Millisecond)

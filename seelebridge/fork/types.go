@@ -3,6 +3,8 @@ package fork
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 // SubagentsContractDescription 是 fork_subagents 工具的契约描述（追加在
@@ -58,7 +60,7 @@ type SubagentJobSpec struct {
 type SubagentJobs interface {
 	Add(spec SubagentJobSpec, cancel context.CancelFunc) (string, error)
 	Note(handle, text string)
-	Complete(handle, state string)
+	Complete(handle string, state dto.AsyncState)
 }
 
 // PlanCanonical 生成 fork DAG 的规范 JSON（审计/展示；非模型输入）。

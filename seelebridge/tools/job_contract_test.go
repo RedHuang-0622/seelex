@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 // 作业契约本身的判据（打点 K-1 / K-2 / K-6 与 L-1 / L-3 / L-4）。
@@ -315,10 +317,10 @@ func TestSubagentJobContract(t *testing.T) {
 		t.Fatalf("kill 回执 = %+v, want killed", killedPayload)
 	}
 	// 执行体收尾（被动 done）：终态迁移一次，重复调用无副作用。
-	if !router.CompleteJob(handle, "killed") {
+	if !router.CompleteJob(handle, dto.AsyncStateKilled) {
 		t.Fatal("CompleteJob 没能合成终态")
 	}
-	if router.CompleteJob(handle, "killed") {
+	if router.CompleteJob(handle, dto.AsyncStateKilled) {
 		t.Fatal("重复 CompleteJob 又迁移了一次终态（终态只迁移一次）")
 	}
 	fetched, err := manager.Fetch(ctx, JobHandle{Handle: handle})
