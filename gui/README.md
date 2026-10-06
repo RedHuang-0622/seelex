@@ -103,6 +103,16 @@ Seq 区间读事件日志（`(0,0)` = 全量）。三者均不要求目标会话
 `nodeDetailPollTimer` 2s 轮询都已删除（`TestEmbeddedFrontendExists` 的禁流式/
 禁轮询断言相应启用）。
 
+**「这件事的会话」读面（团队看板的对话区）**：`Bridge.TeammateSessionLive(roleSessionID)`
+是**默认页**（最近若干条）；`Bridge.TeammateSessionLivePage(roleSessionID, offset, limit)`
+是同一份读数的**分页一页**（`offset/limit/total/has_more` 都由后端归一与计算，前端只搬、
+不自算；`limit<=0` → 后端默认页大小 40）。窗口/裁剪判据只有一份，在
+[`seelebridge/runtime_teammate_session_live.go`](../seelebridge/runtime_teammate_session_live.go)；
+会话不在本进程 → `running=false`（调用方据此如实说明，而不是假装"看到的是空的当前会话"）。
+node 第一视角实时回放的**分页**读法同形落在
+[`seelebridge/runtime_live.go`](../seelebridge/runtime_live.go) 的
+`SubagentLiveHistoryPage`（窗口上限 `RuntimeConfig.SubagentLiveWindow`）。
+
 会话内用户输入索引：`Bridge.SessionInputIndex(sessionID)` 返回该会话**全量**
 用户输入索引（seq/round 序号 + 有界摘要 + 是否在当前已加载窗口），轻量零正文
 （不依赖已加载视图，未驻留会话也可用）；前端右侧轨道据此铺满整个会话，点击未

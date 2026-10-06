@@ -167,6 +167,8 @@ type agentTeamApplication interface {
 	// TeammateSessionLiveFor 是**当前 teammate 会话**的实时读面（这件事自己的会话——
 	// 进程内执行面，正文不在会话库里）。
 	TeammateSessionLiveFor(sessionID string) dto.TeammateSessionLiveView
+	// TeammateSessionLivePageFor 是同一份读面的**分页读法**（有界窗口 + 分页）。
+	TeammateSessionLivePageFor(sessionID string, offset, limit int) dto.TeammateSessionLiveView
 	// 团队库（**全局**团队模板）：列表 / 保存 / 从当前会话存 / 删除 / 装配。
 	AgentTeamLibrary(mainSessionID string) (dto.TeamLibrary, error)
 	AgentTeamSaveTeam(mainSessionID string, entry dto.TeamLibraryEntry) (dto.TeamLibrary, error)
@@ -1051,6 +1053,18 @@ func (bridge *Bridge) AgentTeamRoleSnapshot(sessionID, roleName, roleSessionID s
 // 只读，不写任何状态；会话不在本进程里 → Running=false 的视图（调用方据此如实说明，
 // 而不是假装"看到的是空的当前会话"）。
 func (bridge *Bridge) TeammateSessionLive(roleSessionID string) (dto.TeammateSessionLiveView, error) {
+	return bridge.teammateSessionLive(roleSessionID, 0, 0, false)
+}
+
+// TeammateSessionLivePage 是同一份读数的**分页读法**（有界窗口 + 分页）：前端"翻页"用
+// 它（offset 从该会话第一条算起；limit<=0 → 后端默认页大小）。与 TeammateSessionLive
+// 共用同一份裁剪/分页判据，桥只做参数归一与转发，不缓存、不推导第二份事实。
+func (bridge *Bridge) TeammateSessionLivePage(roleSessionID string, offset, limit int) (dto.TeammateSessionLiveView, error) {
+	return bridge.teammateSessionLive(roleSessionID, offset, limit, true)
+}
+
+// teammateSessionLive 是上面两个读法的共同实现（同一份参数归一：只读、不写任何状态）。
+func (bridge *Bridge) teammateSessionLive(roleSessionID string, offset, limit int, paginated bool) (dto.TeammateSessionLiveView, error) {
 	app, err := bridge.agentTeamApp()
 	if err != nil {
 		return dto.TeammateSessionLiveView{}, err
@@ -1058,6 +1072,9 @@ func (bridge *Bridge) TeammateSessionLive(roleSessionID string) (dto.TeammateSes
 	roleSessionID = strings.TrimSpace(roleSessionID)
 	if roleSessionID == "" {
 		return dto.TeammateSessionLiveView{}, errors.New("会话号不能为空（工作项自己的会话号）")
+	}
+	if paginated {
+		return app.TeammateSessionLivePageFor(roleSessionID, offset, limit), nil
 	}
 	return app.TeammateSessionLiveFor(roleSessionID), nil
 }

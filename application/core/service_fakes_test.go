@@ -39,6 +39,7 @@ type fakeEngine struct {
 	nodeWorktreeInfoFn func(string) (seelebridge.NodeWorktreeInfo, bool)
 	subAgentTree       []dto.SubAgentTreeNode
 	subagentLiveFn     func(string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error)
+	subagentLivePageFn func(string, int, int) dto.SubagentLiveHistoryPage
 }
 
 type sessionBackedBlockingEngine struct {
@@ -233,6 +234,13 @@ func (engine *fakeEngine) SubscribeSubagentLive(nodeID string) ([]dto.SubagentLi
 		return nil, nil, func() {}, fmt.Errorf("fake engine: live stream not configured")
 	}
 	return engine.subagentLiveFn(nodeID)
+}
+
+func (engine *fakeEngine) SubagentLiveHistoryPage(nodeID string, offset, limit int) dto.SubagentLiveHistoryPage {
+	if engine.subagentLivePageFn == nil {
+		return dto.SubagentLiveHistoryPage{ScopeID: nodeID, Offset: offset, Limit: limit}
+	}
+	return engine.subagentLivePageFn(nodeID, offset, limit)
 }
 
 func (engine *fakeEngine) SubAgentTree() []dto.SubAgentTreeNode {

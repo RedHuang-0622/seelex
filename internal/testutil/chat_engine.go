@@ -73,6 +73,10 @@ func (*EmbeddedChatEngine) SubscribeSubagentLive(string) ([]dto.SubagentLiveEven
 	panicUnimplemented("SubscribeSubagentLive")
 	return nil, nil, func() {}, nil
 }
+func (*EmbeddedChatEngine) SubagentLiveHistoryPage(string, int, int) dto.SubagentLiveHistoryPage {
+	panicUnimplemented("SubagentLiveHistoryPage")
+	return dto.SubagentLiveHistoryPage{}
+}
 func (*EmbeddedChatEngine) SubAgentTree() []dto.SubAgentTreeNode {
 	panicUnimplemented("SubAgentTree")
 	return nil

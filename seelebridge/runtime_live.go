@@ -15,9 +15,33 @@ import (
 // subagentLiveChanCap 是实时流订阅通道/分发通道的容量。
 const subagentLiveChanCap = 128
 
-// subagentLiveHistoryCap 是每节点实时事件历史缓冲上限（超出淘汰最旧；
-// 打开详情时回放该缓冲，保证"从 start 到最新"的滚动上下文）。
+// subagentLiveHistoryCap 是每节点实时事件历史缓冲上限的**默认值**（超出淘汰最旧；
+// 打开详情时回放该缓冲，保证"从 start 到最新"的滚动上下文）。实际上限可经
+// RuntimeConfig.SubagentLiveWindow 配置，读法与写入点都走 subagentLiveWindowSize()。
 const subagentLiveHistoryCap = 512
+
+// subagentLiveHistoryMinWindow 是窗口上限的**下限**：配置比它还小 → 收敛到它
+// （窗口至少要装得下一页，否则分页读法永远只看得见一两条）。
+const subagentLiveHistoryMinWindow = 50
+
+// subagentLivePageDefaultLimit 是分页读法的默认页大小（limit <= 0 时用它）。
+const subagentLivePageDefaultLimit = 50
+
+// subagentLiveWindowSize 归一化实时回放窗口上限：未配置（0）→ 默认 512；
+// 小于下限 → 下限。零值 Runtime 也走这一份归一（不把窗口剪成 0）。
+func (r *Runtime) subagentLiveWindowSize() int {
+	if r == nil {
+		return subagentLiveHistoryCap
+	}
+	configured := r.subagentLiveWindow
+	if configured == 0 {
+		return subagentLiveHistoryCap
+	}
+	if configured < subagentLiveHistoryMinWindow {
+		return subagentLiveHistoryMinWindow
+	}
+	return configured
+}
 
 // startLiveDispatcher 启动 node 第一视角实时流分发器（幂等）：阶段日志
 // （SubagentSessions.StageEvents）+ 工具事件（ToolEventState.Subscribe）
@@ -114,12 +138,55 @@ func (r *Runtime) SubscribeSubagentLive(nodeID string) ([]dto.SubagentLiveEvent,
 	return history, ch, cancel, nil
 }
 
+// SubagentLiveHistoryPage 读回 node 第一视角实时回放的**一页**（有界窗口 + 分页）。
+//
+// 与 SubscribeSubagentLive 共用**同一份**窗口（r.liveHistory，超上限丢最旧），
+// 订阅面的签名与返回值不变——这是 add but not modify 的另一种读法。
+//
+// 语义：
+//   - offset 从**窗口内最旧一条**算起（0 = 最旧）；offset < 0 → 0；
+//   - limit <= 0 → 默认 50；limit > 窗口上限 → 收敛到窗口；
+//   - offset >= total → 空页且 HasMore=false（offset 原样回带，调用方看得出自己越界了）；
+//   - Total = 窗口内条数；HasMore = offset+len(events) < Total；
+//   - Events 顺序 = 窗口内由旧到新。
+func (r *Runtime) SubagentLiveHistoryPage(nodeID string, offset, limit int) dto.SubagentLiveHistoryPage {
+	page := dto.SubagentLiveHistoryPage{ScopeID: nodeID}
+	if r == nil || nodeID == "" {
+		return page
+	}
+	window := r.subagentLiveWindowSize()
+	if limit <= 0 {
+		limit = subagentLivePageDefaultLimit
+	}
+	if limit > window {
+		limit = window
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	r.liveMu.Lock()
+	// 与订阅面同一把锁：快照是"这一刻的窗口"，此后新事件继续进窗口（下一趟能翻到）。
+	history := append([]dto.SubagentLiveEvent(nil), r.liveHistory[nodeID]...)
+	r.liveMu.Unlock()
+	total := len(history)
+	page.Offset, page.Limit, page.Total = offset, limit, total
+	if offset < total {
+		end := offset + limit
+		if end > total {
+			end = total
+		}
+		page.Events = append([]dto.SubagentLiveEvent(nil), history[offset:end]...)
+	}
+	page.HasMore = page.Offset+len(page.Events) < total
+	return page
+}
+
 func (r *Runtime) broadcastLive(event dto.SubagentLiveEvent) {
 	r.liveMu.Lock()
 	subs := append([]chan dto.SubagentLiveEvent(nil), r.liveSubs[event.NodeID]...)
 	history := append(r.liveHistory[event.NodeID], event)
-	if len(history) > subagentLiveHistoryCap {
-		history = history[len(history)-subagentLiveHistoryCap:]
+	if window := r.subagentLiveWindowSize(); len(history) > window {
+		history = history[len(history)-window:]
 	}
 	r.liveHistory[event.NodeID] = history
 	r.liveMu.Unlock()

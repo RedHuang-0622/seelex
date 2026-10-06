@@ -69,6 +69,8 @@ flowchart TB
 | `runtime_goal_tl.go` | goal 域 `TLEvaluator` 的真实实现（主 completer + `TLDirective` JSON 契约）；ADVISOR 角色设定优先取已登记的员工提示词，**输出契约永远追加**（登记提示词改不掉解析格式） |
 | `runtime_role_turn.go` | **角色（员工）回合执行体**：开角色会话（独立引擎 + 角色提示）的同时把该员工的权限分配成 `emp_<角色名>` 主体，回合起手按构造把主体放进 ctx（`tools.WithEmployeeSubject`），工具面与判定因此按角色权责收窄；引擎构造可用 `SetRoleEngineFactory` 替换（测试/更严隔离面），`ReleaseRoleSessions` 在 Shutdown 释放派生执行面。**ReAct 钩子按本轮身份分流**（2026-10-03）：员工做工回合（`roleRoundSpec.WorkScope`）的每次工具调用 → `dto.RoleToolActivity` → `SetRoleToolCallback`（装配根接 `app.HandleRoleToolActivity`）→ 会话级事件 `teammate.tool.started/completed`；ADVISOR 评审回合仍走 goal 域 TLStep sink |
 | `runtime_session.go` | 主会话绑定状态（sessionBindings：ctxStore/historyRouter/mainHistory/project/turnArchiver/sessionID）+ merge-back 内部方法 |
+| `runtime_live.go` | node 第一视角实时流分发器（阶段日志 + 工具事件汇入统一通道，按 nodeID 广播）：`SubscribeSubagentLive`（历史回放 + 实时通道，签名与返回值不变）与**同一份回放窗口**的分页读法 `SubagentLiveHistoryPage`；窗口上限 = `RuntimeConfig.SubagentLiveWindow`（0 → 默认 512，<50 → 50；上限语义不变：超出丢最旧） |
+| `runtime_teammate_session_live.go` | **当前 teammate 会话**的实时只读投影：`TeammateSessionLive`（默认页 = 最近若干条）与 `TeammateSessionLivePage`（翻页）共用**唯一一份**裁剪/分页判据（`teammateSessionLiveSlice`）；只投影 user/assistant，会话不在本进程 → `Running=false` |
 
 ### workunit：一件活的生命周期（一份实现 + 三格端口）
 

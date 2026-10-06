@@ -52,15 +52,18 @@ type RuntimeConfig struct {
 	MaxReplansPerWindow       int
 	ReplanWindow              time.Duration
 	PlanDecisionTimeout       time.Duration
-	AccountsPath              string                 // LLM 账号配置路径
-	StorePath                 string                 // 会话存储目录（空 = 不持久化）
-	ToolCallTimeout           time.Duration          // 工具调用超时
-	ApprovalTimeout           time.Duration          // 审批等待超时
-	HeartbeatInterval         time.Duration          // workplan 心跳间隔
-	HubStartupDelay           time.Duration          // Hub 启动等待时间
-	SubagentMailboxSize       int                    // 子代理 merge-back 有界邮箱容量
-	WindowConfig              seelexctx.WindowConfig // 滑动窗口配置段（seele.yaml；零值 = 默认，plan.md §3.7.3）
-	Limits                    seelexctx.Limits       // 运行时上限（seele.yaml limits 段；零值 = 默认）
+	AccountsPath              string        // LLM 账号配置路径
+	StorePath                 string        // 会话存储目录（空 = 不持久化）
+	ToolCallTimeout           time.Duration // 工具调用超时
+	ApprovalTimeout           time.Duration // 审批等待超时
+	HeartbeatInterval         time.Duration // workplan 心跳间隔
+	HubStartupDelay           time.Duration // Hub 启动等待时间
+	SubagentMailboxSize       int           // 子代理 merge-back 有界邮箱容量
+	// SubagentLiveWindow 是 node 第一视角实时回放窗口上限（超出丢最旧）。
+	// 0 → 默认 512（subagentLiveHistoryCap）；<50 → 50（窗口至少要装得下一页）。
+	SubagentLiveWindow int                    // 实时回放窗口上限（见 runtime_live.go 的读法）
+	WindowConfig       seelexctx.WindowConfig // 滑动窗口配置段（seele.yaml；零值 = 默认，plan.md §3.7.3）
+	Limits             seelexctx.Limits       // 运行时上限（seele.yaml limits 段；零值 = 默认）
 }
 type Runtime struct {
 	registry  *seeltools.RegistryState
@@ -148,13 +151,17 @@ type Runtime struct {
 	toolEvents   *subagentsession.ToolEventState
 	// live* 是 node 第一视角实时流分发器（runtime_live.go）：阶段+工具事件
 	// 统一通道按 nodeID 广播；liveStarted/liveStop 保护启动与停机。
-	liveMu         sync.Mutex
-	liveStarted    bool
-	liveStop       chan struct{}
-	liveCh         chan dto.SubagentLiveEvent
-	liveSubs       map[string][]chan dto.SubagentLiveEvent
-	liveHistory    map[string][]dto.SubagentLiveEvent
-	liveToolCancel func()
+	liveMu      sync.Mutex
+	liveStarted bool
+	liveStop    chan struct{}
+	liveCh      chan dto.SubagentLiveEvent
+	liveSubs    map[string][]chan dto.SubagentLiveEvent
+	liveHistory map[string][]dto.SubagentLiveEvent
+	// subagentLiveWindow 是实时回放窗口上限的**配置值**（RuntimeConfig.SubagentLiveWindow）：
+	// 读法与写入点都经 subagentLiveWindowSize() 归一化（0 → 默认 512），因此零值 Runtime
+	// （测试直接构造）也拿到默认窗口，不会把窗口剪成 0。
+	subagentLiveWindow int
+	liveToolCancel     func()
 
 	// 子代理会话注册表组件（actor：channel 命令 + 单 goroutine，subagent_sessions.go）。
 	// 运行中读子会话 History（子代理 actor 独立锁，安全）；结束后保留快照；
@@ -337,6 +344,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		tasks:               task.NewTaskRegistry(),
 		scheduler:           scheduler.NewState(),
 		toolEvents:          subagentsession.NewToolEventState(),
+		subagentLiveWindow:  cfg.SubagentLiveWindow,
 		toolCallTimeout:     cfg.ToolCallTimeout,
 		planDecisionTimeout: planDecisionTimeout,
 		approvalTimeout:     approvalTimeout,

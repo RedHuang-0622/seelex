@@ -19,6 +19,7 @@ import {
   renderTeamAudit,
   renderTeamBoard,
   renderTeammateLiveSession,
+  TEAMMATE_LIVE_PAGE_SIZE,
   renderTeamGantt,
   renderTeamQueue,
   renderTeamWorkItem,
@@ -367,6 +368,42 @@ test("renderTeammateLiveSession：读得到就读这一轮的对话，读不到�
   );
   assert.match(truncated, /已跑完/);
   assert.match(truncated, /只显示最近/);
+});
+
+test("renderTeammateLiveSession：翻页条搬后端的 offset/total/has_more，不自己推算", () => {
+  // 中间页：前后都翻得动（上一页回到 offset-limit，下一页往后走）。
+  const middle = renderTeammateLiveSession(
+    { session_id: "s-wi", role: "exec", running: true, live: false,
+      offset: 40, limit: TEAMMATE_LIVE_PAGE_SIZE, total: 100, has_more: true,
+      messages: [{ role: "assistant", text: "中间那一页" }] },
+    { work_item: "wi-impl" }
+  );
+  assert.match(middle, /中间那一页/);
+  assert.match(middle, /第 41–41 条 \/ 共 100 条/);
+  assert.match(middle, /data-teammate-live-page="0"/, "上一页回到 offset-limit（后端页大小）");
+  assert.match(middle, /data-teammate-live-page="80"/, "下一页往后走一个页大小");
+  assert.doesNotMatch(middle, /disabled/, "中间页两个方向都翻得动");
+
+  // 尾巴页（has_more=false）：下一页必须禁用——不许画一个按不动的键假装还有。
+  const tail = renderTeammateLiveSession(
+    { session_id: "s-wi", role: "exec", running: true, live: true,
+      offset: 60, limit: TEAMMATE_LIVE_PAGE_SIZE, total: 61, has_more: false,
+      messages: [{ role: "assistant", text: "最新一条" }] },
+    { work_item: "wi-impl" }
+  );
+  assert.match(tail, /第 61–61 条 \/ 共 61 条/);
+  assert.match(tail, /data-teammate-live-page="100" disabled/, "到头了：下一页禁用");
+
+  // 空会话：没有条目就不画翻页条（不画空壳）。
+  const empty = renderTeammateLiveSession(
+    { session_id: "s-wi", role: "exec", running: true, live: true, offset: 0, limit: 40, total: 0, has_more: false, messages: [] },
+    { work_item: "wi-impl" }
+  );
+  assert.doesNotMatch(empty, /team-live-pager/, "没有条目就没有翻页条");
+
+  // 前端只搬读数、不另算：翻页动作经唯一的读法（后端的 TeammateSessionLivePage）。
+  assert.match(APP, /invoke\("TeammateSessionLivePage"/, "翻页必须走后端的分页读法");
+  assert.match(APP, /data-teammate-live-page/, "翻页键要有事件接线（画出来点不动等于没画）");
 });
 
 // ── 头部 / 转义 / 痕迹 / 子页面 / 样式 ───────────────────────────

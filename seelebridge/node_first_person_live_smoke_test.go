@@ -43,6 +43,9 @@ func TestNodeFirstPersonLiveSmoke(t *testing.T) {
 		ToolCallTimeout:   5 * time.Minute,
 		ApprovalTimeout:   10 * time.Minute,
 		HeartbeatInterval: 5 * time.Second,
+		// 回放窗口显式放大：默认 512 是"给人看的一段"，而这一档要按**分页口径**核对
+		// "整轮的 stage/tool 都留得住、且逐页读得到"（超出窗口会丢最旧，读数会变小）。
+		SubagentLiveWindow: 4096,
 		Limits: seelexctx.Limits{
 			AsyncExec:      seelexctx.AsyncExecLimits{Enabled: true},
 			ForkTimeoutSec: 20 * 60,
@@ -253,27 +256,58 @@ forkFinished:
 		t.Fatalf("semantic result queue has no entry for %q", nodeID)
 	}
 
-	// 认证 E：历史回放缓存——fork 结束后再订阅，仍能看到从 subagent start
-	// 到最新的完整事件流（阶段 + 工具），而非只从打开时刻开始。
-	history, _, cancelHistory, err := runtime.SubscribeSubagentLive(nodeID)
-	if err != nil {
-		t.Fatalf("re-subscribe for history: %v", err)
-	}
-	defer cancelHistory()
-	if len(history) < len(liveStages) {
-		t.Fatalf("history replay = %d events, want >= %d stage events", len(history), len(liveStages))
-	}
+	// 认证 E：历史回放缓存——**分页口径**（有界窗口 + 分页）。fork 结束后沿窗口逐页读，
+	// 能读到从 subagent start 到最新的完整事件流（阶段 + 工具），而不是只有尾巴；
+	// 且"逐页合计 = total"（分页不丢条、不重复）。
+	// 窗口上限已在上面显式放大到 4096：整轮的 stage/tool 都留在窗口里。
+	total := -1
+	paged := 0
+	pageCount := 0
 	historyTools := 0
-	for _, event := range history {
-		if event.Kind == "tool" {
-			historyTools++
+	for offset := 0; ; {
+		page := runtime.SubagentLiveHistoryPage(nodeID, offset, 256)
+		if pageCount == 0 {
+			total = page.Total
+			if total == 0 {
+				t.Fatal("history replay window is empty — 回放窗口必须留下这一轮的事件")
+			}
 		}
+		if page.Total != total {
+			t.Fatalf("第 %d 页 total = %d, want %d（窗口在翻页过程里被改写？）", pageCount, page.Total, total)
+		}
+		if page.Offset != offset {
+			t.Fatalf("第 %d 页 offset = %d, want %d", pageCount, page.Offset, offset)
+		}
+		pageCount++
+		paged += len(page.Events)
+		for _, event := range page.Events {
+			if event.Kind == "tool" {
+				historyTools++
+			}
+		}
+		if !page.HasMore {
+			break
+		}
+		next := page.Offset + len(page.Events)
+		if next <= offset {
+			t.Fatalf("has_more=true 但页不前进（offset %d → %d）：分页会死循环", offset, next)
+		}
+		offset = next
+		if pageCount > 64 {
+			t.Fatalf("翻页次数 %d 异常（窗口 %d / 页 256）", pageCount, total)
+		}
+	}
+	if paged != total {
+		t.Fatalf("逐页合计 = %d, want total = %d（分页必须不丢条、不重复）", paged, total)
+	}
+	if paged < len(liveStages) {
+		t.Fatalf("history replay = %d events, want >= %d stage events", paged, len(liveStages))
 	}
 	if historyTools < successTools {
 		t.Fatalf("history replay tools = %d, want >= %d", historyTools, successTools)
 	}
-	t.Logf("=== 历史回放验证：重新订阅仍可见 %d 条事件（stage %d + tool %d）===",
-		len(history), len(history)-historyTools, historyTools)
+	t.Logf("=== 历史回放验证（分页口径）：%d 页合计 %d 条 = total（stage %d + tool %d）===",
+		pageCount, paged, paged-historyTools, historyTools)
 }
 
 // livePreview 文本的有界单行预览（换行折叠，≤120 字符）。

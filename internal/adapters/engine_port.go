@@ -66,6 +66,9 @@ type EnginePort struct {
 	// subagentLive 是 node 第一视角实时流订阅源（Runtime 注入，即时输出面；
 	// 返回历史回放 + 实时通道 + 取消）。
 	subagentLive func(nodeID string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error)
+	// subagentLivePage 是同一份实时回放窗口的**分页读法**（Runtime 注入）：
+	// "只有尾巴"改成"有界窗口 + 分页"之后的翻页入口。
+	subagentLivePage func(nodeID string, offset, limit int) dto.SubagentLiveHistoryPage
 	// nodeStageLogs 是 node 第一视角阶段日志历史查询（详情弹窗"第一视角"
 	// 历史回放源；Runtime 注入，只读子代理 actor，安全）。
 	nodeStageLogs func(nodeID string) []dto.NodeStageLog
@@ -88,6 +91,8 @@ type EnginePortDeps struct {
 	SubAgentTree func() []dto.SubAgentTreeNode
 	// SubagentLive node 第一视角实时流订阅源（历史回放 + 即时输出面）。
 	SubagentLive func(nodeID string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error)
+	// SubagentLivePage 同一份实时回放窗口的分页读法（"有界窗口 + 分页"的翻页入口）。
+	SubagentLivePage func(nodeID string, offset, limit int) dto.SubagentLiveHistoryPage
 	// NodeStageLogs node 第一视角阶段日志历史查询（详情弹窗"第一视角"
 	// 历史回放源；只读子代理 actor，安全）。
 	NodeStageLogs func(nodeID string) []dto.NodeStageLog
@@ -110,6 +115,7 @@ func (port *EnginePort) ApplyDeps(deps EnginePortDeps) {
 	port.nodeWorktree = deps.NodeWorktree
 	port.subAgentTree = deps.SubAgentTree
 	port.subagentLive = deps.SubagentLive
+	port.subagentLivePage = deps.SubagentLivePage
 	port.nodeStageLogs = deps.NodeStageLogs
 	port.prepareHistory = deps.PrepareHistory
 }
@@ -429,6 +435,15 @@ func (port *EnginePort) SubscribeSubagentLive(nodeID string) ([]dto.SubagentLive
 		return nil, nil, func() {}, fmt.Errorf("subagent live stream is not configured")
 	}
 	return port.subagentLive(nodeID)
+}
+
+// SubagentLiveHistoryPage 转发同一份实时回放窗口的分页读法（翻页入口；窗口上限
+// 与"超出丢最旧"语义都在 Runtime 侧，这里只是转发，不另立形状）。
+func (port *EnginePort) SubagentLiveHistoryPage(nodeID string, offset, limit int) dto.SubagentLiveHistoryPage {
+	if port == nil || port.subagentLivePage == nil {
+		return dto.SubagentLiveHistoryPage{ScopeID: nodeID, Offset: offset, Limit: limit}
+	}
+	return port.subagentLivePage(nodeID, offset, limit)
 }
 
 // NodeStageLogs 转发 node 第一视角阶段日志历史查询（详情弹窗"第一视角"

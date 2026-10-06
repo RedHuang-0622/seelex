@@ -17,6 +17,30 @@ type SubagentLiveEvent struct {
 	Assistant *SubagentAssistant `json:"assistant,omitempty"`
 }
 
+// SubagentLiveHistoryPage 是 node 第一视角实时回放窗口的**一页**（有界窗口 + 分页）。
+//
+// 与 `SubscribeSubagentLive` 是**同一份窗口**的两种读法（add but not modify：订阅面的
+// 签名与返回值不变）：订阅面给"历史快照 + 实时通道"，本载荷给"翻页读窗口里的历史"。
+// 窗口上限由宿主配置（`seelebridge.RuntimeConfig.SubagentLiveWindow`，超出丢最旧）。
+//
+// 语义：`offset` 从**窗口内最旧一条**算起（0 = 最旧）；`events` 在窗口内由旧到新；
+// `total` = 窗口内条数；`offset >= total` → 空页且 `has_more=false`；
+// `has_more = offset + len(events) < total`。
+type SubagentLiveHistoryPage struct {
+	// ScopeID 是这一页属于哪个节点（被问的 nodeID 原样回带）。
+	ScopeID string `json:"scope_id"`
+	// Offset 是归一化后的起点（<0 → 0；越界原样回带，此时 events 为空）。
+	Offset int `json:"offset"`
+	// Limit 是归一化后的页大小（<=0 → 默认 50；> 窗口上限 → 收敛到窗口）。
+	Limit int `json:"limit"`
+	// Total 是窗口内的事件条数（不是"这一页有几条"）。
+	Total int `json:"total"`
+	// HasMore 表示这一页之后还有事件（offset+len(events) < total）。
+	HasMore bool `json:"has_more"`
+	// Events 是这一页的事件，窗口内顺序 = 由旧到新。
+	Events []SubagentLiveEvent `json:"events"`
+}
+
 // SubagentAssistant 是子代理 assistant 正文增量的事件载荷。
 type SubagentAssistant struct {
 	Turn int    `json:"turn,omitempty"`

@@ -25,6 +25,8 @@ type fakeAgentTeamApplication struct {
 	roleSnapshotMain   string
 	roleSnapshotRole   string
 	roleSnapshotID     string
+	livePageOffset     int
+	livePageLimit      int
 	instantiateSession string
 	instantiateRole    dto.RoleSpec
 	instantiateJoinSeq uint64
@@ -111,6 +113,16 @@ func (app *fakeAgentTeamApplication) TeammateSessionLiveFor(sessionID string) dt
 	return dto.TeammateSessionLiveView{
 		SessionID: sessionID, Role: "exec", Live: true, Running: true,
 		Messages: []dto.TeammateSessionLiveMessage{{Role: "assistant", Text: "这件事自己的会话"}},
+	}
+}
+
+func (app *fakeAgentTeamApplication) TeammateSessionLivePageFor(sessionID string, offset, limit int) dto.TeammateSessionLiveView {
+	app.roleSnapshotID = sessionID
+	app.livePageOffset, app.livePageLimit = offset, limit
+	return dto.TeammateSessionLiveView{
+		SessionID: sessionID, Role: "exec", Live: false, Running: true,
+		Offset: offset, Limit: limit, Total: limit + 1, HasMore: true,
+		Messages: []dto.TeammateSessionLiveMessage{{Role: "assistant", Text: "翻到的那一页"}},
 	}
 }
 

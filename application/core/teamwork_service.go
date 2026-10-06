@@ -45,3 +45,20 @@ func (service *Service) TeammateSessionLiveFor(sessionID string) dto.TeammateSes
 	}
 	return projection.TeammateSessionLive(sessionID)
 }
+
+// TeammateSessionLivePageFor 返回**当前 teammate 会话**实时读数的分页一页（有界窗口 +
+// 分页：把"只有尾巴"改成"翻得动"）。
+//
+// 与 TeammateSessionLiveFor 是**同一份读数**的两种取法（判据只有一份，在 seelebridge 侧）：
+// offset 从该会话可投影的第一条算起（0 = 最旧）；未装配 / 会话不在本进程 → Running=false
+// 的空页（不是错误，理由同上）。
+func (service *Service) TeammateSessionLivePageFor(sessionID string, offset, limit int) dto.TeammateSessionLiveView {
+	if service == nil || service.Deps.Runtime == nil {
+		return dto.TeammateSessionLiveView{SessionID: sessionID, Offset: offset, Limit: limit}
+	}
+	projection, ok := service.Deps.Runtime.(contract.TeammateSessionProjection)
+	if !ok {
+		return dto.TeammateSessionLiveView{SessionID: sessionID, Offset: offset, Limit: limit}
+	}
+	return projection.TeammateSessionLivePage(sessionID, offset, limit)
+}

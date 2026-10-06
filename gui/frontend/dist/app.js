@@ -20,7 +20,7 @@ import { createFilePreviewController } from "./file-preview.js";
 import { renderCompactionFrameModal, renderContextCompactions } from "./context-summary.js";
 import { compactionRangeText, compactionReasonLabel, mergeCompactionProgress } from "./compaction-format.js";
 import { renderGoalDetail, renderGoalPanel } from "./goal-board-view.js";
-import { TEAM_BOARD_CSS, renderTeamBoard, renderTeammateLiveSession, teammateSessionEntry } from "./team-board-view.js";
+import { TEAM_BOARD_CSS, TEAMMATE_LIVE_PAGE_SIZE, renderTeamBoard, renderTeammateLiveSession, teammateSessionEntry } from "./team-board-view.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
 import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
 import { employeePool, hirePanel, isPinnedRole, nextAgentTeamOrder, normalizeAgentTeam, normalizeTeamGlobal, normalizeTeamLibrary, PERMISSION_CUSTOM_TOOLS, PERMISSION_GROUPS, PERMISSION_BITS, renderAgentTeam, renderRoleSessionDetail, renderTeamMemberList, roleDisplayName, teamEditorPanel, teamEntryFromMembers, teamMemberNames, teamMemberSpecMap, teamRoleSpec } from "./agent-team-view.js";
@@ -3265,12 +3265,30 @@ async function openRoleSessionDetail(roleName, roleSessionID, workItemID) {
 // 角色会话），标题也各自说清是哪个——混成一个标题，用户就分不清看到的是当前的活还是历史。
 function renderTeammateSessionView(live) {
   const detail = roleSessionDetail || { roleName: "", roleSessionID: "", workItem: "" };
+  // 记住这一页的位置与"后面还有没有"：刷新键/实时事件重绘时按**同一页**再读一次，
+  // 而不是把用户翻到的位置拽回尾巴（后端读数里的 offset/has_more 是权威值，前端只记）。
+  detail.liveOffset = Number.isFinite(Number(live?.offset)) ? Number(live.offset) : 0;
+  detail.liveHasMore = live?.has_more === true;
   elements["role-session-modal-title"].innerHTML =
     `<span class="eyebrow">Agent Team · 这件事的会话</span><h2>${escapeHtml(roleDisplayName(detail.roleName))} · ${escapeHtml(detail.workItem || "—")}</h2>`;
   elements["role-session-view"].className = "role-session-view";
   elements["role-session-view"].innerHTML = renderTeammateLiveSession(live, {
     role: detail.roleName, work_item: detail.workItem
   });
+}
+
+// openTeammateLivePage 翻「这件事的会话」的一页（读法是后端的
+// TeammateSessionLivePage：判据只有一份，前端只搬 offset）。
+async function openTeammateLivePage(offset) {
+  const detail = roleSessionDetail;
+  if (!detail?.live || !detail.roleSessionID) return;
+  try {
+    const page = await invoke("TeammateSessionLivePage", detail.roleSessionID, offset, TEAMMATE_LIVE_PAGE_SIZE);
+    // 取数期间用户可能已关掉/切走：只有目标还是同一份时才回写。
+    if (roleSessionDetail === detail) renderTeammateSessionView(page);
+  } catch (error) {
+    showToast(error);
+  }
 }
 
 // roleSessionLiveTools 是按**角色会话**缓存的有界实时工具活动（teammate.tool.* 载荷）。
@@ -3328,7 +3346,11 @@ async function refreshRoleSessionDetail() {
   if (elements["role-session-modal"]?.classList?.contains("hidden")) return;
   try {
     if (detail.live) {
-      const live = await invoke("TeammateSessionLive", detail.roleSessionID);
+      // 用户翻在**尾巴**（后面没有更多）时按默认页再读：新消息自然露出来；翻在中间页
+      // 时停在**同一页**（否则"刷新一下跳回尾巴"）。
+      const live = detail.liveHasMore
+        ? await invoke("TeammateSessionLivePage", detail.roleSessionID, detail.liveOffset || 0, TEAMMATE_LIVE_PAGE_SIZE)
+        : await invoke("TeammateSessionLive", detail.roleSessionID);
       if (roleSessionDetail === detail) {
         renderTeammateSessionView(live);
       }
@@ -3358,6 +3380,11 @@ elements["role-session-modal"]?.addEventListener("click", event => {
   }
   if (event.target.closest?.("[data-role-session-refresh]")) {
     refreshRoleSessionDetail();
+    return;
+  }
+  const livePage = event.target.closest?.("[data-teammate-live-page]");
+  if (livePage?.dataset?.teammateLivePage !== undefined && !livePage.disabled) {
+    openTeammateLivePage(Number.parseInt(livePage.dataset.teammateLivePage, 10) || 0);
     return;
   }
   const swap = event.target.closest?.("[data-role-session-switch]");

@@ -28,10 +28,21 @@ type TeammateSessionLiveView struct {
 	// Running 表示执行面本身还在（引擎槽在册）。false = 这个会话不在本进程里
 	// （重启过 / 从未开过 / 已被退场清掉）——调用方据此不要假装"看到的是空的当前会话"。
 	Running bool `json:"running"`
-	// Messages 是有界裁剪过的对话（最近若干条，最早的在前面）。
+	// Messages 是**这一页**的对话（窗口内由旧到新）。默认页（`TeammateSessionLive`）
+	// 给的是最近若干条；翻页读法（`TeammateSessionLivePage`）按 offset/limit 定位。
 	Messages []TeammateSessionLiveMessage `json:"messages"`
-	// Truncated 表示因为条数/长度上限裁掉了更早的内容。
+	// Truncated 表示这一页之外还有被裁掉的内容（offset>0 = 前面还有；或某条正文被按
+	// 长度上限截断）——"读的人以为这就是全部"是这件事的反面。
 	Truncated bool `json:"truncated"`
+	// Offset 是这一页的起点（从**该会话可投影的第一条**算起，0 = 最旧）。
+	Offset int `json:"offset"`
+	// Limit 是归一化后的页大小（<=0 → 默认 40，即 teammateSessionLiveMaxMessages）。
+	Limit int `json:"limit"`
+	// Total 是该会话里可投影的 user/assistant 条数（不是"这一页有几条"）。
+	// 引擎历史本来就在内存里，分页因此不必靠"尾部截断"丢内容。
+	Total int `json:"total"`
+	// HasMore 表示这一页之后还有消息（offset+len(messages) < total）。
+	HasMore bool `json:"has_more"`
 }
 
 // TeammateSessionLiveMessage 是实时对话里的一行。

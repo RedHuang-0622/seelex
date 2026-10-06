@@ -77,6 +77,7 @@ func TestRoleSessionDTOFieldsMatchWireContract(t *testing.T) {
 		filepath.Join("application", "contract", "dto", "rolesession.go"):           readRepoFile(t, "application", "contract", "dto", "rolesession.go"),
 		filepath.Join("application", "contract", "dto", "agentteam.go"):             readRepoFile(t, "application", "contract", "dto", "agentteam.go"),
 		filepath.Join("application", "contract", "dto", "teammate_session_live.go"): readRepoFile(t, "application", "contract", "dto", "teammate_session_live.go"),
+		filepath.Join("application", "contract", "dto", "subagent_live.go"):         readRepoFile(t, "application", "contract", "dto", "subagent_live.go"),
 		filepath.Join("application", "model", "state.go"):                           readRepoFile(t, "application", "model", "state.go"),
 	}
 	required := map[string]map[string][]string{
@@ -103,9 +104,16 @@ func TestRoleSessionDTOFieldsMatchWireContract(t *testing.T) {
 		// 「这件事的会话」实时读面（team-board-view.js 的 renderTeammateLiveSession
 		// 按这些键读；2026-10-04 现场：没有 json tag ⇒ wire 上是 Go 字段名 ⇒ GUI 永远
 		// 读到一份空对象，而两端用例各自都绿）。
+		// offset/limit/total/has_more 是分页读法（TeammateSessionLivePage）的键：
+		// 前端据此翻页与报"第 X–Y 条 / 共 N 条"，缺一个就退化成"只有尾巴"。
 		filepath.Join("application", "contract", "dto", "teammate_session_live.go"): {
-			"TeammateSessionLiveView":    {"session_id", "role", "live", "running", "messages", "truncated"},
+			"TeammateSessionLiveView":    {"session_id", "role", "live", "running", "messages", "truncated", "offset", "limit", "total", "has_more"},
 			"TeammateSessionLiveMessage": {"role", "text"},
+		},
+		// node 第一视角实时回放的**分页载荷**（详情弹窗翻页读历史）：前端按这些键读，
+		// 缺 has_more 就永远以为"翻到底了"。
+		filepath.Join("application", "contract", "dto", "subagent_live.go"): {
+			"SubagentLiveHistoryPage": {"scope_id", "offset", "limit", "total", "has_more", "events"},
 		},
 	}
 	for path, types := range required {

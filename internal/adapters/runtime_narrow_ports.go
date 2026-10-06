@@ -74,6 +74,16 @@ func (port RuntimePort) TeammateSessionLive(sessionID string) dto.TeammateSessio
 	return port.Runtime.TeammateSessionLive(sessionID)
 }
 
+// TeammateSessionLivePage 是同一份读数的**分页读法**（"只有尾巴"改成"有界窗口 +
+// 分页"的翻页入口）。与 TeammateSessionLive 共用一个事实源，转发不另立形状；窗口/裁剪
+// 判据都在 seelebridge 侧，这里只搬。
+func (port RuntimePort) TeammateSessionLivePage(sessionID string, offset, limit int) dto.TeammateSessionLiveView {
+	if port.Runtime == nil {
+		return dto.TeammateSessionLiveView{SessionID: sessionID, Offset: offset, Limit: limit}
+	}
+	return port.Runtime.TeammateSessionLivePage(sessionID, offset, limit)
+}
+
 // TeamworkJobCompletions / TeamworkJobEvents 实现 contract.TeamworkJobCompletion：teammate
 // 作业（jobs.Manager 里的 worker 作业）的终态只读投影与变化信号口——「做完自动返回」那条
 // 链的输入。漏了它**不会报错**：core 侧的类型断言失败 ⇒ 信号口读成 nil ⇒ 空闲会话的触发

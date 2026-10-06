@@ -692,6 +692,38 @@ export function renderTeammateLiveSession(view, meta = {}) {
       ${head}
       <div class="role-kv">${rows || '<div class="team-item-note">这一轮还没有对话（刚派发，或回合还没写第一行）。</div>'}</div>
       ${truncated}
+      ${teammateLivePager(view)}
+    </div>`;
+}
+
+// TEAMMATE_LIVE_PAGE_SIZE 是翻页时前端申请的页大小（与后端 limit<=0 的默认页一致）。
+export const TEAMMATE_LIVE_PAGE_SIZE = 40;
+
+// teammateLivePager 画「这件事的会话」的翻页条。
+//
+// 后端读数已经是**有界窗口 + 分页**（offset/limit/total/has_more）：前端只搬这些读数，
+// 不自己推算事实——offset 是后端归一过的起点，has_more 是后端算的"后面还有"。
+// 读不到这些键（老载荷/夹具）时退化成"只有这一页"：不画假的翻页键。
+function teammateLivePager(view) {
+  const messages = Array.isArray(view?.messages) ? view.messages : [];
+  const total = Number.isFinite(Number(view?.total)) ? Number(view.total) : messages.length;
+  if (total <= 0) return "";
+  const offset = Number.isFinite(Number(view?.offset)) && Number(view.offset) > 0 ? Number(view.offset) : 0;
+  const limit = Number.isFinite(Number(view?.limit)) && Number(view.limit) > 0 ? Number(view.limit) : TEAMMATE_LIVE_PAGE_SIZE;
+  const hasMore = view?.has_more === true;
+  const first = offset + 1;
+  const last = offset + messages.length;
+  const prevOffset = Math.max(0, offset - limit);
+  const prev = offset > 0
+    ? `<button class="chip team-live-page" data-teammate-live-page="${prevOffset}">上一页</button>`
+    : '<button class="chip team-live-page" data-teammate-live-page="0" disabled>上一页</button>';
+  const next = hasMore
+    ? `<button class="chip team-live-page" data-teammate-live-page="${offset + limit}">下一页</button>`
+    : `<button class="chip team-live-page" data-teammate-live-page="${offset + limit}" disabled>下一页</button>`;
+  return `<div class="team-live-pager">
+      ${prev}
+      <span class="team-live-range">第 ${first}–${last} 条 / 共 ${total} 条</span>
+      ${next}
     </div>`;
 }
 

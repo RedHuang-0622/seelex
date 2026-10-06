@@ -444,3 +444,4 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 - `func (service *Service) TeamworkBoardViewFor(sessionID string) *dto.TeamworkBoardView` — TeamworkBoardViewFor 返回指定会话的团队看板只读投影（无计划 / 未装配 → nil，
 - `func (service *Service) TeammateSessionLiveFor(sessionID string) dto.TeammateSessionLiveView` — TeammateSessionLiveFor 返回**当前 teammate 会话**的实时只读投影（"这件事的会话此刻在
+- `func (service *Service) TeammateSessionLivePageFor(sessionID string, offset, limit int) dto.TeammateSessionLiveView` — TeammateSessionLivePageFor 返回**当前 teammate 会话**实时读数的分页一页（有界窗口 +

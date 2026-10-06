@@ -415,6 +415,13 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
   排在记录表之前。切员工时各自带出自己的那一份。
 - 边界：实时区是**瞬态**（不进快照、不落盘、关掉面板即不再更新），权威记录仍是角色会话
   投影；两者不互相冒充——"它刚动了"归事件，"它记录里有什么"归拉取。
+- **「这件事的会话」可分页**：对话区（`renderTeammateLiveSession`）读的
+  `TeammateSessionLive` 是默认页（最近若干条），面板底部按后端读数画翻页条
+  （`第 X–Y 条 / 共 N 条` + 上一页/下一页，`offset`/`total`/`has_more` 全是后端算的，
+  前端只搬）；翻页走 `Bridge.TeammateSessionLivePage(role_session_id, offset, limit)`，
+  刷新键/实时重绘时**停在用户翻到的那一页**（在尾巴按默认页再读，新消息自然露出来）。
+  判据只有一份（`seelebridge/runtime_teammate_session_live.go` 的 `teammateSessionLiveSlice`），
+  前端不推算"还有没有下一页"。
 
 **员工记录表：竖排（2026-10-03）**：`role-record-table` 从"车道当行、回合号当列"的横向
 excel-grid 改成**一条回合一行**（行号 = seq，时间自上而下；末尾是「草稿N」行——草稿还没有

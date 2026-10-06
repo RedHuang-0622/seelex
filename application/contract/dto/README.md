@@ -26,7 +26,8 @@
 | `permission.go` | 员工权限装配词汇：路由组名 + 位值（前端按组渲染「逐格装配」面板）。 |
 | `scheduler.go` | `ScheduledTaskKind` / `PeriodUnit` 定时与周期任务契约。 |
 | `subagent.go` | 子代理树只读投影（状态、节点、紧凑上下文）。 |
-| `subagent_live.go` | `SubagentLiveEvent`：节点第一视角实时推送（stage / tool / assistant）。 |
+| `subagent_live.go` | `SubagentLiveEvent`：节点第一视角实时推送（stage / tool / assistant）；`SubagentLiveHistoryPage`：同一份回放窗口的**分页一页**（`scope_id/offset/limit/total/has_more/events`，窗口上限见 `seelebridge.RuntimeConfig.SubagentLiveWindow`）。 |
+| `teammate_session_live.go` | `TeammateSessionLiveView`：**当前 teammate 会话**的实时只读投影（默认页 + `offset/limit/total/has_more` 分页；只投影 user/assistant 两类）。 |
 | `subagent_recovery.go` | 子代理中断恢复的只读投影。 |
 | `tree.go` | 工作树（Work Tree）只读元数据：只含路径/名称/类型/大小/计数，绝不携带文件内容。 |
 | `gitcommit.go` | 提交详情（一个提交改了哪些文件）只读元数据：状态/路径/重命名原路径/±行数；文件**内容**走 `dto.FileContent`（与工作树预览同一形状）。 |

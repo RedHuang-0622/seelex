@@ -220,6 +220,9 @@ func (*ScriptedEngine) NodeWorktreeInfoFor(string) (seelebridge.NodeWorktreeInfo
 func (*ScriptedEngine) SubscribeSubagentLive(string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error) {
 	return nil, nil, func() {}, nil
 }
+func (*ScriptedEngine) SubagentLiveHistoryPage(nodeID string, offset, limit int) dto.SubagentLiveHistoryPage {
+	return dto.SubagentLiveHistoryPage{ScopeID: nodeID, Offset: offset, Limit: limit}
+}
 func (*ScriptedEngine) SubAgentTree() []dto.SubAgentTreeNode { return nil }
 
 func (engine *ScriptedEngine) Remaining() int {

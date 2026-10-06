@@ -75,6 +75,10 @@ type ChatEngine interface {
 	// 投递）；返回历史回放（subagent start 以来的有界事件缓冲）+ 只读
 	// 实时通道 + 取消函数。
 	SubscribeSubagentLive(nodeID string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error)
+	// SubagentLiveHistoryPage 读回同一份实时回放窗口的**一页**（有界窗口 + 分页；
+	// offset 从窗口内最旧一条算起，0 = 最旧）。它与 SubscribeSubagentLive 是同一份
+	// 窗口的两种读法，不是第二个事实源。
+	SubagentLiveHistoryPage(nodeID string, offset, limit int) dto.SubagentLiveHistoryPage
 	// SubAgentTree 返回 fork 子代理树的只读投影（内存态，不落盘；
 	// GUI 树视图数据源，经权威 Snapshot 增量携带）。
 	SubAgentTree() []dto.SubAgentTreeNode
@@ -292,10 +296,14 @@ type TeamworkJobCompletion interface {
 // 只能从这个读面来——会话库里没有它的正文，读出来的只会是主会话的历史（看起来像"全是
 // 历史会话"）。
 type TeammateSessionProjection interface {
-	// TeammateSessionLive 返回该会话的执行面实时读数。会话不在本进程里
-	// （重启过 / 从未开过）时返回 Running=false 的视图，而不是 nil——调用方要能
-	// 区分"没有这个会话"与"这个会话此刻是空的"。
+	// TeammateSessionLive 返回该会话的执行面实时读数（**默认页**：最近若干条）。
+	// 会话不在本进程里（重启过 / 从未开过）时返回 Running=false 的视图，而不是
+	// nil——调用方要能区分"没有这个会话"与"这个会话此刻是空的"。
 	TeammateSessionLive(sessionID string) dto.TeammateSessionLiveView
+	// TeammateSessionLivePage 返回同一份读数的**一页**（有界窗口 + 分页；offset 从该
+	// 会话可投影的第一条算起，0 = 最旧）。它与 TeammateSessionLive 共用同一份裁剪/
+	// 分页判据，默认页只是它的一个调用点——不是第二个事实源。
+	TeammateSessionLivePage(sessionID string, offset, limit int) dto.TeammateSessionLiveView
 }
 
 type PluginPort interface {
