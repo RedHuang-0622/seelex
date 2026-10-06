@@ -1,0 +1,732 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Seelex · teamwork 里程碑/工作项 DAG · 静态 UI 稿</title>
+<style>
+/* ============================================================
+   Tokens —— 逐字取自 gui/frontend/dist/styles.css
+   浅色基座 @ :root / 深色基座 @ :root[data-theme="dark"]（两轴换肤）
+   本稿只新增三组 --team-dag-* ：几何 / teammate 色板 / 里程碑淡色描边。
+   语义色一律引用既有令牌，不另造 hex。
+   ============================================================ */
+:root{
+  --bg:#f7f6f2; --panel:#fbfaf6; --surface:#ffffff; --surface-2:#f1f0ea; --surface-3:#e8e6de;
+  --border:#e7e7e4; --border-strong:#d6d2c6;
+  --text:#1f2328; --muted:#6b6f76; --faint:#9096a0; --text-strong:#1f2328; --text-soft:#3c4148; --text-mid:#4e545c;
+
+  --status-running:#b26a00; --status-done:#1f9c63; --status-failed:#d64545; --status-info:#2e6be6; --status-idle:#9aa0a8;
+  --tint-running:rgba(178,106,0,.10); --tint-done:rgba(31,156,99,.10); --tint-failed:rgba(214,69,69,.10); --tint-info:rgba(46,107,230,.10);
+  --border-running:rgba(178,106,0,.38); --border-done:rgba(31,156,99,.38); --border-failed:rgba(214,69,69,.38); --border-info:rgba(46,107,230,.38);
+
+  --font-ui:"Segoe UI Variable Text","Segoe UI Variable","Segoe UI",system-ui,-apple-system,"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif;
+  --font-mono:ui-monospace,SFMono-Regular,"Cascadia Mono","JetBrains Mono",Consolas,monospace;
+  --text-xs:11px; --text-sm:12px; --text-md:13.5px; --text-lg:15px;
+  --r-sm:6px; --r-md:8px; --r-lg:10px;
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px;
+  --shadow-sm:0 1px 2px rgba(24,28,36,.05), 0 8px 20px rgba(24,28,36,.07);
+
+  /* --- 本稿新增：geometry --- */
+  --team-dag-scroll-max-h:380px;   /* 面板最大高度；超出内部滚动 */
+  --team-dag-gutter:64px;          /* 行左侧 gutter：依赖边在这里走线 */
+  --team-dag-band:5px;             /* teammate 左侧色带宽度 */
+  --team-dag-row-gap:6px;
+  --team-dag-edge:var(--faint);
+
+  /* --- teammate 色板（按 role 首次出现次序分配；与四状态色避开同相） --- */
+  --team-dag-role-0:#6f5bd6; /* 紫罗兰 */
+  --team-dag-role-1:#a4538f; /* 梅红 */
+  --team-dag-role-2:#0f8f9e; /* 青 */
+  --team-dag-role-3:#6b7f2e; /* 橄榄 */
+  --team-dag-role-4:#4b4fa8; /* 靛（第 5 位起兜底，与 info 蓝同域，见 README） */
+  --team-dag-role-5:#5a5f68; /* 石墨 */
+
+  /* --- 里程碑框：低饱和淡色描边（不与状态色、teammate 色抢信号） --- */
+  --team-dag-ms-0:#6a7fa8;
+  --team-dag-ms-1:#8a7fa8;
+  --team-dag-ms-2:#6f8f7f;
+  --team-dag-ms-3:#a08a6a;
+  --team-dag-ms-4:#8f6f7f;
+}
+:root[data-theme="dark"]{
+  --bg:#181818; --panel:#1f1f1f; --surface:#262626; --surface-2:#2e2e2e; --surface-3:#3a3a3a;
+  --border:#333333; --border-strong:#474747;
+  --text:#e4e4e4; --muted:#a3a3a3; --faint:#7e7e7e; --text-strong:#e4e4e4; --text-soft:#c8c8c8; --text-mid:#b4b4b4;
+
+  --status-running:#e0a45c; --status-done:#4cc38a; --status-failed:#f0716a; --status-info:#6ba6ff; --status-idle:#8c8c93;
+  --tint-running:rgba(224,164,92,.12); --tint-done:rgba(76,195,138,.12); --tint-failed:rgba(240,113,106,.12); --tint-info:rgba(107,166,255,.12);
+  --border-running:rgba(224,164,92,.42); --border-done:rgba(76,195,138,.42); --border-failed:rgba(240,113,106,.42); --border-info:rgba(107,166,255,.42);
+
+  --shadow-sm:0 3px 12px rgba(0,0,0,.34);
+
+  --team-dag-role-0:#a08bf0;
+  --team-dag-role-1:#c98fc3;
+  --team-dag-role-2:#45c2bd;
+  --team-dag-role-3:#a9c46a;
+  --team-dag-role-4:#8f93e0;
+  --team-dag-role-5:#9aa0aa;
+
+  --team-dag-ms-0:#8fa6c8;
+  --team-dag-ms-1:#a89ac4;
+  --team-dag-ms-2:#8fb09a;
+  --team-dag-ms-3:#c4ab84;
+  --team-dag-ms-4:#b894a4;
+}
+
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size:var(--text-md);-webkit-font-smoothing:antialiased;}
+
+/* ---------- topbar ---------- */
+.topbar{display:flex;align-items:center;gap:10px;padding:9px 16px;background:var(--panel);border-bottom:1px solid var(--border);}
+.topbar .brand{font-weight:700;letter-spacing:.02em;}
+.topbar .sub{color:var(--faint);font:400 11px var(--font-mono);}
+.topbar .spacer{flex:1;}
+.topbar .round{font:700 10.5px var(--font-mono);color:var(--muted);background:var(--surface-2);border:1px solid var(--border);border-radius:999px;padding:3px 9px;}
+.btn{font:600 var(--text-sm) var(--font-ui);color:var(--text);background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--r-sm);padding:4px 10px;cursor:pointer;}
+.btn:hover{background:var(--surface-2);}
+.btn:active{transform:translateY(1px);}
+
+/* ---------- legend（图例：两通道各自的可采样色例） ---------- */
+.legend{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:7px 16px;background:var(--surface-2);border-bottom:1px solid var(--border);font:600 10.5px var(--font-mono);color:var(--muted);}
+.legend .legend-title{color:var(--text-mid);letter-spacing:.04em;}
+.legend .sep{width:1px;height:14px;background:var(--border-strong);}
+.sw{display:inline-flex;align-items:center;gap:5px;}
+.sw i{display:inline-block;width:12px;height:12px;border-radius:3px;border:1px solid var(--border);}
+.sw[data-status="running"] i{background:var(--status-running);}
+.sw[data-status="done"] i{background:var(--status-done);}
+.sw[data-status="failed"] i{background:var(--status-failed);}
+.sw[data-status="review"] i{background:var(--status-info);}
+.sw[data-status="pending"] i{background:var(--status-idle);}
+
+/* ---------- stage / 两种宽度 ---------- */
+.stage{display:flex;flex-wrap:wrap;gap:16px;padding:16px;align-items:flex-start;}
+.viewport{flex:0 0 auto;min-width:0;padding:8px;border:1px dashed var(--border-strong);border-radius:var(--r-lg);background:var(--surface-2);}
+.viewport[data-width="360"]{width:360px;}
+.viewport[data-width="720"]{width:720px;}
+.vp-head{display:flex;justify-content:space-between;gap:8px;margin:0 2px 6px;font:700 10.5px var(--font-mono);color:var(--muted);}
+.vp-head span:last-child{color:var(--faint);font-weight:400;}
+
+/* ---------- board & 滚动容器(第 6 条) ---------- */
+.board{border:1px solid var(--border);border-radius:var(--r-md);background:var(--panel);box-shadow:var(--shadow-sm);}
+.board-scroll{
+  max-height:var(--team-dag-scroll-max-h);
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  scrollbar-width:thin;
+  scrollbar-color:var(--border-strong) transparent;
+}
+.board-scroll::-webkit-scrollbar{width:10px;height:10px;}
+.board-scroll::-webkit-scrollbar-track{background:transparent;}
+.board-scroll::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:999px;border:2px solid var(--panel);}
+.board-scroll::-webkit-scrollbar-thumb:hover{background:var(--faint);}
+.board-content{position:relative;padding:6px 8px 8px 0;}
+
+/* ---------- 依赖边(第 3 条)：SVG 覆盖层，坐标=内容坐标，滚动不需重绘 ---------- */
+.edges{position:absolute;left:0;top:0;width:100%;z-index:1;pointer-events:none;overflow:visible;}
+.edges path.edge{fill:none;stroke:var(--team-dag-edge);stroke-width:1.5;stroke-linejoin:round;}
+.edges path.head{fill:var(--team-dag-edge);stroke:none;}
+
+/* ---------- 里程碑框(第 4/5 条) ---------- */
+.ms-frame{
+  position:relative;z-index:2;
+  margin:4px 0 4px 0;
+  border:1px solid var(--ms-tone,var(--border-strong));
+  border-radius:var(--r-lg);
+  background:color-mix(in srgb, var(--ms-tone,transparent) 5%, transparent);
+}
+.ms-frame[data-locked="true"]{border-style:dashed;opacity:.55;}
+.ms-head{
+  position:sticky;top:0;z-index:5;
+  display:flex;flex-wrap:wrap;align-items:center;gap:6px;
+  padding:6px 8px;border-bottom:1px solid var(--border);
+  background:var(--panel);border-radius:var(--r-lg) var(--r-lg) 0 0;
+}
+.ms-head>*{white-space:nowrap;}
+.ms-id{font:700 11.5px var(--font-mono);color:var(--ms-tone,var(--text-strong));}
+.ms-name{font-weight:700;color:var(--text-strong);font-size:var(--text-sm);}
+.ms-layer,.ms-count,.ms-deps,.ms-content{font:400 10.5px var(--font-mono);color:var(--muted);}
+.ms-content{color:var(--faint);overflow:hidden;text-overflow:ellipsis;}
+.ms-lock{font:700 10px var(--font-mono);color:var(--status-idle);border:1px solid var(--border-strong);border-radius:999px;padding:1px 6px;background:var(--surface);}
+.ms-lock.is-open{color:var(--status-done);border-color:var(--border-done);background:var(--tint-done);}
+.chip{border:1px solid var(--border);border-radius:var(--r-sm);padding:1px 5px;background:var(--surface);font:700 10px var(--font-mono);}
+.chip[data-status="active"]{color:var(--status-running);border-color:var(--border-running);background:var(--tint-running);}
+.chip[data-status="done"]{color:var(--status-done);border-color:var(--border-done);background:var(--tint-done);}
+.chip[data-status="pending"]{color:var(--status-idle);border-color:var(--border);}
+
+/* ---------- 闸门带(第 5 条) ---------- */
+.gate-band{position:relative;z-index:2;display:flex;align-items:center;gap:8px;margin:2px 4px;--gate-tone:var(--status-idle);}
+.gate-band[data-open="true"]{--gate-tone:var(--status-done);}
+.gate-line{flex:1;border-top:1.5px dashed var(--gate-tone);}
+.gate-label{font:700 10px var(--font-mono);color:var(--gate-tone);border:1px dashed var(--gate-tone);border-radius:999px;padding:1px 7px;background:var(--panel);}
+
+/* ---------- 行(第 1/2/7/8 条) ---------- */
+.ms-rows{display:flex;flex-direction:column;gap:var(--team-dag-row-gap);padding:6px 6px 8px 0;}
+.wi-row{position:relative;z-index:2;display:flex;align-items:stretch;}
+/* 线框色只表示状态 */
+.wi-row[data-eff="running"]{--row-line:var(--status-running);--row-tint:var(--tint-running);}
+.wi-row[data-eff="done"]{--row-line:var(--status-done);--row-tint:var(--tint-done);}
+.wi-row[data-eff="failed"]{--row-line:var(--status-failed);--row-tint:var(--tint-failed);}
+.wi-row[data-eff="review"]{--row-line:var(--status-info);--row-tint:var(--tint-info);}
+.wi-row[data-eff="pending"]{--row-line:var(--status-idle);--row-tint:transparent;}
+.wi-gutter{flex:0 0 var(--team-dag-gutter);display:flex;align-items:center;}
+.wi-node{width:9px;height:9px;margin-left:9px;border-radius:50%;background:var(--row-line);border:2px solid var(--surface);box-shadow:0 0 0 1px var(--row-line);}
+.wi-card{flex:1 1 auto;min-width:0;display:flex;border:2px solid var(--row-line);border-radius:var(--r-md);background:var(--row-tint);overflow:hidden;}
+.wi-row[data-eff="pending"] .wi-card{border-style:dashed;}
+/* teammate 色只走左侧色带 + role chip 小色点 */
+.wi-band{flex:0 0 var(--team-dag-band);background:var(--role-color);}
+.wi-body{flex:1 1 auto;min-width:0;padding:5px 8px;display:flex;flex-direction:column;gap:3px;}
+.wi-top{display:flex;flex-wrap:wrap;align-items:center;gap:6px;}
+.wi-id{font:700 11px var(--font-mono);color:var(--text-strong);}
+.role-chip{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface);padding:1px 5px;font:700 10px var(--font-mono);color:var(--text-mid);}
+.role-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--role-color);}
+.status-chip{border:1px solid var(--border);border-radius:var(--r-sm);padding:1px 5px;background:var(--surface);font:700 10px var(--font-mono);color:var(--muted);}
+.status-chip[data-eff="running"]{color:var(--status-running);border-color:var(--border-running);background:var(--tint-running);}
+.status-chip[data-eff="done"]{color:var(--status-done);border-color:var(--border-done);background:var(--tint-done);}
+.status-chip[data-eff="failed"]{color:var(--status-failed);border-color:var(--border-failed);background:var(--tint-failed);}
+.status-chip[data-eff="review"]{color:var(--status-info);border-color:var(--border-info);background:var(--tint-info);}
+.status-chip[data-eff="pending"]{color:var(--status-idle);}
+.dep-chip,.layer-chip{font:400 10px var(--font-mono);color:var(--faint);}
+.wi-name{font-weight:600;font-size:var(--text-sm);color:var(--text-strong);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.wi-more{font:400 10.5px var(--font-mono);color:var(--muted);}
+.wi-more>summary{cursor:pointer;color:var(--faint);outline:none;}
+.wi-more .kv{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;margin:4px 0 0;padding:0;color:var(--text-soft);}
+.wi-more .kv dt{color:var(--faint);}
+.wi-more .kv dd{margin:0;overflow-wrap:anywhere;}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <span class="brand">teamwork DAG</span>
+  <span class="sub">一个里程碑=一个大框 · 一行=一个工作项 · 边=depends_on</span>
+  <span class="spacer"></span>
+  <span class="round" id="round-label">round 0 · base</span>
+  <button class="btn" id="advance" type="button">推进一轮</button>
+  <button class="btn" id="reset" type="button">重置</button>
+  <button class="btn" id="theme-toggle" type="button">切到 dark</button>
+</header>
+
+<div class="legend">
+  <span class="legend-title">线框色 = 状态</span>
+  <span class="sw" data-status="running"><i></i>running 正在做</span>
+  <span class="sw" data-status="done"><i></i>done 已完成</span>
+  <span class="sw" data-status="review"><i></i>review 待评审</span>
+  <span class="sw" data-status="failed"><i></i>failed/interrupted 中断</span>
+  <span class="sw" data-status="pending"><i></i>pending 未开始(虚线)</span>
+  <span class="sep"></span>
+  <span class="legend-title">色带 + 色点 = teammate</span>
+  <span id="legend-roles"></span>
+</div>
+
+<main class="stage">
+  <section class="viewport" data-width="360">
+    <div class="vp-head"><span>360px · 会话右栏</span><span>内部滚动 max-height 380</span></div>
+    <div class="board-host" id="board-360"></div>
+  </section>
+  <section class="viewport" data-width="720">
+    <div class="vp-head"><span>720px · 宽栏</span><span>同一份 fixture</span></div>
+    <div class="board-host" id="board-720"></div>
+  </section>
+  <section class="viewport" data-width="720" data-variant="mixed">
+    <div class="vp-head"><span>720px · 变体：推进中 / 异常</span><span>四色 × 两通道正交</span></div>
+    <div class="board-host" id="board-mixed"></div>
+  </section>
+</main>
+
+<pre id="dag-probe" hidden></pre>
+
+<script>
+(function(){
+  'use strict';
+
+  /* ============================================================
+     1. fixture —— 数据形状由 leader 冻结，照抄字段名，不新增字段
+     ============================================================ */
+  var BASE = { plan: {
+    team_id: "team-m-design",
+    version: 3,
+    members: [
+      { role: "artist",   tools_policy: "read,write,edit", status: "running" },
+      { role: "frontend", tools_policy: "read,write,edit", status: "pending" },
+      { role: "verify",   tools_policy: "read,bash_test",  status: "pending" }
+    ],
+    milestones: [
+      { id:"m-design", name:"设计", status:"active",  depends_on:[],          content:"出图：teamwork 里程碑/工作项 DAG 静态 UI 稿" },
+      { id:"m-impl",   name:"实现", status:"pending", depends_on:["m-design"], content:"按稿落地看板组件（frontend）" },
+      { id:"m-verify", name:"验证", status:"pending", depends_on:["m-impl"],   content:"渲染量测 / 边界用例 / 验收收口" }
+    ],
+    work_items: [
+      { id:"wi-design", milestone:"m-design", role:"artist", name:"出图 teamwork DAG 静态 UI 稿",
+        goal:"产出单文件自包含静态 UI 稿 + 设计说明", description:"index.html + README.md：四色/两通道/闸门/双宽度",
+        status:"running", depends_on:[], session_id:"sess-mdesign-artist-01", worktree:"wt/m-design/artist" },
+      { id:"wi-impl", milestone:"m-impl", role:"frontend", name:"看板组件落地",
+        goal:"按稿实现 milestone 框 + 行 + 依赖边", description:"组件化，令牌复用，不硬编码色值",
+        status:"pending", depends_on:["wi-design"], session_id:null, worktree:"wt/m-impl/frontend" },
+      { id:"wi-impl-tests", milestone:"m-impl", role:"frontend", name:"看板组件单测",
+        goal:"行序=拓扑序、重渲染幂等", description:"覆盖 role 配色跨轮稳定",
+        status:"pending", depends_on:["wi-impl"], session_id:null, worktree:"wt/m-impl/frontend" },
+      { id:"wi-render", milestone:"m-verify", role:"verify", name:"截图与像素量测",
+        goal:"headless Chrome 渲染 + PIL 量测", description:"四色出现 + DOM 读数",
+        status:"pending", depends_on:["wi-impl"], session_id:null, worktree:"wt/m-verify/render" },
+      { id:"wi-cases", milestone:"m-verify", role:"verify", name:"边界用例",
+        goal:"闸门未解锁 / 中断恢复 / 空 depends_on", description:"—",
+        status:"pending", depends_on:["wi-impl"], session_id:null, worktree:"wt/m-verify/cases" },
+      { id:"wi-accept", milestone:"m-verify", role:"verify", name:"验收收口",
+        goal:"两种宽度 + 双主题可读", description:"—",
+        status:"pending", depends_on:["wi-render","wi-cases"], session_id:null, worktree:"wt/m-verify/accept" }
+    ]
+  }};
+
+  /* 变体：证明四色与两通道正交（不是真实计划，是显示矩阵） */
+  var MIXED = { plan: {
+    team_id: "team-m-mixed",
+    version: 1,
+    members: [
+      { role: "artist",   tools_policy: "read,write,edit", status: "pending" },
+      { role: "frontend", tools_policy: "read,write,edit", status: "running" },
+      { role: "verify",   tools_policy: "read,bash_test",  status: "running" }
+    ],
+    milestones: [
+      { id:"m-mixed", name:"推进中/异常", status:"active", depends_on:[], content:"一条 done(绿) / review(蓝) / failed+interrupted(红) / running(黄)" }
+    ],
+    work_items: [
+      { id:"wi-mx-1", milestone:"m-mixed", role:"artist", name:"已完成的一行（绿）",
+        goal:"—", description:"—", status:"done", depends_on:[], session_id:"sess-mixed-1", worktree:"wt/m-mixed/artist" },
+      { id:"wi-mx-2", milestone:"m-mixed", role:"frontend", name:"等 review 的一行（蓝）",
+        goal:"—", description:"—", status:"review", depends_on:["wi-mx-1"], session_id:"sess-mixed-2", worktree:"wt/m-mixed/frontend" },
+      { id:"wi-mx-3", milestone:"m-mixed", role:"verify", name:"中断待恢复的一行（红 · 可重派）",
+        goal:"—", description:"—", status:"failed", depends_on:["wi-mx-1"], session_id:"sess-mixed-3", worktree:"wt/m-mixed/verify", interrupted:true },
+      { id:"wi-mx-4", milestone:"m-mixed", role:"frontend", name:"正在做的一行（黄）",
+        goal:"—", description:"—", status:"running", depends_on:["wi-mx-2"], session_id:"sess-mixed-4", worktree:"wt/m-mixed/frontend", live:true }
+    ]
+  }};
+
+  /* ============================================================
+     2. teammate 配色登记处：append-only，只按 role 首次出现次序分配
+     ============================================================ */
+  var ROLE_SLOT = new Map();
+  function roleSlot(role){ if(!ROLE_SLOT.has(role)) ROLE_SLOT.set(role, ROLE_SLOT.size % 6); return ROLE_SLOT.get(role); }
+  function roleColorVar(role){ return 'var(--team-dag-role-' + roleSlot(role) + ')'; }
+  function seedRoles(plan){
+    (plan.members || []).forEach(function(m){ roleSlot(m.role); });
+    (plan.work_items || []).forEach(function(w){ roleSlot(w.role); });
+  }
+  seedRoles(BASE.plan); seedRoles(MIXED.plan);
+
+  /* ============================================================
+     3. 语义映射（唯一事实：depends_on 定顺序；状态定线框色）
+     ============================================================ */
+  function restatus(raw){                                   // 状态 → 线框色通道
+    if (raw === 'failed' || raw === 'killed') return 'failed';
+    if (raw === 'review') return 'review';
+    if (raw === 'done')   return 'done';
+    if (raw === 'running') return 'running';
+    return 'pending';
+  }
+  function effStatus(it){                                    // interrupted 覆盖为红（可重派）
+    if (it.interrupted === true) return 'failed';
+    return restatus(it.status);
+  }
+
+  function esc(s){
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+    });
+  }
+  function hash(s){
+    var h = 0x811c9dc5;
+    for (var i=0;i<s.length;i++){ h ^= s.charCodeAt(i); h = (h * 0x01000193) >>> 0; }
+    return ('00000000' + h.toString(16)).slice(-8);
+  }
+
+  /* 行序 = 拓扑序（里程碑之间看 milestones[].depends_on，里程碑内看 work_items[].depends_on） */
+  function buildModel(plan){
+    var msById = {}, itemById = {}, idx = {}, msIdx = {};
+    plan.milestones.forEach(function(m,i){ msById[m.id]=m; msIdx[m.id]=i; });
+    plan.work_items.forEach(function(w,i){ itemById[w.id]=w; idx[w.id]=i; });
+
+    var depthMemo = {};
+    function depth(id){
+      if (depthMemo[id] != null) return depthMemo[id];
+      var w = itemById[id]; if (!w) return 0;
+      var deps = (w.depends_on||[]).filter(function(d){ return itemById[d]; });
+      var d = deps.length ? 1 + Math.max.apply(null, deps.map(depth)) : 0;
+      depthMemo[id] = d; return d;
+    }
+    plan.work_items.forEach(function(w){ depth(w.id); });
+
+    function topo(ids, depsFn, orderFn){
+      var pending = {}, out = [], guard = 0;
+      ids.forEach(function(id){ pending[id] = true; });
+      while (Object.keys(pending).length && guard++ < 500){
+        var ready = Object.keys(pending).filter(function(id){
+          return (depsFn(id)||[]).every(function(d){ return !pending[d]; });
+        });
+        if (!ready.length) ready = Object.keys(pending);          // 环兜底：不静默丢行
+        ready.sort(function(a,b){ return orderFn(a) - orderFn(b); }); // 稳定：回落到 fixture 数组序
+        ready.forEach(function(id){ out.push(id); delete pending[id]; });
+      }
+      return out;
+    }
+
+    var msOrder = topo(plan.milestones.map(function(m){ return m.id; }),
+                       function(id){ return (msById[id].depends_on||[]).filter(function(d){ return msById[d]; }); },
+                       function(id){ return msIdx[id]; });
+
+    var locked = {};
+    msOrder.forEach(function(msId){
+      locked[msId] = (msById[msId].depends_on||[]).some(function(d){
+        return !msById[d] || (msById[d].status || 'pending') !== 'done';
+      });
+    });
+
+    var rows = [];
+    msOrder.forEach(function(msId, layer){
+      var ids = plan.work_items.filter(function(w){ return w.milestone === msId; }).map(function(w){ return w.id; });
+      var seq = topo(ids,
+        function(id){ return (itemById[id].depends_on||[]).filter(function(d){ return ids.indexOf(d) >= 0; }); },
+        function(id){ return idx[id]; });
+      seq.forEach(function(id){
+        rows.push({ item:itemById[id], ms:msId, msName:(msById[msId].name||''), layer:layer, depth:depth(id), order:rows.length });
+      });
+    });
+    return { msOrder:msOrder, msById:msById, itemById:itemById, locked:locked, rows:rows };
+  }
+
+  /* ============================================================
+     4. 渲染：DOM 是 fixture(+登记处) 的纯函数
+     ============================================================ */
+  function rowHtml(row, opts){
+    var it = row.item, eff = effStatus(it), deps = it.depends_on || [];
+    var open = (opts.openRows||[]).indexOf(it.id) >= 0;
+    var h = '';
+    h += '<article class="wi-row"'
+       + ' data-item="' + esc(it.id) + '"'
+       + ' data-role="' + esc(it.role) + '"'
+       + ' data-status="' + esc(it.status) + '"'
+       + ' data-eff="' + eff + '"'
+       + ' data-depth="' + row.depth + '"'
+       + ' data-order="' + row.order + '"'
+       + ' data-ms="' + esc(it.milestone) + '"'
+       + ' data-interrupted="' + (it.interrupted === true) + '"'
+       + ' style="--role-color:' + roleColorVar(it.role) + '">';
+    h += '<div class="wi-gutter"><span class="wi-node"></span></div>';
+    h += '<div class="wi-card"><span class="wi-band"></span><div class="wi-body">';
+    h += '<div class="wi-top">';
+    h += '<code class="wi-id">' + esc(it.id) + '</code>';
+    h += '<span class="role-chip" title="teammate"><i class="role-dot"></i>' + esc(it.role) + '</span>';
+    h += '<span class="status-chip" data-eff="' + eff + '">' + esc(it.status) + (it.interrupted === true ? ' · 可重派' : '') + '</span>';
+    h += '<span class="dep-chip">depends_on: ' + (deps.length ? esc(deps.join(', ')) : '—') + '</span>';
+    h += '<span class="layer-chip" title="依赖图深度（最长路径）">d' + row.depth + '</span>';
+    h += '</div>';
+    h += '<div class="wi-name" title="' + esc(it.name) + '">' + esc(it.name) + '</div>';
+    h += '<details class="wi-more"' + (open ? ' open' : '') + '><summary>goal / session / worktree</summary><dl class="kv">';
+    h += '<dt>goal</dt><dd>' + esc(it.goal) + '</dd>';
+    h += '<dt>desc</dt><dd>' + esc(it.description) + '</dd>';
+    h += '<dt>session</dt><dd>' + esc(it.session_id || '—') + '</dd>';
+    h += '<dt>worktree</dt><dd>' + esc(it.worktree || '—') + '</dd>';
+    h += '</dl></details>';
+    h += '</div></div></article>';
+    return h;
+  }
+
+  function boardHtml(fixture, opts){
+    var plan = fixture.plan, model = buildModel(plan), out = '';
+    out += '<div class="board" data-board="' + esc(opts.id) + '">';
+    out += '<div class="board-scroll"><div class="board-content">';
+    out += '<svg class="edges" aria-hidden="true"></svg>';
+    model.msOrder.forEach(function(msId, layer){
+      var ms = model.msById[msId], locked = model.locked[msId];
+      var items = model.rows.filter(function(r){ return r.ms === msId; });
+      var tone = 'var(--team-dag-ms-' + (layer % 5) + ')';
+      out += '<section class="ms-frame" data-ms="' + esc(msId) + '" data-locked="' + locked + '"'
+           + ' data-status="' + esc(ms.status || 'pending') + '" data-layer="' + layer + '"'
+           + ' style="--ms-tone:' + tone + '">';
+      out += '<header class="ms-head">';
+      out += '<span class="ms-id">' + esc(msId) + '</span>';
+      out += '<span class="ms-name">' + esc(ms.name) + '</span>';
+      out += '<span class="ms-layer" title="屏障链层号（milestones[].depends_on 拓扑序）">L' + layer + '</span>';
+      out += '<span class="chip" data-status="' + esc(ms.status || 'pending') + '">' + esc(ms.status || 'pending') + '</span>';
+      out += '<span class="ms-deps" title="屏障依赖">屏障 ← ' + esc((ms.depends_on && ms.depends_on.length) ? ms.depends_on.join(' + ') : '（入口层）') + '</span>';
+      out += '<span class="ms-lock' + (locked ? '' : ' is-open') + '">'
+           + (locked ? '🔒 待解锁' : (ms.status === 'done' ? '✅ 已完成' : '🔓 已解锁')) + '</span>';
+      out += '<span class="ms-count">' + items.length + ' items</span>';
+      out += '<span class="ms-content">' + esc(ms.content) + '</span>';
+      out += '</header><div class="ms-rows">';
+      items.forEach(function(row){ out += rowHtml(row, opts); });
+      out += '</div></section>';
+      var next = model.msOrder[layer+1];
+      if (next){
+        var openGate = !model.locked[next];
+        out += '<div class="gate-band" data-gate="' + esc(msId) + '->' + esc(next) + '" data-open="' + openGate + '">';
+        out += '<span class="gate-line"></span>';
+        out += '<span class="gate-label">' + (openGate
+              ? '闸门已放行 → ' + esc(msId) + ' 全部 done'
+              : '闸门 → 上一层全部 done 才放行（等 ' + esc((model.msById[next].depends_on||[]).join(' + ')) + '）')
+             + '</span>';
+        out += '<span class="gate-line"></span>';
+        out += '</div>';
+      }
+    });
+    out += '</div></div></div>';
+    return out;
+  }
+
+  /* 依赖边：内容坐标系里画正交折线，滚动不做任何重绘 */
+  function drawEdges(content){
+    var svg = content.querySelector('.edges');
+    if (!svg) return;
+    var cRect = content.getBoundingClientRect();
+    var rows = [].slice.call(content.querySelectorAll('.wi-row'));
+    function anchor(rowEl){
+      var node = rowEl.querySelector('.wi-node');
+      var nr = node.getBoundingClientRect();
+      return { x: nr.right - cRect.left, y: (nr.top - cRect.top) + nr.height/2 };
+    }
+    var byTarget = [];
+    rows.forEach(function(rowEl){
+      var it = rowEl.getAttribute('data-item'), deps = [];
+      var w = (depsOf[it] || []); deps = w;
+      byTarget.push({ rowEl: rowEl, deps: deps });
+    });
+    var maxBottom = 0, parts = [], detail = [];
+    byTarget.forEach(function(t){
+      var dst = anchor(t.rowEl);
+      t.deps.forEach(function(depId, k){
+        var srcEl = content.querySelector('.wi-row[data-item="' + depId + '"]');
+        if (!srcEl) return;
+        var src = anchor(srcEl);
+        var laneX = 28 + k * 11;
+        var ys = Math.round(src.y), yd = Math.round(dst.y), xs = Math.round(src.x), xd = Math.round(dst.x);
+        var r = 5, sgn = (yd >= ys ? 1 : -1), d;
+        if (Math.abs(yd - ys) < 2*r + 2){
+          d = 'M ' + xs + ' ' + ys + ' H ' + laneX + ' V ' + yd + ' H ' + xd;
+        } else {
+          d = 'M ' + xs + ' ' + ys
+            + ' H ' + (laneX - r) + ' Q ' + laneX + ' ' + ys + ' ' + laneX + ' ' + (ys + sgn*r)
+            + ' V ' + (yd - sgn*r) + ' Q ' + laneX + ' ' + yd + ' ' + (laneX - r) + ' ' + yd
+            + ' H ' + xd;
+        }
+        parts.push('<path class="edge" d="' + d + '"></path>');
+        parts.push('<path class="head" d="M ' + xd + ' ' + yd + ' l 7 -3.5 l 0 7 Z"></path>');
+        detail.push({ src:depId, dst:t.rowEl.getAttribute('data-item'), lane:k, d:d });
+        maxBottom = Math.max(maxBottom, ys, yd);
+      });
+    });
+    content._edges = detail;
+    svg.setAttribute('height', Math.max(content.scrollHeight, maxBottom + 24));
+    svg.innerHTML = parts.join('');
+  }
+  var depsOf = {};   // itemId -> depends_on（drawEdges 用；每次渲染前刷新）
+
+  /* ============================================================
+     5. 挂载 + 重渲染（滚动保持 / 不闪 / 幂等）
+     ============================================================ */
+  var HOSTS = [
+    { host:'board-360',   id:'board-main-360',  fixture:'main',  openRows:['wi-design'] },
+    { host:'board-720',   id:'board-main-720',  fixture:'main',  openRows:['wi-design'] },
+    { host:'board-mixed', id:'board-mixed-720', fixture:'mixed', openRows:[] }
+  ];
+  function fixtureOf(name){ return name === 'mixed' ? MIXED : currentFixture(); }
+
+  function mount(host, opts, fixture){
+    fixture.plan.work_items.forEach(function(w){ depsOf[w.id] = (w.depends_on || []).slice(); });
+    var scrollEl = host.querySelector('.board-scroll');
+    var keep = scrollEl ? scrollEl.scrollTop : 0;
+    var tmp = document.createElement('div');
+    tmp.innerHTML = boardHtml(fixture, opts);          // 先在离屏构建
+    var next = tmp.firstElementChild;
+    if (!host.firstElementChild) host.appendChild(next);
+    else host.replaceChild(next, host.firstElementChild);   // 一次替换 → 不闪
+    drawEdges(next.querySelector('.board-content'));
+    var sc = next.querySelector('.board-scroll');
+    sc.scrollTop = Math.min(keep, Math.max(0, sc.scrollHeight - sc.clientHeight));
+    return hash(next.querySelector('.board-content').innerHTML);
+  }
+
+  var K = 0;
+  var ROUNDS = [
+    { label:'r1 running→done · pending→running', items:{ 'wi-design':{status:'done'}, 'wi-impl':{status:'running'} }, ms:{ 'm-design':'done', 'm-impl':'active' } },
+    { label:'r2 running→review',                 items:{ 'wi-impl':{status:'review'}, 'wi-impl-tests':{status:'running'} }, ms:{} },
+    { label:'r3 review→done · 一条 failed+interrupted', items:{ 'wi-impl':{status:'done'}, 'wi-impl-tests':{status:'failed',interrupted:true}, 'wi-render':{status:'running'} }, ms:{ 'm-impl':'done', 'm-verify':'active' } },
+    { label:'r4 中断恢复（interrupted→false）',   items:{ 'wi-impl-tests':{status:'running',interrupted:false}, 'wi-cases':{status:'running'} }, ms:{} },
+    { label:'r5 review 收口',                    items:{ 'wi-render':{status:'review'}, 'wi-impl-tests':{status:'done'} }, ms:{} }
+  ];
+  function currentFixture(){
+    var f = JSON.parse(JSON.stringify(BASE));
+    for (var i=0;i<K;i++){
+      var r = ROUNDS[i];
+      Object.keys(r.items||{}).forEach(function(id){
+        var w = f.plan.work_items.filter(function(x){ return x.id === id; })[0];
+        if (w) Object.keys(r.items[id]).forEach(function(kk){ w[kk] = r.items[id][kk]; });
+      });
+      Object.keys(r.ms||{}).forEach(function(id){
+        var m = f.plan.milestones.filter(function(x){ return x.id === id; })[0];
+        if (m) m.status = r.ms[id];
+      });
+    }
+    return f;
+  }
+  function renderAll(){
+    HOSTS.forEach(function(h){
+      mount(document.getElementById(h.host), { id:h.id, openRows:h.openRows }, fixtureOf(h.fixture));
+    });
+    document.getElementById('round-label').textContent = 'round ' + K + ' · ' + (K === 0 ? 'base' : ROUNDS[K-1].label);
+  }
+
+  /* ============================================================
+     6. 自证：幂等 + 滚动保持（读数写进 #dag-probe）
+     ============================================================ */
+  var EVID = { idempotent:false, scrollKeep:false, scrollBefore:0, scrollAfter:0, hashA:'', hashB:'',
+               stickyStuck:false, stickyDelta:null };
+
+  function selfTest(){
+    renderAll();
+    var host = document.getElementById('board-360');
+    var content = host.querySelector('.board-content');
+    EVID.hashA = hash(content.innerHTML);
+
+    // 幂等：同输入再渲染一次，DOM 串必须逐字相同
+    mount(host, { id:'board-main-360', openRows:['wi-design'] }, BASE);
+    EVID.hashB = hash(host.querySelector('.board-content').innerHTML);
+    EVID.idempotent = (EVID.hashA === EVID.hashB);
+
+    // 滚动保持：滚到 140 → 重渲染 → 读数应仍是 140
+    var sc = host.querySelector('.board-scroll');
+    sc.scrollTop = 140; EVID.scrollBefore = sc.scrollTop;
+    mount(host, { id:'board-main-360', openRows:['wi-design'] }, BASE);
+    sc = host.querySelector('.board-scroll');
+    EVID.scrollAfter = sc.scrollTop;
+    EVID.scrollKeep = (EVID.scrollBefore === EVID.scrollAfter && EVID.scrollBefore > 0);
+
+    // 框头 sticky：滚到 120 时（仍在首框内），框头必须吸附在滚动容器顶边
+    var head = host.querySelector('.ms-frame .ms-head');
+    sc.scrollTop = 120;
+    var hr = head.getBoundingClientRect(), sr = sc.getBoundingClientRect();
+    EVID.stickyDelta = Math.round((hr.top - sr.top) * 100) / 100;
+    EVID.stickyStuck = Math.abs(hr.top - sr.top) <= 1;
+
+    sc.scrollTop = 0;                    // 复位，保证截图从顶部开始、采样坐标稳定
+  }
+
+  function rectOf(el){
+    var r = el.getBoundingClientRect();
+    return { l:Math.round(r.left*100)/100, t:Math.round(r.top*100)/100, w:Math.round(r.width*100)/100, h:Math.round(r.height*100)/100 };
+  }
+  function probeBoard(hostId){
+    var host = document.getElementById(hostId);
+    var board = host.querySelector('.board');
+    if (!board) return null;
+    var sc = board.querySelector('.board-scroll');
+    var content = board.querySelector('.board-content');
+    var b = { id:board.getAttribute('data-board'), widthPx:Math.round(board.getBoundingClientRect().width),
+              scroll:{ clientH:sc.clientHeight, scrollH:sc.scrollHeight, scrollTop:sc.scrollTop, rect:rectOf(sc) },
+              svg:{ h:Number(board.querySelector('.edges').getAttribute('height')),
+                    edges:board.querySelectorAll('path.edge').length,
+                    heads:board.querySelectorAll('path.head').length },
+              edgesDetail: content._edges || [],
+              contentRect: rectOf(content),
+              frames:[], rows:[], gates:[] };
+    [].slice.call(board.querySelectorAll('.ms-frame')).forEach(function(f){
+      var rows = [].slice.call(f.querySelectorAll('.wi-row'));
+      b.frames.push({ ms:f.getAttribute('data-ms'), status:f.getAttribute('data-status'),
+                      locked:f.getAttribute('data-locked') === 'true', layer:Number(f.getAttribute('data-layer')),
+                      items:rows.length, rect:rectOf(f),
+                      rowIds:rows.map(function(r){ return r.getAttribute('data-item'); }) });
+    });
+    [].slice.call(board.querySelectorAll('.wi-row')).forEach(function(r){
+      var card = r.querySelector('.wi-card'), node = r.querySelector('.wi-node');
+      var frame = r.closest('.ms-frame');
+      b.rows.push({ item:r.getAttribute('data-item'), ms:r.getAttribute('data-ms'), role:r.getAttribute('data-role'),
+                    status:r.getAttribute('data-status'), eff:r.getAttribute('data-eff'),
+                    locked:frame ? frame.getAttribute('data-locked') === 'true' : false,
+                    depth:Number(r.getAttribute('data-depth')), order:Number(r.getAttribute('data-order')),
+                    interrupted:r.getAttribute('data-interrupted') === 'true',
+                    deps:r.querySelector('.dep-chip').textContent.replace('depends_on: ',''),
+                    card:rectOf(card), node:rectOf(node) });
+    });
+    [].slice.call(board.querySelectorAll('.gate-band')).forEach(function(g){
+      b.gates.push({ gate:g.getAttribute('data-gate'), open:g.getAttribute('data-open') === 'true' });
+    });
+    b.contentH = content.scrollHeight;
+    return b;
+  }
+  function writeProbe(){
+    var status = {}, roles = {};
+    [].slice.call(document.querySelectorAll('.legend .sw[data-status]')).forEach(function(s){
+      status[s.getAttribute('data-status')] = rectOf(s.querySelector('i'));
+    });
+    [].slice.call(document.querySelectorAll('#legend-roles .sw')).forEach(function(s){
+      roles[s.getAttribute('data-role')] = rectOf(s.querySelector('i'));
+    });
+    var payload = {
+      dpr: window.devicePixelRatio,
+      innerW: window.innerWidth, innerH: window.innerHeight,
+      docW: document.documentElement.clientWidth, docH: document.documentElement.scrollHeight,
+      theme: document.documentElement.getAttribute('data-theme'),
+      round: K,
+      idempotent: EVID.idempotent, hashA: EVID.hashA, hashB: EVID.hashB,
+      scrollKeep: EVID.scrollKeep, scrollBefore: EVID.scrollBefore, scrollAfter: EVID.scrollAfter,
+      stickyStuck: EVID.stickyStuck, stickyDelta: EVID.stickyDelta,
+      roleIndex: (function(){ var o = {}; ROLE_SLOT.forEach(function(v,k){ o[k]=v; }); return o; })(),
+      legendSwap: { status:status, role:roles },
+      viewports: [].slice.call(document.querySelectorAll('.viewport')).map(function(v){
+        return { width:v.getAttribute('data-width'), variant:v.getAttribute('data-variant') || 'main', rect:rectOf(v) };
+      }),
+      boards: [ 'board-360','board-720','board-mixed' ].map(probeBoard)
+    };
+    document.getElementById('dag-probe').textContent = JSON.stringify(payload, null, 1);
+  }
+
+  /* ============================================================
+     7. 交互：主题切换 / 推进一轮 / 重置
+     ============================================================ */
+  function syncThemeBtn(){
+    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    document.getElementById('theme-toggle').textContent = dark ? '切到 light' : '切到 dark';
+  }
+  function legendRoles(){
+    var box = document.getElementById('legend-roles');
+    var html = '';
+    ROLE_SLOT.forEach(function(slot, role){
+      html += '<span class="sw" data-role="' + esc(role) + '" style="margin-right:10px">'
+            + '<i style="background:var(--team-dag-role-' + slot + ')"></i>' + esc(role)
+            + ' <span style="color:var(--faint)">slot ' + slot + '</span></span>';
+    });
+    box.innerHTML = html;
+  }
+
+  var qs = (location.search || '');
+  if (qs.indexOf('theme=dark') >= 0) document.documentElement.setAttribute('data-theme','dark');
+  var mScroll = /[?&]scroll=(\d+)/.exec(qs);
+  var mAdv = /[?&]advance=(\d+)/.exec(qs);
+  if (mAdv) K = Math.min(Number(mAdv[1]), ROUNDS.length);   // ?advance=N：直接看第 N 轮（自证用）
+
+  legendRoles();
+  selfTest();
+  renderAll();
+  writeProbe();
+  if (mScroll){                                  // ?scroll=N：只为出「滚动后 sticky 框头」的证图
+    var n = Number(mScroll[1]);
+    [].slice.call(document.querySelectorAll('.board-scroll')).forEach(function(s){
+      s.scrollTop = Math.min(n, s.scrollHeight - s.clientHeight);
+    });
+  }
+
+  document.getElementById('theme-toggle').addEventListener('click', function(){
+    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    document.documentElement.setAttribute('data-theme', dark ? 'light' : 'dark');
+    syncThemeBtn(); writeProbe();          // 主题只换 token，不重渲染、不重绘边
+  });
+  document.getElementById('advance').addEventListener('click', function(){
+    K = (K + 1) % (ROUNDS.length + 1);       // 走完 5 轮回到 base：同输入同 DOM
+    renderAll(); writeProbe();
+  });
+  document.getElementById('reset').addEventListener('click', function(){
+    K = 0; renderAll(); writeProbe();
+  });
+  syncThemeBtn();
+})();
+</script>
+</body>
+</html>
