@@ -49,6 +49,12 @@ milestone 状态另有 chip：`active` 黄 / `done` 绿 / 空或 `pending` 灰�
 | 5 | — | `#5a5f68` | `#9aa0aa` | 石墨 |
 
 令牌名 `--team-dag-role-0..5`（本稿自造，语义色仍全部引用既有状态令牌）。
+
+> **实现校订（2026-10-07 · 独立验证 F4）**：本节那句「先扫 `plan.members[]`，再补 `work_items[].role`」
+> 只描述**本稿**的做法。产品实现（`gui/frontend/dist/team-board-view.js` 的 `roleSlotOf`）只有一个
+> 调用点，槽位按 **role 首次进入渲染的次序**登记（append-only，进程内稳定）；实测
+> `members=[artist, frontend]` 而首行属于 frontend 时，frontend 拿 slot 0。**以实现为准**，
+> 产品侧已在 `roleSlotOf` 上写明这条更正，别让两边口径继续分叉。
 呈现位置**只有两处**：行内左侧 5px 色带（`--team-dag-band`）+ role chip 里 8px 小色点；chip 文字保持中性色，
 边框、节点、背景一律不沾 teammate 色。
 

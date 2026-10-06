@@ -40,6 +40,12 @@ const ROLE_SLOT = new Map();
 // roleSlotOf 返回 role 的登记序号（append-only，从 0 起）。slot >= ROLE_PALETTE_SIZE 表示
 // 色板已经回绕（第 7 位 teammate 起会与前面某位同色）——渲染时给色带叠一层**斜纹第二通道**，
 // 免得两位撞色的 teammate 只靠色带分不出来（口径 11：保留 6 色，斜纹是防撞色，不是装饰）。
+//
+// 口径校正（2026-10-07 · 独立验证 F4）：登记次序是「**首次进入渲染的次序**」，不是
+// `plan.members[]` 的声明序 —— 本函数只有一个调用点（renderTeamWorkItem 的色带 / chip），
+// 所以设计稿 README §2 那句「先扫 members[]，再补 work_items[].role」只对**稿子**成立，
+// 对产品实现不成立。实测：members=[artist, frontend] 而首行属于 frontend 时，frontend 拿 slot 0。
+// 这里的取舍是**进程内稳定**（同一份计划重渲染 / 跨轮 / 换主题都不变色），代价是与声明序无关。
 export function roleSlotOf(role) {
   const name = String(role ?? "");
   if (!ROLE_SLOT.has(name)) ROLE_SLOT.set(name, ROLE_SLOT.size);
@@ -482,7 +488,10 @@ function ganttEdges(rows) {
     let lane = 0;
     for (const dep of row.depends_on) {
       const source = byID.get(dep);
-      if (!source) continue;
+      // 两种边都不画：指向计划里不存在的行（端点画不出来），以及**指向自己**（只会画出一圈
+      // 退化自环 `M 22 y H lane V y H 22`，读起来像条真边，实际什么依赖也不表示）。
+      // 缺依赖由行上的「依赖缺失」chip 显形，自指由「依赖成环」chip 显形 —— 线只画真实端点。
+      if (!source || source === row) continue;
       edges.push({
         from: source,
         to: row,
@@ -556,7 +565,10 @@ function renderGanttFrame(block) {
   const lock = block.locked
     ? '<span class="team-dag-lock" title="屏障未放行：depends_on 里还有没 done 的里程碑（现在进不去）">🔒 待解锁</span>'
     : `<span class="team-dag-lock is-open">${frame.status === "done" ? "✅ 已完成" : "🔓 已解锁"}</span>`;
-  return `<section class="team-dag-frame" data-milestone-id="${escapeHtml(frame.id)}" data-status="${escapeHtml(frame.status)}" data-layer="${escapeHtml(String(block.layer))}" data-locked="${block.locked ? "true" : "false"}" style="--team-dag-ms-tone:var(--team-dag-ms-tone-${block.tone})">
+  // data-layer = 这一个框在**拓扑排序里的位置**（排序事实）；框头 `L<n>` = 屏障**深度**
+  // （依赖链最长路径）。两者在链式计划里恰好相同，而在「两个互不依赖的里程碑」或成环时
+  // 会分叉（独立验证 F2）——所以两个数都挂出来，别让读的人以为它们必然是同一个数。
+  return `<section class="team-dag-frame" data-milestone-id="${escapeHtml(frame.id)}" data-status="${escapeHtml(frame.status)}" data-layer="${escapeHtml(String(block.layer))}" data-locked="${block.locked ? "true" : "false"}" data-depth="${escapeHtml(String(frame.depth))}" style="--team-dag-ms-tone:var(--team-dag-ms-tone-${block.tone})">
         <header class="team-dag-frame-head">
           <span class="team-dag-ms-id">${escapeHtml(frame.id)}</span>
           ${frame.name ? `<span class="team-dag-ms-name">${escapeHtml(frame.name)}</span>` : ""}
@@ -574,9 +586,16 @@ function renderGanttFrame(block) {
 // renderGanttGate 渲染两块之间的**闸门带**：横向虚线 + 「上一层全部 done 才放行（等 deps）」；
 // 放行后转绿并写「闸门已放行」（口径 5）。
 function renderGanttGate(block) {
-  const label = block.open
-    ? `闸门已放行 → ${block.from} 全部 done`
-    : `闸门 → 上一层全部 done 才放行（等 ${block.depends_on.join(" + ") || "—"}）`;
+  const deps = Array.isArray(block.depends_on) ? block.depends_on : [];
+  // 文案只说**判据本身**（独立验证 F1：旧文案在放行时说「已放行 → <上一块> 全部 done」，
+  // 可放行判据看的是**下一块**的 depends_on —— 当下一块压根没声明依赖（deps 为空）时，
+  // 那句话就是假话：上一块还没 done，闸门却写「已放行 → 它全部 done」。所以：
+  //   没声明依赖 → 说明这里根本没有屏障；放行 → 报出**被等的那些 deps**，不报上一块的名字。
+  const label = deps.length === 0
+    ? `无屏障 → ${block.to} 未声明 depends_on（谁都关不住）`
+    : block.open
+      ? `闸门已放行 → ${deps.join(" + ")} 全部 done`
+      : `闸门 → 上一层全部 done 才放行（等 ${deps.join(" + ")}）`;
   return `<div class="team-dag-gate" data-gate="${escapeHtml(`${block.from}->${block.to}`)}" data-open="${block.open ? "true" : "false"}">
         <span class="team-dag-gate-line"></span>
         <span class="team-dag-gate-label">${escapeHtml(label)}</span>
@@ -633,9 +652,17 @@ export function renderTeamWorkItem(entry) {
   // slot 超过 6（色板回绕）时叠斜纹第二通道 —— 防撞色，不是装饰（口径 11）。
   const wrapped = role && roleSlotOf(role) >= ROLE_PALETTE_SIZE ? " is-wrapped" : "";
   const skin = role ? ` style="--team-dag-role-color:var(${roleColorVar(role)})"` : "";
+  // 窄栏（≤520px）里 `.team-dag-note-line / .team-dag-session / .team-dag-wt` 是 display:none
+  // ——量不到、hover 也读不到（独立验证 F6），画面里只剩 DOM。把同一份全文挂到**整张卡片**
+  // 上：窄栏里悬停行内任何位置都能读到目标/描述/结论/会话/工作区，不必非点进子页面。
+  const cardTip = [
+    facts.join(" ｜ "),
+    session ? `会话：${session}` : "",
+    worktree ? `工作区：${worktree}` : "",
+  ].filter(Boolean).join(" ｜ ");
   return `<article class="team-dag-row" data-item-id="${escapeHtml(String(item.id || ""))}" data-status="${escapeHtml(status)}" data-eff="${escapeHtml(eff)}" data-depth="${escapeHtml(String(entry.depth))}" data-milestone-id="${escapeHtml(String(item.milestone || entry.milestone_id || ""))}" data-interrupted="${item.interrupted === true ? "true" : "false"}"${skin}>
         <span class="team-dag-gutter"><span class="team-dag-node" title="依赖边的锚点"></span></span>
-        <div class="team-dag-card">
+        <div class="team-dag-card" title="${escapeHtml(cardTip)}">
           <span class="team-dag-band${wrapped}" title="色带 = 归属（teammate），与边框色（状态）是两条正交通道"></span>
           <div class="team-dag-body">
             <div class="team-dag-top">

@@ -276,6 +276,58 @@ test("(5) 屏障 = 完成上一个才能进下一个：未解锁框虚线 + 降�
   assert.match(opened, /data-milestone-id="m-ship"[^>]*data-locked="false"/);
 });
 
+// ── 独立验证（wi-verify，2026-10-07）报上来的三条，逐条钉住 ──────────────
+
+// F1：闸门文案会说假话 —— 放行判据看的是**下一块**的 depends_on，旧文案却报「上一块全部 done」。
+test("F1 闸门文案只报真判据：没声明依赖 = 无屏障；放行 = 报出被等的 deps", () => {
+  // 下一块压根没声明依赖：这里根本没有屏障，不许写「已放行 → <上一块> 全部 done」。
+  const noDeps = renderTeamGantt({
+    milestones: [{ id: "m-a", name: "A", status: "pending" }, { id: "m-b", name: "B", status: "pending" }],
+    work_items: [{ id: "w-a", milestone: "m-a", role: "r", name: "甲", status: "pending" }],
+  });
+  assert.match(noDeps, /无屏障 → m-b 未声明 depends_on/);
+  assert.doesNotMatch(noDeps, /已放行 → m-a 全部 done/, "上一块没 done 就不许说它 done");
+  // 被等的是 m-a（下一块的 depends_on）—— 文案必须报被等的 deps，而不是「上一块」的名字。
+  const crossDeps = renderTeamGantt({
+    milestones: [
+      { id: "m-a", name: "A", status: "done" },
+      { id: "m-b", name: "B", status: "pending", depends_on: ["m-a"] },
+      { id: "m-c", name: "C", status: "pending", depends_on: ["m-a"] },
+    ],
+    work_items: [{ id: "w-c", milestone: "m-c", role: "r", name: "丙", status: "pending" }],
+  });
+  assert.match(crossDeps, /闸门已放行 → m-a 全部 done/);
+  assert.doesNotMatch(crossDeps, /闸门已放行 → m-b 全部 done/, "放行文案不许报上一块的 id");
+});
+
+// F3：自指依赖只会画出一圈退化自环（`M 22 y H lane V y H 22`），看起来像条真边。
+test("F3 自指依赖不画退化自环（线只画真实端点）", () => {
+  const html = renderTeamGantt({
+    milestones: [{ id: "m", name: "M" }],
+    work_items: [{ id: "w1", milestone: "m", role: "r", name: "甲", status: "pending", depends_on: ["w1"] }],
+  });
+  assert.doesNotMatch(html, /class="team-dag-edge"/, "自指不该画边");
+  assert.match(html, /依赖成环/);
+});
+
+// F6：窄栏（≤520px）里 note/session/worktree 那几行是 display:none —— hover 也读不到。
+// 兜底：同一份全文挂到**整张卡片**上，窄栏里悬停行内任何位置都能读到。
+test("F6 窄栏读得到的兜底：整张卡片带全文 title", () => {
+  const html = renderTeamGantt({
+    milestones: [{ id: "m", name: "M" }],
+    work_items: [{
+      id: "w1", milestone: "m", role: "r", name: "甲", status: "running",
+      goal: "跑通编译", description: "按契约填实现", note: "卡在 a4",
+      session_id: "s-w1", worktree: "seelex/r-w1",
+    }],
+  });
+  const row = html.match(/<div class="team-dag-card" title="([^"]*)"/);
+  assert.ok(row, "整张卡片必须带 title");
+  for (const fact of ["跑通编译", "按契约填实现", "卡在 a4", "s-w1", "seelex/r-w1"]) {
+    assert.ok(row[1].includes(fact), `卡片 title 里要有 ${fact}`);
+  }
+});
+
 test("② 里程碑屏障的缺失依赖与成环都显形", () => {
   const missing = renderTeamGantt({ milestones: [{ id: "a", depends_on: ["ghost"] }] });
   assert.match(missing, /依赖缺失：ghost/);
