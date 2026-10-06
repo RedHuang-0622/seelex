@@ -241,6 +241,13 @@ func newFullChainHarnessWithLimits(t *testing.T, accountsPath, projectRoot strin
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	runtimeBridge.AttachHistoryRouter(store)
+	// 子代理 / teammate 的**单元记录**持久化：组合根在同一个位置装了它
+	// （main.go:380，紧跟 AttachHistoryRouter）。测试基座缺这一句时
+	// `Runtime.teamUnitLedger()` 是 nil，`saveTeamUnitRecord` 直接 return——
+	// **记录一律不落盘，恢复链在基座上读的是一个空集**，而所有走 harness 的用例
+	// 都跑在这个装配上（2026-10-06 实测：teammate 端到端用例的"单元记录在册"
+	// 断言在补上这一句之前恒为空集，冒烟因为读的是**计划**而不是记录，一直没发现）。
+	runtimeBridge.AttachSubSessionStore(sessionstore.NewNodeSessionStore(store))
 	runtimeBridge.SetEventPersister(sessionstore.NewEventStore(store).Append)
 
 	skills := initSkillSystem()

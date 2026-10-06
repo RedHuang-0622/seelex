@@ -83,6 +83,11 @@ type teamworkSmokeProvider struct {
 	// triggeredTurns 数"做完自动返回"起的回合（正文由 application 侧那条回执认出来）。
 	triggeredTurns int
 	seenLeader     []string
+	// workerCalls 是**逐次 worker 回合**的脚本（同一次回合里的多轮补全各占一项：
+	// 工具调用那一轮与"拿到工具结果之后"那一轮）。留空时退回既有的纯文本应答，
+	// 既有冒烟的读数因此一个字不变。它存在的理由：要验"teammate 在自己的现场上真
+	// 干活"就必须让 worker 回合**真的调工具**（写文件 + git commit），而不是只回正文。
+	workerCalls []scriptedResponse
 	// workers 是逐次 worker 回合的采样（含**本轮 system prompt 原文**）：装配的落点
 	// （技能目录段有没有进员工的 system）只有在 wire 上才看得见。
 	workers []workerSample
@@ -140,7 +145,11 @@ func (p *teamworkSmokeProvider) serve(t *testing.T, writer http.ResponseWriter, 
 			SystemPrompt: requestSystemPrompt(payload.Messages),
 			LastUser:     lastUser,
 		})
-		response = scriptedResponse{text: "worker[exec]：这一轮做完了，结论见回执。"}
+		if p.workerTurns <= len(p.workerCalls) {
+			response = p.workerCalls[p.workerTurns-1]
+		} else {
+			response = scriptedResponse{text: "worker[exec]：这一轮做完了，结论见回执。"}
+		}
 	case triggeredTurn:
 		p.triggeredTurns++
 		response = scriptedResponse{text: "leader：收到回执，等我自己安排验收"}
