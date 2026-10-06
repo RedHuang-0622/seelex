@@ -114,9 +114,14 @@ func TestForkSubagentsLiveSmoke(t *testing.T) {
 			t.Fatalf("句柄 %s(id=%s) 取回的正文为空", job.Handle, job.ID)
 		}
 		digest := forkProductDigest(got)
-		if digest != forkProductDigest(bases[job.ID]) {
+		matched, capped := forkProductMatches(bases[job.ID], got)
+		if !matched {
 			t.Fatalf("句柄 %s 的取回正文与该子代理 %s 自己的产物不一致%s",
 				job.Handle, job.ID, forkProductDiff(bases[job.ID], got))
+		}
+		if capped {
+			t.Logf("句柄 %s(id=%s)：基准面撞上产品侧 Output 上限（%d 字节 + %q），本次只对照取回侧同长度前缀的摘要（真机产物常长于上限，这不是降级判绿的借口——前缀不等仍会红）",
+				job.Handle, job.ID, forkNodeOutputMax, forkTruncationMark)
 		}
 		if other, duplicated := basisOwner[digest]; duplicated {
 			t.Fatalf("子代理 %s 与 %s 的产物摘要相同（%s）：按编号取回没有判别力，判据无意义",

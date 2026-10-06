@@ -51,8 +51,46 @@ func forkProductEdges(product string) (string, string) {
 	return product[:edge], product[len(product)-edge:]
 }
 
-// forkProductDiff 渲染两侧产物的可比读数：长度 + 首尾片段，并在"取回正文以基准开头"
-// 时点明最可能的成因（基准面被产品侧上限截断），免得读到差异的人先怀疑 fork 链路。
+// forkNodeOutputMax 是**产品侧**的语义结果 Output 上限（`seelebridge/node/agent_node.go:294
+// nodeOutputMax = 2000`，`truncateNodePreview` 同文件 :298 按**字节**截断并补一个 `…`）。
+// 它在这里只有一个作用：识别"基准面自己就是截断产物"这件事。
+const forkNodeOutputMax = 2000
+
+// forkTruncationMark 是产品侧截断时补的那个字符（U+2026，UTF-8 三字节）。
+const forkTruncationMark = "…"
+
+// forkProductBaseTruncated 判断基准面是不是被产品侧上限截断的产物。
+//
+// 判据：长度正好是上限 + 截断标记，且以截断标记结尾。这不是"猜"，而是产品侧
+// truncateNodePreview 的**唯一**产物形状（value[:2000] + "…"）。
+func forkProductBaseTruncated(base string) bool {
+	return strings.HasSuffix(base, forkTruncationMark) &&
+		len(base) == forkNodeOutputMax+len(forkTruncationMark)
+}
+
+// forkProductMatches 是产物对照的**唯一判据**：取回正文与基准规范化后逐字节等价（sha256 相等）。
+//
+// 唯一例外是基准面自身撞上产品侧上限（真机产物经常长于 2000 字节，见 forkNodeOutputMax）：
+// 那时基准只是真产物的**前缀**，"整段相等"在产品侧就不可能成立（不是 fork 链路的问题）。
+// 这种情况只钉"取回侧同长度前缀的摘要"，并返回 capped=true，让调用方把这次**降级**说出口
+// ——静默降级成"前缀相同就算一致"是这条判据的禁忌。
+func forkProductMatches(base, fetched string) (matched bool, capped bool) {
+	base, fetched = normalizeForkProduct(base), normalizeForkProduct(fetched)
+	if base == "" || fetched == "" {
+		return false, false
+	}
+	if !forkProductBaseTruncated(base) {
+		return forkProductDigest(base) == forkProductDigest(fetched), false
+	}
+	prefix := base[:len(base)-len(forkTruncationMark)]
+	if len(fetched) < len(prefix) {
+		return false, true
+	}
+	return forkProductDigest(prefix) == forkProductDigest(fetched[:len(prefix)]), true
+}
+
+// forkProductDiff 渲染两侧产物的可比读数：长度 + 首尾片段，并在"基准面自身是截断产物"时
+// 点明最可能的成因（产品侧 Output 上限），免得读到差异的人先怀疑 fork 链路。
 func forkProductDiff(want, got string) string {
 	normalizedWant := normalizeForkProduct(want)
 	normalizedGot := normalizeForkProduct(got)
@@ -62,8 +100,9 @@ func forkProductDiff(want, got string) string {
 	switch {
 	case normalizedWant == "" || normalizedGot == "":
 		note = "；有一侧为空（对照不成立）"
-	case len(normalizedWant) == 2000 && strings.HasPrefix(normalizedGot, normalizedWant):
-		note = "；取回正文以基准开头——基准面疑似被产品侧上限截断（node 语义结果 Output 上限 nodeOutputMax）"
+	case forkProductBaseTruncated(normalizedWant):
+		note = fmt.Sprintf("；基准面是产品侧截断产物（Output 上限 %d 字节 + %q）——这一档只钉取回侧同长度前缀",
+			forkNodeOutputMax, forkTruncationMark)
 	}
 	return fmt.Sprintf("：基准 len=%d head=%q tail=%q，取回 len=%d head=%q tail=%q%s",
 		len(normalizedWant), wantHead, wantTail, len(normalizedGot), gotHead, gotTail, note)
@@ -121,6 +160,46 @@ func (c *scriptedProductCompleter) seenServed() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return append([]string(nil), c.served...)
+}
+
+// TestForkProductTruncatedBaseComparesPrefix 钉住判据的**截断分支**（真机产物常长于产品侧
+// Output 上限，见 forkNodeOutputMax）：基准面自己就是截断产物时，"整段逐字节相等"在产品侧
+// 不可能成立，判据只能钉"取回侧同长度前缀的摘要"，并且**必须**把这次降级说出口（capped=true）
+// ——静默降级成"前缀相同就算一致"是这条判据的禁忌，但硬要求整段相等会把真机链路的绿判成红
+// （主干第一次真机复跑就是这样红的：基准 len=2003 / 取回 len=2075）。
+func TestForkProductTruncatedBaseComparesPrefix(t *testing.T) {
+	prefix := strings.Repeat("x", forkNodeOutputMax)
+	base := prefix + forkTruncationMark
+	if !forkProductBaseTruncated(base) {
+		t.Fatalf("构造的基准面没被识别为截断产物（len=%d）", len(base))
+	}
+
+	// 前缀一致 → 判绿，且降级要说出口。
+	matched, capped := forkProductMatches(base, prefix+"（真产物的尾巴）")
+	if !matched || !capped {
+		t.Fatalf("截断基准 + 同前缀：matched=%v capped=%v, want true/true", matched, capped)
+	}
+
+	// 前缀不一致 → 判红（降级不等于放水）。
+	matched, capped = forkProductMatches(base, strings.Repeat("y", forkNodeOutputMax)+"尾巴")
+	if matched || !capped {
+		t.Fatalf("截断基准 + 不同前缀：matched=%v capped=%v, want false/true", matched, capped)
+	}
+
+	// 取回比基准的前缀还短 → 判红（比不出"同一份产物"）。
+	matched, capped = forkProductMatches(base, prefix[:100])
+	if matched || !capped {
+		t.Fatalf("截断基准 + 取回过短：matched=%v capped=%v, want false/true", matched, capped)
+	}
+
+	// 未截断的基准仍然走逐字节相等那条（本次判据的主路）。
+	short := "脚本化产物"
+	if matched, capped := forkProductMatches(short, short+"尾巴"); matched || capped {
+		t.Fatalf("未截断基准不该走降级路：matched=%v capped=%v, want false/false", matched, capped)
+	}
+	if matched, capped := forkProductMatches(short, short); !matched || capped {
+		t.Fatalf("未截断基准 + 逐字节相同：matched=%v capped=%v, want true/false", matched, capped)
+	}
 }
 
 // TestForkProductHashJudgmentDeterministic 是 fork 取回的**确定性对照**用例：
@@ -223,8 +302,13 @@ func TestForkProductHashJudgmentDeterministic(t *testing.T) {
 			t.Fatalf("句柄 %s(id=%s) 取回的正文为空", job.Handle, job.ID)
 		}
 		gotDigest := forkProductDigest(got)
-		if gotDigest != forkProductDigest(bases[job.ID]) {
+		matched, capped := forkProductMatches(bases[job.ID], got)
+		if !matched {
 			t.Fatalf("句柄 %s 的取回正文与该子代理 %s 自己的产物不一致%s", job.Handle, job.ID, forkProductDiff(bases[job.ID], got))
+		}
+		if capped {
+			t.Fatalf("脚本化产物撞上了产品侧上限（基准 len=%d）：确定性路径必须逐字节对照，不许降级",
+				len(bases[job.ID]))
 		}
 		fetched[job.ID] = got
 		t.Logf("句柄 %s(id=%s) 取回 %d 字节，摘要 %s", job.Handle, job.ID, len(got), gotDigest[:12])
