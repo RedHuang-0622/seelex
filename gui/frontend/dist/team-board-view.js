@@ -25,6 +25,32 @@ const TEXT_LIMIT = 160;
 const CONTENT_LIMIT = 240;
 const AUDIT_LIMIT = 6;
 
+// ROLE_PALETTE_SIZE 是 teammate 色板的格数（--team-dag-role-0..5）。
+const ROLE_PALETTE_SIZE = 6;
+
+// ROLE_SLOT 是 teammate 配色的**登记处**：按 role 首次出现的次序分配，append-only。
+//
+// 为什么是模块级的登记处、而不是每次从 plan 现算：同一位 teammate 的颜色不许因为
+// 「重渲染 / 推进一轮 / 换主题」而变（口径 3）。现算的话，计划里新增一位 teammate 就会把
+// 后面所有人的 slot 挤一位，颜色跟着漂——那是「颜色在描述轮次」，不是「颜色在描述是谁」。
+// 登记的唯一输入是 role 名（不是时间戳、不是随机数、也不是任何自增 id 写进行里），
+// 所以同一份输入连渲两次，结果字符串逐字相同（幂等，口径 8）。
+const ROLE_SLOT = new Map();
+
+// roleSlotOf 返回 role 的登记序号（append-only，从 0 起）。slot >= ROLE_PALETTE_SIZE 表示
+// 色板已经回绕（第 7 位 teammate 起会与前面某位同色）——渲染时给色带叠一层**斜纹第二通道**，
+// 免得两位撞色的 teammate 只靠色带分不出来（口径 11：保留 6 色，斜纹是防撞色，不是装饰）。
+export function roleSlotOf(role) {
+  const name = String(role ?? "");
+  if (!ROLE_SLOT.has(name)) ROLE_SLOT.set(name, ROLE_SLOT.size);
+  return ROLE_SLOT.get(name);
+}
+
+// roleColorVar 把 role 折成色板里的令牌名（超出 6 个就回绕复用）。
+export function roleColorVar(role) {
+  return `--team-dag-role-${roleSlotOf(role) % ROLE_PALETTE_SIZE}`;
+}
+
 // ── 里程碑（屏障）与工作项（甘特节点）：纯函数 ────────────────────────
 
 // milestonesOf 取里程碑数组；milestoneStatus 缺省 pending（空 = pending，见 sessionstore）。
@@ -59,6 +85,21 @@ export function workItemsOf(plan) {
 // itemStatus 读工作项状态（空 = pending，与 sessionstore 同口径）。
 export function itemStatus(item) {
   return String(item?.status || "").trim().toLowerCase() || "pending";
+}
+
+// effStatus 是**线框色的唯一判据**（口径 2）：interrupted 先抬成红，再按 status 取色。
+//
+// 一条红不裂成两条：failed 与 killed 同色；interrupted === true 也走这条红——被中断是
+// 「需要恢复、可以重派」，与「跑失败了」在颜色上是同一件事（文案上才分开，见行内 `· 可重派`）。
+// 为什么必须有这一个判据：颜色若在几处各算一遍，行框、色点、chip 就会各说各话。
+export function effStatus(item) {
+  if (item?.interrupted === true) return "failed";
+  const status = itemStatus(item);
+  if (status === "failed" || status === "killed") return "failed";
+  if (status === "review") return "review";
+  if (status === "done") return "done";
+  if (status === "running") return "running";
+  return "pending";
 }
 
 // itemDepsOf 取工作项的**里程碑内**依赖（去空白、去空项）。
@@ -355,62 +396,203 @@ export function renderTeamHead(plan, summary, maxMembers = 0, stale = false, rec
     </div>`;
 }
 
-// renderTeamGantt 是**里程碑甘特**：一个里程碑一张卡，卡里列出它名下的 Work Item。
+// ── 里程碑 DAG 甘特：几何常量（与 TEAM_BOARD_CSS 里的 --team-dag-* 逐字对应）──────────
 //
-// 里程碑之间是**屏障**（depends_on，串行）；里程碑内部是工作项的依赖 DAG。它不表示时间——
-// 只表示依赖（用户口径：甘特不表示时间，只表示 Work Item 的依赖项与 Milestone 之间的依赖）。
+// 依赖边是一条**内容坐标**里的 SVG 正交折线（末端箭头），而 renderTeamGantt 是纯字符串函数
+// （不碰 DOM、量不到 rect）。于是行的中心 y 只能在渲染时按一套**写死的几何**算出来：
+// CSS 用 --team-dag-row-h / --team-dag-head-h / … 把版式钉死，这里按同一组数字算 y 再画线。
+// 两份数字漂一线，线就落不到节点上——所以单测里有一条**逐字比对**这两份数字的用例，
+// 预览页也把「边端点 == 节点锚点」量出来写进读数（不靠"应该没问题"）。
+const DAG = {
+  contentPadTop: 4, // .team-dag-content 的 padding-top
+  framePad: 4, // .team-dag-rows 的 padding（上下各一份）
+  headH: 26, // .team-dag-frame-head 的 height
+  rowH: 72, // .team-dag-row 的 height
+  rowGap: 4, // .team-dag-rows 的 gap
+  gateH: 18, // .team-dag-gate 的 height
+  gateMargin: 2, // .team-dag-gate 的 margin（上下各一份）
+  border: 1, // .team-dag-frame 的 border
+  nodeX: 22, // 节点锚点 x（viewBox 单位 = gutter 宽度的百分比）
+  laneBase: 34, // 第一条 lane 的 x（同上；lane 都在 gutter 里，不吃卡片宽度）
+  laneStep: 12, // 同一目标的第 k 条入边各占一条 lane（防重叠）
+  laneMax: 94, // lane 上界，别顶到卡片
+};
+
+// round1 把几何读数固定到一位小数：不加它，浮点误差会让两次渲染的 `d` 字符串不同（幂等就破）。
+function round1(value) {
+  return Math.round(Number(value) * 10) / 10;
+}
+
+// ganttLayout 把计划排成**内容坐标**上的一串块：里程碑大框、框内的行、框与框之间的闸门带。
 //
-// 每张里程碑卡：id · name / 状态 / 屏障层号 / 屏障依赖 / 判据（after）/ leader 撰写的内容 /
-// 名下工作项（名称 / 描述 / 达成目标 / 执行 teammate / 依赖 / 状态）。
-export function renderTeamGantt(plan) {
-  const entries = orderMilestones(plan);
-  if (entries.length === 0) return "";
-  const blocks = entries.map(entry => {
-    const deps = entry.depends_on.length
-      ? entry.depends_on.map(dep => `<span class="chip team-dep">${escapeHtml(dep)}</span>`).join("")
-      : '<span class="muted">—</span>';
-    const after = entry.after.length
-      ? `<div class="team-deps"><span class="team-label">判据</span>${entry.after.map(dep => `<span class="chip team-dep">${escapeHtml(dep)}</span>`).join("")}</div>`
-      : "";
-    const missing = entry.missing_deps.length
-      ? `<div class="team-warn" title="depends_on 指向计划里不存在的里程碑">依赖缺失：${escapeHtml(entry.missing_deps.join("、"))}</div>`
-      : "";
-    const cyclic = entry.cyclic
-      ? '<div class="team-warn" title="depends_on 成环，层号归 0 并接在末尾">依赖成环</div>'
-      : "";
-    const content = entry.content
-      ? `<div class="team-milestone-content" title="${escapeHtml(entry.content)}">${escapeHtml(truncate(entry.content, CONTENT_LIMIT))}</div>`
-      : "";
-    const title = entry.name ? `${escapeHtml(entry.id)} · ${escapeHtml(entry.name)}` : escapeHtml(entry.id);
-    const ordered = orderWorkItems(entry.items);
-    const items = ordered.length
-      ? ordered.map(item => renderTeamWorkItem(item)).join("")
-      : '<li class="team-item is-empty">尚未排活</li>';
-    return `<article class="team-milestone-gantt" data-milestone-id="${escapeHtml(entry.id)}" data-status="${escapeHtml(entry.status)}" data-depth="${escapeHtml(String(entry.depth))}">
-        <div class="team-milestone-head">
-          <span class="team-milestone-id">${title}</span>
-          <span class="team-depth" title="屏障层号 L${escapeHtml(String(entry.depth))}（同层 = 依赖边允许并行）">L${escapeHtml(String(entry.depth))}</span>
-          <span class="team-status is-${escapeHtml(entry.status)}">${escapeHtml(entry.status)}</span>
-        </div>
-        <div class="team-deps"><span class="team-label">屏障</span>${deps}</div>
-        ${after}${missing}${cyclic}${content}
-        <ul class="team-items">${items}</ul>
-      </article>`;
+// 行序 = 依赖拓扑序（口径 1）：里程碑之间按 milestones[].depends_on，里程碑内部按
+// work_items[].depends_on；同层并行，并列回落声明序（orderMilestones / orderWorkItems 保证）。
+// 每个工作项一行，行不可能属于两个框——所以框罩住的是它名下**相邻**的若干行。
+function ganttLayout(plan, frames) {
+  const blocks = [];
+  const rows = [];
+  let y = DAG.contentPadTop;
+  frames.forEach((frame, layer) => {
+    const deps = frame.depends_on;
+    const locked = hasUndoneDep(frames, deps);
+    const ordered = orderWorkItems(frame.items);
+    const rowsTop = y + DAG.border + DAG.framePad + DAG.headH;
+    const inner = ordered.length ? ordered.length * DAG.rowH + (ordered.length - 1) * DAG.rowGap : 0;
+    const placed = ordered.map((entry, index) => ({
+      ...entry,
+      milestone_id: frame.id,
+      layer,
+      rowTop: rowsTop + index * (DAG.rowH + DAG.rowGap),
+      midY: rowsTop + index * (DAG.rowH + DAG.rowGap) + DAG.rowH / 2,
+    }));
+    rows.push(...placed);
+    blocks.push({ kind: "frame", frame, layer, locked, top: y, rows: placed, tone: layer % 5 });
+    y += 2 * DAG.border + 2 * DAG.framePad + DAG.headH + inner;
+    const next = frames[layer + 1];
+    if (next) {
+      blocks.push({
+        kind: "gate",
+        from: frame.id,
+        to: next.id,
+        open: !hasUndoneDep(frames, next.depends_on),
+        depends_on: next.depends_on,
+        top: y,
+      });
+      y += 2 * DAG.gateMargin + DAG.gateH;
+    }
+  });
+  return { blocks, rows, height: round1(y) };
+}
+
+// hasUndoneDep 是**屏障**的单一判据：depends_on 里只要有一个不是 done（含指向不存在的
+// 里程碑）就算没放行。它同时决定框的 🔒/🔓 与两块之间的闸门带开合——一处判定，两处显示。
+function hasUndoneDep(frames, deps) {
+  return (Array.isArray(deps) ? deps : []).some(dep => {
+    const owner = frames.find(frame => frame.id === dep);
+    return !owner || owner.status !== "done";
+  });
+}
+
+// ganttEdges 把「行 → 它的每个依赖行」折成一组正交折线。依赖指向本计划里不存在的行时不画
+// （画不出端点，也不该凭空编一个）——缺失依赖本身由行上的告警 chip 显形。
+function ganttEdges(rows) {
+  const byID = new Map(rows.map(row => [row.id, row]));
+  const edges = [];
+  for (const row of rows) {
+    let lane = 0;
+    for (const dep of row.depends_on) {
+      const source = byID.get(dep);
+      if (!source) continue;
+      edges.push({
+        from: source,
+        to: row,
+        lane: Math.min(DAG.laneBase + lane * DAG.laneStep, DAG.laneMax),
+      });
+      lane += 1;
+    }
+  }
+  return edges;
+}
+
+// renderGanttEdges 把依赖边画成**一张覆盖全内容的 SVG**：坐标是内容坐标，所以滚动不重绘、
+// 不闪（口径 6）。x 用 viewBox 单位（0..100 = gutter 宽度的百分比，gutter 在窄栏由
+// container query 收缩时整张图跟着缩，节点与线一起动）；y 就是内容像素。
+// 边一律中性灰（--team-dag-edge = --faint），不吃状态色、也不吃 teammate 色（口径 3/13）。
+function renderGanttEdges(edges, height) {
+  if (!edges.length) return "";
+  const x = DAG.nodeX;
+  const paths = edges.map(edge => {
+    const ys = round1(edge.from.midY);
+    const yd = round1(edge.to.midY);
+    return `<path class="team-dag-edge" d="M ${x} ${ys} H ${edge.lane} V ${yd} H ${x}"></path>`
+      + `<path class="team-dag-edge-arrow" d="M ${x} ${yd} l 8 -4 l 0 8 Z"></path>`;
   }).join("");
+  return `<svg class="team-dag-edges" aria-hidden="true" preserveAspectRatio="none" viewBox="0 0 100 ${height}" style="height:${height}px">${paths}</svg>`;
+}
+
+// renderTeamGantt 是**里程碑 · 工作项**那一节：里程碑大框（罩住它名下的相邻行）+ 工作项行
+// + 框与框之间的闸门带 + 依赖边。
+//
+// 它不表示时间——只表示依赖（用户口径：甘特不表示时间，只表示 Work Item 的依赖项与
+// Milestone 之间的依赖）。
+export function renderTeamGantt(plan) {
+  const frames = orderMilestones(plan);
+  if (frames.length === 0) return "";
+  const layout = ganttLayout(plan, frames);
+  const body = layout.blocks.map(block => (block.kind === "gate" ? renderGanttGate(block) : renderGanttFrame(block))).join("");
   return `<section class="team-section" data-team-gantt>
-      <div class="team-section-title"><span>里程碑 · 工作项</span><span class="chip team-count">${entries.length}</span></div>
-      <div class="team-gantt">${blocks}</div>
+      <div class="team-section-title"><span>里程碑 · 工作项</span><span class="chip team-count">${frames.length}</span></div>
+      <div class="team-dag-scroll">
+        <div class="team-dag-content">
+          ${renderGanttEdges(ganttEdges(layout.rows), layout.height)}
+          ${body}
+        </div>
+      </div>
     </section>`;
 }
 
-// renderTeamWorkItem 渲染一个工作项行：名称 / 描述 / 达成目标 / 执行 teammate / 依赖 / 状态。
+// renderGanttFrame 渲染一个里程碑大框：极淡填充 + 自己的淡色描边（逐框轮换，不吃状态色），
+// 框头一行读得到 id · name · L<n>（屏障层号）· status chip · 屏障 deps · 判据 · 🔒/🔓 ·
+// n items · content（口径 4）。
+function renderGanttFrame(block) {
+  const frame = block.frame;
+  const deps = frame.depends_on.length
+    ? frame.depends_on.map(dep => `<span class="chip team-dep">${escapeHtml(dep)}</span>`).join("")
+    : '<span class="muted">—</span>';
+  const after = frame.after.length
+    ? `<span class="team-label">判据</span>${frame.after.map(dep => `<span class="chip team-dep">${escapeHtml(dep)}</span>`).join("")}`
+    : "";
+  const missing = frame.missing_deps.length
+    ? `<span class="team-dag-warn" title="depends_on 指向计划里不存在的里程碑">依赖缺失：${escapeHtml(frame.missing_deps.join("、"))}</span>`
+    : "";
+  const cyclic = frame.cyclic
+    ? '<span class="team-dag-warn" title="depends_on 成环，层号归 0 并接在末尾">依赖成环</span>'
+    : "";
+  const empty = block.rows.length ? "" : '<span class="team-dag-ms-empty">尚未排活</span>';
+  const content = frame.content
+    ? `<span class="team-dag-ms-content" title="${escapeHtml(frame.content)}">${escapeHtml(truncate(frame.content, CONTENT_LIMIT))}</span>`
+    : "";
+  // 屏障没放行 = 虚线 + 降透明度 + 🔒 待解锁（口径 5）——三样一起写，少一样都读不出"进不去"。
+  const lock = block.locked
+    ? '<span class="team-dag-lock" title="屏障未放行：depends_on 里还有没 done 的里程碑（现在进不去）">🔒 待解锁</span>'
+    : `<span class="team-dag-lock is-open">${frame.status === "done" ? "✅ 已完成" : "🔓 已解锁"}</span>`;
+  return `<section class="team-dag-frame" data-milestone-id="${escapeHtml(frame.id)}" data-status="${escapeHtml(frame.status)}" data-layer="${escapeHtml(String(block.layer))}" data-locked="${block.locked ? "true" : "false"}" style="--team-dag-ms-tone:var(--team-dag-ms-tone-${block.tone})">
+        <header class="team-dag-frame-head">
+          <span class="team-dag-ms-id">${escapeHtml(frame.id)}</span>
+          ${frame.name ? `<span class="team-dag-ms-name">${escapeHtml(frame.name)}</span>` : ""}
+          <span class="team-dag-layer" title="屏障层号 L${escapeHtml(String(frame.depth))}（同层 = 依赖边允许并行）">L${escapeHtml(String(frame.depth))}</span>
+          <span class="team-status is-${escapeHtml(frame.status)}">${escapeHtml(frame.status)}</span>
+          <span class="team-label">屏障</span>${deps}${after}
+          ${lock}
+          <span class="team-dag-ms-count">${block.rows.length} items</span>
+          ${missing}${cyclic}${empty}${content}
+        </header>
+        <div class="team-dag-rows">${block.rows.map(row => renderTeamWorkItem(row)).join("")}</div>
+      </section>`;
+}
+
+// renderGanttGate 渲染两块之间的**闸门带**：横向虚线 + 「上一层全部 done 才放行（等 deps）」；
+// 放行后转绿并写「闸门已放行」（口径 5）。
+function renderGanttGate(block) {
+  const label = block.open
+    ? `闸门已放行 → ${block.from} 全部 done`
+    : `闸门 → 上一层全部 done 才放行（等 ${block.depends_on.join(" + ") || "—"}）`;
+  return `<div class="team-dag-gate" data-gate="${escapeHtml(`${block.from}->${block.to}`)}" data-open="${block.open ? "true" : "false"}">
+        <span class="team-dag-gate-line"></span>
+        <span class="team-dag-gate-label">${escapeHtml(label)}</span>
+        <span class="team-dag-gate-line"></span>
+      </div>`;
+}
+
+// renderTeamWorkItem 渲染**一个工作项 = 一行**：id / 名称 / 执行 teammate / 状态 / 依赖 /
+// 会话 / 工作区 / 达成目标 / 描述 / 结论 + 三个标记（被依赖卡住 / 可重派 / 现场在）。
 //
-// 「一件事一套隔离」写在行上：Session 与 worktree 是这一件事自己的，验收通过之后会被释放
-// （所以 done 的行不再显示它们）。被中断（interrupted）的行显式标出来——那是"可以重派"，
-// 不是"跑丢了"。
+// 两条颜色通道在同一行里正交（口径 3）：卡片**边框色只表示状态**（data-eff），teammate 色
+// 只走左侧色带 + role chip 的小色点；行文字一律中性色，不拿状态色染整行。
 export function renderTeamWorkItem(entry) {
   const item = entry?.item || {};
   const status = itemStatus(item);
+  const eff = effStatus(item);
   const role = String(item.role || "").trim();
   const deps = entry.depends_on.length
     ? entry.depends_on.map(dep => `<span class="chip team-dep">${escapeHtml(dep)}</span>`).join("")
@@ -420,6 +602,12 @@ export function renderTeamWorkItem(entry) {
   const goal = String(item.goal || "").replace(/\s+/g, " ").trim();
   const description = String(item.description || "").replace(/\s+/g, " ").trim();
   const note = String(item.note || "").replace(/\s+/g, " ").trim();
+  const missing = entry.missing_deps.length
+    ? `<span class="team-dag-warn" title="depends_on 指向本里程碑里不存在的工作项">依赖缺失：${escapeHtml(entry.missing_deps.join("、"))}</span>`
+    : "";
+  const cyclic = entry.cyclic
+    ? '<span class="team-dag-warn" title="depends_on 成环，层号归 0 并接在末尾">依赖成环</span>'
+    : "";
   const marks = [
     entry.blocked ? '<span class="chip team-blocked" title="前置工作项还没验收通过：现在派发会被闸门拒">被依赖卡住</span>' : "",
     item.interrupted ? '<span class="chip team-interrupted" title="状态说在跑、而本进程的作业表里查不到它的句柄（jobs I-4）。可以重派——会话与现场都还在">可重派</span>' : "",
@@ -427,24 +615,45 @@ export function renderTeamWorkItem(entry) {
   ].filter(Boolean).join("");
   const name = String(item.name || item.id || "");
   const label = session
-    ? `<button type="button" class="team-item-name is-openable" data-team-item-open="${escapeHtml(String(item.id || ""))}" data-team-item-session="${escapeHtml(session)}" data-team-item-role="${escapeHtml(role)}" data-tip="查看这件事的执行进度（子页面）">${escapeHtml(name)}</button>`
-    : `<span class="team-item-name">${escapeHtml(name)}</span>`;
-  return `<li class="team-item is-${escapeHtml(status)}" data-item-id="${escapeHtml(String(item.id || ""))}" data-status="${escapeHtml(status)}" data-depth="${escapeHtml(String(entry.depth))}">
-      <div class="team-item-head">
-        ${label}
-        ${role ? `<span class="chip team-role">${escapeHtml(role)}</span>` : ""}
-        <span class="team-status is-${escapeHtml(status)}">${escapeHtml(status)}</span>
-      </div>
-      ${description ? `<div class="team-item-desc" title="${escapeHtml(description)}">${escapeHtml(truncate(description, CONTENT_LIMIT))}</div>` : ""}
-      ${goal ? `<div class="team-item-goal"><span class="team-label">达成目标</span>${escapeHtml(truncate(goal, CONTENT_LIMIT))}</div>` : ""}
-      <div class="team-item-meta">
-        <span class="team-label">依赖</span>${deps}
-        ${session ? `<span class="team-item-session" title="${escapeHtml(session)}">${escapeHtml(session)}</span>` : ""}
-        ${worktree && status !== "done" ? `<span class="team-item-wt" title="${escapeHtml(worktree)}">${escapeHtml(worktree)}</span>` : ""}
-        ${marks}
-      </div>
-      ${note ? `<div class="team-item-note" title="${escapeHtml(note)}">${escapeHtml(truncate(note, CONTENT_LIMIT))}</div>` : ""}
-    </li>`;
+    ? `<button type="button" class="team-dag-name is-openable" data-team-item-open="${escapeHtml(String(item.id || ""))}" data-team-item-session="${escapeHtml(session)}" data-team-item-role="${escapeHtml(role)}" data-tip="查看这件事的执行进度（子页面）">${escapeHtml(name)}</button>`
+    : `<span class="team-dag-name">${escapeHtml(name)}</span>`;
+  // 达成目标 / 描述 / 结论都留在行里（口径 9：信息不许丢）。三样挤在最后一行里会被省略号
+  // 吃掉，所以同一份全文再写进这一行的 title —— 悬停就能读到被截掉的部分。
+  const facts = [
+    goal ? `达成目标：${goal}` : "",
+    description ? `描述：${description}` : "",
+    note ? `结论：${note}` : "",
+  ].filter(Boolean);
+  const factLine = facts.length
+    ? `<span class="team-label">达成目标</span>${goal ? escapeHtml(truncate(goal, CONTENT_LIMIT)) : "—"}`
+      + `<span class="team-label">描述</span>${description ? escapeHtml(truncate(description, CONTENT_LIMIT)) : "—"}`
+      + `<span class="team-label">结论</span>${note ? escapeHtml(truncate(note, CONTENT_LIMIT)) : "—"}`
+    : '<span class="muted">—</span>';
+  // teammate 色带：只在这一处 + 下面的 role chip 色点用 `--team-dag-role-color`。
+  // slot 超过 6（色板回绕）时叠斜纹第二通道 —— 防撞色，不是装饰（口径 11）。
+  const wrapped = role && roleSlotOf(role) >= ROLE_PALETTE_SIZE ? " is-wrapped" : "";
+  const skin = role ? ` style="--team-dag-role-color:var(${roleColorVar(role)})"` : "";
+  return `<article class="team-dag-row" data-item-id="${escapeHtml(String(item.id || ""))}" data-status="${escapeHtml(status)}" data-eff="${escapeHtml(eff)}" data-depth="${escapeHtml(String(entry.depth))}" data-milestone-id="${escapeHtml(String(item.milestone || entry.milestone_id || ""))}" data-interrupted="${item.interrupted === true ? "true" : "false"}"${skin}>
+        <span class="team-dag-gutter"><span class="team-dag-node" title="依赖边的锚点"></span></span>
+        <div class="team-dag-card">
+          <span class="team-dag-band${wrapped}" title="色带 = 归属（teammate），与边框色（状态）是两条正交通道"></span>
+          <div class="team-dag-body">
+            <div class="team-dag-top">
+              <code class="team-dag-id">${escapeHtml(String(item.id || ""))}</code>
+              ${role ? `<span class="chip team-role" title="teammate"><i class="team-dag-dot"></i>${escapeHtml(role)}</span>` : ""}
+              <span class="team-status is-${escapeHtml(eff)}" data-eff="${escapeHtml(eff)}" title="线框色 = 状态（${escapeHtml(status)}）">${escapeHtml(status)}${item.interrupted === true ? " · 可重派" : ""}</span>
+              <span class="team-dag-depth" title="依赖图深度（最长路径）">d${escapeHtml(String(entry.depth))}</span>
+            </div>
+            <div class="team-dag-name-line">${label}</div>
+            <div class="team-dag-meta">
+              <span class="team-label">依赖</span>${deps}${marks}${missing}${cyclic}
+              ${session ? `<span class="team-dag-session" title="${escapeHtml(session)}">${escapeHtml(session)}</span>` : ""}
+              ${worktree ? `<span class="team-dag-wt" title="${escapeHtml(worktree)}">${escapeHtml(worktree)}</span>` : ""}
+            </div>
+            <div class="team-dag-note-line" title="${escapeHtml(facts.join(" ｜ "))}">${factLine}</div>
+          </div>
+        </div>
+      </article>`;
 }
 
 // renderMemberAssembly 渲染一位 teammate 的**插件装配**（声明面 + 生效读数）。
@@ -766,7 +975,50 @@ function truncate(text, limit) {
 // 接线进右栏时把它并入 styles.css 的同一节；静态预览页直接注入这一段。
 // 阶段口径已删除（2026-10-04）：不再有 .team-stage* / .team-job* 一套。
 export const TEAM_BOARD_CSS = `
-.team-board { display: flex; flex-direction: column; gap: 8px; min-width: 0; font-size: var(--text-sm); color: var(--text-strong); }
+/* 作用域：整块看板的令牌都定义在 .team-board 里（不泄露到全局）。
+   - 几何（--team-dag-*）：与渲染件的 DAG 常量逐字对应；
+   - teammate 色板（--team-dag-role-0..5）：本件自造（既有令牌里没有"归属色"这一族）；
+   - 里程碑框的淡色描边（--team-dag-ms-tone-0..4）：同上，低饱和、刻意避开四状态色。
+   状态色/淡色底一律引用既有 --status-* / --tint-* / --border-*，不另造 hex。
+   container-type 让窄栏（产品右栏 ~360px）能用 @container 收缩，不用另加一套裁剪口径。 */
+.team-board { display: flex; flex-direction: column; gap: 8px; min-width: 0; font-size: var(--text-sm); color: var(--text-strong); container-type: inline-size;
+  --team-dag-scroll-max-h: 380px;
+  --team-dag-gutter: 64px;
+  --team-dag-band: 5px;
+  --team-dag-content-pad-top: 4px;
+  --team-dag-frame-pad: 4px;
+  --team-dag-head-h: 26px;
+  --team-dag-row-h: 72px;
+  --team-dag-row-gap: 4px;
+  --team-dag-gate-h: 18px;
+  --team-dag-gate-margin: 2px;
+  --team-dag-frame-border: 1px;
+  --team-dag-edge: var(--faint);
+  --team-dag-role-0: #6f5bd6;
+  --team-dag-role-1: #a4538f;
+  --team-dag-role-2: #0f8f9e;
+  --team-dag-role-3: #6b7f2e;
+  --team-dag-role-4: #4b4fa8;
+  --team-dag-role-5: #5a5f68;
+  --team-dag-ms-tone-0: #6a7fa8;
+  --team-dag-ms-tone-1: #8a7fa8;
+  --team-dag-ms-tone-2: #6f8f7f;
+  --team-dag-ms-tone-3: #a08a6a;
+  --team-dag-ms-tone-4: #8f6f7f;
+}
+[data-theme="dark"] .team-board {
+  --team-dag-role-0: #a08bf0;
+  --team-dag-role-1: #c98fc3;
+  --team-dag-role-2: #45c2bd;
+  --team-dag-role-3: #a9c46a;
+  --team-dag-role-4: #8f93e0;
+  --team-dag-role-5: #9aa0aa;
+  --team-dag-ms-tone-0: #8fa6c8;
+  --team-dag-ms-tone-1: #a89ac4;
+  --team-dag-ms-tone-2: #8fb09a;
+  --team-dag-ms-tone-3: #c4ab84;
+  --team-dag-ms-tone-4: #b894a4;
+}
 .team-board-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: var(--text-xs); color: var(--text-dim); }
 .team-badge { flex: none; padding: 1px 5px; border: 1px solid var(--border-strong); border-radius: 4px; font-weight: 600; letter-spacing: .06em; color: var(--text-mid); }
 .team-board-id { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); color: var(--text-strong); }
@@ -791,7 +1043,6 @@ export const TEAM_BOARD_CSS = `
 .team-section { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .team-section-title { display: flex; align-items: center; gap: 5px; font-size: var(--text-xs); color: var(--text-dim); }
 .team-count { padding: 0 5px; border: 1px solid var(--border-hairline); border-radius: 4px; font-size: 10px; }
-.team-milestone-content { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-mid); font-size: var(--text-xs); }
 .team-event { display: flex; align-items: baseline; gap: 5px; flex-wrap: wrap; min-width: 0; font-size: var(--text-xs); }
 .team-event-kind { padding: 0 5px; border: 1px solid var(--border-hairline); border-radius: 4px; font-size: 10px; color: var(--text-mid); }
 .team-event-kind.is-dispatch { color: var(--status-info); border-color: var(--border-info); }
@@ -800,34 +1051,73 @@ export const TEAM_BOARD_CSS = `
 .team-event-target { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); color: var(--text-mid); }
 .team-event-at { flex: none; color: var(--faint); }
 .team-event-detail { flex: 1 1 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); }
-/* ── 里程碑 → Work Item（2026-10-03）：里程碑屏障 + 工作项 + teammate 队列 + 执行进度子页面 ── */
-.team-gantt { display: flex; flex-direction: column; gap: 6px; }
-.team-milestone-gantt { display: flex; flex-direction: column; gap: 3px; padding: 5px 7px; border: 1px solid var(--border); border-left-width: 2px; border-radius: 6px; background: var(--code-bg); min-width: 0; }
-.team-milestone-gantt[data-status="done"] { border-left-color: var(--status-done); }
-.team-milestone-gantt[data-status="active"] { border-left-color: var(--status-running); }
-.team-milestone-gantt[data-status="pending"] { border-left-color: var(--status-idle); }
-.team-milestone-head { display: flex; align-items: center; gap: 5px; min-width: 0; }
-.team-milestone-id { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text-bright); }
-.team-depth { flex: none; color: var(--faint); font-size: var(--text-xs); }
-.team-items, .team-queues, .team-item-messages { display: flex; flex-direction: column; gap: 3px; margin: 0; padding: 0; list-style: none; min-width: 0; }
-.team-item { display: flex; flex-direction: column; gap: 2px; padding: 4px 6px; border: 1px solid var(--border-hairline); border-left-width: 2px; border-radius: 5px; min-width: 0; }
-.team-item[data-status="running"] { border-left-color: var(--status-running); background: var(--tint-running); }
-.team-item[data-status="review"] { border-left-color: var(--status-info); background: var(--tint-info); }
-.team-item[data-status="done"] { border-left-color: var(--status-done); }
-.team-item[data-status="failed"] { border-left-color: var(--status-failed); background: var(--tint-failed); }
-.team-item[data-status="pending"] { border-left-color: var(--status-idle); }
-.team-item.is-empty { color: var(--faint); font-size: var(--text-xs); border-left-color: var(--border-hairline); background: none; }
-.team-item-head { display: flex; align-items: center; gap: 5px; min-width: 0; }
-.team-item-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-strong); }
-.team-item-name.is-openable { padding: 0; border: 0; background: none; text-align: left; font-size: inherit; color: var(--text-strong); cursor: pointer; text-decoration: underline dotted var(--border-strong); text-underline-offset: 2px; }
-.team-item-name.is-openable:hover { color: var(--text-bright); }
-.team-item-name.is-openable:focus-visible { outline: 1px solid var(--border-info); outline-offset: 1px; border-radius: 3px; }
-.team-item-head .team-status { margin-left: auto; }
-.team-item-desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-mid); font-size: var(--text-xs); }
-.team-item-goal { display: flex; align-items: baseline; gap: 4px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-mid); font-size: var(--text-xs); }
-.team-item-meta { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; min-width: 0; font-size: var(--text-xs); color: var(--text-dim); }
-.team-item-session, .team-item-wt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--faint); }
-.team-item-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-mid); font-size: var(--text-xs); }
+/* ── 里程碑 DAG 甘特（wi-impl，2026-10-07）：里程碑大框 + 工作项行 + 闸门带 + 依赖边 ──
+   几何常量（--team-dag-*）与 team-board-view.js 里的 DAG 常量**逐字对应**：渲染件按这套
+   数字算每一行的中心 y 去画依赖边，CSS 按同一套数字把版式钉死。两份数字漂一线，线就落不到
+   节点上——单测里有一条逐字比对的用例钉住这件事。 */
+.team-dag-scroll { max-height: var(--team-dag-scroll-max-h, 380px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+.team-dag-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.team-dag-scroll::-webkit-scrollbar-track { background: transparent; }
+.team-dag-scroll::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
+.team-dag-scroll::-webkit-scrollbar-thumb:hover { background: var(--faint); background-clip: padding-box; }
+.team-dag-content { position: relative; padding-top: var(--team-dag-content-pad-top); }
+/* 依赖边：一张覆盖全内容的 SVG，坐标 = 内容坐标（滚动不重绘、不闪）。中性灰，不吃两通道的色。 */
+.team-dag-edges { position: absolute; left: 0; top: 0; width: var(--team-dag-gutter); z-index: 1; overflow: visible; pointer-events: none; }
+.team-dag-edge { fill: none; stroke: var(--team-dag-edge); stroke-width: 1.5; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.team-dag-edge-arrow { fill: var(--team-dag-edge); stroke: none; }
+/* 里程碑 = 一个大框：极淡填充 + 自己的淡色描边（逐框轮换），不吃状态色、不吃 teammate 色。 */
+.team-dag-frame { position: relative; z-index: 2; border: var(--team-dag-frame-border) solid var(--team-dag-ms-tone, var(--border-strong)); border-radius: var(--r-lg); background: color-mix(in srgb, var(--team-dag-ms-tone, transparent) 5%, transparent); }
+.team-dag-frame[data-locked="true"] { border-style: dashed; opacity: .55; }
+.team-dag-frame-head { position: sticky; top: 0; z-index: 5; box-sizing: border-box; display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; height: var(--team-dag-head-h); padding: 0 8px; overflow: hidden; border-bottom: 1px solid var(--border); border-radius: var(--r-lg) var(--r-lg) 0 0; background: var(--panel-solid); }
+.team-dag-frame-head > * { flex: none; white-space: nowrap; }
+.team-dag-ms-id { font-family: var(--font-mono); font-size: var(--text-xs); font-weight: 700; color: var(--team-dag-ms-tone, var(--text-strong)); }
+.team-dag-ms-name { font-size: var(--text-sm); font-weight: 700; color: var(--text-strong); }
+.team-dag-layer, .team-dag-ms-deps, .team-dag-ms-count, .team-dag-ms-empty { font-size: var(--text-xs); color: var(--text-dim); }
+.team-dag-ms-content { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--text-xs); color: var(--faint); }
+.team-dag-lock { padding: 1px 6px; border: 1px solid var(--border-strong); border-radius: 999px; font-size: 10px; color: var(--status-idle); }
+.team-dag-lock.is-open { color: var(--status-done); border-color: var(--border-done); background: var(--tint-done); }
+.team-dag-warn { color: var(--status-failed); font-size: var(--text-xs); }
+.team-dag-rows { display: flex; flex-direction: column; gap: var(--team-dag-row-gap); padding: var(--team-dag-frame-pad) 0; }
+.team-dag-row { position: relative; z-index: 2; box-sizing: border-box; display: flex; align-items: stretch; height: var(--team-dag-row-h); overflow: hidden; }
+.team-dag-gutter { position: relative; flex: 0 0 var(--team-dag-gutter); }
+.team-dag-node { position: absolute; top: 50%; left: 22%; width: 9px; height: 9px; transform: translate(-100%, -50%); border-radius: 50%; background: var(--row-line, var(--status-idle)); box-shadow: 0 0 0 1px var(--row-line, var(--status-idle)); }
+/* 线框色 = 状态（唯一判据 effStatus，见渲染件的 data-eff）。pending 另加虚线。 */
+.team-dag-row[data-eff="running"] { --row-line: var(--status-running); --row-tint: var(--tint-running); }
+.team-dag-row[data-eff="done"] { --row-line: var(--status-done); --row-tint: var(--tint-done); }
+.team-dag-row[data-eff="review"] { --row-line: var(--status-info); --row-tint: var(--tint-info); }
+.team-dag-row[data-eff="failed"] { --row-line: var(--status-failed); --row-tint: var(--tint-failed); }
+.team-dag-row[data-eff="pending"] { --row-line: var(--status-idle); --row-tint: transparent; }
+.team-dag-card { flex: 1 1 auto; min-width: 0; display: flex; align-items: stretch; overflow: hidden; border: 2px solid var(--row-line, var(--status-idle)); border-radius: var(--r-md); background: var(--row-tint, transparent); }
+.team-dag-row[data-eff="pending"] .team-dag-card { border-style: dashed; }
+/* teammate 色**只走这两处**：左侧色带 + role chip 里的小色点；文字一律中性色。 */
+.team-dag-band { flex: 0 0 var(--team-dag-band); background: var(--team-dag-role-color, transparent); }
+.team-dag-band.is-wrapped { background-image: repeating-linear-gradient(45deg, rgba(255, 255, 255, .6) 0 2px, transparent 2px 5px); }
+.team-dag-dot { display: inline-block; width: 8px; height: 8px; margin-right: 3px; border-radius: 50%; background: var(--team-dag-role-color, transparent); vertical-align: -1px; }
+.team-dag-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 3px 8px; }
+.team-dag-top { display: flex; align-items: center; gap: 6px; height: 14px; overflow: hidden; white-space: nowrap; }
+.team-dag-id { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-strong); }
+.team-dag-depth { font-size: var(--text-xs); color: var(--faint); }
+.team-dag-name-line { height: 16px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.team-dag-name { font-size: var(--text-sm); font-weight: 600; color: var(--text-strong); }
+.team-dag-name.is-openable { padding: 0; border: 0; background: none; text-align: left; font-size: var(--text-sm); font-weight: 600; color: var(--text-strong); cursor: pointer; text-decoration: underline dotted var(--border-strong); text-underline-offset: 2px; }
+.team-dag-name.is-openable:hover { color: var(--text-bright); }
+.team-dag-name.is-openable:focus-visible { outline: 1px solid var(--border-info); outline-offset: 1px; border-radius: 3px; }
+.team-dag-meta { display: flex; align-items: center; gap: 4px; height: 14px; overflow: hidden; white-space: nowrap; font-size: var(--text-xs); color: var(--text-dim); }
+.team-dag-session, .team-dag-wt { overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--faint); }
+.team-dag-note-line { height: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: var(--text-xs); color: var(--text-mid); }
+/* 闸门带：横向虚线 + 标注；放行后转绿。 */
+.team-dag-gate { position: relative; z-index: 2; display: flex; align-items: center; gap: 8px; box-sizing: border-box; height: var(--team-dag-gate-h); margin: var(--team-dag-gate-margin) 4px; --team-dag-gate-tone: var(--status-idle); }
+.team-dag-gate[data-open="true"] { --team-dag-gate-tone: var(--status-done); }
+.team-dag-gate-line { flex: 1 1 auto; border-top: 1.5px dashed var(--team-dag-gate-tone); }
+.team-dag-gate-label { flex: none; padding: 1px 7px; border: 1px dashed var(--team-dag-gate-tone); border-radius: 999px; font-size: 10px; color: var(--team-dag-gate-tone); }
+/* 窄栏自适应（口径 10）：产品右栏只有 ~360px。收缩 gutter + 折叠次级信息，**纯 CSS**，
+   不另做一套裁剪数据的口径；行高不受影响（几何常量不变，依赖边才不会错位）。 */
+@container (max-width: 520px) {
+  .team-dag-scroll { --team-dag-gutter: 44px; }
+  .team-dag-ms-content, .team-dag-ms-deps, .team-dag-ms-empty, .team-dag-layer { display: none; }
+  .team-dag-note-line, .team-dag-session, .team-dag-wt { display: none; }
+}
+.team-queues, .team-item-messages { display: flex; flex-direction: column; gap: 3px; margin: 0; padding: 0; list-style: none; min-width: 0; }
 .team-item-message { display: flex; gap: 5px; min-width: 0; font-size: var(--text-xs); color: var(--text-mid); }
 .team-interrupted { color: var(--status-failed); border-color: var(--border-failed); }
 .team-blocked { color: var(--status-idle); }

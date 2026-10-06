@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="light dark">
-<title>团队看板 · 静态原型</title>
+<title>团队看板 · 静态原型（里程碑 DAG 甘特）</title>
 <link rel="icon" href="data:,">
 <!-- 令牌与全局外观来自应用自己的 styles.css（不复制第二套色值）；看板自己的规则
      由 team-board-view.js 的 TEAM_BOARD_CSS 注入，两者是同一份事实。 -->
@@ -15,8 +15,11 @@
   .page-head h1 { margin: 0 0 6px; font-size: var(--text-xl); }
   .page-head p { margin: 0 0 4px; color: var(--text-mid); font-size: var(--text-sm); }
   .page-head code { padding: 1px 4px; border: 1px solid var(--border-hairline); border-radius: 4px; background: var(--code-bg); font-family: var(--font-mono); font-size: var(--text-xs); }
-  .legend { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; font-size: var(--text-xs); color: var(--text-dim); }
+  .legend { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 8px; font-size: var(--text-xs); color: var(--text-dim); }
   .legend b { color: var(--text-mid); font-weight: 600; }
+  .legend .sw { display: inline-flex; align-items: center; gap: 4px; }
+  .legend .sw i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+  .legend .sw .bar { width: 5px; height: 12px; border-radius: 1px; }
   .grid { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 14px; max-width: 1200px; margin: 0 auto; }
   .panel { display: flex; flex: 0 0 auto; flex-direction: column; gap: 6px; padding: 10px 12px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-solid); min-width: 0; }
   .panel h2 { margin: 0; font-size: var(--text-sm); color: var(--text-mid); font-weight: 600; }
@@ -26,48 +29,61 @@
   .narrow .board-host { width: 360px; }
   .wide .board-host { width: 720px; }
   .board-host { min-width: 0; }
+  .probe { max-width: 1200px; margin: 18px auto 0; }
+  .probe pre { max-height: 260px; overflow: auto; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--code-bg); color: var(--text-mid); font-size: var(--text-xs); }
 </style>
 </head>
 <body>
 <header class="page-head">
-  <h1>团队看板 · 静态原型</h1>
+  <h1>团队看板 · 静态原型（里程碑 DAG 甘特）</h1>
   <p>渲染件：<code>gui/frontend/dist/team-board-view.js</code>（纯函数，不碰 DOM，与 <code>goal-board-view.js</code> 同一形态）；本页只负责注入 <code>TEAM_BOARD_CSS</code> 与夹具。</p>
   <p>本页用 ES module 载入渲染件，需要 http 源：仓库根运行 <code>python -m http.server 8100</code>，再打开 <code>http://localhost:8100/gui/frontend/dist/team-board-preview.html</code>。</p>
   <div class="legend">
-    <span><b>阶段状态</b>（由 depends_on + 作业终态推出，不是计划字段）</span>
-    <span>pending 依赖未满足</span>
-    <span>ready 依赖已满足、可派活</span>
-    <span>running 有在途作业</span>
-    <span>done 作业全完</span>
-    <span>failed 有 failed/killed 作业</span>
+    <span><b>线框色 = 状态</b></span>
+    <span class="sw"><i style="background: var(--status-running)"></i>running</span>
+    <span class="sw"><i style="background: var(--status-done)"></i>done</span>
+    <span class="sw"><i style="background: var(--status-info)"></i>review</span>
+    <span class="sw"><i style="background: var(--status-failed)"></i>failed / interrupted（可重派）</span>
+    <span class="sw"><i style="border: 1px dashed var(--status-idle)"></i>pending（虚线）</span>
+    <span>|</span>
+    <span><b>色带 + 色点 = teammate</b></span>
+    <span class="sw"><span class="bar" style="background: var(--team-dag-role-0)"></span>第 1 位</span>
+    <span class="sw"><span class="bar" style="background: var(--team-dag-role-1)"></span>第 2 位</span>
+    <span class="sw"><span class="bar" style="background: var(--team-dag-role-2)"></span>第 3 位</span>
+    <span>超过 6 位色板回绕，色带叠斜纹（防撞色）</span>
   </div>
 </header>
 
 <main class="grid">
   <section class="panel narrow">
-    <h2>真实快照 · 右栏宽度（360px）</h2>
-    <div class="note">数据 = 会话 project-03b5b8d29af3f44b / session-b90ba1b5a3db5909 的 teamwork 模块：plan 事件（members=3 milestones=3 items=3）+ dispatch/join 事件 + 作业 a1。</div>
-    <div class="board-host" data-fixture="real"></div>
+    <h2>设计里程碑链 · 右栏宽度（360px）</h2>
+    <div class="note">3 里程碑（m-design → m-impl → m-verify，屏障串行）+ 6 工作项；含一条 failed+interrupted（红 · 可重派）。</div>
+    <div class="board-host" data-fixture="chain" data-board="chain-360"></div>
   </section>
 
   <section class="panel wide">
-    <h2>真实快照 · 宽栏（720px）</h2>
-    <div class="note">同上一份数据，看里程碑卡片在宽栏下的排布。</div>
-    <div class="board-host" data-fixture="real"></div>
+    <h2>同一条链 · 宽栏（720px）</h2>
+    <div class="note">同一份夹具、同一套渲染函数：一行读全 id / role / status / deps / d&lt;n&gt;，gutter 里能看到依赖边。</div>
+    <div class="board-host" data-fixture="chain" data-board="chain-720"></div>
   </section>
 
   <section class="panel narrow">
-    <h2>V 模型推进中（含 failed）· 右栏宽度</h2>
-    <div class="note">夹具：$teamwork 的 V 模型里程碑 + 三层验证的工作项终态（accept 在跑 / integration 失败 / unit 待派）。</div>
-    <div class="board-host" data-fixture="v"></div>
+    <h2>真实快照 · 右栏宽度</h2>
+    <div class="note">数据 = teamwork 模块的一份投影：3 里程碑串行 + 3 工作项，m-verify 未解锁。</div>
+    <div class="board-host" data-fixture="real" data-board="real-360"></div>
   </section>
 
   <section class="panel wide">
-    <h2>V 模型推进中（含 failed）· 宽栏</h2>
-    <div class="note">同一份夹具。6 在编 + 4 里程碑 + 8 工作项。</div>
-    <div class="board-host" data-fixture="v"></div>
+    <h2>四色 × 两通道正交 · 宽栏</h2>
+    <div class="note">一个里程碑里的四条行：done（绿）/ review（蓝）/ failed+interrupted（红）/ running（黄），加上色带与色点。</div>
+    <div class="board-host" data-fixture="mixed" data-board="mixed-720"></div>
   </section>
 </main>
+
+<section class="probe">
+  <h2>自证读数（无窗口路径：headless Chrome --dump-dom / --screenshot 读这一段）</h2>
+  <pre id="team-dag-probe" hidden></pre>
+</section>
 
 <script type="module">
   import { TEAM_BOARD_CSS, renderTeamBoard } from "./team-board-view.js";
@@ -76,7 +92,52 @@
   style.textContent = TEAM_BOARD_CSS;
   document.head.append(style);
 
-  // 夹具一：真实快照（team queue-strip-fix）——里程碑 + 工作项口径（阶段口径已删除）。
+  // 夹具一：设计里程碑链——三个里程碑**屏障串行**（depends_on 是顺序的唯一事实），
+  // 里程碑内是工作项的依赖 DAG。含一条 failed + interrupted（线框色抬红，标「可重派」）。
+  const CHAIN = {
+    maxMembers: 6,
+    plan: {
+      team_id: "team-workflow",
+      version: 3,
+      members: [
+        { role: "artist", tools_policy: "readwrite", status: "free" },
+        { role: "frontend", tools_policy: "readwrite", status: "running" },
+        { role: "verify", tools_policy: "readonly", status: "running" },
+      ],
+      milestones: [
+        { id: "m-design", name: "设计", status: "done", content: "设计稿冻结：类名 / 令牌 / 几何逐字节验收。" },
+        { id: "m-impl", name: "实现", status: "active", depends_on: ["m-design"], content: "按稿落地渲染件（frontend）。" },
+        { id: "m-verify", name: "验证", status: "pending", depends_on: ["m-impl"], content: "像素 / DOM 读数 + 边界用例。" },
+      ],
+      work_items: [
+        { id: "wi-design", milestone: "m-design", role: "artist", name: "出图 DAG 静态 UI 稿", status: "done",
+          goal: "四色 / 两通道 / 闸门 / 双宽度", description: "index.html + README + evidence", session_id: "sess-mdesign-artist-01", worktree: "wt/m-design/artist", note: "leader 已逐字节验收。" },
+        { id: "wi-impl", milestone: "m-impl", role: "frontend", name: "重写里程碑甘特渲染件", status: "running",
+          goal: "里程碑大框 + 工作项行 + 依赖边", description: "复用 escapeHtml / 模板字符串，不引第三方", depends_on: ["wi-design"], session_id: "sess-mimpl-frontend-01", worktree: "wt/m-impl/frontend", live: true },
+        { id: "wi-tests", milestone: "m-impl", role: "frontend", name: "跟上单测与预览页", status: "review",
+          goal: "拓扑序 / 四色 / 幂等 / 几何", description: "现有语义断言一条都不删", depends_on: ["wi-impl"], session_id: "sess-mimpl-frontend-02", worktree: "wt/m-impl/frontend-tests" },
+        { id: "wi-render", milestone: "m-verify", role: "verify", name: "截图与像素量测", status: "failed",
+          goal: "headless Chrome 渲染 + PIL 量测", description: "四色真的出现在画面里", depends_on: ["wi-impl"], session_id: "sess-mverify-render-01", worktree: "wt/m-verify/render", interrupted: true, note: "进程重启过：句柄投影过期，可重派。" },
+        { id: "wi-cases", milestone: "m-verify", role: "verify", name: "边界用例", status: "pending",
+          goal: "闸门未解锁 / 中断恢复 / 空 depends_on", description: "—", depends_on: ["wi-impl"], worktree: "wt/m-verify/cases" },
+        { id: "wi-accept", milestone: "m-verify", role: "verify", name: "验收收口", status: "pending",
+          goal: "两种宽度 + 双主题可读", description: "—", depends_on: ["wi-render", "wi-cases"], worktree: "wt/m-verify/accept" },
+      ],
+    },
+    jobs: [
+      { handle: "a21", state: "done", node: "wi-design", bytes: 15320, exit_code: 0, scope: { subject: "emp_artist" } },
+      { handle: "a22", state: "running", node: "wi-impl", bytes: 4096, exit_code: 0, scope: { subject: "emp_frontend" } },
+      { handle: "a23", state: "failed", node: "wi-render", bytes: 760, exit_code: 1, scope: { subject: "emp_verify" } },
+    ],
+    events: [
+      { at: "2026-10-07T01:10:03Z", kind: "plan", team_id: "team-workflow", detail: "members=3 milestones=3 items=6" },
+      { at: "2026-10-07T01:12:11Z", kind: "milestone", milestone: "m-design", detail: "设计稿冻结（逐字节验收）" },
+      { at: "2026-10-07T01:20:44Z", kind: "dispatch", role: "frontend", handle: "a22", work_item: "wi-impl", milestone: "m-impl", detail: "重写里程碑甘特渲染件" },
+      { at: "2026-10-07T01:41:09Z", kind: "join", handle: "a23", detail: "汇合窗口用尽，仍在跑 1 条：a22=running" },
+    ],
+  };
+
+  // 夹具二：真实快照（team queue-strip-fix）——里程碑 + 工作项口径（阶段口径已删除）。
   const REAL = {
     maxMembers: 6,
     plan: {
@@ -102,65 +163,133 @@
       { handle: "a1", seq: 1, kind: "worker", state: "running", node: "wi-fix", bytes: 0, exit_code: 0, role: "impl", scope: { subject: "emp_impl" } },
     ],
     events: [
-      { at: "2026-10-01T13:34:07.8545913Z", kind: "plan", team_id: "queue-strip-fix", detail: "members=3 milestones=3 items=3" },
-      { at: "2026-10-01T13:34:12.8618115Z", kind: "dispatch", role: "impl", work_item: "wi-fix", milestone: "m-fix", handle: "a1", detail: "修好输入框上沿排队条的动作按钮（现场⑤）" },
-      { at: "2026-10-01T13:37:00.4202564Z", kind: "join", handle: "a1", detail: "汇合窗口用尽，仍在跑 1 条：a1=running" },
+      { at: "2026-10-01T13:34:07Z", kind: "plan", team_id: "queue-strip-fix", detail: "members=3 milestones=3 items=3" },
+      { at: "2026-10-01T13:34:12Z", kind: "dispatch", role: "impl", work_item: "wi-fix", milestone: "m-fix", handle: "a1", detail: "修好输入框上沿排队条的动作按钮（现场⑤）" },
+      { at: "2026-10-01T13:37:00Z", kind: "join", handle: "a1", detail: "汇合窗口用尽，仍在跑 1 条：a1=running" },
     ],
   };
 
-  // 夹具二：V 模型里程碑 + 三层验证的工作项终态。
-  const V = {
+  // 夹具三：四色 × 两通道正交（不是真实计划，是显示矩阵）。
+  const MIXED = {
     maxMembers: 6,
     plan: {
-      team_id: "v-model",
-      version: 4,
+      team_id: "team-mixed",
+      version: 1,
       members: [
-        { role: "pm", role_session_id: "draft_9-v-model-pm", worktree: "seelex/pm", status: "free" },
-        { role: "arch", role_session_id: "draft_9-v-model-arch", worktree: "seelex/arch", status: "free" },
-        { role: "contract_review", role_session_id: "draft_9-v-model-contract_review", tools_policy: "readonly", status: "free" },
-        { role: "exec", role_session_id: "draft_9-v-model-exec", worktree: "seelex/exec", status: "free" },
-        { role: "test_case", role_session_id: "draft_9-v-model-test_case", worktree: "seelex/test-case", status: "running" },
-        { role: "tl", role_session_id: "draft_9-v-model-tl", tools_policy: "readonly", status: "free" },
+        { role: "artist", status: "free" },
+        { role: "frontend", status: "running" },
+        { role: "verify", status: "running" },
       ],
       milestones: [
-        { id: "m-design", name: "设计", status: "done", content: "设计冻结：接口 team-board-view.js / 入参 plan+jobs+events / 无写入口。" },
-        { id: "m-contract", name: "契约评审", depends_on: ["m-design"], status: "done", content: "契约评审通过：状态只有 running/free + 归属只有 node。" },
-        { id: "m-impl", name: "实现", depends_on: ["m-contract"], status: "done", content: "渲染件落地：用例全绿（里程碑分组 / 工作项层号 / 转义）。" },
-        { id: "m-verify", name: "验证", depends_on: ["m-impl"], status: "active" },
+        { id: "m-mixed", name: "推进中 / 异常", status: "active", content: "一条 done（绿）/ review（蓝）/ failed+interrupted（红）/ running（黄）。" },
       ],
       work_items: [
-        { id: "wi-req", milestone: "m-design", role: "pm", name: "需求条目", status: "done", session_id: "wi-req-sess" },
-        { id: "wi-design", milestone: "m-design", role: "arch", name: "设计接口", status: "done", depends_on: ["wi-req"], session_id: "wi-design-sess" },
-        { id: "wi-contract", milestone: "m-contract", role: "contract_review", name: "契约复核", status: "done", session_id: "wi-contract-sess" },
-        { id: "wi-impl", milestone: "m-impl", role: "exec", name: "实现渲染件", status: "done", session_id: "wi-impl-sess" },
-        { id: "wi-accept", milestone: "m-verify", role: "test_case", name: "验收（左腿）", status: "running", session_id: "wi-accept-sess", live: true },
-        { id: "wi-integration", milestone: "m-verify", role: "test_case", name: "集成（右腿）", status: "review", depends_on: ["wi-impl"], session_id: "wi-integration-sess" },
-        { id: "wi-unit", milestone: "m-verify", role: "test_case", name: "单元（底边）", status: "pending", depends_on: ["wi-impl"] },
-        { id: "wi-review", milestone: "m-verify", role: "tl", name: "收口复核", status: "pending", depends_on: ["wi-accept", "wi-integration", "wi-unit"] },
+        { id: "wi-mx-1", milestone: "m-mixed", role: "artist", name: "已完成的一行（绿）", goal: "—", description: "—", status: "done", session_id: "sess-mixed-1", worktree: "wt/m-mixed/artist" },
+        { id: "wi-mx-2", milestone: "m-mixed", role: "frontend", name: "等 review 的一行（蓝）", goal: "—", description: "—", status: "review", depends_on: ["wi-mx-1"], session_id: "sess-mixed-2", worktree: "wt/m-mixed/frontend" },
+        { id: "wi-mx-3", milestone: "m-mixed", role: "verify", name: "中断待恢复的一行（红 · 可重派）", goal: "—", description: "—", status: "failed", depends_on: ["wi-mx-1"], session_id: "sess-mixed-3", worktree: "wt/m-mixed/verify", interrupted: true },
+        { id: "wi-mx-4", milestone: "m-mixed", role: "frontend", name: "正在做的一行（黄）", goal: "—", description: "—", status: "running", depends_on: ["wi-mx-2"], session_id: "sess-mixed-4", worktree: "wt/m-mixed/frontend", live: true },
       ],
     },
-    jobs: [
-      { handle: "a10", state: "done", node: "wi-req", bytes: 4321, exit_code: 0, scope: { subject: "emp_pm" } },
-      { handle: "a11", state: "done", node: "wi-design", bytes: 15320, exit_code: 0, scope: { subject: "emp_arch" } },
-      { handle: "a12", state: "done", node: "wi-contract", bytes: 2048, exit_code: 0, scope: { subject: "emp_contract_review" } },
-      { handle: "a13", state: "done", node: "wi-impl", bytes: 90210, exit_code: 0, scope: { subject: "emp_exec" } },
-      { handle: "a14", state: "running", node: "wi-accept", bytes: 1204, exit_code: 0, scope: { subject: "emp_test_case" } },
-      { handle: "a15", state: "failed", node: "wi-integration", bytes: 760, exit_code: 1, scope: { subject: "emp_test_case" } },
-    ],
-    events: [
-      { at: "2026-10-02T01:00:03.0000000Z", kind: "plan", team_id: "v-model", detail: "members=6 milestones=4 items=8" },
-      { at: "2026-10-02T01:02:11.0000000Z", kind: "dispatch", role: "pm", handle: "a10", work_item: "wi-req", milestone: "m-design", detail: "需求条目 ↔ 验收用例逐条对应" },
-      { at: "2026-10-02T01:20:44.0000000Z", kind: "milestone", milestone: "m-design", detail: "设计冻结：接口 team-board-view.js 入参 = plan+jobs+events" },
-      { at: "2026-10-02T01:41:09.0000000Z", kind: "dispatch", role: "test_case", handle: "a15", work_item: "wi-integration", milestone: "m-verify", detail: "设计接口 ↔ 集成路径" },
-      { at: "2026-10-02T01:44:52.0000000Z", kind: "milestone", milestone: "m-impl", detail: "渲染件落地，用例全绿" },
-      { at: "2026-10-02T01:52:30.0000000Z", kind: "retire", role: "exec", detail: "回收作业、释放 worktree、清会话内容（保留在编）" },
-    ],
+    jobs: [],
+    events: [],
   };
 
-  const fixtures = { real: REAL, v: V };
+  const fixtures = { chain: CHAIN, real: REAL, mixed: MIXED };
   for (const host of document.querySelectorAll("[data-fixture]")) {
     host.innerHTML = renderTeamBoard(fixtures[host.dataset.fixture]);
   }
+
+  // ── 自证读数（本页自己的，不入库到产品代码）────────────────────────────
+  // 只做读数：滚动容器 clientHeight/scrollHeight、框与框内行、行序=拓扑序、
+  // 依赖边端点 vs 节点锚点（把 SVG 的 viewBox 坐标换算回页面像素再比）、role 登记序号。
+  (function probe() {
+    const round = value => Math.round(value * 10) / 10;
+    const out = { boards: [] };
+    const panels = [...document.querySelectorAll("[data-fixture]")];
+    for (const host of panels) {
+      const board = host.querySelector(".team-dag-scroll");
+      if (!board) continue;
+      const content = host.querySelector(".team-dag-content");
+      const svg = host.querySelector(".team-dag-edges");
+      const rows = [...host.querySelectorAll(".team-dag-row")];
+      const order = rows.map(row => row.dataset.itemId);
+      const position = new Map(order.map((id, index) => [id, index]));
+      const violations = [];
+      for (const row of rows) {
+        for (const dep of [...row.querySelectorAll(".chip.team-dep")].map(chip => chip.textContent.trim())) {
+          if (position.has(dep) && position.get(dep) >= position.get(row.dataset.itemId)) {
+            violations.push(`${row.dataset.itemId} 排在依赖 ${dep} 之前`);
+          }
+        }
+      }
+      const frames = [...host.querySelectorAll(".team-dag-frame")].map(frame => ({
+        ms: frame.dataset.milestoneId,
+        locked: frame.dataset.locked,
+        layer: frame.dataset.layer,
+        items: frame.querySelectorAll(".team-dag-row").length,
+        rowIds: [...frame.querySelectorAll(".team-dag-row")].map(row => row.dataset.itemId),
+      }));
+      const gates = [...host.querySelectorAll(".team-dag-gate")].map(gate => ({ gate: gate.dataset.gate, open: gate.dataset.open }));
+      const rowProbe = rows.map(row => {
+        const card = row.querySelector(".team-dag-card").getBoundingClientRect();
+        const node = row.querySelector(".team-dag-node").getBoundingClientRect();
+        return {
+          item: row.dataset.itemId, status: row.dataset.status, eff: row.dataset.eff,
+          locked: row.closest(".team-dag-frame").dataset.locked === "true",
+          card: [round(card.left), round(card.top), round(card.width), round(card.height)],
+          node: [round(node.left), round(node.top), round(node.width), round(node.height)],
+        };
+      });
+      // 依赖边几何：把 viewBox 坐标换算回页面像素，和两端节点锚点比。
+      const edges = [];
+      if (svg) {
+        const box = svg.getBoundingClientRect();
+        const [, , vbW, vbH] = (svg.getAttribute("viewBox") || "0 0 100 0").split(/\s+/).map(Number);
+        const toPageX = vx => box.left + (vx / vbW) * box.width;
+        const toPageY = vy => box.top + (vy / vbH) * box.height;
+        const anchor = id => {
+          const node = host.querySelector(`.team-dag-row[data-item-id="${id}"] .team-dag-node`);
+          const rect = node.getBoundingClientRect();
+          return [rect.right, rect.top + rect.height / 2];
+        };
+        for (const path of [...host.querySelectorAll(".team-dag-edge")]) {
+          const nums = (path.getAttribute("d") || "").match(/-?\d+(?:\.\d+)?/g).map(Number);
+          edges.push({ d: path.getAttribute("d"), start: [toPageX(nums[0]), toPageY(nums[1])], end: [toPageX(nums[4]), toPageY(nums[3])] });
+        }
+        // 与逐行 node 锚点对照：找最近的起点/终点
+        const rowAnchors = rows.map(row => ({ item: row.dataset.itemId, anchor: anchor(row.dataset.itemId) }));
+        for (const edge of edges) {
+          const near = point => rowAnchors.map(entry => ({ item: entry.item, d: Math.hypot(entry.anchor[0] - point[0], entry.anchor[1] - point[1]) }))
+            .sort((a, b) => a.d - b.d)[0];
+          const from = near(edge.start);
+          const to = near(edge.end);
+          edge.from = from.item; edge.fromDelta = round(from.d);
+          edge.to = to.item; edge.toDelta = round(to.d);
+          edge.ok = from.d <= 2.5 && to.d <= 2.5;
+        }
+      }
+      out.boards.push({
+        board: host.dataset.board,
+        width: round(host.getBoundingClientRect().width),
+        scroll: { clientH: board.clientHeight, scrollH: board.scrollHeight, maxH: getComputedStyle(board).maxHeight, gutter: getComputedStyle(host.querySelector(".team-dag-gutter") || host).flexBasis },
+        contentH: content ? round(content.getBoundingClientRect().height) : 0,
+        frames, gates, rows: rowProbe,
+        edges, edge_ok: edges.filter(edge => edge.ok).length, topo_violations: violations,
+        roles: [...new Set(rows.map(row => row.dataset.itemRole))].map(role => ({ role, slot: roleSlot(role) })),
+      });
+    }
+    // role 登记序号：从行上的 style 反解（渲染件只写令牌名，这里读回序号）。
+    function roleSlot(role) {
+      const row = document.querySelector(`.team-dag-row[data-item-role="${role}"]`);
+      const style = row ? row.getAttribute("style") || "" : "";
+      const match = style.match(/--team-dag-role-(\d+)/);
+      return match ? Number(match[1]) : null;
+    }
+    // 幂等：同一份夹具连渲两次，字符串逐字比。
+    out.idempotent = renderTeamBoard(CHAIN) === renderTeamBoard(CHAIN);
+    // 留在 <pre hidden> 里：--dump-dom 读得到，截图里看不见（不污染画面）。
+    document.getElementById("team-dag-probe").textContent = JSON.stringify(out);
+  })();
 </script>
 </body>
 </html>
