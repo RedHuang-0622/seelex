@@ -142,7 +142,7 @@ ok  	github.com/RedHuang-0622/seelex/e2e	0.402s
 | `go test ./application/core/ -count=1` | `ok … 15.8s` |
 | `go test ./seelebridge/ -count=1` | `ok … 30.6s` |
 | `go test ./e2e/ -count=1` | `ok … 0.892s`（两条门禁全绿） |
-| `go test ./... -count=1`（全仓，含根包 main / gui / tui / sessionstore） | 见文末"全量读数" |
+| `go test ./... -count=1`（全仓，含根包 main / gui / tui / sessionstore） | 85 行：**73 `ok` / 0 `FAIL`**（其余 12 行是 `[no test files]`），exit 0 |
 | `go test ./seelebridge/ -run TestNodeFirstPersonLiveSmoke -v` | `--- SKIP`（真 API 冒烟要 `SEELEX_LIVE_SMOKE=1` + `config/accounts.yaml`；**未覆盖**，与前两波同一缺口） |
 | 性能热点量级 | 本波无新增热路径：改的是"字符串比较 → 整数比较"与边界上的 `.String()`。上一波同口径读数：`BenchmarkTeamworkBoardSnapshot-8  7707  164161 ns/op  167514 B/op  1067 allocs/op`（**不主张快慢**） |
 | 全局冒烟 | 可用的入口：`go test .`（根包 headless 真实装配冒烟，覆盖 teammate 作业行 + 会话落盘 + 工具事件链）；GUI 手工点按**未做**（桌面纪律：只读检查、不合成输入），与前两波一致登记 |
