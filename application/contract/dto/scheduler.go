@@ -55,24 +55,24 @@ type ScheduledTaskSpec struct {
 
 // ScheduledTaskStatus 是定时/周期任务只读快照（GUI 定时任务面板数据源）。
 type ScheduledTaskStatus struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Kind        string    `json:"kind"`
-	IntervalSec int64     `json:"interval_seconds"`
-	PeriodUnit  string    `json:"period_unit,omitempty"`
-	PeriodValue int       `json:"period_value,omitempty"`
-	RunAt       time.Time `json:"run_at,omitempty"`   // 一次性任务的预定执行时间（零值 = 周期任务）
-	OneShot     bool      `json:"one_shot,omitempty"` // 是否一次性定时任务（执行后自动停用）
-	Command     string    `json:"command,omitempty"`
-	Prompt      string    `json:"prompt,omitempty"`
-	SessionID   string    `json:"session_id,omitempty"`
-	Enabled     bool      `json:"enabled"`
-	Running     bool      `json:"running"`
-	NextRunAt   time.Time `json:"next_run_at,omitempty"`
-	LastRunAt   time.Time `json:"last_run_at,omitempty"`
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Kind        string            `json:"kind"`
+	IntervalSec int64             `json:"interval_seconds"`
+	PeriodUnit  string            `json:"period_unit,omitempty"`
+	PeriodValue int               `json:"period_value,omitempty"`
+	RunAt       time.Time         `json:"run_at,omitempty"`   // 一次性任务的预定执行时间（零值 = 周期任务）
+	OneShot     bool              `json:"one_shot,omitempty"` // 是否一次性定时任务（执行后自动停用）
+	Command     string            `json:"command,omitempty"`
+	Prompt      string            `json:"prompt,omitempty"`
+	SessionID   string            `json:"session_id,omitempty"`
+	Enabled     bool              `json:"enabled"`
+	Running     bool              `json:"running"`
+	NextRunAt   time.Time         `json:"next_run_at,omitempty"`
+	LastRunAt   time.Time         `json:"last_run_at,omitempty"`
 	LastStatus  ScheduleRunStatus `json:"last_status,omitempty"`
-	LastResult  string    `json:"last_result,omitempty"`
-	LastError   string    `json:"last_error,omitempty"`
-	LogTail     []string  `json:"log_tail,omitempty"`
-	RunCount    int64     `json:"run_count"`
+	LastResult  string            `json:"last_result,omitempty"`
+	LastError   string            `json:"last_error,omitempty"`
+	LogTail     []string          `json:"log_tail,omitempty"`
+	RunCount    int64             `json:"run_count"`
 }

@@ -33,13 +33,13 @@ func TestGoalStackFramesProjectsEveryFrame(t *testing.T) {
 	if len(frames) != 2 {
 		t.Fatalf("活动栈应逐帧投影（2 帧），得 %d", len(frames))
 	}
-	if frames[0].ID != "g-0" || frames[0].Status != string(goaldomain.StatusPaused) || frames[0].Active {
+	if frames[0].ID != "g-0" || frames[0].Status != goaldomain.StatusPaused.String() || frames[0].Active {
 		t.Fatalf("栈下帧应是 paused 且非 active: %+v", frames[0])
 	}
 	if len(frames[0].Acceptance) != 2 || frames[0].Statement != "先做外层" {
 		t.Fatalf("栈下帧应带自己的内容: %+v", frames[0])
 	}
-	if frames[1].ID != "g-1" || !frames[1].Active || frames[1].Status != string(goaldomain.StatusActive) {
+	if frames[1].ID != "g-1" || !frames[1].Active || frames[1].Status != goaldomain.StatusActive.String() {
 		t.Fatalf("栈顶帧应是 active: %+v", frames[1])
 	}
 	if len(frames[1].Progress) != 3 || frames[1].Progress[0].Content != "p2" {

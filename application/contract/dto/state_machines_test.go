@@ -425,6 +425,40 @@ func TestPeerStateEnumWire(t *testing.T) {
 	}
 }
 
+// 格 L：恢复单元状态（恢复模板里的粗分三桶；由记录状态折一次）。
+func TestUnitStatusEnumWire(t *testing.T) {
+	cases := []struct {
+		status UnitStatus
+		word   string
+	}{
+		{UnitStatusUnknown, "unknown"},
+		{UnitActive, "active"},
+		{UnitDone, "done"},
+		{UnitFailed, "failed"},
+	}
+	for _, entry := range cases {
+		status := entry.status
+		assertStateWire(t, stateWireCase{
+			grid:  "恢复单元状态",
+			state: status,
+			word:  entry.word,
+			parse: func(text string) (fmt.Stringer, bool) {
+				parsed, ok := ParseUnitStatus(text)
+				return parsed, ok
+			},
+			read: func(data []byte) error { return json.Unmarshal(data, &status) },
+		})
+	}
+	if !UnitActive.Active() {
+		t.Fatal("active 是'要续跑'那一桶")
+	}
+	for _, settled := range []UnitStatus{UnitStatusUnknown, UnitDone, UnitFailed} {
+		if settled.Active() {
+			t.Errorf("%v 不该被判成要续跑", settled)
+		}
+	}
+}
+
 // 落盘那一格：老形状（字符串）的记录必须能读回，认不得的词**不炸**、也不被当成终态。
 func TestRecordStatusReadsOldShapedRecords(t *testing.T) {
 	var legacy struct {

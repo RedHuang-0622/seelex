@@ -24,6 +24,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 // ErrPortNotAssembled 表示恢复模板未装配端口（组合根漏接线）。
@@ -58,15 +60,17 @@ func Order() []Step {
 }
 
 // UnitStatus 是未完成单元在持久化事实里的状态。
-type UnitStatus string
+//
+// 词表只有一份，住在契约（`dto.UnitStatus`）：本包以别名保持读法，值引契约常量。
+type UnitStatus = dto.UnitStatus
 
 const (
 	// UnitActive 表示单元未终结（派发已发生、结果未记录），需要重启续跑。
-	UnitActive UnitStatus = "active"
+	UnitActive = dto.UnitActive
 	// UnitDone 表示单元已成功终结，只补历史不重启。
-	UnitDone UnitStatus = "done"
+	UnitDone = dto.UnitDone
 	// UnitFailed 表示单元已失败终结，只补历史不重启。
-	UnitFailed UnitStatus = "failed"
+	UnitFailed = dto.UnitFailed
 )
 
 // Unit 是“未完成单元”的领域无关投影。
@@ -91,7 +95,7 @@ type Unit struct {
 }
 
 // Active 报告单元是否仍需重启续跑。
-func (u Unit) Active() bool { return u.Status == UnitActive }
+func (u Unit) Active() bool { return u.Status.Active() }
 
 // Scene 是被执行单元重建出来的现场（不透明载荷 + 人类可读摘要）。
 //
