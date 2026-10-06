@@ -252,13 +252,13 @@ func (factory *Factory) InstantiateRole(mainSessionID string, role dto.RoleSpec,
 		OrderIndex:  index,
 		Notice:      notice,
 	}
-	if RolesWithExecutor[normalized.RoleName] {
+	if AutomaticTurnRoles[normalized.RoleName] {
 		result.Executor = normalized.RoleName
 	} else if normalized.RoleKind == dto.RoleKindTimer {
 		result.Executor = "scheduler"
 	} else {
 		result.Notice = append(result.Notice,
-			fmt.Sprintf("角色 %s 已入职，但**当前没有运行时执行者**（不会自动产生回合）；接入执行者前请把它当只读成员。", normalized.RoleName))
+			fmt.Sprintf("角色 %s 已入职：它没有自动回合（装配本身不产生回合），要 leader 派活（team_dispatch）才会跑真回合。", normalized.RoleName))
 	}
 	return result, nil
 }
@@ -440,10 +440,10 @@ func viewNotices(registry dto.TeamRegistry, orderRoles []string) []string {
 			notices = append(notices, fmt.Sprintf("工作顺序中的 %s 尚未注册角色配置", name))
 		}
 	}
-	if unexecuted := unexecutedRoles(orderRoles); len(unexecuted) > 0 {
+	if withoutAutoTurn := rolesWithoutAutomaticTurn(orderRoles); len(withoutAutoTurn) > 0 {
 		notices = append(notices, fmt.Sprintf(
-			"本团队（%s）暂无可执行者：%s 目前只有注册配置与角色会话，装配本身不会产生回合（leader 用 team_dispatch 派活才会跑真回合）",
-			teamKindOf(registry), strings.Join(unexecuted, "、")))
+			"本团队（%s）：%s 没有自动回合（只有注册配置与角色会话，装配本身不产生回合）；要 leader 派活（team_dispatch）才会跑真回合",
+			teamKindOf(registry), strings.Join(withoutAutoTurn, "、")))
 	}
 	if len(notices) == 0 {
 		return nil
@@ -463,31 +463,29 @@ func teamKindOf(registry dto.TeamRegistry) string {
 	return "本团队"
 }
 
-// RolesWithExecutor 是当前有运行时执行者的逻辑角色名（事实表，不是配置事实）：
+// AutomaticTurnRoles 是**会自动产生回合**的逻辑角色名（事实表，不是配置事实）：
 //
-//   - user / main：由宿主驱动（用户输入、主会话 ChatStream），不是"没人执行"；
+//   - user / main：由宿主驱动（用户输入、主会话 ChatStream）；
 //   - tl：goal 治理的 ADVISOR 回合执行者（goal 域 TL 评估器真实跑一轮）。
 //
-// 其余注册角色（review-team 的 reviewer、research-team 的 researcher、自定义
-// agent/timer 角色）目前都没有**自动**执行者：角色会话建得出来、成员表列得出来，但
-// 装配本身不会产生回合。装配面必须把这个状态说出来（DesignNotice），否则 UI 会让人
-// 以为装配完就有人干活。
-//
-// 措辞只许说"装配不等于干活"：真回合要 leader 派活才会跑（team_dispatch → 作业 →
-// Runtime.RunWorker → runRoleRound，角色不限 tl/exec）。"宿主没有它的执行者"是旧的
-// 静态三人表口径，已经不准（2026-10-06 现场复现：review-team 的 notice 让面板对
-// 一个**可派活**的角色说"暂无可执行者"，而用户此时恰恰是打算派活）。
-var RolesWithExecutor = map[string]bool{
+// 它回答的**只是**"没人派活时谁会自己发言"，**不是**"谁有执行者"。今天任何在编角色
+// 都有执行者：leader 派活（team_dispatch → 作业 → Runtime.RunWorker → runRoleRound，
+// 角色不限 tl/exec）就能跑真回合。旧符号名（RolesWithExecutor）把"没有自动回合"说
+// 成了"没有执行者"，于是装配面与面板对一个**正要派活**的角色宣称"暂无可执行者"、
+// 让用户"当只读成员"（2026-10-06 现场：teammate 装配档 1.82s 就红在这里，产品没有
+// 任何回归）。装配面因此只许说"装配不等于干活"：没有自动回合的成员要 leader 派活
+// 才会跑。
+var AutomaticTurnRoles = map[string]bool{
 	string(dto.RoleKindUser): true,
 	string(dto.RoleKindMain): true,
 	RoleTechlead:             true,
 }
 
-// unexecutedRoles 返回工作顺序里没有执行者的角色（保序、去重）。
-func unexecutedRoles(orderRoles []string) []string {
+// rolesWithoutAutomaticTurn 返回工作顺序里**没有自动回合**的角色（保序、去重）。
+func rolesWithoutAutomaticTurn(orderRoles []string) []string {
 	out := make([]string, 0, len(orderRoles))
 	for _, name := range orderRoles {
-		if RolesWithExecutor[name] {
+		if AutomaticTurnRoles[name] {
 			continue
 		}
 		out = append(out, name)
@@ -495,8 +493,8 @@ func unexecutedRoles(orderRoles []string) []string {
 	return out
 }
 
-// UnexecutedRoles 是 unexecutedRoles 的导出形态：发言调度运行态（runtime.go）
-// 与成员表投影共用同一份「谁没有执行者」事实，避免两处判定打架。
-func UnexecutedRoles(orderRoles []string) []string {
-	return unexecutedRoles(orderRoles)
+// RolesWithoutAutomaticTurn 是 rolesWithoutAutomaticTurn 的导出形态：发言调度运行态（runtime.go）
+// 与成员表投影共用同一份「谁没有自动回合」事实，避免两处判定打架。
+func RolesWithoutAutomaticTurn(orderRoles []string) []string {
+	return rolesWithoutAutomaticTurn(orderRoles)
 }

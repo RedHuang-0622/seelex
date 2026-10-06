@@ -232,7 +232,7 @@ The important design choice is that frontends do not own the agent state machine
   (`goal_done`) are implemented, but both are in-process, prompt-driven actions rather than
   framework-level seat scheduling.
 - The `review-team` `reviewer` and `research-team` `researcher` roles only have role sessions and member
-  rows, no executor yet (`RolesWithExecutor` contains only `user` / `main` / `tl`); the assembly surface
+  rows, no automatic turn yet (`AutomaticTurnRoles` contains only `user` / `main` / `tl`); the assembly surface
   states this explicitly via `DesignNotice`.
 - Standard SWE-bench or Terminal-Bench results have not been published.
 - Real WebView E2E is not yet a release gate.

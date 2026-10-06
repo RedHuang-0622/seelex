@@ -246,7 +246,7 @@ func (target teamSummonTarget) displayName() string {
 }
 
 // teamSummonNotice 是装配回执：团队名 + 在编成员 + 发言顺序，并把 TeamView 的
-// DesignNotice（"有装配没执行者"这类设计期提醒）原样带上——召唤完就看见，不用
+// DesignNotice（"有装配没自动回合"这类设计期提醒）原样带上——召唤完就看见，不用
 // 再去面板里找。带附言时明说"已落目标、附言已下发、目标收口后离场"，免得用户以为
 // 那句话被吞了、或者以为召完就有人在干（两件事以前都不会被说出来）。
 func teamSummonNotice(target teamSummonTarget, result dto.TeamMaterializeResult, tail string, record *goaldomain.GoalRecord) string {

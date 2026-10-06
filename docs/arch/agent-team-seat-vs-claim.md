@@ -128,7 +128,7 @@ flowchart TB
    不动顺序与成员），账本在存储层；上一轮 goal 的逃生状态不会传染给新 goal
    （B/C：[`2026-09-16-agentteam-ring-revive.md`](../devlog/2026-09-16-agentteam-ring-revive.md)）。
 7. **失败隔离**：某角色的角色会话坏了不影响主账本；症状可枚举（`unassigned_role_rows`、切点异常、
-   `missing compact_ref`、`empty_ring` / `no_executor`），检测面是只读的。
+   `missing compact_ref`、`empty_ring` / `no_automatic_turn`），检测面是只读的。
 
 ---
 
@@ -142,7 +142,7 @@ flowchart TB
 3. **负载均衡靠人**：固定顺序意味着慢的席位是瓶颈，而 ADVISOR 每回合都要跑一次模型
    ——这是**按回合计的固定行政开销**，前缀投影压的是「喂多少上下文」，压不掉「多跑一次模型」。
 4. **现状要如实说**：环上真正有执行者的只有 `user / main / tl`；`agent` 角色要装配了
-   `RoleTurnRunner` 才拿到执行座位，否则只占位并被如实报进 `Unexecuted`。
+   `RoleTurnRunner` 才拿到执行座位，否则只占位并被如实报进 `NoAutomaticTurn`。
    今天这套 team work 更接近**「双座位（EXEC + ADVISOR）治理环 + 只读的角色记录视图」**，
    而不是「多人并行团队」。作品集里把它说成后者就是宣传偏差。
 5. **依赖表达弱**：席位制用固定环表达顺序，任意 DAG 依赖表达不了——那是认领轴（`fork_subagents` /

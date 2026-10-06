@@ -216,7 +216,7 @@ Seelex 采用同样边界：AgentTeam 的 active/floor/presence 是运行态或 
 - **提示词装配已生效（ADVISOR/TL 路径）**：`RoleSpec.SystemPrompt` 经装配根注入的
   读面进入 ADVISOR 回合；登记了就用登记的，未登记用内置角色设定，**输出契约永远
   追加**（goal 域要解析 `TLDirective`）。其余角色的提示词目前只是登记事实
-  （没有执行者就没有回合）。
+  （没有自动回合就不会自己发言；真回合要 leader 派活）。
 
 - **权限是登记 + 展示**：`tools_policy` 随注册表落盘并在管理面回读，运行时按角色
   的工具拦截**尚未接线**（真正的拦截在 seelebridge `PermissionGate`，按会话/全局）。

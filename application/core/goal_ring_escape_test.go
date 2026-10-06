@@ -75,7 +75,7 @@ func TestRingEscapeClosesGoalAndArchivesTLHistory(t *testing.T) {
 		t.Fatal("连续无产出必须能触发环逃生（否则轮次上限/无进展兜底形同虚设）")
 	}
 	switch reason {
-	case agentteam.StopNoProgress, agentteam.StopRoundLimit, agentteam.StopEmptyRing, agentteam.StopNoExecutor:
+	case agentteam.StopNoProgress, agentteam.StopRoundLimit, agentteam.StopEmptyRing, agentteam.StopNoAutomaticTurn:
 	default:
 		t.Fatalf("逃生原因 %q 不是已知的逃生原因", reason)
 	}

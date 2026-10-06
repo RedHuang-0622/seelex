@@ -392,7 +392,7 @@ test("顺序策略是历史字段：面板既不显示也不给入口", () => {
 test("发言调度的收束文案不再说「环」：顺序里没有执行者 / 发言顺序为空", () => {
   const stopped = {
     ...goalView,
-    schedule: { order: ["tl"], next_role: "", stopped: true, stop_reason: "no_executor", unexecuted: ["tl"] }
+    schedule: { order: ["tl"], next_role: "", stopped: true, stop_reason: "no_executor", no_automatic_turn: ["tl"] }
   };
   const html = renderAgentTeam(stopped, library);
   assert.match(html, /顺序里没有执行者/);

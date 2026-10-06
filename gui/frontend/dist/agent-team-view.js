@@ -457,14 +457,14 @@ export function normalizeSchedule(value) {
     noProgressLimit: Number.isInteger(value.no_progress_limit) ? value.no_progress_limit : 0,
     stopped: value.stopped === true,
     stopReason: typeof value.stop_reason === "string" ? value.stop_reason : "",
-    unexecuted: Array.isArray(value.unexecuted) ? value.unexecuted.filter(name => typeof name === "string" && name) : []
+    no_automatic_turn: Array.isArray(value.no_automatic_turn) ? value.no_automatic_turn.filter(name => typeof name === "string" && name) : []
   };
 }
 
 const STOP_REASON_LABEL = {
   round_limit: "到达轮次上限",
   no_progress: "连续无进展",
-  no_executor: "顺序里没有执行者",
+  no_automatic_turn: "顺序里没有会自动发言的角色",
   empty_ring: "发言顺序为空",
   external_break: "外部停止（裁决/中断）"
 };
@@ -1066,12 +1066,12 @@ function scheduleBlock(team) {
   const schedule = team.schedule;
   if (!schedule) return "";
   const limit = schedule.roundLimit > 0 ? String(schedule.roundLimit) : "∞";
-  const unexecuted = new Set(schedule.unexecuted);
+  const noAutomaticTurn = new Set(schedule.no_automatic_turn);
   const stopped = schedule.stopped;
   const pills = schedule.order.map((roleName, index) => {
     const onFloor = roleName === team.floorRole;
     const isNext = !stopped && roleName === schedule.nextRole;
-    const idle = unexecuted.has(roleName);
+    const idle = noAutomaticTurn.has(roleName);
     const tip = idle
       ? `第 ${index + 1} 位 · 顺序里没有执行者：占位但不会自动产生回合`
       : `第 ${index + 1} 位${onFloor ? " · 当前发言权" : ""}${isNext ? " · 下一个发言" : ""}`;
@@ -1091,7 +1091,7 @@ function scheduleBlock(team) {
     <div class="schedule-strip" role="list" aria-label="发言顺序">${pills || '<span class="muted">顺序里还没有员工</span>'}</div>
     <div class="schedule-meta">
       ${stopChip}
-      ${schedule.unexecuted.length ? `<span class="schedule-note" title="顺序里没有执行者的角色：占位但不会自动产生回合">无执行者 ${escapeHtml(schedule.unexecuted.join("、"))}</span>` : ""}
+      ${schedule.no_automatic_turn.length ? `<span class="schedule-note" title="顺序里没有自动回合的角色：占位、不会自己发言；leader 派活（team_dispatch）才会跑">无自动回合 ${escapeHtml(schedule.no_automatic_turn.join("、"))}</span>` : ""}
     </div>
   </div>`;
 }

@@ -69,7 +69,7 @@ func teamViewFixture() dto.TeamView {
 			RoundLimit:      6,
 			NoProgress:      0,
 			NoProgressLimit: 3,
-			Unexecuted:      []string{"tl"},
+			NoAutomaticTurn: []string{"tl"},
 		},
 	}
 }

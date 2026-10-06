@@ -50,7 +50,7 @@ func TestTurnSchedulerChainOrderAndPrefixHandoff(t *testing.T) {
 		t.Fatalf("替换后第一次 Advance = %+v ok=%v, want tl", request, ok)
 	}
 
-	// skip：环里挂着没有执行者的角色要跳过；一圈全被跳过 = 环内无人可发言。
+	// skip：环里挂着没有自动回合的角色要跳过；一圈全被跳过 = 环内无人可发言。
 	partial := NewTurnScheduler([]string{"reviewer", "main"}, nil)
 	request, ok = partial.Advance(func(roleName string) bool { return roleName == "reviewer" })
 	if !ok || request.RoleName != "main" {

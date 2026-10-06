@@ -138,7 +138,7 @@ sequenceDiagram
 | `TurnScheduler`（链表轮转 / team work 前缀载体） | **部分接线**：`Runtime`（会话级发言调度运行态）持有它并同步注册表顺序（环成员 = `order_roles` − `user`）；生产实际消费的是 `Order()`（顺序投影）、`NoteTurn()`（逃生记账）、`SyncOrder()` 与 `Snapshot()`，**`Advance()`（经 `Runtime.Next`）没有生产消费者**（"下一个谁发言"是表头扫描的静态投影，不随轮转变化）。含三条**逃生路径**（轮次上限 / 连续无进展 / 无执行者）——它们是**环自己的兜底**，与 goal 治理不再同源（goal 没有"轮次"了） | 本包 `runtime.go` + `scheduler.go`；守卫用例 `scheduler_wiring_test.go`、`runtime_test.go`（`Runtime.Next` → `Advance` 的行为用例、`TestRuntimeRingExcludesUser`）；消费点 `application/core/agentteam_service.go`（`teamRuntimeFor`）与 `goal_coordinator.go`（`NoteTurn` 逃生记账） |
 | `@` 召唤的"开工"判据 | **已接线（2026-09-17，2026-10-03 换驱动）**：`@<团队> <附言>` 除装配外还落一个 goal（附言 = 目标陈述），随后由**主代理（leader）按 team_plan 阶段派活**推进；不带附言仍只装配（待命） | `application/core/input_team.go`（`beginGoalForSummon`）、用例 `application/core/input_team_work_test.go` |
 | 团队离场（干完就走人） | **已接线（2026-09-17）**：目标收口（栈里没有 active goal）→ 删角色注册表 + 复位顺序；角色会话子树保留（装配幂等键 `(主会话, team_id, role_name)` 不变，再次召唤复用同一棵） | `application/core/agentteam/factory.go`（`Dismiss`/`DismissPort`）、`sessionstore/team_registry.go`（`removeTeamRegistry`）、`application/core/agentteam_service.go`（`DismissAgentTeam`）、`application/core/goal_service.go`（`dismissTeamWhenGoalClosed`） |
-| `review-team` / `research-team` 的成员 | **只有装配、没有执行者**：`reviewer`/`researcher` 建得出角色会话，但不会自动产生回合（`TeamView.DesignNotice` 会明说） | `factory.go`（`RolesWithExecutor` / `unexecutedRoles`） |
+| `review-team` / `research-team` 的成员 | **只有装配、没有自动回合**：`reviewer`/`researcher` 建得出角色会话，但不会自动产生回合（`TeamView.DesignNotice` 会明说） | `factory.go`（`AutomaticTurnRoles` / `rolesWithoutAutomaticTurn`） |
 
 结论口径（2026-10-03 复核）：`TurnScheduler` 的链表顺序与 `SetPrefix` 有生产消费者：
 `Runtime`（`runtime.go`，2026-09-15 落地）把注册表顺序**减去 user** 同步成环（环成员 = 发言者集合，见 `ringOrder`）；生产**实际调用**的只有 `Order()`（顺序投影）、`NoteTurn()`（`AdvanceAfterChat` 据此收束环）与 `NoteWorkDetail()`（同一次 `AdvanceAfterChat` 把本轮正文装配成 team work 前缀 → `SetPrefix`；唯一写入口在后端，前端只能 `Snapshot().Prefix` 只读查看），`Advance()`（经 `Runtime.Next`）没有生产调用者（channel 投递路径 `Requests` / `Request` / `Next`、顺序编辑三件 `Move` / `Remove` / `Restore` 与只读 getter `Prefix` 已于 2026-10-01 **已退场**，理由是同一条：没有生产消费者）。
@@ -156,7 +156,7 @@ user**（环头扫描会落到它），与「其余时间都是 agent teammate �
 两条通知路径随之删除。
 
 **逃生路径**（不能不休止地转）：① 轮次上限 `round_limit`（缺省 24，2026-10-03 起是环**自己的**独立上限，不再与 goal 治理同源）；② 连续无进展上限 `no_progress`；
-③ 环内没有任何有执行者的角色 `no_executor`；④ 空环 `empty_ring`；⑤ 外部显式停止 `external_break`
+③ 环内没有任何有执行者的角色 `no_automatic_turn`；④ 空环 `empty_ring`；⑤ 外部显式停止 `external_break`
 （用户中断 / goal 收口）。停止是正常收束而非错误，原因随 `TeamView.schedule` 下发前端。
 
 ## 文件结构
@@ -190,8 +190,8 @@ user**（环头扫描会落到它），与「其余时间都是 agent teammate �
   `user → main → 其余角色（OrderPriority 升序）` 推导。
 - `assembleView` 只报事实不修补：已注册但不在顺序、顺序里未注册的角色写成
   `TeamView.DesignNotice`，供前端与冒烟断言。
-- 顺序里存在**没有执行者**的角色时（`reviewer`/`researcher`/自定义 agent/timer），
-  `DesignNotice` 必须明说"暂无可执行者"：执行者事实表 = `RolesWithExecutor`
+- 顺序里存在**没有自动回合**的角色时（`reviewer`/`researcher`/自定义 agent/timer），
+  `DesignNotice` 必须明说"没有自动回合"：执行者事实表 = `AutomaticTurnRoles`
   （`user`/`main` 由宿主驱动，`tl` 由 goal 治理执行）。
 
 ## 数据流或生命周期
@@ -244,7 +244,7 @@ presence 与 `message head.floor` 提供，不在本包落盘；`Registry.View`/
 - `View` 是否偷偷写盘（读路径必须零写入）？
 - `role_name` 是否只做了 metadata：没有被当成 provider role 使用？
 - `floor_role` 是不是每次读都重新取（有没有把运行态值缓存/落盘）？读失败是否被静默吞掉？
-- 新增/删除有执行者的角色时，`RolesWithExecutor` 与 `DesignNotice` 是否同步（别让 UI 误以为有人干活）？
+- 新增/删除有执行者的角色时，`AutomaticTurnRoles` 与 `DesignNotice` 是否同步（别让 UI 误以为有人干活）？
 - `scheduler.go` 被改动时，README「接线现状」表与 `scheduler_wiring_test.go` 是否同步？
 - 环成员是不是仍然等于「`order_roles` − `user`」？有没有哪条路径把 user 放回环里（那会让「下一个发言」指向人）？
 
@@ -260,7 +260,7 @@ go test -race ./application/core/agentteam -count=1
 ```
 
 关键测试：`agentteam_test.go`（规整/幂等/AT8 第二团队/定时分区/注册表 CRUD）、
-`team_view_test.go`（floor 读面：可选端口/读失败/降级；无执行者提示）、
+`team_view_test.go`（floor 读面：可选端口/读失败/降级；无自动回合提示）、
 `scheduler_wiring_test.go`（`TurnScheduler` 接线状态与 README 声明一致）、
 `sessionstore/team_registry_test.go`（注册表落盘、角色会话幂等、`message head.floor` 读面）、
 `application/core/goal_team_wiring_test.go`（goal → 自动装配）与
@@ -315,8 +315,8 @@ go test -race ./application/core/agentteam -count=1
 - `func buildMember(mainSessionID, teamID, name string, orderIndex int, inOrder bool, byName map[string]dto.RoleSpec) dto.TeamMember`
 - `func viewNotices(registry dto.TeamRegistry, orderRoles []string) []string` — viewNotices 只报事实，不自动修补：注册了但不在顺序里的角色、顺序里未注册的角色、
 - `func teamKindOf(registry dto.TeamRegistry) string` — teamKindOf 返回可展示的团队名（team_kind 是 team_id 的别名；空值不伪装成某个
-- `func unexecutedRoles(orderRoles []string) []string` — unexecutedRoles 返回工作顺序里没有执行者的角色（保序、去重）。
-- `func UnexecutedRoles(orderRoles []string) []string` — UnexecutedRoles 是 unexecutedRoles 的导出形态：发言调度运行态（runtime.go）
+- `func rolesWithoutAutomaticTurn(orderRoles []string) []string` — rolesWithoutAutomaticTurn 返回工作顺序里没有自动回合的角色（保序、去重）。
+- `func RolesWithoutAutomaticTurn(orderRoles []string) []string` — RolesWithoutAutomaticTurn 是 rolesWithoutAutomaticTurn 的导出形态：发言调度运行态（runtime.go）
 
 ### global.go
 
@@ -404,7 +404,7 @@ go test -race ./application/core/agentteam -count=1
 - `func (r *Runtime) Stopped() (bool, string)` — Stopped 返回环是否已被逃生路径收束，以及原因。
 - `func (r *Runtime) Reset()` — Reset 把环恢复到"未开始"的记账状态：清停止态与轮次/无进展计数，顺序与成员
 - `func (r *Runtime) Next() (TurnRequest, bool)` — Next 推进一格并返回下一个该发言的成员。ok=false 表示环内没有人能发言
-- `func (r *Runtime) skipLocked(roleName string) bool` — skipLocked 报告某个成员本轮不应占位：环里挂着没有执行者的角色
+- `func (r *Runtime) skipLocked(roleName string) bool` — skipLocked 报告某个成员本轮不应占位：环里挂着没有自动回合的角色
 - `func (r *Runtime) Snapshot() dto.TeamSchedule` — Snapshot 投影成只读运行态（前端「下一个谁发言 / 第几轮 / 是否已逃生」）。
 - `func (r *Runtime) peekNext() (TurnRequest, bool)` — peekNext 在不改动游标的前提下算出"下一个谁发言"（Snapshot 用）。
 - `func cleanOrder(order []string) []string` — cleanOrder 去掉空名与重复项（顺序事实来自 lifecycle，容错但不伪造）。
@@ -418,7 +418,7 @@ go test -race ./application/core/agentteam -count=1
 - `func TestRuntimeRingExcludesUser(t *testing.T)` — TestRuntimeRingExcludesUser：环里没有 user——user 的发言机会是回合尾消息队列
 - `func TestRuntimeEscapeRoundLimit(t *testing.T)` — TestRuntimeEscapeRoundLimit：轮次上限是逃生路径第一道——到达即停，且原因是
 - `func TestRuntimeEscapeNoProgress(t *testing.T)` — TestRuntimeEscapeNoProgress：连续无进展是逃生路径第二道——推进一次即清零，
-- `func TestRuntimeEscapeNoExecutor(t *testing.T)` — TestRuntimeEscapeNoExecutor：环里一个能发言的都没有时显式收束（no_executor /
+- `func TestRuntimeEscapeNoAutomaticTurn(t *testing.T)` — TestRuntimeEscapeNoAutomaticTurn：环里一个能发言的都没有时显式收束（no_automatic_turn /
 - `func TestRuntimeEscapeExternalStop(t *testing.T)` — TestRuntimeEscapeExternalStop：用户中断 / goal 收口走同一个显式停止入口，原因
 - `func TestRuntimeResetRevivesEscapeState(t *testing.T)` — TestRuntimeResetRevivesEscapeState：逃生是显式结论，但**复活也必须是显式可达
 - `func TestRuntimeResetOnNilIsSafe(t *testing.T)` — TestRuntimeResetOnNilIsSafe：Reset 走 nil 接收者安全（未装配团队环的会话在
@@ -463,7 +463,7 @@ go test -race ./application/core/agentteam -count=1
 - `func (port *floorFakePort) ReadFloorRole(string) (string, error)`
 - `func TestRegistryViewFillsFloorFromOptionalPort(t *testing.T)` — TestRegistryViewFillsFloorFromOptionalPort 钉住 ②：数据在 message head 里，
 - `func TestRegistryViewReportsFloorReadFailure(t *testing.T)` — TestRegistryViewReportsFloorReadFailure 钉住错误语义：floor 是运行态读面，
-- `func TestSecondAndThirdShapesDeclareNoExecutor(t *testing.T)` — TestSecondAndThirdShapesDeclareNoExecutor 钉住 ④：只带注册配置与角色会话、没有运行时
+- `func TestSecondAndThirdShapesDeclareNoAutomaticTurn(t *testing.T)` — TestSecondAndThirdShapesDeclareNoAutomaticTurn 钉住 ④：只带注册配置与角色会话、没有运行时
 
 ### testspecs_test.go
 

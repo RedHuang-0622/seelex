@@ -26,11 +26,11 @@ import (
 // 逃生路径的停止原因。停止 ≠ 出错：它是循环的正常收束方式之一，调用方据此
 // 决定"让位给用户/收口/升级"。
 const (
-	StopRoundLimit = "round_limit"    // 到达轮次上限
-	StopNoProgress = "no_progress"    // 连续多轮没有推进
-	StopNoExecutor = "no_executor"    // 环内没有任何有执行者的角色
-	StopEmptyRing  = "empty_ring"     // 环是空的（没有成员）
-	StopExternal   = "external_break" // 外部显式停止（用户/裁决/Break）
+	StopRoundLimit      = "round_limit"       // 到达轮次上限
+	StopNoProgress      = "no_progress"       // 连续多轮没有推进
+	StopNoAutomaticTurn = "no_automatic_turn" // 环内没有任何会自动产生回合的角色
+	StopEmptyRing       = "empty_ring"        // 环是空的（没有成员）
+	StopExternal        = "external_break"    // 外部显式停止（用户/裁决/Break）
 )
 
 // RuntimeOptions 是运行态的装配输入。
@@ -80,7 +80,7 @@ type Runtime struct {
 }
 
 // NewRuntime 构造运行态。sessions 提供 role_name → role_session_id（成员表的
-// 角色会话坐标）；executors 为 nil 时按包的 RolesWithExecutor 事实表判断。
+// 角色会话坐标）；executors 为 nil 时按包的 AutomaticTurnRoles 事实表判断。
 // 环成员 = order_roles 去掉 user（见 ringOrder）。
 func NewRuntime(order []string, sessions map[string]string, orderPolicy string, opts RuntimeOptions) *Runtime {
 	return &Runtime{
@@ -288,7 +288,7 @@ func (r *Runtime) Reset() {
 }
 
 // Next 推进一格并返回下一个该发言的成员。ok=false 表示环内没有人能发言
-// （空环 / 全员无执行者 / 已收束），调用方据此走逃生路径，不要空转。
+// （空环 / 全员没有自动回合 / 已收束），调用方据此走逃生路径，不要空转。
 func (r *Runtime) Next() (TurnRequest, bool) {
 	if r == nil {
 		return TurnRequest{}, false
@@ -303,20 +303,20 @@ func (r *Runtime) Next() (TurnRequest, bool) {
 		switch {
 		case len(r.scheduler.Order()) == 0:
 			r.stopLocked(StopEmptyRing)
-		case len(UnexecutedRoles(r.scheduler.Order())) > 0:
-			r.stopLocked(StopNoExecutor)
+		case len(RolesWithoutAutomaticTurn(r.scheduler.Order())) > 0:
+			r.stopLocked(StopNoAutomaticTurn)
 		}
 		return TurnRequest{}, false
 	}
 	return request, true
 }
 
-// skipLocked 报告某个成员本轮不应占位：环里挂着没有执行者的角色
-// （review-team 的 reviewer 等）跳过，但会在 Snapshot().Unexecuted 里如实报出来。
+// skipLocked 报告某个成员本轮不应占位：环里挂着没有自动回合的角色
+// （review-team 的 reviewer 等）跳过，但会在 Snapshot().NoAutomaticTurn 里如实报出来。
 //
 // user 不适用这条判据——它根本不在环里（见 ringOrder）。
 func (r *Runtime) skipLocked(roleName string) bool {
-	return !RolesWithExecutor[roleName]
+	return !AutomaticTurnRoles[roleName]
 }
 
 // Snapshot 投影成只读运行态（前端「下一个谁发言 / 第几轮 / 是否已逃生」）。
@@ -344,7 +344,7 @@ func (r *Runtime) Snapshot() dto.TeamSchedule {
 		NoProgressLimit: noProgressLimit,
 		Stopped:         stopped,
 		StopReason:      reason,
-		Unexecuted:      UnexecutedRoles(order),
+		NoAutomaticTurn: RolesWithoutAutomaticTurn(order),
 		Prefix:          prefix,
 		PrefixParts:     prefixParts,
 		PrefixChars:     len([]rune(prefix)),

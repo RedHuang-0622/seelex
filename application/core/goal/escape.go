@@ -1,6 +1,6 @@
 package goal
 
-// escape.go — 环逃生（round_limit / no_progress / empty_ring / no_executor）的
+// escape.go — 环逃生（round_limit / no_progress / empty_ring / no_automatic_turn）的
 // **唯一收口口**。
 //
 // 背景（2026-09-16 复核，2026-10-03 席位轮转退场后仍是同一条纪律）：逃生此前只在

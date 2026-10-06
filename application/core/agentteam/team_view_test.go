@@ -113,9 +113,9 @@ func TestRegistryViewReportsFloorReadFailure(t *testing.T) {
 	}
 }
 
-// TestSecondAndThirdShapesDeclareNoExecutor 钉住 ④：只带注册配置与角色会话、没有运行时
+// TestSecondAndThirdShapesDeclareNoAutomaticTurn 钉住 ④：只带注册配置与角色会话、没有运行时
 // 执行者的团队，成员表必须明说，否则前端「装配完成」会被读成「有人在工作」。
-func TestSecondAndThirdShapesDeclareNoExecutor(t *testing.T) {
+func TestSecondAndThirdShapesDeclareNoAutomaticTurn(t *testing.T) {
 	cases := []struct {
 		name string
 		spec dto.TeamSpec
@@ -135,8 +135,8 @@ func TestSecondAndThirdShapesDeclareNoExecutor(t *testing.T) {
 			t.Fatal(err)
 		}
 		notice := strings.Join(result.View.DesignNotice, "\n")
-		if !strings.Contains(notice, "暂无可执行者") || !strings.Contains(notice, testCase.role) {
-			t.Fatalf("%s 的成员表必须声明无执行者（含 %s）: %v", testCase.name, testCase.role, result.View.DesignNotice)
+		if !strings.Contains(notice, "没有自动回合") || !strings.Contains(notice, testCase.role) {
+			t.Fatalf("%s 的成员表必须声明没有自动回合（含 %s）: %v", testCase.name, testCase.role, result.View.DesignNotice)
 		}
 		// 视图读面同样口径（前端走 registry.View）。
 		registry, err := NewRegistry(port)
@@ -148,8 +148,8 @@ func TestSecondAndThirdShapesDeclareNoExecutor(t *testing.T) {
 			t.Fatal(err)
 		}
 		viewNotice := strings.Join(view.DesignNotice, "\n")
-		if !strings.Contains(viewNotice, "暂无可执行者") {
-			t.Fatalf("读视图必须同样声明无执行者: %v", view.DesignNotice)
+		if !strings.Contains(viewNotice, "没有自动回合") {
+			t.Fatalf("读视图必须同样声明没有自动回合: %v", view.DesignNotice)
 		}
 	}
 
@@ -163,7 +163,7 @@ func TestSecondAndThirdShapesDeclareNoExecutor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if notice := strings.Join(goalResult.View.DesignNotice, "\n"); strings.Contains(notice, "暂无可执行者") {
-		t.Fatalf("tl 有执行者，不应报无执行者: %v", goalResult.View.DesignNotice)
+	if notice := strings.Join(goalResult.View.DesignNotice, "\n"); strings.Contains(notice, "没有自动回合") {
+		t.Fatalf("tl 有自动回合，不该进无自动回合清单: %v", goalResult.View.DesignNotice)
 	}
 }

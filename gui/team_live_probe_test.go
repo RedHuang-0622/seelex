@@ -156,12 +156,13 @@ func TestRealAPIAgentTeamLiveProbe(t *testing.T) {
 	if strings.Join(orderView.OrderRoles, ",") != "user,main,reviewer,auditor" {
 		t.Fatalf("order roles = %v", orderView.OrderRoles)
 	}
-	// review-team 的工作顺序含 reviewer / auditor 两个**没有自动执行者**的角色：
-	// 按设计，factory 会在这里如实声明它（DesignNotice）。这条声明是**设计事实**，
-	// 不是"链路偏差"——旧判据把任何 notice 一律当偏差，于是对一条完全正常的装配报红
-	// （2026-10-06 现场：1.82s 红在这里，产品没有任何回归）。
-	// 分桶：`暂无可执行者` 声明进 declaredNotice，其余（goal-a2a 不该出现的声明、
-	// 注册/顺序类警告）仍进 notice 当偏差查。
+	// review-team 的工作顺序含 reviewer / auditor 两个**没有自动回合**的角色：
+	// 按设计，装配面必须如实声明它（DesignNotice）。判据分两问，都钉在**真话**上：
+	//   ① 声明必须恰有一条、点明那两个角色——少了才是偏差（面板会让人以为装配完有人干活）；
+	//   ② 声明里**不许**出现"没有执行者/暂无可执行者/只读成员"这类假口径——今天任何在编
+	//      角色都能被 leader 派活跑真回合（team_dispatch → 作业 → RunWorker → runRoleRound），
+	//      把一个正要派活的人说成"没人能干活"才是真正的链路偏差（2026-10-06 现场：1.82s
+	//      正是红在这句假话上，产品并没有回归）。
 	declaredNotice, orderDeviations := splitTeamAssemblyNotice(orderView.DesignNotice)
 	notice = append(notice, orderDeviations...)
 
@@ -247,11 +248,14 @@ func TestRealAPIAgentTeamLiveProbe(t *testing.T) {
 	}
 	report["healthz"] = response.StatusCode
 	teamLiveWriteReport(t, repoRoot, report)
-	// review-team 的无执行者声明是设计事实，必须**恰好一条且点明那两个角色**：
-	// 少了它才是偏差（面板就真会让人以为装配完有人干活）；多了/串味同样是偏差。
+	// 无自动回合的声明：必须**恰好一条且点明那两个角色**（少了它才是偏差——面板就真会让人
+	// 以为装配完有人干活），并且**不许**把"没有自动回合"说成"没有执行者"。
 	if len(declaredNotice) != 1 ||
 		!strings.Contains(declaredNotice[0], "reviewer") || !strings.Contains(declaredNotice[0], "auditor") {
-		t.Fatalf("review-team 的无执行者声明应当恰有一条且点明 reviewer/auditor，实际：%v", declaredNotice)
+		t.Fatalf("review-team 的无自动回合声明应当恰有一条且点明 reviewer/auditor，实际：%v", declaredNotice)
+	}
+	if claim := noExecutorClaimIn(declaredNotice[0]); claim != "" {
+		t.Fatalf("装配面把「没有自动回合」说成了「没有执行者」：命中 %q（可派活角色不是没人能干活）\n原文：%s", claim, declaredNotice[0])
 	}
 	if len(notice) != 0 {
 		t.Fatalf("链路出现不符合设计稿的偏差: %v", notice)
@@ -260,20 +264,33 @@ func TestRealAPIAgentTeamLiveProbe(t *testing.T) {
 
 // splitTeamAssemblyNotice 把装配面的 notice 分成"按设计必须出现的声明"与"偏差"两桶。
 //
-// 判据取向：`unexecutedRoles` 那句声明（factory.go，"暂无可执行者"）是**设计事实**——
-// 角色只有注册配置与角色会话、装配本身不产生回合（真回合要 leader 派活），装配面必须
-// 把它说出来；把它当"偏差"正是旧判据的病根。其余任何 notice（goal-a2a 不该出现的声明、
-// 注册/顺序类警告）仍然是偏差。
+// 判据取向：`rolesWithoutAutomaticTurn` 那句声明（factory.go，"没有自动回合"）是**设计
+// 事实**——角色只有注册配置与角色会话、装配本身不产生回合（真回合要 leader 派活），装配面
+// 必须把它说出来；把它当"偏差"正是旧判据的病根。其余任何 notice（goal-a2a 不该出现的
+// 声明、注册/顺序类警告）仍然是偏差。
 func splitTeamAssemblyNotice(notices []string) (declared []string, deviated []string) {
-	const unexecutedMarker = "暂无可执行者"
+	const noAutomaticTurnMarker = "没有自动回合"
 	for _, notice := range notices {
-		if strings.Contains(notice, unexecutedMarker) {
+		if strings.Contains(notice, noAutomaticTurnMarker) {
 			declared = append(declared, notice)
 			continue
 		}
 		deviated = append(deviated, notice)
 	}
 	return declared, deviated
+}
+
+// noExecutorClaimIn 返回 notice 里命中的"假口径"字样（无则空串）。
+//
+// 「没有自动回合」与「没有执行者」是两件事：后者会被读成"这些角色没人能干活"，而今天任何
+// 在编角色都能被 leader 派活跑真回合。装配面只许说前者。
+func noExecutorClaimIn(notice string) string {
+	for _, claim := range []string{"暂无可执行者", "没有执行者", "无执行者", "只读成员"} {
+		if strings.Contains(notice, claim) {
+			return claim
+		}
+	}
+	return ""
 }
 
 // teamLiveAssertRealTurnLanded 用 target 角色的 role.snapshot 读主文档行，确认真实

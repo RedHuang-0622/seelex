@@ -330,9 +330,9 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
   （「定时」chip）。
 - **发言调度（运行态串珠条）**：不摆 项/值 表——顺序本身是一条可视的链
   （`.schedule-pill`：序号 + 身份），"发言中"（floor）与"下一个"（`schedule.next_role`）
-  各占一档高亮，其余为普通/虚线（`unexecuted` 的角色标"无执行者"）；上方徽标是
+  各占一档高亮，其余为普通/虚线（`no_automatic_turn` 的角色标"无自动回合"）；上方徽标是
   `轮次 / 上限`（环自己的逃生上限，2026-10-03 起与 goal 治理不再同源），下方一行 meta
-  只在有收束原因/无执行者角色时出现。环成员不含
+  只在有收束原因/无自动回合角色时出现。环成员不含
   `user`（用户的发言机会是回合尾消息队列被整批提升为下一轮，不是排班位），所以珠子
   里没有 `USER`、"下一个"也不会指向人。参照群聊的通行做法：顺序用位置与编号表达，
   不靠文字播报。没有 `TeamView.schedule`（旧宿主）时整块隐藏，不拿静态顺序冒充运行态。
@@ -367,7 +367,7 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
   的历史字段（旧版还给过虚线只读框与 Team 栏只读 chip，现在连展示都不给——免得被当成
   可配置项），后者只是团队名的别名、不再是设定。两者都只作**隐藏字段**原样带回
   （`data-team-form-policy`；写顺序仍由 `agentTeamCurrentPolicy` 把既有取值带上）。文案
-  同样不再用"循环"说 teamwork：发言调度的收束原因显示为「顺序里没有执行者 / 发言顺序为空」。
+  同样不再用"循环"说 teamwork：发言调度的收束原因显示为「顺序里没有自动回合 / 发言顺序为空」。
 - **提示词优化**：员工面板里的「优化提示词」按钮调 `Bridge.AgentTeamOptimizePrompt`
   （一次有界 LLM 回合），结果只渲染成候选 + 改动理由，点「应用到提示词」才写回
   输入框；落盘仍走「入职 / 保存修改」。

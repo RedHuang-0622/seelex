@@ -42,8 +42,8 @@ func TestInstantiateRoleOneStepHiresAnEmployee(t *testing.T) {
 	if role.RoleName != "reviewer" || role.ToolsPolicy != dto.ToolPolicyReadonly || role.ModelPolicy != "same-as-exec" {
 		t.Fatalf("注册表未落角色配置: %+v", role)
 	}
-	if result.Executor != "" || !strings.Contains(strings.Join(result.Notice, "；"), "没有运行时执行者") {
-		t.Fatalf("没有执行者的角色必须显式说明: executor=%q notice=%v", result.Executor, result.Notice)
+	if result.Executor != "" || !strings.Contains(strings.Join(result.Notice, "；"), "没有自动回合") {
+		t.Fatalf("没有自动回合的角色必须显式说明: executor=%q notice=%v", result.Executor, result.Notice)
 	}
 	if port.policy != dto.OrderPolicyUserMainDecided {
 		t.Fatalf("实例化不得改写既有顺序策略: %q", port.policy)

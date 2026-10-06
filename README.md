@@ -409,7 +409,7 @@ Seelex 的截屏不再把 base64 塞进工具结果，而是走一条统一的�
 - **缺席矩阵**：完成声明必须经裁决侧裁决；执行侧永不等待裁决侧；超时或限流按判负或转人工处理；审批请求先经裁决侧预筛（低风险代答、高风险转人工）；每次状态变更 append-only 记账。
 - **收口节奏**：整队作业由 <code>team_close</code> 收口（唯一回收点，逐在编成员回收 + 封板看板 + 计划标 closed，幂等），目标随后由 <code>goal_done</code> 收口（主代理即 TL 的真收口，不过终态 gate）；<code>team_retire</code> 只结束某个 teammate 的一轮、**不回收作业**，作业正文一直活到 <code>team_close</code>。
 
-这个闭环的作用是让「任务已完成」不再由模型单方面宣告。它目前仍是**单进程内**的治理；**团队**有谁在编由用户/leader 决定（团队库条目显式装配，没有任何内置形态模板），装配本身不等于有人在干活——只登记了配置与角色会话、没接执行者的团队成员会在成员表里被明说「暂无可执行者」（见 [teamwork 接线修复记录](docs/devlog/2026-09-14-teamwork-wiring-fixes.md)）。
+这个闭环的作用是让「任务已完成」不再由模型单方面宣告。它目前仍是**单进程内**的治理；**团队**有谁在编由用户/leader 决定（团队库条目显式装配，没有任何内置形态模板），装配本身不等于有人在干活——只登记了配置与角色会话、没有自动回合的团队成员会在成员表里被明说「没有自动回合」（见 [teamwork 接线修复记录](docs/devlog/2026-09-14-teamwork-wiring-fixes.md)）。
 
 ## 快速开始
 
@@ -756,7 +756,7 @@ Linux CI 还会执行 race detector、覆盖率和发布包安全检查。
 - 项目仍处于 Developer Alpha，CLI、配置字段和持久化 schema 可能继续调整。
 - TUI 是默认入口；GUI 功能较完整，但仍依赖平台 WebView，属于 Alpha，真实 WebView E2E 尚未作为发布门禁。
 - 当前 Plan 是同一进程内由主 Agent 编排多个独立节点 Session，不是跨进程或跨组织的完整 A2A Protocol 实现。团队轮转的 <code>TurnScheduler</code> 属**部分接线**：<code>SetPrefix</code>、<code>NoteTurn</code>、<code>SyncOrder</code> 与 <code>Snapshot</code> 有生产消费者，而 <code>Next()</code>/<code>Advance()</code> 目前只是原语、没有生产消费者；2026-10-03 起 goal 的治理座位循环整条退场，**没有任何东西在驱动"轮到谁"**——让角色说话的是主代理（leader）的 <code>team_dispatch</code>，环只剩逃生记账。整队收口（<code>team_close</code>）与目标收口（<code>goal_done</code>）已落地，但两者都是同一进程内、由提示词驱动的动作，不是框架级的席位调度。
-- <code>review-team</code> 的 <code>reviewer</code> 与 <code>research-team</code> 的 <code>researcher</code> 目前只有角色会话与成员行，没有执行者（事实表 <code>RolesWithExecutor</code> 只含 <code>user</code>/<code>main</code>/<code>tl</code>）；装配面通过 <code>DesignNotice</code> 显式声明「谁还没有执行者」，不会让人误以为装配完就有人干活。角色回合执行体（<code>runRoleRound</code>）已落地，为 leader 派发的 worker 作业与终态 gate 的 ADVISOR 评审回合提供承重面。
+- <code>review-team</code> 的 <code>reviewer</code> 与 <code>research-team</code> 的 <code>researcher</code> 目前只有角色会话与成员行，没有自动回合（事实表 <code>AutomaticTurnRoles</code> 只含 <code>user</code>/<code>main</code>/<code>tl</code>）；装配面通过 <code>DesignNotice</code> 显式声明「谁还没有执行者」，不会让人误以为装配完就有人干活。角色回合执行体（<code>runRoleRound</code>）已落地，为 leader 派发的 worker 作业与终态 gate 的 ADVISOR 评审回合提供承重面。
 - OpenAI-compatible 不等于完全行为一致；工具调用、流式协议和模型参数仍需按 provider 验证。
 - 项目尚未发布 SWE-bench、Terminal-Bench 等标准化编码基准结果。
 - 覆盖率仍是短板：2026-09-14 口径全仓 **58.6%**，TUI **35.6%** 明显低于核心编排层，前端交互的回归保护弱于后端。

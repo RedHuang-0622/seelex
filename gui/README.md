@@ -177,7 +177,7 @@ Bridge 不保存 `currentSessionID` 副本。顺序的唯一事实是会话
 `AgentTeamSetOrder`。`dto.TeamView.schedule` 是**运行时**的发言调度投影
 （`application/core/agentteam/runtime.go`）：发言环成员（= `order_roles` − `user`）
 → 下一个该发言的角色、轮次/上限与逃生状态
-（`round_limit`/`no_progress`/`no_executor`/`empty_ring`/`external_break`）。
+（`round_limit`/`no_progress`/`no_automatic_turn`/`empty_ring`/`external_break`）。
 `user` 不在环里（它的发言机会是回合尾消息队列被整批提升为下一轮），所以面板的
 「下一个」永远不会指向用户；前端 `agent-team-view.js` 的「发言调度」块只渲染后端事实，
 不下发也不缓存顺序。

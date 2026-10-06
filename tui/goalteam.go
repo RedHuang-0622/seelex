@@ -272,8 +272,8 @@ func (model Model) teamPanelLines() []string {
 			parts = append(parts, "已收束("+fallback(schedule.StopReason, "—")+")")
 		}
 		lines = append(lines, StyleMuted.Render("  调度 "+strings.Join(parts, " · ")))
-		if len(schedule.Unexecuted) > 0 {
-			lines = append(lines, StyleMuted.Render("  无执行者 "+oneLine(strings.Join(schedule.Unexecuted, ","), model.textLimit())))
+		if len(schedule.NoAutomaticTurn) > 0 {
+			lines = append(lines, StyleMuted.Render("  无自动回合 "+oneLine(strings.Join(schedule.NoAutomaticTurn, ","), model.textLimit())))
 		}
 	} else {
 		lines = append(lines, StyleMuted.Render("  调度 无运行态（本会话没有发言调度运行时）"))

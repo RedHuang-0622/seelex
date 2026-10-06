@@ -204,11 +204,11 @@ type TeamSchedule struct {
 	NoProgress      int `json:"no_progress"`
 	NoProgressLimit int `json:"no_progress_limit"`
 	// Stopped / StopReason 是循环是否已被逃生路径收束（round_limit / no_progress /
-	// no_executor / external_break / verdict）。
+	// no_automatic_turn / external_break / verdict）。
 	Stopped    bool   `json:"stopped"`
 	StopReason string `json:"stop_reason,omitempty"`
-	// Unexecuted 是环内没有运行时执行者的角色（占位但不会自动产生回合）。
-	Unexecuted []string `json:"unexecuted,omitempty"`
+	// NoAutomaticTurn 是环内没有自动回合的角色（占位、不会自己发言；leader 派活才跑）。
+	NoAutomaticTurn []string `json:"no_automatic_turn,omitempty"`
 	// Prefix 是「team work 起点 → 当前位置」的正文前缀（下一个发言成员拿到的
 	// 上下文）。**只读投影**：作者是存储侧对主会话上下文（含主会话 draft）的装配
 	// （assembleRoleWire；roleName=main 复用主会话自身，与 TL 对话记录同一条
@@ -229,7 +229,7 @@ type TeamSchedule struct {
 }
 
 // RoleInstantiation 是「一步实例化一个角色」（员工入职）的可观测回执：配置怎么落、
-// 会话建没建、进不进工作顺序、谁在运行时执行它。没有执行者的角色在这里就说清楚，
+// 会话建没建、进不进工作顺序、有没有自动回合（谁会自己发言）。没有自动回合的角色
 // 而不是等到 UI 上看起来「有人干活」却没回合。
 type RoleInstantiation struct {
 	Role        RoleSpec        `json:"role"`

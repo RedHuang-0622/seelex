@@ -11,7 +11,7 @@ import (
 //  1. 环维护成员：注册表顺序变一次，链表跟着变一次；环成员 = 顺序 − user；
 //  2. user 不在环里：它的发言机会是回合尾消息队列被整批提升为下一轮（chat 轮次），
 //     不是环里的一个排班位——队友的「下一个」永远不会是 user；
-//  3. 逃生路径：轮次上限 / 连续无进展 / 无执行者 / 空环 / 外部显式停止。
+//  3. 逃生路径：轮次上限 / 连续无进展 / 没有自动回合 / 空环 / 外部显式停止。
 
 func newTestRuntime(order []string, policy string, opts RuntimeOptions) *Runtime {
 	return NewRuntime(order, map[string]string{"tl": "sess-tl"}, policy, opts)
@@ -25,7 +25,7 @@ func TestRuntimeMaintainsRingFromRegistryOrder(t *testing.T) {
 	if got := runtime.Order(); strings.Join(got, ",") != "main,tl" {
 		t.Fatalf("环初始顺序 = %v（user 不落环）", got)
 	}
-	// 增加员工：reviewer 入职后顺序同步，且因没有执行者被跳过（不占位）。
+	// 增加员工：reviewer 入职后顺序同步，且因没有自动回合被跳过（不占位）。
 	runtime.SyncOrder([]string{"user", "main", "tl", "reviewer"}, nil, dto.OrderPolicyGoalLoop)
 	if got := strings.Join(runtime.Order(), ","); got != "main,tl,reviewer" {
 		t.Fatalf("增加员工后环顺序 = %q", got)
@@ -38,7 +38,7 @@ func TestRuntimeMaintainsRingFromRegistryOrder(t *testing.T) {
 }
 
 // TestRuntimeRingsThroughExecutorsOnly：按链表转一圈，只落在有执行者的角色上；
-// 没有执行者的角色被跳过并如实报出（不是静默忽略）。
+// 没有自动回合的角色被跳过并如实报出（不是静默忽略）。
 func TestRuntimeRingsThroughExecutorsOnly(t *testing.T) {
 	runtime := newTestRuntime([]string{"user", "main", "tl", "reviewer"}, dto.OrderPolicyGoalLoop, RuntimeOptions{})
 	var spoke []string
@@ -50,10 +50,10 @@ func TestRuntimeRingsThroughExecutorsOnly(t *testing.T) {
 		spoke = append(spoke, request.RoleName)
 	}
 	if got := strings.Join(spoke, ","); got != "main,tl,main" {
-		t.Fatalf("环绕次序 = %q（reviewer 无执行者应被跳过；环里没有 user）", got)
+		t.Fatalf("环绕次序 = %q（reviewer 没有自动回合应被跳过；环里没有 user）", got)
 	}
-	if unexecuted := runtime.Snapshot().Unexecuted; len(unexecuted) != 1 || unexecuted[0] != "reviewer" {
-		t.Fatalf("无执行者角色应如实报出: %v", unexecuted)
+	if withoutAutoTurn := runtime.Snapshot().NoAutomaticTurn; len(withoutAutoTurn) != 1 || withoutAutoTurn[0] != "reviewer" {
+		t.Fatalf("没有自动回合的角色应如实报出: %v", withoutAutoTurn)
 	}
 }
 
@@ -126,15 +126,15 @@ func TestRuntimeEscapeNoProgress(t *testing.T) {
 	}
 }
 
-// TestRuntimeEscapeNoExecutor：环里一个能发言的都没有时显式收束（no_executor /
+// TestRuntimeEscapeNoAutomaticTurn：环里一个能发言的都没有时显式收束（no_automatic_turn /
 // empty_ring），不是"转一圈返回空"让调用方自己猜。
-func TestRuntimeEscapeNoExecutor(t *testing.T) {
+func TestRuntimeEscapeNoAutomaticTurn(t *testing.T) {
 	noExecutor := newTestRuntime([]string{"reviewer", "researcher"}, dto.OrderPolicyGoalLoop, RuntimeOptions{})
 	if _, ok := noExecutor.Next(); ok {
-		t.Fatal("全员无执行者时不应返回发言者")
+		t.Fatal("全员没有自动回合时不应返回发言者")
 	}
-	if stopped, reason := noExecutor.Stopped(); !stopped || reason != StopNoExecutor {
-		t.Fatalf("全员无执行者应显式收束，得到 stopped=%v reason=%q", stopped, reason)
+	if stopped, reason := noExecutor.Stopped(); !stopped || reason != StopNoAutomaticTurn {
+		t.Fatalf("全员没有自动回合应显式收束，得到 stopped=%v reason=%q", stopped, reason)
 	}
 
 	empty := newTestRuntime(nil, dto.OrderPolicyGoalLoop, RuntimeOptions{})
