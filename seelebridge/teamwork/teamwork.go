@@ -85,8 +85,8 @@ type WorkerRequest struct {
 	//
 	// 权限**不在这里**：插件只收窄能力（工具面 ∩），永不放宽权限面——"装了插件就
 	// 有权限"是这条硬规则要挡住的那种读法。
-	Plugins []string `json:"plugins,omitempty"`
-	Worktree         string           `json:"worktree,omitempty"`
+	Plugins  []string `json:"plugins,omitempty"`
+	Worktree string   `json:"worktree,omitempty"`
 	// WorkItemID / Milestone 是这一轮工作属于甘特图的哪个节点。**一 Work Item 一个
 	// Session + 一个 worktree** 的隔离与回收都以它为准（空 = 非 Work Item 口径的
 	// 派发，走 teammate 级的老口径）。

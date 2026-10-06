@@ -106,7 +106,7 @@ type TeamworkBinding struct {
 	Worktree  string `json:"worktree,omitempty"`
 	At        int64  `json:"at"`
 	// Released=true 表示这一份绑定已经结束（验收销项 / 整队收口）。
-	Released bool `json:"released,omitempty"`
+	Released bool   `json:"released,omitempty"`
 	Reason   string `json:"reason,omitempty"`
 }
 

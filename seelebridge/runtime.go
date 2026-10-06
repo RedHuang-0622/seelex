@@ -219,7 +219,11 @@ type Runtime struct {
 	window   seelexctx.WindowPolicy
 	// 节点会话记录持久化（用户约定：<mainSessionID>-<subSessionID>.json，
 	// 见 sessionstore.NodeSessionRecord）；Router 就绪后 AttachSubSessionStore 注入。
+	// 写走 `unitRecordWriter`（责任链：子代理那一环写身份 → 末端落盘），teammate 那一层
+	// 在同一条链上再加一环；读与删除仍走 `nodeSessionStore`。
 	nodeSessionStore *sessionstore.NodeSessionStore
+	// unitRecordWriter 是本进程会话记录的**写入链**（子代理那一环已装好）；未装配 = nil。
+	unitRecordWriter *sessionstore.NodeSessionRecordWriter
 	// subagentResume 保存中断子代理恢复期的状态：节点 → system 恢复说明
 	// （仅该节点的下一次装配读取）与父侧历史补齐钩子。见
 	// runtime_subagent_resume.go。

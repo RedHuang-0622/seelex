@@ -457,7 +457,8 @@ func TestTeamworkBoardCarriesMemberCurrentSession(t *testing.T) {
 	}
 }
 
-func TestTeamworkBoardSnapshotCapsAuditWindow(t *testing.T) {	r := newTestRuntime(t)
+func TestTeamworkBoardSnapshotCapsAuditWindow(t *testing.T) {
+	r := newTestRuntime(t)
 	defer r.Shutdown()
 	store := &memPlanStore{}
 	if err := r.SetTeamworkBackend(teamworkTestBackend(store, "s-team")); err != nil {

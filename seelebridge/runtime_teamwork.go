@@ -652,15 +652,18 @@ func (r *Runtime) RunWorker(ctx context.Context, request teamwork.WorkerRequest,
 		mainSessionID = seeletelemetry.SessionIDFromContext(ctx)
 	}
 	r.bindWorkerProjectRoot(mainSessionID, request.RoleSessionID, request.Worktree)
-	// 运行期落盘（契约 workunit 的会话面）：这一轮跑到哪、现场在哪。角色会话此前**只在
-	// 内存**（重启即失忆），记录是重启回灌唯一的依据——所以它在**开跑之前**写。
-	teamKey := teamUnitKeyFor(request)
-	r.markTeamUnitRunning(mainSessionID, teamKey)
 	maxLoops := request.MaxTurns
 	if maxLoops <= 0 {
 		maxLoops = roleTurnMaxLoops
 	}
-	output, err := r.runRoleRound(ctx, r.workerRoleRoundSpec(request, mainSessionID, maxLoops))
+	spec := r.workerRoleRoundSpec(request, mainSessionID, maxLoops)
+	// 运行期落盘（契约 workunit 的会话面）：这一轮跑到哪、现场在哪、属于哪一层。角色会话此前
+	// **只在内存**（重启即失忆），记录是重启回灌唯一的依据——所以它在**开跑之前**写，而且把
+	// 装配层算出来的身份一起写进去（系统提示 = 这一轮装配的那一份，含中断恢复说明）。
+	teamKey := teamUnitKeyFor(request)
+	teamKey.SystemPrompt = spec.SystemPrompt
+	r.markTeamUnitRunning(mainSessionID, teamKey)
+	output, err := r.runRoleRound(ctx, spec)
 	if err != nil {
 		// 产品自有输出文件时，失败正文也得落进这个文件：框架在这种形态下**不写**
 		// （externalOutput.write 是空操作），不写就等于"这一轮出过错"这件事在正文里

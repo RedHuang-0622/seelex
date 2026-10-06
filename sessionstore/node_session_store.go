@@ -30,11 +30,35 @@ import (
 const NodeSessionSchemaVersion = 1
 
 // NodeWorktreeRecord 是节点 worktree 现场的持久化摘要（恢复数据面）。
+//
+// 四栏**缺一不可**：记录投影（`WorktreeManager.Restore`）是恢复链上先到的那一份来源，
+// 它缺栏就会被后来的"计划 + 账本认领"（`Adopt`）挡回（"已在册不覆盖"），于是收尾拿不到
+// `MainBranch`/`BaseCommit`。写侧必须写全（`teamUnitWorktreeRecord` 从注册表现查四栏）。
 type NodeWorktreeRecord struct {
 	Path       string `json:"path,omitempty"`
 	Branch     string `json:"branch,omitempty"`
 	MainBranch string `json:"main_branch,omitempty"`
 	BaseCommit string `json:"base_commit,omitempty"`
+}
+
+// NodeUnitRecord 是记录快照里的**身份**那一格：这条记录属于哪一类执行单元，以及这一类
+// 单元独有/可选的配置摘要。恢复链据此**分派策略**（见 `seelebridge/runtime_unit_recovery.go`），
+// 不再靠 nodeID 的形状去猜——记录文件与子代理节点记录共用同一个 `subagents/` 目录，
+// 光看文件名分不出"崩溃遗留的子代理节点"与"团队现场的正本"。
+//
+// 只记身份，不重复别的事实：
+//   - 会话正文在自己的字段里（`History` / `ContextJSON`）；
+//   - 现场在自己的字段里（`Worktree`，四栏齐全）；
+//   - **本轮派发正文就是既有的 `Goal`**（同一份事实不存两遍：`Prompt` 不另立一栏）。
+//
+// 词表只有一份契约（`workunit.Kind`：subagent | teammate）；本字段是**存储侧的 wire 串**
+// （落盘格口径：字段留 store 侧，读回经唯一转换点 `unitKindOf`）。**空 = subagent**：
+// 加固之前写下的老记录没有这一格，读回按团队事实兜底（见 `unitKindOf`）。
+type NodeUnitRecord struct {
+	Kind         string   `json:"kind,omitempty"`          // workunit.Kind 的词：subagent | teammate
+	Role         string   `json:"role,omitempty"`          // teammate 独有：角色名（`<role>-<itemID>` 的前半）
+	Plugins      []string `json:"plugins,omitempty"`       // teammate 独有：按会话插件装配（能力轴）
+	SystemPrompt string   `json:"system_prompt,omitempty"` // teammate 可选：本轮装配的系统提示（含中断恢复说明）
 }
 
 // NodeSessionRecord 是单个子代理会话的持久化记录。
@@ -43,10 +67,11 @@ type NodeWorktreeRecord struct {
 type NodeSessionRecord struct {
 	SchemaVersion int                `json:"schema_version"`
 	NodeID        string             `json:"node_id"`
-	SessionID     string             `json:"session_id"` // 子会话 ID（node-<hash>）
+	SessionID     string             `json:"session_id"` // 子会话 ID（node-<hash>）/ teammate 的角色会话 ID
 	MainSessionID string             `json:"main_session_id"`
 	Goal          string             `json:"goal"`
 	Status        string             `json:"status"` // queued | running | done | failed
+	Unit          NodeUnitRecord     `json:"unit,omitempty"`
 	Summary       string             `json:"summary,omitempty"`
 	Error         string             `json:"error,omitempty"`
 	History       []types.Message    `json:"history"`

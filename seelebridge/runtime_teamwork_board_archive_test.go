@@ -96,10 +96,10 @@ func archiveBackend(plans *memPlanStore, boards *memBoardStore, sessionID string
 // boardPlanArgs 造一份最小合法计划（一个里程碑 + 一个在编角色；阶段口径已退场）。
 func boardPlanArgs(teamID string, version int) string {
 	payload := map[string]any{
-		"team_id": teamID,
-		"version": version,
+		"team_id":    teamID,
+		"version":    version,
 		"milestones": []map[string]any{{"id": "m-design", "name": "设计"}},
-		"members": []map[string]any{{"role": "arch"}},
+		"members":    []map[string]any{{"role": "arch"}},
 	}
 	encoded, _ := json.Marshal(payload)
 	return string(encoded)

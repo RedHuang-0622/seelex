@@ -719,7 +719,7 @@ func (w *WorktreeManager) Info(nodeID string) (NodeWorktreeInfo, bool) {
 	if wt == nil {
 		return NodeWorktreeInfo{}, false
 	}
-	return NodeWorktreeInfo{Path: wt.Path, Branch: wt.Branch, MainBranch: wt.MainBranch}, true
+	return NodeWorktreeInfo{Path: wt.Path, Branch: wt.Branch, MainBranch: wt.MainBranch, BaseCommit: wt.BaseCommit}, true
 }
 
 // sceneRegistered 报告某个 worktree 路径是否是本管理器**在册**的现场

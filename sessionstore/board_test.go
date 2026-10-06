@@ -50,10 +50,10 @@ func sampleGoalBoard() GoalBoardMeta {
 func sampleTeamBoard(t *testing.T) TeamBoardMeta {
 	t.Helper()
 	snapshot, err := json.Marshal(map[string]any{
-		"team_id": "v-model",
-		"version": 2,
+		"team_id":    "v-model",
+		"version":    2,
 		"milestones": []map[string]any{{"id": "m-impl", "name": "实现"}},
-		"jobs":    []map[string]any{{"handle": "a7", "state": "running", "bytes": 128}},
+		"jobs":       []map[string]any{{"handle": "a7", "state": "running", "bytes": 128}},
 	})
 	if err != nil {
 		t.Fatalf("marshal snapshot: %v", err)

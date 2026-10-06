@@ -52,11 +52,18 @@ func teamUnitStatusFor(kind workunit.OutcomeKind) string {
 	return teamUnitStatusDone
 }
 
-// teamUnitRecordKey 是一个 teammate 单元的身份：现场 nodeID + 角色会话 + 这一轮的目标。
+// teamUnitRecordKey 是一个 teammate 单元的身份：现场 nodeID + 角色会话 + 这一轮的目标，
+// 以及记录快照里那一格身份要用的三件事（角色 / 插件装配 / 系统提示）。
+//
+// SystemPrompt 由**装配那一刻**填（`workerRoleRoundSpec` 算出来的那一份，含中断恢复说明），
+// 不在 `teamUnitKeyFor` 里拼：那是装配层的事实，不是派发载荷里的事实。
 type teamUnitRecordKey struct {
 	NodeID        string
 	RoleSessionID string
 	Goal          string
+	Role          string
+	Plugins       []string
+	SystemPrompt  string
 }
 
 // teamUnitNodeID 把一个 teammate 单元的现场折成契约的 nodeID（`<role>-<itemID>` /
@@ -73,11 +80,14 @@ func teamUnitNodeID(request teamwork.WorkerRequest) string {
 }
 
 // teamUnitKeyFor 从一轮作业的载荷取出记录身份（NodeID 的口径见 teamUnitNodeID）。
+// SystemPrompt 不在这里填（它由装配层在开跑前补上，见 teamUnitRecordKey）。
 func teamUnitKeyFor(request teamwork.WorkerRequest) teamUnitRecordKey {
 	return teamUnitRecordKey{
 		NodeID:        teamUnitNodeID(request),
 		RoleSessionID: strings.TrimSpace(request.RoleSessionID),
 		Goal:          strings.TrimSpace(request.Goal),
+		Role:          strings.TrimSpace(request.Role),
+		Plugins:       append([]string(nil), request.Plugins...),
 	}
 }
 

@@ -29,15 +29,15 @@ func teamBoardFixture() *dto.TeamworkBoardView {
 		TeamID:     "team-board-gui-tui",
 		Version:    2,
 		MaxMembers: 6,
-		Members: []dto.TeamworkMemberView{{Role: "arch", RoleSessionID: "s-arch", Status: "running"}},
+		Members:    []dto.TeamworkMemberView{{Role: "arch", RoleSessionID: "s-arch", Status: "running"}},
 		Milestones: []dto.TeamworkMilestoneView{
 			{ID: "m-1", Name: "设计", DependsOn: []string{"m-0"}},
 		},
 		WorkItems: []dto.TeamworkWorkItemView{
 			{ID: "wi-impl", Milestone: "m-1", Role: "impl_ui", DependsOn: []string{"wi-design"}},
 		},
-		Jobs: []dto.TeamworkJobView{{Handle: "a7", State: "running", Node: "wi-impl"}},
-		Events:     []dto.TeamworkEventView{{At: 1790870000, Kind: "plan"}},
+		Jobs:   []dto.TeamworkJobView{{Handle: "a7", State: "running", Node: "wi-impl"}},
+		Events: []dto.TeamworkEventView{{At: 1790870000, Kind: "plan"}},
 	}
 }
 

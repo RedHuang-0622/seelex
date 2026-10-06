@@ -223,7 +223,10 @@ D 在册比较 2→1、E 契约依赖 1→0、② 的折算/编解码/恢复说�
    **2026-10-06 现网已复现（leader 读数）**：本会话工作表格里就长着一条
   `subagent:audit-u2u5u6-wi-4-audit-u2u5u6 interrupted`（NodeID 正是 `<role>-<itemID>`），而它的真身
   （`teamwork:a3`）是 `done` —— 同一件活被当成"中断的子代理"多渲染了一行。
-  是否可见、是否要过滤 —— **仍开放**（需要一条"重启后 teammate 记录不许长成子代理树节点"的用例）。
+   **2026-10-06 已收口（步骤④ / `step-4-unit-record-identity.md`）**：记录快照里写身份
+  （`NodeUnitRecord.Kind`），恢复链按身份分派策略（`runtime_unit_recovery.go`），teammate 记录
+  不再进子代理树；老记录按团队事实（计划 + 账本名单）兜底。用例
+  `seelebridge/runtime_unit_record_identity_test.go` 修前红（树上节点 `[main exec-wi-1]`）修后绿。
 
 ---
 
@@ -452,15 +455,20 @@ U6 表里的第 14 行是那次扫描的**部分**读数（已注明"非本波�
 
 **仍开放（下一波输入，均为能力面/产品面，不是缺陷回归）**
 
-1. 记录侧补栏：`workunit_team_records.go:97 teamUnitWorktreeRecord` 只写 Path/Branch、`dto.NodeWorktreeInfo` 不带 `BaseCommit` ⇒「重启后恢复并重派」的 teammate 工作项收尾合不回来；备选路（重派时 `BeginNamed` 按 git 现值补空栏）需先定"已在册不刷新"这条口径。
+1. ~~记录侧补栏：`workunit_team_records.go:97 teamUnitWorktreeRecord` 只写 Path/Branch、`dto.NodeWorktreeInfo` 不带 `BaseCommit` ⇒「重启后恢复并重派」的 teammate 工作项收尾合不回来~~ → **已收口（步骤④）**：`teamUnitWorktreeRecord` 取**四栏**、`NodeWorktreeInfo` 补 `BaseCommit`；写侧还加了身份那一格。落地记录 `step-4-unit-record-identity.md`，红→绿用例 `TestTeamUnitRecordRestoresAsTeamworkSceneNotSubagentNode`。
 2. §6 #7 的另一半：让**一条**读面同时给出会话正文 + worktree + 阶段。
 3. §5 路径 2：跨进程无锁（两个 seelex 进程同收一个主工作区）。
 4. §3 U5 读数面：同步链退化事实是否进工具结果（产品判断）。
 5. §4 U6 剩余点：`#6`（`running|free` 是另一格，归格待定）、`#10`（`"killed"` 与 `job_manage` 四 op 同批）。
-6. 恢复侧不区分记录主人（§2 相邻事实）：teammate 单元记录会以 `interrupted` 长成子代理树节点 / 工作表格假行 ——
-   **本轮现网已复现**（本会话打点表里就有 `subagent:audit-u2u5u6-wi-4-audit-u2u5u6 interrupted`，而它的真身
-   `teamwork:a3` 是 `done`）。症状可见、不丢数据，收口需要那条"重启后 teammate 记录不许长成子代理树节点"的用例。
+6. ~~恢复侧不区分记录主人（§2 相邻事实）：teammate 单元记录会以 `interrupted` 长成子代理树节点 / 工作表格假行~~
+   → **已收口（步骤④）**：记录快照里写身份（`NodeUnitRecord.Kind`），恢复链按身份分派策略
+   （`runtime_unit_recovery.go`：`subagentRecovery` / `teamUnitRecovery`，后者**不进子代理树**）；
+   老记录（无身份那一格）按团队事实（计划 + 账本名单）兜底。**现网现象已复现并修掉**：
+   本会话打点表里那条 `subagent:audit-u2u5u6-wi-4-audit-u2u5u6 interrupted`（真身 `teamwork:a3` 是
+   `done`）就是这条路径长出来的，用例 `TestTeamUnitRecordRestoresAsTeamworkSceneNotSubagentNode`
+   修前红（树上节点 `[main exec-wi-1]`）修后绿。
 
-**给发行的话（leader 建议，供 release note 的"已知限制"用）**：以上 1–6 **都不阻塞一次小幅版本更新** ——
-① 是**显式硬失败 + 保留现场**（不再静默丢产出），⑥ 只是多渲染一行假行。建议只写第 ① 条：
-**「重启后恢复并重派的 teammate 工作项，收尾会显式报『现场登记缺栏 MainBranch』而不是合回主分支；现场与分支保留，可人工处置。」**
+**给发行的话（leader 修正 · 步骤④ 之后）**：①②⑥ 三条已收口，本步**新结论**是 1–6 里只剩 ②③④⑤
+（读面 wire / 跨进程锁 / 产品判断 / 归格待定），**没有一条阻塞这次小幅版本更新**，因此 release note
+的"已知限制"可以**不写**原先建议的 ① 那条（缺栏现在有来源了）；跨进程收尾仍只有本进程串行化
+（`finishActor`），这是既有口径，不是本版引入的限制。

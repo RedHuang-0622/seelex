@@ -10,6 +10,7 @@ import (
 
 	frameworkevent "github.com/RedHuang-0622/Seele/event"
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	subagentsession "github.com/RedHuang-0622/seelex/seelebridge/session"
 
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
@@ -40,12 +41,16 @@ type subagentConclusion struct {
 
 // AttachSubSessionStore 装配子代理会话记录持久化（Router 就绪后注入）：
 // 运行期落盘 + 结束时结论回传主会话 + 记录删除。幂等。
+//
+// 写侧装配的是**责任链**（末端 = 这个存储、链上第一环 = 子代理身份）：teammate 那一层
+// 在同一条链上再加一环，因此不必另立第二条写路径（见 sessionstore.NodeSessionRecordWriter）。
 func (r *Runtime) AttachSubSessionStore(store *sessionstore.NodeSessionStore) {
 	if r == nil || r.subagentSessions == nil || store == nil {
 		return
 	}
 	r.nodeSessionStore = store
-	r.subagentSessions.Configure(store, r.MainSessionID, func() string {
+	r.unitRecordWriter = sessionstore.NewNodeSessionRecordWriter(store).With(subagentsession.SubagentUnitRecordLink)
+	r.subagentSessions.Configure(r.unitRecordWriter, r.MainSessionID, func() string {
 		return r.sessionProjectIDFor(r.MainSessionID())
 	}, r.persistSubagentConclusion)
 }
@@ -103,12 +108,14 @@ func (r *Runtime) persistSubagentConclusion(mainSessionID string, record session
 	}
 }
 
-// RestoreSubagentAnchors 从持久化重建目标会话的子代理恢复锚点：
-//  1. 崩溃遗留节点：nodeStore 残留记录 → SubagentSessions 详情数据面 +
+// RestoreSubagentAnchors 从持久化重建目标会话的恢复锚点。**按记录快照里的身份分派策略**
+// （`restoreUnitRecords`，见 runtime_unit_recovery.go）：
+//  1. 子代理那一层（崩溃遗留节点）：残留记录 → SubagentSessions 详情数据面 +
 //     SubagentTree 树节点 + WorktreeManager worktree 现场；
-//  2. 已完成节点：主会话事件库的结论事件（seelex.subagent.result）→
-//     重建树节点（含 subSessionID），application 工作表格刷新后认领回填
-//     subagent:<节点会话ID>，不再停留 main。
+//  2. teammate 那一层：残留记录 → **只有它的团队现场**（不进子代理树；会话内容是进程内
+//     执行面，重启即空，由记录 + 计划回答"跑到哪"）；
+//  3. 已完成节点：主会话事件库的结论事件（seelex.subagent.result）→ 重建树节点（含
+//     subSessionID），application 工作表格刷新后认领回填 subagent:<节点会话ID>，不再停留 main。
 //
 // 无存储装配时 no-op（保持既有纯内存行为）。
 func (r *Runtime) RestoreSubagentAnchors(sessionID string) error {
@@ -128,14 +135,11 @@ func (r *Runtime) RestoreSubagentAnchors(sessionID string) error {
 			return fmt.Errorf("restore subagent anchors: list node sessions: %w", err)
 		}
 	}
-	if r.subagentSessions != nil {
-		r.subagentSessions.Restore(records)
-	}
-	if r.subagentTree != nil {
-		r.subagentTree.Restore(records, sessionID, r.recordBelongsToCurrentMain)
-	}
+	// 按记录快照里的**身份**分派恢复策略（`runtime_unit_recovery.go`）：
+	// teammate 的单元记录只恢复它的团队现场，**不是**子代理树节点（过去两种记录共用一条
+	// 恢复链，于是工作表格上会长出 `subagent:<role>-<itemID> interrupted` 的假行）。
+	r.restoreUnitRecords(sessionID, records)
 	if r.worktreeMgr != nil {
-		r.worktreeMgr.Restore(records)
 		// 团队现场（teammate / Work Item 级）**不在**子代理节点记录里（`NoteWorktree`
 		// 全仓只有 `beginNodeWorktree` 一处调用点），必须从团队计划 + 绑定账本认领回来。
 		// 这一步夹在 `Restore` 与 `Prune` 之间是**判据的一部分**：`Prune` 的判据是

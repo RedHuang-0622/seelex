@@ -58,8 +58,20 @@ type statusVocabularyScope struct {
 	words map[string]bool
 }
 
-// statusVocabularyScopes 是已收口的三格。加一格 = 先写清楚"谁写、谁读、取值面是什么"。
+// statusVocabularyScopes 是已收口的各格。加一格 = 先写清楚"谁写、谁读、取值面是什么"。
 var statusVocabularyScopes = []statusVocabularyScope{
+	{
+		name: "单元身份",
+		files: map[string]string{
+			"sessionstore/node_session_store.go":       "定义：记录快照里的身份那一格（NodeUnitRecord.Kind，契约之下的 wire）",
+			"seelebridge/session/subagent_sessions.go": "写：子代理那一环（只填空缺——身份已经有了就不动）",
+			"seelebridge/workunit_team_records.go":     "写：teammate 那一环（写下自己这一层的身份）",
+			"seelebridge/runtime_unit_recovery.go":     "读：恢复链按身份分派策略（唯一转换点 unitKindOf）",
+		},
+		// 这一格的取值面 = workunit.Kind（subagent | teammate）：词表本来就在契约里，这里只钉
+		// "谁也不许再写一份字面量"。KindJob 是基线标注（job 层不实现 Unit），不属于这一格。
+		words: map[string]bool{"subagent": true, "teammate": true},
+	},
 	{
 		name: "记录状态",
 		files: map[string]string{

@@ -66,8 +66,8 @@ func (r *Runtime) teamUnitScope(sessionID string) (sessionstore.Key, bool) {
 // item.FinishedAt 才是那一刻的事实**；记录带 UpdatedAt（由存储写入）足够回答"这份记录
 // 有多新"。
 func (r *Runtime) saveTeamUnitRecord(mainSessionID string, key teamUnitRecordKey, status, summary, stage string) {
-	ledger := r.teamUnitLedger()
-	if ledger == nil || key.NodeID == "" || key.RoleSessionID == "" {
+	writer := r.teamUnitRecordWriter(key)
+	if writer == nil || key.NodeID == "" || key.RoleSessionID == "" {
 		return
 	}
 	scope, ok := r.teamUnitScope(mainSessionID)
@@ -85,15 +85,50 @@ func (r *Runtime) saveTeamUnitRecord(mainSessionID string, key teamUnitRecordKey
 		StagesJSON:    workunit.EncodeStages([]workunit.Stage{{Stage: stage, Preview: summary}}),
 		Worktree:      r.teamUnitWorktreeRecord(key.NodeID),
 	}
-	if err := ledger.Save(scope.ProjectID, scope.SessionID, record); err != nil {
+	// 身份（Unit：Kind/Role/Plugins/SystemPrompt）**不在这里拼**：它是写链上 teammate 那一环
+	// 的事实（`teamUnitUnitRecordLink`），子代理那一环只填空缺。
+	if err := writer.Save(scope.ProjectID, scope.SessionID, record); err != nil {
 		// 落盘失败**不改执行**：记录是恢复用的证据，丢了它不该让这一轮不跑（下一次写会
 		// 重来）。但它必须留痕——静默丢掉就是"重启失忆"被当成正常。
 		log.Printf("seelebridge: 落盘 teammate 单元记录 %q（会话 %s）失败：%v", key.NodeID, key.RoleSessionID, err)
 	}
 }
 
-// teamUnitWorktreeRecord 从 worktree 注册表取现场（路径 + 分支）。没有现场（降级共享
-// 主工作区）时返回零值：记录里那一格为空 = 这件事没有独立现场。
+// teamUnitRecordWriter 返回 teammate 那一层的记录写入链：**子代理那条链外面再包一环**
+// （add but not modify——teammate 的记录形状就是 subagent 的记录多一个身份块 + 现场四栏写全）。
+// 未装配存储（fixture / 纯内存态）= nil，调用方按"不落盘"处理。
+func (r *Runtime) teamUnitRecordWriter(key teamUnitRecordKey) *sessionstore.NodeSessionRecordWriter {
+	if r == nil || r.unitRecordWriter == nil {
+		return nil
+	}
+	return r.unitRecordWriter.With(teamUnitUnitRecordLink(key))
+}
+
+// teamUnitUnitRecordLink 是写链上 teammate 那一环：把**这一层的身份**写进记录
+// （Kind = teammate / Role / Plugins / SystemPrompt）。
+//
+// 它只写自己知道的事实，别的一概不动：子代理那一环在内层，看到身份已经有了就不再覆盖。
+func teamUnitUnitRecordLink(key teamUnitRecordKey) sessionstore.NodeSessionRecordLink {
+	identity := sessionstore.NodeUnitRecord{
+		Kind:         string(workunit.KindTeammate),
+		Role:         strings.TrimSpace(key.Role),
+		Plugins:      append([]string(nil), key.Plugins...),
+		SystemPrompt: key.SystemPrompt,
+	}
+	return func(record sessionstore.NodeSessionRecord) sessionstore.NodeSessionRecord {
+		record.Unit = identity
+		return record
+	}
+}
+
+// teamUnitWorktreeRecord 从 worktree 注册表取现场（**四栏全取**）。没有现场（降级共享主工作区）
+// 时返回零值：记录里那一格为空 = 这件事没有独立现场。
+//
+// 四栏缺一不可：记录投影是恢复链上**先到**的那一份现场来源（`WorktreeManager.Restore`），
+// 而"已在册不覆盖"意味着缺栏的那一份会把后来的"计划 + 账本认领"（`Adopt`，同一条判据：
+// 谁先到都一样）挡回去——收尾要的正是 `MainBranch`（这次合回哪条分支）与 `BaseCommit`
+// （变基与提交判定的基线）。过去这里只填 Path/Branch，于是重启后恢复出来的现场收尾
+// **合不回 main**（缺栏显式发声 + 保留现场；见 worktree_weak_registration_merge_test.go）。
 func (r *Runtime) teamUnitWorktreeRecord(nodeID string) sessionstore.NodeWorktreeRecord {
 	if r == nil || r.worktreeMgr == nil || strings.TrimSpace(nodeID) == "" {
 		return sessionstore.NodeWorktreeRecord{}
@@ -102,7 +137,12 @@ func (r *Runtime) teamUnitWorktreeRecord(nodeID string) sessionstore.NodeWorktre
 	if !ok {
 		return sessionstore.NodeWorktreeRecord{}
 	}
-	return sessionstore.NodeWorktreeRecord{Path: info.Path, Branch: info.Branch}
+	return sessionstore.NodeWorktreeRecord{
+		Path:       info.Path,
+		Branch:     info.Branch,
+		MainBranch: info.MainBranch,
+		BaseCommit: info.BaseCommit,
+	}
 }
 
 // markTeamUnitRunning 落"这一轮开始了、现场在哪"（运行期落盘：崩溃/重启后回灌的依据）。

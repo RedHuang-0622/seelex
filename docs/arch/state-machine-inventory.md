@@ -34,6 +34,7 @@
 |---|---|---|---|
 | 后台作业状态 | running\|done\|failed\|killed | `dto.AsyncState` | 登记表在内存（不落盘）；teammate 作业表复用同一格 |
 | plan_run 批次结果 | completed\|failed\|aborted | `dto.PlanRunStatus` | 跨 plan 写方 / core 读方的 JSON |
+| **单元身份**（这条记录属于哪一类执行单元） | subagent \| teammate | `workunit.Kind`（**不是新枚举**：契约里早有这一格，`KindJob` 是基线标注） | **落盘**：记录快照 `sessionstore.NodeUnitRecord.Kind`（契约之下的 wire，空 = subagent）。恢复链按它**分派策略**（唯一转换点 `seelebridge/runtime_unit_recovery.go` 的 `unitKindOf`；加固前的老记录按团队事实兜底）；写侧是责任链上的两环（子代理那一环只填空缺、teammate 那一环写自己这一层）。落地记录 `docs/2026-10-06-workunit-jobs-port/step-4-unit-record-identity.md` |
 | **记录状态**（子代理节点生命周期） | queued\|running\|done\|failed\|interrupted | `dto.SubAgentNodeStatus` | **落盘**：`sessionstore.NodeSessionRecord.Status` 仍是字符串（store 在契约之下），边界 `seelebridge` 的 `subagentNodeStatusDone/Failed`、`session.SubAgent*` 转调对外词；未知词 → `SubAgentUnknown`（**不是终态**） |
 | **工具事件状态** | running\|success\|error | `dto.ToolEventStatus` | `dto.SubagentTool.Status` 与 `dto.SubagentToolEvent.Status` 两处字段同格 |
 | **工具调用视图词**（快照 / 事件 wire / 存档里的工具行） | running\|success\|error | `dto.ToolEventStatus`（**与工具事件状态同格**） | `model.ToolCall.Status` 从字符串换成枚举；**落盘**（`model.SessionArchive` 存档 + 事件 payload 的 JSON）读回经具名转换点 `model.ToolCallStatusOfRecord`（认不得的词与空词 → `ToolEventUnknown`，**不折成成功**）；store 那一侧的名词 `sessionstore.ConversationToolCallStatusSuccess` 由 `internal/adapters` 的 `TestToolCallStatusOfRecordLocksTheStoreVocabulary` 互锁。原来的漂移写点（子代理详情投影写 `completed`）已修正——这个词从来不在本格取值面里 |

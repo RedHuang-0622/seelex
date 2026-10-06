@@ -31,9 +31,12 @@ type SubagentSessions struct {
 	actor *actor.Actor[subagentSessionCmd]
 	trace provider.TraceSource // 结束快照导出时提取 Findings/Decisions（nil 降级）
 
-	// 节点会话记录持久化（用户约定：<mainSessionID>-<subSessionID>.json，
-	// 见 sessionstore.NodeSessionRecord）。nil → 保持纯内存态（测试/未装配）。
-	nodeStore     *sessionstore.NodeSessionStore
+	// 节点会话记录持久化的**写入链**（用户约定：<mainSessionID>-<subSessionID>.json，
+	// 见 sessionstore.NodeSessionRecord / NodeSessionRecordWriter）。写走链、读走链末端：
+	// 链上第一环是"子代理这一层的身份"（每条记录都写明自己属于哪一层），teammate 那一层
+	// 在同一条链上**再加一环**（add but not modify，见 workunit_team_records.go）。
+	// nil → 保持纯内存态（测试/未装配）。
+	writer        *sessionstore.NodeSessionRecordWriter
 	mainSessionID func() string
 	// projectID 解析记录归属项目（稳定于主会话绑定，不读 Router active
 	// workspace）。nil → 回退 nodeStore.ProjectID()（测试/旧装配兼容）。
@@ -110,7 +113,7 @@ type subagentSessionCmd struct {
 	out           subagentOutcome
 	recs          []sessionstore.NodeSessionRecord
 	// configure 装配（AttachSubSessionStore 注入；nil 字段保持现状）。
-	store  *sessionstore.NodeSessionStore
+	writer *sessionstore.NodeSessionRecordWriter
 	mainID func() string
 	// projectID 解析记录归属项目（稳定于主会话绑定，不读 Router active
 	// workspace；否则 fork 期间 Router 作用域漂移会把记录写到另一个项目）。
@@ -141,9 +144,22 @@ const (
 
 type SubagentSessionsOption func(*SubagentSessions)
 
-// WithNodeSessionStore 装配节点会话记录持久化（nil = 纯内存态）。
+// SubagentUnitRecordLink 是记录写入链上**子代理那一层**的一环：给还没有身份的记录写上
+// "我属于子代理层"。**只填空、不覆盖**——teammate 那一层在同一条链上把自己的身份写在前面，
+// 这一环看到身份已经有了就不再动它（这就是"teammate = 子代理链 + 一环"能成立的原因）。
+func SubagentUnitRecordLink(record sessionstore.NodeSessionRecord) sessionstore.NodeSessionRecord {
+	if strings.TrimSpace(record.Unit.Kind) == "" {
+		record.Unit.Kind = string(workunit.KindSubagent)
+	}
+	return record
+}
+
+// WithNodeSessionStore 装配节点会话记录持久化（nil = 纯内存态）：装配的是一个"以该存储为
+// 末端、链上带子代理身份那一环"的写入链。
 func WithNodeSessionStore(store *sessionstore.NodeSessionStore) SubagentSessionsOption {
-	return func(s *SubagentSessions) { s.nodeStore = store }
+	return func(s *SubagentSessions) {
+		s.writer = sessionstore.NewNodeSessionRecordWriter(store).With(SubagentUnitRecordLink)
+	}
 }
 
 // WithMainSessionID 提供当前主会话 ID（记录落盘时作为索引键；nil = 不落盘）。
@@ -347,8 +363,8 @@ func (s *SubagentSessions) handle(cmd subagentSessionCmd) {
 		}
 		s.reply(cmd, subagentSessionReply{ok: true})
 	case subagentSessionConfigure:
-		if cmd.store != nil {
-			s.nodeStore = cmd.store
+		if cmd.writer != nil {
+			s.writer = cmd.writer
 		}
 		if cmd.mainID != nil {
 			s.mainSessionID = cmd.mainID
@@ -366,7 +382,7 @@ func (s *SubagentSessions) handle(cmd subagentSessionCmd) {
 // finalizeLocked 节点结束时收敛持久化（actor goroutine 内调用）：
 // 1) 组装最终记录；2) conclusionSink 交给 mainagent 侧；3) 删除节点记录文件。
 func (s *SubagentSessions) finalizeLocked(nodeID string) {
-	if s.nodeStore == nil || nodeID == "" {
+	if s.writer == nil || nodeID == "" {
 		return
 	}
 	mainID := s.mainSessionIDs[nodeID]
@@ -381,9 +397,9 @@ func (s *SubagentSessions) finalizeLocked(nodeID string) {
 	if s.conclusionSink != nil {
 		s.conclusionSink(mainID, record)
 	}
-	projectID := s.nodeStore.ProjectID()
+	projectID := s.writer.Store().ProjectID()
 	if record.SessionID != "" {
-		if err := s.nodeStore.Delete(projectID, mainID, record.SessionID); err != nil {
+		if err := s.writer.Store().Delete(projectID, mainID, record.SessionID); err != nil {
 			log.Printf("seelebridge/session: delete node session %q: %v", nodeID, err)
 		}
 	}
@@ -431,7 +447,7 @@ func (s *SubagentSessions) restoreLocked(record sessionstore.NodeSessionRecord) 
 // persistLocked 把节点的当前内存态投影为 NodeSessionRecord 并落盘
 // （actor goroutine 内调用；best-effort，失败只记日志，不影响执行路径）。
 func (s *SubagentSessions) persistLocked(nodeID string) {
-	if s.nodeStore == nil || nodeID == "" {
+	if s.writer == nil || nodeID == "" {
 		return
 	}
 	mainID := ""
@@ -443,11 +459,12 @@ func (s *SubagentSessions) persistLocked(nodeID string) {
 	}
 	record := s.buildRecordLocked(nodeID)
 	record.MainSessionID = mainID
-	projectID := s.nodeStore.ProjectID()
+	projectID := s.writer.Store().ProjectID()
 	if s.projectID != nil {
 		projectID = s.projectID()
 	}
-	if err := s.nodeStore.Save(projectID, mainID, record); err != nil {
+	// 写走**链**：链上每一环增补自己这一层知道的事实（子代理那一环写身份），末端一次落盘。
+	if err := s.writer.Save(projectID, mainID, record); err != nil {
 		log.Printf("seelebridge/session: persist node session %q: %v", nodeID, err)
 	}
 }
@@ -831,13 +848,16 @@ func (s *SubagentSessions) Restore(records []sessionstore.NodeSessionRecord) {
 	s.send(subagentSessionCmd{kind: subagentSessionRestore, recs: records})
 }
 
-// Configure 装配/替换节点会话记录持久化（Router 就绪后注入；幂等）。
-// store/mainID/sink 任一为 nil 表示保持现状；显式关闭需分别传 nil 包装。
-func (s *SubagentSessions) Configure(store *sessionstore.NodeSessionStore, mainID, projectID func() string, sink func(string, sessionstore.NodeSessionRecord)) {
+// Configure 装配/替换节点会话记录的**写入链**（Router 就绪后注入；幂等）。
+// writer/mainID/sink 任一为 nil 表示保持现状；显式关闭需分别传 nil 包装。
+//
+// 要求传链而不是裸存储：链上第一环是"子代理这一层的身份"，teammate 那一层在同一条链上
+// 再加一环（见 sessionstore.NodeSessionRecordWriter 与 workunit_team_records.go）。
+func (s *SubagentSessions) Configure(writer *sessionstore.NodeSessionRecordWriter, mainID, projectID func() string, sink func(string, sessionstore.NodeSessionRecord)) {
 	if s == nil {
 		return
 	}
-	s.send(subagentSessionCmd{kind: subagentSessionConfigure, store: store, mainID: mainID, projectID: projectID, sink: sink})
+	s.send(subagentSessionCmd{kind: subagentSessionConfigure, writer: writer, mainID: mainID, projectID: projectID, sink: sink})
 }
 
 // Close 关闭命令通道并等待 actor 退出（幂等）。
