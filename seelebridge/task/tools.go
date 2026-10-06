@@ -265,7 +265,7 @@ func (t *Tools) taskAddHandler(ctx context.Context, argsJSON string) (string, er
 		return "", err
 	}
 	out, _ := json.Marshal(map[string]interface{}{
-		"task_id": record.ID, "status": string(record.Status), "created": created, "duplicate": !created,
+		"task_id": record.ID, "status": record.Status.String(), "created": created, "duplicate": !created,
 		"hint": "task 已登记到工作表格；相同任务自动去重（不重复建条目）",
 	})
 	return string(out), nil

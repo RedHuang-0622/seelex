@@ -446,7 +446,7 @@ func forkLiveTree(nodes []dto.SubAgentTreeNode) []forkLiveTreeNode {
 	var walk func([]dto.SubAgentTreeNode)
 	walk = func(list []dto.SubAgentTreeNode) {
 		for _, node := range list {
-			out = append(out, forkLiveTreeNode{ID: node.ID, Status: string(node.Status), SessionID: node.SessionID})
+			out = append(out, forkLiveTreeNode{ID: node.ID, Status: node.Status.String(), SessionID: node.SessionID})
 			walk(node.Children)
 		}
 	}

@@ -175,7 +175,7 @@ func TestSessionArchivePreservesVisibleHistoryPlanAndReadCache(t *testing.T) {
 	service.components.tasks.SetPlanStateLocked([]SessionPlanFrame{{ID: "plan-a", Plan: service.Core.Snapshot.Runtime.Plan, Arguments: `{"entry":"inspect","nodes":{"inspect":{"input":"read"}},"edges":{}}`}}, "plan-a")
 	service.components.tasks.BeginTask("task-a", "Inspect the repository", "high", nil, TaskCheckpoint{})
 	service.components.tasks.CurrentTaskExecution().Status = TurnInterrupted
-	service.components.tasks.CurrentTaskExecution().Checkpoint("inspect", "inspect source", string(NodeCompleted), "found call path", "")
+	service.components.tasks.CurrentTaskExecution().Checkpoint("inspect", "inspect source", NodeCompleted.String(), "found call path", "")
 	service.components.tasks.CurrentTaskExecution().PlanArguments = `{"entry":"inspect","nodes":{"inspect":{"input":"read"}},"edges":{}}`
 	service.components.tasks.ActivateTaskSkillsLocked(service.components.tasks.CurrentTaskExecution(), []PromptLayer{{Kind: "skill", Name: "review", Text: "review prompt"}})
 	// 技能正文以 internal 事件落 transcript；真实可见轮次跟随其后（transcript

@@ -815,9 +815,9 @@ func (c *Coordinator) buildTaskCheckpointLocked(st *sessionTaskRuntime, state *T
 		node := state.checkpoints[key]
 		record := fmt.Sprintf("node=%s status=%s", node.NodeKey, node.Status)
 		switch node.Status {
-		case string(model.NodeCompleted):
+		case model.NodeCompleted.String():
 			checkpoint.CompletedWork = AppendUniqueStrings(checkpoint.CompletedWork, record)
-		case string(model.NodeFailed), string(model.NodeAborted), string(model.NodeCanceled), string(model.NodePanicked):
+		case model.NodeFailed.String(), model.NodeAborted.String(), model.NodeCanceled.String(), model.NodePanicked.String():
 			checkpoint.Failures = AppendUniqueStrings(checkpoint.Failures, record+boundedFailure(node.Failure))
 		default:
 			checkpoint.PendingWork = AppendUniqueStrings(checkpoint.PendingWork, record)

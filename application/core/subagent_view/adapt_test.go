@@ -105,7 +105,7 @@ func TestNodeStatusMappingFallbacks(t *testing.T) {
 	if got := nodeStatusFromTaskStatus("doing"); got != model.NodeRunning {
 		t.Fatalf("task doing -> %q, want running", got)
 	}
-	if got := nodeStatusFromTaskStatus("mystery"); got != "" {
+	if got := nodeStatusFromTaskStatus("mystery"); got != model.NodeUnknown {
 		t.Fatalf("task mystery -> %q, want empty", got)
 	}
 }

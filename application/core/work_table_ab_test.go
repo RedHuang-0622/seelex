@@ -68,7 +68,7 @@ func heavyTestPlan(nodes int) *PlanState {
 		tools := make([]SubagentToolEvent, 0, 30)
 		for eventIndex := 0; eventIndex < 30; eventIndex++ {
 			events = append(events, PlanNodeEventInfo{
-				Status: NodeStatus("running"), At: time.Now(), Output: "节点事件证据文本，用于模拟长任务打点",
+				Status: NodeRunning.String(), At: time.Now(), Output: "节点事件证据文本，用于模拟长任务打点",
 			})
 			tools = append(tools, SubagentToolEvent{
 				ID: "tool", NodeID: id, Name: "read_file", Arguments: "证据参数", Result: "证据结果",

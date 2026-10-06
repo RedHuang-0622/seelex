@@ -165,11 +165,13 @@ const (
 	EventResyncRequired        = event.EventResyncRequired
 	EventExitRequested         = event.EventExitRequested
 	EventViewSessionChanged    = event.EventViewSessionChanged
+	PlanUnknown                = model.PlanUnknown
 	PlanPending                = model.PlanPending
 	PlanRunning                = model.PlanRunning
 	PlanCompleted              = model.PlanCompleted
 	PlanFailed                 = model.PlanFailed
 	PlanAborted                = model.PlanAborted
+	NodeUnknown                = model.NodeUnknown
 	NodePending                = model.NodePending
 	NodeQueued                 = model.NodeQueued
 	NodeRunning                = model.NodeRunning

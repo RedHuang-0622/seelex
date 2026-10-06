@@ -4,37 +4,21 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/application/contract"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/model"
 )
 
-// PlanNodeStatus 将字符串转换为 NodeStatus（queued/running/... 全量映射）。
-func PlanNodeStatus(s string) model.NodeStatus {
-	switch s {
-	case "queued":
-		return model.NodeQueued
-	case "running", "started":
-		return model.NodeRunning
-	case "worktree_creating":
-		return model.NodeWorktreeCreating
-	case "rebasing":
-		return model.NodeRebasing
-	case "merging":
-		return model.NodeMerging
-	case "completed":
-		return model.NodeCompleted
-	case "failed":
-		return model.NodeFailed
-	case "aborted":
-		return model.NodeAborted
-	case "skipped":
-		return model.NodeSkipped
-	case "canceled":
-		return model.NodeCanceled
-	case "panicked":
-		return model.NodePanicked
-	default:
-		return model.NodePending
-	}
+// PlanNodeStatus 把框架/事件里的节点状态词折成我们的节点状态；第二个返回值报告
+// 这个词**是不是节点状态词**。
+//
+// 为什么必须带 ok：事件流里的 Status 不只装节点状态——Seelex 自己的 worktree 收尾
+// 阶段词（`worktree_unmerged` / `merge_blocked`）也走同一个字段。它们**不是**节点状态，
+// 认不得就必须说认不得：折成某个已知状态（旧写法 default → NodePending）会让一个跑完
+// 并交付了产出的节点显示成"待开始"，并把它从计划进度里扣掉。
+//
+// 折法一份在契约（`dto.NodeStatusFromFramework`：框架的 "started" 与我们的 running 同态）。
+func PlanNodeStatus(word string) (model.NodeStatus, bool) {
+	return dto.NodeStatusFromFramework(word)
 }
 
 // ActivePlanProjection 返回 Plan 的只读投影（Completed/Failed/Pending 节点
@@ -45,7 +29,7 @@ func ActivePlanProjection(plan *model.PlanState, activePlanID string, planSequen
 	}
 	projection := &model.ActivePlanProjection{
 		PlanID: activePlanID, Version: planSequence,
-		CanonicalPlanRef: activePlanID, Status: string(plan.Status),
+		CanonicalPlanRef: activePlanID, Status: plan.Status.String(),
 	}
 	for _, node := range plan.Nodes {
 		switch node.Status {

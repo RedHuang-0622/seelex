@@ -485,14 +485,19 @@ type PlanState struct {
 	ReplanCount int            `json:"replan_count,omitempty"`
 }
 
-type PlanStatus string
+// PlanStatus 是**一张 Plan 的生命周期状态**（计划面板/子代理事件的数据源）。
+//
+// 词表只有一份，住在契约（`dto.PlanStatus`；与"一次 plan_run 的结果"`dto.PlanRunStatus`
+// 是**两格**，分工写在那两格的文件头）。取值面：pending | running | completed | failed | aborted。
+type PlanStatus = dto.PlanStatus
 
 const (
-	PlanPending   PlanStatus = "pending"
-	PlanRunning   PlanStatus = "running"
-	PlanCompleted PlanStatus = "completed"
-	PlanFailed    PlanStatus = "failed"
-	PlanAborted   PlanStatus = "aborted"
+	PlanUnknown   = dto.PlanStatusUnknown
+	PlanPending   = dto.PlanPending
+	PlanRunning   = dto.PlanRunning
+	PlanCompleted = dto.PlanCompleted
+	PlanFailed    = dto.PlanFailed
+	PlanAborted   = dto.PlanAborted
 )
 
 type PlanNode struct {
@@ -510,10 +515,15 @@ type PlanNode struct {
 
 // PlanNodeEventInfo 是节点事件时间线的一条记录（子代理详情页数据源）：
 // queued → running（可含心跳刷新）→ 终态，含时间戳与输出快照。
+//
+// Status 是**事件的原始词**（字符串）：这条时间线是"当时到底发生了什么"的流水，
+// 里面既有节点状态词，也有我们自己的 worktree 收尾阶段词（worktree_unmerged /
+// merge_blocked）——把阶段词硬折进节点状态枚举，就会让流水说谎（阶段事件曾经把
+// 跑完的节点显成"待开始"）。节点**当前**状态那一格是 `PlanNode.Status`（枚举）。
 type PlanNodeEventInfo struct {
-	Status NodeStatus `json:"status"`
-	At     time.Time  `json:"at"`
-	Output string     `json:"output,omitempty"`
+	Status string    `json:"status"`
+	At     time.Time `json:"at"`
+	Output string    `json:"output,omitempty"`
 }
 
 // SubagentDetail 是子代理详情弹窗的数据载荷（会话记录 + 状态/耗时 +
@@ -672,21 +682,27 @@ type SubagentEvent struct {
 // runtime 事件与快照投影同一形状，本包以别名保持契约兼容）。
 type SubagentToolEvent = dto.SubagentToolEvent
 
-type NodeStatus string
+// NodeStatus 是**一个计划节点**的状态（plan 面板/子代理详情的数据源）。
+//
+// 词表只有一份，住在契约（`dto.NodeStatus`）：框架 workplan 的词与我们的 worktree
+// 阶段词在这一格里各占一格词，折法见 `dto.NodeStatusFromFramework`（带 ok：认不得的
+// 词**不是节点状态**，调用方不许拿它覆盖节点状态）。
+type NodeStatus = dto.NodeStatus
 
 const (
-	NodePending          NodeStatus = "pending"
-	NodeQueued           NodeStatus = "queued"
-	NodeRunning          NodeStatus = "running"
-	NodeWorktreeCreating NodeStatus = "worktree_creating"
-	NodeRebasing         NodeStatus = "rebasing"
-	NodeMerging          NodeStatus = "merging"
-	NodeCompleted        NodeStatus = "completed"
-	NodeFailed           NodeStatus = "failed"
-	NodeAborted          NodeStatus = "aborted"
-	NodeSkipped          NodeStatus = "skipped"
-	NodeCanceled         NodeStatus = "canceled"
-	NodePanicked         NodeStatus = "panicked"
+	NodeUnknown          = dto.NodeUnknown
+	NodePending          = dto.NodePending
+	NodeQueued           = dto.NodeQueued
+	NodeRunning          = dto.NodeRunning
+	NodeWorktreeCreating = dto.NodeWorktreeCreating
+	NodeRebasing         = dto.NodeRebasing
+	NodeMerging          = dto.NodeMerging
+	NodeCompleted        = dto.NodeCompleted
+	NodeFailed           = dto.NodeFailed
+	NodeAborted          = dto.NodeAborted
+	NodeSkipped          = dto.NodeSkipped
+	NodeCanceled         = dto.NodeCanceled
+	NodePanicked         = dto.NodePanicked
 )
 
 type Tool struct {

@@ -185,11 +185,11 @@ func planNodeTrace(node PlanNode, tasklistMode bool) []WorkTracePoint {
 	points := make([]WorkTracePoint, 0, len(node.Events)+len(node.ToolEvents))
 	for _, event := range node.Events {
 		operation := "node.lifecycle"
-		if tasklistMode && event.Status == NodeCompleted {
+		if tasklistMode && event.Status == NodeCompleted.String() {
 			operation = "task_check_node"
 		}
 		points = append(points, WorkTracePoint{
-			At: event.At, Status: string(event.Status), Operation: operation,
+			At: event.At, Status: event.Status, Operation: operation,
 			Evidence: truncateWorkEvidence(event.Output, Limits().EvidenceChars),
 		})
 	}
@@ -464,7 +464,7 @@ func (service *Service) syncPlanNodeTask(sessionID string, node PlanNode, parent
 		return
 	}
 	if existing.Status != status {
-		_, _ = service.Deps.Runtime.TaskSetStatusFor(sessionID, existing.ID, status, "node:"+string(node.Status))
+		_, _ = service.Deps.Runtime.TaskSetStatusFor(sessionID, existing.ID, status, "node:"+node.Status.String())
 	}
 	// 被动认领：旧数据/恢复会话无 Assignee 时补主身份并上名单。
 	if existing.Assignee == "" && identity != "" {
@@ -489,7 +489,7 @@ func (service *Service) syncSubagentTask(sessionID string, node dto.SubAgentTree
 			spec.Dependencies = []string{"subagent:" + parentID}
 		}
 		created, _, _ := service.Deps.Runtime.TaskAddFor(sessionID, spec)
-		_, _ = service.Deps.Runtime.TaskSetStatusFor(sessionID, created.ID, status, "subagent:"+string(node.Status))
+		_, _ = service.Deps.Runtime.TaskSetStatusFor(sessionID, created.ID, status, "subagent:"+node.Status.String())
 		// 会话已注册 → 子代理认领（Assignee 变更为 subagent:<sessionID> 并上名单）。
 		if identity != "" {
 			_, _ = service.Deps.Runtime.TaskAttachParticipant(created.ID, identity)
@@ -497,7 +497,7 @@ func (service *Service) syncSubagentTask(sessionID string, node dto.SubAgentTree
 		return
 	}
 	if existing.Status != status {
-		_, _ = service.Deps.Runtime.TaskSetStatusFor(sessionID, existing.ID, status, "subagent:"+string(node.Status))
+		_, _ = service.Deps.Runtime.TaskSetStatusFor(sessionID, existing.ID, status, "subagent:"+node.Status.String())
 	}
 	// 被动认领：确保当前子代理身份在名单上并成为 Assignee。
 	if identity != "" {

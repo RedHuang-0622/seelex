@@ -305,7 +305,7 @@ func TestInterruptedTaskContinuationCarriesCheckpointAndSkills(t *testing.T) {
 	service.Core.Snapshot.Task = &TaskState{RequestID: "old-task", Status: TurnInterrupted}
 	service.components.tasks.BeginTask("old-task", "inspect source", "high", nil, TaskCheckpoint{})
 	service.components.tasks.CurrentTaskExecution().Status = TurnInterrupted
-	service.components.tasks.CurrentTaskExecution().Checkpoint("inspect", "inspect source", string(NodeCompleted), "found call path", "")
+	service.components.tasks.CurrentTaskExecution().Checkpoint("inspect", "inspect source", NodeCompleted.String(), "found call path", "")
 	service.components.tasks.ActivateTaskSkillsLocked(service.components.tasks.CurrentTaskExecution(), []PromptLayer{{Kind: "skill", Name: "review", Text: "review prompt"}})
 	service.ViewMu.Unlock()
 

@@ -300,7 +300,7 @@ func renderPlanMax(p *application.PlanState, width int) string {
 			indent,
 			nodeStyle.Render(icon),
 			nodeStyle.Render(n.Label),
-			styleStatusText(string(n.Status)).Render(string(n.Status)),
+			styleStatusText(n.Status).Render(n.Status.String()),
 			elapsed))
 
 		for _, child := range n.Children {
@@ -315,7 +315,7 @@ func renderPlanMax(p *application.PlanState, width int) string {
 				cIndent,
 				lipgloss.NewStyle().Foreground(cColor).Render(cIcon),
 				lipgloss.NewStyle().Foreground(cColor).Render(child.Label),
-				styleStatusText(string(child.Status)).Render(string(child.Status)),
+				styleStatusText(child.Status).Render(child.Status.String()),
 				cElapsed))
 		}
 	}
@@ -324,17 +324,19 @@ func renderPlanMax(p *application.PlanState, width int) string {
 	return b.String()
 }
 
-func styleStatusText(s string) lipgloss.Style {
-	switch s {
-	case "running":
+// styleStatusText 给节点状态上色（参数是**契约枚举**：读状态词的地方只许引常量，
+// 不许再写一份字面量）。
+func styleStatusText(status application.NodeStatus) lipgloss.Style {
+	switch status {
+	case application.NodeRunning, application.NodeWorktreeCreating, application.NodeRebasing, application.NodeMerging:
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("220"))
-	case "completed":
+	case application.NodeCompleted, application.NodeSkipped:
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("76"))
-	case "failed":
+	case application.NodeFailed:
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
-	case "panicked":
+	case application.NodePanicked:
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("201"))
-	case "canceled":
+	case application.NodeCanceled, application.NodeAborted:
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("124"))
 	default:
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("240"))

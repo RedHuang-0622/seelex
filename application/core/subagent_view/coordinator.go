@@ -190,13 +190,13 @@ func (c *Coordinator) SubagentDetail(nodeID string) (*model.SubagentDetail, erro
 			}
 		}
 	}
-	if status == "" && workRow != nil {
-		if mapped := nodeStatusFromTaskStatus(workRow.Status); mapped != "" {
+	if status == model.NodeUnknown && workRow != nil {
+		if mapped := nodeStatusFromTaskStatus(workRow.Status); mapped != model.NodeUnknown {
 			status = mapped
 		}
 	}
-	if status == "" && treeNode != nil {
-		if mapped := nodeStatusFromSubagentStatus(treeNode.Status); mapped != "" {
+	if status == model.NodeUnknown && treeNode != nil {
+		if mapped := nodeStatusFromSubagentStatus(treeNode.Status); mapped != model.NodeUnknown {
 			status = mapped
 		}
 	}
@@ -216,7 +216,7 @@ func (c *Coordinator) SubagentDetail(nodeID string) (*model.SubagentDetail, erro
 	c.ViewMu.RUnlock()
 
 	conversation, ok := c.Deps.Engine.NodeSessionConversation(nodeID)
-	if !ok && status == "" && treeNode == nil && workRow == nil {
+	if !ok && status == model.NodeUnknown && treeNode == nil && workRow == nil {
 		return nil, fmt.Errorf("subagent detail: node %q has no conversation", nodeID)
 	}
 	contextSnap, _ := c.Deps.Engine.NodeContextSnapshot(nodeID)
@@ -273,11 +273,11 @@ func nodeStatusFromSubagentStatus(status dto.SubAgentNodeStatus) model.NodeStatu
 	case dto.SubAgentFailed, dto.SubAgentInterrupted:
 		return model.NodeFailed
 	default:
-		return ""
+		return model.NodeUnknown
 	}
 }
 
-// nodeStatusFromTaskStatus 把任务注册表状态映射为详情状态（未知 → ""）。
+// nodeStatusFromTaskStatus 把任务注册表状态映射为详情状态（未知 → NodeUnknown）。
 //
 // 边界映射：subject 是**工作表格行**的状态字段——那是混合值（task 行的词来自 dto.Task*，
 // 子代理行沿用记录词的显示映射 done/failed，见 application/core/work_table.go）。所以这里
@@ -295,7 +295,7 @@ func nodeStatusFromTaskStatus(status string) model.NodeStatus {
 	case dto.TaskFailed.String(), dto.TaskInterrupted.String():
 		return model.NodeFailed
 	default:
-		return ""
+		return model.NodeUnknown
 	}
 }
 

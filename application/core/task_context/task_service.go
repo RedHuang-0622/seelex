@@ -71,7 +71,7 @@ func (r *planProjectionReader) PlanStatus() model.PlanStatus {
 	if plan := r.plan(); plan != nil {
 		return plan.Status
 	}
-	return ""
+	return model.PlanUnknown
 }
 
 func (r *planProjectionReader) Converged() bool {
@@ -243,7 +243,7 @@ func (s *TaskService) OnChatEnd(ctx context.Context, summary ChatEndSummary) (mo
 			return s.taskStateResultLocked(summary.RequestID, model.TurnNeedsUserDecision, "Plan is ready but not executed. Choose whether to execute it, revise it, or stop here."), nil
 		case model.PlanFailed, model.PlanAborted:
 			state.Status = model.TurnFailed
-			state.Checkpoint("plan", "authoritative plan", string(plan.Status), "", "plan did not complete")
+			state.Checkpoint("plan", "authoritative plan", plan.Status.String(), "", "plan did not complete")
 			s.setTaskStateLocked(summary.RequestID, model.TurnFailed, "The authoritative plan did not reach completion.")
 			s.rememberResumeLocked(summary)
 			return s.taskStateResultLocked(summary.RequestID, model.TurnFailed, "The authoritative plan did not reach completion."), nil
@@ -345,7 +345,7 @@ func (s *TaskService) applyCheckNodeLocked(ctx context.Context, input taskTermin
 		var changed bool
 		found, changed = s.tasks.CheckPlanNodeProjection(s.sessionID, input.NodeID, input.Output)
 		if changed {
-			s.state.Checkpoint(input.NodeID, label, "completed", input.Output, "")
+			s.state.Checkpoint(input.NodeID, label, model.NodeCompleted.String(), input.Output, "")
 			s.state.ProgressEpoch++
 		}
 	}
@@ -468,11 +468,15 @@ func nodesNotCovered(projected, completed []string, projection PlanProjectionRea
 
 // AppendPlanNodeEvent 把一次节点事件追加到节点时间线（详情页数据源；上限
 // limits.plan_node_events，同状态合并心跳）。
+//
+// 时间线的 Status 保留**事件的原始词**：这一条流水里既有节点状态词，也有 worktree
+// 收尾阶段词（worktree_unmerged / merge_blocked），它们不是节点状态，硬折进节点状态
+// 枚举就等于替事件编一个它没说的状态。节点当前状态那一格是 `node.Status`。
 func AppendPlanNodeEvent(node *model.PlanNode, event dto.PlanNodeEvent) {
 	if node.Events == nil {
 		node.Events = make([]model.PlanNodeEventInfo, 0, 8)
 	}
-	status := PlanNodeStatus(event.Status)
+	status := event.Status
 	output := event.Output
 	if len(output) > 200 {
 		output = output[:200] + "…"

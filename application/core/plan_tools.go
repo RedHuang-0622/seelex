@@ -49,7 +49,7 @@ func (service *Service) updatePlanFromLoad(argsJSON string) {
 		}
 		nodes = append(nodes, PlanNode{ID: id, Label: id, Kind: kind, Status: NodePending})
 		if state := service.components.tasks.CurrentTaskExecution(); state != nil && state.RequestID == service.Core.Snapshot.Chat.RequestID {
-			state.Checkpoint(id, spec.Input, string(NodePending), "", "")
+			state.Checkpoint(id, spec.Input, NodePending.String(), "", "")
 		}
 	}
 
@@ -122,7 +122,9 @@ func (service *Service) updatePlanFromRunResult(resultJSON string) {
 		for i := range plan.Nodes {
 			for _, on := range out.Nodes {
 				if plan.Nodes[i].ID == on.NodeID {
-					plan.Nodes[i].Status = task_context.PlanNodeStatus(on.Status)
+					if status, ok := task_context.PlanNodeStatus(on.Status); ok {
+						plan.Nodes[i].Status = status
+					}
 					plan.Nodes[i].Kind = mapKindForDisplay(on.Kind)
 					if on.Output != "" {
 						plan.Nodes[i].Output = on.Output
@@ -192,7 +194,12 @@ func resolveNodeStatus(nodes []struct {
 }, nodeID string) NodeStatus {
 	for _, n := range nodes {
 		if n.NodeID == nodeID {
-			return task_context.PlanNodeStatus(n.Status)
+			if status, ok := task_context.PlanNodeStatus(n.Status); ok {
+				return status
+			}
+			// 认不得的词不回 NodePending：那个默认属于"这个节点不在结果里"，
+			// 不属于"这个词我没读懂"（读不懂就说读不懂）。
+			return NodeUnknown
 		}
 	}
 	return NodePending
@@ -265,25 +272,31 @@ func (service *Service) handleViewPlanNodeComplete(event dto.PlanNodeEvent, sess
 	}
 	if event.NodeID == "" {
 		// 计划级投影（PlanStatus）：终态最终仍以 plan_run 结果 JSON 为准，
-		// 此处提前反映运行期状态。
-		switch event.Status {
-		case "running":
-			if plan.Status == PlanPending {
-				plan.Status = PlanRunning
+		// 此处提前反映运行期状态。词是**节点状态词**（框架的计划级投影复用同一套），
+		// 折一次再判；认不得的词不改计划状态。
+		if status, ok := task_context.PlanNodeStatus(event.Status); ok {
+			switch status {
+			case NodeRunning:
+				if plan.Status == PlanPending {
+					plan.Status = PlanRunning
+				}
+			case NodeCompleted:
+				plan.Status = PlanCompleted
+				plan.Progress = 1.0
+			case NodeFailed:
+				plan.Status = PlanFailed
+			case NodeCanceled, NodeAborted:
+				plan.Status = PlanAborted
 			}
-		case "completed":
-			plan.Status = PlanCompleted
-			plan.Progress = 1.0
-		case "failed":
-			plan.Status = PlanFailed
-		case "canceled", "aborted":
-			plan.Status = PlanAborted
 		}
 	}
 	var changedNode *PlanNode
 	if event.NodeID != "" {
 		if node := subagent_view.FindPlanNodeByID(plan.Nodes, event.NodeID); node != nil {
-			node.Status = task_context.PlanNodeStatus(event.Status)
+			// 只有节点状态词推进节点状态（阶段词不许覆盖，见 AppendPlanNodeEvent 的注释）。
+			if status, ok := task_context.PlanNodeStatus(event.Status); ok {
+				node.Status = status
+			}
 			if event.Kind != "" {
 				node.Kind = mapKindForDisplay(event.Kind)
 			}
@@ -363,16 +376,23 @@ func (service *Service) HandlePlanBranchEvent(event seelplan.PlanBranchEvent) {
 	}
 	node := subagent_view.FindPlanNodeByID(plan.Nodes, event.NodeID)
 	if node != nil {
-		node.Status = task_context.PlanNodeStatus(event.Type)
+		// 分支生命周期事件（queued | started | failed）里，只有**节点状态词**推进
+		// 节点状态；时间线保留原始事件词。
+		if status, ok := task_context.PlanNodeStatus(event.Type); ok {
+			node.Status = status
+		}
 		task_context.AppendPlanNodeEvent(node, dto.PlanNodeEvent{NodeID: event.NodeID, Status: event.Type, Output: event.Error, At: event.At})
 	}
-	switch event.Type {
-	case "queued", "started":
-		if plan.Status == PlanPending {
-			plan.Status = PlanRunning
+	// 计划级：分支进入排队/启动 → 计划在跑；失败/恐慌 → 计划失败（折成节点状态后判定）。
+	if status, ok := task_context.PlanNodeStatus(event.Type); ok {
+		switch status {
+		case NodeQueued, NodeRunning:
+			if plan.Status == PlanPending {
+				plan.Status = PlanRunning
+			}
+		case NodeFailed, NodePanicked:
+			plan.Status = PlanFailed
 		}
-	case "failed", "panicked":
-		plan.Status = PlanFailed
 	}
 	task_context.RecalculatePlanProgress(plan)
 	// 子代理树投影：分支生命周期（queued/started/failed）同样刷新树状态。
@@ -406,10 +426,17 @@ func mapKindForDisplay(kind string) string {
 	return kind
 }
 
-// isTerminalNodeStatus 判定节点状态是否为终态（checkpoint 只对终态生效）。
-func isTerminalNodeStatus(status string) bool {
+// isTerminalNodeStatus 判定节点状态词是否为终态（checkpoint 只对终态生效）。
+//
+// 折一次再判：读的是**节点状态**这一格（认不得的词不是终态——包括我们自己的 worktree
+// 收尾阶段词，它们走同一个字段但不是节点状态）。
+func isTerminalNodeStatus(word string) bool {
+	status, ok := task_context.PlanNodeStatus(word)
+	if !ok {
+		return false
+	}
 	switch status {
-	case "completed", "failed", "aborted", "skipped", "canceled", "panicked":
+	case NodeCompleted, NodeFailed, NodeAborted, NodeSkipped, NodeCanceled, NodePanicked:
 		return true
 	default:
 		return false
@@ -427,7 +454,7 @@ func (service *Service) handlePlanRunFailureLocked(errMsg, resultJSON string) *I
 	// 更新计划整体状态
 	plan.Status = PlanFailed
 	service.components.tasks.ObservePlanEvent(task_context.PlanEvent{
-		NodeID: extractFailedNodeID(errMsg), Status: "failed", Output: resultJSON,
+		NodeID: extractFailedNodeID(errMsg), Status: NodeFailed.String(), Output: resultJSON,
 		Failure: errMsg, Objective: "authoritative plan node",
 	})
 
@@ -465,7 +492,9 @@ func (service *Service) handlePlanRunFailureLocked(errMsg, resultJSON string) *I
 			for i := range plan.Nodes {
 				for _, on := range out.Nodes {
 					if plan.Nodes[i].ID == on.NodeID {
-						plan.Nodes[i].Status = task_context.PlanNodeStatus(on.Status)
+						if status, ok := task_context.PlanNodeStatus(on.Status); ok {
+							plan.Nodes[i].Status = status
+						}
 						plan.Nodes[i].Kind = mapKindForDisplay(on.Kind)
 						if on.Output != "" {
 							plan.Nodes[i].Output = on.Output

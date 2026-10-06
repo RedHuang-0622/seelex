@@ -23,8 +23,8 @@ func TestBuildWorkTableMapsPlanNodes(t *testing.T) {
 			{
 				ID: "n1", Label: "调研", Kind: "auto", Status: NodeCompleted, Output: "完成调研",
 				Events: []PlanNodeEventInfo{
-					{Status: NodeQueued, At: queuedAt, Output: "queued"},
-					{Status: NodeCompleted, At: completedAt, Output: "ok"},
+					{Status: NodeQueued.String(), At: queuedAt, Output: "queued"},
+					{Status: NodeCompleted.String(), At: completedAt, Output: "ok"},
 				},
 				ToolEvents: []SubagentToolEvent{
 					{ID: "t1", NodeID: "n1", Name: "read_file", Status: dto.ToolEventSuccess, StartedAt: toolAt, Result: "源码", Duration: 1500 * time.Millisecond},
@@ -77,7 +77,7 @@ func TestBuildWorkTableTasklistModeMarksCheckNode(t *testing.T) {
 		Status: PlanCompleted, // 非 running → tasklist 门禁模式
 		Nodes: []PlanNode{{
 			ID: "n1", Label: "步骤", Status: NodeCompleted,
-			Events: []PlanNodeEventInfo{{Status: NodeCompleted, At: at, Output: "ok"}},
+			Events: []PlanNodeEventInfo{{Status: NodeCompleted.String(), At: at, Output: "ok"}},
 		}},
 	}
 	tasks := []dto.TaskRecord{{ID: "plan:n1", Phase: "plan", Task: "步骤", Status: dto.TaskCompleted, Kind: "plan", SourceID: "n1"}}

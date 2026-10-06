@@ -103,7 +103,7 @@ func (c *Coordinator) CheckPlanNodeProjection(sessionID, nodeID, output string) 
 			node.Output = output
 		}
 		AppendPlanNodeEvent(node, dto.PlanNodeEvent{
-			NodeID: nodeID, Status: "completed", Output: output, At: time.Now(),
+			NodeID: nodeID, Status: model.NodeCompleted.String(), Output: output, At: time.Now(),
 		})
 		RecalculatePlanProgress(plan)
 		return true, true
@@ -190,23 +190,34 @@ func (c *Coordinator) ApplyPlanNodeProjection(sessionID string, event dto.PlanNo
 	}
 	result.Applied = true
 	if event.NodeID == "" {
-		switch event.Status {
-		case "running", "queued", "started":
-			if plan.Status == model.PlanPending {
-				plan.Status = model.PlanRunning
+		// 计划级事件：词是**节点状态词**（框架的计划级投影复用同一套词），
+		// 折一次再判。认不得的词不改计划状态（宁可不动，也不拿读不懂的词
+		// 去猜计划的状态）。
+		if status, ok := PlanNodeStatus(event.Status); ok {
+			switch status {
+			case model.NodeQueued, model.NodeRunning:
+				if plan.Status == model.PlanPending {
+					plan.Status = model.PlanRunning
+				}
+			case model.NodeCompleted:
+				plan.Status = model.PlanCompleted
+				plan.Progress = 1.0
+			case model.NodeFailed, model.NodePanicked:
+				plan.Status = model.PlanFailed
+			case model.NodeCanceled, model.NodeAborted:
+				plan.Status = model.PlanAborted
 			}
-		case "completed":
-			plan.Status = model.PlanCompleted
-			plan.Progress = 1.0
-		case "failed", "panicked":
-			plan.Status = model.PlanFailed
-		case "canceled", "aborted":
-			plan.Status = model.PlanAborted
 		}
 	}
 	if event.NodeID != "" {
 		if node := findPlanNode(plan.Nodes, event.NodeID); node != nil {
-			node.Status = PlanNodeStatus(event.Status)
+			// 只有**节点状态词**才推进节点状态：worktree 收尾阶段词
+			// （worktree_unmerged / merge_blocked）走同一个 Status 字段，
+			// 但它们是阶段不是状态——拿它们覆盖状态，会让跑完的节点显示成
+			// "待开始"（旧写法 default → pending 的那个现场）。
+			if status, ok := PlanNodeStatus(event.Status); ok {
+				node.Status = status
+			}
 			if event.Kind != "" {
 				node.Kind = planKindForDisplay(event.Kind)
 			}

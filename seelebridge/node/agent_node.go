@@ -18,6 +18,7 @@ import (
 	frameworknode "github.com/RedHuang-0622/Seele/workplan/core/node"
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/promptassets"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
@@ -120,7 +121,7 @@ var now = time.Now
 func (n *AgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowContext) (string, error) {
 	scope := n.scope()
 	if scope.Role == model.RoleSubAgent {
-		n.deps.AppendNodePhase(ctx, n.ID(), "worktree_creating")
+		n.deps.AppendNodePhase(ctx, n.ID(), dto.NodeWorktreeCreating.String())
 	}
 	wt := n.deps.BeginNodeWorktree(scope, n.ID())
 	if wt != nil {
@@ -128,7 +129,7 @@ func (n *AgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowContext) (
 	}
 	ctx = model.WithNodeScope(ctx, scope)
 	if scope.Role == model.RoleSubAgent {
-		n.deps.AppendNodePhase(ctx, n.ID(), "running")
+		n.deps.AppendNodePhase(ctx, n.ID(), dto.NodeRunning.String())
 	}
 	if n.blocks != nil {
 		ctx = WithNodePromptBlocks(ctx, n.blocks())
@@ -199,14 +200,14 @@ func (n *AgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowContext) (
 				//   1. 现场保留（不 Release），前端"工作区现场"仍可查、可人工恢复；
 				//   2. 警告写进节点产出，父代理/用户明确知道改动未合并及现场路径；
 				//   3. 节点按 Chat 结果判定成功，兄弟节点不再被连坐取消。
-				n.deps.AppendNodePhase(ctx, n.ID(), "worktree_unmerged")
+				n.deps.AppendNodePhase(ctx, n.ID(), nodePhaseWorktreeUnmerged)
 				result = withWorktreeUnmergedNotice(result, finishErr)
 			case workunit.OutcomeMergeBlocked:
 				// 合并被主工作区的在途改动挡住：与「未提交改动」同族——**不代表
 				// 节点产出无效**，只是"这次没合进去"。处置动作是"先让主工作区
 				// 干净（提交或暂存），再重试合并"；判死会让一份已完成产出连现场
 				// 一起留在没人看的角落。现场同样保留（不 Release）。
-				n.deps.AppendNodePhase(ctx, n.ID(), "merge_blocked")
+				n.deps.AppendNodePhase(ctx, n.ID(), nodePhaseMergeBlocked)
 				result = withWorktreeMergeBlockedNotice(result, finishErr)
 			default:
 				// OutcomeFailed：收尾真的失败了（rebase/审批/合并撞别的错）——判死。
@@ -300,11 +301,12 @@ func truncateNodePreview(value string, max int) string {
 	return value[:max] + "…"
 }
 
+// nodeStatusForErr 给出节点结论对应的**节点状态词**（引契约，不写字面量）。
 func nodeStatusForErr(err error) string {
 	if err != nil {
-		return "failed"
+		return dto.NodeFailed.String()
 	}
-	return "completed"
+	return dto.NodeCompleted.String()
 }
 
 // NodeScopeFor 解析节点作用域：新执行模型下分支即节点（BranchID = NodeID），

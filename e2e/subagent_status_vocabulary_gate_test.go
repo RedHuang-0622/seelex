@@ -158,6 +158,41 @@ var statusVocabularyScopes = []statusVocabularyScope{
 			"awaiting_approval": true, "archived": true, "restoring": true,
 		},
 	},
+	{
+		name: "计划状态",
+		files: map[string]string{
+			"application/core/task_context/plan_projection.go": "写：从节点事件推进计划状态（词折一次再判）",
+			"application/core/task_context/plan_transcript.go": "写：ActivePlanProjection.Status（对外词）",
+			"application/core/task_context/task_service.go":    "读：计划投影判「已装载但未执行」与终态",
+			"application/core/plan_tools.go":                   "写：plan_run 结果与事件折成计划状态",
+		},
+		// 这一格的取值面 = dto.Plan*（PlanState.Status / SubagentEvent.PlanStatus）。
+		// 与 plan_run **批次结果**（dto.PlanRunStatus，只有终态词）是两格，见各自文件头。
+		words: map[string]bool{
+			"pending": true, "running": true, "completed": true, "failed": true, "aborted": true,
+		},
+	},
+	{
+		name: "节点状态",
+		files: map[string]string{
+			"application/core/task_context/plan_projection.go": "写+读：事件折成节点状态（**阶段词不许覆盖节点状态**）",
+			"application/core/task_context/plan_transcript.go": "读：折框架/事件里的节点状态词（PlanNodeStatus 的唯一实现）",
+			"application/core/task_context/task_service.go":    "读：终态节点判定（checkpoint 汇总）+ 时间线流水",
+			"application/core/plan_tools.go":                   "写+读：plan_run 结果/事件折成节点状态，时间线保留原始词",
+			"application/core/work_table.go":                   "读：节点打点合成工作表格 trace",
+			"application/core/subagent_view/coordinator.go":    "读：详情页状态（记录状态/任务状态 → 节点状态）",
+			"tui/plan.go":                    "读：节点状态上色（参数是枚举，不再比字面量）",
+			"seelebridge/node/agent_node.go": "写：节点执行期状态词与收尾结论词（两条阶段词登记在 node_phase_words.go，**不属于本格**）",
+		},
+		// 这一格的取值面 = dto.Node*（PlanNode.Status）。
+		// 事件字段 dto.PlanNodeEvent.Status 是**混合面**（本格词 + 框架词 + 我们的阶段词），
+		// 不属于本格：认不得的词不许拿去覆盖节点状态。
+		words: map[string]bool{
+			"pending": true, "queued": true, "running": true, "worktree_creating": true,
+			"rebasing": true, "merging": true, "completed": true, "failed": true,
+			"aborted": true, "skipped": true, "canceled": true, "panicked": true,
+		},
+	},
 }
 
 // statusAllowedLiteral 是白名单条目：另一张词表的一处字面量 + 理由（"为什么像却不并"）。
@@ -186,6 +221,13 @@ var allowedStatusLiterals = []statusAllowedLiteral{
 	{
 		scope: "计划批次结果状态", file: "seelebridge/plan/tool_provider.go", word: "completed",
 		reason: "同上（框架节点状态词的另一半）",
+	},
+	{
+		scope: "节点状态", file: "application/core/subagent_view/coordinator.go", word: "completed",
+		reason: "写的是**工具调用视图词**（`model.ToolCall.Status`：running|completed|failed）——与节点状态" +
+			"同词不同格，而且按总表 §2 它是**边界字段**（transcript/快照 wire 的混合面，本格不覆盖）：" +
+			"它表达的是「详情页里这条历史工具调用已经跑完」，不是「这个 plan 节点处在哪一步」。" +
+			"工具调用视图词这一格要连读方清单一起收，登记在总表 §2（刻意不枚举）",
 	},
 }
 

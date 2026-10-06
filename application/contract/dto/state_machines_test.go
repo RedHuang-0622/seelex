@@ -227,6 +227,93 @@ func TestSessionStatusEnumWire(t *testing.T) {
 	}
 }
 
+// 格 G：计划状态（整张 Plan 的生命周期；与 plan_run 的**批次结果**是两格）。
+func TestPlanStatusEnumWire(t *testing.T) {
+	cases := []struct {
+		status PlanStatus
+		word   string
+	}{
+		{PlanStatusUnknown, "unknown"},
+		{PlanPending, "pending"},
+		{PlanRunning, "running"},
+		{PlanCompleted, "completed"},
+		{PlanFailed, "failed"},
+		{PlanAborted, "aborted"},
+	}
+	for _, entry := range cases {
+		status := entry.status
+		assertStateWire(t, stateWireCase{
+			grid:  "计划状态",
+			state: status,
+			word:  entry.word,
+			parse: func(text string) (fmt.Stringer, bool) {
+				parsed, ok := ParsePlanStatus(text)
+				return parsed, ok
+			},
+			read: func(data []byte) error { return json.Unmarshal(data, &status) },
+		})
+	}
+	// 边界：**计划批次结果**那一格必须拒绝在途词（"这一批跑成什么样"只可能落终态）。
+	for _, inflight := range []string{"pending", "running", "queued", "skipped"} {
+		if _, ok := ParsePlanRunStatus(inflight); ok {
+			t.Errorf("plan_run 批次结果认下了在途词 %q（那一格只有终态）", inflight)
+		}
+	}
+}
+
+// 格 H：节点状态（一个计划节点的状态；框架词 + 我们的 worktree 阶段词）。
+func TestNodeStatusEnumWire(t *testing.T) {
+	cases := []struct {
+		status NodeStatus
+		word   string
+	}{
+		{NodeUnknown, "unknown"},
+		{NodePending, "pending"},
+		{NodeQueued, "queued"},
+		{NodeRunning, "running"},
+		{NodeWorktreeCreating, "worktree_creating"},
+		{NodeRebasing, "rebasing"},
+		{NodeMerging, "merging"},
+		{NodeCompleted, "completed"},
+		{NodeFailed, "failed"},
+		{NodeAborted, "aborted"},
+		{NodeSkipped, "skipped"},
+		{NodeCanceled, "canceled"},
+		{NodePanicked, "panicked"},
+	}
+	for _, entry := range cases {
+		status := entry.status
+		assertStateWire(t, stateWireCase{
+			grid:  "节点状态",
+			state: status,
+			word:  entry.word,
+			parse: func(text string) (fmt.Stringer, bool) {
+				parsed, ok := ParseNodeStatus(text)
+				return parsed, ok
+			},
+			read: func(data []byte) error { return json.Unmarshal(data, &status) },
+		})
+	}
+}
+
+// 框架词折一次：框架的 "started" 与我们的 running 同态；**阶段词不是节点状态**
+// （认不得就判否，调用方不许拿它覆盖节点状态）。
+func TestNodeStatusFromFrameworkFoldsStartedAndRejectsPhases(t *testing.T) {
+	if status, ok := NodeStatusFromFramework("started"); !ok || status != NodeRunning {
+		t.Fatalf("框架 started = %v/%v，期望 running", status, ok)
+	}
+	for _, word := range []string{"worktree_unmerged", "merge_blocked", "half-exploded", ""} {
+		if status, ok := NodeStatusFromFramework(word); ok {
+			t.Errorf("%q 不是节点状态词，却折成了 %v", word, status)
+		}
+	}
+	for _, word := range []string{"queued", "running", "completed", "failed", "skipped", "canceled", "aborted", "panicked"} {
+		if _, ok := NodeStatusFromFramework(word); !ok {
+			t.Errorf("框架词 %q 必须认得（它是节点状态）", word)
+		}
+	}
+}
+
 // 落盘那一格：老形状（字符串）的记录必须能读回，认不得的词**不炸**、也不被当成终态。
 func TestRecordStatusReadsOldShapedRecords(t *testing.T) {
 	var legacy struct {
