@@ -67,6 +67,8 @@ stateDiagram-v2
 
 **"收尾要合到哪条分支"只有一个事实 = `NodeWorktree.MainBranch`**（建现场时记下）：变基目标、落后判定与合并目标三处读的都是它。合并前若不先把主工作区切回这条分支，`git merge` 就会合进主工作区**此刻碰巧所在**的分支——主工作区的当前分支在工作途中漂走时，同批先收尾的落在旧分支、后收尾的落在新分支，先前那份"已经合回来"的产出被踢成另一个分支上的孤儿（`worktree_merge_kickback_test.go`）。切不动一律显式收口：主工作区有在途改动挡路 → 可重试的 `ErrMergeBlockedByMain`，其余 → 硬失败带 git 原文、现场保留。
 
+这一格的判据只有一处：`classifySceneMergeTarget`（有名分支 / 游离 HEAD / **空栏**）。**空栏 = 登记缺栏，一律显式失败**（`errSceneFactsIncomplete`，`errors.Is` 可判）：`alignMergeTarget` 不再 `return nil`（过去空栏等于"合进当前 HEAD"，M2 在这条路上等于没装），`branchBehindBase`/`commitCountSince`/`diffStat` 也**绝不**把空栏拼进 ref 字符串——`HEAD..` / `..HEAD` 这种写法 git **不报错**（本机 git 2.51 实测 `git rev-list --count "HEAD.."` → `0`、exit 0），于是"缺栏"会被读成"没有落后 / 没有提交"，一路静默走到 `cleanup`：**现场与 `seelex/<nodeID>` 分支一起被删、产出一个字节都没合回来，而 `Finish` 报成功**（2026-10-06 红灯实测，`worktree_weak_registration_merge_test.go`）。空栏的成因只有一个：**弱登记先到**——teammate 记录只写 Path/Branch（`workunit_team_records.go` 的 `teamUnitWorktreeRecord`），恢复链里 `Restore` 先于 `Adopt`，`Adopt` 被"已在册"挡回，于是缺栏的那一份成为收尾读到的事实。补栏要改**记录侧**（本包无写点，见该用例头注）。
+
 失败是**可分类**的：`commitCountSince` 判定为"工作区脏且无提交"（子代理未执行收尾协议 `git add -A && git commit`）时，返回包装了 `ErrUncommittedChanges` 的错误，并由 `IsUncommittedChanges(err)`（`errors.Is`）判定。语义边界：现场一律保留（绝不静默删除子代理产出），但该失败**不表示节点结论无效**——调用方（`node/` 域）据此把它降级为产出中的显式警告，避免 workplan fail-fast 取其失败连坐同批兄弟节点。其余失败（rebase 冲突、审批被拒、merge 冲突/失败）仍是硬失败，不可降级。
 
 **残留回收（`Prune`）**：成功收尾才 `git worktree remove`，失败/中断的现场按设计保留，因此必须有兜底清理器，否则每个残留 = 一份完整检出 + 一个 `seelex/<id>` 分支，磁盘随历史失败数无界增长。`Prune` 走本仓库自己的 `git worktree list`，只回收**同时满足**两条的现场：
@@ -118,3 +120,14 @@ stateDiagram-v2
 go test ./seelebridge/worktree/ -count=1
 go test ./seelebridge/... -count=1
 ```
+
+**"合并分叉"这一段的覆盖范围**（真 git 仓 + 真 worktree，`reproGitRepo`）：
+
+| 机制 | 覆盖它的用例 |
+|---|---|
+| M1 收尾单写者 `finishActor` | `worktree_merge_serial_test.go`（`maxInMerge` 恒为 1 + 摘掉 actor 的反证对照） |
+| M2 合并前把主工作区切回 `wt.MainBranch` | `worktree_merge_kickback_test.go`（先合回来的不被踢成孤儿分支） |
+| M3 有界重试 / M4 挡路判据只有一份 | `worktree_merge_serial_test.go`（挡路→等干净→合上、超预算→`ErrMergeBlockedByMain`、真冲突=确定性失败） |
+| **登记来源：两个来源指向同一现场、缺栏不降级** | `worktree_registration_sources_test.go`、`worktree_scene_claim_test.go` |
+| **登记缺栏（弱登记先到）时 M2 不许静默失效** | `worktree_weak_registration_merge_test.go`（缺栏 → 显式失败 + 一个空 ref 都不发给 git + 现场/分支/产出原样；反证对照：只有 `Adopt` 先到时两栏由 git 现算、收尾照常合回 main） |
+| 现场被对端收走 | `worktree_vanished_scene_repro_test.go`（不许被幂等口径抹掉） |

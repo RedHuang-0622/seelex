@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -84,6 +85,70 @@ var ErrMergeBlockedByMain = workunit.ErrMergeBlockedByMain
 
 // IsMergeBlockedByMain 判定 err 是否属于「被主工作区挡住」类收尾失败（转调契约那份判据）。
 func IsMergeBlockedByMain(err error) bool { return workunit.IsMergeBlockedByMain(err) }
+
+// errSceneFactsIncomplete 标记「现场登记缺栏」这一类收尾失败：现场登记里缺了收尾要用的
+// 事实——`MainBranch`（这次合回哪条分支，即 M2 的判据）或 `BaseCommit`（变基与提交判定的
+// 基线）。缺栏的唯一成因是**弱登记先到**（见 worktree_weak_registration_merge_test.go）。
+var errSceneFactsIncomplete = errors.New("worktree scene registration is missing the facts finish needs")
+
+// missingSceneFactsError 携带缺的是哪一栏与现场路径，Unwrap 到 errSceneFactsIncomplete。
+type missingSceneFactsError struct {
+	nodeID string
+	path   string
+	column string // MainBranch | BaseCommit
+	why    string // 这一栏是干什么用的
+}
+
+func (e *missingSceneFactsError) Error() string {
+	return fmt.Sprintf("worktree %q：现场登记缺栏 %s（%s）——收尾不猜；现场保留在 %s。"+
+		"补栏的唯一办法是让**记录侧**把这一栏写全（teammate 记录只写 Path/Branch），或人工处理后再收尾",
+		e.nodeID, e.column, e.why, e.path)
+}
+
+func (e *missingSceneFactsError) Unwrap() error { return errSceneFactsIncomplete }
+
+// sceneMergeTargetKind 是「这次收尾要合回哪条分支」这一格的**唯一判据**（分类函数只有
+// `classifySceneMergeTarget` 一处）：
+//   - `sceneMergeTargetBranch`：有名分支 → 合并前把主工作区切回去（M2 真正装上）；
+//   - `sceneMergeTargetDetached`：建现场时主工作区是游离 HEAD（`rev-parse --abbrev-ref HEAD`
+//     就是 "HEAD"）→ 本来就没有分支可切，维持「合进当前 HEAD」的既有语义；
+//   - `sceneMergeTargetMissing`：**空栏 = 登记不全**（弱登记先到）→ 不许猜，显式发声。
+type sceneMergeTargetKind uint8
+
+const (
+	sceneMergeTargetMissing  sceneMergeTargetKind = iota // 空栏：登记不全
+	sceneMergeTargetDetached                             // 游离 HEAD：本来就没有分支
+	sceneMergeTargetBranch                               // 有名分支
+)
+
+// classifySceneMergeTarget 判定一条现场记录的合并目标归属（全包唯一一处）。
+func classifySceneMergeTarget(mainBranch string) (sceneMergeTargetKind, string) {
+	target := strings.TrimSpace(mainBranch)
+	switch {
+	case target == "":
+		return sceneMergeTargetMissing, ""
+	case target == "HEAD":
+		return sceneMergeTargetDetached, target
+	default:
+		return sceneMergeTargetBranch, target
+	}
+}
+
+// missingMergeTarget / missingBaseline 造「缺栏」诊断：说清缺的是哪一栏、这一栏收尾拿它干什么
+// （人照着这句话就能修：记录侧把栏位写全，或人工处理后重收尾）。
+func missingMergeTarget(nodeID string, wt *NodeWorktree) error {
+	return &missingSceneFactsError{
+		nodeID: nodeID, path: wt.Path, column: "MainBranch",
+		why: "这次收尾要合回哪条分支（合并前对齐目标 = M2 的判据）",
+	}
+}
+
+func missingBaseline(nodeID string, wt *NodeWorktree) error {
+	return &missingSceneFactsError{
+		nodeID: nodeID, path: wt.Path, column: "BaseCommit",
+		why: "变基与「有没有提交要合回」判定的基线",
+	}
+}
 
 // mergeBlockedError 携带 git 的原始证据（被挡住的路径/索引争用正文）与现场路径，
 // Unwrap 到 ErrMergeBlockedByMain 供调用方分类。
@@ -485,7 +550,7 @@ func (w *WorktreeManager) Finish(ctx context.Context, nodeID string, wt *NodeWor
 func (w *WorktreeManager) finishExclusive(ctx context.Context, nodeID string, wt *NodeWorktree, skipApproval bool) error {
 	root := w.deps.Root()
 	w.deps.Phase(ctx, nodeID, "rebasing")
-	behind, err := w.branchBehindBase(wt)
+	behind, err := w.branchBehindBase(nodeID, wt)
 	if err != nil {
 		return err
 	}
@@ -496,7 +561,7 @@ func (w *WorktreeManager) finishExclusive(ctx context.Context, nodeID string, wt
 			return fmt.Errorf("worktree %q: rebase onto %s failed (resolve conflicts in %s): %v\n%s\n冲突文件: %v", nodeID, wt.MainBranch, wt.Path, rebaseErr, out, conflicts)
 		}
 	}
-	commits, err := w.commitCountSince(wt)
+	commits, err := w.commitCountSince(nodeID, wt)
 	if err != nil {
 		return err
 	}
@@ -511,7 +576,7 @@ func (w *WorktreeManager) finishExclusive(ctx context.Context, nodeID string, wt
 		return w.cleanup(root, wt)
 	}
 	if !skipApproval {
-		summary, err := w.diffStat(wt)
+		summary, err := w.diffStat(nodeID, wt)
 		if err != nil {
 			summary = "diff stat unavailable"
 		}
@@ -546,15 +611,22 @@ func (w *WorktreeManager) finishExclusive(ctx context.Context, nodeID string, wt
 // 回来"的产出被踢成另一个分支上的孤儿（2026-10-06 红灯用例：A 合进 side、B 合进 main，
 // 收尾 B 之后主分支上只剩 B）。
 //
-// 判据只有一处：目标分支 = 现场记录的分支；不一致就**先切回去再合**。切不动（主工作区
-// 有在途改动挡路、分支已不存在）按既有的两类语义收口：挡路 → 可重试的
-// ErrMergeBlockedByMain（等主工作区干净后由 Finish 的预算循环重来），其余 → 硬失败并
-// 带上 git 原文（现场保留）。
+// 判据只有一处：目标分支 = 现场记录的分支（`classifySceneMergeTarget`）；不一致就**先切回去
+// 再合**。切不动（主工作区有在途改动挡路、分支已不存在）按既有的两类语义收口：挡路 → 可重试的
+// ErrMergeBlockedByMain（等主工作区干净后由 Finish 的预算循环重来），其余 → 硬失败并带上 git
+// 原文（现场保留）。
+//
+// 空栏（登记不全）**不再静默**：过去这里 `return nil`，等于"没有可切的目标 → 合进当前 HEAD"，
+// M2 在这条路上等于没装——而且上一步 `branchBehindBase` 会把空栏拼成 `HEAD..`（git 静默给 0），
+// 于是一条"有产出没合回"的现场会被当成"没有提交"清理掉。现在缺栏一律显式发声（见
+// `missingMergeTarget`），现场保留。
 func (w *WorktreeManager) alignMergeTarget(root, nodeID string, wt *NodeWorktree) error {
-	target := strings.TrimSpace(wt.MainBranch)
-	if target == "" || target == "HEAD" {
-		// 建现场时主工作区是游离 HEAD / 没读到分支名：没有可切的目标，维持原语义
-		// （合并进当前 HEAD）。
+	kind, target := classifySceneMergeTarget(wt.MainBranch)
+	switch kind {
+	case sceneMergeTargetMissing:
+		return missingMergeTarget(nodeID, wt)
+	case sceneMergeTargetDetached:
+		// 建现场时主工作区是游离 HEAD：没有可切的目标，维持原语义（合并进当前 HEAD）。
 		return nil
 	}
 	current, err := w.git(root, "rev-parse", "--abbrev-ref", "HEAD")
@@ -832,8 +904,19 @@ func (w *WorktreeManager) isGitRepository(root string) bool {
 	return err == nil
 }
 
-func (w *WorktreeManager) branchBehindBase(wt *NodeWorktree) (bool, error) {
-	out, err := w.git(wt.Path, "rev-list", "--count", "HEAD.."+wt.MainBranch)
+func (w *WorktreeManager) branchBehindBase(nodeID string, wt *NodeWorktree) (bool, error) {
+	kind, target := classifySceneMergeTarget(wt.MainBranch)
+	if kind != sceneMergeTargetBranch {
+		if kind == sceneMergeTargetMissing {
+			// 空栏**绝不拼** `HEAD..`：git 对空的一侧不报错、静默给 0（本机 git 2.51 实测
+			// `git rev-list --count "HEAD.."` → `0`，exit 0），于是"缺栏"会被读成"没有落后"，
+			// 一路静默走到 `cleanup` ——现场与分支一起被删、产出一个字节都没合回来，Finish 还报成功。
+			return false, missingMergeTarget(nodeID, wt)
+		}
+		// 游离 HEAD：没有可比较的目标分支，不拼空 ref（合进当前 HEAD 的语义由 alignMergeTarget 维持）。
+		return false, nil
+	}
+	out, err := w.git(wt.Path, "rev-list", "--count", "HEAD.."+target)
 	if err != nil {
 		return false, err
 	}
@@ -844,7 +927,12 @@ func (w *WorktreeManager) branchBehindBase(wt *NodeWorktree) (bool, error) {
 	return count > 0, nil
 }
 
-func (w *WorktreeManager) commitCountSince(wt *NodeWorktree) (int, error) {
+func (w *WorktreeManager) commitCountSince(nodeID string, wt *NodeWorktree) (int, error) {
+	if strings.TrimSpace(wt.BaseCommit) == "" {
+		// 同 branchBehindBase：空栏**绝不拼** `..HEAD`（git 静默给 0）——否则"有产出要合回"会被
+		// 读成"没有提交"，`finishExclusive` 随即把现场当空现场 `cleanup` 掉。
+		return 0, missingBaseline(nodeID, wt)
+	}
 	out, err := w.git(wt.Path, "rev-list", "--count", wt.BaseCommit+"..HEAD")
 	if err != nil {
 		return 0, err
@@ -875,7 +963,11 @@ func (w *WorktreeManager) conflictFilesIn(dir string) ([]string, error) {
 	return files, nil
 }
 
-func (w *WorktreeManager) diffStat(wt *NodeWorktree) (string, error) {
+func (w *WorktreeManager) diffStat(nodeID string, wt *NodeWorktree) (string, error) {
+	if strings.TrimSpace(wt.BaseCommit) == "" {
+		// 同一格判据（空栏不拼 ref）：调用方把这条错误当成"摘要拿不到"，不新增失败面。
+		return "", missingBaseline(nodeID, wt)
+	}
 	out, err := w.git(wt.Path, "diff", "--stat", wt.BaseCommit+"..HEAD")
 	if err != nil {
 		return "", err
