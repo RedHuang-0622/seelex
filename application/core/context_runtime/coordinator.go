@@ -515,7 +515,7 @@ func compactionOrigin(options prepareOptions, state *task_context.TaskExecutionS
 	if !options.forceCompact {
 		return model.CompactionOriginAuto
 	}
-	if state.Status != task_context.StatusRunning {
+	if state.Status != model.TurnProgressing {
 		return model.CompactionOriginExplicitAfterTurn
 	}
 	return model.CompactionOriginExplicit

@@ -34,11 +34,10 @@ import (
 //	BeginSessionContextMaintenanceLocked → 压缩 → EndSessionContextMaintenanceLocked
 const SessionMaintenanceRequestPrefix = "session-maintenance:"
 
-// StatusIdle 表示"会话持有上下文状态，但没有在飞回合"。它不是回合终态
-// （`IsContinuableStatus` 为假，不会让下一回合把它当成可续接任务），也不
-// 参与进度语义；只用于冷加载会话的上下文维护（见
-// `SessionMaintenanceRequestPrefix`）。
-const StatusIdle = "idle"
+// 维护身份的回合状态是 `model.TurnIdle`（"会话持有上下文状态，但没有在飞回合"）。
+// 它**不是回合终态**（`IsContinuableStatus` 为假，不会让下一回合把它当成可续接任务），
+// 也不参与进度语义。这里曾经有一份本层常量 `StatusIdle = "idle"`——正是"第二份词表"
+// 的长相（可见面同一格另有 progressing|… 一份），合并后直接引契约的词。
 
 // sessionMaintenanceObjectiveLimit 限定维护状态 objective 的字符数：objective
 // 会进 checkpoint/压缩帧正文，不得把整条长输入搬进去。
@@ -72,11 +71,11 @@ func (c *Coordinator) BeginSessionContextMaintenanceLocked(sessionID string) str
 		// 冷加载会话没有任务状态：按会话自己的事实建一份**上下文状态**
 		// （objective 取最后一条真实用户输入，上下文版本从 1 起）。
 		state = NewTaskExecutionState("", sessionMaintenanceObjective(st.transcript), c.prompt.CurrentEffort())
-		state.Status = StatusIdle
+		state.Status = model.TurnIdle
 		st.taskExecution = state
 		c.syncGoalSkillActiveLocked()
-	} else if strings.TrimSpace(state.Status) == "" {
-		state.Status = StatusIdle
+	} else if state.Status == model.TurnUnknown {
+		state.Status = model.TurnIdle
 	}
 	requestID := SessionMaintenanceRequestID(sessionID)
 	state.RequestID = requestID
@@ -104,8 +103,8 @@ func (c *Coordinator) EndSessionContextMaintenanceLocked(sessionID, requestID st
 		return
 	}
 	state.RequestID = ""
-	if strings.TrimSpace(state.Status) == "" {
-		state.Status = StatusIdle
+	if state.Status == model.TurnUnknown {
+		state.Status = model.TurnIdle
 	}
 	c.unbindRequestLocked(requestID)
 	if task := c.Snapshot.Task; task != nil && task.RequestID == requestID {

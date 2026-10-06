@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
-	"github.com/RedHuang-0622/seelex/application/core/task_context"
 )
 
 const contextRecoveryPrefix = "<!-- seelex:context-recovery:v1 -->"
@@ -64,10 +63,10 @@ func (service *Service) recoverProviderFailureFor(ctx context.Context, err error
 	checkpoint := ""
 	if state := service.components.tasks.CurrentTaskExecutionFor(sessionID); state != nil {
 		checkpoint = state.ContextSummary()
-		state.Status = task_context.StatusInterrupted
+		state.Status = TurnInterrupted
 	}
 	requestID := service.Core.Snapshot.Chat.RequestID
-	service.components.tasks.SetTaskStateLocked(requestID, TaskInterrupted, summary)
+	service.components.tasks.SetTaskStateLocked(requestID, TurnInterrupted, summary)
 	service.ViewMu.Unlock()
 
 	recoveryNote := prefix + "\n## " + heading + `

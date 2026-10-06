@@ -145,7 +145,7 @@ func forkTestFixture() (*forkTestSessions, time.Time) {
 				{Path: "b.txt", ReadAt: t4},
 			},
 			Task: &model.TaskState{
-				Status:    model.TaskCompleted,
+				Status:    model.TurnCompleted,
 				UpdatedAt: t4,
 				ContextCompactions: []model.ContextCompaction{{
 					Version: 1, Reason: "window", MessagesBefore: 5, EstimatedTokens: 10, CompactedAt: t2,

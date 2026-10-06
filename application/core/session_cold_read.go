@@ -74,7 +74,7 @@ func (service *Service) snapshotOfCold(sessionID string) (SessionSnapshot, error
 			snapshot.Task = &TaskState{
 				// 冷读面没有回合身份（无 RequestID），状态取 idle：这是"这个会话
 				// 当前没在跑"的如实说法，不是伪造一个已收尾的回合。
-				Status:             TaskStatus(task_context.StatusIdle),
+				Status:             TurnIdle,
 				ContextCompactions: append([]ContextCompaction(nil), records...),
 			}
 		}

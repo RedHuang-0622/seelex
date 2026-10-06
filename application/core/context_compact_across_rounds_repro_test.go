@@ -113,7 +113,7 @@ func TestReproContextFactsSurviveCompletedTurnBoundary(t *testing.T) {
 		t.Fatalf("夹具前提：压缩后应有一条压缩记录：%#v", state)
 	}
 	// 回合收尾（task_service 的终态落点）。
-	state.Status = task_context.StatusCompleted
+	state.Status = TurnCompleted
 	retained, version := state.ContextRetainedFrom, state.ContextVersion
 	service.ViewMu.Unlock()
 

@@ -780,7 +780,7 @@ func (c *Coordinator) _TaskProjectionLocked(sessionID string) *model.TaskContext
 	}
 	return &model.TaskContextProjection{
 		SchemaVersion: 1, ProjectID: projectID, SessionID: sessionID, TaskID: state.RequestID,
-		Status: state.Status, ObjectiveRef: objectiveRef,
+		Status: state.Status.String(), ObjectiveRef: objectiveRef,
 		ActiveSkills: append([]model.ActiveSkill(nil), state.ActiveSkills...), ActivePlan: c._ActivePlanProjectionLocked(),
 		Checkpoint: checkpoint, TokenAudit: state.TokenAudit, UpdatedAt: time.Now(),
 	}
@@ -920,7 +920,7 @@ func (c *Coordinator) restoreTaskProjectionLocked(st *sessionTaskRuntime, restor
 		// 冷恢复后的会话没有在飞回合：状态取 StatusIdle、请求身份留空，不伪造一个
 		// 已在进程重启时消失的回合身份（与 BeginSessionContextMaintenanceLocked 为
 		// 冷加载会话建的"上下文状态"同一口径）。
-		state.Status = StatusIdle
+		state.Status = model.TurnIdle
 		state.ContextCompactions = append([]model.ContextCompaction(nil), restored.ContextCompactions...)
 		state.ContextRetainedFrom = restored.ContextRetainedFrom
 		// 上下文版本：projection 缺失时没有权威的 checkpoint 版本，但每条压缩记录
@@ -942,7 +942,7 @@ func (c *Coordinator) restoreTaskProjectionLocked(st *sessionTaskRuntime, restor
 		objective = strings.TrimSpace(restored.FallbackObjective)
 	}
 	state := NewTaskExecutionState(projection.TaskID, objective, c.prompt.CurrentEffort())
-	state.Status = projection.Status
+	state.Status = TurnStatusOfRecord(projection.Status)
 	state.ContextVersion = projection.Checkpoint.Version
 	if state.ContextVersion == 0 {
 		state.ContextVersion = 1
@@ -1027,7 +1027,7 @@ func (c *Coordinator) _RecordContextCompactionLocked(requestID string, compactio
 	// 压缩（2026-09-23 实测：回合之间的 /compact 必落 compacted_without_record）。
 	// 自动路径保持原口径：收尾后不补记，避免把上一回合的收尾状态误标成
 	// "该回合压缩过"。
-	if state.Status != StatusRunning && !model.ExplicitCompactionOrigin(compaction.Origin) {
+	if state.Status != model.TurnProgressing && !model.ExplicitCompactionOrigin(compaction.Origin) {
 		return false
 	}
 	state.ContextCompactions = append(state.ContextCompactions, compaction)
@@ -1069,13 +1069,13 @@ func (c *Coordinator) LastContextCompactionFor(sessionID string) (model.ContextC
 // SetTaskStateLocked 把任务可见状态写入快照（调用方持有 Core.ViewMu；requestID
 // 反查会话）。非活跃会话（后台并行执行）跳过共享快照写入，避免污染活跃
 // 会话投影；任务内部状态由调用方独立维护。
-func (c *Coordinator) SetTaskStateLocked(requestID string, status model.TaskStatus, summary string) {
+func (c *Coordinator) SetTaskStateLocked(requestID string, status model.TurnStatus, summary string) {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 	c._SetTaskStateLocked(requestID, status, summary)
 }
 
-func (c *Coordinator) _SetTaskStateLocked(requestID string, status model.TaskStatus, summary string) {
+func (c *Coordinator) _SetTaskStateLocked(requestID string, status model.TurnStatus, summary string) {
 	sessionID := c._SessionIDForRequest(requestID)
 	if !c.isActiveSessionLocked(sessionID) {
 		return
@@ -1108,13 +1108,13 @@ func (c *Coordinator) InterruptTaskLocked(requestID, summary string) {
 }
 
 func (c *Coordinator) _InterruptTaskLocked(requestID, summary string) {
-	c._SetTaskStateLocked(requestID, model.TaskInterrupted, summary)
+	c._SetTaskStateLocked(requestID, model.TurnInterrupted, summary)
 	st := c.sessionForRequestLocked(requestID)
 	if st == nil {
 		st = c.activeSessionLocked()
 	}
 	if state := st.taskExecution; state != nil && state.RequestID == requestID {
-		state.Status = StatusInterrupted
+		state.Status = model.TurnInterrupted
 	}
 }
 
@@ -1126,13 +1126,13 @@ func (c *Coordinator) FailTaskLocked(requestID, summary string) {
 }
 
 func (c *Coordinator) _FailTaskLocked(requestID, summary string) {
-	c._SetTaskStateLocked(requestID, model.TaskFailed, summary)
+	c._SetTaskStateLocked(requestID, model.TurnFailed, summary)
 	st := c.sessionForRequestLocked(requestID)
 	if st == nil {
 		st = c.activeSessionLocked()
 	}
 	if state := st.taskExecution; state != nil && state.RequestID == requestID {
-		state.Status = StatusFailed
+		state.Status = model.TurnFailed
 	}
 }
 
@@ -1153,9 +1153,9 @@ func (c *Coordinator) _ResumeTaskLocked(requestID, summary string) {
 	if state == nil || state.RequestID != requestID {
 		return
 	}
-	state.Status = StatusRunning
+	state.Status = model.TurnProgressing
 	state.ProgressEpoch++
-	c._SetTaskStateLocked(requestID, model.TaskProgressing, summary)
+	c._SetTaskStateLocked(requestID, model.TurnProgressing, summary)
 }
 
 // RememberCheckpointLocked 按 version 替换或追加活跃会话 checkpoint（调用
@@ -1399,13 +1399,9 @@ func (c *Coordinator) _TaskStateFor(sessionID string) *model.TaskState {
 	if state == nil {
 		return nil
 	}
-	status := model.TaskStatus(state.Status)
-	if status == model.TaskStatus("running") {
-		status = model.TaskProgressing
-	}
 	return &model.TaskState{
 		RequestID:          state.RequestID,
-		Status:             status,
+		Status:             state.Status,
 		ContextCompactions: append([]model.ContextCompaction(nil), state.ContextCompactions...),
 		UpdatedAt:          time.Now(),
 	}

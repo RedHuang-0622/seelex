@@ -230,39 +230,39 @@ func (s *TaskService) OnChatEnd(ctx context.Context, summary ChatEndSummary) (mo
 	if plan := s.projection.Plan(); plan != nil {
 		switch plan.Status {
 		case model.PlanPending, model.PlanRunning:
-			state.Status = StatusNeedsUserDecision
+			state.Status = model.TurnNeedsUserDecision
 			state.Terminal = &taskTerminal{
 				Kind:             ToolNeedsUserDecision,
 				Summary:          "The authoritative plan is ready but has not been executed.",
 				DecisionQuestion: "Should Seelex execute the loaded plan, revise it, or stop here?",
 				DecisionOptions:  []string{"execute", "revise", "stop"},
 			}
-			s.setTaskStateLocked(summary.RequestID, model.TaskNeedsUserDecision, "Plan is ready but not executed. Choose whether to execute it, revise it, or stop here.")
+			s.setTaskStateLocked(summary.RequestID, model.TurnNeedsUserDecision, "Plan is ready but not executed. Choose whether to execute it, revise it, or stop here.")
 			state.ProgressEpoch++
 			s.rememberResumeLocked(summary)
-			return s.taskStateResultLocked(summary.RequestID, model.TaskNeedsUserDecision, "Plan is ready but not executed. Choose whether to execute it, revise it, or stop here."), nil
+			return s.taskStateResultLocked(summary.RequestID, model.TurnNeedsUserDecision, "Plan is ready but not executed. Choose whether to execute it, revise it, or stop here."), nil
 		case model.PlanFailed, model.PlanAborted:
-			state.Status = StatusFailed
+			state.Status = model.TurnFailed
 			state.Checkpoint("plan", "authoritative plan", string(plan.Status), "", "plan did not complete")
-			s.setTaskStateLocked(summary.RequestID, model.TaskFailed, "The authoritative plan did not reach completion.")
+			s.setTaskStateLocked(summary.RequestID, model.TurnFailed, "The authoritative plan did not reach completion.")
 			s.rememberResumeLocked(summary)
-			return s.taskStateResultLocked(summary.RequestID, model.TaskFailed, "The authoritative plan did not reach completion."), nil
+			return s.taskStateResultLocked(summary.RequestID, model.TurnFailed, "The authoritative plan did not reach completion."), nil
 		}
 	}
-	state.Status = StatusCompleted
+	state.Status = model.TurnCompleted
 	state.Terminal = &taskTerminal{
 		Kind: ToolComplete, Summary: "Model returned a final response without an explicit terminal tool call.",
 	}
-	s.setTaskStateLocked(summary.RequestID, model.TaskCompleted, state.Terminal.Summary)
+	s.setTaskStateLocked(summary.RequestID, model.TurnCompleted, state.Terminal.Summary)
 	state.ProgressEpoch++
 	s.rememberResumeLocked(summary)
-	return s.taskStateResultLocked(summary.RequestID, model.TaskCompleted, state.Terminal.Summary), nil
+	return s.taskStateResultLocked(summary.RequestID, model.TurnCompleted, state.Terminal.Summary), nil
 }
 
 // taskStateResultLocked 构造任务的可见状态结果。优先取共享快照中的 Task
 // （活跃会话已由 setTaskStateLocked 写入）；非活跃会话（后台并行）快照未
 // 写入时由本方法构造，避免 nil 解引用。
-func (s *TaskService) taskStateResultLocked(requestID string, status model.TaskStatus, summary string) model.TaskState {
+func (s *TaskService) taskStateResultLocked(requestID string, status model.TurnStatus, summary string) model.TaskState {
 	if s.lastTaskState != nil && s.lastTaskState.RequestID == requestID {
 		return *s.lastTaskState
 	}
@@ -366,8 +366,8 @@ func (s *TaskService) applyCompleteLocked(ctx context.Context, input taskTermina
 		return "", err
 	}
 	s.state.Terminal = &input
-	s.state.Status = StatusCompleted
-	s.setTaskStateLocked(s.state.RequestID, model.TaskCompleted, input.Summary)
+	s.state.Status = model.TurnCompleted
+	s.setTaskStateLocked(s.state.RequestID, model.TurnCompleted, input.Summary)
 	s.state.ProgressEpoch++
 	s.rememberResumeLocked(ChatEndSummary{RequestID: s.state.RequestID})
 	encoded, _ := json.Marshal(map[string]string{"status": "accepted", "terminal": ToolComplete})
@@ -377,11 +377,11 @@ func (s *TaskService) applyCompleteLocked(ctx context.Context, input taskTermina
 func (s *TaskService) applyFailedLocked(ctx context.Context, input taskTerminal) (string, error) {
 	s.state.Terminal = &input
 	if input.FailureType == "blocked" || input.FailureType == "external_dependency" {
-		s.state.Status = StatusBlocked
-		s.setTaskStateLocked(s.state.RequestID, model.TaskBlocked, input.Summary)
+		s.state.Status = model.TurnBlocked
+		s.setTaskStateLocked(s.state.RequestID, model.TurnBlocked, input.Summary)
 	} else {
-		s.state.Status = StatusFailed
-		s.setTaskStateLocked(s.state.RequestID, model.TaskFailed, input.Summary)
+		s.state.Status = model.TurnFailed
+		s.setTaskStateLocked(s.state.RequestID, model.TurnFailed, input.Summary)
 	}
 	s.state.ProgressEpoch++
 	s.rememberResumeLocked(ChatEndSummary{RequestID: s.state.RequestID})
@@ -391,8 +391,8 @@ func (s *TaskService) applyFailedLocked(ctx context.Context, input taskTerminal)
 
 func (s *TaskService) applyDecisionLocked(ctx context.Context, input taskTerminal) (string, error) {
 	s.state.Terminal = &input
-	s.state.Status = StatusNeedsUserDecision
-	s.setTaskStateLocked(s.state.RequestID, model.TaskNeedsUserDecision, input.Summary)
+	s.state.Status = model.TurnNeedsUserDecision
+	s.setTaskStateLocked(s.state.RequestID, model.TurnNeedsUserDecision, input.Summary)
 	s.state.ProgressEpoch++
 	s.rememberResumeLocked(ChatEndSummary{RequestID: s.state.RequestID})
 	encoded, _ := json.Marshal(map[string]string{"status": "accepted", "terminal": ToolNeedsUserDecision})
@@ -432,7 +432,7 @@ func (s *TaskService) rememberResumeLocked(summary ChatEndSummary) {
 
 // setTaskStateLocked 把任务可见状态写入快照。非活跃会话（后台并行执行）
 // 跳过共享快照写入，避免污染活跃会话投影。
-func (s *TaskService) setTaskStateLocked(requestID string, status model.TaskStatus, summary string) {
+func (s *TaskService) setTaskStateLocked(requestID string, status model.TurnStatus, summary string) {
 	var compactions []model.ContextCompaction
 	if s.state != nil && s.state.RequestID == requestID {
 		compactions = append([]model.ContextCompaction(nil), s.state.ContextCompactions...)

@@ -38,7 +38,7 @@ type Snapshot struct {
 // internals or prompt content.
 type TaskState struct {
 	RequestID          string              `json:"request_id,omitempty"`
-	Status             TaskStatus          `json:"status"`
+	Status             TurnStatus          `json:"status"`
 	Summary            string              `json:"summary,omitempty"`
 	ContextCompactions []ContextCompaction `json:"context_compactions,omitempty"`
 	UpdatedAt          time.Time           `json:"updated_at,omitempty"`
@@ -156,15 +156,24 @@ func messageRangeLabel(from, to string) string {
 	}
 }
 
-type TaskStatus string
+// TurnStatus 是一次回合（用户这一次请求）的执行状态与结论。
+//
+// 词表只有一份，住在契约 `application/contract/dto`（`dto.TurnStatus`）：本包以别名
+// 保持 model 侧的读法，**不再定义第二份词表**。历史上本包有一个 `type TaskStatus string`
+// 与 `dto.TaskStatus`（工作表条目那一格）**同名却是两台不同的机器**，两套词表只在
+// "进行中"上分叉（progressing vs running），中间靠一处手写映射接着——这一格合并的就是它。
+type TurnStatus = dto.TurnStatus
 
+// Turn* 是这一格的取值（转调契约常量；写状态的地方只许引这些名字）。
 const (
-	TaskProgressing       TaskStatus = "progressing"
-	TaskCompleted         TaskStatus = "completed"
-	TaskNeedsUserDecision TaskStatus = "needs_user_decision"
-	TaskBlocked           TaskStatus = "blocked"
-	TaskInterrupted       TaskStatus = "interrupted"
-	TaskFailed            TaskStatus = "failed"
+	TurnUnknown           = dto.TurnUnknown
+	TurnIdle              = dto.TurnIdle
+	TurnProgressing       = dto.TurnProgressing
+	TurnCompleted         = dto.TurnCompleted
+	TurnNeedsUserDecision = dto.TurnNeedsUserDecision
+	TurnBlocked           = dto.TurnBlocked
+	TurnInterrupted       = dto.TurnInterrupted
+	TurnFailed            = dto.TurnFailed
 )
 
 type SessionState struct {

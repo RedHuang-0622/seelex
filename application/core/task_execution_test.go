@@ -33,7 +33,7 @@ func TestTaskTerminalHandlerRecordsBoundedCompletion(t *testing.T) {
 	service.ViewMu.RLock()
 	state := service.components.tasks.CurrentTaskExecution()
 	service.ViewMu.RUnlock()
-	if state.Status != task_context.StatusCompleted || state.Terminal == nil || state.Terminal.Summary != "report is ready" {
+	if state.Status != TurnCompleted || state.Terminal == nil || state.Terminal.Summary != "report is ready" {
 		t.Fatalf("terminal state = %+v", state)
 	}
 }
@@ -70,10 +70,10 @@ func TestTaskNeedsUserDecisionRecordsDistinctTerminalState(t *testing.T) {
 	service.ViewMu.RLock()
 	state := service.components.tasks.CurrentTaskExecution()
 	service.ViewMu.RUnlock()
-	if state.Status != task_context.StatusNeedsUserDecision {
+	if state.Status != TurnNeedsUserDecision {
 		t.Fatalf("terminal status = %q", state.Status)
 	}
-	if visible := service.Snapshot().Task; visible == nil || visible.Status != TaskNeedsUserDecision {
+	if visible := service.Snapshot().Task; visible == nil || visible.Status != TurnNeedsUserDecision {
 		t.Fatalf("visible task state = %#v", visible)
 	}
 }
@@ -118,11 +118,11 @@ func TestNaturalStopWithPendingAuthoritativePlanNeedsUserDecision(t *testing.T) 
 	service.ViewMu.RLock()
 	state := service.components.tasks.CurrentTaskExecution()
 	service.ViewMu.RUnlock()
-	if state.Status != task_context.StatusNeedsUserDecision || state.Terminal == nil || state.Terminal.Kind != task_context.ToolNeedsUserDecision {
+	if state.Status != TurnNeedsUserDecision || state.Terminal == nil || state.Terminal.Kind != task_context.ToolNeedsUserDecision {
 		t.Fatalf("task terminal = %#v, want needs-user-decision", state)
 	}
 	visible := service.Snapshot().Task
-	if visible == nil || visible.Status != TaskNeedsUserDecision || !strings.Contains(visible.Summary, "not executed") {
+	if visible == nil || visible.Status != TurnNeedsUserDecision || !strings.Contains(visible.Summary, "not executed") {
 		t.Fatalf("visible task state = %#v", visible)
 	}
 }
@@ -141,7 +141,7 @@ func TestContextControllerCompactsAndCleansInternalCheckpoint(t *testing.T) {
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "inspect project", "high", nil, TaskCheckpoint{})
-	service.components.tasks.SetTaskStateLocked("task-1", TaskProgressing, "Task is in progress.")
+	service.components.tasks.SetTaskStateLocked("task-1", TurnProgressing, "Task is in progress.")
 	service.components.tasks.CurrentTaskExecution().Checkpoint("inspect", "inspect source", "completed", "found call path", "")
 	service.ViewMu.Unlock()
 
@@ -194,7 +194,7 @@ func TestContextControllerRepeatedCompactionDoesNotAccumulateCheckpoints(t *test
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "inspect project", "high", nil, TaskCheckpoint{})
-	service.components.tasks.SetTaskStateLocked("task-1", TaskProgressing, "Task is in progress.")
+	service.components.tasks.SetTaskStateLocked("task-1", TurnProgressing, "Task is in progress.")
 	service.components.tasks.CurrentTaskExecution().Checkpoint("inspect", "inspect source", "completed", "found call path", "")
 	service.ViewMu.Unlock()
 
@@ -257,7 +257,7 @@ func TestContextControllerRejectsLargeToolOutputBeforeGlobalCompaction(t *testin
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "inspect project", "high", nil, TaskCheckpoint{})
-	service.components.tasks.SetTaskStateLocked("task-1", TaskProgressing, "Task is in progress.")
+	service.components.tasks.SetTaskStateLocked("task-1", TurnProgressing, "Task is in progress.")
 	service.ViewMu.Unlock()
 
 	if err := service.components.context.CompactTaskContext("task-1"); err != nil {
@@ -285,7 +285,7 @@ func TestTaskContextSummaryRetainsCompletedToolEvidence(t *testing.T) {
 
 func TestTaskContextSummaryIgnoresMetadataOnlyCheckpoint(t *testing.T) {
 	state := task_context.NewTaskExecutionState("task-empty", "", "high")
-	state.Status = task_context.StatusInterrupted
+	state.Status = TurnInterrupted
 	state.InheritedCheckpoint = &TaskCheckpoint{
 		Version:          7,
 		CoversEventRange: EventRange{Start: 632, End: 632},
@@ -302,9 +302,9 @@ func TestInterruptedTaskContinuationCarriesCheckpointAndSkills(t *testing.T) {
 	defer service.Shutdown()
 	service.promptStack.Push("skill", "review", "review prompt")
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Task = &TaskState{RequestID: "old-task", Status: TaskInterrupted}
+	service.Core.Snapshot.Task = &TaskState{RequestID: "old-task", Status: TurnInterrupted}
 	service.components.tasks.BeginTask("old-task", "inspect source", "high", nil, TaskCheckpoint{})
-	service.components.tasks.CurrentTaskExecution().Status = task_context.StatusInterrupted
+	service.components.tasks.CurrentTaskExecution().Status = TurnInterrupted
 	service.components.tasks.CurrentTaskExecution().Checkpoint("inspect", "inspect source", string(NodeCompleted), "found call path", "")
 	service.components.tasks.ActivateTaskSkillsLocked(service.components.tasks.CurrentTaskExecution(), []PromptLayer{{Kind: "skill", Name: "review", Text: "review prompt"}})
 	service.ViewMu.Unlock()

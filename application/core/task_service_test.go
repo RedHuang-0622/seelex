@@ -35,7 +35,7 @@ func TestTaskCompleteRejectedWhenProjectionNotConverged(t *testing.T) {
 	service.ViewMu.RLock()
 	state := service.components.tasks.CurrentTaskExecution()
 	service.ViewMu.RUnlock()
-	if state.Status != task_context.StatusRunning || state.Terminal != nil {
+	if state.Status != TurnProgressing || state.Terminal != nil {
 		t.Fatalf("task state must stay running after rejected terminal: %+v", state)
 	}
 }
@@ -72,7 +72,7 @@ func TestTaskCompleteFlushConvergesProjectionBeforeVerdict(t *testing.T) {
 	state := service.components.tasks.CurrentTaskExecution()
 	plan := service.Core.Snapshot.Runtime.Plan
 	service.ViewMu.RUnlock()
-	if state.Status != task_context.StatusCompleted || state.Terminal == nil || state.Terminal.Kind != task_context.ToolComplete {
+	if state.Status != TurnCompleted || state.Terminal == nil || state.Terminal.Kind != task_context.ToolComplete {
 		t.Fatalf("terminal state = %+v", state)
 	}
 	if plan.Status != PlanCompleted || plan.Progress != 1 || plan.Nodes[0].Status != NodeCompleted {
@@ -145,7 +145,7 @@ func TestOnChatEndKeepsResumeRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if visible.Status != TaskCompleted || visible.RequestID != "task-1" {
+	if visible.Status != TurnCompleted || visible.RequestID != "task-1" {
 		t.Fatalf("natural terminal task state = %#v", visible)
 	}
 	// CurrentTaskResumeRecord 自行加 Core.ViewMu.RLock（供无锁调用点），外层
@@ -189,7 +189,7 @@ func TestCheckNodeMarksNodeCompletedInTasklist(t *testing.T) {
 		t.Fatalf("progress = %v, want 0.5", plan.Progress)
 	}
 	// 非终态：任务仍 running、无 terminal，可在途继续
-	if state.Status != task_context.StatusRunning || state.Terminal != nil {
+	if state.Status != TurnProgressing || state.Terminal != nil {
 		t.Fatalf("task must stay running after in-progress check: %+v", state)
 	}
 	// checkpoint 打点写入（供恢复/上下文摘要消费）
@@ -292,7 +292,7 @@ func TestTaskCompleteCoversAlreadyCheckedNodes(t *testing.T) {
 	plan := service.Core.Snapshot.Runtime.Plan
 	state := service.components.tasks.CurrentTaskExecution()
 	service.ViewMu.RUnlock()
-	if state.Status != task_context.StatusCompleted || state.Terminal == nil || state.Terminal.Kind != task_context.ToolComplete {
+	if state.Status != TurnCompleted || state.Terminal == nil || state.Terminal.Kind != task_context.ToolComplete {
 		t.Fatalf("terminal state = %+v", state)
 	}
 	if plan.Status != PlanCompleted || plan.Progress != 1 || plan.Nodes[0].Status != NodeCompleted || plan.Nodes[1].Status != NodeCompleted {

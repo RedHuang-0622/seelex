@@ -155,8 +155,8 @@ func TestCompactManualAfterTurnRecordsExplicitOrigin(t *testing.T) {
 	})
 	// 回合收尾：任务执行不再是 Running（同时按真实收尾路径写一次任务面，
 	// 这样断言的是"用户会看到的那份快照"）。
-	service.components.tasks.CurrentTaskExecution().Status = task_context.StatusCompleted
-	service.components.tasks.SetTaskStateLocked("task-finished", model.TaskCompleted, "done")
+	service.components.tasks.CurrentTaskExecution().Status = TurnCompleted
+	service.components.tasks.SetTaskStateLocked("task-finished", model.TurnCompleted, "done")
 	service.ViewMu.Unlock()
 
 	ctx := task_context.WithSessionID(context.Background(), sessionID)
@@ -204,7 +204,7 @@ func TestCompactAfterTurnSurfacesRecordWithoutTaskFace(t *testing.T) {
 	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
 		TaskID: "task-no-face", MessageID: "message-1", Role: "assistant", Content: strings.Repeat("F", 4_000),
 	})
-	service.components.tasks.CurrentTaskExecution().Status = task_context.StatusCompleted
+	service.components.tasks.CurrentTaskExecution().Status = TurnCompleted
 	service.Core.Snapshot.Task = nil
 	service.ViewMu.Unlock()
 
@@ -232,7 +232,7 @@ func TestCompactionFrameBodyIsReadableByRef(t *testing.T) {
 	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
 		TaskID: "task-frame-read", MessageID: "message-1", Role: "assistant", Content: strings.Repeat("G", 4_000),
 	})
-	service.components.tasks.CurrentTaskExecution().Status = task_context.StatusCompleted
+	service.components.tasks.CurrentTaskExecution().Status = TurnCompleted
 	service.ViewMu.Unlock()
 
 	result, err := service.CompactContextNow(task_context.WithSessionID(context.Background(), sessionID))
@@ -277,7 +277,7 @@ func TestAutoCompactionAfterTurnKeepsRecordGate(t *testing.T) {
 		})
 	}
 	state := service.components.tasks.CurrentTaskExecution()
-	state.Status = task_context.StatusCompleted
+	state.Status = TurnCompleted
 	state.ProgressEpoch = state.CompactedEpoch + 1
 	before := state.ContextVersion
 	service.ViewMu.Unlock()
@@ -414,8 +414,8 @@ func TestCompactWithoutEpochKeepsExecutionFacesClean(t *testing.T) {
 	if state.RequestID != "" {
 		t.Fatalf("维护身份必须在压缩结束后撤销，实际 RequestID=%q", state.RequestID)
 	}
-	if state.Status != task_context.StatusIdle {
-		t.Fatalf("会话上下文状态应标记为 %q（没有在飞回合），实际 %q", task_context.StatusIdle, state.Status)
+	if state.Status != TurnIdle {
+		t.Fatalf("会话上下文状态应标记为 %q（没有在飞回合），实际 %q", TurnIdle, state.Status)
 	}
 }
 
@@ -610,7 +610,7 @@ func TestCompactCommandNeverReportsCompactionWithoutRecord(t *testing.T) {
 	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
 		TaskID: "task-command-after-turn", MessageID: "message-1", Role: "assistant", Content: strings.Repeat("C", 4_000),
 	})
-	service.components.tasks.CurrentTaskExecution().Status = task_context.StatusCompleted
+	service.components.tasks.CurrentTaskExecution().Status = TurnCompleted
 	service.ViewMu.Unlock()
 
 	command, ok := service.commands.Get("compact")

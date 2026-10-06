@@ -273,7 +273,7 @@ func TestCancelChatInterruptsContextAwareEngine(t *testing.T) {
 	if err := service.WaitForIdle(waitContext); err != nil {
 		t.Fatal(err)
 	}
-	if task := service.Snapshot().Task; task == nil || task.Status != TaskInterrupted {
+	if task := service.Snapshot().Task; task == nil || task.Status != TurnInterrupted {
 		t.Fatalf("cancelled task = %#v, want interrupted", task)
 	}
 }

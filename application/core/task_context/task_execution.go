@@ -13,13 +13,11 @@ import (
 )
 
 const (
-	StatusRunning           = "running"
-	StatusCompleted         = "completed"
-	StatusNeedsUserDecision = "needs_user_decision"
-	StatusBlocked           = "blocked"
-	StatusInterrupted       = "interrupted"
-	StatusFailed            = "failed"
-
+	// 回合状态（Status*）不再在这里定义：它是**一格**状态机，词表只有一份，
+	// 住在契约里（`dto.TurnStatus`，本包经 `model.Turn*` 引用）。这里曾经有一份
+	// "running|completed|…" 的第二份定义，与可见面（旧名 `model.TaskStatus` 的
+	// progressing|completed|…）同名不同词，两者之间只靠 `model.TaskStatus("running")`
+	// 那两行手写映射接着——改一处忘一处没有编译器看得见。
 	ToolComplete          = "task_complete"
 	ToolCheckNode         = "task_check_node"
 	ToolNeedsUserDecision = "task_needs_user_decision"
@@ -67,7 +65,7 @@ type TaskExecutionState struct {
 	Objective      string
 	Effort         string
 	PlanArguments  string
-	Status         string
+	Status         model.TurnStatus
 	CompactedEpoch uint64
 	ProgressEpoch  uint64
 	ContextVersion uint64
@@ -92,7 +90,7 @@ type TaskExecutionState struct {
 // NewTaskExecutionState 构造一个运行中任务状态。
 func NewTaskExecutionState(requestID, objective, effort string) *TaskExecutionState {
 	return &TaskExecutionState{
-		RequestID: requestID, Objective: objective, Effort: effort, Status: StatusRunning,
+		RequestID: requestID, Objective: objective, Effort: effort, Status: model.TurnProgressing,
 		checkpoints: make(map[string]*NodeCheckpoint), toolSignatures: make(map[string]struct{}), ContextVersion: 1,
 	}
 }
@@ -141,9 +139,12 @@ func continuationTaskExecutionState(requestID, objective, effort string, previou
 }
 
 // IsContinuableStatus 判定任务状态是否可被续接（排队输入/恢复路径）。
-func IsContinuableStatus(status string) bool {
+//
+// 参数是**回合状态枚举**（不是字符串）：喂错词是编译错误，跨格混用同理——
+// 这正是收口前那句"改一处忘一处没人报"的解药。
+func IsContinuableStatus(status model.TurnStatus) bool {
 	switch status {
-	case StatusRunning, StatusInterrupted, StatusBlocked, StatusNeedsUserDecision:
+	case model.TurnProgressing, model.TurnInterrupted, model.TurnBlocked, model.TurnNeedsUserDecision:
 		return true
 	default:
 		return false

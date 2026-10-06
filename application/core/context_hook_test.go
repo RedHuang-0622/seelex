@@ -22,7 +22,7 @@ func TestIterationHookDoesNotTriggerContextControl(t *testing.T) {
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, TaskCheckpoint{})
-	service.components.tasks.SetTaskStateLocked("task-1", TaskProgressing, "Task is in progress.")
+	service.components.tasks.SetTaskStateLocked("task-1", TurnProgressing, "Task is in progress.")
 	service.ViewMu.Unlock()
 
 	bridge := NewToolHookBridge()

@@ -116,6 +116,26 @@ var statusVocabularyScopes = []statusVocabularyScope{
 			"completed": true, "failed": true, "retry": true, "interrupted": true,
 		},
 	},
+	{
+		name: "回合状态",
+		files: map[string]string{
+			"application/core/task_context/task_execution.go":              "写：新回合开局（在飞）与续接判据",
+			"application/core/task_context/task_service.go":                "写：终态工具落结论（completed|needs_user_decision|blocked|failed）",
+			"application/core/task_context/session_context_maintenance.go": "写：会话上下文维护身份（没有在飞回合）",
+			"application/core/task_context/task_context_state.go":          "写：快照面 + 中断/续接 + 存档面",
+			"application/core/task_context/turn_status_record.go":          "读：存档面的词（合并前那一格的 running 在**本格取值面之外**，见该文件头上的口径）",
+			"application/core/chat.go":                                     "写：请求开始时的在飞回合",
+			"application/core/history_safety.go":                           "写：provider 失败回收（回合中断）",
+			"application/core/session_cold_read.go":                        "写：冷读面的 idle（这个会话没有在飞回合）",
+			"application/core/input.go":                                    "读：终态边界（收尾过的回合）",
+			"application/core/context_runtime/coordinator.go":              "读：显式压缩的来源判定（是否在飞回合）",
+		},
+		// 这一格的取值面 = dto.Turn*（Snapshot.Task.Status 与 TaskContextProjection.Status 同格）。
+		words: map[string]bool{
+			"idle": true, "progressing": true, "completed": true, "needs_user_decision": true,
+			"blocked": true, "interrupted": true, "failed": true,
+		},
+	},
 }
 
 // statusAllowedLiteral 是白名单条目：另一张词表的一处字面量 + 理由（"为什么像却不并"）。

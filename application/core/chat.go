@@ -105,7 +105,7 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 	// 阶段 1：聊天运行态投影写会话 scope（活跃会话镜像 Snapshot.Chat）。
 	service.setSessionChatLockedFor(sessionID, runtime.ChatState())
 	if active {
-		service.components.tasks.SetTaskStateLocked(requestID, TaskProgressing, "Task is in progress.")
+		service.components.tasks.SetTaskStateLocked(requestID, TurnProgressing, "Task is in progress.")
 	}
 	// L2：标题按会话设置（后台会话首次请求也归属自己的标题，不读活跃槽）；
 	// 仅活跃会话同步到快照展示名。
@@ -367,7 +367,7 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		userEvent := service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: nextRequestID, Role: "user", Content: batchRequest.displayInput})
 		runtime.SetStream(chat.NewVisibleOutputStream(nextRequestID))
 		runtime.SetChatState(ChatState{Running: true, RequestID: nextRequestID, StartedAt: time.Now()}, nil)
-		service.components.tasks.SetTaskStateLocked(nextRequestID, TaskProgressing, "Task is in progress.")
+		service.components.tasks.SetTaskStateLocked(nextRequestID, TurnProgressing, "Task is in progress.")
 		service.setSessionChatLockedFor(sessionID, runtime.ChatState())
 		userOrigin := MessageOrigin{
 			RoleName: userEvent.RoleName, RoleSessionID: userEvent.RoleSessionID,
@@ -435,7 +435,7 @@ func (service *Service) recordUnhandledTaskErrorLocked(sessionID, requestID stri
 	// 读权威任务状态（TaskStateFor），不再依赖 Snapshot.Task 镜像是否新鲜
 	// （镜像写已收敛到 runChat 收尾的 ViewMu 段）。
 	task := service.components.tasks.TaskStateFor(sessionID)
-	if task == nil || task.RequestID != requestID || task.Status != TaskProgressing {
+	if task == nil || task.RequestID != requestID || task.Status != TurnProgressing {
 		return
 	}
 	if errors.Is(err, context.Canceled) {

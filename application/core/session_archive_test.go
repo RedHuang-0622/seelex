@@ -169,12 +169,12 @@ func TestSessionArchivePreservesVisibleHistoryPlanAndReadCache(t *testing.T) {
 	service.Core.Snapshot.Conversation = []Message{{ID: "user-1", Role: "user", Content: "Inspect the repository", CreatedAt: time.Now()}}
 	service.Core.Snapshot.Runtime.Plan = &PlanState{EntryNodeID: "inspect", Status: PlanPending, Nodes: []PlanNode{{ID: "inspect", Status: NodePending}}}
 	service.Core.Snapshot.ReadFiles = []ReadFileRef{{Path: "application/core/chat.go", ReadAt: time.Now()}}
-	service.Core.Snapshot.Task = &TaskState{RequestID: "task-a", Status: TaskInterrupted, Summary: "checkpoint saved"}
+	service.Core.Snapshot.Task = &TaskState{RequestID: "task-a", Status: TurnInterrupted, Summary: "checkpoint saved"}
 	service.Core.Snapshot.Chat = ChatState{RequestID: "task-a"}
 	service.components.sessions.SetSessionTitleLocked("session-a", SessionTitle{Value: "Keep this title", Source: "first_request"})
 	service.components.tasks.SetPlanStateLocked([]SessionPlanFrame{{ID: "plan-a", Plan: service.Core.Snapshot.Runtime.Plan, Arguments: `{"entry":"inspect","nodes":{"inspect":{"input":"read"}},"edges":{}}`}}, "plan-a")
 	service.components.tasks.BeginTask("task-a", "Inspect the repository", "high", nil, TaskCheckpoint{})
-	service.components.tasks.CurrentTaskExecution().Status = task_context.StatusInterrupted
+	service.components.tasks.CurrentTaskExecution().Status = TurnInterrupted
 	service.components.tasks.CurrentTaskExecution().Checkpoint("inspect", "inspect source", string(NodeCompleted), "found call path", "")
 	service.components.tasks.CurrentTaskExecution().PlanArguments = `{"entry":"inspect","nodes":{"inspect":{"input":"read"}},"edges":{}}`
 	service.components.tasks.ActivateTaskSkillsLocked(service.components.tasks.CurrentTaskExecution(), []PromptLayer{{Kind: "skill", Name: "review", Text: "review prompt"}})
@@ -208,7 +208,7 @@ func TestSessionArchivePreservesVisibleHistoryPlanAndReadCache(t *testing.T) {
 	restored.ViewMu.RUnlock()
 	skillCarried := continuation != nil && len(continuation.TrustedSkillLayers) == 1 &&
 		strings.Contains(continuation.TrustedSkillLayers[0].Text, "review prompt")
-	if continuation == nil || continuation.Status != task_context.StatusInterrupted || continuation.InheritedCheckpoint == nil ||
+	if continuation == nil || continuation.Status != TurnInterrupted || continuation.InheritedCheckpoint == nil ||
 		len(continuation.InheritedCheckpoint.CompletedWork) != 1 || !skillCarried {
 		t.Fatalf("restored projection = %#v prompt=%q", continuation, restoredPrompt)
 	}
@@ -244,7 +244,7 @@ func TestResumeSessionDropsMetadataOnlyCheckpointAndUsesDurableConversation(t *t
 				{ID: "message-report", Role: "assistant", Content: "评审报告摘要"},
 			}},
 			Projection: &TaskContextProjection{
-				SchemaVersion: 1, SessionID: sessionID, TaskID: "task-review", Status: task_context.StatusInterrupted,
+				SchemaVersion: 1, SessionID: sessionID, TaskID: "task-review", Status: TurnInterrupted.String(),
 				ObjectiveRef: "event:632",
 				Checkpoint:   TaskCheckpoint{Version: 7, CoversEventRange: EventRange{Start: 632, End: 632}, UpdatedAt: time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC)},
 			},
@@ -314,7 +314,7 @@ func TestResumeLongContextReasksOpeningQuestionFromCheckpoint(t *testing.T) {
 			ID:           sessionID,
 			Conversation: ConversationRecord{Messages: conversation},
 			Projection: &TaskContextProjection{
-				SchemaVersion: 1, SessionID: sessionID, TaskID: "task-long", Status: task_context.StatusInterrupted,
+				SchemaVersion: 1, SessionID: sessionID, TaskID: "task-long", Status: TurnInterrupted.String(),
 				Checkpoint: TaskCheckpoint{
 					Version:       8,
 					CompletedWork: []string{"user_name=hzr"},
@@ -445,7 +445,7 @@ func TestSessionRecordStoresLargeContentByReference(t *testing.T) {
 }
 
 func TestCompletedTaskClearsTaskScopedSkillsBeforeNextRequest(t *testing.T) {
-	for _, status := range []TaskStatus{TaskCompleted, TaskFailed} {
+	for _, status := range []TurnStatus{TurnCompleted, TurnFailed} {
 		service := newTestService(t, &fakeEngine{})
 		service.promptStack.Push("skill", "review", "review prompt")
 		service.ViewMu.Lock()

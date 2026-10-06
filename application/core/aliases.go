@@ -37,7 +37,7 @@ type (
 	ToolCall               = model.ToolCall
 	ChatState              = model.ChatState
 	TaskState              = model.TaskState
-	TaskStatus             = model.TaskStatus
+	TurnStatus             = model.TurnStatus
 	ContextCompaction      = model.ContextCompaction
 	ReadFileRef            = model.ReadFileRef
 	SessionTitle           = model.SessionTitle
@@ -181,12 +181,14 @@ const (
 	NodeSkipped                = model.NodeSkipped
 	NodeCanceled               = model.NodeCanceled
 	NodePanicked               = model.NodePanicked
-	TaskProgressing            = model.TaskProgressing
-	TaskCompleted              = model.TaskCompleted
-	TaskNeedsUserDecision      = model.TaskNeedsUserDecision
-	TaskBlocked                = model.TaskBlocked
-	TaskInterrupted            = model.TaskInterrupted
-	TaskFailed                 = model.TaskFailed
+	TurnProgressing            = model.TurnProgressing
+	TurnCompleted              = model.TurnCompleted
+	TurnNeedsUserDecision      = model.TurnNeedsUserDecision
+	TurnBlocked                = model.TurnBlocked
+	TurnInterrupted            = model.TurnInterrupted
+	TurnFailed                 = model.TurnFailed
+	TurnUnknown                = model.TurnUnknown
+	TurnIdle                   = model.TurnIdle
 )
 
 var (

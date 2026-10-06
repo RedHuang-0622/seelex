@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-
-	"github.com/RedHuang-0622/seelex/application/core/task_context"
 )
 
 func (service *Service) submitCommand(ctx context.Context, input string) error {
@@ -110,9 +108,9 @@ func (service *Service) prepareCompletedTaskBoundary() {
 	terminal := false
 	if !service.Core.Snapshot.Chat.Running {
 		terminal = service.Core.Snapshot.Task != nil &&
-			(service.Core.Snapshot.Task.Status == TaskCompleted || service.Core.Snapshot.Task.Status == TaskFailed)
+			(service.Core.Snapshot.Task.Status == TurnCompleted || service.Core.Snapshot.Task.Status == TurnFailed)
 		if state := service.components.tasks.CurrentTaskExecution(); state != nil {
-			terminal = terminal || state.Status == task_context.StatusCompleted || state.Status == task_context.StatusFailed
+			terminal = terminal || state.Status == TurnCompleted || state.Status == TurnFailed
 		}
 	}
 	service.ViewMu.RUnlock()

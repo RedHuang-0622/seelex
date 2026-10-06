@@ -77,7 +77,7 @@ func TestSnapshotOfColdSessionAssemblesReadOnlyBaseline(t *testing.T) {
 			ID: "m1", Role: "user", Content: "cold content", CreatedAt: now,
 		}}},
 		Execution: SessionExecutionRecord{
-			Task: &TaskState{Status: TaskCompleted, Summary: "done"},
+			Task: &TaskState{Status: TurnCompleted, Summary: "done"},
 		},
 		PlanStack: []SessionPlanFrame{{
 			ID: "plan-1",

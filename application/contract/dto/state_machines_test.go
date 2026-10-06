@@ -151,6 +151,45 @@ func TestTaskStatusEnumWire(t *testing.T) {
 	}
 }
 
+// 格 E：回合状态（用户这一次请求的生命周期；可见面 `Snapshot.Task.Status` 与
+// 存档面 `TaskContextProjection.Status` 同格——历史上前者用 progressing、后者用
+// running，两套词表靠一处手写映射接着）。
+func TestTurnStatusEnumWire(t *testing.T) {
+	cases := []struct {
+		status TurnStatus
+		word   string
+	}{
+		{TurnUnknown, "unknown"},
+		{TurnIdle, "idle"},
+		{TurnProgressing, "progressing"},
+		{TurnCompleted, "completed"},
+		{TurnNeedsUserDecision, "needs_user_decision"},
+		{TurnBlocked, "blocked"},
+		{TurnInterrupted, "interrupted"},
+		{TurnFailed, "failed"},
+	}
+	for _, entry := range cases {
+		status := entry.status
+		assertStateWire(t, stateWireCase{
+			grid:  "回合状态",
+			state: status,
+			word:  entry.word,
+			parse: func(text string) (fmt.Stringer, bool) {
+				parsed, ok := ParseTurnStatus(text)
+				return parsed, ok
+			},
+			read: func(data []byte) error { return json.Unmarshal(data, &status) },
+		})
+	}
+	// 边界：另一格（工作表条目 task 状态）的词不许被这一格认下——两格都叫 "task"，
+	// 混用就是"同名不同机器"的老毛病。
+	for _, foreign := range []string{"doing", "retry", "pending"} {
+		if _, ok := ParseTurnStatus(foreign); ok {
+			t.Errorf("回合状态认下了工作表条目的词 %q", foreign)
+		}
+	}
+}
+
 // 落盘那一格：老形状（字符串）的记录必须能读回，认不得的词**不炸**、也不被当成终态。
 func TestRecordStatusReadsOldShapedRecords(t *testing.T) {
 	var legacy struct {

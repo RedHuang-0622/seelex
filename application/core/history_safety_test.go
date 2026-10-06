@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
-	"github.com/RedHuang-0622/seelex/application/core/task_context"
 	"strings"
 	"testing"
 )
@@ -105,7 +104,7 @@ func TestRecoverProviderTimeoutCreatesPrivateResumeCheckpoint(t *testing.T) {
 	if strings.Contains(history[1].Content, "raw output that must not survive") || !strings.Contains(history[1].Content, "node=inspect status=completed") {
 		t.Fatalf("timeout recovery checkpoint = %q", history[1].Content)
 	}
-	if state := service.Snapshot().Task; state == nil || state.Status != TaskInterrupted {
+	if state := service.Snapshot().Task; state == nil || state.Status != TurnInterrupted {
 		t.Fatalf("task state = %#v, want interrupted", state)
 	}
 }
@@ -125,13 +124,13 @@ func TestContextExhaustionPersistsInterruptedProjectionAfterBoundedRetryFails(t 
 	if service.Snapshot().Chat.Error == "" {
 		t.Fatal("provider failure must remain visible for the failed turn")
 	}
-	if task := service.Snapshot().Task; task == nil || task.Status != TaskInterrupted {
+	if task := service.Snapshot().Task; task == nil || task.Status != TurnInterrupted {
 		t.Fatalf("task state = %#v, want interrupted", task)
 	}
 	service.ViewMu.RLock()
 	projection := service.components.tasks.TaskProjectionLocked(service.Core.Snapshot.Session.ID)
 	service.ViewMu.RUnlock()
-	if projection == nil || projection.Status != task_context.StatusInterrupted || projection.Checkpoint.CoversEventRange.End == 0 {
+	if projection == nil || projection.Status != TurnInterrupted.String() || projection.Checkpoint.CoversEventRange.End == 0 {
 		t.Fatalf("projection = %#v", projection)
 	}
 }
@@ -213,7 +212,7 @@ func TestNonRecoverableProviderFailureMarksTaskFailed(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForChatCompletion(t, service)
-	if task := service.Snapshot().Task; task == nil || task.Status != TaskFailed {
+	if task := service.Snapshot().Task; task == nil || task.Status != TurnFailed {
 		t.Fatalf("task state = %#v, want failed", task)
 	}
 }
