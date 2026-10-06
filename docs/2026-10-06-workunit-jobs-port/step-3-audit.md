@@ -202,9 +202,15 @@ D 在册比较 2→1、E 契约依赖 1→0、② 的折算/编解码/恢复说�
   顺序 `Restore` → `BeginNamed(nodeID)` → 观察：
   ① `WorktreeForNode(nodeID).MainBranch` 是否为空；
   ② 随后 `Finish` 的读数 —— `branchBehindBase :835` 拼的是 `"HEAD.."+wt.MainBranch`（空 → `HEAD..`），
-     `commitCountSince :847` 拼 `wt.BaseCommit+"..HEAD"`（空 → `..HEAD`），两者都会拿到 git 的
-     ambiguous-argument 错误；`alignMergeTarget :553` 在 `target == ""` 时**直接 `return nil`**，
-     即静默降级成"合进当前 HEAD"。
+     `commitCountSince :847` 拼 `wt.BaseCommit+"..HEAD"`（空 → `..HEAD`）；`alignMergeTarget :553` 在
+     `target == ""` 时**直接 `return nil`**，即静默降级成"合进当前 HEAD"。
+
+  > **2026-10-06 更正（实验已跑完：wi-6 / 提交 `d689aac`）**：上面原推测的「两者都会拿到 git 的
+  > `ambiguous-argument` 错误」**与实测不符** —— 本机 git 2.51 对空的一侧**不报错**：
+  > `git rev-list --count "HEAD.."` → `0`（exit 0）、`git rev-list --count "..HEAD"` → `0`（exit 0）。
+  > 于是缺栏现场被读成"没落后、没提交"，`Finish` **报成功**并一路走到 `cleanup`：现场目录与
+  > `seelex/<nodeID>` 分支被删、已提交的产出一个字节都没合回 main。**实测后果比"M2 静默失效"更重：
+  > 静默丢产出**（红灯原文已进 `d689aac` 提交正文；`_logs/wi6_red.txt` 只存在于该现场内，`_logs/` 被 gitignore）。
   既有三条用例**都绕开了这一段**：`worktree_registration_sources_test.go:43/:132` 喂的记录
   **填满了** `MainBranch/BaseCommit`（`:82–85`、`:157–160`），`:97` 那条只在"本进程已有活登记"时验证不降级。
 - 相邻事实（同一张表被两条链读，**本条不在 U2 判据内，只报读数**）：
@@ -321,7 +327,16 @@ D 在册比较 2→1、E 契约依赖 1→0、② 的折算/编解码/恢复说�
    `if target == "" || target == "HEAD" { return nil }`，即"没有可切的目标 → 维持原语义（合进当前 HEAD）"。
    而 §2 U2 已核到一条**能造出空 `MainBranch` 的路径**（teammate 记录只带 Path/Branch + `Restore` 先到）。
    ⇒ **M2 在这条路上等于没装**；此时若主工作区分支在两次收尾之间漂走，分叉会回来。
-   `仍开放`（需要 §2 那个实验确证）。
+   **已收口**（wi-6 / 提交 `d689aac`）**+ 仍开放（能力面）**：实验（2026-10-06）实测出比"没装"更重的后果 ——
+   git 2.51 对空 ref **不报错**，缺栏现场被读成"没落后、没提交"，`Finish` 报成功并把现场与分支删掉
+   （静默丢产出；细节与更正见 §2 末）。收口走判据侧（选 (b)）：新增本格唯一判据 `classifySceneMergeTarget`
+   + 哨兵 `errSceneFactsIncomplete`，登记缺栏**显式硬失败**且点名叫缺哪一栏，现场目录 / 现场分支指针 /
+   主分支 / 主工作区四处一律原样，空 ref（`HEAD..` / `..HEAD`）一个都不许拼；游离 HEAD 维持"合进当前 HEAD"
+   原语义；形状变更面仅"登记缺栏"这一种现场，栏位齐全的路径一字不变。用例
+   `seelebridge/worktree/worktree_weak_registration_merge_test.go`（真 git + 真 worktree，含反证对照）。
+   **仍开放（真正的能力修复在记录侧）**：`workunit_team_records.go:97 teamUnitWorktreeRecord` 只写
+   Path/Branch，且 `dto.NodeWorktreeInfo` 不带 `BaseCommit` ⇒「重启后恢复并重派」的 teammate 工作项收尾
+   仍然合不回来（现在至少不再静默丢产出，改成显式失败 + 保留现场）。
 2. **跨进程并发仍无锁。** M1 是**进程内** actor：两个 seelex 进程（或一次人工 git 操作）同时收尾同一个
    主工作区不在保护范围内。真冲突/M2 的 `checkout` 失败会把它降级成硬失败（不是静默分叉），
    但**没有任何机制阻止**两个进程各自把不同分支合进各自认为的"主分支"。
@@ -344,8 +359,8 @@ D 在册比较 2→1、E 契约依赖 1→0、② 的折算/编解码/恢复说�
 | 4 | 里程碑内先安排完再下一个 | **已有**：`seelebridge/teamwork/items_test.go:248 TestNextMilestoneOpensOnlyAfterEveryItemIsDone`、`:237 TestPlanMilestoneRefusesMilestoneWhoseDependencyIsNotDone`、`:279 TestDispatchRefusesItemInMilestoneBehindTheBarrier`；`seelebridge/teamwork/teamwork_test.go:307 TestMilestoneRefusesMilestoneBehindTheBarrier` |
 | 5 | 里程碑内依赖 DAG | **已有**：`items_test.go:299 TestDispatchRefusesItemWhoseDependencyIsNotDone`、`:308 TestDependencyChainReleasesStepByStep`；校验层 `sessionstore/teamwork_items_test.go:40`（跨里程碑依赖被拒）、`:63`（环被拒） |
 | 6 | 一 Milestone 内多 Session | **已有**：`items_test.go:331 TestTeammateRunsMultipleItemsEachWithItsOwnSessionAndWorktree`；账本层 `seelebridge/workunit_team_test.go:275–276`（同一里程碑两行不同 SessionID）；烟测 `teamwork_headless_smoke_test.go:678`（同一里程碑两个工作项） |
-| 7 | 每 Session 进度详情 UI | **部分有**：子代理侧 `application/core/subagent_detail_test.go:27/59`、`gui/subagent_route_smoke_test.go:23`、`seelebridge/session/subagent_sessions_stream_test.go`；teammate 侧只有工具活动投影 `seelebridge/runtime_role_tool_test.go` 与真机档 `gui/team_workcontent_live_probe_test.go:52`（需额度）⇒ **teammate「每 Session 进度详情」的非真机档端到端 UI 用例：无（仍开放）** |
-| 8 | 未开始工作的调整 | **只有负向**：`items_test.go:593 TestAdjustItemRefusesStartedAndFinishedWork`（已开始/待验收/已结束都拒绝）。`git grep -n AdjustItem -- "*_test.go"` 只命中这一条 ⇒ **正向路径（未开始的工作可调整成功）：无（仍开放）**；实现入口 `seelebridge/teamwork/items.go:250`、口径文案 `runtime_teamwork_schema.go:123` |
+| 7 | 每 Session 进度详情 UI | **部分有**：子代理侧 `application/core/subagent_detail_test.go:27/59`、`gui/subagent_route_smoke_test.go:23`、`seelebridge/session/subagent_sessions_stream_test.go`；teammate 侧只有工具活动投影 `seelebridge/runtime_role_tool_test.go` 与真机档 `gui/team_workcontent_live_probe_test.go:52`（需额度）⇒ 原判「teammate「每 Session 进度详情」的非真机档端到端 UI 用例：无（仍开放）」。**2026-10-06 补一半（wi-8 / 提交 `cf8d827`）**：勘定 teammate 侧两条读面各带一半 —— 会话详情面 `dto.TeammateSessionLiveView`（`session_id/role/live/running/messages/truncated`，**不带 worktree、不带状态词/阶段**）与看板投影面 `dto.TeamworkWorkItemView`（session id + worktree + 状态词 + 阶段齐全，搬运点 `seelebridge/runtime_teamwork_board.go:354`）；新增 `seelebridge/runtime_teamwork_work_item_progress_test.go` 按"这件事自己的会话号"定位该工作项并钉住后者（含反向：角色会话号不该命中）。**另一半仍开放**：让**一条**读面同时给出会话正文 + worktree + 阶段（需动 wire 契约或前端；锚点 `docs/arch/workunit-progress-read-surface.md` §1.5/§3.1） |
+| 8 | 未开始工作的调整 | **只有负向**：`items_test.go:593 TestAdjustItemRefusesStartedAndFinishedWork`（已开始/待验收/已结束都拒绝）。`git grep -n AdjustItem -- "*_test.go"` 只命中这一条 ⇒ 原判「正向路径（未开始的工作可调整成功）：无（仍开放）」。**2026-10-06 已补齐（wi-8 / 提交 `cf8d827`）**：新增 `seelebridge/teamwork/items_adjust_test.go` 3 条 —— ①pending 五项一次改齐（role/name/description/goal/depends_on）+ `team_items` 读回逐字段一致、未提到的格一个不动；②新依赖成硬闸门（改成另一件未完成项 → 派发**显式拒收**且不留会话/现场；依赖 done 后放行）；③running/review/done 负向不回归（补上既有漏掉的 **review**）。实现未改；实现入口 `seelebridge/teamwork/items.go:250`、口径文案 `runtime_teamwork_schema.go:123` |
 | 9 | 中断恢复含 UI 与上下文记忆 | **已有**：`items_test.go:519 TestRecoverReportsInterruptedItemsAndKeepsTheirMemory`；`seelebridge/workunit_team_test.go:301`（标中断 + 恢复说明只注入一次）；`seelebridge/runtime_subagent_resume_test.go:68/169/205`；`application/core/interrupted_continue_test.go:22`；`seelebridge/session/subagent_persist_test.go`；UI 侧 `application/core/subagent_detail_test.go:59 TestSubagentSessionDetailCarriesWorktree` |
 
 ---
@@ -412,3 +427,28 @@ U6 表里的第 14 行是那次扫描的**部分**读数（已注明"非本波�
   ④ 合并分叉路径 1（`MainBranch == ""` 时 M2 静默失效，§5）与路径 2（跨进程无锁）。
   每条都给了"需要什么实验"。
 - 本轮**未**读取 `config/accounts.yaml` / `*.local.yaml`；未在仓库内留临时文件。
+
+---
+
+## 9. 落地记录（leader 复核 · 2026-10-06）
+
+§8 那四条「仍开放」里，① 与其相邻的合并分叉路径 1、以及 §6 的 #7/#8 已被 m2 里程碑处理；leader 逐件独立复核后验收（不走 teammate 自述）。main 头：`0adef97` →（wi-7 `f0bed6a`）→（wi-8 `cf8d827`）→（wi-6 `d689aac`）。
+
+| 工作项 | 工件 | leader 独立读数（亲跑，非自述） |
+|---|---|---|
+| wi-6「弱登记」收口 | `d689aac`，3 文件 = `worktree_manager.go` +122/−15、新用例 `worktree_weak_registration_merge_test.go` 224 行、README +13 | `go test ./seelebridge/worktree/ ./seelebridge/teamwork/ -count=1` → **ok** 27.5s / 1.3s，exit 0；通读新用例：断言非空转（`errors.Is(errSceneFactsIncomplete)` + 诊断点名 `MainBranch` + `gitCallLog` 里空 ref 零容忍 + 现场/分支/main/主工作区四处原样，另有反证对照证明根在"弱登记先到"） |
+| wi-8 两条空白用例 | `cf8d827`，3 个新文件（2 个用例文件 + 线记录），**零生产代码**、既有断言一字未改 | `go test ./seelebridge/teamwork/ -count=1` → **ok** 1.337s；`go test ./seelebridge/ -run TestTeamworkBoardReadsWorkItemProgressDetail -v -count=1` → **PASS** 0.03s |
+
+**「合并不分叉」的复核读数（与用户看的提交树一致）**
+
+- `git log --graph --oneline -25` → main 是**单亲线性**链；`git log --merges --oneline -20` → 本轮 team run **零合并提交**（只有 4 条历史老 merge）。⇒ 验收/收口期的 rebase 语义成立，未出现 merge-back 分叉。
+- teammate 自报的 `f3341b3` 仍可寻址且提交正文与 `d689aac` 同源 ⇒ **rebase 改写了哈希**（`f3341b3` → `d689aac`），这正是"没有分叉"的成因。
+- **注意**：提交树**看不见**缺栏登记那类失败 —— 现场与分支被删、产出一个字节没合回 main，而 `Finish` 报成功；**丢产出不产生分叉**，所以"提交树没有分叉"不能当作这条路的证据（该路已由 `d689aac` 换成显式硬失败 + 保留现场）。
+
+**仍开放（下一波输入，均为能力面/产品面，不是缺陷回归）**
+
+1. 记录侧补栏：`workunit_team_records.go:97 teamUnitWorktreeRecord` 只写 Path/Branch、`dto.NodeWorktreeInfo` 不带 `BaseCommit` ⇒「重启后恢复并重派」的 teammate 工作项收尾合不回来；备选路（重派时 `BeginNamed` 按 git 现值补空栏）需先定"已在册不刷新"这条口径。
+2. §6 #7 的另一半：让**一条**读面同时给出会话正文 + worktree + 阶段。
+3. §5 路径 2：跨进程无锁（两个 seelex 进程同收一个主工作区）。
+4. §3 U5 读数面：同步链退化事实是否进工具结果（产品判断）。
+5. §4 U6 剩余点：`#6`（`running|free` 是另一格，归格待定）、`#10`（`"killed"` 与 `job_manage` 四 op 同批）。
