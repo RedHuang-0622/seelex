@@ -216,8 +216,13 @@ D 在册比较 2→1、E 契约依赖 1→0、② 的折算/编解码/恢复说�
 - 相邻事实（同一张表被两条链读，**本条不在 U2 判据内，只报读数**）：
   `RestoreSubagentAnchors :114` 把 `nodeSessionStore.List` 的**全部**记录同时喂给
   `subagentSessions.Restore :131`、`subagentTree.Restore :134` 与 `worktreeMgr.Restore :138`；
-  `SubagentTree.Restore`（`session/subagent_tree.go:367`）只按 `record.NodeID != ""` 过滤，**不区分这一格是谁的**，
-  于是 teammate 单元记录（NodeID = `<role>-<itemID>`）会以 `interrupted` 落到子代理树/工作表格上。
+  `SubagentTree.Restore`（现头路径为 `seelebridge/session/subagent_tree.go:358`）**不区分这一格是谁的**：
+  现头它已多了一个可选谓词 `belongsToCurrent`，但传进来的 `recordBelongsToCurrentMain`
+  （`seelebridge/runtime_subagent_recovery.go:173`）**只判「记录的主人是否还活在本进程」**（`subagentSessions.LiveOwner`），
+  **不判这条记录属于哪条链** ⇒ teammate 单元记录（NodeID = `<role>-<itemID>`）仍会以 `interrupted` 落到子代理树/工作表格上。
+   **2026-10-06 现网已复现（leader 读数）**：本会话工作表格里就长着一条
+  `subagent:audit-u2u5u6-wi-4-audit-u2u5u6 interrupted`（NodeID 正是 `<role>-<itemID>`），而它的真身
+  （`teamwork:a3`）是 `done` —— 同一件活被当成"中断的子代理"多渲染了一行。
   是否可见、是否要过滤 —— **仍开放**（需要一条"重启后 teammate 记录不许长成子代理树节点"的用例）。
 
 ---
@@ -452,3 +457,10 @@ U6 表里的第 14 行是那次扫描的**部分**读数（已注明"非本波�
 3. §5 路径 2：跨进程无锁（两个 seelex 进程同收一个主工作区）。
 4. §3 U5 读数面：同步链退化事实是否进工具结果（产品判断）。
 5. §4 U6 剩余点：`#6`（`running|free` 是另一格，归格待定）、`#10`（`"killed"` 与 `job_manage` 四 op 同批）。
+6. 恢复侧不区分记录主人（§2 相邻事实）：teammate 单元记录会以 `interrupted` 长成子代理树节点 / 工作表格假行 ——
+   **本轮现网已复现**（本会话打点表里就有 `subagent:audit-u2u5u6-wi-4-audit-u2u5u6 interrupted`，而它的真身
+   `teamwork:a3` 是 `done`）。症状可见、不丢数据，收口需要那条"重启后 teammate 记录不许长成子代理树节点"的用例。
+
+**给发行的话（leader 建议，供 release note 的"已知限制"用）**：以上 1–6 **都不阻塞一次小幅版本更新** ——
+① 是**显式硬失败 + 保留现场**（不再静默丢产出），⑥ 只是多渲染一行假行。建议只写第 ① 条：
+**「重启后恢复并重派的 teammate 工作项，收尾会显式报『现场登记缺栏 MainBranch』而不是合回主分支；现场与分支保留，可人工处置。」**
