@@ -96,7 +96,7 @@ func TestAdaptGranularInfosCarriesTimelineFields(t *testing.T) {
 		t.Fatalf("adapt len = %d, want 1", len(out))
 	}
 	row := out[0]
-	if row.ID != "s1" || row.Name != "会话一" || string(row.Status) != "idle" {
+	if row.ID != "s1" || row.Name != "会话一" || row.Status.String() != string(sessionstore.StatusIdle) {
 		t.Fatalf("identity fields lost: %+v", row)
 	}
 	if row.UpdatedAt.IsZero() || !row.UpdatedAt.Equal(now) {

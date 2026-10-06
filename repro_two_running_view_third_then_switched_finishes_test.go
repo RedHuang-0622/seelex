@@ -249,7 +249,7 @@ func runTwoRunningViewThirdScenario(t *testing.T, cold bool) {
 	}
 	var joinedC string
 	if cold {
-		if got := snap.Session.Status; got != "restoring" {
+		if got := snap.Session.Status; got != application.SessionStatusRestoring {
 			t.Fatalf("cold C status = %q, want restoring", got)
 		}
 		// 后台冷加载应独立于 A/B 运行进度完成：等待 C 装载完成（内容落地）
@@ -262,7 +262,7 @@ func runTwoRunningViewThirdScenario(t *testing.T, cold bool) {
 				t.Fatalf("SnapshotOf(C) while restoring: %v", err)
 			}
 			text := conversationText(snapC.Conversation)
-			if snapC.Session.Status != "restoring" && strings.Contains(text, "seed C") {
+			if snapC.Session.Status != application.SessionStatusRestoring && strings.Contains(text, "seed C") {
 				break
 			}
 			if time.Now().After(deadline) {

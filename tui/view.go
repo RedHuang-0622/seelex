@@ -13,9 +13,9 @@ import (
 
 const shortcutsBarH = 1
 
-// awaitingApprovalStatus 是会话级待批状态的稳定字面量（与 model.SessionStatus
-// awaiting_approval 一致；TUI 只消费展示口径，不参与归属判定）。
-const awaitingApprovalStatus = "awaiting_approval"
+// awaitingApprovalStatus 是会话级待批状态的词（**引契约**，不写字面量：这一格只有
+// 一份词表，TUI 只消费展示口径、不参与归属判定）。
+const awaitingApprovalStatus = application.SessionStatusAwaitingApproval
 
 func (model Model) convHeight() int {
 	return max(model.height-model.topPanelH()-model.planPanelH()-model.panelHeight()-model.midPanelH()-model.bottomPanelH(), 4)

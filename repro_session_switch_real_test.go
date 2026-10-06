@@ -15,6 +15,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/RedHuang-0622/seelex/application"
 )
 
 // blockingAfterFirstProvider 首个请求立即回复，后续请求阻塞到 release（模拟 LLM 长响应）。
@@ -273,7 +275,7 @@ func TestRealNewSessionDraftRetainedOnSwitchRepro(t *testing.T) {
 	}
 	foundDraft := false
 	for _, session := range after.Sessions {
-		if session.ID == draftID && session.Status == "draft" {
+		if session.ID == draftID && session.Status == application.SessionStatusDraft {
 			foundDraft = true
 			break
 		}

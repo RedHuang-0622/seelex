@@ -114,7 +114,7 @@ func TestSessionChainSmokeAndMetricsNew(t *testing.T) {
 		deadline := time.Now().Add(8 * time.Second)
 		for {
 			snap := app.Snapshot()
-			if snap.Session.ID == sid && snap.Session.Status != "restoring" &&
+			if snap.Session.ID == sid && snap.Session.Status != application.SessionStatusRestoring &&
 				strings.Contains(conversationText(snap.Conversation), fmt.Sprintf("round-%02d", settledRounds-1)) {
 				return
 			}

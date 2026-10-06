@@ -136,6 +136,28 @@ var statusVocabularyScopes = []statusVocabularyScope{
 			"blocked": true, "interrupted": true, "failed": true,
 		},
 	},
+	{
+		name: "会话可见状态",
+		files: map[string]string{
+			"application/core/service_snapshot.go":         "写：目录行的可见状态（运行态叠加：restoring/待批/运行/排队/空闲）",
+			"application/core/session_history.go":          "写：冷加载的 restoring 空壳",
+			"application/core/session_draft.go":            "写：草稿会话行",
+			"application/core/session_lifecycle.go":        "写：草稿会话行",
+			"application/core/archive_session.go":          "读：归档门（运行中的会话不许归档）",
+			"application/core/resident_lru.go":             "读：草稿行不参与驱逐",
+			"application/core/session_runtime/archive.go":  "读+写：落盘记录的归档态",
+			"application/core/session_runtime/scope.go":    "读：归档会话不进分发范围",
+			"internal/adapters/session_workspace_ports.go": "读：存储面 → 可见面（**转换点** sessionStatusOfRecord）",
+			"tui/view.go": "读：待批会话行（跨会话计数）",
+		},
+		// 这一格的取值面 = dto.SessionStatus*（SessionState/SessionInfo.Status）。
+		// 落盘那一侧（sessionstore.Status）是契约之下的 wire，取值面是这里的**持久子集**，
+		// 两包同一份词由 internal/adapters 的 TestSessionStatusOfRecordLocksTheStoreVocabulary 互锁。
+		words: map[string]bool{
+			"draft": true, "idle": true, "running": true, "queued": true,
+			"awaiting_approval": true, "archived": true, "restoring": true,
+		},
+	},
 }
 
 // statusAllowedLiteral 是白名单条目：另一张词表的一处字面量 + 理由（"为什么像却不并"）。

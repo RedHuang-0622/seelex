@@ -28,6 +28,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
@@ -61,7 +62,7 @@ func TestSessionSwitchHotColdProfile(t *testing.T) {
 		deadline := time.Now().Add(8 * time.Second)
 		for {
 			snap := harness.app.Snapshot()
-			if snap.Session.ID == sid && snap.Session.Status != "restoring" &&
+			if snap.Session.ID == sid && snap.Session.Status != application.SessionStatusRestoring &&
 				strings.Contains(conversationText(snap.Conversation), seed) {
 				return
 			}
@@ -152,7 +153,7 @@ func TestSessionSwitchHotColdProfile(t *testing.T) {
 	deadline := time.Now().Add(8 * time.Second)
 	for {
 		snap := harnessRestarted.app.Snapshot()
-		if snap.Session.ID == sessionID && snap.Session.Status != "restoring" &&
+		if snap.Session.ID == sessionID && snap.Session.Status != application.SessionStatusRestoring &&
 			strings.Contains(conversationText(snap.Conversation), "seed C") {
 			break
 		}

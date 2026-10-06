@@ -107,6 +107,7 @@ const (
 	SessionStatusQueued           = model.SessionStatusQueued
 	SessionStatusAwaitingApproval = model.SessionStatusAwaitingApproval
 	SessionStatusArchived         = model.SessionStatusArchived
+	SessionStatusUnknown          = model.SessionStatusUnknown
 
 	// 群聊逻辑角色名（role_name）：可见消息归属与前端 EXEC/ADVISOR 展示口径，
 	// provider role 仍只有 system/user/assistant/tool。

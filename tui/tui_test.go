@@ -60,8 +60,8 @@ func (app *fakeApp) LoadLatestHistory() error {
 func TestStatusBarShowsCrossSessionPendingApprovalCount(t *testing.T) {
 	app := newFakeApp()
 	app.snapshot.Sessions = []application.SessionInfo{
-		{ID: "sess-awaiting-long-1", Status: "awaiting_approval", ApprovalCount: 2},
-		{ID: "sess-idle", Status: "idle"},
+		{ID: "sess-awaiting-long-1", Status: application.SessionStatusAwaitingApproval, ApprovalCount: 2},
+		{ID: "sess-idle", Status: application.SessionStatusIdle},
 	}
 	model := NewModel(app)
 	model.showLogo = false
@@ -82,7 +82,7 @@ func TestStatusBarShowsCrossSessionPendingApprovalCount(t *testing.T) {
 		t.Fatalf("pending panel missing short id %q: %q", shortID, panel)
 	}
 	// idle 会话不进入计数面。
-	model.snapshot.Sessions = []application.SessionInfo{{ID: "sess-idle", Status: "idle"}}
+	model.snapshot.Sessions = []application.SessionInfo{{ID: "sess-idle", Status: application.SessionStatusIdle}}
 	if got := model.pendingApprovalCount(); got != 0 {
 		t.Fatalf("pending count for idle-only directory = %d, want 0", got)
 	}

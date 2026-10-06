@@ -169,6 +169,12 @@ var stateFieldCastWhitelist = []struct {
 			"running|worktree_creating…）——它是**另一格**（登记在 docs/arch/state-machine-inventory.md §3 下一波），" +
 			"不是本文件这一格的枚举；这里的 string(...) 是无害 no-op",
 	},
+	{
+		file: "application/core/task_context/task_service.go", receiver: "plan.Status",
+		reason: "`plan.Status` 是**计划状态那一格**（`model.PlanStatus`，本轮还是 `type string`）：这里的 " +
+			"string(...) 当下是无害 no-op。计划那一格在本波随后收成枚举（M3），届时它必须改成 `.String()`，" +
+			"这一条**必须随之删掉**（过期条目门禁会红）",
+	},
 }
 
 // stateFieldStringCasts 找 `string(<x>.Status/State/Phase)`，**只在声明过状态面的文件里**判。

@@ -195,18 +195,23 @@ type ComposerDraft struct {
 }
 
 // SessionStatus 描述一个会话的可见状态（会话树/当前会话徽标数据源）。
-type SessionStatus string
+//
+// 词表只有一份，住在契约 `application/contract/dto`（`dto.SessionStatus`）：本包以别名
+// 保持 model 侧的读法，**不再定义第二份词表**。落盘那一侧（sessionstore 的
+// `Status` 字符串）在契约之下，转换点见 `internal/adapters` 的 `sessionStatusOfRecord`。
+type SessionStatus = dto.SessionStatus
 
 const (
-	SessionStatusDraft            SessionStatus = "draft"
-	SessionStatusIdle             SessionStatus = "idle"
-	SessionStatusRunning          SessionStatus = "running"
-	SessionStatusQueued           SessionStatus = "queued"
-	SessionStatusAwaitingApproval SessionStatus = "awaiting_approval"
-	SessionStatusArchived         SessionStatus = "archived"
+	SessionStatusUnknown          = dto.SessionStatusUnknown
+	SessionStatusDraft            = dto.SessionStatusDraft
+	SessionStatusIdle             = dto.SessionStatusIdle
+	SessionStatusRunning          = dto.SessionStatusRunning
+	SessionStatusQueued           = dto.SessionStatusQueued
+	SessionStatusAwaitingApproval = dto.SessionStatusAwaitingApproval
+	SessionStatusArchived         = dto.SessionStatusArchived
 	// SessionStatusRestoring 表示会话正在后台冷加载（运行中切换到未驻留
 	// 会话的异步路径）：视图已切到目标空壳，内容装载完成后由事件发布基线。
-	SessionStatusRestoring SessionStatus = "restoring"
+	SessionStatusRestoring = dto.SessionStatusRestoring
 )
 
 type Message struct {

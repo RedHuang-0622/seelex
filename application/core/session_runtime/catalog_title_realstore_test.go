@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/model"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
@@ -25,7 +26,14 @@ func (s *realStoreTitleSessions) SessionsOf(projectID string) []model.SessionInf
 	}
 	rows := make([]model.SessionInfo, 0, len(infos))
 	for _, info := range infos {
-		rows = append(rows, model.SessionInfo{ID: info.ID, Name: info.Title, Status: model.SessionStatus(info.Status)})
+		// 与 internal/adapters 的 sessionStatusOfRecord 同一口径：认不得的词落
+		// unknown，不折成已知态（这里复刻它，是因为这一条用例要的就是"真存储 → 目录行"
+		// 这条链，而不是桩）。
+		status, ok := dto.ParseSessionStatus(string(info.Status))
+		if !ok {
+			status = model.SessionStatusUnknown
+		}
+		rows = append(rows, model.SessionInfo{ID: info.ID, Name: info.Title, Status: status})
 	}
 	return rows
 }

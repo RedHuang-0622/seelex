@@ -39,6 +39,7 @@ type (
 	SessionRuntime             = model.SessionRuntime
 	ProcessRuntime             = model.ProcessRuntime
 	SessionState               = model.SessionState
+	SessionStatus              = model.SessionStatus
 	Message                    = model.Message
 	ToolCall                   = model.ToolCall
 	ChatState                  = model.ChatState
@@ -142,6 +143,16 @@ const (
 	NodeSkipped               = model.NodeSkipped
 	NodeCanceled              = model.NodeCanceled
 	NodePanicked              = model.NodePanicked
+	// 会话可见状态：前端（GUI/TUI）按这些词渲染目录行徽标，因此门面上必须看得见
+	// ——guest 端不许再写一份字面量（tui 曾经有过一份 `awaiting_approval`）。
+	SessionStatusUnknown          = model.SessionStatusUnknown
+	SessionStatusDraft            = model.SessionStatusDraft
+	SessionStatusIdle             = model.SessionStatusIdle
+	SessionStatusRunning          = model.SessionStatusRunning
+	SessionStatusQueued           = model.SessionStatusQueued
+	SessionStatusAwaitingApproval = model.SessionStatusAwaitingApproval
+	SessionStatusArchived         = model.SessionStatusArchived
+	SessionStatusRestoring        = model.SessionStatusRestoring
 )
 
 var (

@@ -190,6 +190,43 @@ func TestTurnStatusEnumWire(t *testing.T) {
 	}
 }
 
+// 格 F：会话可见状态（一个会话的可见状态机：运行期叠加 + 持久子集）。
+func TestSessionStatusEnumWire(t *testing.T) {
+	cases := []struct {
+		status SessionStatus
+		word   string
+	}{
+		{SessionStatusUnknown, "unknown"},
+		{SessionStatusDraft, "draft"},
+		{SessionStatusIdle, "idle"},
+		{SessionStatusRunning, "running"},
+		{SessionStatusQueued, "queued"},
+		{SessionStatusAwaitingApproval, "awaiting_approval"},
+		{SessionStatusArchived, "archived"},
+		{SessionStatusRestoring, "restoring"},
+	}
+	for _, entry := range cases {
+		status := entry.status
+		assertStateWire(t, stateWireCase{
+			grid:  "会话可见状态",
+			state: status,
+			word:  entry.word,
+			parse: func(text string) (fmt.Stringer, bool) {
+				parsed, ok := ParseSessionStatus(text)
+				return parsed, ok
+			},
+			read: func(data []byte) error { return json.Unmarshal(data, &status) },
+		})
+	}
+	// 边界：别的格子的词不许被这一格认下（"在跑"这个词在三格里都出现，
+	// 但每一格只认自己表里的那一个）。
+	for _, foreign := range []string{"progressing", "doing", "success", "retry"} {
+		if _, ok := ParseSessionStatus(foreign); ok {
+			t.Errorf("会话可见状态认下了别的格子的词 %q", foreign)
+		}
+	}
+}
+
 // 落盘那一格：老形状（字符串）的记录必须能读回，认不得的词**不炸**、也不被当成终态。
 func TestRecordStatusReadsOldShapedRecords(t *testing.T) {
 	var legacy struct {

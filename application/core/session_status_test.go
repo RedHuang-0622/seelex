@@ -41,7 +41,7 @@ func catalogStatusOf(t *testing.T, service *Service, sessionID string) SessionSt
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatalf("session %q missing from catalog", sessionID)
-	return ""
+	return SessionStatusUnknown
 }
 
 // TestSessionStatusReflectsRunningWhileChatActive（状态机回归）：chat 启动
