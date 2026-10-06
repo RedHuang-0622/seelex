@@ -273,3 +273,129 @@ const out = { scroll: [s.clientHeight, s.scrollHeight, getComputedStyle(s).maxHe
 document.body.insertAdjacentHTML("beforeend", '<pre id="probe">' + JSON.stringify(out) + "</pre>");
 </script>
 ```
+
+---
+
+# 第二轮：修复复核（wi-reverify）
+
+角色：仍是**独立验证方**（V 模型里「改的人不签字」的那一笔）。本轮**只验三条 + 回归**，
+不重做全轮验证；`gui/frontend/dist/**` 一行未动（`git status` 干净，本件只改本文档）。
+被验提交：修复件 `762d917`（相对我上轮报告的基线 `4616d15`）。
+所有读数来自本轮自造夹具与本轮自跑的探针（`_tmp/verify-dag/`，git 忽略）：`f1f3.mjs`（纯字符串读数）、
+`f6.mjs`/`f6b.mjs` + `f6b-run.mjs`（产品渲染件 + `styles.css` + `TEAM_BOARD_CSS` 真页面，headless Chrome `--dump-dom`）、
+`f245.mjs`（F2/F4/F5 记账）、`bite.mjs`（拿**修复前**的件跑同一组谓词，验新用例是否真会咬人）、`sweep.mjs`（收尾清扫）。
+没引用 leader 新用例里的夹具，也没引用它给的坐标。
+
+**一句话结论：F1 / F3 / F6 三条我都能独立复现为「已修好」，回归面 668/668 + 2 条 Go 守卫全绿，没有新缺陷进门。**
+只多了 4 条**提示级**观察（§R6），不构成没过。
+
+## R1 F1 闸门文案 —— 成立
+
+自造夹具（`f1f3.mjs`）与读到的**原始字符串**（`data-gate` / `data-open` / 文案原文）：
+
+| 夹具 | 形状 | data-gate | data-open | 读到的 label |
+|---|---|---|---|---|
+| (a) | `m-a(running)`、`m-b(pending)`，**都没声明 depends_on** | `m-a->m-b` | `true` | `无屏障 → m-b 未声明 depends_on（谁都关不住）` |
+| (b) | 声明序 `m-a(done), m-b(running), m-c(depends_on:[m-a])` | `m-a->m-b` | `true` | `无屏障 → m-b 未声明 depends_on（谁都关不住）` |
+| (b) | 同上，两块之间 | `m-b->m-c` | `true` | `闸门已放行 → m-a 全部 done` |
+| (b2) | 同 (b) 但 `m-a` 改 `running` | `m-b->m-c` | `false` | `闸门 → 上一层全部 done 才放行（等 m-a）` |
+| (b3) | `m-b(depends_on:[ghost])` | `m-a->m-b` | `false` | `闸门 → 上一层全部 done 才放行（等 ghost）` |
+
+- (a) 是旧缺陷的原场景（上一块没 done，旧文案却写「已放行 → m-a 全部 done」）。新件的文案**不含**
+  `已放行 → m-a 全部 done`（`legacy_phrase_present.a = false`）；旧件上是 `true`（见 R4 咬人表）。
+- (b) 正是任务书要的「下一块 depends_on **不是**上一块」：放行文案报的是**被等的 `m-a`**，
+  出现 `闸门已放行 → m-b 全部 done` 为 `false`（`legacy_phrase_present.b = false`）。
+- (b2)/(b3) 补的是一致性：没 done（含指向不存在的里程碑）时**文案与 `data-open` 同调**，没有「说放行但判据没到」。
+- 判据来源仍是 `hasUndoneDep(frames, next.depends_on)` 一处（读源码 + 上面读数互证），文案改成按 `block.depends_on` 生成。
+
+## R2 F3 自指依赖 —— 成立
+
+- `w1.depends_on=["w1"]`：`class="team-dag-edge"` **0 条**、`d` 路径集合为空 `[]`；行上「依赖成环」chip **仍在**、
+  「依赖缺失」chip 未误报（`false`——自指不是缺失依赖，语义正确）。
+- 对照组（防「一刀切把边全灭了」）：`w2.depends_on=["w1","w2"]`（一条真边 + 一条自指）→ **边数 1**，
+  剩下那条恰是 `M 22 71 H 34 V 147 H 22`（w1→w2）。抑制的是自环，不是边。
+- 旧件同夹具读到 `1` 条退化自环（R4 表），确属修复而非本来就对。
+
+## R3 F6 窄栏可达性 —— 成立（并量出「整卡」的边界）
+
+页面：宿主 `480px`（容器查询 `≤520px` 内侧）+ `900px` 对照，import **产品渲染件**，CSS 顺序 = `styles.css` → `TEAM_BOARD_CSS`。
+
+| 读数 | 窄宿主 480px | 宽宿主 900px |
+|---|---|---|
+| `--team-dag-gutter`（读在 `.team-dag-scroll`） | `44px`（容器查询生效） | `64px` |
+| `.team-dag-note-line` display / rect / clientRects / offsetParent | `none` / `0×0` / `0` / `null` | `block` / `809×12` / `1` / 元素 |
+| `.team-dag-session` display / rect | `none` / `0×0` | `block` |
+| `.team-dag-wt` display / rect | `none` / `0×0` | `block` |
+| `.team-dag-card` 带 `title` | **2/2 张**（rect `434×72`） | 2/2 张 |
+
+- 「不可 hover」不是推断：`display:none` + 矩形 `0×0` + `clientRects=0` + `offsetParent=null`，没有可命中的面积
+  （`sessionHittable=false`）。
+- 卡片 `title` 的**五项**：用计划里的真值在页内拼出期望串做**整串相等**比对 ——
+  `titleExactEqualsExpected = true`（`titleLength=192`），逐项 `达成目标：/描述：/结论：/会话：s-w-evil/工作区：seelex/frontend-w-evil` 全 `true`。
+- 转义/注入：`goal` 故意带 `"` 与 `<b>x</b><img src=x onerror=…><script>window.__pwn=1</script>` 与 `&`。
+  ① `title` 里的文本 = 原样文本（`goalPayloadAsLiteralText=true`，没有被吃掉字符）；
+  ② `outerHTML` 的 `title="…"` 内**没有裸 `<`**（`cardOuterHtmlHasRawAngleInsideTitle=false`），实际写成 `&quot;`/`&lt;`/`&amp;`；
+  ③ 元素侧 `img=0`、`[onerror]=0`、`[onload]=0`、`script=1`（只有我自己那个探针脚本）、
+  `window.__pwn/__pwn_img` 均未置位 → **零注入、零执行、无属性逃逸**。
+- 「整张卡片」的边界（诚实说明）：卡面点阵每 8px 取样 **486** 点，其中 **441** 点（90.7%）hover 到的最近 `[title]`
+  就是这张卡；其余 45 点落在自带更具体 `title` 的小元素上（`team-dag-band` 8、`chip team-role` 19、
+  `team-status is-running` 15、`team-dag-depth` 2、`team-dag-dot` 1）。即：窄栏里**悬停卡面即可读到全文**这一条成立，
+  但「卡片矩形内每一像素都弹全文」不成立 —— 那几个小元素优先弹它们自己的说明（更具体，不是缺陷）。
+- 未跑项：深色主题下没有重读同一组数（`display:none` 来自容器查询、与主题无关）；本轮**没出图**，
+  因为要判的是「可见 / 可命中」，计算样式 + 矩形 + 点阵采样比像素更直接。
+
+## R4 回归面 —— 全绿，且新用例「会咬人」
+
+```
+$ node --test gui/frontend/dist/*.test.mjs
+ℹ tests 668 / suites 0 / pass 668 / fail 0 / cancelled 0
+（上轮 665 → 本轮 668，正好 +3 = F1/F3/F6 三条新用例）
+$ go test ./gui/
+ok  github.com/RedHuang-0622/seelex/gui  3.607s     (exit 0)
+```
+
+「新用例不是空转背书」——把修复前（`4616d15`）的渲染件整目录导出到 `_tmp/verify-dag/old/`，
+用**同一组谓词**跑新旧两件（`bite.mjs`）：
+
+| 谓词 | 旧 4616d15 | 新 762d917 |
+|---|---|---|
+| F1 旧文案假话出现（`已放行 → m-a 全部 done`） | `true`（缺陷在） | `false` |
+| F1 无屏障文案出现 | `false` | `true` |
+| F3 自指边数 | `1` | `0` |
+| F3 「依赖成环」chip | `true` | `true`（保持） |
+| F6 卡片带 `title` | `false` | `true` |
+| F2 框带 `data-depth` | `false` | `true` |
+
+另外核过的回归面（读源码/选择器，不是"应该没事"）：
+- `styles.css` 里 `team-dag` 命中 **0** 行 → 没有第二份看板 CSS（与落点 A 的口径一致）；`go test ./gui/` 的两条守卫（`app.js` 装配 + `styles.css` 不许出现旧看板类名）PASS。
+- 新挂的 `data-depth` 在仓库里只有两个渲染点（`.team-dag-frame:571`、`.team-dag-row:663`），`app.js`/`styles.css`/`*.test.mjs` **没有**键在 `[data-depth]` 上的选择器 → 不会与行上的同名属性串味（`Select-String` 逐文件核对）。
+- 极简行清扫（`sweep.mjs`）：无 goal/description/note/session/worktree 的行 `edges=0`、不崩；空工作项列表的里程碑 `依赖成环=false`、`依赖缺失=false`（不误报）。
+
+## R5 F2 / F4 / F5 是「被修正/记账」而不是「被掩掉」—— 确认
+
+- **F2**：`data-depth` 真的挂出来了（`<section class="team-dag-frame" … data-locked="…" data-depth="0" …>`），
+  且在会分叉的形状上**读得到分叉**：两两互不依赖的里程碑读到 `data-layer=0/1` 而 `data-depth=0/0`；
+  成环夹具 `cyc-a`/`cyc-b` 读到 `data-layer=0/1`、`data-depth=0/0`（框头仍写 `L0`）。源码里也留了口径注释（提到 F2）。
+- **F4**：`README.md` 加了一条校订块（`> **实现校订（2026-10-07 · 独立验证 F4）**`），明确「按 **role 首次进入渲染的次序**登记（append-only，进程内稳定）」
+  并写「**以实现为准**」；README 里描述**稿子**做法的那句原文仍在，但紧跟校订、不再与实现分叉。
+  产品侧同一个口径也写进了 `roleSlotOf` 的注释。调用点核对：`roleSlotOf` 仍是「定义 1 处 + `roleColorVar` 1 处 + `renderTeamWorkItem` 色带 1 处」，没有新增第三个入口。
+- **F5**：行为与上轮**逐字未变** —— `effStatus({status:"done",interrupted:true}) = "failed"`、`effStatus({status:"done",interrupted:"true"}) = "done"`（`item?.interrupted === true` 严格布尔）。
+  它本来就是「提示项不是缺陷」，本轮确认**没被改也没被删**，仍记在本文档 §7 F5。
+
+## R6 本轮新发现（全是提示级，决策权交 leader）
+
+1. **`title=""` 会出现在极简行上**：没有 goal/description/note/session/worktree 的行渲染成 `<div class="team-dag-card" title="">`。
+   空 title 浏览器不弹提示，无害；但「凡是 `.team-dag-card` 都带 title」这条不变量在机器读法上会被空串命中。建议 leader 决定是否改成 `title` 缺省不写。
+2. **卡内少数子元素优先弹自己的 title**（R3 的 45/486 点）：`team-dag-band`/`chip team-role`/`team-status`/`team-dag-depth`/`team-dag-dot`。
+   语义上更具体，不算缺陷；写进账是因为「整卡可读全文」的覆盖面是 90.7% 而不是 100%。
+3. **产品 README 没记 `data-depth`**：F2 的记账只在源码注释里，`README.md` 里出现 `data-depth` 的两处是描述**稿子**的 `wi-row`，不是产品 `.team-dag-frame`。
+   若希望读者不必读源码就知道「框上两个数不是同一个量」，README 该补一行。
+4. **`data-open` 在「无屏障」场景仍是 `true`**（夹具 (a)/(b) 的第一条闸门）：文案已诚实（写着「无屏障」），
+   但机器读 `data-open=true` 容易误当成「屏障已放行」。若要给机器读，可以考虑再加一个 `data-barrier="none|open|held"`。
+
+## R7 我没做到 / 没跑的（如实）
+
+- 本轮**只**复核 F1/F3/F6 + 回归，没有重跑上轮 §3 的全套读数（几何互钉、五状态像素、深色主题、滚动像素旁证）。
+  理由：任务边界是「只盯这三条 + 回归，不要重做全轮验证」；上面 R4 的两条命令是全量复跑，未用 `-run` 挑条。
+- 深色主题下的 F6 复读、以及**出图/像素**复核未做（见 §R3 末），理由已写在原处。
+- 我**没有**改 `gui/frontend/dist/**` 的任何一行（本件只追加本文档）；修复彻底性由 leader 的用例 + 我这轮的独立谓词双证。
