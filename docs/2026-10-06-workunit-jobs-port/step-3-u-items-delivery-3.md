@@ -113,7 +113,10 @@ Unknown"，实际实现是"报错时**原值不动**"——按"不留半个值"�
 | `go build ./...` | 无输出 |
 | `go vet ./...` | 无输出（测试文件也一并编译过） |
 | `go test ./seelebridge/... ./application/... ./e2e/ -count=1` | 55 行：**48 `ok` / 0 `FAIL`**（其余 7 行是 `[no test files]`），含 `e2e 0.840s`、`application/core 27s`、`seelebridge/tools 22s`、`seelebridge 56s` |
+| `go test . -run TestTeamworkHeadlessSmoke -v -count=1` | `--- PASS: TestTeamworkHeadlessSmoke (2.24s)` / `ok github.com/RedHuang-0622/seelex 2.440s`。**根包 `main` 的用例不在 `./seelebridge/...` 里**——本批才发现它一直在验证清单外（`teamwork_headless_smoke_test.go` 是 `package main`），已补进清单：真实装配的 headless 冒烟会把 teammate 作业行（本批改的那条判据）走一遍 |
 | `go test ./e2e/ -run TestSubagentStatusVocabularyGate -count=1` | `ok … 0.340s`（上一批的源码门禁在新形状下仍绿：词只在枚举的 `words` 表里出现一次） |
+| `go test ./seelebridge/ -run TestNodeFirstPersonLiveSmoke -v -count=1` | `--- SKIP`：真 API 冒烟要 `SEELEX_LIVE_SMOKE=1` 与 `config/accounts.yaml`（不在本轮范围内，未跑；**登记为未覆盖**） |
+| `./dist/dev/seelex.exe -version` | `dev`，exit 0（提交钩子重建了 dev 二进制） |
 
 性能量级（本批没有新增热路径工作量；改的是"字符串比较 → 整数比较"和边界上的 `.String()`）：
 
