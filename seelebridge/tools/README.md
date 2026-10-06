@@ -59,13 +59,20 @@ flowchart TB
   telemetry 会话 ID）对应的项目根 → 进程默认根。后台/并行会话因此不会借用视图
   会话的项目根（工作区污染回归见 `router_session_root_test.go`）。
 - **前台工具调用的终止（停止按钮）**：同步 `bash` / `bash_read` 的 run 挂在回合 ctx 上，
-  点停止 = 取消该 ctx。它与后台作业共用同一套进程树原语（`newScopedCommand` =
-  `security.ProcessTree` + `ConfigureProcessTree` + `cmd.Cancel` + `WaitDelay`），所以
-  停止（以及 `timeout` 到点）终止的是**整棵树**：只杀直接 shell 时，它派生的孙进程会继续
+  点停止 = 取消该 ctx。它与后台作业共用**同一份**进程树装配——`newProcessTreeCommand`
+  （`router.go:570`）+ `startWithProcessTree`（`router.go:584`）= `security.ProcessTree` +
+  `ConfigureProcessTree` + `cmd.Cancel = tree.Terminate()` + `WaitDelay`，两条链只传各自的
+  `runCtx`（装配回归见 `process_tree_assembly_test.go`）。所以停止（以及 `timeout` 到点）
+  终止的是**整棵树**：只杀直接 shell 时，它派生的孙进程会继续
   跑、继续握住输出管道，`cmd.Wait` 于是要等孙进程自己退出——"停止工具调用"就变成"点了
   停止还要再等几十秒"（回归用例 `stop_foreground_run_test.go`）。反过来，后台作业用
   `context.WithoutCancel` 摘掉了回合 ctx，**停止按钮不杀它们**：生死只由
   `job_manage(op=kill)` 与 `asyncHardCap` 决定。
+  **有意不并的只有 `runCtx`（超时 / 取消策略）**：两条链长得像但语义不同——后台是
+  `context.WithTimeout(context.WithoutCancel(ctx), asyncHardCap)`（受理回执一返回本次调用的
+  ctx 就失效，沿用它会把刚起的命令连带杀掉），同步是
+  `context.WithTimeout(ctx, r.scopedToolTimeout(...))`（受本次调用预算约束、可被"停止"取消）。
+  把这两条并成一条，要么后台命令被回执后的 ctx 杀掉，要么前台命令再也停不下来。
 - `RegistryState`：framework registry 包装 + `InlineProvider` 累积
   RegisterTool 产品工具（重名覆盖、快照重建）。
 - `PermissionGate`：middleware 闭包捕获，运行时原子更新。**权限档位按会话解析**（`SetPermissionTierFor` / `PermissionTierFor` / `effectiveTierLocked`，空会话 ID = 进程级默认面）：middleware 由执行 ctx 取会话（`SessionFromContext`）后按"主体类 + 会话档位"选 checker——root 读本会话档位表（`permission_tiers.go:ApplyTier` 剪掉若干 ask），`sub`/`emp_*` 一律读 base 表；`full` 档的执行门短路**只对 root**（`Enforce` 条件 `class == root`），所以 A 会话切档不会放行 B 会话、员工越权也不会被 `full` 档连带放行（回归见 `permission_tiers_test.go`、`permission_session_isolation_test.go`、`permission_state_test.go`）。`SetFullAccess*` / `FullAccessFor` 保留为兼容壳（⇔ `full`/`manual` 档）。
@@ -155,7 +162,11 @@ handler 侧必须过服务端 `security.ClassifyCommand`）/ `bash_bg`（`Add`�
   的 fork 子 shell 不一定挂在直接父进程下，实测 `bash -c "(sleep 0.5; echo GRANDCHILD) &
   sleep 25"` 在 150ms 被 `/T` 杀掉后 GRANDCHILD 仍落进日志。Job Object 不看父子关系，
   且 `KILL_ON_JOB_CLOSE` 让"执行体收尾时关句柄"成为唯一确定的回收点。Job 建不出来时
-  退化成按 PID 杀，`Degraded()` 说得清——此时不得主张"整棵进程树已终止"。
+  退化成按 PID 杀，`Degraded()` 说得清——此时不得主张"整棵进程树已终止"。两条链读的是
+  **同一个判据**（`security/process_tree_windows.go` 的 `Degraded()`：Job 没建成 **或** 进程没挂进去），
+  只是读数通道不同——后台链折进探针的 `Degraded` 栏与观察行（`async_probe.go:64`/`:127`），
+  同步链发一条 `bash.process.degraded` 诊断（`router.go:714`，回归见
+  `process_tree_degraded_reading_test.go`）：同一件事不许一条链说得出口、另一条链瞒下。
 - `cappedLogWriter`：输出在 1MiB 处截断，超上限只丢字节、**仍向子进程报告已消费**
   （报短写会让命令自己异常退出，那是把基础设施限制伪装成命令失败）。
 - 增量交付：`cursor` 是"已交付给模型的文件偏移"，每次取回最多带 4000 字符的**新增**
