@@ -37,7 +37,7 @@ var (
 	// workunit 契约"不等于"各写一份字面量"：③U6 之后记录那一格的四个取值面只有对外契约
 	// `dto.SubAgent*` 一份（记录词 = wire 词，由 TestSubagentStatusVocabularyAgreesWithTheWire
 	// 逐条互锁），这里与子代理侧都是**转调**。
-	teamUnitStatusRunning = workunit.StatusRunning
+	teamUnitStatusRunning = workunit.StatusRunning.String()
 	teamUnitStatusDone    = dto.SubAgentDone.String()
 	teamUnitStatusFailed  = dto.SubAgentFailed.String()
 )

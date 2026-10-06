@@ -21,7 +21,7 @@ func benchRecords(n int) []sessionstore.NodeSessionRecord {
 			NodeID:     "exec-wi-" + strings.Repeat("x", i%7) + string(rune('a'+i%26)),
 			SessionID:  "sess-" + string(rune('a'+i%26)),
 			Goal:       "把读面收成一份",
-			Status:     StatusRunning,
+			Status:     StatusRunning.String(),
 			Summary:    "改到一半",
 			StagesJSON: EncodeStages([]Stage{{Stage: "round_output", Preview: "已读 worktree_manager"}}),
 			UpdatedAt:  time.Unix(int64(1791228649+i), 0).UTC(),

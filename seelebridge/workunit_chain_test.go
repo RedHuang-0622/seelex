@@ -294,11 +294,11 @@ func TestChainRecoveryNoteIsOneFamily(t *testing.T) {
 		NodeID:    "exec-wi-1",
 		SessionID: "node-sess-1",
 		Goal:      "把收尾口径接进契约",
-		Status:    workunit.StatusRunning,
+		Status:    workunit.StatusRunning.String(),
 		Summary:   "改到一半",
 		Worktree:  sessionstore.NodeWorktreeRecord{Path: `C:\wt\exec-wi-1`, Branch: "seelex/exec-wi-1"},
 	}
-	facts := []string{"exec-wi-1", "node-sess-1", "把收尾口径接进契约", workunit.StatusRunning, "改到一半", "seelex/exec-wi-1"}
+	facts := []string{"exec-wi-1", "node-sess-1", "把收尾口径接进契约", workunit.StatusRunning.String(), "改到一半", "seelex/exec-wi-1"}
 	for _, kind := range []workunit.Kind{workunit.KindSubagent, workunit.KindTeammate} {
 		note := workunit.RecoveryNote(kind, record)
 		if want := workunit.RecoveryNotePrefix + " " + string(kind); !strings.HasPrefix(note, want) {
@@ -323,8 +323,8 @@ func TestChainInFlightVocabularyHasOneSource(t *testing.T) {
 		status string
 		want   bool
 	}{
-		{workunit.StatusQueued, true},
-		{workunit.StatusRunning, true},
+		{workunit.StatusQueued.String(), true},
+		{workunit.StatusRunning.String(), true},
 		{" running ", true},
 		{"done", false},
 		{"failed", false},

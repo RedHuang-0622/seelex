@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
@@ -57,22 +58,27 @@ func (r Resume) Empty() bool {
 // （`record.Status == "queued" || record.Status == "running"`）与 teammate 侧
 // （`teamUnitInFlight`）各写了一份字面量：同一个判据两处实现，一处改了另一处不会跟着改。
 //
-// 终态（done / failed …）**不进契约**：它由记录写方按自己的语义定名（teammate 记
-// done|failed，subagent 记它自己的终态），契约不替别的层写死词表；判中断只依赖这一侧。
+// 值**直接引契约**的记录状态枚举（`dto.SubAgentNodeStatus`）：这两个名字是那一格的
+// "在跑子集"，本包不再自己写第二份字面量（先前靠一条用例去比对上另一份——现在由构造
+// 保证）。终态（done / failed / interrupted …）不进这一层：它由记录写方按自己的语义
+// 定名（teammate 记 done|failed，subagent 记它自己的终态），判中断只依赖这一侧。
 const (
-	StatusQueued  = "queued"
-	StatusRunning = "running"
+	StatusQueued  = dto.SubAgentQueued
+	StatusRunning = dto.SubAgentRunning
 )
 
 // InFlight 报告一条会话记录的 status 是不是"说自己在跑"：记录说在跑、而本进程已无它的
 // 执行面 ⇒ 这件事中断了（进 `Resume.Interrupted`，交上层重跑或人工处置）。
+//
+// 读进来的 `status` 是**落盘记录的字符串**（sessionstore 在契约之下，存的是词），所以
+// 按记录那一格的词表读回一次：认不得的词 / 空串都不是"在跑"（也不折成某个已知状态——
+// 把读不懂说成"在跑"会让一条早已结束的记录永远占着"进行中"，反过来就是漏判中断）。
 func InFlight(status string) bool {
-	switch strings.TrimSpace(status) {
-	case StatusQueued, StatusRunning:
-		return true
-	default:
+	state, ok := dto.ParseSubAgentNodeStatus(strings.TrimSpace(status))
+	if !ok {
 		return false
 	}
+	return state == dto.SubAgentQueued || state == dto.SubAgentRunning
 }
 
 // RecoveryNoteRole 是恢复说明的注入 role：恒为 system——它是 Seelex 的编排事实，不是模型

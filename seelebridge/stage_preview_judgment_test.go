@@ -125,8 +125,8 @@ func TestSubagentStatusVocabularyAgreesWithTheWire(t *testing.T) {
 		got  string
 		want string
 	}{
-		{"workunit.StatusQueued", workunit.StatusQueued, dto.SubAgentQueued.String()},
-		{"workunit.StatusRunning", workunit.StatusRunning, dto.SubAgentRunning.String()},
+		{"workunit.StatusQueued", workunit.StatusQueued.String(), dto.SubAgentQueued.String()},
+		{"workunit.StatusRunning", workunit.StatusRunning.String(), dto.SubAgentRunning.String()},
 		// 记录那一格的**四个取值面**（③U6）：teammate 侧的终态词与 session 包的再导出都在表里，
 		// 任何一处被改成另一个词，这里立刻红——不再有"改了一份、漏了另一份"的余地。
 		{"teamUnitStatusRunning", teamUnitStatusRunning, dto.SubAgentRunning.String()},

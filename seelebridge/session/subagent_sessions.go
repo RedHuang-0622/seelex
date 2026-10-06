@@ -515,9 +515,9 @@ func (s *SubagentSessions) buildRecordLocked(nodeID string) sessionstore.NodeSes
 	} else if _, running := s.sessions[nodeID]; running {
 		// 词表只有一份（workunit.StatusRunning / StatusQueued）：这一格与"在跑"判据
 		// （workunit.InFlight）是同一份事实，不许在这里再写一遍字面量。
-		record.Status = workunit.StatusRunning
+		record.Status = workunit.StatusRunning.String()
 	} else {
-		record.Status = workunit.StatusQueued
+		record.Status = workunit.StatusQueued.String()
 	}
 	return record
 }
