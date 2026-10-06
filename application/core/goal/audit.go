@@ -71,7 +71,7 @@ func (s *ContextStateStore) AppendGoalAudit(ctx context.Context, entry AuditEntr
 		Kind:          string(entry.Kind),
 		GoalID:        entry.GoalID,
 		Title:         entry.Title,
-		Status:        string(entry.Status),
+		Status:        entry.Status.String(),
 		At:            entry.At,
 		SourceSession: entry.SourceSession,
 		Reason:        entry.Reason,

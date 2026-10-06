@@ -153,7 +153,7 @@ func (model Model) goalPanelLines() []string {
 		return lines
 	}
 	header := fmt.Sprintf("  ◆ GOAL  %s · %s",
-		fallback(goal.Status, "active"), fallback(goal.GoalID, "—"))
+		fallback(goal.Status.String(), "active"), fallback(goal.GoalID, "—"))
 	if goal.Recovered {
 		// 这一帧来自会话存档快照（活体栈给不出时才兜底）：是个**痕迹**，不是结论——
 		// 活体一恢复，后端下次投影自然撤掉它。
@@ -163,7 +163,7 @@ func (model Model) goalPanelLines() []string {
 	if title := oneLine(goal.Title, model.textLimit()); title != "" {
 		lines = append(lines, StyleChoiceInactive.Render("  "+title))
 	}
-	if peer := oneLine(goal.PeerState, model.textLimit()); peer != "" {
+	if peer := oneLine(goal.PeerState.String(), model.textLimit()); peer != "" {
 		lines = append(lines, StyleMuted.Render("  peer: "+peer))
 	}
 	if directive := oneLine(goal.LastDirective, panelDirectiveMax); directive != "" {
@@ -300,12 +300,18 @@ func (model Model) teamBoardLines() []string {
 	width := model.textLimit()
 	running, done, failed := 0, 0, 0
 	for _, job := range board.Jobs {
-		switch job.State {
-		case "running":
+		// 作业状态那一格的词只有一份（契约 dto.AsyncState；板上的 State 是作业面
+		// 折过来的同一份词面）：这里不再写第二份字面量。
+		state, ok := dto.ParseAsyncState(job.State)
+		if !ok {
+			continue
+		}
+		switch state {
+		case dto.AsyncStateRunning:
 			running++
-		case "done":
+		case dto.AsyncStateDone:
 			done++
-		case "failed", "killed":
+		case dto.AsyncStateFailed, dto.AsyncStateKilled:
 			failed++
 		}
 	}

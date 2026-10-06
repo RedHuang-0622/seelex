@@ -349,6 +349,82 @@ func TestScheduleRunStatusEnumWire(t *testing.T) {
 	}
 }
 
+// 格 J：goal 状态（goal 栈每层一态；看板视图与 goal 存档同格）。
+func TestGoalStatusEnumWire(t *testing.T) {
+	cases := []struct {
+		status GoalStatus
+		word   string
+	}{
+		{GoalStatusUnknown, "unknown"},
+		{GoalActive, "active"},
+		{GoalPaused, "paused"},
+		{GoalReviewing, "reviewing"},
+		{GoalCompleted, "completed"},
+		{GoalFailed, "failed"},
+		{GoalAborted, "aborted"},
+		{GoalWaitingHuman, "waiting_human"},
+	}
+	for _, entry := range cases {
+		status := entry.status
+		assertStateWire(t, stateWireCase{
+			grid:  "goal 状态",
+			state: status,
+			word:  entry.word,
+			parse: func(text string) (fmt.Stringer, bool) {
+				parsed, ok := ParseGoalStatus(text)
+				return parsed, ok
+			},
+			read: func(data []byte) error { return json.Unmarshal(data, &status) },
+		})
+	}
+	// 终态判定只认三种收口（unknown 不是终态：读不懂不许把目标从栈上摘掉）。
+	for _, terminal := range []GoalStatus{GoalCompleted, GoalFailed, GoalAborted} {
+		if !terminal.Terminal() {
+			t.Errorf("%v 必须是终态", terminal)
+		}
+	}
+	for _, alive := range []GoalStatus{GoalStatusUnknown, GoalActive, GoalPaused, GoalReviewing, GoalWaitingHuman} {
+		if alive.Terminal() {
+			t.Errorf("%v 不是终态", alive)
+		}
+	}
+}
+
+// 格 K：评审者（b / ADVISOR）生命周期状态。
+func TestPeerStateEnumWire(t *testing.T) {
+	cases := []struct {
+		state PeerState
+		word  string
+	}{
+		{PeerStateUnknown, "unknown"},
+		{PeerDetached, "detached"},
+		{PeerBound, "bound"},
+		{PeerEvaluating, "evaluating"},
+		{PeerAdvisoryPending, "advisory_pending"},
+		{PeerReaped, "reaped"},
+	}
+	for _, entry := range cases {
+		state := entry.state
+		assertStateWire(t, stateWireCase{
+			grid:  "评审者状态",
+			state: state,
+			word:  entry.word,
+			parse: func(text string) (fmt.Stringer, bool) {
+				parsed, ok := ParsePeerState(text)
+				return parsed, ok
+			},
+			read: func(data []byte) error { return json.Unmarshal(data, &state) },
+		})
+	}
+	// 边界：goal 自己的状态词不许被这一格认下（两格都在 goal 治理视图里，
+	// 但一个说"目标处在哪一步"、一个说"评审者在不在"）。
+	for _, foreign := range []string{"active", "paused", "waiting_human"} {
+		if _, ok := ParsePeerState(foreign); ok {
+			t.Errorf("评审者状态认下了 goal 状态的词 %q", foreign)
+		}
+	}
+}
+
 // 落盘那一格：老形状（字符串）的记录必须能读回，认不得的词**不炸**、也不被当成终态。
 func TestRecordStatusReadsOldShapedRecords(t *testing.T) {
 	var legacy struct {

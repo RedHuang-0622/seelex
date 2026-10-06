@@ -745,7 +745,7 @@ func goalStampOf(record *GoalRecord) string {
 		lastProgress = record.Progress[count-1].Content
 	}
 	return strings.Join([]string{
-		record.ID, string(record.Status), record.Title, record.Statement,
+		record.ID, record.Status.String(), record.Title, record.Statement,
 		strings.Join(record.Acceptance, "\x1e"), lastProgress,
 		fmt.Sprintf("%d", len(record.Progress)),
 	}, "\x1f")

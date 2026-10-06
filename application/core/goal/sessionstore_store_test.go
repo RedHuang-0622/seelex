@@ -122,14 +122,14 @@ func TestContextStateStoreFinishPopsToEmpty(t *testing.T) {
 		t.Fatalf("begin parent: %v", err)
 	}
 	if persisted := store.GoalStackSnapshot(); len(persisted) != 1 ||
-		persisted[0].Title != "父目标" || persisted[0].Status != string(StatusActive) {
+		persisted[0].Title != "父目标" || persisted[0].Status != StatusActive.String() {
 		t.Fatalf("begin 后持久化活栈 = %+v", persisted)
 	}
 	if _, err := controller.Begin(testCtx, BeginRequest{Title: "子目标"}); err != nil {
 		t.Fatalf("begin child: %v", err)
 	}
 	if persisted := store.GoalStackSnapshot(); len(persisted) != 2 ||
-		persisted[0].Title != "父目标" || persisted[0].Status != string(StatusPaused) ||
+		persisted[0].Title != "父目标" || persisted[0].Status != StatusPaused.String() ||
 		persisted[1].Title != "子目标" {
 		t.Fatalf("嵌套压栈后持久化活栈 = %+v", persisted)
 	}
@@ -137,7 +137,7 @@ func TestContextStateStoreFinishPopsToEmpty(t *testing.T) {
 		t.Fatalf("finish child: %v", err)
 	}
 	if persisted := store.GoalStackSnapshot(); len(persisted) != 1 ||
-		persisted[0].Title != "父目标" || persisted[0].Status != string(StatusActive) {
+		persisted[0].Title != "父目标" || persisted[0].Status != StatusActive.String() {
 		t.Fatalf("子完成弹栈应同步删除 g-2，持久化只剩父且 active: %+v", persisted)
 	}
 

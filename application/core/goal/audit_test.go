@@ -42,7 +42,7 @@ func TestControllerAuditAppendOnlyLifecycle(t *testing.T) {
 		}
 	}
 	last := audit[2]
-	if last.GoalID == "" || last.Status != string(StatusCompleted) ||
+	if last.GoalID == "" || last.Status != StatusCompleted.String() ||
 		last.Reason != "证据齐全" || last.Result != "单测全绿" {
 		t.Fatalf("finish 审计应保留 reason/result: %+v", last)
 	}
@@ -83,7 +83,7 @@ func TestControllerAuditNestedRestoreAndTerminal(t *testing.T) {
 		}
 	}
 	restore := audit[3]
-	if restore.GoalID != "g-1" || restore.Status != string(StatusActive) {
+	if restore.GoalID != "g-1" || restore.Status != StatusActive.String() {
 		t.Fatalf("restore 审计应指向父并置 active: %+v", restore)
 	}
 	if live := store.GoalStackSnapshot(); len(live) != 0 {
@@ -108,7 +108,7 @@ func TestAuditSourceSessionProvenanceRoundTrip(t *testing.T) {
 	reloaded := newGoalSessionStore(t, router, sessionID)
 	audit := reloaded.GoalAuditSnapshot()
 	if len(audit) != 1 || audit[0].SourceSession != "session-b" ||
-		audit[0].GoalID != "g-1" || audit[0].Status != string(StatusCompleted) {
+		audit[0].GoalID != "g-1" || audit[0].Status != StatusCompleted.String() {
 		t.Fatalf("reloaded audit = %+v", audit)
 	}
 }

@@ -11,6 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 // 域内长度上限（有界性；与 seelexctx Limits 对齐的 goal 侧护栏）。
@@ -34,26 +36,36 @@ const (
 )
 
 // Status 是 goal 生命周期状态（design §3.3 P0 子集 + 终态判定）。
-type Status string
+//
+// 词表只有一份，住在契约（`dto.GoalStatus`）：本包以别名保持读法，值引契约常量。
+// 存档那一侧的读回（`sessionstore.GoalFrame.Status`，store 在契约之下）走本包的
+// `goalStatusOfRecord`——认不得的词说认不得，不折成 active/paused。
+type Status = dto.GoalStatus
 
 const (
-	StatusActive       Status = "active"        // 栈顶当前目标
-	StatusPaused       Status = "paused"        // 栈下层被挂起（嵌套时自动）
-	StatusReviewing    Status = "reviewing"     // 终态校验中（P2 TL gate 用）
-	StatusCompleted    Status = "completed"     // finish 收口
-	StatusFailed       Status = "failed"        // 判不可达成（预留）
-	StatusAborted      Status = "aborted"       // 显式放弃
-	StatusWaitingHuman Status = "waiting_human" // 预算耗尽/越权，等人工
+	StatusActive       = dto.GoalActive       // 栈顶当前目标
+	StatusPaused       = dto.GoalPaused       // 栈下层被挂起（嵌套时自动）
+	StatusReviewing    = dto.GoalReviewing    // 终态校验中（P2 TL gate 用）
+	StatusCompleted    = dto.GoalCompleted    // finish 收口
+	StatusFailed       = dto.GoalFailed       // 判不可达成（预留）
+	StatusAborted      = dto.GoalAborted      // 显式放弃
+	StatusWaitingHuman = dto.GoalWaitingHuman // 预算耗尽/越权，等人工
 )
 
-// IsTerminal 报告状态是否终态（不再停留在 goal 栈上）。
-func IsTerminal(status Status) bool {
-	switch status {
-	case StatusCompleted, StatusFailed, StatusAborted:
-		return true
+// StatusOfRecord 把 goal 存档里的状态词读回枚举（落盘格的唯一转换点；导出给跨包投影读方）。
+//
+// 认不得的词 / 空串 → `dto.GoalStatusUnknown`：**不炸、也不折成某个已知状态**。
+// 随后 `Controller.Reload` 的**位置语义**修正栈顶 active / 下层 paused——那是"栈这一
+// 位置该是什么态"的权威判据，而不是"读不懂就猜一个"。
+func StatusOfRecord(wire string) dto.GoalStatus {
+	if status, ok := dto.ParseGoalStatus(strings.TrimSpace(wire)); ok {
+		return status
 	}
-	return false
+	return dto.GoalStatusUnknown
 }
+
+// IsTerminal 报告状态是否终态（不再停留在 goal 栈上）。
+func IsTerminal(status Status) bool { return status.Terminal() }
 
 // 域错误（哨兵 + 可包装）。
 var (

@@ -17,14 +17,14 @@ type RuntimeVisibilityProjection struct {
 // 它现在只投影 goal **看板**（活动栈 + 状态 + 最近裁决）与终态 gate / 审批预筛
 // 期间短暂有值的评审过程。
 type GoalGovernanceView struct {
-	Active bool   `json:"active"`
-	GoalID string `json:"goal_id,omitempty"`
-	Title  string `json:"title,omitempty"`
-	Status string `json:"status,omitempty"` // goal 状态
+	Active bool       `json:"active"`
+	GoalID string     `json:"goal_id,omitempty"`
+	Title  string     `json:"title,omitempty"`
+	Status GoalStatus `json:"status,omitempty"` // goal 状态（词表在 dto.GoalStatus）
 	// PeerState 是评审者（b）的状态：只在终态 gate / 审批预筛跑真实 TL 回合时
-	// 短暂进入 evaluating / advisory_pending，其余时间为稳态。
-	PeerState     string `json:"peer_state,omitempty"`
-	LastDirective string `json:"last_directive,omitempty"`
+	// 短暂进入 evaluating / advisory_pending，其余时间为稳态（词表在 dto.PeerState）。
+	PeerState     PeerState `json:"peer_state,omitempty"`
+	LastDirective string    `json:"last_directive,omitempty"`
 	// InFlight / InFlightChars 是**当前 b（ADVISOR）回合进行中**的正文近端。
 	//
 	// 为什么存在于治理视图：b 回合是同步跑完的（回合结束才推一次状态），"评审在

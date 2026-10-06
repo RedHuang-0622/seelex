@@ -1,5 +1,7 @@
 package goal
 
+import "github.com/RedHuang-0622/seelex/application/contract/dto"
+
 // advisor.go — DS-A2A 治理落地（协议 docs/2026-09-07-seele-a2a-framework-req/ds-a2a-protocol.md §1-§10 的
 // goal 域可运行切片；配套 ds-a2a-detailed-design.md §4）。
 //
@@ -23,14 +25,16 @@ import (
 )
 
 // PeerState 是 b 生命周期状态（协议 §9，headless/前端可投影）。
-type PeerState string
+//
+// 词表只有一份，住在契约（`dto.PeerState`）：本包以别名保持读法，值引契约常量。
+type PeerState = dto.PeerState
 
 const (
-	PeerDetached        PeerState = "detached"
-	PeerBound           PeerState = "bound"
-	PeerEvaluating      PeerState = "evaluating"
-	PeerAdvisoryPending PeerState = "advisory_pending"
-	PeerReaped          PeerState = "reaped" // unbind 后（reason=done|evicted|killed）
+	PeerDetached        = dto.PeerDetached
+	PeerBound           = dto.PeerBound
+	PeerEvaluating      = dto.PeerEvaluating
+	PeerAdvisoryPending = dto.PeerAdvisoryPending
+	PeerReaped          = dto.PeerReaped // unbind 后（reason=done|evicted|killed）
 )
 
 // FrameKind 是 a→b 帧类型（协议 §4 默认抽帧集；transcript.inc 默认不进 b = 跳帧控量）。

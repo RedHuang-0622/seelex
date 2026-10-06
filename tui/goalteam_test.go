@@ -40,8 +40,8 @@ func goalSnapshot() application.Snapshot {
 		Active:        true,
 		GoalID:        "g-1",
 		Title:         "给员工按权限开放工具",
-		Status:        "running",
-		PeerState:     "advisory_pending",
+		Status:        dto.GoalActive,
+		PeerState:     dto.PeerAdvisoryPending,
 		LastDirective: "[verdict_done] 两条验收证据在本次 ADVISOR 输入中均可核对",
 	}
 	return snapshot
@@ -107,7 +107,9 @@ func TestGoalPanelRendersGovernanceProjection(t *testing.T) {
 		t.Fatalf("Alt+G 后面板 = %q, want %q", model.panel, panelGoal)
 	}
 	panel := model.renderPanel()
-	for _, want := range []string{"GOAL", "running", "advisory_pending", "verdict_done", "g-1"} {
+	// 面板按治理投影渲染 goal 状态词：取值只可能来自 dto.GoalStatus 那一格
+	// （夹具早先用过 "running"——那是**格外的词**，枚举化后写不出来了）。
+	for _, want := range []string{"GOAL", "active", "advisory_pending", "verdict_done", "g-1"} {
 		if !strings.Contains(panel, want) {
 			t.Fatalf("目标面板缺少 %q：\n%s", want, panel)
 		}

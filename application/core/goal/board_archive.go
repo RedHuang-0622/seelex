@@ -290,7 +290,7 @@ func activeFrame(records []*GoalRecord) *sessionstore.GoalBoardActive {
 			Statement:  record.Statement,
 			Acceptance: append([]string(nil), record.Acceptance...),
 			OutOfScope: append([]string(nil), record.OutOfScope...),
-			Status:     string(record.Status),
+			Status:     record.Status.String(),
 			CreatedAt:  record.CreatedAt,
 			UpdatedAt:  record.UpdatedAt,
 		}

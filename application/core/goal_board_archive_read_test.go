@@ -84,7 +84,7 @@ func TestGoalGovernanceViewRecoversBoardFromArchive(t *testing.T) {
 	if !view.Active || !view.Recovered {
 		t.Fatalf("兜底读应 Active 且标 Recovered: %+v", view)
 	}
-	if view.GoalID != "g-1" || view.Title != "上一轮还在跑的目标" || view.Status != "active" {
+	if view.GoalID != "g-1" || view.Title != "上一轮还在跑的目标" || view.Status != goaldomain.StatusActive {
 		t.Fatalf("看板应取存档的当前帧: %+v", view)
 	}
 	if len(view.Stack) != 1 || view.Stack[0].ID != "g-1" || !view.Stack[0].Active {

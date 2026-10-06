@@ -299,7 +299,7 @@ func goalStackFrames(stack []*goaldomain.GoalRecord) []dto.GoalFrameView {
 			ID:         record.ID,
 			Title:      record.Title,
 			Statement:  record.Statement,
-			Status:     string(record.Status),
+			Status:     record.Status.String(),
 			Active:     index == len(stack)-1,
 			Acceptance: append([]string(nil), record.Acceptance...),
 			OutOfScope: append([]string(nil), record.OutOfScope...),
@@ -380,8 +380,8 @@ func (g *goalCoordinator) GoalGovernanceViewFor(sessionID string) *dto.GoalGover
 		Active:    true,
 		GoalID:    status.Active.ID,
 		Title:     status.Active.Title,
-		Status:    string(status.Active.Status),
-		PeerState: string(peer.Peer),
+		Status:    status.Active.Status,
+		PeerState: peer.Peer,
 		// 进行中的 ADVISOR 正文（只读快照）：回合结束为空。前端据此在评审期间
 		// 轮询快照，把"评审在写什么"及时渲染出来。
 		InFlight:      peer.InFlight,
@@ -444,7 +444,7 @@ func recoveredGoalView(archive sessionstore.GoalBoardMeta, hasArchive bool) *dto
 		Recovered: true,
 		GoalID:    active.GoalID,
 		Title:     active.Title,
-		Status:    active.Status,
+		Status:    goaldomain.StatusOfRecord(active.Status),
 		History:   goalHistoryViews(archive, hasArchive),
 		Stack: []dto.GoalFrameView{{
 			ID:          active.GoalID,

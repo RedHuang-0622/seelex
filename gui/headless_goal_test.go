@@ -29,7 +29,7 @@ func (fake *goalRPCFakeApp) GoalBeginFor(_ context.Context, sessionID string, re
 	fake.lastSID = sessionID
 	fake.active = &goaldomain.GoalRecord{ID: "g-1", Title: request.Title, Status: goaldomain.StatusActive}
 	fake.view = &dto.GoalGovernanceView{
-		Active: true, GoalID: "g-1", Title: request.Title, Status: string(goaldomain.StatusActive),
+		Active: true, GoalID: "g-1", Title: request.Title, Status: goaldomain.StatusActive,
 	}
 	return fake.active, nil
 }
@@ -111,7 +111,7 @@ func TestHeadlessGoalChainReplication(t *testing.T) {
 	if err := remarshal(result.Result, &view); err != nil {
 		t.Fatalf("decode gov_snapshot: %v", err)
 	}
-	if !view.Active || view.GoalID != "g-1" || view.Status != string(goaldomain.StatusActive) {
+	if !view.Active || view.GoalID != "g-1" || view.Status != goaldomain.StatusActive {
 		t.Fatalf("gov_snapshot = %+v", view)
 	}
 

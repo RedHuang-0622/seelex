@@ -130,7 +130,7 @@ func TestGoalBoardArchiveSeparatesActiveFrameFromHistory(t *testing.T) {
 		t.Fatalf("收口目标应进账本恰好一条: %+v", closed.History)
 	}
 	entry := closed.History[0]
-	if entry.Status != string(StatusCompleted) || entry.Title != "子目标" {
+	if entry.Status != StatusCompleted.String() || entry.Title != "子目标" {
 		t.Fatalf("派生条目应取审计条目的 Status/Title: %+v", entry)
 	}
 	if entry.ClosedReason == "" {
