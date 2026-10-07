@@ -330,9 +330,11 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (service *Service) UpdateScheduledTask(ctx context.Context, id string, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error)` — UpdateScheduledTask 编辑既有定时/周期任务（ID 是操作键，定义整体替换）。
 - `func (service *Service) validateScheduledWorkspace(workspaceID string) error` — validateScheduledWorkspace 校验任务指定的工作区可用（空 = 不绑项目，合法）。
 - `func (service *Service) resolveScheduledWorkspace(workspaceID string) (*WorkspaceInfo, error)` — resolveScheduledWorkspace 解析任务指定的工作区（空 ID = (nil, nil)，合法）。
+- `func (service *Service) validateScheduledPlugins(plugins []string) error` — validateScheduledPlugins 校验任务声明的插件装配都存在（空 = 不覆盖，合法）。
+- `func (service *Service) AssembleScheduledRun(ctx context.Context, sessionID string, task seelebridge.ScheduledTaskSpec) (context.Context, error)` — AssembleScheduledRun 把一条定时任务声明的装配落到**目标会话**与**本轮执行 ctx**。
 - `func (service *Service) CancelScheduledTask(id string) error` — CancelScheduledTask 取消并移除定时/周期任务。
 - `func (service *Service) RefreshRuntimeSnapshot()` — RefreshRuntimeSnapshot 重新收集运行时投影（含定时/周期任务快照）并发布
-- `func (service *Service) StartScheduledSession(ctx context.Context, prompt, workspaceID string) (string, error)` — StartScheduledSession 为一次定时触发**新建会话**并发起提示词，返回新会话 ID。
+- `func (service *Service) StartScheduledSession(ctx context.Context, task seelebridge.ScheduledTaskSpec) (string, error)` — StartScheduledSession 为一次定时触发**新建会话**并发起提示词，返回新会话 ID。
 
 ### service_scheduler_test.go
 
@@ -341,6 +343,8 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (runtime *fakeRuntime) sessionProjectRoot(sessionID string) string` — sessionProjectRoot 读 fakeRuntime 的按会话工具根（同包测试直读，加锁）。
 - `func conversationContents(messages []Message) string` — conversationContents 把可见会话拼成一段文本（判据只看"出现过没有"）。
 - `func TestUpdateScheduledTaskForwardsAndValidatesWorkspace(t *testing.T)` — TestUpdateScheduledTaskForwardsAndValidatesWorkspace 钉住编辑这条链的应用层口径：
+- `func TestAssembleScheduledRunAppliesTierAndPlugins(t *testing.T)` — TestAssembleScheduledRunAppliesTierAndPlugins 钉住任务的**装配**落到哪儿：
+- `func TestScheduledPluginsValidatedAgainstCatalog(t *testing.T)` — TestScheduledPluginsValidatedAgainstCatalog 钉住应用层的插件装配校验：未知插件名
 
 ### service_snapshot.go
 

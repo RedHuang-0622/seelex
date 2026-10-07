@@ -89,7 +89,7 @@ const elements = Object.fromEntries([
   "session-list", "session-count", "new-session",
   "plugin-list", "plugin-count", "account-list", "account-count", "conversation", "conversation-tabs", "trajectory",
   "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",
-  "runtime-details", "effort-control", "effort-range", "effort-value", "work-section", "work-count", "work-unread", "work-table-open", "work-table-summary", "work-table-modal", "work-table-modal-close", "work-table-modal-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-modal-title", "scheduled-task-close", "sched-name", "sched-workspace", "sched-mode", "sched-period-value", "sched-period-unit", "sched-period-field", "sched-anchor-field", "sched-start-clock", "sched-start-weekday", "sched-anchor-now", "sched-anchor-now-field", "sched-datetime", "sched-datetime-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-enabled-field", "sched-enabled-label", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
+  "runtime-details", "effort-control", "effort-range", "effort-value", "work-section", "work-count", "work-unread", "work-table-open", "work-table-summary", "work-table-modal", "work-table-modal-close", "work-table-modal-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-modal-title", "scheduled-task-close", "sched-name", "sched-workspace", "sched-permission", "sched-plugins", "sched-mode", "sched-period-value", "sched-period-unit", "sched-period-field", "sched-anchor-field", "sched-start-clock", "sched-start-weekday", "sched-anchor-now", "sched-anchor-now-field", "sched-datetime", "sched-datetime-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-enabled-field", "sched-enabled-label", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
   "project-name", "project-root", "project-status", "worktree-view", "file-count", "context-compactions",
   "compaction-frame-modal", "compaction-frame-modal-close", "compaction-frame-modal-title", "compaction-frame-modal-meta", "compaction-frame-modal-view",
   "team-section", "team-view", "team-count",
@@ -2772,10 +2772,11 @@ function renderScheduledTaskPanel(runtime) {
   const commands = Array.isArray(runtime.scheduled_commands) ? runtime.scheduled_commands : [];
   // 工作区名来自快照的 workspaces（任务只记 ID：ID 是索引，名字只用于展示）。
   const workspaces = Array.isArray((client.current() || {}).workspaces) ? client.current().workspaces : [];
+  const tiers = Array.isArray((client.current() || {}).runtime?.permission_tiers) ? client.current().runtime.permission_tiers : [];
   elements["scheduled-task-count"].textContent = String(tasks.length);
   elements["scheduled-table-summary"].textContent = `${tasks.length} 项任务`;
-  elements["scheduled-task-view"].innerHTML = renderScheduledTasks(tasks, commands, workspaces);
-  elements["scheduled-table-view"].innerHTML = renderScheduledTasksTable(tasks, commands, workspaces);
+  elements["scheduled-task-view"].innerHTML = renderScheduledTasks(tasks, commands, workspaces, tiers);
+  elements["scheduled-table-view"].innerHTML = renderScheduledTasksTable(tasks, commands, workspaces, tiers);
 }
 
 // openScheduledTable / closeScheduledTable：定时任务 Excel 表格弹窗
@@ -4536,6 +4537,7 @@ function openScheduledTaskDialog(task) {
   elements["sched-name"].value = fields.name;
   elements["sched-prompt"].value = fields.prompt;
   renderScheduledWorkspaceOptions(fields.workspaceId);
+  renderScheduledAssemblyOptions(fields);
   elements["sched-mode"].value = fields.mode;
   elements["sched-period-value"].value = fields.periodValue;
   elements["sched-period-unit"].value = fields.periodUnit;
@@ -4570,6 +4572,37 @@ function renderScheduledWorkspaceOptions(preferredID) {
   // 新建默认跟随当前会话的工作区：用户多半就是想让任务在这个项目里跑。
   const preferred = preferredID || current?.id || "";
   select.value = workspaces.some(workspace => workspace.id === preferred) ? preferred : "";
+}
+
+// renderScheduledAssemblyOptions 填两格装配选项：
+//   - 权限档位：选项来自快照的 runtime.permission_tiers（后端下发，前端不自造
+//     档位名——两处各写一套就会漂移）。目录为空（裸宿主/测试桩）时不加选项，
+//     提交的档位是空串 = 后端按默认 full access 处理。
+//   - 插件装配：选项来自快照的 runtime.plugins；多选，空选 = 继承宿主当前激活
+//     插件。默认选中 preferred.plugins（编辑态 = 这条任务自己声明的那几个）。
+function renderScheduledAssemblyOptions(preferred) {
+  const runtime = (client.current() || {}).runtime || {};
+  const tierSelect = elements["sched-permission"];
+  if (tierSelect) {
+    const tiers = Array.isArray(runtime.permission_tiers) ? runtime.permission_tiers : [];
+    tierSelect.innerHTML = [`<option value="">（默认：全权）</option>`]
+      .concat(tiers.map(tier => `<option value="${escapeHtml(tier.id)}">${escapeHtml(tier.label || tier.short || tier.id)}</option>`))
+      .join("");
+    const tier = String(preferred?.permissionTier || "");
+    tierSelect.value = tiers.some(item => item.id === tier) ? tier : "";
+  }
+  const pluginSelect = elements["sched-plugins"];
+  if (pluginSelect) {
+    const plugins = Array.isArray(runtime.plugins) ? runtime.plugins : [];
+    pluginSelect.innerHTML = plugins
+      .filter(plugin => plugin?.name)
+      .map(plugin => `<option value="${escapeHtml(plugin.name)}" title="${escapeHtml(plugin.description || plugin.name)}">${escapeHtml(plugin.name)}</option>`)
+      .join("");
+    const selected = new Set(Array.isArray(preferred?.plugins) ? preferred.plugins : []);
+    for (const option of pluginSelect.options) {
+      option.selected = selected.has(option.value);
+    }
+  }
 }
 
 function closeScheduledTaskDialog() {
@@ -4607,6 +4640,9 @@ async function submitScheduledTask() {
     workspaceId: elements["sched-workspace"]?.value || "",
     // 编辑态把原任务的会话绑定原样带回（面板不编辑它，也不该在保存时清掉）。
     sessionId: editingTaskID ? scheduledTaskByID(editingTaskID)?.session_id || "" : "",
+    // 装配：档位空 = 后端默认 full access；插件空 = 继承宿主当前激活插件。
+    permissionTier: elements["sched-permission"]?.value || "",
+    plugins: [...(elements["sched-plugins"]?.selectedOptions || [])].map(option => option.value),
     mode: elements["sched-mode"].value,
     periodValue: elements["sched-period-value"].value,
     periodUnit: elements["sched-period-unit"].value,

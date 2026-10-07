@@ -185,6 +185,55 @@ func TestScheduledTaskUpdatePersistsAsNewRowWithSameID(t *testing.T) {
 
 // TestScheduledTaskRestoreSkipsWhatCannotRun 钉住恢复的**逐条跳过**判据：
 // 过期的一次性任务、命令不在白名单、周期非法、执行器未装配，都只跳过自己。
+//
+// TestScheduledTaskAssemblySurvivesRestart 钉住**装配**随定义持久化：权限档位与
+// 插件集合在全局 JSONL 里原样保留，冷启动恢复出同一条装配（不是"重启后回到默认
+// 全权 / 继承宿主"）。装配是任务定义的一部分，不是运行期读数。
+func TestScheduledTaskAssemblySurvivesRestart(t *testing.T) {
+	store := NewFileStore(filepath.Join(t.TempDir(), "scheduled-tasks.jsonl"))
+	state := newSchedulerTestStateWithStore(t, store)
+	state.SetPromptExecutor(okPromptExecutor("ok"))
+	created, err := state.Schedule(context.Background(), ScheduledTaskSpec{
+		Name: "带装配的任务", Kind: ScheduledTaskPrompt, Prompt: "巡检", Interval: time.Hour, Enabled: true,
+		PermissionTier: dto.PermissionTierAuto, Plugins: []string{"cad", "docs"}, WorkspaceID: "ws_1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.Stop()
+
+	restored := newSchedulerTestStateWithStore(t, store)
+	defer restored.Stop()
+	restored.SetPromptExecutor(okPromptExecutor("ok"))
+	count, skipped, err := restored.Restore()
+	if err != nil || count != 1 || skipped != 0 {
+		t.Fatalf("Restore = (%d, %d, %v), want (1, 0, nil)", count, skipped, err)
+	}
+	got := restored.Snapshot()[0]
+	if got.ID != created.ID {
+		t.Fatalf("恢复换了 ID：%q → %q", created.ID, got.ID)
+	}
+	if got.PermissionTier != dto.PermissionTierAuto {
+		t.Fatalf("恢复丢了权限档位：%+v", got)
+	}
+	if len(got.Plugins) != 2 || got.Plugins[0] != "cad" || got.Plugins[1] != "docs" {
+		t.Fatalf("恢复丢了插件装配：%+v", got.Plugins)
+	}
+
+	// 反向：没声明装配的任务恢复出来的档位仍是默认 full，插件为空。
+	plain, err := restored.Schedule(context.Background(), ScheduledTaskSpec{
+		Name: "默认装配", Kind: ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour, Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain.PermissionTier != dto.PermissionTierFull || len(plain.Plugins) != 0 {
+		t.Fatalf("空装配没有落成默认全权：%+v", plain)
+	}
+}
+
+// TestScheduledTaskRestoreSkipsWhatCannotRun 钉住恢复的**逐条跳过**判据：
+// 过期的一次性任务、命令不在白名单、周期非法、执行器未装配，都只跳过自己。
 func TestScheduledTaskRestoreSkipsWhatCannotRun(t *testing.T) {
 	store := NewFileStore(filepath.Join(t.TempDir(), "scheduled-tasks.jsonl"))
 	appendRecord := func(record ScheduledTaskRecord) {

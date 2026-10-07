@@ -712,7 +712,7 @@ func TestBridgeForwardsScheduledTaskCommands(t *testing.T) {
 	// 编辑：ID 是操作键，定义走同一份 spec 形状（面板新建/编辑共用一套控件）。
 	updated, err := bridge.UpdateScheduledTask("sched_1", seelebridge.ScheduledTaskSpec{
 		Name: "抓职位（改）", Kind: seelebridge.ScheduledTaskPrompt, Prompt: "换个提示词",
-		WorkspaceID: "ws_1", Enabled: true,
+		WorkspaceID: "ws_1", PermissionTier: "auto", Plugins: []string{"cad"}, Enabled: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -722,6 +722,10 @@ func TestBridgeForwardsScheduledTaskCommands(t *testing.T) {
 	}
 	if fake.updatedTaskID != "sched_1" || fake.scheduledSpec.Prompt != "换个提示词" || fake.scheduledSpec.WorkspaceID != "ws_1" {
 		t.Fatalf("update not forwarded: id=%q spec=%+v", fake.updatedTaskID, fake.scheduledSpec)
+	}
+	// 装配（权限档位 + 插件）是定义的一部分，编辑时同样整份转发。
+	if fake.scheduledSpec.PermissionTier != "auto" || len(fake.scheduledSpec.Plugins) != 1 || fake.scheduledSpec.Plugins[0] != "cad" {
+		t.Fatalf("assembly not forwarded: %+v", fake.scheduledSpec)
 	}
 
 	if err := bridge.CancelScheduledTask("sched_1"); err != nil {
@@ -1817,6 +1821,12 @@ func TestEmbeddedScheduledFormCarriesWorkspacePicker(t *testing.T) {
 	if !strings.Contains(body, `id="sched-workspace"`) {
 		t.Fatal("新建弹窗缺少工作区下拉：定时任务就没法装配工作区")
 	}
+	// 权限档位与插件装配同样在弹窗里可选（默认档位空 = 后端按 full access 处理）。
+	for _, want := range []string{`id="sched-permission"`, `id="sched-plugins"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("新建弹窗缺少装配控件：%s", want)
+		}
+	}
 	app, err := embeddedFrontend.ReadFile("frontend/dist/app.js")
 	if err != nil {
 		t.Fatal(err)
@@ -1827,6 +1837,13 @@ func TestEmbeddedScheduledFormCarriesWorkspacePicker(t *testing.T) {
 	}
 	if !strings.Contains(appSource, "renderScheduledWorkspaceOptions") {
 		t.Fatal("工作区下拉的选项要从快照的 workspaces 来（缺了它下拉永远是空的）")
+	}
+	if !strings.Contains(appSource, "renderScheduledAssemblyOptions") {
+		t.Fatal("权限档位/插件选项要从快照的下发目录来（前端不自造档位名与插件名）")
+	}
+	if !strings.Contains(appSource, "permissionTier: elements[\"sched-permission\"]") ||
+		!strings.Contains(appSource, "plugins: [...(elements[\"sched-plugins\"]") {
+		t.Fatal("提交时必须把两格装配递给 buildScheduledTaskSpec")
 	}
 }
 

@@ -83,6 +83,29 @@ prompt 任务的落点只有一条判据（`PromptExecutor` 契约，实现在�
 每次触发把实际落点写进状态的 `LastSessionID`，面板与冒烟据此指认"跑到哪个会话去了"。
 新建会话在**后台**跑，不切用户正在看的视图指针；它自己的会话记录照常按会话存储纪律落盘。
 
+### 触发装配（权限 / 插件）
+
+任务定义里还带两格**装配**，触发时落到那次会话/那一轮（实现见
+`application/core/service_scheduler.go` 的 `AssembleScheduledRun`）：
+
+| 字段 | 口径 |
+|---|---|
+| `PermissionTier` | 空 = **默认 full access**；非空必须是 `dto.PermissionTierIDs` 之一（未识别显式拒绝）。落到这次会话的档位槽 + 执行门 + 审批自动放行，并按会话级设置落盘 |
+| `Plugins` | 空 = 不覆盖（继承宿主当前激活插件）；非空经 `dto.NormalizePlugins` 归一（去空白、重复显式拒绝、超上限显式拒绝），触发时带进这一轮的执行 ctx |
+
+为什么权限的默认是 full 而不是主会话的 manual：定时任务在后台跑，**没人在审批弹窗上
+点"同意"**——默认手动等于每次触发都卡死在一次永远没人回答的审批上。这条默认只落在
+这次任务新建的会话上，不改进程默认档位、不影响其它会话。
+
+插件装配走的是 teammate 回合的**同一条原语**（`seeltools.WithRolePlugins` → 工具面
+每轮从 ctx 现算，`PluginFace` 收口）：不切宿主全局激活插件、不在任何句柄上缓存"当前
+装配"（缓存在并发回合里会被后写的那份覆盖）。边界与 `runtime_role_plugins.go` 一致：
+装配只回答"能用哪些能力包"，**不放宽权限面**；主代理的**插件正文层**仍来自宿主当前
+激活插件，ctx 装配管的是这一轮的工具面与技能目录。
+
+装配名不存在时应用层在**创建/编辑**就拒绝（未知插件名显式拒绝，不静默忽略）——
+留到触发时才发现，就只剩一次"这一轮什么工具都没有"的失灵。
+
 ## 核心实现
 
 - `State`：自带锁的 actor；ticker 循环 `tick` 找出到期任务，独立 goroutine
@@ -96,7 +119,8 @@ prompt 任务的落点只有一条判据（`PromptExecutor` 契约，实现在�
   ID 不变、运行账目保留（`RunCount` / 上次结果 / 上次落点），下次运行按新定义重算。
   校验与创建**共用** `normalizeSpec` 这一份判据——不存在"创建时拦得住、编辑时漏得过"。
 - `normalizeSpec` / `applyDefinition`：前者是"什么算一个合法任务定义"的唯一实现
-  （trim + 锚点归一 + 周期搭配 + 最小周期 + 白名单/执行器 + 一次性语义），后者把归一
+  （trim + 锚点归一 + 周期搭配 + 最小周期 + 白名单/执行器 + 一次性语义 + 装配归一：
+  档位空落 full、插件经 `dto.NormalizePlugins`），后者把归一
   结果写进任务本体与状态快照（创建、编辑、冷启动重建三处共用，避免"编辑后某几格还是旧值"）。
 - `Persistence` / `FileStore`：任务定义的**全局 JSONL**。一行一条变更
   （`ScheduledTaskRecord`：`deleted` 区分登记与取消墓碑），以 `O_APPEND` 追加
@@ -145,6 +169,8 @@ JSONL 是 append-only 单写者通道（`FileStore.mu` 串行化）：崩溃只�
   "状态快照和定义不一致"（面板显示旧值、排期按新值跑）。
 - 触发落点是否只有一条判据（sessionID 空 = 新建会话）；新建会话有没有顺手改掉
   用户当前视图或全局工程根。
+- 装配有没有越界：权限档位只落**那次会话**（不改进程默认），插件只进**这一轮 ctx**
+  （不切宿主全局激活插件、不缓存）；未知插件名是否在创建/编辑就被拒。
 
 ## 测试与验证
 
@@ -153,9 +179,9 @@ go test ./seelebridge/scheduler/... -count=1
 ```
 
 - `scheduler_test.go`：排期/锚点/白名单/重叠执行/执行器落点参数/编辑（整体替换、
-  与创建共用校验、ID 不变、账目保留）。
+  与创建共用校验、ID 不变、账目保留）/装配（默认 full、插件归一、非法显式拒绝）。
 - `persistence_test.go`：全局单文件、冷启动重建、取消墓碑、逐条跳过判据、
-  编辑追加同 ID 定义行后的恢复、残尾丢弃。
+  编辑追加同 ID 定义行后的恢复、装配随定义恢复、残尾丢弃。
 
 ## 文件与函数索引
 
@@ -166,8 +192,9 @@ go test ./seelebridge/scheduler/... -count=1
   - `func (s *State) Start()`：惰启动 ticker 循环（首次创建任务时调用；重复调用幂等）。
   - `func (s *State) Schedule(ctx context.Context, spec ScheduledTaskSpec) (*ScheduledTaskStatus, error)`：校验入参并创建任务（创建后立即排期；observer 通知投影）。
   - `func (s *State) Update(ctx context.Context, id string, spec ScheduledTaskSpec) (*ScheduledTaskStatus, error)`：用一份新定义覆盖既有任务（ID 不变、运行账目保留、下次运行重算）。
-  - `func (s *State) normalizeSpec(spec ScheduledTaskSpec) (normalizedSpec, error)`：校验并归一创建/编辑入参，是"什么算一个合法任务定义"的唯一一份实现。
+  - `func (s *State) normalizeSpec(spec ScheduledTaskSpec) (normalizedSpec, error)`：校验并归一创建/编辑入参（含装配：档位空落 full、插件经 dto.NormalizePlugins），是"什么算一个合法任务定义"的唯一一份实现。
   - `func (t *task) applyDefinition(definition normalizedSpec, nextRun time.Time)`：把归一后的定义写进任务本体与状态快照（创建、编辑、冷启动重建共用）。
+  - `func scheduledPermissionTier(raw string) (string, error)`：归一任务声明的权限档位（空 = 默认 full access，未识别显式拒绝）。
   - `func (s *State) CancelTask(id string) error`：取消并移除任务（运行中的执行不受影响，写墓碑行）。
   - `func (s *State) Restore() (int, int, error)`：从全局 JSONL 读回任务定义（冷启动重建），返回（恢复数, 跳过数）。
   - `func (s *State) Snapshot() []ScheduledTaskStatus`：返回任务只读快照（按 ID 排序）。

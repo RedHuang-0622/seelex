@@ -732,11 +732,13 @@ func registerProjectRefreshTool(runtime *seelebridge.Runtime, store *sessionstor
 	runtime.RegisterTool("project_refresh", "扫描项目模块文档与元数据，重建项目级模块语义知识；来源未变化时直接复用", schema, handler)
 }
 
-// scheduledPromptExecutor 是定时提示词任务的执行器。会话落点口径（唯一一份判据
-// 在调度器契约里，本函数只实现它）：
-//   - sessionID 非空 → 投递到那个既有会话（显式绑定）；
-//   - sessionID 为空（默认）→ **新建会话**发起，workspaceID 非空时把新会话装配
-//     到该工作区（项目根 + 会话绑定）。
+// scheduledPromptExecutor 是定时提示词任务的执行器。落点与装配都从任务定义读
+// （唯一一份判据在调度器契约里，本函数只实现它）：
+//   - SessionID 非空 → 投递到那个既有会话（显式绑定）；
+//   - SessionID 空（默认）→ **新建会话**发起，WorkspaceID 非空时把新会话装配到
+//     该工作区（项目根 + 会话绑定）；
+//   - PermissionTier / Plugins → 触发那次会话的权限档位与这一轮的能力包装配
+//     （走 application.AssembleScheduledRun，两条路径共用）。
 //
 // 新建路径落到 application.StartScheduledSession：新会话在后台跑，不切用户的视图
 // 指针；它自己的会话记录照常按会话存储纪律落盘。返回的落点会话号会写进任务快照
@@ -745,16 +747,21 @@ func registerProjectRefreshTool(runtime *seelebridge.Runtime, store *sessionstor
 // 单独成函数而不是就地写成闭包：测试基座（newFullChainHarness）装的就是这一份，
 // 冒烟测的才是产品的那条链。
 func scheduledPromptExecutor(app *application.Service) seelebridge.ScheduledPromptExecutor {
-	return func(ctx context.Context, prompt, sessionID, workspaceID string) (seelebridge.ScheduledPromptOutcome, error) {
-		if bound := strings.TrimSpace(sessionID); bound != "" {
-			if err := app.SubmitToSession(ctx, bound, prompt); err != nil {
+	return func(ctx context.Context, task seelebridge.ScheduledTaskSpec) (seelebridge.ScheduledPromptOutcome, error) {
+		if bound := strings.TrimSpace(task.SessionID); bound != "" {
+			// 显式绑定会话：装配同样落到那个会话（任务声明什么，就用什么跑）。
+			assembled, err := app.AssembleScheduledRun(ctx, bound, task)
+			if err != nil {
+				return seelebridge.ScheduledPromptOutcome{}, err
+			}
+			if err := app.SubmitToSession(assembled, bound, task.Prompt); err != nil {
 				return seelebridge.ScheduledPromptOutcome{}, fmt.Errorf("定时任务投递到绑定会话 %s 失败: %w", bound, err)
 			}
 			return seelebridge.ScheduledPromptOutcome{
 				Message: fmt.Sprintf("已提交到绑定会话 %s（异步输出见会话记录）", bound), SessionID: bound,
 			}, nil
 		}
-		newSessionID, err := app.StartScheduledSession(ctx, prompt, workspaceID)
+		newSessionID, err := app.StartScheduledSession(ctx, task)
 		if err != nil {
 			return seelebridge.ScheduledPromptOutcome{SessionID: newSessionID}, err
 		}

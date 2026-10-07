@@ -71,6 +71,13 @@ type ScheduledTaskSpec struct {
 	// WorkspaceID 是触发时新会话要装配的工作区（空 = 不绑项目）。
 	// 它只影响触发那次会话的项目装配；任务定义本身是全局资产，与项目无关。
 	WorkspaceID string
+	// PermissionTier 是触发时会话装配的权限档位（空 = **默认 full access**：
+	// 定时任务在后台跑，没人能在审批弹窗上点"同意"）。取值见 dto.PermissionTierIDs，
+	// 未识别的档位显式拒绝，不静默降级。
+	PermissionTier string
+	// Plugins 是触发时这一轮的能力包装配（空 = 不覆盖，继承宿主当前激活插件）。
+	// 由 dto.NormalizePlugins 归一：去空白、重复声明显式拒绝、超上限显式拒绝。
+	Plugins []string
 }
 
 // ScheduledTaskStatus 是定时/周期任务只读快照（GUI 定时任务面板数据源）。
@@ -102,4 +109,7 @@ type ScheduledTaskStatus struct {
 	// LastSessionID 是上一次触发真正落到的会话（空 = 未落会话/从未触发）。
 	// 每次触发默认新建会话，这一格让面板与冒烟能指认"跑到哪儿去了"。
 	LastSessionID string `json:"last_session_id,omitempty"`
+	// PermissionTier / Plugins 是这条任务声明的装配（触发时落到那次会话/那一轮）。
+	PermissionTier string   `json:"permission_tier,omitempty"`
+	Plugins        []string `json:"plugins,omitempty"`
 }

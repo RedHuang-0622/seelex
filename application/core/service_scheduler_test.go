@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 )
 
@@ -33,7 +34,9 @@ func TestStartScheduledSessionCreatesNewSessionInWorkspace(t *testing.T) {
 	defer service.Shutdown()
 
 	before := service.Snapshot().Session.ID
-	sessionID, err := service.StartScheduledSession(context.Background(), "每天巡检一次", "project-1")
+	sessionID, err := service.StartScheduledSession(context.Background(), seelebridge.ScheduledTaskSpec{
+		Prompt: "每天巡检一次", WorkspaceID: "project-1",
+	})
 	if err != nil {
 		t.Fatalf("StartScheduledSession: %v", err)
 	}
@@ -45,6 +48,10 @@ func TestStartScheduledSessionCreatesNewSessionInWorkspace(t *testing.T) {
 	}
 	if workspaces.bindings[sessionID] != "project-1" {
 		t.Fatalf("新会话没有绑定工作区：bindings=%v", workspaces.bindings)
+	}
+	// 装配：权限档位落到**这个会话**（默认 full access），插件/权限不改进程默认。
+	if got := service.permissionTierForSession(sessionID); got != dto.PermissionTierFull {
+		t.Fatalf("定时会话的权限档位 = %q，want full（任务默认全权）", got)
 	}
 	if err := service.WaitForIdle(context.Background()); err != nil {
 		t.Fatalf("定时会话没有回到 idle：%v", err)
@@ -87,7 +94,9 @@ func TestStartScheduledSessionWithoutWorkspaceKeepsSessionUnbound(t *testing.T) 
 	// 当前会话先绑到项目（视图会话的项目绑定不该传染给定时会话）。
 	workspaces.BindSession(service.Snapshot().Session.ID, "project-1")
 
-	sessionID, err := service.StartScheduledSession(context.Background(), "无工作区巡检", "")
+	sessionID, err := service.StartScheduledSession(context.Background(), seelebridge.ScheduledTaskSpec{
+		Prompt: "无工作区巡检",
+	})
 	if err != nil {
 		t.Fatalf("StartScheduledSession: %v", err)
 	}
@@ -162,5 +171,110 @@ func TestUpdateScheduledTaskForwardsAndValidatesWorkspace(t *testing.T) {
 		Name: "n", Kind: seelebridge.ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour,
 	}); err == nil {
 		t.Fatal("空任务 ID 必须报错")
+	}
+}
+
+// TestAssembleScheduledRunAppliesTierAndPlugins 钉住任务的**装配**落到哪儿：
+//
+//   - 权限档位进**这个会话**（档位槽 + 执行门；空档位按默认 full access 兜住），
+//     不改进程默认、不影响其它会话；
+//   - 插件装配带进**这一轮的执行 ctx**（fake 记下最近一次装配），且只在声明了
+//     插件时才装配（空 = 继承宿主，不往 ctx 里塞空集合）。
+func TestAssembleScheduledRunAppliesTierAndPlugins(t *testing.T) {
+	runtime := &fakeRuntime{}
+	service := mustNew(t, Dependencies{
+		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+		Skills: fakeSkills{}, Sessions: &fakeSessions{},
+	})
+	defer service.Shutdown()
+
+	sessionID := "sched_assemble"
+	service.ViewMu.Lock()
+	service.sessionUnitLocked(sessionID)
+	service.ViewMu.Unlock()
+
+	// 空档位（未归一的 spec 直接进来）：按默认 full access 兜住。
+	ctx, err := service.AssembleScheduledRun(context.Background(), sessionID, ScheduledTaskSpec{Plugins: []string{"code"}})
+	if err != nil {
+		t.Fatalf("AssembleScheduledRun: %v", err)
+	}
+	if ctx == nil {
+		t.Fatal("装配后必须返回可用的 ctx")
+	}
+	if got := service.permissionTierForSession(sessionID); got != dto.PermissionTierFull {
+		t.Fatalf("空档位没有兜成 full：%q", got)
+	}
+	if got := runtime.PluginAssembly(); len(got) != 1 || got[0] != "code" {
+		t.Fatalf("插件装配没有带进 ctx：%v", got)
+	}
+
+	// 显式档位 + 空插件：档位照写，插件面不再装配（上一次的读数保持不变）。
+	if _, err := service.AssembleScheduledRun(context.Background(), sessionID, ScheduledTaskSpec{
+		PermissionTier: dto.PermissionTierEdit,
+	}); err != nil {
+		t.Fatalf("AssembleScheduledRun: %v", err)
+	}
+	if got := service.permissionTierForSession(sessionID); got != dto.PermissionTierEdit {
+		t.Fatalf("显式档位没有落到会话：%q", got)
+	}
+	if got := runtime.PluginAssembly(); len(got) != 1 || got[0] != "code" {
+		t.Fatalf("空插件声明不该触发新的装配：%v", got)
+	}
+
+	// 其它会话不受影响（装配是会话级决定，不进进程默认）。
+	if got := service.permissionTierForSession("another_session"); got != dto.PermissionTierManual {
+		t.Fatalf("装配泄漏到了别的会话：%q", got)
+	}
+	if _, err := service.AssembleScheduledRun(context.Background(), "  ", ScheduledTaskSpec{}); err == nil {
+		t.Fatal("空会话 ID 必须报错")
+	}
+	if _, err := service.AssembleScheduledRun(context.Background(), sessionID, ScheduledTaskSpec{PermissionTier: "root"}); err == nil {
+		t.Fatal("未知档位必须报错（不静默降级）")
+	}
+}
+
+// TestScheduledPluginsValidatedAgainstCatalog 钉住应用层的插件装配校验：未知插件名
+// 在**创建/编辑**这一刻就拒绝（而不是等到触发那天变成"这一轮什么工具都没有"）。
+func TestScheduledPluginsValidatedAgainstCatalog(t *testing.T) {
+	runtime := &fakeRuntime{}
+	service := mustNew(t, Dependencies{
+		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+		Skills: fakeSkills{}, Sessions: &fakeSessions{},
+	})
+	defer service.Shutdown()
+
+	// 目录里有 code：创建放行，且装配随 spec 交给调度器。
+	if _, err := service.ScheduleTask(context.Background(), ScheduledTaskSpec{
+		Name: "带装配", Kind: seelebridge.ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour,
+		PermissionTier: dto.PermissionTierAuto, Plugins: []string{"code"},
+	}); err != nil {
+		t.Fatalf("已知插件的任务被拒：%v", err)
+	}
+	if len(runtime.scheduledSpecs) != 1 || runtime.scheduledSpecs[0].PermissionTier != dto.PermissionTierAuto {
+		t.Fatalf("装配没有随创建一起转发：%+v", runtime.scheduledSpecs)
+	}
+
+	// 目录里没有 ghost：创建与编辑都当场拒绝，且不惊动调度器。
+	if _, err := service.ScheduleTask(context.Background(), ScheduledTaskSpec{
+		Name: "未知插件", Kind: seelebridge.ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour,
+		Plugins: []string{"ghost"},
+	}); err == nil {
+		t.Fatal("未知插件必须被拒")
+	}
+	if _, err := service.UpdateScheduledTask(context.Background(), "sched_test", ScheduledTaskSpec{
+		Name: "n", Kind: seelebridge.ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour,
+		Plugins: []string{"code", "ghost"},
+	}); err == nil {
+		t.Fatal("编辑到未知插件必须被拒")
+	}
+	if len(runtime.scheduledSpecs) != 1 || len(runtime.updatedTasks) != 0 {
+		t.Fatalf("被拒的装配不该转发：specs=%d updated=%v", len(runtime.scheduledSpecs), runtime.updatedTasks)
+	}
+	// 重复声明与超上限交给同一份 dto.NormalizePlugins 判据，这里只确认它会冒出来。
+	if _, err := service.ScheduleTask(context.Background(), ScheduledTaskSpec{
+		Name: "重复声明", Kind: seelebridge.ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour,
+		Plugins: []string{"code", "code"},
+	}); err == nil {
+		t.Fatal("重复声明的插件必须被拒")
 	}
 }

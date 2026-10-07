@@ -325,6 +325,15 @@
           <option value="">（无工作区）</option>
         </select>
       </label>
+      <label class="settings-field">权限档位
+        <select id="sched-permission">
+          <option value="">（默认：全权）</option>
+        </select>
+      </label>
+      <label class="settings-field">插件装配
+        <select id="sched-plugins" multiple size="3"></select>
+        <small class="settings-note">不选 = 继承宿主当前激活插件；装配只收窄工具面，不放宽权限。</small>
+      </label>
       <label class="settings-field">执行方式
         <select id="sched-mode">
           <option value="period">周期重复</option>

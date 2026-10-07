@@ -114,6 +114,17 @@ func (port RuntimePort) ReplanMetricsFor(sessionID string) dto.ReplanMetrics {
 	return port.Runtime.ReplanMetricsFor(sessionID)
 }
 
+// WithPluginAssembly 实现 application/core 的「按轮插件装配」探测点（定时任务：
+// 任务声明的插件集合带进这一轮执行 ctx）。漏了它**不会报错**：core 侧的断言失败
+// ⇒ 定时任务的插件装配整块消失（任务照跑，但用的是宿主全局激活的那个插件），
+// 而且面板上还显示着"装配了 cad"——读数与行为相反，比不装配更难查。
+func (port RuntimePort) WithPluginAssembly(ctx context.Context, plugins []string) context.Context {
+	if port.Runtime == nil {
+		return ctx
+	}
+	return port.Runtime.WithPluginAssembly(ctx, plugins)
+}
+
 // 编译期断言：application/core / view_state 用类型断言探测的每一个窄可选端口，
 // 生产包装都必须满足。少一个方法，这里就编译不过——不留"运行时静默 false"。
 var (
@@ -142,5 +153,8 @@ var (
 	// plan 参数恢复可执行 Plan；断言失败只是保留可见投影，症状同样无声。
 	_ interface {
 		RestorePlan(context.Context, string) error
+	} = RuntimePort{}
+	_ interface {
+		WithPluginAssembly(context.Context, []string) context.Context
 	} = RuntimePort{}
 )

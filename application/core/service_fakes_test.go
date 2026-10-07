@@ -362,9 +362,12 @@ type fakeRuntime struct {
 	scheduledSpecs       []seelebridge.ScheduledTaskSpec
 	updatedTasks         []string
 	cancelledTasks       []string
-	scheduleErr          error
-	searchResult         seelexctxsearch.Result
-	searchErr            error
+	// pluginAssemblies 记录"哪一轮装配了哪些插件"（镜像生产 Runtime 的
+	// WithPluginAssembly：只进 ctx，不在任何句柄上缓存）。
+	pluginAssemblies map[string][]string
+	scheduleErr      error
+	searchResult     seelexctxsearch.Result
+	searchErr        error
 	// 子代理恢复面（headless subagent.* 的测试桩投影）。
 	subagentRecovery     []dto.SubagentRecoveryView
 	subagentResumeReport dto.SubagentResumeReport
@@ -822,6 +825,28 @@ func (runtime *fakeRuntime) SetSessionWorkspace(sessionID, workspaceID string) {
 		runtime.sessionWorkspaces = make(map[string]string)
 	}
 	runtime.sessionWorkspaces[sessionID] = workspaceID
+}
+
+// WithPluginAssembly 是生产 Runtime 同名方法的镜像：把插件装配带进这一轮执行
+// ctx（fake 记下来供用例断言；ctx 原样返回，测试不解析 ctx 里的值）。
+func (runtime *fakeRuntime) WithPluginAssembly(ctx context.Context, plugins []string) context.Context {
+	if len(plugins) == 0 {
+		return ctx
+	}
+	runtime.todoMu.Lock()
+	defer runtime.todoMu.Unlock()
+	if runtime.pluginAssemblies == nil {
+		runtime.pluginAssemblies = make(map[string][]string)
+	}
+	runtime.pluginAssemblies["last"] = append([]string(nil), plugins...)
+	return ctx
+}
+
+// PluginAssembly 读最近一次装配（同包用例直读，加锁）。
+func (runtime *fakeRuntime) PluginAssembly() []string {
+	runtime.todoMu.Lock()
+	defer runtime.todoMu.Unlock()
+	return append([]string(nil), runtime.pluginAssemblies["last"]...)
 }
 
 func (runtime *fakeRuntime) ScheduledCommands() []seelebridge.ScheduledCommandInfo {

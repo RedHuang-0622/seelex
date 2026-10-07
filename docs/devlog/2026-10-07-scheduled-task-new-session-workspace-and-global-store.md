@@ -1,4 +1,4 @@
-# 定时任务：工作区装配 + 每次触发新建会话 + 定义落全局 JSONL + 编辑
+# 定时任务：工作区装配 + 每次触发新建会话 + 定义落全局 JSONL + 编辑 + 权限/插件装配
 
 - 日期：2026-10-07
 - 起因（用户口径，三件事一起给）：
@@ -7,10 +7,12 @@
   3. 「定时任务需要做出全局粒度的 jsonl 的存储，而不是按照项目粒度或者会话的
      粒度存储。当然会话记录还是按照会话本身的存储和读写纪律」；
   4. 「任务需要支持编辑，这个页面和链路需要搭下」。
-- 结论：四条一起落地。落点判据收进 `PromptExecutor` 契约一处实现；新会话的
+  5. 「定时任务默认 full access 的权限」「同时任务支持权限装配」「当然还有 plugin 装配」。
+- 结论：五条一起落地。落点判据收进 `PromptExecutor` 契约一处实现；新会话的
   引擎装配与草稿物化共用同一份 `openSessionEngine`；任务定义进
   `<store>/scheduled-tasks.jsonl` 这一条全局 append-only 通道，会话正文一个字节
-  都没进这个文件；编辑与创建共用同一套弹窗与同一份定义判据（`normalizeSpec`）。
+  都没进这个文件；编辑与创建共用同一套弹窗与同一份定义判据（`normalizeSpec`）；
+  权限与插件装配由 `AssembleScheduledRun` 一处落地（档位进会话、插件进本轮 ctx）。
 
 ---
 
@@ -138,17 +140,49 @@ type PromptExecutor func(ctx context.Context, prompt, sessionID, workspaceID str
 - **持久化**：不做"改一行"的就地编辑（append-only 通道没有原地改），而是同一 ID 再追加
   一行定义；`Load` 的后写覆盖先写天然给出"编辑后的定义"，无需墓碑、也不换 ID。
 
-## 6. 钉子与门禁
+## 6. 装配：权限档位（默认全权）+ 插件集合
+
+任务定义多两格：`PermissionTier`（空 = **默认 full access**）与 `Plugins`（空 =
+不覆盖/继承宿主）。触发时由 `Service.AssembleScheduledRun` 一处落地，创建路径与
+显式绑定会话路径共用：
+
+| 轴 | 落到哪 | 为什么 |
+|---|---|---|
+| 权限档位 | 那次会话的档位槽 + 执行门 + 审批自动放行，并按会话级设置落盘 | 档位在本仓库就是"这一 session 的权限设置"（`session_permission_tier.go`），复用同一套机制，不新开一路 |
+| 插件装配 | 这一轮的**执行 ctx**（`seeltools.WithRolePlugins` → `PluginFace` 收口） | 与 teammate 回合**同一条原语**：工具面每轮现算，不切宿主全局激活插件、不在句柄上缓存（缓存会被并发回合并发覆盖） |
+
+两条默认都**只作用于这次任务**：档位改进程默认档位吗？不改；插件切宿主激活插件吗？
+不切。所以一条 03:00 的巡检任务不会把用户 09:00 的会话悄悄换成别的能力包。
+
+权限默认取 full 的理由写在 `scheduledPermissionTier` 的注释里：定时任务在后台跑，
+**没人在审批弹窗上点"同意"**——默认 manual 等于每次触发都卡死在一次永远没人回答的
+审批上。显式档位（manual/edit/auto/full）照收，未识别的档位显式拒绝（不静默降级）。
+
+插件装配的边界与 `runtime_role_plugins.go` 同一口径：装配只回答"能用哪些能力包"，
+**不放宽权限面**（权限面先算完，插件面只在最后做减法）；主代理的**插件正文层**
+（plugin.md 的 prompt 段 + 被动技能目录）仍来自宿主当前激活插件——ctx 装配管的是
+这一轮的工具面与技能目录。要"整进程切到该插件（含正文层）"是另一条路（会改宿主
+当前状态），本批没走，理由写在 §8。
+
+校验在**创建/编辑**那一刻（`validateScheduledPlugins`）：未知插件名显式拒绝。
+留到触发时才发现，就只剩一次"这一轮什么工具都没有"的失灵（runtime 侧对声明过、
+本进程没有定义的插件名按失灵处理 = 空工具面，fail-closed 但对用户不可见）。
+
+顺带把 `PromptExecutor` 的入参从四个散装字符串收成**一整份归一后的任务定义**
+（`func(ctx, ScheduledTaskSpec)`）：这一批它已经长到 prompt/session/workspace/tier/plugins
+五项，再往上加就是"参数列表当结构体用"。
+
+## 7. 钉子与门禁
 
 | 处 | 内容 |
 |---|---|
 | `seelebridge/scheduler/persistence_test.go` | 全局单文件（一行定义、无项目作用域字段）→ 冷启动恢复（ID/工作区/锚点/下次运行）；取消写墓碑且不再恢复；恢复逐条跳过（过期一次性 / 未知命令 / 坏周期 / 空名 / 执行器未装配）；残尾丢弃；缺失文件 = 空集 |
-| `seelebridge/scheduler/scheduler_test.go` | 执行器参数（prompt / sessionID / **workspaceID**）与落点会话回传；编辑整体替换（ID 不变 / 账目保留 / 重算排期）与"编辑与创建共用校验"（7 种非法搭配逐条拒绝且不动内存） |
-| `seelebridge/scheduler/persistence_test.go`（续） | 编辑落成同 ID 的第二行（不是墓碑），冷启动恢复出**编辑后**的定义 |
-| `application/core/service_scheduler_test.go` | `StartScheduledSession`：新会话 ≠ 当前会话且带 `sched` 前缀；工作区绑定 + 按会话工具根；**视图指针不动**；提示词落新会话、当前视图会话一条不多；不指定工作区时不绑项目。`UpdateScheduledTask`：按 ID 转发、不存在的工作区/空 ID 当场拒绝且不惊动调度器 |
-| `gui/bridge_test.go` | `TestEmbeddedScheduledFormCarriesWorkspacePicker`（弹窗有工作区下拉、`app.js` 把选中的 ID 递进载荷）；`TestEmbeddedScheduledEditEntryWired`（列表/表格有编辑按钮、回填走 `scheduledTaskFormFields`、提交走 `UpdateScheduledTask`、标题按编辑态切换）；`TestBridgeForwardsScheduledTaskCommands` 补编辑转发 |
-| `gui/frontend/dist/scheduled-tasks-view.test.mjs` | 载荷两条路径都带 `workspaceId`（不选 = 空串）；工作区 chip 取名字、缺名字退回 ID；编辑按钮；`scheduledTaskFormFields` 的来回（周期/当前时间/一次性/旧 interval 任务/畸形输入） |
-| `scheduled_task_live_smoke_test.go`（opt-in） | 判据 3 改成"落到 `last_session_id` 那个**新会话**"；判据 5 走真实链路**编辑**（ID 不变、名称更新、账目保留、下次运行重算） |
+| `seelebridge/scheduler/scheduler_test.go` | 执行器收到**整份定义**（prompt / sessionID / workspaceID / 装配）与落点会话回传；编辑整体替换（ID 不变 / 账目保留 / 重算排期）与"编辑与创建共用校验"；装配（空档位落 full、插件归一进快照且与内部切片断开、未知档位/重复声明/超上限逐条拒绝） |
+| `seelebridge/scheduler/persistence_test.go`（续） | 编辑落成同 ID 的第二行（不是墓碑），冷启动恢复出**编辑后**的定义；装配（档位 + 插件）随定义跨重启保留 |
+| `application/core/service_scheduler_test.go` | `StartScheduledSession`：新会话 ≠ 当前会话且带 `sched` 前缀、档位落 full；工作区绑定 + 按会话工具根；**视图指针不动**；提示词落新会话。`AssembleScheduledRun`：空档位兜 full、显式档位落会话、插件进 ctx、空插件不再装配、不泄漏到别的会话。`validateScheduledPlugins`：未知插件名在创建与编辑都当场拒绝且不惊动调度器 |
+| `gui/bridge_test.go` | `TestEmbeddedScheduledFormCarriesWorkspacePicker`（工作区/权限/插件三格控件 + `renderScheduledAssemblyOptions` + 提交递参）；`TestEmbeddedScheduledEditEntryWired`；`TestBridgeForwardsScheduledTaskCommands` 补编辑与装配转发 |
+| `gui/frontend/dist/scheduled-tasks-view.test.mjs` | 载荷两条路径都带 `workspaceId` / `permissionTier` / `plugins`；装配 chip（档位取短名、缺目录退回 id、空装配不占 chip）；`scheduledTaskFormFields` 的来回与 `normalizePluginList` |
+| `scheduled_task_live_smoke_test.go`（opt-in） | 判据 3 落到 `last_session_id` 那个**新会话**；判据 5 走真实链路**编辑** |
 
 ```text
 gofmt -l . ; go build ./... ; go vet ./...
@@ -156,7 +190,7 @@ go test ./seelebridge/scheduler/... ./application/... ./gui/... -count=1
 node --test gui/frontend/dist/*.test.mjs
 ```
 
-## 7. 未做（如实记）
+## 8. 未做（如实记）
 
 1. **没做"投递到指定会话"的 UI**：弹窗仍只创建"默认新建会话"的任务
    （`session_id` 固定空）。显式的既有会话绑定在 API 面保留并已按新契约实现
@@ -166,6 +200,11 @@ node --test gui/frontend/dist/*.test.mjs
    入口，显示一个 ID 对用户没有用处；等有了跳转再做。
 3. **面板不编辑「绑定会话」**：编辑时原值原样带回（不显示、也不提供入口）。要能选
    "投递到哪个既有会话"，得先有"选会话"的下拉，属于下一批的产品决定。
+4. **插件装配只覆盖能力面，不含正文层**：ctx 装配让这一轮的工具面与技能目录按装配
+   走，但 system prompt 里的插件正文层仍来自宿主当前激活插件。要"以某个插件的完整
+   形态跑一次"（含 plugin.md 的 prompt 段），要么整进程切插件（会改动宿主当前状态，
+   与并发用户回合冲突）、要么给主会话做"会话级插件装配 + 每轮 prompt 渲染读会话槽"
+   ——两条都超出本批范围，留给你选。
 4. `scripts/gen_core_readme_index.py` 的**分卷覆盖自检当前是红的**：
    `plugin_source_projection_test.go`、`turn_status_single_word_test.go` 两个已入库
    文件没有归入任何分卷，脚本因此拒绝刷新。本次没有连带修它（会引入一大片无关的

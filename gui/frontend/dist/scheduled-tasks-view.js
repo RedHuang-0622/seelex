@@ -30,6 +30,10 @@ export function buildScheduledTaskSpec(fields) {
   // 会话绑定面板上不编辑：编辑既有任务时把原值原样带回（改个名字不该顺手
   // 把 API 侧设的绑定清掉）。新建路径这一格恒为空 = 默认新建会话。
   const sessionId = String(fields?.sessionId ?? "").trim();
+  // 装配：权限档位（空 = 后端默认 full access）与插件集合（空 = 继承宿主
+  // 当前激活插件）。两个都原样交给后端归一与校验，前端不替它猜。
+  const permissionTier = String(fields?.permissionTier ?? "").trim();
+  const plugins = normalizePluginList(fields?.plugins);
   const now = Number.isFinite(Number(fields?.now)) ? Number(fields.now) : Date.now();
 
   if (fields?.mode === "at") {
@@ -42,7 +46,8 @@ export function buildScheduledTaskSpec(fields) {
       spec: {
         name, kind: "prompt",
         interval: 0, periodUnit: "", periodValue: 0, startClock: "", startWeekday: 0,
-        runAt: parsed.toISOString(), command: "", prompt, sessionId, workspaceId, enabled: true
+        runAt: parsed.toISOString(), command: "", prompt, sessionId, workspaceId,
+        permissionTier, plugins, enabled: true
       }
     };
   }
@@ -77,9 +82,26 @@ export function buildScheduledTaskSpec(fields) {
       runAt: null, // 见文件头：空串会让 Wails 的参数反序列化当场失败
       command: "", prompt, sessionId,
       workspaceId,
+      permissionTier, plugins,
       enabled: Boolean(fields?.enabled)
     }
   };
+}
+
+// normalizePluginList 归一弹窗里的插件装配选择：去空白、丢空项、保序去重。
+// 重复声明由后端显式拒绝（dto.NormalizePlugins），这里只做"多选控件的值可能是
+// 任意字符串"这一层的清洗。
+export function normalizePluginList(values) {
+  if (!Array.isArray(values)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const raw of values) {
+    const name = String(raw ?? "").trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    out.push(name);
+  }
+  return out;
 }
 
 // scheduledTaskFormFields 把一条任务快照还原成新建/编辑弹窗的字段值——编辑入口
@@ -108,7 +130,9 @@ export function scheduledTaskFormFields(task) {
     runAtValue: formatDateTimeLocal(value.run_at),
     enabled: value.enabled !== false,
     workspaceId: typeof value.workspace_id === "string" ? value.workspace_id.trim() : "",
-    sessionId: typeof value.session_id === "string" ? value.session_id.trim() : ""
+    sessionId: typeof value.session_id === "string" ? value.session_id.trim() : "",
+    permissionTier: typeof value.permission_tier === "string" ? value.permission_tier.trim() : "",
+    plugins: normalizePluginList(value.plugins)
   };
 }
 
@@ -170,26 +194,30 @@ function isScheduledTask(value) {
   return Boolean(value) && typeof value === "object";
 }
 
-// renderScheduledTasks 渲染任务列表 HTML（名称/类型/工作区/启用状态/下次运行/
-// 上次结果/日志尾部/取消按钮；命令类型补白名单展示名）。
-// workspaces 是快照里的工作区表：任务只记 workspace_id，名字只做展示。
-export function renderScheduledTasks(items, commands, workspaces) {
+// renderScheduledTasks 渲染任务列表 HTML（名称/类型/装配/启用状态/下次运行/
+// 上次结果/日志尾部/编辑与取消按钮；命令类型补白名单展示名）。
+// workspaces / tiers 是快照里的目录表（工作区、权限档位）：任务只记 ID，
+// 名字与短名只做展示（取不到就退回显示 ID —— 宁可显示 ID 也不丢信息）。
+export function renderScheduledTasks(items, commands, workspaces, tiers) {
   const list = scheduledTasksView(items);
   if (!list.length) {
     return '<span class="muted list-empty">暂无定时任务</span>';
   }
   const labelByKey = new Map((Array.isArray(commands) ? commands : []).map(command => [command.key, command.label]));
   const workspaceLabelByID = workspaceLabels(workspaces);
+  const tierLabelByID = tierLabels(tiers);
   return `<ul class="sched-list">${list.map(task => {
     const kind = task.kind === "prompt" ? "提示词" : "命令";
     const commandLabel = task.kind === "command" ? (labelByKey.get(task.command) || task.command || "") : "";
     const scheduleText = task.one_shot ? `定时 ${formatRunTime(task.run_at)}` : `每 ${formatInterval(task)}`;
     const workspace = workspaceChip(task, workspaceLabelByID);
+    const assembly = assemblyChips(task, tierLabelByID);
     return `<li class="sched-item" data-sched-id="${escapeHtml(task.id)}">
       <div class="sched-head">
         <strong title="${escapeHtml(task.name)}">${escapeHtml(task.name)}</strong>
         <span class="chip">${escapeHtml(kind)}</span>
         ${workspace}
+        ${assembly}
         ${task.one_shot ? '<span class="chip">一次性</span>' : ""}
         <span class="chip ${task.enabled ? "sched-chip-on" : "sched-chip-off"}">${task.enabled ? "已启用" : "已停用"}</span>
         <span class="sched-status is-${schedStatusClass(task)}">${escapeHtml(schedStatusText(task))}</span>
@@ -219,19 +247,21 @@ export function renderScheduledTasks(items, commands, workspaces) {
 // 整块的名字由头带那一条给出（<strong>定时任务</strong> N 项，坐在 --surface-2
 // 的浅色带上）：弹窗头不再重复标题（口径同工作表格弹窗），所以名字必须留在表内。
 // 头带与表体之间只有 .sched-table-scroll 一个滚动容器——弹窗纵向只此一层可滚。
-export function renderScheduledTasksTable(items, commands, workspaces) {
+export function renderScheduledTasksTable(items, commands, workspaces, tiers) {
   const list = scheduledTasksView(items);
   const labelByKey = new Map((Array.isArray(commands) ? commands : []).map(command => [command.key, command.label]));
   const workspaceLabelByID = workspaceLabels(workspaces);
+  const tierLabelByID = tierLabels(tiers);
   const rows = list.map(task => {
     const kind = task.kind === "prompt" ? "提示词" : "命令";
     const commandLabel = task.kind === "command" ? (labelByKey.get(task.command) || task.command || "") : "";
     const scheduleText = task.one_shot ? `定时 ${formatRunTime(task.run_at)}` : `每 ${formatInterval(task)}`;
     const workspace = workspaceChip(task, workspaceLabelByID);
+    const assembly = assemblyChips(task, tierLabelByID);
     const statusClass = schedStatusClass(task);
     return `<tr class="sched-row is-${statusClass}" data-sched-id="${escapeHtml(task.id)}">
       <td class="work-cell work-cell-task" title="${escapeHtml(task.name)}">${escapeHtml(task.name)}</td>
-      <td class="work-cell">${escapeHtml(kind)}${workspace}${task.one_shot ? '<span class="chip">一次性</span>' : ""}</td>
+      <td class="work-cell">${escapeHtml(kind)}${workspace}${assembly}${task.one_shot ? '<span class="chip">一次性</span>' : ""}</td>
       <td class="work-cell">${escapeHtml(scheduleText)}${task.kind === "command" && commandLabel ? `<small class="sched-table-command" title="${escapeHtml(task.command)}">${escapeHtml(commandLabel)}</small>` : ""}</td>
       <td class="work-cell">${escapeHtml(formatRunTime(task.next_run_at))}</td>
       <td class="work-cell"><span class="chip ${task.enabled ? "sched-chip-on" : "sched-chip-off"}">${task.enabled ? "已启用" : "已停用"}</span> <span class="sched-status is-${statusClass}">${escapeHtml(schedStatusText(task))}</span></td>
@@ -269,6 +299,32 @@ function workspaceChip(task, workspaceLabelByID) {
   if (!workspaceID) return "";
   const label = workspaceLabelByID.get(workspaceID) || workspaceID;
   return `<span class="chip sched-chip-workspace" title="${escapeHtml(workspaceID)}">${escapeHtml(label)}</span>`;
+}
+
+// tierLabels 构造权限档位 id → 短名（目录缺失时退回 ID）。
+function tierLabels(tiers) {
+  const map = new Map();
+  for (const tier of Array.isArray(tiers) ? tiers : []) {
+    if (tier?.id) map.set(String(tier.id), String(tier.short || tier.label || tier.id));
+  }
+  return map;
+}
+
+// assemblyChips 渲染这条任务的装配读数：权限档位 + 插件集合。
+// 档位是**安全相关**的一格（全权 = 免审），所以照实显示；插件空 = 继承宿主当前
+// 激活插件，不显示（"没声明"不该占一个空 chip）。
+function assemblyChips(task, tierLabelByID) {
+  let html = "";
+  const tier = typeof task?.permission_tier === "string" ? task.permission_tier.trim() : "";
+  if (tier) {
+    const label = tierLabelByID.get(tier) || tier;
+    html += `<span class="chip sched-chip-tier" title="权限档位 ${escapeHtml(tier)}">${escapeHtml(label)}</span>`;
+  }
+  const plugins = normalizePluginList(task?.plugins);
+  if (plugins.length) {
+    html += `<span class="chip sched-chip-plugins" title="装配插件：${escapeHtml(plugins.join("、"))}">插件 ${escapeHtml(plugins.join("、"))}</span>`;
+  }
+  return html;
 }
 
 // schedStatusText 状态文案（权威 JSON 的 running/last_status 驱动）。

@@ -58,7 +58,7 @@ func newSchedulerTestStateWithStore(t *testing.T, store Persistence) *State {
 
 // okPromptExecutor 是"总是成功"的提示词执行器桩（落点会话号由调用方给）。
 func okPromptExecutor(message string) PromptExecutor {
-	return func(context.Context, string, string, string) (PromptOutcome, error) {
+	return func(context.Context, ScheduledTaskSpec) (PromptOutcome, error) {
 		return PromptOutcome{Message: message}, nil
 	}
 }
@@ -392,10 +392,10 @@ func TestScheduledTaskSkipsWhileRunning(t *testing.T) {
 func TestScheduledPromptTaskDelegatesToExecutor(t *testing.T) {
 	state := newSchedulerTestState(t)
 	defer state.Stop()
-	var gotPrompt, gotSession, gotWorkspace string
+	var gotTask ScheduledTaskSpec
 	state.mu.Lock()
-	state.executor = func(_ context.Context, prompt, sessionID, workspaceID string) (PromptOutcome, error) {
-		gotPrompt, gotSession, gotWorkspace = prompt, sessionID, workspaceID
+	state.executor = func(_ context.Context, task ScheduledTaskSpec) (PromptOutcome, error) {
+		gotTask = task
 		return PromptOutcome{Message: "submitted"}, nil
 	}
 	state.mu.Unlock()
@@ -409,8 +409,12 @@ func TestScheduledPromptTaskDelegatesToExecutor(t *testing.T) {
 	status := waitForStatus(t, state, created.ID, func(status ScheduledTaskStatus) bool {
 		return status.RunCount >= 1 && status.LastStatus == dto.ScheduleRunOK
 	})
-	if gotPrompt != "每隔一小时检查发布状态" || gotSession != "sess_main" || gotWorkspace != "ws_1" {
-		t.Fatalf("executor args = %q / %q / %q", gotPrompt, gotSession, gotWorkspace)
+	if gotTask.Prompt != "每隔一小时检查发布状态" || gotTask.SessionID != "sess_main" || gotTask.WorkspaceID != "ws_1" {
+		t.Fatalf("executor 收到的任务定义不对：%+v", gotTask)
+	}
+	// 装配随定义一起交给执行器（归一后的档位与插件）。
+	if gotTask.PermissionTier != dto.PermissionTierFull {
+		t.Fatalf("执行器收到的权限档位 = %q，want full（空档位的默认）", gotTask.PermissionTier)
 	}
 	if status.LastResult != "submitted" {
 		t.Fatalf("last result = %q, want executor return", status.LastResult)
@@ -424,7 +428,7 @@ func TestScheduledPromptTaskErrorPropagates(t *testing.T) {
 	state := newSchedulerTestState(t)
 	defer state.Stop()
 	state.mu.Lock()
-	state.executor = func(context.Context, string, string, string) (PromptOutcome, error) {
+	state.executor = func(context.Context, ScheduledTaskSpec) (PromptOutcome, error) {
 		return PromptOutcome{}, errors.New("会话已切换")
 	}
 	state.mu.Unlock()
@@ -540,6 +544,84 @@ func TestScheduledTaskUpdateSharesCreateValidation(t *testing.T) {
 	}); err == nil {
 		t.Fatal("空任务 ID 必须报错")
 	}
+}
+
+// TestScheduledTaskAssemblyDefaultsAndValidation 钉住任务的**装配**口径：
+//
+//   - 权限档位：空 = 默认 full access（后台跑没人能在审批弹窗上点"同意"），
+//     显式档位照收，未识别的档位显式拒绝（不静默降级成别的档位）；
+//   - 插件：空 = 不覆盖（继承宿主当前激活插件），名字去空白、重复显式拒绝、
+//     超上限显式拒绝（复用 dto.NormalizePlugins 那一份口径）；
+//   - 两者都进状态快照（面板数据源），编辑可整体替换。
+func TestScheduledTaskAssemblyDefaultsAndValidation(t *testing.T) {
+	state := newSchedulerTestState(t)
+	defer state.Stop()
+	state.SetPromptExecutor(okPromptExecutor("ok"))
+
+	// 空装配：档位落 full，插件留空。
+	created, err := state.Schedule(context.Background(), ScheduledTaskSpec{
+		Name: "默认装配", Kind: ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour, Enabled: true,
+	})
+	if err != nil {
+		t.Fatalf("Schedule: %v", err)
+	}
+	if created.PermissionTier != dto.PermissionTierFull {
+		t.Fatalf("空档位没有落成默认 full：%+v", created)
+	}
+	if len(created.Plugins) != 0 {
+		t.Fatalf("空插件声明不该变成集合：%+v", created.Plugins)
+	}
+
+	// 显式装配：档位 + 插件（去空白）进快照。
+	assembled, err := state.Update(context.Background(), created.ID, ScheduledTaskSpec{
+		Name: "显式装配", Kind: ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour, Enabled: true,
+		PermissionTier: dto.PermissionTierEdit,
+		Plugins:        []string{" cad ", "docs"},
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if assembled.PermissionTier != dto.PermissionTierEdit {
+		t.Fatalf("显式档位没有生效：%+v", assembled)
+	}
+	if len(assembled.Plugins) != 2 || assembled.Plugins[0] != "cad" || assembled.Plugins[1] != "docs" {
+		t.Fatalf("插件装配没有归一进快照：%+v", assembled.Plugins)
+	}
+	// 快照拷贝必须与内部切片断开（改快照不该改到任务定义）。
+	snapshot := state.Snapshot()
+	snapshot[0].Plugins[0] = "改了"
+	if got := state.Snapshot()[0].Plugins[0]; got != "cad" {
+		t.Fatalf("快照与任务定义共享了切片：%q", got)
+	}
+
+	rejected := []struct {
+		name string
+		spec ScheduledTaskSpec
+	}{
+		{"未知权限档位", ScheduledTaskSpec{PermissionTier: "root"}},
+		{"插件重复声明", ScheduledTaskSpec{Plugins: []string{"cad", "cad"}}},
+		{"插件超过上限", ScheduledTaskSpec{Plugins: repeatNames(dto.MaxPluginsPerRole + 1)}},
+	}
+	for _, tc := range rejected {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := ScheduledTaskSpec{
+				Name: "非法装配", Kind: ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour, Enabled: true,
+				PermissionTier: tc.spec.PermissionTier, Plugins: tc.spec.Plugins,
+			}
+			if _, err := state.Schedule(context.Background(), spec); err == nil {
+				t.Fatalf("非法装配被接受：%+v", spec)
+			}
+		})
+	}
+}
+
+// repeatNames 造 n 个互不相同的插件名（上限用例用）。
+func repeatNames(n int) []string {
+	names := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		names = append(names, fmt.Sprintf("plugin-%d", i))
+	}
+	return names
 }
 
 func TestScheduledTaskCancelRemovesTask(t *testing.T) {

@@ -77,12 +77,13 @@ type PromptOutcome struct {
 
 // PromptExecutor 定时提示词任务执行器（main 装配注入；nil = prompt 任务不可创建）。
 //
-// 会话落点口径由入参决定，执行器只负责实现这一份判据：
-//   - sessionID 非空 → 投递到该既有会话；
-//   - sessionID 为空（**默认**）→ 新建会话发起；
-//   - workspaceID 非空 → 新会话装配到该工作区（绑定项目根，会话记录仍按会话
-//     自己的存储纪律落到该项目的分区里）。
-type PromptExecutor func(ctx context.Context, prompt, sessionID, workspaceID string) (PromptOutcome, error)
+// 入参是这一条任务的**归一后定义**（不是散装参数）：落点与装配都从它读，判据
+// 只有契约里这一份——
+//   - `SessionID` 非空 → 投递到该既有会话；空（**默认**）→ 新建会话发起；
+//   - `WorkspaceID` 非空 → 新会话装配到该工作区（项目根 + 会话记录落该项目分区）；
+//   - `PermissionTier` → 触发那次会话的权限档位（空已在归一里落成默认 full）；
+//   - `Plugins` → 这一轮的能力包装配（空 = 继承宿主当前激活插件）。
+type PromptExecutor func(ctx context.Context, task ScheduledTaskSpec) (PromptOutcome, error)
 
 // State 是周期任务的 actor 资源（自带锁，读写即消息进出；与 task 注册表 /
 // skill.Registry / filesystem 同构）。
@@ -278,7 +279,7 @@ func (s *State) runPrompt(t *task) (string, string, error) {
 	if executor == nil {
 		return "", "", errors.New("提示词任务执行器未装配")
 	}
-	outcome, err := executor(s.ctx, t.spec.Prompt, t.spec.SessionID, t.spec.WorkspaceID)
+	outcome, err := executor(s.ctx, t.spec)
 	return outcome.Message, strings.TrimSpace(outcome.SessionID), err
 }
 
@@ -445,6 +446,16 @@ func (s *State) normalizeSpec(spec ScheduledTaskSpec) (normalizedSpec, error) {
 	default:
 		return normalizedSpec{}, fmt.Errorf("未知任务类型 %q", spec.Kind)
 	}
+	// 装配（触发那次会话/那一轮用什么权限档位与能力包）：档位空 = 默认 full，
+	// 插件空 = 继承宿主；两者的非法取值都在这里显式拒绝（不静默降级、不静默去重）。
+	tier, err := scheduledPermissionTier(spec.PermissionTier)
+	if err != nil {
+		return normalizedSpec{}, err
+	}
+	plugins, err := dto.NormalizePlugins(spec.Plugins, 0)
+	if err != nil {
+		return normalizedSpec{}, err
+	}
 	return normalizedSpec{
 		spec: ScheduledTaskSpec{
 			Name: name, Kind: spec.Kind, Interval: spec.Interval,
@@ -453,11 +464,24 @@ func (s *State) normalizeSpec(spec ScheduledTaskSpec) (normalizedSpec, error) {
 			RunAt:   spec.RunAt,
 			Command: strings.TrimSpace(spec.Command), Prompt: strings.TrimSpace(spec.Prompt),
 			SessionID: strings.TrimSpace(spec.SessionID), WorkspaceID: strings.TrimSpace(spec.WorkspaceID),
+			PermissionTier: tier, Plugins: plugins,
 			Enabled: spec.Enabled,
 		},
 		oneShot:   oneShot,
 		effective: effective,
 	}, nil
+}
+
+// scheduledPermissionTier 归一任务声明的权限档位：空 = **默认 full access**。
+//
+// 为什么与主会话的默认相反（主会话"空 = 手动"）：定时任务在后台跑，没有人在
+// 审批弹窗上点"同意"——默认手动等于每次触发都卡死在一次永远没人回答的审批上。
+// 这个默认只落在**这次任务新建的会话**上，不改进程默认档位、不影响其它会话。
+func scheduledPermissionTier(raw string) (string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return dto.PermissionTierFull, nil
+	}
+	return dto.NormalizePermissionTier(raw)
 }
 
 // applyDefinition 把归一后的定义写进任务本体与它的状态快照（创建、编辑、冷启动
@@ -480,6 +504,8 @@ func (t *task) applyDefinition(definition normalizedSpec, nextRun time.Time) {
 	status.Prompt = definition.spec.Prompt
 	status.SessionID = definition.spec.SessionID
 	status.WorkspaceID = definition.spec.WorkspaceID
+	status.PermissionTier = definition.spec.PermissionTier
+	status.Plugins = append([]string(nil), definition.spec.Plugins...)
 	status.Enabled = definition.spec.Enabled
 	status.NextRunAt = nextRun
 }
@@ -685,6 +711,7 @@ func (t *task) statusSnapshot() ScheduledTaskStatus {
 		RunAt: t.status.RunAt, OneShot: t.status.OneShot,
 		Prompt: t.status.Prompt, SessionID: t.status.SessionID,
 		WorkspaceID: t.status.WorkspaceID, LastSessionID: t.status.LastSessionID,
+		PermissionTier: t.status.PermissionTier, Plugins: append([]string(nil), t.status.Plugins...),
 		Enabled: t.status.Enabled, Running: t.status.Running,
 		NextRunAt: t.status.NextRunAt, LastRunAt: t.status.LastRunAt,
 		LastStatus: t.status.LastStatus, LastResult: t.status.LastResult,

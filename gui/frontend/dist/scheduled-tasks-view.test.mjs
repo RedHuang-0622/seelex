@@ -11,7 +11,7 @@ const componentsSource = (await readFile(new URL("./components.js", import.meta.
 const componentsURL = `data:text/javascript;base64,${Buffer.from(componentsSource).toString("base64")}`;
 const source = (await readFile(new URL("./scheduled-tasks-view.js", import.meta.url), "utf8"))
   .replace('"./components.js"', `"${componentsURL}"`);
-const { buildScheduledTaskSpec, renderScheduledTasks, renderScheduledTasksTable, scheduledTaskFormFields } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+const { buildScheduledTaskSpec, renderScheduledTasks, renderScheduledTasksTable, scheduledTaskFormFields, normalizePluginList } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 
 const task = (overrides = {}) => ({
   id: "sched_1",
@@ -393,9 +393,77 @@ test("restoring form fields tolerates missing or malformed task snapshots", () =
     assert.equal(fields.mode, "period");
     assert.equal(fields.workspaceId, "");
     assert.equal(fields.sessionId, "");
+    assert.equal(fields.permissionTier, "");
+    assert.deepEqual(fields.plugins, []);
     assert.match(fields.periodUnit, /^(minute|hour|day|week|month)$/);
   }
   assert.equal(scheduledTaskFormFields({ enabled: false }).enabled, false);
+});
+
+// ── 装配（权限档位 + 插件）───────────────────────────────────────────
+// 任务定义里声明"这次触发用什么权限档位、装配哪些插件"：档位空 = 后端按默认
+// full access 处理（后台跑没人能在审批弹窗上点"同意"），插件空 = 继承宿主当前
+// 激活插件。前端只负责把选择原样送出去，判据与默认值都在后端一份。
+
+test("carries the permission tier and plugin assembly on both modes", () => {
+  const period = buildScheduledTaskSpec({
+    name: "全权巡检", prompt: "巡检", mode: "period",
+    periodValue: "1", periodUnit: "day", anchorNow: true,
+    permissionTier: "full", plugins: ["cad", "docs"]
+  }).spec;
+  assert.equal(period.permissionTier, "full");
+  assert.deepEqual(period.plugins, ["cad", "docs"]);
+
+  const oneShot = buildScheduledTaskSpec({
+    name: "定时发布", prompt: "发布", mode: "at",
+    runAtValue: "2026-10-08T09:30", now: Date.parse("2026-10-07T10:00:00"),
+    permissionTier: "auto", plugins: ["code"]
+  }).spec;
+  assert.equal(oneShot.permissionTier, "auto");
+  assert.deepEqual(oneShot.plugins, ["code"]);
+
+  // 不选：档位空串（后端按 full 处理）、插件空数组（继承宿主）。
+  const none = buildScheduledTaskSpec({
+    name: "默认装配", prompt: "巡检", mode: "period",
+    periodValue: "1", periodUnit: "hour"
+  }).spec;
+  assert.equal(none.permissionTier, "");
+  assert.deepEqual(none.plugins, []);
+});
+
+test("normalizePluginList trims, drops blanks and de-duplicates but keeps order", () => {
+  assert.deepEqual(normalizePluginList([" cad ", "", "docs", "cad", null]), ["cad", "docs"]);
+  assert.deepEqual(normalizePluginList("nope"), []);
+  assert.deepEqual(normalizePluginList(undefined), []);
+});
+
+test("renders assembly chips for tier and plugins, skipping the empty ones", () => {
+  const html = renderScheduledTasks([
+    task({ id: "sched_asm", name: "带装配", kind: "prompt", prompt: "巡检", permission_tier: "full", plugins: ["cad", "docs"] }),
+    task({ id: "sched_plain", name: "无装配", kind: "prompt", prompt: "巡检" })
+  ], [], [], [{ id: "full", short: "全权" }]);
+  assert.match(html, /sched-chip-tier/);
+  assert.match(html, />全权</);
+  assert.match(html, /sched-chip-plugins/);
+  assert.match(html, /插件 cad、docs/);
+  // 没声明的任务不占空 chip：整页只有一组装配 chip。
+  assert.equal((html.match(/sched-chip-tier/g) || []).length, 1);
+  assert.equal((html.match(/sched-chip-plugins/g) || []).length, 1);
+  // 档位目录缺失时退回显示档位 id（宁可显示 id 也不丢信息）。
+  const noCatalog = renderScheduledTasks([task({ id: "sched_asm2", permission_tier: "auto" })], []);
+  assert.match(noCatalog, />auto</);
+});
+
+test("restores the assembly back into form fields (edit leg)", () => {
+  const fields = scheduledTaskFormFields(task({
+    kind: "prompt", prompt: "巡检", permission_tier: "edit", plugins: [" cad ", "docs", "cad"]
+  }));
+  assert.equal(fields.permissionTier, "edit");
+  assert.deepEqual(fields.plugins, ["cad", "docs"]);
+  const { spec, error } = buildScheduledTaskSpec({ ...fields, now: Date.parse("2026-10-07T10:00:00") });
+  assert.equal(error, undefined);
+  assert.equal(spec.permissionTier, "edit");
+  assert.deepEqual(spec.plugins, ["cad", "docs"]);
 });
 
 // 面板要能看出这条任务跑在哪个工作区：任务只记 ID，名字从快照的 workspaces 表

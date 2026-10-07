@@ -47,6 +47,9 @@ var narrowPortForwarded = map[string]string{
 	"ReplanMetricsFor": "ReplanMetricsFor",
 	// 按会话任务快照（work_table.go）。
 	"TaskSnapshotFor": "TaskSnapshotFor",
+	// 按轮插件装配（service_scheduler.go，定时任务的插件装配）。
+	// 漏了它 = 任务照跑但用的是宿主全局激活插件（面板却显示装配了 X）。
+	"WithPluginAssembly": "WithPluginAssembly",
 }
 
 // runtimePortAssertionRe 命中一次 "….Runtime.(" 形态的窄端口探测。

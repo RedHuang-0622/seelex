@@ -16,6 +16,7 @@ import (
 	"github.com/RedHuang-0622/seelex/seelebridge/scheduler"
 	subagentsession "github.com/RedHuang-0622/seelex/seelebridge/session"
 	"github.com/RedHuang-0622/seelex/seelebridge/task"
+	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
 	"github.com/RedHuang-0622/seelex/seelexctx/search"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
@@ -770,6 +771,22 @@ func (r *Runtime) SetSchedulerObserver(observer func()) {
 		return
 	}
 	r.scheduler.SetObserver(observer)
+}
+
+// WithPluginAssembly 返回把"这一轮装配哪些插件"带进执行 ctx 的派生 ctx。
+//
+// 与 teammate 回合用的是**同一个原语**（seeltools.WithRolePlugins）：工具可见性
+// 每轮从 ctx 现算，不在任何句柄上缓存"当前装配"——缓存在并发回合里会被后写的那份
+// 覆盖。空集合原样返回 ctx（= 不覆盖，继承宿主当前激活插件）。
+//
+// 边界（与 runtime_role_plugins.go 同一口径）：装配只回答"能用哪些能力包"，
+// **不放宽权限面**（权限面先算完，插件面只在最后做减法）；root/主代理的**正文层**
+// 仍来自宿主当前激活插件——ctx 装配管的是这一轮的工具面与技能目录。
+func (r *Runtime) WithPluginAssembly(ctx context.Context, plugins []string) context.Context {
+	if ctx == nil || r == nil || len(plugins) == 0 {
+		return ctx
+	}
+	return seeltools.WithRolePlugins(ctx, plugins)
 }
 
 // ── 历史检索端口 ──────────────────────────────────────────────────

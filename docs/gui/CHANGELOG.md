@@ -6,6 +6,18 @@
 
 ### Added
 
+- **定时任务带装配：权限档位 + 插件集合**。任务定义新增两格跨层字段
+  `ScheduledTaskSpec.PermissionTier` / `Plugins`（面板上 `#sched-permission` 单选 +
+  `#sched-plugins` 多选，选项分别来自快照的 `runtime.permission_tiers` 与
+  `runtime.plugins`——前端不自造档位名与插件名）。触发时由
+  `Service.AssembleScheduledRun` 落地：**档位**写进那次会话的档位槽 + 执行门 +
+  审批自动放行并按会话级设置落盘（空 = **默认 full access**：后台跑没人能在审批
+  弹窗上点"同意"），**插件**带进这一轮的执行 ctx（复用 teammate 的
+  `seeltools.WithRolePlugins` → `PluginFace` 收口：工具面每轮现算，不切宿主全局
+  激活插件、不在句柄上缓存）。未知插件名 / 未知档位在创建与编辑时就显式拒绝。
+  `PromptExecutor` 的入参因此收成**一整份任务定义**（`func(ctx, ScheduledTaskSpec)`），
+  不再随字段增加而加参数。
+
 - **定时任务可以编辑了**：列表与表格每行加「编辑」（`data-sched-edit`，ID 是操作键），
   点开的是**同一个弹窗**并填好那条任务的值（标题/提交按钮/启用勾的文案切到编辑态）。
   新增跨层契约 `Bridge.UpdateScheduledTask(id, spec)` → `Service.UpdateScheduledTask` →
