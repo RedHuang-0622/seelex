@@ -20,7 +20,7 @@ flowchart LR
     CFG["账号配置<br/>config.LoadTolerant"] --> CLIENT["ClientFor(spec)<br/>每账号一个独立 ChatClient"]
     RUNTIME["runtime（组合根）"] --> CLIENT
     CLIENT --> POOL["accountpool.P2CPool"]
-    POOL --> ROLE["ForRole(agent / subagent / goalplan / websearch)"]
+    POOL --> ROLE["ForRole(agent / subagent / goalplan)"]
     ROLE --> BRANCH["ResolveForBranch<br/>role + branch ID 确定性哈希"]
     BRANCH --> NODE["node：节点账号路由"]
     POOL --> STREAM["流式租约：保持到 EOF / 错误 / 显式 Close"]

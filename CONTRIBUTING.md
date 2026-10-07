@@ -6,7 +6,7 @@ Seelex is currently maintained primarily by its original author. External bug re
 
 For a bug, open an Issue with a minimal reproduction, expected behavior, actual behavior and environment details. For a material API, persistence, security or architecture change, open a proposal first so the boundary can be reviewed before implementation.
 
-Never attach real `config/accounts.yaml`, API keys, tokens, passwords, DSNs, private prompts, session data or local filesystem paths. Use `config/accounts.example.yaml` and redact logs.
+Never attach real `config/accounts.yaml`, `config/mcp.yaml`, `config/search_engine.yaml`, API keys, tokens, passwords, DSNs, private prompts, session data or local filesystem paths. Use the tracked templates (`config/accounts.example.yaml`, `config/mcp.example.yaml`, `config/search_engine.example.yaml`) and redact logs.
 
 Read [AGENTS.md](AGENTS.md) and the README in every module you intend to change. Current code and tests are the source of truth; documents under `docs/YYYY-MM-DD-topic/` are historical work packages unless explicitly marked as current architecture.
 

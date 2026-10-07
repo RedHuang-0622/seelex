@@ -69,7 +69,7 @@ Seelex 把这些能力组织成可替换、可测试的模块，而不是把它�
 | 扩展系统 | 声明式 Plugin、目录化 Skill、MCP Server 冷启动登记/按需加载/重挂载与工具可见性过滤、<code>tool_notes</code>（把本机实测的调用纪律折进 MCP 工具描述），以及 plugin/skill/mcp 自管理工具 |
 | 定时任务 | 周期（minute/hour/day/week/month 或固定间隔，可指定「每天/每周几 几点」开始）与一次性定时任务；到点把提示词投给当前会话执行 |
 | Web 搜索 | <code>web_search</code> 工具与 tavily / bochaai / searxng provider 装配 |
-| 模型与账号 | OpenAI-compatible endpoint、按角色（agent / subagent / goalplan / websearch）分组的账号池、分支确定性选路和流式租约 |
+| 模型与账号 | OpenAI-compatible endpoint、按角色（agent / subagent / goalplan）分组的账号池、分支确定性选路和流式租约 |
 | 持久化 | JSON v8 后端；会话顺序日志、项目与 Session 隔离、模块 head 发布、消息分片、媒体分区，以及 plan/task/goal 三栈通道 |
 | 恢复与存活 | 通用恢复七步模板、子代理冷恢复同键续跑、中断轮残缺工具链截断、驻留 LRU 驱逐与 replan 并发/窗口限流 |
 | 前端 | Bubble Tea TUI（默认）、Wails/WebView GUI（Alpha）、headless 回环 RPC、backend 诊断控制台 |
@@ -659,7 +659,7 @@ permission:
 | [<code>gui/</code>](gui/README.md) | Wails GUI 适配层、headless RPC 与前端 |
 | [<code>e2e/</code>](e2e/README.md) | 无真实 LLM 的确定性端到端场景 |
 | [<code>plugins/</code>](plugins/README.md) | 内置 Plugin 与 Skill 定义 |
-| [<code>config/</code>](config/README.md) | 账号池示例与运行参数/权限配置说明 |
+| [<code>config/</code>](config/README.md) | 账号池示例、MCP 清单与搜索引擎配置示例、运行参数/权限配置说明 |
 | [<code>scripts/</code>](scripts/README.md) | 构建、发布与文档生成脚本 |
 | [<code>internal/</code>](internal/README.md) | 构建信息、frontmatter、提示词资产与测试工具 |
 | [<code>docs/</code>](docs/README.md) | 架构、产品、研究、测试和研发记录 |

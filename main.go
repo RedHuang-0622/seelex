@@ -1099,7 +1099,7 @@ func registerProductTools(runtime *seelebridge.Runtime, plugins *plugin.Manager,
 	registerAskApprove(runtime, approval)
 }
 
-// registerMCPServers 将账号池配置中配置的 MCP 服务器全部登记到 Runtime
+// registerMCPServers 将 mcp.yaml 配置的 MCP 服务器全部登记到 Runtime
 // （冷启动：只存配置不连接，启动路径零 MCP 进程）。配置加载在 mcpstack/config。
 // 首次需要时经内置 mcp_load 工具按名加载（spawn + initialize + tools/list），
 // 加载后的 MCP 工具自动通过 mcpstack 中间件记录调用 trace。

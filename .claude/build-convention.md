@@ -20,7 +20,7 @@ make guard-dist-layout        # dist 根只允许规范分区，多出任何条�
 | 分区 | 固定文件夹 | 内容 | 写入方 | clean 可删 |
 |------|-----------|------|--------|-----------|
 | P1 平台发布树 | `dist/<os>-<arch>/` | CLI 二进制 `seelex[.exe]` + `config/`(example) + `plugins/` + 许可/说明 + 品牌图 `seelex-logo.png` | `make build` / `build.ps1` / `build.sh` / flow `Release` | 是 |
-| P2 dev GUI 基线 | `dist/seelex-gui-dev/` | `seelex-gui.exe` + 用户 `config/accounts.yaml`、`seelex.yaml`、`.seelex/`、`plugins/`（插件载荷是**构建产物**：由 `build-dev.sh` / `sync-dev-plugins.ps1` 从仓库 `plugins/` 刷新，只覆盖不删） | flow `Deploy`/`Rollback`、post-commit hook、`make sync-dev-plugins` | **否（除非 `CLEAN_DEV=1`）** |
+| P2 dev GUI 基线 | `dist/seelex-gui-dev/` | `seelex-gui.exe` + 用户 `config/accounts.yaml`、`mcp.yaml`、`search_engine.yaml`、`seelex.yaml`、`.seelex/`、`plugins/`（插件载荷是**构建产物**：由 `build-dev.sh` / `sync-dev-plugins.ps1` 从仓库 `plugins/` 刷新，只覆盖不删） | flow `Deploy`/`Rollback`、post-commit hook、`make sync-dev-plugins` | **否（除非 `CLEAN_DEV=1`）** |
 | P3 发布归档区 | `dist/archive/` | `seelex-v<v>-<os>-<arch>[-gui].(zip|tar.gz)` + `.sha256` | `make package` / `build.ps1` / `build-gui.ps1` / flow `Release` | 是 |
 | P4 本地快速构建区 | `dist/dev/` | post-commit 快速构建 CLI `seelex.exe`；本地诊断二进制（如 `seelex-gui-pprof.exe`） | `.githooks/post-commit` → `build-dev.sh`；手写诊断构建 | 是 |
 | P5 GUI 暂存区 | `dist/stage-gui/` | `seelex-gui.exe` + `version.txt`（待发布/待部署单个 exe 的放置区） | flow `Stage` | 是 |

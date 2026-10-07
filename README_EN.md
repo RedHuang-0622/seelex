@@ -32,7 +32,7 @@ Seelex is a local-first coding-agent harness built in Go. It turns LLM providers
 - OpenAI-compatible endpoints, including DeepSeek deployments that satisfy the streaming and
   tool-calling contract (the provider name is a free-form string, but only OpenAI-compatible
   endpoints are exercised);
-- P2C account pooling, role-aware routing (agent / subagent / goalplan / websearch) and lease-until-EOF
+- P2C account pooling, role-aware routing (agent / subagent / goalplan) and lease-until-EOF
   streaming safety;
 - project-scoped tools with roots resolved per session, plus a Linux-style permission model
   (subject × routing group × rwx bits): `root` / `sub` / `emp_ro` / `emp_rw` subjects over `ro` / `rw` /

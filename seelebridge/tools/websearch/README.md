@@ -3,19 +3,19 @@
 ## 生态位
 
 `seelebridge/tools/websearch` 是 `web_search` 工具的**装配点（Assembler）**：
-从账号池 YAML 的 `websearch` 段加载配置，由 `search.Assemble` 装配出代理
+从独立的 `config/search_engine.yaml`（根级字段）加载配置，由 `search.Assemble` 装配出代理
 策略，再注册为 `web_search` 工具。主要调用方是 composition root（`main.go`）。
 
 ## 数据流图
 
 ```mermaid
 flowchart LR
-    YAML["账号池 YAML 的 websearch 段"] --> LOAD["配置加载"]
+    YAML["config/search_engine.yaml（根级字段）"] --> LOAD["配置加载"]
     LOAD --> ASM["search.Assemble<br/>引擎无关策略装配"]
     ASM --> STRAT["Strategy 实现<br/>tavily / bochaai / searxng / 自建网关"]
     STRAT --> REG["ToolRegistrar.Register<br/>web_search 工具"]
     REG --> MODEL["模型可调用 web_search"]
-    ASM -->|没有可用策略| PLACE["注册占位工具<br/>给出 websearch.strategies 修复指引"]
+    ASM -->|没有可用策略| PLACE["注册占位工具<br/>给出 search_engine.yaml 的 strategies 修复指引"]
 ```
 
 本包只做「加载 → 装配 → 注册」，不实现搜索逻辑（归
@@ -27,7 +27,7 @@ flowchart LR
 
 - 通过窄接口 `ToolRegistrar` 注册 `web_search`（避免反向依赖 `seelebridge` 根包）；
 - 配置加载 → 策略装配 → 工具注册的装配流程；
-- 没有可用策略时注册占位工具并给出 `websearch.strategies` 修复指引。
+- 没有可用策略时注册占位工具并给出 `config/search_engine.yaml` 的 `strategies` 修复指引。
 
 刻意不做什么：
 
@@ -36,9 +36,9 @@ flowchart LR
 
 ## 核心实现
 
-`Register(registrar, accountsPath)` 流程：
+`Register(registrar, configPath)` 流程：
 
-1. `search.LoadConfig(accountsPath)` 加载并合并默认值；
+1. `search.Load(configPath)` 从 `search_engine.yaml` 的根级字段加载并合并默认值；
 2. `search.Assemble(cfg)` 装配代理策略（旧 `provider: tavily` / `api_key`
    自动兼容，含内置厂商 `bochaai` 等；`strategies[].type` 指定厂商适配器）；
 3. 装配失败 → 注册占位工具（返回错误 JSON，不 panic）；
@@ -48,7 +48,7 @@ flowchart LR
 ## 数据流或生命周期
 
 ```text
-main.go ── websearch.Register(runtime, accountsPath)
+main.go ── websearch.Register(runtime, configPath)  ← 路径来自 bootseed 责任链
             │ LoadConfig → Assemble
             ▼
         strategy（search.Strategy）
@@ -74,7 +74,7 @@ main.go ── websearch.Register(runtime, accountsPath)
 
 ## 扩展方式
 
-- 接入新搜索 API：只改账号池 `websearch.strategies`（标准协议端点），
+- 接入新搜索 API：只改 `config/search_engine.yaml` 的 `strategies`（标准协议端点），
   本包无需改动；
 - 新增内置厂商：在 `seelebridge/search` 新增 `builtin_xxx.go` 并
   `registerBuiltin`（装配逻辑零改动），本包仅更新占位提示文案（错误信息

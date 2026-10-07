@@ -16,7 +16,7 @@
 
 1. **运行中的进程**：`Get-Process | Where-Object { $_.ProcessName -match 'seelex' }`——有则禁止 clean/删除，先请用户关闭；
 2. **会话记录**：目标目录内是否存在 `.seelex/`（`sessions`、`sessions-json`、`sessionstore` 数据）；
-3. **真实配置**：是否存在 `config/accounts.yaml`、`*.local.yaml`、`seele.yaml`、`seelex.yaml` 或 dist 内的配置副本；
+3. **真实配置**：是否存在 `config/accounts.yaml`、`config/mcp.yaml`、`config/search_engine.yaml`、`*.local.yaml`、`seele.yaml`、`seelex.yaml` 或 dist 内的配置副本；
 4. **备份**：可恢复数据先复制到临时目录（如 `$env:TEMP`）再操作；
 5. **确认**：把上述检查结果用中文告知用户，明确"将删除 X、影响 Y、可/不可恢复"，获得同意后执行。
 

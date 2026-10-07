@@ -52,7 +52,7 @@ flowchart TB
   `strategies[].type`（或旧 `provider` 名）分发装配；
 - 旧字段（`provider: tavily` / `api_key`）自动翻译为兼容策略；provider
   命中内置厂商名（如 bochaai）时翻译为对应厂商适配器；
-- 从账号池 YAML 的 `websearch` 段加载配置（`Load`）；
+- 从 `config/search_engine.yaml` 的根级字段加载配置（`Load`）；
 - 把归一化结果格式化为模型可消费的 Markdown（`FormatResponse`）。
 
 刻意不做什么：
@@ -100,7 +100,7 @@ type Strategy interface {
 1. 优先使用 `cfg.Strategies`（代理策略列表）；
 2. 未声明策略但存在旧字段时自动翻译为单条策略：`provider: tavily`（或空
    provider + `api_key`）→ tavily 兼容策略；provider 命中内置厂商名
-   （bochaai / searxng…）→ 对应厂商适配器（旧账号池配置零改动）；
+   （bochaai / searxng…）→ 对应厂商适配器（旧配置零改动）；
 3. `active`（或旧 `provider` 名）用于多策略中选择，缺省取第一个；
 4. 单条策略按 `strategies[].type` 分发（见下「内置厂商适配器」）；
 5. 没有任何策略时返回错误（提示可用内置厂商），由工具层注册占位工具。
@@ -153,7 +153,7 @@ config/README.md 的配置链说明）；路径由 composition root 经 bootseed
 ## 数据流或生命周期
 
 ```text
-账号池 YAML ──Load──▶ WebSearchConfig ──Assemble──▶ Strategy
+search_engine.yaml ──Load──▶ WebSearchConfig ──Assemble──▶ Strategy
                                                             ├─ standardStrategy（标准协议/自建网关）
                                                             ├─ tavily（复用标准协议）
                                                             ├─ bochaai（博查专有协议）
@@ -181,7 +181,7 @@ config/README.md 的配置链说明）；路径由 composition root 经 bootseed
 - 并发：策略无共享可变状态，可安全并发调用；
 - 存储：本包不持久化任何数据；
 - 安全：API key 只存在于配置与请求头中，绝不写入日志、Snapshot 或 README；
-  示例只引用 `config/accounts.example.yaml` 的占位符风格；
+  示例只引用 `config/search_engine.example.yaml` 的占位符风格；
 - 错误语义：装配期错误说明「未配置策略 / 未找到策略 / 不支持 type / 缺少
   endpoint / 缺少 key / 未知 provider」，并列出可用策略或内置厂商；请求期错误
   带 `web_search:` 前缀；非 2xx 附带响应体片段便于排障；博查业务错误
@@ -207,7 +207,7 @@ config/README.md 的配置链说明）；路径由 composition root 经 bootseed
 1. 新增 `builtin_xxx.go`，实现 `Strategy` 接口（出参必须归一为 `SearchResponse`）；
 2. `init()` 注册 `registerBuiltin("name", factory)`；命名与厂商官方域名一致
    （如 bochaai）；
-3. 在 README「内置厂商适配器」与账号池示例同步；
+3. 在 README「内置厂商适配器」与 `config/search_engine.example.yaml` 同步；
 4. 补充装配与请求测试（httptest 按厂商真实响应样例）。
 
 ## Review 指南
@@ -221,7 +221,7 @@ config/README.md 的配置链说明）；路径由 composition root 经 bootseed
 - 策略配置错误（不支持 type、缺 endpoint、缺 key）是否在装配期提前拦截？
 - `Load` 的默认合并是否会被零值误覆盖（尤其 include_answer）？
 - API key 是否可能进入日志或返回给模型？
-- 超时：`websearch.timeout` 与全局 `search_timeout`（旧名 `tavily_timeout`）
+- 超时：`config/search_engine.yaml` 的 `timeout` 与全局 `search_timeout`（旧名 `tavily_timeout`）
   的优先级是否清晰？
 
 ## 测试与验证
@@ -264,7 +264,7 @@ func WebSearch(ctx context.Context, cfg WebSearchConfig, query string, maxResult
 type WebSearchConfig struct { /* provider/api_key/endpoint/max_results/include_answer/search_depth/timeout/active/strategies */ }
 type StrategyConfig struct { Name, Type, Endpoint, APIKey, APIKeyAlias string }  // Type 空/standard=标准协议，否则内置厂商名
 func DefaultConfig() WebSearchConfig                                 // 返回 websearch 的默认配置
-func Load(accountsPath string) WebSearchConfig                 // 从账号池 YAML 加载 websearch 段
+func Load(configPath string) WebSearchConfig                    // 从 search_engine.yaml 的根级字段加载
 func mergeConfig(dst *WebSearchConfig, src WebSearchConfig)          // 用加载值覆盖非零字段
 ```
 

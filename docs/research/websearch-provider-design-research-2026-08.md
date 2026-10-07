@@ -4,6 +4,11 @@
 状态：调研结论（已按结论完成重构，见 [seelebridge/search](../../seelebridge/search/README.md)）
 范围：`web_search` 工具从「硬编码单一供应商」演进为「不指定引擎、直接用 websearch 搜索；通过代理策略配置与装配器模式做通用 API 接入」时的设计模式选型。
 
+> **现状注记（2026-10 追加）**：配置落点已由「账号池 YAML 的 `websearch:` 段」改为独立文件
+> `config/search_engine.yaml`（字段提到**根级**，不再套 `websearch:` 段）；下文出现的
+> `websearch:` 段写法与 `accountsPath` 参数名均属当时的落点。引擎无关 / 代理策略配置 /
+> 装配器这三条结论不变，配置位置以 `config/README.md` 为准。
+
 ## 结论（TL;DR）
 
 采用 **引擎无关（Engine-agnostic）+ 代理策略配置（Proxy Strategy Config）+ 装配器（Assembler）** 的组合：

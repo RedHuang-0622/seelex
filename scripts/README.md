@@ -67,7 +67,9 @@ tmp/build/                          流程中间态（可整体删除）
   Linux GUI，落进 P6 `dist/linux-amd64-gui/` 并归档；`--pack-only` 路径由
   `STAGED_LINUX_GUI=<binary>` 指定外部（如 VM 内）构建的产物；
 - `make rebuild-gui VERSION=<tag>`：构建 Dev GUI（要求 `LOCAL_CONFIG`，
-  默认 `config/accounts.yaml`，作为不透明文件复制为包内 `config/accounts.yaml`）；
+  默认 `config/accounts.yaml`，作为不透明文件复制为包内 `config/accounts.yaml`；
+  同目录的本地 `mcp.yaml` / `search_engine.yaml` 按同一条「显式路径、不透明复制」
+  纪律一并带入，缺失即跳过）；
 - `make publish-rebuild-gui VERSION=<tag>`：构建 Publish GUI，只含 example；
 - `make clean`：只清 P1/P3/P4/P5/P6（含 `dist/stage-gui/`、`dist/linux-amd64-gui/`），**默认保留 P2**（`CLEAN_DEV=1` 才删 P2）；
 - `make guard-dist-layout`：校验 `dist/` 根只有规范分区，多余条目即失败。
@@ -83,11 +85,13 @@ tmp/build/                          流程中间态（可整体删除）
 3. `make deploy-gui`：检查运行中的 seelex 进程；无进程或进程退出且确认后，
    先把**仓库 `plugins/` 的随包载荷**刷进 `dist/seelex-gui-dev/plugins/`（只覆盖、
    不删本机自加目录），再把当前基线二进制存入 `tmp/build/stash/seelex-gui-dev/`，
-   最后覆盖 `dist/seelex-gui-dev/seelex-gui.exe`。`config/accounts.yaml` 与 `.seelex/`
-   不变；只想刷插件载荷、不换二进制时用 `make sync-dev-plugins`。
+   最后覆盖 `dist/seelex-gui-dev/seelex-gui.exe`。`config/` 下的本地配置
+   （`accounts.yaml` / `mcp.yaml` / `search_engine.yaml`）与 `.seelex/` 不变；
+   只想刷插件载荷、不换二进制时用 `make sync-dev-plugins`。
 4. `make rollback-gui`：从 stash 恢复上一个可用版本（同样有进程检查与确认门禁）。
 5. `make release-dev VERSION=vX.Y.Z`：构建各平台 CLI 发布包 + Windows GUI
-   发布包（仅 example 配置，绝不含 `accounts.yaml` / `*.local.yaml`），
+   发布包（仅 example 配置，绝不含 `accounts.yaml` / `mcp.yaml` /
+   `search_engine.yaml` / `*.local.yaml`），
    平台树进 `dist/<os>-<arch>/`，归档进 `dist/archive/`；不清空 dist，基线不受影响。
 
 一键流程：`make dev-flow VERSION=vX.Y.Z`（交互式确认每一阶段；

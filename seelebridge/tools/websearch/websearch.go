@@ -1,6 +1,6 @@
 // Package websearch 提供 web_search 工具注册。
 //
-// 职责只保留两件事：从账号池 YAML 加载 websearch 配置、把配置装配出的
+// 职责只保留两件事：从独立的 search_engine.yaml 加载搜索配置、把配置装配出的
 // 代理策略注册为 web_search 工具；策略装配本身由 seelebridge/search 提供。
 package websearch
 
@@ -19,8 +19,8 @@ type ToolRegistrar interface {
 	RegisterTool(name, description string, inputSchema map[string]interface{}, handler func(context.Context, string) (string, error))
 }
 
-// Register 是 web_search 的装配点（Assembler）：配置从账号池 YAML 的
-// websearch 段加载，由 search.Assemble 装配为代理策略后注册工具；
+// Register 是 web_search 的装配点（Assembler）：配置从独立的
+// config/search_engine.yaml 的根级字段加载，由 search.Assemble 装配为代理策略后注册工具；
 // 没有可用策略时注册占位工具并给出修复指引。
 func Register(registrar ToolRegistrar, configPath string) {
 	cfg := search.Load(configPath)
