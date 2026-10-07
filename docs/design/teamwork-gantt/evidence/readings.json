@@ -44,7 +44,7 @@
      "barH": 18,
      "scroll": {
       "clientH": 380,
-      "scrollH": 474,
+      "scrollH": 486,
       "scrollTop": 0,
       "rect": {
        "l": 26,
@@ -56,7 +56,7 @@
      "scrollMax": 380,
      "svg": {
       "w": 690,
-      "h": 436,
+      "h": 448,
       "edges": 7,
       "heads": 7
      },
@@ -91,11 +91,23 @@
        "sumLeftInPlot": 0,
        "sumWidth": 64,
        "sumHits": [],
+       "head": {
+        "l": 27,
+        "t": 248,
+        "w": 688,
+        "h": 28
+       },
+       "sum": {
+        "l": 27,
+        "t": 276,
+        "w": 688,
+        "h": 22
+       },
        "rect": {
         "l": 26,
         "t": 247,
         "w": 690,
-        "h": 128
+        "h": 140
        }
       },
       {
@@ -113,22 +125,34 @@
        "sumEmpty": false,
        "sumBar": {
         "l": 299,
-        "t": 435,
+        "t": 447,
         "w": 128,
         "h": 9
        },
        "sumPlot": {
         "l": 235,
-        "t": 430,
+        "t": 442,
         "w": 480,
         "h": 22
        },
        "sumLeftInPlot": 64,
        "sumWidth": 128,
        "sumHits": [],
+       "head": {
+        "l": 27,
+        "t": 414,
+        "w": 688,
+        "h": 28
+       },
+       "sum": {
+        "l": 27,
+        "t": 442,
+        "w": 688,
+        "h": 22
+       },
        "rect": {
         "l": 26,
-        "t": 401,
+        "t": 413,
         "w": 690,
         "h": 128
        }
@@ -148,22 +172,34 @@
        "sumEmpty": false,
        "sumBar": {
         "l": 363,
-        "t": 589,
+        "t": 601,
         "w": 128,
         "h": 9
        },
        "sumPlot": {
         "l": 235,
-        "t": 584,
+        "t": 596,
         "w": 480,
         "h": 22
        },
        "sumLeftInPlot": 128,
        "sumWidth": 128,
        "sumHits": [],
+       "head": {
+        "l": 27,
+        "t": 568,
+        "w": 688,
+        "h": 28
+       },
+       "sum": {
+        "l": 27,
+        "t": 596,
+        "w": 688,
+        "h": 22
+       },
        "rect": {
         "l": 26,
-        "t": 555,
+        "t": 567,
         "w": 690,
         "h": 128
        }
@@ -208,6 +244,14 @@
         62,
         18
        ],
+       "dom_row_h": 38,
+       "name_lines": 1,
+       "name_text": "线框与令牌核稿",
+       "png_bar": [
+        284,
+        301,
+        292.5
+       ],
        "blocked": false,
        "interrupted": false,
        "live": false,
@@ -230,16 +274,24 @@
        "png_x1": 296,
        "png_slot": 0,
        "png_width_px": 62,
-       "how": "v-edge col running(324..337)",
+       "how": "v-edge col running(330..343)",
        "expect_px": [
         235,
         297
        ],
        "dom_bar": [
         235,
-        346,
+        352,
         62,
         18
+       ],
+       "dom_row_h": 50,
+       "name_lines": 2,
+       "name_text": "出图：teamwork 里程碑/工作项 DAG 静态 UI 稿",
+       "png_bar": [
+        328,
+        345,
+        336.5
        ],
        "blocked": false,
        "interrupted": false,
@@ -263,16 +315,24 @@
        "png_x1": 360,
        "png_slot": 1,
        "png_width_px": 62,
-       "how": "v-edge col pending(440..453)",
+       "how": "v-edge col pending(452..465)",
        "expect_px": [
         299,
         361
        ],
        "dom_bar": [
         299,
-        462,
+        474,
         62,
         18
+       ],
+       "dom_row_h": 38,
+       "name_lines": 1,
+       "name_text": "甘特条 + 汇总条落地",
+       "png_bar": [
+        450,
+        467,
+        458.5
        ],
        "blocked": true,
        "interrupted": false,
@@ -296,16 +356,24 @@
        "png_x1": 424,
        "png_slot": 2,
        "png_width_px": 62,
-       "how": "v-edge col pending(478..491)",
+       "how": "v-edge col pending(490..503)",
        "expect_px": [
         363,
         425
        ],
        "dom_bar": [
         363,
-        500,
+        512,
         62,
         18
+       ],
+       "dom_row_h": 38,
+       "name_lines": 1,
+       "name_text": "槽位与拓扑单测",
+       "png_bar": [
+        488,
+        505,
+        496.5
        ],
        "blocked": true,
        "interrupted": false,
@@ -336,10 +404,14 @@
        ],
        "dom_bar": [
         363,
-        616,
+        628,
         62,
         18
        ],
+       "dom_row_h": 38,
+       "name_lines": 1,
+       "name_text": "PNG 逐行区间量测",
+       "png_bar": null,
        "blocked": true,
        "interrupted": false,
        "live": false,
@@ -369,10 +441,14 @@
        ],
        "dom_bar": [
         427,
-        654,
+        666,
         62,
         18
        ],
+       "dom_row_h": 38,
+       "name_lines": 1,
+       "name_text": "验收收口",
+       "png_bar": null,
        "blocked": true,
        "interrupted": false,
        "live": false,
@@ -436,9 +512,219 @@
      ],
      "topo_violations": [],
      "edge_anchor_ok": 5,
-     "edge_anchor_total": 5
+     "edge_anchor_total": 5,
+     "row_heights": [
+      {
+       "item": "wi-frame",
+       "name": "线框与令牌核稿",
+       "name_lines": 1,
+       "row_h": 38,
+       "visible": true
+      },
+      {
+       "item": "wi-design",
+       "name": "出图：teamwork 里程碑/工作项 DAG 静态 UI 稿",
+       "name_lines": 2,
+       "row_h": 50,
+       "visible": true
+      },
+      {
+       "item": "wi-impl",
+       "name": "甘特条 + 汇总条落地",
+       "name_lines": 1,
+       "row_h": 38,
+       "visible": true
+      },
+      {
+       "item": "wi-tests",
+       "name": "槽位与拓扑单测",
+       "name_lines": 1,
+       "row_h": 38,
+       "visible": true
+      },
+      {
+       "item": "wi-render",
+       "name": "PNG 逐行区间量测",
+       "name_lines": 1,
+       "row_h": 38,
+       "visible": false
+      },
+      {
+       "item": "wi-accept",
+       "name": "验收收口",
+       "name_lines": 1,
+       "row_h": 38,
+       "visible": false
+      }
+     ],
+     "row_fit": null,
+     "frame_heights": [
+      {
+       "ms": "m-design",
+       "frame_h": 140,
+       "head_h": 28,
+       "sum_h": 22,
+       "sum_rows_h": 88,
+       "expect_h": 140,
+       "delta": 0
+      },
+      {
+       "ms": "m-impl",
+       "frame_h": 128,
+       "head_h": 28,
+       "sum_h": 22,
+       "sum_rows_h": 76,
+       "expect_h": 128,
+       "delta": 0
+      },
+      {
+       "ms": "m-verify",
+       "frame_h": 128,
+       "head_h": 28,
+       "sum_h": 22,
+       "sum_rows_h": 76,
+       "expect_h": 128,
+       "delta": 0
+      }
+     ],
+     "png_bar_heights": [
+      {
+       "item": "wi-frame",
+       "png_bar_h": 18,
+       "dom_bar_h": 18
+      },
+      {
+       "item": "wi-design",
+       "png_bar_h": 18,
+       "dom_bar_h": 18
+      },
+      {
+       "item": "wi-impl",
+       "png_bar_h": 18,
+       "dom_bar_h": 18
+      },
+      {
+       "item": "wi-tests",
+       "png_bar_h": 18,
+       "dom_bar_h": 18
+      }
+     ],
+     "png_spacing": [
+      {
+       "pair": [
+        "wi-frame",
+        "wi-design"
+       ],
+       "png_delta": 44.0,
+       "expect_delta": 44.0,
+       "ok": true
+      },
+      {
+       "pair": [
+        "wi-impl",
+        "wi-tests"
+       ],
+       "png_delta": 38.0,
+       "expect_delta": 38.0,
+       "ok": true
+      }
+     ],
+     "by_lines": {
+      "1": [
+       38,
+       38,
+       38
+      ],
+      "2": [
+       50
+      ]
+     }
     }
    ],
+   "heights": {
+    "by_lines": {
+     "1": [
+      38,
+      38,
+      38
+     ],
+     "2": [
+      50
+     ]
+    },
+    "fits": [],
+    "frames": [
+     {
+      "ms": "m-design",
+      "frame_h": 140,
+      "head_h": 28,
+      "sum_h": 22,
+      "sum_rows_h": 88,
+      "expect_h": 140,
+      "delta": 0
+     },
+     {
+      "ms": "m-impl",
+      "frame_h": 128,
+      "head_h": 28,
+      "sum_h": 22,
+      "sum_rows_h": 76,
+      "expect_h": 128,
+      "delta": 0
+     },
+     {
+      "ms": "m-verify",
+      "frame_h": 128,
+      "head_h": 28,
+      "sum_h": 22,
+      "sum_rows_h": 76,
+      "expect_h": 128,
+      "delta": 0
+     }
+    ],
+    "png_bar": [
+     {
+      "item": "wi-frame",
+      "png_bar_h": 18,
+      "dom_bar_h": 18
+     },
+     {
+      "item": "wi-design",
+      "png_bar_h": 18,
+      "dom_bar_h": 18
+     },
+     {
+      "item": "wi-impl",
+      "png_bar_h": 18,
+      "dom_bar_h": 18
+     },
+     {
+      "item": "wi-tests",
+      "png_bar_h": 18,
+      "dom_bar_h": 18
+     }
+    ],
+    "png_spacing": [
+     {
+      "pair": [
+       "wi-frame",
+       "wi-design"
+      ],
+      "png_delta": 44.0,
+      "expect_delta": 44.0,
+      "ok": true
+     },
+     {
+      "pair": [
+       "wi-impl",
+       "wi-tests"
+      ],
+      "png_delta": 38.0,
+      "expect_delta": 38.0,
+      "ok": true
+     }
+    ]
+   },
    "gateTexts": [
     "闸门 → 上一层全部 done 才放行（等 m-design）",
     "闸门 → 上一层全部 done 才放行（等 m-impl）",
@@ -489,7 +775,7 @@
      "barH": 16,
      "scroll": {
       "clientH": 380,
-      "scrollH": 481,
+      "scrollH": 544,
       "scrollTop": 0,
       "rect": {
        "l": 26,
@@ -501,7 +787,7 @@
      "scrollMax": 380,
      "svg": {
       "w": 342,
-      "h": 445,
+      "h": 508,
       "edges": 7,
       "heads": 7
      },
@@ -536,11 +822,23 @@
        "sumLeftInPlot": 0,
        "sumWidth": 40,
        "sumHits": [],
+       "head": {
+        "l": 27,
+        "t": 352,
+        "w": 328,
+        "h": 47
+       },
+       "sum": {
+        "l": 27,
+        "t": 399,
+        "w": 328,
+        "h": 22
+       },
        "rect": {
         "l": 26,
         "t": 351,
         "w": 330,
-        "h": 131
+        "h": 167
        }
       },
       {
@@ -558,24 +856,36 @@
        "sumEmpty": false,
        "sumBar": {
         "l": 185,
-        "t": 561,
+        "t": 597,
         "w": 80,
         "h": 9
        },
        "sumPlot": {
         "l": 145,
-        "t": 556,
+        "t": 592,
         "w": 210,
         "h": 22
        },
        "sumLeftInPlot": 40,
        "sumWidth": 80,
        "sumHits": [],
+       "head": {
+        "l": 27,
+        "t": 545,
+        "w": 328,
+        "h": 47
+       },
+       "sum": {
+        "l": 27,
+        "t": 592,
+        "w": 328,
+        "h": 22
+       },
        "rect": {
         "l": 26,
-        "t": 508,
+        "t": 544,
         "w": 330,
-        "h": 131
+        "h": 152
        }
       },
       {
@@ -593,24 +903,36 @@
        "sumEmpty": false,
        "sumBar": {
         "l": 225,
-        "t": 718,
+        "t": 775,
         "w": 80,
         "h": 9
        },
        "sumPlot": {
         "l": 145,
-        "t": 713,
+        "t": 770,
         "w": 210,
         "h": 22
        },
        "sumLeftInPlot": 80,
        "sumWidth": 80,
        "sumHits": [],
+       "head": {
+        "l": 27,
+        "t": 723,
+        "w": 328,
+        "h": 47
+       },
+       "sum": {
+        "l": 27,
+        "t": 770,
+        "w": 328,
+        "h": 22
+       },
        "rect": {
         "l": 26,
-        "t": 665,
+        "t": 722,
         "w": 330,
-        "h": 131
+        "h": 137
        }
       }
      ],
@@ -642,16 +964,24 @@
        "png_x1": 182,
        "png_slot": 0,
        "png_width_px": 38,
-       "how": "v-edge col done(430..441)",
+       "how": "v-edge col done(431..442)",
        "expect_px": [
         145,
         183
        ],
        "dom_bar": [
         145,
-        428,
+        429.5,
         38,
         16
+       ],
+       "dom_row_h": 33,
+       "name_lines": 1,
+       "name_text": "线框与令牌核稿",
+       "png_bar": [
+        430,
+        445,
+        437.5
        ],
        "blocked": false,
        "interrupted": false,
@@ -675,16 +1005,24 @@
        "png_x1": 182,
        "png_slot": 0,
        "png_width_px": 38,
-       "how": "v-edge col running(460..471)",
+       "how": "v-edge col running(479..490)",
        "expect_px": [
         145,
         183
        ],
        "dom_bar": [
         145,
-        458,
+        477.5,
         38,
         16
+       ],
+       "dom_row_h": 63,
+       "name_lines": 3,
+       "name_text": "出图：teamwork 里程碑/工作项 DAG 静态 UI 稿",
+       "png_bar": [
+        478,
+        493,
+        485.5
        ],
        "blocked": false,
        "interrupted": false,
@@ -708,16 +1046,24 @@
        "png_x1": 222,
        "png_slot": 1,
        "png_width_px": 38,
-       "how": "v-edge col pending(587..598)",
+       "how": "v-edge col pending(632..643)",
        "expect_px": [
         185,
         223
        ],
        "dom_bar": [
         185,
-        585,
+        630,
         38,
         16
+       ],
+       "dom_row_h": 48,
+       "name_lines": 2,
+       "name_text": "甘特条 + 汇总条落地",
+       "png_bar": [
+        630,
+        645,
+        637.5
        ],
        "blocked": true,
        "interrupted": false,
@@ -741,16 +1087,24 @@
        "png_x1": 262,
        "png_slot": 2,
        "png_width_px": 38,
-       "how": "v-edge col pending(617..628)",
+       "how": "v-edge col pending(672..683)",
        "expect_px": [
         225,
         263
        ],
        "dom_bar": [
         225,
-        615,
+        670.5,
         38,
         16
+       ],
+       "dom_row_h": 33,
+       "name_lines": 1,
+       "name_text": "槽位与拓扑单测",
+       "png_bar": [
+        671,
+        686,
+        678.5
        ],
        "blocked": true,
        "interrupted": false,
@@ -781,10 +1135,14 @@
        ],
        "dom_bar": [
         225,
-        742,
+        800.5,
         38,
         16
        ],
+       "dom_row_h": 33,
+       "name_lines": 1,
+       "name_text": "PNG 逐行区间量测",
+       "png_bar": null,
        "blocked": true,
        "interrupted": false,
        "live": false,
@@ -814,10 +1172,14 @@
        ],
        "dom_bar": [
         265,
-        772,
+        833.5,
         38,
         16
        ],
+       "dom_row_h": 33,
+       "name_lines": 1,
+       "name_text": "验收收口",
+       "png_bar": null,
        "blocked": true,
        "interrupted": false,
        "live": false,
@@ -881,9 +1243,233 @@
      ],
      "topo_violations": [],
      "edge_anchor_ok": 5,
-     "edge_anchor_total": 5
+     "edge_anchor_total": 5,
+     "row_heights": [
+      {
+       "item": "wi-frame",
+       "name": "线框与令牌核稿",
+       "name_lines": 1,
+       "row_h": 33,
+       "visible": true
+      },
+      {
+       "item": "wi-design",
+       "name": "出图：teamwork 里程碑/工作项 DAG 静态 UI 稿",
+       "name_lines": 3,
+       "row_h": 63,
+       "visible": true
+      },
+      {
+       "item": "wi-impl",
+       "name": "甘特条 + 汇总条落地",
+       "name_lines": 2,
+       "row_h": 48,
+       "visible": true
+      },
+      {
+       "item": "wi-tests",
+       "name": "槽位与拓扑单测",
+       "name_lines": 1,
+       "row_h": 33,
+       "visible": true
+      },
+      {
+       "item": "wi-render",
+       "name": "PNG 逐行区间量测",
+       "name_lines": 1,
+       "row_h": 33,
+       "visible": false
+      },
+      {
+       "item": "wi-accept",
+       "name": "验收收口",
+       "name_lines": 1,
+       "row_h": 33,
+       "visible": false
+      }
+     ],
+     "row_fit": {
+      "base": 18.0,
+      "pitch": 15.0,
+      "max_residual": 15.0
+     },
+     "frame_heights": [
+      {
+       "ms": "m-design",
+       "frame_h": 167,
+       "head_h": 47,
+       "sum_h": 22,
+       "sum_rows_h": 96,
+       "expect_h": 167,
+       "delta": 0
+      },
+      {
+       "ms": "m-impl",
+       "frame_h": 152,
+       "head_h": 47,
+       "sum_h": 22,
+       "sum_rows_h": 81,
+       "expect_h": 152,
+       "delta": 0
+      },
+      {
+       "ms": "m-verify",
+       "frame_h": 137,
+       "head_h": 47,
+       "sum_h": 22,
+       "sum_rows_h": 66,
+       "expect_h": 137,
+       "delta": 0
+      }
+     ],
+     "png_bar_heights": [
+      {
+       "item": "wi-frame",
+       "png_bar_h": 16,
+       "dom_bar_h": 16
+      },
+      {
+       "item": "wi-design",
+       "png_bar_h": 16,
+       "dom_bar_h": 16
+      },
+      {
+       "item": "wi-impl",
+       "png_bar_h": 16,
+       "dom_bar_h": 16
+      },
+      {
+       "item": "wi-tests",
+       "png_bar_h": 16,
+       "dom_bar_h": 16
+      }
+     ],
+     "png_spacing": [
+      {
+       "pair": [
+        "wi-frame",
+        "wi-design"
+       ],
+       "png_delta": 48.0,
+       "expect_delta": 48.0,
+       "ok": true
+      },
+      {
+       "pair": [
+        "wi-impl",
+        "wi-tests"
+       ],
+       "png_delta": 41.0,
+       "expect_delta": 40.5,
+       "ok": true
+      }
+     ],
+     "by_lines": {
+      "1": [
+       33,
+       33
+      ],
+      "3": [
+       63
+      ],
+      "2": [
+       48
+      ]
+     }
     }
    ],
+   "heights": {
+    "by_lines": {
+     "1": [
+      33,
+      33
+     ],
+     "3": [
+      63
+     ],
+     "2": [
+      48
+     ]
+    },
+    "fits": [
+     {
+      "base": 18.0,
+      "pitch": 15.0,
+      "max_residual": 15.0
+     }
+    ],
+    "frames": [
+     {
+      "ms": "m-design",
+      "frame_h": 167,
+      "head_h": 47,
+      "sum_h": 22,
+      "sum_rows_h": 96,
+      "expect_h": 167,
+      "delta": 0
+     },
+     {
+      "ms": "m-impl",
+      "frame_h": 152,
+      "head_h": 47,
+      "sum_h": 22,
+      "sum_rows_h": 81,
+      "expect_h": 152,
+      "delta": 0
+     },
+     {
+      "ms": "m-verify",
+      "frame_h": 137,
+      "head_h": 47,
+      "sum_h": 22,
+      "sum_rows_h": 66,
+      "expect_h": 137,
+      "delta": 0
+     }
+    ],
+    "png_bar": [
+     {
+      "item": "wi-frame",
+      "png_bar_h": 16,
+      "dom_bar_h": 16
+     },
+     {
+      "item": "wi-design",
+      "png_bar_h": 16,
+      "dom_bar_h": 16
+     },
+     {
+      "item": "wi-impl",
+      "png_bar_h": 16,
+      "dom_bar_h": 16
+     },
+     {
+      "item": "wi-tests",
+      "png_bar_h": 16,
+      "dom_bar_h": 16
+     }
+    ],
+    "png_spacing": [
+     {
+      "pair": [
+       "wi-frame",
+       "wi-design"
+      ],
+      "png_delta": 48.0,
+      "expect_delta": 48.0,
+      "ok": true
+     },
+     {
+      "pair": [
+       "wi-impl",
+       "wi-tests"
+      ],
+      "png_delta": 41.0,
+      "expect_delta": 40.5,
+      "ok": true
+     }
+    ]
+   },
    "gateTexts": [
     "闸门 → 上一层全部 done 才放行（等 m-design）",
     "闸门 → 上一层全部 done 才放行（等 m-impl）",
@@ -934,7 +1520,7 @@
      "barH": 18,
      "scroll": {
       "clientH": 380,
-      "scrollH": 474,
+      "scrollH": 486,
       "scrollTop": 0,
       "rect": {
        "l": 26,
@@ -946,7 +1532,7 @@
      "scrollMax": 380,
      "svg": {
       "w": 690,
-      "h": 436,
+      "h": 448,
       "edges": 7,
       "heads": 7
      },
@@ -981,11 +1567,23 @@
        "sumLeftInPlot": 0,
        "sumWidth": 64,
        "sumHits": [],
+       "head": {
+        "l": 27,
+        "t": 264,
+        "w": 688,
+        "h": 28
+       },
+       "sum": {
+        "l": 27,
+        "t": 292,
+        "w": 688,
+        "h": 22
+       },
        "rect": {
         "l": 26,
         "t": 263,
         "w": 690,
-        "h": 128
+        "h": 140
        }
       },
       {
@@ -1003,22 +1601,34 @@
        "sumEmpty": false,
        "sumBar": {
         "l": 299,
-        "t": 451,
+        "t": 463,
         "w": 128,
         "h": 9
        },
        "sumPlot": {
         "l": 235,
-        "t": 446,
+        "t": 458,
         "w": 480,
         "h": 22
        },
        "sumLeftInPlot": 64,
        "sumWidth": 128,
        "sumHits": [],
+       "head": {
+        "l": 27,
+        "t": 430,
+        "w": 688,
+        "h": 28
+       },
+       "sum": {
+        "l": 27,
+        "t": 458,
+        "w": 688,
+        "h": 22
+       },
        "rect": {
         "l": 26,
-        "t": 417,
+        "t": 429,
         "w": 690,
         "h": 128
        }
@@ -1038,22 +1648,34 @@
        "sumEmpty": false,
        "sumBar": {
         "l": 363,
-        "t": 605,
+        "t": 617,
         "w": 128,
         "h": 9
        },
        "sumPlot": {
         "l": 235,
-        "t": 600,
+        "t": 612,
         "w": 480,
         "h": 22
        },
        "sumLeftInPlot": 128,
        "sumWidth": 128,
        "sumHits": [],
+       "head": {
+        "l": 27,
+        "t": 584,
+        "w": 688,
+        "h": 28
+       },
+       "sum": {
+        "l": 27,
+        "t": 612,
+        "w": 688,
+        "h": 22
+       },
        "rect": {
         "l": 26,
-        "t": 571,
+        "t": 583,
         "w": 690,
         "h": 128
        }
@@ -1098,6 +1720,10 @@
         62,
         18
        ],
+       "dom_row_h": 38,
+       "name_lines": 1,
+       "name_text": "线框与令牌核稿",
+       "png_bar": null,
        "blocked": false,
        "interrupted": false,
        "live": false,
@@ -1120,16 +1746,24 @@
        "png_x1": 296,
        "png_slot": 0,
        "png_width_px": 62,
-       "how": "v-edge col done(324..337)",
+       "how": "v-edge col done(330..343)",
        "expect_px": [
         235,
         297
        ],
        "dom_bar": [
         235,
-        362,
+        368,
         62,
         18
+       ],
+       "dom_row_h": 50,
+       "name_lines": 2,
+       "name_text": "出图：teamwork 里程碑/工作项 DAG 静态 UI 稿",
+       "png_bar": [
+        328,
+        345,
+        336.5
        ],
        "blocked": false,
        "interrupted": false,
@@ -1153,16 +1787,24 @@
        "png_x1": 360,
        "png_slot": 1,
        "png_width_px": 62,
-       "how": "v-edge col running(440..453)",
+       "how": "v-edge col running(452..465)",
        "expect_px": [
         299,
         361
        ],
        "dom_bar": [
         299,
-        478,
+        490,
         62,
         18
+       ],
+       "dom_row_h": 38,
+       "name_lines": 1,
+       "name_text": "甘特条 + 汇总条落地",
+       "png_bar": [
+        450,
+        467,
+        458.5
        ],
        "blocked": false,
        "interrupted": false,
@@ -1186,16 +1828,24 @@
        "png_x1": 424,
        "png_slot": 2,
        "png_width_px": 62,
-       "how": "v-edge col pending(478..491)",
+       "how": "v-edge col pending(490..503)",
        "expect_px": [
         363,
         425
        ],
        "dom_bar": [
         363,
-        516,
+        528,
         62,
         18
+       ],
+       "dom_row_h": 38,
+       "name_lines": 1,
+       "name_text": "槽位与拓扑单测",
+       "png_bar": [
+        488,
+        505,
+        496.5
        ],
        "blocked": true,
        "interrupted": false,
@@ -1226,10 +1876,14 @@
        ],
        "dom_bar": [
         363,
-        632,
+        644,
         62,
         18
        ],
+       "dom_row_h": 38,
+       "name_lines": 1,
+       "name_text": "PNG 逐行区间量测",
+       "png_bar": null,
        "blocked": true,
        "interrupted": false,
        "live": false,
@@ -1259,10 +1913,14 @@
        ],
        "dom_bar": [
         427,
-        670,
+        682,
         62,
         18
        ],
+       "dom_row_h": 38,
+       "name_lines": 1,
+       "name_text": "验收收口",
+       "png_bar": null,
        "blocked": true,
        "interrupted": false,
        "live": false,
@@ -1326,9 +1984,189 @@
      ],
      "topo_violations": [],
      "edge_anchor_ok": 5,
-     "edge_anchor_total": 5
+     "edge_anchor_total": 5,
+     "row_heights": [
+      {
+       "item": "wi-frame",
+       "name": "线框与令牌核稿",
+       "name_lines": 1,
+       "row_h": 38,
+       "visible": false
+      },
+      {
+       "item": "wi-design",
+       "name": "出图：teamwork 里程碑/工作项 DAG 静态 UI 稿",
+       "name_lines": 2,
+       "row_h": 50,
+       "visible": true
+      },
+      {
+       "item": "wi-impl",
+       "name": "甘特条 + 汇总条落地",
+       "name_lines": 1,
+       "row_h": 38,
+       "visible": true
+      },
+      {
+       "item": "wi-tests",
+       "name": "槽位与拓扑单测",
+       "name_lines": 1,
+       "row_h": 38,
+       "visible": true
+      },
+      {
+       "item": "wi-render",
+       "name": "PNG 逐行区间量测",
+       "name_lines": 1,
+       "row_h": 38,
+       "visible": false
+      },
+      {
+       "item": "wi-accept",
+       "name": "验收收口",
+       "name_lines": 1,
+       "row_h": 38,
+       "visible": false
+      }
+     ],
+     "row_fit": null,
+     "frame_heights": [
+      {
+       "ms": "m-design",
+       "frame_h": 140,
+       "head_h": 28,
+       "sum_h": 22,
+       "sum_rows_h": 88,
+       "expect_h": 140,
+       "delta": 0
+      },
+      {
+       "ms": "m-impl",
+       "frame_h": 128,
+       "head_h": 28,
+       "sum_h": 22,
+       "sum_rows_h": 76,
+       "expect_h": 128,
+       "delta": 0
+      },
+      {
+       "ms": "m-verify",
+       "frame_h": 128,
+       "head_h": 28,
+       "sum_h": 22,
+       "sum_rows_h": 76,
+       "expect_h": 128,
+       "delta": 0
+      }
+     ],
+     "png_bar_heights": [
+      {
+       "item": "wi-design",
+       "png_bar_h": 18,
+       "dom_bar_h": 18
+      },
+      {
+       "item": "wi-impl",
+       "png_bar_h": 18,
+       "dom_bar_h": 18
+      },
+      {
+       "item": "wi-tests",
+       "png_bar_h": 18,
+       "dom_bar_h": 18
+      }
+     ],
+     "png_spacing": [
+      {
+       "pair": [
+        "wi-impl",
+        "wi-tests"
+       ],
+       "png_delta": 38.0,
+       "expect_delta": 38.0,
+       "ok": true
+      }
+     ],
+     "by_lines": {
+      "2": [
+       50
+      ],
+      "1": [
+       38,
+       38
+      ]
+     }
     }
    ],
+   "heights": {
+    "by_lines": {
+     "2": [
+      50
+     ],
+     "1": [
+      38,
+      38
+     ]
+    },
+    "fits": [],
+    "frames": [
+     {
+      "ms": "m-design",
+      "frame_h": 140,
+      "head_h": 28,
+      "sum_h": 22,
+      "sum_rows_h": 88,
+      "expect_h": 140,
+      "delta": 0
+     },
+     {
+      "ms": "m-impl",
+      "frame_h": 128,
+      "head_h": 28,
+      "sum_h": 22,
+      "sum_rows_h": 76,
+      "expect_h": 128,
+      "delta": 0
+     },
+     {
+      "ms": "m-verify",
+      "frame_h": 128,
+      "head_h": 28,
+      "sum_h": 22,
+      "sum_rows_h": 76,
+      "expect_h": 128,
+      "delta": 0
+     }
+    ],
+    "png_bar": [
+     {
+      "item": "wi-design",
+      "png_bar_h": 18,
+      "dom_bar_h": 18
+     },
+     {
+      "item": "wi-impl",
+      "png_bar_h": 18,
+      "dom_bar_h": 18
+     },
+     {
+      "item": "wi-tests",
+      "png_bar_h": 18,
+      "dom_bar_h": 18
+     }
+    ],
+    "png_spacing": [
+     {
+      "pair": [
+       "wi-impl",
+       "wi-tests"
+      ],
+      "png_delta": 38.0,
+      "expect_delta": 38.0,
+      "ok": true
+     }
+    ]
+   },
    "gateTexts": [
     "闸门已放行 → m-design 全部 done",
     "闸门 → 上一层全部 done 才放行（等 m-impl）",
@@ -1342,7 +2180,7 @@
     800,
     1400
    ],
-   "query": "?view=wide&scroll=94",
+   "query": "?view=wide&scroll=9999",
    "desc": "宽栏滚到底（看 m-verify 的两行）",
    "core": false,
    "theme": "light",
@@ -1379,8 +2217,8 @@
      "barH": 18,
      "scroll": {
       "clientH": 380,
-      "scrollH": 474,
-      "scrollTop": 94,
+      "scrollH": 486,
+      "scrollTop": 106,
       "rect": {
        "l": 26,
        "t": 213,
@@ -1391,7 +2229,7 @@
      "scrollMax": 380,
      "svg": {
       "w": 690,
-      "h": 436,
+      "h": 448,
       "edges": 7,
       "heads": 7
      },
@@ -1413,24 +2251,36 @@
        "sumEmpty": false,
        "sumBar": {
         "l": 235,
-        "t": 187,
+        "t": 175,
         "w": 64,
         "h": 9
        },
        "sumPlot": {
         "l": 235,
-        "t": 182,
+        "t": 170,
         "w": 480,
         "h": 22
        },
        "sumLeftInPlot": 0,
        "sumWidth": 64,
        "sumHits": [],
+       "head": {
+        "l": 27,
+        "t": 243,
+        "w": 688,
+        "h": 28
+       },
+       "sum": {
+        "l": 27,
+        "t": 170,
+        "w": 688,
+        "h": 22
+       },
        "rect": {
         "l": 26,
-        "t": 153,
+        "t": 141,
         "w": 690,
-        "h": 128
+        "h": 140
        }
       },
       {
@@ -1461,6 +2311,18 @@
        "sumLeftInPlot": 64,
        "sumWidth": 128,
        "sumHits": [],
+       "head": {
+        "l": 27,
+        "t": 308,
+        "w": 688,
+        "h": 28
+       },
+       "sum": {
+        "l": 27,
+        "t": 336,
+        "w": 688,
+        "h": 22
+       },
        "rect": {
         "l": 26,
         "t": 307,
@@ -1496,6 +2358,18 @@
        "sumLeftInPlot": 128,
        "sumWidth": 128,
        "sumHits": [],
+       "head": {
+        "l": 27,
+        "t": 462,
+        "w": 688,
+        "h": 28
+       },
+       "sum": {
+        "l": 27,
+        "t": 490,
+        "w": 688,
+        "h": 22
+       },
        "rect": {
         "l": 26,
         "t": 461,
@@ -1539,10 +2413,14 @@
        ],
        "dom_bar": [
         235,
-        214,
+        202,
         62,
         18
        ],
+       "dom_row_h": 38,
+       "name_lines": 1,
+       "name_text": "线框与令牌核稿",
+       "png_bar": null,
        "blocked": false,
        "interrupted": false,
        "live": false,
@@ -1572,10 +2450,14 @@
        ],
        "dom_bar": [
         235,
-        252,
+        246,
         62,
         18
        ],
+       "dom_row_h": 50,
+       "name_lines": 2,
+       "name_text": "出图：teamwork 里程碑/工作项 DAG 静态 UI 稿",
+       "png_bar": null,
        "blocked": false,
        "interrupted": false,
        "live": true,
@@ -1608,6 +2490,14 @@
         368,
         62,
         18
+       ],
+       "dom_row_h": 38,
+       "name_lines": 1,
+       "name_text": "甘特条 + 汇总条落地",
+       "png_bar": [
+        344,
+        361,
+        352.5
        ],
        "blocked": true,
        "interrupted": false,
@@ -1642,6 +2532,14 @@
         62,
         18
        ],
+       "dom_row_h": 38,
+       "name_lines": 1,
+       "name_text": "槽位与拓扑单测",
+       "png_bar": [
+        382,
+        399,
+        390.5
+       ],
        "blocked": true,
        "interrupted": false,
        "live": false,
@@ -1675,6 +2573,14 @@
         62,
         18
        ],
+       "dom_row_h": 38,
+       "name_lines": 1,
+       "name_text": "PNG 逐行区间量测",
+       "png_bar": [
+        498,
+        515,
+        506.5
+       ],
        "blocked": true,
        "interrupted": false,
        "live": false,
@@ -1707,6 +2613,14 @@
         560,
         62,
         18
+       ],
+       "dom_row_h": 38,
+       "name_lines": 1,
+       "name_text": "验收收口",
+       "png_bar": [
+        536,
+        553,
+        544.5
        ],
        "blocked": true,
        "interrupted": false,
@@ -1771,9 +2685,215 @@
      ],
      "topo_violations": [],
      "edge_anchor_ok": 5,
-     "edge_anchor_total": 5
+     "edge_anchor_total": 5,
+     "row_heights": [
+      {
+       "item": "wi-frame",
+       "name": "线框与令牌核稿",
+       "name_lines": 1,
+       "row_h": 38,
+       "visible": false
+      },
+      {
+       "item": "wi-design",
+       "name": "出图：teamwork 里程碑/工作项 DAG 静态 UI 稿",
+       "name_lines": 2,
+       "row_h": 50,
+       "visible": false
+      },
+      {
+       "item": "wi-impl",
+       "name": "甘特条 + 汇总条落地",
+       "name_lines": 1,
+       "row_h": 38,
+       "visible": true
+      },
+      {
+       "item": "wi-tests",
+       "name": "槽位与拓扑单测",
+       "name_lines": 1,
+       "row_h": 38,
+       "visible": true
+      },
+      {
+       "item": "wi-render",
+       "name": "PNG 逐行区间量测",
+       "name_lines": 1,
+       "row_h": 38,
+       "visible": true
+      },
+      {
+       "item": "wi-accept",
+       "name": "验收收口",
+       "name_lines": 1,
+       "row_h": 38,
+       "visible": true
+      }
+     ],
+     "row_fit": null,
+     "frame_heights": [
+      {
+       "ms": "m-design",
+       "frame_h": 140,
+       "head_h": 28,
+       "sum_h": 22,
+       "sum_rows_h": 88,
+       "expect_h": 140,
+       "delta": 0
+      },
+      {
+       "ms": "m-impl",
+       "frame_h": 128,
+       "head_h": 28,
+       "sum_h": 22,
+       "sum_rows_h": 76,
+       "expect_h": 128,
+       "delta": 0
+      },
+      {
+       "ms": "m-verify",
+       "frame_h": 128,
+       "head_h": 28,
+       "sum_h": 22,
+       "sum_rows_h": 76,
+       "expect_h": 128,
+       "delta": 0
+      }
+     ],
+     "png_bar_heights": [
+      {
+       "item": "wi-impl",
+       "png_bar_h": 18,
+       "dom_bar_h": 18
+      },
+      {
+       "item": "wi-tests",
+       "png_bar_h": 18,
+       "dom_bar_h": 18
+      },
+      {
+       "item": "wi-render",
+       "png_bar_h": 18,
+       "dom_bar_h": 18
+      },
+      {
+       "item": "wi-accept",
+       "png_bar_h": 18,
+       "dom_bar_h": 18
+      }
+     ],
+     "png_spacing": [
+      {
+       "pair": [
+        "wi-impl",
+        "wi-tests"
+       ],
+       "png_delta": 38.0,
+       "expect_delta": 38.0,
+       "ok": true
+      },
+      {
+       "pair": [
+        "wi-render",
+        "wi-accept"
+       ],
+       "png_delta": 38.0,
+       "expect_delta": 38.0,
+       "ok": true
+      }
+     ],
+     "by_lines": {
+      "1": [
+       38,
+       38,
+       38,
+       38
+      ]
+     }
     }
    ],
+   "heights": {
+    "by_lines": {
+     "1": [
+      38,
+      38,
+      38,
+      38
+     ]
+    },
+    "fits": [],
+    "frames": [
+     {
+      "ms": "m-design",
+      "frame_h": 140,
+      "head_h": 28,
+      "sum_h": 22,
+      "sum_rows_h": 88,
+      "expect_h": 140,
+      "delta": 0
+     },
+     {
+      "ms": "m-impl",
+      "frame_h": 128,
+      "head_h": 28,
+      "sum_h": 22,
+      "sum_rows_h": 76,
+      "expect_h": 128,
+      "delta": 0
+     },
+     {
+      "ms": "m-verify",
+      "frame_h": 128,
+      "head_h": 28,
+      "sum_h": 22,
+      "sum_rows_h": 76,
+      "expect_h": 128,
+      "delta": 0
+     }
+    ],
+    "png_bar": [
+     {
+      "item": "wi-impl",
+      "png_bar_h": 18,
+      "dom_bar_h": 18
+     },
+     {
+      "item": "wi-tests",
+      "png_bar_h": 18,
+      "dom_bar_h": 18
+     },
+     {
+      "item": "wi-render",
+      "png_bar_h": 18,
+      "dom_bar_h": 18
+     },
+     {
+      "item": "wi-accept",
+      "png_bar_h": 18,
+      "dom_bar_h": 18
+     }
+    ],
+    "png_spacing": [
+     {
+      "pair": [
+       "wi-impl",
+       "wi-tests"
+      ],
+      "png_delta": 38.0,
+      "expect_delta": 38.0,
+      "ok": true
+     },
+     {
+      "pair": [
+       "wi-render",
+       "wi-accept"
+      ],
+      "png_delta": 38.0,
+      "expect_delta": 38.0,
+      "ok": true
+     }
+    ]
+   },
    "gateTexts": [
     "闸门 → 上一层全部 done 才放行（等 m-design）",
     "闸门 → 上一层全部 done 才放行（等 m-impl）",
@@ -1787,7 +2907,7 @@
     420,
     1500
    ],
-   "query": "?view=narrow&scroll=44",
+   "query": "?view=narrow&scroll=9999",
    "desc": "窄栏滚到底",
    "core": false,
    "theme": "light",
@@ -1824,8 +2944,8 @@
      "barH": 16,
      "scroll": {
       "clientH": 380,
-      "scrollH": 481,
-      "scrollTop": 44,
+      "scrollH": 544,
+      "scrollTop": 164,
       "rect": {
        "l": 26,
        "t": 319,
@@ -1836,7 +2956,7 @@
      "scrollMax": 380,
      "svg": {
       "w": 342,
-      "h": 445,
+      "h": 508,
       "edges": 7,
       "heads": 7
      },
@@ -1858,24 +2978,36 @@
        "sumEmpty": false,
        "sumBar": {
         "l": 145,
-        "t": 360,
+        "t": 240,
         "w": 40,
         "h": 9
        },
        "sumPlot": {
         "l": 145,
-        "t": 355,
+        "t": 235,
         "w": 210,
         "h": 22
        },
        "sumLeftInPlot": 0,
        "sumWidth": 40,
        "sumHits": [],
+       "head": {
+        "l": 27,
+        "t": 306,
+        "w": 328,
+        "h": 47
+       },
+       "sum": {
+        "l": 27,
+        "t": 235,
+        "w": 328,
+        "h": 22
+       },
        "rect": {
         "l": 26,
-        "t": 307,
+        "t": 187,
         "w": 330,
-        "h": 131
+        "h": 167
        }
       },
       {
@@ -1893,24 +3025,36 @@
        "sumEmpty": false,
        "sumBar": {
         "l": 185,
-        "t": 517,
+        "t": 433,
         "w": 80,
         "h": 9
        },
        "sumPlot": {
         "l": 145,
-        "t": 512,
+        "t": 428,
         "w": 210,
         "h": 22
        },
        "sumLeftInPlot": 40,
        "sumWidth": 80,
        "sumHits": [],
+       "head": {
+        "l": 27,
+        "t": 381,
+        "w": 328,
+        "h": 47
+       },
+       "sum": {
+        "l": 27,
+        "t": 428,
+        "w": 328,
+        "h": 22
+       },
        "rect": {
         "l": 26,
-        "t": 464,
+        "t": 380,
         "w": 330,
-        "h": 131
+        "h": 152
        }
       },
       {
@@ -1928,24 +3072,36 @@
        "sumEmpty": false,
        "sumBar": {
         "l": 225,
-        "t": 674,
+        "t": 611,
         "w": 80,
         "h": 9
        },
        "sumPlot": {
         "l": 145,
-        "t": 669,
+        "t": 606,
         "w": 210,
         "h": 22
        },
        "sumLeftInPlot": 80,
        "sumWidth": 80,
        "sumHits": [],
+       "head": {
+        "l": 27,
+        "t": 559,
+        "w": 328,
+        "h": 47
+       },
+       "sum": {
+        "l": 27,
+        "t": 606,
+        "w": 328,
+        "h": 22
+       },
        "rect": {
         "l": 26,
-        "t": 621,
+        "t": 558,
         "w": 330,
-        "h": 131
+        "h": 137
        }
       }
      ],
@@ -1972,28 +3128,32 @@
        "formula_slot": 0,
        "dom_slot": 0,
        "dur": 1,
-       "visible": true,
-       "png_x0": 145,
-       "png_x1": 182,
-       "png_slot": 0,
-       "png_width_px": 38,
-       "how": "v-edge col done(386..397)",
+       "visible": false,
+       "png_x0": null,
+       "png_x1": null,
+       "png_slot": null,
+       "png_width_px": null,
+       "how": "skipped: 被滚动视口裁掉 / 被 sticky 刻度尺遮住（该行在别的图里量）",
        "expect_px": [
         145,
         183
        ],
        "dom_bar": [
         145,
-        384,
+        265.5,
         38,
         16
        ],
+       "dom_row_h": 33,
+       "name_lines": 1,
+       "name_text": "线框与令牌核稿",
+       "png_bar": null,
        "blocked": false,
        "interrupted": false,
        "live": false,
        "deps": "",
-       "ok": true,
-       "measured": true
+       "ok": false,
+       "measured": false
       },
       {
        "item": "wi-design",
@@ -2005,28 +3165,32 @@
        "formula_slot": 0,
        "dom_slot": 0,
        "dur": 1,
-       "visible": true,
-       "png_x0": 145,
-       "png_x1": 182,
-       "png_slot": 0,
-       "png_width_px": 38,
-       "how": "v-edge col running(416..427)",
+       "visible": false,
+       "png_x0": null,
+       "png_x1": null,
+       "png_slot": null,
+       "png_width_px": null,
+       "how": "skipped: 被滚动视口裁掉 / 被 sticky 刻度尺遮住（该行在别的图里量）",
        "expect_px": [
         145,
         183
        ],
        "dom_bar": [
         145,
-        414,
+        313.5,
         38,
         16
        ],
+       "dom_row_h": 63,
+       "name_lines": 3,
+       "name_text": "出图：teamwork 里程碑/工作项 DAG 静态 UI 稿",
+       "png_bar": null,
        "blocked": false,
        "interrupted": false,
        "live": true,
        "deps": "",
-       "ok": true,
-       "measured": true
+       "ok": false,
+       "measured": false
       },
       {
        "item": "wi-impl",
@@ -2043,16 +3207,24 @@
        "png_x1": 222,
        "png_slot": 1,
        "png_width_px": 38,
-       "how": "v-edge col pending(543..554)",
+       "how": "v-edge col pending(468..479)",
        "expect_px": [
         185,
         223
        ],
        "dom_bar": [
         185,
-        541,
+        466,
         38,
         16
+       ],
+       "dom_row_h": 48,
+       "name_lines": 2,
+       "name_text": "甘特条 + 汇总条落地",
+       "png_bar": [
+        466,
+        481,
+        473.5
        ],
        "blocked": true,
        "interrupted": false,
@@ -2076,16 +3248,24 @@
        "png_x1": 262,
        "png_slot": 2,
        "png_width_px": 38,
-       "how": "v-edge col pending(573..584)",
+       "how": "v-edge col pending(508..519)",
        "expect_px": [
         225,
         263
        ],
        "dom_bar": [
         225,
-        571,
+        506.5,
         38,
         16
+       ],
+       "dom_row_h": 33,
+       "name_lines": 1,
+       "name_text": "槽位与拓扑单测",
+       "png_bar": [
+        507,
+        522,
+        514.5
        ],
        "blocked": true,
        "interrupted": false,
@@ -2104,28 +3284,36 @@
        "formula_slot": 2,
        "dom_slot": 2,
        "dur": 1,
-       "visible": false,
-       "png_x0": null,
-       "png_x1": null,
-       "png_slot": null,
-       "png_width_px": null,
-       "how": "skipped: 被滚动视口裁掉 / 被 sticky 刻度尺遮住（该行在别的图里量）",
+       "visible": true,
+       "png_x0": 225,
+       "png_x1": 262,
+       "png_slot": 2,
+       "png_width_px": 38,
+       "how": "v-edge col pending(638..649)",
        "expect_px": [
         225,
         263
        ],
        "dom_bar": [
         225,
-        698,
+        636.5,
         38,
         16
+       ],
+       "dom_row_h": 33,
+       "name_lines": 1,
+       "name_text": "PNG 逐行区间量测",
+       "png_bar": [
+        637,
+        652,
+        644.5
        ],
        "blocked": true,
        "interrupted": false,
        "live": false,
        "deps": "wi-impl",
-       "ok": false,
-       "measured": false
+       "ok": true,
+       "measured": true
       },
       {
        "item": "wi-accept",
@@ -2137,28 +3325,36 @@
        "formula_slot": 3,
        "dom_slot": 3,
        "dur": 1,
-       "visible": false,
-       "png_x0": null,
-       "png_x1": null,
-       "png_slot": null,
-       "png_width_px": null,
-       "how": "skipped: 被滚动视口裁掉 / 被 sticky 刻度尺遮住（该行在别的图里量）",
+       "visible": true,
+       "png_x0": 265,
+       "png_x1": 302,
+       "png_slot": 3,
+       "png_width_px": 38,
+       "how": "v-edge col pending(671..682)",
        "expect_px": [
         265,
         303
        ],
        "dom_bar": [
         265,
-        728,
+        669.5,
         38,
         16
+       ],
+       "dom_row_h": 33,
+       "name_lines": 1,
+       "name_text": "验收收口",
+       "png_bar": [
+        670,
+        685,
+        677.5
        ],
        "blocked": true,
        "interrupted": false,
        "live": false,
        "deps": "wi-render,wi-tests",
-       "ok": false,
-       "measured": false
+       "ok": true,
+       "measured": true
       }
      ],
      "sums": [
@@ -2216,9 +3412,229 @@
      ],
      "topo_violations": [],
      "edge_anchor_ok": 5,
-     "edge_anchor_total": 5
+     "edge_anchor_total": 5,
+     "row_heights": [
+      {
+       "item": "wi-frame",
+       "name": "线框与令牌核稿",
+       "name_lines": 1,
+       "row_h": 33,
+       "visible": false
+      },
+      {
+       "item": "wi-design",
+       "name": "出图：teamwork 里程碑/工作项 DAG 静态 UI 稿",
+       "name_lines": 3,
+       "row_h": 63,
+       "visible": false
+      },
+      {
+       "item": "wi-impl",
+       "name": "甘特条 + 汇总条落地",
+       "name_lines": 2,
+       "row_h": 48,
+       "visible": true
+      },
+      {
+       "item": "wi-tests",
+       "name": "槽位与拓扑单测",
+       "name_lines": 1,
+       "row_h": 33,
+       "visible": true
+      },
+      {
+       "item": "wi-render",
+       "name": "PNG 逐行区间量测",
+       "name_lines": 1,
+       "row_h": 33,
+       "visible": true
+      },
+      {
+       "item": "wi-accept",
+       "name": "验收收口",
+       "name_lines": 1,
+       "row_h": 33,
+       "visible": true
+      }
+     ],
+     "row_fit": {
+      "base": 18.0,
+      "pitch": 15.0,
+      "max_residual": 15.0
+     },
+     "frame_heights": [
+      {
+       "ms": "m-design",
+       "frame_h": 167,
+       "head_h": 47,
+       "sum_h": 22,
+       "sum_rows_h": 96,
+       "expect_h": 167,
+       "delta": 0
+      },
+      {
+       "ms": "m-impl",
+       "frame_h": 152,
+       "head_h": 47,
+       "sum_h": 22,
+       "sum_rows_h": 81,
+       "expect_h": 152,
+       "delta": 0
+      },
+      {
+       "ms": "m-verify",
+       "frame_h": 137,
+       "head_h": 47,
+       "sum_h": 22,
+       "sum_rows_h": 66,
+       "expect_h": 137,
+       "delta": 0
+      }
+     ],
+     "png_bar_heights": [
+      {
+       "item": "wi-impl",
+       "png_bar_h": 16,
+       "dom_bar_h": 16
+      },
+      {
+       "item": "wi-tests",
+       "png_bar_h": 16,
+       "dom_bar_h": 16
+      },
+      {
+       "item": "wi-render",
+       "png_bar_h": 16,
+       "dom_bar_h": 16
+      },
+      {
+       "item": "wi-accept",
+       "png_bar_h": 16,
+       "dom_bar_h": 16
+      }
+     ],
+     "png_spacing": [
+      {
+       "pair": [
+        "wi-impl",
+        "wi-tests"
+       ],
+       "png_delta": 41.0,
+       "expect_delta": 40.5,
+       "ok": true
+      },
+      {
+       "pair": [
+        "wi-render",
+        "wi-accept"
+       ],
+       "png_delta": 33.0,
+       "expect_delta": 33.0,
+       "ok": true
+      }
+     ],
+     "by_lines": {
+      "2": [
+       48
+      ],
+      "1": [
+       33,
+       33,
+       33
+      ]
+     }
     }
    ],
+   "heights": {
+    "by_lines": {
+     "2": [
+      48
+     ],
+     "1": [
+      33,
+      33,
+      33
+     ]
+    },
+    "fits": [
+     {
+      "base": 18.0,
+      "pitch": 15.0,
+      "max_residual": 15.0
+     }
+    ],
+    "frames": [
+     {
+      "ms": "m-design",
+      "frame_h": 167,
+      "head_h": 47,
+      "sum_h": 22,
+      "sum_rows_h": 96,
+      "expect_h": 167,
+      "delta": 0
+     },
+     {
+      "ms": "m-impl",
+      "frame_h": 152,
+      "head_h": 47,
+      "sum_h": 22,
+      "sum_rows_h": 81,
+      "expect_h": 152,
+      "delta": 0
+     },
+     {
+      "ms": "m-verify",
+      "frame_h": 137,
+      "head_h": 47,
+      "sum_h": 22,
+      "sum_rows_h": 66,
+      "expect_h": 137,
+      "delta": 0
+     }
+    ],
+    "png_bar": [
+     {
+      "item": "wi-impl",
+      "png_bar_h": 16,
+      "dom_bar_h": 16
+     },
+     {
+      "item": "wi-tests",
+      "png_bar_h": 16,
+      "dom_bar_h": 16
+     },
+     {
+      "item": "wi-render",
+      "png_bar_h": 16,
+      "dom_bar_h": 16
+     },
+     {
+      "item": "wi-accept",
+      "png_bar_h": 16,
+      "dom_bar_h": 16
+     }
+    ],
+    "png_spacing": [
+     {
+      "pair": [
+       "wi-impl",
+       "wi-tests"
+      ],
+      "png_delta": 41.0,
+      "expect_delta": 40.5,
+      "ok": true
+     },
+     {
+      "pair": [
+       "wi-render",
+       "wi-accept"
+      ],
+      "png_delta": 33.0,
+      "expect_delta": 33.0,
+      "ok": true
+     }
+    ]
+   },
    "gateTexts": [
     "闸门 → 上一层全部 done 才放行（等 m-design）",
     "闸门 → 上一层全部 done 才放行（等 m-impl）",
@@ -2318,6 +3734,18 @@
        "sumLeftInPlot": 0,
        "sumWidth": 192,
        "sumHits": [],
+       "head": {
+        "l": 27,
+        "t": 248,
+        "w": 698,
+        "h": 28
+       },
+       "sum": {
+        "l": 27,
+        "t": 276,
+        "w": 698,
+        "h": 22
+       },
        "rect": {
         "l": 26,
         "t": 247,
@@ -2354,6 +3782,14 @@
         62,
         18
        ],
+       "dom_row_h": 38,
+       "name_lines": 1,
+       "name_text": "c（最左）",
+       "png_bar": [
+        284,
+        301,
+        292.5
+       ],
        "blocked": false,
        "interrupted": false,
        "live": false,
@@ -2386,6 +3822,14 @@
         346,
         62,
         18
+       ],
+       "dom_row_h": 38,
+       "name_lines": 1,
+       "name_text": "b（最左）",
+       "png_bar": [
+        322,
+        339,
+        330.5
        ],
        "blocked": false,
        "interrupted": false,
@@ -2420,6 +3864,14 @@
         62,
         18
        ],
+       "dom_row_h": 38,
+       "name_lines": 1,
+       "name_text": "d（等 c）",
+       "png_bar": [
+        360,
+        377,
+        368.5
+       ],
        "blocked": false,
        "interrupted": false,
        "live": false,
@@ -2453,6 +3905,14 @@
         62,
         18
        ],
+       "dom_row_h": 38,
+       "name_lines": 1,
+       "name_text": "a（d 与 b 都做完才起步）",
+       "png_bar": [
+        398,
+        415,
+        406.5
+       ],
        "blocked": true,
        "interrupted": false,
        "live": false,
@@ -2483,9 +3943,183 @@
      ],
      "topo_violations": [],
      "edge_anchor_ok": 3,
-     "edge_anchor_total": 3
+     "edge_anchor_total": 3,
+     "row_heights": [
+      {
+       "item": "c",
+       "name": "c（最左）",
+       "name_lines": 1,
+       "row_h": 38,
+       "visible": true
+      },
+      {
+       "item": "b",
+       "name": "b（最左）",
+       "name_lines": 1,
+       "row_h": 38,
+       "visible": true
+      },
+      {
+       "item": "d",
+       "name": "d（等 c）",
+       "name_lines": 1,
+       "row_h": 38,
+       "visible": true
+      },
+      {
+       "item": "a",
+       "name": "a（d 与 b 都做完才起步）",
+       "name_lines": 1,
+       "row_h": 38,
+       "visible": true
+      }
+     ],
+     "row_fit": null,
+     "frame_heights": [
+      {
+       "ms": "m-sketch",
+       "frame_h": 204,
+       "head_h": 28,
+       "sum_h": 22,
+       "sum_rows_h": 152,
+       "expect_h": 204,
+       "delta": 0
+      }
+     ],
+     "png_bar_heights": [
+      {
+       "item": "c",
+       "png_bar_h": 18,
+       "dom_bar_h": 18
+      },
+      {
+       "item": "b",
+       "png_bar_h": 18,
+       "dom_bar_h": 18
+      },
+      {
+       "item": "d",
+       "png_bar_h": 18,
+       "dom_bar_h": 18
+      },
+      {
+       "item": "a",
+       "png_bar_h": 18,
+       "dom_bar_h": 18
+      }
+     ],
+     "png_spacing": [
+      {
+       "pair": [
+        "c",
+        "b"
+       ],
+       "png_delta": 38.0,
+       "expect_delta": 38.0,
+       "ok": true
+      },
+      {
+       "pair": [
+        "b",
+        "d"
+       ],
+       "png_delta": 38.0,
+       "expect_delta": 38.0,
+       "ok": true
+      },
+      {
+       "pair": [
+        "d",
+        "a"
+       ],
+       "png_delta": 38.0,
+       "expect_delta": 38.0,
+       "ok": true
+      }
+     ],
+     "by_lines": {
+      "1": [
+       38,
+       38,
+       38,
+       38
+      ]
+     }
     }
    ],
+   "heights": {
+    "by_lines": {
+     "1": [
+      38,
+      38,
+      38,
+      38
+     ]
+    },
+    "fits": [],
+    "frames": [
+     {
+      "ms": "m-sketch",
+      "frame_h": 204,
+      "head_h": 28,
+      "sum_h": 22,
+      "sum_rows_h": 152,
+      "expect_h": 204,
+      "delta": 0
+     }
+    ],
+    "png_bar": [
+     {
+      "item": "c",
+      "png_bar_h": 18,
+      "dom_bar_h": 18
+     },
+     {
+      "item": "b",
+      "png_bar_h": 18,
+      "dom_bar_h": 18
+     },
+     {
+      "item": "d",
+      "png_bar_h": 18,
+      "dom_bar_h": 18
+     },
+     {
+      "item": "a",
+      "png_bar_h": 18,
+      "dom_bar_h": 18
+     }
+    ],
+    "png_spacing": [
+     {
+      "pair": [
+       "c",
+       "b"
+      ],
+      "png_delta": 38.0,
+      "expect_delta": 38.0,
+      "ok": true
+     },
+     {
+      "pair": [
+       "b",
+       "d"
+      ],
+      "png_delta": 38.0,
+      "expect_delta": 38.0,
+      "ok": true
+     },
+     {
+      "pair": [
+       "d",
+       "a"
+      ],
+      "png_delta": 38.0,
+      "expect_delta": 38.0,
+      "ok": true
+     }
+    ]
+   },
    "gateTexts": [
     "' + esc(txt) + '"
    ]
@@ -2583,6 +4217,18 @@
        "sumLeftInPlot": 0,
        "sumWidth": 192,
        "sumHits": [],
+       "head": {
+        "l": 27,
+        "t": 248,
+        "w": 698,
+        "h": 28
+       },
+       "sum": {
+        "l": 27,
+        "t": 276,
+        "w": 698,
+        "h": 22
+       },
        "rect": {
         "l": 26,
         "t": 247,
@@ -2615,6 +4261,18 @@
        "sumLeftInPlot": -235,
        "sumWidth": 0,
        "sumHits": [],
+       "head": {
+        "l": 27,
+        "t": 478,
+        "w": 698,
+        "h": 28
+       },
+       "sum": {
+        "l": 27,
+        "t": 506,
+        "w": 698,
+        "h": 22
+       },
        "rect": {
         "l": 26,
         "t": 477,
@@ -2657,6 +4315,14 @@
         62,
         18
        ],
+       "dom_row_h": 38,
+       "name_lines": 1,
+       "name_text": "已完成的一行（绿）",
+       "png_bar": [
+        284,
+        301,
+        292.5
+       ],
        "blocked": false,
        "interrupted": false,
        "live": false,
@@ -2689,6 +4355,14 @@
         346,
         62,
         18
+       ],
+       "dom_row_h": 38,
+       "name_lines": 1,
+       "name_text": "中断待恢复的一行（红）",
+       "png_bar": [
+        322,
+        339,
+        330.5
        ],
        "blocked": false,
        "interrupted": true,
@@ -2723,6 +4397,14 @@
         62,
         18
        ],
+       "dom_row_h": 38,
+       "name_lines": 1,
+       "name_text": "等 review 的一行（蓝）",
+       "png_bar": [
+        360,
+        377,
+        368.5
+       ],
        "blocked": false,
        "interrupted": false,
        "live": false,
@@ -2755,6 +4437,14 @@
         422,
         62,
         18
+       ],
+       "dom_row_h": 38,
+       "name_lines": 1,
+       "name_text": "正在做的一行（黄）",
+       "png_bar": [
+        398,
+        415,
+        406.5
        ],
        "blocked": true,
        "interrupted": false,
@@ -2798,9 +4488,183 @@
      ],
      "topo_violations": [],
      "edge_anchor_ok": 3,
-     "edge_anchor_total": 3
+     "edge_anchor_total": 3,
+     "row_heights": [
+      {
+       "item": "wi-mx-1",
+       "name": "已完成的一行（绿）",
+       "name_lines": 1,
+       "row_h": 38,
+       "visible": true
+      },
+      {
+       "item": "wi-mx-3",
+       "name": "中断待恢复的一行（红）",
+       "name_lines": 1,
+       "row_h": 38,
+       "visible": true
+      },
+      {
+       "item": "wi-mx-2",
+       "name": "等 review 的一行（蓝）",
+       "name_lines": 1,
+       "row_h": 38,
+       "visible": true
+      },
+      {
+       "item": "wi-mx-4",
+       "name": "正在做的一行（黄）",
+       "name_lines": 1,
+       "row_h": 38,
+       "visible": true
+      }
+     ],
+     "row_fit": null,
+     "frame_heights": [
+      {
+       "ms": "m-mixed",
+       "frame_h": 204,
+       "head_h": 28,
+       "sum_h": 22,
+       "sum_rows_h": 152,
+       "expect_h": 204,
+       "delta": 0
+      }
+     ],
+     "png_bar_heights": [
+      {
+       "item": "wi-mx-1",
+       "png_bar_h": 18,
+       "dom_bar_h": 18
+      },
+      {
+       "item": "wi-mx-3",
+       "png_bar_h": 18,
+       "dom_bar_h": 18
+      },
+      {
+       "item": "wi-mx-2",
+       "png_bar_h": 18,
+       "dom_bar_h": 18
+      },
+      {
+       "item": "wi-mx-4",
+       "png_bar_h": 18,
+       "dom_bar_h": 18
+      }
+     ],
+     "png_spacing": [
+      {
+       "pair": [
+        "wi-mx-1",
+        "wi-mx-3"
+       ],
+       "png_delta": 38.0,
+       "expect_delta": 38.0,
+       "ok": true
+      },
+      {
+       "pair": [
+        "wi-mx-3",
+        "wi-mx-2"
+       ],
+       "png_delta": 38.0,
+       "expect_delta": 38.0,
+       "ok": true
+      },
+      {
+       "pair": [
+        "wi-mx-2",
+        "wi-mx-4"
+       ],
+       "png_delta": 38.0,
+       "expect_delta": 38.0,
+       "ok": true
+      }
+     ],
+     "by_lines": {
+      "1": [
+       38,
+       38,
+       38,
+       38
+      ]
+     }
     }
    ],
+   "heights": {
+    "by_lines": {
+     "1": [
+      38,
+      38,
+      38,
+      38
+     ]
+    },
+    "fits": [],
+    "frames": [
+     {
+      "ms": "m-mixed",
+      "frame_h": 204,
+      "head_h": 28,
+      "sum_h": 22,
+      "sum_rows_h": 152,
+      "expect_h": 204,
+      "delta": 0
+     }
+    ],
+    "png_bar": [
+     {
+      "item": "wi-mx-1",
+      "png_bar_h": 18,
+      "dom_bar_h": 18
+     },
+     {
+      "item": "wi-mx-3",
+      "png_bar_h": 18,
+      "dom_bar_h": 18
+     },
+     {
+      "item": "wi-mx-2",
+      "png_bar_h": 18,
+      "dom_bar_h": 18
+     },
+     {
+      "item": "wi-mx-4",
+      "png_bar_h": 18,
+      "dom_bar_h": 18
+     }
+    ],
+    "png_spacing": [
+     {
+      "pair": [
+       "wi-mx-1",
+       "wi-mx-3"
+      ],
+      "png_delta": 38.0,
+      "expect_delta": 38.0,
+      "ok": true
+     },
+     {
+      "pair": [
+       "wi-mx-3",
+       "wi-mx-2"
+      ],
+      "png_delta": 38.0,
+      "expect_delta": 38.0,
+      "ok": true
+     },
+     {
+      "pair": [
+       "wi-mx-2",
+       "wi-mx-4"
+      ],
+      "png_delta": 38.0,
+      "expect_delta": 38.0,
+      "ok": true
+     }
+    ]
+   },
    "gateTexts": [
     "闸门 → 上一层全部 done 才放行（等 m-mixed）",
     "' + esc(txt) + '"
@@ -2850,7 +4714,7 @@
      "barH": 18,
      "scroll": {
       "clientH": 380,
-      "scrollH": 474,
+      "scrollH": 486,
       "scrollTop": 0,
       "rect": {
        "l": 26,
@@ -2862,7 +4726,7 @@
      "scrollMax": 380,
      "svg": {
       "w": 690,
-      "h": 436,
+      "h": 448,
       "edges": 7,
       "heads": 7
      },
@@ -2897,11 +4761,23 @@
        "sumLeftInPlot": 0,
        "sumWidth": 64,
        "sumHits": [],
+       "head": {
+        "l": 27,
+        "t": 248,
+        "w": 688,
+        "h": 28
+       },
+       "sum": {
+        "l": 27,
+        "t": 276,
+        "w": 688,
+        "h": 22
+       },
        "rect": {
         "l": 26,
         "t": 247,
         "w": 690,
-        "h": 128
+        "h": 140
        }
       },
       {
@@ -2919,22 +4795,34 @@
        "sumEmpty": false,
        "sumBar": {
         "l": 299,
-        "t": 435,
+        "t": 447,
         "w": 128,
         "h": 9
        },
        "sumPlot": {
         "l": 235,
-        "t": 430,
+        "t": 442,
         "w": 480,
         "h": 22
        },
        "sumLeftInPlot": 64,
        "sumWidth": 128,
        "sumHits": [],
+       "head": {
+        "l": 27,
+        "t": 414,
+        "w": 688,
+        "h": 28
+       },
+       "sum": {
+        "l": 27,
+        "t": 442,
+        "w": 688,
+        "h": 22
+       },
        "rect": {
         "l": 26,
-        "t": 401,
+        "t": 413,
         "w": 690,
         "h": 128
        }
@@ -2954,22 +4842,34 @@
        "sumEmpty": false,
        "sumBar": {
         "l": 363,
-        "t": 589,
+        "t": 601,
         "w": 128,
         "h": 9
        },
        "sumPlot": {
         "l": 235,
-        "t": 584,
+        "t": 596,
         "w": 480,
         "h": 22
        },
        "sumLeftInPlot": 128,
        "sumWidth": 128,
        "sumHits": [],
+       "head": {
+        "l": 27,
+        "t": 568,
+        "w": 688,
+        "h": 28
+       },
+       "sum": {
+        "l": 27,
+        "t": 596,
+        "w": 688,
+        "h": 22
+       },
        "rect": {
         "l": 26,
-        "t": 555,
+        "t": 567,
         "w": 690,
         "h": 128
        }
@@ -3014,6 +4914,14 @@
         62,
         18
        ],
+       "dom_row_h": 38,
+       "name_lines": 1,
+       "name_text": "线框与令牌核稿",
+       "png_bar": [
+        284,
+        301,
+        292.5
+       ],
        "blocked": false,
        "interrupted": false,
        "live": false,
@@ -3036,16 +4944,24 @@
        "png_x1": 296,
        "png_slot": 0,
        "png_width_px": 62,
-       "how": "v-edge col running(324..337)",
+       "how": "v-edge col running(330..343)",
        "expect_px": [
         235,
         297
        ],
        "dom_bar": [
         235,
-        346,
+        352,
         62,
         18
+       ],
+       "dom_row_h": 50,
+       "name_lines": 2,
+       "name_text": "出图：teamwork 里程碑/工作项 DAG 静态 UI 稿",
+       "png_bar": [
+        328,
+        345,
+        336.5
        ],
        "blocked": false,
        "interrupted": false,
@@ -3069,16 +4985,24 @@
        "png_x1": 360,
        "png_slot": 1,
        "png_width_px": 62,
-       "how": "v-edge col pending(440..453)",
+       "how": "v-edge col pending(452..465)",
        "expect_px": [
         299,
         361
        ],
        "dom_bar": [
         299,
-        462,
+        474,
         62,
         18
+       ],
+       "dom_row_h": 38,
+       "name_lines": 1,
+       "name_text": "甘特条 + 汇总条落地",
+       "png_bar": [
+        450,
+        467,
+        458.5
        ],
        "blocked": true,
        "interrupted": false,
@@ -3102,16 +5026,24 @@
        "png_x1": 424,
        "png_slot": 2,
        "png_width_px": 62,
-       "how": "v-edge col pending(478..491)",
+       "how": "v-edge col pending(490..503)",
        "expect_px": [
         363,
         425
        ],
        "dom_bar": [
         363,
-        500,
+        512,
         62,
         18
+       ],
+       "dom_row_h": 38,
+       "name_lines": 1,
+       "name_text": "槽位与拓扑单测",
+       "png_bar": [
+        488,
+        505,
+        496.5
        ],
        "blocked": true,
        "interrupted": false,
@@ -3142,10 +5074,14 @@
        ],
        "dom_bar": [
         363,
-        616,
+        628,
         62,
         18
        ],
+       "dom_row_h": 38,
+       "name_lines": 1,
+       "name_text": "PNG 逐行区间量测",
+       "png_bar": null,
        "blocked": true,
        "interrupted": false,
        "live": false,
@@ -3175,10 +5111,14 @@
        ],
        "dom_bar": [
         427,
-        654,
+        666,
         62,
         18
        ],
+       "dom_row_h": 38,
+       "name_lines": 1,
+       "name_text": "验收收口",
+       "png_bar": null,
        "blocked": true,
        "interrupted": false,
        "live": false,
@@ -3242,9 +5182,219 @@
      ],
      "topo_violations": [],
      "edge_anchor_ok": 5,
-     "edge_anchor_total": 5
+     "edge_anchor_total": 5,
+     "row_heights": [
+      {
+       "item": "wi-frame",
+       "name": "线框与令牌核稿",
+       "name_lines": 1,
+       "row_h": 38,
+       "visible": true
+      },
+      {
+       "item": "wi-design",
+       "name": "出图：teamwork 里程碑/工作项 DAG 静态 UI 稿",
+       "name_lines": 2,
+       "row_h": 50,
+       "visible": true
+      },
+      {
+       "item": "wi-impl",
+       "name": "甘特条 + 汇总条落地",
+       "name_lines": 1,
+       "row_h": 38,
+       "visible": true
+      },
+      {
+       "item": "wi-tests",
+       "name": "槽位与拓扑单测",
+       "name_lines": 1,
+       "row_h": 38,
+       "visible": true
+      },
+      {
+       "item": "wi-render",
+       "name": "PNG 逐行区间量测",
+       "name_lines": 1,
+       "row_h": 38,
+       "visible": false
+      },
+      {
+       "item": "wi-accept",
+       "name": "验收收口",
+       "name_lines": 1,
+       "row_h": 38,
+       "visible": false
+      }
+     ],
+     "row_fit": null,
+     "frame_heights": [
+      {
+       "ms": "m-design",
+       "frame_h": 140,
+       "head_h": 28,
+       "sum_h": 22,
+       "sum_rows_h": 88,
+       "expect_h": 140,
+       "delta": 0
+      },
+      {
+       "ms": "m-impl",
+       "frame_h": 128,
+       "head_h": 28,
+       "sum_h": 22,
+       "sum_rows_h": 76,
+       "expect_h": 128,
+       "delta": 0
+      },
+      {
+       "ms": "m-verify",
+       "frame_h": 128,
+       "head_h": 28,
+       "sum_h": 22,
+       "sum_rows_h": 76,
+       "expect_h": 128,
+       "delta": 0
+      }
+     ],
+     "png_bar_heights": [
+      {
+       "item": "wi-frame",
+       "png_bar_h": 18,
+       "dom_bar_h": 18
+      },
+      {
+       "item": "wi-design",
+       "png_bar_h": 18,
+       "dom_bar_h": 18
+      },
+      {
+       "item": "wi-impl",
+       "png_bar_h": 18,
+       "dom_bar_h": 18
+      },
+      {
+       "item": "wi-tests",
+       "png_bar_h": 18,
+       "dom_bar_h": 18
+      }
+     ],
+     "png_spacing": [
+      {
+       "pair": [
+        "wi-frame",
+        "wi-design"
+       ],
+       "png_delta": 44.0,
+       "expect_delta": 44.0,
+       "ok": true
+      },
+      {
+       "pair": [
+        "wi-impl",
+        "wi-tests"
+       ],
+       "png_delta": 38.0,
+       "expect_delta": 38.0,
+       "ok": true
+      }
+     ],
+     "by_lines": {
+      "1": [
+       38,
+       38,
+       38
+      ],
+      "2": [
+       50
+      ]
+     }
     }
    ],
+   "heights": {
+    "by_lines": {
+     "1": [
+      38,
+      38,
+      38
+     ],
+     "2": [
+      50
+     ]
+    },
+    "fits": [],
+    "frames": [
+     {
+      "ms": "m-design",
+      "frame_h": 140,
+      "head_h": 28,
+      "sum_h": 22,
+      "sum_rows_h": 88,
+      "expect_h": 140,
+      "delta": 0
+     },
+     {
+      "ms": "m-impl",
+      "frame_h": 128,
+      "head_h": 28,
+      "sum_h": 22,
+      "sum_rows_h": 76,
+      "expect_h": 128,
+      "delta": 0
+     },
+     {
+      "ms": "m-verify",
+      "frame_h": 128,
+      "head_h": 28,
+      "sum_h": 22,
+      "sum_rows_h": 76,
+      "expect_h": 128,
+      "delta": 0
+     }
+    ],
+    "png_bar": [
+     {
+      "item": "wi-frame",
+      "png_bar_h": 18,
+      "dom_bar_h": 18
+     },
+     {
+      "item": "wi-design",
+      "png_bar_h": 18,
+      "dom_bar_h": 18
+     },
+     {
+      "item": "wi-impl",
+      "png_bar_h": 18,
+      "dom_bar_h": 18
+     },
+     {
+      "item": "wi-tests",
+      "png_bar_h": 18,
+      "dom_bar_h": 18
+     }
+    ],
+    "png_spacing": [
+     {
+      "pair": [
+       "wi-frame",
+       "wi-design"
+      ],
+      "png_delta": 44.0,
+      "expect_delta": 44.0,
+      "ok": true
+     },
+     {
+      "pair": [
+       "wi-impl",
+       "wi-tests"
+      ],
+      "png_delta": 38.0,
+      "expect_delta": 38.0,
+      "ok": true
+     }
+    ]
+   },
    "gateTexts": [
     "闸门 → 上一层全部 done 才放行（等 m-design）",
     "闸门 → 上一层全部 done 才放行（等 m-impl）",
@@ -3283,6 +5433,30 @@
     {
      "label": "空里程碑画零宽菱形 / 非空不画（菱形 data-empty 与框 data-sum-empty 一致，且有对应 CSS）",
      "ok": true
+    },
+    {
+     "label": "行高由内容撑：折行数多的行更高、同折行数内行高一致（±1px）；行高不是常量",
+     "ok": true
+    },
+    {
+     "label": "行高 = max(保底值, 内容高)：每行都 ≥ 保底值 38 px、且折 ≥2 行的行都突破保底值",
+     "ok": true
+    },
+    {
+     "label": "行高不是常量：同一板内至少 2 个不同行高（短名行 = 保底值 / 长名行更高）",
+     "ok": true
+    },
+    {
+     "label": "框高 = 框头 + 汇总条 + Σ行高（±2.5px）—— 行撑出来的，不是 行数×常量",
+     "ok": true
+    },
+    {
+     "label": "PNG：条描边高 ≈ --team-dag-bar-h（±3px）、相邻条中心间距 = (h_i+h_{i+1})/2（±2.5px）",
+     "ok": true
+    },
+    {
+     "label": "依赖边按实测几何写好（.gantt-edges[data-laid-out=\"true\"]）",
+     "ok": true
     }
    ]
   },
@@ -3315,6 +5489,30 @@
     },
     {
      "label": "空里程碑画零宽菱形 / 非空不画（菱形 data-empty 与框 data-sum-empty 一致，且有对应 CSS）",
+     "ok": true
+    },
+    {
+     "label": "行高由内容撑：折行数多的行更高、同折行数内行高一致（±1px）；行高不是常量",
+     "ok": true
+    },
+    {
+     "label": "行高 = max(保底值, 内容高)：每行都 ≥ 保底值 30 px、且折 ≥2 行的行都突破保底值",
+     "ok": true
+    },
+    {
+     "label": "行高不是常量：同一板内至少 2 个不同行高（短名行 = 保底值 / 长名行更高）",
+     "ok": true
+    },
+    {
+     "label": "框高 = 框头 + 汇总条 + Σ行高（±2.5px）—— 行撑出来的，不是 行数×常量",
+     "ok": true
+    },
+    {
+     "label": "PNG：条描边高 ≈ --team-dag-bar-h（±3px）、相邻条中心间距 = (h_i+h_{i+1})/2（±2.5px）",
+     "ok": true
+    },
+    {
+     "label": "依赖边按实测几何写好（.gantt-edges[data-laid-out=\"true\"]）",
      "ok": true
     }
    ]
@@ -3349,6 +5547,30 @@
     {
      "label": "空里程碑画零宽菱形 / 非空不画（菱形 data-empty 与框 data-sum-empty 一致，且有对应 CSS）",
      "ok": true
+    },
+    {
+     "label": "行高由内容撑：折行数多的行更高、同折行数内行高一致（±1px）；行高不是常量",
+     "ok": true
+    },
+    {
+     "label": "行高 = max(保底值, 内容高)：每行都 ≥ 保底值 38 px、且折 ≥2 行的行都突破保底值",
+     "ok": true
+    },
+    {
+     "label": "行高不是常量：同一板内至少 2 个不同行高（短名行 = 保底值 / 长名行更高）",
+     "ok": true
+    },
+    {
+     "label": "框高 = 框头 + 汇总条 + Σ行高（±2.5px）—— 行撑出来的，不是 行数×常量",
+     "ok": true
+    },
+    {
+     "label": "PNG：条描边高 ≈ --team-dag-bar-h（±3px）、相邻条中心间距 = (h_i+h_{i+1})/2（±2.5px）",
+     "ok": true
+    },
+    {
+     "label": "依赖边按实测几何写好（.gantt-edges[data-laid-out=\"true\"]）",
+     "ok": true
     }
    ]
   },
@@ -3381,6 +5603,30 @@
     },
     {
      "label": "空里程碑画零宽菱形 / 非空不画（菱形 data-empty 与框 data-sum-empty 一致，且有对应 CSS）",
+     "ok": true
+    },
+    {
+     "label": "行高由内容撑：折行数多的行更高、同折行数内行高一致（±1px）；行高不是常量",
+     "ok": true
+    },
+    {
+     "label": "行高 = max(保底值, 内容高)：每行都 ≥ 保底值 38 px、且折 ≥2 行的行都突破保底值",
+     "ok": true
+    },
+    {
+     "label": "行高不是常量：同一板内至少 2 个不同行高（短名行 = 保底值 / 长名行更高）",
+     "ok": true
+    },
+    {
+     "label": "框高 = 框头 + 汇总条 + Σ行高（±2.5px）—— 行撑出来的，不是 行数×常量",
+     "ok": true
+    },
+    {
+     "label": "PNG：条描边高 ≈ --team-dag-bar-h（±3px）、相邻条中心间距 = (h_i+h_{i+1})/2（±2.5px）",
+     "ok": true
+    },
+    {
+     "label": "依赖边按实测几何写好（.gantt-edges[data-laid-out=\"true\"]）",
      "ok": true
     }
    ]
@@ -3415,6 +5661,30 @@
     {
      "label": "空里程碑画零宽菱形 / 非空不画（菱形 data-empty 与框 data-sum-empty 一致，且有对应 CSS）",
      "ok": true
+    },
+    {
+     "label": "行高由内容撑：折行数多的行更高、同折行数内行高一致（±1px）；行高不是常量",
+     "ok": true
+    },
+    {
+     "label": "行高 = max(保底值, 内容高)：每行都 ≥ 保底值 30 px、且折 ≥2 行的行都突破保底值",
+     "ok": true
+    },
+    {
+     "label": "行高不是常量：同一板内至少 2 个不同行高（短名行 = 保底值 / 长名行更高）",
+     "ok": true
+    },
+    {
+     "label": "框高 = 框头 + 汇总条 + Σ行高（±2.5px）—— 行撑出来的，不是 行数×常量",
+     "ok": true
+    },
+    {
+     "label": "PNG：条描边高 ≈ --team-dag-bar-h（±3px）、相邻条中心间距 = (h_i+h_{i+1})/2（±2.5px）",
+     "ok": true
+    },
+    {
+     "label": "依赖边按实测几何写好（.gantt-edges[data-laid-out=\"true\"]）",
+     "ok": true
     }
    ]
   },
@@ -3447,6 +5717,30 @@
     },
     {
      "label": "空里程碑画零宽菱形 / 非空不画（菱形 data-empty 与框 data-sum-empty 一致，且有对应 CSS）",
+     "ok": true
+    },
+    {
+     "label": "行高由内容撑：折行数多的行更高、同折行数内行高一致（±1px）；行高不是常量",
+     "ok": true
+    },
+    {
+     "label": "行高 = max(保底值, 内容高)：每行都 ≥ 保底值 38 px、且折 ≥2 行的行都突破保底值",
+     "ok": true
+    },
+    {
+     "label": "行高不是常量：同一板内至少 2 个不同行高（短名行 = 保底值 / 长名行更高）",
+     "ok": true
+    },
+    {
+     "label": "框高 = 框头 + 汇总条 + Σ行高（±2.5px）—— 行撑出来的，不是 行数×常量",
+     "ok": true
+    },
+    {
+     "label": "PNG：条描边高 ≈ --team-dag-bar-h（±3px）、相邻条中心间距 = (h_i+h_{i+1})/2（±2.5px）",
+     "ok": true
+    },
+    {
+     "label": "依赖边按实测几何写好（.gantt-edges[data-laid-out=\"true\"]）",
      "ok": true
     }
    ]
@@ -3481,6 +5775,30 @@
     {
      "label": "空里程碑画零宽菱形 / 非空不画（菱形 data-empty 与框 data-sum-empty 一致，且有对应 CSS）",
      "ok": true
+    },
+    {
+     "label": "行高由内容撑：折行数多的行更高、同折行数内行高一致（±1px）；行高不是常量",
+     "ok": true
+    },
+    {
+     "label": "行高 = max(保底值, 内容高)：每行都 ≥ 保底值 38 px、且折 ≥2 行的行都突破保底值",
+     "ok": true
+    },
+    {
+     "label": "行高不是常量：同一板内至少 2 个不同行高（短名行 = 保底值 / 长名行更高）",
+     "ok": true
+    },
+    {
+     "label": "框高 = 框头 + 汇总条 + Σ行高（±2.5px）—— 行撑出来的，不是 行数×常量",
+     "ok": true
+    },
+    {
+     "label": "PNG：条描边高 ≈ --team-dag-bar-h（±3px）、相邻条中心间距 = (h_i+h_{i+1})/2（±2.5px）",
+     "ok": true
+    },
+    {
+     "label": "依赖边按实测几何写好（.gantt-edges[data-laid-out=\"true\"]）",
+     "ok": true
     }
    ]
   },
@@ -3513,6 +5831,30 @@
     },
     {
      "label": "空里程碑画零宽菱形 / 非空不画（菱形 data-empty 与框 data-sum-empty 一致，且有对应 CSS）",
+     "ok": true
+    },
+    {
+     "label": "行高由内容撑：折行数多的行更高、同折行数内行高一致（±1px）；行高不是常量",
+     "ok": true
+    },
+    {
+     "label": "行高 = max(保底值, 内容高)：每行都 ≥ 保底值 38 px、且折 ≥2 行的行都突破保底值",
+     "ok": true
+    },
+    {
+     "label": "行高不是常量：同一板内至少 2 个不同行高（短名行 = 保底值 / 长名行更高）",
+     "ok": true
+    },
+    {
+     "label": "框高 = 框头 + 汇总条 + Σ行高（±2.5px）—— 行撑出来的，不是 行数×常量",
+     "ok": true
+    },
+    {
+     "label": "PNG：条描边高 ≈ --team-dag-bar-h（±3px）、相邻条中心间距 = (h_i+h_{i+1})/2（±2.5px）",
+     "ok": true
+    },
+    {
+     "label": "依赖边按实测几何写好（.gantt-edges[data-laid-out=\"true\"]）",
      "ok": true
     }
    ]
@@ -3687,28 +6029,6 @@
   },
   {
    "shot": "narrow-bottom",
-   "item": "wi-frame",
-   "board": "board-narrow",
-   "x0": 145,
-   "x1": 182,
-   "slot": 0,
-   "expect": 0,
-   "width": 38,
-   "ok": true
-  },
-  {
-   "shot": "narrow-bottom",
-   "item": "wi-design",
-   "board": "board-narrow",
-   "x0": 145,
-   "x1": 182,
-   "slot": 0,
-   "expect": 0,
-   "width": 38,
-   "ok": true
-  },
-  {
-   "shot": "narrow-bottom",
    "item": "wi-impl",
    "board": "board-narrow",
    "x0": 185,
@@ -3726,6 +6046,28 @@
    "x1": 262,
    "slot": 2,
    "expect": 2,
+   "width": 38,
+   "ok": true
+  },
+  {
+   "shot": "narrow-bottom",
+   "item": "wi-render",
+   "board": "board-narrow",
+   "x0": 225,
+   "x1": 262,
+   "slot": 2,
+   "expect": 2,
+   "width": 38,
+   "ok": true
+  },
+  {
+   "shot": "narrow-bottom",
+   "item": "wi-accept",
+   "board": "board-narrow",
+   "x0": 265,
+   "x1": 302,
+   "slot": 3,
+   "expect": 3,
    "width": 38,
    "ok": true
   },
@@ -4058,6 +6400,323 @@
    ],
    "dl": 0,
    "dr": -1
+  }
+ ],
+ "height_samples": [
+  {
+   "shot": "wide",
+   "board": "board-wide",
+   "hostW": 702,
+   "floor": 38,
+   "item": "wi-frame",
+   "n": 1,
+   "h": 38
+  },
+  {
+   "shot": "wide",
+   "board": "board-wide",
+   "hostW": 702,
+   "floor": 38,
+   "item": "wi-design",
+   "n": 2,
+   "h": 50
+  },
+  {
+   "shot": "wide",
+   "board": "board-wide",
+   "hostW": 702,
+   "floor": 38,
+   "item": "wi-impl",
+   "n": 1,
+   "h": 38
+  },
+  {
+   "shot": "wide",
+   "board": "board-wide",
+   "hostW": 702,
+   "floor": 38,
+   "item": "wi-tests",
+   "n": 1,
+   "h": 38
+  },
+  {
+   "shot": "narrow",
+   "board": "board-narrow",
+   "hostW": 342,
+   "floor": 30,
+   "item": "wi-frame",
+   "n": 1,
+   "h": 33
+  },
+  {
+   "shot": "narrow",
+   "board": "board-narrow",
+   "hostW": 342,
+   "floor": 30,
+   "item": "wi-design",
+   "n": 3,
+   "h": 63
+  },
+  {
+   "shot": "narrow",
+   "board": "board-narrow",
+   "hostW": 342,
+   "floor": 30,
+   "item": "wi-impl",
+   "n": 2,
+   "h": 48
+  },
+  {
+   "shot": "narrow",
+   "board": "board-narrow",
+   "hostW": 342,
+   "floor": 30,
+   "item": "wi-tests",
+   "n": 1,
+   "h": 33
+  },
+  {
+   "shot": "advance1",
+   "board": "board-wide",
+   "hostW": 702,
+   "floor": 38,
+   "item": "wi-design",
+   "n": 2,
+   "h": 50
+  },
+  {
+   "shot": "advance1",
+   "board": "board-wide",
+   "hostW": 702,
+   "floor": 38,
+   "item": "wi-impl",
+   "n": 1,
+   "h": 38
+  },
+  {
+   "shot": "advance1",
+   "board": "board-wide",
+   "hostW": 702,
+   "floor": 38,
+   "item": "wi-tests",
+   "n": 1,
+   "h": 38
+  },
+  {
+   "shot": "wide-bottom",
+   "board": "board-wide",
+   "hostW": 702,
+   "floor": 38,
+   "item": "wi-impl",
+   "n": 1,
+   "h": 38
+  },
+  {
+   "shot": "wide-bottom",
+   "board": "board-wide",
+   "hostW": 702,
+   "floor": 38,
+   "item": "wi-tests",
+   "n": 1,
+   "h": 38
+  },
+  {
+   "shot": "wide-bottom",
+   "board": "board-wide",
+   "hostW": 702,
+   "floor": 38,
+   "item": "wi-render",
+   "n": 1,
+   "h": 38
+  },
+  {
+   "shot": "wide-bottom",
+   "board": "board-wide",
+   "hostW": 702,
+   "floor": 38,
+   "item": "wi-accept",
+   "n": 1,
+   "h": 38
+  },
+  {
+   "shot": "narrow-bottom",
+   "board": "board-narrow",
+   "hostW": 342,
+   "floor": 30,
+   "item": "wi-impl",
+   "n": 2,
+   "h": 48
+  },
+  {
+   "shot": "narrow-bottom",
+   "board": "board-narrow",
+   "hostW": 342,
+   "floor": 30,
+   "item": "wi-tests",
+   "n": 1,
+   "h": 33
+  },
+  {
+   "shot": "narrow-bottom",
+   "board": "board-narrow",
+   "hostW": 342,
+   "floor": 30,
+   "item": "wi-render",
+   "n": 1,
+   "h": 33
+  },
+  {
+   "shot": "narrow-bottom",
+   "board": "board-narrow",
+   "hostW": 342,
+   "floor": 30,
+   "item": "wi-accept",
+   "n": 1,
+   "h": 33
+  },
+  {
+   "shot": "sketch",
+   "board": "board-wide",
+   "hostW": 702,
+   "floor": 38,
+   "item": "c",
+   "n": 1,
+   "h": 38
+  },
+  {
+   "shot": "sketch",
+   "board": "board-wide",
+   "hostW": 702,
+   "floor": 38,
+   "item": "b",
+   "n": 1,
+   "h": 38
+  },
+  {
+   "shot": "sketch",
+   "board": "board-wide",
+   "hostW": 702,
+   "floor": 38,
+   "item": "d",
+   "n": 1,
+   "h": 38
+  },
+  {
+   "shot": "sketch",
+   "board": "board-wide",
+   "hostW": 702,
+   "floor": 38,
+   "item": "a",
+   "n": 1,
+   "h": 38
+  },
+  {
+   "shot": "mixed",
+   "board": "board-wide",
+   "hostW": 702,
+   "floor": 38,
+   "item": "wi-mx-1",
+   "n": 1,
+   "h": 38
+  },
+  {
+   "shot": "mixed",
+   "board": "board-wide",
+   "hostW": 702,
+   "floor": 38,
+   "item": "wi-mx-3",
+   "n": 1,
+   "h": 38
+  },
+  {
+   "shot": "mixed",
+   "board": "board-wide",
+   "hostW": 702,
+   "floor": 38,
+   "item": "wi-mx-2",
+   "n": 1,
+   "h": 38
+  },
+  {
+   "shot": "mixed",
+   "board": "board-wide",
+   "hostW": 702,
+   "floor": 38,
+   "item": "wi-mx-4",
+   "n": 1,
+   "h": 38
+  },
+  {
+   "shot": "dark",
+   "board": "board-wide",
+   "hostW": 702,
+   "floor": 38,
+   "item": "wi-frame",
+   "n": 1,
+   "h": 38
+  },
+  {
+   "shot": "dark",
+   "board": "board-wide",
+   "hostW": 702,
+   "floor": 38,
+   "item": "wi-design",
+   "n": 2,
+   "h": 50
+  },
+  {
+   "shot": "dark",
+   "board": "board-wide",
+   "hostW": 702,
+   "floor": 38,
+   "item": "wi-impl",
+   "n": 1,
+   "h": 38
+  },
+  {
+   "shot": "dark",
+   "board": "board-wide",
+   "hostW": 702,
+   "floor": 38,
+   "item": "wi-tests",
+   "n": 1,
+   "h": 38
+  }
+ ],
+ "height_model": [
+  {
+   "floor": 30,
+   "fitted": true,
+   "c1": 33.0,
+   "pitch": 15.0,
+   "samples": 8,
+   "break_floor_samples": 8,
+   "line_counts": [
+    1,
+    2,
+    3
+   ],
+   "max_residual": 0.0,
+   "ok": true
+  },
+  {
+   "floor": 38,
+   "fitted": false,
+   "samples": 23,
+   "break_floor_samples": 3,
+   "break_floor_heights": [
+    50
+   ],
+   "clipped_at_floor": [
+    38
+   ],
+   "line_counts": [
+    1,
+    2
+   ],
+   "max_residual": null,
+   "ok": true,
+   "note": "只有一档突破保底值的样本 → c1/pitch 不可辨识；已验：每行 ≥ 保底值，突破保底值的行都 > 保底值"
   }
  ],
  "slot_table_md": [

@@ -10,6 +10,9 @@
      · 绘图区原点 plot_l 与槽宽 slotW **从 PNG 自己量**（刻度尺竖线），不依赖页面读数
      · 槽位换算只用 PNG 量到的 x0；页面读数（DOM rect）只当搜索窗口，同时交叉核对
   4) 另用 DOM 核对：汇总条跨度 = min..max、里程碑间箭头、行序 = 拓扑序、信息不丢、闸门三支文案
+  5) 行高 / 框高（口径：**字撑行、框随行长**，非"行数 × 常量"）：DOM 实测逐行行高 +
+     拟合 row_h = base + (折行数−1)×pitch + 框高 = 框头+汇总+Σ行高 对账；
+     PNG 里量条的描边高与**相邻条中心间距**（= 两行行高的一半之和）交叉核对
 
 用法：  python docs/design/teamwork-gantt/tools/measure_gantt.py
 产物：  docs/design/teamwork-gantt/evidence/{gantt-*.png,dom-*.html,readings.json,readings.txt,slot-table.md}
@@ -43,8 +46,8 @@ SHOTS = [
     ("wide",        "?view=wide",                 "800,1400", True,  "宽栏 704px 宿主 · 真实故事（3 里程碑 / 6 工作项）· scrollTop=0"),
     ("narrow",      "?view=narrow",               "420,1500", True,  "窄栏 344px 宿主（容器查询生效）· scrollTop=0"),
     ("advance1",    "?view=wide&advance=1",       "800,1400", True,  "推进一轮（wi-design done · wi-impl running · m-impl 闸门放行）"),
-    ("wide-bottom", "?view=wide&scroll=94",       "800,1400", False, "宽栏滚到底（看 m-verify 的两行）"),
-    ("narrow-bottom", "?view=narrow&scroll=44",   "420,1500", False, "窄栏滚到底"),
+    ("wide-bottom", "?view=wide&scroll=9999",       "800,1400", False, "宽栏滚到底（看 m-verify 的两行）"),
+    ("narrow-bottom", "?view=narrow&scroll=9999",   "420,1500", False, "窄栏滚到底"),
     ("sketch",      "?view=wide&demo=sketch",     "800,1400", False, "用户 sketch：a/b/c/d（c→d、b→a、d→a）"),
     ("mixed",       "?view=wide&demo=mixed",      "800,1400", False, "变体：done/review/failed+interrupted + 空里程碑（零宽菱形）"),
     ("dark",        "?view=wide&theme=dark",      "800,1400", False, "深色基座"),
@@ -205,6 +208,7 @@ def main():
     md_header = ["| 图 | item | role | 状态(eff) | 量到 x0..x1(px) | 换算槽位 | 期望槽位 | 条宽 px | 判 |",
                  "|---|---|---|---|---|---|---|---|---|"]
     md = list(md_header)
+    GAL = []          # 全量行高样本（跨图）：{floor, n(折行数), h(行高)} —— 供文末「行高模型」拟合
 
     def bad(msg):
         R["problems"].append(msg)
@@ -214,7 +218,7 @@ def main():
         url = base_url + q
         dom = chrome(url, "dom", win=win)
         with open(os.path.join(OUT, "dom-%s.html" % name), "w", encoding="utf-8", newline=chr(10)) as f:
-            f.write(dom)
+            f.write(dom.replace("\r\n", "\n"))   # Chrome 的 --dump-dom 是 CRLF；.gitattributes 给 *.html 定 eol=lf → 落地前归一（上一轮栽过"工作区一直被报脏"）
         probe = probe_of(dom)
         png_path = os.path.join(OUT, "gantt-%s.png" % name)
         chrome(url, "shot", png=png_path, win=win)
@@ -246,6 +250,7 @@ def main():
                  "stickyHead": probe.get("stickyHead"), "roleIndex": probe.get("roleIndex"),
                  "boards": []}
         print("\n=== shot %s  %s  png=%s ===" % (name, q, os.path.basename(png_path)))
+        HT = {"by_lines": {}, "fits": [], "frames": [], "png_bar": [], "png_spacing": [], "floors": [], "nboards": 0}
         print("  PNG 自查：刻度尺带 y=%s..%s · 刻度竖线 %d 条 · plot_l=%s slot_w=%s · 页面读数 plot_l=%s slot_w=%s · dy=%s"
               % (y0, y1, len(ticks), png_plot_l, png_slot_w, dom_plot_l, dom_slot_w, dy))
         if png_plot_l is None or png_slot_w is None:
@@ -300,6 +305,24 @@ def main():
                     mw = x1 - x0 + 1
                     how = "v-edge col %s(%d..%d)" % (r["eff"], y_win_lo, y_win_hi)
                 ok = (mslot == exp == r["slot"]) and (mw is not None and abs(mw - (slot_w * r["dur"] - 2)) <= 5)
+                # --- 行高：PNG 里量条的**上/下描边**（横跨条宽的行像素）→ 条中心；行高走 DOM 实测 ---
+                #     条在行内垂直居中 → 相邻条的中心间距 = (h_i + h_{i+1}) / 2，行高不同则间距不同。
+                #     pending 行是**虚线描边**，命中不足整宽，所以阈值放到 30%。
+                png_bar = None
+                if visible:
+                    pxl = img.load()
+                    cx0, cx1 = int(r["bar"]["l"] + 6), int(r["bar"]["l"] + r["bar"]["w"] - 6)
+                    needw = max(3, int(0.3 * (cx1 - cx0 + 1)))
+                    ys = []
+                    for y in range(int(bt), int(bt + r["bar"]["h"]) + 1):
+                        n = 0
+                        for x in range(cx0, cx1 + 1):
+                            if min(dist(pxl[x, y][:3], c) for _, _, c in rowp) <= 22.0:
+                                n += 1
+                        if n >= needw:
+                            ys.append(y)
+                    if ys:
+                        png_bar = [ys[0], ys[-1], round((ys[0] + ys[-1]) / 2.0, 2)]
                 if mslot is not None and not ok:
                     bad("%s/%s: 槽位/条宽对不上 公式=%d DOM=%d PNG=%s 宽=%s(期望%d)"
                         % (name, r["item"], exp, r["slot"], mslot, mw, slot_w * r["dur"] - 2))
@@ -311,6 +334,8 @@ def main():
                     "png_slot": mslot, "png_width_px": mw, "how": how,
                     "expect_px": [round(plot_l + exp * slot_w, 1), round(plot_l + (exp + r["dur"]) * slot_w - 2, 1)],
                     "dom_bar": [r["bar"]["l"], r["bar"]["t"], r["bar"]["w"], r["bar"]["h"]],
+                    "dom_row_h": (r.get("row") or {}).get("h"), "name_lines": r.get("nameLines"),
+                    "name_text": r.get("nameText"), "png_bar": png_bar,
                     "blocked": r["blocked"], "interrupted": r["interrupted"], "live": r["live"],
                     "deps": r["deps"], "ok": bool(ok), "measured": mslot is not None})
                 if mslot is not None:
@@ -379,6 +404,76 @@ def main():
                 else:
                     if not f["sumEmpty"]:
                         bad("%s/%s: 空里程碑没画零宽菱形" % (name, f["ms"]))            # 拓扑序 / 边锚点
+            # ---- 行高 / 框高（口径同步实现 wi-gantt-fit）：字撑行、框随行长，不是"行数 × 常量" ----
+            pts = [(rr["name_lines"], rr["dom_row_h"]) for rr in rec["rows"]
+                   if rr.get("visible") and rr.get("dom_row_h") is not None and rr.get("name_lines")
+                   and rr["dom_row_h"] > b["rowH"] + 0.5]     # 保底值会把低位样本压平 → 拟合只用"突破保底"的行
+            nh = sorted(set(n for n, _ in pts))
+            fit = None
+            if len(nh) >= 2:
+                xs = [n for n, _ in pts]; ys = [h for _, h in pts]
+                mx = sum(xs) / float(len(xs)); my = sum(ys) / float(len(ys))
+                den = sum((x - mx) ** 2 for x in xs)
+                if den > 0:
+                    pitch = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / den
+                    base = my - pitch * mx
+                    res = max(abs(h - (base + pitch * (n - 1))) for n, h in pts)
+                    fit = {"base": round(base, 2), "pitch": round(pitch, 2), "max_residual": round(res, 2)}
+            rec["row_heights"] = [{"item": rr["item"], "name": rr.get("name_text"),
+                                   "name_lines": rr.get("name_lines"), "row_h": rr.get("dom_row_h"),
+                                   "visible": rr.get("visible")} for rr in rec["rows"]]
+            rec["row_fit"] = fit
+            print("  行高（DOM 实测）：%s" % " · ".join(
+                "%s=%s(%s行)" % (rr["item"], rr.get("dom_row_h"), rr.get("name_lines")) for rr in rec["rows"]))
+            if fit:   # 只用"突破保底值"的行拟合（保底行会把直线压平；wide 只剩 1 档 → 不定参）
+                print("  行高拟合（只用突破保底值的行）：row_h = %.2f + (nameLines−1) × %.2f（最大残差 %.2fpx）"
+                      % (fit["base"], fit["pitch"], fit["max_residual"]))
+            # 框高 = 2×border + 框头 + 汇总条 + Σ行高（框没有自己的 height，是行撑出来的）
+            rec["frame_heights"] = []
+            for f in b["frames"]:
+                robjs = [rr for rr in rec["rows"] if rr["ms"] == f["ms"]]
+                if not robjs:
+                    continue
+                srow = sum(rr["dom_row_h"] or 0 for rr in robjs)
+                exp_h = 2 + f["head"]["h"] + f["sum"]["h"] + srow
+                d = round(f["rect"]["h"] - exp_h, 2)
+                rec["frame_heights"].append({"ms": f["ms"], "frame_h": f["rect"]["h"], "head_h": f["head"]["h"],
+                                             "sum_h": f["sum"]["h"], "sum_rows_h": round(srow, 2),
+                                             "expect_h": round(exp_h, 2), "delta": d})
+                print("  框高 %s = %.0f（头 %.0f + 汇总 %.0f + Σ行 %.0f + border 2）Δ%s"
+                      % (f["ms"], f["rect"]["h"], f["head"]["h"], f["sum"]["h"], srow, d))
+            # PNG 交叉核对：条的描边高度 ≈ barH；相邻条中心间距 = (h_i + h_{i+1}) / 2（行高不同 → 间距不同）
+            rec["png_bar_heights"] = [{"item": rr["item"], "png_bar_h": rr["png_bar"][1] - rr["png_bar"][0] + 1,
+                                       "dom_bar_h": rr["dom_bar"][3]} for rr in rec["rows"] if rr.get("png_bar")]
+            rec["png_spacing"] = []
+            for a2, b2 in zip(rec["rows"], rec["rows"][1:]):
+                if a2["ms"] != b2["ms"] or not (a2.get("png_bar") and b2.get("png_bar")):
+                    continue
+                d_px = round(b2["png_bar"][2] - a2["png_bar"][2], 2)
+                d_exp = round(((a2["dom_row_h"] or 0) + (b2["dom_row_h"] or 0)) / 2.0, 2)
+                rec["png_spacing"].append({"pair": [a2["item"], b2["item"]], "png_delta": d_px,
+                                           "expect_delta": d_exp, "ok": abs(d_px - d_exp) <= 2.5})
+            print("  PNG 条中心间距（相邻行）：%s" % " · ".join(
+                "%s→%s %s(期望%s)" % (sp["pair"][0], sp["pair"][1], sp["png_delta"], sp["expect_delta"])
+                for sp in rec["png_spacing"]))
+            # 逐板读数 → 本图聚合（一图一板，但聚合口径不依赖这一点）
+            by_lines_here = {}
+            for rr in rec["rows"]:
+                if rr.get("visible") and rr.get("dom_row_h"):
+                    by_lines_here.setdefault(rr.get("name_lines") or 0, []).append(rr["dom_row_h"])
+            rec["by_lines"] = dict((str(k), v) for k, v in by_lines_here.items())
+            HT["nboards"] += 1
+            HT["floors"].append(b["rowH"])
+            GAL.extend({"shot": name, "board": b["id"], "hostW": b["hostW"], "floor": b["rowH"],
+                        "item": rr["item"], "n": rr.get("name_lines"), "h": rr.get("dom_row_h")}
+                       for rr in rec["rows"] if rr.get("visible") and rr.get("dom_row_h"))
+            for n, v in by_lines_here.items():
+                HT["by_lines"].setdefault(n, []).extend(v)
+            if fit:
+                HT["fits"].append(fit)
+            HT["frames"].extend(rec["frame_heights"])
+            HT["png_bar"].extend(rec["png_bar_heights"])
+            HT["png_spacing"].extend(rec["png_spacing"])
             pos = {r["item"]: i for i, r in enumerate(rows)}
             for i, r in enumerate(rows):
                 for d in [x for x in (r["deps"] or "").split(",") if x]:
@@ -419,6 +514,38 @@ def main():
              bool(re.search(r'\.sum-bar\[data-empty="true"\]\{display:none', dom)) and
              bool(re.search(r'\.sum-diamond\[data-empty="false"\]\{display:none', dom))),
         ]
+        # ---- 行高自适应（口径同步实现 wi-gantt-fit）：字撑行、框随行长 ----
+        _by = HT["by_lines"]
+        _multi = [h for n, v in _by.items() if n >= 2 for h in v]
+        _one = [h for n, v in _by.items() if n == 1 for h in v]
+        _spread = all(max(v) - min(v) <= 1.0 for v in _by.values() if len(v) > 1)
+        _distinct = len(set(round(h, 1) for v in _by.values() for h in v)) > 1
+        _tall = (not _multi or not _one) or (min(_multi) > max(_one))
+        _floor = min(HT["floors"]) if HT["floors"] else None
+        _allh = [h for v in _by.values() for h in v]
+        _clip = _floor is not None and all(h >= _floor - 0.5 for h in _allh)
+        _break = (not _multi) or all(h > (_floor or 0) + 0.5 for h in _multi)
+        _frame = bool(HT["frames"]) and all(abs(fh["delta"]) <= 2.5 for fh in HT["frames"])
+        _png = all(abs(pb["png_bar_h"] - pb["dom_bar_h"]) <= 3 for pb in HT["png_bar"]) \
+               and all(sp["ok"] for sp in HT["png_spacing"]) \
+               and (not core or len(HT["png_spacing"]) >= 1)
+        print("  行高分组（nameLines → 行高 px）：%s · 拟合 %s" % (
+            dict((n, [round(h, 1) for h in v]) for n, v in _by.items()), HT["fits"]))
+        entry["heights"] = {"by_lines": dict((str(n), v) for n, v in _by.items()),
+                            "fits": HT["fits"], "frames": HT["frames"],
+                            "png_bar": HT["png_bar"], "png_spacing": HT["png_spacing"]}
+        checks += [
+            ("行高由内容撑：折行数多的行更高、同折行数内行高一致（±1px）；行高不是常量",
+             bool(_by) and _spread and _tall and (_distinct or len(_by) <= 1)),
+            ("行高 = max(保底值, 内容高)：每行都 ≥ 保底值 %s px、且折 ≥2 行的行都突破保底值" % _floor,
+             _clip and _break),
+            ("行高不是常量：同一板内至少 2 个不同行高（短名行 = 保底值 / 长名行更高）",
+             bool(_by) and (_distinct or len(_by) <= 1)),
+            ("框高 = 框头 + 汇总条 + Σ行高（±2.5px）—— 行撑出来的，不是 行数×常量", _frame),
+            ("PNG：条描边高 ≈ --team-dag-bar-h（±3px）、相邻条中心间距 = (h_i+h_{i+1})/2（±2.5px）", _png),
+            ('依赖边按实测几何写好（.gantt-edges[data-laid-out="true"]）',
+             bool(re.search(r'class="gantt-edges"[^>]*data-laid-out="true"', dom))),
+        ]
         for label, ok in checks:
             print("  [%s] %s" % ("PASS" if ok else "FAIL", label))
             if not ok:
@@ -427,6 +554,7 @@ def main():
         for k in ("goal:", "description:", "note:", "session_id:", "worktree:", "depends_on:",
                   'data-flag="blocked"', 'data-flag="interrupted"', 'data-flag="live"',
                   "ms-id", "ms-name", "ms-layer", "ms-lock", "ms-count", "ms-content", "ms-deps",
+                  'data-laid-out="true"',
                   "data-team-item-open", "data-team-role-open", "data-team-session"):
             if k not in dom:
                 bad("%s: DOM 里找不到 %r" % (name, k))
@@ -437,6 +565,52 @@ def main():
         R["shots"][name] = entry
 
     # ---- 覆盖性：每行至少被某一张图量到过 ----
+    # ---- 行高模型（全量样本，跨图）：h = max(保底值, c1 + pitch × (折行数 − 1)) ----
+    #      保底值会把"内容比保底矮"的行压到保底值 → c1/pitch 只用"突破保底值"的样本定参。
+    print("\n============ 行高模型：h = max(保底值, 内容高)，内容高 = c1 + pitch × (折行数 − 1) ============")
+    regimes = {}
+    for s in GAL:
+        regimes.setdefault(s["floor"], []).append(s)
+    R["height_samples"] = GAL
+    R["height_model"] = []
+    model_ok = True
+    for floor in sorted(regimes):
+        ss = regimes[floor]
+        nf = [s for s in ss if s["h"] > floor + 0.5]
+        byn = {}
+        for s in nf:
+            byn.setdefault(s["n"], []).append(s["h"])
+        mean = lambda v: sum(v) / float(len(v))
+        ks = sorted(byn)
+        if len(ks) >= 2:
+            pitch = (mean(byn[ks[-1]]) - mean(byn[ks[0]])) / float(ks[-1] - ks[0])
+            c1 = mean(byn[ks[0]]) - pitch * (ks[0] - 1)
+            res = max(abs(s["h"] - max(floor, c1 + pitch * (s["n"] - 1))) for s in ss)
+            ok = res <= 2.0 and 10.0 <= pitch <= 26.0
+            rec_h = {"floor": floor, "fitted": True, "c1": round(c1, 2), "pitch": round(pitch, 2),
+                     "samples": len(ss), "break_floor_samples": len(nf), "line_counts": ks,
+                     "max_residual": round(res, 2), "ok": bool(ok)}
+            print("  保底值 %s px：内容高 = c1 %.2f + pitch %.2f × (折行数−1)；%d 个行样本最大残差 %.2fpx；"
+                  "突破保底值的样本 %d 个（折行数 %s）→ %s"
+                  % (floor, c1, pitch, len(ss), res, len(nf), ks, "PASS" if ok else "FAIL"))
+        else:
+            clipped = [s for s in ss if s["h"] <= floor + 0.5]
+            ok = all(s["h"] >= floor - 0.5 for s in ss) and all(s["h"] > floor + 0.5 for s in nf)
+            rec_h = {"floor": floor, "fitted": False, "samples": len(ss), "break_floor_samples": len(nf),
+                     "break_floor_heights": sorted(set(s["h"] for s in nf)),
+                     "clipped_at_floor": sorted(set(s["h"] for s in clipped)),
+                     "line_counts": sorted(set(s["n"] for s in ss)), "max_residual": None, "ok": bool(ok),
+                     "note": "只有一档突破保底值的样本 → c1/pitch 不可辨识；已验：每行 ≥ 保底值，突破保底值的行都 > 保底值"}
+            print("  保底值 %s px：样本 %d 个（折行数 %s），被保底值截断 %d 个、突破保底值 %d 个（行高 %s）"
+                  "→ c1/pitch 不可辨识，只验不变量：%s"
+                  % (floor, len(ss), rec_h["line_counts"], len(clipped), len(nf),
+                     rec_h["break_floor_heights"], "PASS" if ok else "FAIL"))
+        R["height_model"].append(rec_h)
+        model_ok = model_ok and ok
+    print("  跨图行高样本总数 %d" % len(GAL))
+    if not model_ok:
+        bad("行高模型（h = max(保底值, c1 + pitch×(折行数−1))）不成立，见 readings.json height_model")
+
     print("\n============ 覆盖性：每个工作项是否至少被量到一次 ============")
     seen = {}
     for r in R["rows_all"]:

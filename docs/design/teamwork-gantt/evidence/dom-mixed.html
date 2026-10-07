@@ -29,7 +29,7 @@
   --team-dag-slot-w:64px;        /* 槽宽 56–72（leader 冻结区间） */
   --team-dag-label-w:208px;      /* 左侧任务名列宽 */
   --team-dag-bar-h:18px;         /* 条高 18–22 */
-  --team-dag-row-h:38px;         /* 行高，显著小于上一版 72px（38 vs 72） */
+  --team-dag-row-h:38px;         /* 行高**保底值**（min-height）：行高由内容撑，长名折行 → 更高（不再钉死） */
   --team-dag-ruler-h:30px;       /* 刻度尺高度（sticky） */
   --team-dag-scroll-max-h:380px; /* 面板最大高度；超出内部滚动 */
   --team-dag-edge:#3f93d0;       /* 依赖连线（非状态通道；见 README §5.3 选色理由） */
@@ -166,6 +166,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 .gantt-edges path.head{fill:var(--team-dag-edge);stroke:none;}
 
 /* ---------- 里程碑框（第 5/6 条）：框住自己名下的行 ---------- */
+/* 框没有 height：**框高 = 框头 + 汇总条 + Σ行高**，行高由内容撑 → 框跟着长（不是"行数 × 常量"）。 */
 .ms-frame{position:relative;z-index:2;margin:4px 0;border:1px solid var(--ms-tone,var(--border-strong));border-radius:var(--r-lg);background:color-mix(in srgb, var(--ms-tone,transparent) 5%, transparent);}
 .ms-frame[data-locked="true"]{border-style:dashed;opacity:.55;}   /* 未解锁：虚线 + 降透明度 + 🔒 */
 
@@ -203,12 +204,18 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 
 /* ---------- 工作项行（第 1/3 条）：label 列 + 绘图区一根横条 ---------- */
 .ms-rows{display:flex;flex-direction:column;}
-.wi-row{position:relative;z-index:2;height:var(--team-dag-row-h);}
-.wi-label{position:relative;display:flex;align-items:center;gap:6px;padding:0 8px 0 10px;overflow:hidden;border-right:1px solid transparent;}
-.wi-id{font:700 10.5px var(--font-mono);color:var(--text-strong);flex:0 0 auto;}
-.wi-name{font-weight:600;font-size:var(--text-sm);color:var(--text-strong);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;cursor:pointer;}
+/* 行高由**内容**撑（口径同步实现 wi-gantt-fit，2026-10-08）：`--team-dag-row-h` 从"钉死的行高"
+   降为**保底值**（min-height）—— 名字折几行，行就多高，它所在的里程碑框跟着长。
+   框高不是算出来的（不是"头 + 汇总 + 行数 × 常量"），是行撑出来的。 */
+.wi-row{position:relative;z-index:2;box-sizing:border-box;height:auto;min-height:var(--team-dag-row-h);}
+/* 名列的可读性责任在这一列：id（mono）+ 三个标记一行，**name 另起一行并可折行**（不裁、不省略号、
+   不设 max-height）—— 与实现 .team-dag-label / .team-dag-label-top 同口径。 */
+.wi-label{position:relative;display:flex;flex-direction:column;justify-content:center;gap:2px;min-width:0;padding:2px 8px 2px 10px;overflow:hidden;border-right:1px solid transparent;}
+.wi-label-top{display:flex;align-items:center;gap:6px;min-width:0;white-space:normal;}
+.wi-id{font:700 10.5px var(--font-mono);color:var(--text-strong);flex:0 0 auto;overflow-wrap:anywhere;}
+.wi-name{min-width:0;max-width:100%;overflow-wrap:anywhere;white-space:normal;font-weight:600;font-size:var(--text-sm);color:var(--text-strong);cursor:pointer;}
 .wi-name:hover{text-decoration:underline;}
-.wi-flags{display:flex;gap:3px;flex:0 0 auto;}
+.wi-flags{display:flex;gap:3px;flex:0 0 auto;margin-left:auto;}
 .wi-flag{font:700 9px var(--font-mono);border:1px solid var(--border);border-radius:3px;padding:0 3px;background:var(--surface);color:var(--faint);}
 .wi-flag[data-on="false"]{opacity:.28;}
 .wi-flag[data-flag="blocked"][data-on="true"]{color:var(--status-idle);border-color:var(--border-strong);}
@@ -222,7 +229,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 .wi-depnote{position:absolute;top:0;left:calc(var(--s) * var(--team-dag-slot-w) + 2px);font:400 9.5px/10px var(--font-mono);color:var(--faint);white-space:nowrap;pointer-events:none;}
 /* 条：x = 槽位，宽 = 1 槽 - 2px 视觉缝；描边=状态，填充+左端 cap=teammate（两通道正交） */
 .wi-bar{
-  position:absolute;top:calc((var(--team-dag-row-h) - var(--team-dag-bar-h)) / 2);
+  position:absolute;top:50%;transform:translateY(-50%);
   left:calc(var(--s) * var(--team-dag-slot-w));
   width:calc(var(--d) * var(--team-dag-slot-w) - 2px);
   height:var(--team-dag-bar-h);
@@ -239,7 +246,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 .wi-cap{position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--role-color);}   /* 左端 4px 实色 cap */
 .wi-bar-name{position:absolute;left:6px;right:4px;top:0;bottom:0;display:flex;align-items:center;font:600 10.5px var(--font-ui);color:var(--text-strong);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;}
 /* 条后：role chip（色点）+ 状态 chip */
-.wi-after{position:absolute;top:calc((var(--team-dag-row-h) - 18px) / 2);left:calc((var(--s) + var(--d)) * var(--team-dag-slot-w) + 10px);display:flex;align-items:center;gap:5px;}
+.wi-after{position:absolute;top:50%;transform:translateY(-50%);left:calc((var(--s) + var(--d)) * var(--team-dag-slot-w) + 10px);display:flex;align-items:center;gap:5px;}
 .role-chip{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface);padding:1px 5px;font:700 10px var(--font-mono);color:var(--text-mid);cursor:pointer;}
 .role-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--role-color);}
 .status-chip{border:1px solid var(--border);border-radius:var(--r-sm);padding:1px 5px;background:var(--surface);font:700 10px var(--font-mono);color:var(--muted);}
@@ -258,7 +265,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
 
 /* ---------- 窄栏（≤520px 宿主）：容器查询自适应，纯 CSS ---------- */
 @container (max-width:520px){
-  .gantt{--team-dag-slot-w:40px;--team-dag-label-w:118px;--team-dag-bar-h:16px;--team-dag-row-h:30px;--team-dag-ruler-h:28px;}  .wi-depnote,.role-chip,.session-chip,.ruler-cap,.ms-content{display:none;}   /* 隐藏次级列，不动数据 */
+  .gantt{--team-dag-slot-w:40px;--team-dag-label-w:118px;--team-dag-bar-h:16px;--team-dag-row-h:30px;--team-dag-ruler-h:28px;}  /* row-h 同样是**保底值**（窄栏名字更早折行，行通常比保底高） */  .wi-depnote,.role-chip,.session-chip,.ruler-cap,.ms-content,.wi-bar-name{display:none;}   /* 隐藏次级列，不动数据；条内回声窄栏不画（不留半截字，口径同实现） */
   .wi-name{font-size:11px;}
   .sum-note{display:none;}
   .ruler-basis{font-size:9.5px;}
@@ -294,7 +301,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
   <span id="legend-roles"><span class="sw" data-role="artist" style="margin-right:10px"><i style="background:var(--team-dag-role-0)"></i>artist <span style="color:var(--faint)">slot 0</span></span><span class="sw" data-role="frontend" style="margin-right:10px"><i style="background:var(--team-dag-role-1)"></i>frontend <span style="color:var(--faint)">slot 1</span></span><span class="sw" data-role="verify" style="margin-right:10px"><i style="background:var(--team-dag-role-2)"></i>verify <span style="color:var(--faint)">slot 2</span></span></span>
 </div>
 
-<main class="stage" id="stage"><section class="viewport" data-width="720"><div class="vp-head"><span>720px · mixed</span><span>内部滚动 max-height 380 · 刻度尺与框头 sticky</span></div><div class="board-host" id="host-0"><div class="board" data-board="board-wide" data-fixture="[object Object]"><div class="board-head"><span class="t">team-mixed</span><span class="meta">plan v1 · 2 里程碑 · 4 工作项 · 3 槽</span><span class="meta">夹具：mixed</span><span class="meta" data-cyclic="false">cyclic=false</span></div><div class="board-scroll"><div class="board-content"><div class="gantt"><div class="gantt-ruler ruler-line" data-role="ruler"><div class="ruler-label">任务（id · name）</div><div class="ruler-plot"><span class="ruler-tick" data-tick="0" style="--i:0"><i></i><b>0</b></span><span class="ruler-tick" data-tick="1" style="--i:1"><i></i><b>1</b></span><span class="ruler-tick" data-tick="2" style="--i:2"><i></i><b>2</b></span><span class="ruler-tick" data-tick="3" style="--i:3"><i></i><b>3</b></span><span class="ruler-basis">横轴 = 依赖槽位（非时间）</span><span class="ruler-cap">1 槽 = 1 层依赖 · 条长恒 1 槽</span></div></div><div class="gantt-body"><div class="grid-layer"><span class="grid-line" data-i="0" style="--i:0"></span><span class="grid-line" data-i="1" style="--i:1"></span><span class="grid-line" data-i="2" style="--i:2"></span><span class="grid-line" data-i="3" style="--i:3"></span></div><svg class="gantt-edges" aria-hidden="true" width="700" height="282" viewBox="0 0 700 282"><path class="edge" d="M 271 70 H 278 V 124 H 264 V 108 H 266"></path><path class="head" d="M 273 108 l -7 -3.5 l 0 7 Z"></path><path class="edge" d="M 271 70 H 278 V 162 H 264 V 146 H 266"></path><path class="head" d="M 273 146 l -7 -3.5 l 0 7 Z"></path><path class="edge" d="M 335 146 H 342 V 200 H 328 V 184 H 330"></path><path class="head" d="M 337 184 l -7 -3.5 l 0 7 Z"></path></svg><section class="ms-frame" data-ms="m-mixed" data-locked="false" data-status="active" data-layer="0" data-sum-start="0" data-sum-end="3" data-sum-empty="false" style="--ms-tone:var(--team-dag-ms-0)" data-ms-deps=""><header class="ms-head" data-ms="m-mixed"><span class="ms-id">m-mixed</span><span class="ms-name">推进中 / 异常</span><span class="ms-layer" title="屏障链层号（milestones[].depends_on 拓扑序）">L0</span><span class="chip" data-status="active">active</span><span class="ms-deps" title="屏障依赖 milestones[].depends_on">屏障 ← （入口层）</span><span class="ms-lock is-open">🔓 已解锁</span><span class="ms-count">4 items</span><span class="ms-content" title="一条 done(绿) / review(蓝) / failed+interrupted(红) / running(黄)">一条 done(绿) / review(蓝) / failed+interrupted(红) / running(黄)</span></header><div class="ms-sum" data-ms="m-mixed" style="--s:0;--e:3"><div class="sum-label">milestone</div><div class="sum-plot"><span class="sum-bar" data-ms="m-mixed" data-empty="false" style="--s:0;--e:3"><i class="sum-cap sum-cap-l"></i><i class="sum-cap sum-cap-r"></i></span><span class="sum-diamond" data-ms="m-mixed" data-empty="false" style="--s:0;--e:3"></span><span class="sum-note">槽 0–3</span></div></div><div class="ms-rows"><article class="wi-row" data-item="wi-mx-1" data-role="artist" data-status="done" data-eff="done" data-slot="0" data-dur="1" data-end="1" data-depth="0" data-order="0" data-ms="m-mixed" data-blocked="false" data-interrupted="false" data-live="false" data-session="sess-mixed-1" data-worktree="wt/m-mixed/artist" data-line="done" style="--role-color:var(--team-dag-role-0);--s:0;--d:1" title="wi-mx-1 · 已完成的一行（绿） | role: artist | status: done | depends_on: — | session: sess-mixed-1 | worktree: wt/m-mixed/artist | goal: — | description: — | note: —" data-deps=""><div class="wi-label"><code class="wi-id">wi-mx-1</code><span class="wi-name" data-team-item-open="wi-mx-1" title="已完成的一行（绿）">已完成的一行（绿）</span><span class="wi-flags"><span class="wi-flag" data-flag="blocked" data-on="false" title="blocked：还有前驱没 done">blocked</span><span class="wi-flag" data-flag="interrupted" data-on="false" title="interrupted：中断待恢复">interrupted</span><span class="wi-flag" data-flag="live" data-on="false" title="live：正在跑">live</span></span><span class="wi-full" aria-hidden="true">id: wi-mx-1; role: artist; status: done; depends_on: —; session_id: sess-mixed-1; worktree: wt/m-mixed/artist; goal: —; description: —; note: —; blocked: false; interrupted: false; live: false</span></div><div class="wi-plot"><span class="wi-depnote" title="无依赖 → 槽 0">无依赖 → 槽 0</span><span class="wi-bar" data-item="wi-mx-1" style="--s:0;--d:1"><i class="wi-cap"></i><span class="wi-bar-name">已完成的一行（绿）</span></span><span class="wi-after"><span class="role-chip" data-team-role-open="artist" title="teammate"><i class="role-dot"></i>artist</span><span class="status-chip" data-eff="done">done</span><span class="session-chip" data-team-session="sess-mixed-1" title="session_id">sess-mixed-1</span></span></div></article><article class="wi-row" data-item="wi-mx-3" data-role="verify" data-status="failed" data-eff="failed" data-slot="1" data-dur="1" data-end="2" data-depth="1" data-order="1" data-ms="m-mixed" data-blocked="false" data-interrupted="true" data-live="false" data-session="sess-mixed-3" data-worktree="wt/m-mixed/verify" data-line="failed" style="--role-color:var(--team-dag-role-2);--s:1;--d:1" title="wi-mx-3 · 中断待恢复的一行（红） | role: verify | status: failed | depends_on: wi-mx-1 | session: sess-mixed-3 | worktree: wt/m-mixed/verify | goal: — | description: — | note: 可重派" data-deps="wi-mx-1"><div class="wi-label"><code class="wi-id">wi-mx-3</code><span class="wi-name" data-team-item-open="wi-mx-3" title="中断待恢复的一行（红）">中断待恢复的一行（红）</span><span class="wi-flags"><span class="wi-flag" data-flag="blocked" data-on="false" title="blocked：还有前驱没 done">blocked</span><span class="wi-flag" data-flag="interrupted" data-on="true" title="interrupted：中断待恢复">interrupted</span><span class="wi-flag" data-flag="live" data-on="false" title="live：正在跑">live</span></span><span class="wi-full" aria-hidden="true">id: wi-mx-3; role: verify; status: failed; depends_on: wi-mx-1; session_id: sess-mixed-3; worktree: wt/m-mixed/verify; goal: —; description: —; note: 可重派; blocked: false; interrupted: true; live: false</span></div><div class="wi-plot"><span class="wi-depnote" title="depends_on: wi-mx-1 → 槽 1">depends_on: wi-mx-1 → 槽 1</span><span class="wi-bar" data-item="wi-mx-3" style="--s:1;--d:1"><i class="wi-cap"></i><span class="wi-bar-name">中断待恢复的一行（红）</span></span><span class="wi-after"><span class="role-chip" data-team-role-open="verify" title="teammate"><i class="role-dot"></i>verify</span><span class="status-chip" data-eff="failed">failed · 可重派</span><span class="session-chip" data-team-session="sess-mixed-3" title="session_id">sess-mixed-3</span></span></div></article><article class="wi-row" data-item="wi-mx-2" data-role="frontend" data-status="review" data-eff="review" data-slot="1" data-dur="1" data-end="2" data-depth="1" data-order="2" data-ms="m-mixed" data-blocked="false" data-interrupted="false" data-live="false" data-session="sess-mixed-2" data-worktree="wt/m-mixed/frontend" data-line="review" style="--role-color:var(--team-dag-role-1);--s:1;--d:1" title="wi-mx-2 · 等 review 的一行（蓝） | role: frontend | status: review | depends_on: wi-mx-1 | session: sess-mixed-2 | worktree: wt/m-mixed/frontend | goal: — | description: — | note: —" data-deps="wi-mx-1"><div class="wi-label"><code class="wi-id">wi-mx-2</code><span class="wi-name" data-team-item-open="wi-mx-2" title="等 review 的一行（蓝）">等 review 的一行（蓝）</span><span class="wi-flags"><span class="wi-flag" data-flag="blocked" data-on="false" title="blocked：还有前驱没 done">blocked</span><span class="wi-flag" data-flag="interrupted" data-on="false" title="interrupted：中断待恢复">interrupted</span><span class="wi-flag" data-flag="live" data-on="false" title="live：正在跑">live</span></span><span class="wi-full" aria-hidden="true">id: wi-mx-2; role: frontend; status: review; depends_on: wi-mx-1; session_id: sess-mixed-2; worktree: wt/m-mixed/frontend; goal: —; description: —; note: —; blocked: false; interrupted: false; live: false</span></div><div class="wi-plot"><span class="wi-depnote" title="depends_on: wi-mx-1 → 槽 1">depends_on: wi-mx-1 → 槽 1</span><span class="wi-bar" data-item="wi-mx-2" style="--s:1;--d:1"><i class="wi-cap"></i><span class="wi-bar-name">等 review 的一行（蓝）</span></span><span class="wi-after"><span class="role-chip" data-team-role-open="frontend" title="teammate"><i class="role-dot"></i>frontend</span><span class="status-chip" data-eff="review">review</span><span class="session-chip" data-team-session="sess-mixed-2" title="session_id">sess-mixed-2</span></span></div></article><article class="wi-row" data-item="wi-mx-4" data-role="frontend" data-status="running" data-eff="running" data-slot="2" data-dur="1" data-end="3" data-depth="2" data-order="3" data-ms="m-mixed" data-blocked="true" data-interrupted="false" data-live="true" data-session="sess-mixed-4" data-worktree="wt/m-mixed/frontend" data-line="running" style="--role-color:var(--team-dag-role-1);--s:2;--d:1" title="wi-mx-4 · 正在做的一行（黄） | role: frontend | status: running | depends_on: wi-mx-2 | session: sess-mixed-4 | worktree: wt/m-mixed/frontend | goal: — | description: — | note: —" data-deps="wi-mx-2"><div class="wi-label"><code class="wi-id">wi-mx-4</code><span class="wi-name" data-team-item-open="wi-mx-4" title="正在做的一行（黄）">正在做的一行（黄）</span><span class="wi-flags"><span class="wi-flag" data-flag="blocked" data-on="true" title="blocked：还有前驱没 done">blocked</span><span class="wi-flag" data-flag="interrupted" data-on="false" title="interrupted：中断待恢复">interrupted</span><span class="wi-flag" data-flag="live" data-on="true" title="live：正在跑">live</span></span><span class="wi-full" aria-hidden="true">id: wi-mx-4; role: frontend; status: running; depends_on: wi-mx-2; session_id: sess-mixed-4; worktree: wt/m-mixed/frontend; goal: —; description: —; note: —; blocked: true; interrupted: false; live: true</span></div><div class="wi-plot"><span class="wi-depnote" title="depends_on: wi-mx-2 → 槽 2">depends_on: wi-mx-2 → 槽 2</span><span class="wi-bar" data-item="wi-mx-4" style="--s:2;--d:1"><i class="wi-cap"></i><span class="wi-bar-name">正在做的一行（黄）</span></span><span class="wi-after"><span class="role-chip" data-team-role-open="frontend" title="teammate"><i class="role-dot"></i>frontend</span><span class="status-chip" data-eff="running">running</span><span class="session-chip" data-team-session="sess-mixed-4" title="session_id">sess-mixed-4</span></span></div></article></div></section><div class="gate-band" data-gate="m-mixed-&gt;m-empty" data-open="false"><span class="gate-line"></span><span class="gate-label">闸门 → 上一层全部 done 才放行（等 m-mixed）</span><span class="gate-line"></span></div><section class="ms-frame" data-ms="m-empty" data-locked="true" data-status="pending" data-layer="1" data-sum-start="3" data-sum-end="3" data-sum-empty="true" style="--ms-tone:var(--team-dag-ms-1)" data-ms-deps="m-mixed"><header class="ms-head" data-ms="m-empty"><span class="ms-id">m-empty</span><span class="ms-name">空里程碑（零宽菱形）</span><span class="ms-layer" title="屏障链层号（milestones[].depends_on 拓扑序）">L1</span><span class="chip" data-status="pending">pending</span><span class="ms-deps" title="屏障依赖 milestones[].depends_on">屏障 ← m-mixed</span><span class="ms-lock">🔒 待解锁</span><span class="ms-count">0 items</span><span class="ms-content" title="名下没有工作项 → 画零宽菱形，不画空条">名下没有工作项 → 画零宽菱形，不画空条</span></header><div class="ms-sum" data-ms="m-empty" style="--s:3;--e:3"><div class="sum-label">milestone</div><div class="sum-plot"><span class="sum-bar" data-ms="m-empty" data-empty="true" style="--s:3;--e:3"><i class="sum-cap sum-cap-l"></i><i class="sum-cap sum-cap-r"></i></span><span class="sum-diamond" data-ms="m-empty" data-empty="true" style="--s:3;--e:3"></span><span class="sum-note">槽 3–3 · 空</span></div></div><div class="ms-rows"></div></section></div></div></div></div></div></div></section></main>
+<main class="stage" id="stage"><section class="viewport" data-width="720"><div class="vp-head"><span>720px · mixed</span><span>内部滚动 max-height 380 · 刻度尺与框头 sticky</span></div><div class="board-host" id="host-0"><div class="board" data-board="board-wide" data-fixture="[object Object]"><div class="board-head"><span class="t">team-mixed</span><span class="meta">plan v1 · 2 里程碑 · 4 工作项 · 3 槽</span><span class="meta">夹具：mixed</span><span class="meta" data-cyclic="false">cyclic=false</span></div><div class="board-scroll"><div class="board-content"><div class="gantt"><div class="gantt-ruler ruler-line" data-role="ruler"><div class="ruler-label">任务（id · name）</div><div class="ruler-plot"><span class="ruler-tick" data-tick="0" style="--i:0"><i></i><b>0</b></span><span class="ruler-tick" data-tick="1" style="--i:1"><i></i><b>1</b></span><span class="ruler-tick" data-tick="2" style="--i:2"><i></i><b>2</b></span><span class="ruler-tick" data-tick="3" style="--i:3"><i></i><b>3</b></span><span class="ruler-basis">横轴 = 依赖槽位（非时间）</span><span class="ruler-cap">1 槽 = 1 层依赖 · 条长恒 1 槽</span></div></div><div class="gantt-body"><div class="grid-layer"><span class="grid-line" data-i="0" style="--i:0"></span><span class="grid-line" data-i="1" style="--i:1"></span><span class="grid-line" data-i="2" style="--i:2"></span><span class="grid-line" data-i="3" style="--i:3"></span></div><svg class="gantt-edges" aria-hidden="true" width="700" height="282" viewBox="0 0 700 282" data-laid-out="true"><path class="edge" d="M 271 70 H 278 V 124 H 264 V 108 H 266"></path><path class="head" d="M 273 108 l -7 -3.5 l 0 7 Z"></path><path class="edge" d="M 271 70 H 278 V 162 H 264 V 146 H 266"></path><path class="head" d="M 273 146 l -7 -3.5 l 0 7 Z"></path><path class="edge" d="M 335 146 H 342 V 200 H 328 V 184 H 330"></path><path class="head" d="M 337 184 l -7 -3.5 l 0 7 Z"></path></svg><section class="ms-frame" data-ms="m-mixed" data-locked="false" data-status="active" data-layer="0" data-sum-start="0" data-sum-end="3" data-sum-empty="false" style="--ms-tone:var(--team-dag-ms-0)" data-ms-deps=""><header class="ms-head" data-ms="m-mixed"><span class="ms-id">m-mixed</span><span class="ms-name">推进中 / 异常</span><span class="ms-layer" title="屏障链层号（milestones[].depends_on 拓扑序）">L0</span><span class="chip" data-status="active">active</span><span class="ms-deps" title="屏障依赖 milestones[].depends_on">屏障 ← （入口层）</span><span class="ms-lock is-open">🔓 已解锁</span><span class="ms-count">4 items</span><span class="ms-content" title="一条 done(绿) / review(蓝) / failed+interrupted(红) / running(黄)">一条 done(绿) / review(蓝) / failed+interrupted(红) / running(黄)</span></header><div class="ms-sum" data-ms="m-mixed" style="--s:0;--e:3"><div class="sum-label">milestone</div><div class="sum-plot"><span class="sum-bar" data-ms="m-mixed" data-empty="false" style="--s:0;--e:3"><i class="sum-cap sum-cap-l"></i><i class="sum-cap sum-cap-r"></i></span><span class="sum-diamond" data-ms="m-mixed" data-empty="false" style="--s:0;--e:3"></span><span class="sum-note">槽 0–3</span></div></div><div class="ms-rows"><article class="wi-row" data-item="wi-mx-1" data-role="artist" data-status="done" data-eff="done" data-slot="0" data-dur="1" data-end="1" data-depth="0" data-order="0" data-ms="m-mixed" data-blocked="false" data-interrupted="false" data-live="false" data-session="sess-mixed-1" data-worktree="wt/m-mixed/artist" data-line="done" style="--role-color:var(--team-dag-role-0);--s:0;--d:1" title="wi-mx-1 · 已完成的一行（绿） | role: artist | status: done | depends_on: — | session: sess-mixed-1 | worktree: wt/m-mixed/artist | goal: — | description: — | note: —" data-deps=""><div class="wi-label"><span class="wi-label-top"><code class="wi-id">wi-mx-1</code><span class="wi-flags"><span class="wi-flag" data-flag="blocked" data-on="false" title="blocked：还有前驱没 done">blocked</span><span class="wi-flag" data-flag="interrupted" data-on="false" title="interrupted：中断待恢复">interrupted</span><span class="wi-flag" data-flag="live" data-on="false" title="live：正在跑">live</span></span></span><span class="wi-name" data-team-item-open="wi-mx-1" title="已完成的一行（绿）">已完成的一行（绿）</span><span class="wi-full" aria-hidden="true">id: wi-mx-1; role: artist; status: done; depends_on: —; session_id: sess-mixed-1; worktree: wt/m-mixed/artist; goal: —; description: —; note: —; blocked: false; interrupted: false; live: false</span></div><div class="wi-plot"><span class="wi-depnote" title="无依赖 → 槽 0">无依赖 → 槽 0</span><span class="wi-bar" data-item="wi-mx-1" style="--s:0;--d:1"><i class="wi-cap"></i><span class="wi-bar-name">已完成的一行（绿）</span></span><span class="wi-after"><span class="role-chip" data-team-role-open="artist" title="teammate"><i class="role-dot"></i>artist</span><span class="status-chip" data-eff="done">done</span><span class="session-chip" data-team-session="sess-mixed-1" title="session_id">sess-mixed-1</span></span></div></article><article class="wi-row" data-item="wi-mx-3" data-role="verify" data-status="failed" data-eff="failed" data-slot="1" data-dur="1" data-end="2" data-depth="1" data-order="1" data-ms="m-mixed" data-blocked="false" data-interrupted="true" data-live="false" data-session="sess-mixed-3" data-worktree="wt/m-mixed/verify" data-line="failed" style="--role-color:var(--team-dag-role-2);--s:1;--d:1" title="wi-mx-3 · 中断待恢复的一行（红） | role: verify | status: failed | depends_on: wi-mx-1 | session: sess-mixed-3 | worktree: wt/m-mixed/verify | goal: — | description: — | note: 可重派" data-deps="wi-mx-1"><div class="wi-label"><span class="wi-label-top"><code class="wi-id">wi-mx-3</code><span class="wi-flags"><span class="wi-flag" data-flag="blocked" data-on="false" title="blocked：还有前驱没 done">blocked</span><span class="wi-flag" data-flag="interrupted" data-on="true" title="interrupted：中断待恢复">interrupted</span><span class="wi-flag" data-flag="live" data-on="false" title="live：正在跑">live</span></span></span><span class="wi-name" data-team-item-open="wi-mx-3" title="中断待恢复的一行（红）">中断待恢复的一行（红）</span><span class="wi-full" aria-hidden="true">id: wi-mx-3; role: verify; status: failed; depends_on: wi-mx-1; session_id: sess-mixed-3; worktree: wt/m-mixed/verify; goal: —; description: —; note: 可重派; blocked: false; interrupted: true; live: false</span></div><div class="wi-plot"><span class="wi-depnote" title="depends_on: wi-mx-1 → 槽 1">depends_on: wi-mx-1 → 槽 1</span><span class="wi-bar" data-item="wi-mx-3" style="--s:1;--d:1"><i class="wi-cap"></i><span class="wi-bar-name">中断待恢复的一行（红）</span></span><span class="wi-after"><span class="role-chip" data-team-role-open="verify" title="teammate"><i class="role-dot"></i>verify</span><span class="status-chip" data-eff="failed">failed · 可重派</span><span class="session-chip" data-team-session="sess-mixed-3" title="session_id">sess-mixed-3</span></span></div></article><article class="wi-row" data-item="wi-mx-2" data-role="frontend" data-status="review" data-eff="review" data-slot="1" data-dur="1" data-end="2" data-depth="1" data-order="2" data-ms="m-mixed" data-blocked="false" data-interrupted="false" data-live="false" data-session="sess-mixed-2" data-worktree="wt/m-mixed/frontend" data-line="review" style="--role-color:var(--team-dag-role-1);--s:1;--d:1" title="wi-mx-2 · 等 review 的一行（蓝） | role: frontend | status: review | depends_on: wi-mx-1 | session: sess-mixed-2 | worktree: wt/m-mixed/frontend | goal: — | description: — | note: —" data-deps="wi-mx-1"><div class="wi-label"><span class="wi-label-top"><code class="wi-id">wi-mx-2</code><span class="wi-flags"><span class="wi-flag" data-flag="blocked" data-on="false" title="blocked：还有前驱没 done">blocked</span><span class="wi-flag" data-flag="interrupted" data-on="false" title="interrupted：中断待恢复">interrupted</span><span class="wi-flag" data-flag="live" data-on="false" title="live：正在跑">live</span></span></span><span class="wi-name" data-team-item-open="wi-mx-2" title="等 review 的一行（蓝）">等 review 的一行（蓝）</span><span class="wi-full" aria-hidden="true">id: wi-mx-2; role: frontend; status: review; depends_on: wi-mx-1; session_id: sess-mixed-2; worktree: wt/m-mixed/frontend; goal: —; description: —; note: —; blocked: false; interrupted: false; live: false</span></div><div class="wi-plot"><span class="wi-depnote" title="depends_on: wi-mx-1 → 槽 1">depends_on: wi-mx-1 → 槽 1</span><span class="wi-bar" data-item="wi-mx-2" style="--s:1;--d:1"><i class="wi-cap"></i><span class="wi-bar-name">等 review 的一行（蓝）</span></span><span class="wi-after"><span class="role-chip" data-team-role-open="frontend" title="teammate"><i class="role-dot"></i>frontend</span><span class="status-chip" data-eff="review">review</span><span class="session-chip" data-team-session="sess-mixed-2" title="session_id">sess-mixed-2</span></span></div></article><article class="wi-row" data-item="wi-mx-4" data-role="frontend" data-status="running" data-eff="running" data-slot="2" data-dur="1" data-end="3" data-depth="2" data-order="3" data-ms="m-mixed" data-blocked="true" data-interrupted="false" data-live="true" data-session="sess-mixed-4" data-worktree="wt/m-mixed/frontend" data-line="running" style="--role-color:var(--team-dag-role-1);--s:2;--d:1" title="wi-mx-4 · 正在做的一行（黄） | role: frontend | status: running | depends_on: wi-mx-2 | session: sess-mixed-4 | worktree: wt/m-mixed/frontend | goal: — | description: — | note: —" data-deps="wi-mx-2"><div class="wi-label"><span class="wi-label-top"><code class="wi-id">wi-mx-4</code><span class="wi-flags"><span class="wi-flag" data-flag="blocked" data-on="true" title="blocked：还有前驱没 done">blocked</span><span class="wi-flag" data-flag="interrupted" data-on="false" title="interrupted：中断待恢复">interrupted</span><span class="wi-flag" data-flag="live" data-on="true" title="live：正在跑">live</span></span></span><span class="wi-name" data-team-item-open="wi-mx-4" title="正在做的一行（黄）">正在做的一行（黄）</span><span class="wi-full" aria-hidden="true">id: wi-mx-4; role: frontend; status: running; depends_on: wi-mx-2; session_id: sess-mixed-4; worktree: wt/m-mixed/frontend; goal: —; description: —; note: —; blocked: true; interrupted: false; live: true</span></div><div class="wi-plot"><span class="wi-depnote" title="depends_on: wi-mx-2 → 槽 2">depends_on: wi-mx-2 → 槽 2</span><span class="wi-bar" data-item="wi-mx-4" style="--s:2;--d:1"><i class="wi-cap"></i><span class="wi-bar-name">正在做的一行（黄）</span></span><span class="wi-after"><span class="role-chip" data-team-role-open="frontend" title="teammate"><i class="role-dot"></i>frontend</span><span class="status-chip" data-eff="running">running</span><span class="session-chip" data-team-session="sess-mixed-4" title="session_id">sess-mixed-4</span></span></div></article></div></section><div class="gate-band" data-gate="m-mixed-&gt;m-empty" data-open="false"><span class="gate-line"></span><span class="gate-label">闸门 → 上一层全部 done 才放行（等 m-mixed）</span><span class="gate-line"></span></div><section class="ms-frame" data-ms="m-empty" data-locked="true" data-status="pending" data-layer="1" data-sum-start="3" data-sum-end="3" data-sum-empty="true" style="--ms-tone:var(--team-dag-ms-1)" data-ms-deps="m-mixed"><header class="ms-head" data-ms="m-empty"><span class="ms-id">m-empty</span><span class="ms-name">空里程碑（零宽菱形）</span><span class="ms-layer" title="屏障链层号（milestones[].depends_on 拓扑序）">L1</span><span class="chip" data-status="pending">pending</span><span class="ms-deps" title="屏障依赖 milestones[].depends_on">屏障 ← m-mixed</span><span class="ms-lock">🔒 待解锁</span><span class="ms-count">0 items</span><span class="ms-content" title="名下没有工作项 → 画零宽菱形，不画空条">名下没有工作项 → 画零宽菱形，不画空条</span></header><div class="ms-sum" data-ms="m-empty" style="--s:3;--e:3"><div class="sum-label">milestone</div><div class="sum-plot"><span class="sum-bar" data-ms="m-empty" data-empty="true" style="--s:3;--e:3"><i class="sum-cap sum-cap-l"></i><i class="sum-cap sum-cap-r"></i></span><span class="sum-diamond" data-ms="m-empty" data-empty="true" style="--s:3;--e:3"></span><span class="sum-note">槽 3–3 · 空</span></div></div><div class="ms-rows"></div></section></div></div></div></div></div></div></section></main>
 
 <pre id="gantt-probe" hidden="">{
  "dpr": 1,
@@ -329,8 +336,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
   }
  },
  "idempotent": true,
- "hashA": "ff3e7a28",
- "hashB": "ff3e7a28",
+ "hashA": "7201e93c",
+ "hashB": "7201e93c",
  "scrollKeep": false,
  "scrollBefore": 0,
  "scrollAfter": 0,
@@ -569,6 +576,18 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
      "sumLeftInPlot": 0,
      "sumWidth": 192,
      "sumHits": [],
+     "head": {
+      "l": 27,
+      "t": 248,
+      "w": 698,
+      "h": 28
+     },
+     "sum": {
+      "l": 27,
+      "t": 276,
+      "w": 698,
+      "h": 22
+     },
      "rect": {
       "l": 26,
       "t": 247,
@@ -601,6 +620,18 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
      "sumLeftInPlot": -235,
      "sumWidth": 0,
      "sumHits": [],
+     "head": {
+      "l": 27,
+      "t": 478,
+      "w": 698,
+      "h": 28
+     },
+     "sum": {
+      "l": 27,
+      "t": 506,
+      "w": 698,
+      "h": 22
+     },
      "rect": {
       "l": 26,
       "t": 477,
@@ -625,6 +656,20 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
      "live": false,
      "deps": "",
      "full": "id: wi-mx-1; role: artist; status: done; depends_on: —; session_id: sess-mixed-1; worktree: wt/m-mixed/artist; goal: —; description: —; note: —; blocked: false; interrupted: false; live: false",
+     "nameText": "已完成的一行（绿）",
+     "nameLines": 1,
+     "nameH": {
+      "l": 37,
+      "t": 316,
+      "w": 189,
+      "h": 16
+     },
+     "row": {
+      "l": 27,
+      "t": 298,
+      "w": 698,
+      "h": 38
+     },
      "bar": {
       "l": 235,
       "t": 308,
@@ -661,6 +706,20 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
      "live": false,
      "deps": "wi-mx-1",
      "full": "id: wi-mx-3; role: verify; status: failed; depends_on: wi-mx-1; session_id: sess-mixed-3; worktree: wt/m-mixed/verify; goal: —; description: —; note: 可重派; blocked: false; interrupted: true; live: false",
+     "nameText": "中断待恢复的一行（红）",
+     "nameLines": 1,
+     "nameH": {
+      "l": 37,
+      "t": 354,
+      "w": 189,
+      "h": 16
+     },
+     "row": {
+      "l": 27,
+      "t": 336,
+      "w": 698,
+      "h": 38
+     },
      "bar": {
       "l": 299,
       "t": 346,
@@ -697,6 +756,20 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
      "live": false,
      "deps": "wi-mx-1",
      "full": "id: wi-mx-2; role: frontend; status: review; depends_on: wi-mx-1; session_id: sess-mixed-2; worktree: wt/m-mixed/frontend; goal: —; description: —; note: —; blocked: false; interrupted: false; live: false",
+     "nameText": "等 review 的一行（蓝）",
+     "nameLines": 1,
+     "nameH": {
+      "l": 37,
+      "t": 392,
+      "w": 189,
+      "h": 16
+     },
+     "row": {
+      "l": 27,
+      "t": 374,
+      "w": 698,
+      "h": 38
+     },
      "bar": {
       "l": 299,
       "t": 384,
@@ -733,6 +806,20 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
      "live": true,
      "deps": "wi-mx-2",
      "full": "id: wi-mx-4; role: frontend; status: running; depends_on: wi-mx-2; session_id: sess-mixed-4; worktree: wt/m-mixed/frontend; goal: —; description: —; note: —; blocked: true; interrupted: false; live: true",
+     "nameText": "正在做的一行（黄）",
+     "nameLines": 1,
+     "nameH": {
+      "l": 37,
+      "t": 430,
+      "w": 189,
+      "h": 16
+     },
+     "row": {
+      "l": 27,
+      "t": 412,
+      "w": 698,
+      "h": 38
+     },
      "bar": {
       "l": 363,
       "t": 422,
@@ -801,7 +888,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
         goal:"条的 left/width 由 start()/dur 推出，不许编条长", description:"CSS 变量 --s/--d", note:"等 wi-design 出图" },
       { id:"wi-frame",  milestone:"m-design", role:"frontend", name:"线框与令牌核稿",   status:"done",    depends_on:[], session_id:"sess-gantt-frontend-00", worktree:"seelex-frontend-wi-gantt-frame", live:false,
         goal:"条描边只走 --status-* 令牌，不新造色值", description:"核对色板与几何常量", note:"已随 m-design 收口" },
-      { id:"wi-design", milestone:"m-design", role:"artist",   name:"出图：真·甘特图静态稿", status:"running", depends_on:[], session_id:"sess-gantt-artist-01", worktree:"seelex-artist-wi-gantt-design", live:true,
+      { id:"wi-design", milestone:"m-design", role:"artist",   name:"出图：teamwork 里程碑/工作项 DAG 静态 UI 稿", status:"running", depends_on:[], session_id:"sess-gantt-artist-01", worktree:"seelex-artist-wi-gantt-design", live:true,
         goal:"单文件自包含甘特稿 + README + 三张 PNG 证据", description:"index.html + README.md + evidence/", note:"几何映射由 leader 冻结，照抄" }
     ]
   }};
@@ -1009,15 +1096,17 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
        + ' data-line="' + eff + '"'
        + ' style="--role-color:' + roleColorVar(it.role) + ';--s:' + row.start + ';--d:' + row.dur + '"'
        + ' title="' + esc(title) + '">';
-    /* --- label 列：id · name（可点进子页）+ 三个标记（DOM 里常驻） --- */
+    /* --- label 列：id + 三个标记一行；**name 另起一行、可折行**（行高由它撑） --- */
     h += '<div class="wi-label">';
+    h += '<span class="wi-label-top">';
     h += '<code class="wi-id">' + esc(it.id) + '</code>';
-    h += '<span class="wi-name" data-team-item-open="' + esc(it.id) + '" title="' + esc(it.name) + '">' + esc(it.name) + '</span>';
     h += '<span class="wi-flags">'
        + '<span class="wi-flag" data-flag="blocked" data-on="' + row.blocked + '" title="blocked：还有前驱没 done">blocked</span>'
        + '<span class="wi-flag" data-flag="interrupted" data-on="' + row.interrupted + '" title="interrupted：中断待恢复">interrupted</span>'
        + '<span class="wi-flag" data-flag="live" data-on="' + row.live + '" title="live：正在跑">live</span>'
        + '</span>';
+    h += '</span>';
+    h += '<span class="wi-name" data-team-item-open="' + esc(it.id) + '" title="' + esc(it.name) + '">' + esc(it.name) + '</span>';
     h += '<span class="wi-full" aria-hidden="true">' + esc(full) + '</span>';
     h += '</div>';
     /* --- 绘图区：depends_on 小字 + 一根条 + 条后 role/status/session chip --- */
@@ -1109,6 +1198,11 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
   /* ============================================================
      5. 依赖连线：finish→start（前驱条右端 → 后继条左端），正交折线 + 箭头
         多条边按 k 分层避让；gap 太窄（同槽并行）时向下绕一个 hook
+
+        **边的 y 一律来自实测**（口径同步实现 wi-gantt-fit）：锚点用 getBoundingClientRect()
+        量条/汇总条的**真实中心**，行高由内容撑（几行就是几行），所以这里不写任何
+        "第 i 行 × 行高 + 半格"的算式 —— 那套算式会随名字折行数而错位。
+        量完写 data-laid-out="true"（与实现的 layoutTeamGanttEdges 同一个语义钩子）。
      ============================================================ */
   function drawEdges(board){
     var body = board.querySelector('.gantt-body');
@@ -1180,6 +1274,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
     svg.setAttribute('height', Math.round(body.scrollHeight));
     svg.setAttribute('viewBox', '0 0 ' + Math.round(body.scrollWidth) + ' ' + Math.round(body.scrollHeight));
     svg.innerHTML = parts.join('');
+    svg.setAttribute('data-laid-out', 'true');        /* 边已按实测几何写好（口径钩子，同实现的 layoutTeamGanttEdges） */
     return { items:items, ms:msEdges };
   }
 
@@ -1370,11 +1465,17 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
         sumLeftInPlot: (sb && sp) ? Math.round((sb.getBoundingClientRect().left - sp.getBoundingClientRect().left) * 100) / 100 : null,
         sumWidth: sb ? Math.round(sb.getBoundingClientRect().width * 100) / 100 : null,
         sumHits: hits,
+        head: rectOf(f.querySelector('.ms-head')),
+        sum: rectOf(f.querySelector('.ms-sum')),
         rect: rectOf(f)
       });
     });
     [].slice.call(board.querySelectorAll('.wi-row')).forEach(function(r){
       var bar = r.querySelector('.wi-bar'), plot = r.querySelector('.wi-plot'), label = r.querySelector('.wi-label');
+      var nameEl = r.querySelector('.wi-name'), nameLines = 0;
+      if (nameEl){
+        try { var rng = document.createRange(); rng.selectNodeContents(nameEl); nameLines = rng.getClientRects().length; } catch(e){ nameLines = 0; }
+      }
       b.rows.push({
         item: r.getAttribute('data-item'), ms: r.getAttribute('data-ms'), role: r.getAttribute('data-role'),
         status: r.getAttribute('data-status'), eff: r.getAttribute('data-eff'),
@@ -1385,6 +1486,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size
         live: r.getAttribute('data-live') === 'true',
         deps: (r.getAttribute('data-deps') || ''),
         full: (r.querySelector('.wi-full') || { textContent:'' }).textContent,
+        nameText: nameEl ? nameEl.textContent : '', nameLines: nameLines, nameH: nameEl ? rectOf(nameEl) : null,
+        row: rectOf(r),
         bar: rectOf(bar), plot: rectOf(plot), label: rectOf(label),
         barLeftInPlot: Math.round((bar.getBoundingClientRect().left - plot.getBoundingClientRect().left) * 100) / 100,
         barWidth: Math.round(bar.getBoundingClientRect().width * 100) / 100
