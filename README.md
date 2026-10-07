@@ -258,7 +258,7 @@ plugin/ · skill/ · sessionstore/ · workspace/ · session/ · mcpstack/
 | Seele | Agent/Session 原语、ReAct 执行、工具注册与分发、WorkPlan 内核、账号租约、事件和遥测 |
 | Seelex | 工程任务语义、Plan 产品 DSL、项目作用域工具、上下文策略、Plugin/Skill/MCP 编排、持久化和前端 |
 
-Seelex 当前依赖 <code>github.com/RedHuang-0622/Seele v0.3.3</code>（见 <code>go.mod</code>，无 <code>replace</code>）。版本链：v0.3.1 = Linux 式权限模型（主体 × 路由组 × rwx + sudo 与中间件判定）与 <code>session.InLoop</code> 环内历史把手；v0.3.2（2026-09-28）= 方案 B，用「回合闸门 + 短临界区工作状态」替换 InLoop 把手（<code>History</code> 永不阻塞，回合内写历史经检查点排队，宿主侧不再持有环内把手）；v0.3.3 = 当前发布 tag，作业（jobs）根能力随 tag 发布。2026-09-15 权限模型、2026-09-26 InLoop、2026-09-28 方案 B 三次联调期的本地 <code>replace</code> 均已移除。上游能力通过 <code>seelebridge/</code> 集中适配，Application 和前端不直接依赖 Seele 的内部类型。
+Seelex 当前依赖 <code>github.com/RedHuang-0622/Seele v0.3.4</code>（见 <code>go.mod</code>，无 <code>replace</code>）。版本链：v0.3.1 = Linux 式权限模型（主体 × 路由组 × rwx + sudo 与中间件判定）与 <code>session.InLoop</code> 环内历史把手；v0.3.2（2026-09-28）= 方案 B，用「回合闸门 + 短临界区工作状态」替换 InLoop 把手（<code>History</code> 永不阻塞，回合内写历史经检查点排队，宿主侧不再持有环内把手）；v0.3.3（2026-10-03）= 异步作业根能力（作业契约 + Manager + <code>jobs_manage</code>）；v0.3.4（2026-10-08）= <code>reasoning_effort</code> 真正写进请求体（openai/anthropic 两个 strategy）且运行期可切换。2026-09-15 权限模型、2026-09-26 InLoop、2026-09-28 方案 B、2026-10-05 <code>reasoning_effort</code> 四次联调期的本地 <code>replace</code> 均已移除。上游能力通过 <code>seelebridge/</code> 集中适配，Application 和前端不直接依赖 Seele 的内部类型。
 
 ## 数据流与机制图
 

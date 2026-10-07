@@ -6,11 +6,14 @@ go 1.25.8
 // v0.3.1 = Linux 式权限模型（主体×路由组×rwx + sudo 与中间件判定）+
 // session.InLoop 环内历史把手；v0.3.2（2026-09-28）= 方案 B：以「回合闸门 +
 // 短临界区工作状态」替换 InLoop 把手（session/inloop.go 整条删除，History 永不
-// 阻塞、回合内写历史经检查点排队）。
+// 阻塞、回合内写历史经检查点排队）；v0.3.3（2026-10-03）= 异步作业根能力
+// （作业契约 + Manager + jobs_manage）；v0.3.4（2026-10-08）= reasoning_effort
+// 真正写进请求体（openai/anthropic 两个 strategy）且运行期可切换。
 //
-// 三次本地 replace 联调（2026-09-15 权限模型、2026-09-26 InLoop、2026-09-28
-// 方案 B）都在对应 tag 发布后移除，回归纯净依赖；宿主侧对方案 B 的迁移
-// （不再持有 inloop 把手、写历史改走检查点排队）已随本次升版一并落地。
+// 四次本地 replace 联调（2026-09-15 权限模型、2026-09-26 InLoop、2026-09-28
+// 方案 B、2026-10-05 reasoning_effort）都在对应 tag 发布后移除，回归纯净依赖；
+// 宿主侧对方案 B 的迁移（不再持有 inloop 把手、写历史改走检查点排队）已随那次
+// 升版落地，reasoning_effort 这一组则随 v0.3.4 收口。
 //
 // go-pty（v0.2.3）：GUI 下栏终端的跨平台 PTY。Windows 走 ConPTY，unix 走
 // creack/pty，是唯一被维护的纯 Go 跨平台伪终端实现；自研 ConPTY 需要 unsafe
@@ -19,7 +22,7 @@ go 1.25.8
 // termios（其 ssh 支持所需），Windows 不受影响。
 
 require (
-	github.com/RedHuang-0622/Seele v0.3.3
+	github.com/RedHuang-0622/Seele v0.3.4
 	github.com/atotto/clipboard v0.1.4
 	github.com/aymanbagabas/go-pty v0.2.3
 	github.com/charmbracelet/bubbles v1.0.0
@@ -102,17 +105,3 @@ require (
 	google.golang.org/grpc v1.83.1 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
-
-// ── 本地联调 replace（临时态，2026-10-05 起）─────────────────────────────
-// 指向本地 Seele 工作树，用于验证「reasoning_effort 上到 wire」这一组改动
-// （Seele commit 717c99e：LLMConfig/RequestOptions 增 ReasoningEffort，
-// openai/anthropic 两个 strategy 写进请求体）。上面那段"无 replace（纯净依赖）"
-// 的历史口径在此**被本段临时覆盖**。
-//
-// 代价（明确知情才保留）：replace 的目标是**本机绝对路径**，换机器 / CI /
-// 其它开发者一律直接构建失败。
-//
-// 摘除条件（二选一，发布前必须做完）：
-//  1. 本地 Seele 打 tag 发布 → 把 require 升到新版本 → 删掉本段；或
-//  2. 确认本段不进发布产物（但仓库本身仍是本机不可移植态）。
-replace github.com/RedHuang-0622/Seele => G:/program/go/seele
