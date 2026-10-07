@@ -369,6 +369,10 @@ export function renderTeamBoard(input = {}) {
   const items = workItemsOf(plan);
   if (milestones.length === 0 && items.length === 0) return "";
   const summary = summarizeTeam(plan, jobs);
+  // 甘特的边要**实测**（行高由内容撑，见文件头 x/y 两条轴的口径）：字符串给不出 y，等调用方
+  // 把这段 HTML 插进 DOM 之后，由这里排一次实测布局把 top/height 写实（没有 DOM 时是空操作）。
+  // 调用姿势不变：签名不动、app.js 也不用改。
+  scheduleTeamGanttLayout();
   return `<div class="team-board" data-team-board data-team-id="${escapeHtml(String(plan?.team_id || ""))}">
       ${renderTeamHead(plan, summary, maxMembers, stale, recovered)}
       ${renderTeamGantt(plan)}
@@ -412,7 +416,7 @@ export function renderTeamHead(plan, summary, maxMembers = 0, stale = false, rec
     </div>`;
 }
 
-// ── 里程碑·工作项真甘特：几何常量（与 TEAM_BOARD_CSS 里的 --team-dag-* 逐字对应）────────
+// ── 里程碑·工作项真甘特：几何（x = CSS calc 槽位；y = **实测**）───────────────────
 //
 // 这一节把「里程碑 · 工作项」画成**真甘特几何**：左侧任务名列 + 顶部刻度尺（横轴 = 依赖
 // 槽位，不是时间）+ 每行一根横条 + 里程碑汇总条 + finish→start 的正交折线箭头；里程碑之间
@@ -421,33 +425,25 @@ export function renderTeamHead(plan, summary, maxMembers = 0, stale = false, rec
 // 上一版的形状是「按依赖排序的满宽卡片列表 + 左侧 gutter 连线」：没有 x 轴、没有条形、没有
 // 错峰的起点（用户判「很奇怪」）。本节就是那句判词的落点。
 //
-// 依赖边为什么是**算式**而不是量出来的：renderTeamGantt 是纯字符串函数（不碰 DOM、量不到
-// rect）。边的 x 是 `labelW + 槽位 × slotW`，y 是「前面那些块的高度之和」——两者都写成
-// CSS `calc()`（槽位/行号是整数系数，几何常量走 var），于是同一份渲染在宽栏与窄栏
-// （container query 压几何）下都对得上：不用量、不用重绘、不用等字体加载。
+// 两条轴的**事实来源故意不同**（2026-10-08 · wi-gantt-fit）：
+//   - **x 是算式**：`labelW + 槽位 × slotW`，写成 CSS `calc()`（槽位/常量走 var）。窄栏容器
+//     查询把几何压小时，条、汇总条、边一起缩——不用量、不用重绘、不写第二套数字。
+//   - **y 是量出来的**：行高由**内容**撑（字多行就长，见 .team-dag-row 的 min-height 口径），
+//     于是「y = 前面那些块的高度之和」根本不是一条算得出来的算式（行高不是常量，框高更不是
+//     「行数 × 常量」）。所以边的 y 一律在 DOM 插好之后**实测**（行 / 汇总条那一行相对
+//     `.team-dag-content` 顶边的位置），见 layoutTeamGanttEdges。渲染字符串里那段 top/height
+//     只是**占位**，整层 `.team-dag-edges` 在量出来之前 visibility: hidden —— 宁可先不画，
+//     也不画一条假线（与"退化的边不画"同一条口径）。
 const GANTT = {
-  contentPadTop: 4, // .team-dag-content 的 padding-top
-  frameGap: 4, // .team-dag-frame 的上下 margin
-  frameBorder: 1, // .team-dag-frame 的 border 宽
-  framePadBottom: 4, // .team-dag-frame 的 padding-bottom
-  gateMargin: 2, // .team-dag-gate 的上下 margin
-  arrow: 7, // 箭头长度（px）
+  arrow: 7, // 箭头长度（px）：x 上把箭尖退回目标条左沿，CSS 的 border-left 同值
   hook: 7, // 同槽（gap = 0）时绕行钩横向伸出的量（px）
   shelf: 12, // 绕行钩的"搁板"落在目标条中心下方多少 px（条高一半才 8~9px，所以落在条下）
-  // 下面这几个数与 CSS 里的 --team-dag-* 逐字对应（单测里有一条逐字互钉的用例：
-  // 两份数字漂一线，线就落不到条上、条也量不回槽位）。
-  rulerH: 30, // --team-dag-ruler-h
-  headH: 26, // --team-dag-head-h
-  sumH: 22, // --team-dag-sum-h
-  rowH: 38, // --team-dag-row-h（上一版是 72px 的卡片行）
-  gateH: 18, // --team-dag-gate-h
-  labelW: 208, // --team-dag-label-w
-  slotW: 64, // --team-dag-slot-w（一个依赖槽位宽 = 条长 + 2px 缝）
-  barH: 18, // --team-dag-bar-h
+  lineHalf: 0.75, // 线段沿锚点**居中**画时各让的一半线宽（px）
+  arrowHalf: 3.5, // 箭头是 7×7 的 border 三角形：算式给的是它的上沿（中心 = 上沿 + 3.5）
 };
 
-// Y_VARS / X_VARS 是 calc 里用到的变量名。顺序写死，同一份输入算出来的字符串才逐字相同（幂等）。
-const Y_VARS = ["--team-dag-ruler-h", "--team-dag-head-h", "--team-dag-sum-h", "--team-dag-row-h", "--team-dag-gate-h"];
+// X_VARS 是 x 的 calc 里用到的变量名。顺序写死，同一份输入算出来的字符串才逐字相同（幂等）。
+// **没有 Y_VARS**：y 不再写成 calc 算式（见上面的口径）。
 const X_VARS = ["--team-dag-label-w", "--team-dag-slot-w"];
 
 // span = 「一段坐标 = 常量(px) + Σ 系数 × CSS 变量」。为什么要这层抽象：边的位置必须**跟着
@@ -478,34 +474,32 @@ function spanSub(a, b) {
 }
 
 // spanNum 把常量/系数固定到两位小数：不加它，浮点误差会让两次渲染的字符串不同（幂等就破）。
-function spanNum(value) {
+// 实测坐标（layoutTeamGanttEdges）也用同一个刻度——两边得是同一把尺子。
+function round2(value) {
   return Math.round(Number(value) * 100) / 100;
 }
 
-// spanCSS 把 span 写成 CSS 长度：`calc(4px + 1 * var(--team-dag-ruler-h) + …)`。
+// spanCSS 把 span 写成 CSS 长度：`calc(4px + 1 * var(--team-dag-slot-w))`。
 function spanCSS(item, order) {
-  const parts = [`${spanNum(item.px)}px`];
+  const parts = [`${round2(item.px)}px`];
   for (const name of order) {
     const factor = item.vars[name];
     if (!factor) continue;
-    parts.push(`${factor > 0 ? "+" : "-"} ${spanNum(Math.abs(factor))} * var(${name})`);
+    parts.push(`${factor > 0 ? "+" : "-"} ${round2(Math.abs(factor))} * var(${name})`);
   }
   return parts.length === 1 ? parts[0] : `calc(${parts.join(" ")})`;
-}
-
-function yCSS(item) {
-  return spanCSS(item, Y_VARS);
 }
 
 function xCSS(item) {
   return spanCSS(item, X_VARS);
 }
 
-// spanPositive 判一段长度是否可能为正（常量 > 0，或某个变量的系数 > 0）。长度恒 0/负的段
-// **不画**：宁可少一段线，也不要画一段读起来像真依赖、其实什么都不表示的退化线。
+// spanPositive 判一段**横向**长度是否可能为正（常量 > 0，或某个槽位变量的系数 > 0）。长度
+// 恒 0/负的横段**不画**：宁可少一段线，也不要画一段读起来像真依赖、其实什么都不表示的退化线。
+// （纵向长度在这里判不了：它是实测出来的，渲染时还不知道——见 layoutTeamGanttEdges。）
 function spanPositive(item) {
   if (item.px > 0) return true;
-  return Y_VARS.concat(X_VARS).some(name => (item.vars[name] || 0) > 0);
+  return X_VARS.some(name => (item.vars[name] || 0) > 0);
 }
 
 // xSlot 是「第 k 个依赖槽位的左边界」：x = labelW + k * slotW。
@@ -605,37 +599,7 @@ export function ganttModel(plan) {
   let slots = 1;
   for (const row of rows) slots = Math.max(slots, row.end);
   for (const frame of frames) slots = Math.max(slots, frame.sum.e);
-  return { frames, rows, slots, layout: ganttLayout(frames), edges: ganttEdges(frames, rows) };
-}
-
-// ganttLayout 算每个工作项行与每根汇总条的**内容坐标 y**（是算式，不是数字）。
-// 顺序：刻度尺（sticky，但仍在流里）→ 框（框头 → 汇总条 → 各行 → 框的下 margin）→
-// 闸门带（margin + 高 + margin）→ 下一个框…… 所以 y 就是前面那些块高度之和，每一项都是
-// 「几何常量 × CSS 变量」的整数倍。（框与闸门带都是 flex 子项，所以它们的 margin 不会合并
-// ——这也是这里能按"相加"算的前提。）
-function ganttLayout(frames) {
-  const y = new Map();
-  let cursor = span(GANTT.contentPadTop, { "--team-dag-ruler-h": 1 });
-  frames.forEach((frame, index) => {
-    cursor = spanAdd(cursor, span(GANTT.frameGap)); // 框的 margin-top
-    const frameTop = cursor;
-    // 汇总条锚点 = 框顶 + 框边 + **框头高** + 汇总条半高。框头这一项漏过一次（独立验证
-    // F1）：整条里程碑边（含箭头）上移 26px，正好落进不透明的 sticky 框头带里 → 画面上
-    // 完全看不见。行锚点下面那份算式一直是对的（rowsTop 里有 head-h），两处必须同源。
-    y.set(`sum:${frame.id}`, spanAdd(frameTop, span(GANTT.frameBorder, { "--team-dag-head-h": 1, "--team-dag-sum-h": 0.5 })));
-    const rowsTop = spanAdd(frameTop, span(GANTT.frameBorder, { "--team-dag-head-h": 1, "--team-dag-sum-h": 1 }));
-    frame.rows.forEach((row, i) => {
-      y.set(`row:${row.id}`, spanAdd(rowsTop, span(0, { "--team-dag-row-h": i + 0.5 })));
-    });
-    cursor = spanAdd(frameTop, span(2 * GANTT.frameBorder + GANTT.framePadBottom, {
-      "--team-dag-head-h": 1,
-      "--team-dag-sum-h": 1,
-      "--team-dag-row-h": frame.rows.length,
-    }));
-    cursor = spanAdd(cursor, span(GANTT.frameGap)); // 框的 margin-bottom
-    if (index < frames.length - 1) cursor = spanAdd(cursor, span(2 * GANTT.gateMargin, { "--team-dag-gate-h": 1 }));
-  });
-  return { y, height: cursor };
+  return { frames, rows, slots, edges: ganttEdges(frames, rows) };
 }
 
 // ganttEdges 把依赖折成边：工作项边（前驱条**右端** → 后继条**左端**，标准 finish→start）与
@@ -685,51 +649,183 @@ function ganttEdges(frames, rows) {
   return edges;
 }
 
+// yref = 「一段线的纵向位置 = 某个**锚点**（工作项行 / 里程碑汇总条那一行）+ 一个像素微调」。
+// 锚点的像素位置渲染件给不出来（行高由内容撑），所以这里只记锚点 id 与微调量；真正的位置由
+// layoutTeamGanttEdges 量出来写进 style。微调只有三种：线宽居中（−0.75）、箭头上沿（−3.5）、
+// 绕行钩搁板（+12）。
+function yref(anchor, dy = 0) {
+  return { a: anchor, dy };
+}
+
+// edgeSegs 把一个边折成**几段线**的结构描述（纯数据：x 是 span 算式，y 是锚点引用）。
+// 两种边的走法（与修之前一模一样，只是 y 由算式换成了锚点）：
+//   - 有槽位富余（gap ≥ 1）：横着走到目标条左侧 → 垂直落下 → 进条；
+//   - 同槽（gap = 0，紧贴的 finish→start）：直线会退化成零长线，往下绕一个钩（右伸 → 落到
+//     目标条下方 → 折回条左侧 → 抬上来 → 进条）；lane 让同一行的多条钩错开高度。
+function edgeSegs(edge) {
+  const segs = [];
+  const horizontal = (fromX, width, y) => {
+    if (!spanPositive(width)) return;
+    segs.push({ kind: "h", x: fromX, w: width, y });
+  };
+  const vertical = (atX, y1, y2) => {
+    segs.push({ kind: "v", x: atX, y1, y2 });
+  };
+  // 箭头占 [tip, tip + arrow]，箭头尖正好落在目标条的左端（槽 0 那一档顶到绘图区内侧，
+  // 见 xApproach —— 否则整段越列到任务名列里）。
+  const tipX = xApproach(edge.dst.slot);
+  if (edge.gap >= 1) {
+    horizontal(edge.src.x, spanSub(tipX, edge.src.x), yref(edge.src.y, -GANTT.lineHalf));
+    vertical(tipX, yref(edge.src.y), yref(edge.dst.y));
+  } else {
+    const reach = GANTT.hook + edge.lane * 6;
+    const hookX = spanAdd(edge.src.x, span(reach));
+    horizontal(edge.src.x, span(reach), yref(edge.src.y, -GANTT.lineHalf));
+    vertical(hookX, yref(edge.src.y), yref(edge.dst.y, GANTT.shelf));
+    horizontal(tipX, spanSub(hookX, tipX), yref(edge.dst.y, GANTT.shelf - GANTT.lineHalf));
+    vertical(tipX, yref(edge.dst.y), yref(edge.dst.y, GANTT.shelf));
+  }
+  segs.push({ kind: "arrow", x: tipX, y: yref(edge.dst.y, -GANTT.arrowHalf) });
+  return segs;
+}
+
+// 段线的占位几何：**渲染时还不知道** y（行高由内容撑，见文件头的口径），所以 top/height 先写
+// 0px，等 layoutTeamGanttEdges 量完再写成 px。x 相反——它是槽位算式，这里就写死。
+const Y_PLACEHOLDER = "0px";
+
+function segHTML(seg) {
+  if (seg.kind === "h") {
+    return `<i class="team-dag-edge-seg is-h" style="left:${xCSS(seg.x)};top:${Y_PLACEHOLDER};width:${xCSS(seg.w)}" data-y="${escapeHtml(seg.y.a)}" data-y-dy="${round2(seg.y.dy)}"></i>`;
+  }
+  if (seg.kind === "v") {
+    return `<i class="team-dag-edge-seg is-v" style="left:${xCSS(spanAdd(seg.x, span(-GANTT.lineHalf)))};top:${Y_PLACEHOLDER};height:${Y_PLACEHOLDER}" data-y="${escapeHtml(seg.y1.a)}" data-y-dy="${round2(seg.y1.dy)}" data-y2="${escapeHtml(seg.y2.a)}" data-y2-dy="${round2(seg.y2.dy)}"></i>`;
+  }
+  return `<i class="team-dag-edge-arrow" style="left:${xCSS(seg.x)};top:${Y_PLACEHOLDER}" data-y="${escapeHtml(seg.y.a)}" data-y-dy="${round2(seg.y.dy)}"></i>`;
+}
+
 // renderGanttEdges 把边画成一组**绝对定位的线段**（不是一条会被 sticky 框头盖住的整张 SVG）：
-// 每段的位置与长度都是 calc 算式（x = labelW + 槽位 × slotW，y = 那些块的高度之和），所以窄栏
-// 把几何压小时线段跟着一起动——不用测量、不用重绘、不用等字体加载。
+// x 是 calc 算式（跟着容器查询一起缩），y 是**实测占位**（见上面的口径）。每段线都把自己的
+// 纵向锚点写在 data 属性里，交给 layoutTeamGanttEdges。
 //
 // 颜色一律中性（--team-dag-edge）：**不借状态色、不借 teammate 色**——线只说"谁依赖谁"，
 // 状态由条描边说，归属由条填充说，三条通道各说各的。
 function renderGanttEdges(model) {
-  const y = model.layout.y;
   const parts = [];
   for (const edge of model.edges) {
-    const srcY = y.get(edge.src.y);
-    const dstY = y.get(edge.dst.y);
-    if (!srcY || !dstY) continue;
-    // 箭头占 [tip, tip + arrow]，箭头尖正好落在目标条的左端（槽 0 那一档顶到绘图区内侧，
-    // 见 xApproach —— 否则整段越列到任务名列里）。
-    const tipX = xApproach(edge.dst.slot);
-    const segs = [];
-    const horizontal = (fromX, width, atY) => {
-      if (!spanPositive(width)) return;
-      segs.push(`<i class="team-dag-edge-seg is-h" style="left:${xCSS(fromX)};top:${yCSS(spanAdd(atY, span(-0.75)))};width:${xCSS(width)}"></i>`);
-    };
-    const vertical = (atX, fromY, height) => {
-      if (!spanPositive(height)) return;
-      segs.push(`<i class="team-dag-edge-seg is-v" style="left:${xCSS(spanAdd(atX, span(-0.75)))};top:${yCSS(fromY)};height:${yCSS(height)}"></i>`);
-    };
-    if (edge.gap >= 1) {
-      // 有槽位富余：先走到目标条左侧（留出箭头长度），垂直落下，再进目标条左端。
-      horizontal(edge.src.x, spanSub(tipX, edge.src.x), srcY);
-      vertical(tipX, srcY, spanSub(dstY, srcY));
-    } else {
-      // 同槽（gap = 0，紧贴的 finish→start）：直线会退化成零长线。往下绕一个钩：
-      // 右伸一小段 → 落到目标条下方（条高一半才 8~9px，所以落在条的下面）→ 折回目标条
-      // 左侧 → 抬上来 → 箭头进条。
-      const reach = GANTT.hook + edge.lane * 6;
-      const hookX = spanAdd(edge.src.x, span(reach));
-      const lower = spanAdd(dstY, span(GANTT.shelf));
-      horizontal(edge.src.x, span(reach), srcY);
-      vertical(hookX, srcY, spanSub(lower, srcY));
-      horizontal(tipX, spanSub(hookX, tipX), lower);
-      vertical(tipX, dstY, span(GANTT.shelf));
-    }
-    segs.push(`<i class="team-dag-edge-arrow" style="left:${xCSS(tipX)};top:${yCSS(spanAdd(dstY, span(-3.5)))}"></i>`);
-    parts.push(`<span class="team-dag-edge" data-edge="${escapeHtml(`${edge.from}->${edge.to}`)}" data-kind="${edge.kind}" data-gap="${edge.gap}">${segs.join("")}</span>`);
+    const segs = edgeSegs(edge).map(segHTML).join("");
+    parts.push(`<span class="team-dag-edge" data-edge="${escapeHtml(`${edge.from}->${edge.to}`)}" data-kind="${edge.kind}" data-gap="${edge.gap}">${segs}</span>`);
   }
   return parts.join("");
+}
+
+// ── 边的**实测布局**（wi-gantt-fit）────────────────────────────────────────
+//
+// 行高由内容撑（字多行就长、框跟着长），所以「y = 前面那些块的高度之和」这条算式不成立了：
+// 边的 y 只能量。量的对象是**纵向锚点**：
+//   - `row:<工作项 id>`  = 那一行 `.team-dag-row` 的实测中心；
+//   - `sum:<里程碑 id>`  = 那一行 `.team-dag-ms-sum`（汇总条所在行）的实测中心；
+// 两者都相对 `.team-dag-content` 的顶边——内容坐标，与滚动位置无关（一起滚，差值不变）。
+// 然后按每段线自己的锚点 + 微调，把 `top`（竖段还有 `height`）写成 px。x 一律不动：x 是槽位
+// 算式，与行高无关，窄栏压几何时还得跟着缩。
+//
+// 三条不变式：
+//   1. **没有 DOM 就是空操作**：拿不到 root，或 root 不像 DOM（node:test）→ 返回 0，不抛；
+//   2. **幂等**：同一份实测连跑两次，写出来的坐标逐字相同（数字固定两位小数）；
+//   3. **可桩测**：这个函数只认一个"像 DOM 的对象"（querySelectorAll / querySelector /
+//      getBoundingClientRect / getAttribute / children / style），单测拿桩测量就能驱动它，
+//      不必起浏览器。渲染件本身仍然是纯字符串函数（不碰真 DOM）。
+export function layoutTeamGanttEdges(root) {
+  if (!root || typeof root.querySelectorAll !== "function") return 0;
+  let patched = 0;
+  for (const scroll of Array.from(root.querySelectorAll(".team-dag-scroll") || [])) {
+    if (!scroll || typeof scroll.querySelector !== "function") continue;
+    const content = scroll.querySelector(".team-dag-content");
+    if (!content || typeof content.getBoundingClientRect !== "function") continue;
+    const contentTop = content.getBoundingClientRect().top;
+    const anchors = new Map();
+    const centerOf = el => {
+      const rect = el.getBoundingClientRect();
+      return round2(rect.top - contentTop + rect.height / 2);
+    };
+    for (const row of Array.from(scroll.querySelectorAll(".team-dag-row") || [])) {
+      const id = row.getAttribute("data-item-id");
+      if (id) anchors.set(`row:${id}`, centerOf(row));
+    }
+    for (const row of Array.from(scroll.querySelectorAll(".team-dag-ms-sum") || [])) {
+      const id = row.getAttribute("data-ms");
+      if (id) anchors.set(`sum:${id}`, centerOf(row));
+    }
+    for (const edge of Array.from(scroll.querySelectorAll(".team-dag-edge") || [])) {
+      patched += patchEdgeY(edge, anchors);
+    }
+    // 量过了才显示（没量之前整层 visibility: hidden，见 TEAM_BOARD_CSS）：宁可先不画，
+    // 也不画一条停在 0px 的假线。
+    const layer = scroll.querySelector(".team-dag-edges");
+    if (layer && typeof layer.setAttribute === "function") layer.setAttribute("data-laid-out", "true");
+  }
+  return patched;
+}
+
+// patchEdgeY 按实测锚点重写一条边里每段线的 y；锚点缺（DOM 里没有那一行）就跳过这一段
+// ——保持占位，不猜一个位置出来。
+function patchEdgeY(edge, anchors) {
+  let patched = 0;
+  for (const seg of Array.from((edge && edge.children) || [])) {
+    if (!seg || !seg.style || typeof seg.getAttribute !== "function") continue;
+    const a = anchors.get(seg.getAttribute("data-y") || "");
+    if (a === undefined) continue;
+    const top = round2(a + numAttr(seg, "data-y-dy"));
+    seg.style.top = `${top}px`;
+    const b = anchors.get(seg.getAttribute("data-y2") || "");
+    // 竖段的**高度**也是实测差：两个锚点换了位置，长度跟着变（不是常量）。
+    if (b !== undefined) seg.style.height = `${Math.max(0, round2(b + numAttr(seg, "data-y2-dy") - top))}px`;
+    patched += 1;
+  }
+  return patched;
+}
+
+function numAttr(el, name) {
+  const value = Number(el.getAttribute(name));
+  return Number.isFinite(value) ? value : 0;
+}
+
+// scheduleTeamGanttLayout 在**有 DOM 时**排一次实测：渲染件是纯字符串函数，不知道自己会被插进
+// 哪棵树，所以只能在渲染完之后、浏览器把这一帧交回来时量（微任务 + 一帧后各排一次；同一帧里
+// 连渲多次只排一次）。**没有 DOM（node:test）直接返回 false，什么都不做**——单测里的渲染件
+// 必须是纯的。
+let layoutPending = null;
+
+export function scheduleTeamGanttLayout() {
+  if (typeof document === "undefined" || !document || typeof document.querySelectorAll !== "function") return false;
+  if (layoutPending) return true;
+  const run = () => {
+    if (layoutPending !== run) return;
+    layoutPending = null;
+    layoutTeamGanttEdges(document);
+    observeTeamGanttContents(document);
+  };
+  layoutPending = run;
+  if (typeof queueMicrotask === "function") queueMicrotask(run);
+  else Promise.resolve().then(run);
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(run);
+  return true;
+}
+
+// observeTeamGanttContents 盯住每块看板的**内容高度**：换字号、窄栏让名字少折/多折一行、
+// 字体加载完——凡是会改行高的，都再量一次。量只写 top/height（绝对定位的线段不占位），
+// 不会改变内容尺寸，所以不会自激。
+const OBSERVED_CONTENTS = typeof WeakSet === "function" ? new WeakSet() : null;
+
+let ganttObserver = null;
+
+function observeTeamGanttContents(root) {
+  if (typeof ResizeObserver !== "function") return;
+  if (!ganttObserver) ganttObserver = new ResizeObserver(() => { layoutTeamGanttEdges(document); });
+  for (const content of Array.from(root.querySelectorAll(".team-dag-content") || [])) {
+    if (!OBSERVED_CONTENTS || OBSERVED_CONTENTS.has(content)) continue;
+    OBSERVED_CONTENTS.add(content);
+    ganttObserver.observe(content);
+  }
 }
 
 // renderTeamGantt 是**里程碑 · 工作项**那一节：刻度尺（sticky）→ 竖网格线 → 依赖边 →
@@ -753,7 +849,7 @@ export function renderTeamGantt(plan) {
             <div class="team-dag-ruler-plot">${ticks.join("")}<span class="team-dag-ruler-basis">横轴 = 依赖槽位（非时间）· 1 槽 = 1 层依赖 · 条长恒 1 槽</span></div>
           </div>
           <div class="team-dag-grid" aria-hidden="true"></div>
-          <div class="team-dag-edges" aria-hidden="true">${renderGanttEdges(model)}</div>
+          <div class="team-dag-edges" aria-hidden="true" data-laid-out="false">${renderGanttEdges(model)}</div>
           ${body}
         </div>
       </div>
@@ -1342,9 +1438,10 @@ export const TEAM_BOARD_CSS = `
 .team-event-detail { flex: 1 1 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); }
 /* ── 里程碑 · 工作项：真甘特几何（wi-gantt-impl，2026-10-08）─────────────────────────
    左侧任务名列 + 顶部刻度尺（横轴 = **依赖槽位**，不是时间）+ 竖网格线 + 每行一根横条 +
-   里程碑汇总条 + finish→start 的正交折线箭头。几何常量（--team-dag-*）与 team-board-view.js
-   里的 GANTT 常量逐字对应：渲染件按同一套数字把边的坐标写成 calc 算式，CSS 按同一套数字把
-   版式钉死。两份数字漂一线，条就量不回槽位。
+   里程碑汇总条 + finish→start 的正交折线箭头。几何只有**一份**：--team-dag-* 定义在这里，
+   渲染件只读变量名、不另写一份数字——x（槽位轴）由 CSS calc 与渲染件的算式各算各的，同一个
+   变量说了算；y（行高轴）由**实测**给（wi-gantt-fit：行高由内容撑，见 .team-dag-row 与
+   .team-dag-edges 两处注释）。
    响应式：宿主 ≤520px（产品右栏 ~360px）时把几何整体压小（见文件末尾的 @container），**纯
    CSS**，不另做一套裁剪数据的口径。 */
 .team-dag-scroll { max-height: var(--team-dag-scroll-max-h, 380px); overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
@@ -1353,7 +1450,8 @@ export const TEAM_BOARD_CSS = `
 .team-dag-scroll::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
 .team-dag-scroll::-webkit-scrollbar-thumb:hover { background: var(--faint); background-clip: padding-box; }
 /* 内容 = 竖着排的一列块：刻度尺 → 框 → 闸门带 → 框……。flex 子项的 margin **不合并**，
-   所以渲染件那边才能按"高度相加"算出每一行/每根汇总条的 y（见 ganttLayout）。 */
+   所以"行在哪一行、框长到多高"完全是内容自己撑出来的（不是按高度相加算出来的：行高由内容定，
+   量得出来才算得出来——见 layoutTeamGanttEdges）。 */
 .team-dag-content { position: relative; display: flex; flex-direction: column; padding-top: 4px; min-width: calc(var(--team-dag-label-w) + var(--team-dag-slots, 1) * var(--team-dag-slot-w) + var(--team-dag-tail-w)); }
 /* 刻度尺（sticky 在滚动容器顶边）：横轴是依赖槽位，尺头就把这句话写出来。 */
 .team-dag-ruler { position: sticky; top: 0; z-index: 6; display: grid; grid-template-columns: var(--team-dag-label-w) 1fr; box-sizing: border-box; height: var(--team-dag-ruler-h); border-bottom: 1px solid var(--border-strong); background: var(--panel-solid); }
@@ -1374,6 +1472,10 @@ export const TEAM_BOARD_CSS = `
    不抬箭头，整条边最关键的"到了"那一点就会被实色汇总条吃掉（独立验证 F1/② 同一条病）。
    抬到 3 仍在 sticky 框头（5）与刻度尺（6）之下，线段本身的层序一点没动。 */
 .team-dag-edges { position: absolute; left: 0; top: 0; right: 0; bottom: 0; pointer-events: none; }
+/* 量出来之前整层不显示：渲染字符串里的 top/height 是**占位**（行高由内容撑，字符串给不出 y），
+   等 layoutTeamGanttEdges 按实测把每段线写实之后置 data-laid-out="true"。宁可先不画，也不画
+   一条停在 0px 的假线。 */
+.team-dag-edges:not([data-laid-out="true"]) { visibility: hidden; }
 .team-dag-edge { position: absolute; left: 0; top: 0; width: 0; height: 0; }
 .team-dag-edge-seg { position: absolute; background: var(--team-dag-edge); }
 .team-dag-edge-seg.is-h { height: 1.5px; }
@@ -1403,15 +1505,19 @@ export const TEAM_BOARD_CSS = `
 .team-dag-sum-diamond { position: absolute; top: 50%; left: calc(var(--s) * var(--team-dag-slot-w)); width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; transform: rotate(45deg); background: var(--team-dag-ms-tone); }
 .team-dag-sum-diamond[data-empty="false"] { display: none; }
 .team-dag-sum-note { position: absolute; top: 50%; transform: translateY(-50%); left: calc(var(--e) * var(--team-dag-slot-w) + 8px); font-family: var(--font-mono); font-size: 9.5px; color: var(--faint); white-space: nowrap; }
-/* 工作项行：左边名列 + 右边绘图区（一根条）。行高由 --team-dag-row-h 钉死（38px，上一版
-   的卡片行是 72px）——渲染件的边的 y 算式按的就是这个数。 */
+/* 工作项行：左边名列 + 右边绘图区（一根条）。**行高由内容撑**（wi-gantt-fit，2026-10-08）：
+   --team-dag-row-h 从"钉死的行高"降为**保底值**（min-height）——名字多折两行，行就长两行，
+   它所在的里程碑框跟着长。框高不是算出来的（不是"头+汇总+行数×常量"），是行撑出来的；
+   边的 y 也由实测给（见 .team-dag-edges 与布局件的 layoutTeamGanttEdges）。 */
 .team-dag-rows { display: flex; flex-direction: column; }
-.team-dag-row { position: relative; z-index: 2; box-sizing: border-box; height: var(--team-dag-row-h); }
-.team-dag-card { display: grid; grid-template-columns: var(--team-dag-label-w) 1fr; height: 100%; overflow: hidden; }
-.team-dag-label { display: flex; flex-direction: column; justify-content: center; gap: 2px; min-width: 0; padding: 0 8px 0 10px; overflow: hidden; }
-.team-dag-label-top { display: flex; align-items: baseline; gap: 6px; min-width: 0; white-space: nowrap; }
-.team-dag-id { flex: none; font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; color: var(--text-strong); }
-.team-dag-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--text-sm); font-weight: 600; color: var(--text-strong); }
+.team-dag-row { position: relative; z-index: 2; box-sizing: border-box; height: auto; min-height: var(--team-dag-row-h); }
+.team-dag-card { display: grid; grid-template-columns: var(--team-dag-label-w) 1fr; height: auto; min-height: var(--team-dag-row-h); overflow: visible; }
+/* 名列的可读性责任在这里：id 一行（mono），**name 另起一行并可折行**（行数由内容定，不设
+   max-height、不裁）——370px 的右栏里名字也读得完，不靠 hover/title。 */
+.team-dag-label { display: flex; flex-direction: column; justify-content: center; gap: 2px; min-width: 0; padding: 3px 8px 3px 10px; }
+.team-dag-label-top { display: flex; flex-direction: column; align-items: stretch; gap: 1px; min-width: 0; white-space: normal; }
+.team-dag-id { flex: none; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; color: var(--text-strong); }
+.team-dag-name { min-width: 0; max-width: 100%; overflow-wrap: anywhere; white-space: normal; font-size: var(--text-sm); font-weight: 600; color: var(--text-strong); }
 .team-dag-name.is-openable { padding: 0; border: 0; background: none; text-align: left; text-decoration: underline dotted var(--border-strong); text-underline-offset: 2px; cursor: pointer; }
 .team-dag-name.is-openable:hover { color: var(--text-bright); }
 .team-dag-name.is-openable:focus-visible { outline: 1px solid var(--border-info); outline-offset: 1px; border-radius: 3px; }
@@ -1458,7 +1564,9 @@ export const TEAM_BOARD_CSS = `
   .team-dag-scroll { --team-dag-slot-w: 40px; --team-dag-label-w: 118px; --team-dag-bar-h: 16px; --team-dag-row-h: 30px; --team-dag-ruler-h: 28px; --team-dag-tail-w: 76px; }
   .team-dag-ms-content, .team-dag-ms-deps, .team-dag-ms-empty, .team-dag-layer, .team-dag-sum-note { display: none; }
   .team-dag-depnote, .team-dag-session, .team-dag-wt, .team-dag-goal, .team-dag-label-sub { display: none; }
-  .team-dag-bar-name { font-size: 10px; }
+  /* 条内那串字是**视觉回声**（名字在左侧名列里已经读得完）：窄栏一根条只有 40px 宽，
+     塞进去就是"半截字"（实测 20px / 全名 227px）——窄栏直接不画它，不留半截。 */
+  .team-dag-bar-name { display: none; }
 }
 .team-queues, .team-item-messages { display: flex; flex-direction: column; gap: 3px; margin: 0; padding: 0; list-style: none; min-width: 0; }
 .team-item-message { display: flex; gap: 5px; min-width: 0; font-size: var(--text-xs); color: var(--text-mid); }

@@ -94,7 +94,7 @@
 </section>
 
 <script type="module">
-  import { TEAM_BOARD_CSS, renderTeamBoard } from "./team-board-view.js";
+  import { TEAM_BOARD_CSS, renderTeamBoard, layoutTeamGanttEdges } from "./team-board-view.js";
 
   const style = document.createElement("style");
   style.textContent = TEAM_BOARD_CSS;
@@ -229,6 +229,9 @@
   const fixtures = { chain: CHAIN, real: REAL, mixed: MIXED, sketch: SKETCH };
   for (const host of document.querySelectorAll("[data-fixture]")) {
     host.innerHTML = renderTeamBoard(fixtures[host.dataset.fixture]);
+    // 行高由内容撑（字多行就长），边的 y 是**实测**的：产品里这一步由渲染件自己排（微任务），
+    // 这里紧接着就要读数，所以显式跑一次——同一个函数，不是第二套口径。
+    layoutTeamGanttEdges(host);
   }
 
   // ── 自证读数（本页自己的，不入库到产品代码）────────────────────────────
@@ -260,6 +263,7 @@
         const expectRight = cell.left + (slot + Number(row.dataset.dur)) * slotW - 2;
         slotCheck.push({
           item: row.dataset.itemId, eff: row.dataset.eff, slot,
+          rowH: row.clientHeight, nameLines: row.querySelector(".team-dag-name")?.getClientRects().length ?? 0,
           bar: [round(bar.left), round(bar.top), round(bar.width), round(bar.height)],
           leftDelta: round(bar.left - expectLeft), rightDelta: round(bar.right - expectRight),
           widthDelta: round(bar.width - (slotW - 2)),
@@ -296,6 +300,8 @@
         frames, sums, ticks, rows: slotCheck,
         gates: [...host.querySelectorAll(".team-dag-gate")].map(gate => ({ gate: gate.dataset.gate, open: gate.dataset.open })),
         edges: [...host.querySelectorAll(".team-dag-edge")].map(edge => ({ edge: edge.dataset.edge, kind: edge.dataset.kind, gap: Number(edge.dataset.gap), segs: edge.children.length })),
+        edgesLaidOut: host.querySelector(".team-dag-edges")?.dataset.laidOut ?? null,
+        edgeTops: [...host.querySelectorAll(".team-dag-edge i")].map(seg => seg.style.top),
         slot_ok: slotCheck.every(row => Math.abs(row.leftDelta) <= 1 && Math.abs(row.widthDelta) <= 1),
         topo_violations: violations,
         roles: [...new Set(rows.map(row => row.dataset.role).filter(Boolean))].map(role => ({ role, token: (host.querySelector(`.team-dag-row[data-role="${role}"]`)?.getAttribute("style") || "").replace(/.*var\(|\).*/g, "") })),

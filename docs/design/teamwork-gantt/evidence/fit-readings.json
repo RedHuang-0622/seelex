@@ -1,0 +1,695 @@
+{
+  "fixture": {
+    "team_id": "gantt-fit",
+    "version": 3,
+    "members": [
+      {
+        "role": "artist",
+        "role_session_id": "s-fit-artist",
+        "worktree": "seelex/artist-fit",
+        "status": "idle"
+      },
+      {
+        "role": "frontend",
+        "role_session_id": "s-fit-frontend",
+        "worktree": "seelex/frontend-fit",
+        "status": "running"
+      }
+    ],
+    "milestones": [
+      {
+        "id": "m-design",
+        "name": "设计",
+        "status": "done",
+        "content": "静态稿经 leader 逐字节复核"
+      },
+      {
+        "id": "m-impl",
+        "name": "实现",
+        "depends_on": [
+          "m-design"
+        ],
+        "status": "running"
+      },
+      {
+        "id": "m-verify",
+        "name": "独立验证",
+        "depends_on": [
+          "m-impl"
+        ],
+        "status": "pending"
+      }
+    ],
+    "work_items": [
+      {
+        "id": "wi-spec",
+        "milestone": "m-design",
+        "role": "artist",
+        "name": "规格：一页对比表",
+        "status": "done",
+        "session_id": "s-fit-a1",
+        "worktree": "seelex/artist-fit",
+        "goal": "把三档宽度的读数压成一页"
+      },
+      {
+        "id": "wi-draw",
+        "milestone": "m-design",
+        "role": "artist",
+        "name": "出图：teamwork 里程碑/工作项 DAG 静态 UI 稿",
+        "status": "done",
+        "depends_on": [
+          "wi-spec"
+        ],
+        "session_id": "s-fit-a2",
+        "worktree": "seelex/artist-fit",
+        "goal": "静态稿要能在 370px 右栏读得完"
+      },
+      {
+        "id": "wi-impl",
+        "milestone": "m-impl",
+        "role": "frontend",
+        "name": "实现：行高由内容撑",
+        "status": "running",
+        "depends_on": [
+          "wi-draw"
+        ],
+        "session_id": "s-fit-f1",
+        "worktree": "seelex/frontend-fit",
+        "goal": "字撑行、框随行长、边按实测几何"
+      },
+      {
+        "id": "wi-geo",
+        "milestone": "m-impl",
+        "role": "frontend",
+        "name": "几何：边按实测位置画",
+        "status": "pending",
+        "depends_on": [
+          "wi-impl"
+        ],
+        "session_id": "s-fit-f2",
+        "worktree": "seelex/frontend-fit",
+        "goal": "layouts pass 幂等"
+      },
+      {
+        "id": "wi-verify",
+        "milestone": "m-verify",
+        "role": "artist",
+        "name": "复核",
+        "status": "pending",
+        "depends_on": [
+          "wi-impl"
+        ],
+        "session_id": "s-fit-a3",
+        "worktree": "seelex/artist-fit",
+        "goal": "独立复跑两档读数"
+      }
+    ]
+  },
+  "widths": [
+    370,
+    1180
+  ],
+  "beforeRef": "HEAD",
+  "beforeFiles": [
+    "team-board-view.js",
+    "components.js",
+    "markdown.js",
+    "html-embed.js"
+  ],
+  "after": {
+    "370": {
+      "variant": "after",
+      "width": 370,
+      "rows": [
+        {
+          "id": "wi-spec",
+          "rowH": 40,
+          "rowScrollH": 40,
+          "nameText": "规格：一页对比表",
+          "nameClientW": 100,
+          "nameScrollW": 100,
+          "nameLines": 1,
+          "nameTruncated": false,
+          "barNameDisplay": "none",
+          "barNameClientW": 0,
+          "barNameScrollW": 0,
+          "barNameBoxRatio": 0,
+          "barW": 38,
+          "barLeft": 0
+        },
+        {
+          "id": "wi-draw",
+          "rowH": 74,
+          "rowScrollH": 74,
+          "nameText": "出图：teamwork 里程碑/工作项 DAG 静态 UI 稿",
+          "nameClientW": 100,
+          "nameScrollW": 100,
+          "nameLines": 3,
+          "nameTruncated": false,
+          "barNameDisplay": "none",
+          "barNameClientW": 0,
+          "barNameScrollW": 0,
+          "barNameBoxRatio": 0,
+          "barW": 38,
+          "barLeft": 40
+        },
+        {
+          "id": "wi-impl",
+          "rowH": 57,
+          "rowScrollH": 57,
+          "nameText": "实现：行高由内容撑",
+          "nameClientW": 100,
+          "nameScrollW": 100,
+          "nameLines": 2,
+          "nameTruncated": false,
+          "barNameDisplay": "none",
+          "barNameClientW": 0,
+          "barNameScrollW": 0,
+          "barNameBoxRatio": 0,
+          "barW": 38,
+          "barLeft": 80
+        },
+        {
+          "id": "wi-geo",
+          "rowH": 57,
+          "rowScrollH": 57,
+          "nameText": "几何：边按实测位置画",
+          "nameClientW": 100,
+          "nameScrollW": 100,
+          "nameLines": 2,
+          "nameTruncated": false,
+          "barNameDisplay": "none",
+          "barNameClientW": 0,
+          "barNameScrollW": 0,
+          "barNameBoxRatio": 0,
+          "barW": 38,
+          "barLeft": 120
+        },
+        {
+          "id": "wi-verify",
+          "rowH": 40,
+          "rowScrollH": 40,
+          "nameText": "复核",
+          "nameClientW": 100,
+          "nameScrollW": 100,
+          "nameLines": 1,
+          "nameTruncated": false,
+          "barNameDisplay": "none",
+          "barNameClientW": 0,
+          "barNameScrollW": 0,
+          "barNameBoxRatio": 0,
+          "barW": 38,
+          "barLeft": 120
+        }
+      ],
+      "frames": [
+        {
+          "ms": "m-design",
+          "clientH": 166,
+          "rows": 2,
+          "rowsH": 114,
+          "wantClientH": 166,
+          "delta": 0
+        },
+        {
+          "ms": "m-impl",
+          "clientH": 166,
+          "rows": 2,
+          "rowsH": 114,
+          "wantClientH": 166,
+          "delta": 0
+        },
+        {
+          "ms": "m-verify",
+          "clientH": 92,
+          "rows": 1,
+          "rowsH": 40,
+          "wantClientH": 92,
+          "delta": 0
+        }
+      ],
+      "checks": {
+        "productPass": {
+          "laidOut": "true",
+          "visibility": "visible",
+          "firstSegTop": "left: calc(-2px + 1 * var(--team-dag-label-w) + 1 * var(--team-dag-slot-w)); top: 104.05px; width: 7px;"
+        },
+        "edges": {
+          "segCount": 30,
+          "worstDelta": 0.01,
+          "mismatches": 0
+        },
+        "idempotent": true,
+        "squeezed": [],
+        "scroll": {
+          "clientH": 370,
+          "scrollH": 530,
+          "maxH": "380px"
+        },
+        "edgeLayer": {
+          "laidOut": "true",
+          "visibility": "visible"
+        }
+      },
+      "geom": {
+        "boardWidth": 370,
+        "labelW": "208px",
+        "slotW": "40px",
+        "rowH": "38px",
+        "barH": "18px",
+        "queryApplied": true
+      }
+    },
+    "1180": {
+      "variant": "after",
+      "width": 1180,
+      "rows": [
+        {
+          "id": "wi-spec",
+          "rowH": 58,
+          "rowScrollH": 58,
+          "nameText": "规格：一页对比表",
+          "nameClientW": 190,
+          "nameScrollW": 190,
+          "nameLines": 1,
+          "nameTruncated": false,
+          "barNameDisplay": "flex",
+          "barNameClientW": 49,
+          "barNameScrollW": 84,
+          "barNameBoxRatio": 0.96,
+          "barW": 62,
+          "barLeft": 0
+        },
+        {
+          "id": "wi-draw",
+          "rowH": 75,
+          "rowScrollH": 75,
+          "nameText": "出图：teamwork 里程碑/工作项 DAG 静态 UI 稿",
+          "nameClientW": 190,
+          "nameScrollW": 190,
+          "nameLines": 2,
+          "nameTruncated": false,
+          "barNameDisplay": "flex",
+          "barNameClientW": 49,
+          "barNameScrollW": 225,
+          "barNameBoxRatio": 0.96,
+          "barW": 62,
+          "barLeft": 64
+        },
+        {
+          "id": "wi-impl",
+          "rowH": 58,
+          "rowScrollH": 58,
+          "nameText": "实现：行高由内容撑",
+          "nameClientW": 190,
+          "nameScrollW": 190,
+          "nameLines": 1,
+          "nameTruncated": false,
+          "barNameDisplay": "flex",
+          "barNameClientW": 49,
+          "barNameScrollW": 95,
+          "barNameBoxRatio": 0.96,
+          "barW": 62,
+          "barLeft": 128
+        },
+        {
+          "id": "wi-geo",
+          "rowH": 58,
+          "rowScrollH": 58,
+          "nameText": "几何：边按实测位置画",
+          "nameClientW": 190,
+          "nameScrollW": 190,
+          "nameLines": 1,
+          "nameTruncated": false,
+          "barNameDisplay": "flex",
+          "barNameClientW": 49,
+          "barNameScrollW": 105,
+          "barNameBoxRatio": 0.96,
+          "barW": 62,
+          "barLeft": 192
+        },
+        {
+          "id": "wi-verify",
+          "rowH": 58,
+          "rowScrollH": 58,
+          "nameText": "复核",
+          "nameClientW": 190,
+          "nameScrollW": 190,
+          "nameLines": 1,
+          "nameTruncated": false,
+          "barNameDisplay": "flex",
+          "barNameClientW": 49,
+          "barNameScrollW": 49,
+          "barNameBoxRatio": 0.96,
+          "barW": 62,
+          "barLeft": 192
+        }
+      ],
+      "frames": [
+        {
+          "ms": "m-design",
+          "clientH": 184,
+          "rows": 2,
+          "rowsH": 133,
+          "wantClientH": 185,
+          "delta": -1
+        },
+        {
+          "ms": "m-impl",
+          "clientH": 167,
+          "rows": 2,
+          "rowsH": 116,
+          "wantClientH": 168,
+          "delta": -1
+        },
+        {
+          "ms": "m-verify",
+          "clientH": 110,
+          "rows": 1,
+          "rowsH": 58,
+          "wantClientH": 110,
+          "delta": 0
+        }
+      ],
+      "checks": {
+        "productPass": {
+          "laidOut": "true",
+          "visibility": "visible",
+          "firstSegTop": "left: calc(-2px + 1 * var(--team-dag-label-w) + 1 * var(--team-dag-slot-w)); top: 115.02px; width: 7px;"
+        },
+        "edges": {
+          "segCount": 30,
+          "worstDelta": 0.01,
+          "mismatches": 0
+        },
+        "idempotent": true,
+        "squeezed": [],
+        "scroll": {
+          "clientH": 380,
+          "scrollH": 569,
+          "maxH": "380px"
+        },
+        "edgeLayer": {
+          "laidOut": "true",
+          "visibility": "visible"
+        }
+      },
+      "geom": {
+        "boardWidth": 1180,
+        "labelW": "208px",
+        "slotW": "64px",
+        "rowH": "38px",
+        "barH": "18px",
+        "queryApplied": false
+      }
+    }
+  },
+  "before": {
+    "370": {
+      "variant": "before",
+      "width": 370,
+      "rows": [
+        {
+          "id": "wi-spec",
+          "rowH": 30,
+          "rowScrollH": 30,
+          "nameText": "规格：一页对比表",
+          "nameClientW": 51,
+          "nameScrollW": 96,
+          "nameLines": 1,
+          "nameTruncated": true,
+          "barNameDisplay": "flex",
+          "barNameClientW": 25,
+          "barNameScrollW": 80,
+          "barNameBoxRatio": 0.93,
+          "barW": 38,
+          "barLeft": 0
+        },
+        {
+          "id": "wi-draw",
+          "rowH": 30,
+          "rowScrollH": 30,
+          "nameText": "出图：teamwork 里程碑/工作项 DAG 静态 UI 稿",
+          "nameClientW": 51,
+          "nameScrollW": 257,
+          "nameLines": 1,
+          "nameTruncated": true,
+          "barNameDisplay": "flex",
+          "barNameClientW": 25,
+          "barNameScrollW": 214,
+          "barNameBoxRatio": 0.93,
+          "barW": 38,
+          "barLeft": 40
+        },
+        {
+          "id": "wi-impl",
+          "rowH": 30,
+          "rowScrollH": 30,
+          "nameText": "实现：行高由内容撑",
+          "nameClientW": 51,
+          "nameScrollW": 108,
+          "nameLines": 1,
+          "nameTruncated": true,
+          "barNameDisplay": "flex",
+          "barNameClientW": 25,
+          "barNameScrollW": 90,
+          "barNameBoxRatio": 0.93,
+          "barW": 38,
+          "barLeft": 80
+        },
+        {
+          "id": "wi-geo",
+          "rowH": 30,
+          "rowScrollH": 30,
+          "nameText": "几何：边按实测位置画",
+          "nameClientW": 57,
+          "nameScrollW": 120,
+          "nameLines": 1,
+          "nameTruncated": true,
+          "barNameDisplay": "flex",
+          "barNameClientW": 25,
+          "barNameScrollW": 100,
+          "barNameBoxRatio": 0.93,
+          "barW": 38,
+          "barLeft": 120
+        },
+        {
+          "id": "wi-verify",
+          "rowH": 30,
+          "rowScrollH": 30,
+          "nameText": "复核",
+          "nameClientW": 24,
+          "nameScrollW": 24,
+          "nameLines": 1,
+          "nameTruncated": false,
+          "barNameDisplay": "flex",
+          "barNameClientW": 25,
+          "barNameScrollW": 25,
+          "barNameBoxRatio": 0.93,
+          "barW": 38,
+          "barLeft": 120
+        }
+      ],
+      "frames": [
+        {
+          "ms": "m-design",
+          "clientH": 112,
+          "rows": 2,
+          "rowsH": 60,
+          "wantClientH": 112,
+          "delta": 0
+        },
+        {
+          "ms": "m-impl",
+          "clientH": 112,
+          "rows": 2,
+          "rowsH": 60,
+          "wantClientH": 112,
+          "delta": 0
+        },
+        {
+          "ms": "m-verify",
+          "clientH": 82,
+          "rows": 1,
+          "rowsH": 30,
+          "wantClientH": 82,
+          "delta": 0
+        }
+      ],
+      "checks": {
+        "productPass": {
+          "laidOut": null,
+          "visibility": "visible",
+          "firstSegTop": "left:calc(-2px + 1 * var(--team-dag-label-w) + 1 * var(--team-dag-slot-w));top:calc(8.25px + 1 * var(--team-dag-ruler-h) + 1 * var(--team-dag-head-h) + 1 * var(--team-dag-sum-h) + 0.5 * var(--team-dag-row-h));width:7px"
+        },
+        "edges": {
+          "segCount": 30,
+          "worstDelta": 0,
+          "mismatches": 0
+        },
+        "idempotent": true,
+        "squeezed": [],
+        "scroll": {
+          "clientH": 380,
+          "scrollH": 412,
+          "maxH": "380px"
+        },
+        "edgeLayer": {
+          "laidOut": null,
+          "visibility": "visible"
+        }
+      },
+      "geom": {
+        "boardWidth": 370,
+        "labelW": "208px",
+        "slotW": "40px",
+        "rowH": "38px",
+        "barH": "18px",
+        "queryApplied": true
+      }
+    },
+    "1180": {
+      "variant": "before",
+      "width": 1180,
+      "rows": [
+        {
+          "id": "wi-spec",
+          "rowH": 38,
+          "rowScrollH": 38,
+          "nameText": "规格：一页对比表",
+          "nameClientW": 96,
+          "nameScrollW": 96,
+          "nameLines": 1,
+          "nameTruncated": false,
+          "barNameDisplay": "flex",
+          "barNameClientW": 49,
+          "barNameScrollW": 84,
+          "barNameBoxRatio": 0.96,
+          "barW": 62,
+          "barLeft": 0
+        },
+        {
+          "id": "wi-draw",
+          "rowH": 38,
+          "rowScrollH": 38,
+          "nameText": "出图：teamwork 里程碑/工作项 DAG 静态 UI 稿",
+          "nameClientW": 141,
+          "nameScrollW": 257,
+          "nameLines": 1,
+          "nameTruncated": true,
+          "barNameDisplay": "flex",
+          "barNameClientW": 49,
+          "barNameScrollW": 225,
+          "barNameBoxRatio": 0.96,
+          "barW": 62,
+          "barLeft": 64
+        },
+        {
+          "id": "wi-impl",
+          "rowH": 38,
+          "rowScrollH": 38,
+          "nameText": "实现：行高由内容撑",
+          "nameClientW": 108,
+          "nameScrollW": 108,
+          "nameLines": 1,
+          "nameTruncated": false,
+          "barNameDisplay": "flex",
+          "barNameClientW": 49,
+          "barNameScrollW": 95,
+          "barNameBoxRatio": 0.96,
+          "barW": 62,
+          "barLeft": 128
+        },
+        {
+          "id": "wi-geo",
+          "rowH": 38,
+          "rowScrollH": 38,
+          "nameText": "几何：边按实测位置画",
+          "nameClientW": 120,
+          "nameScrollW": 120,
+          "nameLines": 1,
+          "nameTruncated": false,
+          "barNameDisplay": "flex",
+          "barNameClientW": 49,
+          "barNameScrollW": 105,
+          "barNameBoxRatio": 0.96,
+          "barW": 62,
+          "barLeft": 192
+        },
+        {
+          "id": "wi-verify",
+          "rowH": 38,
+          "rowScrollH": 38,
+          "nameText": "复核",
+          "nameClientW": 24,
+          "nameScrollW": 24,
+          "nameLines": 1,
+          "nameTruncated": false,
+          "barNameDisplay": "flex",
+          "barNameClientW": 49,
+          "barNameScrollW": 49,
+          "barNameBoxRatio": 0.96,
+          "barW": 62,
+          "barLeft": 192
+        }
+      ],
+      "frames": [
+        {
+          "ms": "m-design",
+          "clientH": 128,
+          "rows": 2,
+          "rowsH": 76,
+          "wantClientH": 128,
+          "delta": 0
+        },
+        {
+          "ms": "m-impl",
+          "clientH": 128,
+          "rows": 2,
+          "rowsH": 76,
+          "wantClientH": 128,
+          "delta": 0
+        },
+        {
+          "ms": "m-verify",
+          "clientH": 90,
+          "rows": 1,
+          "rowsH": 38,
+          "wantClientH": 90,
+          "delta": 0
+        }
+      ],
+      "checks": {
+        "productPass": {
+          "laidOut": null,
+          "visibility": "visible",
+          "firstSegTop": "left:calc(-2px + 1 * var(--team-dag-label-w) + 1 * var(--team-dag-slot-w));top:calc(8.25px + 1 * var(--team-dag-ruler-h) + 1 * var(--team-dag-head-h) + 1 * var(--team-dag-sum-h) + 0.5 * var(--team-dag-row-h));width:7px"
+        },
+        "edges": {
+          "segCount": 30,
+          "worstDelta": 0,
+          "mismatches": 0
+        },
+        "idempotent": true,
+        "squeezed": [],
+        "scroll": {
+          "clientH": 380,
+          "scrollH": 454,
+          "maxH": "380px"
+        },
+        "edgeLayer": {
+          "laidOut": null,
+          "visibility": "visible"
+        }
+      },
+      "geom": {
+        "boardWidth": 1180,
+        "labelW": "208px",
+        "slotW": "64px",
+        "rowH": "38px",
+        "barH": "18px",
+        "queryApplied": false
+      }
+    }
+  }
+}

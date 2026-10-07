@@ -4,6 +4,9 @@
   0 外部 css/js/字体/图片；双击 `file://` 直接能看，不用起服务）
 - 自证工具：`docs/design/teamwork-gantt/tools/measure_gantt.py`；原始读数与图：`docs/design/teamwork-gantt/evidence/`
 - 旧稿保留做前后对比：`docs/design/teamwork-dag/`（上一版的「满宽卡片列表 + 左侧连线」）
+- **行高自适应（2026-10-08 · wi-gantt-fit）**：`docs/design/teamwork-gantt/fit.md` —— 行高由内容撑、
+  框随行长、边的 y 改为**实测**；工具 `tools/fit-probe.mjs` + `tools/fit-analyze.py`，
+  读数 `evidence/fit-readings.*`，实图 `evidence/fit-narrow-370*.png`
 
 调试 query（只为自证，不改默认视图）：
 `?view=wide|narrow`（一页一块板，出证图用）、`?demo=story|sketch|mixed`、`?advance=N`、

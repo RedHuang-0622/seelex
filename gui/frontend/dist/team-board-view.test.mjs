@@ -22,6 +22,7 @@ import {
   renderTeammateLiveSession,
   TEAMMATE_LIVE_PAGE_SIZE,
   ganttModel,
+  layoutTeamGanttEdges,
   renderTeamGantt,
   renderTeamQueue,
   renderTeamWorkItem,
@@ -626,9 +627,10 @@ test("renderWorkItemSessionPanel 是执行进度子页面：只有条目，没�
 
 test("(6) 依赖边真的画出来：正交折线（横段 + 竖段）+ 末端箭头；边一律中性色", () => {
   const html = renderTeamGantt(MS_PLAN);
-  assert.match(html, /<div class="team-dag-edges" aria-hidden="true">/);
-  // 边 = 一组绝对定位的线段，位置/长度都是 calc 算式（x = labelW + 槽位 × slotW），
-  // 所以窄栏压小几何时线段跟着一起缩，不需要量 rect、不需要重绘。
+  assert.match(html, /<div class="team-dag-edges" aria-hidden="true" data-laid-out="false">/);
+  // 边 = 一组绝对定位的线段：x 是槽位算式（labelW + 槽位 × slotW，跟着容器查询一起缩），
+  // y 是**实测**（插进 DOM 后由 layoutTeamGanttEdges 量出来写实）——所以这里只钉 x，以及
+  // 每段线都带着自己的纵向锚点。见下面 (fi-c/d) 那条：y 真的跟着实测走。
   const edges = [...html.matchAll(/<span class="team-dag-edge" data-edge="([^"]+)" data-kind="item" data-gap="(-?\d+)">([\s\S]*?)<\/span>/g)];
   assert.equal(edges.length, 2, "有几条依赖边就画几条（wi-impl←wi-req、wi-test←wi-impl；wi-ship 没有依赖）");
   for (const [, id, gap, body] of edges) {
@@ -637,6 +639,11 @@ test("(6) 依赖边真的画出来：正交折线（横段 + 竖段）+ 末端�
     assert.ok(h.length >= 1, `${id}（gap=${gap}）至少有一段横线`);
     assert.ok(v.length >= 1, `${id}（gap=${gap}）至少有一段竖线（正交折线）`);
     for (const [, left] of h) assert.match(left, /var\(--team-dag-slot-w\)/, "横段的 x 落在槽位网格上");
+    // 每段线都带自己的纵向锚点（data-y），而 top 一律是**占位**：y 由实测给，渲染字符串里
+    // 不许出现任何"算出来的 y"（行高由内容撑，算不出来）。
+    assert.match(body, /data-y="/, "每段线都带纵向锚点");
+    const segCount = [...body.matchAll(/<i class="team-dag-edge/g)].length;
+    assert.equal([...body.matchAll(/;top:0px/g)].length, segCount, "y 一律占位（实测之后才写实）");
     assert.equal([...body.matchAll(/class="team-dag-edge-arrow"/g)].length, 1, `${id} 一条边一个箭头`);
     const arrow = body.match(/class="team-dag-edge-arrow" style="left:([^;]+);top:([^;]+)"/);
     assert.match(arrow[1], /-7px/, "箭尾比目标条左端少一个箭头长（箭头尖正好落在条左端）");
@@ -753,7 +760,7 @@ test("(10) 窄栏自适应用 container query：压小几何常量 + 折叠次�
   assert.doesNotMatch(block, /--team-dag-scroll-max-h/);
 });
 
-test("几何只在两处写：CSS 的 --team-dag-* 与渲染件的 GANTT 常量必须逐字相同", () => {
+test("几何只有**一份**（CSS）：渲染件不再复写这些数字，y 也不是算式（改成实测）", () => {
   const pairs = [
     ["--team-dag-ruler-h", 30],
     ["--team-dag-head-h", 26],
@@ -764,28 +771,27 @@ test("几何只在两处写：CSS 的 --team-dag-* 与渲染件的 GANTT 常量�
     ["--team-dag-slot-w", 64],
     ["--team-dag-bar-h", 18],
   ];
+  // 版式几何的**唯一来源是 CSS**（wi-gantt-fit 的口径变更）。修之前这里钉的是"渲染件的 GANTT
+  // 常量必须与 CSS 逐字相同"——那是 y 还写成 calc 算式时的绳子；现在 y 由**实测**给（行高不再
+  // 是常量，算式算不出来），渲染件里一行几何数字都不留，绳子自然也就不需要了：数字只有一份，
+  // 想漂也漂不了。
   for (const [name, value] of pairs) {
-    assert.match(TEAM_BOARD_CSS, new RegExp(`${name}:\\s*${value}px`), `${name} 必须与渲染件的 GANTT 常量一致（差一线，条就量不回槽位）`);
+    assert.match(TEAM_BOARD_CSS, new RegExp(`${name}:\\s*${value}px`), `${name} 的定义在 CSS 里`);
   }
-  // 渲染件那边的同一组数字（改一处必须改两处，这条用例就是那条绳子）。
-  assert.match(SRC, /rulerH:\s*30,/);
-  assert.match(SRC, /headH:\s*26,/);
-  assert.match(SRC, /sumH:\s*22,/);
-  assert.match(SRC, /rowH:\s*38,/);
-  assert.match(SRC, /gateH:\s*18,/);
-  assert.match(SRC, /labelW:\s*208,/);
-  assert.match(SRC, /slotW:\s*64,/);
-  assert.match(SRC, /barH:\s*18,/);
-  // 不随窄栏变的那几个（渲染件按字面 px 写进 calc 算式，CSS 也写死）：
-  assert.match(SRC, /contentPadTop:\s*4,/);
+  for (const gone of [/rulerH:\s*30,/, /headH:\s*26,/, /sumH:\s*22,/, /rowH:\s*38,/, /gateH:\s*18,/,
+    /labelW:\s*208,/, /slotW:\s*64,/, /barH:\s*18,/, /contentPadTop:\s*4,/, /frameGap:\s*4,/,
+    /framePadBottom:\s*4,/, /gateMargin:\s*2,/, /frameBorder:\s*1,/]) {
+    assert.doesNotMatch(SRC, gone, `渲染件不许再写一份 ${gone}（两份数字 = 改一处漏一处）`);
+  }
+  // 还留在渲染件里的只有**视觉微调**（不是版式几何）：箭头长、绕行钩的两笔、线宽/箭头的半格。
+  for (const kept of [/arrow:\s*7,/, /hook:\s*7,/, /shelf:\s*12,/, /lineHalf:\s*0.75,/, /arrowHalf:\s*3\.5,/]) {
+    assert.match(SRC, kept);
+  }
+  // CSS 那一侧（唯一的来源）把版式钉住：内容顶距 4px、框的 4px 间距与 4px 下内距、闸门带 2px 间距。
   assert.match(TEAM_BOARD_CSS, /\.team-dag-content\s*\{[^}]*padding-top:\s*4px/);
-  assert.match(SRC, /frameGap:\s*4,/);
   assert.match(TEAM_BOARD_CSS, /\.team-dag-frame\s*\{[^}]*margin:\s*4px 0/);
-  assert.match(SRC, /framePadBottom:\s*4,/);
   assert.match(TEAM_BOARD_CSS, /\.team-dag-frame\s*\{[^}]*padding-bottom:\s*4px/);
-  assert.match(SRC, /gateMargin:\s*2,/);
   assert.match(TEAM_BOARD_CSS, /\.team-dag-gate\s*\{[^}]*margin:\s*2px 4px/);
-  assert.match(SRC, /frameBorder:\s*1,/);
   assert.match(TEAM_BOARD_CSS, /\.team-dag-frame\s*\{[^}]*border:\s*1px solid var\(--team-dag-ms-tone/);
   // 上一版的 72px 卡片行必须退场（几何整条换过了）。
   assert.doesNotMatch(SRC, /rowH:\s*72,/);
@@ -1034,33 +1040,188 @@ function edgeParts(html, edgeID) {
   };
 }
 
-test("(F1/回归 a) 里程碑边的 y 锚点 = 框顶 + 框边 + head-h + sum-h/2（框头那一项漏了整条边就失踪）", () => {
+// ── 桩 DOM：把「量到什么 → 边画到哪儿」这条因果钉住（wi-gantt-fit，不需要浏览器）──────
+//
+// layoutTeamGanttEdges 只认一个"像 DOM 的对象"：querySelectorAll / querySelector /
+// getBoundingClientRect / getAttribute / children / style。所以单测可以直接**喂一份实测**
+// （这一行在哪儿、多高），再断言边被画到哪儿去——判据是"跟着实测变"，不是"等于某个常量"。
+function stubRect(top, height) { return { top, height }; }
+
+function stubEl(attrs = {}, rect = stubRect(0, 0), children = []) {
+  return {
+    attrs,
+    children,
+    style: {},
+    getAttribute(name) { return Object.prototype.hasOwnProperty.call(this.attrs, name) ? this.attrs[name] : null; },
+    setAttribute(name, value) { this.attrs[name] = String(value); },
+    getBoundingClientRect() { return this.rect || rect; },
+    rect,
+  };
+}
+
+// segsFromHTML 把渲染件画出来的边（字符串）掰成桩段：只取**纵向锚点**那几个 data 属性
+// （data-y / data-y-dy / data-y2 / data-y2-dy）——那正是"渲染件 ↔ 实测布局"之间的契约。
+// x 不参与（x 是槽位算式，与行高无关）。
+function segsFromHTML(html, edgeID) {
+  const span = html.match(new RegExp(`<span class="team-dag-edge" data-edge="${edgeID}"[\\s\\S]*?</span>`));
+  assert.ok(span, `${edgeID} 的边要先画出来`);
+  return [...span[0].matchAll(/<i class="(?:team-dag-edge-seg|team-dag-edge-arrow)[^"]*"[^>]*>/g)].map(match => {
+    const tag = match[0];
+    const attr = name => {
+      const hit = tag.match(new RegExp(` data-${name}="([^"]*)"`));
+      return hit ? hit[1] : null;
+    };
+    return stubEl({
+      "data-y": attr("y"), "data-y-dy": attr("y-dy"),
+      "data-y2": attr("y2"), "data-y2-dy": attr("y2-dy"),
+    });
+  });
+}
+
+// stubGanttRoot 造一棵最小的桩：一个滚动容器 + 一份内容坐标 + 若干行/汇总条 + 若干边。
+// contentTop 是内容顶边的**视口**位置（内容坐标 = 视口位置 − contentTop）。
+function stubGanttRoot({ contentTop = 0, rows = [], sums = [], edges = [] }) {
+  const layer = stubEl({ "data-laid-out": "false" });
+  const content = stubEl({}, stubRect(contentTop, 1000));
+  const table = {
+    ".team-dag-content": [content],
+    ".team-dag-row": rows,
+    ".team-dag-ms-sum": sums,
+    ".team-dag-edge": edges,
+    ".team-dag-edges": [layer],
+  };
+  const scroll = {
+    querySelector: sel => (table[sel] || [])[0] || null,
+    querySelectorAll: sel => table[sel] || [],
+  };
+  const root = {
+    querySelectorAll: sel => (sel === ".team-dag-scroll" ? [scroll] : []),
+  };
+  return { root, layer, rows, sums, edges };
+}
+
+function stubRow(id, top, height, column = "data-item-id") {
+  return stubEl({ [column]: id }, stubRect(top, height));
+}
+
+// 段线的实测读数（桩上写回来的 style）：top/height 必须是 px 数字，不是 var/calc。
+function segBox(seg) {
+  return {
+    top: seg.style.top,
+    height: seg.style.height,
+    topPx: seg.style.top === undefined ? NaN : Number(String(seg.style.top).replace("px", "")),
+    heightPx: seg.style.height === undefined ? NaN : Number(String(seg.style.height).replace("px", "")),
+  };
+}
+
+test("(F1/回归 a·新口径) 里程碑边的 y 锚在**实测的汇总条那一行**上（量到哪儿画到哪儿；框头那一段再也不会漏）", () => {
   const html = renderTeamGantt(FIX_CHAIN);
-  const ma = edgeParts(html, "ma-&gt;mb");
-  // 框头在算式里要被算**两遍**：一遍在第一个框的框高里，一遍在目标框自己的框内偏移里。
-  // 少算一遍就是 26px 的整段位移 —— 落进不透明的 sticky 框头带，画面上整条边消失（F1）。
-  assert.equal(coefOf(ma.arrow[2], "--team-dag-head-h"), 2, `y 算式里框头必须被算进去：${ma.arrow[2]}`);
-  assert.equal(coefOf(ma.arrow[2], "--team-dag-sum-h"), 1.5, `y 算式要落在两条汇总条的中线上：${ma.arrow[2]}`);
-  // 块序（CSS 的 flex 列）：内容 padding-top(4) → 刻度尺(30) → 框上间距(4) → 第 1 个框。
-  const firstTop = 4 + GANTT_WIDE["--team-dag-ruler-h"] + 4;
-  const inFrame = 1 + GANTT_WIDE["--team-dag-head-h"] + GANTT_WIDE["--team-dag-sum-h"] / 2; // 框边 + 框头 + 汇总条半高
-  // 源端：第 1 个框的汇总条中线（横段的 left/top 是**居中**画的：top = 锚点 − 0.75）。
-  assert.equal(calcAt(ma.hs[0][2], GANTT_WIDE) + 0.75, firstTop + inFrame, "源端横段落在源框汇总条中线上");
-  // 目标端：第 2 个框的汇总条中线 = 第 1 个框整高 + 两道框间距 + 闸门带 + 同样的框内偏移。
-  const secondTop = firstTop
-    + (2 * 1 + 4 + GANTT_WIDE["--team-dag-head-h"] + GANTT_WIDE["--team-dag-sum-h"] + GANTT_WIDE["--team-dag-row-h"])
-    + 4 + (2 * 2 + GANTT_WIDE["--team-dag-gate-h"]) + 4;
-  // 箭头是 7×7 的 border 三角形，算式给的是它的上沿（中心 = 上沿 + 3.5）。
-  assert.equal(calcAt(ma.arrow[2], GANTT_WIDE) + 3.5, secondTop + inFrame, "箭头中心 = 目标框汇总条中线");
-  // 窄栏同理（几何整体压小，锚点跟着缩，不许写死像素）。
-  const secondTopNarrow = (4 + GANTT_NARROW["--team-dag-ruler-h"] + 4)
-    + (2 * 1 + 4 + GANTT_NARROW["--team-dag-head-h"] + GANTT_NARROW["--team-dag-sum-h"] + GANTT_NARROW["--team-dag-row-h"])
-    + 4 + (2 * 2 + GANTT_NARROW["--team-dag-gate-h"]) + 4;
-  assert.equal(
-    calcAt(ma.arrow[2], GANTT_NARROW) + 3.5,
-    secondTopNarrow + 1 + GANTT_NARROW["--team-dag-head-h"] + GANTT_NARROW["--team-dag-sum-h"] / 2,
-    "同一份算式在窄栏几何下同样落在中线"
-  );
+  // ma 的汇总条那一行实测落在内容坐标 y=60（含框顶 + 框边 + 框头），mb 的落在 y=300。
+  // 这两个数**只由桩给**：算式里没有框头高、也没有 framegap/gate 这些常量（它们已经不在
+  // 渲染件里了）——量得到就画得对，量不到就留占位（下面 (d) 那条）。
+  const { root, layer, edges } = stubGanttRoot({
+    contentTop: 40,
+    sums: [stubRow("ma", 100, 22, "data-ms"), stubRow("mb", 340, 22, "data-ms")],
+    edges: [stubEl({}, stubRect(0, 0), segsFromHTML(html, "ma-&gt;mb"))],
+  });
+  const patched = layoutTeamGanttEdges(root);
+  assert.ok(patched >= 5, `每条边至少横段/竖段/箭头几段都要写实（实际 ${patched}）`);
+  assert.equal(layer.getAttribute("data-laid-out"), "true", "量过了才显示这一层");
+  const segs = edges[0].children;
+  const arrow = segs.find(seg => seg.style.height === undefined && seg.attrs["data-y-dy"] === "-3.5");
+  assert.ok(arrow, "箭头段要按锚点写 top");
+  const sumMa = 100 - 40 + 22 / 2; // 60：源端汇总条中线（内容坐标）
+  const sumMb = 340 - 40 + 22 / 2; // 300：目标端汇总条中线
+  const tops = segs.map(seg => segBox(seg).topPx);
+  assert.ok(tops.includes(sumMa - 0.75), `源端横段落在源汇总条中线上（实测 ${sumMa}，实际 ${tops.join(",")}）`);
+  assert.ok(tops.includes(sumMb - 3.5), `箭头按目标汇总条中线算（实测 ${sumMb}，实际 ${tops.join(",")}）`);
+  // 竖段的**高度**是两个锚点的实测差（+ 绕行钩的搁板 12px），不是常量：60 → 300 差 240。
+  const drop = segs.find(seg => seg.attrs["data-y"] === "sum:ma" && seg.attrs["data-y2"] === "sum:mb");
+  assert.ok(drop, "跨框那一段竖线要有两个锚点");
+  assert.equal(segBox(drop).topPx, sumMa);
+  assert.equal(segBox(drop).heightPx, sumMb + 12 - sumMa, "竖段长度 = 两个锚点的实测差（+ 搁板）");
+});
+
+
+test("(fi-a/b) 行高不由常量钉死：行只有 min-height、框没有 height、渲染件不再按行数乘框高", () => {
+  const rowRule = TEAM_BOARD_CSS.match(/\.team-dag-row\s*\{([^}]*)\}/)[1];
+  const heights = [...rowRule.matchAll(/(?:^|[;\s])height:\s*([^;]+)/g)].map(match => match[1].trim());
+  assert.deepEqual(heights, ["auto"], "行只许 height: auto（不再钉死一个数）");
+  assert.match(rowRule, /min-height:\s*var\(--team-dag-row-h\)/, "--team-dag-row-h 降为保底值（min-height）");
+  const cardRule = TEAM_BOARD_CSS.match(/\.team-dag-card\s*\{([^}]*)\}/)[1];
+  assert.doesNotMatch(cardRule, /height:\s*100%/, "卡片不许再锁成行的 100%（行高是它自己撑出来的）");
+  assert.match(cardRule, /height:\s*auto/);
+  assert.doesNotMatch(cardRule, /overflow:\s*hidden/, "卡片不许裁（裁了就是把字切掉）");
+  const frameRule = TEAM_BOARD_CSS.match(/\.team-dag-frame\s*\{([^}]*)\}/)[1];
+  assert.doesNotMatch(frameRule, /height:/, "框高不许由算式给，由行撑出来");
+  // 渲染件里那两处「框高 = 行数 × --team-dag-row-h」的乘数写法必须消失（y 改为实测）。
+  assert.doesNotMatch(SRC, /--team-dag-row-h"\s*:\s*frame\.rows\.length/, "框高不许再按行数乘出来");
+  assert.doesNotMatch(SRC, /--team-dag-row-h"\s*:\s*i \+ 0\.5/, "行的 y 不许再按行号乘行高算");
+  assert.doesNotMatch(SRC, /function ganttLayout\b/, "按高度相加算 y 的那套（ganttLayout）整条退场");
+  assert.doesNotMatch(SRC, /yCSS|spanPositive\(height\)/, "y 不再写成 calc 算式");
+});
+
+test("(fi-c/d) 边的 y 跟着**实测**走：名字折成 3 行的行更高 → 它那段线更长（不是常量）", () => {
+  const html = renderTeamGantt(MS_PLAN);
+  // 同一个看板、同一条边（wi-impl ← wi-req）：只把「量到的行高」换一档，画出来的线就得跟着变。
+  const run = longHeight => {
+    const { root, edges } = stubGanttRoot({
+      contentTop: 0,
+      rows: [stubRow("wi-req", 100, longHeight), stubRow("wi-impl", 100 + longHeight, 30)],
+      edges: [stubEl({}, stubRect(0, 0), segsFromHTML(html, "wi-req-&gt;wi-impl"))],
+    });
+    layoutTeamGanttEdges(root);
+    const seg = edges[0].children.find(child => child.attrs["data-y"] === "row:wi-req" && child.attrs["data-y2"] === "row:wi-impl");
+    assert.ok(seg, "两行之间那段竖线要有两个锚点");
+    return segBox(seg);
+  };
+  const oneLine = run(30); // 短名：一行 30px
+  const threeLines = run(96); // 长名：折成 3 行 96px
+  assert.equal(oneLine.topPx, 115, "竖段从源行**实测中心**起（100 + 30/2）");
+  assert.equal(threeLines.topPx, 148, "源行长高了，起点跟着下移（100 + 96/2）");
+  // 这一段是"同槽绕行钩"：竖段从源行中心落到目标行中心**再往下 12px**（搁板），所以长度 =
+  // 两行中心的实测差 + 12。**关键**是它跟着实测变（源行 30 → 96，这段就长了 33px），不是常量。
+  const hookHeight = sourceH => sourceH / 2 + 15 + 12; // 源行中心 → 目标行中心（30px 行的一半）→ 搁板 12px
+  assert.equal(oneLine.heightPx, hookHeight(30), "短名的行：竖段的长度由两行的实测中心算");
+  assert.equal(threeLines.heightPx, hookHeight(96), "长名的行：源行长高一倍，这段跟着长 —— 不是常量");
+  assert.notEqual(oneLine.heightPx, threeLines.heightPx, "两次读数必须不同（否则就是又钉成常量了）");
+  assert.equal(threeLines.heightPx - oneLine.heightPx, 33, "多出来的正是（96 − 30）/ 2：长度是量出来的差");
+});
+
+test("(fi-e) 实测布局幂等：同一份实测连跑两次，写出来的坐标逐字相同", () => {
+  const html = renderTeamGantt(FIX_CHAIN);
+  const build = () => stubGanttRoot({
+    contentTop: 12,
+    sums: [stubRow("ma", 88, 22, "data-ms"), stubRow("mb", 260, 22, "data-ms")],
+    edges: [stubEl({}, stubRect(0, 0), segsFromHTML(html, "ma-&gt;mb"))],
+  });
+  const first = build();
+  const second = build();
+  assert.equal(layoutTeamGanttEdges(first.root), layoutTeamGanttEdges(first.root), "同一次：两遍改的段数一样");
+  layoutTeamGanttEdges(second.root);
+  const readTops = (stub, pass) => {
+    if (pass) layoutTeamGanttEdges(stub.root);
+    return stub.edges[0].children.map(seg => `${seg.style.top}/${seg.style.height}`);
+  };
+  assert.deepEqual(readTops(first, true), readTops(second, true), "两份同样的实测 → 同样的坐标");
+  assert.deepEqual(readTops(first), readTops(first), "同一份实测再跑一次 → 还是同样的坐标");
+});
+
+test("(fi-f) 窄栏里条内那串字直接不画（不留半截）；名字在左侧名列里换行读得完", () => {
+  const narrow = TEAM_BOARD_CSS.slice(TEAM_BOARD_CSS.indexOf("@container (max-width"));
+  assert.match(narrow, /\.team-dag-bar-name\s*\{[^}]*display:\s*none/, "窄栏不许留半截字");
+  // 条内文字不许出现「把它挤成 0~几 px」的算式（上一版就是这样量到 2px 的）。
+  const barNameRule = TEAM_BOARD_CSS.match(/\.team-dag-bar-name\s*\{([^}]*)\}/)[1];
+  assert.doesNotMatch(barNameRule, /width:\s*calc\(/, "条内文字的宽不许由算式挤出来");
+  // 可读性的责任方是左侧名列：id 一行、name 另起一行并可折行，**不裁不省略号**。
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-label-top\s*\{[^}]*flex-direction:\s*column/, "name 另起一行");
+  const nameRule = TEAM_BOARD_CSS.match(/\.team-dag-name\s*\{([^}]*)\}/)[1];
+  assert.match(nameRule, /white-space:\s*normal/, "名字要能折行");
+  assert.match(nameRule, /overflow-wrap:\s*anywhere/);
+  assert.doesNotMatch(nameRule, /overflow:\s*hidden/, "名字不许裁");
+  assert.doesNotMatch(nameRule, /text-overflow:\s*ellipsis/, "名字不许拿省略号糊过去");
+  // 名列的 sub 行是次级信息（窄栏整行折起），名字那两行在窄栏也照样读得到。
+  assert.doesNotMatch(narrow, /\.team-dag-name[^-]/, "窄栏不许把名字折起");
 });
 
 test("(②/回归 b) 边不越列：任何一段（竖线 / 横线 / 箭头）都在绘图区左沿右侧 —— 目标锚点在槽 0 时也一样", () => {

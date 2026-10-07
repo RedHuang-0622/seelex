@@ -1,0 +1,51 @@
+── 改后 · 窄栏 370px（产品右栏真实宽度）（宿主 370px · 容器查询 生效 · labelW=208px slotW=40px rowH=38px）
+  wi-spec   行高  40（scroll  40）· 名字 100/ 100（折 1 行，读得完）· 条内回声 display:none（不画） · 条宽 38px @0 · 「规格：一页对比表」
+  wi-draw   行高  74（scroll  74）· 名字 100/ 100（折 3 行，读得完）· 条内回声 display:none（不画） · 条宽 38px @40 · 「出图：teamwork 里程碑/工作项 DAG 静态 UI 稿」
+  wi-impl   行高  57（scroll  57）· 名字 100/ 100（折 2 行，读得完）· 条内回声 display:none（不画） · 条宽 38px @80 · 「实现：行高由内容撑」
+  wi-geo    行高  57（scroll  57）· 名字 100/ 100（折 2 行，读得完）· 条内回声 display:none（不画） · 条宽 38px @120 · 「几何：边按实测位置画」
+  wi-verify 行高  40（scroll  40）· 名字 100/ 100（折 1 行，读得完）· 条内回声 display:none（不画） · 条宽 38px @120 · 「复核」
+  框 m-design   clientH 166 vs 头+汇总+Σ行+4 = 166（Δ0）· 2 行 Σ114
+  框 m-impl     clientH 166 vs 头+汇总+Σ行+4 = 166（Δ0）· 2 行 Σ114
+  框 m-verify   clientH 92 vs 头+汇总+Σ行+4 = 92（Δ0）· 1 行 Σ40
+  依赖边：30 段 · 与实测锚点的最大偏差 0.01px · 超 0.5px 的段 0 · data-laid-out=true · visibility=visible · 幂等=true
+  产品自己那次实测：{"laidOut":"true","visibility":"visible","firstSegTop":"left: calc(-2px + 1 * var(--team-dag-label-w) + 1 * var(--team-dag-slot-w)); top: 104.05px; width: 7px;"}
+  挤成伪文字：无 · 滚动 370/530（max-height 380px）
+
+── 改前 · 窄栏 370px（HEAD 那一版）（宿主 370px · 容器查询 生效 · labelW=208px slotW=40px rowH=38px）
+  wi-spec   行高  30（scroll  30）· 名字  51/  96（折 1 行，**被截**）· 条内回声 25/80，占可用宽 93% · 条宽 38px @0 · 「规格：一页对比表」
+  wi-draw   行高  30（scroll  30）· 名字  51/ 257（折 1 行，**被截**）· 条内回声 25/214，占可用宽 93% · 条宽 38px @40 · 「出图：teamwork 里程碑/工作项 DAG 静态 UI 稿」
+  wi-impl   行高  30（scroll  30）· 名字  51/ 108（折 1 行，**被截**）· 条内回声 25/90，占可用宽 93% · 条宽 38px @80 · 「实现：行高由内容撑」
+  wi-geo    行高  30（scroll  30）· 名字  57/ 120（折 1 行，**被截**）· 条内回声 25/100，占可用宽 93% · 条宽 38px @120 · 「几何：边按实测位置画」
+  wi-verify 行高  30（scroll  30）· 名字  24/  24（折 1 行，读得完）· 条内回声 25/25，占可用宽 93% · 条宽 38px @120 · 「复核」
+  框 m-design   clientH 112 vs 头+汇总+Σ行+4 = 112（Δ0）· 2 行 Σ60
+  框 m-impl     clientH 112 vs 头+汇总+Σ行+4 = 112（Δ0）· 2 行 Σ60
+  框 m-verify   clientH 82 vs 头+汇总+Σ行+4 = 82（Δ0）· 1 行 Σ30
+  依赖边：30 段 · 与实测锚点的最大偏差 0px · 超 0.5px 的段 0 · data-laid-out=null · visibility=visible · 幂等=true
+  产品自己那次实测：{"laidOut":null,"visibility":"visible","firstSegTop":"left:calc(-2px + 1 * var(--team-dag-label-w) + 1 * var(--team-dag-slot-w));top:calc(8.25px + 1 * var(--team-dag-ruler-h) + 1 * var(--team-dag-head-h) + 1 * var(--team-dag-sum-h) + 0.5 * var(--team-dag-row-h));width:7px"}
+  挤成伪文字：无 · 滚动 380/412（max-height 380px）
+
+── 改后 · 宽栏 1180px（宿主 1180px · 容器查询 未生效 · labelW=208px slotW=64px rowH=38px）
+  wi-spec   行高  58（scroll  58）· 名字 190/ 190（折 1 行，读得完）· 条内回声 49/84，占可用宽 96% · 条宽 62px @0 · 「规格：一页对比表」
+  wi-draw   行高  75（scroll  75）· 名字 190/ 190（折 2 行，读得完）· 条内回声 49/225，占可用宽 96% · 条宽 62px @64 · 「出图：teamwork 里程碑/工作项 DAG 静态 UI 稿」
+  wi-impl   行高  58（scroll  58）· 名字 190/ 190（折 1 行，读得完）· 条内回声 49/95，占可用宽 96% · 条宽 62px @128 · 「实现：行高由内容撑」
+  wi-geo    行高  58（scroll  58）· 名字 190/ 190（折 1 行，读得完）· 条内回声 49/105，占可用宽 96% · 条宽 62px @192 · 「几何：边按实测位置画」
+  wi-verify 行高  58（scroll  58）· 名字 190/ 190（折 1 行，读得完）· 条内回声 49/49，占可用宽 96% · 条宽 62px @192 · 「复核」
+  框 m-design   clientH 184 vs 头+汇总+Σ行+4 = 185（Δ-1）· 2 行 Σ133
+  框 m-impl     clientH 167 vs 头+汇总+Σ行+4 = 168（Δ-1）· 2 行 Σ116
+  框 m-verify   clientH 110 vs 头+汇总+Σ行+4 = 110（Δ0）· 1 行 Σ58
+  依赖边：30 段 · 与实测锚点的最大偏差 0.01px · 超 0.5px 的段 0 · data-laid-out=true · visibility=visible · 幂等=true
+  产品自己那次实测：{"laidOut":"true","visibility":"visible","firstSegTop":"left: calc(-2px + 1 * var(--team-dag-label-w) + 1 * var(--team-dag-slot-w)); top: 115.02px; width: 7px;"}
+  挤成伪文字：无 · 滚动 380/569（max-height 380px）
+
+── 改前 · 宽栏 1180px（HEAD 那一版）（宿主 1180px · 容器查询 未生效 · labelW=208px slotW=64px rowH=38px）
+  wi-spec   行高  38（scroll  38）· 名字  96/  96（折 1 行，读得完）· 条内回声 49/84，占可用宽 96% · 条宽 62px @0 · 「规格：一页对比表」
+  wi-draw   行高  38（scroll  38）· 名字 141/ 257（折 1 行，**被截**）· 条内回声 49/225，占可用宽 96% · 条宽 62px @64 · 「出图：teamwork 里程碑/工作项 DAG 静态 UI 稿」
+  wi-impl   行高  38（scroll  38）· 名字 108/ 108（折 1 行，读得完）· 条内回声 49/95，占可用宽 96% · 条宽 62px @128 · 「实现：行高由内容撑」
+  wi-geo    行高  38（scroll  38）· 名字 120/ 120（折 1 行，读得完）· 条内回声 49/105，占可用宽 96% · 条宽 62px @192 · 「几何：边按实测位置画」
+  wi-verify 行高  38（scroll  38）· 名字  24/  24（折 1 行，读得完）· 条内回声 49/49，占可用宽 96% · 条宽 62px @192 · 「复核」
+  框 m-design   clientH 128 vs 头+汇总+Σ行+4 = 128（Δ0）· 2 行 Σ76
+  框 m-impl     clientH 128 vs 头+汇总+Σ行+4 = 128（Δ0）· 2 行 Σ76
+  框 m-verify   clientH 90 vs 头+汇总+Σ行+4 = 90（Δ0）· 1 行 Σ38
+  依赖边：30 段 · 与实测锚点的最大偏差 0px · 超 0.5px 的段 0 · data-laid-out=null · visibility=visible · 幂等=true
+  产品自己那次实测：{"laidOut":null,"visibility":"visible","firstSegTop":"left:calc(-2px + 1 * var(--team-dag-label-w) + 1 * var(--team-dag-slot-w));top:calc(8.25px + 1 * var(--team-dag-ruler-h) + 1 * var(--team-dag-head-h) + 1 * var(--team-dag-sum-h) + 0.5 * var(--team-dag-row-h));width:7px"}
+  挤成伪文字：无 · 滚动 380/454（max-height 380px）
