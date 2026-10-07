@@ -2,6 +2,39 @@
 
 本文件记录会改变模块边界、跨模块契约、兼容性、持久化或运行流程的重要设计。纯文字修正不记录。
 
+## 2026-10-07
+
+### Added
+
+- **定时任务可以编辑了**：列表与表格每行加「编辑」（`data-sched-edit`，ID 是操作键），
+  点开的是**同一个弹窗**并填好那条任务的值（标题/提交按钮/启用勾的文案切到编辑态）。
+  新增跨层契约 `Bridge.UpdateScheduledTask(id, spec)` → `Service.UpdateScheduledTask` →
+  `Runtime.UpdateScheduledTask` → `scheduler.Update`：**整体替换**定义（PUT 语义），ID
+  不变、运行账目保留（`run_count` / 上次结果 / 上次落点），下次运行按新定义重算；校验
+  与创建共用同一份 `normalizeSpec`（不存在"创建拦得住、编辑漏得过"）。持久化上编辑是
+  同一 ID 的**追加定义行**（不是墓碑、不是新 ID），冷启动按后写的那行恢复。前端两条腿
+  都是纯函数：`scheduledTaskFormFields`（任务快照 → 表单）与 `buildScheduledTaskSpec`
+  （表单 → 载荷），node 用例钉住来回等价。
+
+### Changed
+
+- **定时任务的落点从「投给当前主会话」改成「默认新建会话」**，并支持**工作区装配**：
+  触发时新建的会话可以绑到一个工作区（新建弹窗加了 `#sched-workspace` 下拉，选项来自
+  快照的 `workspaces`，默认跟随当前会话绑定的工作区，空 = 不绑项目）。跨层契约改了两处：
+  ① `ScheduledTaskSpec` 加 `WorkspaceID`（Wails 载荷字段 `workspaceId`，与既有
+  `periodUnit` 一样走 encoding/json 的字段名匹配）；② `PromptExecutor` 从
+  `(ctx, prompt, sessionID) (string, error)` 变成
+  `(ctx, prompt, sessionID, workspaceID) (PromptOutcome, error)`——落点判据只有一条
+  （`sessionID` 空 = 新建会话，非空 = 投递该会话），实现只有 `main.scheduledPromptExecutor`
+  一份，`PromptOutcome.SessionID` 回填状态的 `last_session_id`，面板与冒烟据此指认落点。
+  新建会话走 `application.StartScheduledSession`：在**后台**开回合，不切用户正在看的视图
+  指针，也不改全局工程根（工具根由 `runChat` 起点的按会话绑定处理）。
+  **持久化粒度同时定死：任务定义落一条全局 JSONL**（`<store>/scheduled-tasks.jsonl`，
+  append-only，一行一条变更，取消写墓碑），不按项目分区、不按会话分片；触发产生的**会话
+  记录**照旧按会话自己的存储与读写纪律落盘。冷启动 `Runtime.RestoreScheduledTasks()` 在
+  装配完成后恢复排期（周期重算、错过的触发点不追补、过期的一次性任务不恢复、坏记录逐条
+  跳过）。详见 `docs/devlog/2026-10-07-scheduled-task-new-session-workspace-and-global-store.md`。
+
 ## 2026-09-29
 
 ### Added

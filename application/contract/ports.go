@@ -225,6 +225,9 @@ type RuntimePort interface {
 	ScheduledTasksSnapshot() []dto.ScheduledTaskStatus
 	// ScheduleTask 创建并启动一个定时/周期任务（变更入口；Runtime 调度器执行）。
 	ScheduleTask(context.Context, dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error)
+	// UpdateScheduledTask 用一份新定义覆盖既有定时/周期任务（编辑入口；ID 是
+	// 操作键，定义校验与创建共用同一份判据）。
+	UpdateScheduledTask(context.Context, string, dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error)
 	// CancelScheduledTask 取消并移除定时/周期任务。
 	CancelScheduledTask(string) error
 	// ClearSubagentTree 清空子代理树（GUI「清空」入口；失败节点显式清走，

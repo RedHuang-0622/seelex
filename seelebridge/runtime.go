@@ -52,13 +52,16 @@ type RuntimeConfig struct {
 	MaxReplansPerWindow       int
 	ReplanWindow              time.Duration
 	PlanDecisionTimeout       time.Duration
-	AccountsPath              string        // LLM 账号配置路径
-	StorePath                 string        // 会话存储目录（空 = 不持久化）
-	ToolCallTimeout           time.Duration // 工具调用超时
-	ApprovalTimeout           time.Duration // 审批等待超时
-	HeartbeatInterval         time.Duration // workplan 心跳间隔
-	HubStartupDelay           time.Duration // Hub 启动等待时间
-	SubagentMailboxSize       int           // 子代理 merge-back 有界邮箱容量
+	AccountsPath              string // LLM 账号配置路径
+	StorePath                 string // 会话存储目录（空 = 不持久化）
+	// ScheduledTasksPath 是定时任务定义的**全局** JSONL 路径（空 = 不持久化：
+	// 任务只活在进程内）。它是进程级通道，与项目/会话存储刻意分开。
+	ScheduledTasksPath  string
+	ToolCallTimeout     time.Duration // 工具调用超时
+	ApprovalTimeout     time.Duration // 审批等待超时
+	HeartbeatInterval   time.Duration // workplan 心跳间隔
+	HubStartupDelay     time.Duration // Hub 启动等待时间
+	SubagentMailboxSize int           // 子代理 merge-back 有界邮箱容量
 	// SubagentLiveWindow 是 node 第一视角实时回放窗口上限（超出丢最旧）。
 	// 0 → 默认 512（subagentLiveHistoryCap）；<50 → 50（窗口至少要装得下一页）。
 	SubagentLiveWindow int                    // 实时回放窗口上限（见 runtime_live.go 的读法）
@@ -334,15 +337,16 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		heartbeatInterval = time.Duration(cfg.Limits.WithDefaults().HeartbeatIntervalSec) * time.Second
 	}
 	r := &Runtime{
-		pool:                pool,
-		model:               first.Model,
-		images:              imageattach.NewRegistry(),
-		MCPStack:            mcpstack.New(mcpStackOpts...),
-		projectScope:        security.NewProjectScope(),
-		filesystem:          fs.NewFileSystemActor(),
-		sandbox:             security.NewNativeProjectCWD(),
-		tasks:               task.NewTaskRegistry(),
-		scheduler:           scheduler.NewState(),
+		pool:         pool,
+		model:        first.Model,
+		images:       imageattach.NewRegistry(),
+		MCPStack:     mcpstack.New(mcpStackOpts...),
+		projectScope: security.NewProjectScope(),
+		filesystem:   fs.NewFileSystemActor(),
+		sandbox:      security.NewNativeProjectCWD(),
+		tasks:        task.NewTaskRegistry(),
+		// 定时任务定义走**全局** JSONL（与项目/会话存储分开；空路径 = 不持久化）。
+		scheduler:           scheduler.NewStateWithStore(scheduler.NewFileStore(cfg.ScheduledTasksPath)),
 		toolEvents:          subagentsession.NewToolEventState(),
 		subagentLiveWindow:  cfg.SubagentLiveWindow,
 		toolCallTimeout:     cfg.ToolCallTimeout,

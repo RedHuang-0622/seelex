@@ -211,35 +211,9 @@ func (service *Service) materializeDraftSession(firstQuestion string) error {
 		service.unbindGlobalProjectRoot()
 		service.setWorkspaceWriteScope("")
 	}
-	newID := draftID
-	if activator, ok := service.Deps.Engine.(interface{ ActivateSession(string) error }); ok {
-		// 会话路由宿主：按早分配 SID 显式创建引擎 bundle（草稿阶段
-		// HasSession=false，此刻才建）。
-		if err := activator.ActivateSession(newID); err != nil {
-			return fmt.Errorf("create engine session %q: %w", newID, err)
-		}
-	} else {
-		newID = strings.TrimSpace(service.Deps.Engine.StartSession())
-		if newID == "" {
-			return errors.New("engine returned an empty session ID")
-		}
-	}
-	// framework DurableHistory 按会话 workspace 显式键落盘（R3 键漂移收敛）。
-	if workspace != nil {
-		service.Deps.Runtime.SetSessionWorkspace(newID, workspace.ID)
-	} else {
-		service.Deps.Runtime.SetSessionWorkspace(newID, "")
-	}
-	// 新会话绑定**它自己的** context store（与 resume 同一条挂接路径）。这里不能
-	// 只解绑：解绑状态下这个会话的整段第一生命周期都推不了压缩帧、也没有任何栈块
-	// （见 attachSessionContextFor 的注释与 2026-10-04 现场）。早分配 SID 就是本会话
-	// 的最终键，全新键上的 Load 只落到空记录——既不继承上一个会话的四栈，也不多写。
-	if err := service.attachSessionContextFor(session_runtime.WorkspaceID(workspace), newID); err != nil {
+	newID, err := service.openSessionEngine(draftID, workspace)
+	if err != nil {
 		return err
-	}
-	service.Deps.Engine.SetSystemPrompt(service.promptStack.Render())
-	if workspace != nil && service.Deps.Workspace != nil {
-		service.Deps.Workspace.BindSession(newID, workspace.ID)
 	}
 	workspaceProjection := service.collectWorkspaceProjection()
 

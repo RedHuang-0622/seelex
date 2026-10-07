@@ -11,6 +11,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 	"github.com/RedHuang-0622/seelex/application/event"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/session"
@@ -87,6 +88,70 @@ func (service *Service) bindSessionProjectRoot(sessionID string) {
 	if err := service.Deps.Runtime.BindProjectRootFor(sessionID, workspace.RootPath); err != nil {
 		log.Printf("[workspace] 会话 %s 的项目根绑定失败（工具面回退默认根）：%v", sessionID, err)
 	}
+}
+
+// writeSessionSystemPrompt 把当前 prompt 栈写入**目标会话**的引擎：会话路由
+// 宿主走 SetSystemPromptFor，绝不触碰全局活跃别名——运行中会话的引擎锁可能
+// 被 ChatStream 全程持有，写全局别名会排队到那个会话跑完（用户视角的应用冻结）。
+//
+// 新会话的引擎实例是**新建**的，必须显式写一次：ApplyActiveTaskSystemPromptFor
+// 的"文本没变就不写"缓存会跳过写入，空 prompt 就此留在新引擎上。切换/冷恢复
+// 路径与新建路径共用这一份判据（此前三处各写一遍）。
+func (service *Service) writeSessionSystemPrompt(sessionID string) {
+	if service == nil || service.Deps.Engine == nil || service.promptStack == nil {
+		return
+	}
+	promptText := service.promptStack.Render()
+	if routed, ok := service.Deps.Engine.(interface{ SetSystemPromptFor(string, string) }); ok {
+		routed.SetSystemPromptFor(sessionID, promptText)
+		return
+	}
+	service.Deps.Engine.SetSystemPrompt(promptText)
+}
+
+// openSessionEngine 给一个**新会话**装上它自己那一格：建引擎 bundle、挂接
+// 自己的 context store、写自己的 system prompt，并在给了工作区时记录会话级
+// 项目绑定（workspace.Repo 绑定 + framework 显式键）。返回实际生效的会话 ID
+// （多会话宿主 = 传入的早分配 SID；legacy 单会话引擎按引擎自分配的 ID）。
+//
+// 它刻意不碰**进程级**执行面（全局工程根 / Router 写作用域）：那条面属于
+// "当前视图会话"，后台新建的会话必须留给 runChat 起点的 bindSessionProjectRoot
+// 按会话分格处理——否则新建一个后台会话就会把别的运行中会话的项目根改掉。
+//
+// 草稿物化（首次提交）与定时任务新建会话共用这一份；两处的差别只在"谁来定
+// 那个 ID"与"要不要顺带换视图指针"，不在这几行装配本身。
+func (service *Service) openSessionEngine(sessionID string, workspace *WorkspaceInfo) (string, error) {
+	newID := strings.TrimSpace(sessionID)
+	if activator, ok := service.Deps.Engine.(interface{ ActivateSession(string) error }); ok {
+		// 会话路由宿主：按早分配 SID 显式创建引擎 bundle（草稿阶段
+		// HasSession=false，此刻才建）。
+		if err := activator.ActivateSession(newID); err != nil {
+			return "", fmt.Errorf("create engine session %q: %w", newID, err)
+		}
+	} else {
+		newID = strings.TrimSpace(service.Deps.Engine.StartSession())
+		if newID == "" {
+			return "", errors.New("engine returned an empty session ID")
+		}
+	}
+	// framework DurableHistory 按会话 workspace 显式键落盘（R3 键漂移收敛）。
+	if workspace != nil {
+		service.Deps.Runtime.SetSessionWorkspace(newID, workspace.ID)
+	} else {
+		service.Deps.Runtime.SetSessionWorkspace(newID, "")
+	}
+	// 新会话绑定**它自己的** context store（与 resume 同一条挂接路径）。这里不能
+	// 只解绑：解绑状态下这个会话的整段第一生命周期都推不了压缩帧、也没有任何栈块
+	// （见 attachSessionContextFor 的注释与 2026-10-04 现场）。早分配 SID 就是本会话
+	// 的最终键，全新键上的 Load 只落到空记录——既不继承上一个会话的四栈，也不多写。
+	if err := service.attachSessionContextFor(session_runtime.WorkspaceID(workspace), newID); err != nil {
+		return "", err
+	}
+	service.writeSessionSystemPrompt(newID)
+	if workspace != nil && service.Deps.Workspace != nil {
+		service.Deps.Workspace.BindSession(newID, workspace.ID)
+	}
+	return newID, nil
 }
 
 // transitionForKey 返回指定 key 的会话过渡锁（G5 per-session keyed）：会

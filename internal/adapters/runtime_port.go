@@ -141,6 +141,9 @@ func (port RuntimePort) ScheduledTasksSnapshot() []seelebridge.ScheduledTaskStat
 func (port RuntimePort) ScheduleTask(ctx context.Context, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
 	return port.Runtime.ScheduleTask(ctx, spec)
 }
+func (port RuntimePort) UpdateScheduledTask(ctx context.Context, id string, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
+	return port.Runtime.UpdateScheduledTask(ctx, id, spec)
+}
 func (port RuntimePort) CancelScheduledTask(id string) error {
 	return port.Runtime.CancelScheduledTask(id)
 }

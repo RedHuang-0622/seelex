@@ -23,6 +23,9 @@
 ## 会话记录位置（本仓库已知）
 
 - 仓库根 `.seelex/`：CLI 或从仓库根启动时的会话（`sessions/`、`sessions-json/`）；
+- 仓库根 `.seelex/scheduled-tasks.jsonl`：**定时任务定义的全局 JSONL**（一行一条
+  变更，与 `workspace_index.json` 同级）。它不是会话正文，但同样是用户数据——
+  清理 `.seelex`/`dist` 前一并视为需要保留的内容；
 - `dist/seelex-gui-dev/.seelex/`：dev GUI 在 dist 目录内启动时产生的会话——**此目录曾于 2026-08-12 被 `make release` 的 clean 误删**，必须视为用户数据；
 - `seelebridge/.seelex/`：仅 mcp-traces，非会话数据（若出现 sessions 同样视为用户数据）；
 - 用户目录/AppData：本项目当前未使用，检查时顺带确认。

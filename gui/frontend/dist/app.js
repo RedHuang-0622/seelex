@@ -22,7 +22,7 @@ import { compactionRangeText, compactionReasonLabel, mergeCompactionProgress } f
 import { renderGoalDetail, renderGoalPanel } from "./goal-board-view.js";
 import { TEAM_BOARD_CSS, TEAMMATE_LIVE_PAGE_SIZE, parseTeamPageRef, renderTeamBoard, renderTeamPage, renderTeammateLiveSession, teamPageTitle, teammateSessionEntry } from "./team-board-view.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
-import { buildScheduledTaskSpec, renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
+import { buildScheduledTaskSpec, renderScheduledTasks, renderScheduledTasksTable, scheduledTaskFormFields } from "./scheduled-tasks-view.js";
 import { employeePool, hirePanel, isPinnedRole, nextAgentTeamOrder, normalizeAgentTeam, normalizeTeamGlobal, normalizeTeamLibrary, PERMISSION_CUSTOM_TOOLS, PERMISSION_GROUPS, PERMISSION_BITS, renderAgentTeam, renderRoleSessionDetail, renderTeamMemberList, roleDisplayName, teamEditorPanel, teamEntryFromMembers, teamMemberNames, teamMemberSpecMap, teamRoleSpec } from "./agent-team-view.js";
 // 提交侧的装配（按会话插件）规整：**只 trim + 丢空项，不去重**（重复由后端显式拒绝）。
 import { escapePluginSourceText, pluginSourceBadge, withPluginAssembly } from "./plugin-source.js";
@@ -89,7 +89,7 @@ const elements = Object.fromEntries([
   "session-list", "session-count", "new-session",
   "plugin-list", "plugin-count", "account-list", "account-count", "conversation", "conversation-tabs", "trajectory",
   "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",
-  "runtime-details", "effort-control", "effort-range", "effort-value", "work-section", "work-count", "work-unread", "work-table-open", "work-table-summary", "work-table-modal", "work-table-modal-close", "work-table-modal-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-close", "sched-name", "sched-mode", "sched-period-value", "sched-period-unit", "sched-period-field", "sched-anchor-field", "sched-start-clock", "sched-start-weekday", "sched-anchor-now", "sched-anchor-now-field", "sched-datetime", "sched-datetime-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-enabled-field", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
+  "runtime-details", "effort-control", "effort-range", "effort-value", "work-section", "work-count", "work-unread", "work-table-open", "work-table-summary", "work-table-modal", "work-table-modal-close", "work-table-modal-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-modal-title", "scheduled-task-close", "sched-name", "sched-workspace", "sched-mode", "sched-period-value", "sched-period-unit", "sched-period-field", "sched-anchor-field", "sched-start-clock", "sched-start-weekday", "sched-anchor-now", "sched-anchor-now-field", "sched-datetime", "sched-datetime-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-enabled-field", "sched-enabled-label", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
   "project-name", "project-root", "project-status", "worktree-view", "file-count", "context-compactions",
   "compaction-frame-modal", "compaction-frame-modal-close", "compaction-frame-modal-title", "compaction-frame-modal-meta", "compaction-frame-modal-view",
   "team-section", "team-view", "team-count",
@@ -2770,10 +2770,12 @@ function findSubagentTreeNode(nodeID) {
 function renderScheduledTaskPanel(runtime) {
   const tasks = Array.isArray(runtime.scheduled_tasks) ? runtime.scheduled_tasks : [];
   const commands = Array.isArray(runtime.scheduled_commands) ? runtime.scheduled_commands : [];
+  // 工作区名来自快照的 workspaces（任务只记 ID：ID 是索引，名字只用于展示）。
+  const workspaces = Array.isArray((client.current() || {}).workspaces) ? client.current().workspaces : [];
   elements["scheduled-task-count"].textContent = String(tasks.length);
   elements["scheduled-table-summary"].textContent = `${tasks.length} 项任务`;
-  elements["scheduled-task-view"].innerHTML = renderScheduledTasks(tasks, commands);
-  elements["scheduled-table-view"].innerHTML = renderScheduledTasksTable(tasks, commands);
+  elements["scheduled-task-view"].innerHTML = renderScheduledTasks(tasks, commands, workspaces);
+  elements["scheduled-table-view"].innerHTML = renderScheduledTasksTable(tasks, commands, workspaces);
 }
 
 // openScheduledTable / closeScheduledTable：定时任务 Excel 表格弹窗
@@ -3625,8 +3627,13 @@ document.addEventListener("keydown", event => {
   if (event.key === "Escape") closeRoleSessionDetail();
 });
 
-// 定时任务表格内取消按钮（事件委托挂表格容器；ID 是操作键）。
+// 定时任务表格内编辑/取消按钮（事件委托挂表格容器；ID 是操作键）。
 elements["scheduled-table-view"]?.addEventListener("click", async event => {
+  const editButton = event.target.closest?.("[data-sched-edit]");
+  if (editButton?.dataset.schedEdit) {
+    openScheduledTaskEditor(editButton.dataset.schedEdit);
+    return;
+  }
   const button = event.target.closest?.("[data-sched-cancel]");
   if (!button?.dataset.schedCancel) return;
   if (!confirm("确认取消该定时任务？")) return;
@@ -4513,25 +4520,60 @@ elements["history-search-form"].addEventListener("submit", event => {
 // 这边不显示，免得用户点了才被拒）。
 const SCHED_ANCHOR_UNITS = new Set(["day", "week", "month"]);
 
-// openScheduledTaskDialog 打开新建弹窗（字段一律回到默认：周期重复 / 每天 /
-// 开始时间空 → 需要用户在"开始时间"与"每个周期按当前时间"里选一个）。
-function openScheduledTaskDialog() {
-  elements["sched-name"].value = "";
-  elements["sched-prompt"].value = "";
-  elements["sched-mode"].value = "period";
-  elements["sched-period-value"].value = "1";
-  elements["sched-period-unit"].value = "day";
-  elements["sched-start-clock"].value = "";
-  elements["sched-start-weekday"].value = "1";
-  elements["sched-anchor-now"].checked = false;
-  elements["sched-datetime"].value = "";
-  elements["sched-enabled"].checked = true;
+// editingScheduledTaskID 非空 = 弹窗处于编辑态（提交走 UpdateScheduledTask）。
+// 与"草稿"同一条纪律：弹窗是**同一套控件**的两个模式，不另建一份表单。
+let editingScheduledTaskID = "";
+
+// openScheduledTaskDialog 打开弹窗：新建（无参）= 回到默认（周期重复 / 每天 /
+// 开始时间空 → 需要用户在"开始时间"与"每个周期按当前时间"里选一个）；编辑
+// (= 任务快照) = 用 scheduledTaskFormFields 把这条任务填回同一套控件。
+function openScheduledTaskDialog(task) {
+  const editing = Boolean(task?.id);
+  editingScheduledTaskID = editing ? String(task.id) : "";
+  const fields = editing
+    ? scheduledTaskFormFields(task)
+    : { name: "", prompt: "", mode: "period", periodValue: "1", periodUnit: "day", startClock: "", startWeekday: "1", anchorNow: false, runAtValue: "", enabled: true, workspaceId: "" };
+  elements["sched-name"].value = fields.name;
+  elements["sched-prompt"].value = fields.prompt;
+  renderScheduledWorkspaceOptions(fields.workspaceId);
+  elements["sched-mode"].value = fields.mode;
+  elements["sched-period-value"].value = fields.periodValue;
+  elements["sched-period-unit"].value = fields.periodUnit;
+  elements["sched-start-clock"].value = fields.startClock;
+  elements["sched-start-weekday"].value = fields.startWeekday;
+  elements["sched-anchor-now"].checked = fields.anchorNow;
+  elements["sched-datetime"].value = fields.runAtValue;
+  elements["sched-enabled"].checked = fields.enabled;
+  // 同一条弹窗的两个模式：标题、提交按钮、启用勾的文案都跟着走（表单本身不变）。
+  elements["scheduled-task-modal-title"].textContent = editing ? "编辑定时任务" : "新建定时任务";
+  elements["sched-enabled-label"].textContent = editing ? "启用" : "创建后立即启用";
+  elements["sched-submit"].textContent = editing ? "保存修改" : "创建任务";
   syncScheduledTaskFields();
   setModal("scheduled-task-modal", true);
   elements["sched-name"].focus();
 }
 
+// renderScheduledWorkspaceOptions 用快照里的工作区列表填新建弹窗的下拉：
+// 空值 = 无工作区（新会话不绑项目）。任务存的是工作区 ID，名称只做展示。
+// preferredID = 要选中的工作区（新建时是当前会话的工作区；编辑时是这条任务
+// 自己绑的工作区——编辑不该把工作区悄悄改成"当前会话那个"）。
+function renderScheduledWorkspaceOptions(preferredID) {
+  const select = elements["sched-workspace"];
+  if (!select) return;
+  const snapshot = client.current() || {};
+  const workspaces = Array.isArray(snapshot.workspaces) ? snapshot.workspaces : [];
+  const current = snapshot.current_workspace || null;
+  select.innerHTML = [`<option value="">（无工作区）</option>`]
+    .concat(workspaces.map(workspace =>
+      `<option value="${escapeHtml(workspace.id)}">${escapeHtml(workspace.name)}${workspace.root_path ? ` — ${escapeHtml(workspace.root_path)}` : ""}</option>`))
+    .join("");
+  // 新建默认跟随当前会话的工作区：用户多半就是想让任务在这个项目里跑。
+  const preferred = preferredID || current?.id || "";
+  select.value = workspaces.some(workspace => workspace.id === preferred) ? preferred : "";
+}
+
 function closeScheduledTaskDialog() {
+  editingScheduledTaskID = "";
   setModal("scheduled-task-modal", false);
 }
 
@@ -4552,14 +4594,19 @@ function syncScheduledTaskFields() {
   if (anchorNow) elements["sched-start-clock"].value = "";
 }
 
-// submitScheduledTask 组装任务入参并提交 Bridge ScheduleTask。字段口径全在
-// scheduled-tasks-view.js 的 buildScheduledTaskSpec（纯函数，node 用例钉住
-// 载荷形状——Wails 绑定层用 encoding/json 反序列化，time.Time 字段收到空串
-// 会当场报 "error parsing arguments: parsing time ..."，Go 侧根本进不去）。
+// submitScheduledTask 组装任务入参并提交 Bridge：新建走 ScheduleTask，编辑走
+// UpdateScheduledTask（ID 是操作键）。字段口径全在 scheduled-tasks-view.js 的
+// buildScheduledTaskSpec（纯函数，node 用例钉住载荷形状——Wails 绑定层用
+// encoding/json 反序列化，time.Time 字段收到空串会当场报
+// "error parsing arguments: parsing time ..."，Go 侧根本进不去）。
 async function submitScheduledTask() {
+  const editingTaskID = editingScheduledTaskID;
   const built = buildScheduledTaskSpec({
     name: elements["sched-name"].value,
     prompt: elements["sched-prompt"].value,
+    workspaceId: elements["sched-workspace"]?.value || "",
+    // 编辑态把原任务的会话绑定原样带回（面板不编辑它，也不该在保存时清掉）。
+    sessionId: editingTaskID ? scheduledTaskByID(editingTaskID)?.session_id || "" : "",
     mode: elements["sched-mode"].value,
     periodValue: elements["sched-period-value"].value,
     periodUnit: elements["sched-period-unit"].value,
@@ -4575,7 +4622,11 @@ async function submitScheduledTask() {
     return;
   }
   try {
-    await invoke("ScheduleTask", built.spec);
+    if (editingTaskID) {
+      await invoke("UpdateScheduledTask", editingTaskID, built.spec);
+    } else {
+      await invoke("ScheduleTask", built.spec);
+    }
     closeScheduledTaskDialog();
     await refresh({ scroll: false });
   } catch (error) {
@@ -4583,7 +4634,25 @@ async function submitScheduledTask() {
   }
 }
 
-elements["new-scheduled-task"].addEventListener("click", openScheduledTaskDialog);
+// scheduledTaskByID 从当前快照里按 ID 找任务（ID 是操作键；找不到返回 null）。
+function scheduledTaskByID(id) {
+  const runtime = (client.current() || {}).runtime || {};
+  const tasks = Array.isArray(runtime.scheduled_tasks) ? runtime.scheduled_tasks : [];
+  return tasks.find(task => task?.id === id) || null;
+}
+
+// openScheduledTaskEditor 打开编辑弹窗：按 ID 取当前快照里的那条任务填表
+// （取不到就按"任务已经没了"提示，不打开一个空表单）。
+function openScheduledTaskEditor(id) {
+  const task = scheduledTaskByID(id);
+  if (!task) {
+    showToast("任务不存在（可能已被取消），请刷新后重试");
+    return;
+  }
+  openScheduledTaskDialog(task);
+}
+
+elements["new-scheduled-task"].addEventListener("click", () => openScheduledTaskDialog());
 elements["scheduled-task-close"].addEventListener("click", closeScheduledTaskDialog);
 elements["sched-mode"].addEventListener("change", syncScheduledTaskFields);
 elements["sched-period-unit"].addEventListener("change", syncScheduledTaskFields);
@@ -4595,8 +4664,13 @@ elements["sched-start-clock"].addEventListener("change", () => {
 });
 elements["sched-submit"].addEventListener("click", submitScheduledTask);
 
-// 取消按钮事件委托（任务列表渲染全量刷新，事件挂容器层；ID 是操作键）。
+// 编辑/取消按钮事件委托（任务列表渲染全量刷新，事件挂容器层；ID 是操作键）。
 elements["scheduled-task-view"].addEventListener("click", async event => {
+  const editButton = event.target.closest?.("[data-sched-edit]");
+  if (editButton?.dataset.schedEdit) {
+    openScheduledTaskEditor(editButton.dataset.schedEdit);
+    return;
+  }
   const button = event.target.closest?.("[data-sched-cancel]");
   if (!button?.dataset.schedCancel) return;
   if (!confirm("确认取消该定时任务？")) return;

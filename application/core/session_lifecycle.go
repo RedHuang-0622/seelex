@@ -31,11 +31,7 @@ func (service *Service) hotAttachSession(sessionID string) error {
 		targetRunning = unit.ChatState().Running
 	}
 	if !targetRunning {
-		if promptPort, ok := service.Deps.Engine.(interface{ SetSystemPromptFor(string, string) }); ok {
-			promptPort.SetSystemPromptFor(sessionID, service.promptStack.Render())
-		} else {
-			service.Deps.Engine.SetSystemPrompt(service.promptStack.Render())
-		}
+		service.writeSessionSystemPrompt(sessionID)
 	}
 	// G5 出临界区化：workspace 查询（外部 WorkspacePort，可能含磁盘索引读）
 	// 在锁外完成一次并保存拷贝，ViewMu 临界区内不再调用外部端口。

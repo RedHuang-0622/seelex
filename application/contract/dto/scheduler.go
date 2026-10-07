@@ -65,8 +65,12 @@ type ScheduledTaskSpec struct {
 	RunAt        time.Time // 一次性定时任务执行时间（零值 = 周期任务）
 	Command      string    // kind=command：白名单键
 	Prompt       string    // kind=prompt：提示词内容（非 secret，可进快照展示）
-	SessionID    string    // 绑定会话（空 = 执行时当前 main session）
 	Enabled      bool
+	// SessionID 是显式的既有会话绑定；空 = **每次触发新建会话发起**（默认口径）。
+	SessionID string
+	// WorkspaceID 是触发时新会话要装配的工作区（空 = 不绑项目）。
+	// 它只影响触发那次会话的项目装配；任务定义本身是全局资产，与项目无关。
+	WorkspaceID string
 }
 
 // ScheduledTaskStatus 是定时/周期任务只读快照（GUI 定时任务面板数据源）。
@@ -93,4 +97,9 @@ type ScheduledTaskStatus struct {
 	LastError    string            `json:"last_error,omitempty"`
 	LogTail      []string          `json:"log_tail,omitempty"`
 	RunCount     int64             `json:"run_count"`
+	// WorkspaceID 是任务装配的工作区（空 = 无工作区）。
+	WorkspaceID string `json:"workspace_id,omitempty"`
+	// LastSessionID 是上一次触发真正落到的会话（空 = 未落会话/从未触发）。
+	// 每次触发默认新建会话，这一格让面板与冒烟能指认"跑到哪儿去了"。
+	LastSessionID string `json:"last_session_id,omitempty"`
 }

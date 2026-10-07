@@ -25,6 +25,11 @@ export function buildScheduledTaskSpec(fields) {
   if (!name) return { error: "请填写任务名称" };
   const prompt = String(fields?.prompt ?? "").trim();
   if (!prompt) return { error: "请填写提示词内容" };
+  // 工作区可选：空 = 触发时新建的会话不绑项目。ID 是操作键，名称只做展示。
+  const workspaceId = String(fields?.workspaceId ?? "").trim();
+  // 会话绑定面板上不编辑：编辑既有任务时把原值原样带回（改个名字不该顺手
+  // 把 API 侧设的绑定清掉）。新建路径这一格恒为空 = 默认新建会话。
+  const sessionId = String(fields?.sessionId ?? "").trim();
   const now = Number.isFinite(Number(fields?.now)) ? Number(fields.now) : Date.now();
 
   if (fields?.mode === "at") {
@@ -37,7 +42,7 @@ export function buildScheduledTaskSpec(fields) {
       spec: {
         name, kind: "prompt",
         interval: 0, periodUnit: "", periodValue: 0, startClock: "", startWeekday: 0,
-        runAt: parsed.toISOString(), command: "", prompt, sessionId: "", enabled: true
+        runAt: parsed.toISOString(), command: "", prompt, sessionId, workspaceId, enabled: true
       }
     };
   }
@@ -70,10 +75,69 @@ export function buildScheduledTaskSpec(fields) {
       periodUnit: unit, periodValue: value,
       startClock, startWeekday,
       runAt: null, // 见文件头：空串会让 Wails 的参数反序列化当场失败
-      command: "", prompt, sessionId: "",
+      command: "", prompt, sessionId,
+      workspaceId,
       enabled: Boolean(fields?.enabled)
     }
   };
+}
+
+// scheduledTaskFormFields 把一条任务快照还原成新建/编辑弹窗的字段值——编辑入口
+// 唯一一处「任务快照 → 表单」的映射，node 用例钉得住（与 buildScheduledTaskSpec
+// 的「表单 → 载荷」正好是来回两条腿，中间不再各写一份）。
+//
+// 快照读不到或字段缺失时给"安全默认"（空名/空提示词/无工作区/未勾选），而不是
+// 抛错：编辑一份畸形记录时该由提交时的校验给出可读错误，不该在打开弹窗时就炸。
+export function scheduledTaskFormFields(task) {
+  const value = task && typeof task === "object" ? task : {};
+  const oneShot = Boolean(value.one_shot);
+  const startClock = typeof value.start_clock === "string" ? value.start_clock.trim() : "";
+  const period = periodFields(value);
+  return {
+    name: typeof value.name === "string" ? value.name : "",
+    prompt: typeof value.prompt === "string" ? value.prompt : "",
+    mode: oneShot ? "at" : "period",
+    periodValue: String(period.value),
+    periodUnit: period.unit,
+    startClock,
+    startWeekday: Number.isInteger(value.start_weekday) && value.start_weekday >= 1 && value.start_weekday <= 7
+      ? String(value.start_weekday)
+      : "1",
+    // 没给墙钟锚点的周期 = 「每个周期按当前时间」（子日周期不看这一格）。
+    anchorNow: !startClock,
+    runAtValue: formatDateTimeLocal(value.run_at),
+    enabled: value.enabled !== false,
+    workspaceId: typeof value.workspace_id === "string" ? value.workspace_id.trim() : "",
+    sessionId: typeof value.session_id === "string" ? value.session_id.trim() : ""
+  };
+}
+
+// periodFields 取任务的周期（值 + 单位）：period_unit 齐就用它；只有 interval_seconds
+// 的旧任务按最大可整除单位回推（都不整除时落到分钟并取整——面板只有这几种单位，
+// 取整后的值会显示在表单里，用户点保存前看得见）。
+function periodFields(task) {
+  if (SCHED_PERIOD_UNITS.has(task?.period_unit) && Number(task.period_value) >= 1) {
+    return { unit: task.period_unit, value: Number(task.period_value) };
+  }
+  const seconds = Number(task?.interval_seconds);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return { unit: "day", value: 1 };
+  }
+  const candidates = [["day", 86400], ["hour", 3600], ["minute", 60]];
+  for (const [unit, size] of candidates) {
+    if (seconds % size === 0) return { unit, value: seconds / size };
+  }
+  return { unit: "minute", value: Math.max(1, Math.round(seconds / 60)) };
+}
+
+// formatDateTimeLocal 把 RFC3339 时刻转成 <input type="datetime-local"> 要的本地
+// 墙钟（YYYY-MM-DDTHH:MM）；空值/解析不了返回空串（控件留空，提交时给可读提示）。
+function formatDateTimeLocal(value) {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const pad = number => String(number).padStart(2, "0");
+  return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}T${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
 }
 
 // periodToSeconds 周期单位 → 等价秒（month 用 30 天名义值，仅用于 interval
@@ -106,22 +170,26 @@ function isScheduledTask(value) {
   return Boolean(value) && typeof value === "object";
 }
 
-// renderScheduledTasks 渲染任务列表 HTML（名称/类型/启用状态/下次运行/
+// renderScheduledTasks 渲染任务列表 HTML（名称/类型/工作区/启用状态/下次运行/
 // 上次结果/日志尾部/取消按钮；命令类型补白名单展示名）。
-export function renderScheduledTasks(items, commands) {
+// workspaces 是快照里的工作区表：任务只记 workspace_id，名字只做展示。
+export function renderScheduledTasks(items, commands, workspaces) {
   const list = scheduledTasksView(items);
   if (!list.length) {
     return '<span class="muted list-empty">暂无定时任务</span>';
   }
   const labelByKey = new Map((Array.isArray(commands) ? commands : []).map(command => [command.key, command.label]));
+  const workspaceLabelByID = workspaceLabels(workspaces);
   return `<ul class="sched-list">${list.map(task => {
     const kind = task.kind === "prompt" ? "提示词" : "命令";
     const commandLabel = task.kind === "command" ? (labelByKey.get(task.command) || task.command || "") : "";
     const scheduleText = task.one_shot ? `定时 ${formatRunTime(task.run_at)}` : `每 ${formatInterval(task)}`;
+    const workspace = workspaceChip(task, workspaceLabelByID);
     return `<li class="sched-item" data-sched-id="${escapeHtml(task.id)}">
       <div class="sched-head">
         <strong title="${escapeHtml(task.name)}">${escapeHtml(task.name)}</strong>
         <span class="chip">${escapeHtml(kind)}</span>
+        ${workspace}
         ${task.one_shot ? '<span class="chip">一次性</span>' : ""}
         <span class="chip ${task.enabled ? "sched-chip-on" : "sched-chip-off"}">${task.enabled ? "已启用" : "已停用"}</span>
         <span class="sched-status is-${schedStatusClass(task)}">${escapeHtml(schedStatusText(task))}</span>
@@ -137,6 +205,7 @@ export function renderScheduledTasks(items, commands) {
       ${!task.last_error && task.last_result ? `<div class="sched-result" title="${escapeHtml(task.last_result)}">${escapeHtml(task.last_result)}</div>` : ""}
       ${Array.isArray(task.log_tail) && task.log_tail.length ? `<pre class="sched-log">${escapeHtml(task.log_tail.join("\n"))}</pre>` : ""}
       <div class="sched-actions">
+        <button type="button" class="text-button sched-edit" data-sched-edit="${escapeHtml(task.id)}">编辑</button>
         <button type="button" class="text-button sched-cancel" data-sched-cancel="${escapeHtml(task.id)}">取消</button>
       </div>
     </li>`;
@@ -150,21 +219,23 @@ export function renderScheduledTasks(items, commands) {
 // 整块的名字由头带那一条给出（<strong>定时任务</strong> N 项，坐在 --surface-2
 // 的浅色带上）：弹窗头不再重复标题（口径同工作表格弹窗），所以名字必须留在表内。
 // 头带与表体之间只有 .sched-table-scroll 一个滚动容器——弹窗纵向只此一层可滚。
-export function renderScheduledTasksTable(items, commands) {
+export function renderScheduledTasksTable(items, commands, workspaces) {
   const list = scheduledTasksView(items);
   const labelByKey = new Map((Array.isArray(commands) ? commands : []).map(command => [command.key, command.label]));
+  const workspaceLabelByID = workspaceLabels(workspaces);
   const rows = list.map(task => {
     const kind = task.kind === "prompt" ? "提示词" : "命令";
     const commandLabel = task.kind === "command" ? (labelByKey.get(task.command) || task.command || "") : "";
     const scheduleText = task.one_shot ? `定时 ${formatRunTime(task.run_at)}` : `每 ${formatInterval(task)}`;
+    const workspace = workspaceChip(task, workspaceLabelByID);
     const statusClass = schedStatusClass(task);
     return `<tr class="sched-row is-${statusClass}" data-sched-id="${escapeHtml(task.id)}">
       <td class="work-cell work-cell-task" title="${escapeHtml(task.name)}">${escapeHtml(task.name)}</td>
-      <td class="work-cell">${escapeHtml(kind)}${task.one_shot ? '<span class="chip">一次性</span>' : ""}</td>
+      <td class="work-cell">${escapeHtml(kind)}${workspace}${task.one_shot ? '<span class="chip">一次性</span>' : ""}</td>
       <td class="work-cell">${escapeHtml(scheduleText)}${task.kind === "command" && commandLabel ? `<small class="sched-table-command" title="${escapeHtml(task.command)}">${escapeHtml(commandLabel)}</small>` : ""}</td>
       <td class="work-cell">${escapeHtml(formatRunTime(task.next_run_at))}</td>
       <td class="work-cell"><span class="chip ${task.enabled ? "sched-chip-on" : "sched-chip-off"}">${task.enabled ? "已启用" : "已停用"}</span> <span class="sched-status is-${statusClass}">${escapeHtml(schedStatusText(task))}</span></td>
-      <td class="work-cell work-cell-actions"><button type="button" class="text-button sched-cancel" data-sched-cancel="${escapeHtml(task.id)}">取消</button></td>
+      <td class="work-cell work-cell-actions"><button type="button" class="text-button sched-edit" data-sched-edit="${escapeHtml(task.id)}">编辑</button> <button type="button" class="text-button sched-cancel" data-sched-cancel="${escapeHtml(task.id)}">取消</button></td>
     </tr>`;
   }).join("");
   const body = list.length ? `<table class="excel-grid scheduled-table" data-scheduled-table>
@@ -180,6 +251,24 @@ export function renderScheduledTasksTable(items, commands) {
     </header>
     <div class="sched-table-scroll" data-sched-table-scroll>${body}</div>
   </div>`;
+}
+
+// workspaceLabels 构造 workspace_id → 展示名（无工作区表时退回 ID 本身）。
+function workspaceLabels(workspaces) {
+  const map = new Map();
+  for (const workspace of Array.isArray(workspaces) ? workspaces : []) {
+    if (workspace?.id) map.set(String(workspace.id), String(workspace.name || workspace.id));
+  }
+  return map;
+}
+
+// workspaceChip 渲染工作区 chip（没绑工作区的任务不显示这一格——"没有"不该
+// 占一个空 chip）。名称取不到时退回 ID：ID 是索引，展示层宁可显示 ID 也不丢信息。
+function workspaceChip(task, workspaceLabelByID) {
+  const workspaceID = typeof task?.workspace_id === "string" ? task.workspace_id.trim() : "";
+  if (!workspaceID) return "";
+  const label = workspaceLabelByID.get(workspaceID) || workspaceID;
+  return `<span class="chip sched-chip-workspace" title="${escapeHtml(workspaceID)}">${escapeHtml(label)}</span>`;
 }
 
 // schedStatusText 状态文案（权威 JSON 的 running/last_status 驱动）。

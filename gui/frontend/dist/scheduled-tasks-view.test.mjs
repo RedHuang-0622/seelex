@@ -11,7 +11,7 @@ const componentsSource = (await readFile(new URL("./components.js", import.meta.
 const componentsURL = `data:text/javascript;base64,${Buffer.from(componentsSource).toString("base64")}`;
 const source = (await readFile(new URL("./scheduled-tasks-view.js", import.meta.url), "utf8"))
   .replace('"./components.js"', `"${componentsURL}"`);
-const { buildScheduledTaskSpec, renderScheduledTasks, renderScheduledTasksTable } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+const { buildScheduledTaskSpec, renderScheduledTasks, renderScheduledTasksTable, scheduledTaskFormFields } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 
 const task = (overrides = {}) => ({
   id: "sched_1",
@@ -276,6 +276,138 @@ test("builds a one-shot spec with an absolute RFC3339 run time", () => {
   assert.equal(spec.interval, 0);
   assert.equal(spec.periodUnit, "");
   // 一次性任务由后端强制启用（创建即启用，执行后自动停用）。
-  assert.equal(spec.enabled, true);
+ assert.equal(spec.enabled, true);
 });
 
+// 工作区装配：触发时新建的会话可以绑到一个工作区（空 = 不绑项目）。
+// 载荷里带的是 workspaceId；周期与一次性两条路径都要带（漏一条就等于"选了
+// 工作区但任务不按工作区跑"）。
+test("carries the selected workspace on both period and one-shot specs", () => {
+  const period = buildScheduledTaskSpec({
+    name: "每天九点巡检", prompt: "巡检", mode: "period",
+    periodValue: "1", periodUnit: "day", startClock: "09:00", workspaceId: "ws_1"
+  }).spec;
+  assert.equal(period.workspaceId, "ws_1");
+
+  const oneShot = buildScheduledTaskSpec({
+    name: "明天发布检查", prompt: "检查发布", mode: "at",
+    runAtValue: "2026-10-08T09:30", now: Date.parse("2026-10-07T10:00:00"), workspaceId: "ws_2"
+  }).spec;
+  assert.equal(oneShot.workspaceId, "ws_2");
+
+  // 不选工作区 = 空串（新会话不绑项目），不是 undefined：载荷形状只有一种。
+  const none = buildScheduledTaskSpec({
+    name: "无工作区", prompt: "巡检", mode: "period",
+    periodValue: "1", periodUnit: "day", anchorNow: true
+  }).spec;
+  assert.equal(none.workspaceId, "");
+});
+
+// ── 编辑链路（任务快照 → 表单 → 载荷）────────────────────────────────
+// 编辑与新建共用同一套控件，所以"编辑"这条腿的实际内容就是：把任务快照还原成
+// 表单字段（scheduledTaskFormFields），提交时再经 buildScheduledTaskSpec 变回
+// 载荷。这里钉的正是这条来回：还原出来的字段再组装，必须得到同一条任务定义。
+
+test("editing renders an edit button carrying the task ID", () => {
+  const list = renderScheduledTasks([task()], []);
+  assert.match(list, /data-sched-edit="sched_1"/);
+  assert.match(list, />编辑</);
+  // 编辑与取消并存：ID 仍是操作键，两个按钮各带各的。
+  assert.match(list, /data-sched-cancel="sched_1"/);
+  const table = renderScheduledTasksTable([task()], []);
+  assert.match(table, /data-sched-edit="sched_1"/);
+  assert.match(table, /data-sched-cancel="sched_1"/);
+});
+
+test("restores a periodic task into form fields and back into the same spec", () => {
+  const fields = scheduledTaskFormFields(task({
+    kind: "prompt", prompt: "巡检", period_unit: "week", period_value: 2,
+    interval_seconds: 1209600, start_clock: "09:00", start_weekday: 3,
+    workspace_id: "ws_1", session_id: "sess_9"
+  }));
+  assert.equal(fields.mode, "period");
+  assert.equal(fields.periodUnit, "week");
+  assert.equal(fields.periodValue, "2");
+  assert.equal(fields.startClock, "09:00");
+  assert.equal(fields.startWeekday, "3");
+  assert.equal(fields.anchorNow, false);
+  assert.equal(fields.workspaceId, "ws_1");
+  assert.equal(fields.sessionId, "sess_9");
+
+  const { spec, error } = buildScheduledTaskSpec({ ...fields, now: Date.parse("2026-10-07T10:00:00") });
+  assert.equal(error, undefined);
+  assert.equal(spec.name, "抓职位");
+  assert.equal(spec.prompt, "巡检");
+  assert.equal(spec.periodUnit, "week");
+  assert.equal(spec.periodValue, 2);
+  assert.equal(spec.startClock, "09:00");
+  assert.equal(spec.startWeekday, 3);
+  assert.equal(spec.workspaceId, "ws_1");
+  // 会话绑定面板不编辑，但也不该在保存时被清掉（编辑腿原样带回）。
+  assert.equal(spec.sessionId, "sess_9");
+  assert.equal(spec.runAt, null);
+});
+
+test("restores a current-time period as the anchor-now checkbox", () => {
+  const fields = scheduledTaskFormFields(task({
+    kind: "prompt", prompt: "巡检", period_unit: "day", period_value: 2, interval_seconds: 172800
+  }));
+  assert.equal(fields.startClock, "");
+  assert.equal(fields.anchorNow, true);
+  const { spec, error } = buildScheduledTaskSpec({ ...fields, now: Date.parse("2026-10-07T10:00:00") });
+  assert.equal(error, undefined);
+  assert.equal(spec.startClock, "");
+  assert.equal(spec.periodUnit, "day");
+  assert.equal(spec.periodValue, 2);
+});
+
+test("restores a one-shot task into a local datetime and back to the same instant", () => {
+  const runAt = "2026-10-08T09:30:00+08:00";
+  const fields = scheduledTaskFormFields(task({ kind: "prompt", prompt: "发布检查", one_shot: true, run_at: runAt, interval_seconds: 0 }));
+  assert.equal(fields.mode, "at");
+  // datetime-local 是分钟粒度：秒/毫秒按 0 对齐（控件本身就表达不了更细的时刻）。
+  const expected = new Date(runAt);
+  expected.setSeconds(0, 0);
+  const { spec, error } = buildScheduledTaskSpec({ ...fields, now: Date.parse("2026-10-07T10:00:00") });
+  assert.equal(error, undefined);
+  assert.equal(new Date(spec.runAt).getTime(), expected.getTime());
+});
+
+test("derives a period unit for legacy interval-only tasks", () => {
+  const hourly = scheduledTaskFormFields(task({ kind: "prompt", prompt: "P", period_unit: "", interval_seconds: 7200 }));
+  assert.equal(hourly.periodUnit, "hour");
+  assert.equal(hourly.periodValue, "2");
+  const daily = scheduledTaskFormFields(task({ kind: "prompt", prompt: "P", period_unit: "", interval_seconds: 86400 }));
+  assert.equal(daily.periodUnit, "day");
+  assert.equal(daily.periodValue, "1");
+  // 没有任何周期信息时落到可提交的默认（每天），不让用户开出一个提交不了的表单。
+  const empty = scheduledTaskFormFields(task({ kind: "prompt", prompt: "P", interval_seconds: 0 }));
+  assert.equal(empty.periodUnit, "day");
+  assert.equal(empty.periodValue, "1");
+});
+
+test("restoring form fields tolerates missing or malformed task snapshots", () => {
+  for (const input of [null, undefined, "nope", {}, { name: 3, enabled: false }]) {
+    const fields = scheduledTaskFormFields(input);
+    assert.equal(typeof fields.name, "string");
+    assert.equal(fields.mode, "period");
+    assert.equal(fields.workspaceId, "");
+    assert.equal(fields.sessionId, "");
+    assert.match(fields.periodUnit, /^(minute|hour|day|week|month)$/);
+  }
+  assert.equal(scheduledTaskFormFields({ enabled: false }).enabled, false);
+});
+
+// 面板要能看出这条任务跑在哪个工作区：任务只记 ID，名字从快照的 workspaces 表
+// 里取；取不到名字就退回显示 ID（宁可显示 ID，也不把信息藏起来）。
+test("renders the workspace chip with the snapshot name, falling back to the ID", () => {
+  const html = renderScheduledTasks([
+    task({ id: "sched_ws", name: "绑定工作区", kind: "prompt", prompt: "巡检", workspace_id: "ws_1" }),
+    task({ id: "sched_orphan", name: "工作区没了", kind: "prompt", prompt: "巡检", workspace_id: "ws_gone" }),
+    task({ id: "sched_none", name: "无工作区", kind: "prompt", prompt: "巡检" })
+  ], [], [{ id: "ws_1", name: "Seelex" }]);
+  assert.match(html, /sched-chip-workspace/);
+  assert.match(html, />Seelex</);
+  assert.match(html, />ws_gone</);
+  assert.equal((html.match(/sched-chip-workspace/g) || []).length, 2);
+});

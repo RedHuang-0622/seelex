@@ -678,6 +678,8 @@
 - `func (service *Service) bindGlobalProjectRoot(rootPath string) error` — bindGlobalProjectRoot 设置进程级项目根。同上：per-session root 未实现前
 - `func (service *Service) unbindGlobalProjectRoot()` — unbindGlobalProjectRoot 清空进程级项目根。
 - `func (service *Service) bindSessionProjectRoot(sessionID string)` — bindSessionProjectRoot 把指定会话自己的项目根绑到工具面（按会话分格）。
+- `func (service *Service) writeSessionSystemPrompt(sessionID string)` — writeSessionSystemPrompt 把当前 prompt 栈写入**目标会话**的引擎：会话路由
+- `func (service *Service) openSessionEngine(sessionID string, workspace *WorkspaceInfo) (string, error)` — openSessionEngine 给一个**新会话**装上它自己那一格：建引擎 bundle、挂接
 - `func (service *Service) transitionForKey(key string) sync.Locker` — transitionForKey 返回指定 key 的会话过渡锁（G5 per-session keyed）：会
 - `func (service *Service) sessionUnitLocked(sessionID string) *session.SessionUnit` — sessionUnitLocked 返回指定会话的会话单元（聊天运行态已收进 SessionUnit，
 - `func (service *Service) currentViewSessionID() string` — currentViewSessionID 返回当前视图会话 ID（读锁内快照；供解锁后发布

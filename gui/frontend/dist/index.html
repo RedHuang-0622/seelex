@@ -318,8 +318,13 @@
   <div id="scheduled-task-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="scheduled-task-modal-title">
     <div class="modal-card settings-card" data-resizable>
       <div class="modal-header"><div><span class="eyebrow">定时任务</span><h2 id="scheduled-task-modal-title">新建定时任务</h2></div><button id="scheduled-task-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
-      <p class="settings-note">到点把提示词投给当前主会话执行（会话切换后自动跳过），提示词与运行结果都留在会话记录里。周期可以指定「每天的几点」开始，也可以让每个周期按创建时刻滚动。</p>
+      <p class="settings-note">到点会新建一个会话发起（不打断你正在看的会话），可以给它指定一个工作区；会话记录照常按会话自己的存储落盘。周期可以指定「每天的几点」开始，也可以让每个周期按创建时刻滚动。</p>
       <label class="settings-field">任务名称<input id="sched-name" type="text" placeholder="如：每天九点巡检" autocomplete="off"></label>
+      <label class="settings-field">工作区
+        <select id="sched-workspace">
+          <option value="">（无工作区）</option>
+        </select>
+      </label>
       <label class="settings-field">执行方式
         <select id="sched-mode">
           <option value="period">周期重复</option>
@@ -356,7 +361,7 @@
       <label id="sched-anchor-now-field" class="settings-field sched-toggle"><input id="sched-anchor-now" type="checkbox"> 每个周期按当前时间</label>
       <label id="sched-prompt-field" class="settings-field">提示词内容<textarea id="sched-prompt" rows="4" placeholder="到点让 agent 执行的内容"></textarea></label>
       <label id="sched-datetime-field" class="settings-field hidden">执行时间<input id="sched-datetime" type="datetime-local" aria-label="定时执行时间"></label>
-      <label id="sched-enabled-field" class="settings-field sched-toggle"><input id="sched-enabled" type="checkbox" checked> 创建后立即启用</label>
+      <label id="sched-enabled-field" class="settings-field sched-toggle"><input id="sched-enabled" type="checkbox" checked> <span id="sched-enabled-label">创建后立即启用</span></label>
       <div class="settings-actions"><button id="sched-submit" type="button" class="primary">创建任务</button></div>
       <div class="modal-resize-handle" aria-hidden="true"></div>
     </div>

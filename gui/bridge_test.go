@@ -45,6 +45,7 @@ type fakeApplication struct {
 	resumedSession    string
 	forkedSession     string
 	scheduledSpec     seelebridge.ScheduledTaskSpec
+	updatedTaskID     string
 	cancelledTaskID   string
 	searchQuery       string
 	searchLimit       int
@@ -232,6 +233,11 @@ func (fake *fakeApplication) SubagentSessionDetail(string) (*application.Subagen
 func (fake *fakeApplication) ScheduleTask(_ context.Context, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
 	fake.scheduledSpec = spec
 	return &seelebridge.ScheduledTaskStatus{ID: "sched_1", Name: spec.Name, Kind: string(spec.Kind), Enabled: spec.Enabled}, nil
+}
+func (fake *fakeApplication) UpdateScheduledTask(_ context.Context, id string, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
+	fake.scheduledSpec = spec
+	fake.updatedTaskID = id
+	return &seelebridge.ScheduledTaskStatus{ID: id, Name: spec.Name, Kind: string(spec.Kind), Enabled: spec.Enabled}, nil
 }
 func (fake *fakeApplication) CancelScheduledTask(id string) error {
 	fake.cancelledTaskID = id
@@ -701,6 +707,21 @@ func TestBridgeForwardsScheduledTaskCommands(t *testing.T) {
 	}
 	if !fake.scheduledSpec.RunAt.Equal(runAt) {
 		t.Fatalf("one-shot runAt not forwarded: %+v", fake.scheduledSpec)
+	}
+
+	// 编辑：ID 是操作键，定义走同一份 spec 形状（面板新建/编辑共用一套控件）。
+	updated, err := bridge.UpdateScheduledTask("sched_1", seelebridge.ScheduledTaskSpec{
+		Name: "抓职位（改）", Kind: seelebridge.ScheduledTaskPrompt, Prompt: "换个提示词",
+		WorkspaceID: "ws_1", Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.ID != "sched_1" || updated.Name != "抓职位（改）" {
+		t.Fatalf("updated = %+v", updated)
+	}
+	if fake.updatedTaskID != "sched_1" || fake.scheduledSpec.Prompt != "换个提示词" || fake.scheduledSpec.WorkspaceID != "ws_1" {
+		t.Fatalf("update not forwarded: id=%q spec=%+v", fake.updatedTaskID, fake.scheduledSpec)
 	}
 
 	if err := bridge.CancelScheduledTask("sched_1"); err != nil {
@@ -1769,6 +1790,80 @@ func TestEmbeddedScheduledFormPromptOnly(t *testing.T) {
 	// 周期单位要能选到"分钟"（1 分钟周期是冒烟与自测最常用的粒度）。
 	if !strings.Contains(body, `<option value="minute">分钟</option>`) {
 		t.Fatal("周期单位下拉缺「分钟」：1 分钟粒度的任务在弹窗里就建不出来")
+	}
+}
+
+// TestEmbeddedScheduledFormCarriesWorkspacePicker：新建弹窗要能选工作区。
+//
+// 现场（2026-10-07 用户口径）：「定时任务需要支持工作空间的装配，每次发起默认
+// 新开会话」。落点是两件事：弹窗里给一个工作区下拉（空 = 不绑项目），载荷里
+// 把选中的 ID 交给后端。这里只钉标记与接线，工作区名到 ID 的映射由视图模块
+// （scheduled-tasks-view.js）与 node 用例负责。
+func TestEmbeddedScheduledFormCarriesWorkspacePicker(t *testing.T) {
+	t.Parallel()
+	page, err := embeddedFrontend.ReadFile("frontend/dist/index.html")
+	if err != nil {
+		t.Fatalf("embedded frontend index.html: %v", err)
+	}
+	html := string(page)
+	start := strings.Index(html, `<div id="scheduled-task-modal"`)
+	if start < 0 {
+		t.Fatal("找不到新建定时任务弹窗容器")
+	}
+	body := html[start:]
+	if end := strings.Index(body, `<div id="command-modal"`); end > 0 {
+		body = body[:end]
+	}
+	if !strings.Contains(body, `id="sched-workspace"`) {
+		t.Fatal("新建弹窗缺少工作区下拉：定时任务就没法装配工作区")
+	}
+	app, err := embeddedFrontend.ReadFile("frontend/dist/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	appSource := string(app)
+	if !strings.Contains(appSource, `workspaceId: elements["sched-workspace"]`) {
+		t.Fatal("提交时必须把下拉里选的工作区递给 buildScheduledTaskSpec")
+	}
+	if !strings.Contains(appSource, "renderScheduledWorkspaceOptions") {
+		t.Fatal("工作区下拉的选项要从快照的 workspaces 来（缺了它下拉永远是空的）")
+	}
+}
+
+// TestEmbeddedScheduledEditEntryWired：定时任务面板要有**编辑**入口，且提交时
+// 走的是编辑链路（UpdateScheduledTask + 任务 ID）。
+//
+// 口径：编辑与新建共用同一套控件（同一个弹窗、同一份 buildScheduledTaskSpec
+// 载荷），差别只在"提交时带不带 ID"。所以这里钉三件事——列表/表格里有编辑按钮、
+// 视图模块给出「任务快照 → 表单字段」的唯一映射、app.js 按编辑态分派到
+// UpdateScheduledTask。
+func TestEmbeddedScheduledEditEntryWired(t *testing.T) {
+	t.Parallel()
+	view, err := embeddedFrontend.ReadFile("frontend/dist/scheduled-tasks-view.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	viewSource := string(view)
+	if !strings.Contains(viewSource, `data-sched-edit="${escapeHtml(task.id)}"`) {
+		t.Fatal("任务列表/表格缺少编辑按钮（data-sched-edit 携带任务 ID）")
+	}
+	if !strings.Contains(viewSource, "export function scheduledTaskFormFields(") {
+		t.Fatal("「任务快照 → 表单字段」必须收在视图模块的 scheduledTaskFormFields（node 用例才钉得住来回）")
+	}
+	app, err := embeddedFrontend.ReadFile("frontend/dist/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	appSource := string(app)
+	if !strings.Contains(appSource, `invoke("UpdateScheduledTask"`) {
+		t.Fatal("编辑提交必须走 Bridge.UpdateScheduledTask")
+	}
+	if !strings.Contains(appSource, "scheduledTaskFormFields(") {
+		t.Fatal("编辑打开时必须用 scheduledTaskFormFields 回填表单（否则编辑成了空白新建）")
+	}
+	// 同一个弹窗的两个模式：标题/按钮文案跟着走，但控件只有一套。
+	if !strings.Contains(appSource, `elements["scheduled-task-modal-title"].textContent = editing`) {
+		t.Fatal("弹窗标题要按编辑态切换（新建/编辑共用一套控件）")
 	}
 }
 

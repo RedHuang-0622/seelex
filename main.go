@@ -612,12 +612,21 @@ func run() error {
 		// 都在 application（HandleRoleToolActivity）。
 		RoleToolCallback: app.HandleRoleToolActivity,
 		SkillRegistry:    skillRegistry,
-		// 周期提示词任务的执行器：应用层 Submit 复用**当前主会话**会话执行器。
+		// 定时提示词任务的执行器：默认**新建会话**发起（可选装配工作区），
+		// 显式绑定了会话的任务才投递到那个会话。
 		// 单独一个函数是为了让测试基座（tool_full_chain_test.go 的 newFullChainHarness）
 		// 装的是同一份口径，而不是各写一份"看起来差不多"的闭包。
 		ScheduledPromptExecutor: scheduledPromptExecutor(app),
 		SchedulerObserver:       app.RefreshRuntimeSnapshot,
 	})
+	// 定时任务定义恢复（全局 JSONL → 内存排期）：必须在**执行器与观察者注入之后**，
+	// 恢复出来的任务才可能立刻按排期触发。副作用只有"多出几条已排期任务"与一次
+	// runtime.changed 投影发布，不触碰任何会话记录。
+	if restored, skipped, restoreErr := runtime.RestoreScheduledTasks(); restoreErr != nil {
+		log.Printf("定时任务恢复失败（任务未排期）：%v", restoreErr)
+	} else if restored > 0 || skipped > 0 {
+		log.Printf("定时任务恢复：%d 条已排期，%d 条跳过（已过期/已失效）", restored, skipped)
+	}
 	if frontend == "backend" && strings.TrimSpace(*backendProject) != "" {
 		if err := console.BindProject(app, *backendProject); err != nil {
 			return err
@@ -723,22 +732,35 @@ func registerProjectRefreshTool(runtime *seelebridge.Runtime, store *sessionstor
 	runtime.RegisterTool("project_refresh", "扫描项目模块文档与元数据，重建项目级模块语义知识；来源未变化时直接复用", schema, handler)
 }
 
-// scheduledPromptExecutor 是周期提示词任务的执行器（应用层 Submit 复用当前主
-// 会话的会话执行器）。会话绑定口径：显式 sessionID 必须匹配当前主会话——不一致
-// 说明会话已切换，本次跳过（不误投递到别的会话）；空 = 执行时当前 main session。
+// scheduledPromptExecutor 是定时提示词任务的执行器。会话落点口径（唯一一份判据
+// 在调度器契约里，本函数只实现它）：
+//   - sessionID 非空 → 投递到那个既有会话（显式绑定）；
+//   - sessionID 为空（默认）→ **新建会话**发起，workspaceID 非空时把新会话装配
+//     到该工作区（项目根 + 会话绑定）。
+//
+// 新建路径落到 application.StartScheduledSession：新会话在后台跑，不切用户的视图
+// 指针；它自己的会话记录照常按会话存储纪律落盘。返回的落点会话号会写进任务快照
+// 的 last_session_id——面板上看得到"这次跑到哪个会话去了"。
 //
 // 单独成函数而不是就地写成闭包：测试基座（newFullChainHarness）装的就是这一份，
 // 冒烟测的才是产品的那条链。
 func scheduledPromptExecutor(app *application.Service) seelebridge.ScheduledPromptExecutor {
-	return func(ctx context.Context, prompt, sessionID string) (string, error) {
-		current := app.Snapshot().Session.ID
-		if sessionID != "" && sessionID != current {
-			return "", fmt.Errorf("任务绑定会话 %s，当前会话 %s（已切换），本次跳过", sessionID, current)
+	return func(ctx context.Context, prompt, sessionID, workspaceID string) (seelebridge.ScheduledPromptOutcome, error) {
+		if bound := strings.TrimSpace(sessionID); bound != "" {
+			if err := app.SubmitToSession(ctx, bound, prompt); err != nil {
+				return seelebridge.ScheduledPromptOutcome{}, fmt.Errorf("定时任务投递到绑定会话 %s 失败: %w", bound, err)
+			}
+			return seelebridge.ScheduledPromptOutcome{
+				Message: fmt.Sprintf("已提交到绑定会话 %s（异步输出见会话记录）", bound), SessionID: bound,
+			}, nil
 		}
-		if err := app.Submit(ctx, prompt); err != nil {
-			return "", err
+		newSessionID, err := app.StartScheduledSession(ctx, prompt, workspaceID)
+		if err != nil {
+			return seelebridge.ScheduledPromptOutcome{SessionID: newSessionID}, err
 		}
-		return "已提交到当前会话执行（异步输出见会话记录）", nil
+		return seelebridge.ScheduledPromptOutcome{
+			Message: fmt.Sprintf("已新建会话 %s 发起（异步输出见会话记录）", newSessionID), SessionID: newSessionID,
+		}, nil
 	}
 }
 
@@ -855,6 +877,9 @@ func initRuntime() (*seelebridge.Runtime, error) {
 	search.ApplyLimits(int(searchTimeout / time.Second))
 	runtime, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{
 		AccountsPath: accountsPath(), StorePath: *storePath,
+		// 定时任务定义落**全局** JSONL：与 workspace_index.json 同级（store 的
+		// 基目录），不按项目分区、不按会话分片。会话记录仍走 sessionstore。
+		ScheduledTasksPath:        filepath.Join(filepath.Dir(*storePath), "scheduled-tasks.jsonl"),
 		ToolCallTimeout:           toolCallTimeout,
 		PlanDecisionTimeout:       planDecision,
 		HeartbeatInterval:         heartbeat,

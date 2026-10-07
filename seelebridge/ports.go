@@ -684,9 +684,28 @@ type ScheduledTaskSpec = dto.ScheduledTaskSpec
 // ScheduledTaskStatus 任务快照 DTO（GUI 定时任务面板消费）。
 type ScheduledTaskStatus = dto.ScheduledTaskStatus
 
-// ScheduledPromptExecutor 提示词任务执行器（main 装配注入：application
-// Submit 复用当前主会话；nil = prompt 任务不可创建）。
+// ScheduledPromptOutcome 是一次定时提示词触发的落点（展示文本 + 本次会话号）。
+type ScheduledPromptOutcome = scheduler.PromptOutcome
+
+// ScheduledPromptExecutor 提示词任务执行器（main 装配注入；nil = prompt 任务
+// 不可创建）。落点口径：sessionID 非空 → 投递该会话；空（默认）→ **新建会话
+// 发起**，workspaceID 非空时把新会话装配到该工作区。
 type ScheduledPromptExecutor = scheduler.PromptExecutor
+
+// RestoreScheduledTasks 从全局 JSONL 读回定时任务定义（冷启动重建）：返回
+// （恢复数, 跳过数）。跳过 = 记录已不适用（一次性已过期/命令不在白名单/
+// 周期非法），逐条跳过而不是一条坏记录挡住全部。必须在执行器与观察者注入
+// 之后调用——恢复出来的任务会按排期立刻触发。
+//
+// 存储粒度是**全局**的（`<store>/scheduled-tasks.jsonl`，见 RuntimeConfig
+// .ScheduledTasksPath）：任务不按项目分区、不按会话分片；触发产生的会话记录
+// 才走会话自己的存储与读写纪律。
+func (r *Runtime) RestoreScheduledTasks() (int, int, error) {
+	if r == nil || r.scheduler == nil {
+		return 0, 0, nil
+	}
+	return r.scheduler.Restore()
+}
 
 // RegisterScheduledCommand 登记白名单命令（重复键拒绝；main 装配调用）。
 func (r *Runtime) RegisterScheduledCommand(command ScheduledCommand) error {
@@ -710,6 +729,15 @@ func (r *Runtime) ScheduleTask(ctx context.Context, spec ScheduledTaskSpec) (*Sc
 		return nil, errors.New("seelebridge: scheduler unavailable")
 	}
 	return r.scheduler.Schedule(ctx, spec)
+}
+
+// UpdateScheduledTask 用一份新定义覆盖既有定时/周期任务（编辑入口；校验与创建
+// 同一份判据，运行账目保留）。
+func (r *Runtime) UpdateScheduledTask(ctx context.Context, id string, spec ScheduledTaskSpec) (*ScheduledTaskStatus, error) {
+	if r == nil || r.scheduler == nil {
+		return nil, errors.New("seelebridge: scheduler unavailable")
+	}
+	return r.scheduler.Update(ctx, id, spec)
 }
 
 // CancelScheduledTask 取消并移除定时/周期任务。

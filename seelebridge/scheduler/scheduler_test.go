@@ -39,6 +39,13 @@ func TestScheduledCommandHelperProcess(t *testing.T) {
 
 func newSchedulerTestState(t *testing.T) *State {
 	t.Helper()
+	return newSchedulerTestStateWithStore(t, nil)
+}
+
+// newSchedulerTestStateWithStore 是持久化用例的夹具：同样的 tick 下调 +
+// 显式注入全局 JSONL 存储。
+func newSchedulerTestStateWithStore(t *testing.T, store Persistence) *State {
+	t.Helper()
 	oldTick, oldMin := schedulerTick, minScheduledInterval
 	schedulerTick = 15 * time.Millisecond
 	minScheduledInterval = 10 * time.Millisecond
@@ -46,7 +53,14 @@ func newSchedulerTestState(t *testing.T) *State {
 		schedulerTick = oldTick
 		minScheduledInterval = oldMin
 	})
-	return NewState()
+	return NewStateWithStore(store)
+}
+
+// okPromptExecutor 是"总是成功"的提示词执行器桩（落点会话号由调用方给）。
+func okPromptExecutor(message string) PromptExecutor {
+	return func(context.Context, string, string, string) (PromptOutcome, error) {
+		return PromptOutcome{Message: message}, nil
+	}
 }
 
 // helperCommand 构造指向测试二进制的白名单命令（子进程入口见
@@ -120,7 +134,7 @@ func TestScheduledTaskValidation(t *testing.T) {
 	promptEmpty := prompt
 	promptEmpty.Prompt = "  "
 	state.mu.Lock()
-	state.executor = func(context.Context, string, string) (string, error) { return "ok", nil }
+	state.executor = okPromptExecutor("ok")
 	state.mu.Unlock()
 	if _, err := state.Schedule(context.Background(), promptEmpty); err == nil {
 		t.Fatal("empty prompt must be rejected")
@@ -378,16 +392,16 @@ func TestScheduledTaskSkipsWhileRunning(t *testing.T) {
 func TestScheduledPromptTaskDelegatesToExecutor(t *testing.T) {
 	state := newSchedulerTestState(t)
 	defer state.Stop()
-	var gotPrompt, gotSession string
+	var gotPrompt, gotSession, gotWorkspace string
 	state.mu.Lock()
-	state.executor = func(_ context.Context, prompt, sessionID string) (string, error) {
-		gotPrompt, gotSession = prompt, sessionID
-		return "submitted", nil
+	state.executor = func(_ context.Context, prompt, sessionID, workspaceID string) (PromptOutcome, error) {
+		gotPrompt, gotSession, gotWorkspace = prompt, sessionID, workspaceID
+		return PromptOutcome{Message: "submitted"}, nil
 	}
 	state.mu.Unlock()
 	created, err := state.Schedule(context.Background(), ScheduledTaskSpec{
 		Name: "周期提醒", Kind: ScheduledTaskPrompt, Prompt: "每隔一小时检查发布状态",
-		Interval: 100 * time.Millisecond, SessionID: "sess_main", Enabled: true,
+		Interval: 100 * time.Millisecond, SessionID: "sess_main", WorkspaceID: "ws_1", Enabled: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -395,13 +409,13 @@ func TestScheduledPromptTaskDelegatesToExecutor(t *testing.T) {
 	status := waitForStatus(t, state, created.ID, func(status ScheduledTaskStatus) bool {
 		return status.RunCount >= 1 && status.LastStatus == dto.ScheduleRunOK
 	})
-	if gotPrompt != "每隔一小时检查发布状态" || gotSession != "sess_main" {
-		t.Fatalf("executor args = %q / %q", gotPrompt, gotSession)
+	if gotPrompt != "每隔一小时检查发布状态" || gotSession != "sess_main" || gotWorkspace != "ws_1" {
+		t.Fatalf("executor args = %q / %q / %q", gotPrompt, gotSession, gotWorkspace)
 	}
 	if status.LastResult != "submitted" {
 		t.Fatalf("last result = %q, want executor return", status.LastResult)
 	}
-	if status.Kind != "prompt" || status.SessionID != "sess_main" {
+	if status.Kind != "prompt" || status.SessionID != "sess_main" || status.WorkspaceID != "ws_1" {
 		t.Fatalf("status = %+v", status)
 	}
 }
@@ -410,8 +424,8 @@ func TestScheduledPromptTaskErrorPropagates(t *testing.T) {
 	state := newSchedulerTestState(t)
 	defer state.Stop()
 	state.mu.Lock()
-	state.executor = func(context.Context, string, string) (string, error) {
-		return "", errors.New("会话已切换")
+	state.executor = func(context.Context, string, string, string) (PromptOutcome, error) {
+		return PromptOutcome{}, errors.New("会话已切换")
 	}
 	state.mu.Unlock()
 	created, err := state.Schedule(context.Background(), ScheduledTaskSpec{
@@ -426,6 +440,105 @@ func TestScheduledPromptTaskErrorPropagates(t *testing.T) {
 	})
 	if !containsText(status.LastError, "会话已切换") {
 		t.Fatalf("last error = %q", status.LastError)
+	}
+}
+
+// TestScheduledTaskUpdateReplacesDefinition 钉住编辑语义：ID 不变、定义整体替换
+// （名称/类型/周期锚点/工作区都按新入参走）、下次运行按新定义重算，而**运行账目
+// 保留**（跑过几次不该因为改了个名字就归零）。
+func TestScheduledTaskUpdateReplacesDefinition(t *testing.T) {
+	state := newSchedulerTestState(t)
+	defer state.Stop()
+	state.SetPromptExecutor(okPromptExecutor("ok"))
+
+	created, err := state.Schedule(context.Background(), ScheduledTaskSpec{
+		Name: "旧名字", Kind: ScheduledTaskPrompt, Prompt: "旧提示词",
+		Interval: 100 * time.Millisecond, Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForStatus(t, state, created.ID, func(status ScheduledTaskStatus) bool {
+		return status.RunCount >= 1
+	})
+
+	updated, err := state.Update(context.Background(), created.ID, ScheduledTaskSpec{
+		Name: "新名字", Kind: ScheduledTaskPrompt, Prompt: "新提示词",
+		PeriodUnit: dto.PeriodDay, PeriodValue: 1, StartClock: "09:00",
+		WorkspaceID: "ws_1", Enabled: true,
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.ID != created.ID {
+		t.Fatalf("编辑换了 ID：%q → %q（ID 是操作键，不是展示名）", created.ID, updated.ID)
+	}
+	if updated.Name != "新名字" || updated.Prompt != "新提示词" || updated.WorkspaceID != "ws_1" {
+		t.Fatalf("编辑没有整体替换定义：%+v", updated)
+	}
+	if updated.PeriodUnit != string(dto.PeriodDay) || updated.StartClock != "09:00" {
+		t.Fatalf("编辑没有换周期口径：%+v", updated)
+	}
+	if updated.NextRunAt.Hour() != 9 || updated.NextRunAt.Minute() != 0 || !updated.NextRunAt.After(time.Now()) {
+		t.Fatalf("编辑后没有按新定义重算下次运行：%v", updated.NextRunAt)
+	}
+	if updated.RunCount < 1 {
+		t.Fatalf("编辑清掉了运行账目：%+v", updated)
+	}
+	snapshot := state.Snapshot()
+	if len(snapshot) != 1 || snapshot[0].Name != "新名字" {
+		t.Fatalf("快照不是编辑后的那一份：%+v", snapshot)
+	}
+}
+
+// TestScheduledTaskUpdateSharesCreateValidation 钉住"编辑与创建同一份判据"：
+// 创建时拦下的非法搭配，编辑时同样拦下，而且**不落任何改动**（内存保持原样）。
+func TestScheduledTaskUpdateSharesCreateValidation(t *testing.T) {
+	state := newSchedulerTestState(t)
+	defer state.Stop()
+	if err := state.RegisterCommand(helperCommand(t, t.TempDir())); err != nil {
+		t.Fatal(err)
+	}
+	state.SetPromptExecutor(okPromptExecutor("ok"))
+	created, err := state.Schedule(context.Background(), ScheduledTaskSpec{
+		Name: "原名", Kind: ScheduledTaskPrompt, Prompt: "原提示词",
+		PeriodUnit: dto.PeriodDay, PeriodValue: 1, StartClock: "09:00", Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejected := []struct {
+		name string
+		spec ScheduledTaskSpec
+	}{
+		{"空名称", ScheduledTaskSpec{Kind: ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour}},
+		{"空提示词", ScheduledTaskSpec{Name: "n", Kind: ScheduledTaskPrompt, Prompt: "  ", Interval: time.Hour}},
+		{"未知命令", ScheduledTaskSpec{Name: "n", Kind: ScheduledTaskCommand, Command: "nope", Interval: time.Hour}},
+		{"周期过短", ScheduledTaskSpec{Name: "n", Kind: ScheduledTaskPrompt, Prompt: "P", Interval: time.Millisecond}},
+		{"子日周期带锚点", ScheduledTaskSpec{Name: "n", Kind: ScheduledTaskPrompt, Prompt: "P", PeriodUnit: dto.PeriodHour, PeriodValue: 1, StartClock: "09:00"}},
+		{"一次性时间已过", ScheduledTaskSpec{Name: "n", Kind: ScheduledTaskPrompt, Prompt: "P", RunAt: time.Now().Add(-time.Minute)}},
+		{"一次性带锚点", ScheduledTaskSpec{Name: "n", Kind: ScheduledTaskPrompt, Prompt: "P", RunAt: time.Now().Add(time.Hour), StartClock: "09:00"}},
+	}
+	for _, tc := range rejected {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := state.Update(context.Background(), created.ID, tc.spec); err == nil {
+				t.Fatalf("编辑接受了非法定义：%+v", tc.spec)
+			}
+			snapshot := state.Snapshot()
+			if len(snapshot) != 1 || snapshot[0].Name != "原名" || snapshot[0].Prompt != "原提示词" || snapshot[0].StartClock != "09:00" {
+				t.Fatalf("被拒的编辑改了内存状态：%+v", snapshot)
+			}
+		})
+	}
+	if _, err := state.Update(context.Background(), "sched_missing", ScheduledTaskSpec{
+		Name: "n", Kind: ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour,
+	}); err == nil {
+		t.Fatal("编辑不存在的任务必须报错")
+	}
+	if _, err := state.Update(context.Background(), "  ", ScheduledTaskSpec{
+		Name: "n", Kind: ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour,
+	}); err == nil {
+		t.Fatal("空任务 ID 必须报错")
 	}
 }
 
@@ -640,7 +753,7 @@ func TestNextScheduledAtAnchoredPeriods(t *testing.T) {
 func TestScheduledAnchorContractValidation(t *testing.T) {
 	state := newSchedulerTestState(t)
 	defer state.Stop()
-	state.SetPromptExecutor(func(context.Context, string, string) (string, error) { return "ok", nil })
+	state.SetPromptExecutor(okPromptExecutor("ok"))
 
 	base := ScheduledTaskSpec{Name: "锚点", Kind: ScheduledTaskPrompt, Prompt: "巡检", PeriodValue: 1, Enabled: true}
 	rejected := []struct {
@@ -681,7 +794,7 @@ func TestScheduledAnchorContractValidation(t *testing.T) {
 func TestScheduledAnchoredTaskCarriesAnchor(t *testing.T) {
 	state := newSchedulerTestState(t)
 	defer state.Stop()
-	state.SetPromptExecutor(func(context.Context, string, string) (string, error) { return "ok", nil })
+	state.SetPromptExecutor(okPromptExecutor("ok"))
 
 	created, err := state.Schedule(context.Background(), ScheduledTaskSpec{
 		Name: "周一巡检", Kind: ScheduledTaskPrompt, Prompt: "巡检",

@@ -70,6 +70,8 @@ type Application interface {
 	// pending/doing/done；plan/subagent 由执行器管理）。
 	UpdateWorkItemStatus(id, status string) error
 	ScheduleTask(context.Context, seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error)
+	// UpdateScheduledTask 用一份新定义覆盖既有任务（编辑；ID 是操作键）。
+	UpdateScheduledTask(context.Context, string, seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error)
 	CancelScheduledTask(string) error
 	// SearchHistory 检索会话历史聊天记录（压缩栈索引 → 真实记录；
 	// GUI 历史检索面板数据源）。
@@ -912,6 +914,12 @@ func (bridge *Bridge) ConfigureSessionStorage(config sessionstore.Config) error 
 // ScheduleTask 创建并启动一个定时/周期任务（后端调度器校验白名单/周期或 RunAt）。
 func (bridge *Bridge) ScheduleTask(spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
 	return bridge.app.ScheduleTask(bridge.requestContext(), spec)
+}
+
+// UpdateScheduledTask 编辑既有定时/周期任务（同一份 spec 形状；任务 ID 是操作键，
+// 名称只做展示）。
+func (bridge *Bridge) UpdateScheduledTask(id string, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
+	return bridge.app.UpdateScheduledTask(bridge.requestContext(), id, spec)
 }
 
 // CancelScheduledTask 取消并移除定时/周期任务。

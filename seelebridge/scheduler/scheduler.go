@@ -68,9 +68,21 @@ type ScheduledTaskSpec = dto.ScheduledTaskSpec
 // ScheduledTaskStatus 任务快照 DTO（GUI 定时任务面板消费）。
 type ScheduledTaskStatus = dto.ScheduledTaskStatus
 
-// PromptExecutor 周期提示词任务执行器（main 装配注入：application Submit
-// 复用当前主会话；nil = prompt 任务不可创建）。
-type PromptExecutor func(ctx context.Context, prompt, sessionID string) (string, error)
+// PromptOutcome 是一次提示词触发的落点：Message 是面板「上次结果」的展示文本，
+// SessionID 是这次真正落到的会话（空 = 没有落到任何会话）。
+type PromptOutcome struct {
+	Message   string
+	SessionID string
+}
+
+// PromptExecutor 定时提示词任务执行器（main 装配注入；nil = prompt 任务不可创建）。
+//
+// 会话落点口径由入参决定，执行器只负责实现这一份判据：
+//   - sessionID 非空 → 投递到该既有会话；
+//   - sessionID 为空（**默认**）→ 新建会话发起；
+//   - workspaceID 非空 → 新会话装配到该工作区（绑定项目根，会话记录仍按会话
+//     自己的存储纪律落到该项目的分区里）。
+type PromptExecutor func(ctx context.Context, prompt, sessionID, workspaceID string) (PromptOutcome, error)
 
 // State 是周期任务的 actor 资源（自带锁，读写即消息进出；与 task 注册表 /
 // skill.Registry / filesystem 同构）。
@@ -79,6 +91,10 @@ type State struct {
 	commands map[string]ScheduledCommand
 	tasks    map[string]*task
 	executor PromptExecutor
+	// store 是任务定义的全局 JSONL（nil = 不持久化：任务只活在进程内）。
+	// 它是**全局**通道：任务列表不按项目分区、不按会话分片；触发产生的
+	// 会话记录才走会话自己的存储纪律。
+	store    Persistence
 	observer func() // 状态变化通知（main 注入 application 投影发布）
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -98,11 +114,17 @@ type task struct {
 }
 
 // NewState 构造调度器状态（base ctx 用于停机时取消运行中任务）。
-func NewState() *State {
+func NewState() *State { return NewStateWithStore(nil) }
+
+// NewStateWithStore 构造带全局 JSONL 任务定义的调度器状态（store 为 nil =
+// 关闭持久化）。已落盘的任务不在这里读回：冷启动由 Restore 显式触发，保证
+// "先装执行器与观察者、再恢复任务"的顺序不会反过来。
+func NewStateWithStore(store Persistence) *State {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &State{
 		commands: make(map[string]ScheduledCommand),
 		tasks:    make(map[string]*task),
+		store:    store,
 		ctx:      ctx,
 		cancel:   cancel,
 	}
@@ -165,12 +187,13 @@ func (s *State) tick(now time.Time) {
 func (s *State) executeTask(t *task) {
 	defer s.wg.Done()
 	var result string
+	var runSessionID string
 	var runErr error
 	switch t.spec.Kind {
 	case ScheduledTaskCommand:
 		result, runErr = s.runCommand(t)
 	case ScheduledTaskPrompt:
-		result, runErr = s.runPrompt(t)
+		result, runSessionID, runErr = s.runPrompt(t)
 	default:
 		runErr = fmt.Errorf("未知任务类型 %q", t.spec.Kind)
 	}
@@ -181,6 +204,11 @@ func (s *State) executeTask(t *task) {
 	status.Running = false
 	status.LastRunAt = now
 	status.RunCount++
+	if runSessionID != "" {
+		// 本次落点（默认是新开会话；显式绑定会话时就是那个会话）。失败路径
+		// 也记：面板要能看到"这次跑到哪个会话去了"。
+		status.LastSessionID = runSessionID
+	}
 	if runErr != nil {
 		status.LastStatus = scheduledStatusFailed
 		status.LastError = tailText(runErr.Error(), scheduledResultTail)
@@ -240,15 +268,18 @@ func (s *State) runCommand(t *task) (string, error) {
 	return string(output), nil
 }
 
-// runPrompt 调用注入的执行器触发一次 agent 会话（扩展点）。
-func (s *State) runPrompt(t *task) (string, error) {
+// runPrompt 调用注入的执行器触发一次 agent 会话（扩展点）：执行器按
+// "sessionID 空 = 新建会话（默认）/ 非空 = 投递既有会话"这条唯一判据落点，
+// 并把实际落点会话号随结果回传。
+func (s *State) runPrompt(t *task) (string, string, error) {
 	s.mu.Lock()
 	executor := s.executor
 	s.mu.Unlock()
 	if executor == nil {
-		return "", errors.New("提示词任务执行器未装配")
+		return "", "", errors.New("提示词任务执行器未装配")
 	}
-	return executor(s.ctx, t.spec.Prompt, t.spec.SessionID)
+	outcome, err := executor(s.ctx, t.spec.Prompt, t.spec.SessionID, t.spec.WorkspaceID)
+	return outcome.Message, strings.TrimSpace(outcome.SessionID), err
 }
 
 // RegisterCommand 登记白名单命令（重复键拒绝）。
@@ -285,92 +316,299 @@ func (s *State) CommandInfos() []ScheduledCommandInfo {
 
 // Schedule 校验入参并创建任务（创建后立即排期；observer 通知投影）。
 func (s *State) Schedule(_ context.Context, spec ScheduledTaskSpec) (*ScheduledTaskStatus, error) {
-	name := strings.TrimSpace(spec.Name)
-	if name == "" {
-		return nil, errors.New("任务名称不能为空")
+	definition, err := s.normalizeSpec(spec)
+	if err != nil {
+		return nil, err
 	}
-	oneShot := !spec.RunAt.IsZero()
-	effective := time.Duration(0)
-	if oneShot {
-		if !spec.RunAt.After(time.Now()) {
-			return nil, errors.New("定时执行时间必须晚于当前时间")
-		}
-		// 锚点只属于周期任务：一次性任务的时刻就是 RunAt，给了锚点只会被无声忽略。
-		if strings.TrimSpace(spec.StartClock) != "" || spec.StartWeekday != dto.WeekdayUnset {
-			return nil, errors.New("一次性定时任务不接受周期锚点（开始时间/星期）")
-		}
-		// 一次性任务创建即启用，避免"已停用且无法重新启用"的死角。
-		spec.Enabled = true
-	} else {
-		if err := validatePeriod(spec); err != nil {
-			return nil, err
-		}
-		effective = effectiveInterval(spec)
-		if effective < minScheduledInterval {
-			return nil, fmt.Errorf("周期过短：至少 %s", minScheduledInterval)
-		}
-	}
-	switch spec.Kind {
-	case ScheduledTaskCommand:
-		key := strings.TrimSpace(spec.Command)
-		if _, ok := s.commands[key]; !ok {
-			return nil, fmt.Errorf("命令 %q 不在白名单中", key)
-		}
-	case ScheduledTaskPrompt:
-		if strings.TrimSpace(spec.Prompt) == "" {
-			return nil, errors.New("提示词内容不能为空")
-		}
-		s.mu.Lock()
-		executor := s.executor
-		s.mu.Unlock()
-		if executor == nil {
-			return nil, errors.New("提示词任务执行器未装配")
-		}
-	default:
-		return nil, fmt.Errorf("未知任务类型 %q", spec.Kind)
-	}
-	t := &task{
-		id: fmt.Sprintf("sched_%d", time.Now().UnixNano()),
-		spec: ScheduledTaskSpec{
-			Name: name, Kind: spec.Kind, Interval: spec.Interval,
-			PeriodUnit: spec.PeriodUnit, PeriodValue: spec.PeriodValue,
-			StartClock: canonicalStartClock(spec), StartWeekday: spec.StartWeekday,
-			RunAt:   spec.RunAt,
-			Command: strings.TrimSpace(spec.Command), Prompt: strings.TrimSpace(spec.Prompt),
-			SessionID: strings.TrimSpace(spec.SessionID), Enabled: spec.Enabled,
-		},
-		nextRun: nextScheduledAt(time.Now(), spec),
-	}
-	t.status = ScheduledTaskStatus{
-		ID: t.id, Name: name, Kind: string(spec.Kind),
-		IntervalSec: int64(effective / time.Second),
-		PeriodUnit:  string(spec.PeriodUnit), PeriodValue: spec.PeriodValue,
-		StartClock: t.spec.StartClock, StartWeekday: t.spec.StartWeekday,
-		RunAt: t.nextRun, OneShot: oneShot,
-		Command: t.spec.Command, Prompt: t.spec.Prompt,
-		SessionID: t.spec.SessionID, Enabled: spec.Enabled,
-		NextRunAt: t.nextRun, LastStatus: scheduledStatusPending,
-	}
+	t := &task{id: fmt.Sprintf("sched_%d", time.Now().UnixNano())}
+	t.applyDefinition(definition, nextScheduledAt(time.Now(), definition.spec))
+	t.status.ID = t.id
+	t.status.LastStatus = scheduledStatusPending
 	s.mu.Lock()
 	s.tasks[t.id] = t
 	s.mu.Unlock()
+	// 登记即承诺落盘：全局 JSONL 写不进去就当作没登记（内存回滚），
+	// 否则用户会在面板上看到一个重启就消失的任务。
+	if err := s.persistDefinition(t, false); err != nil {
+		s.mu.Lock()
+		delete(s.tasks, t.id)
+		s.mu.Unlock()
+		return nil, fmt.Errorf("定时任务落盘失败（未登记）: %w", err)
+	}
 	s.Start()
 	status := t.statusSnapshot()
 	s.observe()
 	return &status, nil
 }
 
+// Update 用一份新定义覆盖既有任务（编辑入口）。
+//
+// 语义是**整体替换**（PUT）：面板上是什么，任务就是什么——名称/类型/周期或
+// RunAt/锚点/工作区/启用状态一并按入参改写，校验走与创建**同一份**判据
+// （normalizeSpec），不存在"创建时拦得住、编辑时漏得过"。
+//
+// 运行账目保留（run_count / 上次结果 / 上次落点）：那是"这个任务跑过什么"，
+// 编辑改的是"接下来怎么跑"，两件事不该互相清空。下次运行时间按新定义重算，
+// 停机/改期错过的触发点同样不追补。
+//
+// 落盘顺序与取消一致：先写新的定义行（同一 ID 的后写行在重启时覆盖旧行），
+// 写失败 = 这次编辑不成立（内存原样）。
+func (s *State) Update(_ context.Context, id string, spec ScheduledTaskSpec) (*ScheduledTaskStatus, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, errors.New("任务 ID 不能为空")
+	}
+	s.mu.Lock()
+	t, exists := s.tasks[id]
+	s.mu.Unlock()
+	if !exists {
+		return nil, fmt.Errorf("定时任务 %q 不存在", id)
+	}
+	definition, err := s.normalizeSpec(spec)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.persistRecord(ScheduledTaskRecord{
+		ID: id, Spec: definition.spec, Enabled: definition.spec.Enabled,
+	}); err != nil {
+		return nil, fmt.Errorf("编辑定时任务落盘失败（未修改）: %w", err)
+	}
+	s.mu.Lock()
+	if _, alive := s.tasks[id]; !alive {
+		// 落盘期间并发取消赢了：内存里已经没有它，磁盘上刚写的那行也不能留下
+		// （否则重启会把这任务"复活"回来）。补一行墓碑，让盘与内存同向。
+		s.mu.Unlock()
+		_ = s.persistDefinition(t, true)
+		return nil, fmt.Errorf("定时任务 %q 已不存在", id)
+	}
+	t.applyDefinition(definition, nextScheduledAt(time.Now(), definition.spec))
+	status := t.statusSnapshot()
+	s.mu.Unlock()
+	s.Start()
+	s.observe()
+	return &status, nil
+}
+
+// normalizedSpec 是校验并归一后的任务定义（创建与编辑共用同一份判据的产物）。
+type normalizedSpec struct {
+	spec      ScheduledTaskSpec
+	oneShot   bool
+	effective time.Duration
+}
+
+// normalizeSpec 校验并归一创建/编辑入参，是"什么算一个合法任务定义"的**唯一**
+// 一份实现：名称与各文本字段 trim、锚点归一、周期与锚点搭配、最小周期、白名单
+// 命令与提示词执行器装配、一次性任务语义（创建即启用、不接受周期锚点）。
+// 归一后的 spec 可以直接落盘或进内存（不保留调用方的空白与简写锚点写法）。
+func (s *State) normalizeSpec(spec ScheduledTaskSpec) (normalizedSpec, error) {
+	name := strings.TrimSpace(spec.Name)
+	if name == "" {
+		return normalizedSpec{}, errors.New("任务名称不能为空")
+	}
+	oneShot := !spec.RunAt.IsZero()
+	effective := time.Duration(0)
+	if oneShot {
+		if !spec.RunAt.After(time.Now()) {
+			return normalizedSpec{}, errors.New("定时执行时间必须晚于当前时间")
+		}
+		// 锚点只属于周期任务：一次性任务的时刻就是 RunAt，给了锚点只会被无声忽略。
+		if strings.TrimSpace(spec.StartClock) != "" || spec.StartWeekday != dto.WeekdayUnset {
+			return normalizedSpec{}, errors.New("一次性定时任务不接受周期锚点（开始时间/星期）")
+		}
+		// 一次性任务创建即启用，避免"已停用且无法重新启用"的死角。
+		spec.Enabled = true
+	} else {
+		if err := validatePeriod(spec); err != nil {
+			return normalizedSpec{}, err
+		}
+		effective = effectiveInterval(spec)
+		if effective < minScheduledInterval {
+			return normalizedSpec{}, fmt.Errorf("周期过短：至少 %s", minScheduledInterval)
+		}
+	}
+	switch spec.Kind {
+	case ScheduledTaskCommand:
+		key := strings.TrimSpace(spec.Command)
+		if _, ok := s.commands[key]; !ok {
+			return normalizedSpec{}, fmt.Errorf("命令 %q 不在白名单中", key)
+		}
+	case ScheduledTaskPrompt:
+		if strings.TrimSpace(spec.Prompt) == "" {
+			return normalizedSpec{}, errors.New("提示词内容不能为空")
+		}
+		s.mu.Lock()
+		executor := s.executor
+		s.mu.Unlock()
+		if executor == nil {
+			return normalizedSpec{}, errors.New("提示词任务执行器未装配")
+		}
+	default:
+		return normalizedSpec{}, fmt.Errorf("未知任务类型 %q", spec.Kind)
+	}
+	return normalizedSpec{
+		spec: ScheduledTaskSpec{
+			Name: name, Kind: spec.Kind, Interval: spec.Interval,
+			PeriodUnit: spec.PeriodUnit, PeriodValue: spec.PeriodValue,
+			StartClock: canonicalStartClock(spec), StartWeekday: spec.StartWeekday,
+			RunAt:   spec.RunAt,
+			Command: strings.TrimSpace(spec.Command), Prompt: strings.TrimSpace(spec.Prompt),
+			SessionID: strings.TrimSpace(spec.SessionID), WorkspaceID: strings.TrimSpace(spec.WorkspaceID),
+			Enabled: spec.Enabled,
+		},
+		oneShot:   oneShot,
+		effective: effective,
+	}, nil
+}
+
+// applyDefinition 把归一后的定义写进任务本体与它的状态快照（创建、编辑、冷启动
+// 重建共用）：定义字段的落点只有这一处，也就不可能出现"编辑后某几格还是旧值"。
+// 它不碰运行账目（run_count / 上次结果 / 上次落点）与 running 标志。
+func (t *task) applyDefinition(definition normalizedSpec, nextRun time.Time) {
+	t.spec = definition.spec
+	t.nextRun = nextRun
+	status := &t.status
+	status.Name = definition.spec.Name
+	status.Kind = string(definition.spec.Kind)
+	status.IntervalSec = int64(definition.effective / time.Second)
+	status.PeriodUnit = string(definition.spec.PeriodUnit)
+	status.PeriodValue = definition.spec.PeriodValue
+	status.StartClock = definition.spec.StartClock
+	status.StartWeekday = definition.spec.StartWeekday
+	status.RunAt = nextRun
+	status.OneShot = definition.oneShot
+	status.Command = definition.spec.Command
+	status.Prompt = definition.spec.Prompt
+	status.SessionID = definition.spec.SessionID
+	status.WorkspaceID = definition.spec.WorkspaceID
+	status.Enabled = definition.spec.Enabled
+	status.NextRunAt = nextRun
+}
+
 // CancelTask 取消并移除任务（运行中的执行不受影响，完成回写丢弃）。
 func (s *State) CancelTask(id string) error {
 	s.mu.Lock()
-	if _, exists := s.tasks[id]; !exists {
+	t, exists := s.tasks[id]
+	if !exists {
 		s.mu.Unlock()
 		return fmt.Errorf("周期任务 %q 不存在", id)
 	}
+	s.mu.Unlock()
+	// 先落墓碑再删内存：写失败 = 取消失败（任务仍在，重启后也还在），
+	// 不会出现"面板没了、磁盘还在"的劈叉。
+	if err := s.persistDefinition(t, true); err != nil {
+		return fmt.Errorf("取消定时任务落盘失败（未取消）: %w", err)
+	}
+	s.mu.Lock()
 	delete(s.tasks, id)
 	s.mu.Unlock()
 	s.observe()
 	return nil
+}
+
+// Restore 从全局 JSONL 读回任务定义（冷启动重建），返回（恢复数, 跳过数）。
+//
+// 恢复口径（与运行期同一套判据，不另立一份）：
+//   - 周期任务：重算下次运行时间；停机期间错过的触发点**不追补**（运行期的
+//     "错过不追补"在这里同样成立）；停用的任务恢复为停用。
+//   - 一次性任务：执行时刻还没到 → 按原时刻恢复；已经过去（进程当时没在跑）
+//     → 不恢复：一次性的时刻过了就没有可执行的意义，也不留一条假的待运行行。
+//   - 命令不在白名单 / 周期非法 / 名称为空 → **逐条跳过**（跳过数计数），
+//     一条坏记录不挡住其余任务；跳过与失败都以返回值报告给装配根。
+//
+// 调用时机必须在执行器与观察者注入**之后**（恢复出来的任务会立刻按排期触发）。
+func (s *State) Restore() (int, int, error) {
+	if s == nil {
+		return 0, 0, nil
+	}
+	s.mu.Lock()
+	store := s.store
+	s.mu.Unlock()
+	if store == nil {
+		return 0, 0, nil
+	}
+	records, err := store.Load()
+	if err != nil {
+		return 0, 0, err
+	}
+	now := time.Now()
+	restored, skipped := 0, 0
+	for _, record := range records {
+		ok, restoreErr := s.restoreRecord(record, now)
+		if restoreErr != nil {
+			return restored, skipped, fmt.Errorf("恢复定时任务 %q: %w", record.ID, restoreErr)
+		}
+		if !ok {
+			skipped++
+			continue
+		}
+		restored++
+	}
+	if restored > 0 {
+		s.Start()
+		s.observe()
+	}
+	return restored, skipped, nil
+}
+
+// restoreRecord 把一行持久化定义还原成内存任务；返回 false = 这条不适用
+// （已过期/已失效/坏记录），调用方按"跳过"计数。
+//
+// 判据复用 normalizeSpec：周期搭配、白名单命令、执行器装配、一次性语义都在
+// 那一份里；这里只加一条恢复特有的口径——**执行时刻已过的一次性任务不恢复**
+// （进程当时没在跑，追补没有意义）。
+func (s *State) restoreRecord(record ScheduledTaskRecord, now time.Time) (bool, error) {
+	if strings.TrimSpace(record.ID) == "" {
+		return false, nil
+	}
+	spec := record.Spec
+	spec.Enabled = record.Enabled
+	definition, err := s.normalizeSpec(spec)
+	if err != nil {
+		return false, nil // 坏记录 / 已过期的一次性任务：逐条跳过
+	}
+	if definition.oneShot && !definition.spec.RunAt.After(now) {
+		return false, nil
+	}
+	t := &task{id: record.ID}
+	t.applyDefinition(definition, nextScheduledAt(now, definition.spec))
+	t.status.ID = t.id
+	t.status.LastStatus = scheduledStatusPending
+	s.mu.Lock()
+	s.tasks[t.id] = t
+	s.mu.Unlock()
+	return true, nil
+}
+
+// persistRecord 把一行记录写进全局 JSONL（store 未装配时是空操作）。写失败
+// 返回错误——调用方据此决定"这次变更算不算成立"。
+func (s *State) persistRecord(record ScheduledTaskRecord) error {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	store := s.store
+	s.mu.Unlock()
+	if store == nil {
+		return nil
+	}
+	if record.UpdatedAt.IsZero() {
+		record.UpdatedAt = time.Now().UTC()
+	}
+	return store.Append(record)
+}
+
+// persistDefinition 把一条任务定义（含启用状态）写进全局 JSONL；deleted=true
+// 写的是取消墓碑行。
+func (s *State) persistDefinition(t *task, deleted bool) error {
+	if s == nil || t == nil {
+		return nil
+	}
+	s.mu.Lock()
+	record := ScheduledTaskRecord{
+		ID: t.id, Spec: t.spec, Enabled: t.spec.Enabled, Deleted: deleted,
+	}
+	s.mu.Unlock()
+	return s.persistRecord(record)
 }
 
 // Snapshot 返回任务只读快照（按 ID 排序）。
@@ -446,6 +684,7 @@ func (t *task) statusSnapshot() ScheduledTaskStatus {
 		StartClock: t.status.StartClock, StartWeekday: t.status.StartWeekday,
 		RunAt: t.status.RunAt, OneShot: t.status.OneShot,
 		Prompt: t.status.Prompt, SessionID: t.status.SessionID,
+		WorkspaceID: t.status.WorkspaceID, LastSessionID: t.status.LastSessionID,
 		Enabled: t.status.Enabled, Running: t.status.Running,
 		NextRunAt: t.status.NextRunAt, LastRunAt: t.status.LastRunAt,
 		LastStatus: t.status.LastStatus, LastResult: t.status.LastResult,

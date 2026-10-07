@@ -519,7 +519,8 @@ Go 侧执行之前就报
 两条都由 `gui/bridge_test.go` 的 `TestEmbeddedScheduledTableTitleOnce` / `TestEmbeddedScheduledTableSingleScrollContainer` 钉住；渲染侧的记号（头带、滚动容器各一份、头带在容器之外）由 `scheduled-tasks-view.test.mjs` 钉住。
 
 - **命令任务（只在 API 面）**：白名单命令的 argv 固定、不经 shell 展开，前端无法注入任意命令；`snapshot.runtime.scheduled_commands` 仍是它的展示数据源。**弹窗入口已不再暴露它**（2026-10-07：本机 dev 包里白名单为空，命令类任务根本发布不了，留着只是让人多点一次）——要看它得走 `Bridge.ScheduleTask`/`Runtime.ScheduleTask` 的 `kind="command"`，后端能力与登记（`main.go` 的 `auto_get_jobs`）原样保留。脚本依赖（`.env`、`user_requirements.txt`、`city_list.json`、chromedriver）均按其自身目录解析，调度器只提供固定工作目录与超时。
-- **提示词任务（扩展点）**：提交后由后端注入的 executor 触发一次 agent 会话（main 装配为 application Submit，排队语义：会话忙时任务排队，不与进行中的对话冲突）。任务绑定当前 main session（`session_id` 留空 = 执行时当前会话；显式绑定会在会话切换后跳过而非误投）。结果回传为「已提交」状态字；异步会话的完整输出请从会话记录/事件库查询，这是当前实现的有意取舍。
+- **提示词任务（扩展点）**：提交后由后端注入的 executor 触发一次 agent 会话。落点默认**新建会话**（`session_id` 留空）：不打断用户正在看的会话，也不切视图指针；显式绑定会话时投递到那个会话。弹窗里的**工作区**下拉（`#sched-workspace`，选项来自快照的 `workspaces`，默认跟随当前会话绑定的工作区）决定新会话装配到哪个项目——空 = 不绑项目。每次触发的落点会话号回传在快照的 `last_session_id`。结果回传为「已提交/已新建会话 X 发起」状态字；异步会话的完整输出请从会话记录/事件库查询，这是当前实现的有意取舍。
+- **编辑既有任务（`data-sched-edit`）**：列表与表格每行都有「编辑」按钮（ID 是操作键），点开的是**同一个弹窗**、填好那条任务的值（标题/提交按钮/启用勾的文案切成编辑态）。表单回填的唯一映射是 `scheduled-tasks-view.js` 的 `scheduledTaskFormFields(task)`，提交仍走 `buildScheduledTaskSpec` —— 两条腿都是纯函数、node 用例钉住来回（还原字段再组装必须得到同一条定义）。提交时按编辑态分派到 `Bridge.UpdateScheduledTask(id, spec)`：后端整体替换定义（ID 不变、运行账目保留）。`session_id` 面板上不编辑，但编辑提交会原样带回，改个名字不会顺手清掉绑定。
 
 - **周期重复**：以「每 n 分钟/小时/天/周/月」表达（`period-row`：数值 + 单位下拉；
   提交时换算为 `interval` 纳秒并附带 `periodUnit`/`periodValue`）。month 由
