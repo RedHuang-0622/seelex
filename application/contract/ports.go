@@ -309,6 +309,30 @@ type TeammateSessionProjection interface {
 	TeammateSessionLivePage(sessionID string, offset, limit int) dto.TeammateSessionLiveView
 }
 
+// ReasoningEffortPort 是**窄可选**能力面：把"当前会话档位对应的 wire 思考强度"
+// 下发给账号池里那些**配置为跟随会话**（`reasoning_effort: session`）的账号。
+//
+// 为什么需要它：同一个 effort 档位携带两样东西，而它们走两条路——"跑多少轮"
+// （maxLoops/预算）由 EffortManager 直接写引擎，"想多深"（思考强度）只存在于账号
+// 客户端（Seele ChatClient，一账号一个）。档位变化时只有应用层同时知道"现在哪一档"
+// 与"该翻成哪个 provider 词表值"（映射的唯一实现在 application/prompt 的
+// effortProfiles），而账号池只有 seelebridge 拿得到（application 依赖 seelebridge，
+// 反向引用成环），所以这份契约只能落在两边都引的 application/contract。
+//
+// 为什么是"可选窄接口 + 类型断言"而不是 RuntimePort 的成员：口径与
+// TeamworkBoardProjection / context_runtime.CompactionIndexPort 一致——
+// **有就有、没有就是没装配**。未装配时账号保持配置初值（写死强度，或空值=不下发、
+// provider 用自己的默认），档位变化照样在 loop/预算上生效，不因缺这个能力而失败。
+type ReasoningEffortPort interface {
+	// SetSessionReasoningEffort 把 effort 下发给所有**跟随会话**的账号，返回实际被
+	// 改动的账号数（0 = 没有账号跟随会话，或池是空的）。写死了强度的账号
+	// （subagent 默认 low、goalplan 默认 high，或用户在账号条目里显式配置的）
+	// 不受影响——"跟随会话"是显式选择，不是"所有账号跟着一起变"。
+	// effort 是 provider 词表的 wire 值（low/medium/high/max，见 contract/dto）；
+	// 空串 = 不下发。可在请求在途时调用（读取侧的加锁由客户端自己保证）。
+	SetSessionReasoningEffort(effort string) int
+}
+
 type PluginPort interface {
 	All() []model.PluginInfo
 	Activate(context.Context, string) error

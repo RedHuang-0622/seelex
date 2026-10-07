@@ -62,6 +62,20 @@ func (r *Runtime) SelectAccount(name string) bool {
 	return r.accounts.Select(name)
 }
 
+// SetSessionReasoningEffort 实现 application/contract.ReasoningEffortPort（窄可选
+// 能力面，结构满足、不引 application 依赖）：把档位对应的 wire 思考强度下发给
+// **配置为跟随会话**的账号，返回被改动的账号数；写死强度的账号不动。
+//
+// 为什么委托而不是自己遍历：判定（哪些账号算"跟随会话"）与唯一的类型断言点
+// （池里存的是 agent.Completer，只有 Seele 的 *api.ChatClient 支持改强度）都收在
+// account.SetSessionReasoningEffort 一处，本方法只是 Runtime 侧的接线。
+func (r *Runtime) SetSessionReasoningEffort(effort string) int {
+	if r == nil {
+		return 0
+	}
+	return account.SetSessionReasoningEffort(r.pool, r.accountSpecList(), effort)
+}
+
 // SetProvider 切换 provider 过滤（非空时清除固定账号）。
 func (r *Runtime) SetProvider(provider string) {
 	r.accounts.SetProvider(provider)

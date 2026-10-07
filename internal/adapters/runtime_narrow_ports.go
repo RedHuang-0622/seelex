@@ -125,6 +125,19 @@ func (port RuntimePort) WithPluginAssembly(ctx context.Context, plugins []string
 	return port.Runtime.WithPluginAssembly(ctx, plugins)
 }
 
+// SetSessionReasoningEffort 实现 contract.ReasoningEffortPort：把会话档位对应的 wire
+// 思考强度下发给**配置为跟随会话**的账号（写死强度的账号不动），返回被改动的账号数。
+//
+// 漏了它**不会报错**：core 侧的断言恒 false ⇒ 用户切档只换了提示词与 loop 次数，
+// 模型那边照旧按配置初值/服务端默认想——界面上档位换了、行为没换（正是本包装注释里
+// 那类"读数与行为相反"的缺陷）。返回值是纯读数，调用方不必依赖它做控制流。
+func (port RuntimePort) SetSessionReasoningEffort(effort string) int {
+	if port.Runtime == nil {
+		return 0
+	}
+	return port.Runtime.SetSessionReasoningEffort(effort)
+}
+
 // 编译期断言：application/core / view_state 用类型断言探测的每一个窄可选端口，
 // 生产包装都必须满足。少一个方法，这里就编译不过——不留"运行时静默 false"。
 var (
@@ -132,6 +145,9 @@ var (
 	_ contract.TeammateSessionProjection  = RuntimePort{}
 	_ contract.TeamworkJobCompletion      = RuntimePort{}
 	_ context_runtime.CompactionIndexPort = RuntimePort{}
+	// contract.ReasoningEffortPort（application/core/session_scope.go 的
+	// syncSessionReasoningEffort）：effort 档位 → wire 思考强度的下发口。
+	_ contract.ReasoningEffortPort = RuntimePort{}
 	// compactionReadbackProbe（context_runtime/compaction_index.go，包内命名接口）：
 	// 压缩**之前**先试一次模型读后感的读数闸。断言失败 = 读数闸缺省，于是"重放
 	// 运行时失败"的压缩仍会改写 agent 的上下文（现场：压缩之后看不见上文）。

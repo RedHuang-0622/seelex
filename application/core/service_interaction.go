@@ -146,6 +146,10 @@ func (service *Service) SwitchEffort(_ context.Context, level string) error {
 		return err
 	}
 	service.Deps.Runtime.SetPlanPolicy(service.effortManager.PlanPolicy())
+	// 档位变化的另一半（"想多深"）落在账号客户端上：这里是这条链唯一的下发点
+	// ——loop/预算由 EffortManager 直接写引擎（applyLocked 里的 SetMaxLoops），
+	// 思考强度只此一条路（syncSessionReasoningEffort → 账号池）。
+	service.syncSessionReasoningEffort(service.effortManager.Current())
 	promptText := service.promptStack.Render()
 	if routed, ok := service.Deps.Engine.(interface{ SetSystemPromptFor(string, string) }); ok {
 		routed.SetSystemPromptFor(viewSessionID, promptText)

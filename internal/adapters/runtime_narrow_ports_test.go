@@ -50,6 +50,9 @@ var narrowPortForwarded = map[string]string{
 	// 按轮插件装配（service_scheduler.go，定时任务的插件装配）。
 	// 漏了它 = 任务照跑但用的是宿主全局激活插件（面板却显示装配了 X）。
 	"WithPluginAssembly": "WithPluginAssembly",
+	// 档位 → wire 思考强度下发（session_scope.go 的 syncSessionReasoningEffort）。
+	// 漏了它 = 切档只换提示词与 loop 次数，模型那边照旧（界面上档位换了、行为没换）。
+	"contract.ReasoningEffortPort": "SetSessionReasoningEffort",
 }
 
 // runtimePortAssertionRe 命中一次 "….Runtime.(" 形态的窄端口探测。

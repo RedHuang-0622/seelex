@@ -212,6 +212,33 @@ func (service *Service) syncPlanPolicyFor(sessionID string) {
 	service.Deps.Runtime.SetPlanPolicyFor(sessionID, prompt.PlanningPolicy(service.effortForSession(sessionID)))
 }
 
+// syncSessionReasoningEffort 把档位对应的 wire 思考强度下发给**跟随会话**的账号
+// （`reasoning_effort: session`），返回被改动的账号数。
+//
+// 与 syncPlanPolicyFor 的分工：plan 策略槽按会话写进引擎（每个会话一份），而思考
+// 强度落在**账号客户端**上、账号池是进程级共享的（一个账号一个 ChatClient），所以
+// 这里不按会话分格——只在档位变化时下发一次，多个会话各自的档位在下发口上按"后切
+// 者生效"落到同一批账号（账号池本来就是进程级共享，不是本次引入的语义）。
+//
+// 已知边界：只在档位**变化**时下发。进程刚起来时 session 账号保持空值（= 不下发，
+// provider 用自己的默认），第一次切档才与用户所选档位对齐——补这个口需要第二个调用
+// 点（装配期播种），而这条链刻意只保留一个调用点。
+//
+// 映射不在这里：档位 → provider 词表只有一份实现（application/prompt 的
+// effortProfiles，经 prompt.ReasoningEffortFor 读），这里只负责"把值送到账号池"。
+// 端口是窄可选的（contract.ReasoningEffortPort）：宿主没实现就整步退化为 no-op，
+// 不影响 loop/预算那半条链。
+func (service *Service) syncSessionReasoningEffort(level string) int {
+	if service == nil || service.Deps.Runtime == nil {
+		return 0
+	}
+	sink, ok := service.Deps.Runtime.(contract.ReasoningEffortPort)
+	if !ok {
+		return 0
+	}
+	return sink.SetSessionReasoningEffort(prompt.ReasoningEffortFor(level))
+}
+
 // permissionTierForSession 返回指定会话生效的权限档位（G4：Unit 内选择优先；
 // 未选择回退进程默认档位）。不持有 Core.ViewMu——Unit 自带锁，进程默认由
 // service.permissionTierDefault 提供。
