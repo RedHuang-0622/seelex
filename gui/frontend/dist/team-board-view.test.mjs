@@ -238,17 +238,34 @@ test("summarizeTeam 只报事实计数（里程碑 / 工作项 / 在编 / 作业
 
 // ── 侧边栏 ①：里程碑格栅（只画里程碑；WI 编号 / 内容摘要 / 一格一层）────────────
 
-test("① 格栅**只画里程碑**：一行一块，没有工作项行、没有边、没有箭头", () => {
+test("① 格栅：一块里程碑 = 抬头一行 + 名下工作项**各占一行**（没有边、没有箭头）", () => {
   const html = renderTeamGantt(MS_PLAN);
-  assert.equal((html.match(/<section class="team-dag-ms"/g) || []).length, 2, "两个里程碑两行");
-  assert.equal((html.match(/team-dag-cell/g) || []).length, 4, "每一件事一格（4 件工作项）");
-  assert.doesNotMatch(html, /team-dag-row|team-dag-frame|team-dag-bar|team-dag-gate/, "工作项行 / 大框 / 条 / 闸门带都随旧结构退场");
+  assert.equal((html.match(/<section class="team-dag-ms"/g) || []).length, 2, "两个里程碑两块");
+  assert.equal((html.match(/class="team-dag-wi-label"/g) || []).length, 4, "四件工作项 = 四行");
+  assert.equal((html.match(/class="team-dag-cell/g) || []).length, 4, "一行一件事（4 件工作项 = 4 格）");
+  assert.doesNotMatch(html, /team-dag-frame|team-dag-bar|team-dag-gate/, "大框 / 条 / 闸门带都随旧结构退场");
   assert.doesNotMatch(html, /team-dag-edge|-arrow/, "不画箭头：依赖不在几何里表达");
   assert.match(renderTeamGantt(SHUFFLED), /data-milestone-id="m1"/);
   assert.equal(renderTeamGantt({ milestones: [] }), "");
 });
 
-test("① 里程碑行读得到 id / 名字 / 状态 / 进度 / WI 编号串 / 内容摘要", () => {
+test("① 一行一件事：一行恒有且只有一个格子，宽度恒等于一层（不切、不叠、不挤）", () => {
+  // 口径校正（2026-10-08）：上一版把同槽并行的几件**横切成 n 小格**（--n / --k），一件工作项
+  // 在屏幕上只剩半格宽——"两件事"与"一件事被切开"就分不出来了。工作项在工作项这一级是不可
+  // 再分的单位：一件一行、一行一格。
+  const html = renderTeamGantt(MS_PLAN);
+  const rows = html.split('<div class="team-dag-wi-plot').slice(1);
+  assert.equal(rows.length, 4, "每一件工作项一行");
+  for (const row of rows) {
+    assert.equal((row.split("</div>")[0].match(/class="team-dag-cell/g) || []).length, 1, "一行里只有一个格子");
+  }
+  assert.doesNotMatch(html, /--n:|--k:|data-same-slot/, "槽内等分那一套已退场");
+  assert.doesNotMatch(TEAM_BOARD_CSS, /var\(--n,|var\(--k,/, "CSS 里也不再有 --n / --k");
+  assert.doesNotMatch(html, /team-dag-ms-span/, "无名色带（汇总条）退场：跨度改用文字说");
+  assert.doesNotMatch(TEAM_BOARD_CSS, /\.team-dag-ms-span\s*\{/, "它也没有留下任何规则");
+});
+
+test("① 里程碑行读得到 id / 名字 / 状态 / 进度 / 跨度 / 内容摘要", () => {
   const html = renderTeamGantt(MS_PLAN);
   assert.match(html, /data-milestone-id="m-build"[^>]*data-status="active"[^>]*data-eff="running"[^>]*data-locked="false"[^>]*data-layer="0"[^>]*data-sum-start="0"[^>]*data-sum-end="3"[^>]*data-empty="false"[^>]*data-items="3"/);
   assert.match(html, /data-milestone-id="m-ship"[^>]*data-status="pending"[^>]*data-eff="pending"[^>]*data-locked="true"/);
@@ -257,11 +274,14 @@ test("① 里程碑行读得到 id / 名字 / 状态 / 进度 / WI 编号串 / �
   // 进度 = 名下工作项的 done/total（不是"这个人几件事"）。
   assert.match(html, /title="名下工作项：1 已完成 \/ 共 3">1\/3</);
   assert.match(html, /title="名下工作项：0 已完成 \/ 共 1">0\/1</);
-  // WI 编号串按里程碑内拓扑序读，且每个编号带自己的状态与归属色点。
+  // 名下工作项**一件一行**（行序 = 里程碑内拓扑序），每行读得到编号 / 名字 / 状态 / 归属；
+  // 抬头行不再有 WI 编号串（那正是"所有工作项挤在一行"的旧址）。
   const build = html.slice(html.indexOf('data-milestone-id="m-build"'), html.indexOf('data-milestone-id="m-ship"'));
-  assert.deepEqual([...build.matchAll(/class="chip team-wi" data-eff="([^"]+)" data-item="([^"]+)"/g)].map(m => [m[2], m[1]]),
-    [["wi-req", "done"], ["wi-impl", "failed"], ["wi-test", "pending"]]);
-  assert.match(build, /wi-impl 实现 · running · @exec · 槽 1/, "WI chip 的 title 读得到名字 / 状态 / 负责人 / 槽位");
+  assert.deepEqual([...build.matchAll(/<button type="button" class="team-dag-wi-open is-openable" data-team-page-open="item:([^"]+)"/g)].map(m => m[1]),
+    ["wi-req", "wi-impl", "wi-test"]);
+  assert.match(build, /team-dag-wi-name" title="实现">实现</, "行里读得到工作项名字");
+  assert.match(build, /title="wi-impl 实现 · running · @exec · 槽 1"/, "行 title 读得到名字 / 状态 / 负责人 / 槽位");
+  assert.doesNotMatch(build, /team-dag-ms-wis/, "抬头行的编号串已退场");
   // 内容摘要是里程碑自己的 content（截断也留全文在 title 里）。
   assert.match(html, /title="构建通过：四件工作项全部落地">构建通过：四件工作项全部落地</);
 });
@@ -287,7 +307,7 @@ test("① 里程碑行序 = 屏障拓扑序（数组序倒着声明也一样）"
 
 test("① 刻度尺：横轴写的是依赖槽位（不是时间），刻度 0..slots", () => {
   const html = renderTeamGantt(MS_PLAN);
-  assert.match(html, /横轴 = 依赖槽位（非时间）· 1 格 = 1 层依赖 · 每格一件事/);
+  assert.match(html, /横轴 = 依赖槽位（非时间）· 1 格 = 1 层依赖 · 一行一件事/);
   const ticks = [...html.matchAll(/data-tick="(\d+)"/g)].map(match => Number(match[1]));
   assert.deepEqual(ticks, [0, 1, 2, 3], "slots = 3（m-build 名下三件，槽 0/1/2 → 末尾 3）");
   assert.match(html, /style="--team-dag-slots:3"/);
@@ -302,12 +322,10 @@ test("② 格子的 x 只有槽位算式，宽度由 CSS 给（渲染件不写�
     assert.doesNotMatch(style, /px/, `渲染件不写像素（几何只有 CSS 一份）：${style}`);
     assert.doesNotMatch(style, /width|height|left|top/, `渲染件不写定位：${style}`);
   }
-  // 格子/汇总条的左端与宽度都是槽位变量（--i / --n / --k / --s / --e），由 CSS 乘 slot-w。
-  assert.match(html, /<i class="team-dag-cell" data-eff="done" data-item="wi-req" data-slot="0" data-same-slot="false" style="--i:0;--n:1;--k:0;--team-dag-role-color:var\(--team-dag-role-\d\)"/);
-  assert.match(html, /<span class="team-dag-ms-span" data-empty="false" title="跨度：槽 0–3"><\/span>/);
+  // 格子的左端与宽度都是槽位变量（--i），由 CSS 乘 slot-w。
+  assert.match(html, /<i class="team-dag-cell" data-eff="done" data-item="wi-req" data-slot="0" style="--i:0;--team-dag-role-color:var\(--team-dag-role-\d\)"/);
   assert.match(TEAM_BOARD_CSS, /\.team-dag-cell\s*\{[^}]*left:\s*calc\(var\(--i,\s*0\)\s*\*\s*var\(--team-dag-slot-w\)/);
-  assert.match(TEAM_BOARD_CSS, /\.team-dag-ms-span\s*\{[^}]*left:\s*calc\(var\(--s,\s*0\)\s*\*\s*var\(--team-dag-slot-w\)\)/);
-  assert.match(TEAM_BOARD_CSS, /\.team-dag-ms-span\s*\{[^}]*width:\s*calc\(\(var\(--e,\s*0\)\s*-\s*var\(--s,\s*0\)\)\s*\*\s*var\(--team-dag-slot-w\)/);
+  assert.match(TEAM_BOARD_CSS, /\.team-dag-cell\s*\{[^}]*width:\s*calc\(var\(--team-dag-slot-w\)\s*-\s*2px\)/);
 });
 
 test("(a) 槽位 = max(end(deps))（finish→start 紧贴前驱右端）；倒序声明也一样", () => {
@@ -325,7 +343,7 @@ test("(a) 槽位 = max(end(deps))（finish→start 紧贴前驱右端）；倒�
   }
 });
 
-test("(b) 汇总条跨度 = 名下工作项的 min(slot)..max(end)", () => {
+test("(b) 跨度 = 名下工作项的 min(slot)..max(end)：事实在 model 里，抬头行用**文字**说", () => {
   const model = ganttModel(MS_PLAN);
   const build = model.frames.find(frame => frame.id === "m-build");
   assert.deepEqual(build.sum, { s: 0, e: 3, empty: false });
@@ -333,17 +351,19 @@ test("(b) 汇总条跨度 = 名下工作项的 min(slot)..max(end)", () => {
   assert.equal(build.done, 1);
   const ship = model.frames.find(frame => frame.id === "m-ship");
   assert.deepEqual(ship.sum, { s: 0, e: 1, empty: false });
+  const html = renderTeamGantt(MS_PLAN);
+  assert.match(html, /class="team-dag-ms-broad"[^>]*>跨槽 0–3</, "跨度写在抬头行里");
+  assert.doesNotMatch(html, /team-dag-ms-span/, "不再用一条无名色带去说它");
 });
 
-test("(c) 空里程碑 = 零宽菱形（不画空条），落在屏障前驱汇总条的右端", () => {
+test("(c) 空里程碑：只写「尚未排活」，不画任何几何", () => {
   const model = ganttModel(MS_EMPTY);
   const empty = model.frames.find(frame => frame.id === "m-b");
-  assert.deepEqual(empty.sum, { s: 1, e: 1, empty: true });
+  assert.deepEqual(empty.sum, { s: 1, e: 1, empty: true }, "事实照旧算得出（接在屏障前驱的右端）");
   const html = renderTeamGantt(MS_EMPTY);
   assert.match(html, /data-milestone-id="m-b"[^>]*data-empty="true"/);
-  assert.match(html, /<span class="team-dag-ms-span" data-empty="true" title="跨度：槽 1–1 · 空"><\/span>/);
   assert.match(html, /尚未排活/);
-  assert.match(TEAM_BOARD_CSS, /\.team-dag-ms-span\[data-empty="true"\]\s*\{[^}]*width:\s*9px/);
+  assert.doesNotMatch(html, /team-dag-ms-span/, "空里程碑也不画零宽菱形");
 });
 
 test("(d) 两条颜色通道正交：格子描边只吃状态令牌，teammate 色只走格子填充 + 色点", () => {
@@ -396,10 +416,10 @@ test("(f) role 超过 6 个 → 色板回绕，slot≥6 的格子叠斜纹第二
   assert.match(TEAM_BOARD_CSS, /\.team-dag-cell\.is-wrapped\s*\{[^}]*repeating-linear-gradient/);
 });
 
-test("(f2) 同槽并行：一格挤 n 件就横切成 n 小格（叠着画会让后画的盖住先画的）", () => {
-  // 现场（2026-10-08 像素量测）：chain 夹具里 wi-render 是 failed+interrupted，而它与同槽的
-  // wi-cases 画在同一条左端上 —— 后画的把先画的整件盖住，红色描边一个像素都读不到。
-  // 修法：每件拿到 --n（这一格几件）与 --k（第几件），由 CSS 把这一格横着等分。
+test("(f2) 同槽并行 = 两行同一列（工作项不被切开，也不会互相盖住）", () => {
+  // 上一版为了"后画的盖住先画的"把一格横切成 n 小格（--n / --k）。口径校正（2026-10-08）：
+  // 工作项是**行**这个轴上的单位——一件一行，同槽的两件就是两行同一列（x 相同、y 不同），
+  // 既不互相遮挡，也不会把"一件事"画成半格。
   const plan = {
     milestones: [{ id: "m", name: "M" }],
     work_items: [
@@ -409,17 +429,18 @@ test("(f2) 同槽并行：一格挤 n 件就横切成 n 小格（叠着画会让
     ],
   };
   const html = renderTeamGantt(plan);
-  const cell = id => html.match(new RegExp(`<i class="team-dag-cell" data-eff="[^"]*" data-item="${id}" data-slot="(\\d)" data-same-slot="([^"]+)" style="([^"]*)"`));
-  const z1 = cell("z1");
-  const z2 = cell("z2");
-  const z3 = cell("z3");
-  assert.ok(z1 && z2 && z3);
-  assert.deepEqual([z1[1], z1[2], z1[3]], ["0", "false", "--i:0;--n:1;--k:0;--team-dag-role-color:var(--team-dag-role-0)"]);
-  assert.deepEqual([z2[1], z2[2], z2[3]], ["1", "true", "--i:1;--n:2;--k:0;--team-dag-role-color:var(--team-dag-role-0)"]);
-  assert.deepEqual([z3[1], z3[2], z3[3]], ["1", "true", "--i:1;--n:2;--k:1;--team-dag-role-color:var(--team-dag-role-0)"]);
-  assert.match(html, /title="z3 丙 · running · 槽 1 · 同槽 2\/2"/, "悬停读得到它在同槽里的位次");
-  assert.match(TEAM_BOARD_CSS, /\.team-dag-cell\s*\{[^}]*\* var\(--k, 0\) \/ var\(--n, 1\)/);
-  assert.match(TEAM_BOARD_CSS, /\.team-dag-cell\s*\{[^}]*width:\s*calc\(\(var\(--team-dag-slot-w\) - 2px\) \/ var\(--n, 1\)\)/);
+  const rows = html.split('<div class="team-dag-wi-plot').slice(1);
+  assert.equal(rows.length, 3, "三件 = 三行");
+  assert.deepEqual(rows.map(row => Number((row.match(/data-slot="(\d)"/) || [])[1])), [0, 1, 1], "z2 / z3 同槽：两行同一列");
+  for (const row of rows) {
+    assert.equal((row.split("</div>")[0].match(/class="team-dag-cell/g) || []).length, 1, "一行恒一格");
+  }
+  const cell = id => html.match(new RegExp(`<i class="team-dag-cell" data-eff="[^"]*" data-item="${id}" data-slot="(\\d)" style="([^"]*)"`));
+  assert.deepEqual(cell("z1").slice(1), ["0", "--i:0;--team-dag-role-color:var(--team-dag-role-0)"]);
+  assert.deepEqual(cell("z2").slice(1), ["1", "--i:1;--team-dag-role-color:var(--team-dag-role-0)"]);
+  assert.deepEqual(cell("z3").slice(1), ["1", "--i:1;--team-dag-role-color:var(--team-dag-role-0)"]);
+  assert.match(html, /title="z3 丙 · running · @pm · 槽 1 · 同槽 2 件并行"/, "同槽只报在悬停里，不进几何");
+  assert.doesNotMatch(html, /--k:|--n:/);
 });
 
 // ── 侧边栏 ②：teammate 条目（一行一位）+ 会话入口 ─────────────────────────
@@ -612,8 +633,8 @@ test("(h) 里程碑详情页：五个页签，基本信息的字段与 Work Item
   assert.deepEqual(tilesOf(html), ["basic", "items", "members", "deps", "events"]);
   assert.match(html, /data-team-page="milestone:m-build"/);
   assert.match(html, /<span class="team-page-kind">里程碑<\/span>/);
-  assert.match(html, /data-team-tab="items"[^>]*>Work Item\(3\)</);
-  assert.match(html, /data-team-tab="members"[^>]*>成员\(3\)</);
+  assert.match(html, /data-team-tab="items"[^>]*><span class="team-page-tab-label">Work Item<\/span><span class="team-page-tab-count">3<\/span>/);
+  assert.match(html, /data-team-tab="members"[^>]*><span class="team-page-tab-label">成员<\/span><span class="team-page-tab-count">3<\/span>/);
   for (const key of ["里程碑名称", "状态", "计划进度", "依赖槽位", "屏障层号", "屏障", "判据", "工作项编号", "内容"]) {
     assert.match(html, new RegExp(`team-kv-key">${key}<`), `基本信息要读得到「${key}」`);
   }
@@ -728,21 +749,63 @@ test("(n) Work Item 详情页：作业与回执行只收属于这件事的（作
 });
 
 test("(o) Work Item 详情页被两种父页复用**同一个渲染件**：面板逐字节相同，只有返回键不同", () => {
-  const fromMilestone = renderTeamPage({ plan: MS_PLAN, ref: "item:wi-impl", parent: { ref: "milestone:m-build", label: "返回 m-build · 构建" } });
-  const fromTeammate = renderTeamPage({ plan: MS_PLAN, ref: "item:wi-impl", parent: { ref: "teammate:exec", label: "返回 exec" } });
+  const fromMilestone = renderTeamPage({ plan: MS_PLAN, ref: "item:wi-impl", parent: { ref: "milestone:m-build", label: "m-build · 构建" } });
+  const fromTeammate = renderTeamPage({ plan: MS_PLAN, ref: "item:wi-impl", parent: { ref: "teammate:exec", label: "exec" } });
   const bare = renderTeamPage({ plan: MS_PLAN, ref: "item:wi-impl" });
   assert.equal(panelsOf(fromMilestone), panelsOf(fromTeammate), "两种父页进来的是同一页");
   assert.equal(panelsOf(fromTeammate), panelsOf(bare));
-  assert.match(fromMilestone, /data-team-page-back="milestone:m-build"[^>]*>← 返回 m-build · 构建</);
-  assert.match(fromTeammate, /data-team-page-back="teammate:exec"[^>]*>← 返回 exec</);
+  assert.match(fromMilestone, /data-team-page-back="milestone:m-build"[^>]*>← m-build · 构建</);
+  assert.match(fromTeammate, /data-team-page-back="teammate:exec"[^>]*>← exec</);
   assert.doesNotMatch(bare, /data-team-page-back/, "没有上一层就不画返回键（不画一个点了没用的键）");
-  assert.match(bare, /team-page-root">团队看板</);
+  assert.match(bare, /class="team-page-root"[^>]*>团队看板</);
   // 直接调三个子渲染件与走分发得到的是同一份（分层不是第二份实现）。
   assert.equal(renderWorkItemDetail({ plan: MS_PLAN, spec: { kind: "item", id: "wi-impl", ref: "item:wi-impl" } }), bare);
   assert.equal(renderMilestoneDetail({ plan: MS_PLAN, spec: { kind: "milestone", id: "m-build", ref: "milestone:m-build" } }),
     renderTeamPage({ plan: MS_PLAN, ref: "milestone:m-build" }));
   assert.equal(renderTeammateDetail({ plan: MS_PLAN, spec: { kind: "teammate", id: "exec", ref: "teammate:exec" } }),
     renderTeamPage({ plan: MS_PLAN, ref: "teammate:exec" }));
+});
+
+test("(o2) 子页上栏统一：三页共用同一套抬头 + 切换行（类种 / 标题 / chips / 返回 / 页签）", () => {
+  // 口径（2026-10-08）：子页的上栏只有**一种形状**，三种页逐字同形 ——
+  //   抬头两行：类种 chip + 标题（等宽 id · 名字）／状态与标记 chips；
+  //   切换行一行：返回（长了截断）+ 页签（横向滚动、不换行）。
+  // 统一之前三页各拼一串（teammate 页连标题元素都没有），"标题在哪、状态在哪"每换一页都要重找。
+  const pages = [
+    renderTeamPage({ plan: MS_PLAN, ref: "milestone:m-build", parent: { ref: "teammate:exec", label: "exec" } }),
+    renderTeamPage({ plan: MS_PLAN, ref: "item:wi-impl", parent: { ref: "milestone:m-build", label: "m-build · 构建" } }),
+    renderTeamPage({ plan: MS_PLAN, ref: "teammate:exec" }),
+  ];
+  for (const html of pages) {
+    assert.equal((html.match(/class="team-page-top"/g) || []).length, 1, "上栏只有一处");
+    assert.equal((html.match(/class="team-page-head-line"/g) || []).length, 1);
+    assert.equal((html.match(/class="team-page-head-chips"/g) || []).length, 1);
+    assert.equal((html.match(/role="tablist"/g) || []).length, 1, "切换行只有一处");
+    // 顺序固定：抬头标题行 → 抬头 chips 行 → 切换行 → 页签 → 面板。
+    const marks = ["team-page-head-line", "team-page-head-chips", "team-page-bar", "team-page-tabs", "team-page-panels"].map(mark => html.indexOf(mark));
+    assert.deepEqual(marks.slice().sort((a, b) => a - b), marks, "上栏各段的先后顺序三页一致");
+    assert.match(html, /team-page-head-chips"><span class="team-status/, "状态 chip 永远是 chips 行第一枚");
+    assert.equal((html.match(/<h3 class="team-page-name">/g) || []).length, 1, "标题只有一个");
+    assert.equal((html.match(/<h2>/g) || []).length, 0, "上栏不写第二份标题（弹窗头只写「团队详情」）");
+  }
+  // 返回键是同一枚控件（同一个类、同一个钩子），只有标签不同；没有上一层就画「团队看板」。
+  assert.match(pages[0], /class="team-page-back is-openable" data-team-page-back="teammate:exec"[^>]*>← exec</);
+  assert.match(pages[1], /class="team-page-back is-openable" data-team-page-back="milestone:m-build"[^>]*>← m-build · 构建</);
+  assert.match(pages[2], /class="team-page-root"/);
+  // 页签是同一个写法：标签一定包在 .team-page-tab-label 里，计数一定走 .team-page-tab-count。
+  for (const html of pages) {
+    const tabs = (html.match(/class="team-page-tab(?: is-active)?"/g) || []).length;
+    assert.equal((html.match(/class="team-page-tab-label"/g) || []).length, tabs, "每一枚页签都有标签元素");
+    assert.doesNotMatch(html, /data-team-tab="[^"]*"[^>]*>\s*[^<]*\(\d+\)/, "计数不再拼进标签文本");
+  }
+  // CSS 也只此一份：上栏钉住、页签横向滚动、返回可截断。
+  assert.match(TEAM_BOARD_CSS, /\.team-page-top\s*\{[^}]*position:\s*sticky/);
+  assert.match(TEAM_BOARD_CSS, /\.team-page-tabs\s*\{[^}]*overflow-x:\s*auto/);
+  assert.match(TEAM_BOARD_CSS, /\.team-page-back\s*\{[^}]*text-overflow:\s*ellipsis/);
+  assert.match(TEAM_BOARD_CSS, /\.team-page-tab-count\s*\{/);
+  // app.js 的弹窗头只写「团队详情」，标题归页自己的抬头（之前两处都写 = 同一句话出现两遍）。
+  assert.match(APP, /const title = '<span class="eyebrow">团队详情<\/span>'/);
+  assert.doesNotMatch(APP, /eyebrow">团队详情<\/span><h2>/);
 });
 
 test("(p) 页签：tab 原样带回（刷新不把用户拽回第一页），认不出来的 tab 退回第一页", () => {
@@ -766,7 +829,7 @@ test("(q) teammate 详情页：四个页签，基本信息 / 负责的 Work Item
   assert.deepEqual(tilesOf(html), ["basic", "items", "assembly", "events"]);
   assert.match(html, /data-team-page="teammate:exec"/);
   assert.match(html, /<span class="team-page-kind">teammate<\/span>/);
-  assert.match(html, /data-team-tab="items"[^>]*>负责的 Work Item\(2\)</);
+  assert.match(html, /data-team-tab="items"[^>]*><span class="team-page-tab-label">负责的 Work Item<\/span><span class="team-page-tab-count">2<\/span>/);
   for (const key of ["角色", "状态", "权责", "工作区", "长期角色会话", "此刻那件事", "此刻那件事的会话", "负责"]) {
     assert.match(html, new RegExp(`team-kv-key">${key}<`), `基本信息要读得到「${key}」`);
   }
@@ -886,6 +949,17 @@ test("(w) 接线：三个入口都有钩子，且 app.js 真的挂上了监听",
   for (const id of ["team-page-modal", "team-page-close", "team-page-modal-title", "team-page-view"]) {
     assert.ok(INDEX.includes(`id="${id}"`), `index.html 缺少详情页挂载点 ${id}`);
   }
+});
+
+test("(w2) 工作项行可点：整行（左列编号 + 右列格子）都是热区，走详情页同一条下钻钩子", () => {
+  const html = renderTeamGantt(MS_PLAN);
+  assert.match(html, /<button type="button" class="team-dag-wi-open is-openable" data-team-page-open="item:wi-req"/, "编号可点");
+  assert.match(html, /<div class="team-dag-wi-plot is-openable" data-item="wi-req" data-slot="0" data-team-page-open="item:wi-req"/, "整行可点");
+  assert.equal((html.match(/is-openable/g) || []).length, 10, "两块抬头 + 四行两处热区");
+  // 「该开哪一页」只有 parseTeamPageRef 一处判据：看板行与详情页里的下钻链走同一个钩子、同一个函数。
+  assert.match(SRC, /data-team-page-open="\$\{escapeHtml\(teamPageRef\("item", id\)\)\}"/);
+  assert.match(APP, /\[data-team-page-open\]/);
+  assert.match(APP, /parseTeamPageRef\(openItem\.dataset\.teamPageOpen\)/);
 });
 
 // ── ⑧ 装配契约（2026-10-05 冻结）：声明面 chips + 生效读数 + 黄牌 / 失灵 ──────────

@@ -2399,7 +2399,9 @@ function paintTeamPage() {
   const input = currentTeamBoardInput;
   if (!input) return;
   const parent = teamPageStack[teamPageStack.length - 2] || null;
-  const title = `<span class="eyebrow">团队详情</span><h2>${escapeHtml(teamPageTitle({ plan: input.plan, ref: top.ref }))}</h2>`;
+  // 弹窗头只写"这是什么"(团队详情)：**标题归页自己的抬头**（teamPageHead：类种 + id · 名字）。
+  // 之前两处都写标题，同一句话在屏幕上出现两遍——上栏看着就是乱的。
+  const title = '<span class="eyebrow">团队详情</span>';
   const html = renderTeamPage({
     plan: input.plan,
     jobs: input.jobs,
@@ -2409,7 +2411,7 @@ function paintTeamPage() {
     // 只画**属于这一页**的读数：换页时上一页的执行面正文不许跟着漂过来。
     live: teamPageLive?.ref === top.ref ? teamPageLive.view : null,
     liveLoading: top.kind === "item" && top.tab === "session" && teamPageLive?.ref !== top.ref,
-    parent: parent ? { ref: parent.ref, label: `返回 ${teamPageTitle({ plan: input.plan, ref: parent.ref })}` } : null,
+    parent: parent ? { ref: parent.ref, label: teamPageTitle({ plan: input.plan, ref: parent.ref }) } : null,
   });
   if (teamPagePainted.title === title && teamPagePainted.html === html) return;
   teamPagePainted = { title, html };
@@ -2519,6 +2521,14 @@ function bindTeamBoardActions() {
     const openMilestone = event.target.closest?.("[data-team-ms-open]");
     if (openMilestone?.dataset.teamMsOpen) {
       openTeamPage("milestone", openMilestone.dataset.teamMsOpen);
+      return;
+    }
+    // 工作项行（左列的编号 + 右列那一格）走的是与详情页同一条下钻钩子 `data-team-page-open`
+    // （"该看哪一页"只有 parseTeamPageRef 一处判据）：看板上点一行 = 打开这一件。
+    const openItem = event.target.closest?.("[data-team-page-open]");
+    if (openItem?.dataset.teamPageOpen) {
+      const spec = parseTeamPageRef(openItem.dataset.teamPageOpen);
+      if (spec) openTeamPage(spec.kind, spec.id);
       return;
     }
     const openMember = event.target.closest?.("[data-team-member-open]");

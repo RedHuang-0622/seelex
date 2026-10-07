@@ -254,6 +254,22 @@ application/model/state.go      SessionRuntime.TeamworkBoard  json:"teamwork_boa
   `live` 一栏是 Work Item 页「执行会话」页签的进程内执行面读数（`TeammateSessionLive`），只在切到那个
   页签时才拉——`liveLoading=true` 时页面写「正在读」，**不**把"还没读到"说成"执行面不在本进程"。
   依赖**不画成几何**：里程碑屏障与工作项 DAG 在「依赖」页签里逐条列全（每条带那头的状态 + 反向边）。
+- **看板行的形状**（2026-10-08 口径校正）：**一块里程碑 = 抬头行 + 名下每件工作项各一行**。
+  抬头行 = `id · name` / 状态 chip / 进度 n/m / 🔒🔓 / 屏障 / 跨度文字「跨槽 s–e」/ 内容摘要；
+  工作项行 = 左列（可点：编号 / 名字 / 状态 / 归属色点）+ 右列（这一件自己那一格）。
+  **一行一件事**：一行恒有且只有一个格子，格子宽度恒等于一层（`--team-dag-slot-w - 2px`）——
+  同槽并行是**不同行的同一列**，不再把一格横切成 n 小格（`--n` / `--k` 与 `data-same-slot` 已退场：
+  横切会让"一件事"只剩半格宽，"几件事"与"一件事被切开"分不出来）。无名色带（汇总条
+  `.team-dag-ms-span`）也整条退场：跨度这个事实仍由 `data-sum-start` / `data-sum-end` 机读，
+  但改用抬头行里的**文字**说，不再用一个没有标签的框去说。看板行可点（`data-team-page-open`，
+  与详情页里的下钻链**同一条钩子、同一个 `parseTeamPageRef` 判据**）。
+- **子页上栏统一**（2026-10-08）：三种详情页共用同一套上栏 = `teamPageHead`（抬头两行：类种 chip +
+  `<code>id</code> · 名字`／状态与标记 chips，**状态永远排第一**）+ `teamPageTab`（页签：标签包在
+  `.team-page-tab-label`、计数走 `.team-page-tab-count` 徽标）+ 返回键／「团队看板」根标记。
+  `.team-page-top` 整体 `position: sticky`（钉在弹窗顶部）；切换行 `flex-wrap: nowrap`、页签
+  `overflow-x: auto`（窄栏横向滚动，不把上栏顶成两三层），返回键 `max-width: 38%` + 省略号。
+  弹窗头（`#team-page-modal-title`）只写「团队详情」：**标题归页自己的抬头**——之前两处都写标题，
+  同一句话在屏幕上是两遍。
 
 ---
 

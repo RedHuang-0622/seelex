@@ -510,9 +510,9 @@ export function ganttModel(plan) {
   return { frames, rows, slots };
 }
 
-// renderTeamGantt 是**里程碑**那一节：刻度尺（sticky）→ 一行一个里程碑（左侧读名字 / 状态 /
-// 进度 / WI 编号 / 内容摘要，右侧是格子）。横轴是**依赖槽位，不是时间**；刻度尺上就写着
-// 这句话，免得读的人自己脑补出工期。
+// renderTeamGantt 是**里程碑**那一节：刻度尺（sticky）→ 一块一个里程碑（抬头行读名字 / 状态 /
+// 进度 / 屏障 / 内容摘要，名下**每件工作项各一行**，行右侧是这一件自己那一格）。横轴是
+// **依赖槽位，不是时间**；刻度尺上就写着这句话，免得读的人自己脑补出工期。
 export function renderTeamGantt(plan) {
   const model = ganttModel(plan);
   if (!model.frames.length) return "";
@@ -521,12 +521,12 @@ export function renderTeamGantt(plan) {
     ticks.push(`<span class="team-dag-tick" data-tick="${i}" style="--i:${i}"><i></i><b>${i}</b></span>`);
   }
   return `<section class="team-section" data-team-gantt>
-      <div class="team-section-title"><span>里程碑</span><span class="chip team-count" title="共 ${model.frames.length} 个里程碑">${model.frames.length}</span><span class="team-section-hint">点里程碑看详情</span></div>
+      <div class="team-section-title"><span>里程碑</span><span class="chip team-count" title="共 ${model.frames.length} 个里程碑">${model.frames.length}</span><span class="team-section-hint">点名字看详情</span></div>
       <div class="team-dag-scroll">
         <div class="team-dag-content" style="--team-dag-slots:${model.slots}">
           <div class="team-dag-ruler" data-role="ruler">
-            <span class="team-dag-ruler-label">里程碑</span>
-            <div class="team-dag-ruler-plot">${ticks.join("")}<span class="team-dag-ruler-basis">横轴 = 依赖槽位（非时间）· 1 格 = 1 层依赖 · 每格一件事</span></div>
+            <span class="team-dag-ruler-label">里程碑 / 工作项</span>
+            <div class="team-dag-ruler-plot">${ticks.join("")}<span class="team-dag-ruler-basis">横轴 = 依赖槽位（非时间）· 1 格 = 1 层依赖 · 一行一件事</span></div>
           </div>
           <div class="team-dag-ms-rows">${model.frames.map(renderMilestoneRow).join("")}</div>
         </div>
@@ -534,12 +534,19 @@ export function renderTeamGantt(plan) {
     </section>`;
 }
 
-// renderMilestoneRow 渲染**一个里程碑 = 一行**：
-//   左列（可点）读 id · name / status chip / 进度 n/m / 🔒🔓 / 名下 WI 编号串 / 内容摘要；
-//   右列（格栅）读跨度：一格一件事（格子里是 teammate 色 + 状态描边），底下垫一条汇总条。
+// renderMilestoneRow 渲染**一个里程碑 = 一块**：抬头行 + 名下每件工作项各一行。
+//   抬头行左列（可点）读 id · name / status chip / 进度 n/m / 🔒🔓 / 屏障 / 内容摘要，右列读
+//   "这一块占多宽"（汇总条）；
+//   工作项行左列（可点）读"这一件是什么"（编号 / 名字 / 状态 / 归属），右列读"它在第几层"
+//   （一个格子）。
 //
-// 两条颜色通道在这一行里正交（口径 3/13）：**描边 / 格线上沿 = 状态**（data-eff，pending 另加
-// 虚线），**格子填充 + WI chip 色点 = 归属（teammate）**；行文字一律中性色，不拿状态色染整行。
+// 一行一件事（2026-10-08 口径校正）：上一版把同槽并行的几件**横着切成 n 小格**（--n / --k），
+// 于是"一件工作项"在屏幕上只剩半格宽——读的人分不出那是"一件事被切开"还是"两件事"。现在
+// 工作项是**行**这个轴上的一个单位：一件一行，同槽并行 = 两行同列，天生不重叠（横切的理由
+// 随之消失）。格子宽度恒等于一层，任何形状都不切、不叠、不挤。
+//
+// 两条颜色通道逐行正交（口径 3/13）：**描边 / 格线上沿 = 状态**（data-eff，pending 另加虚线），
+// **格子填充 + 色点 = 归属（teammate）**；行文字一律中性色，不拿状态色染整行。
 //
 // 里程碑自己的颜色是**逐框轮换的淡色**（--team-dag-ms-tone-0..4），不吃状态色、不吃 teammate
 // 色——它是"这是第几块"的读法，不是"这块好不好"的读法。
@@ -547,36 +554,13 @@ function renderMilestoneRow(frame) {
   const status = frame.status;
   const eff = milestoneEff(frame);
   const sum = frame.sum;
-  const wis = frame.rows.map(row => {
-    const item = row.item;
-    const role = String(item.role || "").trim();
-    const skin = role ? ` style="--team-dag-role-color:var(${roleColorVar(role)})"` : "";
-    const tip = `${String(item.id || "")} ${String(item.name || "")} · ${itemStatus(item)}${role ? " · @" + role : ""} · 槽 ${row.slot}`;
-    return `<span class="chip team-wi" data-eff="${escapeHtml(effStatus(item))}" data-item="${escapeHtml(String(item.id || ""))}"${skin} title="${escapeHtml(tip)}"><i class="team-dag-dot"></i>${escapeHtml(String(item.id || ""))}</span>`;
-  }).join("");
-  // 同槽并行：两件工作项落在同一格（slot 相同）是合法的（`b→a`、`c→d` 这种手绘形状里就有）。
-  // **一格里挤几件就分成几小格**：直接叠着画的话，后画的那件会把先画的那件整个盖住——
-  // 像素量测现场：chain 夹具里 wi-render 是 failed+interrupted，红色描边一个像素都读不到
-  // （它被同槽的 wi-cases 盖住了）。所以每一件拿到 --n（这一格几件）与 --k（第几件），
-  // 左端与宽度都由 CSS 算（渲染件照旧一个像素都不写）。
-  const slotGroups = new Map();
-  for (const row of frame.rows) {
-    const key = String(row.slot);
-    if (!slotGroups.has(key)) slotGroups.set(key, []);
-    slotGroups.get(key).push(String(row.item.id || ""));
-  }
-  const cells = frame.rows.map(row => {
-    const item = row.item;
-    const role = String(item.role || "").trim();
-    const wrapped = roleWrapped(role) ? " is-wrapped" : "";
-    const skin = role ? `;--team-dag-role-color:var(${roleColorVar(role)})` : "";
-    const group = slotGroups.get(String(row.slot)) || [];
-    const n = Math.max(1, group.length);
-    const k = Math.max(0, group.indexOf(String(item.id || "")));
-    const same = n > 1 ? ` · 同槽 ${k + 1}/${n}` : "";
-    const tip = `${String(item.id || "")} ${String(item.name || "")} · ${itemStatus(item)} · 槽 ${row.slot}${same}`;
-    return `<i class="team-dag-cell${wrapped}" data-eff="${escapeHtml(effStatus(item))}" data-item="${escapeHtml(String(item.id || ""))}" data-slot="${row.slot}" data-same-slot="${n > 1 ? "true" : "false"}" style="--i:${row.slot};--n:${n};--k:${k}${skin}" title="${escapeHtml(tip)}"></i>`;
-  }).join("");
+  const wiRows = frame.rows.map(row => renderWorkItemRow(frame, row)).join("");
+  // 跨度（跨槽 s–e）以**文字**报在抬头行里：它回答"这一块横跨哪几层"。上一版把它画成一条
+  // 没有标签的色带、框在格子外面（像素里就是一个"不知道是啥的框包着格子"的东西）——事实照旧，
+  // 只是不再用一个无名几何块去说它（口径：先说清它是什么，再决定要不要画）。
+  const broad = frame.rows.length
+    ? `<span class="team-dag-ms-broad" title="这一块横跨的依赖层：名下工作项的 min(槽)..max(末尾)">跨槽 ${sum.s}–${sum.e}</span>`
+    : "";
   // 屏障没放行 = 虚线框 + 降透明度 + 🔒 待解锁（口径 5）——三样一起写，少一样都读不出"进不去"。
   const lock = frame.locked
     ? '<span class="team-dag-lock" title="屏障未放行：depends_on 里还有没 done 的里程碑（现在进不去）">🔒 待解锁</span>'
@@ -604,14 +588,46 @@ function renderMilestoneRow(frame) {
             <span class="team-dag-ms-count" title="名下工作项：${frame.done} 已完成 / 共 ${frame.total}">${frame.done}/${frame.total}</span>
             ${lock}
           </span>
-          <span class="team-dag-ms-wis">${frame.rows.length ? wis : '<span class="muted">尚未排活</span>'}</span>
-          <span class="team-dag-ms-meta">${deps}${missing}${cyclic}${content}</span>
+          <span class="team-dag-ms-meta">${broad}${deps}${missing}${cyclic}${content}${frame.rows.length ? "" : '<span class="muted">尚未排活</span>'}</span>
         </div>
-        <div class="team-dag-ms-plot" style="--s:${sum.s};--e:${sum.e}">
-          <span class="team-dag-ms-span" data-empty="${sum.empty ? "true" : "false"}" title="跨度：槽 ${sum.s}–${sum.e}${sum.empty ? " · 空" : ""}"></span>
-          ${cells}
-        </div>
+        <div class="team-dag-ms-plot"></div>
+        ${wiRows}
       </section>`;
+}
+
+// renderWorkItemRow 渲染**一件工作项 = 一行**：左列是这件事自己（可点，进 Work Item 详情页），
+// 右列是它在第几层（一个格子，宽度恒等于一层）。
+//
+// 同槽并行在这里就是**两行同一列**：x 相同、y 不同，眼睛天然分得开——不需要"把一格横着切开"
+// 那种几何戏法，也不会有"后画的把先画的整件盖住"这种只在像素里才看得见的事故。
+// 槽位本身（第几层依赖）仍由 CSS 乘 slot-w 算，渲染件不写像素。
+function renderWorkItemRow(frame, row) {
+  const item = row.item;
+  const id = String(item.id || "");
+  const name = String(item.name || "").trim();
+  const role = String(item.role || "").trim();
+  const status = itemStatus(item);
+  const eff = effStatus(item);
+  // 同槽并行只报在悬停里（"这一层还有几件"），不进几何：几何里一行就一件事。
+  const parallel = frame.rows.filter(peer => peer.slot === row.slot).length;
+  const tip = `${id}${name ? ` ${name}` : ""} · ${status}${role ? ` · @${role}` : ""} · 槽 ${row.slot}${parallel > 1 ? ` · 同槽 ${parallel} 件并行` : ""}`;
+  const dot = role ? `<i class="team-dag-dot" style="--team-dag-role-color:var(${roleColorVar(role)})"></i>` : "";
+  const skin = role ? `;--team-dag-role-color:var(${roleColorVar(role)})` : "";
+  const wrapped = roleWrapped(role) ? " is-wrapped" : "";
+  const attrs = `data-item="${escapeHtml(id)}" data-slot="${row.slot}"`;
+  return `<div class="team-dag-wi-label" ${attrs} data-eff="${escapeHtml(eff)}">
+          <span class="team-dag-wi-line">
+            <button type="button" class="team-dag-wi-open is-openable" data-team-page-open="${escapeHtml(teamPageRef("item", id))}" data-tip="打开 ${escapeHtml(id)} 的详情页（基本信息 / 依赖 / 执行会话 / 作业与回执 / 动态）">${escapeHtml(id)}</button>
+            ${name ? `<span class="team-dag-wi-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>` : ""}
+          </span>
+          <span class="team-dag-wi-meta">
+            <span class="team-status is-${escapeHtml(eff)}" data-eff="${escapeHtml(eff)}" title="工作项状态：${escapeHtml(status)}">${escapeHtml(status)}</span>
+            ${role ? `<span class="team-dag-wi-role" title="归属：@${escapeHtml(role)}">${dot}${escapeHtml(role)}</span>` : ""}
+          </span>
+        </div>
+        <div class="team-dag-wi-plot is-openable" ${attrs} data-team-page-open="${escapeHtml(teamPageRef("item", id))}" data-tip="打开 ${escapeHtml(id)} 的详情页（基本信息 / 依赖 / 执行会话 / 作业与回执 / 动态）">
+          <i class="team-dag-cell${wrapped}" data-eff="${escapeHtml(eff)}" ${attrs} style="--i:${row.slot}${skin}" title="${escapeHtml(tip)}"></i>
+        </div>`;
 }
 
 // ── 详情页（里程碑 / Work Item / teammate 三种，共用一套壳）───────────────
@@ -679,29 +695,58 @@ export function renderTeamPage(input = {}) {
   return renderTeammateDetail(args);
 }
 
-// teamPageShell 是详情页的公共壳：页签行 + 返回键 + 逐页签一块面板。
+// teamPageShell 是详情页的公共壳：**上栏**（抬头 + 切换行）+ 逐页签一块面板。
 // 面板**全部渲染出来**（不是按需再算）：切页签只是 DOM 上加一个类，没有第二次计算、
 // 也没有"切回去要重算"的路径 —— 纯渲染件的幂等性因此不会被切页签这类交互破坏。
+//
+// 上栏由 teamPageHead 与 teamPageTab 两件**唯一**的画法组成（三种页共用）：
+// 抬头两行（类种 + 标题 / 状态与标记 chips），切换行一行（返回 + 页签，窄栏横向滚动不换行）。
 function teamPageShell({ ref, head, tabs, active, parent }) {
   const first = tabs[0]?.key || "";
   const current = tabs.some(tab => tab.key === active) ? active : first;
-  const bar = tabs.map(tab =>
-    `<button type="button" role="tab" class="team-page-tab${tab.key === current ? " is-active" : ""}" data-team-tab="${escapeHtml(tab.key)}" aria-selected="${tab.key === current ? "true" : "false"}">${escapeHtml(tab.label)}</button>`
-  ).join("");
+  const bar = tabs.map(tab => teamPageTab(tab, current)).join("");
   const panels = tabs.map(tab =>
     `<section class="team-page-panel${tab.key === current ? " is-active" : ""}" data-team-panel="${escapeHtml(tab.key)}" role="tabpanel">${tab.html}</section>`
   ).join("");
   const back = parent?.ref
-    ? `<button type="button" class="team-page-back is-openable" data-team-page-back="${escapeHtml(parent.ref)}" data-tip="返回 ${escapeHtml(parent.label || parent.ref)}">← ${escapeHtml(parent.label || parent.ref)}</button>`
-    : '<span class="team-page-root">团队看板</span>';
+    ? `<button type="button" class="team-page-back is-openable" data-team-page-back="${escapeHtml(parent.ref)}" data-tip="返回 ${escapeHtml(parent.label || parent.ref)}" aria-label="返回 ${escapeHtml(parent.label || parent.ref)}">← ${escapeHtml(parent.label || parent.ref)}</button>`
+    : '<span class="team-page-root" title="这一页是从团队看板直接打开的（没有上一层）">团队看板</span>';
   return `<div class="team-page" data-team-page="${escapeHtml(ref)}">
-      <div class="team-page-head">${head}</div>
-      <div class="team-page-bar">
-        ${back}
-        <div class="team-page-tabs" role="tablist">${bar}</div>
+      <div class="team-page-top">
+        ${head}
+        <div class="team-page-bar">
+          ${back}
+          <div class="team-page-tabs" role="tablist" aria-label="子页">${bar}</div>
+        </div>
       </div>
       <div class="team-page-panels">${panels}</div>
     </div>`;
+}
+
+// teamPageHead 是三种详情页**唯一**的抬头写法（2026-10-08 统一）：
+//   第一行 = 类种 chip（里程碑 / Work Item / teammate）+ 标题（等宽 id · 名字，一个 <h3>）；
+//   第二行 = 状态与标记 chips（**状态永远排第一**，其后才是计数与各种标记）。
+// 统一之前三页各拼一串：teammate 页连标题元素都没有（名字直接塞在一枚 <code> 里），
+// "标题在哪、状态在哪"三页三个样 —— 每换一页都要重新找一遍。
+// role 只在 teammate 页给：标题前加一枚**归属色点**（颜色说的是"这是谁"，不是"这是第几页"）。
+function teamPageHead({ kind, id, name, role = "", chips = [] }) {
+  const title = String(name || "").trim();
+  const dot = role ? `<i class="team-dag-dot" style="--team-dag-role-color:var(${roleColorVar(role)})"></i>` : "";
+  return `<div class="team-page-head">
+      <div class="team-page-head-line">
+        <span class="team-page-kind">${escapeHtml(kind)}</span>
+        <h3 class="team-page-name">${dot}<code class="team-dag-id">${escapeHtml(id)}</code>${title ? ` · ${escapeHtml(title)}` : ""}</h3>
+      </div>
+      <div class="team-page-head-chips">${chips.filter(Boolean).join("")}</div>
+    </div>`;
+}
+
+// teamPageTab 是页签的**唯一**写法：标签 + 计数徽标。
+// 计数不拼进标签文本（不写 "Work Item(3)"），而是一枚定型的徽标——三页的页签因此高矮一致，
+// 扫过去是同一列东西；有计数才画徽标（没有计数的页签不画一个空徽标充数）。
+function teamPageTab(tab, current) {
+  const count = typeof tab.count === "number" ? `<span class="team-page-tab-count">${tab.count}</span>` : "";
+  return `<button type="button" role="tab" class="team-page-tab${tab.key === current ? " is-active" : ""}" data-team-tab="${escapeHtml(tab.key)}" aria-selected="${tab.key === current ? "true" : "false"}"><span class="team-page-tab-label">${escapeHtml(tab.label)}</span>${count}</button>`;
 }
 
 // teamKV 渲染一列 k→v：空值写 "—"，**不写空字符串**（空单元格读起来像"这一项没加载"，
@@ -826,12 +871,16 @@ export function renderMilestoneDetail(input = {}) {
   const reverse = milestonesOf(plan)
     .filter(milestone => milestoneDepsOf(milestone).includes(id))
     .map(milestone => String(milestone.id));
-  const head = `<span class="team-page-kind">里程碑</span>
-      <code class="team-dag-id">${escapeHtml(frame.id)}</code>
-      ${frame.name ? `<h3 class="team-page-name">${escapeHtml(frame.name)}</h3>` : ""}
-      ${teamStatusChip(eff, status, "里程碑状态（sessionstore：pending / active / done）")}
-      <span class="chip team-count" title="名下工作项：${frame.done} 已完成 / 共 ${frame.total}">${frame.done}/${frame.total}</span>
-      ${frame.locked ? '<span class="team-dag-lock">🔒 待解锁</span>' : '<span class="team-dag-lock is-open">🔓 已解锁</span>'}`;
+  const head = teamPageHead({
+    kind: "里程碑",
+    id: frame.id,
+    name: frame.name,
+    chips: [
+      teamStatusChip(eff, status, "里程碑状态（sessionstore：pending / active / done）"),
+      `<span class="chip team-count" title="名下工作项：${frame.done} 已完成 / 共 ${frame.total}">${frame.done}/${frame.total}</span>`,
+      frame.locked ? '<span class="team-dag-lock">🔒 待解锁</span>' : '<span class="team-dag-lock is-open">🔓 已解锁</span>',
+    ],
+  });
   const wis = frame.rows.map(row => {
     const item = row.item;
     const role = String(item.role || "").trim();
@@ -876,8 +925,8 @@ export function renderMilestoneDetail(input = {}) {
         ["内容", frame.content],
       ]) + `<div class="team-chip-row">${wis || '<span class="muted">尚未排活</span>'}</div>`,
     },
-    { key: "items", label: `Work Item(${items.length})`, html: workItemTable(plan, items, { roleColumn: true }) },
-    { key: "members", label: `成员(${members.length})`, html: teamChipRow("执行 teammate", memberChips, "这一块还没有排活") },
+    { key: "items", label: "Work Item", count: items.length, html: workItemTable(plan, items, { roleColumn: true }) },
+    { key: "members", label: "成员", count: members.length, html: teamChipRow("执行 teammate", memberChips, "这一块还没有排活") },
     {
       key: "deps",
       label: "依赖",
@@ -921,13 +970,17 @@ export function renderWorkItemDetail(input = {}) {
   const reverse = workItemsOf(plan).filter(entry => itemDepsOf(entry).includes(id)).map(entry => String(entry.id || ""));
   const slot = slotOf(id, allByID);
   const session = String(item.session_id || "").trim();
-  const head = `<span class="team-page-kind">Work Item</span>
-      <code class="team-dag-id">${escapeHtml(id)}</code>
-      ${item.name ? `<h3 class="team-page-name">${escapeHtml(item.name)}</h3>` : ""}
-      ${teamStatusChip(eff, status, "工作项状态（空 = pending）")}
-      ${item.interrupted === true ? '<span class="chip team-interrupted" title="状态说在跑、而本进程的作业表里查不到它的句柄（jobs I-4）。可以重派——会话与现场都还在">可重派</span>' : ""}
-      ${item.live === true ? '<span class="chip team-live" title="这件事现在真的有一份未释放的工作区绑定">现场在</span>' : ""}
-      ${blocked ? '<span class="chip team-blocked" title="前置工作项还没验收通过：现在派发会被闸门拒">被依赖卡住</span>' : ""}`;
+  const head = teamPageHead({
+    kind: "Work Item",
+    id,
+    name: item.name,
+    chips: [
+      teamStatusChip(eff, status, "工作项状态（空 = pending）"),
+      item.interrupted === true ? '<span class="chip team-interrupted" title="状态说在跑、而本进程的作业表里查不到它的句柄（jobs I-4）。可以重派——会话与现场都还在">可重派</span>' : "",
+      item.live === true ? '<span class="chip team-live" title="这件事现在真的有一份未释放的工作区绑定">现场在</span>' : "",
+      blocked ? '<span class="chip team-blocked" title="前置工作项还没验收通过：现在派发会被闸门拒">被依赖卡住</span>' : "",
+    ],
+  });
   const depChips = deps.length ? deps.map(dep => depChip(plan, dep, { cross: cross.includes(dep) })).join("") : "";
   const reverseChips = reverse.length ? reverse.map(dep => depChip(plan, dep)).join("") : "";
   const messages = memberMessagesOf(plan, role)
@@ -939,6 +992,7 @@ export function renderWorkItemDetail(input = {}) {
     : input.liveLoading === true
       ? '<p class="team-page-note">正在读这一轮的执行面…（正文不落盘，只能从执行面实时读）</p>'
       : renderTeammateLiveSession(input.live, { role, work_item: id });
+  const nodeJobs = (Array.isArray(jobs) ? jobs : []).filter(job => String(job?.node || "") === id).length;
   const tabs = [
     {
       key: "basic",
@@ -962,6 +1016,7 @@ export function renderWorkItemDetail(input = {}) {
     {
       key: "deps",
       label: "依赖",
+      count: deps.length,
       html: `${teamChipRow("depends_on（这些做完才轮到它）", depChips, "无依赖：可以立刻派")}
         ${teamChipRow("被依赖（谁在等它）", reverseChips, "没有别的工作项在等它")}
         ${missing.length ? `<p class="team-page-warn">依赖缺失：${escapeHtml(missing.join("、"))}（depends_on 指向**计划里**不存在的 id）</p>` : ""}
@@ -972,6 +1027,7 @@ export function renderWorkItemDetail(input = {}) {
     {
       key: "jobs",
       label: "作业与回执",
+      count: nodeJobs,
       html: `${jobRows(jobs, id)}
         ${messages ? `<div class="team-page-sub">尾插回执</div><ul class="team-item-messages">${messages}</ul>` : '<p class="team-page-note">还没有尾插回执。</p>'}`,
     },
@@ -1006,12 +1062,19 @@ export function renderTeammateDetail(input = {}) {
   const live = entry.kind === "live"
     ? `<button type="button" class="chip team-member-session is-openable" data-team-role-open="${escapeHtml(role)}" data-team-role-session="${escapeHtml(entry.session_id)}" data-team-item="${escapeHtml(entry.work_item || "")}" data-tip="打开 ${escapeHtml(role)} 此刻那件事的会话（工作项 ${escapeHtml(entry.work_item || "—")}）">当前会话</button>`
     : `<span class="team-page-note">${escapeHtml(String(entry.reason || "这一位此刻没有自己的会话"))}</span>`;
-  const head = `<span class="team-page-kind">teammate</span>
-      <code class="team-dag-id" style="--team-dag-role-color:var(${roleColorVar(role)})">${escapeHtml(role)}</code>
-      ${teamStatusChip(status, status, "这位此刻在不在干活（只有 running / free 两个值）")}
-      ${policy ? `<span class="chip team-policy is-${escapeHtml(policy)}">${escapeHtml(policy)}</span>` : ""}
-      <span class="chip team-count" title="负责 ${owned.length} 件事，已完成 ${done} 件">${done}/${owned.length}</span>
-      ${member ? "" : '<span class="chip team-stale" title="这位不在当前计划的 members[] 里（可能是别的团队的角色）">不在编</span>'}`;
+  const head = teamPageHead({
+    kind: "teammate",
+    id: role,
+    // 名字与 id 同源（角色名就是标题），所以不重复写一遍 —— 标题只写一次，chips 行读状态。
+    name: "",
+    role,
+    chips: [
+      teamStatusChip(status, status, "这位此刻在不在干活（只有 running / free 两个值）"),
+      policy ? `<span class="chip team-policy is-${escapeHtml(policy)}">${escapeHtml(policy)}</span>` : "",
+      `<span class="chip team-count" title="负责 ${owned.length} 件事，已完成 ${done} 件">${done}/${owned.length}</span>`,
+      member ? "" : '<span class="chip team-stale" title="这位不在当前计划的 members[] 里（可能是别的团队的角色）">不在编</span>',
+    ],
+  });
   const queue = memberQueueOf(plan, role);
   const queueChips = queue.length ? queue.map(name => `<span class="chip team-queue-item">${escapeHtml(name)}</span>`).join("") : "";
   const messages = memberMessagesOf(plan, role)
@@ -1041,7 +1104,7 @@ export function renderTeammateDetail(input = {}) {
         ["负责", `${owned.length} 件事（已完成 ${done} 件）`],
       ]) + `<div class="team-chip-row"><span class="team-label">入口</span>${live}</div>`,
     },
-    { key: "items", label: `负责的 Work Item(${owned.length})`, html: workItemTable(plan, owned, { milestoneColumn: true }) },
+    { key: "items", label: "负责的 Work Item", count: owned.length, html: workItemTable(plan, owned, { milestoneColumn: true }) },
     {
       key: "assembly",
       label: "插件装配",
@@ -1381,6 +1444,7 @@ export const TEAM_BOARD_CSS = `
   --team-dag-slot-w: 56px;
   --team-dag-bar-h: 18px;
   --team-dag-row-h: 46px;
+  --team-dag-wi-h: 34px;
   --team-dag-ruler-h: 30px;
   --team-dag-role-0: #6f5bd6;
   --team-dag-role-1: #a4538f;
@@ -1431,10 +1495,11 @@ export const TEAM_BOARD_CSS = `
 .team-dag-id { font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; color: var(--text-strong); }
 .team-dag-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--team-dag-role-color, transparent); }
 /* ── 里程碑格栅（wi-milestone-strip，2026-10-08）────────────────────────────────────
-   一行一个里程碑：左列读"这块是什么"（名字 / 状态 / 进度 / WI 编号 / 内容摘要 / 屏障），
-   右列读"这块占多宽"（格子 + 汇总条）。横轴是依赖槽位，**不是时间**；刻度尺把这句话写在
-   脸上。没有任何坐标需要实测：左端 = 槽位 × --team-dag-slot-w，格子底纹由一条 repeating
-   gradient 画出来（每 --team-dag-slot-w 一条竖线），宽度永远跟着容器查询一起缩。 */
+   一块一个里程碑：抬头行读"这块是什么"（名字 / 状态 / 进度 / 屏障 / 跨度 / 内容摘要），
+   名下**每件工作项各一行**（左列读这一件是什么，右列读它在第几层）。横轴是依赖槽位，
+   **不是时间**；刻度尺把这句话写在脸上。没有任何坐标需要实测：左端 = 槽位 × --team-dag-slot-w，
+   格子底纹由一条 repeating gradient 画出来（每 --team-dag-slot-w 一条竖线），宽度永远跟着
+   容器查询一起缩。 */
 .team-dag-scroll { max-height: var(--team-dag-scroll-max-h, 380px); overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
 .team-dag-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
 .team-dag-scroll::-webkit-scrollbar-track { background: transparent; }
@@ -1458,24 +1523,41 @@ export const TEAM_BOARD_CSS = `
 .team-dag-ms-line { display: flex; align-items: center; gap: 5px; min-width: 0; }
 .team-dag-ms-open { flex: 1 1 auto; min-width: 0; padding: 0; border: 0; background: none; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); font-weight: 700; color: var(--text-strong); cursor: pointer; }
 .team-dag-ms-count { flex: none; font-family: var(--font-mono); font-size: 10px; color: var(--text-mid); }
-.team-dag-ms-wis { display: flex; flex-wrap: wrap; gap: 3px; min-width: 0; }
+/* 一件工作项 = 一行（2026-10-08 口径校正）：一行一件事，格子宽度恒等于一层。
+   上一版把同槽并行的几件**横切成 n 小格**（--n / --k）已整条退场——工作项在工作项这一级是
+   不可再分的单位，横切会让"一件事"只剩半格宽，"两件事"与"一件事被切开"就分不出来了。
+   左列缩进 + 淡色左栏表示从属（归属仍然只由填充色与色点表达，不给它染状态色）。 */
+.team-dag-wi-label { display: flex; flex-direction: column; justify-content: center; gap: 1px; min-width: 0; padding: 3px 8px 3px 16px; border-left: 3px solid color-mix(in srgb, var(--team-dag-ms-tone, transparent) 45%, transparent); border-right: 1px solid var(--border); }
+.team-dag-ms[data-locked="true"] .team-dag-wi-label { border-left-style: dotted; }
+.team-dag-wi-line { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
+.team-dag-wi-open { flex: none; padding: 0; border: 0; background: none; font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; color: var(--text-strong); cursor: pointer; }
+.team-dag-wi-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); color: var(--text-mid); }
+.team-dag-wi-meta { display: flex; align-items: center; gap: 4px; min-width: 0; font-size: 9.5px; color: var(--faint); }
+.team-dag-wi-role { display: inline-flex; align-items: center; gap: 3px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); }
 .team-wi { display: inline-flex; align-items: center; gap: 3px; padding: 0 4px; border: 1px solid var(--row-line, var(--border-hairline)); border-radius: 3px; font-family: var(--font-mono); font-size: 9.5px; color: var(--text-mid); }
 .team-dag-ms-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; font-size: 9.5px; color: var(--faint); }
 .team-dag-ms-deps { flex: none; font-family: var(--font-mono); color: var(--text-dim); }
+.team-dag-ms-broad { flex: none; font-family: var(--font-mono); color: var(--text-dim); }
 .team-dag-ms-summary { min-width: 0; max-width: 100%; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.35; }
 .team-dag-lock { flex: none; padding: 0 5px; border: 1px solid var(--border-strong); border-radius: 999px; font-size: 10px; color: var(--status-idle); }
 .team-dag-lock.is-open { color: var(--status-done); border-color: var(--border-done); background: var(--tint-done); }
 .team-dag-warn { color: var(--status-failed); }
-.team-dag-ms-plot { position: relative; min-height: var(--team-dag-row-h); background-image: repeating-linear-gradient(to right, var(--border-hairline) 0 1px, transparent 1px var(--team-dag-slot-w)); }
-/* 汇总条：横跨名下工作项的 min(槽)..max(末尾)，底色是里程碑自己的淡色（逐块轮换）。
-   空里程碑画一枚零宽菱形 —— 它落在屏障前驱的右端那一格上。 */
-.team-dag-ms-span { position: absolute; top: 50%; left: calc(var(--s, 0) * var(--team-dag-slot-w)); width: calc((var(--e, 0) - var(--s, 0)) * var(--team-dag-slot-w) - 2px); height: calc(var(--team-dag-bar-h) + 8px); transform: translateY(-50%); box-sizing: border-box; border: 1px solid color-mix(in srgb, var(--team-dag-ms-tone, transparent) 45%, transparent); border-radius: 5px; background: color-mix(in srgb, var(--team-dag-ms-tone, transparent) 14%, transparent); }
-.team-dag-ms-span[data-empty="true"] { width: 9px; height: 9px; border-radius: 2px; transform: translateY(-50%) rotate(45deg); background: var(--team-dag-ms-tone, var(--faint)); }
-/* 一格一件事。两条通道正交：**描边 = 状态**（pending 虚线），**填充 = 归属（teammate）**；
-   色板回绕（第 7 位起）时填充换斜纹，免得两位撞色只靠色块分不出来（口径 11）。
-   **同槽并行**（一格挤 n 件，b→a / c→d 那种形状）→ 这一格横着切成 n 小格：--n 是这一格
-   几件、--k 是第几件。不切的话后画的那件会把先画的整件盖住（像素里读不到它的描边）。 */
-.team-dag-cell { position: absolute; top: 50%; left: calc(var(--i, 0) * var(--team-dag-slot-w) + (var(--team-dag-slot-w) - 2px) * var(--k, 0) / var(--n, 1) + 1px); box-sizing: border-box; width: calc((var(--team-dag-slot-w) - 2px) / var(--n, 1)); height: var(--team-dag-bar-h); transform: translateY(-50%); border: 1px solid var(--row-line, var(--status-idle)); border-radius: 3px; background: color-mix(in srgb, var(--team-dag-role-color, var(--faint)) 16%, transparent); }
+/* 两个 plot 共用同一条槽位底纹（每 --team-dag-slot-w 一条竖线）：抬头行与工作项行因此共用
+   同一个 x 轴，竖线在整块里连成一条——"第几行"与"第几槽"各自只表达一件事。 */
+.team-dag-ms-plot, .team-dag-wi-plot { position: relative; background-image: repeating-linear-gradient(to right, var(--border-hairline) 0 1px, transparent 1px var(--team-dag-slot-w)); }
+.team-dag-ms-plot { min-height: var(--team-dag-row-h); }
+.team-dag-wi-plot { min-height: var(--team-dag-wi-h); }
+/* 点这一行 = 打开这一件（整行都是热区：格子在右边，点空处也算点这一行）。 */
+.team-dag-wi-plot.is-openable { cursor: pointer; }
+.team-dag-wi-plot.is-openable:hover { background-color: color-mix(in srgb, var(--text-strong) 5%, transparent); }
+/* 汇总条（.team-dag-ms-span）**整条退场**（2026-10-08）：它是一条没有标签的色带，框在格子
+   外面——读的人第一句话就是"这个框是啥"。跨度这个事实照旧存在（data-sum-start / data-sum-end
+   仍然机读得到），只是改用抬头行里的**文字**「跨槽 s–e」来说，不再用无名几何块去说。 */
+/* 一行一件事：一行里恒有且只有一个格子，宽度恒等于一层（--team-dag-slot-w - 2px）。
+   两条通道正交：**描边 = 状态**（pending 虚线），**填充 = 归属（teammate）**；色板回绕
+   （第 7 位起）时填充换斜纹，免得两位撞色只靠色块分不出来（口径 11）。
+   同槽并行不再需要任何几何处理：它们是**不同行上的同一列**——x 相同、y 不同。 */
+.team-dag-cell { position: absolute; top: 50%; left: calc(var(--i, 0) * var(--team-dag-slot-w) + 1px); box-sizing: border-box; width: calc(var(--team-dag-slot-w) - 2px); height: var(--team-dag-bar-h); transform: translateY(-50%); border: 1px solid var(--row-line, var(--status-idle)); border-radius: 3px; background: color-mix(in srgb, var(--team-dag-role-color, var(--faint)) 16%, transparent); }
 .team-dag-cell.is-wrapped { background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--team-dag-role-color, var(--faint)) 40%, transparent) 0 3px, transparent 3px 7px); }
 /* 状态色只有一处判据（渲染件的 effStatus / milestoneEff），这里只做映射，不重算。
    作用域收在 .team-board 里：data-eff 是看板自己的属性，别把它变成全局选择器。 */
@@ -1512,20 +1594,31 @@ export const TEAM_BOARD_CSS = `
 .team-item-message { display: flex; gap: 5px; min-width: 0; font-size: var(--text-xs); color: var(--text-mid); }
 /* ── 详情页（里程碑 / Work Item / teammate 共用一套壳）────────────────────────── */
 .team-page-card { width: min(760px, 100%); max-height: min(82vh, 760px); overflow: auto; }
-.team-page { display: flex; flex-direction: column; gap: 10px; min-width: 0; font-size: var(--text-sm); color: var(--text-strong); }
+.team-page { display: flex; flex-direction: column; min-width: 0; font-size: var(--text-sm); color: var(--text-strong); }
 .team-page.is-empty { color: var(--text-dim); }
-.team-page-head { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; min-width: 0; }
+/* 上栏 = 抬头 + 切换行，三种页逐字同形，并且**钉在弹窗顶部**：滚到页中段、来回切子页时
+   "这是哪一页、有哪几个页签"始终在眼前。粘住的行必须给实色背景，否则正文会从底下透出来。 */
+.team-page-top { position: sticky; top: 0; z-index: 3; display: flex; flex-direction: column; gap: 8px; padding-bottom: 6px; background: var(--panel-solid); }
+.team-page-head { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.team-page-head-line { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.team-page-head-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; }
 .team-page-kind { flex: none; padding: 1px 6px; border: 1px solid var(--border-strong); border-radius: 4px; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-mid); }
-.team-page-name { margin: 0; min-width: 0; font-size: var(--text-md); font-weight: 600; color: var(--text-bright); }
-.team-page-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.team-page-name { margin: 0; min-width: 0; display: flex; align-items: center; gap: 5px; font-size: var(--text-md); font-weight: 600; color: var(--text-bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.team-page-name .team-dag-id { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* 切换行：返回占左边一小截（长了截断，title 里有全文），页签一行**横向滚动、不换行**
+   —— 窄栏（产品右栏 ~360px）下上栏不会被顶成两三层，页签永远在同一行同一个位置。 */
+.team-page-bar { display: flex; align-items: center; gap: 8px; min-width: 0; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
 .team-page-root { flex: none; font-size: var(--text-xs); color: var(--faint); }
-.team-page-back { flex: none; padding: 1px 7px; border: 1px solid var(--border-hairline); border-radius: 999px; background: none; color: var(--text-mid); font-size: var(--text-xs); cursor: pointer; }
+.team-page-back { flex: 0 1 auto; max-width: 38%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 7px; border: 1px solid var(--border-hairline); border-radius: 999px; background: none; color: var(--text-mid); font-size: var(--text-xs); cursor: pointer; }
 .team-page-back:hover { color: var(--text-bright); border-color: var(--border-strong); }
-.team-page-tabs { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; min-width: 0; }
-.team-page-tab { padding: 2px 9px; border: 1px solid transparent; border-radius: 999px; background: none; color: var(--text-mid); font-size: var(--text-xs); cursor: pointer; }
+.team-page-tabs { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 4px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+.team-page-tabs::-webkit-scrollbar { display: none; }
+.team-page-tab { flex: none; display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border: 1px solid transparent; border-radius: 999px; background: none; color: var(--text-mid); font-size: var(--text-xs); cursor: pointer; }
 .team-page-tab:hover { color: var(--text-bright); border-color: var(--border-hairline); }
 .team-page-tab.is-active { color: var(--text-strong); border-color: var(--border-strong); background: var(--panel); }
-.team-page-panels { min-width: 0; }
+.team-page-tab-count { padding: 0 5px; border: 1px solid var(--border-hairline); border-radius: 999px; font-family: var(--font-mono); font-size: 9.5px; color: var(--text-mid); }
+.team-page-tab.is-active .team-page-tab-count { border-color: var(--border-strong); color: var(--text-strong); }
+.team-page-panels { min-width: 0; padding-top: 10px; }
 /* 面板**全部渲染出来**，切页签只是 DOM 上加一个类（见渲染件的 teamPageShell）：不切数据、
    不重算，所以"切回去"永远不会给出与第一次不同的读数。 */
 .team-page-panel { display: none; }
@@ -1567,7 +1660,7 @@ export const TEAM_BOARD_CSS = `
 /* 窄栏自适应（口径 10）：产品右栏只有 ~360px。几何整体压小（格子的 x 全是槽位算式，跟着一起
    缩）；折叠的只是次级信息（屏障 deps 与内容摘要的第二行），全文仍在 title 与详情页里。 */
 @container (max-width: 520px) {
-  .team-dag-scroll { --team-dag-slot-w: 38px; --team-dag-label-w: 124px; --team-dag-bar-h: 15px; --team-dag-row-h: 42px; --team-dag-ruler-h: 28px; }
+  .team-dag-scroll { --team-dag-slot-w: 38px; --team-dag-label-w: 124px; --team-dag-bar-h: 15px; --team-dag-row-h: 42px; --team-dag-wi-h: 30px; --team-dag-ruler-h: 28px; }
   .team-dag-ms-deps, .team-dag-ms-summary, .team-section-hint { display: none; }
 }
 `;

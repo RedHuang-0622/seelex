@@ -39,8 +39,8 @@
 <header class="page-head">
   <h1>团队看板 · 静态原型（里程碑格栅 + 三种详情页）</h1>
   <p>渲染件：<code>gui/frontend/dist/team-board-view.js</code>（纯函数，不碰 DOM）；本页只注入 <code>TEAM_BOARD_CSS</code> 与夹具。</p>
-  <p>侧边栏只报<b>最小可读集</b>：里程碑一格（WI 编号 + 内容摘要 + 一格一层的跨度），teammate 一行一位。细节在<b>详情页</b>里（里程碑 / Work Item / teammate 三种页，Work Item 页被另外两种复用）。</p>
-  <p>横轴 = <b>依赖槽位</b>（不是时间）：1 格 = 1 层依赖，格子里那件事占 1 格；槽位由 <code>depends_on</code> 算出（<code>slot = max(end(deps))</code>，finish→start）。<b>不画箭头</b>：依赖在详情页的「依赖」页签里逐条列全。</p>
+  <p>侧边栏只报<b>最小可读集</b>：一块里程碑 = 抬头行（名字 / 状态 / 进度 / 屏障 / 跨度 / 内容摘要）+ 名下<b>每件工作项各占一行</b>（一行一件事、一行恒一格）；teammate 一行一位。细节在<b>详情页</b>里（里程碑 / Work Item / teammate 三种页，Work Item 页被另外两种复用），看板行本身就可点。</p>
+  <p>横轴 = <b>依赖槽位</b>（不是时间）：1 格 = 1 层依赖，一件工作项占 1 格；槽位由 <code>depends_on</code> 算出（<code>slot = max(end(deps))</code>，finish→start），同槽并行 = 不同行的同一列。<b>不画箭头</b>：依赖在详情页的「依赖」页签里逐条列全。</p>
   <div class="legend">
     <span><b>格子描边 = 状态</b></span>
     <span class="sw"><i style="border: 1px solid var(--status-running); background: transparent"></i>running</span>
@@ -68,7 +68,7 @@
 
   <section class="panel wide">
     <h2>同一条链 · 宽栏（720px）</h2>
-    <div class="note">同一份夹具、同一套渲染函数：一行一个里程碑（左列读名字 / 状态 / 进度 / WI 编号 / 内容摘要，右列读格子）。</div>
+    <div class="note">同一份夹具、同一套渲染函数：一块一个里程碑（抬头行读名字 / 状态 / 进度 / 屏障 / 跨度，名下每件工作项各一行，右列读它在第几层）。</div>
     <div class="board-host" data-fixture="chain" data-board="chain-720"></div>
   </section>
 
@@ -80,19 +80,21 @@
 
   <section class="panel wide">
     <h2>五状态 × 两通道正交 · 宽栏</h2>
-    <div class="note">一块里程碑里的五格：done（绿）/ review（蓝）/ failed+interrupted（红）/ running（黄）/ pending（虚线）。描边说状态、填充与色点说归属。</div>
+    <div class="note">一块里程碑里的五件工作项（五行一格）：done（绿）/ review（蓝）/ failed+interrupted（红）/ running（黄）/ pending（虚线）。描边说状态、填充与色点说归属。</div>
     <div class="board-host" data-fixture="mixed" data-board="mixed-720"></div>
   </section>
 
   <section class="panel wide">
     <h2>同槽并行 + 空里程碑 · 宽栏</h2>
-    <div class="note">用户 sketch：<code>c→d</code>、<code>b→a</code>、<code>d→a</code> → 量到 <b>b 槽 0 / c 槽 0 / d 槽 1 / a 槽 2</b>（同槽并行是合法的：两格落在同一列）。m-empty 名下没有工作项 → 一枚零宽菱形落在屏障前驱的右端。</div>
+    <div class="note">用户 sketch：<code>c→d</code>、<code>b→a</code>、<code>d→a</code> → 量到 <b>b 槽 0 / c 槽 0 / d 槽 1 / a 槽 2</b>（同槽并行是合法的：两行落在同一列，各自一格、互不遮挡）。m-empty 名下没有工作项 → 只写「尚未排活」，不画任何几何。</div>
     <div class="board-host" data-fixture="sketch" data-board="sketch-720"></div>
   </section>
 </main>
 
 <section class="pages">
-  <div class="page-host" id="page-milestone"><h2>里程碑详情页（renderTeamPage · milestone）</h2></div>
+  <div class="page-host" id="page-milestone"><h2>里程碑详情页（renderTeamPage · milestone）</h2>
+    <p class="note">三种子页共用<b>同一套上栏</b>：抬头两行（类种 chip + <code>id · 名字</code>／状态与标记 chips）+ 切换行一行（返回 + 页签，计数走徽标、窄栏横向滚动不换行），且上栏是<b>粘</b>的。</p>
+  </div>
   <div class="page-host" id="page-item"><h2>Work Item 详情页（renderTeamPage · item，被里程碑页与 teammate 页复用）</h2></div>
   <div class="page-host" id="page-teammate"><h2>teammate 详情页（renderTeamPage · teammate，含插件装配）</h2></div>
 </section>
@@ -247,6 +249,12 @@
   document.getElementById("page-teammate").insertAdjacentHTML("beforeend",
     renderTeamPage({ ...CHAIN, ref: "teammate:frontend", tab: "assembly" }));
 
+  // 量测档（`?tall=1`）：把滚动上限抬到 2000px —— 像素量测要整块都在画面里才数得全每一档
+  // 状态色（产品档的 380px 上限会裁掉高夹具的尾块，那是产品行为，不是量测对象）。
+  if (new URLSearchParams(location.search).has("tall")) {
+    for (const host of document.querySelectorAll(".team-board")) host.style.setProperty("--team-dag-scroll-max-h", "2000px");
+  }
+
   // ── 自证读数（本页自己的，不入库到产品代码）────────────────────────────
   // 只做读数：滚动容器 clientHeight/scrollHeight、刻度与格子的 x 换算回槽位、汇总条跨度、
   // 里程碑行/teammate 条目的**紧凑度**（每行多少像素）、详情页页签与面板数、幂等。
@@ -263,42 +271,35 @@
         const plot = cell.parentElement.getBoundingClientRect();
         const rect = cell.getBoundingClientRect();
         const slot = Number(cell.dataset.slot);
-        // 同槽并行时这一格被横着切成 n 小格：期望值必须按同样的切法算，否则量的是假差。
-        const n = Number(cell.style.getPropertyValue("--n") || 1);
-        const k = Number(cell.style.getPropertyValue("--k") || 0);
-        const sub = (slotW - 2) / n;
+        // 一行一件事：一格恒等于一层（--n / --k 的横切已整条退场），期望值就是槽位 × slot-w + 1px。
         return {
-          item: cell.dataset.item, eff: cell.dataset.eff, slot, n, k,
-          leftDelta: round(rect.left - (plot.left + slot * slotW + sub * k + 1)),
-          widthDelta: round(rect.width - sub),
+          item: cell.dataset.item, eff: cell.dataset.eff, slot,
+          leftDelta: round(rect.left - (plot.left + slot * slotW + 1)),
+          widthDelta: round(rect.width - (slotW - 2)),
           h: round(rect.height),
         };
       });
-      const spans = [...host.querySelectorAll(".team-dag-ms-span")].map(span => {
-        const plot = span.parentElement.getBoundingClientRect();
-        const rect = span.getBoundingClientRect();
-        const empty = span.dataset.empty === "true";
-        const s = Number(span.parentElement.style.getPropertyValue("--s"));
-        const e = Number(span.parentElement.style.getPropertyValue("--e"));
-        return {
-          empty, s, e,
-          leftDelta: empty ? null : round(rect.left - (plot.left + s * slotW)),
-          widthDelta: empty ? null : round(rect.width - ((e - s) * slotW - 2)),
-          h: round(rect.height),
-        };
-      });
+      const spans = host.querySelectorAll(".team-dag-ms-span").length;
       const ticks = [...host.querySelectorAll(".team-dag-tick")].map(tick => {
         const line = tick.querySelector("i").getBoundingClientRect();
         const cell = ruler.getBoundingClientRect();
         return { i: Number(tick.dataset.tick), xDelta: round(line.left - (cell.left + Number(tick.dataset.tick) * slotW)) };
       });
-      const msRows = [...host.querySelectorAll(".team-dag-ms")].map(row => ({
-        ms: row.dataset.milestoneId, eff: row.dataset.eff, locked: row.dataset.locked,
-        sum: [Number(row.dataset.sumStart), Number(row.dataset.sumEnd)], items: Number(row.dataset.items),
-        empty: row.dataset.empty, h: round(row.getBoundingClientRect().height),
-        wis: row.querySelectorAll(".team-wi").length,
-        cells: row.querySelectorAll(".team-dag-cell").length,
-      }));
+      const msRows = [...host.querySelectorAll(".team-dag-ms")].map(row => {
+        const wiRows = [...row.querySelectorAll(".team-dag-wi-plot")];
+        return {
+          ms: row.dataset.milestoneId, eff: row.dataset.eff, locked: row.dataset.locked,
+          sum: [Number(row.dataset.sumStart), Number(row.dataset.sumEnd)], items: Number(row.dataset.items),
+          empty: row.dataset.empty, h: round(row.getBoundingClientRect().height),
+          // 一行一件事：几件工作项就该有几行，且每行恒一格。
+          wis: wiRows.length,
+          cells: row.querySelectorAll(".team-dag-cell").length,
+          cellsPerRow: wiRows.map(plot => plot.querySelectorAll(".team-dag-cell").length),
+          rowH: wiRows.map(plot => round(plot.getBoundingClientRect().height)),
+          rowOverflow: wiRows.map(plot => round(plot.scrollWidth - plot.clientWidth)),
+          headH: round(row.querySelector(".team-dag-ms-label").getBoundingClientRect().height),
+        };
+      });
       const members = [...host.querySelectorAll(".team-member")].map(row => ({
         role: row.dataset.role, status: row.dataset.status, h: round(row.getBoundingClientRect().height),
         session: Boolean(row.querySelector(".team-member-session")),
@@ -320,13 +321,13 @@
         geom: { slotW, labelW },
         scroll: { clientH: scroller.clientHeight, scrollH: scroller.scrollHeight, maxH: getComputedStyle(scroller).maxHeight },
         msRows, members, spans, ticks,
-        // 里程碑行的横向溢出（label 列里 WI 编号换行是允许的，溢出不允许）。
+        // 里程碑块的横向溢出（label 列里名字换行是允许的，溢出不允许）。
         msOverflow: msRows.map((row, index) => round(host.querySelectorAll(".team-dag-ms")[index].scrollWidth - host.querySelectorAll(".team-dag-ms")[index].clientWidth)),
         cellOk: cells.every(cell => Math.abs(cell.leftDelta) <= 1 && Math.abs(cell.widthDelta) <= 1),
-        spanOk: spans.every(span => span.empty || (Math.abs(span.leftDelta) <= 1.5 && Math.abs(span.widthDelta) <= 2.5)),
+        // 一行一件事：每块的格数 = 行数 = 名下工作项数，且每行恰好一格；行的横向溢出必须是 0。
+        rowShapeOk: msRows.every(row => row.cells === row.wis && row.wis === row.items && row.cellsPerRow.every(n => n === 1) && row.rowOverflow.every(n => n === 0)),
         tickOk: ticks.every(tick => Math.abs(tick.xDelta) <= 1),
         edges: host.querySelectorAll(".team-dag-edge, .team-dag-edge-arrow").length,
-        workItemRows: host.querySelectorAll(".team-dag-row").length,
       });
     }
     for (const [id, ref, tab] of [["page-milestone", "milestone:m-impl", ""], ["page-item", "item:wi-impl", "deps"], ["page-teammate", "teammate:frontend", "assembly"]]) {

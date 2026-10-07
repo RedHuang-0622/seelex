@@ -54,14 +54,27 @@ Session + worktree」从作业端口长成完整生命周期契约，subagent �
 - **对外形状变更（明说）**：headless / 面板读到的 `TeamSchedule.unexecuted` 字段与停止原因词
   `no_executor` 换成 `no_automatic_turn`；`model.ToolCall.Status` 的取值面并成 `dto.ToolEventStatus`
   （`running|success|error`）。老会话与老记录仍可读（宽松 `UnmarshalJSON`，落盘词不变）。
-- **团队侧边栏瘦身 + 详情页下钻**（GUI）：看板只报最小可读集——里程碑一行（WI 编号 / 内容摘要 /
-  一格一层的跨度）+ teammate 一行一位（名字 / 状态 / 负责几件事 / 工作区）。细节交给三种详情页
-  （里程碑 / Work Item / teammate，同一套「页签 + 返回栈」的壳），**Work Item 页被另外两种页复用**，
-  插件装配从看板行搬进 teammate 详情页的「插件装配」页签。真甘特的边与箭头整条退场
-  （`layoutTeamGanttEdges` / `scheduleTeamGanttLayout` / `renderTeamWorkItem` /
-  `renderWorkItemSessionPanel` 与 `.team-dag-edge*` / `.team-dag-frame*` 一族样式删除）：依赖改在
-  详情页的「依赖」页签里逐条列全（每条带那头的状态 + 被谁依赖）。横轴仍是**依赖槽位**（不是时间，
-  计划里没有工时事实），同槽并行的一格横切成 n 小格（叠着画会让后画的把先画的整件盖住）。
+- **团队侧边栏瘦身 + 详情页下钻**（GUI）：看板只报最小可读集——一块里程碑（抬头行：名字 / 状态 /
+  进度 / 屏障 / 跨度 / 内容摘要）+ 名下**每件工作项各占一行**（一行一件事、一行恒一格）+ teammate
+  一行一位（名字 / 状态 / 负责几件事 / 工作区）。细节交给三种详情页（里程碑 / Work Item /
+  teammate，同一套「抬头 + 切换行」的壳），**Work Item 页被另外两种页复用**，插件装配从看板行搬进
+  teammate 详情页的「插件装配」页签。真甘特的边与箭头整条退场（`layoutTeamGanttEdges` /
+  `scheduleTeamGanttLayout` / `renderTeamWorkItem` / `renderWorkItemSessionPanel` 与
+  `.team-dag-edge*` / `.team-dag-frame*` 一族样式删除）：依赖改在详情页的「依赖」页签里逐条列全
+  （每条带那头的状态 + 被谁依赖）。横轴仍是**依赖槽位**（不是时间，计划里没有工时事实）。
+- **看板行的两处口径校正**（GUI，2026-10-08）：①**一行一件事**——工作项在工作项这一级是不可再分
+  的单位，一件一行；上一版把同槽并行的几件横切成 n 小格（`--n` / `--k`），一件工作项只剩半格宽，
+  "两件事"与"一件事被切开"分不出来（同槽并行现在是**不同行的同一列**，横切的理由随之消失）。
+  ②**无名色带退场**——里程碑跨度原先画成一条没有标签的色带、框在格子外面，读的人第一句话就是
+  "这个框是啥"；跨度改用抬头行里的文字「跨槽 s–e」说（`data-sum-start` / `data-sum-end` 仍机读
+  得到），空里程碑也不画零宽菱形，只写「尚未排活」。看板行同时**可点**（左列编号 + 右列整行都是
+  热区，走详情页同一条 `data-team-page-open` 下钻钩子）。
+- **子页（详情页）上栏统一**（GUI，2026-10-08）：三种详情页共用**同一套上栏**——抬头两行（类种
+  chip + `id · 名字`／状态与标记 chips，状态永远排第一）+ 切换行一行（返回 + 页签）。页签是同一个
+  写法（标签包在 `.team-page-tab-label`、计数走 `.team-page-tab-count` 徽标，不再拼进标签文本），
+  窄栏**横向滚动不换行**（上栏不会被顶成两三层），返回键长了截断且全文在 `title` 里。上栏整体
+  `position: sticky`（滚到页中段、来回切子页时"这是哪一页、有哪几个页签"始终在眼前）。弹窗头只写
+  「团队详情」——标题归页自己的抬头，之前两处都写标题，同一句话在屏幕上是两遍。
 
 ### Fixed
 
