@@ -26,6 +26,10 @@ const REASONING_EFFORT_LABELS = Object.freeze({
   max: "Max"
 });
 
+// 标签导出给"定时任务弹窗里那一格思考强度"用：同一份停位与文案，别处不再抄一遍
+// （拉条与任务声明停的是同一组 wire 值）。
+export { REASONING_EFFORT_LABELS };
+
 // 视觉进度与档位拉条同构（低档也留一小段，避免看起来"没生效"）。
 const REASONING_EFFORT_PROGRESS = Object.freeze([15, 45, 75, 100]);
 

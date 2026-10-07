@@ -78,6 +78,15 @@ type ScheduledTaskSpec struct {
 	// Plugins 是触发时这一轮的能力包装配（空 = 不覆盖，继承宿主当前激活插件）。
 	// 由 dto.NormalizePlugins 归一：去空白、重复声明显式拒绝、超上限显式拒绝。
 	Plugins []string
+	// ReasoningEffort 是触发时会话的思考强度（provider wire 词表，判据见
+	// dto.NormalizeWireReasoningEffort：minimal/low/medium/high/max）。空 = 装配层落
+	// **默认参数**（默认档位的那条读数），创建/编辑时就落定，面板上看得见。
+	// 它落在"跟随会话"的账号上，与 composer 那条"思考强度"拉条同一条链。
+	ReasoningEffort string
+	// LoopLimit 是触发时会话的循环上限（该会话引擎的 ReAct 循环次数，1 起）。
+	// 0 = 装配层落**默认参数**（默认档位的循环次数）。上限仍是进程级天花板
+	// limits.input_loop_limit（与循环次数拉条同一份哨兵）。
+	LoopLimit int
 }
 
 // ScheduledTaskStatus 是定时/周期任务只读快照（GUI 定时任务面板数据源）。
@@ -112,4 +121,9 @@ type ScheduledTaskStatus struct {
 	// PermissionTier / Plugins 是这条任务声明的装配（触发时落到那次会话/那一轮）。
 	PermissionTier string   `json:"permission_tier,omitempty"`
 	Plugins        []string `json:"plugins,omitempty"`
+	// ReasoningEffort / LoopLimit 是这条任务声明的执行参数（触发时落到那次会话：
+	// 强度下发到"跟随会话"的账号，循环次数钉在该会话的引擎上）。创建时缺省即落成
+	// 默认档位的读数，所以面板上读到的就是触发时真正用的值。
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	LoopLimit       int    `json:"loop_limit,omitempty"`
 }

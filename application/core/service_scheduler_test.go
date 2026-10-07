@@ -182,8 +182,9 @@ func TestUpdateScheduledTaskForwardsAndValidatesWorkspace(t *testing.T) {
 //     插件时才装配（空 = 继承宿主，不往 ctx 里塞空集合）。
 func TestAssembleScheduledRunAppliesTierAndPlugins(t *testing.T) {
 	runtime := &fakeRuntime{}
+	engine := &fakeEngine{}
 	service := mustNew(t, Dependencies{
-		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: &fakeSessions{},
 	})
 	defer service.Shutdown()
@@ -206,6 +207,34 @@ func TestAssembleScheduledRunAppliesTierAndPlugins(t *testing.T) {
 	}
 	if got := runtime.PluginAssembly(); len(got) != 1 || got[0] != "code" {
 		t.Fatalf("插件装配没有带进 ctx：%v", got)
+	}
+	// 执行参数（未声明 = 老定义/裸 spec）：循环次数按会话钉在引擎那一格，思考强度记
+	// 一笔租约等该会话的回合起点取走（账号池是进程级共享的，只能按会话记一笔）。
+	if got := engine.sessionLoopsFor(sessionID); got != 384 {
+		t.Fatalf("未声明循环次数没有落成默认档位读数：%d, want 384", got)
+	}
+	if wire, ok := service.takeSessionReasoningEffort(sessionID); !ok || wire != dto.ReasoningEffortHigh {
+		t.Fatalf("未声明思考强度没有落成默认档位读数：%q（ok=%v）, want high", wire, ok)
+	}
+	if _, again := service.takeSessionReasoningEffort(sessionID); again {
+		t.Fatal("强度租约必须只被取走一次（它属于那一次运行）")
+	}
+
+	// 声明了两条参数：按声明的落，不被默认值盖掉。
+	if _, err := service.AssembleScheduledRun(context.Background(), sessionID, ScheduledTaskSpec{
+		ReasoningEffort: dto.ReasoningEffortLow, LoopLimit: 48,
+	}); err != nil {
+		t.Fatalf("AssembleScheduledRun: %v", err)
+	}
+	if got := engine.sessionLoopsFor(sessionID); got != 48 {
+		t.Fatalf("声明的循环次数没有落到那次会话：%d, want 48", got)
+	}
+	if wire, ok := service.takeSessionReasoningEffort(sessionID); !ok || wire != dto.ReasoningEffortLow {
+		t.Fatalf("声明的思考强度没有记上：%q（ok=%v）, want low", wire, ok)
+	}
+	// 别的会话一个字都不受影响（装配是会话级决定，不进进程默认）。
+	if got := engine.sessionLoopsFor("another_session"); got != 0 {
+		t.Fatalf("循环次数钉值泄漏到了别的会话：%d", got)
 	}
 
 	// 显式档位 + 空插件：档位照写，插件面不再装配（上一次的读数保持不变）。
@@ -230,6 +259,67 @@ func TestAssembleScheduledRunAppliesTierAndPlugins(t *testing.T) {
 	}
 	if _, err := service.AssembleScheduledRun(context.Background(), sessionID, ScheduledTaskSpec{PermissionTier: "root"}); err == nil {
 		t.Fatal("未知档位必须报错（不静默降级）")
+	}
+}
+
+// TestScheduledRunParamsDefaultsAndValidation 钉住定时任务那两条执行参数（思考强度 /
+// 循环次数）的三件事：
+//
+//  1. 创建时**不声明** → 定义里落成**默认参数**（默认档位 high 的两条读数：high/384）
+//     ——面板上因此看得到触发时真正要用的值；
+//  2. 声明了就按声明的转发（应用层不拿默认值去盖用户的选择）；
+//  3. 非法取值在创建那一刻就拒（不是等到触发那天变成一次失败的运行）。
+func TestScheduledRunParamsDefaultsAndValidation(t *testing.T) {
+	runtime := &fakeRuntime{}
+	service := mustNew(t, Dependencies{
+		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+		Skills: fakeSkills{}, Sessions: &fakeSessions{},
+	})
+	defer service.Shutdown()
+
+	if _, err := service.ScheduleTask(context.Background(), ScheduledTaskSpec{
+		Name: "巡检", Kind: seelebridge.ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour,
+	}); err != nil {
+		t.Fatalf("ScheduleTask: %v", err)
+	}
+	if len(runtime.scheduledSpecs) != 1 {
+		t.Fatalf("创建没有转发到调度器：%v", runtime.scheduledSpecs)
+	}
+	if got := runtime.scheduledSpecs[0]; got.ReasoningEffort != dto.ReasoningEffortHigh || got.LoopLimit != 384 {
+		t.Fatalf("未声明的执行参数没有落成默认参数：(%q, %d)，want (high, 384)", got.ReasoningEffort, got.LoopLimit)
+	}
+
+	if _, err := service.ScheduleTask(context.Background(), ScheduledTaskSpec{
+		Name: "带参数", Kind: seelebridge.ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour,
+		ReasoningEffort: dto.ReasoningEffortLow, LoopLimit: 48,
+	}); err != nil {
+		t.Fatalf("ScheduleTask: %v", err)
+	}
+	if got := runtime.scheduledSpecs[1]; got.ReasoningEffort != dto.ReasoningEffortLow || got.LoopLimit != 48 {
+		t.Fatalf("声明的执行参数被默认值盖掉了：(%q, %d)，want (low, 48)", got.ReasoningEffort, got.LoopLimit)
+	}
+
+	for _, testCase := range []struct {
+		name    string
+		spec    ScheduledTaskSpec
+		wantErr string
+	}{
+		{"未识别的思考强度", ScheduledTaskSpec{ReasoningEffort: "ludicrous"}, "无效的思考强度"},
+		{"循环次数越上限", ScheduledTaskSpec{LoopLimit: Limits().InputLoopLimit + 1}, "循环次数"},
+		{"循环次数为负", ScheduledTaskSpec{LoopLimit: -1}, "循环次数"},
+	} {
+		spec := testCase.spec
+		spec.Name = testCase.name
+		spec.Kind = seelebridge.ScheduledTaskPrompt
+		spec.Prompt = "P"
+		spec.Interval = time.Hour
+		_, err := service.ScheduleTask(context.Background(), spec)
+		if err == nil || !strings.Contains(err.Error(), testCase.wantErr) {
+			t.Fatalf("%s：err = %v，want 含 %q", testCase.name, err, testCase.wantErr)
+		}
+	}
+	if len(runtime.scheduledSpecs) != 2 {
+		t.Fatalf("被拒的任务不该转发到调度器：%v", runtime.scheduledSpecs)
 	}
 }
 

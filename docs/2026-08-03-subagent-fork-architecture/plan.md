@@ -201,7 +201,8 @@ todo 全 done 与 plan 全节点完成都走同一 `task_complete` 投影校验�
 {"id": "x", "input": "...", "budget": {"max_loops": 8, "max_output_tokens": 4000}}
 ```
 
-- 缺省回退 `limits.PlanNodeMaxLoops`（当前默认 15，limits.go:63 保留为缺省而非唯一入口）；
+- 缺省回退 `limits.PlanNodeMaxLoops`（**2026-10-08 起默认 384**——本行说的"当前默认 15"是当时值，同日已上调；它仍是"缺省而非唯一入口"，见
+  [2026-10-08-scheduled-run-params.md](../../devlog/2026-10-08-scheduled-run-params.md) §1）；
 - PlanPolicy 增上限字段 `MaxNodeLoops`/`MaxNodeOutputTokens`（0 = 不限），超限 plan_load 拒绝；effort 档位已设默认上限（high=48、max=96）；
 - 生效点：`nodeBudget(input)` 优先节点值（agent_node.go）→ 节点预算 PromptBlock + **节点会话 `SetMaxLoops` 动态覆盖**（Session 动态方法，agent_node.go Run 内类型断言后调用）。
 

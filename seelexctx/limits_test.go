@@ -66,7 +66,7 @@ func TestLoadLimitsDefaults(t *testing.T) {
 	if limits != DefaultLimits() {
 		t.Fatalf("missing file must yield full defaults, got %+v", limits)
 	}
-	if limits.ToolCallTimeoutSec != 1800 || limits.ApprovalTimeoutSec != 600 || limits.PlanNodeMaxLoops != 15 {
+	if limits.ToolCallTimeoutSec != 1800 || limits.ApprovalTimeoutSec != 600 || limits.PlanNodeMaxLoops != 384 {
 		t.Fatalf("defaults = %+v", limits)
 	}
 	// docker 自动恢复默认：开启 + 60s 启动等待。

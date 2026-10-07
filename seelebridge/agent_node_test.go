@@ -20,9 +20,9 @@ func TestNodeBudgetPrefersNodeInput(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 
-	// 缺省（无 budget）：回退 limits（默认 15）。
-	if b := runtime.node.Budget(plan.SeelexNodeInput{ID: "a", Input: "x"}); b.MaxLoops != 15 {
-		t.Fatalf("default max_loops = %d, want 15", b.MaxLoops)
+	// 缺省（无 budget）：回退 limits（默认 384）。
+	if b := runtime.node.Budget(plan.SeelexNodeInput{ID: "a", Input: "x"}); b.MaxLoops != 384 {
+		t.Fatalf("default max_loops = %d, want 384", b.MaxLoops)
 	}
 
 	// 部分覆盖：只指定 max_loops，max_output_tokens 保持 limits。

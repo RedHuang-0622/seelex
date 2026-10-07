@@ -47,7 +47,7 @@ limits:
   history_window: 200            # 会话可见历史条数（默认 200）
   loaded_content_limit: 12       # 已加载会话内容（可见正文）LRU 上限（默认 12；视图未激活且空闲的会话可被释放正文，重开冷回读）
   plan_node_events: 30           # 节点详情时间线上限（默认 30）
-  plan_node_max_loops: 15        # 子代理节点循环上限（默认 15）
+  plan_node_max_loops: 384       # 子代理节点循环上限（默认 384；与默认档位 high 的循环次数一致）
   evidence_chars: 800            # 证据/输出截断（默认 800）
   work_table_rows: 200           # 工作表格最大行数（默认 200；概览打点 ≤10/行）
   replan_evidence_bytes: 12288   # replan 证据字节上限（默认 12 KB）

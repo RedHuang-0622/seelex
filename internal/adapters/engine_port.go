@@ -43,12 +43,19 @@ type EnginePort struct {
 	// handoffSeq / handoffLatest 是「锁内决定、锁外交接」的序号闸：一次历史交接
 	// 只在本会话仍是最后一次决定时才会落到宿主（见 runHandoff）。锁内决定与锁外
 	// 调用之间必然有窗口，两次替换并发时先决定的那个可能后交出去。
-	handoffSeq     uint64
-	handoffLatest  map[string]uint64
-	systemPrompt   string
-	maxLoops       int
-	sessionBacked  bool
-	releaseWorking bool
+	handoffSeq    uint64
+	handoffLatest map[string]uint64
+	systemPrompt  string
+	maxLoops      int
+	// sessionMaxLoops 是**按会话**钉住的循环上限（sessionID → loops）：定时任务
+	// 声明的那次会话跑多少轮。查找口径只有一份（loopsForLocked）：本会话钉了就用
+	// 钉住的，否则回退进程级 maxLoops（composer"循环次数"拉条的读数）。
+	//
+	// 生命周期与会话引擎同域：UnloadSession（LRU 驱逐/会话卸载）会把这一格一并清掉
+	// ——端口对已卸载的会话不留任何状态，重开的会话按进程默认值跑。
+	sessionMaxLoops map[string]int
+	sessionBacked   bool
+	releaseWorking  bool
 	// nodeConversations 是子代理会话记录查询（节点详情数据面；Runtime 注入，
 	// 只读子代理 actor，安全——不经过主会话锁）。
 	nodeConversations func(string) ([]types.Message, bool)
@@ -210,16 +217,24 @@ func (port *EnginePort) runHandoff(handoff historyHandoff) {
 	prepare(handoff.sessionID, handoff.history)
 }
 
+// ReactorEngineFactory 造一台新会话引擎（application 早分配的会话号 → 新引擎）。
+// 每台引擎自带 ReAct 循环，因此"新会话 = 新循环"而不是"旧循环换一个逻辑 ID"。
 type ReactorEngineFactory func(sessionID string) ReactorEngine
+
+// 编译期断言：application/core 用类型断言探测的每一个窄可选端口，引擎端口都必须
+// 满足。少一个方法这里就编译不过——不留"运行时静默 false"（定时任务声明了循环
+// 次数却静默按进程默认值跑，正是那种最难查的读数与行为相反）。
+var _ contract.SessionLoopLimitPort = (*EnginePort)(nil)
 
 func NewEnginePort(eng ReactorEngine, newEngine ReactorEngineFactory, tracer *telemetry.MemoryTracer) *EnginePort {
 	port := &EnginePort{
-		engine:         eng,
-		newEngine:      newEngine,
-		tracer:         tracer,
-		engines:        make(map[string]ReactorEngine),
-		engineCalls:    make(map[string]int),
-		pendingHistory: make(map[string][]types.Message),
+		engine:          eng,
+		newEngine:       newEngine,
+		tracer:          tracer,
+		engines:         make(map[string]ReactorEngine),
+		engineCalls:     make(map[string]int),
+		pendingHistory:  make(map[string][]types.Message),
+		sessionMaxLoops: make(map[string]int),
 	}
 	if eng == nil {
 		return port
@@ -701,8 +716,8 @@ func (port *EnginePort) installSessionEngineLocked(sessionID string, history []t
 	if port.systemPrompt != "" {
 		fresh.SetSystemPrompt(port.systemPrompt)
 	}
-	if port.maxLoops > 0 {
-		fresh.SetMaxLoops(port.maxLoops)
+	if loops := port.loopsForLocked(sessionID); loops > 0 {
+		fresh.SetMaxLoops(loops)
 	}
 	return port.armHandoffLocked(sessionID, history)
 }
@@ -739,8 +754,8 @@ func (port *EnginePort) StartSession() string {
 	if port.systemPrompt != "" {
 		fresh.SetSystemPrompt(port.systemPrompt)
 	}
-	if port.maxLoops > 0 {
-		fresh.SetMaxLoops(port.maxLoops)
+	if loops := port.loopsForLocked(port.sessionID); loops > 0 {
+		fresh.SetMaxLoops(loops)
 	}
 	return port.sessionID
 }
@@ -768,8 +783,8 @@ func (port *EnginePort) ActivateSession(sessionID string) error {
 		if port.systemPrompt != "" {
 			engine.SetSystemPrompt(port.systemPrompt)
 		}
-		if port.maxLoops > 0 {
-			engine.SetMaxLoops(port.maxLoops)
+		if loops := port.loopsForLocked(sessionID); loops > 0 {
+			engine.SetMaxLoops(loops)
 		}
 	}
 	port.engine = engine
@@ -849,8 +864,8 @@ func (port *EnginePort) resumeRawSessionLocked(sessionID string, desired []types
 	if port.systemPrompt != "" {
 		engine.SetSystemPrompt(port.systemPrompt)
 	}
-	if port.maxLoops > 0 {
-		engine.SetMaxLoops(port.maxLoops)
+	if loops := port.loopsForLocked(sessionID); loops > 0 {
+		engine.SetMaxLoops(loops)
 	}
 	return port.armHandoffLocked(sessionID, desired), nil
 }
@@ -888,6 +903,9 @@ func (port *EnginePort) UnloadSession(sessionID string) error {
 	}
 	delete(port.engines, sessionID)
 	delete(port.engineCalls, sessionID)
+	// 按会话的循环上限随引擎一起离场（端口对已卸载的会话不留状态）：重开的会话按
+	// 进程默认值跑，不会把早已卸载的那次定时任务的钉值悄悄带回来。
+	delete(port.sessionMaxLoops, sessionID)
 	if port.sessionID == sessionID {
 		port.engine = nil
 		port.sessionID = ""
@@ -908,10 +926,46 @@ func (port *EnginePort) SetSystemPrompt(prompt string) {
 		engine.SetSystemPrompt(prompt)
 	}
 }
+
+// SetSessionMaxLoopsFor 给指定会话钉一个自己的循环上限（application 的
+// SessionLoopLimitPort；定时任务声明的"这次跑多少轮"落在这一格）。loops <= 0 视为
+// 撤掉这一格（回到进程默认值）。见字段注释与 contract.SessionLoopLimitPort。
+func (port *EnginePort) SetSessionMaxLoopsFor(sessionID string, loops int) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return
+	}
+	port.mu.Lock()
+	defer port.mu.Unlock()
+	if loops > 0 {
+		port.sessionMaxLoops[sessionID] = loops
+	} else {
+		delete(port.sessionMaxLoops, sessionID)
+	}
+	if engine := port.engines[sessionID]; engine != nil && loops > 0 {
+		engine.SetMaxLoops(loops)
+	}
+}
+
+// loopsForLocked 是"这个会话该用多少轮"的唯一读法：本会话钉了就用钉住的，否则回退
+// 进程级 maxLoops（composer 拉条的读数）。调用方必须持有 port.mu。
+func (port *EnginePort) loopsForLocked(sessionID string) int {
+	if loops := port.sessionMaxLoops[sessionID]; loops > 0 {
+		return loops
+	}
+	return port.maxLoops
+}
+
 func (port *EnginePort) SetMaxLoops(n int) {
 	port.mu.Lock()
 	port.maxLoops = n
 	engine := port.engine
+	// 用户在当前会话里主动改循环次数 = 对这个会话的显式选择：撤掉可能存在的按会话
+	// 钉值，否则"它刚才被定时任务钉过"会在下次引擎重建时把这个选择盖掉（读数与行为
+	// 相反的经典形状）。别的会话的钉值不动——那是它们自己的声明。
+	if n > 0 {
+		delete(port.sessionMaxLoops, port.sessionID)
+	}
 	port.mu.Unlock()
 	if engine != nil {
 		engine.SetMaxLoops(n)

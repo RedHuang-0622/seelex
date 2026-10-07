@@ -49,17 +49,12 @@ func (service *Service) ensureViewIdle(action string) (string, error) {
 
 // validWireReasoningEffort 判定一个值是否是 provider 词表里的思考强度。
 //
-// 刻意**不收** dto.ReasoningEffortSession（"跟随会话档位"）：那是"没有覆盖"的同义
-// 词，是账号配置侧的概念，不是一条拉条能停的位置——拉条停在 low/medium/high/max
-// （以及部分模型才认的 minimal）上，"跟随档位"由档位切换本身表达。
+// 判据本体只有一份（dto.NormalizeWireReasoningEffort），这里只补一条拉条自己的
+// 口径：**不收空值**——空是"没声明"，调用方（定时任务）可以按默认档位兜底，而一条
+// 拉条没有"跟随档位"这一格，停在空上等于没有位置。
 func validWireReasoningEffort(value string) bool {
-	switch value {
-	case dto.ReasoningEffortMinimal, dto.ReasoningEffortLow, dto.ReasoningEffortMedium,
-		dto.ReasoningEffortHigh, dto.ReasoningEffortMax:
-		return true
-	default:
-		return false
-	}
+	normalized, err := dto.NormalizeWireReasoningEffort(value)
+	return err == nil && normalized != ""
 }
 
 // SetReasoningEffort 单独下发"想多深"（不碰循环上限、不碰档位的 prompt 层与预算）。
@@ -81,18 +76,14 @@ func (service *Service) SetReasoningEffort(_ context.Context, effort string) err
 	return service.publishKnobs(nil)
 }
 
-// SetLoopLimit 单独改"跑多少轮"（不碰思考强度）。
-//
-// 上界取 limits.input_loop_limit（默认 9999，就是 goal skill 用的"≈无上限"哨兵）：
-// 拉条不允许把引擎推到一个比 goal 的无限模式还高的值——那个哨兵一旦被超过就不再
-// 表达"无上限"。
+// SetLoopLimit 单独改"跑多少轮"（不碰思考强度）。取值判据与定时任务的循环次数
+// 同源（validateLoopLimit）。
 func (service *Service) SetLoopLimit(_ context.Context, limit int) error {
 	if _, err := service.ensureViewIdle("调整循环次数"); err != nil {
 		return err
 	}
-	upper := Limits().InputLoopLimit
-	if limit < 1 || limit > upper {
-		return fmt.Errorf("循环次数需在 1..%d 之间（收到 %d）", upper, limit)
+	if err := validateLoopLimit(limit); err != nil {
+		return err
 	}
 	service.applyLoopLimit(limit)
 	return service.publishKnobs(nil)
@@ -190,12 +181,65 @@ func (service *Service) publishKnobs(mutate func(*RuntimeState)) error {
 }
 
 // reasoningEffortChoices 是给报错提示用的可选值清单（不含 "session"：见
-// validWireReasoningEffort 的注释）。
+// validWireReasoningEffort 的注释）。词表本体在契约层，这里不写第二份。
 func reasoningEffortChoices() []string {
-	return []string{
-		dto.ReasoningEffortMinimal, dto.ReasoningEffortLow, dto.ReasoningEffortMedium,
-		dto.ReasoningEffortHigh, dto.ReasoningEffortMax,
+	return dto.WireReasoningEffortVocabulary()
+}
+
+// validateLoopLimit 是"循环次数"这一项的**唯一**一份取值判据：拉条（SetLoopLimit）
+// 与定时任务声明的循环次数共用它。上界取 limits.input_loop_limit（默认 9999，就是
+// goal skill 用的"≈无上限"哨兵）——一旦被超过，这个哨兵就不再表达"无上限"。
+func validateLoopLimit(limit int) error {
+	upper := Limits().InputLoopLimit
+	if limit < 1 || limit > upper {
+		return fmt.Errorf("循环次数需在 1..%d 之间（收到 %d）", upper, limit)
 	}
+	return nil
+}
+
+// —— 定时任务的按会话思考强度（"租一笔"）——
+//
+// 思考强度落在**账号客户端**上，账号池是进程级共享的：没有"这个会话用自己的强度"
+// 这种格子。于是定时任务声明的那条强度按**会话**记一笔，在该会话的回合起点下发一次
+// （runChat 起点，与 syncPlanPolicyFor / syncFullAccessFor 同一个同步点），下发即
+// 消掉：它属于**那一次运行**，不是这个会话的长期设置。
+//
+// 为什么到回合起点才下发、而不是触发那一刻就下发：触发与回合起点之间，别的会话的
+// 回合可能已经按自己的强度下发过（账号池就是"后切者生效"）。落在起点 = 这一回合
+// 一定按它自己声明的那条跑。为什么下发即消掉、而不是长期压着：用户随后在该会话里
+// 拖拉条、切档位必须照旧生效——不能出现"拉条被一个看不见的东西压住"。
+//
+// 已知边界（账号池进程级共享，不是本次引入）：这一笔下发后到下一个会话说自己的强度
+// 之前，**别的会话**的请求也走这条强度。要彻底按会话分，需要 Seele 侧按会话的
+// ChatClient；这条链只保证"每个回合起点都按自己的声明下发一次"。
+func (service *Service) borrowSessionReasoningEffort(sessionID, wireValue string) {
+	sessionID = strings.TrimSpace(sessionID)
+	wireValue = strings.TrimSpace(wireValue)
+	if sessionID == "" || wireValue == "" {
+		return
+	}
+	service.sessionEffortMu.Lock()
+	defer service.sessionEffortMu.Unlock()
+	if service.sessionEffort == nil {
+		service.sessionEffort = make(map[string]string)
+	}
+	service.sessionEffort[sessionID] = wireValue
+}
+
+// takeSessionReasoningEffort 取走并消掉指定会话待下发的思考强度（没有则 false）。
+func (service *Service) takeSessionReasoningEffort(sessionID string) (string, bool) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return "", false
+	}
+	service.sessionEffortMu.Lock()
+	defer service.sessionEffortMu.Unlock()
+	wireValue, ok := service.sessionEffort[sessionID]
+	if !ok {
+		return "", false
+	}
+	delete(service.sessionEffort, sessionID)
+	return wireValue, true
 }
 
 // errKnobsLocked 是运行守卫的哨兵（调用方若需要 errors.Is 判"因为会话在跑"）。

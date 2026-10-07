@@ -128,6 +128,12 @@ func TestKnobChainSmoke(t *testing.T) {
 	sessionID := engine.SessionID()
 	waitChatStarted(t, engine.started[sessionID])
 
+	// 回合起点按**会话**下发一次强度（账号池是进程级共享的，"每个回合起点按本会话
+	// 该用的那条下发一次"是唯一能保证后台/定时会话不继承别的会话强度的位置）。
+	if pushed := runtime.pushedEfforts(); len(pushed) != 3 || pushed[2] != dto.ReasoningEffortLow {
+		t.Fatalf("回合起点没有按会话下发强度：%v, want [max low low]", pushed)
+	}
+
 	if err := service.SetLoopLimit(ctx, 999); err == nil {
 		t.Fatal("运行中 SetLoopLimit 必须被拒")
 	}
@@ -137,7 +143,7 @@ func TestKnobChainSmoke(t *testing.T) {
 	if got := engine.loops(); got != 600 {
 		t.Fatalf("被拒的调用碰了引擎：%d, want 600", got)
 	}
-	if pushed := runtime.pushedEfforts(); len(pushed) != 2 {
+	if pushed := runtime.pushedEfforts(); len(pushed) != 3 {
 		t.Fatalf("被拒的调用下发了值：%v", pushed)
 	}
 

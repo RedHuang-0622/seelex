@@ -82,7 +82,10 @@ type PromptOutcome struct {
 //   - `SessionID` 非空 → 投递到该既有会话；空（**默认**）→ 新建会话发起；
 //   - `WorkspaceID` 非空 → 新会话装配到该工作区（项目根 + 会话记录落该项目分区）；
 //   - `PermissionTier` → 触发那次会话的权限档位（空已在归一里落成默认 full）；
-//   - `Plugins` → 这一轮的能力包装配（空 = 继承宿主当前激活插件）。
+//   - `Plugins` → 这一轮的能力包装配（空 = 继承宿主当前激活插件）；
+//   - `ReasoningEffort` / `LoopLimit` → 触发那次会话的执行参数（思考强度 / 循环
+//     次数）。装配层在创建/编辑时就把默认值落进定义（默认档位的两条读数），所以
+//     这里读到的一定是触发时真正要用的两条；老定义缺这两格时装配层按同一份判据兜底。
 type PromptExecutor func(ctx context.Context, task ScheduledTaskSpec) (PromptOutcome, error)
 
 // State 是周期任务的 actor 资源（自带锁，读写即消息进出；与 task 注册表 /
@@ -456,6 +459,18 @@ func (s *State) normalizeSpec(spec ScheduledTaskSpec) (normalizedSpec, error) {
 	if err != nil {
 		return normalizedSpec{}, err
 	}
+	// 执行参数（思考强度 / 循环次数）：**取值合法性**在这里判，**默认值不在这里落**
+	// ——默认来自 effort 档位表（application/prompt 的默认档位读数），而档位表不属于
+	// 本域（调度器只管"什么算一个合法定义"）。装配层在创建/编辑那一刻就把默认填进
+	// 定义，于是面板上读到的值与触发时用的值同源；冷启动读回的老记录（没有这两格）
+	// 由装配层在触发时按同一份判据兜底。
+	effort, err := dto.NormalizeWireReasoningEffort(spec.ReasoningEffort)
+	if err != nil {
+		return normalizedSpec{}, err
+	}
+	if spec.LoopLimit < 0 {
+		return normalizedSpec{}, fmt.Errorf("循环次数不能为负（收到 %d）", spec.LoopLimit)
+	}
 	return normalizedSpec{
 		spec: ScheduledTaskSpec{
 			Name: name, Kind: spec.Kind, Interval: spec.Interval,
@@ -465,6 +480,7 @@ func (s *State) normalizeSpec(spec ScheduledTaskSpec) (normalizedSpec, error) {
 			Command: strings.TrimSpace(spec.Command), Prompt: strings.TrimSpace(spec.Prompt),
 			SessionID: strings.TrimSpace(spec.SessionID), WorkspaceID: strings.TrimSpace(spec.WorkspaceID),
 			PermissionTier: tier, Plugins: plugins,
+			ReasoningEffort: effort, LoopLimit: spec.LoopLimit,
 			Enabled: spec.Enabled,
 		},
 		oneShot:   oneShot,
@@ -506,6 +522,8 @@ func (t *task) applyDefinition(definition normalizedSpec, nextRun time.Time) {
 	status.WorkspaceID = definition.spec.WorkspaceID
 	status.PermissionTier = definition.spec.PermissionTier
 	status.Plugins = append([]string(nil), definition.spec.Plugins...)
+	status.ReasoningEffort = definition.spec.ReasoningEffort
+	status.LoopLimit = definition.spec.LoopLimit
 	status.Enabled = definition.spec.Enabled
 	status.NextRunAt = nextRun
 }
@@ -712,6 +730,7 @@ func (t *task) statusSnapshot() ScheduledTaskStatus {
 		Prompt: t.status.Prompt, SessionID: t.status.SessionID,
 		WorkspaceID: t.status.WorkspaceID, LastSessionID: t.status.LastSessionID,
 		PermissionTier: t.status.PermissionTier, Plugins: append([]string(nil), t.status.Plugins...),
+		ReasoningEffort: t.status.ReasoningEffort, LoopLimit: t.status.LoopLimit,
 		Enabled: t.status.Enabled, Running: t.status.Running,
 		NextRunAt: t.status.NextRunAt, LastRunAt: t.status.LastRunAt,
 		LastStatus: t.status.LastStatus, LastResult: t.status.LastResult,

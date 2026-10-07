@@ -11,7 +11,7 @@ const componentsSource = (await readFile(new URL("./components.js", import.meta.
 const componentsURL = `data:text/javascript;base64,${Buffer.from(componentsSource).toString("base64")}`;
 const source = (await readFile(new URL("./scheduled-tasks-view.js", import.meta.url), "utf8"))
   .replace('"./components.js"', `"${componentsURL}"`);
-const { buildScheduledTaskSpec, renderScheduledTasks, renderScheduledTasksTable, scheduledTaskFormFields, normalizePluginList } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+const { buildScheduledTaskSpec, renderScheduledTasks, renderScheduledTasksTable, scheduledTaskFormFields, normalizePluginList, normalizeLoopLimit } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 
 const task = (overrides = {}) => ({
   id: "sched_1",
@@ -478,4 +478,67 @@ test("renders the workspace chip with the snapshot name, falling back to the ID"
   assert.match(html, />Seelex</);
   assert.match(html, />ws_gone</);
   assert.equal((html.match(/sched-chip-workspace/g) || []).length, 2);
+});
+
+// ── 执行参数（思考强度 / 循环次数）────────────────────────────────────
+// 这两格与 composer 底部那两条**独立拉条**同源：拉条给的是"当前会话随后回合"的
+// 两条读数，任务声明的是"触发那次会话"的两条读数。**留空 = 不声明**，由后端按默认
+// 档位落成默认参数（前端不替它猜默认值，新建/编辑两个入口也就不会各写一套默认）。
+
+test("carries the declared reasoning effort and loop limit on both modes", () => {
+  const period = buildScheduledTaskSpec({
+    name: "深度巡检", prompt: "巡检", mode: "period",
+    periodValue: "1", periodUnit: "day", anchorNow: true,
+    reasoningEffort: " high ", loopLimit: "48"
+  }).spec;
+  assert.equal(period.reasoningEffort, "high");
+  assert.equal(period.loopLimit, 48);
+
+  const oneShot = buildScheduledTaskSpec({
+    name: "定时发布", prompt: "发布", mode: "at",
+    runAtValue: "2026-10-08T09:30", now: Date.parse("2026-10-07T10:00:00"),
+    reasoningEffort: "low", loopLimit: 6
+  }).spec;
+  assert.equal(oneShot.reasoningEffort, "low");
+  assert.equal(oneShot.loopLimit, 6);
+
+  // 留空 = 不声明：空串 + 0（后端落默认参数，面板上显示的是落定后的值）。
+  const none = buildScheduledTaskSpec({
+    name: "默认参数", prompt: "巡检", mode: "period", periodValue: "1", periodUnit: "hour"
+  }).spec;
+  assert.equal(none.reasoningEffort, "");
+  assert.equal(none.loopLimit, 0);
+});
+
+test("normalizeLoopLimit keeps positive integers and treats the rest as undeclared", () => {
+  assert.equal(normalizeLoopLimit("48"), 48);
+  assert.equal(normalizeLoopLimit(6), 6);
+  // 空/乱填/零/负/小数一律归 0 = 不声明：区间（1..input_loop_limit）与"越界即拒"
+  // 由后端判（与循环次数拉条同一份判据），前端不替它兜底。
+  for (const raw of ["", "  ", "abc", null, undefined, 0, -3, 1.5, "NaN"]) {
+    assert.equal(normalizeLoopLimit(raw), 0, `loopLimit ${JSON.stringify(raw)} 应归 0`);
+  }
+});
+
+test("renders run-parameter chips and restores them into form fields (edit leg)", () => {
+  const html = renderScheduledTasks([
+    task({ id: "sched_params", name: "带参数", kind: "prompt", prompt: "巡检", reasoning_effort: "high", loop_limit: 48 }),
+    task({ id: "sched_no_params", name: "没参数", kind: "prompt", prompt: "巡检" })
+  ], [], []);
+  assert.match(html, /sched-chip-runparams/);
+  assert.match(html, /强度 high · 循环 48/);
+  // 没声明的任务不占空 chip（缺省值由后端落定，前端不编一个出来）。
+  assert.equal((html.match(/sched-chip-runparams/g) || []).length, 1);
+
+  const fields = scheduledTaskFormFields(task({ kind: "prompt", prompt: "巡检", reasoning_effort: "low", loop_limit: 6 }));
+  assert.equal(fields.reasoningEffort, "low");
+  assert.equal(fields.loopLimit, "6");
+  const roundTrip = buildScheduledTaskSpec({ ...fields, now: Date.parse("2026-10-07T10:00:00") }).spec;
+  assert.equal(roundTrip.reasoningEffort, "low");
+  assert.equal(roundTrip.loopLimit, 6);
+
+  // 老记录没有这两格 → 表单留空 = 提交回"不声明"，由后端落默认参数。
+  const bare = scheduledTaskFormFields({ name: "n", prompt: "p" });
+  assert.equal(bare.reasoningEffort, "");
+  assert.equal(bare.loopLimit, "");
 });

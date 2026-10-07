@@ -265,7 +265,7 @@ func (c *Coordinator) SetSkills(registry *skill.Registry) {
 
 // Budget 返回节点子代理的迭代轮数预算：优先节点输入参数（plan_load 节点
 // budget 字段，plan.md §7.3），缺省回退 seele.yaml limits 的
-// plan_node_max_loops（默认 15）。上限由 dto.PlanPolicy 校验。
+// plan_node_max_loops（默认 384）。上限由 dto.PlanPolicy 校验。
 func (c *Coordinator) Budget(input plan.SeelexNodeInput) NodeBudgetInfo {
 	var limits config.AccountLimits
 	if c != nil && c.deps.AccountLimits != nil {

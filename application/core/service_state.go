@@ -46,6 +46,13 @@ type serviceState struct {
 	knobLoopLimit       int
 	knobReasoningEffort string
 
+	// sessionEffort 是"某会话的下一回合要用哪条 wire 思考强度"的一笔租约
+	// （sessionEffortMu 保护；索引 = 会话 ID）。定时任务声明的那条强度落在这里，
+	// 由该会话的回合起点取走并下发一次——账号池是进程级共享的，没有"按会话的
+	// 强度"这种格子，所以按会话记一笔、用完即消（见 service_knobs.go 的注释）。
+	sessionEffortMu sync.Mutex
+	sessionEffort   map[string]string
+
 	// chatSeq 是聊天请求 ID 的单调序号（Core.ViewMu 保护）。requestID 必须
 	// 跨会话唯一：Windows 上 time.Now().UnixNano() 分辨率约 0.5ms，并行
 	// 会话在同一 tick 启动会碰撞，导致 request→session 绑定与

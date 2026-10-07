@@ -738,6 +738,7 @@ func TestBridgeForwardsScheduledTaskCommands(t *testing.T) {
 	updated, err := bridge.UpdateScheduledTask("sched_1", seelebridge.ScheduledTaskSpec{
 		Name: "抓职位（改）", Kind: seelebridge.ScheduledTaskPrompt, Prompt: "换个提示词",
 		WorkspaceID: "ws_1", PermissionTier: "auto", Plugins: []string{"cad"}, Enabled: true,
+		ReasoningEffort: "low", LoopLimit: 48,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -751,6 +752,10 @@ func TestBridgeForwardsScheduledTaskCommands(t *testing.T) {
 	// 装配（权限档位 + 插件）是定义的一部分，编辑时同样整份转发。
 	if fake.scheduledSpec.PermissionTier != "auto" || len(fake.scheduledSpec.Plugins) != 1 || fake.scheduledSpec.Plugins[0] != "cad" {
 		t.Fatalf("assembly not forwarded: %+v", fake.scheduledSpec)
+	}
+	// 执行参数（思考强度 / 循环次数）同样整份转发（默认值由 application 落，桥不改写）。
+	if fake.scheduledSpec.ReasoningEffort != "low" || fake.scheduledSpec.LoopLimit != 48 {
+		t.Fatalf("run params not forwarded: (%q, %d)", fake.scheduledSpec.ReasoningEffort, fake.scheduledSpec.LoopLimit)
 	}
 
 	if err := bridge.CancelScheduledTask("sched_1"); err != nil {
@@ -1847,9 +1852,11 @@ func TestEmbeddedScheduledFormCarriesWorkspacePicker(t *testing.T) {
 		t.Fatal("新建弹窗缺少工作区下拉：定时任务就没法装配工作区")
 	}
 	// 权限档位与插件装配同样在弹窗里可选（默认档位空 = 后端按 full access 处理）。
-	for _, want := range []string{`id="sched-permission"`, `id="sched-plugins"`} {
+	// 执行参数（思考强度 / 循环次数）同理：留空 = 不声明，默认值由后端按默认档位落，
+	// 前端只把用户填的值原样送出去。
+	for _, want := range []string{`id="sched-permission"`, `id="sched-plugins"`, `id="sched-effort"`, `id="sched-loops"`} {
 		if !strings.Contains(body, want) {
-			t.Fatalf("新建弹窗缺少装配控件：%s", want)
+			t.Fatalf("新建弹窗缺少装配/执行参数控件：%s", want)
 		}
 	}
 	app, err := embeddedFrontend.ReadFile("frontend/dist/app.js")
@@ -1869,6 +1876,13 @@ func TestEmbeddedScheduledFormCarriesWorkspacePicker(t *testing.T) {
 	if !strings.Contains(appSource, "permissionTier: elements[\"sched-permission\"]") ||
 		!strings.Contains(appSource, "plugins: [...(elements[\"sched-plugins\"]") {
 		t.Fatal("提交时必须把两格装配递给 buildScheduledTaskSpec")
+	}
+	if !strings.Contains(appSource, "reasoningEffort: elements[\"sched-effort\"]") ||
+		!strings.Contains(appSource, "loopLimit: elements[\"sched-loops\"]") {
+		t.Fatal("提交时必须把两格执行参数（思考强度 / 循环次数）递给 buildScheduledTaskSpec")
+	}
+	if !strings.Contains(appSource, "REASONING_EFFORT_LEVELS") {
+		t.Fatal("思考强度的停位要复用 composer 拉条的同一份清单（界面不该有第二套词）")
 	}
 }
 

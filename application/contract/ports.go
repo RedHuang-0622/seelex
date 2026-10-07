@@ -333,6 +333,27 @@ type ReasoningEffortPort interface {
 	SetSessionReasoningEffort(effort string) int
 }
 
+// SessionLoopLimitPort 是"按会话钉一个 ReAct 循环上限"的窄可选能力（定时任务装配：
+// 这条任务声明的那次会话跑多少轮）。
+//
+// 为什么需要它、以及它和 EngineBase.SetMaxLoops 的分工：SetMaxLoops 写的是**进程级**
+// 那一格（composer"循环次数"拉条的读数：进程默认值 + 当前活跃会话的引擎），定时任务
+// 声明的次数只属于**触发的那一个会话**——那是引擎适配层按会话持有的另一格（每个会话
+// 一台引擎），所以落点必须在引擎端口上，而不是 application 自己去改进程默认值（那样
+// 一次触发会顺手改掉用户正在用的那个会话的下限）。
+//
+// 为什么是"可选窄接口 + 类型断言"：口径与 ReasoningEffortPort / PluginAssemblyCarrier
+// 一致——有就有、没有就是没装配。但**装配层把它当硬依赖**：定时任务声明了次数而宿主
+// 给不出这一格时显式报错（fail-closed），不静默按进程默认值跑——那正是"面板说 48 轮、
+// 实际按 384 轮跑"的读数与行为相反。
+type SessionLoopLimitPort interface {
+	// SetSessionMaxLoopsFor 给指定会话钉一个自己的循环上限（loops >= 1；<= 0 视为
+	// "撤掉这一格"）。它立即作用于该会话当前的引擎，并在该会话的引擎之后重建
+	// （冷装载/重新激活）时继续生效；不改进程默认值，也不动别的会话。用户在会话里
+	// 主动改循环次数（SetMaxLoops 落在那个会话上）= 显式选择，会撤掉这一格。
+	SetSessionMaxLoopsFor(sessionID string, loops int)
+}
+
 type PluginPort interface {
 	All() []model.PluginInfo
 	Activate(context.Context, string) error

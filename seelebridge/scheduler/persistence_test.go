@@ -186,9 +186,10 @@ func TestScheduledTaskUpdatePersistsAsNewRowWithSameID(t *testing.T) {
 // TestScheduledTaskRestoreSkipsWhatCannotRun 钉住恢复的**逐条跳过**判据：
 // 过期的一次性任务、命令不在白名单、周期非法、执行器未装配，都只跳过自己。
 //
-// TestScheduledTaskAssemblySurvivesRestart 钉住**装配**随定义持久化：权限档位与
-// 插件集合在全局 JSONL 里原样保留，冷启动恢复出同一条装配（不是"重启后回到默认
-// 全权 / 继承宿主"）。装配是任务定义的一部分，不是运行期读数。
+// TestScheduledTaskAssemblySurvivesRestart 钉住**装配**随定义持久化：权限档位、
+// 插件集合与执行参数（思考强度 / 循环次数）在全局 JSONL 里原样保留，冷启动恢复出
+// 同一条装配（不是"重启后回到默认全权 / 继承宿主 / 默认参数"）。装配是任务定义的一部分，
+// 不是运行期读数。
 func TestScheduledTaskAssemblySurvivesRestart(t *testing.T) {
 	store := NewFileStore(filepath.Join(t.TempDir(), "scheduled-tasks.jsonl"))
 	state := newSchedulerTestStateWithStore(t, store)
@@ -196,6 +197,7 @@ func TestScheduledTaskAssemblySurvivesRestart(t *testing.T) {
 	created, err := state.Schedule(context.Background(), ScheduledTaskSpec{
 		Name: "带装配的任务", Kind: ScheduledTaskPrompt, Prompt: "巡检", Interval: time.Hour, Enabled: true,
 		PermissionTier: dto.PermissionTierAuto, Plugins: []string{"cad", "docs"}, WorkspaceID: "ws_1",
+		ReasoningEffort: dto.ReasoningEffortLow, LoopLimit: 48,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -219,8 +221,12 @@ func TestScheduledTaskAssemblySurvivesRestart(t *testing.T) {
 	if len(got.Plugins) != 2 || got.Plugins[0] != "cad" || got.Plugins[1] != "docs" {
 		t.Fatalf("恢复丢了插件装配：%+v", got.Plugins)
 	}
+	if got.ReasoningEffort != dto.ReasoningEffortLow || got.LoopLimit != 48 {
+		t.Fatalf("恢复丢了执行参数：(%q, %d)，want (low, 48)", got.ReasoningEffort, got.LoopLimit)
+	}
 
-	// 反向：没声明装配的任务恢复出来的档位仍是默认 full，插件为空。
+	// 反向：没声明装配的任务恢复出来的档位仍是默认 full，插件为空、执行参数留空
+	// （空/0 = 未声明，由装配层按默认档位落成默认参数）。
 	plain, err := restored.Schedule(context.Background(), ScheduledTaskSpec{
 		Name: "默认装配", Kind: ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour, Enabled: true,
 	})
@@ -229,6 +235,9 @@ func TestScheduledTaskAssemblySurvivesRestart(t *testing.T) {
 	}
 	if plain.PermissionTier != dto.PermissionTierFull || len(plain.Plugins) != 0 {
 		t.Fatalf("空装配没有落成默认全权：%+v", plain)
+	}
+	if plain.ReasoningEffort != "" || plain.LoopLimit != 0 {
+		t.Fatalf("空执行参数不该被调度器落默认值（那是装配层的事）：(%q, %d)", plain.ReasoningEffort, plain.LoopLimit)
 	}
 }
 

@@ -212,6 +212,26 @@ func (service *Service) syncPlanPolicyFor(sessionID string) {
 	service.Deps.Runtime.SetPlanPolicyFor(sessionID, prompt.PlanningPolicy(service.effortForSession(sessionID)))
 }
 
+// syncSessionReasoningEffortFor 是**回合起点**按会话下发 wire 思考强度的唯一入口
+// （与 syncPlanPolicyFor / syncFullAccessFor 同一个同步点，于是后台会话、定时任务
+// 新建的会话都自带自己的那一条，而不是继承上一个说话的会话）。
+//
+// 两条来源，一格优先：
+//   - 定时任务为这一会话租的那一笔（borrowSessionReasoningEffort；取走即消掉，
+//     它属于那一次运行）；
+//   - 否则是 composer 那条"思考强度"拉条的读数（进程级），空值不下发——"没选过"
+//     保持不下发，让 provider 用自己的默认（与档位链的既有边界一致）。
+func (service *Service) syncSessionReasoningEffortFor(sessionID string) {
+	wireValue, borrowed := service.takeSessionReasoningEffort(sessionID)
+	if !borrowed {
+		wireValue = service.knobReasonings()
+	}
+	if strings.TrimSpace(wireValue) == "" {
+		return
+	}
+	service.pushSessionReasoningEffort(wireValue)
+}
+
 // syncSessionReasoningEffort 把档位对应的 wire 思考强度下发给**跟随会话**的账号
 // （`reasoning_effort: session`），返回被改动的账号数。
 //

@@ -177,6 +177,11 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 	// 会话起步同步 plan 策略槽：plan_load/plan_run 在引擎内按执行 ctx 读取
 	// 本会话策略（含后台会话），不继承进程默认槽（G1-C）。
 	service.syncPlanPolicyFor(sessionID)
+	// 会话起步同步思考强度：账号池是进程级共享的，所以每个回合起点都按**本会话**
+	// 该用的那条强度下发一次（定时任务声明的强度就在这一步生效；其余会话下发的
+	// 是 composer 拉条的读数）。放在这里的理由与上下文窗口/策略槽一致：账号池的
+	// "后切者生效"一旦跨回合遗留，就会变成"用着用着变了强度"。
+	service.syncSessionReasoningEffortFor(sessionID)
 	// 会话起步同步全权门：每个会话按自己的 fullAccess 选择运行（G4），
 	// 不继承别的会话遗留的开关。
 	service.syncFullAccessFor(sessionID)

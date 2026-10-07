@@ -17,21 +17,25 @@ import (
 
 type fakeEngine struct {
 	*testutil.EmbeddedChatEngine
-	mu                 sync.Mutex
-	history            []EngineMessage
-	historyBeforeChat  []EngineMessage
-	chunks             []string
-	prompt             string
-	chatErr            error
-	chatErrors         []error
-	chatInputs         []string
-	appendChatHistory  bool
-	cleared            bool
-	lazyStart          bool
-	sessionID          string
-	starts             int
-	lastInput          string
-	maxLoops           int
+	mu                sync.Mutex
+	history           []EngineMessage
+	historyBeforeChat []EngineMessage
+	chunks            []string
+	prompt            string
+	chatErr           error
+	chatErrors        []error
+	chatInputs        []string
+	appendChatHistory bool
+	cleared           bool
+	lazyStart         bool
+	sessionID         string
+	starts            int
+	lastInput         string
+	maxLoops          int
+	// sessionMaxLoops 是按会话钉住的循环上限（application 的 SessionLoopLimitPort：
+	// 定时任务声明的"这次跑多少轮"）。单引擎桩按会话记账即可，真实按会话落引擎由
+	// internal/adapters 的 EnginePort 用例钉住。
+	sessionMaxLoops    map[string]int
 	releaseCalls       int
 	loadedSessions     map[string]bool
 	nodeContext        *snapshot.ContextSnapshot
@@ -186,6 +190,28 @@ func (engine *fakeEngine) SetMaxLoops(maxLoops int) {
 	engine.mu.Lock()
 	engine.maxLoops = maxLoops
 	engine.mu.Unlock()
+}
+
+// SetSessionMaxLoopsFor 实现 contract.SessionLoopLimitPort：定时任务声明的循环上限
+// 落在**触发那个会话**这一格上（loops <= 0 = 撤掉这一格，与生产实现同口径）。
+func (engine *fakeEngine) SetSessionMaxLoopsFor(sessionID string, loops int) {
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+	if engine.sessionMaxLoops == nil {
+		engine.sessionMaxLoops = make(map[string]int)
+	}
+	if loops > 0 {
+		engine.sessionMaxLoops[sessionID] = loops
+		return
+	}
+	delete(engine.sessionMaxLoops, sessionID)
+}
+
+// sessionLoopsFor 读指定会话被钉住的循环上限（0 = 没钉，按进程默认值跑）。
+func (engine *fakeEngine) sessionLoopsFor(sessionID string) int {
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+	return engine.sessionMaxLoops[sessionID]
 }
 
 func (engine *fakeEngine) AppendHistory(msg types.Message) {

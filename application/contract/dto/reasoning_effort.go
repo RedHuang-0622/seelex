@@ -1,5 +1,10 @@
 package dto
 
+import (
+	"fmt"
+	"strings"
+)
+
 // 思考强度（reasoning effort）是跨厂商的"想多深"旋钮：OpenAI / DeepSeek 用顶层
 // `reasoning_effort`，Anthropic 用顶层 `output_config.effort`。
 //
@@ -46,6 +51,32 @@ func ValidReasoningEffort(value string) bool {
 		}
 	}
 	return false
+}
+
+// WireReasoningEffortVocabulary 返回 **provider 词表** 的合法取值（不含 "session"）：
+// 一条拉条、一条定时任务声明的强度都只能停在这几个值上，供界面与报错提示用。
+func WireReasoningEffortVocabulary() []string {
+	return append([]string(nil), reasoningEffortVocabulary...)
+}
+
+// NormalizeWireReasoningEffort 归一一个 provider 词表的思考强度，是"什么算一个合法
+// 的 wire 强度"的**唯一**一份判据（composer 拉条与定时任务声明的强度都走它）。
+//
+// 空串 = 合法，归一为空串：**"没声明"**由调用方按各自口径补默认（定时任务补默认档位
+// 的读数；拉条没有"跟随档位"这一格，自己另判空——见 application/core 的
+// SetReasoningEffort）。"session" 在这里不合法：那是账号配置侧"跟随会话"的意思，
+// 不是一条拉条能停的位置。
+func NormalizeWireReasoningEffort(raw string) (string, error) {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	if value == "" {
+		return "", nil
+	}
+	for _, level := range reasoningEffortVocabulary {
+		if value == level {
+			return value, nil
+		}
+	}
+	return "", fmt.Errorf("无效的思考强度 %q，可选：%v", raw, reasoningEffortVocabulary)
 }
 
 // ReasoningEffortVocabulary 返回全部合法取值（"session" 在前），供配置报错提示用。

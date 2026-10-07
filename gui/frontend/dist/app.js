@@ -8,7 +8,7 @@ import { createEmbedActionGate, resolveEmbedAction } from "./embed-bridge.js";
 import { createTrajectoryView } from "./trajectory-view.js";
 import { buildTrajectory } from "./trajectory.js";
 import { createEffortControl } from "./effort-control.js";
-import { createComposerKnobs } from "./composer-knobs.js";
+import { createComposerKnobs, REASONING_EFFORT_LEVELS, REASONING_EFFORT_LABELS } from "./composer-knobs.js";
 import { permissionTierCatalog, permissionTierChip, permissionTierChipForRuntime, permissionTierMenuItems, permissionTierOptions, nextTierIndex } from "./permission-tier.js";
 import {
   planToDSL, renderNodeDetail, setNodeDetailConversation, bindNodeDetailTabs, subagentTreeNodeToDSL, workItemToDetailNode
@@ -90,7 +90,7 @@ const elements = Object.fromEntries([
   "session-list", "session-count", "new-session",
   "plugin-list", "plugin-count", "account-list", "account-count", "conversation", "conversation-tabs", "trajectory",
   "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",
-  "runtime-details", "effort-control", "effort-range", "effort-value", "reasoning-effort-control", "reasoning-effort-range", "reasoning-effort-value", "loop-limit-control", "loop-limit-range", "loop-limit-value", "work-section", "work-count", "work-unread", "work-table-open", "work-table-summary", "work-table-modal", "work-table-modal-close", "work-table-modal-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-modal-title", "scheduled-task-close", "sched-name", "sched-workspace", "sched-permission", "sched-plugins", "sched-mode", "sched-period-value", "sched-period-unit", "sched-period-field", "sched-anchor-field", "sched-start-clock", "sched-start-weekday", "sched-anchor-now", "sched-anchor-now-field", "sched-datetime", "sched-datetime-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-enabled-field", "sched-enabled-label", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
+  "runtime-details", "effort-control", "effort-range", "effort-value", "reasoning-effort-control", "reasoning-effort-range", "reasoning-effort-value", "loop-limit-control", "loop-limit-range", "loop-limit-value", "work-section", "work-count", "work-unread", "work-table-open", "work-table-summary", "work-table-modal", "work-table-modal-close", "work-table-modal-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-modal-title", "scheduled-task-close", "sched-name", "sched-workspace", "sched-permission", "sched-plugins", "sched-effort", "sched-loops", "sched-mode", "sched-period-value", "sched-period-unit", "sched-period-field", "sched-anchor-field", "sched-start-clock", "sched-start-weekday", "sched-anchor-now", "sched-anchor-now-field", "sched-datetime", "sched-datetime-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-enabled-field", "sched-enabled-label", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
   "project-name", "project-root", "project-status", "worktree-view", "file-count", "context-compactions",
   "compaction-frame-modal", "compaction-frame-modal-close", "compaction-frame-modal-title", "compaction-frame-modal-meta", "compaction-frame-modal-view",
   "team-section", "team-view", "team-count",
@@ -4567,7 +4567,7 @@ function openScheduledTaskDialog(task) {
   editingScheduledTaskID = editing ? String(task.id) : "";
   const fields = editing
     ? scheduledTaskFormFields(task)
-    : { name: "", prompt: "", mode: "period", periodValue: "1", periodUnit: "day", startClock: "", startWeekday: "1", anchorNow: false, runAtValue: "", enabled: true, workspaceId: "" };
+    : { name: "", prompt: "", mode: "period", periodValue: "1", periodUnit: "day", startClock: "", startWeekday: "1", anchorNow: false, runAtValue: "", enabled: true, workspaceId: "", reasoningEffort: "", loopLimit: "" };
   elements["sched-name"].value = fields.name;
   elements["sched-prompt"].value = fields.prompt;
   renderScheduledWorkspaceOptions(fields.workspaceId);
@@ -4637,6 +4637,22 @@ function renderScheduledAssemblyOptions(preferred) {
       option.selected = selected.has(option.value);
     }
   }
+  // 思考强度：停位与文案复用 composer 那条拉条的**同一份**清单——拉条与任务声明停的
+  // 是同一组 wire 值（low/medium/high/max），界面不该有第二套词；空选项 = 不声明，
+  // 后端按默认档位落默认值。
+  const effortSelect = elements["sched-effort"];
+  if (effortSelect) {
+    effortSelect.innerHTML = [`<option value="">（默认：与默认档位一致）</option>`]
+      .concat(REASONING_EFFORT_LEVELS.map(level =>
+        `<option value="${escapeHtml(level)}">${escapeHtml(REASONING_EFFORT_LABELS[level] || level)}</option>`))
+      .join("");
+    const effort = String(preferred?.reasoningEffort || "");
+    effortSelect.value = REASONING_EFFORT_LEVELS.includes(effort) ? effort : "";
+  }
+  // 循环次数：数字控件，空 = 不声明（后端落默认档位的那条读数）。区间（1..input_loop_limit）
+  // 由后端判，前端只给最小步进，不替它猜上界。
+  const loopsInput = elements["sched-loops"];
+  if (loopsInput) loopsInput.value = String(preferred?.loopLimit ?? "");
 }
 
 function closeScheduledTaskDialog() {
@@ -4677,6 +4693,9 @@ async function submitScheduledTask() {
     // 装配：档位空 = 后端默认 full access；插件空 = 继承宿主当前激活插件。
     permissionTier: elements["sched-permission"]?.value || "",
     plugins: [...(elements["sched-plugins"]?.selectedOptions || [])].map(option => option.value),
+    // 执行参数：留空 = 不声明（后端按默认档位落默认参数）；取值合法性由后端判。
+    reasoningEffort: elements["sched-effort"]?.value || "",
+    loopLimit: elements["sched-loops"]?.value ?? "",
     mode: elements["sched-mode"].value,
     periodValue: elements["sched-period-value"].value,
     periodUnit: elements["sched-period-unit"].value,

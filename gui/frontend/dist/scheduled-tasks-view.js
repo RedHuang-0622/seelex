@@ -34,6 +34,11 @@ export function buildScheduledTaskSpec(fields) {
   // 当前激活插件）。两个都原样交给后端归一与校验，前端不替它猜。
   const permissionTier = String(fields?.permissionTier ?? "").trim();
   const plugins = normalizePluginList(fields?.plugins);
+  // 执行参数：思考强度（provider wire 词表）与循环次数。**留空 = 不声明**，由后端
+  // 落成默认参数（默认档位的两条读数）——前端不替它猜默认值，两个入口（新建/编辑）
+  // 也就不会各写一套默认。取值合法性由后端判（词表与 1..input_loop_limit）。
+  const reasoningEffort = String(fields?.reasoningEffort ?? "").trim();
+  const loopLimit = normalizeLoopLimit(fields?.loopLimit);
   const now = Number.isFinite(Number(fields?.now)) ? Number(fields.now) : Date.now();
 
   if (fields?.mode === "at") {
@@ -47,7 +52,7 @@ export function buildScheduledTaskSpec(fields) {
         name, kind: "prompt",
         interval: 0, periodUnit: "", periodValue: 0, startClock: "", startWeekday: 0,
         runAt: parsed.toISOString(), command: "", prompt, sessionId, workspaceId,
-        permissionTier, plugins, enabled: true
+        permissionTier, plugins, reasoningEffort, loopLimit, enabled: true
       }
     };
   }
@@ -82,10 +87,19 @@ export function buildScheduledTaskSpec(fields) {
       runAt: null, // 见文件头：空串会让 Wails 的参数反序列化当场失败
       command: "", prompt, sessionId,
       workspaceId,
-      permissionTier, plugins,
+      permissionTier, plugins, reasoningEffort, loopLimit,
       enabled: Boolean(fields?.enabled)
     }
   };
+}
+
+// normalizeLoopLimit 归一弹窗里的循环次数：空值/非正整数 → 0（= 不声明，后端落默认
+// 参数）。前端只做"数字控件也可能是任意字符串"这一层的清洗；取值区间
+// （1..limits.input_loop_limit）与"越界即拒"由后端判（和循环次数拉条同一份判据）。
+export function normalizeLoopLimit(value) {
+  const limit = Number(value);
+  if (!Number.isInteger(limit) || limit < 1) return 0;
+  return limit;
 }
 
 // normalizePluginList 归一弹窗里的插件装配选择：去空白、丢空项、保序去重。
@@ -132,7 +146,11 @@ export function scheduledTaskFormFields(task) {
     workspaceId: typeof value.workspace_id === "string" ? value.workspace_id.trim() : "",
     sessionId: typeof value.session_id === "string" ? value.session_id.trim() : "",
     permissionTier: typeof value.permission_tier === "string" ? value.permission_tier.trim() : "",
-    plugins: normalizePluginList(value.plugins)
+    plugins: normalizePluginList(value.plugins),
+    // 执行参数：任务里存的一定是触发时真正要用的两条（缺省已由后端落成默认档位的
+    // 读数），所以编辑态照实填回表单；数字控件的值是字符串。
+    reasoningEffort: typeof value.reasoning_effort === "string" ? value.reasoning_effort.trim() : "",
+    loopLimit: Number.isInteger(value.loop_limit) && value.loop_limit > 0 ? String(value.loop_limit) : ""
   };
 }
 
@@ -310,9 +328,11 @@ function tierLabels(tiers) {
   return map;
 }
 
-// assemblyChips 渲染这条任务的装配读数：权限档位 + 插件集合。
+// assemblyChips 渲染这条任务的装配读数：权限档位 + 插件集合 + 执行参数。
 // 档位是**安全相关**的一格（全权 = 免审），所以照实显示；插件空 = 继承宿主当前
 // 激活插件，不显示（"没声明"不该占一个空 chip）。
+// 执行参数（思考强度 / 循环次数）同理照实显示：任务里存的就是触发那次会话要用的
+// 两条（缺省在创建时已落成默认档位的读数），面板上因此看得到"这次跑多深、跑多少轮"。
 function assemblyChips(task, tierLabelByID) {
   let html = "";
   const tier = typeof task?.permission_tier === "string" ? task.permission_tier.trim() : "";
@@ -323,6 +343,16 @@ function assemblyChips(task, tierLabelByID) {
   const plugins = normalizePluginList(task?.plugins);
   if (plugins.length) {
     html += `<span class="chip sched-chip-plugins" title="装配插件：${escapeHtml(plugins.join("、"))}">插件 ${escapeHtml(plugins.join("、"))}</span>`;
+  }
+  const effort = typeof task?.reasoning_effort === "string" ? task.reasoning_effort.trim() : "";
+  const loops = Number(task?.loop_limit);
+  const hasLoops = Number.isInteger(loops) && loops > 0;
+  if (effort || hasLoops) {
+    const parts = [];
+    if (effort) parts.push(`强度 ${effort}`);
+    if (hasLoops) parts.push(`循环 ${loops}`);
+    const text = parts.join(" · ");
+    html += `<span class="chip sched-chip-runparams" title="触发那次会话的执行参数：${escapeHtml(text)}">${escapeHtml(text)}</span>`;
   }
   return html;
 }

@@ -71,6 +71,8 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	// 实际生效的 high（384）不一致。
 	service.knobReasoningEffort = reasoningEffortFor(service.effortManager.Current())
 	service.knobLoopLimit = maxLoopsFor(service.effortManager.Current())
+	// 定时任务的按会话强度租约表在装配期建好（写路径不加锁判 nil 是漏锁的老毛病）。
+	service.sessionEffort = make(map[string]string)
 	// 进程级 fullAccess 默认在装配期捕获一次（配置/初始引擎门值），会话
 	// 未选择时回退该默认，而不是读取其它会话遗留的引擎门状态（G4）。
 	if service.Deps.Runtime != nil {

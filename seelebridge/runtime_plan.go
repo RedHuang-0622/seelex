@@ -390,7 +390,7 @@ func (r *Runtime) registerForkTool() {
 							"goal": map[string]interface{}{"type": "string"},
 							"max_loops": map[string]interface{}{
 								"type": "integer", "minimum": 1,
-								"description": "这条子代理自己的 ReAct 循环上限（可选）。缺省 = 本批默认（配置 limits.plan_node_max_loops，即配置层的子代理节点循环上限，默认 15）。与 effort 档位无关：切档位不会改变子代理的次数。只有越过进程级循环天花板（limits.input_loop_limit，默认 9999）才在调用处直接拒绝，不静默截断。",
+								"description": "这条子代理自己的 ReAct 循环上限（可选）。缺省 = 本批默认（配置 limits.plan_node_max_loops，即配置层的子代理节点循环上限，默认 384）。与 effort 档位无关：切档位不会改变子代理的次数。只有越过进程级循环天花板（limits.input_loop_limit，默认 9999）才在调用处直接拒绝，不静默截断。",
 							},
 						},
 						"required": []string{"id", "goal"},

@@ -98,6 +98,12 @@ func effortProfileFor(level string) (effortProfile, bool) {
 	return profile, ok
 }
 
+// DefaultEffortLevel 是进程默认档位：新会话（未在自己的 Unit 里选过档位）回退到它，
+// 也是"未声明执行参数"一类的缺省来源（定时任务的思考强度/循环次数默认值 = 这一档的
+// 两条读数）。**数字与词表只有 effortProfiles 一份**：别处要默认值时读
+// ReasoningEffortFor / MaxLoops，不许再抄一遍 high 与 384。
+const DefaultEffortLevel = "high"
+
 // ReasoningEffortFor returns the thinking-strength value for an effort level.
 // Unknown levels return "" - an empty value stays off the wire and the provider
 // applies its own default; we never guess a value.
@@ -155,7 +161,7 @@ func NewEffortManager(ps *PromptStack, eng interface {
 	return &EffortManager{
 		promptStack: ps,
 		engine:      eng,
-		current:     "high", // 默认 high
+		current:     DefaultEffortLevel, // 默认档位（见 DefaultEffortLevel）
 	}
 }
 

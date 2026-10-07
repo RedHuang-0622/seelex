@@ -74,7 +74,7 @@ type Limits struct {
 	LoadedContentLimit   int `yaml:"loaded_content_limit"`
 	HistoryWindow        int `yaml:"history_window"`          // 会话可见历史条数
 	PlanNodeEvents       int `yaml:"plan_node_events"`        // 节点详情时间线上限
-	PlanNodeMaxLoops     int `yaml:"plan_node_max_loops"`     // 子代理节点循环上限
+	PlanNodeMaxLoops     int `yaml:"plan_node_max_loops"`     // 子代理节点循环上限（默认 384）
 	EvidenceChars        int `yaml:"evidence_chars"`          // 证据/输出截断
 	ReplanEvidenceBytes  int `yaml:"replan_evidence_bytes"`   // replan 证据字节上限
 	InputLoopLimit       int `yaml:"input_loop_limit"`        // 输入循环上限
@@ -292,7 +292,7 @@ func DefaultLimits() Limits {
 		LoadedContentLimit:     12,
 		HistoryWindow:          200,
 		PlanNodeEvents:         30,
-		PlanNodeMaxLoops:       15,
+		PlanNodeMaxLoops:       384,
 		EvidenceChars:          800,
 		ReplanEvidenceBytes:    12 * 1024,
 		InputLoopLimit:         9999,

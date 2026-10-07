@@ -44,7 +44,7 @@ type SubagentSpec struct {
 	ID   string `json:"id"`
 	Goal string `json:"goal"`
 	// MaxLoops 是**这条子代理自己**的循环上限（可选；0 或缺失 = 本批默认，
-	// limits.plan_node_max_loops —— 配置层的"子代理节点循环上限"，默认 15）。
+	// limits.plan_node_max_loops —— 配置层的"子代理节点循环上限"，默认 384）。
 	//
 	// 它是"一个工作单元自己的执行参数"在 subagent 层的落点：每条子代理可以不一样，
 	// 而不是全批一个常量（一条只读的审查子代理不需要几十轮，一条长链条迁移需要）。

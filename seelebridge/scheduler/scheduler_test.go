@@ -912,3 +912,63 @@ func TestScheduledAnchoredTaskCarriesAnchor(t *testing.T) {
 		t.Fatalf("锚点没有归一成 HH:MM：%q", loose.StartClock)
 	}
 }
+
+// TestScheduledTaskRunParamsNormalization 钉住"执行参数"（思考强度 / 循环次数）在
+// **契约层**的口径：
+//
+//   - 空 / 0 = **未声明**：调度器这一域**不落默认值**——默认来自 effort 档位表
+//     （application/prompt 的默认档位读数），而档位表不属于这一域。装配层在创建/编辑
+//     时把默认填进定义，冷启动读回的老记录由装配层在触发时按同一份判据兜底；
+//   - 声明的值归一（去空白 + 大小写）后进定义与快照（面板数据源）；
+//   - 未识别的强度（含账号配置侧的 "session"）、负的循环次数 **显式拒绝**——不静默
+//     降级成默认值，那正是"面板说 low、实际按 high 跑"的形状。
+func TestScheduledTaskRunParamsNormalization(t *testing.T) {
+	state := newSchedulerTestState(t)
+	defer state.Stop()
+	state.SetPromptExecutor(okPromptExecutor("ok"))
+
+	// 空 = 未声明：定义与快照都留空/0，由装配层落默认。
+	bare, err := state.Schedule(context.Background(), ScheduledTaskSpec{
+		Name: "未声明", Kind: ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour, Enabled: true,
+	})
+	if err != nil {
+		t.Fatalf("Schedule: %v", err)
+	}
+	if bare.ReasoningEffort != "" || bare.LoopLimit != 0 {
+		t.Fatalf("未声明的执行参数不该由调度器落默认值：(%q, %d)", bare.ReasoningEffort, bare.LoopLimit)
+	}
+
+	// 声明了：归一后进定义与快照（面板数据源）。
+	declared, err := state.Update(context.Background(), bare.ID, ScheduledTaskSpec{
+		Name: "带参数", Kind: ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour, Enabled: true,
+		ReasoningEffort: " HIGH ", LoopLimit: 48,
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if declared.ReasoningEffort != dto.ReasoningEffortHigh || declared.LoopLimit != 48 {
+		t.Fatalf("声明的执行参数没有归一进快照：(%q, %d)", declared.ReasoningEffort, declared.LoopLimit)
+	}
+	if got := state.Snapshot()[0]; got.ReasoningEffort != dto.ReasoningEffortHigh || got.LoopLimit != 48 {
+		t.Fatalf("快照没有带上执行参数：(%q, %d)", got.ReasoningEffort, got.LoopLimit)
+	}
+
+	for _, tc := range []struct {
+		name string
+		spec ScheduledTaskSpec
+	}{
+		{"未识别的思考强度", ScheduledTaskSpec{ReasoningEffort: "ludicrous"}},
+		{"跟随会话不是一条任务参数", ScheduledTaskSpec{ReasoningEffort: dto.ReasoningEffortSession}},
+		{"循环次数为负", ScheduledTaskSpec{LoopLimit: -1}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := ScheduledTaskSpec{
+				Name: "非法执行参数", Kind: ScheduledTaskPrompt, Prompt: "P", Interval: time.Hour, Enabled: true,
+				ReasoningEffort: tc.spec.ReasoningEffort, LoopLimit: tc.spec.LoopLimit,
+			}
+			if _, err := state.Schedule(context.Background(), spec); err == nil {
+				t.Fatalf("非法执行参数被接受：%+v", spec)
+			}
+		})
+	}
+}

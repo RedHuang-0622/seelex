@@ -365,6 +365,16 @@
         <select id="sched-plugins" multiple size="3"></select>
         <small class="settings-note">不选 = 继承宿主当前激活插件；装配只收窄工具面，不放宽权限。</small>
       </label>
+      <label class="settings-field">思考强度
+        <select id="sched-effort">
+          <option value="">（默认：与默认档位一致）</option>
+        </select>
+        <small class="settings-note">触发那次会话"想多深"。留空 = 创建时按默认档位落成默认值（面板上显示实际生效值）。</small>
+      </label>
+      <label class="settings-field">循环次数
+        <input id="sched-loops" type="number" min="1" step="1" placeholder="（默认：与默认档位一致）">
+        <small class="settings-note">触发那次会话跑多少轮（钉在那个会话自己的引擎上，不改进程默认值）。留空 = 默认档位的那条读数。</small>
+      </label>
       <label class="settings-field">执行方式
         <select id="sched-mode">
           <option value="period">周期重复</option>

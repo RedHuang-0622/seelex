@@ -158,3 +158,10 @@ fork 子代理那条链不干净——本轮把它拆掉。
 **行为变化要知道**：档位 high/max 下 fork 子代理的缺省循环数由 48/96 变为配置的 15。
 需要更多轮的批次请在 `limits.plan_node_max_loops` 上调，或给那条子代理自己写
 `max_loops`（模型侧现在也可以直接声明，且不受档位拦）。
+
+**追记（同日，见 [2026-10-08-scheduled-run-params.md](./2026-10-08-scheduled-run-params.md)）**：
+本节成立之后，`limits.plan_node_max_loops` 的默认值由 **15 上调为 384**（与默认档位
+high 的循环次数一致），于是"档位 high/max 下 fork 子代理缺省 48/96 → 配置 15"这句读作
+**48/96 → 384**：解耦这件事本身没变（子代理缺省仍然只由这条配置决定，与档位无关），
+变的只是那条配置的默认值。上面对 `forkNodeLoops` 的删除、上限判据换成进程天花板、
+`PlanPolicy.MaxNodeLoops` 只留给主代理 `plan_load` 节点，全部照旧。

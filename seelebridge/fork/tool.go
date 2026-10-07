@@ -421,7 +421,7 @@ func (t *Tool) buildForkPlan(input Input, taskBindings map[string]string) (*plan
 	}
 	for _, spec := range input.Subagents {
 		// 子代理节点循环预算 = **这一条自己声明的 max_loops**，否则本批默认
-		// PlanNodeMaxLoops（配置 plan_node_max_loops，默认 15）。**刻意不读
+		// PlanNodeMaxLoops（配置 plan_node_max_loops，默认 384）。**刻意不读
 		// effort 档位的 PlanPolicy.MaxNodeLoops**：档位管的是主代理自己的循环
 		// 次数与思考强度，一个工作单元跑多少轮只由它自己（或配置）决定——
 		// 否则"切一次 reasoning effort，子代理的次数跟着变"（2026-10-08 口径）。
