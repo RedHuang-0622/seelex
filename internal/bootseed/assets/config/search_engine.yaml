@@ -1,0 +1,45 @@
+# Copy this file to search_engine.yaml.
+#
+# web_search 工具的搜索引擎配置 —— **独立于账号配置**（2026-10 从 accounts.yaml
+# 的 websearch 段拆出来）。为什么单独一份：搜索是工具接线（用哪个引擎、哪把密钥、
+# 多深、几条结果），与"用哪个模型账号"无关；混在账号档里换引擎要去动凭据文件。
+#
+# 格式是**根级字段**（不再套 `websearch:` 段）：文件本身就叫 search_engine，
+# 再套一层同名段只是把每一行埋深两格。
+#
+# 生命周期：本档参与"缺失即初始化"——`config/search_engine.yaml`、
+# `search_engine.yaml`、`<exe>/config/search_engine.yaml` 三处全缺时，启动期在
+# `<exe>/config/` 落一份这份内容，之后**只读你这份**。种子档**不含任何凭据**
+# （provider 与 api_key 都是空的），所以凭空生成一份不会让应用"看起来已配置"。
+#
+# 空 provider ⇒ 不接任何搜索引擎，web_search 会以既有的"未配置"姿态提示。
+
+# 结果条数（默认 5）
+max_results: 5
+# 是否请求引擎附一段综合答案（默认 true）。只有**显式写出来**才会覆盖默认值。
+include_answer: true
+# 检索深度：basic | advanced（默认 advanced）
+search_depth: advanced
+# timeout: 15                # 可选：覆盖 limits.search_timeout
+# active: gateway            # 可选：多策略时选中一个；缺省取第一个
+#
+# ── 单引擎接入（最常用）────────────────────────────────────────────
+# provider: tavily           # tavily | bochaai | searxng
+# api_key: replace-with-your-key
+#
+# ── 多引擎/自建网关：strategies 列表 ────────────────────────────────
+# 三种接入方式，对外入参/出参完全一致：
+#   1) 标准协议端点 / 自建网关：只需端点与密钥，type 省略或写 standard
+#   2) 内置厂商适配器：type 写厂商名（tavily | bochaai | searxng），走专有协议
+#   3) 上面的 provider/api_key 简写——未声明 strategies 时自动翻译成策略
+# 声明了 strategies 就请把 provider/api_key 注释掉，或用 active 指定用哪个。
+# strategies:
+#   - name: gateway
+#     endpoint: https://your-gateway.example/search
+#     api_key: replace-with-your-key
+#   - name: bocha
+#     type: bochaai          # 博查 Web Search API（api_key 必填，端点可选）
+#     api_key: replace-with-your-bochaai-key
+#   - name: sx
+#     type: searxng          # SearXNG JSON API（endpoint 必填，api_key 可选）
+#     endpoint: https://searx.example.org/search

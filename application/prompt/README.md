@@ -72,7 +72,7 @@ flowchart LR
 
 每个 budget 都限制工具轮数和工具调用数，并在 `core.Service` 接管底层 Engine 未主动执行 `MaxLoops` 时作为最终的收束边界。预算按提交时的 effort 快照保存；它不会禁止 Markdown 导出等交付工具，只会阻止预算耗尽后的下一次 ReAct 迭代。长编码任务不设 wall-clock 超时，仍可由用户显式取消。
 
-具体提示词不保存在 Go 常量中。Seelex-owned identity、通用系统规则、各 effort 规则和 PlanAct preflight/replan 模板位于 [`internal/promptassets`](../../internal/promptassets/README.md)，并在构建时嵌入二进制。这里仅保留层组合和 effort→运行时 policy 的映射。
+具体提示词不保存在 Go 常量中。Seelex-owned identity、通用系统规则、各 effort 规则和 PlanAct preflight/replan 模板位于 [`internal/promptassets`](../../internal/promptassets/README.md)：默认以内嵌资源随二进制走，启动期可被 `config/prompt/` 里的同名文件逐份覆盖（外部覆盖层，见该包 README）。这里仅保留层组合和 effort→运行时 policy 的映射。注意 effort 档的正文是**惰性解析**的（`effortProfile.Prompt()`）——`effortProfiles` 在包初始化期构造，早于外部目录设定，初始化期取正文会把内嵌词定死。
 
 每个 budget 同时限制工具轮数、工具调用数和连续无进展轮数；无进展只在重复工具工作未产生新事实、变更、产物或 Plan 节点状态时计数。它是最后熔断器，主路径仍是 Application 的 checkpoint 与 token 驱动上下文裁剪；长编码任务没有 wall-clock timeout。预算不会禁止 Markdown 导出等交付工具。
 

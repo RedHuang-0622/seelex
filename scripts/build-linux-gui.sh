@@ -83,6 +83,7 @@ pack() {
   mkdir -p "$OUTDIR/config"
   cp config/accounts.example.yaml config/README.md "$OUTDIR/config/"
   cp config/seele.yaml config/seelex.yaml "$OUTDIR/config/"
+  cp config/mcp.example.yaml config/search_engine.example.yaml "$OUTDIR/config/"
   rm -rf -- "$OUTDIR/plugins"
   cp -r plugins "$OUTDIR/"
   cp LICENSE CHANGELOG.md README.md "$OUTDIR/"

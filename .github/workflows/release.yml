@@ -67,6 +67,7 @@ jobs:
             -o "stage/${name}/seelex${{ matrix.extension }}" .
           cp config/accounts.example.yaml "stage/${name}/config/"
           cp config/seele.yaml config/seelex.yaml "stage/${name}/config/"
+          cp config/mcp.example.yaml config/search_engine.example.yaml "stage/${name}/config/"
           cp -r plugins "stage/${name}/"
           cp LICENSE CHANGELOG.md README.md "stage/${name}/"
           if [ -f README_EN.md ]; then
@@ -75,6 +76,8 @@ jobs:
           unexpected="$(find "stage/${name}" \( \
             -path '*/.seelex' -o \
             -path '*/config/accounts.yaml' -o \
+            -path '*/config/mcp.yaml' -o \
+            -path '*/config/search_engine.yaml' -o \
             -path '*/.seelex/*' -o \
             -name '*.local.yaml' -o \
             -name '*.secret.yaml' \
@@ -193,6 +196,8 @@ jobs:
               -path '*/.seelex' -o \
               -path '*/.seelex/*' -o \
               -path '*/config/accounts.yaml' -o \
+              -path '*/config/mcp.yaml' -o \
+              -path '*/config/search_engine.yaml' -o \
               -name '*.local.yaml' -o \
               -name '*.secret.yaml' \
             \) -print)"

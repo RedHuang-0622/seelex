@@ -67,8 +67,20 @@ if ($LASTEXITCODE -ne 0) {
 
 Copy-Item (Join-Path $Root "config/accounts.example.yaml") (Join-Path $StageRoot "config/")
 Copy-Item (Join-Path $Root "config/README.md") (Join-Path $StageRoot "config/")
+Copy-Item (Join-Path $Root "config/mcp.example.yaml") (Join-Path $StageRoot "config/")
+Copy-Item (Join-Path $Root "config/search_engine.example.yaml") (Join-Path $StageRoot "config/")
 if ($BuildKind -eq "Dev") {
     Copy-Item -LiteralPath $configSource -Destination (Join-Path $StageRoot "config/accounts.yaml")
+    # 同目录的 mcp.yaml / search_engine.yaml 是本地实例（含密钥、被 gitignore 忽略），
+    # 按与 accounts.yaml 相同的「显式路径、不透明复制」纪律一并带进 dev 产物；
+    # 缺失即跳过：启动期 bootseed 会就地在 <exe>/config/ 初始化一份默认档。
+    $configDir = Split-Path -Parent $configSource
+    foreach ($name in @("mcp.yaml", "search_engine.yaml")) {
+        $src = Join-Path $configDir $name
+        if (Test-Path -LiteralPath $src) {
+            Copy-Item -LiteralPath $src -Destination (Join-Path $StageRoot "config/$name")
+        }
+    }
 }
 Copy-Item -Recurse (Join-Path $Root "plugins") (Join-Path $StageRoot "plugins")
 Copy-Item (Join-Path $Root "config/seele.yaml") (Join-Path $StageRoot "config/")  # permission rules

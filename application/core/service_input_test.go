@@ -211,7 +211,7 @@ func TestSuggestionsAndSkillRouting(t *testing.T) {
 	if !strings.Contains(prompt, "Seelex") {
 		t.Fatalf("prompt missing identity: %q", prompt)
 	}
-	if !strings.Contains(prompt, "## Effort: High") {
+	if !strings.Contains(prompt, "## Effort Workflow") {
 		t.Fatalf("prompt missing effort: %q", prompt)
 	}
 	if modelInput != "/review strict" {

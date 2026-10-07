@@ -239,7 +239,7 @@ func TestAssemble_LegacyProviderBocha(t *testing.T) {
 func TestAssemble_UnknownProviderListsBuiltins(t *testing.T) {
 	// 未知 provider 报错时应提示可用内置厂商，帮助用户修正配置。
 	_, err := Assemble(WebSearchConfig{Provider: "google", APIKey: "sk-test"})
-	if err == nil || !strings.Contains(err.Error(), "未配置任何 websearch 代理策略") || !strings.Contains(err.Error(), "bochaai") {
+	if err == nil || !strings.Contains(err.Error(), "未配置任何搜索引擎代理策略") || !strings.Contains(err.Error(), "bochaai") {
 		t.Fatalf("expected guidance error listing builtins, got %v", err)
 	}
 }

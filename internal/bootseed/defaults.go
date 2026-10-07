@@ -27,8 +27,10 @@ func Assets() fs.FS { return assetsFS }
 // RuntimeConfigName / PermissionConfigName 是运行参数与权限规则的文件名：调用方
 // 拼候选链（`config/<name>`、`<name>`、`<exe>/config/<name>`）时共用同一份常量。
 const (
-	RuntimeConfigName    = "seelex.yaml"
-	PermissionConfigName = "seele.yaml"
+	RuntimeConfigName      = "seelex.yaml"
+	PermissionConfigName   = "seele.yaml"
+	MCPConfigName          = "mcp.yaml"
+	SearchEngineConfigName = "search_engine.yaml"
 )
 
 // RuntimeConfigPack 是运行参数配置（window / limits）的默认数据包。
@@ -42,6 +44,28 @@ func RuntimeConfigPack() Pack {
 func PermissionConfigPack() Pack {
 	return Pack{Name: PermissionConfigName, Files: []File{
 		{Rel: PermissionConfigName, Source: "assets/config/" + PermissionConfigName},
+	}}
+}
+
+// MCPConfigPack 是 MCP 服务器清单（mcp.yaml）的默认数据包。
+//
+// 默认档里 mcp_servers 是空列表：MCP 是**用户接线**（要挂 playwright 还是
+// 内部 server，取决于这台机器装了什么），凭空生成一份带具体 server 的档会
+// 让启动期去 spawn 一个并不存在的进程。
+func MCPConfigPack() Pack {
+	return Pack{Name: MCPConfigName, Files: []File{
+		{Rel: MCPConfigName, Source: "assets/config/" + MCPConfigName},
+	}}
+}
+
+// SearchEngineConfigPack 是搜索引擎配置（search_engine.yaml）的默认数据包。
+//
+// 与 accounts.yaml 不同，它**参与自愈**：种子内容里没有任何凭据（provider 与
+// api_key 都是空占位），凭空生成一份不会让应用"看起来已配置"——装上就能跑，
+// 只是没接搜索引擎，web_search 会以其既有的"未配置"姿态提示。
+func SearchEngineConfigPack() Pack {
+	return Pack{Name: SearchEngineConfigName, Files: []File{
+		{Rel: SearchEngineConfigName, Source: "assets/config/" + SearchEngineConfigName},
 	}}
 }
 

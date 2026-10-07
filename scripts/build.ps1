@@ -87,6 +87,8 @@ foreach ($t in $Targets) {
     New-Item -ItemType Directory -Force -Path $configOut | Out-Null
     Copy-Item (Join-Path $Root "config/accounts.example.yaml") $configOut -Force
     Copy-Item (Join-Path $Root "config/README.md") $configOut -Force
+    Copy-Item (Join-Path $Root "config/mcp.example.yaml") $configOut -Force
+    Copy-Item (Join-Path $Root "config/search_engine.example.yaml") $configOut -Force
     Copy-Item (Join-Path $Root "config/seele.yaml") $configOut -Force
     Copy-Item (Join-Path $Root "config/seelex.yaml") $configOut -Force
     Copy-Item -Recurse (Join-Path $Root "plugins") $outDir -Force

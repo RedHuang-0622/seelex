@@ -215,7 +215,8 @@ func (executor *Executor) planPreflightClient() *api.ChatClient {
 	spec := executor.resolvePreflightAccountSpec()
 	client := api.NewChatClient(types.LLMConfig{
 		BaseURL: spec.BaseURL, APIKey: spec.APIKey, Model: spec.Model,
-		MaxTokens: spec.MaxTokens, Timeout: 300, Temperature: 0.7,
+		MaxTokens: spec.MaxTokens, Timeout: 300, Temperature: spec.Temperature,
+		ReasoningEffort: model.WireReasoningEffort(spec.ReasoningEffort),
 	})
 	provider := api.ProviderType(spec.Provider)
 	client.SetProvider(provider)

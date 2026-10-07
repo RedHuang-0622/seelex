@@ -11,7 +11,7 @@ func TestAssemble_NoStrategies(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when no strategies configured")
 	}
-	if !strings.Contains(err.Error(), "未配置任何 websearch 代理策略") {
+	if !strings.Contains(err.Error(), "未配置任何搜索引擎代理策略") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

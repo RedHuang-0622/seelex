@@ -57,7 +57,7 @@ func Assemble(cfg WebSearchConfig) (Strategy, error) {
 		}
 	}
 	if len(strategies) == 0 {
-		return nil, fmt.Errorf("search: 未配置任何 websearch 代理策略（请在 websearch.strategies 声明，或用旧字段 provider/api_key；内置厂商: %s）", strings.Join(builtinNames(), ", "))
+		return nil, fmt.Errorf("search: 未配置任何搜索引擎代理策略（请在 search_engine.yaml 的 strategies 声明，或写 provider/api_key 简写；内置厂商: %s）", strings.Join(builtinNames(), ", "))
 	}
 
 	selected := strategies[0]

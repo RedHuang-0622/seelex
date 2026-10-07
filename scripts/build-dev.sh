@@ -41,7 +41,7 @@ fi
 sync_package_config() {
   local dest="$ROOT/dist/seelex-gui-dev/config" name src
   mkdir -p "$dest"
-  for name in seelex.yaml seele.yaml; do
+  for name in seelex.yaml seele.yaml mcp.yaml search_engine.yaml; do
     src="$ROOT/config/$name"
     if [[ ! -f "$src" ]]; then
       continue

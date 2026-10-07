@@ -18,6 +18,11 @@ import (
 // ClientFor 从账号配置构造一个同步 Completer（agent.Completer）。
 // 每个账号一个独立 client，账号选择统一走 accountpool 租赁，不做类型断言。
 //
+// 参数纪律（2026-10）：采样参数**不再硬编码在本文件**——temperature 与
+// max_tokens 都来自账号配置（accounts.yaml 的 defaults 段 + 每个角色的每条账号
+// 各自可覆盖，见 seelebridge/internal/config）。本文件只保留一条不可配置的
+// 纪律：Timeout 清零。
+//
 // 超时纪律（2026-09-29 事故）：api.NewChatClient 把 LLMConfig.Timeout 变成
 // http.Client.Timeout——**整请求 wall-clock 上限，含 SSE body 读**。长流因此会被
 // 「总时长」而不是「停滞」判死，报错措辞 `…(Client.Timeout or context cancellation
@@ -27,7 +32,8 @@ import (
 func ClientFor(spec model.AccountSpec) agent.Completer {
 	client := api.NewChatClient(types.LLMConfig{
 		BaseURL: spec.BaseURL, APIKey: spec.APIKey, Model: spec.Model,
-		MaxTokens: spec.MaxTokens, Temperature: 0.7,
+		MaxTokens: spec.MaxTokens, Temperature: spec.Temperature,
+		ReasoningEffort: model.WireReasoningEffort(spec.ReasoningEffort),
 	})
 	client.Client.Timeout = 0
 	client.Client.Transport = newStreamTransport(http.DefaultTransport)
@@ -133,4 +139,37 @@ func leastBusyForRole(pool *accountpool.P2CPool[agent.Completer], role model.Acc
 		return "", false
 	}
 	return bestID, true
+}
+
+// SetSessionReasoningEffort 把**配置为跟随会话**的账号调到 effort 指定的思考强度，
+// 返回实际被改动的账号数（0 = 没有账号跟随会话，或池是空的）。
+//
+// 只碰 spec.ReasoningEffort == model.ReasoningEffortSession 的账号：写死了强度的
+// 角色（subagent 默认 low、goalplan 默认 high，或用户在账号条目里显式配置的）
+// 不受会话档位影响——"跟随会话"是显式选择，不是"所有账号跟着一起变"。
+//
+// effort 是 provider 词表的 wire 值（low/medium/high/max）；空串 = 不下发。
+// 线程安全由 *api.ChatClient 自己的读锁保证，可在请求在途时调用。
+//
+// 为什么类型断言收在这里：账号池存的是 agent.Completer 接口，而"改思考强度"只有
+// Seele 的 *api.ChatClient 支持。按既有纪律"账号选择不做类型断言"，断言被收在
+// 这**一个**函数里（装配层），不散到调用点。
+func SetSessionReasoningEffort(pool *accountpool.P2CPool[agent.Completer], specs []model.AccountSpec, effort string) int {
+	if pool == nil {
+		return 0
+	}
+	changed := 0
+	for _, entry := range pool.Entries() {
+		spec := ByName(specs, entry.Snapshot.ID)
+		if spec == nil || spec.ReasoningEffort != model.ReasoningEffortSession {
+			continue
+		}
+		client, ok := entry.Value.(*api.ChatClient)
+		if !ok {
+			continue
+		}
+		client.SetReasoningEffort(effort)
+		changed++
+	}
+	return changed
 }

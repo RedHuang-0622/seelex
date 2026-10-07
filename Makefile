@@ -67,6 +67,7 @@ package:
 		mkdir -p "$$outdir/config"; \
 		cp config/accounts.example.yaml "$$outdir/config/"; \
 		cp config/README.md "$$outdir/config/"; \
+		cp config/mcp.example.yaml config/search_engine.example.yaml "$$outdir/config/"; \
 		cp config/seele.yaml config/seelex.yaml "$$outdir/config/"; \
 		cp -r plugins "$$outdir/"; \
 		cp LICENSE CHANGELOG.md README.md "$$outdir/"; \

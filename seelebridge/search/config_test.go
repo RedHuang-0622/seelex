@@ -6,8 +6,19 @@ import (
 	"testing"
 )
 
-func TestLoadConfig_Defaults(t *testing.T) {
-	cfg := LoadConfig(filepath.Join(t.TempDir(), "missing.yaml"))
+// 夹具写的是**根级字段**：search_engine.yaml 不再套 `websearch:` 段
+// （段名跟着文件走，独立文件里再套一层只是把每行埋深两格）。
+func writeSearchEngine(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), FileName)
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestLoad_Defaults(t *testing.T) {
+	cfg := Load(filepath.Join(t.TempDir(), "missing.yaml"))
 	if cfg.Provider != "" {
 		t.Errorf("expected no default provider (engine-agnostic), got %q", cfg.Provider)
 	}
@@ -22,28 +33,20 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	}
 }
 
-func TestLoadConfig_InvalidYAML(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "invalid_ws.yaml")
-	if err := os.WriteFile(path, []byte("{{{invalid yaml"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg := LoadConfig(path)
+func TestLoad_InvalidYAML(t *testing.T) {
+	path := writeSearchEngine(t, "{{{invalid yaml")
+	cfg := Load(path)
 	if cfg.Provider != "" {
 		t.Errorf("expected no default provider, got %q", cfg.Provider)
 	}
 }
 
-func TestLoadConfig_PartialOverride(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "partial_ws.yaml")
-	content := `
-websearch:
-  api_key: "sk-test-key"
-  max_results: 10
-`
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg := LoadConfig(path)
+func TestLoad_PartialOverride(t *testing.T) {
+	path := writeSearchEngine(t, `
+api_key: "sk-test-key"
+max_results: 10
+`)
+	cfg := Load(path)
 	if cfg.Provider != "" {
 		t.Errorf("expected no provider override, got %q", cfg.Provider)
 	}
@@ -62,21 +65,16 @@ websearch:
 	}
 }
 
-func TestLoadConfig_FullOverride(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "full_ws.yaml")
-	content := `
-websearch:
-  provider: "tavily"
-  api_key: "sk-test-key"
-  max_results: 3
-  include_answer: false
-  search_depth: "basic"
-  timeout: 20
-`
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg := LoadConfig(path)
+func TestLoad_FullOverride(t *testing.T) {
+	path := writeSearchEngine(t, `
+provider: "tavily"
+api_key: "sk-test-key"
+max_results: 3
+include_answer: false
+search_depth: "basic"
+timeout: 20
+`)
+	cfg := Load(path)
 	if cfg.Provider != "tavily" {
 		t.Errorf("expected provider 'tavily', got %q", cfg.Provider)
 	}
@@ -97,17 +95,12 @@ websearch:
 	}
 }
 
-func TestLoadConfig_EmptyAPIKeyKeepsDefault(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "empty_key_ws.yaml")
-	content := `
-websearch:
-  api_key: ""
-  max_results: 8
-`
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg := LoadConfig(path)
+func TestLoad_EmptyAPIKeyKeepsDefault(t *testing.T) {
+	path := writeSearchEngine(t, `
+api_key: ""
+max_results: 8
+`)
+	cfg := Load(path)
 	if cfg.APIKey != "" {
 		t.Errorf("expected empty API key, got %q", cfg.APIKey)
 	}
@@ -116,35 +109,25 @@ websearch:
 	}
 }
 
-func TestLoadConfig_ZeroMaxResultsKeepsDefault(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "zero_max_ws.yaml")
-	content := `
-websearch:
-  max_results: 0
-`
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg := LoadConfig(path)
+func TestLoad_ZeroMaxResultsKeepsDefault(t *testing.T) {
+	path := writeSearchEngine(t, `
+max_results: 0
+`)
+	cfg := Load(path)
 	if cfg.MaxResults != 5 {
 		t.Errorf("expected default max_results 5, got %d", cfg.MaxResults)
 	}
 }
 
-func TestLoadConfig_Strategies(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "strategies_ws.yaml")
-	content := `
-websearch:
-  active: "searxng"
-  strategies:
-    - name: searxng
-      endpoint: https://searx.example.org/search
-      api_key: replace-with-key
-`
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg := LoadConfig(path)
+func TestLoad_Strategies(t *testing.T) {
+	path := writeSearchEngine(t, `
+active: "searxng"
+strategies:
+  - name: searxng
+    endpoint: https://searx.example.org/search
+    api_key: replace-with-key
+`)
+	cfg := Load(path)
 	if cfg.Active != "searxng" {
 		t.Errorf("expected active 'searxng', got %q", cfg.Active)
 	}
@@ -157,19 +140,14 @@ websearch:
 	}
 }
 
-func TestLoadConfig_StrategiesApikeyAlias(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "strategies_alias_ws.yaml")
-	content := `
-websearch:
-  strategies:
-    - name: my-search
-      endpoint: https://search.example.org/search
-      apikey: alias-key
-`
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg := LoadConfig(path)
+func TestLoad_StrategiesApikeyAlias(t *testing.T) {
+	path := writeSearchEngine(t, `
+strategies:
+  - name: my-search
+    endpoint: https://search.example.org/search
+    apikey: alias-key
+`)
+	cfg := Load(path)
 	if len(cfg.Strategies) != 1 {
 		t.Fatalf("expected 1 strategy, got %d", len(cfg.Strategies))
 	}
@@ -178,22 +156,17 @@ websearch:
 	}
 }
 
-func TestLoadConfig_StrategiesType(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "strategies_type_ws.yaml")
-	content := `
-websearch:
-  strategies:
-    - name: bocha
-      type: bochaai
-      api_key: sk-bocha
-    - name: local
-      endpoint: https://search.example.org/search
-      api_key: key
-`
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg := LoadConfig(path)
+func TestLoad_StrategiesType(t *testing.T) {
+	path := writeSearchEngine(t, `
+strategies:
+  - name: bocha
+    type: bochaai
+    api_key: sk-bocha
+  - name: local
+    endpoint: https://search.example.org/search
+    api_key: key
+`)
+	cfg := Load(path)
 	if len(cfg.Strategies) != 2 {
 		t.Fatalf("expected 2 strategies, got %d", len(cfg.Strategies))
 	}

@@ -235,7 +235,7 @@ func TestPluginSwitchPreservesEffort(t *testing.T) {
 	if got := service.Snapshot().Runtime.Effort; got != "max" {
 		t.Fatalf("snapshot runtime effort after plugin switch = %q, want max", got)
 	}
-	if prompt := service.promptStack.Render(); !strings.Contains(strings.ToLower(prompt), "## effort:") || !strings.Contains(strings.ToLower(prompt), "max") {
+	if prompt := service.promptStack.Render(); !strings.Contains(prompt, `<effort name="max">`) {
 		t.Fatalf("插件切换后 system prompt 丢了 effort 层: %q", prompt)
 	}
 

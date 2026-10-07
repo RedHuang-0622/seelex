@@ -4,7 +4,15 @@
 
 `defaults.context_window` 表示模型的总上下文窗口，`defaults.max_tokens` 表示单次响应的最大输出 token。账号条目可以覆盖这两个值；Application 会从总窗口中扣除输出预留和 12.5% 安全余量后计算可用输入预算。
 
-`config/` 存放运行时账号配置模板、本机私有配置以及运行参数文件（`seele.yaml` 权限规则、`seelex.yaml` 窗口/limits 参数）。配置最终由 Seele ChatClient/AccountPool 读取，Seelex composition root 负责选择文件并注入 Runtime。
+`config/` 存放**四条彼此独立的配置链**：账号（`accounts.yaml`）、MCP 服务器清单
+（`mcp.yaml`）、搜索引擎（`search_engine.yaml`）、运行参数与权限（`seelex.yaml` /
+`seele.yaml`）。后三条里的前两条是 2026-10 才拆出来的——此前搜索与 MCP 都塞在
+账号档里，于是"换个搜索引擎 / 接一个 MCP"要去动凭据文件，而那份档因含模型密钥
+被 gitignore，开关方式也就进不了版本库（它恰恰最该被评审）。
+
+路径一律由 Seelex composition root（`main.go`）经 `bootseed` 责任链解析后注入
+Runtime / 工具；叶子包（`seelebridge`、`mcpstack/config`、`seelebridge/search`）
+只收路径，不参与路径决策，也不互相认识。
 
 ## 数据流图
 
@@ -20,12 +28,23 @@ flowchart LR
     ROOT["main.go：选择文件并注入 Runtime"] --> LOAD
     ROOT --> SEELE
     ROOT --> SEELEX
+    MCP["config/mcp.yaml<br/>mcp_servers 列表"] --> MCPLOAD["mcpstack/config.Load"]
+    MCPLOAD --> LAZY["Runtime：冷启动登记 MCP server"]
+    SEARCH["config/search_engine.yaml<br/>根级搜索字段"] --> SEARCHLOAD["seelebridge/search.Load"]
+    SEARCHLOAD --> WEBSEARCH["web_search 工具装配 Strategy"]
+    ROOT --> MCP
+    ROOT --> SEARCH
 ```
 
 ## 文件约定
 
 - `accounts.example.yaml`：唯一可公开复制、文档引用和发行打包的账号模板。
 - `accounts.yaml`：本机实际账号文件，可能含秘密，不应提交或出现在文档输出。
+- `mcp.example.yaml` / `mcp.yaml`：MCP 服务器清单（根级 `mcp_servers:` 列表）。
+  示例可公开；`mcp.yaml` 进 `.gitignore`（`env` 里可能放 token），不提交。
+- `search_engine.example.yaml` / `search_engine.yaml`：搜索引擎配置（**根级**
+  字段，不再套 `websearch:` 段）。示例可公开且**不含任何凭据**；`search_engine.yaml`
+  进 `.gitignore`（含 `api_key`），不提交。
 - `*.local.yaml`：机器或开发者专用覆盖文件，同样不得发布。
 - `seele.yaml`：权限规则文件（permission.rules），`main.go` 优先读 `config/seele.yaml`，根目录版本回退兼容。
 - `seelex.yaml`：运行参数文件（window / limits），加载逻辑同上。**两个 `limits` 段只有一个家**：`window` 与 `limits`（含 `limits.session_storage`）都从 `config/seelex.yaml` 读（`core.LoadWindowConfig` 与 `seelexctx.LoadLimits` 收的是同一个路径，见 `main.go` 的 `initRuntime`）；`config/seele.yaml` 只放权限段。

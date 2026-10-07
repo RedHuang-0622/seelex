@@ -24,9 +24,9 @@ func (f *fakeRegistrar) RegisterTool(name, description string, inputSchema map[s
 	f.handler = handler
 }
 
-func writeAccounts(t *testing.T, content string) string {
+func writeSearchEngine(t *testing.T, content string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "accounts.yaml")
+	path := filepath.Join(t.TempDir(), "search_engine.yaml")
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -67,15 +67,14 @@ func TestRegister_MinimalStrategyEndToEnd(t *testing.T) {
 	defer srv.Close()
 
 	content := `
-websearch:
-  max_results: 3
-  strategies:
-    - name: local
-      endpoint: ` + srv.URL + `
-      apikey: test-key
+max_results: 3
+strategies:
+  - name: local
+    endpoint: ` + srv.URL + `
+    apikey: test-key
 `
 	r := &fakeRegistrar{}
-	Register(r, writeAccounts(t, content))
+	Register(r, writeSearchEngine(t, content))
 	if r.name != "web_search" || r.handler == nil {
 		t.Fatalf("expected registered handler, got %+v", r)
 	}
@@ -95,14 +94,13 @@ func TestRegister_EmptyQueryRejected(t *testing.T) {
 	defer srv.Close()
 
 	content := `
-websearch:
-  strategies:
-    - name: local
-      endpoint: ` + srv.URL + `
-      apikey: test-key
+strategies:
+  - name: local
+    endpoint: ` + srv.URL + `
+    apikey: test-key
 `
 	r := &fakeRegistrar{}
-	Register(r, writeAccounts(t, content))
+	Register(r, writeSearchEngine(t, content))
 	if _, err := r.handler(context.Background(), `{"query":"  "}`); err == nil {
 		t.Fatal("expected error for empty query")
 	}

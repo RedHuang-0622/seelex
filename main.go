@@ -32,6 +32,7 @@ import (
 	"github.com/RedHuang-0622/seelex/internal/adapters"
 	"github.com/RedHuang-0622/seelex/internal/bootseed"
 	"github.com/RedHuang-0622/seelex/internal/buildinfo"
+	"github.com/RedHuang-0622/seelex/internal/promptassets"
 	mcpconfig "github.com/RedHuang-0622/seelex/mcpstack/config"
 	"github.com/RedHuang-0622/seelex/plugin"
 	"github.com/RedHuang-0622/seelex/seelebridge"
@@ -309,6 +310,82 @@ func main() {
 	}
 }
 
+// promptDirChain 返回提示词资产目录在责任链上的候选与落盘根（口径同
+// runtimeConfigChain，只是载荷从"一个文件"变成"一个目录"）：
+//
+//  1. config/prompt/system/instructions.md        CWD 相对（仓库 / go run 开发场景；
+//     用户改过的就是它）
+//  2. <exe>/config/prompt/system/instructions.md  包内目录（正式部署：二进制旁边自带一份）
+//
+// 判据取目录里的入口文件（promptassets.Entry）——空目录不算命中，会走初始化。
+// 落盘根固定取 <exe>/config/prompt：CWD 可能是用户的项目目录，不能在那里凭空造出
+// 一个 prompt/ 来。
+func promptDirChain() (candidates []string, seedRoot string) {
+	exe, err := os.Executable()
+	if err != nil {
+		exe = ""
+	}
+	return promptDirChainAt(exe)
+}
+
+// promptDirChainAt 是 promptDirChain 的可测内核（可执行文件路径由调用方给，
+// 测试才好摆现场），与 pluginRootChain 同一姿势。
+func promptDirChainAt(exePath string) (candidates []string, seedRoot string) {
+	entry := filepath.FromSlash(promptassets.Entry)
+	candidates = []string{filepath.Join("config", "prompt", entry)}
+	if exePath != "" {
+		exeDir := filepath.Dir(exePath)
+		candidates = append(candidates, filepath.Join(exeDir, "config", "prompt", entry))
+		seedRoot = filepath.Join(exeDir, "config", "prompt")
+	}
+	return candidates, seedRoot
+}
+
+// resolvePromptDir 按责任链给出**提示词资产目录**并返回它（调用方拿它设
+// promptassets.SetDir）。口径与 ensureConfigFile 一致：
+//
+//	存在即读：候选链上第一份存在的入口文件所在目录就是答案——用户改过的优先于
+//	          内嵌默认，本函数一个字节都不写。
+//	缺失即初始化：候选链全缺 → 用内嵌默认词在 <exe>/config/prompt 落盘，再读它。
+//
+// 返回 "" 表示没有可用目录（无处落盘）：调用方据此让 promptassets 全走内嵌词，
+// 不视为启动失败（与"配置读不到就回退代码默认值"同一条口径）。
+func resolvePromptDir() string {
+	candidates, seedRoot := promptDirChain()
+	return resolvePromptDirAt(candidates, seedRoot)
+}
+
+// resolvePromptDirAt 是 resolvePromptDir 的可测内核（候选链与落盘根由调用方给）。
+func resolvePromptDirAt(candidates []string, seedRoot string) string {
+	pack := bootseed.Pack{Name: "prompt"}
+	for _, rel := range promptassets.DefaultFiles() {
+		pack.Files = append(pack.Files, bootseed.File{Rel: rel, Source: rel})
+	}
+	result, err := bootseed.ResolveFS(bootseed.Spec{
+		Name:       "prompt",
+		Candidates: candidates,
+		SeedRoot:   seedRoot,
+		Entry:      promptassets.Entry,
+		Pack:       pack,
+	}, promptassets.DefaultFS())
+	if err != nil {
+		log.Printf("prompt: 初始化默认提示词失败（回退内嵌提示词）: %v", err)
+		return ""
+	}
+	switch result.Kind {
+	case bootseed.KindHit:
+		// 命中的是"入口文件"，result.Root 是入口所在目录
+		// （…/config/prompt/system）；SetDir 要的是提示词根，按 Entry 层级上溯。
+		return promptassets.DirOf(result.Path)
+	case bootseed.KindSeeded:
+		log.Printf("prompt: 候选链上都没有，已用内嵌默认词初始化到 %s（存在即读：之后直接用这份）", result.Root)
+		return result.Root
+	case bootseed.KindMissing:
+		log.Printf("prompt: 候选链上都没有，且无处落盘（回退内嵌提示词）")
+	}
+	return ""
+}
+
 func run() error {
 	flag.Parse()
 	// pprof 构建钩子（-tags pprof）：Go 侧采样端口，默认 127.0.0.1:6060，
@@ -344,6 +421,12 @@ func run() error {
 	}
 	*permissionMode = mode
 	*storePath = resolveStorePath(*storePath)
+
+	// 提示词资产目录（config/prompt）：先按责任链定目录（候选链全缺则用内嵌
+	// 默认词初始化），再让 promptassets 按"外部优先、内嵌逐文件兜底"解析。
+	// 必须早于任何提示词消费——装配期的 promptassets.Validate 与运行期的
+	// system prompt 组装都读它。
+	promptassets.SetDir(resolvePromptDir())
 
 	console.LogStageIf(backendTrace, "startup.runtime.begin")
 	runtime, err := initRuntime()
@@ -1008,8 +1091,8 @@ type pluginPromptEngine interface {
 
 func registerProductTools(runtime *seelebridge.Runtime, plugins *plugin.Manager, eng pluginPromptEngine, approval *application.ApprovalBroker, skills *skill.Registry) {
 	registerTimeTool(runtime)
-	websearch.Register(runtime, accountsPath())
-	registerMCPServers(runtime, accountsPath()) // mcpstack/config 加载 + Runtime 冷启动登记
+	websearch.Register(runtime, ensureConfigFile(bootseed.SearchEngineConfigName, bootseed.SearchEngineConfigPack()))
+	registerMCPServers(runtime, ensureConfigFile(bootseed.MCPConfigName, bootseed.MCPConfigPack())) // mcpstack/config 加载 + Runtime 冷启动登记
 	registerMCPLoadTool(runtime)
 	registerPluginSwitchTools(runtime, plugins, eng)
 	registerPluginSelfTools(runtime, plugins)
@@ -1020,8 +1103,8 @@ func registerProductTools(runtime *seelebridge.Runtime, plugins *plugin.Manager,
 // （冷启动：只存配置不连接，启动路径零 MCP 进程）。配置加载在 mcpstack/config。
 // 首次需要时经内置 mcp_load 工具按名加载（spawn + initialize + tools/list），
 // 加载后的 MCP 工具自动通过 mcpstack 中间件记录调用 trace。
-func registerMCPServers(runtime *seelebridge.Runtime, accountsPath string) {
-	servers := mcpconfig.Load(accountsPath)
+func registerMCPServers(runtime *seelebridge.Runtime, mcpPath string) {
+	servers := mcpconfig.Load(mcpPath)
 	if len(servers) == 0 {
 		return
 	}
@@ -1058,7 +1141,7 @@ func registerMCPLoadTool(runtime *seelebridge.Runtime) {
 		"type": "object",
 		"properties": map[string]interface{}{
 			"server_name": map[string]interface{}{
-				"type": "string", "description": "要加载的 MCP 服务器名（accounts.yaml mcp_servers 段）",
+				"type": "string", "description": "要加载的 MCP 服务器名（mcp.yaml 的 mcp_servers 列表）",
 			},
 		},
 		"required": []string{"server_name"},
@@ -1330,7 +1413,7 @@ func registerPluginSelfTools(runtime *seelebridge.Runtime, plugins *plugin.Manag
 	// ── mcp_create ─────────────────────────────────────────────────
 	runtime.RegisterTool(
 		"mcp_create",
-		"冷启动登记一个 MCP server（内存态，本次会话有效）：登记后调用 mcp_load 连接并注册其工具。注意：不写入 accounts.yaml，重启后需重新登记。",
+		"冷启动登记一个 MCP server（内存态，本次会话有效）：登记后调用 mcp_load 连接并注册其工具。注意：不写入 mcp.yaml，重启后需重新登记。",
 		map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{

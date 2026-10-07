@@ -19,10 +19,16 @@ $root = Split-Path -Parent $PSScriptRoot
 $dst = Join-Path $root "internal/bootseed/assets/config"
 New-Item -ItemType Directory -Force $dst | Out-Null
 
-foreach ($name in @("seelex.yaml", "seele.yaml")) {
-    $src = Join-Path $root "config/$name"
+$sources = [ordered]@{
+    "seelex.yaml"        = "config/seelex.yaml"
+    "seele.yaml"         = "config/seele.yaml"
+    "mcp.yaml"           = "config/mcp.example.yaml"
+    "search_engine.yaml" = "config/search_engine.example.yaml"
+}
+foreach ($name in $sources.Keys) {
+    $src = Join-Path $root $sources[$name]
     if (-not (Test-Path $src)) {
-        Write-Host "[sync-bootseed] 跳过（仓库里没有）: config/$name"
+        Write-Host "[sync-bootseed] 跳过（仓库里没有）: $sources[$name]"
         continue
     }
     $target = Join-Path $dst $name

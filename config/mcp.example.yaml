@@ -1,0 +1,34 @@
+# Copy this file to mcp.yaml.
+#
+# MCP 服务器清单 —— **独立于账号配置**（2026-10 从 accounts.yaml 的 mcp_servers
+# 段拆出来）。为什么单独一份：MCP 是工具接线（拉起哪个 server、怎么跟它说话），
+# 与"用哪个模型账号/哪把密钥"无关；它也是这几份配置里最该进版本库、最该被评审的
+# 那份，而 accounts.yaml 因含模型密钥被 gitignore。
+#
+# 生命周期：本档参与"缺失即初始化"——`config/mcp.yaml`、`mcp.yaml`、
+# `<exe>/config/mcp.yaml` 三处全缺时，启动期在 `<exe>/config/` 落一份这份内容
+# （mcp_servers 为空，不会去 spawn 任何进程），之后**只读你这份**。
+# 注意 env 里可能放密钥，所以 mcp.yaml 进了 .gitignore，与本 example 同级纪律。
+#
+# 每条可用的字段：
+#   name       必填。工具名前缀，mcp_load 与插件引用都用它
+#   transport  stdio | sse。省略时按 command/url 推断（有 command 走 stdio）
+#   command    stdio：可执行文件路径
+#   args       stdio：命令行参数
+#   env        stdio：额外环境变量，形如 ["KEY=value"]
+#   url        sse：远端端点
+#   tool_notes 宿主追加到该 server 每个工具描述末尾的「使用须知」（模型可见）：
+#              哪种入参形态能拿回结果、失败长什么样，只有本机实测才知道
+#
+# 空列表 = 不挂任何 MCP server，启动期不会 spawn 任何进程。
+mcp_servers: []
+
+# 示例：本机 Node 上的 Playwright MCP（stdio），把上面那行换掉即可。
+# mcp_servers:
+#   - name: playwright
+#     transport: stdio
+#     command: C:\path\to\node.exe
+#     args:
+#       - C:\path\to\node_global\node_modules\@playwright\mcp\cli.js
+#     tool_notes:
+#       - 首次调用前该 workspace 需要有可用的 node_modules

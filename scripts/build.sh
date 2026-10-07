@@ -67,6 +67,7 @@ for platform in "${!TARGETS[@]}"; do
     mkdir -p "$outdir/config"
     cp "$ROOT/config/accounts.example.yaml" "$outdir/config/"
     cp "$ROOT/config/README.md" "$outdir/config/"
+    cp "$ROOT/config/mcp.example.yaml" "$ROOT/config/search_engine.example.yaml" "$outdir/config/"
     cp "$ROOT/config/seele.yaml" "$ROOT/config/seelex.yaml" "$outdir/config/"
     cp -r "$ROOT/plugins" "$outdir/"
     cp "$ROOT/LICENSE" "$ROOT/CHANGELOG.md" "$ROOT/README.md" "$outdir/"

@@ -44,20 +44,24 @@ type Config struct {
 }
 
 type simplifiedDefaults struct {
-	Provider      string `yaml:"provider"`
-	ContextWindow *int   `yaml:"context_window"`
-	MaxTokens     *int   `yaml:"max_tokens"`
+	Provider        string   `yaml:"provider"`
+	ContextWindow   *int     `yaml:"context_window"`
+	MaxTokens       *int     `yaml:"max_tokens"`
+	Temperature     *float64 `yaml:"temperature"`
+	ReasoningEffort string   `yaml:"reasoning_effort"`
 }
 
 // simplifiedAccount is a single entry in the role-based config format.
 type simplifiedAccount struct {
-	Provider       string `yaml:"provider"`
-	Model          string `yaml:"model"`
-	BaseURL        string `yaml:"base_url"`
-	APIKey         string `yaml:"api_key"`
-	ContextWindow  *int   `yaml:"context_window"`
-	MaxTokens      *int   `yaml:"max_tokens"`
-	MaxConcurrency *int   `yaml:"max_concurrency"`
+	Provider        string   `yaml:"provider"`
+	Model           string   `yaml:"model"`
+	BaseURL         string   `yaml:"base_url"`
+	APIKey          string   `yaml:"api_key"`
+	ContextWindow   *int     `yaml:"context_window"`
+	MaxTokens       *int     `yaml:"max_tokens"`
+	MaxConcurrency  *int     `yaml:"max_concurrency"`
+	Temperature     *float64 `yaml:"temperature"`
+	ReasoningEffort string   `yaml:"reasoning_effort"`
 }
 
 // simplifiedConfig represents the role-grouped accounts.yaml format.
@@ -124,6 +128,14 @@ func Load(path string) (Config, error) {
 			if err != nil {
 				return Config{}, fmt.Errorf("seelebridge: account %q: %w", name, err)
 			}
+			temperature, err := resolveTemperature(cfg.Defaults, entry)
+			if err != nil {
+				return Config{}, fmt.Errorf("seelebridge: account %q: %w", name, err)
+			}
+			reasoningEffort, err := resolveReasoningEffort(cfg.Defaults, entry, role)
+			if err != nil {
+				return Config{}, fmt.Errorf("seelebridge: account %q: %w", name, err)
+			}
 			provider := firstNonEmpty(entry.Provider, cfg.Defaults.Provider, "openai")
 			specs = append(specs, model.AccountSpec{
 				Name:            name,
@@ -135,6 +147,8 @@ func Load(path string) (Config, error) {
 				ContextWindow:   limits.ContextWindow,
 				MaxOutputTokens: limits.MaxOutputTokens,
 				MaxConcurrency:  maxConcurrency,
+				Temperature:     temperature,
+				ReasoningEffort: reasoningEffort,
 				Role:            role,
 			})
 			limitsByAccount[name] = limits
@@ -172,6 +186,8 @@ func fallbackConfig() Config {
 		ContextWindow:   limits.ContextWindow,
 		MaxOutputTokens: limits.MaxOutputTokens,
 		MaxConcurrency:  defaultMaxConcurrency,
+		Temperature:     model.DefaultTemperature,
+		ReasoningEffort: model.DefaultReasoningEffortForRole(model.RoleAgent),
 		Role:            model.RoleAgent,
 	}
 	return Config{
@@ -208,6 +224,54 @@ func resolveAccountLimits(defaults simplifiedDefaults, account simplifiedAccount
 		)
 	}
 	return limits, nil
+}
+
+// resolveTemperature 解析账号采样温度：账号级 > defaults 级 > 代码默认
+// （model.DefaultTemperature）。**0 是合法值**（DeepSeek 官方对编码/数学的推荐
+// 就是 0.0），所以用指针区分"没写"与"写了 0"——不拿 0 当哨兵。
+//
+// 提醒：DeepSeek 的思考模式不支持 temperature（设了不报错、也没效果）。这条
+// 配置真正生效的对象是需要 temperature 的非思考模型与其它 provider；想让
+// deepseek-flash "想得更深"，要看 reasoning_effort，不是这里。
+func resolveTemperature(defaults simplifiedDefaults, account simplifiedAccount) (float64, error) {
+	temperature := model.DefaultTemperature
+	if defaults.Temperature != nil {
+		temperature = *defaults.Temperature
+	}
+	if account.Temperature != nil {
+		temperature = *account.Temperature
+	}
+	if temperature < 0 || temperature > 2 {
+		return 0, fmt.Errorf("temperature must be between 0 and 2, got %v", temperature)
+	}
+	return temperature, nil
+}
+
+// resolveReasoningEffort 解析账号的思考强度（reasoning effort）：
+// 账号级 > defaults 级 > 角色默认（model.DefaultReasoningEffortForRole）。
+//
+// 为什么有"角色默认"这一层：agent / subagent / goalplan 的定位不同——主会话
+// 跟随用户选的会话档位、子代理只做窄任务、规划值得想但不该顶格。这不是一个
+// 全局常数能表达的。显式配置永远优先：想给 goalplan 也配 max，写一行就够。
+//
+// 值域：dto 的 provider 词表，外加 "session"（跟随会话 effort 档位，agent 的
+// 默认）。空串在这里就被补成角色默认，所以往下游（AccountSpec → ChatClient）
+// 不会再出现"没配置"这种中间态。
+//
+// 注意这里**只定思考强度**：effort 档位携带的 loop 次数与执行预算不在这一层，
+// 也不受这里的值影响——调强度不会动 loop。
+func resolveReasoningEffort(defaults simplifiedDefaults, account simplifiedAccount, role model.AccountRole) (string, error) {
+	effort := model.DefaultReasoningEffortForRole(role)
+	if value := strings.TrimSpace(defaults.ReasoningEffort); value != "" {
+		effort = value
+	}
+	if value := strings.TrimSpace(account.ReasoningEffort); value != "" {
+		effort = value
+	}
+	if !model.ValidReasoningEffort(effort) {
+		return "", fmt.Errorf("reasoning_effort %q is not valid, want one of %v", effort, model.ReasoningEffortVocabulary())
+	}
+	return effort, nil
 }
 
 func firstNonEmpty(values ...string) string {

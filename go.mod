@@ -102,3 +102,17 @@ require (
 	google.golang.org/grpc v1.83.1 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
+
+// ── 本地联调 replace（临时态，2026-10-05 起）─────────────────────────────
+// 指向本地 Seele 工作树，用于验证「reasoning_effort 上到 wire」这一组改动
+// （Seele commit 717c99e：LLMConfig/RequestOptions 增 ReasoningEffort，
+// openai/anthropic 两个 strategy 写进请求体）。上面那段"无 replace（纯净依赖）"
+// 的历史口径在此**被本段临时覆盖**。
+//
+// 代价（明确知情才保留）：replace 的目标是**本机绝对路径**，换机器 / CI /
+// 其它开发者一律直接构建失败。
+//
+// 摘除条件（二选一，发布前必须做完）：
+//  1. 本地 Seele 打 tag 发布 → 把 require 升到新版本 → 删掉本段；或
+//  2. 确认本段不进发布产物（但仓库本身仍是本机不可移植态）。
+replace github.com/RedHuang-0622/Seele => G:/program/go/seele

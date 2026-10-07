@@ -32,7 +32,7 @@ func PlanActHarnessCases() []PlanActHarnessCase {
 			Effort:      "max",
 			UserRequest: "完成审查后导出 Markdown 报告。",
 			Expected:    "允许写入或导出报告，再给出最终答复。",
-			Required:    []string{"writing or exporting a\n  Markdown report", "deliver after the planned cross-check"},
+			Required:    []string{"writing or exporting a\n  Markdown report", "deliver once the planned verification and reporting stages are done"},
 		},
 		{
 			Name:        "medium-rejects-unplanned-second-check",
@@ -102,9 +102,13 @@ func PlanActHarnessCases() []PlanActHarnessCase {
 
 // ValidatePlanActHarness returns an actionable failure when prompt edits drop
 // an execution-completion guarantee required by a harness scenario.
+//
+// 2026-10 提示词归一后，四个档位共用同一份 effort 正文，所以这里只渲染一次，
+// 不再按 case.Effort 取不同资产——case.Effort 仍保留，作为"这条场景当初是针对
+// 哪一档写的"记录，读的人（和人改提示词时）需要它。
 func ValidatePlanActHarness() error {
 	for _, test := range PlanActHarnessCases() {
-		prompt := SystemInstructions() + "\n" + Effort(test.Effort)
+		prompt := SystemInstructions() + "\n" + Effort()
 		for _, required := range test.Required {
 			if !containsPromptClause(prompt, required) {
 				return fmt.Errorf("prompt harness %q (%s) missing %q", test.Name, test.Effort, required)

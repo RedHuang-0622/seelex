@@ -73,6 +73,8 @@ jobs:
           expected="$(printf '%s\n' \
             'config/README.md' \
             'config/accounts.example.yaml' \
+            'config/mcp.example.yaml' \
+            'config/search_engine.example.yaml' \
             'config/seele.yaml' \
             'config/seelex.yaml')"
           test "$tracked" = "$expected" || {
@@ -161,6 +163,8 @@ jobs:
         run: |
           unexpected="$(find dist -type f -path '*/config/*' \
             ! -name 'accounts.example.yaml' \
+            ! -name 'mcp.example.yaml' \
+            ! -name 'search_engine.example.yaml' \
             ! -name 'seele.yaml' \
             ! -name 'seelex.yaml' \
             ! -name 'README.md' \

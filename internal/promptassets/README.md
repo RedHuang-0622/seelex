@@ -5,15 +5,34 @@
 `internal/promptassets/assets/` is the source of truth for Seelex-owned
 system, effort, optional Plan prompts, and the subagent charter. Assets are
 **embedded at build time** (`//go:embed`) so a release binary has no mutable
-prompt-file dependency: 单二进制可部署、提示词与代码同版本、不被运行时
-文件系统改写。需要"不重新编译改提示词"的场景走外部覆盖层（后续扩展点），
-默认规范是内置 + 启动 `Validate()` 校验。
+prompt-file dependency: 单二进制可部署、提示词与代码同版本。
+
+**外部覆盖层（已实现）**：启动期按责任链确定提示词资产目录——默认
+`config/prompt/`（`config/prompt/system/instructions.md` → `<exe>/config/prompt/...`），
+候选链全缺时用内嵌默认词初始化（`internal/bootseed`），随后 `promptassets.SetDir`
+把它设为覆盖目录。解析口径三条：**命中即读**（目录里同名文件优先于内嵌）、
+**逐文件回退**（只覆盖一份也能用）、**空文件 = 未配置**（回退内嵌，不把该段抹空）。
+`Validate()` 读的是解析后的那份，用户改坏的提示词在装配期就报错。
+
+目录布局与内嵌资源一一对应（`config/prompt/<相对路径>`）：
+
+```text
+config/prompt/
+├── system/identity.md
+├── system/instructions.md
+├── effort/{lite,medium,high,max}.md
+├── plan/{preflight,replan}.md
+└── subagent/charter.md
+```
+
+`plan/*.md` 与 `subagent/charter.md` 是**模板**（含 `{{...}}` 运行期事实），
+外部化后仍需保留模板变量，否则 `Validate()` 会当场失败。
 
 ## 架构图
 
 ```mermaid
 flowchart TB
-    subgraph ASSETS["assets/（唯一事实源）"]
+    subgraph ASSETS["assets/（默认数据）"]
         SYS["system/：identity 与跨领域工程/证据规则"]
         EFF["effort/：各档行为规则"]
         PLAN["plan/：preflight / replan 模板"]
@@ -22,12 +41,15 @@ flowchart TB
 
     EMBED["//go:embed"] --> BIN["二进制（单文件可部署）"]
     ASSETS --> EMBED
-    EMBED --> VAL["启动 Validate() 校验"]
+    ASSETS -.->|默认词| BOOT["internal/bootseed<br/>候选链全缺时落盘"]
+    BOOT --> DIR["config/prompt/<br/>（外部覆盖目录）"]
+    DIR --> LOAD["promptassets.SetDir + 读取<br/>命中即读 / 逐文件回退 / 空文件=未配置"]
+    EMBED -.->|兜底| LOAD
+    LOAD --> VAL["启动 Validate() 校验（读解析后的那份）"]
     VAL --> PROMPT["application/prompt：层组合与 effort→policy 映射"]
     VAL --> NODE["seelebridge/node：节点 charter 渲染"]
     PROMPT --> ENGINE["Engine system prompt"]
-    NOTE["属性：提示词与代码同版本<br/>不被运行时文件系统改写"] -.-> BIN
-    FUTURE["外部覆盖层（不重新编译改提示词）<br/>属尚未实现的扩展点"] -.-> ASSETS
+    NOTE["属性：提示词与代码同版本<br/>单文件可部署"] -.-> BIN
 ```
 
 ## Structure

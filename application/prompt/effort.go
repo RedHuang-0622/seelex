@@ -33,50 +33,80 @@ type ReActBudget struct {
 // effortProfile keeps every effort-specific behavior in one entry so a new
 // level cannot accidentally receive a prompt without its execution budget.
 type effortProfile struct {
-	prompt     string
+	// level 是该档在 effortProfiles 里的键，也是对外露出的档位名与 PlanPolicy
+	// 的 Effort 字段（lite/medium/high/max）。**提示词已不再与它绑定**：2026-10
+	// 起四个档位共用一份 assets/effort/system.md（见 promptassets.Effort 的注释），
+	// 档位差异只由 reasoningEffort / maxLoops / planPolicy 表达。
+	// Prompt() 仍然**惰性取正文**：effortProfiles 是包级变量、在包初始化期构造，
+	// 早于 main 设定外部提示词目录（config/prompt）；初始化期就把正文取出来会把
+	// 内嵌词定死，外部覆盖随之失效。
+	level      string
 	maxLoops   int
 	planPolicy dto.PlanPolicy
 	budget     ReActBudget
+	// reasoningEffort is the thinking-strength value sent to the provider (wire
+	// vocabulary: low/medium/high/max). Loop counts and budgets stay as they are;
+	// this field only expresses "how deep to think".
+	reasoningEffort string
 }
+
+// Prompt 返回**统一**的 effort 行为指令正文（外部覆盖目录优先、内嵌兜底）。
+// 四个档位拿到的是同一份：档位差异不再由提示词表达。
+func (p effortProfile) Prompt() string { return promptassets.Effort() }
 
 // effortProfiles maps user-selected levels to versioned prompt assets and
 // hard execution budgets. Prompt prose belongs in internal/promptassets, not
 // in application code.
 var effortProfiles = map[string]effortProfile{
 	"lite": {
-		prompt:     promptassets.Effort("lite"),
-		maxLoops:   15,
-		planPolicy: dto.PlanPolicy{Effort: "lite"},
-		budget:     ReActBudget{MaxToolRounds: 15, MaxToolCalls: 30, MaxNoProgressRounds: 6},
+		level:           "lite",
+		maxLoops:        15,
+		planPolicy:      dto.PlanPolicy{Effort: "lite"},
+		reasoningEffort: "low",
+		budget:          ReActBudget{MaxToolRounds: 15, MaxToolCalls: 30, MaxNoProgressRounds: 6},
 	},
 	"medium": {
-		prompt:   promptassets.Effort("medium"),
+		level:    "medium",
 		maxLoops: 48,
 		// MaxForkConcurrency 有意保持 0：subagent 只是角色 + 模型供应商，
 		// 并发不再由 effort 档限制（PolicyConcurrency 回退为“全部当前可
 		// 运行节点同时执行”）。medium 只保留节点数与串行链约束。
-		planPolicy: dto.PlanPolicy{Effort: "medium", MaxNodes: 4, RequireSerial: true},
-		budget:     ReActBudget{MaxToolRounds: 48, MaxToolCalls: 96, MaxNoProgressRounds: 10},
+		planPolicy:      dto.PlanPolicy{Effort: "medium", MaxNodes: 4, RequireSerial: true},
+		reasoningEffort: "medium",
+		budget:          ReActBudget{MaxToolRounds: 48, MaxToolCalls: 96, MaxNoProgressRounds: 10},
 	},
 	"high": {
-		prompt:   promptassets.Effort("high"),
+		level:    "high",
 		maxLoops: 384,
 		// 同上：effort 不再携带子代理并发上限，DAG 中所有当前可运行
 		// agent 节点默认同时执行。
-		planPolicy: dto.PlanPolicy{Effort: "high", MaxNodeLoops: 48},
-		budget:     ReActBudget{MaxToolRounds: 384, MaxToolCalls: 768, MaxNoProgressRounds: 24},
+		planPolicy:      dto.PlanPolicy{Effort: "high", MaxNodeLoops: 48},
+		reasoningEffort: "high",
+		budget:          ReActBudget{MaxToolRounds: 384, MaxToolCalls: 768, MaxNoProgressRounds: 24},
 	},
 	"max": {
-		prompt:     promptassets.Effort("max"),
-		maxLoops:   768,
-		planPolicy: dto.PlanPolicy{Effort: "max", MaxNodeLoops: 96},
-		budget:     ReActBudget{MaxToolRounds: 768, MaxToolCalls: 1536, MaxNoProgressRounds: 48},
+		level:           "max",
+		maxLoops:        768,
+		planPolicy:      dto.PlanPolicy{Effort: "max", MaxNodeLoops: 96},
+		reasoningEffort: "max",
+		budget:          ReActBudget{MaxToolRounds: 768, MaxToolCalls: 1536, MaxNoProgressRounds: 48},
 	},
 }
 
 func effortProfileFor(level string) (effortProfile, bool) {
 	profile, ok := effortProfiles[strings.ToLower(strings.TrimSpace(level))]
 	return profile, ok
+}
+
+// ReasoningEffortFor returns the thinking-strength value for an effort level.
+// Unknown levels return "" - an empty value stays off the wire and the provider
+// applies its own default; we never guess a value.
+func ReasoningEffortFor(level string) string {
+	profile, ok := effortProfileFor(level)
+	if !ok {
+		return ""
+	}
+	return profile.reasoningEffort
 }
 
 // MaxLoops returns the engine loop limit for an effort level.
@@ -150,7 +180,7 @@ func (m *EffortManager) applyLocked(level string) error {
 
 	m.promptStack.ClearKind("effort")
 
-	m.promptStack.Push("effort", level, profile.prompt)
+	m.promptStack.Push("effort", level, profile.Prompt())
 	m.engine.SetMaxLoops(profile.maxLoops)
 	m.current = level
 	return nil

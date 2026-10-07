@@ -52,7 +52,7 @@ flowchart TB
   `strategies[].type`（或旧 `provider` 名）分发装配；
 - 旧字段（`provider: tavily` / `api_key`）自动翻译为兼容策略；provider
   命中内置厂商名（如 bochaai）时翻译为对应厂商适配器；
-- 从账号池 YAML 的 `websearch` 段加载配置（`LoadConfig`）；
+- 从账号池 YAML 的 `websearch` 段加载配置（`Load`）；
 - 把归一化结果格式化为模型可消费的 Markdown（`FormatResponse`）。
 
 刻意不做什么：
@@ -70,7 +70,7 @@ flowchart TB
 | 文件 | 职责 |
 |---|---|
 | `strategy.go` | `Strategy` 接口、规范模型、装配器 `Assemble`、兼容入口 `WebSearch`、旧字段翻译 `legacyStrategy` |
-| `config.go` | `WebSearchConfig` / `StrategyConfig` 配置结构（含 `type`），`LoadConfig` 加载与合并默认值 |
+| `config.go` | `WebSearchConfig` / `StrategyConfig` 配置结构（含 `type`），`Load` 加载与合并默认值 |
 | `strategy_standard.go` | 标准 websearch 协议策略、全局默认超时与 `ApplyLimits` |
 | `builtin.go` | 内置厂商注册表与 `type` 分发（`assembleStrategy`） |
 | `builtin_tavily.go` | 内置 tavily 适配器（原生即标准协议，复用 standardStrategy） |
@@ -123,18 +123,18 @@ type Strategy interface {
 `provider` 命中注册表即被装配，对外契约与标准策略一致。
 
 ```yaml
-websearch:
-  strategies:
-    - name: bocha            # type: bochaai → 博查原生 API（Bearer + 专有 body）
-      type: bochaai
-      api_key: sk-xxx
-    - name: sx               # type: searxng → SearXNG JSON API（GET format=json）
-      type: searxng
-      endpoint: https://searx.example.org/search   # 必填；api_key 可选
-    # 省略 type（或 standard）→ 标准 Tavily 兼容协议（POST JSON + Bearer）
-    - name: gateway
-      endpoint: https://your-gateway.example/search
-      api_key: xxxxxxxx
+strategies:
+  - name: bocha            # type: bochaai → 博查原生 API（Bearer + 专有 body）
+    type: bochaai
+    api_key: sk-xxx
+  - name: sx               # type: searxng → SearXNG JSON API（GET format=json）
+    type: searxng
+    endpoint: https://searx.example.org/search   # 必填；api_key 可选
+  # 省略 type（或 standard）→ 标准 Tavily 兼容协议（POST JSON + Bearer）
+  - name: gateway
+    endpoint: https://your-gateway.example/search
+    api_key: xxxxxxxx
+
 ```
 
 当前内置厂商：`tavily`（原生即标准协议，复用 standardStrategy）、`bochaai`、
@@ -142,15 +142,18 @@ websearch:
 
 ### 配置加载
 
-`LoadConfig` 从账号池 YAML 的 `websearch` 段加载并合并默认值（max_results=5、
+`Load` 从**独立的 `search_engine.yaml`** 加载并合并默认值（max_results=5、
 include_answer=true、search_depth=advanced）；文件缺失或解析失败返回默认值。
+配置读的是**根级字段**——不再是账号档里的 `websearch:` 段（2026-10 拆分，见
+config/README.md 的配置链说明）；路径由 composition root 经 bootseed 责任链
+解析后传入，本包不参与路径决策。
 策略密钥同时接受 `api_key` 与 `apikey` 两种写法；`include_answer` 仅在显式
 配置时覆盖。
 
 ## 数据流或生命周期
 
 ```text
-账号池 YAML ──LoadConfig──▶ WebSearchConfig ──Assemble──▶ Strategy
+账号池 YAML ──Load──▶ WebSearchConfig ──Assemble──▶ Strategy
                                                             ├─ standardStrategy（标准协议/自建网关）
                                                             ├─ tavily（复用标准协议）
                                                             ├─ bochaai（博查专有协议）
@@ -216,7 +219,7 @@ include_answer=true、search_depth=advanced）；文件缺失或解析失败返�
 - `legacyStrategy` 的旧字段翻译是否会误吞新配置（如 strategies 与 provider
   并存时）？provider 名是否只作 legacy 兜底与 active 选择？
 - 策略配置错误（不支持 type、缺 endpoint、缺 key）是否在装配期提前拦截？
-- `LoadConfig` 的默认合并是否会被零值误覆盖（尤其 include_answer）？
+- `Load` 的默认合并是否会被零值误覆盖（尤其 include_answer）？
 - API key 是否可能进入日志或返回给模型？
 - 超时：`websearch.timeout` 与全局 `search_timeout`（旧名 `tavily_timeout`）
   的优先级是否清晰？
@@ -261,7 +264,7 @@ func WebSearch(ctx context.Context, cfg WebSearchConfig, query string, maxResult
 type WebSearchConfig struct { /* provider/api_key/endpoint/max_results/include_answer/search_depth/timeout/active/strategies */ }
 type StrategyConfig struct { Name, Type, Endpoint, APIKey, APIKeyAlias string }  // Type 空/standard=标准协议，否则内置厂商名
 func DefaultConfig() WebSearchConfig                                 // 返回 websearch 的默认配置
-func LoadConfig(accountsPath string) WebSearchConfig                 // 从账号池 YAML 加载 websearch 段
+func Load(accountsPath string) WebSearchConfig                 // 从账号池 YAML 加载 websearch 段
 func mergeConfig(dst *WebSearchConfig, src WebSearchConfig)          // 用加载值覆盖非零字段
 ```
 
@@ -314,11 +317,11 @@ strategy_builtin_test.go: TestAssemble_BuiltinTavilyByType / TestBochaStrategy_S
                          TestBochaStrategy_BusinessCodeError / TestSearxngStrategy_Search /
                          TestSearxngStrategy_MissingEndpoint / TestAssemble_UnknownBuiltinType /
                          TestAssemble_LegacyProviderBocha / TestAssemble_UnknownProviderListsBuiltins
-config_test.go:          TestLoadConfig_Defaults / TestLoadConfig_InvalidYAML /
-                         TestLoadConfig_PartialOverride / TestLoadConfig_FullOverride /
-                         TestLoadConfig_EmptyAPIKeyKeepsDefault / TestLoadConfig_ZeroMaxResultsKeepsDefault /
-                         TestLoadConfig_Strategies / TestLoadConfig_StrategiesApikeyAlias /
-                         TestLoadConfig_StrategiesType
+config_test.go:          TestLoad_Defaults / TestLoad_InvalidYAML /
+                         TestLoad_PartialOverride / TestLoad_FullOverride /
+                         TestLoad_EmptyAPIKeyKeepsDefault / TestLoad_ZeroMaxResultsKeepsDefault /
+                         TestLoad_Strategies / TestLoad_StrategiesApikeyAlias /
+                         TestLoad_StrategiesType
 strategy_standard_test.go: TestStandardStrategy_Search / TestStandardStrategy_MaxResultsBounds /
                          TestStandardStrategy_APIError / TestStandardStrategy_ContextCancelled /
                          TestFormatResponse_WithAnswer / TestFormatResponse_NoAnswer /

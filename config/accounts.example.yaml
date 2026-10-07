@@ -5,37 +5,41 @@ defaults:
   provider: openai
   # Total model context window. This is not the response token limit.
   context_window: 200000
+  # Local output budget (used for context accounting). The openai strategy does not
+  # put max_tokens on the wire, so the provider applies its own default.
   max_tokens: 8192
-  timeout: 120s
-  temperature: 0
+  # Sampling temperature, inherited by every account entry that does not set its own.
+  # Note: DeepSeek's thinking mode ignores temperature entirely (it accepts the field
+  # but has no effect), so on thinking-capable models this value is inert.
+  temperature: 0.3
+  # 思考强度（reasoning_effort）——跨厂商的"想多深"旋钮。OpenAI / DeepSeek 读顶层
+  # `reasoning_effort`，Anthropic 读顶层 `output_config.effort`。由每个账号条目继承，
+  # 账号条目自己写了就以它为准。
+  #
+  # 取值：session | minimal | low | medium | high | max
+  #   - `session`：跟随**当前会话的 effort 档位**（界面的档位开关 / `-effort`）。
+  #     这是 agent 角色的默认。
+  #   - 其余是 **provider 自己的词表**（注意 `lite`/`medium`/`high`/`max` 是 Seelex 的
+  #     档位名，不是这里的值；档位 → 值的映射是 lite→low、medium→medium、
+  #     high→high、max→max）。`max` 是给长周期、大预算任务的档。
+  #
+  # 角色默认（本段与账号条目都没写时生效）：
+  #   agent    -> session（跟随会话档位，默认档 high）
+  #   subagent -> low    （子代理做的是被指派的窄任务，顶格思考既慢又贵）
+  #   goalplan -> high   （规划值得想，但不取 max）
+  #
+  # ⚠️ 在这里写会**盖掉上面三个角色默认**（含 subagent 与 goalplan）。只想调某一个
+  #   角色，就写在那条账号条目上，别写在这里。
+  #
+  # 注意：这一项**只定思考强度**。effort 档位还携带 loop 次数与执行预算，那些不受
+  # 这里影响（loop 的既有设定不变）。
+  # reasoning_effort: high
 
-websearch:
-  max_results: 5
-  include_answer: true
-  search_depth: advanced
-  # timeout: 15                # 可选：覆盖 limits.search_timeout
-  # active: gateway            # 可选：多策略时选中一个；缺省取第一个
-  # strategies:                # 代理策略列表。三种接入方式，入参/出参一致：
-  #   # 1) 标准协议端点 / 自建网关：只需端点与密钥，请求/响应走标准
-  #   #    websearch 协议（Tavily 兼容）；type 省略或写 standard
-  #   - name: gateway
-  #     endpoint: https://your-gateway.example/search
-  #     api_key: replace-with-your-key
-  #   # 2) 内置厂商适配器：type 指定厂商名，走该厂商专有协议，无需自建网关
-  #   - name: bocha
-  #     type: bochaai          # 博查 Web Search API（api_key 必填，端点可选）
-  #     api_key: replace-with-your-bochaai-key
-  #   - name: sx
-  #     type: searxng          # SearXNG JSON API（endpoint 必填，api_key 可选）
-  #     endpoint: https://searx.example.org/search
-  #   # 启用 strategies 后请把下方 provider/api_key 注释掉，或用 active 显式
-  #   # 指定使用哪个策略。
-
-  # 旧字段兼容：未声明 strategies 时 provider/api_key 自动翻译——
-  # provider: tavily + api_key 走内置 tavily 标准协议；
-  # provider: bochaai + api_key 走内置博查适配器。现有配置无需修改。
-  provider: tavily
-  api_key: replace-with-your-tavily-api-key
+# ── 搜索与 MCP 不再写在本档里（2026-10 拆分）─────────────────────────
+# 搜索引擎配置（原 websearch 段）→ config/search_engine.example.yaml
+# MCP 服务器清单（原 mcp_servers 段）→ config/mcp.example.yaml
+# 两者都是**工具接线**，与"用哪个模型账号"无关。拆开后它们可以进版本库，
+# 而本档因含模型密钥继续留在 .gitignore 里。
 
 roles:
   # SubAgent: fast, isolated task execution.
@@ -47,17 +51,24 @@ roles:
       base_url: https://api.openai.com/v1
       api_key: replace-with-your-api-key
       # max_concurrency: 4   # 可选：覆盖 subagent 默认高水位并发
+      # reasoning_effort: medium  # 可选：覆盖角色默认（subagent 默认 low）
 
   # Agent: default interactive assistant.
   agent:
     - model: replace-with-agent-model
       base_url: https://api.openai.com/v1
       api_key: replace-with-your-api-key
+      # temperature: 0.3   # 可选：覆盖 defaults.temperature（逐账号独立）
+      # max_tokens: 16384  # 可选：覆盖 defaults.max_tokens
+      # context_window: 1000000  # 可选：覆盖 defaults.context_window
+      # reasoning_effort: session  # 可选：默认跟随会话 effort 档位；写死就钉死
 
   # GoalPlan: deep reasoning and planning.
   goalplan:
     - model: replace-with-goalplan-model
       base_url: https://api.openai.com/v1
       api_key: replace-with-your-api-key
+      # reasoning_effort: max  # 可选：角色默认 high；想给规划顶格就写 max
 
-mcp_servers: []
+# MCP 服务器清单（原 mcp_servers 段）已拆到 config/mcp.example.yaml：本档不再承载
+# MCP 接线，也不再读它。

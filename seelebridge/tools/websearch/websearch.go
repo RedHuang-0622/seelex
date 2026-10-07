@@ -22,17 +22,17 @@ type ToolRegistrar interface {
 // Register 是 web_search 的装配点（Assembler）：配置从账号池 YAML 的
 // websearch 段加载，由 search.Assemble 装配为代理策略后注册工具；
 // 没有可用策略时注册占位工具并给出修复指引。
-func Register(registrar ToolRegistrar, accountsPath string) {
-	cfg := search.LoadConfig(accountsPath)
+func Register(registrar ToolRegistrar, configPath string) {
+	cfg := search.Load(configPath)
 	strategy, err := search.Assemble(cfg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "⚠ Web 搜索未装配可用代理策略 (%s 的 websearch 段)：%v\n", accountsPath, err)
+		fmt.Fprintf(os.Stderr, "⚠ Web 搜索未装配可用代理策略 (%s)：%v\n", configPath, err)
 		registrar.RegisterTool(
 			"web_search",
-			"搜索互联网获取最新信息。需要配置账号池 YAML 的 websearch 段。",
+			"搜索互联网获取最新信息。需要配置 config/search_engine.yaml。",
 			toolSchema(),
 			func(context.Context, string) (string, error) {
-				return `{"error":"web_search 未装配可用代理策略。请在账号池配置文件的 websearch.strategies 声明搜索 API 端点与密钥（旧字段 provider/api_key 仍兼容）。"}`, nil
+				return `{"error":"web_search 未装配可用代理策略。请在 config/search_engine.yaml 里声明 strategies（或用 provider/api_key 简写）与搜索 API 密钥。"}`, nil
 			},
 		)
 		return

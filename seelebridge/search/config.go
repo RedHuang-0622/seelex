@@ -6,10 +6,20 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// WebSearchConfig 是 web_search 工具的搜索配置，对应账号池 YAML 的
-// websearch 段。Strategies 声明代理策略（proxy strategy）列表；每个策略
-// 只需声明 name / endpoint / 密钥，请求与响应遵循标准 websearch 协议
-// （Tavily 兼容），工具本身不绑定任何具体搜索引擎。
+// FileName 是搜索引擎配置的独立文件名（2026-10 从 accounts.yaml 的 websearch
+// 段拆出来）。
+//
+// 为什么单独一份：搜索是**工具接线**（用哪个引擎、哪把密钥、多深、几条结果），
+// 与"用哪个模型账号"无关。混在账号档里让两件事绑死——换引擎要去动凭据文件，
+// 而 accounts.yaml 因含模型密钥被 gitignore，搜索配置也就进不了版本库。
+//
+// 文件格式是**根级字段**（不再套 `websearch:` 段）：文件本身就叫 search_engine，
+// 再套一层同名段名只是把每一行都埋深两格。
+const FileName = "search_engine.yaml"
+
+// WebSearchConfig 是 web_search 工具的搜索配置。Strategies 声明代理策略
+// （proxy strategy）列表；每个策略只需声明 name / endpoint / 密钥，请求与响应
+// 遵循标准 websearch 协议（Tavily 兼容），工具本身不绑定任何具体搜索引擎。
 type WebSearchConfig struct {
 	Provider       string           `yaml:"provider"`
 	APIKey         string           `yaml:"api_key"`
@@ -47,28 +57,23 @@ func DefaultConfig() WebSearchConfig {
 	}
 }
 
-// LoadConfig 从账号池 YAML 的 websearch 段加载配置；文件缺失或解析失败时
-// 返回默认配置。include_answer 只在显式配置时覆盖，避免历史无条件置 false。
-func LoadConfig(accountsPath string) WebSearchConfig {
+// Load 从独立的 search_engine.yaml 加载配置；文件缺失或解析失败时返回默认配置。
+// include_answer 只在显式配置时覆盖，避免历史无条件置 false。
+func Load(path string) WebSearchConfig {
 	cfg := DefaultConfig()
-	b, err := os.ReadFile(accountsPath)
+	b, err := os.ReadFile(path)
 	if err != nil {
 		return cfg
 	}
-	var wrapper struct {
-		WebSearch WebSearchConfig `yaml:"websearch"`
-	}
-	if err := yaml.Unmarshal(b, &wrapper); err != nil {
+	var loaded WebSearchConfig
+	if err := yaml.Unmarshal(b, &loaded); err != nil {
 		return cfg
 	}
-	loaded := wrapper.WebSearch
 	mergeConfig(&cfg, loaded)
 
-	var presence struct {
-		WebSearch map[string]yaml.Node `yaml:"websearch"`
-	}
+	var presence map[string]yaml.Node
 	if err := yaml.Unmarshal(b, &presence); err == nil {
-		if _, ok := presence.WebSearch["include_answer"]; ok {
+		if _, ok := presence["include_answer"]; ok {
 			cfg.IncludeAnswer = loaded.IncludeAnswer
 		}
 	}
