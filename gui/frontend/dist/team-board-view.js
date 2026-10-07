@@ -173,16 +173,25 @@ function milestoneEntry(plan, milestone, depth, cyclic = false) {
 //
 // blocked 不是"不能派"，而是"现在派会被闸门拒"——它与后端的判据同源（依赖必须 done），
 // 于是看板说"被卡住"与编排面真的拒收是同一条事实，不会各说各话。
-export function orderWorkItems(items) {
+//
+// `allByID` 是**全计划**的工作项索引（ganttModel 传进来；单独调用时缺省退回本里程碑）。
+// 三个字段各说各的那一件事（独立验证 ③：以前一个 byID 身兼三职，"在别的里程碑里"被读成
+// "不存在"——既写「依赖缺失」，又永久 `blocked`，而几何那边 `slotOf` 用的是全计划索引、
+// 明明按跨里程碑算了槽位，同一件事三个说法）：
+//   missing_deps = **全计划里根本不存在**的 id（真写错了，只有这一类才配叫"依赖缺失"）；
+//   cross_deps   = 全计划里存在、但**不在本里程碑**的 id（编排口径只允许同里程碑内）；
+//   blocked      = 按**全计划**的状态判：存在且 done 才算放行（取不到 = 没 done = 卡住）。
+export function orderWorkItems(items, allByID = null) {
   const list = (Array.isArray(items) ? items : []).filter(item => item && item.id);
   const ids = new Set(list.map(item => String(item.id)));
   const byID = new Map(list.map(item => [String(item.id), item]));
+  const scope = allByID instanceof Map ? allByID : byID;
   const depth = new Map();
   const ordered = [];
   let frontier = list.filter(item => itemDepsOf(item).filter(dep => ids.has(dep)).length === 0);
   for (const item of frontier) depth.set(String(item.id), 0);
   while (frontier.length) {
-    for (const item of frontier) ordered.push(workItemEntry(item, byID, depth.get(String(item.id))));
+    for (const item of frontier) ordered.push(workItemEntry(item, byID, depth.get(String(item.id)), false, scope));
     const next = [];
     for (const item of list) {
       const id = String(item.id);
@@ -196,12 +205,12 @@ export function orderWorkItems(items) {
     frontier = next;
   }
   for (const item of list) {
-    if (!depth.has(String(item.id))) ordered.push(workItemEntry(item, byID, 0, true));
+    if (!depth.has(String(item.id))) ordered.push(workItemEntry(item, byID, 0, true, scope));
   }
   return ordered;
 }
 
-function workItemEntry(item, byID, depth, cyclic = false) {
+function workItemEntry(item, byID, depth, cyclic = false, scope = byID) {
   const deps = itemDepsOf(item);
   return {
     item,
@@ -209,8 +218,9 @@ function workItemEntry(item, byID, depth, cyclic = false) {
     depth,
     cyclic,
     depends_on: deps,
-    missing_deps: deps.filter(dep => !byID.has(dep)),
-    blocked: deps.some(dep => itemStatus(byID.get(dep)) !== "done"),
+    missing_deps: deps.filter(dep => !scope.has(dep)),
+    cross_deps: deps.filter(dep => !byID.has(dep) && scope.has(dep)),
+    blocked: deps.some(dep => itemStatus(scope.get(dep)) !== "done"),
   };
 }
 
@@ -506,6 +516,20 @@ function xSlot(k) {
 // BAR_SEAM 是相邻槽之间留的 2px 视觉缝：条的右端 = 槽右边界 - 2px。
 const BAR_SEAM = span(-2);
 
+// PLOT_INSET 是"箭尖顶到绘图区左沿"时留下的那点余量：竖线宽 1.5px 是**居中**画的
+// （left = 锚点 − 0.75px），框又有 1px 边框（框内绘图区实际从 labelW + 1 起），所以锚点要
+// 落在左沿内侧 ≥1.75px 才两头都不越界。取整数 2px。
+const PLOT_INSET = span(2);
+
+// xApproach 是接近段的 x（箭尖锚点）：正常 = 目标条左端 − 箭头长（箭头尖正好落在条左沿）。
+// 目标锚点在**槽 0** 时条左端就在绘图区左沿上，再减一个箭头长会把「竖线 + 最后一段横线 +
+// 箭头」整段塞进任务名列（独立验证 ②：越列 7.75px）。这一档把接近段顶到绘图区左沿**内侧**：
+// 箭头整体留在槽 0 里，箭尖朝右指进条里。
+function xApproach(slot) {
+  const k = Math.max(0, Number(slot) || 0);
+  return k >= 1 ? spanAdd(xSlot(k), span(-GANTT.arrow)) : spanAdd(xSlot(0), PLOT_INSET);
+}
+
 // slotOf 是 FS（finish→start）语义的槽位：无依赖 = 0，否则 max(slot(d) + dur(d))，dur 恒 1
 // —— 紧贴最后一个前驱的右端。成环走 seen 集合兜底当 0（不假造槽位）；**自指依赖不占槽位**
 // ——它不表示任何先后关系，占一格只会让这一行凭空右移一格（与"不画退化自环"同一条口径）。
@@ -549,7 +573,9 @@ export function ganttModel(plan) {
     sum: { s: 0, e: 0, empty: true },
   }));
   for (const frame of frames) {
-    for (const entry of orderWorkItems(frame.items)) {
+    // 全计划 byID 传进去：行上的「依赖缺失 / 跨里程碑依赖 / 被卡住」三条判据都要看全计划
+    // （几何那边的 slotOf 用的也是它），否则同一件事会被说成三个样（独立验证 ③）。
+    for (const entry of orderWorkItems(frame.items, byID)) {
       const slot = slotOf(entry.id, byID);
       // depth 也用几何槽位：跨里程碑的工作项依赖（设计稿夹具里就有）会让 orderWorkItems 的
       // 里程碑内层号与几何位置分叉，而条的位置才是这一节要说的那件事。
@@ -593,7 +619,10 @@ function ganttLayout(frames) {
   frames.forEach((frame, index) => {
     cursor = spanAdd(cursor, span(GANTT.frameGap)); // 框的 margin-top
     const frameTop = cursor;
-    y.set(`sum:${frame.id}`, spanAdd(frameTop, span(GANTT.frameBorder, { "--team-dag-sum-h": 0.5 })));
+    // 汇总条锚点 = 框顶 + 框边 + **框头高** + 汇总条半高。框头这一项漏过一次（独立验证
+    // F1）：整条里程碑边（含箭头）上移 26px，正好落进不透明的 sticky 框头带里 → 画面上
+    // 完全看不见。行锚点下面那份算式一直是对的（rowsTop 里有 head-h），两处必须同源。
+    y.set(`sum:${frame.id}`, spanAdd(frameTop, span(GANTT.frameBorder, { "--team-dag-head-h": 1, "--team-dag-sum-h": 0.5 })));
     const rowsTop = spanAdd(frameTop, span(GANTT.frameBorder, { "--team-dag-head-h": 1, "--team-dag-sum-h": 1 }));
     frame.rows.forEach((row, i) => {
       y.set(`row:${row.id}`, spanAdd(rowsTop, span(0, { "--team-dag-row-h": i + 0.5 })));
@@ -631,7 +660,7 @@ function ganttEdges(frames, rows) {
         gap: row.slot - source.end,
         lane: Math.min(lane, 2),
         src: { x: spanAdd(xSlot(source.end), BAR_SEAM), y: `row:${source.id}` },
-        dst: { x: xSlot(row.slot), y: `row:${row.id}` },
+        dst: { x: xSlot(row.slot), slot: row.slot, y: `row:${row.id}` },
       });
       lane += 1;
     }
@@ -648,7 +677,7 @@ function ganttEdges(frames, rows) {
         gap: frame.sum.s - source.sum.e,
         lane: Math.min(lane, 2),
         src: { x: xSlot(source.sum.e), y: `sum:${source.id}` },
-        dst: { x: xSlot(frame.sum.s), y: `sum:${frame.id}` },
+        dst: { x: xSlot(frame.sum.s), slot: frame.sum.s, y: `sum:${frame.id}` },
       });
       lane += 1;
     }
@@ -669,8 +698,9 @@ function renderGanttEdges(model) {
     const srcY = y.get(edge.src.y);
     const dstY = y.get(edge.dst.y);
     if (!srcY || !dstY) continue;
-    // 箭头占 [tip, tip + arrow]，箭头尖正好落在目标条的左端。
-    const tipX = spanAdd(edge.dst.x, span(-GANTT.arrow));
+    // 箭头占 [tip, tip + arrow]，箭头尖正好落在目标条的左端（槽 0 那一档顶到绘图区内侧，
+    // 见 xApproach —— 否则整段越列到任务名列里）。
+    const tipX = xApproach(edge.dst.slot);
     const segs = [];
     const horizontal = (fromX, width, atY) => {
       if (!spanPositive(width)) return;
@@ -830,9 +860,11 @@ export function renderTeamWorkItem(entry) {
   const note = String(item.note || "").replace(/\s+/g, " ").trim();
   const deps = Array.isArray(entry?.depends_on) ? entry.depends_on : itemDepsOf(item);
   const missing = Array.isArray(entry?.missing_deps) ? entry.missing_deps : [];
+  const cross = Array.isArray(entry?.cross_deps) ? entry.cross_deps : [];
   const depLine = deps.length ? `depends_on: ${deps.join(", ")} → 槽 ${slot}` : `无依赖 → 槽 0`;
   const missingLine = missing.length ? ` · 缺失依赖: ${missing.join(", ")}` : "";
-  const depNote = `${depLine}${missingLine}`;
+  const crossLine = cross.length ? ` · 跨里程碑: ${cross.join(", ")}` : "";
+  const depNote = `${depLine}${missingLine}${crossLine}`;
   const marks = [
     entry?.blocked ? '<span class="chip team-blocked" title="前置工作项还没验收通过：现在派发会被闸门拒">被依赖卡住</span>' : "",
     item.interrupted === true ? '<span class="chip team-interrupted" title="状态说在跑、而本进程的作业表里查不到它的句柄（jobs I-4）。可以重派——会话与现场都还在">可重派</span>' : "",
@@ -844,7 +876,12 @@ export function renderTeamWorkItem(entry) {
     ["live", Boolean(item.live), "真的有一份未释放的工作区绑定"],
   ].map(([flag, on, tip]) => `<span class="team-dag-flag" data-flag="${flag}" data-on="${on ? "true" : "false"}" title="${escapeHtml(tip)}">${flag}</span>`).join("");
   const missingChip = missing.length
-    ? `<span class="team-dag-warn" title="depends_on 指向本里程碑里不存在的工作项">依赖缺失：${escapeHtml(missing.join("、"))}</span>`
+    ? `<span class="team-dag-warn" title="depends_on 指向**计划里**不存在的工作项（写错了 id）">依赖缺失：${escapeHtml(missing.join("、"))}</span>`
+    : "";
+  // 跨里程碑依赖：几何按**全计划**算了槽位（slotOf 用的就是全计划索引），所以这一行会被
+  // 推到槽位上；但编排口径只允许同里程碑内 —— 两个说法都要摆出来，不能只报一个（独立验证 ③）。
+  const crossChip = cross.length
+    ? `<span class="team-dag-warn" title="这条依赖落在**别的里程碑**里：几何（槽位）按全计划算了，但编排口径只允许同里程碑内 —— 派活时这条边作废">跨里程碑依赖：${escapeHtml(cross.join("、"))}（只允许同里程碑内）</span>`
     : "";
   const cyclic = entry?.cyclic
     ? '<span class="team-dag-warn" title="depends_on 成环，层号归 0 并接在末尾">依赖成环</span>'
@@ -859,6 +896,8 @@ export function renderTeamWorkItem(entry) {
     `role: ${role || "—"}`,
     `status: ${status}`,
     `depends_on: ${deps.length ? deps.join(", ") : "—"}`,
+    `cross_deps: ${cross.length ? cross.join(", ") : "—"}`,
+    `missing_deps: ${missing.length ? missing.join(", ") : "—"}`,
     `slot: ${slot}`,
     `session_id: ${session || "—"}`,
     `worktree: ${worktree || "—"}`,
@@ -873,7 +912,7 @@ export function renderTeamWorkItem(entry) {
   // 条左端的 cap 叠斜纹第二通道 —— 防撞色，不是装饰（口径 11）。
   const wrapped = role && roleSlotOf(role) >= ROLE_PALETTE_SIZE ? " is-wrapped" : "";
   const skin = role ? ` style="--team-dag-role-color:var(${roleColorVar(role)})"` : "";
-  return `<article class="team-dag-row" data-item-id="${escapeHtml(String(item.id || ""))}" data-status="${escapeHtml(status)}" data-eff="${escapeHtml(eff)}" data-item="${escapeHtml(String(item.id || ""))}" data-role="${escapeHtml(role)}" data-slot="${slot}" data-dur="${dur}" data-end="${slot + dur}" data-depth="${escapeHtml(String(entry?.depth ?? slot))}" data-milestone-id="${escapeHtml(String(item.milestone || entry?.milestone_id || ""))}" data-interrupted="${item.interrupted === true ? "true" : "false"}" data-deps="${escapeHtml(deps.join(","))}"${skin}>
+  return `<article class="team-dag-row" data-item-id="${escapeHtml(String(item.id || ""))}" data-status="${escapeHtml(status)}" data-eff="${escapeHtml(eff)}" data-item="${escapeHtml(String(item.id || ""))}" data-role="${escapeHtml(role)}" data-slot="${slot}" data-dur="${dur}" data-end="${slot + dur}" data-depth="${escapeHtml(String(entry?.depth ?? slot))}" data-milestone-id="${escapeHtml(String(item.milestone || entry?.milestone_id || ""))}" data-interrupted="${item.interrupted === true ? "true" : "false"}" data-deps="${escapeHtml(deps.join(","))}" data-cross-deps="${escapeHtml(cross.join(","))}"${skin}>
         <div class="team-dag-card" title="${escapeHtml(full)}">
           <div class="team-dag-label">
             <span class="team-dag-label-top">
@@ -882,7 +921,7 @@ export function renderTeamWorkItem(entry) {
             </span>
             <span class="team-dag-label-sub">
               <span class="team-label">依赖</span>${deps.length ? deps.map(dep => `<span class="chip team-dep">${escapeHtml(dep)}</span>`).join("") : '<span class="muted">—</span>'}
-              ${marks}${missingChip}${cyclic}
+              ${marks}${missingChip}${crossChip}${cyclic}
               <span class="team-dag-flags">${flags}</span>
             </span>
             <span class="team-dag-full" aria-hidden="true">${escapeHtml(full)}</span>
@@ -1328,14 +1367,18 @@ export const TEAM_BOARD_CSS = `
 .team-dag-grid { position: absolute; z-index: 0; top: calc(4px + var(--team-dag-ruler-h)); bottom: 0; left: var(--team-dag-label-w); width: calc(var(--team-dag-slots, 1) * var(--team-dag-slot-w)); pointer-events: none; border-left: 1px solid var(--border); background: repeating-linear-gradient(to right, var(--border-hairline) 0 1px, transparent 1px var(--team-dag-slot-w)); background-position: var(--team-dag-slot-w) 0; }
 /* 依赖边：一组绝对定位的线段（坐标 = 内容坐标，由渲染件写成 calc 算式）。颜色一律中性
    --team-dag-edge：**不借状态色、不借 teammate 色**（线只说"谁依赖谁"，状态由条描边说，
-   归属由条填充说，三条通道各说各的）。边在框**之下**（z-index 1 < 2），所以跨框的那一段滚动
-   时会被 sticky 框头盖住 —— 与设计稿同行为，见 README §7.1。 */
-.team-dag-edges { position: absolute; z-index: 1; left: 0; top: 0; right: 0; bottom: 0; pointer-events: none; }
+   归属由条填充说，三条通道各说各的）。线段与框同处一个层叠上下文、按 z-index 排：线段
+   （z-index auto）在框（2）**之下**，所以跨框的那一段滚动时会被 sticky 框头盖住 —— 与设计稿
+   同行为，见 README §7.1。**箭头单独抬到框之上（3）**：目标锚点在槽 0 时条左端就是绘图区
+   左沿，接近段只能顶到左沿内侧（见渲染件 xApproach），箭尖因此落进汇总条起点那一格；
+   不抬箭头，整条边最关键的"到了"那一点就会被实色汇总条吃掉（独立验证 F1/② 同一条病）。
+   抬到 3 仍在 sticky 框头（5）与刻度尺（6）之下，线段本身的层序一点没动。 */
+.team-dag-edges { position: absolute; left: 0; top: 0; right: 0; bottom: 0; pointer-events: none; }
 .team-dag-edge { position: absolute; left: 0; top: 0; width: 0; height: 0; }
 .team-dag-edge-seg { position: absolute; background: var(--team-dag-edge); }
 .team-dag-edge-seg.is-h { height: 1.5px; }
 .team-dag-edge-seg.is-v { width: 1.5px; }
-.team-dag-edge-arrow { position: absolute; width: 0; height: 0; border-left: 7px solid var(--team-dag-edge); border-top: 3.5px solid transparent; border-bottom: 3.5px solid transparent; }
+.team-dag-edge-arrow { position: absolute; z-index: 3; width: 0; height: 0; border-left: 7px solid var(--team-dag-edge); border-top: 3.5px solid transparent; border-bottom: 3.5px solid transparent; }
 /* 里程碑 = 一个大框：极淡填充 + 自己的淡色描边（逐框轮换），不吃状态色、不吃 teammate 色。 */
 .team-dag-frame { position: relative; z-index: 2; margin: 4px 0; padding-bottom: 4px; border: 1px solid var(--team-dag-ms-tone, var(--border-strong)); border-radius: var(--r-lg); background: color-mix(in srgb, var(--team-dag-ms-tone, transparent) 5%, transparent); }
 .team-dag-frame[data-locked="true"] { border-style: dashed; opacity: .55; }

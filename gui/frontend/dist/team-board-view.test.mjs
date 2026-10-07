@@ -970,6 +970,150 @@ test("(j) styles.css 里没有第二份甘特 CSS（唯一来源是 TEAM_BOARD_C
   assert.match(TEAM_BOARD_CSS, /\.team-dag-bar\s*\{/, "唯一来源就在 TEAM_BOARD_CSS 里");
 });
 
+// ── ⑧ wi-gantt-fix 三条回归：里程碑边看得见 / 不越列 / 跨里程碑依赖不误报 ─────────
+//
+// calcAt 把渲染件写在 style 里的 calc 算式**按整数系数求值**（系数是整数/0.5，变量就是
+// CSS 里那组 --team-dag-*）——测试侧自己代入常量算一遍，不引用渲染件的中间量。
+function calcAt(expr, vars) {
+  const body = String(expr).replace(/^calc\(/, "").replace(/\)$/, "");
+  const terms = body.match(/[+-]?\s*(?:\d+(?:\.\d+)?px|\d+(?:\.\d+)?\s*\*\s*var\(--[a-z-]+\))/g) || [];
+  return terms.reduce((sum, raw) => {
+    const term = raw.trim();
+    const sign = term.startsWith("-") ? -1 : 1;
+    const rest = term.replace(/^[+-]\s*/, "");
+    const px = rest.match(/^([\d.]+)px$/);
+    if (px) return sum + sign * Number(px[1]);
+    const scaled = rest.match(/^([\d.]+)\s*\*\s*var\((--[a-z-]+)\)$/);
+    if (scaled) {
+      assert.ok(vars[scaled[2]] !== undefined, `算式 ${expr} 用了没登记的变量 ${scaled[2]}`);
+      return sum + sign * Number(scaled[1]) * Number(vars[scaled[2]]);
+    }
+    throw new Error(`算式里出现看不懂的项：${term}（${expr}）`);
+  }, 0);
+}
+
+// coefOf 取算式里某个 CSS 变量的系数（把"框头算了几遍"这类问题直接读出来）。
+function coefOf(expr, name) {
+  const hits = [...String(expr).matchAll(new RegExp(`([+-]?)\\s*([\\d.]+)\\s*\\*\\s*var\\(${name}\\)`, "g"))];
+  return hits.reduce((sum, hit) => sum + (hit[1] === "-" ? -1 : 1) * Number(hit[2]), 0);
+}
+
+// 几何常量在测试侧再写一遍（渲染件的 GANTT 没导出）：CSS ↔ 渲染件常量另有一条逐字互钉的
+// 用例，这里这两组数字是**窄栏容器查询**那一档（@container (max-width:520px) 里的值）。
+const GANTT_WIDE = {
+  "--team-dag-ruler-h": 30, "--team-dag-head-h": 26, "--team-dag-sum-h": 22,
+  "--team-dag-row-h": 38, "--team-dag-gate-h": 18,
+  "--team-dag-label-w": 208, "--team-dag-slot-w": 64,
+};
+const GANTT_NARROW = { ...GANTT_WIDE, "--team-dag-label-w": 118, "--team-dag-slot-w": 40, "--team-dag-row-h": 30, "--team-dag-ruler-h": 28 };
+
+// 夹具：两个里程碑**屏障串行**（ma → mb），各自一件工作项、都没有依赖 —— 于是 mb 的汇总条
+// 落在**槽 0**（条左端就是绘图区左沿），里程碑边的目标锚点正好压在那条线上：这正是"箭尾
+// 越列"的触发条件；而"里程碑边到底画在框的哪一行"就是 F1 要钉的那件事。
+const FIX_CHAIN = {
+  team_id: "gantt-fix",
+  milestones: [
+    { id: "mb", name: "后", depends_on: ["ma"], status: "pending" },
+    { id: "ma", name: "前", status: "done" },
+  ],
+  work_items: [
+    { id: "b1", milestone: "mb", role: "r", name: "乙", status: "pending" },
+    { id: "a1", milestone: "ma", role: "r", name: "甲", status: "done" },
+  ],
+};
+
+function edgeParts(html, edgeID) {
+  const span = html.match(new RegExp(`<span class="team-dag-edge" data-edge="${edgeID}"[\\s\\S]*?</span>`));
+  assert.ok(span, `${edgeID} 的边要画出来`);
+  const body = span[0];
+  return {
+    body,
+    arrow: body.match(/class="team-dag-edge-arrow" style="left:([^;]+);top:([^;]+)"/),
+    hs: [...body.matchAll(/class="team-dag-edge-seg is-h" style="left:([^;]+);top:([^;]+);width:([^"]+)"/g)],
+    vs: [...body.matchAll(/class="team-dag-edge-seg is-v" style="left:([^;]+);top:([^;]+);height:([^"]+)"/g)],
+  };
+}
+
+test("(F1/回归 a) 里程碑边的 y 锚点 = 框顶 + 框边 + head-h + sum-h/2（框头那一项漏了整条边就失踪）", () => {
+  const html = renderTeamGantt(FIX_CHAIN);
+  const ma = edgeParts(html, "ma-&gt;mb");
+  // 框头在算式里要被算**两遍**：一遍在第一个框的框高里，一遍在目标框自己的框内偏移里。
+  // 少算一遍就是 26px 的整段位移 —— 落进不透明的 sticky 框头带，画面上整条边消失（F1）。
+  assert.equal(coefOf(ma.arrow[2], "--team-dag-head-h"), 2, `y 算式里框头必须被算进去：${ma.arrow[2]}`);
+  assert.equal(coefOf(ma.arrow[2], "--team-dag-sum-h"), 1.5, `y 算式要落在两条汇总条的中线上：${ma.arrow[2]}`);
+  // 块序（CSS 的 flex 列）：内容 padding-top(4) → 刻度尺(30) → 框上间距(4) → 第 1 个框。
+  const firstTop = 4 + GANTT_WIDE["--team-dag-ruler-h"] + 4;
+  const inFrame = 1 + GANTT_WIDE["--team-dag-head-h"] + GANTT_WIDE["--team-dag-sum-h"] / 2; // 框边 + 框头 + 汇总条半高
+  // 源端：第 1 个框的汇总条中线（横段的 left/top 是**居中**画的：top = 锚点 − 0.75）。
+  assert.equal(calcAt(ma.hs[0][2], GANTT_WIDE) + 0.75, firstTop + inFrame, "源端横段落在源框汇总条中线上");
+  // 目标端：第 2 个框的汇总条中线 = 第 1 个框整高 + 两道框间距 + 闸门带 + 同样的框内偏移。
+  const secondTop = firstTop
+    + (2 * 1 + 4 + GANTT_WIDE["--team-dag-head-h"] + GANTT_WIDE["--team-dag-sum-h"] + GANTT_WIDE["--team-dag-row-h"])
+    + 4 + (2 * 2 + GANTT_WIDE["--team-dag-gate-h"]) + 4;
+  // 箭头是 7×7 的 border 三角形，算式给的是它的上沿（中心 = 上沿 + 3.5）。
+  assert.equal(calcAt(ma.arrow[2], GANTT_WIDE) + 3.5, secondTop + inFrame, "箭头中心 = 目标框汇总条中线");
+  // 窄栏同理（几何整体压小，锚点跟着缩，不许写死像素）。
+  const secondTopNarrow = (4 + GANTT_NARROW["--team-dag-ruler-h"] + 4)
+    + (2 * 1 + 4 + GANTT_NARROW["--team-dag-head-h"] + GANTT_NARROW["--team-dag-sum-h"] + GANTT_NARROW["--team-dag-row-h"])
+    + 4 + (2 * 2 + GANTT_NARROW["--team-dag-gate-h"]) + 4;
+  assert.equal(
+    calcAt(ma.arrow[2], GANTT_NARROW) + 3.5,
+    secondTopNarrow + 1 + GANTT_NARROW["--team-dag-head-h"] + GANTT_NARROW["--team-dag-sum-h"] / 2,
+    "同一份算式在窄栏几何下同样落在中线"
+  );
+});
+
+test("(②/回归 b) 边不越列：任何一段（竖线 / 横线 / 箭头）都在绘图区左沿右侧 —— 目标锚点在槽 0 时也一样", () => {
+  const html = renderTeamGantt(FIX_CHAIN);
+  const parts = edgeParts(html, "ma-&gt;mb");
+  const lefts = [...parts.hs.map(m => m[1]), ...parts.vs.map(m => m[1]), parts.arrow[1]];
+  assert.ok(lefts.length >= 5, `槽 0 的边照样画满段（现在 ${lefts.length} 段，不许「画不出来就不画」）`);
+  for (const [label, vars] of [["宽栏", GANTT_WIDE], ["窄栏", GANTT_NARROW]]) {
+    const labelW = vars["--team-dag-label-w"];
+    const values = lefts.map(expr => calcAt(expr, vars));
+    const min = Math.min(...values);
+    // 判据按**实测最左**核：竖线居中画（−0.75px），所以锚点还得往左沿内侧再让一点。
+    assert.ok(min >= labelW, `${label}：最左 ${min} 越过了绘图区左沿 ${labelW}（修之前这里是 labelW − 7）`);
+  }
+  // 越列的病根是把"目标条左端 − 箭头长"当成了接近段：槽 0 的条左端就在左沿上，
+  // 再减 7px 就整段进了任务名列。算式里不许再出现这个减项（槽 0 那一档顶到左沿内侧）。
+  assert.equal(calcAt(parts.arrow[1], GANTT_WIDE), GANTT_WIDE["--team-dag-label-w"] + 2, "槽 0 的箭头顶到绘图区左沿内侧 2px");
+  assert.match(parts.arrow[1], /^calc\(2px \+ 1 \* var\(--team-dag-label-w\)\)$/, "算式写成 calc（跟着容器查询一起缩），不是写死像素");
+});
+
+test("(③/回归 c) 跨里程碑依赖不再被报成「依赖缺失」、也不再永久 blocked（机读面同步）", () => {
+  const plan = {
+    milestones: [{ id: "m2", name: "后", depends_on: ["m1"], status: "pending" }, { id: "m1", name: "前", status: "done" }],
+    work_items: [
+      { id: "w2", milestone: "m2", role: "r", name: "乙", status: "pending", depends_on: ["w1"] },
+      { id: "w1", milestone: "m1", role: "r", name: "甲", status: "done" },
+    ],
+  };
+  const html = renderTeamGantt(plan);
+  const row = html.match(/<article class="team-dag-row"[^>]*data-item-id="w2"[\s\S]*?<\/article>/)[0];
+  assert.match(row, /data-cross-deps="w1"/, "跨里程碑依赖进机读面（id 列表，可为空串）");
+  assert.doesNotMatch(row, /依赖缺失/, "别的里程碑里的依赖**不许**被说成「依赖缺失」");
+  assert.doesNotMatch(row, /被依赖卡住/, "它 done 了就是不卡：全计划状态说了算");
+  assert.match(row, /跨里程碑依赖：w1（只允许同里程碑内）/, "单独报一条醒目告警 + 口径");
+  assert.match(row, /data-flag="blocked" data-on="false"/, "机读面的 blocked 与新判据一致");
+  assert.match(row, /title="[^"]*几何（槽位）按全计划算了，但编排口径只允许同里程碑内/, "title 说清「几何按跨里程碑算了，但口径只允许同里程碑」");
+  // 真的不存在的 id 才是「依赖缺失」（也只有它配这一句），并且照样 blocked。
+  const ghost = renderTeamGantt({
+    milestones: [{ id: "m1", name: "前", status: "done" }],
+    work_items: [{ id: "w3", milestone: "m1", role: "r", name: "丙", status: "pending", depends_on: ["nope"] }],
+  });
+  const ghostRow = ghost.match(/<article class="team-dag-row"[^>]*data-item-id="w3"[\s\S]*?<\/article>/)[0];
+  assert.match(ghostRow, /依赖缺失：nope/);
+  assert.match(ghostRow, /data-flag="blocked" data-on="true"/, "指向不存在的 id = 没 done = 卡住");
+  assert.match(ghostRow, /data-cross-deps=""/, "不是跨里程碑：机读面留空串");
+  assert.doesNotMatch(ghostRow, /跨里程碑依赖/);
+  // 只有 orderWorkItems 给的 depth 时（没有全计划索引）不许崩：退回本里程碑口径。
+  const solo = orderWorkItems([{ id: "s1", role: "r", status: "pending", depends_on: ["out"] }]);
+  assert.deepEqual(solo[0].missing_deps, ["out"], "缺省口径下仍是「本里程碑里找不到」（调用方没给全计划索引）");
+  assert.deepEqual(solo[0].cross_deps, []);
+  assert.equal(solo[0].blocked, true);
+});
+
 test("TEAM_BOARD_CSS 只吃仓库既有令牌：自造色值只许出现在作用域内的归属色/框描边色板里", () => {
   assert.match(TEAM_BOARD_CSS, /\.team-board\s*\{/);
   assert.match(TEAM_BOARD_CSS, /var\(--status-running\)/);
