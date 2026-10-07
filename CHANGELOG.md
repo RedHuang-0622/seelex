@@ -54,6 +54,14 @@ Session + worktree」从作业端口长成完整生命周期契约，subagent �
 - **对外形状变更（明说）**：headless / 面板读到的 `TeamSchedule.unexecuted` 字段与停止原因词
   `no_executor` 换成 `no_automatic_turn`；`model.ToolCall.Status` 的取值面并成 `dto.ToolEventStatus`
   （`running|success|error`）。老会话与老记录仍可读（宽松 `UnmarshalJSON`，落盘词不变）。
+- **团队侧边栏瘦身 + 详情页下钻**（GUI）：看板只报最小可读集——里程碑一行（WI 编号 / 内容摘要 /
+  一格一层的跨度）+ teammate 一行一位（名字 / 状态 / 负责几件事 / 工作区）。细节交给三种详情页
+  （里程碑 / Work Item / teammate，同一套「页签 + 返回栈」的壳），**Work Item 页被另外两种页复用**，
+  插件装配从看板行搬进 teammate 详情页的「插件装配」页签。真甘特的边与箭头整条退场
+  （`layoutTeamGanttEdges` / `scheduleTeamGanttLayout` / `renderTeamWorkItem` /
+  `renderWorkItemSessionPanel` 与 `.team-dag-edge*` / `.team-dag-frame*` 一族样式删除）：依赖改在
+  详情页的「依赖」页签里逐条列全（每条带那头的状态 + 被谁依赖）。横轴仍是**依赖槽位**（不是时间，
+  计划里没有工时事实），同槽并行的一格横切成 n 小格（叠着画会让后画的把先画的整件盖住）。
 
 ### Fixed
 

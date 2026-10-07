@@ -20,7 +20,7 @@ import { createFilePreviewController } from "./file-preview.js";
 import { renderCompactionFrameModal, renderContextCompactions } from "./context-summary.js";
 import { compactionRangeText, compactionReasonLabel, mergeCompactionProgress } from "./compaction-format.js";
 import { renderGoalDetail, renderGoalPanel } from "./goal-board-view.js";
-import { TEAM_BOARD_CSS, TEAMMATE_LIVE_PAGE_SIZE, renderTeamBoard, renderTeammateLiveSession, teammateSessionEntry } from "./team-board-view.js";
+import { TEAM_BOARD_CSS, TEAMMATE_LIVE_PAGE_SIZE, parseTeamPageRef, renderTeamBoard, renderTeamPage, renderTeammateLiveSession, teamPageTitle, teammateSessionEntry } from "./team-board-view.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
 import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
 import { employeePool, hirePanel, isPinnedRole, nextAgentTeamOrder, normalizeAgentTeam, normalizeTeamGlobal, normalizeTeamLibrary, PERMISSION_CUSTOM_TOOLS, PERMISSION_GROUPS, PERMISSION_BITS, renderAgentTeam, renderRoleSessionDetail, renderTeamMemberList, roleDisplayName, teamEditorPanel, teamEntryFromMembers, teamMemberNames, teamMemberSpecMap, teamRoleSpec } from "./agent-team-view.js";
@@ -94,6 +94,9 @@ const elements = Object.fromEntries([
   "compaction-frame-modal", "compaction-frame-modal-close", "compaction-frame-modal-title", "compaction-frame-modal-meta", "compaction-frame-modal-view",
   "team-section", "team-view", "team-count",
   "role-session-modal", "role-session-close", "role-session-modal-title", "role-session-view",
+  // 团队详情页（里程碑 / Work Item / teammate 三种页共用一套壳）：壳与落点在这里登记，
+  // 页的内容全归渲染件 team-board-view.js 的 renderTeamPage。
+  "team-page-modal", "team-page-close", "team-page-modal-title", "team-page-view",
   "right-tabs", "goal-section", "goal-badge", "goal-view", "goal-detail-modal", "goal-detail-close", "goal-detail-title", "goal-detail-view", "team-board-section", "team-board-badge", "team-board-view", "code-panes", "code-pane-tabs", "code-pane-worktree", "code-pane-gitlog", "git-log-view", "git-log-count", "code-pane-changes", "changes-view", "changes-count",
   "file-preview-pane", "file-preview-view", "file-preview-tabs", "file-preview-hide-panes", "file-preview-close", "file-preview-divider", "file-preview-collapse", "file-preview-rail",
   "file-save-modal", "file-save-title", "file-save-message", "file-save-keep", "file-save-discard", "file-save-cancel",
@@ -2199,6 +2202,13 @@ function renderSkills(skills) {
 // （openRoleSessionDetail 解析"这位 teammate 此刻那件事的会话"，见那里的注释）。
 let currentTeamPlan = null;
 
+// currentTeamBoardInput 是最近一帧看板的**整份只读入参**（plan + jobs + events + 标记）：
+// 详情页（里程碑 / Work Item / teammate）读的就是它。
+//
+// 为什么不从 DOM 里捞：详情页要的字段（描述 / 结论 / 作业行 / 审计流水）大多**没有**进侧边栏
+// 那一份 HTML（那正是"侧边栏只报最小可读集"的意思）。要读全量，只能拿同一份投影。
+let currentTeamBoardInput = null;
+
 function renderTeam(snapshot) {
   const section = elements["team-board-section"];
   const view = elements["team-board-view"];
@@ -2209,17 +2219,22 @@ function renderTeam(snapshot) {
   // 团队看板是这条事实的权威投影，Agent Team 面板的成员行只有角色名与"员工的长期角色会话号"，
   // 少了这一份就会退到角色会话（那是主代理的会话，不是 teammate 自己的）。
   currentTeamPlan = input ? input.plan : null;
+  // 详情页与侧边栏同源同帧：快照一到，两边一起重绘（开着的详情页因此不会停在旧读数上）。
+  currentTeamBoardInput = input;
   const html = input ? renderTeamBoard(input) : "";
   if (!html) {
     section.classList.add("hidden");
     if (badge) badge.classList.add("hidden");
     view.innerHTML = "";
+    // 没有计划 = 详情页也没有可读的东西：关掉它，不留一个指向已消失计划的空壳。
+    closeTeamPage();
     return;
   }
   ensureTeamBoardStyles();
   section.classList.remove("hidden");
   view.classList.remove("muted");
   view.innerHTML = html;
+  refreshTeamPage();
   if (badge) {
     badge.classList.remove("hidden");
     // 徽标写里程碑数（与同栏「工作表格 / 定时任务」的计数徽标同口径）。不写 "TEAM"：
@@ -2318,28 +2333,197 @@ function ensureTeamBoardStyles() {
   document.head.appendChild(style);
 }
 
-// bindTeamBoardActions 绑看板自己的成员入口（S7）：在编行上的角色名 → 这位员工的工作上下文
-// （与团队面板成员行同一个 openRoleSessionDetail，不另造"员工会话"概念）。
+// ── 团队详情页（里程碑 / Work Item / teammate 三种页共用一套壳）──────────────
+//
+// 侧边栏只报最小可读集（口径见 team-board-view.js 的文件头），细节一律走这里。三种页由
+// **同一个 renderTeamPage** 渲染，而 Work Item 页被另外两种页复用（里程碑页的「Work Item」
+// 表、teammate 页的「负责的 Work Item」表都点进它）——前端不各写一份"差不多的详情"。
+//
+// 页面栈在**前端**：只有这里知道用户是从哪儿点进来的（返回键要回到那一页），渲染件只认
+// "当前页 ref"与"上一层是什么"。栈是本地读状态：不进快照、不落盘、没有写入口。
+
+const teamPageStack = [];
+
+// teamPageLive 是当前 Work Item 页「执行会话」页签的读数（进程内执行面的投影）。
+// 按页记 + 只在**切到那个页签时**才去读：进详情页就为每个工作项拉一次正文，等于把一次
+// 点击变成一串 RPC，而用户多半只是想看一眼字段。
+let teamPageLive = null;
+
+function teamPageTop() {
+  return teamPageStack[teamPageStack.length - 1] || null;
+}
+
+// openTeamPage 打开一页并压栈。同一页重复点不重复压栈（否则返回键要在同一页上按两次）。
+function openTeamPage(kind, id) {
+  const ref = `${String(kind || "")}:${String(id || "")}`;
+  if (!parseTeamPageRef(ref)) return;
+  if (teamPageTop()?.ref === ref) {
+    setModal("team-page-modal", true);
+    return;
+  }
+  teamPageStack.push({ ref, kind: String(kind), id: String(id), tab: "" });
+  teamPageLive = null;
+  ensureTeamBoardStyles();
+  setModal("team-page-modal", true);
+  refreshTeamPage();
+}
+
+// teamPageBack 出栈一层；栈空了就关页（返回键走到头 = 回到看板）。
+function teamPageBack() {
+  if (teamPageStack.length === 0) return;
+  teamPageStack.pop();
+  teamPageLive = null;
+  if (teamPageStack.length === 0) {
+    closeTeamPage();
+    return;
+  }
+  refreshTeamPage();
+}
+
+function closeTeamPage() {
+  teamPageStack.length = 0;
+  teamPageLive = null;
+  setModal("team-page-modal", false);
+}
+
+// teamPagePainted 记住"上一次画下去的是什么"：快照一到就重绘是必要的（状态会变），但
+// **重绘一样的内容**只有一个副作用——把用户滚到一半的位置和选中的文字清掉。
+// 渲染件是幂等的（同一份入参 → 逐字节相同的字符串），所以这里按字符串比一比就能安全跳过。
+let teamPagePainted = { title: "", html: "" };
+
+// paintTeamPage 只画当前页（不发请求、不改栈）：快照刷新、压栈、出栈、切页签都复用它，
+// 于是"刷新一下弹窗闪一下"这件事不会发生，页签位置也不会被拽回第一页（tab 存在栈里）。
+function paintTeamPage() {
+  const top = teamPageTop();
+  if (!top) return;
+  const input = currentTeamBoardInput;
+  if (!input) return;
+  const parent = teamPageStack[teamPageStack.length - 2] || null;
+  const title = `<span class="eyebrow">团队详情</span><h2>${escapeHtml(teamPageTitle({ plan: input.plan, ref: top.ref }))}</h2>`;
+  const html = renderTeamPage({
+    plan: input.plan,
+    jobs: input.jobs,
+    events: input.events,
+    ref: top.ref,
+    tab: top.tab,
+    // 只画**属于这一页**的读数：换页时上一页的执行面正文不许跟着漂过来。
+    live: teamPageLive?.ref === top.ref ? teamPageLive.view : null,
+    liveLoading: top.kind === "item" && top.tab === "session" && teamPageLive?.ref !== top.ref,
+    parent: parent ? { ref: parent.ref, label: `返回 ${teamPageTitle({ plan: input.plan, ref: parent.ref })}` } : null,
+  });
+  if (teamPagePainted.title === title && teamPagePainted.html === html) return;
+  teamPagePainted = { title, html };
+  elements["team-page-modal-title"].innerHTML = title;
+  elements["team-page-view"].className = "team-page-view";
+  elements["team-page-view"].innerHTML = html;
+}
+
+function planItemOf(id) {
+  const items = Array.isArray(currentTeamBoardInput?.plan?.work_items) ? currentTeamBoardInput.plan.work_items : [];
+  return items.find(item => String(item?.id || "") === String(id || "")) || null;
+}
+
+// loadTeamPageSession 读这一页对应的**执行面**（一 Work Item 一套 Session，正文不落盘）。
+// 读失败不抛给用户一个红 toast：这一页本来就有"读不到"的正当情形（重启过 / 已收口），
+// 渲染件会把话说清楚（running=false 的那一支）。
+async function loadTeamPageSession(top) {
+  if (!top || top.kind !== "item") return;
+  const sessionID = String(planItemOf(top.id)?.session_id || "").trim();
+  if (!sessionID) {
+    teamPageLive = { ref: top.ref, sessionID: "", view: null };
+    paintTeamPage();
+    return;
+  }
+  let view = null;
+  try {
+    view = await invoke("TeammateSessionLive", sessionID);
+  } catch (error) {
+    view = null;
+  }
+  // 取数期间用户可能已经返回/换页：只有还停在同一页时才回写。
+  if (teamPageTop()?.ref !== top.ref) return;
+  teamPageLive = { ref: top.ref, sessionID, view };
+  paintTeamPage();
+}
+
+// openTeamPageLivePage 翻「这一页的执行会话」的一页（读法是后端的 TeammateSessionLivePage：
+// 判据只有一份，前端只搬 offset）。
+async function openTeamPageLivePage(offset) {
+  const top = teamPageTop();
+  if (!top || top.kind !== "item" || teamPageLive?.ref !== top.ref) return;
+  const sessionID = String(teamPageLive.sessionID || "");
+  if (!sessionID) return;
+  try {
+    const view = await invoke("TeammateSessionLivePage", sessionID, offset, TEAMMATE_LIVE_PAGE_SIZE);
+    if (teamPageTop()?.ref !== top.ref) return;
+    teamPageLive = { ref: top.ref, sessionID, view };
+    paintTeamPage();
+  } catch (error) {
+    showToast(error);
+  }
+}
+
+// switchTeamPageTab 切页签：**只动 DOM 的双类**（渲染件把三块面板全渲出来了），不重算、
+// 不重渲——切回去永远给出与第一次相同的读数。唯一会发请求的是「执行会话」页签第一次打开。
+function switchTeamPageTab(key) {
+  const top = teamPageTop();
+  if (!top) return;
+  top.tab = String(key || "");
+  const page = elements["team-page-view"]?.querySelector?.(".team-page");
+  if (page) {
+    for (const tab of page.querySelectorAll("[data-team-tab]")) {
+      const on = tab.dataset.teamTab === top.tab;
+      tab.classList.toggle("is-active", on);
+      tab.setAttribute("aria-selected", String(on));
+    }
+    for (const panel of page.querySelectorAll("[data-team-panel]")) {
+      panel.classList.toggle("is-active", panel.dataset.teamPanel === top.tab);
+    }
+  }
+  if (top.kind === "item" && top.tab === "session" && teamPageLive?.ref !== top.ref) {
+    paintTeamPage();
+    loadTeamPageSession(top);
+  }
+}
+
+// refreshTeamPage 重绘当前页 + 按需补读执行面（快照刷新 / 打开 / 返回都走这一条）。
+async function refreshTeamPage() {
+  const top = teamPageTop();
+  if (!top || elements["team-page-modal"]?.classList?.contains("hidden")) return;
+  if (!currentTeamBoardInput) {
+    closeTeamPage();
+    return;
+  }
+  paintTeamPage();
+  if (top.kind === "item" && top.tab === "session" && teamPageLive?.ref !== top.ref) {
+    await loadTeamPageSession(top);
+  }
+}
+
+// bindTeamBoardActions 绑看板自己的三个入口：
+//   - 里程碑行的名字  → `data-team-ms-open`：开**里程碑详情页**；
+//   - teammate 的名字 → `data-team-member-open`：开**teammate 详情页**；
+//   - 「当前会话」chip → `data-team-role-open`：开这位**此刻那件事的会话**（实时执行面，
+//     与 Agent Team 面板成员行同一个 openRoleSessionDetail，不另造"员工会话"概念）。
 //
 // 为什么必须单独绑一条：Agent Team 面板的点击委托挂在 `#team-view` 上，而团队看板是另一块
 // section（`#team-board-view`）——事件不会跨子树冒泡到那个监听器。渲染件把钩子写上了却不绑
 // 监听，得到的就是一个**点不动的入口**（比没有入口更坏）。
 //
-// 只读：这里只开一个读视图（AgentTeamRoleSnapshot + team.changed 重取），不写任何后端状态
-// ——看板"单向只读投影"的口径不变。
+// 只读：这里只开读视图（详情页读的是同一份快照投影，会话读面读的是执行面），不写任何后端
+// 状态——看板"单向只读投影"的口径不变。
 function bindTeamBoardActions() {
   const host = elements["team-board-view"];
   if (!host) return;
   host.addEventListener("click", async event => {
-    // 工作项行的名称 = 这件事的**执行进度子页面**入口（2026-10-03）：复用员工会话
-    // 那个子页面（同一个 openRoleSessionDetail），不另造"工作项页面"概念。
-    const openItem = event.target.closest?.("[data-team-item-open]");
-    if (openItem?.dataset.teamItemOpen) {
-      // 工作项行 = **这件事自己的会话**（一 Work Item 一套 Session）：第三个参数是工作项 id，
-      // 有它就打开"当前的 teammate 的会话"（实时执行面），而不是员工的长期角色会话。
-      await openRoleSessionDetail(
-        openItem.dataset.teamItemRole || "", openItem.dataset.teamItemSession || "", openItem.dataset.teamItemOpen
-      );
+    const openMilestone = event.target.closest?.("[data-team-ms-open]");
+    if (openMilestone?.dataset.teamMsOpen) {
+      openTeamPage("milestone", openMilestone.dataset.teamMsOpen);
+      return;
+    }
+    const openMember = event.target.closest?.("[data-team-member-open]");
+    if (openMember?.dataset.teamMemberOpen) {
+      openTeamPage("teammate", openMember.dataset.teamMemberOpen);
       return;
     }
     const openRole = event.target.closest?.("[data-team-role-open]");
@@ -3372,6 +3556,41 @@ function closeRoleSessionDetail() {
   setModal("role-session-modal", false);
 }
 
+// 团队详情页的点击委托（一个容器管三种页）：下钻 / 返回 / 切页签 / 开当前会话 / 翻会话页。
+// 与 bindTeamBoardActions 同一条口径：钩子写在渲染件上，监听必须真的挂上——不挂就是点不动的
+// 按钮（比没有入口更坏）。这一条挂在 `#team-page-view` 上（它不是看板的子树）。
+elements["team-page-view"]?.addEventListener("click", event => {
+  const open = event.target.closest?.("[data-team-page-open]");
+  if (open?.dataset.teamPageOpen) {
+    const spec = parseTeamPageRef(open.dataset.teamPageOpen);
+    if (spec) openTeamPage(spec.kind, spec.id);
+    return;
+  }
+  if (event.target.closest?.("[data-team-page-back]")) {
+    teamPageBack();
+    return;
+  }
+  const tab = event.target.closest?.("[data-team-tab]");
+  if (tab?.dataset.teamTab) {
+    switchTeamPageTab(tab.dataset.teamTab);
+    return;
+  }
+  // 详情页里的「当前会话」chip 与看板行上那枚是同一个入口（同一份 teammateSessionEntry 判定）。
+  const openRole = event.target.closest?.("[data-team-role-open]");
+  if (openRole?.dataset.teamRoleOpen) {
+    openRoleSessionDetail(openRole.dataset.teamRoleOpen, openRole.dataset.teamRoleSession, openRole.dataset.teamItem || "");
+    return;
+  }
+  const livePage = event.target.closest?.("[data-teammate-live-page]");
+  if (livePage?.dataset?.teammateLivePage !== undefined && !livePage.disabled) {
+    openTeamPageLivePage(Number.parseInt(livePage.dataset.teammateLivePage, 10) || 0);
+  }
+});
+elements["team-page-close"]?.addEventListener("click", closeTeamPage);
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape") closeTeamPage();
+});
+
 elements["role-session-close"]?.addEventListener("click", closeRoleSessionDetail);
 elements["role-session-modal"]?.addEventListener("click", event => {
   if (event.target === elements["role-session-modal"]) {
@@ -4400,7 +4619,7 @@ elements["scheduled-task-view"].addEventListener("click", async event => {
   }
 });
 
-for (const [modalID, close] of [["runtime-modal", closeRuntime], ["command-modal", closeCommandPalette], ["settings-modal", closeSettings], ["scheduled-task-modal", closeScheduledTaskDialog], ["node-detail-modal", closeNodeDetail], ["work-table-modal", closeWorkTable], ["new-session-modal", closeNewSessionModal], ["role-session-modal", closeRoleSessionDetail], ["compaction-frame-modal", closeCompactionFrame]]) {
+for (const [modalID, close] of [["runtime-modal", closeRuntime], ["command-modal", closeCommandPalette], ["settings-modal", closeSettings], ["scheduled-task-modal", closeScheduledTaskDialog], ["node-detail-modal", closeNodeDetail], ["work-table-modal", closeWorkTable], ["new-session-modal", closeNewSessionModal], ["role-session-modal", closeRoleSessionDetail], ["team-page-modal", closeTeamPage], ["compaction-frame-modal", closeCompactionFrame]]) {
   elements[modalID].addEventListener("click", event => {
     if (event.target === elements[modalID]) close();
   });

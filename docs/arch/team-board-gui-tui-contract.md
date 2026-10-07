@@ -245,6 +245,15 @@ application/model/state.go      SessionRuntime.TeamworkBoard  json:"teamwork_boa
 - **退场语义**：`teamwork_board` 缺失 / 无 `milestones` 且无 `work_items` / **计划已收口**（`state=closed`）/
   `renderTeamBoard` 返回 `""` → `#team-board-section` 加 `hidden`、`#team-board-view` 清空。
   **不留空壳**（"结束就是没有了"，与目标看板同口径）。
+- **详情页下钻**（2026-10-08）：看板只报**最小可读集**，细节走 `#team-page-modal`（新的读视图落点，
+  id 同样登记进 app.js 的 `elements`）。三种页 = `milestone:<id>` / `item:<id>` / `teammate:<role>`，
+  由**同一个** `renderTeamPage({plan, jobs, events, ref, tab, live, liveLoading, parent})` 分发到
+  `renderMilestoneDetail` / `renderWorkItemDetail` / `renderTeammateDetail`，**Work Item 页被另外两种页
+  复用**（里程碑页的「Work Item」表、teammate 页的「负责的 Work Item」表都点进同一个渲染件）。
+  页面栈（返回键）在 `app.js` 的 `teamPageStack` 里，是**本地读状态**：不进快照、不落盘、无写入口。
+  `live` 一栏是 Work Item 页「执行会话」页签的进程内执行面读数（`TeammateSessionLive`），只在切到那个
+  页签时才拉——`liveLoading=true` 时页面写「正在读」，**不**把"还没读到"说成"执行面不在本进程"。
+  依赖**不画成几何**：里程碑屏障与工作项 DAG 在「依赖」页签里逐条列全（每条带那头的状态 + 反向边）。
 
 ---
 
