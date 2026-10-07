@@ -318,11 +318,8 @@
   <div id="scheduled-task-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="scheduled-task-modal-title">
     <div class="modal-card settings-card" data-resizable>
       <div class="modal-header"><div><span class="eyebrow">定时任务</span><h2 id="scheduled-task-modal-title">新建定时任务</h2></div><button id="scheduled-task-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
-      <p class="settings-note">命令任务只执行后端白名单脚本（不可任意输入命令）；提示词任务复用当前主会话执行，会话切换后自动跳过。</p>
-      <label class="settings-field">任务名称<input id="sched-name" type="text" placeholder="如：每周抓取职位" autocomplete="off"></label>
-      <label class="settings-field">任务类型
-        <select id="sched-kind"><option value="command">命令（白名单脚本）</option><option value="prompt">提示词（agent 会话）</option></select>
-      </label>
+      <p class="settings-note">到点把提示词投给当前主会话执行（会话切换后自动跳过），提示词与运行结果都留在会话记录里。周期可以指定「每天的几点」开始，也可以让每个周期按创建时刻滚动。</p>
+      <label class="settings-field">任务名称<input id="sched-name" type="text" placeholder="如：每天九点巡检" autocomplete="off"></label>
       <label class="settings-field">执行方式
         <select id="sched-mode">
           <option value="period">周期重复</option>
@@ -334,16 +331,31 @@
           <span class="period-prefix">每</span>
           <input id="sched-period-value" type="number" min="1" value="1">
           <select id="sched-period-unit">
+            <option value="minute">分钟</option>
             <option value="hour">小时</option>
-            <option value="day">天</option>
+            <option value="day" selected>天</option>
             <option value="week">周</option>
             <option value="month">月</option>
           </select>
         </span>
       </label>
+      <label id="sched-anchor-field" class="settings-field">开始时间
+        <span class="period-row">
+          <select id="sched-start-weekday" class="hidden" aria-label="每周的星期几">
+            <option value="1">周一</option>
+            <option value="2">周二</option>
+            <option value="3">周三</option>
+            <option value="4">周四</option>
+            <option value="5">周五</option>
+            <option value="6">周六</option>
+            <option value="7">周日</option>
+          </select>
+          <input id="sched-start-clock" type="time" step="60" aria-label="开始时间">
+        </span>
+      </label>
+      <label id="sched-anchor-now-field" class="settings-field sched-toggle"><input id="sched-anchor-now" type="checkbox"> 每个周期按当前时间</label>
+      <label id="sched-prompt-field" class="settings-field">提示词内容<textarea id="sched-prompt" rows="4" placeholder="到点让 agent 执行的内容"></textarea></label>
       <label id="sched-datetime-field" class="settings-field hidden">执行时间<input id="sched-datetime" type="datetime-local" aria-label="定时执行时间"></label>
-      <label id="sched-command-field" class="settings-field">命令<select id="sched-command"></select></label>
-      <label id="sched-prompt-field" class="settings-field hidden">提示词内容<textarea id="sched-prompt" rows="3" placeholder="定时让 agent 执行的内容"></textarea></label>
       <label id="sched-enabled-field" class="settings-field sched-toggle"><input id="sched-enabled" type="checkbox" checked> 创建后立即启用</label>
       <div class="settings-actions"><button id="sched-submit" type="button" class="primary">创建任务</button></div>
       <div class="modal-resize-handle" aria-hidden="true"></div>

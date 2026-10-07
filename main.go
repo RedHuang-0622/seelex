@@ -612,19 +612,11 @@ func run() error {
 		// 都在 application（HandleRoleToolActivity）。
 		RoleToolCallback: app.HandleRoleToolActivity,
 		SkillRegistry:    skillRegistry,
-		ScheduledPromptExecutor: func(ctx context.Context, prompt, sessionID string) (string, error) {
-			// 会话绑定：显式 sessionID 必须匹配当前主会话（切换后跳过，
-			// 不误投递）；空 = 执行时当前 main session。
-			current := app.Snapshot().Session.ID
-			if sessionID != "" && sessionID != current {
-				return "", fmt.Errorf("任务绑定会话 %s，当前会话 %s（已切换），本次跳过", sessionID, current)
-			}
-			if err := app.Submit(ctx, prompt); err != nil {
-				return "", err
-			}
-			return "已提交到当前会话执行（异步输出见会话记录）", nil
-		},
-		SchedulerObserver: app.RefreshRuntimeSnapshot,
+		// 周期提示词任务的执行器：应用层 Submit 复用**当前主会话**会话执行器。
+		// 单独一个函数是为了让测试基座（tool_full_chain_test.go 的 newFullChainHarness）
+		// 装的是同一份口径，而不是各写一份"看起来差不多"的闭包。
+		ScheduledPromptExecutor: scheduledPromptExecutor(app),
+		SchedulerObserver:       app.RefreshRuntimeSnapshot,
 	})
 	if frontend == "backend" && strings.TrimSpace(*backendProject) != "" {
 		if err := console.BindProject(app, *backendProject); err != nil {
@@ -729,6 +721,25 @@ func registerProjectRefreshTool(runtime *seelebridge.Runtime, store *sessionstor
 		return string(encoded), err
 	}
 	runtime.RegisterTool("project_refresh", "扫描项目模块文档与元数据，重建项目级模块语义知识；来源未变化时直接复用", schema, handler)
+}
+
+// scheduledPromptExecutor 是周期提示词任务的执行器（应用层 Submit 复用当前主
+// 会话的会话执行器）。会话绑定口径：显式 sessionID 必须匹配当前主会话——不一致
+// 说明会话已切换，本次跳过（不误投递到别的会话）；空 = 执行时当前 main session。
+//
+// 单独成函数而不是就地写成闭包：测试基座（newFullChainHarness）装的就是这一份，
+// 冒烟测的才是产品的那条链。
+func scheduledPromptExecutor(app *application.Service) seelebridge.ScheduledPromptExecutor {
+	return func(ctx context.Context, prompt, sessionID string) (string, error) {
+		current := app.Snapshot().Session.ID
+		if sessionID != "" && sessionID != current {
+			return "", fmt.Errorf("任务绑定会话 %s，当前会话 %s（已切换），本次跳过", sessionID, current)
+		}
+		if err := app.Submit(ctx, prompt); err != nil {
+			return "", err
+		}
+		return "已提交到当前会话执行（异步输出见会话记录）", nil
+	}
 }
 
 // registerScheduledTaskCapability 装配定时周期任务白名单命令：

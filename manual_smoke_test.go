@@ -16,6 +16,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/application/model"
 	"github.com/RedHuang-0622/seelex/internal/adapters"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 )
@@ -57,7 +58,7 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	defer func() { *storePath = originalStorePath }()
 
 	skills := initSkillSystem()
-	plugins, err := initPluginSystem(runtime, skills)
+	plugins, _, err := initPluginSystem(runtime, skills)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +203,7 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	for _, message := range high.Conversation[highStart:] {
 		if message.Role == "tool" && message.Tool != nil && message.Tool.Name == "plan_load" {
 			highPlanLoads++
-			highPlanEvents = append(highPlanEvents, message.Role+":"+message.Tool.Status+":"+truncateSmokeReply(message.Tool.Error, 300))
+			highPlanEvents = append(highPlanEvents, message.Role+":"+message.Tool.Status.String()+":"+truncateSmokeReply(message.Tool.Error, 300))
 			if message.Tool.Status != dto.ToolEventSuccess {
 				t.Fatalf("voluntary high plan_load status = %q error=%q", message.Tool.Status, truncateSmokeReply(message.Tool.Error, 500))
 			}
@@ -314,7 +315,7 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	if runPlanRuns != 1 {
 		t.Fatalf("plan_run phase: plan_loads=%d plan_runs=%d, want exactly 1 plan_run", runPlanLoads, runPlanRuns)
 	}
-	if run.Runtime.Plan == nil || run.Runtime.Plan.Status != "completed" {
+	if run.Runtime.Plan == nil || run.Runtime.Plan.Status != model.PlanCompleted {
 		t.Fatalf("plan_run phase: plan status = %+v, want completed", run.Runtime.Plan)
 	}
 	// 节点事件时间线（详情页数据源）：每个节点至少一条 completed 事件。
@@ -370,7 +371,7 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	if listCheckNodes < 1 || listCompletes != 1 {
 		t.Fatalf("tasklist phase: task_check_node=%d task_complete=%d, want >=1 check and exactly 1 complete", listCheckNodes, listCompletes)
 	}
-	if list.Runtime.Plan == nil || list.Runtime.Plan.Status != "completed" {
+	if list.Runtime.Plan == nil || list.Runtime.Plan.Status != model.PlanCompleted {
 		t.Fatalf("tasklist phase: plan status = %+v, want completed", list.Runtime.Plan)
 	}
 	// 打点事件必须写入节点时间线（task_check_node → appendPlanNodeEvent）。

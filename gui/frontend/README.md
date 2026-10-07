@@ -500,7 +500,16 @@ composer 的输入前缀是一份**跨前后端契约**，前端只消费不发�
 
 右侧栏「工作台」子页「定时任务」section 常驻（含「新建定时任务」按钮）：数据来自 `snapshot.runtime.scheduled_tasks`（seelebridge 调度器状态变化经 observer → `RefreshRuntimeSnapshot` → `runtime.changed` 增量投影，见 `seelebridge/scheduler/` 与 `application/core/service_scheduler.go`）。任务渲染只读展示：名称/类型/启用状态/下次运行/上次结果/日志尾部，取消按钮以 `data-sched-cancel` 携带任务 ID 并调用 `Bridge.CancelScheduledTask`。
 
-新建弹窗的字段由 `Bridge.ScheduleTask` 提交（`scheduled-tasks-view` 不直接持有 Bridge）：类型分「命令」与「提示词」两种；执行方式分「周期重复」与「定时执行（一次性）」两种。
+新建弹窗的字段由 `Bridge.ScheduleTask` 提交（`scheduled-tasks-view` 不直接持有 Bridge）：**类型只有提示词**（2026-10-07 起，`任务类型`/`命令` 两个控件已删除——命令白名单在本机 dev 包里为空，留着只是让人多点一次）；执行方式分「周期重复」与「定时执行（一次性）」两种。
+
+**载荷契约（别在 `app.js` 里就地拼 spec）**：字段 → `scheduled-tasks-view.js` 的
+`buildScheduledTaskSpec()`（纯函数，`scheduled-tasks-view.test.mjs` 钉住）→ `Bridge.ScheduleTask`。
+Wails 的绑定层用 `encoding/json` 反序列化参数（`vendor/…/dispatcher/calls.go` → `BoundMethod.ParseArgs`），
+而 DTO 的 `RunAt` 是 `time.Time`：**周期模式的 `runAt` 必须是 `null`，不能是空串**——空串会让整次调用在
+Go 侧执行之前就报
+`error parsing arguments: parsing time "" as "2006-01-02T15:04:05Z07:00"`（2026-10-07 现场）。
+两头都有钉子：`scheduled-tasks-view.test.mjs`（`spec.runAt === null`）+ `gui/bridge_test.go` 的
+`TestScheduledTaskRunAtWireContract` / `TestEmbeddedScheduledPayloadDelegatedToView`。
 
 **表格弹窗（口径与工作表格弹窗同族）**：完整表格放 `#scheduled-table-modal`（右栏只留入口按钮），里面有两条硬规矩，改 `index.html` / `styles.css` 时别踩回去：
 
@@ -509,16 +518,30 @@ composer 的输入前缀是一份**跨前后端契约**，前端只消费不发�
 
 两条都由 `gui/bridge_test.go` 的 `TestEmbeddedScheduledTableTitleOnce` / `TestEmbeddedScheduledTableSingleScrollContainer` 钉住；渲染侧的记号（头带、滚动容器各一份、头带在容器之外）由 `scheduled-tasks-view.test.mjs` 钉住。
 
-- **命令任务（主路径）**：下拉选项来自 `snapshot.runtime.scheduled_commands`（后端编译期白名单，`main.go` 登记 `auto_get_jobs`，指向 `local/tools/auto_get_jobs/main.py`）。白名单命令的 argv 固定、不经 shell 展开，前端无法注入任意命令。脚本依赖（`.env`、`user_requirements.txt`、`city_list.json`、chromedriver）均按其自身目录解析，调度器只提供固定工作目录与超时。
+- **命令任务（只在 API 面）**：白名单命令的 argv 固定、不经 shell 展开，前端无法注入任意命令；`snapshot.runtime.scheduled_commands` 仍是它的展示数据源。**弹窗入口已不再暴露它**（2026-10-07：本机 dev 包里白名单为空，命令类任务根本发布不了，留着只是让人多点一次）——要看它得走 `Bridge.ScheduleTask`/`Runtime.ScheduleTask` 的 `kind="command"`，后端能力与登记（`main.go` 的 `auto_get_jobs`）原样保留。脚本依赖（`.env`、`user_requirements.txt`、`city_list.json`、chromedriver）均按其自身目录解析，调度器只提供固定工作目录与超时。
 - **提示词任务（扩展点）**：提交后由后端注入的 executor 触发一次 agent 会话（main 装配为 application Submit，排队语义：会话忙时任务排队，不与进行中的对话冲突）。任务绑定当前 main session（`session_id` 留空 = 执行时当前会话；显式绑定会在会话切换后跳过而非误投）。结果回传为「已提交」状态字；异步会话的完整输出请从会话记录/事件库查询，这是当前实现的有意取舍。
 
-- **周期重复**：以「每 n 小时/天/周/月」表达（`period-row`：数值 + 单位下拉；
+- **周期重复**：以「每 n 分钟/小时/天/周/月」表达（`period-row`：数值 + 单位下拉；
   提交时换算为 `interval` 纳秒并附带 `periodUnit`/`periodValue`）。month 由
   调度器按日历月推进、月末日期自动钳制；无周期单位的旧任务回退到
   `interval_seconds` 秒级展示。
+  - **周期锚点**：`开始时间`（`HH:MM`）对 day/week/month 开放，`每周` 另给
+    `星期几`（ISO 1=周一…7=周日）。给了锚点 → 触发落在锚点墙钟上（「每天 09:00」
+    在 08:00 建就是今天 09:00，在 10:00 建就是明天 09:00）；**没给就必须勾
+    「每个周期按当前时间」**（提交时缺这条会提示，不静默按当前时间发出去）。
+    minute/hour 是子日周期，锚点行整体隐藏（后端也拒收），勾选框随之出现/隐藏。
+    锚点与周期单位的搭配由后端二次校验，非法即拒（不静默降级）。
 - **定时执行（一次性）**：以 `datetime-local` 选择执行时间，提交时转为
   RFC3339 `runAt`；后端要求晚于当前时间，创建即启用，执行后自动停用并保留
   记录（面板展示「定时 MM-dd HH:mm」与「一次性」标记）。
+
+勾选框（`创建后立即启用` / `每个周期按当前时间`）是**原生控件 + `accent-color`**
+（`.settings-field.sched-toggle input[type="checkbox"]`）。别让它再吃文本输入框的皮：
+Pico 给"包着 checkbox 的 label"写了 `width: fit-content`、又给 `[type=checkbox]` 写
+`appearance: none` + 白色勾图，两头都会被 `.settings-field input` 的
+`width:100%` / `min-height:32px` / `background` 简写搅成"67×32 的浅色空方块、勾看不见"。
+现场量测与修法见 `docs/devlog/2026-10-07-scheduled-task-anchor-and-toggle.md`；
+钉子见 `gui/bridge_test.go` 的 `TestEmbeddedScheduledToggleHasOwnSkin`。
 
 任务状态、白名单命令均为公开元数据，不含 secret；渲染文本全部 escape。
 

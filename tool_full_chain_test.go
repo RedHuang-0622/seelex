@@ -305,6 +305,10 @@ func newFullChainHarnessWithLimits(t *testing.T, accountsPath, projectRoot strin
 	// 回读」的告示却根本没有这个工具，只能退回 bash/computer_screenshot 去找
 	// 内容——用例测到的行为与产品不一致（冒烟里模型把截图当回读入口就是这么来的）。
 	registerContextReadTools(runtimeBridge, app)
+	// 周期提示词任务的执行器：与组合根同一份（main.scheduledPromptExecutor）。
+	// 缺这一句时 scheduler 的 executor 是 nil，prompt 任务**根本创建不出来**
+	// （"提示词任务执行器未装配"），冒烟会把装配缺口误报成链子坏了。
+	runtimeBridge.SetScheduledPromptExecutor(scheduledPromptExecutor(app))
 	t.Cleanup(app.Shutdown)
 	hooks.Bind(app)
 	return fullChainHarness{

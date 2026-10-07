@@ -107,7 +107,7 @@ func TestManualSmokeRealAccountJobBackfillWithoutManage(t *testing.T) {
 	t.Logf("终态（无人调 job_manage）：state=%s exit=%d notified=%v lines=%d bytes=%d summary=%q",
 		record.State, record.ExitCode, record.Notified, record.Lines, record.LogBytes, record.Summary)
 
-	if record.State != "done" {
+	if record.State != dto.AsyncStateDone {
 		t.Fatalf("作业终态 = %q, want done（summary=%q）", record.State, record.Summary)
 	}
 	if record.ExitCode != 0 {

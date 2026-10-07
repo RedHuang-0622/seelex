@@ -22,7 +22,7 @@ import { compactionRangeText, compactionReasonLabel, mergeCompactionProgress } f
 import { renderGoalDetail, renderGoalPanel } from "./goal-board-view.js";
 import { TEAM_BOARD_CSS, TEAMMATE_LIVE_PAGE_SIZE, parseTeamPageRef, renderTeamBoard, renderTeamPage, renderTeammateLiveSession, teamPageTitle, teammateSessionEntry } from "./team-board-view.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
-import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
+import { buildScheduledTaskSpec, renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
 import { employeePool, hirePanel, isPinnedRole, nextAgentTeamOrder, normalizeAgentTeam, normalizeTeamGlobal, normalizeTeamLibrary, PERMISSION_CUSTOM_TOOLS, PERMISSION_GROUPS, PERMISSION_BITS, renderAgentTeam, renderRoleSessionDetail, renderTeamMemberList, roleDisplayName, teamEditorPanel, teamEntryFromMembers, teamMemberNames, teamMemberSpecMap, teamRoleSpec } from "./agent-team-view.js";
 // 提交侧的装配（按会话插件）规整：**只 trim + 丢空项，不去重**（重复由后端显式拒绝）。
 import { escapePluginSourceText, pluginSourceBadge, withPluginAssembly } from "./plugin-source.js";
@@ -89,7 +89,7 @@ const elements = Object.fromEntries([
   "session-list", "session-count", "new-session",
   "plugin-list", "plugin-count", "account-list", "account-count", "conversation", "conversation-tabs", "trajectory",
   "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",
-  "runtime-details", "effort-control", "effort-range", "effort-value", "work-section", "work-count", "work-unread", "work-table-open", "work-table-summary", "work-table-modal", "work-table-modal-close", "work-table-modal-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-close", "sched-name", "sched-kind", "sched-mode", "sched-period-value", "sched-period-unit", "sched-period-field", "sched-datetime", "sched-datetime-field", "sched-command", "sched-command-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-enabled-field", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
+  "runtime-details", "effort-control", "effort-range", "effort-value", "work-section", "work-count", "work-unread", "work-table-open", "work-table-summary", "work-table-modal", "work-table-modal-close", "work-table-modal-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-close", "sched-name", "sched-mode", "sched-period-value", "sched-period-unit", "sched-period-field", "sched-anchor-field", "sched-start-clock", "sched-start-weekday", "sched-anchor-now", "sched-anchor-now-field", "sched-datetime", "sched-datetime-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-enabled-field", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
   "project-name", "project-root", "project-status", "worktree-view", "file-count", "context-compactions",
   "compaction-frame-modal", "compaction-frame-modal-close", "compaction-frame-modal-title", "compaction-frame-modal-meta", "compaction-frame-modal-view",
   "team-section", "team-view", "team-count",
@@ -4508,17 +4508,24 @@ elements["history-search-form"].addEventListener("submit", event => {
 
 // ── 定时周期任务 ───────────────────────────────────────────
 
-// openScheduledTaskDialog 打开新建弹窗：白名单命令来自权威 snapshot
-// （runtime.scheduled_commands），无可用命令时下拉为空并禁用提交；
-// 类型切换联动命令/提示词字段。
+// 周期锚点只在"日及以上"的单位上出现：子日周期（分钟/小时）没有"几点开始"
+// 可言，它的起点就是创建时刻。与后端 validatePeriod 同一份口径（那边拒绝，
+// 这边不显示，免得用户点了才被拒）。
+const SCHED_ANCHOR_UNITS = new Set(["day", "week", "month"]);
+
+// openScheduledTaskDialog 打开新建弹窗（字段一律回到默认：周期重复 / 每天 /
+// 开始时间空 → 需要用户在"开始时间"与"每个周期按当前时间"里选一个）。
 function openScheduledTaskDialog() {
-  const runtime = client.current()?.runtime || {};
-  const commands = Array.isArray(runtime.scheduled_commands) ? runtime.scheduled_commands : [];
-  elements["sched-command"].innerHTML = commands.length
-    ? commands.map(command => `<option value="${escapeHtml(command.key)}">${escapeHtml(command.label || command.key)}</option>`).join("")
-    : '<option value="">（无可用白名单命令）</option>';
+  elements["sched-name"].value = "";
+  elements["sched-prompt"].value = "";
   elements["sched-mode"].value = "period";
+  elements["sched-period-value"].value = "1";
+  elements["sched-period-unit"].value = "day";
+  elements["sched-start-clock"].value = "";
+  elements["sched-start-weekday"].value = "1";
+  elements["sched-anchor-now"].checked = false;
   elements["sched-datetime"].value = "";
+  elements["sched-enabled"].checked = true;
   syncScheduledTaskFields();
   setModal("scheduled-task-modal", true);
   elements["sched-name"].focus();
@@ -4528,69 +4535,47 @@ function closeScheduledTaskDialog() {
   setModal("scheduled-task-modal", false);
 }
 
+// syncScheduledTaskFields 联动字段可见性：一次性模式只要执行时间；周期模式
+// 按单位给锚点（周多一个"星期几"），子日单位不给锚点。
 function syncScheduledTaskFields() {
-  const promptKind = elements["sched-kind"].value === "prompt";
-  elements["sched-prompt-field"].classList.toggle("hidden", !promptKind);
-  elements["sched-command-field"].classList.toggle("hidden", promptKind);
   const atMode = elements["sched-mode"].value === "at";
+  const anchorUnit = SCHED_ANCHOR_UNITS.has(elements["sched-period-unit"].value);
   elements["sched-period-field"].classList.toggle("hidden", atMode);
   elements["sched-datetime-field"].classList.toggle("hidden", !atMode);
   elements["sched-enabled-field"].classList.toggle("hidden", atMode);
+  elements["sched-anchor-field"].classList.toggle("hidden", atMode || !anchorUnit);
+  elements["sched-anchor-now-field"].classList.toggle("hidden", atMode || !anchorUnit);
+  elements["sched-start-weekday"].classList.toggle("hidden", atMode || elements["sched-period-unit"].value !== "week");
+  // 两个锚点口径互斥：勾了"当前时间"就不必再填墙钟（填了也不生效，置灰更诚实）。
+  const anchorNow = elements["sched-anchor-now"].checked;
+  elements["sched-start-clock"].disabled = anchorNow;
+  if (anchorNow) elements["sched-start-clock"].value = "";
 }
 
-// submitScheduledTask 组装任务入参并提交 Bridge ScheduleTask
-// （周期模式：周期单位 → 等价秒 → Go time.Duration 纳秒，month 由后端按
-// 日历月推进；定时模式：runAt 传 RFC3339，后端创建即启用、执行后自动停用；
-// sessionId 留空 = 绑定当前主会话）。
+// submitScheduledTask 组装任务入参并提交 Bridge ScheduleTask。字段口径全在
+// scheduled-tasks-view.js 的 buildScheduledTaskSpec（纯函数，node 用例钉住
+// 载荷形状——Wails 绑定层用 encoding/json 反序列化，time.Time 字段收到空串
+// 会当场报 "error parsing arguments: parsing time ..."，Go 侧根本进不去）。
 async function submitScheduledTask() {
-  const name = elements["sched-name"].value.trim();
-  const kind = elements["sched-kind"].value;
-  const mode = elements["sched-mode"].value;
-  const periodValue = Number(elements["sched-period-value"].value);
-  const periodUnit = elements["sched-period-unit"].value;
-  if (!name) {
-    showToast("请填写任务名称");
+  const built = buildScheduledTaskSpec({
+    name: elements["sched-name"].value,
+    prompt: elements["sched-prompt"].value,
+    mode: elements["sched-mode"].value,
+    periodValue: elements["sched-period-value"].value,
+    periodUnit: elements["sched-period-unit"].value,
+    startClock: elements["sched-start-clock"].value,
+    startWeekday: elements["sched-start-weekday"].value,
+    anchorNow: elements["sched-anchor-now"].checked,
+    runAtValue: elements["sched-datetime"].value,
+    now: Date.now(),
+    enabled: elements["sched-enabled"].checked
+  });
+  if (built.error) {
+    showToast(built.error);
     return;
   }
-  let runAt = "";
-  if (mode === "at") {
-    const runAtValue = elements["sched-datetime"].value;
-    if (!runAtValue) {
-      showToast("请选择定时执行时间");
-      return;
-    }
-    const parsed = new Date(runAtValue);
-    if (Number.isNaN(parsed.getTime())) {
-      showToast("定时时间格式无效");
-      return;
-    }
-    if (parsed.getTime() <= Date.now()) {
-      showToast("定时时间必须晚于当前时间");
-      return;
-    }
-    runAt = parsed.toISOString();
-  } else if (!Number.isInteger(periodValue) || periodValue < 1) {
-    showToast("周期数值至少为 1");
-    return;
-  }
-  if (kind === "command" && !elements["sched-command"].value) {
-    showToast("当前没有可用的白名单命令");
-    return;
-  }
-  const spec = {
-    name,
-    kind,
-    interval: mode === "at" ? 0 : periodToSeconds(periodUnit, periodValue) * 1e9,
-    periodUnit: mode === "at" ? "" : periodUnit,
-    periodValue: mode === "at" ? 0 : periodValue,
-    runAt,
-    command: kind === "command" ? elements["sched-command"].value : "",
-    prompt: kind === "prompt" ? elements["sched-prompt"].value.trim() : "",
-    sessionId: "",
-    enabled: mode === "at" ? true : elements["sched-enabled"].checked
-  };
   try {
-    await invoke("ScheduleTask", spec);
+    await invoke("ScheduleTask", built.spec);
     closeScheduledTaskDialog();
     await refresh({ scroll: false });
   } catch (error) {
@@ -4598,22 +4583,16 @@ async function submitScheduledTask() {
   }
 }
 
-// periodToSeconds 周期单位 → 等价秒（month 用 30 天名义值，仅用于 interval
-// 字段与后端最小周期校验；真实排期由调度器按日历月推进）。
-function periodToSeconds(unit, value) {
-  switch (unit) {
-    case "day": return value * 86400;
-    case "week": return value * 604800;
-    case "month": return value * 2592000;
-    case "hour":
-    default: return value * 3600;
-  }
-}
-
 elements["new-scheduled-task"].addEventListener("click", openScheduledTaskDialog);
 elements["scheduled-task-close"].addEventListener("click", closeScheduledTaskDialog);
-elements["sched-kind"].addEventListener("change", syncScheduledTaskFields);
 elements["sched-mode"].addEventListener("change", syncScheduledTaskFields);
+elements["sched-period-unit"].addEventListener("change", syncScheduledTaskFields);
+elements["sched-anchor-now"].addEventListener("change", syncScheduledTaskFields);
+elements["sched-start-clock"].addEventListener("change", () => {
+  // 填了墙钟就把"当前时间"这把勾松开——两者互斥，留着会让提交口径含糊。
+  if (elements["sched-start-clock"].value) elements["sched-anchor-now"].checked = false;
+  syncScheduledTaskFields();
+});
 elements["sched-submit"].addEventListener("click", submitScheduledTask);
 
 // 取消按钮事件委托（任务列表渲染全量刷新，事件挂容器层；ID 是操作键）。

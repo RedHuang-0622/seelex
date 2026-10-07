@@ -1,5 +1,94 @@
 import { escapeHtml } from "./components.js";
 
+// ── 新建定时任务弹窗的载荷契约 ─────────────────────────────
+//
+// 为什么载荷形状要在这里（而不是 app.js 里就地拼一个对象）：Wails 的绑定层
+// 用 encoding/json 反序列化参数（vendor/.../frontend/dispatcher/calls.go →
+// BoundMethod.ParseArgs）。DTO 的电线字段里有 time.Time（runAt），而
+// time.Time 收到**空串**会当场报
+//   error parsing arguments: parsing time "" as "2006-01-02T15:04:05Z07:00"
+// ——Go 侧连一行都执行不到，用户只看到一句解析错误（2026-10-07 现场）。
+// 周期模式的 runAt 必须是 null（JSON null 对 time.Time 是 no-op），
+// 这条口径由 buildScheduledTaskSpec 一处给出，node 用例 + Go 侧
+// 反序列化用例两头钉住。
+
+// 周期单位与锚点单位（与后端 dto.PeriodUnit / validatePeriod 同一份口径：
+// minute/hour 是子日周期，不接受"几点开始"）。
+const SCHED_PERIOD_UNITS = new Set(["minute", "hour", "day", "week", "month"]);
+const SCHED_ANCHOR_UNITS = new Set(["day", "week", "month"]);
+const SCHED_CLOCK_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+// buildScheduledTaskSpec 把弹窗字段组装成 Bridge.ScheduleTask 的入参。
+// 返回 {spec} 或 {error}（error 是直接给用户看的短句）。
+export function buildScheduledTaskSpec(fields) {
+  const name = String(fields?.name ?? "").trim();
+  if (!name) return { error: "请填写任务名称" };
+  const prompt = String(fields?.prompt ?? "").trim();
+  if (!prompt) return { error: "请填写提示词内容" };
+  const now = Number.isFinite(Number(fields?.now)) ? Number(fields.now) : Date.now();
+
+  if (fields?.mode === "at") {
+    const raw = String(fields?.runAtValue ?? "").trim();
+    if (!raw) return { error: "请选择定时执行时间" };
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return { error: "定时时间格式无效" };
+    if (parsed.getTime() <= now) return { error: "定时时间必须晚于当前时间" };
+    return {
+      spec: {
+        name, kind: "prompt",
+        interval: 0, periodUnit: "", periodValue: 0, startClock: "", startWeekday: 0,
+        runAt: parsed.toISOString(), command: "", prompt, sessionId: "", enabled: true
+      }
+    };
+  }
+
+  const unit = SCHED_PERIOD_UNITS.has(fields?.periodUnit) ? fields.periodUnit : "";
+  if (!unit) return { error: "请选择周期单位" };
+  const value = Number(fields?.periodValue);
+  if (!Number.isInteger(value) || value < 1) return { error: "周期数值至少为 1" };
+
+  let startClock = "";
+  let startWeekday = 0;
+  if (SCHED_ANCHOR_UNITS.has(unit)) {
+    const clock = String(fields?.startClock ?? "").trim();
+    if (clock) {
+      if (!SCHED_CLOCK_PATTERN.test(clock)) return { error: "开始时间要填 HH:MM" };
+      startClock = clock;
+      if (unit === "week") {
+        const weekday = Number(fields?.startWeekday);
+        startWeekday = weekday >= 1 && weekday <= 7 ? weekday : 1;
+      }
+    } else if (!fields?.anchorNow) {
+      return { error: "请填写开始时间，或勾选「每个周期按当前时间」" };
+    }
+  }
+
+  return {
+    spec: {
+      name, kind: "prompt",
+      interval: periodToSeconds(unit, value) * 1e9,
+      periodUnit: unit, periodValue: value,
+      startClock, startWeekday,
+      runAt: null, // 见文件头：空串会让 Wails 的参数反序列化当场失败
+      command: "", prompt, sessionId: "",
+      enabled: Boolean(fields?.enabled)
+    }
+  };
+}
+
+// periodToSeconds 周期单位 → 等价秒（month 用 30 天名义值，仅用于 interval
+// 字段与后端最小周期校验；真实排期由调度器按日历推进）。
+function periodToSeconds(unit, value) {
+  switch (unit) {
+    case "minute": return value * 60;
+    case "day": return value * 86400;
+    case "week": return value * 604800;
+    case "month": return value * 2592000;
+    case "hour":
+    default: return value * 3600;
+  }
+}
+
 // ── 定时周期任务面板（右侧栏）──────────────────────────────
 // 数据源：snapshot.runtime.scheduled_tasks（权威 Snapshot / runtime.changed
 // 增量投影，seelebridge 调度器状态变化时发布）。渲染只读展示，不维护本地
@@ -113,21 +202,39 @@ function schedStatusClass(task) {
   return "pending";
 }
 
-// formatInterval 周期文案：优先 period_unit/period_value（每 n 小时/天/周/月），
-// 旧任务回退到 interval_seconds（秒 → 分/小时/天）。
+// formatInterval 周期文案：优先 period_unit/period_value（每 n 分钟/小时/天/
+// 周/月），旧任务回退到 interval_seconds（秒 → 分/小时/天）。给了锚点的任务
+// 补上「几点开始 / 周几几点开始」，没给的写明「按创建时间」——面板上要能看出
+// 这个周期是从哪儿起算的（2026-10-07 用户口径：没说清就得勾"每个周期按当前时间"）。
 function formatInterval(task) {
   if (task?.period_unit && Number(task.period_value) > 0) {
-    return `${Number(task.period_value)} ${periodUnitLabel(task.period_unit)}`;
+    return `${Number(task.period_value)} ${periodUnitLabel(task.period_unit)}${formatAnchor(task)}`;
   }
   const value = Number(task?.interval_seconds) || 0;
-  if (value % 86400 === 0 && value > 0) return `${value / 86400} 天`;
+  if (value % 86400 === 0 && value > 0) return `${value / 86400} 天${formatAnchor(task)}`;
   if (value % 3600 === 0 && value > 0) return `${value / 3600} 小时`;
   if (value % 60 === 0 && value > 0) return `${value / 60} 分钟`;
   return `${value} 秒`;
 }
 
+// formatAnchor 锚点文案（空锚点 = 每个周期按创建时刻滚动）。
+function formatAnchor(task) {
+  const clock = typeof task?.start_clock === "string" ? task.start_clock.trim() : "";
+  if (!clock) return "（按创建时间）";
+  const weekday = Number(task?.start_weekday);
+  if (task?.period_unit === "week" && weekday >= 1 && weekday <= 7) {
+    return ` ${weekdayLabel(weekday)} ${clock}`;
+  }
+  return ` ${clock}`;
+}
+
+function weekdayLabel(weekday) {
+  return `周${"一二三四五六日"[weekday - 1] || ""}`;
+}
+
 function periodUnitLabel(unit) {
   switch (unit) {
+    case "minute": return "分钟";
     case "hour": return "小时";
     case "day": return "天";
     case "week": return "周";

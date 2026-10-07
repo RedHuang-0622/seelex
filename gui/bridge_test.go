@@ -1727,6 +1727,151 @@ func TestEmbeddedScheduledToggleInline(t *testing.T) {
 	}
 }
 
+// TestEmbeddedScheduledFormPromptOnly：新建定时任务弹窗只做提示词任务。
+//
+// 现场（2026-10-07 用户口径）：「任务类型这个可以去掉了，只需要提示词的就够了」——
+// 下拉里那个"命令（白名单脚本）"在这一版 dev 包里根本没有可用项（白名单为空，
+// 见 docs/devlog/2026-09-29-scheduled-table-single-title-single-scroll.md §7），
+// 留着只是让人多点一次。口径：类型/命令两个控件从标记里删除，提示词内容常驻
+// （不再随类型切换），锚点三件（开始时间/星期几/每个周期按当前时间）必须齐。
+func TestEmbeddedScheduledFormPromptOnly(t *testing.T) {
+	t.Parallel()
+	page, err := embeddedFrontend.ReadFile("frontend/dist/index.html")
+	if err != nil {
+		t.Fatalf("embedded frontend index.html: %v", err)
+	}
+	html := string(page)
+	start := strings.Index(html, `<div id="scheduled-task-modal"`)
+	if start < 0 {
+		t.Fatal("找不到新建定时任务弹窗容器")
+	}
+	body := html[start:]
+	if end := strings.Index(body, `<div id="command-modal"`); end > 0 {
+		body = body[:end]
+	}
+	for _, banned := range []string{"sched-kind", "sched-command"} {
+		if strings.Contains(body, banned) {
+			t.Fatalf("新建弹窗不该再有任务类型/白名单命令控件：%s", banned)
+		}
+	}
+	for _, want := range []string{
+		`<label id="sched-prompt-field" class="settings-field">提示词内容`,
+		`id="sched-anchor-field"`,
+		`id="sched-start-clock"`,
+		`id="sched-start-weekday"`,
+		`id="sched-anchor-now"`,
+		`id="sched-anchor-now-field"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("新建弹窗缺少周期锚点/提示词字段：%s", want)
+		}
+	}
+	// 周期单位要能选到"分钟"（1 分钟周期是冒烟与自测最常用的粒度）。
+	if !strings.Contains(body, `<option value="minute">分钟</option>`) {
+		t.Fatal("周期单位下拉缺「分钟」：1 分钟粒度的任务在弹窗里就建不出来")
+	}
+}
+
+// TestEmbeddedScheduledPayloadDelegatedToView：弹窗载荷形状只有一处事实
+// （scheduled-tasks-view.js 的 buildScheduledTaskSpec），app.js 只管把 DOM 值递进去。
+//
+// 现场（2026-10-07 用户报告）：周期模式提交报
+//
+//	error parsing arguments: parsing time "" as "2006-01-02T15:04:05Z07:00"
+//
+// ——app.js 当时把 runAt 就地拼成空串，而 Wails 的绑定层（vendor/…/dispatcher/
+// calls.go → BoundMethod.ParseArgs）用 encoding/json 反序列化参数，DTO 的 runAt
+// 是 time.Time：空串在 Go 侧执行之前就炸，用户只看到一句解析错误。
+// 修法是把载荷组装收进视图模块并让 runAt 走 null，这条钉子钉住"分工"本身。
+func TestEmbeddedScheduledPayloadDelegatedToView(t *testing.T) {
+	t.Parallel()
+	view, err := embeddedFrontend.ReadFile("frontend/dist/scheduled-tasks-view.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	viewSource := string(view)
+	if !strings.Contains(viewSource, "export function buildScheduledTaskSpec(") {
+		t.Fatal("载荷组装必须在 scheduled-tasks-view.js 的 buildScheduledTaskSpec 里（node 用例才钉得住）")
+	}
+	if !strings.Contains(viewSource, "runAt: null") {
+		t.Fatal("周期模式的 runAt 必须写 null：空串会让 Wails 的参数反序列化当场失败")
+	}
+	app, err := embeddedFrontend.ReadFile("frontend/dist/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	appSource := string(app)
+	if strings.Contains(appSource, "runAt:") {
+		t.Fatal("app.js 不得自己拼 runAt（历史 bug：就地拼成空串）——交给 buildScheduledTaskSpec")
+	}
+	if !strings.Contains(appSource, "buildScheduledTaskSpec(") {
+		t.Fatal("app.js 提交时必须走 buildScheduledTaskSpec，否则又会各自拼一份载荷")
+	}
+}
+
+// TestScheduledTaskRunAtWireContract：把"空串会让整次调用进不去 Go"这件事钉在
+// Go 侧——Wails 的 ParseArgs 就是 encoding/json 的一次 Unmarshal。
+func TestScheduledTaskRunAtWireContract(t *testing.T) {
+	t.Parallel()
+	periodPayload := []byte(`{"name":"每天九点","kind":"prompt","interval":86400000000000,"periodUnit":"day","periodValue":1,"startClock":"09:00","startWeekday":0,"runAt":null,"prompt":"巡检","enabled":true}`)
+	var spec dto.ScheduledTaskSpec
+	if err := json.Unmarshal(periodPayload, &spec); err != nil {
+		t.Fatalf("周期任务载荷必须能过 Wails 的 ParseArgs：%v", err)
+	}
+	if !spec.RunAt.IsZero() || spec.StartClock != "09:00" || spec.PeriodUnit != dto.PeriodDay {
+		t.Fatalf("载荷解析结果不对：%+v", spec)
+	}
+	broken := []byte(`{"name":"每天九点","kind":"prompt","runAt":""}`)
+	if err := json.Unmarshal(broken, &spec); err == nil {
+		t.Fatal("空串 runAt 必须解析失败——这正是用户看到的那句解析错误，前端不许再发这种载荷")
+	} else if !strings.Contains(err.Error(), "error parsing arguments") && !strings.Contains(err.Error(), `parsing time ""`) {
+		t.Fatalf("解析失败的原因应当就是 time.Time 收到空串：%v", err)
+	}
+}
+
+// TestEmbeddedScheduledToggleHasOwnSkin：勾选框要有自己的皮。
+//
+// 现场（2026-10-07，无窗口 Chrome headless 量测，见 docs/devlog/
+// 2026-10-07-scheduled-task-anchor-and-toggle.md）：修前「创建后立即启用」这一行
+//
+//	行宽 120.3px（Pico 的 label:has([type=checkbox]) 给了 width: fit-content），
+//	勾选框 67.3×32（吃着 .settings-field input 的文本输入皮：width:100% +
+//	.app-shell 的 min-height:32px + background 简写），文案被压成三行，
+//	而 :checked 的勾是 Pico 那张**白色** SVG 画在 --code-bg 浅底上——勾在不在都看不出。
+//
+// 修后：行回到整宽 454px，勾选框 15×15 原生控件 + accent-color，文案一行。
+func TestEmbeddedScheduledToggleHasOwnSkin(t *testing.T) {
+	t.Parallel()
+	styles, err := embeddedFrontend.ReadFile("frontend/dist/styles.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(styles)
+	// 行要钉回整宽：Pico 的 label:has([type=checkbox]) 是 (0,1,1)，(0,2,0) 才压得住。
+	row := ".settings-field.sched-toggle { display: flex; align-items: center; gap: 8px; width: auto; cursor: pointer; }"
+	if !strings.Contains(source, row) {
+		t.Fatalf("开关行必须声明 width: auto 压掉 Pico 的 fit-content，缺：%s", row)
+	}
+	skin := ".settings-field.sched-toggle input[type=\"checkbox\"] {"
+	at := strings.Index(source, skin)
+	if at < 0 {
+		t.Fatalf("勾选框必须有自己的一条皮（否则吃文本输入皮长成 67×32 的空方块）：%s", skin)
+	}
+	body := source[at:]
+	if end := strings.Index(body, "}"); end >= 0 {
+		body = body[:end]
+	}
+	for _, want := range []string{"appearance: auto;", "accent-color: var(--accent);", "min-height: 0;", "width: 15px;", "height: 15px;", "flex: none;"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("勾选框的皮里缺 %s（原生控件 + accent-color 才两种皮肤下都看得见勾）", want)
+		}
+	}
+	// 旧那条把宽度交给文本输入皮的规则不许回来。
+	if strings.Contains(source, "\n.sched-toggle input { width: auto; padding: 0; }") {
+		t.Fatal("`.sched-toggle input` 与 `.settings-field input` 同权重且更靠前，会被 width:100% 盖掉：改用 `.settings-field.sched-toggle input[type=\"checkbox\"]`")
+	}
+}
+
 // TestEmbeddedEffortHitAreaOverlayOnRail：Effort 的隐形 range 必须保持"铺满滑轨的
 // 绝对定位覆盖层"，否则拖动位置与活塞填充错位。
 //

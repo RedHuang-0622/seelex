@@ -45,6 +45,7 @@ const (
 	scheduledLogTail        = 20      // 运行日志尾部保留条数
 	scheduledLogLineTail    = 120     // 单条日志截断 rune 数
 	scheduledDefaultTimeout = 10 * 60 // 白名单命令默认超时（秒）
+	scheduledClockLayout    = "15:04" // 周期锚点墙钟格式（HH:MM）
 )
 
 // ScheduledTaskKind 周期任务类型（DTO 别名）。
@@ -294,6 +295,10 @@ func (s *State) Schedule(_ context.Context, spec ScheduledTaskSpec) (*ScheduledT
 		if !spec.RunAt.After(time.Now()) {
 			return nil, errors.New("定时执行时间必须晚于当前时间")
 		}
+		// 锚点只属于周期任务：一次性任务的时刻就是 RunAt，给了锚点只会被无声忽略。
+		if strings.TrimSpace(spec.StartClock) != "" || spec.StartWeekday != dto.WeekdayUnset {
+			return nil, errors.New("一次性定时任务不接受周期锚点（开始时间/星期）")
+		}
 		// 一次性任务创建即启用，避免"已停用且无法重新启用"的死角。
 		spec.Enabled = true
 	} else {
@@ -329,6 +334,7 @@ func (s *State) Schedule(_ context.Context, spec ScheduledTaskSpec) (*ScheduledT
 		spec: ScheduledTaskSpec{
 			Name: name, Kind: spec.Kind, Interval: spec.Interval,
 			PeriodUnit: spec.PeriodUnit, PeriodValue: spec.PeriodValue,
+			StartClock: canonicalStartClock(spec), StartWeekday: spec.StartWeekday,
 			RunAt:   spec.RunAt,
 			Command: strings.TrimSpace(spec.Command), Prompt: strings.TrimSpace(spec.Prompt),
 			SessionID: strings.TrimSpace(spec.SessionID), Enabled: spec.Enabled,
@@ -339,6 +345,7 @@ func (s *State) Schedule(_ context.Context, spec ScheduledTaskSpec) (*ScheduledT
 		ID: t.id, Name: name, Kind: string(spec.Kind),
 		IntervalSec: int64(effective / time.Second),
 		PeriodUnit:  string(spec.PeriodUnit), PeriodValue: spec.PeriodValue,
+		StartClock: t.spec.StartClock, StartWeekday: t.spec.StartWeekday,
 		RunAt: t.nextRun, OneShot: oneShot,
 		Command: t.spec.Command, Prompt: t.spec.Prompt,
 		SessionID: t.spec.SessionID, Enabled: spec.Enabled,
@@ -436,6 +443,7 @@ func (t *task) statusSnapshot() ScheduledTaskStatus {
 		ID: t.status.ID, Name: t.status.Name, Kind: t.status.Kind,
 		IntervalSec: t.status.IntervalSec, Command: t.status.Command,
 		PeriodUnit: t.status.PeriodUnit, PeriodValue: t.status.PeriodValue,
+		StartClock: t.status.StartClock, StartWeekday: t.status.StartWeekday,
 		RunAt: t.status.RunAt, OneShot: t.status.OneShot,
 		Prompt: t.status.Prompt, SessionID: t.status.SessionID,
 		Enabled: t.status.Enabled, Running: t.status.Running,
@@ -446,26 +454,86 @@ func (t *task) statusSnapshot() ScheduledTaskStatus {
 	}
 }
 
-// validatePeriod 校验周期单位/数值（空单位 = 秒级 Interval 路径）。
+// validatePeriod 校验周期单位/数值与锚点（空单位 = 秒级 Interval 路径）。
 func validatePeriod(spec ScheduledTaskSpec) error {
-	if spec.PeriodUnit == "" {
-		return nil
+	anchor, err := parseStartAnchor(spec)
+	if err != nil {
+		return err
 	}
 	switch spec.PeriodUnit {
-	case dto.PeriodHour, dto.PeriodDay, dto.PeriodWeek, dto.PeriodMonth:
+	case "":
+		if anchor.hasClock() || anchor.weekday != dto.WeekdayUnset {
+			return errors.New("固定间隔周期不支持开始时间/星期锚点（请选择天/周/月周期）")
+		}
+		return nil
+	case dto.PeriodMinute, dto.PeriodHour:
+		if anchor.hasClock() || anchor.weekday != dto.WeekdayUnset {
+			return fmt.Errorf("%s 周期不接受开始时间/星期锚点（子日周期按创建时刻滚动）", spec.PeriodUnit)
+		}
+	case dto.PeriodDay, dto.PeriodMonth:
+		if anchor.weekday != dto.WeekdayUnset {
+			return fmt.Errorf("只有周周期可以指定星期（%s 周期请只给开始时间）", spec.PeriodUnit)
+		}
+	case dto.PeriodWeek:
+		// 星期可省（省 = 按创建时刻那一周的那一天滚动），但给了就必须合法。
 	default:
 		return fmt.Errorf("未知周期单位 %q", spec.PeriodUnit)
 	}
 	if spec.PeriodValue < 1 {
-		return fmt.Errorf("周期数值必须 >= 1")
+		return errors.New("周期数值必须 >= 1")
 	}
 	return nil
+}
+
+// startAnchor 是周期任务的墙钟锚点（HH:MM + 可选 ISO 星期）。
+type startAnchor struct {
+	hour, minute int
+	weekday      int
+	clock        bool // 是否给出了 HH:MM
+}
+
+func (a startAnchor) hasClock() bool { return a.clock }
+
+// parseStartAnchor 解析周期锚点：空 StartClock = 以创建时刻为锚点（合法），
+// 非空必须是 "HH:MM"；StartWeekday 走 ISO 1..7（0 = 未指定）。
+func parseStartAnchor(spec ScheduledTaskSpec) (startAnchor, error) {
+	anchor := startAnchor{weekday: spec.StartWeekday}
+	if anchor.weekday < dto.WeekdayUnset || anchor.weekday > dto.WeekdaySunday {
+		return startAnchor{}, fmt.Errorf("星期锚点 %d 越界（ISO 1=周一 … 7=周日）", anchor.weekday)
+	}
+	raw := strings.TrimSpace(spec.StartClock)
+	if raw == "" {
+		if anchor.weekday != dto.WeekdayUnset {
+			return startAnchor{}, errors.New("指定星期时必须同时给出开始时间（HH:MM）")
+		}
+		return anchor, nil
+	}
+	parsed, err := time.Parse(scheduledClockLayout, raw)
+	if err != nil {
+		return startAnchor{}, fmt.Errorf("开始时间 %q 需要 HH:MM 格式", raw)
+	}
+	anchor.hour, anchor.minute, anchor.clock = parsed.Hour(), parsed.Minute(), true
+	return anchor, nil
+}
+
+// canonicalStartClock 把锚点归一成 "HH:MM"（未给锚点 = 空串）。
+//
+// Go 的 time.Parse("15:04") 收紧放：`9:00` 也认。归一之后状态快照里只有一种
+// 写法，"每天 9:00" 与 "每天 09:00" 在面板上不会显示成两种字面。
+func canonicalStartClock(spec ScheduledTaskSpec) string {
+	anchor, err := parseStartAnchor(spec)
+	if err != nil || !anchor.hasClock() {
+		return ""
+	}
+	return fmt.Sprintf("%02d:%02d", anchor.hour, anchor.minute)
 }
 
 // effectiveInterval 返回用于最小周期校验与状态展示的等价秒级周期
 // （month 使用 30 天名义值；真实排期走 nextScheduledAt 的日历语义）。
 func effectiveInterval(spec ScheduledTaskSpec) time.Duration {
 	switch spec.PeriodUnit {
+	case dto.PeriodMinute:
+		return time.Duration(spec.PeriodValue) * time.Minute
 	case dto.PeriodHour:
 		return time.Duration(spec.PeriodValue) * time.Hour
 	case dto.PeriodDay:
@@ -479,24 +547,80 @@ func effectiveInterval(spec ScheduledTaskSpec) time.Duration {
 	}
 }
 
-// nextScheduledAt 计算任务下一次运行时间：周期单位优先（month 为日历月，
-// 月末钳制），否则按 Interval 固定周期。
+// nextScheduledAt 计算任务下一次运行时间（严格晚于 now）。
+//
+// 两种口径：
+//   - 锚点口径（给了 StartClock）：候选时刻是"含 now 的那一天/那一周/那一月
+//     的锚点墙钟"，再按周期步进到第一个晚于 now 的时刻。每天 09:00 的任务在
+//     10:00 创建 → 明天 09:00；08:00 创建 → 今天 09:00。
+//   - 滚动口径（未给锚点）：now + 周期，即"每个周期走当前时间"。
+//
+// 一次性任务直接用 RunAt；month 为日历月（月末钳制）。
 func nextScheduledAt(now time.Time, spec ScheduledTaskSpec) time.Time {
 	if !spec.RunAt.IsZero() {
 		return spec.RunAt
 	}
+	anchor, err := parseStartAnchor(spec)
+	if err != nil {
+		// 校验在 Schedule 里做；这里退回滚动口径，绝不 panic。
+		return now.Add(effectiveInterval(spec))
+	}
 	switch spec.PeriodUnit {
+	case dto.PeriodMinute:
+		return now.Add(time.Duration(spec.PeriodValue) * time.Minute)
 	case dto.PeriodHour:
 		return now.Add(time.Duration(spec.PeriodValue) * time.Hour)
 	case dto.PeriodDay:
-		return now.Add(time.Duration(spec.PeriodValue) * 24 * time.Hour)
+		if !anchor.hasClock() {
+			return now.AddDate(0, 0, spec.PeriodValue)
+		}
+		return advanceToAnchor(now, anchorOnDay(now, anchor), func(at time.Time) time.Time {
+			return at.AddDate(0, 0, spec.PeriodValue)
+		})
 	case dto.PeriodWeek:
-		return now.Add(time.Duration(spec.PeriodValue) * 7 * 24 * time.Hour)
+		if !anchor.hasClock() {
+			return now.AddDate(0, 0, 7*spec.PeriodValue)
+		}
+		target := anchor.weekday
+		if target == dto.WeekdayUnset {
+			target = isoWeekday(now)
+		}
+		delta := (target - isoWeekday(now) + 7) % 7
+		return advanceToAnchor(now, anchorOnDay(now.AddDate(0, 0, delta), anchor), func(at time.Time) time.Time {
+			return at.AddDate(0, 0, 7*spec.PeriodValue)
+		})
 	case dto.PeriodMonth:
-		return addCalendarMonths(now, spec.PeriodValue)
+		if !anchor.hasClock() {
+			return addCalendarMonths(now, spec.PeriodValue)
+		}
+		return advanceToAnchor(now, anchorOnDay(now, anchor), func(at time.Time) time.Time {
+			return addCalendarMonths(at, spec.PeriodValue)
+		})
 	default:
 		return now.Add(spec.Interval)
 	}
+}
+
+// advanceToAnchor 从候选时刻按步进找到第一个严格晚于 now 的时刻。
+func advanceToAnchor(now, candidate time.Time, step func(time.Time) time.Time) time.Time {
+	for !candidate.After(now) {
+		candidate = step(candidate)
+	}
+	return candidate
+}
+
+// anchorOnDay 返回 day 那一天（本地时区）的锚点墙钟时刻。
+func anchorOnDay(day time.Time, anchor startAnchor) time.Time {
+	return time.Date(day.Year(), day.Month(), day.Day(), anchor.hour, anchor.minute, 0, 0, day.Location())
+}
+
+// isoWeekday 返回 ISO 星期（1 = 周一 … 7 = 周日）。
+func isoWeekday(at time.Time) int {
+	day := int(at.Weekday())
+	if day == 0 {
+		return dto.WeekdaySunday
+	}
+	return day
 }
 
 // addCalendarMonths 按日历月推进并钳制月末日期（如 1-31 加 1 月 → 2-28/29）。

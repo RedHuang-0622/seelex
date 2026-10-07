@@ -16,10 +16,19 @@ const (
 type PeriodUnit string
 
 const (
-	PeriodHour  PeriodUnit = "hour"
-	PeriodDay   PeriodUnit = "day"
-	PeriodWeek  PeriodUnit = "week"
-	PeriodMonth PeriodUnit = "month"
+	PeriodMinute PeriodUnit = "minute"
+	PeriodHour   PeriodUnit = "hour"
+	PeriodDay    PeriodUnit = "day"
+	PeriodWeek   PeriodUnit = "week"
+	PeriodMonth  PeriodUnit = "month"
+)
+
+// 周期锚点星期用 ISO 口径：1 = 周一 … 7 = 周日（0 = 未指定）。
+// 不用 time.Weekday 是因为它的 0 是周日，与"0 = 未指定"的零值撞车。
+const (
+	WeekdayUnset  = 0
+	WeekdayMonday = 1
+	WeekdaySunday = 7
 )
 
 // ScheduledCommand 白名单命令描述（登记即信任；argv 固定直传，不解析用户文本）。
@@ -44,35 +53,44 @@ type ScheduledTaskSpec struct {
 	Name        string
 	Kind        ScheduledTaskKind
 	Interval    time.Duration
-	PeriodUnit  PeriodUnit // 可选：hour/day/week/month（空 = Interval）
+	PeriodUnit  PeriodUnit // 可选：minute/hour/day/week/month（空 = Interval）
 	PeriodValue int        // 周期数值（>=1，配合 PeriodUnit 使用）
-	RunAt       time.Time  // 一次性定时任务执行时间（零值 = 周期任务）
-	Command     string     // kind=command：白名单键
-	Prompt      string     // kind=prompt：提示词内容（非 secret，可进快照展示）
-	SessionID   string     // 绑定会话（空 = 执行时当前 main session）
-	Enabled     bool
+	// StartClock 是周期锚点时刻 "HH:MM"（空 = 以创建时刻为锚点，即"每个周期
+	// 走当前时间"）。只有 day/week/month 接受它：每天 09:00、每周一 09:00、
+	// 每月同日 09:00；minute/hour 不接受（子日周期没有"几点开始"可言）。
+	StartClock string
+	// StartWeekday 是周周期的锚点星期（ISO 1=周一 … 7=周日；0 = 未指定）。
+	// 只有 PeriodWeek 接受它，且必须与 StartClock 同时给出。
+	StartWeekday int
+	RunAt        time.Time // 一次性定时任务执行时间（零值 = 周期任务）
+	Command      string    // kind=command：白名单键
+	Prompt       string    // kind=prompt：提示词内容（非 secret，可进快照展示）
+	SessionID    string    // 绑定会话（空 = 执行时当前 main session）
+	Enabled      bool
 }
 
 // ScheduledTaskStatus 是定时/周期任务只读快照（GUI 定时任务面板数据源）。
 type ScheduledTaskStatus struct {
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-	Kind        string            `json:"kind"`
-	IntervalSec int64             `json:"interval_seconds"`
-	PeriodUnit  string            `json:"period_unit,omitempty"`
-	PeriodValue int               `json:"period_value,omitempty"`
-	RunAt       time.Time         `json:"run_at,omitempty"`   // 一次性任务的预定执行时间（零值 = 周期任务）
-	OneShot     bool              `json:"one_shot,omitempty"` // 是否一次性定时任务（执行后自动停用）
-	Command     string            `json:"command,omitempty"`
-	Prompt      string            `json:"prompt,omitempty"`
-	SessionID   string            `json:"session_id,omitempty"`
-	Enabled     bool              `json:"enabled"`
-	Running     bool              `json:"running"`
-	NextRunAt   time.Time         `json:"next_run_at,omitempty"`
-	LastRunAt   time.Time         `json:"last_run_at,omitempty"`
-	LastStatus  ScheduleRunStatus `json:"last_status,omitempty"`
-	LastResult  string            `json:"last_result,omitempty"`
-	LastError   string            `json:"last_error,omitempty"`
-	LogTail     []string          `json:"log_tail,omitempty"`
-	RunCount    int64             `json:"run_count"`
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	Kind         string            `json:"kind"`
+	IntervalSec  int64             `json:"interval_seconds"`
+	PeriodUnit   string            `json:"period_unit,omitempty"`
+	PeriodValue  int               `json:"period_value,omitempty"`
+	StartClock   string            `json:"start_clock,omitempty"`   // 周期锚点 "HH:MM"（空 = 以创建时刻为锚点）
+	StartWeekday int               `json:"start_weekday,omitempty"` // 周周期锚点星期（ISO 1=周一 … 7=周日）
+	RunAt        time.Time         `json:"run_at,omitempty"`        // 一次性任务的预定执行时间（零值 = 周期任务）
+	OneShot      bool              `json:"one_shot,omitempty"`      // 是否一次性定时任务（执行后自动停用）
+	Command      string            `json:"command,omitempty"`
+	Prompt       string            `json:"prompt,omitempty"`
+	SessionID    string            `json:"session_id,omitempty"`
+	Enabled      bool              `json:"enabled"`
+	Running      bool              `json:"running"`
+	NextRunAt    time.Time         `json:"next_run_at,omitempty"`
+	LastRunAt    time.Time         `json:"last_run_at,omitempty"`
+	LastStatus   ScheduleRunStatus `json:"last_status,omitempty"`
+	LastResult   string            `json:"last_result,omitempty"`
+	LastError    string            `json:"last_error,omitempty"`
+	LogTail      []string          `json:"log_tail,omitempty"`
+	RunCount     int64             `json:"run_count"`
 }

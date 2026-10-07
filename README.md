@@ -67,7 +67,7 @@ Seelex 把这些能力组织成可替换、可测试的模块，而不是把它�
 | 多模态输入 | 图片与文档附件进入模型请求；截屏画面落会话媒体分区（内容寻址、配额独立记账）并随下一次请求送入；文档无原生解码时兜底为内联文本 |
 | 桌面操作 | computer use 工具族（截屏/窗口枚举/可滚动面板识别/聚焦/点击/移动/拖拽/滚动/输入/按键/等待）：平台门控 + <code>SEELEX_COMPUTER_USE</code> 总开关，输入注入默认逐次审批，子代理只见只读观察类（<code>computer_screenshot</code>/<code>computer_windows</code>/<code>computer_scroll_targets</code>/<code>computer_wait</code>） |
 | 扩展系统 | 声明式 Plugin、目录化 Skill、MCP Server 冷启动登记/按需加载/重挂载与工具可见性过滤、<code>tool_notes</code>（把本机实测的调用纪律折进 MCP 工具描述），以及 plugin/skill/mcp 自管理工具 |
-| 定时任务 | 周期（hour/day/week/month 或固定间隔）与一次性定时任务；command 白名单 argv 直传，prompt 任务复用会话执行器 |
+| 定时任务 | 周期（minute/hour/day/week/month 或固定间隔，可指定「每天/每周几 几点」开始）与一次性定时任务；到点把提示词投给当前会话执行 |
 | Web 搜索 | <code>web_search</code> 工具与 tavily / bochaai / searxng provider 装配 |
 | 模型与账号 | OpenAI-compatible endpoint、按角色（agent / subagent / goalplan / websearch）分组的账号池、分支确定性选路和流式租约 |
 | 持久化 | JSON v8 后端；会话顺序日志、项目与 Session 隔离、模块 head 发布、消息分片、媒体分区，以及 plan/task/goal 三栈通道 |
