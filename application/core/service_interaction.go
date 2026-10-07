@@ -125,20 +125,14 @@ func (service *Service) SelectAccount(_ context.Context, name string) error {
 // （后台会话的 prompt 由各自的 runChat 起点/热挂载刷新）。会话化 effort
 // 属刀 4，在此之前的全局选择器只允许在视图空闲时变更。
 func (service *Service) SwitchEffort(_ context.Context, level string) error {
-	service.ViewMu.RLock()
-	viewSessionID := service.Core.Snapshot.Session.ID
-	viewRunning := false
-	if unit := service.sessions.Unit(viewSessionID); unit != nil {
-		viewRunning = unit.ChatState().Running
-	}
-	service.ViewMu.RUnlock()
-	if viewRunning {
-		return errors.New("当前会话正在运行：请等待回合结束或取消后再切换 Effort")
+	viewSessionID, err := service.ensureViewIdle("切换 Effort")
+	if err != nil {
+		return err
 	}
 	if level == "" || level == "cycle" {
-		next, err := service.effortManager.Cycle()
-		if err != nil {
-			return err
+		next, cycleErr := service.effortManager.Cycle()
+		if cycleErr != nil {
+			return cycleErr
 		}
 		level = next
 	}
@@ -163,6 +157,16 @@ func (service *Service) SwitchEffort(_ context.Context, level string) error {
 		unit.SetEffortLevel(service.effortManager.Current())
 	}
 	service.Core.Snapshot.Runtime.Effort = service.effortManager.Current()
+	// 档位 = **两条拉条的预设**：切档位把两条拉条的读数一起带进该档（前端因此看得见
+	// "档位改了什么"），而拉条各自只改自己那一项（composer 底部的两条独立拉条，
+	// 见 service_knobs.go）。权威读数与快照一起写：runtime 投影每次整份重建 Runtime，
+	// 只写快照会被下一次投影清零。加锁次序：ViewMu → knobMu（此处已持 ViewMu）。
+	service.knobMu.Lock()
+	service.knobReasoningEffort = reasoningEffortFor(service.effortManager.Current())
+	service.knobLoopLimit = maxLoopsFor(service.effortManager.Current())
+	service.Core.Snapshot.Runtime.ReasoningEffort = service.knobReasoningEffort
+	service.Core.Snapshot.Runtime.LoopLimit = service.knobLoopLimit
+	service.knobMu.Unlock()
 	revision := service.bumpLocked()
 	runtime := cloneRuntimeState(service.Core.Snapshot.Runtime)
 	service.ViewMu.Unlock()
@@ -229,6 +233,11 @@ func (service *Service) reapplyEffortAfterPluginSwitch() {
 		return
 	}
 	_ = service.effortManager.Apply(service.effortManager.Current())
+	// Apply 会把引擎循环上限写回**档位默认值**（applyLocked 里的 SetMaxLoops）——
+	// 而用户可能已经用底部的循环次数拉条把它拧到了别的值。这里补回"当前生效的
+	// 循环上限"，让插件切换不再偷偷把拉条值吃掉（currentLoopLimit 读的就是快照里
+	// 那份权威值，没被用户改过时回退档位默认值，与 Apply 写的一致）。
+	service.applyLoopLimit(service.currentLoopLimit())
 }
 
 // SetPermissionTier 切换**视图会话的权限档位**，并返回真正生效的档位。

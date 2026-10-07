@@ -229,14 +229,7 @@ func (service *Service) syncPlanPolicyFor(sessionID string) {
 // 端口是窄可选的（contract.ReasoningEffortPort）：宿主没实现就整步退化为 no-op，
 // 不影响 loop/预算那半条链。
 func (service *Service) syncSessionReasoningEffort(level string) int {
-	if service == nil || service.Deps.Runtime == nil {
-		return 0
-	}
-	sink, ok := service.Deps.Runtime.(contract.ReasoningEffortPort)
-	if !ok {
-		return 0
-	}
-	return sink.SetSessionReasoningEffort(prompt.ReasoningEffortFor(level))
+	return service.pushSessionReasoningEffort(reasoningEffortFor(level))
 }
 
 // permissionTierForSession 返回指定会话生效的权限档位（G4：Unit 内选择优先；

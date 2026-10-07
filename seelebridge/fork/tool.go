@@ -28,6 +28,12 @@ type Deps struct {
 	RunPlan                  func(ctx context.Context, loaded *plan.LoadedPlanDoc, withNodeOutputs bool) (string, error)
 	ForkTimeoutSec           int
 	PlanNodeMaxLoops         int
+	// LoopLimitCeiling 是**进程级循环次数天花板**（limits.input_loop_limit，默认
+	// 9999，与循环次数拉条同一份哨兵）：一条子代理自己声明的 max_loops 不得越过它。
+	// 刻意不接 effort 档位的节点上限（PlanPolicy.MaxNodeLoops）——那是主代理
+	// plan_load 节点的判据，拿它卡子代理就是"设置 reasoning effort 连带改变了工作
+	// 单元的次数"（2026-10-08 口径）。0 = 未配置（不限）。
+	LoopLimitCeiling int
 	// Jobs 是子代理作业的登记面（Kind=subagent，打点 L-5）。nil = async 模式不可用。
 	Jobs SubagentJobs
 }
@@ -53,6 +59,7 @@ func (t *Tool) Handle(ctx context.Context, argsJSON string) (string, error) {
 		return "", fmt.Errorf("fork_subagents: at least one subagent is required")
 	}
 	seen := make(map[string]bool, len(input.Subagents))
+	policy := t.deps.CurrentPlanPolicy()
 	for _, spec := range input.Subagents {
 		if spec.ID == "" || strings.TrimSpace(spec.Goal) == "" {
 			return "", fmt.Errorf("fork_subagents: subagent %q must have id and goal", spec.ID)
@@ -61,9 +68,12 @@ func (t *Tool) Handle(ctx context.Context, argsJSON string) (string, error) {
 			return "", fmt.Errorf("fork_subagents: duplicate subagent id %q", spec.ID)
 		}
 		seen[spec.ID] = true
+		if err := validateSubagentLoops(t.deps.LoopLimitCeiling, spec); err != nil {
+			return "", err
+		}
 	}
 	// 护杠：数量上限（PlanPolicy.MaxNodes；未配置不限）。
-	if policy := t.deps.CurrentPlanPolicy(); policy.MaxNodes > 0 && len(input.Subagents) > policy.MaxNodes {
+	if policy.MaxNodes > 0 && len(input.Subagents) > policy.MaxNodes {
 		return "", fmt.Errorf("fork_subagents: %d subagents exceeds policy limit %d", len(input.Subagents), policy.MaxNodes)
 	}
 
@@ -126,6 +136,23 @@ func (t *Tool) Handle(ctx context.Context, argsJSON string) (string, error) {
 	// 调用，"主动查看/提前终止子代理"在阻塞形态下根本没有入口——不是缺工具，是缺
 	// 时机。作业化之后 observe / kill / done 才有意义（设计文档 §B.3）。
 	return t.dispatchJobs(ctx, loaded, input, forkTimeout)
+}
+
+// validateSubagentLoops 判一条子代理自己声明的循环次数能不能用。
+//
+// 判据只有**进程级循环天花板**（limits.input_loop_limit，与循环次数拉条同一份
+// 哨兵）：工作单元跑多少轮由"这一条自己声明 → 否则配置默认"决定，effort 档位的
+// 节点上限（PlanPolicy.MaxNodeLoops）在这里**不出现**——它是主代理自己 plan_load
+// 节点的判据，拿来卡子代理就等于"设一下 reasoning effort，子代理的次数跟着变"
+// （2026-10-08 口径）。0 = 没声明（不是"零轮"），留给本批默认。
+func validateSubagentLoops(ceiling int, spec SubagentSpec) error {
+	if spec.MaxLoops < 0 {
+		return fmt.Errorf("fork_subagents: subagent %q max_loops must be >= 1 (got %d)", spec.ID, spec.MaxLoops)
+	}
+	if ceiling > 0 && spec.MaxLoops > ceiling {
+		return fmt.Errorf("fork_subagents: subagent %q max_loops=%d exceeds the process loop ceiling %d", spec.ID, spec.MaxLoops, ceiling)
+	}
+	return nil
 }
 
 // dispatchJobs 把这一批子代理**作业化派发**：登记 N 条 Kind=subagent 作业 → 立刻返回
@@ -393,15 +420,20 @@ func (t *Tool) buildForkPlan(input Input, taskBindings map[string]string) (*plan
 		},
 	}
 	for _, spec := range input.Subagents {
+		// 子代理节点循环预算 = **这一条自己声明的 max_loops**，否则本批默认
+		// PlanNodeMaxLoops（配置 plan_node_max_loops，默认 15）。**刻意不读
+		// effort 档位的 PlanPolicy.MaxNodeLoops**：档位管的是主代理自己的循环
+		// 次数与思考强度，一个工作单元跑多少轮只由它自己（或配置）决定——
+		// 否则"切一次 reasoning effort，子代理的次数跟着变"（2026-10-08 口径）。
+		loops := t.deps.PlanNodeMaxLoops
+		if spec.MaxLoops > 0 {
+			loops = spec.MaxLoops
+		}
 		document.Nodes = append(document.Nodes, codec.NodeSpec[plan.SeelexNodeInput]{
 			ID: spec.ID, Kind: "agent",
 			Input: plan.SeelexNodeInput{
 				ID: spec.ID, Input: spec.Goal, Kind: "agent",
-				// fork 子代理节点循环预算复用 effort 调节的节点循环数
-				// （PlanPolicy.MaxNodeLoops：high=48 / max=96；未设置 → 回退
-				// 通用 PlanNodeMaxLoops）——子代理循环数与主代理 plan 节点
-				// 同一套 effort 语义，不做独立常量。
-				Budget: &plan.NodeBudgetInput{MaxLoops: t.forkNodeLoops()},
+				Budget: &plan.NodeBudgetInput{MaxLoops: loops},
 				// B6：装配现成 task_id（无内容，不污染 prompt）。
 				TaskID: taskBindings[spec.ID],
 			},
@@ -431,14 +463,4 @@ func (t *Tool) buildForkPlan(input Input, taskBindings map[string]string) (*plan
 		MaxForkConc: maxFork,
 		Plan:        planDoc,
 	}, nil
-}
-
-// forkNodeLoops 返回 fork 子代理节点的循环预算：复用 effort 调节的节点
-// 循环数（currentPlanPolicy().MaxNodeLoops，high=48 / max=96）；未设置
-// （lite/medium 或未切换 effort）→ 回退通用 PlanNodeMaxLoops。
-func (t *Tool) forkNodeLoops() int {
-	if policy := t.deps.CurrentPlanPolicy(); policy.MaxNodeLoops > 0 {
-		return policy.MaxNodeLoops
-	}
-	return t.deps.PlanNodeMaxLoops
 }

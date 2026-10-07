@@ -1152,6 +1152,40 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .effort-syringe:hover .syringe-barrel { border-color: var(--border-strong); }
 .effort-control.is-pending { opacity: .55; }
 
+/* 输入框底部的两条**独立**拉条（推理强度 / 循环次数）：与上面的 Effort 档位拉条
+   共用同一套 .effort-control / .syringe-* 规则与命中区几何（组件复用），这里只补
+   这一行的排布与"每条约多宽"——三条拉条各自独立成列，滑轨宽度不互相挤压。
+   行本身贴在 composer 动作行**之下**（输入框底部），空的时候不存在（它是常驻行）。 */
+.composer-knobs {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 2px 4px 0;
+  border-top: 1px solid var(--border);
+  margin-top: 2px;
+}
+.composer-knobs .knob-slider {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 0;
+  min-width: 0;
+}
+.composer-knobs .knob-label {
+  font-size: 10px;
+  letter-spacing: .04em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+/* 两端标签在窄行里让位给滑轨：数值另有 .effort-value 常驻，信息不丢。 */
+.composer-knobs .effort-end { font-size: 9px; }
+.composer-knobs .effort-value { min-width: 3ch; text-align: right; font-variant-numeric: tabular-nums; }
+@media (max-width: 780px) {
+  .composer-knobs { gap: 8px; }
+  .composer-knobs .effort-end { display: none; }
+}
+
 /* ---------- 9. Right panel components ---------- */
 /* 右栏子页 tab（状态 / 工作台 / 代码）：固定于项目标题之下，内容区滚动 */
 .right-tabs {

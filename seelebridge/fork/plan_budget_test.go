@@ -20,10 +20,9 @@ func (stubAutoNode) Run(context.Context, *workplanTypes.WorkflowContext) (string
 	return "", nil
 }
 
-// TestForkPlanNodesCarryEffortLoopBudget 验证 fork 子代理节点循环预算复用
-// effort 调节值（PlanPolicy.MaxNodeLoops）：high=48 → 节点 48 轮；未设置
-// （lite/medium）→ 回退通用 PlanNodeMaxLoops。
-func TestForkPlanNodesCarryEffortLoopBudget(t *testing.T) {
+// forkLoopHarness 造一个 fork 工具：effort 策略（只判主代理自己的 plan_load 节点）
+// + 配置层的子代理节点循环上限（limits.plan_node_max_loops）。
+func forkLoopHarness(policy plan.PlanPolicy, planNodeMaxLoops int) *Tool {
 	nodeFactory := codec.NodeFactoryFunc[plan.SeelexNodeInput](func(spec codec.NodeSpec[plan.SeelexNodeInput]) (frameworknode.Node, error) {
 		switch spec.Input.Kind {
 		case "agent":
@@ -34,48 +33,80 @@ func TestForkPlanNodesCarryEffortLoopBudget(t *testing.T) {
 			return &stubAutoNode{BaseNode: frameworknode.NewBaseNode(spec.ID, frameworknode.KindAuto)}, nil
 		}
 	})
-	makeTool := func(policy plan.PlanPolicy, maxLoops int) *Tool {
-		return NewTool(Deps{
-			CurrentPlanPolicy: func() plan.PlanPolicy { return policy },
-			NodeFactory:       func() codec.NodeFactory[plan.SeelexNodeInput] { return nodeFactory },
-			PlanNodeMaxLoops:  maxLoops,
-		})
-	}
-	collect := func(t *testing.T, loaded *plan.LoadedPlanDoc) []int {
-		t.Helper()
-		var loops []int
-		for _, id := range loaded.Plan.AllNodes() {
-			agentNode, ok := loaded.Plan.GetNode(id).(*node.AgentNode)
-			if !ok {
-				continue
-			}
-			if agentNode.Input().Budget == nil {
-				t.Fatalf("fork node %q must carry a budget", id)
-			}
-			loops = append(loops, agentNode.Input().Budget.MaxLoops)
+	return NewTool(Deps{
+		CurrentPlanPolicy: func() plan.PlanPolicy { return policy },
+		NodeFactory:       func() codec.NodeFactory[plan.SeelexNodeInput] { return nodeFactory },
+		PlanNodeMaxLoops:  planNodeMaxLoops,
+	})
+}
+
+// nodeLoops 按节点 id 读该节点的预算循环上限（只读 agent 节点）。
+func nodeLoops(t *testing.T, loaded *plan.LoadedPlanDoc) map[string]int {
+	t.Helper()
+	loops := make(map[string]int)
+	for _, id := range loaded.Plan.AllNodes() {
+		agentNode, ok := loaded.Plan.GetNode(id).(*node.AgentNode)
+		if !ok {
+			continue
 		}
-		return loops
+		if agentNode.Input().Budget == nil {
+			t.Fatalf("fork node %q must carry a budget", id)
+		}
+		loops[id] = agentNode.Input().Budget.MaxLoops
 	}
+	return loops
+}
 
-	tool := makeTool(plan.PlanPolicy{Effort: "high", MaxNodeLoops: 48}, 0)
-	loaded, err := tool.buildForkPlan(Input{
-		Subagents: []SubagentSpec{{ID: "s1", Goal: "fix"}, {ID: "s2", Goal: "fix"}},
-	}, map[string]string{})
+func buildLoops(t *testing.T, tool *Tool, specs ...SubagentSpec) map[string]int {
+	t.Helper()
+	loaded, err := tool.buildForkPlan(Input{Subagents: specs}, map[string]string{})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("buildForkPlan: %v", err)
 	}
-	if got := collect(t, loaded); len(got) != 2 || got[0] != 48 || got[1] != 48 {
-		t.Fatalf("high-effort fork node loops = %v, want [48 48]", got)
-	}
+	return nodeLoops(t, loaded)
+}
 
-	tool = makeTool(plan.PlanPolicy{Effort: "lite"}, 15)
-	loaded, err = tool.buildForkPlan(Input{
-		Subagents: []SubagentSpec{{ID: "s1", Goal: "fix"}},
-	}, map[string]string{})
-	if err != nil {
-		t.Fatal(err)
+// TestForkPlanNodeLoopsIgnoreEffortPolicy：子代理节点循环预算**与 effort 档位无关**
+// （2026-10-08 口径：设置 reasoning effort 不得连带改变工作单元的次数）。
+//
+// 档位手里的 PlanPolicy.MaxNodeLoops 是**主代理自己的 plan_load 节点**判据；拿它
+// 当子代理的默认值（或当 max_loops 的上限）就等于"切一次档位，子代理的次数跟着
+// 变"。这里把四个档位逐个过一遍：缺省一律取配置 plan_node_max_loops。
+func TestForkPlanNodeLoopsIgnoreEffortPolicy(t *testing.T) {
+	policies := []plan.PlanPolicy{
+		{Effort: "high", MaxNodeLoops: 48},
+		{Effort: "max", MaxNodeLoops: 96},
+		{Effort: "medium", MaxNodes: 4, RequireSerial: true},
+		{Effort: "lite"},
 	}
-	if got := collect(t, loaded); len(got) != 1 || got[0] != 15 {
-		t.Fatalf("lite-effort fork node loops = %v, want [15]", got)
+	for _, policy := range policies {
+		tool := forkLoopHarness(policy, 15)
+		got := buildLoops(t, tool,
+			SubagentSpec{ID: "s1", Goal: "fix"},
+			SubagentSpec{ID: "s2", Goal: "fix"},
+		)
+		if len(got) != 2 || got["s1"] != 15 || got["s2"] != 15 {
+			t.Fatalf("effort %q（MaxNodeLoops=%d）下子代理循环预算 = %v, want s1=s2=15（配置默认）",
+				policy.Effort, policy.MaxNodeLoops, got)
+		}
+	}
+}
+
+// TestForkPlanNodeLoopsHonourDeclaredOverride：单元自己声明的那一条优先于配置默认，
+// 且**不因档位不同而被改写**（声明是唯一的事实源，档位不是）。
+func TestForkPlanNodeLoopsHonourDeclaredOverride(t *testing.T) {
+	for _, policy := range []plan.PlanPolicy{
+		{Effort: "high", MaxNodeLoops: 48},
+		{Effort: "max", MaxNodeLoops: 96},
+	} {
+		tool := forkLoopHarness(policy, 15)
+		got := buildLoops(t, tool,
+			SubagentSpec{ID: "read", Goal: "只读审查", MaxLoops: 6},
+			SubagentSpec{ID: "migrate", Goal: "长链条迁移", MaxLoops: 60},
+		)
+		if got["read"] != 6 || got["migrate"] != 60 {
+			t.Fatalf("effort %q 下声明的 max_loops 被改写：%v, want read=6 migrate=60（60 越过档位 48 也不再被拦）",
+				policy.Effort, got)
+		}
 	}
 }

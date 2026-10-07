@@ -1,3 +1,9 @@
+import { createKnobSlider, discreteScale } from "./knob-slider.js";
+
+// Effort 档位控制器 = 共享滑杆组件（knob-slider.js）+ 一张四档停位表。
+//
+// 行为一个字都没有在这里重写：拖动只预览、松手才提交、待定守护、失败回滚、
+// 快照覆盖、运行中上锁全在组件里。本文件只声明"档位是什么"。
 export const EFFORT_LEVELS = Object.freeze(["lite", "medium", "high", "max"]);
 
 const EFFORT_LABELS = Object.freeze({
@@ -29,68 +35,23 @@ export function effortPresentation(level) {
   });
 }
 
+export const EFFORT_SCALE = discreteScale(EFFORT_LEVELS, { labels: EFFORT_LABELS, progress: PROGRESS_MAP });
+
 export function createEffortControl({ root, input, output, selectEffort, onError = () => {} }) {
   if (!root || !input || typeof selectEffort !== "function") {
     throw new TypeError("Effort control requires root, input and selectEffort");
   }
 
-  let committed = effortPresentation(EFFORT_LEVELS[Number(input.value)]).level;
-  let pending = false;
-  // enabled=false 用于「回合进行中」：此时后端一定会拒绝切换，前端先把入口
-  // 关掉，而不是让用户拖完再看一个失败 toast（那正是"调节 effort 出问题"）。
-  let enabled = true;
-
-  function render(level) {
-    const view = effortPresentation(level);
-    input.value = String(view.index);
-    input.setAttribute("aria-valuetext", view.label);
-    if (output) {
-      output.value = view.label;
-      output.textContent = view.label;
-    }
-    root.dataset.effort = view.level;
-    root.style.setProperty("--effort-progress", `${view.progress}%`);
-    return view;
-  }
-
-  function applyEnabled() {
-    input.disabled = !enabled;
-    root.classList.toggle("is-locked", !enabled);
-    if (output) output.title = enabled ? "" : EFFORT_RUNNING_HINT;
-    if (enabled) input.removeAttribute("title");
-    else input.setAttribute("title", EFFORT_RUNNING_HINT);
-  }
-
-  input.addEventListener("input", () => {
-    if (!enabled || pending) return;
-    render(EFFORT_LEVELS[Number(input.value)]);
-  });
-
-  input.addEventListener("change", async () => {
-    if (!enabled || pending) return;
-    const next = effortPresentation(EFFORT_LEVELS[Number(input.value)]).level;
-    if (next === committed) {
-      render(committed);
-      return;
-    }
-
-    pending = true;
-    input.disabled = true;
-    root.classList.add("is-pending");
-    try {
-      const applied = await selectEffort(next);
-      // selectEffort 返回后端"真正生效的值"时以它为准（后端可能拒绝或归一化）；
-      // 返回 undefined（旧调用方）时沿用请求值。
-      committed = isEffortLevel(applied) ? applied : next;
-      render(committed);
-    } catch (error) {
-      render(committed);
-      onError(error);
-    } finally {
-      pending = false;
-      applyEnabled();
-      root.classList.remove("is-pending");
-    }
+  const slider = createKnobSlider({
+    root,
+    input,
+    output,
+    scale: EFFORT_SCALE,
+    dataKey: "effort",
+    progressVar: "--effort-progress",
+    runningHint: EFFORT_RUNNING_HINT,
+    commit: selectEffort,
+    onError
   });
 
   return Object.freeze({
@@ -98,19 +59,17 @@ export function createEffortControl({ root, input, output, selectEffort, onError
     // 冷加载中的空 runtime）时不要把用户刚选的档位打回 Lite。
     setLevel(level) {
       if (!isEffortLevel(level)) return;
-      committed = level;
-      if (!pending) render(committed);
+      slider.set(level);
     },
     // setEnabled(false) = 回合进行中：滑块置灰且保留当前档位显示。
     setEnabled(next) {
-      enabled = next !== false;
-      applyEnabled();
+      slider.setEnabled(next);
     },
     level() {
-      return committed;
+      return slider.value();
     },
     isEnabled() {
-      return enabled;
+      return slider.isEnabled();
     }
   });
 }

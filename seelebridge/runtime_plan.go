@@ -226,6 +226,7 @@ func (r *Runtime) forkDeps() fork.Deps {
 		RunPlan:                  r.planExecutor.RunPlan,
 		ForkTimeoutSec:           r.limits.ForkTimeoutSec,
 		PlanNodeMaxLoops:         r.limits.PlanNodeMaxLoops,
+		LoopLimitCeiling:         r.limits.InputLoopLimit,
 		Jobs:                     r.subagentJobs(),
 	}
 }
@@ -381,12 +382,16 @@ func (r *Runtime) registerForkTool() {
 			"properties": map[string]interface{}{
 				"subagents": map[string]interface{}{
 					"type":        "array",
-					"description": "Subagent specs: unique id + natural-language goal.",
+					"description": "Subagent specs: unique id + natural-language goal, plus optional per-subagent execution params.",
 					"items": map[string]interface{}{
 						"type": "object",
 						"properties": map[string]interface{}{
 							"id":   map[string]interface{}{"type": "string"},
 							"goal": map[string]interface{}{"type": "string"},
+							"max_loops": map[string]interface{}{
+								"type": "integer", "minimum": 1,
+								"description": "这条子代理自己的 ReAct 循环上限（可选）。缺省 = 本批默认（配置 limits.plan_node_max_loops，即配置层的子代理节点循环上限，默认 15）。与 effort 档位无关：切档位不会改变子代理的次数。只有越过进程级循环天花板（limits.input_loop_limit，默认 9999）才在调用处直接拒绝，不静默截断。",
+							},
 						},
 						"required": []string{"id", "goal"},
 					},

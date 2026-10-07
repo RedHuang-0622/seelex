@@ -111,3 +111,60 @@ Runtime Snapshot ──→ setLevel(level) ──→ Committed(level)
 - 隐形 range 是否仍是**铺满滑轨**的覆盖层（改动 §6 的 12.9 归位规则后，轨内任意处单击都要能改档位；Pico 的 `[role=group]` 会把它排成滑轨右侧的 flex 项）？
 - Effort 视觉是否保持克制（无辉光/流光/常驻动画）并支持 reduced-motion？
 - Effort 是否仍可在不打开任何 modal 的情况下看到和操作？
+
+## 10. 两条独立拉条（推理强度 / 循环次数）
+
+2026-10-08 起，composer 底部多了一行**两条独立拉条**，与上面的档位拉条是
+「预设 vs 微调」的关系：
+
+| 维度 | 档位拉条（`#effort-control`） | 独立拉条（`#reasoning-effort-control` / `#loop-limit-control`） |
+|---|---|---|
+| 语义 | **预设**：一次同时设置两条拉条 | 各自只改自己那一项 |
+| 推理强度 | 档位派生（`low/medium/high/max`） | 直接选 wire 词表（同样四档，不含 `minimal`） |
+| 循环次数 | 档位派生（15/48/384/768） | 连续整数 `1..9999`，**步长恒为 1** |
+| 落点 | prompt 层 + plan 策略 + ReAct 预算 + 引擎循环 + 账号池 | 引擎循环上限 / 账号池思考强度（**各一条**） |
+| 后端入口 | `SwitchEffort` | `SetReasoningEffort` / `SetLoopLimit` |
+
+口径的三条硬约束：
+
+1. **档位是预设，不是第三个事实源**。切档位会把两条读数一起带进该档（快照里
+   `runtime.reasoning_effort` / `runtime.loop_limit` 随之更新），用户在界面上看得见
+   "档位改了什么"；拖拉条只改那一项，另一项一个字都不动。
+2. **运行守卫是同一条**（G0b/INV-G7）：视图会话 running 时后端对三个入口一律拒绝
+   （`application/core/service_knobs.go` 的 `ensureViewIdle`），前端 `setEnabled(false)`
+   只是体验层——它挡不住并发提交，后端才是那道门。
+3. **读数必须在 runtime 投影里反哺**：`Snapshot.Runtime` 每个回合尾 / 每次工具边界
+   都会被整份重建（`view_state.CollectRuntimeProjectionFor`），所以两条读数各自有一份
+   进程级权威值（`serviceState.knobLoopLimit` / `knobReasoningEffort`，`knobMu` 保护），
+   投影经 `Deps.CurrentReasoningEffort` / `CurrentLoopLimit` 取回。**只写快照不反哺 =
+   下一次投影拉条归零**（这是本轮最容易踩的坑）。
+
+循环次数的上界是 `limits.input_loop_limit`（默认 9999）：它就是 goal skill 用的
+"≈无上限"哨兵，拉条不允许推得比它更远——否则那个哨兵不再表达"无上限"。
+
+### 10.1 组件复用
+
+三条拉条共用**一份**实现：`gui/frontend/dist/knob-slider.js`。
+
+- 行为（拖动只预览 / 松手才提交 / pending 守护 / 失败回滚到权威值 / 快照覆盖 / 运行中
+  上锁 / 采纳后端返回的"真正生效的值"）只写一遍；
+- 差异只由参数表达：`scale`（`discreteScale` 四档 / `linearScale` 连续整数）+ `dataKey`
+  + `progressVar`；
+- `effort-control.js` 退化成"这份实现 + 一张四档停位表"，对外 API 与行为不变
+  （原有 `effort-control.test.mjs` 一字未改仍然全绿）；两条新拉条在
+  `gui/frontend/dist/composer-knobs.js`。
+- CSS 也复用：两条新拉条直接用 `.effort-control` / `.syringe-*`（含 §6 那条命中区归位
+  规则），只补 `.composer-knobs` 的排布。
+
+### 10.2 自动化证据（本轮新增）
+
+- `knob-slider.test.mjs`：线性刻度的 index↔value 与非法读数、四档停位、预览/提交一次、
+  采纳权威值、失败回滚、运行中上锁、快照覆盖不打回 0、构造期 range 量纲；
+- `composer-knobs.test.mjs`：拖一条不动另一条、快照把两条一起铺下、运行中一起上锁、
+  后端归一化时按返回值渲染；
+- `application/core/service_knobs_test.go`：各改一项、范围校验、词表校验、档位播种两条读数、
+  运行中拒绝且不触碰引擎/账号池；
+- `application/core/service_knobs_smoke_test.go`（**全链路冒烟**）：装配期播种 → 拖循环次数 →
+  拖推理强度 → **强制一次 runtime 投影重建**（读数必须还在）→ 切档位 = 两条一起落 →
+  档位重放不吃掉用户值 → 运行中被拒；
+- `gui/bridge_test.go`：Bridge 对两个新方法的透传（含整数参数类型）。

@@ -29,7 +29,7 @@
 - `completion`：Seele telemetry 中 LLM 调用的 span 名；
 - `(deepseek-v4-flash)`：模型名，由 [stage_hook.go](../../seelebridge/internal/telemetry/stage_hook.go) 拼入 preview。
 
-含义：该节点会话已连续执行第 46 次模型调用。单个 fork 节点内几十轮 LLM 是“单节点长串行”，接近节点预算上限（默认 `plan_node_max_loops`，effort high=48/max=96），不是多个并行子代理。阶段日志本身逐条带 `At`（[subagent_sessions.go](../../seelebridge/session/subagent_sessions.go) 的 `log.At = time.Now()`）；导出里所有行时间相同是导出/展示层问题。
+含义：该节点会话已连续执行第 46 次模型调用。单个 fork 节点内几十轮 LLM 是“单节点长串行”，接近节点预算上限（默认 `plan_node_max_loops`，**2026-10-08 起 fork 子代理只取这个配置值**；此前在 high/max 档下被档位的 48/96 盖掉——档位不再决定工作单元的次数），不是多个并行子代理。阶段日志本身逐条带 `At`（[subagent_sessions.go](../../seelebridge/session/subagent_sessions.go) 的 `log.At = time.Now()`）；导出里所有行时间相同是导出/展示层问题。
 
 ### 为什么“看起来是 main 在执行”
 

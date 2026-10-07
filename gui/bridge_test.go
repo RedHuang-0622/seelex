@@ -28,62 +28,65 @@ type fakeApplication struct {
 	snapshot application.Snapshot
 	// snapshotMu 保护 snapshot：Bridge 中继 goroutine 持续 Snapshot()，
 	// 测试主 goroutine 的切换方法会改写它（-race 下必须互斥）。
-	snapshotMu        sync.RWMutex
-	submitted         string
-	cancelled         string
-	resolvedID        string
-	resolvedOption    string
-	selectedAccount   string
-	selectedEffort    string
-	selectedPlugin    string
-	selectedTier      string
-	loadedHistory     int
-	loadedLatest      bool
-	suggestionsInput  string
-	beganNewSession   bool
-	composerText      string
-	resumedSession    string
-	forkedSession     string
-	scheduledSpec     seelebridge.ScheduledTaskSpec
-	updatedTaskID     string
-	cancelledTaskID   string
-	searchQuery       string
-	searchLimit       int
-	searchResult      seelexctxsearch.Result
-	workItemID        string
-	workItemStatus    string
-	workItemErr       error
-	treeListing       dto.TreeListing
-	treeCount         dto.TreeCount
-	treeRel           string
-	treeDepth         int
-	treeErr           error
-	gitLog            dto.GitLogResult
-	gitLimit          int
-	gitCommit         dto.GitCommitDetail
-	gitCommitHash     string
-	commitContent     dto.FileContent
-	commitRel         string
-	commitLimit       int64
-	changes           dto.WorkspaceChangesResult
-	changesLimit      int
-	fileContent       dto.FileContent
-	fileRel           string
-	fileLimit         int64
-	fileErr           error
-	writeRel          string
-	writeContent      string
-	writeResult       dto.FileWriteResult
-	writeErr          error
-	metaSessionID     string
-	sessionMeta       application.SessionMeta
-	archivedSession   string
-	listSessionsCalls int
-	transcriptSession string
-	transcriptFrom    uint64
-	transcriptTo      uint64
-	catalogSettles    int
-	catalogGate       chan struct{}
+	snapshotMu      sync.RWMutex
+	submitted       string
+	cancelled       string
+	resolvedID      string
+	resolvedOption  string
+	selectedAccount string
+	selectedEffort  string
+	// 两条独立拉条的落点（composer 底部「推理强度」/「循环次数」）。
+	selectedReasoningEffort string
+	selectedLoopLimit       int
+	selectedPlugin          string
+	selectedTier            string
+	loadedHistory           int
+	loadedLatest            bool
+	suggestionsInput        string
+	beganNewSession         bool
+	composerText            string
+	resumedSession          string
+	forkedSession           string
+	scheduledSpec           seelebridge.ScheduledTaskSpec
+	updatedTaskID           string
+	cancelledTaskID         string
+	searchQuery             string
+	searchLimit             int
+	searchResult            seelexctxsearch.Result
+	workItemID              string
+	workItemStatus          string
+	workItemErr             error
+	treeListing             dto.TreeListing
+	treeCount               dto.TreeCount
+	treeRel                 string
+	treeDepth               int
+	treeErr                 error
+	gitLog                  dto.GitLogResult
+	gitLimit                int
+	gitCommit               dto.GitCommitDetail
+	gitCommitHash           string
+	commitContent           dto.FileContent
+	commitRel               string
+	commitLimit             int64
+	changes                 dto.WorkspaceChangesResult
+	changesLimit            int
+	fileContent             dto.FileContent
+	fileRel                 string
+	fileLimit               int64
+	fileErr                 error
+	writeRel                string
+	writeContent            string
+	writeResult             dto.FileWriteResult
+	writeErr                error
+	metaSessionID           string
+	sessionMeta             application.SessionMeta
+	archivedSession         string
+	listSessionsCalls       int
+	transcriptSession       string
+	transcriptFrom          uint64
+	transcriptTo            uint64
+	catalogSettles          int
+	catalogGate             chan struct{}
 }
 
 // recordingCancelApplication 记录 Bridge 转发的 request_id 序列。
@@ -149,6 +152,14 @@ func (fake *fakeApplication) SelectAccount(_ context.Context, name string) error
 }
 func (fake *fakeApplication) SwitchEffort(_ context.Context, level string) error {
 	fake.selectedEffort = level
+	return nil
+}
+func (fake *fakeApplication) SetReasoningEffort(_ context.Context, effort string) error {
+	fake.selectedReasoningEffort = effort
+	return nil
+}
+func (fake *fakeApplication) SetLoopLimit(_ context.Context, limit int) error {
+	fake.selectedLoopLimit = limit
 	return nil
 }
 func (fake *fakeApplication) SwitchPlugin(_ context.Context, name string) error {
@@ -388,6 +399,14 @@ func TestBridgeForwardsOtherCommands(t *testing.T) {
 	if err := bridge.SwitchEffort("high"); err != nil {
 		t.Fatal(err)
 	}
+	// composer 底部的两条独立拉条：Bridge 只做透传，值与类型都不改写
+	// （尤其是 SetLoopLimit 的整数参数——Wails 侧会按 Go 签名解码）。
+	if err := bridge.SetReasoningEffort("max"); err != nil {
+		t.Fatal(err)
+	}
+	if err := bridge.SetLoopLimit(600); err != nil {
+		t.Fatal(err)
+	}
 	if err := bridge.SwitchPlugin("default"); err != nil {
 		t.Fatal(err)
 	}
@@ -407,6 +426,12 @@ func TestBridgeForwardsOtherCommands(t *testing.T) {
 	}
 	if fake.resolvedID != "approval-1" || fake.resolvedOption != "allow" {
 		t.Fatalf("interaction was not forwarded: %#v", fake)
+	}
+	// composer 底部的两条独立拉条：Bridge 只透传，值与类型都不改写（尤其
+	// SetLoopLimit 的整数参数——Wails 侧按 Go 签名解码）。
+	if fake.selectedReasoningEffort != "max" || fake.selectedLoopLimit != 600 {
+		t.Fatalf("两条独立拉条没有被透传：reasoning=%q loop=%d",
+			fake.selectedReasoningEffort, fake.selectedLoopLimit)
 	}
 	if fake.selectedAccount != "main" || fake.selectedEffort != "high" || fake.selectedPlugin != "default" {
 		t.Fatalf("runtime commands were not forwarded: %#v", fake)

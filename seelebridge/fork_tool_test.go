@@ -274,9 +274,6 @@ func TestForkSummaryNodeConcatenatesPredecessors(t *testing.T) {
 	}
 }
 
-// TestForkPlanNodesCarryEffortLoopBudget 验证 fork 子代理节点循环预算复用
-// effort 调节值（dto.PlanPolicy.MaxNodeLoops）：high=48 → 节点 48 轮；未设置
-// （lite/medium）→ 回退通用 PlanNodeMaxLoops。
 func TestForkSummaryLinesCompact(t *testing.T) {
 	cases := []struct {
 		output    string

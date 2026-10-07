@@ -639,6 +639,19 @@ func (r *Runtime) teamCloseHandler(ctx context.Context, _ string) (string, error
 	})
 }
 
+// workerTurnLimit 返回一轮 teammate 作业实际使用的回合上限：载荷自己带了（成员条目的
+// max_turns，见 teamwork.maxTurnsFor）就用它，否则回退**装配层常量** roleTurnMaxLoops。
+//
+// 0 = 没声明（不是"零轮"）；回退值是常量而不是 effort 档位派生的数——工作单元跑多少
+// 轮由单元自己（或装配层）决定，档位切换不许连带改变 teammate 的次数（2026-10-08 口径，
+// 与 fork 的 per-subagent max_loops 对称）。
+func workerTurnLimit(requested int) int {
+	if requested > 0 {
+		return requested
+	}
+	return roleTurnMaxLoops
+}
+
 // RunWorker 实现 teamwork.WorkerRunner：在角色会话里跑一轮有界回合。
 //
 // 执行体只跑、不判定顺序、不回收工作区——那些是 Coordinator 的事（leader 掌控
@@ -652,11 +665,7 @@ func (r *Runtime) RunWorker(ctx context.Context, request teamwork.WorkerRequest,
 		mainSessionID = seeletelemetry.SessionIDFromContext(ctx)
 	}
 	r.bindWorkerProjectRoot(mainSessionID, request.RoleSessionID, request.Worktree)
-	maxLoops := request.MaxTurns
-	if maxLoops <= 0 {
-		maxLoops = roleTurnMaxLoops
-	}
-	spec := r.workerRoleRoundSpec(request, mainSessionID, maxLoops)
+	spec := r.workerRoleRoundSpec(request, mainSessionID, workerTurnLimit(request.MaxTurns))
 	// 运行期落盘（契约 workunit 的会话面）：这一轮跑到哪、现场在哪、属于哪一层。角色会话此前
 	// **只在内存**（重启即失忆），记录是重启回灌唯一的依据——所以它在**开跑之前**写，而且把
 	// 装配层算出来的身份一起写进去（系统提示 = 这一轮装配的那一份，含中断恢复说明）。

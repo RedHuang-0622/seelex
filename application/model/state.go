@@ -329,6 +329,15 @@ type RuntimeState struct {
 	Plugin     string `json:"plugin,omitempty"`
 	Effort     string `json:"effort"`
 	FullAccess bool   `json:"full_access"`
+	// ReasoningEffort 是**当前生效的 wire 思考强度**（provider 词表：
+	// minimal/low/medium/high/max），也是 composer 底部「推理强度」拉条的权威读数。
+	// 它由两条路写：effort 档位切换（档位=同时设置两条拉条的预设）与用户直接拖拉条
+	// （SetReasoningEffort）。空串 = 尚未确定，前端按档位派生值显示。
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	// LoopLimit 是**当前生效的单回合循环上限**（composer 底部「循环次数」拉条）。
+	// 与 ReasoningEffort 同一口径：档位切换会把它覆盖成该档默认（15/48/384/768），
+	// 拖拉条只改它自己。0 = 尚未确定（回退当前档位默认值）。
+	LoopLimit int `json:"loop_limit,omitempty"`
 	// PermissionTier 是本会话生效的权限档位（manual/edit/auto/full；主 agent 在
 	// 本会话的自动度）。FullAccess 保留为派生（tier==full），保前端与诊断兼容。
 	PermissionTier string `json:"permission_tier,omitempty"`
@@ -810,6 +819,15 @@ type Capabilities struct {
 type SessionRuntime struct {
 	Effort     string `json:"effort"`
 	FullAccess bool   `json:"full_access"`
+	// ReasoningEffort 是**当前生效的 wire 思考强度**（provider 词表：
+	// minimal/low/medium/high/max），也是 composer 底部「推理强度」拉条的权威读数。
+	// 它由两条路写：effort 档位切换（档位=同时设置两条拉条的预设）与用户直接拖拉条
+	// （SetReasoningEffort）。空串 = 尚未确定，前端按档位派生值显示。
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	// LoopLimit 是**当前生效的单回合循环上限**（composer 底部「循环次数」拉条）。
+	// 与 ReasoningEffort 同一口径：档位切换会把它覆盖成该档默认（15/48/384/768），
+	// 拖拉条只改它自己。0 = 尚未确定（回退当前档位默认值）。
+	LoopLimit int `json:"loop_limit,omitempty"`
 	// PermissionTier 是本会话生效的权限档位（full_access 的档位化形态；full 档
 	// ⇔ full_access=true）。
 	PermissionTier string         `json:"permission_tier,omitempty"`

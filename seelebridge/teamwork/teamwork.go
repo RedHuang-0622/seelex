@@ -331,6 +331,20 @@ func memberFor(plan sessionstore.TeamworkPlan, role string) (sessionstore.Teamwo
 	return sessionstore.TeamworkMember{}, false
 }
 
+// maxTurnsFor 返回一个 teammate 生效的角色回合上限：成员条目自带的 max_turns
+// （>0）优先，否则回退编排层的进程级默认。
+//
+// 为什么需要它：`c.maxTurns` 是**编排层**的一个值（Options.MaxTurns），此前是这条
+// 上限的唯一来源——于是"这条 teammate 需要多跑几轮"只能整队一起调。成员条目现在
+// 可以各自声明（与 subagent 的 per-subagent max_loops 同构），这里就是那个抉择点。
+// 0 = 没声明（不是"零轮"），回退默认。
+func maxTurnsFor(member sessionstore.TeamworkMember, fallback int) int {
+	if member.MaxTurns > 0 {
+		return member.MaxTurns
+	}
+	return fallback
+}
+
 // memberPermissionGroups 把计划里的权限格子（组 → 位）折成框架的 uint8 位图。
 // 位是非负整数且落在 0..255；越界是**计划写错了**，显式报错而不是截断伪装成
 // "分配成功"。

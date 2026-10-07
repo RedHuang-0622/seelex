@@ -107,6 +107,37 @@
           </div>
           <button id="send-button" class="icon-button action-button primary-button" type="submit" title="发送" aria-label="发送" data-icon="send"></button>
         </div>
+        <!-- 两条**独立**拉条（推理强度 / 循环次数），贴在输入框底部：
+             与上面那条 Effort 档位拉条是「预设 vs 微调」的关系——切一次档位会把
+             这两条一起带进该档（用户在界面上看得见档位改了什么），拖一条只改它
+             自己那一项。滑杆行为只有一份实现（knob-slider.js），三条拉条共用同一
+             套 .effort-control / .syringe-* 规则与命中区几何。 -->
+        <div class="composer-knobs" role="group" aria-label="推理强度与循环次数">
+          <div id="reasoning-effort-control" class="effort-control knob-slider" data-effort="low" role="group" aria-label="推理强度（reasoning effort）">
+            <span class="knob-label">思考</span>
+            <span class="effort-end effort-end--min">Low</span>
+            <div class="effort-syringe">
+              <div class="syringe-barrel">
+                <div class="syringe-piston"></div>
+              </div>
+              <input id="reasoning-effort-range" class="syringe-input" type="range" min="0" max="3" step="1" value="0" aria-label="推理强度" aria-valuetext="Low">
+            </div>
+            <span class="effort-end effort-end--max">Max</span>
+            <span id="reasoning-effort-value" class="effort-value" aria-live="polite">Low</span>
+          </div>
+          <div id="loop-limit-control" class="effort-control knob-slider" data-effort="loop" role="group" aria-label="循环次数（单回合循环上限）">
+            <span class="knob-label">循环</span>
+            <span class="effort-end effort-end--min">1</span>
+            <div class="effort-syringe">
+              <div class="syringe-barrel">
+                <div class="syringe-piston"></div>
+              </div>
+              <input id="loop-limit-range" class="syringe-input" type="range" min="0" max="9998" step="1" value="0" aria-label="循环次数" aria-valuetext="1">
+            </div>
+            <span class="effort-end effort-end--max">9999</span>
+            <span id="loop-limit-value" class="effort-value" aria-live="polite">1</span>
+          </div>
+        </div>
       </form>
       <!-- 下栏终端（VS Code 式）：顶边分隔条可拉动调高，头部可收起/展开，
            标签条支持多开与逐个关闭。终端会话在后端（gui/terminal），这里

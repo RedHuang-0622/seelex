@@ -205,8 +205,10 @@ func (c *Coordinator) Dispatch(ctx context.Context, role, goal string) (jobs.Han
 		Plugins:          member.Plugins,
 		Worktree:         binding.Worktree,
 		Goal:             goal,
-		MaxTurns:         c.maxTurns,
-		OutputPath:       outputPath,
+		// 成员条目自带 max_turns 就用它（"这个 teammate 自己"的回合上限），
+		// 否则回退编排层的进程级默认 c.maxTurns。
+		MaxTurns:   maxTurnsFor(member, c.maxTurns),
+		OutputPath: outputPath,
 	}
 	payload, err := json.Marshal(request)
 	if err != nil {

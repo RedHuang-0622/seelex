@@ -222,4 +222,6 @@ func cloneRuntimeState(runtime RuntimeState) RuntimeState { return model.CloneRu
 
 func maxLoopsFor(level string) int { return prompt.MaxLoops(level) }
 
+func reasoningEffortFor(level string) string { return prompt.ReasoningEffortFor(level) }
+
 func reactBudgetFor(level string) prompt.ReActBudget { return prompt.ReActBudgetFor(level) }

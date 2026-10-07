@@ -82,14 +82,17 @@ func (service *Service) endSkill() error {
 		return nil
 	}
 	// goal 仍在活动栈时保持无限循环；否则只恢复循环上限，不改动 prompt 层顺序。
-	loopLimit := maxLoopsFor(service.effortManager.Current())
+	// 恢复的是**当前生效的循环上限**（用户用拉条改过就是改过的值），不是档位默认值
+	// ——旧实现直接取 maxLoopsFor(档位)，于是"把循环次数拧到 600"会在一次退栈后
+	// 无声回到 384。
+	loopLimit := service.currentLoopLimit()
 	for _, layer := range service.promptStack.Layers() {
 		if layer.Kind == "skill" && layer.Name == "goal" {
 			loopLimit = Limits().InputLoopLimit // limits.input_loop_limit（默认 9999 ≈ 无上限）
 			break
 		}
 	}
-	service.Deps.Engine.SetMaxLoops(loopLimit)
+	service.applyLoopLimit(loopLimit)
 	service.addNotice("已退栈 Skill: " + name)
 	return nil
 }
@@ -116,7 +119,7 @@ func (service *Service) prepareCompletedTaskBoundary() {
 	service.ViewMu.RUnlock()
 	if terminal {
 		service.promptStack.ClearKind("skill")
-		service.Deps.Engine.SetMaxLoops(maxLoopsFor(service.effortManager.Current()))
+		service.applyLoopLimit(service.currentLoopLimit())
 	}
 }
 
@@ -124,7 +127,7 @@ func (service *Service) applySkill(skill SkillInfo) {
 	service.promptStack.Push("skill", skill.Name, skill.Prompt)
 	// goal skill 不受 MaxLoops 限制（设大值模拟无上限）
 	if skill.Name == "goal" {
-		service.Deps.Engine.SetMaxLoops(9999)
+		service.applyLoopLimit(Limits().InputLoopLimit)
 	}
 	service.addNotice("加载 Skill: " + skill.Name)
 }

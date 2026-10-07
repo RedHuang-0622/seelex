@@ -101,3 +101,31 @@ func TestTeamworkPlanDescriptionSpeaksMilestoneVocabulary(t *testing.T) {
 		}
 	}
 }
+
+// TestTeamworkPlanSchemaCarriesPerMemberMaxTurns：成员级执行参数（max_turns）既是
+// **准入面**（schema）也必须是**文档面**（description）——只进 schema 而描述不提，
+// 模型不会用；只写描述而 schema 不收，调用会被拒。
+func TestTeamworkPlanSchemaCarriesPerMemberMaxTurns(t *testing.T) {
+	members, ok := teamworkPlanSchemaProps(t)["members"].(map[string]interface{})
+	if !ok {
+		t.Fatal("team_plan schema 应有 members")
+	}
+	items, ok := members["items"].(map[string]interface{})
+	if !ok {
+		t.Fatal("members 应有 items")
+	}
+	memberProps, ok := items["properties"].(map[string]interface{})
+	if !ok {
+		t.Fatal("members.items 应有 properties")
+	}
+	maxTurns, exists := memberProps["max_turns"]
+	if !exists {
+		t.Fatal("成员条目应支持 max_turns（成员级角色回合上限）")
+	}
+	if _, ok := maxTurns.(map[string]interface{}); !ok {
+		t.Fatalf("max_turns 应是对象形状的 schema，得 %T", maxTurns)
+	}
+	if !strings.Contains(teamworkPlanDescription(), "max_turns") {
+		t.Fatalf("description 必须提到 max_turns（否则模型不会用）：%q", teamworkPlanDescription())
+	}
+}

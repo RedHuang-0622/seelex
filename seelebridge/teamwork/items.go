@@ -400,8 +400,9 @@ func (c *Coordinator) DispatchItem(ctx context.Context, itemID string) (jobs.Han
 		WorkItemID:       item.ID,
 		Milestone:        milestone.ID,
 		Goal:             workItemGoal(*item),
-		MaxTurns:         c.maxTurns,
-		OutputPath:       outputPath,
+		// 同 coordinator：成员条目的 max_turns 优先，否则编排层默认。
+		MaxTurns:   maxTurnsFor(member, c.maxTurns),
+		OutputPath: outputPath,
 	}
 	payload, err := json.Marshal(request)
 	if err != nil {

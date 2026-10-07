@@ -116,6 +116,12 @@ type TeamworkMember struct {
 	// = 不覆盖（工具面继承宿主当前装配 + 技能目录不注入）。权限不在这里——插件只
 	// 收窄能力，永不放宽权限面。
 	Plugins []string `json:"plugins,omitempty"`
+	// MaxTurns 是这个 teammate **自己**的角色回合上限（可选；0 = 装配层默认
+	// roleTurnMaxLoops=12）。与 subagent 的 per-subagent max_loops 同构：它是
+	// "一个工作单元自己的执行参数"在 teammate 层的落点，随载荷走完整条透传链
+	// （成员条目 → WorkerRequest.MaxTurns → roleRoundSpec.MaxLoops →
+	// session.SessionConfig.MaxLoops）：派发时带了、执行时不许丢。
+	MaxTurns int `json:"max_turns,omitempty"`
 }
 
 // TeamworkMilestone 是 leader 声明的里程碑（内容由 leader 撰写，见 §4.5）。

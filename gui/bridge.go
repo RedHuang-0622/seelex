@@ -39,6 +39,10 @@ type Application interface {
 	ResolveInteraction(context.Context, string, string) error
 	SelectAccount(context.Context, string) error
 	SwitchEffort(context.Context, string) error
+	// SetReasoningEffort / SetLoopLimit 是 composer 底部两条**独立**拉条的落点
+	// （思考强度 / 循环次数各自独立；档位切换 = 同时设置两条拉条的预设）。
+	SetReasoningEffort(context.Context, string) error
+	SetLoopLimit(context.Context, int) error
 	SwitchPlugin(context.Context, string) error
 	LoadMoreHistory(int) error
 	// LoadLatestHistory 把可见会话拉回最新一页（历史浏览后的「回到最新」；
@@ -825,6 +829,19 @@ func (bridge *Bridge) SelectAccount(name string) error {
 
 func (bridge *Bridge) SwitchEffort(level string) error {
 	return bridge.app.SwitchEffort(bridge.requestContext(), level)
+}
+
+// SetReasoningEffort 下发"想多深"（composer 底部「推理强度」拉条）。
+//
+// 与 SwitchEffort 的分工：SwitchEffort 是**预设**（同时改思考强度与循环上限），
+// 这两个入口各改一项。两者共用同一条运行守卫（视图会话 running 时拒绝）。
+func (bridge *Bridge) SetReasoningEffort(effort string) error {
+	return bridge.app.SetReasoningEffort(bridge.requestContext(), effort)
+}
+
+// SetLoopLimit 下发"跑多少轮"（composer 底部「循环次数」拉条）。
+func (bridge *Bridge) SetLoopLimit(limit int) error {
+	return bridge.app.SetLoopLimit(bridge.requestContext(), limit)
 }
 
 func (bridge *Bridge) SwitchPlugin(name string) error {

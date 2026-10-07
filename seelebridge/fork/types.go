@@ -17,6 +17,11 @@ const SubagentsContractDescription = `
   (already produced output is kept); retire the row with op=done once it is terminal.
   One kill cancels the WHOLE batch (they share a single plan run).
 - max_concurrency: optional cap on parallel subagents (default: policy limit).
+- Per-subagent params: each entry may carry max_loops (integer >= 1) — that subagent's
+  own ReAct loop ceiling. Omitted/0 = the batch default (limits.plan_node_max_loops,
+  the config-level subagent node loop cap). The effort level takes no part here:
+  switching effort never changes a subagent's loop count. A value above the process
+  loop ceiling (limits.input_loop_limit) is refused at the call, not silently clamped.
 `
 
 // Input 是 fork_subagents 的参数契约。
@@ -38,6 +43,19 @@ type Input struct {
 type SubagentSpec struct {
 	ID   string `json:"id"`
 	Goal string `json:"goal"`
+	// MaxLoops 是**这条子代理自己**的循环上限（可选；0 或缺失 = 本批默认，
+	// limits.plan_node_max_loops —— 配置层的"子代理节点循环上限"，默认 15）。
+	//
+	// 它是"一个工作单元自己的执行参数"在 subagent 层的落点：每条子代理可以不一样，
+	// 而不是全批一个常量（一条只读的审查子代理不需要几十轮，一条长链条迁移需要）。
+	// 落点是节点预算 node.budget.max_loops —— 与 plan_load 节点同一套语义。
+	//
+	// **effort 档位不参与这条链**（2026-10-08 口径）：档位决定的是主代理自己的
+	// 循环次数与思考强度，一条子代理跑多少轮只由"自己声明 → 否则配置默认"两点
+	// 决定，切档位不会连带改变它。唯一的上限是进程级循环天花板
+	// limits.input_loop_limit（与循环次数拉条同一份哨兵），在工具入口就拒，
+	// 不留给执行面。
+	MaxLoops int `json:"max_loops,omitempty"`
 }
 
 // SubagentJobSpec 是一条子代理作业的登记输入。

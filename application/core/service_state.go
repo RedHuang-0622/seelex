@@ -33,6 +33,19 @@ type serviceState struct {
 	// 首次提交（materializeDraftSession）时消费并清空。
 	draft *draftSlot
 
+	// knobLoopLimit / knobReasoningEffort 是 composer 底部两条**独立**拉条的进程级
+	// 权威读数（推理强度 / 循环次数），由 knobMu 单独保护。
+	//
+	// 为什么不用 Core.ViewMu：runtime 投影每次整份重建 Snapshot.Runtime，读数必须
+	// 反哺进投影；而投影的**收集**发生在锁外、**应用**在 ViewMu 内，用同一把锁会有
+	// "收集时再取一次"的重入风险。加锁次序固定为 ViewMu → knobMu（只单向）。
+	//
+	// 为什么要单独存一份而不是"只写进 Snapshot.Runtime"：见上面那句——投影整份重建
+	// 时只写快照的读数会被抹掉。进程级（不分会话）的理由见 view_state.Deps 注释。
+	knobMu              sync.RWMutex
+	knobLoopLimit       int
+	knobReasoningEffort string
+
 	// chatSeq 是聊天请求 ID 的单调序号（Core.ViewMu 保护）。requestID 必须
 	// 跨会话唯一：Windows 上 time.Now().UnixNano() 分辨率约 0.5ms，并行
 	// 会话在同一 tick 启动会碰撞，导致 request→session 绑定与

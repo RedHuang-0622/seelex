@@ -13,6 +13,10 @@ func teamworkPlanDescription() string {
 		"one Session + one git worktree). There are no stages: the stage-era shape is retired, and every order fact " +
 		"lives in milestones[].depends_on plus work_items[].depends_on. " +
 		"One role per teammate; built-in roles (main/user) are refused; the member ceiling is enforced. " +
+		"A member may carry per-member execution params: max_turns caps that teammate's own role rounds " +
+		"(omitted = the assembly default, 12). It rides the whole dispatch chain (member entry -> " +
+		"WorkerRequest.MaxTurns -> role round session config); it is per-teammate, so tightening one does " +
+		"not touch the others. " +
 		"Anchors: docs/arch/teamwork-leader-worker-architecture.md §4.6."
 }
 
@@ -34,6 +38,10 @@ func teamworkPlanSchema() map[string]interface{} {
 						"plugins": map[string]interface{}{
 							"type": "array", "items": map[string]interface{}{"type": "string"},
 							"description": "按会话插件装配（能力轴）：这个 teammate 用哪些插件，上限 limits.plugins.per_teammate（缺省 3），超限 / 未知名 / 重复**显式拒绝**（不静默忽略、不静默截断、不静默去重）；空/缺失 = 不覆盖（工具面继承宿主当前装配 + 技能目录不注入）。**只收窄权限面、不相对宿主装配**：装配集合替换宿主那一份收窄，可以比它更宽（声明一个 include/exclude 皆空的插件就等于拿到全工具面），也可以比它更窄；权限面与它相交后只会更小。对已开着的角色会话自下一轮生效",
+						},
+						"max_turns": map[string]interface{}{
+							"type": "integer", "minimum": 1,
+							"description": "这个 teammate 自己的角色回合上限（可选）。缺省 = 装配层默认（12）。它是「一个工作单元自己的执行参数」在 teammate 层的落点：随载荷走完整条透传链，派发时带了、执行时不许丢；给紧了不会影响别的成员。",
 						},
 						"tools_policy": map[string]interface{}{"type": "string", "description": "权责档 readonly|readwrite（缺省继承宿主默认）"},
 						"permission_groups": map[string]interface{}{

@@ -66,6 +66,11 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	}
 	service := &Service{serviceState: svcState}
 	service.effortManager = NewEffortManager(promptStack, service.Deps.Engine)
+	// 两条独立拉条的进程级读数在装配期播种成默认档（high）派生值：否则首个快照里
+	// reasoning_effort / loop_limit 是空/0，前端两条拉条会显示成 Low / 1，与引擎
+	// 实际生效的 high（384）不一致。
+	service.knobReasoningEffort = reasoningEffortFor(service.effortManager.Current())
+	service.knobLoopLimit = maxLoopsFor(service.effortManager.Current())
 	// 进程级 fullAccess 默认在装配期捕获一次（配置/初始引擎门值），会话
 	// 未选择时回退该默认，而不是读取其它会话遗留的引擎门状态（G4）。
 	if service.Deps.Runtime != nil {
@@ -145,11 +150,13 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		DisplayUserInput:           displayUserInput,
 	})
 	service.components.view = view_state.NewCoordinator(view_state.Deps{
-		Core:                  kernel,
-		Units:                 sessionDomain,
-		CurrentEffort:         service.effortForSession,
-		CurrentFullAccess:     service.fullAccessForSession,
-		CurrentPermissionTier: service.permissionTierForSession,
+		Core:                   kernel,
+		Units:                  sessionDomain,
+		CurrentEffort:          service.effortForSession,
+		CurrentReasoningEffort: service.knobReasonings,
+		CurrentLoopLimit:       service.knobLimit,
+		CurrentFullAccess:      service.fullAccessForSession,
+		CurrentPermissionTier:  service.permissionTierForSession,
 		CurrentSessionID: func() string {
 			return service.sessions.ActiveID()
 		},
@@ -234,7 +241,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	service.Core.Snapshot = Snapshot{
 		ProtocolVersion:    ProtocolVersion,
 		Session:            initialSession,
-		Runtime:            RuntimeState{Model: service.Deps.Runtime.Model(), Effort: service.effortManager.Current()},
+		Runtime:            RuntimeState{Model: service.Deps.Runtime.Model(), Effort: service.effortManager.Current(), ReasoningEffort: reasoningEffortFor(service.effortManager.Current()), LoopLimit: maxLoopsFor(service.effortManager.Current())},
 		Capabilities:       Capabilities{SessionResume: true},
 		ConversationWindow: Limits().HistoryWindow,
 	}

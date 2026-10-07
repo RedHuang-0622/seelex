@@ -40,6 +40,16 @@ type Deps struct {
 	// CurrentPermissionTier 返回指定会话生效的权限档位（G4：会话选择优先，
 	// 未选择回退进程默认档位）。它是 CurrentFullAccess 的档位化形态。
 	CurrentPermissionTier func(sessionID string) string
+	// CurrentReasoningEffort / CurrentLoopLimit 返回 composer 底部两条独立拉条的
+	// **进程级**读数（推理强度 / 循环次数）。刻意**不分会话**：引擎的循环上限只有
+	// 一份、账号池的思考强度也只有一个（一账号一个 ChatClient），按会话返回会是
+	// 假读数——会话化那一步（代码注释里的"刀 4"）没做之前，"每会话一份"只能是
+	// 界面上写得出来、后端做不到。
+	// 这两个回调存在的原因：runtime 投影每次整份重建 Runtime，读数必须由
+	// application/core 反哺进投影，否则投影一跑（每个回合尾、每次工具边界）拉条
+	// 就被清零。
+	CurrentReasoningEffort func() string
+	CurrentLoopLimit       func() int
 	// CurrentSessionID 返回当前视图指针会话（线程安全；投影收集在锁外
 	// 读取视图归属——视图指针在 session.Domain actor，不经快照镜像）。
 	CurrentSessionID func() string
@@ -74,6 +84,8 @@ type Coordinator struct {
 	currentEffort          func(string) string
 	currentFullAccess      func(string) bool
 	currentPermissionTier  func(string) string
+	currentReasoning       func() string
+	currentLoopLimit       func() int
 	currentSessionID       func() string
 	refreshWorkTableLocked func([]dto.TaskRecord, []dto.AsyncRunRecord)
 	tasks                  interface {
@@ -104,6 +116,8 @@ func NewCoordinator(deps Deps) *Coordinator {
 		currentEffort:          deps.CurrentEffort,
 		currentFullAccess:      deps.CurrentFullAccess,
 		currentPermissionTier:  deps.CurrentPermissionTier,
+		currentReasoning:       deps.CurrentReasoningEffort,
+		currentLoopLimit:       deps.CurrentLoopLimit,
 		currentSessionID:       deps.CurrentSessionID,
 		refreshWorkTableLocked: deps.RefreshWorkTableLocked,
 		tasks:                  deps.Tasks,
@@ -165,6 +179,15 @@ func (c *Coordinator) CollectRuntimeProjectionFor(ctx context.Context, sessionID
 	if c.currentEffort != nil {
 		effort = c.currentEffort(sessionID)
 	}
+	// 两条独立拉条的读数：进程级原件（见 Deps 注释），与 effort 的会话槽分开取。
+	reasoningEffort := ""
+	if c.currentReasoning != nil {
+		reasoningEffort = c.currentReasoning()
+	}
+	loopLimit := 0
+	if c.currentLoopLimit != nil {
+		loopLimit = c.currentLoopLimit()
+	}
 	projection := RuntimeStateProjection{
 		SessionID: sessionID,
 		Runtime: model.RuntimeState{
@@ -172,6 +195,8 @@ func (c *Coordinator) CollectRuntimeProjectionFor(ctx context.Context, sessionID
 			Provider:          c.Deps.Runtime.Provider(),
 			Plugin:            c.Deps.Runtime.ActivePlugin(),
 			Effort:            effort,
+			ReasoningEffort:   reasoningEffort,
+			LoopLimit:         loopLimit,
 			FullAccess:        c.fullAccessFor(sessionID),
 			PermissionTier:    c.permissionTierFor(sessionID),
 			PermissionTiers:   dto.PermissionTiers(),
