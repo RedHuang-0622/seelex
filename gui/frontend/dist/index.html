@@ -94,24 +94,14 @@
           </div>
           <span id="composer-status">READY</span>
           <button id="stop-button" class="icon-button action-button danger-button hidden" type="button" title="停止" aria-label="停止" data-icon="stop"></button>
-          <div id="effort-control" class="effort-control" data-effort="lite" role="group" aria-label="Effort 级别">
-            <span class="effort-end effort-end--min">Lite</span>
-            <div class="effort-syringe">
-              <div class="syringe-barrel">
-                <div id="syringe-piston" class="syringe-piston"></div>
-              </div>
-              <input id="effort-range" class="syringe-input" type="range" min="0" max="3" step="1" value="0" aria-label="Effort 级别" aria-valuetext="Lite">
-            </div>
-            <span class="effort-end effort-end--max">Max</span>
-            <span id="effort-value" class="effort-value" aria-live="polite">Lite</span>
-          </div>
           <button id="send-button" class="icon-button action-button primary-button" type="submit" title="发送" aria-label="发送" data-icon="send"></button>
         </div>
-        <!-- 两条**独立**拉条（推理强度 / 循环次数），贴在输入框底部：
-             与上面那条 Effort 档位拉条是「预设 vs 微调」的关系——切一次档位会把
-             这两条一起带进该档（用户在界面上看得见档位改了什么），拖一条只改它
-             自己那一项。滑杆行为只有一份实现（knob-slider.js），三条拉条共用同一
-             套 .effort-control / .syringe-* 规则与命中区几何。 -->
+        <!-- composer 的运行参数只有**两条独立拉条**（推理强度 / 循环次数），贴在输入框
+             底部：各自只改自己那一项，互不影响。原来的 Effort 档位拉条（一次同时设置
+             这两条读数的"预设"）已从界面下线——档位（prompt 层 / plan 策略 / ReAct
+             预算）现在只经 `/effort` 命令切换，不再占用 composer 的一个滑杆位。
+             滑杆行为只有一份实现（knob-slider.js），两条拉条共用同一套
+             .effort-control / .syringe-* 规则与命中区几何。 -->
         <div class="composer-knobs" role="group" aria-label="推理强度与循环次数">
           <div id="reasoning-effort-control" class="effort-control knob-slider" data-effort="low" role="group" aria-label="推理强度（reasoning effort）">
             <span class="knob-label">思考</span>

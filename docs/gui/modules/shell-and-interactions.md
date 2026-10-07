@@ -11,7 +11,7 @@ Shell 模块组装页面布局、调用 Bridge、路由客户端状态到各视�
 
 - `index.html`：语义结构和固定挂载点；
 - `app.js`：Bridge 调用、组件组装、事件绑定和非会话区域渲染；
-- `effort-control.js`：常驻 Effort 滑杆的独立交互 Controller；
+- `knob-slider.js` / `composer-knobs.js`：composer 两条运行参数拉条（推理强度 / 循环次数）的交互 Controller 与停位表；
 - `styles.css`：三栏布局、弹层、状态、响应式和动效。
 
 ## 2. 页面信息架构
@@ -29,7 +29,7 @@ Shell 模块组装页面布局、调用 Bridge、路由客户端状态到各视�
 | Interaction modal | 审批/选择问题与选项 | Interaction |
 
 Plugin/Skill 不常驻右栏：它们在输入框同生态位的 runtime button 中打开；右栏保留项目事实。账号是进程级事实，落在右栏「状态」子页的状态一栏之下（模块文档见
-[右栏](right-sidebar.md)）；左栏只承载会话树。Effort 是高频运行参数，单独常驻 topbar，详细设计见 [Effort 常驻控件](effort-control.md)。
+[右栏](right-sidebar.md)）；左栏只承载会话树。运行参数（推理强度 / 循环次数）是高频设置，作为两条独立拉条常驻 composer 底部，详细设计见 [composer 运行参数拉条](composer-knobs.md)。
 
 ### 2.1 会话条目（两段式）
 
@@ -159,15 +159,15 @@ Command modal 和 inline suggestions 都调用 Bridge.Suggestions，并共享 `r
 不可见时只置脏位、等下次展开。此前 GUI 靠 composer 文本以 `@` 开头来猜，漏掉 goal 自动装配、
 面板收起时的召唤等来路；TUI 只能靠用户再按一次 Alt+T。
 
-## 7. Runtime Effort 与审批交互
+## 7. Runtime 运行参数与审批交互
 
 实现位置：
 
 - Runtime/account/plugin/plan：`gui/frontend/dist/app.js:166-235`；
-- Effort：`gui/frontend/dist/effort-control.js:22-76`；
+- 两条运行参数拉条：`gui/frontend/dist/knob-slider.js` + `composer-knobs.js`；
 - Interaction：`gui/frontend/dist/app.js:237-254`。
 
-Runtime controls 调用 Bridge 后显式 refresh，确保非增量 Core 动作也得到完整状态。Effort 不在 modal 内，拖动只预览、松开才提交且失败回滚。审批选项提交 interaction ID + option ID；UI 不自行判断审批结果。
+Runtime controls 调用 Bridge 后显式 refresh，确保非增量 Core 动作也得到完整状态。两条拉条不在 modal 内，拖动只预览、松开才提交且失败回滚；档位只经 `/effort` 命令切换，界面上没有能同时改两项的滑杆。审批选项提交 interaction ID + option ID；UI 不自行判断审批结果。
 
 ## 8. 启动与重试
 

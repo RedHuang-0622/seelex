@@ -2,6 +2,26 @@
 
 本文件记录会改变模块边界、跨模块契约、兼容性、持久化或运行流程的重要设计。纯文字修正不记录。
 
+## 2026-10-08
+
+### Changed
+
+- **composer 的运行参数只剩两条各自独立的拉条**。一次同时改三项（prompt 层 / plan 策略 /
+  ReAct 预算）的 Effort 档位滑杆从界面下线：档位只经 `/effort` 命令切换
+  （`Bridge.SwitchEffort` / `Service.SwitchEffort` 与两条读数入口一个都不删）。模块边界
+  随之改名：`modules/effort-control.md` → `modules/composer-knobs.md`，
+  `module_dotting.json` 的模块 id 与依赖边同步（`effort-control` → `composer-knobs`），
+  ADR-GUI-011 由 ADR-GUI-023 取代。
+
+### Fixed
+
+- **两条独立拉条此前没有可见的滑轨**。`.composer-knobs .knob-slider` 只声明了 3 列，而
+  拉条根元素有 5 个直接子元素（标签 / 起点 / 滑轨 / 终点 / 数值）：多出来的两个被自动排到
+  第二行，滑轨落进 `auto` 列后宽度塌成 0 —— 界面上只剩两行小字，既看不到滑轨也没有可拖
+  的命中区（用户报告的"有且只有一个 effort 滑杆 / 根本没有一条能拖的滑杆"）。列数改为与
+  直接子元素一一对应（宽 5 / 窄 3），由
+  `bridge_test.go::TestEmbeddedComposerKnobGridMatchesChildren` 钉住。
+
 ## 2026-10-07
 
 ### Added

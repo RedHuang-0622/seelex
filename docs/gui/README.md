@@ -52,7 +52,7 @@ docs/gui/
 | Client state | 已实现 | [`client-state.md`](modules/client-state.md) |
 | Conversation rendering | 已实现 | [`conversation-rendering.md`](modules/conversation-rendering.md) |
 | Trajectory view | 已实现 | [`trajectory-view.md`](modules/trajectory-view.md) |
-| Effort control | 已实现 | [`effort-control.md`](modules/effort-control.md) |
+| Composer run-parameter knobs | 已实现 | [`composer-knobs.md`](modules/composer-knobs.md) |
 | Shell/interactions | 已实现 | [`shell-and-interactions.md`](modules/shell-and-interactions.md) |
 | Work table | 已实现 | [`work-table.md`](modules/work-table.md) |
 | Right sidebar | 已实现 | [`right-sidebar.md`](modules/right-sidebar.md) |

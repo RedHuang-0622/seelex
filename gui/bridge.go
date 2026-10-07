@@ -833,8 +833,9 @@ func (bridge *Bridge) SwitchEffort(level string) error {
 
 // SetReasoningEffort 下发"想多深"（composer 底部「推理强度」拉条）。
 //
-// 与 SwitchEffort 的分工：SwitchEffort 是**预设**（同时改思考强度与循环上限），
-// 这两个入口各改一项。两者共用同一条运行守卫（视图会话 running 时拒绝）。
+// 与 SwitchEffort 的分工：SwitchEffort 一次改三项（prompt 层 / plan 策略 / ReAct
+// 预算，界面上已没有它的滑杆，只经 `/effort` 命令），这两个入口各改一项。两者共用
+// 同一条运行守卫（视图会话 running 时拒绝）。
 func (bridge *Bridge) SetReasoningEffort(effort string) error {
 	return bridge.app.SetReasoningEffort(bridge.requestContext(), effort)
 }

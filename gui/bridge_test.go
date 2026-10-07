@@ -1337,7 +1337,7 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	for _, name := range []string{
 		"frontend/dist/index.html", "frontend/dist/app.js", "frontend/dist/components.js",
 		"frontend/dist/protocol.js", "frontend/dist/client-state.js", "frontend/dist/conversation-view.js",
-		"frontend/dist/chat-view.js", "frontend/dist/runtime-events.js", "frontend/dist/effort-control.js", "frontend/dist/plan-dsl.js", "frontend/dist/tree-fork.js", "frontend/dist/styles.css",
+		"frontend/dist/chat-view.js", "frontend/dist/runtime-events.js", "frontend/dist/composer-knobs.js", "frontend/dist/knob-slider.js", "frontend/dist/plan-dsl.js", "frontend/dist/tree-fork.js", "frontend/dist/styles.css",
 	} {
 		if _, err := embeddedFrontend.ReadFile(name); err != nil {
 			t.Fatalf("embedded frontend %q: %v", name, err)
@@ -1505,8 +1505,9 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	leftEnd := strings.Index(html[leftStart:], `</aside>`)
 	rightEnd := strings.Index(html[rightStart:], `</aside>`)
 	runtimeStart := strings.Index(html, `id="runtime-modal"`)
-	effortStart := strings.Index(html, `id="effort-control"`)
-	if leftEnd < 0 || rightEnd < 0 || runtimeStart < 0 || effortStart < 0 {
+	reasoningStart := strings.Index(html, `id="reasoning-effort-control"`)
+	loopStart := strings.Index(html, `id="loop-limit-control"`)
+	if leftEnd < 0 || rightEnd < 0 || runtimeStart < 0 || reasoningStart < 0 || loopStart < 0 {
 		t.Fatal("embedded frontend layout regions are incomplete")
 	}
 	leftPanel := html[leftStart : leftStart+leftEnd]
@@ -1515,8 +1516,15 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	if strings.Contains(leftPanel, `id="plugin-list"`) || strings.Contains(rightPanel, `id="plugin-list"`) || !strings.Contains(runtimeModal, `id="plugin-list"`) {
 		t.Fatal("plugins must be rendered in the runtime modal")
 	}
-	if effortStart > runtimeStart || strings.Contains(runtimeModal, `id="effort-range"`) || !strings.Contains(string(script), "createEffortControl") {
-		t.Fatal("Effort must be a persistent topbar control outside the runtime modal")
+	// composer 的运行参数只有两条**独立**拉条（推理强度 / 循环次数），常驻输入框底部、
+	// 独立于 Runtime modal；一次同时改两项的 Effort 档位拉条已下线（档位只经 `/effort`
+	// 命令切换），所以这里同时钉"两条都在 modal 之前"与"档位控件不许再回来"。
+	if reasoningStart > runtimeStart || loopStart > runtimeStart ||
+		strings.Contains(runtimeModal, `id="reasoning-effort-range"`) ||
+		strings.Contains(runtimeModal, `id="loop-limit-range"`) ||
+		strings.Contains(html, `id="effort-control"`) ||
+		!strings.Contains(string(script), "createComposerKnobs") {
+		t.Fatal("composer 的运行参数必须只有两条常驻 topbar/composer 拉条，且档位滑杆不许再回到界面上")
 	}
 	if !strings.Contains(rightPanel, `id="project-status"`) || !strings.Contains(rightPanel, `id="worktree-view"`) || !strings.Contains(rightPanel, `id="file-count"`) {
 		t.Fatal("right sidebar must render project status and the work tree panel")
@@ -2023,17 +2031,19 @@ func TestEmbeddedScheduledToggleHasOwnSkin(t *testing.T) {
 	}
 }
 
-// TestEmbeddedEffortHitAreaOverlayOnRail：Effort 的隐形 range 必须保持"铺满滑轨的
-// 绝对定位覆盖层"，否则拖动位置与活塞填充错位。
+// TestEmbeddedKnobSliderHitAreaOverlayOnRail：composer 两条运行参数拉条的隐形 range
+// 必须保持"铺满滑轨的绝对定位覆盖层"，否则拖动位置与活塞填充错位。
 //
-// 现场（用户报告）："拖动 effort 条的位置和 effort 条前端显示的位置有差，拖动的位置
-// 在显示的位置偏右"。根因不在控件自己——`.syringe-input` 写着 position: absolute;
-// inset: 0——而在 vendor/pico.min.css：它把 [role=group] 当"相邻输入组"，对组里的
-// input 写 `position:relative; flex:1 1 auto`（0-2-1）与 `margin-left:-1px`（0-3-1）。
-// `.syringe-input` 只有 0-1-0，压不过，于是隐形 range 不是覆盖层，而是作为 flex 项
-// 排在 .syringe-barrel 右边、只占滑轨一半宽：可见滑轨整条点不到，唯一能拖的感应带
-// 落在滑轨**右侧**（拖动的位置因此总是比填充偏右）。
+// 现场（用户报告，当时那条 Effort 档位拉条）："拖动 effort 条的位置和 effort 条前端
+// 显示的位置有差，拖动的位置在显示的位置偏右"。根因不在控件自己——`.syringe-input`
+// 写着 position: absolute; inset: 0——而在 vendor/pico.min.css：它把 [role=group]
+// 当"相邻输入组"，对组里的 input 写 `position:relative; flex:1 1 auto`（0-2-1）与
+// `margin-left:-1px`（0-3-1）。`.syringe-input` 只有 0-1-0，压不过，于是隐形 range
+// 不是覆盖层，而是作为 flex 项排在 .syringe-barrel 右边、只占滑轨一半宽：可见滑轨
+// 整条点不到，唯一能拖的感应带落在滑轨**右侧**（拖动的位置因此总是比填充偏右）。
 // 修法：12.9「Pico 的 role 组件归位」里用 0-4-1 的选择器把它钉回覆盖层。
+// 档位拉条下线后（2026-10-08），这套几何由剩下的两条独立拉条继续承载，选择器一个字
+// 都不用改（它们本来就用同一个 `.effort-control / .syringe-*` 形态）。
 //
 // 实测（headless Chrome/Edge 154，1440x900，连续拖动扫过整条滑轨）：
 //
@@ -2042,7 +2052,7 @@ func TestEmbeddedScheduledToggleHasOwnSkin(t *testing.T) {
 //	修后：输入盒 == 滑轨盒（同起同止，宽 50.83），档位边界 17.1%/50.6%/86%
 //	      （理想 16.7%/50%/83.3%），活塞右缘与拖动点偏差全轨最大 10.8px
 //	      ——那是四档离散吸附的固有量（相邻两档相距 17px），不是错位。
-func TestEmbeddedEffortHitAreaOverlayOnRail(t *testing.T) {
+func TestEmbeddedKnobSliderHitAreaOverlayOnRail(t *testing.T) {
 	t.Parallel()
 	styles, err := embeddedFrontend.ReadFile("frontend/dist/styles.css")
 	if err != nil {
@@ -2086,13 +2096,208 @@ func TestEmbeddedEffortHitAreaOverlayOnRail(t *testing.T) {
 	}
 
 	// 归位选择器里的 `input.syringe-input` 必须与标记对得上，否则这条规则静默不生效。
+	// 两条独立拉条（推理强度 / 循环次数）都得保持 <input id=... class="syringe-input" type="range">。
 	page, err := embeddedFrontend.ReadFile("frontend/dist/index.html")
 	if err != nil {
 		t.Fatalf("embedded frontend index.html: %v", err)
 	}
-	if !strings.Contains(string(page), `id="effort-range" class="syringe-input" type="range"`) {
-		t.Fatal("滑轨上的隐形 range 必须仍是 <input id=\"effort-range\" class=\"syringe-input\" type=\"range\">：归位规则按元素+类名匹配它")
+	for _, want := range []string{
+		`id="reasoning-effort-range" class="syringe-input" type="range"`,
+		`id="loop-limit-range" class="syringe-input" type="range"`,
+	} {
+		if !strings.Contains(string(page), want) {
+			t.Fatalf("滑轨上的隐形 range 必须仍是 <input %s>：归位规则按元素+类名匹配它", want)
+		}
 	}
+}
+
+// TestEmbeddedComposerKnobGridMatchesChildren：composer 拉条的网格**列数**必须与拉条
+// 根元素的**直接子元素个数**一一对应。
+//
+// 现场（2026-10-08 用户报告）："前端有且只有一个同时控制思考强度和循环次数的 effort
+// 滑杆"、"根本没有一条能拖的滑杆"。根因就在这条契约上：`.composer-knobs .knob-slider`
+// 只声明了 3 列（auto minmax(0,1fr) auto），而拉条根元素有 5 个直接子元素
+// （思考 / Low / 滑轨 / Max / 数值）。多出来的两个被自动排到第二行，滑轨落进 `auto`
+// 列后宽度塌成 0 —— 界面上只剩两行小字：看不见滑轨，也没有可拖的命中区（隐形 range
+// 是那个 0 宽盒子的覆盖层，跟着一起没了）。用户当时能看见的那一条，其实是另一个控件。
+// 窄宽度（≤780px）下两端标签 display:none，子元素回到 3 个，列数也必须跟着收回来。
+func TestEmbeddedComposerKnobGridMatchesChildren(t *testing.T) {
+	t.Parallel()
+	page, err := embeddedFrontend.ReadFile("frontend/dist/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	styles, err := embeddedFrontend.ReadFile("frontend/dist/styles.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(styles)
+
+	rule := cssRuleBody(source, ".composer-knobs .knob-slider")
+	columns := cssTrackCount(cssDeclaration(rule, "grid-template-columns"))
+	if columns == 0 {
+		t.Fatal("`.composer-knobs .knob-slider` 必须显式声明 grid-template-columns（缺省时每列 auto，滑轨会塌成 0 宽）")
+	}
+
+	for _, id := range []string{"reasoning-effort-control", "loop-limit-control"} {
+		inner, ok := elementInner(string(page), id)
+		if !ok {
+			t.Fatalf("index.html 里找不到拉条根元素 id=%q", id)
+		}
+		if got := directChildCount(inner); got != columns {
+			t.Fatalf("拉条 id=%q 有 %d 个直接子元素，而 `.composer-knobs .knob-slider` 声明了 %d 列：多出来的子元素会被折到第二行，滑轨掉进 auto 列后宽度塌成 0（既看不到也拖不到）",
+				id, got, columns)
+		}
+	}
+
+	// 窄宽度下两端标签让位，子元素只剩 3 个（标签 / 滑轨 / 数值），列数必须一起收。
+	at := strings.Index(source, "@media (max-width: 780px) {")
+	if at < 0 {
+		t.Fatal("缺少窄宽度断点：标签隐藏后列数要一起从 5 收回 3")
+	}
+	narrowSource := source[at:]
+	if end := strings.Index(narrowSource, "\n}"); end >= 0 {
+		narrowSource = narrowSource[:end]
+	}
+	if !strings.Contains(cssRuleBody(narrowSource, ".composer-knobs .effort-end"), "display: none;") {
+		t.Fatal("窄宽度下两端标签必须让位给滑轨（`.composer-knobs .effort-end { display: none; }`）")
+	}
+	if got := cssTrackCount(cssDeclaration(cssRuleBody(narrowSource, ".composer-knobs .knob-slider"), "grid-template-columns")); got != columns-2 {
+		t.Fatalf("窄宽度断点里拉条列数 = %d，应当是两个标签隐藏后的 %d 列", got, columns-2)
+	}
+}
+
+// cssRuleBody 取出 `selector { ... }` 里花括号内的声明块（第一个选择器匹配处）。
+func cssRuleBody(source, selector string) string {
+	at := strings.Index(source, selector+" {")
+	if at < 0 {
+		return ""
+	}
+	body := source[at+len(selector)+2:]
+	if end := strings.Index(body, "}"); end >= 0 {
+		return body[:end]
+	}
+	return body
+}
+
+// cssDeclaration 取出声明块里某条属性的值。
+func cssDeclaration(body, property string) string {
+	at := strings.Index(body, property+":")
+	if at < 0 {
+		return ""
+	}
+	value := body[at+len(property)+1:]
+	if end := strings.Index(value, ";"); end >= 0 {
+		value = value[:end]
+	}
+	return strings.TrimSpace(value)
+}
+
+// cssTrackCount 数出 grid-template-columns 的轨道条数：`minmax(0, 1fr)` 这类函数里
+// 的空格不算分隔，所以按括号深度切分。
+func cssTrackCount(value string) int {
+	depth, count := 0, 0
+	inToken := false
+	for _, r := range value {
+		switch {
+		case r == '(':
+			depth++
+		case r == ')':
+			depth--
+		case (r == ' ' || r == '\t') && depth == 0:
+			inToken = false
+			continue
+		}
+		if !inToken {
+			count++
+			inToken = true
+		}
+	}
+	return count
+}
+
+// voidTags 是不带闭合标签的元素：数直接子元素时它们不占层级。
+var voidTags = map[string]bool{
+	"input": true, "img": true, "br": true, "hr": true, "meta": true, "link": true, "source": true, "wbr": true,
+}
+
+// elementInner 取出 id 对应元素的内部 HTML（不含自身的开闭标签）。
+func elementInner(html, id string) (string, bool) {
+	at := strings.Index(html, "id=\""+id+"\"")
+	if at < 0 {
+		return "", false
+	}
+	open := strings.IndexByte(html[at:], '>')
+	if open < 0 {
+		return "", false
+	}
+	start := at + open + 1
+	depth := 1
+	for i := start; i < len(html); {
+		lt := strings.IndexByte(html[i:], '<')
+		if lt < 0 {
+			break
+		}
+		lt += i
+		gt := strings.IndexByte(html[lt:], '>')
+		if gt < 0 {
+			break
+		}
+		gt += lt
+		tag := strings.TrimSpace(html[lt+1 : gt])
+		i = gt + 1
+		name := tag
+		if idx := strings.IndexAny(name, " \t\n\r"); idx >= 0 {
+			name = name[:idx]
+		}
+		if strings.HasPrefix(tag, "/") {
+			depth--
+			if depth == 0 {
+				return html[start:lt], true
+			}
+			continue
+		}
+		if strings.HasSuffix(tag, "/") || voidTags[name] {
+			continue
+		}
+		depth++
+	}
+	return "", false
+}
+
+// directChildCount 数出一段 HTML 里**直接子元素**的个数（不计文本与自闭合标签）。
+func directChildCount(inner string) int {
+	depth, count := 0, 0
+	for i := 0; i < len(inner); {
+		lt := strings.IndexByte(inner[i:], '<')
+		if lt < 0 {
+			break
+		}
+		lt += i
+		gt := strings.IndexByte(inner[lt:], '>')
+		if gt < 0 {
+			break
+		}
+		gt += lt
+		tag := strings.TrimSpace(inner[lt+1 : gt])
+		i = gt + 1
+		name := tag
+		if idx := strings.IndexAny(name, " \t\n\r"); idx >= 0 {
+			name = name[:idx]
+		}
+		switch {
+		case strings.HasPrefix(tag, "/"):
+			depth--
+		case strings.HasSuffix(tag, "/") || voidTags[name]:
+			// 自闭合 / 空元素：不占层级
+		default:
+			if depth == 0 {
+				count++
+			}
+			depth++
+		}
+	}
+	return count
 }
 
 // TestEmbeddedLeftPanelScrollerChain：左栏保留两条纵向滚轮——会话列表与每个展开的

@@ -7,7 +7,6 @@ import { createConversationView } from "./conversation-view.js";
 import { createEmbedActionGate, resolveEmbedAction } from "./embed-bridge.js";
 import { createTrajectoryView } from "./trajectory-view.js";
 import { buildTrajectory } from "./trajectory.js";
-import { createEffortControl } from "./effort-control.js";
 import { createComposerKnobs, REASONING_EFFORT_LEVELS, REASONING_EFFORT_LABELS } from "./composer-knobs.js";
 import { permissionTierCatalog, permissionTierChip, permissionTierChipForRuntime, permissionTierMenuItems, permissionTierOptions, nextTierIndex } from "./permission-tier.js";
 import {
@@ -90,7 +89,7 @@ const elements = Object.fromEntries([
   "session-list", "session-count", "new-session",
   "plugin-list", "plugin-count", "account-list", "account-count", "conversation", "conversation-tabs", "trajectory",
   "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",
-  "runtime-details", "effort-control", "effort-range", "effort-value", "reasoning-effort-control", "reasoning-effort-range", "reasoning-effort-value", "loop-limit-control", "loop-limit-range", "loop-limit-value", "work-section", "work-count", "work-unread", "work-table-open", "work-table-summary", "work-table-modal", "work-table-modal-close", "work-table-modal-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-modal-title", "scheduled-task-close", "sched-name", "sched-workspace", "sched-permission", "sched-plugins", "sched-effort", "sched-loops", "sched-mode", "sched-period-value", "sched-period-unit", "sched-period-field", "sched-anchor-field", "sched-start-clock", "sched-start-weekday", "sched-anchor-now", "sched-anchor-now-field", "sched-datetime", "sched-datetime-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-enabled-field", "sched-enabled-label", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
+  "runtime-details", "reasoning-effort-control", "reasoning-effort-range", "reasoning-effort-value", "loop-limit-control", "loop-limit-range", "loop-limit-value", "work-section", "work-count", "work-unread", "work-table-open", "work-table-summary", "work-table-modal", "work-table-modal-close", "work-table-modal-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-modal-title", "scheduled-task-close", "sched-name", "sched-workspace", "sched-permission", "sched-plugins", "sched-effort", "sched-loops", "sched-mode", "sched-period-value", "sched-period-unit", "sched-period-field", "sched-anchor-field", "sched-start-clock", "sched-start-weekday", "sched-anchor-now", "sched-anchor-now-field", "sched-datetime", "sched-datetime-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-enabled-field", "sched-enabled-label", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
   "project-name", "project-root", "project-status", "worktree-view", "file-count", "context-compactions",
   "compaction-frame-modal", "compaction-frame-modal-close", "compaction-frame-modal-title", "compaction-frame-modal-meta", "compaction-frame-modal-view",
   "team-section", "team-view", "team-count",
@@ -198,10 +197,8 @@ function syncSessionChrome() {
   // 输入框只在主视图处于会话类子页时显示：其它主视图（工作台/状态/资源
   // 管理器）全宽展示时不能被底部输入框遮住内容。
   elements.composer.classList.toggle("hidden", !mainShowsSession);
-  // effort 是"下一回合"设置：本回合 running 时后端按 G0b/INV-G7 拒绝切换，
-  // 因此把入口先锁上并说明原因，而不是让用户拖完再看失败提示。
-  effortControl.setEnabled(!Boolean(client.current()?.chat?.running));
-  // 两条独立拉条与档位同一条运行守卫（后端会拒），所以一起上锁。
+  // composer 的两条运行参数拉条是"下一回合"设置：本回合 running 时后端按
+  // G0b/INV-G7 拒绝切换，因此把入口先锁上并说明原因，而不是让用户拖完再看失败提示。
   composerKnobs.setEnabled(!Boolean(client.current()?.chat?.running));
   if (!conversationShown) {
     elements["empty-state"].classList.add("hidden");
@@ -555,24 +552,12 @@ let composerSessionID = "";
 // composerComposing 跟踪输入法合成态（compositionstart/end）：合成中的 Enter
 // 是确认候选词，不是发送。
 let composerComposing = false;
-const effortControl = createEffortControl({
-  root: elements["effort-control"],
-  input: elements["effort-range"],
-  output: elements["effort-value"],
-  selectEffort: async level => {
-    // Bridge 返回后端**真正生效的值**：控件据此渲染，而不是假定请求值生效。
-    const applied = await invoke("SwitchEffort", level);
-    await refresh({ scroll: false });
-    // effort 改变会改写 system 前缀的 effort 层；轨迹子页激活时刷新注入层。
-    if (isViewActive(dockState, "trajectory")) refreshPromptInjection();
-    return applied;
-  },
-  onError: showToast
-});
-
 // 输入框底部的两条**独立**拉条：推理强度（"想多深"）与循环次数（"跑多少轮"）。
-// 它们各自只改一项；上面的 Effort 档位拉条是"同时设置这两条"的预设。
-// 运行守卫与档位同一条（视图会话 running 时后端拒绝），所以锁也一起上。
+// 各自只改自己那一项，另一项一个字都不动。原先还有一个 Effort 档位拉条（一次同时
+// 设置这两条读数的"预设"），已从 composer 下线：档位只经 `/effort` 命令切换，
+// SwitchEffort 仍是 prompt 层 / plan 策略 / ReAct 预算的唯一入口，界面不再有一个
+// 能同时改两项的滑杆。
+// 运行守卫与档位同一条（视图会话 running 时后端拒绝），所以这两条一起上锁。
 const composerKnobs = createComposerKnobs({
   reasoning: {
     root: elements["reasoning-effort-control"],
@@ -2048,8 +2033,7 @@ function renderRuntime(runtime) {
 
   renderPermissionTier(runtime);
 
-  effortControl.setLevel(runtime.effort);
-  // 两条独立拉条的权威读数（缺字段的旧投影/冷加载空 runtime 由组件自己忽略）。
+  // composer 两条独立拉条的权威读数（缺字段的旧投影/冷加载空 runtime 由组件自己忽略）。
   composerKnobs.setReasoningEffort(runtime.reasoning_effort);
   composerKnobs.setLoopLimit(runtime.loop_limit);
 }

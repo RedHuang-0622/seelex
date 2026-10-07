@@ -1,5 +1,5 @@
-// 共享滑杆组件的行为测试：三条拉条（Effort 档位 / 推理强度 / 循环次数）共用这一份
-// 实现，所以这里钉住的正是三条拉条共同的行为契约。
+// 共享滑杆组件的行为测试：composer 的两条拉条（推理强度 / 循环次数）共用这一份
+// 实现，所以这里钉住的正是两条拉条共同的行为契约。
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createKnobSlider, discreteScale, linearScale } from "./knob-slider.js";

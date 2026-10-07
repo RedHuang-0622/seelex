@@ -2,12 +2,9 @@ import { createKnobSlider, discreteScale, linearScale } from "./knob-slider.js";
 
 // composer 底部的两条**独立**拉条：推理强度（reasoning effort）与循环次数（loop times）。
 //
-// 与上方 Effort 档位拉条的关系（口径写在 application/core/service_knobs.go，这里
-// 只是它的界面）：
-//
-//   档位 = **同时设置两条拉条的预设**（lite/medium/high/max → 推理强度
-//   low/medium/high/max + 循环次数 15/48/384/768）；
-//   拖一条拉条**只**改它那一项，另一项一个字都不动。
+// 口径（写在 application/core/service_knobs.go，这里只是它的界面）：拖一条拉条**只**改
+// 它那一项，另一项一个字都不动。一次同时设置两条的 Effort 档位滑杆已从 composer 下线
+// （档位改成只经 `/effort` 命令切换），所以界面上不存在"一个滑杆同时控制两项"的控件。
 //
 // 行为（预览 / 提交 / 待定守护 / 失败回滚 / 快照覆盖 / 运行中上锁）全部来自共享组件
 // knob-slider.js，本文件只声明两条拉条各自的"停位怎么映射成值"。
@@ -16,7 +13,7 @@ import { createKnobSlider, discreteScale, linearScale } from "./knob-slider.js";
 //
 // 刻意**不含** minimal：它只在部分模型上可用（GPT-5 系），摆到界面上等于给大多数
 // 模型一个会被 provider 拒绝的合法按钮。也不含 "session"——那是"跟随档位"的同义词，
-// 是**没有覆盖**，不是一条拉条能停的位置（要回到跟随，切一次档位即可）。
+// 是**没有覆盖**，不是一条拉条能停的位置（要回到跟随，跑一次 `/effort` 命令即可）。
 export const REASONING_EFFORT_LEVELS = Object.freeze(["low", "medium", "high", "max"]);
 
 const REASONING_EFFORT_LABELS = Object.freeze({
@@ -30,7 +27,7 @@ const REASONING_EFFORT_LABELS = Object.freeze({
 // （拉条与任务声明停的是同一组 wire 值）。
 export { REASONING_EFFORT_LABELS };
 
-// 视觉进度与档位拉条同构（低档也留一小段，避免看起来"没生效"）。
+// 视觉进度与四档停位对齐（低档也留一小段，避免看起来"没生效"）。
 const REASONING_EFFORT_PROGRESS = Object.freeze([15, 45, 75, 100]);
 
 export const LOOP_LIMIT_MIN = 1;

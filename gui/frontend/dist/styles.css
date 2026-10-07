@@ -1066,7 +1066,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .history-button { border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--shadow-sm); }
 .history-button.is-latest { color: var(--accent); border: 1px solid var(--border-running); }
 
-/* Effort：紧凑分段滑轨，去掉针筒装饰与辉光 */
+/* 运行参数滑杆（composer 的推理强度 / 循环次数共用这一套）：紧凑滑轨，去掉针筒装饰与辉光 */
 .effort-control {
   --effort-progress: 10%;
   --effort-tone: var(--status-done);
@@ -1087,7 +1087,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 }
 .effort-end--min { color: var(--status-done); }
 .effort-control[data-effort="max"] .effort-end--max { color: var(--fork-lane-4); }
-.effort-control[data-effort="lite"] { --effort-tone: var(--status-done); }
+.effort-control[data-effort="low"] { --effort-tone: var(--status-done); }
 .effort-control[data-effort="medium"] { --effort-tone: var(--status-info); }
 .effort-control[data-effort="high"] { --effort-tone: var(--status-running); }
 .effort-control[data-effort="max"] { --effort-tone: var(--fork-lane-4); }
@@ -1129,7 +1129,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
    计算，等于把轨道两端各吃掉半个滑块宽的感应区；而显示侧
    .syringe-piston 是纯百分比填充。控件被压到紧凑宽度时（.effort-control
    width:120px / min-width:90px，滑轨只剩 ~22px），这 16px 的滑块把可用感应区
-   挤到几乎归零，鼠标位置对应的档位与活塞填充因此对不上。
+   挤到几乎归零，鼠标位置对应的停位与活塞填充因此对不上。
    把滑块显式收成零宽：轨道全程即感应区，命中映射与填充用同一把尺子。 */
 .syringe-input::-webkit-slider-thumb {
   -webkit-appearance: none;
@@ -1152,10 +1152,14 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .effort-syringe:hover .syringe-barrel { border-color: var(--border-strong); }
 .effort-control.is-pending { opacity: .55; }
 
-/* 输入框底部的两条**独立**拉条（推理强度 / 循环次数）：与上面的 Effort 档位拉条
-   共用同一套 .effort-control / .syringe-* 规则与命中区几何（组件复用），这里只补
-   这一行的排布与"每条约多宽"——三条拉条各自独立成列，滑轨宽度不互相挤压。
-   行本身贴在 composer 动作行**之下**（输入框底部），空的时候不存在（它是常驻行）。 */
+/* 输入框底部的两条**独立**拉条（推理强度 / 循环次数）：共用 .effort-control /
+   .syringe-* 的形态与命中区几何（组件复用），这里只补这一行的排布。
+   行本身贴在 composer 动作行**之下**（输入框底部），常驻，不是空态才有的行。
+   列数必须与拉条的**子元素个数**一一对应：思考 / Low / 滑轨 / Max / 数值 = 5 个。
+   此前这里写的是 3 列 —— 5 个子元素于是被自动排布折成两行，滑轨落进 `auto`
+   列、宽度塌成 0，界面上只剩两行小字：这正是"根本没有一条能拖的滑杆"的现场
+   （2026-10-08 用户报告）。窄到 780px 以下时两端标签让位（display:none），
+   子元素回到 3 个，列数必须跟着收回来，否则同样错位。 */
 .composer-knobs {
   display: flex;
   align-items: center;
@@ -1166,7 +1170,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 }
 .composer-knobs .knob-slider {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 4px;
   flex: 1 1 0;
@@ -1184,6 +1188,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 @media (max-width: 780px) {
   .composer-knobs { gap: 8px; }
   .composer-knobs .effort-end { display: none; }
+  .composer-knobs .knob-slider { grid-template-columns: auto minmax(0, 1fr) auto; }
 }
 
 /* ---------- 9. Right panel components ---------- */

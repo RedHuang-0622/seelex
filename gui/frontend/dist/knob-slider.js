@@ -1,7 +1,8 @@
-// ── 滑杆组件的**唯一实现**（composer 底下三条拉条共用）────────────────────
+// ── 滑杆组件的**唯一实现**（composer 底下两条运行参数拉条共用）────────────────
 //
-// 三条拉条（Effort 档位 / 推理强度 / 循环次数）的行为是同一条，此前 effort-control.js
-// 自己写了一份；现在行为只写在这里，effort-control.js 退化成"这份实现 + 一张四档停位表"。
+// 两条拉条（推理强度 / 循环次数）的行为是同一条，此前 effort-control.js 自己写了一份；
+// 现在行为只写在这里，各条拉条只提供"一张停位表 + 一个 data-*/CSS 变量名"。
+// （一次同时设置这两条的 Effort 档位拉条已从 composer 下线，档位只经 `/effort` 命令切换。）
 //
 // 行为契约（全套都一样）：
 //
@@ -15,7 +16,7 @@
 //   运行中        → setEnabled(false)：置灰 + 拖动既不预览也不提交（后端一定会拒，
 //                   前端不该先答应再弹一个失败 toast）
 //
-// 三条拉条的差异只有两样：**停位怎么映射成值**（scale）与**写哪个 data-*/CSS 变量**
+// 各条拉条的差异只有两样：**停位怎么映射成值**（scale）与**写哪个 data-*/CSS 变量**
 // （CSS 侧同构，于是复用同一套 .effort-control / .syringe-* 规则）。差异由参数表达。
 
 // discreteScale 是离散停位表：values 是**有序**的取值，index 就是 range 的位置。
@@ -34,7 +35,7 @@ export function discreteScale(values, { labels = {}, progress = [] } = {}) {
 
 // linearScale 是**线性整数**停位表：value = min + index * step，增长量恒为 step。
 //
-// 为什么 range 的 value 仍是 index 而不是值本身：三条拉条共用的命中区逻辑要求
+// 为什么 range 的 value 仍是 index 而不是值本身：各条拉条共用的命中区逻辑要求
 // "位置 0..N 均匀"，把它们统一成 index 才能用同一份 render；值↔index 的双向映射
 // 由本表负责（indexOf 越界/非整数/不在步长上返回 -1，调用方据此忽略不可信读数）。
 export function linearScale({ min, max, step = 1, unit = "" } = {}) {

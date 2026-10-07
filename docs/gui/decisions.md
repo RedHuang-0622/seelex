@@ -87,12 +87,12 @@
 
 ## ADR-GUI-011：Effort 使用独立常驻滑杆与派生 Max 动效
 
-- 状态：已采用
+- 状态：已采用 → **2026-10-08 由 ADR-GUI-023 取代**（界面上的档位滑杆已下线；"预览 / 显式提交 / 回滚 / 快照覆盖"的分工由两条各自独立的运行参数拉条继承）
 - 决策：Effort 从 Runtime modal 移到 topbar，以原生四档 range 常驻；`input` 只预览，`change` 才通过 Bridge 提交；Max 紫色动效完全由 `data-effort` 派生。
 - 替代方案：保留弹窗 segmented buttons；每次 range input 都调用 Core；把 Effort 业务状态复制到前端 store。
 - 理由：Effort 是高频、连续强度语义的运行参数，应无需打开弹窗即可观察和切换；独立 Controller 可用 Node 测试，且不会增加 app.js 的业务状态。
 - 后果：前端档位顺序必须和 Core 同步；视觉预览可能短暂领先于 Core，因此失败必须回滚，Snapshot 必须覆盖 committed 状态；动画必须支持 reduced-motion。
-- 实现：`gui/frontend/dist/index.html:14-22`、`gui/frontend/dist/effort-control.js:1-77`、`gui/frontend/dist/styles.css:72-125`。
+- 实现：`gui/frontend/dist/index.html:14-22`、`gui/frontend/dist/effort-control.js:1-77`、`gui/frontend/dist/styles.css:72-125`。（档位滑杆与 `effort-control.js` 已于 2026-10-08 下线——见 ADR-GUI-023；`.effort-control / .syringe-*` 形态与命中区几何由两条运行参数拉条继续使用。）
 
 ## ADR-GUI-012：DSL 卡片是 Conversation item，使用 Core-owned 协议
 
@@ -257,3 +257,40 @@
   gui/frontend/dist/agent-team-refresh.test.mjs`；真机探针
   `go run . -frontend backend -backend-prompt "@goal-a2a"` → `stage=team.changed` + exit=0。
 - 详设：`modules/shell-and-interactions.md` 第 6 节。
+
+## ADR-GUI-023：档位滑杆从 composer 下线，界面只留两条各自独立的运行参数拉条
+
+- 状态：已采用（2026-10-08）
+- 背景：composer 底部一度有三条滑杆——Effort 档位（一次同时设置"思考强度"与"循环
+  次数"）、推理强度、循环次数。档位那条是**多件事的预设**（同一动作改写 prompt 层 /
+  plan 策略 / ReAct 预算），放在两条读数拉条旁边就成了"一个滑杆同时控制两项"的错觉。
+  现场（用户报告）："前端有且只有一个同时控制思考强度和循环次数的 effort 滑杆"、
+  "根本没有一条能拖的滑杆"。后半句还有一层真实缺陷：两条读数拉条的容器
+  `.composer-knobs .knob-slider` 只声明了 3 列，而拉条根元素有 5 个子元素
+  （标签 / 起点 / 滑轨 / 终点 / 数值），多出来的两个被自动排到第二行、滑轨落进 `auto`
+  列后宽度塌成 0 —— 界面上只剩两行小字，既看不到滑轨也没有可拖的命中区。
+- 决策：
+  1. 档位（Effort 等级 `lite/medium/high/max`）**从 composer 下线，不再有界面入口**；
+     只经 `/effort` 命令切换（CLI/TUI → `Service.SwitchEffort`，同一道 G0b/INV-G7 运行
+     守卫）。`Bridge.SwitchEffort` 保留给命令面板 / 远端控制。
+  2. composer 只留**两条各自独立**的拉条（推理强度 / 循环次数），每条只改自己那一项。
+  3. 拉条的网格列数必须等于根元素的直接子元素个数（宽 5 / 窄 3），由契约测试钉住。
+- 替代方案：保留档位滑杆并加"预设"文案；让档位滑杆改为只改一项；把两条拉条合并成一条
+  （都违反"一个控件一件事"）。
+- 理由：运行参数是"各改一项"的微调语义；把多件事的预设混进同一片空间，会同时误导用户
+  （以为只能整档切换）与代理（以为界面已实现）。界面能改的运行参数必须看得见、拖得动，
+  否则"已实现"只存在于代码里。
+- 后果：
+  - 前端：`effort-control.js` 与其 Node 用例删除；档位专属的视图映射只留在 Core；
+    `.effort-control / .syringe-*` 形态与 12.9 的命中区归位由两条拉条继续使用；
+    `.composer-knobs .knob-slider` 的列数变更必须与拉条子元素个数同改。
+  - 后端：`SwitchEffort` / `SetReasoningEffort` / `SetLoopLimit` 三个入口一个都不删，
+    共用同一条运行守卫；切档位仍会把两条读数一起带进该档（拉条跟着动是"命令改了
+    读数"，不是界面又长出一条能同时改两项的滑杆）。
+- 实现：`gui/frontend/dist/index.html`、`gui/frontend/dist/app.js`、
+  `gui/frontend/dist/knob-slider.js`、`gui/frontend/dist/composer-knobs.js`、
+  `gui/frontend/dist/styles.css`、`application/core/command.go`。
+- 验证：`node --test "gui/frontend/dist/*.test.mjs"`、
+  `go test ./gui/ -run 'TestEmbedded'`、
+  `go test ./application/core/ -run 'Effort|Knob'`。
+- 详设：`modules/composer-knobs.md`。

@@ -121,25 +121,29 @@
       ]
     },
     {
-      "id": "effort-control",
-      "name": "Effort control",
+      "id": "composer-knobs",
+      "name": "Composer run-parameter knobs",
       "status": "implemented",
-      "responsibility": "Manage local effort preview, explicit commit and rollback while leaving policy and prompt semantics in the core.",
-      "document": "modules/effort-control.md",
+      "responsibility": "Expose the two independent run-parameter readings (reasoning effort and loop limit) as composer sliders with local preview, explicit commit and rollback, leaving policy, prompt and budget semantics in the core.",
+      "document": "modules/composer-knobs.md",
       "interfaces": [
-        "createEffortController",
+        "createKnobSlider",
+        "createComposerKnobs",
+        "Bridge.SetReasoningEffort",
+        "Bridge.SetLoopLimit",
         "Bridge.SwitchEffort"
       ],
       "planned_paths": [
-        "gui/frontend/dist/effort-control.js",
-        "application/effort.go"
+        "gui/frontend/dist/knob-slider.js",
+        "gui/frontend/dist/composer-knobs.js",
+        "application/core/service_knobs.go"
       ],
       "inputs": [
-        "runtime effort snapshot",
+        "runtime reasoning-effort and loop-limit snapshot",
         "range input"
       ],
       "outputs": [
-        "effort commit request",
+        "run parameter commit request",
         "accessible visual state"
       ],
       "depends_on": [
@@ -177,7 +181,7 @@
         "desktop-bridge",
         "client-state",
         "conversation-rendering",
-        "effort-control"
+        "composer-knobs"
       ]
     },
     {
