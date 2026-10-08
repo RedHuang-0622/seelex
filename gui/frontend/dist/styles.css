@@ -1073,11 +1073,12 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
-  width: 150px;
-  min-width: 120px;
+  gap: 8px;
+  min-width: 0;
   height: 29px;
 }
+/* 贴发送键的紧凑思考强度控件：固定窄宽，不与发送键抢空间。 */
+.effort-control.effort-inline { flex: none; width: 172px; }
 .effort-end {
   font: 650 10.5px var(--font-mono);
   text-transform: uppercase;
@@ -1092,15 +1093,31 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .effort-control[data-effort="high"] { --effort-tone: var(--status-running); }
 .effort-control[data-effort="max"] { --effort-tone: var(--fork-lane-4); }
 
-.effort-syringe { position: relative; display: flex; align-items: center; width: 100%; height: 29px; cursor: pointer; }
+.effort-syringe { position: relative; display: flex; align-items: center; flex: 1 1 auto; min-width: 0; height: 29px; cursor: pointer; }
 .syringe-barrel {
   position: relative;
   width: 100%;
-  height: 6px;
+  height: 8px;
   border-radius: 999px;
-  background: var(--ink);
+  background: var(--surface-3);
   border: 1px solid var(--border-strong);
   overflow: hidden;
+}
+/* 可见滑块：贴在填充前沿（`--effort-progress` 由组件写在控件根上）。
+   命中区仍是铺满滑轨的隐形 range，滑块只是指示物，不吃指针事件。 */
+.syringe-handle {
+  position: absolute;
+  top: 50%;
+  left: var(--effort-progress);
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--effort-tone);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text-bright) 22%, transparent);
+  pointer-events: none;
+  transition: left var(--dur-med) var(--ease-out), border-color var(--dur-med) var(--ease-out);
 }
 .syringe-piston {
   height: 100%;
@@ -1152,44 +1169,39 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .effort-syringe:hover .syringe-barrel { border-color: var(--border-strong); }
 .effort-control.is-pending { opacity: .55; }
 
-/* 输入框底部的两条**独立**拉条（推理强度 / 循环次数）：共用 .effort-control /
-   .syringe-* 的形态与命中区几何（组件复用），这里只补这一行的排布。
-   行本身贴在 composer 动作行**之下**（输入框底部），常驻，不是空态才有的行。
-   列数必须与拉条的**子元素个数**一一对应：思考 / Low / 滑轨 / Max / 数值 = 5 个。
-   此前这里写的是 3 列 —— 5 个子元素于是被自动排布折成两行，滑轨落进 `auto`
-   列、宽度塌成 0，界面上只剩两行小字：这正是"根本没有一条能拖的滑杆"的现场
-   （2026-10-08 用户报告）。窄到 780px 以下时两端标签让位（display:none），
-   子元素回到 3 个，列数必须跟着收回来，否则同样错位。 */
-.composer-knobs {
+/* 运行参数（循环次数）落在运行状态弹窗里：一行读法（标签 + 当前值 + 无限循环勾选），
+   下面一条滑轨。思考强度贴发送键（.effort-inline），两者不再共占输入框底部同一行。 */
+.runtime-knobs .runtime-knob-head {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 2px 4px 0;
-  border-top: 1px solid var(--border);
-  margin-top: 2px;
+  gap: 8px;
+  margin-bottom: 6px;
 }
-.composer-knobs .knob-slider {
-  display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 4px;
-  flex: 1 1 0;
-  min-width: 0;
-}
-.composer-knobs .knob-label {
-  font-size: 10px;
-  letter-spacing: .04em;
-  color: var(--text-muted);
+.effort-control .knob-label {
+  flex: none;
+  font-size: 11px;
+  color: var(--muted);
   white-space: nowrap;
 }
-/* 两端标签在窄行里让位给滑轨：数值另有 .effort-value 常驻，信息不丢。 */
-.composer-knobs .effort-end { font-size: 9px; }
-.composer-knobs .effort-value { min-width: 3ch; text-align: right; font-variant-numeric: tabular-nums; }
-@media (max-width: 780px) {
-  .composer-knobs { gap: 8px; }
-  .composer-knobs .effort-end { display: none; }
-  .composer-knobs .knob-slider { grid-template-columns: auto minmax(0, 1fr) auto; }
+/* Pico 的 `[role=group] > *`（0-1-1）会把标签 / 数值也设成 `flex: 1 1 auto`，
+   把滑轨挤成一条窄缝——这里用 0-2-0 把它们钉回不伸缩（滑轨才是吃剩余空间的那一个）。 */
+.effort-control .effort-value { flex: none; }
+.runtime-knobs .effort-value { min-width: 4ch; text-align: left; }
+.runtime-knobs .knob-infinite {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+  user-select: none;
 }
+.runtime-knobs .knob-infinite input { width: 13px; height: 13px; margin: 0; accent-color: var(--status-done); }
+.runtime-knobs .effort-control { height: 24px; }
+.runtime-knobs .effort-syringe { height: 24px; }
+.runtime-knobs .effort-end { font-size: 9px; }
+.runtime-knobs .muted { margin: 8px 0 0; font-size: 11px; line-height: 1.5; }
 
 /* ---------- 9. Right panel components ---------- */
 /* 右栏子页 tab（状态 / 工作台 / 代码）：固定于项目标题之下，内容区滚动 */
@@ -2778,7 +2790,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   .runtime-grid { grid-template-columns: 1fr; }
   .runtime-skills { grid-column: auto; }
   .runtime-card { min-width: 0; resize: none; }
-  .effort-control { width: 120px; min-width: 90px; gap: 3px; }
+  .effort-control.effort-inline { width: 116px; gap: 5px; }
   .runtime-summary span:not(.status-dot) { display: none; }
 }
 
@@ -3733,8 +3745,11 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
    唯一能拖的感应带落在滑轨**右侧**（用户口径：拖动的位置比显示的位置偏右），
    活塞填充自然追不上鼠标。这里把它钉回覆盖层；inset/width/height 仍由
    `.syringe-input` 自己声明，命中映射与活塞百分比因此共用同一把尺子。
-   选择器 0-4-1，明确压过 Pico 的 0-2-1 / 0-3-1，不靠加载顺序决胜。 */
-.app-shell .effort-control .effort-syringe > input.syringe-input {
+   选择器 0-4-1，明确压过 Pico 的 0-2-1 / 0-3-1，不靠加载顺序决胜。
+   **不能用 `.app-shell` 当前缀**：运行状态弹窗（循环次数那条拉条）挂在 `.app-shell`
+   **之外**，前缀一加就漏掉它——实测那条的输入盒只占滑轨一半宽（385 里 193），与
+   "命中区 = 显示区"直接冲突。改用 `.effort-control.knob-slider`（同样是 0-4-1）。 */
+.effort-control.knob-slider .effort-syringe > input.syringe-input {
   position: absolute;
   flex: none;
   margin: 0;
@@ -4168,7 +4183,8 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .app-shell #plugin-list.is-switching { opacity: .6; pointer-events: none; }
 .effort-control.is-locked { opacity: .72; }
 .effort-control.is-locked .syringe-input { cursor: not-allowed; }
-.effort-control.is-locked .syringe-barrel { border-style: dashed; }
+.effort-control.is-locked .syringe-barrel { border-color: var(--border); }
+.effort-control.is-locked .syringe-handle { opacity: .5; }
 .effort-value {
   flex: none;
   min-width: 34px;

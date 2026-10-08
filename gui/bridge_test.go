@@ -1516,15 +1516,17 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	if strings.Contains(leftPanel, `id="plugin-list"`) || strings.Contains(rightPanel, `id="plugin-list"`) || !strings.Contains(runtimeModal, `id="plugin-list"`) {
 		t.Fatal("plugins must be rendered in the runtime modal")
 	}
-	// composer 的运行参数只有两条**独立**拉条（推理强度 / 循环次数），常驻输入框底部、
-	// 独立于 Runtime modal；一次同时改两项的 Effort 档位拉条已下线（档位只经 `/effort`
-	// 命令切换），所以这里同时钉"两条都在 modal 之前"与"档位控件不许再回来"。
-	if reasoningStart > runtimeStart || loopStart > runtimeStart ||
+	// 运行参数分两处：思考强度贴发送键（在 composer 里，先于 Runtime modal），循环次数
+	// 与「无限循环」勾选落在 Runtime modal 内——循环是运行期预算，改在运行状态弹窗里。
+	// 一次同时改两项的 Effort 档位拉条已下线（档位只经 `/effort` 命令切换），这里一并
+	// 钉"档位控件不许再回来"。
+	if reasoningStart > runtimeStart || loopStart < runtimeStart ||
 		strings.Contains(runtimeModal, `id="reasoning-effort-range"`) ||
-		strings.Contains(runtimeModal, `id="loop-limit-range"`) ||
+		!strings.Contains(runtimeModal, `id="loop-limit-range"`) ||
+		!strings.Contains(runtimeModal, `id="loop-limit-infinite"`) ||
 		strings.Contains(html, `id="effort-control"`) ||
 		!strings.Contains(string(script), "createComposerKnobs") {
-		t.Fatal("composer 的运行参数必须只有两条常驻 topbar/composer 拉条，且档位滑杆不许再回到界面上")
+		t.Fatal("思考强度必须在 composer（先于 Runtime modal），循环次数与「无限循环」必须在 Runtime modal 内，且档位滑杆不许再回到界面上")
 	}
 	if !strings.Contains(rightPanel, `id="project-status"`) || !strings.Contains(rightPanel, `id="worktree-view"`) || !strings.Contains(rightPanel, `id="file-count"`) {
 		t.Fatal("right sidebar must render project status and the work tree panel")
@@ -2062,7 +2064,7 @@ func TestEmbeddedKnobSliderHitAreaOverlayOnRail(t *testing.T) {
 
 	// 归位规则必须按元素压在 Pico 的 [role=group] 之上（0-4-1 > 0-3-1），
 	// 且把 Pico 偷走的三条属性都钉回去：定位、弹性、外边距。
-	const pin = ".app-shell .effort-control .effort-syringe > input.syringe-input {"
+	const pin = ".effort-control.knob-slider .effort-syringe > input.syringe-input {"
 	at := strings.Index(source, pin)
 	if at < 0 {
 		t.Fatalf("Effort 的隐形 range 必须被钉回覆盖层，缺少归位规则：%s", pin)
@@ -2111,59 +2113,36 @@ func TestEmbeddedKnobSliderHitAreaOverlayOnRail(t *testing.T) {
 	}
 }
 
-// TestEmbeddedComposerKnobGridMatchesChildren：composer 拉条的网格**列数**必须与拉条
-// 根元素的**直接子元素个数**一一对应。
+// TestEmbeddedLoopLimitBounds：循环次数的三个数字必须在同一条链上——
+// 前端有限刻度上限（composer-knobs.js 的 LOOP_LIMIT_MAX）等于 max 档默认 loops 768；
+// 隐形 range 的 max 是它的 index（767）；「无限循环」复用 limits.input_loop_limit 的
+// 哨兵（9999，goal skill 的"≈无上限"）。改任一处而不改另两处，这里即红。
 //
-// 现场（2026-10-08 用户报告）："前端有且只有一个同时控制思考强度和循环次数的 effort
-// 滑杆"、"根本没有一条能拖的滑杆"。根因就在这条契约上：`.composer-knobs .knob-slider`
-// 只声明了 3 列（auto minmax(0,1fr) auto），而拉条根元素有 5 个直接子元素
-// （思考 / Low / 滑轨 / Max / 数值）。多出来的两个被自动排到第二行，滑轨落进 `auto`
-// 列后宽度塌成 0 —— 界面上只剩两行小字：看不见滑轨，也没有可拖的命中区（隐形 range
-// 是那个 0 宽盒子的覆盖层，跟着一起没了）。用户当时能看见的那一条，其实是另一个控件。
-// 窄宽度（≤780px）下两端标签 display:none，子元素回到 3 个，列数也必须跟着收回来。
-func TestEmbeddedComposerKnobGridMatchesChildren(t *testing.T) {
+// 现场（2026-10-08 用户裁决）：循环次数不再是输入框底部的一条 1..9999 拉条——它上限
+// 收敛到 max 档的 768，「无上限」改由「无限循环」勾选表达，控件本身挪进运行状态弹窗。
+func TestEmbeddedLoopLimitBounds(t *testing.T) {
 	t.Parallel()
 	page, err := embeddedFrontend.ReadFile("frontend/dist/index.html")
 	if err != nil {
 		t.Fatal(err)
 	}
-	styles, err := embeddedFrontend.ReadFile("frontend/dist/styles.css")
+	js, err := embeddedFrontend.ReadFile("frontend/dist/composer-knobs.js")
 	if err != nil {
 		t.Fatal(err)
 	}
-	source := string(styles)
-
-	rule := cssRuleBody(source, ".composer-knobs .knob-slider")
-	columns := cssTrackCount(cssDeclaration(rule, "grid-template-columns"))
-	if columns == 0 {
-		t.Fatal("`.composer-knobs .knob-slider` 必须显式声明 grid-template-columns（缺省时每列 auto，滑轨会塌成 0 宽）")
+	knobs := string(js)
+	if !strings.Contains(knobs, "LOOP_LIMIT_MAX = 768") {
+		t.Fatal("有限循环上限必须与 max 档默认 loops（768）同源")
 	}
-
-	for _, id := range []string{"reasoning-effort-control", "loop-limit-control"} {
-		inner, ok := elementInner(string(page), id)
-		if !ok {
-			t.Fatalf("index.html 里找不到拉条根元素 id=%q", id)
-		}
-		if got := directChildCount(inner); got != columns {
-			t.Fatalf("拉条 id=%q 有 %d 个直接子元素，而 `.composer-knobs .knob-slider` 声明了 %d 列：多出来的子元素会被折到第二行，滑轨掉进 auto 列后宽度塌成 0（既看不到也拖不到）",
-				id, got, columns)
-		}
+	if !strings.Contains(knobs, "LOOP_LIMIT_INFINITE = 9999") {
+		t.Fatal("「无限循环」必须复用 limits.input_loop_limit 的哨兵（9999），不另造后端字段")
 	}
-
-	// 窄宽度下两端标签让位，子元素只剩 3 个（标签 / 滑轨 / 数值），列数必须一起收。
-	at := strings.Index(source, "@media (max-width: 780px) {")
-	if at < 0 {
-		t.Fatal("缺少窄宽度断点：标签隐藏后列数要一起从 5 收回 3")
+	html := string(page)
+	if !strings.Contains(html, `id="loop-limit-range" class="syringe-input" type="range" min="0" max="767"`) {
+		t.Fatal("循环次数隐形 range 的 max 必须是有限上限的 index（768-1 = 767）")
 	}
-	narrowSource := source[at:]
-	if end := strings.Index(narrowSource, "\n}"); end >= 0 {
-		narrowSource = narrowSource[:end]
-	}
-	if !strings.Contains(cssRuleBody(narrowSource, ".composer-knobs .effort-end"), "display: none;") {
-		t.Fatal("窄宽度下两端标签必须让位给滑轨（`.composer-knobs .effort-end { display: none; }`）")
-	}
-	if got := cssTrackCount(cssDeclaration(cssRuleBody(narrowSource, ".composer-knobs .knob-slider"), "grid-template-columns")); got != columns-2 {
-		t.Fatalf("窄宽度断点里拉条列数 = %d，应当是两个标签隐藏后的 %d 列", got, columns-2)
+	if !strings.Contains(html, `id="loop-limit-infinite"`) {
+		t.Fatal("缺少「无限循环」勾选：无上限不该再靠把拉条推到 9999 来表达")
 	}
 }
 

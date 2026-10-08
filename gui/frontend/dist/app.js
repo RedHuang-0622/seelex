@@ -89,7 +89,7 @@ const elements = Object.fromEntries([
   "session-list", "session-count", "new-session",
   "plugin-list", "plugin-count", "account-list", "account-count", "conversation", "conversation-tabs", "trajectory",
   "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",
-  "runtime-details", "reasoning-effort-control", "reasoning-effort-range", "reasoning-effort-value", "loop-limit-control", "loop-limit-range", "loop-limit-value", "work-section", "work-count", "work-unread", "work-table-open", "work-table-summary", "work-table-modal", "work-table-modal-close", "work-table-modal-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-modal-title", "scheduled-task-close", "sched-name", "sched-workspace", "sched-permission", "sched-plugins", "sched-effort", "sched-loops", "sched-mode", "sched-period-value", "sched-period-unit", "sched-period-field", "sched-anchor-field", "sched-start-clock", "sched-start-weekday", "sched-anchor-now", "sched-anchor-now-field", "sched-datetime", "sched-datetime-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-enabled-field", "sched-enabled-label", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
+  "runtime-details", "reasoning-effort-control", "reasoning-effort-range", "reasoning-effort-value", "loop-limit-control", "loop-limit-range", "loop-limit-value", "loop-limit-infinite", "work-section", "work-count", "work-unread", "work-table-open", "work-table-summary", "work-table-modal", "work-table-modal-close", "work-table-modal-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-modal-title", "scheduled-task-close", "sched-name", "sched-workspace", "sched-permission", "sched-plugins", "sched-effort", "sched-loops", "sched-mode", "sched-period-value", "sched-period-unit", "sched-period-field", "sched-anchor-field", "sched-start-clock", "sched-start-weekday", "sched-anchor-now", "sched-anchor-now-field", "sched-datetime", "sched-datetime-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-enabled-field", "sched-enabled-label", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
   "project-name", "project-root", "project-status", "worktree-view", "file-count", "context-compactions",
   "compaction-frame-modal", "compaction-frame-modal-close", "compaction-frame-modal-title", "compaction-frame-modal-meta", "compaction-frame-modal-view",
   "team-section", "team-view", "team-count",
@@ -552,12 +552,12 @@ let composerSessionID = "";
 // composerComposing 跟踪输入法合成态（compositionstart/end）：合成中的 Enter
 // 是确认候选词，不是发送。
 let composerComposing = false;
-// 输入框底部的两条**独立**拉条：推理强度（"想多深"）与循环次数（"跑多少轮"）。
-// 各自只改自己那一项，另一项一个字都不动。原先还有一个 Effort 档位拉条（一次同时
-// 设置这两条读数的"预设"），已从 composer 下线：档位只经 `/effort` 命令切换，
-// SwitchEffort 仍是 prompt 层 / plan 策略 / ReAct 预算的唯一入口，界面不再有一个
-// 能同时改两项的滑杆。
-// 运行守卫与档位同一条（视图会话 running 时后端拒绝），所以这两条一起上锁。
+// composer 的运行参数分两处：思考强度（"想多深"）贴发送键，循环次数（"跑多少轮"）
+// 落在运行状态弹窗里（含「无限循环」勾选）。各自只改自己那一项，另一项一个字都不动。
+// 原先还有一个 Effort 档位拉条（一次同时设置这两条读数的"预设"），已从 composer
+// 下线：档位只经 `/effort` 命令切换，SwitchEffort 仍是 prompt 层 / plan 策略 /
+// ReAct 预算的唯一入口，界面不再有一个能同时改两项的滑杆。
+// 运行守卫与档位同一条（视图会话 running 时后端拒绝），所以两条一起上锁（含勾选）。
 const composerKnobs = createComposerKnobs({
   reasoning: {
     root: elements["reasoning-effort-control"],
@@ -568,6 +568,9 @@ const composerKnobs = createComposerKnobs({
     root: elements["loop-limit-control"],
     input: elements["loop-limit-range"],
     output: elements["loop-limit-value"]
+  },
+  infinite: {
+    checkbox: elements["loop-limit-infinite"]
   },
   setReasoningEffort: async value => {
     const applied = await invoke("SetReasoningEffort", value);

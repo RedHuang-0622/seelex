@@ -294,3 +294,35 @@
   `go test ./gui/ -run 'TestEmbedded'`、
   `go test ./application/core/ -run 'Effort|Knob'`。
 - 详设：`modules/composer-knobs.md`。
+
+## ADR-GUI-024：运行参数重排——思考强度贴发送键，循环次数进运行状态弹窗（含「无限循环」）
+
+- 状态：已采用（2026-10-08）
+- 背景：ADR-GUI-023 之后，composer 底部仍并排挤着两条拉条（思考强度 / 循环次数）：
+  5 段微字一行、轨道细，循环那条 1..9999 的填充分辨率极低（3% 填充看起来像没生效）。
+  用户裁决："循环 loop 最高变成 700 多的一个数字配置，支持勾选无限循环，这个循环次数可以
+  在运行状态的面板里改；思考强度就放在发送按钮旁边即可。"
+- 决策：
+  1. **思考强度**（"这一问想多深"）挪进 composer 动作行、发送键之左（`.effort-inline`）。
+  2. **循环次数**（"这一趟跑多少轮"，运行期预算）挪进 `#runtime-modal` 的 `.runtime-knobs`
+     段；**有限上限 768**（= max 档默认 loops），**「无限循环」勾选**复用既有哨兵
+     `limits.input_loop_limit`（9999）——不新增后端字段，取消勾选回到最后一份有限值。
+  3. 输入框底部 `.composer-knobs` 行整块退场。
+- 替代方案：保留并排两条拉条只做美化；把「无限循环」做成新的后端布尔字段；把思考强度做成
+  chip + 下拉菜单（隐藏选项，与"看得见"的诉求相悖）。
+- 理由：两者本是不同语义——思考强度属于"这一次输入"，循环次数属于"这一趟运行"；放在同一
+  行只是空间巧合，逻辑上并不相邻。768 覆盖四个档位的默认 loops（15/48/384/768），超出它
+  的需求本质是"我不想设上限"，用勾选表达比把拉条推到 9999 更诚实。
+- 后果：
+  - 前端：`index.html`（`.composer-knobs` → `.effort-inline` + `.runtime-knobs`）、
+    `styles.css`（轨道底色 `--surface-3`、可见滑块 `.syringe-handle`、`.runtime-knobs`）、
+    `composer-knobs.js`（`LOOP_LIMIT_MAX = 768` / `LOOP_LIMIT_INFINITE = 9999` / `infinite`）、
+    `app.js`（登记 `loop-limit-infinite`、装配 `infinite`）。
+  - 后端：无改动（哨兵与 `validateLoopLimit` 上界都不变）。
+  - 契约：列数用例 `TestEmbeddedComposerKnobGridMatchesChildren` 退役，换成
+    `TestEmbeddedLoopLimitBounds` + 嵌入布局用例（两处边界）。
+- 实现：`gui/frontend/dist/index.html`、`styles.css`、`app.js`、`composer-knobs.js`、
+  `knob-slider.js`。
+- 验证：`node --test "gui/frontend/dist/*.test.mjs"`（719 通过）、
+  `go test ./gui/ -count=1`、`go build ./...`。
+- 详设：`modules/composer-knobs.md`。

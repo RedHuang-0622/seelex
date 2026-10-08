@@ -93,40 +93,23 @@
             </div>
           </div>
           <span id="composer-status">READY</span>
-          <button id="stop-button" class="icon-button action-button danger-button hidden" type="button" title="停止" aria-label="停止" data-icon="stop"></button>
-          <button id="send-button" class="icon-button action-button primary-button" type="submit" title="发送" aria-label="发送" data-icon="send"></button>
-        </div>
-        <!-- composer 的运行参数只有**两条独立拉条**（推理强度 / 循环次数），贴在输入框
-             底部：各自只改自己那一项，互不影响。原来的 Effort 档位拉条（一次同时设置
-             这两条读数的"预设"）已从界面下线——档位（prompt 层 / plan 策略 / ReAct
-             预算）现在只经 `/effort` 命令切换，不再占用 composer 的一个滑杆位。
-             滑杆行为只有一份实现（knob-slider.js），两条拉条共用同一套
-             .effort-control / .syringe-* 规则与命中区几何。 -->
-        <div class="composer-knobs" role="group" aria-label="推理强度与循环次数">
-          <div id="reasoning-effort-control" class="effort-control knob-slider" data-effort="low" role="group" aria-label="推理强度（reasoning effort）">
+          <!-- 思考强度：贴发送键的紧凑控件（推理强度是"这一问想多深"，属于 composer）。
+               循环次数是"这一趟跑多少轮"，是运行期预算，落在运行状态弹窗里（见下方
+               runtime modal 的 .runtime-knobs）——两者不再挤在输入框底部同一行。
+               滑杆行为只有一份实现（knob-slider.js）。 -->
+          <div id="reasoning-effort-control" class="effort-control effort-inline knob-slider" data-effort="low" role="group" aria-label="推理强度（reasoning effort）">
             <span class="knob-label">思考</span>
-            <span class="effort-end effort-end--min">Low</span>
             <div class="effort-syringe">
               <div class="syringe-barrel">
                 <div class="syringe-piston"></div>
               </div>
+              <div class="syringe-handle" aria-hidden="true"></div>
               <input id="reasoning-effort-range" class="syringe-input" type="range" min="0" max="3" step="1" value="0" aria-label="推理强度" aria-valuetext="Low">
             </div>
-            <span class="effort-end effort-end--max">Max</span>
             <span id="reasoning-effort-value" class="effort-value" aria-live="polite">Low</span>
           </div>
-          <div id="loop-limit-control" class="effort-control knob-slider" data-effort="loop" role="group" aria-label="循环次数（单回合循环上限）">
-            <span class="knob-label">循环</span>
-            <span class="effort-end effort-end--min">1</span>
-            <div class="effort-syringe">
-              <div class="syringe-barrel">
-                <div class="syringe-piston"></div>
-              </div>
-              <input id="loop-limit-range" class="syringe-input" type="range" min="0" max="9998" step="1" value="0" aria-label="循环次数" aria-valuetext="1">
-            </div>
-            <span class="effort-end effort-end--max">9999</span>
-            <span id="loop-limit-value" class="effort-value" aria-live="polite">1</span>
-          </div>
+          <button id="stop-button" class="icon-button action-button danger-button hidden" type="button" title="停止" aria-label="停止" data-icon="stop"></button>
+          <button id="send-button" class="icon-button action-button primary-button" type="submit" title="发送" aria-label="发送" data-icon="send"></button>
         </div>
       </form>
       <!-- 下栏终端（VS Code 式）：顶边分隔条可拉动调高，头部可收起/展开，
@@ -293,6 +276,31 @@
         <section>
           <div class="section-title">Runtime</div>
           <dl id="runtime-details" class="details-grid"></dl>
+        </section>
+        <!-- 运行参数：循环次数是"这一趟跑多少轮"的运行期预算，落在运行状态弹窗里改
+             （不再是输入框底部的一条拉条）。上限取 max 档默认值 768；勾选「无限循环」
+             则改按进程级上限（limits.input_loop_limit ≈无上限）运行。 -->
+        <section class="runtime-knobs">
+          <div class="section-title">运行参数</div>
+          <div class="runtime-knob-head">
+            <span class="knob-label">循环次数</span>
+            <span id="loop-limit-value" class="effort-value" aria-live="polite">384</span>
+            <label class="knob-infinite" title="忽略循环次数上限（≈无上限），直到当前会话结束">
+              <input id="loop-limit-infinite" type="checkbox">无限循环
+            </label>
+          </div>
+          <div id="loop-limit-control" class="effort-control knob-slider" data-effort="loop" role="group" aria-label="循环次数（单回合循环上限）">
+            <span class="effort-end effort-end--min">1</span>
+            <div class="effort-syringe">
+              <div class="syringe-barrel">
+                <div class="syringe-piston"></div>
+              </div>
+              <div class="syringe-handle" aria-hidden="true"></div>
+              <input id="loop-limit-range" class="syringe-input" type="range" min="0" max="767" step="1" value="0" aria-label="循环次数" aria-valuetext="1">
+            </div>
+            <span class="effort-end effort-end--max">768</span>
+          </div>
+          <p class="muted">单回合最大轮次（上限 768，即 max 档默认值）。勾选「无限循环」按进程级上限运行，常用于 goal 这类长任务；运行中的会话改不了，等回合结束再调。</p>
         </section>
         <section>
           <div class="section-title"><span>Plugins</span><span id="plugin-count" class="badge">0</span></div>

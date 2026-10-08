@@ -12,15 +12,27 @@
   随之改名：`modules/effort-control.md` → `modules/composer-knobs.md`，
   `module_dotting.json` 的模块 id 与依赖边同步（`effort-control` → `composer-knobs`），
   ADR-GUI-011 由 ADR-GUI-023 取代。
+- **运行参数重排：思考强度贴发送键，循环次数进运行状态弹窗（含「无限循环」勾选）**。
+  输入框底部并排两条拉条的那一行（`.composer-knobs`）整块退场：
+  `#reasoning-effort-control` 挪进 composer 动作行、发送键之左；`#loop-limit-control`
+  挪进 `#runtime-modal` 的 `.runtime-knobs` 段，旁边是 `#loop-limit-infinite`。循环次数的
+  **有限上限从 9999 收到 768**（= max 档默认 loops），"≈无上限"改由勾选表达——勾上复用
+  既有哨兵 `limits.input_loop_limit`（9999），取消回到最后一份有限值。后端入口与运行守卫
+  不变。由 ADR-GUI-024 记录。
 
 ### Fixed
 
-- **两条独立拉条此前没有可见的滑轨**。`.composer-knobs .knob-slider` 只声明了 3 列，而
-  拉条根元素有 5 个直接子元素（标签 / 起点 / 滑轨 / 终点 / 数值）：多出来的两个被自动排到
-  第二行，滑轨落进 `auto` 列后宽度塌成 0 —— 界面上只剩两行小字，既看不到滑轨也没有可拖
-  的命中区（用户报告的"有且只有一个 effort 滑杆 / 根本没有一条能拖的滑杆"）。列数改为与
-  直接子元素一一对应（宽 5 / 窄 3），由
-  `bridge_test.go::TestEmbeddedComposerKnobGridMatchesChildren` 钉住。
+- **两条独立拉条此前没有可见的滑轨**（后由本轮重排取代，`.composer-knobs` 行已退场）。
+  `.composer-knobs .knob-slider` 只声明了 3 列，而拉条根元素有 5 个直接子元素
+  （标签 / 起点 / 滑轨 / 终点 / 数值）：多出来的两个被自动排到第二行，滑轨落进 `auto` 列
+  后宽度塌成 0 —— 界面上只剩两行小字，既看不到滑轨也没有可拖的命中区（用户报告的"有且
+  只有一个 effort 滑杆 / 根本没有一条能拖的滑杆"）。当时的钉法是
+  `bridge_test.go::TestEmbeddedComposerKnobGridMatchesChildren`（本轮重排后由
+  `TestEmbeddedLoopLimitBounds` + 嵌入布局用例取代）。
+- **滑轨没有底色**：`.syringe-barrel` 用了 `background: var(--ink)`，而 `--ink` 是旧设计
+  原型（`docs/2026-08-16-frontend-aesthetic`）里的 token，早已不在 `styles.css` 的 token
+  表里——轨道实际透明、只剩一条 1px 描边，读起来像一根淡虚线。改用 `--surface-3`，并加
+  一枚可见滑块 `.syringe-handle`（纯指示物，`pointer-events: none`，不吃指针事件）。
 
 ## 2026-10-07
 
