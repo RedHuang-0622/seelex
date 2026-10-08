@@ -89,10 +89,10 @@ test("theme: manifest drops malformed entries and keeps usable defaults", () => 
   assert.equal(normalizeThemeManifest({}).defaultModeId, "light");
 });
 
-test("theme: shipped manifest lists 5 skins and 2 modes pointing at real files", () => {
+test("theme: shipped manifest lists 6 skins and 2 modes pointing at real files", () => {
   assert.equal(manifest.defaultSkinId, "qoder");
   assert.equal(manifest.defaultModeId, "light");
-  assert.deepEqual(manifest.skins.map(skin => skin.id), ["qoder", "graphite", "verdigris", "paper", "silver"]);
+  assert.deepEqual(manifest.skins.map(skin => skin.id), ["qoder", "graphite", "verdigris", "paper", "silver", "glass"]);
   assert.deepEqual(manifest.modes.map(mode => mode.id), ["light", "dark"]);
   for (const skin of manifest.skins) {
     assert.ok(skin.name, `${skin.id} 需要名字`);

@@ -14,9 +14,10 @@
 | **深浅（mode）** | 中性基座：面 `--surface*`/`--bg`/`--panel`、文本 `--text*`、描边 `--border*`、状态色 `--status-*`、半透明面、投影 `--shadow*`、刻度 `--tick*` | `styles.css`（`:root` 浅色、`:root[data-theme="dark"]` 深色） | `light` / `dark` |
 | **皮肤（skin）** | 品牌：主信号（`--accent*` / `--on-accent`）与环境渐变（`--shell-gradient`） | `themes/<skin>.css` | `qoder` / `graphite` / `verdigris` / `paper` / `silver` |
 
-两者可自由组合（当前 5 皮肤 × 2 深浅 = 10 种外观）。
+两者可自由组合（当前 6 皮肤 × 2 深浅 = 12 种外观）。
 **加一套皮肤 = 加一个 CSS 文件 + `manifest.json` 里的一条登记**，不改任何 JS，
-也不改深浅。
+也不改深浅。若是**材质皮肤**（如 `glass`），皮肤文件里可以额外带一组材质规则——
+见下文「材质皮肤」。
 
 ## 随包皮肤（皮肤轴）
 
@@ -27,6 +28,7 @@
 | `verdigris` | 铜绿钢青 | 铜绿压深 / 铜绿提亮 | 淡青绿→钢青 ｜ 青绿→钢青（暗） |
 | `paper` | 暖纸白昼 | 暖铜 / 暖铜提亮 | 暖纸→微冷纸 ｜ 暖褐近黑→冷褐近黑 |
 | `silver` | 银白冷钢 | 钢青灰 / 钢青灰提亮 | 银白→冷灰 ｜ 冷近黑→更深冷近黑 |
+| `glass` | 毛玻璃（材质皮肤） | 冷石板 / 冷石板提亮 | 半透明白→冷蓝 ｜ 半透明近黑→冷近黑 |
 
 > 环境渐变的配方与判据（等亮度 / 纯竖直 / 线性 sRGB）见
 > `docs/design/qoder-skin/DESIGN-LANGUAGE.md` 第 1 节。
@@ -66,6 +68,39 @@
 **不允许做**：改选择器结构、用 `!important`、引入远程字体或图片、写死与
 token 无关的颜色；皮肤包里只允许出现 **一个 `:root { … }`**，出现别的选择器规则时，
 评审必须问清楚为什么 token 不足以表达。
+
+## 材质皮肤（例外：可以带材质规则）
+
+纯色皮肤只用 token 就能表达。但**毛玻璃/磨砂**这类材质的"透"靠的是
+`backdrop-filter` 模糊，而滤镜**不是 token 能表达的**（同源皮肤文件是按
+`<link>` 加载的整份样式表，加载顺序在 `styles.css` 之后，所以它天然能覆盖
+壳/纸这两层）。这是 `themes/<skin>.css` 唯一被允许出现 `:root` 之外选择器的场景。
+
+判据（`glass` 是本条的第一个落点）：
+
+- 品牌 token 契约照旧（8 个全给、深浅都齐、不写 `!important`、只有一个 `:root`）；
+- 额外的选择器**只允许落在"壳 / 纸"两层**——`.app-shell` / `.workspace` /
+  `.topbar` / `.left-panel` / `.right-panel`，用来铺半透明底与 `backdrop-filter`；
+- **不允许**深入任一组件类（`.message` / `.right-tab` / `.modal` …）；
+- 材质会带来全窗 `backdrop-filter` 的 GPU 代价——把模糊放在有限区域
+  （纸 + 三块面板），别放在 `.app-shell` 上（那是全窗一层，流式刷新时每帧都要渲一遍）。
+
+### 材质皮肤与「窗口」的接口（毛玻璃要真透出桌面时才需要）
+
+CSS 里的半透明 + `backdrop-filter` 只能糊**应用自己的层**（壳的渐变、面板下的内容）。
+要真的透出**桌面**，窗口本身得让出底色——而 Wails 的窗口透明/亚克力（`Windows.
+WebviewIsTransparent` / `WindowIsTranslucent` / `BackdropType`）**只在建窗时能设，没有
+运行时开关**。所以这条链是：
+
+1. 前端 `window-treatment.js` 用**责任链**从皮肤 id 确认出窗口材质（`glass → acrylic`，
+   其余 → `opaque`）；
+2. `app.js` 在换肤回流时经 `Bridge.SetWindowAppearance(skin, treatment)` 落盘到
+   `gui-appearance.json`（路径由宿主的配置责任链给，见 `main.go guiAppearancePath`）；
+3. `run_wails` 在**下次建窗**时读它，是 `acrylic` 就透明建窗（并清掉 `BackgroundColour`
+   那块实色窗底）。
+
+**换材质皮肤要重启才生效**（第 3 步只在建窗跑一次），其它皮肤不受影响。加一套新的
+材质皮肤只动第 1 步那条链（外加它自己的 CSS），Go 与组件层不用碰。
 
 ## 登记与加载
 

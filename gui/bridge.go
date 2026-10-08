@@ -222,6 +222,11 @@ type Options struct {
 	// StartupWarning 非空时，GUI 窗口就绪后会弹出原生错误对话框展示启动
 	// 配置警告（配置损坏仍可启动，不闪退）。
 	StartupWarning string
+	// AppearancePath 是 GUI 外观设置（当前皮肤 + 由它派生的窗口材质）的落盘路径，
+	// 由宿主按配置责任链给出（见 main.go guiAppearancePath）。建窗期读它决定窗口
+	// 是否走透明/亚克力；换肤期由 Bridge.SetWindowAppearance 写它。
+	// 空串 = 不落盘：窗口保持不透明，换肤照常。
+	AppearancePath string
 }
 
 type AppInfo struct {
@@ -278,6 +283,9 @@ type Bridge struct {
 	// 属于会话状态：终端是用户本地 shell，与 Snapshot/revision/订阅换代无关。
 	terminals *terminal.Manager
 	termMu    sync.Mutex
+	// appearancePath 是 GUI 外观设置的落盘路径（构造时固定，之后只读）：
+	// SetWindowAppearance 写它，run_wails 启动期读它。空串 = 不落盘。
+	appearancePath string
 }
 
 const (
@@ -301,7 +309,7 @@ func NewBridge(app Application, options Options) (*Bridge, error) {
 	if title == "" {
 		title = "Seelex"
 	}
-	return &Bridge{app: app, info: AppInfo{Title: title, Version: options.Version, Project: discoverProject(options.ProjectRoot)}}, nil
+	return &Bridge{app: app, info: AppInfo{Title: title, Version: options.Version, Project: discoverProject(options.ProjectRoot)}, appearancePath: strings.TrimSpace(options.AppearancePath)}, nil
 }
 
 func discoverProject(root string) ProjectInfo {
@@ -855,6 +863,19 @@ func (bridge *Bridge) LoadMoreHistory(limit int) error {
 
 func (bridge *Bridge) LoadLatestHistory() error {
 	return bridge.app.LoadLatestHistory()
+}
+
+// SetWindowAppearance 落盘"当前皮肤 + 由它派生的窗口材质"。前端在换肤回流时调用
+// （材质由 window-treatment.js 的责任链确认），run_wails 在**下次建窗时**读回它决定
+// 窗口要不要走透明/亚克力——Wails 没有运行时开关，所以换毛玻璃皮肤需要重启才生效。
+//
+// 它是纯本地副作用（写一个小 JSON），不碰 Application，因此不设运行守卫：换肤在任何
+// 时刻都该能记住。落盘失败按原样返回给调用方（前端只记不弹），不阻断换肤本身。
+func (bridge *Bridge) SetWindowAppearance(skin, treatment string) error {
+	return writeWindowAppearance(bridge.appearancePath, windowAppearance{
+		Skin:            strings.TrimSpace(skin),
+		WindowTreatment: normalizeWindowTreatment(treatment),
+	})
 }
 
 func (bridge *Bridge) Suggestions(input string) []application.Suggestion {

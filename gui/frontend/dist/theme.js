@@ -9,7 +9,7 @@
 // 两条正交的轴：
 //   · 深浅（mode）：`<html data-theme="light|dark">`，由 styles.css 的中性基座响应；
 //   · 皮肤（skin）：`<link id="seelex-skin">` 指向 themes/<skin>.css 的品牌 token。
-// 两者可自由组合（5 皮肤 × 2 深浅），互不耦合。
+// 两者可自由组合（6 皮肤 × 2 深浅），互不耦合。
 //
 // 本模块只做"选哪套 token"与"切 <html data-theme>"，不产出任何颜色：
 // 颜色事实在 styles.css / 皮肤 CSS 里，契约见 themes/README.md。

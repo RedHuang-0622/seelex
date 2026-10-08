@@ -99,6 +99,28 @@ func runtimeConfigChain(name string) (candidates []string, seedRoot string) {
 	return candidates, seedRoot
 }
 
+// guiAppearancePath 用同一套配置责任链给出 **GUI 外观设置**（当前皮肤 + 窗口材质）的
+// 落盘路径，口径与 ensureConfigFile 一致，只差"不播种"：外观没有"内嵌默认档"要下发，
+// 缺省就是代码里的不透明，所以这里只挑路径——
+//
+//	存在即读也即写：链上第一份已存在的文件就是它（读和写都落同一份，不会出现
+//	                "读 CWD 那份、写 <exe> 那份"的错位）；
+//	全缺则落到 <exe>/config（与其它配置同一个"应用自己的地盘"，不往用户项目目录里造）。
+//
+// 链本身由 runtimeConfigChain 给（CWD config/ → CWD → <exe>/config/）。
+func guiAppearancePath() string {
+	candidates, seedRoot := runtimeConfigChain("gui-appearance.json")
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	if seedRoot != "" {
+		return filepath.Join(seedRoot, "gui-appearance.json")
+	}
+	return candidates[0]
+}
+
 // pluginRootChain 返回 Plugin 根在责任链上的候选（按优先级、去重保序）：
 //
 //  1. -plugins <paths>      显式旗标（最高优先；逗号分隔可多根，先出现的根胜出）
@@ -1708,6 +1730,9 @@ func startFrontend(app *application.Service, backendOutput io.Writer, startupWar
 	case "gui":
 		if err := gui.Run(app, gui.Options{
 			Title: "Seelex", Version: Version, StartupWarning: startupWarning,
+			// 外观设置（皮肤 → 窗口材质）的落盘路径：建窗期读它决定窗口要不要走
+			// 透明/亚克力（毛玻璃皮肤），换肤期由 Bridge.SetWindowAppearance 写它。
+			AppearancePath: guiAppearancePath(),
 		}); err != nil {
 			return fmt.Errorf("GUI 错误: %w", err)
 		}

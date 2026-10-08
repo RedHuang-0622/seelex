@@ -28,6 +28,7 @@ import { employeePool, hirePanel, isPinnedRole, nextAgentTeamOrder, normalizeAge
 import { escapePluginSourceText, pluginSourceBadge, withPluginAssembly } from "./plugin-source.js";
 import { renderHistorySearchResults } from "./history-search.js";
 import { createThemeController, loadThemeManifest } from "./theme.js";
+import { resolveWindowTreatment } from "./window-treatment.js";
 import {
   bindHorizontalDragDelegate,
   bindHorizontalWheelDelegate,
@@ -4003,6 +4004,26 @@ function closeSettings() { setModal("settings-modal", false); }
 // 三层分工见 themes/README.md：组件库给元素基线，styles.css 给 Seelex 外观，
 // 皮肤包只覆盖语义 token。颜色事实在皮肤 CSS 里，这里只负责选哪一套。
 let themeController = null;
+// lastWindowAppearanceKey 是"已经交给 Go 的窗口外观"（`皮肤:材质`）：换肤回流会被
+// 调用两次（<link> 换上是异步的，控制器先立即回流一次、onload 再回流一次），深浅
+// 切换也会重跑同一条 onApplied——没有这个钥匙，一次换肤会白发几次跨进程写盘。
+let lastWindowAppearanceKey = "";
+
+// syncWindowAppearance 把"当前皮肤 → 窗口材质"经责任链确认后交给 Go 落盘。
+// 窗口透明/亚克力只能在建窗时设（Wails 无运行时开关），所以这一步只写设置：
+// 换 glass 后要**重启**才真的透，其余皮肤一字不动。
+async function syncWindowAppearance() {
+  const skinId = themeController?.current()?.skin?.id || "";
+  const treatment = resolveWindowTreatment(skinId);
+  const key = `${skinId}:${treatment}`;
+  if (key === lastWindowAppearanceKey) return;
+  try {
+    await invoke("SetWindowAppearance", skinId, treatment);
+    lastWindowAppearanceKey = key;
+  } catch {
+    // 桥未就绪（浏览器预览 / headless）或宿主不落盘：换肤本身不受影响，下次回流再试。
+  }
+}
 
 function themeStorage() {
   try {
@@ -4054,7 +4075,11 @@ async function initialiseTheme() {
     // 换肤要回流到 token 的 JS 消费方：xterm 的配色只在创建时取一次 token，
     // 不跟 CSS 变量走，必须由这里显式通知终端面板重取（否则换浅色皮肤后
     // 终端仍是深色底）。
-    onApplied: () => terminalPanel.refreshTheme()
+    onApplied: () => {
+      terminalPanel.refreshTheme();
+      // 同时把"这套皮肤要哪种窗口"交出去（毛玻璃要做到真透，见 window-treatment.js）。
+      void syncWindowAppearance();
+    }
   });
   // 启动时套回上次的皮肤与深浅：皮肤 <link> 与 <html data-theme> 都由控制器决定。
   themeController.apply();

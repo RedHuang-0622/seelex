@@ -10,6 +10,7 @@ import (
 	"github.com/wailsapp/wails/v2"
 	wailsoptions "github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	windowoptions "github.com/wailsapp/wails/v2/pkg/options/windows"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -43,7 +44,7 @@ func Run(app Application, config Options) error {
 	}
 	closer := newCloseCoordinator(app, func() { runtime.Quit(bridge.requestContext()) })
 
-	return wails.Run(&wailsoptions.App{
+	appOptions := &wailsoptions.App{
 		Title:     bridge.info.Title,
 		Width:     width,
 		Height:    height,
@@ -71,5 +72,20 @@ func Run(app Application, config Options) error {
 		OnBeforeClose: func(context.Context) bool { return closer.BeforeClose() },
 		OnShutdown:    func(context.Context) { bridge.Stop() },
 		Bind:          []interface{}{bridge},
-	})
+	}
+
+	// 毛玻璃皮肤（window-treatment.js 的责任链确认、Bridge.SetWindowAppearance 落盘）：
+	// 窗口透明/亚克力**只能在建窗时设**（Wails 没有运行时开关），所以这里读上次落盘的
+	// 外观设置，是 glass 就把窗口让出底色——同时必须清掉 BackgroundColour 那块实色窗底，
+	// 否则它会把 WebView 身后的亚克力整个盖掉。其余皮肤一字不动。
+	if windowWantsTranslucency(config.AppearancePath) {
+		appOptions.BackgroundColour = nil
+		appOptions.Windows = &windowoptions.Options{
+			WebviewIsTransparent: true,
+			WindowIsTranslucent:  true,
+			BackdropType:         windowoptions.Acrylic,
+		}
+	}
+
+	return wails.Run(appOptions)
 }

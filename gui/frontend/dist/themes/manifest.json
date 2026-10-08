@@ -37,6 +37,13 @@
       "description": "钢青主信号 + 银白冷灰的环境渐变，清冷克制",
       "swatches": ["#5c6673", "#e9edf1", "#1a1d20", "#aeb8c2"],
       "file": "themes/silver.css"
+    },
+    {
+      "id": "glass",
+      "name": "毛玻璃",
+      "description": "材质皮肤：背景不铺色，透的毛玻璃——半透明面 + backdrop-filter 模糊",
+      "swatches": ["#33404f", "#ffffff", "#dbe6f2", "#10151b"],
+      "file": "themes/glass.css"
     }
   ],
   "modes": [

@@ -1,0 +1,48 @@
+/* 皮肤包：毛玻璃（glass）
+ * 两轴换肤的「皮肤」轴。与纯色皮肤（只覆盖 :root 品牌 token）不同，本皮肤是
+ * **材质皮肤**：毛玻璃的"透"必须靠 backdrop-filter，而滤镜不是 token 能表达的，
+ * 所以本文件除 :root 外再携带一组材质规则——这是 themes/README.md 里那张
+ * "材质皮肤"契约的落点，选择器只落在**壳/纸**这两层（.app-shell / .workspace /
+ * .topbar / .left-panel / .right-panel），不碰任何组件内部结构。
+ *
+ * 口径：
+ *   - 背景不做颜色限制：壳的底不铺实色（background-color: transparent），
+ *     颜色只来自一条极淡的半透明渐变；观感主要来自把身后糊成一片的模糊；
+ *   - 主信号取冷调石板色，与"玻璃/雾面"的冷感一致；
+ *   - 深浅两个变体都给，任意深浅都能用。
+ * 契约见 themes/README.md：品牌 token 一个不能少，不写 !important。 */
+:root {
+  /* 浅色变体 */
+  --skin-accent-light: #33404f;
+  --skin-accent-strong-light: #1d2733;
+  --skin-on-accent-light: #ffffff;
+  --skin-gradient-light: linear-gradient(180deg, rgba(255, 255, 255, .58) 0%, rgba(205, 222, 236, .34) 100%);
+
+  /* 深色变体（主信号反相：浅实心 + 深字） */
+  --skin-accent-dark: #dbe6f2;
+  --skin-accent-strong-dark: #ffffff;
+  --skin-on-accent-dark: #10151b;
+  --skin-gradient-dark: linear-gradient(180deg, rgba(38, 44, 52, .58) 0%, rgba(16, 20, 26, .34) 100%);
+}
+
+/* 壳 = 透的玻璃：不铺实色底，只留一条半透明渐变；后面透出什么就看到什么。 */
+.app-shell {
+  background-color: transparent;
+  background-image: var(--shell-gradient);
+}
+
+/* 纸 = 盖在壳上的一层雾面玻璃：半透明面 + 把身后的渐变糊掉。 */
+.workspace {
+  background: color-mix(in srgb, var(--surface) 58%, transparent);
+  backdrop-filter: blur(22px) saturate(1.35);
+  -webkit-backdrop-filter: blur(22px) saturate(1.35);
+}
+
+/* 顶栏与左右栏同材质（比纸更透一档，让壳的渐变透出来）。 */
+.topbar,
+.left-panel,
+.right-panel {
+  background: color-mix(in srgb, var(--surface) 44%, transparent);
+  backdrop-filter: blur(22px) saturate(1.35);
+  -webkit-backdrop-filter: blur(22px) saturate(1.35);
+}
