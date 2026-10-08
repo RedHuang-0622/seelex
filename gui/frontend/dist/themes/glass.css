@@ -2,8 +2,10 @@
  * 两轴换肤的「皮肤」轴。与纯色皮肤（只覆盖 :root 品牌 token）不同，本皮肤是
  * **材质皮肤**：毛玻璃的"透"必须靠 backdrop-filter，而滤镜不是 token 能表达的，
  * 所以本文件除 :root 外再携带一组材质规则——这是 themes/README.md 里那张
- * "材质皮肤"契约的落点，选择器只落在**壳/纸**这两层（.app-shell / .workspace /
- * .topbar / .left-panel / .right-panel），不碰任何组件内部结构。
+ * "材质皮肤"契约的落点：额外的选择器只落在**壳/纸**两层（.app-shell / .workspace /
+ * .topbar / .left-panel / .right-panel），画布那一层（`<html>` 的底色）则写在
+ * 下面的 `:root` 块里、不另起选择器（见块内注释：只有 `:root` 压得住 `:root`）。
+ * 不碰任何组件内部结构。
  *
  * 口径：
  *   - 背景不做颜色限制：壳的底不铺实色（background-color: transparent），
@@ -23,6 +25,15 @@
   --skin-accent-strong-dark: #ffffff;
   --skin-on-accent-dark: #10151b;
   --skin-gradient-dark: linear-gradient(180deg, rgba(38, 44, 52, .58) 0%, rgba(16, 20, 26, .34) 100%);
+
+  /* 画布让位：皮肤里唯一的**非 token** 声明，也是"毛玻璃"这条链的最后一块。
+     styles.css 的浅色基座写着 `:root { background: var(--bg) }`（`:root` 是伪类，
+     特异性 0-1-0），组件库又把它桥到 `--pico-background-color` 铺在 `:where(:root)`
+     上——两层合起来让 `<html>` 整块实色，正好排在窗之上、壳之下，把窗后的亚克力盖得
+     严严实实（"透出桌面"永远看不见）。这里同特异性、后写覆盖：画布透明，透出的才是窗。
+     （`:where()` 零特异性、`html` 只是 0-0-1，都压不过 `:root`——所以必须写进
+     这个 `:root` 块，另起一条选择器既压不住、也破坏"皮肤只有一个 :root"的契约。） */
+  background-color: transparent;
 }
 
 /* 壳 = 透的玻璃：不铺实色底，只留一条半透明渐变；后面透出什么就看到什么。 */

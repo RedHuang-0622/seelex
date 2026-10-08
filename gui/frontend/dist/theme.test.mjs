@@ -117,6 +117,30 @@ test("theme: shipped skins cover the whole brand-token contract", async () => {
   }
 });
 
+// 材质皮肤要"真透出桌面"必须有两层同时让位：**窗**（Wails 建窗期的透明/亚克力，
+// `run_wails` 读 `gui-appearance.json` 决定）与**画布**（`<html>` 的底色）。
+// 画布这条只能写进 `:root`：styles.css 的浅色基座是 `:root { background: var(--bg) }`
+// （`:root` 是伪类，特异性 0-1-0），组件库又把它桥到 `--pico-background-color`
+// 铺在 `:where(:root)` 上——`html`/`body`（0-0-1）压不过 `:root`，另起选择器还会
+// 破坏"皮肤只有一个 `:root`"的契约。用户 2026-10-08 实测"毛玻璃没出来"就出在这层。
+test("theme: 材质皮肤（glass）让画布也让出底色，其余皮肤不动画布", async () => {
+  for (const skin of manifest.skins) {
+    if (!skin.file) continue;
+    const code = (await readFile(new URL(`./${skin.file}`, import.meta.url), "utf8"))
+      .replace(/\/\*[\s\S]*?\*\//g, "");
+    const rootBlock = /:root\s*\{([\s\S]*?)\}/.exec(code);
+    assert.ok(rootBlock, `${skin.id} 缺少 :root`);
+    const canvasTransparent = /background-color:\s*transparent/.test(rootBlock[1]);
+    if (skin.id === "glass") {
+      assert.ok(canvasTransparent, "glass 必须让画布透明，否则窗后的亚克力被它整块盖住");
+    } else {
+      assert.ok(!canvasTransparent, `${skin.id} 不该碰画布底（非材质皮肤）`);
+    }
+    // 画布让位只允许落在 :root 里，不许另起 html/body 选择器（压不过 :root，且破坏契约）
+    assert.doesNotMatch(code, /(?:^|\})\s*(?:html|body)\s*[,{]/, `${skin.id} 画布规则必须写在 :root 内`);
+  }
+});
+
 // 深浅契约校验：styles.css 必须给出浅色与深色两套中性基座，且把皮肤 token 桥接进品牌位。
 test("theme: styles.css ships both mode bases and bridges skin tokens", async () => {
   const css = await readFile(new URL("./styles.css", import.meta.url), "utf8");

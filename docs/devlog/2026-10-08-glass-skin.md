@@ -102,3 +102,45 @@ $ cd gui/frontend/dist && node --test
   `SetTranslucentBackground`（纯透明窗，无亚克力毛面）。本机版本未验证。
 - **`--skin-gradient-*` 是半透明的**：`verify-skins.py` 那类"壳顶取色"判据对它会读出
   合成后的颜色（叠加窗口底色），不能直接沿用。
+
+## 7. 补（同日晚）：画布层——"透不出桌面"的真因
+
+用户重启后报"毛玻璃没出来"。**窗那一侧是好的**，实测（只读探针，`GetWindowLongPtr`
++ `DwmGetWindowAttribute`，未动用户窗口）：
+
+```text
+hwnd=0x2310CC title='Seelex' ex=0x250100 noredir=True backdrop=3   # 3 = acrylic
+```
+
+也就是说 `run_wails` 的建窗条件（`windowWantsTranslucency` → 清 `BackgroundColour` +
+`WebviewIsTransparent` / `WindowIsTranslucent` / `BackdropType: Acrylic`）确实生效了。
+盖住它的是**页面画布**：
+
+```text
+# 无头 Chrome，真实 dist 的 index.html + styles.css + themes/glass.css
+:root background-color=rgb(247, 246, 242)      <-- 实色，就在窗之上、壳之下
+.app-shell background-color=rgba(0, 0, 0, 0)
+.app-shell background-image=linear-gradient(rgba(255,255,255,.58), rgba(205,222,236,.34))
+.workspace background-color=color(srgb 1 1 1 / .58)
+```
+
+`:root` 那条实色来自两处叠加：`styles.css` 浅色基座的 `:root { background: var(--bg) }`
+与组件库把 `--pico-background-color` 铺在 `:where(:root)` 上。它铺满整个视口，
+`backdrop-filter` 糊到的就是这一片平地——所以观感只剩"半透明的纯色面板"。
+
+**修法**：材质皮肤的 `:root` 里加 `background-color: transparent`。位置是硬约束——
+`:root` 是伪类（特异性 0-1-0），`html` / `body` 只是类型选择器（0-0-1），**压不过**基座那
+条；而且另起选择器会破坏"皮肤包里只有一个 `:root`"的契约。修后复测：
+
+```text
+:root background-color=rgba(0, 0, 0, 0)        # 浅色 glass
+:root background-color=rgba(0, 0, 0, 0)        # 深色 glass（shell 渐变切到深色变体）
+:root background-color=rgb(247, 246, 242)      # silver（非材质皮肤，一字不动）
+```
+
+契约与判据落进 `themes/README.md`（新增「画布让位」一节 + 接口三/四两条），
+`theme.test.mjs` 加静态断言（材质皮肤必须让画布、其余皮肤不许动），
+`docs/gui/CHANGELOG.md` 记 Fixed。
+
+**仍未取的证据**：修完没有重启 GUI 目视确认"真透出桌面"。窗与画布两层现在都有
+静态/无头证据，端到端的肉眼确认要重建 GUI 后在「设置 → 外观」选毛玻璃并重启。

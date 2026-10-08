@@ -33,6 +33,16 @@
   原型（`docs/2026-08-16-frontend-aesthetic`）里的 token，早已不在 `styles.css` 的 token
   表里——轨道实际透明、只剩一条 1px 描边，读起来像一根淡虚线。改用 `--surface-3`，并加
   一枚可见滑块 `.syringe-handle`（纯指示物，`pointer-events: none`，不吃指针事件）。
+- **毛玻璃"透不出桌面"：窗让了，画布没让**。窗那一侧是对的——实机 `GetWindowLongPtr`
+  读到 `WS_EX_NOREDIRECTIONBITMAP` 已置位、`DwmGetWindowAttribute(38)=3`（acrylic），
+  说明 `run_wails` 的建窗条件确实生效；盖住它的是**页面画布**：`styles.css` 的浅色基座
+  写着 `:root { background: var(--bg) }`（`:root` 是伪类，特异性 0-1-0），组件库又把
+  `--pico-background-color`（= `--bg`）铺在 `:where(:root)` 上——`<html>` 整块实色，
+  位置正好在窗之上、壳之下，`backdrop-filter` 只糊到一片平地，观感塌回"半透明的纯色
+  面板"。修法：材质皮肤的 `:root` 里加一条 `background-color: transparent`；**只能写在
+  那里**（`html` / `body` 是类型选择器，0-0-1 压不过 0-1-0 的基座，另起选择器还会破坏
+  "皮肤包里只有一个 `:root`"的契约）。契约与判据写进 `themes/README.md`，
+  `theme.test.mjs` 加静态断言：材质皮肤必须让画布、其余皮肤不许动画布。
 
 ## 2026-10-07
 
