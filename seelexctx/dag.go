@@ -153,6 +153,12 @@ func NewCompactionDAG(opts CompactionDAGOptions) *CompactionDAG {
 	return &CompactionDAG{opts: opts}
 }
 
+// LocalCompactReplayFailedCode 是「前缀重放 LLM 调用失败/返回空读后感」的降级码
+// （帧证据 ref = `compact-local:replay-failed`）。导出它是因为推帧侧（seelebridge
+// 的 PushCompactionFrame / ReadbackCompactionSummary）要据此**拒绝**没有模型读后感
+// 的帧：读后感为空不得更新压缩栈顶，失败以错误返回（用户口径 2026-10-04）。
+const LocalCompactReplayFailedCode = "replay-failed"
+
 // compactionDAGState 是单次运行的共享状态（节点闭包写入，runner 只调度）。
 type compactionDAGState struct {
 	input         CompactionInput
@@ -446,7 +452,7 @@ func (d *CompactionDAG) chapter2Node(state *compactionDAGState) func(context.Con
 				}
 			}
 			// 两次尝试均失败 → 本地压缩兜底（不消耗模型 token 的确定性路径）。
-			state.degrade("replay-failed", fmt.Sprintf("前缀重放两次调用均失败，已回退本地压缩：%v", lastErr))
+			state.degrade(LocalCompactReplayFailedCode, fmt.Sprintf("前缀重放两次调用均失败，已回退本地压缩：%v", lastErr))
 		}
 		chapter2, carry := LocalChapter2WithCarry(LocalCompactOptions{
 			Overflow:         state.overflow,

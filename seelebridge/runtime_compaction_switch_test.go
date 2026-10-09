@@ -164,36 +164,41 @@ func hasLocalCompactEvidence(frame sessionstore.CompactFrame, code string) bool 
 	return false
 }
 
-// TestCompactionSummarySwitchOpenReplayFailureWritesReason：开臂 + 重放调用失败——
-// 帧必须写出"这次为什么没有模型摘要"（含真实报错），而不是只留一个
+// TestCompactionSummarySwitchOpenReplayFailureRefusesStackFrame：开臂 + 重放调用失败
+// ——**不推帧、报错返回**（用户口径 2026-10-04：读后感为空不得更新压缩栈顶），且错误
+// 必须写出"这次为什么没有模型摘要"（含真实报错），而不是只留一个
 // summary_source=local 让人猜。
+//
+// 旧契约（本用例的前身 TestCompactionSummarySwitchOpenReplayFailureWritesReason）
+// 是"降级帧照推、帧里写明原因"；2026-10-04 起改为**拒绝**：一帧没有模型读后感的
+// 帧对检索毫无用处，却会改写请求前缀、作废一段 provider 前缀缓存。"为什么没有
+// 模型摘要"这段事实没有丢——它随错误返回（调用方写进失败痕的 note）。
 //
 // 这条用例来自一次现场：新进程（已确认读到 enabled: true）折出的帧仍是 local，而
 // 它的回执只有 `index 458ms` 与 `summary_source=local`——"没调用"与"调用失败"读不出
 // 来，失败原因被 chapter2Node 吞掉。静默降级本身就是缺陷：两条来路的处置完全不同
 // （一个是配置，一个是故障）。
-func TestCompactionSummarySwitchOpenReplayFailureWritesReason(t *testing.T) {
+func TestCompactionSummarySwitchOpenReplayFailureRefusesStackFrame(t *testing.T) {
 	const failure = "account lease refused: rate limited"
 	fixture := newCompactionSwitchFixtureWith(t, true, &failingCompleter{err: errors.New(failure)})
 	if summarizer := fixture.runtime.compactionSummarizer(); summarizer == nil {
 		t.Fatal("开关打开时摘要器不该为 nil（失败臂要钉的是调用失败，不是没装配）")
 	}
 
-	receipt := fixture.push(t)
-	if receipt.SummarySource != seelexctx.CompactSummarySourceLocal {
-		t.Fatalf("重放失败后应回退本地压缩，summary_source = %q", receipt.SummarySource)
+	receipt, err := fixture.runtime.PushCompactionFrame(context.Background(), fixture.session, CompactionFrameRequest{
+		Overflow:      compactionSwitchOverflow(),
+		ReplayHistory: compactionSwitchReplayHistory(),
+	})
+	if err == nil {
+		t.Fatalf("重放失败时推帧必须报错返回，实际 err=nil receipt=%+v", receipt)
 	}
 	for _, want := range []string{"前缀重放两次调用均失败", failure} {
-		if !strings.Contains(receipt.SummaryNote, want) {
-			t.Fatalf("回执 summary_note 应含 %q，实际 %q", want, receipt.SummaryNote)
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("错误应含 %q，实际 %q", want, err.Error())
 		}
 	}
-	top := fixture.stackTop(t)
-	if !hasLocalCompactEvidence(top, "replay-failed") {
-		t.Fatalf("栈帧应留 compact-local:replay-failed 证据，实际 %+v", top.Evidence)
-	}
-	if !strings.Contains(top.Evidence[len(top.Evidence)-1].Summary, failure) {
-		t.Fatalf("证据正文应带真实报错，实际 %q", top.Evidence[len(top.Evidence)-1].Summary)
+	if stack := fixture.store.Snapshot().CompactStack; len(stack) != 0 {
+		t.Fatalf("读后感失败不得更新压缩栈，实际栈有 %d 帧", len(stack))
 	}
 }
 

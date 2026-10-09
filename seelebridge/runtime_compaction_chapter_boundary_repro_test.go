@@ -75,43 +75,40 @@ func TestReproCompactionReadbackSummaryIsChapter2NotWholeFrame(t *testing.T) {
 	}
 }
 
-// 复现同一边界的第二半：预读回执其实是**本地确定性压缩**（模型调用失败）时，
-// 推帧不得把它盖成 replay，也不得丢掉那条真实报错。
+// 复现同一边界的第二半（2026-10-04 口径更新后拆成两段）：
 //
-// 旧代码在 `PrecomputedSummary != ""` 这一支里无条件写
-// `summary_source=replay` 并 `clearDegrade()`——于是"读数闸落在本地压缩上"这件事
-// 在帧里被抹成"这次有模型读后感"，报错原文一个字不剩。这正是现场那句话：
-// **压缩看起来成功了（replay），帧却是空骨架**；而"模型为什么没被叫到"这条唯一
-// 无法从帧形状反推的事实，也就跟着没了。
+//  1. 读数闸拿不到模型读后感（模型调用失败）→ **报错返回**，错误携带真实报错——
+//     旧契约是交回 source=local 的回执；读后感为空不折上下文（2026-10-02）与
+//     「失败以错误返回」（2026-10-04）之后，调用方需要的是失败原因本身。
+//
+//  2. 任何人若仍把一份**本地**预读回执（PrecomputedSummarySource=local）交到推帧，
+//     推帧不得把它盖成 replay、也不得丢掉那条真实报错（chapter2Node 预读支路的
+//     不变量，与"预读回执从哪来"无关）。
 func TestReproPrecomputedLocalSummaryMustNotBeRelabelledReplay(t *testing.T) {
 	const failure = "connect: connection refused"
 	fixture := newCompactionSwitchFixtureWith(t, true, &failingCompleter{err: errors.New(failure)})
 	ctx := context.Background()
+
+	// 第一段：读数闸报错返回，错误带真实报错。
 	readback, err := fixture.runtime.ReadbackCompactionSummary(ctx, fixture.session, CompactionFrameRequest{
 		Overflow:      compactionSwitchOverflow(),
 		ReplayHistory: compactionSwitchReplayHistory(),
 	})
-	if err != nil {
-		t.Fatalf("ReadbackCompactionSummary: %v", err)
+	if err == nil {
+		t.Fatalf("模型调用失败时读数闸必须报错返回，实际 err=nil receipt=%+v", readback)
 	}
-	if readback.SummarySource != seelexctx.CompactSummarySourceLocal {
-		t.Fatalf("模型调用失败时读数闸应报 local，实际 %q", readback.SummarySource)
-	}
-	if !strings.Contains(readback.SummaryNote, failure) {
-		t.Fatalf("读数回执的 note 应带真实报错，实际 %q", readback.SummaryNote)
-	}
-	// 读数落在本地压缩上时，它交回的正文就是那具全 (none) 骨架——它可以是"这次
-	// 压不下去"的记录，但绝不能冒充模型读后感。
-	if strings.Contains(readback.Summary, "## "+seelexctx.CompactChapter1Title) {
-		t.Fatalf("读数回执不得把整份两章节摘要当 Chapter 2 交出来：\n%s", readback.Summary)
+	if !strings.Contains(err.Error(), failure) {
+		t.Fatalf("读数错误应带真实报错，实际 %q", err.Error())
 	}
 
+	// 第二段：预读回执是本地压缩时，推帧不得盖成 replay（预读支路的不变量）。
+	localChapter2 := "### 目标 (Goal)\n(none)\n\n### 当前工作 (Current Work)\n本地压缩骨架（非模型读后感）"
 	receipt, err := fixture.runtime.PushCompactionFrame(ctx, fixture.session, CompactionFrameRequest{
 		Overflow:                 compactionSwitchOverflow(),
 		ReplayHistory:            compactionSwitchReplayHistory(),
-		PrecomputedSummary:       readback.Summary,
-		PrecomputedSummarySource: readback.SummarySource,
-		PrecomputedSummaryNote:   readback.SummaryNote,
+		PrecomputedSummary:       localChapter2,
+		PrecomputedSummarySource: seelexctx.CompactSummarySourceLocal,
+		PrecomputedSummaryNote:   failure,
 	})
 	if err != nil {
 		t.Fatalf("PushCompactionFrame: %v", err)

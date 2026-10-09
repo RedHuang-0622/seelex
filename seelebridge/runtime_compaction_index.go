@@ -72,12 +72,20 @@ type CompactionFrameReceipt struct {
 // seelexctx 的 chapter2Node 写入）。没有这条证据 → 返回空串：不编原因，
 // 也不把"没有解释"说成"没有降级"。
 func frameSummaryNote(frame sessionstore.CompactFrame) string {
+	_, note := frameLocalDegrade(frame)
+	return note
+}
+
+// frameLocalDegrade 从帧证据里读出降级码与原因（ref `compact-local:<code>` 的
+// 那条，由 seelexctx 的 chapter2Node 写入）。没有这条证据 → 两个返回值都为空：
+// replay 成功的帧不留降级证据（只记降级，不记正常）。
+func frameLocalDegrade(frame sessionstore.CompactFrame) (code, note string) {
 	for _, evidence := range frame.Evidence {
-		if strings.HasPrefix(evidence.Ref, seelexctx.LocalCompactEvidenceRefPrefix) {
-			return strings.TrimSpace(evidence.Summary)
+		if suffix, ok := strings.CutPrefix(evidence.Ref, seelexctx.LocalCompactEvidenceRefPrefix); ok {
+			return suffix, strings.TrimSpace(evidence.Summary)
 		}
 	}
-	return ""
+	return "", ""
 }
 
 // CompactionSummaryAvailable 报告装配层压缩这次能不能拿到**模型生成的读后感**
@@ -105,6 +113,11 @@ func (r *Runtime) CompactionSummaryAvailable() bool {
 // 的 PushCompactionFrame 给出。同一次压缩不会重复调用模型：读数拿到的正文经
 // CompactionFrameRequest.PrecomputedSummary 原样交给推帧。
 //
+// 读后感 LLM 调用**不带时间限制**（重放跑多久就跑多久）；调用失败 / 模型返回空读后感
+// 时**报错返回**，错误携带真实原因（402 余额不足的原文 / 其它失败的原文）——调用方
+// （context_runtime 的 noSummary 闸）据此不折上下文，并把原因写进失败痕（用户口径
+// 2026-10-04）。
+//
 // 回执的 Summary 是 **Chapter 2 正文**（不是整份两章节摘要）——它的下一个消费者
 // 是"这次的 Chapter 2"那个字段，边界在这里对齐；SummarySource / SummaryNote 同样
 // 原样带下去，推帧据此如实标注来源与"为什么没有模型读后感"。
@@ -131,6 +144,15 @@ func (r *Runtime) ReadbackCompactionSummary(
 	if err != nil {
 		return CompactionFrameReceipt{}, fmt.Errorf("compaction index: readback summary: %w", err)
 	}
+	// 读后感失败的显式出口（用户口径 2026-10-04）：前缀重放的 LLM 调用失败 / 返回
+	// 空读后感（降级码 replay-failed）时**报错返回**，错误携带真实原因（402 余额不足
+	// 的原文 / 其它失败的原文 / 空读后感），绝不交回 source=local 的"伪成功"回执——
+	// 调用方（context_runtime 的 noSummary 闸）要的是失败原因，不是一份本地压缩。
+	// 开关关闭（no-summarizer）是结构配置事实、模型从未被叫到，不在此列（它由
+	// CompactionSummaryAvailable 探针在上游挡下）。
+	if code, note := frameLocalDegrade(frame); code == seelexctx.LocalCompactReplayFailedCode {
+		return CompactionFrameReceipt{}, fmt.Errorf("compaction index: readback summary: no model readback (%s): %s", code, note)
+	}
 	// Summary 交回的是 **Chapter 2 正文**，不是整份帧摘要：调用方（装配层）把它
 	// 存成 precomputedSummary、再当"这次的 Chapter 2"交回推帧（见
 	// CompactionFrameRequest.PrecomputedSummary）。整份摘要当正文用会让帧出现双重
@@ -144,6 +166,11 @@ func (r *Runtime) ReadbackCompactionSummary(
 }
 
 // PushCompactionFrame 生成一帧并压入该会话的压缩栈，返回回执。
+//
+// 读后感闸（用户口径 2026-10-01 / 2026-10-04）：只有出了**模型读后感**的帧才进栈。
+// chapter2 的 LLM 调用失败 / 返回空读后感（replay-failed）→ 报错返回（错误带真实
+// 原因），不归档、不推帧、压缩栈顶原样。读后感调用本身不带时间限制：重放跑多久
+// 就跑多久，失败靠错误返回表达，不靠超时截断。
 //
 // 三步都不允许"静默半成"：DAG 失败 → 返回错误（调用方只记日志、压缩照常）；
 // 归档失败 → 同样返回错误，因为一帧没有原文归档就没有 read_compressed_turn 入口，
@@ -181,6 +208,15 @@ func (r *Runtime) PushCompactionFrame(
 	})
 	if err != nil {
 		return CompactionFrameReceipt{}, fmt.Errorf("compaction index: build frame: %w", err)
+	}
+	// 没有模型读后感的帧**不推**（用户口径 2026-10-01 / 2026-10-04）：读后感为空
+	// （模型返回空内容）或读后感调用失败（402 余额不足 / 其它运行时失败，降级码
+	// replay-failed）→ 报错返回，错误携带真实原因；**不归档、不推帧**，压缩栈顶
+	// 原样——一帧没有读后感的帧对检索毫无用处，却会改写请求前缀、作废一段
+	// provider 前缀缓存。开关关闭（no-summarizer）是结构配置事实、模型从未被叫到，
+	// 仍按既有契约落本地帧（TestCompactionSummarySwitchClosedKeepsLocalCompact）。
+	if code, note := frameLocalDegrade(frame); code == seelexctx.LocalCompactReplayFailedCode {
+		return CompactionFrameReceipt{}, fmt.Errorf("compaction index: no model readback (%s): %s", code, note)
 	}
 	// 区间事实由调用方给出（DAG 只在单元空间里算 From/To，它不知道 EventSeq）。
 	// 两个 EventSeq 必须同零或同非零，否则 PushCompact 拒绝半填充区间。
