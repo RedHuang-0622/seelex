@@ -416,6 +416,7 @@ function renderMessage(message, key) {
   const role = message.role || "assistant";
   const time = message.created_at ? new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
   const label = roleIdentity(message, role);
+  const requestMeta = renderRequestMetaChip(message.request_meta);
   const reasoning = String(message.reasoning_content || "").trim();
   const debugID = String(message.id || key || "");
   const roundID = Number(message.round_id || 0);
@@ -434,10 +435,37 @@ function renderMessage(message, key) {
   const wheelLabel = `${role === "user" ? "你" : role === "system" ? "系统" : label} · ${wheelSnippet(String(message.content || "").trim() || reasoning)}`;
   return `<article class="message ${escapeHtml(role)}${messageRoleClass(message)}" data-conversation-key="${escapeHtml(key)}" data-trajectory-key="${escapeHtml(key)}" data-wheel-kind="${wheelKind}" data-wheel-label="${escapeHtml(wheelLabel)}" data-role-name="${escapeHtml(String(message.role_name || ""))}" data-round-id="${roundID}">
     <div class="message-debug"><code class="item-id">${escapeHtml(debugID)}</code></div>
-    <div class="message-head"><span class="role-mark">${role === "user" ? icon("message", 13) : icon("source", 13)}</span><strong>${escapeHtml(label)}</strong>${roundChip}<span>${escapeHtml(time)}</span></div>
+    <div class="message-head"><span class="role-mark">${role === "user" ? icon("message", 13) : icon("source", 13)}</span><strong>${escapeHtml(label)}</strong>${roundChip}<span>${escapeHtml(time)}</span>${requestMeta}</div>
     ${thinking}
     <div class="message-body">${markdown(message.content || "")}</div>
   </article>`;
+}
+
+// renderRequestMetaChip 渲染 message 块头部的「请求元信息条」：本次模型请求的
+// 角色 / provider·model / 思考强度 / 派发时间。数据来自**请求发送前的钩子**
+// （request.meta 会话事件），是瞬态展示——不在快照权威里、不进消息真相源，
+// 历史回放的旧块没有它（meta.reasoning_effort 缺失时不显示强度段）。
+function renderRequestMetaChip(meta) {
+  if (!meta || typeof meta !== "object") return "";
+  const role = String(meta.role || "").trim();
+  const model = String(meta.model || "").trim();
+  if (!role && !model) return "";
+  const provider = String(meta.provider || "").trim();
+  const effort = String(meta.reasoning_effort || "").trim();
+  const sentAt = meta.at ? new Date(meta.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
+  const account = String(meta.account || "").trim();
+  const title = [
+    account ? `账号 ${account}` : "",
+    effort ? `思考强度 ${effort}` : "思考强度跟随账号配置",
+    sentAt ? `请求发出 ${sentAt}` : ""
+  ].filter(Boolean).join(" · ");
+  const segments = [
+    role ? `<span class="request-meta-role">${escapeHtml(role)}</span>` : "",
+    model ? `<span class="request-meta-model">${escapeHtml(provider ? `${provider}/${model}` : model)}</span>` : "",
+    effort ? `<span class="request-meta-effort">${escapeHtml(effort)}</span>` : "",
+    sentAt ? `<span class="request-meta-time">${escapeHtml(sentAt)}</span>` : ""
+  ].filter(Boolean).join('<span class="request-meta-sep" aria-hidden="true">·</span>');
+  return `<span class="message-request-meta" title="${escapeHtml(title)}" data-request-meta="1">${segments}</span>`;
 }
 
 // messageRoleClass 给群聊归属加一层视觉分区（CSS class 后缀）：同一轮对话里

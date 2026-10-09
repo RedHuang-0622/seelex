@@ -104,6 +104,15 @@ type Runtime struct {
 	// （events_unified.go；形态见 06-unified-event-store-decision.md）。
 	summaryLog *SummaryLog
 
+	// routingNotices 是账号路由事实的 CSP 出口（streamingAccountCompleter 的
+	// 观察者投递；非阻塞、满则丢）。application 生命周期消费者从它取路由
+	// 提示并呈现为会话 system 消息（见 application/core work_table.go 消费者）。
+	routingNotices chan dto.RoutingNotice
+	// routingNoticeSeen 是 unpinned_selection 提示的去重表（会话+账号 只提示
+	// 一次；failover 不去重——每次换号都必须可见）。
+	routingNoticeMu   sync.Mutex
+	routingNoticeSeen map[string]bool
+
 	model string
 	// startupWarnings 是启动期非致命配置警告（如 accounts.yaml 解析失败、
 	// 未配置任何角色），由装配层在界面展示；不影响 Runtime 启动。
@@ -368,6 +377,8 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		tracer:               tracer,
 		hook:                 hook,
 		summaryLog:           NewSummaryLog(),
+		routingNotices:       make(chan dto.RoutingNotice, routingNoticeChannelBuffer),
+		routingNoticeSeen:    make(map[string]bool),
 		bundles:              make(map[string]*sessionBundle),
 		sessionTaskSnapshots: make(map[string][]dto.TaskRecord),
 		sessionWorkspaces:    make(map[string]string),

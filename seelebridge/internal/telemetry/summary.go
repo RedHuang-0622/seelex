@@ -19,15 +19,19 @@ const pendingSummaryMax = 4096
 
 // SummaryEvent 是 B 类（llm/tool 意图-效果）的脱敏摘要事件。
 // 刻意只含审计所需的最小字段：Kind/Name/Status/DurationMS/At/NodeID。
-// 绝不含工具参数、结果、LLM 正文或账号数据（与 DiagnosticHook 的脱敏
+// 绝不含工具参数、结果、LLM 正文或凭据（与 DiagnosticHook 的脱敏
 // 原则一致，见 docs/2026-08-14-decoupling/06-unified-event-store-decision.md）。
+// Detail（可选）是路由类摘要（Kind="route"）的一句可读说明：只允许
+// 账号名 / provider / model 这类非敏感路由属性（账号池 Metadata 同源），
+// 不允许错误原文或消息内容。
 type SummaryEvent struct {
-	Kind       string    // "llm" | "tool"
-	Name       string    // action.Name（工具名 / 模型名）
+	Kind       string    // "llm" | "tool" | "route"
+	Name       string    // action.Name（工具名 / 模型名 / "reroute"）
 	Status     string    // "failed" | "completed"
 	DurationMS int64     // 调用耗时（毫秒）
 	At         time.Time // 调用开始时间
 	NodeID     string    // 空 = 主会话 / 无 NodeScope
+	Detail     string    // 可选：路由事实的一句可读说明（只带非敏感路由属性）
 }
 
 // SummaryRecorder 是摘要事件的记录面（由 Runtime 注入 SummaryLog 实现；

@@ -159,6 +159,9 @@ func (harnessRuntime) SubagentTreeEvents() <-chan struct{}       { return nil }
 func (harnessRuntime) PlanNodeEventChannel() <-chan dto.PlanNodeEvent {
 	return nil
 }
+func (harnessRuntime) RoutingNoticeChannel() <-chan dto.RoutingNotice {
+	return nil
+}
 func (harnessRuntime) SwitchSessionTasks(string, []dto.TaskRecord) {}
 func (harnessRuntime) SetSessionWorkspace(string, string)          {}
 func (harnessRuntime) ScheduledCommands() []seelebridge.ScheduledCommandInfo {

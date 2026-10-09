@@ -822,6 +822,8 @@ func (*fakeRuntime) PlanNodeEventChannel() <-chan dto.PlanNodeEvent {
 	return nil
 }
 
+func (*fakeRuntime) RoutingNoticeChannel() <-chan dto.RoutingNotice { return nil }
+
 func (runtime *fakeRuntime) SwitchSessionTasks(sessionID string, records []dto.TaskRecord) {
 	runtime.todoMu.Lock()
 	defer runtime.todoMu.Unlock()

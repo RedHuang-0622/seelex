@@ -577,6 +577,13 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .message-head { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; color: var(--muted); font: 10px var(--font-mono); }
 .message-head strong { color: var(--muted); font-size: 10px; letter-spacing: .08em; }
 .message-round { flex: none; padding: 0 6px; border: 1px solid var(--border); border-radius: 999px; color: var(--faint); font: 9.5px var(--font-mono); }
+/* message 块的「请求元信息条」：数据来自请求发送前的钩子（request.meta 会话
+   事件），是瞬态展示——与 .message-round 同族的细字小胶囊，不做视觉主角。 */
+.message-request-meta { display: inline-flex; align-items: center; gap: 5px; padding: 0 7px; border: 1px solid var(--border); border-radius: 999px; color: var(--faint); font: 9.5px var(--font-mono); letter-spacing: .04em; white-space: nowrap; }
+.message-request-meta .request-meta-role { color: var(--muted); }
+.message-request-meta .request-meta-effort { color: var(--status-info); }
+.message-request-meta .request-meta-time { color: var(--faint); }
+.message-request-meta .request-meta-sep { color: var(--faint); opacity: .55; }
 .message[data-role-name="tl"] .role-mark, .message[data-role-name="tl"] .message-head strong { color: var(--status-running); }
 .message[data-role-name="main"] .role-mark, .message[data-role-name="main"] .message-head strong { color: var(--text-strong); }
 .role-mark { display: inline-grid; place-items: center; color: var(--faint); }

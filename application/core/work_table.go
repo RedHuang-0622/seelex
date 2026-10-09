@@ -843,6 +843,7 @@ func (service *Service) startLifecycleConsumers() {
 	go service.consumePlanNodeEvents()
 	go service.consumeTaskChanges()
 	go service.consumeAsyncRuns()
+	go service.consumeRoutingNotices()
 }
 
 func (service *Service) stopLifecycleConsumers() {

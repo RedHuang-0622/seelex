@@ -171,7 +171,35 @@ func (m *Manager) Selector(deps SelectorDeps) func(ctx context.Context, messages
 			}
 			request.Metadata["provider"] = provider
 		}
+		// 主链路角色约束（2026-10-09 口径）：主会话请求的角色是 agent——未固定
+		// 账号时，负载只在 **agent 角色的账号**里做（P2C 在这个子集内选），不跨
+		// 角色。provider 过滤仍然生效：候选 = agent 角色 ∩ 该 provider。
+		// agent 角色没有可用候选（单角色安装、或该 provider 只配在别的角色下）
+		// 时不叠加谓词，保持"池内任选"的原语义，保住可用性（与
+		// model.FallbackRoles 的回退精神一致）。显式固定账号优先级最高。
+		if predicate := m.mainChainRolePredicate(provider); predicate != nil {
+			request.Predicate = predicate
+		}
 		return request
+	}
+}
+
+// mainChainRolePredicate 返回主链路（无 NodeScope）的角色约束谓词：只允许
+// agent 角色的账号（有 provider 过滤时再叠加 provider 维度）。没有可用候选时
+// 返回 nil（不约束），调用方保持原语义。
+func (m *Manager) mainChainRolePredicate(provider string) func(accountpool.AccountSnapshot) bool {
+	ids := make(map[string]bool)
+	for _, entry := range ForRole(m.pool, model.RoleAgent) {
+		if provider != "" && entry.Snapshot.Metadata["provider"] != provider {
+			continue
+		}
+		ids[entry.Snapshot.ID] = true
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	return func(snapshot accountpool.AccountSnapshot) bool {
+		return ids[snapshot.ID]
 	}
 }
 

@@ -576,3 +576,43 @@ test("dispatches compaction.progress with its payload to the view", () => {
   assert.equal(broken.needsRefresh, true);
   assert.equal(broken.changed, undefined);
 });
+
+// ── request.meta（请求发送前钩子的瞬态元信息）────────────────────────────────
+//
+// 口径：meta 先挂快照 pending，再粘到「这条请求产出的下一条非 user/system 消息」
+// 上；**不进真相源**（它只活在客户端快照的瞬态字段里，后端快照刷新后旧块没有它）。
+
+test("attaches request.meta to the next assistant message", () => {
+  const base = snapshot();
+  const metaEvent = applyEvent(base, {
+    protocol_version: 1, delivery_seq: 20, revision: 0, kind: "request.meta",
+    payload: { role: "agent", account: "agent-1", provider: "openai", model: "gpt-5", reasoning_effort: "high", at: "2026-10-09T21:42:00+08:00" }
+  }, 19);
+  assert.equal(metaEvent.needsRefresh, false);
+  assert.deepEqual(metaEvent.snapshot._pending_request_meta?.role, "agent");
+
+  // user 消息先落地：不是请求产物，不消费 pending。
+  const userAdded = applyEvent(metaEvent.snapshot, {
+    protocol_version: 1, delivery_seq: 21, revision: 2, kind: "message.added",
+    payload: { id: "user-2", role: "user", content: "next question" }
+  }, metaEvent.lastSeq);
+  assert.equal(userAdded.snapshot.conversation.at(-1).request_meta, undefined);
+  assert.ok(userAdded.snapshot._pending_request_meta, "pending must survive a user message");
+
+  const assistantAdded = applyEvent(userAdded.snapshot, {
+    protocol_version: 1, delivery_seq: 22, revision: 3, kind: "message.added",
+    payload: { id: "assistant-2", role: "assistant", content: "answer" }
+  }, userAdded.lastSeq);
+  const attached = assistantAdded.snapshot.conversation.find(message => message.id === "assistant-2");
+  assert.equal(attached.request_meta.model, "gpt-5");
+  assert.equal(attached.request_meta.reasoning_effort, "high");
+  assert.equal(assistantAdded.snapshot._pending_request_meta, undefined);
+});
+
+test("request.meta without a payload shape falls back to refresh", () => {
+  const broken = applyEvent(snapshot(), {
+    protocol_version: 1, delivery_seq: 21, revision: 0, kind: "request.meta",
+    payload: { account: "agent-1" }
+  }, 20);
+  assert.equal(broken.needsRefresh, true);
+});

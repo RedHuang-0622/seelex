@@ -126,6 +126,9 @@ func (port RuntimePort) SubagentTreeEvents() <-chan struct{} {
 func (port RuntimePort) PlanNodeEventChannel() <-chan dto.PlanNodeEvent {
 	return port.Runtime.PlanNodeEventChannel()
 }
+func (port RuntimePort) RoutingNoticeChannel() <-chan dto.RoutingNotice {
+	return port.Runtime.RoutingNoticeChannel()
+}
 func (port RuntimePort) SwitchSessionTasks(sessionID string, records []dto.TaskRecord) {
 	port.Runtime.SwitchSessionTasks(sessionID, records)
 }

@@ -273,3 +273,27 @@ test("分界行 escape 说明文字与 ref", () => {
   assert.match(html, /&lt;script&gt;/);
   assert.match(html, /data-compact-frame-ref="tr-&quot;1&quot;"/);
 });
+
+test("renders the request meta chip from the pre-send hook on message blocks", () => {
+  const rendered = renderConversationComponent([
+    {
+      id: "a-1", role: "assistant", content: "回答",
+      request_meta: { role: "agent", account: "agent-1", provider: "openai", model: "gpt-5", reasoning_effort: "high", at: "2026-10-09T21:42:05+08:00" }
+    }
+  ], { running: false });
+  assert.match(rendered.html, /class="message-request-meta"/);
+  assert.match(rendered.html, /request-meta-role">agent</);
+  assert.match(rendered.html, /request-meta-model">openai\/gpt-5</);
+  assert.match(rendered.html, /request-meta-effort">high</);
+  // 载荷里的时间来自钩子触发时刻；渲染层只负责格式化，不补造时间。
+  assert.match(rendered.html, /request-meta-time">\d{2}:\d{2}:\d{2}</);
+  // title 携带账号与强度的完整事实（悬停可见），且被转义。
+  assert.match(rendered.html, /title="[^"]*账号 agent-1[^"]*"/);
+});
+
+test("message blocks without request meta render unchanged", () => {
+  const rendered = renderConversationComponent([
+    { id: "a-1", role: "assistant", content: "历史回放的旧块" }
+  ], { running: false });
+  assert.doesNotMatch(rendered.html, /message-request-meta/);
+});

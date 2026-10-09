@@ -175,6 +175,7 @@ func (*guiChainRuntime) SubagentTreeEvents() <-chan struct{}       { return nil 
 func (*guiChainRuntime) PlanNodeEventChannel() <-chan dto.PlanNodeEvent {
 	return nil
 }
+func (*guiChainRuntime) RoutingNoticeChannel() <-chan dto.RoutingNotice { return nil }
 func (*guiChainRuntime) SwitchSessionTasks(string, []dto.TaskRecord) {}
 func (*guiChainRuntime) SetSessionWorkspace(string, string)          {}
 func (*guiChainRuntime) ScheduledCommands() []seelebridge.ScheduledCommandInfo {

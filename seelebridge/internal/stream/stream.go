@@ -9,11 +9,15 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/RedHuang-0622/Seele/accountpool"
 	"github.com/RedHuang-0622/Seele/agent"
 	"github.com/RedHuang-0622/Seele/agent/bridge"
 	"github.com/RedHuang-0622/Seele/types"
+
+	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
+	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 
 	"github.com/RedHuang-0622/seelex/seelebridge/account"
 )
@@ -24,6 +28,48 @@ import (
 // 每次尝试都要真发一次请求（额度耗尽通常在上游立即被拒，但仍然是一次往返），
 // 而耗尽场景下第 3 次与第 30 次的结果没有区别。
 const streamFailoverAttempts = 3
+
+// RoutingNotice 是一次**路由事实**（换号回退 / 未固定账号的池内选定 / 请求
+// 派发钩子）的结构化投影。只带非敏感路由属性（账号名 / provider / model /
+// 角色 / 思考强度，与账号规格同源）；凭据与错误原文一律不进这里。消费方
+// （Runtime 装配层）决定呈现方式（B 类摘要事件 / CSP channel → application
+// 消息提示或 request.meta 事件）。
+type RoutingNotice struct {
+	// SessionID / NodeID 是请求的会话与节点定位（telemetry 上下文投影；空 = 主会话）。
+	SessionID string
+	NodeID    string
+	// At 是路由事实发生时间。
+	At time.Time
+	// Reason：ReasonRequest（每次模型请求发出前的派发钩子）|
+	// ReasonFailover（账号资格失败换号）| ReasonUnpinnedSelection
+	//（请求未固定账号，由池在多账号中选定）。
+	Reason string
+	// Role 是发起这次请求的角色（agent / subagent / goalplan）：主链路 = agent，
+	// 节点请求取 NodeScope.Role。前端 message 块用它标注「谁在说话」。
+	Role string
+	// From 是换号前的账号（仅 failover）；To 是实际承接的账号。
+	From string
+	To   string
+	// Model / Provider 是实际承接账号的路由属性。
+	Model    string
+	Provider string
+	// ReasoningEffort 是承接账号配置的思考强度（config 解析后的账号级值；
+	// `session` 表示跟随会话档位，由 application 消费端解析成当前 wire 值）。
+	ReasoningEffort string
+	// FailureKind 是触发换号的账号资格失败类别（account.FailureKind 的字符串）。
+	FailureKind string
+}
+
+// RoutingNotice 的 Reason 取值。
+const (
+	ReasonRequest          = "request"
+	ReasonFailover         = "failover"
+	ReasonUnpinnedSelection = "unpinned_selection"
+)
+
+// RoutingObserver 接收路由事实（best-effort；nil 安全）。观察者不得阻塞：
+// 它在流式请求的租约路径上被同步调用。
+type RoutingObserver func(RoutingNotice)
 
 // streamingAccountCompleter 把账号池的同步 Completer 适配为流式
 // agent.StreamCompleter。与 bridge.AccountCompleter 的每次调用一次租约不同，
@@ -38,11 +84,24 @@ const streamFailoverAttempts = 3
 type streamingAccountCompleter struct {
 	pool     *accountpool.P2CPool[agent.Completer]
 	selector bridge.AccountRequestSelector
+	// observe 是可选的路由事实观察者（nil = 静默）。在租约路径上同步调用，
+	// 观察者内部必须非阻塞。
+	observe RoutingObserver
 }
 
 // NewStreamingCompleter 构造流式 Completer（pool 与可选账号选择器）。
 func NewStreamingCompleter(pool *accountpool.P2CPool[agent.Completer], selector bridge.AccountRequestSelector) agent.StreamCompleter {
 	return &streamingAccountCompleter{pool: pool, selector: selector}
+}
+
+// NewStreamingCompleterWithObserver 与 NewStreamingCompleter 相同，另接一个
+// 路由事实观察者：换号回退与「未固定账号的池内选定」都会投影到这里。
+func NewStreamingCompleterWithObserver(
+	pool *accountpool.P2CPool[agent.Completer],
+	selector bridge.AccountRequestSelector,
+	observe RoutingObserver,
+) agent.StreamCompleter {
+	return &streamingAccountCompleter{pool: pool, selector: selector, observe: observe}
 }
 
 // CompleteStream 取租约 → 流式调用 → 释放租约；账号资格失败时换号重试（有界）。
@@ -65,6 +124,8 @@ func (c *streamingAccountCompleter) CompleteStream(
 	// 重新启用）。
 	excluded := map[string]bool{}
 	var lastFailure error
+	lastFailedID := ""
+	lastFailedKind := account.FailureNone
 	for attempt := 0; attempt < streamFailoverAttempts; attempt++ {
 		request := base
 		if len(excluded) > 0 {
@@ -80,6 +141,33 @@ func (c *streamingAccountCompleter) CompleteStream(
 			return "", "", nil, fmt.Errorf("seelebridge: acquire streaming client: %w", withCancelCause(ctx, resolveErr))
 		}
 		accountID := lease.AccountID()
+		// 路由事实：这一轮换了号（第一志愿发生账号资格失败），或请求本来就
+		// 没固定账号而由池在多账号中选定。只投影事实，不改变执行路径。
+		if c.observe != nil {
+			if len(excluded) > 0 {
+				c.observe(c.routingNotice(ctx, RoutingNotice{
+					Reason:      ReasonFailover,
+					From:        lastFailedID,
+					To:          accountID,
+					FailureKind: string(lastFailedKind),
+				}, lease))
+			} else {
+				// 请求派发钩子（2026-10-09）：每次模型请求真正上线前投影一次
+				// 路由事实（角色 / 账号 / provider / model）——前端 message 块的
+				// 元信息条（role·model·强度·时间）来自这里，而不是设置内容。
+				// 首次尝试发 request 钩子；换号重试的轮次由 failover 事实覆盖。
+				c.observe(c.routingNotice(ctx, RoutingNotice{
+					Reason: ReasonRequest,
+					To:     accountID,
+				}, lease))
+				if base.AccountID == "" && unpinnedMultiAccount(c.pool) {
+					c.observe(c.routingNotice(ctx, RoutingNotice{
+						Reason: ReasonUnpinnedSelection,
+						To:     accountID,
+					}, lease))
+				}
+			}
+		}
 		content, reasoningContent, toolCalls, err = c.streamWithLease(ctx, lease, messages, tools, onChunk)
 		// 租约覆盖整条流：EOF / 错误 / 提前 Close 任一退出路径都恰好释放一次
 		// （accountpool.Lease.Release 幂等）。
@@ -96,6 +184,8 @@ func (c *streamingAccountCompleter) CompleteStream(
 		}
 		excluded[accountID] = true
 		lastFailure = err
+		lastFailedID = accountID
+		lastFailedKind = kind
 		log.Printf("seelebridge: 账号 %q %s，改用同族下一个账号重试（第 %d 次）",
 			accountID, account.FailureAdvice(kind), len(excluded))
 	}
@@ -177,6 +267,51 @@ func withCancelCause(ctx context.Context, err error) error {
 		return err
 	}
 	return fmt.Errorf("%w (canceled by: %v)", err, cause)
+}
+
+// routingNotice 把一次路由事实补全成 RoutingNotice：会话/节点定位来自请求
+// ctx（telemetry 上下文投影），路由属性来自账号池快照（Metadata）。
+func (c *streamingAccountCompleter) routingNotice(
+	ctx context.Context,
+	notice RoutingNotice,
+	_ accountpool.ClientLease[agent.Completer],
+) RoutingNotice {
+	notice.SessionID = seetelemetry.SessionIDFromContext(ctx)
+	// Role：节点请求取 NodeScope.Role（subagent / goalplan / plan 入口的
+	// PrimaryRole）；主链路（无作用域）固定 agent——与账号路由的角色口径同源。
+	role := string(model.RoleAgent)
+	if scope, ok := model.NodeScopeFromContext(ctx); ok {
+		notice.NodeID = scope.NodeID
+		if scope.Role != "" {
+			role = string(scope.Role)
+		}
+	}
+	notice.Role = role
+	notice.At = time.Now()
+	snapshot, err := c.pool.Snapshot(notice.To)
+	if err == nil {
+		notice.Model = snapshot.Metadata["model"]
+		notice.Provider = snapshot.Metadata["provider"]
+	}
+	return notice
+}
+
+// unpinnedMultiAccount 报告「未固定账号且池里不止一个账号」：此时池的选定
+// 不是唯一答案，才值得投影 unpinned_selection（单账号安装没有路由分叉可提示）。
+func unpinnedMultiAccount(pool *accountpool.P2CPool[agent.Completer]) bool {
+	if pool == nil {
+		return false
+	}
+	count := 0
+	for _, entry := range pool.Entries() {
+		if !entry.Snapshot.Disabled {
+			count++
+			if count > 1 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 var _ agent.StreamCompleter = (*streamingAccountCompleter)(nil)
