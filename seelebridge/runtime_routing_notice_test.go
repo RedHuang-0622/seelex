@@ -4,28 +4,25 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/stream"
 )
 
-// ── 账号路由事实（RoutingNotice）的 Runtime 装配面 ────────────────────────────
+// ── served route 注册表（observeRoutingNotice → TakeServedRoute）─────────────
 //
-// 口径：观察者把路由事实写成 B 类摘要事件（durable，与 llm/tool 摘要同库）+
-// 投进 CSP channel（application 呈现为会话 system 消息）；unpinned_selection
-// 按 会话+账号 去重，failover 不去重。
+// 口径（2026-10-10 用户决定）：request/failover 事实覆盖 per-session 注册表，
+// application 回合收尾经 TakeServedRoute 读即清、回填 assistant 消息真相源；
+// 会话内路由通知（system 消息 / channel 投递）已退役，failover/unpinned 只落
+// B 类摘要（durable，审计用）。
 
-func TestRoutingNoticeObserverPublishesFailoverToChannelAndSummary(t *testing.T) {
+func TestRoutingNoticeObserverRecordsServedRouteAndSummary(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 
-	channel := runtime.RoutingNoticeChannel()
-	if channel == nil {
-		t.Fatal("RoutingNoticeChannel 未装配")
-	}
 	notice := stream.RoutingNotice{
 		SessionID:   "session-1",
 		At:          time.Now(),
 		Reason:      stream.ReasonFailover,
+		Role:        "agent",
 		From:        "agent-1",
 		To:          "subagent-1",
 		Model:       "child-model",
@@ -34,16 +31,12 @@ func TestRoutingNoticeObserverPublishesFailoverToChannelAndSummary(t *testing.T)
 	}
 	runtime.observeRoutingNotice(notice)
 
-	select {
-	case got := <-channel:
-		if got.Reason != dto.RoutingReasonFailover || got.From != "agent-1" || got.To != "subagent-1" {
-			t.Fatalf("channel 投影 = %+v", got)
-		}
-		if got.Message() == "" {
-			t.Fatal("路由提示文案为空")
-		}
-	case <-time.After(time.Second):
-		t.Fatal("failover 路由事实未进入 channel")
+	route, ok := runtime.TakeServedRoute("session-1")
+	if !ok {
+		t.Fatal("failover 事实未进入 served route 注册表")
+	}
+	if route.Role != "agent" || route.Account != "subagent-1" || route.Model != "child-model" || route.Provider != "openai" {
+		t.Fatalf("served route = %+v", route)
 	}
 	// B 类摘要：durable 记录一条 route 摘要，Detail 非空。
 	summaries := runtime.summaryLog.Summaries()
@@ -54,17 +47,56 @@ func TestRoutingNoticeObserverPublishesFailoverToChannelAndSummary(t *testing.T)
 	if last.Kind != "route" || last.Detail == "" {
 		t.Fatalf("route 摘要 = %+v", last)
 	}
-
-	// failover 不去重：第二次仍然投递。
-	runtime.observeRoutingNotice(notice)
-	select {
-	case <-channel:
-	case <-time.After(time.Second):
-		t.Fatal("failover 不得去重")
+	// 读即清：二次取回为空。
+	if _, ok := runtime.TakeServedRoute("session-1"); ok {
+		t.Fatal("TakeServedRoute 必须读即清")
 	}
 }
 
-func TestRoutingNoticeObserverDedupesUnpinnedSelectionPerSessionAndAccount(t *testing.T) {
+func TestRoutingNoticeObserverOverwritesRouteWithFinalAttempt(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+
+	// 首次派发（request 钩子）→ 换号重试（failover）：最终承接账号覆盖注册表。
+	runtime.observeRoutingNotice(stream.RoutingNotice{
+		SessionID: "session-1", At: time.Now(),
+		Reason: stream.ReasonRequest, Role: "agent", To: "agent-1",
+		Model: "main-model", Provider: "openai",
+	})
+	runtime.observeRoutingNotice(stream.RoutingNotice{
+		SessionID: "session-1", At: time.Now(),
+		Reason: stream.ReasonFailover, Role: "agent", From: "agent-1", To: "agent-2",
+		Model: "fallback-model", Provider: "openai",
+	})
+	route, ok := runtime.TakeServedRoute("session-1")
+	if !ok {
+		t.Fatal("served route 丢失")
+	}
+	if route.Account != "agent-2" || route.Model != "fallback-model" {
+		t.Fatalf("最终承接账号必须覆盖注册表：%+v", route)
+	}
+}
+
+func TestRoutingNoticeObserverSkipsNodeAndProcessLevelRequests(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+
+	// 节点请求：路由归子代理/plan 节点视图，不进主会话注册表。
+	runtime.observeRoutingNotice(stream.RoutingNotice{
+		SessionID: "session-1", NodeID: "node-1", At: time.Now(),
+		Reason: stream.ReasonRequest, Role: "subagent", To: "subagent-1",
+	})
+	// 进程级请求（无会话归属）：无处回填。
+	runtime.observeRoutingNotice(stream.RoutingNotice{
+		SessionID: "", At: time.Now(),
+		Reason: stream.ReasonRequest, Role: "agent", To: "agent-1",
+	})
+	if _, ok := runtime.TakeServedRoute("session-1"); ok {
+		t.Fatal("节点请求不得进入注册表")
+	}
+}
+
+func TestRoutingNoticeObserverDedupesUnpinnedSummaryPerSessionAndAccount(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 
@@ -76,44 +108,29 @@ func TestRoutingNoticeObserverDedupesUnpinnedSelectionPerSessionAndAccount(t *te
 		Model:     "child-model",
 		Provider:  "openai",
 	}
-	channel := runtime.RoutingNoticeChannel()
 	runtime.observeRoutingNotice(notice)
-	select {
-	case <-channel:
-	case <-time.After(time.Second):
-		t.Fatal("首次 unpinned_selection 必须投递")
+	if got := len(runtime.summaryLog.Summaries()); got != 1 {
+		t.Fatalf("首次 unpinned_selection 应记 1 条摘要，实际 %d", got)
 	}
 	// 同会话同账号：去重。
 	runtime.observeRoutingNotice(notice)
-	select {
-	case got := <-channel:
-		t.Fatalf("unpinned_selection 被重复投递：%+v", got)
-	case <-time.After(150 * time.Millisecond):
+	if got := len(runtime.summaryLog.Summaries()); got != 1 {
+		t.Fatalf("unpinned_selection 被重复记录：%d", got)
 	}
-	// 同会话不同账号：再投一次。
+	// 同会话不同账号：再记一次。
 	runtime.observeRoutingNotice(stream.RoutingNotice{
 		SessionID: "session-1", At: time.Now(),
 		Reason: stream.ReasonUnpinnedSelection, To: "goalplan-1",
 		Model: "plan-model", Provider: "openai",
 	})
-	select {
-	case got := <-channel:
-		if got.To != "goalplan-1" {
-			t.Fatalf("投影 = %+v", got)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("不同账号的 unpinned_selection 必须再投一次")
-	}
-	// 不同会话：再投一次。
+	// 不同会话：再记一次。
 	runtime.observeRoutingNotice(stream.RoutingNotice{
 		SessionID: "session-2", At: time.Now(),
 		Reason: stream.ReasonUnpinnedSelection, To: "subagent-1",
 		Model: "child-model", Provider: "openai",
 	})
-	select {
-	case <-channel:
-	case <-time.After(time.Second):
-		t.Fatal("不同会话的 unpinned_selection 必须再投一次")
+	if got := len(runtime.summaryLog.Summaries()); got != 3 {
+		t.Fatalf("摘要数 = %d，期望 3", got)
 	}
 }
 

@@ -54,13 +54,6 @@ const (
 	// "快照比事件新"的陈旧判据会把中途的进度帧吃掉。终局（done/failed）后本轮
 	// 进度生命周期即结束。
 	EventCompactionProgress EventKind = "compaction.progress"
-	// EventRequestMeta 通告"一次模型请求已按某账号派发"（载荷 = dto.RequestMeta：
-	// 角色 / 账号 / provider / model / 思考强度 / 时间）。它由**请求发送前的钩子**
-	// 产生，是瞬态元信息：只进会话事件流供前端实时渲染 message 块元信息条，
-	// **不写入 messages 真相源**（2026-10-09 用户决定——历史回放不需要它）。
-	// 与 compaction.progress 同口径用 revision=0：载荷不进快照，带 revision 会被
-	// "快照比事件新"的陈旧判据吃掉。
-	EventRequestMeta EventKind = "request.meta"
 	// EventViewSessionChanged 通告权威视图会话已被应用在内部切换（进程级、
 	// 空 sid，投递给所有订阅者）：运行中冷恢复失败把视图回退到切换前会话 /
 	// 草稿时，GUI Bridge 的事件订阅键仍钉在失败目标会话上，其订阅已永远

@@ -53,9 +53,6 @@ type RoutingNotice struct {
 	// Model / Provider 是实际承接账号的路由属性。
 	Model    string
 	Provider string
-	// ReasoningEffort 是承接账号配置的思考强度（config 解析后的账号级值；
-	// `session` 表示跟随会话档位，由 application 消费端解析成当前 wire 值）。
-	ReasoningEffort string
 	// FailureKind 是触发换号的账号资格失败类别（account.FailureKind 的字符串）。
 	FailureKind string
 }

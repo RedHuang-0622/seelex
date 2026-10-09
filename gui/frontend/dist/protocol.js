@@ -5,8 +5,7 @@ const INCREMENTAL_KINDS = new Set([
   "subagent.changed", "subagent.tool.started", "subagent.tool.completed",
   "teammate.tool.started", "teammate.tool.completed",
   "chat.changed", "runtime.changed", "worktable.changed", "task.changed",
-  "interaction.opened", "interaction.closed", "team.changed", "compaction.progress",
-  "request.meta"
+  "interaction.opened", "interaction.closed", "team.changed", "compaction.progress"
 ]);
 
 // PROCESS_KINDS 是进程级事件（G2/M2）：不带会话归属（session_id 必空），
@@ -94,21 +93,9 @@ function applyIncremental(snapshot, event, payload) {
     // 例外：窗口已离开尾部（用户回看更早历史）时，窗口之外的新消息不能
     // 追加到列表末尾——那会在窗口与尾部之间插出断层。它由「回到最新」的
     // 基线刷新带回；此处只把事件记为已应用。
-    if (historyWindowed(snapshot) && !hasMessage(snapshot.conversation, payload.id)) {
-      attachPendingRequestMeta(snapshot, payload, true);
-      return true;
-    }
+    if (historyWindowed(snapshot) && !hasMessage(snapshot.conversation, payload.id)) return true;
     snapshot.conversation = upsertMessage(snapshot.conversation, payload);
     flushPendingDeltasForSnapshot(snapshot, payload.id);
-    attachPendingRequestMeta(snapshot, payload, false);
-    return true;
-  case "request.meta":
-    // 请求派发钩子（请求发送前的瞬态元信息，**不进真相源**）：先挂在快照上，
-    // 再粘到「这条请求产出的下一条非 user/system 消息」上——钩子在请求上线前
-    // 触发，而它的 assistant 块在这之后才落地，顺序即归属。
-    if (!payload || typeof payload !== "object") return false;
-    if (typeof payload.role !== "string" || !payload.role) return false;
-    snapshot._pending_request_meta = payload;
     return true;
   case "message.delta":
     return appendMessageDelta(snapshot, payload);
@@ -202,25 +189,6 @@ function appendMessageDelta(snapshot, payload) {
   if (hasReasoning) next.reasoning_content = payload.reasoning_content;
   messages[index] = next;
   snapshot.conversation = messages;
-  return true;
-}
-
-// attachPendingRequestMeta 把挂起的 request.meta 粘到刚落地的消息上（in-place
-// 修改 snapshot.conversation 里该 id 的对象）。user/system 消息不是模型请求的
-// 产物，不消费 pending（等它自己的 assistant 块落地）。
-// consumeWithoutAttach=true（窗口外消息）：pending 已有归属，直接消掉不挂载。
-function attachPendingRequestMeta(snapshot, payload, consumeWithoutAttach = false) {
-  const pending = snapshot._pending_request_meta;
-  if (!pending) return false;
-  const role = String(payload?.role || "");
-  if (role === "user" || role === "system") return false;
-  delete snapshot._pending_request_meta;
-  if (consumeWithoutAttach || !payload?.id) return true;
-  const messages = snapshot.conversation || [];
-  const index = messages.findIndex(message => message?.id === payload.id);
-  if (index < 0) return true;
-  const target = { ...messages[index], request_meta: pending };
-  snapshot.conversation = [...messages.slice(0, index), target, ...messages.slice(index + 1)];
   return true;
 }
 
@@ -329,9 +297,6 @@ function cloneSnapshot(snapshot, revision) {
   };
   if (Array.isArray(snapshot._pending_deltas)) {
     clone._pending_deltas = [...snapshot._pending_deltas];
-  }
-  if (snapshot._pending_request_meta) {
-    clone._pending_request_meta = { ...snapshot._pending_request_meta };
   }
   return clone;
 }

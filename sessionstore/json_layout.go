@@ -313,6 +313,7 @@ func derivedConversationMessages(rows []Event) []ConversationMessage {
 				ReasoningContent: row.ReasoningContent, CreatedAt: row.CreatedAt,
 				RoleName: row.RoleName, RoleSessionID: row.RoleSessionID,
 				RoundID: row.RoundID, UnitSeq: row.UnitSeq,
+				ConfigRole: row.ConfigRole, ConfigModel: row.ConfigModel, ConfigProvider: row.ConfigProvider,
 			})
 		}
 		for index, call := range row.ToolCalls {

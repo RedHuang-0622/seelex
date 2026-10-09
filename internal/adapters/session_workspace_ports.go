@@ -952,6 +952,7 @@ func storeTranscriptEvents(events []model.TranscriptEvent) []sessionstore.Event 
 			WireMaterial: event.WireMaterial, CreatedAt: event.CreatedAt,
 			RoleName: event.RoleName, RoleSessionID: event.RoleSessionID,
 			RoundID: event.RoundID, UnitSeq: event.UnitSeq,
+			ConfigRole: event.ConfigRole, ConfigModel: event.ConfigModel, ConfigProvider: event.ConfigProvider,
 		}
 	}
 	return stored
@@ -973,6 +974,7 @@ func adaptTranscriptEvents(events []sessionstore.Event) []model.TranscriptEvent 
 			WireMaterial: event.WireMaterial, CreatedAt: event.CreatedAt,
 			RoleName: event.RoleName, RoleSessionID: event.RoleSessionID,
 			RoundID: event.RoundID, UnitSeq: event.UnitSeq,
+			ConfigRole: event.ConfigRole, ConfigModel: event.ConfigModel, ConfigProvider: event.ConfigProvider,
 		}
 	}
 	return adapted
@@ -1116,6 +1118,7 @@ func adaptStoredConversationMessage(message sessionstore.ConversationMessage) mo
 		ReasoningContent: message.ReasoningContent, CreatedAt: message.CreatedAt,
 		RoleName: message.RoleName, RoleSessionID: message.RoleSessionID,
 		RoundID: message.RoundID, UnitSeq: message.UnitSeq,
+		ConfigRole: message.ConfigRole, ConfigModel: message.ConfigModel, ConfigProvider: message.ConfigProvider,
 	}
 	if message.Tool != nil {
 		tool := *message.Tool

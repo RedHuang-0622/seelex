@@ -252,6 +252,11 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 	if flushErr := batcher.Flush(); flushErr != nil && err == nil {
 		err = fmt.Errorf("flush streamed response: %w", flushErr)
 	}
+	// 本轮请求的实际承接路由（config role / config model / 厂商类型）随
+	// response 回填真相源（2026-10-10 用户决定：会话内通知退役，元信息长在
+	// 消息上）。放在 flush 之后：message.added 全量 upsert 后到，前端必然
+	// 看到"正文 + 路由"齐平的最终形状。
+	service.stampServedRoute(sessionID, requestID)
 	// plan_run may have completed child agents while the main framework session
 	// was locked. Drain and discard their Runtime-owned mailbox after ChatStream
 	// returns: child results travel back as tool results, never as mailbox
@@ -875,6 +880,59 @@ func (service *Service) attachLatestReasoning(sessionID, requestID string) {
 		}
 		service.publishSessionEvent(EventMessageDelta, revision, requestID, sessionID, delta)
 	}
+}
+
+// stampServedRoute 在回合收尾把本轮请求的实际承接路由（config role / config
+// model / 厂商类型）回填进真相源（2026-10-10 用户决定：路由通知不进会话，
+// 元信息直接长在消息上）：assistant 的 transcript 事件行（冷恢复/轨迹审计）
+// + 可见窗口里本轮的 assistant 消息（前端 message 块元数据行）。路由事实由
+// 请求解析中间件（账号池 completer 租约路径）得出，经 RuntimePort.TakeServedRoute
+// 读即清——本轮没有请求真正派发就没有事实，残留不会串轮。
+func (service *Service) stampServedRoute(sessionID, requestID string) {
+	route, ok := service.Deps.Runtime.TakeServedRoute(sessionID)
+	if !ok {
+		return
+	}
+	service.components.tasks.StampAssistantRouteFor(sessionID, requestID, route.Role, route.Model, route.Provider)
+	service.ViewMu.Lock()
+	if service.components.view.SessionViewBrowsingHistoryLocked(sessionID) {
+		// 回看历史：窗口最后一条不是本轮 assistant 消息，不挂——回最新后由
+		// 基线重建（真相源事件行已带路由）带回。
+		service.ViewMu.Unlock()
+		return
+	}
+	var stamped Message
+	found := false
+	service.components.view.SessionViewMutateLocked(sessionID, func(view *session.View) {
+		for index := len(view.Conversation) - 1; index >= 0; index-- {
+			message := &view.Conversation[index]
+			if message.Role != "assistant" || message.Tool != nil {
+				continue
+			}
+			if message.ConfigModel != "" {
+				// 最后一条 assistant 已带路由 = 不是本轮消息（占位缺失等异常
+				// 形状），保守不写，避免把本轮路由串到上一轮。
+				return
+			}
+			message.ConfigRole = route.Role
+			message.ConfigModel = route.Model
+			message.ConfigProvider = route.Provider
+			stamped = *message
+			found = true
+			return
+		}
+	})
+	if !found {
+		service.ViewMu.Unlock()
+		return
+	}
+	service.mirrorActiveViewLocked()
+	revision := uint64(0)
+	if service.isActiveSessionLocked(sessionID) {
+		revision = service.bumpLocked()
+	}
+	service.ViewMu.Unlock()
+	service.publishSessionEvent(EventMessageAdded, revision, requestID, sessionID, stamped)
 }
 
 // stepReasoning 是引擎历史里一个 assistant 步骤的推理及其配对身份。

@@ -274,26 +274,33 @@ test("分界行 escape 说明文字与 ref", () => {
   assert.match(html, /data-compact-frame-ref="tr-&quot;1&quot;"/);
 });
 
-test("renders the request meta chip from the pre-send hook on message blocks", () => {
+test("message 块第二行元数据：id + config role + config model（真相源字段）", () => {
   const rendered = renderConversationComponent([
     {
-      id: "a-1", role: "assistant", content: "回答",
-      request_meta: { role: "agent", account: "agent-1", provider: "openai", model: "gpt-5", reasoning_effort: "high", at: "2026-10-09T21:42:05+08:00" }
+      id: "message-836", role: "assistant", content: "回答",
+      config_role: "agent", config_model: "glm-5.3-flash", config_provider: "openai"
     }
   ], { running: false });
-  assert.match(rendered.html, /class="message-request-meta"/);
-  assert.match(rendered.html, /request-meta-role">agent</);
-  assert.match(rendered.html, /request-meta-model">openai\/gpt-5</);
-  assert.match(rendered.html, /request-meta-effort">high</);
-  // 载荷里的时间来自钩子触发时刻；渲染层只负责格式化，不补造时间。
-  assert.match(rendered.html, /request-meta-time">\d{2}:\d{2}:\d{2}</);
-  // title 携带账号与强度的完整事实（悬停可见），且被转义。
-  assert.match(rendered.html, /title="[^"]*账号 agent-1[^"]*"/);
+  assert.match(rendered.html, /class="message-route-meta"/);
+  assert.match(rendered.html, /class="item-id">message-836</);
+  assert.match(rendered.html, /route-meta-role"[^>]*>agent</);
+  assert.match(rendered.html, /route-meta-model"[^>]*>openai\/glm-5\.3-flash</);
+  // 顶行仍是角色身份（EXEC/AGENT/…），元数据行不抢角色行。
+  assert.match(rendered.html, /class="message-head"/);
 });
 
-test("message blocks without request meta render unchanged", () => {
+test("message blocks without route metadata render the id-only meta row", () => {
   const rendered = renderConversationComponent([
     { id: "a-1", role: "assistant", content: "历史回放的旧块" }
   ], { running: false });
-  assert.doesNotMatch(rendered.html, /message-request-meta/);
+  // 旧块没有路由段：元数据行只有 message id（与旧 message-debug 同信息量）。
+  assert.match(rendered.html, /class="message-route-meta"/);
+  assert.match(rendered.html, /class="item-id">a-1</);
+  assert.doesNotMatch(rendered.html, /route-meta-role/);
+  assert.doesNotMatch(rendered.html, /route-meta-model/);
+  // 没有 id 的消息（罕见形状）不渲染空元数据行。
+  const anonymous = renderConversationComponent([
+    { role: "assistant", content: "无 id" }
+  ], { running: false });
+  assert.doesNotMatch(anonymous.html, /message-route-meta/);
 });

@@ -577,13 +577,13 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .message-head { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; color: var(--muted); font: 10px var(--font-mono); }
 .message-head strong { color: var(--muted); font-size: 10px; letter-spacing: .08em; }
 .message-round { flex: none; padding: 0 6px; border: 1px solid var(--border); border-radius: 999px; color: var(--faint); font: 9.5px var(--font-mono); }
-/* message 块的「请求元信息条」：数据来自请求发送前的钩子（request.meta 会话
-   事件），是瞬态展示——与 .message-round 同族的细字小胶囊，不做视觉主角。 */
-.message-request-meta { display: inline-flex; align-items: center; gap: 5px; padding: 0 7px; border: 1px solid var(--border); border-radius: 999px; color: var(--faint); font: 9.5px var(--font-mono); letter-spacing: .04em; white-space: nowrap; }
-.message-request-meta .request-meta-role { color: var(--muted); }
-.message-request-meta .request-meta-effort { color: var(--status-info); }
-.message-request-meta .request-meta-time { color: var(--faint); }
-.message-request-meta .request-meta-sep { color: var(--faint); opacity: .55; }
+/* message 块的第二行元数据：message id + 实际承接路由（config role / config
+   model）。数据长在消息本体上（真相源字段），顶行角色身份、这行「谁·用什么
+   模型」、再往下才是正文。 */
+.message-route-meta { display: flex; align-items: center; gap: 6px; margin: -4px 0 8px; color: var(--faint); font: 9.5px var(--font-mono); letter-spacing: .04em; white-space: nowrap; }
+.message-route-meta .route-meta-role { color: var(--muted); }
+.message-route-meta .route-meta-model { color: var(--status-info); }
+.message-route-meta .route-meta-sep { color: var(--faint); opacity: .55; }
 .message[data-role-name="tl"] .role-mark, .message[data-role-name="tl"] .message-head strong { color: var(--status-running); }
 .message[data-role-name="main"] .role-mark, .message[data-role-name="main"] .message-head strong { color: var(--text-strong); }
 .role-mark { display: inline-grid; place-items: center; color: var(--faint); }
@@ -3267,7 +3267,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   white-space: nowrap;
   user-select: text;
 }
-.message-debug .item-id { display: block; }
+.message-route-meta .item-id { display: block; }
 .message-head { flex-wrap: wrap; }
 .tool-run-line { display: flex; align-items: center; gap: 8px; padding: 8px 10px; }
 .conversation-axis {
@@ -3832,7 +3832,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .message-body li { margin: 5px 0; }
 .message-body code { font-size: 11.5px; }
 .message-body th, .message-body td { padding: 9px 11px; }
-.message-debug { gap: 6px; margin: 0 0 4px; font-size: 10.5px; }
+.message-route-meta { gap: 7px; margin: -3px 0 9px; font-size: 10.5px; }
 
 /* 折叠块（思考 / 工具过程）：头部统一 34px，内容字号抬起 */
 .reasoning-block { margin: 14px 0 18px; }

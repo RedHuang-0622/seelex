@@ -375,6 +375,10 @@ type fakeRuntime struct {
 	// Runtime.BindProjectRootFor → seelebridge projectScope 的会话分格）。
 	sessionProjectRootsMu sync.Mutex
 	sessionProjectRoots   map[string]string
+	// servedRouteSession / servedRoute 是 TakeServedRoute 的回答值（路由回填
+	// 用例预置；读即清，与生产 Runtime 同语义——二次调用返回 false）。
+	servedRouteSession string
+	servedRoute        dto.ServedRoute
 	currentBatch          string
 	todoMu                sync.Mutex
 	todoItems             []dto.TodoItem
@@ -822,7 +826,17 @@ func (*fakeRuntime) PlanNodeEventChannel() <-chan dto.PlanNodeEvent {
 	return nil
 }
 
-func (*fakeRuntime) RoutingNoticeChannel() <-chan dto.RoutingNotice { return nil }
+// TakeServedRoute 按 fake 预置回答路由事实（读即清：与生产 Runtime 同语义，
+// 二次调用返回 false）。未预置 servedRouteSession 时恒 false。
+func (runtime *fakeRuntime) TakeServedRoute(sessionID string) (dto.ServedRoute, bool) {
+	if runtime.servedRouteSession == "" || runtime.servedRouteSession != sessionID {
+		return dto.ServedRoute{}, false
+	}
+	route := runtime.servedRoute
+	runtime.servedRouteSession = ""
+	runtime.servedRoute = dto.ServedRoute{}
+	return route, true
+}
 
 func (runtime *fakeRuntime) SwitchSessionTasks(sessionID string, records []dto.TaskRecord) {
 	runtime.todoMu.Lock()

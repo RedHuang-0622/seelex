@@ -577,42 +577,27 @@ test("dispatches compaction.progress with its payload to the view", () => {
   assert.equal(broken.changed, undefined);
 });
 
-// ── request.meta（请求发送前钩子的瞬态元信息）────────────────────────────────
+// ── message.added 的 config 路由元信息（随真相源回填）────────────────────────
 //
-// 口径：meta 先挂快照 pending，再粘到「这条请求产出的下一条非 user/system 消息」
-// 上；**不进真相源**（它只活在客户端快照的瞬态字段里，后端快照刷新后旧块没有它）。
+// 口径：config_role / config_model / config_provider 是消息本体字段（响应落地时
+// 由请求解析中间件回填真相源），随 message.added / 快照自然到达——没有独立的
+// 瞬态事件，也没有 pending 粘合逻辑。
 
-test("attaches request.meta to the next assistant message", () => {
+test("message.added carries config route metadata on the message itself", () => {
   const base = snapshot();
-  const metaEvent = applyEvent(base, {
-    protocol_version: 1, delivery_seq: 20, revision: 0, kind: "request.meta",
-    payload: { role: "agent", account: "agent-1", provider: "openai", model: "gpt-5", reasoning_effort: "high", at: "2026-10-09T21:42:00+08:00" }
+  const added = applyEvent(base, {
+    protocol_version: 1, delivery_seq: 20, revision: 2, kind: "message.added",
+    payload: { id: "assistant-2", role: "assistant", content: "answer", config_role: "agent", config_model: "glm-5.3-flash", config_provider: "openai" }
   }, 19);
-  assert.equal(metaEvent.needsRefresh, false);
-  assert.deepEqual(metaEvent.snapshot._pending_request_meta?.role, "agent");
+  const attached = added.snapshot.conversation.find(message => message.id === "assistant-2");
+  assert.equal(attached.config_role, "agent");
+  assert.equal(attached.config_model, "glm-5.3-flash");
+  assert.equal(attached.config_provider, "openai");
 
-  // user 消息先落地：不是请求产物，不消费 pending。
-  const userAdded = applyEvent(metaEvent.snapshot, {
-    protocol_version: 1, delivery_seq: 21, revision: 2, kind: "message.added",
-    payload: { id: "user-2", role: "user", content: "next question" }
-  }, metaEvent.lastSeq);
-  assert.equal(userAdded.snapshot.conversation.at(-1).request_meta, undefined);
-  assert.ok(userAdded.snapshot._pending_request_meta, "pending must survive a user message");
-
-  const assistantAdded = applyEvent(userAdded.snapshot, {
-    protocol_version: 1, delivery_seq: 22, revision: 3, kind: "message.added",
-    payload: { id: "assistant-2", role: "assistant", content: "answer" }
-  }, userAdded.lastSeq);
-  const attached = assistantAdded.snapshot.conversation.find(message => message.id === "assistant-2");
-  assert.equal(attached.request_meta.model, "gpt-5");
-  assert.equal(attached.request_meta.reasoning_effort, "high");
-  assert.equal(assistantAdded.snapshot._pending_request_meta, undefined);
-});
-
-test("request.meta without a payload shape falls back to refresh", () => {
-  const broken = applyEvent(snapshot(), {
-    protocol_version: 1, delivery_seq: 21, revision: 0, kind: "request.meta",
-    payload: { account: "agent-1" }
-  }, 20);
-  assert.equal(broken.needsRefresh, true);
+  // 旧数据/非 assistant 行没有路由字段：缺省 undefined，渲染面按缺省折叠。
+  const plain = applyEvent(added.snapshot, {
+    protocol_version: 1, delivery_seq: 21, revision: 3, kind: "message.added",
+    payload: { id: "user-2", role: "user", content: "next" }
+  }, added.lastSeq);
+  assert.equal(plain.snapshot.conversation.find(message => message.id === "user-2").config_model, undefined);
 });

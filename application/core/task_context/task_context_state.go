@@ -1267,6 +1267,28 @@ func (c *Coordinator) _TranscriptFor(sessionID string) []model.TranscriptEvent {
 	return c.sessionStateLocked(sessionID).transcript
 }
 
+// StampAssistantRouteFor 把本轮请求的实际承接路由（config role / config model /
+// 厂商类型）回填到该轮 assistant 的 transcript 事件行（真相源）。只有 TaskID
+// 与 requestID 匹配、Role=assistant 且尚未带 model 信息的行才写（幂等：重复
+// 调用不会覆盖已有路由，也不会串到别的轮次）。返回真正打上的行数。
+func (c *Coordinator) StampAssistantRouteFor(sessionID, requestID, configRole, configModel, configProvider string) int {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	st := c.sessionStateLocked(sessionID)
+	stamped := 0
+	for index := range st.transcript {
+		event := &st.transcript[index]
+		if event.TaskID != requestID || event.Role != "assistant" || event.ConfigModel != "" {
+			continue
+		}
+		event.ConfigRole = configRole
+		event.ConfigModel = configModel
+		event.ConfigProvider = configProvider
+		stamped++
+	}
+	return stamped
+}
+
 func (c *Coordinator) PendingToolResults() []model.StoredToolResult {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()

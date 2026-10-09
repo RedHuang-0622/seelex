@@ -8,10 +8,11 @@ import (
 // RoutingNotice 是一次**账号路由事实**的只读投影：本次模型请求实际由哪个账号
 // 承接、与请求时的路由意图（固定账号 / provider 过滤）是否一致。
 //
-// 生态位：账号路由发生在 seelebridge（stream 适配器 + accountpool），而"让用户
-// 看见"是 application 的职责（Service.AddNotice → system 消息 + message.added
-// 事件）。两者靠这条 DTO 经 CSP channel 解耦（与 PlanNodeEvent / TaskRecord
-// 同一模式）：runtime 侧非阻塞投递，application 消费者决定呈现方式。
+// 生态位：账号路由发生在 seelebridge（stream 适配器 + accountpool），消费方
+// 也是 seelebridge Runtime：request/failover 事实覆盖 per-session ServedRoute
+// 注册表（application 在回合收尾经 RuntimePort.TakeServedRoute 取走并回填
+// 真相源）；failover / unpinned_selection 另落 B 类摘要（durable）供审计。
+// 不再投会话 system 消息（2026-10-10 用户决定：会话内通知退役）。
 //
 // 脱敏口径：只带账号名 / provider / model —— 这三者本就是账号池 Metadata 的
 // 非敏感路由属性（GUI 账号面板同源）；凭据、错误原文、消息内容一律不进本结构。
@@ -37,12 +38,26 @@ type RoutingNotice struct {
 	// Model / Provider 是实际承接账号的路由属性（来自账号池 Metadata）。
 	Model    string `json:"model,omitempty"`
 	Provider string `json:"provider,omitempty"`
-	// ReasoningEffort 是承接账号配置的思考强度（仅 request 钩子填充）；
-	// `session` 表示跟随会话档位，由 application 消费端解析成当前 wire 值。
-	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 	// FailureKind 是触发换号的账号资格失败类别（quota_exhausted / auth_rejected；
 	// 仅 failover 有值）。
 	FailureKind string `json:"failure_kind,omitempty"`
+}
+
+// ServedRoute 是一次模型请求的**实际承接路由**：由请求解析中间件（账号池
+// completer 的租约路径）在请求发出时得出——本轮 assistant 回应由哪个 config
+// role 的哪个 model（含厂商类型）承接。它随 response 回填进 messages 真相源
+// （assistant 事件行与可见消息），用于消息归属审计与不同模型的 agent 能力
+// 追溯/测试（2026-10-10 用户决定：取代 request.meta 瞬态事件——通知不进会话，
+// 元信息直接长在消息上）。
+type ServedRoute struct {
+	// Role 是承接账号所属的 config 角色（agent / subagent / goalplan）。
+	Role string `json:"role"`
+	// Account / Provider / Model 是实际承接账号的路由属性（账号池 Metadata）。
+	Account  string `json:"account,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
+	// At 是路由事实（请求派发）发生时间。
+	At time.Time `json:"at"`
 }
 
 // RoutingNotice 的 Reason 取值（唯一一处定义，边界处只引常量不写字面量）。
@@ -55,29 +70,12 @@ const (
 	RoutingReasonUnpinnedSelection = "unpinned_selection"
 )
 
-// RequestMeta 是 request.meta 会话事件的载荷：一次模型请求的**瞬态**路由元
-// 信息（角色 / 账号 / provider / model / 思考强度 / 时间）。
-//
-// 生态位与口径（2026-10-09 用户决定）：它由请求发送前的钩子产生，只进会话
-// 事件流（GUI 实时渲染），**不写入 messages 真相源**——这类信息为时效性服务，
-// 历史消息回放不需要它；将来要做模型对比/评测再考虑持久化。
-type RequestMeta struct {
-	// Role 是发起这次请求的角色（agent / subagent / goalplan）。
-	Role string `json:"role"`
-	// Account / Provider / Model 是实际承接请求的账号路由属性。
-	Account  string `json:"account,omitempty"`
-	Provider string `json:"provider,omitempty"`
-	Model    string `json:"model,omitempty"`
-	// ReasoningEffort 是本次请求的思考强度；`session` 已由消费端解析为当前
-	// wire 值，这里不会再出现 "session"。
-	ReasoningEffort string `json:"reasoning_effort,omitempty"`
-	// At 是请求发出时间（请求发送前钩子的触发时刻）。
-	At time.Time `json:"at"`
-}
+// RequestMeta 已随 request.meta 瞬态事件退役（2026-10-10）：路由元信息改为
+// 随 response 回填真相源（dto.ServedRoute + 消息行 config_role/config_model/
+// config_provider 字段），前端从消息本体渲染，不再消费 request.meta 事件。
 
-// Message 把这条路由事实翻成一句给用户看的提示（会话 system 消息与 B 类
-// 摘要 Detail 共用同一份文案——两处呈现永远同源）。只带账号名 / provider /
-// model 这类非敏感路由属性。
+// Message 把这条路由事实翻成一句给用户看的提示（B 类摘要 Detail 与文案同源）。
+// 只带账号名 / provider / model 这类非敏感路由属性。
 func (n RoutingNotice) Message() string {
 	label := func(name, provider, model string) string {
 		if provider == "" && model == "" {

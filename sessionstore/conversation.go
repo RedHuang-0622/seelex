@@ -28,6 +28,11 @@ type ConversationMessage struct {
 	RoleSessionID string `json:"role_session_id,omitempty"`
 	RoundID       uint64 `json:"round_id,omitempty"`
 	UnitSeq       uint64 `json:"unit_seq,omitempty"`
+	// ConfigRole / ConfigModel / ConfigProvider 是 assistant 回应的实际承接
+	// 路由（请求解析中间件得出、随行派生；见 application/model.Message）。
+	ConfigRole     string `json:"config_role,omitempty"`
+	ConfigModel    string `json:"config_model,omitempty"`
+	ConfigProvider string `json:"config_provider,omitempty"`
 }
 
 // ConversationToolCallStatusSuccess 是存储层会话投影写出的工具调用状态词。

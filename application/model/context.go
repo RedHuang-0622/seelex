@@ -116,6 +116,12 @@ type TranscriptEvent struct {
 	RoleSessionID string `json:"role_session_id,omitempty"`
 	RoundID       uint64 `json:"round_id,omitempty"`
 	UnitSeq       uint64 `json:"unit_seq,omitempty"`
+	// ConfigRole / ConfigModel / ConfigProvider 是 assistant 事件行对应的模型
+	// 请求的实际承接路由（见 model.Message 同名字段）：随行落盘，冷恢复与
+	// 轨迹审计都能回答"这条回应是谁用哪个模型发的"。
+	ConfigRole     string `json:"config_role,omitempty"`
+	ConfigModel    string `json:"config_model,omitempty"`
+	ConfigProvider string `json:"config_provider,omitempty"`
 }
 
 type TranscriptToolCall struct {

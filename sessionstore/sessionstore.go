@@ -198,6 +198,12 @@ type Event struct {
 	// 两者与 message 全局 seq 分离，是 sequencer 排序键（§8.3）。
 	RoundID uint64 `json:"round_id,omitempty"`
 	UnitSeq uint64 `json:"unit_seq,omitempty"`
+	// ConfigRole / ConfigModel / ConfigProvider 是 assistant 行对应模型请求的
+	// 实际承接路由（见 application/model.TranscriptEvent 同名字段）：随行落盘，
+	// 会话派生（derivedConversationMessages）与轨迹审计共用。
+	ConfigRole     string `json:"config_role,omitempty"`
+	ConfigModel    string `json:"config_model,omitempty"`
+	ConfigProvider string `json:"config_provider,omitempty"`
 }
 
 type ToolResult struct {

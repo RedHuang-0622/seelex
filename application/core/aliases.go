@@ -159,7 +159,6 @@ const (
 	EventTeamChanged           = event.EventTeamChanged
 	EventTeammateToolStarted   = event.EventTeammateToolStarted
 	EventTeammateToolCompleted = event.EventTeammateToolCompleted
-	EventRequestMeta           = event.EventRequestMeta
 	EventInteractionOpened     = event.EventInteractionOpened
 	EventInteractionClosed     = event.EventInteractionClosed
 	EventError                 = event.EventError

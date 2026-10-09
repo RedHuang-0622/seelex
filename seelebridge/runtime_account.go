@@ -19,11 +19,6 @@ import (
 // 账号路由状态已收敛为 account.Manager（选中账号/provider 过滤/限额/选择器）。
 // 本文件只保留 Runtime 侧委托与 completer 装配接线。
 
-// routingNoticeChannelBuffer 是路由事实 channel 的缓冲：投递是非阻塞的
-// （满则丢——提示是 best-effort，绝不反压流式请求），容量只需要吸收
-// application 消费者的调度延迟。
-const routingNoticeChannelBuffer = 16
-
 // accountSelector 是主链路共享的账号选择器闭包（委托 account.Manager.Selector；
 // plan 分支绑定经闭包注入）。
 func (r *Runtime) accountSelector(ctx context.Context, messages []types.Message, tools []types.Tool) accountpool.AcquireRequest {
@@ -33,8 +28,9 @@ func (r *Runtime) accountSelector(ctx context.Context, messages []types.Message,
 }
 
 // assembleCompleters 构造同步与流式 completer，两者共享同一个账号选择器闭包。
-// 流式 completer 另接路由事实观察者：换号回退与「未固定账号的池内选定」
-// 会被投影成 B 类摘要事件（durable）+ CSP channel（application 消息提示）。
+// 流式 completer 另接路由事实观察者：request/failover 事实覆盖 per-session
+// ServedRoute 注册表（application 回合收尾取走、回填真相源）；换号回退与
+// 「未固定账号的池内选定」另落 B 类摘要事件（durable，审计用）。
 func (r *Runtime) assembleCompleters() error {
 	completer, err := r.bridgeAccountCompleter()
 	if err != nil {
@@ -46,20 +42,19 @@ func (r *Runtime) assembleCompleters() error {
 }
 
 // observeRoutingNotice 是流式 completer 的路由事实观察者（租约路径上同步
-// 调用，必须非阻塞）：request 钩子补全思考强度后直接投 CSP channel（不落
-// B 类摘要——它是每请求一条的瞬态元信息，落库就是噪音）；换号回退与「未固
-// 定账号的池内选定」照旧写 B 类摘要（durable）+ CSP channel。
+// 调用，必须非阻塞）：request 钩子与 failover 都覆盖该会话的 ServedRoute
+// 注册表（最终承接账号覆盖前面的尝试）；failover / unpinned_selection 另落
+// B 类摘要（durable）。不再投会话 system 消息——会话内通知已退役
+// （2026-10-10），路由元信息随 response 长在 assistant 消息上。
 func (r *Runtime) observeRoutingNotice(notice stream.RoutingNotice) {
 	if r == nil {
 		return
 	}
-	if notice.Reason == stream.ReasonRequest {
-		notice.ReasoningEffort = r.reasoningEffortForAccount(notice.To)
-		r.publishRoutingNotice(r.routingNoticeDTO(notice))
-		return
+	if notice.Reason == stream.ReasonRequest || notice.Reason == stream.ReasonFailover {
+		r.recordServedRoute(notice)
 	}
-	// unpinned_selection 每个会话+账号 只提示一次：主链路未固定账号时它每轮
-	// 都会发生，重复提示是噪音；换号（failover）不去重——每一次都必须可见。
+	// unpinned_selection 每个会话+账号 只记一次摘要：主链路未固定账号时它每轮
+	// 都会发生，重复记录是噪音；换号（failover）不去重——每一次都必须可审计。
 	if notice.Reason == stream.ReasonUnpinnedSelection {
 		key := notice.SessionID + "|" + notice.To
 		r.routingNoticeMu.Lock()
@@ -70,7 +65,9 @@ func (r *Runtime) observeRoutingNotice(notice stream.RoutingNotice) {
 			return
 		}
 	}
-	message := r.routingNoticeMessage(notice)
+	if notice.Reason != stream.ReasonFailover && notice.Reason != stream.ReasonUnpinnedSelection {
+		return
+	}
 	if r.summaryLog != nil {
 		r.summaryLog.RecordSummary(seetelemetry.SummaryEvent{
 			Kind:   "route",
@@ -78,78 +75,58 @@ func (r *Runtime) observeRoutingNotice(notice stream.RoutingNotice) {
 			Status: "completed",
 			At:     notice.At,
 			NodeID: notice.NodeID,
-			Detail: message,
+			Detail: r.routingNoticeMessage(notice),
 		})
 	}
-	r.publishRoutingNotice(dto.RoutingNotice{
+}
+
+// recordServedRoute 把一次路由事实覆盖进该会话的 ServedRoute 注册表。只有
+// 主链路请求（NodeID 空、会话可解析）才记录：子代理/plan 节点的路由归各自
+// 的节点视图，进程级请求（无会话归属）无处回填。
+func (r *Runtime) recordServedRoute(notice stream.RoutingNotice) {
+	if notice.SessionID == "" || notice.NodeID != "" {
+		return
+	}
+	r.routingNoticeMu.Lock()
+	r.servedRoutes[notice.SessionID] = dto.ServedRoute{
+		Role:     notice.Role,
+		Account:  notice.To,
+		Provider: notice.Provider,
+		Model:    notice.Model,
+		At:       notice.At,
+	}
+	r.routingNoticeMu.Unlock()
+}
+
+// TakeServedRoute 取出（并清掉）该会话最近一次请求的实际承接路由。读即清：
+// 事实只服务「本轮 response 回填真相源」一次，残留会让下一轮在没有请求真正
+// 派发时误用旧路由。无事实返回 ok=false。
+func (r *Runtime) TakeServedRoute(sessionID string) (dto.ServedRoute, bool) {
+	if r == nil || sessionID == "" {
+		return dto.ServedRoute{}, false
+	}
+	r.routingNoticeMu.Lock()
+	route, ok := r.servedRoutes[sessionID]
+	delete(r.servedRoutes, sessionID)
+	r.routingNoticeMu.Unlock()
+	return route, ok
+}
+
+// routingNoticeMessage 把内部路由事实翻成 B 类摘要的一句可读说明
+// （dto.RoutingNotice.Message 同源文案；只带非敏感路由属性）。
+func (r *Runtime) routingNoticeMessage(notice stream.RoutingNotice) string {
+	return dto.RoutingNotice{
 		SessionID:   notice.SessionID,
 		NodeID:      notice.NodeID,
 		At:          notice.At,
 		Reason:      notice.Reason,
+		Role:        notice.Role,
 		From:        notice.From,
 		To:          notice.To,
 		Model:       notice.Model,
 		Provider:    notice.Provider,
 		FailureKind: notice.FailureKind,
-	})
-}
-
-// routingNoticeMessage 把内部路由事实投影成 dto 并取共用文案
-// （dto.RoutingNotice.Message——会话消息与摘要 Detail 同源）。
-func (r *Runtime) routingNoticeMessage(notice stream.RoutingNotice) string {
-	return r.routingNoticeDTO(notice).Message()
-}
-
-// reasoningEffortForAccount 查账号配置的思考强度（config 解析后的账号级值，
-// 可能是 "session"——由 application 消费端解析成当前 wire 值）。未知账号返回空。
-func (r *Runtime) reasoningEffortForAccount(name string) string {
-	if r == nil || name == "" {
-		return ""
-	}
-	for _, spec := range r.accountSpecList() {
-		if spec.Name == name {
-			return spec.ReasoningEffort
-		}
-	}
-	return ""
-}
-
-// routingNoticeDTO 把内部路由事实投影成跨层 DTO。
-func (r *Runtime) routingNoticeDTO(notice stream.RoutingNotice) dto.RoutingNotice {
-	return dto.RoutingNotice{
-		SessionID:       notice.SessionID,
-		NodeID:          notice.NodeID,
-		At:              notice.At,
-		Reason:          notice.Reason,
-		Role:            notice.Role,
-		From:            notice.From,
-		To:              notice.To,
-		Model:           notice.Model,
-		Provider:        notice.Provider,
-		ReasoningEffort: notice.ReasoningEffort,
-		FailureKind:     notice.FailureKind,
-	}
-}
-
-// publishRoutingNotice 非阻塞投递路由事实（CSP；channel 未装配或满则丢，
-// best-effort 不反压请求路径）。
-func (r *Runtime) publishRoutingNotice(notice dto.RoutingNotice) {
-	if r == nil || r.routingNotices == nil {
-		return
-	}
-	select {
-	case r.routingNotices <- notice:
-	default:
-	}
-}
-
-// RoutingNoticeChannel 返回账号路由事实 channel（CSP：application 生命周期
-// 消费者串行处理；runtime 侧非阻塞投递，满则丢）。未装配时返回 nil。
-func (r *Runtime) RoutingNoticeChannel() <-chan dto.RoutingNotice {
-	if r == nil || r.routingNotices == nil {
-		return nil
-	}
-	return r.routingNotices
+	}.Message()
 }
 
 // bridgeAccountCompleter 构造同步 Completer（每次 Complete 恰好一次租赁）。

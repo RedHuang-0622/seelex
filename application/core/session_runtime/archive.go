@@ -313,6 +313,7 @@ func (c *Coordinator) conversationFromTranscriptLocked(events []model.Transcript
 			Kind: messageKindForEvent(event), CreatedAt: event.CreatedAt,
 			RoleName: event.RoleName, RoleSessionID: event.RoleSessionID,
 			RoundID: event.RoundID, UnitSeq: event.UnitSeq,
+			ConfigRole: event.ConfigRole, ConfigModel: event.ConfigModel, ConfigProvider: event.ConfigProvider,
 		}
 		switch event.Role {
 		case "assistant":
@@ -333,6 +334,9 @@ func (c *Coordinator) conversationFromTranscriptLocked(events []model.Transcript
 						RoleSessionID:    event.RoleSessionID,
 						RoundID:          event.RoundID,
 						UnitSeq:          event.UnitSeq,
+						ConfigRole:       event.ConfigRole,
+						ConfigModel:      event.ConfigModel,
+						ConfigProvider:   event.ConfigProvider,
 					})
 				}
 				for callIndex, call := range event.ToolCalls {

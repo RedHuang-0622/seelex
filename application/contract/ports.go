@@ -210,9 +210,10 @@ type RuntimePort interface {
 	// PlanNodeEventChannel 返回 plan 节点事件 channel（CSP 消费者串行处理；
 	// 取代同步回调）。
 	PlanNodeEventChannel() <-chan dto.PlanNodeEvent
-	// RoutingNoticeChannel 返回账号路由事实 channel（CSP；runtime 非阻塞投递）。
-	// 消费点：账号换号回退 / 未固定账号的池内选定 → 会话 system 消息提示。
-	RoutingNoticeChannel() <-chan dto.RoutingNotice
+	// TakeServedRoute 取出（并清掉）该会话最近一次模型请求的实际承接路由
+	//（config role / 账号 / provider / model；请求解析中间件在租约路径上得出）。
+	// 消费点：回合收尾把路由回填进 assistant 消息真相源（读即清，防残留）。
+	TakeServedRoute(sessionID string) (dto.ServedRoute, bool)
 	// SwitchSessionTasks 会话级 task 隔离：离开当前会话时把其注册表快照
 	// 存入该会话的 scope 分区，切换后整体替换为目标会话 task（复用 session
 	// stack 存储）。它只改变"当前会话"的实时注册表——**工作表格取全局读面**

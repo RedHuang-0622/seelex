@@ -232,6 +232,14 @@ type Message struct {
 	RoleSessionID string `json:"role_session_id,omitempty"`
 	RoundID       uint64 `json:"round_id,omitempty"`
 	UnitSeq       uint64 `json:"unit_seq,omitempty"`
+	// ConfigRole / ConfigModel / ConfigProvider 是这条 assistant 回应的实际
+	// 承接路由（请求解析中间件在账号池租约路径上得出，随 response 回填）：
+	// config role = 承接账号所属的配置角色（agent/subagent/goalplan），
+	// config model / provider = 承接账号的模型与厂商类型。进真相源（归属审计
+	// + 模型能力追溯），旧数据/非 assistant 行为空，前端缺省不渲染。
+	ConfigRole     string `json:"config_role,omitempty"`
+	ConfigModel    string `json:"config_model,omitempty"`
+	ConfigProvider string `json:"config_provider,omitempty"`
 }
 
 // 群聊逻辑角色名（role_name）：只做 metadata 与展示归属，provider role 仍只有
