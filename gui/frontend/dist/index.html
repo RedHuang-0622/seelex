@@ -80,10 +80,15 @@
            空的时候 :empty 规则整块收起，不吃高度也不吃指针。 -->
       <div id="message-queue" class="message-queue-host" aria-live="polite"></div>
       <form id="composer" class="composer">
+        <!-- 草稿区上沿的引用 chip 条（J-1b）：`@文件` / `+` 加号 / 拖拽三个入口产出同一条
+             工作区相对路径引用，这里与对话正文共用**同一枚 chip**（file-reference.js 的
+             fileReferenceChipHTML 的两种宿主）。没有引用时整块收起（:empty）。 -->
+        <div id="composer-file-refs" class="composer-file-refs" aria-live="polite"></div>
         <div id="inline-suggestions" class="command-suggestions inline-suggestions hidden"></div>
-        <textarea id="prompt" rows="1" placeholder="描述任务，输入 / 查看命令，# 切换插件，$ 召回 Skill"></textarea>
+        <textarea id="prompt" rows="1" placeholder="描述任务，输入 / 查看命令，# 切换插件，$ 召回 Skill，@ 引用工作区文件"></textarea>
         <div class="composer-actions">
           <div class="composer-tools">
+            <button id="file-button" class="icon-button composer-icon" type="button" title="添加文件引用（工作区相对路径）" aria-label="添加文件引用" aria-haspopup="dialog" aria-expanded="false" data-icon="plus"></button>
             <button id="command-button" class="icon-button composer-icon" type="button" title="命令面板 (Ctrl+K)" aria-label="命令面板 (Ctrl+K)" data-icon="command"></button>
             <button id="runtime-button" class="icon-button composer-icon" type="button" title="运行状态" aria-label="运行状态" data-icon="runtime"></button>
             <div class="perm-picker" data-perm-picker>
@@ -109,6 +114,17 @@
           </div>
           <button id="stop-button" class="icon-button action-button danger-button hidden" type="button" title="停止" aria-label="停止" data-icon="stop"></button>
           <button id="send-button" class="icon-button action-button primary-button" type="submit" title="发送" aria-label="发送" data-icon="send"></button>
+        </div>
+        <!-- `+` 加号的候选面板（J-1b）：候选来自**已加载的工作区树索引**（不必逐键读盘），
+             点一行就把该路径插进草稿（与 `@文件` 完全同一套代码：fileReferenceCandidates +
+             applyFileReference）。行样式复用命令面板的 .command-result。 -->
+        <div id="composer-file-picker" class="composer-file-picker hidden" role="dialog" aria-modal="false" aria-label="添加文件引用">
+          <div class="composer-file-picker-head">
+            <span>引用工作区文件</span>
+            <button id="composer-file-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button>
+          </div>
+          <input id="composer-file-search" class="composer-file-search" type="text" autocomplete="off" spellcheck="false" placeholder="输入路径片段筛选…" aria-label="筛选工作区路径" />
+          <div id="composer-file-results" class="command-results composer-file-results"></div>
         </div>
       </form>
       <!-- 下栏终端（VS Code 式）：顶边分隔条可拉动调高，头部可收起/展开，
@@ -420,7 +436,6 @@
         <button class="active" type="button" data-trigger="/">/ 命令与工具</button>
         <button type="button" data-trigger="#"># Plugins</button>
         <button type="button" data-trigger="$">$ Skills</button>
-        <button type="button" data-trigger="@">@ Team</button>
       </div>
       <input id="command-search" class="command-search" value="/" autocomplete="off" spellcheck="false" aria-label="搜索命令">
       <div id="command-results" class="command-results"></div>

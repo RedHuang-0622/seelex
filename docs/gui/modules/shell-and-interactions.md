@@ -154,13 +154,34 @@ chip 不是块）。块与块之间是"融合成一块"还是"两枚块圆角相
   给出同名能力的命令入口（`compact_context` → `/compact`；`/help` 也写明这条口径）；
 - `#`：切换 Plugin（含 `#off` = 停用全部）；
 - `$`：召回 Skill（激活到当前会话）；
-- `@`：**不再是输入前缀**（2026-10-12 J-1a，用户拍板"手动召唤团队直接删除"）。这个字符
-  让给**文件指代**（`@文件`，见 J-1b）。随之一并退场的是 Agent Team 的召唤面 / 团队库 /
-  员工库 / 全局母本 / 面板 / `team.*` RPC：打 `@` 不再有建议面板，整条输入按普通对话下发。
-  退场前的口径（`@<团队>` 只装配、`@<团队> <附言>` = 召唤即干活、建议面读团队库快照）
+- `@`：**不是输入前缀**（2026-10-12 J-1a 用户拍板"手动召唤团队直接删除"，J-1b 把
+  这个字符落实成**文件引用**）。`@路径` 是**正文文本**的一部分，不与后端路由器发生
+  关系：`@src/app.js 看看这里` 按普通对话下发（`SubmitToSession` + 显式视图会话 ID），
+  引用因此留在正文里给 agent 看，agent 自己 `read_file` / `grep`。
+  前端多做两件事：给候选（来自已加载的工作区树索引，不逐键读盘）与渲染 chip
+  （`gui/frontend/dist/file-reference.js`）。**不登记成 sigil** 的三条理由（引用必须留在
+  正文、无需后端分派、三入口同一载体）写在 `application/core/completion.go` 的前缀契约
+  注释里。随 J-1a 退场的是 Agent Team 的召唤面 / 团队库 / 员工库 / 全局母本 / 面板 /
+  `team.*` RPC；退场前的口径（`@<团队>` 只装配、`@<团队> <附言>` = 召唤即干活）
   见 `docs/devlog/2026-09-17-input-sigils-and-manual-team-summon.md` 与 J-1a 的 CHANGELOG 条目。
+- `+` 加号（J-1b）：composer 工具条上的「添加文件引用」按钮（`index.html` 的
+  `.composer-tools` / `#file-button`），点开一个**路径选择器**（`#composer-file-picker`）。
+  它与 `@文件`、右栏工作树拖拽是**同一件事的三个入口**：都只产出**工作区相对路径**，
+  共用 `file-drop.js` 的 `normalizeDropPath`（绝对路径 / `..` / 超长一律拒绝，判据只有
+  一份）与**同一枚 chip**（`file-reference.js` 的 `fileReferenceChipHTML`）。
 
-Command modal 和 inline suggestions 都调用 Bridge.Suggestions，并共享 `renderSuggestionList/acceptSuggestion`。输入内容不在前端执行，选中项只写回 composer，最终仍走 Submit。
+路径引用的两处渲染（**同一枚 chip 的两种宿主**）：
+
+- **composer 草稿区**：`#composer-file-refs` 一条 chip 行（`@路径`，可 × 删除，
+  悬停看完整路径）。正文每次变化都从正文重新识别引用，所以三个入口落进草稿后
+  长出的是同一枚 chip；
+- **对话正文**：user 消息里同样的 chip（`markdown.js` 的 `fileRefs` 通道，走 stash 机制，
+  不会与强调/链接/代码段的规则互相破坏），**正文文本一个字都不改**——chip 只是渲染层
+  的识别，agent 看到的仍是路径；点击 chip 打开右栏文件详情（只读预览按 F-7），
+  目录引用只提示"内容由 agent 自行列目录读取"（不抢当前详情、不自动切换：§7.2 第 2 条
+  的保守默认）。
+
+Command modal 和 inline suggestions 都调用 Bridge.Suggestions，并共享 `renderSuggestionList/acceptSuggestion`。输入内容不在前端执行，选中项只写回 composer，最终仍走 Submit。**唯一例外是 `@`**（J-1b）：它不是前缀，后端建议面里没有它，候选由前端从已加载的工作区树索引里筛（`fileReferenceCandidates`），命中后经 `applyFileReference` 插成 `@路径 `——与 `+` 选择器走的是同一段插入代码（面板行、键盘规则、`renderSuggestionList` 都复用）。
 
 前缀改名后旧肌肉记忆（`#review` = 曾经召回 Skill）由后端在"未命中"时补一句迁移
 提示（`sigilMigrationHint`），不静默兜底：`#review` 报"未知 Plugin"并指出 `$review`。

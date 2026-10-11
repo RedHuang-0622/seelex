@@ -1,5 +1,14 @@
 import { escapeHtml, hydrateIcons, icon, queueDragTarget, queueMoveTarget } from "./components.js";
 import { FILE_DRAG_MIME, dropPaths, dropPlan, fileDragPayload } from "./file-drop.js";
+import {
+  FILE_REF_CANDIDATE_LIMIT,
+  FILE_REF_TRIGGER,
+  applyFileReference,
+  fileReferenceCandidates,
+  fileReferenceIndex,
+  fileReferenceStripHTML,
+  removeFileReference
+} from "./file-reference.js";
 import { createChatView } from "./chat-view.js";
 import { createGUIClient } from "./client-state.js";
 import { clearSubmittedText, composerSubmitPlan, composerViewSwitch, isComposingEnter, shouldRestoreDraft } from "./composer-input.js";
@@ -74,6 +83,9 @@ const state = {
   inlineSuggestions: [],
   inlineSelected: 0,
   inlineRequest: 0,
+  // 文件引用选择器（`+` 加号）的候选与选中项：候选来自已加载的工作区树索引。
+  filePickerItems: [],
+  filePickerSelected: 0,
   resumingSessionID: "",
   openSessionMenu: "",
   tab: "conversation",
@@ -103,6 +115,8 @@ const elements = Object.fromEntries([
   "file-save-modal", "file-save-title", "file-save-message", "file-save-keep", "file-save-discard", "file-save-cancel",
   "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "terminal-scrollback", "theme-picker", "mode-picker", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
+  // 文件引用（J-1b）：草稿 chip 条 + `+` 加号的候选面板。
+  "composer-file-refs", "file-button", "composer-file-picker", "composer-file-close", "composer-file-search", "composer-file-results",
   "load-history", "latest-history", "interaction-modal", "perm-toggle", "perm-menu", "interaction-risk", "interaction-title", "permission-tier-list",
   "new-session-modal", "new-session-close", "new-session-task", "new-session-workspace", "new-session-back", "new-session-workspace-list", "new-session-pick-folder", "new-session-step-1", "new-session-step-2",
   "scheduled-table-modal", "scheduled-table-close", "scheduled-table-open", "scheduled-table-summary", "scheduled-table-view",
@@ -617,8 +631,11 @@ async function refresh(options = {}) {
 
 // markComposerEdited 记录一次本地编辑：置脏并按需防抖落盘。程序化写入
 // （召回排队消息、接受建议）之后也要走它，否则这些内容会被当成"没编辑过"。
+// 顺带重画草稿区的引用 chip 条（J-1b）：正文每次变化都从正文重新识别引用，
+// 于是 `@文件` / `+` / 拖拽三个入口落进草稿后都自动长出一枚同样的 chip。
 function markComposerEdited() {
   composerDirty = true;
+  renderComposerFileRefs();
 }
 
 // syncComposerSession 在整份快照渲染时把「输入框正文 ↔ 视图会话」对齐：正文按
@@ -649,8 +666,10 @@ function syncComposerSession(snapshot) {
   if (elements.prompt.value !== result.text) {
     elements.prompt.value = result.text;
     resizePrompt();
+    // 正文换了会话：草稿 chip 条跟着换（否则会留下上一个会话的引用 chip）。
+    renderComposerFileRefs();
   }
-  // 正文换了归属：上一个会话的内联建议（命令/插件/技能/团队前缀）已不适用。
+  // 正文换了归属：上一个会话的内联建议（命令/插件/技能候选，以及文件引用候选）已不适用。
   hideInlineSuggestions();
 }
 
@@ -667,6 +686,7 @@ function restoreComposerDraft(snapshot) {
   })) return;
   elements.prompt.value = snapshot.session.composer;
   resizePrompt();
+  renderComposerFileRefs();
   elements.prompt.setSelectionRange(elements.prompt.value.length, elements.prompt.value.length);
 }
 
@@ -3525,18 +3545,21 @@ async function saveStorage() {
 
 // 输入前缀（sigil）契约：与后端 application/core/completion.go 同一条表，前端
 // 只消费不发明。权威说明见 docs/gui/modules/shell-and-interactions.md。
-//   /  命令与工具   #  切换 Plugin   $  召回 Skill   @  文件指代
-// `@` 在 2026-10-12 之前是「手动召唤团队」，该口径已随 Agent Team 面板退场删除
-// （J-1a）；`@` 归文件指代，候选源与提交载荷的改造是后续条目 J-1b 的落点——本条目
-// 不建新入口，只把团队口径撤掉（所以这里不再写「召唤团队」）。
+//   /  命令与工具   #  切换 Plugin   $  召回 Skill
+// `@` **不是前缀**：J-1a 把"手动召唤团队"整条删掉后，用户拍板把这个字符让给**文件
+// 指代**；J-1b 的定案是"`@` / `+` / 拖拽 = 同一条工作区相对路径引用"，而引用就是
+// **正文文本**的一部分，因此它既不进后端路由器、也没有 sigil 语义（提交走与普通对话
+// 同一条 SubmitToSession，见 composer-input.js）。前端只多做两件事：给候选（来自已
+// 加载的工作区树）与渲染 chip（file-reference.js）。所以 SIGILS 与后端一一对应，
+// `@` 另立一条：INLINE_TRIGGERS = 面板触发字符（含前端专属的 `@`）。
 const SIGIL_COMMAND = "/";
 const SIGIL_PLUGIN = "#";
 const SIGIL_SKILL = "$";
-const SIGIL_TEAM = "@";
-const SIGILS = [SIGIL_COMMAND, SIGIL_PLUGIN, SIGIL_SKILL, SIGIL_TEAM];
+const SIGILS = [SIGIL_COMMAND, SIGIL_PLUGIN, SIGIL_SKILL];
+const INLINE_TRIGGERS = [...SIGILS, FILE_REF_TRIGGER];
 
-// SIGIL_PATTERN 判定"内联建议该不该弹"：前缀开头且还没进入参数区（无空白）。
-const SIGIL_PATTERN = new RegExp(`^[${SIGILS.map(sigil => `\\${sigil}`).join("")}][^\\s]*$`);
+// SIGIL_PATTERN 判定"内联建议该不该弹"：触发字符开头且还没进入参数区（无空白）。
+const SIGIL_PATTERN = new RegExp(`^[${INLINE_TRIGGERS.map(sigil => `\\${sigil}`).join("")}][^\\s]*$`);
 
 async function openCommandPalette(trigger = "/") {
   state.commandTrigger = SIGILS.includes(trigger) ? trigger : "/";
@@ -3581,7 +3604,7 @@ async function updateCommandResults() {
 // 候选数组放 WeakMap（每容器一份，随 DOM 回收，不给闭包留悬挂引用）。
 const suggestionLists = new WeakMap();
 
-function renderSuggestionList(container, suggestions, selected, trigger, limit = suggestions.length) {
+function renderSuggestionList(container, suggestions, selected, trigger, limit = suggestions.length, emptyText = "没有匹配的指令") {
   const visible = suggestions.slice(0, limit);
   suggestionLists.set(container, { visible, trigger });
   bindSuggestionList(container);
@@ -3592,7 +3615,7 @@ function renderSuggestionList(container, suggestions, selected, trigger, limit =
       <span class="command-description">${escapeHtml(suggestion.description || "")}</span>
       <span class="command-kind">${escapeHtml(suggestion.kind || "command")}</span>
     </button>`).join("")
-    : '<span class="muted list-empty">没有匹配的指令</span>';
+    : `<span class="muted list-empty">${escapeHtml(emptyText)}</span>`;
 }
 
 function bindSuggestionList(container) {
@@ -3607,11 +3630,18 @@ function bindSuggestionList(container) {
 }
 
 function suggestionIcon(kind) {
-  return ({ skill: "skill", plugin: "plugin", command: "command", team: "team" })[kind] || "command";
+  return ({ skill: "skill", plugin: "plugin", command: "command", team: "team", file: "file", folder: "folder" })[kind] || "command";
 }
 
 function acceptSuggestion(suggestion, trigger) {
   if (!suggestion) return;
+  // `@` 是文件引用：走**同一套插入代码**（file-reference.js 的 applyFileReference），
+  // 草稿不会被整段替换（`/` `#` `$` 那三个前缀的候选本来就是"整条输入 = 这个候选"，
+  // 引用不是：它插在用户正在写的那句话里）。
+  if (trigger === FILE_REF_TRIGGER) {
+    acceptFileReference(suggestion.text);
+    return;
+  }
   elements.prompt.value = `${trigger}${suggestion.text} `;
   resizePrompt();
   markComposerEdited();
@@ -3621,10 +3651,209 @@ function acceptSuggestion(suggestion, trigger) {
   elements.prompt.setSelectionRange(elements.prompt.value.length, elements.prompt.value.length);
 }
 
+// ── 文件引用（J-1b）──────────────────────────────────────────────────────────
+// 三入口同一载体：`@文件`（内联面板）/ `+` 加号（选择器）/ 右栏工作树拖拽（原有接线）
+// 都只产出**工作区相对路径**，共用 file-reference.js 的归一化与 chip。这里只管接线
+// （DOM / Bridge），规则全在那个纯模块里。
+//
+// 候选索引：**已加载的工作区树**。为了让"按键路径只走已加载的树"成立，索引按工作区
+// root 缓存（fileRefIndexRoot），只在首次需要时用一次 WorkspaceTree 列举拉取（depth 4），
+// 之后按键只做内存筛选；换工作区即失效重取。**不逐键读盘**。
+const FILE_REF_TREE_DEPTH = 4;
+let fileRefIndex = [];
+// fileRefIndexRoot = 索引属于哪个工作区 root（`null` = 还没拉过；空串也算"拉过了"，
+// 免得不支持工作区的会话每次按键都重拉一遍）。
+let fileRefIndexRoot = null;
+let fileRefIndexLoading = null;
+
+// fileRefIndexStale 判定索引要不要（重新）拉取：换工作区即失效。
+function fileRefIndexStale() {
+  return fileRefIndexRoot === null || fileRefIndexRoot !== (client.current()?.current_workspace?.root_path || "");
+}
+
+async function ensureFileRefIndex() {
+  const root = client.current()?.current_workspace?.root_path || "";
+  if (!fileRefIndexStale()) return fileRefIndex;
+  if (fileRefIndexLoading) return fileRefIndexLoading;
+  fileRefIndexLoading = invoke("WorkspaceTree", "", FILE_REF_TREE_DEPTH)
+    .then(listing => {
+      fileRefIndex = fileReferenceIndex(listing?.entries);
+      fileRefIndexRoot = root;
+      return fileRefIndex;
+    })
+    .catch(error => {
+      // 索引是增强面：拉取失败只是"没有候选"，不打断输入（非法路径也进不了引用）。
+      // 失败不记 root（下一次需要时再试一次），也不清掉上一次的索引。
+      showToast(error);
+      return fileRefIndex;
+    })
+    .finally(() => { fileRefIndexLoading = null; });
+  return fileRefIndexLoading;
+}
+
+// 候选行的形状与命令面板同一套（renderSuggestionList 的 kind → 图标）：目录用 folder、
+// 文件用 file，描述里给出完整路径（长路径被截断时仍可读全）。
+function fileReferenceRows(items) {
+  return items.map(item => ({
+    text: item.path,
+    description: item.dir ? "目录（agent 会自己列目录读）" : "文件（agent 用 read_file 读）",
+    kind: item.dir ? "folder" : "file"
+  }));
+}
+
+// acceptFileReference 是三个入口的**唯一插入点**：把路径写进草稿（`@路径 `，就是正文
+// 里的文本），然后重画草稿 chip 条。非法路径不插（统一由一个判据拒绝）。
+function acceptFileReference(rawPath) {
+  const applied = applyFileReference(elements.prompt.value, elements.prompt.selectionStart ?? elements.prompt.value.length, rawPath);
+  closeFilePicker();
+  hideInlineSuggestions();
+  if (!applied.ok) {
+    showToast("只能引用工作区内的相对路径（不能是绝对路径、不能含 ..、不能超长）");
+    return;
+  }
+  elements.prompt.value = applied.text;
+  markComposerEdited();
+  resizePrompt();
+  renderComposerFileRefs();
+  elements.prompt.focus();
+  elements.prompt.setSelectionRange(applied.cursor, applied.cursor);
+}
+
+// renderComposerFileRefs 重画草稿区的引用 chip 条（与对话正文**同一枚 chip**）。
+function renderComposerFileRefs() {
+  const host = elements["composer-file-refs"];
+  if (!host) return;
+  host.innerHTML = fileReferenceStripHTML(elements.prompt.value, { host: "composer" });
+}
+
+function closeFilePicker() {
+  const picker = elements["composer-file-picker"];
+  if (!picker) return;
+  picker.classList.add("hidden");
+  elements["file-button"]?.setAttribute("aria-expanded", "false");
+}
+
+async function openFilePicker() {
+  const picker = elements["composer-file-picker"];
+  if (!picker) return;
+  picker.classList.remove("hidden");
+  elements["file-button"]?.setAttribute("aria-expanded", "true");
+  elements["composer-file-search"].value = "";
+  state.filePickerSelected = 0;
+  renderFilePickerResults();
+  elements["composer-file-search"].focus();
+  // 首次打开（或换了工作区）补一次索引：此后按键只筛内存，不读盘。
+  if (fileRefIndexStale()) {
+    await ensureFileRefIndex();
+    if (!picker.classList.contains("hidden")) renderFilePickerResults();
+  }
+}
+
+function renderFilePickerResults() {
+  const query = elements["composer-file-search"]?.value || "";
+  const items = fileReferenceCandidates(fileRefIndex, query, FILE_REF_CANDIDATE_LIMIT);
+  state.filePickerItems = items;
+  state.filePickerSelected = Math.min(state.filePickerSelected, Math.max(items.length - 1, 0));
+  renderSuggestionList(elements["composer-file-results"], fileReferenceRows(items), state.filePickerSelected, FILE_REF_TRIGGER, FILE_REF_CANDIDATE_LIMIT, "没有匹配的工作区路径");
+}
+
+// 内联面板的 `@` 分支：候选只来自已加载索引（首次为空时补一次），**不调 Bridge**
+// （后端的 Suggestions 表里没有 `@`——它不是前缀）。
+function renderFileReferenceSuggestions(request, query) {
+  const items = fileReferenceCandidates(fileRefIndex, query, FILE_REF_CANDIDATE_LIMIT);
+  if (request !== state.inlineRequest) return;
+  state.inlineSuggestions = fileReferenceRows(items);
+  state.inlineSelected = Math.min(state.inlineSelected, Math.max(state.inlineSuggestions.length - 1, 0));
+  elements["inline-suggestions"].classList.toggle("hidden", state.inlineSuggestions.length === 0);
+  renderSuggestionList(elements["inline-suggestions"], state.inlineSuggestions, state.inlineSelected, FILE_REF_TRIGGER, FILE_REF_CANDIDATE_LIMIT, "没有匹配的工作区路径");
+}
+
+function wireFileReferenceEntry() {
+  elements["file-button"]?.addEventListener("click", () => {
+    if (elements["composer-file-picker"]?.classList.contains("hidden")) openFilePicker();
+    else closeFilePicker();
+  });
+  elements["composer-file-close"]?.addEventListener("click", () => { closeFilePicker(); elements.prompt.focus(); });
+  elements["composer-file-search"]?.addEventListener("input", () => {
+    state.filePickerSelected = 0;
+    renderFilePickerResults();
+  });
+  elements["composer-file-search"]?.addEventListener("keydown", event => {
+    const items = state.filePickerItems || [];
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (items.length === 0) return;
+      const direction = event.key === "ArrowDown" ? 1 : -1;
+      state.filePickerSelected = (state.filePickerSelected + direction + items.length) % items.length;
+      renderFilePickerResults();
+      return;
+    }
+    if (event.key === "Enter" || event.key === "Tab") {
+      event.preventDefault();
+      acceptFileReference(items[state.filePickerSelected]?.path || "");
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeFilePicker();
+      elements.prompt.focus();
+    }
+  });
+  // 一条容器委托管两处 chip：草稿条的 × 删除、正文 chip 的"点开右栏详情"。
+  // （草稿 chip 的正文点击不做事：它是引用标记，不是入口——入口是 × 与面板。）
+  document.addEventListener("click", event => {
+    // 点在选择器/加号之外 → 收起面板（不吞这次点击）。
+    const picker = elements["composer-file-picker"];
+    if (picker && !picker.classList.contains("hidden")
+      && !event.target?.closest?.("#composer-file-picker")
+      && !event.target?.closest?.("#file-button")) {
+      closeFilePicker();
+    }
+    const remove = event.target?.closest?.("[data-file-ref-remove]");
+    if (remove) {
+      const chip = remove.closest("[data-file-ref]");
+      if (chip) {
+        elements.prompt.value = removeFileReference(elements.prompt.value, chip.dataset.fileRef);
+        markComposerEdited();
+        resizePrompt();
+        renderComposerFileRefs();
+        elements.prompt.focus();
+      }
+      return;
+    }
+    const chip = event.target?.closest?.(".message-body [data-file-ref]");
+    if (!chip) {
+      // 草稿区的 chip 只是引用标记（入口是 × 与面板）：点它把焦点还给输入框。
+      if (event.target?.closest?.("[data-file-ref-host=\"composer\"]")) elements.prompt.focus();
+      return;
+    }
+    const path = chip.dataset.fileRef || "";
+    if (path === "") return;
+    // 目录引用不是可预览的"文件"：说清它归 agent 自己列，别打开一个读不了的面板。
+    if (chip.dataset.fileRefDir === "1") {
+      showToast(`目录引用：${path}/（内容由 agent 自行列目录读取）`);
+      return;
+    }
+    openFilePreview({ path, name: path.split("/").pop() || path });
+  });
+}
+wireFileReferenceEntry();
+
 async function updateInlineSuggestions() {
   const input = elements.prompt.value.trimStart();
   if (!SIGIL_PATTERN.test(input)) {
     hideInlineSuggestions();
+    return;
+  }
+  // `@` 是文件引用（前端侧触发字符）：候选来自已加载的工作区树，**不调 Bridge**。
+  if (input[0] === FILE_REF_TRIGGER) {
+    const request = ++state.inlineRequest;
+    const query = input.slice(FILE_REF_TRIGGER.length);
+    renderFileReferenceSuggestions(request, query);
+    if (fileRefIndexStale()) {
+      // 首次（或换工作区后）补一次索引，此后按键只筛内存（见 ensureFileRefIndex）。
+      ensureFileRefIndex().then(() => renderFileReferenceSuggestions(request, query));
+    }
     return;
   }
   const request = ++state.inlineRequest;
@@ -3666,6 +3895,10 @@ elements.composer.addEventListener("submit", async event => {
     elements.prompt.value = clearSubmittedText(elements.prompt.value, sent);
     composerDirty = false;
     hideInlineSuggestions();
+    closeFilePicker();
+    // 已发出的引用进了正文（后面 refresh 会渲染消息 chip）；草稿里剩下的那部分
+    // （提交往返期间追加的新输入）重新算一次 chip 条。
+    renderComposerFileRefs();
     resizePrompt();
     // 团队事实不在这里猜，也不由前端从提交文本里推：`@` 手动召唤已退场（J-1a），
     // 装配只剩 goal / teamwork 的自动通道，事实变化由后端的 team.changed 事件通告
@@ -3708,6 +3941,8 @@ elements.prompt.addEventListener("input", () => {
   resizePrompt();
   markComposerEdited();
   state.inlineSelected = 0;
+  // 草稿里的引用 chip 条跟着正文重画（同一枚 chip 的草稿宿主）。
+  renderComposerFileRefs();
   updateInlineSuggestions();
 });
 

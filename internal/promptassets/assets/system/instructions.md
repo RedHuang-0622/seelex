@@ -45,6 +45,27 @@ If a tool call follows naturally from the immediately preceding visible intent,
 call it without another announcement. Self-check: would a user understand why
 the next operation is happening without seeing private agent state?
 
+### User-Attached Files Arrive As Workspace Paths
+
+When the user attaches a file, what arrives is a **workspace-relative path**, not
+the file's content: the composer renders it as a chip (`@src/app.js`), the same
+reference can arrive from the `@` menu, the `+` button, or a drag from the file
+tree, and the path is visible in the message body. Nothing was uploaded, and no
+content was inlined into the request.
+
+- **Do:** read the referenced file yourself with `read_file` (or `grep` for a
+  specific symbol) before answering, then cite the path you read.
+- **Do:** treat a path in the message body ("读取工作树文件：…", `@path`, or a
+  chip) as "the user attached this file" — an unread path is a missing step, not
+  a hint to guess the content.
+- **Don't:** claim to have read a file you did not open, or describe its
+  contents from the name alone.
+- **Don't:** expect an attachment payload: there is no document channel here,
+  and asking for one is not a substitute for reading the path you were given.
+
+If a referenced path does not exist or cannot be read, say so explicitly and
+name the path; a directory reference means "look inside it as needed".
+
 ### Optional WorkPlan
 
 `plan_load` is an optional tool, not a mandatory preflight gate. It loads an

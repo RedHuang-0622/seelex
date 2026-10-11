@@ -36,19 +36,27 @@ export function clearSubmittedText(current, sent) {
 }
 
 // SIGIL_PREFIXES 是后端输入路由器（input_router）拥有的前缀：/ 命令、# 插件、
-// $ 技能、@ 团队。命中即由路由器按"当前视图会话"分派，前端不复制这套映射。
-const SIGIL_PREFIXES = ["/", "#", "$", "@"];
+// $ 技能。命中即由路由器按"当前视图会话"分派，前端不复制这套映射。
+//
+// `@` **不在表里**（J-1b，2026-10-12）：它不再是前缀——J-1a 把"手动召唤团队"删掉
+// 之后，用户拍板把这个字符让给**文件指代**（`@文件`），而引用就是正文文本的一部分
+// （工作区相对路径），既不进后端路由器、也不该被当成"要走 Submit 的 sigil 输入"。
+// 留在表里的后果是实打实的：`@src/app.js 看看这里` 会被判成 sigil → 走 ambient
+// `Submit`（后端视图指针），切会话的窗口里就会投错会话；去掉之后它和普通对话走同
+// 一条路（`SubmitToSession` + 显式视图会话 ID），引用也就干净地留在正文里。
+// 前端侧的引用规则与 chip 在 file-reference.js。
+const SIGIL_PREFIXES = ["/", "#", "$"];
 
 // isSigilInput 判定输入是否交给后端路由器（前缀与 router 的 `HasPrefix` 同一
-// 判据：只看首字符，不管后面有没有内容——`#` 空名在 router 里是 no-op，
-// `@` 空名有语义，都不该被当成普通对话发出去）。
+// 判据：只看首字符，不管后面有没有内容——`#` 空名在 router 里是 no-op，空 `@`
+// 只是引用标记（前面/@ 后面没路径就没有引用），都不该被特殊对待）。
 export function isSigilInput(text) {
   const value = String(text ?? "").trimStart();
   return value !== "" && SIGIL_PREFIXES.includes(value[0]);
 }
 
 // composerSubmitPlan 决定一次 composer 提交走哪条 RPC：
-//   - sigil 输入（/ # $ @）→ `Submit`：前缀→用例的映射是后端路由器的职责；
+//   - sigil 输入（/ # $）→ `Submit`：前缀→用例的映射是后端路由器的职责；
 //     它按当前视图会话分派，切换在途的窗口由输入区锁覆盖（chat-view.js）。
 //   - 普通对话输入 → `SubmitToSession` + 显式 viewedSessionID：**绝不重读后端
 //     "当前会话"**。运行中会话不会再把本该发给空闲会话的输入吸进自己的队列。

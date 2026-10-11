@@ -390,6 +390,25 @@ llm                    llm
 
 **E. 拍板记录（本轮已决）**：① `@` / `+` / 拖拽**统一成同一条路径引用语义**（同一归一化 + 同一 chip 组件）；② 路径 chip **也进 agent 可见的正文**（不是只做输入回显）。⇒ 提示词口径按"正文里有路径 = 用户已附加该文件、应当去读"写（见 C 第 5 条）。
 
+**E2. 落点与证据（2026-10-12 实施，Go 侧仍无改动）**
+
+| 环节 | 落点 | 说明 |
+|---|---|---|
+| 引用载体（三入口共用） | `gui/frontend/dist/file-reference.js` | `normalizeFilePath` **就是** `file-drop.js` 的 `normalizeDropPath`（同一函数引用，测试断言 identity）；`fileReferenceTokens` 识别 `@路径` 与拖拽落的裸路径两形态（保守判定：`@someone`、「and/or」不认）；`applyFileReference` / `removeFileReference` 是草稿上的唯一插入/删除实现 |
+| `@文件` 候选 | `app.js` 的 `updateInlineSuggestions` 的 `@` 分支 + `renderFileReferenceSuggestions` | 候选来自**已加载的工作区树索引**（`ensureFileRefIndex` 按工作区 root 缓存，首次用一次 `WorkspaceTree("", 4)`，之后按键只筛内存，**不逐键读盘**）；**不调 `Bridge.Suggestions`**（后端表里没有 `@`） |
+| `+` 加号 | `index.html` 的 `.composer-tools` → `#file-button` + `#composer-file-picker`；`app.js` 的 `openFilePicker`/`renderFilePickerResults` | 与 `@` **同一段插入代码**（同一个 `fileReferenceCandidates` + `acceptFileReference`） |
+| 拖拽 | 未改（`file-drop.js` 的 `fileDropPayload`/`dropPaths`/`dropPlan` + `app.js` 的 `initFileDrop`） | 本来就只产出工作区相对路径：J-1b 把它接进同一枚 chip 的识别范围（`fileQueueText` 那种「读取工作树文件：- src/a.js」正文里也长出 chip） |
+| chip 两处渲染 | `fileReferenceChipHTML`（`host: composer\|message`）；草稿条 `#composer-file-refs`；正文走 `markdown.js` 的 `fileRefs` 通道（stash 机制，只有 user 消息开启） | 正文 chip 点击开右栏文件详情（只读预览按 F-7）；目录引用只提示，不打开面板；**不强制切换当前详情**（§7.2 第 2 条的保守默认） |
+| 前缀口径（二选一：**前端输入增强**） | `application/core/completion.go` 前缀契约注释（`@` 仍不是前缀，三条理由写在注释里） | `composer-input.js` 的 `SIGIL_PREFIXES` 同步去掉 `@`：引用是正文文本，提交走 `SubmitToSession` + 显式视图会话 ID（留在表里会走 ambient `Submit`，切会话的窗口里会投错会话） |
+| 提示词口径 | `internal/promptassets/assets/system/instructions.md`（新增 "User-Attached Files Arrive As Workspace Paths"）+ `application/core/README-input.md` | 「附了文件就先自己 `read_file`/`grep` 读，并引用读到的路径」；不读=缺一步 |
+| 文档同步 | `docs/gui/modules/shell-and-interactions.md`（前缀表 `@` 行 + `+`/chip 两条）、`gui/frontend/README.md`（`file-reference.js` 一节 + 三入口口径） | |
+
+**验收（本轮实测）**：`node --test "gui/frontend/dist/*.test.mjs"` **755 pass / 0 fail**（新增
+`file-reference.test.mjs` 11 例、`file-reference-wiring.test.mjs` 6 例结构性断言、`file-drop.test.mjs`
+三入口同源 1 例、`composer-input.test.mjs` 引用不是 sigil 1 例）；Go 侧无改动（`go build ./...` 与
+`go test ./gui/... ./application/core/... ./internal/promptassets/...` 全绿）。悬停/点击等手工观感需在
+GUI 里目视确认（桌面纪律：本轮不操作窗口）。
+
 ---
 
 ### J-2 Agent 驱动 GUI 打开待审阅文件（本轮更正：前后端联调；一次批处理，上限 10 份）

@@ -78,7 +78,7 @@ test("普通对话输入走 SubmitToSession + 当前视图会话 ID", () => {
 });
 
 test("sigil 输入仍走后端路由器（Submit），不把命令当对话发出去", () => {
-  for (const text of ["/compact", "#default", "$code", "@goal-a2a 干活", "@", "#"]) {
+  for (const text of ["/compact", "#default", "$code", "#"]) {
     assert.equal(isSigilInput(text), true, `${text} 应判为 sigil`);
     assert.deepEqual(composerSubmitPlan({ text, viewedSessionID: "sess-4" }), { rpc: "Submit", args: [text] });
   }
@@ -86,6 +86,18 @@ test("sigil 输入仍走后端路由器（Submit），不把命令当对话发�
   assert.equal(isSigilInput("先看 /compact"), false, "前缀只在开头才拥有输入");
   assert.equal(isSigilInput(""), false);
   assert.equal(isSigilInput(null), false);
+});
+
+test("文件引用输入不是 sigil：`@路径` 与普通对话走同一条 SubmitToSession", () => {
+  // J-1b：`@` 让给文件指代后就不再是前缀（后端 sigils 表里也只剩 / # $）。
+  // 它必须走**显式钉死视图会话**的那条路：引用是正文文本的一部分，不是一条命令。
+  for (const text of ["@src/app.js 看看这里", "@", "@gui/frontend/dist"]) {
+    assert.equal(isSigilInput(text), false, `${text} 不该判为 sigil`);
+    assert.deepEqual(
+      composerSubmitPlan({ text, viewedSessionID: "sess-4" }),
+      { rpc: "SubmitToSession", args: ["sess-4", text] }
+    );
+  }
 });
 
 test("拿不到视图会话 ID 时退回 Submit（不往空 ID 上投）", () => {

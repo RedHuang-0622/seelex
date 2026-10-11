@@ -1,3 +1,4 @@
+import { fileReferenceChipHTML, fileReferenceTokens } from "./file-reference.js";
 import { isHtmlEmbedLanguage, renderHtmlEmbed } from "./html-embed.js";
 
 const SAFE_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
@@ -5,12 +6,16 @@ const BLOCK_PATTERN = /^(?: {0,3}(?:#{1,6}\s+|>|```|~~~|<think>\s*)|\s*(?:[-+*]|
 const REASONING_OPEN = /^ {0,3}<think>\s*/i;
 const REASONING_CLOSE = /<\/think>/i;
 
-export function renderMarkdown(value = "") {
+// renderMarkdown 渲染一段 markdown。options.fileRefs = true 时额外把**用户附的文件
+// 引用**（`@路径` / 裸路径，见 file-reference.js）渲染成 chip —— 只有 user 消息的正文
+// 走这条（components.js renderMessage），assistant/系统正文保持原样：引用是"用户附了
+// 哪个文件"的表述，渲染层识别它，正文文本一个字都不改。
+export function renderMarkdown(value = "", options = {}) {
   const source = String(value).replace(/\r\n?/g, "\n");
-  return source ? renderBlocks(source.split("\n")) : "";
+  return source ? renderBlocks(source.split("\n"), options) : "";
 }
 
-function renderBlocks(lines) {
+function renderBlocks(lines, options) {
   const output = [];
   let index = 0;
   while (index < lines.length) {
@@ -19,7 +24,7 @@ function renderBlocks(lines) {
       continue;
     }
     const renderer = selectBlockRenderer(lines, index);
-    const block = renderer(lines, index);
+    const block = renderer(lines, index, options);
     output.push(block.html);
     index = block.next;
   }
@@ -72,9 +77,9 @@ function mermaidBlockFromEscaped(escaped) {
     + `</div>`;
 }
 
-function renderFence(lines, index) {
+function renderFence(lines, index, options) {
   const opening = lines[index].match(/^ {0,3}(`{3,}|~{3,})\s*([^\s`~]+)?\s*(.*)$/);
-  if (!opening) return renderParagraph(lines, index);
+  if (!opening) return renderParagraph(lines, index, options);
   const marker = opening[1];
   const closePattern = new RegExp(`^ {0,3}${escapeRegExp(marker[0])}{${marker.length},}\\s*$`);
   const body = [];
@@ -99,7 +104,7 @@ function renderFence(lines, index) {
   return { html: `<pre><code${languageClass}>${escapeHtml(body.join("\n"))}</code></pre>`, next: cursor };
 }
 
-function renderReasoning(lines, index) {
+function renderReasoning(lines, index, options) {
   const body = [];
   let cursor = index;
   let line = lines[cursor].replace(REASONING_OPEN, "");
@@ -119,28 +124,28 @@ function renderReasoning(lines, index) {
     line = lines[cursor] || "";
   }
   const content = body.join("\n").trim();
-  const inner = content ? renderBlocks(content.split("\n")) : '<p class="reasoning-empty">暂无思考内容</p>';
+  const inner = content ? renderBlocks(content.split("\n"), options) : '<p class="reasoning-empty">暂无思考内容</p>';
   const live = closed ? "" : ' open class="reasoning-block is-streaming"';
   const details = closed ? '<details class="reasoning-block">' : `<details${live}>`;
   const state = closed ? "" : '<span class="reasoning-state">LIVE</span>';
-  const trailing = tail.trim() ? renderBlocks([tail]) : "";
+  const trailing = tail.trim() ? renderBlocks([tail], options) : "";
   return {
     html: `${details}<summary><span class="reasoning-chevron" aria-hidden="true"></span><span>思考过程</span>${state}</summary><div class="reasoning-content">${inner}</div></details>${trailing}`,
     next: cursor
   };
 }
 
-function renderHeading(lines, index) {
+function renderHeading(lines, index, options) {
   const match = lines[index].match(/^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
   const level = match[1].length;
-  return { html: `<h${level}>${renderInline(match[2])}</h${level}>`, next: index + 1 };
+  return { html: `<h${level}>${renderInline(match[2], options)}</h${level}>`, next: index + 1 };
 }
 
 function renderHorizontalRule(_lines, index) {
   return { html: "<hr>", next: index + 1 };
 }
 
-function renderQuote(lines, index) {
+function renderQuote(lines, index, options) {
   const quoted = [];
   let cursor = index;
   while (cursor < lines.length) {
@@ -149,10 +154,10 @@ function renderQuote(lines, index) {
     quoted.push(match[1]);
     cursor += 1;
   }
-  return { html: `<blockquote>${renderBlocks(quoted)}</blockquote>`, next: cursor };
+  return { html: `<blockquote>${renderBlocks(quoted, options)}</blockquote>`, next: cursor };
 }
 
-function renderList(lines, index) {
+function renderList(lines, index, options) {
   const first = matchListItem(lines[index]);
   const tag = first.ordered ? "ol" : "ul";
   const items = [];
@@ -162,14 +167,14 @@ function renderList(lines, index) {
     if (!item || item.ordered !== first.ordered) break;
     const task = item.content.match(/^\[([ xX])\]\s+(.*)$/);
     const checkbox = task ? `<input type="checkbox" disabled${task[1].toLowerCase() === "x" ? " checked" : ""}>` : "";
-    items.push(`<li${task ? ' class="task-item"' : ""}>${checkbox}${renderInline(task ? task[2] : item.content)}</li>`);
+    items.push(`<li${task ? ' class="task-item"' : ""}>${checkbox}${renderInline(task ? task[2] : item.content, options)}</li>`);
     cursor += 1;
   }
   const start = first.ordered && first.number !== 1 ? ` start="${first.number}"` : "";
   return { html: `<${tag}${start}>${items.join("")}</${tag}>`, next: cursor };
 }
 
-function renderTable(lines, index) {
+function renderTable(lines, index, options) {
   const headers = splitTableRow(lines[index]);
   const alignments = splitTableRow(lines[index + 1]).map(tableAlignment);
   const rows = [];
@@ -178,12 +183,12 @@ function renderTable(lines, index) {
     rows.push(splitTableRow(lines[cursor]));
     cursor += 1;
   }
-  const header = headers.map((cell, cellIndex) => renderTableCell("th", cell, alignments[cellIndex])).join("");
-  const body = rows.map(row => `<tr>${headers.map((_, cellIndex) => renderTableCell("td", row[cellIndex] || "", alignments[cellIndex])).join("")}</tr>`).join("");
+  const header = headers.map((cell, cellIndex) => renderTableCell("th", cell, alignments[cellIndex], options)).join("");
+  const body = rows.map(row => `<tr>${headers.map((_, cellIndex) => renderTableCell("td", row[cellIndex] || "", alignments[cellIndex], options)).join("")}</tr>`).join("");
   return { html: `<div class="table-wrap"><table><thead><tr>${header}</tr></thead>${body ? `<tbody>${body}</tbody>` : ""}</table></div>`, next: cursor };
 }
 
-function renderParagraph(lines, index) {
+function renderParagraph(lines, index, options) {
   const content = [];
   let cursor = index;
   while (cursor < lines.length && lines[cursor].trim()) {
@@ -191,14 +196,15 @@ function renderParagraph(lines, index) {
     content.push(lines[cursor].trim());
     cursor += 1;
   }
-  return { html: `<p>${content.map(renderInline).join("<br>")}</p>`, next: cursor };
+  return { html: `<p>${content.map(line => renderInline(line, options)).join("<br>")}</p>`, next: cursor };
 }
 
-function renderInline(value) {
+function renderInline(value, options = {}) {
   const tokens = [];
   let text = String(value).replaceAll("\u0000", "\uFFFD");
   text = stashCodeSpans(text, tokens);
-  text = stashLinks(text, tokens);
+  text = stashLinks(text, tokens, options);
+  text = stashFileReferences(text, tokens, options);
   text = escapeHtml(text)
     .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
     .replace(/__([^_\n]+)__/g, "<strong>$1</strong>")
@@ -216,7 +222,7 @@ function stashCodeSpans(value, tokens) {
   });
 }
 
-function stashLinks(value, tokens) {
+function stashLinks(value, tokens, options) {
   let text = value.replace(/!\[([^\]]*)\]\((\S+?)(?:\s+["']([^"']*)["'])?\)/g, (_match, alt, url, title) => {
     const href = safeUrl(url, false);
     if (!href) return `![${alt}](${url})`;
@@ -227,12 +233,30 @@ function stashLinks(value, tokens) {
     const href = safeUrl(url, true);
     if (!href) return `[${label}](${url})`;
     const titleAttr = title ? ` title="${escapeAttribute(title)}"` : "";
-    return stash(tokens, `<a href="${escapeAttribute(href)}"${titleAttr} target="_blank" rel="noopener noreferrer">${renderInline(label)}</a>`);
+    return stash(tokens, `<a href="${escapeAttribute(href)}"${titleAttr} target="_blank" rel="noopener noreferrer">${renderInline(label, options)}</a>`);
   });
   return text.replace(/<((?:https?:\/\/|mailto:)[^ >]+)>/gi, (_match, url) => {
     const href = safeUrl(url, true);
     return href ? stash(tokens, `<a href="${escapeAttribute(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>`) : url;
   });
+}
+
+// stashFileReferences 把**用户附的文件引用**（`@路径` / 裸路径）换成 chip 占位符。
+// 必须在 escapeHtml/强调规则之前 stash（与代码段、链接同一手法）：chip 的 HTML 一旦
+// 流进后面的正则，路径里的 `_`/`*` 可能被当成强调标记，属性会被改坏。
+// 只有 options.fileRefs 打开时才做（见 renderMarkdown 的注释）。
+function stashFileReferences(value, tokens, options) {
+  if (!options?.fileRefs) return value;
+  const references = fileReferenceTokens(value);
+  if (references.length === 0) return value;
+  let output = "";
+  let cursor = 0;
+  for (const reference of references) {
+    output += value.slice(cursor, reference.start);
+    output += stash(tokens, fileReferenceChipHTML(reference.path, { host: "message", dir: reference.dir }));
+    cursor = reference.end;
+  }
+  return output + value.slice(cursor);
 }
 
 function safeUrl(value, allowMail) {
@@ -272,9 +296,9 @@ function isTableStart(lines, index) {
   return delimiters.length > 0 && delimiters.every(cell => /^:?-{3,}:?$/.test(cell));
 }
 
-function renderTableCell(tag, value, alignment) {
+function renderTableCell(tag, value, alignment, options) {
   const align = alignment ? ` style="text-align:${alignment}"` : "";
-  return `<${tag}${align}>${renderInline(value)}</${tag}>`;
+  return `<${tag}${align}>${renderInline(value, options)}</${tag}>`;
 }
 
 function tableAlignment(value) {

@@ -69,11 +69,11 @@ test("空态与 placeholder 不再提「@ 手动召唤团队」", async () => {
     assert.equal(source.includes("手动召唤团队"), false, `${name} 不得再写团队召唤口径`);
     assert.equal(source.includes("召唤团队"), false, `${name} 不得再写「召唤团队」`);
   }
-  // 空态提示与 composer placeholder 都不许留一个孤立的 `@` 提示位（`@` 归文件指代，
-  // 落点是 J-1b）。注意：只查**输入框那一条** placeholder——存储 DSN 的示例串里
-  // `user:password@host` 是协议语法，不是 sigil 提示。
+  // 空态提示与 composer placeholder 都不许留一个孤立的 `@` 提示位。J-1b 落点之后
+  // （2026-10-12）输入框可以（且应当）提 `@`，但口径只能是**文件引用**：`@ 引用工作区
+  // 文件`，不许写成召唤团队，也不许只留一个光秃秃的 `@`。
   assert.doesNotMatch(html, /<span class="kbd" aria-hidden="true">@<\/span>/);
-  assert.doesNotMatch(html, /id="prompt"[^>]*placeholder="[^"]*@/);
+  assert.match(html, /id="prompt"[^>]*placeholder="[^"]*@ 引用工作区文件/, "@ 的口径必须是文件引用");
   // 前缀表里其余三条照旧（别把同伴一起带走）。
   assert.match(html, /<span class="kbd" aria-hidden="true">\/<\/span> 命令与工具/);
   assert.match(html, /<span class="kbd" aria-hidden="true">\$<\/span> 召回 Skill/);

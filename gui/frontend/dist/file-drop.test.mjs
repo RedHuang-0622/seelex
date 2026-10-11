@@ -84,3 +84,19 @@ test("dropPlan：草稿空 → 排队发出去；草稿非空 → 只追加引�
   assert.equal(dropPlan({ paths: ["/etc/passwd", "../x"], draftText: "" }), null);
   assert.equal(dropPlan({ paths: [], draftText: "在写" }), null);
 });
+
+test("拖拽入口是文件引用三入口之一：唯一归一化与同一枚 chip（J-1b）", async () => {
+  const reference = await import("./file-reference.js");
+  // 「三入口共用同一套归一化」不是口号：拖拽用的 normalizeDropPath 就是文件引用用的
+  // 那一个函数（同一函数引用），所以绝对路径 / .. / 超长三个入口同一判据。
+  assert.equal(reference.normalizeFilePath, normalizeDropPath);
+  for (const raw of ["/etc/passwd", "C:\\Windows", "src/../../etc/passwd", "x".repeat(513)]) {
+    assert.equal(normalizeDropPath(raw), "", `${raw} 拖拽入口拒绝`);
+    assert.equal(reference.normalizeFilePath(raw), "", `${raw} 引用入口同样拒绝`);
+  }
+  // 拖拽落的正文（fileQueueText 的形状）在正文里被识别成引用 chip：同一枚 chip 的
+  // 第二种宿主，路径文本一个字都没改（agent 看到的就是这些路径）。
+  const text = fileQueueText(["src/a.js", "gui/frontend/dist/app.js"]);
+  assert.deepEqual(reference.fileReferencePaths(text), ["src/a.js", "gui/frontend/dist/app.js"]);
+  assert.match(reference.fileReferenceStripHTML(text, { host: "composer" }), /data-file-ref="src\/a\.js"/);
+});

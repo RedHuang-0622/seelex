@@ -3,8 +3,12 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const embedURL = `data:text/javascript;base64,${Buffer.from(await readFile(new URL("./html-embed.js", import.meta.url), "utf8")).toString("base64")}`;
+// markdown.js 现在也 import ./file-reference.js（引用 chip 的渲染）：data: URL 模块
+// 解析不了相对路径，两个 specifier 都要换成可解析的 URL。
+const fileReferenceURL = new URL("./file-reference.js", import.meta.url).href;
 const markdownSource = (await readFile(new URL("./markdown.js", import.meta.url), "utf8"))
-  .replace('"./html-embed.js"', `"${embedURL}"`);
+  .replace('"./html-embed.js"', `"${embedURL}"`)
+  .replace('"./file-reference.js"', `"${fileReferenceURL}"`);
 const markdownURL = `data:text/javascript;base64,${Buffer.from(markdownSource).toString("base64")}`;
 const componentSource = (await readFile(new URL("./components.js", import.meta.url), "utf8"))
   .replace('"./markdown.js"', `"${markdownURL}"`);

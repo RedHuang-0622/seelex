@@ -664,6 +664,9 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .message-body > :first-child { margin-top: 0; }
 .message-body > :last-child { margin-bottom: 0; }
 .message-body p { margin: 0 0 12px; }
+/* 正文里的引用 chip（同一枚 chip 的正文宿主，规则见 composer 段的 .file-ref-chip）：
+   内联排，只调基线，不改半径/底色语言。 */
+.message-body .file-ref-chip { margin: 0 1px; vertical-align: baseline; }
 .message-body h1, .message-body h2, .message-body h3, .message-body h4, .message-body h5, .message-body h6 { margin: 22px 0 9px; color: var(--text); font-weight: 600; line-height: 1.3; letter-spacing: -.02em; }
 .message-body h1 { padding-bottom: 8px; border-bottom: 1px solid var(--border); font-size: 23px; }
 .message-body h2 { padding-bottom: 6px; border-bottom: 1px solid var(--border); font-size: 19px; }
@@ -1126,6 +1129,57 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .composer-actions { display: flex; align-items: center; justify-content: flex-end; gap: 7px; margin-top: 9px; }
 .composer-actions > span { color: var(--faint); font: 10px var(--font-mono); }
 .composer-tools { display: flex; gap: 5px; margin-right: auto; }
+
+/* ── 文件引用 chip（J-1b，2026-10-12）────────────────────────────────────────
+   `@文件` / `+` 加号 / 右栏工作树拖拽**三个入口**产出同一条「工作区相对路径引用」，
+   渲染成**同一枚 chip**（file-reference.js 的 fileReferenceChipHTML），两种宿主：
+   - composer 草稿区（.file-ref-chip.is-composer，贴输入框上沿那一条，带 × 可删）；
+   - 对话正文（.file-ref-chip.is-message，user 消息里，点击开右栏文件详情）。
+   chip 只是渲染层的识别：正文里就是路径文本，agent 看到的仍是路径。
+   颜色只取主题 token（皮肤矩阵不补第三套）、半径只走 --r-*、hover 只换既有的边框色
+   信号（B0 视觉基线：不引入第二套半径/第二种 hover 语言）。 */
+.file-ref-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 2px 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  color: var(--text-strong);
+  background: var(--surface-2);
+  font: 11px/1.5 var(--font-mono);
+  text-align: left;
+  cursor: pointer;
+}
+.file-ref-chip:hover { color: var(--accent); border-color: var(--border-info); }
+.file-ref-chip .file-ref-mark { color: var(--faint); }
+.file-ref-chip .file-ref-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-ref-chip.is-dir .file-ref-mark { color: var(--muted); }
+.file-ref-chip .file-ref-remove { padding: 0 1px; color: var(--faint); }
+.file-ref-chip .file-ref-remove:hover { color: var(--status-failed); }
+/* 草稿区的 chip 条：贴输入框上沿（与消息队列同一族位置语言），空时整块收起。 */
+.composer-file-refs { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 0 7px; }
+.composer-file-refs:empty { display: none; }
+/* `+` 加号的选择器：从工具条上方浮出的小面板（复用命令面板的行样式）。 */
+.composer-file-picker {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: calc(100% - 4px);
+  z-index: 4;
+  padding: 8px 9px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-lg);
+  background: var(--panel-solid);
+  box-shadow: var(--shadow);
+}
+.composer-file-picker.hidden { display: none; }
+.composer-file-picker-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.composer-file-picker-head > span { flex: 1; color: var(--muted); font: 10px var(--font-mono); letter-spacing: .04em; text-transform: uppercase; }
+.composer-file-search { width: 100%; padding: 5px 7px; border: 1px solid var(--border); border-radius: var(--r-md); color: var(--text); background: var(--surface); font: 12px var(--font-mono); outline: 0; }
+.composer-file-search:focus { border-color: var(--border-info); }
+.composer-file-results { max-height: 220px; margin-top: 7px; overflow-y: auto; }
 .composer-icon { width: 27px; height: 27px; }
 .action-button { width: 29px; height: 29px; }
 .primary-button { color: var(--on-accent); border-color: var(--accent); background: var(--accent); }
