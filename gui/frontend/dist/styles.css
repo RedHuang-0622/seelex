@@ -4214,33 +4214,14 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .app-shell .session-row { min-height: var(--row-min-h); padding: 6px 8px; border-radius: var(--r-md); }
 .app-shell .session-group-head-row { min-height: 26px; }
 
-/* ---------- 13.5 Agent Team：两栏表格的单元格不许换行 / 被挤掉 ---------- */
-.team-table-row { min-height: var(--row-min-h); }
-.team-order-index,
 .team-member-role,
-.team-order-meta,
-.team-floor,
-.team-rail-hint { font-size: 10.5px; }
-.team-order-role,
+.team-floor { font-size: 10.5px; }
 .team-member-name { font-size: 11.5px; }
-.team-order-actions,
-.team-member-actions { flex: none; }
-.team-order-actions .text-button,
-.team-member-actions .text-button { min-width: 42px; padding: 2px 6px; font-size: 10.5px; }
-.team-scheduled-note {
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-size: 10.5px;
-}
-.team-order-outside { font-size: 10.5px; }
 
 /* ---------- 13.6 窄栏不裁切：flex/grid 子项必须能收缩 ----------
    右栏宽度可以拖到很窄。团队面板的行是网格，子项默认 min-width:auto 不肯收缩，
    于是整行溢出面板（真机 A2A 冒烟时看到序号徽标、删除按钮被右边缘裁掉）。 */
-.team-panel, .team-block, .team-table, .team-table-row, .team-toolbar, .team-hire-form { min-width: 0; }
-.team-table-row > * { min-width: 0; }
+.team-panel, .team-block, .team-table { min-width: 0; }
 
 /* 右栏/主视图页签：窄栏里逐字换行（"工作台"竖排）比横向滚动更难用。滚动能力
    保留（滚轮/拖拽可滚），但**滚动条本体隐藏**——10px 的系统横条会在页签下压出
@@ -4262,15 +4243,11 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .team-view { display: block; }
 .team-view.muted { color: var(--faint); font-size: 11px; line-height: 1.5; }
 .team-panel { display: grid; gap: 14px; }
-.team-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .team-refresh { margin-left: auto; }
 .team-notice { padding: 6px 8px; border: 1px solid var(--border); border-left: 2px solid var(--status-running); border-radius: var(--r-sm); background: var(--tint-running); color: var(--text-soft); font-size: 11px; line-height: 1.5; }
 .team-notice.is-error { border-left-color: var(--status-failed); background: var(--tint-failed); color: var(--text-strong); }
-.team-rail-head { align-items: baseline; }
-.team-rail-hint { margin-left: auto; color: var(--faint); font-size: 10px; }
 .team-block { display: grid; gap: 6px; }
 .team-hire { padding: 9px 10px; border-radius: var(--r-md); background: var(--surface); }
-.team-empty { padding: 8px 0; font-size: 11px; line-height: 1.5; }
 
 /* 条目化表格：表头行 + 数据行。列宽由 --team-cols 给出（窄栏里等比例收缩，靠
    .team-table-row > * { min-width: 0 } 保证不溢出）。 */
@@ -4282,37 +4259,9 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   overflow: hidden;
   background: var(--panel);
 }
-.team-table-row {
-  display: grid;
-  grid-template-columns: var(--team-cols, repeat(auto-fit, minmax(0, 1fr)));
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  padding: 4px 7px;
-  border-top: 1px solid var(--border);
-}
-.team-table-row:first-child { border-top: 0; }
-.team-table-row.is-head {
-  color: var(--faint);
-  background: var(--surface-2);
-  font: 700 10px var(--font-mono);
-  letter-spacing: .04em;
-  text-transform: uppercase;
-}
-.team-table-row.is-head > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.team-table-row.is-empty { grid-template-columns: minmax(0, 1fr); color: var(--faint); font-size: 11px; }
-.team-table-row:not(.is-head):hover { background: var(--surface); }
-.team-table-row.is-floor { background: var(--tint-running); }
-.team-table-row > span { min-width: 0; overflow: hidden; }
-.team-table-row .team-order-actions,
-.team-table-row .team-member-actions,
-.team-table-row .team-floor-chip { overflow: visible; }
-.team-cell-key { color: var(--faint); font: 700 10px var(--font-mono); }
-.team-cell-value { color: var(--text-mid); font-size: 11px; overflow-wrap: anywhere; }
 .team-floor { color: var(--status-running); font: 700 10px var(--font-mono); }
-.team-order-index { color: var(--faint); font: 10px var(--font-mono); text-align: right; }
-.team-order-role, .team-member-name { overflow: hidden; color: var(--text-strong); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.team-order-meta, .team-member-role {
+.team-member-name { overflow: hidden; color: var(--text-strong); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.team-member-role {
   color: var(--faint);
   font: 10px var(--font-mono);
   overflow: hidden;
@@ -4320,15 +4269,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   white-space: nowrap;
 }
 .team-member-name.text-button { justify-content: flex-start; padding: 1px 4px; text-align: left; }
-.team-order-actions, .team-member-actions { display: inline-flex; align-items: center; gap: 2px; justify-content: flex-end; }
-.team-order-actions .text-button, .team-member-actions .text-button { padding: 1px 5px; font-size: 10px; }
-.team-order-actions .text-button[disabled], .team-member-actions .text-button[disabled] { color: var(--faint); cursor: not-allowed; opacity: .45; }
 .team-floor-chip { color: var(--status-running); }
-.team-order-outside { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; color: var(--faint); font-size: 10px; }
-.team-schedule-order { font: 10px var(--font-mono); overflow-wrap: anywhere; }
-.team-scheduled-note { color: var(--faint); font-size: 10px; }
-.team-next { color: var(--accent); }
-.team-stop { color: var(--status-failed); }
 
 /* 角色会话详情（Agent Team 成员行「查看」）：EXEC(main) 与 ADVISOR(tl)
    是两个独立会话，这里按角色身份单独展示，避免与主对话的 AGENT 混淆。 */
@@ -4408,34 +4349,6 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 /* 18.2 线框降噪（只对 Agent Team 面板生效，不动其它页面的信息层级） */
 .team-panel { gap: 14px; }
 .team-block { gap: 6px; }
-.team-toolbar { gap: 4px 8px; }
-
-/* 18.3 入职表单（员工栏底部的一步实例化入口） */
-.team-hire-form {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
-  gap: 8px;
-  align-items: end;
-}
-.app-shell .team-hire-form .team-field { display: grid; gap: 3px; min-width: 0; }
-.app-shell .team-hire-form .team-field > span { color: var(--faint); font-size: 10px; letter-spacing: .04em; }
-.app-shell .team-hire-form .team-field input,
-.app-shell .team-hire-form .team-field select {
-  width: 100%;
-  min-height: 26px;
-  padding: 2px 7px;
-  font-size: 11.5px;
-}
-.team-hire-actions {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-.app-shell .team-hire-form .team-hire-submit { min-height: 26px; padding: 2px 12px; font-size: 11px; }
-.team-hire-hint { font-size: 10px; line-height: 1.5; }
-.team-member-edit { flex: none; }
 
 /* 18.4 请求中 / 锁定态（避免"点了没反应"或"点了就变"的错觉） */
 .perm-chip.is-pending,
@@ -4479,148 +4392,6 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
    一律去掉，身份线索不靠色块）。 */
 .message.is-exec .message-head strong { color: var(--status-info); }
 .message.is-advisor .message-head strong { color: var(--status-running); }
-
-/* ---------- 21. Agent Team 面板（员工栏 / 团队库 / 冷加载编辑面板） ----------
-   交互口径（用户要求）：面板不提供任何编排手势（次序 = 登记先后，不由人拖拽调整）；
-   入职/修改员工、新建/编辑团队都是**冷加载面板**（点 + 或编辑才渲染，带关闭键）；
-   团队用一张小表管理。 */
-.team-rail-actions { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
-.team-rail-actions .text-button { padding: 1px 7px; font-size: 10.5px; }
-
-/* 员工行：没有拖拽条、没有"位置"列——窄右栏里"员工"格承担身份 + 权限 chip
-   （可换行），右侧只留一列操作（摘除 / 删除）。 */
-.team-staff-row { cursor: default; }
-.team-staff-main { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 6px; min-width: 0; }
-.team-member-actions { flex-wrap: wrap; }
-.team-outside-row { color: var(--faint); }
-.team-perm-chip {
-  padding: 1px 5px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  color: var(--text-mid);
-  font: 9.5px var(--font-mono);
-}
-.team-perm-chip.is-inherit { color: var(--faint); border-style: dashed; }
-
-/* 冷加载编辑面板：默认不渲染（占位容器 hidden），点 + / 编辑才填充。 */
-.team-editor-slot { display: block; }
-.team-editor {
-  display: grid;
-  gap: 8px;
-  margin-top: 6px;
-  padding: 10px 11px;
-  border: 1px solid var(--border-strong);
-  border-left: 2px solid var(--accent);
-  border-radius: var(--r-md);
-  background: var(--surface);
-  box-shadow: var(--shadow-sm);
-}
-.team-editor-head { display: flex; align-items: center; gap: 6px; }
-.team-editor-title { color: var(--text-strong); font: 600 11.5px var(--font-ui); }
-.team-editor-close {
-  margin-left: auto;
-  padding: 1px 6px;
-  color: var(--faint);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--r-sm);
-  cursor: pointer;
-  font: 12px var(--font-mono);
-}
-.team-editor-close:hover { color: var(--text-strong); border-color: var(--border); }
-.team-editor-hint { color: var(--faint); font-size: 10px; line-height: 1.5; }
-/* 员工面板不摆小字备注；唯一的小字是「优化提示词」的运行态回执（空态不占位）。 */
-.team-prompt-state { color: var(--faint); font-size: 10px; line-height: 1.5; }
-.team-editor textarea {
-  min-height: 92px;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  background: var(--code-bg);
-  color: var(--text-soft);
-  font: 11px/1.6 var(--font-mono);
-  resize: vertical;
-}
-.team-editor textarea:focus-visible,
-.team-editor input:focus-visible,
-.team-editor select:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: 0; }
-.team-prompt-actions { display: flex; align-items: center; gap: 6px; }
-.team-prompt-result {
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-left: 2px solid var(--status-info);
-  border-radius: var(--r-sm);
-  background: var(--tint-info);
-  color: var(--text-soft);
-  font-size: 10.5px;
-  line-height: 1.55;
-}
-.team-prompt-result .team-prompt-text { margin-top: 4px; color: var(--text-strong); font: 10.5px/1.6 var(--font-mono); white-space: pre-wrap; }
-.team-editor-actions { display: flex; align-items: center; gap: 6px; }
-.team-editor-actions .team-editor-hint { margin-left: auto; }
-.team-library-row { align-items: center; }
-.team-library-name { color: var(--text-strong); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.team-library-meta { color: var(--faint); font: 9.5px var(--font-mono); }
-.team-library-actions { display: inline-flex; align-items: center; gap: 3px; justify-content: flex-end; }
-.team-library-actions .text-button { padding: 1px 5px; font-size: 10px; }
-.team-library-empty { padding: 6px 0; color: var(--faint); font-size: 10.5px; line-height: 1.5; }
-/* 全局母本：会话副本与母本有差异时的提示（只提示，不改数据）。 */
-.team-drift { color: var(--status-running); font-size: 10.5px; }
-
-/* 条目化字段（入职 / 修改员工 / 新建团队）：一条字段 = 一行序列化条目——
-   序号 + 标签一行、控件一行、说明一行。右栏只有 220~480px，标签与控件并排会把
-   控件挤到 80px 宽（旧版挤字就是这么来的）。 */
-.team-field { display: grid; gap: 3px; min-width: 0; }
-.team-field > .team-field-label {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--text-mid);
-  font: 600 10.5px var(--font-ui);
-}
-.team-field-no {
-  flex: none;
-  min-width: 15px;
-  padding: 0 3px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  color: var(--faint);
-  font: 9px var(--font-mono);
-  text-align: center;
-}
-.team-field-hint { color: var(--faint); font-size: 9.5px; line-height: 1.5; }
-/* 逐格权限（路由组 × r/w/x）：一行一个组，左侧组名、右侧三个勾选框。
-   右栏窄，所以用 compress 的密集网格而不是表格。 */
-.team-perm-grid { display: grid; gap: 2px; }
-.team-perm-grid[hidden] { display: none; }
-.team-perm-grid-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-}
-.team-perm-grid-name {
-  overflow: hidden;
-  color: var(--text-mid);
-  font: 10.5px var(--font-ui);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.team-perm-grid-bits { display: flex; gap: 6px; }
-.team-perm-bit {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  color: var(--faint);
-  font: 9.5px var(--font-mono);
-  cursor: pointer;
-}
-.team-perm-bit input { width: 11px; height: 11px; margin: 0; }
-.team-field-group { display: grid; gap: 7px; }
-.team-field-group + .team-field-group { padding-top: 7px; border-top: 1px solid var(--border); }
-.team-field-group-head { color: var(--accent); font: 600 10px var(--font-ui); letter-spacing: .04em; }
-.team-lib-note { padding: 1px 0 0; font-size: 10px; line-height: 1.5; }
 
 /* 只有图标的按钮（团队库行内操作 / 员工库行内操作）：20px 见方、无边框，
    hover 才显形；图标即语义，标题与 aria-label 给出文字。 */
@@ -4981,43 +4752,6 @@ html[data-right-collapsed="true"] #right-divider { display: none; }
 .session-menu-item .icon { display: block; flex: none; }
 .session-menu-sep { height: 1px; margin: 3px 4px; background: var(--border); }
 
-/* ============================================================
-   24. Agent Team 面板（2026-09-15 第二轮）
-   ------------------------------------------------------------
-   三处口径变化：① 员工库并库展示（全局库 ∪ 本会话在编）+ 来源 chip；
-   ② 团队库只列用户团队（内置形态目录已删，面板上不再有形态 chip），点团队名开团队面板；
-   ③ 发言调度不再摆 项/值 表，改成顺序串珠条（位置即次序，"发言中"/"下一个"
-   各占一档高亮，参照群聊的通行做法）。
-   ============================================================ */
-
-/* 来源标记：库（全局母本）/ 本会话（只在会话在编名单里） */
-.team-source-chip {
-  padding: 1px 5px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  color: var(--text-mid);
-  font: 9.5px var(--font-mono);
-  white-space: nowrap;
-}
-.team-source-chip.is-session {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  border-style: dashed;
-}
-
-/* 团队名 = 打开团队面板的按钮：文本观感，不是按钮块 */
-button.team-library-name {
-  padding: 1px 2px;
-  border: 0;
-  color: var(--text-strong);
-  background: transparent;
-  font: 600 11.5px var(--font-ui);
-  cursor: pointer;
-  text-align: left;
-}
-button.team-library-name:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
-
-
 /* E3：员工行 k→v 全字段（压缩进员工行的字段表：一行一栏，空栏也照列） */
 .team-kv { width: 100%; margin-top: 3px; }
 .team-kv > summary {
@@ -5027,13 +4761,9 @@ button.team-library-name:hover { color: var(--accent); text-decoration: underlin
   list-style: none;
 }
 .team-kv > summary:hover { color: var(--accent); }
-.team-kv-list { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 0; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; }
 .team-kv-row { display: flex; align-items: baseline; gap: 6px; }
 .team-kv-row dt { flex: 0 0 44px; color: var(--text-mid); font: 9.5px var(--font-mono); }
 .team-kv-row dd { flex: 1 1 auto; min-width: 0; margin: 0; color: var(--text-strong); font: 10px var(--font-mono); overflow-wrap: anywhere; }
-
-/* E3：面板手动刷新键（Agent Team 无心跳，事件驱动之外的兜底） */
-.team-panel-toolbar { display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 0 0 2px; }
 
 /* E1：员工会话视图（运行详情）的工具栏与「切员工」切换条 */
 .role-session-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 2px 0 6px; }
@@ -5050,77 +4780,6 @@ button.team-library-name:hover { color: var(--accent); text-decoration: underlin
 }
 .role-session-switch-chip:hover { color: var(--accent); border-color: var(--accent); }
 .role-session-switch-chip.is-active { color: var(--status-done); border-color: var(--border-done); }
-
-/* 装配参数：只剩"发言权"（floor）一枚 chip——团队形态与顺序策略都不再展示 */
-.team-meta-row { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 2px 0 4px; }
-
-/* 发言调度：顺序串珠条（位置即次序） */
-.schedule-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 2px 0; }
-.schedule-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  max-width: 100%;
-  padding: 1px 6px 1px 4px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  color: var(--text-mid);
-  background: var(--surface);
-  font: 10px var(--font-ui);
-}
-.schedule-idx { color: var(--faint); font: 9px var(--font-mono); }
-.schedule-pill.is-floor { color: var(--text-strong); border-color: var(--border-running); background: var(--tint-running); }
-.schedule-pill.is-next { color: var(--text-strong); border-color: var(--accent); }
-.schedule-pill.is-idle { color: var(--faint); border-style: dashed; }
-.schedule-tag { color: var(--status-running); font: 9px var(--font-mono); }
-.schedule-tag.is-next { color: var(--accent); }
-.schedule-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-top: 3px; }
-.schedule-seat, .schedule-note, .schedule-meta .muted { color: var(--faint); font: 9.5px var(--font-ui); }
-.schedule-note { color: var(--status-running); }
-
-/* 团队面板的成员表：行序 = 登记先后（没有序号列，也不可拖拽）；行上带身份、
-   生态位 chip、✕。移除键钉在末列：生态位 chip 缺省时中间那列自动塌成 0 宽。 */
-.team-member-list { display: grid; gap: 3px; min-width: 0; }
-.team-member-item {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto 18px;
-  align-items: center;
-  gap: 5px;
-  min-height: 24px;
-  padding: 1px 4px 1px 6px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  background: var(--surface);
-}
-.team-member-label { color: var(--text-strong); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.team-member-drop {
-  grid-column: 4;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  color: var(--faint);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--r-sm);
-  cursor: pointer;
-}
-.team-member-drop:hover { color: var(--status-failed); border-color: var(--border-failed); }
-.team-member-add { display: flex; align-items: center; gap: 5px; min-width: 0; }
-.team-member-add select { flex: 1; min-width: 0; }
-.team-member-empty { padding: 4px 2px; font-size: 10px; }
-
-/* ---- 表格里的 chip：窄列也不换行（"user" 被折成 "use r" 就是这么来的） ---- */
-.team-table-row .chip,
-.team-table-row .team-perm-chip,
-.team-table-row .team-source-chip {
-  white-space: nowrap;
-  padding: 0 5px;
-  font-size: 9.5px;
-}
-.team-staff-main .chip { padding: 0 5px; font-size: 9.5px; }
 
 /* ── 目标活动栈（工作台按帧分块）与 ADVISOR 进行中正文 ───────────────────
    数据源都是后端只读投影：snapshot.runtime.goal_governance.stack / .in_flight。
@@ -5752,8 +5411,7 @@ button.team-library-name:hover { color: var(--accent); text-decoration: underlin
    工作表页签（.excel-sheet）已在上方（第 11 节工作表页签段）一次定死同样的形态与半径，
    这里不再重复覆盖——原先是"末段再覆盖一份"的第四处定义，本轮按 F-2 删重复源。 */
 .terminal-tab { border-radius: var(--r-md); }
-.terminal-tab.is-active,
-.schedule-pill.is-next {
+.terminal-tab.is-active {
   color: var(--hl-ink);
   background: var(--hl-fill);
   border-color: var(--border);

@@ -66,6 +66,7 @@ flowchart TB
 | `dist/plan-dsl.js` | Plan JSON DSL 归一化、DAG → 树状布局（节点详情弹窗数据面）、节点详情弹窗。树轨事实是 `treeIsLast`/`treeAncestors`（末子标记 + 各层祖先是否续行），由 `tree-fork.treeRowAttrs` 画成缩进轨；子代理树同一套。 |
 | `dist/role-session-view.js` | **角色会话只读观察面**（团队看板在编行「当前会话」chip 的落点）：从原 `agent-team-view.js` **切出来的那一半**——Agent Team 面板本体已于 2026-10-12（J-1a，用户裁决：`@<团队>` 手动召唤直接删除）整块退场，只读的这一面随渲染件搬到本文件（面板的完整旧行文留 git 历史）。数据源 `Bridge.AgentTeamRoleSnapshot`（`dto.RoleSnapshot`，后端保留且不改名）；导出 `roleDisplayName` / `normalizeRoleSession` / `renderRoleSessionSwitcher` / `renderRoleSessionDetail` / `renderRoleLiveTools` / `renderRoleRecordTable`（纯渲染，不写状态）。入口与判定在团队看板一侧：`team-board-view.js` 写 `data-team-role-open` / `data-team-role-session` 钩子，`app.js` 的 `bindTeamBoardActions` 绑委托 → `openRoleSessionDetail`；「切员工」名册来自 `runtime.teamwork_board` 的 `members[]`（`roleSessionTargets`，不在前端另编一份名册）。用例见 `role-session-view.test.mjs` / `role-session-refresh.test.mjs`。 |
 | `dist/agent-team-retirement.test.mjs` | **Agent Team 退场守卫**（2026-10-12 J-1a）：退场最容易留下的不是报错而是**半条通道**（少了监听器的入口、作废不存在的缓存、指回已删模块的 import）。这里把"退场后的形状"钉成断言——退场资产不再存在、`app.js` 只许剩 `AgentTeamRoleSnapshot` 两处调用、`index.html` 无 `#team-section`、空态/placeholder 不再提「`@` 手动召唤团队」；同时钉住**保留面**：团队看板（`#team-board-section` + `runtime.teamwork_board`）与角色会话只读观察面原样在场。 |
+| `dist/agent-team-css-retirement.test.mjs` | **退场样式回流闸**（2026-10-12 J-1a / wi-j1a-css）：面板删面后，`styles.css` 里那批面板选择器成了**永远匹配不到**的死规则（DOM 已不存在），本条目按"存活侧引用数 0"（`dist/**.js` / `index.html` / `dist/themes/*.css`）逐条证明后整块摘除，并用这个文件把"已退场前缀"钉成 **0 命中**（按**选择器里的类名 token** 匹配前缀，不做整文件子串匹配——`team-board-*` 是活体、`scheduled-*` 不是 `schedule-*`），覆盖基础段 / hover / `:focus-visible` / `[hidden]` / `@media` 与 `reduced-motion`；**同时钉住脚本侧不许让类名复活**，以及保留面：`team-board-*`（`team-board-view.js` 自带 `TEAM_BOARD_CSS`）、角色会话读面仍在用的 `team-block` / `team-floor-chip` / `team-member-name` / `team-view`、看板表格件 `team-table` / `team-kv*`。 |
 | `dist/todo-view.js` | todolist 渲染组件（数据源 `runtime.todo_items` 权威投影；仍供测试与复用，右侧工作台已由工作表格接管）。 |
 | `dist/work-table.js` | 工作表格视图（弹窗内完整多维表格：阶段/任务/描述/状态/Assignee/Dependency/附件）、批次分片并入表头（批次 = chat 请求；表头内的批次筛选行：「全部」页签居首 + 各批次页签 + 各类计数，整行占满表头宽度、与表格同宽同源，横向滚动源只此一条；2026-10-12 按 F-2 取消表格底部那条灰色挡板）、筛选（全部/Plan/Task/Todo/Subagent，按权威 kind）、行内打点、todo 三态更新、retry 计数（RETRY n）、plan/subagent 详情入口；行区独立滚轮滚动（表头吸顶）+ 分页查看（每页 10/20/50，页码钳制）；section/行两级 keyed reconciliation + html 缓存；`workTableSignatures`/`countUnread` 提供未读角标判据。 |
 | `dist/tree-fork.js` | 树 / 分叉的统一渲染件（VS Code 观感，纯函数）。两件事：① `treeRowAttrs` 把「层级 + 是否末子 + 祖先是否续行」折算成树轨的 class/行内 style——祖先续行轨 = 行内 1px `linear-gradient` 背景（每层一道），自身连接轨 = `::before`（末子圆角弯头 / 非末子整行竖线），**零额外 DOM**；② `layoutCommitGraph` 把 git 的 parents 拓扑算成泳道（`rows[].lane` + 每行线段 + `dropped`），`commitGraphRowHTML` 逐行画 SVG（直线 / 合并贝塞尔 + 提交点），泳道色走 `--fork-lane-0..5`。像素几何只有一份（`railOffset`/`laneCenter`），CSS 只负责画，换肤只换 token。 |
@@ -325,11 +326,18 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
   `role-session-refresh.test.mjs`——退场不等于把读面的覆盖一起删掉；`plugin-source.test.mjs`
   的两条面板用例（`normalizePluginNames` 对照、`hirePanel` 上限提示）随对象消失而删除，
   「两条提交路带装配」那条改写成退场守卫。
-- **样式**：本轮只删面，**不动 `styles.css`**（团队看板的样式由 `team-board-view.js` 自带的
-  `TEAM_BOARD_CSS` 提供，不在 `styles.css` 里）。面板专属的死样式仍留在 13.5 / 18.2 / 21 /
-  24 / E3 各节（扫描保留侧 JS+HTML 后确认的纯死选择器含 `team-table-row` / `team-toolbar` /
-  `team-rail-*` / `team-hire-*` / `team-order-*` / `team-editor-*` / `schedule-*` /
-  `team-panel-toolbar` / `team-kv-list` / `team-meta-row` 等），清理归后续条目。
+- **样式**：删面那一轮（J-1a）只删面、**不动 `styles.css`**（团队看板的样式由
+  `team-board-view.js` 自带的 `TEAM_BOARD_CSS` 提供，不在 `styles.css` 里）；面板专属的死
+  样式随后由 **wi-j1a-css** 收口：13.5 / 18.3 / 21 / 24 / E3 各节的退场选择器（`team-table-row`
+  / `team-toolbar` / `team-rail-*` / `team-hire-*` / `team-order-*` / `team-editor-*` /
+  `team-library-*` / `team-perm-*` / `team-prompt-*` / `team-member-list|item|label|drop|add|empty|edit|actions`
+  / `team-cell-*` / `team-kv-list` / `team-meta-row` / `team-panel-toolbar` / `schedule-*` 等）
+  按"存活侧 JS+HTML 引用数 0"**逐条证明**后整块摘除（112 条规则、净 −342 行 / −14.5KB），
+  含 hover / `:focus-visible` / `[hidden]` / `@media` 内的同名规则；`team-board-*` 与角色会话
+  读面仍在用的类名（`team-block` / `team-floor` / `team-floor-chip` / `team-member-name` /
+  `team-table` / `team-kv*` / `team-panel`）保留。**新规则不得再造 `team-*` 前缀的"面板类"
+  选择器**——面板已不在 DOM 里，那样的规则永远匹配不到；回流闸见
+  `dist/agent-team-css-retirement.test.mjs`（已退场前缀在 `styles.css` 与存活 JS/HTML 里 0 命中）。
 
 **角色会话只读观察面：刷新与切员工**：这一面是**拉取**面（权威读数是角色会话投影），配手动
 刷新键；"这位此刻在干什么"另走推送路（见下）。两者不互相冒充。
