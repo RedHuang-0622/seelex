@@ -40,6 +40,7 @@ package seelexctx
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/RedHuang-0622/Seele/types"
@@ -112,6 +113,32 @@ func ReplayMaterialEvidence(report ReplayMaterialReport) []sessionstore.Evidence
 	}}
 }
 
+// HasConversationBody 报告素材里有没有**对话正文**：非 system 角色、且正文非空或带
+// 工具调用的消息。只剩 system 前缀的素材不满足——它是请求的固定开销，不是要压的对话。
+//
+// 为什么不能拿"空/非空"当判据（2026-10-12 现场）：那个会话的引擎历史**非空但只有一条
+// system 行**（messages_before=1），`len(History) == 0` 于是放行 → 重放请求只带
+// 「system 行 + 固定压缩指令」→ 模型回一句「本次请求未附带任何待压缩的对话正文」的
+// 元回答 → 链上的成功判据只问「回复非空」，那句元回答就被当成本次压缩的 Chapter 2，
+// 以 summary_source=replay 落帧：帧对检索、对读帧的人都是一句"没有正文可压"。
+//
+// 判据只回答"这份素材里有没有可压的对话"，不回答"为什么没有"——成因（引擎历史只剩
+// system 前缀 / 冷加载还没物化）由调用方的降级说明交代。
+func HasConversationBody(messages []types.Message) bool {
+	for _, message := range messages {
+		if strings.EqualFold(strings.TrimSpace(message.Role), "system") {
+			continue
+		}
+		if message.Content != nil && strings.TrimSpace(*message.Content) != "" {
+			return true
+		}
+		if len(message.ToolCalls) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // PrepareReplayMaterial 把素材规整成 provider 的 tool 配对协议下合法的字节序：
 // 丢掉未落定的尾单元，再按请求出口口径补齐/搬回/剔除工具链（幂等，不修改入参）。
 // 返回规整后的素材与事实报告；素材为空时返回 nil 素材与零报告。
@@ -135,6 +162,114 @@ func PrepareReplayMaterial(messages []types.Message) ([]types.Message, ReplayMat
 	}
 	report.NormalizedDeclarations = len(pairing.normalized)
 	return repairToolPairing(trimmed, true), report
+}
+
+// payloadRow 判定单行是不是**带载荷的行**：三种对话角色（user / assistant /
+// tool）里带内容或带工具调用的那一行。只服务 MeasureReplayCoverage 的逐行比对
+// ——"这段区间里有多少行是模型真能读到的东西"。system 行是控制行（产品指令 /
+// plan / checkpoint / 自主压缩帧），区间的载荷不靠它们。
+func payloadRow(message types.Message) bool {
+	switch message.Role {
+	case "user", "assistant":
+		return len(message.ToolCalls) > 0 || (message.Content != nil && strings.TrimSpace(*message.Content) != "")
+	case "tool":
+		return message.Content != nil && strings.TrimSpace(*message.Content) != ""
+	default:
+		return false
+	}
+}
+
+// ReplayRolesTerse 渲染素材的角色构成：降级原因里要能一眼看出"全是控制行"。
+func ReplayRolesTerse(messages []types.Message) string {
+	counts := map[string]int{}
+	for _, message := range messages {
+		counts[message.Role]++
+	}
+	if len(counts) == 0 {
+		return "空"
+	}
+	roles := make([]string, 0, len(counts))
+	for role := range counts {
+		roles = append(roles, role)
+	}
+	sort.Strings(roles)
+	parts := make([]string, 0, len(roles))
+	for _, role := range roles {
+		parts = append(parts, fmt.Sprintf("%s×%d", role, counts[role]))
+	}
+	return strings.Join(parts, " ")
+}
+
+// CompactReplayCoverageEvidenceRefPrefix 标记"素材盖不盖得住本次要压的区间"这一
+// 事实的帧证据 ref。与素材**规整**事实（CompactReplayMaterialEvidenceRefPrefix）
+// 分开：规整回答"素材被我们动过吗"，覆盖回答"素材与要压的内容对得上吗"。
+const CompactReplayCoverageEvidenceRefPrefix = "replay-coverage:"
+
+// ReplayCoverage 是"素材与本次要压区间的重合度"这一事实。
+type ReplayCoverage struct {
+	// OverflowUnits 是要压区间里带载荷的行数。
+	OverflowUnits int
+	// CoveredUnits 是其中能在素材里按 role + 内容逐字找到的行数。
+	CoveredUnits int
+}
+
+// Covered 报告素材里至少看得到一条要压的内容（区间为空时视为无此事实）。
+func (c ReplayCoverage) Covered() bool {
+	return c.OverflowUnits == 0 || c.CoveredUnits > 0
+}
+
+// Terse 渲染一行事实。
+func (c ReplayCoverage) Terse() string {
+	return fmt.Sprintf("replay material carries %d/%d payload row(s) of the range "+
+		"being compacted: a summary cannot cover content the model was never given",
+		c.CoveredUnits, c.OverflowUnits)
+}
+
+// ReplayCoverageEvidence 把覆盖事实写成帧证据：**只在不覆盖时留痕**（"没有这件事
+// 就不留痕"，与 ReplayMaterialEvidence 同一条纪律）。
+func ReplayCoverageEvidence(coverage ReplayCoverage) []sessionstore.EvidenceRef {
+	if coverage.Covered() {
+		return nil
+	}
+	return []sessionstore.EvidenceRef{{
+		Ref: fmt.Sprintf("%suncovered:%d/%d",
+			CompactReplayCoverageEvidenceRefPrefix, coverage.CoveredUnits, coverage.OverflowUnits),
+		Summary: coverage.Terse(),
+	}}
+}
+
+// MeasureReplayCoverage 量"素材盖不盖得住本次要压的区间"：区间里每一条带载荷的行，
+// 能不能在素材里按 role + 内容逐字找到。
+//
+// 这不是闸（闸是 HasConversationBody 那条，见上），是**事实**，落在帧证据里。
+// 为什么值得留：素材与要压的内容对不上时，这次压缩的读后感**不可能**覆盖要压的
+// 区间——没有这条事实，读者只能看到一个 source 标记，读不出"模型被给到的东西不是
+// 要压的东西"（2026-10-12 现场的全部成因）。
+//
+// 只在推帧侧可测：装配层读数闸走在保留窗口决策之前，那时"要压的区间"的边界
+// （coordinator 的 compressedTo）还没定稿，因此它只能共用弱判据（有没有可压正文）。
+func MeasureReplayCoverage(material, overflow []types.Message) ReplayCoverage {
+	coverage := ReplayCoverage{}
+	if len(overflow) == 0 {
+		return coverage
+	}
+	available := make(map[string]struct{}, len(material))
+	for _, message := range material {
+		if message.Content == nil {
+			continue
+		}
+		available[message.Role+"\x00"+*message.Content] = struct{}{}
+	}
+	for _, message := range overflow {
+		if message.Content == nil || !payloadRow(message) {
+			continue
+		}
+		coverage.OverflowUnits++
+		if _, found := available[message.Role+"\x00"+*message.Content]; found {
+			coverage.CoveredUnits++
+		}
+	}
+	return coverage
 }
 
 // trimUnsettledTail 丢掉"未落定的尾单元"：尾巴上那条 assistant 宣告仍有未回执的

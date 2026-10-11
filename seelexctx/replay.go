@@ -92,6 +92,15 @@ func (s *quickChatPrefixReplaySummarizer) Summarize(ctx context.Context, req Rep
 	if len(material) == 0 {
 		return ReplayResult{}, fmt.Errorf("seelexctx: prefix replay material is empty after normalization")
 	}
+	if !HasConversationBody(material) {
+		// 出口兜底：素材里没有对话正文（只剩 system 控制行）时不发这次请求——
+		// 模型只会回一句"没有待压缩的正文"，而那句元回答会被当成成功的读后感。
+		// DAG 侧同一判据已拦过一次（no-replay-material）；这里守住不经过 DAG 的
+		// 调用方（分片链的每一片、直接用摘要器的调用方）。
+		return ReplayResult{}, fmt.Errorf(
+			"seelexctx: prefix replay material has no conversation body (all %d row(s) are system/control rows: %s)",
+			len(material), ReplayRolesTerse(material))
+	}
 	instruction := req.Instruction
 	if strings.TrimSpace(instruction) == "" {
 		instruction = PrefixReplayInstruction

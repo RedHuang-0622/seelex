@@ -735,10 +735,11 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	// 一个 no_model_summary，读者拿不到下一步该查什么的线索（用户口径 2026-10-04）。
 	readbackError := ""
 	if fold && !ineffectiveCompact && !noSummary && len(accumulated) > 0 {
-		replayMaterial := existing
-		if len(replayMaterial) == 0 {
-			replayMaterial = fullContext
-		}
+		// 重放素材与推帧同源（同一个实现 replayMaterialFor）：引擎历史为空**或只剩
+		// system 前缀、没有对话正文**时改取本次装配的 fullContext。判据与成因见
+		// replay_material.go 的文件注释（2026-10-12 现场：素材非空却无正文，模型
+		// 回一句元回答，还被记成 summary_source=replay）。
+		replayMaterial := replayMaterialFor(existing, fullContext)
 		if receipt, attempted := c.readbackCompactionSummary(sessionID,
 			task_context.TranscriptEventMessages(accumulated), replayMaterial); attempted {
 			if receipt.hasModelSummary() {
@@ -1080,10 +1081,11 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 		// 对话内容"）。否则每一帧都落在 no-replay-material 上：帧里只有一句
 		// "本次不调用模型"，模型从未被问到，而读帧的人无从知道差的就是这份素材
 		// （2026-09-29 现场）。
-		replayMaterial := existing
-		if len(replayMaterial) == 0 {
-			replayMaterial = fullContext
-		}
+		//
+		// 2026-10-12 起判据从"空/非空"升级成"有没有对话正文"（replayMaterialFor）：
+		// 现场 messages_before=1——引擎历史**非空但只剩 system 前缀**，回退不触发，
+		// 素材里一个字正文都没有，模型回一句元回答还被记成 summary_source=replay。
+		replayMaterial := replayMaterialFor(existing, fullContext)
 		//
 		// 未装配索引面与推帧失败都不中断装配（索引缺失是降级不是错误），
 		// 但门禁 index 关与帧正文的 readback 段都要如实写出是哪一种。

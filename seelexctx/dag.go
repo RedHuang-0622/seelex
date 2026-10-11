@@ -182,6 +182,8 @@ type compactionDAGState struct {
 	replay ReplayChunkPlan
 	// replayMaterial 是重放素材的规整事实（逐字未动 → 零报告 → 不写证据）。
 	replayMaterial ReplayMaterialReport
+	// replayCoverage 是"素材盖不盖得住本次要压的区间"这一事实（覆盖时不留痕）。
+	replayCoverage ReplayCoverage
 	started        map[string]bool
 	startedMu      sync.Mutex
 }
@@ -356,6 +358,10 @@ func (d *CompactionDAG) chapter1Node(state *compactionDAGState) func(context.Con
 func (d *CompactionDAG) chapter2Node(state *compactionDAGState) func(context.Context) error {
 	return func(ctx context.Context) error {
 		markStarted(state, "chapter2_thick")
+		// 素材与"本次要压的区间"的重合度：事实，进帧证据（只在盖不住时留痕）。
+		// 量在预读回执分支之前——装配层读数闸那条主路径由调用方带读后感进来，
+		// 不经过下方的素材准备，但它同样要能看到这条事实。
+		state.replayCoverage = MeasureReplayCoverage(state.input.History, state.input.Messages)
 		// 调用方已在压缩之前拿到模型读后感（装配层的读数闸，见 CompactionInput.
 		// PrecomputedSummary）：直接用，不重复调用模型。同一次压缩只该有一次模型
 		// 调用，而"有没有读后感"必须在改写上下文之前就知道。
@@ -405,6 +411,21 @@ func (d *CompactionDAG) chapter2Node(state *compactionDAGState) func(context.Con
 			state.degrade("no-replay-material", fmt.Sprintf(
 				"重放素材规整后为空：尾巴是一个未落定的工具调用单元（宣告的调用 %s 尚无回执），本次不调用模型",
 				strings.Join(materialReport.DroppedTailCallIDs, ",")))
+		case !HasConversationBody(material):
+			// 素材非空、却没有对话正文（只剩 system 前缀）：这是"引擎历史非空但已经
+			// 没有可压的对话"的形态。发下去只会换来一句「没有正文可压」的元回答，
+			// 而链上的成功判据只问「回复非空」——那句元回答会被当成 Chapter 2、以
+			// summary_source=replay 落帧（2026-10-12 现场：messages_before=1）。
+			// 同款形状判据在装配层（replayMaterialFor）也已换成语义判据：那里改成
+			// 「引擎历史里没有对话正文改取本次装配的 fullContext」，两处同口径。
+			//
+			// 排在 len(material) == 0 之后：素材被规整成空时（尾巴是未落定的工具
+			// 调用单元）那一条更具体，成因指名的东西不一样，不该被这条泛化判据抢走。
+			state.degrade("no-replay-material", fmt.Sprintf(
+				"重放素材里没有对话正文（%d 条消息全是控制行：%s），本次不调用模型："+
+					"把这样一份素材发下去，模型只会回一句「没有正文可压」的元回答，"+
+					"而链上的成功判据只问「回复非空」，那句元回答会被当成 Chapter 2 落帧",
+				len(material), ReplayRolesTerse(material)))
 		case materialErr != nil:
 			state.degrade("replay-material-invalid", fmt.Sprintf(
 				"重放素材在 wire 协议规整后仍不合法，本次不发重放请求：%v", materialErr))
@@ -518,12 +539,8 @@ func (d *CompactionDAG) mergeNode(state *compactionDAGState) func(context.Contex
 			Summary:       RenderFrameSummary(state.chapter1, state.chapter2),
 			SummarySource: state.summarySource,
 			AnchorSource:  AnchorSourceWithCarry(state.anchorSource, state.carry),
-			Evidence: append(overflowEvidence(state.overflow, state.record),
-				append(CarryEvidence(state.carry),
-					append(ReplayEvidence(state.replay),
-						append(ReplayMaterialEvidence(state.replayMaterial),
-							LocalCompactEvidence(state.degradeCode, state.degradeNote)...)...)...)...),
-			CompressedAt: time.Now(),
+			Evidence:      frameEvidence(state),
+			CompressedAt:  time.Now(),
 		}
 		if state.prevTop != nil {
 			frame.PrevSegmentID = state.prevTop.SegmentID
@@ -534,6 +551,20 @@ func (d *CompactionDAG) mergeNode(state *compactionDAGState) func(context.Contex
 		state.frame = frame
 		return nil
 	}
+}
+
+// frameEvidence 汇总本次压缩的全部事实证据，按"从区间 → 素材 → 出口"的读法排序：
+// 区间覆盖 → 帧摘要传递 → 分片重放计划 → 素材规整 → 素材覆盖 → 降级出口。
+// 每一条都只在"有这件事"时出现（nil 切片被 append 吸收）——不留"什么都没发生"
+// 的空痕。
+func frameEvidence(state *compactionDAGState) []sessionstore.EvidenceRef {
+	evidence := overflowEvidence(state.overflow, state.record)
+	evidence = append(evidence, CarryEvidence(state.carry)...)
+	evidence = append(evidence, ReplayEvidence(state.replay)...)
+	evidence = append(evidence, ReplayMaterialEvidence(state.replayMaterial)...)
+	evidence = append(evidence, ReplayCoverageEvidence(state.replayCoverage)...)
+	evidence = append(evidence, LocalCompactEvidence(state.degradeCode, state.degradeNote)...)
+	return evidence
 }
 
 // publishNode：适配点节点——当前 PushCompact 留在调用方（去重/归档/审计），
