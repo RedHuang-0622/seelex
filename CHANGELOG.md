@@ -34,6 +34,32 @@ lands.
   `CODE_EXTENSIONS`、`canEditPreview` 收 html）、`file-preview-controller.test.mjs`（只读=页面、编辑=源码、
   Ctrl+S 才落盘）、`git-log-view.test.mjs`（提交内文件内容同走共用分派且无写入口）。
 
+### Changed
+
+- **前端一致性批（`docs/2026-10-12-frontend-consistency-and-fixes`）：视觉基线 B0 + 纯前端六条**（GUI ·
+  `gui/frontend/dist/`，dist 即源、无 bundler。里程碑 M1 由 teamwork 分工落地，逐件带 `node --test` 证据）。
+  - **B0 视觉基线**：`styles.css` 顶部新增「B0 · 视觉基线规则」块（半径只走 `--r-*` token；悬停/选中只用既有
+    信号；行密度走 `--row-min-h`；横向贴边条必须与滚动容器同宽；颜色只取主题 token）。新增
+    `style-baseline.test.mjs` 钉住「裸像素圆角只减不增（基线 49）」与「半径 token 仍由顶部 `:root` 单一供源」。
+  - **F-1 对话轴可发现**：`.conversation-shell .conversation-wheel` 默认 `opacity: .92`（不再只靠悬停整个对话
+    外壳点亮），刻度升级为可点/可悬停短条（`--r-md` / `--surface` / `--border`），当前刻度改用与左栏
+    `.session-row.is-active` 同族的 `--tick-hot` / `--border-running`。刻度来源（仅用户输入）与几何算法不变。
+  - **F-2 工作表格去底部灰挡板**：批次页签从表格下沿并入 `.work-table-head` 的批次筛选行（与表格同宽同源），
+    `.excel-sheets` 去掉 `border-top` / `--surface-2` 灰底；`.excel-sheet` 的重复覆盖由 4 处收敛为 3 段
+    （基础 / 动效 / reduced-motion）。筛选与计数仍只走 `batchesInScope`。
+  - **F-3 资源管理器子页**：`.code-pane-tab` 收敛到 `--r-md` + `--hl-fill` / `--hl-ink` 同族选中态（不描边不投影）；
+    工作树 / 提交记录 / 工作区更改三页的行壳走 `--row-min-h`；`.code-pane-body` 仍是唯一滚动源。
+  - **F-4 压缩帧条目瘦身**：侧边条目收敛为一行元数据摘要（seq + 「栈顶」+ 原因，时间/来源/区间/估算进 hover
+    `title`），下线行内 `compaction-stack-detail` 展开路径，点条目改开既有 `#compaction-frame-modal`；
+    门禁以「逐关耗时清单」为唯一展现，删掉借用 Plan 面板的轨道。「打开的是哪一帧」仍按 (会话, frame_ref) 判定。
+  - **F-5 内容详情高亮 + mermaid**：补齐 highlight.js token 配色（`--code-*` 映射并与 markdown 代码块共用）；
+    新增 `mermaid-diagram.js` 与本地 `vendor/mermaid/`（离线，走既有 `vendor-loader.ensureVendorScript` 懒加载），
+    markdown 里 `mermaid` 围栏渲染为图、失败或未就绪降级为代码块。
+  - **F-6 消息块邻接圆角**：渲染期按上/下一条的 kind 与归属产出 `is-joined-above|below|both`（同时写
+    `data-joined-above|below`）。不同类（LLM ↔ 工具过程）始终融合，同类仅在换轮次/换角色归属时分割。
+- **测试**：前端 `node --test "gui/frontend/dist/*.test.mjs"` 由 727 用例增至 762，全绿（B0 半径闸 3 例、
+  F-1/F-2/F-3 的样式闸、F-5 的 mermaid / vendor 懒加载断言、F-6 邻接类断言）。
+
 ## [v0.1.2] - 2026-10-07
 
 这一版是**工作单元（workunit）与团队现场（worktree）的收束批**：把「一件事 = 一个 Unit = 一套
