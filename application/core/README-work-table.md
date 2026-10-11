@@ -51,7 +51,7 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 ### async_completion.go
 
 - `func (service *Service) triggerAsyncCompletions(triggered map[string]struct{})` — triggerAsyncCompletions 对登记表做一次全量扫描：把"终态 + 会话空闲 + 还没触发过"
-- `func asyncCompletionTriggers(state string) bool` — asyncCompletionTriggers 报告某个状态是否该触发对话。
+- `func asyncCompletionTriggers(state dto.AsyncState) bool` — asyncCompletionTriggers 报告某个状态是否该触发对话。
 - `func (service *Service) sessionIdleForAsyncTrigger(sessionID string) bool` — sessionIdleForAsyncTrigger 报告目标会话此刻是否**空闲到可以起一个新回合**。
 - `func asyncCompletionPrompt(record dto.AsyncRunRecord) string` — asyncCompletionPrompt 组装触发回合的正文。
 - `func asyncPromptKind(kind string) string` — asyncPromptKind 是进正文前的类别兜底：类别缺失时按 process 读，与打点块同口径。
@@ -65,7 +65,7 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - `func asyncCompletionHarness(t *testing.T, trigger bool, engine ChatEngine) (*Service, *fakeRuntime)` — asyncCompletionHarness 造一个装配好该触发路径的 Service。
 - `func waitForTriggeredTurn(t *testing.T, service *Service, needle string) string` — waitForTriggeredTurn 轮询可见会话，直到出现一条含 needle 的用户行（= 触发回合开
 - `func assertNoTurn(t *testing.T, service *Service, needle string)` — assertNoTurn 报告可见会话里有没有含 needle 的用户行——"不该触发"的用例用它。
-- `func completedRecord(handle, state string) dto.AsyncRunRecord` — completedRecord 造一条已落到终态的作业投影记录。
+- `func completedRecord(handle string, state dto.AsyncState) dto.AsyncRunRecord` — completedRecord 造一条已落到终态的作业投影记录。
 - `func TestAsyncCompletionTriggersIdleSessionTurn(t *testing.T)`
 - `func TestAsyncCompletionTriggersOnFailureToo(t *testing.T)`
 - `func TestAsyncCompletionIgnoresRunningAndKilled(t *testing.T)`
@@ -132,7 +132,7 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - `func asyncWorkItems(records []dto.AsyncRunRecord) []WorkItem` — asyncWorkItems 把后台执行全量投影成工作表格行（跨会话：工作表格是全局台账，
 - `func asyncRunToWorkItem(record dto.AsyncRunRecord) WorkItem` — asyncRunToWorkItem 映射一条后台执行到工作表格行。
 - `func asyncProbePoint(record dto.AsyncRunRecord, elapsed time.Duration) WorkTracePoint` — asyncProbePoint 是一次探针采样的打点行：状态、字节数、末行、耗时。
-- `func asyncWorkStatus(state string) string` — asyncWorkStatus 把执行域状态映射到工作表格的权威状态字面量。
+- `func asyncWorkStatus(state dto.AsyncState) string` — asyncWorkStatus 把执行域状态映射到工作表格的权威状态字面量。
 - `func asyncTraceLines(records []dto.AsyncRunRecord, sessionID string) []string` — asyncTraceLines 生成打点块里的作业行，且只取本会话——打点块注入在组装请求的那个
 - `func asyncTraceLine(record dto.AsyncRunRecord) string` — asyncTraceLine 渲染一条作业行：句柄、类别、状态、（完成行）摘要或（在途行）标题。
 - `func teamworkTraceLines(records []dto.TeamworkJobCompletionRecord, sessionID string) []string` — teamworkTraceLines 生成打点块里的 **teammate 作业行**（与 asyncTraceLines 同一块、

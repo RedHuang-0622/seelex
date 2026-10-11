@@ -203,7 +203,6 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		Command: service.submitCommand,
 		Plugin:  service.submitPluginSwitch,
 		Skill:   service.submitSkill,
-		Team:    service.submitTeam,
 		Conversation: func(ctx context.Context, input string) error {
 			service.prepareCompletedTaskBoundary()
 			return service.submitConversation(ctx, input)

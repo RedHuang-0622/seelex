@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 
 	"github.com/RedHuang-0622/Seele/types"
@@ -64,19 +63,11 @@ func (service *Service) GoalBeginFor(ctx context.Context, sessionID string, requ
 	return record, nil
 }
 
-// teamJoinSeqFor 返回团队装配的 join 切点 = 主会话当前已提交的 message 尾 seq。
-// 读不到（宿主未装配会话存储、会话还没落行）时退回 0 = 挂在主会话可见起点：
-// 宁可让 teammate 多看到一段，也不给它一个假切点。
-func (service *Service) teamJoinSeqFor(sessionID string) uint64 {
-	if service == nil || strings.TrimSpace(sessionID) == "" {
-		return 0
-	}
-	snapshot, err := service.RoleSnapshot(sessionID, RoleNameMain, sessionID)
-	if err != nil {
-		return 0
-	}
-	return snapshot.MainHeadSeq
-}
+// teamJoinSeqFor 已随 `@` 手动召唤团队退场（2026-10-12 J-1a）删除：它的唯一调用方
+// 是 application/core/input_team.go 的召唤落点（`MaterializeAgentTeam` 的 join 切点
+// = 主会话当前已提交的 message 尾 seq）。会话团队装配面退场后没有装配来路，也就
+// 没有"入伙切点"这个输入；角色会话号仍由 `RoleSnapshot` 那条既有读面提供（B1 保留
+// 面，未动）。
 
 // GoalBegin 按执行 ctx 会话注册 goal（main agent 工具调用路径）。
 func (service *Service) GoalBegin(ctx context.Context, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error) {
@@ -277,6 +268,10 @@ func (service *Service) goalAdvanceAfterChat(ctx context.Context) {
 //
 // 幂等且廉价失败：没有在编团队时只是一次注册表读；离场失败只记日志（下一次收口或
 // 下一次装配会再次对齐），不把治理回合的收尾变成错误路径。
+//
+// **J-1a 之后是遗留不可达路径**（2026-10-12）：读面 `agentTeamRawView` 与离场面
+// `DismissAgentTeam` 随会话团队装配面退场而删除，因此"本会话已装配团队"恒为假 ⇒
+// 没有团队可离场。保留调用点与函数形状（不改 goal 逻辑），并如实写清它的不可达。
 func (service *Service) dismissTeamWhenGoalClosed(sessionID string) {
 	if service == nil || strings.TrimSpace(sessionID) == "" {
 		return
@@ -285,13 +280,8 @@ func (service *Service) dismissTeamWhenGoalClosed(sessionID string) {
 	if err != nil || status.Active != nil {
 		return
 	}
-	view, err := service.agentTeamRawView(sessionID)
-	if err != nil || !view.Configured {
-		return
-	}
-	if err := service.DismissAgentTeam(sessionID); err != nil {
-		log.Printf("[goal] 团队离场失败（session=%s）：%v", sessionID, err)
-	}
+	// 本会话的在编团队读面已退场（J-1a）：恒"未装配"，没有离场动作可做。
+	return
 }
 
 // ADVISOR 的可见回放已删除（2026-10-01 口径修正）：b→a 裁决不再写进可见会话。

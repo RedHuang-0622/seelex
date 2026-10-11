@@ -4,7 +4,7 @@
 
 基础与杂项（aliases/limits/completion/compressed/diagnostics/fault-guard/perf/snapshot-budget/runtime/workspace/race）
 
-覆盖：显式名单 20 个文件（见生成器 `ROOT_GROUPS`）；未归属文件由覆盖自检拦下。
+覆盖：显式名单 25 个文件（见生成器 `ROOT_GROUPS`）；未归属文件由覆盖自检拦下。
 
 ## 文件与函数索引
 
@@ -25,6 +25,7 @@
 - `func cloneSnapshot(snapshot Snapshot) Snapshot`
 - `func cloneRuntimeState(runtime RuntimeState) RuntimeState`
 - `func maxLoopsFor(level string) int`
+- `func reasoningEffortFor(level string) string`
 - `func reactBudgetFor(level string) prompt.ReActBudget`
 
 ### completion.go
@@ -42,12 +43,6 @@
 - `func (service *Service) commandSuggestions() []Suggestion`
 - `func (service *Service) skillSuggestions() []Suggestion`
 - `func (service *Service) pluginSuggestions() []Suggestion` — pluginSuggestions 列出可切换插件；off 是"停用全部"的内置入口（与
-- `func (cache *teamLibrarySuggestions) lookup(sessionID string) ([]Suggestion, bool)` — lookup 返回该会话的快照（第二个值 = 是否有快照）。返回的切片归缓存所有，调用方
-- `func (cache *teamLibrarySuggestions) store(sessionID string, entries []Suggestion)`
-- `func (cache *teamLibrarySuggestions) forget()` — forget 丢**全部**快照：库是全局母表，写一次影响所有键，逐个键清没有意义。
-- `func (service *Service) invalidateTeamLibrarySuggestions()` — invalidateTeamLibrarySuggestions 让 `@` 的建议面快照过期（库写路径与库读回共用，
-- `func (service *Service) teamSuggestions() []Suggestion` — teamSuggestions 返回 `@` 的候选：团队库里的每一支团队。
-- `func teamSuggestion(entry dto.TeamLibraryEntry) Suggestion` — teamSuggestion 把一条库条目投影成候选项。
 
 ### completion_test.go
 
@@ -97,6 +92,25 @@
 ### perf_stats.go
 
 - `func (service *Service) PerfStats() model.PerfStats` — PerfStats 返回 GUI 性能追踪钩子的后端数据面：只上报数量/体积等无内容
+
+### plugin_source_projection_test.go
+
+- `func TestCollectRuntimeProjectionCarriesPluginSource(t *testing.T)`
+- `func sourceCatalogYAML(localRoot string) string` — sourceCatalogYAML 生成一份**合法**的精选目录：三个随包条目（builtin/vendored）+
+- `func writeSourcePlugin(t *testing.T, root, name string)`
+- `func writeSourceCatalog(t *testing.T, root, body string)`
+- `func loadSourceManager(t *testing.T, roots ...string) *plugin.Manager` — loadSourceManager 走生产同一条路（多根 loader + manager 事务加载）。
+- `func (sourceTestTools) DefinePlugin(string, string, []string, []string) error`
+- `func (sourceTestTools) UndefinePlugin(string)`
+- `func (sourceTestTools) ActivatePlugin(string) error`
+- `func (sourceTestTools) DeactivatePlugin()`
+- `func (sourceTestTools) ActivePlugin() string`
+- `func (sourceTestMCP) AttachMCPServer(_ context.Context, _, _, _ string, _, _ []string, _ string) error`
+- `func (sourceTestMCP) DetachMCP(string) error`
+- `func (sourceTestSkills) PublishPluginSkills(string, []skill.Skill) error`
+- `func (sourceTestSkills) ClearPluginSkills(string)`
+- `func (sourceTestSkills) ActivatePluginSkills(string) error`
+- `func (sourceTestSkills) DeactivatePluginSkills() error`
 
 ### race_test.go
 
@@ -167,6 +181,13 @@
 - `func latestVisibleUserGoal(messages []Message) string`
 - `func truncateRuntimeProjectionGoal(content string) string`
 
+### served_route_test.go
+
+- `func TestStampServedRouteFillsAssistantMessageAndPublishes(t *testing.T)`
+- `func TestStampServedRouteWithoutFactIsNoop(t *testing.T)`
+- `func TestStampServedRouteSkipsAlreadyStampedTail(t *testing.T)`
+- `func TestStampAssistantRouteForScopeAndIdempotence(t *testing.T)` — StampAssistantRouteFor 的行级口径：只写本轮（TaskID 匹配）的 assistant 行，
+
 ### snapshot_budget.go
 
 - `func snapshotToolOutputLimit() int` — snapshotToolOutputLimit 返回可见会话快照单条工具输出的字符预算
@@ -179,6 +200,11 @@
 - `func TestBoundToolResultForSnapshotArchives(t *testing.T)` — TestBoundToolResultForSnapshotArchives 验证截断链入口：超限输出归档为
 - `func TestToolResultContentPagination(t *testing.T)` — TestToolResultContentPagination 验证分页读回：offset/limit/UTF-8 边界
 - `func TestSnapshotBudgetUsesConfiguredLimit(t *testing.T)` — TestSnapshotBudgetUsesConfiguredLimit 验证 limits 注入生效：设置较小
+
+### turn_status_single_word_test.go
+
+- `func TestTurnStatusSpeaksOneWordOnSnapshotAndArchive(t *testing.T)` — turn_status_single_word_test.go — 「一次回合（请求）现在处在哪一步」这件事，
+- `func TestTurnStatusOfRecordKeepsLegacyRunningAndNeverFoldsToTerminal(t *testing.T)` — 落盘面读回：合并前的存档里"进行中"写的是 "running"，合并后写 "progressing"。
 
 ### window.go
 

@@ -457,12 +457,17 @@ go test -race ./application/core/goal/ -count=1
 
 ### record.go
 
+- `func StatusOfRecord(wire string) dto.GoalStatus` — StatusOfRecord 把 goal 存档里的状态词读回枚举（落盘格的唯一转换点；导出给跨包投影读方）。
 - `func IsTerminal(status Status) bool` — IsTerminal 报告状态是否终态（不再停留在 goal 栈上）。
 - `func (b Budget) Normalized() Budget` — Normalized 返回带默认值的预算副本。
 - `func (r *GoalRecord) Clone() *GoalRecord` — Clone 深拷贝记录（返回副本，避免锁外读到栈内可变引用）。
 - `func (r *GoalRecord) validateBegin() error`
 - `func newGoalRecord(id string, request BeginRequest, now int64) *GoalRecord` — newGoalRecord 由 BeginRequest 构造记录并应用默认值。
 - `func (r UpdateRequest) ChangesDefinition() bool` — ChangesDefinition 报告这次更新是否动到了 goal 的**定义**：标题 / 正文 / 完成条件 /
+
+### record_status_test.go
+
+- `func TestGoalStatusOfRecordReadsTheWireAndNeverFoldsToAKnownState(t *testing.T)` — record_status_test.go — goal 状态格的判据：**存档面读回 + 终态判定**。
 
 ### round_lock_test.go
 

@@ -40,6 +40,7 @@
 - `func (service *Service) appendVisibleDelta(requestID, chunk string)`
 - `func (service *Service) appendVisibleDeltaBackground(sessionID, requestID, chunk string)` — appendVisibleDeltaBackground 后台会话的流式增量：仅 View.mu + 会话本地
 - `func (service *Service) attachLatestReasoning(sessionID, requestID string)` — attachLatestReasoning 在聊天回合结束后，把引擎历史里**每个 assistant 步骤**
+- `func (service *Service) stampServedRoute(sessionID, requestID string)` — stampServedRoute 在回合收尾把本轮请求的实际承接路由（config role / config
 - `func reasoningStepsFromHistory(history []EngineMessage) []stepReasoning` — reasoningStepsFromHistory 按出现顺序取出引擎历史里带推理的 assistant 步骤。
 - `func lastReasoningFromHistory(history []EngineMessage) string` — lastReasoningFromHistory 返回引擎历史里最后一条 assistant 推理（老口径）。
 - `func attachStepReasoningLocked(view *session.View, steps []stepReasoning) []MessageDelta` — attachStepReasoningLocked 给可见窗口里每个 assistant 步骤挂上**它自己**的推理

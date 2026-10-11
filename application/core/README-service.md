@@ -11,18 +11,6 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-### employee_permission_assembly_test.go
-
-- `func (recorder *recordingEmployeePermissions) AssignEmployeePermissions(roles []dto.RoleSpec) error`
-- `func (recorder *recordingEmployeePermissions) snapshot() [][]dto.RoleSpec`
-- `func withEmployeePermissions(port contract.EmployeePermissionPort) testServiceOption`
-- `func employeeRolesOf(calls [][]dto.RoleSpec) []string` — employeeRolesOf 取记录里出现过的员工角色（按出现顺序；员工 = agent/timer 角色）。
-- `func assignedRoleNames(calls [][]dto.RoleSpec) []string` — assignedRoleNames 取记录里出现过的**全部**角色名（含主代理/评审者等内置角色）：
-- `func TestAssemblyAssignsEmployeePermissions(t *testing.T)` — TestAssemblyAssignsEmployeePermissions：装配（写注册表）之后，员工权限分配被调用，
-- `func TestAssemblySurfacesEmployeePermissionFailure(t *testing.T)` — TestAssemblySurfacesEmployeePermissionFailure：分配失败必须显式上抛。
-- `func TestAssemblyWithoutEmployeePermissionsStillWorks(t *testing.T)` — TestAssemblyWithoutEmployeePermissionsStillWorks：未装配分配面时装配照常成功
-- `func TestMaterializeAssignsEmployeePermissions(t *testing.T)` — TestMaterializeAssignsEmployeePermissions：装配团队（面板「一键装配」/ `@` 召唤 /
-
 ### fixture_concurrency_test.go
 
 - `func TestTeamRecordingSessionsAccessorsAreRaceFree(t *testing.T)` — TestTeamRecordingSessionsAccessorsAreRaceFree 并发读写夹具：-race 下证明读写两侧
@@ -74,6 +62,15 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func TestServiceFacadeContainsOnlyAssembly(t *testing.T)`
 - `func TestFocusedComponentsDoNotHoldServiceFacade(t *testing.T)`
 
+### service_effort_wire_test.go
+
+- `func (runtime *effortWireRuntime) SetSessionReasoningEffort(effort string) int`
+- `func (runtime *effortWireRuntime) pushedEfforts() []string`
+- `func newEffortWireService(t *testing.T) (*Service, *effortWireRuntime)`
+- `func TestSwitchEffortPushesWireReasoningEffort(t *testing.T)` — TestSwitchEffortPushesWireReasoningEffort：档位变化必须把该档对应的 wire 思考
+- `func TestSwitchEffortCyclePushesNextLevel(t *testing.T)` — TestSwitchEffortCyclePushesNextLevel：cycle 入口（GUI 控件/TUI 快捷键的循环切档）
+- `func TestSwitchEffortUnknownLevelDoesNotPush(t *testing.T)` — TestSwitchEffortUnknownLevelDoesNotPush：不认识的档位在 Apply 阶段就被拒，账号池
+
 ### service_fakes_test.go
 
 - `func (engine *sessionBackedBlockingEngine) SessionBacked() bool`
@@ -89,6 +86,8 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (engine *fakeEngine) ReplaceHistory(sessionID string, history []EngineMessage) error`
 - `func (engine *fakeEngine) SetSystemPrompt(prompt string)`
 - `func (engine *fakeEngine) SetMaxLoops(maxLoops int)`
+- `func (engine *fakeEngine) SetSessionMaxLoopsFor(sessionID string, loops int)` — SetSessionMaxLoopsFor 实现 contract.SessionLoopLimitPort：定时任务声明的循环上限
+- `func (engine *fakeEngine) sessionLoopsFor(sessionID string) int` — sessionLoopsFor 读指定会话被钉住的循环上限（0 = 没钉，按进程默认值跑）。
 - `func (engine *fakeEngine) AppendHistory(msg types.Message)`
 - `func (*fakeEngine) TraceText() string`
 - `func (*fakeEngine) TokenCount() string`
@@ -97,6 +96,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (engine *fakeEngine) NodeToolResult(nodeID, ref string) (string, bool)`
 - `func (engine *fakeEngine) NodeWorktreeInfoFor(nodeID string) (seelebridge.NodeWorktreeInfo, bool)`
 - `func (engine *fakeEngine) SubscribeSubagentLive(nodeID string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error)`
+- `func (engine *fakeEngine) SubagentLiveHistoryPage(nodeID string, offset, limit int) dto.SubagentLiveHistoryPage`
 - `func (engine *fakeEngine) SubAgentTree() []dto.SubAgentTreeNode`
 - `func (engine *fakeEngine) ReleaseWorkingHistory()`
 - `func (engine *fakeEngine) ReleaseWorkingHistoryFor(sessionID string)`
@@ -152,12 +152,16 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (*fakeRuntime) TaskChangedChannel() <-chan dto.TaskRecord`
 - `func (*fakeRuntime) SubagentTreeEvents() <-chan struct`
 - `func (*fakeRuntime) PlanNodeEventChannel() <-chan dto.PlanNodeEvent`
+- `func (runtime *fakeRuntime) TakeServedRoute(sessionID string) (dto.ServedRoute, bool)` — TakeServedRoute 按 fake 预置回答路由事实（读即清：与生产 Runtime 同语义，
 - `func (runtime *fakeRuntime) SwitchSessionTasks(sessionID string, records []dto.TaskRecord)`
 - `func (runtime *fakeRuntime) SetSessionWorkspace(sessionID, workspaceID string)`
+- `func (runtime *fakeRuntime) WithPluginAssembly(ctx context.Context, plugins []string) context.Context` — WithPluginAssembly 是生产 Runtime 同名方法的镜像：把插件装配带进这一轮执行
+- `func (runtime *fakeRuntime) PluginAssembly() []string` — PluginAssembly 读最近一次装配（同包用例直读，加锁）。
 - `func (runtime *fakeRuntime) ScheduledCommands() []seelebridge.ScheduledCommandInfo`
 - `func (runtime *fakeRuntime) ScheduledTasksSnapshot() []seelebridge.ScheduledTaskStatus`
 - `func (runtime *fakeRuntime) ScheduleTask(_ context.Context, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error)`
 - `func (runtime *fakeRuntime) CancelScheduledTask(id string) error`
+- `func (runtime *fakeRuntime) UpdateScheduledTask(_ context.Context, id string, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error)` — UpdateScheduledTask 是编辑入口的桩：记录"改哪一条、改成什么"，并把快照里
 - `func (runtime *fakeRuntime) ClearSubagentTree() error`
 - `func (runtime *fakeRuntime) RestoreSubagentAnchors(string) error`
 - `func (runtime *fakeRuntime) ListSubagentRecovery(string) ([]dto.SubagentRecoveryView, error)`
@@ -214,6 +218,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 - `func withTestSessions(sessions SessionPort) testServiceOption`
 - `func withTestRuntime(runtime RuntimePort) testServiceOption`
+- `func withTestPlugins(plugins PluginPort) testServiceOption` — withTestPlugins 注入自定义插件端口（默认桩只给一个不含来源的 default）。来源面
 - `func newTestService(t testing.TB, engine ChatEngine, options ...testServiceOption) *Service` — newTestService 构造一个带默认 fakes 的 Service（测试夹具），并在测试
 - `func mustNew(t testing.TB, deps Dependencies) *Service`
 - `func waitForSnapshot(t *testing.T, service *Service, ready func(Snapshot) bool) Snapshot` — waitForSnapshot 轮询 Snapshot 直到 ready 条件满足，返回满足条件的快照。
@@ -241,6 +246,11 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (service *Service) CancelAllChats()` — CancelAllChats 取消全部会话的运行中回合（G0c 关闭超时路径：后台会话同样
 - `func (service *Service) CancelChat(requestID string) bool` — CancelChat 是"停止按钮"的终止原语，语义按以下顺序成立（顺序即语义）：
 - `func (service *Service) Shutdown()`
+
+### service_input_fork_queue_test.go
+
+- `func (runtime *forkQueueRuntime) ForkInFlight(string) bool`
+- `func TestSubmitQueuedWhileForkRunning(t *testing.T)` — TestSubmitQueuedWhileForkRunning（2026-10-05 退役 fork 门控）钉住新链路：fork/subagent
 
 ### service_input_test.go
 
@@ -285,6 +295,44 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func TestEffortCommandUsesGuardedServicePath(t *testing.T)` — TestEffortCommandUsesGuardedServicePath /effort 命令必须走 SwitchEffort：
 - `func TestPluginSwitchPreservesEffort(t *testing.T)` — TestPluginSwitchPreservesEffort：插件切换只换 prompt 前缀，不得顺手把用户的
 
+### service_knobs.go
+
+- `func (service *Service) ensureViewIdle(action string) (string, error)` — ensureViewIdle 是本文件与 SwitchEffort 共用的运行守卫：返回视图会话 ID，并在
+- `func validWireReasoningEffort(value string) bool` — validWireReasoningEffort 判定一个值是否是 provider 词表里的思考强度。
+- `func (service *Service) SetReasoningEffort(_ context.Context, effort string) error` — SetReasoningEffort 单独下发"想多深"（不碰循环上限、不碰档位的 prompt 层与预算）。
+- `func (service *Service) SetLoopLimit(_ context.Context, limit int) error` — SetLoopLimit 单独改"跑多少轮"（不碰思考强度）。取值判据与定时任务的循环次数
+- `func (service *Service) applyLoopLimit(limit int)` — applyLoopLimit 是"改循环上限"的唯一写点：引擎与快照读数一起改，避免出现
+- `func (service *Service) setReasoningEffortReading(value string)` — setReasoningEffortReading 记录"当前生效的 wire 思考强度"（engine/账号池那一步由
+- `func (service *Service) knobReadings() (string, int)` — knobReadings 是 runtime 投影收集两条拉条读数的唯一入口（每个回合尾、每次工具
+- `func (service *Service) knobReasonings() string` — knobReasonings / knobLimit 是投影装配用的两个单值回调。
+- `func (service *Service) knobLimit() int`
+- `func (service *Service) currentLoopLimit() int` — currentLoopLimit 返回"当前生效的循环上限"：用户用拉条改过就用改过的值，否则回退
+- `func (service *Service) pushSessionReasoningEffort(wireValue string) int` — pushSessionReasoningEffort 把 wire 值下发给"跟随会话"的账号，返回被改动的账号数。
+- `func (service *Service) publishKnobs(mutate func(*RuntimeState)) error` — publishKnobs 把两条拉条的读数变更推成一次 runtime.changed：mutate 在 ViewMu 下
+- `func reasoningEffortChoices() []string` — reasoningEffortChoices 是给报错提示用的可选值清单（不含 "session"：见
+- `func validateLoopLimit(limit int) error` — validateLoopLimit 是"循环次数"这一项的**唯一**一份取值判据：拉条（SetLoopLimit）
+- `func (service *Service) borrowSessionReasoningEffort(sessionID, wireValue string)` — —— 定时任务的按会话思考强度（"租一笔"）——
+- `func (service *Service) takeSessionReasoningEffort(sessionID string) (string, bool)` — takeSessionReasoningEffort 取走并消掉指定会话待下发的思考强度（没有则 false）。
+
+### service_knobs_smoke_test.go
+
+- `func (engine *knobSmokeEngine) SetMaxLoops(loops int)`
+- `func (engine *knobSmokeEngine) loops() int`
+- `func projectRuntime(t *testing.T, service *Service)` — projectRuntime 模拟一次 runtime 投影重建（回合尾 / 工具边界会做的事）。
+- `func TestKnobChainSmoke(t *testing.T)`
+
+### service_knobs_test.go
+
+- `func knobService(t *testing.T) (*Service, *fakeEngine)`
+- `func runtimeKnobs(service *Service) (string, int)`
+- `func TestSetLoopLimitOnlyTouchesLoopLimit(t *testing.T)` — TestSetLoopLimitOnlyTouchesLoopLimit：改循环次数不改思考强度，且引擎与快照一致。
+- `func TestSetLoopLimitRejectsOutOfRange(t *testing.T)` — TestSetLoopLimitRejectsOutOfRange：上界 = limits.input_loop_limit（9999 是 goal
+- `func TestSetReasoningEffortOnlyTouchesReasoningEffort(t *testing.T)` — TestSetReasoningEffortOnlyTouchesReasoningEffort：改思考强度只推一次 wire 值，
+- `func TestSetReasoningEffortRejectsUnknownVocabulary(t *testing.T)` — TestSetReasoningEffortRejectsUnknownVocabulary：非法值（含 "session"——那是"没有
+- `func TestSwitchEffortSeedsBothKnobReadings(t *testing.T)` — TestSwitchEffortSeedsBothKnobReadings：档位是两条拉条的**预设**——切一次档位，
+- `func TestKnobsAreGuardedWhileViewSessionRuns(t *testing.T)` — TestKnobsAreGuardedWhileViewSessionRuns：视图会话 running 时两条拉条都拒绝，且
+- `func serviceRuntimePushes(t *testing.T, service *Service) []string` — serviceRuntimePushes 读记录桩里的下发序列（等价于 effortWireRuntime.pushedEfforts，
+
 ### service_notice_test.go
 
 - `func TestServiceAddNoticeAppendsSystemMessage(t *testing.T)`
@@ -326,6 +374,10 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 ### service_scheduler.go
 
+- `func withScheduledRunDefaults(spec seelebridge.ScheduledTaskSpec) seelebridge.ScheduledTaskSpec` — withScheduledRunDefaults 把没声明的执行参数落成默认值（创建/编辑入口调用）。
+- `func scheduledRunParams(effort string, loopLimit int) (string, int)` — scheduledRunParams 返回这条任务触发时**真正要用**的两条参数：声明优先，未声明（空/0）
+- `func (service *Service) validateScheduledRunParams(spec seelebridge.ScheduledTaskSpec) error` — validateScheduledRunParams 校验任务声明的两条执行参数（创建/编辑入口调用；取值判据
+- `func (service *Service) applyScheduledRunParams(sessionID string, task seelebridge.ScheduledTaskSpec) error` — applyScheduledRunParams 把两条执行参数装配到**目标会话**上（触发路径的唯一实现，
 - `func (service *Service) ScheduleTask(ctx context.Context, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error)` — ScheduleTask 创建并启动一个定时/周期任务（校验在 Runtime 调度器内完成）。
 - `func (service *Service) UpdateScheduledTask(ctx context.Context, id string, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error)` — UpdateScheduledTask 编辑既有定时/周期任务（ID 是操作键，定义整体替换）。
 - `func (service *Service) validateScheduledWorkspace(workspaceID string) error` — validateScheduledWorkspace 校验任务指定的工作区可用（空 = 不绑项目，合法）。
@@ -344,6 +396,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func conversationContents(messages []Message) string` — conversationContents 把可见会话拼成一段文本（判据只看"出现过没有"）。
 - `func TestUpdateScheduledTaskForwardsAndValidatesWorkspace(t *testing.T)` — TestUpdateScheduledTaskForwardsAndValidatesWorkspace 钉住编辑这条链的应用层口径：
 - `func TestAssembleScheduledRunAppliesTierAndPlugins(t *testing.T)` — TestAssembleScheduledRunAppliesTierAndPlugins 钉住任务的**装配**落到哪儿：
+- `func TestScheduledRunParamsDefaultsAndValidation(t *testing.T)` — TestScheduledRunParamsDefaultsAndValidation 钉住定时任务那两条执行参数（思考强度 /
 - `func TestScheduledPluginsValidatedAgainstCatalog(t *testing.T)` — TestScheduledPluginsValidatedAgainstCatalog 钉住应用层的插件装配校验：未知插件名
 
 ### service_snapshot.go

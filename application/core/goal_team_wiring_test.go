@@ -268,44 +268,24 @@ func (s *teamRecordingSessions) joinSeqsSnapshot() []string {
 	defer s.mu.Unlock()
 	return append([]string(nil), s.joinSeqs...)
 }
-
-// TestMaterializeJoinsTeammatesAtItsTurn 钉住 teammate 记录（它自己那份 team work
-// 会话）的起点：装配时写入的 join_seq_id = 那一刻主会话已提交的尾 seq，于是 teammate
-// 的记录从"装配它的那一回合"算起——它入伙之前的对话不在它的前缀匹配区间里。
+// TestMaterializeJoinsTeammatesAtItsTurn 已随会话团队装配面退场（2026-10-12 J-1a）
+// 删除：它钉的是"装配时把 teammate 挂在那一回合上"（`MaterializeAgentTeam` 的
+// join_seq_id = 主会话 message 尾 seq，经 `teamJoinSeqFor` 取）。两个被调用的入口
+// （`MaterializeAgentTeam` / `teamJoinSeqFor`）都随本条目删除，因此这条断言的**被测
+// 对象**不再存在。
 //
-// 修前这条断言的触发者是"goal 创建自动装配"，那条自动路径已删除（它会整份替换掉会话
-// 已有的团队，见 goal_service.GoalBeginFor）；断言改为打在装配入口上。
-func TestMaterializeJoinsTeammatesAtItsTurn(t *testing.T) {
-	sessions := &teamRecordingSessions{mainHeadSeq: 5}
-	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
+// "teammate 的记录从入伙那一回合算起"这条产品口径**没有被丢掉**，它现在归 teamwork：
+// 一 Work Item = 一 Session + 一 worktree，作业的入伙切点由 `seelebridge/teamwork`
+// 的派活面带着走（那条面本条目未动）。
 
-	if _, err := service.MaterializeAgentTeam("sess-join", goalTeamFixture(), service.teamJoinSeqFor("sess-join")); err != nil {
-		t.Fatalf("MaterializeAgentTeam: %v", err)
-	}
-
-	joined := sessions.joinSeqsSnapshot()
-	if len(joined) == 0 {
-		t.Fatal("装配没有建立任何角色会话")
-	}
-	tlFound := false
-	for _, entry := range joined {
-		if entry == "tl|5" {
-			tlFound = true
-		}
-		if strings.HasSuffix(entry, "|0") {
-			t.Fatalf("角色被挂在主会话最开头（join_seq_id=0）：%v", joined)
-		}
-	}
-	if !tlFound {
-		t.Fatalf("TL 未按装配回合入伙（want tl|5）：%v", joined)
-	}
-}
-
-// TestNoteTeamWorkPrefixReadsMainSessionContext 钉住前缀的作者与读取口径：
-//   - 作者是主会话上下文（含主会话 draft）的只读装配：应用层向存储请求的必须是
-//     role_name=main（main 复用主会话本身），budget/k 与前端 role wire 探针同口径；
-//   - 前缀内容就是那条 wire 的逐行投影 + 锚点，不是治理域的回合摘要；
-//   - 两条"宁缺勿造"：该会话没有环时不建环、也不读存储；读失败不动前缀。
+// TestNoteTeamWorkPrefixReadsMainSessionContext 钉住前缀读面的**唯一仍成立**的那条
+// 口径：没有环就没有前缀消费者——不建环、也不读存储。
+//
+// 2026-10-12（J-1a）之后这是本函数能钉的全部：环的唯一来路（会话团队装配面）已退场，
+// 所以 `teamRuntimeBySession` 恒 nil、环永远不存在、前缀永远不会有接收方。原来那半段
+// （"有环时前缀 = 主会话 wire 的逐行投影 + 锚点"）因此不可达，它的语义权威留在
+// `application/core/agentteam/prefix_test.go`（`Runtime.NoteMainContext` 把整条 wire
+// 投影成前缀，逐字保留）。
 func TestNoteTeamWorkPrefixReadsMainSessionContext(t *testing.T) {
 	sessions := &teamRecordingSessions{wire: dto.RoleWireSnapshot{
 		MainSessionID: "sess-prefix", RoleName: RoleNameMain, AppliedSeq: 9, TailStartSeq: 1,
@@ -319,27 +299,16 @@ func TestNoteTeamWorkPrefixReadsMainSessionContext(t *testing.T) {
 	// 没有环 = 没有前缀消费者：不建环、不读存储。
 	service.noteTeamWorkPrefix("sess-prefix")
 	if asks := sessions.wireAsksSnapshot(); len(asks) != 0 {
-		t.Fatalf("没有环时不该读 wire：%v", asks)
+		t.Fatalf("没有环时不该问 wire：%v", asks)
 	}
 
-	service.teamRuntimeBySession("sess-prefix")
+	// J-1a 之后**不再有任何来路**能建出环（这一点就是本条目要退场的东西），
+	// 因此"再问一次也仍然没有环、也仍然不读存储"。
+	if ring := service.teamRuntimeBySession("sess-prefix"); ring != nil {
+		t.Fatalf("会话团队装配面已退场，不该再有环：%+v", ring)
+	}
 	service.noteTeamWorkPrefix("sess-prefix")
-
-	schedule := service.teamScheduleFor("sess-prefix")
-	if schedule == nil {
-		t.Fatal("环应在装配后存在")
-	}
-	for _, want := range []string{"user: 把前缀改成主会话上下文", "assistant: 改了 agentteam_runtime.go", "起点 → 当前位置"} {
-		if !strings.Contains(schedule.Prefix, want) {
-			t.Fatalf("前缀缺少 %q：%q", want, schedule.Prefix)
-		}
-	}
-	if schedule.PrefixDigest != "digest-main" || schedule.PrefixTailSeq != 1 || schedule.PrefixAppliedSeq != 9 {
-		t.Fatalf("口径锚点没随快照暴露：digest=%q tail=%d applied=%d",
-			schedule.PrefixDigest, schedule.PrefixTailSeq, schedule.PrefixAppliedSeq)
-	}
-	wantAsk := fmt.Sprintf("sess-prefix|%s|sess-prefix|%d|%d", RoleNameMain, teamPrefixWireBudget, teamPrefixWireK)
-	if asks := sessions.wireAsksSnapshot(); len(asks) != 1 || asks[0] != wantAsk {
-		t.Fatalf("wire 装配请求错位：%v，want [%s]", asks, wantAsk)
+	if asks := sessions.wireAsksSnapshot(); len(asks) != 0 {
+		t.Fatalf("没有环时不该问 wire（环已无来路）：%v", asks)
 	}
 }

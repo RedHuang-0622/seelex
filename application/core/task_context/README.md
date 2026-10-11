@@ -263,7 +263,7 @@ go test ./application/core/task_context -count=1
 
 ### plan_transcript.go
 
-- `func PlanNodeStatus(s string) model.NodeStatus` — PlanNodeStatus 将字符串转换为 NodeStatus（queued/running/... 全量映射）。
+- `func PlanNodeStatus(word string) (model.NodeStatus, bool)` — PlanNodeStatus 把框架/事件里的节点状态词折成我们的节点状态；第二个返回值报告
 - `func ActivePlanProjection(plan *model.PlanState, activePlanID string, planSequence uint64) *model.ActivePlanProjection` — ActivePlanProjection 返回 Plan 的只读投影（Completed/Failed/Pending 节点
 - `func ActivePlanFrame(stack []model.SessionPlanFrame, activeID string) *model.SessionPlanFrame` — ActivePlanFrame 返回 plan 栈中的激活帧（未找到 → nil）。
 - `func ActivePlanFromStack(stack []model.SessionPlanFrame, activeID string) *model.PlanState` — ActivePlanFromStack 返回激活帧的 Plan 深拷贝（未找到 → nil）。
@@ -404,8 +404,8 @@ go test ./application/core/task_context -count=1
 - `func (c *Coordinator) RecordContextCompactionLocked(requestID string, compaction model.ContextCompaction) bool` — RecordContextCompactionLocked 记录一次上下文压缩（运行中任务，或回合已收尾
 - `func (c *Coordinator) _RecordContextCompactionLocked(requestID string, compaction model.ContextCompaction) bool`
 - `func (c *Coordinator) LastContextCompactionFor(sessionID string) (model.ContextCompaction, bool)` — LastContextCompactionFor 返回某会话任务执行面里**最后一次**上下文压缩记录的副本。
-- `func (c *Coordinator) SetTaskStateLocked(requestID string, status model.TaskStatus, summary string)` — SetTaskStateLocked 把任务可见状态写入快照（调用方持有 Core.ViewMu；requestID
-- `func (c *Coordinator) _SetTaskStateLocked(requestID string, status model.TaskStatus, summary string)`
+- `func (c *Coordinator) SetTaskStateLocked(requestID string, status model.TurnStatus, summary string)` — SetTaskStateLocked 把任务可见状态写入快照（调用方持有 Core.ViewMu；requestID
+- `func (c *Coordinator) _SetTaskStateLocked(requestID string, status model.TurnStatus, summary string)`
 - `func (c *Coordinator) isActiveSessionLocked(sessionID string) bool` — isActiveSessionLocked 判定会话是否为共享快照归属会话（调用方持有
 - `func (c *Coordinator) InterruptTaskLocked(requestID, summary string)` — InterruptTaskLocked 把任务置为中断（快照 + 内部状态；调用方持有 Core.ViewMu）。
 - `func (c *Coordinator) _InterruptTaskLocked(requestID, summary string)`
@@ -427,6 +427,7 @@ go test ./application/core/task_context -count=1
 - `func (c *Coordinator) _Transcript() []model.TranscriptEvent`
 - `func (c *Coordinator) TranscriptFor(sessionID string) []model.TranscriptEvent`
 - `func (c *Coordinator) _TranscriptFor(sessionID string) []model.TranscriptEvent`
+- `func (c *Coordinator) StampAssistantRouteFor(sessionID, requestID, configRole, configModel, configProvider string) int` — StampAssistantRouteFor 把本轮请求的实际承接路由（config role / config model /
 - `func (c *Coordinator) PendingToolResults() []model.StoredToolResult`
 - `func (c *Coordinator) _PendingToolResults() []model.StoredToolResult`
 - `func (c *Coordinator) PendingToolResultsFor(sessionID string) []model.StoredToolResult`
@@ -501,7 +502,7 @@ go test ./application/core/task_context -count=1
 
 - `func NewTaskExecutionState(requestID, objective, effort string) *TaskExecutionState` — NewTaskExecutionState 构造一个运行中任务状态。
 - `func continuationTaskExecutionState(requestID, objective, effort string, previous *TaskExecutionState, checkpoint model.TaskCheckpoint) *TaskExecutionState`
-- `func IsContinuableStatus(status string) bool` — IsContinuableStatus 判定任务状态是否可被续接（排队输入/恢复路径）。
+- `func IsContinuableStatus(status model.TurnStatus) bool` — IsContinuableStatus 判定任务状态是否可被续接（排队输入/恢复路径）。
 - `func cloneNodeCheckpoints(source map[string]*NodeCheckpoint) map[string]*NodeCheckpoint`
 - `func (state *TaskExecutionState) RecordTool(name, result string, toolErr error)` — RecordTool 记录一次工具执行观测（tool 签名去重 + progressEpoch 推进）。
 - `func taskToolOutcome(name, result string, toolErr error) string`
@@ -532,7 +533,7 @@ go test ./application/core/task_context -count=1
 - `func (s *TaskService) ObservePlanEvent(event PlanEvent)` — ObservePlanEvent 记录一次 plan 事件投影观测（节点终态 → checkpoint 打点）。
 - `func (s *TaskService) ObserveModelOutput(ctx context.Context, output ModelOutput) error` — ObserveModelOutput 记录一次模型回复观测（自然终态判定输入）。
 - `func (s *TaskService) OnChatEnd(ctx context.Context, summary ChatEndSummary) (model.TaskState, error)` — OnChatEnd 把自然停止转换为可审计的完成/交接。只消费事件投影与终态标记；
-- `func (s *TaskService) taskStateResultLocked(requestID string, status model.TaskStatus, summary string) model.TaskState` — taskStateResultLocked 构造任务的可见状态结果。优先取共享快照中的 Task
+- `func (s *TaskService) taskStateResultLocked(requestID string, status model.TurnStatus, summary string) model.TaskState` — taskStateResultLocked 构造任务的可见状态结果。优先取共享快照中的 Task
 - `func (s *TaskService) VerifyAndApply(ctx context.Context, kind, argsJSON string) (string, error)` — VerifyAndApply 是终态/打点工具的 Registry handler 入口：解析/校验入参 →
 - `func (s *TaskService) applyCheckNodeLocked(ctx context.Context, input taskTerminal) (string, error)` — applyCheckNodeLocked 接受 task_check_node：把已加载任务结构中的单个节点
 - `func (s *TaskService) applyCompleteLocked(ctx context.Context, input taskTerminal) (string, error)`
@@ -541,7 +542,7 @@ go test ./application/core/task_context -count=1
 - `func (s *TaskService) verifyCompletionLocked(terminal taskTerminal) error`
 - `func (s *TaskService) completeAuthoritativePlanLocked() error`
 - `func (s *TaskService) rememberResumeLocked(summary ChatEndSummary)` — rememberResumeLocked 在任务终态时保留最小恢复记录。
-- `func (s *TaskService) setTaskStateLocked(requestID string, status model.TaskStatus, summary string)` — setTaskStateLocked 把任务可见状态写入快照。非活跃会话（后台并行执行）
+- `func (s *TaskService) setTaskStateLocked(requestID string, status model.TurnStatus, summary string)` — setTaskStateLocked 把任务可见状态写入快照。非活跃会话（后台并行执行）
 - `func nodesNotCovered(projected, completed []string, projection PlanProjectionReader) []string`
 - `func AppendPlanNodeEvent(node *model.PlanNode, event dto.PlanNodeEvent)` — AppendPlanNodeEvent 把一次节点事件追加到节点时间线（详情页数据源；上限
 - `func RecalculatePlanProgress(plan *model.PlanState)` — RecalculatePlanProgress 重算计划整体进度（completed/skipped / total）。
@@ -571,4 +572,8 @@ go test ./application/core/task_context -count=1
 - `func TestCalibratedTokenCounter_ObserveAdjustsFactor(t *testing.T)`
 - `func TestCalibratedTokenCounter_ObserveClamps(t *testing.T)`
 - `func TestCalibratedTokenCounter_ObserveIgnoresNonPositive(t *testing.T)`
+
+### turn_status_record.go
+
+- `func TurnStatusOfRecord(wire string) dto.TurnStatus` — TurnStatusOfRecord 把存档里的回合状态词读回枚举（导出：跨包读方与用例读同一处口径）。
 

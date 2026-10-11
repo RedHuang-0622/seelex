@@ -165,14 +165,16 @@ var (
 // ── 输入前缀（sigil）契约 ────────────────────────────────────────────────
 //
 // 前缀与含义一一对应：`/` 可执行入口（命令 + Skill；工具不列出——只有模型能调用，
-// 要用户显式调用先注册成命令）、`#` 切换插件、`$` 召回 Skill、`@` 手动召唤团队。
-// 权威说明见 docs/gui/modules/shell-and-interactions.md；
+// 要用户显式调用先注册成命令）、`#` 切换插件、`$` 召回 Skill。
+//
+// `@` 手动召唤团队**已退场**（2026-10-12 J-1a）：这个字符让给文件指代（`@文件`），
+// Agent Team 的整条用户面（召唤 / 团队库 / 员工库 / 母本）随之退场，不再有
+// SigilTeam 这个常量。权威说明见 docs/gui/modules/shell-and-interactions.md；
 // 前端（含 TUI）只消费这里的常量与判定，不自持第二份字符表。
 const (
 	SigilCommand = core.SigilCommand
 	SigilPlugin  = core.SigilPlugin
 	SigilSkill   = core.SigilSkill
-	SigilTeam    = core.SigilTeam
 )
 
 // HasSigilPrefix 报告输入是否以前缀开头（TUI suggMode / 前端内联建议共用）。

@@ -146,9 +146,6 @@ func (server *headlessServer) dispatch(method string, args []json.RawMessage) (a
 	if strings.HasPrefix(method, "schedule.") {
 		return server.dispatchSchedule(method, args)
 	}
-	if strings.HasPrefix(method, "team.") {
-		return server.dispatchTeam(method, args)
-	}
 	if strings.HasPrefix(method, "subagent.") {
 		return server.dispatchSubagent(method, args)
 	}

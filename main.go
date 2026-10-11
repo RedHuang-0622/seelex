@@ -597,60 +597,37 @@ func run() error {
 	registerGoalTools(runtime, app)
 	// P1：真实 TL 评估器装配（seelebridge 账号 completer → goal 域
 	// TLEvaluator）；注入发生在首次会话启动前，Supervisor 首次 bind 即启用。
-	// ADVISOR 的角色提示词来自 Agent Team 的员工登记：装配根先把"读已装配
-	// 提示词"的读面注入 Runtime（未登记 → 内置角色设定；输出契约永远追加）。
-	// 能力轴（按会话插件装配）的角色自带读面：与提示词同源同姿势。注册表里
-	// RoleSpec.Plugins 登记了什么，这个角色的回合就装配什么（空 = 不覆盖：工具面
-	// 继承宿主当前装配 + 技能目录不注入）。
-	runtime.SetRolePluginsProvider(func(roleName string) []string {
-		sessionID := app.Snapshot().Session.ID
-		if sessionID == "" {
-			return nil
-		}
-		plugins, err := app.AgentTeamRolePlugins(sessionID, roleName)
-		if err != nil {
-			return nil
-		}
-		return plugins
-	})
-	runtime.SetRolePromptProvider(func(roleName string) string {
-		sessionID := app.Snapshot().Session.ID
-		if sessionID == "" {
-			return ""
-		}
-		prompt, err := app.AgentTeamRolePrompt(sessionID, roleName)
-		if err != nil {
-			return ""
-		}
-		return prompt
-	})
-	// 员工权责接线：把"角色会话 → ToolsPolicy"的读面注入权限门。员工的工具调用
-	// 因此判成 emp_ro / emp_rw 主体：位齐按组默认/规则走，位缺（违权）走执行选择
-	// 页面提权（人类的选择页 = sudo 口令）。
 	//
-	// 归属解析走 application 侧的**反向索引**（角色会话 → 归属主会话 + 权责），
-	// 不再锚"当前视图会话"：角色会话可能属于后台会话，按视图会话查会查不到而落回
-	// root（= 不拦）。索引只有"读到过该角色会话的注册表"才有事实，所以角色回合
-	// 执行体仍应按构造把主体类放进 ctx（见 WithEmployeeSubjectClass）——两条路
-	// 给出同一个结论，任何一条可用即拦得住。
-	runtime.SetRoleSessionPolicyResolver(func(roleSessionID string) (string, bool) {
-		if strings.TrimSpace(roleSessionID) == "" {
-			return "", false
-		}
-		return app.RoleSessionToolsPolicy(roleSessionID)
-	})
-	// 员工/评审者越权提权的审批归属：角色会话（goal-a2a-pm / advisor:<main>）不在
-	// 用户视图里，也没有自己的会话单元，因此它的待批请求不会进视图单格、不会进目录
-	// awaiting_approval——对宿主完全不可见，只能等审批超时被拒。折算到宿主主会话后，
-	// **现有**审批面板/目录/会话快照三条读面原样复用（不新建面板）。
+	// **J-1a 之后这里不再注入两条"角色自带"读面**（2026-10-12，Agent Team 用户面
+	// 退场）：
 	//
-	// 与主体判定无关：判定仍按角色会话的主体（emp_<角色>）走，这里只改"审批弹在哪"。
-	runtime.SetRoleSessionOwnerResolver(func(roleSessionID string) (string, bool) {
-		if strings.TrimSpace(roleSessionID) == "" {
-			return "", false
-		}
-		return app.RoleSessionOwner(roleSessionID)
-	})
+	//   - `SetRolePluginsProvider`（RoleSpec.Plugins 的"角色自带插件装配"）：它的
+	//     唯一事实来源是团队角色注册表，注册表随本条目删除 ⇒ 读面没有来源。运行时
+	//     对"读面未注入"的口径就是**空集 = 不覆盖**（seelebridge/runtime_role_plugins.go
+	//     的 `rolePluginsFor`），因此退场后的行为与"注册表里没登记"逐字相同；能力轴
+	//     仍在：`team_plan members[].plugins` 的显式声明照旧生效（那条面在
+	//     seelebridge/teamwork，未动）。
+	//   - `SetRolePromptProvider`（已登记员工提示词 → ADVISOR 回合）：同上，读面未注入
+	//     时 ADVISOR 回退内置角色设定（seelebridge/runtime_role_prompt.go），输出契约
+	//     不受影响。
+	//
+	// 两条注入点保留在 seelebridge 侧（它们是运行时的公开读面，不属于本条目要删的
+	// Agent Team 用户面），只是不再有装配根来源。
+	//
+	// **权限门的"员工权责反查"接线也随本条目退场**（2026-10-12）：`SetRoleSessionPolicyResolver`
+	// （角色会话 → ToolsPolicy）与 `SetRoleSessionOwnerResolver`（角色会话 → 宿主主会话）
+	// 的对象 `app.RoleSessionToolsPolicy` / `app.RoleSessionOwner` 只有一个事实来源——
+	// `application/core/agentteam_role_index.go` 的反向索引，而它的**唯一登记点**是
+	// 团队注册表的读面（`agentTeamRawView`）。注册表随 Agent Team 用户面删除 ⇒ 索引
+	// 恒空 ⇒ 两条 resolver 退场前后的返回值**逐字相同**（恒 `("", false)`，权限门按
+	// "不是角色会话"回退）。因此这里不再接线，而不是留一个恒 false 的闭包。
+	//
+	// 员工权限的**权威判定**在"按构造"那条路（角色回合起手用
+	// `seelebridge/tools.WithEmployeeGrant` / `WithEmployeeSubjectClass` 把员工主体放进
+	// ctx），那条路不依赖反查索引，本条目未改 seelebridge（见
+	// docs/arch/agent-permission-subjects.md）。`seelebridge` 侧的
+	// `SetRoleSessionPolicyResolver` / `SetRoleSessionOwnerResolver` 仍在（运行时公开
+	// 读面，测试与 headless 宿主可用），只是不再有装配根来源。
 	if tlEvaluator := runtime.GoalTLEvaluator(); tlEvaluator != nil {
 		app.SetGoalTLEvaluator(tlEvaluator)
 	}

@@ -102,17 +102,13 @@ goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回
 
 ### goal_ring_escape_test.go
 
-- `func (s *escapeRecordingSessions) AppendRoleDraft(_ string, _ string, _ string, rows []dto.RoleDraftRow) error`
-- `func (s *escapeRecordingSessions) draftsOfKind(kind string) []dto.RoleDraftRow`
-- `func TestRingEscapeClosesGoalAndArchivesTLHistory(t *testing.T)` — TestRingEscapeClosesGoalAndArchivesTLHistory：逃生后 goal 必须收口，且 tl 角色
-- `func TestRingEscapeWithoutGoalIsQuiet(t *testing.T)` — TestRingEscapeWithoutGoalIsQuiet：没有 goal 时环逃生不应报错、不应写归档
+- `func TestRingEscapeWiringIsUnreachableAfterJ1A(t *testing.T)` — TestRingEscapeWiringIsUnreachableAfterJ1A 钉住"环逃生 → goal 收口"这条应用层接线
 
 ### goal_service.go
 
 - `func (service *Service) GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView` — GoalGovernanceViewFor 返回指定会话的 goal 治理只读视图（view_state 装配
 - `func (service *Service) goalCoordinatorFor(sessionID string) (*goalCoordinator, error)`
 - `func (service *Service) GoalBeginFor(ctx context.Context, sessionID string, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error)` — GoalBeginFor 按显式会话注册 goal（多会话路由）。
-- `func (service *Service) teamJoinSeqFor(sessionID string) uint64` — teamJoinSeqFor 返回团队装配的 join 切点 = 主会话当前已提交的 message 尾 seq。
 - `func (service *Service) GoalBegin(ctx context.Context, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error)` — GoalBegin 按执行 ctx 会话注册 goal（main agent 工具调用路径）。
 - `func (service *Service) GoalUpdateFor(ctx context.Context, sessionID string, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error)` — GoalUpdateFor 按显式会话更新栈顶 goal。
 - `func (service *Service) GoalUpdate(ctx context.Context, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error)` — GoalUpdate 按执行 ctx 会话更新（main agent 工具调用路径）。
@@ -151,6 +147,7 @@ goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回
 ### goal_team_recorder.go
 
 - `func (service *Service) goalTLRecorderFor(sessionID string) goaldomain.TLRoundRecorder` — goalTLRecorderFor 是装配根注入的按会话记录器工厂。
+- `func (service *Service) sessionAgentTeamViewJ1A(mainSessionID string) (dto.TeamView, error)` — sessionAgentTeamViewJ1A 是「本会话已装配团队」这一读面在 J-1a 之后的**保留形态**
 - `func (r goalTLRecorder) RecordTLRound(_ context.Context, record goaldomain.TLRoundRecord) error`
 - `func (r goalTLRecorder) RecordMainTurn(_ context.Context, record goaldomain.MainTurnRecord) error` — RecordMainTurn 在 b 交还发言权时发布 EXEC 主持标记：main 的过程行照旧实时
 - `func (r goalTLRecorder) ArchiveTLHistory(_ context.Context, record goaldomain.TLArchiveRecord) error` — ArchiveTLHistory 把 b 侧会话历史归档进 tl 角色历史（环逃生收口时调用；实现
@@ -160,14 +157,9 @@ goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回
 - `func (s *draftRecordingSessions) AppendRoleDraft(_, roleName, roleSessionID string, rows []dto.RoleDraftRow) error`
 - `func (s *draftRecordingSessions) SyncRoleDraft(_, roleName, roleSessionID string, order []string) (dto.RoleDraftSyncResult, error)`
 - `func (s *draftRecordingSessions) recordedSteps() []string`
-- `func (s *draftRecordingSessions) appendedRows() []dto.RoleDraftRow`
-- `func (s *draftRecordingSessions) syncOrder() []string`
 - `func (s *draftRecordingSessions) pendingRows() int`
-- `func draftRecordingFixture(t *testing.T, sessionID string) (*draftRecordingSessions, goaldomain.TLRoundRecorder, dto.TeamView)` — draftRecordingFixture 装配一个已建 goal（= 已自动装配 goal-a2a 团队）的会话，
-- `func TestRecordTLRoundAppendsThenSyncsInTheSameRound(t *testing.T)` — TestRecordTLRoundAppendsThenSyncsInTheSameRound 钉住 b（ADVISOR）回合的记录口径：
-- `func TestRecordMainTurnPublishesHostMarkerInTheSameRound(t *testing.T)` — TestRecordMainTurnPublishesHostMarkerInTheSameRound 钉住 EXEC 主持标记：
-- `func TestRecordTLRoundKeepsTheOriginalWhenTheRoundIsCancelled(t *testing.T)` — TestRecordTLRoundKeepsTheOriginalWhenTheRoundIsCancelled 钉住「取消不丢内容」：
 - `func TestRecordTLRoundWritesNothingWithoutATeam(t *testing.T)` — TestRecordTLRoundWritesNothingWithoutATeam 钉住降级：未装配 team 的会话不落
+- `func TestRoleDraftRecordingIsUnreachableAfterJ1A(t *testing.T)` — TestRoleDraftRecordingIsUnreachableAfterJ1A 是**退场守卫**（2026-10-12 J-1a）：
 
 ### goal_team_wiring_test.go
 
@@ -200,8 +192,7 @@ goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回
 - `func TestGoalBeginWithoutTeamStorageIsBestEffort(t *testing.T)` — TestGoalBeginWithoutTeamStorageIsBestEffort 钉住降级语义：宿主没有团队存储
 - `func (s *teamRecordingSessions) wireAsksSnapshot() []string` — wireAsksSnapshot 只读前缀用例的装配请求记录（加锁 + 拷贝）。
 - `func (s *teamRecordingSessions) joinSeqsSnapshot() []string` — joinSeqsSnapshot 只读角色装配的 join_seq_id 记录（加锁 + 拷贝）。
-- `func TestMaterializeJoinsTeammatesAtItsTurn(t *testing.T)` — TestMaterializeJoinsTeammatesAtItsTurn 钉住 teammate 记录（它自己那份 team work
-- `func TestNoteTeamWorkPrefixReadsMainSessionContext(t *testing.T)` — TestNoteTeamWorkPrefixReadsMainSessionContext 钉住前缀的作者与读取口径：
+- `func TestNoteTeamWorkPrefixReadsMainSessionContext(t *testing.T)` — TestNoteTeamWorkPrefixReadsMainSessionContext 钉住前缀读面的**唯一仍成立**的那条
 
 ### goal_work_summary.go
 

@@ -5,9 +5,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"sync"
-
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 // ── 输入前缀（sigil）契约 ──────────────────────────────────────────────
@@ -18,7 +15,11 @@ import (
 //	/  可执行入口：命令 + Skill（工具**不**列出）
 //	#  切换 Plugin（含 off/none = 停用全部）
 //	$  召回 Skill（激活到当前会话）
-//	@  手动召唤团队：团队库里的一支团队，装配到当前会话（可跟一句附言）
+//
+// `@` 手动召唤团队**已退场**（2026-10-12 J-1a，用户拍板"直接删除"）：这个字符
+// 让给文件指代（`@文件`），Agent Team 的召唤面 / 团队库 / 员工库 / 母本整条退场，
+// 因此它不再是前缀、不再有建议面、也不再有 SigilTeam 常量。旧肌肉记忆打 `@` 时
+// 不会再拿到"未知前缀"提示——`@` 不再是前缀，输入按普通对话下发。
 //
 // `/` 只放"能从输入框直接执行"的东西。工具是模型侧的（由模型调用、经权限门），
 // 因此既不进建议也不进路由：一个能力要让用户打 `/名字` 显式调用，前提是它已注册
@@ -32,12 +33,11 @@ const (
 	SigilCommand = "/"
 	SigilPlugin  = "#"
 	SigilSkill   = "$"
-	SigilTeam    = "@"
 )
 
 // sigils 是前缀的唯一枚举（顺序 = 解析顺序）。任何新增前缀都从这里生效：
 // 建议面（Suggestions）与迁移提示按它推导，不在别处再写一份字面量。
-var sigils = []string{SigilCommand, SigilPlugin, SigilSkill, SigilTeam}
+var sigils = []string{SigilCommand, SigilPlugin, SigilSkill}
 
 // 建议条目的域标记：前端按它选图标，TUI 按它显示标签。只有能从输入框直接执行的
 // 域才会成为候选（无 tool：工具由模型调用，见文件头前缀契约）。
@@ -45,18 +45,12 @@ const (
 	SuggestionKindCommand = "command"
 	SuggestionKindSkill   = "skill"
 	SuggestionKindPlugin  = "plugin"
-	SuggestionKindTeam    = "team"
 )
 
 type Suggestion struct {
 	Text        string `json:"text"`
 	Description string `json:"description,omitempty"`
 	Kind        string `json:"kind"`
-
-	// alias 是前缀过滤的**补充键**（不导出、不进 JSON、前端看不见）：团队库条目除了
-	// team_id 还有用户起的展示名，两种写法都该能被前缀命中（打 `@改良` 要能弹出
-	// Text=`goal-a2a` 的那一行）。其它域没有第二个键，留空。
-	alias string
 }
 
 // Suggestions 按输入前缀给出候选：前缀不认识、或已经进入参数区（含空格）时
@@ -81,23 +75,18 @@ func (service *Service) Suggestions(input string) []Suggestion {
 		all = append(all, service.pluginSuggestions()...)
 	case SigilSkill:
 		all = append(all, service.skillSuggestions()...)
-	case SigilTeam:
-		// `@` 的候选在**团队库**里（全局数据文件），不是零 I/O 的内存注册表：走进程内
-		// 快照，见本文件末尾「`@` 的建议面」一段的取舍与失效边界。
-		all = append(all, service.teamSuggestions()...)
 	}
 	lower := strings.ToLower(prefix)
 	filtered := all[:0]
 	for _, suggestion := range all {
-		if lower == "" || strings.HasPrefix(strings.ToLower(suggestion.Text), lower) ||
-			strings.HasPrefix(strings.ToLower(suggestion.alias), lower) {
+		if lower == "" || strings.HasPrefix(strings.ToLower(suggestion.Text), lower) {
 			filtered = append(filtered, suggestion)
 		}
 	}
 	sort.SliceStable(filtered, func(i, j int) bool {
 		priority := map[string]int{
 			SuggestionKindCommand: 0, SuggestionKindSkill: 1,
-			SuggestionKindPlugin: 2, SuggestionKindTeam: 3,
+			SuggestionKindPlugin: 2,
 		}
 		if priority[filtered[i].Kind] != priority[filtered[j].Kind] {
 			return priority[filtered[i].Kind] < priority[filtered[j].Kind]
@@ -301,129 +290,4 @@ func (service *Service) pluginSuggestions() []Suggestion {
 	return append(suggestions, Suggestion{
 		Text: "off", Description: "停用所有插件", Kind: SuggestionKindPlugin,
 	})
-}
-
-// ── `@` 的建议面：团队库的进程内快照 ──────────────────────────────────
-//
-// 2026-10-01 曾把 `@` 的建议面整个去掉，理由是"候选在团队库里、Suggestions 跑在
-// TUI 的 View() 渲染路径与 GUI 每次输入事件上，逐键读盘不划算"。那个取舍只对
-// **逐键读盘**成立，不对"没有建议面"成立：用户打 `@` 却看不到库里有什么团队，
-// 只能靠记忆把 team_id 打全。于是这里保留零 I/O 的结论，改掉"无建议面"的实现：
-// 候选读一次、留进程内缓存，按键路径只走内存。
-//
-// 失效边界（缓存能看到的本进程变化，两条都覆盖）：
-//
-//  1. 库写路径：AgentTeamSaveTeam / AgentTeamSaveCurrentTeam / AgentTeamDeleteTeam /
-//     AgentTeamPublishToGlobal 一律清缓存——本进程刚改的库，下一次按键就反映；
-//  2. 库读回：AgentTeamLibrary（面板 RPC / `@` 空参回执的公共读面）与
-//     AgentTeamGlobalConfig 也清缓存——"刚看过磁盘"的时刻顺手让缓存重新取一份，
-//     比让它继续陈旧便宜。
-//
-// 已知缺口：**另一个进程**（外部编辑器、另一个 Seelex 实例）改了 `team/library.json`
-// 时，本进程既没写也没读回，缓存不会自己发现——界面停在旧库，直到上面两类事件之一
-// 发生。要有界地收口只能加文件指纹或定时重读，那等于把"逐键零 I/O"换成"逐键 stat
-// 一次盘"，对建议面不值；这条缺口比"@ 永远列不出团队"轻得多。
-//
-// 按会话分键：库读面的**作用域**由锚定会话解析（团队库本身是全局母表，但旧的
-// 项目级布局回退按锚定会话定位所属项目），所以"哪个会话问的"是快照的一部分——切到
-// 另一侧的会话读到的是那一侧解析出来的库，而不是上一个会话缓存下来的那份。
-//
-// 读取失败（宿主未装配团队存储 / 无会话号 / 库文件损坏）**不**缓存：失败通常意味着
-// "此刻读不到"，把它当空库缓存下来会压住之后成功的读取。
-type teamLibrarySuggestions struct {
-	mu       sync.RWMutex
-	sessions map[string][]Suggestion
-}
-
-// lookup 返回该会话的快照（第二个值 = 是否有快照）。返回的切片归缓存所有，调用方
-// 只读——Suggestions 先把候选 append 进自己的切片再做前缀过滤。
-func (cache *teamLibrarySuggestions) lookup(sessionID string) ([]Suggestion, bool) {
-	cache.mu.RLock()
-	defer cache.mu.RUnlock()
-	entries, ok := cache.sessions[sessionID]
-	return entries, ok
-}
-
-func (cache *teamLibrarySuggestions) store(sessionID string, entries []Suggestion) {
-	cache.mu.Lock()
-	defer cache.mu.Unlock()
-	if cache.sessions == nil {
-		cache.sessions = make(map[string][]Suggestion)
-	}
-	cache.sessions[sessionID] = entries
-}
-
-// forget 丢**全部**快照：库是全局母表，写一次影响所有键，逐个键清没有意义。
-func (cache *teamLibrarySuggestions) forget() {
-	cache.mu.Lock()
-	defer cache.mu.Unlock()
-	cache.sessions = nil
-}
-
-// invalidateTeamLibrarySuggestions 让 `@` 的建议面快照过期（库写路径与库读回共用，
-// 见本段开头列出的边界）。
-func (service *Service) invalidateTeamLibrarySuggestions() {
-	if service == nil {
-		return
-	}
-	service.teamLibrarySnapshots.forget()
-}
-
-// teamSuggestions 返回 `@` 的候选：团队库里的每一支团队。
-func (service *Service) teamSuggestions() []Suggestion {
-	// 团队库是全局粒度，但存储端口要一个会话号来解析数据根（旧项目级布局的只读回退
-	// 也按它定位），所以这里取当前视图会话——与 `@` 召回路上的取法一致，快照也按它分键。
-	sessionID := service.currentViewSessionID()
-	if cached, ok := service.teamLibrarySnapshots.lookup(sessionID); ok {
-		return cached
-	}
-	library, err := service.agentTeamLibrary(sessionID)
-	if err != nil {
-		return nil
-	}
-	view, err := library.View()
-	if err != nil {
-		return nil
-	}
-	entries := make([]Suggestion, 0, len(view.Teams))
-	for _, entry := range view.Teams {
-		entries = append(entries, teamSuggestion(entry))
-	}
-	service.teamLibrarySnapshots.store(sessionID, entries)
-	return entries
-}
-
-// teamSuggestion 把一条库条目投影成候选项。
-//
-// Text 用 team_id 而不是展示名：库里查询 id/名字/kind 都能命中（见
-// teamSummonIndex.match），但 id 唯一、且不会像用户起的中文名那样含空格——候选项被
-// 前端原样插进输入框（`@<text> ` 再续写附言），带空格的 Text 会让输入框在附言还没
-// 写之前就进入参数区（于是面板自己消失）。
-//
-// 展示名不另造一条候选（那就成了"同一支团队两行、两行 Text 不同"，选中哪条都不确定），
-// 而是进 alias 这个补充过滤键：打 `@改良`（名字前缀）照样弹出这一行，按 Tab/回车插
-// 进输入框的仍是 team_id。按名召唤本身一直都在（resolveTeamSummon 认 id / 名字 /
-// kind，不区分大小写），`@` 空参的回执也照样列名字——面板只是不再要求用户先把名字
-// 打全。
-//
-// Description 放"展示名 + 员工数"：展示名与 id 相同就没额外信息，故省略；员工数来自
-// 库条目自带的角色清单（不需要再读会话），是"这支多大"的唯一低成本事实。
-func teamSuggestion(entry dto.TeamLibraryEntry) Suggestion {
-	description := strings.TrimSpace(entry.Name)
-	if description == entry.TeamID {
-		description = ""
-	}
-	if count := len(entry.Roles); count > 0 {
-		if description != "" {
-			description += " · "
-		}
-		description += fmt.Sprintf("%d 个员工", count)
-	}
-	suggestion := Suggestion{Text: entry.TeamID, Description: description, Kind: SuggestionKindTeam}
-	// 名字与 team_id 同值时 Text 已经覆盖，不必再匹配一遍；只有"用户另起了名字"
-	// 才多出这一个可命中的键。
-	if name := strings.TrimSpace(entry.Name); name != "" && name != entry.TeamID {
-		suggestion.alias = name
-	}
-	return suggestion
 }

@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// Dispatcher 把规范化输入分派到具体用例（command/plugin/skill/team/conversation）。
+// Dispatcher 把规范化输入分派到具体用例（command/plugin/skill/conversation）。
 type Dispatcher interface {
 	Dispatch(context.Context, string) error
 }
@@ -16,7 +16,7 @@ type Route interface {
 	Dispatch(context.Context, string) error
 }
 
-// Router 是组合式输入路由器：按 command → plugin → skill → team → conversation
+// Router 是组合式输入路由器：按 command → plugin → skill → conversation
 // 的策略顺序分派已规范化输入。
 //
 // 前缀与用例一一对应（sigil 契约见 application/core/completion.go 与
@@ -25,7 +25,9 @@ type Route interface {
 //	/  可执行入口：命令 + Skill（工具不在此列，只有模型能调用；要显式调用先注册成命令）
 //	#  切换插件
 //	$  召回 Skill
-//	@  手动召唤团队
+//
+// `@` 手动召唤团队已退场（2026-10-12 J-1a）：那条 teamRoute 随之删除，`@` 不再是
+// 输入前缀（字符让给文件指代）。
 //
 // 前缀互不为前缀，因此顺序不影响命中；固定顺序只是让"哪条规则拥有哪个字符"
 // 有唯一事实，新增前缀时不必推敲相对次序。
@@ -38,7 +40,6 @@ type RouteHandlers struct {
 	Command      func(context.Context, string) error
 	Plugin       func(context.Context, string) error
 	Skill        func(context.Context, string, []string, string) error
-	Team         func(context.Context, string) error
 	Conversation func(context.Context, string) error
 }
 
@@ -48,7 +49,6 @@ func NewRouter(handlers RouteHandlers) *Router {
 		commandRoute{dispatch: handlers.Command},
 		pluginRoute{dispatch: handlers.Plugin},
 		skillRoute{dispatch: handlers.Skill},
-		teamRoute{dispatch: handlers.Team},
 		conversationRoute{dispatch: handlers.Conversation},
 	}}
 }
@@ -101,23 +101,8 @@ func (route skillRoute) Dispatch(ctx context.Context, input string) error {
 	return route.dispatch(ctx, parts[0], parts[1:], input)
 }
 
-// teamRoute 拥有 `@`：手动召唤团队（名字可以是内置形态或团队库条目）。
-//
-// 与 pluginRoute 的差别：空名字也下发（`@` 单独提交 = 让召唤面自述有哪些团队），
-// 因此这里不做空名短路。
-//
-// 与 skillRoute 的差别：**不**按空格切分。团队名可以含空格（团队库条目由用户
-// 起名），所以整段余量原样交给召唤面，由它按"最长可命中前缀 = 名字、余下 = 附言"
-// 解析（见 application/core/input_team.go 的 resolveTeamSummon）——名字后面跟的
-// 那句话因此不会被吞进名字里。
-type teamRoute struct {
-	dispatch func(context.Context, string) error
-}
-
-func (route teamRoute) Matches(input string) bool { return strings.HasPrefix(input, "@") }
-func (route teamRoute) Dispatch(ctx context.Context, input string) error {
-	return route.dispatch(ctx, strings.TrimSpace(strings.TrimPrefix(input, "@")))
-}
+// teamRoute 已随 `@` 手动召唤团队退场（2026-10-12 J-1a）整条删除：`@` 不再是
+// 输入前缀，这条路由没有接收方。
 
 type conversationRoute struct {
 	dispatch func(context.Context, string) error

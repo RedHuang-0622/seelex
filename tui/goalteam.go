@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -37,35 +36,15 @@ const (
 	goalHistoryLineLimit = 4
 )
 
-// errTeamViewUnsupported 表示当前 AppController 没有团队读面：面板明确提示，
-// 不留空白（TUI 与 GUI 不同装配时最容易出现这种缺失）。
-var errTeamViewUnsupported = errors.New("当前前端没有团队读面")
+// errTeamViewUnsupported / teamViewReader / teamViewMsg / fetchTeamView /
+// applyTeamView 已随 Agent Team 只读面退场（2026-10-12 J-1a）整段删除：Alt+T 面板
+// 上半段读的是 `*application.Service.AgentTeamView`（成员表 + 发言调度运行态），
+// 那个读面随 Agent Team 用户面退场，因此这一段没有读面可等。
+//
+// 面板本身**保留**：它下半段的团队看板（数据源 = Snapshot.Runtime.TeamworkBoard）
+// 是保留下来的能力面（teamwork），而且它现在成了面板的唯一内容——不再需要异步取数。
 
-// teamViewReader 是 TUI 的可选团队读面。*application.Service 已实现
-// AgentTeamView(mainSessionID)（gui/bridge.go 调的是同一个方法），因此装配根
-// 不需要为新面板改动任何东西；未实现时 Alt+T 给出明确提示。
-type teamViewReader interface {
-	AgentTeamView(mainSessionID string) (dto.TeamView, error)
-}
-
-// teamViewMsg 是异步取回的团队视图（含错误：读面缺失 / 后端未装配团队存储）。
-type teamViewMsg struct {
-	view dto.TeamView
-	err  error
-}
-
-func fetchTeamView(app AppController, sessionID string) tea.Cmd {
-	return func() tea.Msg {
-		reader, ok := app.(teamViewReader)
-		if !ok {
-			return teamViewMsg{err: errTeamViewUnsupported}
-		}
-		view, err := reader.AgentTeamView(sessionID)
-		return teamViewMsg{view: view, err: err}
-	}
-}
-
-// handlePanelKey 处理目标/团队面板的按键：Alt+G 目标治理、Alt+T 团队、Esc 关闭。
+// handlePanelKey 处理目标/团队面板的按键：Alt+G 目标治理、Alt+T 团队看板、Esc 关闭。
 // handled=false 表示该键不属于面板面（调用方按常规继续处理）。
 //
 // 与审批面板的互斥：有待批选择时不打开只读面板——两种面板同屏会让人分不清当前
@@ -75,7 +54,6 @@ func (model Model) handlePanelKey(message tea.KeyMsg) (bool, tea.Model, tea.Cmd)
 	if key != "alt+g" && key != "alt+t" {
 		if key == "esc" && model.panel != panelNone {
 			model.panel = panelNone
-			model.teamErr = ""
 			return true, model, nil
 		}
 		return false, model, nil
@@ -86,7 +64,6 @@ func (model Model) handlePanelKey(message tea.KeyMsg) (bool, tea.Model, tea.Cmd)
 	}
 	if (key == "alt+g" && model.panel == panelGoal) || (key == "alt+t" && model.panel == panelTeam) {
 		model.panel = panelNone
-		model.teamErr = ""
 		return true, model, nil
 	}
 	model.uiError = ""
@@ -94,24 +71,10 @@ func (model Model) handlePanelKey(message tea.KeyMsg) (bool, tea.Model, tea.Cmd)
 		model.panel = panelGoal
 		return true, model, nil
 	}
-	// Alt+T：打开（已在团队面板上再按 = 重新取一次，面板底部写明这条）。
+	// Alt+T：打开团队看板。J-1a 之后面板内容全在会话快照里（Runtime.TeamworkBoard），
+	// 因此不再排异步命令——IO 不在 Update 里，也不需要"重新取一次"这个动作。
 	model.panel = panelTeam
-	model.teamLoading = true
-	return true, model, fetchTeamView(model.app, model.snapshot.Session.ID)
-}
-
-// applyTeamView 收下团队读面的结果（Update 的 teamViewMsg 分支）。
-func (model Model) applyTeamView(message teamViewMsg) Model {
-	model.teamLoading = false
-	if message.err != nil {
-		model.teamView = nil
-		model.teamErr = message.err.Error()
-		return model
-	}
-	view := message.view
-	model.teamView = &view
-	model.teamErr = ""
-	return model
+	return true, model, nil
 }
 
 // panelHeight 是面板占用的行数（0 = 未打开）；convHeight 用它扣减对话区高度。
@@ -226,61 +189,25 @@ func formatGoalClosedAt(at int64) string {
 	return time.Unix(at, 0).Format("2006-01-02 15:04")
 }
 
-// teamPanelLines 渲染团队只读面：成员与发言顺序（TeamView.OrderRoles/InOrder）、
-// 定时 agent、以及调度运行态（TeamView.Schedule，与 GUI 「发言调度」串珠条同源）。
+// teamPanelLines 渲染团队看板（数据源 = Snapshot.Runtime.TeamworkBoard，与 GUI
+// 「团队看板」子页**同源投影**）。
+//
+// 2026-10-12（J-1a）：这一段原本上半部分渲染 Agent Team 只读面（成员表 / 发言顺序 /
+// 定时 agent / 发言调度运行态），随 Agent Team 用户面退场整段删除。剩下的是团队看板
+// （teamwork，保留面）——它本来就是"leader 的硬编排面"，与已退场的"发言调度面"是
+// 两件东西（旧面板把它们上下摆在一起，反而容易读成一份名册）。
+//
+// 无计划（没有里程碑也没有工作项）时给一条明确的自述，不留空壳：用户按了 Alt+T 就
+// 该看见"这里为什么是空的"。
 func (model Model) teamPanelLines() []string {
-	if model.teamLoading {
-		return []string{StyleMuted.Render("  ◆ TEAM  读取中…")}
+	if lines := model.teamBoardLines(); len(lines) > 0 {
+		lines = append(lines, StyleMuted.Render("  ·  Alt+T 关闭 · Alt+G 看目标 · Esc 关闭"))
+		return clampLines(lines, panelLineLimit)
 	}
-	if model.teamErr != "" {
-		return []string{
-			StyleError.Render("  ◆ TEAM  读取失败: " + oneLine(model.teamErr, model.textLimit())),
-			StyleMuted.Render("  ·  Alt+T 重试 · Esc 关闭"),
-		}
+	return []string{
+		StyleMuted.Render("  ◆ 团队看板  当前会话没有团队计划（team_plan 还没排过活）"),
+		StyleMuted.Render("  ·  Alt+T 关闭 · Alt+G 看目标 · Esc 关闭"),
 	}
-	view := model.teamView
-	if view == nil {
-		return []string{StyleMuted.Render("  ◆ TEAM  尚未读取（Alt+T 打开）")}
-	}
-	if !view.Configured {
-		lines := []string{
-			StyleMuted.Render("  ◆ TEAM  当前会话未装配 AgentTeam（GUI 团队面板可一键装配 preset；goal_begin 也会隐式装配 goal-a2a）"),
-		}
-		lines = append(lines, model.teamBoardLines()...)
-		lines = append(lines, StyleMuted.Render("  ·  Alt+T 重试 · Esc 关闭"))
-		return lines
-	}
-	header := fmt.Sprintf("  ◆ TEAM  %s · order_policy=%s",
-		fallback(view.TeamKind, view.TeamID), fallback(view.OrderPolicy, "—"))
-	if view.FloorRole != "" {
-		header += " · 发言中 " + view.FloorRole
-	}
-	lines := []string{StyleTaskRunning.Render(header)}
-	for _, member := range view.Members {
-		lines = append(lines, StyleChoiceInactive.Render("  "+memberLine(member, model.textLimit())))
-	}
-	for _, member := range view.Scheduled {
-		lines = append(lines, StyleMuted.Render("  定时 "+memberLine(member, model.textLimit())))
-	}
-	if schedule := view.Schedule; schedule != nil {
-		parts := []string{fmt.Sprintf("轮次 %d/%d", schedule.Round, schedule.RoundLimit)}
-		if schedule.NextRole != "" {
-			parts = append(parts, "下一个 "+schedule.NextRole)
-		}
-		parts = append(parts, fmt.Sprintf("无进展 %d/%d", schedule.NoProgress, schedule.NoProgressLimit))
-		if schedule.Stopped {
-			parts = append(parts, "已收束("+fallback(schedule.StopReason, "—")+")")
-		}
-		lines = append(lines, StyleMuted.Render("  调度 "+strings.Join(parts, " · ")))
-		if len(schedule.NoAutomaticTurn) > 0 {
-			lines = append(lines, StyleMuted.Render("  无自动回合 "+oneLine(strings.Join(schedule.NoAutomaticTurn, ","), model.textLimit())))
-		}
-	} else {
-		lines = append(lines, StyleMuted.Render("  调度 无运行态（本会话没有发言调度运行时）"))
-	}
-	lines = append(lines, model.teamBoardLines()...)
-	lines = append(lines, StyleMuted.Render("  ·  Alt+T 刷新 · Alt+G 看目标 · Esc 关闭"))
-	return clampLines(lines, panelLineLimit)
 }
 
 // teamBoardLines 渲染**团队看板**（数据源 = Snapshot.Runtime.TeamworkBoard，与 GUI
@@ -403,27 +330,11 @@ func formatByteSize(bytes int64) string {
 	}
 }
 
-// memberLine 渲染一行成员：位置 · 角色（kind/tools_policy）· 角色会话 ID 尾号 ·
-// 入职/在位口径。
-func memberLine(member dto.TeamMember, width int) string {
-	position := "未排入"
-	if member.InOrder || member.OrderIndex >= 0 {
-		position = fmt.Sprintf("#%d", member.OrderIndex+1)
-	}
-	meta := string(member.RoleKind)
-	if member.ToolsPolicy != "" {
-		meta += "/" + member.ToolsPolicy
-	}
-	session := "—"
-	if member.RoleSessionID != "" {
-		session = shortID(member.RoleSessionID)
-	}
-	line := fmt.Sprintf("%-4s %-10s %-18s %s", position, member.RoleName, meta, session)
-	if member.JoinPolicy != "" {
-		line += " " + member.JoinPolicy
-	}
-	return oneLine(line, width)
-}
+// memberLine 已随 Agent Team 只读面退场（2026-10-12 J-1a）删除：它渲染成员表的
+// 一行（位置/角色/kind/tools_policy/角色会话尾号），成员表没有读面了。
+//
+// 员工在团队看板里的那一行由 teamBoardLines 自己给（成员名 / 状态 / 队列）：看板要
+// 回答的是"这个人手上还有什么"，与"他在发言顺序里排第几"不是同一件事。
 
 // clampLines 截断超长面板：多出的内容折叠成一行提示，避免挤掉对话区。
 func clampLines(lines []string, limit int) []string {
@@ -431,7 +342,7 @@ func clampLines(lines []string, limit int) []string {
 		return lines
 	}
 	clamped := append([]string(nil), lines[:limit-1]...)
-	clamped = append(clamped, StyleMuted.Render(fmt.Sprintf("  ·  另有 %d 行已折叠（GUI 团队面板可看全）", len(lines)-limit+1)))
+	clamped = append(clamped, StyleMuted.Render(fmt.Sprintf("  ·  另有 %d 行已折叠（GUI 团队看板可看全）", len(lines)-limit+1)))
 	return clamped
 }
 
@@ -466,13 +377,8 @@ func fallback(value, placeholder string) string {
 	return value
 }
 
-// shortID 显示会话/角色会话 ID 的尾号（长 ID 在终端里挤掉其他列）。
-func shortID(id string) string {
-	if len(id) <= 12 {
-		return id
-	}
-	return "…" + id[len(id)-11:]
-}
+// shortID 已随 Agent Team 只读面退场（2026-10-12 J-1a）删除：它的唯一调用点是成员表
+// 行的"角色会话 ID 尾号"（memberLine），成员表没有读面了。
 
 // goalBadge 是状态行的 goal 短标记（与 GUI 的 GOAL badge 同口径：有活跃治理
 // 或 skill 激活都显示 goal）。

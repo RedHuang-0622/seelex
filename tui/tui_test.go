@@ -231,7 +231,9 @@ func TestSuggestionNavigationAndAcceptance(t *testing.T) {
 // `/` `#` `$` `@` 都进 suggMode（前缀表的事实源在 application，TUI 不自持一份），
 // 且接受建议时把**原来的**前缀写回（`$review` 不会被写成 `/review`）。
 func TestSigilPrefixesDriveSuggestionMode(t *testing.T) {
-	for _, sigil := range []string{"/", "#", "$", "@"} {
+	// 2026-10-12（J-1a）：`@` 手动召唤团队已退场，因此它不再是前缀（事实源在 application/core/completion.go）。
+	// 打 `@` 现在是普通文本，不再进建议面——本用例把它钉成"不再是前缀"。
+	for _, sigil := range []string{"/", "#", "$"} {
 		model := NewModel(newFakeApp())
 		model.textarea.SetValue(sigil)
 		model.afterInput()

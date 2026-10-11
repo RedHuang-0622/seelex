@@ -424,3 +424,44 @@ func ringOrder(order []string) []string {
 	}
 	return out
 }
+
+
+// ── 「会自动产生回合」的事实表（自 factory.go 迁入，2026-10-12 J-1a）──────
+//
+// 为什么迁到本文件：`AutomaticTurnRoles` 原先住在 `factory.go`（装配面），随
+// 2026-10-12 J-1a 的 Agent Team 装配面一起被删；但它的**唯一剩余消费者**是
+// `runtime.go`（`SkipLocked`/`Snapshot().NoAutomaticTurn`）。删文件不能把它的
+// 消费者的依赖一起删掉，所以这两个小函数迁到消费者身边——不是新增第二份实现，
+// 全仓仍只有这一处。
+
+// AutomaticTurnRoles 是**会自动产生回合**的逻辑角色名（事实表，不是配置事实）：
+//
+//   - user / main：由宿主驱动（用户输入、主会话 ChatStream）；
+//   - tl：goal 治理侧 ADVISOR 回合执行者（goal 的 TL 评估器真实跑一轮）。
+//
+// 它回答的**只是**"没人派活时谁会自己发言"，**不是**"谁有执行者"。今天任何在编角色
+// 都有执行者：leader 派活（team_plan/team_work 的作业 → runRoleRound）就能跑真回合，
+// 角色不限 tl/exec。
+var AutomaticTurnRoles = map[string]bool{
+	string(dto.RoleKindUser): true,
+	string(dto.RoleKindMain): true,
+	RoleTechlead:             true,
+}
+
+// rolesWithoutAutomaticTurn 返回工作顺序里**没有自动回合**的角色（保序、去重）。
+func rolesWithoutAutomaticTurn(orderRoles []string) []string {
+	out := make([]string, 0, len(orderRoles))
+	for _, name := range orderRoles {
+		if AutomaticTurnRoles[name] {
+			continue
+		}
+		out = append(out, name)
+	}
+	return out
+}
+
+// RolesWithoutAutomaticTurn 是 rolesWithoutAutomaticTurn 的导出形态：发言调度运行态
+// （本文件）与成员表投影共用同一份「谁没有自动回合」事实，避免两处判定打架。
+func RolesWithoutAutomaticTurn(orderRoles []string) []string {
+	return rolesWithoutAutomaticTurn(orderRoles)
+}

@@ -74,14 +74,14 @@ TUI local state 只包含光标、viewport、输入框、suggestion 和布局信
 
 - Enter 提交原始输入。
 - 输入前缀（sigil）与后端同一张表（`application.HasSigilPrefix` / `application.SigilOf`）：
-  `/` 命令与工具、`#` 切换 Plugin、`$` 召回 Skill、`@` 手动召唤团队。前缀后无空白时
+`/` 可执行入口、`#` 切换 Plugin、`$` 召回 Skill；`@` 手动召唤团队**已退场**（2026-10-12 J-1a），不再是前缀。旧肌肉记忆打 `@` 时按普通文本下发，不再有"未知前缀"提示。
   进入 `suggMode` 并显示 suggestions 面板（数据源 = `Suggestions`，Tab 接受）。
   TUI 不自持字符表：**Suggestions 在 `View()` 渲染路径上**，所以后端那一侧必须保持
   零 I/O（`@` 因此只列内置团队形态，不读团队库）。
 - 只读面板：`alt+g` 目标治理（数据源 = `Snapshot.Runtime.GoalGovernance`，与 GUI
   「目标」面板同源投影，无活跃 goal 时给上线入口提示）、`alt+t` 团队（成员/发言
   顺序/定时 agent/调度运行态，取值走一次 `tea.Cmd` 调
-  `AppController` 的可选团队读面 `AgentTeamView(mainSessionID)`——`*application.Service`
+`AppController` 的**目标只读面**（Snapshot.Runtime.GoalGovernance）与**团队看板只读面**（Snapshot.Runtime.TeamworkBoard）：两者都在会话快照里，Alt+G / Alt+T 因此不排任何 RPC。原先 Alt+T 上半段的 Agent Team 成员表读面（`AgentTeamView(mainSessionID)`）已随 Agent Team 用户面退场（2026-10-12 J-1a）。
   已实现，与 GUI 经 Bridge 读的是同一个方法；读面缺失或后端报错时面板给出明确
   文案）。面板只读：不提交输入、不改后端状态、不新增只对终端生效的业务事实；
   有待批选择时不打开（键义不打架）。`esc` 关闭，`alt+t` 在团队面板上再按 = 刷新。

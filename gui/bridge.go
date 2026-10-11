@@ -156,40 +156,28 @@ type queueAwareApplication interface {
 	RecallQueuedInput(sessionID string, index int) (string, error)
 }
 
-// agentTeamApplication 是 Application 的 A2A 角色管理可选扩展面（状态 →
-// Agent Team 子页数据源）。全部走 application/contract 纯 DTO；未装配时
-// Bridge 的方法返回可展示错误，不静默退化。
+// roleSessionApplication 是 Application 的**角色会话只读观察面**（团队看板在用：
+// 成员行「查看会话」与「员工会话」入口）。
 //
-// 语义边界：前端只提交**用户改动的字段**（顺序表 / 单个角色），顺序事实源
-// 仍是会话的 lifecycle.order_policy/order_roles 与角色注册表（registry）；
-// Bridge 不缓存、不推导第二份顺序。
-type agentTeamApplication interface {
-	AgentTeamView(mainSessionID string) (dto.TeamView, error)
-	AgentTeamPutRole(mainSessionID string, role dto.RoleSpec) (dto.TeamRegistry, error)
-	AgentTeamDeleteRole(mainSessionID, roleName string) (dto.TeamRegistry, error)
-	AgentTeamSetOrder(mainSessionID, policy string, orderRoles []string) (dto.TeamView, error)
-	AgentTeamInstantiateRole(mainSessionID string, role dto.RoleSpec, joinSeq uint64) (dto.RoleInstantiation, error)
+// 语义边界（2026-10-12 J-1a）：Agent Team 的**装配面**（成员表 / 角色 CRUD / 工作
+// 顺序 / 团队库 / 员工库 / 全局母本 / 员工提示词）已整条退场，因此本接口只留两条
+// **读者**：
+//
+//   - RoleSnapshot：某个角色会话的只读观察面（`dto.RoleSnapshot`，角色 draft 的
+//     投影；B1 保留面，全仓唯一实现在 application/core/role_session.go）；
+//   - TeammateSessionLiveFor / TeammateSessionLivePageFor：当前 teammate 会话的实时
+//     投影（团队看板的「这件事的会话此刻在说什么」）。
+//
+// 为什么它们留下：这两条读的是**角色会话**这件事实，与"会话里装配了哪支团队"无关；
+// 团队看板（teamwork）是保留能力面。接口名不再叫 agentTeam*：名字里的 Agent Team
+// 面已经不在了，继续用它只会让下一个人以为成员表还能从这里读到。
+type roleSessionApplication interface {
 	RoleSnapshot(mainSessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error)
 	// TeammateSessionLiveFor 是**当前 teammate 会话**的实时读面（这件事自己的会话——
 	// 进程内执行面，正文不在会话库里）。
 	TeammateSessionLiveFor(sessionID string) dto.TeammateSessionLiveView
 	// TeammateSessionLivePageFor 是同一份读面的**分页读法**（有界窗口 + 分页）。
 	TeammateSessionLivePageFor(sessionID string, offset, limit int) dto.TeammateSessionLiveView
-	// 团队库（**全局**团队模板）：列表 / 保存 / 从当前会话存 / 删除 / 装配。
-	AgentTeamLibrary(mainSessionID string) (dto.TeamLibrary, error)
-	AgentTeamSaveTeam(mainSessionID string, entry dto.TeamLibraryEntry) (dto.TeamLibrary, error)
-	AgentTeamSaveCurrentTeam(mainSessionID, name, teamID string) (dto.TeamLibrary, error)
-	AgentTeamDeleteTeam(mainSessionID, teamID string) (dto.TeamLibrary, error)
-	AgentTeamMaterializeTeam(mainSessionID, teamID string, joinSeq uint64) (dto.TeamMaterializeResult, error)
-	// 全局母本（团队库 / 员工库 / 默认顺序）+「确认普及搭配到全局」。
-	AgentTeamGlobalConfig(mainSessionID string) (dto.TeamGlobalConfig, error)
-	AgentTeamSaveEmployee(mainSessionID string, role dto.RoleSpec) (dto.EmployeeLibrary, error)
-	AgentTeamDeleteEmployee(mainSessionID, roleName string) (dto.EmployeeLibrary, error)
-	AgentTeamSetDefaultOrder(mainSessionID, policy string, orderRoles []string) (dto.DefaultOrder, error)
-	AgentTeamPublishToGlobal(mainSessionID, name, teamID string) (dto.TeamGlobalConfig, error)
-	// 角色提示词：读已装配提示词（ADVISOR 回合用）+ 一次有界 LLM 优化。
-	AgentTeamRolePrompt(mainSessionID, roleName string) (string, error)
-	AgentTeamOptimizeRolePrompt(ctx context.Context, mainSessionID string, request dto.RolePromptOptimizeRequest) (dto.RolePromptOptimizeResult, error)
 }
 
 // 编译期断言：生产 Application（application.Service = *core.Service）必须满足本
@@ -198,13 +186,15 @@ type agentTeamApplication interface {
 // 而真机 GUI 一调 Agent Team 就断言失败、报"当前 Application 未装配 A2A 角色
 // 管理面"（2026-09-11 修复）。用假实现顶替接口断言是这类漂移的温床，故在此
 // 用真实类型钉死。
+// 2026-10-12（J-1a）：Agent Team 装配面退场后，本断言的对象只剩"角色会话只读观察
+// 面"——它仍然钉死真机（读面漂移同样会退化成"未装配"），只是钉的东西变窄了。
 var (
 	// 基础面 + 三个可选扩展面：生产 Application 必须全部满足，否则真机会在
 	// 类型断言处退化成"未装配"（agentTeamApplication 就是这么漂移过一次）。
 	_ Application             = (*application.Service)(nil)
 	_ sessionAwareApplication = (*application.Service)(nil)
 	_ replayAwareApplication  = (*application.Service)(nil)
-	_ agentTeamApplication    = (*application.Service)(nil)
+	_ roleSessionApplication  = (*application.Service)(nil)
 	_ queueAwareApplication   = (*application.Service)(nil)
 )
 
@@ -966,97 +956,44 @@ func (bridge *Bridge) CancelScheduledTask(id string) error {
 	return bridge.app.CancelScheduledTask(id)
 }
 
-// ── Agent Team（状态 → Agent Team 子页）──────────────────────────────
+// ── 角色会话读面（团队看板用）────────────────────────────────────────
+//
+// 2026-10-12（J-1a）：本段原本是 Agent Team 子页的数据源（成员表 / 角色 CRUD /
+// 工作顺序 / 团队库 / 员工库 / 母本 / 员工提示词），整条退场；只留下面两条**读者**
+// （角色会话观察面 + teammate 实时会话），它们服务的是团队看板（teamwork，保留面）。
 //
 // sessionID 为空 = 当前视图会话（前端不必自己记会话号；会话切换后重拉即可）。
-// 这些方法只做参数归一与窄转发，角色/顺序语义在 application 与存储侧。
+// 这些方法只做参数归一与窄转发，语义在 application 与存储侧。
 
-func (bridge *Bridge) agentTeamApp() (agentTeamApplication, error) {
-	app, ok := bridge.app.(agentTeamApplication)
+func (bridge *Bridge) roleSessionApp() (roleSessionApplication, error) {
+	app, ok := bridge.app.(roleSessionApplication)
 	if !ok {
-		return nil, errors.New("当前 Application 未装配 A2A 角色管理面")
+		return nil, errors.New("当前 Application 未装配角色会话读面")
 	}
 	return app, nil
 }
 
-// agentTeamSession 解析目标会话：显式 ID 优先，空值取当前视图会话。
-func (bridge *Bridge) agentTeamSession(sessionID string) string {
+// roleSessionTarget 解析目标会话：显式 ID 优先，空值取当前视图会话。
+func (bridge *Bridge) roleSessionTarget(sessionID string) string {
 	if trimmed := strings.TrimSpace(sessionID); trimmed != "" {
 		return trimmed
 	}
 	return bridge.app.Snapshot().Session.ID
 }
 
-// AgentTeamView 返回成员表（成员 / 工作顺序 / 定时 agent 分区 / 设计提示）。
-func (bridge *Bridge) AgentTeamView(sessionID string) (dto.TeamView, error) {
-	app, err := bridge.agentTeamApp()
-	if err != nil {
-		return dto.TeamView{}, err
-	}
-	session := bridge.agentTeamSession(sessionID)
-	if session == "" {
-		return dto.TeamView{}, errors.New("当前没有可装配的会话")
-	}
-	return app.AgentTeamView(session)
-}
-
-// AgentTeamPutRole 新增/覆盖一个角色配置（前端表单只提交改动字段）。
-func (bridge *Bridge) AgentTeamPutRole(sessionID string, role dto.RoleSpec) (dto.TeamRegistry, error) {
-	app, err := bridge.agentTeamApp()
-	if err != nil {
-		return dto.TeamRegistry{}, err
-	}
-	session := bridge.agentTeamSession(sessionID)
-	if session == "" {
-		return dto.TeamRegistry{}, errors.New("当前没有可配置的会话")
-	}
-	return app.AgentTeamPutRole(session, role)
-}
-
-// AgentTeamDeleteRole 删除角色（同时从工作顺序里摘除）。
-func (bridge *Bridge) AgentTeamDeleteRole(sessionID, roleName string) (dto.TeamRegistry, error) {
-	app, err := bridge.agentTeamApp()
-	if err != nil {
-		return dto.TeamRegistry{}, err
-	}
-	session := bridge.agentTeamSession(sessionID)
-	if session == "" {
-		return dto.TeamRegistry{}, errors.New("当前没有可配置的会话")
-	}
-	return app.AgentTeamDeleteRole(session, strings.TrimSpace(roleName))
-}
-
-// AgentTeamSetOrder 写工作顺序（拖拽/上下移只提交这个字段；定时 agent 会被拒绝）。
-func (bridge *Bridge) AgentTeamSetOrder(sessionID, policy string, orderRoles []string) (dto.TeamView, error) {
-	app, err := bridge.agentTeamApp()
-	if err != nil {
-		return dto.TeamView{}, err
-	}
-	session := bridge.agentTeamSession(sessionID)
-	if session == "" {
-		return dto.TeamView{}, errors.New("当前没有可配置的会话")
-	}
-	return app.AgentTeamSetOrder(session, strings.TrimSpace(policy), orderRoles)
-}
-
-// AgentTeamRoleSnapshot 读取某个角色会话的只读观察面（成员行「查看会话」）：
-// EXEC（main）与 ADVISOR（tl）等角色各自有独立会话，前端据此把两个 agent
-// 的真实行分开显示，而不是把角色正文混进主会话。只读，不写任何状态。
-func (bridge *Bridge) AgentTeamInstantiateRole(sessionID string, role dto.RoleSpec, joinSeq uint64) (dto.RoleInstantiation, error) {
-	app, err := bridge.agentTeamApp()
-	if err != nil {
-		return dto.RoleInstantiation{}, err
-	}
-	session := bridge.agentTeamSession(sessionID)
-	if session == "" {
-		return dto.RoleInstantiation{}, errors.New("current session cannot hire a role")
-	}
-	role.RoleName = strings.TrimSpace(role.RoleName)
-	return app.AgentTeamInstantiateRole(session, role, joinSeq)
-}
-
+// AgentTeamRoleSnapshot 读取某个角色会话的只读观察面（成员行「查看会话」/ 团队看板
+// 「员工会话」入口）：EXEC（main）与 ADVISOR（tl）等角色各自有独立会话，前端据此把
+// 两个 agent 的真实行分开显示，而不是把角色正文混进主会话。只读，不写任何状态。
+//
+// 方法名**保留不改**（2026-10-12 J-1a 的显式口径）：前端 `gui/frontend/dist/app.js`
+// 按这个名字调 RPC，改名等于给并行条目制造一次无谓联动。它是**通用角色会话只读
+// 观察面**，与已经退场的 Agent Team 装配面无关。
+//
+// 2026-10-12 起 `role_session_id` 必填，调用方自己给：此前"只带 role_name"的回退是
+// 从成员表（`AgentTeamView`）反解角色会话号——那张成员表已随装配面退场，回退没有
+// 事实来源，所以这里**不再有回退**（缺号即报错，不再猜）。
 func (bridge *Bridge) AgentTeamRoleSnapshot(sessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error) {
-	app, err := bridge.agentTeamApp()
+	app, err := bridge.roleSessionApp()
 	if err != nil {
 		return dto.RoleSnapshot{}, err
 	}
@@ -1064,27 +1001,13 @@ func (bridge *Bridge) AgentTeamRoleSnapshot(sessionID, roleName, roleSessionID s
 	if roleName == "" {
 		return dto.RoleSnapshot{}, errors.New("角色名不能为空")
 	}
-	session := bridge.agentTeamSession(sessionID)
+	session := bridge.roleSessionTarget(sessionID)
 	if session == "" {
 		return dto.RoleSnapshot{}, errors.New("当前没有可查看的角色会话")
 	}
 	roleSessionID = strings.TrimSpace(roleSessionID)
 	if roleSessionID == "" {
-		// 前端成员行可能只带 role_name（角色会话号由工厂按 (team_id, role_name)
-		// 派生，注册表不落盘）：从成员表解析一次，避免把"缺 id"误报成存储错误。
-		view, err := app.AgentTeamView(session)
-		if err != nil {
-			return dto.RoleSnapshot{}, err
-		}
-		for _, member := range view.Members {
-			if member.RoleName == roleName {
-				roleSessionID = strings.TrimSpace(member.RoleSessionID)
-				break
-			}
-		}
-	}
-	if roleSessionID == "" {
-		return dto.RoleSnapshot{}, fmt.Errorf("角色 %s 还没有独立会话（未装配或未创建）", roleName)
+		return dto.RoleSnapshot{}, fmt.Errorf("角色 %s 还没有独立会话（role_session_id 必填）", roleName)
 	}
 	return app.RoleSnapshot(session, roleName, roleSessionID)
 }
@@ -1112,7 +1035,7 @@ func (bridge *Bridge) TeammateSessionLivePage(roleSessionID string, offset, limi
 
 // teammateSessionLive 是上面两个读法的共同实现（同一份参数归一：只读、不写任何状态）。
 func (bridge *Bridge) teammateSessionLive(roleSessionID string, offset, limit int, paginated bool) (dto.TeammateSessionLiveView, error) {
-	app, err := bridge.agentTeamApp()
+	app, err := bridge.roleSessionApp()
 	if err != nil {
 		return dto.TeammateSessionLiveView{}, err
 	}
@@ -1126,190 +1049,12 @@ func (bridge *Bridge) teammateSessionLive(roleSessionID string, offset, limit in
 	return app.TeammateSessionLiveFor(roleSessionID), nil
 }
 
-// ── 全局母本（团队库 / 员工库 / 默认顺序）与角色提示词 ──────────────
+// ── Agent Team 装配面已退场（2026-10-12 J-1a）
 //
-// 语义边界：团队库 / 员工库 / 默认顺序是**全局**持久事实（数据根下 `team/`，
-// 见 sessionstore/team_global.go），与会话内的角色注册表（`session/team/roles.json`）
-// 是"母本 vs 副本"的关系：
-//   - 库条目 = 可复用团队模板（角色配置集 + 顺序策略）；
-//   - 装配 = 把库条目写成会话的在编员工表 + lifecycle 顺序；
-//   - 会话内的入职/改序只改会话副本；只有「确认普及搭配到全局」才回写母本。
-// Bridge 只做参数归一与窄转发，不缓存、不推导第二份事实。
-
-// AgentTeamLibrary 读全局团队库（团队表数据源）。未建库返回空库。
-func (bridge *Bridge) AgentTeamLibrary(sessionID string) (dto.TeamLibrary, error) {
-	app, err := bridge.agentTeamApp()
-	if err != nil {
-		return dto.TeamLibrary{}, err
-	}
-	session := bridge.agentTeamSession(sessionID)
-	if session == "" {
-		return dto.TeamLibrary{}, errors.New("当前没有可解析项目作用域的会话")
-	}
-	return app.AgentTeamLibrary(session)
-}
-
-// AgentTeamSaveTeam 新增/覆盖一条团队库条目（按 team_id 幂等）。
-func (bridge *Bridge) AgentTeamSaveTeam(sessionID string, entry dto.TeamLibraryEntry) (dto.TeamLibrary, error) {
-	app, err := bridge.agentTeamApp()
-	if err != nil {
-		return dto.TeamLibrary{}, err
-	}
-	session := bridge.agentTeamSession(sessionID)
-	if session == "" {
-		return dto.TeamLibrary{}, errors.New("当前没有可解析项目作用域的会话")
-	}
-	entry.TeamID = strings.TrimSpace(entry.TeamID)
-	entry.TeamKind = strings.TrimSpace(entry.TeamKind)
-	entry.Name = strings.TrimSpace(entry.Name)
-	return app.AgentTeamSaveTeam(session, entry)
-}
-
-// AgentTeamSaveCurrentTeam 把当前会话在编的员工表存成一条团队库条目
-// （「把当前团队存进团队库」；团队库因此能有用户自己的团队，而不只有 preset）。
-func (bridge *Bridge) AgentTeamSaveCurrentTeam(sessionID, name, teamID string) (dto.TeamLibrary, error) {
-	app, err := bridge.agentTeamApp()
-	if err != nil {
-		return dto.TeamLibrary{}, err
-	}
-	session := bridge.agentTeamSession(sessionID)
-	if session == "" {
-		return dto.TeamLibrary{}, errors.New("当前没有可保存的会话")
-	}
-	return app.AgentTeamSaveCurrentTeam(session, strings.TrimSpace(name), strings.TrimSpace(teamID))
-}
-
-// AgentTeamDeleteTeam 删除一条团队库条目（幂等）。
-func (bridge *Bridge) AgentTeamDeleteTeam(sessionID, teamID string) (dto.TeamLibrary, error) {
-	app, err := bridge.agentTeamApp()
-	if err != nil {
-		return dto.TeamLibrary{}, err
-	}
-	session := bridge.agentTeamSession(sessionID)
-	if session == "" {
-		return dto.TeamLibrary{}, errors.New("当前没有可解析项目作用域的会话")
-	}
-	return app.AgentTeamDeleteTeam(session, strings.TrimSpace(teamID))
-}
-
-// AgentTeamMaterializeTeam 按团队库条目装配一支团队到当前会话。
-func (bridge *Bridge) AgentTeamMaterializeTeam(sessionID, teamID string, joinSeq uint64) (dto.TeamMaterializeResult, error) {
-	app, err := bridge.agentTeamApp()
-	if err != nil {
-		return dto.TeamMaterializeResult{}, err
-	}
-	session := bridge.agentTeamSession(sessionID)
-	if session == "" {
-		return dto.TeamMaterializeResult{}, errors.New("当前没有可装配的会话")
-	}
-	return app.AgentTeamMaterializeTeam(session, strings.TrimSpace(teamID), joinSeq)
-}
-
-// AgentTeamGlobalConfig 读全局母本（团队库 / 员工库 / 默认顺序）与当前会话副本的
-// 搭配投影。只读：母本读是深拷贝，不落盘。
-func (bridge *Bridge) AgentTeamGlobalConfig(sessionID string) (dto.TeamGlobalConfig, error) {
-	app, err := bridge.agentTeamApp()
-	if err != nil {
-		return dto.TeamGlobalConfig{}, err
-	}
-	session := bridge.agentTeamSession(sessionID)
-	if session == "" {
-		return dto.TeamGlobalConfig{}, errors.New("当前没有可解析全局母本的会话")
-	}
-	return app.AgentTeamGlobalConfig(session)
-}
-
-// AgentTeamSaveEmployee 新增/覆盖全局员工库里的一个员工（库管理动作，写全局母本）。
-func (bridge *Bridge) AgentTeamSaveEmployee(sessionID string, role dto.RoleSpec) (dto.EmployeeLibrary, error) {
-	app, err := bridge.agentTeamApp()
-	if err != nil {
-		return dto.EmployeeLibrary{}, err
-	}
-	session := bridge.agentTeamSession(sessionID)
-	if session == "" {
-		return dto.EmployeeLibrary{}, errors.New("当前没有可写员工库的会话")
-	}
-	role.RoleName = strings.TrimSpace(role.RoleName)
-	return app.AgentTeamSaveEmployee(session, role)
-}
-
-// AgentTeamDeleteEmployee 删除全局员工库里的一个员工（幂等）。
-func (bridge *Bridge) AgentTeamDeleteEmployee(sessionID, roleName string) (dto.EmployeeLibrary, error) {
-	app, err := bridge.agentTeamApp()
-	if err != nil {
-		return dto.EmployeeLibrary{}, err
-	}
-	session := bridge.agentTeamSession(sessionID)
-	if session == "" {
-		return dto.EmployeeLibrary{}, errors.New("当前没有可写员工库的会话")
-	}
-	roleName = strings.TrimSpace(roleName)
-	if roleName == "" {
-		return dto.EmployeeLibrary{}, errors.New("角色名不能为空")
-	}
-	return app.AgentTeamDeleteEmployee(session, roleName)
-}
-
-// AgentTeamSetDefaultOrder 写全局默认顺序（母本发言次序）。
-func (bridge *Bridge) AgentTeamSetDefaultOrder(sessionID, policy string, orderRoles []string) (dto.DefaultOrder, error) {
-	app, err := bridge.agentTeamApp()
-	if err != nil {
-		return dto.DefaultOrder{}, err
-	}
-	session := bridge.agentTeamSession(sessionID)
-	if session == "" {
-		return dto.DefaultOrder{}, errors.New("当前没有可写默认顺序的会话")
-	}
-	return app.AgentTeamSetDefaultOrder(session, strings.TrimSpace(policy), orderRoles)
-}
-
-// AgentTeamPublishToGlobal 是「确认·普及搭配到全局」：把当前会话副本的 {员工, 顺序}
-// 写回全局母本（员工库 + 默认顺序 + 一条团队库条目）。只有这一步会改全局。
-func (bridge *Bridge) AgentTeamPublishToGlobal(sessionID, name, teamID string) (dto.TeamGlobalConfig, error) {
-	app, err := bridge.agentTeamApp()
-	if err != nil {
-		return dto.TeamGlobalConfig{}, err
-	}
-	session := bridge.agentTeamSession(sessionID)
-	if session == "" {
-		return dto.TeamGlobalConfig{}, errors.New("当前没有可普及搭配的会话")
-	}
-	return app.AgentTeamPublishToGlobal(session, strings.TrimSpace(name), strings.TrimSpace(teamID))
-}
-
-// AgentTeamRolePrompt 读某角色登记的提示词（空 = 未登记）。只读查询。
-func (bridge *Bridge) AgentTeamRolePrompt(sessionID, roleName string) (string, error) {
-	app, err := bridge.agentTeamApp()
-	if err != nil {
-		return "", err
-	}
-	session := bridge.agentTeamSession(sessionID)
-	if session == "" {
-		return "", errors.New("当前没有可读提示词的会话")
-	}
-	roleName = strings.TrimSpace(roleName)
-	if roleName == "" {
-		return "", errors.New("角色名不能为空")
-	}
-	return app.AgentTeamRolePrompt(session, roleName)
-}
-
-// AgentTeamOptimizePrompt 跑一次有界 LLM 回合优化"待入职员工"的提示词。
-// 只返回候选文本（不落盘、不写会话消息）；落盘仍走入职/保存动作。
-func (bridge *Bridge) AgentTeamOptimizePrompt(sessionID string, request dto.RolePromptOptimizeRequest) (dto.RolePromptOptimizeResult, error) {
-	app, err := bridge.agentTeamApp()
-	if err != nil {
-		return dto.RolePromptOptimizeResult{}, err
-	}
-	session := bridge.agentTeamSession(sessionID)
-	if session == "" {
-		return dto.RolePromptOptimizeResult{}, errors.New("当前没有可优化的会话")
-	}
-	request.RoleName = strings.TrimSpace(request.RoleName)
-	request.SystemPrompt = strings.TrimSpace(request.SystemPrompt)
-	return app.AgentTeamOptimizeRolePrompt(bridge.requestContext(), session, request)
-}
-
+// 这一段原本是团队库 / 员工库 / 全局母本 / 员工提示词的窄转发（GUI「团队库」「员工库」
+// 两张表与「普及搭配到全局」的数据源），随 Agent Team 用户面整条删除。
+// 会话角色基座（RoleSessionID / 角色 draft / floor / RoleSnapshot）与团队看板
+// （teamwork）**不在**这一段，它们仍在。
 // SearchHistory 检索会话历史聊天记录（压缩栈索引 → 真实记录；
 // Wails 前端历史检索面板数据源，返回权威 seelexctx/search.Result）。
 func (bridge *Bridge) SearchHistory(query string, limit int) (seelexctxsearch.Result, error) {

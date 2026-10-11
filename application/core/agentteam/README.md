@@ -1,5 +1,21 @@
 # core/agentteam
 
+> **本包的用户面已退场（2026-10-12，J-1a）**：Agent Team 的装配适配（`factory.go` /
+> `registry.go` / `library.go` / `global.go`，含 `MaterializeAgentTeam` / `AgentTeamView` /
+> 团队库 / 员工库 / 全局母本 / 员工提示词优化）与 `@` 手动召唤团队已随本条目整条删除，
+> 对应的 `application/core/agentteam_service.go`、`application/core/agentteam_runtime.go` 的装配
+> 读面、`application/core/agentteam_role_index.go` 也一并退场。
+>
+> **留下的是什么**：只留 `spec.go`（`TeamSpec`/`RoleSpec` 规整、**`RoleSessionID`** 派生）、
+> `runtime.go` + `scheduler.go`（发言调度原语；`*agentteam.Runtime` 仍是 goal 侧
+> `TeamRuntimeFor` 的签名类型，但没有来路再建环 ⇒ 遗留不可达）、以及它们的功能用例。
+> 换言之：本包现在是**纯内部基座**（角色会话号派生 + 调度原语），**没有用户可见面**。
+>
+> 以下正文是**退场前**的记录，未逐行重写：凡是 Agent Team 装配/面板/`@`/团队库/员工库/
+> 母本的行都**已不再成立**；保留它们是为了说明"删掉的是什么、为什么曾经这么设计"。
+
+# core/agentteam
+
 > **2026-10-03（阶段三 W3）口径更新**：goal 的**席位轮转整条退场（已删除）**——
 > `application/core/govern`（整包，已删除）、`goal/adapter.go`（已删除）、座位作业面
 > （`jobs.KindSeat` / `SeatExecutor` / `SetSeatRoundRunner` / `RunSeat`，已删除）、座位派生
@@ -273,99 +289,6 @@ go test -race ./application/core/agentteam -count=1
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-### agentteam_test.go
-
-- `func newFakePort() *fakePort`
-- `func (port *fakePort) EnsureRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (bool, error)`
-- `func (port *fakePort) ReadLifecycleOrder(string) (string, []string, error)`
-- `func (port *fakePort) SetLifecycleOrder(_ string, policy string, roles []string) error`
-- `func (port *fakePort) ReadTeamRegistry(string) (dto.TeamRegistry, error)`
-- `func (port *fakePort) WriteTeamRegistry(_ string, registry dto.TeamRegistry) error`
-- `func TestNormalizeDerivesOrderAndExcludesScheduledRoles(t *testing.T)` — TestNormalizeDerivesOrderAndExcludesScheduledRoles：未给 order_roles 时按
-- `func TestNormalizeRejectsNamelessSpec(t *testing.T)` — TestNormalizeRejectsNamelessSpec：team_id / team_kind 都没有的 TeamSpec 是调用方
-- `func TestNormalizeRejectsBrokenOrder(t *testing.T)` — TestNormalizeRejectsBrokenOrder：定时角色不得进顺序、顺序角色必须已注册、
-- `func TestGoalSpecMaterializeIsIdempotent(t *testing.T)` — TestGoalSpecMaterializeIsIdempotent：goal 形态团队的装配建 TL 角色会话、写顺序策略；
-- `func TestSecondTeamThroughSameFactory(t *testing.T)` — TestSecondTeamThroughSameFactory（AT8）：同一个工厂实例化 goal 之外的第二个团队，
-- `func TestResearchSpecKeepsScheduledRoleOutOfOrder(t *testing.T)` — TestResearchSpecKeepsScheduledRoleOutOfOrder：定时 agent 只出现在定时分区。
-- `func TestRegistryCRUDAndOrder(t *testing.T)` — TestRegistryCRUDAndOrder：角色配置 CRUD 只改注册表；顺序设置只改 lifecycle 字段，
-- `func TestMaterializeSameTeamIntoTwoSessionsDispatchesOwnMembers(t *testing.T)` — TestMaterializeSameTeamIntoTwoSessionsDispatchesOwnMembers（用例 2「团队会话粒度」）：
-
-### dismiss_test.go
-
-- `func (port *fakePort) RemoveTeamRegistry(string) error` — RemoveTeamRegistry 让工厂桩具备离场面（DismissPort）。
-- `func (port *barePort) EnsureRoleSession(string, string, string, uint64) (bool, error)`
-- `func (port *barePort) ReadLifecycleOrder(string) (string, []string, error)`
-- `func (port *barePort) SetLifecycleOrder(_ string, policy string, roles []string) error`
-- `func (port *barePort) ReadTeamRegistry(string) (dto.TeamRegistry, error)`
-- `func (port *barePort) WriteTeamRegistry(_ string, registry dto.TeamRegistry) error`
-- `func TestDismissClearsRegistryAndOrder(t *testing.T)`
-- `func TestDismissWithoutPortFailsExplicitly(t *testing.T)`
-- `func TestDismissRejectsEmptySession(t *testing.T)`
-
-### factory.go
-
-- `func NewFactory(port Port) (*Factory, error)` — NewFactory 构造工厂；port 为 nil 时显式报错（不允许静默空转）。
-- `func (factory *Factory) Materialize(mainSessionID string, spec dto.TeamSpec, joinSeq uint64) (dto.TeamMaterializeResult, error)` — Materialize 装配 TeamSpec。joinSeq 是本次装配把角色挂到主会话的可见起点
-- `func (factory *Factory) Dismiss(mainSessionID string) error` — Dismiss 让一支已装配的团队离场（"干完就走人"）：删除会话角色注册表 + 复位
-- `func registryFromSpec(spec dto.TeamSpec) dto.TeamRegistry` — registryFromSpec 把 TeamSpec 投影成注册表（角色配置的持久事实）。
-- `func (factory *Factory) InstantiateRole(mainSessionID string, role dto.RoleSpec, joinSeq uint64) (dto.RoleInstantiation, error)` — InstantiateRole 一步实例化一个角色：规整/校验配置 → 幂等创建角色会话 →
-- `func placeRoleInOrder(role dto.RoleSpec, orderRoles []string) ([]string, bool, []string)` — placeRoleInOrder 按 join_policy 决定新角色是否自动进入工作顺序：
-- `func assembleView(sessionID string, registry dto.TeamRegistry, policy string, orderRoles []string) (dto.TeamView, error)` — assembleView 把注册表 + 生命周期顺序投影成前端消费的成员表。
-- `func applyFloor(port Port, mainSessionID string, view *dto.TeamView)` — applyFloor 用可选的 floor 读端口填充成员表的当前发言角色（只读事实，不写盘）。
-- `func buildMember(mainSessionID, teamID, name string, orderIndex int, inOrder bool, byName map[string]dto.RoleSpec) dto.TeamMember`
-- `func viewNotices(registry dto.TeamRegistry, orderRoles []string) []string` — viewNotices 只报事实，不自动修补：注册了但不在顺序里的角色、顺序里未注册的角色、
-- `func teamKindOf(registry dto.TeamRegistry) string` — teamKindOf 返回可展示的团队名（team_kind 是 team_id 的别名；空值不伪装成某个
-- `func rolesWithoutAutomaticTurn(orderRoles []string) []string` — rolesWithoutAutomaticTurn 返回工作顺序里没有自动回合的角色（保序、去重）。
-- `func RolesWithoutAutomaticTurn(orderRoles []string) []string` — RolesWithoutAutomaticTurn 是 rolesWithoutAutomaticTurn 的导出形态：发言调度运行态（runtime.go）
-
-### global.go
-
-- `func NewGlobal(port GlobalPort) (*Global, error)` — NewGlobal 构造全局母本读写面；port 为 nil 时显式报错。
-- `func (global *Global) Employees() (dto.EmployeeLibrary, error)` — Employees 返回全局员工库。读是深拷贝语义：返回的切片归消费方所有。
-- `func (global *Global) SaveEmployee(role dto.RoleSpec) (dto.EmployeeLibrary, error)` — SaveEmployee 新增/覆盖全局员工库里的一个员工（按 role_name 幂等）。
-- `func (global *Global) DeleteEmployee(roleName string) (dto.EmployeeLibrary, error)` — DeleteEmployee 删除全局员工库里的一个员工（幂等：不存在时原样返回，不报错）。
-- `func (global *Global) Order() (dto.DefaultOrder, error)` — Order 返回全局默认顺序。
-- `func (global *Global) SetOrder(policy string, orderRoles []string) (dto.DefaultOrder, error)` — SetOrder 写全局默认顺序：引用了员工库不存在的角色会被剔除，user/main 自动补齐
-- `func NormalizeDefaultOrder(order dto.DefaultOrder, employees []dto.RoleSpec) (dto.DefaultOrder, error)` — NormalizeDefaultOrder 规整默认顺序：策略校验、顺序表去空去重**保序**、只保留
-- `func normalizeEmployeeRole(role dto.RoleSpec) (dto.RoleSpec, error)` — normalizeEmployeeRole 规整单个员工（复用 NormalizeRole 的默认值口径）并拒绝内置
-
-### instantiate_role_test.go
-
-- `func TestInstantiateRoleOneStepHiresAnEmployee(t *testing.T)` — TestInstantiateRoleOneStepHiresAnEmployee：一步"员工入职"——会话、注册表配置、
-- `func TestInstantiateRoleRespectsJoinPolicyAndTimer(t *testing.T)` — TestInstantiateRoleRespectsJoinPolicyAndTimer：join_policy 决定是否自动排入；
-- `func TestInstantiateRoleRejectsBuiltinAndBadInput(t *testing.T)` — TestInstantiateRoleRejectsBuiltinAndBadInput：内置角色（user/main）由会话本身
-- `func TestInstantiateRoleReportsExecutorForTechlead(t *testing.T)` — TestInstantiateRoleReportsExecutorForTechlead：tl 有真实执行者（goal 治理的
-- `func TestNormalizeRoleRejectsUnknownToolsPolicy(t *testing.T)` — TestNormalizeRoleRejectsUnknownToolsPolicy：tools_policy 必须在枚举内。
-
-### library.go
-
-- `func NewLibrary(port LibraryPort) (*Library, error)` — NewLibrary 构造团队库读写面；port 为 nil 时显式报错。
-- `func (library *Library) View() (dto.TeamLibrary, error)` — View 返回团队库全文（按 name 排序由存储层保证；这里只做防御性规整）。
-- `func (library *Library) Entry(teamID string) (dto.TeamLibraryEntry, error)` — Entry 读单条团队库条目（装配入口用；不存在时返回 ErrUnknownTeam）。
-- `func (library *Library) SaveTeam(entry dto.TeamLibraryEntry) (dto.TeamLibrary, error)` — SaveTeam 新增或覆盖一条团队库条目（按 team_id 幂等），返回整份库。
-- `func (library *Library) DeleteTeam(teamID string) (dto.TeamLibrary, error)` — DeleteTeam 删除一条团队库条目（幂等：不存在时原样返回，不报错）。
-- `func NormalizeLibraryEntry(entry dto.TeamLibraryEntry) (dto.TeamLibraryEntry, error)` — NormalizeLibraryEntry 规整一条团队库条目：team_id 必填（缺省由 team_kind 兜底）、
-- `func containsName(values []string, name string) bool`
-- `func indexOfName(values []string, name string) int`
-- `func isBuiltinRoleName(name string) bool`
-- `func IsBuiltinRole(roleName string) bool` — IsBuiltinRole 判定角色名是否是内置角色（user/main）。内置角色由会话本身提供，
-- `func dedupePreserveOrder(values []string) []string` — dedupePreserveOrder 去重但保序（顺序表是发言次序，不能排序）。
-- `func SpecOfEntry(entry dto.TeamLibraryEntry) dto.TeamSpec` — SpecOfEntry 把团队库条目投影成装配输入（TeamSpec）。顺序与角色配置原样带入，
-- `func EntryFromSpec(spec dto.TeamSpec, name, origin string) (dto.TeamLibraryEntry, error)` — EntryFromSpec 把一次性 TeamSpec 投影成团队库条目（"把这份配置存成一支可复用团队"）。
-- `func EntryFromRegistry(registry dto.TeamRegistry, orderRoles []string, name, teamID string) (dto.TeamLibraryEntry, error)` — EntryFromRegistry 把"某个会话当前在编的员工表"投影成一条团队库条目
-- `func OrderRolesOf(roles []dto.RoleSpec) []string` — OrderRolesOf 从角色配置推导工作顺序：user → main → 其余角色（OrderPriority
-
-### library_test.go
-
-- `func (port *fakeLibraryPort) ReadTeamLibrary() (dto.TeamLibrary, error)`
-- `func (port *fakeLibraryPort) WriteTeamLibrary(library dto.TeamLibrary) error`
-- `func TestLibrarySaveIsIdempotentByTeamID(t *testing.T)`
-- `func TestLibraryEntryUnknownTeam(t *testing.T)`
-- `func TestSpecOfEntryKeepsRolesAndOrder(t *testing.T)` — TestSpecOfEntryKeepsRolesAndOrder：库条目 → TeamSpec 必须原样带入顺序与角色
-- `func TestEntryFromRegistryDropsBuiltinsAndKeepsPrompts(t *testing.T)` — TestEntryFromRegistryDropsBuiltinsAndKeepsPrompts：把会话在编员工存进团队库时，
-- `func TestNormalizeLibraryEntryRejectsBadInput(t *testing.T)` — TestNormalizeLibraryEntryRejectsBadInput：缺 team_id / 非法顺序策略显式报错。
-- `func TestEntryFromSpecCopiesShape(t *testing.T)` — TestEntryFromSpecCopiesShape：一份 TeamSpec 可复制成库条目（"以现有团队新建一支"）。
-
 ### prefix_test.go
 
 - `func TestNoteMainContextFeedsSpeakerPrefix(t *testing.T)` — TestNoteMainContextFeedsSpeakerPrefix：主会话 wire 的正文进前缀，交班时真的下发给
@@ -375,18 +298,6 @@ go test -race ./application/core/agentteam -count=1
 - `func keysOf(set map[string]bool) []string`
 - `func prefixSkipDir(name string) bool` — prefixSkipDir 报告扫描时应跳过的目录（构建产物 / 依赖缓存 / 临时现场）。
 - `func prefixRepoRoot(t *testing.T) string`
-
-### registry.go
-
-- `func NewRegistry(port Port) (*Registry, error)` — NewRegistry 构造注册表读写面；port 为 nil 时显式报错。
-- `func (registry *Registry) View(mainSessionID string) (dto.TeamView, error)` — View 返回成员表（供右侧栏「状态 → Agent Team」子页与角色管理设置读取）。
-- `func (registry *Registry) Stored(mainSessionID string) (dto.TeamRegistry, error)` — Stored 返回注册表原文（团队库"把当前团队存进库"的数据源）：成员表视图只带
-- `func (registry *Registry) PromptFor(mainSessionID, roleName string) (string, error)` — PromptFor 读某个角色登记的提示词（空串 = 未登记 → 调用方用内置提示词兜底）。
-- `func (registry *Registry) PutRole(mainSessionID string, role dto.RoleSpec) (dto.TeamRegistry, error)` — PutRole 新增或覆盖一个角色配置（按 role_name 幂等）。
-- `func (registry *Registry) DeleteRole(mainSessionID, roleName string) (dto.TeamRegistry, error)` — DeleteRole 删除一个角色配置；角色仍留在工作顺序时同步摘除，避免顺序里挂着
-- `func (registry *Registry) SetOrder(mainSessionID, policy string, orderRoles []string) (dto.TeamView, error)` — SetOrder 写工作顺序策略（`order_roles`）；校验角色已注册、定时角色不入顺序、
-- `func firstNonEmpty(values ...string) string`
-- `func registryIdentity(registry dto.TeamRegistry) (teamID, teamKind string)` — registryIdentity 返回注册表可用的团队身份（team_id / team_kind）。
 
 ### runtime.go
 
@@ -409,6 +320,8 @@ go test -race ./application/core/agentteam -count=1
 - `func (r *Runtime) peekNext() (TurnRequest, bool)` — peekNext 在不改动游标的前提下算出"下一个谁发言"（Snapshot 用）。
 - `func cleanOrder(order []string) []string` — cleanOrder 去掉空名与重复项（顺序事实来自 lifecycle，容错但不伪造）。
 - `func ringOrder(order []string) []string` — ringOrder 把顺序事实（lifecycle.order_roles）投影成**发言环的成员**：去掉
+- `func rolesWithoutAutomaticTurn(orderRoles []string) []string` — rolesWithoutAutomaticTurn 返回工作顺序里**没有自动回合**的角色（保序、去重）。
+- `func RolesWithoutAutomaticTurn(orderRoles []string) []string` — RolesWithoutAutomaticTurn 是 rolesWithoutAutomaticTurn 的导出形态：发言调度运行态
 
 ### runtime_test.go
 
@@ -458,12 +371,9 @@ go test -race ./application/core/agentteam -count=1
 - `func needsRoleSession(kind dto.RoleKind) bool` — needsRoleSession 判定该角色是否需要独立角色会话子树：user/main 复用主会话，
 - `func registeredRoles(spec dto.TeamSpec) []dto.RoleSpec` — registeredRoles 返回需要角色会话的已注册角色。
 
-### team_view_test.go
+### spec_plugins_test.go
 
-- `func (port *floorFakePort) ReadFloorRole(string) (string, error)`
-- `func TestRegistryViewFillsFloorFromOptionalPort(t *testing.T)` — TestRegistryViewFillsFloorFromOptionalPort 钉住 ②：数据在 message head 里，
-- `func TestRegistryViewReportsFloorReadFailure(t *testing.T)` — TestRegistryViewReportsFloorReadFailure 钉住错误语义：floor 是运行态读面，
-- `func TestSecondAndThirdShapesDeclareNoAutomaticTurn(t *testing.T)` — TestSecondAndThirdShapesDeclareNoAutomaticTurn 钉住 ④：只带注册配置与角色会话、没有运行时
+- `func TestNormalizeRoleNormalizesPlugins(t *testing.T)` — TestNormalizeRoleNormalizesPlugins 钉住写入侧的**语法**口径（与编排侧共用
 
 ### testspecs_test.go
 

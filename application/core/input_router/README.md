@@ -22,7 +22,7 @@ flowchart LR
     C2 -->|否| C3{"是美元符前缀？"}
     C3 -->|是| SKL["skillRoute<br/>召回 Skill"]
     C3 -->|否| C4{"是 at 前缀？"}
-    C4 -->|是| TEAM["teamRoute<br/>手动召唤团队"]
+`@` 手动召唤团队已退场（2026-10-12 J-1a）：这条 `teamRoute` 已删除，`@` 不再是前缀。
     C4 -->|否| CONV["conversationRoute<br/>进入对话"]
     CMD --> HIT["命中第一条规则即分派"]
     PLG --> HIT
@@ -62,7 +62,7 @@ go test ./application/core/input_router -count=1
 - `func (route recordingInputRoute) Matches(string) bool`
 - `func (route recordingInputRoute) Dispatch(context.Context, string) error`
 - `func TestInputRouterDispatchesFirstMatchingStrategy(t *testing.T)`
-- `func TestInputRouterSigilOwnership(t *testing.T)` — 前缀（sigil）契约：`/` 命令、`#` 切换插件、`$` 召回 Skill、`@` 手动召唤团队，
+- `func TestInputRouterSigilOwnership(t *testing.T)` — 前缀（sigil）契约：`/` 命令、`#` 切换插件、`$` 召回 Skill，其余落到对话。
 
 ### router.go
 
@@ -74,8 +74,5 @@ go test ./application/core/input_router -count=1
 - `func (route pluginRoute) Dispatch(ctx context.Context, input string) error`
 - `func (route skillRoute) Matches(input string) bool`
 - `func (route skillRoute) Dispatch(ctx context.Context, input string) error`
-- `func (route teamRoute) Matches(input string) bool`
-- `func (route teamRoute) Dispatch(ctx context.Context, input string) error`
 - `func (conversationRoute) Matches(string) bool`
 - `func (route conversationRoute) Dispatch(ctx context.Context, input string) error`
-

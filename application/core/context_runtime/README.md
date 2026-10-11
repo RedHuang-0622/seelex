@@ -241,7 +241,7 @@ go test ./application/core/context_runtime -count=1
 
 ### compaction_index.go
 
-- `func (c *Coordinator) pushCompactionFrame( sessionID, requestID string, overflow, replay []contract.EngineMessage, window task_context.TranscriptEventRange, precomputedSummary string, ) compactionIndexPush` — pushCompactionFrame 把这次压缩折出保留窗口的区间推进会话压缩栈。
+- `func (c *Coordinator) pushCompactionFrame( sessionID, requestID string, overflow, replay []contract.EngineMessage, window task_context.TranscriptEventRange, precomputedSummary, precomputedSource, precomputedNote string, ) compactionIndexPush` — pushCompactionFrame 把这次压缩折出保留窗口的区间推进会话压缩栈。
 - `func (p compactionIndexPush) gateDetail() string` — gateDetail 渲染门禁 index 关的 Detail：这一步的**事实**（有没有尝试、成没成、
 - `func (p compactionIndexPush) sourceLabel() string` — sourceLabel 报告摘要来源；缺省写 (none) 而不是留空——空段会被读成"格式没写对"，
 - `func (p compactionIndexPush) indexError() string` — indexError 返回推帧失败的真实原因（空 = 没失败、也没跳过）。帧正文据此如实写出
@@ -391,6 +391,16 @@ go test ./application/core/context_runtime -count=1
 - `func TestRetainWindowDecisionRecordsFacts(t *testing.T)` — TestRetainWindowDecisionRecordsFacts：保留窗口决策把"拿什么数字比的"全部记下
 - `func TestContextLayoutTerseAndZonesRender(t *testing.T)` — TestContextLayoutTerseAndZonesRender：门禁 Detail 与帧正文读同一份 layout——
 - `func TestCompactionFrameBodyCarriesZoneLayout(t *testing.T)` — TestCompactionFrameBodyCarriesZoneLayout：帧正文必须带上四区事实——否则记录里
+
+### replay_material.go
+
+- `func replayMaterialFor(existing, fullContext []contract.EngineMessage) []contract.EngineMessage` — replayMaterialFor 选这次压缩喂给重放的那份素材。
+- `func hasConversationBody(messages []contract.EngineMessage) bool` — hasConversationBody 报告素材里有没有**对话正文**：非 system 角色、且正文非空或带
+
+### replay_material_test.go
+
+- `func TestHasConversationBodyTable(t *testing.T)` — TestHasConversationBodyTable 钉住"引擎历史里有没有对话正文"这组形状。
+- `func TestReplayMaterialForFallbackTable(t *testing.T)` — TestReplayMaterialForFallbackTable：素材选择的两条事实——有正文时**逐字**用
 
 ### session_history.go
 

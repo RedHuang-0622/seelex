@@ -1,7 +1,7 @@
+
 package tui
 
 import (
-	"errors"
 	"strings"
 	"testing"
 
@@ -202,135 +202,14 @@ func TestGoalPanelShowsRecoveredFrameAndHistoryLedger(t *testing.T) {
 	}
 }
 
-func TestTeamPanelFetchesServiceViewOnce(t *testing.T) {
-	base := newFakeApp()
-	base.snapshot = goalSnapshot()
-	app := &teamFakeApp{fakeApp: base, view: teamViewFixture()}
-	model := NewModel(app)
-	model.showLogo = false
-	model.width, model.height = 120, 40
-
-	model, command := press(t, model, altRuneKey('t'))
-	if command == nil {
-		t.Fatal("团队面板必须经 tea.Cmd 异步读取（IO 不阻塞 Update）")
-	}
-	if !model.teamLoading {
-		t.Fatal("团队面板未标记加载态")
-	}
-	// 命令跑完（阻塞点在这里，不在 Update）。
-	updated, _ := model.Update(command())
-	model = updated.(Model)
-
-	if app.sessionID != "sess-main-1" {
-		t.Fatalf("团队读面的会话 = %q, want 主会话 ID", app.sessionID)
-	}
-	panel := model.renderPanel()
-	for _, want := range []string{"TEAM", "goal-a2a", "goal_loop", "tl", "readonly", "goal-a2a-tl", "下一个 tl", "轮次 2/6", "下一个 tl"} {
-		if !strings.Contains(panel, want) {
-			t.Fatalf("团队面板缺少 %q：\n%s", want, panel)
-		}
-	}
-	if model.teamLoading || model.teamErr != "" {
-		t.Fatalf("团队面板加载态未收敛: loading=%v err=%q", model.teamLoading, model.teamErr)
-	}
-}
-
-// TestTeamPanelRefetchesOnTeamChanged 钉住"装配后面板自动更新"：面板打开时收到
-// team.changed 就地重取成员表；面板收起时不产生请求。装配/顺序/入职改的是后端
-// 事实（数据不在会话快照里），此前只能靠用户再按一次 Alt+T 才看得到。
-func TestTeamPanelRefetchesOnTeamChanged(t *testing.T) {
-	base := newFakeApp()
-	base.snapshot = goalSnapshot()
-	app := &teamFakeApp{fakeApp: base, view: teamViewFixture()}
-	model := NewModel(app)
-	model.showLogo = false
-	model.width, model.height = 120, 40
-
-	// 打开面板：一次异步读。
-	model, command := press(t, model, altRuneKey('t'))
-	updated, _ := model.Update(command())
-	model = updated.(Model)
-	if model.teamErr != "" {
-		t.Fatalf("打开面板读失败：%q", model.teamErr)
-	}
-
-	// 面板收起：team.changed 不产生请求（不可见的面板不该发 RPC）。
-	model.panel = panelNone
-	updated, _ = model.Update(applicationEventMsg{event: application.Event{Kind: application.EventTeamChanged}})
-	if updated.(Model).teamLoading {
-		t.Fatal("面板收起时不该重取团队成员表")
-	}
-
-	// 面板打开：team.changed 就地重取。
-	model.panel = panelTeam
-	app.sessionID = ""
-	updated, command = model.Update(applicationEventMsg{event: application.Event{Kind: application.EventTeamChanged}})
-	model = updated.(Model)
-	if !model.teamLoading {
-		t.Fatal("团队事实变了，面板必须重取（否则停在旧成员表）")
-	}
-	// 命令是 Batch（重取 + 继续等事件）：关掉订阅让等待命令立即返回，只取重取那条。
-	model.subscription.Close()
-	batch, ok := command().(tea.BatchMsg)
-	if !ok {
-		t.Fatalf("team.changed 应同时排入重取与继续等待，实际命令 = %T", command())
-	}
-	fetched := false
-	for _, inner := range batch {
-		if message, ok := inner().(teamViewMsg); ok {
-			fetched = true
-			model = model.applyTeamView(message)
-		}
-	}
-	if !fetched {
-		t.Fatal("batch 里没有团队读面命令")
-	}
-	if app.sessionID != "sess-main-1" {
-		t.Fatalf("重取用了错误的会话 ID：%q", app.sessionID)
-	}
-	if model.teamLoading || model.teamErr != "" {
-		t.Fatalf("重取后加载态未收敛: loading=%v err=%q", model.teamLoading, model.teamErr)
-	}
-}
-
-func TestTeamPanelReportsMissingReaderAndUnconfiguredTeam(t *testing.T) {
-	// 1) 装配根没给团队读面（TUI/GUI 装配不同的宿主）。
-	app := newFakeApp()
-	model := NewModel(app)
-	model.showLogo = false
-	model.width = 90
-	model, command := press(t, model, altRuneKey('t'))
-	updated, _ := model.Update(command())
-	model = updated.(Model)
-	if !strings.Contains(model.renderPanel(), "没有团队读面") {
-		t.Fatalf("读面缺失时面板未提示：\n%s", model.renderPanel())
-	}
-
-	// 2) 读面在，但本会话还没装配团队（未配置）。
-	base := newFakeApp()
-	base.snapshot = goalSnapshot()
-	failing := &teamFakeApp{fakeApp: base, err: errors.New("团队存储未装配")}
-	model = NewModel(failing)
-	model.showLogo = false
-	model.width = 90
-	model, command = press(t, model, altRuneKey('t'))
-	updated, _ = model.Update(command())
-	model = updated.(Model)
-	if !strings.Contains(model.renderPanel(), "读取失败") {
-		t.Fatalf("读面报错时面板未提示：\n%s", model.renderPanel())
-	}
-
-	unconfigured := &teamFakeApp{fakeApp: base, view: dto.TeamView{SessionID: "sess-main-1"}}
-	model = NewModel(unconfigured)
-	model.showLogo = false
-	model.width = 90
-	model, command = press(t, model, altRuneKey('t'))
-	updated, _ = model.Update(command())
-	model = updated.(Model)
-	if !strings.Contains(model.renderPanel(), "未装配 AgentTeam") {
-		t.Fatalf("未配置团队时面板未提示：\n%s", model.renderPanel())
-	}
-}
+// TestTeamPanelFetchesServiceViewOnce / TestTeamPanelRefetchesOnTeamChanged /
+// TestTeamPanelReportsMissingReaderAndUnconfiguredTeam 已随 Agent Team 只读面退场
+// （2026-10-12 J-1a）删除：它们钉的是 Alt+T 面板上半段（成员表 + 发言调度运行态）的
+// 异步读面（*application.Service.AgentTeamView）与 team.changed 重取。那个读面与它的
+// 发布点都已整条退场，面板现在只渲染团队看板（数据在会话快照里，不需要异步取数）。
+//
+// 面板本身仍在，且有一条仍然成立的断言：打开面板**不排任何异步命令**
+// （TeamworkBoard 已在快照里，IO 不落 Update）。
 
 // TestPanelHeightMatchesRenderedLines：convHeight 用 panelHeight 扣高度，两者
 // 一旦不一致就会撑破 viewport（或留下空白行）。
@@ -343,18 +222,23 @@ func TestPanelHeightMatchesRenderedLines(t *testing.T) {
 	model.width, model.height = 120, 40
 	model.ready = true
 
+	// 基线：面板未打开时的对话区高度（"面板占了多少行"只能相对它说）。
+	before := model.convHeight()
+
 	model, _ = press(t, model, altRuneKey('g'))
 	if got, want := model.panelHeight(), strings.Count(model.renderPanel(), "\n")+1; got != want {
 		t.Fatalf("目标面板高度 = %d, 渲染行数 = %d", got, want)
 	}
-	before := model.convHeight()
-
-	model, command := press(t, model, altRuneKey('t'))
-	if got, want := model.panelHeight(), strings.Count(model.renderPanel(), "\n")+1; got != want {
-		t.Fatalf("加载态面板高度 = %d, 渲染行数 = %d", got, want)
+	if model.convHeight() >= before {
+		t.Fatalf("目标面板打开后对话区没有变矮：before=%d after=%d", before, model.convHeight())
 	}
-	updated, _ := model.Update(command())
-	model = updated.(Model)
+
+	// Alt+T：打开团队看板面板。J-1a（2026-10-12）之后它**不再排异步命令**——
+	// 面板内容全在会话快照里（Runtime.TeamworkBoard），IO 不落 Update。
+	model, command := press(t, model, altRuneKey('t'))
+	if command != nil {
+		t.Fatal("团队看板面板只读快照，不该排任何异步命令（成员表读面已随 J-1a 退场）")
+	}
 	if got, want := model.panelHeight(), strings.Count(model.renderPanel(), "\n")+1; got != want {
 		t.Fatalf("团队面板高度 = %d, 渲染行数 = %d", got, want)
 	}
@@ -363,7 +247,7 @@ func TestPanelHeightMatchesRenderedLines(t *testing.T) {
 		t.Fatalf("convHeight = %d, want %d", model.convHeight(), want)
 	}
 	if model.convHeight() >= before {
-		t.Fatalf("面板打开后对话区没有变矮：before=%d after=%d", before, model.convHeight())
+		t.Fatalf("团队看板面板打开后对话区没有变矮：before=%d after=%d", before, model.convHeight())
 	}
 }
 

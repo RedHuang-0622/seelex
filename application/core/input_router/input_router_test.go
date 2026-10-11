@@ -34,9 +34,10 @@ func TestInputRouterDispatchesFirstMatchingStrategy(t *testing.T) {
 	}
 }
 
-// 前缀（sigil）契约：`/` 命令、`#` 切换插件、`$` 召回 Skill、`@` 手动召唤团队，
-// 其余落到对话。回执记录每个处理闭包收到的载荷，因此"哪个字符归哪条路由"与
-// "载荷怎么规整"同时被钉住（权威说明见 docs/gui/modules/shell-and-interactions.md）。
+// 前缀（sigil）契约：`/` 命令、`#` 切换插件、`$` 召回 Skill，其余落到对话。
+// `@` 手动召唤团队已退场（2026-10-12 J-1a），因此它不再是前缀——本用例把它钉成普通对话。
+// 回执记录每个处理闭包收到的载荷，因此"哪个字符归哪条路由"与"载荷怎么规整"同时被钉住
+// （权威说明见 docs/gui/modules/shell-and-interactions.md）。
 func TestInputRouterSigilOwnership(t *testing.T) {
 	seen := map[string]string{}
 	router := NewRouter(RouteHandlers{
@@ -52,10 +53,6 @@ func TestInputRouterSigilOwnership(t *testing.T) {
 			seen["skill"] = name + "|" + strings.Join(args, ",") + "|" + input
 			return nil
 		},
-		Team: func(_ context.Context, name string) error {
-			seen["team"] = name
-			return nil
-		},
 		Conversation: func(_ context.Context, input string) error {
 			seen["conversation"] = input
 			return nil
@@ -66,11 +63,9 @@ func TestInputRouterSigilOwnership(t *testing.T) {
 		{"/help", "command", "/help"},
 		{"#code", "plugin", "code"},
 		{"$review strict", "skill", "review|strict|$review strict"},
-		{"@goal-a2a", "team", "goal-a2a"},
-		{"@", "team", ""}, // 空名也下发：召唤面据自述可用团队
-		// `@<团队> <附言>`：路由**不**按空格切分（团队名可以含空格），整段原样
-		// 交给召唤面；"名字 + 附言"的切分在 application/core/input_team.go 完成。
-		{"@goal-a2a 这次启动团队主要是看看整个team的工作是否打通。", "team", "goal-a2a 这次启动团队主要是看看整个team的工作是否打通。"},
+		// 整条输入按普通对话下发，不再有 team 路由。
+		{"@goal-a2a", "conversation", "@goal-a2a"},
+		{"@", "conversation", "@"},
 		{"看看这个 bug", "conversation", "看看这个 bug"},
 	} {
 		clear(seen)

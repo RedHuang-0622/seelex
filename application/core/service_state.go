@@ -120,16 +120,11 @@ type serviceState struct {
 	// teamRuntimes 是按主会话持有的发言调度运行态（链表顺序 + 逃生记账；
 	// 见 application/core/agentteam_runtime.go）。它自带锁，不走
 	// Core.ViewMu——调度记账不参与视图快照事务。
+	//
+	// **J-1a 之后恒为空**（2026-10-12）：会话团队装配面已退场，没有来路再往这里
+	// put 一个环，因此 TeamRuntimeFor / noteTeamWorkPrefix / releaseTeamRuntime
+	// 都是**遗留不可达路径**（保留是为了不改 goal 逻辑的形状与调用点）。
 	teamRuntimes teamRuntimeStore
-
-	// roleSessions 是"角色会话 → 归属主会话 + 权责"的反向索引（权限门读面：
-	// 判定不再依赖"用户此刻看着哪个会话"）。见 agentteam_role_index.go。
-	roleSessions roleSessionIndex
-
-	// teamLibrarySnapshots 是 `@` 建议面的团队库进程内快照（自带锁，不走
-	// Core.ViewMu：按键路径上取候选不该与视图快照事务互等）。取舍与失效边界见
-	// completion.go 末尾「`@` 的建议面」一段。
-	teamLibrarySnapshots teamLibrarySuggestions
 }
 
 // draftSlot 保留草稿状态。ID 是早分配的真实会话 ID（草稿会话键）；

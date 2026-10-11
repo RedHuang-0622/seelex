@@ -155,11 +155,6 @@
 - `func TestContentEvictionColdReloadsSameWindow(t *testing.T)` — TestContentEvictionColdReloadsSameWindow 会话正文被卸载后再激活（冷回读）
 - `func TestEnsureSessionContentRebuildsEvictedWindow(t *testing.T)` — TestEnsureSessionContentRebuildsEvictedWindow 热挂载回读面
 
-### fork_gate_test.go
-
-- `func (runtime *forkGateRuntime) ForkInFlight(string) bool`
-- `func TestSubmitRejectedWhileForkRunning(t *testing.T)` — TestSubmitRejectedWhileForkRunning 钉住“fork 运行时禁止同会话继续对话”
-
 ### hot_attach_running_test.go
 
 - `func newFrameworkLockEngine() *frameworkLockEngine`
@@ -685,6 +680,8 @@
 - `func (service *Service) currentViewSessionID() string` — currentViewSessionID 返回当前视图会话 ID（读锁内快照；供解锁后发布
 - `func (service *Service) effortForSession(sessionID string) string` — effortForSession 返回指定会话生效的 effort 级别（G4：Unit 内选择优先；
 - `func (service *Service) syncPlanPolicyFor(sessionID string)` — syncPlanPolicyFor 按会话 effort 向引擎写入该会话的 plan 策略槽（G1-C：
+- `func (service *Service) syncSessionReasoningEffortFor(sessionID string)` — syncSessionReasoningEffortFor 是**回合起点**按会话下发 wire 思考强度的唯一入口
+- `func (service *Service) syncSessionReasoningEffort(level string) int` — syncSessionReasoningEffort 把档位对应的 wire 思考强度下发给**跟随会话**的账号
 - `func (service *Service) permissionTierForSession(sessionID string) string` — permissionTierForSession 返回指定会话生效的权限档位（G4：Unit 内选择优先；
 - `func (service *Service) fullAccessForSession(sessionID string) bool` — fullAccessForSession 是档位的**兼容派生读面**：full 档 ⇔ 旧的全权开启。
 - `func (service *Service) syncFullAccessFor(sessionID string)` — syncFullAccessFor 按会话档位同步执行门（G4：chat 起点调用，保证每个

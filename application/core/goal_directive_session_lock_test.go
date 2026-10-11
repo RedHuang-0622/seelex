@@ -28,7 +28,6 @@ import (
 
 	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
 )
 
@@ -136,36 +135,25 @@ func (engine *sessionLockEngine) SetSystemPrompt(string) {
 func (engine *sessionLockEngine) SetSystemPromptFor(string, string) { engine.SetSystemPrompt("") }
 
 func TestQueuedRoundMustNotReenterSessionLock(t *testing.T) {
-	sessions := newLibrarySessions()
+	// 2026-10-12（J-1a）：本用例的回归点是**锁纪律**（迭代钩子不得再入会话锁），
+	// 与会话团队面无关。原来它用 `@<团队> <附言>` 起手（得先存一条团队库条目才召唤得
+	// 动），`@` 手动召唤与团队库都随 Agent Team 用户面退场 ⇒ 第 1 轮改为普通消息起手。
+	// 团队注册表与工作顺序也不再需要摆：goal 上线本就不碰它们
+	// （见 TestGoalBeginLeavesSessionTeamAlone）。
+	sessions := &teamRecordingSessions{}
 	sessions.mainHeadSeq = 1
-	sessions.setRegistry(dto.TeamRegistry{
-		TeamID: "goal-a2a", TeamKind: "goal-a2a", OrderPolicy: dto.OrderPolicyGoalLoop,
-		Roles: []dto.RoleSpec{
-			{RoleName: "user", RoleKind: dto.RoleKindUser},
-			{RoleName: "main", RoleKind: dto.RoleKindMain},
-			{RoleName: "tl", RoleKind: dto.RoleKindTechlead, ToolsPolicy: dto.ToolPolicyReadonly},
-		},
-	})
-	sessions.setLifecycle(dto.OrderPolicyGoalLoop, []string{"user", "main", "tl"})
 	engine := newSessionLockEngine()
 	service := newTestService(t, engine, withTestSessions(sessions))
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Session.ID = "sess-summon"
 	service.ViewMu.Unlock()
 
-	// `@` 只认团队库条目（内置形态目录已删）：先把现场存成库条目，召唤才走得通。
-	if _, err := service.AgentTeamSaveCurrentTeam("sess-summon", "goal-a2a", "goal-a2a"); err != nil {
-		t.Fatalf("AgentTeamSaveCurrentTeam: %v", err)
-	}
-	sessions.setRegistry(dto.TeamRegistry{})
-	sessions.setOrder(nil)
-
 	bridge := NewToolHookBridge()
 	bridge.Bind(service)
 	engine.hooks = bridge.Hooks()
 
 	// 第 1 轮：@团队 起手（回合尾只做 goal 收尾记账；ADVISOR 不进可见对话）。
-	if err := service.Submit(context.Background(), "@goal-a2a 跑一轮再看队列提升"); err != nil {
+	if err := service.Submit(context.Background(), "跑一轮再看队列提升"); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
 	select {

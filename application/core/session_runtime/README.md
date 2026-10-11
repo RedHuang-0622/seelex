@@ -148,6 +148,7 @@ go test ./application/core/session_runtime -count=1
 - `func messageKindForEvent(event model.TranscriptEvent) string` — messageKindForEvent 把事件类别映射为可见消息的多线谱类别；旧数据 Kind 为空时
 - `func (c *Coordinator) engineHistoryFor(sessionID string) []contract.EngineMessage` — engineHistoryFor 返回指定会话引擎历史（会话路由引擎用 HistoryFor；无会话
 - `func (c *Coordinator) SessionRecordLocked(sessionID string, tasks []dto.TaskRecord) model.SessionRecord` — SessionRecordLocked 构建当前会话的归档 record（调用方持有 Core.ViewMu；
+- `func (c *Coordinator) LoadSessionCompactionRecords(location Location, sessionID string) ([]model.ContextCompaction, bool, error)` — LoadSessionCompactionRecords 读取该会话的持久压缩记录（可选能力：未装配该
 - `func (c *Coordinator) LoadSessionRecord(location Location, sessionID string) (model.SessionRecord, bool, error)` — LoadSessionRecord 读取会话归档 record（可选能力：无 record 端口或版本/
 - `func (c *Coordinator) MarkSessionArchived(location Location, sessionID string) error` — MarkSessionArchived 把会话 record 的可见状态置为 archived（C2）。只改
 - `func (c *Coordinator) LoadSessionTranscript(location Location, sessionID string) ([]model.TranscriptEvent, error)` — LoadSessionTranscript 读取会话 transcript 尾部窗口：token 预算由装配端口

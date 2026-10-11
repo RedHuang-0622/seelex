@@ -48,12 +48,12 @@ func TestTeamPanelShowsTeamBoardProjection(t *testing.T) {
 	model.showLogo = false
 	model.width, model.height = 120, 60
 
+	// J-1a（2026-10-12）之后 Alt+T **不排异步命令**：面板内容全在会话快照里
+	// （Runtime.TeamworkBoard），IO 不落 Update。
 	model, command := press(t, model, altRuneKey('t'))
-	if command == nil {
-		t.Fatal("团队面板必须经 tea.Cmd 异步读取")
+	if command != nil {
+		t.Fatal("团队看板只读快照，不该排任何异步命令")
 	}
-	updated, _ := model.Update(command())
-	model = updated.(Model)
 
 	panel := model.renderPanel()
 	// 看板头：team_id / 版本 / 里程碑数 / 在编 / 作业计数。
@@ -69,10 +69,8 @@ func TestTeamPanelShowsTeamBoardProjection(t *testing.T) {
 			t.Fatalf("团队面板缺少 %q：\n%s", want, panel)
 		}
 	}
-	// 成员表仍在（新增一节不改既有口径）。
-	if !strings.Contains(panel, "goal-a2a") {
-		t.Fatalf("团队面板丢了成员表：\n%s", panel)
-	}
+	// 2026-10-12（J-1a）：上面这些是面板的**全部**内容——原先同屏的 Agent Team 成员表
+	// （"goal-a2a" 那一节）已随 Agent Team 用户面退场，面板不再有第二个数据源。
 }
 
 func TestTeamPanelOmitsTeamBoardWithoutPlan(t *testing.T) {
@@ -84,10 +82,15 @@ func TestTeamPanelOmitsTeamBoardWithoutPlan(t *testing.T) {
 	model.width, model.height = 120, 60
 
 	model, command := press(t, model, altRuneKey('t'))
-	updated, _ := model.Update(command())
-	model = updated.(Model)
-	if panel := model.renderPanel(); strings.Contains(panel, "团队看板") {
+	if command != nil {
+		t.Fatal("团队看板只读快照，不该排任何异步命令")
+	}
+	panel := model.renderPanel()
+	if strings.Contains(panel, "里程碑") {
 		t.Fatalf("没有计划时不得渲染团队看板空壳：\n%s", panel)
+	}
+	if !strings.Contains(panel, "没有团队计划") {
+		t.Fatalf("没有计划时必须自述为什么是空的：\n%s", panel)
 	}
 }
 

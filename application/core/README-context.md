@@ -248,10 +248,14 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 - `func compactionFailureRuntime() *compactionReadbackRuntime` — compactionFailureRuntime 是"摘要器装好了、但这次真的拿不到模型读后感"的宿主：
 - `func appendSizedRounds(t *testing.T, service *Service, taskID string, rounds int, asciiRunes int)` — appendSizedRounds 追加 rounds 个已定稿轮次，每轮的 assistant 正文按 asciiRunes 个
 - `func startCompactionFailureSession(t *testing.T, taskID string) (*Service, *fakeEngine, string)` — startCompactionFailureSession 起一个任务执行中的会话（/compact 的显式路径）。
+- `func startCompactionFailureSessionWith(t *testing.T, runtime RuntimePort, taskID string) (*Service, *fakeEngine, string)` — startCompactionFailureSessionWith 同上，但宿主由调用方给——两种失败形态（回执里
 - `func compactionRecordsOf(t *testing.T, service *Service) []model.ContextCompaction` — compactionRecordsOf 取会话当前的压缩记录（内存态真值，不用快照投影代替）。
 - `func historyHasContent(history []EngineMessage, needle string) bool` — historyHasContent 报告引擎工作历史里是否还留着某段正文。
 - `func TestCompactionFailureKeepsWholeContextAndLeavesTrace(t *testing.T)` — TestCompactionFailureKeepsWholeContextAndLeavesTrace（红灯复现①）
 - `func TestCompactionFailureDoesNotInterruptOverBudgetSession(t *testing.T)` — TestCompactionFailureDoesNotInterruptOverBudgetSession（红灯复现②）
+- `func TestCompactionFailureNoteCarriesReadbackEvidence(t *testing.T)` — TestCompactionFailureNoteCarriesReadbackEvidence（② 的留痕补丁，先红后绿）
+- `func TestCompactionFailureNoteCarriesReadbackProbeError(t *testing.T)` — TestCompactionFailureNoteCarriesReadbackProbeError：读数闸**调用本身报错**（不是
+- `func TestFrontendCompactionFailureErrorMarkerMatchesBackend(t *testing.T)` — TestFrontendCompactionFailureErrorMarkerMatchesBackend：失败痕 note 的报错段标记是
 
 ### context_compact_gate.go
 
@@ -282,7 +286,7 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 
 ### context_compact_local_fallback_repro_test.go
 
-- `func (runtime *compactionReadbackRuntime) ReadbackCompactionSummary( _ context.Context, _ string, _ context_runtime.CompactionIndexRequest, ) (context_runtime.CompactionIndexReceipt, error)`
+- `func (runtime *compactionReadbackRuntime) ReadbackCompactionSummary( _ context.Context, _ string, request context_runtime.CompactionIndexRequest, ) (context_runtime.CompactionIndexReceipt, error)`
 - `func TestCompactionFailureWithFailedReadbackLeavesContextUntouched(t *testing.T)` — TestCompactionFailureWithFailedReadbackLeavesContextUntouched（现场复现）：
 - `func TestCompactionWithReadbackStillCompacts(t *testing.T)` — TestCompactionWithReadbackStillCompacts：对照组——读数**拿到了**模型读后感
 
@@ -349,6 +353,51 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 - `func (runtime *blockingIndexRuntime) PushCompactionFrame( ctx context.Context, _ string, _ context_runtime.CompactionIndexRequest, ) (context_runtime.CompactionIndexReceipt, error)`
 - `func returnsWithin(d time.Duration, fn func()) bool` — returnsWithin 报告 fn 是否在 d 之内返回（返回 false = 阻塞住了）。
 - `func TestExplicitCompactReproViewMuHoldAcrossFramePush(t *testing.T)` — TestExplicitCompactReproViewMuHoldAcrossFramePush：推帧进行中，交互面是否仍然可用。
+
+### context_compaction_body_missing_repro_test.go
+
+- `func TestCompactionMaterialMustCarryConversationBody(t *testing.T)` — ── 现场复现（红灯，第一跳：素材）──────────────────────────────────────
+- `func TestCompactionMaterialContrastEmptyEngineHistory(t *testing.T)` — ── 对照组（断言当前行为，不是红灯）────────────────────────────────────
+- `func dialogueRows(messages []EngineMessage) []string` — dialogueRows 返回引擎历史里的**对话正文行**（role=user/assistant 且内容非空）。
+- `func describeRoles(messages []EngineMessage) string` — describeRoles 渲染素材的角色构成（红线里要能一眼看出「全是 system」）。
+- `func firstLine(content string) string`
+
+### context_compaction_facts_restore_repro_test.go
+
+- `func (sessions *retiredRecordChannelSessions) SaveSessionRecord(_ string, record SessionRecord) error`
+- `func (sessions *retiredRecordChannelSessions) SaveSessionRecordWorkspace(_, _ string, record SessionRecord) error`
+- `func (sessions *retiredRecordChannelSessions) persist(record SessionRecord) error` — persist 模拟 v8 的落盘：record 通道收下 status/title/对话，`execution` 子树丢弃
+- `func (sessions *retiredRecordChannelSessions) LoadCompactionRecordsWorkspace(_, _ string) ([]ContextCompaction, error)`
+- `func restartCompactionRuntime(recorder *compactionIndexRecorder, source string) *compactionReadbackRuntime` — restartCompactionRuntime 造一个 200k 窗口的宿主；readback 决定这次压缩能不能
+- `func startRestartSession(t *testing.T, store *retiredRecordChannelSessions, runtime RuntimePort, requestID string, rounds int) (*Service, string)` — startRestartSession 起一个任务执行中的会话并追加 rounds 个已定稿轮次
+- `func persistRestartSession(t *testing.T, service *Service, store *retiredRecordChannelSessions, sessionID string)` — persistRestartSession 按会话落盘（事件流是会话自己的 durable 事实，重启后按同一
+- `func TestReproCompactionFactsSurviveProcessRestart(t *testing.T)` — TestReproCompactionFactsSurviveProcessRestart 重启后压缩栈必须从存储读回来：
+- `func TestReproCompactionFailureTraceSurvivesProcessRestart(t *testing.T)` — TestReproCompactionFailureTraceSurvivesProcessRestart 压缩失败痕同样要跨重启：
+
+### context_compaction_real_session_probe_test.go
+
+- `func realProbeEnv(key, fallback string) string`
+- `func realProbeEnvInt(key string, fallback int) int`
+- `func realProbeRepoRoot(t *testing.T) string` — realProbeRepoRoot 从测试的工作目录（go test 把 CWD 设在包目录）向上找到仓库根。
+- `func realProbeResolve(t *testing.T, path string) string` — realProbeResolve 把相对路径解析到仓库根下（绝对路径原样保留）。
+- `func realProbeCopyTree(t *testing.T, src, dst string)`
+- `func realProbeTranscriptEvent(row sessionstore.Event) model.TranscriptEvent`
+- `func realProbeSessionID(t *testing.T, sessionDir string) string` — realProbeSessionID 从会话自己的 message head 读回 Router 的会话键：磁盘目录名是
+- `func realProbeProjectID(t *testing.T, root, sessionID string) string` — realProbeProjectID 从 workspace_index.json 的 bindings（会话 → 项目）读回项目键。
+- `func realProbeLoadFacts(t *testing.T) *realProbeFacts` — realProbeLoadFacts 只读拷贝真实会话目录到临时根，再按生产读面把事实读回来。
+- `func realProbeWindowConfig(t *testing.T) WindowConfig` — realProbeWindowConfig 读真实 seelex.yaml 的 window 段（缺省档见探针文件头）。
+- `func realProbeWindow(t *testing.T) int`
+- `func realProbeSelectEvents(facts *realProbeFacts, fromSeq, toSeq uint64) []model.TranscriptEvent`
+- `func realProbeRunArm(t *testing.T, facts *realProbeFacts, arm realProbeArm) realProbeOutcome` — realProbeRunArm 在**被动**路径上跑一轮：自动装配（判据命中才折）。
+- `func realProbeDescribeRecords(records []model.ContextCompaction) string`
+- `func realProbeDumpReport(t *testing.T, text string)`
+- `func TestRealSessionCompactionChainProbe(t *testing.T)` — TestRealSessionCompactionChainProbe 真实会话记录上的「第一次压缩触发点 → 被动压缩
+
+### context_compaction_restart_refill_repro_test.go
+
+- `func startRestartRound(t *testing.T, service *Service, sessionID, requestID string)` — startRestartRound 在重启恢复后的会话上开新回合（自动路径）：**把上一份状态传下去**
+- `func TestProbeCompactionFailureAfterRestartEncounter(t *testing.T)` — TestProbeCompactionFailureAfterRestartEncounter（**红灯复现，等待口径裁决**）
+- `func TestRestartRefillCompactionFailureKeepsTraceWithReadbackError(t *testing.T)` — TestRestartRefillCompactionFailureKeepsTraceWithReadbackError——「重启 → 越线 →
 
 ### context_compactions_restore_repro_test.go
 

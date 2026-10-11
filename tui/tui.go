@@ -12,7 +12,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 type AppController interface {
@@ -73,12 +72,10 @@ type Model struct {
 	lastKeyTime    time.Time // 上次按键时间，用于检测粘贴爆发
 	queueFocus     bool      // 队列焦点：按键改走队列编辑（↑↓ 选择 / Shift+↑↓ 调换 / Alt+R 撤回）
 	queueSel       int       // 队列焦点下的选中行
-	// 只读面板（goalteam.go）：panel 是当前打开的面板，teamView 是异步取回的
-	// 团队视图（nil = 未取/取失败），teamLoading/teamErr 是其加载态。
-	panel       string
-	teamView    *dto.TeamView
-	teamLoading bool
-	teamErr     string
+	// 只读面板（goalteam.go）：panel 是当前打开的面板。J-1a（2026-10-12）之后
+	// 面板内容全来自会话快照（团队看板在 Snapshot.Runtime.TeamworkBoard），不再有
+	// "异步取回的团队视图"与它的 loading/err 三态。
+	panel string
 }
 
 func NewModel(app AppController) Model {
@@ -130,20 +127,15 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			model.quitting = true
 			return model, tea.Quit
 		}
-		// team.changed = 后端会话团队事实变了（装配/工作顺序/入职/编辑成员）。团队
-		// 面板是**按需读面**（数据不在快照里），不重取就会停在旧成员表上——此前只能
-		// 靠用户再按一次 Alt+T 才发现。GUI 的 status 子页同一口径（team.changed →
-		// 作废面板缓存，见 gui/frontend/dist/app.js 的 invalidateAgentTeam）。
-		var teamRefresh tea.Cmd
-		if model.panel == panelTeam && message.event.Kind == application.EventTeamChanged {
-			model.teamLoading = true
-			teamRefresh = fetchTeamView(model.app, model.snapshot.Session.ID)
-		}
+		// J-1a（2026-10-12）：这里原本有一条"team.changed → 重取 Agent Team 成员表"
+		// 的分支。成员表读面与它的发布点（会话团队装配面）都已退场，而团队看板
+		// （teamwork）**在会话快照里**（上面已经重取过快照），所以不再需要一条面板
+		// 专用的重取命令。
 		if model.snapshot.Chat.Running {
-			return model, tea.Batch(teamRefresh, waitApplicationEvent(model.subscription), tickEvery(3*time.Second))
+			return model, tea.Batch(waitApplicationEvent(model.subscription), tickEvery(3*time.Second))
 		}
 		model.queueFocus = false
-		return model, tea.Batch(teamRefresh, waitApplicationEvent(model.subscription))
+		return model, waitApplicationEvent(model.subscription)
 	case tickMsg:
 		model.snapshot = model.app.Snapshot()
 		model.syncView()
@@ -157,10 +149,6 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			model.uiError = message.err.Error()
 			model.syncView()
 		}
-		return model, waitApplicationEvent(model.subscription)
-	case teamViewMsg:
-		model = model.applyTeamView(message)
-		model.syncView()
 		return model, waitApplicationEvent(model.subscription)
 	default:
 		return model, nil

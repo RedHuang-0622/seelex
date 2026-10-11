@@ -1,28 +1,35 @@
 package core
 
-// goal_team_recorder_test.go — 接线：TL/EXEC 每回合原文的 role draft 写入与
-// **本轮结束即同步**。
+// goal_team_recorder_test.go —— 接线：TL/EXEC 每回合原文的 role draft 写入面。
 //
-// 存储层自己钉住 draft 是 sequencer 的 WAL（同步前可见、同步即删、重放幂等）；
-// 这里钉的是**接线口径**：每回合原文落 draft 之后，同一回合内必须 sync——
-// 只 append 不 sync 的接线会让前端角色快照一直挂着"未同步草稿"（用户看到的
-// 草稿行永远同步不掉），而只 sync 不 append 则会丢原文。两条生产者
-// （goal_team_recorder.go 的 RecordTLRound / RecordMainTurn）都要走这条通道。
+// 存储层自己钉住 draft → sequencer → WAL 的语义（同步前可见、同步即删、重放幂等）；
+// 这里原本钉的是**接线口径**：每回合原文 append 到 draft 之后，同一回合内必须 sync。
+//
+// **2026-10-12（J-1a）之后这条接线不可达**：记录器的第一道守卫是"本会话已装配团队"
+// （`sessionAgentTeamViewJ1A`），而那个读面的唯一事实来源——团队注册表——已随 Agent
+// Team 用户面整条退场，于是读面恒报未装配 ⇒ `RecordTLRound` / `RecordMainTurn` /
+// `ArchiveTLHistory` 一律在守卫处 no-op。因此本文件只留：
+//
+//  1. 一条**仍然成立**的降级断言（未装配团队 → no-op、不写 role draft，逐字未改）；
+//  2. 一条**退场守卫**把"记录器不再落任何原文"这件事记下来，免得下一个人看到
+//     `AppendRoleDraft` / `SyncRoleDraft` 还在（B1 保留面，`role_session.go`）就以为
+//     有一条活的调用链。
+//
+// 保留面完好：`AppendRoleDraft` / `SyncRoleDraft` / `RoleSnapshot` / 角色 draft 的
+// 存储实现与 headless RPC 一字未改（见 application/core/role_session.go、
+// sessionstore/role_session*.go、gui/headless.go 的 `role.*`）。
 
 import (
 	"context"
-	"strings"
 	"sync"
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/application/core/agentteam"
 	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
 )
 
 // draftRecordingSessions 记录 role draft 的两个动作（append / sync）及其顺序，
-// 并模拟存储侧 sync 的"发布即删草稿"语义（pending 清空）。它回答的接线问题是：
-// 会不会只 append 不 sync（草稿永远同步不掉），或只 sync 不 append（丢原文）。
+// 并模拟存储侧 sync 的"发布即删草稿"语义（pending 清空）。
 type draftRecordingSessions struct {
 	teamRecordingSessions
 	mu      sync.Mutex
@@ -56,159 +63,16 @@ func (s *draftRecordingSessions) recordedSteps() []string {
 	return append([]string(nil), s.steps...)
 }
 
-func (s *draftRecordingSessions) appendedRows() []dto.RoleDraftRow {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]dto.RoleDraftRow(nil), s.rows...)
-}
-
-func (s *draftRecordingSessions) syncOrder() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]string(nil), s.order...)
-}
-
 func (s *draftRecordingSessions) pendingRows() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.pending
 }
 
-// draftRecordingFixture 装配一个已建 goal（= 已自动装配 goal-a2a 团队）的会话，
-// 返回记录器与团队成员视图。
-func draftRecordingFixture(t *testing.T, sessionID string) (*draftRecordingSessions, goaldomain.TLRoundRecorder, dto.TeamView) {
-	t.Helper()
-	sessions := &draftRecordingSessions{}
-	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
-	ctx := withSessionID(context.Background(), sessionID)
-	if _, err := service.GoalBeginFor(ctx, sessionID, goaldomain.BeginRequest{Title: "记录回合"}); err != nil {
-		t.Skipf("goal 装配不可用于该夹具: %v", err)
-	}
-	view, err := service.AgentTeamView(sessionID)
-	if err != nil {
-		t.Fatalf("AgentTeamView: %v", err)
-	}
-	if !view.Configured {
-		t.Skip("该夹具没有装配 AgentTeam（无团队时记录器按设计 no-op）")
-	}
-	recorder := service.goalTLRecorderFor(sessionID)
-	if recorder == nil {
-		t.Fatal("goalTLRecorderFor 对非空 sessionID 必须给出记录器")
-	}
-	return sessions, recorder, view
-}
-
-// TestRecordTLRoundAppendsThenSyncsInTheSameRound 钉住 b（ADVISOR）回合的记录口径：
-// 一次 append（role_context 上下文 + tl_directive 裁决）紧跟一次 sync，且 sync 的
-// 排序键就是会话的顺序策略——本轮裁决已出 = 本轮结束，原文不留在草稿区。
-func TestRecordTLRoundAppendsThenSyncsInTheSameRound(t *testing.T) {
-	sessionID := "sess-tl-record"
-	sessions, recorder, view := draftRecordingFixture(t, sessionID)
-	roleSessionID := agentteam.RoleSessionID(sessionID, view.TeamID, "tl")
-	if roleSessionID == "" {
-		t.Fatalf("goal-a2a 团队的 tl 角色会话号必须可派生（team_id=%q）", view.TeamID)
-	}
-	if err := recorder.RecordTLRound(context.Background(), goaldomain.TLRoundRecord{
-		Trigger: "signal:step_checkpoint", RefSeq: 2,
-		Context: "本轮送给 ADVISOR 的原文", Output: "裁决：continue",
-	}); err != nil {
-		t.Fatalf("RecordTLRound: %v", err)
-	}
-
-	steps := sessions.recordedSteps()
-	want := []string{"append:tl@" + roleSessionID, "sync:tl@" + roleSessionID}
-	if len(steps) != len(want) || steps[0] != want[0] || steps[1] != want[1] {
-		t.Fatalf("回合记录步骤 = %v，want %v（append 在前、同一回合内 sync）", steps, want)
-	}
-	if got := strings.Join(sessions.syncOrder(), ">"); got != strings.Join(view.OrderRoles, ">") {
-		t.Fatalf("sync 排序键 = %q，want 会话顺序 %q（sequencer 的排序凭据）", got, strings.Join(view.OrderRoles, ">"))
-	}
-	if pending := sessions.pendingRows(); pending != 0 {
-		t.Fatalf("本轮结束后仍有 %d 行未同步草稿（前端会一直挂着草稿区）", pending)
-	}
-
-	rows := sessions.appendedRows()
-	if len(rows) != 2 {
-		t.Fatalf("一回合原文 = %d 行，want 2（它看到的上下文 + 它的原始回答）：%+v", len(rows), rows)
-	}
-	if rows[0].Event.Kind != "role_context" || rows[0].Event.Role != "system" ||
-		rows[0].Event.Content != "本轮送给 ADVISOR 的原文" {
-		t.Fatalf("第一行必须是它本轮看到的上下文原文：%+v", rows[0])
-	}
-	if rows[1].Event.Kind != goaldomain.DirectiveRowKind || rows[1].Event.Role != "assistant" ||
-		rows[1].Event.Content != "裁决：continue" {
-		t.Fatalf("第二行必须是裁决原文：%+v", rows[1])
-	}
-	// unit_seq 是 sequencer 的排序键，也是前端草稿区「round/unit」标签的来源：
-	// 同回合内必须有序且非零。
-	if rows[0].UnitSeq == 0 || rows[1].UnitSeq <= rows[0].UnitSeq {
-		t.Fatalf("同一回合的 unit_seq 必须递增且非零：%+v", rows)
-	}
-	for _, row := range rows {
-		if row.RoleName != "tl" || row.RoleSessionID != roleSessionID {
-			t.Fatalf("草稿行必须带角色归属（否则同步后无法按角色渲染）：%+v", row)
-		}
-		// seq 由 sequencer 在同步时分配——记录器不推演 seq；前端据此把草稿
-		// 与已发布行分开渲染（草稿没有 seq 列）。
-		if row.Event.Seq != 0 {
-			t.Fatalf("草稿行不该带 message seq（分配 seq 是 sync 的事）：%+v", row)
-		}
-	}
-}
-
-// TestRecordMainTurnPublishesHostMarkerInTheSameRound 钉住 EXEC 主持标记：
-// b 交还发言权时落一行 round_host 到 main 角色 draft，并在同一回合内发布。
-func TestRecordMainTurnPublishesHostMarkerInTheSameRound(t *testing.T) {
-	sessionID := "sess-main-turn"
-	sessions, recorder, _ := draftRecordingFixture(t, sessionID)
-	if err := recorder.RecordMainTurn(context.Background(), goaldomain.MainTurnRecord{
-		Trigger: "signal:step_checkpoint", RoundID: 4, Directive: goaldomain.DirectiveVerdictNotDone,
-	}); err != nil {
-		t.Fatalf("RecordMainTurn: %v", err)
-	}
-	steps := sessions.recordedSteps()
-	want := []string{"append:main@" + sessionID, "sync:main@" + sessionID}
-	if len(steps) != len(want) || steps[0] != want[0] || steps[1] != want[1] {
-		t.Fatalf("EXEC 主持标记步骤 = %v，want %v", steps, want)
-	}
-	rows := sessions.appendedRows()
-	if len(rows) != 1 || rows[0].Event.Kind != "round_host" || rows[0].RoundID != 4 {
-		t.Fatalf("主持标记行 = %+v，want 单行 round_host / round 4", rows)
-	}
-	if !strings.Contains(rows[0].Event.Content, "本轮由 EXEC 主持") {
-		t.Fatalf("主持标记必须自述身份（前端按 role_name 归到 EXEC 名下）：%q", rows[0].Event.Content)
-	}
-	if pending := sessions.pendingRows(); pending != 0 {
-		t.Fatalf("交还发言权后仍有 %d 行未同步草稿", pending)
-	}
-}
-
-// TestRecordTLRoundKeepsTheOriginalWhenTheRoundIsCancelled 钉住「取消不丢内容」：
-// 记录器刻意不因 ctx 取消而丢原文——只要本回合已出裁决（提交段只在
-// Evaluate 成功后产出记录，见 completeRound/recordRound），原文照落、照同步；取消
-// 发生在评估阶段时根本走不到记录器，因此不会留下悬空草稿。两种情形都不会出现
-// "取消丢内容"或"取消后草稿挂着"。
-func TestRecordTLRoundKeepsTheOriginalWhenTheRoundIsCancelled(t *testing.T) {
-	sessionID := "sess-tl-cancelled"
-	sessions, recorder, _ := draftRecordingFixture(t, sessionID)
-	cancelled, cancel := context.WithCancel(context.Background())
-	cancel()
-	if err := recorder.RecordTLRound(cancelled, goaldomain.TLRoundRecord{
-		Trigger: "signal:step_checkpoint", Context: "被取消的这一轮上下文", Output: "被取消的这一轮裁决",
-	}); err != nil {
-		t.Fatalf("RecordTLRound（已取消的 ctx）: %v", err)
-	}
-	steps := sessions.recordedSteps()
-	if len(steps) != 2 || !strings.HasPrefix(steps[0], "append:") || !strings.HasPrefix(steps[1], "sync:") {
-		t.Fatalf("已出裁决的回合即使 ctx 取消也必须 append + sync（不丢原文）：%v", steps)
-	}
-	if pending := sessions.pendingRows(); pending != 0 {
-		t.Fatalf("取消后不得留下未同步草稿：%d 行", pending)
-	}
-}
-
 // TestRecordTLRoundWritesNothingWithoutATeam 钉住降级：未装配 team 的会话不落
 // role draft（记录器按设计 no-op，不报错、不产生悬空草稿）。
+//
+// J-1a 之后这是**唯一可达**的那一支——每一条来路都走到这里。
 func TestRecordTLRoundWritesNothingWithoutATeam(t *testing.T) {
 	sessions := &draftRecordingSessions{}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
@@ -223,5 +87,51 @@ func TestRecordTLRoundWritesNothingWithoutATeam(t *testing.T) {
 	}
 	if steps := sessions.recordedSteps(); len(steps) != 0 {
 		t.Fatalf("未装配 team 的会话不得写 role draft，实际步骤 = %v", steps)
+	}
+}
+
+// TestRoleDraftRecordingIsUnreachableAfterJ1A 是**退场守卫**（2026-10-12 J-1a）：
+// 三条记录来路在任何会话上都只走到"未装配团队"那一支，因此都不落任何 role draft。
+//
+// 为什么值得一条用例：本条目删掉的是 Agent Team 的**装配面**，而"每回合原文落 tl 角色
+// draft"是它的下游。不把这件事钉下来，`goal_team_recorder.go` 里那份形状完好的代码会
+// 被读成"还在落盘"（它的 append→sync 顺序断言确实还在），下一个人就会照旧去改一条
+// 永不执行的路径。
+func TestRoleDraftRecordingIsUnreachableAfterJ1A(t *testing.T) {
+	sessions := &draftRecordingSessions{}
+	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
+	ctx := withSessionID(context.Background(), "sess-tl-record")
+	if _, err := service.GoalBeginFor(ctx, "sess-tl-record", goaldomain.BeginRequest{Title: "记录回合"}); err != nil {
+		t.Fatalf("GoalBeginFor: %v", err)
+	}
+	recorder := service.goalTLRecorderFor("sess-tl-record")
+	if recorder == nil {
+		t.Fatal("goalTLRecorderFor 必须给出记录器")
+	}
+	if err := recorder.RecordTLRound(ctx, goaldomain.TLRoundRecord{
+		Trigger: "signal:step_checkpoint", RefSeq: 2,
+		Context: "本轮送给 ADVISOR 的原文", Output: "裁决：continue",
+	}); err != nil {
+		t.Fatalf("RecordTLRound: %v", err)
+	}
+	if err := recorder.RecordMainTurn(ctx, goaldomain.MainTurnRecord{
+		Trigger: "signal:step_checkpoint", RoundID: 4, Directive: goaldomain.DirectiveVerdictNotDone,
+	}); err != nil {
+		t.Fatalf("RecordMainTurn: %v", err)
+	}
+	archiver, ok := recorder.(goaldomain.TLHistoryArchiver)
+	if !ok {
+		t.Fatal("goalTLRecorder 必须同时实现 TLHistoryArchiver（逃生收口要归档 b 侧历史）")
+	}
+	if err := archiver.ArchiveTLHistory(ctx, goaldomain.TLArchiveRecord{
+		Reason: "no_progress", Content: "b 侧历史",
+	}); err != nil {
+		t.Fatalf("ArchiveTLHistory: %v", err)
+	}
+	if steps := sessions.recordedSteps(); len(steps) != 0 {
+		t.Fatalf("会话团队装配面已退场，角色行记录不该有来路，实际步骤 = %v", steps)
+	}
+	if pending := sessions.pendingRows(); pending != 0 {
+		t.Fatalf("不得留下悬空草稿：%d 行", pending)
 	}
 }

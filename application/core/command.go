@@ -26,8 +26,8 @@ func (service *Service) registerBuiltinCommands() error {
 		for _, command := range service.commands.All() {
 			fmt.Fprintf(&builder, "  /%-12s  %s\n", command.Name(), command.Description())
 		}
-		builder.WriteString(fmt.Sprintf("\n提示: %s=命令  %s=切换插件  %s=召回 Skill  %s=手动召唤团队",
-			SigilCommand, SigilPlugin, SigilSkill, SigilTeam))
+		builder.WriteString(fmt.Sprintf("\n提示: %s=命令  %s=切换插件  %s=召回 Skill",
+			SigilCommand, SigilPlugin, SigilSkill))
 		// 面板口径与提交口径必须一致：`/` 只列"能从输入框直接提交"的入口
 		// （命令 + Skill）。工具由模型调用、经权限门，不在这里出现——一个能力
 		// 要让用户打 /名字 显式调用，前提是它已注册成命令。

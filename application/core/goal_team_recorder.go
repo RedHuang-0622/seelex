@@ -30,11 +30,25 @@ func (service *Service) goalTLRecorderFor(sessionID string) goaldomain.TLRoundRe
 	return goalTLRecorder{service: service, sessionID: strings.TrimSpace(sessionID)}
 }
 
+// sessionAgentTeamViewJ1A 是「本会话已装配团队」这一读面在 J-1a 之后的**保留形态**
+// （2026-10-12）：会话团队装配面（`AgentTeamView` / `agentTeamRawView` / 团队注册表
+// 的应用面孔）已随本条目整份退场，因此这里恒报「未装配」。
+//
+// 保留而不删 goal 逻辑的理由（本条目硬约束 B4）：退场前的实际行为就是"未装配 →
+// 不记角色行"（见 RecordTLRound 的 `!view.Configured` 守卫），所以恒返回零值
+// TeamView 与退场前的可达分支**逐字同解**；用一条命名清楚的函数承载它，比把守卫
+// 从三处删掉更能说明"这里少的是读面，不是判据"。本会话的团队事实现在归 teamwork
+// （团队看板 / seelebridge/teamwork），那条面未动。
+func (service *Service) sessionAgentTeamViewJ1A(mainSessionID string) (dto.TeamView, error) {
+	_ = mainSessionID
+	return dto.TeamView{}, nil
+}
+
 func (r goalTLRecorder) RecordTLRound(_ context.Context, record goaldomain.TLRoundRecord) error {
 	if r.service == nil || r.sessionID == "" {
 		return nil
 	}
-	view, err := r.service.AgentTeamView(r.sessionID)
+	view, err := r.service.sessionAgentTeamViewJ1A(r.sessionID)
 	if err != nil || !view.Configured {
 		return nil // 未装配 team 的会话不记角色行
 	}
@@ -71,7 +85,7 @@ func (r goalTLRecorder) RecordMainTurn(_ context.Context, record goaldomain.Main
 	if r.service == nil || r.sessionID == "" {
 		return nil
 	}
-	view, err := r.service.AgentTeamView(r.sessionID)
+	view, err := r.service.sessionAgentTeamViewJ1A(r.sessionID)
 	if err != nil || !view.Configured {
 		return nil
 	}
@@ -109,7 +123,7 @@ func (r goalTLRecorder) ArchiveTLHistory(_ context.Context, record goaldomain.TL
 	if r.service == nil || r.sessionID == "" {
 		return nil
 	}
-	view, err := r.service.AgentTeamView(r.sessionID)
+	view, err := r.service.sessionAgentTeamViewJ1A(r.sessionID)
 	if err != nil || !view.Configured {
 		return nil
 	}

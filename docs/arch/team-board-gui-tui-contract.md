@@ -285,7 +285,7 @@ application/model/state.go      SessionRuntime.TeamworkBoard  json:"teamwork_boa
 - 仍受 `clampLines(lines, panelLineLimit)` 约束（超长折叠成一行提示）。
 
 **两处数据源的分工（同一面板里不许出现两份名册）**：面板上半段的「TEAM + 成员表」来自
-`AgentTeamView` 的**异步**取值（发言调度面：AgentTeam 装配），看板一节来自 `TeamworkBoard`
+2026-10-12（J-1a）之后 TUI 不再有异步取值：Agent Team 成员表读面已退场，Alt+T 只渲染 `TeamworkBoard`（它本来就在会话快照里）。
 （leader 的**硬编排**面：计划 + 作业 + 审计）。两者本来就是不同的集合，因此看板一节**只报
 在编计数、不逐行列成员**——同屏列两遍"在编"，只会让人以为其中一份是错的。TUI 的看板节
 不做拓扑排序与状态折算（那是渲染件纯函数的职责），只按声明顺序陈述投影里已有的事实。

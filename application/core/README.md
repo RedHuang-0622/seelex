@@ -160,7 +160,7 @@ flowchart LR
 | [README-task.md](README-task.md) | `task_*_test.go` | 任务执行集成测试 |
 | [README-subagent.md](README-subagent.md) | `subagent_*_test.go` | 子代理投影集成测试 |
 | [README-goal.md](README-goal.md) | `goal_*.go` | goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回归 |
-| [README-agentteam.md](README-agentteam.md) | `agentteam_service.go`、`role_session.go` | AgentTeam 装配适配与群聊角色会话透传 |
+| [README-agentteam.md](README-agentteam.md) | `agentteam_runtime.go`、`role_session.go`（+ `application/core/agentteam/**` 的纯基座部分） | **角色会话基座**（`RoleSessionID` 派生、角色 draft/floor 透传）与遗留的发言调度原语；Agent Team 装配面**已退场（2026-10-12 J-1a）** |
 | [README-composer.md](README-composer.md) | `composer_*.go` | 输入草稿合成器的持久化与工作区绑定 |
 | [README-archive.md](README-archive.md) | `archive_*.go`、`close_semantics_test.go` | 会话归档与收尾语义 |
 | [README-misc.md](README-misc.md) | 显式名单（aliases/completion/compressed/diagnostics/fault-guard/limits/perf/snapshot-budget/runtime/workspace/race） | 基础与杂项 |

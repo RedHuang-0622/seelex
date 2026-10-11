@@ -61,6 +61,12 @@ MISC_FILES = [
     "workspace_usecase.go",
     "workspace_file_usecase_test.go",
     "workspace_tree_usecase_test.go",
+    # J-1a 文档同步时发现的**既有**漂移（与 J-1a 无关）：这三个根包测试文件在本条目之前就没有归卷，
+    # `verify_coverage` 因此一直失败（根包分卷索引停在旧快照，刷新不了任何一卷）。按脚本自己的
+    # 口径「新增文件必须显式归卷」，先把它们补进杂项卷。
+    "plugin_source_projection_test.go",
+    "served_route_test.go",
+    "turn_status_single_word_test.go",
     "window.go",
 ]
 
