@@ -57,7 +57,7 @@ flowchart TB
 | `dist/compaction-format.js` | 压缩记录的展示口径（纯函数、零依赖）：原因/来源标签、被压区间（`compactionRangeText`）、分界标注（`compactionCutLabel`）——右栏「上下文压缩」条目与轨迹压缩轨/详情共用同一份，避免同一条记录两种读法。区间只取记录里已有的边界字段，绝不用 `messages_before`（装配前的引擎历史条数）冒充消息条数。还有门禁进度的累计与耗时文案：`mergeCompactionProgress`（把一帧 `compaction.progress` 并进本轮，判轮次边界、累加逐关耗时、终局沿用最后一条 running 的序号，见 `dist/compaction-format.test.mjs`）与 `compactionGateDurationText`（不足 1ms 写 `<1ms`，不写 `0ms` 也不凑成 1ms）。 |
 | `dist/context-summary.js` | 右栏「状态」子页的「上下文压缩」条目：**seq 徽标**（= 压缩版本号，复用 `components.js renderSeqBadge`：goal 看板 active seq 与压缩条目共用同一件）/原因/来源/被压区间/估算/时间 + 展开后按 `frame_ref` 分页读回的压缩帧正文（与轨迹详情同一容器与分页组件）。**压缩失败**在同一张表里排一条痕（`failed=true`：失败色 + 「失败」标记 + 原因跨整行 + 动作列写「上下文原样」，无区间/无帧），因为它不是一次压缩——但它必须查得到（此前只活在 6 秒的瞬态进度条里）。此前只有一句硬编码英文占位句，没有区间、没有来源、不可展开。条目上方还有一轮压缩的门禁进度条（复用 Plan 面板的轨道）+ **逐关耗时清单**：压缩整轮只有几十毫秒，进度条不可能「慢慢走」，能看见串行工作的就是这份清单（每关一行 + 该关实测毫秒；起手帧那一关还没有数字，写「进行中」而不编耗时）。静态原型见 `dist/compaction-preview.html`（真渲染件 + 真样式，五格夹具）。 |
 | `dist/trajectory-view.js` | 轨迹视图组件：对话区「轨迹」子页的上下文轴（记录轨 + 前缀注入/压缩元数据轨）/轴详情/过滤条/摘要/表格 keyed 渲染，行内复制/展开/result_ref 分页读回，本地过滤状态；普通轴块点击切回全量并定位轨迹行，元数据块点击开轴详情。**上下文轴分页**：滚轮在轴区域内翻页（`axisWheelStep` 累积阈值、一页一屏语义）、`Shift+滚轮`换页大小（`AXIS_PAGE_SIZE_STEPS`/`stepAxisPageSize`，带页码与页大小提示），分页窗口计算是纯函数（`resolveAxisPage`/`axisPageWindow`/`axisPageForIndex`）；翻到尚未加载的更早区间时提示并以既有 `loadMore` 通道回读，不静默跳位。 |
-| `dist/components.js` | message/tool/queue 等纯渲染组件；对话滚动轴（thinking / tool 各自可展开收起，LLM 正文内联）与左侧调试 id。 |
+| `dist/components.js` | message/tool/queue 等纯渲染组件；对话滚动轴（thinking / tool 各自可展开收起，LLM 正文内联）与左侧调试 id。**邻接圆角**（F-6）：`renderConversationModel` 逐行按 `blocksFuse`（不同类 llm ↔ 工具过程始终融合；同类默认不分割，换轮次 `round_id` / 换角色归属 `role_name` ＝分割）给消息块与工具过程轴卡产出中介类 `is-joined-above` / `is-joined-below` / `is-joined-both` + `data-joined-above` / `data-joined-below`，CSS 只削交界那一侧、外侧角保留圆角。 |
 | `dist/html-embed.js` | 会话内 HTML 渲染块：`seelex-html`（别名 `html-preview`）围栏 → **沙箱 iframe**（`sandbox="allow-scripts"`，**无 `allow-same-origin`**）+ srcdoc 内嵌 CSP（`default-src 'none'`、断网、仅 data: 图片）+ 源码压缩；`title=`/`height=` 参数，高度钳制 120–640px；`interactive=1` 表示这一块自愿驱动会话（说明牌同步显示）。**跨帧动作协议**住在这里（标签、`data-seelex-action`/`data-seelex-payload`、动作表、注入脚本）——零 import，测试按 data: URL 内联它。普通 ```html 仍是源码块。 |
 | `dist/embed-bridge.js` | 会话内 HTML 渲染块的**动作通道宿主侧判据**（iframe → 宿主 · postMessage）：解析 → 动作白名单（`ask-agent` / `fill-composer` / `copy-text` / `open-source`）→ 载荷上限 → 块级自愿（driving 动作要求围栏 `interactive=1`）→ 滑动窗口限流与同正文去重。身份按 **`event.source`** 比对（沙箱 iframe 是 opaque origin，`event.origin` 恒为 `"null"`，按 origin 判等于不判）；有后果的动作还要求块内 1.5s 内的**真实手势**（帧内脚本按 `event.isTrusted` 记时，`onload`/timer 自动重放被丢）。落点在 `app.js`：复制 / 写输入框（不发送）/ 走 `SubmitToSession` 发一条请求 / 展开该块源码。纯函数，含 `embed-bridge.test.mjs`。 |
 | `dist/theme.js` | 换肤加载层（**两轴**：深浅 × 皮肤）：读 `themes/manifest.json` → 归一化 → 切 `<html data-theme>`（深浅）与皮肤 `<link>`（品牌）；id 限 `[a-z0-9-]`、路径只允许 `themes/<id>.css`（防路径逃逸）；皮肤记 `localStorage["seelex.skin"]`、深浅记 `localStorage["seelex.mode"]`。 |
@@ -595,6 +595,13 @@ Pico 给"包着 checkbox 的 label"写了 `width: fit-content`、又给 `[type=c
 DOM 重新测量：加载更早历史、增量新消息、容器缩放后自动重建，不需要任何
 「刻度加载」状态。类型与摘要来自渲染层写入的 `data-wheel-kind`/`data-wheel-label`。
 轨迹子页仍保留全部工具 IN/OUT 与思考全文，不做压缩。
+
+块与块之间的**邻接圆角**（F-6）：对话列里的块就是 llm 正文块（`.message`）与工具过程
+块（`.conversation-axis.is-tools`）。渲染期按邻接算出融合与否——不同类（llm ↔ 工具
+过程）始终融合（交界两侧圆角置 0、间距归零，外侧角保留圆角）；同类默认不分割，换轮次
+（`round_id`）或换角色归属（`role_name`）才算分割（两枚块圆角相对、保留间距）。判据挂
+成中介类 `is-joined-above` / `is-joined-below` / `is-joined-both`，同时写
+`data-joined-above` / `data-joined-below`，`styles.css` 只消费这些类、不认别的信号。
 
 回答里需要图表/示意图时，用显式标记的围栏块让前端渲染 HTML：
 

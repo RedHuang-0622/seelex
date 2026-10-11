@@ -602,6 +602,40 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .plan-card.is-running::before { border-color: var(--tick-hot); background: var(--tick-hot); }
 .plan-card.is-ok::before { border-color: var(--status-done); background: var(--status-done); }
 .plan-card.is-err::before { border-color: var(--status-failed); background: var(--status-failed); }
+/* ---------- F-6 · 消息块 / 工具过程块的邻接圆角（融合 vs 分割）----------
+   中介类由渲染层给出（components.js 的 blocksFuse / joinedAttrs）：交界处两侧圆角
+   置 0、块间距归零 ⇒ 上下两块读起来是一块；融合组的**外侧角**不受影响，仍是基础
+   规则里的 --r-* 圆角。反过来，"分割"（换轮次 / 换角色归属）不加任何类 ⇒ 两枚块各
+   自全圆角、中间保留基础间距，正是"圆角相对"的形态。
+   谁是块：llm 正文块 = .message（它的"框"长在 .message-body 上，user 气泡取
+   --r-xl）；工具过程块 = .conversation-axis（对话列里工具恒定收在轴卡内，卡内
+   `.tools-axis-scroll .tool-run` 已被抹平圆角与边框，chip 不是块）——.tool-run 一
+   并写上，因为单行工具条在别处也以一级块出现。
+   D4 信号条：融合只作用于**顶 / 底圆角与间距**；`.message::before` / `.plan-card
+   ::before` 仍是按块各自画的信号点，按块保留（做成贯通竖条要把点改线，超出本次
+   融合口径）。 */
+.message.is-joined-above, .message.is-joined-both,
+.conversation-axis.is-joined-above, .conversation-axis.is-joined-both,
+.tool-run.is-joined-above, .tool-run.is-joined-both {
+  margin-top: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+.message.is-joined-below, .message.is-joined-both,
+.conversation-axis.is-joined-below, .conversation-axis.is-joined-both,
+.tool-run.is-joined-below, .tool-run.is-joined-both {
+  margin-bottom: 0;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.message.is-joined-above .message-body, .message.is-joined-both .message-body {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+.message.is-joined-below .message-body, .message.is-joined-both .message-body {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
 .chat-activity-tail { max-width: 860px; margin: 0 auto 16px; }
 .message-head { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; color: var(--muted); font: 10px var(--font-mono); }
 .message-head strong { color: var(--muted); font-size: 10px; letter-spacing: .08em; }

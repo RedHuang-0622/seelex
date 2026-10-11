@@ -85,6 +85,32 @@ app.js 在启动时构造：
 
 未知或不能归并的事件不会到此处，由 client-state 先做 Snapshot refresh。
 
+### 4.1 消息块与工具过程块的邻接圆角（F-6）
+
+对话列里的"块"只有两类：**llm 正文块**（`components.js` 的 `renderMessage` →
+`.message`，它的"框"长在 `.message-body` 上）与**工具过程块**（`renderToolAxis` →
+`.conversation-axis.is-tools`；卡内 `.tool-run` 已被 `styles.css` 抹平圆角与边框，
+chip 不是块）。块与块之间是"融合成一块"还是"两枚块圆角相对"，由**邻接**在渲染期算
+（只有渲染层同时看得见上一条与下一条）：`renderConversationModel` 逐行调
+`blocksFuse(上一行, 本行)`，产出中介类 `is-joined-above` / `is-joined-below` /
+`is-joined-both`，并同时写 `data-joined-above` / `data-joined-below`（`"true"` /
+`"false"`）——宿主与测试按数据判，不靠像素量。
+
+判据只有三条（别再加第四条）：
+
+| 相邻两块 | 结果 |
+|---|---|
+| 不同类：llm ↔ 工具过程 | **始终融合**：交界两侧圆角都置 0、块间距归零 |
+| 同类：同轮次（`round_id`）且同角色归属（`role_name`） | 默认**不分割**：同样是交界两侧都没有圆角 |
+| 同类：换轮次 / 换角色归属 | **分割**：两枚块各自全圆角、中间保留间距 |
+
+融合组的**外侧角**永远保留圆角——CSS 只削交界那一侧（`styles.css` 的
+`.message, .tool-run` 段内就地写的邻接规则，半径仍只取 `--r-*`）。压缩分界行、未发送
+草稿行、运行时活动带自成一段，不参与融合。左侧信号条按块各自保留（D4 口径：融合只
+作用于顶/底圆角与间距，不做贯通竖条）。回归面：`components.test.mjs`（邻接类与
+`data-*`、以及 CSS 确实消费这些类）、`consistency.test.mjs`（chip ↔ 轨迹行口径不受
+中介类影响）。
+
 ## 5. 会话和历史操作
 
 实现位置：
