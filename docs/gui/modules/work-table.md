@@ -8,8 +8,9 @@
 一批 = 一次 chat 请求创建的全部条目（BatchID = requestID，如
 `chat-<nano>`）。展示层为 Excel 化多维表格：`<table class="excel-grid">`
 固定表头（类型/任务/描述/状态/Assignee/会话/依赖/附件/打点/操作），**批次维度
-通过底部 sheet 页签切换**（类 Excel 切换工作表；「全部」页签居首，页签
-展示标签与各类计数），表内按权威类型（kind：plan/task/todo/subagent）与
+是表头内的筛选行**（类 Excel 切换工作表：整行占满表头宽度、与表格同宽同源，
+「全部」页签居首、各批次页签展示标签与各类计数；横向滚动源只此一条），
+表内按权威类型（kind：plan/task/todo/subagent）与
 会话维度（全部会话/仅本会话）chips 过滤，另有「实发」开关只看真正进模型
 上下文的那一层。任务打点（trace）带进同一数据面。右栏为「入口按钮 + 未读
 角标」，点开按钮弹出完整多维表格弹窗
@@ -69,7 +70,9 @@
   前端解析详情节点的数据面与表格行同源同帧到达。
 - 前端 `gui/frontend/dist/work-table.js` 渲染表格、筛选、展开与行内交互；
   以 `<table class="excel-grid">` 渲染（固定表头、行 keyed reconciliation、
-  表头吸顶），批次维度通过底部 sheet 页签切换（`activeBatch` 纯 UI 态），
+  表头吸顶），批次维度是**表头内的批次筛选行**（`activeBatch` 纯 UI 态；
+  不再是表格底部那条独立灰挡板——底部条的宽度绑在卡片内宽、与表格自身的
+  横向滚动不同源，横向滚到底时两者长度对不上，2026-10-12 按 F-2 并入表头），
   按 kind chips 过滤；todo 行三态更新经 `Bridge.UpdateWorkItemStatus` 回写
   后端权威状态；行区独立滚轮滚动 + 分页查看（每页 10/20/50，页码钳制）。
 
@@ -104,7 +107,7 @@
    （可选增量，缺失/null 保留既有值，空数组表示树已清空）；不克隆 plan。
    子代理树的解析面因此与表格行同帧到达，详情入口不会出现"行可见、点开
    无反应"（工作表格行兜底见 `app.js` `resolveNodeForDetail`）。
-5. `work-table.js` keyed reconcile：批次维度通过底部 sheet 页签切换
+5. `work-table.js` keyed reconcile：批次维度通过**表头内的批次筛选行**切换
    （`activeBatch` 是纯 UI 态；批次失效自动回退「全部」），行在 tbody 内
    按 `data-work-row` keyed 重建，trace 展开行（`data-work-trace`）紧随
    主行并随主行内容变化重建；行详情复用 `SubagentSessionDetail`（上下文/
@@ -211,7 +214,7 @@ task 快照随 `SessionRecord.Tasks` 复用 session stack 存储通道（与 Pla
 | 三态/清单资源并发安全 | Actor + Mailbox（`seelebridge/todo_tool.go`，单消费者串行，请求-应答走 channel） |
 | 高并发事件流转 | CSP 汇聚发布器（channel cap=1，drain latest-wins，生产者阻塞背压） |
 | 多源归一 | 读模型投影（纯函数，锁内构建，无 I/O） |
-| 多维分片 | 批次 = chat 请求；`buildWorkTableBatches` 派生批次头（最早 CreatedAt 为批次时间），前端 sheet 页签维度切换（类 Excel 工作表） |
+| 多维分片 | 批次 = chat 请求；`buildWorkTableBatches` 派生批次头（最早 CreatedAt 为批次时间），前端在**表头内**以 sheet 页签行切换维度（类 Excel 工作表；与表格同宽同源、不再是底部独立条） |
 | 前端增量 | keyed reconciliation（tbody 行级 + trace 展开行）+ html 缓存（只重建变化行）+ 结构共享 reducer |
 
 ## 扩展方式

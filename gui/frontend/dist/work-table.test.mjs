@@ -534,3 +534,46 @@ test("新插入的行 / trace 行挂一次性入场类（只有首次插入才�
   assert.ok(source.includes('class="excel-sheets scroll-edges-x"'), "sheet 栏应是横向滚轴（滚轮/拖动可翻）");
 });
 
+
+test("批次页签并入表头：不再是表格底部的独立条，裁剪仍走 batchesInScope", () => {
+  const html = renderShellHTML([
+    { id: "todo:0", phase: "tasklist", task: "a", status: "pending", kind: "todo", batch_id: "chat-1" },
+    { id: "task:1", phase: "task", task: "b", status: "completed", kind: "task", batch_id: "chat-2" }
+  ], {
+    ...uiState(),
+    sentOnly: true,
+    viewSessionID: "sess-a",
+    batches: workTableBatches([
+      { id: "chat-1", label: "批次A", counts: { all: 1, todo: 1 } },
+      { id: "chat-2", label: "批次B", counts: { all: 1, task: 1 } }
+    ])
+  });
+  const headStart = html.indexOf('class="work-table-head"');
+  const batchRow = html.indexOf("data-work-batch-filters");
+  const sheets = html.indexOf("data-work-sheets");
+  const headEnd = html.indexOf("</header>");
+  assert.ok(
+    headStart >= 0 && batchRow > headStart && sheets > batchRow && sheets < headEnd,
+    "批次筛选行（sheet 页签）必须落在 .work-table-head 里，不再是表格底部独立条"
+  );
+  // 裁剪仍走 batchesInScope：实发 scope 下 chat-2 没有实发行 → 不列它的页签。
+  assert.match(html, /data-work-sheet="all"/);
+  assert.doesNotMatch(html, /data-work-sheet="chat-2"/);
+  // 底部灰挡板消失：sheet 栏只出现一次，且位于分页条（表格下沿）之前。
+  assert.equal(html.lastIndexOf("data-work-sheets"), sheets);
+  assert.ok(html.indexOf("data-work-pager") > sheets);
+});
+
+test("无批次时表头的批次筛选行仍占位，但不渲染任何 sheet（无底部残留）", () => {
+  const flat = renderShellHTML([
+    { id: "todo:0", phase: "tasklist", task: "a", status: "pending", kind: "todo" }
+  ], uiState());
+  assert.match(flat, /data-work-batch-filters/);
+  assert.doesNotMatch(flat, /data-work-sheets/);
+  assert.ok(flat.indexOf("data-work-batch-filters") < flat.indexOf("</header>"));
+});
+
+test("sheet 栏的插入锚点从表格下沿改到表头批次行（ensureSheetsBar）", () => {
+  assert.ok(source.includes('[data-work-batch-filters]'), "ensureSheetsBar 必须锚在表头批次行");
+  assert.ok(!source.includes('anchor.insertAdjacentHTML("afterend"'), "不得再插到表格下沿");
+});

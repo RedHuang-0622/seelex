@@ -66,7 +66,7 @@ flowchart TB
 | `dist/plan-dsl.js` | Plan JSON DSL 归一化、DAG → 树状布局（节点详情弹窗数据面）、节点详情弹窗。树轨事实是 `treeIsLast`/`treeAncestors`（末子标记 + 各层祖先是否续行），由 `tree-fork.treeRowAttrs` 画成缩进轨；子代理树同一套。 |
 | `dist/agent-team-view.js` | Agent Team 面板渲染（右侧栏 · 状态 → Agent Team）：**分成「员工库」（全局：员工是谁 + 档案（提示词 / 权限 / 类型）的**唯一编辑入口**；可用员工 = 全局母本 ∪ 本会话在编（读侧合并 `employeePool`），来源 chip 标 `库` / `本会话`，行内 入职（装进本会话）/ 修改 / ✕，只在本会话在编的行给「入库」）、「团队库」（一行一支用户团队，列为 团队 / 规模 / 操作；团队名是按钮 → 打开「这一支」的团队面板；行内 装配 / ✕；**没有内置形态**——形态目录已删，所以没有"内置 chip 行"）、「员工栏」（本会话在编名单 + 入职 / 摘除 / 删除；**次序 = 登记先后、不由人编排**：没有拖拽调序、没有位置列，表只留 员工（权限） / 操作 两列）、「发言调度」（运行态顺序串珠条：序号 + 身份，发言中 / 下一个各占一档高亮，轮次徽标 + 收束原因一行 meta）**；入职与修改员工、新建与编辑团队都是**冷加载面板**（`hirePanel` / `teamEditorPanel`，点 + / 团队名才注入 slot，字段按 身份 / 编排 / 能力 / 提示词 分节条目化，✕ 图标 / Esc 关闭），团队面板的成员表（`renderTeamMemberList`）行序 = 登记先后（保存时按行序写 `order_roles`）、可 ✕ 移除、可从下拉挑员工加进来。数据源是 Application API（`Bridge.AgentTeamView/Library/GlobalConfig/SaveTeam/DeleteTeam/MaterializeTeam/PutRole/DeleteRole/SetOrder/InstantiateRole/SaveEmployee/DeleteEmployee/OptimizePrompt` 等）。各份事实各有归属：发言顺序 = 会话 `lifecycle.order_roles`（次序 = 登记先后）与只回读的 `order_policy`，员工配置（提示词/权限）= 会话角色注册表，团队库 / 员工库 / 默认顺序 = **全局**母本（数据根下 `team/`，会话读的是深拷贝副本）；本模块不缓存顺序、不做乐观重排——每次动作后重拉视图（纯函数 `employeePool` / `teamMemberNames` / `nextAgentTeamOrder` / `teamGlobalDrift` / `teamRoleSpec` / `teamMemberSpecMap` / `teamEntryFromMembers` 供共用）。团队库条目存的是**整套 `dto.RoleSpec`**：成员行把这份规格挂在 `data-team-member-spec` 上跟着行走，保存时按行序写回；生态位（`role_kind` / `join_policy` / `presence_policy` / `directive_schema` / `order_priority`）与人的档案（提示词 / 权限 / 模型）都按**条目优先、其次员工库**取自这两份数据（形态目录删掉后不再有"哪个内置形态规定生态位"这一层），条目里存的 `gate_policy` / `compact_policy` 面板不给编辑入口、随条目原样保存；`order_policy` / `team_kind` 只作隐藏字段回传、面板不展示——面板搬的是整份 `RoleSpec`（曾经的教训：只搬 4 个字段会把 goal-a2a 的 tl 从 techlead 静默降级成 agent）。 |
 | `dist/todo-view.js` | todolist 渲染组件（数据源 `runtime.todo_items` 权威投影；仍供测试与复用，右侧工作台已由工作表格接管）。 |
-| `dist/work-table.js` | 工作表格视图（弹窗内完整多维表格：阶段/任务/描述/状态/Assignee/Dependency/附件）、批次分片（批次 = chat 请求，批次头可折叠 + 各类计数）、筛选（全部/Plan/Task/Todo/Subagent，按权威 kind）、行内打点、todo 三态更新、retry 计数（RETRY n）、plan/subagent 详情入口；行区独立滚轮滚动（表头吸顶）+ 分页查看（每页 10/20/50，页码钳制）；section/行两级 keyed reconciliation + html 缓存；`workTableSignatures`/`countUnread` 提供未读角标判据。 |
+| `dist/work-table.js` | 工作表格视图（弹窗内完整多维表格：阶段/任务/描述/状态/Assignee/Dependency/附件）、批次分片并入表头（批次 = chat 请求；表头内的批次筛选行：「全部」页签居首 + 各批次页签 + 各类计数，整行占满表头宽度、与表格同宽同源，横向滚动源只此一条；2026-10-12 按 F-2 取消表格底部那条灰色挡板）、筛选（全部/Plan/Task/Todo/Subagent，按权威 kind）、行内打点、todo 三态更新、retry 计数（RETRY n）、plan/subagent 详情入口；行区独立滚轮滚动（表头吸顶）+ 分页查看（每页 10/20/50，页码钳制）；section/行两级 keyed reconciliation + html 缓存；`workTableSignatures`/`countUnread` 提供未读角标判据。 |
 | `dist/tree-fork.js` | 树 / 分叉的统一渲染件（VS Code 观感，纯函数）。两件事：① `treeRowAttrs` 把「层级 + 是否末子 + 祖先是否续行」折算成树轨的 class/行内 style——祖先续行轨 = 行内 1px `linear-gradient` 背景（每层一道），自身连接轨 = `::before`（末子圆角弯头 / 非末子整行竖线），**零额外 DOM**；② `layoutCommitGraph` 把 git 的 parents 拓扑算成泳道（`rows[].lane` + 每行线段 + `dropped`），`commitGraphRowHTML` 逐行画 SVG（直线 / 合并贝塞尔 + 提交点），泳道色走 `--fork-lane-0..5`。像素几何只有一份（`railOffset`/`laneCenter`），CSS 只负责画，换肤只换 token。 |
 | `dist/worktree-view.js` | 工作树视图（「资源管理器」子页「工作树」面板）：数据源 `Bridge.WorkspaceTree(relPath, depth)` / `Bridge.WorkspaceFileCount()`（后端权威元数据，只含名称/路径/类型/大小/计数，不含文件内容）；目录行惰性展开（首次经 `loadDir` 拉子级并缓存）、直接文件计数 badge、截断提示；文件行是可点击按钮（`data-file-open`），点击经 `options.onOpenFile` 打开文件预览，同时 `draggable="true" data-file-drag="<工作区相对路径>"`——可以直接拖到聊天框/消息队列发出去（落点映射见 `dist/file-drop.js`）；层级连线交给 `tree-fork` 的树轨（不再是缩进 + 字符画），行点击用容器委托（展开/收起重绘不再逐行绑监听），全部文本 escape。 |
 | `dist/file-drop.js` | 档案夹 → 会话的拖放**纯映射**（拖拽载荷 → 工作区相对路径 → 排队正文 → 动作）：`normalizeDropPath`（只接受工作区内相对路径：绝对路径、`..`、超长一律丢弃）、`dropPaths`（自定义 mime → `text/plain` → 带路径字段的 `files`；**裸文件名不接受**——发出去只会让模型去读一个不存在的文件）、`fileQueueText`（渲染成一条可执行的读取指令）、`dropPlan`（草稿非空 → `insert` 只追加引用、不替用户发出去；草稿为空 → `queue` 走 composer 的普通提交路径，会话运行中由后端排进消息队列）。DOM 与 Bridge 调用留在 `app.js`（document 级委托：消息队列每次重绘都换 DOM） |
@@ -439,6 +439,14 @@ excel-grid 改成**一条回合一行**（行号 = seq，时间自上而下；�
   圆角 + 单边黑条"。同一套口径覆盖页签家族的五处：对话区子页、右栏子页、工作表页签、
   终端页签、发言调度胶囊（第 27 节 o）；库内 `inset 0 -Npx 0` 的写法已清零，
   `rgba(0, 0, 0` 只剩深色主题里的两个投影 token。
+- **工作表页签并入表头（2026-10-12，F-2）**：批次"分片"从表格**底部**那条独立灰条
+  （`border-top` + `--surface-2`）搬进 `.work-table-head`，成为第 4 个筛选维度
+  （`.work-filter-group.is-batch` + `data-work-batch-filters`，见 `work-table.js`
+  的 `renderSheetTabsHTML` / `ensureSheetsBar`）：整行占满表头宽度、与表格同宽同源，
+  底部灰挡板随之消失；筛选状态与计数仍走 `batchesInScope` / `scopedRows`（裁剪逻辑
+  只有一份），`activeBatch` 语义不变。`.excel-sheets` 是弹窗内**唯一的横向滚动源**，
+  边缘阴影（`scroll-edges-x`）就挂在它自己身上。`.excel-sheet` 的定义/覆盖从 4 处
+  收敛为 3 段职责分明（基础 / 动效 / reduced-motion），末段不再合并覆盖。
 - **上下文压缩块在 状态 折叠区里，且概要有且仅有它（两轮口径叠加）**：
   2026-09-24 把 `#context-compactions` 挂回 `#status-panel` 里、紧随概要（用户口径：
   "上下文压缩内容需要放到状态的概要下面"）；2026-09-26 再收窄为"概要有且仅有压缩栈

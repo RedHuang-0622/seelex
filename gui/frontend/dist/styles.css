@@ -2265,6 +2265,10 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .work-filter.is-session.is-active { border-style: solid; }
 .work-filter.is-sent::before { content: "◉"; margin-right: 4px; opacity: .7; }
 .work-filter.is-sent.is-active { color: var(--status-running); border-color: var(--border-running); background: var(--tint-running); }
+/* 批次（工作表页签）并入表头，成为第 4 个筛选维度：整行占满表头宽度（与表格同宽
+   同源），不再是表格底下那条独立灰挡板。横向滚动源只此一条，边缘阴影就挂在它
+   自己身上（.excel-sheets 带 scroll-edges-x）。 */
+.work-filter-group.is-batch { flex: 1 1 100%; min-width: 0; }
 .work-entry-body.is-collapsed { display: none; }
 .work-table-scroll { max-height: min(56vh, 560px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .work-grid { display: grid; grid-template-columns: 56px minmax(90px, 1.4fr) minmax(90px, 1.6fr) 66px 72px minmax(70px, .9fr) minmax(60px, .8fr) auto; gap: 6px 8px; align-items: center; }
@@ -2874,25 +2878,35 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .excel-grid tr.work-empty-row td { padding: 14px 10px; color: var(--faint); font-size: 11px; text-align: center; }
 .work-filter { border-radius: var(--r-lg); }
 
-/* 批次 sheet 页签（切维度 = 切工作表） */
+/* 批次 sheet 页签（切维度 = 切工作表）：**表头里的筛选行**（第 11 节的
+   `.work-filter-group.is-batch`），与表格同宽同源。
+   旧写法是表格底部的一条独立灰底条（border-top + --surface-2 + 上下 padding）：
+   宽度绑在卡片内宽上、与表格自身的横向滚动不同源，横向滚到底时两者长度对不上
+   ——用户点名的「底部灰色挡板」。本轮删掉那条挡板：底色、分隔线、上下留白一概
+   不留，位置交给表头；横向滚动源只此一条，边缘阴影挂在它自己身上
+   （scroll-edges-x，见第 26 节）。 */
 .excel-sheets {
   display: flex;
   flex-wrap: nowrap;
-  gap: 3px;
-  padding: 7px 10px 9px;
-  border-top: 1px solid var(--border);
-  background: var(--surface-2);
-  /* 批次多了不该把弹窗撑宽：sheet 栏自己横向滚（滚轮/拖拽都能翻，见第 26 节
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  /* 批次多了不该把弹窗撑宽：页签行自己横向滚（滚轮/拖拽都能翻，见第 26 节
      的 scroll-edges-x），纵向永远不滚。 */
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: thin;
 }
 /* 工作表页签的半径走 token：原先硬编码 `3px 3px 0 0`（上圆角 + 下直边）就是
-   "圆角配一条黑下框"那条丑的写法，本轮收敛到 `--r-md`（同族的选中态见 27-o）。 */
+   "圆角配一条黑下框"那条丑的写法，收敛到 `--r-md`。选中态（静止胶囊：同色系
+   薄底 + 同色系重字）也在这里一次定死，不再靠末段覆盖（见第 27 节 o）。 */
 .excel-sheet { display: inline-flex; align-items: center; gap: 6px; max-width: 240px; padding: 4px 10px; border: 1px solid var(--border); border-radius: var(--r-md); color: var(--muted); background: var(--surface); cursor: pointer; font: 10px var(--font-mono); }
 .excel-sheet:hover { color: var(--text-strong); border-color: var(--border-strong); }
-.excel-sheet.is-active { color: var(--text-bright); border-color: var(--border-strong); background: var(--surface); font-weight: 700; }
+.excel-sheet.is-active { color: var(--hl-ink); border-color: var(--border); background: var(--hl-fill); font-weight: 700; box-shadow: none; }
 .excel-sheet-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .excel-sheet-counts { flex: none; color: var(--faint); }
 
@@ -5521,13 +5535,13 @@ button.team-library-name:hover { color: var(--accent); text-decoration: underlin
    该元素的横向滚动暗示走 box-shadow，不靠 background，所以这里清底色不误伤它。 */
 .conversation-tabs { background: transparent; }
 
-/* o) 页签家族补齐剩下三处：工作表页签 / 终端页签 / 发言调度胶囊还是"圆角 + 单边色条"
+/* o) 页签家族补齐剩下两处：终端页签 / 发言调度胶囊还是"圆角 + 单边色条"
    的老写法（27-j 只覆盖了对话区与右栏页签）——`inset 0 -Npx 0` 压在圆角上，正是用户点名的
    那条丑（"圆角配上一个黑色的下外框"）。统一到同一套**静止胶囊**：同色系薄底 + 同色系重字，
-   描边强调、下条、投影一律不画；半径一并收敛到 token（工作表页签原来是硬编码的 3px）。 */
-.excel-sheet,
+   描边强调、下条、投影一律不画；半径一并收敛到 token。
+   工作表页签（.excel-sheet）已在上方（第 11 节工作表页签段）一次定死同样的形态与半径，
+   这里不再重复覆盖——原先是"末段再覆盖一份"的第四处定义，本轮按 F-2 删重复源。 */
 .terminal-tab { border-radius: var(--r-md); }
-.excel-sheet.is-active,
 .terminal-tab.is-active,
 .schedule-pill.is-next {
   color: var(--hl-ink);

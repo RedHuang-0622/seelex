@@ -68,3 +68,28 @@ test("styles.css 顶部仍保留 B0 视觉基线规则块（左栏锚点）", as
     assert.ok(css.includes(anchor), `基线块引用的锚点 ${anchor} 必须仍然存在`);
   }
 });
+
+// ── F-2（2026-10-12）附加闸：工作表页签的覆盖只留三段 ────────────────────────
+// `.excel-sheet` 原先被定义/覆盖 4 处（基础 + 动效段 + reduced-motion + 末段再覆盖），
+// 末段那份（与 .terminal-tab 合并）是纯粹的"更靠后的覆盖"；`.excel-sheets` 曾经是
+// 表格底部的独立灰挡板（border-top + --surface-2）。F-2 把批次页签并进表头、删掉
+// 重复源，只留三段职责分明：①基础（第 11 节，含选中胶囊）②动效（transition + 位移）
+// ③reduced-motion（复位）。这条闸钉住"末段不得再合并覆盖 .excel-sheet"。
+test("工作表页签覆盖只剩三段：末段不再把 .excel-sheet 与 .terminal-tab 合并覆盖", async () => {
+  const rules = cssRules(await read("styles.css"));
+
+  const merged = rules.filter(
+    rule => /\.excel-sheet(?![\w-])/.test(rule.selector) && /\.terminal-tab(?![\w-])/.test(rule.selector)
+  );
+  assert.deepEqual(merged, [], "末段不得再把 .excel-sheet 与 .terminal-tab 并成一条覆盖；选中态写在基础段");
+
+  const active = rules.find(rule => rule.selector === ".excel-sheet.is-active");
+  assert.ok(active, "基础段要有 .excel-sheet.is-active");
+  assert.match(active.body, /--hl-fill/, "选中胶囊底色（--hl-fill）应落在基础段，不靠末段覆盖");
+
+  const sheets = rules.find(rule => rule.selector === ".excel-sheets");
+  assert.ok(sheets, "批次页签行 .excel-sheets 要有定义");
+  assert.doesNotMatch(sheets.body, /border-top\s*:/, "底部灰挡板的分隔线必须已删");
+  assert.doesNotMatch(sheets.body, /background\s*:\s*var\(--surface-2\)/, "底部灰挡板的灰底必须已删");
+  assert.match(sheets.body, /overflow-x\s*:\s*auto/, "横向滚动源只剩它一条（挂在表头批次行里）");
+});

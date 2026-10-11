@@ -12,8 +12,11 @@ import { markEntering, rollNumber, syncScrollEdges } from "./motion.js";
 //    开关（只看真正写进当前会话请求尾部的行）；
 //  - `<table class="excel-grid">`：固定表头（类型/任务/描述/状态/Assignee/
 //    会话/依赖/附件/打点/操作），行 keyed reconciliation；
-//  - 底部 sheet 页签：批次 = 维度，「全部」页签居首，点击切换当前批次
-//    （类 Excel 切换工作表，批次维度 = 不同批次任务的表格）；
+//  - 表头内的批次筛选行（工作表页签）：批次 = 筛选维度之一，与「会话/实发/类型」
+//    三轴并列，整行占满表头宽度（与表格同宽同源）；「全部」页签居首，点击切换
+//    当前批次（类 Excel 切换工作表）。不再是表格底部那条独立灰条——底部灰挡板
+//    的宽度绑在卡片内宽上、与表格自身的横向滚动不同源，横向滚到底时两者长度
+//    对不上（用户原话「在长度上和表格是有差距的」）；
 //  - todo 行状态按钮 → Bridge.UpdateWorkItemStatus（pending/doing/done）；
 //  - plan/subagent 行「详情」→ 既有节点详情弹窗；
 //  - 行内「打点」→ 展开该行 trace 表（后端有界 ≤10 条）。
@@ -445,6 +448,7 @@ export function renderShellHTML(items, state) {
         <span class="work-filter-group" data-work-scope-filters role="group" aria-label="按是否实发筛选">${sentFilter}</span>
         <span class="work-filter-group" data-work-kind-filters role="group" aria-label="按类型筛选">${filters}</span>
       </div>
+      <span class="work-filter-group is-batch" data-work-batch-filters role="group" aria-label="按批次筛选">${sheets}</span>
     </header>
     <div class="work-entry-body${state.expanded ? "" : " is-collapsed"}" data-work-entry-body>
       <div class="work-table-scroll" data-work-table-scroll>
@@ -467,7 +471,6 @@ export function renderShellHTML(items, state) {
         </label>
       </div>
     </div>
-    ${sheets}
   </div>`;
 }
 
@@ -480,9 +483,10 @@ function kindCounts(items) {
 }
 
 // renderSheetTabsHTML 渲染批次 sheet 页签（「全部」居首；批次页签带权威批次
-// 计数摘要，如 Task 1 · Todo 1）。会话筛选生效时只列该会话里有行的批次
-// （否则「仅本会话」下会点出一堆空批次），但「全部」页签恒在，DOM 结构不随
-// 筛选变化。
+// 计数摘要，如 Task 1 · Todo 1）。会话/实发筛选生效时只列该 scope 里有行的
+// 批次（否则「仅本会话」下会点出一堆空批次），但「全部」页签恒在，DOM 结构
+// 不随筛选变化。页签嵌在表头「按批次筛选」那一行里（见 renderShellHTML），
+// 是表头内的筛选控件，不再是表格底部的独立条。
 function renderSheetTabsHTML(items, state) {
   const all = Array.isArray(state?.batches) ? state.batches : [];
   if (!all.length) return "";
@@ -503,17 +507,19 @@ function sheetTabHTML(id, label, countsText, active) {
   </button>`;
 }
 
-// ensureSheetsBar 保证批次 sheet 栏存在/移除（快照从有批次切到无批次时移除）。
+// ensureSheetsBar 保证表头「按批次筛选」行里的 sheet 栏存在/移除（快照从有
+// 批次切到无批次时移除）。批次行本身是 renderShellHTML 静态渲染的，这里只处理
+// 增量：批次出现/消失时不必整块重绘表头。
 function ensureSheetsBar(container, state) {
-  let sheetsRoot = container.querySelector("[data-work-sheets]");
+  const group = container.querySelector("[data-work-batch-filters]");
+  let sheetsRoot = group?.querySelector("[data-work-sheets]") || null;
   if (!state.batches.length) {
     sheetsRoot?.remove();
     return null;
   }
-  if (!sheetsRoot) {
-    const anchor = container.querySelector("[data-excel-grid]") || container.querySelector("[data-work-table-scroll]");
-    if (anchor) anchor.insertAdjacentHTML("afterend", '<div class="excel-sheets scroll-edges-x" data-work-sheets></div>');
-    sheetsRoot = container.querySelector("[data-work-sheets]");
+  if (!sheetsRoot && group) {
+    group.insertAdjacentHTML("beforeend", '<div class="excel-sheets scroll-edges-x" data-work-sheets></div>');
+    sheetsRoot = group.querySelector("[data-work-sheets]");
   }
   return sheetsRoot;
 }
