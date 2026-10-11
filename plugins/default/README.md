@@ -29,7 +29,7 @@ stateDiagram-v2
 ## 实现
 
 - `plugin.md` 的 include/exclude 均为空，交由 Seele Tool holder 暴露全部工具。
-- **不再有 Plan Skill**：`$plan` 已随 `plan_load` DAG 退场（工具面里没有 `plan_load`/`plan_run`/`plan_status`/`plan_clear`），`plan/` 目录已删；编排走 `$goal` + `$teamwork` + subagent / teammate。
+- **不再有 Plan Skill**：`$plan` 已随 `plan_load` DAG 退场（工具面里没有 `plan_load`/`plan_run`/`plan_status`/`plan_clear`），`plan/` 目录已删；`$plan-efficiency` 同日退场（它给出的节点定义 `agent_type` / `context_inherit` / `retry_on_fail` / `timeout` 在当前工具面里没有接收方），编排走 `$goal` + `$teamwork` + subagent / teammate。
 - 每个子目录是一个通用 Skill（`$` 前缀召回）。
 - `$goal` 与 `$teamwork` 是团队作业面的一对：`$goal` 维护 agent 自总结的目标看板（正文/完成条件/打点），
   `$teamwork` 是 leader 的工具面规范 —— **少而关键的编制 + teammate 多任务并发 + 任务尽量解耦 + 完成一件交一件**（里程碑屏障 + 里程碑内 Work Item DAG，契约先行、证据收尾）。**不再有席位轮转。**
@@ -42,7 +42,6 @@ stateDiagram-v2
 | `$goal` | 目标看板维护者：agent 自总结的 goal 看板（正文 + 完成条件 + 打点，位置由 active seq 钉住），并给出可派活的目标正文 |
 | `$teamwork` | leader 工具面：`team_plan` / `team_work` / `team_dispatch` / `team_join` / `team_accept` / `team_close` + `jobs_manage` 的用法；编制少而关键、teammate 多任务并发、任务解耦、完成一件交一件 |
 | `$plan-design` | 启发式方案设计：标杆调研、方案对比、技术选型 |
-| `$plan-efficiency` | 规划式效率方案：打点表、活动图、SubAgent 调度 |
 | `$plan-norm` | 约束式规范方案：ASPICE 追溯、变更影响分析、审查检查单 |
 | `$code` | 代码实现：接口优先、增量验证 |
 | `$code-aesthetics` | 代码审美：命名、简洁、可读、idiomatic |

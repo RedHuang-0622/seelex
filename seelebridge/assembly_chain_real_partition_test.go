@@ -69,12 +69,15 @@ var realPartitionHardwareFace = []string{
 	"write_file", "edit_file", "bash",
 }
 
-// realPartitionDefaultSkills 是 default 的 10 份技能（plugins_list 的活体读数）。
+// realPartitionDefaultSkills 是 default 的 9 份技能（plugins_list 的活体读数）。
 // 2026-10-12：删掉 `plan`（`$plan` SKILL.md 的"首步必须 plan_load"在当前工具面里已无法执行
-// —— 没有 plan_load/plan_run/plan_status/plan_clear；编排改由 $goal + $teamwork 承载）。
+// —— 没有 plan_load/plan_run/plan_status/plan_clear；编排改由 $goal + $teamwork 承载）；
+// 同日删掉 `plan-efficiency`：它给出的节点定义（agent_type / context_inherit / retry_on_fail /
+// timeout）在当前工具面里没有接收方（fork_subagents 只收 id/goal/max_loops，team_plan 收
+// role/plugins/tools_policy/worktree/max_turns），与 `plan` 同一种退场。
 var realPartitionDefaultSkills = []string{
 	"cli-design", "code", "code-aesthetics", "goal", "plan-design",
-	"plan-efficiency", "plan-norm", "review", "teamwork", "test",
+	"plan-norm", "review", "teamwork", "test",
 }
 
 // realPartitionHardwareSkills 是 hardware 的 7 份技能。
