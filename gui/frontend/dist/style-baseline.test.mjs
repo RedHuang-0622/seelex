@@ -118,3 +118,70 @@ test("F-1 对话轴默认可见：基础规则 opacity ≥ .8 且不依赖 :hove
   assert.match(empty.body, /opacity\s*:\s*0/, ".is-empty 仍以 opacity 隐藏");
   assert.ok(!/display\s*:\s*none/.test(empty.body), ".is-empty 不得改成 display:none（会让轨道高度量成 0）");
 });
+// ── F-3「资源管理器」子页：页签同族 / 行密度口径 / 唯一滚动源 ──────────────
+// 三页的行壳必须走 --row-min-h（B0 规则 3「行密度走 --row-min-h」），`.code-pane-body`
+// 是内容区的唯一滚动源（行容器不许再开一条 overflow：两处滚动会互相抢滚轮）。
+const ROW_SHELLS = [
+  ".code-pane-body .tree-row",
+  ".code-pane-body .git-log-line",
+  ".code-pane-body .git-commit-row",
+  ".code-pane-body .changes-row",
+];
+const ROW_CONTAINERS = [".worktree-view", ".git-log-view", ".git-commit-files", ".changes-view"];
+
+// bodyOf 把「选择器组里含这个选择器」的规则体按出现顺序拼起来（后写覆盖先写）。
+function bodyOf(rules, selector) {
+  return rules
+    .filter(rule => rule.selector.split(",").map(part => part.trim()).includes(selector))
+    .map(rule => rule.body)
+    .join(";");
+}
+
+test("子页三页的行壳走 --row-min-h 口径、圆角走 --r-md", async () => {
+  const rules = cssRules(await read("styles.css"));
+  for (const selector of ROW_SHELLS) {
+    const body = bodyOf(rules, selector);
+    assert.match(body, /min-height:\s*var\(--row-min-h\)/, `${selector} 的行高要走 --row-min-h 口径`);
+    assert.match(body, /border-radius:\s*var\(--r-md\)/, `${selector} 的圆角要走 --r-md token`);
+  }
+  // 提交列表行还有第二个读者：泳道 SVG 的行高，所以它是"固定行高"。
+  assert.match(bodyOf(rules, ".code-pane-body .git-log-line"), /height:\s*var\(--row-min-h\)/);
+});
+
+test("子页内容区是唯一滚动源：行容器不许自己再开 overflow", async () => {
+  const rules = cssRules(await read("styles.css"));
+  assert.match(bodyOf(rules, ".code-pane-body"), /overflow-y:\s*auto/, ".code-pane-body 必须仍是纵向滚动容器");
+  for (const selector of ROW_CONTAINERS) {
+    assert.doesNotMatch(
+      bodyOf(rules, selector),
+      /overflow(-x|-y)?\s*:/,
+      `${selector} 是行容器：滚动只归 .code-pane-body，别在这里再开一层`,
+    );
+  }
+});
+
+test("子页页签与右栏页签同族：--r-md + 既有选中信号 --hl-fill / --hl-ink", async () => {
+  const rules = cssRules(await read("styles.css"));
+  assert.match(bodyOf(rules, ".code-pane-tab"), /border-radius:\s*var\(--r-md\)/, "页签半径走 --r-md");
+  const active = bodyOf(rules, ".code-pane-tab.is-active");
+  assert.match(active, /background:\s*var\(--hl-fill\)/, "选中底 = 同色系薄底");
+  assert.match(active, /color:\s*var\(--hl-ink\)/, "选中字 = 同色系重字");
+  assert.match(active, /box-shadow:\s*none/, "选中态不描边、不投影（不画第二套黑框）");
+  // D3：详情 chip 的「当前项」与子页页签同义，视觉也收进同一套（只留一套选中语义）。
+  const chip = bodyOf(rules, ".code-pane-head .file-preview-chip.is-active");
+  assert.match(chip, /background:\s*var\(--hl-fill\)/, "chip 当前项 = 同一套薄底");
+  assert.match(chip, /color:\s*var\(--hl-ink\)/, "chip 当前项 = 同一套重字");
+});
+
+test("提交列表行高与泳道 SVG 的 ROW_HEIGHT 是同一份值", async () => {
+  const css = (await read("styles.css")).replace(/\/\*[\s\S]*?\*\//g, "");
+  const rowMinH = Number(css.match(/--row-min-h:\s*([0-9.]+)px/)?.[1]);
+  const js = await read("git-log-view.js");
+  const rowHeight = Number(js.match(/const ROW_HEIGHT = ([0-9]+);/)?.[1]);
+  assert.ok(Number.isFinite(rowMinH) && Number.isFinite(rowHeight), "两边都要量得到数");
+  assert.equal(
+    rowHeight,
+    rowMinH,
+    `ROW_HEIGHT(${rowHeight}) 必须等于 --row-min-h(${rowMinH}px)：行距 ≠ 行高时泳道会在行间断开`,
+  );
+});

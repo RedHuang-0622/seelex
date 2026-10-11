@@ -32,7 +32,11 @@ import { kindLabel } from "./workspace-changes.js";
 
 // MAX_FORK_LANES 之外的泳道不再画线（记 dropped，前端给一行提示）。
 const LANE_WIDTH = 16;
-const ROW_HEIGHT = 22;
+// ROW_HEIGHT 与 `.code-pane-body .git-log-line` 的高度是**同一份几何**（styles.css
+// 的 `height: var(--row-min-h)`，即 B0 的行密度口径 30px）：行距必须逐像素等于行高，
+// 泳道才能跨行连成一条线。改一处就要改另一处——dist/style-baseline.test.mjs 把
+// 这两个数直接对起来断言（读源文件的 `--row-min-h` 与这里的常量）。
+const ROW_HEIGHT = 30;
 // COMMIT_FILES_LIMIT 是提交详情一次列出的改动条数（展示预算：面板一屏翻不到
 // 200 条；后端另有 1000 的硬钳制与解析预算）。
 const COMMIT_FILES_LIMIT = 200;

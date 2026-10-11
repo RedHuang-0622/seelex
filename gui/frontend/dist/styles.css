@@ -1520,7 +1520,23 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 
 /* 右侧「工作树/提交记录/工作区更改」三块平级子页：上方一条内嵌页签（点击切换、
    激活态高亮，顺序与激活由 app.js 按 explorer-pages.js 收敛并持久化），下方是
-   当前子页的面板。容器自己不滚动——滚动交给 `.code-pane-body`。 */
+   当前子页的面板。容器自己不滚动——滚动交给 `.code-pane-body`。
+
+   B0 同族收口（2026-10-12，F-3）：
+   · 页签（`.code-pane-tab`）与右栏页签（`.right-tab`）是同一个组件族：半径走
+     `--r-md`、内边距 5px 12px、选中态用**既有信号色** `--hl-fill`(薄底) /
+     `--hl-ink`(重字)——不再自己画 `--surface` 底 + `--border-strong` 内描边
+     （那是全站第二套"选中色"，浅色皮肤下读起来就是一只深色外框）。
+   · 行密度走 `--row-min-h`（B0 规则 3）：三页的行壳（`.tree-row` /
+     `.git-log-line` / `.git-commit-row` / `.changes-row`）统一 `min-height:
+     var(--row-min-h)` + `--r-md`，一行一条。纵向内边距保持各类行自己的值
+     （2px / 0）：min-height 是行高的唯一决定项时，行高恰好 = 30px；若补到左栏
+     壳的 6px，行高会变成 2 + 12 + 17.25 ≈ 31.25px，反而越过口径 1.25px。
+   · 选中语义只有一套：`.is-active`（页签族）。详情 chip 的"当前项"与子页页签
+     是同一件事（都是 tablist 的当前项），视觉也收进同一套 `--hl-fill` /
+     `--hl-ink`；工作树行本身没有选中态（没有 `.is-active` 行），因此不存在
+     "树行选中 vs chip 当前项"两套高亮要合并。
+   · `.code-pane-body` 是本节唯一的滚动源（行容器一律不开 overflow）。 */
 .code-panes {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -1545,20 +1561,23 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .code-pane-tabs::-webkit-scrollbar { height: 0; width: 0; }
 .code-pane-tab {
   flex: 0 0 auto;
-  padding: 5px 10px;
+  padding: 5px 12px;              /* 同 .right-tab（页签族的同一档内边距） */
   border: 0;
-  border-radius: var(--r-sm);
+  border-radius: var(--r-md);
   color: var(--muted);
   background: transparent;
   font: 11.5px var(--font-ui);
   white-space: nowrap;
   cursor: pointer;
 }
-.code-pane-tab:hover { color: var(--text); }
+/* 悬停 = 换底（B0 规则 2）：页签条底是 --surface-2，所以这里取 --surface 提亮一档。 */
+.code-pane-tab:hover { color: var(--text-strong); background: var(--surface); }
+/* 选中 = 页签族同一套（--hl-fill 薄底 + --hl-ink 重字，不描边、不投影），
+   与 .conversation-tab / .right-tab / .excel-sheet / .terminal-tab 同源。 */
 .code-pane-tab.is-active {
-  color: var(--text-bright);
-  background: var(--surface);
-  box-shadow: inset 0 0 0 1px var(--border-strong);
+  color: var(--hl-ink);
+  background: var(--hl-fill);
+  box-shadow: none;
 }
 .code-pane-tab:focus-visible { outline: none; box-shadow: var(--focus-glow); }
 .code-pane {
@@ -1593,6 +1612,47 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   color: var(--faint);
 }
 .code-pane-refresh:hover { color: var(--accent); }
+
+/* D2 · 三页行壳收到左栏同一口径（B0 规则 3「行密度走 --row-min-h」）。
+   实测对照（2026-10-12，改前 → 本轮）：
+     min-height  .tree-row / .git-commit-row / .changes-row 24px → var(--row-min-h)(30px)
+                 .git-log-line                               22px → var(--row-min-h)(30px)
+     圆角        上述四类行 --r-sm(6px) → --r-md(8px)
+     纵向内边距  2px（不变；见文件上方理由：min-height 独占行高，行高恰好 30px）
+     行间距      .worktree-view 2px / .changes-view 0 / .git-log-view 0 —— 已 ≤ 左栏
+                 `.stack-list` gap 3px 与 `.session-group-body` gap 1px，不另加空隙。
+   树行的横向内边距属于 tree-fork 的树轨几何（`--tf-pad` + `--tf-indent`，弯头要对准
+   文字起点），本段不覆盖它。
+   `.code-pane-body` 仍是本节唯一滚动源：行容器（`.worktree-view` / `.git-log-view` /
+   `.git-commit-files` / `.changes-view`）一律不开 overflow。 */
+.code-pane-body .tree-row,
+.code-pane-body .git-log-line,
+.code-pane-body .git-commit-row,
+.code-pane-body .changes-row {
+  min-height: var(--row-min-h);
+  border-radius: var(--r-md);
+}
+/* 提交列表行还有第二个读者：泳道 SVG 的行高（git-log-view.js 的 ROW_HEIGHT）。
+   两者是同一份几何——行距必须逐像素等于行高，否则泳道会在行与行之间断开。
+   改这里的值就要同步 ROW_HEIGHT（style-baseline.test.mjs 把两个数对起来断言）。
+   注：上方「提交记录（Git Log）」段落那条注释仍写着"行高固定 22px"——该段落不在
+   本轮（F-3）的改动面内（只动 `.code-pane*`），事实以本条为准，改那条注释归该
+   段落的归属条目。 */
+.code-pane-body .git-log-line { height: var(--row-min-h); }
+
+/* D3 · 内容详情的「当前项」与子页页签是同一件事（tablist 的当前项 = .is-active），
+   视觉也用页签族那一套（--hl-fill / --hl-ink，不描边、不投影）。
+   chip 自己的规则在「文件预览」段落（`--panel` 底 + `--accent` 双描边），
+   那是全站第三套"选中色"；这里用 `.code-pane-head` 前缀就地收进同族——只写这一处，
+   不去改别的段落的规则。 */
+.code-pane-head .file-preview-chip.is-active {
+  color: var(--hl-ink);
+  background: var(--hl-fill);
+  border-color: transparent;
+  box-shadow: none;
+}
+/* 例外只有一条：脏标记（有未保存改动）比"当前项"更该被看见，别被上面的收口抹掉。 */
+.code-pane-head .file-preview-chip.is-active.is-dirty { border-color: var(--status-running); }
 
 /* 文件预览内容区 */
 /* 预览内容区是「多文件详情」容器：每个文件详情一个面板（见 file-preview.js），

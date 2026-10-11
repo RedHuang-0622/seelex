@@ -251,6 +251,13 @@ retry 状态展示 `RETRY n`（retry_count）。
   刷新是**原子能力**：单飞（在飞期间复用同一个 promise）+ 代次提交（过期响应不回写、
   不出现三个面板新旧混搭），失败保留旧数据只提示——规则在
   `gui/frontend/dist/explorer-refresh.js`，页签语义在 `explorer-pages.js`。
+  子页页签与右栏页签是同一个页签族（`--r-md` + 既有信号色 `--hl-fill` / `--hl-ink`，
+  不描边不投影）；三页行壳走 `--row-min-h` 行密度口径（一行一条），`.code-pane-body`
+  是内容区唯一滚动源（行容器不开 overflow）；内容详情 chip 的当前项与子页页签同义，
+  视觉同一套——选中语义全站只有 `.is-active`（工作树行没有选中态）。提交列表行是固定
+  行高，与 `git-log-view.js` 的 `ROW_HEIGHT`（泳道 SVG）成对，改动必须同步。旧键
+  `seelex.right.codePanes` 只有"读一次 + 删一次"两条路径，没有任何写回（见
+  `docs/gui/modules/right-sidebar.md`「页签与行密度」）。
   内容详情抽屉宽度可拖拽（`--preview-w`，`seelex.preview-pane-width` 记忆，
   **无固定上限**——只受子页宽封顶，可把任一侧拉到几乎占满子页），抽屉头部一枚按钮
   可**隐蔽工作树与提交记录**让内容详情独占子页（`seelex.preview-panes-hidden` 记忆），

@@ -229,6 +229,43 @@ draft 文件删除）。所以「本轮完成」= 草稿变成已发布行、「
 其顺序（旧的首块面板成为激活页），旧的两项版本与任何脏值一律安全回退默认顺序；迁移
 （含回退）后旧键即删除，存储里不留第二种事实。页签切换只切显隐，不触发 Bridge 调用。
 
+**旧键只剩一份事实（2026-10-12 复核）**：`seelex.right.codePanes` 全仓只有三处——常量
+声明 `explorer-pages.js` 的 `LEGACY_PANE_ORDER_KEY`、`app.js` 读取一次
+（`storageGet(LEGACY_PANE_ORDER_KEY)`）、迁移后删除一次
+（`storageRemove(LEGACY_PANE_ORDER_KEY)`）。**没有任何写回路径**，旧版拖拽换序的写入方
+已不存在，因此存储里不会再有第二种顺序事实。新键是唯一落盘面
+（`seelex.right.explorer.v1`，形状 `{order, active}`，落盘前一律过
+`serializeExplorerState` 收敛）。
+
+#### 页签与行密度（B0 同族，2026-10-12）
+
+子页页签与右栏页签（`.right-tab`）是**同一个页签族**：半径 `--r-md`、内边距
+`5px 12px`、选中态用既有信号色 `--hl-fill`（当前皮肤色系的一层薄底）+ `--hl-ink`
+（同色系重字），不描边、不投影。旧的 `.code-pane-tab.is-active`（`--surface` 底 +
+`--border-strong` 内描边）已下线——那是全站第二套"选中色"，浅色皮肤下读起来就是一只深色外框。
+
+内容详情的 chip（`#file-preview-tabs`）的**当前项**与子页页签同义（都是 tablist 的当前项），
+因此视觉也收进同一套：`.code-pane-head .file-preview-chip.is-active` 取 `--hl-fill` /
+`--hl-ink`（唯一例外是脏标记 `is-dirty` 仍保留 `--status-running` 边色——"有未保存改动"
+比"当前项"更该被看见）。工作树行本身**没有**选中态（`.tree-row` 无 `.is-active` 规则），
+所以不存在"树里选中的文件 vs 详情里正在看的文件"两套高亮需要区分或合并：选中语义全站只有
+`.is-active` 一套。
+
+三页的行壳走 B0 规则 3 的行密度口径 `--row-min-h`（`min-height: var(--row-min-h)` +
+`--r-md`，一行一条）。实测值（2026-10-12，改前 → 改后）：行高
+`.tree-row` / `.git-commit-row` / `.changes-row` 24px → 30px，`.git-log-line`
+22px → 30px；行圆角 `--r-sm`(6px) → `--r-md`(8px)；纵向内边距保持 2px 不动——它不参与
+行高（`min-height` 独占），补到左栏壳的 6px 反而会让行高变成 ≈31.25px 而越过口径；
+行间距维持 `.worktree-view` 2px / `.changes-view` 0 / `.git-log-view` 0（`git-log-view`
+的 0 是几何要求），已 ≤ 左栏 `.stack-list` gap 3px / `.session-group-body` gap 1px。
+树行的**横向**内边距不归本口径：它属于 `tree-fork` 的树轨几何（`--tf-pad` +
+`--tf-indent`，末子弯头要对准文字起点），改动会让弯头与文字脱钩。
+提交列表行（`.git-log-line`）是**固定行高**，因为它还有第二个读者：
+泳道 SVG 的行高（`git-log-view.js` 的 `ROW_HEIGHT`）——两者必须逐像素相等，否则泳道会在
+行与行之间断开（`dist/style-baseline.test.mjs` 把这两个数对起来断言）。`.code-pane-body`
+是子页内容区的**唯一滚动源**：行容器（`.worktree-view` / `.git-log-view` /
+`.git-commit-files` / `.changes-view`）一律不开 `overflow`（两处滚动会互相抢滚轮）。
+
 刷新是**原子能力**（`gui/frontend/dist/explorer-refresh.js`）：
 
 - **single-flight**：同一时刻只有一次在飞的刷新；重复触发（重复点页签 / 连点刷新）
