@@ -92,6 +92,7 @@ test("工作表页签覆盖只剩三段：末段不再把 .excel-sheet 与 .term
   assert.doesNotMatch(sheets.body, /border-top\s*:/, "底部灰挡板的分隔线必须已删");
   assert.doesNotMatch(sheets.body, /background\s*:\s*var\(--surface-2\)/, "底部灰挡板的灰底必须已删");
   assert.match(sheets.body, /overflow-x\s*:\s*auto/, "横向滚动源只剩它一条（挂在表头批次行里）");
+});
 // F-1（2026-10-12）：对话轴从"隐形的线"变成可发现的导航件。
 //
 // 这条闸钉住的是"默认可见"这一条口径：`.conversation-shell .conversation-wheel`
