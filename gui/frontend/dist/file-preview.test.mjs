@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   CODE_EXTENSIONS,
+  PREVIEW_CHIP_VISIBLE_LIMIT,
   PREVIEW_LIMITS,
   base64ToBytes,
   baselineDriftNotice,
@@ -255,6 +256,43 @@ test("renderPreviewTabsHTML marks dirty chips", () => {
   assert.ok(html.includes("（未保存）"), "脏 chip 的提示文案要说明未保存");
   const clean = renderPreviewTabsHTML(tabs, "", []);
   assert.ok(!clean.includes("is-dirty"));
+});
+
+// ── chip 条溢出（J-2 D2：agent 一次批处理最多 10 份，chip 条宽度是有限资源）──
+
+test("renderPreviewTabsHTML 超过可见上限时折叠成「还有 N 个」（可见 5 + 计数）", () => {
+  const tabs = Array.from({ length: 8 }, (_, i) => ({ path: `f${i}.go`, name: `f${i}.go` }));
+  const folded = renderPreviewTabsHTML(tabs, "f0.go");
+  // 只有前 PREVIEW_CHIP_VISIBLE_LIMIT 枚可见，其余折进溢出入口。
+  assert.equal(PREVIEW_CHIP_VISIBLE_LIMIT, 5);
+  const visibleChips = folded.match(/data-preview-tab="/g) || [];
+  assert.equal(visibleChips.length, PREVIEW_CHIP_VISIBLE_LIMIT);
+  assert.ok(folded.includes('data-preview-overflow="expand"'));
+  assert.ok(folded.includes("还有 3 个"), "溢出计数 = 总数 - 可见数");
+  // 展开态：全部可见（8 枚 chip + 收起入口），不再有「还有 N 个」。
+  const expanded = renderPreviewTabsHTML(tabs, "f0.go", [], { expanded: true });
+  assert.equal((expanded.match(/data-preview-tab="/g) || []).length, 8);
+  assert.ok(expanded.includes('data-preview-overflow="collapse"'));
+  assert.match(expanded, />收起</);
+  assert.ok(!expanded.includes("还有 3 个"));
+  // 不超过上限：不出现溢出入口。
+  const small = renderPreviewTabsHTML(tabs.slice(0, 5), "f0.go");
+  assert.ok(!small.includes("data-preview-overflow"));
+});
+
+test("折叠时当前显示的详情必须占一席（激活项落在折叠区就换进可见区）", () => {
+  const tabs = Array.from({ length: 7 }, (_, i) => ({ path: `f${i}.go`, name: `f${i}.go` }));
+  const folded = renderPreviewTabsHTML(tabs, "f6.go");
+  assert.ok(folded.includes('data-preview-tab="f6.go"'), "正在看的文件在条上必须有位置");
+  assert.ok(folded.includes("file-preview-chip is-active"));
+  // 可见区仍是 5 枚（用激活项换掉最后一枚，而不是多长出一枚）。
+  assert.equal((folded.match(/data-preview-tab="/g) || []).length, PREVIEW_CHIP_VISIBLE_LIMIT);
+  assert.ok(folded.includes("还有 2 个"));
+});
+
+test("chip 悬停提示带上 review 请求的 note（为什么请人看它）", () => {
+  const html = renderPreviewTabsHTML([{ path: "src/a.go", name: "a.go", note: "看这段 diff" }], "src/a.go");
+  assert.ok(html.includes("src/a.go — 看这段 diff"));
 });
 
 // ── 代码高亮 token 配色（F-5 D1）────────────────────────────

@@ -221,14 +221,20 @@ draft 文件删除）。所以「本轮完成」= 草稿变成已发布行、「
   工作区文件），而历史版本与工作区同名文件会是同一枚 chip——一次保存就能把某个历史
   版本写回工作区。那一层在提交记录面板内只读渲染，渲染分派仍共用
   `file-preview.renderReadOnlyContent`。
-  **Agent 驱动打开（J-2，后端已落）**：主 agent 调 `show_files`（`seelebridge/review_files.go`）请求
+  **Agent 驱动打开（J-2，前后端已落）**：主 agent 调 `show_files`（`seelebridge/review_files.go`）请求
   "请 GUI 打开这些待审阅文件"，一次调用 = 一次批处理召唤、单次上限 10 份（超限显式报错）。它不是事件而是
   **会话作用域的可重放请求**（`Snapshot.ReviewRequest` / `SessionSnapshot.ReviewRequest`，契约
-  `dto.ReviewRequest`），前端起来或切回该会话时按快照补放：逐个 `openPreviewTab`，**只有第一枚成为当前
-  显示的详情**、其余只出 chip（不抢视线、不为每一枚读盘——内容仍按路径走 `Bridge.WorkspaceFileContent`）。
+  `dto.ReviewRequest`），前端起来或切回该会话时按快照补放：**只有第一枚成为当前显示的详情**、其余只出
+  chip（不抢视线、不为每一枚读盘——内容仍按路径走 `Bridge.WorkspaceFileContent`）。
   后端已按 workspace 域统一裁决 containment/敏感/二进制/存在性，并回契约（`requested` / `opened` /
   `skipped[].reason` ∈ sandbox|sensitive|binary|missing|duplicate）。失效语义与既有口径一致：**工作区切换 /
   解绑时随树清空**（清单是工作区相对路径），**会话切换各持一份**（结构性清帧态），不落盘（冷加载后为空）。
+  **前端消费端（J-2b）**：`app.js:applyReviewRequest` 在快照渲染路径上按 `review-request.js`（纯逻辑，
+  含 `decideReviewApply` / `reviewRequestEntries`）幂等补放——不重复开 tab、不重读盘（同路径只激活，由
+  `openPreviewTab` 去重语义保证），抽屉为空时自动收起（`onEmpty`）。**chip 条溢出**：`PREVIEW_CHIP_VISIBLE_LIMIT`
+  （=5）枚以外折叠成「还有 N 个」可展开入口，当前显示的详情落在折叠区时换进可见区。**不抢视线（§7.2 保守
+  默认）**：apply 路径不切子页（不调 `revealView`）、抽屉里已有正在看的文件就保留它（不拽向请求第一份）、
+  用户正在编辑（预览编辑器开着）时整轮不抢、等下一次快照补放。
 - **工作树**：`Bridge.WorkspaceTree(relPath, depth)` / `Bridge.WorkspaceFileCount()`
   （后端权威元数据：名称/路径/类型/大小/直接文件计数，不含文件内容）；目录行
   惰性展开，文件行是可点击按钮（打开预览）；层级连线用 `tree-fork` 的树轨

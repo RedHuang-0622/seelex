@@ -30,6 +30,19 @@ lands.
   （不改共享状态；返回值只带路径与计数，文件内容不进上下文）——见 `docs/arch/agent-permission-subjects.md`
   §2.2/§7.2 第 5 条。
 
+- **Agent 驱动 GUI 打开待审阅文件：前端 apply 路径（`review_request` → 抽屉 chip）**（GUI · `J-2` D2）.
+  新模块 `gui/frontend/dist/review-request.js`（纯逻辑，不碰 DOM/Bridge）：解析快照顶层键 `review_request`、
+  判定"新的一次召唤 / 同一份快照的补放 / 用户正在编辑"（`decideReviewApply`）、把清单映射成抽屉条目
+  （`reviewRequestEntries`：只带 path(+note)，内容仍走既有 `Bridge.WorkspaceFileContent`——**没有第二条读面**）。
+  `app.js:applyReviewRequest` 在快照渲染路径（`render(snapshot)`）上幂等补放：展开内容详情抽屉 → 逐个开 chip，
+  **只有第一枚成为当前显示的详情**、其余只出 chip；同路径文件只激活、不重复读盘（复用 `openPreviewTab` 去重）；
+  抽屉为空自动收起（`onEmpty`）。**chip 条溢出**：`file-preview.PREVIEW_CHIP_VISIBLE_LIMIT`（=5）枚以外折叠成
+  「还有 N 个」可展开入口（`renderPreviewTabsHTML` 新增 `options.expanded`），当前显示的详情落在折叠区时换进
+  可见区；控制器新增 `openDeferred`（批量开 chip + 懒加载：只为当前显示的那一枚读盘）与 `editing()`。
+  **不抢视线（§7.2 本轮保守默认）**：apply 路径不切子页（不调 `revealView("code")`）、抽屉里已有正在看的文件
+  就保留它（不拽向请求第一份）、用户正在编辑（预览编辑器开着）时整轮不抢、等下一次快照补放（不推进已应用水位，
+  所以不会漏）。`snapshot-shape.SESSION_TOP_KEYS` 增补 `review_request`（会话顶层键，进程制品不得携带）。
+
 - **文件预览：HTML（`.html` / `.htm`）只读态渲染为沙箱页面，点编辑才是代码**（GUI · 前端一致性批 `F-7`）.
   `previewKindForPath` 新增预览类型 `html`（`.html`/`.htm` 从 `CODE_EXTENSIONS` 移出）；只读分派
   `renderReadOnlyContent` 的 `html` 分支复用 `html-embed.js` 的沙箱口径（`buildHtmlPreviewDocument` /
@@ -51,6 +64,11 @@ lands.
   携带该格 + wire 字段名 `request_id`/`files`/`skipped[].reason` 跨语言钉住）；`docs/gui/schemas`
   的 `session-snapshot.schema.json`（`$defs.reviewRequest` / `reviewFileRef`）由 `e2e.TestGUIDocumentContracts`
   验证。
+
+- **J-2 前端**：`gui/frontend/dist/review-request.test.mjs`（契约形状解析与半份契约丢弃、会话×request_id 水位、
+  `decideReviewApply` 三态：新召唤应用 / 补放不抢 / 编辑中延迟且不推进水位、条目映射只带 path(+note)、
+  `app.js` 在 `render` 里消费且 `openReviewRequest` 不切子页）；`file-preview.test.mjs` 新增 chip 条溢出
+  （可见 5 + 「还有 N 个」+ 展开/收起入口 + 激活项折叠时换进可见区 + note 进悬停提示）。
 
 - `gui/frontend/dist/file-preview-render.test.mjs`（`.html` 只读态 `kind=html` 且渲染出沙箱 iframe；离线
   CSP / 无 `src` / 无跨帧桥）、`file-preview.test.mjs`（`previewKindForPath` 分派、`.html`/`.htm` 移出

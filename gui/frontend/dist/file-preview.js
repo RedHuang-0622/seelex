@@ -269,7 +269,11 @@ export function normalizePreviewTab(entry) {
   const path = typeof entry.path === "string" ? entry.path : "";
   if (!path) return null;
   const name = typeof entry.name === "string" && entry.name ? entry.name : previewTabLabel(path);
-  return { path, name };
+  const tab = { path, name };
+  // note 只在确实带的时候挂上（J-2 review request 的"为什么请你看它"）：它进 chip 的悬停
+  // 提示，不进正文，也不参与去重（去重只认 path）。
+  if (typeof entry.note === "string" && entry.note) tab.note = entry.note;
+  return tab;
 }
 
 // openPreviewTab 打开一个文件详情：已在列表则原样返回（再次点击同一个文件
@@ -303,22 +307,52 @@ export function closePreviewTab(tabs, path, activePath = "") {
   return { tabs: list, active: list[Math.min(index, list.length - 1)].path };
 }
 
-// renderPreviewTabsHTML 渲染上标 chip 条：每枚 chip = 一个已打开的文件详情，
-// 尾部一枚关闭按钮。dirtyPaths 里的 chip 缀一枚未保存标记（●）——「编辑过但还没
-// Ctrl+S」这件事必须一眼看得见，否则用户关掉抽屉时才发现丢了内容。全部文本 escape。
-export function renderPreviewTabsHTML(tabs, activePath = "", dirtyPaths = []) {
+// PREVIEW_CHIP_VISIBLE_LIMIT 是 chip 条的宽度预算：一次最多可见这么多枚 chip，其余折叠
+// 进一枚「还有 N 个」。后端一次批处理召唤最多 10 份（dto.MaxReviewFilesPerRequest，见
+// review-request.MAX_REVIEW_FILES_PER_REQUEST），10 枚 chip 会把行宽撑爆——chip 条是有限
+// 资源，不是无底洞。
+export const PREVIEW_CHIP_VISIBLE_LIMIT = 5;
+
+// renderPreviewTabsHTML 渲染上标 chip 条：每枚 chip = 一个已打开的文件详情，尾部一枚关闭
+// 按钮。超过 PREVIEW_CHIP_VISIBLE_LIMIT 时把余下折叠成一枚「还有 N 个」入口（options.expanded
+// = true 时全部展开，并给出收起入口）。dirtyPaths 里的 chip 缀一枚未保存标记（●）——「编辑过但
+// 还没 Ctrl+S」这件事必须一眼看得见，否则用户关掉抽屉时才发现丢了内容。全部文本 escape。
+export function renderPreviewTabsHTML(tabs, activePath = "", dirtyPaths = [], options = {}) {
   const list = Array.isArray(tabs) ? tabs : [];
   const dirty = new Set(Array.isArray(dirtyPaths) ? dirtyPaths : []);
-  return list.map(tab => {
-    const active = tab.path === activePath;
-    const label = tab.name || previewTabLabel(tab.path);
-    const isDirty = dirty.has(tab.path);
-    return `<span class="file-preview-chip${active ? " is-active" : ""}${isDirty ? " is-dirty" : ""}" role="tab" aria-selected="${String(active)}" data-preview-tab="${escapeHtml(tab.path)}" title="${escapeHtml(isDirty ? `${tab.path}（未保存）` : tab.path)}" tabindex="${active ? "0" : "-1"}">
+  const limit = PREVIEW_CHIP_VISIBLE_LIMIT;
+  const expanded = options?.expanded === true;
+  const collapsedCount = Math.max(0, list.length - limit);
+  const visible = (!expanded && collapsedCount > 0) ? visibleChips(list, activePath, limit) : list;
+  const html = visible.map(tab => chipHTML(tab, activePath, dirty));
+  if (!expanded && collapsedCount > 0) {
+    const hidden = list.length - visible.length;
+    html.push(`<span class="file-preview-chip file-preview-chip-overflow" role="button" tabindex="0" aria-expanded="false" data-preview-overflow="expand" title="还有 ${hidden} 个已打开的文件详情（共 ${list.length} 个）">还有 ${hidden} 个</span>`);
+  } else if (expanded && collapsedCount > 0) {
+    html.push(`<span class="file-preview-chip file-preview-chip-overflow is-expanded" role="button" tabindex="0" aria-expanded="true" data-preview-overflow="collapse" title="收起其余 ${collapsedCount} 个文件详情">收起</span>`);
+  }
+  return html.join("");
+}
+
+// visibleChips 取折叠时可见的那几枚：前 limit 枚；若当前显示的详情落在折叠区，就用激活项
+// 换掉可见区最后一枚——"正在看的文件"在条上必须有一席（否则用户找不到自己在看哪一份）。
+function visibleChips(list, activePath, limit) {
+  const activeIndex = list.findIndex(tab => tab.path === activePath);
+  if (activeIndex < limit) return list.slice(0, limit);
+  return [...list.slice(0, limit - 1), list[activeIndex]];
+}
+
+// chipHTML 渲染单枚 chip（标签 / 关闭按钮 / 脏标记 / 悬停提示 = 路径 [+ note]）。
+function chipHTML(tab, activePath, dirty) {
+  const active = tab.path === activePath;
+  const label = tab.name || previewTabLabel(tab.path);
+  const isDirty = dirty.has(tab.path);
+  const title = [tab.path, tab.note].filter(Boolean).join(" — ");
+  return `<span class="file-preview-chip${active ? " is-active" : ""}${isDirty ? " is-dirty" : ""}" role="tab" aria-selected="${String(active)}" data-preview-tab="${escapeHtml(tab.path)}" title="${escapeHtml(isDirty ? `${title}（未保存）` : title)}" tabindex="${active ? "0" : "-1"}">
         <span class="file-preview-chip-label">${escapeHtml(label)}</span>
         ${isDirty ? `<span class="file-preview-chip-dirty" title="有未保存的修改" aria-label="有未保存的修改">${icon("dot", 10)}</span>` : ""}
         <button type="button" class="file-preview-chip-close" data-preview-tab-close="${escapeHtml(tab.path)}" title="关闭 ${escapeHtml(tab.path)}" aria-label="关闭 ${escapeHtml(tab.path)}">${icon("close", 11)}</button>
       </span>`;
-  }).join("");
 }
 
 // ── 控制器（DOM 依赖部分）──────────────────────────────────
@@ -343,6 +377,9 @@ export function createFilePreviewController({
   const tabs = [];
   const panels = new Map(); // path -> record
   let activePath = "";
+  // chipsExpanded = chip 条是否已展开到"全部可见"（超过可见上限时的「还有 N 个」入口）。
+  // 只是这条 chip 条的本地姿态，不进快照、不落盘。
+  let chipsExpanded = false;
 
   // record = {
   //   panel: 面板（显隐单位，含工具栏 + 正文两段）,
@@ -357,6 +394,13 @@ export function createFilePreviewController({
 
   if (tabsHost) {
     tabsHost.addEventListener("click", event => {
+      // 「还有 N 个」入口：先把折叠的 chip 摊开，或再收起来（不关任何文件）。
+      const overflow = event.target?.closest?.("[data-preview-overflow]");
+      if (overflow) {
+        event.preventDefault();
+        setChipsExpanded(overflow.dataset.previewOverflow === "expand");
+        return;
+      }
       const closeButton = event.target?.closest?.("[data-preview-tab-close]");
       if (closeButton) {
         event.preventDefault();
@@ -368,6 +412,14 @@ export function createFilePreviewController({
       if (chip) activateTab(chip.dataset.previewTab || "");
     });
     tabsHost.addEventListener("keydown", event => {
+      const overflow = event.target?.closest?.("[data-preview-overflow]");
+      if (overflow) {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          setChipsExpanded(overflow.dataset.previewOverflow === "expand");
+        }
+        return;
+      }
       if (event.target?.closest?.("[data-preview-tab-close]")) return; // 关闭按钮交给原生 click
       const chip = event.target?.closest?.("[data-preview-tab]");
       if (!chip) return;
@@ -423,8 +475,14 @@ export function createFilePreviewController({
 
   function syncChips() {
     if (!tabsHost) return;
-    tabsHost.innerHTML = renderPreviewTabsHTML(tabs, activePath, dirtyPathList());
+    tabsHost.innerHTML = renderPreviewTabsHTML(tabs, activePath, dirtyPathList(), { expanded: chipsExpanded });
     tabsHost.classList.toggle("hidden", tabs.length === 0);
+  }
+
+  // setChipsExpanded 摊开 / 收起 chip 条的溢出区（只改这条条的可见枚数，不碰标签集合）。
+  function setChipsExpanded(expanded) {
+    chipsExpanded = Boolean(expanded);
+    syncChips();
   }
 
   // askDirtyChoice 把"有未保存内容"这件事交给宿主弹窗（保存 / 不保存 / 取消）。
@@ -475,7 +533,7 @@ export function createFilePreviewController({
     view?.appendChild(panel);
     const record = {
       path: tab.path, panel, el: body, toolbar,
-      generation: 0, cleanups: [], loaded: null, baseline: null, edit: null, rendered: false
+      generation: 0, loading: false, cleanups: [], loaded: null, baseline: null, edit: null, rendered: false
     };
     panels.set(tab.path, record);
     return record;
@@ -685,6 +743,7 @@ export function createFilePreviewController({
 
   async function loadInto(tab, record) {
     const generation = ++record.generation;
+    record.loading = true;
     runCleanups(record);
     record.loaded = null;
     record.baseline = null;
@@ -702,6 +761,8 @@ export function createFilePreviewController({
       record.rendered = true;
       renderNotice(record.el, `无法预览：${error?.message || String(error)}`);
       if (onError) onError(error);
+    } finally {
+      if (generation === record.generation) record.loading = false;
     }
     renderToolbar(record);
   }
@@ -755,11 +816,50 @@ export function createFilePreviewController({
     if (result.added) await loadInto(tab, record);
   }
 
+  // openDeferred 批量打开一组待审阅文件（J-2 的「apply review request」落点）：逐个建
+  // chip，**只有第一枚成为当前显示的详情**，其余**只出 chip、不读盘**——某一枚被激活时
+  // 才按路径走 loader 读回（见 activateTab 的懒加载）。
+  //
+  // 「不抢视线」的那一半（§7.2，本轮保守默认）在这里落地：传入 activePath = 用户当前正在
+  // 看的文件时，就**保留它**（不把视线拽到请求的第一份）；只有抽屉里本来没有正在看的文件
+  // （activePath 为空）时才让第一枚成为当前显示的详情。同路径文件只激活、不重复读盘——由
+  // openPreviewTab 的去重语义保证。返回实际激活的路径（"" = 什么都没打开）。
+  function openDeferred(entries, { activePath: preferred = "" } = {}) {
+    const list = (Array.isArray(entries) ? entries : []).filter(Boolean);
+    if (!list.length) return "";
+    let firstPath = "";
+    for (const entry of list) {
+      const result = openPreviewTab(tabs, entry);
+      if (!result.path) continue;
+      tabs.length = 0;
+      tabs.push(...result.tabs);
+      const tab = tabs.find(item => item.path === result.path);
+      ensurePanel(tab);
+      if (!firstPath) firstPath = result.path;
+    }
+    activePath = preferred && panels.has(preferred) ? preferred : firstPath;
+    showActivePanel();
+    syncChips();
+    const record = panels.get(activePath);
+    if (record && !record.loaded && !record.loading && !record.edit) {
+      const tab = tabs.find(item => item.path === activePath);
+      if (tab) void loadInto(tab, record);
+    }
+    return activePath;
+  }
+
   function activateTab(path) {
-    if (!panels.has(path)) return;
+    const record = panels.get(path);
+    if (!record) return;
     activePath = path;
     showActivePanel();
     syncChips();
+    // 懒加载（J-2）：批量召唤时只为第一枚读盘，其余只出 chip；某一枚被激活时才按路径走
+    // loader 读回。同路径已加载 / 正在读 / 正在编辑时都不重复读盘。
+    if (!record.loaded && !record.loading && !record.edit) {
+      const tab = tabs.find(item => item.path === path);
+      if (tab) void loadInto(tab, record);
+    }
   }
 
   function closeTab(path) {
@@ -770,6 +870,7 @@ export function createFilePreviewController({
     disposePanel(path);
     if (tabs.length === 0) {
       activePath = "";
+      chipsExpanded = false;
       syncChips();
       renderEmptyState();
       if (onEmpty) onEmpty(); // 容器为空 → 生命周期结束，子页恢复原来大小
@@ -786,12 +887,14 @@ export function createFilePreviewController({
     for (const path of Array.from(panels.keys())) disposePanel(path);
     tabs.length = 0;
     activePath = "";
+    chipsExpanded = false;
     syncChips();
     renderEmptyState();
   }
 
   return {
     open,
+    openDeferred,
     activateTab,
     closeTab,
     clear,
@@ -802,6 +905,14 @@ export function createFilePreviewController({
     exitEdit: requestExitEdit,
     dirtyPaths: dirtyPathList,
     isDirty: path => isDirtyRecord(panels.get(path)),
+    // editing 报告"用户此刻是否正在编辑某个文件详情"：J-2 的 apply 路径据此**不抢视线**
+    // （用户在编辑时不展开抽屉、不切文件，等下一次快照补放）。
+    editing: () => {
+      for (const record of panels.values()) {
+        if (record.edit) return true;
+      }
+      return false;
+    },
     requestClose,
     requestCloseAll,
     tabs: () => tabs.slice(),

@@ -17,6 +17,7 @@ import { createWorkTreeView } from "./worktree-view.js";
 import { createGitLogView } from "./git-log-view.js";
 import { createWorkspaceChangesView } from "./workspace-changes.js";
 import { createFilePreviewController } from "./file-preview.js";
+import { decideReviewApply, reviewRequestEntries } from "./review-request.js";
 import { renderCompactionFrameModal, renderContextCompactions } from "./context-summary.js";
 import { compactionRangeText, compactionReasonLabel, mergeCompactionProgress } from "./compaction-format.js";
 import { renderGoalDetail, renderGoalPanel } from "./goal-board-view.js";
@@ -523,6 +524,11 @@ let previewPanesHidden = false;
 // previewCollapsed = 详情抽屉收成竖轨、内容页（工作树/提交记录）独占子页。
 let previewCollapsed = false;
 let previewRoot = "";
+// reviewAppliedKey 是最近一次**已应用**的「请 GUI 打开这些待审阅文件」召唤（会话 ID +
+// request_id，见 review-request.js）。同一个 key 再次到达 = 同一份快照的补放：不再开
+// tab、不抢当前文件（契约 dto.ReviewRequest 的"补放"口径）。用户关掉抽屉后它保持不动，
+// 因此"人可忽略、可撤销"这件事是**结构性**的——不靠额外状态，只靠这个水位不被回退。
+let reviewAppliedKey = "";
 elements["file-preview-close"].addEventListener("click", closeFilePreview);
 elements["file-preview-hide-panes"].addEventListener("click", togglePanesHidden);
 // 「收起详情，让出内容页」：抽屉收成竖轨（内容页独占），竖轨本身是展开入口。
@@ -692,6 +698,10 @@ function render(snapshot, options = {}) {
   scheduleAgentTeamRefresh(snapshot);
   renderSkills(snapshot.runtime?.skills || []);
   renderInteraction(snapshot.interaction);
+  // J-2：agent 请求打开的待审阅文件（会话作用域的可重放状态，随快照到达）。放在这里
+  // 而不是增量分支——后端按整份快照事件发布（见 application/core/review_files.go），
+  // 前端只需在快照渲染时按 request_id 幂等地补放一次（见 applyReviewRequest）。
+  applyReviewRequest(snapshot);
   syncSessionChrome();
   // 限高滚动块刚被重绘：补一次边缘阴影（增量/滚动期间由委托监听维护）。
   refreshScrollShadows();
@@ -5253,6 +5263,47 @@ function togglePanesHidden() {
   previewPanesHidden = !previewPanesHidden;
   storageSet(FILE_PREVIEW_PANES_KEY, previewPanesHidden ? "1" : "0");
   syncPreviewLayout();
+}
+
+// applyReviewRequest 消费快照里的 review_request（J-2 契约见 dto.ReviewRequest /
+// review-request.js）：agent 请求「在侧边资源管理器打开这些待审阅文件」→ 展开内容详情
+// 抽屉 → 逐个开 chip（**只有第一枚成为当前显示的详情**，其余只出 chip）。
+//
+// 抢视线取舍（§7.2，本轮保守默认）——**不强制切换用户当前正在看的子页 / 文件**：
+//   1) 不调 revealView("code")：用户停在别的子页时，chip 与详情就绪但界面**不跳页**；
+//   2) 抽屉里已有正在看的文件就保留它（不把视线拽到请求的第一份）；只有抽屉为空
+//      （用户没在看任何详情）时才让第一枚成为当前显示；
+//   3) 用户正在编辑（预览编辑器开着）时**整轮不抢**：不展开、不切文件，等下一次快照
+//      再补放（decideReviewApply 不推进已应用水位，所以不会漏）。
+// 这与契约一致：请求是**人可忽略、可撤销**的详情抽屉请求，不是模态框、不是置顶窗。
+// 返回值是取舍原因（absent/replay/editing/new），便于诊断与测试。
+function applyReviewRequest(snapshot) {
+  const decision = decideReviewApply(snapshot, {
+    appliedKey: reviewAppliedKey,
+    editing: filePreviewController.editing()
+  });
+  if (!decision.apply) return decision.reason;
+  reviewAppliedKey = decision.key;
+  openReviewRequest(decision.request);
+  return decision.reason;
+}
+
+// openReviewRequest 执行一次「打开这些待审阅文件」：展开内容详情抽屉，逐个开 chip。
+// 与 openFilePreview 共用同一套抽屉展开逻辑，但**刻意不切子页、不播抽出示意动效**——
+// 打开抽屉是"就绪"，不是"把用户的视线拉过来"（§7.2）。
+function openReviewRequest(request) {
+  previewRoot = client.current()?.current_workspace?.root_path || previewRoot;
+  previewPaneOpen = true;
+  previewCollapsed = false; // 展开 = 解除"收起让出内容页"
+  const pane = elements["file-preview-pane"];
+  if (pane) {
+    pane.classList.remove("is-closed");
+    document.documentElement.style.setProperty("--preview-w", previewPaneWidth());
+  }
+  syncPreviewLayout();
+  filePreviewController.openDeferred(reviewRequestEntries(request), {
+    activePath: filePreviewController.active()
+  });
 }
 
 function openFilePreview(entry) {

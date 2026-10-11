@@ -56,7 +56,10 @@ export const SESSION_TOP_KEYS = Object.freeze([
   "total_messages",
   "has_more_history",
   "conversation_window",
-  "read_files"
+  "read_files",
+  // review_request = agent 发起的「请 GUI 打开这些待审阅文件」批处理请求（会话作用域
+  // 的可重放状态，J-2）。它随会话快照下发，进程制品不得携带（归属表归一）。
+  "review_request"
 ]);
 
 // PROCESS_TOP_KEYS 是 ProcessSnapshot 顶层 JSON 键：会话目录/工作区/绑定。
