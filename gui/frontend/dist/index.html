@@ -549,6 +549,8 @@
        docx-preview 与 pdf.js 不在这里同步加载：它们只服务"打开 .docx / .pdf 预览"
        这一件事（合计约 440KB 脚本），改由 file-preview.js 首次走到该类型预览时
        用 vendor-loader.js 注入（按需加载；已就绪则原样复用）。
+       mermaid（约 3.3MB）同理不在这里加载：由 mermaid-diagram.js 在第一次真的
+       遇到 ```mermaid 围栏时经同一条 ensureVendorScript 注入（见 vendor/README.md）。
        PDF worker 由 file-preview.js 按相对路径加载。 -->
   <script src="./vendor/highlightjs/highlight.min.js"></script>
   <script src="./vendor/highlightjs/languages.all.min.js"></script>

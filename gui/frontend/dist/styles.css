@@ -1777,6 +1777,62 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   background: transparent;
   font: inherit;
 }
+/* 代码高亮 token 配色（highlight.js）——一份口径两处共用：文件预览代码块
+   （`.file-preview-code code.hljs`）与 markdown 代码块（`.file-preview-content.is-markdown
+   pre code.hljs`，同一 `.file-preview-content` 子树）都从这里取色。
+   颜色全部由**中性基座 token**（面/文本/状态，styles.css 的 :root 与
+   :root[data-theme="dark"] 两套基座）与**皮肤主信号**（--accent / --accent-strong，
+   已由 :root 桥接到 themes/<skin>.css 的 --skin-accent-*）派生，因此六套皮肤
+   （glass / graphite / paper / qoder / silver / verdigris）× 深浅两轴自动跟随：
+   皮肤只管给品牌 token，不需要各自再写一份 hljs 配色——这正是 theme.test.mjs
+   两轴契约要求的"不新增第三种供色方式"。
+   --code-* 就地声明在本段（不动 :root），下游只引用它们，改一处即全改。 */
+.file-preview-content {
+  --code-keyword: var(--accent-strong);
+  --code-string: var(--status-done);
+  --code-number: var(--status-running);
+  --code-comment: var(--faint);
+  --code-function: var(--status-info);
+  --code-type: var(--text-bright);
+  --code-variable: var(--text-strong);
+  --code-meta: var(--muted);
+  --code-symbol: var(--text-dim);
+  --code-deletion: var(--status-failed);
+}
+.file-preview-content code.hljs .hljs-keyword,
+.file-preview-content code.hljs .hljs-selector-tag,
+.file-preview-content code.hljs .hljs-literal,
+.file-preview-content code.hljs .hljs-doctag,
+.file-preview-content code.hljs .hljs-template-tag,
+.file-preview-content code.hljs .hljs-selector-id { color: var(--code-keyword); }
+.file-preview-content code.hljs .hljs-string,
+.file-preview-content code.hljs .hljs-regexp,
+.file-preview-content code.hljs .hljs-addition,
+.file-preview-content code.hljs .hljs-quote { color: var(--code-string); }
+.file-preview-content code.hljs .hljs-number,
+.file-preview-content code.hljs .hljs-bullet { color: var(--code-number); }
+.file-preview-content code.hljs .hljs-comment { color: var(--code-comment); font-style: italic; }
+.file-preview-content code.hljs .hljs-title,
+.file-preview-content code.hljs .hljs-section,
+.file-preview-content code.hljs .hljs-selector-class { color: var(--code-function); }
+.file-preview-content code.hljs .hljs-type,
+.file-preview-content code.hljs .hljs-class .hljs-title,
+.file-preview-content code.hljs .hljs-tag,
+.file-preview-content code.hljs .hljs-name,
+.file-preview-content code.hljs .hljs-built_in { color: var(--code-type); }
+.file-preview-content code.hljs .hljs-variable,
+.file-preview-content code.hljs .hljs-template-variable,
+.file-preview-content code.hljs .hljs-attr,
+.file-preview-content code.hljs .hljs-attribute,
+.file-preview-content code.hljs .hljs-property,
+.file-preview-content code.hljs .hljs-params { color: var(--code-variable); }
+.file-preview-content code.hljs .hljs-meta,
+.file-preview-content code.hljs .hljs-meta .hljs-keyword { color: var(--code-meta); }
+.file-preview-content code.hljs .hljs-symbol,
+.file-preview-content code.hljs .hljs-link { color: var(--code-symbol); }
+.file-preview-content code.hljs .hljs-deletion { color: var(--code-deletion); }
+.file-preview-content code.hljs .hljs-strong { color: var(--text-bright); font-weight: 600; }
+.file-preview-content code.hljs .hljs-emphasis { font-style: italic; }
 .file-preview-content.is-markdown { padding: 6px 14px 14px; overflow-wrap: anywhere; }
 .file-preview-content.is-markdown > :first-child { margin-top: 8px; }
 .file-preview-content.is-markdown pre {
@@ -1796,6 +1852,31 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   color: var(--text-strong);
   font-size: .92em;
 }
+/* mermaid 图表：容器既可横滚也可纵滚（宽图不撑破正文、长图有自己的高度上限），
+   画布未就绪（hidden）或渲染失败时，源码代码块原样可读——不留白屏。
+   选择器带上 .is-markdown 是为了压过上面 `.file-preview-content.is-markdown pre`
+   的边框/底色（同源一份口径，见 markdown.js: mermaidBlockHTML）。 */
+.file-preview-content.is-markdown .mermaid-diagram {
+  margin: 10px 0;
+  padding: 8px 10px;
+  overflow: auto;
+  max-height: 70vh;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+}
+.file-preview-content.is-markdown pre.mermaid-source {
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.file-preview-content.is-markdown .mermaid-canvas { display: block; min-width: 0; text-align: center; }
+.file-preview-content.is-markdown .mermaid-canvas[hidden] { display: none; }
+.file-preview-content.is-markdown .mermaid-canvas svg { max-width: 100%; height: auto; }
+.file-preview-content.is-markdown .mermaid-diagram[data-mermaid-state="failed"] .mermaid-source { color: var(--muted); }
 .file-preview-content.is-markdown table { border-collapse: collapse; }
 .file-preview-content.is-markdown th, .file-preview-content.is-markdown td { padding: 4px 8px; border: 1px solid var(--border); }
 .file-preview-content.is-markdown blockquote { margin: 8px 0; padding: 2px 10px; border-left: 3px solid var(--accent); color: var(--muted); }

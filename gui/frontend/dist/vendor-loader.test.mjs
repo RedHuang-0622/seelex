@@ -69,3 +69,15 @@ test("index.html 不再同步加载按需 vendor（docx-preview / pdf.js）", as
   assert.doesNotMatch(html, /src="\.\/vendor\/pdfjs\/pdf\.min\.js"/);
   assert.match(html, /src="\.\/vendor\/marked\/marked\.min\.js"/, "消息渲染依赖的 marked 仍要同步加载");
 });
+
+// F-5 D2/D5：mermaid（约 3.3MB）也走同一条按需注入通道，不在 index.html 同步面。
+test("mermaid 走 ensureVendorScript 按需注入，不在 index.html 同步加载", async () => {
+  const html = await readFile(new URL("./index.html", import.meta.url), "utf8");
+  assert.doesNotMatch(html, /src="\.\/vendor\/mermaid\/mermaid\.min\.js"/, "mermaid 不许同步加载");
+
+  const source = await readFile(new URL("./mermaid-diagram.js", import.meta.url), "utf8");
+  assert.match(source, /from "\.\/vendor-loader\.js"/, "必须复用既有懒加载通道");
+  assert.match(source, /ensureVendorScript\(MERMAID_LIB_SRC/, "库体经 ensureVendorScript 注入");
+  assert.match(source, /vendor\/mermaid\/mermaid\.min\.js/, "资产落在本地 vendor（离线，无 CDN）");
+  assert.doesNotMatch(source, /https?:\/\//, "不许出现远程地址");
+});

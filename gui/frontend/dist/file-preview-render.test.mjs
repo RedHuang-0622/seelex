@@ -140,3 +140,27 @@ test("renderReadOnlyContent 认调用方给好的 kind（不重复分派）", as
   assert.equal(kind, "text");
   assert.ok(panel.text().includes("hello"));
 });
+
+// F-5 D3：markdown 里的 ```mermaid 围栏换图表容器；这里模拟"marked/purify 在位、
+// 但 mermaid 库缺席"的中间态——容器必须保留源码代码块（不白屏），且不抛错。
+test("renderReadOnlyContent 把 mermaid 围栏换成图表容器，mermaid 缺席时降级为代码块", async () => {
+  globalThis.document = { createElement: tag => new FakeElement(tag) };
+  globalThis.window = {
+    marked: { parse: text => `<pre><code class="language-mermaid">${text.trim()}</code></pre>` },
+    DOMPurify: { sanitize: html => html }
+  };
+  const panel = new FakeElement("div");
+  const kind = await renderReadOnlyContent(panel, payload("```mermaid\ngraph TD;\nA-->B;\n```\n"), { path: "flow.md" });
+  assert.equal(kind, "markdown");
+
+  // 外壳 + 容器（渲染面在 panel 的第一个子节点 .file-preview-content 里）。
+  const content = panel.children[0];
+  assert.ok(content.className.includes("file-preview-content"), "外壳由渲染器建");
+  assert.ok(content.className.includes("is-markdown"), "走 markdown 分支");
+  const html = content.innerHTML;
+  assert.ok(html.includes("data-mermaid-diagram"), "mermaid 围栏要换成图表容器（有渲染分支）");
+  assert.ok(html.includes('class="language-mermaid"'), "mermaid 缺席时降级为源码代码块，不白屏");
+  assert.ok(html.includes("graph TD;"), "源码仍可读");
+  // 画布初始为空且 hidden：没有被净化过的 SVG 也不会被塞进去。
+  assert.ok(html.includes("data-mermaid-canvas hidden"), "画布初始必须 hidden");
+});

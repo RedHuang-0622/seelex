@@ -1,7 +1,8 @@
 // ── vendor 脚本按需加载 ─────────────────────────────────────
 // dist 就是源、没有 bundler，所以重型 vendor 过去一律在 index.html 尾部同步
 // 加载：每次启动都为它们付 parse/compile 与内部缓存的内存，哪怕用户从不打开
-// 对应预览（PDF.js 368KB + docx-preview 69KB 是其中最大的一块）。
+// 对应预览（PDF.js 368KB + docx-preview 69KB 是其中最大的一块，mermaid 约
+// 3.3MB 更大——它来自 markdown 里偶尔出现的 ```mermaid 围栏，更不该为偶尔付常驻代价）。
 //
 // 这里给出一个同源按需装载器：首次真的走到该类型预览时才注入 <script>；
 // 同一 src 的并发调用共用同一个 in-flight Promise（不会重复注入）；失败/超时

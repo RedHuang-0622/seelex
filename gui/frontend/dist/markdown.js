@@ -38,6 +38,40 @@ function selectBlockRenderer(lines, index) {
   return renderParagraph;
 }
 
+// ── mermaid 围栏 ─────────────────────────────────────────
+// 语言标记为 `mermaid` 的围栏走**图表容器**（不是裸代码块）：容器里始终先渲染一份
+// 源码代码块（`pre.mermaid-source > code.language-mermaid`），画布初始为空且 hidden。
+// 库未就绪 / 超时 / 渲染失败 / 流式中间态都退回这份源码块——**不会白屏**。真正的
+// 渲染（懒加载 vendor + DOMPurify 白名单放行 SVG）在 mermaid-diagram.js: hydrateMermaid。
+const MERMAID_LANGUAGE = "mermaid";
+
+export function isMermaidLanguage(language) {
+  return String(language || "").trim().toLowerCase() === MERMAID_LANGUAGE;
+}
+
+// mermaidBlockHTML 把一段 mermaid 源码包成图表容器（源码转义后放进代码块）。
+export function mermaidBlockHTML(source) {
+  return mermaidBlockFromEscaped(escapeHtml(source));
+}
+
+// rewriteMermaidFences 把 marked 产出的
+// `<pre><code class="language-mermaid">…</code></pre>` 换成同一套容器（文件预览的
+// markdown 走 marked，围栏形状固定）。正文已是 HTML 转义态，原样搬进 `<code>`——
+// 纯字符串改写，不解析 DOM，可单测；与 mermaidBlockHTML 共用同一份结构。
+export function rewriteMermaidFences(html) {
+  return String(html || "").replace(
+    /<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/gi,
+    (_match, escaped) => mermaidBlockFromEscaped(escaped)
+  );
+}
+
+function mermaidBlockFromEscaped(escaped) {
+  return `<div class="mermaid-diagram" data-mermaid-diagram>`
+    + `<div class="mermaid-canvas" data-mermaid-canvas hidden></div>`
+    + `<pre class="mermaid-source"><code class="language-${MERMAID_LANGUAGE}">${escaped}</code></pre>`
+    + `</div>`;
+}
+
 function renderFence(lines, index) {
   const opening = lines[index].match(/^ {0,3}(`{3,}|~{3,})\s*([^\s`~]+)?\s*(.*)$/);
   if (!opening) return renderParagraph(lines, index);
@@ -55,6 +89,11 @@ function renderFence(lines, index) {
   // 普通 ```html 仍是源码块，避免既有会话里的代码片段被突然执行。
   if (isHtmlEmbedLanguage(language)) {
     return { html: renderHtmlEmbed(body.join("\n"), opening[3] || ""), next: cursor };
+  }
+  // mermaid 围栏 → 图表容器（源码块 + 空画布；渲染由 mermaid-diagram.js 接管，
+  // 失败/未就绪退回源码块，见 mermaidBlockHTML）。
+  if (isMermaidLanguage(language)) {
+    return { html: mermaidBlockHTML(body.join("\n")), next: cursor };
   }
   const languageClass = language ? ` class="language-${escapeAttribute(language)}"` : "";
   return { html: `<pre><code${languageClass}>${escapeHtml(body.join("\n"))}</code></pre>`, next: cursor };

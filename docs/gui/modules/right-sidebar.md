@@ -173,6 +173,17 @@ draft 文件删除）。所以「本轮完成」= 草稿变成已发布行、「
   图片=blob img；`.doc` 提示转换）。组件全部本地 vendor（`dist/vendor/`，
   随 embed 离线打包）。实现见 `file-preview.js`；预览内容不进入 Snapshot/业务
   状态，工作区切换时抽屉随树清空。
+  **代码高亮是 token 级的**（2026-10-12 修）：`styles.css` 里一份 `--code-*` 映射
+  就地声明在 `.file-preview-content` 段，`.hljs-keyword` / `.hljs-string` /
+  `.hljs-comment` 等 token 逐一配色，颜色只由中性基座 token 与皮肤主信号
+  （`--accent` / `--accent-strong`）派生——六套皮肤 × 深浅两轴自动跟随，皮肤
+  不必各自再写一份 hljs 配色；文件预览代码块与 markdown 代码块**共用这一份**。
+  **md 里的 ```mermaid 围栏渲染成图**（同批）：容器
+  `.mermaid-diagram[data-mermaid-diagram]` 先放一份源码代码块、再放一枚初始 hidden
+  的空画布；`mermaid-diagram.js: hydrateMermaid` 经既有懒加载通道
+  `vendor-loader.js: ensureVendorScript` 注入本地 `vendor/mermaid/mermaid.min.js`
+  （离线、无 CDN），产出的 SVG **再经 DOMPurify 的 SVG 白名单放行**后才写进画布，
+  失败/未就绪/净化器缺席一律退回源码代码块（不白屏）。图表容器可横滚也可纵滚。
   抽屉是**多文件详情容器**：每个打开的文件一枚 chip（`renderPreviewTabsHTML`）+
   一个独立面板（切换只切显隐，不重读、不丢滚动位置）。抽屉**头部就是 chip 标签
   条本身**——没有独立标题 / 元信息行（2026-09-17 删掉了「文件详情 · path · size」
@@ -406,6 +417,7 @@ app.js（停靠布局渲染）
 node --test gui/frontend/dist/dock-layout.test.mjs
 node --test gui/frontend/dist/git-log-view.test.mjs
 node --test gui/frontend/dist/file-preview-render.test.mjs
+node --test gui/frontend/dist/mermaid-diagram.test.mjs
 node --test gui/frontend/dist/workspace-changes.test.mjs
 node --test gui/frontend/dist/tree-fork.test.mjs
 go test ./workspace ./gui ./application/core -count=1
@@ -415,7 +427,9 @@ go test ./workspace ./gui ./application/core -count=1
 持久化 round-trip）、`git-log-view.test.mjs`（归一化/parents 泳道/SVG 渲染/
 escape/截断/复制回调 + 提交详情归一化与渲染、三层下钻与返回、迟到结果丢弃、
 没有加载器时不产生死链接）、`file-preview-render.test.mjs`（共用只读渲染入口：
-分派、空/二进制/截断提示、认调用方给的 kind）、`tree-fork.test.mjs`（树轨几何 +
+分派、空/二进制/截断提示、认调用方给的 kind，mermaid 围栏换容器 + 库缺席时降级为
+源码代码块）、`mermaid-diagram.test.mjs`（mermaid 库缺席/渲染抛错/净化器缺席都降级为
+源码代码块不白屏；在位时写入净化后的 SVG 并收起源码块）、`tree-fork.test.mjs`（树轨几何 +
 泳道算法）、`workspace/gitlog_test.go`（解析、%P 父提交、非 git 仓库、limit 钳制、
 集成）、`workspace/gitcommit_test.go`（名状态/numstat 解析、hash 形状、提交详情集成、
 对象库读取与截断、目录与敏感路径拒绝）、`gui/bridge_test.go`（Bridge 转发 +

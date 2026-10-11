@@ -3,6 +3,8 @@
 // containment/敏感过滤/上限在 workspace 层保证；原始字节 base64 带回）。
 // 渲染按扩展名分派市面组件：
 //   - markdown → marked（GFM）→ DOMPurify 消毒 → highlight.js 代码块高亮；
+//     语言标记为 mermaid 的围栏 → mermaid 图表（本地 vendor 懒加载，SVG 再经
+//     DOMPurify 放行；失败/未就绪退回源码代码块，见 mermaid-diagram.js）；
 //   - 代码/文本 → highlight.js（关键字高亮，语言缺失自动降级）或纯文本；
 //   - PDF → PDF.js（pdfjs-dist，canvas 分页渲染）；
 //   - Word(.docx) → docx-preview 排版渲染；.doc 旧格式提示转换；
@@ -17,6 +19,8 @@
 
 import { escapeHtml, icon } from "./components.js";
 import { ensureVendorScript } from "./vendor-loader.js";
+import { rewriteMermaidFences } from "./markdown.js";
+import { hydrateMermaid } from "./mermaid-diagram.js";
 
 // 各类型预览读取上限（字节；后端还有 64 MiB 硬钳制）。
 export const PREVIEW_LIMITS = {
@@ -921,7 +925,8 @@ function renderHighlighted(panel, bytes, language, truncated) {
   appendLineCount(panel, text.split("\n").length);
 }
 
-// renderMarkdown markdown 文件：marked 渲染 → DOMPurify 消毒 → 代码块高亮。
+// renderMarkdown markdown 文件：marked 渲染 → DOMPurify 消毒 → 代码块高亮，
+// 其中 mermaid 围栏走图表容器（见 mermaidBlockHTML / hydrateMermaid）。
 // 任一组件缺失时安全降级为纯文本（绝不 innerHTML 未消毒内容）。
 export function renderMarkdown(panel, bytes, truncated) {
   const content = previewShell(panel, "is-markdown");
@@ -932,12 +937,21 @@ export function renderMarkdown(panel, bytes, truncated) {
   if (marked && purify) {
     try {
       const raw = marked.parse(text, { gfm: true, breaks: true });
-      const html = purify.sanitize(raw, {
+      const sanitized = purify.sanitize(raw, {
         FORBID_TAGS: ["style", "iframe", "object", "embed", "form", "input", "button"],
         FORBID_ATTR: ["style"]
       });
-      content.innerHTML = html;
-      content.querySelectorAll("pre code").forEach(el => highlightElement(el));
+      // mermaid 围栏在消毒**之后**换成图表容器（marked 的 `<pre><code
+      // class="language-mermaid">` 形状固定）：容器本身只是普通 div + 代码块，
+      // 不改写外层文档，安全口径不变。
+      content.innerHTML = rewriteMermaidFences(sanitized);
+      content.querySelectorAll("pre code").forEach(el => {
+        // mermaid 源码块留作降级面，不参与代码高亮。
+        if (parseCodeLanguage(el) === "mermaid") return;
+        highlightElement(el);
+      });
+      // 图表渲染是异步的：懒加载 vendor → 净化 → 写入画布；失败保持源码块。
+      void hydrateMermaid(content);
       if (truncated) appendTruncatedBanner(content, formatPreviewSize(bytes.length));
       appendLineCount(panel, text.split("\n").length);
       return;

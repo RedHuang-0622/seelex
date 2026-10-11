@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
@@ -240,4 +241,43 @@ test("renderPreviewTabsHTML marks dirty chips", () => {
   assert.ok(html.includes("（未保存）"), "脏 chip 的提示文案要说明未保存");
   const clean = renderPreviewTabsHTML(tabs, "", []);
   assert.ok(!clean.includes("is-dirty"));
+});
+
+// ── 代码高亮 token 配色（F-5 D1）────────────────────────────
+// 全仓此前只有一条 hljs 规则（`code.hljs` 的 display/padding/background），没有任何
+// `.hljs-*` token 配色 ⇒ 高亮 span 生成了但颜色全继承父色，观感就是"没有高亮"。
+// 这里钉住本轮交付的写法：一份 `--code-*` 映射，就地声明在 `.file-preview-content`
+// 段（不动 :root），下游选择器共用；颜色只经中性基座 token 与皮肤主信号派生。
+test("styles.css: hljs token 配色存在，一份口径两处共用且跟随皮肤", async () => {
+  const raw = await readFile(new URL("./styles.css", import.meta.url), "utf8");
+  const css = raw.replace(/\/\*[\s\S]*?\*\//g, "");
+
+  // ① 至少一条 .hljs-keyword（等价 token）配色规则——新增断言要求。
+  assert.match(
+    css,
+    /\.file-preview-content code\.hljs \.hljs-keyword[^{]*\{[^}]*color:\s*var\(--code-keyword\)/,
+    "缺 .hljs-keyword 配色：token span 会全继承父色，等于没高亮"
+  );
+
+  // ② --code-* 就地声明在 .file-preview-content 段（不动 :root；:root 只供中性基座）。
+  const block = /\.file-preview-content \{([\s\S]*?)\}/.exec(css);
+  assert.ok(block, "应有 .file-preview-content 声明块");
+  const tokens = ["--code-keyword", "--code-string", "--code-number", "--code-comment",
+    "--code-function", "--code-type", "--code-variable", "--code-meta", "--code-symbol", "--code-deletion"];
+  for (const token of tokens) {
+    assert.match(block[1], new RegExp(`${token}:`), `缺 ${token}`);
+  }
+  // 皮肤跟随：关键字取 --accent-strong（:root 桥接到 themes/<skin>.css 的 --skin-accent-*），
+  // 所以六套皮肤（glass/graphite/paper/qoder/silver/verdigris）× 深浅两轴自动成立。
+  assert.match(block[1], /--code-keyword:\s*var\(--accent-strong\)/, "关键字色必须由皮肤主信号派生");
+
+  // ③ 共用一份：配色规则挂在 `.file-preview-content code.hljs` 上，同时覆盖
+  //    .file-preview-code（文件预览代码块）与 .file-preview-content.is-markdown（markdown 代码块）。
+  const colored = [...css.matchAll(/([^{}]*code\.hljs[^{}]*)\{([^{}]*)\}/g)]
+    .filter(match => /color:\s*var\(--code-/.test(match[2]));
+  assert.ok(colored.length >= 6, `token 配色规则太少：${colored.length} 条`);
+  for (const [, selector, body] of colored) {
+    assert.match(selector, /\.file-preview-content code\.hljs/, `配色规则必须挂在共用选择器上：${selector.trim()}`);
+    assert.doesNotMatch(body, /#[0-9a-fA-F]{3,8}\b/, "token 配色不许硬编码颜色（会绕开皮肤与深浅轴）");
+  }
 });
