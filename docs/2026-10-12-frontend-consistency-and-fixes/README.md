@@ -480,7 +480,7 @@ llm                    llm
 
 ### 7.2 剩余未决（本轮新产生；**都不阻塞 M1 的前端七条先动工**）
 
-1. **J-1a**：`@<团队>` 手动召唤是**删除**还是**保留为隐藏入口**？`@` 改为 `@文件` 之后，团队装配是否只剩 goal/teamwork 一条通道？（这是 J-1a 退场边界的唯一阻塞项）
+1. **J-1a（2026-10-12 已拍板：删除）**：`@<团队>` 手动召唤**直接删除**（不保留"隐藏入口"），`@` 这个字符让给**文件指代**；团队装配只剩 goal/teamwork 一条通道。据此 J-1a 的删除面 = 前端 Agent Team 面板与 `agent-team-view.js` + `@` 召唤路由与建议面 + `Bridge.AgentTeam*`（装配 / 角色 CRUD / 团队库 / 员工库 / 母本 / 员工提示词）+ headless `team.*` + `agentteam` 的工厂与注册表 + TUI 的 Alt+T 面板段；**保留**被 goal 治理与 teamwork 共用的角色会话基座（`agentteam.RoleSessionID`、role draft / sync / floor、`dto.RoleSnapshot`、`sessionstore/team_registry.go`）与团队看板（teamwork）。`AgentTeamRoleSnapshot` 保留原名（看板「员工会话」入口在用）。验收与证据见 CHANGELOG `[Unreleased] / Removed`。
 2. **J-2**：chip 上限已定 10，但"到达时是否允许**自动切换当前详情**到第一个文件"仍需定（涉及抢视线）；以及请求来源的**权限档**如何映射（只读浏览是否等于免问）。
 3. **F-7**：只读 HTML 预览是否允许**内联脚本**（`html-embed.js` 允许 `allow-scripts` 但不给 same-origin），还是更严一档（纯静态无脚本）？
 

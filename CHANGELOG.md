@@ -101,6 +101,43 @@ lands.
 - **测试**：前端 `node --test "gui/frontend/dist/*.test.mjs"` 由 727 用例增至 762，全绿（B0 半径闸 3 例、
   F-1/F-2/F-3 的样式闸、F-5 的 mermaid / vendor 懒加载断言、F-6 邻接类断言）。
 
+### Removed
+
+- **Agent Team 用户面整条退场 + `@<团队>` 手动召唤删除**（后端 + 前端 · `J-1a`；用户 2026-10-12 拍板
+  「`@<团队>` **直接删除**，`@` 这个字符让给文件指代」，即
+  `docs/2026-10-12-frontend-consistency-and-fixes/README.md` §7.2 第 1 条选"删除"而不是"保留隐藏入口"）。
+  **这是破坏性变更**，被删的能力面：
+  - **`@` 手动召唤团队**：`application/core/input_team.go` 整份、`@` 的前缀登记（`SigilTeam` 常量与
+    `sigils` / 路由接线）、`Suggestions` 的 `@` 分支与团队库进程内快照、`@` 空参与未知团队的提示文案。
+    `@` 不再是输入前缀（字符改给 `@文件` 用，见 `J-1b`）。
+  - **前端 Agent Team 面板**：`gui/frontend/dist/agent-team-view.js`、`#team-section` 折叠块、`app.js`
+    的面板状态 / 刷新 / 动作 / 编辑器一族，以及空态与 composer placeholder 里的「`@` 手动召唤团队」文案。
+    **团队看板（teamwork：`#team-board-section` / `runtime.teamwork_board`）原样保留**。
+  - **Bridge 与 headless RPC 面**：`Bridge.AgentTeam*`（装配 / 角色 CRUD / 工作顺序 / 团队库 / 员工库 /
+    全局母本 / 员工提示词 / 提示词优化）、`gui/headless_team.go` 的 `team.*` 及其 6 份真机探针。
+  - **库与母本**：`sessionstore/team_global.go`（团队库 + 员工库 + 默认顺序母本）、
+    `sessionstore/team_library.go`（旧项目级团队库）、`application/core/agentteam` 的
+    `factory.go` / `registry.go` / `library.go` / `global.go`、`agentteam_service.go`、
+    `agentteam_role_index.go`、`internal/adapters/agentteam_ports.go`、TUI 的 Alt+T 面板段。
+    磁盘上的 `team/library.json` 等数据文件**未删**（只是代码不再读它）。
+  - **保留（不是"退场"，是与 goal/teamwork 共用的基座）**：`agentteam.RoleSessionID`（角色会话号派生的
+    唯一实现）、role draft / sync / floor、`dto.RoleDraftRow` / `dto.RoleSnapshot`、`AppendRoleDraft` /
+    `SyncRoleDraft` / `RoleSnapshot`、`sessionstore/team_registry.go`、`seelebridge/teamwork/**` 与
+    `sessionstore/teamwork.go`、`Bridge.AgentTeamRoleSnapshot`（**保留原名**——团队看板「员工会话」
+    入口在用；去掉的只是它对已删 `AgentTeamView` 的回退）。
+  - **如实登记的后果**：①「会话已装配团队」这一读面恒为"未装配" ⇒ goal 的角色环/逃生与 TL 角色行
+    记录成为**不可达路径**（保留形状、不改 goal 行为，已写进模块 README）；② `main.go` 注入的
+    `SetRoleSessionPolicyResolver` / `SetRoleSessionOwnerResolver` 随之摘除（它们的事实源就是被删的
+    反向索引，对本工作流恒为"未命中"）——员工/评审者的权责收窄不受影响，角色回合执行体按构造写 ctx
+    （`tools.WithEmployeeGrant`，`seelebridge/runtime_role_turn.go`）仍是权威通路。
+  - **证据**：`go build ./...` 成功、`go vet ./...` 清洁；`go test ./gui/...` 与
+    `go test ./application/... ./sessionstore/... ./session/... ./tui/... -count=1` 全绿；前端
+    `node --test "gui/frontend/dist/*.test.mjs"` = **736 pass / 0 fail**（退场带走 55 条面板用例，其中
+    12 条按"角色会话只读面"原样搬迁成 `role-session-view.test.mjs`，另新增
+    `agent-team-retirement.test.mjs` 的 5 条退场守卫）。落地方式：里程碑 `m-integration-2` 的
+    `wi-j1a-be` / `wi-j1a-fe` 两件并行（一 Work Item = 一 worktree），leader 独立复核后合并
+    （82 + 19 文件，+1718 / −13348）。
+
 ## [v0.1.2] - 2026-10-07
 
 这一版是**工作单元（workunit）与团队现场（worktree）的收束批**：把「一件事 = 一个 Unit = 一套

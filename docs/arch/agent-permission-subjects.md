@@ -19,7 +19,7 @@
 | 产品（Seelex） | `seelebridge/tools/permission_policy.go` | 授权表（路由组 + 主体位）、主体类解析、主体类策略（Enforcer） |
 | 产品 | `seelebridge/tools/permission_tiers.go` | **主会话权限档位**的覆盖实现（`ApplyTier`：只剪 ask，不碰 deny） |
 | 产品 | `seelebridge/tools/registry_state.go` | 把框架 `Gate` 接进工具调度链；会话级档位选表 + `full` 档短路 |
-| 组合根 | `main.go`（`setupPermissionGate` / `mergePermissionConfig` / `newPermissionBridge` / `SetRoleSessionPolicyResolver` / `SetRoleSessionOwnerResolver`） | 装配：默认表 + `config/seele.yaml` 覆盖 + 审批桥 + 员工 ToolsPolicy 读面 + 审批归属读面 |
+| 组合根 | `main.go`（`setupPermissionGate` / `mergePermissionConfig` / `newPermissionBridge`） | 装配：默认表 + `config/seele.yaml` 覆盖 + 审批桥。**注（2026-10-12 J-1a）**：`SetRoleSessionPolicyResolver` / `SetRoleSessionOwnerResolver` 的注入已随之退场——它们的事实源是 Agent Team 反向索引（随退场删除），未注入时的口径是"员工主体识别按调用 ctx 判、审批归属按调用会话原样归属"；员工主体识别的权威通路仍是角色回合执行体按构造写 ctx（`tools.WithEmployeeGrant`，`seelebridge/runtime_role_turn.go`）。 |
 | 配置 | `config/seele.yaml` | **只写覆盖**（`missing_bit` + 最细粒度 `rules`） |
 
 分工的一句话：**框架管"位语义"，产品管"位落在哪片资源、以及各主体的默认授权"**。

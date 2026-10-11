@@ -144,8 +144,8 @@ chip 不是块）。块与块之间是"融合成一块"还是"两枚块圆角相
 实现位置：`gui/frontend/dist/app.js:268-354`、`gui/frontend/dist/app.js:425-473`。
 
 输入前缀（sigil）契约 = 一条前缀一条含义，前端只消费、后端是唯一事实源
-（`application/core/completion.go` 的 `SigilCommand/SigilPlugin/SigilSkill/SigilTeam`
-与路由表 `application/core/input_router/router.go`）。四个 trigger：
+（`application/core/completion.go` 的 `SigilCommand/SigilPlugin/SigilSkill`
+与路由表 `application/core/input_router/router.go`）。三个 trigger：
 
 - `/`：**只列可执行入口**——命令与 Skill（Skill 也可用 `$<name>`）。工具不在这里出现：
   工具由模型调用、经权限门，输入框既不执行它、面板也不列它。一个能力要让用户打
@@ -154,21 +154,11 @@ chip 不是块）。块与块之间是"融合成一块"还是"两枚块圆角相
   给出同名能力的命令入口（`compact_context` → `/compact`；`/help` 也写明这条口径）；
 - `#`：切换 Plugin（含 `#off` = 停用全部）；
 - `$`：召回 Skill（激活到当前会话）；
-- `@` 手动召唤团队**已退场**（2026-10-12 J-1a，用户拍板"直接删除"）：`@` 不再是输入前缀（这个字符让给文件指代，见 `@文件` 引用），Agent Team 的召唤面 / 团队库 / 员工库 / 全局母本随之退场。打 `@` 不再有建议面板，整条输入按普通对话下发。
-  `@goal-a2a` 只装配（待命）；`@goal-a2a 看看这个 bug` 是**召唤即干活**——装配后把附言
-  落成一个 goal（附言 = 目标陈述）并作为一条输入下发，teammate 随本轮开工，目标收口后
-  团队离场（删角色注册表 + 复位顺序）。员工座位（`tl`/ADVISOR、员工回合座位）只由
-  goal 治理驱动，所以"只装配不落 goal"会停在"在编但没人开工"。
-  **没有内置形态**（2026-10-01）：形态目录已随 `agentteam/presets.go` 删除，`@` 的候选
-  只有库里那一行，所以 `@goal-a2a` 也要求库里有这支团队；`@` 的**建议面 = 团队库**
-  （`Suggestions` 收到 `@` 列出库里的每支团队、`@go` 前缀可过滤——team_id 与用户起的
-  展示名都能前缀命中，插进输入框的始终是 team_id）：候选读一次留在进程内
-  快照，库写路径（保存/删除/普及）与库读回都让快照过期，因此按键路径不读盘（取舍与
-  边界见 `application/core/completion.go` 末尾）；可用团队名另有 `@` 空参的回执列出。
-  团队名可以含空格（库条目由用户起名），所以路由**不**按空格切分：整段余量原样
-  交给召唤面，按「最长可命中前缀 = 名字、余下 = 附言」解析，最长优先让"更具体的
-  名字"赢；全部候选没命中时只报最可能的名字（首个 token），不把用户整句话当名字
-  回显，也不下发附言（没装配成功就不该产生输入）。
+- `@`：**不再是输入前缀**（2026-10-12 J-1a，用户拍板"手动召唤团队直接删除"）。这个字符
+  让给**文件指代**（`@文件`，见 J-1b）。随之一并退场的是 Agent Team 的召唤面 / 团队库 /
+  员工库 / 全局母本 / 面板 / `team.*` RPC：打 `@` 不再有建议面板，整条输入按普通对话下发。
+  退场前的口径（`@<团队>` 只装配、`@<团队> <附言>` = 召唤即干活、建议面读团队库快照）
+  见 `docs/devlog/2026-09-17-input-sigils-and-manual-team-summon.md` 与 J-1a 的 CHANGELOG 条目。
 
 Command modal 和 inline suggestions 都调用 Bridge.Suggestions，并共享 `renderSuggestionList/acceptSuggestion`。输入内容不在前端执行，选中项只写回 composer，最终仍走 Submit。
 

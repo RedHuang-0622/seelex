@@ -74,9 +74,7 @@ sequenceDiagram
 | `shutdown.go` | 等待任一会话（含后台）运行完成的 graceful close；超时取消全部 running sid 并等待收尾。 |
 | `fork_live_probe_test.go` | 真实 API headless fork 探针（env 门控，opt-in；顶层 Submit → fork_subagents 链路 1/10/100 并发对照）。 |
 | `role_live_probe_test.go` | R2/R4 真实 API headless 冒烟（env 门控）：真实 Submit 物化主会话 → `role.*` 建 TL/写 draft/sync/floor/角色 wire → `schedule.*` → goroutine/mutex/block pprof 现场。 |
-| `headless_team.go` | AgentTeam 角色管理 RPC（`team.*`）：装配（一份 TeamSpec）、成员表、角色配置 CRUD、工作顺序设置。 |
-| `team_board_wiring_test.go` | 团队看板必须在嵌入前端里真的接起来（**保留面**）。原先的 `team_live_probe_test.go` / `team_work*_live_probe_test.go` / `goal_team_wiring_live_probe_test.go`（`team.*` 真 API 冒烟）已随 Agent Team 用户面退场（2026-10-12 J-1a）整份删除 |
-| `goal_team_wiring_live_probe_test.go` | goal × AgentTeam 真实 API 冒烟（env 门控）：显式装配含 worker 的团队 → 只发 `goal.begin` → 断言 `team.view` 一字未变（禁止"goal 上线自动装配"把会话团队冲掉）。 |
+| `team_board_wiring_test.go` | 团队看板必须在嵌入前端里真的接起来（**保留面**）。`headless_team.go`（`team.*` RPC）与 `team_live_probe_test.go` / `team_work*_live_probe_test.go` / `goal_team_wiring_live_probe_test.go`（`team.*` 真 API 冒烟）已随 Agent Team 用户面退场（2026-10-12 J-1a）整份删除。 |
 | `session_fork_live_probe_test.go` | **会话分叉**（`ForkSessionLatest`）真实 API 冒烟（env 门控）：A→B→C 分叉后制造"A 在途收尾 × C 运行"的并发窗口，断言 C 自身各轮俱在、继承前缀可见、且无 A 在途内容污染。 |
 | `seelebridge/custom_role_live_probe_test.go` | provider role 能力实验（env 门控）：把非标准逻辑角色 `tl` 放入真实请求历史，确认 provider 是否接受自定义 role 名。 |
 | [`frontend/`](frontend/README.md) | 原生 HTML/CSS/ES modules 前端。 |
@@ -155,9 +153,15 @@ A2A 角色管理面（右侧栏「状态 → Agent Team」子页数据源）：
 `AgentTeamPutRole` / `AgentTeamDeleteRole` / `AgentTeamSetOrder` /
 `AgentTeamInstantiateRole` / `AgentTeamSaveEmployee` / `AgentTeamDeleteEmployee` /
 `AgentTeamSetDefaultOrder` / `AgentTeamPublishToGlobal` / `AgentTeamRolePrompt` /
-`AgentTeamOptimizePrompt` / `AgentTeamRoleSnapshot`，全部走
-`application/contract` 纯 DTO（S27 收口；`agentTeamApplication` 是可选能力接口，
-宿主未装配时返回可展示错误而不是空视图）。`sessionID` 传空 = 当前视图会话，
+`AgentTeamOptimizePrompt` **全部删除**（是删除，不是"退场保留"）。**留下来的只有**
+`AgentTeamRoleSnapshot`——团队看板「员工会话」入口的角色会话只读观察面（去掉的是它对已删
+`AgentTeamView` 的回退），以及团队看板自己的读面（`TeammateSessionLive*`）。
+
+> **下面四段是退场前的面板口径（历史，2026-10-12 J-1a 起不再适用）**：其中提到的
+> `gui/frontend/dist/agent-team-view.js`、`#team-section`、`team.*` RPC、团队库
+> （`team/library.json`）与员工库/默认顺序母本（`team/employees.json`、`team/order.json`）
+> 读写面都已随退场删除；仍然适用的只有最后一段里的「角色会话只读观察面」。
+`sessionID` 传空 = 当前视图会话，
 Bridge 不保存 `currentSessionID` 副本。顺序的唯一事实是会话
 `lifecycle.order_policy`/`order_roles` 与角色注册表：前端只提交用户改动后的完整
 顺序表（拖拽落点/摘除/恢复）或单个角色，Bridge 不缓存也不推导第二份顺序；
@@ -341,27 +345,15 @@ go test ./gui -run TestRealAPIRoleSessionLiveProbe -v -count=1 -timeout 20m
 `go build -race -tags pprof -o tmp/headless-smoke/seelex-pprof-race.exe .`，
 运行时设 `GORACE=halt_on_error=1`。
 
-AgentTeam 角色管理 `team.*` RPC（headless 前门禁；契约测试
-[`headless_team_test.go`](headless_team_test.go)）：
+`team.*` headless RPC **已退场**（2026-10-12 J-1a）：`team.materialize` / `team.view` /
+`team.put_role` / `team.delete_role` / `team.set_order` / `team.instantiate_role`，连同
+`gui/headless_team.go` 与它的契约测试 `gui/headless_team_test.go` 一起删除。
+要读角色会话/团队看板请用 `role.*`（`role.snapshot` 等）与团队看板读面（`TeammateSessionLive*`）。
 
-| 方法 | 参数 | 语义 |
-|---|---|---|
-`team.*` headless RPC **已退场**（2026-10-12 J-1a）：`team.materialize` / `team.view` / `team.put_role` / `team.delete_role` / `team.set_order` / `team.instantiate_role` 与 `gui/headless_team.go` 一起删除。
-| `team.view` | `main_session_id` | 成员表 + 工作顺序 + 定时分区 + 设计偏差提示 |
-| `team.put_role` | `main_session_id`、`role` | 新增/覆盖角色配置（`role_name` 幂等） |
-| `team.delete_role` | `main_session_id`、`role_name` | 删除角色配置并同步摘除 `order_roles` |
-| `team.set_order` | `main_session_id`、`order_policy`、`order_roles` | 设置工作顺序（定时角色不得入列，未注册角色拒绝） |
-| `team.instantiate_role` | `main_session_id`、`role`、`join_seq_id` | **一步实例化一个角色**（员工入职）：幂等建角色会话 + 落配置 + 按 `join_policy` 决定是否进顺序 + 报执行者绑定（`dto.RoleInstantiation`） |
 
-真实 API 冒烟（默认跳过）：
+`team.*` 真 API 冒烟（`TestRealAPIAgentTeamLiveProbe`）已随 J-1a 退场删除；离线冒烟改走
+`role.*` 与 `fork_subagents` 那两组探针（报告落 `tmp/headless-smoke/reports/`）。
 
-```powershell
-go build -tags pprof -o tmp/headless-smoke/seelex-pprof-team.exe .
-$env:SMOKE_TEAM_LIVE='1'; $env:SMOKE_TEAM_LIVE_PPROF='1'
-go test ./gui -run TestRealAPIAgentTeamLiveProbe -v -count=1 -timeout 20m
-```
-
-报告落 `tmp/headless-smoke/reports/team-live-*.json`，并抓 goroutine/mutex/block pprof。
 
 goal 自动装配与**会话分叉**的真机冒烟（默认跳过；同样需要已构建的 headless 目标）：
 
