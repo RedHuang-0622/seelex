@@ -15,6 +15,23 @@ lands.
 
 ### Added
 
+- **`@文件` / `+` 加号 / 拖拽统一为「工作区相对路径引用」，同一枚 chip 两处渲染**（GUI · `J-1b`；用户口径：
+  "让 seelex 自己 grep 内容，我们负责传个文件地址就行"）. 新模块 `gui/frontend/dist/file-reference.js`
+  （纯逻辑，不碰 DOM / Bridge）是「路径引用」的**唯一载体**：`normalizeFilePath = normalizeDropPath`
+  （**同一个函数引用**——不复制第二份路径判据）、候选来自**已加载的**工作区树索引
+  （`fileReferenceIndex` / `fileReferenceCandidates`：纯函数、按键路径不读盘）、插入只写正文文本
+  （`applyFileReference` → `@<路径> `）、识别 `@` 形态与「读取工作树文件：」的裸路径形态
+  （`fileReferenceTokens`，判据刻意保守：`@someone` / `and/or` / 句末标点不认）、渲染是**同一枚 chip**
+  （`fileReferenceChipHTML`）的两种宿主——composer 草稿条（带 × 可删）与对话正文（点击开右栏文件详情）。
+  三个入口（`@文件` 内联面板 / 工具条的 `+` 选择器 / 右栏工作树拖拽）只产出同一形状的路径文本，正文里
+  一个字都不改写 ⇒ **agent 看到的就是路径**，据此自己 `read_file` / `grep`。**不新增 `reader` 角色、
+  不改 `roles`、不搬内容字节、不动 `imageattach` / `multimodal`**；`@` 仍**不登记为输入前缀**
+  （`application/core/completion.go` 只加注释说明三条理由：引用必须留在正文里让 agent 看见 / 这里没有
+  需要后端分派的行为 / 三入口同一载体由此成立）。提示词口径落
+  `internal/promptassets/assets/system/instructions.md`（「User-Attached Files Arrive As Workspace Paths」：
+  自己读、不得凭文件名编内容、不要期待附件通道）。证据：`node --test "gui/frontend/dist/*.test.mjs"`
+  = **760 pass / 0 fail**；`go build ./...` / `go vet ./...` 清洁；`go test ./gui/... ./application/core/...` 全绿。
+
 - **Agent 驱动 GUI 打开待审阅文件：`show_files` 工具 + 会话作用域的可重放请求**（后端 · `J-2` D1）.
   新工具 `show_files`（`seelebridge/review_files.go`，组合根 `main.go:registerReviewFilesTool` 注册）：
   `files: [{path, note?, start_line?, end_line?}]`，语义 = "请 GUI 在侧边资源管理器打开这些文件供人审阅"。
@@ -137,6 +154,14 @@ lands.
     `agent-team-retirement.test.mjs` 的 5 条退场守卫）。落地方式：里程碑 `m-integration-2` 的
     `wi-j1a-be` / `wi-j1a-fe` 两件并行（一 Work Item = 一 worktree），leader 独立复核后合并
     （82 + 19 文件，+1718 / −13348）。
+
+- **退场面板的死样式清理**（GUI · `wi-j1a-css`）. Agent Team 面板退场后，它的 CSS 成了永远匹配不到的选择器：
+  `styles.css` 摘掉 112 条规则（含 hover / `:focus-visible` / `[hidden]` / `@media` 内的同名规则），净
+  −342 行 / −14542 字节；与活体共用的 6 条块只摘死项（`.team-member-role` / `.team-floor` /
+  `.team-member-name` / `.team-panel` / `.team-block` / `.team-table` 保留——`role-session-view.js` 与
+  `team-board-view.js` 仍在用）。新增 `gui/frontend/dist/agent-team-css-retirement.test.mjs` 钉住
+  「已退场前缀在 `styles.css` 里 0 命中」（按**选择器类名 token 前缀**判，`team-board-*` / `scheduled-*`
+  不受影响）并带负控（临时塞回死选择器 → 闸红）。
 
 ## [v0.1.2] - 2026-10-07
 
