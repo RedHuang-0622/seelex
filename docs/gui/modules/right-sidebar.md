@@ -173,11 +173,23 @@ draft 文件删除）。所以「本轮完成」= 草稿变成已发布行、「
 - **文件预览（多文件详情容器）**：点击工作树文件行 → `Bridge.WorkspaceFileContent(relPath, limit)`
   拉取受控字节（后端 workspace 域 containment/敏感过滤/上限/二进制探测；默认
   文本 4 MiB、文档/图片 24 MiB、后端硬钳 64 MiB，分页类超限放弃渲染并提示）→
-  按扩展名分派渲染（markdown=marked→DOMPurify→highlight.js；代码/文本=
+  按扩展名分派渲染（markdown=marked→DOMPurify→highlight.js；**HTML（`.html/.htm`）
+  =沙箱 iframe 页面，只读态渲染为页面、点「编辑」才切到源码**；代码/文本=
   highlight.js 高亮或纯文本；PDF=PDF.js canvas 分页；Word=docx-preview；
   图片=blob img；`.doc` 提示转换）。组件全部本地 vendor（`dist/vendor/`，
   随 embed 离线打包）。实现见 `file-preview.js`；预览内容不进入 Snapshot/业务
   状态，工作区切换时抽屉随树清空。
+  **HTML 预览走沙箱 iframe（2026-10-12，F-7）**：`.html/.htm` 从 `CODE_EXTENSIONS`
+  移出，`previewKindForPath` 新增预览类型 `html`；只读分派 `renderReadOnlyContent`
+  的 `html` 分支复用 `html-embed.js` 的沙箱口径（`renderSandboxFrame`）——正文只进
+  `<iframe srcdoc>`，`sandbox="allow-scripts"` 且**不给** `allow-same-origin`，srcdoc
+  内嵌 CSP `default-src 'none'`（外链 css/js 不加载、connect/img 网络出口关闭），
+  不给 `allow-forms/popups/top-navigation`（表单/弹窗/跳转全无效）。**不走**
+  `renderMarkdown` 的 `purify.sanitize` + `innerHTML` 那条路（其 `FORBID_TAGS` 含
+  `style/iframe`，会把页面样式与结构抹掉）。预览是「结构 + 内联样式」级——srcdoc
+  取不到同目录的 css/js，UI 上以 `.file-preview-html-note` 如实说明。`html` 纳入
+  `EDITABLE_PREVIEW_KINDS`：编辑态仍是源码、Ctrl+S 才落盘。截断按既有口径加横幅
+  （html 不是分页类，不要求整份文件）。
   **代码高亮是 token 级的**（2026-10-12 修）：`styles.css` 里一份 `--code-*` 映射
   就地声明在 `.file-preview-content` 段，`.hljs-keyword` / `.hljs-string` /
   `.hljs-comment` 等 token 逐一配色，颜色只由中性基座 token 与皮肤主信号
@@ -412,6 +424,11 @@ app.js（停靠布局渲染）
   敏感文件名与工作区之外的路径必须过滤并计入 `Filtered`（不许静默丢弃）。
 - 面板渲染文本全部 escape（commits 的 author/subject、改动路径/原路径、错误
   文案）；分叉只走 `tree-fork`（不许再引入字符画连线）。
+- 文件预览的 **HTML 只读态**必须走沙箱 iframe（复用 `html-embed.js` 口径）：
+  正文只进 `srcdoc`、`sandbox="allow-scripts"` 且**不给** `allow-same-origin`、srcdoc
+  内嵌 CSP `default-src 'none'`；**不得**经 `purify.sanitize` + `innerHTML` 注入宿主
+  DOM（会抹掉页面样式，也不再是沙箱）。编辑态仍是源码（`html` 在
+  `EDITABLE_PREVIEW_KINDS` 里）。
 - Agent Team 两栏别混：人员档案进「员工栏」，装配/顺序/调度进「Team 栏」。
 - 工作区切换 / chat 结束时工作树、提交记录与工作区更改都应按需刷新，避免陈旧数据。
 - 子页未激活时数据面缓存、激活时按需拉取，避免无谓请求。
@@ -421,7 +438,9 @@ app.js（停靠布局渲染）
 ```text
 node --test gui/frontend/dist/dock-layout.test.mjs
 node --test gui/frontend/dist/git-log-view.test.mjs
+node --test gui/frontend/dist/file-preview.test.mjs
 node --test gui/frontend/dist/file-preview-render.test.mjs
+node --test gui/frontend/dist/file-preview-controller.test.mjs
 node --test gui/frontend/dist/mermaid-diagram.test.mjs
 node --test gui/frontend/dist/workspace-changes.test.mjs
 node --test gui/frontend/dist/tree-fork.test.mjs
@@ -433,7 +452,10 @@ go test ./workspace ./gui ./application/core -count=1
 escape/截断/复制回调 + 提交详情归一化与渲染、三层下钻与返回、迟到结果丢弃、
 没有加载器时不产生死链接）、`file-preview-render.test.mjs`（共用只读渲染入口：
 分派、空/二进制/截断提示、认调用方给的 kind，mermaid 围栏换容器 + 库缺席时降级为
-源码代码块）、`mermaid-diagram.test.mjs`（mermaid 库缺席/渲染抛错/净化器缺席都降级为
+源码代码块；**F-7：`.html` 只读态 kind=html + 沙箱 iframe + 离线 CSP/无外链**）、
+`file-preview.test.mjs`（分派/上限/编码基线/编辑资格；**F-7：`.html`.htm 移出
+CODE_EXTENSIONS 且 `canEditPreview` 收 html**）、`file-preview-controller.test.mjs`
+（Ctrl+S 是唯一写入、编辑态是源码），`mermaid-diagram.test.mjs`（mermaid 库缺席/渲染抛错/净化器缺席都降级为
 源码代码块不白屏；在位时写入净化后的 SVG 并收起源码块）、`tree-fork.test.mjs`（树轨几何 +
 泳道算法）、`workspace/gitlog_test.go`（解析、%P 父提交、非 git 仓库、limit 钳制、
 集成）、`workspace/gitcommit_test.go`（名状态/numstat 解析、hash 形状、提交详情集成、

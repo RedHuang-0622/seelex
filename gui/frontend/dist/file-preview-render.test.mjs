@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { renderReadOnlyContent } from "./file-preview.js";
+import { buildHtmlPreviewDocument, renderSandboxFrame } from "./html-embed.js";
 
 class FakeClassList {
   constructor() {
@@ -163,4 +164,69 @@ test("renderReadOnlyContent 把 mermaid 围栏换成图表容器，mermaid 缺�
   assert.ok(html.includes("graph TD;"), "源码仍可读");
   // 画布初始为空且 hidden：没有被净化过的 SVG 也不会被塞进去。
   assert.ok(html.includes("data-mermaid-canvas hidden"), "画布初始必须 hidden");
+});
+
+// ── F-7 HTML 只读预览 ────────────────────────────────────────────────
+// 内容详情在**只读态**把 .html/.htm 渲染成页面（沙箱 iframe），点「编辑」才切到源码。
+// 这一层是「文件详情抽屉」与「提交内文件内容」两处共用的同一分派，因此本文件就是它的
+// 契约测试。
+
+test("F-7：.html 只读态 kind=html 且渲染出沙箱 iframe（不是代码块）", async () => {
+  installFakeGlobals();
+  const panel = new FakeElement("div");
+  const source = "<!DOCTYPE html>\n<html><body><h1>你好</h1></body></html>\n";
+  const kind = await renderReadOnlyContent(panel, payload(source), { path: "site/index.html" });
+  assert.equal(kind, "html");
+  const content = panel.children[0];
+  assert.ok(content.className.includes("file-preview-content"), "外壳由渲染器建");
+  assert.ok(content.className.includes("is-html"), "走 html 分支");
+  assert.ok(content.innerHTML.includes("<iframe"), "页面在 iframe 里");
+  assert.ok(content.innerHTML.includes('sandbox="allow-scripts"'), "沙箱口径");
+  assert.ok(!content.innerHTML.includes("allow-same-origin"), "绝不与 allow-scripts 同给");
+  assert.ok(!content.innerHTML.includes("file-preview-code"), "不再是代码块");
+  assert.ok(content.innerHTML.includes("file-preview-html-note"), "写明「结构 + 内联样式」边界");
+});
+
+test("F-7：.htm 与 .html 同分支（共用一条只读分派）", async () => {
+  installFakeGlobals();
+  const panel = new FakeElement("div");
+  const kind = await renderReadOnlyContent(panel, payload("<p>hi</p>"), { path: "old/legacy.htm" });
+  assert.equal(kind, "html");
+  assert.ok(panel.children[0].innerHTML.includes("<iframe"));
+});
+
+// 离线口径：CSP 随文档一起进 srcdoc，断掉外链 CSS/JS 与 connect/img 的网络出口；
+// iframe 只有 srcdoc、没有 src，且**不带跨帧桥**（磁盘上的 HTML 不该能驱动会话）。
+test("F-7：离线渲染不发外部请求（CSP 断网 + 无 src + 无跨帧桥）", () => {
+  const hostile = [
+    '<link rel="stylesheet" href="https://evil.example/x.css">',
+    '<img src="http://evil.example/x.png">',
+    '<form action="https://evil.example/"><input name="a"></form>',
+    '<script src="https://evil.example/x.js"><\/script>'
+  ].join("");
+  const document = buildHtmlPreviewDocument(hostile);
+  assert.match(document, /default-src 'none'/);
+  assert.match(document, /connect-src 'none'/);
+  assert.match(document, /img-src data: blob:/);
+  assert.match(document, /style-src 'unsafe-inline'/);
+  assert.match(document, /form-action 'none'/);
+  assert.doesNotMatch(document, /seelex-embed/, "预览不带跨帧桥（无驱动会话的出口）");
+
+  const frame = renderSandboxFrame(hostile, { title: "site/index.html 预览", className: "file-preview-html-frame" });
+  assert.equal(frame.match(/<iframe/g).length, 1);
+  // 只有 srcdoc，没有 src：iframe 自己不发起任何外部请求。
+  assert.doesNotMatch(frame.split("srcdoc=")[0], /(^|\s)src=/);
+  assert.match(frame, /sandbox="allow-scripts"/);
+  assert.doesNotMatch(frame, /allow-same-origin|allow-forms|allow-popups|allow-top-navigation/);
+  // 正文（含外链）只作为 srcdoc 属性值存在，不进宿主 DOM；属性解码后必须还原沙箱文档。
+  const srcdoc = frame.match(/ srcdoc="([^"]*)"/)[1];
+  const decoded = srcdoc
+    .replaceAll("&quot;", '"')
+    .replaceAll("&#039;", "'")
+    .replaceAll("&#096;", "`")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&amp;", "&");
+  assert.equal(decoded, document);
+  assert.doesNotMatch(frame.split("srcdoc=")[0], /<link|<img|<form|<script/);
 });

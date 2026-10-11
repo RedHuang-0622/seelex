@@ -13,9 +13,12 @@ const treeForkURL = asModule(await read("tree-fork.js"));
 //     文件能断言"面板把字节交给了共用渲染器"，而不是在假 DOM 里重造一套渲染；
 //   - workspace-changes：Kind → 中文标签的唯一词表在那里，这里只钉"标签从那里取"。
 const filePreviewStub = asModule(`
-export const PREVIEW_LIMITS = { markdown: 111, code: 222, text: 333, unsupported: 444 };
+export const PREVIEW_LIMITS = { markdown: 111, html: 555, code: 222, text: 333, unsupported: 444 };
 export function previewKindForPath(path) {
-  return String(path).endsWith(".md") ? "markdown" : "code";
+  const name = String(path).toLowerCase();
+  if (name.endsWith(".md")) return "markdown";
+  if (name.endsWith(".html") || name.endsWith(".htm")) return "html";
+  return "code";
 }
 export function renderNotice(panel, message) {
   globalThis.__gitLogNotices.push({ panel, message });
@@ -371,6 +374,36 @@ test("createGitLogView 点开提交 → 文件清单 → 文件内容，返回�
   assert.ok(container.innerHTML.includes("git-commit-files"), "退回文件清单");
   container.click("[data-git-back]");
   assert.ok(container.innerHTML.includes("git-log-line"), "再退回提交列表");
+});
+
+// F-7：提交内文件内容视图与文件详情抽屉**共用同一条只读渲染分派**——按路径算出 kind
+// 交给同一个 renderReadOnlyContent。历史版本只读，本视图**没有任何写入口**（与"带编辑面
+// 的抽屉"刻意分开；见 git-log-view.js 文件头）。
+test("F-7：提交内文件内容走共用只读分派，历史版本无写入口", async () => {
+  globalThis.__gitLogRenders = [];
+  const container = fakeContainer();
+  const loadedFiles = [];
+  const view = createGitLogView(container, {
+    loadCommit: async () => ({
+      hash: "aaaa", subject: "feat: html", files: [fileEntry("site/index.html")], total: 1
+    }),
+    loadFile: async (hash, path, limit) => {
+      loadedFiles.push({ hash, path, limit });
+      return { path, size: 15, truncated: false, text_like: true, base64: "PGgxPmhpPC9oMT4K" };
+    }
+  });
+  view.renderRoot({ commits: [commit("aaaa", "a1", "A", "08-29", "feat: html")] });
+  await container.click("[data-git-commit]", { gitCommit: "aaaa" });
+  await container.click("[data-git-file]", { gitFile: "site/index.html", gitCommit: "aaaa" });
+
+  // 限额按预览类型取自共用表（stub 里 html=555）；kind=html 交给共用渲染器。
+  assert.deepEqual(loadedFiles, [{ hash: "aaaa", path: "site/index.html", limit: 555 }]);
+  assert.equal(globalThis.__gitLogRenders.length, 1);
+  assert.equal(globalThis.__gitLogRenders[0].options.kind, "html", "按 .html 分派到页面预览");
+  assert.equal(globalThis.__gitLogRenders[0].options.path, "site/index.html");
+  // 无写入口：视图不暴露任何 writer / 保存面，且源码里不接写入通道。
+  assert.ok(!("writer" in view) && typeof view.saveFile !== "function");
+  assert.doesNotMatch(source, /\bwriter\b|WorkspaceWriteFile|saveFile/, "提交内文件内容视图不得有任何写入口");
 });
 
 test("createGitLogView 迟到的下钻结果不覆盖新画面", async () => {

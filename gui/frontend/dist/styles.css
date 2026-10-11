@@ -1777,6 +1777,19 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   background: transparent;
   font: inherit;
 }
+/* F-7 HTML 只读预览：页面只在**沙箱 iframe** 里渲染（口径见 html-embed.js 的
+   renderSandboxFrame —— srcdoc + `sandbox="allow-scripts"` 无 allow-same-origin +
+   srcdoc 内嵌 CSP `default-src 'none'`）。预览是「结构 + 内联样式」级：srcdoc
+   取不到同目录的 css/js（边界说明由 .file-preview-html-note 写明）。 */
+.file-preview-content.is-html { display: grid; gap: 6px; padding: 8px 0 0; }
+.file-preview-html-note { padding: 0 12px; color: var(--faint); font: 10px var(--font-mono); }
+.file-preview-html-frame {
+  width: 100%;
+  min-height: 320px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
 /* 代码高亮 token 配色（highlight.js）——一份口径两处共用：文件预览代码块
    （`.file-preview-code code.hljs`）与 markdown 代码块（`.file-preview-content.is-markdown
    pre code.hljs`，同一 `.file-preview-content` 子树）都从这里取色。

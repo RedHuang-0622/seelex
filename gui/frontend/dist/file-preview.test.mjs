@@ -39,7 +39,11 @@ test("previewKindForPath dispatches by extension", () => {
     "data.bin": "unsupported",
     "Makefile": "code",
     "Dockerfile": "code",
-    "noext": "unsupported"
+    "noext": "unsupported",
+    // F-7：.html/.htm 从 code 移出，只读态按页面渲染（编辑态仍是源码）。
+    "site/index.html": "html",
+    "old/legacy.htm": "html",
+    "PAGE.HTML": "html"
   };
   for (const [path, kind] of Object.entries(cases)) {
     assert.equal(previewKindForPath(path), kind, path);
@@ -57,8 +61,15 @@ test("codeLanguageForPath maps extensions to hljs languages", () => {
 });
 
 test("CODE_EXTENSIONS covers common source types", () => {
-  for (const ext of [".go", ".js", ".ts", ".py", ".java", ".rs", ".c", ".cpp", ".sh", ".sql", ".html", ".css"]) {
+  for (const ext of [".go", ".js", ".ts", ".py", ".java", ".rs", ".c", ".cpp", ".sh", ".sql", ".css"]) {
     assert.ok(CODE_EXTENSIONS.has(ext), ext);
+  }
+});
+
+// F-7：.html/.htm 不再当代码——它们在只读态走沙箱页面预览（见 file-preview-render.test.mjs）。
+test("CODE_EXTENSIONS 不收 .html/.htm（F-7 移出 code）", () => {
+  for (const ext of [".html", ".htm"]) {
+    assert.ok(!CODE_EXTENSIONS.has(ext), `${ext} 不应在 CODE_EXTENSIONS 里`);
   }
 });
 
@@ -68,6 +79,8 @@ test("needsWholeFile marks paginated renderers", () => {
   assert.equal(needsWholeFile("image"), true);
   assert.equal(needsWholeFile("code"), false);
   assert.equal(needsWholeFile("markdown"), false);
+  // html 截断仍可预览（不是分页类），按既有口径加截断横幅即可。
+  assert.equal(needsWholeFile("html"), false);
 });
 
 test("decodeFileText handles utf8 and utf16 BOM", () => {
@@ -100,6 +113,7 @@ test("base64ToBytes round trips", () => {
 test("preview limits are bounded for text renderers", () => {
   assert.ok(PREVIEW_LIMITS.markdown <= 8 << 20);
   assert.ok(PREVIEW_LIMITS.code <= 8 << 20);
+  assert.ok(PREVIEW_LIMITS.html <= 8 << 20);
   assert.ok(PREVIEW_LIMITS.pdf <= 64 << 20);
 });
 
@@ -185,7 +199,7 @@ test("renderPreviewTabsHTML marks the active chip, escapes text and carries a cl
 
 test("canEditPreview allows text-like editable kinds only", () => {
   const textPayload = { text_like: true, truncated: false };
-  for (const kind of ["code", "text", "markdown"]) {
+  for (const kind of ["code", "text", "markdown", "html"]) {
     assert.equal(canEditPreview(kind, textPayload), true, kind);
   }
   // 非文本类一律不给编辑入口（图片/PDF/Word 的"正文"不是文本）。

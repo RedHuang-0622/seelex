@@ -11,6 +11,29 @@ convergence batch. The stabilization batch that was planned under the
 architectural rewrite is not yet scheduled and will take its own version when it
 lands.
 
+## [Unreleased]
+
+### Added
+
+- **文件预览：HTML（`.html` / `.htm`）只读态渲染为沙箱页面，点编辑才是代码**（GUI · 前端一致性批 `F-7`）.
+  `previewKindForPath` 新增预览类型 `html`（`.html`/`.htm` 从 `CODE_EXTENSIONS` 移出）；只读分派
+  `renderReadOnlyContent` 的 `html` 分支复用 `html-embed.js` 的沙箱口径（`buildHtmlPreviewDocument` /
+  `renderSandboxFrame`）——正文只进 `<iframe srcdoc>`，`sandbox="allow-scripts"` 且**不给**
+  `allow-same-origin`，srcdoc 内嵌 CSP `default-src 'none'`（外链 css/js 不加载、connect/img 网络出口关闭），
+  不给 `allow-forms/popups/top-navigation`（表单/弹窗/跳转全无效）。**不走** `renderMarkdown` 的
+  `purify.sanitize` + `innerHTML`（其 `FORBID_TAGS` 含 `style`/`iframe`，会把页面样式与结构抹掉）。
+  `html` 纳入 `EDITABLE_PREVIEW_KINDS`：编辑态仍是源码、Ctrl+S 才落盘。边界：srcdoc 取不到同目录
+  css/js，预览是「结构 + 内联样式」级（UI 以 `.file-preview-html-note` 如实说明）。只读分派两处共用，
+  **提交内文件内容视图（`git-log-view.js`）同走一条且无写入口**（历史版本不允许任何写入）。
+  `styles.css` 的 HTML 预览样式就近加在 `.file-preview-code` 段之后、`.file-preview*` 段内。
+
+### Tests
+
+- `gui/frontend/dist/file-preview-render.test.mjs`（`.html` 只读态 `kind=html` 且渲染出沙箱 iframe；离线
+  CSP / 无 `src` / 无跨帧桥）、`file-preview.test.mjs`（`previewKindForPath` 分派、`.html`/`.htm` 移出
+  `CODE_EXTENSIONS`、`canEditPreview` 收 html）、`file-preview-controller.test.mjs`（只读=页面、编辑=源码、
+  Ctrl+S 才落盘）、`git-log-view.test.mjs`（提交内文件内容同走共用分派且无写入口）。
+
 ## [v0.1.2] - 2026-10-07
 
 这一版是**工作单元（workunit）与团队现场（worktree）的收束批**：把「一件事 = 一个 Unit = 一套

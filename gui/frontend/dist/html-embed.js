@@ -21,6 +21,10 @@
 // 触发方式：markdown 围栏代码块，语言标记为 `seelex-html`（别名
 // `html-preview`）；普通 ```html 仍然是源码块，不受影响。
 //
+// 另有一条读者：**文件预览**（`file-preview.js` 的只读 HTML 预览）。它复用本文件的
+// 沙箱口径与文档组装，但**不带跨帧桥**（`buildHtmlPreviewDocument` / `renderSandboxFrame`）
+// ——预览一份磁盘上的 HTML 不该能驱动会话。渲染块的桥仍是这里的 `buildEmbedDocument`。
+//
 // 本文件**零 import**（测试按 data: URL 内联它，见 markdown.test.mjs / 各 *.test.mjs）；
 // 纯函数（isHtmlEmbedLanguage/parseEmbedInfo/buildEmbedDocument/renderHtmlEmbed）
 // 可离线单测，见 html-embed.test.mjs。
@@ -173,6 +177,34 @@ export function buildEmbedDocument(body) {
     String(body ?? ""),
     "</body></html>"
   ].join("");
+}
+
+// buildHtmlPreviewDocument 是**文件预览**（file-preview.js）用的同一套沙箱文档，
+// 与 buildEmbedDocument 只差一处：**不注入跨帧桥脚本**。理由——预览一份磁盘上的
+// HTML 不该有"驱动会话"的出口（桥只服务于会话内的渲染块；宿主侧也只认
+// `.html-embed-frame` 的 contentWindow，见 embed-bridge.js）。CSP、基座样式与转义
+// 口径与嵌入块**共用同一份常量**，改一处两处一起变。
+export function buildHtmlPreviewDocument(body) {
+  return [
+    "<!DOCTYPE html><html><head><meta charset=\"utf-8\">",
+    `<meta http-equiv="Content-Security-Policy" content="${EMBED_CSP}">`,
+    `<style>${EMBED_BASE_CSS}</style></head><body>`,
+    String(body ?? ""),
+    "</body></html>"
+  ].join("");
+}
+
+// renderSandboxFrame 把一份**不可信 HTML** 渲染成沙箱 iframe（无跨帧桥）。这是文件
+// 预览只读页面的唯一入口，口径与嵌入块逐条一致：正文只进 `srcdoc`、
+// `sandbox="allow-scripts"` 且**不给** `allow-same-origin`（opaque origin，脚本够不到
+// 宿主）、CSP 随文档一起进去（`default-src 'none'` → 外链 CSS/JS 与 connect/img 网络
+// 出口全断，只放行内联样式/脚本与 data: 图片）、不给 `allow-forms/popups/
+// top-navigation`（表单提交、弹窗、跳转宿主页全部无效）。返回 HTML 字符串，调用方
+// `innerHTML` 进容器（无 DOM API 依赖，可离线单测）。
+export function renderSandboxFrame(body, { title = "", className = "" } = {}) {
+  const document = buildHtmlPreviewDocument(body);
+  const classAttr = className ? ` class="${escapeAttribute(className)}"` : "";
+  return `<iframe${classAttr} sandbox="allow-scripts" referrerpolicy="no-referrer" loading="lazy" title="${escapeAttribute(title)}" srcdoc="${escapeAttribute(document)}"></iframe>`;
 }
 
 export function renderHtmlEmbed(body, info = "") {

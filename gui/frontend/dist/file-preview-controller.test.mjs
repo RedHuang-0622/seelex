@@ -392,3 +392,33 @@ test("「完成」退出编辑：有未保存内容先问，不保存则回到�
   assert.equal(harness.controller.isDirty("a.txt"), false);
   assert.deepEqual(harness.writes, []);
 });
+
+// F-7：.html 只读态渲染为沙箱页面，点「编辑」才是源码；写盘仍只有 Ctrl+S 一条。
+test("F-7：.html 只读态渲染页面、编辑态仍是源码（Ctrl+S 才落盘）", async () => {
+  const harness = createHarness();
+  const source = "<!DOCTYPE html>\n<h1>hi</h1>\n";
+  putFile(harness, "site/index.html", source);
+  await openFile(harness, "site/index.html");
+
+  // 只读态：按 html 分派，正文渲染成沙箱 iframe（不是代码块）。
+  assert.equal(harness.reads[0].kind, "html", "路径按 html 分派");
+  const content = walk(harness.view).find(node => node.className.includes("file-preview-content"));
+  assert.ok(content, "只读外壳已建");
+  assert.ok(content.innerHTML.includes("<iframe"), "只读态是页面");
+  assert.ok(content.innerHTML.includes('sandbox="allow-scripts"'));
+  assert.ok(!content.innerHTML.includes("file-preview-code"), "不再是代码块");
+
+  // 编辑态：编辑器初值 = 源码（用户口径：点编辑才是代码）。
+  assert.equal(harness.controller.edit("site/index.html"), true);
+  const textarea = firstTextarea(harness.view);
+  assert.ok(textarea, "编辑态出现编辑器");
+  assert.equal(textarea.value, source, "编辑态是源码");
+
+  textarea.value = "<h1>changed</h1>\n";
+  textarea.dispatch("input");
+  assert.deepEqual(harness.writes, [], "改字本身不得落盘");
+  ctrlS(harness);
+  await settle();
+  assert.deepEqual(harness.writes, [{ path: "site/index.html", text: "<h1>changed</h1>\n" }]);
+  assert.equal(new TextDecoder().decode(harness.files.get("site/index.html").bytes), "<h1>changed</h1>\n");
+});

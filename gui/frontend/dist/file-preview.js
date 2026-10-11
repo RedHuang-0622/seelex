@@ -5,12 +5,16 @@
 //   - markdown → marked（GFM）→ DOMPurify 消毒 → highlight.js 代码块高亮；
 //     语言标记为 mermaid 的围栏 → mermaid 图表（本地 vendor 懒加载，SVG 再经
 //     DOMPurify 放行；失败/未就绪退回源码代码块，见 mermaid-diagram.js）；
+//   - html/htm → **沙箱 iframe 页面**（只读态；复用 html-embed.js 的口径，见
+//     renderHtmlPreview）；**编辑态仍是源码**（EDITABLE_PREVIEW_KINDS 含 html）；
 //   - 代码/文本 → highlight.js（关键字高亮，语言缺失自动降级）或纯文本；
 //   - PDF → PDF.js（pdfjs-dist，canvas 分页渲染）；
 //   - Word(.docx) → docx-preview 排版渲染；.doc 旧格式提示转换；
 //   - 图片 → blob URL <img>。
 // 安全：文件文本永不直接 innerHTML；marked 输出必须先经 DOMPurify 消毒；
 // 高亮只改写代码块内部（textContent → hljs 结果），不改写外层文档。
+// HTML 预览**不走** purify.sanitize + innerHTML 那条路（其 FORBID_TAGS 含 style/
+// iframe，会把页面样式与结构抹掉）——只进沙箱 iframe 的 srcdoc（D2）。
 //
 // 多文件详情：预览容器是「多文件详情」容器——每个打开的文件占一枚上标 chip
 // （类似网页标签），每枚 chip 对应一个独立面板（切换只切显隐，不重读、不丢
@@ -21,10 +25,12 @@ import { escapeHtml, icon } from "./components.js";
 import { ensureVendorScript } from "./vendor-loader.js";
 import { rewriteMermaidFences } from "./markdown.js";
 import { hydrateMermaid } from "./mermaid-diagram.js";
+import { renderSandboxFrame } from "./html-embed.js";
 
 // 各类型预览读取上限（字节；后端还有 64 MiB 硬钳制）。
 export const PREVIEW_LIMITS = {
   markdown: 4 << 20,
+  html: 4 << 20,
   code: 4 << 20,
   text: 4 << 20,
   pdf: 24 << 20,
@@ -35,14 +41,20 @@ export const PREVIEW_LIMITS = {
 };
 
 // CODE_EXTENSIONS 是可按代码高亮展示的扩展名集合（预览分派用）。
+// **不含 `.html/.htm`**（F-7）：它们在只读态按页面渲染（HTML_EXTENSIONS），编辑态才
+// 是源码——语言别名（xml）仍留在 LANGUAGE_BY_EXT 供编辑器高亮。
 export const CODE_EXTENSIONS = new Set([
   ".go", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".py", ".java", ".c", ".h",
   ".cc", ".cpp", ".hpp", ".cs", ".rb", ".php", ".rs", ".swift", ".kt", ".kts",
   ".scala", ".sh", ".bash", ".zsh", ".fish", ".ps1", ".sql", ".json", ".jsonc",
-  ".xml", ".html", ".htm", ".css", ".scss", ".less", ".vue", ".svelte",
+  ".xml", ".css", ".scss", ".less", ".vue", ".svelte",
   ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".r", ".lua", ".pl",
   ".dart", ".proto", ".mk"
 ]);
+
+// HTML_EXTENSIONS 是「只读态渲染为页面」的扩展名（F-7）。与 CODE_EXTENSIONS 互斥：
+// 二者都命中时以这里为准（分派顺序在前）。
+const HTML_EXTENSIONS = new Set([".html", ".htm"]);
 
 const TEXT_EXTENSIONS = new Set([
   ".txt", ".log", ".env", ".gitignore", ".gitattributes", ".editorconfig",
@@ -91,6 +103,7 @@ export function previewKindForPath(path = "") {
   const dot = lower.lastIndexOf(".");
   const ext = dot >= 0 ? lower.slice(dot) : "";
   if (ext === ".md" || ext === ".markdown" || ext === ".mdown") return "markdown";
+  if (HTML_EXTENSIONS.has(ext)) return "html";
   if (ext === ".pdf") return "pdf";
   if (ext === ".docx") return "word";
   if (ext === ".doc") return "word-legacy";
@@ -178,7 +191,9 @@ export function needsWholeFile(kind) {
 
 // EDITABLE_PREVIEW_KINDS：可按文本编辑的预览类型。图片 / PDF / Word / 二进制
 // 不在其中——它们的"正文"不是文本，编辑面无从下手。
-export const EDITABLE_PREVIEW_KINDS = new Set(["code", "text", "markdown"]);
+// **html 在列**（F-7）：只读态渲染为页面，点「编辑」切到源码——用户口径就是
+// "点击编辑才是代码"，因此 html 的正文按文本可编辑（Ctrl+S 才落盘）。
+export const EDITABLE_PREVIEW_KINDS = new Set(["code", "text", "markdown", "html"]);
 
 // canEditPreview 判定一次读取结果能不能进编辑态：
 //   - 类型必须是文本类（见上）；
@@ -827,9 +842,10 @@ function appendTruncatedBanner(content, payloadSizeText) {
 }
 
 // renderReadOnlyContent 把一份受控字节（Bridge 的 FileContent 形状）渲染进任意
-// 只读容器：markdown / 代码 / 文本 / 图片 / PDF / Word / 二进制提示，与「文件详情」
-// 面板共用同一条分派。它**只渲染**——没有编辑器、不写盘、不碰标签生命周期与脏状态，
-// 因此「提交内文件内容」这类只读视图可以安全地复用它（历史版本不该有任何写入口）。
+// 只读容器：markdown / HTML 页面 / 代码 / 文本 / 图片 / PDF / Word / 二进制提示，与
+// 「文件详情」面板共用同一条分派。它**只渲染**——没有编辑器、不写盘、不碰标签生命
+// 周期与脏状态，因此「提交内文件内容」这类只读视图可以安全地复用它（历史版本不该有
+// 任何写入口）。
 //
 // 调用方给容器与选项：
 //
@@ -859,6 +875,9 @@ export async function renderReadOnlyContent(panel, payload, options = {}) {
   switch (kind) {
     case "markdown":
       renderMarkdown(panel, bytes, truncated);
+      break;
+    case "html":
+      renderHtmlPreview(panel, bytes, path, truncated);
       break;
     case "code":
       renderHighlighted(panel, bytes, codeLanguageForPath(path), truncated);
@@ -921,6 +940,31 @@ function renderHighlighted(panel, bytes, language, truncated) {
   pre.appendChild(code);
   content.appendChild(pre);
   highlightElement(code, language);
+  if (truncated) appendTruncatedBanner(content, formatPreviewSize(bytes.length));
+  appendLineCount(panel, text.split("\n").length);
+}
+
+// HTML_PREVIEW_NOTE 是只读页面的说明牌：如实写出这一层能看到什么。D5——srcdoc
+// 沙箱里取不到同目录的 css/js（相对资源不加载），预览是「结构 + 内联样式」级，不
+// 追求完整还原；这句就是给用户的边界说明。
+export const HTML_PREVIEW_NOTE =
+  "沙箱预览 · 不联网 · 仅结构 + 内联样式（同目录 css/js 不加载） · 点「编辑」看源码";
+
+// renderHtmlPreview：html/htm 文件在**只读态**渲染成页面，**编辑态**仍是源码
+// （D1/D4）。页面只进沙箱 iframe（复用 html-embed.js 的口径，见 renderSandboxFrame）：
+// `srcdoc` + `sandbox="allow-scripts"` 无 `allow-same-origin` + srcdoc 内嵌 CSP
+// `default-src 'none'`，因而不联网、不执行表单/弹窗/跳转。**不走** renderMarkdown 的
+// purify.sanitize + innerHTML 那条路——其 FORBID_TAGS 含 style/iframe，会把页面样式
+// 与结构直接抹掉（那不是预览）。D3：截断仍按既有口径加横幅（html 不需要整份文件）。
+function renderHtmlPreview(panel, bytes, path, truncated) {
+  const content = previewShell(panel, "is-html");
+  if (!content) return;
+  const text = decodeFileText(bytes);
+  const note = `<div class="file-preview-html-note">${escapeHtml(HTML_PREVIEW_NOTE)}</div>`;
+  content.innerHTML = `${note}${renderSandboxFrame(text, {
+    title: `${path || "HTML"} 预览`,
+    className: "file-preview-html-frame"
+  })}`;
   if (truncated) appendTruncatedBanner(content, formatPreviewSize(bytes.length));
   appendLineCount(panel, text.split("\n").length);
 }
