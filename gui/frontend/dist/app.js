@@ -1128,37 +1128,39 @@ function reportExplorerRefreshFailure(error, info) {
   }
 }
 
-// ── 上下文压缩条目：展开查看压缩帧正文 ────────────────────────
-// 帧正文不进快照（快照只带 frame_ref），展开时按 ref 分页读回；展开与分页都是
-// 本地 UI 状态。容器与分页组件与轨迹详情同一套（.axis-detail +
-// data-compact-frame-load），不自造第二套面板。
+// ── 上下文压缩条目：点条目 → 弹框查看压缩帧正文 ───────────────
+// 帧正文不进快照（快照只带 frame_ref），打开弹框时按 ref 分页读回；条目只有一行
+// 元数据摘要，正文走可调大小的弹框（#compaction-frame-modal）。容器与分页组件与
+// 轨迹详情同一套（.axis-detail + data-compact-frame-load），不自造第二套面板。
 //
-// 视图态的身份是 **(会话, frame_ref)**，不是记录数组下标：下标既会随记录数组重排，
-// 更会随会话切换指向另一条记录——上一个会话读回来的正文挂在当前会话的同一序号行上，
-// 就是把别的会话的压缩说成当前会话的。ref 是内容存储里的引用，跨会话不会撞；会话
-// 字段把"这份正文属于谁"写进视图态（渲染侧据此拒绝跨会话正文，见
+// 帧正文视图态的身份是 **(会话, frame_ref)**，不是记录数组下标：下标既会随记录数组
+// 重排，更会随会话切换指向另一条记录——上一个会话读回来的正文挂在当前会话的同一
+// 序号行上，就是把别的会话的压缩说成当前会话的。ref 是内容存储里的引用，跨会话不会
+// 撞；会话字段把"这份正文属于谁"写进视图态（渲染侧据此拒绝跨会话正文，见
 // renderContextCompactions 的 sessionID 选项），会话切换时整份清空（见
-// resetCompactionViewState：用户再展开就按 ref 从当前会话重读一次）。
+// resetCompactionViewState：用户再打开就按 ref 从当前会话重读一次）。
 function emptyCompactionDetail() {
-  return { ref: "", sessionID: "", loading: false, error: "", text: "", hasMore: false, nextOffset: 0, totalBytes: 0 };
+  return { ref: "", sessionID: "" };
 }
 
 let compactionDetail = emptyCompactionDetail();
 let contextCompactionsBound = false;
 
-// 读取是异步的：期间可能又点了另一条记录、或切了会话。只有最后一次请求的结果可以
-// 落到条目上（同弹框的 compactionFrameLoadToken 口径）。
-let compactionDetailToken = 0;
-
-// clearCompactionDetail 收起条目并把在途读取作废（否则先发的响应回来会把正文画回来）。
+// clearCompactionDetail 忘掉"当前正在读哪一帧"（右栏据此标打开态，续读只认它）。
 function clearCompactionDetail() {
-  compactionDetailToken += 1;
   compactionDetail = emptyCompactionDetail();
 }
 
 // compactionViewSessionID 返回当前**视图会话**：帧正文视图态按它归属。
 function compactionViewSessionID() {
   return String(client.current()?.session?.id || "");
+}
+
+// openedCompactionRef 返回当前正在读的那一帧的 ref（会话 + ref 身份）。续读与重试
+// 只认视图态里存的 ref：从 compactions[index] 重取会让重排后的续页接到别人尾巴上。
+function openedCompactionRef() {
+  const ref = String(compactionDetail.ref || "");
+  return ref;
 }
 
 // resetCompactionViewState 清空帧正文视图态（右栏展开条目 + 帧正文弹框），由会话
@@ -1230,73 +1232,29 @@ function currentCompactions() {
   return Array.isArray(compactions) ? compactions : [];
 }
 
-// onContextCompactionsClick 一条委托监听：data-compact-open 展开/收起条目，
-// data-compact-frame-load=first|more 首读/续读帧正文（重绘前先落状态，避免闪烁）。
+// onContextCompactionsClick 一条委托监听：右栏条目的单一动作「查看帧正文」
+// （data-compact-open 带的是这条记录在**当时**数组里的下标，只用来取这一刻的
+// frame_ref）。再点同一行 = 收起弹框（行内展开路径已下线）。
 //
-// 展开身份一律是 ref：按钮上带的数组下标只用来**取**这一行的 ref（点击那一刻的
-// 权威记录），此后的收起与续读都只认视图态里存的 ref——不然记录数组一变，续读就
-// 会把另一条记录的续页接到当前正文尾巴上。
+// 身份一律是 (会话, ref)：按钮上的下标只用来**取**这一行的 ref，此后"是否已打开"、
+// 续读与重试都只认视图态里存的会话 + ref——不然记录数组一变（快照刷新 / 会话切换），
+// 续读就会把另一条记录的续页接到当前正文尾巴上。
 async function onContextCompactionsClick(event) {
   const openButton = event.target?.closest?.("[data-compact-open]");
-  const pageButton = event.target?.closest?.("[data-compact-frame-load]");
-  if (!openButton && !pageButton) return;
+  if (!openButton) return;
   const compactions = currentCompactions();
-  if (openButton) {
-    const ref = String(compactions[Number(openButton.dataset.compactOpen)]?.frame_ref || "");
-    if (!ref) return; // 没有帧引用的行本来就没有展开入口
-    if (compactionDetail.ref === ref) {
-      clearCompactionDetail();
-      repaintCompactions(compactions);
-      return;
-    }
-    compactionDetail = { ...emptyCompactionDetail(), ref, sessionID: compactionViewSessionID() };
-    repaintCompactions(compactions);
-    await loadCompactionFrame(ref, 0, "");
-    repaintCompactions(compactions);
+  const ref = String(compactions[Number(openButton.dataset.compactOpen)]?.frame_ref || "");
+  if (!ref) return; // 没有帧引用的行本来就没有入口
+  if (compactionDetail.ref === ref) {
+    closeCompactionFrame();
     return;
   }
-  const ref = String(compactionDetail.ref || "");
-  if (!ref) return;
-  const mode = pageButton.dataset.compactFrameLoad;
-  const offset = mode === "more" ? Number(compactionDetail.nextOffset || 0) : 0;
-  if (mode === "more" && !(offset > 0)) return;
-  await loadCompactionFrame(ref, offset, mode === "more" ? compactionDetail.text : "");
-  repaintCompactions(compactions);
+  await openCompactionFrame(ref);
 }
 
-// loadCompactionFrame 按 ref 分页读取压缩帧正文。失败只更新条目内的错误文案
-// （用户就在这里，不再弹全局提示）；不改变展开状态本身。
-//
-// 每次读取都把 (ref, 会话) 一起写回视图态：读取是异步的，期间可能又点了另一条记录、
-// 或切了会话。只有最后一次请求的结果可以落到条目上（token 口径同弹框），否则先发的
-// 响应回来会把新正文盖掉、把别的会话的正文画进来。
-async function loadCompactionFrame(ref, offset, previousText) {
-  const base = compactionDetail;
-  const token = ++compactionDetailToken;
-  compactionDetail = {
-    ref, sessionID: compactionViewSessionID(), loading: true, error: "", text: String(previousText || ""),
-    hasMore: base.hasMore, nextOffset: Number(base.nextOffset || 0), totalBytes: Number(base.totalBytes || 0)
-  };
-  repaintCompactions(currentCompactions());
-  let next = null;
-  try {
-    const page = await invoke("ToolResultContent", ref, offset, 12000);
-    next = {
-      ref, sessionID: compactionViewSessionID(), loading: false, error: "",
-      text: String(previousText || "") + String(page?.content || ""),
-      hasMore: Boolean(page?.has_more), nextOffset: Number(page?.next_offset || 0),
-      totalBytes: Number(page?.total_bytes || 0)
-    };
-  } catch (error) {
-    next = { ...compactionDetail, ref, loading: false, error: String(error) };
-  }
-  if (token !== compactionDetailToken) return;
-  compactionDetail = next;
-}
-
-// repaintCompactions 是右栏「上下文压缩」面板的唯一出口：记录列表 + 本轮门禁
-// 进度条一起画，可见性判据必须同源——压缩发生在写记录之前，"零记录"时面板
-// 仍可能有一轮压缩正在跑，按记录数判隐藏会让第一次压缩看不到进度条。
+// repaintCompactions 是右栏「上下文压缩」面板的唯一出口：记录列表 + 本轮门禁过程
+// 一起画，可见性判据必须同源——压缩发生在写记录之前，"零记录"时面板仍可能有一轮
+// 压缩正在跑，按记录数判隐藏会让第一次压缩看不到门禁过程。
 //
 // 块本身挂在 状态/概要 折叠区**里面**（用户口径：压缩内容放概要下面），折叠区默认
 // 收起——所以"本轮正在压 / 刚压完"这条瞬态要自己把折叠区打开（见 revealStatusPanel）；
@@ -1305,7 +1263,7 @@ function repaintCompactions(compactions) {
   const host = elements["context-compactions"];
   if (!host) return;
   const list = Array.isArray(compactions) ? compactions : [];
-  // sessionID 一起给渲染侧：展开行按 (会话, ref) 判定，上个会话的正文不许认。
+  // sessionID 一起给渲染侧：打开态那一行按 (会话, ref) 判定，上个会话的身份不许认。
   host.innerHTML = renderContextCompactions(list, {
     detail: compactionDetail, progress: compactionProgress, sessionID: compactionViewSessionID()
   });
@@ -1321,11 +1279,11 @@ function revealStatusPanel() {
 }
 
 // ── 压缩帧正文弹框 ───────────────────────────────────────────
-// 帧正文入口（data-compact-frame-ref）出现在三处：右栏「上下文压缩」条目、对话区
-// 「以上已压缩」分界行、以及将来任何一处——委托因此挂在 document 上，一处接住所有
-// 入口，组件侧只携带 ref（不持有 invoke 依赖）。
+// 帧正文入口（data-compact-frame-ref）出现在对话区「以上已压缩」分界行等处，右栏
+// 条目走自己的委托（data-compact-open，见 onContextCompactionsClick）；两者都汇到
+// openCompactionFrame。组件侧只携带 ref（不持有 invoke 依赖）。
 //
-// 弹框与右栏展开共用同一份正文区（renderCompactionFrameModal → renderFrameDetail），
+// 弹框是帧正文的**唯一**展示面（行内展开已下线）：正文区来自 renderFrameDetail，
 // 因此不存在"同一个 ref 两种读法"。状态只在视图侧（不进快照）：快照刷新会重建记录
 // 数组，但弹框里的正文是独立读回来的，不受影响。
 let compactionFrameModal = { record: null, detail: null };
@@ -1350,7 +1308,11 @@ function currentCompactionRecord(frameRef) {
 async function openCompactionFrame(frameRef) {
   const ref = String(frameRef || "");
   const record = currentCompactionRecord(ref);
+  // 记下"当前正在读哪一帧"（会话 + ref）：右栏据此把该行标成打开态，续读/重试只认
+  // 它。记录找不到时也照记——弹框照样打开，身份照样有。
+  compactionDetail = { ...emptyCompactionDetail(), ref, sessionID: compactionViewSessionID() };
   compactionFrameModal = { record, detail: ref ? emptyCompactionFrameDetail() : null };
+  repaintCompactions(currentCompactions());
   repaintCompactionFrameModal();
   setModal("compaction-frame-modal", true);
   if (record && ref) await loadCompactionFramePage(ref, 0, false);
@@ -1360,6 +1322,9 @@ function closeCompactionFrame() {
   compactionFrameLoadToken += 1;
   setModal("compaction-frame-modal", false);
   compactionFrameModal = { record: null, detail: null };
+  // 忘掉"正在读哪一帧"并重绘右栏：打开态的那一行要跟着暗下来。
+  clearCompactionDetail();
+  repaintCompactions(currentCompactions());
 }
 
 function repaintCompactionFrameModal() {
@@ -1415,7 +1380,7 @@ document.addEventListener("click", event => {
 
 elements["compaction-frame-modal-view"]?.addEventListener("click", event => {
   const page = event.target?.closest?.("[data-compact-frame-load]");
-  const ref = String(compactionFrameModal.record?.frame_ref || "");
+  const ref = openedCompactionRef();
   if (!page || !ref) return;
   if (page.dataset.compactFrameLoad === "more") {
     const offset = Number(compactionFrameModal.detail?.nextOffset || 0);

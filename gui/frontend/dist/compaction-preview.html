@@ -39,7 +39,7 @@
 
   <section class="panel">
     <h2>多次成功压缩（栈顶 + 更早）</h2>
-    <p class="note">按新旧下沉：栈顶最深，被更晚压缩取代的降成浅灰，仍逐条可点开读帧正文。</p>
+    <p class="note">按新旧下沉：栈顶最深，被更晚压缩取代的降成浅灰；条目只有一行（seq + 栈顶 + 原因），点「查看帧正文」在弹框里读正文。</p>
     <div class="host" data-fixture="stack"></div>
   </section>
 
@@ -56,14 +56,20 @@
   </section>
 
   <section class="panel">
-    <h2>本轮门禁进度（瞬态）</h2>
-    <p class="note">一轮压缩的门禁进度条 + 逐关耗时清单（复用 Plan 面板轨道）。</p>
+    <h2>本轮门禁过程（瞬态）</h2>
+    <p class="note">逐关耗时清单是**唯一**展现（不再借 Plan 面板的轨道）：整轮几十毫秒，条只会瞬时满格。</p>
     <div class="host" data-fixture="progress"></div>
+  </section>
+
+  <section class="panel">
+    <h2>帧正文弹框（条目点开后的正文面）</h2>
+    <p class="note">正文只在弹框里（行内展开已下线）；复用轨迹详情的同一容器与分页标记 <code>data-compact-frame-load</code>。</p>
+    <div class="host" data-fixture="frame"></div>
   </section>
 </main>
 
 <script type="module">
-import { renderContextCompactions } from "./context-summary.js";
+import { renderContextCompactions, renderCompactionFrameModal } from "./context-summary.js";
 
 const success = (version, reason, from, to, frameRef, at, extra = {}) => ({
   version, reason, origin: "auto", message_from: from, message_to: to,
@@ -109,6 +115,17 @@ for (const host of document.querySelectorAll("[data-fixture]")) {
           { gate: "judge", ms: 28 }, { gate: "assemble", ms: 6 }, { gate: "replace", ms: 0 },
           { gate: "index", ms: 12 }, { gate: "frame", ms: 33 }, { gate: "store", ms: 1 }
         ]
+      }
+    });
+    continue;
+  }
+  if (name === "frame") {
+    // 弹框正文 = renderCompactionFrameModal（正文的唯一展示面）；分页标记与轨迹详情同源。
+    host.innerHTML = renderCompactionFrameModal({
+      record: success(3, "context_budget_autonomous", "message-1", "message-1103", "tr-latest", "2026-10-02T23:12:00Z"),
+      detail: {
+        loading: false, error: "", hasMore: true, nextOffset: 120, totalBytes: 552,
+        text: "<!-- seelex:context-checkpoint-frame:v1 -->\n# Context checkpoint frame v1\n\n…压缩帧正文（按 ref 分页读回）…\n"
       }
     });
     continue;

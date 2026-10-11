@@ -8,16 +8,18 @@ import { compactionFailureError, compactionFailureText, compactionFrontier, comp
 // 展示口径与轨迹「压缩」轨共用同一份纯函数（compaction-format.js）：两处各写一份就
 // 会出现同一条记录两种读法的漂移。
 //
-// renderContextCompactions 渲染门禁进度条（瞬态，一轮压缩结束即撤）+ 压缩条目表：
-// 一行一次压缩，栈顶 = 当前前沿（深灰），更早的压缩往下排（浅灰）；每次成功压缩都
-// 带一枚 **seq 徽标**（复用 goal 看板 active seq 的同一件组件，见 components.js
-// renderSeqBadge）——用户口径：压缩成功之后状态里要有一条带 seq 的压缩条目。
+// renderContextCompactions 渲染门禁过程（瞬态，一轮压缩结束即撤，逐关耗时清单为唯一
+// 展现）+ 压缩条目表：一行一次压缩，栈顶 = 当前前沿（深灰），更早的压缩往下排（浅灰）；
+// 每次成功压缩都带一枚 **seq 徽标**（复用 goal 看板 active seq 的同一件组件，见
+// components.js renderSeqBadge）——用户口径：压缩成功之后状态里要有一条带 seq 的条目。
 // 压缩失败也留一条痕（`Failed=true`，无区间无帧），排在栈下方并用失败色标明它不是
 // 一次压缩（用户口径：压缩失败 → 留下失败记录 → 原始上下文继续存在）。痕里先写原因
 // （成因字面量 + 数字事实），再单独一行写**报错原文**（note 末段的 ` error=`）：
 // 那是失败痕里唯一无法从其它字段反推的事实，不能只活在瞬态的进度条里。
-// 点开某行读该帧正文（detail 由视图侧按 frame_ref 分页读回来），没有帧引用的行不给
-// 展开入口。
+// 条目**只有一行**：seq 徽标 + 「栈顶」+ 原因（时间/来源/区间/估算进 hover title），
+// 右侧一枚「查看帧正文」。点它打开可调大小的帧正文弹框（#compaction-frame-modal，
+// 沿用 renderFrameDetail 的 data-compact-frame-load 分页标记）——**不再在行下插正文**
+// （行内展开路径已下线；右栏 280px 里展开长正文本来也读不成）。没有帧引用的行不给入口。
 //
 // 这里此前是一列卡片 + 一句硬编码英文占位句（"Task checkpoint retained; details can
 // be re-read when needed."）——用户看到的"压缩帧像占位符"就是它：没有区间、没有来源、
@@ -52,10 +54,12 @@ export function renderContextCompactions(compactions = [], options = {}) {
   return `${progress ? `${progress}${title}` : title}<div class="compaction-stack" role="table" aria-label="压缩栈：一行一次压缩，栈顶是当前前沿；压缩失败的行排在栈下方（它没有区间）">${head}${rows}</div>`;
 }
 
-// renderRow 渲染一次**成功压缩**的条目：seq 徽标（= 压缩版本号）+ 触发/来源/区间
-// + 帧正文入口。
+// renderRow 渲染一次**成功压缩**的条目：**一行元数据摘要**——seq 徽标（= 压缩版本号）
+// + 「栈顶」标记 + 原因，右侧一枚「查看帧正文」。时间/来源/区间/估算不占行，全部进
+// hover title（右栏实测量级只有 ~280px，摊进行里必然堆叠换行，就是用户说的"臃肿"）。
 //
-// 展开哪一行按 **(会话, frame_ref)** 判定，不按记录数组下标：
+// 当前正在读的那一行（帧正文在弹框里打开）按 **(会话, frame_ref)** 判定，不按记录
+// 数组下标：
 //   - 下标会随记录数组重排、更会随会话切换指到另一条记录——上一个会话读回来的
 //     正文挂到当前会话的同一序号行上，就是把别的会话的压缩说成当前会话的；
 //   - ref 是内容存储里的引用，跨会话不会撞，且与读取侧（data-compact-frame-load
@@ -76,26 +80,20 @@ function renderRow(compaction, index, frontier, detail, options) {
   const sessionID = String(options.sessionID || "");
   const detailApplies = detailRef !== "" && (sessionID === "" || detailSession === "" || detailSession === sessionID);
   const open = detailApplies && detailRef === frameRef;
-  // 一行两排：右栏实测量级只有 ~280px，四列会把中文按字符切碎（浏览器核对里
-  // "message-1..message-663" 被断成 mes/sage-）。触发与来源同排，区间/估算/
-  // 时间另起一排等宽小字。
+  // 条目本体只留「seq + 栈顶 + 原因」；被省略的来源/区间/估算/时间一次进 hover title，
+  // 悬停即可读全，不必为它们牺牲整行的可扫读性。
   const facts = [range || "无区间边界", tokens ? `${formatNumber(tokens)} tokens` : "", time].filter(Boolean).join(" · ");
-  // 动作列两个短按钮：右栏实测量级只有 ~280px，"查看帧正文"这种五字按钮会把
-  // 触发与区间挤成四行（浏览器核对实测），而两个入口都得一次点击到位。
-  const actions = frameRef
-    ? `<button type="button" class="context-summary-open" data-compact-open="${index}" aria-expanded="${open}" title="按 ref ${escapeHtml(frameRef)} 读取压缩帧正文${open ? "（收起）" : "（展开在本行下方）"}">${open ? "收起" : "帧正文"}</button>
-        <button type="button" class="context-summary-open" data-compact-frame-ref="${escapeHtml(frameRef)}" title="在可调大小的弹框里查看帧正文（ref ${escapeHtml(frameRef)}）">弹框</button>`
+  const title = [reason, origin, facts].filter(Boolean).join(" · ");
+  const action = frameRef
+    ? `<button type="button" class="context-summary-open" data-compact-open="${index}" aria-expanded="${open}" title="查看帧正文（ref ${escapeHtml(frameRef)}；在可调大小的弹框里打开）">查看帧正文</button>`
     : `<span class="context-summary-noframe">无帧正文</span>`;
-  const row = [
-    `<div class="compaction-stack-row${isFrontier ? " is-frontier" : " is-stale"}${open ? " is-open" : ""}" role="row" data-compact-index="${index}" title="${escapeHtml([reason, origin, facts].filter(Boolean).join(" · "))}">`,
+  return [
+    `<div class="compaction-stack-row${isFrontier ? " is-frontier" : " is-stale"}${open ? " is-open" : ""}" role="row" data-compact-index="${index}"${open ? ' aria-current="true"' : ""} title="${escapeHtml(title)}">`,
     `<span role="cell" class="compaction-stack-cell is-version">${renderSeqBadge({ seq: version || "?", unit: "seq", tone: "compaction", title: `压缩 seq：第 ${version} 次压缩（栈顶 = 当前前沿）` })}${isFrontier ? '<em class="compaction-stack-flag">栈顶</em>' : ""}</span>`,
-    `<span role="cell" class="compaction-stack-cell is-body">`,
-    `<strong>${escapeHtml(reason)}</strong>${origin ? `<em class="compaction-stack-origin">${escapeHtml(origin)}</em>` : ""}`,
-    `<small>${escapeHtml(facts)}</small></span>`,
-    `<span role="cell" class="compaction-stack-cell is-actions">${actions}</span>`,
+    `<span role="cell" class="compaction-stack-cell is-body"><strong>${escapeHtml(reason)}</strong></span>`,
+    `<span role="cell" class="compaction-stack-cell is-actions">${action}</span>`,
     "</div>"
   ].join("");
-  return open ? `${row}<div class="compaction-stack-detail" role="row">${renderFrameDetail(compaction, detail, frameRef, tokens)}</div>` : row;
 }
 
 // renderFailureRow 渲染一条**压缩失败**的痕：seq 徽标（= 失败时的上下文版本）+ 原因
@@ -131,15 +129,15 @@ function renderFailureRow(compaction, index) {
   ].join("");
 }
 
-// renderCompactionProgress 渲染一轮压缩的门禁进度条：复用 Plan 面板同款轨道与
-// 填充（.plan-board-progress / .plan-board-bar），不自造第二套进度组件。进度是
-// 瞬态（后端每收一关发一条 compaction.progress，终局后生命周期结束），因此
-// 它不进快照、不进记录列表，只由视图侧按事件暂存后传进来。
+// renderCompactionProgress 渲染一轮压缩的门禁过程：**逐关耗时清单是唯一展现**，
+// 不再借 Plan 面板的轨道（.plan-board-progress / .plan-board-bar）——那正是用户说的
+// "门禁过程和整体前端风格不统一"的来源：同一段 UI 有两套语言。
 //
-// 轨道下面挂**逐关耗时清单**：整轮压缩只有几十毫秒（一次全量 token 估算 + 一次
-// 装配 + 一次落帧），读者不可能看到"慢慢走"的进度条；能回答"它到底干了什么、卡在
-// 哪一步"的只有每一关自己花掉的时间。这份清单因此不是装饰——没有它，界面上就只剩
-// 一条瞬时满格的绿条，读者合理地认为什么都没发生。
+// 为什么不要进度条：整轮压缩只有几十毫秒（一次全量 token 估算 + 一次装配 + 一次落帧），
+// 条不可能"慢慢走"，画出来只是瞬时满格（或半格）的一道彩线，读者合理地认为什么都没
+// 发生。能回答"它到底干了什么、卡在哪一步"的只有每一关自己花掉的时间。进度是瞬态
+// （后端每收一关发一条 compaction.progress，终局后生命周期结束），因此它不进快照、
+// 不进记录列表，只由视图侧按事件暂存后传进来。
 export function renderCompactionProgress(progress) {
   if (!progress || typeof progress !== "object") return "";
   const total = Number(progress.total || 0);
@@ -151,10 +149,9 @@ export function renderCompactionProgress(progress) {
   const begin = state === "running" && String(progress.phase || "") === "begin";
   const label = state === "running" ? compactionGateLabel(progress.gate)
     : (state === "failed" ? "压缩未完成" : "压缩完成");
-  // 轨道填充 = 真正收口过的门禁数（视图侧在终局事件上沿用最后一条 running 的
-  // 序号），所以中途失败的那一轮停在半路，不会靠"终局 index=total"画成满格；
-  // detail 在运行关是该关的判据（如 compared/all/soft/hard），在终局是
-  // reached=N/M，两个数字口径一致。
+  // index/total = 真正收口过的门禁数（视图侧在终局事件上沿用最后一条 running 的
+  // 序号），所以中途失败的那一轮停在半路，不会被终局帧推成满格；detail 在运行关是
+  // 该关的判据（如 compared/all/soft/hard），在终局是 reached=N/M，两个数字口径一致。
   const facts = [
     compactionOriginLabel(progress.origin),
     state === "running" ? "" : compactionOutcomeLabel(progress.outcome),
@@ -166,7 +163,6 @@ export function renderCompactionProgress(progress) {
       <span class="context-compaction-progress-label">${escapeHtml(label)}</span>
       <span class="context-compaction-progress-count">${index}/${total}${version > 0 ? ` · #${version}` : ""}${elapsed > 0 ? ` · 共 ${escapeHtml(compactionGateDurationText(elapsed))}` : ""}</span>
     </div>
-    <div class="plan-board-progress"><div class="plan-board-bar" style="width:${Math.round((index / total) * 100)}%"></div></div>
     ${facts ? `<small class="context-compaction-progress-detail">${escapeHtml(facts)}</small>` : ""}
     ${renderCompactionGateTimeline(progress, begin)}
   </div>`;
@@ -192,12 +188,12 @@ function renderCompactionGateTimeline(progress, begin) {
   return `<ol class="context-compaction-gates">${rows.join("")}</ol>`;
 }
 
-// renderCompactionFrameModal 渲染弹框里的压缩帧正文：复用右栏展开时的同一份正文区
-// （renderFrameDetail）与同一套分页标记（data-compact-frame-load），因此弹框与右栏
-// 读的是同一个 ref、同一段正文、同一套"加载更多"行为，不会出现两种读法。
+// renderCompactionFrameModal 渲染弹框里的压缩帧正文：帧正文的**唯一**展示面（行内
+// 展开已下线），复用轨迹详情的同一份正文区（renderFrameDetail）与同一套分页标记
+// （data-compact-frame-load），因此不存在"同一个 ref 两种读法"。
 //
-// 为什么要有弹框：右栏在 状态/账户/团队 的折叠区之间，正文又最长，面板里只能看到
-// 几行；弹框可调大小（data-resizable），读长正文才是可用的。
+// 为什么要有弹框：右栏在 状态/账户/团队 的折叠区之间，条目又只有一行；正文最长，
+// 弹框可调大小（data-resizable），读长正文才是可用的。
 export function renderCompactionFrameModal(state = {}) {
   const record = state.record && typeof state.record === "object" ? state.record : {};
   const frameRef = String(record.frame_ref || "");
@@ -207,7 +203,7 @@ export function renderCompactionFrameModal(state = {}) {
   return renderFrameDetail(record, state.detail && typeof state.detail === "object" ? state.detail : {}, frameRef, Number(record.estimated_tokens || 0));
 }
 
-// renderFrameDetail 渲染展开的压缩帧正文区：复用轨迹详情同一容器与分页组件
+// renderFrameDetail 渲染压缩帧正文区（弹框内）：复用轨迹详情同一容器与分页组件
 // （.axis-detail / .axis-detail-text / data-compact-frame-load），不自造第二套
 // 面板与第二套分页交互。
 function renderFrameDetail(compaction, detail, frameRef, tokens) {

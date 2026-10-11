@@ -109,9 +109,10 @@ export function compactionFrontier(compactions = []) {
 // compactionStackOrder 把压缩记录按「栈」的顺序排出**下标序列**：栈顶 = 最新一次
 // 压缩（被压区间终点序号最大者，与 compactionFrontier 同一把尺），往下依次更早。
 //
-// 返回下标而不是重排后的记录：右栏的展开态（data-compact-open）与帧正文都按下标记账
-// （app.js 用 compactions[index] 取记录），排序若换了数组，点开第 1 行就会读到第 2 行
-// 的正文。同一侧记录少（会话级），不做分页。
+// 返回下标而不是重排后的记录：右栏条目上的按钮只带这一刻的下标（app.js 用它从
+// compactions[index] 取该行的 frame_ref），此后打开态与帧正文都按 (会话, frame_ref)
+// 记账；排序若换了数组，点开第 1 行就会读到第 2 行的正文。同一侧记录少（会话级），
+// 不做分页。
 export function compactionStackOrder(compactions = []) {
   const list = Array.isArray(compactions) ? compactions : [];
   return list
