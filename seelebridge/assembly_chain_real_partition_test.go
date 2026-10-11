@@ -69,9 +69,11 @@ var realPartitionHardwareFace = []string{
 	"write_file", "edit_file", "bash",
 }
 
-// realPartitionDefaultSkills 是 default 的 11 份技能（plugins_list 的活体读数）。
+// realPartitionDefaultSkills 是 default 的 10 份技能（plugins_list 的活体读数）。
+// 2026-10-12：删掉 `plan`（`$plan` SKILL.md 的"首步必须 plan_load"在当前工具面里已无法执行
+// —— 没有 plan_load/plan_run/plan_status/plan_clear；编排改由 $goal + $teamwork 承载）。
 var realPartitionDefaultSkills = []string{
-	"cli-design", "code", "code-aesthetics", "goal", "plan", "plan-design",
+	"cli-design", "code", "code-aesthetics", "goal", "plan-design",
 	"plan-efficiency", "plan-norm", "review", "teamwork", "test",
 }
 
@@ -213,7 +215,7 @@ func TestAssemblyChainRealPartitionEmptyMeansDefaultBaseline(t *testing.T) {
 	}
 
 	// ③ 不对称（刻意的，裁决 3）：工具面同 default，**技能目录不注入**——显式装 default 的
-	//    目录段里有 default 的 11 份技能，不装配的那一份是空。这条差别必须显式钉住，
+	//    目录段里有 default 的 10 份技能，不装配的那一份是空。这条差别必须显式钉住，
 	//    否则"不装配=默认 default"会被读成"技能也继承 default"。
 	defaultCatalog := fixture.runtime.roleSkillCatalog([]string{"default"})
 	for _, name := range realPartitionDefaultSkills {

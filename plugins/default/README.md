@@ -29,19 +29,18 @@ stateDiagram-v2
 ## 实现
 
 - `plugin.md` 的 include/exclude 均为空，交由 Seele Tool holder 暴露全部工具。
-- Plan 是启动即注册的基础工具；`plan/` 是默认 Plugin 提供的 `plan` Skill，用 `$plan` 召回（`$` = Skill 前缀、`#` = 切换 Plugin），不再存在独立 Plan Plugin。
+- **不再有 Plan Skill**：`$plan` 已随 `plan_load` DAG 退场（工具面里没有 `plan_load`/`plan_run`/`plan_status`/`plan_clear`），`plan/` 目录已删；编排走 `$goal` + `$teamwork` + subagent / teammate。
 - 每个子目录是一个通用 Skill（`$` 前缀召回）。
-- `$goal` 与 `$teamwork` 是团队作业面的一对：`$goal` 维护 agent 自总结的目标看板（正文/完成条件/阶段打点），
-  `$teamwork` 是 leader 的工具面规范（V 模型阶段派活 + 契约先行 + 证据收尾）。**不再有席位轮转。**
+- `$goal` 与 `$teamwork` 是团队作业面的一对：`$goal` 维护 agent 自总结的目标看板（正文/完成条件/打点），
+  `$teamwork` 是 leader 的工具面规范 —— **少而关键的编制 + teammate 多任务并发 + 任务尽量解耦 + 完成一件交一件**（里程碑屏障 + 里程碑内 Work Item DAG，契约先行、证据收尾）。**不再有席位轮转。**
 - 激活专用 Plugin 后，Registry 只展示该 Plugin 发布的 Skill；退出后恢复 default/global 集合。
 
 ## Skill 说明
 
 | Skill | 定位 |
 |---|---|
-| `$goal` | 目标看板维护者：agent 自总结的 goal 看板（正文 + 完成条件 + 每阶段打点，位置由 active seq 钉住），并驱动团队按 V 模型阶段推进 |
-| `$teamwork` | leader 工具面：`team_plan` / `team_dispatch` / `team_join` / `team_milestone` / `team_close` + `jobs_manage` 的用法、V 模型阶段模板与铁律 |
-| `$plan` | WorkPlan：`plan_load` / `plan_run` 的 DAG 规划与执行 |
+| `$goal` | 目标看板维护者：agent 自总结的 goal 看板（正文 + 完成条件 + 打点，位置由 active seq 钉住），并给出可派活的目标正文 |
+| `$teamwork` | leader 工具面：`team_plan` / `team_work` / `team_dispatch` / `team_join` / `team_accept` / `team_close` + `jobs_manage` 的用法；编制少而关键、teammate 多任务并发、任务解耦、完成一件交一件 |
 | `$plan-design` | 启发式方案设计：标杆调研、方案对比、技术选型 |
 | `$plan-efficiency` | 规划式效率方案：打点表、活动图、SubAgent 调度 |
 | `$plan-norm` | 约束式规范方案：ASPICE 追溯、变更影响分析、审查检查单 |
