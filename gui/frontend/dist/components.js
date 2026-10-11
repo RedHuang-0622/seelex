@@ -135,6 +135,61 @@ function renderCompactionFrontierRow(anchor) {
     </div>`;
 }
 
+// ── F-6 消息块 / 工具过程块：按邻接决定顶底圆角（融合 vs 分割）─────────────
+//
+// 用户口径（2026-10-12 拍板）："没有 llm→llm；相同元素如果需要分割，那么就是圆角
+// 相对；如果不分割，就是两边都没有圆角"。落成渲染层的判据只有三条：
+//   · 不同类（llm 正文块 ↔ 工具过程块）**始终融合** ⇒ 交界两侧圆角都置 0、间距归零；
+//   · 同类默认**不分割** ⇒ 同样是"两边都没有圆角"（外侧角保留圆角）；
+//   · **分割判据必须显式**：换轮次（round_id）或换角色归属（role_name）＝ 分割
+//     ⇒ 两枚块圆角相对（上块下圆角 + 下块上圆角）、中间保留间距。
+//   （"没有 llm→llm"= llm→llm 不是一种**独立**情形，走的就是上面这条同类判据。）
+//
+// 这里写类名同时写 data-*：宿主与测试按数据判，而不是按像素量。
+//   is-joined-above / is-joined-below / is-joined-both
+//   ⇒ data-joined-above / data-joined-below（"true" / "false"，三枚类只出一枚）
+//
+// D4 信号条（已按"做不到就写明"的口径登记）：融合只作用于**顶/底圆角与间距**；
+// `.message::before` / `.plan-card::before` 仍是按块各自画的信号点，按块保留
+// （做成贯通竖条要把点改线，超出本次融合口径，见 styles.css 同段注释）。
+
+// conversationBlockFamily 给出渲染行的"块族"：llm（LLM 正文块）/ tools（工具过程块）
+// / other（压缩分界行、草稿行、运行时活动带——它们自成一段，不参与融合）。
+function conversationBlockFamily(item) {
+  if (item?.kind === "message") return "llm";
+  if (item?.kind === "axis") return "tools";
+  return "other";
+}
+
+// blockAttribution 取一块的"归属"：llm 块的归属 = 轮次 + 角色归属（round_id /
+// role_name，两个字段都已长在元素上）；工具过程块没有这两样（恒为空），因此相邻两
+// 段工具过程默认不分割（与同类判据一致）。
+function blockAttribution(item) {
+  if (item?.kind !== "message") return "";
+  return `${Number(item.message?.round_id || 0)}|${String(item.message?.role_name || "")}`;
+}
+
+// blocksFuse 判定上下相邻两行是否融合（融合 = 交界处圆角置 0、块间距归零）。
+function blocksFuse(previous, next) {
+  const previousFamily = conversationBlockFamily(previous);
+  const nextFamily = conversationBlockFamily(next);
+  if (previousFamily === "other" || nextFamily === "other") return false;
+  if (previousFamily !== nextFamily) return true; // 不同类：llm ↔ 工具过程始终融合
+  return blockAttribution(previous) === blockAttribution(next); // 同类：默认不分割
+}
+
+// joinedAttrs 把"上 / 下是否融合"翻成类名后缀与 data-* 片段（无融合时两者都空，
+// 块的既有属性一字不动）。
+function joinedAttrs(above = false, below = false) {
+  const className = above && below
+    ? " is-joined-both"
+    : above ? " is-joined-above" : below ? " is-joined-below" : "";
+  return {
+    className,
+    dataAttrs: ` data-joined-above="${above ? "true" : "false"}" data-joined-below="${below ? "true" : "false"}"`
+  };
+}
+
 // renderConversationModel 把一页的内容组装成渲染行：既定 message + （可选）本页
 // 未发送的草稿行 + 运行时活动带。draft 为空/全空白时绝不插行——页面不会凭空多出
 // 一条空白草稿（判据同 draft-lifecycle.js composerDraftRows）。
@@ -143,14 +198,19 @@ function renderCompactionFrontierRow(anchor) {
 export function renderConversationModel(messages = [], chat = {}, draft = "", anchor = null) {
   const payloads = new Map();
   const items = insertCompactionFrontier(buildConversationItems(messages), anchor);
-  const grouped = groupConversationItems(items, payloads);
+  const grouped = groupConversationItems(items);
   const rendered = grouped.map((item, index) => {
     const key = item.key || `${item.kind}-${index}`;
-    const html = item.kind === "axis" || item.kind === "frontier"
-      ? item.html
-      : item.kind === "tool"
-        ? renderToolCall(item, key, payloads)
-        : renderMessage(item.message, key);
+    // F-6：邻接在渲染期算（只有这里同时看得见上一条与下一条的 kind + 归属）。
+    const joinedAbove = index > 0 && blocksFuse(grouped[index - 1], item);
+    const joinedBelow = index < grouped.length - 1 && blocksFuse(item, grouped[index + 1]);
+    const html = item.kind === "axis"
+      ? renderToolAxis(item, key, joinedAbove, joinedBelow)
+      : item.kind === "frontier"
+        ? item.html
+        : item.kind === "tool"
+          ? renderToolCall(item, key, joinedAbove, joinedBelow)
+          : renderMessage(item.message, key, joinedAbove, joinedBelow);
     const meta = item.kind === "message"
       ? {
         kind: "message",
@@ -341,27 +401,16 @@ function hasVisibleAssistantOutput(message) {
 // 泛化“滚动轴”：对话区把 tool-calling 与思考各自收进可展开/收起的滚动轴，
 // LLM 正文不进滚动轴（保持内联）。空 assistant 占位（无 content/reasoning）
 // 不渲染为独立消息；它只是流式正文的落点。轨迹视图保持全量不变。
-function groupConversationItems(items, payloads) {
+function groupConversationItems(items) {
   const grouped = [];
   const pendingTools = [];
   const flushTools = () => {
     if (pendingTools.length === 0) return;
-    const first = pendingTools[0];
-    const key = `roll:${first.key}`;
-    const count = new Set(pendingTools.map(item => item.key)).size;
-    const names = [...new Set(pendingTools.map(item => item.name))].join(" / ");
-    const chips = pendingTools.map(item => renderToolCall(item, item.key, payloads)).join("");
-    const wheelLabel = `工具过程 · ${count} 次 · ${names}`;
-    const html = `<details class="conversation-axis is-tools" data-conversation-key="${escapeHtml(key)}" data-wheel-kind="tools" data-wheel-label="${escapeHtml(wheelLabel)}">
-      <summary>
-        <span class="axis-caret" aria-hidden="true"></span>
-        <span class="axis-label">工具过程</span>
-        <span class="axis-meta">${count} 次 · ${escapeHtml(names)}</span>
-        <span class="axis-hint">展开 / 收起</span>
-      </summary>
-      <div class="axis-scroll tools-axis-scroll">${chips}</div>
-    </details>`;
-    grouped.push({ kind: "axis", key, html });
+    const members = pendingTools.slice();
+    const key = `roll:${members[0].key}`;
+    // 只登记成员、不在这里拼 html：工具过程块的邻接圆角要等上下邻居都定了才算得出
+    // 来（见 renderToolAxis / blocksFuse）。
+    grouped.push({ kind: "axis", key, members });
     pendingTools.length = 0;
   };
   for (const item of items) {
@@ -412,8 +461,9 @@ export function wheelSnippet(text = "", limit = 32) {
   return flat.length > limit ? `${flat.slice(0, limit)}…` : flat;
 }
 
-function renderMessage(message, key) {
+function renderMessage(message, key, above = false, below = false) {
   const role = message.role || "assistant";
+  const joined = joinedAttrs(above, below);
   const time = message.created_at ? new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
   const label = roleIdentity(message, role);
   const routeMeta = renderMessageRouteMeta(message);
@@ -432,7 +482,7 @@ function renderMessage(message, key) {
     : "";
   const wheelKind = role === "user" ? "user" : role === "system" ? "system" : role === "assistant" ? (String(message.content || "").trim() ? "agent" : "think") : "other";
   const wheelLabel = `${role === "user" ? "你" : role === "system" ? "系统" : label} · ${wheelSnippet(String(message.content || "").trim() || reasoning)}`;
-  return `<article class="message ${escapeHtml(role)}${messageRoleClass(message)}" data-conversation-key="${escapeHtml(key)}" data-trajectory-key="${escapeHtml(key)}" data-wheel-kind="${wheelKind}" data-wheel-label="${escapeHtml(wheelLabel)}" data-role-name="${escapeHtml(String(message.role_name || ""))}" data-round-id="${roundID}">
+  return `<article class="message ${escapeHtml(role)}${messageRoleClass(message)}${joined.className}" data-conversation-key="${escapeHtml(key)}" data-trajectory-key="${escapeHtml(key)}" data-wheel-kind="${wheelKind}" data-wheel-label="${escapeHtml(wheelLabel)}" data-role-name="${escapeHtml(String(message.role_name || ""))}" data-round-id="${roundID}"${joined.dataAttrs}>
     <div class="message-head"><span class="role-mark">${role === "user" ? icon("message", 13) : icon("source", 13)}</span><strong>${escapeHtml(label)}</strong>${roundChip}<span>${escapeHtml(time)}</span></div>
     ${routeMeta}
     ${thinking}
@@ -485,9 +535,32 @@ export function roleIdentity(message, role = message?.role || "assistant") {
   return role === "user" ? "YOU" : role === "assistant" ? "AGENT" : role.toUpperCase();
 }
 
-function renderToolCall(tool, key, payloads) {
+// renderToolAxis 渲染「工具过程」折叠轴：一组成员（一步或多步工具调用）收进同一张
+// 可展开卡片。**这张卡片就是对话列里的"工具过程块"**——邻接圆角挂在它身上（F-6），
+// 而不是挂在卡内的 chip 上：卡内 `.tool-run` 早已被抹平圆角与边框
+// （styles.css 的 `.tools-axis-scroll .tool-run`），chip 不是块。
+function renderToolAxis(item, key, above = false, below = false) {
+  const members = Array.isArray(item.members) ? item.members : [];
+  const count = new Set(members.map(member => member.key)).size;
+  const names = [...new Set(members.map(member => member.name))].join(" / ");
+  const chips = members.map(member => renderToolCall(member, member.key)).join("");
+  const wheelLabel = `工具过程 · ${count} 次 · ${names}`;
+  const joined = joinedAttrs(above, below);
+  return `<details class="conversation-axis is-tools${joined.className}" data-conversation-key="${escapeHtml(key)}" data-wheel-kind="tools" data-wheel-label="${escapeHtml(wheelLabel)}"${joined.dataAttrs}>
+      <summary>
+        <span class="axis-caret" aria-hidden="true"></span>
+        <span class="axis-label">工具过程</span>
+        <span class="axis-meta">${count} 次 · ${escapeHtml(names)}</span>
+        <span class="axis-hint">展开 / 收起</span>
+      </summary>
+      <div class="axis-scroll tools-axis-scroll">${chips}</div>
+    </details>`;
+}
+
+function renderToolCall(tool, key, above = false, below = false) {
   const status = statusMeta(tool.status, tool.error);
-  return `<article class="tool-run ${status.className}" data-conversation-key="${escapeHtml(key)}">
+  const joined = joinedAttrs(above, below);
+  return `<article class="tool-run ${status.className}${joined.className}" data-conversation-key="${escapeHtml(key)}"${joined.dataAttrs}>
     <div class="tool-run-line">
       <code class="item-id">${escapeHtml(tool.id || key)}</code>
       <button type="button" class="chat-chip is-tool" data-trajectory-key="${escapeHtml(key)}" title="工具调用与 IN/OUT 完整内容见轨迹视图">

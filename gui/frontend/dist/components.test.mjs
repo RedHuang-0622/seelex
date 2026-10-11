@@ -96,7 +96,9 @@ test("uses stable message and tool keys for incremental rendering", () => {
   ], { running: true });
 
   assert.deepEqual(model.items.map(item => item.key), ["message:assistant-1", "roll:tool:call-1", "chat:activity"]);
-  assert.match(model.items[1].html, /class="conversation-axis is-tools"/);
+  // 轴卡是"工具过程块"，F-6 会给它挂邻接中介类（这里紧跟 llm 块 ⇒ is-joined-above），
+  // 所以只钉 is-tools 本身，不钉 class 属性的结尾。
+  assert.match(model.items[1].html, /class="conversation-axis is-tools/);
   assert.match(model.items[1].html, /data-conversation-key="tool:call-1"/);
   assert.match(model.items[1].html, /data-trajectory-key="tool:call-1"/);
   assert.match(model.items[1].html, /工具过程/);
@@ -303,4 +305,139 @@ test("message blocks without route metadata render the id-only meta row", () => 
     { role: "assistant", content: "无 id" }
   ], { running: false });
   assert.doesNotMatch(anonymous.html, /message-route-meta/);
+});
+
+// ── F-6 邻接圆角：融合 vs 分割 ────────────────────────────────────
+// 判据在 components.js 的 blocksFuse：不同类（llm 正文块 ↔ 工具过程块）**始终融合**；
+// 同类**默认不分割**，换轮次（round_id）或换角色归属（role_name）＝分割。中介类同
+// 时写 data-*（三枚类只出一枚），因此断言既有类也有数据。
+
+test("llm 块紧邻工具过程块：交界两侧圆角置零（融合）", () => {
+  const model = renderConversationModel([
+    { id: "m-1", role: "assistant", round_id: 4, role_name: "main", content: "先看一眼" },
+    { id: "t-1", role: "tool", tool: { id: "call-1", name: "read", arguments: "{}", status: "success" } },
+    { id: "t-2", role: "tool_result", content: "done", tool: { id: "call-1", name: "read", result: "done", status: "success" } }
+  ]);
+  assert.deepEqual(model.items.map(item => item.meta.kind), ["message", "axis"]);
+  const [message, axis] = model.items;
+
+  // 上块（llm）只接住下一条：外侧（上）角保留圆角 ⇒ 只有 is-joined-below。
+  assert.match(message.html, /class="message assistant is-exec is-joined-below"/);
+  assert.match(message.html, /data-joined-below="true"/);
+  assert.match(message.html, /data-joined-above="false"/);
+  // 下块（工具过程轴卡）只接住上一条。
+  assert.match(axis.html, /class="conversation-axis is-tools is-joined-above"/);
+  assert.match(axis.html, /data-joined-above="true"/);
+  assert.match(axis.html, /data-joined-below="false"/);
+  // 融合只加中介类：轴卡的 key 与轮轴数据一字不动。
+  assert.equal(axis.key, "roll:tool:call-1");
+  assert.match(axis.html, /data-conversation-key="roll:tool:call-1"/);
+  assert.match(axis.html, /data-wheel-kind="tools"/);
+});
+
+test("工具过程夹在两枚同归属 llm 块之间：中段出 is-joined-both", () => {
+  const model = renderConversationModel([
+    { id: "m-1", role: "assistant", round_id: 2, role_name: "tl", content: "第一段" },
+    { id: "t-1", role: "tool", tool: { id: "call-9", name: "bash", arguments: "{}", status: "success" } },
+    { id: "t-2", role: "tool_result", content: "ok", tool: { id: "call-9", name: "bash", result: "ok", status: "success" } },
+    { id: "m-2", role: "assistant", round_id: 2, role_name: "tl", content: "第二段" }
+  ]);
+  assert.deepEqual(model.items.map(item => item.meta.kind), ["message", "axis", "message"]);
+  const [first, axis, last] = model.items;
+
+  assert.match(first.html, /data-joined-above="false"/);
+  assert.match(first.html, /data-joined-below="true"/);
+  assert.doesNotMatch(first.html, /is-joined-above|is-joined-both/);
+  // 中段：上下都融合。交界两侧都置 0，中段块自己的外侧被邻居的圆角接手。
+  assert.match(axis.html, /class="conversation-axis is-tools is-joined-both"/);
+  assert.match(axis.html, /data-joined-above="true"/);
+  assert.match(axis.html, /data-joined-below="true"/);
+  // 末块只接住上面一条 ⇒ 融合组的下外侧角仍是圆角。
+  assert.match(last.html, /class="message assistant is-advisor is-joined-above"/);
+  assert.match(last.html, /data-joined-above="true"/);
+  assert.match(last.html, /data-joined-below="false"/);
+});
+
+test("同类 llm 块：同轮次同归属默认不分割，换轮次 / 换归属则分割", () => {
+  // 同一轮、同一归属：默认不分割 ⇒ 两块在交界处都没有圆角。
+  const same = renderConversationModel([
+    { id: "a-1", role: "assistant", round_id: 7, role_name: "main", content: "上半" },
+    { id: "a-2", role: "assistant", round_id: 7, role_name: "main", content: "下半" }
+  ]);
+  assert.deepEqual(same.items.map(item => item.meta.kind), ["message", "message"]);
+  assert.match(same.items[0].html, /class="message assistant is-exec is-joined-below"/);
+  assert.match(same.items[1].html, /class="message assistant is-exec is-joined-above"/);
+
+  // 换轮次 = 分割：两边都不加融合类（两枚块圆角相对、中间保留间距）。
+  const nextRound = renderConversationModel([
+    { id: "b-1", role: "assistant", round_id: 7, role_name: "main", content: "上" },
+    { id: "b-2", role: "assistant", round_id: 8, role_name: "main", content: "下" }
+  ]);
+  for (const item of nextRound.items) {
+    assert.doesNotMatch(item.html, /is-joined/);
+    assert.match(item.html, /data-joined-above="false"/);
+    assert.match(item.html, /data-joined-below="false"/);
+  }
+
+  // 同一轮里换角色归属（EXEC 主持 → ADVISOR 裁决）= 分割。
+  const roleSwap = renderConversationModel([
+    { id: "c-1", role: "assistant", round_id: 9, role_name: "main", content: "主持" },
+    { id: "c-2", role: "assistant", round_id: 9, role_name: "tl", content: "裁决" }
+  ]);
+  for (const item of roleSwap.items) assert.doesNotMatch(item.html, /is-joined/);
+  assert.match(roleSwap.items[1].html, /class="message assistant is-advisor"/);
+});
+
+test("自成一段的行（运行时活动带）不参与融合", () => {
+  const model = renderConversationModel([
+    { id: "d-1", role: "assistant", round_id: 3, role_name: "main", content: "答" }
+  ], { running: true });
+  const tail = model.items.find(item => item.key === "chat:activity");
+  assert.ok(tail, "活动带必须还在");
+  // 活动带不是块：既没有中介类，也不带邻接数据。
+  assert.doesNotMatch(tail.html, /is-joined/);
+  assert.doesNotMatch(tail.html, /data-joined/);
+  // 它也不把上面的 llm 块拖进"融合"。
+  assert.match(model.items[0].html, /data-joined-below="false"/);
+  assert.doesNotMatch(model.items[0].html, /is-joined/);
+});
+
+// cssRules 剥掉注释后展开「选择器 → 声明体」（口径同 style-baseline.test.mjs）。
+function cssRules(css) {
+  const bare = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const rules = [];
+  for (const match of bare.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    if (match[1].trim().startsWith("@")) continue;
+    rules.push({ selector: match[1].trim(), body: match[2] });
+  }
+  return rules;
+}
+
+test("styles.css 消费邻接中介类：交界圆角与间距归零，外侧角不动", async () => {
+  const rules = cssRules(await readFile(new URL("./styles.css", import.meta.url), "utf8"));
+  const joinedRules = rules.filter(rule => rule.selector.includes("is-joined"));
+  assert.ok(joinedRules.length >= 2, "styles.css 必须有邻接中介类的规则");
+  const declares = (selector, property) => joinedRules.some(rule =>
+    rule.selector.split(",").map(part => part.trim()).includes(selector) &&
+    new RegExp(property).test(rule.body));
+
+  // 交界侧：上块的底圆角 / 下块的顶圆角置 0，且间距归零（融合成一块）。
+  for (const block of [".message", ".conversation-axis", ".tool-run"]) {
+    assert.ok(declares(`${block}.is-joined-below`, "margin-bottom:\\s*0"), `${block} 融合下侧要归零间距`);
+    assert.ok(declares(`${block}.is-joined-below`, "border-bottom-left-radius:\\s*0"), `${block} 下圆角要置 0`);
+    assert.ok(declares(`${block}.is-joined-below`, "border-bottom-right-radius:\\s*0"), `${block} 下圆角要置 0`);
+    assert.ok(declares(`${block}.is-joined-above`, "margin-top:\\s*0"), `${block} 融合上侧要归零间距`);
+    assert.ok(declares(`${block}.is-joined-above`, "border-top-left-radius:\\s*0"), `${block} 上圆角要置 0`);
+    assert.ok(declares(`${block}.is-joined-above`, "border-top-right-radius:\\s*0"), `${block} 上圆角要置 0`);
+  }
+  // llm 块的"框"长在 .message-body 上（user 气泡取 --r-xl）：交界那一侧同样置 0。
+  assert.ok(declares(".message.is-joined-above .message-body", "border-top-left-radius:\\s*0"));
+  assert.ok(declares(".message.is-joined-below .message-body", "border-bottom-right-radius:\\s*0"));
+
+  // 融合规则只许"置 0"：不写死半径（半径只取 --r-*，B0 规则 1），也不把外侧角改成
+  // 别的半径——外侧角继续吃基础规则的圆角。
+  for (const rule of joinedRules) {
+    assert.doesNotMatch(rule.body, /border-radius:\s*[0-9.]+px/, `邻接规则不得写死像素半径：${rule.selector}`);
+    assert.doesNotMatch(rule.body, /border-(top|bottom)-(left|right)-radius:\s*var\(/, `外侧角不许被改写：${rule.selector}`);
+  }
 });
