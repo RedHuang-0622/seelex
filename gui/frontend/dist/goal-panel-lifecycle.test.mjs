@@ -5,7 +5,7 @@ import test from "node:test";
 // goal-panel-lifecycle.test.mjs 钉住「目标」面板**标签的生命周期**这一条接线。
 //
 // 为什么是源码级断言：app.js 是 DOM 绑定脚本，node 直接 import 会挂在 document /
-// invoke 上（与 agent-team-refresh.test.mjs / chat-view-input-lock.test.mjs 同口径：
+// invoke 上（与 role-session-refresh.test.mjs / chat-view-input-lock.test.mjs 同口径：
 // 接线用源码级断言钉，渲染逻辑放纯件里用 node:test 真跑，见 goal-board-view.test.mjs）。
 //
 // 现场（2026-10-02，工作台「目标」子页）：goal 已收口归档，GOAL 徽标与

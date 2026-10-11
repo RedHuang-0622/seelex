@@ -497,9 +497,10 @@ test("historyWindowed is false while the window still reaches the tail", () => {
   assert.equal(historyWindowed(null), false);
 });
 
-// team.changed 的载荷不在快照里（团队面板按需 RPC 拉取 AgentTeamView），因此后端
-// 按 revision=0 发布：revision floor 比它新也不能把它丢掉——面板缓存不随快照翻转，
-// 丢了就等于面板停在被召唤前的成员表。
+// team.changed 的载荷不在快照里（团队事实按需 RPC 拉取），因此后端按 revision=0 发布：
+// revision floor 比它新也不能把它丢掉——前端那条**角色会话只读观察面**的读数不随快照
+// 翻转（Agent Team 面板已退场，2026-10-12 J-1a；这条事件在前端只剩这一个消费方），
+// 丢了就等于视图停在被召唤前的成员表。
 test("dispatches team.changed without a snapshot refresh, even above the revision floor", () => {
   const current = { ...snapshot(), revision: 9 };
   const result = applyEvent(current, {

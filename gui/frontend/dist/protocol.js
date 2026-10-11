@@ -155,9 +155,10 @@ function applyIncremental(snapshot, event, payload) {
     snapshot.interaction = null;
     return true;
   case "team.changed":
-    // 载荷不在快照里（团队面板按需 RPC 拉取 AgentTeamView）：这条事件不带快照
+    // 载荷不在快照里（团队事实按需 RPC 拉取）：这条事件不带快照
     // 事实，因此后端按 revision=0 发布（同 chat.changed 口径），陈旧判据不吃它；
-    // reducer 只需把 kind 透给 onIncremental，由应用层作废面板缓存。
+    // reducer 只需把 kind 透给 onIncremental，由应用层拿去热更新**角色会话只读观察面**
+    // （Agent Team 面板已退场，2026-10-12 J-1a：这条事件在前端只剩那一个消费方）。
     return true;
   case "compaction.progress":
     // 压缩门禁进度也不进快照（压缩记录本身才进，随 snapshot.changed 到达）：

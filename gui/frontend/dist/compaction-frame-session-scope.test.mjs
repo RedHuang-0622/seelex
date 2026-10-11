@@ -2,7 +2,7 @@
 // 的字节（用户口径：「前端会跨会话留存压缩帧的污染而不是根据会话重读压缩帧」）。
 //
 // app.js 是 DOM 绑定脚本（node 里跑不起来），按仓库既有口径做**源码级断言**
-// （见 chat-view-input-lock.test.mjs / agent-team-refresh.test.mjs）；渲染侧的
+// （见 chat-view-input-lock.test.mjs / role-session-refresh.test.mjs）；渲染侧的
 // (会话, ref) 判定有行为用例钉在 context-summary.test.mjs。
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";

@@ -64,7 +64,8 @@ flowchart TB
 | `dist/themes/` | 内置皮肤包 + `manifest.json`（schema 2：`skins[]` + `modes[]`）：皮肤只覆盖**品牌 token**（主信号 + 环境渐变，8 个 `--skin-*`），中性基座由深浅在 `styles.css` 提供（契约与 token 清单见 `themes/README.md`），皮肤不写选择器、不用 `!important`、不引远程资源。 |
 | `dist/vendor/` | 第三方资源落盘区（无 CDN、随包嵌入）：`pico.min.css` 组件库、`marked`、`highlight.js`、`DOMPurify`、`docx-preview`、`PDF.js`、`mermaid/`（markdown ```mermaid 围栏的图表渲染，约 3.3MB，懒加载）、`xterm/`（终端仿真器 + 容器自适应插件，见 `vendor/xterm/README.md`）。版本与许可登记、按需加载通道见 `vendor/README.md`。 |
 | `dist/plan-dsl.js` | Plan JSON DSL 归一化、DAG → 树状布局（节点详情弹窗数据面）、节点详情弹窗。树轨事实是 `treeIsLast`/`treeAncestors`（末子标记 + 各层祖先是否续行），由 `tree-fork.treeRowAttrs` 画成缩进轨；子代理树同一套。 |
-| `dist/agent-team-view.js` | Agent Team 面板渲染（右侧栏 · 状态 → Agent Team）：**分成「员工库」（全局：员工是谁 + 档案（提示词 / 权限 / 类型）的**唯一编辑入口**；可用员工 = 全局母本 ∪ 本会话在编（读侧合并 `employeePool`），来源 chip 标 `库` / `本会话`，行内 入职（装进本会话）/ 修改 / ✕，只在本会话在编的行给「入库」）、「团队库」（一行一支用户团队，列为 团队 / 规模 / 操作；团队名是按钮 → 打开「这一支」的团队面板；行内 装配 / ✕；**没有内置形态**——形态目录已删，所以没有"内置 chip 行"）、「员工栏」（本会话在编名单 + 入职 / 摘除 / 删除；**次序 = 登记先后、不由人编排**：没有拖拽调序、没有位置列，表只留 员工（权限） / 操作 两列）、「发言调度」（运行态顺序串珠条：序号 + 身份，发言中 / 下一个各占一档高亮，轮次徽标 + 收束原因一行 meta）**；入职与修改员工、新建与编辑团队都是**冷加载面板**（`hirePanel` / `teamEditorPanel`，点 + / 团队名才注入 slot，字段按 身份 / 编排 / 能力 / 提示词 分节条目化，✕ 图标 / Esc 关闭），团队面板的成员表（`renderTeamMemberList`）行序 = 登记先后（保存时按行序写 `order_roles`）、可 ✕ 移除、可从下拉挑员工加进来。数据源是 Application API（`Bridge.AgentTeamView/Library/GlobalConfig/SaveTeam/DeleteTeam/MaterializeTeam/PutRole/DeleteRole/SetOrder/InstantiateRole/SaveEmployee/DeleteEmployee/OptimizePrompt` 等）。各份事实各有归属：发言顺序 = 会话 `lifecycle.order_roles`（次序 = 登记先后）与只回读的 `order_policy`，员工配置（提示词/权限）= 会话角色注册表，团队库 / 员工库 / 默认顺序 = **全局**母本（数据根下 `team/`，会话读的是深拷贝副本）；本模块不缓存顺序、不做乐观重排——每次动作后重拉视图（纯函数 `employeePool` / `teamMemberNames` / `nextAgentTeamOrder` / `teamGlobalDrift` / `teamRoleSpec` / `teamMemberSpecMap` / `teamEntryFromMembers` 供共用）。团队库条目存的是**整套 `dto.RoleSpec`**：成员行把这份规格挂在 `data-team-member-spec` 上跟着行走，保存时按行序写回；生态位（`role_kind` / `join_policy` / `presence_policy` / `directive_schema` / `order_priority`）与人的档案（提示词 / 权限 / 模型）都按**条目优先、其次员工库**取自这两份数据（形态目录删掉后不再有"哪个内置形态规定生态位"这一层），条目里存的 `gate_policy` / `compact_policy` 面板不给编辑入口、随条目原样保存；`order_policy` / `team_kind` 只作隐藏字段回传、面板不展示——面板搬的是整份 `RoleSpec`（曾经的教训：只搬 4 个字段会把 goal-a2a 的 tl 从 techlead 静默降级成 agent）。 |
+| `dist/role-session-view.js` | **角色会话只读观察面**（团队看板在编行「当前会话」chip 的落点）：从原 `agent-team-view.js` **切出来的那一半**——Agent Team 面板本体已于 2026-10-12（J-1a，用户裁决：`@<团队>` 手动召唤直接删除）整块退场，只读的这一面随渲染件搬到本文件（面板的完整旧行文留 git 历史）。数据源 `Bridge.AgentTeamRoleSnapshot`（`dto.RoleSnapshot`，后端保留且不改名）；导出 `roleDisplayName` / `normalizeRoleSession` / `renderRoleSessionSwitcher` / `renderRoleSessionDetail` / `renderRoleLiveTools` / `renderRoleRecordTable`（纯渲染，不写状态）。入口与判定在团队看板一侧：`team-board-view.js` 写 `data-team-role-open` / `data-team-role-session` 钩子，`app.js` 的 `bindTeamBoardActions` 绑委托 → `openRoleSessionDetail`；「切员工」名册来自 `runtime.teamwork_board` 的 `members[]`（`roleSessionTargets`，不在前端另编一份名册）。用例见 `role-session-view.test.mjs` / `role-session-refresh.test.mjs`。 |
+| `dist/agent-team-retirement.test.mjs` | **Agent Team 退场守卫**（2026-10-12 J-1a）：退场最容易留下的不是报错而是**半条通道**（少了监听器的入口、作废不存在的缓存、指回已删模块的 import）。这里把"退场后的形状"钉成断言——退场资产不再存在、`app.js` 只许剩 `AgentTeamRoleSnapshot` 两处调用、`index.html` 无 `#team-section`、空态/placeholder 不再提「`@` 手动召唤团队」；同时钉住**保留面**：团队看板（`#team-board-section` + `runtime.teamwork_board`）与角色会话只读观察面原样在场。 |
 | `dist/todo-view.js` | todolist 渲染组件（数据源 `runtime.todo_items` 权威投影；仍供测试与复用，右侧工作台已由工作表格接管）。 |
 | `dist/work-table.js` | 工作表格视图（弹窗内完整多维表格：阶段/任务/描述/状态/Assignee/Dependency/附件）、批次分片并入表头（批次 = chat 请求；表头内的批次筛选行：「全部」页签居首 + 各批次页签 + 各类计数，整行占满表头宽度、与表格同宽同源，横向滚动源只此一条；2026-10-12 按 F-2 取消表格底部那条灰色挡板）、筛选（全部/Plan/Task/Todo/Subagent，按权威 kind）、行内打点、todo 三态更新、retry 计数（RETRY n）、plan/subagent 详情入口；行区独立滚轮滚动（表头吸顶）+ 分页查看（每页 10/20/50，页码钳制）；section/行两级 keyed reconciliation + html 缓存；`workTableSignatures`/`countUnread` 提供未读角标判据。 |
 | `dist/tree-fork.js` | 树 / 分叉的统一渲染件（VS Code 观感，纯函数）。两件事：① `treeRowAttrs` 把「层级 + 是否末子 + 祖先是否续行」折算成树轨的 class/行内 style——祖先续行轨 = 行内 1px `linear-gradient` 背景（每层一道），自身连接轨 = `::before`（末子圆角弯头 / 非末子整行竖线），**零额外 DOM**；② `layoutCommitGraph` 把 git 的 parents 拓扑算成泳道（`rows[].lane` + 每行线段 + `dropped`），`commitGraphRowHTML` 逐行画 SVG（直线 / 合并贝塞尔 + 提交点），泳道色走 `--fork-lane-0..5`。像素几何只有一份（`railOffset`/`laneCenter`），CSS 只负责画，换肤只换 token。 |
@@ -118,22 +119,16 @@ flowchart TB
   新建；顶栏 `#terminal-button` 是同一入口。终端会话与输出全部来自后端
   （见 [`../README.md`](../README.md) 的「下栏终端」），前端只持有布局与 xterm 实例。
 - 右栏「状态」子页自上而下：`状态`（键值两列表格 `status-table`）→ `账户`
-  （条目化账户栏，见下）→ `Agent Team`（员工库 / 团队库 / 员工栏 / 发言调度四块表格）。账户栏从
+  （条目化账户栏，见下）。账户栏从
   左侧栏底部搬到这里：状态区显示的就是当前账户的 provider/model，账户列表贴在
-  它下面，一眼能对上「现在是谁在跑」。
+  它下面，一眼能对上「现在是谁在跑」。（这一栏下面原来还有一块 `Agent Team` 折叠
+  面板，见「右侧栏子页」一节的退场说明：2026-10-12 已整块删除，团队面只剩「工作台」
+  页的 teamwork 看板。）
 - 会话条目（左栏）固定两段：**标题段**（状态点 + 完整标题，CSS 省略号按栏宽
   截断，条目里不再出现时间/token）+ **⋯ 段**（省略号按钮，点开才是置顶 / 分支 /
   删除三个操作）。时间、token 与完整标题在鼠标常驻（或键盘聚焦）时由共享提示
   气泡（`#ui-tooltip`，一条 DOM、`[data-tip]` 委托触发、`\n` 分行）一起给出；
   ⋯ 段同一时刻只开一条，点空白 / Esc / 执行动作即收起。
-- Agent Team 是四块：**员工库**（全局母本 ∪ 本会话在编：员工是谁 + 档案（提示词 /
-  权限 / 类型）的唯一编辑入口，行内可「入职」把人装进本会话）与**团队库**（一行一支
-  用户团队，点团队名开团队面板）写全局事实；**员工栏**（本会话「谁在编」：入职 /
-  摘除 / 删除）与**发言调度**（运行态串珠条）写会话事实。四块都是条目化表格，别再往
-  chip 混排的自由布局里加字段。**面板不提供任何编排手势**（2026-10-01）：没有拖拽调序、
-  没有位置列、没有「顺序策略」旋钮，也没有「团队形态」这种设定——内置形态目录已删，
-  `team_kind` 只是团队名的别名；顺序不由人排（次序 = 登记先后，目标态归 leader 的
-  team plan 的 `stages[].depends_on`）。
 - 动效克制：只保留一个加载指示（`runtime-spinner`），装饰性动画（扫光、连点、辉光、呼吸）已移除；`prefers-reduced-motion` 全局生效。
 - 交互口径（拟物但克制：北欧家居式极简 + 锤子式短促回弹）：
   - 焦点提示只作用于**外框**：`1px solid var(--focus-ring)` + `box-shadow: var(--focus-glow)`（`0 0 12px 1px`，零偏移、纯发散模糊）；内部 `textarea` 的 focus ring 显式清掉。
@@ -294,151 +289,84 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
 内只读渲染，渲染分派共用 `file-preview.renderReadOnlyContent`。历史检索保留在
 `#side-more` 折叠区常驻。
 
-### Agent Team 面板（员工库 / 团队库 / 员工栏 / 发言调度）
+### 团队面：Agent Team 面板已退场（2026-10-12 J-1a），只剩 teamwork 看板 + 角色会话只读观察面
 
-面板分四块，交互口径与事实源如下（用户口径：员工库与团队解耦、团队只负责"装配谁
-/ 呼叫谁"、入职与修改走冷加载面板且字段条目化、母本全局而会话读深拷贝副本；
-2026-09-15 第二轮又收了一轮噪音：栏头注解与"存当前会话 / 入库当前会话 / 顺序设为
-默认"三个整表级写动作全部撤掉，改成行内一次性的最小动作；**2026-10-01 第三轮撤掉
-全部人工编排**——内置形态目录已删（"团队形态"不再是设定，`team_kind` 只是团队名的
-别名），`order_policy` 连只读展示都不给，发言顺序的唯一来源是登记先后）：
+**Agent Team 面板整块退场**（用户裁决：`@<团队>` 手动召唤**直接删除**，`@` 让给文件指代；
+问题与依据见 [docs/2026-10-12-frontend-consistency-and-fixes/README.md](../../docs/2026-10-12-frontend-consistency-and-fixes/README.md) §3 J-1）。
+面板的完整旧行文（员工库 / 团队库 / 员工栏 / 发言调度四块各自的事实源、交互口径、冷加载
+编辑面板的字段表、提示词优化、权限边界）留 git 历史与 `docs/devlog/2026-09-15-*` /
+`docs/devlog/2026-10-01-*` 各篇——下面不再复述一个已经不存在的界面。
 
-**四块各自只管一份事实（2026-09-24 澄清语意并删掉耦合点）**：员工库 = 全局「员工是谁 +
-档案（提示词 / 权限 / 类型）」的**唯一编辑入口**；团队库 = 全局「一支团队有谁、什么顺序」；
-员工栏 = **本会话**「在编名单 + 发言顺序 + 入职 / 摘除 / 移出本会话」；发言调度 = 运行态只读。
-员工栏行内原来的「编辑」（会话作用域改档案）已下线——同一个人的档案有两套按钮、写两份事实，
-必然要漂移（视图侧得靠 `teamGlobalDrift` + 「入库」+ 漂移提示兜）；现在要改档案回员工库改，
-再「入职」一次即覆盖本会话副本（同 `role_name` 幂等覆盖），`app.js` 里接 `data-team-edit`
-的分支一并删除。三块栏头的 `title` 写明各自事实域（栏头不摆注解文字，域只在 hover 里说）。
+- **删掉的**：「状态」页的 Agent Team 折叠块（`#team-section` / `#team-view` / `#team-count`）；
+  渲染件 `dist/agent-team-view.js`（四块表格 + 冷加载面板 + `hirePanel` / `teamEditorPanel` /
+  `renderTeamMemberList` / `employeePool` 等）与它的两条测试（`agent-team-view.test.mjs` /
+  `agent-team-refresh.test.mjs`）；`app.js` 的面板状态族（`agentTeamView` / `agentTeamLibrary` /
+  `agentTeamGlobal` / `agentTeamDirty` / `agentTeamError` / `agentTeamLoading` /
+  `agentTeamSessionID`）与 `AgentTeam*` 面板调用（View / Library / GlobalConfig /
+  MaterializeTeam / SaveTeam / SaveEmployee / InstantiateRole / SetOrder / DeleteRole /
+  DeleteEmployee / OptimizePrompt 等，连同 `agentTeamRolePayload` 与「逐格装配」读数）；
+  `index.html` / `chat-view.js` 里「`@` 手动召唤团队」那句提示（空态提示与 composer placeholder）。
+- **保留的（团队面只剩这两处）**：
+  1. **teamwork 看板**：「工作台」页的 `#team-board-section` / `#team-board-view` /
+     `#team-board-badge`（数据源 `runtime.teamwork_board`，渲染件 `dist/team-board-view.js`，
+     与 TUI `Alt+T` 同源投影）——**id 与数据源都不许动**；里程碑 / Work Item / teammate
+     详情页与成员入口原样在此。
+  2. **角色会话只读观察面**（下面两节）：入口 = 看板在编行的「当前会话」chip，渲染件
+     `dist/role-session-view.js`，读数仍是 `Bridge.AgentTeamRoleSnapshot`。
+- **`@` 的口径**：前端不再有任何团队口径的 `@` 文案（空态 / placeholder / sheet 注释都改了）；
+  前缀位（`SIGIL_TEAM`、`SIGILS`、`SIGIL_PATTERN` 与提交路由）本轮不动——`@` 归**文件指代**，
+  候选源与提交载荷的改造是后续条目 **J-1b** 的落点，本条目不建任何新入口。
+- **后端面不在本条目**：`AgentTeam*` RPC 的收口归后端条目 wi-j1a-be；`AgentTeamRoleSnapshot`
+  **保留且不改名**（它是角色会话读面的权威读数，与面板存亡无关）。
+- **测试**：新增 `agent-team-retirement.test.mjs` 作**退场守卫**（退场资产不复存在、
+  `app.js` 只许剩 `AgentTeamRoleSnapshot` 两处调用、看板与角色会话读面在场）；原面板的两条
+  文件删除，其中与面板无关的 12 条（角色会话渲染 / 竖排记录表 / 草稿区 / 实时区 / 刷新键 /
+  切员工）**原样搬进** `role-session-view.test.mjs`，接线口径搬进
+  `role-session-refresh.test.mjs`——退场不等于把读面的覆盖一起删掉；`plugin-source.test.mjs`
+  的两条面板用例（`normalizePluginNames` 对照、`hirePanel` 上限提示）随对象消失而删除，
+  「两条提交路带装配」那条改写成退场守卫。
+- **样式**：本轮只删面，**不动 `styles.css`**（团队看板的样式由 `team-board-view.js` 自带的
+  `TEAM_BOARD_CSS` 提供，不在 `styles.css` 里）。面板专属的死样式仍留在 13.5 / 18.2 / 21 /
+  24 / E3 各节（扫描保留侧 JS+HTML 后确认的纯死选择器含 `team-table-row` / `team-toolbar` /
+  `team-rail-*` / `team-hire-*` / `team-order-*` / `team-editor-*` / `schedule-*` /
+  `team-panel-toolbar` / `team-kv-list` / `team-meta-row` 等），清理归后续条目。
 
-- **员工库 = 可用员工（全局母本 ∪ 本会话在编）**：读侧合并（`employeePool`），每行带
-  来源 chip（`库` / `本会话`）。库里的行给「入职 / 修改 / ✕」——「入职」把这一位装进
-  本会话（`AgentTeamInstantiateRole`，同名就地覆盖副本，只在"库里有、本会话还没在编"
-  时渲染），「修改 / ✕」写全局母本 `<root>/team/employees.json`
-  （`AgentTeamSaveEmployee` / `AgentTeamDeleteEmployee`）；只在本会话在编的行给一个
-  「入库」（写母本，不装配）。**「入职」取代了原先"从员工库拖到员工栏 / 成员表"的拖拽
-  手势**（2026-10-01：面板不再提供任何拖拽编排）。这样就解决了"会话里明明有人、
-  员工库却是 0 人"的空壳问题；两份事实仍分属两个作用域，合并只发生在展示层。宿主未
-  下发员工库（旧后端）时不渲染写按钮。
-- **团队库 = 用户自己的团队**：一行一支，列为 团队 / 规模 / 操作。**团队名是按钮**，
-  点它打开这**这一支**团队的团队面板（面板标题写明"团队 · 名字"，右上角 ✕ 关闭）；
-  行内只留「装配」（`AgentTeamMaterializeTeam`，当前装配的那支显示"已装配"，title 说明
-  重复装配幂等）与「✕」（`AgentTeamDeleteTeam`）。**没有内置形态**（2026-10-01）：
-  Go 侧 `agentteam/presets.go` 已删除，形态目录随之消失——库里那一行就是团队的全部事实，面板上既
-  没有形态 chip 行，也没有任何"按形态装配"的按钮（`agent-team-view.test.mjs` 钉住
-  `team-preset` 不再出现）。规模列只说"几个人"，成员名进 title：**顺序不是这份链表对
-  人的承诺**（面板不提供调序）。
-- **员工栏（本会话在编名单）**：行序 = 登记先后（装配 / 入职的先后，也就是
-  `lifecycle.order_roles` 的次序），**面板不提供任何调序通道**（2026-10-01：行首拖拽
-  手柄、位置列与 ↑/↓ 全删——leader-worker 目标态里顺序归 leader 的 team plan 的
-  `stages[].depends_on`）。`nextAgentTeamOrder` 因此只回答"在不在发言顺序里"
-  （✕ 摘除 / 恢复；非法动作返回 null 不提交）。行内只留本会话的两件事：✕ **摘除**
-  （出工作顺序、留角色）与**删除**（连会话注册表一起删）；点名字看该员工的独立会话。
-  **档案只回显**（权限 / 提示词 chip 的 title 写明"本会话在编副本"），编辑入口在员工库。
-  表只留两列（员工（权限） / 操作），类型 chip 并进身份格：窄栏里列一多，每列只剩
-  二十几像素（`user` 会被折成 `use r`）。定时 agent 不参与发言顺序，单成一档
-  （「定时」chip）。
-- **发言调度（运行态串珠条）**：不摆 项/值 表——顺序本身是一条可视的链
-  （`.schedule-pill`：序号 + 身份），"发言中"（floor）与"下一个"（`schedule.next_role`）
-  各占一档高亮，其余为普通/虚线（`no_automatic_turn` 的角色标"无自动回合"）；上方徽标是
-  `轮次 / 上限`（环自己的逃生上限，2026-10-03 起与 goal 治理不再同源），下方一行 meta
-  只在有收束原因/无自动回合角色时出现。环成员不含
-  `user`（用户的发言机会是回合尾消息队列被整批提升为下一轮，不是排班位），所以珠子
-  里没有 `USER`、"下一个"也不会指向人。参照群聊的通行做法：顺序用位置与编号表达，
-  不靠文字播报。没有 `TeamView.schedule`（旧宿主）时整块隐藏，不拿静态顺序冒充运行态。
-- **冷加载面板**：员工库的 `+ 新建员工` / 「修改」、员工栏的 `+ 入职`、`+ 新建团队` /
-  点团队名 打开的「入职 / 修改员工」与「团队」面板默认都不渲染——只有 `data-team-hire-slot` /
-  `data-team-team-slot` 两个隐藏占位；点开才注入表单，右上角是 `data-icon="close"`
-  （取消 / Esc 同样关闭）。字段**条目化 + 序列化**：一条字段一行（序号 + 标签 +
-  控件 + 说明），按 身份 / 编排 / 能力 / 提示词 分节——右栏只有 220~480px，标签与
-  控件并排会把控件挤到 80px 宽。
-  员工字段：1 角色名（修改态只读）、2 类型、3 入职时机、4 在席策略、
-  **5 权限（`tools_policy`）**、6 模型、**7 员工提示词**。填写值来自
-  `TeamView.members`（会话作用域）或 `TeamGlobalConfig.employees`（员工库作用域）的
-  登记回读，因此一次编辑不会把提示词/权限清空；表单上的 `data-team-hire-scope`
-  决定提交走 `AgentTeamSaveEmployee`（员工库，不装配）还是
-  `AgentTeamInstantiateRole`（当前会话入职）。
-  **团队面板的成员表**（`renderTeamMemberList`）：行序 = 登记先后，行上带身份
-  + 生态位 chip（`role_kind` 的短标签）+ 「✕ 移除」，加人从下拉里挑（来源 = 员工库
-  ∪ 本会话在编）。**不做人工调序**（2026-10-01：拖拽已删——这份表的次序只是"装配后谁
-  先谁后"的登记先后，真正的顺序归 leader 的 team plan）。行序在提交时由
-  `agentTeamEntryFromForm` 序列化成 `order_roles`（`user → main → 成员`）。
-  **成员带的是整份 RoleSpec，不是只有名字**（`teamRoleSpec` / `teamMemberSpecMap` /
-  `teamEntryFromMembers`）：每行把这份规格挂在 `data-team-member-spec` 上跟着行走
-  （加人 / 删人 / 重绘都不丢），保存时按行序写回条目。归属两条口径——
-  **生态位**（`role_kind` / `join_policy` / `presence_policy` / `directive_schema` /
-  `order_priority`）由**团队库条目**定义（条目优先、其次员工库；形态目录删掉后不再有
-  "哪个内置形态规定生态位"这一层；`role_kind` 的当前用途是角色展示与权限档位派生，
-  不再派生任何治理座位——那条路径已随 2026-10-03 的席位轮转退场删除）；**人的档案**（提示词 / 权限档 / 逐格权限 / 模型档）由员工库 /
-  本会话在编定义，条目里存过的那份次之。条目里存的 `gate_policy` / `compact_policy` 表单
-  里没有编辑入口，随条目带入、原样保存（`data-team-form-gate` / `data-team-form-compact`）。
-  团队库行的「规模」只说"几个人"，成员名进 title。
-  **`order_policy` / `team_kind` 面板不再展示**（2026-10-01）：前者是只回读、不驱动任何行为
-  的历史字段（旧版还给过虚线只读框与 Team 栏只读 chip，现在连展示都不给——免得被当成
-  可配置项），后者只是团队名的别名、不再是设定。两者都只作**隐藏字段**原样带回
-  （`data-team-form-policy`；写顺序仍由 `agentTeamCurrentPolicy` 把既有取值带上）。文案
-  同样不再用"循环"说 teamwork：发言调度的收束原因显示为「顺序里没有自动回合 / 发言顺序为空」。
-- **提示词优化**：员工面板里的「优化提示词」按钮调 `Bridge.AgentTeamOptimizePrompt`
-  （一次有界 LLM 回合），结果只渲染成候选 + 改动理由，点「应用到提示词」才写回
-  输入框；落盘仍走「入职 / 保存修改」。
-- **权限边界（如实标注）**：`tools_policy` 目前是**登记 + 展示**——值随角色注册表
-  落盘并在员工栏可见，运行时按角色的工具拦截尚未接线（真正拦截在 seelebridge
-  `PermissionGate`，按会话/全局）。
-- **后端方法仍保留**：`AgentTeamSaveCurrentTeam` / `AgentTeamPublishToGlobal` /
-  `AgentTeamSetDefaultOrder` 在 Application/Bridge 面上健在（headless 与工具面可用，
-  `gui/README.md` 有说明），只是 GUI 不再直接暴露这三个"整表级"入口。
+**角色会话只读观察面：刷新与切员工**：这一面是**拉取**面（权威读数是角色会话投影），配手动
+刷新键；"这位此刻在干什么"另走推送路（见下）。两者不互相冒充。
 
-**员工侧的刷新与视图（2026-10-01 · E）**：Agent Team 没有心跳（用户口径：不引入
-"最后活动时间"这种需要定时器推的东西），员工侧的两件事都用**事件驱动 + 手动刷新键**：
+- 运行详情（`renderRoleSessionDetail`）自带一枚刷新键（`data-role-session-refresh`，键上带
+  `role_name` / `role_session_id` 身份，刷新原样重放）；`team.changed` 到达时若视图开着就
+  重取当前目标（`refreshRoleSessionDetail`），关着则什么都不做。面板退场后，这条事件在前端
+  **只剩**这一个消费方。
+- 「切员工」（`renderRoleSessionSwitcher`，多名员工时才摆）：把**已存在的会话视图**的目标换成
+  另一位员工，不用关掉再回列表点下一位。名册 = 团队看板的在编名单（`roleSessionTargets` 读
+  `runtime.teamwork_board` 的 `members[]`，配 `teammateSessionEntry` 判定），不在前端另编一份。
 
-- 面板常驻一枚手动刷新键（`data-team-refresh`，工具栏 `.team-panel-toolbar` 右端、
-  `data-icon="refresh"`）：强制 `refreshAgentTeam({force: true})`，不走"缓存命中就
-  早退"——用户按了刷新就是"现在要最新"。
-- 员工库每行可展开一张 **k→v 全字段表**（`employeeFieldRows` / `.team-kv`，一行一栏；
-  空栏也照列，值退化成"继承 / 未登记"）——不再只有行内几个 chip；全字段此前只藏在
-  懒加载的编辑面板里。
-- 员工运行详情（成员行「查看」开的 `AgentTeamRoleSnapshot` 弹窗）自带一枚刷新键
-  （`data-role-session-refresh`，键上带 `role_name` / `role_session_id` 身份，刷新
-  原样重放）；`team.changed` 到达时若视图开着就重取当前目标
-  （`refreshRoleSessionDetail`），关着则什么都不做。
-- **对话视图切员工**（用例 5）：弹窗顶部是「切员工」切换条
-  （`renderRoleSessionSwitcher`，多名员工时才摆），点谁就把视图目标换成谁的角色会话，
-  不用关掉再回列表点下一位。口径：把**已存在的会话视图**的目标换成员工会话，不是
-  新造一个"员工会话"概念（目标身份 = 该员工的 `role_session_id`）。
-- **母本 CRUD 也发 `team.changed`**：员工库 / 团队库 / 默认顺序 / 「普及到全局」这几条
-  全局母本写在 core 里补发会话级 `team.changed`（`publishTeamChanged`）——它们同样是
-  面板数据的一部分；不发就只能靠发起方自己重取，别的观察者（另一窗口、切回来）会停在旧库。
-
-**员工在做什么：实时区（2026-10-03 口径修正）**：上面那条"员工侧没有心跳"只覆盖
-**权威读数**（角色会话投影 / 面板成员表）——那两份是拉取面，配刷新键。但"这位此刻在
-干什么"**不该**等这一轮跑完才看得到（修前就是这样：角色回合的 ReAct 钩子只把工具步骤
-送进 goal 域的评审观察面，而那个 sink 只有 ADVISOR 挂得上——teammate 在做工时前端一无所知，
-只能等 leader 写里程碑那一刻）：
+**员工在做什么：实时区（2026-10-03 口径修正）**：权威读数是拉取面、配刷新键；但"这位此刻在
+干什么"**不该**等这一轮跑完才看得到：
 
 - 后端：员工做工回合（`team_dispatch` 派出的 teammate）的每次工具调用 → `RoleToolActivity`
   → 装配根（`RuntimeDeps.RoleToolCallback` = `app.HandleRoleToolActivity`）→ 会话级事件
-  `teammate.tool.started` / `teammate.tool.completed`（载荷不进快照，`revision=0`）；
-  它就是 `subagent.tool.*` 的员工侧对称面。
+  `teammate.tool.started` / `teammate.tool.completed`（载荷不进快照，`revision=0`）；它就是
+  `subagent.tool.*` 的员工侧对称面。
 - 前端：`app.js` 的 `applyTeammateToolActivity` 把帧并进按角色会话分组的**有界**缓存
   （`roleSessionLiveTools`，上限 `ROLE_LIVE_TOOL_LIMIT`），开着的正是这一位时立刻重绘
   （不跑 RPC）；`renderRoleLiveTools` 把它画成「正在做（实时）」一节（一条一步、最新在下），
   排在记录表之前。切员工时各自带出自己的那一份。
-- 边界：实时区是**瞬态**（不进快照、不落盘、关掉面板即不再更新），权威记录仍是角色会话
-  投影；两者不互相冒充——"它刚动了"归事件，"它记录里有什么"归拉取。
-- **「这件事的会话」可分页**：对话区（`renderTeammateLiveSession`）读的
-  `TeammateSessionLive` 是默认页（最近若干条），面板底部按后端读数画翻页条
-  （`第 X–Y 条 / 共 N 条` + 上一页/下一页，`offset`/`total`/`has_more` 全是后端算的，
-  前端只搬）；翻页走 `Bridge.TeammateSessionLivePage(role_session_id, offset, limit)`，
-  刷新键/实时重绘时**停在用户翻到的那一页**（在尾巴按默认页再读，新消息自然露出来）。
-  判据只有一份（`seelebridge/runtime_teammate_session_live.go` 的 `teammateSessionLiveSlice`），
-  前端不推算"还有没有下一页"。
+- 边界：实时区是**瞬态**（不进快照、不落盘、关掉视图即不再更新），权威记录仍是角色会话投影。
+- 「这件事的会话」可分页：对话区（`renderTeammateLiveSession`）读的 `TeammateSessionLive` 是
+  默认页，底部按后端读数画翻页条（`第 X–Y 条 / 共 N 条` + 上一页/下一页，`offset` / `total` /
+  `has_more` 全是后端算的，前端只搬）；翻页走
+  `Bridge.TeammateSessionLivePage(role_session_id, offset, limit)`，刷新键 / 实时重绘时
+  **停在用户翻到的那一页**（在尾巴按默认页再读，新消息自然露出来）。判据只有一份
+  （`seelebridge/runtime_teammate_session_live.go` 的 `teammateSessionLiveSlice`），前端不
+  推算"还有没有下一页"。
 
 **员工记录表：竖排（2026-10-03）**：`role-record-table` 从"车道当行、回合号当列"的横向
 excel-grid 改成**一条回合一行**（行号 = seq，时间自上而下；末尾是「草稿N」行——草稿还没有
 发布 seq，不能冒充第 0 回合）。两栏 = main 车道 / 它自己那条车道，四类归属不变：
-`is-main` / `is-own` / `is-shared` / `is-outside`（入伙前或已被压缩掉的回合两栏都是占位
-`—`，不冒充它记得的上下文）。样式在 `styles.css` 的 `.role-record-*`（不再依赖
-`.excel-grid`）。
+`is-main` / `is-own` / `is-shared` / `is-outside`（入伙前或已被压缩掉的回合两栏都是占位 `—`）。
+样式在 `styles.css` 的 `.role-record-*`（不再依赖 `.excel-grid`）。
 
 ### 页签与压缩口径（2026-09 交互改版）
 
@@ -467,10 +395,9 @@ excel-grid 改成**一条回合一行**（行号 = seq，时间自上而下；�
   其余事实进 hover `title`），详细正文改走 `#compaction-frame-modal` 弹框（行内
   `compaction-stack-detail` 展开下线，`data-compact-open` 只用来取该行的 `frame_ref`）；
   门禁过程删掉借来的 Plan 轨道，只留逐关耗时清单。
-- **状态 / 账户 / Agent Team 三个折叠块默认收起**：`index.html` 里
-  `#status-panel`、`#accounts-section`、`#team-section` 都不带 `open`，展开才拉
-  数据（Agent Team 的 `toggle` 事件仍触发一次 `refreshAgentTeam`）。避免右栏一
-  进来就被三张长表占满。
+- **状态 / 账户两个折叠块默认收起**：`index.html` 里 `#status-panel`、
+  `#accounts-section` 都不带 `open`，展开才拉数据。避免右栏一进来就被两张长表占满。
+  （第三块 `#team-section` 已随 Agent Team 面板退场删除，见「右侧栏子页」一节。）
 - **对话里的 EXEC / ADVISOR 区分（2026-09-15 二改：颜色高亮也去掉）**：两个 agent
   的 provider role 都是 `assistant`，`components.js` 仍按 `role_name` 给消息加
   `is-exec` / `is-advisor` 类，但 `styles.css` 第 20 节**只保留发言人名的着色**
@@ -508,13 +435,14 @@ composer 的输入前缀是一份**跨前后端契约**，前端只消费不发�
 | `/` | 可执行入口：命令 + Skill（工具不在列表里——工具由模型调用） | `Bridge.Suggestions` |
 | `#` | 切换 Plugin（含 `off`） | 同上 |
 | `$` | 召回 Skill（激活） | 同上 |
-| `@` | 手动召唤团队（团队库条目；没有建议面——候选在库里，按键时读盘不划算） | — |
+| `@` | 文件指代（**尚未落地**：候选源与提交载荷的改造是后续条目 J-1b 的落点） | — |
 
 - 表在前端只落一处：`app.js` 的 `SIGIL_COMMAND/SIGIL_PLUGIN/SIGIL_SKILL/SIGIL_TEAM`
   与 `SIGILS`、`SIGIL_PATTERN`（内联建议"该不该弹"的判定）。命令面板触发器按钮
   （`index.html` 的 `data-trigger`）与内联建议共用同一组字符。
-- `@` 提交成功后**强制重取**一次 Agent Team 面板（`refreshAgentTeam({force:true})`，
-  仅在面板展开时）：装配改的是后端事实，面板缓存的是上一次读回的成员表。
+- `@` 曾用于「手动召唤团队」：该口径已随 Agent Team 面板退场删除（2026-10-12 J-1a，
+  用户裁决 `@<团队>` 直接删除，`@` 让给文件指代）；`@` 提交后由后端 `team.changed`
+  通告团队事实变化的那条老路因此不再有 GUI 触发点，前端也不再从提交文本里猜团队。
 - 选中的建议只写回 composer，最终统一走 `Submit`；前端不执行任何前缀语义。
 - `suggestionIcon` 为 `team` 类建议映射 `components.js` 的 `team` 图标。
 

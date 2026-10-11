@@ -1,7 +1,10 @@
 // plugin-source.js — 「按会话插件装配」在**提交侧**的规整（唯一一处）。
 //
-// 与展示 / 回读侧的规整（agent-team-view.js 的 normalizePluginNames）**只差一步**：
-// 本文件**不去重**。口径是 leader 2026-10-05 的裁决：
+// 与展示 / 回读侧的规整（原 agent-team-view.js 的 normalizePluginNames）**只差一步**：
+// 本文件**不去重**——注意回读侧那份已随 Agent Team 面板退场删除（2026-10-12 J-1a），
+// 所以下面这套"提交侧只 trim + 丢空项、重复交后端裁决"的口径如今只剩**一份**实现；
+// 若将来 J-1b 另有装配入口，回读侧要按同一口径写回来（别再复制一份去重版）。
+// 口径是 leader 2026-10-05 的裁决：
 //
 //   提交侧只做 trim + 丢空项；重复项**原样提交**，由后端按既有口径裁决
 //   （application/contract/dto/plugin_assembly.go 的 NormalizePlugins：
