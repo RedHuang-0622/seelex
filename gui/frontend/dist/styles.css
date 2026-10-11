@@ -2171,7 +2171,9 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   letter-spacing: .04em;
 }
 .compaction-stack-cell { min-width: 0; font-size: 10.5px; line-height: 1.45; }
-.compaction-stack-cell.is-version { color: var(--text-strong); font: 700 10.5px var(--font-mono); text-align: right; white-space: nowrap; }
+/* 版本列 = seq 徽标 + 「栈顶」并排（badge 自己内部是"数字/单位"两行小件，行高仍收在
+   --row-min-h）；两者并排才让整条摘要真的是一行。 */
+.compaction-stack-cell.is-version { display: flex; align-items: center; gap: 4px; color: var(--text-strong); font: 700 10.5px var(--font-mono); white-space: nowrap; }
 .compaction-stack-cell.is-body strong {
   display: block;
   overflow: hidden;
@@ -2197,13 +2199,13 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .compaction-stack-row.is-stale .compaction-stack-cell.is-body small { color: var(--compaction-frame-stale); }
 .compaction-stack-row.is-open { background: var(--surface-2); }
 .compaction-stack-flag {
-  margin-left: 4px;
   padding: 0 3px;
   border: 1px solid var(--compaction-frame-latest);
   border-radius: var(--r-sm);
   color: var(--compaction-frame-latest);
   font: 9px var(--font-mono);
   font-style: normal;
+  white-space: nowrap;
 }
 /* 压缩失败行：它不是一次压缩（没有区间、没有帧），因此不占栈的颜色层次，改用失败色
    说清"这次没压成"。行仍然在表里——用户口径要的就是"失败要留痕，而痕要查得到"。 */
