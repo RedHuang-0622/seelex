@@ -119,6 +119,13 @@ scroll listener 只更新 `followsTail` 本地状态与轮轴滑柄几何，不�
   历史、增量新消息、换行重排后都自动与内容一致——不存在「线条加载」状态。
 - 空态只做视觉隐藏（`opacity: 0; pointer-events: none`）：`display: none` 会让
   轨道高度量成 0，轮轴随后永远判空。
+- **F-1（2026-10-12）可发现性**：轨道从"隐形的线"升级为可发现的导航件——
+  基础规则默认 `opacity: .92`（不再只靠 `.conversation-shell:hover` 点亮），
+  轨道/刻度走 `--r-md` + `--surface`/`--border` 的可点/可悬停刻度件形态（命中区
+  仍留 34px 宽，可见要素放大），悬停出**带轮次号**的摘要浮窗，当前刻度与定位
+  高亮用与左栏 `.session-row.is-active` 同族的 `--tick-hot`/`--border-running`。
+  刻度来源（仅用户输入）与几何算法（`planInputLocate`/`offsetTop` 比例）不变；
+  回归见 `style-baseline.test.mjs`「F-1 对话轴默认可见」。
 
 ## 6. Chat 控件与活动尾部
 

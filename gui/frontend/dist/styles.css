@@ -3425,9 +3425,14 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 }
 
 /* ---------- 对话导航轮轴（右侧问答刻度） ----------
-   一条刻度 = 一问一答：位置来自问题节点在内容里的真实高度比例，当前问答用
-   主信号色加长，其余压暗。悬停出问题摘要，点击跳到该问答（回答在它下面）。
-   刻度挂在一条 1px 时间基线上，与产品既有的轨迹语言一致。 */
+   F-1（2026-10-12）：从"隐形的线"升级为可发现的导航件 —— 常态即可见
+   （默认 opacity ≥ .8，不再只靠悬停整个对话外壳才点亮）；轨道是可点/可悬停的
+   刻度件（--r-md + --surface/--border，命中区仍留 34px 宽），可见要素比原 3px
+   短线放大——这才是"发现不了"的真正修点。
+   一条刻度 = 一条用户输入（口径不变，D5 已拍板）；悬停即出带轮次号的摘要浮窗，
+   点击即定位；当前刻度与定位高亮走与左栏 .session-row.is-active 同族的信号
+   token（--tick-hot / --border-running），不引入第三条色路。
+   几何算法（offsetTop 比例 / planInputLocate）与 .is-empty 的视觉隐藏策略不动。 */
 .conversation-shell .conversation-wheel {
   position: absolute;
   top: 34px;
@@ -3435,48 +3440,61 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   right: max(10px, calc((100% - 860px) / 2 - 74px));
   z-index: 6;
   width: 34px;
-  opacity: .45;
+  opacity: .92;
   transition: opacity var(--dur-fast) var(--ease-out);
 }
-.conversation-shell:hover .conversation-wheel,
-.conversation-wheel:focus-within { opacity: 1; }
+/* 悬停/聚焦只是"再提亮一档"：默认档（上行）已经可见，不再靠这里才被看见。 */
+.conversation-shell .conversation-wheel:hover,
+.conversation-shell .conversation-wheel:focus-within { opacity: 1; }
 .conversation-shell .conversation-wheel.is-empty { opacity: 0; pointer-events: none; }
 /* 空态只做视觉隐藏：display:none 会让轨道高度量成 0，轮轴再也出不来 */
 .wheel-track {
   position: relative;
   width: 100%;
   height: 100%;
+  border-radius: var(--r-md);
   cursor: pointer;
   touch-action: none;
   user-select: none;
   outline: none;
+  transition: background var(--dur-fast) var(--ease-out);
 }
+.wheel-track:hover { background: var(--surface); }
 .wheel-track::before {
   content: "";
   position: absolute;
   top: 0;
   bottom: 0;
   right: 2px;
-  width: 1px;
+  width: 2px;
+  border-radius: var(--r-md);
   background: linear-gradient(to bottom, transparent 0%, var(--tick) 6%, var(--tick) 94%, transparent 100%);
 }
 .wheel-track:focus-visible { box-shadow: 0 0 0 1px var(--border-info); border-radius: var(--r-sm); }
+/* 刻度 = 可点/可悬停的短条（--r-md + --surface/--border）。 */
 .wheel-dash {
   position: absolute;
   right: 2px;
-  height: 3px;
+  height: 5px;
   padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: var(--tick);
-  width: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  width: 20px;
   cursor: pointer;
-  transition: width var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+  transition: width var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 }
-/* 3px 的线太细：伪元素把命中区撑到 ~9px，点得中但看不清 */
-.wheel-dash::after { content: ""; position: absolute; inset: -3px -2px; }
-.wheel-dash:hover { width: 22px; background: var(--text-soft); }
-.wheel-dash.is-active { width: 26px; background: var(--tick-hot); }
+/* 5px 的条仍细：伪元素把命中区撑到 ~15px 高（34px 宽维持不变） */
+.wheel-dash::after { content: ""; position: absolute; inset: -5px -4px; }
+.wheel-dash:hover { width: 26px; background: var(--text-soft); border-color: var(--border-strong); }
+/* 当前刻度：与左栏 .session-row.is-active 同族信号（--tick-hot 填色 +
+   --border-running 外框），不引入第三条色路。 */
+.wheel-dash.is-active {
+  width: 30px;
+  background: var(--tick-hot);
+  border-color: var(--border-running);
+  box-shadow: 0 0 0 1px var(--border-running);
+}
 .wheel-dash.is-system { background: var(--status-done); }
 .wheel-tip {
   position: absolute;

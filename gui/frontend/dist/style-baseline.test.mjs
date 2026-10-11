@@ -92,4 +92,28 @@ test("工作表页签覆盖只剩三段：末段不再把 .excel-sheet 与 .term
   assert.doesNotMatch(sheets.body, /border-top\s*:/, "底部灰挡板的分隔线必须已删");
   assert.doesNotMatch(sheets.body, /background\s*:\s*var\(--surface-2\)/, "底部灰挡板的灰底必须已删");
   assert.match(sheets.body, /overflow-x\s*:\s*auto/, "横向滚动源只剩它一条（挂在表头批次行里）");
+// F-1（2026-10-12）：对话轴从"隐形的线"变成可发现的导航件。
+//
+// 这条闸钉住的是"默认可见"这一条口径：`.conversation-shell .conversation-wheel`
+// 的**基础规则**必须自带一个 ≥ .8 的 opacity（不悬停也看得见），且该基础规则的
+// 选择器里不得出现 `:hover`——若把可见性重新交给悬停，这里当场失败。
+// 同时确认 `.is-empty` 仍走 opacity 的视觉隐藏（几何量测依赖它），没有被改成
+// `display: none`。
+test("F-1 对话轴默认可见：基础规则 opacity ≥ .8 且不依赖 :hover", async () => {
+  const rules = cssRules(await read("styles.css"));
+
+  const base = rules.find(rule => rule.selector === ".conversation-shell .conversation-wheel");
+  assert.ok(base, "要找得到 .conversation-shell .conversation-wheel 基础规则");
+  assert.ok(!/:hover/.test(base.selector), "基础规则的选择器不得依赖 :hover（默认态就要可见）");
+  const opacity = base.body.match(/opacity\s*:\s*([0-9.]+)/);
+  assert.ok(opacity, "基础规则必须声明 opacity");
+  assert.ok(
+    Number(opacity[1]) >= 0.8,
+    `对话轴默认 opacity 必须 ≥ .8（不悬停也能看到），当前 ${opacity[1]}`,
+  );
+
+  const empty = rules.find(rule => rule.selector.includes(".conversation-wheel.is-empty"));
+  assert.ok(empty, "要找得到 .conversation-wheel.is-empty 空态规则");
+  assert.match(empty.body, /opacity\s*:\s*0/, ".is-empty 仍以 opacity 隐藏");
+  assert.ok(!/display\s*:\s*none/.test(empty.body), ".is-empty 不得改成 display:none（会让轨道高度量成 0）");
 });
