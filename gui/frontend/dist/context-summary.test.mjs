@@ -31,28 +31,35 @@ test("renders compaction records with range, origin and a frame entry", () => {
   assert.match(html, /12,345 tokens/);
   assert.match(html, /data-compact-open="0"/);
   assert.match(html, /tr-abc123/);
+  // D1：条目瘦成一行元数据摘要——被省略的来源/区间/估算/时间全部进 hover title，
+  // 行里不再有 origin 小字与 facts 小字（那两排就是"臃肿"的现场）。
+  assert.match(html, /title="上下文预算（自主压缩） · 显式要求（回合后） · 消息/);
+  assert.doesNotMatch(html, /compaction-stack-origin/);
+  assert.doesNotMatch(html, /<small>/);
+  // 只有一枚动作按钮：弹框入口不再是"内联 + 弹框"两条路。
+  assert.equal((html.match(/class="context-summary-open"/g) || []).length, 1);
+  assert.doesNotMatch(html, /data-compact-frame-ref/);
   // 旧占位句必须消失：它没有区间、没有来源、不可展开——用户说的"像占位符"就是它。
   assert.doesNotMatch(html, /Task checkpoint retained/);
   // messages_before 不得当成"压缩前 N 条消息"渲染。
   assert.doesNotMatch(html, /条消息/);
 });
 
-test("expanded record reads the compacted frame body back by ref", () => {
+test("正在读的那一行标成打开态：正文只在弹框里，右栏行内不再插正文", () => {
   const compactions = [{ version: 1, reason: "context_budget", origin: "explicit", frame_ref: "tr-x", frame_bytes: 90, frame_tokens: 24 }];
   const html = renderContextCompactions(compactions, {
     sessionID: "session-a",
-    detail: {
-      ref: "tr-x", sessionID: "session-a", loading: false, error: "",
-      text: "<!-- seelex:context-checkpoint-frame:v1 -->\n# Context checkpoint frame v1\n",
-      hasMore: true, nextOffset: 30, totalBytes: 90
-    }
+    detail: { ref: "tr-x", sessionID: "session-a", text: "# Context checkpoint frame v1\n" }
   });
 
-  assert.match(html, /压缩帧正文/);
-  assert.match(html, /Context checkpoint frame v1/);
-  assert.match(html, /data-compact-frame-load="more"/);
-  assert.match(html, /剩余约 60 bytes/);
-  assert.match(html, /收起/);
+  // D2b：行内展开路径下线——右栏不再插正文，也不再有分页按钮；正文只在弹框里。
+  assert.match(html, /is-open/);
+  assert.match(html, /aria-current="true"/);
+  assert.match(html, /aria-expanded="true"/);
+  assert.doesNotMatch(html, /压缩帧正文/);
+  assert.doesNotMatch(html, /Context checkpoint frame v1/);
+  assert.doesNotMatch(html, /data-compact-frame-load/);
+  assert.doesNotMatch(html, /compaction-stack-detail/);
 });
 
 // 展开身份 = (会话, ref)：上一个会话读回来的正文不许挂在当前会话的记录行上。
@@ -61,28 +68,29 @@ test("expanded record reads the compacted frame body back by ref", () => {
 test("ref 对不上不认（记录数组重排后下标会漂）", () => {
   const html = renderContextCompactions([{ version: 1, reason: "context_budget", frame_ref: "tr-other" }], {
     sessionID: "session-a",
-    detail: { ref: "tr-x", sessionID: "session-a", text: "旧正文", hasMore: false, nextOffset: 0, totalBytes: 9 }
+    detail: { ref: "tr-x", sessionID: "session-a" }
   });
-  assert.doesNotMatch(html, /旧正文/);
-  assert.doesNotMatch(html, /收起/);
+  assert.doesNotMatch(html, /is-open/);
+  assert.doesNotMatch(html, /aria-current/);
   assert.match(html, /data-compact-open="0"/);
+  assert.match(html, /aria-expanded="false"/);
 });
 
-test("会话对不上不认：切到别的会话后旧正文既不上屏也不给收起", () => {
+test("会话对不上不认：切到别的会话后那一行不再算打开态", () => {
   const records = [{ version: 1, reason: "context_budget", frame_ref: "tr-shared" }];
-  const stale = { ref: "tr-shared", sessionID: "session-a", loading: false, error: "", text: "会话 A 的正文", hasMore: false, nextOffset: 9, totalBytes: 9 };
+  const stale = { ref: "tr-shared", sessionID: "session-a" };
 
   const crossSession = renderContextCompactions(records, { detail: stale, sessionID: "session-b" });
-  assert.doesNotMatch(crossSession, /会话 A 的正文/);
-  assert.doesNotMatch(crossSession, /收起/);
+  assert.doesNotMatch(crossSession, /is-open/);
+  assert.doesNotMatch(crossSession, /aria-current/);
   assert.match(crossSession, /data-compact-open="0"/);
 
-  // 同一会话 + 同一 ref 才认（视图侧清空前也不许把别的会话的正文画出来）。
+  // 同一会话 + 同一 ref 才认（视图侧清空前也不许把别的会话的身份画出来）。
   const sameSession = renderContextCompactions(records, {
     detail: { ...stale, sessionID: "session-b" }, sessionID: "session-b"
   });
-  assert.match(sameSession, /会话 A 的正文/);
-  assert.match(sameSession, /收起/);
+  assert.match(sameSession, /is-open/);
+  assert.match(sameSession, /aria-current="true"/);
 });
 
 test("records without a frame ref say so instead of offering an empty viewer", () => {
@@ -102,13 +110,15 @@ test("escapes unknown reason text and hides an empty list", () => {
 // 进度条的可见性判据（app.js 的面板 hidden 由这里返回空串与否决定）：零记录时
 // 必须仍然出内容。压缩发生在写记录之前，"没有记录就不画"会让第一次压缩看不到
 // 任何进度——正是这次修复要消掉的"看不到压缩到哪一步"。
-test("renders the gate progress bar with zero records, reusing the plan board track", () => {
+test("零记录也出门禁过程，逐关耗时清单是唯一展现（不再借 Plan 的轨道）", () => {
   const html = renderContextCompactions([], {
     progress: { state: "running", gate: "store", index: 5, total: 6, version: 7, origin: "explicit", detail: "bytes=496 tokens=156" }
   });
   assert.match(html, /context-compaction-progress is-running/);
-  // 复用 Plan 面板那一套轨道与填充，不自造第二套进度组件。
-  assert.match(html, /class="plan-board-progress">.*class="plan-board-bar" style="width:83%"/s);
+  // D3：门禁不再借 Plan 面板的轨道（.plan-board-progress / .plan-board-bar）——那正是
+  // 用户说的"门禁过程和整体前端风格不统一"。逐步耗时清单能回答"它到底干了什么、慢在哪
+  // 一关"，一条瞬时满格的彩条不能。
+  assert.doesNotMatch(html, /plan-board/);
   assert.match(html, /帧正文落盘/);
   assert.match(html, /aria-valuemin="0" aria-valuemax="6" aria-valuenow="5"/);
   assert.match(html, /5\/6 · #7/);
@@ -125,7 +135,8 @@ test("a failed round stops at the gate it reached and shows the real error", () 
   });
   assert.match(html, /is-failed/);
   assert.match(html, /压缩未完成/);
-  assert.match(html, /style="width:33%"/);
+  assert.doesNotMatch(html, /plan-board/);
+  assert.match(html, /2\/6/);
   assert.match(html, /reached=2\/6/);
   // 错误原文照实显示，不替换成一句安慰话。
   assert.match(html, /system 指令自身超预算/);
@@ -145,7 +156,7 @@ test("begin frame renders the judge row as running without inventing a duration"
     progress: { state: "running", phase: "begin", gate: "judge", index: 0, total: 6, origin: "explicit", gates: [] }
   });
   assert.match(html, /context-compaction-progress is-running/);
-  assert.match(html, /class="plan-board-bar" style="width:0%"/);
+  assert.doesNotMatch(html, /plan-board/);
   assert.match(html, /context-compaction-gate is-running/);
   assert.match(html, /判定是否需要压缩/);
   assert.match(html, /进行中/);
@@ -181,22 +192,25 @@ test("done frame lists every gate with its own measured duration", () => {
   assert.equal((html.match(/context-compaction-gate is-done/g) || []).length, 6);
 });
 
-// ── 压缩帧正文：内联展开 + 可调大小弹框（两种读法，同一份正文区）────────────
+// ── 压缩帧正文：条目一行摘要 + 可调大小弹框（正文只在弹框里）────────────
 
-test("每条记录同时给内联展开与弹框两个入口（同一 ref）", () => {
+test("条目只有一枚动作按钮「查看帧正文」，点它开弹框", () => {
   const html = renderContextCompactions([{
     version: 3, reason: "context_budget", message_from: "message-1", message_to: "message-9",
     frame_ref: "tr-z", frame_bytes: 120, frame_tokens: 30
   }]);
+  // D1：两枚动作按钮收敛成一枚——右栏 280px 放不下"帧正文 + 弹框"两个入口。
+  assert.equal((html.match(/class="context-summary-open"/g) || []).length, 1, "成功条目只给一枚动作按钮");
   assert.match(html, /data-compact-open="0"/);
-  assert.match(html, /data-compact-frame-ref="tr-z"/);
-  assert.match(html, /弹框/);
+  assert.match(html, />查看帧正文</);
+  // 弹框入口只此一处（右栏条目），不再是"内联 + 弹框"两条路。
+  assert.doesNotMatch(html, /data-compact-frame-ref/);
 });
 
 // 压缩栈表格的读法（用户口径 2026-09-26）：栈顶在前、按新旧下沉，栈顶那一行才是
 // 当前前沿（深灰 + 「栈顶」标记），更早的压缩降成浅灰但仍逐条可点开读正文。
-// 展开入口仍带**原数组下标**，但视图侧只用它取这一行的 frame_ref（点击那一刻的
-// 权威记录）；此后收起/续读只认 ref——下标会随记录重排与会话切换而漂。
+// 动作入口仍带**原数组下标**，但视图侧只用它取这一行的 frame_ref（点击那一刻的
+// 权威记录）；此后打开态/续读只认 ref——下标会随记录重排与会话切换而漂。
 test("压缩栈按新旧下沉，只有栈顶标前沿，入口仍按原下标记账", () => {
   const records = [
     { version: 1, reason: "context_budget", message_from: "message-1", message_to: "message-9", frame_ref: "tr-old" },
@@ -218,7 +232,7 @@ test("压缩栈按新旧下沉，只有栈顶标前沿，入口仍按原下标�
   assert.match(html, /class="compaction-stack-row is-head"[^>]*>.*<span role="columnheader">seq<\/span>/s);
 });
 
-test("弹框正文区与右栏内联展开是同一段 HTML", () => {
+test("弹框是帧正文的唯一展示面：右栏条目里不含正文，弹框里才含", () => {
   const record = { version: 3, frame_ref: "tr-z", frame_bytes: 120, frame_tokens: 30, estimated_tokens: 4200 };
   const detail = { loading: false, error: "", text: "frame body", hasMore: true, nextOffset: 10, totalBytes: 25 };
   const modal = renderCompactionFrameModal({ record, detail });
@@ -227,12 +241,14 @@ test("弹框正文区与右栏内联展开是同一段 HTML", () => {
   assert.match(modal, /frame body/);
   assert.match(modal, /data-compact-frame-load="more"/);
   assert.match(modal, /剩余约 15 bytes/);
-  // 右栏展开时用的是同一个渲染器：两种读法若各写一套，正文/分页迟早漂移。
-  const inline = renderContextCompactions([record], {
+  // 右栏那条同 ref 的条目里一个正文字节都不该有：正文只在弹框里读完（行内展开已下线）。
+  const row = renderContextCompactions([record], {
     sessionID: "session-x",
-    detail: { ref: "tr-z", sessionID: "session-x", ...detail }
+    detail: { ref: "tr-z", sessionID: "session-x" }
   });
-  assert.ok(inline.includes(modal), "弹框正文应当是右栏展开正文的同一段 HTML");
+  assert.doesNotMatch(row, /frame body/);
+  assert.doesNotMatch(row, /data-compact-frame-load/);
+  assert.ok(!row.includes(modal), "右栏条目不该把弹框正文一起画进来");
 });
 
 test("没有 ref 的弹框明说没有正文，不给一个空壳 viewer", () => {

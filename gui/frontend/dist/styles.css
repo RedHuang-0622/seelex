@@ -1967,7 +1967,8 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .context-compactions { margin-top: 12px; display: grid; gap: 7px; }
 .context-summary-title { color: var(--faint); font: 700 10px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
 /* 压缩栈表格（状态/概要 里唯一的内容块）：一行一次压缩，栈顶=当前前沿。
-   与状态表同款描边与字号——右栏窄，卡片式自由布局会错位，表格行始终对齐。 */
+   与状态表同款描边与字号；行密度走 --row-min-h（B0 规则 3：一行一条，不留双行高）——
+   条目本体只有「seq + 栈顶 + 原因」，来源/区间/估算/时间全进 hover title。 */
 .compaction-stack {
   display: grid;
   border: 1px solid var(--border);
@@ -1977,33 +1978,41 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 }
 .compaction-stack-row {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) auto;
-  align-items: start;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
   gap: 6px;
   min-width: 0;
-  padding: 5px 8px;
+  min-height: var(--row-min-h);
+  padding: 4px 8px;
   border-top: 1px solid var(--border);
 }
 .compaction-stack-row:first-child { border-top: 0; }
 .compaction-stack-row.is-head {
   align-items: baseline;
+  min-height: 0;
   color: var(--faint);
   background: var(--surface-2);
   font: 700 10px var(--font-mono);
   letter-spacing: .04em;
 }
 .compaction-stack-cell { min-width: 0; font-size: 10.5px; line-height: 1.45; }
-.compaction-stack-cell.is-version { color: var(--text-strong); font: 700 10.5px var(--font-mono); text-align: right; }
-.compaction-stack-cell.is-body strong { color: var(--text-soft); font-weight: 600; }
+.compaction-stack-cell.is-version { color: var(--text-strong); font: 700 10.5px var(--font-mono); text-align: right; white-space: nowrap; }
+.compaction-stack-cell.is-body strong {
+  display: block;
+  overflow: hidden;
+  color: var(--text-soft);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .compaction-stack-cell.is-body small {
   display: block;
   overflow-wrap: break-word;
   color: var(--muted);
   font: 9.5px var(--font-mono);
 }
-.compaction-stack-cell.is-actions { display: grid; gap: 3px; }
+.compaction-stack-cell.is-actions { display: flex; justify-content: flex-end; }
 .context-summary-open { text-align: center; white-space: nowrap; }
-.compaction-stack-origin { color: var(--faint); font: 9.5px var(--font-mono); font-style: normal; }
 /* 灰阶＝压缩帧的时间层次：栈顶（当前前沿）深灰，被更晚压缩取代的浅灰。
    深色模式由 --compaction-frame-* 的别名自动倒置，与轴刻度、对话区分界同一份色。 */
 .compaction-stack-row.is-frontier .compaction-stack-cell.is-version { color: var(--compaction-frame-latest); }
@@ -2013,17 +2022,14 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .compaction-stack-row.is-stale .compaction-stack-cell.is-body small { color: var(--compaction-frame-stale); }
 .compaction-stack-row.is-open { background: var(--surface-2); }
 .compaction-stack-flag {
-  display: block;
-  margin-top: 2px;
+  margin-left: 4px;
   padding: 0 3px;
   border: 1px solid var(--compaction-frame-latest);
   border-radius: var(--r-sm);
   color: var(--compaction-frame-latest);
   font: 9px var(--font-mono);
   font-style: normal;
-  text-align: center;
 }
-.compaction-stack-detail { padding: 0 8px 8px; border-top: 1px dashed var(--border); }
 /* 压缩失败行：它不是一次压缩（没有区间、没有帧），因此不占栈的颜色层次，改用失败色
    说清"这次没压成"。行仍然在表里——用户口径要的就是"失败要留痕，而痕要查得到"。 */
 .compaction-stack-row.is-failed { background: var(--tint-failed); }
@@ -2065,16 +2071,12 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
    data-resizable 约定：卡片自己 resize，正文区内滚）。 */
 .compaction-frame-card { width: min(980px, 100%); min-width: 520px; min-height: 340px; max-width: calc(100vw - 48px); max-height: min(820px, calc(100vh - 48px)); overflow: auto; resize: both; }
 .compaction-frame-modal-view { max-height: min(640px, 58vh); overflow: auto; }
-/* 压缩门禁进度条：轨道与填充直接用 Plan 面板那一套（.plan-board-progress /
-   .plan-board-bar），这里只补外层排版与三种状态色——同一份"进度"语义在仓库
-   里只该有一种视觉，第二套进度组件必然在间距和配色上漂移。 */
+/* 压缩门禁过程：**逐关耗时清单是唯一展现**（不再借 Plan 面板的轨道——那正是用户说的
+   "门禁过程和整体前端风格不统一"的来源）。半透明的头行给结论与计数，下面是清单。 */
 .context-compaction-progress { display: grid; gap: 4px; }
 .context-compaction-progress-head { display: flex; align-items: baseline; gap: 7px; color: var(--text-strong); font-size: 11px; }
 .context-compaction-progress-count { margin-left: auto; color: var(--faint); font: 9.5px var(--font-mono); }
 .context-compaction-progress-detail { color: var(--faint); font: 10px var(--font-mono); overflow-wrap: anywhere; }
-.context-compaction-progress.is-running .plan-board-bar { background: var(--status-running); }
-.context-compaction-progress.is-done .plan-board-bar { background: var(--status-done); }
-.context-compaction-progress.is-failed .plan-board-bar { background: var(--status-failed); }
 /* 逐关耗时清单：整轮压缩只有几十毫秒，进度条不可能"慢慢走"，能看见的串行工作
    就是这一行一行报出来的关口与各自耗时。等宽数字对齐，便于竖着比快慢。 */
 .context-compaction-gates { margin: 0; padding: 0; list-style: none; display: grid; gap: 1px; }
