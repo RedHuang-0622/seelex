@@ -67,7 +67,7 @@ export function createChatView(elements, conversationView) {
     elements["send-button"].setAttribute("aria-label", elements["send-button"].title);
     elements.prompt.placeholder = inputLocked
       ? "正在切换会话…"
-      : running ? "继续输入，Enter 加入队列" : "描述任务，输入 / 查看命令，# 切换插件，$ 召回 Skill，@ 手动召唤团队";
+      : running ? "继续输入，Enter 加入队列" : "描述任务，输入 / 查看命令，# 切换插件，$ 召回 Skill";
     elements.composer.classList.toggle("is-running", running);
     elements["stop-button"].classList.toggle("hidden", !running);
     elements["connection-dot"].classList.add("online");

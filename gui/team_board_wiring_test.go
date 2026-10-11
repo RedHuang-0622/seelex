@@ -60,8 +60,9 @@ func TestEmbeddedTeamBoardWiring(t *testing.T) {
 		t.Fatal("app.js 必须从快照里取 runtime.teamwork_board（登记了不消费 = 面板永远是空的）")
 	}
 
-	// ③ index.html 落点：section / badge / view 三件都在，且 id 不与「状态」页的
-	//    Agent Team 块（team-section / team-view / team-count）撞名。
+	// ③ index.html 落点：section / badge / view 三件都在。id 前缀 team-board-* 保留
+	//    （与 team-page-* 详情弹窗区分开）；「状态」页的 Agent Team 块已退场
+	//    （2026-10-12 J-1a），team-section / team-view / team-count 这些旧 id 不许复活。
 	for _, id := range []string{"team-board-section", "team-board-badge", "team-board-view"} {
 		if !strings.Contains(index, `id="`+id+`"`) {
 			t.Fatalf("index.html 缺少团队看板挂载点 %s", id)
@@ -86,8 +87,9 @@ func TestEmbeddedTeamBoardWiring(t *testing.T) {
 
 	// ⑦ 成员入口（S7）：看板「在编」行的角色名 = 打开这位员工工作上下文的入口。
 	//    两处缺一即死：渲染件不写钩子 = 没有入口；app.js 不绑委托 = 点不动的入口。
-	//    委托必须挂在 `#team-board-view` 上：Agent Team 面板的那条挂在 `#team-view`，
-	//    是另一块 section，收不到看板子树里的事件。
+	//    委托必须挂在 `#team-board-view` 上（看板是独立 section，事件不会从别的子树
+	//    冒泡进来）；Agent Team 面板退场（2026-10-12 J-1a）后，这条委托就是角色会话
+	//    读面的**唯一**入口。
 	if !strings.Contains(boardView, "data-team-role-open") || !strings.Contains(boardView, "data-team-role-session") {
 		t.Fatal("看板在编行必须带成员入口钩子（data-team-role-open / data-team-role-session）")
 	}

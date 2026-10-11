@@ -135,7 +135,7 @@ const appSource = await readFile(new URL("./app.js", import.meta.url), "utf8");
 
 test("app.js：切换在途标志贯穿 composer 的每个渲染落点与生命周期", () => {
   // app.js 是 DOM 绑定脚本，node 侧按仓库既有口径做源码级断言（见
-  // agent-team-refresh.test.mjs / queue-edit.test.mjs）：只钉「哪条渲染路径
+  // role-session-refresh.test.mjs / queue-edit.test.mjs）：只钉「哪条渲染路径
   // 带没带 switching」，行为边界由上面的 renderControls 用例覆盖。
   assert.ok(
     appSource.includes("chatView.render(snapshot, options.scrollMode, Boolean(state.resumingSessionID), composerDraftPageText(snapshot))"),

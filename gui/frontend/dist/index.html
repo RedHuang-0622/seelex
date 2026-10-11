@@ -69,7 +69,6 @@
               <span class="kbd" aria-hidden="true">/</span> 命令与工具
               <span class="kbd" aria-hidden="true">#</span> 切换 Plugin
               <span class="kbd" aria-hidden="true">$</span> 召回 Skill
-              <span class="kbd" aria-hidden="true">@</span> 手动召唤团队
             </div>
           </div>
         </div>
@@ -82,7 +81,7 @@
       <div id="message-queue" class="message-queue-host" aria-live="polite"></div>
       <form id="composer" class="composer">
         <div id="inline-suggestions" class="command-suggestions inline-suggestions hidden"></div>
-        <textarea id="prompt" rows="1" placeholder="描述任务，输入 / 查看命令，# 切换插件，$ 召回 Skill，@ 手动召唤团队"></textarea>
+        <textarea id="prompt" rows="1" placeholder="描述任务，输入 / 查看命令，# 切换插件，$ 召回 Skill"></textarea>
         <div class="composer-actions">
           <div class="composer-tools">
             <button id="command-button" class="icon-button composer-icon" type="button" title="命令面板 (Ctrl+K)" aria-label="命令面板 (Ctrl+K)" data-icon="command"></button>
@@ -161,10 +160,6 @@
           <summary class="collapse-summary"><span class="collapse-chevron" aria-hidden="true"></span><span>账户</span><span id="account-count" class="badge">0</span></summary>
           <div id="account-list" class="account-list"></div>
         </details>
-        <details class="collapse-section" id="team-section">
-          <summary class="collapse-summary"><span class="collapse-chevron" aria-hidden="true"></span><span>Agent Team</span><span id="team-count" class="badge">0</span></summary>
-          <div id="team-view" class="team-view muted">展开后加载员工栏与 Team 栏</div>
-        </details>
         </div>
 
         <div class="right-tabpanel hidden" data-right-panel="workbench" role="tabpanel">
@@ -173,8 +168,11 @@
           <div id="goal-view" class="goal-view muted">当前无目标任务</div>
         </section>
         <!-- 团队看板：数据源 = runtime.teamwork_board（与 TUI Alt+T 面板同源投影）。
-             注意 id 前缀是 team-board-*：team-section/team-view/team-count 已被
-             「状态」页的 Agent Team 块占用，不得复用。无计划 → 整块 hidden（不留空壳）。 -->
+             「状态」页的 Agent Team 块已退场（2026-10-12 J-1a：面板删面，团队手工
+             召唤按用户裁决删除）——团队面只剩这一块，它的 id 与数据源都不许动。
+             注意 id 前缀仍是 team-board-*：与 team-page-*（详情弹窗）区分开，
+             也不要把 team-section / team-view / team-count 这类旧 id 复活。
+             无计划 → 整块 hidden（不留空壳）。 -->
         <section id="team-board-section" class="hidden">
           <div class="section-title"><span>团队看板</span><span id="team-board-badge" class="badge hidden">0</span></div>
           <div id="team-board-view" class="team-board-view muted">当前无团队计划</div>
@@ -462,7 +460,7 @@
   <div id="role-session-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="role-session-modal-title">
     <div class="modal-card role-session-card" data-resizable>
       <div class="modal-header"><div class="role-session-title-slot" id="role-session-modal-title"></div><button id="role-session-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
-      <div id="role-session-view" class="role-session-view muted">选择 Agent Team 成员查看其独立会话</div>
+      <div id="role-session-view" class="role-session-view muted">从团队看板点「当前会话」查看这位员工此刻的会话</div>
       <div class="modal-resize-handle" aria-hidden="true"></div>
     </div>
   </div>

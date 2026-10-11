@@ -1606,27 +1606,35 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	if !strings.Contains(string(index), `id="ui-tooltip"`) {
 		t.Fatal("共享提示气泡宿主必须存在（一条 DOM，委托触发）")
 	}
-	// Agent Team：员工库 / 团队库 / 员工栏 / 发言调度四块——前两块是库（表格），
-	// 员工栏是发言顺序（拖拽），发言调度是运行态串珠条（不是 项/值 表）。
-	teamView, err := embeddedFrontend.ReadFile("frontend/dist/agent-team-view.js")
-	if err != nil {
-		t.Fatal(err)
+	// Agent Team 面板**已退场**（2026-10-12 J-1a，用户裁决：`@<团队>` 手动召唤直接删除）：
+	// 面板渲染件与它的两条测试下架、「状态」页的 `#team-section` 块删除、app.js 的 AgentTeam*
+	// 调用族清零——只剩 AgentTeamRoleSnapshot（角色会话只读观察面：打开 + 刷新两处）。
+	// 这里钉的是"退场不留半条通道"：原用户口径的断言若照旧写就是空壳（它断言的对象
+	// 已经不存在），所以改成**退场守卫**——读得回任何一个退场资产，就是没删干净。
+	if _, err := embeddedFrontend.ReadFile("frontend/dist/agent-team-view.js"); err == nil {
+		t.Fatal("Agent Team 面板渲染件必须已下架（退场不留空壳文件）")
 	}
-	teamSource := string(teamView)
-	if !strings.Contains(teamSource, `"员工库"`) || !strings.Contains(teamSource, `"团队库"`) ||
-		!strings.Contains(teamSource, `"员工栏"`) || !strings.Contains(teamSource, "team-table-row") ||
-		!strings.Contains(teamSource, "team-source-chip") || !strings.Contains(teamSource, "schedule-pill") {
-		t.Fatal("Agent Team 必须拆成员工库 / 团队库 / 员工栏 / 发言调度四块（顺序条目化）")
+	if _, err := embeddedFrontend.ReadFile("frontend/dist/agent-team-view.test.mjs"); err == nil {
+		t.Fatal("面板渲染件的测试必须已下架")
 	}
-	// 用户口径：去掉「存当前会话」操作与栏头注释（窄栏里注释比内容还长）。
-	if strings.Contains(teamSource, "data-team-save-current") || strings.Contains(teamSource, "team-rail-hint") {
-		t.Fatal("面板不再有「存当前会话」与栏头注释")
+	for _, stale := range []string{"invalidateAgentTeam", "refreshAgentTeam", "renderAgentTeamPanel", "agentTeamView", "team-section", "[data-team-refresh]"} {
+		if strings.Contains(string(script), stale) {
+			t.Fatalf("app.js 不得再出现退场面标记：%s", stale)
+		}
 	}
-	// 员工面板（入职 / 新建员工 / 修改员工）也不摆小字备注：字段说明与底部作用域说明
-	// 一律撤成 hover 提示（title）。「优化提示词」的运行态回执用独立类，不再借备注样式。
-	if !strings.Contains(teamSource, "data-team-hire-submit title=") ||
-		strings.Contains(teamSource, `class="team-editor-hint" data-team-optimize-state`) {
-		t.Fatal("员工面板的说明必须走 title，可见小字备注已撤")
+	if strings.Contains(string(index), `id="team-section"`) || strings.Contains(string(index), `id="team-view"`) {
+		t.Fatal("「状态」页的 Agent Team 折叠块必须整块删除")
+	}
+	// 保留面两件：①团队看板（数据源 runtime.teamwork_board）仍在；②角色会话只读观察面
+	// 有新房客（渲染件搬过去，不是删掉）。
+	if !strings.Contains(string(script), "renderTeamBoard(") || !strings.Contains(string(script), "teamwork_board") {
+		t.Fatal("团队看板必须保留（团队面只剩这一块：数据源 runtime.teamwork_board）")
+	}
+	if _, err := embeddedFrontend.ReadFile("frontend/dist/role-session-view.js"); err != nil {
+		t.Fatalf("角色会话只读观察面必须有落点（面板退场不等于读面退场）：%v", err)
+	}
+	if got := strings.Count(string(script), `invoke("AgentTeamRoleSnapshot"`); got != 2 {
+		t.Fatalf("AgentTeamRoleSnapshot 只许剩 open + refresh 两处调用点，实际 %d 处", got)
 	}
 	// 右侧「状态」子页的信息也条目化（键值表格行，不是自由网格）。
 	if !strings.Contains(string(script), `class="status-table"`) {

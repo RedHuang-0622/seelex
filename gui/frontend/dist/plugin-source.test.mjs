@@ -3,14 +3,22 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { escapeHtml } from "./components.js";
-import { hirePanel, normalizePluginNames } from "./agent-team-view.js";
 import { escapePluginSourceText, pluginSourceBadge, shortenRootPath, shortenSourceUrl, submitPluginNames, withPluginAssembly } from "./plugin-source.js";
 
 // wi-editor 提交侧接线的验收（leader 2026-10-05 裁决）：
 //   ① 提交载荷带 plugins；② 空 = 不写该键；③ 重复项**原样提交**，由后端显式拒绝。
-// 回读 / 展示侧（agent-team-view.js 的 normalizePluginNames，会去重）**不做**改动：
-// 它只作为 ⑩ 的对照物被 import 进来（两份切分只在"去重"上不同）。
-// ⑨/⑪ 同理：只为了把"同一件事写了两遍"的两处行为摆到一起比（见各用例注释）。
+//
+// 2026-10-12 J-1a（Agent Team 面板退场）：`agent-team-view.js` 已删，所以原
+//   ⑩ "提交侧 ↔ 回读侧只差去重"的对照（回读侧的 normalizePluginNames 随面板一起退场）与
+//   ⑪ hirePanel 的装配上限提示（表单随面板一起退场）两条用例**删除**——它们断言的对象
+//   已经不存在，留着只能改成空壳。
+//   "两条提交路都带上装配"那条接线用例同理**改写成退场守卫**：面板没了，app.js 里不该
+//   再有任何装配提交路（留一半 = 永远不生效的死接线）。
+// 保留下来的都是仍然活着的东西：`plugin-source.js` 的纯函数口径（①②③④⑤⑥⑦⑨）+ 插件页
+// 的接线（⑧）。
+// 注：`withPluginAssembly` / `submitPluginNames` 目前**没有前端消费方**（唯一的消费方是随
+// 面板退场的员工入库 / 入职路）；是否连同 AgentTeam* RPC 面一起收口归后端条目 wi-j1a-be
+// 裁决（J-1b 可能另有装配入口），本条目不动 plugin-source.js。
 const appSource = await readFile(new URL("./app.js", import.meta.url), "utf8");
 
 test("① 提交载荷带 plugins：表单输入按 逗号/顿号/空格/分号 切分并 trim", () => {
@@ -55,24 +63,17 @@ test("③ 重复项原样提交（前端不静默去重），由后端显式拒�
   assert.equal(submitPluginNames("docs; docs").length, 2, "两个重复项原样送后端，前端不减项");
 });
 
-test("接线：两条提交路（入库 SaveEmployee / 入职 InstantiateRole）都带上装配", () => {
-  // 老路：agentTeamRolePayload（"搬运员工"的载荷）必须带装配。
-  assert.match(appSource, /return withPluginAssembly\(payload, found\.plugins\);/);
-  // 入库按钮与员工库「入职」按钮两条分支都经这份载荷。
-  assert.match(appSource, /dataset\.teamEmployeeSave\)\s*\{[\s\S]{0,600}?agentTeamRolePayload\(/);
-  assert.match(appSource, /dataset\.teamEmployeeHire\)\s*\{[\s\S]{0,600}?agentTeamRolePayload\(/);
-
-  // 新路：hire 表单 submit 读 data-team-hire-plugins，且**同一份**规整。
-  const wire = appSource.indexOf('withPluginAssembly(role, hireForm.querySelector("[data-team-hire-plugins]")');
-  assert.notEqual(wire, -1, "submit 必须读 data-team-hire-plugins");
-  const saveEmployee = appSource.indexOf('invoke("AgentTeamSaveEmployee", "", role)', wire);
-  const instantiate = appSource.indexOf('invoke("AgentTeamInstantiateRole", "", role, 0)', wire);
-  assert.notEqual(saveEmployee, -1, "library 作用域（员工库保存）必须在这条接线之后");
-  assert.notEqual(instantiate, -1, "会话作用域（入职/修改 = PutRole 那条路）必须在这条接线之后");
-  assert.ok(wire < saveEmployee && wire < instantiate);
-
-  // 提交侧不得引入会去重的那份规整（去重只属于回读/展示侧）。
-  assert.doesNotMatch(appSource, /normalizePluginNames/);
+test("接线：装配提交路已随 Agent Team 面板退场（app.js 里不留半条死路）", () => {
+  // J-1a 前这里是"两条提交路（入库 SaveEmployee / 入职 InstantiateRole）都带上装配"：
+  // 断言 app.js 的 agentTeamRolePayload 与 hire 表单 submit 两处都经 withPluginAssembly。
+  // 面板退场后这两条路都不存在了 —— 该断言若照旧写就是空壳，所以改成**退场守卫**：
+  // 装配的提交侧不得在 app.js 里留下半条接不上的接线。
+  assert.doesNotMatch(appSource, /withPluginAssembly/, "app.js 不得再引用随面板退场的装配提交路");
+  assert.doesNotMatch(appSource, /agentTeamRolePayload/, "员工入库 / 入职的载荷装配已随面板退场");
+  assert.doesNotMatch(appSource, /data-team-hire-plugins/, "hire 表单的装配字段已随面板退场");
+  assert.doesNotMatch(appSource, /AgentTeamSaveEmployee|AgentTeamInstantiateRole/, "面板的入库 / 入职 RPC 调用已退场");
+  // 反面：插件页自己的来源读数接线照旧（⑧ 钉的就是它）。
+  assert.match(appSource, /pluginSourceBadge\(plugin\)/, "插件页的来源读数接线不得被这轮改动带走");
 });
 
 // ── 来源读数进面板（wi-frontend，后端键见 commit 118f259）─────────────────────────
@@ -193,7 +194,7 @@ test("⑦ local:<根> 的长路径：可见旁注收口、完整路径留在 not
 });
 
 test("⑧ 接线：面板每行标来源 + 面板上方那句『当前进程加载到的那一份』", async () => {
-  assert.match(appSource, /import \{ escapePluginSourceText, pluginSourceBadge, withPluginAssembly \} from "\.\/plugin-source\.js";/);
+  assert.match(appSource, /import \{ escapePluginSourceText, pluginSourceBadge \} from "\.\/plugin-source\.js";/);
   assert.match(appSource, /const source = pluginSourceBadge\(plugin\);/);
   // 来源标签可见 + 三块文本都过转义（label / note(title) / hint）。
   assert.match(appSource, /class="chip" title="\$\{escapePluginSourceText\(source\.note\)\}"/);
@@ -211,9 +212,11 @@ test("⑧ 接线：面板每行标来源 + 面板上方那句『当前进程加�
 });
 
 // ── 第二份事实的等价用例（P2 收口）────────────────────────────────────────────
-// 两条"同一件事写了两遍"的实现，各自钉一条**等价**用例：不复述实现，只钉两处**行为相同**。
+// "同一件事写了两遍"的实现，各钉一条**等价**用例：不复述实现，只钉两处**行为相同**。
 // 生产代码里两份都得留着（escapePluginSourceText 那条注释说明了为什么不能 import
 // components：本模块要能被 node --test 直接 import），所以只能在用例里把两者摆到一起比。
+// （原 ⑩ 的对照物 normalizePluginNames 活在 agent-team-view.js 里，随 Agent Team 面板
+// 退场一起删除——这条对照没有第二份了，用例一并退场，见文件头注。）
 
 test("⑨ 转义同口径：escapePluginSourceText 与 components.escapeHtml 在同一语料上逐字相等", () => {
   // 语料 = 来源面真实会出现的文本（标签 / 地址 / 根路径）+ 会打穿 innerHTML 的畸形串。
@@ -236,52 +239,4 @@ test("⑨ 转义同口径：escapePluginSourceText 与 components.escapeHtml 在
   assert.equal(escapeHtml(null), "null");
   assert.equal(escapePluginSourceText(null), "");
   assert.deepEqual([escapeHtml(undefined), escapePluginSourceText(undefined)], ["", ""]);
-});
-
-test("⑩ 切分同口径：submitPluginNames 与 normalizePluginNames 只在『去重』上不同", () => {
-  // 两份实现（提交侧 / 回读侧）的分隔符与 trim 口径必须逐项相等，**唯一**差别是回读侧
-  // 会去重（保序）。同一语料喂两边作断言——任一侧改了分隔符 / 空值口径，这条就会红。
-  const corpus = [
-    " cad, docs、design ", "cad docs；design;draw", "cad, cad，cad", "docs; docs",
-    "cad,，、 ； docs", "   ", "、 ； ", "单一", ",", "a\u00a0b", "a\tb\nc",
-    [" cad ", "", "docs"], ["cad", " cad ", "docs"], ["docs", "docs"], [], ["", "   "], [null, 5, "cad"],
-    null, undefined, 5, {}, true,
-  ];
-  for (const input of corpus) {
-    const submit = submitPluginNames(input);
-    const readback = normalizePluginNames(input);
-    assert.deepEqual(readback, submit ? [...new Set(submit)] : null,
-      `两边只差去重：${JSON.stringify(input)}`);
-  }
-  // 反向对照（阴性）：确实有语料能让两者**不相等**，否则上一条断言是空的。
-  assert.deepEqual(submitPluginNames("cad, cad"), ["cad", "cad"]);
-  assert.deepEqual(normalizePluginNames("cad, cad"), ["cad"]);
-  // 空值口径两边同形：空 → null（调用方据此不写该键）。
-  for (const empty of ["", "   ", ",", [], null, undefined]) {
-    assert.equal(submitPluginNames(empty), null);
-    assert.equal(normalizePluginNames(empty), null);
-  }
-});
-
-// ── 装配上限提示（P1 收口）────────────────────────────────────────────────────
-test("⑪ 装配上限提示不复述写死的数字：读不到生效值就只报配置键", () => {
-  // 生效上限由配置 limits.plugins.per_teammate 决定（Go 侧 seelexctx.PluginLimits.PerTeammate；
-  // 前端不掌握配置，快照 / 看板投影里也没有这一项——它只出现在 team_plan 回执里）。
-  // 所以默认提示**只报配置键**：写死的"上限 3 个"在配置抬高之后就是失真提示。
-  const panel = hirePanel({ members: [] }, null);
-  assert.doesNotMatch(panel, /上限 3 个/, "读不到上限时不得出现写死的数字");
-  assert.doesNotMatch(panel, /出厂 3/);
-  assert.match(panel, /limits\.plugins\.per_teammate/, "要指向配置键");
-  assert.match(panel, /装配（上限以配置为准）/, "可见标签只留「以配置为准」，不编数字");
-  assert.match(panel, /上限以配置 limits\.plugins\.per_teammate 为准/, "完整口径在 title 里");
-  assert.match(panel, /data-team-hire-plugins/);
-  assert.match(panel, /留空 = 不覆盖/, "老口径（留空不提交该键）不许被这轮改动带走");
-  // 接线口留着：调用方真读到生效上限就报数字（app.js 拿到读数时传进来即可）。
-  assert.match(hirePanel({ members: [] }, null, "session", { pluginLimit: 5 }), /装配（上限 5 个）/);
-  // 非法读数（0 / 负数 / 非整数）= 没读到 ⇒ 回到配置键，不编一个 0。
-  for (const bogus of [0, -1, "5", 1.5, NaN]) {
-    const html = hirePanel({ members: [] }, null, "session", { pluginLimit: bogus });
-    assert.doesNotMatch(html, /上限 0 个|上限 -1 个|上限 1\.5 个|上限 NaN 个/, `非法读数 ${String(bogus)}`);
-    assert.match(html, /limits\.plugins\.per_teammate/);
-  }
 });

@@ -24,9 +24,9 @@ import { renderGoalDetail, renderGoalPanel } from "./goal-board-view.js";
 import { TEAM_BOARD_CSS, TEAMMATE_LIVE_PAGE_SIZE, parseTeamPageRef, renderTeamBoard, renderTeamPage, renderTeammateLiveSession, teamPageTitle, teammateSessionEntry } from "./team-board-view.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
 import { buildScheduledTaskSpec, renderScheduledTasks, renderScheduledTasksTable, scheduledTaskFormFields } from "./scheduled-tasks-view.js";
-import { employeePool, hirePanel, isPinnedRole, nextAgentTeamOrder, normalizeAgentTeam, normalizeTeamGlobal, normalizeTeamLibrary, PERMISSION_CUSTOM_TOOLS, PERMISSION_GROUPS, PERMISSION_BITS, renderAgentTeam, renderRoleSessionDetail, renderTeamMemberList, roleDisplayName, teamEditorPanel, teamEntryFromMembers, teamMemberNames, teamMemberSpecMap, teamRoleSpec } from "./agent-team-view.js";
+import { renderRoleSessionDetail, roleDisplayName } from "./role-session-view.js";
 // 提交侧的装配（按会话插件）规整：**只 trim + 丢空项，不去重**（重复由后端显式拒绝）。
-import { escapePluginSourceText, pluginSourceBadge, withPluginAssembly } from "./plugin-source.js";
+import { escapePluginSourceText, pluginSourceBadge } from "./plugin-source.js";
 import { renderHistorySearchResults } from "./history-search.js";
 import { createThemeController, loadThemeManifest } from "./theme.js";
 import { resolveWindowTreatment } from "./window-treatment.js";
@@ -94,7 +94,6 @@ const elements = Object.fromEntries([
   "runtime-details", "reasoning-effort-control", "reasoning-effort-range", "reasoning-effort-value", "loop-limit-control", "loop-limit-range", "loop-limit-value", "loop-limit-infinite", "work-section", "work-count", "work-unread", "work-table-open", "work-table-summary", "work-table-modal", "work-table-modal-close", "work-table-modal-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-modal-title", "scheduled-task-close", "sched-name", "sched-workspace", "sched-permission", "sched-plugins", "sched-effort", "sched-loops", "sched-mode", "sched-period-value", "sched-period-unit", "sched-period-field", "sched-anchor-field", "sched-start-clock", "sched-start-weekday", "sched-anchor-now", "sched-anchor-now-field", "sched-datetime", "sched-datetime-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-enabled-field", "sched-enabled-label", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
   "project-name", "project-root", "project-status", "worktree-view", "file-count", "context-compactions",
   "compaction-frame-modal", "compaction-frame-modal-close", "compaction-frame-modal-title", "compaction-frame-modal-meta", "compaction-frame-modal-view",
-  "team-section", "team-view", "team-count",
   "role-session-modal", "role-session-close", "role-session-modal-title", "role-session-view",
   // 团队详情页（里程碑 / Work Item / teammate 三种页共用一套壳）：壳与落点在这里登记，
   // 页的内容全归渲染件 team-board-view.js 的 renderTeamPage。
@@ -695,7 +694,6 @@ function render(snapshot, options = {}) {
   renderGoal(snapshot);
   renderTeam(snapshot);
   renderScheduledTaskPanel(snapshot.runtime || {});
-  scheduleAgentTeamRefresh(snapshot);
   renderSkills(snapshot.runtime?.skills || []);
   renderInteraction(snapshot.interaction);
   // J-2：agent 请求打开的待审阅文件（会话作用域的可重放状态，随快照到达）。放在这里
@@ -776,13 +774,11 @@ function renderIncremental(snapshot, kind, payload) {
   }
   if (kind === "interaction.opened" || kind === "interaction.closed") renderInteraction(snapshot.interaction);
   if (kind === "team.changed") {
-    // 团队面板的数据不在快照里（按需 RPC 拉取），这条事件只带来"变了"：作废面板
-    // 缓存，可见时立刻重取。发声方是后端装配面（MaterializeAgentTeam 等），因此
-    // `@` 召唤、goal 自动装配与面板 RPC 一键装配都走同一条路，前端不再从自己的
-    // 输入文本里猜"这次提交会不会改团队"。
-    invalidateAgentTeam();
-    // 员工会话视图（运行详情）也按这条事件热更新：视图开着时重取当前目标，
-    // 关着时不做任何事（没有"最后心跳时间"这类推着走的东西）。
+    // 团队事实变了的**通告**：载荷不在快照里（按需 RPC 拉取），所以 reducer 只透传
+    // kind。Agent Team 面板已退场（2026-10-12 J-1a），这条事件现在只服务**角色会话
+    // 只读观察面**（团队看板「当前会话」入口）：视图开着时重取当前目标，关着时不做
+    // 任何事（没有"最后心跳时间"这类推着走的东西）。发声方是后端装配面，前端不从
+    // 自己的输入文本里猜"这次提交会不会改团队"。
     if (roleSessionDetail) refreshRoleSessionDetail();
   }
 }
@@ -2177,8 +2173,8 @@ elements["account-list"]?.addEventListener("click", async event => {
 });
 
 function renderSkills(skills) {
-  // Skill 的召回前缀是 `$`（`#` 是切换 Plugin、`/` 是命令、`@` 是召唤团队）：
-  // 与 application/core/input_router/router.go 的 skillRoute/pluginRoute 一字对应。
+  // Skill 的召回前缀是 `$`（`#` 是切换 Plugin、`/` 是命令）：与
+  // application/core/input_router/router.go 的 skillRoute/pluginRoute 一字对应。
   // 这里曾写死成 `#`，于是用户用 `$goal` 召回的 Skill 在列表里显示成 `#goal`。
   elements["skill-list"].innerHTML = skills.length
     ? skills.map(skill => `<span class="chip" title="${escapeHtml(skill.description || "")}">$${escapeHtml(skill.name)}</span>`).join("")
@@ -2213,8 +2209,8 @@ function renderTeam(snapshot) {
   if (!section || !view) return;
   const input = teamBoardInput(snapshot?.runtime || {});
   // 「这位 teammate 此刻那件事的会话」的解析面留给会话入口用（见 openRoleSessionDetail）：
-  // 团队看板是这条事实的权威投影，Agent Team 面板的成员行只有角色名与"员工的长期角色会话号"，
-  // 少了这一份就会退到角色会话（那是主代理的会话，不是 teammate 自己的）。
+  // 团队看板是这条事实的权威投影（在编行的角色名/会话号都出自它），少了这一份，
+  // 入口就只能退到角色会话（那是主代理的会话，不是 teammate 自己的）。
   currentTeamPlan = input ? input.plan : null;
   // 详情页与侧边栏同源同帧：快照一到，两边一起重绘（开着的详情页因此不会停在旧读数上）。
   currentTeamBoardInput = input;
@@ -2503,11 +2499,12 @@ async function refreshTeamPage() {
 //   - 里程碑行的名字  → `data-team-ms-open`：开**里程碑详情页**；
 //   - teammate 的名字 → `data-team-member-open`：开**teammate 详情页**；
 //   - 「当前会话」chip → `data-team-role-open`：开这位**此刻那件事的会话**（实时执行面，
-//     与 Agent Team 面板成员行同一个 openRoleSessionDetail，不另造"员工会话"概念）。
+//     走同一个 openRoleSessionDetail + 角色会话只读观察面，不另造"员工会话"概念）。
 //
-// 为什么必须单独绑一条：Agent Team 面板的点击委托挂在 `#team-view` 上，而团队看板是另一块
-// section（`#team-board-view`）——事件不会跨子树冒泡到那个监听器。渲染件把钩子写上了却不绑
-// 监听，得到的就是一个**点不动的入口**（比没有入口更坏）。
+// 为什么必须单独绑一条：这条委托挂在 `#team-board-view` 上（看板是独立 section），
+// 事件不会从别的子树冒泡进来。渲染件把钩子写上了却不绑监听，得到的就是一个
+// **点不动的入口**（比没有入口更坏）——Agent Team 面板退场（2026-10-12 J-1a）后，
+// 看板这条委托就是角色会话读面的**唯一**入口，更不能缺。
 //
 // 只读：这里只开读视图（详情页读的是同一份快照投影，会话读面读的是执行面），不写任何后端
 // 状态——看板"单向只读投影"的口径不变。
@@ -2793,619 +2790,41 @@ elements["scheduled-table-modal"]?.addEventListener("click", event => {
 });
 document.addEventListener("keydown", event => {
   if (event.key === "Escape") closeScheduledTable();
-  // Agent Team 的冷加载面板（入职/修改员工、新建/编辑团队）也吃 Esc：面板是
-  // 悬浮在右栏上的编辑态，Esc 关掉它比"点 ✕"更快。
-  if (event.key === "Escape") closeAgentTeamEditors();
-});
-
-// ── Agent Team（右侧栏 · 状态 → Agent Team）──────────────────
-// 数据源是 Application API（Bridge.AgentTeam*）：员工表 / 团队库 / 全局母本
-// （团队库 + 员工库 + 默认顺序）/ 定时 agent 分区。各份事实各有归属，前端只提交
-// 用户改动，不做本地缓存：
-//   - 有谁在编 + 次序 = 会话 lifecycle.order_roles（次序 = 登记先后；面板**不提供**
-//     人工调序，也不提供"形态"这种设定——见 agent-team-view.js 的头注）；
-//   - 员工配置（提示词/权限）= 会话角色注册表（session/team/roles.json）；
-//   - 团队库/员工库/默认顺序 = **全局**母本（数据根下 team/），装配 = 把库条目
-//     写成会话员工表；会话读的是母本深拷贝副本，只有「确认普及」才回写母本。
-let agentTeamLibrary = null;
-let agentTeamGlobal = null;
-let agentTeamView = null;
-let agentTeamSessionID = "";
-let agentTeamError = "";
-let agentTeamLoading = false;
-// agentTeamDirty 记录"后端会话团队事实变过、本地面板数据可能过期"：置位后下一次
-// render/展开一定重取（而不是复用按会话缓存的旧成员表），但不清屏——旧数据先留在
-// 屏幕上，新数据回来再整体重绘。置位源只有后端的 team.changed 事件。
-let agentTeamDirty = false;
-
-// agentTeamCurrentPolicy 取写顺序时要带的 order_policy（**历史字段**：只回读、不驱动
-// 任何行为，面板上既不显示也不给编辑入口）。取视图自带的那个值原样回送，避免"改一次
-// 顺序"把没展示的字段洗成空；视图拿不到就返回空串，调用方据此跳过这次写入。
-function agentTeamCurrentPolicy() {
-  const team = normalizeAgentTeam(agentTeamView);
-  return team.orderPolicy;
-}
-
-// loadAgentTeamLibrary 读全局团队库（团队表数据源）；失败不影响员工栏渲染
-// （库是可选面：旧宿主没实现时不显示团队表，而不是整块报错）。
-async function loadAgentTeamLibrary() {
-  try {
-    agentTeamLibrary = await invoke("AgentTeamLibrary", "");
-  } catch (error) {
-    agentTeamLibrary = null;
-  }
-  return agentTeamLibrary;
-}
-
-// loadAgentTeamGlobal 读全局母本（团队库 + 员工库 + 默认顺序 + 会话副本投影）。
-// 同样按可选面处理：旧宿主没实现时只隐藏「全局母本」块，不影响员工栏。
-async function loadAgentTeamGlobal() {
-  try {
-    agentTeamGlobal = await invoke("AgentTeamGlobalConfig", "");
-  } catch (error) {
-    agentTeamGlobal = null;
-  }
-  return agentTeamGlobal;
-}
-
-// refreshAgentTeam 拉取一次员工表 + 团队库 + 全局母本并重绘；force=false 且会话
-// 未变、也没有待作废的通告（agentTeamDirty）时复用上次结果（面板每次 render 都会
-// 调用它，避免高频 RPC）。
-async function refreshAgentTeam({ force = false } = {}) {
-  if (agentTeamLoading) return;
-  const sessionID = client.current()?.session?.id || "";
-  if (!force && !agentTeamDirty && sessionID && sessionID === agentTeamSessionID && agentTeamView) return;
-  agentTeamLoading = true;
-  try {
-    agentTeamView = await invoke("AgentTeamView", "");
-    await loadAgentTeamLibrary();
-    await loadAgentTeamGlobal();
-    agentTeamSessionID = sessionID || agentTeamSessionID;
-    agentTeamError = "";
-  } catch (error) {
-    agentTeamView = null;
-    agentTeamError = error?.message || String(error);
-  } finally {
-    // 本次已经按"最新事实"取过一次：无论成败都消掉脏位，否则每个 render 都会
-    // 再发一轮 RPC（流式回合里 render 很密）。取数期间到达的新通告会重新置位。
-    agentTeamDirty = false;
-    agentTeamLoading = false;
-  }
-  renderAgentTeamPanel();
-}
-
-// invalidateAgentTeam 作废 Agent Team 面板缓存：后端会话团队事实变了（装配/工作
-// 顺序/入职/编辑成员），而面板缓存的是上一次 RPC 读回的成员表——不置脏位的话，
-// 展开面板只会复用旧数据（面板按会话键命中缓存就早退）。
-//
-// 只在面板真的看得到时立刻取；收起或状态子页不可见时只置脏位，等下一次 render /
-// 展开再取（不可见的面板不该产生请求）。
-function invalidateAgentTeam() {
-  agentTeamDirty = true;
-  const section = elements["team-section"];
-  if (section?.open && section.offsetParent !== null) refreshAgentTeam({ force: true });
-}
-
-// renderAgentTeamPanel 只重绘本区块（不触发整页 render，避免与动作互锁）。
-// 冷加载面板是"按需注入"的：重绘会清掉它们，所以重绘前先复位面板状态。
-function renderAgentTeamPanel() {
-  const host = elements["team-view"];
-  if (!host) return;
-  const failure = agentTeamError
-    ? `<div class="team-notice is-error" role="alert">${escapeHtml(agentTeamError)}</div>`
-    : "";
-  if (!agentTeamView) {
-    host.className = "team-view muted";
-    host.innerHTML = failure || "展开后加载员工栏与团队库";
-    if (elements["team-count"]) elements["team-count"].textContent = "0";
-    return;
-  }
-  const team = normalizeAgentTeam(agentTeamView);
-  host.className = "team-view";
-  elements["team-count"].textContent = String(team.members.length + team.scheduled.length);
-  host.innerHTML = failure + renderAgentTeam(agentTeamView, agentTeamLibrary, agentTeamGlobal);
-}
-
-// scheduleAgentTeamRefresh 只在状态子页可见且 Agent Team 区块展开时拉取，会话变更
-// 或收到 team.changed（agentTeamDirty）后下一次 render 自然刷新（切走/未展开不产生
-// 额外请求）。
-function scheduleAgentTeamRefresh(snapshot) {
-  const section = elements["team-section"];
-  if (!section?.open || section.offsetParent === null) return;
-  const sessionID = snapshot?.session?.id || "";
-  if (!agentTeamDirty && sessionID && sessionID === agentTeamSessionID && agentTeamView) return;
-  refreshAgentTeam();
-}
-
-// runAgentTeamAction 统一处理动作失败：错误既进区块内联提示也进 toast。
-async function runAgentTeamAction(action) {
-  try {
-    await action();
-    await refreshAgentTeam({ force: true });
-  } catch (error) {
-    agentTeamError = error?.message || String(error);
-    renderAgentTeamPanel();
-    showToast(error);
-  }
-}
-
-// ── 冷加载面板（入职/修改员工、新建/编辑团队）──────────────────
-// 面板默认不渲染：点 + 或「编辑」才把表单注入 slot，关闭键（✕ / 取消 / Esc）
-// 清空 slot 并复位 hidden。这样窄右栏的常态是"两张表"，而不是常驻一张长表单。
-
-function agentTeamSlot(name) {
-  return elements["team-view"]?.querySelector?.(`[data-team-${name}-slot]`);
-}
-
-function closeAgentTeamEditors() {
-  for (const name of ["hire", "team"]) {
-    const slot = agentTeamSlot(name);
-    if (!slot) continue;
-    slot.innerHTML = "";
-    slot.hidden = true;
-  }
-}
-
-// openAgentTeamHire 打开入职 / 修改面板。scope=library 落在**全局员工库**上（员工库与
-// 团队解耦：库里的增删改不依赖团队，也不动任何会话的副本；保存走 AgentTeamSaveEmployee）——
-// 员工库的「新建员工」与「修改」两条入口都走它。scope=session 只服务员工栏的「+ 入职」
-// （空角色名 = 新装配一个人；填已存在的角色名即幂等覆盖本会话那份副本——员工栏不再有
-// 单独的「编辑」入口，改档案的唯一编辑入口是员工库）。
-function openAgentTeamHire(roleName = "", scope = "session") {
-  const slot = agentTeamSlot("hire");
-  if (!slot) return;
-  const team = normalizeAgentTeam(agentTeamView);
-  const member = scope === "library"
-    ? normalizeTeamGlobal(agentTeamGlobal).employees.find(item => item.roleName === roleName) || null
-    : team.members.find(item => item.roleName === roleName) || null;
-  slot.innerHTML = hirePanel(team, member, scope);
-  slot.hidden = false;
-  slot.querySelector?.("[data-team-hire-name]")?.focus?.();
-}
-
-function openAgentTeamTeamPanel(teamID = "") {
-  const slot = agentTeamSlot("team");
-  if (!slot) return;
-  const library = normalizeTeamLibrary(agentTeamLibrary);
-  const entry = library.teams.find(item => item.teamID === teamID) || null;
-  const team = normalizeAgentTeam(agentTeamView);
-  slot.innerHTML = teamEditorPanel(team, entry, agentTeamEmployeePool(team));
-  slot.hidden = false;
-  slot.querySelector?.("[data-team-form-name]")?.focus?.();
-}
-
-// agentTeamEmployeePool 取面板里的"可用员工"清单（员工库 ∪ 本会话在编）：团队面板的
-// 成员候选、入职（InstantiateRole）、入库动作共用这一份口径。
-function agentTeamEmployeePool(team = normalizeAgentTeam(agentTeamView)) {
-  return employeePool(normalizeTeamGlobal(agentTeamGlobal), team);
-}
-
-// agentTeamRolePayload 把矩阵里的一行换算成后端 RoleSpec 载荷（入库 / 入职共用）。
-function agentTeamRolePayload(roleName) {
-  const found = agentTeamEmployeePool().find(role => role.roleName === roleName);
-  if (!found) return null;
-  const payload = {
-    role_name: found.roleName,
-    role_kind: found.roleKind || "agent",
-    join_policy: found.joinPolicy || "on_team_create",
-    tools_policy: found.toolsPolicy || "",
-    model_policy: found.modelPolicy || "",
-    presence_policy: found.presencePolicy || "",
-    system_prompt: found.systemPrompt || ""
-  };
-  // 逐格装配的权限要跟着角色一起走：入库/入职是"把这个员工搬过去"，只带档位不带
-  // 格子 = 搬过去的人被降级成档位默认（静默丢权限）。
-  if (found.permissionGroups) payload.permission_groups = found.permissionGroups;
-  // 装配（按会话插件，能力轴）同一条理由：漏了它 = 搬过去的人被清空装配——正是本轮
-  // 要除的那种静默丢失。空 = **不写该键**（不覆盖，不是空数组）。
-  return withPluginAssembly(payload, found.plugins);
-}
-
-// ── 团队面板里的成员表（草稿，保存才落盘）────────────────────
-// 行序 = 登记先后（面板不提供人工调序）；动作全是本地 DOM 编辑，团队表单提交时按它序列化。
-
-function teamMemberListNames(list) {
-  if (!list) return [];
-  return [...list.querySelectorAll("[data-team-member-item]")].map(node => node.dataset.teamMemberItem);
-}
-
-// teamMemberListSpecs 读回成员表当前挂着的 RoleSpec 载荷（每行 data-team-member-spec）。
-// 成员表是**独立草稿**：加减人、调序都会重绘 DOM，规格必须跟着现有行一起回流，
-// 否则"删掉一个不相关的人"就把别人的生态位（role_kind）与权限一起洗掉。
-function teamMemberListSpecs(list) {
-  const specs = {};
-  if (!list) return specs;
-  for (const node of list.querySelectorAll("[data-team-member-item]")) {
-    const raw = node.dataset.teamMemberSpec;
-    if (!raw) continue;
-    try {
-      specs[node.dataset.teamMemberItem] = JSON.parse(raw);
-    } catch {
-      // 畸形载荷忽略：宁可少一份规格，也不让一个坏属性把整张表单卡死。
-    }
-  }
-  return specs;
-}
-
-// teamMemberPoolSpecs 把"员工库 / 本会话在编"那一份换算成成员规格（没登记就不编造）。
-function teamMemberPoolSpecs(names) {
-  const specs = {};
-  for (const name of Array.isArray(names) ? names : []) {
-    const payload = agentTeamRolePayload(name);
-    if (payload) specs[name] = teamRoleSpec(payload);
-  }
-  return specs;
-}
-
-// teamMemberSpecsForWrite 重绘成员表时的规格来源：**已有行带的那份优先**（草稿是
-// 用户正在编的事实，含条目带入的生态位），新来的成员按员工库 / 本会话在编那一份补。
-// 两条来源都没有就不编造字段，交给后端默认值。
-function teamMemberSpecsForWrite(list, names) {
-  const kept = teamMemberListSpecs(list);
-  const pool = teamMemberPoolSpecs(names);
-  const specs = {};
-  for (const name of Array.isArray(names) ? names : []) {
-    specs[name] = { ...(pool[name] || {}), ...(kept[name] || {}) };
-  }
-  return specs;
-}
-
-// teamMemberListFilter 重排 / 增删成员表：keep(name) 决定保留谁，append 追加到末尾。
-function teamMemberListFilter(keep, append = "") {
-  const slot = agentTeamSlot("team");
-  const list = slot?.querySelector?.("[data-team-member-list]");
-  if (!list) return;
-  const names = teamMemberListNames(list).filter(keep);
-  if (append && !names.includes(append)) names.push(append);
-  writeTeamMemberList(list, names, slot, teamMemberSpecsForWrite(list, names));
-}
-
-// writeTeamMemberList 用新的成员顺序重绘成员表与"添加成员"下拉（候选随成员变化）。
-// specs 缺省 = 按池里那一份兜底重算（没有草稿规格的成员走这条）。
-function writeTeamMemberList(list, names, slot = agentTeamSlot("team"), specs = null) {
-  const pool = agentTeamEmployeePool();
-  const effective = specs && typeof specs === "object" ? specs : teamMemberSpecMap(names, { pool });
-  list.innerHTML = renderTeamMemberList(names, pool, effective);
-  const pick = slot?.querySelector?.("[data-team-member-pick]");
-  if (!pick) return;
-  const previous = pick.value;
-  const candidates = pool.filter(role => !names.includes(role.roleName));
-  pick.innerHTML = candidates
-    .map(role => `<option value="${escapeHtml(role.roleName)}">${escapeHtml(roleDisplayName(role.roleName, role.roleKind))} · ${escapeHtml(role.roleName)}</option>`)
-    .join("");
-  if (candidates.some(role => role.roleName === previous)) pick.value = previous;
-  const add = slot?.querySelector?.("[data-team-member-add]");
-  if (add) add.disabled = candidates.length === 0;
-}
-
-// teamFormMemberNames 读团队表单里当前的成员顺序（提交时用它，而不是文本域）。
-function teamFormMemberNames(form) {
-  return teamMemberListNames(form.querySelector("[data-team-member-list]"));
-}
-
-elements["team-section"]?.addEventListener("toggle", () => {
-  if (elements["team-section"].open) refreshAgentTeam();
-});
-
-elements["team-view"]?.addEventListener("click", async event => {
-  // 0) 手动刷新键：事件驱动之外唯一的重取入口（Agent Team 无心跳）。强制重取，
-  // 不做"缓存命中就早退"——用户按了刷新就是"现在要最新"。
-  if (event.target.closest?.("[data-team-refresh]")) {
-    agentTeamDirty = true;
-    await refreshAgentTeam({ force: true });
-    return;
-  }
-  // 1) 按团队库条目装配。
-  const materializeTeam = event.target.closest?.("[data-team-materialize-team]");
-  if (materializeTeam?.dataset.teamMaterializeTeam) {
-    const teamID = materializeTeam.dataset.teamMaterializeTeam;
-    await runAgentTeamAction(() => invoke("AgentTeamMaterializeTeam", "", teamID, 0));
-    return;
-  }
-
-  // 2) 打开/关闭冷加载面板。
-  if (event.target.closest?.("[data-team-editor-close]")) {
-    closeAgentTeamEditors();
-    return;
-  }
-  if (event.target.closest?.("[data-team-open-hire]")) {
-    openAgentTeamHire("");
-    return;
-  }
-  if (event.target.closest?.("[data-team-open-team]")) {
-    openAgentTeamTeamPanel("");
-    return;
-  }
-  // 员工栏行内的「编辑」已下线（员工档案的唯一编辑入口 = 员工库，见 agent-team-view.js），
-  // 这里不再接 data-team-edit；团队条目点击仍开团队面板（面板标题写明在改哪一支）。
-  const editTeam = event.target.closest?.("[data-team-edit-team]");
-  if (editTeam?.dataset.teamEditTeam) {
-    openAgentTeamTeamPanel(editTeam.dataset.teamEditTeam);
-    return;
-  }
-
-  // 2.5) 团队面板里改成员表（行序 = 发言顺序，纯本地草稿，保存才落盘）。
-  const memberRemove = event.target.closest?.("[data-team-member-remove]");
-  if (memberRemove?.dataset.teamMemberRemove) {
-    teamMemberListFilter(name => name !== memberRemove.dataset.teamMemberRemove);
-    return;
-  }
-  if (event.target.closest?.("[data-team-member-add]")) {
-    const pick = agentTeamSlot("team")?.querySelector?.("[data-team-member-pick]");
-    if (pick?.value) teamMemberListFilter(() => true, pick.value);
-    return;
-  }
-  const employeeEdit = event.target.closest?.("[data-team-employee-edit]");
-  if (employeeEdit?.dataset.teamEmployeeEdit) {
-    openAgentTeamHire(employeeEdit.dataset.teamEmployeeEdit, "library");
-    return;
-  }
-
-  // 3) 团队库动作：删条目（装配与点团队名在上面的分支里）。
-  const deleteTeam = event.target.closest?.("[data-team-delete-team]");
-  if (deleteTeam?.dataset.teamDeleteTeam) {
-    const teamID = deleteTeam.dataset.teamDeleteTeam;
-    if (!confirm(`确认从团队库删除 ${teamID}？已装配的会话不受影响。`)) return;
-    await runAgentTeamAction(() => invoke("AgentTeamDeleteTeam", "", teamID));
-    return;
-  }
-
-  // 3.5) 员工库动作：把"只在本会话在编"的一行写进员工库 / 删库里的行。
-  const saveEmployee = event.target.closest?.("[data-team-employee-save]");
-  if (saveEmployee?.dataset.teamEmployeeSave) {
-    const roleName = saveEmployee.dataset.teamEmployeeSave;
-    const role = agentTeamRolePayload(roleName);
-    if (!role) return;
-    await runAgentTeamAction(async () => {
-      await invoke("AgentTeamSaveEmployee", "", role);
-      showToast({ message: `${roleName} 已入库（全局事实，不装配到会话）` });
-    });
-    return;
-  }
-  const deleteEmployee = event.target.closest?.("[data-team-employee-delete]");
-  if (deleteEmployee?.dataset.teamEmployeeDelete) {
-    const roleName = deleteEmployee.dataset.teamEmployeeDelete;
-    if (!confirm(`确认从员工库删除 ${roleName}？已装配会话的副本不受影响。`)) return;
-    await runAgentTeamAction(() => invoke("AgentTeamDeleteEmployee", "", roleName));
-    return;
-  }
-  // 员工库的新建：面板落在员工库作用域上（不装配、不动会话副本）。
-  if (event.target.closest?.("[data-team-employee-new]")) {
-    openAgentTeamHire("", "library");
-    return;
-  }
-  // 员工库行上的「入职」：把这一位装进本会话（InstantiateRole，同名就地覆盖副本）。
-  // 这是原先"从员工库拖到员工栏"那条手势的落点——面板不再提供任何拖拽编排。
-  const hireEmployee = event.target.closest?.("[data-team-employee-hire]");
-  if (hireEmployee?.dataset.teamEmployeeHire) {
-    const role = agentTeamRolePayload(hireEmployee.dataset.teamEmployeeHire);
-    if (!role) return;
-    await runAgentTeamAction(() => invoke("AgentTeamInstantiateRole", "", role, 0));
-    return;
-  }
-
-  // 4) 员工会话查看 / 摘除（出工作顺序、留角色）/ 删除。
-  const openRole = event.target.closest?.("[data-team-role-open]");
-  if (openRole?.dataset.teamRoleOpen) {
-    await openRoleSessionDetail(openRole.dataset.teamRoleOpen, openRole.dataset.teamRoleSession);
-    return;
-  }
-  const orderButton = event.target.closest?.("[data-team-action]");
-  if (orderButton?.dataset.teamAction && orderButton.dataset.teamRole) {
-    const next = nextAgentTeamOrder(agentTeamView, orderButton.dataset.teamAction, orderButton.dataset.teamRole);
-    const policy = agentTeamCurrentPolicy();
-    if (!next || !policy) return;
-    await runAgentTeamAction(() => invoke("AgentTeamSetOrder", "", policy, next.orderRoles));
-    return;
-  }
-  const deleteButton = event.target.closest?.("[data-team-delete]");
-  if (deleteButton?.dataset.teamDelete) {
-    const roleName = deleteButton.dataset.teamDelete;
-    if (!confirm(`确认删除角色 ${roleName}？它会同时从工作顺序里摘除。`)) return;
-    await runAgentTeamAction(() => invoke("AgentTeamDeleteRole", "", roleName));
-    return;
-  }
-
-  // 5) 提示词优化（冷加载面板内）：只产出候选，点「应用到提示词」才写回输入框。
-  if (event.target.closest?.("[data-team-optimize]")) {
-    await optimizeAgentTeamPrompt();
-    return;
-  }
-  if (event.target.closest?.("[data-team-optimize-apply]")) {
-    const slot = agentTeamSlot("hire");
-    const optimized = slot?.querySelector?.("[data-team-optimize-text]")?.textContent || "";
-    const prompt = slot?.querySelector?.("[data-team-hire-prompt]");
-    if (prompt && optimized) prompt.value = optimized;
-    return;
-  }
-  if (event.target.closest?.("[data-team-form-fill-current]")) {
-    const team = normalizeAgentTeam(agentTeamView);
-    const names = team.members
-      .filter(member => !isPinnedRole(member.roleName) && member.roleKind !== "timer")
-      .map(member => member.roleName);
-    const slot = agentTeamSlot("team");
-    const list = slot?.querySelector?.("[data-team-member-list]");
-    if (list) writeTeamMemberList(list, names, slot, teamMemberSpecsForWrite(list, names));
-    return;
-  }
-});
-
-// `team_kind` / `order_policy` / 门禁 / 压缩是团队编辑器里的**隐藏字段**（由
-// agent-team-view.js 直接按条目渲染），保存时原样回传——面板上没有"用形态起手"这条路
-// （内置形态目录已随 Go 侧 presets.go 删除），所以这里也不需要 JS 再写一遍。
-
-// optimizeAgentTeamPrompt 跑一次有界 LLM 回合优化提示词；结果只渲染成候选
-// （应用/放弃由用户点按钮决定，不会自动改输入框）。
-async function optimizeAgentTeamPrompt() {
-  const slot = agentTeamSlot("hire");
-  if (!slot) return;
-  const state = slot.querySelector("[data-team-optimize-state]");
-  const result = slot.querySelector("[data-team-prompt-result]");
-  const roleName = String(slot.querySelector("[data-team-hire-name]")?.value || "").trim();
-  const draft = String(slot.querySelector("[data-team-hire-prompt]")?.value || "").trim();
-  if (!roleName || !draft) {
-    if (state) state.textContent = "先填角色名与提示词再优化";
-    return;
-  }
-  if (state) state.textContent = "优化中…";
-  try {
-    const optimized = await invoke("AgentTeamOptimizePrompt", "", {
-      role_name: roleName,
-      role_kind: String(slot.querySelector("[data-team-hire-kind]")?.value || "agent"),
-      system_prompt: draft,
-      tools_policy: String(slot.querySelector("[data-team-hire-tools]")?.value || "")
-    });
-    if (state) state.textContent = optimized?.model ? `由 ${optimized.model} 生成` : "";
-    if (result) {
-      const notes = Array.isArray(optimized?.notes) ? optimized.notes : [];
-      result.innerHTML = `<strong>优化候选</strong>${notes.length ? `<div class="muted">${notes.map(escapeHtml).join("；")}</div>` : ""}
-        <div class="team-prompt-text" data-team-optimize-text>${escapeHtml(optimized?.optimized || "")}</div>
-        <div class="team-editor-actions"><button type="button" class="text-button" data-team-optimize-apply="1">应用到提示词</button></div>`;
-      result.hidden = false;
-    }
-  } catch (error) {
-    if (state) state.textContent = error?.message || String(error);
-  }
-}
-
-// readHirePermissionGrid 读出"逐格装配"面板的勾选：**每个已知组都写一条**（未勾 = 0）,
-// 因为后端的显式格子是"这张表说了算"——只提交勾中的组，未列出的组语义会变成"没装配"
-// （而用户看到的是"没勾 = 不开"）。
-function readHirePermissionGrid(form) {
-  const groups = {};
-  for (const group of PERMISSION_GROUPS) {
-    let bits = 0;
-    for (const item of PERMISSION_BITS) {
-      const box = form.querySelector(`[data-team-hire-perm="${group.name}"][data-team-hire-perm-bit="${item.bit}"]`);
-      if (box?.checked) bits |= item.bit;
-    }
-    groups[group.name] = bits;
-  }
-  return groups;
-}
-
-// 员工入职 / 修改：一步到位（建角色会话 + 落注册表含提示词与权限 + 按 join_policy
-// 决定是否进顺序），回执里的 notice 直接呈现"谁在什么时候真的会发言"。
-elements["team-view"]?.addEventListener("submit", async event => {
-  const hireForm = event.target.closest?.("[data-team-hire-form]");
-  const teamForm = event.target.closest?.("[data-team-form]");
-  if (!hireForm && !teamForm) return;
-  event.preventDefault();
-  if (hireForm) {
-    const roleName = String(hireForm.querySelector("[data-team-hire-name]")?.value || "").trim();
-    if (!roleName) return;
-    const toolsValue = String(hireForm.querySelector("[data-team-hire-tools]")?.value || "").trim();
-    const customPermission = toolsValue === PERMISSION_CUSTOM_TOOLS;
-    const role = {
-      role_name: roleName,
-      role_kind: hireForm.querySelector("[data-team-hire-kind]")?.value || "agent",
-      join_policy: hireForm.querySelector("[data-team-hire-join]")?.value || "on_team_create",
-      // 「逐格装配」是 UI 哨兵：它不落盘为 tools_policy，而是把勾选的格子提交成
-      // permission_groups（后端按显式格子优先于档位分配主体条目）。
-      tools_policy: customPermission ? "" : toolsValue,
-      permission_groups: customPermission ? readHirePermissionGrid(hireForm) : undefined,
-      model_policy: String(hireForm.querySelector("[data-team-hire-model]")?.value || "").trim(),
-      presence_policy: String(hireForm.querySelector("[data-team-hire-presence]")?.value || "").trim(),
-      system_prompt: String(hireForm.querySelector("[data-team-hire-prompt]")?.value || "").trim()
-    };
-    // undefined 的键在 JSON 序列化时被丢掉 = 不装配格子（继承/按档位判），
-    // 而不是提交一份空 map（那是"装配了一个空格子"的另一回事）。
-    if (!customPermission) delete role.permission_groups;
-    // 装配（按会话插件，能力轴）与权限格同一条：面板里改了装配就得随提交一起走，
-    // 否则「修改员工」这条老路仍会把已登记的装配静默清空。字段分隔认逗号 / 顿号 /
-    // 空格（规整见 plugin-source.js）；空 = 不写键（不覆盖），重复原样交后端裁决。
-    withPluginAssembly(role, hireForm.querySelector("[data-team-hire-plugins]")?.value ?? "");
-    try {
-      // 员工库作用域：只写全局事实，不装配、不建角色会话；请求与"入库"同一套字段。
-      if (hireForm.dataset.teamHireScope === "library") {
-        await invoke("AgentTeamSaveEmployee", "", role);
-        showToast({ message: `${roleName} 已存入员工库（全局事实，未装配到会话）` });
-        closeAgentTeamEditors();
-        await refreshAgentTeam({ force: true });
-        return;
-      }
-      const result = await invoke("AgentTeamInstantiateRole", "", role, 0);
-      const notices = Array.isArray(result?.notice) ? result.notice : [];
-      if (notices.length) showToast({ message: `${roleName}：${notices.join("；")}` });
-      closeAgentTeamEditors();
-      await refreshAgentTeam({ force: true });
-    } catch (error) {
-      agentTeamError = error?.message || String(error);
-      renderAgentTeamPanel();
-      showToast(error);
-    }
-    return;
-  }
-  const entry = agentTeamEntryFromForm(teamForm);
-  if (!entry) return;
-  await runAgentTeamAction(() => invoke("AgentTeamSaveTeam", "", entry));
-});
-
-// agentTeamEntryFromForm 把"新建/编辑团队"表单换算成团队库条目：成员表行序 =
-// 登记先后（user → main → 成员），每个成员带**行上挂着的那份 RoleSpec**（条目定义的
-// 生态位 + 员工库那一份人的档案），条目上的门禁 / 压缩原样带回后端。
-//
-// 以前这里只搬 role_name/role_kind/tools_policy/system_prompt、并用 `|| "agent"`
-// 兜底：保存一次就把 role_kind、join/presence/directive 与门禁/压缩静默丢掉，
-// 角色生态位这份事实也跟着没了。
-function agentTeamEntryFromForm(form) {
-  const name = String(form.querySelector("[data-team-form-name]")?.value || "").trim();
-  if (!name) return null;
-  const teamID = String(form.querySelector("[data-team-form-id]")?.value || "").trim() || name;
-  const kind = String(form.querySelector("[data-team-form-kind]")?.value || "").trim() || teamID;
-  const memberNames = teamFormMemberNames(form);
-  const list = form.querySelector("[data-team-member-list]");
-  const draftSpecs = teamMemberListSpecs(list);
-  const poolSpecs = teamMemberPoolSpecs(memberNames);
-  return teamEntryFromMembers({
-    teamID,
-    teamKind: kind,
-    name,
-    orderPolicy: form.querySelector("[data-team-form-policy]")?.value || "",
-    gatePolicy: form.querySelector("[data-team-form-gate]")?.value || "",
-    compactPolicy: form.querySelector("[data-team-form-compact]")?.value || "",
-    members: memberNames.map(roleName => ({
-      roleName,
-      spec: { ...(poolSpecs[roleName] || {}), ...(draftSpecs[roleName] || {}) }
-    })),
-    origin: "custom"
-  });
-}
-
-elements["team-view"]?.addEventListener("change", event => {
-  // 权限下拉的「逐格装配」：只是**展开/收起**权限位面板（不落盘、不发请求）——
-  // 用户还没保存，只是想让格子可见。
-  //
-  // 这里**不再有顺序策略分支**：顺序策略是历史字段（面板上既不显示也不给入口，见
-  // agent-team-view.js 的头注），改了不驱动任何轮次；面板也不再提供人工调序——写
-  // order_roles 的唯一动作是行内「摘除」（AgentTeamSetOrder），取值由
-  // agentTeamCurrentPolicy 从视图里原样带回。
-  const toolsSelect = event.target.closest?.("[data-team-hire-tools]");
-  if (!toolsSelect) return;
-  const grid = toolsSelect.closest("[data-team-hire-form]")?.querySelector("[data-team-hire-perm-grid]");
-  if (grid) grid.hidden = toolsSelect.value !== PERMISSION_CUSTOM_TOOLS;
 });
 
 // roleSessionDetail 记录当前打开的员工会话视图目标（身份 + 视图内可切换的员工名单）：
 // 刷新键、切员工、以及 team.changed 事件都要靠它原样重放/换人，而不是从 DOM 里猜。
+// 名册来源是团队看板的在编名单（roleSessionTargets，见下）。
 let roleSessionDetail = null;
 
-// roleSessionTargets 汇总「员工会话视图」里可切换的员工（本会话在编，含定时）：
-// 每行给 roleName / roleKind / roleSessionID（会话未建时为空串，切过去由后端兜底解析）。
+// roleSessionTargets 汇总「员工会话视图」里可切换的员工：来源 = **团队看板的在编名单**
+// （`runtime.teamwork_board` 的 `members[]`，与看板行同一份投影——不在前端另编一份名册）。
+// 每行给 roleName / roleKind / roleSessionID（没有"这件事自己的会话"时为空串，切过去
+// 由后端兜底解析：teammateSessionEntry 的判定不变，没有自己的会话就是不打开）。
 function roleSessionTargets() {
-  const team = normalizeAgentTeam(agentTeamView);
-  return team.members.map(member => ({
-    roleName: member.roleName, roleKind: member.roleKind, roleSessionID: member.roleSessionID
-  }));
+  const plan = currentTeamPlan;
+  const members = Array.isArray(plan?.members) ? plan.members : [];
+  return members
+    .map(member => String(member?.role || "").trim())
+    .filter(Boolean)
+    .map(roleName => {
+      const entry = teammateSessionEntry(plan, roleName);
+      return {
+        roleName,
+        roleKind: "",
+        roleSessionID: entry?.kind === "live" ? String(entry.session_id || "") : ""
+      };
+    });
 }
 
-// openRoleSessionDetail 打开某个角色的独立会话（成员行「查看」）：DS-A2A 里
+// openRoleSessionDetail 打开某个角色的独立会话（入口 = 团队看板在编行的「当前会话」
+// chip / 详情页同一个钩子）：DS-A2A 里
 // EXEC（main）与 ADVISOR（tl）是两个会话，主对话只显示 EXEC 的可见消息，
 // 这里按角色身份单独展示该 agent 自己的行，避免两个 agent 都渲染成 AGENT。
 // 视图顶部的「切员工」条把目标换成同会话的另一位员工——这就是"对话视图切员工"。
 //
 // **teammate 的会话口径**（2026-10-04，用户口径修正：查看 teammate 的会话"总是看到主代理
-// 的会话"）：成员行只带角色名与"员工的长期角色会话号"，而那条读面（`AgentTeamRoleSnapshot`
+// 的会话"）：入口只带角色名与"员工的长期角色会话号"，而那条读面（`AgentTeamRoleSnapshot`
 // → `RoleSnapshot`）是**群聊车道**形状——main 车道 = 主会话整段，teammate 自己那条车道在
 // 存储里从来没有行（worker 回合是进程内执行面，不写存储）。于是"没有工作项上下文"的调用
 // 会把主代理的会话画成这位的会话。修法：**同一份事实只有一个判定面**——`teammateSessionEntry`
@@ -3464,7 +2883,7 @@ function renderTeammateSessionView(live) {
   detail.liveOffset = Number.isFinite(Number(live?.offset)) ? Number(live.offset) : 0;
   detail.liveHasMore = live?.has_more === true;
   elements["role-session-modal-title"].innerHTML =
-    `<span class="eyebrow">Agent Team · 这件事的会话</span><h2>${escapeHtml(roleDisplayName(detail.roleName))} · ${escapeHtml(detail.workItem || "—")}</h2>`;
+    `<span class="eyebrow">teammate · 这件事的会话</span><h2>${escapeHtml(roleDisplayName(detail.roleName))} · ${escapeHtml(detail.workItem || "—")}</h2>`;
   elements["role-session-view"].className = "role-session-view";
   elements["role-session-view"].innerHTML = renderTeammateLiveSession(live, {
     role: detail.roleName, work_item: detail.workItem
@@ -3525,7 +2944,7 @@ function renderRoleSessionView(snapshot) {
     return;
   }
   const detail = roleSessionDetail || { roleName: "", roleSessionID: "", members: [] };
-  elements["role-session-modal-title"].innerHTML = `<span class="eyebrow">Agent Team · 员工会话</span><h2>${escapeHtml(roleDisplayName(detail.roleName))}</h2>`;
+  elements["role-session-modal-title"].innerHTML = `<span class="eyebrow">角色会话 · 只读观察面</span><h2>${escapeHtml(roleDisplayName(detail.roleName))}</h2>`;
   elements["role-session-view"].className = "role-session-view";
   // 实时工具活动按角色会话取（没有就是空数组：渲染件据此不画空壳）。
   const liveTools = roleSessionLiveTools.get(detail.roleSessionID) || [];
@@ -4106,7 +3525,10 @@ async function saveStorage() {
 
 // 输入前缀（sigil）契约：与后端 application/core/completion.go 同一条表，前端
 // 只消费不发明。权威说明见 docs/gui/modules/shell-and-interactions.md。
-//   /  命令与工具   #  切换 Plugin   $  召回 Skill   @  手动召唤团队
+//   /  命令与工具   #  切换 Plugin   $  召回 Skill   @  文件指代
+// `@` 在 2026-10-12 之前是「手动召唤团队」，该口径已随 Agent Team 面板退场删除
+// （J-1a）；`@` 归文件指代，候选源与提交载荷的改造是后续条目 J-1b 的落点——本条目
+// 不建新入口，只把团队口径撤掉（所以这里不再写「召唤团队」）。
 const SIGIL_COMMAND = "/";
 const SIGIL_PLUGIN = "#";
 const SIGIL_SKILL = "$";
@@ -4245,8 +3667,9 @@ elements.composer.addEventListener("submit", async event => {
     composerDirty = false;
     hideInlineSuggestions();
     resizePrompt();
-    // 面板不在这里猜：`@` 召唤是否真的装了团队、goal 是否顺手拉起了 goal-a2a，
-    // 都由后端的 team.changed 事件（见 invalidateAgentTeam）告诉面板。
+    // 团队事实不在这里猜，也不由前端从提交文本里推：`@` 手动召唤已退场（J-1a），
+    // 装配只剩 goal / teamwork 的自动通道，事实变化由后端的 team.changed 事件通告
+    // （前端只拿它热更新开着的角色会话读面，见 renderIncremental）。
     await refresh({ scroll: "bottom" });
   } catch (error) { showToast(error); }
   elements.prompt.focus();
@@ -5155,7 +4578,6 @@ const SCROLL_SHADOW_TARGETS = [
   ".session-group-body",
   "#account-list",
   "#plugin-list",
-  "#team-view",
   "#goal-view",
   "#scheduled-task-view",
   "#history-search-view",
