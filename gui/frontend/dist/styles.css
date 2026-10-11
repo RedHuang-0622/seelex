@@ -161,6 +161,35 @@
 }
 
 /* ============================================================
+   B0 · 视觉基线规则（唯一基准 = 左侧栏会话行族）
+   ------------------------------------------------------------
+   全站组件风格一律对齐左侧栏会话列表；后续每条修复都要能说清"为什么这样改
+   = 与左栏同族"。行号会漂移，锚点以**选择器名 / token 名**为准（行号只作参考）：
+     · 行外壳       .session-row（第 12.4 节「列表与卡片」，≈3610）
+                    → .app-shell .session-row { min-height: var(--row-min-h);
+                      padding: 6px 8px; border-radius: var(--r-md); }（≈3961）
+     · 行密度 token --row-min-h（第 13 节「控件比例」，≈3882）
+     · 悬停         .session-row:hover { border-color: var(--border);
+                      background: var(--surface); }（≈3621）
+     · 选中         .session-row.is-active, .session-row[aria-current="true"]（≈3623）
+     · 半径 token   --r-sm / --r-md / --r-lg / --r-xl / --r-2xl（本文件顶部 :root 的 radii 段）
+   规则（5 条，硬约束；违反者由 dist/*.test.mjs 兜底）：
+   1. 半径只走 token：组件一律取 --r-sm / --r-md / --r-lg / --r-xl / --r-2xl，
+      不得新写硬编码的裸像素圆角（形如 border-radius 加数值加 px）。历史上已有
+      49 处裸像素半径（1/2/3/4/5/6/8/999），是待清理存量而非范例；清理归后续条目，
+      期间由 dist/style-baseline.test.mjs 钉住计数上界，只减不增。
+   2. 悬停与选中只用既有信号：hover = 换边色（--border*）+ 换底（--surface）；
+      选中 = .is-active / [aria-current] 同族写法。不得引入第二套"选中色"。
+   3. 行密度走 --row-min-h：列表 / 子页行与左栏同一口径，一行一条，不留双行高。
+   4. 横向贴边条（表头 / 页签 / 滚动装饰条）必须与它的滚动容器同宽。
+   5. 颜色只取主题 token（--surface* / --border* / --text* / --status-* / --accent）。
+      皮肤矩阵 dist/themes/*.css 只为品牌 token（主信号 + 环境渐变）供色，不为新组件
+      补第三套供色方式（契约见 dist/themes/README.md 与 dist/theme.test.mjs）。
+   既有同族护栏：dist/text-button-chrome.test.mjs（裸类名按钮必须自己抹掉组件库皮）、
+   dist/consistency.test.mjs（跨视图同 key / 同 status）；扩展它们，不要另造一套。
+   ============================================================ */
+
+/* ============================================================
    深浅轴 · 深色基座（`<html data-theme="dark">`）
    ------------------------------------------------------------
    与皮肤无关：任何皮肤切到深色，都用这一份中性基座；
