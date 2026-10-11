@@ -143,6 +143,24 @@
 - `func TestResidentLimitKeepsBusySessions(t *testing.T)` — TestResidentLimitKeepsBusySessions 波 4 G6 INV-G8：运行中会话不可驱逐
 - `func TestResidentLimitDefaultSix(t *testing.T)` — TestResidentLimitDefaultSix 默认 resident_limit = 6（INV-G8 口径）。
 
+### review_files.go
+
+- `func (service *Service) RequestFileReview(ctx context.Context, files []dto.ReviewFileRef) (dto.ReviewRequest, error)` — RequestFileReview 实现 seelebridge.ReviewFilesPort：把一次「请 GUI 在侧边资源
+- `func (service *Service) ClearReviewRequest(sessionID string)` — ClearReviewRequest 清空指定会话的待审阅请求（工作区切换/解绑的失效面；
+- `func (service *Service) newReviewRequestID() string` — newReviewRequestID 派一个跨调用唯一的召唤 ID（前端据此区分"新的一次请求"与
+- `func normalizeReviewKey(path string) string` — normalizeReviewKey 归一化用于"同批次去重"的路径键（分隔符归一；不做路径语义
+- `func classifyReviewReadError(err error) string` — classifyReviewReadError 把 workspace 域的读取拒绝归到契约词表里的原因格。
+
+### review_files_test.go
+
+- `func reviewFixture(t *testing.T) (*Service, string)` — reviewFixture 在一个真实临时工作区里摆出各类文件（正常 / 敏感 / 二进制 /
+- `func TestRequestFileReviewClassifiesByWorkspaceBoundary(t *testing.T)` — TestRequestFileReviewClassifiesByWorkspaceBoundary：一次批处理召唤的裁决口径——
+- `func TestRequestFileReviewProjectsIntoSnapshotAndClears(t *testing.T)` — TestRequestFileReviewProjectsIntoSnapshotAndClears：落点是**会话作用域的可重放
+- `func TestRequestFileReviewClearedOnWorkspaceSwitch(t *testing.T)` — TestRequestFileReviewClearedOnWorkspaceSwitch：失效语义对齐既有口径——工作区
+- `func TestRequestFileReviewRejectsOverCapAndEmpty(t *testing.T)` — TestRequestFileReviewRejectsOverCapAndEmpty：超限显式报错（不静默截断），空清单
+- `func TestRequestFileReviewWithoutWorkspaceFailsExplicitly(t *testing.T)` — TestRequestFileReviewWithoutWorkspaceFailsExplicitly：没有绑定工作区时明确失败
+- `func TestRequestFileReviewAllSkippedKeepsSnapshotUntouched(t *testing.T)` — TestRequestFileReviewAllSkippedKeepsSnapshotUntouched：全部被跳过时不写快照——
+
 ### runtime_projection.go
 
 - `func (service *Service) publishRuntimeProjections()` — publishRuntimeProjections 在 service.ViewMu 下拷贝应用自有状态，释放锁后发布

@@ -107,6 +107,9 @@ func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
 		service.ViewMu.Unlock()
 		service.publishSessionEvent(EventSnapshotChanged, revision, "", service.currentViewSessionID(), nil)
 		service.components.sessions.RequestCatalogRefresh()
+		// 工作区切换 = 待审阅请求失效（清单里是工作区相对路径，换根之后不再指向
+		// "同一份文件"）：抽屉随树清空，口径见 docs/gui/modules/right-sidebar.md。
+		service.ClearReviewRequest("")
 		return nil
 	}
 
@@ -191,6 +194,8 @@ func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
 	}
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", service.currentViewSessionID(), nil)
 	service.components.sessions.RequestCatalogRefresh()
+	// 工作区切换（含"另起独立会话"那条）：待审阅请求随树清空（路径基准换了根）。
+	service.ClearReviewRequest("")
 	return nil
 }
 
@@ -224,6 +229,8 @@ func (service *Service) UnbindWorkspace() {
 	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", service.currentViewSessionID(), nil)
 	service.components.sessions.RequestCatalogRefresh()
+	// 解绑工作区 = 清单里的相对路径不再有基准：待审阅请求一并清空。
+	service.ClearReviewRequest("")
 }
 
 // WorkspaceTree 列出当前工作区某目录的子条目（GUI 工作树数据源；root 只

@@ -26,6 +26,8 @@ var permissionToolNames = []string{
 	"grep_search", "glob", "get_time", "web_search",
 	"todo_status", "todolist_status", "plan_status", "goal_status",
 	"plugins_list", "skills_list", "mcp_list", "plan_validate", "plan_export",
+	// show_files：J-2 agent 请求 GUI 打开待审阅文件（只读浏览档，归 ro 组）
+	"show_files",
 	"computer_screenshot", "computer_windows", "computer_scroll_targets", "computer_wait",
 	// rw 写簇（项目）
 	"write_file", "edit_file", "bash",
@@ -98,7 +100,9 @@ func TestMainAgentToolDecisions(t *testing.T) {
 		"todo_status": true, "todolist_status": true, "plan_status": true, "goal_status": true,
 		"plugins_list": true, "skills_list": true, "mcp_list": true,
 		"plan_validate": true, "plan_export": true,
-		"todo_init": true, "todo_add": true, "todo_done": true,
+		// show_files：只读浏览档（不改共享状态、返回值只带路径与计数）→ 组默认 allow
+		"show_files": true,
+		"todo_init":  true, "todo_add": true, "todo_done": true,
 		"todolist_init": true, "todolist_add": true, "todolist_done": true,
 		"task_add": true, "taskadd": true, "project_refresh": true,
 		"task_complete": true, "task_failed": true, "task_needs_user_decision": true,

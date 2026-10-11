@@ -662,6 +662,8 @@ func run() error {
 		return skill.Skill{Name: info.Name, Description: info.Description, Prompt: info.Prompt}, nil
 	})
 	registerContextReadTools(runtime, app)
+	// J-2：agent 请求 GUI 打开待审阅文件（一次批处理召唤，上限 10 份）。
+	registerReviewFilesTool(runtime, app)
 	registerProjectRefreshTool(runtime, store)
 	registerScheduledTaskCapability(runtime)
 	toolHooks.Bind(app)
@@ -1119,6 +1121,17 @@ func registerProductTools(runtime *seelebridge.Runtime, plugins *plugin.Manager,
 	registerPluginSwitchTools(runtime, plugins, eng)
 	registerPluginSelfTools(runtime, plugins)
 	registerAskApprove(runtime, approval)
+}
+
+// registerReviewFilesTool 注册 show_files：agent 请求 GUI 在侧边资源管理器打开
+// 待审阅文件（**一次调用 = 一次批处理召唤**，单次上限 dto.MaxReviewFilesPerRequest
+// = 10 份；超限显式报错，不静默截断）。
+//
+// 分工：工具形状与硬门在 seelebridge（RegisterReviewFilesTool），落点端口在
+// application（会话作用域的可重放请求 + workspace 域统一裁决沙盒/敏感/二进制/上限）。
+// 与 registerAskApprove 同一分法——组合根只做装配，不在这里写第二份语义。
+func registerReviewFilesTool(runtime *seelebridge.Runtime, app *application.Service) {
+	seelebridge.RegisterReviewFilesTool(runtime, app)
 }
 
 // registerMCPServers 将 mcp.yaml 配置的 MCP 服务器全部登记到 Runtime

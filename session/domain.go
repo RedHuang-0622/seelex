@@ -13,6 +13,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/model"
 )
 
@@ -46,6 +47,12 @@ type View struct {
 	HasMoreHistory     bool
 	ConversationWindow int
 	Revision           uint64
+	// ReviewRequest 是 agent 发起的「请 GUI 打开这些待审阅文件」批处理请求
+	// （会话作用域的可重放状态；每会话各持一份，镜像到 Snapshot 的那一份是
+	// 当前活跃会话的）。它是**会话事实之外的"现在请你看一下"**，因此不落盘：
+	// 冷加载/重启后为空（与 ContentUnloaded 那条"正文可丢、事实不许丢"的
+	// 取舍刻意相反——这里丢的恰恰是请求，不是记录）。
+	ReviewRequest *dto.ReviewRequest
 	// ContentUnloaded 标记本会话的**可见正文已从内存卸载**（application/core
 	// 的内容 LRU：视图未切换到的、且不在运行中的会话，其 Conversation 窗口
 	// 按上限做 LRU 释放）。置位时 Conversation 必为空，而 TotalMessages /
@@ -85,6 +92,7 @@ func (view *View) Clone() *View {
 		clone.HasMoreHistory = source.HasMoreHistory
 		clone.ConversationWindow = source.ConversationWindow
 		clone.Revision = source.Revision
+		clone.ReviewRequest = dto.CloneReviewRequest(source.ReviewRequest)
 		clone.ContentUnloaded = source.ContentUnloaded
 	})
 	return &clone

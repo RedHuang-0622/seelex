@@ -13,24 +13,29 @@ import (
 const ProtocolVersion = 1
 
 type Snapshot struct {
-	ProtocolVersion    int               `json:"protocol_version"`
-	Revision           uint64            `json:"revision"`
-	Session            SessionState      `json:"session"`
-	Sessions           []SessionInfo     `json:"sessions"`
-	Conversation       []Message         `json:"conversation"`
-	Chat               ChatState         `json:"chat"`
-	Task               *TaskState        `json:"task,omitempty"`
-	Runtime            RuntimeState      `json:"runtime"`
-	Interaction        *Interaction      `json:"interaction,omitempty"`
-	Capabilities       Capabilities      `json:"capabilities"`
-	HistoryOffset      int               `json:"history_offset"`
-	TotalMessages      int               `json:"total_messages"`
-	HasMoreHistory     bool              `json:"has_more_history"`
-	ConversationWindow int               `json:"conversation_window"`
-	ReadFiles          []ReadFileRef     `json:"read_files,omitempty"`
-	Workspaces         []WorkspaceInfo   `json:"workspaces,omitempty"`
-	CurrentWorkspace   *WorkspaceInfo    `json:"current_workspace,omitempty"`
-	SessionWorkspaces  map[string]string `json:"session_workspaces,omitempty"`
+	ProtocolVersion    int           `json:"protocol_version"`
+	Revision           uint64        `json:"revision"`
+	Session            SessionState  `json:"session"`
+	Sessions           []SessionInfo `json:"sessions"`
+	Conversation       []Message     `json:"conversation"`
+	Chat               ChatState     `json:"chat"`
+	Task               *TaskState    `json:"task,omitempty"`
+	Runtime            RuntimeState  `json:"runtime"`
+	Interaction        *Interaction  `json:"interaction,omitempty"`
+	Capabilities       Capabilities  `json:"capabilities"`
+	HistoryOffset      int           `json:"history_offset"`
+	TotalMessages      int           `json:"total_messages"`
+	HasMoreHistory     bool          `json:"has_more_history"`
+	ConversationWindow int           `json:"conversation_window"`
+	ReadFiles          []ReadFileRef `json:"read_files,omitempty"`
+	// ReviewRequest 是 agent 发起的「请 GUI 在侧边资源管理器打开这些待审阅文件」
+	// 批处理请求的只读投影（会话作用域的可重放状态；GUI 未开/被重连时，起来后
+	// 按这份快照补放——不是一次性事件）。nil = 该会话当前没有待审阅请求。
+	// 契约（上限 / 跳过原因词表 / 失效语义）见 dto.ReviewRequest。
+	ReviewRequest     *dto.ReviewRequest `json:"review_request,omitempty"`
+	Workspaces        []WorkspaceInfo    `json:"workspaces,omitempty"`
+	CurrentWorkspace  *WorkspaceInfo     `json:"current_workspace,omitempty"`
+	SessionWorkspaces map[string]string  `json:"session_workspaces,omitempty"`
 }
 
 // TaskState is the user-visible, evidence-oriented outcome of the latest
@@ -876,6 +881,10 @@ type SessionSnapshot struct {
 	HasMoreHistory     bool          `json:"has_more_history"`
 	ConversationWindow int           `json:"conversation_window"`
 	ReadFiles          []ReadFileRef `json:"read_files,omitempty"`
+	// ReviewRequest 是 agent 发起的「请 GUI 打开这些待审阅文件」批处理请求
+	// （会话作用域的可重放状态；会话快照是补放的真相源）。nil = 无请求。
+	// 契约见 dto.ReviewRequest。
+	ReviewRequest *dto.ReviewRequest `json:"review_request,omitempty"`
 	// Resident 是本会话引擎 bundle 是否驻留（C1 冷读：非驻留会话从
 	// record/Transcript/事件库拼只读基线时 Resident=false；展示方据此标
 	// 只读/未加载，不参与任何写入判定）。
@@ -926,6 +935,7 @@ func CloneSnapshot(snapshot Snapshot) Snapshot {
 	}
 	copySnapshot.Conversation = append([]Message(nil), snapshot.Conversation...)
 	copySnapshot.ReadFiles = append([]ReadFileRef(nil), snapshot.ReadFiles...)
+	copySnapshot.ReviewRequest = dto.CloneReviewRequest(snapshot.ReviewRequest)
 	if snapshot.Task != nil {
 		task := *snapshot.Task
 		task.ContextCompactions = append([]ContextCompaction(nil), snapshot.Task.ContextCompactions...)

@@ -614,6 +614,9 @@ func (service *Service) snapshotOfResident(sessionID string) (SessionSnapshot, e
 		HasMoreHistory:     view.HasMoreHistory,
 		ConversationWindow: view.ConversationWindow,
 		ReadFiles:          append([]ReadFileRef(nil), view.ReadFiles...),
+		// 待审阅请求随会话快照一起下发（会话作用域的可重放状态；前端起来/切回
+		// 该会话时按它补放）。冷读路径为空（不落盘）。
+		ReviewRequest: dto.CloneReviewRequest(view.ReviewRequest),
 	}
 	if len(approvals) > 0 {
 		snapshot.Approvals = append([]Interaction(nil), approvals...)

@@ -15,6 +15,21 @@ lands.
 
 ### Added
 
+- **Agent 驱动 GUI 打开待审阅文件：`show_files` 工具 + 会话作用域的可重放请求**（后端 · `J-2` D1）.
+  新工具 `show_files`（`seelebridge/review_files.go`，组合根 `main.go:registerReviewFilesTool` 注册）：
+  `files: [{path, note?, start_line?, end_line?}]`，语义 = "请 GUI 在侧边资源管理器打开这些文件供人审阅"。
+  **一次调用 = 一次批处理召唤**，单次上限 `dto.MaxReviewFilesPerRequest`（10 份，用户口径 2026-10-12）；
+  超限**显式报错**（不静默截断）。返回值回契约：`{requested, opened, files[], skipped[{path, reason}],
+  request_id}`，`reason ∈ {sandbox, sensitive, binary, missing, duplicate}`——工具结果进对话并被后续回合
+  读到。落点是**会话作用域的可重放状态**（不是一次性事件）：`session.View.ReviewRequest` →
+  `Snapshot.ReviewRequest` / `SessionSnapshot.ReviewRequest`（`dto.ReviewRequest`），GUI 未开/被重连时
+  起来按快照补放。失效语义对齐既有口径：会话切换各持一份（结构上清帧态）、工作区切换/解绑随树清空、
+  不落盘。沙盒边界仍由 workspace 域统一裁决——裁决与前端读回走**同一个 Port、同一处 root**
+  （`workspaceFilePort()`），本入口没有读磁盘旁路，**不可能绕过 containment / 敏感过滤 / 上限 / 二进制探测**。
+  权限定级：`ro` 组（`r--`，默认 allow），即"agent 控制 agentGUI / 只读浏览"档，**不高于会话读写档**
+  （不改共享状态；返回值只带路径与计数，文件内容不进上下文）——见 `docs/arch/agent-permission-subjects.md`
+  §2.2/§7.2 第 5 条。
+
 - **文件预览：HTML（`.html` / `.htm`）只读态渲染为沙箱页面，点编辑才是代码**（GUI · 前端一致性批 `F-7`）.
   `previewKindForPath` 新增预览类型 `html`（`.html`/`.htm` 从 `CODE_EXTENSIONS` 移出）；只读分派
   `renderReadOnlyContent` 的 `html` 分支复用 `html-embed.js` 的沙箱口径（`buildHtmlPreviewDocument` /
@@ -28,6 +43,14 @@ lands.
   `styles.css` 的 HTML 预览样式就近加在 `.file-preview-code` 段之后、`.file-preview*` 段内。
 
 ### Tests
+
+- **J-2 后端**：`seelebridge/review_files_test.go`（批处理上限显式报错且不越过落点、恰好 10 份放行、
+  空清单/缺参形状错误、收据回报 requested/opened/skipped、落点错误上抛）；`application/core/review_files_test.go`
+  （走**真实** `workspace.Repo`：敏感/二进制/不存在/目录/越界/重复逐类归因；投影进快照且深拷贝；工作区切换
+  清空；未绑定工作区显式失败；全部被跳过不改写既有请求）；`gui/review_request_bridge_test.go`（`Bridge.Snapshot()`
+  携带该格 + wire 字段名 `request_id`/`files`/`skipped[].reason` 跨语言钉住）；`docs/gui/schemas`
+  的 `session-snapshot.schema.json`（`$defs.reviewRequest` / `reviewFileRef`）由 `e2e.TestGUIDocumentContracts`
+  验证。
 
 - `gui/frontend/dist/file-preview-render.test.mjs`（`.html` 只读态 `kind=html` 且渲染出沙箱 iframe；离线
   CSP / 无 `src` / 无跨帧桥）、`file-preview.test.mjs`（`previewKindForPath` 分派、`.html`/`.htm` 移出

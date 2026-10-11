@@ -108,6 +108,13 @@ func DefaultPermissionGroupList() []toolspermission.PermissionGroup {
 				"todo_status", "todolist_status", "plan_status", "goal_status",
 				"plugins_list", "skills_list", "mcp_list",
 				"plan_validate", "plan_export",
+				// show_files（2026-10-12，J-2）：agent 请求 GUI 打开待审阅文件。归 ro
+				// 而非 rw_desktop/session——它不改任何共享状态：请求落在**本会话**的
+				// 只读快照段里（人可忽略、可关掉，不是模态框/置顶窗），且工具返回值
+				// 只带路径与计数（文件内容不进上下文，也不写任何文件）。定级结论：
+				// 「agent 控制 agentGUI / 只读浏览」档，不高于会话读写档（见
+				// docs/arch/agent-permission-subjects.md §2.2 与 §7.2 第 5 条）。
+				"show_files",
 				"computer_screenshot", "computer_windows", "computer_scroll_targets", "computer_wait",
 			},
 		},

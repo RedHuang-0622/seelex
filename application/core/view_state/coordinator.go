@@ -490,6 +490,7 @@ func (c *Coordinator) SetSessionViewLocked(sessionID string, view *session.View)
 		target.Conversation = append([]model.Message(nil), view.Conversation...)
 		target.Chat = view.Chat
 		target.ReadFiles = append([]model.ReadFileRef(nil), view.ReadFiles...)
+		target.ReviewRequest = dto.CloneReviewRequest(view.ReviewRequest)
 		target.TotalMessages = view.TotalMessages
 		target.HistoryOffset = view.HistoryOffset
 		target.HasMoreHistory = view.HasMoreHistory
@@ -520,6 +521,38 @@ func (c *Coordinator) SetReadFilesFor(sessionID string, readFiles []model.ReadFi
 	c.mirrorActiveViewLocked(sessionID, view)
 }
 
+// SetReviewRequestForLocked 把一次「请 GUI 打开这些待审阅文件」的批处理请求写进
+// **指定会话**的可见投影（会话作用域的可重放状态；活跃会话同步镜像
+// Snapshot.ReviewRequest）。调用方持有 Core.ViewMu。
+//
+// 为什么写在会话 view 而不是全局快照字段：请求的归属是会话（谁请你看、看的是哪个
+// 会话的工作区），把它放全局就等于"切会话还看得见上一个会话的请求"。落进 view 之后
+// 「会话切换清帧态」是**结构性的**，不需要任何清理代码。
+func (c *Coordinator) SetReviewRequestForLocked(sessionID string, request *dto.ReviewRequest) {
+	view := c.sessionViewLocked(sessionID)
+	view.Mutate(func(v *session.View) {
+		v.ReviewRequest = dto.CloneReviewRequest(request)
+	})
+	c.mirrorActiveViewLocked(sessionID, view)
+}
+
+// ClearReviewRequestForLocked 清空指定会话的待审阅请求（工作区切换/解绑时用：
+// 清单里是工作区相对路径，换根之后不再指向"同一份文件"）。调用方持有 Core.ViewMu。
+func (c *Coordinator) ClearReviewRequestForLocked(sessionID string) {
+	c.SetReviewRequestForLocked(sessionID, nil)
+}
+
+// ReviewRequestForLocked 读指定会话的待审阅请求拷贝（调用方持有 Core.ViewMu）。
+func (c *Coordinator) ReviewRequestForLocked(sessionID string) *dto.ReviewRequest {
+	view := c.sessionViewLocked(sessionID)
+	if view == nil {
+		return nil
+	}
+	var request *dto.ReviewRequest
+	view.Read(func(v *session.View) { request = dto.CloneReviewRequest(v.ReviewRequest) })
+	return request
+}
+
 // mirrorActiveViewLocked 把指定会话的 scope 镜像到 Snapshot（仅当目标为
 // 当前活跃会话；调用方持有 Core.ViewMu）。
 func (c *Coordinator) mirrorActiveViewLocked(sessionID string, view *session.View) {
@@ -529,6 +562,7 @@ func (c *Coordinator) mirrorActiveViewLocked(sessionID string, view *session.Vie
 	view.Read(func(v *session.View) {
 		c.Snapshot.Conversation = append([]model.Message(nil), v.Conversation...)
 		c.Snapshot.ReadFiles = append([]model.ReadFileRef(nil), v.ReadFiles...)
+		c.Snapshot.ReviewRequest = dto.CloneReviewRequest(v.ReviewRequest)
 		c.Snapshot.TotalMessages = v.TotalMessages
 		c.Snapshot.HistoryOffset = v.HistoryOffset
 		c.Snapshot.HasMoreHistory = v.HasMoreHistory

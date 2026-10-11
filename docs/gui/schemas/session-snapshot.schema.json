@@ -12,6 +12,13 @@
     "revision": { "$ref": "common.schema.json#/$defs/revision" },
     "generation_id": { "$ref": "common.schema.json#/$defs/identifier" },
     "captured_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "review_request": {
+      "description": "Agent 发起的「请 GUI 在侧边资源管理器打开这些待审阅文件」批处理请求（会话作用域的可重放只读段：GUI 未开或被重连时，起来后按它补放；不是一次性事件）。缺省 = 该会话当前没有待审阅请求。清单只带路径与可选行区间/备注，文件内容仍走只读预览通道读回。",
+      "anyOf": [
+        { "$ref": "#/$defs/reviewRequest" },
+        { "type": "null" }
+      ]
+    },
     "conversation": {
       "type": "array",
       "maxItems": 500,
@@ -66,6 +73,45 @@
     }
   },
   "$defs": {
+    "reviewRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "files"],
+      "properties": {
+        "request_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "items": { "$ref": "#/$defs/reviewFileRef" }
+        },
+        "skipped": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "reason"],
+            "properties": {
+              "path": { "type": "string", "minLength": 1 },
+              "reason": { "enum": ["sandbox", "sensitive", "binary", "missing", "duplicate"] }
+            }
+          }
+        },
+        "requested_at": { "$ref": "common.schema.json#/$defs/timestamp" }
+      }
+    },
+    "reviewFileRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "note": { "type": "string" },
+        "start_line": { "type": "integer", "minimum": 1 },
+        "end_line": { "type": "integer", "minimum": 1 }
+      }
+    },
+
     "message": {
       "type": "object",
       "additionalProperties": false,

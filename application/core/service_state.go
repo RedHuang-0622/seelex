@@ -58,6 +58,11 @@ type serviceState struct {
 	// 会话在同一 tick 启动会碰撞，导致 request→session 绑定与
 	// ClearReActBudget/FinalizeTask 串写。附加序号消除碰撞。
 	chatSeq uint64
+	// reviewSeq 是「请 GUI 打开待审阅文件」召唤 ID 的单调序号（与 chatSeq 同一
+	// 理由：时间戳在同一 tick 内会撞号，撞号会让前端把"新的一次召唤"读成
+	// "同一份快照的补放"而不重新开 chip）。无锁（atomic），因为它在 ViewMu 之外
+	// 也要可用。
+	reviewSeq atomic.Uint64
 	// draftSeq 是草稿会话 ID 的单调序号（Core.ViewMu 保护）：早分配 SID 在
 	// Windows 时间戳低分辨率下也保持同 tick 内唯一。
 	draftSeq uint64

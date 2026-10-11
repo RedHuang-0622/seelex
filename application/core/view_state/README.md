@@ -103,6 +103,9 @@ system 引导消息、投影应用不覆盖 Plan/Account 指针。
 - `func (c *Coordinator) SetSessionViewLocked(sessionID string, view *session.View)` — SetSessionViewLocked 装载指定会话的可见投影（冷加载/恢复路径；调用方
 - `func (c *Coordinator) SetSessionChatLockedFor(sessionID string, chat model.ChatState)` — SetSessionChatLockedFor 写指定会话的聊天运行态投影（调用方持有
 - `func (c *Coordinator) SetReadFilesFor(sessionID string, readFiles []model.ReadFileRef)` — SetReadFilesFor 写指定会话的 read 文件引用投影（调用方持有 Core.ViewMu）。
+- `func (c *Coordinator) SetReviewRequestForLocked(sessionID string, request *dto.ReviewRequest)` — SetReviewRequestForLocked 把一次「请 GUI 打开这些待审阅文件」的批处理请求写进
+- `func (c *Coordinator) ClearReviewRequestForLocked(sessionID string)` — ClearReviewRequestForLocked 清空指定会话的待审阅请求（工作区切换/解绑时用：
+- `func (c *Coordinator) ReviewRequestForLocked(sessionID string) *dto.ReviewRequest` — ReviewRequestForLocked 读指定会话的待审阅请求拷贝（调用方持有 Core.ViewMu）。
 - `func (c *Coordinator) mirrorActiveViewLocked(sessionID string, view *session.View)` — mirrorActiveViewLocked 把指定会话的 scope 镜像到 Snapshot（仅当目标为
 - `func (c *Coordinator) MirrorActiveViewLocked()` — MirrorActiveViewLocked 把当前活跃会话 scope 镜像到 Snapshot（切换/恢复
 - `func (c *Coordinator) AdvanceMessageSeqForLocked(sessionID string, messages []model.Message)` — AdvanceMessageSeqForLocked 按既有消息 ID 推进**指定会话**的消息派号

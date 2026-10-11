@@ -50,6 +50,9 @@ MISC_FILES = [
     "limits.go",
     "perf_stats.go",
     "race_test.go",
+    # J-2：agent 请求 GUI 打开待审阅文件（与 workspace_usecase.go 同族的跨域用例）
+    "review_files.go",
+    "review_files_test.go",
     "resident_lru.go",
     "resident_lru_test.go",
     "runtime_projection.go",
