@@ -1,8 +1,12 @@
 # Seelex — Open-Source Coding Agent Harness
 
-Seelex is a local-first coding-agent harness built in Go. It turns LLM providers, tool calling, agentic workflows, context engineering, permission policy and persistence into an observable and recoverable software-engineering agent.
+Seelex is a **personal agent**: it lives on your own machine, does the work for you, and is managed from a single board. Underneath, it is a local-first coding-agent harness built in Go — it turns LLM providers, tool calling, agentic workflows, context engineering, permission policy and persistence into an observable and recoverable software-engineering agent.
 
 > Status: **Developer Alpha**. The Bubble Tea TUI is the default interface. The Wails/WebView GUI is usable but remains Alpha. Seelex is not advertised as production-ready or as an OS-level sandbox.
+
+**The board is the head, sessions are the body, computer use is the hands.** From one board you see the goal and its acceptance criteria, the evidence written at every checkpoint, what is running right now, who is waiting on whom, which item comes first, and when it is scheduled; the agent itself works inside sessions — each with its own project root, permission tier and approvals, running in parallel; when it has to act, it drives your desktop through computer use, with input injection approved step by step and reviewable afterwards.
+
+It is an agent for **one person**, not a team-collaboration workbench: teamwork (leader + async workers, milestone barriers, one work item = one session + one worktree) is how *you* split a single job across parallel workers, not a shared board that several people compete over.
 
 ## What it implements
 

@@ -1,6 +1,7 @@
 # Seelex — Open-Source Coding Agent Harness
 
-> 面向软件工程任务的 Agent Harness 与 Multi-Agent Runtime：把 LLM、Tool Calling、Agentic Workflow、Context Engineering、权限策略和持久化装配成可运行、可观察、可恢复的本地 Coding Agent。
+> **Seelex 是一个个人 agent（personal agent）**：它长在你自己的电脑上，替你动手，由一块看板管理。
+> 它的骨架是一套面向软件工程任务的 Agent Harness 与 Multi-Agent Runtime：把 LLM、Tool Calling、Agentic Workflow、Context Engineering、权限策略和持久化装配成可运行、可观察、可恢复的本地 agent。
 
 [![CI](https://img.shields.io/github/actions/workflow/status/RedHuang-0622/seelex/ci.yml?style=flat-square&label=CI&logo=github)](https://github.com/RedHuang-0622/seelex/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/badge/Go-1.25.8%2B-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev/)
@@ -11,6 +12,10 @@
 [English README](README_EN.md)
 
 Seelex 不是一个只负责转发聊天请求的 AI Chat Client，也不是把 Prompt、Shell 和模型 API 粘在一起的薄封装。作为面向软件工程的 AI Agent Framework，它在 [Seele](https://github.com/RedHuang-0622/Seele) Agent Runtime 之上提供 Coding Agent 的产品语义：项目作用域 Tool Calling / Function Calling、Task/Plan 生命周期、Multi-Agent Orchestration、并行 Subagent 与后台作业面、Goal 目标治理与完成裁决、Context Engineering、分层记忆、模型与账号路由、Human-in-the-loop 审批、多模态输入与桌面操控、Plugin/Agent Skills/MCP、沙箱 HTML 可视答案、Session Persistence，以及共享同一 Application Core 的 TUI、桌面 GUI、headless 与 backend 诊断前端。
+
+**Seelex 是一个个人 agent：看板是头、会话是身、computer use 是手。** 你在一块看板上看到目标与完成条件、每一步的打点与证据、现在有什么在跑、谁在等谁、该先做哪一件，以及它在时间上的安排；agent 自己在会话里干活——每条会话各有独立的项目根、权限档与审批，可以并行；需要动手时，它通过 computer use 操作你的桌面，动作默认逐次审批、事后可回看。
+
+它是**一个人的 agent**，不是团队协作的工作台：teamwork（leader + 异步 worker、里程碑屏障、一个工作项 = 一条会话 + 一个 worktree）在这里是"一个人把一件事拆开并行做"的手段，而不是多人共享一块板的协同形态。
 
 当前项目处于 **Developer Alpha**。默认入口是 TUI；GUI 已可构建和使用，但仍属于 Alpha 功能。
 
