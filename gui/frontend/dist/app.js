@@ -6,6 +6,7 @@ import {
   applyFileReference,
   fileReferenceCandidates,
   fileReferenceIndex,
+  fileReferenceQuery,
   fileReferenceStripHTML,
   removeFileReference
 } from "./file-reference.js";
@@ -83,6 +84,10 @@ const state = {
   inlineSuggestions: [],
   inlineSelected: 0,
   inlineRequest: 0,
+  // inlineTrigger = 当前候选列表属于哪个触发字符（`/` `#` `$` 或 `@`）。它不能从
+  // "输入首字符"现推：`@` 是**光标处**的标记，可以出现在一句话中间（见
+  // updateInlineSuggestions），于是上下键重画与 Tab 接受都必须按这个记录走。
+  inlineTrigger: "",
   // 文件引用选择器（`+` 加号）的候选与选中项：候选来自已加载的工作区树索引。
   filePickerItems: [],
   filePickerSelected: 0,
@@ -3840,30 +3845,37 @@ function wireFileReferenceEntry() {
 wireFileReferenceEntry();
 
 async function updateInlineSuggestions() {
+  // `@` 是**光标处的引用标记**，不是"整条输入必须以 @ 开头"：用户常在一句话中间引文件
+  // （"看看 @src/app"）。判据因此落在**光标所在的那个词**上（file-reference.js 的
+  // fileReferenceQuery：`@` 必须开启这个词，`user@example.com` 这类粘连词不误认）——
+  // 光标在 `@词` 里就给候选，在别处就不给。命中时**不调 Bridge**：后端的 Suggestions
+  // 表里没有 `@`（J-1a 起它不是前缀），候选只来自已加载的工作区树。
+  const cursor = elements.prompt.selectionStart ?? elements.prompt.value.length;
+  const reference = fileReferenceQuery(elements.prompt.value, cursor);
+  if (reference) {
+    const request = ++state.inlineRequest;
+    state.inlineTrigger = FILE_REF_TRIGGER;
+    renderFileReferenceSuggestions(request, reference.query);
+    if (fileRefIndexStale()) {
+      // 首次（或换工作区后）补一次索引，此后按键只筛内存（见 ensureFileRefIndex）。
+      ensureFileRefIndex().then(() => renderFileReferenceSuggestions(request, reference.query));
+    }
+    return;
+  }
   const input = elements.prompt.value.trimStart();
   if (!SIGIL_PATTERN.test(input)) {
     hideInlineSuggestions();
     return;
   }
-  // `@` 是文件引用（前端侧触发字符）：候选来自已加载的工作区树，**不调 Bridge**。
-  if (input[0] === FILE_REF_TRIGGER) {
-    const request = ++state.inlineRequest;
-    const query = input.slice(FILE_REF_TRIGGER.length);
-    renderFileReferenceSuggestions(request, query);
-    if (fileRefIndexStale()) {
-      // 首次（或换工作区后）补一次索引，此后按键只筛内存（见 ensureFileRefIndex）。
-      ensureFileRefIndex().then(() => renderFileReferenceSuggestions(request, query));
-    }
-    return;
-  }
   const request = ++state.inlineRequest;
+  state.inlineTrigger = input[0];
   try {
     const suggestions = await invoke("Suggestions", input) || [];
     if (request !== state.inlineRequest) return;
     state.inlineSuggestions = suggestions.slice(0, 8);
     state.inlineSelected = Math.min(state.inlineSelected, Math.max(state.inlineSuggestions.length - 1, 0));
     elements["inline-suggestions"].classList.toggle("hidden", state.inlineSuggestions.length === 0);
-    renderSuggestionList(elements["inline-suggestions"], state.inlineSuggestions, state.inlineSelected, input[0], 8);
+    renderSuggestionList(elements["inline-suggestions"], state.inlineSuggestions, state.inlineSelected, state.inlineTrigger, 8);
   } catch (error) {
     hideInlineSuggestions();
     showToast(error);
@@ -3914,12 +3926,12 @@ elements.prompt.addEventListener("keydown", event => {
       event.preventDefault();
       const direction = event.key === "ArrowDown" ? 1 : -1;
       state.inlineSelected = (state.inlineSelected + direction + state.inlineSuggestions.length) % state.inlineSuggestions.length;
-      renderSuggestionList(elements["inline-suggestions"], state.inlineSuggestions, state.inlineSelected, elements.prompt.value.trimStart()[0], 8);
+      renderSuggestionList(elements["inline-suggestions"], state.inlineSuggestions, state.inlineSelected, state.inlineTrigger, state.inlineTrigger === FILE_REF_TRIGGER ? FILE_REF_CANDIDATE_LIMIT : 8);
       return;
     }
     if (event.key === "Tab") {
       event.preventDefault();
-      acceptSuggestion(state.inlineSuggestions[state.inlineSelected], elements.prompt.value.trimStart()[0]);
+      acceptSuggestion(state.inlineSuggestions[state.inlineSelected], state.inlineTrigger);
       return;
     }
     if (event.key === "Escape") {

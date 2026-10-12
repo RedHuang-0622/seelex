@@ -32,9 +32,27 @@ test("候选只有一份：`@` 内联面板与 `+` 选择器都走 fileReference
   assert.match(app, /function renderFilePickerResults/, "+ 选择器的候选渲染");
   // `@` 的候选**不调 Bridge**：后端 Suggestions 表里没有 `@`（它不是前缀）。
   const block = app.slice(app.indexOf("async function updateInlineSuggestions"), app.indexOf("function hideInlineSuggestions"));
-  assert.match(block, /input\[0\] === FILE_REF_TRIGGER/);
-  const branch = block.slice(block.indexOf("input[0] === FILE_REF_TRIGGER"), block.indexOf("const request = ++state.inlineRequest;\n  try {"));
+  assert.match(block, /fileReferenceQuery\(elements\.prompt\.value, cursor\)/,
+    "`@` 判据落在**光标所在的词**上（句子中间的 `@词` 也要给候选）");
+  const branch = block.slice(block.indexOf("const reference = fileReferenceQuery"), block.indexOf("const input = elements.prompt.value.trimStart();"));
   assert.doesNotMatch(branch, /invoke\(/, "`@` 分支不调后端建议面（候选只来自已加载的工作区树）");
+});
+
+test("`@` 是光标处的标记：句子中间也给候选，Tab 按记录下来的触发字符插入", async () => {
+  const app = await read("app.js");
+  // 判据取自 file-reference.js 的真实行为（不是字符串匹配）：光标停在一句话中间的
+  // `@词` 里命中，停在词外或粘连词（email）不命中。
+  const { fileReferenceQuery } = await import(new URL("./file-reference.js", import.meta.url));
+  assert.deepEqual(fileReferenceQuery("看看 @src/app.js 的实现", 12), { query: "src/app.js", start: 3, end: 14 });
+  assert.equal(fileReferenceQuery("看看 src/app.js 的实现", 8), null, "没有 `@` 就不弹文件候选");
+  assert.equal(fileReferenceQuery("mailto:user@example.com", 24), null, "粘连词（email）不误认成引用");
+  // 接线侧：光标判据排在 sigil 的"整条输入"判据**前面**，且 Tab / 上下键按
+  // state.inlineTrigger 走 —— 否则句子中间的 `@` 会被"首字符不是 sigil"挡掉，或
+  // Tab 把触发字符算成正文首字（插错位置）。
+  assert.match(app, /const reference = fileReferenceQuery\(elements\.prompt\.value, cursor\);/);
+  assert.match(app, /state\.inlineTrigger = FILE_REF_TRIGGER;/);
+  assert.match(app, /acceptSuggestion\(state\.inlineSuggestions\[state\.inlineSelected\], state\.inlineTrigger\)/);
+  assert.doesNotMatch(app, /acceptSuggestion\([^)]*trimStart\(\)\[0\]/, "不得再从正文首字符现推触发字符");
 });
 
 test("插入只有一份：所有入口都经 applyFileReference", async () => {
