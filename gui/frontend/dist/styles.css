@@ -1694,6 +1694,29 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
    段落的归属条目。 */
 .code-pane-body .git-log-line { height: var(--row-min-h); }
 
+/* 行容器按内容高度排（align-content: start），不按网格拉伸线平分容器高度：
+   `.worktree-view` / `.git-log-view` / `.changes-view` 自己是 grid，而 `align-content`
+   的默认值是 `stretch` —— 行数不足时，隐式行轨被摊平分掉面板剩下的高度；规律是
+   「行距 = 面板高 ÷ 行数」（613.86 ÷ 3 = 204.61），行数填满面板时看不出来。
+   实测（2026-10-12 · 无窗口 headless Chrome · 真 index.html + 真渲染件，面板高 613.86 / 633.86px；
+   改前读数取同资产的 CSS 沙箱，真 dist 未动）：
+     提交记录 3 条      行距 204.61px → 30px，泳道 SVG 之间断开 174.61px → 0
+                        （`.git-log-line` 是定高行壳，被拉伸的是行轨）；
+     提交详情 3/12 文件  头部 295.55 / 160.55px → 67.25px，文件行距 106.09 / 37.77px → 30px；
+     工作树 4 项        `.tree-node`（网格子项）201.95 / 141.97px → 90 / 30px，行距 203.95 /
+                        143.97px → 92 / 32px（`.tree-row` 自身恒 30px：被拉伸的是外层 node，
+                        树轨跟着断开）；
+     工作区更改 4 项     `.changes-summary` 115.56px → 21px，`.changes-row` 124.56px → 30px。
+   `grid-auto-rows: max-content` 与左栏 `.stack-list` 同款：第 4 节「现场 A」是同一类
+   故障（定高网格把行摊平/压扁）。行轨只许按内容高度排——既不拉伸也不压缩；行数填满
+   面板时这两个值不改变任何几何（同一条探针 20 条的档位量出来逐行仍是 30px）。 */
+.code-pane-body.worktree-view,
+.code-pane-body.git-log-view,
+.code-pane-body.changes-view {
+  align-content: start;
+  grid-auto-rows: max-content;
+}
+
 /* D3 · 内容详情的「当前项」与子页页签是同一件事（tablist 的当前项 = .is-active），
    视觉也用页签族那一套（--hl-fill / --hl-ink，不描边、不投影）。
    chip 自己的规则在「文件预览」段落（`--panel` 底 + `--accent` 双描边），

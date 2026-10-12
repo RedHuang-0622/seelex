@@ -107,6 +107,13 @@ lands.
     （基础 / 动效 / reduced-motion）。筛选与计数仍只走 `batchesInScope`。
   - **F-3 资源管理器子页**：`.code-pane-tab` 收敛到 `--r-md` + `--hl-fill` / `--hl-ink` 同族选中态（不描边不投影）；
     工作树 / 提交记录 / 工作区更改三页的行壳走 `--row-min-h`；`.code-pane-body` 仍是唯一滚动源。
+    行容器再补 `align-content: start` + `grid-auto-rows: max-content`：三页自己是 grid，`align-content`
+    默认 `stretch` 会在行数不足时按拉伸线把行摊平分掉面板高度（规律：行距 = 面板高 ÷ 行数）。实测
+    （真渲染件，改前取同资产 CSS 沙箱）：提交记录 3 条 行距 204.61px → 30px、泳道断开量 174.61px → 0；
+    提交详情 3/12 文件 头部 295.55 / 160.55px → 67.25px、文件行距 106.09 / 37.77px → 30px；工作区更改
+    4 项 `.changes-row` 124.56px → 30px；工作树 4 项 `.tree-node` 201.95 / 141.97px → 90 / 30px
+    （`.tree-row` 自身恒 30px）。20 条的档位两个值都不改变几何。与左栏 `.stack-list` 同一类故障、
+    同一处解法。
   - **F-4 压缩帧条目瘦身**：侧边条目收敛为一行元数据摘要（seq + 「栈顶」+ 原因，时间/来源/区间/估算进 hover
     `title`），下线行内 `compaction-stack-detail` 展开路径，点条目改开既有 `#compaction-frame-modal`；
     门禁以「逐关耗时清单」为唯一展现，删掉借用 Plan 面板的轨道。「打开的是哪一帧」仍按 (会话, frame_ref) 判定。
@@ -115,8 +122,9 @@ lands.
     markdown 里 `mermaid` 围栏渲染为图、失败或未就绪降级为代码块。
   - **F-6 消息块邻接圆角**：渲染期按上/下一条的 kind 与归属产出 `is-joined-above|below|both`（同时写
     `data-joined-above|below`）。不同类（LLM ↔ 工具过程）始终融合，同类仅在换轮次/换角色归属时分割。
-- **测试**：前端 `node --test "gui/frontend/dist/*.test.mjs"` 由 727 用例增至 762，全绿（B0 半径闸 3 例、
-  F-1/F-2/F-3 的样式闸、F-5 的 mermaid / vendor 懒加载断言、F-6 邻接类断言）。
+- **测试**：前端 `node --test "gui/frontend/dist/*.test.mjs"` 762 用例全绿（B0 半径闸 3 例、
+  F-1/F-2/F-3 的样式闸、F-5 的 mermaid / vendor 懒加载断言、F-6 邻接类断言；F-3 再补一条行容器
+  `align-content` 闸——`style-baseline.test.mjs` 9 → 10 例，其余文件 752 例）。
 
 ### Removed
 

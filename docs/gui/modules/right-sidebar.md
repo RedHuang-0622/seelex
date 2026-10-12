@@ -308,6 +308,27 @@ draft 文件删除）。所以「本轮完成」= 草稿变成已发布行、「
 是子页内容区的**唯一滚动源**：行容器（`.worktree-view` / `.git-log-view` /
 `.git-commit-files` / `.changes-view`）一律不开 `overflow`（两处滚动会互相抢滚轮）。
 
+行容器**按内容高度排**（`align-content: start` + `grid-auto-rows: max-content`，收口在
+`styles.css` 的 F-3 段落：`.code-pane-body.worktree-view` / `.code-pane-body.git-log-view` /
+`.code-pane-body.changes-view`）：三页自己就是 grid，而 `align-content` 的默认值是
+`stretch` —— 行数不足时，隐式行轨被摊平分掉面板剩下的高度；规律是**行距 = 面板高 ÷ 行数**
+（613.86 ÷ 3 = 204.61），所以条目撑满面板时看不出来。实测（无窗口 headless Chrome，真
+`index.html` + 真渲染件，面板高 613.86 / 633.86px，改前取同资产的 CSS 沙箱；探针
+`_tmp/gitlog-compact/probe.mjs`，`PROBE_BASE` 切沙箱）：
+
+| 面板 | 改前 | 改后 |
+| --- | --- | --- |
+| 提交记录 3 条 | 行距 204.61px、泳道 SVG 断开 174.61px | 行距 30px、断开 0 |
+| 提交详情 3 / 12 文件 | 头部 295.55 / 160.55px，文件行距 106.09 / 37.77px | 头部 67.25px，行距 30px |
+| 工作树 4 项 | `.tree-node` 201.95 / 141.97px，行距 203.95 / 143.97px | node 90 / 30px，行距 92 / 32px |
+| 工作区更改 4 项 | `.changes-summary` 115.56px、`.changes-row` 124.56px | 21px / 30px |
+
+被拉伸的盒子随网格子项而定：`.git-log-line` 是定高行壳，所以拉伸的是行轨；工作树的网格
+子项是 `.tree-node` 外层（`.tree-row` 自身恒 30px，症状表现为行距摊平 + 树轨断开）；工作区
+更改的网格子项就是行（`.changes-row` 自身被拉长）。提交详情的 `.git-commit-head` 与
+`.git-commit-files` 是同一个 grid 的两条行轨，因此 `.git-commit-files` 不需要自己再写规则。
+这与左栏会话列表 `.stack-list` 是同一类故障、同一处解法（`styles.css` 第 4 节「现场 A」）。
+
 刷新是**原子能力**（`gui/frontend/dist/explorer-refresh.js`）：
 
 - **single-flight**：同一时刻只有一次在飞的刷新；重复触发（重复点页签 / 连点刷新）

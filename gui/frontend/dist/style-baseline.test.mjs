@@ -173,6 +173,35 @@ test("子页页签与右栏页签同族：--r-md + 既有选中信号 --hl-fill 
   assert.match(chip, /color:\s*var\(--hl-ink\)/, "chip 当前项 = 同一套重字");
 });
 
+// ── F-3 补充（2026-10-12）：行容器不许被网格拉伸线平分容器高度 ──────────────
+// 现场（无窗口 headless Chrome，真 index.html + 真渲染件，面板高 613.86 / 633.86px）：
+//   · 提交记录 3 条 → 行距 204.61px（= 面板高 ÷ 行数），泳道 SVG 之间断开 174.61px；
+//   · 工作区更改 4 项 → `.changes-row` 自身被拉到 124.56px（`.changes-summary` 115.56px）；
+//   · 工作树 4 项 → 被拉伸的是 `.tree-node` 外层（201.95 / 141.97px），`.tree-row` 自身
+//     仍 30px —— 症状是行距被摊平、树轨连线断开。
+// 根因：行容器是 grid，`align-content` 默认是 stretch —— 行数不足时按拉伸线把行摊平
+// 分掉容器高度。左栏会话列表 .stack-list 踩过同一个坑（styles.css 第 4 节「现场 A」），
+// 同一处分法：`align-content: start` + `grid-auto-rows: max-content`。
+const LIST_GRIDS = [".worktree-view", ".git-log-view", ".changes-view"];
+
+test("子页行容器按内容高度排（不被网格拉伸线平分容器高度）", async () => {
+  const rules = cssRules(await read("styles.css"));
+  for (const selector of LIST_GRIDS) {
+    // 收口写在 F-3 段落里（`.code-pane-body.<view>`），也接受直接写在行容器规则上。
+    const body = `${bodyOf(rules, selector)};${bodyOf(rules, `.code-pane-body${selector}`)}`;
+    assert.match(
+      body,
+      /align-content:\s*start/,
+      `${selector} 必须 align-content: start：默认的 stretch 会按行数把行摊平分掉容器高度`,
+    );
+    assert.match(
+      body,
+      /grid-auto-rows:\s*max-content/,
+      `${selector} 的行高只许按内容排（grid-auto-rows: max-content）`,
+    );
+  }
+});
+
 test("提交列表行高与泳道 SVG 的 ROW_HEIGHT 是同一份值", async () => {
   const css = (await read("styles.css")).replace(/\/\*[\s\S]*?\*\//g, "");
   const rowMinH = Number(css.match(/--row-min-h:\s*([0-9.]+)px/)?.[1]);
