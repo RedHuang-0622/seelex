@@ -71,6 +71,8 @@ flowchart TB
 | `runtime_session.go` | 主会话绑定状态（sessionBindings：ctxStore/historyRouter/mainHistory/project/turnArchiver/sessionID）+ merge-back 内部方法 |
 | `runtime_live.go` | node 第一视角实时流分发器（阶段日志 + 工具事件汇入统一通道，按 nodeID 广播）：`SubscribeSubagentLive`（历史回放 + 实时通道，签名与返回值不变）与**同一份回放窗口**的分页读法 `SubagentLiveHistoryPage`；窗口上限 = `RuntimeConfig.SubagentLiveWindow`（0 → 默认 512，<50 → 50；上限语义不变：超出丢最旧） |
 | `runtime_teammate_session_live.go` | **当前 teammate 会话**的实时只读投影：`TeammateSessionLive`（默认页 = 最近若干条）与 `TeammateSessionLivePage`（翻页）共用**唯一一份**裁剪/分页判据（`teammateSessionLiveSlice`）；只投影 user/assistant，会话不在本进程 → `Running=false` |
+| `runtime_project_board.go` | **项目看板的窄可选端口**（M3）：`TeamworkPlanFor(sessionID)` 实现 `application/core` 的 `TeamworkPlanSource`——按会话读 teamwork 计划（走既有 `PlanStore.ReadPlan` + `KeyFor` 解析作用域；未装配/无计划 → `(零值, false)`）。不判"是否已收口"：收口是投影要搬运的事实（行的 `team_state` 格） |
+| `runtime_project_board_read.go` | **项目看板的按需读取面**（M4）：`ProjectBoardReader` 窄端口 + `ReadProjectBoard(reader, request, defaultProject, defaultSession)` 的取数与边界（file 白名单、`limit` 硬上限显式报错、跨会话聚合有界、截断显式标注）。只读、有界；工具本体在组合根 `main.registerProjectBoardReadTool`（`limits.project_board.enabled` 才注册） |
 
 ### workunit：一件活的生命周期（一份实现 + 三格端口）
 
