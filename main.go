@@ -824,8 +824,8 @@ func registerProjectBoardReadTool(runtime *seelebridge.Runtime, store *sessionst
 				"description": "会话 ID；缺省 = 当前会话；all = 本项目内跨会话聚合（有界）",
 			},
 			"file": map[string]interface{}{
-				"type": "string",
-				"enum": []string{seelebridge.ProjectBoardReadFileWorktable, seelebridge.ProjectBoardReadFileTeamwork},
+				"type":        "string",
+				"enum":        []string{seelebridge.ProjectBoardReadFileWorktable, seelebridge.ProjectBoardReadFileTeamwork},
 				"description": "读哪一份投影：worktable（会话的任务行）/ teamwork（里程碑与工作项）；缺省 = 两份都读",
 			},
 			"project": map[string]interface{}{
