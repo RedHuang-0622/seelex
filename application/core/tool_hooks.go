@@ -259,6 +259,15 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 	// 工具完成：todo/taskadd 已写注册表，plan/subagent 状态已更新——
 	// 统一走被动同步 + 增量发布，再发最新 runtime.changed。
 	service.refreshWorkTableFromSources()
+	// 项目看板投影（M3）：挂在**既有**同步点之后，**不新造工具完成回调**——
+	// 触发面判定在订阅口（同步器）里，这里只做交接（判空 + 转发本次调用）。
+	//
+	// 名字/错误/会话都取完成段**当场已有**的变量（该段是按会话展开的）：后台会话的
+	// 完成落在它自己的会话上，不退化成"当前视图会话"。取一份快照再调（不在锁下调
+	// 外部实现，见 projectBoardSink）：生产嵌入的同步器只标脏 + 唤醒，不做 IO。
+	if sink := service.projectBoardSink(); sink != nil {
+		sink.OnToolComplete(name, toolErr, sessionID)
+	}
 	service.publishSessionEvent(EventRuntimeChanged, service.Snapshot().Revision, requestID, sessionID, service.Snapshot().Runtime)
 	emit("toolhook.complete.event.done")
 }

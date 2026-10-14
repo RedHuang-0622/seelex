@@ -6,6 +6,7 @@ package core
 // （T2.1 一致、T2.2 零判定、T2.9 反例；其余是同步器语义。）
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"sort"
@@ -875,4 +876,178 @@ func (runtime *boardPlanRuntime) TeamworkPlanFor(sessionID string) (sessionstore
 		return sessionstore.TeamworkPlan{}, false
 	}
 	return runtime.plan, true
+}
+
+// ---------------------------------------------------------------------------
+// T3.6（主用例）：看板挂在**既有**同步点上——真实工具完成路径 ⇒ 订阅口收到本次调用
+// ---------------------------------------------------------------------------
+
+// recordingBoardSink 是"注入的订阅口"的记录替身。
+//
+// 它可选地把调用**转发**给真同步器：转发路径上判据仍只有同步器那一份——本替身只负责
+// 记下"完成段到底把什么交给了下家"（名字/错误/会话），不复制任何判定。
+type recordingBoardSink struct {
+	mu    sync.Mutex
+	calls []boardSinkCall
+	next  ProjectBoardSink
+}
+
+type boardSinkCall struct {
+	name      string
+	err       error
+	sessionID string
+}
+
+func (sink *recordingBoardSink) OnToolComplete(name string, err error, sessionID string) {
+	sink.mu.Lock()
+	sink.calls = append(sink.calls, boardSinkCall{name: name, err: err, sessionID: sessionID})
+	next := sink.next
+	sink.mu.Unlock()
+	if next != nil {
+		next.OnToolComplete(name, err, sessionID)
+	}
+}
+
+func (sink *recordingBoardSink) snapshot() []boardSinkCall {
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	return append([]boardSinkCall(nil), sink.calls...)
+}
+
+// boardSessionRows 取"该会话在该文件里"的行数（按会话切分：多会话断言互不串味）。
+func boardSessionRows(t *testing.T, store *fakeBoardStore, session, file string) int {
+	t.Helper()
+	return len(store.raw(boardTestProject, session, file))
+}
+
+func TestProjectBoardHooksOnExistingSyncPoint(t *testing.T) {
+	const idle = 20 * time.Millisecond
+	service, runtime, session := newBoardTestService(t)
+	runtime.todoItems = []dto.TodoItem{{Text: "调研", Status: dto.TodoItemDoing}}
+
+	// 装配期交接（生产里这一步在 main.go）：注入订阅口；取数走**既有活体读法**
+	// （service.WorkTableRowsFor），不重算任何状态。
+	store := newFakeBoardStore()
+	syncer := NewProjectBoardSyncer(boardDeps(store, idle, service.WorkTableRowsFor))
+	defer syncer.Close()
+	recorder := &recordingBoardSink{next: syncer}
+	service.SetProjectBoardSink(recorder)
+
+	workFile := sessionstore.ProjectBoardWorkFile
+	complete := func(ctx context.Context, name, id string, toolErr error) {
+		service.handleToolCompleteObserved(ctx, name, id, "", "result", toolErr, time.Millisecond, nil)
+	}
+
+	// ① 命中触发面（todo_list 档的 todo_add）：真实完成路径把本次调用交给了订阅口。
+	complete(withSessionID(context.Background(), session), "todo_add", "tool-1", nil)
+	calls := recorder.snapshot()
+	if len(calls) != 1 {
+		t.Fatalf("完成段转发给 sink 的次数 = %d，希望 1（%+v）", len(calls), calls)
+	}
+	if calls[0].name != "todo_add" || calls[0].err != nil || calls[0].sessionID != session {
+		t.Fatalf("sink 收到 (%q, %v, %q)，希望 (todo_add, <nil>, %q)", calls[0].name, calls[0].err, calls[0].sessionID, session)
+	}
+	// 缝不是"通了但没效果"：投影真的按既有落点落了盘。
+	waitForBoardWrites(t, store, workFile, 1)
+	if got := boardSessionRows(t, store, session, workFile); got == 0 {
+		t.Fatal("命中触发面后 worktable 里一行都没有")
+	}
+	afterHit := boardSessionRows(t, store, session, workFile)
+
+	// ② 未命中触发面（read_file 不在 todo_list 档）：投影**零动作**——不落盘、不加行。
+	//
+	// 完成段照旧把调用交给订阅口（触发面判定只有同步器一份，见本文件 配套 1/2：
+	// 这里若再判一次就成了第二份判据）。所以"未命中不被调用"落在**效果面**上：
+	// 下家收到调用后一行都不写。这一格是 M3 的接口事实，故显式断言"确实转发了"。
+	complete(withSessionID(context.Background(), session), "read_file", "tool-2", nil)
+	if got := len(recorder.snapshot()); got != 2 {
+		t.Fatalf("完成段转发次数 = %d，希望 2（未命中也要交接，判据在下家）", got)
+	}
+	settleBoard(idle)
+	if got := boardSessionRows(t, store, session, workFile); got != afterHit {
+		t.Fatalf("未命中触发面却写了投影：行数 %d → %d", afterHit, got)
+	}
+
+	// ③ 工具失败：同样零动作（I4：失败的调用不改动"活"），但错误要原样交给下家。
+	boom := errors.New("tool failed")
+	complete(withSessionID(context.Background(), session), "todo_add", "tool-3", boom)
+	last := recorder.snapshot()[2]
+	if last.err != boom {
+		t.Fatalf("sink 收到的 err = %v，希望原样透传 %v", last.err, boom)
+	}
+	settleBoard(idle)
+	if got := boardSessionRows(t, store, session, workFile); got != afterHit {
+		t.Fatalf("失败调用却写了投影：行数 %d → %d", afterHit, got)
+	}
+
+	// ④ 会话归属取"完成段当场"的会话，不退化成当前视图会话（后台会话的完成
+	// 必须落在它自己身上，否则投影会把两个会话的行搅在一起）。
+	complete(withSessionID(context.Background(), "session-other"), "todo_add", "tool-4", nil)
+	if got := recorder.snapshot()[3]; got.sessionID != "session-other" {
+		t.Fatalf("后台完成的会话 = %q，希望 session-other", got.sessionID)
+	}
+
+	// ⑤ 订阅口为 nil（能力缺席 / 装配根没挂）：完成段判空后什么都不做——不 panic、
+	// 不再转交、不落盘。这就是核心侧"关就是关"的那一半（另一半是装配门，见 wi-m3-switch）。
+	service.SetProjectBoardSink(nil)
+	complete(withSessionID(context.Background(), session), "todo_add", "tool-5", nil)
+	settleBoard(idle)
+	if got := len(recorder.snapshot()); got != 4 {
+		t.Fatalf("收回订阅口后仍转发了 %d 次（希望仍是 4）", got)
+	}
+	if got := boardSessionRows(t, store, session, workFile); got != afterHit {
+		t.Fatalf("收回订阅口后仍写了投影：行数 %d → %d", afterHit, got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// T3.4 缺口（写盘失败）：不落半行、记账不推进 ⇒ 下次触发重试
+// ---------------------------------------------------------------------------
+
+// flakyBoardStore 是"头 N 次追加失败"的存储面替身：失败不落任何行（模拟追加未提交）。
+type flakyBoardStore struct {
+	*fakeBoardStore
+	mu        sync.Mutex
+	failTimes int
+}
+
+func (store *flakyBoardStore) AppendProjectBoardRows(project, session, file string, rows []sessionstore.ProjectBoardRow) (uint64, error) {
+	store.mu.Lock()
+	fail := store.failTimes > 0
+	if fail {
+		store.failTimes--
+	}
+	store.mu.Unlock()
+	if fail {
+		return 0, errors.New("board store unavailable")
+	}
+	return store.fakeBoardStore.AppendProjectBoardRows(project, session, file, rows)
+}
+
+func TestProjectBoardHookFailureNoHalfWrite(t *testing.T) {
+	const idle = 20 * time.Millisecond
+	flaky := &flakyBoardStore{fakeBoardStore: newFakeBoardStore(), failTimes: 1}
+	live := newBoardLiveRows(boardTodoItem("todo:0", "a", "doing"), boardTaskItem("task:1", "b", "running"))
+	syncer := NewProjectBoardSyncer(boardDeps(flaky, idle, func(string) []WorkItem { return live.rows() }))
+	defer syncer.Close()
+
+	// 第一次触发：写盘失败 ⇒ 文件里一行都没有（不是"写了一半"）、水位也没被占号。
+	syncer.OnToolComplete("todo_add", nil, "s-1")
+	settleBoard(idle)
+	if got := flaky.raw(boardTestProject, "s-1", sessionstore.ProjectBoardWorkFile); len(got) != 0 {
+		t.Fatalf("失败的批次留下了半截行：%+v", got)
+	}
+
+	// 记账没推进 ⇒ 下一次触发重试成功，且水位从 1 起（失败批次没占 Seq）。
+	syncer.OnToolComplete("todo_add", nil, "s-1")
+	waitForBoardWrites(t, flaky.fakeBoardStore, sessionstore.ProjectBoardWorkFile, 1)
+	batch := flaky.lastWrite(sessionstore.ProjectBoardWorkFile)
+	if len(batch) != 2 {
+		t.Fatalf("重试批行数 = %d，希望 2（%+v）", len(batch), batch)
+	}
+	for _, row := range batch {
+		if row.Seq != 1 {
+			t.Fatalf("重试批 seq = %d，希望 1（失败批次不该占号）", row.Seq)
+		}
+	}
 }

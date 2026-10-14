@@ -65,6 +65,9 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		restoreSig:         make(chan struct{}),
 	}
 	service := &Service{serviceState: svcState}
+	// 项目看板订阅口槽位在装配期建好（M3）：写路径"判 nil 才是漏锁的老毛病"，
+	// 槽位自己持有锁，注入方（main.go / 测试）随时可 SetProjectBoardSink。
+	service.components.projectBoard = &projectBoardPort{}
 	service.effortManager = NewEffortManager(promptStack, service.Deps.Engine)
 	// 两条独立拉条的进程级读数在装配期播种成默认档（high）派生值：否则首个快照里
 	// reasoning_effort / loop_limit 是空/0，前端两条拉条会显示成 Low / 1，与引擎

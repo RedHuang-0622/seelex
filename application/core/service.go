@@ -54,6 +54,41 @@ type Service struct {
 	components serviceComponents
 }
 
+// SetProjectBoardSink 注入（或收回：传 nil）项目看板投影的写侧端口。
+//
+// **接口冻结（M3 装配项按此签名写 main.go，签名不再变）**：
+//
+//	func (service *Service) SetProjectBoardSink(sink ProjectBoardSink)
+//
+// `*ProjectBoardSyncer` 直接实现 ProjectBoardSink（project_board.go 有编译期断言），
+// 装配处传它本身即可：不必写适配器，也不必传方法值。
+//
+// 落点：写进 components 的 projectBoard 槽位（装配期交接一次、此后只读；不是会话
+// 状态、不参与任何用例判定），写锁只保护这一次赋值——允许重复调用（后注的顶掉先注的）。
+//
+// nil ⇒ **能力整体缺席**：完成段判空后什么都不做（零写盘、零读取面，与
+// `limits.project_board.enabled:false` 的"关就是关"同款）。挂/不挂由装配根决定，
+// Service 不解释为什么没挂。
+func (service *Service) SetProjectBoardSink(sink ProjectBoardSink) {
+	if service == nil {
+		return
+	}
+	service.components.projectBoard.store(sink)
+}
+
+// projectBoardSink 取一份当前订阅口快照（读锁；返回的是一份接口值副本）。
+//
+// 为什么"取一份"而不是"持锁调用"：订阅口是**外部实现**（生产里嵌的是同步器，它只
+// 标脏 + 唤醒、不做 IO）；完成段是回合内高频点，绝不让外部代码在装配锁下运行——一次
+// 慢实现就变成整个回合的停顿，且注入与调用会互相等锁（本函数与 SetProjectBoardSink
+// 可并发：注入可能发生在两个回合之间，读取在回合内的工具完成段）。
+func (service *Service) projectBoardSink() ProjectBoardSink {
+	if service == nil {
+		return nil
+	}
+	return service.components.projectBoard.load()
+}
+
 func New(deps Dependencies) (*Service, error) {
 	return serviceAssembler{deps: deps}.assemble()
 }
