@@ -15,6 +15,21 @@ lands.
 
 ### Added
 
+- **项目看板（Project Board）：会话级任务/里程碑的派生投影 + 按需读取面**（2026-10-14；契约
+  `docs/arch/seelex-project-board.md`）. 把**已经存在**的两份投影（工作表格 `buildWorkTable`、
+  teamwork 计划/运行态）按会话落成数据根下的追加式 JSONL 派生件
+  （`<json_root>/project-board/project-<hash>/session-<hash>/{worktable,teamwork}.jsonl`）：
+  **新增事实源 0 个**——纯字段映射，不判定、不重算状态；落盘由**既有**工具完成段被动触发
+  （`refreshWorkTableFromSources()` 之后标脏 + 唤醒唯一 flush goroutine），单写者、内容指纹去重、
+  差集补 tombstone、文件被删自愈（I1）。**不进模型上下文**：system/project 前缀与请求尾部都不进，
+  能力开/关的装配前缀逐字节相同。按需读取面 = 插件技能条目 `plugins/default/project-board/SKILL.md`
+  （只有 name+description 进技能目录）+ 只读有界工具 `project_board_read`（**只在**
+  `limits.project_board.enabled: true` 时注册；越界显式报错、截断显式标注）。出厂**关**：不注入订阅口、
+  不触发、零文件、读取面不注册。证据：`go build ./...` / `go vet ./...` 清洁；`go test ./sessionstore/`
+  （M1 存储面 + M5 摘要渲染）、`go test ./application/core/ -run ProjectBoard`（投影/同步器/完成段）、
+  `go test ./seelebridge/ -run ProjectBoardRead`（读取面）、`go test . -run ProjectBoard`（装配门 + I7
+  前缀字节 + 投影不进请求 + 端到端读回）全绿；`TestEveryRegisteredToolDeclaresGroups` 71 个工具全部分封。
+
 - **`@文件` / `+` 加号 / 拖拽统一为「工作区相对路径引用」，同一枚 chip 两处渲染**（GUI · `J-1b`；用户口径：
   "让 seelex 自己 grep 内容，我们负责传个文件地址就行"）. 新模块 `gui/frontend/dist/file-reference.js`
   （纯逻辑，不碰 DOM / Bridge）是「路径引用」的**唯一载体**：`normalizeFilePath = normalizeDropPath`

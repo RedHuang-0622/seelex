@@ -2,9 +2,9 @@
 
 ## 生态位
 
-后台作业面与工作表格投影：执行登记表的只读投影、请求尾部打点块（在途行 + 待取回的完成行）、作业终态为**空闲**会话触发对话
+后台作业面与工作表格投影：执行登记表的只读投影、请求尾部打点块（在途行 + 待取回的完成行）、作业终态为**空闲**会话触发对话、项目看板的派生投影（按会话落盘 + 按需读取面）
 
-覆盖：`work_table*.go`、`async*.go`；未归属文件由覆盖自检拦下。
+覆盖：`work_table*.go`、`async*.go`、`project_board*.go`；未归属文件由覆盖自检拦下。
 
 `worktable.changed` 既是表格增量，也是子代理树的送达通道：树内容变化时
 随包附带 `subagent_tree`（清空时显式空数组），前端详情入口据此把工作表格行
@@ -43,6 +43,44 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - 锁纪律：登记表锁是**叶子锁**（tools 侧从不回调进 application，只发 channel），所以持
   `ViewMu` 时读它是安全的；必须锁外取的是 `Engine.SubAgentTree()` 那类会拿会话锁的读面。
 
+## 项目看板投影（project board，M2/M3）
+
+把**已经存在**的两份投影按会话落成一组追加式 JSONL **派生件**，供按需读取：
+
+```text
+<json_root>/project-board/project-<hash(projectID)>/session-<hash(sessionID)>/worktable.jsonl
+                                                                         /teamwork.jsonl
+```
+
+- **事实层不动**：工作表格行来自 `buildWorkTable`（`work_table.go`），里程碑/工作项来自
+  teamwork 计划与运行态（`sessionstore/teamwork.go`）。本模块只做**字段映射**，不判定、
+  不重算状态（`AGENTS.md §8.3` 的唯一判据纪律）。
+- **纯函数**：`BuildProjectBoardRows(scope, seq, at, workItems, teamPlan, teamState)`。
+  只搬 `kind ∈ {todo, task}` 的行——plan 节点与 subagent 行各有自己的读面（`read_plan` /
+  子代理树），搬进来就是第二份判据。里程碑状态**运行态优先、声明态兜底**；整队是否收口
+  读 `TeamworkState.State`（**不是** `TeamworkPlan.State`，那是 `TeamworkState` 结构体本身）。
+- **单写者同步器**：`ProjectBoardSyncer`。`OnToolComplete` **不做 IO**（判触发面 → 标脏 →
+  非阻塞唤醒；信号口容量 1、latest-wins），唯一 flush goroutine 跑全部落盘：取活体 →
+  `BuildProjectBoardRows` → 内容指纹去重（去掉 seq/at）→ 差集补 `payload{"removed":true}`
+  （tombstone）→ 追加。写失败只记日志（投影可重建），不 panic、不阻塞回合。
+- **I1 自愈**：指纹相同但水位退到记账值之下（文件被删/被截）⇒ 即使内容没变也重建，
+  否则一次误删会被去重固化成"投影永远缺失"。
+- **触发装配表**：`TriggerFor(hook)` = `off | todo_list（缺省）| task_complete |
+  tool_complete/all`；词表唯一来源是 `ProjectBoardHookModes()`（装配期用它校验配置里拼错的
+  档名，**显式启动失败**，不静默降级成"从不触发"）。
+- **注入缝**：`Service.SetProjectBoardSink`（`components.projectBoard` 槽，装配期交接一次）；
+  完成段在**既有** `refreshWorkTableFromSources()` 之后交接——`ToolHookBridge.Hooks()` 是固定
+  闭包，不新造回调入口。
+- **不进上下文（I7）**：投影不进 system/project 前缀，也不进请求尾部；能力开/关的装配前缀
+  逐字节相同（根包 `project_board_i7_test.go`）。
+- **关就是关**：`limits.project_board.enabled=false`（出厂值）⇒ 不注入订阅口、不注册读取面、
+  一个文件都不写。
+- **按需读取面（M4）**：插件技能条目 `plugins/default/project-board/SKILL.md`（只有 name +
+  description 进技能目录）+ 只读工具 `project_board_read`（`main.registerProjectBoardReadTool`，
+  **只在 enabled 时注册**；取数在 `seelebridge/runtime_project_board_read.go`，有界、越界显式报错）。
+
+契约：`docs/arch/seelex-project-board.md`。
+
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
@@ -73,6 +111,93 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - `func TestAsyncCompletionTriggersOncePerHandle(t *testing.T)`
 - `func TestAsyncCompletionStaysOffWhenDisabled(t *testing.T)` — 开关默认关：不置 trigger_conversation 时信号只驱动工作表格重投影，终态不会起任何回合。
 - `func TestAsyncCompletionIgnoresJobWithoutSession(t *testing.T)` — 没有会话归属的作业（别的进程的作业归属、或会话已被删除）不该触发：没有可起的回合
+
+### project_board.go
+
+- `func BuildProjectBoardRows( scope sessionstore.ProjectBoardScope, seq uint64, at int64, workItems []WorkItem, teamPlan *sessionstore.TeamworkPlan, teamState *sessionstore.TeamworkState, ) []sessionstore.ProjectBoardRow` — BuildProjectBoardRows 把活体投影映射成投影行（**纯函数**：同样的输入必得同样的输出）。
+- `func projectBoardRow( scope sessionstore.ProjectBoardScope, seq uint64, at int64, kind, key string, payload map[string]any, ) sessionstore.ProjectBoardRow` — projectBoardRow 组装一行信封（信封字段只有这里一处写）。
+- `func projectBoardWorkPayload(item WorkItem) map[string]any` — projectBoardWorkPayload 把 work 行映射成载荷（字段白名单；空字段不落盘）。
+- `func projectBoardMilestonePayload(milestone sessionstore.TeamworkMilestone, state sessionstore.TeamworkState) map[string]any` — projectBoardMilestonePayload 把里程碑映射成载荷。
+- `func projectBoardMilestoneStatus(milestone sessionstore.TeamworkMilestone, state sessionstore.TeamworkState) string` — projectBoardMilestoneStatus 是里程碑状态的**唯一读法**：运行态优先、声明态兜底。
+- `func projectBoardMilestoneItemPayload(milestoneID string, item sessionstore.TeamworkWorkItem) map[string]any` — projectBoardMilestoneItemPayload 把里程碑内的工作项映射成载荷（状态/依赖原样搬运）。
+- `func projectBoardTeamState(plan *sessionstore.TeamworkPlan, state *sessionstore.TeamworkState) sessionstore.TeamworkState` — projectBoardTeamState 取整队运行态：显式传入的 TeamworkState 优先，否则用计划里那份兜底。
+- `func projectBoardPutText(payload map[string]any, key, value string)` — projectBoardPutText 把非空文本写进载荷（空字段不落盘：读侧沿用"缺失 = 空 = 该域约定值"
+- `func projectBoardBlocks(rows []sessionstore.ProjectBoardRow) (work, teamwork []sessionstore.ProjectBoardRow)` — projectBoardBlocks 把映射结果按**落点**拆成两块：work → worktable.jsonl；
+- `func projectBoardRowsForFile( scope sessionstore.ProjectBoardScope, seq uint64, at int64, workItems []WorkItem, teamPlan *sessionstore.TeamworkPlan, teamState *sessionstore.TeamworkState, file string, ) []sessionstore.ProjectBoardRow` — projectBoardRowsForFile 取**某一落点**的行集：按块取数（而不是取一遍再改 Seq），
+- `func projectBoardRowsFingerprint(rows []sessionstore.ProjectBoardRow) string` — projectBoardRowsFingerprint 生成"**去掉 seq/at 之后**的内容指纹"：同样的
+- `func ProjectBoardHookModes() []string` — ProjectBoardHookModes 返回触发档名的全集（装配期校验 hook 配置用：拼错的档名要
+- `func TriggerFor(hookMode string) ProjectBoardTrigger` — TriggerFor 由档名编译出触发面：off / todo_list（= 空串，默认档）/ task_complete /
+- `func (t ProjectBoardTrigger) Matches(name string) bool` — Matches 报告这次工具完成是否落在触发面上。空工具名恒不命中（没有名字就不是一次工具完成）。
+- `func (t ProjectBoardTrigger) Off() bool` — Off 报告这个触发面是否"什么都不触发"（诊断 / 装配自检用）。
+- `func NewProjectBoardSyncer(deps ProjectBoardDeps) *ProjectBoardSyncer` — NewProjectBoardSyncer 装配同步器并启动唯一 flush goroutine。
+- `func (s *ProjectBoardSyncer) OnToolComplete(name string, err error, sessionID string)` — OnToolComplete 是 ProjectBoardSink 的实现：**不做任何 IO**。
+- `func (s *ProjectBoardSyncer) signal()` — signal 非阻塞唤醒 flush goroutine（信号口容量 1）。
+- `func (s *ProjectBoardSyncer) run()` — run 是唯一的 flush goroutine：唤醒重设静默窗（debounce），窗口到期落盘，Close 时补一次。
+- `func (s *ProjectBoardSyncer) flushDirty()` — flushDirty 把脏集合取走（先取走再落盘：落盘期间新来的触发会攒进下一批，不会丢）。
+- `func (s *ProjectBoardSyncer) flushSession(sessionID string)` — flushSession 落一个会话的两个投影文件（work 行与 milestone 行各落各的）。
+- `func (s *ProjectBoardSyncer) flushFile( sessionID, projectID string, scope sessionstore.ProjectBoardScope, file string, at int64, items []WorkItem, plan *sessionstore.TeamworkPlan, state *sessionstore.TeamworkState, )` — flushFile 落一个文件：取水位 → 指纹去重 → 差集补 tombstone → 追加。
+- `func projectBoardRemovedRow(scope sessionstore.ProjectBoardScope, seq uint64, at int64, kind, key string) sessionstore.ProjectBoardRow` — projectBoardRemovedRow 组装一行 tombstone（折叠读遇到 payload["removed"]==true 即让该 key 消失）。
+- `func (s *ProjectBoardSyncer) remember(key boardFileKey, state boardFileState)` — remember 更新落盘记账。
+- `func (s *ProjectBoardSyncer) Close()` — Close 幂等：关掉唯一 goroutine 并等它退出（退出前补一次落盘）。
+- `func (service *Service) WorkTableRowsFor(sessionID string) []WorkItem` — WorkTableRowsFor 返回指定会话的**活体工作表格投影**（只读；不重算任何状态）。
+- `func (service *Service) ProjectIDFor(sessionID string) string` — ProjectIDFor 返回会话所属的**工作区 ID**（"ws-…"；"" = 默认/未绑定）。
+- `func (service *Service) ProjectBoardTeamPlanFor(sessionID string) *sessionstore.TeamworkPlan` — ProjectBoardTeamPlanFor 按**窄可选端口**取 teamwork 计划（未装配 / 该会话没有计划 ⇒ nil）。
+- `func (service *Service) ProjectBoardTeamStateFor(sessionID string) *sessionstore.TeamworkState` — ProjectBoardTeamStateFor 取该会话的 teamwork **运行态**（里程碑结论 / 整队收口）。
+- `func (state *serviceState) taskRecordsForSession(sessionID, viewSessionID string) []dto.TaskRecord` — taskRecordsForSession 按会话取 task 注册表快照：视图/活跃会话 = 实时注册表（"" 分区），
+
+### project_board_hook_modes_test.go
+
+- `func TestProjectBoardHookModeVocabularyMatchesTable(t *testing.T)`
+
+### project_board_test.go
+
+- `func newFakeBoardStore() *fakeBoardStore`
+- `func boardStoreKey(project, session, file string) string`
+- `func (store *fakeBoardStore) AppendProjectBoardRows(project, session, file string, rows []sessionstore.ProjectBoardRow) (uint64, error)`
+- `func (store *fakeBoardStore) ProjectBoardWatermark(project, session, file string) (uint64, error)`
+- `func (store *fakeBoardStore) watermarkLocked(project, session, file string) uint64`
+- `func (store *fakeBoardStore) writeCount(file string) int`
+- `func (store *fakeBoardStore) lastWrite(file string) []sessionstore.ProjectBoardRow`
+- `func (store *fakeBoardStore) raw(project, session, file string) []sessionstore.ProjectBoardRow` — raw 是文件的**原始行**（未折叠；I6 断言"空集合不建文件"用它）。
+- `func (store *fakeBoardStore) folded(project, session, file string) []sessionstore.ProjectBoardRow` — folded 复用存储面**唯一读法**（折叠读），不自己实现第二份。
+- `func (store *fakeBoardStore) dropFile(project, session, file string)`
+- `func newBoardTestService(t *testing.T, options ...testServiceOption) (*Service, *fakeRuntime, string)` — newBoardTestService 造一个带 fakeRuntime 的 Service，并返回其**当前视图会话**
+- `func boardDeps(store ProjectBoardStore, idle time.Duration, rows func(string) []WorkItem) ProjectBoardDeps` — boardDeps 造同步器入参（默认走默认触发档，落点固定 ws-board）。
+- `func waitForBoardWrites(t *testing.T, store *fakeBoardStore, file string, want int)`
+- `func settleBoard(idle time.Duration)` — settleBoard 等过若干倍静默窗：用来证明"没有第 N 次落盘"（消极断言需要时间）。
+- `func marshalBoardRows(t *testing.T, rows []sessionstore.ProjectBoardRow) string`
+- `func boardRowByKey(rows []sessionstore.ProjectBoardRow, key string) (sessionstore.ProjectBoardRow, bool)`
+- `func boardPayloadText(row sessionstore.ProjectBoardRow, key string) string`
+- `func boardKeys(rows []sessionstore.ProjectBoardRow) []string` — boardKeys 取行集的 key 集（排序后），用于"投影/不投影"的集合断言。
+- `func boardTodoItem(id, text, status string) WorkItem`
+- `func boardTaskItem(id, text, status string) WorkItem`
+- `func newBoardLiveRows(items ...WorkItem) *boardLiveRows`
+- `func (live *boardLiveRows) set(items []WorkItem)`
+- `func (live *boardLiveRows) add(item WorkItem)`
+- `func (live *boardLiveRows) drop(index int)`
+- `func (live *boardLiveRows) rows() []WorkItem`
+- `func TestBuildProjectBoardRowsMatchesLiveProjection(t *testing.T)`
+- `func TestBuildProjectBoardRowsNoJudgement(t *testing.T)`
+- `func TestBuildProjectBoardRowsKindMapping(t *testing.T)`
+- `func TestProjectBoardSyncerDebounce(t *testing.T)`
+- `func TestProjectBoardSyncerFingerprint(t *testing.T)`
+- `func TestProjectBoardSyncerWatermark(t *testing.T)`
+- `func TestProjectBoardTeamworkMilestonePriority(t *testing.T)`
+- `func TestProjectBoardRebuildAfterDelete(t *testing.T)`
+- `func TestProjectBoardIsNotAnInput(t *testing.T)`
+- `func marshalWorkItems(t *testing.T, items []WorkItem) string`
+- `func TestProjectBoardTriggerTable(t *testing.T)`
+- `func TestProjectBoardSyncerIgnoresFailedAndUntriggeredCalls(t *testing.T)`
+- `func TestProjectBoardSyncerTombstonesRemovedKeys(t *testing.T)`
+- `func TestProjectBoardSyncerCloseIsIdempotent(t *testing.T)`
+- `func TestProjectBoardReadersForAssembly(t *testing.T)`
+- `func (runtime *boardPlanRuntime) TeamworkPlanFor(sessionID string) (sessionstore.TeamworkPlan, bool)`
+- `func (sink *recordingBoardSink) OnToolComplete(name string, err error, sessionID string)`
+- `func (sink *recordingBoardSink) snapshot() []boardSinkCall`
+- `func boardSessionRows(t *testing.T, store *fakeBoardStore, session, file string) int` — boardSessionRows 取"该会话在该文件里"的行数（按会话切分：多会话断言互不串味）。
+- `func TestProjectBoardHooksOnExistingSyncPoint(t *testing.T)`
+- `func (store *flakyBoardStore) AppendProjectBoardRows(project, session, file string, rows []sessionstore.ProjectBoardRow) (uint64, error)`
+- `func TestProjectBoardHookFailureNoHalfWrite(t *testing.T)`
 
 ### work_table.go
 
