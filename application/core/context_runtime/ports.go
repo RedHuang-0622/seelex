@@ -171,6 +171,16 @@ type CompactionIndexPort interface {
 	PushCompactionFrame(ctx context.Context, sessionID string, request CompactionIndexRequest) (CompactionIndexReceipt, error)
 }
 
+// SessionLocator 是「会话 → 持久化定位」的只读窄能力（可选：调用方类型断言
+// 探测，与 CompactionIndexPort 同一姿势；会话域 Coordinator 天然实现它）。
+//
+// 它存在的唯一理由是：会话级落盘键必须由**会话域**回答（绑定优先 + 按"数据
+// 实际所在"遍历已知项目），而不是由 context 域按活跃视图猜。ok=false 表示
+// 归属不明——压缩 checkpoint 必须**放弃落盘**，不得拿视图项目/默认项目顶上。
+type SessionLocator interface {
+	LocateSessionResolved(sessionID string) (session_runtime.Location, bool)
+}
+
 // Deps 是 context_runtime 的装配输入。
 type Deps struct {
 	Core     *state.Core

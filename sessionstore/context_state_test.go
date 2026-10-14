@@ -96,7 +96,12 @@ func TestSessionContextStorePersistsToIsolatedChannel(t *testing.T) {
 
 			// 三栈权威 = §2.4 栈通道，每个后端都必须实现；context/state 两通道
 			// 物理隔离与后端无关。
+			//
+			// 会话级键必须显式绑定（R3 键漂移）：store 不再回退 Router 的活跃写
+			// 作用域，装配点按会话归属注入解析器（生产见
+			// internal/adapters.SessionPort.AttachSessionContext）。
 			store := NewSessionContextStore(testRouter, "session")
+			store.SetWorkspaceResolver(func() string { return "project" })
 			if err := store.Load(context.Background()); err != nil {
 				t.Fatalf("load over SessionRecord state must not fail: %v", err)
 			}
@@ -119,6 +124,7 @@ func TestSessionContextStorePersistsToIsolatedChannel(t *testing.T) {
 				t.Fatalf("compact 通道帧 = %d handled=%v err=%v", len(channelFrames), handledChannel, channelErr)
 			}
 			reloaded := NewSessionContextStore(testRouter, "session")
+			reloaded.SetWorkspaceResolver(func() string { return "project" })
 			if err := reloaded.Load(context.Background()); err != nil {
 				t.Fatal(err)
 			}

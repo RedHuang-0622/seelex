@@ -291,13 +291,41 @@ func (port SessionPort) granular() *sessionstore.SessionGranularStore {
 // 创建按 sessionID 的 SessionContextStore，加载持久化记录并挂接到 Runtime，
 // 使下一轮 prompt 组装（stackBlocks）能使用持久化的 Plan/Task/Skill/Compact
 // 栈。损坏/不兼容的 context 显式失败（不静默降级成内存栈）。
+//
+// 落盘键必须在这里绑定（R3 键漂移）：store 是**会话级**存储，它读写的
+// system prompt / 压缩帧 / 四栈只属于这个会话。入参 workspaceID（调用方给出的
+// 会话定位）此前被整条丢掉、也不注入解析器，于是 store 回退到 Router 的活跃写
+// 作用域＝"用户现在在看哪个项目"，后台会话的上下文就写进了视图项目——同一会话
+// 在第二个项目目录里长出 message head，目录枚举按项目分格 ⇒ 前端多出一行"没有
+// fork 指令的第二个会话"（现场：project-03b5… 里三份只有 guide.json + system.json
+// 的壳目录）。
 func (port SessionPort) AttachSessionContext(workspaceID, sessionID string) error {
 	store := sessionstore.NewSessionContextStore(port.Manager.Router(), sessionID)
+	store.SetWorkspaceResolver(port.sessionContextWorkspace(workspaceID, sessionID))
 	if err := store.Load(context.Background()); err != nil {
 		return fmt.Errorf("load session context %q: %w", sessionID, err)
 	}
 	port.Runtime.AttachSessionContextStore(store)
 	return nil
+}
+
+// sessionContextWorkspace 返回会话 context 落盘用的项目键解析器：
+//
+//	port.workspaceResolver（workspace.Repo 绑定，权威）
+//	  → 调用方给出的 workspaceID（该会话自己的定位）
+//	    → ""（未关联会话 = 默认项目）
+//
+// 三个分支都不是活跃写作用域：视图切换不得改变会话的落盘键。
+func (port SessionPort) sessionContextWorkspace(workspaceID, sessionID string) func() string {
+	fallback := strings.TrimSpace(workspaceID)
+	return func() string {
+		if port.workspaceResolver != nil {
+			if projectID := strings.TrimSpace(port.workspaceResolver(sessionID)); projectID != "" {
+				return projectID
+			}
+		}
+		return fallback
+	}
 }
 
 // DetachSessionContext 解绑当前会话的 context 模块（离开会话时调用，

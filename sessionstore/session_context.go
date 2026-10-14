@@ -236,6 +236,10 @@ func NewSessionContextStore(router *Router, sessionID string) *SessionContextSto
 
 // SetWorkspaceResolver 注入会话绑定 workspace 解析器（PushCompact 的 v8
 // compact 桥接与 Persist 使用显式键，不污染其它会话）。
+//
+// 注入是**装配义务**：未注入时按默认项目（未关联会话）落盘，而不是退回活跃
+// 写作用域——用视图作用域当会话键正是同一会话在两个项目目录里长出两份的根因
+// （见 workspace）。
 func (s *SessionContextStore) SetWorkspaceResolver(resolver func() string) {
 	if s == nil {
 		return
@@ -245,6 +249,14 @@ func (s *SessionContextStore) SetWorkspaceResolver(resolver func() string) {
 	s.resolverMu.Unlock()
 }
 
+// workspace 返回本会话的落盘/回读项目键（R3 键漂移纪律）。
+//
+// 定序只有一条：注入的会话绑定解析器 → ""（未关联会话 = 默认项目）。
+// **刻意不回退 Router 的活跃写作用域**：活跃作用域是**视图**状态（用户现在在看
+// 哪个项目），会随切换改变；拿它当会话级键，system prompt / 压缩帧就写进了视图
+// 项目——同一会话因此在两个项目目录里各留一份，目录枚举按项目分格（前端把它显示
+// 成两个会话，尽管没有任何 fork 指令）。装配点必须注入绑定解析器，见
+// internal/adapters.SessionPort.AttachSessionContext。
 func (s *SessionContextStore) workspace() string {
 	if s == nil {
 		return ""
@@ -254,9 +266,6 @@ func (s *SessionContextStore) workspace() string {
 	s.resolverMu.RUnlock()
 	if resolver != nil {
 		return resolver()
-	}
-	if s.router != nil {
-		return s.router.Workspace()
 	}
 	return ""
 }

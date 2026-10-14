@@ -37,7 +37,9 @@ func TestRetiredChannelsAbsentAfterFullCommit(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// 会话级键必须显式绑定（R3 键漂移）：store 不再回退 Router 的活跃写作用域。
 	store := NewSessionContextStore(router, key.SessionID)
+	store.SetWorkspaceResolver(func() string { return "project" })
 	if err := store.Load(context.Background()); err != nil {
 		t.Fatal(err)
 	}

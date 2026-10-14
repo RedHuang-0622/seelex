@@ -24,6 +24,19 @@ type archiveSessions struct {
 	saved      int
 	tailBudget int
 	tailUnits  int
+	// sessionID 是本替身"知道"的会话身份（为空 = 什么都不知道）。会话归属解析
+	// （session_runtime.LocateSessionResolved）在生产上走适配层的按项目枚举
+	// （SessionGranularPort.SessionsOf）；替身补上这一面，夹具才与生产装配同形。
+	sessionID string
+}
+
+// SessionsOf 实现 session_runtime.SessionGranularPort：替身只认得一个会话，
+// 且只住在默认项目（未关联会话）里。
+func (sessions *archiveSessions) SessionsOf(projectID string) []SessionInfo {
+	if projectID != "" || sessions.sessionID == "" {
+		return nil
+	}
+	return []SessionInfo{{ID: sessions.sessionID}}
 }
 
 func (sessions *archiveSessions) SaveCurrent(string) error {

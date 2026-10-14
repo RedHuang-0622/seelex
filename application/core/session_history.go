@@ -353,7 +353,12 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 				service.setWorkspaceWriteScope(currentWorkspace.ID)
 			}
 			service.Deps.Workspace.BindSession(sessionID, currentWorkspace.ID)
-		} else {
+		} else if strings.TrimSpace(location.WorkspaceID) == "" {
+			// 只有"会话确实没有项目"（归属键为空）才解绑。归属解析到了项目、只是
+			// 该项目不在工作区仓库里（Workspace.Get 失败 ⇒ Workspace 元数据为 nil）
+			// 时**不得**解绑：解绑是永久性的，此后删除/读历史/标题/落盘全部漂到默认
+			// 项目（R3 键漂移的放大器——现场 workspace_index.json 的 bindings 里正是
+			// 这样缺了三个仍有数据的会话）。
 			if !service.anyChatRunningLocked() {
 				service.unbindGlobalProjectRoot()
 				service.setWorkspaceWriteScope("")

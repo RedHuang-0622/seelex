@@ -203,7 +203,22 @@ func (c *Coordinator) compactTaskContextFor(sessionID, requestID string, options
 	if err != nil {
 		return err
 	}
-	if err := c.sessions.PersistCurrentSession(c.sessionLocationLocked(sessionID), sessionID); err != nil {
+	return c.persistCompactionCheckpoint(sessionID)
+}
+
+// persistCompactionCheckpoint 把压缩 checkpoint 按**会话自己的归属**落盘。
+//
+// 会话域明确回答"找不到这个会话"时**不落盘**：落到视图项目或默认项目会凭空造出
+// 第二个会话目录（目录枚举按项目分格 ⇒ 前端多出一行"没有 fork 指令的第二个
+// 会话"），而这次 checkpoint 的内容并未丢失——它在内存 transcript 与本次回合的
+// 落盘路径（chat 收尾 PersistCurrentSession）里，归属可解析时照常写出。宁可少写
+// 一次，也不写错一个项目。
+func (c *Coordinator) persistCompactionCheckpoint(sessionID string) error {
+	location, kind := c.sessionLocationLocked(sessionID)
+	if kind == sessionLocationUnresolved || c.sessions == nil {
+		return nil
+	}
+	if err := c.sessions.PersistCurrentSession(location, sessionID); err != nil {
 		return fmt.Errorf("persist context checkpoint: %w", err)
 	}
 	return nil
@@ -434,22 +449,58 @@ func (c *Coordinator) hasCompactableSessionContext(sessionID string) bool {
 	return false
 }
 
-// sessionLocationLocked 返回指定会话的持久化定位（workspace 绑定优先；
-// 回退当前活跃工作区）。压缩 checkpoint 落盘的目标会话可能不是活跃会话，
-// 必须按会话键落盘（对应 R3 键漂移修复）。
-func (c *Coordinator) sessionLocationLocked(sessionID string) session_runtime.Location {
-	c.ViewMu.RLock()
-	defer c.ViewMu.RUnlock()
+// sessionLocationKind 是 sessionLocationLocked 的解析结论。会话级落盘键只有三种
+// 来源，必须分开："找不到这个会话"与"会话属于默认项目"是两件完全不同的事——混在
+// 一个空串里，就是键漂移的入口。
+type sessionLocationKind int
+
+const (
+	// sessionLocationUnresolved：会话域**明确回答**找不到这个会话（绑定投影没有
+	// 它、按"数据实际所在"也遍历不到）。落盘键未知——调用方不得落盘（落到视图
+	// 项目/默认项目都是凭空造出第二个会话目录）。
+	sessionLocationUnresolved sessionLocationKind = iota
+	// sessionLocationFallback：没有会话域解析面可用（测试替身 / 会话域未装配）：
+	// 退回未关联会话（默认项目，key = ""）。这条口径与 SessionContextStore 的
+	// 兜底一致；活跃写作用域无论如何都不参与（它回答的是"用户在看哪个项目"）。
+	// 生产装配总是带上会话域解析面（session_runtime.Coordinator 天然实现
+	// SessionLocator），因此这条分支只服务替身/降级装配。
+	sessionLocationFallback
+	// sessionLocationResolved：拿到权威落点（WorkspaceID 可能是 "" = 会话确实
+	// 就住在默认项目里）。
+	sessionLocationResolved
+)
+
+// sessionLocationLocked 返回指定会话的持久化定位及其解析结论。定序：
+//
+//	Snapshot.SessionWorkspaces[sessionID]（绑定投影）
+//	  → SessionLocator.LocateSessionResolved（会话域：绑定 + 数据实际所在）
+//	    → 归属不明 / 无解析面（见 sessionLocationKind）
+//
+// **刻意不回退 Snapshot.CurrentWorkspace**：活跃视图作用域回答的是"用户现在在看
+// 哪个项目"，不是"这个会话属于哪个项目"。拿它当会话键就是 R3 键漂移——压缩
+// checkpoint 会把整份 transcript 写进视图项目，同一会话因此在两个项目目录里各留
+// 一份（目录枚举按项目分格 ⇒ 前端显示成两个会话，而没有任何 fork 指令；现场
+// project-e3b0c44298fc1c14 = sha256("") 里那份 972 行 message 就是整份快照被一次性
+// flush 出来的）。
+func (c *Coordinator) sessionLocationLocked(sessionID string) (session_runtime.Location, sessionLocationKind) {
 	location := session_runtime.Location{Meta: model.SessionInfo{ID: sessionID}}
-	if workspaceID, ok := c.Snapshot.SessionWorkspaces[sessionID]; ok && workspaceID != "" {
-		location.WorkspaceID = workspaceID
-		return location
+	c.ViewMu.RLock()
+	workspaceID, bound := c.Snapshot.SessionWorkspaces[sessionID]
+	c.ViewMu.RUnlock()
+	if bound {
+		if projectID := strings.TrimSpace(workspaceID); projectID != "" {
+			location.WorkspaceID = projectID
+			return location, sessionLocationResolved
+		}
 	}
-	if c.Snapshot.CurrentWorkspace != nil {
-		location.WorkspaceID = c.Snapshot.CurrentWorkspace.ID
-		location.Workspace = c.Snapshot.CurrentWorkspace
+	locator, ok := c.sessions.(SessionLocator)
+	if !ok || locator == nil {
+		return location, sessionLocationFallback
 	}
-	return location
+	if resolved, found := locator.LocateSessionResolved(sessionID); found {
+		return resolved, sessionLocationResolved
+	}
+	return location, sessionLocationUnresolved
 }
 
 // PrepareExecutionContext 从 durable task 状态与完整 transcript 单元重建

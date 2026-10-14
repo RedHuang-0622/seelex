@@ -52,6 +52,9 @@ func compactedSessionStore(t *testing.T) (*archiveSessions, string, ContextCompa
 	if sessionID == "" {
 		sessionID = first.components.tasks.SessionIDForRequest(restartCompactionRequestID)
 	}
+	// 替身认得这个会话（生产上适配层的按项目枚举同形）：压缩 checkpoint 的落点
+	// 解析才有事实可依——它不再按活跃写作用域猜。
+	store.sessionID = sessionID
 	appendWindowRounds(t, first, restartCompactionRequestID, 4, 32_000)
 
 	// 压缩一次（`/compact`、`compact_context` 同一落点）。

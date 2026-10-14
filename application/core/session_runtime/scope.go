@@ -226,8 +226,28 @@ func (c *Coordinator) AllProjectIDs() []string {
 }
 
 // LocateSession 定位会话（workspace 绑定优先；支持 scoped 读取时遍历全部
-// 工作区，否则退化为当前绑定/默认定位）。
+// 工作区，否则退化为当前绑定/默认定位）。需要"到底解析到了没有"的落盘路径请用
+// LocateSessionResolved——它把"归属不明"与"归属默认项目"分开。
 func (c *Coordinator) LocateSession(sessionID string) Location {
+	location, _ := c.LocateSessionResolved(sessionID)
+	return location
+}
+
+// LocateSessionResolved 是 LocateSession 的"解析结果"变体：resolved=false 表示
+// 绑定、已知项目枚举、默认项目里都没有这个会话（归属不明）。
+//
+// 为什么需要这个布尔：Location.WorkspaceID == "" 有两种完全不同的含义——
+// 「会话确实未关联（数据就在默认项目里）」与「根本没找到这个会话」。落盘路径不
+// 能把后者当成前者，更不能在没找到时回退活跃写作用域去猜一个项目：那样压缩
+// checkpoint 会把整份 transcript 写进用户正在看的项目，同一会话于是在第二个项目
+// 目录里长出完整 message head（目录枚举按项目分格 ⇒ 前端多出一行"没有 fork 指令
+// 的第二个会话"，R3 键漂移）。resolved=false 的正确处理是**不落盘**。
+//
+// 另注：WorkspaceID 是**存储键**，Workspace 只是展示元数据（RootPath/Name）。
+// 项目在工作区仓库里取不到（Workspace.Get 失败）时键必须保持 projectID——旧实现
+// 把键与元数据绑在一起（Get 失败 ⇒ 键留空 ⇒ 整份快照落到默认项目），是同一族
+// 漂移的第二个入口。
+func (c *Coordinator) LocateSessionResolved(sessionID string) (Location, bool) {
 	sessionID = strings.TrimSpace(sessionID)
 	var boundWorkspace *model.WorkspaceInfo
 	if c.Core.Deps.Workspace != nil {
@@ -238,12 +258,14 @@ func (c *Coordinator) LocateSession(sessionID string) Location {
 
 	granular, ok := c.Core.Deps.Sessions.(SessionGranularPort)
 	if !ok {
+		// 没有 scoped 枚举面：绑定是唯一（也是权威）的归属事实。
 		location := Location{Meta: model.SessionInfo{ID: sessionID}}
 		if boundWorkspace != nil {
 			location.WorkspaceID = boundWorkspace.ID
 			location.Workspace = boundWorkspace
+			return location, true
 		}
-		return location
+		return location, false
 	}
 
 	var selected Location
@@ -253,10 +275,11 @@ func (c *Coordinator) LocateSession(sessionID string) Location {
 			if info.ID != sessionID {
 				continue
 			}
-			location := Location{Meta: info}
-			if projectID != "" {
+			// 键取自"数据实际所在的项目"（projectID 可能是 "" = 默认项目），
+			// 与能不能取到该项目的展示元数据无关。
+			location := Location{Meta: info, WorkspaceID: projectID}
+			if projectID != "" && c.Core.Deps.Workspace != nil {
 				if workspace, err := c.Core.Deps.Workspace.Get(projectID); err == nil {
-					location.WorkspaceID = projectID
 					location.Workspace = &workspace
 				}
 			}
@@ -267,12 +290,12 @@ func (c *Coordinator) LocateSession(sessionID string) Location {
 		}
 	}
 	if found {
-		return selected
+		return selected, true
 	}
 	if boundWorkspace != nil {
-		return Location{WorkspaceID: boundWorkspace.ID, Workspace: boundWorkspace, Meta: model.SessionInfo{ID: sessionID}}
+		return Location{WorkspaceID: boundWorkspace.ID, Workspace: boundWorkspace, Meta: model.SessionInfo{ID: sessionID}}, true
 	}
-	return Location{Meta: model.SessionInfo{ID: sessionID}}
+	return Location{Meta: model.SessionInfo{ID: sessionID}}, false
 }
 
 func preferSessionLocation(candidate, current Location, boundWorkspaceID string) bool {
