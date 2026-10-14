@@ -365,6 +365,23 @@ var projectBoardTriggerTable = map[string]struct {
 	ProjectBoardHookModeAll: {anyTool: true},
 }
 
+// projectBoardHookModeOrder 是档名的**声明顺序**：装配期校验的报错文案按它列可选值。
+// 它必须与上面那张表的键集**恰好相同**——两者都是同一份词表，谁多一个少一个就是
+// "配置里能写的"与"运行时认的"分了家（application/core 的用例钉住这条不变量）。
+var projectBoardHookModeOrder = []string{
+	ProjectBoardHookModeOff,
+	ProjectBoardHookModeTodoList,
+	ProjectBoardHookModeTaskComplete,
+	ProjectBoardHookModeToolComplete,
+	ProjectBoardHookModeAll,
+}
+
+// ProjectBoardHookModes 返回触发档名的全集（装配期校验 hook 配置用：拼错的档名要
+// **显式启动失败**，而不是让 TriggerFor 的默认档把它兜成"看起来生效"）。
+func ProjectBoardHookModes() []string {
+	return append([]string(nil), projectBoardHookModeOrder...)
+}
+
 // ProjectBoardTrigger 是触发面的编译结果（表 → 集合）。
 //
 // 零值 = **什么都不触发**（等价 off）：装配方一律用 TriggerFor 构造，不要手搓结构体。

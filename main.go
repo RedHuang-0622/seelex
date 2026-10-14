@@ -644,6 +644,19 @@ func run() error {
 	registerProjectRefreshTool(runtime, store)
 	registerScheduledTaskCapability(runtime)
 	toolHooks.Bind(app)
+	// 项目看板（可选能力，M3 装配门）：装配期**一次**交接——开关关 ⇒ 不注入订阅口
+	// （工具完成段判空后什么都不做，一个文件都不写）；开 ⇒ 唯一写盘路径挂上。
+	// 关就是关的口径见 docs/arch/seelex-project-board.md §5.3。
+	projectBoardSink, closeProjectBoard, err := projectBoardSinkFor(
+		runtimeLimits.ProjectBoard, store,
+		app.WorkTableRowsFor, app.ProjectBoardTeamPlanFor,
+		app.ProjectBoardTeamStateFor, app.ProjectIDFor,
+	)
+	if err != nil {
+		return err
+	}
+	app.SetProjectBoardSink(projectBoardSink)
+	defer closeProjectBoard()
 	// plan 节点事件 / 子代理树生命周期 / task 变更均由 application 内的
 	// CSP 消费者经 channel 处理（service_assembler 启动），无需模型调用
 	// 任何工具，worktable/task 增量自动发布（被动技能）。
@@ -1604,6 +1617,62 @@ func registerAskApprove(runtime *seelebridge.Runtime, approval *application.Appr
 //
 // 这是**早期**闸门（发生在抢锁之前）：真正的不变量仍由 initStore → sessionstore
 // 的数据根锁兜底，所以这里只做「能早就早」的可读拒绝，不替代锁本身。
+// projectBoardSinkFor 是项目看板的**装配门**：按配置决定挂不挂订阅口、挂哪一档触发面。
+//
+// 关就是关（契约 §5.3）：Enabled=false ⇒ 返回 (nil, 空收尾, nil)——工具完成段判空后
+// 什么都不做，一个文件都不写，读取面也不注册。开启时先把 hook 取值按**唯一词表**
+// （core.ProjectBoardHookModes）校验：拼错的名字**显式启动失败**，不静默降级成 off
+// ——后者会把"开了但没生效"变成一桩只能靠读代码才能解的悬案。
+//
+// 取数依赖一律用 application 侧的只读口（WorkTableRowsFor / ProjectBoardTeamPlanFor /
+// ProjectBoardTeamStateFor / ProjectIDFor）：同步器不重算任何状态（I3）。
+func projectBoardSinkFor(
+	limits seelexctx.ProjectBoardLimits,
+	store core.ProjectBoardStore,
+	workTableRows func(sessionID string) []core.WorkItem,
+	teamPlanFor func(sessionID string) *sessionstore.TeamworkPlan,
+	teamStateFor func(sessionID string) *sessionstore.TeamworkState,
+	projectIDFor func(sessionID string) string,
+) (core.ProjectBoardSink, func(), error) {
+	if !limits.Enabled {
+		return nil, func() {}, nil
+	}
+	hook, err := projectBoardHookMode(limits.Hook)
+	if err != nil {
+		return nil, func() {}, err
+	}
+	syncer := core.NewProjectBoardSyncer(core.ProjectBoardDeps{
+		Store:         store,
+		WorkTableRows: workTableRows,
+		TeamPlanFor:   teamPlanFor,
+		TeamStateFor:  teamStateFor,
+		ProjectIDFor:  projectIDFor,
+		Triggers:      core.TriggerFor(hook),
+		FlushIdle:     time.Duration(limits.FlushIdleMS) * time.Millisecond,
+	})
+	// 收尾就是同步器自己的 Close（幂等）：终止唯一 flush goroutine，退出前补一次落盘。
+	return syncer, syncer.Close, nil
+}
+
+// projectBoardHookMode 归一化并校验项目看板的触发面取值。
+//
+// 空串 = 未配置 ⇒ 缺省 todo_list（与 config/seelex.yaml 的出厂值一致）；词表不在这里
+// 抄第二份——唯一来源是 core.ProjectBoardHookModes（触发装配表自己也认同一份）。
+func projectBoardHookMode(hook string) (string, error) {
+	mode := strings.ToLower(strings.TrimSpace(hook))
+	if mode == "" {
+		mode = core.ProjectBoardHookModeTodoList
+	}
+	for _, allowed := range core.ProjectBoardHookModes() {
+		if mode == allowed {
+			return mode, nil
+		}
+	}
+	return "", fmt.Errorf(
+		"limits.project_board.hook = %q 不是合法取值（可选：%s）",
+		hook, strings.Join(core.ProjectBoardHookModes(), " / "))
+}
+
 func guardMultiProcess() error {
 	if runtimeLimits.Runtime.AllowMultiProcess {
 		return nil

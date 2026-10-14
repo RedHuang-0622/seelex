@@ -142,6 +142,14 @@ type Limits struct {
 	// 关就是关（不静默降级成同步执行），可一键回滚。
 	// 规格：docs/2026-09-24-async-tool-deferred-ack/README.md §8。
 	AsyncExec AsyncExecLimits `yaml:"async_exec"`
+	// ProjectBoard 是**项目看板**（会话级任务/里程碑的派生投影 + 按需读取面）的开关块。
+	// **缺省关闭**（零值 false，出厂档也是 false）：关就是关——不注入订阅口、不在工具
+	// 完成段触发、一个文件都不写、读取面（技能条目 + project_board_read）也不注册。
+	//
+	// 为什么默认关：它是"要人喊才做"的一层（跑起来才有派生件与读取面），而开着的代价
+	// 全在工具完成段这条热路径上（去抖后仍要取活体投影并可能追加一行）。规格：
+	// docs/arch/seelex-project-board.md §5.3 / §5.4。
+	ProjectBoard ProjectBoardLimits `yaml:"project_board"`
 	// ContextCompactionSummary 是**压缩处 LLM 章节化摘要**（前缀重放厚摘要）的
 	// 开关块。**缺省即开**（2026-10-04 起）：配置里整块缺失、或块在但没写
 	// `enabled` 键，都按打开处理（与出厂档 config/seelex.yaml 一致）；只有**显式**
@@ -188,6 +196,25 @@ type AsyncExecLimits struct {
 	//
 	// 零值 = 关（与 async_exec 同一套"关就是关"的纪律）。
 	TriggerConversation bool `yaml:"trigger_conversation"`
+}
+
+// ProjectBoardLimits 是**项目看板**的开关块（limits.project_board）。
+//
+// 三格里没有 `max_rows`，这是**有意的偏离**（契约 §5.4 的示例块里有它）：单次追加的
+// 行数上限是存储面的硬不变量，唯一判据是 `sessionstore.ProjectBoardMaxRows`
+// （越界显式报错，不静默截断）。在这里再放一个可调上限，就会有两个判据对同一次追加
+// 各说各话（配置说 1000、存储说 512，用户看到的只有"没生效"）。
+type ProjectBoardLimits struct {
+	// Enabled 是整块能力的开关（缺省 false）。true 才注入订阅口；false ⇒ 完成段
+	// 一次判断都不做、零文件、读取面也不注册（无静默降级）。
+	Enabled bool `yaml:"enabled"`
+	// Hook 是触发面：off | todo_list（缺省）| task_complete | tool_complete | all。
+	// 取值校验在装配期完成（唯一判据是 application/core 的 ProjectBoardHookModes，
+	// 这里不抄一份词表）：拼错的名字**显式启动失败**，不静默降级成"从不触发"。
+	Hook string `yaml:"hook"`
+	// FlushIdleMS 是落盘去抖窗（毫秒）：窗内多次触发只落一次盘。
+	// 0 = 未配置 → 同步器的缺省（2s，唯一一处定义在 application/core）。
+	FlushIdleMS int `yaml:"flush_idle_ms"`
 }
 
 // CompactionSummaryLimits 是压缩处 LLM 章节化摘要的开关块。
@@ -534,6 +561,7 @@ func LoadLimits(path string) (Limits, error) {
 		check.ForkTimeoutSec < 0 || check.ContextRetainFloorPercent < 0 || check.ContextFrameCarryTokens < 0 ||
 		check.ContextCompactionSummary.InputTokens < 0 || check.ContextCompactionSummary.Chapter2Tokens < 0 ||
 		check.Plugins.PerTeammate < 0 ||
+		check.ProjectBoard.FlushIdleMS < 0 ||
 		check.Team.MaxTeammates < 0 {
 		return Limits{}, fmt.Errorf("limits: values must not be negative")
 	}

@@ -229,6 +229,31 @@ limits:
     # 也不进它的队列（铁律 §6.1），它下一次回合边界的打点块本来就会列出完成行。
     # 置 false = 关（默认关，出厂打开；关就是关，无静默降级）。
     trigger_conversation: true
+  # ── 项目看板（project_board：会话级任务/里程碑派生投影）──────────────
+  # 把**已经存在**的两份投影（工作表格 buildWorkTable + teamwork 计划/运行态）按会话
+  # 落成数据根下的追加式 JSONL 派生件：
+  #     <json_root>/project-board/project-<hash>/session-<hash>/worktable.jsonl
+  #                                                              /teamwork.jsonl
+  # 由**既有**工具完成段被动落盘（在 refreshWorkTableFromSources 之后标脏 + 唤醒，
+  # 不新造回调）；投影**不进**任何常驻上下文（system/project 前缀与请求尾部都不进），
+  # 只在提示词要求时按需读取。契约：docs/arch/seelex-project-board.md。
+  #
+  # 缺省关闭（出厂 false）：关就是关——不注入订阅口、不触发、一个文件都不写，
+  # 读取面（技能条目 + project_board_read 只读工具）也不注册，无静默降级。
+  # 打开后：开销只在"工具完成"这条热路径上（去抖合并 + 内容指纹去重，内容没变不写盘）。
+  project_board:
+    enabled: false
+    # 触发面：off | todo_list（缺省）| task_complete | tool_complete | all。
+    #   off                不触发（比 enabled:false 更细的一档，成本 0）
+    #   todo_list          todo/task 族工具成功后触发（覆盖不到"从不调 todo"的会话）
+    #   task_complete      只在会话终态工具后触发（项目状态滞后到回合末）
+    #   tool_complete/all  任何工具完成后触发（靠去抖 + 指纹去重压写盘次数）
+    # 拼错的名字在启动期**显式报错**（不静默降级成"从不触发"）。
+    hook: "todo_list"
+    # 落盘去抖窗（毫秒）：窗内多次触发只落一次盘；0 = 用缺省（2000）。
+    flush_idle_ms: 2000
+    # 注：没有 max_rows —— 单次追加的行数上限是存储面的硬不变量
+    # （sessionstore.ProjectBoardMaxRows，越界显式报错），配置里再放一个就是第二份判据。
   # ── 进程级启动行为（runtime）────────────────────────────────────
   # 是否同意**多进程**共用同一数据根。默认 false = 单实例：数据根独占锁
   # （sessionstore/data_root_lock.go 的 lock.owner）把「单数据根 = 单进程写者」
