@@ -657,6 +657,10 @@ func run() error {
 	}
 	app.SetProjectBoardSink(projectBoardSink)
 	defer closeProjectBoard()
+	// 读取面：**只在这一档注册**（关 ⇒ 工具根本不存在 = 零读取面，而不是"注册了但报错"）。
+	if runtimeLimits.ProjectBoard.Enabled {
+		registerProjectBoardReadTool(runtime, store, app)
+	}
 	// plan 节点事件 / 子代理树生命周期 / task 变更均由 application 内的
 	// CSP 消费者经 channel 处理（service_assembler 启动），无需模型调用
 	// 任何工具，worktable/task 增量自动发布（被动技能）。
@@ -802,6 +806,96 @@ func registerContextReadTools(runtime *seelebridge.Runtime, app *application.Ser
 //
 // 仍然是**被动**能力（契约 §6.1 / R6）：不新增工具、不在装配期构建、不自动刷新；
 // 只有这个工具被显式调用时才渲染落盘（无显式调用 → 不产文件）。
+// registerProjectBoardReadTool 注册项目看板的**只读按需读取面**（M4）。
+//
+// 为什么必须有这把工具：投影落点在**数据根**（`<json_root>/project-board/...`），而数据根
+// 可以在绑定工程之外——模型侧的 read_file / grep_search / glob 作用域声明都是 "inside the
+// bound project"，读不到它。读取面因此是一把专用工具：只读、有界、按会话/项目聚合
+// （取数一律走存储面的折叠读，不在工具里重算任何语义）。
+//
+// **注册门在调用点**（看 run 里的 `if runtimeLimits.ProjectBoard.Enabled`）：能力关 ⇒
+// 这把工具根本不存在（零读取面），而不是"注册了但返回错误"。
+func registerProjectBoardReadTool(runtime *seelebridge.Runtime, store *sessionstore.Router, app *application.Service) {
+	schema := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"session": map[string]interface{}{
+				"type":        "string",
+				"description": "会话 ID；缺省 = 当前会话；all = 本项目内跨会话聚合（有界）",
+			},
+			"file": map[string]interface{}{
+				"type": "string",
+				"enum": []string{seelebridge.ProjectBoardReadFileWorktable, seelebridge.ProjectBoardReadFileTeamwork},
+				"description": "读哪一份投影：worktable（会话的任务行）/ teamwork（里程碑与工作项）；缺省 = 两份都读",
+			},
+			"project": map[string]interface{}{
+				"type":        "string",
+				"description": "工作区 ID（ws-…）；缺省 = 当前会话所属工作区",
+			},
+			"limit": map[string]interface{}{
+				"type": "integer", "minimum": 1, "maximum": seelebridge.ProjectBoardReadMaxLimit,
+				"description": fmt.Sprintf("返回行数上限（缺省 %d，硬上限 %d；超限显式报错）",
+					seelebridge.ProjectBoardReadDefaultLimit, seelebridge.ProjectBoardReadMaxLimit),
+			},
+		},
+	}
+	handler := func(ctx context.Context, argsJSON string) (string, error) {
+		var request seelebridge.ProjectBoardReadRequest
+		if strings.TrimSpace(argsJSON) != "" {
+			if err := json.Unmarshal([]byte(argsJSON), &request); err != nil {
+				return "", fmt.Errorf("project_board_read: %w", err)
+			}
+		}
+		// 会话位取"完成段当场"的会话（后台会话的工具调用要落在它自己身上），
+		// ctx 里没有才退到当前视图会话。
+		sessionID := strings.TrimSpace(coretask.SessionIDFromContext(ctx))
+		if sessionID == "" {
+			sessionID = app.Snapshot().Session.ID
+		}
+		result, err := seelebridge.ReadProjectBoard(store, request, store.Workspace(), sessionID)
+		if err != nil {
+			return "", fmt.Errorf("project_board_read: %w", err)
+		}
+		encoded, err := json.Marshal(map[string]interface{}{
+			"project":   result.Project,
+			"session":   result.Session,
+			"files":     result.Files,
+			"count":     len(result.Rows),
+			"truncated": result.Truncated,
+			"rows":      projectBoardReadRows(result.Rows),
+		})
+		if err != nil {
+			return "", fmt.Errorf("project_board_read: %w", err)
+		}
+		return string(encoded), nil
+	}
+	runtime.RegisterTool(
+		"project_board_read",
+		"Read the derived project board projection on demand: worktable.jsonl (a session's todo/task rows) and "+
+			"teamwork.jsonl (milestones and their work items) under the data root. Read-only and bounded. Use it when "+
+			"the user asks what a session or the project is doing, or when you pick up another session's tasks; these "+
+			"files live outside the bound project, so read_file/grep_search cannot see them. The projection is derived "+
+			"data (rebuildable), never a fact source: decisions are made from the live session/team state.",
+		schema, handler)
+}
+
+// projectBoardReadRows 把投影行渲染成给模型看的紧凑载荷：只带判定所需的那几格，
+// 不带任何本机路径（落点只有 kind/key/at/scope/payload —— 契约 §4.1 的行信封本身
+// 就不含绝对路径）。
+func projectBoardReadRows(rows []sessionstore.ProjectBoardRow) []map[string]interface{} {
+	views := make([]map[string]interface{}, 0, len(rows))
+	for _, row := range rows {
+		views = append(views, map[string]interface{}{
+			"kind":    row.Kind,
+			"key":     row.Key,
+			"at":      row.At,
+			"scope":   map[string]interface{}{"project": row.Scope.Project, "session": row.Scope.Session},
+			"payload": row.Payload,
+		})
+	}
+	return views
+}
+
 func registerProjectRefreshTool(runtime *seelebridge.Runtime, store *sessionstore.Router) {
 	schema := map[string]interface{}{
 		"type": "object",

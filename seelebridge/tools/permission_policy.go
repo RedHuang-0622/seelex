@@ -115,6 +115,10 @@ func DefaultPermissionGroupList() []toolspermission.PermissionGroup {
 				// 「agent 控制 agentGUI / 只读浏览」档，不高于会话读写档（见
 				// docs/arch/agent-permission-subjects.md §2.2 与 §7.2 第 5 条）。
 				"show_files",
+				// project_board_read（M4）：按需读**派生投影**（会话任务行 / 里程碑）。
+				// 归 ro：它只读、有界，不改任何共享状态，也不写任何文件；工具本身是否
+				// 存在由装配门决定（limits.project_board.enabled）。
+				"project_board_read",
 				"computer_screenshot", "computer_windows", "computer_scroll_targets", "computer_wait",
 			},
 		},
