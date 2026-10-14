@@ -179,6 +179,30 @@ Router 用 RWMutex 把 active repository、config 和 project ID 绑定为原子
 
 显式 `LoadWorkspace` 等方法不修改 active write scope，避免恢复其他项目会话时读错 shard。
 
+## 项目级记录（`project-record.json`，`project_refresh` 的落点）
+
+`ProjectRecord`（`project_record.go`）是**项目级**模块语义：`Version`（由来源 hash 派生）、
+`Modules`、`SourceHashes`、`BuiltAt`。它跨会话共享、会话只读，唯一的写者是 `project_refresh`。
+
+- **键**：`<root>/project-<hash(projectID)>/project-record.json`，`projectID` 是**工作区 ID**
+  `ws-<nano>`（`workspace.New` 生成），不是路径。
+  `RefreshProjectKnowledge(ctx, store, projectID, builder, force)` 显式收这个键——写入键与
+  读面（`main.go` 装配根 `RuntimeDeps.ProjectKnowledge` 的
+  `store.LoadProjectRecord(store.Workspace())`）必须同键，否则记录写在了没人读的键上
+  （回归用例 `TestProjectRefreshWriteReadSameKey`）。空键显式报错，不落盘。
+- **来源**（`ProjectKnowledgeSources`，三字段皆可覆盖）：模块文档目录 `<root>/docs/modules`、
+  模块元数据 `<root>/docs/gui/module_dotting.json`（登记表的真实位置在 `docs/gui`）、
+  可选手写说明 `<root>/seelex.project.md`。三路默认来源全落空 ⇒ 显式
+  `project knowledge: no sources found under ...` 错误，**不产出空记录**；
+  `TestProjectRefreshSourcesConfigurable` 与 `TestProjectRefreshRealRepositorySources`
+  （后者按本仓库真实布局）钉住默认值。
+- **三分支**：来源 hash 未变 → 复用（不重建，`BuiltAt` 不动）；已变/首建 → 重建并原子落盘；
+  重建失败 → 保留上一版本（`Fallback`）；首建失败 → 显式错误。
+- **不做**：不进 `SessionRecord`，不参与会话状态机与 gate/裁决；会话不写项目记录。
+
+Review 风险：新调用方是否误把扫描根路径当项目键传进来；登记的元数据是否随文档搬家而漂移
+（漂移时应该有一条真实布局用例先红，而不是静默退化成 `no sources`）。
+
 ## 会话展示元数据（`SessionMetaStore`）
 
 `SessionMeta`（置顶、别名、手动排序位）描述"用户怎么看这个会话"，不参与执行与存储
@@ -521,6 +545,7 @@ R2/R4 存储侧接口已落地，应用层 actor / EVENT 生产者尚未接线�
 ```text
 go test ./sessionstore -count=1
 go test ./sessionstore -run 'TestV8' -count=1   # M1–M4 契约（65 条）
+go test ./sessionstore -run 'ProjectRecord|ProjectRefresh|ProjectKnowledge' -count=1
 ```
 
 ## Atomic transcript and result contract

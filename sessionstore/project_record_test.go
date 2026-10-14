@@ -12,6 +12,10 @@ import (
 	"time"
 )
 
+// projectRecordTestProjectID 是这些用例的项目级记录键，形状与 workspace.New 生成的
+// `ws-<nano>` 一致；RefreshProjectKnowledge 的写入键与读面（store.Workspace()）必须同键。
+const projectRecordTestProjectID = "ws-0000000000000000001"
+
 func TestProjectRecordRoundTripAcrossLocalBackends(t *testing.T) {
 	for _, config := range []Config{
 		{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")},
@@ -70,7 +74,7 @@ func TestProjectRecordEmptyProjectIDRejected(t *testing.T) {
 }
 
 // newKnowledgeProject 构造含三路来源的临时项目：
-// docs/modules/<name>/README.md、gui/module_dotting.json、seelex.project.md。
+// docs/modules/<name>/README.md、docs/gui/module_dotting.json、seelex.project.md。
 func newKnowledgeProject(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -99,10 +103,10 @@ func newKnowledgeProject(t *testing.T) string {
     }
   ]
 }`
-	if err := os.MkdirAll(filepath.Join(root, "gui"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "docs", "gui"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "gui", "module_dotting.json"), []byte(metadata), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "docs", "gui", "module_dotting.json"), []byte(metadata), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "seelex.project.md"), []byte("项目总体说明\n"), 0o600); err != nil {
@@ -185,7 +189,7 @@ func TestRefreshProjectKnowledgeReusesWhenUnchanged(t *testing.T) {
 	root := newKnowledgeProject(t)
 	builder := NewProjectKnowledgeBuilder(ProjectKnowledgeSources{Root: root})
 
-	first, err := RefreshProjectKnowledge(context.Background(), router, builder, false)
+	first, err := RefreshProjectKnowledge(context.Background(), router, projectRecordTestProjectID, builder, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +198,7 @@ func TestRefreshProjectKnowledgeReusesWhenUnchanged(t *testing.T) {
 	}
 
 	// 来源未变 → 直接复用，不重建（Version/BuiltAt 不变）。
-	second, err := RefreshProjectKnowledge(context.Background(), router, builder, false)
+	second, err := RefreshProjectKnowledge(context.Background(), router, projectRecordTestProjectID, builder, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +210,7 @@ func TestRefreshProjectKnowledgeReusesWhenUnchanged(t *testing.T) {
 	}
 
 	// 强制重建 → 落盘新记录（BuiltAt 前进）。
-	forced, err := RefreshProjectKnowledge(context.Background(), router, builder, true)
+	forced, err := RefreshProjectKnowledge(context.Background(), router, projectRecordTestProjectID, builder, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,10 +219,10 @@ func TestRefreshProjectKnowledgeReusesWhenUnchanged(t *testing.T) {
 	}
 
 	// 来源变化 → 重建。
-	if err := os.WriteFile(filepath.Join(root, "gui", "module_dotting.json"), []byte(`{"modules":[{"id":"core","responsibility":"新职责"}]}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "docs", "gui", "module_dotting.json"), []byte(`{"modules":[{"id":"core","responsibility":"新职责"}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	changed, err := RefreshProjectKnowledge(context.Background(), router, builder, false)
+	changed, err := RefreshProjectKnowledge(context.Background(), router, projectRecordTestProjectID, builder, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,16 +235,16 @@ func TestRefreshProjectKnowledgeFallsBackOnRebuildFailure(t *testing.T) {
 	router := newTestRouter(t)
 	root := newKnowledgeProject(t)
 	builder := NewProjectKnowledgeBuilder(ProjectKnowledgeSources{Root: root})
-	first, err := RefreshProjectKnowledge(context.Background(), router, builder, false)
+	first, err := RefreshProjectKnowledge(context.Background(), router, projectRecordTestProjectID, builder, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// 元数据损坏 → 重建失败 → 保留上一版本（可回退）。
-	broken := filepath.Join(root, "gui", "module_dotting.json")
+	broken := filepath.Join(root, "docs", "gui", "module_dotting.json")
 	if err := os.WriteFile(broken, []byte(`not-json`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	fallback, err := RefreshProjectKnowledge(context.Background(), router, builder, false)
+	fallback, err := RefreshProjectKnowledge(context.Background(), router, projectRecordTestProjectID, builder, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,9 +254,10 @@ func TestRefreshProjectKnowledgeFallsBackOnRebuildFailure(t *testing.T) {
 	if fallback.Record.Version != first.Record.Version {
 		t.Fatalf("fallback record version = %s, want %s", fallback.Record.Version, first.Record.Version)
 	}
-	// 首建失败 → 显式错误。
+	// 首建失败 → 显式错误。用**另一个键**才是真正的「首建」：同键已有记录时
+	// 走的是上面的回退分支（保留上一版本）。
 	emptyBuilder := NewProjectKnowledgeBuilder(ProjectKnowledgeSources{Root: t.TempDir()})
-	if _, err := RefreshProjectKnowledge(context.Background(), router, emptyBuilder, false); err == nil {
+	if _, err := RefreshProjectKnowledge(context.Background(), router, "ws-0000000000000000002", emptyBuilder, false); err == nil {
 		t.Fatal("first build failure must fail explicitly")
 	}
 }
