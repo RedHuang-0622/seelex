@@ -10,7 +10,7 @@ package main
 //   - 「工具完成段 → 订阅口」：application/core 的 TestProjectBoardHooksOnExistingSyncPoint
 //     （真实完成段 + 记录替身，钉住转发的内容与会话归属）；
 //   - 「订阅口 → 真实存储面落盘」：本包 TestProjectBoardEnabledWritesArtifacts
-//     （真实 sessionstore.Router，断言 <root>/project-board/... 真的出现两个文件）。
+//     （真实 sessionstore.Router，断言 <项目根>/.seelex/board/ 下真的出现两份 jsonl）。
 //
 // 写侧的活体取数要求会话在**活体工作表格**里真有行；全链路 harness 的 task 注册表分区
 // 口径与生产不同（同一次 todo 落在会话分区，视图分区为空），现场造不出来——把写侧搬进
@@ -160,25 +160,37 @@ func TestProjectBoardEndToEndThroughToolFace(t *testing.T) {
 	limits := seelexctx.Limits{}
 	limits.ProjectBoard.Enabled = true
 	harness := newFullChainHarnessWithLimits(t, accountsPath, projectRoot, 30*time.Second, true, limits)
-	// 生产里这一步由工作区绑定完成（会话 → 工作区 ID）。
-	harness.store.SetWorkspace("ws-e2e")
+	// 落点是**会话所属工作区的项目根**（`<项目根>/.seelex/board/`）：生产里由工作区绑定给出，
+	// 所以这里也先把这个会话绑到一个真实工作区上——不绑就没有落点，读面读不到东西。
+	viewSession := harness.app.Snapshot().Session.ID
+	workspace, err := harness.workspaces.Create("board-e2e", projectRoot, "")
+	if err != nil {
+		t.Fatalf("建工作区: %v", err)
+	}
+	harness.workspaces.BindSession(viewSession, workspace.ID)
 	// 按生产装配挂读取面（本用例要打的正是这把工具）。
 	registerProjectBoardReadTool(harness.runtime, harness.store, harness.app)
 
 	// 落一份**真**投影（走存储面，不是内存替身）：读面要读的就是它。
+	//
+	// 行归属**另一个**会话（session-e2e），落点仍是本项目的同一份平铺文件——"一个项目一份
+	// worktable.jsonl、多会话共用、行内 scope.session 区分"正是本轮的口径；读面按会话过滤。
 	const sessionID = "session-e2e"
-	projectID := "ws-e2e"
-	if _, err := harness.store.AppendProjectBoardRows(projectID, sessionID, sessionstore.ProjectBoardWorkFile,
+	projectRootForSession := harness.app.ProjectRootFor(viewSession)
+	if strings.TrimSpace(projectRootForSession) == "" {
+		t.Fatal("会话没有工作区绑定（没有落点）：本用例会退化成同义反复")
+	}
+	if _, err := harness.store.AppendProjectBoardRows(projectRootForSession, sessionstore.ProjectBoardWorkFile,
 		[]sessionstore.ProjectBoardRow{{
 			Schema: sessionstore.ProjectBoardSchema, Kind: sessionstore.ProjectBoardKindWork,
 			Key: "work:todo:0", Seq: 1, At: time.Now().Unix(),
-			Scope:   sessionstore.ProjectBoardScope{Project: projectID, Session: sessionID},
+			Scope:   sessionstore.ProjectBoardScope{Session: sessionID},
 			Payload: map[string]any{"task": projectBoardE2EItem, "kind": "todo", "status": "doing"},
 		}}); err != nil {
 		t.Fatalf("写投影: %v", err)
 	}
 	if artifacts := projectBoardArtifacts(t, projectRoot); !containsArtifact(artifacts, sessionstore.ProjectBoardWorkFile) {
-		t.Fatalf("投影没有落在数据根之下：%v", artifacts)
+		t.Fatalf("投影没有落在项目根的 .seelex/board 之下：%v", artifacts)
 	}
 
 	provider.setScript(

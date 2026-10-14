@@ -210,10 +210,11 @@ markdown，`WriteProjectKnown` / `ReadProjectKnown` 把它原子落到项目级�
 
 - **产物定位**：`ProjectRecord` 的**人读渲染（读侧视图），不是输入源**。渲染不参与任何判定、
   不写事实——领域判定照旧读 task/teamwork 事实；它也**不进模型上下文**（只在被读时进入）。
-- **落点**：`<root>/project-board/project-<hash(projectID)>/project-known.md`（目录派生
-  **复用** `projectBoardRoot`，发布**复用** `writeAtomic`，锁**复用** `projectBoardLock`
-  的按路径独立锁；不新增 `storageModule` 枚举）。换存储根，落点随之变
-  （`TestProjectKnownPathFollowsStoreRoot`）。
+- **落点**：`<项目根>/.seelex/board/project-known.md`（与看板**同一个目录**、同一条生命周期；
+  目录派生**复用** `ProjectBoardDir(projectRoot)`，发布**复用** `writeAtomic`，锁**复用**
+  按路径分片的投影锁；不新增 `storageModule` 枚举）。2026-10-15 起落点跟**会话所属工作区**走
+  （解析器由 `Service.ProjectRootFor` / `Router.SetProjectBoardRootFor` 注入），换项目根落点随之变
+  （`TestProjectKnownPathFollowsProjectRoot`）。
 - **确定性**：同一 `ProjectRecord` 两次渲染**字节相同**；模块按 `Name` 稳定排序、`Docs`
   排序去重。**剔除 `BuiltAt`、绝对路径、`ws-<nano>`**（可提交件三铁律）——绝对路径的
   `Path` 丢弃、`Docs` 同理，prose 里的 `ws-…` / 盘符路径清洗成占位符。

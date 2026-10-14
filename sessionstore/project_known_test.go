@@ -130,7 +130,8 @@ func TestProjectKnownPassiveOnly(t *testing.T) {
 	if !ok {
 		t.Fatal("router 不是 JSON 会话存储布局")
 	}
-	path := repository.projectKnownPath(workspaceID)
+	projectRoot := t.TempDir()
+	path := projectKnownPath(projectRoot)
 
 	// 构造 + 刷新（写 project-record.json）之后：渲染件仍不存在。
 	root := newKnowledgeProject(t)
@@ -147,33 +148,33 @@ func TestProjectKnownPassiveOnly(t *testing.T) {
 	if _, statErr := os.Stat(path); !errors.Is(statErr, fs.ErrNotExist) {
 		t.Fatalf("无显式调用就产出了渲染件（%v）：%v", path, statErr)
 	}
-	if _, readErr := router.ReadProjectKnown(workspaceID); !errors.Is(readErr, fs.ErrNotExist) {
+	if _, readErr := router.ReadProjectKnown(projectRoot); !errors.Is(readErr, fs.ErrNotExist) {
 		t.Fatalf("未渲染过的 ReadProjectKnown 错误 = %v，期望 fs.ErrNotExist", readErr)
 	}
 
 	// 显式调用才产文件。
-	if err := router.WriteProjectKnown(workspaceID, ProjectKnownMarkdown(result.Record)); err != nil {
+	if err := router.WriteProjectKnown(projectRoot, ProjectKnownMarkdown(result.Record)); err != nil {
 		t.Fatalf("显式渲染落盘失败：%v", err)
 	}
 	if _, statErr := os.Stat(path); statErr != nil {
 		t.Fatalf("显式调用后渲染件仍不存在：%v", statErr)
 	}
 
-	// 空键 / 空内容显式报错，且不产空文件。
+	// 空根 / 空内容显式报错，且不产空文件。
 	if err := router.WriteProjectKnown("  ", []byte("x")); err == nil {
-		t.Fatal("空 projectID 必须显式报错")
+		t.Fatal("空 projectRoot 必须显式报错")
 	}
-	if err := router.WriteProjectKnown(workspaceID, nil); err == nil {
+	if err := router.WriteProjectKnown(projectRoot, nil); err == nil {
 		t.Fatal("空内容必须显式报错（空文件不是一份渲染件）")
 	}
-	if err := router.WriteProjectKnown(workspaceID, []byte("   \n")); err == nil {
+	if err := router.WriteProjectKnown(projectRoot, []byte("   \n")); err == nil {
 		t.Fatal("空白内容必须显式报错")
 	}
 	if _, err := router.ReadProjectKnown(""); err == nil {
-		t.Fatal("空 projectID 读取必须显式报错")
+		t.Fatal("空 projectRoot 读取必须显式报错")
 	}
 	// 上面三次失败写入不得把既有渲染件清空 / 改成空文件。
-	data, readErr := router.ReadProjectKnown(workspaceID)
+	data, readErr := router.ReadProjectKnown(projectRoot)
 	if readErr != nil {
 		t.Fatalf("渲染件被失败写入破坏：%v", readErr)
 	}
@@ -189,8 +190,8 @@ func TestProjectKnownReusesExistingChain(t *testing.T) {
 	router := newTestRouter(t)
 	const workspaceID = "ws-1700000000000000000"
 	router.SetWorkspace(workspaceID)
-	repository, _ := router.jsonRepository()
-	knownPath := repository.projectKnownPath(workspaceID)
+	projectRoot := t.TempDir()
+	knownPath := projectKnownPath(projectRoot)
 
 	root := newKnowledgeProject(t)
 	builder := NewProjectKnowledgeBuilder(ProjectKnowledgeSources{Root: root})
@@ -204,10 +205,10 @@ func TestProjectKnownReusesExistingChain(t *testing.T) {
 		t.Fatalf("首建不应命中复用/回退：%+v", built)
 	}
 	markdown := ProjectKnownMarkdown(built.Record)
-	if err := router.WriteProjectKnown(workspaceID, markdown); err != nil {
+	if err := router.WriteProjectKnown(projectRoot, markdown); err != nil {
 		t.Fatal(err)
 	}
-	firstBytes, err := router.ReadProjectKnown(workspaceID)
+	firstBytes, err := router.ReadProjectKnown(projectRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,8 +262,8 @@ func TestProjectKnownRebuildFailureKeepsLast(t *testing.T) {
 	router := newTestRouter(t)
 	const workspaceID = "ws-1700000000000000000"
 	router.SetWorkspace(workspaceID)
-	repository, _ := router.jsonRepository()
-	knownPath := repository.projectKnownPath(workspaceID)
+	projectRoot := t.TempDir()
+	knownPath := projectKnownPath(projectRoot)
 
 	root := newKnowledgeProject(t)
 	builder := NewProjectKnowledgeBuilder(ProjectKnowledgeSources{Root: root})
@@ -271,7 +272,7 @@ func TestProjectKnownRebuildFailureKeepsLast(t *testing.T) {
 		t.Fatalf("首建失败：%v", err)
 	}
 	first := ProjectKnownMarkdown(built.Record)
-	if err := router.WriteProjectKnown(workspaceID, first); err != nil {
+	if err := router.WriteProjectKnown(projectRoot, first); err != nil {
 		t.Fatal(err)
 	}
 
@@ -295,7 +296,7 @@ func TestProjectKnownRebuildFailureKeepsLast(t *testing.T) {
 	if _, statErr := os.Stat(knownPath); statErr != nil {
 		t.Fatalf("回退后渲染件应当仍在盘上：%v", statErr)
 	}
-	kept, readErr := router.ReadProjectKnown(workspaceID)
+	kept, readErr := router.ReadProjectKnown(projectRoot)
 	if readErr != nil {
 		t.Fatalf("回退把渲染件弄丢了：%v", readErr)
 	}
@@ -306,8 +307,8 @@ func TestProjectKnownRebuildFailureKeepsLast(t *testing.T) {
 	// 首建失败（无既有记录 + 无来源）⇒ 显式报错，且不产空文件。
 	fresh := newTestRouter(t)
 	fresh.SetWorkspace(workspaceID)
-	freshRepository, _ := fresh.jsonRepository()
-	freshKnown := freshRepository.projectKnownPath(workspaceID)
+	freshRoot := t.TempDir()
+	freshKnown := projectKnownPath(freshRoot)
 	emptyBuilder := NewProjectKnowledgeBuilder(ProjectKnowledgeSources{Root: t.TempDir()})
 	if _, err := RefreshProjectKnowledge(context.Background(), fresh, workspaceID, emptyBuilder, false); err == nil {
 		t.Fatal("首建失败必须显式报错（不产空记录）")
@@ -319,50 +320,39 @@ func TestProjectKnownRebuildFailureKeepsLast(t *testing.T) {
 	}
 }
 
-// TestProjectKnownPathFollowsStoreRoot 覆盖"落点跟存储根变"：换一个存储根，
-// 渲染件随之落到新根下；目录名走 hash（不泄漏 projectID 字面量、不含绝对路径）。
-func TestProjectKnownPathFollowsStoreRoot(t *testing.T) {
-	const projectID = "ws-1700000000000000000"
-	roots := make([]string, 0, 2)
+// TestProjectKnownPathFollowsProjectRoot 覆盖"落点跟**项目根**走"：换一个项目根，
+// 渲染件随之落到那个项目的 `.seelex/board/` 下（不再跟数据根/hash 目录走）。
+func TestProjectKnownPathFollowsProjectRoot(t *testing.T) {
+	router := newTestRouter(t)
 	paths := make([]string, 0, 2)
+	roots := make([]string, 0, 2)
 	for index := 0; index < 2; index++ {
-		router := newTestRouter(t)
-		router.SetWorkspace(projectID)
-		repository, ok := router.jsonRepository()
-		if !ok {
-			t.Fatal("router 不是 JSON 会话存储布局")
-		}
-		path := repository.projectKnownPath(projectID)
-		want := filepath.Join(repository.root, "project-board", "project-"+hash(projectID), ProjectBoardKnownFile)
+		projectRoot := t.TempDir()
+		path := projectKnownPath(projectRoot)
+		want := filepath.Join(projectRoot, ".seelex", "board", ProjectBoardKnownFile)
 		if path != want {
 			t.Fatalf("落点 = %q，期望 %q", path, want)
 		}
-		if !strings.HasPrefix(path, repository.root) {
-			t.Fatalf("落点不在数据根之下：%q vs %q", path, repository.root)
+		if !strings.HasPrefix(path, projectRoot) {
+			t.Fatalf("落点不在项目根之下：%q vs %q", path, projectRoot)
 		}
-		if strings.Contains(path, projectID) {
-			t.Fatalf("目录名泄漏了 projectID 字面量：%q", path)
-		}
-		if err := router.WriteProjectKnown(projectID, []byte("# 项目摘要（Project Known）\n\n## core\n\ncore 职责\n")); err != nil {
+		if err := router.WriteProjectKnown(projectRoot, []byte("# 项目摘要（Project Known）\n\n## core\n\ncore 职责\n")); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := os.Stat(path); err != nil {
-			t.Fatalf("渲染件没有落在数据根下：%v", err)
+			t.Fatalf("渲染件没有落在项目目录下：%v", err)
 		}
-		roots = append(roots, repository.root)
+		roots = append(roots, projectRoot)
 		paths = append(paths, path)
 	}
 	if roots[0] == roots[1] {
-		t.Fatal("两次构造用了同一个存储根，用例无效")
+		t.Fatal("两次构造用了同一个项目根，用例无效")
 	}
-	// 两个根各自独立：第二个根下的渲染件不因第一个根的写入而存在（写入前已断言）。
 	if paths[0] == paths[1] {
-		t.Fatalf("换存储根后落点没变：%q", paths[0])
+		t.Fatalf("换项目根后落点没变：%q", paths[0])
 	}
-	// 换根后旧根的文件不被新根读取（读面只看当前存储根）。
-	router := newTestRouter(t)
-	router.SetWorkspace(projectID)
-	if _, err := router.ReadProjectKnown(projectID); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("新存储根读到了别的根的渲染件：%v", err)
+	// 两个项目互不可见：第一个项目根读不到第二个项目的渲染件。
+	if _, err := router.ReadProjectKnown(t.TempDir()); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("另一个项目根读到了别的项目的渲染件：%v", err)
 	}
 }

@@ -437,9 +437,11 @@ func (t ProjectBoardTrigger) Off() bool { return !t.anyTool && len(t.names) == 0
 
 // ProjectBoardStore 是投影的**写侧端口**（签名与 sessionstore.Router 同形：
 // *sessionstore.Router 直接就实现它，装配方不必写适配器）。
+//
+// 键是**项目根**（`<项目根>/.seelex/board/`）：看板跟着项目走，不再钉在数据根。
 type ProjectBoardStore interface {
-	AppendProjectBoardRows(projectID, sessionID, file string, rows []sessionstore.ProjectBoardRow) (uint64, error)
-	ProjectBoardWatermark(projectID, sessionID, file string) (uint64, error)
+	AppendProjectBoardRows(projectRoot, file string, rows []sessionstore.ProjectBoardRow) (uint64, error)
+	ProjectBoardWatermark(projectRoot, file string) (uint64, error)
 }
 
 // ProjectBoardSink 是**工具完成**的订阅口（M3 把钩子接到它上：唯一一个方法，
@@ -477,10 +479,13 @@ type ProjectBoardDeps struct {
 	WorkTableRows func(sessionID string) []WorkItem
 	TeamPlanFor   func(sessionID string) *sessionstore.TeamworkPlan
 	TeamStateFor  func(sessionID string) *sessionstore.TeamworkState
-	ProjectIDFor  func(sessionID string) string
-	Triggers      ProjectBoardTrigger
-	FlushIdle     time.Duration
-	Now           func() time.Time
+	// ProjectRootFor 是「会话 → 项目根」的解析（"" = 没有落点：未绑定工作区的会话
+	// 不落盘）。落点就是 `<项目根>/.seelex/board/`；不再要工作区 ID——它是
+	// `ws-<nano>`（机器本地 ID），写进产物会让看板不可提交（契约 §3 三条硬纪律）。
+	ProjectRootFor func(sessionID string) string
+	Triggers       ProjectBoardTrigger
+	FlushIdle      time.Duration
+	Now            func() time.Time
 }
 
 // ProjectBoardSyncer 是投影同步器：唯一写盘路径 + 唯一 flush goroutine。
@@ -630,12 +635,12 @@ func (s *ProjectBoardSyncer) flushDirty() {
 
 // flushSession 落一个会话的两个投影文件（work 行与 milestone 行各落各的）。
 func (s *ProjectBoardSyncer) flushSession(sessionID string) {
-	projectID := ""
-	if s.deps.ProjectIDFor != nil {
-		projectID = strings.TrimSpace(s.deps.ProjectIDFor(sessionID))
+	projectRoot := ""
+	if s.deps.ProjectRootFor != nil {
+		projectRoot = strings.TrimSpace(s.deps.ProjectRootFor(sessionID))
 	}
-	if projectID == "" {
-		// 没有工作区绑定的会话没有项目级落点（投影按"项目 / 会话"两层派生）。
+	if projectRoot == "" {
+		// 没有项目根 = 没有落点（未绑定工作区的会话不落盘）。
 		log.Printf("[project-board] 会话 %s 没有工作区绑定，本次不落投影", sessionID)
 		return
 	}
@@ -651,10 +656,12 @@ func (s *ProjectBoardSyncer) flushSession(sessionID string) {
 	if s.deps.TeamStateFor != nil {
 		state = s.deps.TeamStateFor(sessionID)
 	}
-	scope := sessionstore.ProjectBoardScope{Project: projectID, Session: sessionID}
+	// scope 只写会话：落点本身已经回答了"哪个项目"（行内再写 `ws-<nano>` 会让产物
+	// 不可提交，契约 §3 硬纪律）。
+	scope := sessionstore.ProjectBoardScope{Session: sessionID}
 	at := s.now().UTC().Unix()
-	s.flushFile(sessionID, projectID, scope, sessionstore.ProjectBoardWorkFile, at, items, plan, state)
-	s.flushFile(sessionID, projectID, scope, sessionstore.ProjectBoardTeamworkFile, at, items, plan, state)
+	s.flushFile(sessionID, projectRoot, scope, sessionstore.ProjectBoardWorkFile, at, items, plan, state)
+	s.flushFile(sessionID, projectRoot, scope, sessionstore.ProjectBoardTeamworkFile, at, items, plan, state)
 }
 
 // flushFile 落一个文件：取水位 → 指纹去重 → 差集补 tombstone → 追加。
@@ -665,7 +672,7 @@ func (s *ProjectBoardSyncer) flushSession(sessionID string) {
 //     会被指纹去重固化成"投影永远缺失"）；
 //   - I6 空则退场：没有行、也没有要吊销的 key ⇒ 不建文件（只记账）。
 func (s *ProjectBoardSyncer) flushFile(
-	sessionID, projectID string,
+	sessionID, projectRoot string,
 	scope sessionstore.ProjectBoardScope,
 	file string,
 	at int64,
@@ -673,7 +680,7 @@ func (s *ProjectBoardSyncer) flushFile(
 	plan *sessionstore.TeamworkPlan,
 	state *sessionstore.TeamworkState,
 ) {
-	watermark, err := s.deps.Store.ProjectBoardWatermark(projectID, sessionID, file)
+	watermark, err := s.deps.Store.ProjectBoardWatermark(projectRoot, file)
 	if err != nil {
 		log.Printf("[project-board] 读水位失败（%s/%s），本次不落盘：%v", sessionID, file, err)
 		return
@@ -712,7 +719,7 @@ func (s *ProjectBoardSyncer) flushFile(
 		s.remember(key, boardFileState{fingerprint: fingerprint, watermark: watermark})
 		return
 	}
-	next, err := s.deps.Store.AppendProjectBoardRows(projectID, sessionID, file, batch)
+	next, err := s.deps.Store.AppendProjectBoardRows(projectRoot, file, batch)
 	if err != nil {
 		// 不更新记账 ⇒ 下次触发重试（投影是派生数据，失败不 panic、不阻塞回合）。
 		log.Printf("[project-board] 追加投影失败（%s/%s），本次不落盘：%v", sessionID, file, err)
@@ -776,28 +783,24 @@ func (service *Service) WorkTableRowsFor(sessionID string) []WorkItem {
 	)
 }
 
-// ProjectIDFor 返回会话所属的**工作区 ID**（"ws-…"；"" = 默认/未绑定）。
+// ProjectRootFor 返回会话所属工作区的**项目根**（绝对路径；"" = 未绑定/无落点）。
 //
-// 工作区 ID 是会话上的**绑定事实**（WorkspacePort.SessionWorkspace 是它的唯一读法，
-// 与 bindSessionProjectRoot / restoreInitialWorkspace 同源）；未装配工作区端口或该会话
-// 未绑定时回退到 Sessions.Workspace()（会话存储当前的活跃工作区，"" = 默认目录）。
+// 项目根的权威读法是 WorkspacePort.SessionWorkspace（与 bindSessionProjectRoot /
+// restoreInitialWorkspace 同源）——看板的落点就是 `<项目根>/.seelex/board/`，
+// 所以"项目根"这一格必须来自**绑定事实**，不能由视图/活跃工作区猜。
 //
-// 为什么不读 Runtime：RuntimePort 只有 SetSessionWorkspace（写入面），没有按会话读回的口；
-// 为了一个派生投影的目录名去给端口加一个读成员，是"为投影改事实面"。
-func (service *Service) ProjectIDFor(sessionID string) string {
-	if service == nil {
+// 未绑定工作区的会话返回 ""（**没有落点**：不落盘，契约 §3）。这里**不**回退到
+// Sessions.Workspace()：那是"视图当前工作区"，拿它当落点等于把别的项目的看板写进去。
+func (service *Service) ProjectRootFor(sessionID string) string {
+	if service == nil || service.Deps.Workspace == nil {
 		return ""
 	}
 	sessionID = strings.TrimSpace(sessionID)
-	if service.Deps.Workspace != nil && sessionID != "" {
-		if workspace, ok := service.Deps.Workspace.SessionWorkspace(sessionID); ok {
-			if id := strings.TrimSpace(workspace.ID); id != "" {
-				return id
-			}
-		}
+	if sessionID == "" {
+		return ""
 	}
-	if service.Deps.Sessions != nil {
-		return strings.TrimSpace(service.Deps.Sessions.Workspace())
+	if workspace, ok := service.Deps.Workspace.SessionWorkspace(sessionID); ok {
+		return strings.TrimSpace(workspace.RootPath)
 	}
 	return ""
 }

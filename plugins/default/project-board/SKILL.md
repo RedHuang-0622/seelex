@@ -24,12 +24,14 @@ description: 项目看板（Project Board）按需读取：会话的任务行（
 |---|---|
 | `session` | 会话 ID；缺省 = 当前会话；`all` = 本项目内跨会话聚合（有界） |
 | `file` | `worktable`（任务行）/ `teamwork`（里程碑 + 工作项）；缺省两份都读 |
-| `project` | 工作区 ID（`ws-…`）；缺省 = 当前会话所属工作区 |
+| `project_root` | 项目根目录；缺省 = 当前会话所属工作区的根（看板落点 = `<project_root>/.seelex/board`） |
 | `limit` | 行数上限（缺省 100，硬上限 500；超限显式报错，触顶时返回 `truncated: true`） |
 
-落点在**数据根**（`<json_root>/project-board/project-<hash>/session-<hash>/*.jsonl`），
-不在绑定工程内，所以 `read_file` / `grep_search` / `glob` **读不到**它（目录名是 hash，
-也没有原样的会话 id）——别去工作树里找这两份文件。
+落点在**项目目录**里：`<项目根>/.seelex/board/{worktable,teamwork}.jsonl`（还有一份人读件
+`BOARD.md`）。但 `read_file` / `grep_search` / `glob` **依然读不到**它——Seelex 的工作区读面把
+`.seelex` 整个列为忽略目录（默认数据根常同名，整体放开会把 `lock.owner`、会话正文一起放出来），
+所以这条目录只有两把读法：本工具（有界 + 按会话归属），或你**自己**在终端里直接读
+`BOARD.md`（外部 agent 如 codex / claude code 走的就是这条路）。
 
 ## 读到的形状
 
@@ -59,6 +61,6 @@ key 已经消失（被删掉了）。
 
 1. **不判定**：`status` 是映射来的，任何"该不该重派/能不能收口"的判断回活体与领域事实；
 2. **不引用为输入**：投影被篡改不影响任何活体与领域判定（文件只是派生件）；
-3. **不提交**：投影行带 `scope.project = ws-<nano>`（本机工作区 ID），是**本机派生数据**，
-   不进版本库；要交付就给一份去本地化清洗过的渲染件（如 `project_refresh` 产出的
-   `project-known.md`）。
+3. **可提交**：行内**不写** `scope.project`（`ws-<nano>` 是机器本地 ID），落点在
+   `<项目根>/.seelex/` 而该目录在 `.gitignore` 的运行时数据段里，`BOARD.md`
+   也不落 `at`/绝对路径/用户名 ⇒ 派生件既不入库也不泄漏本机标识。

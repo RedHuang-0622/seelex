@@ -43,15 +43,21 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - 锁纪律：登记表锁是**叶子锁**（tools 侧从不回调进 application，只发 channel），所以持
   `ViewMu` 时读它是安全的；必须锁外取的是 `Engine.SubAgentTree()` 那类会拿会话锁的读面。
 
-## 项目看板投影（project board，M2/M3）
+## 项目看板投影（project board，M2/M3；落点 M7 搬迁）
 
-把**已经存在**的两份投影按会话落成一组追加式 JSONL **派生件**，供按需读取：
+把**已经存在**的两份投影按会话落成一组追加式 JSONL **派生件**，供按需读取；物理落点是**项目目录**（2026-10-15 从数据根 `project-board/project-<hash>/…` 搬来）：
 
 ```text
-<json_root>/project-board/project-<hash(projectID)>/session-<hash(sessionID)>/worktable.jsonl
-                                                                         /teamwork.jsonl
+<项目根>/.seelex/board/worktable.jsonl      # 工作：todo / task 行（一个项目一份，多会话共用）
+<项目根>/.seelex/board/teamwork.jsonl       # 编排：milestone / milestone_item 行
+<项目根>/.seelex/board/BOARD.md             # 人读件（由折叠后的行确定性渲染）
 ```
 
+- **落点解析只有一处**：`Service.ProjectRootFor(sessionID)`（= 会话所属工作区的 `RootPath`；
+  未绑定工作区返回 `""` ⇒ **不落盘**，契约 §3）。存储面用
+  `Router.SetProjectBoardRootFor(func(sessionID) string)` 注入同一解析器——存储面不认识工作区，
+  因此会话删除时的回收挂在 `Router.DeleteWorkspace` 上（不在 `jsonRepository.Delete` 里）；
+  落点目录由 `sessionstore.ProjectBoardDir(projectRoot)` 一处派生（固定名，不再派生 hash 目录）。
 - **事实层不动**：工作表格行来自 `buildWorkTable`（`work_table.go`），里程碑/工作项来自
   teamwork 计划与运行态（`sessionstore/teamwork.go`）。本模块只做**字段映射**，不判定、
   不重算状态（`AGENTS.md §8.3` 的唯一判据纪律）。
@@ -135,12 +141,12 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - `func (s *ProjectBoardSyncer) run()` — run 是唯一的 flush goroutine：唤醒重设静默窗（debounce），窗口到期落盘，Close 时补一次。
 - `func (s *ProjectBoardSyncer) flushDirty()` — flushDirty 把脏集合取走（先取走再落盘：落盘期间新来的触发会攒进下一批，不会丢）。
 - `func (s *ProjectBoardSyncer) flushSession(sessionID string)` — flushSession 落一个会话的两个投影文件（work 行与 milestone 行各落各的）。
-- `func (s *ProjectBoardSyncer) flushFile( sessionID, projectID string, scope sessionstore.ProjectBoardScope, file string, at int64, items []WorkItem, plan *sessionstore.TeamworkPlan, state *sessionstore.TeamworkState, )` — flushFile 落一个文件：取水位 → 指纹去重 → 差集补 tombstone → 追加。
+- `func (s *ProjectBoardSyncer) flushFile( sessionID, projectRoot string, scope sessionstore.ProjectBoardScope, file string, at int64, items []WorkItem, plan *sessionstore.TeamworkPlan, state *sessionstore.TeamworkState, )` — flushFile 落一个文件：取水位 → 指纹去重 → 差集补 tombstone → 追加。
 - `func projectBoardRemovedRow(scope sessionstore.ProjectBoardScope, seq uint64, at int64, kind, key string) sessionstore.ProjectBoardRow` — projectBoardRemovedRow 组装一行 tombstone（折叠读遇到 payload["removed"]==true 即让该 key 消失）。
 - `func (s *ProjectBoardSyncer) remember(key boardFileKey, state boardFileState)` — remember 更新落盘记账。
 - `func (s *ProjectBoardSyncer) Close()` — Close 幂等：关掉唯一 goroutine 并等它退出（退出前补一次落盘）。
 - `func (service *Service) WorkTableRowsFor(sessionID string) []WorkItem` — WorkTableRowsFor 返回指定会话的**活体工作表格投影**（只读；不重算任何状态）。
-- `func (service *Service) ProjectIDFor(sessionID string) string` — ProjectIDFor 返回会话所属的**工作区 ID**（"ws-…"；"" = 默认/未绑定）。
+- `func (service *Service) ProjectRootFor(sessionID string) string` — ProjectRootFor 返回会话所属工作区的**项目根**（绝对路径；"" = 未绑定/无落点）。
 - `func (service *Service) ProjectBoardTeamPlanFor(sessionID string) *sessionstore.TeamworkPlan` — ProjectBoardTeamPlanFor 按**窄可选端口**取 teamwork 计划（未装配 / 该会话没有计划 ⇒ nil）。
 - `func (service *Service) ProjectBoardTeamStateFor(sessionID string) *sessionstore.TeamworkState` — ProjectBoardTeamStateFor 取该会话的 teamwork **运行态**（里程碑结论 / 整队收口）。
 - `func (state *serviceState) taskRecordsForSession(sessionID, viewSessionID string) []dto.TaskRecord` — taskRecordsForSession 按会话取 task 注册表快照：视图/活跃会话 = 实时注册表（"" 分区），
@@ -152,15 +158,15 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 ### project_board_test.go
 
 - `func newFakeBoardStore() *fakeBoardStore`
-- `func boardStoreKey(project, session, file string) string`
-- `func (store *fakeBoardStore) AppendProjectBoardRows(project, session, file string, rows []sessionstore.ProjectBoardRow) (uint64, error)`
-- `func (store *fakeBoardStore) ProjectBoardWatermark(project, session, file string) (uint64, error)`
-- `func (store *fakeBoardStore) watermarkLocked(project, session, file string) uint64`
+- `func boardStoreKey(projectRoot, file string) string` — boardStoreKey 是内存替身的文件键：落点现在是**项目级平铺文件**
+- `func (store *fakeBoardStore) AppendProjectBoardRows(projectRoot, file string, rows []sessionstore.ProjectBoardRow) (uint64, error)`
+- `func (store *fakeBoardStore) ProjectBoardWatermark(projectRoot, file string) (uint64, error)`
+- `func (store *fakeBoardStore) watermarkLocked(projectRoot, file string) uint64`
 - `func (store *fakeBoardStore) writeCount(file string) int`
 - `func (store *fakeBoardStore) lastWrite(file string) []sessionstore.ProjectBoardRow`
-- `func (store *fakeBoardStore) raw(project, session, file string) []sessionstore.ProjectBoardRow` — raw 是文件的**原始行**（未折叠；I6 断言"空集合不建文件"用它）。
-- `func (store *fakeBoardStore) folded(project, session, file string) []sessionstore.ProjectBoardRow` — folded 复用存储面**唯一读法**（折叠读），不自己实现第二份。
-- `func (store *fakeBoardStore) dropFile(project, session, file string)`
+- `func (store *fakeBoardStore) raw(projectRoot, file string) []sessionstore.ProjectBoardRow` — raw 是文件的**原始行**（未折叠；I6 断言"空集合不建文件"用它）。
+- `func (store *fakeBoardStore) folded(projectRoot, file string) []sessionstore.ProjectBoardRow` — folded 复用存储面**唯一读法**（折叠读），不自己实现第二份。
+- `func (store *fakeBoardStore) dropFile(projectRoot, file string)`
 - `func newBoardTestService(t *testing.T, options ...testServiceOption) (*Service, *fakeRuntime, string)` — newBoardTestService 造一个带 fakeRuntime 的 Service，并返回其**当前视图会话**
 - `func boardDeps(store ProjectBoardStore, idle time.Duration, rows func(string) []WorkItem) ProjectBoardDeps` — boardDeps 造同步器入参（默认走默认触发档，落点固定 ws-board）。
 - `func waitForBoardWrites(t *testing.T, store *fakeBoardStore, file string, want int)`
@@ -194,9 +200,9 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - `func (runtime *boardPlanRuntime) TeamworkPlanFor(sessionID string) (sessionstore.TeamworkPlan, bool)`
 - `func (sink *recordingBoardSink) OnToolComplete(name string, err error, sessionID string)`
 - `func (sink *recordingBoardSink) snapshot() []boardSinkCall`
-- `func boardSessionRows(t *testing.T, store *fakeBoardStore, session, file string) int` — boardSessionRows 取"该会话在该文件里"的行数（按会话切分：多会话断言互不串味）。
+- `func boardSessionRows(t *testing.T, store *fakeBoardStore, session, file string) int` — boardSessionRows 取"该会话在该文件里"的行数。
 - `func TestProjectBoardHooksOnExistingSyncPoint(t *testing.T)`
-- `func (store *flakyBoardStore) AppendProjectBoardRows(project, session, file string, rows []sessionstore.ProjectBoardRow) (uint64, error)`
+- `func (store *flakyBoardStore) AppendProjectBoardRows(projectRoot, file string, rows []sessionstore.ProjectBoardRow) (uint64, error)`
 - `func TestProjectBoardHookFailureNoHalfWrite(t *testing.T)`
 
 ### work_table.go

@@ -126,6 +126,23 @@ lands.
 
 ### Changed
 
+- **项目看板落点搬到项目目录（`docs/arch/seelex-project-board.md` §3/§9.1 D-5）**. 派生投影的物理落点
+  从数据根的 hash 目录改为**项目根**：`<项目根>/.seelex/board/{worktable,teamwork}.jsonl`（去 hash、
+  一个项目一份平铺文件、多会话共用，会话维度写在行内 `scope.session`）+ 人读件 `BOARD.md`
+  （由折叠后的行确定性渲染：不落 `at`、不渲染 `scope.project`），
+  `project-known.md` 同目录。理由：旧落点不可提交也不可归属（数据根在工程之外、目录名是 hash、
+  行内带 `ws-<nano>`）；搬进项目目录后**落点即项目归属**，外部 agent（codex / claude code）直接读盘上的
+  `BOARD.md` 就能接手，且 `.seelex/` 已在 `.gitignore` 的运行时数据段 ⇒ 派生件自动不入库。
+  窄端口两处：装配侧 `core.Service.ProjectRootFor(sessionID)`（来自 `WorkspacePort.SessionWorkspace`，
+  未绑定 ⇒ `""` ⇒ **不落盘**）；存储侧 `Router.SetProjectBoardRootFor(func(sessionID) string)`
+  （存储面不认识工作区 ⇒ 会话删除回收从 `jsonRepository.Delete` 移到 `Router.DeleteWorkspace`）。
+  并发口径：写盘锁改**按文件路径分片**，数据根的 `lock.owner` **不再覆盖**项目目录里的这份投影。
+  签名随之收敛：`ProjectBoardDeps.ProjectIDFor` → `ProjectRootFor`，
+  `AppendProjectBoardRows/ProjectBoardWatermark/ReadProjectBoardRows/ReadProjectBoard` 首参一律改 `projectRoot`、
+  `project_board_read` 新增可选入参 `project_root`。判据：`sessionstore/project_board_landing_test.go`
+  （红灯先行：搬迁前 FAIL「投影仍落在数据根的 hash 目录」；正面：两份 jsonl + `BOARD.md` 出现在
+  `<项目根>/.seelex/board/`）；装配门用例同时断言**数据根零文件**。
+
 - **前端一致性批（`docs/2026-10-12-frontend-consistency-and-fixes`）：视觉基线 B0 + 纯前端六条**（GUI ·
   `gui/frontend/dist/`，dist 即源、无 bundler。里程碑 M1 由 teamwork 分工落地，逐件带 `node --test` 证据）。
   - **B0 视觉基线**：`styles.css` 顶部新增「B0 · 视觉基线规则」块（半径只走 `--r-*` token；悬停/选中只用既有

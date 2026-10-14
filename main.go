@@ -645,7 +645,7 @@ func run() error {
 	registerContextReadTools(runtime, app)
 	// J-2：agent 请求 GUI 打开待审阅文件（一次批处理召唤，上限 10 份）。
 	registerReviewFilesTool(runtime, app)
-	registerProjectRefreshTool(runtime, store)
+	registerProjectRefreshTool(runtime, store, app)
 	registerScheduledTaskCapability(runtime)
 	toolHooks.Bind(app)
 	// 项目看板（可选能力，M3 装配门）：装配期**一次**交接——开关关 ⇒ 不注入订阅口
@@ -654,13 +654,21 @@ func run() error {
 	projectBoardSink, closeProjectBoard, err := projectBoardSinkFor(
 		runtimeLimits.ProjectBoard, store,
 		app.WorkTableRowsFor, app.ProjectBoardTeamPlanFor,
-		app.ProjectBoardTeamStateFor, app.ProjectIDFor,
+		app.ProjectBoardTeamStateFor, app.ProjectRootFor,
 	)
 	if err != nil {
 		return err
 	}
 	app.SetProjectBoardSink(projectBoardSink)
 	defer closeProjectBoard()
+	// 会话删除时同批回收项目目录里的投影：项目根只有装配根知道（存储层不认识工作区），
+	// 所以在这里把解析器交给 Router 一次（见 sessionstore.SetProjectBoardRootFor）。
+	store.SetProjectBoardRootFor(func(sessionID string) string {
+		if workspace, ok := wsRepo.SessionWorkspace(sessionID); ok {
+			return strings.TrimSpace(workspace.RootPath)
+		}
+		return ""
+	})
 	// 读取面：**只在这一档注册**（关 ⇒ 工具根本不存在 = 零读取面，而不是"注册了但报错"）。
 	if runtimeLimits.ProjectBoard.Enabled {
 		registerProjectBoardReadTool(runtime, store, app)
@@ -832,9 +840,9 @@ func registerProjectBoardReadTool(runtime *seelebridge.Runtime, store *sessionst
 				"enum":        []string{seelebridge.ProjectBoardReadFileWorktable, seelebridge.ProjectBoardReadFileTeamwork},
 				"description": "读哪一份投影：worktable（会话的任务行）/ teamwork（里程碑与工作项）；缺省 = 两份都读",
 			},
-			"project": map[string]interface{}{
+			"project_root": map[string]interface{}{
 				"type":        "string",
-				"description": "工作区 ID（ws-…）；缺省 = 当前会话所属工作区",
+				"description": "项目根目录（看板落点 = <project_root>/.seelex/board）；缺省 = 当前会话所属工作区的根",
 			},
 			"limit": map[string]interface{}{
 				"type": "integer", "minimum": 1, "maximum": seelebridge.ProjectBoardReadMaxLimit,
@@ -856,17 +864,17 @@ func registerProjectBoardReadTool(runtime *seelebridge.Runtime, store *sessionst
 		if sessionID == "" {
 			sessionID = app.Snapshot().Session.ID
 		}
-		result, err := seelebridge.ReadProjectBoard(store, request, store.Workspace(), sessionID)
+		result, err := seelebridge.ReadProjectBoard(store, request, app.ProjectRootFor(sessionID), sessionID)
 		if err != nil {
 			return "", fmt.Errorf("project_board_read: %w", err)
 		}
 		encoded, err := json.Marshal(map[string]interface{}{
-			"project":   result.Project,
-			"session":   result.Session,
-			"files":     result.Files,
-			"count":     len(result.Rows),
-			"truncated": result.Truncated,
-			"rows":      projectBoardReadRows(result.Rows),
+			"project_root": result.ProjectRoot,
+			"session":      result.Session,
+			"files":        result.Files,
+			"count":        len(result.Rows),
+			"truncated":    result.Truncated,
+			"rows":         projectBoardReadRows(result.Rows),
 		})
 		if err != nil {
 			return "", fmt.Errorf("project_board_read: %w", err)
@@ -875,11 +883,13 @@ func registerProjectBoardReadTool(runtime *seelebridge.Runtime, store *sessionst
 	}
 	runtime.RegisterTool(
 		"project_board_read",
-		"Read the derived project board projection on demand: worktable.jsonl (a session's todo/task rows) and "+
-			"teamwork.jsonl (milestones and their work items) under the data root. Read-only and bounded. Use it when "+
-			"the user asks what a session or the project is doing, or when you pick up another session's tasks; these "+
-			"files live outside the bound project, so read_file/grep_search cannot see them. The projection is derived "+
-			"data (rebuildable), never a fact source: decisions are made from the live session/team state.",
+		"Read the derived project board projection on demand: worktable.jsonl (todo/task rows) and "+
+			"teamwork.jsonl (milestones and their work items) under <project_root>/.seelex/board. "+
+			"Read-only and bounded, filterable by session. Use it when the user asks what a session or the "+
+			"project is doing, or when you pick up another session's tasks; the workspace read tools refuse "+
+			"`.seelex` (it can be the data root), so this is the bounded reader for that directory. "+
+			"The projection is derived data (rebuildable), never a fact source: decisions are made from the "+
+			"live session/team state.",
 		schema, handler)
 }
 
@@ -893,14 +903,14 @@ func projectBoardReadRows(rows []sessionstore.ProjectBoardRow) []map[string]inte
 			"kind":    row.Kind,
 			"key":     row.Key,
 			"at":      row.At,
-			"scope":   map[string]interface{}{"project": row.Scope.Project, "session": row.Scope.Session},
+			"scope":   map[string]interface{}{"session": row.Scope.Session},
 			"payload": row.Payload,
 		})
 	}
 	return views
 }
 
-func registerProjectRefreshTool(runtime *seelebridge.Runtime, store *sessionstore.Router) {
+func registerProjectRefreshTool(runtime *seelebridge.Runtime, store *sessionstore.Router, app *application.Service) {
 	schema := map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -939,7 +949,17 @@ func registerProjectRefreshTool(runtime *seelebridge.Runtime, store *sessionstor
 			knownNote = "fallback：保留上一版本渲染件（未重写）"
 		} else {
 			markdown := sessionstore.ProjectKnownMarkdown(result.Record)
-			if writeErr := store.WriteProjectKnown(store.Workspace(), markdown); writeErr != nil {
+			// 渲染件与看板同一个目录：<项目根>/.seelex/board/。项目根优先取**会话绑定**
+			// （与看板落点同源）；未绑定时退回本次扫描根（显式给了 project_root 的用法）。
+			sessionID := strings.TrimSpace(coretask.SessionIDFromContext(ctx))
+			if sessionID == "" {
+				sessionID = app.Snapshot().Session.ID
+			}
+			renderRoot := app.ProjectRootFor(sessionID)
+			if renderRoot == "" {
+				renderRoot = builder.Root()
+			}
+			if writeErr := store.WriteProjectKnown(renderRoot, markdown); writeErr != nil {
 				return "", fmt.Errorf("project_refresh: %w", writeErr)
 			}
 			knownWritten = true
@@ -1723,14 +1743,14 @@ func registerAskApprove(runtime *seelebridge.Runtime, approval *application.Appr
 // ——后者会把"开了但没生效"变成一桩只能靠读代码才能解的悬案。
 //
 // 取数依赖一律用 application 侧的只读口（WorkTableRowsFor / ProjectBoardTeamPlanFor /
-// ProjectBoardTeamStateFor / ProjectIDFor）：同步器不重算任何状态（I3）。
+// ProjectBoardTeamStateFor / ProjectRootFor）：同步器不重算任何状态（I3）。
 func projectBoardSinkFor(
 	limits seelexctx.ProjectBoardLimits,
 	store core.ProjectBoardStore,
 	workTableRows func(sessionID string) []core.WorkItem,
 	teamPlanFor func(sessionID string) *sessionstore.TeamworkPlan,
 	teamStateFor func(sessionID string) *sessionstore.TeamworkState,
-	projectIDFor func(sessionID string) string,
+	projectRootFor func(sessionID string) string,
 ) (core.ProjectBoardSink, func(), error) {
 	if !limits.Enabled {
 		return nil, func() {}, nil
@@ -1740,13 +1760,13 @@ func projectBoardSinkFor(
 		return nil, func() {}, err
 	}
 	syncer := core.NewProjectBoardSyncer(core.ProjectBoardDeps{
-		Store:         store,
-		WorkTableRows: workTableRows,
-		TeamPlanFor:   teamPlanFor,
-		TeamStateFor:  teamStateFor,
-		ProjectIDFor:  projectIDFor,
-		Triggers:      core.TriggerFor(hook),
-		FlushIdle:     time.Duration(limits.FlushIdleMS) * time.Millisecond,
+		Store:          store,
+		WorkTableRows:  workTableRows,
+		TeamPlanFor:    teamPlanFor,
+		TeamStateFor:   teamStateFor,
+		ProjectRootFor: projectRootFor,
+		Triggers:       core.TriggerFor(hook),
+		FlushIdle:      time.Duration(limits.FlushIdleMS) * time.Millisecond,
 	})
 	// 收尾就是同步器自己的 Close（幂等）：终止唯一 flush goroutine，退出前补一次落盘。
 	return syncer, syncer.Close, nil

@@ -315,6 +315,10 @@ type Router struct {
 	configPath  string
 	defaultPath string
 	projectID   string
+	// projectBoardRootFor 是「会话 → 项目根」的解析器（装配期注入一次；nil = 未装配）。
+	// 项目看板的落点是项目目录，而存储层不认识工作区——只有会话删除时的投影回收需要
+	// 它（见 project_board.go 的 SetProjectBoardRootFor / ReclaimProjectBoard）。
+	projectBoardRootFor func(sessionID string) string
 	// opsMu/activeOps/opsCond 统计在途 repository 操作：Repository 切换与
 	// Close 只在活跃操作归零后关闭旧后端；数据操作本身不再持有 router.mu，
 	// 不同会话的读写可并行（跨会话锁竞争消除）。
@@ -959,9 +963,16 @@ func (router *Router) Delete(sessionID string) error {
 // DeleteWorkspace deletes a session from an explicit project scope without
 // changing the router's active write scope.
 func (router *Router) DeleteWorkspace(projectID, sessionID string) error {
-	return router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+	if err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
 		return repository.Delete(context.Background(), Key{ProjectID: projectID, SessionID: sessionID})
-	})
+	}); err != nil {
+		return err
+	}
+	// 派生投影与会话同批回收：项目看板是"按会话派生"的投影（可删可重建），会话没了
+	// 它的行就该退场（否则会在项目看板里留成"幽灵活"）。回收实现只有一处
+	// （ReclaimProjectBoard，见 project_board.go）——这里只做绑定，且**只在真正删成
+	// 之后**才做（失败不掩盖删除错误）。
+	return router.ReclaimProjectBoard(projectID, sessionID)
 }
 
 func (router *Router) MessageCount(sessionID string) (int, error) {
@@ -1697,12 +1708,9 @@ func (repository *jsonRepository) Delete(_ context.Context, key Key) error {
 	if err := removeAllWithBackoff(repository.sessionDir(key)); err != nil {
 		return err
 	}
-	// 派生投影与会话同批回收：project board 是"按会话派生"的投影（可删可重建），
-	// 会话没了投影就该退场（否则它会作为孤儿继续被聚合读命中）。回收实现只有一处
-	// （reclaimProjectBoard，见 project_board.go），这里只做绑定。
-	if err := repository.reclaimProjectBoard(key.ProjectID, key.SessionID); err != nil {
-		return err
-	}
+	// 派生投影的回收**不在这里**：项目看板的落点是项目目录（`<项目根>/.seelex/board`），
+	// 而存储层不认识"工作区 → 项目根"这条外部事实。回收挂在 Router.DeleteWorkspace
+	// （见 project_board.go 的 ReclaimProjectBoard + SetProjectBoardRootFor）。
 	return nil
 }
 

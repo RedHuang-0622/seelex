@@ -16,25 +16,23 @@ package sessionstore
 //  4. **可提交件三铁律**：渲染件不含 `BuiltAt`、不含绝对路径、不含 `ws-<nano>`；
 //     只写仓库相对路径（绝对路径的 `Path` 丢弃，`Docs` 同理）。同一 `ProjectRecord`
 //     两次渲染**字节完全相同**（模块按 `Name` 稳定排序）。
-//  5. 落点 = `<jsonRepository.root>/project-board/project-<hash(projectID)>/project-known.md`；
-//     目录派生**复用** `projectBoardRoot`（project_board.go:165），发布**复用**
-//     `writeAtomic`（sessionstore.go:1934），锁**复用** `projectBoardLock`
-//     （project_board.go:191，按文件路径分片的独立锁，不新增 storageModule 枚举）。
+//  5. 落点 = `<项目根>/.seelex/board/project-known.md`（**项目目录**，与两块投影同一个
+//     目录）；目录派生**复用** `ProjectBoardDir`（project_board.go），发布**复用**
+//     `writeAtomic`（sessionstore.go），锁**复用** `projectBoardLock`
+//     （project_board.go，按文件路径分片的独立锁，不新增 storageModule 枚举）。
 //
 // 复用清单（**禁止第二份实现**，交付时同表复核）：
 //
 //	需求              | 复用（file:line）                                  | 不新写
 //	------------------|----------------------------------------------------|------------------
-//	目录派生 / hash    | `projectBoardRoot` project_board.go:165 / `hash` sessionstore.go:1914 | 第二套目录命名
-//	原子发布           | `writeAtomic` sessionstore.go:1934                 | 第二份 rename 实现
-//	按路径独立锁       | `projectBoardLock` project_board.go:191            | 新 storageModule 枚举
-//	项目作用域写面     | `Router.withJSONRepositoryAt` sessionstore.go:1066 | 直连文件系统
-//	项目知识链         | `ProjectKnowledgeBuilder` / `RefreshProjectKnowledge` project_record.go:73/:460 | 第二份项目知识实现
-//	键校验             | `validateProjectID` sessionstore.go:248            | 第二份空键校验
+//	目录派生           | `ProjectBoardDir` project_board.go                 | 第二套目录命名
+//	原子发布           | `writeAtomic` sessionstore.go                      | 第二份 rename 实现
+//	按路径独立锁       | `projectBoardLock` project_board.go                | 新 storageModule 枚举
+//	项目知识链         | `ProjectKnowledgeBuilder` / `RefreshProjectKnowledge` project_record.go | 第二份项目知识实现
+//	根校验             | `validateProjectRoot` project_board.go             | 第二份空根校验
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -161,22 +159,23 @@ func repoRelativePath(value string) (string, bool) {
 // ---------------------------------------------------------------------------
 
 // projectKnownPath 返回项目摘要渲染件的物理路径：
-// `<root>/project-board/project-<hash(projectID)>/project-known.md`。
+// `<项目根>/.seelex/board/project-known.md`。
 //
-// 目录派生复用 `projectBoardRoot`——**不另写一份目录派生**（契约 §8）。
-func (repository *jsonRepository) projectKnownPath(projectID string) string {
-	return filepath.Join(repository.projectBoardRoot(projectID), ProjectBoardKnownFile)
+// 目录派生复用 `ProjectBoardDir`——**不另写一份目录派生**（契约 §8）：摘要件与
+// 两块投影同一个目录、同一条生命周期（可删、可重建、不进上下文）。
+func projectKnownPath(projectRoot string) string {
+	return filepath.Join(ProjectBoardDir(projectRoot), ProjectBoardKnownFile)
 }
 
 // writeProjectKnown 落一份渲染件（空内容不落盘；同路径独立锁 + 原子发布）。
-func (repository *jsonRepository) writeProjectKnown(projectID string, data []byte) error {
-	if err := validateProjectID(projectID); err != nil {
+func writeProjectKnown(projectRoot string, data []byte) error {
+	if err := validateProjectRoot(projectRoot); err != nil {
 		return err
 	}
 	if len(bytes.TrimSpace(data)) == 0 {
 		return fmt.Errorf("session storage: %s 内容为空，拒绝落盘（空文件不是一份渲染件）", ProjectBoardKnownFile)
 	}
-	path := repository.projectKnownPath(projectID)
+	path := projectKnownPath(projectRoot)
 	lock := projectBoardLock(path)
 	lock.Lock()
 	defer lock.Unlock()
@@ -190,11 +189,11 @@ func (repository *jsonRepository) writeProjectKnown(projectID string, data []byt
 }
 
 // readProjectKnown 读回渲染件（不存在 → `fs.ErrNotExist`；空文件 → 显式报错）。
-func (repository *jsonRepository) readProjectKnown(projectID string) ([]byte, error) {
-	if err := validateProjectID(projectID); err != nil {
+func readProjectKnown(projectRoot string) ([]byte, error) {
+	if err := validateProjectRoot(projectRoot); err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(repository.projectKnownPath(projectID))
+	data, err := os.ReadFile(projectKnownPath(projectRoot))
 	if err != nil {
 		return nil, err // *fs.PathError，errors.Is(err, fs.ErrNotExist) 口径不变
 	}
@@ -204,38 +203,24 @@ func (repository *jsonRepository) readProjectKnown(projectID string) ([]byte, er
 	return data, nil
 }
 
-// WriteProjectKnown 原子写一份项目摘要渲染件（projectID = 工作区 ID，与读面同键）。
+// WriteProjectKnown 原子写一份项目摘要渲染件（projectRoot = 项目根目录）。
 //
-// 空键 / 空内容**显式报错**，不产空文件；非 JSON 会话存储布局不可用（返回错误）。
-func (router *Router) WriteProjectKnown(projectID string, data []byte) error {
-	if err := validateProjectID(projectID); err != nil {
+// 空根 / 空内容**显式报错**，不产空文件；落点是 `<项目根>/.seelex/board/`（与投影
+// 两块同一个目录：可提交件放一起，外部 agent 一眼看全）。
+func (router *Router) WriteProjectKnown(projectRoot string, data []byte) error {
+	if err := validateProjectRoot(projectRoot); err != nil {
 		return err
 	}
 	if len(bytes.TrimSpace(data)) == 0 {
 		return fmt.Errorf("session storage: %s 内容为空，拒绝落盘（空文件不是一份渲染件）", ProjectBoardKnownFile)
 	}
-	handled, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, resolvedProjectID string) error {
-		return repository.writeProjectKnown(resolvedProjectID, data)
-	})
-	if !handled {
-		return errors.New("session storage: project-known 需要 JSON 会话存储布局")
-	}
-	return err
+	return writeProjectKnown(projectRoot, data)
 }
 
-// ReadProjectKnown 读回项目摘要渲染件；从未渲染过 ⇒ `fs.ErrNotExist`；空键显式报错。
-func (router *Router) ReadProjectKnown(projectID string) ([]byte, error) {
-	if err := validateProjectID(projectID); err != nil {
+// ReadProjectKnown 读回项目摘要渲染件；从未渲染过 ⇒ `fs.ErrNotExist`；空根显式报错。
+func (router *Router) ReadProjectKnown(projectRoot string) ([]byte, error) {
+	if err := validateProjectRoot(projectRoot); err != nil {
 		return nil, err
 	}
-	var data []byte
-	handled, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, resolvedProjectID string) error {
-		loaded, readErr := repository.readProjectKnown(resolvedProjectID)
-		data = loaded
-		return readErr
-	})
-	if !handled {
-		return nil, nil // 与 ReadProjectBoardRows 同口径：该能力在非 JSON 布局不可用
-	}
-	return data, err
+	return readProjectKnown(projectRoot)
 }

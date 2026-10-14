@@ -31,6 +31,10 @@ import (
 // 一旦出现在 provider 请求里，就说明投影进了上下文。
 const projectBoardMarker = "BOARD-PROJECTION-MARKER-9f3a1c"
 
+// projectBoardMarkerSession 是写投影的那条**测试会话**：它也必须是绑了工作区的那条会话
+// （落点跟着会话所属项目走，未绑定的会话不落盘）。
+const projectBoardMarkerSession = "session-marker"
+
 // promptLayerBytes 把装配前缀（PromptLayers）渲染成可比较的字节。
 //
 // 为什么渲染而不是直接比较切片：这条判据问的是"发给 provider 的前缀字节一样不一样"，
@@ -62,38 +66,39 @@ func projectBoardAccountsFor(t *testing.T, providerURL, root string) string {
 
 // writeMarkedProjectBoardProjection 往存储面写一份带标记的投影（两份文件都写）。
 //
-// 作用域取**存储当前工作区**：投影的落点是 `<root>/project-board/project-<hash>/session-<hash>`，
-// 没有工作区就没有落点（存储面显式拒绝空 projectID）。harness 不经过 main 的工作区绑定，
-// 因此调用点先 SetWorkspace 给它一个工作区——这也是"这份投影真的落在会话所属项目里"的前提。
-func writeMarkedProjectBoardProjection(t *testing.T, store *sessionstore.Router, app *application.Service) {
+// 落点是**会话所属工作区的项目根**：`<项目根>/.seelex/board/`（一个项目一份平铺文件、
+// 多会话共用一份，行内 scope.session 区分）。harness 不经过 main 的工作区绑定，所以这里
+// 显式把这个会话绑到一个真实工作区（RootPath = 项目根），再按**生产解析器**
+// `app.ProjectRootFor` 取落点——不绑就没有落点（契约 §3：未关联会话不落盘），
+// "投影真的写出去了"这个前提也就不成立。
+func writeMarkedProjectBoardProjection(t *testing.T, harness fullChainHarness, projectRoot string) {
 	t.Helper()
-	if strings.TrimSpace(store.Workspace()) == "" {
-		store.SetWorkspace("ws-i7-marker")
+	workspace, err := harness.workspaces.Create("board-i7-marker", projectRoot, "")
+	if err != nil {
+		t.Fatalf("建工作区: %v", err)
 	}
-	projectID := app.ProjectIDFor("session-marker")
-	if strings.TrimSpace(projectID) == "" {
-		projectID = store.Workspace()
-	}
-	if strings.TrimSpace(projectID) == "" {
-		t.Fatal("没有工作区作用域：投影无处可写，这条用例会退化成同义反复")
+	harness.workspaces.BindSession(projectBoardMarkerSession, workspace.ID)
+	sinkRoot := harness.app.ProjectRootFor(projectBoardMarkerSession)
+	if strings.TrimSpace(sinkRoot) == "" {
+		t.Fatal("会话没有工作区绑定（没有落点）：这条用例会退化成同义反复")
 	}
 	rows := func(kind, key string) []sessionstore.ProjectBoardRow {
 		return []sessionstore.ProjectBoardRow{{
 			Schema: sessionstore.ProjectBoardSchema, Kind: kind, Key: key, Seq: 1, At: time.Now().Unix(),
-			Scope:   sessionstore.ProjectBoardScope{Project: projectID, Session: "session-marker"},
+			Scope:   sessionstore.ProjectBoardScope{Session: projectBoardMarkerSession},
 			Payload: map[string]any{"task": projectBoardMarker, "status": "doing"},
 		}}
 	}
-	if _, err := store.AppendProjectBoardRows(projectID, "session-marker", sessionstore.ProjectBoardWorkFile,
+	if _, err := harness.store.AppendProjectBoardRows(sinkRoot, sessionstore.ProjectBoardWorkFile,
 		rows(sessionstore.ProjectBoardKindWork, "work:marker")); err != nil {
 		t.Fatalf("写 worktable 投影: %v", err)
 	}
-	if _, err := store.AppendProjectBoardRows(projectID, "session-marker", sessionstore.ProjectBoardTeamworkFile,
+	if _, err := harness.store.AppendProjectBoardRows(sinkRoot, sessionstore.ProjectBoardTeamworkFile,
 		rows(sessionstore.ProjectBoardKindMilestone, "milestone:marker")); err != nil {
 		t.Fatalf("写 teamwork 投影: %v", err)
 	}
 	// 真写出去了才谈得上"它没进请求"：
-	folded, err := store.ReadProjectBoardRows(projectID, "session-marker", sessionstore.ProjectBoardWorkFile)
+	folded, err := harness.store.ReadProjectBoardRows(sinkRoot, projectBoardMarkerSession, sessionstore.ProjectBoardWorkFile)
 	if err != nil || len(folded) != 1 {
 		t.Fatalf("回读投影失败（folded=%d, err=%v）：用例前提没成立", len(folded), err)
 	}
@@ -119,7 +124,7 @@ func TestProjectBoardPrefixBytesIdentical(t *testing.T) {
 	sink, closeSink, err := projectBoardSinkFor(
 		onLimits.ProjectBoard, on.store,
 		on.app.WorkTableRowsFor, on.app.ProjectBoardTeamPlanFor,
-		on.app.ProjectBoardTeamStateFor, on.app.ProjectIDFor,
+		on.app.ProjectBoardTeamStateFor, on.app.ProjectRootFor,
 	)
 	if err != nil {
 		t.Fatalf("projectBoardSinkFor: %v", err)
@@ -127,7 +132,7 @@ func TestProjectBoardPrefixBytesIdentical(t *testing.T) {
 	defer closeSink()
 	on.app.SetProjectBoardSink(sink)
 	registerProjectBoardReadTool(on.runtime, on.store, on.app)
-	writeMarkedProjectBoardProjection(t, on.store, on.app)
+	writeMarkedProjectBoardProjection(t, on, onRoot)
 
 	onPrefix := promptLayerBytes(t, on.app)
 	if offPrefix != onPrefix {
@@ -158,7 +163,7 @@ func TestProjectBoardNeverReachesRequest(t *testing.T) {
 	sink, closeSink, err := projectBoardSinkFor(
 		limits.ProjectBoard, harness.store,
 		harness.app.WorkTableRowsFor, harness.app.ProjectBoardTeamPlanFor,
-		harness.app.ProjectBoardTeamStateFor, harness.app.ProjectIDFor,
+		harness.app.ProjectBoardTeamStateFor, harness.app.ProjectRootFor,
 	)
 	if err != nil {
 		t.Fatalf("projectBoardSinkFor: %v", err)
@@ -166,7 +171,7 @@ func TestProjectBoardNeverReachesRequest(t *testing.T) {
 	defer closeSink()
 	harness.app.SetProjectBoardSink(sink)
 	registerProjectBoardReadTool(harness.runtime, harness.store, harness.app)
-	writeMarkedProjectBoardProjection(t, harness.store, harness.app)
+	writeMarkedProjectBoardProjection(t, harness, projectRoot)
 
 	if err := harness.app.Submit(ctx, "只回复『收到』两个字，不要调用任何工具。"); err != nil {
 		t.Fatalf("submit: %v", err)
