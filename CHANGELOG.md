@@ -72,6 +72,23 @@ lands.
   **提交内文件内容视图（`git-log-view.js`）同走一条且无写入口**（历史版本不允许任何写入）。
   `styles.css` 的 HTML 预览样式就近加在 `.file-preview-code` 段之后、`.file-preview*` 段内。
 
+### Fixed
+
+- **`project_refresh` 两处断点（G5）：默认来源差一级目录 + 项目记录写键≠读键**（`sessionstore` ·
+  红灯先行）。① `ProjectKnowledgeSources.MetadataPath` 默认曾为 `<root>/gui/module_dotting.json`，
+  而模块登记表的真实位置是 `docs/gui/module_dotting.json` ⇒ 三路默认来源在本仓库全落空、
+  `project_refresh` 恒报 `no sources`；默认值改指 `docs/gui`（三字段仍可覆盖，无来源继续显式报错、
+  不产出空记录）。② `RefreshProjectKnowledge` 用 `builder.Root()`（扫描根绝对路径）当项目键读写，
+  而读面（`main.go` 装配根 `RuntimeDeps.ProjectKnowledge`）用 `store.Workspace()`（`ws-<nano>`）
+  ⇒ 写进去的记录永远读不到（全仓 `**/project-record.json` 零命中）；改为
+  `RefreshProjectKnowledge(ctx, store, projectID, builder, force)` 显式收键、写入键=读取键，
+  `main.go:registerProjectRefreshTool` 传 `store.Workspace()`，空键显式报错。
+  证据（红灯先行）：`go test ./sessionstore -run ProjectRefresh -v` 修复前 2 FAIL
+  （`open .../project-7eb3ccab7dc60ec2/project-record.json: The system cannot find the path specified.`；
+  `默认 MetadataPath = ".../gui/module_dotting.json"`）→ 修复后全 PASS；新增
+  `TestProjectRefreshWriteReadSameKey` / `TestProjectRefreshSourcesConfigurable` /
+  `TestProjectRefreshRealRepositorySources`（按本仓库真实布局钉默认值）。
+
 ### Tests
 
 - **J-2 后端**：`seelebridge/review_files_test.go`（批处理上限显式报错且不越过落点、恰好 10 份放行、

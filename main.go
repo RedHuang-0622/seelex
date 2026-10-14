@@ -798,7 +798,11 @@ func registerProjectRefreshTool(runtime *seelebridge.Runtime, store *sessionstor
 			return "", fmt.Errorf("project_refresh: %w", err)
 		}
 		builder := sessionstore.NewProjectKnowledgeBuilder(sessionstore.ProjectKnowledgeSources{Root: input.ProjectRoot})
-		result, err := sessionstore.RefreshProjectKnowledge(ctx, store, builder, input.Force)
+		// 项目级记录的**键是工作区 ID**（`ws-<nano>`），不是扫描根路径：读面
+		// （下方 RuntimeDeps.ProjectKnowledge 的 store.LoadProjectRecord(store.Workspace())）
+		// 用的就是这个键。写键≠读键会让记录永远读不到（G5 断点②），
+		// 所以这里显式取一次工作区 ID 传进去，而不是让存储层去猜。
+		result, err := sessionstore.RefreshProjectKnowledge(ctx, store, store.Workspace(), builder, input.Force)
 		if err != nil {
 			return "", fmt.Errorf("project_refresh: %w", err)
 		}

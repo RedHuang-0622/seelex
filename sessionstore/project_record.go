@@ -47,10 +47,15 @@ func isProjectRecordNotFound(err error) bool {
 
 // ProjectKnowledgeSources 定义 project_refresh 的可插拔来源。
 // 空字段使用约定默认值（相对 Root）。
+//
+// MetadataPath 的默认值是 <root>/docs/gui/module_dotting.json——**模块登记表的真实位置**
+// 就在 docs/gui（见 docs/README.md 的索引与 docs/gui/module_dotting.json）。曾默认
+// <root>/gui/module_dotting.json（差一级 docs），三路默认来源全落空 ⇒ project_refresh
+// 在本仓库恒报「no sources」。
 type ProjectKnowledgeSources struct {
 	Root         string // 项目根目录
 	ModulesDir   string // 模块文档目录（默认 <root>/docs/modules）
-	MetadataPath string // 模块元数据 JSON（默认 <root>/gui/module_dotting.json）
+	MetadataPath string // 模块元数据 JSON（默认 <root>/docs/gui/module_dotting.json）
 	ManifestPath string // 手写项目说明 seelex.project.md（默认 <root>/seelex.project.md）
 }
 
@@ -76,7 +81,7 @@ func NewProjectKnowledgeBuilder(sources ProjectKnowledgeSources) *ProjectKnowled
 	return &ProjectKnowledgeBuilder{
 		root:         root,
 		modulesDir:   resolveSourcePath(root, sources.ModulesDir, filepath.Join(root, "docs", "modules")),
-		metadataPath: resolveSourcePath(root, sources.MetadataPath, filepath.Join(root, "gui", "module_dotting.json")),
+		metadataPath: resolveSourcePath(root, sources.MetadataPath, filepath.Join(root, "docs", "gui", "module_dotting.json")),
 		manifestPath: resolveSourcePath(root, sources.ManifestPath, filepath.Join(root, "seelex.project.md")),
 	}
 }
@@ -223,7 +228,7 @@ func (b *ProjectKnowledgeBuilder) scanModules() ([]ModuleSemantics, error) {
 	return modules, nil
 }
 
-// moduleDottingEntry 是 gui/module_dotting.json 模块条目（宽松解析，未知字段忽略）。
+// moduleDottingEntry 是 docs/gui/module_dotting.json 模块条目（宽松解析，未知字段忽略）。
 type moduleDottingEntry struct {
 	ID             string   `json:"id"`
 	Name           string   `json:"name"`
@@ -447,8 +452,16 @@ type ProjectRefreshResult struct {
 // RefreshProjectKnowledge 是 project_refresh 工具的核心：来源 hash 未变 → 复用；
 // 已变/首建 → 重建并落盘；重建失败 → 保留上一版本（可回退）；首建失败返回错误
 // （显式跳过并提示）。force=true 强制重建。
-func RefreshProjectKnowledge(ctx context.Context, store *Router, builder *ProjectKnowledgeBuilder, force bool) (ProjectRefreshResult, error) {
-	existing, readErr := store.LoadProjectRecord(builder.Root())
+//
+// projectID 是**项目级记录的键**，写入键与读取键必须是同一个：读面（装配根的
+// RuntimeDeps.ProjectKnowledge / main.go）按 `store.Workspace()`（`ws-<nano>`）读，
+// 因此调用方必须把自己的工作区 ID 传进来。曾经这里用 builder.Root()（绝对路径）
+// 当键读写 ⇒ 写进去的记录在 `ws-*` 键下永远读不到（G5 断点②）。
+func RefreshProjectKnowledge(ctx context.Context, store *Router, projectID string, builder *ProjectKnowledgeBuilder, force bool) (ProjectRefreshResult, error) {
+	if strings.TrimSpace(projectID) == "" {
+		return ProjectRefreshResult{}, errors.New("project knowledge: project ID is required (写入键 = 读取键 = 工作区 ID)")
+	}
+	existing, readErr := store.LoadProjectRecord(projectID)
 	hasExisting := readErr == nil
 	if readErr != nil && !isProjectRecordNotFound(readErr) {
 		return ProjectRefreshResult{}, fmt.Errorf("project knowledge: read existing record: %w", readErr)
@@ -470,7 +483,7 @@ func RefreshProjectKnowledge(ctx context.Context, store *Router, builder *Projec
 		}
 		return ProjectRefreshResult{}, err
 	}
-	if err := store.SaveProjectRecord(builder.Root(), record); err != nil {
+	if err := store.SaveProjectRecord(projectID, record); err != nil {
 		if hasExisting {
 			return ProjectRefreshResult{Record: existing, Fallback: true, Note: err.Error()}, nil
 		}
