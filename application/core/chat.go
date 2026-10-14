@@ -440,6 +440,10 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		service.publishRuntimeProjections()
 		go service.runChat(nextContext, sessionID, nextRequestID, batchRequest)
 	}
+	// 会话**由忙转闲**的收敛点（会话释放面）：切走之后跑完的那个会话在这里变成
+	// 可释放候选——没有这一步，它得等到下一次 touch（切回/分页）才会被收回。
+	// 放在 ViewMu 之外：reconcile 自取锁，释放里含 flush 的文件 I/O。
+	service.reconcileSessionRelease()
 }
 
 func (service *Service) recordUnhandledTaskErrorLocked(sessionID, requestID string, err error) {

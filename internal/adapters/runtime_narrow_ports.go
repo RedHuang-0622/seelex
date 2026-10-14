@@ -138,6 +138,21 @@ func (port RuntimePort) SetSessionReasoningEffort(effort string) int {
 	return port.Runtime.SetSessionReasoningEffort(effort)
 }
 
+// TeamworkPlanFor 实现 application/core 的 `TeamworkPlanSource` 窄可选端口
+// （project_board.go 的类型断言）：按会话取 teamwork 计划，未装配 / 该会话没有
+// 计划 ⇒ false。
+//
+// 漏了它**不会报错**：core 侧断言恒 false ⇒ `ProjectBoardTeamPlanFor` 永远返回
+// nil ⇒ 项目看板的"这件事的团队计划/运行态"两格整块为空（`ProjectBoardTeamStateFor`
+// 也一起空）。这与 2026-10-02 那次 TeamworkBoardSnapshot 漏接是同一类：bridge 上
+// 有这个方法、core 也在探测，中间少了一行转发就功能整块消失。
+func (port RuntimePort) TeamworkPlanFor(sessionID string) (sessionstore.TeamworkPlan, bool) {
+	if port.Runtime == nil {
+		return sessionstore.TeamworkPlan{}, false
+	}
+	return port.Runtime.TeamworkPlanFor(sessionID)
+}
+
 // 编译期断言：application/core / view_state 用类型断言探测的每一个窄可选端口，
 // 生产包装都必须满足。少一个方法，这里就编译不过——不留"运行时静默 false"。
 var (
@@ -172,5 +187,10 @@ var (
 	} = RuntimePort{}
 	_ interface {
 		WithPluginAssembly(context.Context, []string) context.Context
+	} = RuntimePort{}
+	// core.TeamworkPlanSource（application/core/project_board.go，包内命名接口）：
+	// 项目看板按会话取 teamwork 计划 + 运行态。断言失败 = 那两格恒空。
+	_ interface {
+		TeamworkPlanFor(string) (sessionstore.TeamworkPlan, bool)
 	} = RuntimePort{}
 )

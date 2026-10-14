@@ -58,6 +58,23 @@ func newGoalCoordinator(deps goalCoordinatorDeps) *goalCoordinator {
 	}
 }
 
+// ForgetSession 释放一个会话的 goal 运行时（会话释放面调用，见 session_release.go）：
+// 丢掉按会话缓存的那份控制器与**上下文存储适配器**，使该会话下次被使用时经
+// StoreFor 重新解析、控制器经 Reload 按盘重建活栈/审计。
+//
+// 为什么必须跟着释放：bundleFor 在创建时把 StoreFor 解析出来的 store 句柄钉在
+// 适配器里；会话释放后桥侧本体已被放掉、重开时会绑**新的** store。旧句柄留着
+// 就变成"同一个会话两个 store 句柄同时写盘"——存储层的单写者纪律失效，且下次
+// 打开拿到的不是它那一份（INV-RS6：释放后所有内存句柄必须离场，重开按盘重建）。
+func (g *goalCoordinator) ForgetSession(sessionID string) {
+	if g == nil || sessionID == "" {
+		return
+	}
+	g.mu.Lock()
+	delete(g.sessions, sessionID)
+	g.mu.Unlock()
+}
+
 // bundleFor 返回（需要时创建）指定会话的 goal bundle。创建时若装配了会话
 // 上下文存储，则经 ContextStateStore 持久化并 Reload 恢复活栈/审计。
 func (g *goalCoordinator) bundleFor(sessionID string) *goalSessionRuntime {

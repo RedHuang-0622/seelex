@@ -348,8 +348,47 @@ func TestRepositorySkillAndPluginLayouts(t *testing.T) {
 	for _, p := range plugins {
 		t.Logf("  plugin=%q skills=%d", p.Name, len(p.Skills))
 	}
-	if _, err := plugin.NewLoader(pluginRoot).Load("plan"); err == nil {
-		t.Fatal("plan must be a default skill, not an independently loadable plugin")
+	// "$plan 属于 default 插件、不是可独立加载的插件"这条钉子在 $plan 退场（规划不再
+	// 另设 Skill，见 default 插件口径）后换成当前口径：default 的技能面**与磁盘目录
+	// 一一对应**——loader 不许静默跳过某个技能目录，且技能目录不许同时能当插件加载。
+	// 判据取"磁盘即事实"，不硬编码技能名（硬编码会随插件增删过期，这正是本条被钉红的
+	// 原因：plan 退场后列表还留在断言里）。
+	defaultSkills := make(map[string]struct{})
+	for _, p := range plugins {
+		if p.Name != "default" {
+			continue
+		}
+		for _, skill := range p.Skills {
+			defaultSkills[skill.Name] = struct{}{}
+		}
+	}
+	if len(defaultSkills) == 0 {
+		t.Fatal("default plugin was not loaded / has no skills")
+	}
+	entries, err := os.ReadDir(filepath.Join(pluginRoot, "default"))
+	if err != nil {
+		t.Fatalf("read plugins/default: %v", err)
+	}
+	onDisk := 0
+	loader := plugin.NewLoader(pluginRoot)
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if _, err := os.Stat(filepath.Join(pluginRoot, "default", name, "SKILL.md")); err != nil {
+			continue // 只认带 SKILL.md 的技能目录
+		}
+		onDisk++
+		if _, loaded := defaultSkills[name]; !loaded {
+			t.Errorf("plugins/default/%s 有 SKILL.md，但 loader 读出的技能集合里没有它（技能被静默跳过？）", name)
+		}
+		if _, err := loader.Load(name); err == nil {
+			t.Errorf("%s 是 default 插件下的技能，不该同时是可独立加载的插件", name)
+		}
+	}
+	if onDisk == 0 {
+		t.Fatal("plugins/default 下没扫到任何技能目录——扫描口径失效")
 	}
 	// 精选目录与**这份 loader 读出的插件集合**交叉校验：只列已落盘插件、少一条即红。
 	// （同一份校验也在仓库根的 curated_catalog_test.go 里跑，这里钉住的是交付树视角。）
@@ -360,18 +399,6 @@ func TestRepositorySkillAndPluginLayouts(t *testing.T) {
 	if _, err := plugin.LoadCuratedCatalog(pluginRoot, names); err != nil {
 		t.Fatalf("curated catalog: %v", err)
 	}
-	for _, p := range plugins {
-		if p.Name != "default" {
-			continue
-		}
-		for _, skill := range p.Skills {
-			if skill.Name == "plan" {
-				return
-			}
-		}
-		t.Fatal("default plugin is missing the plan skill")
-	}
-	t.Fatal("default plugin was not loaded")
 }
 
 // TestShippedCuratedCatalogPendingIsEvidenceTagged 是"归零不静默"在**发行树**上的那一半：

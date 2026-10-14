@@ -149,43 +149,48 @@ func (service *Service) UnloadSession(sessionID string) error {
 			return fmt.Errorf("unload persist %q: %w", sessionID, err)
 		}
 	}
-	// 释放内存态。
-	if routed, ok := service.Deps.Engine.(interface{ UnloadSession(string) error }); ok {
-		if err := routed.UnloadSession(sessionID); err != nil {
-			return fmt.Errorf("unload engine %q: %w", sessionID, err)
-		}
+	// 释放内存态（统一释放面）：引擎实例 + 桥侧会话本体（框架 Session/上下文
+	// 存储）+ 可见正文 + 会话单元/标题/任务投影一起离场。释放面只有这一条路——
+	// LRU 释放走同一条（releaseIdle，多一次 flush、保留会话单元）。
+	if err := service.releaseSessionMemory(sessionID, releaseFull); err != nil {
+		return fmt.Errorf("release session %q: %w", sessionID, err)
 	}
+	// ViewMu 写段：卸载后的视图单例收口（active 分支）与 revision 递增。
 	service.ViewMu.Lock()
-	service.sessions.Remove(sessionID)
-	service.components.tasks.DropPlanProjection(sessionID)
-	service.components.tasks.UnloadSessionState(sessionID)
-	service.components.sessions.UnloadSessionTitle(sessionID)
 	if active {
 		// 视图单例一致性：卸载活跃会话后进入新的早分配 SID 草稿单元
 		// （HasSession=false，不建引擎 bundle；不写槽位——卸载后的空白草稿
 		// 不进入会话树，与卸载前语义一致）。
-		service.nextViewEpochLocked()
-		draftID := service.newDraftSessionIDLocked()
-		service.sessions.SetActive(draftID)
-		draftUnit := service.sessionUnitLocked(draftID)
-		draftUnit.SetChatState(ChatState{}, nil)
-		draftUnit.SetCancel(nil)
-		draftUnit.SetRequests(nil)
-		service.Core.Snapshot.Session = SessionState{ID: draftID, Name: draftSessionName, Draft: true, Status: SessionStatusDraft}
-		service.Core.Snapshot.Conversation = nil
-		service.Core.Snapshot.Chat = draftUnit.ChatState()
-		service.Core.Snapshot.Task = nil
-		service.Core.Snapshot.Runtime.Plan = nil
-		service.Core.Snapshot.ReadFiles = nil
-		// 卸载活跃会话后进入的是**就地新建**的草稿（ID 全新，没有任何持久设置），
-		// 档位同样必须在同一临界区里重算：否则卸载后留在快照里的是刚被卸载会话的
-		// 档位，chip 与实际生效档位不符（与 BeginNewSession 同一口径）。
-		service.syncViewPermissionTierLocked(draftID)
-		service.components.tasks.ResetForNewSessionLocked()
+		service.switchViewToFreshDraftLocked()
 	}
 	revision := service.bumpLocked()
 	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 	service.components.sessions.RequestCatalogRefresh()
 	return nil
+}
+
+// switchViewToFreshDraftLocked 把视图切到一个**就地新建**的早分配草稿单元（调用方
+// 持有 Core.ViewMu）。用点：卸载/删除掉的恰是**当前视图**会话——会话单元已被完整释放
+// 面移除，而视图单例必须始终有对应单元，否则后续所有 `Unit(viewID)` 读成 nil，而
+// "卸载/删掉正在看的那个会话"是正常入口。
+//
+// 草稿不写槽位（不进入会话树，与卸载前语义一致），档位与任务投影在同一临界区里重算：
+// 否则快照里留着的是刚被移除会话的档位/任务（与 BeginNewSession 同一口径）。
+func (service *Service) switchViewToFreshDraftLocked() {
+	service.nextViewEpochLocked()
+	draftID := service.newDraftSessionIDLocked()
+	service.sessions.SetActive(draftID)
+	draftUnit := service.sessionUnitLocked(draftID)
+	draftUnit.SetChatState(ChatState{}, nil)
+	draftUnit.SetCancel(nil)
+	draftUnit.SetRequests(nil)
+	service.Core.Snapshot.Session = SessionState{ID: draftID, Name: draftSessionName, Draft: true, Status: SessionStatusDraft}
+	service.Core.Snapshot.Conversation = nil
+	service.Core.Snapshot.Chat = draftUnit.ChatState()
+	service.Core.Snapshot.Task = nil
+	service.Core.Snapshot.Runtime.Plan = nil
+	service.Core.Snapshot.ReadFiles = nil
+	service.syncViewPermissionTierLocked(draftID)
+	service.components.tasks.ResetForNewSessionLocked()
 }

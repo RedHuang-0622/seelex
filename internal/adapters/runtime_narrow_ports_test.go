@@ -53,6 +53,9 @@ var narrowPortForwarded = map[string]string{
 	// 档位 → wire 思考强度下发（session_scope.go 的 syncSessionReasoningEffort）。
 	// 漏了它 = 切档只换提示词与 loop 次数，模型那边照旧（界面上档位换了、行为没换）。
 	"contract.ReasoningEffortPort": "SetSessionReasoningEffort",
+	// core.TeamworkPlanSource（project_board.go，包内命名接口）：项目看板按会话取
+	// teamwork 计划 + 运行态。漏了它 = 那两格恒空（M3 装配接不上）。
+	"TeamworkPlanFor": "TeamworkPlanFor",
 }
 
 // runtimePortAssertionRe 命中一次 "….Runtime.(" 形态的窄端口探测。

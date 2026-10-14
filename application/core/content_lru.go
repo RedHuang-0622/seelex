@@ -2,10 +2,11 @@ package core
 
 // 内容 LRU：resident_lru.go 管「引擎 bundle 是否驻留」，本文件管**第二层**
 // 内存——已加载会话的可见正文（View.Conversation 的窗口）。会话数一多，每个
-// 窗口（limits.history_window 条消息 + 工具输出）都会常驻内存；内容上限走
-// seelexctx.Limits.loaded_content_limit（默认 12）。候选必须排除：当前视图
-// 会话、running/queued/awaiting_approval（含待批与排队输入）、restoring、
-// 本已无正文的会话。
+// 窗口（limits.history_window 条消息 + 工具输出）都会常驻内存；额度与守卫口径
+// 见 session_release.go（受保护集不计数不挑选，默认窗口 = limits.session_release_window
+// = 1 ⇒ 只保留上一个；loaded_content_limit 显式 >0 时按老口径"该层总上限 −
+// 受保护数"折算）。候选必须排除：受保护集（当前视图 / 待批 / 运行·排队·在飞 /
+// 恢复中）、本已无正文的会话、本轮的触发会话。
 //
 // 驱逐动作**只卸载正文**：清空 View.Conversation 并置 View.ContentUnloaded
 // （「内容未加载」标志），会话事实/元数据/标题/统计/窗口标志（TotalMessages/
@@ -29,18 +30,8 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/session"
 )
-
-// loadedContentLimit 把配置值收敛为生效上限（<=0 = 未配置 → 默认值；与
-// resident_lru.go 同一兜底语义）。
-func loadedContentLimit(configured int) int {
-	if configured <= 0 {
-		return seelexctx.DefaultLimits().LoadedContentLimit
-	}
-	return configured
-}
 
 // touchContent 记录一次会话可见正文使用（冷加载完成/热挂载/分页读回/回读），
 // 并触发超限卸载。调用方不得持有 Core.ViewMu（本方法自取锁）。
@@ -113,60 +104,46 @@ func (service *Service) pruneContentOrderLocked() int {
 	return len(kept)
 }
 
-// reconcileLoadedContentLimit 超限时按 LRU 卸载空闲会话的已加载正文（无候选
-// 则容忍超限：会话全被视图/运行/恢复占用时不驱逐；卸载失败保持原状，下轮
-// touch 再试）。protect 是本次触发的会话（正在装载/激活，其过渡锁可能已被
-// 调用方持有，且正文刚被使用），绝不参与本轮卸载。
+// reconcileLoadedContentLimit 按释放面口径收敛正文（内容层）：受保护集既不计数
+// 也不参与挑选；其余持有正文的会话按 LRU 卸载，额度 = releaseBudget（默认统一
+// 窗口 1；loaded_content_limit 显式 >0 时按"该层总上限 − 受保护数"折算）。
+// 无候选则容忍超限；卸载失败保持原状，下轮 touch 再试。protect 是本次触发的
+// 会话（正在装载/激活，其过渡锁可能已被调用方持有，且正文刚被使用），绝不参与
+// 本轮卸载，但计入受保护（否则会多放掉别的会话）。
 func (service *Service) reconcileLoadedContentLimit(protect string) {
 	if service == nil {
 		return
 	}
-	limit := loadedContentLimit(Limits().LoadedContentLimit)
 	for {
 		service.ViewMu.Lock()
-		loaded := service.pruneContentOrderLocked()
-		if loaded <= limit {
+		// 收养/清理使用序（有正文但不在序里的会话视作最旧；O(单元数)，见文件头
+		// 「窗口口径」的后续项：由装载/卸载记账取代）。
+		service.pruneContentOrderLocked()
+		protected := 0
+		// loadedContentOrder[0] = 最近使用 ⇒ 末尾最旧。
+		evictable := make([]string, 0, len(service.loadedContentOrder))
+		for _, sessionID := range service.loadedContentOrder {
+			if sessionID == "" || !service.sessionContentLoadedLocked(sessionID) {
+				continue
+			}
+			if sessionID == protect || service.protectedSessionLocked(sessionID) {
+				protected++
+				continue
+			}
+			evictable = append(evictable, sessionID)
+		}
+		budget := releaseBudget(Limits().LoadedContentLimit, protected)
+		if len(evictable) <= budget {
 			service.ViewMu.Unlock()
 			return
 		}
-		candidate := service.pickContentEvictableCandidateLocked(protect)
+		candidate := evictable[len(evictable)-1]
 		service.ViewMu.Unlock()
-		if candidate == "" {
-			// 超限但全部忙/视图/刚被使用：容忍（相关会话转为空闲或被切走后，
-			// 下一次 touch 再收敛）。
-			return
-		}
 		if err := service.evictLoadedContent(candidate); err != nil {
 			log.Printf("[content-lru] evict %q: %v", candidate, err)
 			return
 		}
 	}
-}
-
-// pickContentEvictableCandidateLocked 从使用序最旧端挑一个可卸载正文的会话
-// （调用方持有 Core.ViewMu）：非当前视图、非本次触发的会话、非 restoring、
-// 非 busy（running/queued/awaiting_approval/待批都不可卸载），且确实持有
-// 已加载正文。
-func (service *Service) pickContentEvictableCandidateLocked(protect string) string {
-	current := service.Core.Snapshot.Session.ID
-	for index := len(service.loadedContentOrder) - 1; index >= 0; index-- {
-		sessionID := service.loadedContentOrder[index]
-		if sessionID == "" || sessionID == current || sessionID == protect {
-			continue
-		}
-		if service.isRestoringLocked(sessionID) {
-			continue
-		}
-		unit := service.sessions.Unit(sessionID)
-		if unit == nil || service.sessionBusy(unit) {
-			continue
-		}
-		if !service.sessionContentLoadedLocked(sessionID) {
-			continue
-		}
-		return sessionID
-	}
-	return ""
 }
 
 // evictLoadedContent 卸载一个空闲会话的已加载正文：先 flush（非活跃会话
@@ -181,12 +158,10 @@ func (service *Service) pickContentEvictableCandidateLocked(protect string) stri
 func (service *Service) evictLoadedContent(sessionID string) error {
 	service.ViewMu.RLock()
 	unit := service.sessions.Unit(sessionID)
-	active := sessionID == service.Core.Snapshot.Session.ID
-	busy := unit != nil && service.sessionBusy(unit)
-	restoring := service.isRestoringLocked(sessionID)
+	protected := service.protectedSessionLocked(sessionID)
 	loaded := service.sessionContentLoadedLocked(sessionID)
 	service.ViewMu.RUnlock()
-	if unit == nil || active || busy || restoring || !loaded {
+	if unit == nil || protected || !loaded {
 		// 状态在挑选与卸载之间已变：跳过，保持超限容忍。
 		return nil
 	}

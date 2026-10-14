@@ -3,6 +3,7 @@ package core
 import (
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application/contract"
@@ -29,13 +30,39 @@ func (service *Service) DeleteSession(sessionID string) error {
 	// 同一时点终止它名下还在跑的后台命令：句柄表按会话持有执行体，会话删了就没有
 	// 任何入口能再取回或杀掉它们。
 	service.releaseSessionAsync(sessionID)
+	// 会话没了就不该在内存里留任何一格：走**完整释放面**（引擎实例 + 桥侧会话
+	// 本体（框架 Session / 上下文存储）+ 可见正文 + 会话单元/标题/任务投影）。
+	// 记录已删，所以不 flush（LRU 释放与回合收尾早已落盘）；释放失败不让删除失败
+	// ——记录已经删了，谁也没有重试入口，重启即回收。
+	//
+	// 删除前先记下"删的是不是当前视图"：会话单元随完整释放面离场，而视图单例必须
+	// 始终有对应单元，所以删的是视图会话时下面要就地切到一个新草稿。
+	service.ViewMu.RLock()
+	viewed := service.Core.Snapshot.Session.ID == sessionID
+	service.ViewMu.RUnlock()
+	if err := service.releaseSessionMemory(sessionID, releaseFull); err != nil {
+		log.Printf("[session-release] delete %q: %v", sessionID, err)
+	}
 	if service.Deps.Workspace != nil {
 		service.Deps.Workspace.UnbindSession(sessionID)
 		workspaceProjection := service.collectWorkspaceProjection()
 		service.ViewMu.Lock()
+		if viewed {
+			service.switchViewToFreshDraftLocked()
+		}
 		service.applyWorkspaceProjectionLocked(workspaceProjection)
-		service.bumpLocked()
+		revision := service.bumpLocked()
 		service.ViewMu.Unlock()
+		service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
+		service.components.sessions.RequestCatalogRefresh()
+		return nil
+	}
+	if viewed {
+		service.ViewMu.Lock()
+		service.switchViewToFreshDraftLocked()
+		revision := service.bumpLocked()
+		service.ViewMu.Unlock()
+		service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 		service.components.sessions.RequestCatalogRefresh()
 	}
 	return nil

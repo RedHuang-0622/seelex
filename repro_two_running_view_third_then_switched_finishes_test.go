@@ -329,12 +329,33 @@ func runTwoRunningViewThirdScenario(t *testing.T, cold bool) {
 	}
 
 	// A 的最终回复必须已经落到 A 自己的可见上下文（收尾不与切换互相丢内容）。
-	snapA, err := harness.app.SnapshotOf(sessionA)
-	if err != nil {
-		t.Fatalf("SnapshotOf(A): %v", err)
+	//
+	// 判据带**收敛等待**：window = 1 的释放面下，切回"已被释放 + 另一个会话仍在跑"
+	// 的会话是异步冷加载（先 restoring 空壳、内容随后到齐）——与上面 cold C 同一
+	// 口径。这里等的是"内容落地"，不是"切换返回瞬间就有内容"；切换本身必须即时
+	// （上面已用 3s 硬上限钉住），两者语义分开。
+	var textA string
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		snapA, err := harness.app.SnapshotOf(sessionA)
+		if err != nil {
+			t.Fatalf("SnapshotOf(A): %v", err)
+		}
+		textA = conversationText(snapA.Conversation)
+		if snapA.Session.Status != application.SessionStatusRestoring && strings.Contains(textA, "long A") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("A lost own final context: %q (status=%q)\nprovider: %s", textA, snapA.Session.Status, provider.debug())
+		}
+		select {
+		case <-time.After(20 * time.Millisecond):
+		case <-ctx.Done():
+			t.Fatalf("wait A final context: %v", ctx.Err())
+		}
 	}
-	if text := conversationText(snapA.Conversation); !strings.Contains(text, "long A") || !strings.Contains(text, "DONE") {
-		t.Fatalf("A lost own final context: %q", text)
+	if !strings.Contains(textA, "long A") || !strings.Contains(textA, "DONE") {
+		t.Fatalf("A lost own final context: %q", textA)
 	}
 
 	// 收尾：放行 B，全部空闲。

@@ -51,16 +51,23 @@ func (service *Service) resumeSession(sessionID string) error {
 	service.ViewMu.RUnlock()
 
 	if restoring {
-		// 同目标已有装载在途：空壳已激活，重复请求幂等（不重复装载、不推进
-		// epoch——自身装载不能被自己打断）。
+		// 同目标已有装载在途：**不重复装载**（重复装载既白跑磁盘读，也撑不住高频
+		// 切换），也**不推进该会话的视图意图**——在途装载守的就是"这个目标被激活"
+		// 这一意图；意图一推，它完成时就变成"被更新的切换取代"，不再发布，视图会
+		// 停在空壳上（用户看到空会话）。
+		//
+		// 但视图必须归位：在途期间视图可能已被别的切换带走（别的目标先激活了空壳），
+		// 而本 API 的契约是"返回时视图 = 目标"。归位只重指目标空壳与快照投影，
+		// **不碰目标会话单元**——在途装载可能已经把内容写进去了，清空会把它抹掉。
 		transition.Unlock()
+		service.pointViewAtRestoringShell(sessionID)
 		return nil
 	}
 	if hot {
 		// 阶段 2：目标会话已驻留（含运行中）→ 热加载，只换视图指针 +
-		// 投影会话 scope，不重建历史、不触碰 X/M/R（不变量 Ⅱ）。推进 epoch，
-		// 让在途冷加载不再抢占视图。
-		service.bumpViewEpoch()
+		// 投影会话 scope，不重建历史、不触碰 X/M/R（不变量 Ⅱ）。推进本会话的
+		// 视图意图，让任何更早的装载都不再发布到它上面。
+		service.markSessionViewIntent(sessionID)
 		transition.Unlock()
 		return service.hotAttachSession(sessionID)
 	}
@@ -86,14 +93,6 @@ func (service *Service) resumeSession(sessionID string) error {
 	return nil
 }
 
-// bumpViewEpoch 推进视图切换序号（任何新的视图激活都推进；冷加载完成时只有
-// 仍为最新 epoch 才允许发布基线）。
-func (service *Service) bumpViewEpoch() {
-	service.ViewMu.Lock()
-	service.nextViewEpochLocked()
-	service.ViewMu.Unlock()
-}
-
 // beginAsyncRestore 激活目标会话的 restoring 空壳：视图指针立即切到目标，
 // 会话树/当前快照呈现 SessionStatusRestoring，内容由后台 resumeSessionCold
 // 完成后发布。调用方已持有视图过渡锁；内部自取 Core.ViewMu。
@@ -103,7 +102,7 @@ func (service *Service) beginAsyncRestore(sessionID string) (uint64, error) {
 		service.ViewMu.Unlock()
 		return 0, errors.New("application is shut down")
 	}
-	epoch := service.nextViewEpochLocked()
+	epoch := service.markSessionViewIntentLocked(sessionID)
 	service.setRestoringLocked(sessionID)
 	name := service.components.sessions.SessionTitleFor(sessionID).Value
 	unit := service.sessionUnitLocked(sessionID)
@@ -144,6 +143,48 @@ func (service *Service) beginAsyncRestore(sessionID string) (uint64, error) {
 	return epoch, nil
 }
 
+// pointViewAtRestoringShell 把视图重指到一个"装载在途"会话的空壳上（幂等，
+// 自取 Core.ViewMu）。用在对同一目标的重复 ResumeSession：**不重复装载、不推进
+// 该会话的视图意图**（在途装载守的就是这份意图，推了它就再也不会发布，视图会停在
+// 空壳上），只把视图与快照投影重新指回目标。
+//
+// 与 beginAsyncRestore 的关键差别：**不清目标会话单元的可见区**——在途装载可能
+// 已经把回读出来的内容写进单元了，清空会把它抹掉；这里只换视图指针与快照里的
+// 上一会话投影。
+func (service *Service) pointViewAtRestoringShell(sessionID string) {
+	if service == nil || sessionID == "" {
+		return
+	}
+	service.ViewMu.Lock()
+	if service.closed || service.Core.Snapshot.Session.ID == sessionID {
+		service.ViewMu.Unlock()
+		return
+	}
+	if !service.isRestoringLocked(sessionID) {
+		// 装载已收口（restoring 已清）：视图归位交给正常的切换路径，这里不越权
+		// 冒充一次激活——否则会把已发布的内容换成空壳。
+		service.ViewMu.Unlock()
+		return
+	}
+	name := service.components.sessions.SessionTitleFor(sessionID).Value
+	unit := service.sessionUnitLocked(sessionID)
+	service.Core.Snapshot.Session = SessionState{ID: sessionID, Name: name, Status: SessionStatusRestoring}
+	service.sessions.SetActive(sessionID)
+	service.Core.Snapshot.Task = nil
+	service.Core.Snapshot.Runtime.Plan = nil
+	service.Core.Snapshot.Runtime.TodoItems = nil
+	service.Core.Snapshot.Runtime.SubAgentTree = nil
+	service.Core.Snapshot.Runtime.WorkTable = nil
+	service.Core.Snapshot.Runtime.WorkTableBatches = nil
+	service.Core.Snapshot.Runtime.TeamworkBoard = nil
+	service.Core.Snapshot.Interaction = nil
+	service.setSessionChatLockedFor(sessionID, unit.ChatState())
+	service.mirrorActiveViewLocked()
+	revision := service.bumpLocked()
+	service.ViewMu.Unlock()
+	service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
+}
+
 // resumeSessionColdInBackground 后台执行冷加载：完成/失败后按 epoch 判定
 // 是否仍可发布视图基线；被更新的切换取代时只完成目标会话自身装载，不抢占
 // 视图。
@@ -160,7 +201,7 @@ func (service *Service) handleColdRestoreFailure(sessionID, previousID string, e
 	service.ViewMu.Lock()
 	service.clearRestoringLocked(sessionID)
 	stillActive := service.Core.Snapshot.Session.ID == sessionID
-	latest := service.viewEpoch == epoch
+	latest := service.sessionViewIntentLocked(sessionID) == epoch
 	service.ViewMu.Unlock()
 	if !stillActive || !latest {
 		return
@@ -388,7 +429,7 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 	// 目标会话在装载期间可能已经跑过自己的回合，也可能已被更新的切换取代，
 	// 两种情形都只完成目标会话自身的状态装载（引擎驻留/可见投影/任务槽），
 	// 不激活视图、不抢占、不发布。
-	mayActivate := service.viewEpoch == activateEpoch && service.Core.Snapshot.Session.ID == sessionID
+	mayActivate := service.sessionViewIntentLocked(sessionID) == activateEpoch && service.Core.Snapshot.Session.ID == sessionID
 	// 装载在途标记：无论激活与否都先移除，避免装载完成后会话树/快照停留
 	// 在“恢复中”。
 	service.clearRestoringLocked(sessionID)

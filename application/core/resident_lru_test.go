@@ -134,12 +134,37 @@ func TestResidentLimitKeepsBusySessions(t *testing.T) {
 	}
 }
 
-// TestResidentLimitDefaultSix 默认 resident_limit = 6（INV-G8 口径）。
-func TestResidentLimitDefaultSix(t *testing.T) {
-	if got := seelexctx.DefaultLimits().ResidentSessionLimit; got != 6 {
-		t.Fatalf("default resident limit = %d, want 6", got)
+// TestSessionReleaseDefaults 释放面默认口径（2026-10-14）：统一窗口默认 1
+// （受保护集之外只保留上一个），两个分层覆盖键默认**未配置**（0 = 交给统一窗口
+// 管辖）——在这里补 6/12 老默认会让统一窗口永远失效。
+func TestSessionReleaseDefaults(t *testing.T) {
+	if got := seelexctx.DefaultLimits().ResidentSessionLimit; got != 0 {
+		t.Fatalf("default resident layer limit = %d, want 0（未配置 = 交给统一窗口）", got)
 	}
-	if got := Limits().ResidentSessionLimit; got != 6 {
-		t.Fatalf("active resident limit = %d, want 6", got)
+	if got := seelexctx.DefaultLimits().ReleaseWindow(); got != 1 {
+		t.Fatalf("default release window = %d, want 1（只保留上一个）", got)
+	}
+	if got := Limits().ReleaseWindow(); got != 1 {
+		t.Fatalf("active release window = %d, want 1", got)
+	}
+	if got := Limits().ResidentSessionLimit; got != 0 {
+		t.Fatalf("active resident layer limit = %d, want 0", got)
+	}
+	// 窗口是配置项：显式配置生效，<=0 回落默认。
+	if got := (seelexctx.Limits{SessionReleaseWindow: 4}).ReleaseWindow(); got != 4 {
+		t.Fatalf("configured release window = %d, want 4", got)
+	}
+	if got := (seelexctx.Limits{}).ReleaseWindow(); got != 1 {
+		t.Fatalf("zero-value release window = %d, want 1（零值回落默认）", got)
+	}
+	// 分层覆盖（老口径）折算：额度 = 上限 − 受保护数（下限 0）。
+	if got := releaseBudget(0, 3); got != 1 {
+		t.Fatalf("releaseBudget(0, 3) = %d, want 1（窗口口径不看受保护数）", got)
+	}
+	if got := releaseBudget(6, 2); got != 4 {
+		t.Fatalf("releaseBudget(6, 2) = %d, want 4（分层口径折算）", got)
+	}
+	if got := releaseBudget(1, 2); got != 0 {
+		t.Fatalf("releaseBudget(1, 2) = %d, want 0（受保护数已达上限）", got)
 	}
 }

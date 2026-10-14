@@ -260,23 +260,22 @@ func snapshotSessions(t *testing.T, service *Service) map[string]SessionInfo {
 	return rows
 }
 
-// TestLoadedContentLimitDefaults 内容上限默认 12（seelexctx 单一事实源），
-// 未配置/非法配置回落默认，显式配置生效。
-func TestLoadedContentLimitDefaults(t *testing.T) {
-	if got := seelexctx.DefaultLimits().LoadedContentLimit; got != 12 {
-		t.Fatalf("default loaded content limit = %d, want 12", got)
+// TestLoadedContentLayerLimitDefaults 内容层的限额口径（2026-10-14）：
+// loaded_content_limit 是**分层覆盖**（默认未配置 = 0 = 交给统一窗口
+// limits.session_release_window 管辖），窗口默认 1（只保留上一个）。
+func TestLoadedContentLayerLimitDefaults(t *testing.T) {
+	if got := seelexctx.DefaultLimits().LoadedContentLimit; got != 0 {
+		t.Fatalf("default loaded content layer limit = %d, want 0（未配置 = 交给统一窗口）", got)
 	}
-	if got := Limits().LoadedContentLimit; got != 12 {
-		t.Fatalf("active loaded content limit = %d, want 12", got)
+	if got := Limits().LoadedContentLimit; got != 0 {
+		t.Fatalf("active loaded content layer limit = %d, want 0", got)
 	}
-	if got := loadedContentLimit(0); got != 12 {
-		t.Fatalf("loadedContentLimit(0) = %d, want 12（未配置回落默认）", got)
+	if got := seelexctx.DefaultLimits().ReleaseWindow(); got != 1 {
+		t.Fatalf("default release window = %d, want 1", got)
 	}
-	if got := loadedContentLimit(-3); got != 12 {
-		t.Fatalf("loadedContentLimit(-3) = %d, want 12（非法值回落默认）", got)
-	}
-	if got := loadedContentLimit(3); got != 3 {
-		t.Fatalf("loadedContentLimit(3) = %d, want 3", got)
+	// 显式配置分层键仍生效（老口径：该层总数上限，含受保护会话）。
+	if got := releaseBudget(3, 1); got != 2 {
+		t.Fatalf("releaseBudget(3, 1) = %d, want 2", got)
 	}
 }
 

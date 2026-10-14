@@ -528,6 +528,10 @@ func run() error {
 		PrepareHistory: func(sessionID string, messages []types.Message) {
 			runtime.PrepareMainSessionHistory(sessionID, messages)
 		},
+		// 会话释放面（2026-10-14）：LRU 驱逐/卸载/归档/删除时把桥侧会话本体
+		// （框架 Session + 上下文存储 + 主历史）一起放掉——只丢引擎端口引用
+		// 等于把"驱逐"做成空操作，见 docs/2026-10-14-memory-cpu-accumulation/。
+		ReleaseSessionBundle: runtime.ReleaseSessionBundle,
 	})
 	sessionManager := initSessionManager(store, appEngine)
 	wsRepo, err := initWorkspaceRepo()

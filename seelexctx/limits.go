@@ -59,18 +59,24 @@ type Limits struct {
 	MaxReplansPerWindow    int `yaml:"max_replans_per_window"`       // 窗口内 replan 次数
 	MaxReplanProviderReqs  int `yaml:"max_replan_provider_requests"` // 窗口内 provider 请求预算
 	MaxReplansPerPlanChain int `yaml:"max_replans_per_plan_chain"`   // 单计划链 replan 次数
-	// ResidentSessionLimit 是进程内驻留引擎（session bundle）的 LRU 上限
-	// （G6 INV-G8：默认 6；驱逐前置 = 非 running/awaiting_approval，且
-	// composer/View/Runtime 槽已 flush）。
+	// SessionReleaseWindow 是**会话释放窗口**（yaml: session_release_window，默认 1）：
+	// 受保护集（当前视图 / 待审批 / 运行·排队·在飞 / 正在恢复）之外的会话，最多
+	// 保留几个「已加载」的会话。语义与释放动作见 application/core/session_release.go：
+	//   1 = 只保留上一个（切走一个、再切走一个才释放最旧的）——出厂口径；
+	//   0/缺失 = 未配置 → 默认 1（本轮窗口不会因为没人配就退化成"全都留着"）；
+	//   N = 再保留 N 个（越大越顺滑，代价是常驻内存越多）。
+	// 释放 = 引擎实例 + 桥侧会话本体（框架 Session / 会话上下文存储）+ 可见正文
+	// 一起放掉；会话单元、目录行、磁盘事实保留，重开走冷加载。
+	SessionReleaseWindow int `yaml:"session_release_window"`
+	// ResidentSessionLimit / LoadedContentLimit 是**分层覆盖（老口径，可选）**：
+	// 显式 >0 时按"该层驻留会话总数上限"（含当前视图会话）计算——只想单独约束
+	// 某一层的现场用它；0/缺失 = 交给 SessionReleaseWindow 统一管辖。
+	//
+	// 两者管的是同一份内存的两层：resident 层是引擎 bundle（provider 历史 +
+	// 工具运行时，重），content 层是已加载会话的可见正文窗口（history_window 条，
+	// 轻）。分层口径下的取值理由是"引擎远重于一个正文窗口"，所以老默认按 2×
+	// 留余量（6 / 12）——那是**老口径**的默认；新口径下两层共用一个窗口，默认 1。
 	ResidentSessionLimit int `yaml:"resident_limit"`
-	// LoadedContentLimit 是「已加载会话可见正文」的会话数上限（默认 12）：
-	// 视图未切换到的、且不在运行中的会话，其可见正文窗口（history_window
-	// 条）按此上限做 LRU 卸载，只释放消息正文，会话事实/元数据/标题/统计与
-	// 磁盘数据不动（application/core/content_lru.go），再激活或分页时冷回读。
-	// 取值理由：驻留引擎上限默认 6，而引擎 bundle（provider 历史 + 工具
-	// 运行时）远重于一个正文窗口；按 2× 留余量，既能覆盖「当前视图 + 最近
-	// 切换过的几个会话」（避免刚切走就卸载、把切回来的操作变成磁盘读），又
-	// 把正文内存钉在「约 12 × history_window 条消息」的量级。
 	LoadedContentLimit   int `yaml:"loaded_content_limit"`
 	HistoryWindow        int `yaml:"history_window"`          // 会话可见历史条数
 	PlanNodeEvents       int `yaml:"plan_node_events"`        // 节点详情时间线上限
@@ -315,8 +321,9 @@ func DefaultLimits() Limits {
 		MaxReplansPerWindow:    6,
 		MaxReplanProviderReqs:  6,
 		MaxReplansPerPlanChain: 2,
-		ResidentSessionLimit:   6,
-		LoadedContentLimit:     12,
+		// 会话释放面（2026-10-14）：统一窗口默认 1 = 受保护集之外只保留上一个。
+		// 分层覆盖键不在这里补默认——0 的语义是"交给统一窗口管辖"。
+		SessionReleaseWindow:   1,
 		HistoryWindow:          200,
 		PlanNodeEvents:         30,
 		PlanNodeMaxLoops:       384,
@@ -364,6 +371,16 @@ func DefaultLimits() Limits {
 	}
 }
 
+// ReleaseWindow 返回生效的**会话释放窗口**（受保护集之外最多保留几个已加载
+// 会话）：未配置或非法（<=0）→ 默认 1（只保留上一个）。这是唯一读法——消费方
+// 不得直接读 SessionReleaseWindow 字段，否则零值会退化成"窗口 0 = 什么都留不住"。
+func (l Limits) ReleaseWindow() int {
+	if l.SessionReleaseWindow > 0 {
+		return l.SessionReleaseWindow
+	}
+	return DefaultLimits().SessionReleaseWindow
+}
+
 // DefaultToolResultLimit 返回工具结果字符预算的 seelex 生效默认值。
 // 所有消费方（processor / controller / application.core）以此为兜底，
 // 与 seelex.yaml limits 段 max_tool_result_chars 的覆盖合并后保持一致；
@@ -405,11 +422,8 @@ func (l Limits) WithDefaults() Limits {
 	if l.MaxReplansPerPlanChain == 0 {
 		l.MaxReplansPerPlanChain = def.MaxReplansPerPlanChain
 	}
-	if l.ResidentSessionLimit == 0 {
-		l.ResidentSessionLimit = def.ResidentSessionLimit
-	}
-	if l.LoadedContentLimit == 0 {
-		l.LoadedContentLimit = def.LoadedContentLimit
+	if l.SessionReleaseWindow == 0 {
+		l.SessionReleaseWindow = def.SessionReleaseWindow
 	}
 	if l.HistoryWindow == 0 {
 		l.HistoryWindow = def.HistoryWindow
@@ -550,7 +564,7 @@ func LoadLimits(path string) (Limits, error) {
 	}
 	if check.ToolCallTimeoutSec < 0 || check.ApprovalTimeoutSec < 0 || check.PlanDecisionTimeoutSec < 0 ||
 		check.HeartbeatIntervalSec < 0 || check.ReplanWindowSec < 0 || check.SearchTimeoutSec < 0 || check.TavilyTimeoutSec < 0 ||
-		check.MaxConcurrentReplans < 0 || check.MaxReplansPerWindow < 0 || check.MaxReplanProviderReqs < 0 || check.MaxReplansPerPlanChain < 0 || check.ResidentSessionLimit < 0 ||
+		check.MaxConcurrentReplans < 0 || check.MaxReplansPerWindow < 0 || check.MaxReplanProviderReqs < 0 || check.MaxReplansPerPlanChain < 0 || check.SessionReleaseWindow < 0 || check.ResidentSessionLimit < 0 ||
 		check.LoadedContentLimit < 0 ||
 		check.HistoryWindow < 0 || check.PlanNodeEvents < 0 || check.PlanNodeMaxLoops < 0 ||
 		check.EvidenceChars < 0 || check.ReplanEvidenceBytes < 0 || check.InputLoopLimit < 0 ||

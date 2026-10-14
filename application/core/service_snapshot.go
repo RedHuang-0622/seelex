@@ -163,10 +163,34 @@ func (service *Service) restoreSignalLocked() <-chan struct{} {
 	return service.restoreSig
 }
 
-// nextViewEpoch 推进视图切换序号并返回新值（调用方持有 Core.ViewMu）。
+// nextViewEpoch 推进全局视图序号时钟并返回新值（调用方持有 Core.ViewMu）。
 func (service *Service) nextViewEpochLocked() uint64 {
 	service.viewEpoch++
 	return service.viewEpoch
+}
+
+// markSessionViewIntentLocked 给会话记一次新的视图意图并返回其值（调用方持有
+// Core.ViewMu）：意图值取自全局序号时钟，比较口径是"该会话自己的上次意图"。
+func (service *Service) markSessionViewIntentLocked(sessionID string) uint64 {
+	if service.sessionViewIntent == nil {
+		service.sessionViewIntent = make(map[string]uint64)
+	}
+	intent := service.nextViewEpochLocked()
+	service.sessionViewIntent[sessionID] = intent
+	return intent
+}
+
+// markSessionViewIntent 是 markSessionViewIntentLocked 的自取锁包装。
+func (service *Service) markSessionViewIntent(sessionID string) {
+	service.ViewMu.Lock()
+	service.markSessionViewIntentLocked(sessionID)
+	service.ViewMu.Unlock()
+}
+
+// sessionViewIntentLocked 返回会话当前的视图意图值（调用方持有 Core.ViewMu）。
+// 无记录返回 0——任何一次激活取到的值都 > 0，因此不会与"最新意图"混淆。
+func (service *Service) sessionViewIntentLocked(sessionID string) uint64 {
+	return service.sessionViewIntent[sessionID]
 }
 
 func (service *Service) Subscribe(buffer int) Subscription {

@@ -79,6 +79,10 @@ type EnginePort struct {
 	// nodeStageLogs 是 node 第一视角阶段日志历史查询（详情弹窗"第一视角"
 	// 历史回放源；Runtime 注入，只读子代理 actor，安全）。
 	nodeStageLogs func(nodeID string) []dto.NodeStageLog
+	// releaseSessionBundle 是桥侧会话本体释放面（seelebridge.Runtime.ReleaseSession）：
+	// 会话释放面把框架 Session + 会话上下文存储 + 主历史一起放掉（见
+	// application/core/session_release.go）。nil = 未装配（legacy 引擎/测试）。
+	releaseSessionBundle func(sessionID string) bool
 }
 
 // EnginePortDeps 是 EnginePort 的启动期装配（main.go 装配点一次注入；
@@ -106,6 +110,11 @@ type EnginePortDeps struct {
 	// PrepareHistory Runtime-owned one-shot handoff（framework Session 的
 	// DurableHistory.Load 使用；启动期配置，必须在并发开始前完成）。
 	PrepareHistory func(string, []types.Message)
+	// ReleaseSessionBundle 释放桥侧会话本体（seelebridge.Runtime.ReleaseSession）：
+	// 会话释放面把框架 Session + 会话上下文存储 + 主历史一起放掉；返回是否真的
+	// 释放（在飞 fork / 后台命令，或该会话仍是桥的活跃别名时返回 false）。
+	// nil = 未装配：释放面退化成"只丢引擎引用"（legacy 引擎的语义）。
+	ReleaseSessionBundle func(string) bool
 }
 
 // ApplyDeps 一次注入 EnginePort 启动期装配（幂等；覆盖旧值）。
@@ -125,6 +134,7 @@ func (port *EnginePort) ApplyDeps(deps EnginePortDeps) {
 	port.subagentLivePage = deps.SubagentLivePage
 	port.nodeStageLogs = deps.NodeStageLogs
 	port.prepareHistory = deps.PrepareHistory
+	port.releaseSessionBundle = deps.ReleaseSessionBundle
 }
 
 // ReactorEngine is the small framework surface the application adapter
@@ -386,6 +396,28 @@ func (port *EnginePort) HasSession(sessionID string) bool {
 	defer port.mu.RUnlock()
 	engine, ok := port.engines[sessionID]
 	return ok && engine != nil
+}
+
+// ReleaseSessionBundle 释放指定会话的**桥侧会话本体**（框架 Session + 会话上下文
+// 存储 + 主历史；见 application/core/session_release.go 的释放清单）。
+//
+// 为什么端口已经 UnloadSession 了还要它：UnloadSession 只丢本端口的引擎引用，
+// 桥的 bundles 注册表是另一个持有者（只增不删）——不叫它，"驱逐"在内存上等于
+// 空操作。返回是否真的释放：在飞 fork/后台命令、或该会话仍是桥的活跃别名时返回
+// false（调用方保持驻留，不做半途释放）。
+//
+// 未装配（legacy 引擎 / 测试）返回 false。
+func (port *EnginePort) ReleaseSessionBundle(sessionID string) bool {
+	if port == nil || sessionID == "" {
+		return false
+	}
+	port.mu.RLock()
+	release := port.releaseSessionBundle
+	port.mu.RUnlock()
+	if release == nil {
+		return false
+	}
+	return release(sessionID)
 }
 
 // ReplaceHistoryFor 是会话内历史替换（contract 版）：替换指定会话引擎
@@ -906,6 +938,9 @@ func (port *EnginePort) UnloadSession(sessionID string) error {
 	// 按会话的循环上限随引擎一起离场（端口对已卸载的会话不留状态）：重开的会话按
 	// 进程默认值跑，不会把早已卸载的那次定时任务的钉值悄悄带回来。
 	delete(port.sessionMaxLoops, sessionID)
+	// 历史交接序号同样按会话离场（handoffLatest）：留着就是每个出现过的会话一格
+	// 永不回收的记账（会话释放面要求"端口对已卸载的会话不留任何状态"）。
+	delete(port.handoffLatest, sessionID)
 	if port.sessionID == sessionID {
 		port.engine = nil
 		port.sessionID = ""
