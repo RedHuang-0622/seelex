@@ -1697,6 +1697,12 @@ func (repository *jsonRepository) Delete(_ context.Context, key Key) error {
 	if err := removeAllWithBackoff(repository.sessionDir(key)); err != nil {
 		return err
 	}
+	// 派生投影与会话同批回收：project board 是"按会话派生"的投影（可删可重建），
+	// 会话没了投影就该退场（否则它会作为孤儿继续被聚合读命中）。回收实现只有一处
+	// （reclaimProjectBoard，见 project_board.go），这里只做绑定。
+	if err := repository.reclaimProjectBoard(key.ProjectID, key.SessionID); err != nil {
+		return err
+	}
 	return nil
 }
 
