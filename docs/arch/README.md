@@ -37,6 +37,7 @@
 | [`workunit-ports-and-assembly.md`](workunit-ports-and-assembly.md) | 父（端口）清单与装配矩阵：作业面/现场/会话/读面四类端口 + 两步计划（① 只定作业端口 / ② 两张作业表合一）|
 | [`workunit-duplication-inventory.md`](workunit-duplication-inventory.md) | 只读盘点：同一件事在仓库里有几份实现（worktree / 会话 / 作业面），含归并建议与不确定项 |
 | [`seelex-project-board.md`](seelex-project-board.md) | 项目看板：会话级任务/里程碑的派生投影（`worktable.jsonl` / `teamwork.jsonl`）与按需读取面；含行信封、`FoldProjectBoardRows`、同步器与装配门契约（M1–M7 已落地） |
+| [`remote-agent-node-feasibility.md`](remote-agent-node-feasibility.md) | 远程 agent 节点（员工节点）可行性：依赖倒置的三处可用缝（`roleEngine` / workunit 作业端口 / 契约-装配分离）、暴露阶梯 L0–L3、跨进程缺口清单、三桌面后端能力对照（含 macOS `ScrollTargets=false` 与 Linux 非 ASCII 注入缺陷）、灰度/金丝雀的载体选择（VM 池 + 真机对照）。**评估，未改代码** |
 
 ## 会话数据流：架构层与方法
 
