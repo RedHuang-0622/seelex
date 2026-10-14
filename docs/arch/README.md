@@ -36,6 +36,7 @@
 | [`workunit-single-lifecycle-one-implementation.md`](workunit-single-lifecycle-one-implementation.md) | 一件活的生命周期只有一份实现：接口先行 + 两个注册点只做转发（含 §8 交集与析构函数、§10 红灯先行）|
 | [`workunit-ports-and-assembly.md`](workunit-ports-and-assembly.md) | 父（端口）清单与装配矩阵：作业面/现场/会话/读面四类端口 + 两步计划（① 只定作业端口 / ② 两张作业表合一）|
 | [`workunit-duplication-inventory.md`](workunit-duplication-inventory.md) | 只读盘点：同一件事在仓库里有几份实现（worktree / 会话 / 作业面），含归并建议与不确定项 |
+| [`seelex-project-board.md`](seelex-project-board.md) | 项目看板：会话级任务/里程碑的派生投影（`worktable.jsonl` / `teamwork.jsonl`）与按需读取面；含行信封、`FoldProjectBoardRows`、同步器与装配门契约（M1–M7 已落地） |
 
 ## 会话数据流：架构层与方法
 
