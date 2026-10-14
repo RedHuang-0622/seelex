@@ -32,6 +32,7 @@ goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回
 ### goal_coordinator.go
 
 - `func newGoalCoordinator(deps goalCoordinatorDeps) *goalCoordinator`
+- `func (g *goalCoordinator) ForgetSession(sessionID string)` — ForgetSession 释放一个会话的 goal 运行时（会话释放面调用，见 session_release.go）：
 - `func (g *goalCoordinator) bundleFor(sessionID string) *goalSessionRuntime` — bundleFor 返回（需要时创建）指定会话的 goal bundle。创建时若装配了会话
 - `func (g *goalCoordinator) Begin(ctx context.Context, sessionID string, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error)` — Begin 注册并压栈（会话路由）。
 - `func (g *goalCoordinator) Update(ctx context.Context, sessionID string, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error)` — Update 更新栈顶（会话路由）。

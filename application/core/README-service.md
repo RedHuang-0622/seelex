@@ -24,6 +24,8 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 ### service.go
 
+- `func (service *Service) SetProjectBoardSink(sink ProjectBoardSink)` — SetProjectBoardSink 注入（或收回：传 nil）项目看板投影的写侧端口。
+- `func (service *Service) projectBoardSink() ProjectBoardSink` — projectBoardSink 取一份当前订阅口快照（读锁；返回的是一份接口值副本）。
 - `func New(deps Dependencies) (*Service, error)`
 - `func (service *Service) ActiveSkillIDs() []string` — ActiveSkillIDs 返回当前任务的激活 skill ID 列表（goal skill 激活判定用，
 - `func (service *Service) PromptLayers() []PromptLayer` — PromptLayers 返回当前会话注入的 prompt 前缀层（system/base/effort/
@@ -55,6 +57,11 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func TestSessionBackedQueueIsConsumedAtRunChatEnd(t *testing.T)`
 - `func TestCancelChatInterruptsContextAwareEngine(t *testing.T)`
 - `func TestCancelChatWithStaleRequestID(t *testing.T)` — TestCancelChatWithStaleRequestID 验证取消语义归属：request_id 只是参考，动作
+
+### service_components.go
+
+- `func (port *projectBoardPort) store(sink ProjectBoardSink)`
+- `func (port *projectBoardPort) load() ProjectBoardSink`
 
 ### service_components_test.go
 
@@ -218,6 +225,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 - `func withTestSessions(sessions SessionPort) testServiceOption`
 - `func withTestRuntime(runtime RuntimePort) testServiceOption`
+- `func withTestReleaseWindowStore(store ReleaseWindowStore) testServiceOption` — withTestReleaseWindowStore 注入「会话驻留窗口」的落盘口（不注入 = 界面上改的值
 - `func withTestPlugins(plugins PluginPort) testServiceOption` — withTestPlugins 注入自定义插件端口（默认桩只给一个不含来源的 default）。来源面
 - `func newTestService(t testing.TB, engine ChatEngine, options ...testServiceOption) *Service` — newTestService 构造一个带默认 fakes 的 Service（测试夹具），并在测试
 - `func mustNew(t testing.TB, deps Dependencies) *Service`
@@ -372,6 +380,22 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func TestQueueEditErrorsBeforeAnySession(t *testing.T)` — TestQueueEditErrorsBeforeAnySession 进程还没有任何会话单元时，视图会话按
 - `func TestConcurrentRecallQueuedInput(t *testing.T)` — TestConcurrentRecallQueuedInput（-race）并发撤回同一会话：撤回与 Enqueue /
 
+### service_release_window.go
+
+- `func (service *Service) SetSessionReleaseWindow(_ context.Context, window int) (int, error)` — SetSessionReleaseWindow 改「受保护集之外最多保留几个已加载会话」，返回**真正生效**
+- `func (service *Service) SessionReleaseWindow() int` — SessionReleaseWindow 返回当前生效的会话驻留窗口（设置弹窗打开时读一次）。
+
+### service_release_window_test.go
+
+- `func (store *recordingReleaseWindowStore) SaveSessionReleaseWindow(window int) error`
+- `func (store *recordingReleaseWindowStore) calls() []int`
+- `func snapshotWindowLimits(t *testing.T)` — snapshotWindowLimits 保存并恢复**进程级** limits 快照：窗口住在包级 atomic 上，
+- `func TestSetSessionReleaseWindowAppliesImmediately(t *testing.T)` — TestSetSessionReleaseWindowAppliesImmediately：改一个数，释放面的现读路径立刻看见。
+- `func TestSetSessionReleaseWindowAcceptsBoundaries(t *testing.T)` — TestSetSessionReleaseWindowAcceptsBoundaries：区间两端（1 与 16）都被接受。
+- `func TestSetSessionReleaseWindowRejectsOutOfRange(t *testing.T)` — TestSetSessionReleaseWindowRejectsOutOfRange：越界一个字节都不改——不落盘、不动内存。
+- `func TestSetSessionReleaseWindowLeavesMemoryUntouchedWhenPersistFails(t *testing.T)` — TestSetSessionReleaseWindowLeavesMemoryUntouchedWhenPersistFails：落盘失败 ⇒ 整步
+- `func TestSetSessionReleaseWindowWithoutStoreAppliesToMemoryOnly(t *testing.T)` — TestSetSessionReleaseWindowWithoutStoreAppliesToMemoryOnly：宿主没装配落盘口 ⇒
+
 ### service_scheduler.go
 
 - `func withScheduledRunDefaults(spec seelebridge.ScheduledTaskSpec) seelebridge.ScheduledTaskSpec` — withScheduledRunDefaults 把没声明的执行参数落成默认值（创建/编辑入口调用）。
@@ -410,7 +434,10 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (service *Service) clearRestoringLocked(sessionID string)` — clearRestoringLocked 移除目标会话的后台冷加载标记（调用方持有
 - `func (service *Service) signalRestoreLocked()` — signalRestoreLocked 广播一次“restoring 集合已变化”（调用方持有
 - `func (service *Service) restoreSignalLocked() <-chan struct` — restoreSignalLocked 返回当前 restoring 变化信号（调用方持有 Core.ViewMu）。
-- `func (service *Service) nextViewEpochLocked() uint64` — nextViewEpoch 推进视图切换序号并返回新值（调用方持有 Core.ViewMu）。
+- `func (service *Service) nextViewEpochLocked() uint64` — nextViewEpoch 推进全局视图序号时钟并返回新值（调用方持有 Core.ViewMu）。
+- `func (service *Service) markSessionViewIntentLocked(sessionID string) uint64` — markSessionViewIntentLocked 给会话记一次新的视图意图并返回其值（调用方持有
+- `func (service *Service) markSessionViewIntent(sessionID string)` — markSessionViewIntent 是 markSessionViewIntentLocked 的自取锁包装。
+- `func (service *Service) sessionViewIntentLocked(sessionID string) uint64` — sessionViewIntentLocked 返回会话当前的视图意图值（调用方持有 Core.ViewMu）。
 - `func (service *Service) Subscribe(buffer int) Subscription`
 - `func (service *Service) refreshRuntimeProjectionForSession(sessionID string)` — refreshRuntimeProjectionForSession 是会话（重）激活时的**重建**一步：按目标会话从
 - `func (service *Service) collectRuntimeProjection(ctx context.Context) view_state.RuntimeStateProjection`

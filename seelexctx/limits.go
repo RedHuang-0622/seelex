@@ -381,6 +381,28 @@ func (l Limits) ReleaseWindow() int {
 	return DefaultLimits().SessionReleaseWindow
 }
 
+// 会话释放窗口的可调区间（前端「设置 → 会话驻留」的取值面，也是启动期覆盖层的
+// 校验面）。
+//
+// 上界 16 是**取舍**而不是算术限制：窗口里的每一个会话都意味着一份常驻的引擎实例
+// + 桥侧本体 + 可见正文，摆一个"永不释放"的格子等于把内存治理整块关掉。下界 1
+// （不是 0）：窗口 0 的语义是"谁都不留"，那会让每次切会话都冷加载，而且与配置层的
+// 零值口径（0 = 未配置 → 默认 1）撞车。
+const (
+	SessionReleaseWindowMin = 1
+	SessionReleaseWindowMax = 16
+)
+
+// ValidateSessionReleaseWindow 是窗口取值的**唯一**判据：设置面的写路径与启动期的
+// 落盘覆盖层共用它，避免出现"能存进去、读回来却不认"的两份口径。
+func ValidateSessionReleaseWindow(window int) error {
+	if window < SessionReleaseWindowMin || window > SessionReleaseWindowMax {
+		return fmt.Errorf("会话驻留窗口需在 %d..%d 之间（收到 %d）",
+			SessionReleaseWindowMin, SessionReleaseWindowMax, window)
+	}
+	return nil
+}
+
 // DefaultToolResultLimit 返回工具结果字符预算的 seelex 生效默认值。
 // 所有消费方（processor / controller / application.core）以此为兜底，
 // 与 seelex.yaml limits 段 max_tool_result_chars 的覆盖合并后保持一致；

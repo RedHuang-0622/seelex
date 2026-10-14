@@ -1,8 +1,3 @@
-> **本卷用户面已退场（2026-10-12，J-1a）**：Agent Team 的装配适配、团队库/员工库/全局母本、
-> `@` 手动召唤团队与 `AgentTeam*` 桥接/RPC 已整条删除。本卷现在覆盖的是**角色会话基座**
-> （`RoleSessionID` / 角色 draft / floor）与 `application/core/agentteam` 里留下的调度原语。
-> 下面的能力表是退场前的记录：Agent Team 装配面的行已不再成立。
-
 # core/agentteam（根包分卷）
 
 ## 生态位

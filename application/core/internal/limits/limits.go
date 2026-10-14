@@ -28,6 +28,20 @@ func Apply(l seelexctx.Limits) {
 	active.Store(&applied)
 }
 
+// SetSessionReleaseWindow 只改**一格**并原子发布：读当前快照 → 改这一格 → 整体替换。
+//
+// 为什么不必通知任何消费方：窗口是**现读**的（消费方在每次释放决策时调
+// seelexctx.Limits.ReleaseWindow()），替换之后下一次释放就用新值——不必重启，也不必
+// 碰任何 LRU 调用点。写入方（application/core 的门面）负责先校验取值。
+//
+// 不用 Apply 是因为 Apply 会重跑 WithDefaults：这里要的是"只动这一格"，其余格原样
+// 保留（快照本来就是补过默认的完整版本）。
+func SetSessionReleaseWindow(window int) {
+	current := Get()
+	current.SessionReleaseWindow = window
+	active.Store(&current)
+}
+
 // Get 返回当前生效的运行时上限（只读拷贝语义）。
 func Get() seelexctx.Limits {
 	if snapshot := active.Load(); snapshot != nil {

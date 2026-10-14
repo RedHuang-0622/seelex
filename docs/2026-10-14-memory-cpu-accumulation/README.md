@@ -1,7 +1,7 @@
 # 内存 / CPU 随时间累积（重启归零）：裁定、证据与治理方案
 
 - 日期：2026-10-14
-- 状态：裁定已定稿；**P0（释放面）+ 可调窗口已落地，全量回归全绿**（`go test ./... -count=1`：
+- 状态：裁定已定稿；**P0（释放面）+ 可调窗口 + 界面可调窗口已落地**（`go test ./... -count=1`：
   根包 90.4s / `application/core` 65.5s / `e2e` 12.1s / `internal/adapters` 8.1s /
   `seelebridge` 96.2s / `sessionstore` 80.3s / `workspace` 39.8s，无 FAIL）；
   实现清单与验证见 [`implementation.md`](implementation.md)；P1/P2 未开始
@@ -60,4 +60,5 @@
 | 5 | 横向排查：遥测无上限 + 快照热路径全量扫描 | 完成：见 `verdict.md` §3 B、§4 C |
 | 6 | 汇总：成因解释 + 优化方案（证据、验证方式、改动落点） | 完成（本文档集） |
 | 7 | 实现：释放面（引擎 + 桥侧本体 + 正文 + 下游句柄）+ 窗口成为配置项 | 完成（[`implementation.md`](implementation.md)） |
-| 8 | 实现：telemetry 封顶 / 快照深拷贝 / 目录缓存（P1） | 未开始 |
+| 8 | 实现：窗口可在**界面**上调（设置 → 会话驻留，1..16，落盘数据根覆盖层、立刻生效） | 完成（[`implementation.md`](implementation.md) §界面可调） |
+| 9 | 实现：telemetry 封顶 / 快照深拷贝 / 目录缓存（P1） | 未开始 |

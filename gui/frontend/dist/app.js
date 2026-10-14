@@ -40,6 +40,7 @@ import { escapePluginSourceText, pluginSourceBadge } from "./plugin-source.js";
 import { renderHistorySearchResults } from "./history-search.js";
 import { createThemeController, loadThemeManifest } from "./theme.js";
 import { resolveWindowTreatment } from "./window-treatment.js";
+import { normalizeReleaseWindow, releaseWindowLabel, releaseWindowOptions } from "./release-window.js";
 import {
   bindHorizontalDragDelegate,
   bindHorizontalWheelDelegate,
@@ -118,7 +119,7 @@ const elements = Object.fromEntries([
   "right-tabs", "goal-section", "goal-badge", "goal-view", "goal-detail-modal", "goal-detail-close", "goal-detail-title", "goal-detail-view", "team-board-section", "team-board-badge", "team-board-view", "code-panes", "code-pane-tabs", "code-pane-worktree", "code-pane-gitlog", "git-log-view", "git-log-count", "code-pane-changes", "changes-view", "changes-count",
   "file-preview-pane", "file-preview-view", "file-preview-tabs", "file-preview-hide-panes", "file-preview-close", "file-preview-divider", "file-preview-collapse", "file-preview-rail",
   "file-save-modal", "file-save-title", "file-save-message", "file-save-keep", "file-save-discard", "file-save-cancel",
-  "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "terminal-scrollback", "theme-picker", "mode-picker", "inline-suggestions",
+  "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "terminal-scrollback", "release-window", "release-window-status", "theme-picker", "mode-picker", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
   // 文件引用（J-1b）：草稿 chip 条 + `+` 加号的候选面板。
   "composer-file-refs", "file-button", "composer-file-picker", "composer-file-close", "composer-file-search", "composer-file-results",
@@ -3407,6 +3408,9 @@ async function openSettings() {
   setModal("settings-modal", true);
   elements["storage-status"].textContent = "";
   renderThemePicker();
+  // 会话驻留窗口：**进程级**读数，另拉一次（不进快照）；读不到只说明一句，不拖累
+  // 下面那段存储读取。
+  await syncReleaseWindowReading();
   try {
     const config = await invoke("SessionStorageConfig");
     elements["storage-backend"].value = config.backend || "json";
@@ -5177,6 +5181,80 @@ elements["terminal-scrollback"]?.addEventListener("change", event => {
 });
 
 syncTerminalScrollbackSelect();
+
+// ── 会话驻留窗口（设置面板 → 会话驻留）─────────────────────────────
+// 权威在**后端进程级** limits（seelexctx 的 session_release_window）：设置弹窗是
+// "打开时读一次"的面（invoke("SessionReleaseWindow")），提交走
+// invoke("SetSessionReleaseWindow", n) 并**采纳后端返回的生效值**——与 composer 两条
+// 拉条同一口径（后端可能拒绝或归一化，界面显示的必须是真正生效的那个）。
+//
+// 为什么不像拉条那样从快照读数：窗口是进程级设置，而快照的 runtime 是**按会话**组
+// 装的投影，把它塞进去会让"切会话时它跟着动"变成一个假事实（见 model.SessionRuntime
+// 的字段归属）。读法姿势与 SessionStorageConfig 一致。
+//
+// releaseWindowCommitted 是"最后一份权威读数"：提交失败时把控件回滚到它（后端在写盘
+// 失败时**整步不改内存**，所以回滚是诚实的——不会回滚一个其实已经生效的值）。
+let releaseWindowCommitted = null;
+
+function renderReleaseWindowOptions() {
+  const select = elements["release-window"];
+  if (!select) return;
+  select.innerHTML = releaseWindowOptions()
+    .map(option => `<option value="${option.value}">${escapeHtml(option.label)}</option>`)
+    .join("");
+}
+
+function setReleaseWindowStatus(text) {
+  const status = elements["release-window-status"];
+  if (status) status.textContent = text || "";
+}
+
+// syncReleaseWindowSelect 把控件对齐到一份权威值。null（没有可用读数）时保持原样并
+// 说明原因，而不是把它兜成一个"看起来像默认"的值。
+function syncReleaseWindowSelect(value) {
+  const select = elements["release-window"];
+  const normalized = normalizeReleaseWindow(value);
+  if (!select) return;
+  if (normalized === null) {
+    setReleaseWindowStatus("读不到当前窗口（桥未就绪）；取值见 config/seelex.yaml 的 limits.session_release_window");
+    return;
+  }
+  releaseWindowCommitted = normalized;
+  select.value = String(normalized);
+  setReleaseWindowStatus("");
+}
+
+// syncReleaseWindowReading 读一次后端权威（弹窗打开时调）。
+async function syncReleaseWindowReading() {
+  try {
+    syncReleaseWindowSelect(await invoke("SessionReleaseWindow"));
+  } catch (error) {
+    syncReleaseWindowSelect(null);
+  }
+}
+
+elements["release-window"]?.addEventListener("change", async event => {
+  const select = event.target;
+  const requested = normalizeReleaseWindow(select.value);
+  if (requested === null) {
+    syncReleaseWindowSelect(releaseWindowCommitted);
+    return;
+  }
+  select.disabled = true;
+  setReleaseWindowStatus("正在应用…");
+  try {
+    const applied = normalizeReleaseWindow(await invoke("SetSessionReleaseWindow", requested));
+    syncReleaseWindowSelect(applied);
+    setReleaseWindowStatus(`已生效：${releaseWindowLabel(applied) || requested}`);
+  } catch (error) {
+    syncReleaseWindowSelect(releaseWindowCommitted);
+    showToast(error);
+  } finally {
+    select.disabled = false;
+  }
+});
+
+renderReleaseWindowOptions();
 
 document.addEventListener("keydown", event => {
   if (!(event.ctrlKey || event.metaKey) || event.altKey) return;

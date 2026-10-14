@@ -1,0 +1,117 @@
+package main
+
+// runtime_limits_overlay.go — 「运行时上限覆盖层」：把用户在**界面上**改过的运行时
+// 参数落成数据根里的一份 JSON（runtime-limits.json），启动时作**最高优先覆盖层**叠
+// 在 config/seelex.yaml 的 limits 段之上。
+//
+// 覆盖链：内置默认 ← config/seelex.yaml 的 limits 段 ← 数据根 runtime-limits.json。
+//
+// 为什么不写回 config/seelex.yaml：那份文件是**用户的配置**（带注释、手改），程序往
+// 回写要重排注释、抹平格式差异，而且"界面上拧的一个数"与"用户写进配置的数"本是两件
+// 事——覆盖层让它们各自留在自己的地方，谁压谁一眼可解释。
+//
+// 落点与 session-storage.json / workspace_index.json / scheduled-tasks.jsonl 同级
+// （数据根 = store 的基目录），不往二进制目录或用户项目目录里凭空造文件。
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/RedHuang-0622/seelex/seelexctx"
+)
+
+// runtimeLimitsOverlayFile 是覆盖层的文件名（数据根内）。
+const runtimeLimitsOverlayFile = "runtime-limits.json"
+
+// runtimeLimitsOverlay 是覆盖层的正文。**只有界面上真的拧过的格子会出现在这里**：
+// 零值/缺省 = 这一格没被改过，配置里的值原样生效。
+type runtimeLimitsOverlay struct {
+	// SessionReleaseWindow 是界面上改过的「会话驻留窗口」（见 seelexctx）。
+	SessionReleaseWindow int `json:"session_release_window,omitempty"`
+}
+
+// runtimeLimitsPath 是覆盖层的落盘路径：数据根，与 session-storage.json 同级。
+func runtimeLimitsPath() string {
+	return filepath.Join(filepath.Dir(*storePath), runtimeLimitsOverlayFile)
+}
+
+// readRuntimeLimitsOverlay 读覆盖层。路径为空 / 文件不存在 / 内容损坏一律回落到
+// "没有覆盖"——与 gui-appearance.json 同一条口径：界面上拧过的参数永远不该阻断启动
+// （坏文件只记一条日志，用户照样能开，只是那一格回到配置值）。
+func readRuntimeLimitsOverlay(path string) runtimeLimitsOverlay {
+	if strings.TrimSpace(path) == "" {
+		return runtimeLimitsOverlay{}
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return runtimeLimitsOverlay{} // 不存在是常态（没在界面上改过任何东西）
+	}
+	var parsed runtimeLimitsOverlay
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		log.Printf("runtime-limits: %s 内容损坏（%v），按“没有覆盖”继续", path, err)
+		return runtimeLimitsOverlay{}
+	}
+	return parsed
+}
+
+// applyRuntimeLimitsOverlay 把覆盖层叠到 limits 上（覆盖层优先）。取值不合法的格子
+// 只记一条日志并跳过，不让一份坏文件把启动拦下。
+func applyRuntimeLimitsOverlay(base seelexctx.Limits, overlay runtimeLimitsOverlay) seelexctx.Limits {
+	if overlay.SessionReleaseWindow <= 0 {
+		return base
+	}
+	if err := seelexctx.ValidateSessionReleaseWindow(overlay.SessionReleaseWindow); err != nil {
+		log.Printf("runtime-limits: session_release_window 取值不合法（%v），忽略这一格覆盖", err)
+		return base
+	}
+	base.SessionReleaseWindow = overlay.SessionReleaseWindow
+	return base
+}
+
+// writeRuntimeLimitsOverlay 把覆盖层落盘：**读-改-写**（先读回现有正文再改要改的那一
+// 格），这样下一次往这份文件里加第二个参数时，别的格子不会被这次写入抹掉。
+//
+// 写的是临时文件再改名（同目录内的 rename 在 Windows 上也是原子的）：一次失败不会
+// 留下半份 JSON —— 半份 JSON 会被 readRuntimeLimitsOverlay 当成"损坏"整份丢掉，等于
+// 把用户之前改过的参数一起清掉。
+func writeRuntimeLimitsOverlay(path string, window int) error {
+	if strings.TrimSpace(path) == "" {
+		return errors.New("runtime-limits: 落盘路径为空")
+	}
+	current := readRuntimeLimitsOverlay(path)
+	current.SessionReleaseWindow = window
+	payload, err := json.MarshalIndent(current, "", "  ")
+	if err != nil {
+		return err
+	}
+	payload = append(payload, '\n')
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	temp := path + ".tmp"
+	if err := os.WriteFile(temp, payload, 0o644); err != nil {
+		return err
+	}
+	if err := os.Rename(temp, path); err != nil {
+		_ = os.Remove(temp)
+		return err
+	}
+	return nil
+}
+
+// runtimeLimitsStoreFile 是 contract.ReleaseWindowStore 在本宿主上的落盘实现：把界面
+// 上改过的会话驻留窗口写进数据根的 runtime-limits.json，下次启动由
+// applyRuntimeLimitsOverlay 叠加回来。
+type runtimeLimitsStoreFile struct{ path string }
+
+func (store runtimeLimitsStoreFile) SaveSessionReleaseWindow(window int) error {
+	if err := writeRuntimeLimitsOverlay(store.path, window); err != nil {
+		return fmt.Errorf("%s: %w", runtimeLimitsOverlayFile, err)
+	}
+	return nil
+}

@@ -24,6 +24,7 @@ type (
 	SkillPort              = contract.SkillPort
 	SessionPort            = contract.SessionPort
 	WorkspacePort          = contract.WorkspacePort
+	ReleaseWindowStore     = contract.ReleaseWindowStore
 	WorkspaceInfo          = model.WorkspaceInfo
 	Snapshot               = model.Snapshot
 	SessionSnapshot        = model.SessionSnapshot

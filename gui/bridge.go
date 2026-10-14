@@ -43,6 +43,11 @@ type Application interface {
 	// （思考强度 / 循环次数各自独立；档位切换 = 同时设置两条拉条的预设）。
 	SetReasoningEffort(context.Context, string) error
 	SetLoopLimit(context.Context, int) error
+	// SetSessionReleaseWindow / SessionReleaseWindow 是「会话驻留窗口」的可调面
+	// （设置弹窗 → 会话驻留）：写路径返回**真正生效**的值（前端采纳它，而不是假定
+	// 请求值生效），读路径供弹窗打开时读一次。
+	SetSessionReleaseWindow(context.Context, int) (int, error)
+	SessionReleaseWindow() int
 	SwitchPlugin(context.Context, string) error
 	LoadMoreHistory(int) error
 	// LoadLatestHistory 把可见会话拉回最新一页（历史浏览后的「回到最新」；
@@ -841,6 +846,23 @@ func (bridge *Bridge) SetReasoningEffort(effort string) error {
 // SetLoopLimit 下发"跑多少轮"（composer 底部「循环次数」拉条）。
 func (bridge *Bridge) SetLoopLimit(limit int) error {
 	return bridge.app.SetLoopLimit(bridge.requestContext(), limit)
+}
+
+// SetSessionReleaseWindow 改「受保护集之外最多保留几个已加载会话」（设置弹窗 →
+// 会话驻留），返回**真正生效**的窗口。
+//
+// 窗口是**现读**的进程级 limits（释放面每次决策读一次），所以这一步之后即刻生效：
+// 不重启、不重建任何 LRU 结构。落盘由后端自己的 ReleaseWindowStore 负责（宿主没
+// 装配时只本次运行有效）；写盘失败时后端整步不改内存，返回值因此只是错误，前端把
+// 控件回滚到最后一份权威值是诚实的。
+func (bridge *Bridge) SetSessionReleaseWindow(window int) (int, error) {
+	return bridge.app.SetSessionReleaseWindow(bridge.requestContext(), window)
+}
+
+// SessionReleaseWindow 读当前生效的会话驻留窗口（弹窗打开时读一次；与
+// SetSessionReleaseWindow 同一份权威，前端不另存一份"我以为的值"）。
+func (bridge *Bridge) SessionReleaseWindow() int {
+	return bridge.app.SessionReleaseWindow()
 }
 
 func (bridge *Bridge) SwitchPlugin(name string) error {

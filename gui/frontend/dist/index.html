@@ -353,6 +353,14 @@
           <select id="terminal-scrollback"><option value="1000">1000 行</option><option value="2000" selected>2000 行（默认）</option><option value="5000">5000 行</option><option value="10000">10000 行</option></select>
         </label>
       </div>
+      <div class="settings-section">
+        <div class="section-title">会话驻留</div>
+        <p class="settings-note">「受保护集之外」最多保留几个已加载的会话。当前视图、待审批、运行中与正在恢复的会话永不释放；其余会话（切走之后回合跑完的那个）按最近使用释放。窗口越大，切回旧会话越顺滑，常驻内存也越多（默认 1 = 只保留上一个，切回更早的会话要冷加载）。改后立刻生效，并记到数据根，重启后照旧。</p>
+        <label class="settings-field">保留窗口
+          <select id="release-window"></select>
+        </label>
+        <div id="release-window-status" class="muted"></div>
+      </div>
       <div class="settings-actions"><button id="storage-test" type="button" class="secondary">测试连接</button><button id="storage-save" type="button" class="primary">保存并切换</button></div>
       <div id="storage-status" class="muted"></div>
     </div>

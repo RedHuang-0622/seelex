@@ -325,6 +325,7 @@ go test ./application/core/session_runtime -count=1
 - `func (c *Coordinator) allProjectIDs() []string` — allProjectIDs 返回目录枚举的项目集合（空项目 = 当前 active scope + 全部
 - `func (c *Coordinator) AllProjectIDs() []string` — AllProjectIDs 返回目录枚举的项目集合（公开观察面：冷启动草稿恢复需要跨
 - `func (c *Coordinator) LocateSession(sessionID string) Location` — LocateSession 定位会话（workspace 绑定优先；支持 scoped 读取时遍历全部
+- `func (c *Coordinator) LocateSessionResolved(sessionID string) (Location, bool)` — LocateSessionResolved 是 LocateSession 的"解析结果"变体：resolved=false 表示
 - `func preferSessionLocation(candidate, current Location, boundWorkspaceID string) bool`
 - `func preferSessionInfo(candidate, current model.SessionInfo) bool`
 - `func WorkspaceID(workspace *model.WorkspaceInfo) string` — WorkspaceID 返回工作区指针的 ID（nil → ""）。

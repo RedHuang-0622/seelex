@@ -473,6 +473,22 @@ type Dependencies struct {
 	// 走同一张权责表（主体 × 路由组 × 位），区别只是主体名（emp_<角色名>）。
 	// 未装配（nil）时装配仍成功，只是不写员工权限条目（判定按档位默认派生）。
 	EmployeePermissions EmployeePermissionPort
+	// ReleaseWindowStore 是「会话驻留窗口」的落盘口：装了它，改窗口先写盘再改内存
+	// （写盘失败 ⇒ 整步不改，重启后的值与界面上的值始终一致）；nil = 界面上改的值
+	// 只在本次运行有效。
+	ReleaseWindowStore ReleaseWindowStore
+}
+
+// ReleaseWindowStore 把"界面上改过的会话驻留窗口"落到宿主自己的存储里。
+//
+// 为什么落盘这一步必须在**改内存之前**：写盘失败就整步不改，于是"重启后还是旧值"
+// 与"界面上看到的值"不会分叉；反过来（先改内存后写盘）会留下"这一次生效了、重启又
+// 变回去"的假成功，而前端拿到的错误会去回滚一个其实已经生效的控件。
+//
+// 实现方（main.go）写的是数据根里的覆盖层文件，启动时作最高优先覆盖层叠加在
+// config/seelex.yaml 的 limits 段之上。
+type ReleaseWindowStore interface {
+	SaveSessionReleaseWindow(window int) error
 }
 
 // EmployeePermissionPort 把"装配团队时写入的员工角色"翻译成**员工权限分配**。

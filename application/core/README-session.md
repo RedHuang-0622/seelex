@@ -117,13 +117,11 @@
 
 ### content_lru.go
 
-- `func loadedContentLimit(configured int) int` — loadedContentLimit 把配置值收敛为生效上限（<=0 = 未配置 → 默认值；与
 - `func (service *Service) touchContent(sessionID string)` — touchContent 记录一次会话可见正文使用（冷加载完成/热挂载/分页读回/回读），
 - `func (service *Service) markContentRecentLocked(sessionID string)` — markContentRecentLocked 把会话移到内容 LRU 使用序最前（索引 0 = 最近使用；
 - `func (service *Service) forgetContentLocked(sessionID string)` — forgetContentLocked 把会话移出内容 LRU 使用序（正文已卸载；调用方持有
 - `func (service *Service) pruneContentOrderLocked() int` — pruneContentOrderLocked 收敛使用序并返回当前持有正文的会话数（调用方持有
-- `func (service *Service) reconcileLoadedContentLimit(protect string)` — reconcileLoadedContentLimit 超限时按 LRU 卸载空闲会话的已加载正文（无候选
-- `func (service *Service) pickContentEvictableCandidateLocked(protect string) string` — pickContentEvictableCandidateLocked 从使用序最旧端挑一个可卸载正文的会话
+- `func (service *Service) reconcileLoadedContentLimit(protect string)` — reconcileLoadedContentLimit 按释放面口径收敛正文（内容层）：受保护集既不计数
 - `func (service *Service) evictLoadedContent(sessionID string) error` — evictLoadedContent 卸载一个空闲会话的已加载正文：先 flush（非活跃会话
 - `func (service *Service) sessionContentLoadedLocked(sessionID string) bool` — sessionContentLoadedLocked 报告目标会话当前是否持有已加载的可见正文
 - `func (service *Service) sessionContentUnloaded(sessionID string) bool` — sessionContentUnloaded 报告目标会话的可见正文是否已被内容 LRU 卸载（需要
@@ -149,7 +147,7 @@
 - `func waitForContentLoaded(t *testing.T, service *Service, sessionID string) contentState` — waitForContentLoaded 轮询等待会话正文装载完成：运行中会话存在时冷加载走
 - `func waitForContentUnloaded(t *testing.T, service *Service, sessionID string) contentState` — waitForContentUnloaded 轮询等待内容 LRU 真正把正文卸载（区别于「本来就
 - `func snapshotSessions(t *testing.T, service *Service) map[string]SessionInfo` — snapshotSessions 等一轮目录收敛后返回左侧列表行（按 ID 索引）。
-- `func TestLoadedContentLimitDefaults(t *testing.T)` — TestLoadedContentLimitDefaults 内容上限默认 12（seelexctx 单一事实源），
+- `func TestLoadedContentLayerLimitDefaults(t *testing.T)` — TestLoadedContentLayerLimitDefaults 内容层的限额口径（2026-10-14）：
 - `func TestContentLimitEvictsLeastRecentlyUsedIdleContent(t *testing.T)` — TestContentLimitEvictsLeastRecentlyUsedIdleContent 上限 1：冷加载第二个会话
 - `func TestContentLimitKeepsBusyAndActiveSessions(t *testing.T)` — TestContentLimitKeepsBusyAndActiveSessions 上限 1：运行中（busy）会话与当前
 - `func TestContentEvictionColdReloadsSameWindow(t *testing.T)` — TestContentEvictionColdReloadsSameWindow 会话正文被卸载后再激活（冷回读）
@@ -174,6 +172,7 @@
 
 ### session_archive_test.go
 
+- `func (sessions *archiveSessions) SessionsOf(projectID string) []SessionInfo` — SessionsOf 实现 session_runtime.SessionGranularPort：替身只认得一个会话，
 - `func (sessions *archiveSessions) SaveCurrent(string) error`
 - `func (sessions *archiveSessions) LoadHistory(string) ([]EngineMessage, error)`
 - `func (sessions *archiveSessions) SaveSessionRecord(_ string, record SessionRecord) error`
@@ -391,8 +390,8 @@
 ### session_history.go
 
 - `func (service *Service) resumeSession(sessionID string) error` — resumeSession 是会话切换的应用边界：目标已驻留（含运行中）热加载；目标
-- `func (service *Service) bumpViewEpoch()` — bumpViewEpoch 推进视图切换序号（任何新的视图激活都推进；冷加载完成时只有
 - `func (service *Service) beginAsyncRestore(sessionID string) (uint64, error)` — beginAsyncRestore 激活目标会话的 restoring 空壳：视图指针立即切到目标，
+- `func (service *Service) pointViewAtRestoringShell(sessionID string)` — pointViewAtRestoringShell 把视图重指到一个"装载在途"会话的空壳上（幂等，
 - `func (service *Service) resumeSessionColdInBackground(sessionID, previousID string, epoch uint64)` — resumeSessionColdInBackground 后台执行冷加载：完成/失败后按 epoch 判定
 - `func (service *Service) handleColdRestoreFailure(sessionID, previousID string, epoch uint64, cause error)` — handleColdRestoreFailure 后台冷加载失败的降级：用户若仍停留在失败的恢复
 - `func (service *Service) resetViewToDraftAfterRestoreFailure()` — resetViewToDraftAfterRestoreFailure 在“无前一会话可回退”时把视图重置到
@@ -503,6 +502,7 @@
 
 - `func (service *Service) hotAttachSession(sessionID string) error` — hotAttachSession 热加载：目标会话已驻留（引擎实例在内存，含运行中），
 - `func (service *Service) UnloadSession(sessionID string) error` — UnloadSession 卸载会话：先持久化（非活跃时），再释放内存态（引擎实例、
+- `func (service *Service) switchViewToFreshDraftLocked()` — switchViewToFreshDraftLocked 把视图切到一个**就地新建**的早分配草稿单元（调用方
 
 ### session_lifecycle_test.go
 
@@ -636,9 +636,37 @@
 - `func TestSnapshotBumpConcurrentWithRunChatTail(t *testing.T)` — TestSnapshotBumpConcurrentWithRunChatTail（TC-R-02）：并发 Submit（触发
 - `func TestReleaseWorkingHistoryConcurrentWithChatStream(t *testing.T)` — TestReleaseWorkingHistoryConcurrentWithChatStream（TC-R-03）：收尾清工作
 
+### session_release.go
+
+- `func (service *Service) protectedSessionLocked(sessionID string) bool` — protectedSessionLocked 报告目标会话是否属于**受保护集**（绝不释放；调用方持有
+- `func releaseBudget(legacyLimit int, protectedCount int) int` — releaseBudget 把"本层能留几个"折算成一个数字。
+- `func (service *Service) releaseSessionMemory(sessionID string, mode sessionReleaseMode) error` — releaseSessionMemory 释放一个会话的内存占用（引擎 + 桥侧本体 + 正文 + 使用序，
+- `func (service *Service) releaseSessionContentMemory(sessionID string)` — releaseSessionContentMemory 只释放可见正文（调用方已完成守卫与 flush）：会话
+- `func (service *Service) forgetResidentLocked(sessionID string)` — forgetResidentLocked 把会话移出驻留使用序并清驻留标记（调用方持有 Core.ViewMu）。
+- `func (service *Service) reconcileSessionRelease()` — reconcileSessionRelease 跑一遍两层释放面（引擎层 + 内容层）。调用点：
+
 ### session_release_async_test.go
 
 - `func TestDeleteSessionReleasesBackgroundRuns(t *testing.T)`
+
+### session_release_test.go
+
+- `func withSessionReleaseWindow(window int) func()` — withSessionReleaseWindow 把统一窗口改成 window，并把两个分层覆盖键归零
+- `func newReleaseAwareEngine() *releaseAwareEngine`
+- `func (engine *releaseAwareEngine) ReleaseSessionBundle(sessionID string) bool` — ReleaseSessionBundle 模拟桥侧释放面：记录被释放的会话并回报"真的释放了"。
+- `func (engine *releaseAwareEngine) wasReleased(sessionID string) bool`
+- `func (engine *contentReleaseEngine) ReleaseSessionBundle(sessionID string) bool`
+- `func waitEngineReleased(t *testing.T, engine *releaseAwareEngine, sessionID string)` — waitEngineReleased 轮询等待引擎侧会话离场（驱逐在 touch 内同步完成；-race/高负载
+- `func goalBundleExists(service *Service, sessionID string) bool` — goalBundleExists 报告 goal 协调器是否还持有该会话的运行时句柄（内含它按会话
+- `func TestPointViewAtRestoringShellKeepsTargetUnitContent(t *testing.T)` — TestPointViewAtRestoringShellKeepsTargetUnitContent：切回"装载在途"的会话时，视图
+- `func TestPointViewAtRestoringShellIgnoresSettledTarget(t *testing.T)` — TestPointViewAtRestoringShellIgnoresSettledTarget：装载已收口（restoring 已清）时
+- `func TestReleaseSessionMemoryForgetsGoalStoreHandle(t *testing.T)` — TestReleaseSessionMemoryForgetsGoalStoreHandle：释放面必须通知"按会话缓存了
+- `func TestSessionReleaseWindowKeepsOnlyPreviousSession(t *testing.T)` — TestSessionReleaseWindowKeepsOnlyPreviousSession：窗口 1 的口径——三个会话依次
+- `func TestSessionReleaseWindowProtectsBusySession(t *testing.T)` — TestSessionReleaseWindowProtectsBusySession：运行中会话是受保护集，即使它是最旧
+- `func TestSessionReleaseWindowDropsPreviousContent(t *testing.T)` — TestSessionReleaseWindowDropsPreviousContent：窗口 1 下最旧会话的**可见正文**
+- `func TestDeleteSessionReleasesMemory(t *testing.T)` — TestDeleteSessionReleasesMemory：删除**非视图**会话必须把内存一起放掉（引擎 +
+- `func TestDeleteViewSessionSwitchesViewToFreshDraft(t *testing.T)` — TestDeleteViewSessionSwitchesViewToFreshDraft：删除**当前视图**会话时，重的三面
+- `func TestReleaseSessionMemorySkipsProtectedSession(t *testing.T)` — TestReleaseSessionMemorySkipsProtectedSession：释放面自身带二次确认——直接调用
 
 ### session_resource_isolation_test.go
 

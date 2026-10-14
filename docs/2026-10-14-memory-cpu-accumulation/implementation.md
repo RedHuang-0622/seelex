@@ -39,6 +39,32 @@ limits:
   `loaded_content_limit` 就是老语义（"该层总数上限，含受保护会话"），
   折算方式见 `seelexctx.Limits.ReleaseWindow` 与 `releaseBudget`。
 
+## 界面可调（设置 → 会话驻留）
+
+窗口不必改配置文件也能调：设置弹窗新增「会话驻留」一段（`1..16` 的下拉框）。
+
+- **立刻生效**：窗口是**现读**的（释放面每次决策调 `Limits.ReleaseWindow()`），换掉
+  进程级 limits 快照的那一格之后，下一次释放就用新值——不必重启，也不必碰任何 LRU
+  调用点。
+- **落盘与优先级**：界面上改的值写进**数据根**的 `runtime-limits.json`（与
+  `session-storage.json` / `workspace_index.json` / `scheduled-tasks.jsonl` 同级）。
+  覆盖链因此变成 **内置默认 ← `config/seelex.yaml` 的 limits 段 ← `runtime-limits.json`**，
+  启动时由 `applyRuntimeLimitsOverlay` 叠加。不写回 `seelex.yaml`：那份文件是**用户的
+  配置**（带注释、手改），程序往回写要重排注释、抹平格式差异；两份各自留在自己的地方，
+  谁压谁一眼可解释。坏文件/缺文件按"没有覆盖"继续（界面上拧过的参数不该阻断启动）。
+- **次序是刻意的**：校验 →（落盘）→ 改内存。落盘失败 ⇒ 整步不改（返回错误、内存不动），
+  于是"重启后的值"与"界面上的值"不会分叉，前端把控件回滚到最后一份权威值是诚实的。
+- **区间 `1..16`**：不留 `0`（"谁都不留" = 每次切会话都冷加载，且与配置层"`0` = 未配置
+  → 默认 1"撞车），也不留"永不释放"格（那等于把内存治理整块关掉）。边界只有一处：
+  `seelexctx.SessionReleaseWindowMin/Max`；前端 `release-window.js` 的同一组常量由
+  `settings-release-window.test.mjs` 逐值对账（防两端口径漂移）。
+- **不设运行守卫**（与 `SetLoopLimit` / `SetReasoningEffort` 不同）：窗口只约束"哪个
+  **已静默**的会话可以被释放"（受保护集含运行/排队/在飞会话），所以会话在跑时改它既
+  打断不了谁，也放不掉任何在飞的内存。
+- **读法**：弹窗打开时 `invoke("SessionReleaseWindow")` 拉一次读数——窗口是**进程级**
+  设置，而快照的 runtime 是**按会话**组装的投影，塞进去会让"切会话时它跟着动"变成一个
+  假事实（与 `SessionStorageConfig` 同一姿势）。
+
 ## 改动清单
 
 | 文件 | 做了什么 |
@@ -56,6 +82,22 @@ limits:
 | `internal/adapters/engine_port.go` | `UnloadSession` 清 `handoffLatest`（端口对已卸载会话不留状态）；新增 `ReleaseSessionBundle` 转发 + `EnginePortDeps.ReleaseSessionBundle` |
 | `seelebridge/runtime_session_release.go`（新） | `ReleaseSessionBundle`（放掉 `bundles[sid]`）+ `HasSessionBundle` + `dropSessionResidue`（servedRoutes / routingNoticeSeen / teamworkCoords / teamworkBoardCache）。守卫：`ForkInFlight`、`AsyncPendingFor > 0`、`activeSessionID` 命中即拒绝 |
 | `main.go` | 装配 `ReleaseSessionBundle: runtime.ReleaseSessionBundle` |
+
+### 界面可调窗口（本轮追加）
+
+| 文件 | 做了什么 |
+| --- | --- |
+| `seelexctx/limits.go` | 新增窗口边界与唯一校验判据 `SessionReleaseWindowMin/Max` + `ValidateSessionReleaseWindow`（设置面与启动期覆盖层共用，杜绝"能存进去、读回来却不认"） |
+| `application/core/internal/limits/limits.go` | `SetSessionReleaseWindow`：只改一格并原子发布（不用 `Apply`——那会重跑 `WithDefaults`） |
+| `application/core/limits.go` | 门面 `ApplySessionReleaseWindow`（校验在最前，非法值一个字节都不改） |
+| `application/core/service_release_window.go`（新） | `Service.SetSessionReleaseWindow`（校验 → 落盘 → 改内存，返回生效值）与 `Service.SessionReleaseWindow` 读数 |
+| `application/contract/ports.go` | 新增窄可选端口 `ReleaseWindowStore` + `Dependencies.ReleaseWindowStore`（`nil` = 只本次运行有效） |
+| `runtime_limits_overlay.go`（新，根包） | 覆盖层读写：`runtimeLimitsPath` / `readRuntimeLimitsOverlay` / `applyRuntimeLimitsOverlay` / `writeRuntimeLimitsOverlay`（读-改-写 + 临时文件改名）/ `runtimeLimitsStoreFile` |
+| `main.go` | 启动时叠加覆盖层（在 `seelex.yaml` 的 limits 之后、`runtimeLimits` 赋值之前）；装配 `ReleaseWindowStore` |
+| `gui/bridge.go` | `Application` 接口 + `Bridge.SetSessionReleaseWindow` / `Bridge.SessionReleaseWindow` 透传 |
+| `gui/frontend/dist/index.html` | 设置弹窗新增「会话驻留」一段（`#release-window` 下拉框 + `#release-window-status` 读数行） |
+| `gui/frontend/dist/release-window.js`（新） | 取值面纯模块：`normalizeReleaseWindow` / `releaseWindowLabel` / `releaseWindowOptions` |
+| `gui/frontend/dist/app.js` | 接线：注册两个 id、`openSettings` 拉一次读数、`change` 提交并采纳生效值、失败回滚 + 弹错 |
 
 ## 测试与验证
 

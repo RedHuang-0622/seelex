@@ -18,6 +18,12 @@ func withTestRuntime(runtime RuntimePort) testServiceOption {
 	return func(deps *Dependencies) { deps.Runtime = runtime }
 }
 
+// withTestReleaseWindowStore 注入「会话驻留窗口」的落盘口（不注入 = 界面上改的值
+// 只在本次运行有效）。
+func withTestReleaseWindowStore(store ReleaseWindowStore) testServiceOption {
+	return func(deps *Dependencies) { deps.ReleaseWindowStore = store }
+}
+
 // withTestPlugins 注入自定义插件端口（默认桩只给一个不含来源的 default）。来源面
 // （source_kind/source_url/source_root）要落到会话快照，就得从**真实**的
 // adapters.PluginPort 走一遍，所以这个口子必须存在。

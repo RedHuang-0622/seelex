@@ -36,5 +36,6 @@ flowchart LR
 
 - `func init()`
 - `func Apply(l seelexctx.Limits)` — Apply 应用 seele.yaml limits 段（零值字段自动补默认）。
+- `func SetSessionReleaseWindow(window int)` — SetSessionReleaseWindow 只改**一格**并原子发布：读当前快照 → 改这一格 → 整体替换。
 - `func Get() seelexctx.Limits` — Get 返回当前生效的运行时上限（只读拷贝语义）。
 

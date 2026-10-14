@@ -1126,6 +1126,10 @@ func initRuntime() (*seelebridge.Runtime, error) {
 		return nil, fmt.Errorf("加载 limits 配置失败: %w", err)
 	}
 	limits = limits.WithDefaults()
+	// 界面上的覆盖层优先于配置：用户在设置弹窗里改过的运行时参数落盘在数据根，
+	// 启动时叠在 config/seelex.yaml 的 limits 段之上（内置默认 ← 配置 ← 覆盖层），
+	// 见 runtime_limits_overlay.go。
+	limits = applyRuntimeLimitsOverlay(limits, readRuntimeLimitsOverlay(runtimeLimitsPath()))
 	runtimeLimits = limits // initStore/initEngine 等后续初始化消费
 	toolCallTimeout, _, planDecision, heartbeat, replanWindow, searchTimeout := limits.Durations()
 	core.ApplyLimits(limits)
@@ -1925,6 +1929,9 @@ func initApplication(
 		// 装配期分配员工权限（与用户权限同一张权责表）：装配团队时把在编员工落成
 		// 各自的主体条目 emp_<角色名>，员工回合的工具判定与工具面都按它生效。
 		EmployeePermissions: runtime,
+		// 会话驻留窗口的落盘口：设置弹窗改的值写进数据根 runtime-limits.json，
+		// 下次启动由 applyRuntimeLimitsOverlay 叠回 limits 之上。
+		ReleaseWindowStore: runtimeLimitsStoreFile{path: runtimeLimitsPath()},
 	})
 }
 

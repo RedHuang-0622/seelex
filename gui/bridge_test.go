@@ -38,6 +38,10 @@ type fakeApplication struct {
 	// 两条独立拉条的落点（composer 底部「推理强度」/「循环次数」）。
 	selectedReasoningEffort string
 	selectedLoopLimit       int
+	// 会话驻留窗口（设置弹窗 → 会话驻留）：写路径记请求值，读路径给一份权威读数。
+	selectedReleaseWindow int
+	releaseWindowReading  int
+	releaseWindowErr      error
 	selectedPlugin          string
 	selectedTier            string
 	loadedHistory           int
@@ -161,6 +165,19 @@ func (fake *fakeApplication) SetReasoningEffort(_ context.Context, effort string
 func (fake *fakeApplication) SetLoopLimit(_ context.Context, limit int) error {
 	fake.selectedLoopLimit = limit
 	return nil
+}
+func (fake *fakeApplication) SetSessionReleaseWindow(_ context.Context, window int) (int, error) {
+	fake.selectedReleaseWindow = window
+	if fake.releaseWindowErr != nil {
+		return 0, fake.releaseWindowErr
+	}
+	return window, nil
+}
+func (fake *fakeApplication) SessionReleaseWindow() int {
+	if fake.releaseWindowReading > 0 {
+		return fake.releaseWindowReading
+	}
+	return 1 // 出厂窗口（seelexctx.DefaultLimits().SessionReleaseWindow）
 }
 func (fake *fakeApplication) SwitchPlugin(_ context.Context, name string) error {
 	fake.selectedPlugin = name
@@ -407,6 +424,24 @@ func TestBridgeForwardsOtherCommands(t *testing.T) {
 	if err := bridge.SetLoopLimit(600); err != nil {
 		t.Fatal(err)
 	}
+	// 会话驻留窗口（设置弹窗 → 会话驻留）：Bridge 只做透传，**返回后端真正生效的值**
+	// （Wails 侧把 (int, error) 映射成"成功 resolve 出值 / 失败 reject"）。
+	fake.releaseWindowReading = 2
+	applied, err := bridge.SetSessionReleaseWindow(5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied != 5 || fake.selectedReleaseWindow != 5 {
+		t.Fatalf("窗口写路径没透传：applied=%d selected=%d", applied, fake.selectedReleaseWindow)
+	}
+	if reading := bridge.SessionReleaseWindow(); reading != 2 {
+		t.Fatalf("窗口读路径 = %d, want 2", reading)
+	}
+	fake.releaseWindowErr = errors.New("disk full")
+	if _, err := bridge.SetSessionReleaseWindow(6); err == nil {
+		t.Fatal("后端报错必须原样冒出来（前端据此回滚控件）")
+	}
+	fake.releaseWindowErr = nil
 	if err := bridge.SwitchPlugin("default"); err != nil {
 		t.Fatal(err)
 	}
@@ -1337,7 +1372,7 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	for _, name := range []string{
 		"frontend/dist/index.html", "frontend/dist/app.js", "frontend/dist/components.js",
 		"frontend/dist/protocol.js", "frontend/dist/client-state.js", "frontend/dist/conversation-view.js",
-		"frontend/dist/chat-view.js", "frontend/dist/runtime-events.js", "frontend/dist/composer-knobs.js", "frontend/dist/knob-slider.js", "frontend/dist/plan-dsl.js", "frontend/dist/tree-fork.js", "frontend/dist/styles.css",
+		"frontend/dist/chat-view.js", "frontend/dist/runtime-events.js", "frontend/dist/composer-knobs.js", "frontend/dist/knob-slider.js", "frontend/dist/release-window.js", "frontend/dist/plan-dsl.js", "frontend/dist/tree-fork.js", "frontend/dist/styles.css",
 	} {
 		if _, err := embeddedFrontend.ReadFile(name); err != nil {
 			t.Fatalf("embedded frontend %q: %v", name, err)

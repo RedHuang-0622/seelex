@@ -88,6 +88,7 @@
 
 - `func ApplyLimits(l seelexctx.Limits)` — ApplyLimits 应用 seele.yaml limits 段（零值字段自动补默认）；
 - `func Limits() seelexctx.Limits` — Limits 返回当前生效的运行时上限（只读拷贝语义）。
+- `func ApplySessionReleaseWindow(window int) (int, error)` — ApplySessionReleaseWindow 校验并**立刻生效**一个「会话驻留窗口」，返回真正生效的
 
 ### perf_stats.go
 
@@ -144,10 +145,8 @@
 
 - `func (service *Service) touchResident(sessionID string)` — touchResident 记录一次会话引擎使用（冷加载/热切换/物化），并触发超限
 - `func (service *Service) markResidentRecentLocked(sessionID string, resident bool)` — markResidentRecentLocked 把会话移到 LRU 使用序最前并标记驻留（调用方持
-- `func (service *Service) reconcileResidentLimit()` — reconcileResidentLimit 在超限时按 LRU 驱逐空闲驻留会话（无候选则容忍
-- `func (service *Service) pickEvictableCandidateLocked(engine residentEngine) string` — pickEvictableCandidateLocked 从 LRU 最旧端挑一个可驱逐会话（调用方持有
-- `func (service *Service) evictResident(sessionID string, engine residentEngine) error` — evictResident 驱逐一个空闲驻留会话：先 flush（非活跃持久化），再释放
-- `func (service *Service) sessionBusy(unit *session.SessionUnit) bool`
+- `func (service *Service) reconcileResidentLimit()` — reconcileResidentLimit 按释放面口径收敛驻留引擎（引擎层）：受保护集（当前视图 /
+- `func (service *Service) sessionBusy(unit *session.SessionUnit) bool` — sessionBusy 报告会话是否正忙（释放面的守卫判据之一：忙的会话绝不释放）：
 
 ### resident_lru_test.go
 
@@ -155,7 +154,7 @@
 - `func residentOf(t *testing.T, service *Service, sessionID string) bool`
 - `func TestResidentLimitEvictsLeastRecentlyUsedIdle(t *testing.T)` — TestResidentLimitEvictsLeastRecentlyUsedIdle 波 4 G6 INV-G8：驻留上限 2，
 - `func TestResidentLimitKeepsBusySessions(t *testing.T)` — TestResidentLimitKeepsBusySessions 波 4 G6 INV-G8：运行中会话不可驱逐
-- `func TestResidentLimitDefaultSix(t *testing.T)` — TestResidentLimitDefaultSix 默认 resident_limit = 6（INV-G8 口径）。
+- `func TestSessionReleaseDefaults(t *testing.T)` — TestSessionReleaseDefaults 释放面默认口径（2026-10-14）：统一窗口默认 1
 
 ### review_files.go
 

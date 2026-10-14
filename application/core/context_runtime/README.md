@@ -288,10 +288,11 @@ go test ./application/core/context_runtime -count=1
 - `func (c *Coordinator) CompactTaskContextFor(sessionID, requestID string) error` — CompactTaskContextFor 把指定会话整个可变 transcript 替换为一个私有、有界
 - `func (c *Coordinator) forceCompactTaskContextFor(ctx context.Context, sessionID, requestID string) (compactDecision, error)` — forceCompactTaskContextFor 是显式压缩入口（/compact、compact_context）：
 - `func (c *Coordinator) compactTaskContextFor(sessionID, requestID string, options prepareOptions) error`
+- `func (c *Coordinator) persistCompactionCheckpoint(sessionID string) error` — persistCompactionCheckpoint 把压缩 checkpoint 按**会话自己的归属**落盘。
 - `func (c *Coordinator) CompactContextNow(ctx context.Context, sessionID string) (CompactResult, error)` — CompactContextNow 主动压缩指定会话的可变 transcript（`/compact` 命令与
 - `func (c *Coordinator) compactSessionContextWithoutEpoch(ctx context.Context, sessionID string) (CompactResult, bool, error)` — compactSessionContextWithoutEpoch 处理"会话没有在飞回合"（冷加载、刚清空）
 - `func (c *Coordinator) hasCompactableSessionContext(sessionID string) bool` — hasCompactableSessionContext 判定会话是否装载了**可压缩的对话材料**：transcript
-- `func (c *Coordinator) sessionLocationLocked(sessionID string) session_runtime.Location` — sessionLocationLocked 返回指定会话的持久化定位（workspace 绑定优先；
+- `func (c *Coordinator) sessionLocationLocked(sessionID string) (session_runtime.Location, sessionLocationKind)` — sessionLocationLocked 返回指定会话的持久化定位及其解析结论。定序：
 - `func (c *Coordinator) PrepareExecutionContext(requestID, currentInput string) (string, error)` — PrepareExecutionContext 从 durable task 状态与完整 transcript 单元重建
 - `func (c *Coordinator) PrepareExecutionContextFor(sessionID, requestID, currentInput string) (string, error)` — PrepareExecutionContextFor 从 durable task 状态与完整 transcript 单元重建
 - `func compactionOrigin(options prepareOptions, state *task_context.TaskExecutionState) string` — compactionOrigin 判定一轮压缩的来源：自动路径（软/硬阈值、自主压缩）记 auto，
@@ -413,4 +414,14 @@ go test ./application/core/context_runtime -count=1
 - `func inFlightTail(history []contract.EngineMessage) []contract.EngineMessage` — inFlightTail 返回历史末尾那段「assistant 带 tool_calls、其中至少一个 call 还没有
 - `func sameToolCalls(left, right []contract.EngineToolCall) bool`
 - `func sameCompactionFailure(records []model.ContextCompaction, failure model.ContextCompaction) bool` — sameCompactionFailure 判定失败的压缩是否**同一次**：同一上下文版本 + 同一原因
+
+### session_location_scope_repro_test.go
+
+- `func TestCompactionCheckpointPersistMustNotLandInViewWorkspace(t *testing.T)` — ── 错误复现：压缩 checkpoint 的落点解析（sessionLocationLocked）───────────────
+- `func (port *plainSessionPort) PersistCurrentSession(location session_runtime.Location, sessionID string) error`
+- `func (port *plainSessionPort) locations() []string`
+- `func (port *recordingSessionPort) PersistCurrentSession(location session_runtime.Location, sessionID string) error`
+- `func (port *recordingSessionPort) LocateSessionResolved(sessionID string) (session_runtime.Location, bool)`
+- `func (port *recordingSessionPort) locations() []string`
+- `func listed(router *sessionstore.Router, projectID, sessionID string) bool` — listed 报告项目目录枚举（左侧栏的数据源口径）里是否列出了该会话。
 
