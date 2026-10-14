@@ -707,17 +707,9 @@ func (state *serviceState) workTableTraceBlockFor(sessionID string) string {
 	if effectiveSession == "" || effectiveSession == viewID {
 		effectiveSession = viewID
 	}
-	var records []dto.TaskRecord
-	if forTasks, ok := state.Deps.Runtime.(interface{ TaskSnapshotFor(string) []dto.TaskRecord }); ok {
-		scope := sessionID
-		if scope == "" || scope == viewID {
-			// 视图/活跃会话的 task scope 恒为实时注册表（"" 分区）。
-			scope = ""
-		}
-		records = forTasks.TaskSnapshotFor(scope)
-	} else {
-		records = state.Deps.Runtime.TaskSnapshot()
-	}
+	// 会话作用域取数（唯一实现见 project_board.go 的 taskRecordsForSession：视图/活跃
+	// 会话 = 实时注册表 "" 分区，后台会话 = 自身 scope 分区）。
+	records := state.taskRecordsForSession(sessionID, viewID)
 	active := make([]dto.TaskRecord, 0, len(records))
 	for _, record := range records {
 		if record.Status != dto.TaskCompleted && record.Status != dto.TaskFailed {
