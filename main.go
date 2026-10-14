@@ -781,6 +781,14 @@ func registerContextReadTools(runtime *seelebridge.Runtime, app *application.Ser
 // 模块元数据（module_dotting.json）+ 可选手工说明 seelex.project.md，构建
 // 项目级模块语义知识（ProjectKnowledge，plan.md §3.7.1）。来源 hash 未变时
 // 直接复用（内容版本化）；重建失败保留上一版本（可回退）。
+//
+// M5：成功刷新后**追加一步渲染**——把 `result.Record` 确定性渲染成
+// `project-known.md`（`sessionstore.ProjectKnownMarkdown` + `WriteProjectKnown`），
+// 返回体里带 known_written / known_bytes。渲染**不改判定**：谁能产出
+// ProjectRecord 仍只有 RefreshProjectKnowledge 这条链。
+//
+// 仍然是**被动**能力（契约 §6.1 / R6）：不新增工具、不在装配期构建、不自动刷新；
+// 只有这个工具被显式调用时才渲染落盘（无显式调用 → 不产文件）。
 func registerProjectRefreshTool(runtime *seelebridge.Runtime, store *sessionstore.Router) {
 	schema := map[string]interface{}{
 		"type": "object",
@@ -804,15 +812,39 @@ func registerProjectRefreshTool(runtime *seelebridge.Runtime, store *sessionstor
 		// 所以这里显式取一次工作区 ID 传进去，而不是让存储层去猜。
 		result, err := sessionstore.RefreshProjectKnowledge(ctx, store, store.Workspace(), builder, input.Force)
 		if err != nil {
+			// 首建失败（无来源 / 落盘失败）：显式报错，**不产空渲染件**。
 			return "", fmt.Errorf("project_refresh: %w", err)
 		}
+		// M5：责任链之后**只加一步渲染**（复用上面的 RefreshProjectKnowledge 三分支，
+		// 不新写第二条项目知识链；被动：只有本工具被调用时才走到这里）。
+		//
+		// 回退（重建失败 ⇒ 保留上一版本）时**不重写渲染件**：上一版的
+		// project-known.md 就是"上一版本"的渲染，渲染不改变既有回退语义。
+		knownWritten := false
+		knownBytes := 0
+		knownNote := ""
+		if result.Fallback {
+			// 不在回退分支重写：盘上的上一版渲染件就是"上一版本"。
+			knownNote = "fallback：保留上一版本渲染件（未重写）"
+		} else {
+			markdown := sessionstore.ProjectKnownMarkdown(result.Record)
+			if writeErr := store.WriteProjectKnown(store.Workspace(), markdown); writeErr != nil {
+				return "", fmt.Errorf("project_refresh: %w", writeErr)
+			}
+			knownWritten = true
+			knownBytes = len(markdown)
+		}
 		payload := map[string]interface{}{
-			"version":  result.Record.Version,
-			"modules":  len(result.Record.Modules),
-			"reused":   result.Reused,
-			"fallback": result.Fallback,
-			"note":     result.Note,
-			"built_at": result.Record.BuiltAt.Format(time.RFC3339),
+			"version":       result.Record.Version,
+			"modules":       len(result.Record.Modules),
+			"reused":        result.Reused,
+			"fallback":      result.Fallback,
+			"note":          result.Note,
+			"built_at":      result.Record.BuiltAt.Format(time.RFC3339),
+			"known_written": knownWritten,
+			"known_bytes":   knownBytes,
+			"known_file":    sessionstore.ProjectBoardKnownFile,
+			"known_note":    knownNote,
 		}
 		encoded, err := json.Marshal(payload)
 		return string(encoded), err

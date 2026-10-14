@@ -203,6 +203,41 @@ Router 用 RWMutex 把 active repository、config 和 project ID 绑定为原子
 Review 风险：新调用方是否误把扫描根路径当项目键传进来；登记的元数据是否随文档搬家而漂移
 （漂移时应该有一条真实布局用例先红，而不是静默退化成 `no sources`）。
 
+## 项目摘要渲染件（`project-known.md`，M5）
+
+`ProjectKnownMarkdown`（`project_known.go`）把 `ProjectRecord` **确定性渲染**成人读
+markdown，`WriteProjectKnown` / `ReadProjectKnown` 把它原子落到项目级目录下：
+
+- **产物定位**：`ProjectRecord` 的**人读渲染（读侧视图），不是输入源**。渲染不参与任何判定、
+  不写事实——领域判定照旧读 task/teamwork 事实；它也**不进模型上下文**（只在被读时进入）。
+- **落点**：`<root>/project-board/project-<hash(projectID)>/project-known.md`（目录派生
+  **复用** `projectBoardRoot`，发布**复用** `writeAtomic`，锁**复用** `projectBoardLock`
+  的按路径独立锁；不新增 `storageModule` 枚举）。换存储根，落点随之变
+  （`TestProjectKnownPathFollowsStoreRoot`）。
+- **确定性**：同一 `ProjectRecord` 两次渲染**字节相同**；模块按 `Name` 稳定排序、`Docs`
+  排序去重。**剔除 `BuiltAt`、绝对路径、`ws-<nano>`**（可提交件三铁律）——绝对路径的
+  `Path` 丢弃、`Docs` 同理，prose 里的 `ws-…` / 盘符路径清洗成占位符。
+- **被动（R6）**：**无显式调用 → 不产文件**。不在装配期构建、不自动刷新；只有
+  `project_refresh` 工具被调用时由 `main.go` 的 handler 渲染 + 落盘，返回体带
+  `known_written` / `known_bytes`（`TestProjectKnownPassiveOnly`）。
+- **责任链不变**：谁能产出 `ProjectRecord` 仍只有 `ProjectKnowledgeBuilder`（来源合并链：
+  元数据→文档目录→手写说明）与 `RefreshProjectKnowledge`（复用/重建/回退三分支）。本项
+  **只加一步渲染**：命中即处理、未命中传递，不新写第二条项目知识链。
+- **失败语义**：重建失败 → 回退保留上一版本（渲染件**不重写**，既有回退语义不变）；
+  首建失败 / 空键 / 空内容 → 显式报错，**不产空文件**；非 JSON 会话存储布局下写面报错、
+  读面按不可用返回（与 `ReadProjectBoardRows` 同口径）。
+- **命名不撞车**：`seelex.project.md` 是**来源名**，`project-record.json` 是**记录**，
+  `project-known.md` 是**渲染件**——三者不是同一个东西。
+- **复用清单（禁止第二份实现）**：目录派生 `projectBoardRoot`（`project_board.go:165`）、
+  `hash`（`sessionstore.go:1914`）、原子发布 `writeAtomic`（`sessionstore.go:1934`）、
+  按路径锁 `projectBoardLock`（`project_board.go:191`）、项目作用域写面
+  `Router.withJSONRepositoryAt`（`sessionstore.go:1066`）、键校验 `validateProjectID`
+  （`sessionstore.go:248`）、项目知识链 `ProjectKnowledgeBuilder` / `RefreshProjectKnowledge`
+  （`project_record.go:73` / `:460`）。
+  **删除清单**：本项**没有**新增第二套目录命名、第二份 rename 发布、第二个 `storageModule`
+  锁枚举、第二份项目知识构建/判定、第二把工具（`project_refresh` 仍是唯一入口）、
+  任何装配期构建或自动刷新钩子。
+
 ## 会话展示元数据（`SessionMetaStore`）
 
 `SessionMeta`（置顶、别名、手动排序位）描述"用户怎么看这个会话"，不参与执行与存储
