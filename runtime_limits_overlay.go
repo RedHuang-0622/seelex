@@ -38,6 +38,10 @@ type runtimeLimitsOverlay struct {
 	// limits.context_window。优先级：账号级 > 全局 > 账号档（见 seelebridge 的
 	// Runtime.ContextWindowFor）。
 	AccountWindows map[string]int `json:"account_windows,omitempty"`
+	// ToolRecordEnabled 是界面上改过的「工具记录计数开关」。**指针**是刻意的：
+	// nil = 没在界面上改过（用默认值：开），false = 明确关过——用零值表达"关"会让
+	// "没改过"与"改过关"分不开，而这两者在启动时的行为不同。
+	ToolRecordEnabled *bool `json:"tool_record_enabled,omitempty"`
 }
 
 // runtimeLimitsPath 是覆盖层的落盘路径：数据根，与 session-storage.json 同级。
@@ -115,6 +119,17 @@ func writeRuntimeLimitsOverlayAccountWindow(path, name string, window int) error
 	return writeRuntimeLimitsOverlayFile(path, current)
 }
 
+// writeRuntimeLimitsOverlayToolRecord 把"工具记录计数开关"写进覆盖层：同样是
+// **读-改-写**（别的格子不能被这次写入抹掉）。
+func writeRuntimeLimitsOverlayToolRecord(path string, enabled bool) error {
+	if strings.TrimSpace(path) == "" {
+		return errors.New("runtime-limits: 落盘路径为空")
+	}
+	current := readRuntimeLimitsOverlay(path)
+	current.ToolRecordEnabled = &enabled
+	return writeRuntimeLimitsOverlayFile(path, current)
+}
+
 // writeRuntimeLimitsOverlayFile 把一份覆盖层落到盘上（临时文件 + rename，见下）。
 func writeRuntimeLimitsOverlayFile(path string, current runtimeLimitsOverlay) error {
 	payload, err := json.MarshalIndent(current, "", "  ")
@@ -153,6 +168,16 @@ func (store runtimeLimitsStoreFile) SaveSessionReleaseWindow(window int) error {
 // runtimeLimitsOverlay.AccountWindows 注入 RuntimeConfig 叠回来。
 func (store runtimeLimitsStoreFile) SaveAccountWindow(name string, window int) error {
 	if err := writeRuntimeLimitsOverlayAccountWindow(store.path, name, window); err != nil {
+		return fmt.Errorf("%s: %w", runtimeLimitsOverlayFile, err)
+	}
+	return nil
+}
+
+// SaveToolRecordEnabled 实现 contract.ToolRecordStore：把界面上改的工具记录开关写进
+// 数据根 runtime-limits.json 的 tool_record_enabled 格，下次启动由
+// runtimeLimitsOverlay.ToolRecordEnabled 读回（读回落点在 main.go 的装配处）。
+func (store runtimeLimitsStoreFile) SaveToolRecordEnabled(enabled bool) error {
+	if err := writeRuntimeLimitsOverlayToolRecord(store.path, enabled); err != nil {
 		return fmt.Errorf("%s: %w", runtimeLimitsOverlayFile, err)
 	}
 	return nil

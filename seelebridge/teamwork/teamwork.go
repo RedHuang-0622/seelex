@@ -51,6 +51,10 @@ func DefaultRoleSessionID(mainSessionID, teamID, roleName string) string {
 }
 
 // PlanStore 是计划的持久面（生产实现 = sessionstore.TeamworkRepository）。
+//
+// ReadPlan 的**读面契约**：还没声明团队时返回**空计划 + nil**（`IsEmpty` 为真），
+// 不把"文件不存在"当错误上抛——读面宽容（team_items / team_context 对空计划给空结果），
+// 写面显式（需要计划的入口用 requireTeam 翻成领域文案）。
 type PlanStore interface {
 	WritePlan(ctx context.Context, key sessionstore.Key, plan sessionstore.TeamworkPlan, maxTeammates int) error
 	ReadPlan(ctx context.Context, key sessionstore.Key) (sessionstore.TeamworkPlan, error)

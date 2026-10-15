@@ -53,6 +53,7 @@ Snapshot/Event，会话归属由 application 投递端判定，TUI 不自行判�
 | `dialog.go` | Interaction/account/session 等选择面板。 |
 | `plan.go` | 按 Effort 和终端宽度渲染 Plan 生命周期。 |
 | `goalteam.go` | 目标治理（Alt+G）与团队看板（Alt+T）的只读面板：投影 + 面板键 + 团队读面的异步取值。Agent Team 成员表读面已随退场删除（2026-10-12 J-1a）。 |
+| `tool_record_panel.go` | Alt+T 面板下半段的**工具记录看板**（2026-10-15）：读 `Application.ToolRecordBoard()`（可选读面 + 类型断言，未装配整块退场），与 GUI「状态 → 工具记录」同源；成功与失败都记（开关关着或没记过时整块退场）。 |
 | `suggest_view.go` | `/`、`#`、`$` suggestions。 |
 | `state.go` / `types.go` | UI cell、message 和内部状态。 |
 | `styles.go` | Lipgloss 主题。 |

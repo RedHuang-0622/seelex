@@ -97,10 +97,6 @@ func DefaultPermissionGroupList() []toolspermission.PermissionGroup {
 			Match: []string{
 				"read_file", "read_plan", "read_tool_result", "read_compressed_turn",
 				"search_history", "grep_search", "glob",
-				// bash_read 是 bash 工具族里的**只读面**（设计文档 §A.4）：分类判定
-				// 在服务端（security.ClassifyCommand），落在只读簇 ⇒ 默认 allow ⇒
-				// 子代理/只读员工天然拿得到，且不弹审批。这正是工具级分裂的目的。
-				"bash_read",
 				// read_batch 派发的是一批**只读**扇出作业（Kind=inline），不碰共享状态：
 				// 派发面免打断，取回/终止/销项走 job_manage（rw 簇）。
 				"read_batch",
@@ -246,8 +242,9 @@ func DefaultPermissionRules() []toolspermission.PermissionRule {
 		// bash 能力白名单：安全命令直接执行，越界命令问人，危险命令拒绝。
 		//
 		// 口径同时覆盖 bash_bg（后台受管命令）——它跑的是同一类命令，只是活过这一轮。
-		// **不覆盖 bash_read**：那个名字的入参必须过服务端只读分类（K-4），
-		// 命令模式规则在这里是第二道、也是更弱的一道（模型换个写法就能绕过模式匹配）。
+		// 这张模式表就是"免打断的读命令"的**唯一落点**（bash_read 已删除）：模式匹配
+		// 弱于服务端分类，因此这里刻意只放保守形态（无管道、无重定向、无替换），
+		// 越界就退化成问人——宁可多弹一次审批，也不要"挂着只读名牌的写命令"。
 		{ToolName: "bash", Action: toolspermission.ActionAsk},
 		{ToolName: "bash_bg", Action: toolspermission.ActionAsk},
 		{

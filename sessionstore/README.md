@@ -148,6 +148,15 @@ flowchart LR
 收到 `open …\metadata\teamwork.json: The system cannot find the path specified.`，
 并把正常的"还没有团队"读成了工具故障。
 
+**工具记录读数（`<sessionRoot>/tool-record.jsonl`，2026-10-15）**：`tool_*` 计数的
+落盘面——**会话粒度 + 批次更新**。一行 = 一次批量更新（"到目前为止的整份累计"，形状由
+上层给、本层不认识字段），读侧取**最后一行**；残尾（没换行收尾）与坏行跳过、回退到上一
+行完整快照（快照是整份的，回退不丢上一批之前的读数）。为什么不做"每次工具调用 append
+一行"：工具调用是回合内高频事件，逐次落盘会让磁盘一直忙（2026-10-15 用户口径）——
+批次点由应用层给（真相源提交时刻，见 `application/core` 的 `FlushToolRecord`）。
+接口：`Router.ToolRecordFor()` → `AppendToolRecordSnapshot` / `ReadToolRecordSnapshot`
+（与 `TeamworkFor()` 同一手法：有就有、没有就是没装配）。
+
 旧会话（只含 `manifest.json` / `transcript.log` 的目录）**已彻底退役（D2/
 S12）**：读路径不再判定、不再打开（返回 `fs.ErrNotExist`），目录枚举跳过并
 保留磁盘内容；新会话与新写入一律走 message 事件行 + 模块 head 布局。

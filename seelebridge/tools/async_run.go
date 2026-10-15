@@ -148,7 +148,7 @@ func (r *Router) currentBatch(sessionID string) string {
 // 也会每轮重播进上下文尾部打点块。
 //
 // 它现在是**合同面**（bashBgTool.Add）的薄包装：派发路径只有一条，回执渲染只有
-// 一份（renderJobAccepted）。生产走 bash_bg / bash_read 工具面，这里留给直接调用
+// 一份（renderJobAccepted）。生产走 bash_bg 工具面，这里留给直接调用
 // 契约的路径与用例。
 func (r *Router) dispatchAsync(ctx context.Context, command, description, workdir string) (string, error) {
 	payload, err := (&bashBgTool{router: r}).Add(ctx, JobSpec{

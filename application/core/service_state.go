@@ -28,6 +28,11 @@ type serviceState struct {
 	// 会话的只读视图指针 V，不再持有任何会话容器）。
 	sessions *session.Domain
 
+	// toolRecords 是**每会话**一份的工具记录内存累计（键 = 会话 ID；落盘按批次走
+	// Deps.ToolRecordSnapshotStore）。放这里而不是 components：它是随工具调用持续变化的
+	// 会话状态，不是装配期交接一次的外部端口。
+	toolRecords *toolRecordAccumulators
+
 	// draft 是"新建会话"草稿槽位（Core.ViewMu 保护）：早分配 SID 的草稿
 	// （HasSession=false，不建引擎 bundle）持有真实会话 ID 与工作区绑定；
 	// 首次提交（materializeDraftSession）时消费并清空。

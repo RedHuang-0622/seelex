@@ -3,7 +3,6 @@ package sessionstore
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -85,10 +84,21 @@ func TestTeamworkPlanRoundTrip(t *testing.T) {
 	}
 }
 
-func TestReadTeamworkPlanMissingIsNotExist(t *testing.T) {
+// 计划**缺失** = "还没有 team_plan 过"，是一个状态，不是错误（2026-10-15 契约变更）。
+//
+// 现场：模型在没有团队计划的会话里调 team_items / team_context，收到
+// `open …\metadata\teamwork.json: The system cannot find the path specified.`——一条内部
+// 路径噪声，读面因此把"还没有团队"报成工具故障。同文件的 ReadTeamworkEvents 早已是
+// "缺失即空集"，本次把同一口径补到计划这一路：读面宽容（空计划），写面自己判空并给领域
+// 文案（见 seelebridge/teamwork 的 requireTeam）。
+func TestReadTeamworkPlanMissingIsEmptyPlan(t *testing.T) {
 	repository, key := teamworkFixture(t)
-	if _, err := repository.ReadTeamworkPlan(context.Background(), key); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("read of a missing plan err = %v, want fs.ErrNotExist", err)
+	plan, err := repository.ReadTeamworkPlan(context.Background(), key)
+	if err != nil {
+		t.Fatalf("缺少计划不是错误：%v", err)
+	}
+	if !plan.IsEmpty() {
+		t.Fatalf("缺失必须读成空计划（IsEmpty 为真）：%+v", plan)
 	}
 }
 

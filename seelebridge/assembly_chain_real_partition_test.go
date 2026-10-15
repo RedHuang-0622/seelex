@@ -56,11 +56,11 @@ var realPartitionNames = []string{"default", "hardware", "impeccable"}
 // realPartitionToolNames 是一组与真划分相干的探针工具：hardware 的 include 字面量
 // （plugins/hardware/plugin.md: switch_plugin / switch_mode / get_time / read_file /
 // grep_search / glob / write* / edit* / bash）在名单**内外**都有样本，收窄才可判别
-// ——`bash` 是精确匹配，所以 `bash_bg` / `bash_read` 必须被硬拆掉。
+// ——`bash` 是精确匹配，所以 `bash_bg` 必须被硬拆掉。
 var realPartitionToolNames = []string{
 	"switch_plugin", "switch_mode", "get_time", "read_file", "grep_search", "glob",
 	"write_file", "edit_file", "bash",
-	"bash_bg", "bash_read", "web_search", "computer_screenshot", "team_plan", "job_manage",
+	"bash_bg", "web_search", "computer_screenshot", "team_plan", "job_manage",
 }
 
 // realPartitionHardwareFace 是上面那组探针里 hardware 的 include 命中的那些（按注册顺序）。
@@ -108,7 +108,7 @@ func TestAssemblyChainRealPartitionHardwareNarrowsToolFaceAndAddsSkills(t *testi
 	if len(snapshot.visible) >= len(hostFace) {
 		t.Fatalf("hardware 的 include 没生效：装配面 %v 不窄于宿主面 %v", snapshot.visible, hostFace)
 	}
-	for _, name := range []string{"bash_bg", "bash_read", "web_search", "computer_screenshot", "team_plan", "job_manage"} {
+	for _, name := range []string{"bash_bg", "web_search", "computer_screenshot", "team_plan", "job_manage"} {
 		if assemblyChainContains(snapshot.visible, name) {
 			t.Fatalf("include 名单外的 %q 不该可见：%v", name, snapshot.visible)
 		}

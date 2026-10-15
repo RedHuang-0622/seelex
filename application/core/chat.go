@@ -442,6 +442,10 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 	// 可释放候选——没有这一步，它得等到下一次 touch（切回/分页）才会被收回。
 	// 放在 ViewMu 之外：reconcile 自取锁，释放里含 flush 的文件 I/O。
 	service.reconcileSessionRelease()
+	// 工具记录的**批次落盘点**（2026-10-15 用户口径：不做逐次工具写盘，避免磁盘写忙）。
+	// 一回合写一次：这一轮跑过的工具读数在这里统一入账（会话粒度）。
+	// 放在 ViewMu 之外（写的是会话存储，文件 I/O 不占内核锁）。
+	service.FlushToolRecord(sessionID)
 }
 
 func (service *Service) recordUnhandledTaskErrorLocked(sessionID, requestID string, err error) {

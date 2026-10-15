@@ -495,6 +495,34 @@ type Dependencies struct {
 	// 自定义值）。纪律与 ReleaseWindowStore 相同：先写盘再改内存，写盘失败整步不改；
 	// nil = 界面上改的值只在本次运行有效。
 	AccountWindowStore AccountWindowStore
+	// ToolRecordStore 是「工具记录计数开关」的落盘口（界面「设置 → 工具记录」的开关）。
+	// 纪律与 ReleaseWindowStore 相同：先写盘再改内存，写盘失败整步不改；
+	// nil = 界面上改的开关只在本次运行有效。
+	ToolRecordStore ToolRecordStore
+	// ToolRecordSnapshotStore 是「工具记录读数」的落盘口：**会话粒度 + 批次更新**
+	// （core 在真相源提交时刻调一次，把"到目前为止的整份累计"写进该会话的存储）。
+	// nil = 不落盘（读数只在本次进程内有效）。
+	ToolRecordSnapshotStore ToolRecordSnapshotStore
+}
+
+// ToolRecordSnapshotStore 把一个会话的工具记录读数落进**会话自己的**存储。
+//
+// 为什么粒度是会话而不是进程：读数跟会话目录走（切项目/会话切换不串写、回收会话即回收
+// 读数），落盘频率也就能按"会话提交"批量算——而不是每次工具调用写一次盘（那会让磁盘
+// 一直忙，现场口径见 tool_record.go）。key 由装配处按会话解析（项目作用域），
+// 本端口只认 sessionID。
+type ToolRecordSnapshotStore interface {
+	SaveToolRecordSnapshot(sessionID string, snapshot dto.ToolRecordSnapshot) error
+	// LoadToolRecordSnapshot 读回该会话最后一次落盘的读数（没有 = false + 空快照）。
+	LoadToolRecordSnapshot(sessionID string) (dto.ToolRecordSnapshot, bool, error)
+}
+
+// ToolRecordStore 把"界面上改过的工具记录开关"落到宿主自己的存储里（实现方 main.go
+// 写数据根 runtime-limits.json 的 tool_record_enabled 格，与其它界面改动同层）。
+//
+// 关掉**不删**已记的台账：那是已经发生的事实，开关只决定"接下来还记不记"。
+type ToolRecordStore interface {
+	SaveToolRecordEnabled(enabled bool) error
 }
 
 // ReleaseWindowStore 把"界面上改过的会话驻留窗口"落到宿主自己的存储里。

@@ -68,6 +68,10 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	// 项目看板订阅口槽位在装配期建好（M3）：写路径"判 nil 才是漏锁的老毛病"，
 	// 槽位自己持有锁，注入方（main.go / 测试）随时可 SetProjectBoardSink。
 	service.components.projectBoard = &projectBoardPort{}
+	// 工具记录台账槽位同理在装配期建好：未注入时判空什么都不做（有就有、没有就是没装配）。
+	service.components.toolRecord = &toolRecordPort{}
+	// 工具读数的按会话累计表同理在装配期建好（键 = 会话 ID）。
+	service.toolRecords = newToolRecordAccumulators()
 	service.effortManager = NewEffortManager(promptStack, service.Deps.Engine)
 	// 两条独立拉条的进程级读数在装配期播种成默认档（high）派生值：否则首个快照里
 	// reasoning_effort / loop_limit 是空/0，前端两条拉条会显示成 Low / 1，与引擎
@@ -200,6 +204,11 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		Core:   kernel,
 		View:   service.components.view,
 		Limits: Limits,
+		// 工具记录走 core 里那**唯一**一处判据（toolStatusFailed + toolRecordReason）：
+		// 本包只报"谁、什么状态、错误原文"。
+		RecordToolOutcome: func(sessionID, name string, status dto.ToolEventStatus, errorText string) {
+			service.toolRecordOutcomeForStatus(sessionID, name, status.String(), errorText)
+		},
 	})
 	service.components.input = newInputRouter(inputRouteHandlers{
 		Command: service.submitCommand,

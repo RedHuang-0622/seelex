@@ -1,4 +1,4 @@
-# core/tool（根包分卷）
+﻿# core/tool（根包分卷）
 
 ## 生态位
 
@@ -42,12 +42,61 @@
   `appendVisibleDeltaBackground` 并入工具之前的旧 assistant 空消息，热切回该
   会话时工具会“后插入”到最终回复之后（2026-09-08 修复；回归用例
   `repro_hot_attach_background_tool_order_test.go` 钉住热/冷两种恢复顺序）。
+- **工具记录**（`tool_record.go`，2026-10-15）：三条工具完成路径（主代理/后台会话的
+  `tool.completed`、子代理、teammate）都经**唯一两处判据**（`toolStatusFailed` 判成败、
+  `toolRecordReason` 归原因）后，累加进**按会话**的内存读数（`toolRecordAccumulators`，
+  落盘在 `internal/toolrecord` 的 `Accumulator`）。口径：**只有结果帧**（success/error）
+  才记；**成功与失败都记**（没有分母的失败计数会把优化带偏）；开关
+  （`SetToolRecordEnabled`，设置里那一格，落 runtime-limits.json）关着时一个字节都不记。
+  命令面另有一条判据：`RecordToolCommandOutcome`（进程退出码非零 = 一次失败，原因归
+  `command-failed`），上报口是工具层既有的 `bash.process.exited` 诊断事件。
+  **落盘是批次**：`FlushToolRecord` 在真相源提交时刻（草稿物化）与停机兜底各写一次整份
+  读数（会话粒度，见 sessionstore 的 `tool-record.jsonl`）——不做逐次工具写盘，避免磁盘写忙。
+  原因归并吃的是**原始错误**而不是给模型看的包装文案（后者刻意不含内部细节）。
+### tool_record.go
 
-## 文件与函数索引
+- `type toolRecordAccumulators struct{…}` — toolRecordAccumulators 是**每会话**一份的内存累计（键 = 会话 ID）。
+- `func newToolRecordAccumulators() *toolRecordAccumulators` — 构造按会话的累计表。
+- `func (table *toolRecordAccumulators) accumulator(sessionID string) *toolrecord.Accumulator` — 取（必要时建）某会话的累计。
+- `func (table *toolRecordAccumulators) markLoaded(sessionID string) bool` — 报告"这个会话还是第一次从存储读回"。
+- `func (service *Service) SetToolRecordEnabled(enabled bool) (bool, error)` — 开关计数（设置里那一个开关的落点）。
+- `func (service *Service) ApplyToolRecordEnabled(enabled bool)` — 只改内存（装配期用：启动时把配置/覆盖层里的值装进来）。
+- `func (service *Service) ToolRecordEnabled() bool` — 返回当前开关状态（设置面板与看板都读它）。
+- `func (service *Service) FlushToolRecord(sessionID string)` — 把一个会话的读数**批量**写进会话自己的存储（真相源提交时刻调一次）。
+- `func (service *Service) loadToolRecord(sessionID string)` — 把该会话最后一次落盘的读数读回内存（每个会话只读一次）。
+- `func (service *Service) flushAllToolRecords()` — 把所有会话的读数批量落一次（停机兜底用）。
+- `func (service *Service) SetToolRecordSnapshotStore(store ToolRecordSnapshotStore)` — 注入（或收回：传 nil）读数落盘口。
+- `func (service *Service) toolRecordSnapshotStore() ToolRecordSnapshotStore` — 取一份当前落盘口快照（读锁）。
+- `func (service *Service) ToolRecordBoard() dto.ToolRecordBoard` — 返回**当前视图会话**的工具记录看板（TUI / GUI 同源读法）。
+- `func (service *Service) RecordToolCommandOutcome(sessionID, tool string, exitCode int)` — 记一次**命令面**的结果（进程退出码）。
+- `func toolStatusFailed(status dto.ToolEventStatus) bool` — "这次工具调用算不算失败"的**唯一判据**。
+- `func (service *Service) toolRecordOutcomeForStatus(sessionID, name, status, errorText string)` — 字符串状态那两条链（teammate / 子代理）的唯一入口。
+- `func toolRecordReason(text string) string` — 把失败文本归到**唯一一份原因词表**（dto.ToolReason*）。
+- `func containsAny(haystack string, needles ...string) bool` — 子串命中（原因词表匹配用）。
+- `func toolErrorText(err error) string` — 取错误的**原始**文本（没有错误 = 空串）。
+- `func (service *Service) recordToolOutcome(sessionID, tool string, failed bool, errorText string)` — 三族工具完成路径上的**唯一**调用口（成功与失败都记）。
 
-> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
-> 刷新方式：`python scripts/gen_core_readme_index.py`。
+### tool_record_test.go
 
+- `type recordingSnapshotStore struct{…}` — 落盘口替身：记下每次批量写，并能吐回一份"旧读数"。
+- `func (s *recordingSnapshotStore) SaveToolRecordSnapshot(sessionID string, snapshot dto.ToolRecordSnapshot) error` — 记下一次批量写（替身实现）。
+- `func (s *recordingSnapshotStore) LoadToolRecordSnapshot(string) (dto.ToolRecordSnapshot, bool, error)` — 数一数读回了几次（替身实现）。
+- `func (s *recordingSnapshotStore) savesSnapshot() []dto.ToolRecordSnapshot` — 取回已落盘的快照。
+- `func (s *recordingSnapshotStore) loadCount() int` — 取回读回次数。
+- `func enableToolRecord(t *testing.T, service *Service, store *recordingSnapshotStore)` — 打开开关并装上落盘口（测试装配动作）。
+- `func TestToolRecordCountsBothOutcomesAcrossFamilies(t *testing.T)` — 三条完成路径都记：成功与失败都记、running 帧不记、原因各归其格。
+- `func TestToolRecordFlushIsBatchAndIdempotent(t *testing.T)` — 批量落盘：只在提交点写、没有新读数不重写、写的是整份快照。
+- `func TestToolRecordFlushFailureSurfacesOnBoard(t *testing.T)` — 落盘失败不回抛，错误留给看板显示。
+- `func TestToolRecordLoadsPersistedReadingOnce(t *testing.T)` — 冷启动读回：看板读之前懒加载一次，且每个会话只读一次。
+- `func TestToolRecordDisabledRecordsNothing(t *testing.T)` — 关就是关：开关关着时一个字节都不记、也不落盘。
+- `func TestToolCommandOutcomeCountsNonZeroExitAsFailure(t *testing.T)` — 命令面（退出码）是另一条成败判据：非零 = 一次失败（归 command-failed）。
+- `func TestToolRecordIgnoresUnknownStatusWords(t *testing.T)` — 未知/空状态词不记。
+- `func TestToolRecordIsPerSession(t *testing.T)` — 每会话一份：两个会话的读数互不串。
+- `func TestToolRecordWithoutSessionIsDropped(t *testing.T)` — 每条记录都要有会话归属（无归属的调用记不进任何会话）。
+- `func TestToolRecordFlushWithoutStoreIsNoop(t *testing.T)` — 没装落盘口时批量落盘是空操作（读数仍在内存里）。
+- `func TestToolRecordDisabledRecordsNothing(t *testing.T)` — 关就是关：开关关着时一个字节都不记。
+- `func TestToolRecordIgnoresUnknownStatusWords(t *testing.T)` — 未知/空状态词不记（认不得的词不该被当成成功）。
+- `func TestToolRecordBoardReportsSwitchAndTotals(t *testing.T)` — 看点板：开关状态与合计从同一份台账折出来。
 ### tool_hook_diagnostic_test.go
 
 - `func TestToolHookDiagnosticObserverMarksCompletionProjection(t *testing.T)`

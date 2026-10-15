@@ -200,14 +200,15 @@ func formatGoalClosedAt(at int64) string {
 // 无计划（没有里程碑也没有工作项）时给一条明确的自述，不留空壳：用户按了 Alt+T 就
 // 该看见"这里为什么是空的"。
 func (model Model) teamPanelLines() []string {
-	if lines := model.teamBoardLines(); len(lines) > 0 {
-		lines = append(lines, StyleMuted.Render("  ·  Alt+T 关闭 · Alt+G 看目标 · Esc 关闭"))
-		return clampLines(lines, panelLineLimit)
+	lines := model.teamBoardLines()
+	if len(lines) == 0 {
+		lines = []string{StyleMuted.Render("  ◆ 团队看板  当前会话没有团队计划（team_plan 还没排过活）")}
 	}
-	return []string{
-		StyleMuted.Render("  ◆ 团队看板  当前会话没有团队计划（team_plan 还没排过活）"),
-		StyleMuted.Render("  ·  Alt+T 关闭 · Alt+G 看目标 · Esc 关闭"),
-	}
+	// 工具记录（进程级读数，与 GUI「状态 → 工具记录」同源）：没开计数或没记过时
+	// 整块不出现——不追加空壳（toolRecordLines 返回 nil）。
+	lines = append(lines, model.toolRecordLines()...)
+	lines = append(lines, StyleMuted.Render("  ·  Alt+T 关闭 · Alt+G 看目标 · Esc 关闭"))
+	return clampLines(lines, panelLineLimit)
 }
 
 // teamBoardLines 渲染**团队看板**（数据源 = Snapshot.Runtime.TeamworkBoard，与 GUI

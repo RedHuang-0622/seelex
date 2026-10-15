@@ -96,14 +96,19 @@ func (r *Router) Register() {
 	r.deps.RegisterTool("write_file", "Write a file inside the bound project.", writeFileSchema(), r.scopedWriteFile)
 	r.deps.RegisterTool("edit_file", "Edit a file inside the bound project.", editFileSchema(), r.scopedEditFile)
 	allowBackground := r.asyncEnabled()
-	// bash 工具族（设计文档 §A.4 / 打点 K-3）——三个名字，不是一个名字加开关：
+	// bash 工具族（设计文档 §A.4 / 打点 K-3）——两个名字，不是一个名字加开关：
 	//   bash      串行、同步、**写类**（保守归类）：保留现状语义，但不再有
 	//             background 开关（那一类由 bash_bg 承担，回执形状也不一样）。
-	//   bash_read 只读、同步快返回：落在 ro 簇 ⇒ 免打断；**handler 侧必须有服务端
-	//             守卫**（security.ClassifyCommand），否则它就是挂着只读名牌的 bash。
 	//   bash_bg   后台受管（JobTool.Add 的进程作业面）：派发即返回受理回执。
+	//
+	// **bash_read 已删除（2026-10-15 用户裁决）**：它是"只读名牌 + 服务端语法判定"的
+	// 分裂面，实测 479 次调用里 165 次（34.4%）折在判定上（复合语法 102 / PowerShell
+	// 命令面 38 / 白名单外子命令 18 / 其它 7）——模型按"只读 ⇒ bash_read"的常识写命令，
+	// 判定按更窄的 POSIX 单命令口径拒绝。判定侧的另一半问题（白名单是 POSIX 词表、而
+	// 本机执行壳退化成 PowerShell）意味着这些命令就算放行也会执行失败。命令面的
+	// **免打断**由 `bash` 的 allow 模式表承担（见 permission_policy.go 的 bash 模式白名单），
+	// 只读文件读取走 read_file / grep_search / glob——工具面因此只剩两个 bash 名字。
 	r.deps.RegisterTool("bash", bashDescription(), bashSchema(), r.scopedBash)
-	r.deps.RegisterTool("bash_read", bashReadDescription(), bashSchema(), r.scopedBashRead)
 	if allowBackground {
 		// 作业面只在能力常驻时注册：关闭时它们必然无句柄可取，注册几个只会报错的
 		// 工具只是占模型的选项与 token。关就是关（见 Deps.AsyncExecEnabled 注释）。
@@ -458,8 +463,11 @@ type scopedBashResult struct {
 // deliberately metadata-only: command text, arguments, working directories,
 // output, and account data must never enter diagnostic logs.
 type BashDiagnosticEvent struct {
-	Stage    string
-	Shell    string
+	Stage string
+	Shell string
+	// Session 是发起这条命令的会话（工具记录按会话归类用；诊断日志忽略它）。
+	// 只填会话 ID，不含任何正文/路径/命令文本（本结构一直是 metadata-only）。
+	Session  string
 	ExitCode int
 	Err      error
 }
@@ -502,44 +510,6 @@ func (r *Router) scopedBash(ctx context.Context, argsJSON string) (output string
 		return "", err
 	}
 	r.observeBash(BashDiagnosticEvent{Stage: "bash.resolve.done"})
-	return r.executeScopedBash(ctx, input.Command, input.Timeout, workdir)
-}
-
-// scopedBashRead 是只读工具面上的命令执行（设计文档 §A.4 的 M1 / 打点 K-4）。
-//
-// 与 bash 的唯一语义差别是**先过服务端守卫**：分类失败的命令一律拒绝，并明确要求
-// 改用 bash。守卫只吃命令字符串（签名上拿不到模型的任何主张），因此"模型说这是只读的"
-// 不构成授权依据；判定通过也不放宽 cwd 门禁与凭据清洗——bash_read 不是沙箱。
-func (r *Router) scopedBashRead(ctx context.Context, argsJSON string) (output string, returnedErr error) {
-	defer func() {
-		if returnedErr != nil {
-			r.observeBash(BashDiagnosticEvent{Stage: "bash_read.handler.return.error", Err: returnedErr})
-			return
-		}
-		r.observeBash(BashDiagnosticEvent{Stage: "bash_read.handler.return"})
-	}()
-	var input scopedBashInput
-	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
-		return "", fmt.Errorf("bash_read: invalid args: %w", err)
-	}
-	if input.Background {
-		return "", fmt.Errorf("bash_read: background=true 已废弃；后台受管命令改用 bash_bg")
-	}
-	if input.Command == "" {
-		return `{"stdout":"","stderr":"","exit_code":0}`, nil
-	}
-	// 服务端判定：**先判定、后解析路径、最后执行**。判成写就报错要求改用 bash，
-	// 绝不静默降级成执行（与 sandbox.go 的 fail-fast 同源口径）。
-	if !security.ClassifyCommand(input.Command) {
-		return "", fmt.Errorf("bash_read: 服务端判定这不是只读命令（%q）；写类命令改用 bash（rw 簇，规则照旧），需要后台执行用 bash_bg", input.Command)
-	}
-	if err := r.auditSerialTimeout("bash_read", input.Timeout); err != nil {
-		return "", err
-	}
-	workdir, err := r.resolveNodePath(ctx, input.Workdir, false)
-	if err != nil {
-		return "", err
-	}
 	return r.executeScopedBash(ctx, input.Command, input.Timeout, workdir)
 }
 
@@ -592,37 +562,37 @@ func startWithProcessTree(cmd *exec.Cmd, tree *security.ProcessTree) error {
 	return nil
 }
 
-// executeScopedBash 是同步执行路径（bash 与 bash_read 共用）：授权、路径与分类都
-// 已经在调用方完成，这里是"已经批准之后的执行"。
+// executeScopedBash 是 bash 的同步执行路径：授权与路径解析已经在调用方完成，
+// 这里是"已经批准之后的执行"。
 func (r *Router) executeScopedBash(ctx context.Context, command string, timeoutSec int, workdir string) (string, error) {
 	// 执行路径（2026-08-04 回滚）：沙箱接入被怀疑导致工具挂起，恢复 v1
 	// 直连 exec（cwd 门禁语义不变）；CommandSandbox 接口保留在 sandbox.go，
 	// 待定位挂起根因后再接入（接入时需 fail-fast，不得悄悄降级）。
 	shell, shellArgs := scopedBashCommand(command)
-	r.observeBash(BashDiagnosticEvent{Stage: "bash.command.prepared", Shell: filepath.Base(shell)})
+	r.observeBash(BashDiagnosticEvent{Stage: "bash.command.prepared", Shell: filepath.Base(shell), Session: r.sessionKey(ctx)})
 	timeout := r.scopedToolTimeout(timeoutSec)
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd, tree := newProcessTreeCommand(runCtx, shell, shellArgs, workdir)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	r.observeBash(BashDiagnosticEvent{Stage: "bash.process.starting", Shell: filepath.Base(shell)})
+	r.observeBash(BashDiagnosticEvent{Stage: "bash.process.starting", Shell: filepath.Base(shell), Session: r.sessionKey(ctx)})
 	if err := startWithProcessTree(cmd, tree); err != nil {
-		r.observeBash(BashDiagnosticEvent{Stage: "bash.process.start.error", Shell: filepath.Base(shell), Err: err})
+		r.observeBash(BashDiagnosticEvent{Stage: "bash.process.start.error", Shell: filepath.Base(shell), Session: r.sessionKey(ctx), Err: err})
 		return "", fmt.Errorf("bash: %w", err)
 	}
-	r.observeBash(BashDiagnosticEvent{Stage: "bash.process.started", Shell: filepath.Base(shell)})
+	r.observeBash(BashDiagnosticEvent{Stage: "bash.process.started", Shell: filepath.Base(shell), Session: r.sessionKey(ctx)})
 	// 起命令之后的**唯一一处**退化读数（两条起命令点都读它）：树挂不上时把"终止只及直接
 	// 子进程"说出去，否则这件事对调用方不可见（③U5）。
 	r.noteProcessTreeDegraded(filepath.Base(shell), tree)
 	waitErr := cmd.Wait()
 	tree.Close()
 	if runCtx.Err() == context.DeadlineExceeded {
-		r.observeBash(BashDiagnosticEvent{Stage: "bash.timeout", Shell: filepath.Base(shell), Err: runCtx.Err()})
+		r.observeBash(BashDiagnosticEvent{Stage: "bash.timeout", Shell: filepath.Base(shell), Session: r.sessionKey(ctx), Err: runCtx.Err()})
 		return "", fmt.Errorf("bash: timeout after %v", timeout)
 	}
 	if runCtx.Err() != nil {
-		r.observeBash(BashDiagnosticEvent{Stage: "bash.canceled", Shell: filepath.Base(shell), Err: runCtx.Err()})
+		r.observeBash(BashDiagnosticEvent{Stage: "bash.canceled", Shell: filepath.Base(shell), Session: r.sessionKey(ctx), Err: runCtx.Err()})
 		return "", fmt.Errorf("bash: %w", runCtx.Err())
 	}
 	if errors.Is(waitErr, exec.ErrWaitDelay) {
@@ -634,18 +604,18 @@ func (r *Router) executeScopedBash(ctx context.Context, command string, timeoutS
 		if exitErr, ok := waitErr.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
 		} else {
-			r.observeBash(BashDiagnosticEvent{Stage: "bash.process.wait.error", Shell: filepath.Base(shell), Err: waitErr})
+			r.observeBash(BashDiagnosticEvent{Stage: "bash.process.wait.error", Shell: filepath.Base(shell), Session: r.sessionKey(ctx), Err: waitErr})
 			return "", fmt.Errorf("bash: %w", waitErr)
 		}
 	}
-	r.observeBash(BashDiagnosticEvent{Stage: "bash.process.exited", Shell: filepath.Base(shell), ExitCode: exitCode})
+	r.observeBash(BashDiagnosticEvent{Stage: "bash.process.exited", Shell: filepath.Base(shell), Session: r.sessionKey(ctx), ExitCode: exitCode})
 	result := scopedBashResult{Stdout: strings.TrimSpace(stdout.String()), Stderr: strings.TrimSpace(stderr.String()), ExitCode: exitCode}
 	// docker 自动恢复（根治，2026-08-07）：真实环境有 docker CLI 但 Docker
 	// Desktop 守护进程未运行时，命令失败并匹配 daemon-down 模式 → 自动启动
 	// 守护进程（limits.disable_docker_auto_start 可关）→ 就绪后重跑一次。
 	if result.ExitCode != 0 && !r.deps.DisableDockerAutoStart &&
 		r.deps.DockerDaemonDown(result.Stdout, result.Stderr) && r.deps.DockerCLIPath() != "" {
-		r.observeBash(BashDiagnosticEvent{Stage: "bash.docker.recovery", Shell: filepath.Base(shell)})
+		r.observeBash(BashDiagnosticEvent{Stage: "bash.docker.recovery", Shell: filepath.Base(shell), Session: r.sessionKey(ctx)})
 		startErr := r.deps.EnsureDocker(ctx)
 		if startErr == nil {
 			// 重跑（新超时上下文；原 runCtx 可能已耗尽）。
@@ -822,39 +792,21 @@ func (r *Router) auditSerialTimeout(toolName string, requestedSeconds int) error
 		toolName, requestedSeconds, serialBashBudgetLabel())
 }
 
-// bashDescription 说明 bash 的边界与它在三名字里的位置：**写类、串行、同步**。
+// bashDescription 说明 bash 的边界：**串行、同步**，写与读都走它（bash_read 已删除）。
 //
-// 三个名字必须靠描述消歧，否则模型会拿 bash_read 当 bash 用（工具面每多一个名字，
-// 选择歧义就多一分，这是工具级分裂的真实代价）。时长边界（"超过预算的命令不属于
-// 串行入口"）必须写在描述里：服务端只拦得住显式声明的 timeout，而没声明的那种正是
-// 最容易跑成 30 分钟串行的那一类。
+// 时长边界（"超过预算的命令不属于串行入口"）必须写在描述里：服务端只拦得住显式声明的
+// timeout，而没声明的那种正是最容易跑成 30 分钟串行的那一类。
 func bashDescription() string {
 	return "Run a command with its working directory constrained to the bound project. " +
-		"This is not an OS sandbox. This is the serial, write-class entry: use it whenever the " +
-		"command writes anything. Prefer bash_read for commands you know are read-only (it is " +
-		"allowed without approval). It is serial and synchronous — it holds the turn while the " +
+		"This is not an OS sandbox. It is the one shell entry (read or write): read-only " +
+		"inspection commands on the allow-list run without approval, everything else asks. " +
+		"It is serial and synchronous — it holds the turn while the " +
 		"command runs — and it refuses a `timeout` above its " + serialBashBudgetLabel() +
 		" budget: commands expected to take longer belong to bash_bg, whose call returns only " +
 		"an acceptance receipt."
 }
 
-// bashReadDescription 说明只读面的**硬边界**：只允许只读命令，且判定在服务端。
-//
-// 它同时要说明时长边界：`go test` / `go build` 这类例子就在本描述里，而它们正是最容易
-// 跑过 5 分钟的一类——不写清就会变成"模型拿 bash_read 串行跑完整套测试"。
-func bashReadDescription() string {
-	return "Run a READ-ONLY command with its working directory constrained to the bound " +
-		"project. This is not an OS sandbox. The command is classified on the server: write " +
-		"commands (git commit, rm, redirects such as '>' or '|', variable expansion) are " +
-		"refused, not executed. This entry needs no approval, so use it for inspection " +
-		"(ls/cat/head/tail/grep/rg/git status/git log/go test/go build); anything that writes " +
-		"must go through bash. It is serial as well: a `timeout` above the " +
-		serialBashBudgetLabel() + " budget is refused — dispatch a test suite or build " +
-		"expected to run longer with bash_bg instead."
-}
-
-// bashSchema 下发 bash / bash_read 入参：两个名字的入参形状相同（同一份 schema），
-// 差别只在**服务端判定**，不在模型能声明的字段里（模型无法自报"这是只读的"）。
+// bashSchema 下发 bash 入参。
 func bashSchema() map[string]interface{} {
 	return map[string]interface{}{
 		"type": "object",

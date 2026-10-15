@@ -176,6 +176,16 @@
           <summary class="collapse-summary"><span class="collapse-chevron" aria-hidden="true"></span><span>账户</span><span id="account-count" class="badge">0</span></summary>
           <div id="account-list" class="account-list"></div>
         </details>
+        <!-- 工具记录（2026-10-15）：读数按会话存在会话自己的存储里（<会话目录>/tool-record.jsonl，
+             一回合批量写一次），与 TUI 的 Alt+T 面板同源（同一份 ToolRecordBoard DTO）。
+             柱形图一根柱子一个工具（上成功下失败），点柱子出失败原因饼图；**看板只读**——
+             计数开关在「设置 → 工具记录」里。
+             计数关着 / 一次都没记过 → 整块 hidden（不留空壳）；数据按需拉取（理由见
+             gui/bridge.go 的 ToolRecordBoard：它是跨会话的进程级事实，不进会话快照）。 -->
+        <details class="collapse-section hidden" id="tool-record-section">
+          <summary class="collapse-summary"><span class="collapse-chevron" aria-hidden="true"></span><span>工具记录</span><span id="tool-record-total" class="badge">0</span></summary>
+          <div id="tool-record-view" class="tool-record-view muted"></div>
+        </details>
         </div>
 
         <div class="right-tabpanel hidden" data-right-panel="workbench" role="tabpanel">
@@ -360,6 +370,18 @@
           <select id="release-window"></select>
         </label>
         <div id="release-window-status" class="muted"></div>
+      </div>
+      <div class="settings-section">
+        <div class="section-title">工具记录</div>
+        <p class="settings-note">开启后，每次工具调用（成功与失败都记）都累加进**会话自己的**存储
+          （<code>&lt;会话目录&gt;/tool-record.jsonl</code>，一回合批量写一次，不做逐次写盘）；失败还会记
+          原因，供「状态 → 工具记录」的柱形图与失败原因饼图看。关掉不删已经记下的读数；改后立刻生效，
+          并记到数据根 <code>runtime-limits.json</code>，重启后照旧。</p>
+        <label class="settings-field sched-toggle">
+          <input id="tool-record-enabled-setting" type="checkbox">
+          <span>记录工具调用（成功与失败）</span>
+        </label>
+        <div id="tool-record-setting-status" class="muted"></div>
       </div>
       <div class="settings-section">
         <div class="section-title">账号上下文窗口</div>

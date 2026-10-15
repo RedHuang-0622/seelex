@@ -232,7 +232,7 @@ as text?
 
 ### Long-Running Commands
 
-A serial command holds the turn: while `bash` / `bash_read` runs, no other step of
+A serial command holds the turn: while `bash` runs, no other step of
 that turn can proceed. Commands measured in minutes are the ones that should not
 hold it, because the background job surface runs them while the turn keeps
 working.
@@ -251,7 +251,7 @@ working.
   through a later `job_manage` fetch;
 - the command needs your input while it runs.
 
-**Boundary:** with the background surface on, `bash` and `bash_read` refuse a
+**Boundary:** with the background surface on, `bash` refuses a
 `timeout` above 5 minutes instead of running it; `bash_bg` is the entry that takes
 it. With the surface off there is nothing to switch to — see the fallback below.
 

@@ -171,6 +171,9 @@ func (service *Service) HandleRoleToolActivity(event dto.RoleToolActivity) {
 		requestID = service.Core.Snapshot.Chat.RequestID
 		service.ViewMu.RUnlock()
 	}
+	// teammate 的工具记录：判据与主代理那条链**同一格**（toolStatusFailed +
+	// toolRecordReason），只是入口不同（这条链的完成帧来自角色回合的 ReAct 钩子）。
+	service.toolRecordOutcomeForStatus(sessionID, event.Name, event.Status, event.Error)
 	service.publishSessionEvent(kind, 0, requestID, sessionID, event)
 }
 

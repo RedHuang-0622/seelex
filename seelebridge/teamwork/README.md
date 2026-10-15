@@ -126,6 +126,23 @@ stateDiagram-v2
 
 ## 并发、存储、安全或错误语义
 
+### "还没声明团队"是一个状态，不是错误（2026-10-15）
+
+`PlanStore.ReadPlan` 的读面契约是**缺失返回空计划 + nil**（`IsEmpty` 为真），
+不是把 `metadata/teamwork.json` 的 `ENOENT` 上抛。分工：
+
+- **读面宽容**：`Items`（team_items）/ 上下文投影（team_context）对空计划给**空结果**
+  ——模型看到的是"还没有内容"，不是一条内部路径噪声；
+- **写面显式**：需要已声明团队的入口（`PlanMilestone` / `DispatchItem` / `AdjustItem` /
+  `AcceptItem` / `FailItem` / `Dispatch` / `Milestone` / `Close`）经**唯一判据**
+  `requireTeam` 翻成同一句领域文案：`teamwork: 本会话还没有团队计划——先用 team_plan
+  声明在编成员与里程碑`。
+
+现场（2026-10-15）：模型在一个没有计划的会话里调 `team_items` / `team_context`，收到
+`team_items: open …\metadata\teamwork.json: The system cannot find the path specified.`，
+并自行判定"这是错误，不是空结果"——它没有可用的下一步。判据只有一处（`requireTeam`），
+别在各入口各写一遍"什么算还没组队"。
+
 - **计划头读-改-写是原子的**：`SetPlan` / `PlanMilestone` / `AdjustItem` / `DispatchItem` /
   `SettleWorkItem` / `AcceptItem` / `FailItem` / `Dispatch` / `Milestone` / `Retire` /
   `Close` 都在**同一把按 `sessionstore.Key` 分片的包级计划锁**内完成"读计划 → 改 → 写计划"

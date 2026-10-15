@@ -187,6 +187,9 @@ func (c *Coordinator) PlanMilestone(ctx context.Context, milestoneID string, spe
 	if err != nil {
 		return err
 	}
+	if err := requireTeam(plan); err != nil {
+		return err
+	}
 	index := milestoneIndex(plan, milestoneID)
 	if index < 0 {
 		return fmt.Errorf("teamwork: 计划里没有里程碑 %q（先 team_plan 声明里程碑）", milestoneID)
@@ -254,6 +257,9 @@ func (c *Coordinator) AdjustItem(ctx context.Context, itemID string, spec WorkIt
 	if err != nil {
 		return err
 	}
+	if err := requireTeam(plan); err != nil {
+		return err
+	}
 	milestone, item, ok := findItem(&plan, strings.TrimSpace(itemID))
 	if !ok {
 		return fmt.Errorf("teamwork: 计划里没有工作项 %q", itemID)
@@ -312,6 +318,9 @@ func (c *Coordinator) DispatchItem(ctx context.Context, itemID string) (jobs.Han
 	itemID = strings.TrimSpace(itemID)
 	plan, err := c.store.ReadPlan(ctx, c.key)
 	if err != nil {
+		return "", err
+	}
+	if err := requireTeam(plan); err != nil {
 		return "", err
 	}
 	milestone, item, ok := findItem(&plan, itemID)
@@ -669,6 +678,9 @@ func (c *Coordinator) AcceptItem(ctx context.Context, itemID, note string) error
 	if err != nil {
 		return err
 	}
+	if err := requireTeam(plan); err != nil {
+		return err
+	}
 	_, item, ok := findItem(&plan, strings.TrimSpace(itemID))
 	if !ok {
 		return fmt.Errorf("teamwork: 计划里没有工作项 %q", itemID)
@@ -725,6 +737,9 @@ func (c *Coordinator) FailItem(ctx context.Context, itemID, note string) error {
 	defer c.unlockPlan()
 	plan, err := c.store.ReadPlan(ctx, c.key)
 	if err != nil {
+		return err
+	}
+	if err := requireTeam(plan); err != nil {
 		return err
 	}
 	_, item, ok := findItem(&plan, strings.TrimSpace(itemID))

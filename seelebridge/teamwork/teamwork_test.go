@@ -2,7 +2,6 @@ package teamwork
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -36,9 +35,9 @@ func (s *memoryPlanStore) WritePlan(_ context.Context, _ sessionstore.Key, plan 
 func (s *memoryPlanStore) ReadPlan(context.Context, sessionstore.Key) (sessionstore.TeamworkPlan, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.plan.TeamID == "" {
-		return sessionstore.TeamworkPlan{}, errors.New("teamwork: 计划不存在")
-	}
+	// 替身必须跟着**端口契约**走（PlanStore.ReadPlan 的注释）：还没声明团队时返回
+	// 空计划 + nil。这里返回错误的话，用例就在验一个生产不会有的行为——
+	// "读面宽容、写面显式"这条口径也就测不到（2026-10-15）。
 	return clonePlan(s.plan), nil
 }
 

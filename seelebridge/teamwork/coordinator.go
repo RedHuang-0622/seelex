@@ -17,6 +17,21 @@ func (c *Coordinator) Plan(ctx context.Context) (sessionstore.TeamworkPlan, erro
 	return c.store.ReadPlan(ctx, c.key)
 }
 
+// errNoPlan 是"本会话还没有团队计划"的**唯一文案**。
+//
+// 它替的是此前从存储层直接冒上来的文件系统错误（现场：模型收到
+// `open …\metadata\teamwork.json: The system cannot find the path specified.`）。
+// 读面（Items / 上下文投影）对空计划给空结果；需要计划的写面用 requireTeam 翻成本文案。
+var errNoPlan = errors.New("teamwork: 本会话还没有团队计划——先用 team_plan 声明在编成员与里程碑")
+
+// requireTeam 是"这次调用需要一个已声明的团队"的**唯一判据**（空计划 → errNoPlan）。
+func requireTeam(plan sessionstore.TeamworkPlan) error {
+	if plan.IsEmpty() {
+		return errNoPlan
+	}
+	return nil
+}
+
 // Audit 读回审计流水（派发 / 里程碑 / 收口的事实顺序）。
 func (c *Coordinator) Audit(ctx context.Context) ([]sessionstore.TeamworkEvent, error) {
 	return c.store.ReadEvents(ctx, c.key)
@@ -146,6 +161,9 @@ func (c *Coordinator) Dispatch(ctx context.Context, role, goal string) (jobs.Han
 	}
 	plan, err := c.store.ReadPlan(ctx, c.key)
 	if err != nil {
+		return "", err
+	}
+	if err := requireTeam(plan); err != nil {
 		return "", err
 	}
 	member, ok := memberFor(plan, role)
@@ -320,6 +338,9 @@ func (c *Coordinator) Milestone(ctx context.Context, id, content string) error {
 	defer c.unlockPlan()
 	plan, err := c.store.ReadPlan(ctx, c.key)
 	if err != nil {
+		return err
+	}
+	if err := requireTeam(plan); err != nil {
 		return err
 	}
 	index := -1
@@ -528,6 +549,11 @@ func (c *Coordinator) Close(ctx context.Context) (bool, error) {
 	}
 	if plan.State.State == sessionstore.TeamworkStateClosed {
 		return true, nil
+	}
+	// 空计划 = 还没声明过团队：没有可收的现场、没有可标的账——按领域文案回答，
+	// 而不是拿一份空计划去写盘（那会撞上 team_id 校验，冒出一条与事实无关的错误）。
+	if err := requireTeam(plan); err != nil {
+		return false, err
 	}
 	// 收口闸门（责任链的下游端）：收口是**唯一**会拆 per-item 现场的地方（releaseAllItems
 	// 把每件活绑定的 worktree 目录与分支一并删掉），所以"还被尾插拿着"与"留给 leader 人工

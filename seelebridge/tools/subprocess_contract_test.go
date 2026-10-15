@@ -80,7 +80,6 @@ func TestJobContractToolFaceRoutingTable(t *testing.T) {
 		{"grep_search", GroupRO, "只读搜索"},
 		{"glob", GroupRO, "只读列举"},
 		// bash 工具族（打点 K-3）：只读面免打断，后台面与串行面同组。
-		{"bash_read", GroupRO, "只读命令，免打断（handler 侧有服务端守卫 ClassifyCommand）"},
 		{"read_batch", GroupRO, "只读扇出作业（Kind=inline），不碰共享状态"},
 		// 写簇：跟 bash 同组，sub/员工才能取回/杀掉自己派发的后台作业。
 		{"write_file", GroupRW, "写项目文件"},

@@ -39,6 +39,63 @@ type serviceComponents struct {
 	// （既有用例与 `go vet` 都这么用它）；内联 mutex 会让整张图变成不可复制
 	// （vet: "copies lock value"），指针让"可变性"只留在槽位自己身上。
 	projectBoard *projectBoardPort
+
+	// toolRecord 是工具记录台账的可变槽位（可选端口 + 计数开关，见 tool_record.go）。
+	// 与 projectBoard 同一生态位与同一套锁形状：装配期交接一次、此后每个工具完成读一份。
+	toolRecord *toolRecordPort
+}
+
+// toolRecordPort 是**计数开关 + 落盘错误**的可变槽位（读数本身按会话存在
+// serviceState.toolRecords 里，见 tool_record.go）。
+//
+// 开关与错误读数放同一把锁：它们回答的是同一件事（"现在记不记、最近一次落盘成没成"）。
+type toolRecordPort struct {
+	mu           sync.RWMutex
+	enabled      bool
+	lastFlushErr error
+	// snapshotStore 是读数落盘口（会话粒度、批次更新，见 tool_record.go 的
+	// FlushToolRecord）。装配根在 New 之后注入（SetToolRecordSnapshotStore）：
+	// 它依赖存储后端与工作区解析，两者在装配顺序上都晚于 core 的构造。
+	snapshotStore ToolRecordSnapshotStore
+}
+
+func (port *toolRecordPort) setEnabled(enabled bool) {
+	port.mu.Lock()
+	port.enabled = enabled
+	port.mu.Unlock()
+}
+
+func (port *toolRecordPort) enabledValue() bool {
+	port.mu.RLock()
+	defer port.mu.RUnlock()
+	return port.enabled
+}
+
+func (port *toolRecordPort) noteFlushError(err error) {
+	port.mu.Lock()
+	port.lastFlushErr = err
+	port.mu.Unlock()
+}
+
+func (port *toolRecordPort) flushErrorMessage() string {
+	port.mu.RLock()
+	defer port.mu.RUnlock()
+	if port.lastFlushErr == nil {
+		return ""
+	}
+	return port.lastFlushErr.Error()
+}
+
+func (port *toolRecordPort) setSnapshotStore(store ToolRecordSnapshotStore) {
+	port.mu.Lock()
+	port.snapshotStore = store
+	port.mu.Unlock()
+}
+
+func (port *toolRecordPort) snapshotStoreValue() ToolRecordSnapshotStore {
+	port.mu.RLock()
+	defer port.mu.RUnlock()
+	return port.snapshotStore
 }
 
 // projectBoardPort 是项目看板订阅口（ProjectBoardSink）的**可变槽位**：

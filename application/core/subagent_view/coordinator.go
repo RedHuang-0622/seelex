@@ -32,6 +32,12 @@ type Deps struct {
 	View ViewPort
 	// Limits 返回当前生效的运行时上限（截断配置）。
 	Limits func() seelexctx.Limits
+	// RecordToolOutcome 是工具记录的**判据入口**（装配处注入 core 的实现）：本包只报
+	// "谁、什么状态、错误原文"，"这算不算失败、原因归哪一格"由那一处判（判据不在这里复制）。
+	// 参数吃**类型化状态**（本链到达形态就是这一格枚举），不是字符串——枚举转字符串
+	// 会得到 rune 而不是词表词，那种转换只会把判据搞坏。
+	// 未注入 = 不记录（nil 判空，与其它可选端口同口径）。
+	RecordToolOutcome func(sessionID, name string, status dto.ToolEventStatus, errorText string)
 }
 
 // ViewPort 是 Snapshot revision bump 的窄接口。
@@ -42,13 +48,17 @@ type ViewPort interface {
 // Coordinator 拥有子代理详情/实时/树投影。
 type Coordinator struct {
 	*state.Core
-	view   ViewPort
-	limits func() seelexctx.Limits
+	view              ViewPort
+	limits            func() seelexctx.Limits
+	recordToolOutcome func(sessionID, name string, status dto.ToolEventStatus, errorText string)
 }
 
 // NewCoordinator 构造 subagent_view 协调器。
 func NewCoordinator(deps Deps) *Coordinator {
-	return &Coordinator{Core: deps.Core, view: deps.View, limits: deps.Limits}
+	return &Coordinator{
+		Core: deps.Core, view: deps.View, limits: deps.Limits,
+		recordToolOutcome: deps.RecordToolOutcome,
+	}
 }
 
 // HandleSubagentToolEvent 把 Runtime 工具分发投影进有界权威 Plan 节点快照
@@ -62,6 +72,15 @@ func (c *Coordinator) HandleSubagentToolEvent(e seelsession.SubagentToolEvent) {
 	e.Arguments = c.truncateSubagentEvidence(e.Arguments)
 	e.Result = c.truncateSubagentEvidence(e.Result)
 	e.Error = c.truncateSubagentEvidence(e.Error)
+	// 计数**先记**（它不依赖计划节点）：下面的早退分支（无计划 / 节点不在树里）
+	// 只是"这条消息不进投影"，不代表这次工具调用没发生过——记录口只看"哪个会话、谁、
+	// 什么状态"。会话号照例从快照读（锁内短读，与下面的投影同源）。
+	if c.recordToolOutcome != nil {
+		c.ViewMu.RLock()
+		sessionID := c.Snapshot.Session.ID
+		c.ViewMu.RUnlock()
+		c.recordToolOutcome(sessionID, e.Name, e.Status, e.Error)
+	}
 
 	c.ViewMu.Lock()
 	plan := c.Snapshot.Runtime.Plan

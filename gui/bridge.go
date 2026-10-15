@@ -1165,6 +1165,43 @@ func (bridge *Bridge) PerfStats() application.PerfStats {
 	return bridge.app.PerfStats()
 }
 
+// toolFailureBoardProvider 是 Application 的**窄可选**能力面：工具失败分布看板
+// （进程级读数：跨会话跨项目）。
+//
+// 为什么是"可选窄接口 + 类型断言"而不是 Application 的成员：口径与
+// contract.TeamworkBoardProjection / context_runtime.CompactionIndexPort 一致——
+// **有就有、没有就是没装配**。未装配时返回空看板（前端整块 hidden），而不是逼每个
+// fake / harness 为了一个只读面板长出空方法。
+type toolRecordBoardProvider interface {
+	ToolRecordBoard() application.ToolRecordBoard
+	// ToolRecordEnabled / SetToolRecordEnabled：计数开关的读与写（设置里那一个开关）。
+	ToolRecordEnabled() bool
+	SetToolRecordEnabled(enabled bool) (bool, error)
+}
+
+// ToolRecordBoard 返回工具记录看板（进程级读数：跨会话跨项目）。
+//
+// 走"按需拉取"而不是快照：快照是**会话作用域**的可重放状态，把进程级计数塞进去会
+// 让"重放一份会话快照"听起来像"重放这台机器的计数"（与 PerfStats 同一条理由）。
+func (bridge *Bridge) ToolRecordBoard() application.ToolRecordBoard {
+	if provider, ok := bridge.app.(toolRecordBoardProvider); ok {
+		return provider.ToolRecordBoard()
+	}
+	return application.ToolRecordBoard{}
+}
+
+// SetToolRecordEnabled 开关工具记录计数（设置里那一个开关；返回生效值）。
+//
+// 未装配记录面的宿主显式报错（而不是静默返回 false）：用户按了开关却什么都没发生，
+// 比"这个宿主不支持"更坏。
+func (bridge *Bridge) SetToolRecordEnabled(enabled bool) (bool, error) {
+	provider, ok := bridge.app.(toolRecordBoardProvider)
+	if !ok {
+		return false, fmt.Errorf("工具记录未装配（宿主不支持计数开关）")
+	}
+	return provider.SetToolRecordEnabled(enabled)
+}
+
 // PromptLayers 返回当前会话注入的 prompt 前缀层（轨迹视图数据源）。
 func (bridge *Bridge) PromptLayers() []application.PromptLayer {
 	if bridge == nil || bridge.app == nil {

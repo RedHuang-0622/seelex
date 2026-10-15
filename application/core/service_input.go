@@ -361,6 +361,9 @@ func (service *Service) Shutdown() {
 		}
 	}
 	service.ViewMu.Unlock()
+	// 停机兜底：把每个会话还留在内存里的读数批量落一次（真相源提交点之外的漏网部分）。
+	// 放在会话域关闭之前：FlushToolRecord 只需要存储口与内存累计，不依赖会话 actor。
+	service.flushAllToolRecords()
 	service.components.sessions.StopCatalogRefresh()
 	service.sessions.Close() // 会话域 actor 收尾（注册表 + V 指针）
 	service.stopLifecycleConsumers()

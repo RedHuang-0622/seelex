@@ -232,6 +232,10 @@ func (service *Service) materializeDraftSession(firstQuestion string) error {
 	service.publishRuntimeProjections()
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", newID, nil)
 	service.components.sessions.RequestCatalogRefresh()
+	// 真相源提交时刻的**批量落盘**：草稿物化进真相源 = 这一会话的读数入账点
+	// （见 tool_record.go 的 FlushToolRecord：不做逐次工具写盘，避免磁盘一直忙）。
+	// 在锁外调（只读内存累计 + 写会话存储，不碰视图状态）。
+	service.FlushToolRecord(newID)
 	// G6 驻留 LRU：物化完成（引擎 bundle 已建）即记录使用序并收敛超限。
 	service.touchResident(newID)
 	return nil

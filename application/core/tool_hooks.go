@@ -250,6 +250,13 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 	emit("toolhook.complete.unlock.done")
 	emit("toolhook.complete.event.start")
 	service.publishSessionEvent(EventToolCompleted, revision, requestID, sessionID, message)
+	// 工具记录（唯一判据 = toolStatusFailed + toolRecordReason，读数落全局台账）：
+	// 放在**发布之后**是刻意的——这里已经出了 ViewMu（台账要写文件，绝不在视图锁下做 IO）。
+	//
+	// 原因归并吃的是**原始错误**（toolErr），不是给模型看的 errorText：后者是呈现层的
+	// 包装文案（"该工具未能完成本次操作…"），它刻意不含内部细节，拿它归因只会全落到
+	// "其它"。成功也记（开关打开时）：没有分母的失败计数会把优化带偏。
+	service.recordToolOutcome(sessionID, name, toolStatusFailed(status), toolErrorText(toolErr))
 	if planFailure != nil {
 		service.publishSessionEvent(EventInteractionOpened, revision, planFailure.ID, sessionID, planFailure)
 	}

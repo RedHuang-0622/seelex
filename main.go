@@ -553,13 +553,9 @@ func run() error {
 		// 落 metadata/board_team.json。非 JSON 后端不实现它 → nil，读侧无从恢复，
 		// 活体投影照常工作。
 		boardRepo, _ := store.BoardsFor()
-		keyFor := func(sessionID string) (sessionstore.Key, bool) {
-			workspace, exists := wsRepo.SessionWorkspace(sessionID)
-			if !exists || strings.TrimSpace(workspace.ID) == "" {
-				return sessionstore.Key{}, false
-			}
-			return sessionstore.Key{ProjectID: workspace.ID, SessionID: sessionID}, true
-		}
+		// 作用域键解析只有一份（sessionKeyFor，见文件尾部）：团队作业与工具记录
+		// 都用它，免得两处各写一遍"会话 → (项目, 会话)"的解析。
+		keyFor := func(sessionID string) (sessionstore.Key, bool) { return sessionKeyFor(wsRepo, sessionID) }
 		if err := runtime.SetTeamworkBackend(seelebridge.TeamworkBackend{
 			Store:  seeteamwork.NewPlanStore(repo),
 			Boards: boardRepo,
@@ -661,6 +657,26 @@ func run() error {
 	}
 	app.SetProjectBoardSink(projectBoardSink)
 	defer closeProjectBoard()
+	// 工具记录（成功/失败计数 + 失败原因）：读数**按会话**存在会话自己的存储里，落盘是
+	// **批次**（真相源提交时刻统一更新一次，见 core.FlushToolRecord）——不做"每次工具调用
+	// 写一次盘"（回合内高频调用会把磁盘写忙，2026-10-15 用户口径）。
+	app.SetToolRecordSnapshotStore(sessionToolRecordStore{
+		router:     store,
+		resolveKey: func(sessionID string) (sessionstore.Key, bool) { return sessionKeyFor(wsRepo, sessionID) },
+	})
+	// 计数开关：默认**开**（先收数据），界面上改过的值落在数据根 runtime-limits.json 的
+	// tool_record_enabled 格（指针：nil = 没改过 ⇒ 用默认）。
+	// 开关的权威值在数据根覆盖层（同一份 runtime-limits.json：设置里拨过就写它）。
+	// 这里自己读一次而不是复用 initRuntime 里的那份：两处装配点不同（这个在更早的
+	// 前端装配段），读一次文件的代价换来"装配顺序不构成隐式依赖"。
+	toolRecordOverlay := readRuntimeLimitsOverlay(runtimeLimitsPath())
+	toolRecordEnabled := true
+	if toolRecordOverlay.ToolRecordEnabled != nil {
+		toolRecordEnabled = *toolRecordOverlay.ToolRecordEnabled
+	}
+	// 装配期只装内存（值本来就从覆盖层来）：用户拨开关才走 SetToolRecordEnabled 的
+	// "先落盘、再改内存"。这样覆盖层文件只在用户真改过之后才出现这一格。
+	app.ApplyToolRecordEnabled(toolRecordEnabled)
 	// 会话删除时同批回收项目目录里的投影：项目根只有装配根知道（存储层不认识工作区），
 	// 所以在这里把解析器交给 Router 一次（见 sessionstore.SetProjectBoardRootFor）。
 	store.SetProjectBoardRootFor(func(sessionID string) string {
@@ -687,6 +703,11 @@ func run() error {
 	if backendTrace != nil {
 		bashObserver = backendTrace.LogBashEvent
 	}
+	// 命令面的成败也走这条观察口：工具层已经在 `bash.process.exited` 上报了每一次同步
+	// 命令的退出码（那条 stage 只由同步 bash 链发出；bash_bg 走另一条链、不经这里），
+	// 命令面因此不需要第二个上报口。"退出码非零 = 一次命令失败"的判据在 core
+	// （RecordToolCommandOutcome），这里只做搬运；诊断日志照旧转发给下游。
+	bashObserver = toolCommandOutcomeObserver(bashObserver, app)
 	runtime.ApplyDeps(seelebridge.RuntimeDeps{
 		BashDiagnosticObserver: bashObserver,
 		TurnArchiver: &core.CompressedTurnArchiver{
@@ -1883,6 +1904,104 @@ func initEngine(runtime *seelebridge.Runtime, hooks *application.ToolHookBridge,
 	return sess, nil
 }
 
+// 编译期钉子（落盘口的结构满足）在 sessionstore 那一侧：`var _ ToolRecordRepository =
+// (*jsonRepository)(nil)`——具体类型不导出，装配根写不出这条断言。
+
+// toolCommandOutcomeObserver 把命令面的退出码折成一次工具记录（成功/失败），再把事件
+// 原样转发给下游观察者（诊断日志）。
+//
+// 为什么挂在既有的诊断口上：工具层已经在 `bash.process.exited` 里上报了每一次同步命令的
+// 退出码（同步主路径与 docker 重试同源于 executeScopedBash），命令面因此不必新增第二个
+// 上报口；"退出码非零 = 失败"这一格判据落在 core 的 `RecordToolCommandOutcome`，
+// 本函数只做搬运与转发。
+//
+// 边界：这条 stage 目前**只由同步 `bash` 链发出**（bash_bg 走 async_run 的另一条链，
+// 不经 executeScopedBash）。将来若有第二个工具复用那条同步链，必须先把工具名带进事件
+// （BashDiagnosticEvent.Tool），否则命令结果会被记到 bash 名下。
+func toolCommandOutcomeObserver(next seelebridge.BashDiagnosticObserver, app *application.Service) seelebridge.BashDiagnosticObserver {
+	return func(event seelebridge.BashDiagnosticEvent) {
+		if event.Stage == "bash.process.exited" {
+			// 会话号由工具层带在事件上（BashDiagnosticEvent.Session，只填 ID 不带正文）：
+			// 后台会话/teammate 跑的命令因此记在**它自己的**会话读数里，不会被归到视图会话。
+			app.RecordToolCommandOutcome(event.Session, "bash", event.ExitCode)
+		}
+		if next != nil {
+			next(event)
+		}
+	}
+}
+
+// sessionKeyFor 把会话 ID 解析成存储作用域键（项目 + 会话）：**按会话自己的项目绑定**解析，
+// 未绑定会话返回 false（不落到别人的项目目录里）。装配期的三处（teamwork backend、
+// 工具记录）共用这一份解析，不各写一遍。
+func sessionKeyFor(workspaces *workspace.Repo, sessionID string) (sessionstore.Key, bool) {
+	if workspaces == nil {
+		return sessionstore.Key{}, false
+	}
+	bound, ok := workspaces.SessionWorkspace(sessionID)
+	if !ok || strings.TrimSpace(bound.ID) == "" {
+		return sessionstore.Key{}, false
+	}
+	return sessionstore.Key{ProjectID: bound.ID, SessionID: sessionID}, true
+}
+
+// sessionToolRecordStore 是 contract.ToolRecordSnapshotStore 在本宿主上的实现：
+// 把读数写进**会话自己的**存储（`<sessionRoot>/tool-record.jsonl`，一行一批整份快照）。
+//
+// 未装配 JSON 后端（或键解析不出来）⇒ 空操作不报错：读数是派生读数，落不下去不该
+// 让会话提交失败（错误由调用方按 LastError 的同一口径处理，这里选择"静默跳过"是因为
+// 键解析失败通常意味着会话还没绑项目——那时也还没有可写的位置）。
+type sessionToolRecordStore struct {
+	router     *sessionstore.Router
+	resolveKey func(sessionID string) (sessionstore.Key, bool)
+}
+
+func (store sessionToolRecordStore) SaveToolRecordSnapshot(sessionID string, snapshot application.ToolRecordSnapshot) error {
+	repository, ok := store.repository()
+	if !ok {
+		return nil
+	}
+	key, ok := store.key(sessionID)
+	if !ok {
+		return nil
+	}
+	return repository.AppendToolRecordSnapshot(context.Background(), key, snapshot)
+}
+
+func (store sessionToolRecordStore) LoadToolRecordSnapshot(sessionID string) (application.ToolRecordSnapshot, bool, error) {
+	repository, ok := store.repository()
+	if !ok {
+		return application.ToolRecordSnapshot{}, false, nil
+	}
+	key, ok := store.key(sessionID)
+	if !ok {
+		return application.ToolRecordSnapshot{}, false, nil
+	}
+	raw, found, err := repository.ReadToolRecordSnapshot(context.Background(), key)
+	if err != nil || !found {
+		return application.ToolRecordSnapshot{}, false, err
+	}
+	var snapshot application.ToolRecordSnapshot
+	if err := json.Unmarshal(raw, &snapshot); err != nil {
+		return application.ToolRecordSnapshot{}, false, nil // 坏行 = 当没记过（不阻塞读面）
+	}
+	return snapshot, true, nil
+}
+
+func (store sessionToolRecordStore) repository() (sessionstore.ToolRecordRepository, bool) {
+	if store.router == nil {
+		return nil, false
+	}
+	return store.router.ToolRecordFor()
+}
+
+func (store sessionToolRecordStore) key(sessionID string) (sessionstore.Key, bool) {
+	if store.resolveKey == nil {
+		return sessionstore.Key{}, false
+	}
+	return store.resolveKey(sessionID)
+}
+
 func initSessionManager(router *sessionstore.Router, eng *adapters.EnginePort) *session.Manager {
 	manager := session.NewManager().WithRouter(router)
 	manager.InjectSaveLoad(
@@ -1943,6 +2062,8 @@ func initApplication(
 		// 每账号上下文窗口的落盘口：同一个覆盖层文件的 account_windows 表
 		// （设置 → 账号的挡位/自定义值）。
 		AccountWindowStore: runtimeLimitsStoreFile{path: runtimeLimitsPath()},
+		// 工具记录计数开关的落盘口：同一个覆盖层文件的 tool_record_enabled 格。
+		ToolRecordStore: runtimeLimitsStoreFile{path: runtimeLimitsPath()},
 	})
 }
 

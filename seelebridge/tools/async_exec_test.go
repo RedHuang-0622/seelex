@@ -553,8 +553,8 @@ func TestJobCapabilityGatesSchemaAndRegistration(t *testing.T) {
 	if bashPropertyNames(t, off["bash"])["background"] {
 		t.Fatal("bash schema 不得再下发 background（那一类由 bash_bg 承担）")
 	}
-	if _, present := off["bash_read"]; !present {
-		t.Fatal("bash_read 与作业切片无关：它必须常驻（只读命令的免打断面）")
+	if _, present := off["bash_read"]; present {
+		t.Fatal("bash_read 已删除（2026-10-15）：命令面只剩 bash / bash_bg")
 	}
 	ctx := asyncTestCtx(t.TempDir(), "sess-a")
 	if _, err := NewRouter(Deps{ToolCallTimeout: time.Minute}).scopedBash(ctx, `{"command":"echo x","background":true}`); err == nil {
@@ -576,18 +576,14 @@ func TestJobCapabilityGatesSchemaAndRegistration(t *testing.T) {
 	if !strings.Contains(on["bash_bg"].description, "acceptance receipt") {
 		t.Fatalf("bash_bg 描述必须点明回执不含命令输出: %q", on["bash_bg"].description)
 	}
-	if !strings.Contains(on["bash_read"].description, "READ-ONLY") {
-		t.Fatalf("bash_read 描述必须点明只读边界: %q", on["bash_read"].description)
-	}
 	if !strings.Contains(on["job_manage"].description, "consumer-style") {
 		t.Fatalf("job_manage 描述必须点明取回是消费式: %q", on["job_manage"].description)
 	}
 }
 
-// TestBashFamilyRoutingTable 是 K-3 的判据（TC-K3-1）：三个 bash 名字按预期分组。
+// TestBashFamilyRoutingTable 是 K-3 的判据（TC-K3-1）：bash 名字按预期分组。
 //
 //   - bash / bash_bg → rw：写类与后台受管；sub/员工才能杀掉自己派的作业。
-//   - bash_read      → ro：只读命令免打断（这正是分裂的目的）。
 //   - job_manage     → rw：它含 kill/done，取回/终止必须与派发同组。
 //   - read_batch     → ro：只读扇出，不碰共享状态。
 func TestBashFamilyRoutingTable(t *testing.T) {
@@ -597,7 +593,6 @@ func TestBashFamilyRoutingTable(t *testing.T) {
 	}{
 		{"bash", GroupRW},
 		{"bash_bg", GroupRW},
-		{"bash_read", GroupRO},
 		{"job_manage", GroupRW},
 		{"read_batch", GroupRO},
 	}

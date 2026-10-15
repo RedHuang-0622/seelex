@@ -707,6 +707,16 @@ type SubagentEvent struct {
 // runtime 事件与快照投影同一形状，本包以别名保持契约兼容）。
 type SubagentToolEvent = dto.SubagentToolEvent
 
+// ToolRecordBoard / ToolRecordStat / ToolRecordReason 是**工具记录**看板的只读投影
+// （单源在 dto）：TUI 与 GUI 都经 `Application.ToolRecordBoard()` 读同一份形状。
+type ToolRecordBoard = dto.ToolRecordBoard
+
+type ToolRecordStat = dto.ToolRecordStat
+
+type ToolRecordReason = dto.ToolRecordReason
+
+type ToolRecordSnapshot = dto.ToolRecordSnapshot
+
 // NodeStatus 是**一个计划节点**的状态（plan 面板/子代理详情的数据源）。
 //
 // 词表只有一份，住在契约（`dto.NodeStatus`）：框架 workplan 的词与我们的 worktree

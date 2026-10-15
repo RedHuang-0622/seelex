@@ -58,7 +58,7 @@ flowchart TB
   （`NodeScope.WorkspaceID`）→ 执行 ctx 的**会话键**（`Deps.SessionKey`，生产为
   telemetry 会话 ID）对应的项目根 → 进程默认根。后台/并行会话因此不会借用视图
   会话的项目根（工作区污染回归见 `router_session_root_test.go`）。
-- **前台工具调用的终止（停止按钮）**：同步 `bash` / `bash_read` 的 run 挂在回合 ctx 上，
+- **前台工具调用的终止（停止按钮）**：同步 `bash` 的 run 挂在回合 ctx 上，
   点停止 = 取消该 ctx。它与后台作业共用**同一份**进程树装配——`newProcessTreeCommand`
   （`router.go:570`）+ `startWithProcessTree`（`router.go:584`）= `security.ProcessTree` +
   `ConfigureProcessTree` + `cmd.Cancel = tree.Terminate()` + `WaitDelay`，两条链只传各自的
@@ -108,8 +108,8 @@ string 只会让每个调用点多做一次编解码往返；框架的 `ToolHand
 三类作业的派发工具都**只派发、不等结果**：`fork_subagents` 也没有"阻塞到全部跑完"
 的分支（阻塞期间模型没有下一次调用，`observe`/`kill` 就没有入口）。
 
-工具面与形状：`bash`（串行写类，**不再有 `background`**）/ `bash_read`（只读、免打断，
-handler 侧必须过服务端 `security.ClassifyCommand`）/ `bash_bg`（`Add`，**必须带
+工具面与形状：`bash`（唯一的 shell 入口：串行、同步，**不再有 `background`**；
+只读形态的免打断由权限模式表承担）/ `bash_bg`（`Add`，**必须带
 `description`**——它是工作打点表的行标题）/ `read_batch`（一次派发 N 个读作业）/
 `fork_subagents`（一次派发 N 个子代理作业）/ `job_manage`（`op=observe|fetch|kill|done`；
 `op=fetch`/`op=observe` 可给 `handles` 数组一次管一批——**整批共用一份等待预算**，
@@ -125,7 +125,7 @@ handler 侧必须过服务端 `security.ClassifyCommand`）/ `bash_bg`（`Add`�
 §A/§B 与 [`docs/2026-09-26-subprocess-contract/tool_calling_step0_contracts.md`](../../docs/2026-09-26-subprocess-contract/tool_calling_step0_contracts.md)。
 
 串行与后台之间有一条**时长线**（`serialBashBudget` = 5 分钟）：显式 `timeout` 超过它的
-`bash` / `bash_read` 调用被拒绝，并被指向 `bash_bg`（`auditSerialTimeout`）。取拒绝而不是
+`bash` 调用被拒绝，并被指向 `bash_bg`（`auditSerialTimeout`）。取拒绝而不是
 按预算截断：截断是静默降级——模型以为给了 30 分钟，命令在第 5 分钟被杀，工作白做且没有
 任何信号说明该换入口。作业面关闭时**不**审查：没有 `bash_bg` 可派发，拒绝一条长命令等于
 既不执行也不给替代路径。没声明 `timeout` 的调用同样不审查（没有"声明的时长"），长命令该
@@ -231,8 +231,16 @@ bash 诊断观察者 panic 隔离。作业域：`asyncRegistry` 单锁（执行�
 取回/终止/销项直接拒绝；执行体脱离工具 ctx（`context.WithoutCancel`），存活上限由
 `asyncHardCap` 自带；输出目录归本进程，`CloseAsync` 当场试删，删不动（还有句柄没关）
 就由最后一条 `finish` 补删，关停后 `begin` 直接报错而不是新建一个没人回收的目录。
-`bash_read` 归只读权限组，但**服务端守卫**（`security.ClassifyCommand`）才是那道门：
-分类失败一律按写处理，不因为"这个名字免审批"而放行。
+**`bash_read` 已删除（2026-10-15）**：它当年是"只读名牌 + 服务端语法判定"的分裂面
+（`security.ClassifyCommand`/`ExplainCommand`，随它一起删除），实测 479 次调用有 165 次
+（34.4%）折在判定上，而判定侧本身还与本机执行壳错位（白名单是 POSIX 词表、壳退化成
+PowerShell，放行也执行失败）。命令面因此只剩 `bash` 与 `bash_bg`；读文件走
+`read_file`/`grep_search`/`glob`。
+
+**免打断的读命令**改由 `bash` 的**模式白名单**承担（`permission_policy.go` 的
+`bash` Patterns：`git *` / `ls *` / `cat *` / `head *` / `tail *` / `pwd` / `go test *`
+… ⇒ `ActionAllow`），其余形态落到 `ActionAsk`。模式匹配比服务端分类弱，所以这里刻意
+只放保守形态（无管道、无重定向、无替换）。
 
 ## 扩展方式
 

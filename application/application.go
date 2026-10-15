@@ -64,6 +64,10 @@ type (
 	StoredToolResult           = model.StoredToolResult
 	ToolResultPage             = model.ToolResultPage
 	PerfStats                  = model.PerfStats
+	ToolRecordBoard            = model.ToolRecordBoard
+	ToolRecordStat             = model.ToolRecordStat
+	ToolRecordReason           = model.ToolRecordReason
+	ToolRecordSnapshot         = model.ToolRecordSnapshot
 	RuntimeState               = model.RuntimeState
 	ReplanMonitor              = model.ReplanMonitor
 	PlanState                  = model.PlanState

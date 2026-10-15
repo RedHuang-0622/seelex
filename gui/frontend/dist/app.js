@@ -34,6 +34,7 @@ import { renderGoalDetail, renderGoalPanel } from "./goal-board-view.js";
 import { TEAM_BOARD_CSS, TEAMMATE_LIVE_PAGE_SIZE, parseTeamPageRef, renderTeamBoard, renderTeamPage, renderTeammateLiveSession, teamPageTitle, teammateSessionEntry } from "./team-board-view.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
 import { buildScheduledTaskSpec, renderScheduledTasks, renderScheduledTasksTable, scheduledTaskFormFields } from "./scheduled-tasks-view.js";
+import { renderToolRecordBoard, TOOL_RECORD_CSS } from "./tool-record-board.js";
 import { renderRoleSessionDetail, roleDisplayName } from "./role-session-view.js";
 // 提交侧的装配（按会话插件）规整：**只 trim + 丢空项，不去重**（重复由后端显式拒绝）。
 import { escapePluginSourceText, pluginSourceBadge } from "./plugin-source.js";
@@ -118,9 +119,11 @@ const elements = Object.fromEntries([
   // 页的内容全归渲染件 team-board-view.js 的 renderTeamPage。
   "team-page-modal", "team-page-close", "team-page-modal-title", "team-page-view",
   "right-tabs", "goal-section", "goal-badge", "goal-view", "goal-detail-modal", "goal-detail-close", "goal-detail-title", "goal-detail-view", "team-board-section", "team-board-badge", "team-board-view", "code-panes", "code-pane-tabs", "code-pane-worktree", "code-pane-gitlog", "git-log-view", "git-log-count", "code-pane-changes", "changes-view", "changes-count",
+  "tool-record-section", "tool-record-view", "tool-record-total",
   "file-preview-pane", "file-preview-view", "file-preview-tabs", "file-preview-hide-panes", "file-preview-close", "file-preview-divider", "file-preview-collapse", "file-preview-rail",
   "file-save-modal", "file-save-title", "file-save-message", "file-save-keep", "file-save-discard", "file-save-cancel",
   "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "terminal-scrollback", "release-window", "release-window-status", "account-windows", "account-windows-status", "theme-picker", "mode-picker", "inline-suggestions",
+  "tool-record-enabled-setting", "tool-record-setting-status",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
   // 文件引用（J-1b）：草稿 chip 条 + `+` 加号的候选面板。
   "composer-file-refs", "file-button", "composer-file-picker", "composer-file-close", "composer-file-search", "composer-file-results",
@@ -703,6 +706,82 @@ function composerDraftPageText() {
   return "";
 }
 
+// 工具记录看板（2026-10-15）：进程级读数（跨会话跨项目），因此**按需拉取**
+// （Bridge.ToolRecordBoard），不进会话快照。触发面：整轮渲染后一次、每次工具完成帧后一次、
+// 以及用户点柱子/拨开关之后——成功与失败都会改变这份数据（开了计数之后两条都记）。
+//
+// 拉取失败（未装配台账 / 桥不可用）→ 静默保持现状，不弹 toast：它是只读读数，
+// 拿不到不等于用户做错了什么。
+let toolRecordStyleInjected = false;
+// 选中的工具名（点柱子）：选中状态只影响"下面那张原因饼图"，不进任何后端状态。
+let toolRecordSelection = "";
+
+async function renderToolRecordPanel() {
+  const section = elements["tool-record-section"];
+  const host = elements["tool-record-view"];
+  if (!section || !host) return;
+  let board = null;
+  try {
+    board = await invoke("ToolRecordBoard");
+  } catch {
+    return;
+  }
+  const enabled = Boolean(board?.enabled);
+  const empty = !enabled && Number(board?.total || 0) === 0;
+  if (empty) {
+    // 计数关着且没有历史读数：整块退场（关就是关，不留空壳）。开着但还没记过时
+    // 仍然显示（表头那个开关要让用户看得见、能拨）。
+    section.classList.add("hidden");
+    host.innerHTML = "";
+    return;
+  }
+  if (!toolRecordStyleInjected) {
+    // 样式与渲染件同源（TOOL_RECORD_CSS 一处给出），注入一次即可。
+    const style = document.createElement("style");
+    style.id = "tool-record-styles";
+    style.textContent = TOOL_RECORD_CSS;
+    document.head.appendChild(style);
+    toolRecordStyleInjected = true;
+  }
+  if (toolRecordSelection && !(board?.tools || []).some(row => row.tool === toolRecordSelection)) {
+    toolRecordSelection = ""; // 选中的工具消失了（台账清空/换了机器）：不要留一个指向不存在柱子的选择
+  }
+  section.classList.remove("hidden");
+  host.classList.remove("muted");
+  host.innerHTML = renderToolRecordBoard(board, { selectedTool: toolRecordSelection });
+  const badge = elements["tool-record-total"];
+  if (badge) badge.textContent = String(Number(board?.total) || 0);
+}
+
+// 工具记录看板的交互（两件事，都只走既有桥方法）：
+//   1. 点柱子 → 选中/取消选中，重画（选中才画下面那张原因饼图）；
+//   2. 拨开关 → 走 Bridge.SetToolRecordEnabled（落盘在数据根 runtime-limits.json，
+//      失败就回滚到后端返回的生效值——与其它设置控件同一条纪律）。
+// 用**事件委托**而不是逐柱绑监听：柱子会随每次刷新重建，逐柱绑会漏绑/泄漏。
+// 注意：计数开关**不在**这块看板上（它在设置弹窗里，见 syncToolRecordSetting）。
+// 这里只绑柱子的选择——与 TUI 面板同口径：看板只读读数。
+function bindToolRecordPanel() {
+  const host = elements["tool-record-view"];
+  if (!host) return;
+  host.addEventListener("click", async event => {
+    const bar = event.target.closest?.("[data-tool-record-tool]");
+    if (!bar) return;
+    const tool = bar.getAttribute("data-tool-record-tool") || "";
+    toolRecordSelection = toolRecordSelection === tool ? "" : tool;
+    await renderToolRecordPanel();
+  });
+  // 键盘可达：柱子是 role=button + tabindex=0，回车/空格等价于点击。
+  host.addEventListener("keydown", async event => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const bar = event.target.closest?.("[data-tool-record-tool]");
+    if (!bar) return;
+    event.preventDefault();
+    const tool = bar.getAttribute("data-tool-record-tool") || "";
+    toolRecordSelection = toolRecordSelection === tool ? "" : tool;
+    await renderToolRecordPanel();
+  });
+}
+
 function render(snapshot, options = {}) {
   const started = performance.now();
   // 输入框正文先按会话归属对齐，再谈回填（顺序见 syncComposerSession）。
@@ -721,6 +800,7 @@ function render(snapshot, options = {}) {
   renderGoal(snapshot);
   renderTeam(snapshot);
   renderScheduledTaskPanel(snapshot.runtime || {});
+  renderToolRecordPanel();
   renderSkills(snapshot.runtime?.skills || []);
   renderInteraction(snapshot.interaction);
   // J-2：agent 请求打开的待审阅文件（会话作用域的可重放状态，随快照到达）。放在这里
@@ -743,6 +823,9 @@ function renderIncremental(snapshot, kind, payload) {
     // 新用户输入会多出一条索引刻度（助手增量不动索引），按指纹去重后拉取。
     if (kind === "message.added") refreshInputIndex(snapshot);
     if (kind !== "message.delta") renderProject(snapshot);
+    // 工具记录只被"一次工具调用"改变：完成帧到了才拉一次看板（进程级读数，
+    // 不进快照；见 renderToolRecordPanel 的口径说明）。
+    if (kind === "tool.completed") renderToolRecordPanel();
     // 会话类页面不可见时强制隐藏会话专属悬浮件（空态/加载更早/输入框）。
     syncSessionChrome();
     perfHooks.markRender(performance.now() - started);
@@ -2567,6 +2650,9 @@ function bindTeamBoardActions() {
 }
 bindTeamBoardActions();
 
+// 工具记录看板（状态子页）：柱形图点击 → 原因饼图，表头开关 → 后端计数开关。
+bindToolRecordPanel();
+
 // ── 「目标」面板（工作台子页）──────────────────────────────
 // 数据源：runtime.goal_governance（goal 状态机只读投影）+ runtime.active_skills
 // （任务级 skill 激活权威投影）+ 最近用户输入（目标文本，本地派生展示）。
@@ -3412,6 +3498,8 @@ async function openSettings() {
   // 会话驻留窗口：**进程级**读数，另拉一次（不进快照）；读不到只说明一句，不拖累
   // 下面那段存储读取。
   await syncReleaseWindowReading();
+  // 工具记录开关：**进程级**设置（落数据根 runtime-limits.json），与上面那条同一条读法。
+  await syncToolRecordSetting();
   // 每账号上下文窗口：账号与生效值来自最近一份快照（后端已按优先级算好），挡位表另拉。
   await syncAccountWindowReading();
   try {
@@ -5228,6 +5316,54 @@ function syncReleaseWindowSelect(value) {
 }
 
 // syncReleaseWindowReading 读一次后端权威（弹窗打开时调）。
+// ── 工具记录开关（设置弹窗里那一格）────────────────────────
+//
+// 口径：它是**进程级设置**（落数据根 runtime-limits.json），开关的权威值在后端——
+// 打开设置弹窗时读一次（`ToolRecordBoard().enabled`），拨动时走
+// `SetToolRecordEnabled`（后端先落盘再改内存，失败整步不改），再把生效值写回控件。
+// 关掉**不删**已记的读数：那是已经发生的事实，看板仍会显示它。
+function setToolRecordSettingStatus(text) {
+  const status = elements["tool-record-setting-status"];
+  if (status) status.textContent = text || "";
+}
+
+function applyToolRecordSetting(enabled) {
+  const checkbox = elements["tool-record-enabled-setting"];
+  if (checkbox) checkbox.checked = Boolean(enabled);
+}
+
+async function syncToolRecordSetting() {
+  try {
+    const board = await invoke("ToolRecordBoard");
+    applyToolRecordSetting(Boolean(board?.enabled));
+    setToolRecordSettingStatus(
+      Number(board?.total || 0) > 0 ? `已记录 ${board.total} 次调用（成功 ${board.success} / 失败 ${board.failure}）` : "",
+    );
+  } catch {
+    setToolRecordSettingStatus("读不到当前开关状态（后端未装配工具记录）");
+  }
+  await renderToolRecordPanel();
+}
+
+elements["tool-record-enabled-setting"]?.addEventListener("change", async event => {
+  const checkbox = event.target;
+  const wanted = Boolean(checkbox.checked);
+  checkbox.disabled = true;
+  setToolRecordSettingStatus("正在应用…");
+  try {
+    const applied = await invoke("SetToolRecordEnabled", wanted);
+    applyToolRecordSetting(Boolean(applied?.enabled));
+    setToolRecordSettingStatus(Boolean(applied?.enabled) ? "已开启：成功与失败都会被记录" : "已关闭：不再记录新调用（已记的读数保留）");
+  } catch (error) {
+    // 失败整步不改：把控件回滚到后端当前值，并把原因说出来。
+    applyToolRecordSetting(!wanted);
+    setToolRecordSettingStatus("没生效：" + (error?.message || error));
+  } finally {
+    checkbox.disabled = false;
+    await renderToolRecordPanel();
+  }
+});
+
 async function syncReleaseWindowReading() {
   try {
     syncReleaseWindowSelect(await invoke("SessionReleaseWindow"));

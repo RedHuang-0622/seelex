@@ -26,7 +26,6 @@ func TestSerialBashBudgetRefusesOverBudgetTimeout(t *testing.T) {
 		args string
 	}{
 		{"bash", router.scopedBash, `{"command":"echo long","timeout":600}`},
-		{"bash_read", router.scopedBashRead, `{"command":"ls -la","timeout":600}`},
 	} {
 		_, err := call.run(ctx, call.args)
 		if err == nil {
@@ -72,17 +71,17 @@ func TestSerialBashBudgetLeavesNormalCallsAlone(t *testing.T) {
 	}
 }
 
-// TestSerialBashBudgetIsWrittenInEveryEntryDescription：模型只有描述可读，所以三个
+// TestSerialBashBudgetIsWrittenInEveryEntryDescription：模型只有描述可读，所以每个
 // 入口都得写明这条线——只写在串行的拒绝消息里，模型要先撞一次墙才知道。
 func TestSerialBashBudgetIsWrittenInEveryEntryDescription(t *testing.T) {
 	registered := captureRegisteredTools(t, true)
-	for _, name := range []string{"bash", "bash_read", "bash_bg"} {
+	for _, name := range []string{"bash", "bash_bg"} {
 		description := registered[name].description
 		if !strings.Contains(description, serialBashBudgetLabel()) {
 			t.Fatalf("%s 描述必须写明预算 %s：%q", name, serialBashBudgetLabel(), description)
 		}
 	}
-	if !strings.Contains(registered["bash_bg"].description, "serial bash / bash_read refuse") {
+	if !strings.Contains(registered["bash_bg"].description, "serial bash refuses") {
 		t.Fatalf("bash_bg 描述必须点明它是超预算命令的入口：%q", registered["bash_bg"].description)
 	}
 }

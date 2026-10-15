@@ -103,6 +103,14 @@ type TeamworkPlan struct {
 	State      TeamworkState       `json:"state,omitempty"`
 }
 
+// IsEmpty 报告"这份计划还没声明过团队"（team_plan 一次都没写过）。
+//
+// 判据只有一条（团队标识为空），放在类型自己身上：读面（store 的宽容读、看板投影）与
+// 写面（requireTeam 的领域文案）都问这一处，免得三处各写一遍"什么算还没组队"。
+func (plan TeamworkPlan) IsEmpty() bool {
+	return strings.TrimSpace(plan.TeamID) == ""
+}
+
 // TeamworkMember 是一个 teammate 的在编条目（人 + 会话 + 工作区指派）。
 type TeamworkMember struct {
 	Role          string `json:"role"`
@@ -357,7 +365,14 @@ func (repository *jsonRepository) WriteTeamworkPlan(_ context.Context, key Key, 
 	return repository.layout.commitModuleHead(key, moduleTeamwork, "", plan)
 }
 
-// ReadTeamworkPlan 读回计划（缺失返回 fs.ErrNotExist）。
+// ReadTeamworkPlan 读回计划。**缺失 = 空计划（还没 team_plan 声明过团队），不是错误**。
+//
+// 为什么宽容（2026-10-15）：此前缺失会原样上抛文件系统错误，模型看到的是
+// `open …\metadata\teamwork.json: The system cannot find the path specified.`——
+// 一条内部路径噪声，读面（team_items / team_context）也因此报"错误"而不是"还没有团队"。
+// 读面宽容、写面显式：需要计划的写面自己用 `TeamworkPlan.IsEmpty` 判空并给领域文案
+// （见 seelebridge/teamwork 的 requireTeam）——判据在那一处，不在这里复制。
+// 同文件 ReadTeamworkEvents 的"缺失即空"是同一口径。
 func (repository *jsonRepository) ReadTeamworkPlan(_ context.Context, key Key) (TeamworkPlan, error) {
 	if err := key.validate(); err != nil {
 		return TeamworkPlan{}, err
@@ -365,7 +380,11 @@ func (repository *jsonRepository) ReadTeamworkPlan(_ context.Context, key Key) (
 	if repository.layout == nil {
 		return TeamworkPlan{}, errors.New("session storage: teamwork requires the v8 layout engine")
 	}
-	return readModuleHeadPayload[TeamworkPlan](repository.layout, key, moduleTeamwork)
+	plan, err := readModuleHeadPayload[TeamworkPlan](repository.layout, key, moduleTeamwork)
+	if err != nil && errors.Is(err, os.ErrNotExist) {
+		return TeamworkPlan{}, nil
+	}
+	return plan, err
 }
 
 // AppendTeamworkEvent 追加一条审计事件（只追加、不重写）。

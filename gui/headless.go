@@ -26,6 +26,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
 )
@@ -169,12 +170,43 @@ func (server *headlessServer) dispatch(method string, args []json.RawMessage) (a
 		}
 		return value, nil
 	}
+	boolArg := func(index int, name string) (bool, error) {
+		if index >= len(args) {
+			return false, fmt.Errorf("%s 缺少参数 %s", method, name)
+		}
+		var value bool
+		if err := json.Unmarshal(args[index], &value); err != nil {
+			return false, fmt.Errorf("%s 参数 %s 必须是布尔: %v", method, name, err)
+		}
+		return value, nil
+	}
 
 	switch method {
 	case "Snapshot":
 		return server.app.Snapshot(), nil
 	case "PerfStats":
 		return server.app.PerfStats(), nil
+	case "ToolRecordBoard":
+		// 与 Bridge.ToolRecordBoard 同一口径：可选能力面（未装配 = 空看板，
+		// 而不是让整套 Application 契约为此长出一个成员）。
+		if provider, ok := server.app.(toolRecordBoardProvider); ok {
+			return provider.ToolRecordBoard(), nil
+		}
+		return application.ToolRecordBoard{}, nil
+	case "SetToolRecordEnabled":
+		enabled, err := boolArg(0, "enabled")
+		if err != nil {
+			return nil, err
+		}
+		provider, ok := server.app.(toolRecordBoardProvider)
+		if !ok {
+			return nil, fmt.Errorf("工具记录未装配（宿主不支持计数开关）")
+		}
+		applied, err := provider.SetToolRecordEnabled(enabled)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"enabled": applied}, nil
 	case "BeginNewSession":
 		return nil, server.app.BeginNewSession()
 	case "Submit":

@@ -235,7 +235,7 @@ func bashBgSchema() map[string]interface{} {
 func bashBgDescription() string {
 	return "Dispatch a command to the background job store — this is the entry for anything " +
 		"expected to run longer than the serial budget (" + serialBashBudgetLabel() + "): " +
-		"serial bash / bash_read refuse a `timeout` above it. That call's result is only an " +
+		"serial bash refuses a `timeout` above it. That call's result is only an " +
 		"acceptance receipt (handle + log_path), never the command output — use " +
 		"job_manage(op=fetch, handle) for results, job_manage(op=kill, handle) to terminate, " +
 		"job_manage(op=observe, handle) to look at progress without consuming output, and " +

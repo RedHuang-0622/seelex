@@ -56,6 +56,11 @@ func (r *Runtime) TeamworkPlanFor(sessionID string) (sessionstore.TeamworkPlan, 
 	if err != nil {
 		return sessionstore.TeamworkPlan{}, false
 	}
+	// 空计划 = 还没有团队（读面契约：缺失返回空计划而不是错误）。投影面按
+	// "没有计划"处理，与读不到同款——否则一个空计划会被当成真计划去渲染一张空看板。
+	if plan.IsEmpty() {
+		return sessionstore.TeamworkPlan{}, false
+	}
 	return plan, true
 }
 
