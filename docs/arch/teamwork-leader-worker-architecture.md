@@ -387,6 +387,15 @@ leader 判定某 teammate 的一轮任务结束 → `team_retire(role)`，**顺�
 
 ## 9. 死代码处理（M4，逐条确认，不批量删）
 
+> **状态更新（2026-10-15，A04）**：本表是**当时的逐条核实快照**，其中"team 环与逃生"
+> 一行的"已接线 / 环与逃生仍 live"**已不再成立**——`application/core/agentteam/runtime.go`
+> 与 `scheduler.go`（`Runtime` / `TurnScheduler` / `Advance` / 逃生记账 / team work 前缀
+> 投影）已整条删除；判据是全仓 `.go` 索引对这四个符号只剩注释提及（A03 摘掉
+> `TeamRuntimeFor` 后无生产签名或消费者）。现行事实见
+> [`../2026-10-15-product-architecture-pre-design/legacy-capability-audit.md`](../2026-10-15-product-architecture-pre-design/legacy-capability-audit.md)
+> （A03/A04）与 [`../devlog/2026-10-15-legacy-capability-retirement-a04-a06.md`](../devlog/2026-10-15-legacy-capability-retirement-a04-a06.md)。
+> 表中其它行（座位循环、`KindSeat` 等）的现状口径另见 A11/A15。
+
 | 候选 | 现状锚点 | 处理 |
 |---|---|---|
 | goal 治理座位循环 | `application/core/govern/`、`goal_coordinator.go` 的 `newGovernor`/`seatPlan.seats`/`roleTurnSeat`/`newRoleTurnSeat` | 降级为 `KindSeat` Executor（D4），原座位派生逻辑随之收敛或退场 |

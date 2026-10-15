@@ -8,6 +8,9 @@ import (
 
 // TestTeamRegistryRoundTripAndIsolation：角色注册表整份替换落到
 // `session/team/roles.json`，读回保持角色配置；与 message 物理隔离，不写 message。
+//
+// 状态（A06，2026-10-15）：被测的读写面已是 **legacy 只读兼容面**（装配用户面随 J-1a
+// 退场、当前无生产调用方）。本用例钉的是"旧格式仍能被正确读回"，保留原样继续当兼容护栏。
 func TestTeamRegistryRoundTripAndIsolation(t *testing.T) {
 	store, key := roleSessionFixture(t)
 	path := store.teamRegistryPath(key)
@@ -87,6 +90,9 @@ func TestTeamRegistryRejectsUnknownSchema(t *testing.T) {
 // 时，读顺序必须返回空值，而不是把
 // `open ...\metadata\lifecycle.json: The system cannot find the path specified`
 // 抛给前端——"未编排"是正常状态，不是错误。
+//
+// 状态（A05/A06）：报错现场（Agent Team 面板）已退场，但"缺失 head 不是错误"这条
+// 读兼容语义仍然成立（旧会话/空工程仍会走到这里）。
 func TestReadLifecycleOrderToleratesMissingHead(t *testing.T) {
 	router := newTestRouter(t)
 	// 空工程 + 磁盘上不存在的会话：读取会命中 ERROR_PATH_NOT_FOUND。
@@ -100,7 +106,9 @@ func TestReadLifecycleOrderToleratesMissingHead(t *testing.T) {
 }
 
 // TestReadMessageFloorWorkspaceToleratesUnstartedSession：没有 message head 的会话
-// （工程解析为空/目录不存在）读 floor 必须返回空值，不把路径错误抛给 Agent Team 面板。
+// （工程解析为空/目录不存在）读 floor 必须返回空值，不把路径错误抛给调用方。
+//
+// 状态（A05/A06）：读面已无生产调用方，但"空会话 floor = nil 不是错误"的语义保留。
 func TestReadMessageFloorWorkspaceToleratesUnstartedSession(t *testing.T) {
 	router := newTestRouter(t)
 	floor, err := router.ReadMessageFloorWorkspace("", "session-not-on-disk")
@@ -114,7 +122,10 @@ func TestReadMessageFloorWorkspaceToleratesUnstartedSession(t *testing.T) {
 
 // TestReadMessageFloorWorkspaceFollowsSequencerSync：floor 唯一写者是 sequencer
 // （随 message head 原子发布）。sync 前无 floor；sync 后读到的就是当前发言角色——
-// 这是前端 Agent Team 面板「floor 高亮」的数据源（此前该值没有出口）。
+// 它曾是前端 Agent Team 面板「floor 高亮」的数据源（那条面板已随 J-1a 退场）。
+//
+// 状态（A05）：`message head.floor` **本身是活动的历史/归属事实**（sequencer 仍在写），
+// 本用例钉的是"读回来的是 sequencer 发布的那一份、且按值返回"，与面板是否还在无关。
 func TestReadMessageFloorWorkspaceFollowsSequencerSync(t *testing.T) {
 	router := newTestRouter(t)
 	projectID := "project-1"
@@ -165,6 +176,9 @@ func TestReadMessageFloorWorkspaceFollowsSequencerSync(t *testing.T) {
 
 // TestEnsureRoleSessionWorkspaceIsIdempotent：重复装配同一条 TeamSpec 不产生第二个
 // 角色会话；顺序策略读写走 lifecycle head（唯一顺序事实）。
+//
+// 状态（A06）：装配方（`AgentTeamFactory`）已随 J-1a 退场，本用例现在钉的是
+// **旧数据兼容语义**（幂等建角色会话 + lifecycle 顺序可读回），不再有生产调用方。
 func TestEnsureRoleSessionWorkspaceIsIdempotent(t *testing.T) {
 	router := newTestRouter(t)
 	projectID := "project-1"

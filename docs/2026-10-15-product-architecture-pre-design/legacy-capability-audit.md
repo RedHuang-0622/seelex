@@ -29,6 +29,23 @@
 
 > 边界：A02 中其余模块 README（`application/README.md`、`application/core/README.md`、`application/core/README-agentteam.md`、`application/core/agentteam/README.md` 正文、根 README Agent Team 段）**未在本轮改写**——`agentteam/README.md` 顶部已自带 J-1a 退场状态头，属"已正确处理"的样板；其余待按同样"加状态头 + 替代链接"方式处理，不在本轮一并动刀。A03–A15 涉及代码/存储/恢复的项**均未执行**，仍待逐项裁决。
 
+## 本轮已执行的退场与状态标注（2026-10-15，A03–A06）
+
+> 记录口径与上一节相同：只记**已执行**的项，逐条给判据与验证。涉及持久字段/历史读路径的
+> 只做标注与政策，不做任何磁盘动作。完整删除清单、字段逐个裁决与数据兼容政策见
+> [`docs/devlog/2026-10-15-legacy-capability-retirement-a04-a06.md`](../../docs/devlog/2026-10-15-legacy-capability-retirement-a04-a06.md)。
+
+| ID | 已执行动作 | 判据（静态索引） | 验证 |
+|---|---|---|---|
+| A03 | 删 `application/core/agentteam_runtime.go`（`teamRuntimeStore` / `teamRuntimeBySession` / `noteTeamWorkPrefix` / `releaseTeamRuntime`）与 goal 侧 `TeamRuntimeFor` 注入、`Begin` 的 `Reset`、回合尾逃生记账 | `teamRuntimes.put` 零命中（store 恒空、环无建造入口） | commit `f4fd8d71`；全仓 build/vet/test 绿 |
+| A04 | 删 `application/core/agentteam/{runtime.go,scheduler.go}` 与 `runtime_test.go`／`scheduler_test.go`／`scheduler_wiring_test.go`／`prefix_test.go`；连删无消费者的 `dto.TeamSpec` 夹具（`goalTeamFixture`、`testspecs_test.go`） | `agentteam.Runtime`、`TurnScheduler`、`TurnRequest`、`AutomaticTurnRoles`、`RolesWithoutAutomaticTurn`、`ringOrder`、`cleanOrder`、`NoteMainContext` 在全仓 `.go` 只剩注释提及；A03 之后已无生产签名持有（`*agentteam.Runtime` 不再是任何端口/依赖类型） | `go build ./...`、`go build -tags "gui,desktop,production" ./...`、`go vet ./...`、`go test ./application/core/... ./sessionstore/... ./application/contract/... ./seelebridge/... -count=1` 全绿 |
+| A05 | 旧顺序/调度字段**零删除**，逐个标 `read-compat`：`OrderPolicy*`、`TeamSpec.OrderPolicy/OrderRoles`、`TeamView.Schedule`+`TeamSchedule`、`lifecycle.order_policy/order_roles`；`message head.floor` 定位为活动的历史/归属事实（按 A05 要求留在消息/历史链）；定 `TeamSchedule` 兼容期限 = 下一次 GUI/headless API 版本变更 | 各字段写/读面逐个索引：产品 UI 写入口已退场，`role.set_order`（headless）为唯一剩余写入口；`TeamSchedule` 的投影作者随 A04 消失 ⇒ 恒 `nil` | 字段与 JSON 形状逐字未改（`e2e` 的 DTO 字段门禁 `TestRoleSessionDTOFieldsMatchWireContract` 仍要求这些字段名存在）；`go test ./application/contract/dto ./sessionstore/... ./e2e` 绿 |
+| A06 | `session/team/roles.json` 与团队库/员工库 DTO 标 `legacy` 只读兼容，写入数据兼容政策（[`sessionstore/README.md`](../../sessionstore/README.md) 的「旧 Agent Team 数据（legacy）」）；更正模块 README / 测试夹具里"当前生产装配"的声称 | `ReadTeamRegistryWorkspace` / `WriteTeamRegistryWorkspace` / `RemoveTeamRegistryWorkspace` / `EnsureRoleSessionWorkspace` / `ReadMessageFloorWorkspace` / `ReadLifecycleOrderWorkspace` 无生产调用方；`team_global.go` / `team_library.go` / `Read*Global` 已不存在 | 夹具与文档更正后 `go test ./application/core ./sessionstore -count=1` 绿；**未做任何磁盘动作**（无 `.seelex`/`config`/`dist` 触碰） |
+
+> 仍未执行（不在本轮授权内）：A05 的字段清除与 A06 的写面停用（都需版本化迁移 + 旧数据
+> fixture + 迁移期限）；A11/A15 的历史叙述整理（本轮只更正因 A04 直接变成假事实的
+> `docs/arch/teamwork-leader-worker-architecture.md` §9 状态行）。
+
 ## 分类口径
 
 - **过时文案**：只更新状态、替代能力链接和实现时间，不删除历史经过。

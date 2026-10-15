@@ -12,26 +12,11 @@ import (
 // review-team / research-team）。形态目录已于 2026-10-01 删除：一支团队有谁、什么
 // 顺序由数据说（TeamSpec / 团队库条目），不由代码里的模板说。测试需要一份具体
 // 团队时，就地写一份夹具即可。
-
-// goalTeamFixture 是一支 goal 形态的团队：user → main → tl（tl 是 techlead，角色回合
-// 由 leader 派发的 worker 作业驱动；tl 的 ADVISOR 裁决来自 goal 域的终态 gate）。
-func goalTeamFixture() dto.TeamSpec {
-	return dto.TeamSpec{
-		TeamID:        "goal-a2a",
-		TeamKind:      "goal-a2a",
-		OrderPolicy:   dto.OrderPolicyGoalLoop,
-		GatePolicy:    "goal_finish_gate",
-		CompactPolicy: "main_authoritative",
-		Roles: []dto.RoleSpec{
-			{RoleName: "user", RoleKind: dto.RoleKindUser, JoinPolicy: "builtin"},
-			{RoleName: "main", RoleKind: dto.RoleKindMain, JoinPolicy: "builtin"},
-			{RoleName: "tl", RoleKind: dto.RoleKindTechlead, OrderPriority: 1,
-				JoinPolicy: "on_goal_create", PresencePolicy: "online_when_goal_active",
-				ToolsPolicy: dto.ToolPolicyReadonly, SystemPrompt: "技术负责人提示词"},
-		},
-	}
-}
-
+//
+// 状态（A06，2026-10-15）：**装配面（`Factory` / `MaterializeAgentTeam`）已随 J-1a
+// 退场**，因此这里的 `dto.TeamSpec` 夹具（原 `goalTeamFixture`）已无被测对象，随之删除——
+// 留着它会让"本包还有一条活的装配链"看起来成立。下面留下的是**仍在被使用的夹具**：
+// 全局母本端口桩（`librarySessions`）与视图会话桩（`summonService`）。
 
 // ── librarySessions（自 agentteam_library_service_test.go 迁入，2026-10-12 J-1a）──
 //
@@ -43,6 +28,10 @@ func goalTeamFixture() dto.TeamSpec {
 // 母本读写方法（ReadTeamLibrary / WriteTeamLibrary / …）保留：它们与
 // fixture_concurrency_test.go 的字段名清单（`writes`/`library`/`employeeLibrary`/
 // `defaultOrder`/`globalWrites`）是同一份事实——删字段就会让那条机械防线失去对象。
+//
+// 状态（A06）：这些"母本"端口（`dto.TeamLibrary` / `dto.EmployeeLibrary` /
+// `dto.DefaultOrder`）属于**已退场的 Agent Team 用户面**，保留为 legacy 夹具桩：
+// 只用于锁纪律守卫与旧 wire 形状的回归，不代表产品还有母本 CRUD。
 type librarySessions struct {
 	*teamRecordingSessions
 	library         dto.TeamLibrary

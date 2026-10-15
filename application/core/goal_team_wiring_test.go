@@ -11,8 +11,13 @@ import (
 	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
 )
 
-// teamRecordingSessions 在默认 fakeSessions 上补出 A2A 团队存储面，
-// 记录 goal 创建时自动装配团队的调用（顺序策略与注册表）。
+// teamRecordingSessions 在默认 fakeSessions 上补出 A2A 团队存储面（顺序策略 + 注册表），
+// 用来钉住"goal 创建**不**碰会话团队"这条口径。
+//
+// 状态（A06，2026-10-15）：这一面（`dto.TeamRegistry` / `ReadLifecycleOrder` /
+// `WriteTeamRegistry` / `RemoveTeamRegistry`）现在只有 **legacy 只读兼容**地位——
+// 装配方（`AgentTeamFactory`）已随 J-1a 退场，产品不再自动装配或改写团队。夹具保留的
+// 理由是回归点仍然成立：goal 上线不得改写会话里已有的顺序/注册表（哪怕是旧格式）。
 type teamRecordingSessions struct {
 	fakeSessions
 	mu       sync.Mutex
@@ -268,5 +273,8 @@ func (s *teamRecordingSessions) joinSeqsSnapshot() []string {
 // TestNoteTeamWorkPrefixReadsMainSessionContext 已随 A03（2026-10-15）删除：它钉的是
 // "没有环就没有前缀消费者"，而"环 + 前缀"整条接线（teamRuntimeStore /
 // teamRuntimeBySession / noteTeamWorkPrefix / TeamRuntimeFor）已随 J-1a 之后的 A03
-// 清理一并移除，被测对象不再存在。前缀语义权威仍留在
-// `application/core/agentteam/prefix_test.go`（`Runtime.NoteMainContext`）。
+// 清理一并移除，被测对象不再存在。
+//
+// 2026-10-15（A04）起连前缀的**生产者**也不在了：`agentteam.Runtime.NoteMainContext`
+// 与 `prefix_test.go` 随发言环（`runtime.go` / `scheduler.go`）整条删除，因此本仓
+// 不再有任何 team work 前缀实现，"没有前缀消费者"从此是结构事实而不是运行态事实。

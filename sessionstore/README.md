@@ -529,34 +529,36 @@ R2/R4 存储侧接口已落地，应用层 actor / EVENT 生产者尚未接线�
   `schedule.register|cancel|fire`；真实 API 冒烟见
   `gui/role_live_probe_test.go`（`SMOKE_ROLE_LIVE=1`）。
 
-### 员工注册表与全局母本（副本 vs 母本）
+### 员工注册表与全局母本（A06：已退场，legacy 只读兼容）
+
+**退场状态（2026-10-15，A06）**：写入这一面的用户能力（装配 / 员工入职 / 团队库 /
+员工库 / 全局母本 / 角色管理面板）已随 2026-10-12 J-1a 整条退场；本仓源码里
+`team_global.go`、`team_library.go` 与 `Read/WriteTeamLibraryGlobal`、
+`Read/WriteEmployeeLibraryGlobal`、`Read/WriteDefaultOrderGlobal` **都已删除**。
+`sessionstore` 只剩角色注册表文件本身：
 
 - `session/team/roles.json`（`team_registry.go`）：**某个会话**当前在编的员工表
   （`RoleSpec` 清单 + `team_kind` + 顺序策略），整份原子替换、替换成功即发布；
-  `order_policy`/`order_roles` 的运行时权威仍是 `metadata/lifecycle.json`，本文件
-  只做角色配置的持久事实。它是全局母本的**会话副本**。
-- **全局母本**（`team_global.go`，数据根下 `team/`，不随项目/会话分目录）：
-  - `team/library.json`（`team_library.go` 定义形态 `TeamLibraryEntry`）：团队模板库
-    = 角色配置集 + 顺序策略 + gate/compact 策略；
-  - `team/employees.json`：员工库 = 可复用员工的全局名册（`RoleSpec` 池）；
-  - `team/order.json`：默认顺序 = 没有会话/团队显式编排时的默认发言次序。
-  三份都是整份原子替换、按路径写锁、schema 版本、重复键显式报错（
-  `Read/WriteTeamLibraryGlobal`、`Read/WriteEmployeeLibraryGlobal`、
-  `Read/WriteDefaultOrderGlobal`）。
-- **并发口径**：母本的写只有两条路径——库管理动作（直接写全局）与「确认·普及搭配到
-  全局」（会话副本的 {员工, 顺序} → 母本）；会话内的入职/改序只写会话副本（
-  `roles.json` + `lifecycle`）。读也在会话侧按深拷贝副本进行，因此并发会话不争全局
-  写锁。
-- 装配 = 库条目 → `TeamSpec` → `Factory.Materialize`（建角色会话 + 写该会话
-  `roles.json` + 写 `lifecycle` 顺序）；库条目不是成员表，读库路径不落盘。
-- **旧布局只读回退**：老版本团队库在 `project-<hash>/teams/library.json`（项目级）。
-  `ReadTeamLibraryGlobal` 在全局库缺失时按锚定项目只读回退（不搬数据、不删旧文件），
-  回退内容在下一次整份写入里自然并入全局。
-- 读入口 `ReadTeamRegistryWorkspace` / `ReadTeamLibraryGlobal` 都显式传入作用域，
-  禁止回退活跃写作用域；未建库/未配置返回空值而不是错误。
-- 顺序表在库条目里**保序**（不排序、只去空去重），并强制包含 `user` / `main`：
-  顺序表是用户的发言编排，排序会改写用户意图；缺 `user`/`main` 会让装配被
-  `Normalize` 拒绝。
+  `order_policy`/`order_roles` 的运行时权威曾是 `metadata/lifecycle.json`（现在是
+  read-compat 历史字段，见 A05），本文件只做角色配置的持久事实。
+  **读能力保留、当前没有生产调用方**（静态判据与口径见 `team_registry.go` 文件头）。
+
+#### 旧 Agent Team 数据（legacy）的兼容政策
+
+旧数据是用户数据，处理口径如下（本条目**不执行任何磁盘动作**）：
+
+| 项 | 口径 |
+|---|---|
+| 保留 | `Read/Write/RemoveTeamRegistryWorkspace` 与幂等建角色会话原语；旧 `roles.json` 必须能被读回、诊断与迁移（删 reader = 旧数据失去唯一入口，不是清理） |
+| 不做 | 不删旧文件、不迁移、不改格式、不停止写入；任何磁盘清理/迁移必须另行中文预警 + 备份 + 用户确认（根 `MEMORY.md`、`AGENTS.md` §0） |
+| 移除条件 | 确认产品不再读这些形状后，**先停止写入**；DTO/端口按**版本化 API 变更**移除，并配旧 `roles.json` fixture 的冷读用例 |
+| 历史字段 | `lifecycle.order_policy/order_roles`（read-compat，不驱动行为）与 `message head.floor`（活动的历史/归属事实，sequencer 仍是唯一写者）都**不随退场面删除**；字段清除需独立迁移（A05） |
+| 别混 | teammate 执行链的 `ToolsPolicy` / `PermissionGroups` / `Plugins`（`runRoleRound` + WorkerRequest）是**活动**配置，不属于本节的 legacy 数据（A07） |
+
+退场轨迹与逐条判据见
+[`docs/2026-10-15-product-architecture-pre-design/legacy-capability-audit.md`](../docs/2026-10-15-product-architecture-pre-design/legacy-capability-audit.md)
+（A05/A06）、
+[`docs/devlog/2026-10-01-teamwork-legacy-order-fields.md`](../docs/devlog/2026-10-01-teamwork-legacy-order-fields.md)。
 
 ## Review 指南
 
