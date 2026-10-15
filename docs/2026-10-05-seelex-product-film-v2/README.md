@@ -6,6 +6,15 @@ v1 被用户否决的原因是「没有实际的 ui 出现，全是抽象的概�
 > 归属：本包由 `asset_scout` 在里程碑 **m-film** 的一轮工作中整理产出。
 > 只读来源全部落在本仓库内；明细见 `assets/manifest.json` 与 `assets/teamwork/collaboration-dataset.json`。
 
+> **历史画面（实拍于 2026-10-05）**：`06-employee-library.png` / `07-team-tool-calls.png` /
+> `crop-employee-library.png` 里的右栏「员工库 / 团队库 / 员工栏 / 发言调度」面板**已随 2026-10-12 J-1a
+> 整条退场**（`@` 召唤、`AgentTeam*` 桥接与 headless `team.*` 一并删除，详见
+> [`../2026-10-15-product-architecture-pre-design/legacy-capability-audit.md`](../2026-10-15-product-architecture-pre-design/legacy-capability-audit.md) 与
+> [`../2026-10-12-frontend-consistency-and-fixes/README.md`](../2026-10-12-frontend-consistency-and-fixes/README.md)）。
+> 这些截图只作**历史画面**素材，不代表当前产品 UI；现行团队面见
+> [`../arch/teamwork-leader-worker-architecture.md`](../arch/teamwork-leader-worker-architecture.md) 与
+> [`../gui/modules/right-sidebar.md`](../gui/modules/right-sidebar.md)。
+
 ---
 
 ## 1. 来源（两类）

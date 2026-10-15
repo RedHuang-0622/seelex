@@ -16,6 +16,31 @@ import (
 // 两者都先落 tl 角色 draft，再由 sequencer 同步进主文档（role_name=tl、发布
 // floor=tl），这样 ADVISOR 会话视图与主对话轮次都能按"主持该轮次的 agent"渲染。
 // 记录失败不阻断治理（调用方忽略错误）。
+//
+// 状态（A13，2026-10-15 已裁决）：本文件是**恒空的写路径**——具备删除条件，但本轮不删。
+//
+// **唯一目的（已核实）**：把 ADVISOR/TL 每回合的"它看到的原文 + 它的回答"落成 tl 角色
+// draft，再经 sequencer 同步进主文档（`kind=tl_directive` 行、floor=tl）。它不是 goal
+// 决策或审计的载体。
+//
+// **现行可达性**：三条来路（`RecordTLRound` / `RecordMainTurn` / `ArchiveTLHistory`）都在
+// `sessionAgentTeamViewJ1A` 的 `!view.Configured` 守卫处 no-op——退场前"未装配团队"那一支
+// 本来就是这个行为，所以**逐字同解**（守卫用例见
+// `goal_team_recorder_test.go:TestRoleDraftRecordingIsUnreachableAfterJ1A`）。
+//
+// **用户可见的 TL 证据不依赖本文件**（均为独立路径，勿随本文件一起判死）：
+//   - `GoalGovernanceView`（活动栈 / status / `RoundSteps` 评审过程）→ GUI 治理面板；
+//   - goal 的 `tl_directives`（`sessionstore/session_context.go` + headless `goal_tl_directives`）；
+//   - GoalStack / GoalAudit / GoalBoard archive（收口与逃生留痕）。
+//
+// **删除清单（未来做时一次做完，别只删一半）**：
+//   - 本文件与 `goalTLRecorderFor`、`goalCoordinatorDeps.TLRecorderFor`
+//     （调用点 `goal_coordinator.go` 的 `sup.SetRoundRecorder`）、`service_assembler.go` 的注入；
+//   - goal 域端口 `TLRoundRecorder` / `TLHistoryArchiver` 与 `Supervisor.SetRoundRecorder` /
+//     `Supervisor.recorder` 的调用（`goal/techleader.go`、`goal/escape.go` 的归档分支）；
+//   - **保留**：`AppendRoleDraft` / `SyncRoleDraft` / `RoleSnapshot`（B1 保留面，headless
+//     `role.*` 仍在用）、`internal/adapters` 的 role 字段编解码与旧 role draft 读取面
+//     （历史消息/草稿要还能读回）。
 
 type goalTLRecorder struct {
 	service   *Service

@@ -1,5 +1,12 @@
 # Team Work 会话记录的数据流链路（main 与每个 teammate 各自那一份）
 
+> **历史工作包（退场前快照，2026-09-16）**：本文写于旧 Agent Team / 席位环时代，正文里的
+> "goal 创建时自动装配 `goal-a2a` 团队"（`ensureGoalAgentTeam`）**已删除**（2026-10-01 `970122c`），
+> 席位轮转也已于 2026-10-03（阶段三 W3）整条退场。正文按当时事实保留，**不再描述当前实现**；
+> 现行口径见 [`../arch/teamwork-leader-worker-architecture.md`](../arch/teamwork-leader-worker-architecture.md)
+> （里程碑 / Work Item DAG + 提示词驱动的 leader 派活）、[`../../sessionstore/README.md`](../../sessionstore/README.md)
+> （消息文档 / role draft / floor 存储面）与 [`../2026-10-15-product-architecture-pre-design/legacy-capability-audit.md`](../2026-10-15-product-architecture-pre-design/legacy-capability-audit.md)（A11）。
+
 本文讲清一件事：**一次 team work 里，"会话记录"有几种形态、由谁写、由谁只读派生**，
 以及 teammate 自己那份记录为什么从"它入伙那一回合"开始、面板上那些占位是怎么回事。
 

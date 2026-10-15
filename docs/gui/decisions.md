@@ -186,7 +186,9 @@
 
 ## ADR-GUI-021：输入前缀一字符一含义（`#` 换 Plugin、`$` 接管 Skill、`@` 召唤团队）
 
-- 状态：已采用（2026-09-17）
+- 状态：**部分退场（2026-10-12 J-1a）**——`@` 手动召唤团队已整条删除（`@` 让给文件指代），
+  团队装配只剩 goal/teamwork 一条通道；本文其余前缀口径（`/`、`#`、`$`）仍现行。以下是
+  当时（2026-09-17）的决策原样保留。
 - 决策：输入前缀与用例一一对应，不再跨域共用：
   `/` 命令与工具、`#` 切换 Plugin、`$` 召回 Skill、`@` 手动召唤团队。
   权威表在 `application/core/completion.go`（常量）+ `application/core/input_router/router.go`
@@ -225,7 +227,11 @@
 
 ## ADR-GUI-022：会话团队事实用 `team.changed` 通告，面板按需读面靠它作废缓存
 
-- 状态：已采用（2026-09-17）
+- 状态：**已退场（2026-10-12 J-1a）**——Agent Team 面板与 `AgentTeamView` 读面已整条删除，
+  `team.changed` **不再有发布者**（`application/event.EventTeamChanged` 常量、白名单与
+  console 日志分支仍在，属可清理残边）。现行团队面是 teamwork 看板（`snapshot.runtime`
+  的 `TeamworkBoardView`，见 `modules/right-sidebar.md` 与
+  `../arch/teamwork-leader-worker-architecture.md`）。以下是当时的决策原样保留。
 - 背景：Agent Team 面板的数据（成员表/工作顺序/发言调度）**不在**会话快照里——
   GUI 的 status 子页与 TUI 的 Alt+T 都按 RPC `AgentTeamView` 拉取，并把结果按会话键缓存。
   "事实变了"因此没有下行通道：GUI 曾靠 composer 文本以 `@` 开头来猜（面板收起、

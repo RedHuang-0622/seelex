@@ -20,7 +20,7 @@ localStorage 记忆）。历史检索保留在右栏子页之下的「更多」�
 
 | 子页 | 内容 | 数据源 |
 |---|---|---|
-| **状态** | 项目状态表（键值两列：状态/会话/消息/任务/待审批/文件数）+ 概要 + **上下文压缩**（都在同一个折叠区里，压缩块紧跟概要）+ **账户栏**（状态一栏之下）+ **Agent Team**（员工库 / 团队库 / 员工栏 / 发言调度四块表格） | `snapshot.chat/task/conversation`、`runtime`（含 `runtime.accounts` / `runtime.account`） |
+| **状态** | 项目状态表（键值两列：状态/会话/消息/任务/待审批/文件数）+ 概要 + **上下文压缩**（都在同一个折叠区里，压缩块紧跟概要）+ **账户栏**（状态一栏之下）+ **Agent Team（已随 2026-10-12 J-1a 退场，见下）** | `snapshot.chat/task/conversation`、`runtime`（含 `runtime.accounts` / `runtime.account`） |
 | **工作台** | 「目标」面板 + 工作表格入口 + 定时任务面板 | `runtime.goal_skill_active`、`runtime.active_skills`、`task`、`work_table`、`scheduled_tasks` |
 | **资源管理器** | 左：文件预览抽屉（点工作树或工作区更改的文件行打开）；右：三个平级子页 工作树 / 提交记录 / 工作区更改（页签切换、激活态持久化，各自滚动、各自刷新按钮）；提交记录可再下钻两层（提交详情 → 该提交内的文件内容） | `Bridge.WorkspaceFileContent`、`Bridge.WorkspaceTree/FileCount`、`Bridge.WorkspaceGitLog`、`Bridge.WorkspaceChanges`、`Bridge.WorkspaceGitCommitDetail`、`Bridge.WorkspaceGitCommitFileContent` |
 
@@ -77,6 +77,15 @@ provider · model + 不可用标记），点击走 `#account-list` 容器委托�
 重建行级监听）。渲染见 `app.js: renderAccounts`。
 
 ### Agent Team（状态子页）
+
+> **状态（2026-10-12 J-1a：已退场）**：本节描述的 Agent Team 面板（员工库 / 团队库 / 员工栏 /
+> 发言调度）连同它的桥接（`Bridge.AgentTeam*`）、headless `team.*`、前端 `agent-team-view.js`
+> 与 `@<团队>` 手动召唤**已整条删除**（`@` 让给文件指代）。以下是**退场前的 UI 设计正文**，
+> 作为历史保留、**不再描述当前实现**；那个位置的现行团队面是 **teamwork 看板**
+> （`snapshot.runtime` 的 `TeamworkBoardView`，见
+> [`../design/teamwork-dag/README.md`](../design/teamwork-dag/README.md) 与
+> [`../../arch/teamwork-leader-worker-architecture.md`](../../arch/teamwork-leader-worker-architecture.md)）。
+> 退场判据见 [`../../2026-10-15-product-architecture-pre-design/legacy-capability-audit.md`](../../2026-10-15-product-architecture-pre-design/legacy-capability-audit.md)（A11）。
 
 面板拆成四块，**一块只管一份事实**（用户口径：语意弄清楚、别功能耦合），各自条目化
 （`role=table` 的网格表格 `.team-table/.team-table-row`）：

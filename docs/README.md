@@ -75,6 +75,7 @@
 | [`2026-08-11-agent-self-review.md`](devlog/2026-08-11-agent-self-review.md) | Agent 自评：一次批量 fork 评测的复盘（含 CRLF 幻影脏检查根因等真实教训；2026-10-15 由 `docs/self_judgement.md` 迁入） |
 | [`2026-10-15-legacy-capability-retirement-a04-a06.md`](devlog/2026-10-15-legacy-capability-retirement-a04-a06.md) | 遗留能力退场 A04–A06：发言环（`Runtime`/`TurnScheduler`）整条删除清单、旧顺序/调度字段的 read-compat 裁决与 `TeamSchedule` wire 兼容期限、角色注册表 legacy 数据兼容政策 |
 | [`2026-10-15-legacy-capability-retirement-a07-a10.md`](devlog/2026-10-15-legacy-capability-retirement-a07-a10.md) | 遗留能力退场 A07–A10：角色执行/权限保留裁决、提示词与插件读面标 legacy 可选能力、`goal.gov_snapshot` 只读观察面定性、旧 plan `stages` 与 `retire` 审计的冷读 fixture 及"计划阶段退场 ≠ 执行进度打点存活"区分 |
+| [`2026-10-15-legacy-capability-retirement-a11-a15.md`](devlog/2026-10-15-legacy-capability-retirement-a11-a15.md) | 遗留能力退场 A11–A15：历史报告/数据流工作包/产品片截图的"历史基线"标注与 GUI 权威文档纠偏、两个角色会话号派生的不合并裁决 + 跨实现一致性用例、恒空 TL 记录写路径的删除清单、workunit 唯一实现复核、架构文档状态矩阵收口 |
 
 ## 🔬 research/ — 调研报告
 
@@ -108,6 +109,6 @@
 | [`2026-09-25-linux-vm-demo/README.md`](2026-09-25-linux-vm-demo/README.md) | Linux VM 部署演示 + computer use 真机实测方法学（含 `xev`/`xdotool` 独立裁判法）与 Linux GUI 交付手册（2026-10-15 由 `docs/linux-vm-demo/` 迁入） |
 | [`2026-10-13-seelex-project-board/plan.md`](2026-10-13-seelex-project-board/plan.md) | 项目看板设计方案与评审记录（**已实现**，现行契约见 [`arch/seelex-project-board.md`](arch/seelex-project-board.md)） |
 | [`2026-10-15-product-architecture-pre-design/global-review.md`](2026-10-15-product-architecture-pre-design/global-review.md) | 全局审查报告与架构重构前置设计（**待裁决**）：产品方向、冲突登记 F01–F10、契约评估、迁移门禁 M0–M6 与待裁决 D01–D12 |
-| [`2026-10-15-product-architecture-pre-design/legacy-capability-audit.md`](2026-10-15-product-architecture-pre-design/legacy-capability-audit.md) | 旧口径与疑似退场能力审查清单（A01–A15）：用户面退场已证实，字段与恢复语义须分开裁决；**执行进度**：A01–A10 已落地（A03/A04 删代码，A05/A06/A08 标 read-compat 与数据政策，A07/A09/A10 保留面定性 + 冷读 fixture），A11–A15 及字段清除待逐项裁决 |
+| [`2026-10-15-product-architecture-pre-design/legacy-capability-audit.md`](2026-10-15-product-architecture-pre-design/legacy-capability-audit.md) | 旧口径与疑似退场能力审查清单（A01–A15）：用户面退场已证实，字段与恢复语义须分开裁决；**执行进度**：A01–A15 已逐项裁决并落地（A03/A04 删代码，A05/A06/A08 标 read-compat 与数据政策，A07/A09/A10 保留面定性 + 冷读 fixture，A11/A15 历史纠偏，A12/A13/A14 裁决 + 一致性契约）；仍待独立版本化迁移的是 A05 字段清除与 A06 写面停用 |
 | [`2026-10-15-perf-observability-and-multi-binary/README.md`](2026-10-15-perf-observability-and-multi-binary/README.md) | 性能与可观测性基线 + 多二进制架构草案（**拟议，未实施**） |
 | [`2026-10-15-product-direction-doc-review/README.md`](2026-10-15-product-direction-doc-review/README.md) | 产品方向文档梳理（仅文档证据）：Seelex/SeelexDot/SeelexBoss 定位、能力→模块→文件追踪表、冲突与待裁决问题、方向建议与文档治理清单 |

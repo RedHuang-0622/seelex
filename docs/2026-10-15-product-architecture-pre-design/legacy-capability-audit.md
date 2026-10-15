@@ -27,7 +27,7 @@
 | `README.md:598` | default 插件 Skill 列表"含 `$plan` / `$goal` / `$teamwork`" | 更正为实际 11 个 Skill（无 `$plan`，含 `$plan-design`/`$plan-norm` 等） | `plugins/default/**/SKILL.md` 实际目录（11 个） |
 | `README.md:701-705` | 指引运行 `TestRealAPITeamWorkComputerUseLiveProbe` 真机探针 | 标注该探针已随 J-1a 删除，指向现行 `role.*`/`fork_subagents` 离线探针 | 全仓已无该测试文件（`gui/**/*probe*` 零命中） |
 
-> 边界：A02 中其余模块 README（`application/README.md`、`application/core/README.md`、`application/core/README-agentteam.md`、`application/core/agentteam/README.md` 正文、根 README Agent Team 段）**未在本轮改写**——`agentteam/README.md` 顶部已自带 J-1a 退场状态头，属"已正确处理"的样板；其余待按同样"加状态头 + 替代链接"方式处理，不在本轮一并动刀。A03–A10 涉及代码/存储/恢复的项已逐项裁决并落地（见后两节）；A11–A15 仍待逐项裁决。
+> 边界：A02 中其余模块 README（`application/README.md`、`application/core/README.md`、`application/core/README-agentteam.md`、`application/core/agentteam/README.md` 正文、根 README Agent Team 段）**未在本轮改写**——`agentteam/README.md` 顶部已自带 J-1a 退场状态头，属"已正确处理"的样板；其余待按同样"加状态头 + 替代链接"方式处理，不在本轮一并动刀。A03–A15 涉及代码/存储/恢复的项已逐项裁决并落地（见后三节）。
 
 ## 本轮已执行的退场与状态标注（2026-10-15，A03–A06）
 
@@ -61,8 +61,25 @@
 | A10 | 新增两条**冷读 fixture**：`TestTeamworkPlanColdReadsLegacyStagesPayload`（旧 plan 含 `stages`/`order_roles` 照读、只读不改盘、重新落盘不复活 stages）与 `TestTeamworkAuditColdReadsLegacyRetireRow`（旧 `retire` 审计行照读、只追加不重写）；`sessionstore/README.md` 增"计划阶段退场 ≠ 执行进度打点存活"表 | `TeamworkPlan` 无 `Stages` 字段（未知字段忽略）；`TeamworkEventRetire` 只读历史、`team_close` 起不再写入；`NodeSessionRecord.StagesJSON` 由 `workunit.EncodeStages/DecodeStages` 活动编解码 | `go test ./seelebridge/workunit ./sessionstore ./seelebridge/teamwork -count=1` 绿 |
 
 > 仍未执行（不在本轮授权内）：A05 的字段清除与 A06 的写面停用仍需独立版本化迁移；
-> A11–A15 的历史叙述整理与 `KindSeat` 状态矩阵未动（本轮只在 arch §7 加状态更新并显式
-> 指向 A15）。
+> A11–A15 的收口见下节。
+
+## 本轮已执行的收口与保留裁决（2026-10-15，A11–A15）
+
+> 记录口径同上：只记**已执行**的项。本批 **零业务代码删除**——A11/A15 是历史叙述与状态矩阵
+> 纠偏，A12/A13/A14 是裁决 + 证据（A12 另加一条跨实现一致性用例）。完整凭据见
+> [`docs/devlog/2026-10-15-legacy-capability-retirement-a11-a15.md`](../../docs/devlog/2026-10-15-legacy-capability-retirement-a11-a15.md)。
+
+| ID | 已执行动作 | 判据（静态索引） | 验证 |
+|---|---|---|---|
+| A11 | 历史记录**只加标注不改正文**：`docs/test/README.md` 两条 2026-09 报告行标"历史基线 + 现行路径"；`docs/2026-09-16-team-work-record-dataflow/README.md` 标"退场前快照"；`film-v2` 员工库镜头标"历史画面"；**顺带修同类假事实**：`docs/gui/modules/right-sidebar.md` 的 Agent Team 节加 J-1a 退场头、`docs/gui/decisions.md` 的 ADR-GUI-021/022 状态改判 | 审计写的反证"`a2a-agent-team-factory.md` 正文仍写 seat ring"**已不成立**（该文件 seat/ring/席位/环 零命中，且自带 J-1a 退场声明）；新发现 `application/event.EventTeamChanged`（`team.changed`）**无发布者**，只剩常量/白名单/console 日志分支 | 链接检查通过；正文保真 |
+| A12 | **不合并**两个角色会话号派生（空 team / 空白语义不同）；新增跨实现一致性契约用例 | `agentteam.RoleSessionID`（`application/core/agentteam/spec.go:263`，空白 team 兜底 `dto.DefaultTeamID`）vs `teamwork.DefaultRoleSessionID`（`seelebridge/teamwork/teamwork.go:45`，不兜底） | `go test ./seelebridge/teamwork -run TestRoleSessionIDHelpersAgreeOnCanonicalInputs -count=1` 绿（非空规范输入逐字同解，无漂移） |
+| A13 | **保留**恒空写路径并写明删除清单（唯一目的 / 可达性 / 用户可见 TL 证据的独立路径 / 未来删除清单与保留面） | 三条来路都在 `sessionAgentTeamViewJ1A` 的 `!view.Configured` 守卫处 no-op（与退场前逐字同解）；TL 证据另走 `GoalGovernanceView.RoundSteps` / goal `tl_directives` / GoalStack·Audit·Board archive | `go test ./application/core -run 'RoleDraft\|TLRound' -count=1` 绿；守卫用例 `TestRoleDraftRecordingIsUnreachableAfterJ1A` 仍在 |
+| A14 | **维持唯一实现**（复核，无改动） | `EncodeStages` / `DecodeStages` / `ClipPreview` / `ProgressOf` 全仓各只有一处定义（`seelebridge/workunit/progress.go`） | `go test ./seelebridge/workunit ./seelebridge -run 'Workunit\|Recovery\|Progress\|Stage' -count=1` 绿；层间差异由 `contract_test.go:TestFinishPolicyIsTheOnlyDifference`、`progress_test.go:TestUnitReaderCannotBranchOnKind`、`workunit_chain_test.go:TestChainFinishPolicyIsTheOnlyLayerDifference` 钉住（审计里写的 `workunit_single_path_test.go` 文件名不存在） |
+| A15 | 只修**状态矩阵与现行架构段落**：`docs/arch/teamwork-leader-worker-architecture.md` 的 D4 行、架构图注、§7 状态更新、§9 死代码表逐行按事后事实收口、§11 的 M1/M2/M4 行与结论更正；旧 devlog 保留 | `KindSeat` / `SeatExecutor` / `SetSeatRoundRunner` / `RunSeat` / `SeatJobs` 在 `.go` 里只剩注释提及；`goal.gov_next` / `goal.gov_break` 无路由（按未知方法被拒） | 行文改为"已退场/被替代 + 替代链接"；`go test ./gui -run TestHeadlessGoalChainReplication -count=1` 绿 |
+
+> 仍未执行（不在本轮授权内）：A05 的字段清除与 A06 的写面停用（需版本化迁移 + 旧数据 fixture）；
+> A13 的删除清单落地（需先确认用户是否还要"每回合原文逐字进主对话"这一层）；
+> `team.changed` 生产者消失后的残边清理。
 
 ## 分类口径
 
