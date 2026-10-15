@@ -33,6 +33,11 @@ const runtimeLimitsOverlayFile = "runtime-limits.json"
 type runtimeLimitsOverlay struct {
 	// SessionReleaseWindow 是界面上改过的「会话驻留窗口」（见 seelexctx）。
 	SessionReleaseWindow int `json:"session_release_window,omitempty"`
+	// AccountWindows 是界面上按账号设过的上下文窗口（token；键 = 账号名）。
+	// 空表 = 没有任何账号被单独设过，全部走 config/seelex.yaml 的
+	// limits.context_window。优先级：账号级 > 全局 > 账号档（见 seelebridge 的
+	// Runtime.ContextWindowFor）。
+	AccountWindows map[string]int `json:"account_windows,omitempty"`
 }
 
 // runtimeLimitsPath 是覆盖层的落盘路径：数据根，与 session-storage.json 同级。
@@ -85,6 +90,33 @@ func writeRuntimeLimitsOverlay(path string, window int) error {
 	}
 	current := readRuntimeLimitsOverlay(path)
 	current.SessionReleaseWindow = window
+	return writeRuntimeLimitsOverlayFile(path, current)
+}
+
+// writeRuntimeLimitsOverlayAccountWindow 把"某个账号的上下文窗口"写进覆盖层：
+// 同样是**读-改-写**（别的账号的格子与同一份文件里的其它参数都不能被这次写入抹掉），
+// window <= 0 = 清掉这个账号的覆盖（键从这里消失，回落到 seelex.yaml 的全局值）。
+func writeRuntimeLimitsOverlayAccountWindow(path, name string, window int) error {
+	if strings.TrimSpace(path) == "" {
+		return errors.New("runtime-limits: 落盘路径为空")
+	}
+	current := readRuntimeLimitsOverlay(path)
+	if window > 0 {
+		if current.AccountWindows == nil {
+			current.AccountWindows = map[string]int{}
+		}
+		current.AccountWindows[name] = window
+	} else if current.AccountWindows != nil {
+		delete(current.AccountWindows, name)
+		if len(current.AccountWindows) == 0 {
+			current.AccountWindows = nil
+		}
+	}
+	return writeRuntimeLimitsOverlayFile(path, current)
+}
+
+// writeRuntimeLimitsOverlayFile 把一份覆盖层落到盘上（临时文件 + rename，见下）。
+func writeRuntimeLimitsOverlayFile(path string, current runtimeLimitsOverlay) error {
 	payload, err := json.MarshalIndent(current, "", "  ")
 	if err != nil {
 		return err
@@ -111,6 +143,16 @@ type runtimeLimitsStoreFile struct{ path string }
 
 func (store runtimeLimitsStoreFile) SaveSessionReleaseWindow(window int) error {
 	if err := writeRuntimeLimitsOverlay(store.path, window); err != nil {
+		return fmt.Errorf("%s: %w", runtimeLimitsOverlayFile, err)
+	}
+	return nil
+}
+
+// SaveAccountWindow 实现 contract.AccountWindowStore：把界面上按账号设的窗口写进
+// 数据根 runtime-limits.json 的 account_windows 表，下次启动由
+// runtimeLimitsOverlay.AccountWindows 注入 RuntimeConfig 叠回来。
+func (store runtimeLimitsStoreFile) SaveAccountWindow(name string, window int) error {
+	if err := writeRuntimeLimitsOverlayAccountWindow(store.path, name, window); err != nil {
 		return fmt.Errorf("%s: %w", runtimeLimitsOverlayFile, err)
 	}
 	return nil

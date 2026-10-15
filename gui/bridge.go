@@ -15,6 +15,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application/model"
 	"github.com/RedHuang-0622/seelex/gui/terminal"
 	"github.com/RedHuang-0622/seelex/seelebridge"
+	"github.com/RedHuang-0622/seelex/seelexctx"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
@@ -48,6 +49,10 @@ type Application interface {
 	// 请求值生效），读路径供弹窗打开时读一次。
 	SetSessionReleaseWindow(context.Context, int) (int, error)
 	SessionReleaseWindow() int
+	// SetAccountWindow 是「每账号上下文窗口」的可调面（设置 → 账号的挡位/自定义值）：
+	// 先落盘（宿主自己的覆盖层）再改运行时，返回**真正生效**的窗口；window <= 0 =
+	// 清掉该账号的覆盖（回落 config/seelex.yaml 的 limits.context_window）。
+	SetAccountWindow(context.Context, string, int) (int, error)
 	SwitchPlugin(context.Context, string) error
 	LoadMoreHistory(int) error
 	// LoadLatestHistory 把可见会话拉回最新一页（历史浏览后的「回到最新」；
@@ -863,6 +868,21 @@ func (bridge *Bridge) SetSessionReleaseWindow(window int) (int, error) {
 // SetSessionReleaseWindow 同一份权威，前端不另存一份"我以为的值"）。
 func (bridge *Bridge) SessionReleaseWindow() int {
 	return bridge.app.SessionReleaseWindow()
+}
+
+// SetAccountWindow 改一个账号的上下文窗口（设置 → 账号）。window <= 0 = 清掉该账号
+// 的覆盖（回落到 config/seelex.yaml 的 limits.context_window）。
+//
+// 返回值是**真正生效**的窗口：前端采纳它，不假定请求值生效（与 SetSessionReleaseWindow
+// 同一条口径——后端可能归一化/拒绝，界面显示的必须是生效的那个）。
+func (bridge *Bridge) SetAccountWindow(name string, window int) (int, error) {
+	return bridge.app.SetAccountWindow(bridge.requestContext(), name, window)
+}
+
+// AccountWindowPresets 返回界面挡位（token，升序）——**后端下发**，前端不自己写死
+// 一份（与权限档位、effort 档位同一条口径：档位表只有一处，改它不用改两处）。
+func (bridge *Bridge) AccountWindowPresets() []int {
+	return seelexctx.AccountContextWindowPresets()
 }
 
 func (bridge *Bridge) SwitchPlugin(name string) error {

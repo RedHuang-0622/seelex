@@ -491,6 +491,10 @@ type Dependencies struct {
 	// （写盘失败 ⇒ 整步不改，重启后的值与界面上的值始终一致）；nil = 界面上改的值
 	// 只在本次运行有效。
 	ReleaseWindowStore ReleaseWindowStore
+	// AccountWindowStore 是「每账号上下文窗口」的落盘口（界面「设置 → 账号」的挡位/
+	// 自定义值）。纪律与 ReleaseWindowStore 相同：先写盘再改内存，写盘失败整步不改；
+	// nil = 界面上改的值只在本次运行有效。
+	AccountWindowStore AccountWindowStore
 }
 
 // ReleaseWindowStore 把"界面上改过的会话驻留窗口"落到宿主自己的存储里。
@@ -503,6 +507,27 @@ type Dependencies struct {
 // config/seelex.yaml 的 limits 段之上。
 type ReleaseWindowStore interface {
 	SaveSessionReleaseWindow(window int) error
+}
+
+// AccountWindowStore 把"界面上按账号设的上下文窗口"落到宿主自己的存储里（实现方
+// main.go 写数据根 runtime-limits.json 的 account_windows 表，与其他界面改动同层）。
+//
+// window <= 0 表示**清掉这个账号的覆盖**（回落到 seelex.yaml 的全局
+// limits.context_window），不是"设成 0"。
+type AccountWindowStore interface {
+	SaveAccountWindow(name string, window int) error
+}
+
+// AccountWindowPort 是「每账号上下文窗口」的**窄可选**能力面：宿主（seelebridge
+// Runtime）装了它，application 才能把界面设的值立刻推给运行时；没装的 fake/harness
+// 不会因此长出一堆空方法——那种宿主上调这个能力会得到一句明确错误，而不是静默无效。
+//
+// 判定与取值都在运行时里（优先级：账号级 > seelex.yaml 全局 > 账号档），这里只透传。
+type AccountWindowPort interface {
+	// SetAccountWindow 改一个账号的窗口覆盖（window <= 0 = 清掉这一格）。
+	SetAccountWindow(name string, window int)
+	// AccountWindowFor 返回该账号生效的窗口（token）。
+	AccountWindowFor(name string) int
 }
 
 // EmployeePermissionPort 把"装配团队时写入的员工角色"翻译成**员工权限分配**。

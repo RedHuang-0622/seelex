@@ -41,6 +41,7 @@ import { renderHistorySearchResults } from "./history-search.js";
 import { createThemeController, loadThemeManifest } from "./theme.js";
 import { resolveWindowTreatment } from "./window-treatment.js";
 import { normalizeReleaseWindow, releaseWindowLabel, releaseWindowOptions } from "./release-window.js";
+import { ACCOUNT_WINDOW_CUSTOM, accountWindowLabel, accountWindowOptions, normalizeAccountWindowInput } from "./account-window.js";
 import {
   bindHorizontalDragDelegate,
   bindHorizontalWheelDelegate,
@@ -119,7 +120,7 @@ const elements = Object.fromEntries([
   "right-tabs", "goal-section", "goal-badge", "goal-view", "goal-detail-modal", "goal-detail-close", "goal-detail-title", "goal-detail-view", "team-board-section", "team-board-badge", "team-board-view", "code-panes", "code-pane-tabs", "code-pane-worktree", "code-pane-gitlog", "git-log-view", "git-log-count", "code-pane-changes", "changes-view", "changes-count",
   "file-preview-pane", "file-preview-view", "file-preview-tabs", "file-preview-hide-panes", "file-preview-close", "file-preview-divider", "file-preview-collapse", "file-preview-rail",
   "file-save-modal", "file-save-title", "file-save-message", "file-save-keep", "file-save-discard", "file-save-cancel",
-  "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "terminal-scrollback", "release-window", "release-window-status", "theme-picker", "mode-picker", "inline-suggestions",
+  "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "terminal-scrollback", "release-window", "release-window-status", "account-windows", "account-windows-status", "theme-picker", "mode-picker", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
   // 文件引用（J-1b）：草稿 chip 条 + `+` 加号的候选面板。
   "composer-file-refs", "file-button", "composer-file-picker", "composer-file-close", "composer-file-search", "composer-file-results",
@@ -3411,6 +3412,8 @@ async function openSettings() {
   // 会话驻留窗口：**进程级**读数，另拉一次（不进快照）；读不到只说明一句，不拖累
   // 下面那段存储读取。
   await syncReleaseWindowReading();
+  // 每账号上下文窗口：账号与生效值来自最近一份快照（后端已按优先级算好），挡位表另拉。
+  await syncAccountWindowReading();
   try {
     const config = await invoke("SessionStorageConfig");
     elements["storage-backend"].value = config.backend || "json";
@@ -5255,6 +5258,128 @@ elements["release-window"]?.addEventListener("change", async event => {
 });
 
 renderReleaseWindowOptions();
+
+// ── 每账号上下文窗口（设置 → 账号）───────────────────────────────────
+// 权威在后端三跳：账号级覆盖（这里设的，落数据根 runtime-limits.json）>
+// config/seelex.yaml 的 limits.context_window > 账号档自报值——判定归
+// seelebridge 的 ContextWindowFor 一处。所以这里：
+//   · 账号列表与**当前生效值**都来自快照的 runtime.accounts（后端已把生效窗口随账号
+//     下发，前端不自己算优先级）；
+//   · 挡位表来自 invoke("AccountWindowPresets")（源头 seelexctx/window.go）；
+//   · 提交走 invoke("SetAccountWindow", name, value) 并**采纳后端返回的生效值**。
+//
+// accountWindowsCommitted 是"最后一份权威读数"（账号名 → 生效窗口）：提交失败时把
+// 控件回滚到它（后端写盘失败时整步不改内存，所以回滚是诚实的）。
+let accountWindowsCommitted = new Map();
+let accountWindowPresets = [];
+
+function setAccountWindowsStatus(text) {
+  const status = elements["account-windows-status"];
+  if (status) status.textContent = text || "";
+}
+
+// renderAccountWindowRows 一行一个账号：名字（供应商/模型）+ 挡位选择器（+ 自定义输入框）。
+function renderAccountWindowRows() {
+  const host = elements["account-windows"];
+  if (!host) return;
+  const accounts = lastAccountsRuntime?.accounts || [];
+  if (!accounts.length) {
+    host.innerHTML = '<span class="muted list-empty">读不到账号列表（快照未就绪）</span>';
+    return;
+  }
+  host.innerHTML = "";
+  for (const account of accounts) {
+    const effective = Number(account.context_window) > 0 ? Number(account.context_window) : null;
+    accountWindowsCommitted.set(account.name, effective);
+
+    const row = document.createElement("div");
+    row.className = "settings-field account-window-row";
+    row.dataset.account = account.name;
+
+    const name = document.createElement("span");
+    name.className = "account-window-name";
+    name.textContent = `${account.name}（${account.provider || "未标注供应商"} / ${account.model || "未标注模型"}）`;
+
+    const select = document.createElement("select");
+    select.className = "account-window-select";
+    for (const option of accountWindowOptions(accountWindowPresets)) {
+      const node = document.createElement("option");
+      node.value = option.value;
+      node.textContent = option.label;
+      select.append(node);
+    }
+    const isPreset = effective !== null && accountWindowPresets.includes(effective);
+    select.value = isPreset ? String(effective) : ACCOUNT_WINDOW_CUSTOM;
+
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = "1";
+    input.step = "1000";
+    input.className = "account-window-input";
+    input.placeholder = "自定义 token 数";
+    input.value = !isPreset && effective !== null ? String(effective) : "";
+    input.classList.toggle("hidden", select.value !== ACCOUNT_WINDOW_CUSTOM);
+
+    const reading = document.createElement("span");
+    reading.className = "muted";
+    reading.textContent = `当前 ${accountWindowLabel(effective ?? 0)}`;
+
+    row.append(name, select, input, reading);
+    host.append(row);
+  }
+  setAccountWindowsStatus("");
+}
+
+// syncAccountWindowReading 打开弹窗时拉一次挡位表并重画（账号读数来自最近一份快照）。
+async function syncAccountWindowReading() {
+  try {
+    const presets = await invoke("AccountWindowPresets");
+    accountWindowPresets = Array.isArray(presets) ? presets.map(preset => Number(preset)) : [];
+  } catch (error) {
+    accountWindowPresets = [];
+    setAccountWindowsStatus("读不到挡位表（桥未就绪）；仍可用「自定义」填 token 数。");
+  }
+  renderAccountWindowRows();
+}
+
+// submitAccountWindow 提交一个账号的窗口：采纳后端生效值；失败回滚 + 露出来。
+async function submitAccountWindow(name, window) {
+  try {
+    const applied = Number(await invoke("SetAccountWindow", name, window));
+    accountWindowsCommitted.set(name, applied > 0 ? applied : null);
+    renderAccountWindowRows();
+  } catch (error) {
+    renderAccountWindowRows(); // 回滚到最后一份权威读数（后端失败时整步不改）
+    setAccountWindowsStatus(`改 ${name} 的窗口失败：${error}`);
+    showToast(error);
+  }
+}
+
+elements["account-windows"]?.addEventListener("change", async event => {
+  const row = event.target.closest(".account-window-row");
+  const name = row?.dataset.account;
+  if (!name) return;
+  if (event.target.classList.contains("account-window-select")) {
+    const input = row.querySelector(".account-window-input");
+    const custom = event.target.value === ACCOUNT_WINDOW_CUSTOM;
+    input?.classList.toggle("hidden", !custom);
+    if (custom) {
+      input?.focus();
+      return; // 等自定义输入框确认后再提交
+    }
+    await submitAccountWindow(name, normalizeAccountWindowInput(event.target.value));
+    return;
+  }
+  if (event.target.classList.contains("account-window-input")) {
+    const window = normalizeAccountWindowInput(event.target.value);
+    if (window === null) {
+      setAccountWindowsStatus("自定义窗口要填正整数（token 数，例如 500000）。");
+      renderAccountWindowRows();
+      return;
+    }
+    await submitAccountWindow(name, window);
+  }
+});
 
 document.addEventListener("keydown", event => {
   if (!(event.ctrlKey || event.metaKey) || event.altKey) return;

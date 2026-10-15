@@ -143,6 +143,19 @@ func (m *Manager) Limits() config.AccountLimits {
 	return config.AccountLimits{ContextWindow: config.DefaultContextWindow, MaxOutputTokens: config.DefaultMaxOutputTokens}
 }
 
+// LimitsFor 返回**指定账号**在账号档里自报的限额；未知账号回退默认值（与 Limits
+// 同一口径，只是不跟"当前选中"走）。界面按账号显示窗口时需要它：逐账号读各自的
+// 自报值，而不是拿当前账号的值顶替。
+func (m *Manager) LimitsFor(name string) config.AccountLimits {
+	m.mu.RLock()
+	limits, ok := m.limits[name]
+	m.mu.RUnlock()
+	if ok {
+		return limits
+	}
+	return config.AccountLimits{ContextWindow: config.DefaultContextWindow, MaxOutputTokens: config.DefaultMaxOutputTokens}
+}
+
 // SelectorDeps 是 Selector 需要的跨域闭包（plan 分支绑定读取）。
 type SelectorDeps struct {
 	BranchBinding func() dto.PlanBranchBinding

@@ -89,9 +89,23 @@ type Limits struct {
 	GrepMaxResults       int `yaml:"grep_max_results"`        // grep 默认结果数
 	SessionNameRunes     int `yaml:"session_name_runes"`      // 会话名截断
 	PreflightRetry       int `yaml:"preflight_retry"`         // preflight 重试次数
-	OutputReserveTokens  int `yaml:"output_reserve_tokens"`   // provider 输出预留 token
+	OutputReserveTokens  int `yaml:"output_reserve_tokens"`   // provider 输出预留 token；**运行期压缩预算不用它**——那里取账号档 max_tokens（Runtime.MaxOutputTokens()），本键只在 DefaultContextBudget（兜底）与 ValidateRetainWindow（启动期校验）消费
+	// ContextWindow 覆盖账号档的上下文窗口（token；0 = 未配置 → 用账号档
+	// config/accounts.yaml 的 defaults.context_window / 账号条目覆盖值）。
+	//
+	// 为什么放在这里：窗口是**预算的基数**（预算 = 窗口 − 账号档 max_tokens −
+	// 窗口÷安全除数），而账号档是本地凭据文件——不进版本库、也不参与
+	// scripts/sync-bootseed-defaults.ps1；配在本段才随出厂档分发、可评审。消费点是
+	// seelebridge Runtime.ContextWindow()（判据与保留窗口都读它）。
+	// 语义边界（两条都别读错）：
+	//   - 覆盖是**全局**的：所有账号（含子代理角色）一刀切，账号档里更小的窗口会被
+	//     盖掉；只有当"账号档填小了、模型其实更大"时才该用它。
+	//   - 它只改**判据用的**窗口，provider 侧仍有自己的硬限制：填得比模型真实窗口大，
+	//     请求会被 provider 拒（超窗口）。
+	ContextWindow int `yaml:"context_window"`
 	// ── 上下文压缩预算比例（0 = 用默认比例；见 task_context.newContextBudget）──
-	// 预算 = window − output_reserve_tokens − window/context_safety_reserve_divisor；
+	// 预算 = 账号档 context_window − 账号档 max_tokens − window/context_safety_reserve_divisor；
+	// （兜底路径 DefaultContextBudget 才用 output_reserve_tokens 当输出预留的下限。）
 	// 下面各个百分比都以此为基数。默认 8/95/98/80/50（2026-09-26 起压缩阈值上调：
 	// 旧 75/90 的保留窗口落点贴着软线，长会话会一轮一压；target 80 同时是保留区
 	// 硬上限，soft − target 是每次压缩留给下一轮的余量）。
@@ -102,7 +116,7 @@ type Limits struct {
 	// 每轮付这份代价）——装配层自动压缩的唯一阈值改由 context_hard_percent 给出，
 	// 报告面的 soft 与 hard 同源。键与下面的 soft<hard 校验保留只为兼容既有配置，
 	// 下一版一并摘除。
-	ContextHardPercent       int `yaml:"context_hard_percent"`        // 硬阈值线（占预算 %，默认 98）
+	ContextHardPercent       int `yaml:"context_hard_percent"`        // 硬阈值线（占预算 %，代码默认 98；出厂配置 config/seelex.yaml 2026-10-15 由 98 调到 90）。软线必须 < 它，否则 LoadLimits 报错
 	ContextTargetPercent     int `yaml:"context_target_percent"`      // 压缩后目标（占预算 %，默认 80）；同时是压缩后保留区/请求落点的硬上限（RetainDecision.TargetTokens），必须低于 soft 才有余量
 	ContextSingleItemPercent int `yaml:"context_single_item_percent"` // 单条输入外置阈值（占预算 %，默认 50）
 	// ── 保留区下限与帧摘要传递上限（《压缩四区模型》边界判定 / 《待落地》1、2）──
@@ -124,7 +138,7 @@ type Limits struct {
 	TodoMaxItems            int `yaml:"todo_max_items"`        // todolist 清单项上限
 	WorkTableRows           int `yaml:"work_table_rows"`       // 工作表格（work table）最大行数
 	WalkTimeoutSec          int `yaml:"walk_timeout"`          // glob/grep 目录遍历超时（秒）
-	MaxToolResultChars      int `yaml:"max_tool_result_chars"` // 工具结果最大字符数（0 → 默认；超大结果归档为 result_ref）
+	MaxToolResultChars      int `yaml:"max_tool_result_chars"` // 工具结果最大**字符数**（0 → 默认；超大结果归档为 result_ref）。与上面 context_* 那组"占预算 %"的 token 判据不是一套数：它只管"单条结果太长"，与上下文窗口/压缩阈值互不影响。存储侧另有 session_storage.big_tool_result_*（当前无生产调用方，见 sessionstore/storage_settings.go）
 	// SnapshotToolOutputChars 是**可见会话快照**的单条工具输出上限（0 →
 	// 默认 8000）。超过该值的输出只把前 N 字符的预览放进快照会话
 	// （message.content / tool.result），完整内容归档为 result_ref，前端
@@ -324,19 +338,19 @@ func DefaultLimits() Limits {
 		MaxReplansPerPlanChain: 2,
 		// 会话释放面（2026-10-14）：统一窗口默认 1 = 受保护集之外只保留上一个。
 		// 分层覆盖键不在这里补默认——0 的语义是"交给统一窗口管辖"。
-		SessionReleaseWindow:   1,
-		HistoryWindow:          200,
-		PlanNodeEvents:         30,
-		PlanNodeMaxLoops:       384,
-		EvidenceChars:          800,
-		ReplanEvidenceBytes:    12 * 1024,
-		InputLoopLimit:         9999,
-		ReferencePageSize:      4000,
-		MaxReferencePageSize:   12000,
-		GrepMaxResults:         20,
-		SessionNameRunes:       16,
-		PreflightRetry:         2,
-		OutputReserveTokens:    512,
+		SessionReleaseWindow: 1,
+		HistoryWindow:        200,
+		PlanNodeEvents:       30,
+		PlanNodeMaxLoops:     384,
+		EvidenceChars:        800,
+		ReplanEvidenceBytes:  12 * 1024,
+		InputLoopLimit:       9999,
+		ReferencePageSize:    4000,
+		MaxReferencePageSize: 12000,
+		GrepMaxResults:       20,
+		SessionNameRunes:     16,
+		PreflightRetry:       2,
+		OutputReserveTokens:  512,
 		// 压缩预算比例：窗口/8、95%、98%、80%、50%。soft/target 的差即每次
 		// 压缩留给下一轮的余量；target 同时是保留区硬上限（见 RetainDecision）。
 		ContextSafetyReserveDivisor: 8,
@@ -593,6 +607,7 @@ func LoadLimits(path string) (Limits, error) {
 		check.EvidenceChars < 0 || check.ReplanEvidenceBytes < 0 || check.InputLoopLimit < 0 ||
 		check.ReferencePageSize < 0 || check.MaxReferencePageSize < 0 || check.GrepMaxResults < 0 ||
 		check.SessionNameRunes < 0 || check.PreflightRetry < 0 || check.OutputReserveTokens < 0 ||
+		check.ContextWindow < 0 ||
 		check.ToolTokenOverhead < 0 || check.ContextMaxUnits < 0 || check.MessageShardSize < 0 || check.SummaryChars < 0 || check.TodoMaxItems < 0 || check.WorkTableRows < 0 || check.WalkTimeoutSec < 0 ||
 		check.MaxToolResultChars < 0 || check.SnapshotToolOutputChars < 0 || check.DockerStartTimeoutSec < 0 ||
 		check.ForkTimeoutSec < 0 || check.ContextRetainFloorPercent < 0 || check.ContextFrameCarryTokens < 0 ||

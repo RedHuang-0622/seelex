@@ -763,6 +763,10 @@ type AccountInfo struct {
 	Provider string `json:"provider"`
 	Model    string `json:"model"`
 	Disabled bool   `json:"disabled"`
+	// ContextWindow 是该账号**生效**的上下文窗口（token）：账号级覆盖（界面「设置 →
+	// 账号」设过的）> seelex.yaml 的 limits.context_window > 账号档自报值。界面按它
+	// 显示当前挡位；改值走 Bridge 的 SetAccountWindow，不在这里回写。
+	ContextWindow int `json:"context_window,omitempty"`
 }
 
 // WorkspaceInfo is the minimal workspace summary carried by application state.

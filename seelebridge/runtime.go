@@ -67,6 +67,11 @@ type RuntimeConfig struct {
 	SubagentLiveWindow int                    // 实时回放窗口上限（见 runtime_live.go 的读法）
 	WindowConfig       seelexctx.WindowConfig // 滑动窗口配置段（seele.yaml；零值 = 默认，plan.md §3.7.3）
 	Limits             seelexctx.Limits       // 运行时上限（seele.yaml limits 段；零值 = 默认）
+	// AccountWindows 是**按账号**覆盖的上下文窗口（token；键 = 账号名）。它来自宿主
+	// 的界面覆盖层（数据根 runtime-limits.json，见 runtime_limits_overlay.go）——界面
+	// 「设置 → 账号」改的就是它。优先级：账号级覆盖 > Limits.ContextWindow（seelex.yaml
+	// 的全局值）> 账号档自报值；空/0 = 该账号没被单独设过。
+	AccountWindows map[string]int
 }
 type Runtime struct {
 	registry  *seeltools.RegistryState
@@ -194,6 +199,8 @@ type Runtime struct {
 	approvalTimeout     time.Duration
 	heartbeatInterval   time.Duration
 	limits              seelexctx.Limits // seele.yaml limits 段（含默认；seelebridge 消费点读取）
+	accountWindowsMu    sync.RWMutex     // 每账号上下文窗口覆盖（界面设置面；值拷贝读写）
+	accountWindows      map[string]int
 	scopedToolsReady    bool
 	scopedTools         *seeltools.Router // 后台命令执行域（会话销毁即杀的入口）
 	lifecycle           []func()          // 生命周期登记（NewRuntime 装配序；Shutdown 逆序）
@@ -363,6 +370,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		approvalTimeout:     approvalTimeout,
 		heartbeatInterval:   heartbeatInterval,
 		limits:              cfg.Limits.WithDefaults(),
+		accountWindows:      copyAccountWindows(cfg.AccountWindows),
 		plugins:             plugin.NewManager(),
 		permission: &seeltools.PermissionGate{
 			// 波 4 approval 会话级归属：权限审批随调度 ctx 归属发起会话。
@@ -769,9 +777,23 @@ func (r *Runtime) CurrentSession() *session.Session {
 	return r.Session()
 }
 
-// ContextWindow returns the total context available to the selected account.
-// It is distinct from MaxOutputTokens, which caps a single response.
-func (r *Runtime) ContextWindow() int { return r.currentAccountLimits().ContextWindow }
+// ContextWindow returns the effective context window of the selected account
+// (per-account overlay > limits.context_window > the account file's value; see
+// ContextWindowFor). Overrides only affect the window used for budget judgement —
+// the provider still enforces its own hard limit. It is distinct from
+// MaxOutputTokens, which caps a single response.
+func (r *Runtime) ContextWindow() int {
+	if r == nil {
+		return 0
+	}
+	if name := r.accounts.Selected(); name != "" {
+		return r.ContextWindowFor(name)
+	}
+	if r.limits.ContextWindow > 0 {
+		return r.limits.ContextWindow
+	}
+	return r.currentAccountLimits().ContextWindow
+}
 
 // MaxOutputTokens returns the configured maximum output for one model call.
 func (r *Runtime) MaxOutputTokens() int { return r.currentAccountLimits().MaxOutputTokens }

@@ -63,6 +63,27 @@ func (port RuntimePort) SessionContextStoreFor(sessionID string) *sessionstore.S
 	return port.Runtime.SessionContextStoreFor(sessionID)
 }
 
+// SetAccountWindow 实现 contract.AccountWindowPort：界面「设置 → 账号」设的窗口经这里
+// 落到运行时上，下一次装配/判据立刻按新值算（判定的三跳在 seelebridge 的
+// ContextWindowFor 一处）。漏了它 = 界面说改了窗口、预算照旧算旧窗口。
+func (port RuntimePort) SetAccountWindow(name string, window int) {
+	if port.Runtime == nil {
+		return
+	}
+	port.Runtime.SetAccountWindow(name, window)
+}
+
+// AccountWindowFor 返回该账号**生效**的窗口（token；账号级 > 全局 > 账号档）。
+func (port RuntimePort) AccountWindowFor(name string) int {
+	if port.Runtime == nil {
+		return 0
+	}
+	return port.Runtime.ContextWindowFor(name)
+}
+
+// AccountWindowPort 的转发面在这里成文（编译期钉住：漏一个方法这行就红）。
+var _ contract.AccountWindowPort = RuntimePort{}
+
 // TeammateSessionLive 实现 contract.TeammateSessionProjection：**当前 teammate 会话**
 // 的实时只读投影（这件事的会话此刻在说什么）。漏了它，"查看这件事的会话"就只能从会话库
 // 读——而 teammate 的一轮活是进程内执行面、正文不落盘，读出来的是主会话的历史（用户报

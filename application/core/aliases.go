@@ -25,6 +25,8 @@ type (
 	SessionPort            = contract.SessionPort
 	WorkspacePort          = contract.WorkspacePort
 	ReleaseWindowStore     = contract.ReleaseWindowStore
+	AccountWindowStore     = contract.AccountWindowStore
+	AccountWindowPort      = contract.AccountWindowPort
 	WorkspaceInfo          = model.WorkspaceInfo
 	Snapshot               = model.Snapshot
 	SessionSnapshot        = model.SessionSnapshot

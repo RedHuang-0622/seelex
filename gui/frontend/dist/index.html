@@ -361,6 +361,12 @@
         </label>
         <div id="release-window-status" class="muted"></div>
       </div>
+      <div class="settings-section">
+        <div class="section-title">账号上下文窗口</div>
+        <p class="settings-note">每个账号各自的上下文窗口（token）：它是压缩预算的基数（预算 = 窗口 − 账号档 max_tokens − 窗口 ÷ 安全除数），而"主账号大、便宜的子代理账号小"是常态。挡位 200k / 400k / 600k / 1M，或选「自定义」自己填（纯数字）。没单独设过的账号用 <code>config/seelex.yaml</code> 的 <code>limits.context_window</code>；改后立刻生效，并记到数据根，重启后照旧。</p>
+        <div id="account-windows"></div>
+        <div id="account-windows-status" class="muted"></div>
+      </div>
       <div class="settings-actions"><button id="storage-test" type="button" class="secondary">测试连接</button><button id="storage-save" type="button" class="primary">保存并切换</button></div>
       <div id="storage-status" class="muted"></div>
     </div>

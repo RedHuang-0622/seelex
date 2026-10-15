@@ -56,6 +56,9 @@ var narrowPortForwarded = map[string]string{
 	// core.TeamworkPlanSource（project_board.go，包内命名接口）：项目看板按会话取
 	// teamwork 计划 + 运行态。漏了它 = 那两格恒空（M3 装配接不上）。
 	"TeamworkPlanFor": "TeamworkPlanFor",
+	// contract.AccountWindowPort（service_account_window.go，设置 → 账号的窗口）。
+	// 漏了它 = 界面上设的窗口推不到运行时（界面说改了、预算照旧算旧窗口）。
+	"contract.AccountWindowPort": "SetAccountWindow",
 }
 
 // runtimePortAssertionRe 命中一次 "….Runtime.(" 形态的窄端口探测。

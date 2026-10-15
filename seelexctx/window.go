@@ -16,6 +16,38 @@ type WindowPolicy interface {
 	WindowRounds(ctx context.Context, info ProviderContextInfo) (int, error)
 }
 
+// ── 每账号上下文窗口（界面设置面）──────────────────────────────────
+//
+// 窗口是压缩预算的基数（预算 = 窗口 − 账号档 max_tokens − 窗口÷安全除数），
+// 「设置 → 账号」允许逐账号覆盖它：挡位 + 自定义。挡位表与校验归后端一处，
+// 前端只渲染下发的值，不自己写死一份（否则改挡位要改两处、必然漂移）。
+
+// maxAccountContextWindow 是自定义挡位的**防手滑上界**（1000 万 token）：
+// 它不是"模型真的有这么大"，只是拦掉多打一个 0 之类的输入；填得比模型真实窗口
+// 大，请求会被 provider 拒（见 Runtime.ContextWindow 的注释）。
+const maxAccountContextWindow = 10_000_000
+
+// AccountContextWindowPresets 返回界面上「每账号上下文窗口」的挡位（token，升序）。
+// 每账号也可以走自定义值（ValidateAccountContextWindow）。
+func AccountContextWindowPresets() []int {
+	return []int{200_000, 400_000, 600_000, 1_000_000}
+}
+
+// ValidateAccountContextWindow 校验界面设的账号窗口。
+//
+// 0 不是"合法的窗口"，而是"清掉这个账号的覆盖"（回落到 seelex.yaml 的
+// limits.context_window）；那个语义由调用方在进这里之前处置，进到这里必须是正数。
+func ValidateAccountContextWindow(window int) error {
+	if window <= 0 {
+		return fmt.Errorf("seelexctx: account context window must be positive, got %d", window)
+	}
+	if window > maxAccountContextWindow {
+		return fmt.Errorf("seelexctx: account context window %d exceeds the sanity bound %d",
+			window, maxAccountContextWindow)
+	}
+	return nil
+}
+
 // ProviderContextInfo 携带窗口决策的全部输入。
 type ProviderContextInfo struct {
 	ContextTokens  int // provider/model 上下文窗口

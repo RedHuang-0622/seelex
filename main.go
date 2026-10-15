@@ -1131,7 +1131,8 @@ func initRuntime() (*seelebridge.Runtime, error) {
 	// 界面上的覆盖层优先于配置：用户在设置弹窗里改过的运行时参数落盘在数据根，
 	// 启动时叠在 config/seelex.yaml 的 limits 段之上（内置默认 ← 配置 ← 覆盖层），
 	// 见 runtime_limits_overlay.go。
-	limits = applyRuntimeLimitsOverlay(limits, readRuntimeLimitsOverlay(runtimeLimitsPath()))
+	limitsOverlay := readRuntimeLimitsOverlay(runtimeLimitsPath())
+	limits = applyRuntimeLimitsOverlay(limits, limitsOverlay)
 	runtimeLimits = limits // initStore/initEngine 等后续初始化消费
 	toolCallTimeout, _, planDecision, heartbeat, replanWindow, searchTimeout := limits.Durations()
 	core.ApplyLimits(limits)
@@ -1153,6 +1154,9 @@ func initRuntime() (*seelebridge.Runtime, error) {
 		MaxReplanProviderRequests: limits.MaxReplanProviderReqs,
 		WindowConfig:              windowConfig,
 		Limits:                    limits,
+		// 界面上按账号设过的窗口（数据根覆盖层的 account_windows 表）：优先级在
+		// Runtime.ContextWindowFor 一处判定（账号级 > limits.context_window > 账号档）。
+		AccountWindows: limitsOverlay.AccountWindows,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("初始化 Seele Runtime 失败: %w", err)
@@ -1934,6 +1938,9 @@ func initApplication(
 		// 会话驻留窗口的落盘口：设置弹窗改的值写进数据根 runtime-limits.json，
 		// 下次启动由 applyRuntimeLimitsOverlay 叠回 limits 之上。
 		ReleaseWindowStore: runtimeLimitsStoreFile{path: runtimeLimitsPath()},
+		// 每账号上下文窗口的落盘口：同一个覆盖层文件的 account_windows 表
+		// （设置 → 账号的挡位/自定义值）。
+		AccountWindowStore: runtimeLimitsStoreFile{path: runtimeLimitsPath()},
 	})
 }
 

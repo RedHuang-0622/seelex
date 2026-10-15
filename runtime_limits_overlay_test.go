@@ -129,3 +129,42 @@ func TestRuntimeLimitsStoreFileWritesOverlay(t *testing.T) {
 		t.Fatal("空路径必须报错")
 	}
 }
+
+// TestAccountWindowsOverlayRoundTripKeepsOtherKeys 钉住「每账号上下文窗口」（设置 →
+// 账号）与同一份覆盖层里其它参数**互不抹掉**：两个写入器都是读-改-写，谁后写都不会
+// 把对方那一格清掉（同一份 JSON 被两个设置面共用的必然要求）。
+func TestAccountWindowsOverlayRoundTripKeepsOtherKeys(t *testing.T) {
+	path := overlayPath(t)
+	store := runtimeLimitsStoreFile{path: path}
+	if err := store.SaveSessionReleaseWindow(3); err != nil {
+		t.Fatalf("SaveSessionReleaseWindow: %v", err)
+	}
+	if err := store.SaveAccountWindow("agent-1", 400_000); err != nil {
+		t.Fatalf("SaveAccountWindow: %v", err)
+	}
+	if err := store.SaveAccountWindow("subagent-1", 200_000); err != nil {
+		t.Fatalf("SaveAccountWindow: %v", err)
+	}
+	parsed := readRuntimeLimitsOverlay(path)
+	if parsed.SessionReleaseWindow != 3 {
+		t.Fatalf("写账号窗口把会话驻留窗口抹掉了：%d, want 3", parsed.SessionReleaseWindow)
+	}
+	if parsed.AccountWindows["agent-1"] != 400_000 || parsed.AccountWindows["subagent-1"] != 200_000 {
+		t.Fatalf("账号窗口读回 = %v, want agent-1=400000 / subagent-1=200000", parsed.AccountWindows)
+	}
+	// 清掉一格（window <= 0）后：只剩另一格，且同一份文件里的其它参数不动。
+	if err := store.SaveAccountWindow("agent-1", 0); err != nil {
+		t.Fatalf("SaveAccountWindow(清除): %v", err)
+	}
+	parsed = readRuntimeLimitsOverlay(path)
+	if _, ok := parsed.AccountWindows["agent-1"]; ok {
+		t.Fatalf("清掉的那一格不该还在：%v", parsed.AccountWindows)
+	}
+	if parsed.AccountWindows["subagent-1"] != 200_000 || parsed.SessionReleaseWindow != 3 {
+		t.Fatalf("清除一格不该动别的格子：%v / %d", parsed.AccountWindows, parsed.SessionReleaseWindow)
+	}
+	// 路径为空（宿主没给数据根）必须显式失败——与 SessionReleaseWindow 同一条纪律。
+	if err := (runtimeLimitsStoreFile{}).SaveAccountWindow("agent-1", 200_000); err == nil {
+		t.Fatal("空路径必须报错")
+	}
+}

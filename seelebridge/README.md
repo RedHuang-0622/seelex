@@ -56,7 +56,7 @@ flowchart TB
 | `ports.go` | application/contract 端口实现：task/plan/子代理树/节点/MCP/plugin/调度器/历史检索/todolist 的逐行委托与兼容别名 |
 | `runtime_plan.go` | plan 执行域装配与委托（SetPlan*/Replan/事件通道/分支账号/NodeFactory/plan 与 fork/node 的 Deps 闭包） |
 | `runtime_context.go` | 上下文接线（Assembler/Controller/Compressor/窗口/stack/project/memory/归档） |
-| `runtime_account.go` | 账号路由委托（account.Manager：选中账号/provider/限额/选择器） |
+| `runtime_account.go` | 账号路由委托（account.Manager：选中账号/provider/限额/选择器）；**每账号上下文窗口**的取值面：`ContextWindowFor`（账号级覆盖 > `limits.context_window` 全局 > 账号档自报值）、`SetAccountWindow`（界面「设置 → 账号」改一格，改后立刻生效）、`AccountWindows`（拷贝，诊断/对账用）。覆盖层的落盘在数据根 `runtime-limits.json`（宿主侧 `runtime_limits_overlay.go`），**不写回** `seelex.yaml` 与账号档 |
 | `request_log.go` | LLM 请求记录中间件（`SEELEX_REQUEST_LOG` 门控，默认关闭）：包装 Completer/StreamCompleter，把每次真实请求的 role + 内容 hash + 工具调用名按顺序写 JSONL（不落正文/参数原文），供 headless 冒烟做“请求顺序 ↔ 存储内容”匹配 |
 | `runtime_deps.go` | 启动期装配结构 `RuntimeDeps` + `ApplyDeps`（一次性注入；装配点不散装单字段 setter） |
 | `events.go` | 事件体系双轨（workplan event.Sink ↔ telemetry.Hook）的短期收敛：关联字段说明 + 主会话 session_id 补全 |

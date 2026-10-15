@@ -36,6 +36,24 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (service *Service) SubagentSessionDetail(nodeID string) (*model.SubagentDetail, error)` — SubagentSessionDetail 返回节点子代理的详情数据（截断会话 + 上下文快照 +
 - `func (service *Service) ClearSubagentTree() error` — ClearSubagentTree 清空子代理树（GUI「清空」按钮入口：失败节点显式清走；
 
+### service_account_window.go
+
+- `func (service *Service) SetAccountWindow(_ context.Context, name string, window int) (int, error)` — SetAccountWindow 改一个账号的上下文窗口（设置弹窗的挡位/自定义值）。
+
+### service_account_window_test.go
+
+- `func (store *recordingAccountWindowStore) SaveAccountWindow(name string, window int) error`
+- `func (store *recordingAccountWindowStore) read(name string) (int, bool)`
+- `func newFakeAccountWindowRuntime(global int) *fakeAccountWindowRuntime`
+- `func (runtime *fakeAccountWindowRuntime) SetAccountWindow(name string, window int)`
+- `func (runtime *fakeAccountWindowRuntime) AccountWindowFor(name string) int`
+- `func TestSetAccountWindowValidatesBeforeWriting(t *testing.T)` — TestSetAccountWindowValidatesBeforeWriting：越界值与空账号名在动盘/动内存之前就被拒。
+- `func TestSetAccountWindowPersistsThenApplies(t *testing.T)` — TestSetAccountWindowPersistsThenApplies：合法值先落盘、再改运行面，返回**生效值**。
+- `func TestSetAccountWindowStoreFailureKeepsRuntimeUntouched(t *testing.T)` — TestSetAccountWindowStoreFailureKeepsRuntimeUntouched：写盘失败 ⇒ 运行面不动。
+- `func TestSetAccountWindowWithoutStoreStillApplies(t *testing.T)` — TestSetAccountWindowWithoutStoreStillApplies：宿主没装落盘口 ⇒ 只本次运行有效，不算失败。
+- `func TestSetAccountWindowNeedsRuntimePort(t *testing.T)` — TestSetAccountWindowNeedsRuntimePort：宿主没实现窄可选能力面时给出明确错误，
+- `func TestAccountContextWindowPresetsAreUsable(t *testing.T)` — TestAccountContextWindowPresetsAreUsable：挡位表归后端（前端只渲染它），且每个挡位都过校验。
+
 ### service_assembler.go
 
 - `func (p taskPromptPort) CurrentEffort() string`
@@ -226,6 +244,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func withTestSessions(sessions SessionPort) testServiceOption`
 - `func withTestRuntime(runtime RuntimePort) testServiceOption`
 - `func withTestReleaseWindowStore(store ReleaseWindowStore) testServiceOption` — withTestReleaseWindowStore 注入「会话驻留窗口」的落盘口（不注入 = 界面上改的值
+- `func withTestAccountWindowStore(store AccountWindowStore) testServiceOption` — withTestAccountWindowStore 注入「每账号上下文窗口」的落盘口（不注入 = 界面上改的值
 - `func withTestPlugins(plugins PluginPort) testServiceOption` — withTestPlugins 注入自定义插件端口（默认桩只给一个不含来源的 default）。来源面
 - `func newTestService(t testing.TB, engine ChatEngine, options ...testServiceOption) *Service` — newTestService 构造一个带默认 fakes 的 Service（测试夹具），并在测试
 - `func mustNew(t testing.TB, deps Dependencies) *Service`

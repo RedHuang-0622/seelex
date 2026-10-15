@@ -42,55 +42,57 @@ type fakeApplication struct {
 	selectedReleaseWindow int
 	releaseWindowReading  int
 	releaseWindowErr      error
-	selectedPlugin          string
-	selectedTier            string
-	loadedHistory           int
-	loadedLatest            bool
-	suggestionsInput        string
-	beganNewSession         bool
-	composerText            string
-	resumedSession          string
-	forkedSession           string
-	scheduledSpec           seelebridge.ScheduledTaskSpec
-	updatedTaskID           string
-	cancelledTaskID         string
-	searchQuery             string
-	searchLimit             int
-	searchResult            seelexctxsearch.Result
-	workItemID              string
-	workItemStatus          string
-	workItemErr             error
-	treeListing             dto.TreeListing
-	treeCount               dto.TreeCount
-	treeRel                 string
-	treeDepth               int
-	treeErr                 error
-	gitLog                  dto.GitLogResult
-	gitLimit                int
-	gitCommit               dto.GitCommitDetail
-	gitCommitHash           string
-	commitContent           dto.FileContent
-	commitRel               string
-	commitLimit             int64
-	changes                 dto.WorkspaceChangesResult
-	changesLimit            int
-	fileContent             dto.FileContent
-	fileRel                 string
-	fileLimit               int64
-	fileErr                 error
-	writeRel                string
-	writeContent            string
-	writeResult             dto.FileWriteResult
-	writeErr                error
-	metaSessionID           string
-	sessionMeta             application.SessionMeta
-	archivedSession         string
-	listSessionsCalls       int
-	transcriptSession       string
-	transcriptFrom          uint64
-	transcriptTo            uint64
-	catalogSettles          int
-	catalogGate             chan struct{}
+	accountWindows        map[string]int
+	accountWindowErr      error
+	selectedPlugin        string
+	selectedTier          string
+	loadedHistory         int
+	loadedLatest          bool
+	suggestionsInput      string
+	beganNewSession       bool
+	composerText          string
+	resumedSession        string
+	forkedSession         string
+	scheduledSpec         seelebridge.ScheduledTaskSpec
+	updatedTaskID         string
+	cancelledTaskID       string
+	searchQuery           string
+	searchLimit           int
+	searchResult          seelexctxsearch.Result
+	workItemID            string
+	workItemStatus        string
+	workItemErr           error
+	treeListing           dto.TreeListing
+	treeCount             dto.TreeCount
+	treeRel               string
+	treeDepth             int
+	treeErr               error
+	gitLog                dto.GitLogResult
+	gitLimit              int
+	gitCommit             dto.GitCommitDetail
+	gitCommitHash         string
+	commitContent         dto.FileContent
+	commitRel             string
+	commitLimit           int64
+	changes               dto.WorkspaceChangesResult
+	changesLimit          int
+	fileContent           dto.FileContent
+	fileRel               string
+	fileLimit             int64
+	fileErr               error
+	writeRel              string
+	writeContent          string
+	writeResult           dto.FileWriteResult
+	writeErr              error
+	metaSessionID         string
+	sessionMeta           application.SessionMeta
+	archivedSession       string
+	listSessionsCalls     int
+	transcriptSession     string
+	transcriptFrom        uint64
+	transcriptTo          uint64
+	catalogSettles        int
+	catalogGate           chan struct{}
 }
 
 // recordingCancelApplication 记录 Bridge 转发的 request_id 序列。
@@ -178,6 +180,22 @@ func (fake *fakeApplication) SessionReleaseWindow() int {
 		return fake.releaseWindowReading
 	}
 	return 1 // 出厂窗口（seelexctx.DefaultLimits().SessionReleaseWindow）
+}
+
+// SetAccountWindow 模仿后端语义：0 = 清掉该账号的覆盖，返回**生效值**。
+func (fake *fakeApplication) SetAccountWindow(_ context.Context, name string, window int) (int, error) {
+	if fake.accountWindowErr != nil {
+		return 0, fake.accountWindowErr
+	}
+	if fake.accountWindows == nil {
+		fake.accountWindows = map[string]int{}
+	}
+	if window > 0 {
+		fake.accountWindows[name] = window
+		return window, nil
+	}
+	delete(fake.accountWindows, name)
+	return 0, nil
 }
 func (fake *fakeApplication) SwitchPlugin(_ context.Context, name string) error {
 	fake.selectedPlugin = name
@@ -442,6 +460,29 @@ func TestBridgeForwardsOtherCommands(t *testing.T) {
 		t.Fatal("后端报错必须原样冒出来（前端据此回滚控件）")
 	}
 	fake.releaseWindowErr = nil
+	// 每账号上下文窗口（设置 → 账号）：Bridge 同样只做透传，返回后端真正生效的值；
+	// 0 = 清掉该账号的覆盖（不是"设成 0"）。
+	if applied, err := bridge.SetAccountWindow("agent-1", 600000); err != nil || applied != 600000 {
+		t.Fatalf("账号窗口写路径没透传：applied=%d err=%v", applied, err)
+	}
+	if got := fake.accountWindows["agent-1"]; got != 600000 {
+		t.Fatalf("账号窗口没落到后端：%d, want 600000", got)
+	}
+	if applied, err := bridge.SetAccountWindow("agent-1", 0); err != nil || applied != 0 {
+		t.Fatalf("清除账号窗口应当成功且生效值为 0：applied=%d err=%v", applied, err)
+	}
+	if _, ok := fake.accountWindows["agent-1"]; ok {
+		t.Fatal("清除后该账号的覆盖不该还在")
+	}
+	fake.accountWindowErr = errors.New("disk full")
+	if _, err := bridge.SetAccountWindow("agent-1", 200000); err == nil {
+		t.Fatal("后端报错必须原样冒出来（前端据此回滚控件）")
+	}
+	fake.accountWindowErr = nil
+	// 挡位表由后端下发（源头 seelexctx/window.go），前端不自己写死一份。
+	if presets := bridge.AccountWindowPresets(); len(presets) != 4 || presets[0] != 200000 || presets[3] != 1000000 {
+		t.Fatalf("挡位表 = %v, want [200000 400000 600000 1000000]", presets)
+	}
 	if err := bridge.SwitchPlugin("default"); err != nil {
 		t.Fatal(err)
 	}
