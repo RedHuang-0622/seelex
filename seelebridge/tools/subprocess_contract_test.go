@@ -7,10 +7,10 @@ import (
 // 子进程调用系契约（P0）的**已可跑**回归断言。
 //
 // 本文件只放"当前代码就已成立、且契约落地后必须继续成立"的性质；尚需实现的
-// 打点（K-1..K-6）的验收用例在 docs/subprocess_contract_testcases.md 里，按
+// 打点（K-1..K-6）的验收用例在 docs/2026-09-26-subprocess-contract/subprocess_contract_testcases.md 里，按
 // 依赖顺序逐条启用。
 //
-// 落点依据（设计文档 docs/tool_concurrency_design.md §A.3 / §A.4）：
+// 落点依据（设计文档 docs/2026-09-26-subprocess-contract/tool_concurrency_design.md §A.3 / §A.4）：
 //   - observe 必须只读（不推进游标），fetch 必须消费式（推进游标）——两条性质
 //     丢任何一条都会丢输出：前者"看一眼"就吃掉增量，后者每轮重播整份日志。
 //   - 工具名 → 路由组 是权限的**单一事实源**：bash 工具族分裂（K-3）之后，

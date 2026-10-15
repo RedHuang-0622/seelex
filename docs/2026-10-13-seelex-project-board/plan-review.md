@@ -1,6 +1,6 @@
 # 项目看板 plan 的纠偏、遗留问题、里程碑与测试用例
 
-日期：2026-10-14 ｜ 状态：**评审记录（未改代码，未改 plan.md 正文）**
+日期：2026-10-14 ｜ 状态：**评审记录（当时未改代码）**；纠偏项 C1–C7 已被 [`docs/arch/seelex-project-board.md`](../../arch/seelex-project-board.md) 吸收
 输入：`docs/2026-10-13-seelex-project-board/plan.md`（73 KiB，设计稿）、
 `docs/2026-10-13-seelex-dot-a2a-star-topology/README.md`（上游头脑风暴）、
 以及本轮作者对 `main.go` / `sessionstore/` / `application/core/` / `config/` 的逐点自读。

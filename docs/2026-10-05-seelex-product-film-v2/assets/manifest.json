@@ -2,6 +2,8 @@
   "schema": "seelex-film-v2/ui-asset-manifest@1",
   "generated_at": "2026-10-05T17:52:00+08:00",
   "generated_by": "asset_scout (milestone m-film)",
+  "images_removed_at": "2026-10-15",
+  "images_removed_note": "本包 11 张 assets/ui/*.png 已于 2026-10-15 随文档治理移除：下方 images[].path 指向的文件在工作树中已不存在（git 历史可恢复）；images[].panels[].labels 是从像素逐张转录的画面文字，保留作文字记录。",
   "source": {
     "what": "Running Seelex GUI (Wails desktop app), screenshots cropped to the app window",
     "device": "1920x1080 desktop; app window captured at 1800x1080 (all PNGs)",

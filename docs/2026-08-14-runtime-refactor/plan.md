@@ -259,7 +259,7 @@ func (c closer) Close() { c.close() }
 - 白盒测试直接读内部字段：Manager 化后同步改测试，禁止留下 `runtime.xxx` 直接
   写裸状态的用例。
 - 禁止并行子代理；禁止 `git add -A`（用显式路径，个人文档
-  `docs/product/pmstory.md`、`docs/self_judgement.md`、`opt/` 保持 untracked）。
+  `docs/product/pmstory.md`、`docs/devlog/2026-08-11-agent-self-review.md`、`opt/` 保持 untracked）。
 - 文件编辑一律 apply_patch；PowerShell 读写源码必须显式 UTF-8。
 
 ## 6. 提交规划

@@ -31,7 +31,7 @@
 | `glass` | 毛玻璃（材质皮肤） | 冷石板 / 冷石板提亮 | 半透明白→冷蓝 ｜ 半透明近黑→冷近黑 |
 
 > 环境渐变的配方与判据（等亮度 / 纯竖直 / 线性 sRGB）见
-> `docs/design/qoder-skin/DESIGN-LANGUAGE.md` 第 1 节。
+> `docs/gui/design/qoder-skin/DESIGN-LANGUAGE.md` 第 1 节。
 
 ## 深浅基座（mode 轴）
 

@@ -11,7 +11,6 @@
 | 文档 | 说明 |
 |------|------|
 | [`seele-v2-runtime-architecture.md`](arch/seele-v2-runtime-architecture.md) | Seelex 使用 Seele v0.1.1 远程模块边界的稳定架构；迁移历史见 [`2026-08-01-seele-v2-underlying-refactor`](2026-08-01-seele-v2-underlying-refactor/plan.md) |
-| [`architecture-and-flaws.md`](arch/architecture-and-flaws.md) | 架构说明书与已知硬伤清单（初稿） |
 | [`design-decisions-mcp-storage.md`](arch/design-decisions-mcp-storage.md) | MCP 中间件从 CAD 专属→通用→存储解耦的设计推演 |
 | [`mcp-call-chain-flowchart.md`](arch/mcp-call-chain-flowchart.md) | Agent 调用 MCP 全链路函数流 + 熔断事件通道 |
 | [`agent-permission-subjects.md`](arch/agent-permission-subjects.md) | 工具权责模型：主体（root/sub/emp_ro/emp_rw）× 路由组（ro/rw/rw_session/rw_desktop/ctl/adm）× 位（rwx）+ sudo；求值顺序、错误语义、当前实现与未落地部分 |
@@ -29,6 +28,7 @@
 |------|------|
 | [`agent-workbench/prd.json`](product/agent-workbench/prd.json) | Agent Workbench 机器可读 PRD、里程碑、验收标准与指标 |
 | [`pmstory.md`](product/pmstory.md) | 基于历史文档的决策叙事：各阶段产品/工程决策的权衡、代价与复盘 |
+| [`roadmap-2026.md`](product/roadmap-2026.md) | 产品规划（2026-08 → v1.x）：一句话定位、3 个 Persona、MVP 定义、四阶段路线图与商业化策略。**规划草案，非现状**；其中阶段 3 的团队/企业/云方向标注为"须按个人 agent 口径重新评估" |
 
 ## GUI — Wails 客户端设计与审查
 
@@ -50,6 +50,8 @@
 | [`gui/modules/agent-e2e-interaction.md`](gui/modules/agent-e2e-interaction.md) | 确定性 Core scenario、Playwright 与 Wails smoke 设计 |
 | [`gui/modules/workspace-sandbox.md`](gui/modules/workspace-sandbox.md) | 右栏 Files/Changes/Artifacts 与后端路径沙盒设计 |
 | [`gui/modules/multi-session-pages.md`](gui/modules/multi-session-pages.md) | 多会话页签、独立 SessionActor、有界并发与后台状态设计 |
+| [`gui/design/qoder-skin/README.md`](gui/design/qoder-skin/README.md) | Qoder 皮肤设计语言（银/玻璃皮肤权威口径、动效语言、复刻页与量测工具；2026-10-15 由 `docs/design/` 迁入） |
+| [`gui/design/teamwork-gantt/README.md`](gui/design/teamwork-gantt/README.md) | teamwork 看板甘特设计稿与自证工具；上一版 [`teamwork-dag/`](gui/design/teamwork-dag/README.md) 保留作前后对比 |
 
 ## 📓 devlog/ — 研发过程
 
@@ -70,6 +72,7 @@
 | [`2026-09-15-agentteam-panel-optimization.md`](devlog/2026-09-15-agentteam-panel-optimization.md) | Agent Team 面板与相邻面板的可优化之处：只读审计（带证据）+ 行业对照 + 分批建议；含员工面板去小字备注的落地记录 |
 | [`2026-09-15-frontend-render-and-memory.md`](devlog/2026-09-15-frontend-render-and-memory.md) | 前端渲染与内存减负（事件委托 / 共享提示气泡 / 拓扑单传 / tree-fork 统一树轨与泳道） |
 | [`2026-09-16-frontend-tables-and-chip-dropdown.md`](devlog/2026-09-16-frontend-tables-and-chip-dropdown.md) | Goal 活动栈与角色记录改专用表格（一行一帧 / 一行一车道一列一回合）、权限档 chip 就地下拉切换、Dev GUI 包归档根目录修正 |
+| [`2026-08-11-agent-self-review.md`](devlog/2026-08-11-agent-self-review.md) | Agent 自评：一次批量 fork 评测的复盘（含 CRLF 幻影脏检查根因等真实教训；2026-10-15 由 `docs/self_judgement.md` 迁入） |
 
 ## 🔬 research/ — 调研报告
 
@@ -79,13 +82,10 @@
 | [`codex-session-resume.md`](research/codex-session-resume.md) | Codex 会话恢复与 rollout 有序存储调研（append-only JSONL、单 writer、前缀重放） |
 | [`approve-research.md`](research/approve-research.md) | Approve 节点选型（OpenCode vs Claude Code vs Seele） |
 | [`context-management-review.md`](research/context-management-review.md) | 上下文管理（继承/合并/压缩）实现审查与理论依据调研 |
-| [`2026-09-14-seelex-thesis-proposal-v3.md`](research/2026-09-14-seelex-thesis-proposal-v3.md) | 开题报告 v3：面向软件工程任务的 Coding Agent Harness（v2 基线 + 增量章） |
+| [`2026-08-23-file-content-preview.md`](research/2026-08-23-file-content-preview.md) | 文件内容详情查看（File Preview）方案调研 |
+| [`2026-09-14-seelex-thesis-proposal-v3.md`](research/2026-09-14-seelex-thesis-proposal-v3.md) | 开题报告 v3：面向软件工程任务的 Coding Agent Harness（**现行版**；v1/v2 已于 2026-10-15 文档治理中退役） |
 
-## 📊 根目录
-
-| 文档 | 说明 |
-|------|------|
-| [`feature-instrumentation.md`](feature-instrumentation.md) | 功能打点表与北极星指标 |
+> 调研目录的完整清单见 [`research/README.md`](research/README.md)。
 
 ## 📦 一次性工作包（YYYY-MM-DD-topic）
 
@@ -101,10 +101,11 @@
 | [`2026-09-08-session-storage-architecture/README.md`](2026-09-08-session-storage-architecture/README.md) | 会话存储新架构总览：message 事件行 + metadata 模块化 head、EVENT/compact、历史分页/wire 装配/续跑读取器、lifecycle（draft/queue）、fork session/subagent、LRU/retention/检索/blob GC（M1–M4 已实现并接线为唯一 JSON 链路；my_design.md 为权威明细；impact-map.md 为波及面盘点；implementation-M1-M4.md 为实施记录；benchmarks/ 含新链路优越性、冷热切换 pprof 与性能量化成果专档） |
 | [`2026-09-08-interrupted-round-truncation/README.md`](2026-09-08-interrupted-round-truncation/README.md) | 中断轮截断策略更改：残缺工具链轮保留为开放单元、断点续扫不跳 next user；装配层补齐缺失 tool 结果（合成占位、provider-only、幂等）；重启 continue 续跑端到端（三处同构切分 + 装配 seam；字符画表达） |
 | [`2026-09-15-agent-permission-routing-groups/README.md`](2026-09-15-agent-permission-routing-groups/README.md) | Agent 权限分封：路由组式 Linux 权限模型（主体×组×位+sudo）设计与对 Seele 框架的需求单 R1–R8；落地差异见同目录 `seele-integration-status.md`，长期口径见 [`arch/agent-permission-subjects.md`](arch/agent-permission-subjects.md) |
-
-## 🔬 调研报告
-
-| 文档 | 说明 |
-|------|------|
-| [`research/2026-08-23-file-content-preview.md`](research/2026-08-23-file-content-preview.md) | 文件内容详情查看（File Preview）方案调研 |
-| [`research/codex-session-resume.md`](research/codex-session-resume.md) | Codex 会话恢复与 rollout 有序存储调研（append-only JSONL、单 writer、前缀重放） |
+| [`2026-09-26-subprocess-contract/README.md`](2026-09-26-subprocess-contract/README.md) | 子进程调用系契约（设计 + 打点表 + 测试用例三件套，2026-10-15 由 docs/ 根迁入）：P0/P1 已落地，P2 未开工 |
+| [`2026-08-07-technical-blog/README.md`](2026-08-07-technical-blog/README.md) | 对外技术博客叙事稿（2026-10-15 由 `docs/blog/` 迁入）：用真实代码回答上下文/编排/扩展/安全四问 |
+| [`2026-09-25-linux-vm-demo/README.md`](2026-09-25-linux-vm-demo/README.md) | Linux VM 部署演示 + computer use 真机实测方法学（含 `xev`/`xdotool` 独立裁判法）与 Linux GUI 交付手册（2026-10-15 由 `docs/linux-vm-demo/` 迁入） |
+| [`2026-10-13-seelex-project-board/plan.md`](2026-10-13-seelex-project-board/plan.md) | 项目看板设计方案与评审记录（**已实现**，现行契约见 [`arch/seelex-project-board.md`](arch/seelex-project-board.md)） |
+| [`2026-10-15-product-architecture-pre-design/global-review.md`](2026-10-15-product-architecture-pre-design/global-review.md) | 全局审查报告与架构重构前置设计（**待裁决**）：产品方向、冲突登记 F01–F10、契约评估、迁移门禁 M0–M6 与待裁决 D01–D12 |
+| [`2026-10-15-product-architecture-pre-design/legacy-capability-audit.md`](2026-10-15-product-architecture-pre-design/legacy-capability-audit.md) | 旧口径与疑似退场能力审查清单（A01–A11，**只读审查**）：用户面退场已证实，字段与恢复语义须分开裁决 |
+| [`2026-10-15-perf-observability-and-multi-binary/README.md`](2026-10-15-perf-observability-and-multi-binary/README.md) | 性能与可观测性基线 + 多二进制架构草案（**拟议，未实施**） |
+| [`2026-10-15-product-direction-doc-review/README.md`](2026-10-15-product-direction-doc-review/README.md) | 产品方向文档梳理（仅文档证据）：Seelex/SeelexDot/SeelexBoss 定位、能力→模块→文件追踪表、冲突与待裁决问题、方向建议与文档治理清单 |

@@ -2,7 +2,7 @@
 
 > 状态：**全部切片已实施**（2026-08-03，v2 版本：切片 1-3 = A1 工具面 / A2 skill / A3 预算 / C3 收尾契约；切片 4-10 = C1 worktree / C2 fork / A5 todolist / A6 plan 归位 / B1 详情 / D1 窗口加载 / C4 沙箱端口。`go build/vet/test ./...`、GUI 构建、真实 LLM 冒烟、真实账号 plan 冒烟全绿）。切片 4-10 的实施差异见 §12。
 > 适用范围：子代理入口分层（plan DAG / fork / todolist）、worktree 生命周期工作流、子代理与主代理能力对齐（工具集/skill/预算）、前端子代理详情查看、主代理滑动窗口加载、沙箱
-> 关联架构：[`docs/arch/seele-v2-runtime-architecture.md`](../arch/seele-v2-runtime-architecture.md)（§4.4 Plan→subagent）、[`docs/research/coding-agent-harness-comparison.md`](../research/coding-agent-harness-comparison.md)（差距矩阵 §3.7）、[`docs/plan/subagent-detail-architecture.md`](../plan/subagent-detail-architecture.md)（前端详设，本设计 §8 实施）
+> 关联架构：[`docs/arch/seele-v2-runtime-architecture.md`](../arch/seele-v2-runtime-architecture.md)（§4.4 Plan→subagent）、[`docs/research/coding-agent-harness-comparison.md`](../research/coding-agent-harness-comparison.md)（差距矩阵 §3.7）、[`docs/arch/subagent-visibility-design.md`](../arch/subagent-visibility-design.md)（前端详设的现行落点，本设计 §8 实施）
 > 已确认决策（2026-08-03 用户）：① worktree 合并回主工作区前必须用户审批；② 变基由子代理自己执行，框架检测失败兜底；③ 非 git 项目/只读节点跳过 worktree，共享工作区；④ plan 工具从主工具面移出，随 goal skill 激活注入
 > 2026-08-04 增量：子代理节点生命周期和内部工具活动已形成 Runtime → Application/EventHub → GUI Bridge → frontend reducer 的实时事件链，并由整体 mock 覆盖。
 
@@ -230,7 +230,7 @@ todo 全 done 与 plan 全节点完成都走同一 `task_complete` 投影校验�
 
 ## 8. 前端：子代理详情查看（B1）
 
-按 [`docs/plan/subagent-detail-architecture.md`](../plan/subagent-detail-architecture.md) 实施（现状只有 lifecycle 事件 + 最终输出弹窗）：
+按 `docs/arch/subagent-visibility-design.md` 实施（原 `docs/plan/subagent-detail-architecture.md` 已于 2026-10-15 文档治理中退役；当时现状只有 lifecycle 事件 + 最终输出弹窗）：
 
 1. Runtime 节点会话注册表：`NodeSessionConversation(nodeID)`（运行中读子会话 History——子代理 actor 独立锁，安全；结束读 `lastNodeConversations` 快照）；
 2. 遥测活动投影：llm/tool 事件按 nodeSessionID 过滤 → `SubagentActivity`；

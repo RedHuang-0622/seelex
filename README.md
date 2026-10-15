@@ -776,7 +776,6 @@ Linux CI 还会执行 race detector、覆盖率和发布包安全检查。
 
 - [文档索引](docs/README.md)
 - [架构索引](docs/arch/README.md)
-- [功能打点与指标](docs/feature-instrumentation.md)
 - [内置 Plugin](plugins/README.md)
 - [GUI 设计与协议](docs/gui/README.md)
 - [开题报告（研究文档）](docs/research/2026-09-14-seelex-thesis-proposal-v3.md)

@@ -121,8 +121,8 @@ handler 侧必须过服务端 `security.ClassifyCommand`）/ `bash_bg`（`Add`�
 实测见
 [`docs/2026-09-24-async-tool-deferred-ack/README.md`](../../docs/2026-09-24-async-tool-deferred-ack/README.md)
 §0（P4/P5 证明迟到 `role=tool` 在 wire 层非法，P7 证明轮询形态不破前缀缓存）与 §10。
-契约与打点见 [`docs/tool_concurrency_design.md`](../../docs/tool_concurrency_design.md)
-§A/§B 与 [`docs/tool_calling_step0_contracts.md`](../../docs/tool_calling_step0_contracts.md)。
+契约与打点见 [`docs/2026-09-26-subprocess-contract/tool_concurrency_design.md`](../../docs/2026-09-26-subprocess-contract/tool_concurrency_design.md)
+§A/§B 与 [`docs/2026-09-26-subprocess-contract/tool_calling_step0_contracts.md`](../../docs/2026-09-26-subprocess-contract/tool_calling_step0_contracts.md)。
 
 串行与后台之间有一条**时长线**（`serialBashBudget` = 5 分钟）：显式 `timeout` 超过它的
 `bash` / `bash_read` 调用被拒绝，并被指向 `bash_bg`（`auditSerialTimeout`）。取拒绝而不是

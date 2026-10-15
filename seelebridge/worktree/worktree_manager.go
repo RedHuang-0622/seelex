@@ -862,7 +862,7 @@ func PathDirty(path string) (bool, error) {
 //
 // ⚠ CRLF 幻影脏的**唯一修复点就是下面这一行**（`status --porcelain`）：本仓库
 // `core.autocrlf=true`，行尾差异会让"内容其实一样"的文件被判成已修改。事故形状
-// （见 docs/self_judgement.md）：收尾段这条判据在 worktree 里报 62 个"已修改"文件，
+// （见 docs/devlog/2026-08-11-agent-self-review.md）：收尾段这条判据在 worktree 里报 62 个"已修改"文件，
 // 而 `git diff --ignore-cr-at-eol` 比完是空的、文件内容哈希 主工作区 == worktree。
 // 要收窄这个判据（例如换成 `git diff --ignore-cr-at-eol --quiet`，或显式关掉
 // autocrlf 再比）只在这里改一处——**但那是一次语义变更，得先有红灯用例**，

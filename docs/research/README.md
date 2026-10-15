@@ -20,4 +20,17 @@
 | [`agent-harness-research-report.md`](agent-harness-research-report.md) | Agent harness 能力缺口与建议 |
 | [`agent-market-research-2026-08.md`](agent-market-research-2026-08.md) | 2026-08 Agent 产品市场调研 |
 | [`approve-research.md`](approve-research.md) | Approve 节点选型（OpenCode vs Claude Code vs Seele） |
-| [`coding-agent-harness-comparison.md`](coding-agent-harness-comparison.md) | 编码 Agent harness 对比 |
+| [`coding-agent-harness-comparison.md`](coding-agent-harness-comparison.md) | 编码 Agent harness 对比（产品侧；外部信息冻结于 2026-08，最新外部机制矩阵见 `2026-09-12-external-harness-comparison.md`） |
+| [`2026-09-06-dash-context-cache-hit-comparison.md`](2026-09-06-dash-context-cache-hit-comparison.md) | 缓存命中率为何停在 97% 而非 99%：与 DeepSeek Harness / DASH 的上下文策略对比（提出三个结构性漏点，2026-09-06） |
+| [`2026-09-10-collaborative-doc-session-model.md`](2026-09-10-collaborative-doc-session-model.md) | 在线文档协作维护模型 → Seelex 群聊会话（2026-09-10） |
+| [`2026-09-11-deepseek-v4.1-flash-naming-and-deployment.md`](2026-09-11-deepseek-v4.1-flash-naming-and-deployment.md) | DeepSeek-V4.1-Flash 名称与接入方式调研（2026-09-11） |
+| [`2026-09-12-cache-hit-vs-codex-root-cause.md`](2026-09-12-cache-hit-vs-codex-root-cause.md) | 缓存命中率不及 Codex 的根因探究（7 条根因按期望影响排序，2026-09-12；该主题的集大成篇） |
+| [`2026-09-12-external-harness-comparison.md`](2026-09-12-external-harness-comparison.md) | External comparison: coding-agent harness mechanisms (late 2026) vs Seelex（外部机制矩阵，逐条附官方文档/repo 链接，2026-09-12） |
+| [`2026-09-14-seelex-thesis-proposal-v3.md`](2026-09-14-seelex-thesis-proposal-v3.md) | 开题报告 v3：面向软件工程任务的 Coding Agent Harness 设计与实现——以 Seelex 项目为例（**现行版**；v1/v2 已于 2026-10-15 文档治理中退役） |
+| [`2026-09-17-fork-subagent-ownership-and-multiagent-orchestration.md`](2026-09-17-fork-subagent-ownership-and-multiagent-orchestration.md) | fork_subagents 的管理归属 + 多代理编排行业口径（2026-09-17） |
+| [`2026-09-30-goal-a2a-flow-and-techleader.md`](2026-09-30-goal-a2a-flow-and-techleader.md) | goal-a2a 现状流程 × 市面对照 × 更好的结合方式 × 更优 TechLeader 流程（2026-09-30） |
+| [`2026-10-02-compaction-record-and-failure-trace-survey.md`](2026-10-02-compaction-record-and-failure-trace-survey.md) | 上下文压缩 / 压缩失败的「记录与留痕」现状调研（2026-10-02） |
+| [`2026-10-05-teammate-plugin-assembly-external-research.md`](2026-10-05-teammate-plugin-assembly-external-research.md) | teammate 的「插件装配」——外部一手调研（2026-10-05） |
+| [`codex-claude-goal-harness-2026-09.md`](codex-claude-goal-harness-2026-09.md) | Codex / Claude 的 goal：harness 层如何承载（2026-09） |
+| [`goal-context-governance-2026-09.md`](goal-context-governance-2026-09.md) | Goal 上下文治理：业界做法调研（2026-09） |
+| [`websearch-provider-design-research-2026-08.md`](websearch-provider-design-research-2026-08.md) | websearch 通用接入设计模式调研（2026-08） |

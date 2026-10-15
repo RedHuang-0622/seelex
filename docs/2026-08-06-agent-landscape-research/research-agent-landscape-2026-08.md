@@ -117,7 +117,7 @@
 | Copilot | 未证实（CLI 跨会话上下文 + AGENTS.md） | 平台指令体系 |
 | Codex | 桌面持久记忆（云端、锁定厂商内）+ Goal Mode 持久状态 | 记忆不跨工具 |
 | OpenHands | Condenser 压缩 + 会话历史树（分支/复刻） | EventStream 为唯一事实源 |
-| **Seelex** | ProjectKnowledge（自动构建、hash 版本化、会话前预读）；**无跨会话事实/决策记忆** | memory 向量化 v2 设计已存在（`docs/plan/memory-architecture.md`），未落地 |
+| **Seelex** | ProjectKnowledge（自动构建、hash 版本化、会话前预读）；**无跨会话事实/决策记忆** | memory 向量化 v2 设计曾存在（`docs/plan/memory-architecture.md`，该文档已于 2026-10-15 文档治理中退役），未落地 |
 
 > Seelex 结论：ProjectKnowledge 的自动性优于静态 CLAUDE.md，但"跨会话记忆"整体缺席是 **2026 年竞品中最明显的共性差距**——除 Cursor 外所有主要对手今年都发布了原生记忆能力。
 
@@ -179,7 +179,7 @@
 | N3 | **无交付物协议**（deliver 节点产出 PR 描述/变更报告，非裸文本） | Devin/OpenHands 自动 PR、Copilot Fix with Copilot | deliver 节点已存在，补输出契约 |
 | N4 | **无定时/周期能力**（代码无 cron） | 见 3.3 | 新增方向 |
 | N5 | **headless 非交互执行缺位**（无 `-p` 式单次执行模式与护栏参数） | Claude `-p --max-turns`、Codex automations、Gemini `--prompt` | 试点与定时共同前置 |
-| N6 | **跨会话记忆仅剩设计**（memory 向量化 v2 未落地；竞品全部 2026 年内发布） | 见 3.1 | docs/plan/memory-architecture.md |
+| N6 | **跨会话记忆仅剩设计**（memory 向量化 v2 未落地；竞品全部 2026 年内发布） | 见 3.1 | 原 docs/plan/memory-architecture.md（2026-10-15 退役） |
 | N7 | **Checkpoint 回滚仍缺位**（竞品 2026 标配，Cursor 因 bug 反证其必要性） | Claude /rewind、Devin 命名快照、Cursor 原生 checkpoint | 既有 P0，本次确认竞争压力上升 |
 | N8 | **记忆/教训的"自动提炼"形态未定**（Claude 自动写入 vs Gemini inbox 人工确认制，路线二选一） | Claude Auto Memory、Gemini Auto Memory | 与 N6 配套决策 |
 
@@ -194,7 +194,7 @@
 |---|---|---|---|---|
 | A1 | 跨会话事实记忆落库：decisions/findings/constraints 按 session 持久化，新会话按相关性注入（复用 ContextSnapshot 字段 + sessionstore，无需向量化即可起步） | 中 | M | 竞品 2026 标配；既有报告 P1-5；与试点跨会话需求直接相关 |
 | A2 | 记忆自动提炼试点：会话结束自动提炼 MEMORY.md 条目，**先走 Gemini 式 inbox 人工确认制**（防自动污染，与 Claude 自动写入路线对比后再定） | 中 | M | Gemini Auto Memory 设计原则；已知 Claude Auto Memory 的 token 开销与 shadow state 问题 |
-| A3 | memory 向量化 v2 落地（`docs/plan/memory-architecture.md`：graph role + 私有 Retriever） | 中 | L | 设计已冻结；依赖 graph role 账号配置 |
+| A3 | memory 向量化 v2 落地（原 `docs/plan/memory-architecture.md`：graph role + 私有 Retriever；该文档 2026-10-15 退役） | 中 | L | 设计已冻结；依赖 graph role 账号配置 |
 | A4 | AGENTS.md/CLAUDE.md 惯例文件消费（生态兼容，读入 ProjectKnowledge） | 低 | S | 既有报告 P2-11 |
 
 ### 方向 B：工作台可视化
@@ -242,4 +242,4 @@
 - 失败模式/基准：Compaction epistemic failure（[arXiv:2607.13071](https://arxiv-org.ezproxy.obspm.fr/html/2607.13071v1)）、AutoFix flaky（[dev.to](https://dev.to/byteframe/why-claude-code-autofix-cant-fix-flaky-tests-e6d)）、context rot（[LOCA-bench 汇总](https://github.com/edwinidrus/Context-lens)）、DeepSWE 审计（[zencoder](https://zencoder.ai/blog/20k-bug-that-changed-evals)）、SWE-bench 2026 更新（[Simon Willison](https://simonwillison.net/2026/Feb/19/swe-bench/)）、12% 回归率（[TestSprite](https://siliconangle.com/2026/06/11/testsprite-launches-open-source-command-line-tool-help-ai-agents-check-work/)）
 - 行业：Nylas 2026 State of Agentic AI（[BusinessWire](https://www.businesswire.com/news/home/20260218088523/en/94-of-Developers-Would-Switch-Vendors-as-Agentic-AI-Triggers-Infrastructure-Race)）、Gartner 2026 云原生 MQ（[Virtualization Review](https://virtualizationreview.com/articles/2026/08/05/ai-agents-move-to-the-center-of-gartners-2026-cloud-native-magic-quadrant.aspx)）、HFS Horizons 2026（[HFS](https://www.hfsresearch.com/research/hfs-horizons-agentic-technology-2026/)）
 
-> 说明：以上为三个并行调研批次（2026-08-06）的检索结果精选；Seelex 现状证据见 `docs/research/coding-agent-harness-comparison.md` 第四节与 `docs/feature-instrumentation.md`。
+> 说明：以上为三个并行调研批次（2026-08-06）的检索结果精选；Seelex 现状证据见 `docs/research/coding-agent-harness-comparison.md` 第四节与 `README.md`。

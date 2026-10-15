@@ -9,7 +9,7 @@
 
 ## 序章：这个项目在讲一个什么故事
 
-2026 年 AI 编程的竞争已经从"谁的模型强"转向"谁的 Harness 好"——模型之外的运行时骨架：上下文怎么治理、多 agent 怎么编排、权限怎么审批、数据怎么持久化（`docs/blog/seelex-technical-blog-2026.md`）。
+2026 年 AI 编程的竞争已经从"谁的模型强"转向"谁的 Harness 好"——模型之外的运行时骨架：上下文怎么治理、多 agent 怎么编排、权限怎么审批、数据怎么持久化（`docs/2026-08-07-technical-blog/README.md`）。
 
 Seelex 的故事，是一个开发者用 **201 个 commit** 从零回答这四个问题、并把"模型调用"做成"可信执行产品"的决策史。它不是一个"又一个 coding agent"，而是一个**可组合、可审计、可自托管的 Coding Agent Harness**：本地优先、多模型可路由、上下文可逆治理（`docs/product/roadmap-2026.md` §1）。
 
@@ -25,12 +25,12 @@ Seelex 的故事，是一个开发者用 **201 个 commit** 从零回答这四�
 - 决策：main 以 8 层装配串联 配置→Agent→Engine→Session→Skill→TUI，Model 直接持有具体类型。
 - 为什么：验证端到端可用优先；薄客户端阶段引入接口是过度设计。
 - 代价：main 过长、Model 依赖具体类型（ARC-014）、全局状态蔓延——**直接催生了后续三次重构**。
-- 出处：`docs/arch/architecture-and-flaws.md`
+- 出处：`docs/arch/architecture-and-flaws.md`（2026-07 初稿；2026-10-15 文档治理中退役，现行架构见 `docs/arch/seele-v2-runtime-architecture.md`）
 
 **决策 2 · 依赖倒置：Model 接口化**
 - 决策：为 Engine/ChatClient/Agent/Session/Skill 引入接口，用安全断言替代硬类型断言。
 - 为什么：具体类型导致无法单测、UI 与框架强耦合；接口化后 mock 注入可行。
-- 出处：`docs/arch/architecture-and-flaws.md`
+- 出处：`docs/arch/architecture-and-flaws.md`（2026-07 初稿；2026-10-15 文档治理中退役，现行架构见 `docs/arch/seele-v2-runtime-architecture.md`）
 
 **决策 3 · Context Provider 化 + TraceProvider + 双向合并**
 - 决策：单一 Export/Import 重构为 Provider 接口（参考 Claude Code Context Provider），保持旧签名向后兼容；新增从 `tracer.Tree` 自动提取 Decisions/Findings 的 TraceProvider；新增 Compactor（token 预算三级压缩）与 MergeBack（子代理结果回写父代理）。
@@ -177,7 +177,7 @@ Seelex 的故事，是一个开发者用 **201 个 commit** 从零回答这四�
 **决策 23 · 压缩是产品事实：元数据上屏、失败即停**
 - 决策：`Snapshot.Task` 增 `context_compactions`（版本/原因/消息数/估算 token），用户可见压缩事实；压缩失败经 context_hook 传回 runChat 停止下一轮并报告。
 - 为什么：不能以丢失证据的 checkpoint 继续执行；**任何降级都要是显式事件，不能是静默行为**。
-- 出处：`docs/2026-07-30-context-summary/code-changes.md`、`docs/blog/seelex-technical-blog-2026.md` §2.2
+- 出处：`docs/2026-07-30-context-summary/code-changes.md`、`docs/2026-08-07-technical-blog/README.md` §2.2
 
 > **PM 视角**：这一章定义了产品的核心名词——**"任务"从聊天变成有验收的工作单元**（`task_complete` 闭环）。这也是后来北极星指标"每周完成的有效任务数"的种子。长任务的宪法是：有终态、有证据、有边界、失败要可见。
 
@@ -298,8 +298,8 @@ Seelex 的故事，是一个开发者用 **201 个 commit** 从零回答这四�
 - 出处：`docs/devlog/2026-08-11-subagent-interview-answers.md`
 
 **决策 40 · 技术博客：把四个问题讲给市场听**
-- 决策/结论：发布 `docs/blog/seelex-technical-blog-2026.md`，用真实代码回答上下文/编排/扩展/安全四问；明确生态位——Claude Code 吃终端重度用户、Cursor 吃 IDE 体验、Devin 赌自主执行、**Seelex 走"可组合、可审计、可自托管"的中间路**。
-- 出处：`docs/blog/seelex-technical-blog-2026.md`
+- 决策/结论：发布 `docs/2026-08-07-technical-blog/README.md`，用真实代码回答上下文/编排/扩展/安全四问；明确生态位——Claude Code 吃终端重度用户、Cursor 吃 IDE 体验、Devin 赌自主执行、**Seelex 走"可组合、可审计、可自托管"的中间路**。
+- 出处：`docs/2026-08-07-technical-blog/README.md`
 
 > **PM 视角**：验证的纪律是"诚实的有偏"——90/90 值得骄傲，但报告第一行就写明是有偏样本。访谈与博客是把个人经验产品化的两种形式：一个对内传承，一个对外叙事。
 
@@ -356,8 +356,8 @@ Seelex 的故事，是一个开发者用 **201 个 commit** 从零回答这四�
 ## 附录 C：主要出处索引
 
 - 研发日志：`docs/devlog/`（2026-07-17 分层计划与 review、2026-08-11 子代理访谈）
-- 架构决策：`docs/arch/`（architecture-and-flaws、context-improvement-plan、plugin-skill-restructure、effort-system-design、skill-effort-architecture、agent-workbench-architecture、plan-visualization-design、subagent-visibility-design、session-snapshot-liveness、permission-path-gating、seele-v2-runtime-architecture、plan-executor）
+- 架构决策：`docs/arch/`（context-improvement-plan、plugin-skill-restructure、effort-system-design、skill-effort-architecture、agent-workbench-architecture、plan-visualization-design、subagent-visibility-design、session-snapshot-liveness、permission-path-gating、seele-v2-runtime-architecture、plan-executor）
 - 工作包：`docs/2026-07-*`、`docs/2026-08-*`（plan / finish-review / retrospective / code-changes）
 - 调研与规划：`docs/research/`、`docs/product/roadmap-2026.md`
-- 叙事与验证：`docs/blog/seelex-technical-blog-2026.md`、`docs/swebench/*-report.md`
+- 叙事与验证：`docs/2026-08-07-technical-blog/README.md`、`docs/swebench/*-report.md`
 - 变更与状态：`CHANGELOG.md`、`README.md`、`docs/devlog/2026-07-28-finish-review.md`、`docs/arch/ARCHITECTURE_REVIEW.md`

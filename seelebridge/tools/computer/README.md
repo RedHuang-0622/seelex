@@ -167,7 +167,7 @@ Windows 专属文件里，同一份代码编到别的平台连编译都过不去
 
 一次完整的实机验收（UT）。被测二进制由本包 HEAD 交叉编译，判据是 `xev`（X 服务器层）
 + 一个"把收到的字节写进文件"的终端（应用层）+ `xdotool`（独立读 `_NET_ACTIVE_WINDOW`
-与 `XGetInputFocus`）。逐条结论与复现见 [`docs/linux-vm-demo/computer-use.md`](../../../docs/linux-vm-demo/computer-use.md)：
+与 `XGetInputFocus`）。逐条结论与复现见 [`docs/2026-09-25-linux-vm-demo/computer-use.md`](../../../docs/2026-09-25-linux-vm-demo/computer-use.md)：
 
 - **可用**：截屏、窗口枚举、前台窗口、光标读写、`FocusWindow`（EWMH `_NET_ACTIVE_WINDOW`
   + Raise + SetInputFocus）、鼠标移动/点击/拖拽/滚轮、组合键、**ASCII 文本注入**（`xev` 记录的
@@ -383,7 +383,7 @@ go test ./seelebridge/tools/computer/... -count=1
   1536×864 虚拟桌面 → 1024×576 画面、82 KB PNG、10 个可见顶层窗口）。
 - `desktop_probe_linux_test.go`：默认跳过；同一个开关，在**有 X 会话的 Linux** 上跑
   `Supported()` 判定 + 截屏落盘 + 窗口枚举。VM 实测命令见
-  [`docs/linux-vm-demo/computer-use.md`](../../../docs/linux-vm-demo/computer-use.md) §8。
+  [`docs/2026-09-25-linux-vm-demo/computer-use.md`](../../../docs/2026-09-25-linux-vm-demo/computer-use.md) §8。
 - `scrolltargets_desktop_probe_test.go`：默认跳过；`SEELEX_COMPUTER_DESKTOP_PROBE=1`
   时用真实桌面**只读**枚举可滚动面板（可选 `SEELEX_COMPUTER_PROBE_WINDOW=<标题子串>`
   指定窗口，不聚焦），并用最大面板的中心做点命中回读断言。本机实测：Seelex 窗口

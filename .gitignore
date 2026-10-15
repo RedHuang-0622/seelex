@@ -66,6 +66,7 @@ gui/frontend/.vite/
 .project
 .classpath
 .settings/
+.workbuddy-ai/
 # 本地 Agent 会话设置（个人配置，不入库；同目录 README/build-convention 仍入库）
 .claude/settings.local.json
 

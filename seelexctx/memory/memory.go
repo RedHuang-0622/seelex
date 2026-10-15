@@ -9,7 +9,7 @@
 //
 // 选取是确定性的词法匹配（ASCII 词 + CJK bigram），不引入向量基建；
 // Select 输入输出都是纯数据结构，未来可被 embedding 检索器替换
-// （docs/plan/memory-architecture.md 的 graph role 可用后）。
+// （graph role 向量检索可用后）。
 package memory
 
 import (

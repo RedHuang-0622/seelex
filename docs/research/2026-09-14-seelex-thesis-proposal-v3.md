@@ -8,7 +8,7 @@
 | 课题名称 | 面向软件工程任务的开源 Coding Agent Harness 设计与实现——以 Seelex 项目为例 |
 | 课题类型 | 应用研究与工程实现（软件工程 / 人工智能交叉） |
 | 本版日期 | 2026-09-14 |
-| 前版 | `docs/research/2026-09-13-seelex-thesis-proposal-v2.md`（本版为其修订与扩展，结论以 v2 为基线，本版增量见第零章；`docs/research/2026-09-11-seelex-thesis-proposal.md` 为更早基线） |
+| 前版 | v1（2026-09-11）、v2（2026-09-13）两版修订稿已于 2026-10-15 文档治理中退役；本版为现行版 |
 | 研究基线 | Seelex `Developer Alpha`（Go **1.25.8**，依赖 Seele **v0.2.0**；**805 个 `.go` 文件 / 136,425 行**，其中测试 **414 文件 / 67,293 行**；**90 个 Go 包**；**1,707 个 Test/Benchmark/Fuzz 函数**；全仓语句覆盖率 **58.6%**；`go.mod:9`） |
 | 预期周期 | 2026-09 — 2027-06（10 个月，见第七章） |
 
@@ -51,7 +51,7 @@ v2 完成于 2026-09-13。此后代码继续前进：依赖升级到 **Seele v0.
 | 前版表述 | 代码实况 | 证据 |
 |---|---|---|
 | 工具结果归档阈值 **20000 字符** | 实为 **60000 字符**（可配 `limits.max_tool_result_chars`）；20000 仅存在于过期注释 | `seelexctx/limits.go:134` |
-| 并行分支"**默认最大并发 3**" | 并非硬编码默认：`PolicyConcurrency` 显式配置为空时**随节点数增长**；"3"来自 Effort `high` 档在提示层的声明 | `seelebridge/plan/policy.go:56-66`、`seelebridge/plan/tool_provider.go:297`、`docs/feature-instrumentation.md` |
+| 并行分支"**默认最大并发 3**" | 并非硬编码默认：`PolicyConcurrency` 显式配置为空时**随节点数增长**；"3"来自 Effort `high` 档在提示层的声明 | `seelebridge/plan/policy.go:56-66`、`seelebridge/plan/tool_provider.go:297`、`README.md` |
 | 12.5% 安全余量、75%/90%/60%、clamp(4,40)、ratio 0.7 | **全部属实，已定位到代码** | `seelexctx/controller.go:57,70,73,76`、`seelexctx/window.go:38` |
 | 依赖 Seele v0.1.2 或 v0.1.1 | 实为 **v0.1.3**（README/CHANGELOG 未同步） | `go.mod:9` |
 | 内置 Plugin 6 个 | 磁盘仅 **2 个**（`default`、`freecad`），Skill **17 个** | `plugins/default/plugin.md`、`plugins/freecad/plugin.md` |
@@ -189,7 +189,7 @@ Seelex 是针对上述矛盾的工程回应：一个开源、本地优先、多�
 - 相关记忆块：按当前查询从压缩帧做词法 top-K 渲染有界记忆块（`limit=3`、recency 权重 `0.15`、上限 1024 token）（`seelexctx/memory/memory.go:47`、`block.go:16`）；
 - 历史检索读回：压缩栈作为索引，命中帧范围后从事件流读回真实记录（`seelexctx/search/search.go:35-47`）；
 - 跨会话记忆：memory 块按项目粒度跨会话装配，fork 复用同 workspace 的稳定前缀（`docs/arch/context-prefix-chain.md`）；
-- CLI/项目级记忆：用户级与项目级 `MEMORY.md` 索引常驻、详情按需工具读写（索引 ≤20 条）（`docs/plan/cli-memory.md`、`docs/plan/memory-architecture.md`）。
+- CLI/项目级记忆：用户级与项目级 `MEMORY.md` 索引常驻、详情按需工具读写（索引 ≤20 条）（`README.md` 已实现能力表）。
 
 **内容五：多智能体编排与父子证据承袭/合并**
 每个 DAG 节点获得独立 Session、NodeScope、PromptBlocks、账号绑定与 token 预算；父证据在执行前注入（前缀重放摘要 + 有界记忆块），子节点产出经 `merger.MergeBack` 形成继承上下文块并经有界邮箱在安全边界注入主会话（`seelebridge/node/agent_node.go:44,228`）。研究重点为并行分支的状态隔离与合并结果的来源可追溯性。
@@ -268,7 +268,7 @@ Seelex 是针对上述矛盾的工程回应：一个开源、本地优先、多�
 
 **问题五：完成判定的可裁决性（本版新增）。** 需要定义"完成"的三方裁决语义（执行侧声明、裁决侧裁决、缺席时的降级规则），并证明该闭环不会把执行侧拖死（执行侧永不等待裁决侧）、不会因裁决侧限流而无限挂起（429/超时 → 判负或转人工），且每次状态变更都有 append-only 审计。
 
-**问题六（诚实标注的开放问题）：跨进程互操作与语义检索。** 当前编排为单进程内多节点会话，尚未实现跨进程/跨组织协议化互操作；压缩历史的检索为"已知引用/词法命中才能读回"的拉取式，缺少语义检索入口（`docs/feature-instrumentation.md:53`）。两项作为后续演进方向与边界声明，不在本期交付承诺内。
+**问题六（诚实标注的开放问题）：跨进程互操作与语义检索。** 当前编排为单进程内多节点会话，尚未实现跨进程/跨组织协议化互操作；压缩历史的检索为"已知引用/词法命中才能读回"的拉取式，缺少语义检索入口（`README.md`「当前状态与边界」）。两项作为后续演进方向与边界声明，不在本期交付承诺内。
 
 **问题七：多模态输入的资产化与桌面操控的分级授权（本版新增）。** 需要给出图像在"落盘 → 引用 → 随请求送入"三段之间的不变量（同一画面只送一次、媒体永不截断、配额与文本大结果分轴、归属按执行会话解析），并论证"只读观察"与"输入注入"必须分级授权：观察的结果会真实进入模型上下文（因此默认逐次审批），注入会改变用户桌面（因此对子代理不可见、默认逐次审批）。验证手段是真机冒烟——用"提示词里不存在的颜色词"断言图片确实送达，链路任一段静默丢图都会失败。
 
@@ -460,7 +460,7 @@ Seelex 是针对上述矛盾的工程回应：一个开源、本地优先、多�
 | 并行"默认最大并发 3" | 无硬编码默认；`PolicyConcurrency` 未配置时随节点数增长，"3"来自 Effort 提示层声明 | ⚠️ **已澄清**（`policy.go:56-66`、`tool_provider.go:297`） |
 | Effort 四档 loop/工具预算 | 15/30、48/96、384/768、768/1536；medium 强制串行且 ≤4 节点 | ✅ 一致（`effort.go:48-73`） |
 | 可逆压缩、merge-back、双层边界、插件事务 | 均有生产实现（见 §3.2 内容三/五/八/九） | ✅ 已实现 |
-| 跨进程 A2A、标准化编码基准、语义检索 | 无实现 | ⛔ 明确未实现（`README.md` 边界、`feature-instrumentation.md:53`） |
+| 跨进程 A2A、标准化编码基准、语义检索 | 无实现 | ⛔ 明确未实现（`README.md`「当前状态与边界」） |
 
 **v3 新增核对项（2026-09-14）**
 
@@ -579,7 +579,7 @@ Seelex 是针对上述矛盾的工程回应：一个开源、本地优先、多�
 | ★相关记忆块 | 按查询从压缩帧取 top-K 渲染记忆块 | limit 3 / recency 0.15 / 1024 token | `memory/memory.go:47`、`block.go:16` |
 | ★历史检索读回 | 压缩栈作索引，命中帧范围读回真实记录 | 3/20；4000/12000；回退 300 | `search/search.go:35-47` |
 | ☆ 引用式读回工具族（v3 新增） | `read_tool_result` / `read_plan` / `read_compressed_turn` / `search_history` 四个读回入口，均有界分页且不改 Plan 状态 | 分页默认 4000、上限 12000 | `main.go:329-353`、`limits.reference_page_size`、`max_reference_page_size` |
-| ★CLI/项目级记忆 | MEMORY.md 索引常驻、详情按需 | 索引 ≤20；向量 limit 5/20 | `docs/plan/cli-memory.md`、`memory-architecture.md` |
+| ★CLI/项目级记忆 | MEMORY.md 索引常驻、详情按需 | 索引 ≤20；向量 limit 5/20 | `README.md` |
 | ★记忆生命周期铁律 | 危险操作先预警+备份；bugfix 先复现再修 | — | `MEMORY.md:6,36` |
 | ★跨会话记忆装配 | memory 块按项目粒度跨会话 | fork 复用稳定前缀 | `docs/arch/context-prefix-chain.md` |
 | ★会话顺序日志 | 每会话单条物理 append-only JSONL 为唯一事实源 | Ordinal 单调；I-LOG-1..5 | `docs/2026-09-07-session-order-log/README.md:62,93` |

@@ -13,7 +13,7 @@ import (
 // 串行队列——同一文件互斥、不同文件并行；读路径（Read）只读并发安全，
 // 直读不进队列。
 //
-// 背景（docs/plan/file-operations-actorization.md P0）：并行子代理直接
+// 背景（P0 文件操作 Actor 化）：并行子代理直接
 // 调用 os.WriteFile 时，write 相互覆盖；edit_file 的 read-modify-write
 // 非原子，后写者覆盖先写者。本 actor 把写操作串行化并原子化 edit。
 //

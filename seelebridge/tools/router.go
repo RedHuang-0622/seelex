@@ -401,7 +401,7 @@ func (r *Router) scopedWriteFile(ctx context.Context, argsJSON string) (string, 
 		return "", err
 	}
 	// 写路径经文件系统 actor（per-path 串行化——并行子代理写同一文件互斥，
-	// 见 docs/plan/file-operations-actorization.md P0）。
+	// 见 P0 文件操作 Actor 化设计）。
 	if err := r.deps.FileSystem.Write(path, []byte(input.Content)); err != nil {
 		return "", fmt.Errorf("write_file: write %q: %w", input.Path, err)
 	}

@@ -427,7 +427,7 @@ func (s *SessionContextStore) PushCompact(f CompactFrame) error
 func (s *SessionContextStore) Snapshot() SessionContextRecord  // 供 Assembler 渲染（拷贝）
 ```
 
-- `TaskStack` 是 Task 的**存储方式**：帧由事件投影降级生成，TaskService 不直接写存储；`TaskExecutionState` 是任务期间的**功能打点快照**（`docs/feature-instrumentation.md` 打点表与北极星指标），终态即亡、不持久化、不承担恢复（§3.4）。
+- `TaskStack` 是 Task 的**存储方式**：帧由事件投影降级生成，TaskService 不直接写存储；`TaskExecutionState` 是任务期间的**功能打点快照**（`README.md`「已实现能力」与「可观测性」两节），终态即亡、不持久化、不承担恢复（§3.4）。
 - 持久化：`SchemaVersion` 校验；损坏/不兼容时拒绝加载并显式失败（不静默重建），走会话恢复错误路径。
 - ChatQueue = ProviderHistory（append-only；轮 = `completeEventUnits` 单元）。窗口不单独存储，按轮读取：`window := ReadEventTail(sessionID, windowTokens, N)`（token 预算 + 单元数双限；短读用 `ReadRange` 语义）。
 - SystemPrompt 永不压缩：始终完整进入 provider 请求，不写入 ProviderHistory 消息、不被压缩或截断（会话不变量）。

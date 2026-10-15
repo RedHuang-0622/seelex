@@ -75,7 +75,7 @@ type roleEngine interface {
   配置面 `config/mcp.example.yaml` 的 `transport: stdio | sse` + `url`。
 - 装配闸门：`seelebridge/runtime_computer.go`（`bridgecomputer.Supported()` +
   `SEELEX_COMPUTER_USE`），因此"注册不注册这族工具"是一个显式开关。
-- 权威实测方法学与判据：`docs/linux-vm-demo/computer-use.md`（含 `xev` / `xdotool` 独立裁判法）。
+- 权威实测方法学与判据：`docs/2026-09-25-linux-vm-demo/computer-use.md`（含 `xev` / `xdotool` 独立裁判法）。
 
 ---
 
@@ -156,7 +156,7 @@ L0 的暴露面即**已经写死在契约里的工具名 + JSON 参数**
 |---|---|---|---|
 | 桌面观察/输入（`Desktop`） | ✔ | ✔ | ✔ |
 | `computer_scroll_targets` | ✔（UI Automation 的 ScrollPattern） | **✘ 恒 false**（`platform_darwin.go` 注释：AXScrollArea/AXScrollBar 未实现） | **✘ 设计性缺失**（X11 协议只有窗口与像素） |
-| 非 ASCII 文本注入（中文/emoji） | ✔ `SendInput` 逐 UTF-16 | ✔ `CGEventKeyboardSetUnicodeString` 直送 UTF-16 | **✘ 已知缺陷**：临时重映射键码丢字串字（`docs/linux-vm-demo/computer-use.md` §4） |
+| 非 ASCII 文本注入（中文/emoji） | ✔ `SendInput` 逐 UTF-16 | ✔ `CGEventKeyboardSetUnicodeString` 直送 UTF-16 | **✘ 已知缺陷**：临时重映射键码丢字串字（`docs/2026-09-25-linux-vm-demo/computer-use.md` §4） |
 | 前提/门槛 | Per-Monitor V2 DPI 感知声明（否则 125% 缩放下坐标落 80%） | 「屏幕录制」TCC 授权，**且授权后需重启 Seelex**（`platform_darwin.go:Prepare`） | 桌面输入法须在英文态；Wayland 未覆盖 |
 
 **所以"Mac 绷得住"目前有代码依据的只有一条：打字这个环节。**
@@ -167,7 +167,7 @@ CGEventKeyboardSetUnicodeString 直接把任意 UTF-16 序列送给前台应用"
 **macOS 的代价同样在代码里**：`Prepare()` 只预检「屏幕录制」授权，未授权直接报错且要求重启进程；
 而`input_darwin.go` 的 `darwinPostMouse` 注释自陈 *"CGEventPost 无返回，系统级投放失败是静默的"*
 ——**输入那条路的 TCC 失败是静默的**。因此任何 macOS 金丝雀都**必须包含"注入真的生效了"的
-外部核验**（照 `docs/linux-vm-demo/computer-use.md` 的裁判法：外部工具/落盘文件读回），不能靠工具自证。
+外部核验**（照 `docs/2026-09-25-linux-vm-demo/computer-use.md` 的裁判法：外部工具/落盘文件读回），不能靠工具自证。
 
 ---
 
@@ -229,7 +229,7 @@ Virtualization.framework），跑三个判据：
 | 2 | TCC 授权在**克隆出的** VM 里是否保留 | 决定能不能做"预制标准件"（决定 VM 池可不可行） |
 | 3 | 换新版本二进制后是否需要重新授权 / 重启 | 决定灰度一次部署的人工成本 |
 
-判据 2、3 通过后，再跑一次远端驱动 spike（照 `docs/linux-vm-demo/computer-use.md` §6 的剧本，
+判据 2、3 通过后，再跑一次远端驱动 spike（照 `docs/2026-09-25-linux-vm-demo/computer-use.md` §6 的剧本，
 外部核验而不是工具自证）：SSE 隧道（或 ssh + stdio）挂上 `computer-mcp`，主 Seelex 用
 `config/mcp.yaml` 的 `sse` 条目接入，观察延迟 / 断线重连 / 截图进上下文的成本 /
 **权限退化成 `adm` 之后的实际手感**（§5 的那颗钉子）。
@@ -257,7 +257,7 @@ Virtualization.framework），跑三个判据：
 **未验证**
 
 - macOS computer use 后端的**整体可用性**：仓内只有实现文件，**没有 macOS 实测报告**
-  （唯一实测报告是 Linux X11 的 `docs/linux-vm-demo/computer-use.md`）。
+  （唯一实测报告是 Linux X11 的 `docs/2026-09-25-linux-vm-demo/computer-use.md`）。
 - Apple 虚拟化许可的实例数限制原文。
 - 员工提权路径的生产可用性：`docs/arch/agent-permission-subjects.md` §7 自标部分未落地，
   且该文档 2026-09-15 后有过口径变更（角色会话相关注入已退场）。

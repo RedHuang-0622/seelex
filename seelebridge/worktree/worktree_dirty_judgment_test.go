@@ -7,7 +7,7 @@ package worktree
 // ——三份都在跑同一句 `git status --porcelain` 再判非空。
 //
 // 判据重复的代价不在"多写了几行"，而在**修一处不够**：本仓库 `core.autocrlf=true`，
-// 行尾差异会让"内容其实一样"的文件被判成已修改（事故形状见 docs/self_judgement.md：
+// 行尾差异会让"内容其实一样"的文件被判成已修改（事故形状见 docs/devlog/2026-08-11-agent-self-review.md：
 // 收尾段这条判据报 62 个"已修改"文件，而 `git diff --ignore-cr-at-eol` 比完是空的、
 // 文件内容哈希 主工作区 == worktree）。收成一份之后，CRLF 幻影脏的修复点只剩
 // worktree_manager.go 里 `status --porcelain` 那一行。

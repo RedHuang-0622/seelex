@@ -829,12 +829,12 @@ Snapshot/业务状态；accounts.yaml 等敏感名与 .git/node_modules/.seelex 
 - **5 套皮肤**：`qoder`（默认）/ `graphite` / `verdigris` / `paper` / `silver`，
   **每套都有自己的环境渐变**（深浅各一条，见 `themes/README.md` 的皮肤表）；
 - **文档与证据**：成因分析（五条可复现规则）、渐变色皮肤设计、逐文件改动表、静态复刻页
-  与实机截图都在 [`docs/design/qoder-skin/`](../../docs/design/qoder-skin/README.md)。
+  与实机截图都在 [`docs/gui/design/qoder-skin/`](../../docs/gui/design/qoder-skin/README.md)。
 
 **中栏是"一块带圆角的纸"（2026-09-24 第二波）**：`.workspace`（对话区整块 panel：子页页签条 +
 对话/轨迹 + composer + 终端面板）拿到 `border-radius: var(--r-md)`(8px)，子节点由既有
 `overflow: hidden` 一起裁圆；圆角里露出来的是壳的渐变，**不缩进**——这与 Qoder 实机量到的
-"纸四角 7–8px 圆角、四边紧贴窗口"一致（量法见 `docs/design/qoder-skin/tools/measure-skin.py`
+"纸四角 7–8px 圆角、四边紧贴窗口"一致（量法见 `docs/gui/design/qoder-skin/tools/measure-skin.py`
 同族，数值见 DESIGN-LANGUAGE §3）。同时把 `.conversation-tabs` 的底色清掉：它还留着
 **渐变换代前**的壳色 `var(--bg)`（#f7f6f2），叠在纸上就是第三种颜色、会把纸上面两个圆角
 抹平——纸要读成"一整块"，页签条就得是纸的一部分。

@@ -144,7 +144,7 @@ seelebridge ──> Seele 新根模块（agent/tools/session/workplan/seelectx/a
 
 Task 有**快照**与**存储**两个角色，职责明确分工：
 
-- **`TaskExecutionState`（快照，请求内瞬态）**：唯一用途是**功能打点**（`docs/feature-instrumentation.md` 打点表与北极星指标）——记录任务从开始到终态的进展、checkpoint 与 evidence。生命周期：task 开始创建，**task 终态（`task_complete`/`task_failed`/`task_needs_user_decision` 被接受）即结束**；不持久化、不承担会话恢复。
+- **`TaskExecutionState`（快照，请求内瞬态）**：唯一用途是**功能打点**（`README.md`「已实现能力」与「可观测性」两节）——记录任务从开始到终态的进展、checkpoint 与 evidence。生命周期：task 开始创建，**task 终态（`task_complete`/`task_failed`/`task_needs_user_decision` 被接受）即结束**；不持久化、不承担会话恢复。
 - **`TaskStack`（存储，会话级持久化）**：Task 使用史以 `TaskFrame` 入栈（§4.8，`now using task` = 栈顶），由事件投影降级生成；会话恢复只依赖 TaskFrame（含 Evidence 引用）与事件投影，**不依赖已消亡的快照**。
 
 Task 状态机（`taskExecutionState` → `TaskService`）只消费：会话结果（模型回复/错误）、工具事件（LoopHooks 观测）、**workplan 事件投影**（节点状态）与用户输入；终态工具 `task_complete`/`task_failed`/`task_needs_user_decision` 是 Registry 中的普通产品工具，`task_complete` 的"全部节点完成"校验改为**对 PlanState 投影**（由事件累积而来）的检查，不再在 chat.go 内直接读执行器状态；写入时机由"chat 生命周期"改为"事件 + 终态 + 会话边界"。好处不变：任务状态机、plan 事件投影、会话持久化可独立单测；终态校验与 DAG 执行器完全解耦。
