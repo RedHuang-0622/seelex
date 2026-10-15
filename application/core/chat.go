@@ -349,9 +349,10 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		// UI 展示原始输入，模型输入使用每次 Submit 时固化的 Skill 上下文。
 		batchRequest = combineChatRequests(pendingQueue)
 		runtime.SetRequests(nil)
-		// 队列被整批提升进本轮——**这就是 user 的发言机会**：团队发言环里没有
-		// user 的排班位（见 agentteam.ringOrder），用户只经这条队列提升通道
-		// 发言，环不需要被告知队列状态。
+		// 队列被整批提升进本轮——**这就是 user 的发言机会**：用户只经这条队列
+		// 提升通道发言（历史上的团队发言环把 user 排除在环外，那条环已于
+		// 2026-10-15 A04 删除；见 docs/2026-10-15-product-architecture-pre-design/
+		// legacy-capability-audit.md），因此不需要任何"轮到 user"的口径。
 		runtime.UpdateChat(func(chat *ChatState) {
 			chat.QueuedCount = 0
 			chat.InputQueue = nil

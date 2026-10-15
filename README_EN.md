@@ -227,17 +227,17 @@ The important design choice is that frontends do not own the agent state machine
 - ProjectScope and permission rules are not an OS, container or VM sandbox.
 - There is no git checkpoint/rewind abstraction yet.
 - There is no semantic repository index, repo map or IDE extension.
-- Multi-agent orchestration is in-process and is not an A2A Protocol implementation. The team turn
-  scheduler (`TurnScheduler`) is only **partially wired**: linked-list order (`Move` / `Remove` /
-  `Restore`), `SetPrefix`, `NoteTurn`, `SyncOrder` and `Snapshot` have production consumers, while
-  `Next()` / `Advance()` are primitives without one; since 2026-10-03 the goal governance seat loop has
-  retired entirely, so nothing drives "whose turn it is" — the leader's `team_dispatch` is what makes a
-  role speak, and the ring is escape bookkeeping only. Team closure (`team_close`) and goal closure
+- Multi-agent orchestration is in-process and is not an A2A Protocol implementation. The team speaking
+  ring (`TurnScheduler` / `Runtime`: linked-list order, escape bookkeeping, team-work prefix projection)
+  was deleted in full on 2026-10-15 (A04): the goal governance seat loop had already retired on
+  2026-10-03, and the ring had no producer and no consumer left. Nothing drives "whose turn it is" —
+  the leader's `team_dispatch` is what makes a role speak. Team closure (`team_close`) and goal closure
   (`goal_done`) are implemented, but both are in-process, prompt-driven actions rather than
   framework-level seat scheduling.
-- The `review-team` `reviewer` and `research-team` `researcher` roles only have role sessions and member
-  rows, no automatic turn yet (`AutomaticTurnRoles` contains only `user` / `main` / `tl`); the assembly surface
-  states this explicitly via `DesignNotice`.
+- The role turn executor (`runRoleRound`) carries the worker jobs dispatched by the leader and the
+  ADVISOR review turns of the terminal gate; it assembles a role's tool face and plugins
+  (`ToolsPolicy` / `PermissionGroups` / `Plugins`) and is unrelated to the retired Agent Team assembly
+  and member-table surfaces.
 - Standard SWE-bench or Terminal-Bench results have not been published.
 - Real WebView E2E is not yet a release gate.
 - Total statement coverage is 58.6% (2026-09-14); the TUI (35.6%) trails the core orchestration packages.

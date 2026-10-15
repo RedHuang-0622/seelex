@@ -1,30 +1,122 @@
 # core/agentteam
 
-> **本包的用户面已退场（2026-10-12，J-1a）**：Agent Team 的装配适配（`factory.go` /
-> `registry.go` / `library.go` / `global.go`，含 `MaterializeAgentTeam` / `AgentTeamView` /
-> 团队库 / 员工库 / 全局母本 / 员工提示词优化）与 `@` 手动召唤团队已随本条目整条删除，
-> 对应的 `application/core/agentteam_service.go`、`application/core/agentteam_runtime.go` 的装配
-> 读面、`application/core/agentteam_role_index.go` 也一并退场。
+> **退场时间线（现行状态以本节为准）**
 >
-> **留下的是什么**：只留 `spec.go`（`TeamSpec`/`RoleSpec` 规整、**`RoleSessionID`** 派生）、
-> `runtime.go` + `scheduler.go`（发言调度原语；`*agentteam.Runtime` 仍是 goal 侧
-> `TeamRuntimeFor` 的签名类型，但没有来路再建环 ⇒ 遗留不可达）、以及它们的功能用例。
-> 换言之：本包现在是**纯内部基座**（角色会话号派生 + 调度原语），**没有用户可见面**。
+> | 日期 | 条目 | 退场内容 |
+> |---|---|---|
+> | 2026-10-12 | J-1a | Agent Team 装配适配（`factory.go` / `registry.go` / `library.go` / `global.go`，含 `MaterializeAgentTeam` / `AgentTeamView` / 团队库 / 员工库 / 全局母本 / 员工提示词优化）与 `@` 手动召唤；`application/core/agentteam_service.go`、`agentteam_runtime.go` 的装配读面、`agentteam_role_index.go` 一并删除 |
+> | 2026-10-15 | A03 | `application/core/agentteam_runtime.go` 整文件的环接线（`teamRuntimeStore` / `teamRuntimeBySession` / `noteTeamWorkPrefix` / `releaseTeamRuntime`）与 goal 侧 `TeamRuntimeFor` 依赖 |
+> | 2026-10-15 | A04 | 本包的 `runtime.go`（`Runtime`：环成员同步、逃生记账、`Next`/`Advance` 推进、team work 前缀投影）与 `scheduler.go`（`TurnScheduler` + 链表 + `TurnRequest`）及其四个用例文件 |
 >
-> 以下正文是**退场前**的记录，未逐行重写：凡是 Agent Team 装配/面板/`@`/团队库/员工库/
-> 母本的行都**已不再成立**；保留它们是为了说明"删掉的是什么、为什么曾经这么设计"。
+> 依据 [`docs/2026-10-15-product-architecture-pre-design/legacy-capability-audit.md`](../../../docs/2026-10-15-product-architecture-pre-design/legacy-capability-audit.md)（A03/A04）。
+> A04 的执行前置正是 A03：`TeamRuntimeFor` 摘掉后，`*agentteam.Runtime` 不再是任何生产签名
+> 的类型，全仓 Go 源码只剩注释提及；环本身没有任何建造入口，也没有任何消费者。
 
-# core/agentteam
+## 生态位
+
+本包现在只剩 `spec.go`，且没有用户可见面：
+
+1. **`RoleSessionID(mainSessionID, teamID, roleName)`** —— 角色会话号派生（重复装配幂等的键）。
+   它是本包**唯一在生产仍被调用**的符号，调用方是 `application/core/goal_team_recorder.go`。
+   `teamwork.DefaultRoleSessionID` 与它同形但不同语义（空 team ID / 空白裁剪 / 默认身份不同），
+   两者**不合并**（见 A12：合并会改变空值兼容并制造新的角色会话键）。
+2. **`Normalize` / `NormalizeRole` / `ValidToolPolicy` / `resolveOrderRoles`** —— 角色与
+   `TeamSpec` 的写入侧规整口径。装配面（`Factory` / `Registry` / 团队库 / 员工入职）已随 J-1a
+   退场，因此它们**当前没有生产调用方**：保留是为了"权限档位 / 权限格子 / 插件清单只允许
+   `readonly`/`readwrite`/`full` 与显式拒绝"这套判据仍然只有一处实现（`ValidToolPolicy` 与
+   `dto.NormalizePermissionGroups`/`dto.NormalizePlugins` 是同一套写入侧白名单），
+   而不是留一条活的装配链。`RoleSpec` 的 `ToolsPolicy`/`PermissionGroups`/`Plugins` 仍是
+   队友执行链的**活动**配置（见 A07），不随本包退场。
+
+非职责（现行，未变）：不接纳 subagent（它是 tool calling 能力，不建角色会话、不进顺序、
+不占 floor）；不写 message（正文只由 sequencer append）；`role_name` 只是 metadata，
+provider role 仍只有 `system`/`user`/`assistant`/`tool`。
+
+替代能力：团队事实归 teamwork（`seelebridge/teamwork` 的 `TeamworkPlan` 里程碑屏障 +
+WorkItem DAG，leader 掌控），goal 终态由 goal 域 gate 判定；**发言环与"下一个谁发言"
+没有替代者，因为它不是产品能力**（让角色说话的是 leader 的 `team_dispatch`）。
+
+旧顺序/调度字段（`lifecycle.order_policy`/`order_roles`、`dto.TeamSchedule`、`TeamSpec.OrderPolicy`）
+只保留**读兼容**、已无生产者，处理口径见 A05；`session/team/roles.json` 的读写面保留
+**只读兼容与旧数据可诊断**口径，见 A06 与 [`sessionstore/README.md`](../../../sessionstore/README.md)。
+
+## 文件结构
+
+| 文件 | 职责 |
+|---|---|
+| `spec.go` | `TeamSpec`/`RoleSpec` 写入侧规整与校验（`Normalize` / `NormalizeRole` / `ValidToolPolicy` / `resolveOrderRoles`）、角色会话号派生（`RoleSessionID`） |
+| `spec_plugins_test.go` | 本包当前仅存的用例：`NormalizeRole` 的插件装配写入侧口径（去空白 / 显式拒绝重复 / 上限 / 空 = 不覆盖） |
+
+已删除（勿再按名字找）：`factory.go`、`registry.go`、`library.go`、`global.go`、
+`runtime.go`、`scheduler.go`、`agentteam_test.go`、`team_view_test.go`、
+`runtime_test.go`、`scheduler_test.go`、`scheduler_wiring_test.go`、`prefix_test.go`。
+
+## 核心实现
+
+- `RoleSessionID(mainSessionID, teamID, roleName)`：`mainSessionID-teamID-roleName` 的**纯函数**
+  派生（各段去空白；`teamID` 为空时用 `dto.DefaultTeamID` 兜底；`mainSessionID` 为空时退化成
+  `teamID-roleName`，仅供桩/测试）。它就是持久化的角色会话键，不是展示名。
+- `Normalize` / `NormalizeRole` / `ValidToolPolicy` / `resolveOrderRoles`：`TeamSpec`/`RoleSpec`
+  的**写入侧白名单**——只接受 `readonly`/`readwrite`/`full`/空（枚举外的拼写显式报错，因为运行时
+  把未识别值映射成全权）、权限格子与插件清单交给 `dto.NormalizePermissionGroups` /
+  `dto.NormalizePlugins`（同一套判据只有这一处实现）。
+- 数据流：调用方（goal 记录器、未来的角色装配者）提供 `(主会话, team_id, role_name)` → 本包
+  返回稳定角色会话号；本包**不读盘、不写盘、不建会话**（那曾是 `Factory`/`Port` 的职责，已退场）。
+
+## 依赖方向
+
+- 允许：本包 → `application/contract/dto`（纯 DTO）。
+- 禁止：本包 → `sessionstore`、`internal/adapters`、`gui`；也禁止反向依赖（存储与界面不得
+  import 本包）。存储形态只在适配器里出现。
+
+## Review 指南
+
+- 有人要改 `dto.DefaultTeamID`（`"goal-a2a"`）或 `RoleSessionID` 的拼接形状吗？它是**身份分量**：
+  改它 = 既有角色会话号全体分裂（同名角色被当成新员工，会话子树/权责反查/项目根绑定错位）。
+  要改必须走一次显式迁移，并带旧号码的冷读用例。
+- 有人以"装配面已退场"为由要删 `RoleSpec` 的 `ToolsPolicy`/`PermissionGroups`/`Plugins` 吗？
+  它们是 teammate 执行链的**活动**配置（`runRoleRound` + WorkerRequest）；权限不随插件走、
+  插件只收窄、永不放宽，删字段等于放宽权限或让装配落空。
+- 有人重新引入"发言顺序 / 下一个谁发言"的运行时（环、轮转、逃生计数）吗？那是已退场的产品语义
+  （A04）：让角色说话的是 leader 的 `team_dispatch`；新长一份就是第二个顺序事实。
+- 旧字段（`lifecycle.order_policy/order_roles`、`dto.TeamSchedule`）只能读、不得按它分支；
+  它们的生产者都已删除，任何"按 schedule 决定行为"的新代码都是错的。
+- `ValidToolPolicy` 的枚举与 `dto.NormalizePermissionGroups`/`dto.NormalizePlugins` 是否仍只有
+  一处实现？两处判据必须一起漂移（A14 的纪律）。
+
+## 测试与验证
+
+```text
+gofmt -l .
+go build ./...
+go build -tags "gui,desktop,production" ./...
+go vet ./...
+go test ./application/core/... ./sessionstore/... -count=1
+```
+
+本包当前只有一条用例：`spec_plugins_test.go`（`NormalizeRole` 的插件装配写入侧口径）。
+`RoleSessionID` 的行为在调用方与 `seelebridge` 的用例里被间接覆盖。
+
+---
+
+## 退场前记录（历史，2026-10-12 之前的口径）
+
+以下正文是**退场前**的记录，未逐行重写：凡提到 Agent Team 装配/面板/`@`/团队库/员工库/
+母本/环（`Runtime`、`TurnScheduler`、`AutomaticTurnRoles`、`assembleView`）的行都
+**已不再成立**（相关文件多数已删除）；保留它们是为了说明"删掉的是什么、为什么曾经这么设计"。
+设计与决策轨迹的权威位置是 `docs/devlog/` 与 `docs/arch/`：
+[`2026-10-01-turn-rotation-retired.md`](../../../docs/devlog/2026-10-01-turn-rotation-retired.md)、
+[`2026-10-03-seat-rotation-retired.md`](../../../docs/devlog/2026-10-03-seat-rotation-retired.md)、
+[`2026-10-01-m4-deadcode-inventory.md`](../../../docs/devlog/2026-10-01-m4-deadcode-inventory.md)。
 
 > **2026-10-03（阶段三 W3）口径更新**：goal 的**席位轮转整条退场（已删除）**——
 > `application/core/govern`（整包，已删除）、`goal/adapter.go`（已删除）、座位作业面
 > （`jobs.KindSeat` / `SeatExecutor` / `SetSeatRoundRunner` / `RunSeat`，已删除）、座位派生
 > （`newGovernor` / `seatsFor` / `seatPlan` / `RoleSeat`，已移除）与 headless `goal_gov_*`
 > 均已删除。团队角色只服务 leader 派发的 worker 作业，顺序的唯一事实是 team plan
-> 的 `stages[].depends_on`；本包的 `Runtime` 只剩**环逃生记账**一个生产用途。
-> 详见 [`docs/devlog/2026-10-03-seat-rotation-retired.md`](../../../docs/devlog/2026-10-03-seat-rotation-retired.md)。
+> 的 `stages[].depends_on`。
 
-## 生态位
+## 退场前：生态位
 
 A2A 角色团队的**通用装配能力面**：把「`TeamSpec`/`RoleSpec` → 角色会话 + 工作顺序 +
 成员表」抽成可复用装配，供 `application/core` 的 Service 门面与 headless `team.*`
@@ -47,7 +139,7 @@ A2A 角色团队的**通用装配能力面**：把「`TeamSpec`/`RoleSpec` → �
 「装配」按钮（团队库条目）/ `@<团队>`（团队库条目，可带附言）。幂等由工厂保证
 （同 `(主会话, team_id, role_name)` 派生同一 `role_session_id`）。
 
-## 职责与非职责
+## 退场前：职责与非职责
 
 做什么：
 
@@ -66,7 +158,7 @@ A2A 角色团队的**通用装配能力面**：把「`TeamSpec`/`RoleSpec` → �
 - 不决定 provider role：`role_name` 只是 metadata，provider 侧仍只有
   `system/user/assistant/tool`。
 
-## 架构图
+## 退场前：架构图
 
 ```mermaid
 flowchart TB
@@ -107,7 +199,7 @@ flowchart TB
     PLAN --> FE
 ```
 
-## 时序图：装配
+## 退场前：时序图（装配）
 
 ```mermaid
 sequenceDiagram
@@ -132,10 +224,11 @@ sequenceDiagram
     Note over S,L: 角色干活由 leader 在 team_plan 阶段派活驱动
 ```
 
-## 接线现状（2026-09-14 复核）
+## 退场前：接线现状（2026-09-14 复核）
 
-装配得出来 ≠ 有人在干活。下表是**当前代码事实**（每条都可按"证据"列复核），写在这里
-是为了避免把"已注册/已装配"读成"已生效"：
+装配得出来 ≠ 有人在干活。下表是**退场前**的代码事实（每条都可按"证据"列复核），写在这里
+是为了避免把"已注册/已装配"读成"已生效"。表中提到 `Runtime` / `TurnScheduler` 的两行
+已被 A04（2026-10-15）整条删除，见本文件顶部的退场时间线：
 
 | 能力 | 现状 | 证据 |
 |---|---|---|
@@ -175,7 +268,16 @@ user**（环头扫描会落到它），与「其余时间都是 agent teammate �
 ③ 环内没有任何有执行者的角色 `no_automatic_turn`；④ 空环 `empty_ring`；⑤ 外部显式停止 `external_break`
 （用户中断 / goal 收口）。停止是正常收束而非错误，原因随 `TeamView.schedule` 下发前端。
 
-## 文件结构
+> **A04（2026-10-15）已删除本节的环**：`runtime.go` / `scheduler.go` 与四个用例文件
+> （`runtime_test.go` / `scheduler_test.go` / `scheduler_wiring_test.go` / `prefix_test.go`）
+> 一并移除，`Runtime` / `TurnScheduler` / `TurnRequest` / `AutomaticTurnRoles` /
+> `RolesWithoutAutomaticTurn` / `ringOrder` / `cleanOrder` / `NoteMainContext` /
+> `renderMainContextPrefix` 全部不再存在。因此上文"结论口径"里"链表顺序与 `SetPrefix` 有
+> 生产消费者 / `Advance()` 只是没有调用者"一段**整段作废**：这条链在 A03（`TeamRuntimeFor`
+> 摘除）之后就没有任何消费者，A04 只是把它删掉。判据 = 全仓 `.go` 索引中这四个符号只剩
+> 注释提及，且 `*agentteam.Runtime` 不再是任何生产签名的类型。
+
+## 退场前：文件结构
 
 | 文件 | 职责 |
 |---|---|
@@ -188,7 +290,7 @@ user**（环头扫描会落到它），与「其余时间都是 agent teammate �
 | `runtime.go` | `Runtime`：会话级发言调度运行态（环成员同步 = 顺序 − user、逃生路径、team work 前缀载体），投影 `dto.TeamSchedule` |
 | `agentteam_test.go` | 规整/工厂幂等/第二团队（AT8）/定时分区/注册表用例 |
 
-## 核心实现
+## 退场前：核心实现
 
 - `Port` 是唯一外部依赖面：`EnsureRoleSession`、`ReadLifecycleOrder`、
   `SetLifecycleOrder`、`Read/WriteTeamRegistry`。实现方是 `application/core` 的
@@ -210,7 +312,7 @@ user**（环头扫描会落到它），与「其余时间都是 agent teammate �
   `DesignNotice` 必须明说"没有自动回合"：执行者事实表 = `AutomaticTurnRoles`
   （`user`/`main` 由宿主驱动，`tl` 由 goal 治理执行）。
 
-## 数据流或生命周期
+## 退场前：数据流或生命周期
 
 ```text
 TeamSpec（团队库条目 / 前端提交）
@@ -227,13 +329,13 @@ TeamSpec（团队库条目 / 前端提交）
 presence 与 `message head.floor` 提供，不在本包落盘；`Registry.View`/`SetOrder`/
 `Materialize` 每次返回视图时经可选 `FloorPort` 重新读取 floor（运行态值不缓存）。
 
-## 依赖方向
+## 退场前：依赖方向
 
 - 允许：本包 → `application/contract/dto`（纯 DTO）。
 - 禁止：本包 → `sessionstore`、`internal/adapters`、`gui`；也禁止反向依赖
   （存储与界面不得 import 本包）。存储形态只在适配器里出现。
 
-## 并发、存储、安全或错误语义
+## 退场前：并发、存储、安全或错误语义
 
 - 装配是**幂等**的：重复 `Materialize` 复用同一角色会话；注册表与顺序整份替换。
 - 错误一律显式：未注册角色进顺序、定时角色进顺序、重复 `role_name`、内置角色被
@@ -242,7 +344,7 @@ presence 与 `message head.floor` 提供，不在本包落盘；`Registry.View`/
 - 不做读时补写：`View` 遇到「注册表有角色但 lifecycle 无顺序」时按注册顺序推导只读
   视图，不落盘，避免读操作产生第二份事实。
 
-## 扩展方式
+## 退场前：扩展方式
 
 - 新增一支团队：**不用改代码**——在面板「团队库」新建（或把当前会话存进库），装配时
   走同一条 `TeamSpec` 通道；要新角色种类才动 `dto.RoleKind`。
@@ -251,7 +353,7 @@ presence 与 `message head.floor` 提供，不在本包落盘；`Registry.View`/
 - 新增角色字段：加在 `dto.RoleSpec` + `sessionstore.TeamRoleSpec` + 适配器映射三处，
   保持旧注册表可读（缺字段 = 未配置）。
 
-## Review 指南
+## 退场前：Review 指南
 
 - 顺序是不是只落 `lifecycle`？有没有在别处复制一份 `order_roles`（环成员是它的投影，不是第二份事实）？
 - 定时角色有没有漏进 `order_roles`？subagent 有没有被当成团队成员？
@@ -264,7 +366,7 @@ presence 与 `message head.floor` 提供，不在本包落盘；`Registry.View`/
 - `scheduler.go` 被改动时，README「接线现状」表与 `scheduler_wiring_test.go` 是否同步？
 - 环成员是不是仍然等于「`order_roles` − `user`」？有没有哪条路径把 user 放回环里（那会让「下一个发言」指向人）？
 
-## 测试与验证
+## 退场前：测试与验证
 
 ```text
 gofmt -l .
@@ -289,77 +391,6 @@ go test -race ./application/core/agentteam -count=1
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-### prefix_test.go
-
-- `func TestNoteMainContextFeedsSpeakerPrefix(t *testing.T)` — TestNoteMainContextFeedsSpeakerPrefix：主会话 wire 的正文进前缀，交班时真的下发给
-- `func TestNoteMainContextProjectsWholeWire(t *testing.T)` — TestNoteMainContextProjectsWholeWire：前缀就是主会话上下文本身——本包不再二次
-- `func TestNoteMainContextEmptyWireStaysQuiet(t *testing.T)` — TestNoteMainContextEmptyWireStaysQuiet：主会话还没有可装配的正文时前缀为空，
-- `func TestTeamPrefixHasNoFrontendWriteEntry(t *testing.T)` — TestTeamPrefixHasNoFrontendWriteEntry 是**守卫用例**：前缀的写入口只能在后端，
-- `func keysOf(set map[string]bool) []string`
-- `func prefixSkipDir(name string) bool` — prefixSkipDir 报告扫描时应跳过的目录（构建产物 / 依赖缓存 / 临时现场）。
-- `func prefixRepoRoot(t *testing.T) string`
-
-### runtime.go
-
-- `func NewRuntime(order []string, sessions map[string]string, orderPolicy string, opts RuntimeOptions) *Runtime` — NewRuntime 构造运行态。sessions 提供 role_name → role_session_id（成员表的
-- `func (r *Runtime) SyncOrder(order []string, sessions map[string]string, orderPolicy string)` — SyncOrder 把注册表/顺序的当前事实同步进环（每次角色增删改或顺序调整后调用）。
-- `func (r *Runtime) Order() []string` — Order 返回环当前的链表顺序（快照；不含 user）。
-- `func (r *Runtime) NoteMainContext(wire dto.RoleWireSnapshot)` — NoteMainContext 用「主会话上下文 + 主会话 draft」的只读装配结果刷新 team work
-- `func (r *Runtime) Prefix() string` — Prefix 返回当前正文前缀（只读；前端/巡检面用它做快照查看）。
-- `func renderMainContextPrefix(messages []dto.RoleWireMessage) (string, []string)` — renderMainContextPrefix 把主会话 wire 的正文投影成前缀文本与投影行（纯函数，
-- `func wireMessageLine(message dto.RoleWireMessage) string` — wireMessageLine 把一条 wire 正文压成一行：有正文用正文；只有工具调用时保留
-- `func (r *Runtime) Round() int` — Round 返回已经走过的轮数。
-- `func (r *Runtime) NoteTurn(progressed bool) (bool, string)` — noteprogress 记账一次回合：progressed=false 累计"连续无进展"，到达上限即
-- `func (r *Runtime) Stop(reason string)` — Stop 显式停止环（用户中断 / 裁决收口 / 外部 Break）。
-- `func (r *Runtime) stopLocked(reason string)`
-- `func (r *Runtime) Stopped() (bool, string)` — Stopped 返回环是否已被逃生路径收束，以及原因。
-- `func (r *Runtime) Reset()` — Reset 把环恢复到"未开始"的记账状态：清停止态与轮次/无进展计数，顺序与成员
-- `func (r *Runtime) Next() (TurnRequest, bool)` — Next 推进一格并返回下一个该发言的成员。ok=false 表示环内没有人能发言
-- `func (r *Runtime) skipLocked(roleName string) bool` — skipLocked 报告某个成员本轮不应占位：环里挂着没有自动回合的角色
-- `func (r *Runtime) Snapshot() dto.TeamSchedule` — Snapshot 投影成只读运行态（前端「下一个谁发言 / 第几轮 / 是否已逃生」）。
-- `func (r *Runtime) peekNext() (TurnRequest, bool)` — peekNext 在不改动游标的前提下算出"下一个谁发言"（Snapshot 用）。
-- `func cleanOrder(order []string) []string` — cleanOrder 去掉空名与重复项（顺序事实来自 lifecycle，容错但不伪造）。
-- `func ringOrder(order []string) []string` — ringOrder 把顺序事实（lifecycle.order_roles）投影成**发言环的成员**：去掉
-- `func rolesWithoutAutomaticTurn(orderRoles []string) []string` — rolesWithoutAutomaticTurn 返回工作顺序里**没有自动回合**的角色（保序、去重）。
-- `func RolesWithoutAutomaticTurn(orderRoles []string) []string` — RolesWithoutAutomaticTurn 是 rolesWithoutAutomaticTurn 的导出形态：发言调度运行态
-
-### runtime_test.go
-
-- `func newTestRuntime(order []string, policy string, opts RuntimeOptions) *Runtime`
-- `func TestRuntimeMaintainsRingFromRegistryOrder(t *testing.T)` — TestRuntimeMaintainsRingFromRegistryOrder：环里的员工就是注册表顺序里的员工
-- `func TestRuntimeRingsThroughExecutorsOnly(t *testing.T)` — TestRuntimeRingsThroughExecutorsOnly：按链表转一圈，只落在有执行者的角色上；
-- `func TestRuntimeRingExcludesUser(t *testing.T)` — TestRuntimeRingExcludesUser：环里没有 user——user 的发言机会是回合尾消息队列
-- `func TestRuntimeEscapeRoundLimit(t *testing.T)` — TestRuntimeEscapeRoundLimit：轮次上限是逃生路径第一道——到达即停，且原因是
-- `func TestRuntimeEscapeNoProgress(t *testing.T)` — TestRuntimeEscapeNoProgress：连续无进展是逃生路径第二道——推进一次即清零，
-- `func TestRuntimeEscapeNoAutomaticTurn(t *testing.T)` — TestRuntimeEscapeNoAutomaticTurn：环里一个能发言的都没有时显式收束（no_automatic_turn /
-- `func TestRuntimeEscapeExternalStop(t *testing.T)` — TestRuntimeEscapeExternalStop：用户中断 / goal 收口走同一个显式停止入口，原因
-- `func TestRuntimeResetRevivesEscapeState(t *testing.T)` — TestRuntimeResetRevivesEscapeState：逃生是显式结论，但**复活也必须是显式可达
-- `func TestRuntimeResetOnNilIsSafe(t *testing.T)` — TestRuntimeResetOnNilIsSafe：Reset 走 nil 接收者安全（未装配团队环的会话在
-
-### scheduler.go
-
-- `func NewTurnScheduler(order []string, sessions map[string]string) *TurnScheduler` — NewTurnScheduler 按 order 建链；sessions 提供 role_name → role_session_id，
-- `func (s *TurnScheduler) SetPrefix(prefix string)` — SetPrefix 更新 team work 起点到当前位置的上下文前缀（装配侧每次读出新事实后
-- `func (s *TurnScheduler) advanceLocked() *roleNode` — advanceLocked 把 current 推进到链表下一节点（走到表尾则回到表头）；空链表
-- `func (s *TurnScheduler) Advance(skip func(roleName string) bool) (TurnRequest, bool)` — Advance 按链表推进一格并返回下一名**可发言**成员。
-- `func (s *TurnScheduler) SetOrder(order []string, sessions map[string]string)` — SetOrder 整表替换顺序（顺序写路径的下发口：Runtime.SyncOrder）。
-- `func (s *TurnScheduler) setOrderLocked(order []string, sessions map[string]string)`
-- `func (s *TurnScheduler) Order() []string` — Order 返回链表当前顺序（快照）。
-- `func (s *TurnScheduler) sessionsLocked() map[string]string` — sessionsLocked 返回链表当前的 role_name → role_session_id 快照
-
-### scheduler_test.go
-
-- `func TestTurnSchedulerChainOrderAndPrefixHandoff(t *testing.T)` — TestTurnSchedulerChainOrderAndPrefixHandoff 验证存活的链表原语：整表替换顺序
-
-### scheduler_wiring_test.go
-
-- `func TestTurnSchedulerHasSingleProductionCallSite(t *testing.T)` — TestTurnSchedulerHasSingleProductionCallSite 钉住"已接线且只有一处"。
-- `func TestTurnSchedulerWiredStatusIsDocumented(t *testing.T)` — TestTurnSchedulerWiredStatusIsDocumented 钉住文档声明：README 必须写明接线点
-- `func schedulerHasCallSite(source string) bool` — schedulerHasCallSite 报告源码里是否有 `NewTurnScheduler` 的**调用**（定义不算）。
-- `func schedulerSkipDir(name string) bool` — schedulerSkipDir 报告扫描时应跳过的目录（非源码树：构建产物/临时现场/依赖缓存）。
-- `func TestTurnSchedulerWiredStatusIsDocumentedInSources(t *testing.T)` — schedulerRepoRoot 从包工作目录向上找到含 go.mod 的仓库根。
-- `func schedulerRepoRoot(t *testing.T) string`
-
 ### spec.go
 
 - `func Normalize(spec dto.TeamSpec) (dto.TeamSpec, error)` — Normalize 把 TeamSpec 规整成可装配形态：补默认值、去重、推导 order_roles、
@@ -374,10 +405,4 @@ go test -race ./application/core/agentteam -count=1
 ### spec_plugins_test.go
 
 - `func TestNormalizeRoleNormalizesPlugins(t *testing.T)` — TestNormalizeRoleNormalizesPlugins 钉住写入侧的**语法**口径（与编排侧共用
-
-### testspecs_test.go
-
-- `func testGoalSpec() dto.TeamSpec` — testGoalSpec 是一支 goal 形态的团队：user → main → tl（tl 是 techlead，角色回合
-- `func testReviewSpec() dto.TeamSpec` — testReviewSpec 是第二支团队（AT8 证据）：换角色集与顺序策略，代码路径不变。
-- `func testResearchSpec() dto.TeamSpec` — testResearchSpec 是第三支团队：演示"定时角色不入 order_roles"的分区。
 

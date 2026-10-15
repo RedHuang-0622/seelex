@@ -4,9 +4,10 @@ package core
 // 治理的 ADVISOR 回合（TLEvalSignal{turn_completed}.Detail → work.progress 帧）。
 //
 // 它只作 goal 域 ADVISOR 回合的评审输入，**不是**任何会话前缀的作者：团队 work
-// 前缀（旧 Service.noteTeamWorkPrefix / agentteam.Runtime.NoteMainContext）已随
-// Agent Team 用户面（J-1a，2026-10-12）退场。本文件的摘要按轮切分，与 engine loop
-// 的逐行对话记录不同源，天然是"第二套叙述"。
+// 前缀整条链（旧 Service.noteTeamWorkPrefix 与其投影 agentteam.Runtime.NoteMainContext）
+// 已随 Agent Team 用户面（J-1a，2026-10-12）与发言环（A04，2026-10-15）退场，
+// 现在没有任何前缀消费者。本文件的摘要按轮切分，与 engine loop 的逐行对话记录
+// 不同源，天然是"第二套叙述"。
 //
 // 为什么在这里：EXEC 的可见会话投影是应用层事实（谁说了什么、调了哪些工具），
 // 而 goal 域只接受一句有界 Detail（MaxSignalDetailRunes）——压缩是应用层职责，

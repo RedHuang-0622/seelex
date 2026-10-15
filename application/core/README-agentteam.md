@@ -13,7 +13,6 @@ AgentTeam 装配适配与群聊角色会话透传（端口形状与 A2A 元数�
 
 ### agentteam_fixture_test.go
 
-- `func goalTeamFixture() dto.TeamSpec` — goalTeamFixture 是一支 goal 形态的团队：user → main → tl（tl 是 techlead，角色回合
 - `func newLibrarySessions() *librarySessions`
 - `func (s *librarySessions) ReadTeamLibrary(string) (dto.TeamLibrary, error)`
 - `func (s *librarySessions) WriteTeamLibrary(_ string, library dto.TeamLibrary) error`

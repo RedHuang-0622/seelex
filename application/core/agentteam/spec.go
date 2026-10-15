@@ -1,13 +1,21 @@
-// Package agentteam 是 A2A 角色团队的通用装配能力面。
+// Package agentteam 现在只剩「角色身份 + 写入侧规整」两件事。
 //
-// 生态位：把「RoleSpec/TeamSpec → 角色会话 + 成员表」抽成可复用装配，供 Agent Team
-// 的各个来路（团队库条目装配 / 员工入职 / `@` 召唤）共用。权威边界见
-// docs/arch/a2a-agent-team-factory.md。
+// 状态（2026-10-15，A03/A04）：**装配面与发言环都已退场**——`Factory` / `Registry` /
+// 团队库 / 员工库 / 全局母本 / 员工入职 / `@` 召唤（J-1a，2026-10-12）与发言环
+// `Runtime` / `TurnScheduler`（A04，2026-10-15）均已删除。剩下的只有：
+//   - `RoleSessionID`：角色会话号的派生（重复装配幂等的键；生产调用方是
+//     `application/core/goal_team_recorder.go`）；
+//   - `Normalize` / `NormalizeRole` / `ValidToolPolicy` / `resolveOrderRoles`：角色与
+//     TeamSpec 的写入侧白名单（当前没有生产调用方，保留为**唯一一份**判据；
+//     `RoleSpec` 的权限/插件字段仍是 teammate 执行链的活动配置，见 A07）。
+//
+// 退场轨迹见 docs/2026-10-15-product-architecture-pre-design/legacy-capability-audit.md
+// （A03/A04）与 docs/devlog/2026-10-15-legacy-capability-retirement-a04-a06.md；
+// 原装配设计的权威边界见 docs/arch/a2a-agent-team-factory.md（历史设计）。
 //
 // **没有内置形态目录**（2026-10-01，用户口径：内置形态对 teamwork 已经过时）：
 // 本包不再提供任何"预置团队"（旧的 goal-a2a / review-team / research-team 三支已随
-// presets.go 一起删除）。一支团队就是调用方给的一份 TeamSpec（或团队库里的一个条目）：
-// 有谁、什么顺序，由数据说，不由代码里的模板说。leader-worker 目标态里顺序归 leader
+// presets.go 一起删除）：有谁、什么顺序由数据说，不由代码里的模板说。顺序现归 leader
 // 的 team plan（docs/arch/teamwork-leader-worker-architecture.md §4.6/D4）。
 //
 // 非职责：subagent 是 tool calling 能力，不属于 AgentTeam，本包不接纳、不排序、
