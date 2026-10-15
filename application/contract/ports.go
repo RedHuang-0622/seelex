@@ -455,10 +455,24 @@ type ApprovalBroker interface {
 // 返回给调用方，落盘仍走角色注册表（用户点"入职/保存"才写）。
 //
 // 未装配（nil）时应用层返回可展示错误，不静默返回原文。
+//
+// 状态（A08，2026-10-15）：**保留，标为 legacy 读面**。它唯一的产生方是员工入职
+// 面板，而该入口已随 2026-10-12 J-1a 退场；静态全仓索引里 `RolePromptPort` /
+// `OptimizeRolePrompt` 只剩本文件（契约）、`application/core/aliases.go`（别名）、
+// `seelebridge/runtime_role_prompt.go`（实现）与测试，没有应用层生产调用者；
+// `Dependencies.RolePrompt` 在组合根**不再注入**（见 `main.go` 的 J-1a 说明）。
+// 保留的理由：它是**对外可选能力契约**（宿主/第三方可自行装配实现），删除等于
+// 版本化 API 破坏。移除条件 = 下一次对外 API 版本变更，且与 `Dependencies.RolePrompt`
+// 字段、`SetRolePromptProvider` 读面同批处理。
 type RolePromptPort interface {
 	OptimizeRolePrompt(ctx context.Context, req dto.RolePromptOptimizeRequest) (dto.RolePromptOptimizeResult, error)
 }
 
+// Dependencies 是应用层向装配根索取端口的地方。
+//
+// RolePrompt 是「角色提示词一次性优化」的可选装配口（见 RolePromptPort）：组合根自
+// 2026-10-12 J-1a 起不再注入（员工入职面板退场）；nil 时应用层返回可展示错误，
+// ADVISOR 回合照旧回退内置提示词（见 seelebridge/runtime_role_prompt.go，A08）。
 type Dependencies struct {
 	Engine     ChatEngine
 	Runtime    RuntimePort

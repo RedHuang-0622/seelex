@@ -524,6 +524,14 @@ func (server *headlessServer) dispatchGoal(method string, args []json.RawMessage
 	case "goal.status":
 		return app.GoalStatusFor(sessionID)
 	case "goal.gov_snapshot":
+		// 只读观察面（A09，2026-10-15）：返回当前视图会话的 GoalGovernanceView 投影
+		// （活动栈 / 状态 / 里程碑步骤），**不推进轮次、不改任何事实**——它是诊断与
+		// GUI 观察面，不是席位控制面。
+		//
+		// 旧控制面 `goal.gov_next` / `goal.gov_break` 已随 2026-10-03 阶段三 W3 的
+		// 席位轮转退场：两个方法名落到 default 分支，按"未知 goal headless 方法"
+		// 拒绝。保留被拒断言（headless_goal_test.go）作无回归 guard，待 headless
+		// API 版本治理时再统一处理。
 		return app.GoalGovernanceViewFor(sessionID), nil
 	default:
 		return nil, fmt.Errorf("未知 goal headless 方法: %s", method)

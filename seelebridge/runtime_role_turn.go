@@ -34,6 +34,13 @@ package seelebridge
 //     draft 存储是两件事，谁也不是谁的持久化面；
 //   - Progress 是"本轮产出了非空结论"的保守近似，不是"目标真的推进了"的度量；
 //   - 未装配 agent（无账号/completer）时显式报错，不静默返回空回合。
+//
+// 状态（A07，2026-10-15）：本层是**活动执行链，不是旧 Agent Team 退场面**。
+// `runRoleRound` 的两个消费者（leader 派发的 worker 作业 / ADVISOR 评审）都活着，
+// 起手的 `AssignEmployeePermissions` + `WithEmployeeGrant`（按构造授权，落
+// `emp_<role>` 主体）是权限与审批归属的安全边界；`teammateToolFace` 的
+// `fork_subagents` 硬移除同理。业务上消失的只有"员工库登记 / 入职面板 / 席位轮转"
+// 这些**入口与调度**，不是角色执行与权限本身。
 
 import (
 	"context"

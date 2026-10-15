@@ -336,6 +336,18 @@ leader 判定某 teammate 的一轮任务结束 → `team_retire(role)`，**顺�
 
 ## 7. goal 的位置（D4：座位循环 = `KindSeat` Executor）
 
+> **状态更新（2026-10-15，A09）**：本节记录的是 **D4 的设计意图，不是当前运行事实**。
+> "goal 座位循环降级为 `jobs.KindSeat` Executor"这半条**已退场**——2026-10-03（阶段三 W3）
+> 起 `application/core/govern`、座位派生与座位作业面（`jobs.KindSeat` / `SeatExecutor` /
+> `SetSeatRoundRunner` / `RunSeat`）一并删除，headless `goal.gov_next` / `goal.gov_break`
+> 不再有路由（按未知方法被拒）；goal 的驱动改成**提示词驱动的 leader 派活**
+> （`team_dispatch` 的 worker 作业 + 终态 goal gate），**没有任何座位环在跑**。只读观察面
+> `goal.gov_snapshot`（`GoalGovernanceView`
+> 投影）**保留**，它不推进轮次。当前口径见
+> [`../devlog/2026-10-03-seat-rotation-retired.md`](../devlog/2026-10-03-seat-rotation-retired.md)
+> 与 [`../2026-10-15-product-architecture-pre-design/legacy-capability-audit.md`](../2026-10-15-product-architecture-pre-design/legacy-capability-audit.md)
+> （A09/A15）；下面的 §9 状态矩阵与 M1/M2 行由 A15 收口。
+
 - **goal 域不变**：`goal.Controller` / 终态 gate / 逃生仍是「意图 + 完成判定 + 逃生」的宿主。
 - **goal 座位循环降级**：`govern` 座位轮转（`newGovernor`/`seatPlan.seats`/`roleTurnSeat`）改为 Seelex 注册的一个 `jobs.Executor`（`Kind = "seat"`）。
   它不再是**与 jobs 并列的第二套驱动**，而是 jobs 契约下的一个实现：派发 → 跑有限轮座位 → 输出治理结论；不再直接长持主会话锁。

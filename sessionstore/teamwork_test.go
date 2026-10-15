@@ -2,6 +2,7 @@ package sessionstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -285,5 +286,104 @@ func TestTeamworkPlanClosedRoundTrip(t *testing.T) {
 	}
 	if loaded.State.State != "" || loaded.State.ClosedAt != 0 || loaded.State.ClosedReason != "" {
 		t.Fatalf("未收口的计划不得带闭板事实：%+v", loaded.State)
+	}
+}
+
+// TestTeamworkPlanColdReadsLegacyStagesPayload：阶段制时代留在计划里的 `stages`
+// / `order_roles` 未知字段必须**照读不误**（Go JSON 忽略未知字段），且冷读**不改盘**
+// ——旧 head 里的 `stages` 逐字留在盘上，读侧不做任何 destructive rewrite（A10）。
+func TestTeamworkPlanColdReadsLegacyStagesPayload(t *testing.T) {
+	repository, key := teamworkFixture(t)
+	ctx := context.Background()
+	// 手写一份"旧版本写过"的计划 head payload：既有里程碑口径（现行事实），
+	// 也带阶段制时代已退场的 stages / order_roles / after。
+	legacy := []byte(`{
+	  "team_id": "v-model",
+	  "version": 1,
+	  "members": [
+	    {"role": "pm", "role_session_id": "v-model-pm"},
+	    {"role": "exec", "role_session_id": "v-model-exec", "worktree": "seelex/exec"}
+	  ],
+	  "milestones": [
+	    {"id": "m-req", "name": "需求", "required": ["pm"], "status": "pending"},
+	    {"id": "m-impl", "name": "实现", "required": ["exec"], "depends_on": ["m-req"], "status": "pending"}
+	  ],
+	  "stages": [
+	    {"id": "req", "name": "需求阶段"},
+	    {"id": "impl", "name": "实现阶段", "after": "req"}
+	  ],
+	  "order_roles": ["pm", "exec"]
+	}`)
+	if err := repository.layout.commitModuleHead(key, moduleTeamwork, "", json.RawMessage(legacy)); err != nil {
+		t.Fatalf("写入旧 shape 计划 head: %v", err)
+	}
+
+	plan, err := repository.ReadTeamworkPlan(ctx, key)
+	if err != nil {
+		t.Fatalf("旧计划必须能冷读（未知字段忽略，不是错误）：%v", err)
+	}
+	if plan.TeamID != "v-model" || plan.Version != 1 || len(plan.Members) != 2 || len(plan.Milestones) != 2 {
+		t.Fatalf("旧计划的成员/里程碑必须照旧解出：%+v", plan)
+	}
+	if len(plan.Milestones[1].DependsOn) != 1 || plan.Milestones[1].DependsOn[0] != "m-req" {
+		t.Fatalf("里程碑屏障（现行顺序事实）必须解出：%+v", plan.Milestones[1])
+	}
+
+	// 只读冷读不得改写旧 head：stages 字段仍在盘上。
+	raw, err := readSharedFile(repository.layout.modulePath(key, moduleTeamwork))
+	if err != nil {
+		t.Fatalf("读旧 head 文件: %v", err)
+	}
+	if !strings.Contains(string(raw), `"stages"`) {
+		t.Fatal("只读冷读不得改写旧 head：旧 stages 载荷必须原样留在盘上")
+	}
+
+	// 产品自己的整份替换写路径按当前 schema 接受这份计划：stages 不会复活成顺序事实。
+	if err := repository.WriteTeamworkPlan(ctx, key, plan, 6); err != nil {
+		t.Fatalf("按当前 schema 重新落盘旧计划: %v", err)
+	}
+	reloaded, err := repository.ReadTeamworkPlan(ctx, key)
+	if err != nil {
+		t.Fatalf("重新落盘后读回: %v", err)
+	}
+	if reloaded.TeamID != plan.TeamID || len(reloaded.Members) != len(plan.Members) ||
+		len(reloaded.Milestones) != len(plan.Milestones) {
+		t.Fatalf("重新落盘必须保形：%+v", reloaded)
+	}
+}
+
+// TestTeamworkAuditColdReadsLegacyRetireRow：旧口径 `team_retire` 留在审计流里的
+// 行必须还能被读回（`TeamworkEventRetire` 常量与解码保留的唯一理由），且审计是
+// **只追加不重写**——新写入不覆盖旧行（A10）。
+func TestTeamworkAuditColdReadsLegacyRetireRow(t *testing.T) {
+	repository, key := teamworkFixture(t)
+	ctx := context.Background()
+	path := repository.layout.teamworkEventsPath(key)
+	if err := os.MkdirAll(repository.layout.teamworkDir(key), 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	// 手写一行旧版本追加的审计（schema 与今天同形：多出的未知字段也会被忽略）。
+	legacyRow := `{"at":"2026-09-20T03:04:05Z","kind":"retire","team_id":"v-model","role":"exec","detail":"旧口径退场行"}`
+	if err := os.WriteFile(path, []byte(legacyRow+"\n"), 0o600); err != nil {
+		t.Fatalf("写旧审计行: %v", err)
+	}
+
+	events, err := repository.ReadTeamworkEvents(ctx, key)
+	if err != nil {
+		t.Fatalf("ReadTeamworkEvents: %v", err)
+	}
+	if len(events) != 1 || events[0].Kind != TeamworkEventRetire || events[0].Role != "exec" {
+		t.Fatalf("旧 retire 审计行必须解出：%+v", events)
+	}
+
+	if err := repository.AppendTeamworkEvent(ctx, key, TeamworkEvent{Kind: TeamworkEventClose, TeamID: "v-model"}); err != nil {
+		t.Fatalf("AppendTeamworkEvent: %v", err)
+	}
+	raw, err := readSharedFile(path)
+	if err != nil {
+		t.Fatalf("读审计文件: %v", err)
+	}
+	if !strings.Contains(string(raw), legacyRow) {
+		t.Fatal("审计追加不得重写旧 retire 行")
 	}
 }

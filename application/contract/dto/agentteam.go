@@ -410,10 +410,13 @@ type TeamGlobalConfig struct {
 // 边界：优化只产出候选文本；落盘曾走 AgentTeamInstantiateRole/PutRole
 // （提示词是角色配置的一部分，用户点"入职"才写）。
 //
-// 状态（A08，2026-10-15 待裁决）：**端口与实现仍在**（`contract.RolePromptPort`、
-// `seelebridge/runtime_role_prompt.go` 的 `OptimizeRolePrompt`），但入口（员工入职面板）
-// 已随 J-1a 退场，静态索引找不到应用层生产调用者。本条目只标注现状，不删——
-// 它可能是宿主/第三方 API 的对外契约（另见 A08 的处置口径）。
+// 状态（A08，2026-10-15 已裁决）：**端口、实现与这两个 DTO 都保留，标为 legacy
+// 可选能力面**。入口（员工入职面板）已随 2026-10-12 J-1a 退场；静态全仓索引里
+// `contract.RolePromptPort` / `seelebridge.OptimizeRolePrompt` 只剩契约、实现与测试，
+// `Dependencies.RolePrompt` 在组合根不再注入（见 main.go）。不删的理由是它是
+// **对外可选能力契约**（宿主/第三方可自行装配），删 = 版本化 API 破坏；移除条件 =
+// 下一次对外 API 版本变更，与 `Dependencies.RolePrompt`、`SetRolePromptProvider`
+// 读面同批。ADVISOR 的 `rolePromptFor` 内置回退是活动的，不属本条。
 type RolePromptOptimizeRequest struct {
 	RoleName     string   `json:"role_name,omitempty"`
 	RoleKind     string   `json:"role_kind,omitempty"`

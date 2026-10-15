@@ -81,6 +81,13 @@ const (
 //
 // 与 SetRolePromptProvider 同构：读面只读角色注册表，不建环、不改任何事实；启动期
 // 注入一次，重复调用以最后一次为准。
+//
+// 状态（A08，2026-10-15）：**保留为可选对外读面**。来源（团队角色注册表）已随
+// 2026-10-12 J-1a 退场，组合根不再注入；未注入时 `rolePluginsFor` 返回空集 =
+// "不覆盖"，与"注册表里没登记"逐字相同（见 rolePluginAssembly 的三层口径）。
+// **活动插件来源是另一条**：`team_plan members[].plugins` 的显式声明
+// （teamPlanHandlerWorld → WorkerRequest.Plugins → roleRoundSpec.Plugins），它不经
+// 本读面、不受退场影响，不可以被一起删。移除本读面须走版本化 API 变更（A08）。
 func (r *Runtime) SetRolePluginsProvider(provider func(roleName string) []string) {
 	if r == nil {
 		return

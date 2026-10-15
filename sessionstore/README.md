@@ -560,6 +560,19 @@ R2/R4 存储侧接口已落地，应用层 actor / EVENT 生产者尚未接线�
 （A05/A06）、
 [`docs/devlog/2026-10-01-teamwork-legacy-order-fields.md`](../docs/devlog/2026-10-01-teamwork-legacy-order-fields.md)。
 
+### team plan / 审计流里的旧 shape（A10：计划阶段退场 ≠ 执行进度打点存活）
+
+两处都叫 "stage"，但**生命周期与所属模块完全不同**，不要混为一谈：
+
+| 形状 | 现状 | 口径 |
+|---|---|---|
+| 计划里的 `stages[]`（阶段制时代，`TeamworkPlan` 已无该字段） | **计划阶段模型整条退场**（2026-10-04） | 旧 `plan.json` 里的 `stages` / `order_roles` 是未知字段，读入时被忽略、不当顺序事实；**读侧不做任何 destructive rewrite**，`WriteTeamworkPlan` 只在产品自己整份替换计划时按当前 schema 重写。冷读用例 `TestTeamworkPlanColdReadsLegacyStagesPayload` |
+| 审计流的 `retire` 行（`TeamworkEventRetire`） | **只读历史值**（`team_retire` 入口已整条删除，不再有新写入） | 常量与解码保留的唯一理由是"老 `events.jsonl` 还能读回"；审计**只追加不重写**。冷读用例 `TestTeamworkAuditColdReadsLegacyRetireRow` |
+| `NodeSessionRecord.StagesJSON`（执行进度阶段打点） | **活动**（subagent / teammate 的运行打点与中断恢复） | 由 `seelebridge/workunit` 的 `EncodeStages` / `DecodeStages` 编解码，`ProgressOf` 折算进度；**不属于本条退场范围**，不可一起删 |
+
+判据与验证口径见
+[`docs/devlog/2026-10-15-legacy-capability-retirement-a07-a10.md`](../docs/devlog/2026-10-15-legacy-capability-retirement-a07-a10.md)。
+
 ## Review 指南
 
 - 新增后端是否实现同一逻辑 snapshot 语义，并显式实现 `stackJournal()`。

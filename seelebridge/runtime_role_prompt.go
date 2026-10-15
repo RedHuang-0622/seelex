@@ -9,6 +9,15 @@
 //   - 优化：`OptimizeRolePrompt` 实现 application/contract.RolePromptPort：一次
 //     LLM 回合把员工提示词改写成更明确可执行的版本，只返回候选文本，不落盘、
 //     不写会话消息（落盘仍由用户在入职/保存动作里确认）。
+//
+// 状态（A08，2026-10-15）：**两条都在，但读面的装配根源已退场**。
+//   - `rolePromptFor` 的**默认回退是活动的**：ADVISOR/TL 回合（runtime_goal_tl.go）
+//     与 worker 回合照旧调用它；未注入读面时返回空串 → 调用方用内置提示词，
+//     输出契约不变。这段不能删（删了会改 ADVISOR 的提示词口径）。
+//   - `SetRolePromptProvider` / `OptimizeRolePrompt` 保留为**可选对外读面/能力面**：
+//     J-1a 之后组合根不再注入来源（角色注册表已退场），静态索引找不到应用层生产
+//     调用者；它们是见 `contract.RolePromptPort` 的对外契约，移除须走版本化 API
+//     变更（与 `Dependencies.RolePrompt` 同批），不在退场面清理里单独删。
 package seelebridge
 
 import (

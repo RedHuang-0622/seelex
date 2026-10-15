@@ -27,7 +27,7 @@
 | `README.md:598` | default 插件 Skill 列表"含 `$plan` / `$goal` / `$teamwork`" | 更正为实际 11 个 Skill（无 `$plan`，含 `$plan-design`/`$plan-norm` 等） | `plugins/default/**/SKILL.md` 实际目录（11 个） |
 | `README.md:701-705` | 指引运行 `TestRealAPITeamWorkComputerUseLiveProbe` 真机探针 | 标注该探针已随 J-1a 删除，指向现行 `role.*`/`fork_subagents` 离线探针 | 全仓已无该测试文件（`gui/**/*probe*` 零命中） |
 
-> 边界：A02 中其余模块 README（`application/README.md`、`application/core/README.md`、`application/core/README-agentteam.md`、`application/core/agentteam/README.md` 正文、根 README Agent Team 段）**未在本轮改写**——`agentteam/README.md` 顶部已自带 J-1a 退场状态头，属"已正确处理"的样板；其余待按同样"加状态头 + 替代链接"方式处理，不在本轮一并动刀。A03–A15 涉及代码/存储/恢复的项**均未执行**，仍待逐项裁决。
+> 边界：A02 中其余模块 README（`application/README.md`、`application/core/README.md`、`application/core/README-agentteam.md`、`application/core/agentteam/README.md` 正文、根 README Agent Team 段）**未在本轮改写**——`agentteam/README.md` 顶部已自带 J-1a 退场状态头，属"已正确处理"的样板；其余待按同样"加状态头 + 替代链接"方式处理，不在本轮一并动刀。A03–A10 涉及代码/存储/恢复的项已逐项裁决并落地（见后两节）；A11–A15 仍待逐项裁决。
 
 ## 本轮已执行的退场与状态标注（2026-10-15，A03–A06）
 
@@ -45,6 +45,24 @@
 > 仍未执行（不在本轮授权内）：A05 的字段清除与 A06 的写面停用（都需版本化迁移 + 旧数据
 > fixture + 迁移期限）；A11/A15 的历史叙述整理（本轮只更正因 A04 直接变成假事实的
 > `docs/arch/teamwork-leader-worker-architecture.md` §9 状态行）。
+
+## 本轮已执行的保留裁决与冷读 fixture（2026-10-15，A07–A10）
+
+> 记录口径同上：只记**已执行**的项。本批 **零代码删除**——A07/A08/A09 是"保留 + 标注 +
+> 验证"（它们本就是"仍有效底层能力 / 观察面"一类，不是退场面），A10 只加冷读 fixture 与
+> 文档区分。完整凭据见
+> [`docs/devlog/2026-10-15-legacy-capability-retirement-a07-a10.md`](../../docs/devlog/2026-10-15-legacy-capability-retirement-a07-a10.md)。
+
+| ID | 已执行动作 | 判据（静态索引） | 验证 |
+|---|---|---|---|
+| A07 | **保留**角色执行与权限；`seelebridge/runtime_role_turn.go` 加状态头（本层是活动链，不是退场面）；命名**不做只改名式重构**（对外 API 破坏 + 全仓联动，见 devlog） | `runRoleRound` 的两个消费者（`Runtime.RunWorker` → `team_dispatch`、ADVISOR 评审）都活着；`AssignEmployeePermissions` 每轮角色回合起手落 `emp_<role>` 主体；`teammateToolFace` 的 `fork_subagents` 硬移除仍在装配点 | `go test ./seelebridge/... -run 'Role|Permission|Teamwork' -count=1` 绿 |
+| A08 | **保留** `RolePromptPort` / `OptimizeRolePrompt` / `SetRolePromptProvider` / `SetRolePluginsProvider` / 两个 DTO，逐处标 legacy 可选能力面与移除条件（= 下一次对外 API 版本变更）；`rolePromptFor` 内置回退与 `team_plan members[].plugins` 透传不动 | 全仓静态索引只剩契约定义、`application/core/aliases.go` 别名、`seelebridge` 实现与测试；组合根 `main.go` 自 J-1a 起不再注入来源（未注入 = 空集 / 内置回退） | `go test ./seelebridge/... -run 'Role|Plugin|Prompt|Permission' -count=1` 绿 |
+| A09 | **保留只读观察面** `goal.gov_snapshot`（`gui/headless.go` case 加当前语义注释）；退场的 `goal.gov_next` / `goal.gov_break` 维持按未知方法拒绝并留 no-regression guard；`docs/arch/teamwork-leader-worker-architecture.md` §7 加状态更新（座位环已退场；§9 矩阵与 M1/M2 行指向 A15） | `gui/headless.go` 的 `dispatchGoal` 只有 `goal.begin/update/propose_finish/status/gov_snapshot` 五个 case，`gov_next`/`gov_break` 落 `default` 拒绝；`TeamRuntimeFor` 已在 A03 删除 | `go test ./gui -run TestHeadlessGoalChainReplication -count=1` 绿 |
+| A10 | 新增两条**冷读 fixture**：`TestTeamworkPlanColdReadsLegacyStagesPayload`（旧 plan 含 `stages`/`order_roles` 照读、只读不改盘、重新落盘不复活 stages）与 `TestTeamworkAuditColdReadsLegacyRetireRow`（旧 `retire` 审计行照读、只追加不重写）；`sessionstore/README.md` 增"计划阶段退场 ≠ 执行进度打点存活"表 | `TeamworkPlan` 无 `Stages` 字段（未知字段忽略）；`TeamworkEventRetire` 只读历史、`team_close` 起不再写入；`NodeSessionRecord.StagesJSON` 由 `workunit.EncodeStages/DecodeStages` 活动编解码 | `go test ./seelebridge/workunit ./sessionstore ./seelebridge/teamwork -count=1` 绿 |
+
+> 仍未执行（不在本轮授权内）：A05 的字段清除与 A06 的写面停用仍需独立版本化迁移；
+> A11–A15 的历史叙述整理与 `KindSeat` 状态矩阵未动（本轮只在 arch §7 加状态更新并显式
+> 指向 A15）。
 
 ## 分类口径
 
