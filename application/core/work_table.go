@@ -731,7 +731,7 @@ func (state *serviceState) workTableTraceBlockFor(sessionID string) string {
 	asyncLines := asyncTraceLines(state.Deps.Runtime.AsyncRunsSnapshot(), effectiveSession)
 	lines = append(lines, asyncLines...)
 	// teammate 作业（jobs.Manager 那张表）单独成行：句柄空间与取回工具都不同
-	// （jobs_manage vs job_manage），合并成同一种行模型就会拿错工具。
+	// （jobs_manage vs bg_manage），合并成同一种行模型就会拿错工具。
 	teamworkLines := teamworkTraceLines(teamworkJobCompletions(state.Deps.Runtime), effectiveSession)
 	lines = append(lines, teamworkLines...)
 	if len(lines) == 0 {
@@ -747,15 +747,17 @@ func (state *serviceState) workTableTraceBlockFor(sessionID string) string {
 	if len(asyncLines) > 0 {
 		hint = "async:<句柄> 行是作业（bash_bg 后台命令 / read_batch 扇出读 / subagent）：" +
 			"字节数=已产出输出量；在途行带标题，完成行带摘要（exit/行数/末行采样）。" +
-			"取结果用 job_manage(op=fetch, handle)、只读看进展用 op=observe、终止用 op=kill、" +
+			"句柄自带来源（工具作业 bt-3 / 子代理作业 bs-7）。" +
+			"取结果用 bg_manage(op=fetch, handle)、只读看进展用 op=observe、终止用 op=kill、" +
 			"销项用 op=done。"
 		budget--
 	}
 	if len(teamworkLines) > 0 {
-		// teammate 行的读法**不是** job_manage：那是另一张表（jobs.Manager）。
+		// teammate 行的读法**不是** bg_manage：那是另一张表（jobs.Manager）。
 		hint += "teamwork:<句柄> 行是 teammate 作业（leader 派出去的活）：" +
+			"句柄形如 bteam-7（团队作业表；拿错工具会被显式拒绝，不会静默命中别的作业）。" +
 			"结论用 team_context（非消费读）、产物正文用 jobs_manage(op=observe|fetch, handle)，" +
-			"复核完用 team_accept / team_fail 收口。"
+			"复核完用 team_accept / team_fail 收口（验收通过即销掉那条作业行，不必自己销项）。"
 		if len(asyncLines) == 0 {
 			budget--
 		}

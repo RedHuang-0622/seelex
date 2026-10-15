@@ -118,7 +118,8 @@ func (s *jobsEventStream) loop() {
 // drain 把"自上次投影以来新出现的状态"追加到各会话的事件库。
 //
 // 它只读快照、不推进任何游标、不销项：取回（Fetch）依旧是消费式的，事件投影不得
-// 改变面板上的在册作业。销项后的句柄从句柄记忆里移除（句柄 a<seq> 单调，永不复用）。
+// 改变面板上的在册作业。销项后的句柄从句柄记忆里移除（句柄的序号单调、永不复用，
+// 命名空间见 dto.JobNamespace）。
 func (s *jobsEventStream) drain() {
 	records := s.manager.Snapshot(jobs.Scope{})
 	present := make(map[jobs.Handle]struct{}, len(records))

@@ -13,7 +13,7 @@ import (
 // ── 后台作业终态触发对话 ────────────────────────────────────────────────
 //
 // 用户口径（2026-10-01）：后台作业（bash_bg / read_batch / subagent）落到**终态**
-// 时，为它所属会话起一个回合，让主代理自己去 `job_manage(op=fetch)` 取回结果并继续。
+// 时，为它所属会话起一个回合，让主代理自己去 `bg_manage(op=fetch)` 取回结果并继续。
 // **done 与 failed 都触发**；killed 不触发（那不是"作业有了结果"，是被终止）；
 // running 不是终态。
 //
@@ -32,7 +32,7 @@ import (
 // 单接收者通道，不能再起一个消费者去抢同一次发送。因此本文件的入口是一个**被调用的
 // 函数**，而不是一个 goroutine。
 //
-// 幂等与重试：句柄 `a<seq>` 单调且永不复用，因此进程内一个 handle 集合就够，同一条
+// 幂等与重试：句柄由各表自己的单调序号铸成（见 dto.JobNamespace）且永不复用，因此进程内一个 handle 集合就够，同一条
 // 作业只触发一次。因为会话忙而跳过的条目**刻意不记入集合**——下一次信号（新字节 /
 // 别的作业终态 / 驱逐）还会再试。集合随登记表裁剪（见下），因此它的规模被登记表封顶。
 //
@@ -141,7 +141,7 @@ func asyncCompletionPrompt(record dto.AsyncRunRecord) string {
 	if summary := strings.TrimSpace(record.Summary); summary != "" {
 		fmt.Fprintf(&body, "- 摘要: %s\n", truncateWorkEvidence(summary, Limits().EvidenceChars))
 	}
-	fmt.Fprintf(&body, "取回全文用 job_manage(op=fetch, handle=%q)；确认不需要了用 job_manage(op=done, handle=%q) 销项。",
+	fmt.Fprintf(&body, "取回全文用 bg_manage(op=fetch, handle=%q)；确认不需要了用 bg_manage(op=done, handle=%q) 销项。",
 		record.Handle, record.Handle)
 	return body.String()
 }
@@ -166,12 +166,13 @@ func asyncPromptKind(kind string) string {
 // **绝不唤醒忙会话**（忙会话走回合边界打点块，见 work_table_async.go 的 teamworkTraceLines）、
 // 幂等（句柄单调不复用，进程内一个集合就够）、随登记表裁剪。
 //
-// 一处**刻意不同**：正文指向 `jobs_manage` 与 `team_context`，不是 `job_manage`——
+// 一处**刻意不同**：正文指向 `jobs_manage` 与 `team_context`，不是 `bg_manage`——
 // 两张表的取回工具不是同一个，指错了模型就会去一个取不到这条作业的地方捞。
 
-// teamworkTriggeredPrefix 是幂等账的键前缀：两张表的句柄空间是**各自独立**的
-// （都是 `a<seq>` 起步），不做前缀区分就会互相压制（一张表里已触发过的句柄，让另一张表
-// 里同号的作业永远不触发）。
+// teamworkTriggeredPrefix 是幂等账的**按表**键前缀。句柄现在自带命名空间（`bt-` / `bs-` /
+// `bteam-`，见 dto.JobNamespace），字面量撞车在语法上已不可能；这个前缀仍然留着，因为
+// 幂等账的口径是"哪张表的哪一条"，不是"哪一串字符"——靠字面量区分本来就是当年那张表
+// 各铸 `a<seq>` 时的将就（2026-10-15 审计 D1）。
 const teamworkTriggeredPrefix = "teamwork:"
 
 // triggerTeamworkJobCompletions 对 teammate 作业表做一次全量扫描：把"终态 + 会话空闲 +

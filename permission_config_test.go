@@ -33,7 +33,7 @@ var permissionToolNames = []string{
 	"write_file", "edit_file", "bash",
 	"todo_init", "todo_add", "todo_done", "todolist_init", "todolist_add", "todolist_done",
 	"task_add", "taskadd", "project_refresh", "plugin_create", "skill_create",
-	// jobs_manage：Seele jobs 通用管理工具（与 bash_bg/job_manage 同组）
+	// jobs_manage：Seele jobs 通用管理工具（与 bash_bg/bg_manage 同组）
 	"jobs_manage",
 	// rw 写簇（会话工作台）
 	"compact_context",

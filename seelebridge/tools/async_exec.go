@@ -21,7 +21,7 @@ import (
 // docs/2026-09-24-async-tool-deferred-ack/README.md §8 与 §10）。
 //
 // 形状：派发一次（bash_bg / read_batch / subagent 作业）→ 立即拿到 handle + 现状；
-// 想知道进展就再调 job_manage(op=observe)（只读）或 op=fetch（消费式取回增量），
+// 想知道进展就再调 bg_manage(op=observe)（只读）或 op=fetch（消费式取回增量），
 // 想终止就调 op=kill、想结清就调 op=done。每一问一答都是一对正常的
 // tool_call/tool_result，所以：
 // 历史只追加、不回写；不需要"结果到达时把空闲会话叫醒"那条链路（它必然回闯被 ChatStream
@@ -35,7 +35,7 @@ const (
 	asyncStateRunning = dto.AsyncStateRunning
 	asyncStateDone    = dto.AsyncStateDone
 	asyncStateFailed  = dto.AsyncStateFailed
-	// asyncStateKilled = 由 job_manage(op=kill) 或会话销毁终止，与"命令自己退非零"可分。
+	// asyncStateKilled = 由 bg_manage(op=kill) 或会话销毁终止，与"命令自己退非零"可分。
 	asyncStateKilled = dto.AsyncStateKilled
 
 	// asyncMaxRunning 是在途上限；asyncMaxRecords 是记录总槽（只为兜内存，
@@ -47,7 +47,7 @@ const (
 	// 受理回执一返回，工具调用的 ctx 就失效了，执行体必须自带独立上限。
 	asyncHardCap = 30 * time.Minute
 
-	// asyncDefaultWaitMS / asyncMaxWaitMS 是 job_manage(op=fetch) 的等待预算。上限同时是
+	// asyncDefaultWaitMS / asyncMaxWaitMS 是 bg_manage(op=fetch) 的等待预算。上限同时是
 	// "单次工具调用最多钉住会话多久"的上限（不变量 I-22）：ChatStream 在工具执行
 	// 期间持有会话锁，用户输入与审批都要等它。
 	asyncDefaultWaitMS = 5000
@@ -97,7 +97,8 @@ const (
 // 确定性、不含时间戳"那条缓存纪律约束——那条纪律只管进上下文的字节。
 type asyncRun struct {
 	handle string
-	// seq = 句柄的数字序号：投影要按派发顺序稳定排（"a10" 的字符串序排在 "a2" 前）。
+	// seq = 句柄的数字序号：投影要按派发顺序稳定排（句柄文本的字典序不成立：
+	// "bt-10" 的字符串序排在 "bt-2" 前）。
 	seq         int
 	sessionID   string
 	key         string
@@ -306,16 +307,18 @@ func (g *asyncRegistry) beginJob(spec JobSpec) (asyncRun, bool, error) {
 		}
 	}
 	if g.countRunningLocked() >= asyncMaxRunning {
-		return asyncRun{}, false, fmt.Errorf("job: 在途作业已满 %d 个，先用 job_manage(op=observe) 查看、或等其中一个结束", asyncMaxRunning)
+		return asyncRun{}, false, fmt.Errorf("job: 在途作业已满 %d 个，先用 bg_manage(op=observe) 查看、或等其中一个结束", asyncMaxRunning)
 	}
 	evicted = append(evicted, g.evictLocked()...)
-	// seq 单调：不能用 len(runs) 推，驱逐过已完成项后会同号，两条执行共用输出文件。
-	g.seq++
-	handle := fmt.Sprintf("a%d", g.seq)
 	kind := string(spec.Kind)
 	if kind == "" {
 		kind = asyncKindProcess
 	}
+	// seq 单调：不能用 len(runs) 推，驱逐过已完成项后会同号，两条执行共用输出文件。
+	g.seq++
+	// 句柄自带来源（命名空间 token + 序号）：本表与团队的 Seele 作业表并存，同名句柄会让
+	// "拿错表的句柄"变成一次静默命中（2026-10-15 审计 D1）。铸造只经 dto.JobHandle 一处。
+	handle := dto.JobHandle(jobNamespaceForKind(kind), g.seq)
 	run := &asyncRun{
 		handle:      handle,
 		seq:         g.seq,
@@ -337,6 +340,15 @@ func (g *asyncRegistry) beginJob(spec JobSpec) (asyncRun, bool, error) {
 	}
 	g.notifyLocked()
 	return *run, true, nil
+}
+
+// jobNamespaceForKind 把作业类别折成句柄命名空间（kind → 命名空间的**唯一**判据）：
+// 子代理作业是 `bs-`，其余后台工具作业（进程 / 扇出读）都是 `bt-`。
+func jobNamespaceForKind(kind string) dto.JobNamespace {
+	if kind == asyncKindSubagent {
+		return dto.JobNamespaceSubagent
+	}
+	return dto.JobNamespaceToolJob
 }
 
 func (g *asyncRegistry) countRunningLocked() int {
@@ -635,10 +647,10 @@ func (g *asyncRegistry) killHandle(handle, sessionID string) (processTree, func(
 	defer g.mu.Unlock()
 	run, ok := g.runs[handle]
 	if !ok {
-		return nil, nil, false, fmt.Errorf("job_manage: 未知句柄 %q（可能已被销项或驱逐，或进程重启后登记表已清空）", handle)
+		return nil, nil, false, fmt.Errorf("bg_manage: 未知句柄 %q（可能已被销项或驱逐，或进程重启后登记表已清空）", handle)
 	}
 	if run.sessionID != sessionID {
-		return nil, nil, false, fmt.Errorf("job_manage: 句柄 %q 不属于本会话", handle)
+		return nil, nil, false, fmt.Errorf("bg_manage: 句柄 %q 不属于本会话", handle)
 	}
 	if run.state != asyncStateRunning {
 		return nil, nil, true, nil
@@ -651,7 +663,7 @@ func (g *asyncRegistry) killHandle(handle, sessionID string) (processTree, func(
 	}
 	// 起得来但还没 Start 完（attach / setCancel 未落地）：这一刻没有可杀的对象。
 	// 报"暂不可杀"而不是谎报成功——派发返回前模型拿不到句柄，正常路径走不到这里。
-	return nil, nil, false, fmt.Errorf("job_manage: 句柄 %q 的执行体尚未就绪，稍后再试", handle)
+	return nil, nil, false, fmt.Errorf("bg_manage: 句柄 %q 的执行体尚未就绪，稍后再试", handle)
 }
 
 // snapshot 复制一份判定所需字段，避免把锁外的渲染代码接进锁内。
@@ -764,7 +776,7 @@ func (g *asyncRegistry) appendNote(handle, text string) error {
 // 的全部——退出码 + 行数 + 字节数 + 有界末行，硬上限 asyncSummaryMaxBytes。
 //
 // 为什么不是全文：完成行随打点块**每轮重播**，塞全文就是按轮数线性烧 token；
-// 全文只走 job_manage(op=fetch)（消费式增量）或 log_path。
+// 全文只走 bg_manage(op=fetch)（消费式增量）或 log_path。
 //
 // 为什么不在锁内做：这是文件 I/O。调用方（finish）先取快照、锁外算、再进锁迁移。
 func summarizeLog(logPath string, exitCode int, state dto.AsyncState) (string, int) {
@@ -781,7 +793,7 @@ func summarizeLog(logPath string, exitCode int, state dto.AsyncState) (string, i
 		return summary, lines
 	}
 	// 超限只截摘要，不截事实：尾部标注全文走取回，避免模型以为这就是全部输出。
-	const marker = "…（全文经 job_manage(op=fetch) 取回）"
+	const marker = "…（全文经 bg_manage(op=fetch) 取回）"
 	return truncateBytes(summary, asyncSummaryMaxBytes-len(marker)) + marker, lines
 }
 
@@ -961,17 +973,17 @@ func renderPolled(run asyncRun, delta string, truncated bool) ([]byte, error) {
 }
 
 // polledPayload 是"一次取回"的载荷（与 renderPolled 同一份内容）：单条取回与
-// 批量取回（job_manage 的 handles）共用它，免得两条路径各写一份字段。
+// 批量取回（bg_manage 的 handles）共用它，免得两条路径各写一份字段。
 func polledPayload(run asyncRun, delta string, truncated bool) asyncPayload {
-	status, hint := "progress", "仍在运行。需要结果就再调一次 job_manage(op=fetch, handle)。"
+	status, hint := "progress", "仍在运行。需要结果就再调一次 bg_manage(op=fetch, handle)。"
 	switch run.state {
 	case asyncStateRunning:
 	case asyncStateKilled:
-		status, hint = "finished", "作业已被终止（job_manage(op=kill) 或会话销毁）；以上为其输出增量。"+
-			"确认收到后可调 job_manage(op=done, handle) 销项。"
+		status, hint = "finished", "作业已被终止（bg_manage(op=kill) 或会话销毁）；以上为其输出增量。"+
+			"确认收到后可调 bg_manage(op=done, handle) 销项。"
 	default:
 		status, hint = "finished", "作业已结束；以上为其输出增量。确认收到后可调 "+
-			"job_manage(op=done, handle) 销项，让它从工作打点表上消失。"
+			"bg_manage(op=done, handle) 销项，让它从工作打点表上消失。"
 	}
 	if truncated {
 		hint += " 输出已按上限截断，完整内容读 log_path。"
@@ -982,7 +994,7 @@ func polledPayload(run asyncRun, delta string, truncated bool) asyncPayload {
 	}
 }
 
-// asyncBatchPayload 是**一次取回多条作业**的载荷（job_manage 的 handles）：每条带
+// asyncBatchPayload 是**一次取回多条作业**的载荷（bg_manage 的 handles）：每条带
 // 自己那份增量与终态，外层给一个总数与一句提示。
 type asyncBatchPayload struct {
 	Status string         `json:"status"`
@@ -1021,7 +1033,7 @@ func renderObserved(lines []string) ([]byte, error) {
 	return encodeAsync(asyncPayload{
 		Status: "observed", Output: strings.Join(lines, "\n"), ExitCode: -1,
 		Hint: "观察是只读的：不推进取回游标，看多少次都不会吃掉输出。取结果用 " +
-			"job_manage(op=fetch, handle)，终止用 job_manage(op=kill, handle)。",
+			"bg_manage(op=fetch, handle)，终止用 bg_manage(op=kill, handle)。",
 	})
 }
 
@@ -1031,7 +1043,7 @@ func renderKilled(run asyncRun) ([]byte, error) {
 	return encodeAsync(asyncPayload{
 		Status: "killed", Handle: run.handle, Kind: run.kind, State: asyncStateRunning,
 		ExitCode: -1, LogPath: run.logPath,
-		Hint: "终止请求已发出；**已产出的内容不会丢**。用 job_manage(op=fetch, handle) 取末尾增量与终态" +
+		Hint: "终止请求已发出；**已产出的内容不会丢**。用 bg_manage(op=fetch, handle) 取末尾增量与终态" +
 			"（state=killed, exit_code=137）。",
 	})
 }
@@ -1041,7 +1053,7 @@ func renderAlreadyFinished(run asyncRun) ([]byte, error) {
 	return encodeAsync(asyncPayload{
 		Status: "already_finished", Handle: run.handle, Kind: run.kind, State: run.state,
 		ExitCode: run.exit, LogPath: run.logPath, Summary: run.summary,
-		Hint: "作业早已结束，未做任何终止。用 job_manage(op=fetch, handle) 取结果，或 op=done 销项。",
+		Hint: "作业早已结束，未做任何终止。用 bg_manage(op=fetch, handle) 取结果，或 op=done 销项。",
 	})
 }
 

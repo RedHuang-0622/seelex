@@ -248,7 +248,7 @@ working.
 - the command is a bounded inspection: `ls`, `cat`, `git status`, a grep over one
   file, a build of one small package;
 - the next decision needs its output immediately — a job's result arrives only
-  through a later `job_manage` fetch;
+  through a later `bg_manage` fetch;
 - the command needs your input while it runs.
 
 **Boundary:** with the background surface on, `bash` refuses a
@@ -258,12 +258,14 @@ it. With the surface off there is nothing to switch to — see the fallback belo
 - **Do:** dispatch with `bash_bg` and pass `description` — one line on what the
   command does; it becomes the work-table row title and is required.
 - **Do:** keep working after the dispatch, then take the result with
-  `job_manage(op=fetch, handle)`; `op=observe` looks at progress without consuming
-  output, `op=kill` stops the job, and `op=done` retires a terminal one.
+  `bg_manage(op=fetch, handle)`; `op=observe` looks at progress without consuming
+  output, `op=kill` stops the job, and `op=done` retires a terminal one. Handles
+  name their table: `bt-3` (background command) and `bs-7` (subagent) belong to
+  `bg_manage`; `bteam-7` is a teammate job and belongs to `jobs_manage`.
 - **Don't:** raise the serial `timeout` to cover a long command; with the
   background surface on that request is refused, so it buys only a failed tool
   call.
-- **Don't:** poll `job_manage` in a tight loop: the work-table trace block already
+- **Don't:** poll `bg_manage` in a tight loop: the work-table trace block already
   lists every live job, and one `wait_ms` close to the expected remaining time is
   enough.
 

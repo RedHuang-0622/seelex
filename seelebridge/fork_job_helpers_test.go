@@ -3,7 +3,7 @@ package seelebridge
 // fork_job_helpers_test.go — fork_subagents **作业化派发**（后台）的用例助手。
 //
 // fork_subagents 只走作业面：调用立刻返回每个子代理的句柄，产出经
-// job_manage(op=fetch, handle) 取回。这些助手把"派发 → 等终态 → 取回"三段折成一次
+// bg_manage(op=fetch, handle) 取回。这些助手把"派发 → 等终态 → 取回"三段折成一次
 // 调用，让既有用例断言产出正文时不必每个文件各写一遍轮询。
 //
 // 为什么用例要显式打开作业面：`limits.async_exec.enabled` 出厂 true，但
@@ -207,10 +207,10 @@ func forkStateOf(t *testing.T, runtime *Runtime, handle string) string {
 // forkFetch 取回一个子代理作业的增量（消费式）。
 func forkFetch(t *testing.T, runtime *Runtime, handle string) string {
 	t.Helper()
-	out, err := runtime.Agent().DirectDispatch(context.Background(), "job_manage",
+	out, err := runtime.Agent().DirectDispatch(context.Background(), "bg_manage",
 		`{"op":"fetch","handle":"`+handle+`","wait_ms":-1}`)
 	if err != nil {
-		t.Fatalf("job_manage(op=fetch, %s): %v", handle, err)
+		t.Fatalf("bg_manage(op=fetch, %s): %v", handle, err)
 	}
 	var payload struct {
 		Output string `json:"output"`

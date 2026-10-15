@@ -98,7 +98,7 @@ func DefaultPermissionGroupList() []toolspermission.PermissionGroup {
 				"read_file", "read_plan", "read_tool_result", "read_compressed_turn",
 				"search_history", "grep_search", "glob",
 				// read_batch 派发的是一批**只读**扇出作业（Kind=inline），不碰共享状态：
-				// 派发面免打断，取回/终止/销项走 job_manage（rw 簇）。
+				// 派发面免打断，取回/终止/销项走 bg_manage（rw 簇）。
 				"read_batch",
 				"get_time", "web_search",
 				"todo_status", "todolist_status", "plan_status", "goal_status",
@@ -125,12 +125,12 @@ func DefaultPermissionGroupList() []toolspermission.PermissionGroup {
 			Default:  toolspermission.ActionAllow,
 			Match: []string{
 				"write_file", "edit_file", "bash",
-				// bash_bg / job_manage 与 bash 同组：它们管的正是 bash 起的执行体。
+				// bash_bg / bg_manage 与 bash 同组：它们管的正是 bash 起的执行体。
 				// 放 CTL 会让 sub/员工断位，它们自己派发的后台作业就谁也取不回、杀不掉；
 				// 真正的门是 handler 里的"句柄必须属于本会话"。
-				"bash_bg", "job_manage",
+				"bash_bg", "bg_manage",
 				// jobs_manage 是 Seele jobs 的**通用管理工具**（observe/fetch/kill/done），
-				// 与 bash_bg/job_manage 同组：它管的正是作业面的执行体（含 teammate 作业）。
+				// 与 bash_bg/bg_manage 同组：它管的正是作业面的执行体（含 teammate 作业）。
 				"jobs_manage",
 				"todo_init", "todo_add", "todo_done",
 				"todolist_init", "todolist_add", "todolist_done",

@@ -163,7 +163,7 @@ func validateSubagentLoops(ceiling int, spec SubagentSpec) error {
 //   - ctx 用 `context.WithoutCancel` 摘掉工具调用的截止时间：回执一返回，本次调用的
 //     ctx 就失效，沿用它会把刚起的编排立刻取消；存活上限由自己的 forkTimeout 兜住；
 //   - **不**挂 `context.AfterFunc(ctx, cancel)`：作业活过这一轮，取消只能来自
-//     `job_manage(op=kill)` 与会话销毁（它们走登记表里的取消口）；
+//     `bg_manage(op=kill)` 与会话销毁（它们走登记表里的取消口）；
 //   - 收尾必须落到 Complete（恰好一次）：跑完、失败、被取消三条路都不能让句柄停在
 //     running——否则那一行会永远显示在打点表上。
 func (t *Tool) dispatchJobs(ctx context.Context, loaded *plan.LoadedPlanDoc, input Input, timeout time.Duration) (string, error) {
@@ -241,7 +241,7 @@ func (t *Tool) dispatchJobs(ctx context.Context, loaded *plan.LoadedPlanDoc, inp
 			"handle": item.handle, "id": item.spec.ID, "state": dto.AsyncStateRunning.String(),
 		})
 	}
-	return acceptanceReceipt(receipts, "这批子代理已作业化派发（调用本身不等结果）。用 job_manage(op=observe, handle) "+
+	return acceptanceReceipt(receipts, "这批子代理已作业化派发（调用本身不等结果）。用 bg_manage(op=observe, handle) "+
 		"看它们在干什么（不消费输出）、op=fetch 取回产出、op=kill 提前终止（已产出内容不丢）、"+
 		"op=done 结清终态行。注意：任意一个句柄的 kill 会取消**整批**编排（它们共用一次 plan run）。")
 }
@@ -287,12 +287,12 @@ func (t *Tool) dispatchReusedJobs(ctx context.Context, input Input, taskBindings
 		})
 	}
 	return acceptanceReceipt(receipts, "这批子代理的结论**复用上次已保存输出**（未重新执行，省 token）："+
-		"句柄已是终态，用 job_manage(op=fetch, handle) 取回各自正文。如需真正重跑，先清子代理树再派发。")
+		"句柄已是终态，用 bg_manage(op=fetch, handle) 取回各自正文。如需真正重跑，先清子代理树再派发。")
 }
 
 // acceptanceReceipt 渲染作业化派发的受理回执：这是本次工具调用的**全部返回**
 // （派发即结束）。回执只带句柄与状态，绝不携带子代理产出——产出走
-// job_manage(op=fetch, handle)（消费式增量），两条路径共用同一份载荷形状。
+// bg_manage(op=fetch, handle)（消费式增量），两条路径共用同一份载荷形状。
 func acceptanceReceipt(receipts []map[string]string, hint string) (string, error) {
 	payload := map[string]any{
 		"status":     "accepted",

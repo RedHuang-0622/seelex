@@ -16,7 +16,13 @@ import (
 // 只有**明确标注为迁移说明**的行（已下线 / 旧名 / 替代 / 残留），以及 docs/ 与
 // CHANGELOG.md 这类历史记录。
 func TestRetiredJobToolNamesLeaveNoResidue(t *testing.T) {
-	retired := []string{"async_output", "async_kill"}
+	// 旧名 `job_manage` 于 2026-10-15 改成 `bg_manage`（审计 D1：它与团队作业面的
+	// `jobs_manage` 只差一个字母，模型据此把两张作业表的句柄交叉投递，发生过静默销项）。
+	//
+	// 注意**只有** `job_manage` 已下线：`jobs_manage` 仍在服役（Seele 的框架 builtin，
+	// 团队作业表的管理工具）。两者互不为子串，所以 Contains 判定不会互相误伤——
+	// `TestPromptToolFacesMatchTheRegistrationSurface` 另有断言钉住 `jobs_manage` 仍在册。
+	retired := []string{"async_output", "async_kill", "job_manage"}
 	markers := []string{"已下线", "下线", "已作废", "旧名", "旧入参", "旧 ", "旧`", "替代", "迁移", "残留", "retired"}
 	skipDirs := map[string]bool{
 		".git": true, "vendor": true, "dist": true, "node_modules": true,

@@ -551,7 +551,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func TestTeamworkCompletionIgnoresRunningAndKilled(t *testing.T)`
 - `func TestTeamworkCompletionDoesNotWakeBusySession(t *testing.T)` — 铁律 §6.1「绝不唤醒忙会话」：忙的时候不起回合，跳过的条目**不记账**——会话回到空闲
 - `func TestTeamworkCompletionTriggersOncePerHandle(t *testing.T)` — 幂等：句柄在册期间只触发一次（句柄单调不复用，进程内一个集合就够）。
-- `func TestTeamworkCompletionDoesNotCollideWithToolHandles(t *testing.T)` — 两张表的句柄空间**各自独立**（都是从 a<seq> 起步）：同一个字面量句柄在两张表里同时
+- `func TestTeamworkCompletionDoesNotCollideWithToolHandles(t *testing.T)` — 两张表的终态链各触发一次：幂等账**按表**记账（句柄自带命名空间 `bt-`/`bteam-`，见 `dto.JobNamespace`；历史上两张表都铸 `a<seq>`，靠前缀才分得开）
 - `func TestTeamworkCompletionStaysOffWhenDisabled(t *testing.T)` — 开关关闭时连扫描都不做（与 subagent 那条同一个开关）。
 - `func TestTeamworkTraceLinesCarryCompletionReceipt(t *testing.T)` — 忙会话的读法：**回合边界打点块**里的 teammate 完成行（这是"回执被看见"的另一半——
 

@@ -43,9 +43,9 @@ func liveLongCommand() string {
 //
 // 判据（全部来自真实 wire 行为）：
 //  1. `bash_bg` 派发 → 受理回执（status=accepted，带 handle/log_path，不含输出）；
-//  2. `job_manage(op=observe)` → status=observed（只读读数，不消费输出）；
-//  3. `job_manage(op=kill)` → status=killed（终止回执）；
-//  4. `job_manage(op=fetch)` → status=finished + state=killed + exit_code=137
+//  2. `bg_manage(op=observe)` → status=observed（只读读数，不消费输出）；
+//  3. `bg_manage(op=kill)` → status=killed（终止回执）；
+//  4. `bg_manage(op=fetch)` → status=finished + state=killed + exit_code=137
 //     （kill 前的产出仍在）；
 //  5. 作业行真的进过工作表格投影（`async:<handle>`），终态取回（销项）后消失。
 //
@@ -135,7 +135,7 @@ func TestManualSmokeRealAccountJobContract(t *testing.T) {
 	longCommand := liveLongCommand()
 	dispatchPrompt := "Call bash_bg exactly once with " +
 		`{"command":"` + longCommand + `","description":"live smoke: tick forever"}` +
-		", then read the handle from the acceptance receipt and call job_manage with " +
+		", then read the handle from the acceptance receipt and call bg_manage with " +
 		`{"op":"observe","handle":"<that handle>"}` +
 		". Do not call any other tool. Reply with one short sentence containing the handle."
 	if err := harness.app.Submit(ctx, dispatchPrompt); err != nil {
@@ -154,9 +154,9 @@ func TestManualSmokeRealAccountJobContract(t *testing.T) {
 	handle := jobHandleFromCalls(t, firstRound)
 	t.Logf("第一轮：模型派发并观察了 handle=%s（%d 次工具调用）", handle, len(firstRound))
 
-	killPrompt := "The background job handle is " + handle + ". Call job_manage with " +
+	killPrompt := "The background job handle is " + handle + ". Call bg_manage with " +
 		`{"op":"kill","handle":"` + handle + `"}` +
-		" exactly once, then call job_manage with " +
+		" exactly once, then call bg_manage with " +
 		`{"op":"fetch","handle":"` + handle + `","wait_ms":5000}` +
 		" exactly once. Do not call any other tool. Reply with one short sentence stating the terminal state and the exit_code."
 	if err := harness.app.Submit(ctx, killPrompt); err != nil {
@@ -214,10 +214,10 @@ func TestManualSmokeRealAccountJobContract(t *testing.T) {
 			if payload.Handle != handle {
 				t.Fatalf("回执句柄 = %q，与第一轮解析出的 %q 不一致", payload.Handle, handle)
 			}
-		case "job_manage":
+		case "bg_manage":
 			var payload jobPayload
 			if err := json.Unmarshal([]byte(call.result), &payload); err != nil {
-				t.Fatalf("job_manage 回执不是合法 JSON: %v (%q)", err, call.result)
+				t.Fatalf("bg_manage 回执不是合法 JSON: %v (%q)", err, call.result)
 			}
 			observedKinds = append(observedKinds, payload.Kind)
 			switch payload.Status {
@@ -237,13 +237,13 @@ func TestManualSmokeRealAccountJobContract(t *testing.T) {
 		len(collected), handle, sawObserve, sawKill, sawTerminal, projected, observedKinds)
 
 	if !sawObserve {
-		t.Fatal("模型没有用 job_manage(op=observe) 观察作业")
+		t.Fatal("模型没有用 bg_manage(op=observe) 观察作业")
 	}
 	if !sawKill {
-		t.Fatal("模型没有用 job_manage(op=kill) 终止作业")
+		t.Fatal("模型没有用 bg_manage(op=kill) 终止作业")
 	}
 	if !sawTerminal {
-		t.Fatal("模型没有用 job_manage(op=fetch) 取回 killed/137 的终态")
+		t.Fatal("模型没有用 bg_manage(op=fetch) 取回 killed/137 的终态")
 	}
 	// kill 不丢结果：kill 前命令已经 echo 出来的 tick 行必须仍能取回。
 	if !strings.Contains(terminalOutput, "tick-") {

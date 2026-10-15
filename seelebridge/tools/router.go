@@ -38,7 +38,7 @@ type Deps struct {
 	DockerCLIPath          func() string
 	DockerHint             func(err error) string
 	// AsyncExecEnabled 打开**作业面**（seele.yaml limits.async_exec.enabled，默认
-	// false）：bash_bg / read_batch / job_manage 注册，fork 的 async 模式可用。
+	// false）：bash_bg / read_batch / bg_manage 注册，fork 的 async 模式可用。
 	// 关闭时它们都不注册、bash 收到旧入参 background=true 直接报错——能力不可实施
 	// 时必须拒绝，不得静默降级成同步执行（security/sandbox.go 同源口径）。
 	AsyncExecEnabled bool
@@ -114,7 +114,7 @@ func (r *Router) Register() {
 		// 工具只是占模型的选项与 token。关就是关（见 Deps.AsyncExecEnabled 注释）。
 		r.deps.RegisterTool("bash_bg", bashBgDescription(), bashBgSchema(), r.scopedBashBg)
 		r.deps.RegisterTool("read_batch", readBatchDescription(), readBatchSchema(), r.scopedReadBatch)
-		r.deps.RegisterTool("job_manage", jobManageDescription(), jobManageSchema(), r.scopedJobManage)
+		r.deps.RegisterTool(bgManageToolName, jobManageDescription(), jobManageSchema(), r.scopedJobManage)
 	}
 }
 
@@ -495,7 +495,7 @@ func (r *Router) scopedBash(ctx context.Context, argsJSON string) (output string
 		return "", fmt.Errorf("bash: %s", asyncDisabledText)
 	}
 	if input.Background {
-		return "", fmt.Errorf("bash: background=true 已废弃；后台受管命令改用 bash_bg（派发即返回受理回执，取回/终止/销项走 job_manage）")
+		return "", fmt.Errorf("bash: background=true 已废弃；后台受管命令改用 bash_bg（派发即返回受理回执，取回/终止/销项走 bg_manage）")
 	}
 	if input.Command == "" {
 		return `{"stdout":"","stderr":"","exit_code":0}`, nil
@@ -788,7 +788,7 @@ func (r *Router) auditSerialTimeout(toolName string, requestedSeconds int) error
 		return nil
 	}
 	return fmt.Errorf("%s: timeout %ds 超过串行预算 %s；预期跑得更久的命令改用 bash_bg 派发"+
-		"（后台受管：派发即返回受理回执，取回走 job_manage(op=fetch, handle)，终止走 op=kill）",
+		"（后台受管：派发即返回受理回执，取回走 bg_manage(op=fetch, handle)，终止走 op=kill）",
 		toolName, requestedSeconds, serialBashBudgetLabel())
 }
 

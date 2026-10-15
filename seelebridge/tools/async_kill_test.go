@@ -10,13 +10,13 @@ import (
 	"time"
 )
 
-// job_manage(op=kill) 与"会话销毁即杀"的行为判据（台账 §10 J4/J5）。
+// bg_manage(op=kill) 与"会话销毁即杀"的行为判据（台账 §10 J4/J5）。
 //
 // 进程树是否真死，不看进程表（跨平台不可靠），看**行为**：派发一条"0.5 秒后由后台子
 // shell 写一行 GRANDCHILD"的命令，若在 0.15 秒杀掉 bash 后那行仍然出现在日志里，说明
 // 只杀了 bash、孙进程还活着并继续持有写端。
 
-// killForTest 调 job_manage(op=kill) 并解出回执。
+// killForTest 调 bg_manage(op=kill) 并解出回执。
 func killForTest(t *testing.T, router *Router, ctx context.Context, handle string) (asyncPayload, error) {
 	t.Helper()
 	args, err := json.Marshal(map[string]interface{}{"op": "kill", "handle": handle})
@@ -54,7 +54,7 @@ func TestAsyncKillTerminatesProcessTree(t *testing.T) {
 	time.Sleep(150 * time.Millisecond)
 	acked, err := killForTest(t, router, ctx, receipt.Handle)
 	if err != nil {
-		t.Fatalf("job_manage(op=kill): %v", err)
+		t.Fatalf("bg_manage(op=kill): %v", err)
 	}
 	if acked.Status != "killed" {
 		t.Fatalf("终止回执状态 = %q，want killed", acked.Status)
@@ -196,22 +196,22 @@ func TestCloseSessionAsyncKillsOnlyOwnSession(t *testing.T) {
 func TestJobKillEntryFollowsCapability(t *testing.T) {
 	ctx := asyncTestCtx(t.TempDir(), "sess-gate")
 	if _, err := NewRouter(Deps{}).scopedJobManage(ctx, `{"op":"kill","handle":"a1"}`); err == nil {
-		t.Fatal("能力关闭时 job_manage 必须直接报错，不得静默做任何事")
+		t.Fatal("能力关闭时 bg_manage 必须直接报错，不得静默做任何事")
 	}
 
 	off := captureRegisteredTools(t, false)
-	if _, present := off["job_manage"]; present {
-		t.Fatal("能力关闭时不该注册 job_manage")
+	if _, present := off["bg_manage"]; present {
+		t.Fatal("能力关闭时不该注册 bg_manage")
 	}
 	on := captureRegisteredTools(t, true)
-	tool, present := on["job_manage"]
+	tool, present := on["bg_manage"]
 	if !present {
-		t.Fatal("能力常驻时必须注册 job_manage")
+		t.Fatal("能力常驻时必须注册 bg_manage")
 	}
 	if !strings.Contains(tool.description, "process tree") {
-		t.Fatalf("job_manage 描述必须点明终止整棵进程树: %q", tool.description)
+		t.Fatalf("bg_manage 描述必须点明终止整棵进程树: %q", tool.description)
 	}
-	if !strings.Contains(on["bash_bg"].description, "job_manage") {
+	if !strings.Contains(on["bash_bg"].description, "bg_manage") {
 		t.Fatalf("bash_bg 描述必须把管理口告诉模型: %q", on["bash_bg"].description)
 	}
 }

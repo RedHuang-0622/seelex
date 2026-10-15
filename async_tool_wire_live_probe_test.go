@@ -20,7 +20,7 @@
 //	              期望 400 或被忽略 → 决定幂等键要不要落在 message_id
 //	P6 Responses: 若 provider 支持 /v1/responses，测迟到 function_call_output
 //	              能否被服务端状态接受（有状态链是另一条出路）
-//	P7 轮询形态 : ack 之后再追加两次 job_manage(op=fetch) 取回，每次都是一对相邻的
+//	P7 轮询形态 : ack 之后再追加两次 bg_manage(op=fetch) 取回，每次都是一对相邻的
 //	              tool_call/tool_result，历史只在尾部生长。
 //	              期望 200 且命中不塌 → 轮询型不破前缀缓存（当前选型的实测依据）
 //	              实测 2026-09-24（deepseek-flash）：三次全 200；cached 随前缀
@@ -196,16 +196,16 @@ const (
 	pollArgs     = `{"op":"fetch","handle":"a1","wait_ms":5000}`
 	pollProgress = `{"status":"progress","handle":"a1","kind":"process","state":"running","exit_code":0,` +
 		`"log_path":"/tmp/seelex-async-a1.log","output":"building 1/2\n",` +
-		`"hint":"仍在运行。需要结果就再调一次 job_manage(op=fetch, handle)。"}`
+		`"hint":"仍在运行。需要结果就再调一次 bg_manage(op=fetch, handle)。"}`
 	pollFinished = `{"status":"finished","handle":"a1","kind":"process","state":"done","exit_code":0,` +
 		`"log_path":"/tmp/seelex-async-a1.log","output":"building 2/2\ndone\n",` +
 		`"summary":"done · exit=0 · 2 行 · 24B · 末行: done",` +
-		`"hint":"作业已结束；以上为其输出增量。确认收到后可调 job_manage(op=done, handle) 销项。"}`
+		`"hint":"作业已结束；以上为其输出增量。确认收到后可调 bg_manage(op=done, handle) 销项。"}`
 )
 
-// pollRound 是一对完整的取回：assistant 发起 job_manage(op=fetch) 调用 + 紧邻其后的 tool 回执。
+// pollRound 是一对完整的取回：assistant 发起 bg_manage(op=fetch) 调用 + 紧邻其后的 tool 回执。
 func pollRound(callID, args, result string) []wireMessage {
-	return []wireMessage{requestWithToolCall(callID, "job_manage", args), tool(callID, result)}
+	return []wireMessage{requestWithToolCall(callID, "bg_manage", args), tool(callID, result)}
 }
 
 // asyncCompletionMessage 是 A 链路的补记：role=user、自带 call_id 信封、正文只给摘要+句柄。

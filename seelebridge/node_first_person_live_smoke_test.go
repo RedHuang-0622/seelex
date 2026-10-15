@@ -118,7 +118,7 @@ func TestNodeFirstPersonLiveSmoke(t *testing.T) {
 		}
 		parts := make([]string, 0, len(handles))
 		for _, handle := range handles {
-			out, fetchErr := runtime.Agent().DirectDispatch(context.Background(), "job_manage",
+			out, fetchErr := runtime.Agent().DirectDispatch(context.Background(), "bg_manage",
 				`{"op":"fetch","handle":"`+handle+`","wait_ms":-1}`)
 			if fetchErr != nil {
 				forkErr = fetchErr

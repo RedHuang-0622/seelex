@@ -51,9 +51,9 @@ Teammate（在编）
 | `team_dispatch` | `item`（或旧的 `role, goal`） | 派发**一个工作项**，立即拿 `handle`（**不等待**）。屏障没开、前置没 done、真超员，都会**显式拒绝**。 |
 | `team_context` | `roles[], include_body, max_bytes` | **只读**看成员工作上下文。**非消费读法**：不派发、不回收、不销项，游标不推进。 |
 | `team_items` | 无 | 读回全部工作项：状态 / 归属 / 依赖 / 这件事的 Session 与 worktree / 是否可重派。 |
-| `jobs_manage` | `op=observe\|fetch\|kill\|done, handle` | 观察 / **消费式取回** / 终止 / 销项一个作业。`fetch` 取尽即销项——**取回产出优先用 `team_context`**。 |
+| `jobs_manage` | `op=observe\|fetch\|kill\|done, handle` | 观察 / **消费式取回** / 终止 / 销项一个**团队作业**（句柄形如 `bteam-7`；后台作业的 `bt-` / `bs-` 归另一个工具 `bg_manage`，拿错会被显式拒绝）。`fetch` 取尽即销项——**取回产出优先用 `team_context`**。验收通过会替你销掉那条作业行，不必自己 `op=done`。 |
 | `team_join` | `handles[], budget_ms` | **有界**汇合等待（真实强依赖点才用）。只观察、**不取回输出**。 |
-| `team_accept` | `id, note` | **验收通过**：工作项 → done，并结束这件事的执行隔离（释放它的 worktree、清它的会话；下一件事重新开一套）。**这也是打开里程碑内下一步的时刻**（依赖闸门） 。 |
+| `team_accept` | `id, note` | **验收通过**：工作项 → done，**并销掉这一件的作业行**（不必再自己 `jobs_manage(op=done)`），同时结束这件事的执行隔离（释放它的 worktree、清它的会话；下一件事重新开一套）。**这也是打开里程碑内下一步的时刻**（依赖闸门） 。 |
 | `team_fail` | `id, note` | **判定不通过**：现场与记忆**都留着**，可以重派（重派复用同一个会话号 → 上下文记忆还在）。 |
 | `team_recover` | 无 | 中断恢复（额度耗尽 / 重启）：读回计划与绑定账本，明确列出**可重派**的工作项。它**不动**任何会话与工作区。 |
 | `team_milestone` | `id, content` | 声明里程碑 + **由你撰写内容**（旧口径：判据是 `after` 的阶段派发过）。Work Item 口径下里程碑状态是**算出来的**（依赖 done + 它下面全部工作项 done）。 |

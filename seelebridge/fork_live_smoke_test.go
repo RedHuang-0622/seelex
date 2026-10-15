@@ -55,7 +55,7 @@ func TestForkSubagentsLiveSmoke(t *testing.T) {
 	}
 	runtime.SetRuntimeVisibilityProjection(RuntimeVisibilityProjection{GoalSkillActive: true})
 
-	// 作业化派发：调用立刻返回句柄，结果经 job_manage(op=fetch) 取回；真实 API 下
+	// 作业化派发：调用立刻返回句柄，结果经 bg_manage(op=fetch) 取回；真实 API 下
 	// 等待窗口按 15 分钟给足。
 	started := time.Now()
 	receipt, err := forkDispatch(t, runtime,

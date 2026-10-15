@@ -228,6 +228,7 @@ func newSceneFixture(t *testing.T, spaces *failingSpaces) *itemFixture {
 	log := &callLog{}
 	holder := &settlerHolder{}
 	manager, err := jobs.New(
+		jobs.WithNamer(testNamer{}),
 		jobs.WithExecutor(WorkerExecutor(runner, holder, 4)),
 		jobs.WithLimits(jobs.Limits{InFlight: 64}),
 	)

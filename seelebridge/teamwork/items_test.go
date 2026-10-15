@@ -121,6 +121,7 @@ func newItemFixture(t *testing.T, maxTeammates int) *itemFixture {
 	log := &callLog{}
 	holder := &settlerHolder{}
 	manager, err := jobs.New(
+		jobs.WithNamer(testNamer{}),
 		jobs.WithExecutor(WorkerExecutor(runner, holder, 4)),
 		jobs.WithLimits(jobs.Limits{InFlight: 64}),
 	)
@@ -562,6 +563,7 @@ func newItemFixtureOver(t *testing.T, source *itemFixture) *itemFixture {
 	log := &callLog{}
 	holder := &settlerHolder{}
 	manager, err := jobs.New(
+		jobs.WithNamer(testNamer{}),
 		jobs.WithExecutor(WorkerExecutor(runner, holder, 4)),
 		jobs.WithLimits(jobs.Limits{InFlight: 64}),
 	)

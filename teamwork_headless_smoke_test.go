@@ -827,10 +827,10 @@ func TestTeamworkHeadlessSmoke(t *testing.T) {
 	if !strings.Contains(body, "team_context") || !strings.Contains(body, "team_accept / team_fail") {
 		t.Fatalf("P5 断言失败：自动返回的正文没给出收口姿势：%q", body)
 	}
-	if strings.Contains(body, "job_manage(op=fetch") {
+	if strings.Contains(body, "bg_manage(op=fetch") {
 		t.Fatalf("P5 断言失败：正文指错了取回工具（teammate 作业在 jobs_manage 一侧）：%q", body)
 	}
-	smoke.report.add("P5 自动返回", "空闲会话被起回合；正文含 team_context/team_accept，未指向 job_manage")
+	smoke.report.add("P5 自动返回", "空闲会话被起回合；正文含 team_context/team_accept，未指向 bg_manage")
 	// 这一回合跑完再往下看：P6 读的是"这件事的会话**此刻**在说什么"，回合还在飞的时候
 	// 读数会随执行面变化（而且要等它落定，才谈得上"验收把它释放掉"）。
 	if err := smoke.app.WaitForIdle(ctx); err != nil {

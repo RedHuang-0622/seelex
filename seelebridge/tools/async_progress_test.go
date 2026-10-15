@@ -42,7 +42,7 @@ func TestQuietPollResultsAreByteIdentical(t *testing.T) {
 	if first != second {
 		t.Fatalf("同一安静句柄的两次取回必须逐字节相同：\n%s\n%s", first, second)
 	}
-	if !strings.Contains(first, "job_manage") {
+	if !strings.Contains(first, "bg_manage") {
 		t.Fatal("取回正文必须把下一步动作告诉模型")
 	}
 

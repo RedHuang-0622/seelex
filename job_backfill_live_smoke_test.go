@@ -2,20 +2,20 @@
 
 package main
 
-// 「作业做完了，但没人调 job_manage」是作业面的**常态**，不是异常路径：模型派发
+// 「作业做完了，但没人调 bg_manage」是作业面的**常态**，不是异常路径：模型派发
 // 之后继续干自己的活、回合结束，然后才想起来（或者永远想不起来）那条作业。本用例用
 // 真实 API 把这条常态跑一遍，并把它到底"靠什么回填"钉死在断言里。
 //
 // 三段：
 //
 //	第一轮：真实模型调 bash_bg 派发一条"3 行输出后就退出"的命令，**全程不调
-//	        job_manage**（受理回执之外它拿不到任何输出字节）。
+//	        bg_manage**（受理回执之外它拿不到任何输出字节）。
 //	终态：  作业自己收尾。没有任何人调用工具，登记表自己把终态**有界摘要**
 //	        （exit / 行数 / 字节数 / 有界末行）算出来并置上 notified 位。
 //	第二轮：模型**不许调任何工具**，只凭上下文报告句柄、终态、退出码与输出末行。
 //	        末行标记只存在于终态摘要里 —— 它出现在回复里，就是"结果已经自行 append
 //	        到请求尾部"的直接证据；而首行标记必须**不**出现（摘要只到末行）。
-//	第三轮：真实模型调 job_manage(op=fetch) —— 首行标记这时才第一次进上下文。这就是
+//	第三轮：真实模型调 bg_manage(op=fetch) —— 首行标记这时才第一次进上下文。这就是
 //	        fetch 与打点块之间**唯一**的语义差：全文（消费式增量） vs 有界摘要。
 //
 // 判据全部落在 wire/DTO 事实上。唯一依赖模型输出的是第二轮那句"凭上下文报告"，它被
@@ -77,7 +77,7 @@ func TestManualSmokeRealAccountJobBackfillWithoutManage(t *testing.T) {
 	command := "echo " + backfillFirstToken + "; echo middle-line; echo " + backfillLastToken
 	dispatchPrompt := "Call bash_bg exactly once with " +
 		`{"command":"` + command + `","description":"live smoke: backfill probe"}` +
-		". Do NOT call job_manage in this turn. Do not call any other tool. " +
+		". Do NOT call bg_manage in this turn. Do not call any other tool. " +
 		"Reply with one short sentence that contains the handle."
 	if err := harness.app.Submit(ctx, dispatchPrompt); err != nil {
 		t.Fatal(err)
@@ -92,19 +92,19 @@ func TestManualSmokeRealAccountJobBackfillWithoutManage(t *testing.T) {
 
 	handle := jobHandleFromCalls(t, firstTurn)
 	for _, call := range firstTurn {
-		if call.name == "job_manage" {
-			t.Fatalf("第一轮出现了 job_manage 调用，「没人取回」这条前提不成立："+
+		if call.name == "bg_manage" {
+			t.Fatalf("第一轮出现了 bg_manage 调用，「没人取回」这条前提不成立："+
 				"status=%s result=%.200s（重跑一次；本用例要的就是不取回的那条路径）", call.status, call.result)
 		}
 		if call.name == "bash_bg" && strings.Contains(call.result, backfillFirstToken) {
 			t.Fatalf("受理回执里出现了命令输出（派发即返回的纪律被破坏）：%q", call.result)
 		}
 	}
-	t.Logf("第一轮：handle=%s，工具调用 %d 次（无 job_manage）", handle, len(firstTurn))
+	t.Logf("第一轮：handle=%s，工具调用 %d 次（无 bg_manage）", handle, len(firstTurn))
 
 	// ── 终态：没有任何人调用工具，回填位与摘要由收尾自己产生 ────────────
 	record := waitForAsyncTerminal(t, harness.runtime, handle, 30*time.Second)
-	t.Logf("终态（无人调 job_manage）：state=%s exit=%d notified=%v lines=%d bytes=%d summary=%q",
+	t.Logf("终态（无人调 bg_manage）：state=%s exit=%d notified=%v lines=%d bytes=%d summary=%q",
 		record.State, record.ExitCode, record.Notified, record.Lines, record.LogBytes, record.Summary)
 
 	if record.State != dto.AsyncStateDone {
@@ -114,7 +114,7 @@ func TestManualSmokeRealAccountJobBackfillWithoutManage(t *testing.T) {
 		t.Fatalf("退出码 = %d, want 0（summary=%q）", record.ExitCode, record.Summary)
 	}
 	if !record.Notified {
-		t.Fatal("终态没有置上回填位（notified=false）：没人调 job_manage 就回填不了——" +
+		t.Fatal("终态没有置上回填位（notified=false）：没人调 bg_manage 就回填不了——" +
 			"这正是本轮要查的问题")
 	}
 	if !strings.Contains(record.Summary, backfillLastToken) {
@@ -172,7 +172,7 @@ func TestManualSmokeRealAccountJobBackfillWithoutManage(t *testing.T) {
 		backfillLastToken)
 
 	// ── 第三轮：全文只有 fetch 拿得到 ─────────────────────────────────
-	fetchPrompt := "Call job_manage exactly once with " +
+	fetchPrompt := "Call bg_manage exactly once with " +
 		`{"op":"fetch","handle":"` + handle + `","wait_ms":5000}` +
 		". Then reply with one short sentence containing the first line of its output. " +
 		"Do not call any other tool."
@@ -185,7 +185,7 @@ func TestManualSmokeRealAccountJobBackfillWithoutManage(t *testing.T) {
 	thirdTurn := collector.take()
 	var fetchedOutput, fetchedStatus string
 	for _, call := range thirdTurn {
-		if call.name != "job_manage" {
+		if call.name != "bg_manage" {
 			continue
 		}
 		var payload struct {
@@ -194,7 +194,7 @@ func TestManualSmokeRealAccountJobBackfillWithoutManage(t *testing.T) {
 			Output string `json:"output"`
 		}
 		if err := json.Unmarshal([]byte(call.result), &payload); err != nil {
-			t.Fatalf("job_manage 回执不是合法 JSON: %v (%q)", err, call.result)
+			t.Fatalf("bg_manage 回执不是合法 JSON: %v (%q)", err, call.result)
 		}
 		fetchedOutput, fetchedStatus = payload.Output, payload.Status
 	}

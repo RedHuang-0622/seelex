@@ -15,10 +15,12 @@ It is an agent for **one person**, not a team-collaboration workbench: teamwork 
   serially, checking nodes off with `task_check_node` and closing with one deferred `task_complete`;
   `plan`: `plan_run` spawns isolated subagents, and plan events check nodes off live), typed nodes and
   task terminal states;
-- a background job surface shared by `bash_bg` / `read_batch` / `job_manage` (an acceptance receipt with
+- a background job surface shared by `bash_bg` / `read_batch` / `bg_manage` (an acceptance receipt with
   handle + log path, consumer-style fetch, `observe` / `kill` / `done`; serial bash refuses a `timeout`
   above 5 minutes, and a job reaching a terminal state wakes an *idle* session so the model can fetch the
-  result), switched off wholesale by `async_exec.enabled: false`;
+  result; handles name their own table — `bt-` / `bs-` for this surface, `bteam-` for teammate jobs, whose
+  management tool is `jobs_manage` — so a cross-table call fails loudly instead of hitting an unrelated
+  job), switched off wholesale by `async_exec.enabled: false`;
 - parallel subagents with isolated sessions, parent-evidence injection and structured merge-back;
 - session-scoped goal stacks with an independent adjudication role (ADVISOR/TechLeader), frame-throttled
   review, a bounded directive mailbox and an append-only governance audit; closure goes through
@@ -241,7 +243,7 @@ The important design choice is that frontends do not own the agent state machine
 - Standard SWE-bench or Terminal-Bench results have not been published.
 - Real WebView E2E is not yet a release gate.
 - Total statement coverage is 58.6% (2026-09-14); the TUI (35.6%) trails the core orchestration packages.
-- The background job surface (`bash_bg` / `read_batch` / `job_manage`) ships enabled, at the cost of
+- The background job surface (`bash_bg` / `read_batch` / `bg_manage`) ships enabled, at the cost of
   keeping three tool schemas on the tool face every round; `async_exec.enabled: false` switches the whole
   block off, after which long commands can only run serially with an explicit `timeout`.
 - The media partition enforces quotas and reference-based collection, but automatic per-session garbage

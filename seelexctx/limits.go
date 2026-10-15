@@ -156,7 +156,7 @@ type Limits struct {
 	// 掐死；fork 用独立大预算。子代理节点循环数复用 effort 调节值
 	// （PlanPolicy.MaxNodeLoops），不做独立常量。
 	ForkTimeoutSec int `yaml:"fork_timeout"` // fork 工具总超时（秒；0 → 7200 = 2 小时）
-	// AsyncExec 是**作业面**（子进程调用系契约：bash_bg / read_batch / job_manage /
+	// AsyncExec 是**作业面**（子进程调用系契约：bash_bg / read_batch / bg_manage /
 	// fork_subagents 的 async 模式）的开关块。默认 false = 关闭：作业工具都不注册、
 	// bash 收到旧入参 background=true 直接报错、fork 的 async 模式显式拒绝。
 	// 关就是关（不静默降级成同步执行），可一键回滚。
@@ -206,7 +206,7 @@ type AsyncExecLimits struct {
 	// 从设计起就是轮询型（模型答完就停，结果由模型自己的下一次工具调用取回），
 	// 「跨回合无人取回」是它的固有缺口（docs/2026-09-24-async-tool-deferred-ack/
 	// README.md §10.5），本开关补的就是这一步——终态 → 起回合 → 模型自己
-	// `job_manage(op=fetch)` 取回。
+	// `bg_manage(op=fetch)` 取回。
 	//
 	// 语义边界（写死，别在实现里漂）：
 	//   - **done 与 failed 都触发**；killed 不触发（那不是"作业有了结果"，是被终止）；

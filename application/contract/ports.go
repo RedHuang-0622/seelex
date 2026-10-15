@@ -171,7 +171,7 @@ type RuntimePort interface {
 	TaskSnapshotFor(sessionID string) []dto.TaskRecord
 	// ReleaseSessionAsync 终止某会话名下所有在途作业（bash_bg 进程 / read_batch
 	// 扇出 / subagent 编排），返回被登记的句柄数。会话删除/归档**必须**调用：
-	// 句柄表按会话持有执行体，会话没了就再没有 job_manage 能拿到它——不杀就是
+	// 句柄表按会话持有执行体，会话没了就再没有 bg_manage 能拿到它——不杀就是
 	// 无人认领的孤儿，而工作打点表会一路跟着它显示 running。
 	ReleaseSessionAsync(sessionID string) int
 	// AsyncPendingFor 返回某会话此刻还在跑的后台命令数（能力未开时恒 0）。

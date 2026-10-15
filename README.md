@@ -23,7 +23,7 @@ Seelex 不是一个只负责转发聊天请求的 AI Chat Client，也不是把 
 
 Seelex 由两个公开层次组成：[Seele](https://github.com/RedHuang-0622/Seele) 提供 Agent、Session、Tool Registry、ReAct、WorkPlan 和 Account Pool 等运行时原语；本仓库在其上实现面向软件工程的 Application Core、Workspace Sandbox、Context Pipeline、Plugin/Skill/MCP、持久化和交互前端。两层之间通过 [Seele Bridge](seelebridge/README.md) 隔离，使 Runtime 能力与产品语义可以分别演进。
 
-主会话默认使用 ReAct 和项目作用域 Tool Calling 完成任务。面对需要拆分的长任务，模型可以按需加载 WorkPlan DAG：加载后既可以由主代理按 DAG 串行自执行（<code>tasklist</code>，主代理串行自执行、逐节点打点，最后统一收尾），也可以交给子代理并行执行（<code>plan</code>）；每个 Subagent 节点拥有独立 Session、NodeScope、PromptBlocks、账号 binding 和 token budget，并行执行后再把 findings、decisions 与 progress 合并回父会话。分钟级的 Shell 命令、批量读与子代理派发共用**后台作业面**（<code>bash_bg</code> / <code>read_batch</code> / <code>job_manage</code>）：派发只回受理回执，产出按句柄消费式取回。Plan 不是所有请求的强制前置步骤，因此简单任务不会额外承担规划延迟和 token 成本。
+主会话默认使用 ReAct 和项目作用域 Tool Calling 完成任务。面对需要拆分的长任务，模型可以按需加载 WorkPlan DAG：加载后既可以由主代理按 DAG 串行自执行（<code>tasklist</code>，主代理串行自执行、逐节点打点，最后统一收尾），也可以交给子代理并行执行（<code>plan</code>）；每个 Subagent 节点拥有独立 Session、NodeScope、PromptBlocks、账号 binding 和 token budget，并行执行后再把 findings、decisions 与 progress 合并回父会话。分钟级的 Shell 命令、批量读与子代理派发共用**后台作业面**（<code>bash_bg</code> / <code>read_batch</code> / <code>bg_manage</code>）：派发只回受理回执，产出按句柄消费式取回。Plan 不是所有请求的强制前置步骤，因此简单任务不会额外承担规划延迟和 token 成本。
 
 上下文处理采用预算驱动的 Context Engineering 流程。Seelex 会为输出预留 token、保留最近对话窗口、压缩窗口外历史，并把超大 Tool Result 归档为可读回的引用。文件和 Shell 工具则同时受 ProjectScope 与 Permission Policy 约束：前者负责 workspace root 的路径 containment（按会话分格，后台与并行会话各用各的项目根），后者在合法范围内继续执行 allow、ask 或 deny，并通过 Human-in-the-loop Interaction 完成审批。桌面操控与用户图片走同一条会话媒体通道，额外受过平台门控、媒体配额与逐次审批约束；长任务则可以选择进入 goal 目标栈，由独立上下文的裁决角色评审「是否完成」。
 
@@ -60,10 +60,10 @@ Seelex 把这些能力组织成可替换、可测试的模块，而不是把它�
 | 能力 | 当前实现 |
 |---|---|
 | Agent 执行 | 流式对话、工具调用、取消、审批交互和任务终态；Effort 四档（lite/medium/high/max）约束循环数、工具调用数与计划规模 |
-| Plan 与子 Agent | 可选 WorkPlan DAG、拓扑校验、并行分支、独立节点 Session、事件投影和结果 merge-back；加载后按**任务级**选择两种执行模式：<code>tasklist</code>（主代理按 DAG 串行自执行，逐节点 <code>task_check_node</code> 打点、<code>task_complete</code> 收尾，无子代理）与 <code>plan</code>（<code>plan_run</code> 起子代理并行，节点完成经 Plan 事件实时投影）；<code>fork_subagents</code> 以后台作业派发子代理（句柄 + <code>job_manage</code> 取回） |
+| Plan 与子 Agent | 可选 WorkPlan DAG、拓扑校验、并行分支、独立节点 Session、事件投影和结果 merge-back；加载后按**任务级**选择两种执行模式：<code>tasklist</code>（主代理按 DAG 串行自执行，逐节点 <code>task_check_node</code> 打点、<code>task_complete</code> 收尾，无子代理）与 <code>plan</code>（<code>plan_run</code> 起子代理并行，节点完成经 Plan 事件实时投影）；<code>fork_subagents</code> 以后台作业派发子代理（句柄 + <code>bg_manage</code> 取回） |
 | 目标治理 | 会话级 LIFO goal 栈与状态机、独立上下文的裁决角色（ADVISOR / TechLeader）回合制评审、抽帧节流、有界指令邮箱、终态门禁与 append-only 审计；工具面 <code>goal_begin</code> / <code>goal_update</code> / <code>goal_status</code> / <code>goal_propose_finish</code> / <code>goal_done</code>——<code>goal_done</code> 是主代理（即 TL）的真收口，<code>goal_propose_finish</code> 才送终态 gate，员工与子代理看不到 <code>goal_done</code> |
 | 代理团队与工作台 | leader + 异步 worker 的 teamwork（旧 TeamSpec 团队工厂、团队库/员工库显式装配与成员发言顺序注册表已随 J-1a 退场）；leader 工具面 <code>team_plan</code> / <code>team_work</code> / <code>team_item</code> / <code>team_dispatch</code> / <code>team_join</code> / <code>team_accept</code> / <code>team_fail</code> / <code>team_recover</code> / <code>team_milestone</code> / <code>team_context</code> / <code>team_items</code> / <code>team_close</code>——<code>team_close</code> 是整队收口与回收的唯一入口（幂等），在编人数上限 <code>max_teammates</code>（默认 6）超限即显式拒绝、不静默排队；plan / tasklist / subagent / todo 四源合一的工作台投影与 traceboard |
-| 后台作业面 | <code>bash_bg</code> / <code>read_batch</code> / <code>job_manage</code>（框架侧通用管理入口为 <code>jobs_manage</code>）共用一套作业契约：派发只回受理回执（<code>handle</code> + <code>log_path</code>，不含输出），结果按句柄**消费式**取回（一批一次等用 <code>handles</code>），<code>op=observe</code> 只读看进展、<code>op=kill</code> 终止整棵进程树（已产出内容不丢）、<code>op=done</code> 销项；串行 <code>bash</code> 拒绝超过 5 分钟的 <code>timeout</code> 并指向 <code>bash_bg</code>，作业落终态且所属会话空闲时自动起一个回合让模型取回结果；<code>async_exec.enabled</code> 关闭即整块收回 |
+| 后台作业面 | <code>bash_bg</code> / <code>read_batch</code> / <code>bg_manage</code>（框架侧通用管理入口为 <code>jobs_manage</code>，服务团队作业表）共用一套作业契约：派发只回受理回执（<code>handle</code> + <code>log_path</code>，不含输出），结果按句柄**消费式**取回（一批一次等用 <code>handles</code>），<code>op=observe</code> 只读看进展、<code>op=kill</code> 终止整棵进程树（已产出内容不丢）、<code>op=done</code> 销项；**句柄自带来源**（本表 <code>bt-</code> / <code>bs-</code>，团队表 <code>bteam-</code>），跨表调用显式报错并点名对偶工具；串行 <code>bash</code> 拒绝超过 5 分钟的 <code>timeout</code> 并指向 <code>bash_bg</code>，作业落终态且所属会话空闲时自动起一个回合让模型取回结果；<code>async_exec.enabled</code> 关闭即整块收回 |
 | 上下文治理 | Prompt Stack 稳定前缀、滑动窗口、预算控制、压缩 DAG、超大工具结果归档为 <code>result_ref</code> 与按页/过滤读回（<code>read_tool_result</code> / <code>read_compressed_turn</code> / <code>search_history</code>）；装配逼近硬阈值（默认 98% 预算）时**探测即主动压缩**为有界 checkpoint 帧，<code>compact_context</code> 工具与 <code>/compact</code> 命令可手动触发同一压缩；压缩失败**只留痕**——不改写 agent 的上下文、不中断会话 |
 | 记忆与检索 | 相关记忆块（词法 top-K）、以压缩栈为索引的历史检索读回、跨会话稳定前缀复用、CLI/项目级 <code>MEMORY.md</code> 索引 |
 | 项目知识 | <code>project_refresh</code> 扫描模块文档目录 + 模块元数据（默认 <code>docs/gui/module_dotting.json</code>）+ 可选 <code>seelex.project.md</code>，重建项目级模块语义知识；记录按**工作区 ID**（<code>ws-&lt;nano&gt;</code>）存储，写入键与读面同键；来源 hash 未变直接复用，重建失败保留上一版本，无来源显式报错 |
@@ -320,15 +320,15 @@ Plan 在执行前完成：
 
 #### 子代理的进度与结果
 
-`fork_subagents` 会在运行时构造 `start → subagent(s) → summary` 的 DAG，并把这一批登记成**后台作业**：调用立刻返回每个子代理的句柄，**不等结果**。产出按句柄取回（<code>job_manage(op=fetch, handle)</code>；一批一次等用 <code>handles</code>），过程用 <code>op=observe</code> 看、提前终止用 <code>op=kill</code>（已产出内容不丢；一条 kill 取消整批）。执行中的权威状态另可看 Plan 事件：在 GUI 右侧 Plan 中点击子代理节点，即可查看会话记录、功能打点、事件时间线、工具活动和最终输出。
+`fork_subagents` 会在运行时构造 `start → subagent(s) → summary` 的 DAG，并把这一批登记成**后台作业**：调用立刻返回每个子代理的句柄，**不等结果**。产出按句柄取回（<code>bg_manage(op=fetch, handle)</code>；一批一次等用 <code>handles</code>），过程用 <code>op=observe</code> 看、提前终止用 <code>op=kill</code>（已产出内容不丢；一条 kill 取消整批）。执行中的权威状态另可看 Plan 事件：在 GUI 右侧 Plan 中点击子代理节点，即可查看会话记录、功能打点、事件时间线、工具活动和最终输出。
 
 summary 节点仍拼接各子代理输出，它是**整批作业正文的兜底**（某个子代理没有可复用摘要时用它）。单个子代理的完整产出按它自己的句柄取回；把外层兜底正文当作大结果的唯一读取通道，或者据此转述、推断审查结论，都是不允许的。
 
 #### 长命令与批量读走同一个作业面
 
-子代理不是唯一的后台作业来源：分钟级的 Shell 命令与批量读走的是**同一套契约**（<code>bash_bg</code> / <code>read_batch</code> / <code>job_manage</code> 共用一张工作表格与同一台状态机），因此工作台上的每一行都能用同一种文法取回。
+子代理不是唯一的后台作业来源：分钟级的 Shell 命令与批量读走的是**同一套契约**（<code>bash_bg</code> / <code>read_batch</code> / <code>bg_manage</code> 共用一张工作表格与同一台状态机），因此工作台上的每一行都能用同一种文法取回。
 
-- **派发即回回执**：<code>bash_bg</code> 只回 <code>status=accepted</code>、句柄与日志路径，不含输出；<code>description</code> 必填，成为工作表格的行标题。取结果靠 <code>job_manage(op=fetch, handle)</code>（一批一次等用 <code>handles</code>），<code>op=observe</code> 只读看进展、<code>op=kill</code> 终止整棵进程树（已产出内容不丢）、<code>op=done</code> 销掉终态行。
+- **派发即回回执**：<code>bash_bg</code> 只回 <code>status=accepted</code>、句柄与日志路径，不含输出；<code>description</code> 必填，成为工作表格的行标题。取结果靠 <code>bg_manage(op=fetch, handle)</code>（一批一次等用 <code>handles</code>），<code>op=observe</code> 只读看进展、<code>op=kill</code> 终止整棵进程树（已产出内容不丢）、<code>op=done</code> 销掉终态行。
 - **时长线**：作业面打开时，串行的 <code>bash</code> 拒绝超过 5 分钟（<code>serialBashBudget</code>）的 <code>timeout</code>，把长命令赶去后台；作业面关闭时**不**做这条审查——没有替代入口时拒绝一条长命令等于既不执行也不给路。
 - **完成触发回合**：作业落终态（done / failed，killed 不触发）且所属会话**空闲**时，自动起一个回合让模型自己去取回结果；忙会话不被打断、也不进它的队列——它下一次回合边界的打点块本来就会列出完成行。
 - **开关就是开关**：<code>seelex.yaml</code> 的 <code>async_exec.enabled</code> 置 false 即整块收回能力——三个工具都不注册，<code>fork_subagents</code> 的 async 模式与旧入参 <code>background=true</code> 显式拒绝，不静默降级成同步执行。
@@ -770,7 +770,7 @@ Linux CI 还会执行 race detector、覆盖率和发布包安全检查。
 - 媒体分区已有配额与引用式回收（<code>CollectMedia</code>，支持 dry-run），但按会话生命周期的自动 GC 策略仍需补齐。
 - GUI 渲染有内存截断线：单条工具输出超过 8000 字符时快照只保留预览，完整内容需经 <code>result_ref</code> 读回。
 - Linux GUI 依赖宿主发行版的 WebKit2GTK ABI：发布包按 22.04 类（4.0 + libsoup-2.4）构建，24.04 类发行版需用 <code>--webkit 41</code> 自行重建。
-- 后台作业面（<code>bash_bg</code> / <code>read_batch</code> / <code>job_manage</code>）出厂常驻开，代价是这三个工具的 schema 每轮都在工具面上；用 <code>seelex.yaml</code> 的 <code>async_exec.enabled: false</code> 可整块收回，收回后长命令只能串行执行并显式给 <code>timeout</code>。
+- 后台作业面（<code>bash_bg</code> / <code>read_batch</code> / <code>bg_manage</code>）出厂常驻开，代价是这三个工具的 schema 每轮都在工具面上；用 <code>seelex.yaml</code> 的 <code>async_exec.enabled: false</code> 可整块收回，收回后长命令只能串行执行并显式给 <code>timeout</code>。
 
 如果你正在寻找稳定 API 或无人值守生产服务，请先审查对应模块 README、测试和变更记录，再决定是否采用。
 

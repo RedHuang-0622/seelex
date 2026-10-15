@@ -1,6 +1,6 @@
 package tools
 
-// job_manage_batch_test.go — `job_manage` 的**多句柄**面（handles）：一次等一批、
+// bg_manage_batch_test.go — `bg_manage` 的**多句柄**面（handles）：一次等一批、
 // 一次看一批。它是"一批派发出去的作业本来就是一个工作单元"这条事实的工具面落点
 // （read_batch 的 N 个读、fork_subagents 的一批子代理）。
 
@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// manageBatchForTest 走 job_manage 的 handles 入参，返回批量取回载荷。
+// manageBatchForTest 走 bg_manage 的 handles 入参，返回批量取回载荷。
 func manageBatchForTest(t *testing.T, router *Router, ctx context.Context, op string, handles []string, waitMS int) (asyncBatchPayload, error) {
 	t.Helper()
 	args, err := json.Marshal(map[string]interface{}{

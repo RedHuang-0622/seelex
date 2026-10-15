@@ -372,7 +372,7 @@ func (r *Runtime) nodeSessionID(systemPrompt string) string {
 // registerForkTool 注册 fork_subagents（RegisterBuiltins 内调用）。
 //
 // 这一批子代理**只走作业化派发**（与 bash_bg / read_batch 同一个作业面）：调用立刻
-// 返回每个子代理的句柄，产出经 job_manage(op=fetch, handle) 取回。没有"阻塞到全部
+// 返回每个子代理的句柄，产出经 bg_manage(op=fetch, handle) 取回。没有"阻塞到全部
 // 跑完"的分支——阻塞期间模型没有下一次调用，"观察/提前终止子代理"就无从谈起。
 func (r *Runtime) registerForkTool() {
 	r.RegisterTool("fork_subagents",

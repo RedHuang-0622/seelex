@@ -96,7 +96,7 @@ func newSettleFixture(t *testing.T, mergeErr error) (*teamwork.Coordinator, *mem
 	}); err != nil {
 		t.Fatal(err)
 	}
-	manager, err := jobs.New()
+	manager, err := jobs.New(jobs.WithNamer(teamworkJobNamer{}))
 	if err != nil {
 		t.Fatalf("jobs.New: %v", err)
 	}

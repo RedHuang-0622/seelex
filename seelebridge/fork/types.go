@@ -12,7 +12,7 @@ import (
 const SubagentsContractDescription = `
 - The call returns an acceptance receipt with one job handle per subagent and NEVER waits
   for results: this is background dispatch, the same job face as bash_bg / read_batch.
-- Fetch each subagent's output with job_manage(op=fetch, handle); look at progress with
+- Fetch each subagent's output with bg_manage(op=fetch, handle); look at progress with
   op=observe (handle or none = list this session's jobs); terminate early with op=kill
   (already produced output is kept); retire the row with op=done once it is terminal.
   One kill cancels the WHOLE batch (they share a single plan run).
@@ -27,7 +27,7 @@ const SubagentsContractDescription = `
 // Input 是 fork_subagents 的参数契约。
 //
 // 这一批子代理**只走作业化派发**（打点 L-5）：调用立刻返回每个子代理的句柄，产出经
-// `job_manage(op=fetch, handle)` 取回。没有"阻塞到全部跑完"的分支——串行派发会把
+// `bg_manage(op=fetch, handle)` 取回。没有"阻塞到全部跑完"的分支——串行派发会把
 // "观察/提前终止子代理"变成不可能（阻塞期间模型没有下一次调用，不是缺工具，是缺时机），
 // 而这条能力正是它与 bash_bg / read_batch 同属一个作业面的原因。
 type Input struct {
@@ -72,9 +72,9 @@ type SubagentJobSpec struct {
 //
 // 三件事就够（执行体在 plan 编排里，不在本包）：
 //
-//	Add      登记一条作业并挂上取消口（job_manage(op=kill) / 会话销毁会调它）
+//	Add      登记一条作业并挂上取消口（bg_manage(op=kill) / 会话销毁会调它）
 //	Note     追加已产出的正文（节点摘要 / 中途发现）——kill 之后这些字节仍可取回
-//	Complete 合成终态（运行体系被动 done；与 job_manage(op=done) 是两个入口）
+//	Complete 合成终态（运行体系被动 done；与 bg_manage(op=done) 是两个入口）
 type SubagentJobs interface {
 	Add(spec SubagentJobSpec, cancel context.CancelFunc) (string, error)
 	Note(handle, text string)

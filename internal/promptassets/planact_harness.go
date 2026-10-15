@@ -94,7 +94,7 @@ func PlanActHarnessCases() []PlanActHarnessCase {
 			Name:        "long-command-goes-to-the-background-entry",
 			Effort:      "high",
 			UserRequest: "跑完整测试套件，跑的时候继续把审查做完。",
-			Expected:    "分钟级命令走后台作业面（bash_bg 派发 + job_manage 取回）；串行 bash 超预算的 timeout 被拒绝；作业面关闭时才串行并显式给 timeout。",
+			Expected:    "分钟级命令走后台作业面（bash_bg 派发 + bg_manage 取回）；串行 bash 超预算的 timeout 被拒绝；作业面关闭时才串行并显式给 timeout。",
 			Required:    []string{"Long-Running Commands", "Use `bash_bg` when:", "Do not use `bash_bg` when:", "timeout` above 5 minutes instead of running it", "work-table row title", "If `bash_bg` is not in your tool list"},
 		},
 	}

@@ -86,7 +86,7 @@ func TestJobContractToolFaceRoutingTable(t *testing.T) {
 		{"edit_file", GroupRW, "改项目文件"},
 		{"bash", GroupRW, "同步串行命令：保守归类为写"},
 		{"bash_bg", GroupRW, "后台受管：实现 §A.1 的 Add，回执不是结果"},
-		{"job_manage", GroupRW, "取回/终止/销项管的正是 bash 起的执行体"},
+		{"bg_manage", GroupRW, "取回/终止/销项管的正是 bash 起的执行体"},
 		// 循环控制流 / 能力面。
 		{"task_complete", GroupCTL, "结束 loop"},
 		{"fork_subagents", GroupCTL, "派生执行结构"},
@@ -105,6 +105,6 @@ func TestJobContractToolFaceRoutingTable(t *testing.T) {
 	}
 
 	// 这张表已经落在契约上：bash 工具族按名字分流（K-3），两个已下线的旧名字
-	// （取回 / 终止）由 job_manage 的 op 取代（L-2 / L-4）。表变了这里就该变——这是有意
+	// （取回 / 终止）由 bg_manage 的 op 取代（L-2 / L-4）。表变了这里就该变——这是有意
 	// 的耦合，不是脆弱的重复。
 }

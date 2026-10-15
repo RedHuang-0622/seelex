@@ -67,7 +67,7 @@ flowchart TB
   跑、继续握住输出管道，`cmd.Wait` 于是要等孙进程自己退出——"停止工具调用"就变成"点了
   停止还要再等几十秒"（回归用例 `stop_foreground_run_test.go`）。反过来，后台作业用
   `context.WithoutCancel` 摘掉了回合 ctx，**停止按钮不杀它们**：生死只由
-  `job_manage(op=kill)` 与 `asyncHardCap` 决定。
+  `bg_manage(op=kill)` 与 `asyncHardCap` 决定。
   **有意不并的只有 `runCtx`（超时 / 取消策略）**：两条链长得像但语义不同——后台是
   `context.WithTimeout(context.WithoutCancel(ctx), asyncHardCap)`（受理回执一返回本次调用的
   ctx 就失效，沿用它会把刚起的命令连带杀掉），同步是
@@ -108,10 +108,37 @@ string 只会让每个调用点多做一次编解码往返；框架的 `ToolHand
 三类作业的派发工具都**只派发、不等结果**：`fork_subagents` 也没有"阻塞到全部跑完"
 的分支（阻塞期间模型没有下一次调用，`observe`/`kill` 就没有入口）。
 
+### 句柄自带来源（作业身份层，2026-10-15）
+
+本域的后台作业表与 Seele `jobs.Manager` 的团队作业表**在同一个进程里并存**，各表自己维护
+派发序号。两边曾经共用同一套句柄形状（都从 `a1` 起），于是把一张表的句柄交给另一张表的管理
+工具会**静默命中一条无关作业**（审计 `docs/2026-10-15-teamwork-defect-audit/README.md` D1，
+真实会话里发生过 leader 想停 teammate 的 `a5`、却销掉一条无关后台作业并收到"成功"）。
+
+现在的口径：
+
+| 表 | 派发面 | 句柄 | 管理工具 |
+|---|---|---|---|
+| 后台工具作业 | `bash_bg`（process）/ `read_batch`（inline） | `bt-<seq>` | `bg_manage` |
+| 后台子代理作业 | `fork_subagents`（subagent） | `bs-<seq>` | `bg_manage` |
+| 团队作业 | `team_dispatch`（teammate，Seele `jobs.Manager`） | `bteam-<seq>` | `jobs_manage` |
+
+- **文法与判据只有一处**：`application/contract/dto/job_namespace.go`（`JobHandle` 铸造 /
+  `JobNamespaceOf` 识别 / `JobHandleSeq` 解析）。分隔符是文法的一部分——`bt` 是 `bteam` 的
+  前缀，只有带上 `-` 匹配，`bteam-3` 才不会被判成 `bt-` 那一族。
+- **本域铸造**在 `async_exec.go` 的 `beginJob`（按 kind 取 token）；团队表由 Seelex 注入的
+  命名器给出（`seelebridge/teamwork_job_namer.go`）。
+- **跨表调用显式报错**：`bg_manage` 的 `requireOwnedJobHandles` 只认本表的两个 token（正向
+  白名单，第三张表出现时默认拒绝），拒绝文案点名 `jobs_manage`。
+- 工作表格行 ID 仍是 `async:<handle>`（`async:` 是**行**命名空间，与句柄命名空间正交），
+  前端与看板因此不需要认识 token。
+- 名字从 `job_manage` 改成 `bg_manage`：旧名与 `jobs_manage` 只差一个字母（退役门禁见根目录
+  `job_migration_residue_test.go`），新名与 token 同源。
+
 工具面与形状：`bash`（唯一的 shell 入口：串行、同步，**不再有 `background`**；
 只读形态的免打断由权限模式表承担）/ `bash_bg`（`Add`，**必须带
 `description`**——它是工作打点表的行标题）/ `read_batch`（一次派发 N 个读作业）/
-`fork_subagents`（一次派发 N 个子代理作业）/ `job_manage`（`op=observe|fetch|kill|done`；
+`fork_subagents`（一次派发 N 个子代理作业）/ `bg_manage`（`op=observe|fetch|kill|done`；
 `op=fetch`/`op=observe` 可给 `handles` 数组一次管一批——**整批共用一份等待预算**，
 不是逐条各等一次）。派发只返回**受理回执**
 （`{status:accepted, handle, log_path, state:running}`，不含作业输出），
@@ -140,14 +167,15 @@ string 只会让每个调用点多做一次编解码往返；框架的 `ToolHand
 
 - `job_contract.go`：`JobTool` 契约 + `jobManager`（四个管理动作的唯一实现；批量入口
   `FetchMany`/`StatusMany` 也在这里，单条与批量共用 `fetchOne`/`polledPayload`）。
-- `job_tools.go`：`job_manage` / `bash_bg` / `read_batch` 三个工具面与 schema/描述。
+- `job_tools.go`：`bg_manage` / `bash_bg` / `read_batch` 三个工具面与 schema/描述。
 - `job_run.go` / `job_subagent.go`：等待预算、子代理作业的登记与被动收尾入口。
 - `async_exec.go`：句柄表与状态机（`running/done/failed/killed`）、载荷渲染。
 - `async_run.go`：派发、`awaitAsync` 收尾、进程树与输出目录回收。
 - `async_probe.go`：只读探针（`AsyncRuns` / `AsyncRunEvents`）——回答界面上的
   "是什么、在跑什么、现在怎么样"，不推进游标、不进上下文。
 
-- `asyncRegistry`：单锁句柄表。句柄 `a<seq>`（seq 单调，不能用 `len(runs)` 推——驱逐过
+- `asyncRegistry`：单锁句柄表。句柄 `<token>-<seq>`（本表是 `bt-` / `bs-`，token 表与文法见
+  `application/contract/dto/job_namespace.go`；seq 单调，不能用 `len(runs)` 推——驱逐过
   已完成项后会同号，两条执行共用输出文件）；去重键 = 会话+命令（只在 `state=running`
   期间生效，一次失败不得永久封死这条命令）；在途上限 32、记录槽 256，驱逐最老的已完成
   记录时**连带删输出文件**（记录槽有上限、文件没有，否则长会话把临时目录无界撑大）。
@@ -186,7 +214,7 @@ string 只会让每个调用点多做一次编解码往返；框架的 `ToolHand
   路径"的缓存纪律约束。core 侧的投影见 `application/core/work_table_async.go`。
 - 开关（`Deps.AsyncExecEnabled` ⇐ `limits.async_exec.enabled`，**出厂 true**；结构零值仍
   false，旧配置文件缺这段 = 关）：关闭时作业工具（`bash_bg` / `read_batch` /
-  `job_manage`）都不注册、`bash` 收到旧入参 `background=true` 与
+  `bg_manage`）都不注册、`bash` 收到旧入参 `background=true` 与
   `fork_subagents`（它只走作业面）都直接报错。**关就是关**，不得静默降级成同步执行
   （与 `security/sandbox.go` 头注同源）。常驻开的已知代价：这几个入口的 schema
   每轮常驻（实测三个入口约 213 token/轮，A/B 报告 §4 r1）。
@@ -257,7 +285,7 @@ PowerShell，放行也执行失败）。命令面因此只剩 `bash` 与 `bash_b
   失效）；新增清理路径都要问"终态是否恰好合成一次"。
 - 回执与取回的载荷必须确定性（不含时间戳/耗时）：这些字节会永久留在可缓存前缀里。
 - 取回只能交付增量并推进 `cursor`；把整份日志重播进上下文会同时烧 token 和破前缀。
-- `job_manage` 的 `handles` 批量取回共用**一份**等待预算（deadline 只建一次）：新增
+- `bg_manage` 的 `handles` 批量取回共用**一份**等待预算（deadline 只建一次）：新增
   批量路径时不得把预算按条数相乘——那是把"一次等一批"变回 N 次串行等待。`kill`/`done`
   一次只认一条句柄（kill 会终止整批共用编排，销项是逐条的确认）。
 - 终态只由执行体判定：模型侧 `done` 只能销**已终态**的行，对在途作业必须报错并要求

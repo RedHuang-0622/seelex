@@ -66,6 +66,7 @@ func newOutputFixture(t *testing.T, withOutputs bool) (*Coordinator, jobs.Manage
 		port = outputs
 	}
 	manager, err := jobs.New(
+		jobs.WithNamer(testNamer{}),
 		jobs.WithExecutor(WorkerExecutor(runner, nil, 4)),
 		jobs.WithLimits(jobs.Limits{InFlight: 8}),
 	)

@@ -180,7 +180,7 @@ func TestAsyncRunAloneMaterializesTraceBlock(t *testing.T) {
 	if !strings.Contains(block, workTableTraceMarkerOpen) || !strings.Contains(block, "- async:a3 process running") {
 		t.Fatalf("只有后台命令时打点块没出现: %q", block)
 	}
-	if !strings.Contains(block, "job_manage") {
+	if !strings.Contains(block, "bg_manage") {
 		t.Fatalf("打点块缺 async:<句柄> 的读法说明: %q", block)
 	}
 

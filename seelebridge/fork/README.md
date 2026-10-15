@@ -53,11 +53,11 @@ sequenceDiagram
     S-->>N: findings / decisions / progress
     N-->>P: 节点终态
     P->>J: 逐条写正文 + 合成终态（按**各自节点**判 done/failed）
-    T->>J: job_manage(op=fetch, handle|handles) 取回产出
+    T->>J: bg_manage(op=fetch, handle|handles) 取回产出
 ```
 
 `fork_subagents` **只派发、不等结果**（与 `bash_bg` / `read_batch` 同一个作业面）：
-调用立刻返回句柄，产出经 `job_manage(op=fetch)` 取回，过程用 `op=observe` 看、提前终止用
+调用立刻返回句柄，产出经 `bg_manage(op=fetch)` 取回，过程用 `op=observe` 看、提前终止用
 `op=kill`（一条 kill 取消整批，因为整批共用一次 plan run）、结清用 `op=done`。
 
 ## 批次失败策略（best-effort）

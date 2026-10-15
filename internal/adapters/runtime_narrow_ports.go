@@ -109,7 +109,7 @@ func (port RuntimePort) TeammateSessionLivePage(sessionID string, offset, limit 
 // 作业（jobs.Manager 里的 worker 作业）的终态只读投影与变化信号口——「做完自动返回」那条
 // 链的输入。漏了它**不会报错**：core 侧的类型断言失败 ⇒ 信号口读成 nil ⇒ 空闲会话的触发
 // 回合静默消失（leader 上下文里永远没有"谁跑完了"的回声，这正是 2026-10-04 的现场）。
-// 两张作业表的取回工具不是同一个（jobs_manage vs job_manage），因此这一路投影只搬 teammate
+// 两张作业表的取回工具不是同一个（jobs_manage vs bg_manage），因此这一路投影只搬 teammate
 // 那一张表的读数，不合表。
 func (port RuntimePort) TeamworkJobCompletions() []dto.TeamworkJobCompletionRecord {
 	if port.Runtime == nil {

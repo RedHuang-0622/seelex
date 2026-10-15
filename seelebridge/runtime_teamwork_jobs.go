@@ -6,7 +6,7 @@ package seelebridge
 // 它是"做完自动返回"那条链在 seelebridge 一侧的入口：application 侧的空闲会话触发
 // （triggerTeamworkJobCompletions）读这里，与 tools 那张表走 AsyncRunsSnapshot /
 // AsyncRunEvents 完全同形——只是事实源不同（jobs.Manager vs tools 登记表），
-// 因此取回工具也不同（jobs_manage vs job_manage）。
+// 因此取回工具也不同（jobs_manage vs bg_manage）。
 
 import (
 	"github.com/RedHuang-0622/Seele/jobs"

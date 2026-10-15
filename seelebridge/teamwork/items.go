@@ -668,9 +668,18 @@ func applySettleOutcome(plan *sessionstore.TeamworkPlan, item *sessionstore.Team
 // 真实 git 上的现场形状是 `fork/exec …git.exe: The directory name is invalid`，复现：
 // seelebridge/worktree/worktree_vanished_scene_repro_test.go）。
 //
-// 「在跑」的判据沿用 DispatchItem 与看板投影的**同一处**口径：running **且** handle 还在
-// 册 = 这一件事真的还在飞（→ 拒绝，让它把尾插走完）。handle 已作废（进程重启 / 已被回收）
-// 则相反：尾插不会再跑，验收就此成了销项动作（→ 放行，这正是"重启后收尾"那条路）。
+// 「还在跑」的判据是**作业状态**（jobRunning；旧口径见下方更正说明）：
+// running = 这一件事真的还在飞（→ 拒绝，让它把尾插走完）。
+//
+// **2026-10-15 审计 D2 的更正**：「还在跑」的判据换成**作业状态**（jobRunning），不再用
+// "句柄还在不在册"当代理。理由两条：
+//
+//  1. 尾插先于终态完成（executor.go 里 settle 在 sink.Complete 之前跑完），所以"作业已
+//     终态"已经蕴含"合并 + 回执 + 状态三步都落定了"——终态即放行；句柄作废（进程重启 /
+//     已被回收 / 已销项）同样放行：尾插不会再跑，验收就此成为销项动作（"重启后收尾"那条路）。
+//  2. 用"在册"当代理的代价是**能不能验收取决于谁先想起来销项**：终态行仍留在表里，闸门就
+//     一直拒；而拒绝文案给出的出路（`jobs_manage(op=kill)`）对一条已经跑完的作业毫无意义
+//     ——这正是"拒绝 + 请你先做 X"里 X 不可达的那类缺陷。
 func (c *Coordinator) AcceptItem(ctx context.Context, itemID, note string) error {
 	c.lockPlan()
 	defer c.unlockPlan()
@@ -689,8 +698,8 @@ func (c *Coordinator) AcceptItem(ctx context.Context, itemID, note string) error
 	case sessionstore.TeamworkItemReview:
 		// 尾插已走完（合并 → 回执 → 状态）：链尾该动的地方，放行。
 	case sessionstore.TeamworkItemRunning:
-		if c.handleAlive(item.Handle) {
-			return fmt.Errorf("teamwork: 工作项 %q 还在跑（handle %s 还在册），不能验收——先等它的回执（尾插会先合并、再插回执），或先 jobs_manage(op=kill, handle=\"%s\") 把它停掉，那时现场才归你处置",
+		if c.jobRunning(item.Handle) {
+			return fmt.Errorf("teamwork: 工作项 %q 还在跑（handle %s 的作业状态是 running），不能验收——先等它的回执（尾插会先合并、再插回执），或先 jobs_manage(op=kill, handle=\"%s\") 把它停掉，那时现场才归你处置",
 				item.ID, item.Handle, item.Handle)
 		}
 	case sessionstore.TeamworkItemFailed:
@@ -718,13 +727,18 @@ func (c *Coordinator) AcceptItem(ctx context.Context, itemID, note string) error
 	} else if strings.TrimSpace(item.Note) == "" {
 		item.Note = "验收通过"
 	}
-	// 作业句柄可以清：这一轮作业已经终态（作业本身由收口统一 Reclaim，不靠这条句柄）。
+	// 作业句柄先留个副本再清：这一轮作业已经终态（作业本身由收口统一 Reclaim，不靠这条句柄），
+	// 而验收 = 这件事结清，顺手把它的**作业行**销掉（见 retireSettledJob）。
+	settledHandle := strings.TrimSpace(item.Handle)
 	item.Handle = ""
 	item.FinishedAt = c.clock().UTC().Unix()
 	recomputeMilestones(&plan)
 	if err := c.store.WritePlan(ctx, c.key, plan, c.maxMembers); err != nil {
 		return err
 	}
+	// 销项放在写盘之后：计划是事实，作业行的回收只是卫生动作——它的失败既不改判这件事的
+	// 状态，也不该把一次成功的验收说成失败（三种可预期情形都不是错误，见 retireSettledJob）。
+	c.retireSettledJob(ctx, settledHandle)
 	return c.audit(ctx, sessionstore.TeamworkEvent{
 		Kind: sessionstore.TeamworkEventAccept, TeamID: plan.TeamID, Milestone: item.Milestone,
 		Role: item.Role, WorkItem: item.ID, Detail: item.Note,
@@ -1053,6 +1067,44 @@ func (c *Coordinator) handleAlive(handle string) bool {
 	}
 	_, ok := c.jobs.Observe(jobs.Handle(trimmed))
 	return ok
+}
+
+// jobRunning 报告一个作业句柄此刻**是不是还在跑**（作业表里的状态读数）。
+//
+// 它与 handleAlive 问的是两个不同的问题，**不许并成一处**（AGENTS.md §8：像却不并的，
+// 要把理由写在注释里）：
+//
+//   - handleAlive 问"句柄还在不在册"：终态行仍在册，答复也该是"在"——DispatchItem 的
+//     幂等折叠（同一件事重复派发要折叠到那一条）、Recover 与看板的 interrupted 读的都是
+//     "这条句柄还有没有可解析的作业"；
+//   - jobRunning 问"作业是不是还在跑"：验收闸门用它（终态即放行，见 AcceptItem 的注释）。
+//
+// 把两者合成一个函数，就等于又回到"用在册当代理"的旧口径——那正是审计 D2 的缺陷本体。
+func (c *Coordinator) jobRunning(handle string) bool {
+	trimmed := strings.TrimSpace(handle)
+	if trimmed == "" {
+		return false
+	}
+	record, ok := c.jobs.Observe(jobs.Handle(trimmed))
+	return ok && record.Running()
+}
+
+// retireSettledJob 结清一个已落定作业的**作业行**（销项）。幂等：句柄为空、不在册、
+// 还在跑、已经销项过，都不是错误（作业行的回收是卫生动作，不是判定）。
+//
+// 为什么不放在尾插完成那一刻：那时作业**还在跑**（executor.go 的 settle 先于
+// sink.Complete），销项必然失败；而且终态行正是两条下游链读的证据——"作业做完自动返回"
+// 的触发与看板事件投影（application/core 的 teamwork 完成触发；seelebridge/jobs_events.go
+// 的快照扫描）都靠它在册才看得见那次终态，提前销掉会把证据一起删掉。验收才是"这件事结清"
+// 的时刻：计划销项 + 作业行销项一起完成，leader 不必记得再调一次 `jobs_manage(op=done)`。
+func (c *Coordinator) retireSettledJob(ctx context.Context, handle string) {
+	if handle == "" || c.jobs == nil {
+		return
+	}
+	if record, ok := c.jobs.Observe(jobs.Handle(handle)); ok && record.Running() {
+		return // 还在跑：留给 jobs_manage(op=kill) 或下一次验收
+	}
+	_ = c.jobs.Done(ctx, jobs.Handle(handle))
 }
 
 // workItemGoal 把工作内容折成这一轮的正文（名称 / 描述 / 达成目标三件）。

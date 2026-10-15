@@ -21,7 +21,7 @@ import (
 // 作业 Scope.Session）、序号非零（按会话可排序）。
 func TestJobsEventStreamProjectsLifecycleIntoSessionLog(t *testing.T) {
 	release := make(chan struct{})
-	manager, err := jobs.New(jobs.WithExecutor(jobs.ExecutorFunc{
+	manager, err := jobs.New(jobs.WithNamer(teamworkJobNamer{}), jobs.WithExecutor(jobs.ExecutorFunc{
 		JobKind: "test",
 		Run: func(_ context.Context, _ jobs.Spec, sink jobs.Sink) error {
 			sink.Note("running\n")

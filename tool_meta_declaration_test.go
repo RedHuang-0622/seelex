@@ -76,6 +76,34 @@ func scanToolRegistrations(t *testing.T, root string) (map[string]string, []stri
 	var unresolved []string
 	files := 0
 
+	// 常量按**目录**（= 一个 package）收集：注册点与"工具名常量"可以分居两个文件
+	// （例如 seelebridge/tools 的 router.go 注册、job_tools.go 声明），而"包级常量"这条
+	// 判据本来就不该按文件划线。先收一遍常量，再走一遍注册点。
+	constsByDir := map[string]map[string]string{}
+	collectConsts := func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil || entry.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		file, parseErr := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+		if parseErr != nil {
+			return nil
+		}
+		dir := filepath.ToSlash(filepath.Dir(path))
+		if constsByDir[dir] == nil {
+			constsByDir[dir] = map[string]string{}
+		}
+		for name, value := range constStringsOf(file) {
+			constsByDir[dir][name] = value
+		}
+		return nil
+	}
+	if err := filepath.WalkDir(root, collectConsts); err != nil {
+		t.Fatalf("收集工具名常量失败: %v", err)
+	}
+
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil
@@ -101,7 +129,7 @@ func scanToolRegistrations(t *testing.T, root string) (map[string]string, []stri
 		relative, _ := filepath.Rel(root, path)
 		relative = filepath.ToSlash(relative)
 
-		consts := constStringsOf(file)
+		consts := constsByDir[filepath.ToSlash(filepath.Dir(path))]
 		aliases := registrationAliases(file)
 
 		ast.Inspect(file, func(node ast.Node) bool {

@@ -118,7 +118,7 @@ func TestToolEventStatusEnumWire(t *testing.T) {
 // 把框架的词收进我们的契约枚举，就是"拿别人的词表当自己的"：框架加一个词，我们的 Unmarshal
 // 就报错。所以这一格的口径是**边界字段**——保持字符串 + 工具侧只用我们自己那五个词 +
 // 源码门禁登记白名单理由（见 e2e/subagent_status_vocabulary_gate_test.go 的 receipt 条目）。
-// 这一条是清点写方之后改的口径（原计划"连 job_manage 的四种 op 一起收"被证据推翻）。
+// 这一条是清点写方之后改的口径（原计划"连 bg_manage 的四种 op 一起收"被证据推翻）。
 
 // 格 D：task 状态（工作表格条目的生命周期）。
 func TestTaskStatusEnumWire(t *testing.T) {

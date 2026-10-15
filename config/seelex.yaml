@@ -248,11 +248,11 @@ limits:
   # 子代理循环数复用 effort 调节值（high=48 / max=96），无需单独配置。
   # fork_timeout: 7200           # fork 工具总超时（秒；默认 7200 = 2h）
   # 作业面（子进程调用系契约）：bash_bg 派发后立刻返回受理回执（handle+log_path），
-  # 结果经 job_manage(op=fetch, handle) 分次取回（消费式：每次只给新增部分），
+  # 结果经 bg_manage(op=fetch, handle) 分次取回（消费式：每次只给新增部分），
   # op=observe 只读看进展（不消费输出）、op=kill 终止整棵进程树、op=done 销项。
   # 同一套契约还覆盖 read_batch（批量读作业化）与 fork_subagents 的 async 模式。
   # 出厂常驻开 = 这些入口一直在模型的工具面上；代价是它们的 schema 每轮常驻。
-  # 置 false = 整块收回能力：bash_bg / read_batch / job_manage 都不注册，
+  # 置 false = 整块收回能力：bash_bg / read_batch / bg_manage 都不注册，
   # fork_subagents 的 async 模式显式拒绝，bash 收到旧入参 background=true 直接拒绝
   # （能力不可实施时不得静默降级成同步执行）。
   # 串行与后台之间还有一条时长线：显式 timeout 超过 5 分钟（serialBashBudget）的
@@ -263,7 +263,7 @@ limits:
   async_exec:
     enabled: true                # 常驻开；改回 false 即整块收回
     # 后台作业落到**终态**时，为它所属会话起一个回合，让模型自己去
-    # job_manage(op=fetch) 取回结果并继续（作业面是轮询型：模型答完就停，
+    # bg_manage(op=fetch) 取回结果并继续（作业面是轮询型：模型答完就停，
     # 结果没人取回是它的固有缺口，见 2026-09-24-async-tool-deferred-ack §10.5）。
     # done 与 failed 都触发；killed 不触发。只在会话**空闲**时触发——忙会话不被打断、
     # 也不进它的队列（铁律 §6.1），它下一次回合边界的打点块本来就会列出完成行。

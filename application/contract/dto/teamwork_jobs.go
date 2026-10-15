@@ -8,7 +8,7 @@ package dto
 //
 // 为什么单开一份而不是复用 AsyncRunRecord：两者是**两张不同的表**。AsyncRunRecord 来自
 // tools 的后台执行登记表（bash_bg / read_batch / subagent），句柄空间与取回工具都是那一套
-// （job_manage）；teammate 作业活在 Seele 的 jobs.Manager 里，取回工具是 jobs_manage。
+// （bg_manage）；teammate 作业活在 Seele 的 jobs.Manager 里，取回工具是 jobs_manage。
 // 混成一份就会出现"自动返回的正文指着一个取不到这条作业的工具"这种错误。
 type TeamworkJobCompletionRecord struct {
 	// Handle 是 jobs.Manager 的句柄（进程内、ab<seq> 从不复用）。

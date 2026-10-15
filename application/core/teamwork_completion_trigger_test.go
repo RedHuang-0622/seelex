@@ -60,9 +60,9 @@ func TestTeamworkCompletionTriggersIdleSessionTurn(t *testing.T) {
 			t.Fatalf("触发回合的正文缺少 %q：%q", want, body)
 		}
 	}
-	// **不能**指向 job_manage：那是 tools 那张表的取回工具，拿它取 teammate 作业会取不到。
-	if strings.Contains(body, "job_manage(op=fetch") {
-		t.Fatalf("teammate 作业的正文指错了取回工具（job_manage 属于另一张表）：%q", body)
+	// **不能**指向 bg_manage：那是 tools 那张表的取回工具，拿它取 teammate 作业会取不到。
+	if strings.Contains(body, "bg_manage(op=fetch") {
+		t.Fatalf("teammate 作业的正文指错了取回工具（bg_manage 属于另一张表）：%q", body)
 	}
 }
 
@@ -144,8 +144,11 @@ func TestTeamworkCompletionTriggersOncePerHandle(t *testing.T) {
 	}
 }
 
-// 两张表的句柄空间**各自独立**（都是从 a<seq> 起步）：同一个字面量句柄在两张表里同时
-// 终态时，两条链都要各触发一次——幂等账不做前缀就会互相压制（后一条永远静默）。
+// 两张表的终态链**各触发一次**：幂等账按表（前缀）分开，不靠句柄字面量。
+//
+// 历史上两张表都铸 `a<seq>`，靠"前缀 + 字面量"才分得开；现在句柄自带命名空间
+// （`bt-` / `bteam-`，见 dto.JobNamespace），两条链的键天然不同——但幂等账仍然按表记账，
+// 因为口径是"哪张表的哪一条"，不是"哪一串字符"。
 func TestTeamworkCompletionDoesNotCollideWithToolHandles(t *testing.T) {
 	applyTestLimits(t, func(applied *seelexctx.Limits) {
 		applied.AsyncExec.Enabled = true
@@ -157,16 +160,16 @@ func TestTeamworkCompletionDoesNotCollideWithToolHandles(t *testing.T) {
 	}
 	service := newTestService(t, &fakeEngine{sessionID: "session-a"}, withTestRuntime(runtime))
 
-	runtime.asyncRuns = []dto.AsyncRunRecord{completedRecord("a7", asyncStateDone)}
-	runtime.teamworkRuns = []dto.TeamworkJobCompletionRecord{completedTeammateRecord("a7", asyncStateDone)}
+	runtime.asyncRuns = []dto.AsyncRunRecord{completedRecord("bt-7", asyncStateDone)}
+	runtime.teamworkRuns = []dto.TeamworkJobCompletionRecord{completedTeammateRecord("bteam-7", asyncStateDone)}
 	runtime.asyncEvents <- struct{}{}
-	waitForTriggeredTurn(t, service, "a7")
+	waitForTriggeredTurn(t, service, "bt-7")
 	waitForChatCompletion(t, service)
 
 	runtime.teamworkEvents <- struct{}{}
 	body := waitForTriggeredTurn(t, service, "teammate: exec")
-	if !strings.Contains(body, "handle: a7") {
-		t.Fatalf("teammate 那条链被 tools 的同号句柄压制了（幂等账缺前缀）：%q", body)
+	if !strings.Contains(body, "handle: bteam-7") {
+		t.Fatalf("teammate 那条链被 tools 那条压制了（幂等账缺按表前缀）：%q", body)
 	}
 }
 
@@ -201,7 +204,7 @@ func TestTeamworkTraceLinesCarryCompletionReceipt(t *testing.T) {
 	if strings.Contains(joined, "ab22") {
 		t.Fatalf("别的会话的 teammate 作业不得出现在本会话的打点块里：\n%s", joined)
 	}
-	if strings.Contains(joined, "job_manage") {
+	if strings.Contains(joined, "bg_manage") {
 		t.Fatalf("打点行本身不该带取回工具名（提示行由调用方给）：\n%s", joined)
 	}
 }

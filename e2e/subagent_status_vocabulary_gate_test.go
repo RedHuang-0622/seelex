@@ -97,7 +97,7 @@ var statusVocabularyScopes = []statusVocabularyScope{
 			"seelebridge/tools/job_contract.go":    "读：作业面把执行域状态映射成契约状态",
 			"seelebridge/tools/job_run.go":         "写：作业面执行体落终态",
 			"seelebridge/tools/job_subagent.go":    "读：子代理作业的终态判定",
-			"seelebridge/tools/job_tools.go":       "读：job_manage 的回答里带状态",
+			"seelebridge/tools/job_tools.go":       "读：bg_manage 的回答里带状态",
 			"application/core/async_completion.go": "读：终态触发对话（done/failed 触发，killed 不触发）",
 			"application/core/work_table_async.go": "读：折成工作表格的权威状态（killed 归 failed）",
 			"tui/goalteam.go":                      "读：团队看板的作业计数（板上 State 是同一份词面，引契约枚举）",
@@ -292,7 +292,7 @@ var allowedStatusLiterals = []statusAllowedLiteral{
 		scope: "后台作业状态", file: "seelebridge/tools/async_exec.go", word: "killed",
 		reason: "这是**回执状态**（asyncPayload.Status：observed|killed|already_finished|finished…），" +
 			"不是执行域状态机那一格（同一结构里的 State 才是，值是 asyncState*）；" +
-			"回执词表的收口要连 job_manage 的四种 op 一起做，登记为下一批",
+			"回执词表的收口要连 bg_manage 的四种 op 一起做，登记为下一批",
 	},
 	{
 		scope: "计划批次结果状态", file: "seelebridge/plan/tool_provider.go", word: "failed",

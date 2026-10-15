@@ -70,7 +70,9 @@ goal 由**提示词 + 团队作业面**驱动：没有框架侧的座位循环�
 
 1. **取回产出**：优先 `team_context`（**非消费读**，游标不推进、不销项）；
    要正文/日志再用 `jobs_manage(op=observe|fetch, handle=…)`。
-   `jobs_manage` 是 **teammate 作业**（`jobs.Manager`）那一侧的工具，别和 `job_manage`（后台作业面）混用。
+   `jobs_manage` 是 **teammate 作业**（`jobs.Manager`）那一侧的工具，别和 `bg_manage`（后台作业面）混用：
+   句柄自带来源——`bt-`（后台工具作业）/ `bs-`（后台子代理作业）归 `bg_manage`，
+   `bteam-`（团队作业）归 `jobs_manage`；拿错工具会**显式报错**并告诉你该用哪个。
 2. **核对改动事实**：`git diff` / 该次的提交与文件——**版本事实归 git**，不凭 teammate 的描述。
 3. **汇总到看板**：追加打点（结论 + 证据锚点 + 未决项）；证据改变了目标就改写正文/完成条件。
 4. **写里程碑**：`team_milestone(id, content)`，content **由你撰写**（交付了什么 + 证据是什么 + 下一步）。

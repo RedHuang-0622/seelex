@@ -35,7 +35,7 @@ const (
 // 留在可缓存前缀里。
 var (
 	asyncTimeoutNote = fmt.Sprintf("\n[seelex:async] 命令超过硬上限 %s，进程树已终止（exit=%d）\n", asyncHardCap, asyncTimeoutExit)
-	asyncKilledNote  = fmt.Sprintf("\n[seelex:async] 作业被终止（job_manage(op=kill) 或会话销毁），执行体已退出（exit=%d）\n", asyncKilledExit)
+	asyncKilledNote  = fmt.Sprintf("\n[seelex:async] 作业被终止（bg_manage(op=kill) 或会话销毁），执行体已退出（exit=%d）\n", asyncKilledExit)
 	asyncPanicNote   = "\n[seelex:async] 执行体内部错误，已合成失败终态\n"
 )
 

@@ -70,6 +70,9 @@ func (r *Runtime) SetTeamworkBackend(backend TeamworkBackend) error {
 		return errors.New("teamwork: SetTeamworkBackend 需要 PlanStore 与 KeyFor")
 	}
 	manager, err := jobs.New(
+		// 命名由产品注入（Seele 不再自命名）：团队作业表铸 `bteam-<seq>`，与后台工具的
+		// `bt-` / `bs-` 分属不相交的命名空间（见 teamworkJobNamer 的说明）。
+		jobs.WithNamer(teamworkJobNamer{}),
 		jobs.WithExecutor(teamwork.WorkerExecutor(r, r, backend.MaxTurns)),
 		jobs.WithSessionResolver(func(ctx context.Context) string {
 			return seeletelemetry.SessionIDFromContext(ctx)
@@ -240,7 +243,7 @@ func (r *Runtime) registerTeamworkTools() {
 	r.RegisterTool("team_recover", teamworkRecoverDescription(), teamworkRecoverSchema(), r.teamRecoverHandler)
 	r.RegisterTool("team_items", teamworkItemsDescription(), teamworkItemsSchema(), r.teamItemsHandler)
 	// jobs_manage：框架通用管理工具（jobs/builtin）。簇属按 seelex 的路由组表声明，
-	// 与 bash_bg/job_manage 同组（它就是对作业面的读/写/销项）。
+	// 与 bash_bg/bg_manage 同组（它就是对作业面的读/写/销项）。
 	r.teamworkMu.Lock()
 	manager := r.teamworkJobs
 	r.teamworkMu.Unlock()

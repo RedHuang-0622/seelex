@@ -14,10 +14,10 @@ import (
 // 子代理与后台命令走**同一张登记表、同一套状态机**，差别只有执行体：
 //
 //	| 诉求                       | 落点                              | 依赖 OS 进程化吗 |
-//	| main agent 主动看它在干什么 | job_manage(op=observe, handle)    | 不需要          |
-//	| main agent 提前终止         | job_manage(op=kill, handle)       | 不需要          |
+//	| main agent 主动看它在干什么 | bg_manage(op=observe, handle)    | 不需要          |
+//	| main agent 提前终止         | bg_manage(op=kill, handle)       | 不需要          |
 //	| 执行体自己收尾              | Router.CompleteJob（被动 done）    | 不需要          |
-//	| 结清那一行                  | job_manage(op=done, handle)       | 不需要          |
+//	| 结清那一行                  | bg_manage(op=done, handle)       | 不需要          |
 //
 // 为什么不需要进程化：观测/干预只依赖**句柄契约**，与执行体是 goroutine 还是 OS 进程
 // 正交。进程化会同时引入生命周期、结果序列化与数十个 subagent 测试面的改动，把"最小
@@ -70,7 +70,7 @@ var _ JobTool = (*subagentTool)(nil)
 // 返回句柄原文。
 //
 // 与契约面 Add 的关系：契约面保证形状（回执），这里多一件事——把 cancel 交给登记表，
-// 于是 `job_manage(op=kill)` 与"会话销毁即杀"能取消整条子代理编排（非进程作业没有
+// 于是 `bg_manage(op=kill)` 与"会话销毁即杀"能取消整条子代理编排（非进程作业没有
 // 进程树，取消口就是 ctx）。
 func (r *Router) AddSubagentJob(spec JobSpec, cancel func()) (string, error) {
 	if r == nil || r.async == nil {
@@ -101,9 +101,9 @@ func (r *Router) NoteJob(handle, text string) error {
 
 // CompleteJob 是运行体系的**被动 done** 入口：执行体收尾时合成终态。
 //
-// 与 job_manage(op=done) 的分工（K-6 的两个入口）：
+// 与 bg_manage(op=done) 的分工（K-6 的两个入口）：
 //   - 这里 = 执行体自己判定终态（子代理编排跑完 / 失败 / 被取消）；
-//   - job_manage(op=done) = 模型侧确认销项（把已落定的终态行从投影里划掉）。
+//   - bg_manage(op=done) = 模型侧确认销项（把已落定的终态行从投影里划掉）。
 //     它既不迁移终态，也不允许对在途作业使用——终态只由执行体判定。
 //
 // 幂等：已经是终态的句柄返回 false，不产生第二次迁移（K-5 的 K-4 约束）。

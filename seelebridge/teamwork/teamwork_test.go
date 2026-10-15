@@ -161,6 +161,7 @@ func newFixture(t *testing.T, maxTeammates int) *fixture {
 	runner := &fakeRunner{}
 	log := &callLog{}
 	manager, err := jobs.New(
+		jobs.WithNamer(testNamer{}),
 		jobs.WithExecutor(WorkerExecutor(runner, nil, 4)),
 		jobs.WithLimits(jobs.Limits{InFlight: 64}),
 	)
@@ -424,7 +425,10 @@ func TestCloseReclaimsEveryJobOnTheRoster(t *testing.T) {
 // 必须在收口步 2 显式报错（缺端口 = 显式错误，不是静默跳过）。
 func TestCloseRequiresWorkspaceAndSessionPorts(t *testing.T) {
 	store := &memoryPlanStore{}
-	manager, err := jobs.New(jobs.WithExecutor(WorkerExecutor(&fakeRunner{}, nil, 4)))
+	manager, err := jobs.New(
+		jobs.WithNamer(testNamer{}),
+		jobs.WithExecutor(WorkerExecutor(&fakeRunner{}, nil, 4)),
+	)
 	if err != nil {
 		t.Fatalf("jobs.New: %v", err)
 	}
@@ -463,7 +467,7 @@ func TestNewRefusesIncompleteWiring(t *testing.T) {
 	if _, err := New(Options{Key: sessionstore.Key{ProjectID: "p", SessionID: "s"}}); err == nil {
 		t.Fatal("缺 PlanStore 必须被拒")
 	}
-	manager, err := jobs.New()
+	manager, err := jobs.New(jobs.WithNamer(testNamer{}))
 	if err != nil {
 		t.Fatalf("jobs.New: %v", err)
 	}
@@ -481,7 +485,7 @@ func TestSubjectIsEmployeeSubject(t *testing.T) {
 
 func TestWorkerExecutorWithoutRunnerFails(t *testing.T) {
 	executor := WorkerExecutor(nil, nil, 1)
-	manager, err := jobs.New(jobs.WithExecutor(executor))
+	manager, err := jobs.New(jobs.WithNamer(testNamer{}), jobs.WithExecutor(executor))
 	if err != nil {
 		t.Fatalf("jobs.New: %v", err)
 	}

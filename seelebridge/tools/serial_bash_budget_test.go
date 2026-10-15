@@ -99,7 +99,7 @@ func TestSerialBashBudgetLabelMatchesBudget(t *testing.T) {
 // 改预算忘改提示词就是红。
 func TestSerialBashBudgetAgreesWithPrompt(t *testing.T) {
 	instructions := promptassets.SystemInstructions()
-	for _, required := range []string{"Long-Running Commands", serialBashBudgetLabel(), "bash_bg", "job_manage(op=fetch, handle)"} {
+	for _, required := range []string{"Long-Running Commands", serialBashBudgetLabel(), "bash_bg", "bg_manage(op=fetch, handle)"} {
 		if !strings.Contains(instructions, required) {
 			t.Fatalf("系统提示词缺少串行预算规则的 %q", required)
 		}

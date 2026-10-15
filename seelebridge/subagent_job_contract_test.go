@@ -98,7 +98,7 @@ func TestForkSubagentsAsyncRunsAsJobs(t *testing.T) {
 	}
 
 	// ③ observe：只读看它在干什么（不消费输出）。
-	observed, err := runtime.Agent().DirectDispatch(ctx, "job_manage", `{"op":"observe"}`)
+	observed, err := runtime.Agent().DirectDispatch(ctx, "bg_manage", `{"op":"observe"}`)
 	if err != nil {
 		t.Fatalf("observe: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestForkSubagentsAsyncRunsAsJobs(t *testing.T) {
 	}
 	var fetched []string
 	for _, handle := range handles {
-		out, err := runtime.Agent().DirectDispatch(ctx, "job_manage",
+		out, err := runtime.Agent().DirectDispatch(ctx, "bg_manage",
 			`{"op":"fetch","handle":"`+handle+`","wait_ms":-1}`)
 		if err != nil {
 			t.Fatalf("fetch %s: %v", handle, err)

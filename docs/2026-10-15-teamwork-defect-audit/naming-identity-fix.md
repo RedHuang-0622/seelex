@@ -1,6 +1,7 @@
 # 作业身份层命名契约（D1 的解法）
 
-状态：**设计待裁决**（按本节 §7 的两个问句裁决即可开工；未改代码）
+状态：**已落地**（2026-10-15 裁决：§7 取"改 Seelex 侧工具名 + 走 Seele 一次小版本"这一档；
+Seele 与 Seelex 两侧代码、门禁与文档同步改完；落地结果与两处**与本文原方案不同的判断**见 §8）
 范围：D1 为主，D2/D5 与之强耦合，D6–D8 顺带定序；D3/D4 独立成项
 输入：用户口径（2026-10-15）——「给 teamwork 和 jobs_manage 做出区分度更大的命名，并给任务命名
 定规范：后台 tool 任务 `bt-x`、后台 subagent 任务 `bs-x`、后台 teamwork 任务 `bteam-x`」
@@ -81,8 +82,8 @@ JobNamespaceOf(handle string) (JobNamespace, bool) // 识别；带分隔符匹�
   它的定位是**产品中立**的通用管理工具；"这是团队作业面"是 **Seelex 的语义**，签名该由 Seelex 自己扛。
 - 因而 Seelex 侧改名 = 零跨仓成本、零版本成本；改 Seele 侧 = 一次发版 + Seelex 全仓文档跟着动。
 
-命名取 `bg_manage`：与 `bt-`/`bs-` 同源（b = background），与 `jobs_manage` **无公共前缀、不同词数、不同长度**；
-并且它**不含** `job_manage` 子串（避免残留门禁自伤，见 §2.2）。
+命名取 `bg_manage`：与 `bt-`/`bs-` 同源（b = background），与 `jobs_manage` **无公共前缀、不同词数、不同长度**，
+也不再与它共享 `job[s]_manage` 这段骨架。
 
 备选（若你要对称命名）：`local_jobs` / `bg_jobs`；更强的一档是让 Seele 支持 `WithToolName`，由 Seelex 注入
 team 味更足的名字（如 `team_jobs_manage`）——**可选，不做也已达到区分度**。
@@ -99,14 +100,14 @@ team 味更足的名字（如 `team_jobs_manage`）——**可选，不做也已
 3. `docs/2026-10-06-workunit-jobs-port/` 已就"两张表一张都不搬"做过一轮裁决。本次只修**身份层**，
    不动这两条已经站得住的边界。
 
-### 2.2 迁移门禁（复用现成纪律，但有一个坑）
+### 2.2 迁移门禁（复用现成纪律）
 
 改名按仓库既有口径走：把 `job_manage` 加进 `job_migration_residue_test.go` 的 retired 名单，
 要求**代码（`*.go`）+ `config/*.yaml` 零残留**，`docs/` 与 `CHANGELOG.md` 作为历史记录豁免。
 
-**坑（必须一并修）**：该用例现在用 `strings.Contains(line, token)` 判定残留，而 `job_manage` 是
-`jobs_manage` 的**子串**——直接加进去，这条门禁从第一天起就会误报，形同虚设。残留判定必须先做词边界处理。
-这条坑本身是"名字只差一个字母"的又一证据，值得写进门禁用例的注释。
+一处需要写明（实测确认）：`job_manage` 与 `jobs_manage` **互不为子串**（`jobs_manage` 中并不存在
+`job_manage` 这串连续字符，反向亦然），所以现成的 `strings.Contains` 判定可以直接用，不需要词边界改造；
+要做的是在门禁注释里点明"退役的是 `job_manage`，`jobs_manage` 仍在服役"，防止后人误把两者一起下掉。
 
 ---
 
@@ -159,8 +160,8 @@ teammate 句柄仍是 `a<n>`。守卫把"**非 `bt-`/`bs-`**"一律判为**团�
    断言句柄形如 `bt-*` / `bt-*` / `bs-*`（今天全红）。
 2. `TestJobNamespaceGuardNamesTheOtherTable`：`bg_manage` 收到 `bteam-1`（或过渡期的 `a5`）必须报错，
    且错误文本含 `jobs_manage`；`JobNamespaceOf("bteam-3")` 不得被判成 `bt`（今天无此判据）。
-3. `TestRetiredJobToolNameLeavesNoResidue`：`job_manage` 在代码与 `config/*.yaml` 零残留（词边界判定，
-   见 §2.2）；同时断言 `jobs_manage` 不被误报。
+3. `TestRetiredJobToolNameLeavesNoResidue`：`job_manage` 在代码与 `config/*.yaml` 零残留（见 §2.2），
+   并断言仍在服役的 `jobs_manage` 不被误伤。
 4. （需 Seele 版本才绿）`TestTeamworkHandleCarriesTeamToken`：leader 派发 → 回执句柄以 `bteam-` 开头。
 
 ---
@@ -195,7 +196,7 @@ teammate 句柄仍是 `a<n>`。守卫把"**非 `bt-`/`bs-`**"一律判为**团�
 
 **门禁**
 
-- `job_migration_residue_test.go`：加 `job_manage`（先修词边界）。
+- `job_migration_residue_test.go`：把 `job_manage` 加进退役名单。
 - 新增 D5 的 SKILL/提示词 ↔ 注册面 contract test（含"命名表与 `dto` token 表一致"）。
 
 **不动**：`async:` 行前缀；`bash_bg` / `read_batch` / `fork_subagents` / `team_*` 的名字；
@@ -213,3 +214,57 @@ teammate 句柄仍是 `a<n>`。守卫把"**非 `bt-`/`bs-`**"一律判为**团�
 
 默认建议：**P0 先落 Seelex 自改**（§1 + §2 + §5 的 1–3 条用例，含 D2 同批），
 `bteam-` 与 `handles` 对称一张 Seele 需求单等你发版。
+
+---
+
+## 8. 落地记录（2026-10-15）
+
+### 8.1 实际交付
+
+**Seele（本地仓 `G:/Program/go/Seele`，未发版）**
+
+- 新增 `jobs.Namer`（`Name(spec Spec, seq int) Handle`）与 `jobs.WithNamer`；`New` 缺注入即
+  `ErrNoNamer`；`manager.register` 不再铸 `Handle("a" + seq)`，改为取注入命名器的答案（仍在锁内
+  调用，`seq` 与插入的原子性不变）。
+- 新增两条回填校验：空句柄 `ErrInvalidHandle`、已在册句柄 `ErrDuplicateHandle`——**一条身份
+  不允许指向两条作业**（这正是"跨表静默命中"的成因，现在在铸造处就挡住）。
+- 库内两个调用点（`jobs/manager_test.go`、`jobs/builtin/manage_test.go`）改为测试自带的命名策略；
+  `jobs/namer_test.go` 四条用例；`jobs/README.md` 增 Naming 一节；`docs/arch/16-jobs-contracts.md`
+  增 §2.2 与 I-3 改写；`CHANGELOG.md` 增 v0.3.5（未发布）段。
+- Seelex 侧以 `go.mod` 的 `replace` 接本地仓联调（与 2026-09-15/09-26/09-28/10-05 四次同路），
+  **发版后必须删 replace 并抬 require**（见 `go.mod` 里的注记）。
+
+**Seelex**
+
+- 契约层唯一判据：`application/contract/dto/job_namespace.go`（`JobHandle` / `JobNamespaceOf` /
+  `JobHandleSeq`；分隔符是文法的一部分）。
+- 后台表按 kind 铸 `bt-` / `bs-`（`seelebridge/tools/async_exec.go` 的 `beginJob` +
+  `jobNamespaceForKind`）；团队表由 `seelebridge/teamwork_job_namer.go` 注入（`jobs.WithNamer`）。
+- 工具改名 `job_manage` → `bg_manage`（注册名收敛成 `bgManageToolName` 常量；代码与 `config/*.yaml`
+  零残留由 `job_migration_residue_test.go` 的退役名单把守）。
+- 跨表守卫：`requireOwnedJobHandles`（正向白名单，只认本表两个 token），拒绝文案点名 `jobs_manage`。
+- D2：验收闸门改判**作业状态**（新增 `jobRunning`；`handleAlive` 保留给"在册"那类问题，两者
+  **刻意不并**并把理由写在注释里）；`team_accept` 通过后自动销掉那条作业行（`retireSettledJob`，幂等）。
+- D5 门禁：`tool_face_prompt_consistency_test.go`——注册面 → 提示词、提示词 → 注册面、**提示词里教的
+  token 集合 == `dto.JobNamespaces`** 三个方向；名单从源码扫描器读，不另写一份字面量。
+
+### 8.2 两处与本文原方案不同的判断（都有证据）
+
+1. **自动销项放在"验收通过"那一刻，不是"尾插完成"那一刻。** 原方案写的是"settle 完成时自动销一把"，
+   落地时发现不可行且有害：尾插**先于**终态完成（`seelebridge/teamwork/executor.go` 里 settle 在
+   `sink.Complete` 之前），那一刻作业还是 `running`，销项必然失败；更要紧的是**终态行正是下游两条链
+   读的证据**——"作业做完自动返回"的触发与看板事件投影都靠它在册才看得见那次终态，提前销掉等于把
+   证据一起删掉。验收才是"这件事结清"的时刻（计划销项 + 作业行销项），卸掉的仍是同一条隐性职责：
+   leader 不必记得调 `op=done`。
+2. **顺手修掉一处同类缺陷（本文未预见）：`handleSeq` 也在猜句柄形状。** 后台探针的派发序排序原来
+   靠"首字符是 `a`"，换 token 后每条都解析成同一个键，排序退化成 map 遍历顺序（既有用例
+   `TestProbeOrdersByDispatchSequenceNotHandleText` 当场变红）。现在解析统一走 `dto.JobHandleSeq`，
+   形状知识仍然只有一处（契约层）。附带把仓库的注册点扫描器从"同文件常量"升级为"同 package 常量"：
+   注册名改用跨文件常量后，`TestEveryRegisteredToolDeclaresGroups` 会误报无法静态解析。
+
+### 8.3 仍未做（登记，不含在本次交付）
+
+- `jobs_manage` 收 `handles`（一批一次等）—— schema 对称那一半，属 Seele 的**新能力**，建议与
+  下一次 Seele 版本一起收。
+- D3（读面"不存在即状态"通则）、D4（实际壳单一事实源）、D6（尾插/收尾硬化）、D7（卡点格）、
+  D8（拒绝说清"当前是哪种"）：与身份层无关，仍是独立小项。

@@ -228,8 +228,9 @@ func teamworkAttachEvictedBody(ctx context.Context, outputs teamworkMemberOutput
 	view.BodyTruncated = truncated
 }
 
-// latestRecordFor 取某主体名下**最新**的那条作业行：优先在跑的，否则取句柄序号最大的
-// （句柄形如 a12，序号单调递增 = 派发顺序）。
+// latestRecordFor 取某主体名下**最新**的那条作业行：优先在跑的，否则取登记序号（`Record.Seq`）
+// 最大的。序号单调递增 = 派发顺序——按序号比，不是按句柄文本比（句柄带命名空间 token，
+// 见 dto.JobNamespace）。
 func latestRecordFor(records []jobs.Record, subject string) (jobs.Record, bool) {
 	var chosen jobs.Record
 	found := false

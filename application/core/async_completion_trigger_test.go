@@ -80,7 +80,7 @@ func TestAsyncCompletionTriggersIdleSessionTurn(t *testing.T) {
 
 	body := waitForTriggeredTurn(t, service, "a7")
 	// 正文必须自带"去取哪一条"与"怎么取"：它是一条用户行，模型与人都只有它可读。
-	for _, want := range []string{"handle: a7", "状态: done", "job_manage(op=fetch, handle=\"a7\")"} {
+	for _, want := range []string{"handle: a7", "状态: done", "bg_manage(op=fetch, handle=\"a7\")"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("触发回合的正文缺少 %q：%q", want, body)
 		}

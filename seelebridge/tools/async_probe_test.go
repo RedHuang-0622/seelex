@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 	"unicode"
+
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 // 实时探针的判据（台账 §10 S3/探针）。
@@ -91,7 +93,7 @@ func TestProbeTailIsOneLineSanitizedAndClamped(t *testing.T) {
 	}
 }
 
-// 句柄是 "a<seq>"：字符串序会把 a10 排到 a2 前，界面上就成了乱序的派发史。
+// 句柄是 `<token>-<seq>`：字符串序会把 bt-10 排到 bt-2 前，界面上就成了乱序的派发史。
 func TestProbeOrdersByDispatchSequenceNotHandleText(t *testing.T) {
 	registry := newAsyncRegistryForTest(t)
 	for index := 1; index <= 12; index++ {
@@ -104,7 +106,10 @@ func TestProbeOrdersByDispatchSequenceNotHandleText(t *testing.T) {
 		t.Fatalf("读数条数 = %d", len(infos))
 	}
 	for index, info := range infos {
-		if want := fmt.Sprintf("a%d", index+1); info.Handle != want {
+		// 句柄形态 = 命名空间 token + 派发序号（本表是 bt-）：投影必须按派发序排，
+		// 而不是按句柄文本的字典序（"bt-10" 的字符串序排在 "bt-2" 前）。
+		// 期望值走契约里的铸造函数，不在用例里另写一份形状。
+		if want := dto.JobHandle(dto.JobNamespaceToolJob, index+1); info.Handle != want {
 			t.Fatalf("第 %d 条句柄 = %s，want %s（必须按派发序）", index, info.Handle, want)
 		}
 	}

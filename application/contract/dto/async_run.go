@@ -19,7 +19,7 @@ import "time"
 //     无界即按轮数线性烧 token。
 type AsyncRunRecord struct {
 	SessionID string `json:"session_id"`
-	Handle    string `json:"handle"` // 句柄原文（a3）；工作表格行 ID 为 async:a3
+	Handle    string `json:"handle"` // 句柄原文（本表形如 bt-3 / bs-7，见 job_namespace.go）；工作表格行 ID 为 async:bt-3
 	// Kind = process | inline | subagent：决定读取口与 kill 语义（句柄是同一套）。
 	Kind string `json:"kind,omitempty"`
 	// Description 是模型派发时写的一句话（bash_bg 的 description 必填）→ 行标题。
@@ -76,7 +76,7 @@ const (
 	AsyncStateDone
 	// AsyncStateFailed = 自己退了非零，或起不来。
 	AsyncStateFailed
-	// AsyncStateKilled = 由 job_manage(op=kill) 或会话销毁终止，与"命令自己退非零"可分。
+	// AsyncStateKilled = 由 bg_manage(op=kill) 或会话销毁终止，与"命令自己退非零"可分。
 	AsyncStateKilled
 )
 

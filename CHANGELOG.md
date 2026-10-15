@@ -15,6 +15,28 @@ lands.
 
 ### Added
 
+- **作业身份层：句柄自带命名空间（`bt-` / `bs-` / `bteam-`）+ 管理工具改名 `bg_manage`**（2026-10-15；
+  审计 `docs/2026-10-15-teamwork-defect-audit/README.md` D1，方案
+  `docs/2026-10-15-teamwork-defect-audit/naming-identity-fix.md`）. 缺陷：本进程里**并存两张作业表**
+  （`seelebridge/tools` 后台作业表、Seele `jobs.Manager` 团队作业表），两边各自维护派发序号却共用
+  同一套句柄形状（都从 `a1` 起），且两个管理工具名只差一个字母（`job_manage` / `jobs_manage`）——
+  把 A 表的句柄交给 B 表的工具会**静默命中一条无关作业**（真实会话实测：leader 想停 teammate 的
+  `a5`，`op=done` 销掉的是一条无关后台作业并返回"成功"）。现在：契约层唯一一份命名空间表
+  （`application/contract/dto/job_namespace.go`：`JobHandle` 铸造、`JobNamespaceOf` 识别、`JobHandleSeq`
+  解析，分隔符是文法的一部分——`bt` 是 `bteam` 的前缀）；后台表按 kind 铸 `bt-` / `bs-`；团队表由
+  Seelex 注入的命名器（`seelebridge/teamwork_job_namer.go`，走 Seele 的 `jobs.WithNamer`）铸
+  `bteam-<seq>`——Seele 侧**不再自命名**；跨表调用在 `bg_manage` 边界**显式报错并点名 `jobs_manage`**
+  （正向白名单，第三张表出现时默认拒绝）。行 ID 仍是 `async:<handle>`（`async:` 是行命名空间，与
+  句柄命名空间正交）。
+
+- **验收闸门改判作业状态，并在验收通过时自动销项**（2026-10-15；审计 D2）. 旧口径用"句柄还在册"
+  当"还在飞"的代理，于是终态行留在表里时闸门继续拒——而拒绝文案给出的出路（`jobs_manage(op=kill)`）
+  对一条已经跑完的作业毫无意义，验收被卡在一句办不到的指示上（实测 `team_accept` 22 次里 4 次被拒）。
+  现在闸门问的是**作业状态**（`jobRunning`：尾插先于终态完成，故"终态"已蕴含"合并 + 回执 + 状态三步
+  都落定"，终态即放行），并且 `team_accept` 通过后由编排面自动销掉那条作业行（幂等，不要求 leader
+  记得调 `op=done`）。**刻意不放**在尾插那一刻：那时作业还在跑（销项必然失败），且终态行正是"做完自动
+  返回"与看板事件投影读的证据。
+
 - **项目看板（Project Board）：会话级任务/里程碑的派生投影 + 按需读取面**（2026-10-14；契约
   `docs/arch/seelex-project-board.md`）. 把**已经存在**的两份投影（工作表格 `buildWorkTable`、
   teamwork 计划/运行态）按会话落成数据根下的追加式 JSONL 派生件
@@ -126,6 +148,12 @@ lands.
   Ctrl+S 才落盘）、`git-log-view.test.mjs`（提交内文件内容同走共用分派且无写入口）。
 
 ### Changed
+
+- **旧名 `job_manage` → `bg_manage`（代码与 `config/*.yaml` 零残留）**（2026-10-15）. 与团队作业面的
+  `jobs_manage` 只差一个字母的名字退役；新名字与句柄 token（`bt-` / `bs-`）同源，且与 `jobs_manage`
+  不共享 `job[s]_manage` 这段骨架。门禁：`job_migration_residue_test.go` 的退役名单加入 `job_manage`
+  （`jobs_manage` 仍在服役，两者互不为子串，Contains 判定不互相误伤）。`docs/` 与历史 CHANGELOG 按
+  仓库既有口径作历史记录保留。
 
 - **项目看板落点改按会话分目录（`docs/arch/seelex-project-board.md` §3 / §9.1 D-7 / §9 实现状态 M9）**.
   `<项目根>/.seelex/board/<会话 ID>/{worktable,teamwork}.jsonl`——一个会话一份文件；人读件

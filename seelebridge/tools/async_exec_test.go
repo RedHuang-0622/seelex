@@ -85,7 +85,7 @@ func pollForTest(t *testing.T, router *Router, ctx context.Context, handle strin
 	return decodeAsyncPayload(t, output)
 }
 
-// manageForTest 走 job_manage 的任意 op（只读那一档的用例用它做旁路观测）。
+// manageForTest 走 bg_manage 的任意 op（只读那一档的用例用它做旁路观测）。
 func manageForTest(t *testing.T, router *Router, ctx context.Context, op, handle string) (asyncPayload, error) {
 	t.Helper()
 	args, err := json.Marshal(map[string]interface{}{"op": op, "handle": handle, "wait_ms": -1})
@@ -540,12 +540,12 @@ func bashPropertyNames(t *testing.T, tool capturedTool) map[string]bool {
 }
 
 // TestJobCapabilityGatesSchemaAndRegistration 验证能力开关是"关就是关"：
-// 关时作业面（bash_bg / read_batch / job_manage）一个都不注册，bash schema 里也没有
+// 关时作业面（bash_bg / read_batch / bg_manage）一个都不注册，bash schema 里也没有
 // background（那个开关已经搬去 bash_bg），旧入参 background=true 直接报错
 // （不得静默按同步执行）。
 func TestJobCapabilityGatesSchemaAndRegistration(t *testing.T) {
 	off := captureRegisteredTools(t, false)
-	for _, name := range []string{"bash_bg", "read_batch", "job_manage"} {
+	for _, name := range []string{"bash_bg", "read_batch", "bg_manage"} {
 		if _, present := off[name]; present {
 			t.Fatalf("切片关闭时不该注册 %s", name)
 		}
@@ -561,11 +561,11 @@ func TestJobCapabilityGatesSchemaAndRegistration(t *testing.T) {
 		t.Fatal("background=true 必须直接报错（改用 bash_bg），不得静默按同步执行")
 	}
 	if _, err := NewRouter(Deps{}).scopedJobManage(ctx, `{"op":"fetch","handle":"a1"}`); err == nil {
-		t.Fatal("切片关闭时 job_manage 必须直接报错")
+		t.Fatal("切片关闭时 bg_manage 必须直接报错")
 	}
 
 	on := captureRegisteredTools(t, true)
-	for _, name := range []string{"bash_bg", "read_batch", "job_manage"} {
+	for _, name := range []string{"bash_bg", "read_batch", "bg_manage"} {
 		if _, present := on[name]; !present {
 			t.Fatalf("切片打开时必须注册 %s", name)
 		}
@@ -576,15 +576,15 @@ func TestJobCapabilityGatesSchemaAndRegistration(t *testing.T) {
 	if !strings.Contains(on["bash_bg"].description, "acceptance receipt") {
 		t.Fatalf("bash_bg 描述必须点明回执不含命令输出: %q", on["bash_bg"].description)
 	}
-	if !strings.Contains(on["job_manage"].description, "consumer-style") {
-		t.Fatalf("job_manage 描述必须点明取回是消费式: %q", on["job_manage"].description)
+	if !strings.Contains(on["bg_manage"].description, "consumer-style") {
+		t.Fatalf("bg_manage 描述必须点明取回是消费式: %q", on["bg_manage"].description)
 	}
 }
 
 // TestBashFamilyRoutingTable 是 K-3 的判据（TC-K3-1）：bash 名字按预期分组。
 //
 //   - bash / bash_bg → rw：写类与后台受管；sub/员工才能杀掉自己派的作业。
-//   - job_manage     → rw：它含 kill/done，取回/终止必须与派发同组。
+//   - bg_manage     → rw：它含 kill/done，取回/终止必须与派发同组。
 //   - read_batch     → ro：只读扇出，不碰共享状态。
 func TestBashFamilyRoutingTable(t *testing.T) {
 	cases := []struct {
@@ -593,7 +593,7 @@ func TestBashFamilyRoutingTable(t *testing.T) {
 	}{
 		{"bash", GroupRW},
 		{"bash_bg", GroupRW},
-		{"job_manage", GroupRW},
+		{"bg_manage", GroupRW},
 		{"read_batch", GroupRO},
 	}
 	groups := DefaultPermissionGroupList()

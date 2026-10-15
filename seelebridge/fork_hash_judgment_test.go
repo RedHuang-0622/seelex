@@ -12,7 +12,7 @@ package seelebridge
 // 收尾时从子代理会话快照提取登记，经 session.SubagentSessions.Result 只读取回，见
 // seelebridge/node/agent_node.go:mergeBack）。它和取回正文来自**两条不同的路径**
 // （语义结果面 vs 作业正文面：作业正文由 fork 编排按 spec.ID 取子代理树摘要写入、
-// 经 job_manage(op=fetch) 消费式取回），所以"哈希相等"不是同义反复。
+// 经 bg_manage(op=fetch) 消费式取回），所以"哈希相等"不是同义反复。
 
 import (
 	"context"
@@ -212,7 +212,7 @@ func TestForkProductTruncatedBaseComparesPrefix(t *testing.T) {
 //     所以不需要退化到别的产物面；
 //  2. 基准必须**就是**该 id 的脚本化产物（钉在与取回路径无关的事实源上：产物只由
 //     子代理身份决定，既不看账号也不看提示词文本），且两个子代理的产物必然不同；
-//  3. 取回 = job_manage(op=fetch, handle)，规范化摘要必须与基准相同；
+//  3. 取回 = bg_manage(op=fetch, handle)，规范化摘要必须与基准相同；
 //  4. **交叉配对必须对不上**：拿 A 的句柄去对照 B 的基准必须不等。否则"按编号取回"
 //     这件事没有判别力（两条作业正文一样、或者都退回了整批正文，都会在这里红）。
 func TestForkProductHashJudgmentDeterministic(t *testing.T) {

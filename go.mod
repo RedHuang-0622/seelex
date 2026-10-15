@@ -105,3 +105,10 @@ require (
 	google.golang.org/grpc v1.83.1 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
+
+// 本地联调期 replace（**发布前必须删掉**）：Seele 的句柄命名改成"产品注入 Namer"这一版
+// （jobs.Namer / jobs.WithNamer；见 Seele 仓库 CHANGELOG 的 v0.3.5 段）尚未发版，Seelex 的
+// 团队作业表装配依赖它。Seele 打 tag 之后：删掉本段 → 把上面 require 的 Seele 版本抬到该
+// tag → `go mod tidy`。这与 2026-09-15 权限模型、2026-09-26 InLoop、2026-09-28 方案 B、
+// 2026-10-05 reasoning_effort 四次联调走的是同一条路（见本文件顶部注释）。
+replace github.com/RedHuang-0622/Seele => G:/Program/go/Seele

@@ -164,7 +164,7 @@ func WithReclaimer(func(ctx, Scope) error) Option   // 作用域回收钩子（�
 |---|---|
 | I-1 收尾恰好一次 | 正常退出 / 硬超时 / 被杀 / 执行体 panic **四条路都必须落到 `finish` 恰好一次** |
 | I-2 退出码语义 | 硬超时合成 `exit=124`、被杀合成 `exit=137`，注记写进输出文件（否则模型只看到"突然结束"） |
-| I-3 句柄唯一 | 句柄 `a<seq>`（seq 单调，禁用 `len(runs)` 推——驱逐后会重号）；去重键=作用域+载荷，仅 running 期间生效 |
+| I-3 句柄唯一 | 句柄自带**命名空间**（`<token>-<seq>`：后台工具作业 `bt-`、子代理作业 `bs-`、团队作业 `bteam-`；token 表与文法在 `application/contract/dto/job_namespace.go`），seq 单调、禁用 `len(runs)` 推（驱逐后会重号）；团队表的命名由产品经 `jobs.Namer` 注入（Seele 不自命名，2026-10-15 审计 D1）；去重键=作用域+载荷，仅 running 期间生效 |
 | I-4 句柄不落盘 | 记录/句柄只在内存；写进持久化会留下"永远 running 的假行"（I-21） |
 | I-5 回收 | 程序收尾时关进程树句柄（Job Object `KILL_ON_JOB_CLOSE`）是唯一确定回收点；**作用域销毁即杀**（`Reclaim`） |
 | I-6 输出有界 | 输出文件字节上限（超限截断仍向子进程报"已消费"，避免把基础设施限制伪装成命令失败）；增量=文件偏移游标 |

@@ -58,7 +58,7 @@ func TestJobSummaryIsBounded(t *testing.T) {
 	if len(snapshot.summary) > asyncSummaryMaxBytes {
 		t.Fatalf("摘要 %d 字节，超过硬上限 %d（%q）", len(snapshot.summary), asyncSummaryMaxBytes, snapshot.summary)
 	}
-	if !strings.Contains(snapshot.summary, "全文经 job_manage(op=fetch) 取回") {
+	if !strings.Contains(snapshot.summary, "全文经 bg_manage(op=fetch) 取回") {
 		t.Fatalf("超限摘要必须标注全文走取回: %q", snapshot.summary)
 	}
 	if snapshot.lines != 800 {

@@ -13,7 +13,7 @@ import (
 // 后台命令的轮询型执行域·实时探针：把登记表里的一次执行采样成"能看懂的一眼"，
 // 供工作表格投影（application/core/work_table_async.go）消费。
 //
-// 探针和取回（job_manage(op=fetch)）是两回事，别混：
+// 探针和取回（bg_manage(op=fetch)）是两回事，别混：
 //   - fetch 推进游标、把**新增字节**交给模型，一次一问一答，花一轮往返；
 //   - 探针不推进游标、不进上下文，只回答"此刻它在不在动、动到哪一行"，
 //     由派发/终态/新字节三类信号驱动（见 asyncRegistry.Events / noteOutput）。
@@ -91,7 +91,7 @@ func (g *asyncRegistry) observeSession(sessionID string) []string {
 	return lines
 }
 
-// AsyncRuns 返回全部后台执行的探针读数，按派发顺序稳定排序（句柄是 "a<seq>"，
+// AsyncRuns 返回全部后台执行的探针读数，按派发顺序稳定排序（句柄是 `<token>-<seq>`，
 // 字符串序会把 a10 排到 a2 前）。能力未开时返回 nil：没开就没有行，也不该有行。
 func (r *Router) AsyncRuns() []AsyncRunInfo {
 	if !r.asyncEnabled() {
@@ -138,7 +138,7 @@ func (g *asyncRegistry) infos() []AsyncRunInfo {
 	g.mu.Unlock()
 
 	sort.SliceStable(infos, func(left, right int) bool {
-		return handleSeq(infos[left].Handle) < handleSeq(infos[right].Handle)
+		return asyncHandleSeq(infos[left].Handle) < asyncHandleSeq(infos[right].Handle)
 	})
 	for index := range infos {
 		infos[index].LogBytes, infos[index].LastByteAt, infos[index].Tail = sampleLog(infos[index].LogPath)
@@ -215,17 +215,12 @@ func clampProbeLine(line string) string {
 	return string(runes[:asyncProbeTailRunes]) + "…"
 }
 
-// handleSeq 从 "a<seq>" 取回序号；非规范句柄回 0（排序退化为稳定序，不影响正确性）。
-func handleSeq(handle string) int {
-	if len(handle) < 2 || handle[0] != 'a' {
-		return 0
-	}
-	seq := 0
-	for _, ch := range handle[1:] {
-		if ch < '0' || ch > '9' {
-			return 0
-		}
-		seq = seq*10 + int(ch-'0')
-	}
+// asyncHandleSeq 取一条句柄的派发序号；不认得的形态回 0。
+//
+// 句柄文法只有一处（`dto.JobNamespace` 的 `<token>-<seq>`）：这里只**转调**，不自己
+// 解析形状。前缀曾经靠"首字符是 a"猜，句柄带上 token 之后那套猜测会把每一条都解析成
+// 同一个键，排序退化成 map 遍历顺序（界面上就成了乱序的派发史）。
+func asyncHandleSeq(handle string) int {
+	seq, _ := dto.JobHandleSeq(handle)
 	return seq
 }

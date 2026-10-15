@@ -240,10 +240,14 @@ Runtime 的节点作用域与子代理上下文服务。
 
 `fork_subagents` 是上述 Plan 的轻量入口，也是**作业化派发工具**：它程序化构造
 `start → N 个 agent → summary`，把这一批登记成 `Kind=subagent` 的作业，**调用立刻返回
-受理回执**（每个子代理一个句柄），编排在后台跑。产出走 `job_manage(op=fetch, handle)`
+受理回执**（每个子代理一个句柄，形如 `bs-7`），编排在后台跑。产出走 `bg_manage(op=fetch, handle)`
 （消费式增量；一批一次等用 `handles`），过程用 `op=observe` 看、提前终止用 `op=kill`
 （已产出内容不丢；一条 kill 取消整批共用编排），结清用 `op=done`。要看更细的运行状态，
 另可读 Plan 的节点事件、工具活动与子会话快照。
+
+句柄的命名空间（`bt-` 工具作业 / `bs-` 子代理作业 / `bteam-` 团队作业）与文法见
+`application/contract/dto/job_namespace.go`：它让"拿错表的句柄"不再可能命中无关作业；
+团队作业表的管理工具是框架 builtin `jobs_manage`，`bg_manage` 收到 `bteam-` 句柄会显式拒绝。
 
 为什么不再提供"阻塞到全部跑完"的入口：阻塞调用期间模型没有下一次调用，"观察/提前终止
 子代理"就没有入口——不是缺工具，是缺时机（设计文档 §B.3）。作业面关闭

@@ -149,7 +149,7 @@ func asyncWorkStatus(state dto.AsyncState) string {
 //     有界末行）。这就是"回填的内容 = 表格的内容"：行还在，但它现在带着结果。
 //
 // 进上下文的字段仍然刻意收窄：不含日志路径、不含末行原文（摘要里的末行是**压成一行、
-// 限长**的采样）、不含时间戳。全文只走 job_manage(op=fetch) 或 attachments 里的日志路径
+// 限长**的采样）、不含时间戳。全文只走 bg_manage(op=fetch) 或 attachments 里的日志路径
 // ——完成行随打点块每轮重播，塞全文就是按轮数线性烧 token。
 //
 // 有界：单行 ≤asyncWorkMaxRows 条，块行数由调用方（workTableTraceBlockFor）按
@@ -227,7 +227,7 @@ func asyncTraceLine(record dto.AsyncRunRecord) string {
 //
 // 与 async 行刻意分开两件事：
 //   - 行首打 `teamwork:<handle>`：句柄空间与 tools 那张表独立，取回工具也不同
-//     （jobs_manage vs job_manage）——合并成同一种行，模型就会拿错工具；
+//     （jobs_manage vs bg_manage）——合并成同一种行，模型就会拿错工具；
 //   - 只取**本会话**的行（与 asyncTraceLines 同口径：打点块注入在组装请求的那个会话尾部）。
 func teamworkTraceLines(records []dto.TeamworkJobCompletionRecord, sessionID string) []string {
 	lines := make([]string, 0, len(records))

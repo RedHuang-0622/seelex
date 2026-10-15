@@ -13,15 +13,25 @@ import (
 //
 //	bash_bg      —— Add：派发一条后台受管命令（Kind=process）
 //	read_batch   —— Add：批量派发进程内读作业（Kind=inline）
-//	job_manage   —— Manage：observe / fetch / kill / done（三类作业共用）
+//	bg_manage    —— Manage：observe / fetch / kill / done（三类作业共用）
 //
 // 为什么取回与终止并成一个名字（M5 + L-4）：旧的取回工具把"取回"耦死在"后台命令"
 // 上，而 inline / subagent 作业同样要取回；旧终止工具又把"终止"单独开一个名字，
 // 于是管理面被拆成两个名字、且各自只认一种作业。契约里它们是**同一组管理动作**，
 // 工具面就该长成同一个名字 + 一个 op 入参——这也正是 L-2/L-4 的判据（两个旧名字
 // 在代码与配置里零残留）。
+//
+// 旧名 `job_manage` 为什么改成 `bg_manage`（2026-10-15 审计 D1）：本进程里**并存两张
+// 作业表**——这张表（后台工具 / 子代理作业，句柄 `bt-` / `bs-`）与团队的 Seele
+// `jobs.Manager`（teammate 作业，句柄 `bteam-`，管理工具 `jobs_manage`）。旧名字与新名字
+// 只差一个字母，模型照旧会把两张表的句柄交叉投递；`bg_` 与句柄命名空间同源，与
+// `jobs_manage` 不共享骨架。句柄命名空间与文法见 `dto.JobNamespace`。
 
-// ── job_manage：管理（Manage 的工具面）─────────────────────────────────
+// ── bg_manage：管理（Manage 的工具面）─────────────────────────────────
+
+// bgManageToolName 是这张管理工具的**注册名**：注册面、权限组与门禁用例都从这一处取，
+// 别在第二处再写一份字面量。
+const bgManageToolName = "bg_manage"
 
 type jobManageInput struct {
 	Op JobOp `json:"op"`
@@ -39,30 +49,34 @@ type jobManageInput struct {
 // 句柄必须属于本会话。
 func (r *Router) scopedJobManage(ctx context.Context, argsJSON string) (string, error) {
 	if !r.asyncEnabled() {
-		return "", fmt.Errorf("job_manage: %s", asyncDisabledText)
+		return "", fmt.Errorf("bg_manage: %s", asyncDisabledText)
 	}
 	var input jobManageInput
 	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
-		return "", fmt.Errorf("job_manage: invalid args: %w", err)
+		return "", fmt.Errorf("bg_manage: invalid args: %w", err)
 	}
 	op := JobOp(strings.ToLower(strings.TrimSpace(string(input.Op))))
 	if op == "" {
-		return "", fmt.Errorf("job_manage: op is required (observe | fetch | kill | done)")
+		return "", fmt.Errorf("bg_manage: op is required (observe | fetch | kill | done)")
 	}
 	switch op {
 	case JobOpObserve, JobOpFetch, JobOpKill, JobOpDone:
 	default:
-		return "", fmt.Errorf("job_manage: 未知 op %q（可用 observe | fetch | kill | done）", input.Op)
+		return "", fmt.Errorf("bg_manage: 未知 op %q（可用 observe | fetch | kill | done）", input.Op)
 	}
 	handles := requestedHandles(input)
 	if op != JobOpObserve && len(handles) == 0 {
-		return "", fmt.Errorf("job_manage: op=%s 需要 handle（或 handles）", op)
+		return "", fmt.Errorf("bg_manage: op=%s 需要 handle（或 handles）", op)
+	}
+	// 句柄必须属于**本表**（bt- / bs-）：见 requireOwnedJobHandles。
+	if err := requireOwnedJobHandles(handles); err != nil {
+		return "", err
 	}
 	if op == JobOpKill || op == JobOpDone {
 		// 终止/销项一次只做一条：kill 会终止整批共用编排的子代理（一条 kill 影响 N 条
 		// 作业），销项是"我确认收到这一条"的动作——两者都不该被一个数组悄悄放大。
 		if len(handles) > 1 {
-			return "", fmt.Errorf("job_manage: op=%s 一次只能给一条句柄（收到 %d 条）；多条请逐条确认", op, len(handles))
+			return "", fmt.Errorf("bg_manage: op=%s 一次只能给一条句柄（收到 %d 条）；多条请逐条确认", op, len(handles))
 		}
 	}
 	waitMS := input.WaitMS
@@ -100,6 +114,29 @@ func (r *Router) scopedJobManage(ctx context.Context, argsJSON string) (string, 
 	return string(payload), nil
 }
 
+// requireOwnedJobHandles 校验每个句柄都属于**本表**拥有的命名空间（后台工具作业 / 子代理作业）。
+//
+// 为什么这条判断必须在这里、且必须显式报错：两张作业表并存（本表 vs 团队的 `jobs.Manager`），
+// 句柄曾经同形（两边都铸 `a5`），于是把 A 表的句柄交给 B 表的管理工具会**静默命中一条无关
+// 作业**（2026-10-15 审计 D1 的实测：leader 想停 teammate 的 `a5`，这里 op=done 销掉的是一条
+// 无关后台作业，还回了"成功"）。命名空间让这种调用在语法上不再可能命中；剩下的责任是把
+// "不可能命中"变成**一句能照做的错误**：告诉模型这个句柄属于哪张表、该用哪个工具。
+//
+// 判据只此一处，且**正向白名单**（只认本表的两个 token）：将来再加一张作业表，这里默认拒绝，
+// 不会因为"不认得的就放行"而漏掉第三种形态。
+func requireOwnedJobHandles(handles []string) error {
+	for _, handle := range handles {
+		namespace, known := dto.JobNamespaceOf(handle)
+		if known && (namespace == dto.JobNamespaceToolJob || namespace == dto.JobNamespaceSubagent) {
+			continue
+		}
+		return fmt.Errorf("bg_manage: 句柄 %q 不是后台作业面的句柄（本表是 %s- / %s-）："+
+			"团队作业（teammate）的句柄形如 %s-7，它的管理工具是 jobs_manage",
+			handle, dto.JobNamespaceToolJob, dto.JobNamespaceSubagent, dto.JobNamespaceTeamwork)
+	}
+	return nil
+}
+
 // requestedHandles 把 handle / handles 两个入参合并成一份去重后的句柄表
 // （保持给定顺序：handle 在前）。
 func requestedHandles(input jobManageInput) []string {
@@ -132,7 +169,7 @@ func handleRequests(handles []string, waitMS int) []JobHandle {
 	return requests
 }
 
-// jobManageSchema 是 job_manage 的入参 schema。
+// jobManageSchema 是 bg_manage 的入参 schema。
 func jobManageSchema() map[string]interface{} {
 	return map[string]interface{}{
 		"type": "object",
@@ -237,9 +274,9 @@ func bashBgDescription() string {
 		"expected to run longer than the serial budget (" + serialBashBudgetLabel() + "): " +
 		"serial bash refuses a `timeout` above it. That call's result is only an " +
 		"acceptance receipt (handle + log_path), never the command output — use " +
-		"job_manage(op=fetch, handle) for results, job_manage(op=kill, handle) to terminate, " +
-		"job_manage(op=observe, handle) to look at progress without consuming output, and " +
-		"job_manage(op=done, handle) to retire it. description is required: one line on what " +
+		"bg_manage(op=fetch, handle) for results, bg_manage(op=kill, handle) to terminate, " +
+		"bg_manage(op=observe, handle) to look at progress without consuming output, and " +
+		"bg_manage(op=done, handle) to retire it. description is required: one line on what " +
 		"the command is doing, which becomes the work-table row title."
 }
 
@@ -352,8 +389,8 @@ func (r *Router) scopedReadBatch(ctx context.Context, argsJSON string) (string, 
 		"status":  "accepted",
 		"count":   len(receipts),
 		"jobs":    receipts,
-		"hint":    "这批读作业已派发（调用本身不等结果）。用 job_manage(op=fetch, handle) 逐个取回，或 job_manage(op=observe) 列出全部在册作业。",
-		"op_hint": "job_manage",
+		"hint":    "这批读作业已派发（调用本身不等结果）。用 bg_manage(op=fetch, handle) 逐个取回，或 bg_manage(op=observe) 列出全部在册作业。",
+		"op_hint": "bg_manage",
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
@@ -381,7 +418,7 @@ func readBatchDescription() string {
 	return "Read several files in one call as background jobs: the call returns one handle per " +
 		"path immediately and never waits for the contents. Use it when you already know the " +
 		"paths and want the reads to overlap; for a single file use read_file (its result comes " +
-		"back in the same turn). Fetch each job with job_manage(op=fetch, handle)."
+		"back in the same turn). Fetch each job with bg_manage(op=fetch, handle)."
 }
 
 // decodeJobReceipt 从受理回执字节里取回句柄与落点。
