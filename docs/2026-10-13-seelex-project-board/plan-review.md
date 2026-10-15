@@ -1,6 +1,7 @@
 # 项目看板 plan 的纠偏、遗留问题、里程碑与测试用例
 
 日期：2026-10-14 ｜ 状态：**评审记录（当时未改代码）**；纠偏项 C1–C7 已被 [`docs/arch/seelex-project-board.md`](../../arch/seelex-project-board.md) 吸收
+> 后续偏离（别再照本文找落点）：本文 §二与 Q1 建议的"物理落点留在数据根"已被推翻两次——先搬进**项目根**（M7），再改成**按会话分目录** `<项目根>/.seelex/board/<会话 ID>/{worktable,teamwork}.jsonl`（M9，人读件 `BOARD.md` 与 `project-known.md` 留在看板根）。现行口径见 arch 版 §3 / §9.1 D-5、D-7。
 输入：`docs/2026-10-13-seelex-project-board/plan.md`（73 KiB，设计稿）、
 `docs/2026-10-13-seelex-dot-a2a-star-topology/README.md`（上游头脑风暴）、
 以及本轮作者对 `main.go` / `sessionstore/` / `application/core/` / `config/` 的逐点自读。

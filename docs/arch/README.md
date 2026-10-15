@@ -35,7 +35,7 @@
 | [`workunit-single-lifecycle-one-implementation.md`](workunit-single-lifecycle-one-implementation.md) | 一件活的生命周期只有一份实现：接口先行 + 两个注册点只做转发（含 §8 交集与析构函数、§10 红灯先行）|
 | [`workunit-ports-and-assembly.md`](workunit-ports-and-assembly.md) | 父（端口）清单与装配矩阵：作业面/现场/会话/读面四类端口 + 两步计划（① 只定作业端口 / ② 两张作业表合一）|
 | [`workunit-duplication-inventory.md`](workunit-duplication-inventory.md) | 只读盘点：同一件事在仓库里有几份实现（worktree / 会话 / 作业面），含归并建议与不确定项 |
-| [`seelex-project-board.md`](seelex-project-board.md) | 项目看板：会话级任务/里程碑的派生投影（`worktable.jsonl` / `teamwork.jsonl`）与按需读取面；含行信封、`FoldProjectBoardRows`、同步器与装配门契约（M1–M7 已落地） |
+| [`seelex-project-board.md`](seelex-project-board.md) | 项目看板：会话级任务/里程碑的派生投影（`<项目根>/.seelex/board/<会话 ID>/{worktable,teamwork}.jsonl` + 汇总人读件 `BOARD.md`）与按需读取面；含行信封、`FoldProjectBoardRows`、同步器、装配门与按会话分目录契约（M1–M9 已落地） |
 | [`remote-agent-node-feasibility.md`](remote-agent-node-feasibility.md) | 远程 agent 节点（员工节点）可行性：依赖倒置的三处可用缝（`roleEngine` / workunit 作业端口 / 契约-装配分离）、暴露阶梯 L0–L3、跨进程缺口清单、三桌面后端能力对照（含 macOS `ScrollTargets=false` 与 Linux 非 ASCII 注入缺陷）、灰度/金丝雀的载体选择（VM 池 + 真机对照）。**评估，未改代码** |
 | [`agent-team-work-vs-market.md`](agent-team-work-vs-market.md) | Agent Team「team work」与市场常见多代理方案的机制差异、收益与数据依据（含实测/静态度量/外部未复核口径的分层标注与局限清单）。**席位制部分已于 2026-10-03 退场，按历史口径阅读** |
 | [`effort-system-design.md`](effort-system-design.md) | Effort 系统完整设计方案。**历史设计稿**：Effort Provider 扩展未实现；当前 Effort profile 与预算以 `application/prompt/effort.go` 为准，Skill 传输见 [`skill-effort-architecture.md`](skill-effort-architecture.md) |
