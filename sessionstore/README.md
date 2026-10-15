@@ -179,6 +179,49 @@ Router 用 RWMutex 把 active repository、config 和 project ID 绑定为原子
 
 显式 `LoadWorkspace` 等方法不修改 active write scope，避免恢复其他项目会话时读错 shard。
 
+## 项目看板投影（`<项目根>/.seelex/board/`，M1/M7）
+
+`project_board.go` 是项目看板的**存储面**：把已经存在的两份活体投影（工作表格 `buildWorkTable`
+与 teamwork 计划/运行态）按会话落成项目目录下的追加式 JSONL **派生件**——它不是事实源，
+删掉可重建（重建走本节的追加与折叠）。
+
+- **落点**：`ProjectBoardDir(projectRoot)` = `<项目根>/.seelex/board`（唯一的目录派生处），
+  下辖白名单文件名 `worktable.jsonl` / `teamwork.jsonl` / `BOARD.md`（`projectBoardFile`
+  拒绝其它名字，防路径穿越）。`projectRoot` 由调用方给出（application 侧 `Service.ProjectRootFor`）；
+  **空根显式报错**——未绑定工作区的会话没有落点，不落盘，也不退回数据根。
+- **行信封**：`ProjectBoardRow{schema, kind, key, seq, at, scope{session}, payload}`。`seq` 在
+  **文件内**单调递增，批号由"水位 + 1"整批盖章；`(会话, Seq)` 是幂等键（落点是项目级平铺文件，
+  多个会话共用一个文件，只比水位会把另一个会话的批误判成"已落过"⇒静默丢批）。
+- **唯一读法**：`FoldProjectBoardRows`——同一 `(会话, Key)` 取 `Seq` 最大的一行；最新行
+  `payload["removed"] == true` ⇒ 该 Key 从结果消失（tombstone）；未知 schema/kind 跳过并记日志；
+  输出按 `(Kind, Key, Session)` 稳定排序。
+- **追加**：`Router.AppendProjectBoardRows` → `appendProjectBoardRows`（**唯一实现**）。空批不建
+  文件（I6）；幂等（本批已落过 ⇒ 空操作）；先 `truncateCrashTail`（复用 `jsonl_io.go`）再逐行
+  追加；全程持**按文件路径分片**的独立锁 `projectBoardLock`（不新增 `storageModule` 枚举，
+  也不与 message/teamwork 模块锁串成一个串行点）。
+- **有界 + 压实（R-1）**：单批 > `ProjectBoardMaxRows` 直接报错；累计越界先
+  `compactProjectBoardFile` **压实**（折成每个 `(会话, Key)` 的最新一行并丢掉 tombstone，
+  复用 `FoldProjectBoardRows` + `encodeProjectBoardRows` + `writeAtomic`），压实后仍越界才显式
+  报错。为什么必须有压实：同步器每轮"整份重盖"，只报错的话触顶即**投影永久停在旧版本**
+  （文件与人读件都还在，读的人却拿到过期内容）。水位只增不减（压实可能丢掉最大 Seq 那一行）。
+- **人读件**：`ProjectBoardMarkdown`（`project_board_markdown.go`）把折叠后的行**确定性**渲染成
+  `BOARD.md`（不落 `at`、不含绝对路径与 `ws-<nano>`；同一份行两次渲染字节相同），追加成功后
+  重建；渲染失败只记一行日志，**不**把一次成功的行级追加判成失败（否则调用方重试会写出重复行）。
+- **回收**：删会话时 `Router.DeleteWorkspace` → `ReclaimProjectBoard` 按**项目根**摘掉该会话的行
+  （其它会话的行原样保留，空则删文件）；"会话 → 项目根"的解析器由 `SetProjectBoardRootFor`
+  注入（存储面不认识工作区）。
+- **不做**：不判定、不重算状态（判据在 `buildWorkTable` 与 teamwork 事实里，本文件只做字段映射）；
+  不进模型上下文（读面另见 `application/core` 与 `project_board_read` 工具）；不承诺跨进程一致性
+  （数据根的 `lock.owner` 不覆盖项目目录，见契约 §9.3 R-3）。
+
+Review 风险：新调用方是否绕开 `ProjectBoardDir` 自造目录/文件名；是否把某个判据（状态、kind
+分类、上限）在存储面复制了第二份；压实后水位是否仍单调；`BOARD.md` 是否混进时刻、绝对路径或
+`ws-…`；空根是否被 `filepath.Join` 悄悄折成相对路径。
+
+验证：`go test ./sessionstore/ -run ProjectBoard -count=1`（含 `TestProjectBoardLandsInProjectBoardDir`、
+`TestProjectBoardRowsBounded`、`TestProjectBoardKeepsUpdatingAfterBoundReached`）；
+"真工具调用 ⇒ 真落盘"的端到端在根包 `project_board_write_test.go`。
+
 ## 项目级记录（`project-record.json`，`project_refresh` 的落点）
 
 `ProjectRecord`（`project_record.go`）是**项目级**模块语义：`Version`（由来源 hash 派生）、
@@ -681,6 +724,15 @@ plan/task/goal 三栈用例经 `forEachStackBackend` 跑 JSON 后端（head 只�
 | 条目数 | 不适用 | `media_max_items_per_session`（500） |
 | 会话配额 | `big_tool_result_session_quota_bytes`（64 MB） | `media_session_quota_bytes`（256 MB） |
 | 超限动作 | 截断 + `result_ref` 保留全文 | **整体拒绝**（`ErrMediaTooLarge`/`ErrMediaDimensions`/`ErrMediaQuota`） |
+
+> **现状（2026-10-15）**：上表 `big_tool_result`（文本）三项限额的唯一写入路径
+> `writeBlob` **目前没有生产调用方**（只有包内单测），所以"软限截断 / 硬限报错 /
+> 会话配额"今天不影响运行中的会话；生产里"超大工具结果"走的是
+> `limits.max_tool_result_chars`（字符数）→ `result_ref` + 省略警告
+> （`application/core/context_runtime` 的 `OversizedToolResultWarning`），模型用
+> `read_tool_result` 分页回读。软限**不调 LLM 做总结**；"软限→LLM 总结 / 硬限→
+> 要求重试"这套语义**尚未实现**。两族数别混：`limits.*` 是 token 预算口径，
+> 本表是字符/字节口径。
 
 不变式：**文本可截断，媒体永不截断**。截断一张 PNG 得到的是坏文件而不是「更短的
 图」，所以媒体没有字符软限路径；配额也只统计二进制载荷（`meta.json` 是可重建派生

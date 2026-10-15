@@ -149,12 +149,13 @@ type Limits struct {
 	// 规格：docs/2026-09-24-async-tool-deferred-ack/README.md §8。
 	AsyncExec AsyncExecLimits `yaml:"async_exec"`
 	// ProjectBoard 是**项目看板**（会话级任务/里程碑的派生投影 + 按需读取面）的开关块。
-	// **缺省关闭**（零值 false，出厂档也是 false）：关就是关——不注入订阅口、不在工具
-	// 完成段触发、一个文件都不写、读取面（技能条目 + project_board_read）也不注册。
+	// **零值 false = 关**（关就是关：不注入订阅口、不在工具完成段触发、一个文件都不写、
+	// 读取面（技能条目 + project_board_read）也不注册）；**出厂档 config/seelex.yaml
+	// 显式打开**（2026-10-15 起，与"文档说实现了、盘上就该真有东西"同口径）。
 	//
-	// 为什么默认关：它是"要人喊才做"的一层（跑起来才有派生件与读取面），而开着的代价
-	// 全在工具完成段这条热路径上（去抖后仍要取活体投影并可能追加一行）。规格：
-	// docs/arch/seelex-project-board.md §5.3 / §5.4。
+	// 开着的代价全在工具完成段这条热路径上（去抖后仍要取活体投影，内容没变不写盘），
+	// 写盘本身有界（单文件上限 + 越界先压实）。回滚臂就是一行 `enabled: false`。
+	// 规格：docs/arch/seelex-project-board.md §5.3 / §5.4 / §9.3。
 	ProjectBoard ProjectBoardLimits `yaml:"project_board"`
 	// ContextCompactionSummary 是**压缩处 LLM 章节化摘要**（前缀重放厚摘要）的
 	// 开关块。**缺省即开**（2026-10-04 起）：配置里整块缺失、或块在但没写

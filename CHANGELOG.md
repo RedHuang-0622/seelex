@@ -24,7 +24,8 @@ lands.
   差集补 tombstone、文件被删自愈（I1）。**不进模型上下文**：system/project 前缀与请求尾部都不进，
   能力开/关的装配前缀逐字节相同。按需读取面 = 插件技能条目 `plugins/default/project-board/SKILL.md`
   （只有 name+description 进技能目录）+ 只读有界工具 `project_board_read`（**只在**
-  `limits.project_board.enabled: true` 时注册；越界显式报错、截断显式标注）。出厂**关**：不注入订阅口、
+  `limits.project_board.enabled: true` 时注册；越界显式报错、截断显式标注）。落点随后搬进**项目目录**
+  （见本批 Changed），出厂开关随后改为**显式打开**（见本批 Changed）。出厂默认语义＝**关就是关**：不注入订阅口、
   不触发、零文件、读取面不注册。证据：`go build ./...` / `go vet ./...` 清洁；`go test ./sessionstore/`
   （M1 存储面 + M5 摘要渲染）、`go test ./application/core/ -run ProjectBoard`（投影/同步器/完成段）、
   `go test ./seelebridge/ -run ProjectBoardRead`（读取面）、`go test . -run ProjectBoard`（装配门 + I7
@@ -125,6 +126,26 @@ lands.
   Ctrl+S 才落盘）、`git-log-view.test.mjs`（提交内文件内容同走共用分派且无写入口）。
 
 ### Changed
+
+- **项目看板收口：出厂档打开 + 触顶先压实 + 写侧端到端用例（`docs/arch/seelex-project-board.md` §9.3 R-1/R-2/R-5）**.
+  三条都在收同一个口子——"文档说实现了，盘上却没有"：
+  - **出厂档 `limits.project_board.enabled` 改为 `true`**：M1–M7 全落地、出厂档却关着 ⇒ 盘上永远一个文件都
+    没有（2026-10-15 用户现场）。回滚臂仍是这一行改回 `false`。内嵌默认档经
+    `scripts/sync-bootseed-defaults.ps1` 同批同步；`seelexctx` 的 `TestShippedSeelexYamlProjectBoardOpen`
+    钉三条（打开 / 配置里不出现 `max_rows` / 注释不许再写旧落点 `json_root>/project-board`）——注释里那版
+    旧落点正是"照文档去找却找不到"的直接原因。
+  - **投影文件触顶后先压实（R-1）**：累计行数越界不再直接报错，而是 `compactProjectBoardFile` 折成每个
+    `(会话, Key)` 的最新一行（顺带丢 tombstone）再原子重写；压实后仍越界才显式报错。原来那条路的后果更坏：
+    同步器每轮"整份重盖"，触顶后**投影永久停在旧版本**（文件与 `BOARD.md` 都在，读的人当真）。压实复用
+    `FoldProjectBoardRows` / `encodeProjectBoardRows` / `writeAtomic`，不新增第二套写盘实现；水位因此定义成
+    **只增不减**（压实可能丢掉最大 Seq 那一行）。红灯先行：`TestProjectBoardKeepsUpdatingAfterBoundReached`
+    （修前第 256 轮即 `行数越界（现有 511 + 本批 2 > 上限 512）`；修后 258 轮仍是最新一版、被删的 Key 不复活）。
+  - **写侧端到端用例补上（此前唯一缺口）**：`project_board_write_test.go`——按生产口径建会话（建工作区 →
+    `BeginNewSession` 早分配 SID → 绑定工作区 → 首次提交物化）+ 模型真的调 `todo_add`
+    ⇒ `<项目根>/.seelex/board/{worktable.jsonl,BOARD.md}` 真的出现、行归属该会话、全项目扫描只此一份。
+    它同时把 R-2 那条前提钉成实测：**视图会话 = 运行时当前 task 会话**时 `WorkTableRowsFor` 才取得到行，
+    不经该口径的会话取到空集 ⇒ I6 退场、什么都不落；结构性根因（`taskRecordsForSession` 把"视图会话"重写成
+    `""`，等于复制了一份 runtime 本来就有的分区判据）留在契约 §9.3 R-2，单独立一轮修。
 
 - **项目看板落点搬到项目目录（`docs/arch/seelex-project-board.md` §3/§9.1 D-5）**. 派生投影的物理落点
   从数据根的 hash 目录改为**项目根**：`<项目根>/.seelex/board/{worktable,teamwork}.jsonl`（去 hash、

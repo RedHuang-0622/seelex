@@ -50,7 +50,8 @@ key 已经消失（被删掉了）。
 
 ## 能力开关
 
-这套落盘与读取面由 `limits.project_board.enabled` 控制（出厂**关**）。关着时：
+这套落盘与读取面由 `limits.project_board.enabled` 控制（出厂档**显式打开**；
+置 `false` 即整块收回）。关着时：
 
 - `project_board_read` **不存在**（不是"存在但报错"）；
 - 一个投影文件都不会产生。

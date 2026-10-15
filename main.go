@@ -820,10 +820,12 @@ func registerContextReadTools(runtime *seelebridge.Runtime, app *application.Ser
 // 只有这个工具被显式调用时才渲染落盘（无显式调用 → 不产文件）。
 // registerProjectBoardReadTool 注册项目看板的**只读按需读取面**（M4）。
 //
-// 为什么必须有这把工具：投影落点在**数据根**（`<json_root>/project-board/...`），而数据根
-// 可以在绑定工程之外——模型侧的 read_file / grep_search / glob 作用域声明都是 "inside the
-// bound project"，读不到它。读取面因此是一把专用工具：只读、有界、按会话/项目聚合
-// （取数一律走存储面的折叠读，不在工具里重算任何语义）。
+// 为什么必须有这把工具（理由在 M7 落点搬进项目目录后换过，结论不变）：投影落在
+// `<项目根>/.seelex/board/`，而 Seelex 的工作区读面把 **`.seelex` 整个列为忽略目录**
+// （默认数据根恰好也叫 `.seelex/`、可能就在工程根下，整体放开会把 `lock.owner`、会话正文、
+// 媒体一起放给模型）——`read_file` / `grep_search` / `glob` 读不到它。既不放宽忽略名单，
+// 就读法另给一把：只读、有界、按会话/项目聚合（取数一律走存储面的折叠读，不在工具里重算
+// 任何语义）。外部 agent（codex / claude code）不走这条路，它们直接读盘上的 `BOARD.md`。
 //
 // **注册门在调用点**（看 run 里的 `if runtimeLimits.ProjectBoard.Enabled`）：能力关 ⇒
 // 这把工具根本不存在（零读取面），而不是"注册了但返回错误"。

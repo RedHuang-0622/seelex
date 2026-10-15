@@ -474,3 +474,62 @@ func workRow(kind, key string, payload map[string]any) ProjectBoardRow {
 		Payload: payload,
 	}
 }
+
+// TestProjectBoardKeepsUpdatingAfterBoundReached 是 R-1 的红灯用例：同一个项目文件在
+// 内容**持续变化**的追加流下触顶后，投影必须继续跟上最新一版。
+//
+// 现场与同步器同形（`application/core/project_board.go` 的 flushFile）：每轮都是"当前
+// 全量行 + Seq 从水位 +1 起"的整份重盖，所以行数按轮累加、迟早摸到 ProjectBoardMaxRows。
+// 触顶后若只是"显式报错"，投影就**永久停在旧版本**——文件还在、人读件还在，读的人会当真，
+// 比"什么都没有"更坏。判据因此写成"追加必须继续成功，且折叠读等于最新一版"。
+func TestProjectBoardKeepsUpdatingAfterBoundReached(t *testing.T) {
+	router, projectRoot := projectBoardFixture(t)
+	const session = "session-flush"
+	// 每轮两行 ⇒ 上限的一半多一点就触顶（不必真跑几十轮）。
+	rounds := ProjectBoardMaxRows/2 + 2
+	var watermark uint64
+	for round := 1; round <= rounds; round++ {
+		rows := []ProjectBoardRow{
+			withBoardSession(projectBoardRow(ProjectBoardKindWork, "work:a", watermark+1, false), session),
+			withBoardSession(projectBoardRow(ProjectBoardKindWork, "work:b", watermark+2, false), session),
+		}
+		rows[1].Payload["round"] = round // 内容每轮都变＝"模型又动了一下"
+		// 中途删掉一个 Key（tombstone）：压实不许把它复活——否则"删掉的条目"会在触顶
+		// 那一刻整批回来（upsert 语义下最隐蔽的一种回归）。它先真的存在过两轮，第 3 轮
+		// 起才被删。
+		rows = append(rows, withBoardSession(
+			projectBoardRow(ProjectBoardKindWork, "work:gone", watermark+3, round >= 3), session))
+		next, err := router.AppendProjectBoardRows(projectRoot, ProjectBoardWorkFile, rows)
+		if err != nil {
+			t.Fatalf("第 %d 轮追加失败（投影已经停止更新）：%v", round, err)
+		}
+		if next <= watermark {
+			t.Fatalf("第 %d 轮水位没前进：%d → %d", round, watermark, next)
+		}
+		watermark = next
+	}
+	raw, err := router.ReadProjectBoardRows(projectRoot, session, ProjectBoardWorkFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	folded := FoldProjectBoardRows(raw, nil)
+	if len(folded) != 2 {
+		t.Fatalf("折叠读 = %d 行，期望 2（work:a / work:b）：%#v", len(folded), folded)
+	}
+	for _, row := range folded {
+		if row.Payload["label"] != row.Key {
+			t.Fatalf("折叠读拿到的是旧版本：%#v", row)
+		}
+		// payload 是从 JSONL 读回来的：数值字段是 float64。
+		if row.Key == "work:b" {
+			round, _ := row.Payload["round"].(float64)
+			if int(round) != rounds {
+				t.Fatalf("work:b 停在旧轮次 round=%v（want %d）——投影没跟上最新一版", row.Payload["round"], rounds)
+			}
+		}
+	}
+	// 有界仍然成立：压实不是"无界增长"的挡箭牌。
+	if count := projectBoardLineCount(t, projectBoardPath(projectRoot, ProjectBoardWorkFile)); count > ProjectBoardMaxRows {
+		t.Fatalf("文件行数 %d 超过上限 %d——压实没生效", count, ProjectBoardMaxRows)
+	}
+}

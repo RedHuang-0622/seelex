@@ -58,12 +58,18 @@ func TestLimitsProjectBoardBlock(t *testing.T) {
 	}
 }
 
-// TestShippedSeelexYamlProjectBoardOff：出厂档默认关，且块内没有 max_rows。
+// TestShippedSeelexYamlProjectBoardOpen：出厂档默认**开**，且块内没有 max_rows；
+// 块上的落点说明必须是**当前**落点（不许再写数据根 hash 目录那版）。
 //
-// 为什么单独钉这条：出厂档是"缺省语义"的现场（与 async_exec 的用例同族）。看板是一层
-// "要人喊才做"的能力，出厂打开会让每次工具完成都多一次取活体投影；而 max_rows 一旦
-// 出现在出厂档里，就成了对存储面硬上限的第二份判据。
-func TestShippedSeelexYamlProjectBoardOff(t *testing.T) {
+// 为什么单独钉这条：出厂档是"缺省语义"的现场（与 async_exec 的用例同族），也是
+// "文档说实现了、盘上却什么都没有"的第一现场——2026-10-15 用户现场就是这么来的：
+// 代码 M1–M7 全落地、出厂档却 enabled: false，注释还写着已经搬走的落点。三件事因此
+// 各钉一条：
+//   - 打开：读的人期待"项目根的 .seelex 里真有东西"，出厂档就该让这件事发生；
+//   - max_rows 不出现：单次追加上限的唯一判据在存储面（出现第二个就是对同一次追加的
+//     第二份判据）；
+//   - 落点注释与实现同源：旧落点 `json_root>/project-board` 一旦回来，这条先红。
+func TestShippedSeelexYamlProjectBoardOpen(t *testing.T) {
 	content, err := os.ReadFile(filepath.Join("..", "config", "seelex.yaml"))
 	if err != nil {
 		t.Fatalf("读出厂配置: %v", err)
@@ -72,8 +78,8 @@ func TestShippedSeelexYamlProjectBoardOff(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadLimits(出厂档): %v", err)
 	}
-	if limits.ProjectBoard.Enabled {
-		t.Fatal("出厂档必须 enabled: false（关就是关）")
+	if !limits.ProjectBoard.Enabled {
+		t.Fatal("出厂档必须 enabled: true（关就是关在 false 上仍然成立，但缺省必须让投影真的落盘）")
 	}
 	if got := limits.ProjectBoard.Hook; got != "todo_list" {
 		t.Fatalf("出厂档 hook = %q，希望显式 todo_list（缺省档写出来，配置一眼可读）", got)
@@ -83,5 +89,11 @@ func TestShippedSeelexYamlProjectBoardOff(t *testing.T) {
 	}
 	if strings.Contains(string(content), "max_rows:") {
 		t.Fatal("出厂档里不该出现 max_rows 键（单次追加上限的唯一判据在存储面）")
+	}
+	if strings.Contains(string(content), "json_root>/project-board") {
+		t.Fatal("出厂档的 project_board 注释还写着旧落点（数据根 hash 目录）——落点早已搬到 <项目根>/.seelex/board/")
+	}
+	if !strings.Contains(string(content), "project_board:") {
+		t.Fatal("出厂档里没有 project_board 块——开关与触发面必须一眼可读")
 	}
 }

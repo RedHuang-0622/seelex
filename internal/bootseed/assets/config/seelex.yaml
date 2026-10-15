@@ -74,9 +74,26 @@ limits:
   grep_max_results: 20           # grep 默认结果数（默认 20）
   session_name_runes: 16         # 会话名截断（默认 16）
   preflight_retry: 2             # preflight 重试次数（默认 2）
-  output_reserve_tokens: 512     # provider 输出预留 token（默认 512）
+  output_reserve_tokens: 512     # **仅兜底路径 + 启动期校验生效**（默认 512）：运行期压缩预算的输出预留取**账号档 max_tokens**，不是这个键（见下）
+  # ── 三个容易混的数，动手前先分清（2026-10-15）────────────────────
+  #   ① 上下文窗口（token，模型的物理上限）：默认取**账号档** config/accounts.yaml 的
+  #      defaults.context_window（账号条目可覆盖）→ Runtime.ContextWindow()；
+  #      **本段的 `context_window` 可覆盖它**（0 = 不覆盖）。覆盖是全局的（所有账号含
+  #      子代理一刀切），且只改"判据用的窗口"——provider 侧仍有自己的硬限制，填得比
+  #      模型真实窗口大，请求会被 provider 拒。
+  #   ② 压缩触发线（token）：本文件的 context_hard_percent × 预算。
+  #      到达即折出保留窗口外的 transcript 前缀，这是自动压缩**唯一**的阈值。
+  #   ③ 超大工具结果上限（**字符数**，不是 token、与预算无关）：本文件的
+  #      max_tool_result_chars。超过就把整条结果归档为 result_ref，请求里只留引用。
+  #      另有一组**存储侧**同类键 session_storage.big_tool_result_*（字符软限截断 /
+  #      字节硬限报错 / 会话配额），实现在 sessionstore/big_tool_result.go；**当前
+  #      没有生产调用方**（只有单测），软限也**不调 LLM 做总结**（软限只截断）。
+  #   ② 与 ③ 是两套口径：② 管"上下文要装不下了"，③ 管"单条结果太长"。调 ③ 不改 ②，
+  #   改窗口也不会放宽 ③；报错里说 tokens 的是 ②（或窗口），说 chars 的才是 ③。
+  context_window: 400000          # 上下文窗口的默认值（token；0 = 不覆盖，回落账号档）。**界面「设置 → 账号」可按账号覆盖它**（挡位 200k/400k/600k/1M 或自定义；写进数据根 runtime-limits.json，优先级最高）。2026-10-15 定为 40 万：本机账号档记的是旧窗口，而窗口是预算的基数（预算 = 窗口 − 账号档 max_tokens − 窗口 ÷ 安全除数）
   # ── 上下文压缩预算（0 = 用默认值）───────────────────────────────
-  # 预算 budget = context_window − output_reserve_tokens − context_window ÷ 安全除数；
+  # 预算 budget = 账号档 max_tokens（输出预留）与 context_window 推导：
+  #   budget = context_window − max_tokens − context_window ÷ 安全除数；
   # 下面各百分比都以 budget 为基数。各键的消费者**逐个列明**：
   #   context_safety_reserve_divisor / context_hard_percent
   #     → 装配层消费（application/core/task_context，发请求前每次算一次）：请求估算
@@ -88,6 +105,9 @@ limits:
   #       所以只在真的逼近上限时折一次。键保留只为兼容既有配置（报告面展示的 soft 与
   #       hard 同源，不再出现"报表说已过软线、系统却没折"的口径分裂）；下一版连同
   #       seelexctx.LoadLimits 的 soft<hard 校验一起摘除。
+  #       **在摘除之前，soft 必须 < hard，否则启动期直接报错**——所以 2026-10-15
+  #       把 hard 从 98 降到 90 时，soft 一并从 95 降到 85。它不是判据，取值只为满足
+  #       这条相对关系（想换别的值，只要仍 < hard 即可）。
   #   context_target_percent     → 压缩后落点（装配层保留窗口决策的硬上限）
   #   context_single_item_percent → 装配层消费（单条超大输入外置）
   #   context_retain_floor_percent → 保留窗口下限（装配层决策 + main 启动期校验）
@@ -95,8 +115,10 @@ limits:
   # 工作历史（system/项目/记忆/前缀栈/工具面都还没进去），折出来的帧没有读后感——而
   # 压缩是"产出元数据 + 由模型按章节写读后感"这条流程里的一步，只有握着上一次真实请求
   # 原件的装配层做得到。控制器现在只剩一个动作：超大工具结果的兜底归档。
-  # 出厂档（本文件）= 10/95/98/65/50；代码内置兜底档 = 8/95/98/80/50。软线已不参与
-  # 判据，两档都留着它，免得旧配置读回来"键没了"。
+  # 出厂档（本文件）= 除数 10，soft 85，hard 90，target 65，single-item 50；
+  # 代码内置兜底档（seelexctx.DefaultLimits）= 除数 8，soft 95，hard 98，target 80，
+  # single-item 50（只在本文件整块缺失时生效）。软线已不参与判据，两档都留着它，
+  # 免得旧配置读回来"键没了"。
   #
   # 想"尽量不压"怎么办：这里**没有**自动压缩总开关（有意为之——压缩是"还能不能继续
   # 说话"的安全网，不是可选优化）。可行的近似是把 context_hard_percent 调到很高
@@ -104,9 +126,9 @@ limits:
   # 一直贴着预算上限，而且在装不下时装配层会**直接拒绝发送**（estimated > budget →
   # ErrProviderContextBudgetExceeded），而不是把你想要的原文硬塞进去。
   context_safety_reserve_divisor: 10  # 安全预留 = 窗口 ÷ 该值。调小（如 4）→ 预留更多、预算更小、更早开始压缩
-  context_soft_percent: 95            # 已不参与判据（2026-09-30 取消软线，见上）；保留键兼容旧配置
-  context_hard_percent: 98            # 自动压缩的唯一阈值：请求估算 ≥ budget×98% 就压缩可变 transcript。调低 → 更"绝不贴边发送"；调高 → 允许历史更满
-  context_target_percent: 65          # 压缩目标：压缩后把请求大小压回 budget×65% 附近（保留区硬上限），给下一轮留 hard − target = 33% 预算的确定余量。与 hard 的差 = 每次压掉的量；落点够不到判据线时装配层跳过这次压缩（幂等/有效性校验）
+  context_soft_percent: 85            # 已不参与判据（2026-09-30 取消软线，见上）；**必须 < context_hard_percent**，否则启动期报错。2026-10-15 随 hard 由 98 降到 90 一并从 95 调到 85
+  context_hard_percent: 90            # 自动压缩的**唯一**阈值：请求估算 ≥ budget×90% 就压缩可变 transcript。调低 → 更"绝不贴边发送"；调高 → 允许历史更满（2026-10-15 由 98 调回 90）
+  context_target_percent: 65          # 压缩目标：压缩后把请求大小压回 budget×65% 附近（保留区硬上限），给下一轮留 hard − target = 25% 预算的确定余量。与 hard 的差 = 每次压掉的量；落点够不到判据线时装配层跳过这次压缩（幂等/有效性校验）
   context_single_item_percent: 50     # 单条输入外置阈值：一条输入超 budget×50% 就先归档为 result_ref，请求里只放引用
   # 保留区下限（占预算 %；0 = 未配置 → 下限只剩「至少 1 个完整协议单元」兜底）：
   # 保留区 = clamp(占比 × 全量, floor, retain_tokens)，floor = max(最近 1 个完整协议单元, 该比例 × 预算)。
@@ -162,7 +184,8 @@ limits:
   context_max_units: 4           # 上下文压缩扫描单元上限（默认 4）
   message_shard_size: 100        # 会话存储分片条数（默认 100）
   summary_chars: 800             # 项目记录摘要截断（默认 800）
-  # 工具结果最大字符数：超过即整条归档为 result_ref、请求里只留省略块与引用。
+  # 工具结果最大**字符数**（不是 token，也不是压缩阈值——见上面《三个容易混的数》③）：
+  # 超过即整条归档为 result_ref、请求里只留省略块与引用。
   # 三层同源消费（此前只有应用层跟着配置走）：回合内 processor、框架控制器的
   # "这条结果算不算超大"判定、应用层归档。调大 → 更多原文直接进上下文（少一次
   # 回读往返，但更快撞上压缩线）；调小 → 更早外置，模型要多调一次 read_tool_result。
@@ -248,18 +271,24 @@ limits:
     trigger_conversation: true
   # ── 项目看板（project_board：会话级任务/里程碑派生投影）──────────────
   # 把**已经存在**的两份投影（工作表格 buildWorkTable + teamwork 计划/运行态）按会话
-  # 落成数据根下的追加式 JSONL 派生件：
-  #     <json_root>/project-board/project-<hash>/session-<hash>/worktable.jsonl
-  #                                                              /teamwork.jsonl
+  # 落成**项目目录**下的追加式派生件（2026-10-15 起落点从数据根搬到项目根）：
+  #     <项目根>/.seelex/board/worktable.jsonl    ← 任务行（一个项目一份平铺文件，多会话共用）
+  #     <项目根>/.seelex/board/teamwork.jsonl     ← 里程碑 / 工作项行
+  #     <项目根>/.seelex/board/BOARD.md           ← 人读件（外部 agent 直接读盘上的这一份）
+  #     <项目根>/.seelex/board/project-known.md   ← 项目摘要（project_refresh 渲染，同目录）
+  # `<项目根>` = 该会话所属工作区的根；**未绑定工作区的会话没有落点 ⇒ 不落盘**
+  # （没有落点就没有投影，不会退回数据根）。
   # 由**既有**工具完成段被动落盘（在 refreshWorkTableFromSources 之后标脏 + 唤醒，
   # 不新造回调）；投影**不进**任何常驻上下文（system/project 前缀与请求尾部都不进），
   # 只在提示词要求时按需读取。契约：docs/arch/seelex-project-board.md。
   #
-  # 缺省关闭（出厂 false）：关就是关——不注入订阅口、不触发、一个文件都不写，
+  # 本档**打开**（false = 关）：关就是关——不注入订阅口、不触发、一个文件都不写，
   # 读取面（技能条目 + project_board_read 只读工具）也不注册，无静默降级。
   # 打开后：开销只在"工具完成"这条热路径上（去抖合并 + 内容指纹去重，内容没变不写盘）。
+  # 注：`.seelex/` 在仓库级 .gitignore 的"运行时数据"段里 ⇒ 投影与 project-known.md
+  # 默认不入库（谁提交、要不要提交由使用者决定）。
   project_board:
-    enabled: false
+    enabled: true
     # 触发面：off | todo_list（缺省）| task_complete | tool_complete | all。
     #   off                不触发（比 enabled:false 更细的一档，成本 0）
     #   todo_list          todo/task 族工具成功后触发（覆盖不到"从不调 todo"的会话）
@@ -270,7 +299,9 @@ limits:
     # 落盘去抖窗（毫秒）：窗内多次触发只落一次盘；0 = 用缺省（2000）。
     flush_idle_ms: 2000
     # 注：没有 max_rows —— 单次追加的行数上限是存储面的硬不变量
-    # （sessionstore.ProjectBoardMaxRows，越界显式报错），配置里再放一个就是第二份判据。
+    # （sessionstore.ProjectBoardMaxRows）。累计越界时存储面先**压实**（折成每个
+    # (会话, Key) 的最新一行再原子重写），压实后仍越界才显式报错；配置里再放一个上限
+    # 就是对同一次追加的第二份判据。
   # ── 进程级启动行为（runtime）────────────────────────────────────
   # 是否同意**多进程**共用同一数据根。默认 false = 单实例：数据根独占锁
   # （sessionstore/data_root_lock.go 的 lock.owner）把「单数据根 = 单进程写者」

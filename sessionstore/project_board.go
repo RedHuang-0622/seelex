@@ -19,7 +19,9 @@ package sessionstore
 //  6. 独立锁：投影**不新增 storageModule 枚举**（不改 module_heads.go 的
 //     枚举—锁对应关系），自带按**文件路径**分片的独立锁（与 roleDraftLock 同形）。
 //     跨模块共用一把锁会把"落投影"与"落消息/落团队事实"串成一个串行点。
-//  7. 有界：行数越界**显式报错**（ProjectBoardMaxRows），不静默截断。
+//  7. 有界：行数越界先**压实**（折成每个 (会话, Key) 的最新一行再原子重写），压实后
+//     仍越界才**显式报错**（ProjectBoardMaxRows），不静默截断。压实必须存在：同步器
+//     每轮"整份重盖"，只报错的话触顶即"投影永久停在旧版本"（见 compactProjectBoardFile）。
 //  8. **可提交件三条硬纪律**（契约 §3，现行要求）：产物不含 `lock.owner`/会话正文/
 //     媒体；不含 `ws-<nano>`、绝对路径、用户名（故行内 scope 不再写工作区 ID：
 //     落点本身已经回答了"哪个项目"）；不含抖动时间戳（人类件的渲染不含时刻，
@@ -32,6 +34,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -324,12 +327,61 @@ func projectBoardMaxSeq(rows []ProjectBoardRow) uint64 {
 	return max
 }
 
+// readProjectBoardRowsForAppend 读回投影文件的**完整行**：先截崩溃残尾（复用
+// jsonl_io.go 的 truncateCrashTail 这一份实现），再整份解码。返回时文件已停在
+// 完整行边界上——追加与压实都能安全接着做。
+func readProjectBoardRowsForAppend(path string) ([]ProjectBoardRow, error) {
+	handle, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	defer handle.Close()
+	if err := truncateCrashTail(handle); err != nil {
+		return nil, err
+	}
+	if _, err := handle.Seek(0, io.SeekStart); err != nil {
+		return nil, err
+	}
+	data, err := io.ReadAll(handle)
+	if err != nil {
+		return nil, err
+	}
+	return decodeProjectBoardRows(data), nil
+}
+
+// compactProjectBoardFile 把追加流**压实**成"每个 (会话, Key) 的最新一行"并原子重写。
+//
+// 为什么必须有它（契约 §9.3 R-1）：同步器每轮都是"当前全量行 + Seq 从水位 +1 起"的
+// **整份重盖**，行数按轮累加；触顶之后若只是报错，每次 flush 都被拒绝，投影就**永久停在
+// 旧版本**——文件与人读件都还在，读的人却拿到过期内容，比"什么都没有"更坏。
+//
+// 复用的都是本文件既有件，不新增第二套写盘实现：FoldProjectBoardRows（**唯一**折叠读法，
+// 顺带丢掉 tombstone——被删掉的 Key 本就不该留在文件里）、encodeProjectBoardRows（唯一
+// 的行编码口）、writeAtomic（既有的原子重写口，回收会话时用的是同一份）。
+//
+// 调用方必须持有该文件路径的锁，并**先关掉自己的文件句柄**：Windows 上 rename 不肯覆盖
+// 打开中的文件，留着句柄会让重写必然失败。
+func compactProjectBoardFile(path string, existing []ProjectBoardRow) ([]ProjectBoardRow, error) {
+	compacted := FoldProjectBoardRows(existing, func(format string, args ...any) {
+		log.Printf(format, args...)
+	})
+	data, err := encodeProjectBoardRows(compacted)
+	if err != nil {
+		return nil, err
+	}
+	if err := writeAtomic(path, data, 0o600); err != nil {
+		return nil, err
+	}
+	return compacted, nil
+}
+
 // appendProjectBoardRows 是投影追加的**唯一实现**：
 //
 //   - 空批**不建文件**（I6：空则退场），只回报当前水位；
 //   - 幂等：水位 >= 本批最小 Seq ⇒ 空操作并返回当前水位；
-//   - 有界：本批 / 累计行数超过 ProjectBoardMaxRows ⇒ 显式报错（不静默截断）；
-//   - 先截崩溃残尾（truncateCrashTail）再逐行 O_APPEND；
+//   - 有界：本批超过 ProjectBoardMaxRows ⇒ 显式报错；累计越界 ⇒ 先压实再判，
+//     压实后仍越界才显式报错（不静默截断）；
+//   - 先截崩溃残尾（truncateCrashTail）再逐行追加；
 //   - 全程持**该文件路径的独立锁**；
 //   - 落盘成功后刷新人读件 `BOARD.md`（派生件的渲染是同一个"落"的后半段，
 //     失败只影响人读件，不影响投影行）。
@@ -362,23 +414,10 @@ func appendProjectBoardRows(projectRoot, file string, rows []ProjectBoardRow) (u
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return 0, err
 	}
-	handle, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	existing, err := readProjectBoardRowsForAppend(path)
 	if err != nil {
 		return 0, err
 	}
-	defer handle.Close()
-	// 先截崩溃残尾，再从完整行边界续写（复用 jsonl_io.go 的唯一实现）。
-	if err := truncateCrashTail(handle); err != nil {
-		return 0, err
-	}
-	if _, err := handle.Seek(0, io.SeekStart); err != nil {
-		return 0, err
-	}
-	data, err := io.ReadAll(handle)
-	if err != nil {
-		return 0, err
-	}
-	existing := decodeProjectBoardRows(data)
 	watermark := projectBoardWatermark(existing)
 
 	// 幂等：本批已落过（文件里已有同一**会话·同一 Seq** 的批）⇒ 空操作。
@@ -390,18 +429,33 @@ func appendProjectBoardRows(projectRoot, file string, rows []ProjectBoardRow) (u
 	if projectBoardBatchAlreadyAppended(existing, rows) {
 		return watermark, nil
 	}
-	// 累计越界：显式报错（不静默截断）。
+	// 累计越界：先压实（折成每个 (会话, Key) 的最新一行），压实后仍越界才显式报错。
 	if len(existing)+len(rows) > ProjectBoardMaxRows {
-		return watermark, fmt.Errorf("session storage: project board 行数越界（现有 %d + 本批 %d > 上限 %d）",
-			len(existing), len(rows), ProjectBoardMaxRows)
+		// 重写前必须先关掉句柄（Windows 上 rename 不肯覆盖打开中的文件）。
+		compacted, compactErr := compactProjectBoardFile(path, existing)
+		if compactErr != nil {
+			return watermark, compactErr
+		}
+		if len(compacted)+len(rows) > ProjectBoardMaxRows {
+			return watermark, fmt.Errorf("session storage: project board 行数越界（压实后活体 %d + 本批 %d > 上限 %d）",
+				len(compacted), len(rows), ProjectBoardMaxRows)
+		}
+		existing = compacted
 	}
-	if _, err := handle.Seek(0, io.SeekEnd); err != nil {
-		return watermark, err
+	// 水位**只增不减**：压实可能丢掉"文件内最大 Seq"那一行（它恰好是条 tombstone），
+	// 但水位是 (会话, Seq) 这枚幂等键的分配依据，回退会让旧批被当成新批重放。
+	if floor := projectBoardWatermark(existing); floor > watermark {
+		watermark = floor
 	}
 	buffer, err := encodeProjectBoardRows(rows)
 	if err != nil {
 		return watermark, err
 	}
+	handle, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return watermark, err
+	}
+	defer handle.Close()
 	if _, err := handle.Write(buffer); err != nil {
 		return watermark, err
 	}
@@ -494,6 +548,7 @@ func readProjectBoardFoldedRows(projectRoot string) ([]ProjectBoardRow, error) {
 func refreshProjectBoardMarkdown(projectRoot string) {
 	rows, err := readProjectBoardFoldedRows(projectRoot)
 	if err != nil {
+		log.Printf("session storage: project board 人读件折叠读失败（%s）：%v", projectRoot, err)
 		return
 	}
 	path := projectBoardPath(projectRoot, ProjectBoardMarkdownFile)
@@ -507,9 +562,15 @@ func refreshProjectBoardMarkdown(projectRoot string) {
 		return
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		log.Printf("session storage: project board 人读件目录建不出来（%s）：%v", path, err)
 		return
 	}
-	_ = writeAtomic(path, ProjectBoardMarkdown(rows), 0o600)
+	// 失败只记一行日志：人读件是投影的渲染，渲染失败不该把一次成功的行级追加判成失败
+	// （调用方会把它当落盘失败重试，反而写出重复行）——但静默失败会让"盘上没有 BOARD.md"
+	// 变成没人能查的怪事，所以留痕。
+	if err := writeAtomic(path, ProjectBoardMarkdown(rows), 0o600); err != nil {
+		log.Printf("session storage: project board 人读件重写失败（%s）：%v", path, err)
+	}
 }
 
 // ---------------------------------------------------------------------------

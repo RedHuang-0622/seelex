@@ -79,8 +79,14 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
   闭包，不新造回调入口。
 - **不进上下文（I7）**：投影不进 system/project 前缀，也不进请求尾部；能力开/关的装配前缀
   逐字节相同（根包 `project_board_i7_test.go`）。
-- **关就是关**：`limits.project_board.enabled=false`（出厂值）⇒ 不注入订阅口、不注册读取面、
-  一个文件都不写。
+- **关就是关**：`limits.project_board.enabled=false` ⇒ 不注入订阅口、不注册读取面、一个文件
+  都不写。**出厂档 `config/seelex.yaml` 显式打开**（2026-10-15 起：代码落地 ≠ 盘上有东西，
+  缺省必须是"真的会留下投影"那一侧；回滚臂就是这一行改回 false）。
+- **写侧端到端**：根包 `project_board_write_test.go` 走**生产口径**的全链路——建工作区 →
+  `BeginNewSession`（早分配 SID）→ 绑定工作区 → 模型真的调 `todo_add` → 工具完成段 →
+  同步器取活体工作表格 → `<项目根>/.seelex/board/{worktable.jsonl,BOARD.md}` 真的出现，
+  且行归属该会话。它同时钉住 R-2 那条前提：**视图会话 = 运行时当前 task 会话**时
+  `WorkTableRowsFor` 才取得到行（不是该口径的会话取到空集 ⇒ I6 退场、什么都不落）。
 - **按需读取面（M4）**：插件技能条目 `plugins/default/project-board/SKILL.md`（只有 name +
   description 进技能目录）+ 只读工具 `project_board_read`（`main.registerProjectBoardReadTool`，
   **只在 enabled 时注册**；取数在 `seelebridge/runtime_project_board_read.go`，有界、越界显式报错）。
