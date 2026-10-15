@@ -114,13 +114,18 @@ func TestNoteMainContextEmptyWireStaysQuiet(t *testing.T) {
 	}
 }
 
-// TestTeamPrefixHasNoFrontendWriteEntry 是**守卫用例**：前缀的写入口只能在后端，
-// 且只有一处。
+// TestTeamPrefixHasNoFrontendWriteEntry 是**守卫用例**：前缀的写入口只能在后端。
 //
 // 为什么值得一条源码扫描：前缀一旦能被前端回写，后端真值就变成"前端渲染出来的
 // 文本"，而 b（ADVISOR）回合输入与 work.progress 帧是按后端事实渲染的——两者会
 // 立刻分叉，缓存前缀失效、上下文前缀大量不匹配（这正是用户提出的担心）。
 // 单测只能证明"当前实现没这么做"，扫描才能证明"没人加回来"。
+//
+// 2026-10-15（A03）：唯一的生产作者调用点 `application/core/agentteam_runtime.go`
+// （`Service.noteTeamWorkPrefix`）已随 J-1a 之后的空环清理删除，因此写面现在只剩
+// 本包的两处纯原语（`runtime.go` / `scheduler.go`），**应用层不再有任何作者**。
+// 下面 `want` 相应收窄；`len(sites) > 0` 那道闸仍在——任何人再添一个应用层写入口
+// 都会红。
 func TestTeamPrefixHasNoFrontendWriteEntry(t *testing.T) {
 	root := prefixRepoRoot(t)
 	sites := map[string]bool{}
@@ -159,7 +164,6 @@ func TestTeamPrefixHasNoFrontendWriteEntry(t *testing.T) {
 	want := []string{
 		"application/core/agentteam/runtime.go",   // NoteMainContext 定义 + 唯一 SetPrefix 调用
 		"application/core/agentteam/scheduler.go", // SetPrefix 定义（纯原语）
-		"application/core/agentteam_runtime.go",   // 唯一作者调用点：读主会话上下文（含 draft）
 	}
 	for _, path := range want {
 		if !sites[path] {

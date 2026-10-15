@@ -26,15 +26,6 @@ AgentTeam 装配适配与群聊角色会话透传（端口形状与 A2A 元数�
 - `func (s *librarySessions) setLibrary(library dto.TeamLibrary)` — setLibrary 覆盖夹具的团队库（加锁）。
 - `func summonService(t *testing.T, sessions SessionPort) *Service` — summonService 造一个带会话端口的服务，并把视图会话钉成固定 ID
 
-### agentteam_runtime.go
-
-- `func (store *teamRuntimeStore) get(mainSessionID string) *agentteam.Runtime`
-- `func (store *teamRuntimeStore) put(mainSessionID string, runtime *agentteam.Runtime)`
-- `func (store *teamRuntimeStore) drop(mainSessionID string)` — drop 释放某个主会话的运行时槽（会话删除/归档时经 releaseTeamRuntime 调用；
-- `func (service *Service) noteTeamWorkPrefix(mainSessionID string)` — noteTeamWorkPrefix 把「主会话上下文（含主会话 draft）」的只读装配喂给团队环当前缀。
-- `func (service *Service) releaseTeamRuntime(mainSessionID string)` — releaseTeamRuntime 释放某个主会话的发言调度运行态（会话删除/归档时调用）。
-- `func (service *Service) teamRuntimeBySession(sessionID string) *agentteam.Runtime` — teamRuntimeBySession 返回指定会话的发言调度运行态。
-
 ### role_session.go
 
 - `func (service *Service) rolePorts() (rolePorts, error)`

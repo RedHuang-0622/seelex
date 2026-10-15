@@ -10,11 +10,9 @@ package core
 
 import (
 	"context"
-	"strings"
 	"sync"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/application/core/agentteam"
 	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
@@ -31,12 +29,6 @@ type goalCoordinatorDeps struct {
 	Evaluator goaldomain.TLEvaluator
 	// TLRecorderFor 返回指定会话的 TL 回合记录器（nil = 不记录 b 回合原文）。
 	TLRecorderFor func(sessionID string) goaldomain.TLRoundRecorder
-	// TeamRuntimeFor 返回指定会话的团队发言调度运行态。
-	//
-	// 席位轮转退场后（2026-10-01 阶段三 W3），它**只剩一个用途**：环逃生记账
-	// （`team.NoteTurn` 按"本轮有没有推进"记轮次，到达上限即收束）。goal 的
-	// 驱动不再经过任何座位，因此这里不再有"座位派生"语义。
-	TeamRuntimeFor func(sessionID string) *agentteam.Runtime
 }
 
 // goalSessionRuntime 是一个会话的 goal 治理 bundle（会话间零共享）。
@@ -128,18 +120,9 @@ func (g *goalCoordinator) bundleFor(sessionID string) *goalSessionRuntime {
 // Begin 注册并压栈（会话路由）。
 func (g *goalCoordinator) Begin(ctx context.Context, sessionID string, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error) {
 	runtime := g.bundleFor(sessionID)
-	before, _ := runtime.ctl.ActiveGoal()
 	record, err := runtime.ctl.Begin(ctx, request)
 	if err != nil {
 		return nil, err
-	}
-	// 团队环的逃生结论只属于**上一轮** goal：环停止后 SyncOrder 不会复活它，
-	// 新 goal 上线时把逃生记账清零（顺序/成员不动，仍是 lifecycle 那一份事实）。
-	// 未装配团队环时 teamRuntimeFor 返回 nil，Reset 对 nil 接收者安全。
-	//
-	// 幂等 begin（同名返回既有 active）不重置。
-	if record != nil && (before == nil || before.ID != record.ID) {
-		g.teamRuntimeFor(sessionID).Reset()
 	}
 	return record, nil
 }
@@ -181,15 +164,18 @@ func (g *goalCoordinator) Notify(ctx context.Context, sessionID string, signal g
 // Next 已随席位轮转退场删除：回合尾不再自动推进座位循环。终态判定走显式入口
 // （goal_propose_finish / 审批预筛）。
 
-// AdvanceAfterChat 在 ChatStream 返回后的回合边界安全点推进一次 goal 收尾记账：
-// 登记 turn_completed（exec 账本水位 + 本轮工作正文摘要）与团队环逃生记账。
+// AdvanceAfterChat 在 ChatStream 返回后的回合边界安全点登记一次 turn_completed
+// （EXEC 账本水位 + 本轮工作正文摘要）。
 //
 // **席位轮转已退场**（2026-10-01 阶段三 W3）：回合尾**不再**自动跑"exec 让位 →
 // advisor 评审"的座位循环。goal 的驱动改为提示词驱动的 leader 派活（见
 // plugins/default/goal/SKILL.md），终态判定只发生在显式入口——`goal_propose_finish`
-// 的终态 gate（Supervisor 的真实 TL 回合）与审批预筛。这里保留的只有：
-//   - turn_completed 信号登记（EXEC 账本水位 + 工作正文摘要）；
-//   - 团队环逃生记账（到达轮次上限/连续无进展 → 收口 goal + 归档 b 历史）。
+// 的终态 gate（Supervisor 的真实 TL 回合）与审批预筛。
+//
+// **团队环逃生记账已退场**（2026-10-15，A03）：环的唯一建造入口随 Agent Team 用户面
+// （J-1a）删除后，`TeamRuntimeFor` 读面恒为 nil、`NoteTurn` 没有调用者，那条"到达轮次
+// 上限 → 收口 goal + 归档 b 历史"的接线不可达，已随本条目一并移除；goal 收口只走终态
+// gate / 显式入口。detail 仅作 b 评审输入（本轮工作正文摘要）。
 //
 // 返回值不再有"治理回合失败"语义（没有回合了）；调用方丢弃它也不影响聊天成功。
 func (g *goalCoordinator) AdvanceAfterChat(ctx context.Context, sessionID, detail string) error {
@@ -197,38 +183,9 @@ func (g *goalCoordinator) AdvanceAfterChat(ctx context.Context, sessionID, detai
 	if runtime.ctl.Status().Active == nil {
 		return nil
 	}
-	if err := runtime.sup.Notify(ctx, goaldomain.TLEvalSignal{
+	return runtime.sup.Notify(ctx, goaldomain.TLEvalSignal{
 		Kind: goaldomain.SignalTurnCompleted, Source: "chat_end", Detail: detail,
-	}); err != nil {
-		return err
-	}
-	// 逃生记账：团队环按"本轮有没有推进"记一次轮次。到达轮次上限或连续多轮
-	// 无进展时，环显式收束。
-	//
-	// 逃生 = 这一轮 goal 结束：让 Supervisor 收口（goal 落终态 aborted + 归档 b
-	// 侧会话历史 + reap peer）。不收口会让 goal 挂在 active 等一个永远不会来的
-	// 收口，而且下一个 goal 可能复用上一轮 b 的锚点/帧。
-	//
-	// detail 只用于"本轮有没有推进"的判定与 b 评审输入；它**不再**驱动任何座位
-	// （员工干活走 leader 派发的 worker 作业，正文随作业载荷走）。
-	if team := g.teamRuntimeFor(sessionID); team != nil {
-		if stopped, reason := team.NoteTurn(strings.TrimSpace(detail) != ""); stopped {
-			if _, err := runtime.sup.AbortOnEscape(ctx, reason); err != nil {
-				return err
-			}
-			return nil
-		}
-	}
-	return nil
-}
-
-// teamRuntimeFor 取该会话的团队发言调度运行态（未装配团队环 → nil）。它**只**
-// 服务环逃生记账（见 AdvanceAfterChat）。
-func (g *goalCoordinator) teamRuntimeFor(sessionID string) *agentteam.Runtime {
-	if g.deps.TeamRuntimeFor == nil {
-		return nil
-	}
-	return g.deps.TeamRuntimeFor(sessionID)
+	})
 }
 
 // 席位轮转退场（2026-10-01 阶段三 W3）：治理循环上限、座位派生、座位作业面

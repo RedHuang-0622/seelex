@@ -20,10 +20,6 @@ type teamRecordingSessions struct {
 	policy   string
 	order    []string
 	registry dto.TeamRegistry
-	// wire 是前缀用例的桩：AssembleRoleWire 的返回值；wireAsks 记录装配请求
-	// （role_name 必须是 main，budget/k 必须与前端同口径）。
-	wire     dto.RoleWireSnapshot
-	wireAsks []string
 	// joinSeqs 记录角色会话装配时的 join_seq_id（teammate 记录的起点），
 	// mainHeadSeq 是 RoleSnapshot 桩返回的主会话尾 seq。
 	joinSeqs    []string
@@ -121,11 +117,8 @@ func (s *teamRecordingSessions) RoleSnapshot(string, string, string) (dto.RoleSn
 	return dto.RoleSnapshot{MainHeadSeq: s.mainHeadSeq}, nil
 }
 
-func (s *teamRecordingSessions) AssembleRoleWire(mainSessionID, roleName, roleSessionID string, budget, k int) (dto.RoleWireSnapshot, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.wireAsks = append(s.wireAsks, fmt.Sprintf("%s|%s|%s|%d|%d", mainSessionID, roleName, roleSessionID, budget, k))
-	return s.wire, nil
+func (s *teamRecordingSessions) AssembleRoleWire(string, string, string, int, int) (dto.RoleWireSnapshot, error) {
+	return dto.RoleWireSnapshot{}, nil
 }
 
 func (s *teamRecordingSessions) SetRoleLifecycle(string, string, string, uint64, *dto.CompactFrameRef) error {
@@ -255,19 +248,13 @@ func TestGoalBeginWithoutTeamStorageIsBestEffort(t *testing.T) {
 	}
 }
 
-// wireAsksSnapshot 只读前缀用例的装配请求记录（加锁 + 拷贝）。
-func (s *teamRecordingSessions) wireAsksSnapshot() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]string(nil), s.wireAsks...)
-}
-
 // joinSeqsSnapshot 只读角色装配的 join_seq_id 记录（加锁 + 拷贝）。
 func (s *teamRecordingSessions) joinSeqsSnapshot() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string(nil), s.joinSeqs...)
 }
+
 // TestMaterializeJoinsTeammatesAtItsTurn 已随会话团队装配面退场（2026-10-12 J-1a）
 // 删除：它钉的是"装配时把 teammate 挂在那一回合上"（`MaterializeAgentTeam` 的
 // join_seq_id = 主会话 message 尾 seq，经 `teamJoinSeqFor` 取）。两个被调用的入口
@@ -278,37 +265,8 @@ func (s *teamRecordingSessions) joinSeqsSnapshot() []string {
 // 一 Work Item = 一 Session + 一 worktree，作业的入伙切点由 `seelebridge/teamwork`
 // 的派活面带着走（那条面本条目未动）。
 
-// TestNoteTeamWorkPrefixReadsMainSessionContext 钉住前缀读面的**唯一仍成立**的那条
-// 口径：没有环就没有前缀消费者——不建环、也不读存储。
-//
-// 2026-10-12（J-1a）之后这是本函数能钉的全部：环的唯一来路（会话团队装配面）已退场，
-// 所以 `teamRuntimeBySession` 恒 nil、环永远不存在、前缀永远不会有接收方。原来那半段
-// （"有环时前缀 = 主会话 wire 的逐行投影 + 锚点"）因此不可达，它的语义权威留在
-// `application/core/agentteam/prefix_test.go`（`Runtime.NoteMainContext` 把整条 wire
-// 投影成前缀，逐字保留）。
-func TestNoteTeamWorkPrefixReadsMainSessionContext(t *testing.T) {
-	sessions := &teamRecordingSessions{wire: dto.RoleWireSnapshot{
-		MainSessionID: "sess-prefix", RoleName: RoleNameMain, AppliedSeq: 9, TailStartSeq: 1,
-		PrefixDigest: "digest-main", Messages: []dto.RoleWireMessage{
-			{Role: "user", Content: "把前缀改成主会话上下文", Seq: 1},
-			{Role: "assistant", Content: "改了 agentteam_runtime.go", Seq: 2},
-		},
-	}}
-	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
-
-	// 没有环 = 没有前缀消费者：不建环、不读存储。
-	service.noteTeamWorkPrefix("sess-prefix")
-	if asks := sessions.wireAsksSnapshot(); len(asks) != 0 {
-		t.Fatalf("没有环时不该问 wire：%v", asks)
-	}
-
-	// J-1a 之后**不再有任何来路**能建出环（这一点就是本条目要退场的东西），
-	// 因此"再问一次也仍然没有环、也仍然不读存储"。
-	if ring := service.teamRuntimeBySession("sess-prefix"); ring != nil {
-		t.Fatalf("会话团队装配面已退场，不该再有环：%+v", ring)
-	}
-	service.noteTeamWorkPrefix("sess-prefix")
-	if asks := sessions.wireAsksSnapshot(); len(asks) != 0 {
-		t.Fatalf("没有环时不该问 wire（环已无来路）：%v", asks)
-	}
-}
+// TestNoteTeamWorkPrefixReadsMainSessionContext 已随 A03（2026-10-15）删除：它钉的是
+// "没有环就没有前缀消费者"，而"环 + 前缀"整条接线（teamRuntimeStore /
+// teamRuntimeBySession / noteTeamWorkPrefix / TeamRuntimeFor）已随 J-1a 之后的 A03
+// 清理一并移除，被测对象不再存在。前缀语义权威仍留在
+// `application/core/agentteam/prefix_test.go`（`Runtime.NoteMainContext`）。

@@ -126,15 +126,6 @@ type serviceState struct {
 	// permissionTierDefault 是进程级权限档位默认（装配期从引擎门捕获一次；
 	// G4：会话未选择时回退该档位）。fullAccessDefault 保留为兼容读面。
 	permissionTierDefault string
-
-	// teamRuntimes 是按主会话持有的发言调度运行态（链表顺序 + 逃生记账；
-	// 见 application/core/agentteam_runtime.go）。它自带锁，不走
-	// Core.ViewMu——调度记账不参与视图快照事务。
-	//
-	// **J-1a 之后恒为空**（2026-10-12）：会话团队装配面已退场，没有来路再往这里
-	// put 一个环，因此 TeamRuntimeFor / noteTeamWorkPrefix / releaseTeamRuntime
-	// 都是**遗留不可达路径**（保留是为了不改 goal 逻辑的形状与调用点）。
-	teamRuntimes teamRuntimeStore
 }
 
 // draftSlot 保留草稿状态。ID 是早分配的真实会话 ID（草稿会话键）；

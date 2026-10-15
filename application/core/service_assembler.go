@@ -124,9 +124,8 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	}
 	// 座位作业面与角色座位读面已随席位轮转退场（2026-10-01 阶段三 W3）。
 	service.components.goal = newGoalCoordinator(goalCoordinatorDeps{
-		StoreFor:       goalStoreFor,
-		TLRecorderFor:  service.goalTLRecorderFor,
-		TeamRuntimeFor: service.teamRuntimeBySession,
+		StoreFor:      goalStoreFor,
+		TLRecorderFor: service.goalTLRecorderFor,
 	})
 	service.components.prompts = prompt_layer.NewCoordinator(prompt_layer.Deps{
 		Core:          kernel,

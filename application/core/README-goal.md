@@ -39,8 +39,7 @@ goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回
 - `func (g *goalCoordinator) ProposeFinish(ctx context.Context, sessionID string, request goaldomain.FinishRequest) (goaldomain.FinishProposalResult, error)` — ProposeFinish 送终态 gate（TL 缺席时 OutcomeNoTL 直连收口；B4）。
 - `func (g *goalCoordinator) FinishDirect(ctx context.Context, sessionID string, request goaldomain.FinishRequest, abort bool) (*goaldomain.GoalRecord, error)` — FinishDirect 直接落终态收口（**goal_done** 的领域动作）：把栈顶 goal 标 completed /
 - `func (g *goalCoordinator) Notify(ctx context.Context, sessionID string, signal goaldomain.TLEvalSignal) error` — Notify 登记 a 事件（exec 账本；触发策略见 Supervisor）。
-- `func (g *goalCoordinator) AdvanceAfterChat(ctx context.Context, sessionID, detail string) error` — AdvanceAfterChat 在 ChatStream 返回后的回合边界安全点推进一次 goal 收尾记账：
-- `func (g *goalCoordinator) teamRuntimeFor(sessionID string) *agentteam.Runtime` — teamRuntimeFor 取该会话的团队发言调度运行态（未装配团队环 → nil）。它**只**
+- `func (g *goalCoordinator) AdvanceAfterChat(ctx context.Context, sessionID, detail string) error` — AdvanceAfterChat 在 ChatStream 返回后的回合边界安全点登记一次 turn_completed
 - `func (g *goalCoordinator) setEvaluator(evaluator goaldomain.TLEvaluator)` — setEvaluator 装配/替换 TL 评估器：更新后续会话 bundle 构造输入，并为已
 - `func (g *goalCoordinator) StatusFor(sessionID string) goaldomain.StatusView` — StatusFor 返回会话 goal 栈全量视图（无 bundle 时返回空视图）。
 - `func (g *goalCoordinator) DrainDirectives(sessionID string) []goaldomain.TLDirective` — DrainDirectives 排空该会话 b→a 指令队列（ChatStream 回合边界注入）。
@@ -100,10 +99,6 @@ goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回
 ### goal_read_session.go
 
 - `func goalReadSessionID(ctx context.Context) string` — goalReadSessionID 是「读 goal 看板」该用的会话号。
-
-### goal_ring_escape_test.go
-
-- `func TestRingEscapeWiringIsUnreachableAfterJ1A(t *testing.T)` — TestRingEscapeWiringIsUnreachableAfterJ1A 钉住"环逃生 → goal 收口"这条应用层接线
 
 ### goal_service.go
 
@@ -178,7 +173,7 @@ goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回
 - `func (s *teamRecordingSessions) AppendRoleSessionRows(string, string, string, []dto.RoleRow) error`
 - `func (s *teamRecordingSessions) ReadRoleSessionRows(string, string, string) ([]dto.RoleRow, error)`
 - `func (s *teamRecordingSessions) RoleSnapshot(string, string, string) (dto.RoleSnapshot, error)`
-- `func (s *teamRecordingSessions) AssembleRoleWire(mainSessionID, roleName, roleSessionID string, budget, k int) (dto.RoleWireSnapshot, error)`
+- `func (s *teamRecordingSessions) AssembleRoleWire(string, string, string, int, int) (dto.RoleWireSnapshot, error)`
 - `func (s *teamRecordingSessions) SetRoleLifecycle(string, string, string, uint64, *dto.CompactFrameRef) error`
 - `func (s *teamRecordingSessions) setLifecycle(policy string, order []string)` — 以下是夹具的**加锁存取入口**：夹具状态只允许通过它们读写。
 - `func (s *teamRecordingSessions) setOrder(order []string)` — setOrder 只覆盖顺序（顺序策略不动）：装配前的"清现场"用它。
@@ -191,9 +186,7 @@ goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回
 - `func (s *teamRecordingSessions) ListRoleSessions(string) ([]string, error)`
 - `func TestGoalBeginLeavesSessionTeamAlone(t *testing.T)` — TestGoalBeginLeavesSessionTeamAlone 钉住 2026-10-01 的口径：创建 goal **不**自动装配
 - `func TestGoalBeginWithoutTeamStorageIsBestEffort(t *testing.T)` — TestGoalBeginWithoutTeamStorageIsBestEffort 钉住降级语义：宿主没有团队存储
-- `func (s *teamRecordingSessions) wireAsksSnapshot() []string` — wireAsksSnapshot 只读前缀用例的装配请求记录（加锁 + 拷贝）。
 - `func (s *teamRecordingSessions) joinSeqsSnapshot() []string` — joinSeqsSnapshot 只读角色装配的 join_seq_id 记录（加锁 + 拷贝）。
-- `func TestNoteTeamWorkPrefixReadsMainSessionContext(t *testing.T)` — TestNoteTeamWorkPrefixReadsMainSessionContext 钉住前缀读面的**唯一仍成立**的那条
 
 ### goal_work_summary.go
 
