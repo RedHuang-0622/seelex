@@ -62,7 +62,7 @@ Seelex 把这些能力组织成可替换、可测试的模块，而不是把它�
 | Agent 执行 | 流式对话、工具调用、取消、审批交互和任务终态；Effort 四档（lite/medium/high/max）约束循环数、工具调用数与计划规模 |
 | Plan 与子 Agent | 可选 WorkPlan DAG、拓扑校验、并行分支、独立节点 Session、事件投影和结果 merge-back；加载后按**任务级**选择两种执行模式：<code>tasklist</code>（主代理按 DAG 串行自执行，逐节点 <code>task_check_node</code> 打点、<code>task_complete</code> 收尾，无子代理）与 <code>plan</code>（<code>plan_run</code> 起子代理并行，节点完成经 Plan 事件实时投影）；<code>fork_subagents</code> 以后台作业派发子代理（句柄 + <code>job_manage</code> 取回） |
 | 目标治理 | 会话级 LIFO goal 栈与状态机、独立上下文的裁决角色（ADVISOR / TechLeader）回合制评审、抽帧节流、有界指令邮箱、终态门禁与 append-only 审计；工具面 <code>goal_begin</code> / <code>goal_update</code> / <code>goal_status</code> / <code>goal_propose_finish</code> / <code>goal_done</code>——<code>goal_done</code> 是主代理（即 TL）的真收口，<code>goal_propose_finish</code> 才送终态 gate，员工与子代理看不到 <code>goal_done</code> |
-| 代理团队与工作台 | TeamSpec 团队工厂（团队库条目显式装配）、成员与发言顺序注册表；leader 工具面 <code>team_plan</code> / <code>team_dispatch</code> / <code>team_join</code> / <code>team_milestone</code> / <code>team_retire</code> / <code>team_context</code> / <code>team_close</code>——<code>team_retire</code> 只结束一轮、不动作业，作业正文活到 <code>team_close</code>（整队收口与回收的唯一入口，幂等），在编人数上限 <code>max_teammates</code>（默认 6）超限即显式拒绝、不静默排队；plan / tasklist / subagent / todo 四源合一的工作台投影与 traceboard |
+| 代理团队与工作台 | leader + 异步 worker 的 teamwork（旧 TeamSpec 团队工厂、团队库/员工库显式装配与成员发言顺序注册表已随 J-1a 退场）；leader 工具面 <code>team_plan</code> / <code>team_work</code> / <code>team_item</code> / <code>team_dispatch</code> / <code>team_join</code> / <code>team_accept</code> / <code>team_fail</code> / <code>team_recover</code> / <code>team_milestone</code> / <code>team_context</code> / <code>team_items</code> / <code>team_close</code>——<code>team_close</code> 是整队收口与回收的唯一入口（幂等），在编人数上限 <code>max_teammates</code>（默认 6）超限即显式拒绝、不静默排队；plan / tasklist / subagent / todo 四源合一的工作台投影与 traceboard |
 | 后台作业面 | <code>bash_bg</code> / <code>read_batch</code> / <code>job_manage</code>（框架侧通用管理入口为 <code>jobs_manage</code>）共用一套作业契约：派发只回受理回执（<code>handle</code> + <code>log_path</code>，不含输出），结果按句柄**消费式**取回（一批一次等用 <code>handles</code>），<code>op=observe</code> 只读看进展、<code>op=kill</code> 终止整棵进程树（已产出内容不丢）、<code>op=done</code> 销项；串行 <code>bash</code>/<code>bash_read</code> 拒绝超过 5 分钟的 <code>timeout</code> 并指向 <code>bash_bg</code>，作业落终态且所属会话空闲时自动起一个回合让模型取回结果；<code>async_exec.enabled</code> 关闭即整块收回 |
 | 上下文治理 | Prompt Stack 稳定前缀、滑动窗口、预算控制、压缩 DAG、超大工具结果归档为 <code>result_ref</code> 与按页/过滤读回（<code>read_tool_result</code> / <code>read_compressed_turn</code> / <code>search_history</code>）；装配逼近硬阈值（默认 98% 预算）时**探测即主动压缩**为有界 checkpoint 帧，<code>compact_context</code> 工具与 <code>/compact</code> 命令可手动触发同一压缩；压缩失败**只留痕**——不改写 agent 的上下文、不中断会话 |
 | 记忆与检索 | 相关记忆块（词法 top-K）、以压缩栈为索引的历史检索读回、跨会话稳定前缀复用、CLI/项目级 <code>MEMORY.md</code> 索引 |
@@ -595,7 +595,7 @@ Windows PowerShell 或 cmd 请直接使用 `scripts/*.ps1`。
 
 | Plugin | 用途 |
 |---|---|
-| <code>default</code> | 默认完整能力：不设 include/exclude，暴露全部已注册工具与全局 Skill（11 个 Skill，含 <code>$plan</code> / <code>$goal</code> / <code>$teamwork</code>） |
+| <code>default</code> | 默认完整能力：不设 include/exclude，暴露全部已注册工具与全局 Skill（11 个 Skill：<code>$goal</code> / <code>$teamwork</code> / <code>$plan-design</code> / <code>$plan-norm</code> / <code>$code</code> / <code>$code-aesthetics</code> / <code>$review</code> / <code>$test</code> / <code>$cli-design</code> / <code>$desktop-discipline</code> / <code>$project-board</code>） |
 | <code>hardware</code> | 硬件/CAD 工程能力：声明 include 白名单与 stdio MCP Server（7 个 Skill） |
 
 仓库当前只有以上两个内置 Plugin，共 18 个 Skill（<code>plugins/*/&lt;skill&gt;/SKILL.md</code>）。
@@ -698,11 +698,10 @@ $env:SEELEX_COMPUTER_DESKTOP_PROBE=1; go test ./seelebridge/tools/computer -run 
 $env:SEELEX_SMOKE_ACCOUNTS='config/accounts.yaml'
 go test -tags computerlive . -run TestComputerUseLiveSmoke -count=1 -v -timeout=15m
 
-# Agent Team（goal-a2a）的 team work + computer use：EXEC 截图 → ADVISOR 输入必须
-# 带 screen: media:… foreground=… 证据，且 ADVISOR 裁决确实发生。
-go build -o tmp/bin/seelex-headless.exe .
-$env:SMOKE_TEAM_WORK_COMPUTER_LIVE='1'
-go test ./gui -run TestRealAPITeamWorkComputerUseLiveProbe -count=1 -v -timeout=20m
+# 说明：原 Agent Team（goal-a2a）真机探针 TestRealAPITeamWorkComputerUseLiveProbe
+# 已随 J-1a 退场删除（旧 team.* 用户面与 goal 自动装配一并退场）。当前团队/角色
+# 验证改走离线探针（报告落 tmp/headless-smoke/reports/），见 gui/README.md 的
+# role.* 与 fork_subagents 两组探针。
 ~~~
 
 Linux CI 还会执行 race detector、覆盖率和发布包安全检查。

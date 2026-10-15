@@ -6,11 +6,11 @@
 > goal 的 TL/ADVISOR 是 AgentTeam 工厂的第一个实例；subagent 是 tool calling
 > 能力，不属于 AgentTeam。
 >
-> 接线现状：`GoalBeginFor` 在 goal 落栈成功后自动装配 `goal-a2a` 团队
-> （`ensureGoalAgentTeam` → `MaterializeAgentTeamPreset`），因此 **goal 上线
-> 即拉起 TL 团队**，不再需要前端手动点一次「装配团队」。装配幂等；宿主未
-> 装配团队存储时只记日志、不阻塞 goal 治理（supervisor + TL 评估器那条链与
-> 团队存储无关）。
+> 接线现状（2026-10-15 更正）：`ensureGoalAgentTeam` / `MaterializeAgentTeamPreset`
+> 已于 2026-10-01（`970122c`，席位轮转退场）**删除**，goal 落栈**不再自动装配**
+> 任何团队——下文若仍出现「goal 上线即拉起 TL 团队」均为退场前表述。当前 goal 治理
+> 只由 supervisor + TL 评估器那条链驱动（与团队存储无关）；团队作业改由 leader 的
+> `$teamwork`（`team_plan` / `team_work` / …）显式编排。
 
 ## 生态位
 
