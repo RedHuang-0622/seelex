@@ -37,10 +37,18 @@ type storageSettings struct {
 	// 单实例（默认，冲突即报错），true = 放行（第二个进程继续启动）。用指针是为了
 	// 让「未配置」与「显式 false」区分得开（与 AutoRecover 同一纪律：默认值里就有
 	// false，零值无法区分）。代价（失去跨进程写者串行化）见 config/seelex.yaml。
-	AllowMultiProcess     *bool `json:"allow_multi_process,omitempty"`
-	BlobSoftLimitChars    int   `json:"big_tool_result_soft_limit_chars,omitempty"`
-	BlobHardLimitBytes    int   `json:"big_tool_result_hard_limit_bytes,omitempty"`
-	BlobSessionQuotaBytes int   `json:"big_tool_result_session_quota_bytes,omitempty"`
+	AllowMultiProcess *bool `json:"allow_multi_process,omitempty"`
+	// ── 文本大结果 blob 限额（设计 §2.6）──
+	// 语义：软限**截断**正文、硬限**不落盘**直接报错（ErrBigToolResultTooLarge）、
+	// 会话配额超限报错（ErrBigToolResultQuota）；软限**不调 LLM 做总结**。
+	//
+	// 现状（2026-10-15）：唯一写入路径 writeBlob 目前**没有生产调用方**（只有包内
+	// 单测），因此这三项只在 WithDefaults/Apply 校验与单测里生效。生产里"超大工具
+	// 结果"走的是 limits.max_tool_result_chars（**字符数**）→ result_ref + 省略警告
+	// （application/core/context_runtime 的 OversizedToolResultWarning），两族数别混。
+	BlobSoftLimitChars    int `json:"big_tool_result_soft_limit_chars,omitempty"`
+	BlobHardLimitBytes    int `json:"big_tool_result_hard_limit_bytes,omitempty"`
+	BlobSessionQuotaBytes int `json:"big_tool_result_session_quota_bytes,omitempty"`
 	// 媒体分区（§10）限额：只按字节与像素卡硬限，没有字符软限、永不截断。
 	// 配额与 big_tool_result 独立计账，互不挤占（见 media.go 顶部说明）。
 	MediaMaxItemBytes       int `json:"media_max_item_bytes,omitempty"`

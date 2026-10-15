@@ -1,16 +1,20 @@
 // seelexContextController 是 seelectx.ContextController 实现
 // （plan.md §3.7.4 / 架构文档 4.6(4)）：
 //
-//   - 软阈值：片段闭合（after_assistant / after_tool）时只压缩滑动窗口外的
-//     轮次（窗口内永不压缩）；产物合并上一栈顶帧 → 综合摘要（栈顶自足）
-//     后 push CompactStack，再返回 ContextDecision{ReplaceHistory, 投影历史}。
-//   - 硬阈值：after_tool 超大工具输出先归档为 result_ref（processor 路径），
-//     仍超限才收缩窗口（WindowPolicy 以硬阈值预算推导，不低于 MinRounds），
-//     新移出窗口的轮次进入压缩。
-//   - ReplaceHistory 前执行 history_safety 配对修复与 checkpoint 标记清理。
+//   - 唯一动作：after_tool 事件里的超大工具输出兜底归档（result_ref）。归档器
+//     按调用 ID 幂等、与 processor 共用同一份实现；归档不改变历史，只把原文
+//     外置成引用，因此不需要 ReplaceHistory，也不返回任何决策。
+//   - 不再折帧（2026-09-30 起）：压缩整条归装配层
+//     （application/core/context_runtime 的 prepareExecutionContextFor）——那里
+//     握着上一次真实请求的 system / 历史 / 工具三样原件，能接着发起前缀重放
+//     摘要调用；回合内控制器只拿得到装配前的引擎工作历史，折出来的帧没有
+//     正文、请求前缀还会整段失效。窗口越线由装配层在下一轮开始前处理。
 //
-// 决策输入全部构造注入（WindowPolicy / TokenCounter / BudgetProvider /
-// ToolResultArchiver / CompactStackStore），无魔法数字。
+// 决策输入全部构造注入（Archive / MaxToolResultChars / Stacks），无魔法数字。
+//
+// 兼容面：下面的 ContextWindowPolicy 仍是压缩比例公式的导出面
+// （见 controller_limits_test.go），消费方是装配层与冷恢复探针；本控制器自身
+// 不读任何比例。
 package seelexctx
 
 import (

@@ -448,9 +448,7 @@ Copy-Item config/accounts.example.yaml config/accounts.yaml
 ~~~yaml
 defaults:
   provider: openai
-  context_window: 128000
   max_tokens: 8192
-  timeout: 120s
   temperature: 0
 
 roles:
@@ -468,6 +466,11 @@ roles:
 
 <code>config/accounts.yaml</code> 已被 Git 忽略。不要提交真实 API key、token、DSN 或本机私有配置。
 
+账号档只放**凭据与逐账号的模型参数**（`base_url` / `api_key` / `model` / `provider` /
+`max_tokens` / `temperature` / `reasoning_effort` / `max_concurrency`）。**上下文窗口不在这里**：
+它是运行配置，家在 <code>config/seelex.yaml</code> 的 `limits.context_window`（出厂 400000；
+`0` = 不覆盖）。窗口是压缩预算的基数，改窗口请改 seelex.yaml。
+
 ### DeepSeek 示例
 
 DeepSeek API 提供 OpenAI-compatible 接口时，可以继续使用 <code>provider: openai</code>，并替换模型与 endpoint：
@@ -475,7 +478,6 @@ DeepSeek API 提供 OpenAI-compatible 接口时，可以继续使用 <code>provi
 ~~~yaml
 defaults:
   provider: openai
-  context_window: 1000000
   max_tokens: 8192
 
 roles:

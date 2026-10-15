@@ -2,7 +2,19 @@
 
 ## 生态位
 
-`defaults.context_window` 表示模型的总上下文窗口，`defaults.max_tokens` 表示单次响应的最大输出 token。账号条目可以覆盖这两个值；Application 会从总窗口中扣除输出预留和 12.5% 安全余量后计算可用输入预算。
+**账号档只放凭据与逐账号的模型参数，不放运行配置**（2026-10-15 起定死）：`base_url` / `api_key` / `model` / `provider` / `max_tokens` / `temperature` / `reasoning_effort` / `max_concurrency`。上下文窗口是运行配置，家在 `seelex.yaml` 的 `limits.context_window`。
+
+- **窗口**：`limits.context_window`（token；0 = 不覆盖，此时回退代码兜底 200000）是**默认值**；界面「设置 → 账号」能**按账号**覆盖它（挡位 200k / 400k / 600k / 1M 或自定义），那份覆盖写进数据根 `runtime-limits.json`（与其他界面改动同层，不写回本档与被 gitignore 的账号档）。生效优先级三跳：**账号级覆盖 > `limits.context_window` > 账号档自报值**。它只改判据用的窗口——provider 侧仍有自己的硬限制，填大了请求会被拒。旧账号档里的 `context_window`（`defaults` 或账号条目）仍被兼容读取，只在 `seelex.yaml` 未配置时作兜底；模板与文档不再提供这个键。
+- **输出预留**：取账号档的 `max_tokens`（模型参数，逐模型不同）。`seelex.yaml` 的 `limits.output_reserve_tokens`（512）**不参与**运行期预算，只在兜底路径与启动期校验里消费。
+- **安全余量**：窗口 ÷ `limits.context_safety_reserve_divisor`（出厂 10 = 10%；代码兜底除数 8 = 12.5%）。
+
+**三族数别混**（2026-10-15 明确，三者互不影响）：
+
+| 族 | 单位 | 键 / 来源 | 管什么 |
+|---|---|---|---|
+| 上下文预算 | token | 窗口：`seelex.yaml` 的 `limits.context_window`；输出预留：账号档 `max_tokens`（模型参数）；比例：`seelex.yaml` 的 `limits.context_*` | 窗口、压缩触发线、保留窗口（见 [docs/arch/context-prefix-chain.md](../docs/arch/context-prefix-chain.md) 的《压缩相关名词与取值》） |
+| 工具结果上限 | **字符数** | `seelex.yaml` 的 `limits.max_tool_result_chars`（60000） | 单条工具结果"太长"→ 归档为 `result_ref` + 省略警告，模型用 `read_tool_result` 回读 |
+| 存储侧 blob 限额 | 字符 / 字节 | `seelex.yaml` 的 `session_storage.big_tool_result_*`（60000 字符 / 16 MB / 64 MB 配额） | 文本大结果的截断、硬限报错与会话配额；**当前无生产调用方**（见 `sessionstore/storage_settings.go`） |
 
 `config/` 存放**四条彼此独立的配置链**：账号（`accounts.yaml`）、MCP 服务器清单
 （`mcp.yaml`）、搜索引擎（`search_engine.yaml`）、运行参数与权限（`seelex.yaml` /
@@ -22,7 +34,7 @@ flowchart LR
     LOCAL --> LOAD["seelebridge config.LoadTolerant"]
     LOCALOVR["*.local.yaml（机器覆盖，不发布）"] -.-> LOAD
     LOAD --> POOL["Seele AccountPool（按角色分组）"]
-    LOAD --> BUDGET["context_window / max_tokens → 输入预算"]
+    LOAD --> BUDGET["max_tokens（模型参数）→ 输出预留"]
     SEELE["config/seele.yaml<br/>permission.rules"] --> GATE["PermissionGate"]
     SEELEX["config/seelex.yaml<br/>window / limits"] --> WIN["窗口策略与进程上限"]
     ROOT["main.go：选择文件并注入 Runtime"] --> LOAD

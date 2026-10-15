@@ -12,16 +12,18 @@
 
 - 做：`PrepareExecutionContext`、`CompactTaskContext`、超限工具结果拒绝、
   `RemoveTaskContextCheckpoints`、`PrepareProviderHistory`。装配顺序为
-  system → 累积 context（达峰前 append-only 全量已定稿轮次）→ plan 尾部；
-  达到软阈值时压缩（压缩 compact 栈顶 + context 窗口，发布
-  `RecordContextCompactionLocked`），压缩后为有界新鲜窗口。checkpoint 正常
+  system → 累积 context（越线前 append-only 全量已定稿轮次）→ plan 尾部；
+  请求估算 ≥ `context_hard_percent`（或 `window.force_compact_tokens` / 显式
+  `/compact`、`compact_context`）时折出保留窗口外的 transcript 前缀：先实测读数
+  （拿不到模型读后感就不折、不推栈顶），再推帧并发布
+  `RecordContextCompactionLocked`，压缩后为有界保留窗口。checkpoint 正常
   路径不再注入 LLM 上下文，只保留恢复路径（根包 `history_safety.go` 的
   provider 504 / history-safety 信封）与持久化数据面（`RememberCheckpointLocked`）。
   收缩兜底语义：协议单元不可拆分——单轮装不下预算时不得静默清空历史；
   `TranscriptTailHistory` 降级保留最新完整单元，`fitExecutionHistory` 最终
   兜底不再走 `events=nil` 的空历史分支；真正超出全量预算时由
   `PrepareExecutionContextFor` 返回 `ErrProviderContextBudgetExceeded`。
-- **达峰判据的累积起点**：`TaskExecutionState.ContextRetainedFrom` 记录上一次
+- **压缩判据的累积起点**：`TaskExecutionState.ContextRetainedFrom` 记录上一次
   压缩覆盖到的 transcript 绝对事件下标。判据量、保留窗口与累积装配都只从该
   起点往后看——被折出的前缀不再回填，否则长会话每次装配都重新累积全量、
   稳定越线，表现为"一发消息压一次"。折出后起点前移到新的保留窗口边界；
@@ -72,10 +74,10 @@
 flowchart LR
     REQ["一次模型请求"] --> PREP["PrepareExecutionContext<br/>锁内读 task 权威状态"]
     PREP --> BUDGET["ContextBudgetFor<br/>窗口 - 输出预留 - 安全余量"]
-    BUDGET --> SOFT{"达到软阈值？"}
+    BUDGET --> SOFT{"请求估算 ≥ 硬阈值 /<br/>force_compact / 显式压缩？"}
     SOFT -->|否| ASC["装配：system → 累积 context（append-only）→ plan 尾部"]
-    SOFT -->|是| COMPACT["压缩：压缩 compact 栈顶 + context 窗口"]
-    COMPACT --> FRAME["RecordContextCompactionLocked<br/>发布有界 checkpoint 帧"]
+    SOFT -->|是| COMPACT["读数闸：先实测一次模型读后感"]
+    COMPACT --> FRAME["折出保留窗口外的 transcript 前缀<br/>推帧 + RecordContextCompactionLocked"]
     FRAME --> ASC
     ASC --> REPLACE["锁外 ReplaceHistory"]
     REPLACE --> CHECK["锁内记 checkpoint"]
@@ -184,7 +186,7 @@ Review 重点：持锁不得调用外部端口、压缩后历史必须保留 sys
 路径由 `history_safety.go` 单独负责）、累积段字节稳定（已定稿轮次不重排/
 不改写，压缩是唯一使前缀失效的事件）、plan/task 尾部不参与压缩、provider
 投影不得事后补写（工具轮正文归零、空工具结果保持空，否则跨轮前缀失效）。
-达峰判据另有三条边界：① 累积起点必须取 `ContextRetainedFrom`（含跨回合
+压缩判据另有三条边界：① 累积起点必须取 `ContextRetainedFrom`（含跨回合
 继承），不得每次从 transcript 头部重算；② 尾窗选择与判据/装配必须同一估算器
 （`TranscriptTailWindowBy`），记录值只用于装载；③ 压缩后必须回写新的起点
 （普通压缩 = 保留窗口起点，自主压缩 = transcript 末尾），否则下一回合会把

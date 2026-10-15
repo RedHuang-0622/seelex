@@ -5,6 +5,23 @@
 > 依赖事实：Seele `workplan`（github.com/RedHuang-0622/Seele v0.1.2）是仓库
 > 已采用的 DAG 执行内核；本设计**复用** workplan/codec + core/plan +
 > runtime/runner + sugar/fork，不自造编排轮子。
+>
+> **后续变更（读本文前先看这段）**：首批（§7 的 1–4）**已实现**，实施记录见
+> [implementation.md](implementation.md)。此后有两处与本文不同，照本文读会
+> 读错现状：
+> 1. **压缩入口已移出回合内控制器**（2026-09-30）：§4.6 写的
+>    `controller.compressWindowOutsideWith` 与 `gap.buildGapFrame` 两个接入点，
+>    现只有 gap 一条保留；生产压缩发生在**装配层**
+>    （`application/core/context_runtime` 的 `prepareExecutionContextFor` →
+>    `seelebridge.PushCompactionFrame`），回合内 `ContextController` 只剩超大
+>    工具结果归档。
+> 2. **压缩前多了一道读数闸**（2026-10-02）：先实测一次前缀重放，拿不到模型
+>    读后感就不折上下文、不推栈顶、只留失败痕（`compactionReadbackProbe`）；
+>    §4.5「Chapter 2 失败 → 本地折叠兜底」因此只在**已被允许折**的路径上成立。
+>
+> 本文 §0.2 引用的「软阈值 75% / 硬阈值 90% / 压缩目标 60%」是当时的出厂值，
+> 现行阈值与实数见 [context-prefix-chain.md](../arch/context-prefix-chain.md)
+> 的《压缩相关名词与取值》（自动路径只剩硬阈值一条线）。
 
 ---
 

@@ -44,7 +44,11 @@ type Config struct {
 }
 
 type simplifiedDefaults struct {
-	Provider        string   `yaml:"provider"`
+	Provider string `yaml:"provider"`
+	// ContextWindow 是**遗留兼容**键（defaults 与账号条目各一份）：窗口的配置家是
+	// config/seelex.yaml 的 `limits.context_window`（见 seelexctx.Limits.ContextWindow
+	// 与 Runtime.ContextWindow）。保留解析只为读旧账号档、并在 seelex.yaml 未配置时兜底；
+	// 模板 config/accounts.example.yaml 与文档不再提供该键（账号档只放凭据与模型参数）。
 	ContextWindow   *int     `yaml:"context_window"`
 	MaxTokens       *int     `yaml:"max_tokens"`
 	Temperature     *float64 `yaml:"temperature"`
@@ -53,10 +57,11 @@ type simplifiedDefaults struct {
 
 // simplifiedAccount is a single entry in the role-based config format.
 type simplifiedAccount struct {
-	Provider        string   `yaml:"provider"`
-	Model           string   `yaml:"model"`
-	BaseURL         string   `yaml:"base_url"`
-	APIKey          string   `yaml:"api_key"`
+	Provider string `yaml:"provider"`
+	Model    string `yaml:"model"`
+	BaseURL  string `yaml:"base_url"`
+	APIKey   string `yaml:"api_key"`
+	// ContextWindow 同 simplifiedDefaults 的遗留兼容键说明（账号条目级覆盖）。
 	ContextWindow   *int     `yaml:"context_window"`
 	MaxTokens       *int     `yaml:"max_tokens"`
 	MaxConcurrency  *int     `yaml:"max_concurrency"`
@@ -197,6 +202,12 @@ func fallbackConfig() Config {
 	}
 }
 
+// resolveAccountLimits 解出账号的窗口与输出预留。
+//
+// 口径（2026-10-15）：**窗口的配置家是 seelex.yaml**（`limits.context_window`），这里解出的
+// ContextWindow 只是"账号档自报"的值——Runtime.ContextWindow() 在 seelex.yaml 配了覆盖时
+// 优先用覆盖值。账号档的 `context_window` 因此是遗留兼容键：接新流程或改模板时不要再写它。
+// MaxTokens 是模型参数（provider 输出上限 + 预算的输出预留），留在账号档。
 func resolveAccountLimits(defaults simplifiedDefaults, account simplifiedAccount) (AccountLimits, error) {
 	limits := AccountLimits{ContextWindow: DefaultContextWindow, MaxOutputTokens: DefaultMaxOutputTokens}
 	if defaults.ContextWindow != nil {

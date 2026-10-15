@@ -399,9 +399,9 @@ history, the visible conversation, or the durable transcript.
 
 ## Context compression visibility
 
-`ContextController` rebuilds provider history from the active system policy, trusted task Skills, the active Plan slice, and complete protocol units. A unit is admitted only when every tool call has a matching result; orphan results and incomplete parallel calls remain in the durable transcript but never enter provider context. The assembled order follows the prefix-cache chain: system → project → memory → compact → accumulated context → plan → task (the seelexctx assembler renders project/memory/stack blocks; the coordinator keeps the engine history as accumulated context + trailing plan message).
+`context_runtime` 的 `PrepareExecutionContextFor` 重建 provider history：从生效的 system 政策、可信 task Skills、当前 Plan slice 与完整协议单元装配。一个单元只有在它的每个工具调用都有配对结果时才被接纳；孤儿结果与残缺并行调用留在 durable transcript 里，但永不进入 provider context。装配顺序遵循前缀缓存链路：system → project → memory → compact → 累积 context → plan → task（project/memory/栈块由 seelexctx 装配器渲染；coordinator 侧引擎历史 = 累积 context + 尾部 plan 消息）。`ContextController` 不再参与装配，只做超大工具结果的兜底归档。
 
-> 已实现（任务 A/B/C）：装配顺序为「system → project → memory → compact → 累积 context（达峰前 append-only 全量已定稿轮次）→ plan → task → 当前输入」，checkpoint 正常路径不再进入 LLM 上下文（异常恢复路径 provider 504 / history-safety 保留）；达峰才压缩（压缩 compact 栈顶 + context 窗口，plan/task 不参与压缩）。设计见 [docs/arch/context-prefix-chain.md](../../docs/arch/context-prefix-chain.md)。
+> 已实现（任务 A/B/C）：装配顺序为「system → project → memory → compact → 累积 context（越线前 append-only 全量已定稿轮次）→ plan → task → 当前输入」，checkpoint 正常路径不再进入 LLM 上下文（异常恢复路径 provider 504 / history-safety 保留）；**越线才压缩**，且压缩只在装配层发生（请求估算 ≥ `limits.context_hard_percent`、`window.force_compact_tokens` 或显式 `/compact`、`compact_context`；2026-09-30 起软线不再参与判据）——折出保留窗口外的 transcript 前缀，plan/task 不参与压缩。设计见 [docs/arch/context-prefix-chain.md](../../docs/arch/context-prefix-chain.md)。
 
 Provider 前缀不变量（2026-09-12）：每条请求的字节都以本会话更早发出的请求为
 前缀（回合边界同样成立）。带工具调用的 assistant 消息在 provider 投影里正文

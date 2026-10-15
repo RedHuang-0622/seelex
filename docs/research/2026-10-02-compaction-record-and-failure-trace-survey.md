@@ -187,6 +187,19 @@ go test ./application/core/ -run "TestReproCompactionRecordSurvivesNextRoundAfte
 | `application/core/context_runtime/README.md:16,75`、`seelexctx/README.md:165`、`seelexctx/controller.go:4,46,83` | 仍把「软阈值触发、回合内控制器折叠」写成现行机制 | 2026-09-30 起：回合内不折、全局只剩硬线一条（`context_soft_percent` 保留键兼容）；判据 Detail 里的 `soft=`/`ineffective_fold … soft=…` 也随之名不副实 |
 | `context_runtime/coordinator.go:235` 注释 | `SoftThreshold = 判据量的软阈值（limits.context_soft_percent，默认 95%）` | 同一批改动后 `SoftThreshold` 是按**硬线**比例产出的（`task_context/token_counter.go`），注释未跟 |
 
+> **2026-10-15 处置**：上表第 2、3 两条已按现状改文——
+> `application/core/context_runtime/README.md`（职责段 + 数据流图 + 两处「达峰判据」
+> 措辞）、`seelexctx/README.md`（阈值表、触发点段、占比图与两处「已实现」注记）、
+> `seelexctx/controller.go` 包注释（改为「回合内只剩超大工具结果归档」，并说明
+> `ContextWindowPolicy` 只是公式导出面）、`coordinator.go` 的
+> `CompactResult.SoftThreshold` 注释（改为「报表用的软线，按硬线比例产出」）。
+> 同时修了同批口径错误：`docs/arch/context-prefix-chain.md` 的《压缩相关名词与取值》
+> 与《压缩》两节（旧值 75%/90%/60% → 现行硬阈值 98% / 目标 65%、以及
+> `compacted=` 键名、`buildCompactFrame` 落点），`docs/2026-09-06-compaction-dag/design.md`
+> 顶部加「后续变更」注记。第 1 条（`README-context.md`）仍未处置；此外
+> `application/core` 各 test 注释里的「软阈值」命名与判据 Detail 的 `soft=` 键名
+> 属代码命名面，本次未动（同一事实的命名清理需要连同前端文案与用例一起做）。
+
 ---
 
 ## 10. 证据索引

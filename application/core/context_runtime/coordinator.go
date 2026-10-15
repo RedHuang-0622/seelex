@@ -272,7 +272,8 @@ const CompactionFailureNoteErrorMarker = " error="
 //
 //	ComparedTokens  = 判据量（全量累积/引擎缓存峰值的请求估算，压缩决策用的那个量）
 //	AssembledTokens = 装配后估算（真正发给 provider 的请求大小）
-//	SoftThreshold   = 判据量的软阈值（limits.context_soft_percent，默认 95%）
+//	SoftThreshold   = 报表用的软线（按**硬线比例**产出；limits.context_soft_percent
+//	                  自 2026-09-30 起已不参与判据，见 task_context 的 ContextBudgetFor）
 type CompactResult struct {
 	Outcome         CompactOutcome
 	Record          model.ContextCompaction

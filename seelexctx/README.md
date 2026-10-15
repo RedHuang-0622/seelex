@@ -63,7 +63,7 @@ flowchart LR
 | `assembler.go` | `RequestAssembler`：system prompt（effort/skill）+ PromptBlocks + working history 拼装；工具定义经 `AssembledRequest.Tools` 透传（引擎 API schema 通道，不渲染为消息文本）。 |
 | `processor.go` | `ToolResultProcessor`：超大工具结果 → result_ref/省略警告。 |
 | `compressor.go` | `Compressor` 适配：短历史免压缩 + QuickChat 隔离摘要。 |
-| `controller.go` | `ContextController`：软/硬阈值、窗口外压缩、checkpoint 决策；帧生成优先走压缩 DAG（`ControllerOptions.Compaction`），旧本地路径保留兼容。 |
+| `controller.go` | `ContextController`：**回合内只剩超大工具结果的兜底归档**（归档器按调用 ID 幂等，不改变历史）；不再折帧——压缩整条归装配层（`application/core/context_runtime`）。 |
 | `window.go` | 滑动窗口轮数策略（配置 + provider 推导）。 |
 | `gap.go` | 真空区覆盖：滑动窗口与压缩内容之间的未压缩轮次，Load 时检测并压入合并帧。边界取自存储层选窗时回报的**尾窗起始单元下标**（与压缩栈顶 `To` 同一计数空间），不做跨列表减法，因此无需保守 clamp 与事后去重。下标必须落在单元空间内：尾窗起点超出 `[0, 单元数]` 或栈顶 `To < -1` 时报错返回、不落帧（不做越界切片）。 |
 | `frame.go` | CompactFrame 两章节 Summary 纯函数（Chapter 1 链锚点 + Chapter 2 厚内容）、渲染截取、一句话摘要与 request 覆盖标签。 |
@@ -73,22 +73,29 @@ flowchart LR
 | `bridge.go` | Export/ExportWithGoal/Import 兼容 API（委托子包）。 |
 | `seele.go` | re-export 仍被使用的 Seele `seelectx` 压缩函数；`EstimateTokens` 兼容变量已改为 `tokens` 脚本感知估算。 |
 
-## 阈值与上限的来源（一处配置，两层消费）
+## 阈值与上限的来源（一处配置，装配层消费）
 
-本包控制器**不持有任何魔法数字**。回合内触发用的四个比例与一条字符上限全部来自
-`config/seelex.yaml` 的 `limits` 段，由 `seelebridge` 在装配 Runtime 时注入：
+本包**不持有任何魔法数字**：压缩与归档的比例、上限全部来自
+`config/seelex.yaml` 的 `limits` / `window` 段，由 `seelebridge` 在装配 Runtime 时
+注入。2026-09-30 起这些比例的**消费方是装配层**
+（`application/core/context_runtime`）；本包的 `ContextWindowPolicy` 仍是同一份公式的
+导出面（`Budget` / `SoftThreshold` / `HardThreshold` / `TargetAfterCompaction`），
+由装配层与冷恢复探针按同一份 limits 构造。
 
 | 配置键 | 作用 | 注入点 |
 |---|---|---|
+| `context_window` | **覆盖账号档的上下文窗口**（token；0 = 不覆盖）——窗口是预算的基数，配在这里才随出厂档分发；覆盖是全局的（所有账号含子代理一刀切） | `Limits.ContextWindow` → `seelebridge.Runtime.ContextWindow()`（`ContextBudgetFor` 消费它） |
 | `context_safety_reserve_divisor` | 安全预留 = 窗口 ÷ 该值，决定预算基数 | `NewContextWindowPolicy(window, output, r.limits)` |
-| `context_soft_percent` | 软压缩线：请求估算到达 `预算 × %`（默认 95）就压缩窗口外轮次 | 同上 |
-| `context_hard_percent` | 硬阈值路径：收缩窗口时以此为可用上限（默认 98） | 同上 |
-| `context_target_percent` | 压缩后目标，同时是保留区硬上限（默认 80；`soft − target` 即每次压缩留给下一轮的余量） | 同上 |
-| `max_tool_result_chars` | 单条工具结果多大算"超大"（→ 归档为 `result_ref`） | `ControllerOptions.MaxToolResultChars` 与 `NewToolResultProcessor(limit, …)` |
+| `context_hard_percent` | **自动压缩的唯一阈值**：请求估算到达 `预算 × %`（代码默认 98；本仓 2026-10-15 起 90）即折出保留窗口外的 transcript 前缀（装配层执行） | 装配层 `ContextBudgetFor`；`NewContextWindowPolicy` 为同一公式的导出面 |
+| `context_soft_percent` | **已不参与判据**（2026-09-30 取消软线提前量）：本包 `ContextWindowPolicy.SoftThreshold()` 仍按它算（公式面）；装配层的报表/进度字段 `SoftThreshold` 按硬线比例产出，因此 `soft=` 与硬线同值。该键保留仅为兼容旧配置，**且必须 < `context_hard_percent`**（否则 `LoadLimits` 启动期报错）——本仓 2026-10-15 随 hard 降到 90 一并把 soft 由 95 调到 85 | 同上 |
+| `context_target_percent` | 压缩后落点，同时是保留区硬上限（默认 80；`hard − target` 即每次压缩留给下一轮的余量） | 同上 |
+| `max_tool_result_chars` | 单条工具结果多大算"超大"（→ 归档为 `result_ref` + 省略警告，模型用 `read_tool_result` 回读）。**字符数，不是 token、也不是压缩阈值**——它只管"单条结果太长"，与上面那组 `context_*` 比例不是一套数 | `ControllerOptions.MaxToolResultChars` 与 `NewToolResultProcessor(limit, …)` |
 
-**触发点**：Seele ReActLoop 每次迭代发 `before_model` / `after_assistant` /
-`after_tool` 三个事件，本包只处理后两个（`controller.go` 的 `Handle`）——压缩边界
-必须落在完整协议单元上，`before_model` 处单元尚未闭合，不在那里压缩。
+**触发点**：压缩由装配层在**回合开始前**的同一次装配里完成（判据 → 读数闸 → 装配 →
+推帧 → 落记录）；`/compact` 命令与 `compact_context` 工具是同一落点的显式入口。
+`seelexctx.ContextController` 现在只处理 Seele ReActLoop 的 `after_tool` 事件做
+**超大工具结果兜底归档**，不再折帧——回合内的工作历史拿不到与 wire 同源的字节，
+拿它做前缀重放会付一次全价调用却命中不到缓存（2026-09-30 现场）。
 
 **注入而非全局**：`Limits` 类型属于本包，`application/core/internal/limits` 只是这
 同一份结构的进程持有者（它 import 本包，反向即成环）。因此沿用 `FrameCarryTokens`
@@ -106,7 +113,8 @@ ContextComponents（Assembler/Processor/Compressor/Controller）-> session.Sessi
 Load（尾窗）─ 真空区 GapCoverer → CoverHistoryGap → CompactStack 合并帧
 Assembler ─ 查询 → memory.Select（压缩帧 top-K）→ 相关记忆块
 压缩 DAG（2026-09-06）：select_range → {chapter1 锚点, chapter2 厚摘要} →
-merge_frame → controller/gap PushCompact；帧 Summary 固定两章节，模型请求
+merge_frame → PushCompact（装配层推帧走 `seelebridge.PushCompactionFrame`，按会话键
+串行；真空区由 gap 路径自推）；帧 Summary 固定两章节，模型请求
 只渲染栈顶帧 Chapter 2（`FrameChapter2`），锚点与 requestID 索引留在记录里。
 ```
 
@@ -147,31 +155,35 @@ history_window = 200k tokens（填充 ▓ 每字符 ≈ 10k，宽度按占比）
 └───────────────┴───────────────┴───────────────┴───────────────┘
   ✗ 触顶：超出预算 → 丢弃旧轮次 / 请求被拒绝（上下文丢失、质量下降）
 
-启用压缩：达到阈值 → ContextController/Compactor 生成 checkpoint + 摘要
+启用压缩：请求估算越线 → 装配层折出保留窗口外的协议单元 → 帧 + 有界保留窗口
 ┌────────────────┬──────────────┬────────────────────────────────┐
-│ 已压缩占用 60k  │ 最近轮次 40k  │ 剩余可继续空间 100k（50%）      │
-│ ▓▓▓▓▓▓ (30%)   │ ▓▓▓▓ (20%)   │                                │
+│ compact 帧摘要  │ 保留窗口原文  │ 余量 = hard − target（本仓 25%）│
+│ （栈顶，进前缀）│ （单元不切）  │                                │
 └────────────────┴──────────────┴────────────────────────────────┘
-  ✓ 约 30% 占用 / 70% 空闲：可继续多轮不触顶
-  组成：system prompt + 累积 context（达峰前全量 append-only；压缩后
-  ≤4 轮新鲜窗口）+ plan/task 尾部 + compact 摘要
+  ✓ 落点由 context_target_percent 收口（本仓 65% 预算），越线线是
+    context_hard_percent（本仓 90% 预算）：差额就是每次压缩留下的确定余量
+  组成：system prompt + 累积 context（越线前全量 append-only；压缩后为
+  有界保留窗口，按完整协议单元收敛）+ plan/task 尾部 + compact 帧摘要
 ```
 
-压缩后占用约 30%，释放约 70% 空间；每次压缩发布 `Snapshot.Task.ContextCompactions`（version/reason/messages_before/estimated_tokens），不含 checkpoint 文本、system prompt、工具参数/结果或原始对话；token 审计在压缩后仍超预算时，请求在 `ChatStream` 前被拒绝。checkpoint 正常路径不再进入 LLM 上下文，只保留恢复路径与持久化数据面。
+压缩后请求规模落回 `context_target_percent`（本仓 65% 预算）附近，余量 = `hard − target`（本仓 25% 预算）；每次压缩发布 `Snapshot.Task.ContextCompactions`（version/reason/messages_before/estimated_tokens），不含帧正文、system prompt、工具参数/结果或原始对话。拿不到模型读后感（`no_model_summary`）或压缩换不来余量（`ineffective_compact`）时按口径**不折上下文、不推压缩栈顶**，只留一条失败痕；装配后仍超 `Budget` 时请求在 `ChatStream` 前被拒绝。checkpoint 正常路径不再进入 LLM 上下文，只保留恢复路径与持久化数据面。
 
 > 已实现（任务 A/B/C）：装配顺序为「system → project → memory → 稳定前缀栈
-> （skill/compact）→ 累积 context（达峰前 append-only 全量已定稿轮次）→
+> （skill/compact）→ 累积 context（越线前 append-only 全量已定稿轮次）→
 > plan → task → 当前输入」，checkpoint 正常路径不再进入 LLM 上下文（异常
-> 恢复路径保留）。达峰才压缩：达到软阈值时压缩 compact 栈顶 + context 窗口，
-> 保留新鲜 compact 帧与窗口剩余；plan/task 不参与压缩。设计见
+> 恢复路径保留）。越线才压缩：请求估算 ≥ `context_hard_percent`（或显式
+> `/compact`、`compact_context`）时折出保留窗口外的 transcript 前缀，产出 compact
+> 帧 + 有界保留窗口；plan/task 不参与压缩。设计见
 > [docs/arch/context-prefix-chain.md](../docs/arch/context-prefix-chain.md)。
 
 > 已实现（2026-09-06 压缩 DAG 首批）：CompactFrame 携带超上下文 request 首尾
 > 与链锚字段（`prev_segment_id`/request/一句话 + summary/anchor 来源标记），
 > `PushCompact` 追加链不变量；Summary 固定两章节、模型可见范围只取栈顶
 > Chapter 2；压缩经 workplan DAG 表达（先串行）。前缀重放 `PrefixReplaySummarizer`
-> 协议与 QuickChat 实现已就绪，但生产注入前提 = 字节级装配出口快照固化
-> （系统/历史/工具与真实请求同源），未确认前 Chapter 2 恒本地压缩。详设见
+> 协议与 QuickChat 实现**已接入生产**（2026-09-29：装配层 `MainCompactionDAG` 注入
+> 摘要器，开关 `limits.context_compaction_summary.enabled` 出厂为开；2026-10-02 起
+> 压缩前先实测读数，拿不到模型读后感就不折、不推栈顶）。回合内控制器 / 节点链路
+> 结构上不注入摘要器，走本地确定性压缩（`summary_source=local`）。详设见
 > [docs/2026-09-06-compaction-dag/design.md](../docs/2026-09-06-compaction-dag/design.md)。
 
 ## 测试
