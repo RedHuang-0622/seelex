@@ -43,21 +43,22 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - 锁纪律：登记表锁是**叶子锁**（tools 侧从不回调进 application，只发 channel），所以持
   `ViewMu` 时读它是安全的；必须锁外取的是 `Engine.SubAgentTree()` 那类会拿会话锁的读面。
 
-## 项目看板投影（project board，M2/M3；落点 M7 搬迁）
+## 项目看板投影（project board，M2/M3；落点 M7 搬迁、M9 按会话分目录）
 
-把**已经存在**的两份投影按会话落成一组追加式 JSONL **派生件**，供按需读取；物理落点是**项目目录**（2026-10-15 从数据根 `project-board/project-<hash>/…` 搬来）：
+把**已经存在**的两份投影按会话落成一组追加式 JSONL **派生件**，供按需读取；物理落点是**项目目录下按会话分的目录**（2026-10-15：先从数据根 `project-board/project-<hash>/…` 搬进项目根，再**按会话分目录**——一个会话一份文件，防串写、水位按会话各自推进、回收即摘目录）：
 
 ```text
-<项目根>/.seelex/board/worktable.jsonl      # 工作：todo / task 行（一个项目一份，多会话共用）
-<项目根>/.seelex/board/teamwork.jsonl       # 编排：milestone / milestone_item 行
-<项目根>/.seelex/board/BOARD.md             # 人读件（由折叠后的行确定性渲染）
+<项目根>/.seelex/board/<会话 ID>/worktable.jsonl   # 工作：todo / task 行（会话私有）
+<项目根>/.seelex/board/<会话 ID>/teamwork.jsonl    # 编排：milestone / milestone_item 行
+<项目根>/.seelex/board/BOARD.md                    # 人读件（全项目汇总，看板根）
 ```
 
 - **落点解析只有一处**：`Service.ProjectRootFor(sessionID)`（= 会话所属工作区的 `RootPath`；
   未绑定工作区返回 `""` ⇒ **不落盘**，契约 §3）。存储面用
   `Router.SetProjectBoardRootFor(func(sessionID) string)` 注入同一解析器——存储面不认识工作区，
   因此会话删除时的回收挂在 `Router.DeleteWorkspace` 上（不在 `jsonRepository.Delete` 里）；
-  落点目录由 `sessionstore.ProjectBoardDir(projectRoot)` 一处派生（固定名，不再派生 hash 目录）。
+  落点目录由 `sessionstore.ProjectBoardDir(projectRoot)` / `ProjectBoardSessionDir(projectRoot,
+  sessionID)` 一处派生（固定名 + 字面会话 ID，不再派生 hash 目录）。
 - **事实层不动**：工作表格行来自 `buildWorkTable`（`work_table.go`），里程碑/工作项来自
   teamwork 计划与运行态（`sessionstore/teamwork.go`）。本模块只做**字段映射**，不判定、
   不重算状态（`AGENTS.md §8.3` 的唯一判据纪律）。
@@ -85,7 +86,7 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - **写侧端到端**：根包 `project_board_write_test.go` 走**生产口径**的全链路——建工作区 →
   `BeginNewSession`（早分配 SID）→ 绑定工作区 → 模型真的调 `todo_add` → 工具完成段 →
   同步器取活体工作表格 → `<项目根>/.seelex/board/{worktable.jsonl,BOARD.md}` 真的出现，
-  且行归属该会话。它同时钉住 R-2 那条前提：**视图会话 = 运行时当前 task 会话**时
+  且行（落在该会话自己的目录里）归属该会话。它同时钉住 R-2 那条前提：**视图会话 = 运行时当前 task 会话**时
   `WorkTableRowsFor` 才取得到行（不是该口径的会话取到空集 ⇒ I6 退场、什么都不落）。
 - **按需读取面（M4）**：插件技能条目 `plugins/default/project-board/SKILL.md`（只有 name +
   description 进技能目录）+ 只读工具 `project_board_read`（`main.registerProjectBoardReadTool`，

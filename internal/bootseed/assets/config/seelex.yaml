@@ -271,11 +271,11 @@ limits:
     trigger_conversation: true
   # ── 项目看板（project_board：会话级任务/里程碑派生投影）──────────────
   # 把**已经存在**的两份投影（工作表格 buildWorkTable + teamwork 计划/运行态）按会话
-  # 落成**项目目录**下的追加式派生件（2026-10-15 起落点从数据根搬到项目根）：
-  #     <项目根>/.seelex/board/worktable.jsonl    ← 任务行（一个项目一份平铺文件，多会话共用）
-  #     <项目根>/.seelex/board/teamwork.jsonl     ← 里程碑 / 工作项行
-  #     <项目根>/.seelex/board/BOARD.md           ← 人读件（外部 agent 直接读盘上的这一份）
-  #     <项目根>/.seelex/board/project-known.md   ← 项目摘要（project_refresh 渲染，同目录）
+  # 落成**项目目录**下**按会话分目录**的追加式派生件（2026-10-15：先搬进项目根，再按会话分目录）：
+  #     <项目根>/.seelex/board/<会话 ID>/worktable.jsonl   ← 任务行（会话私有：防串写）
+  #     <项目根>/.seelex/board/<会话 ID>/teamwork.jsonl     ← 里程碑 / 工作项行
+  #     <项目根>/.seelex/board/BOARD.md                     ← 人读件（全项目汇总；外部 agent 直接读这份）
+  #     <项目根>/.seelex/board/project-known.md             ← 项目摘要（project_refresh 渲染）
   # `<项目根>` = 该会话所属工作区的根；**未绑定工作区的会话没有落点 ⇒ 不落盘**
   # （没有落点就没有投影，不会退回数据根）。
   # 由**既有**工具完成段被动落盘（在 refreshWorkTableFromSources 之后标脏 + 唤醒，

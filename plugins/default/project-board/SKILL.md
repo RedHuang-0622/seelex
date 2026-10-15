@@ -22,13 +22,14 @@ description: 项目看板（Project Board）按需读取：会话的任务行（
 
 | 参数 | 说明 |
 |---|---|
-| `session` | 会话 ID；缺省 = 当前会话；`all` = 本项目内跨会话聚合（有界） |
+| `session` | 会话 ID（它就是落点目录名）；缺省 = 当前会话；`all` = 本项目内跨会话聚合（有界） |
 | `file` | `worktable`（任务行）/ `teamwork`（里程碑 + 工作项）；缺省两份都读 |
-| `project_root` | 项目根目录；缺省 = 当前会话所属工作区的根（看板落点 = `<project_root>/.seelex/board`） |
+| `project_root` | 项目根目录；缺省 = 当前会话所属工作区的根（看板落点 = `<project_root>/.seelex/board/<会话 ID>/`） |
 | `limit` | 行数上限（缺省 100，硬上限 500；超限显式报错，触顶时返回 `truncated: true`） |
 
-落点在**项目目录**里：`<项目根>/.seelex/board/{worktable,teamwork}.jsonl`（还有一份人读件
-`BOARD.md`）。但 `read_file` / `grep_search` / `glob` **依然读不到**它——Seelex 的工作区读面把
+落点在**项目目录**里，且**按会话分目录**：`<项目根>/.seelex/board/<会话 ID>/{worktable,teamwork}.jsonl`
+（人读件是看板根下的 `BOARD.md`，全项目汇总）。但 `read_file` / `grep_search` / `glob`
+**依然读不到**它——Seelex 的工作区读面把
 `.seelex` 整个列为忽略目录（默认数据根常同名，整体放开会把 `lock.owner`、会话正文一起放出来），
 所以这条目录只有两把读法：本工具（有界 + 按会话归属），或你**自己**在终端里直接读
 `BOARD.md`（外部 agent 如 codex / claude code 走的就是这条路）。

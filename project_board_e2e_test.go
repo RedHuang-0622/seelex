@@ -180,7 +180,7 @@ func TestProjectBoardEndToEndThroughToolFace(t *testing.T) {
 	if strings.TrimSpace(projectRootForSession) == "" {
 		t.Fatal("会话没有工作区绑定（没有落点）：本用例会退化成同义反复")
 	}
-	if _, err := harness.store.AppendProjectBoardRows(projectRootForSession, sessionstore.ProjectBoardWorkFile,
+	if _, err := harness.store.AppendProjectBoardRows(projectRootForSession, sessionID, sessionstore.ProjectBoardWorkFile,
 		[]sessionstore.ProjectBoardRow{{
 			Schema: sessionstore.ProjectBoardSchema, Kind: sessionstore.ProjectBoardKindWork,
 			Key: "work:todo:0", Seq: 1, At: time.Now().Unix(),

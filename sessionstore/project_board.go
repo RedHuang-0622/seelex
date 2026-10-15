@@ -10,11 +10,21 @@ package sessionstore
 //     领域状态机的判定逻辑。
 //  3. 它**不进模型上下文**（I7）：本模块只负责落盘与读回，装配侧不得把它塞进
 //     system/project 前缀或请求尾部。
-//  4. 落点在**项目目录**：`<项目根>/.seelex/board/`。看板是"真相源向项目目录的公开
-//     投影"——落在项目根里，其它 agent（codex / claude code）用普通文件读法就能看见；
-//     不再钉在数据根的 hash 目录（那是本机私货，只有 Seelex 自己的读工具能折叠）。
-//     代价是失去数据根锁的覆盖：并发只由按路径分片的独立锁（本文件 projectBoardLock）
-//     兜底，跨进程一致性由使用者负责（契约 §9.3 R-3）。
+//  4. 落点在**项目目录**，且**按会话分目录**（2026-10-15 起）：
+//         <项目根>/.seelex/board/<会话 ID>/worktable.jsonl
+//         <项目根>/.seelex/board/<会话 ID>/teamwork.jsonl
+//         <项目根>/.seelex/board/BOARD.md          ← 全项目汇总的人读件
+//         <项目根>/.seelex/board/project-known.md  ← 项目摘要（M5）
+//     为什么分目录（三条都是用户口径）：① **防串写**——同一个投影文件只有一个写者，
+//     会话之间不再共用文件、也就没有"两个会话交替追加同一份"的交错；② **幂等可判**——
+//     水位/批号/折叠都以"一个会话一份文件"为单位，会话切换不会改到别人的文件；
+//     ③ **会话自维护**——回收一个会话 = 摘掉它自己那个目录，不必从共享文件里筛行。
+//     BOARD.md 是全项目唯一的**共享**产物，但它是"折叠后确定性渲染"的纯函数结果
+//     （只整份重渲染、不累积），后写覆盖前写不丢信息。
+//     看板是"真相源向项目目录的公开投影"——落在项目根里，其它 agent（codex / claude
+//     code）用普通文件读法就能看见；不再钉在数据根的 hash 目录（那是本机私货，只有
+//     Seelex 自己的读工具能折叠）。代价是失去数据根锁的覆盖：并发只由按路径分片的
+//     独立锁（本文件 projectBoardLock）兜底，跨进程一致性由使用者负责（契约 §9.3 R-3）。
 //  5. 追加复用既有 `truncateCrashTail`（jsonl_io.go）：先截残尾、再逐行 O_APPEND。
 //  6. 独立锁：投影**不新增 storageModule 枚举**（不改 module_heads.go 的
 //     枚举—锁对应关系），自带按**文件路径**分片的独立锁（与 roleDraftLock 同形）。
@@ -48,12 +58,15 @@ const (
 	ProjectBoardSchema = 1
 	// ProjectBoardMaxRows 是单个投影文件的行数上限（有界，I5）。
 	ProjectBoardMaxRows = 512
-	// ProjectBoardWorkFile 是工作台投影文件名（只允许白名单名，防路径穿越）。
+	// ProjectBoardReadMaxSessions 是聚合读默认枚举的**会话目录**上限（有界，I5）：
+	// 落点按会话分目录后，"读一个项目"= 逐个会话目录读，必须有界。
+	ProjectBoardReadMaxSessions = 32
+	// ProjectBoardWorkFile 是工作台投影文件名（会话目录内的白名单名，防路径穿越）。
 	ProjectBoardWorkFile = "worktable.jsonl"
 	// ProjectBoardTeamworkFile 是团队编排投影文件名。
 	ProjectBoardTeamworkFile = "teamwork.jsonl"
-	// ProjectBoardMarkdownFile 是人读看板文件名（由折叠后的行确定性渲染，
-	// 不落时刻、不含本机标识 ⇒ 可提交）。
+	// ProjectBoardMarkdownFile 是人读看板文件名（落在看板根，**不分会话**：全项目汇总，
+	// 由折叠后的行确定性渲染；不落时刻、不含本机标识 ⇒ 可提交）。
 	ProjectBoardMarkdownFile = "BOARD.md"
 )
 
@@ -114,16 +127,51 @@ func isProjectBoardKind(kind string) bool {
 	}
 }
 
-// projectBoardFile 校验并归一化投影文件名（只允许白名单名，防路径穿越）。
-func projectBoardFile(file string) (string, error) {
+// projectBoardSessionFile 校验并归一化**会话目录内**的投影文件名（只允许两份 jsonl，
+// 防路径穿越）。`BOARD.md` / `project-known.md` 是看板根下的产物，不走这条写/读路径
+// （它们由 refreshProjectBoardMarkdown / WriteProjectKnown 自己落），所以不在白名单里。
+func projectBoardSessionFile(file string) (string, error) {
 	name := strings.TrimSpace(file)
 	switch name {
-	case ProjectBoardWorkFile, ProjectBoardTeamworkFile, ProjectBoardMarkdownFile:
+	case ProjectBoardWorkFile, ProjectBoardTeamworkFile:
 		return name, nil
 	default:
-		return "", fmt.Errorf("session storage: project board 文件名 %q 不在白名单（%s / %s / %s）",
-			file, ProjectBoardWorkFile, ProjectBoardTeamworkFile, ProjectBoardMarkdownFile)
+		return "", fmt.Errorf("session storage: project board 文件名 %q 不在白名单（%s / %s）",
+			file, ProjectBoardWorkFile, ProjectBoardTeamworkFile)
 	}
+}
+
+// sessionBoardSegment 把会话 ID 校验并归一化成**目录名**（落点是按会话分目录的）。
+//
+// 为什么要有这道闸：会话 ID 从进程外（配置、RPC、前端快照）流进来，直接当目录名用就能
+// 用 `..`、`/`、`\` 或盘符逃出看板目录——那是"写别人的盘"。判据只此一处，写/读/回收
+// 三条路径都经它（回收会 RemoveAll，绝不能拿没校验的串当路径）。
+//
+// 拒绝：空串；`.` / `..`；含路径分隔符或 Windows 非法字符 `<>:"|?*` 与控制字符；
+// 以点或空格结尾（Windows 会把这种名字折叠掉，两边看到不同的目录）；超过 128 字节。
+func sessionBoardSegment(sessionID string) (string, error) {
+	segment := strings.TrimSpace(sessionID)
+	if segment == "" {
+		return "", errors.New("session storage: project board 需要会话 ID（投影按会话分目录）")
+	}
+	if segment == "." || segment == ".." {
+		return "", fmt.Errorf("session storage: project board 会话 ID %q 不能当目录名", sessionID)
+	}
+	for _, r := range segment {
+		switch {
+		case r < 0x20 || r == 0x7f:
+			return "", fmt.Errorf("session storage: project board 会话 ID %q 含控制字符", sessionID)
+		case r == '/' || r == '\\' || r == ':' || r == '<' || r == '>' || r == '"' || r == '|' || r == '?' || r == '*':
+			return "", fmt.Errorf("session storage: project board 会话 ID %q 含路径分隔符或非法字符", sessionID)
+		}
+	}
+	if strings.HasSuffix(segment, ".") || strings.HasSuffix(segment, " ") {
+		return "", fmt.Errorf("session storage: project board 会话 ID %q 不能以点或空格结尾", sessionID)
+	}
+	if len(segment) > 128 {
+		return "", fmt.Errorf("session storage: project board 会话 ID 过长（%d 字节 > 128）", len(segment))
+	}
+	return segment, nil
 }
 
 // validateProjectRoot 校验项目根（落点的唯一输入）。
@@ -196,7 +244,7 @@ func projectBoardRowLess(left, right ProjectBoardRow) bool {
 }
 
 // ---------------------------------------------------------------------------
-// 路径派生（落点 = <项目根>/.seelex/board；不出现绝对路径与用户名到行内）
+// 路径派生（落点 = <项目根>/.seelex/board[/<会话>]；不出现绝对路径与用户名到行内）
 // ---------------------------------------------------------------------------
 
 // ProjectBoardDir 返回某项目根的看板目录：`<项目根>/.seelex/board`。
@@ -207,9 +255,32 @@ func ProjectBoardDir(projectRoot string) string {
 	return filepath.Join(projectRoot, projectBoardMetaDirName, projectBoardDirName)
 }
 
-// projectBoardPath 返回某项目看板目录下某白名单文件的物理路径。
-func projectBoardPath(projectRoot, file string) string {
-	return filepath.Join(ProjectBoardDir(projectRoot), file)
+// ProjectBoardSessionDir 返回某会话在看板里的**自己的目录**：
+// `<项目根>/.seelex/board/<会话 ID>`（一个会话一份，互不共用文件）。
+//
+// 导出与 ProjectBoardDir 同理：外部 agent 与文档要能说清"这个会话的投影在哪"。
+// 注意它**不做校验**（纯派生，给展示/诊断用）；真正落盘/读取的路径一律经
+// projectBoardSessionPath 过 sessionBoardSegment 那道闸。
+func ProjectBoardSessionDir(projectRoot, sessionID string) string {
+	return filepath.Join(ProjectBoardDir(projectRoot), strings.TrimSpace(sessionID))
+}
+
+// projectBoardSessionPath 返回某会话某投影文件的物理路径（唯一带校验的派生口）。
+func projectBoardSessionPath(projectRoot, sessionID, file string) (string, error) {
+	segment, err := sessionBoardSegment(sessionID)
+	if err != nil {
+		return "", err
+	}
+	name, err := projectBoardSessionFile(file)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(ProjectBoardDir(projectRoot), segment, name), nil
+}
+
+// projectBoardMarkdownPath 返回人读件的路径（看板根下，**不分会话**：它是全项目汇总）。
+func projectBoardMarkdownPath(projectRoot string) string {
+	return filepath.Join(ProjectBoardDir(projectRoot), ProjectBoardMarkdownFile)
 }
 
 // ---------------------------------------------------------------------------
@@ -222,8 +293,10 @@ func projectBoardPath(projectRoot, file string) string {
 // 的 case（本契约明确不新增枚举），且会把"落投影"与"落消息/落团队事实"串成一个
 // 串行点——那正是 media 别名成 messageMu 的教训。
 //
-// 落点搬到项目目录后这把锁**更重要**：同一项目的多个会话共用一个平铺文件，而数据根
-// 锁（`lock.owner`）已经不覆盖它了（文件在项目根、不在数据根）。
+// 落点搬到项目目录后这把锁**更重要**：数据根锁（`lock.owner`）已经不覆盖它了
+// （文件在项目根、不在数据根）。按会话分目录之后，各会话的 jsonl 天然各持一把锁
+// （路径不同 ⇒ 分片不同）——**防串写**由落点结构本身给出，锁只需要兜"同一份文件
+// 的并发写"（同一会话的重入、以及 BOARD.md 这份共享汇总件）。
 var projectBoardLocks sync.Map
 
 // projectBoardLock 返回某投影文件路径的独立锁（按路径分片，互不阻塞）。
@@ -286,23 +359,43 @@ func encodeProjectBoardRows(rows []ProjectBoardRow) ([]byte, error) {
 	return buffer, nil
 }
 
-// projectBoardBatchAlreadyAppended 报告这一批是否**已经落过**：文件里已有同一
-// (会话, Seq) 的行。
+// projectBoardBatchAlreadyAppended 报告这一批是否**已经落过**：文件里已有同一个 Seq 的行。
 //
-// 只看批首行：一批行是同一个会话的同一个 Seq 盖章（落盘方按"文件水位 + 1"整批盖章），
-// 所以"批首已存在" ⇔ "这批已存在"。
+// 只看批首行：一批行由同一个 Seq 盖章（落盘方按"文件水位 + 1"整批盖章），所以
+// "批首 Seq 已存在" ⇔ "这批已存在"。判据为什么可以只看 Seq（不再带会话）：**文件本身
+// 就是会话的**——`<board>/<会话>/<file>` 里只可能有一个会话的行（写侧由
+// projectBoardStampSession 兜住），Seq 在文件内单调递增 ⇒ 同 Seq 即同一批。
 func projectBoardBatchAlreadyAppended(existing, rows []ProjectBoardRow) bool {
 	if len(existing) == 0 || len(rows) == 0 {
 		return false
 	}
-	batchSession := strings.TrimSpace(rows[0].Scope.Session)
 	batchSeq := rows[0].Seq
 	for _, row := range existing {
-		if row.Seq == batchSeq && strings.TrimSpace(row.Scope.Session) == batchSession {
+		if row.Seq == batchSeq {
 			return true
 		}
 	}
 	return false
+}
+
+// projectBoardStampSession 给整批行盖会话归属，并挡下"把别的会话的行写进这个会话的目录"。
+//
+// 落点按会话分目录之后，"这行是谁的"由路径回答；行内 `scope.session` 保留是为了产物
+// 自描述（外部 agent 直接读 jsonl 时不必反推目录名）。两者必须一致：不一致就往别人的
+// 目录里塞行，正是这次改落点要防的**串写**。空串补成本文件的会话。
+func projectBoardStampSession(sessionID string, rows []ProjectBoardRow) error {
+	for index := range rows {
+		current := strings.TrimSpace(rows[index].Scope.Session)
+		if current == "" {
+			rows[index].Scope.Session = sessionID
+			continue
+		}
+		if current != sessionID {
+			return fmt.Errorf("session storage: project board 第 %d 行的会话 %q 与本目录的会话 %q 不一致（拒绝串写）",
+				index, current, sessionID)
+		}
+	}
+	return nil
 }
 
 // projectBoardWatermark 返回投影文件的水位（= 最大 Seq）。
@@ -377,23 +470,24 @@ func compactProjectBoardFile(path string, existing []ProjectBoardRow) ([]Project
 
 // appendProjectBoardRows 是投影追加的**唯一实现**：
 //
+//   - 落点是**这个会话自己的文件**：`<项目根>/.seelex/board/<会话 ID>/<file>`；
 //   - 空批**不建文件**（I6：空则退场），只回报当前水位；
-//   - 幂等：水位 >= 本批最小 Seq ⇒ 空操作并返回当前水位；
+//   - 幂等：文件里已有本批那个 Seq 的行 ⇒ 空操作并返回当前水位；
+//   - 归属：本批每行的 `scope.session` 必须等于本目录的会话（空串补上），否则显式报错；
 //   - 有界：本批超过 ProjectBoardMaxRows ⇒ 显式报错；累计越界 ⇒ 先压实再判，
 //     压实后仍越界才显式报错（不静默截断）；
 //   - 先截崩溃残尾（truncateCrashTail）再逐行追加；
 //   - 全程持**该文件路径的独立锁**；
 //   - 落盘成功后刷新人读件 `BOARD.md`（派生件的渲染是同一个"落"的后半段，
 //     失败只影响人读件，不影响投影行）。
-func appendProjectBoardRows(projectRoot, file string, rows []ProjectBoardRow) (uint64, error) {
+func appendProjectBoardRows(projectRoot, sessionID, file string, rows []ProjectBoardRow) (uint64, error) {
 	if err := validateProjectRoot(projectRoot); err != nil {
 		return 0, err
 	}
-	name, err := projectBoardFile(file)
+	path, err := projectBoardSessionPath(projectRoot, sessionID, file)
 	if err != nil {
 		return 0, err
 	}
-	path := projectBoardPath(projectRoot, name)
 	lock := projectBoardLock(path)
 	lock.Lock()
 	defer lock.Unlock()
@@ -410,6 +504,9 @@ func appendProjectBoardRows(projectRoot, file string, rows []ProjectBoardRow) (u
 	if len(rows) > ProjectBoardMaxRows {
 		return 0, fmt.Errorf("session storage: project board 本批行数 %d 越界（上限 %d）", len(rows), ProjectBoardMaxRows)
 	}
+	if err := projectBoardStampSession(strings.TrimSpace(sessionID), rows); err != nil {
+		return 0, err
+	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return 0, err
@@ -420,12 +517,8 @@ func appendProjectBoardRows(projectRoot, file string, rows []ProjectBoardRow) (u
 	}
 	watermark := projectBoardWatermark(existing)
 
-	// 幂等：本批已落过（文件里已有同一**会话·同一 Seq** 的批）⇒ 空操作。
-	//
-	// 判据为什么带会话：落点是**项目级平铺文件**，两个会话各自从"文件水位 + 1"起批，
-	// 它们的 Seq 会落在同一段数轴上（折叠按 (会话, Key) 分桶，跨会话的 Seq 本就不必
-	// 可比）。只比水位就会把"另一个会话刚好用了这个 Seq"误判成"这批落过了"——那是
-	// **静默丢批**，比多写一行严重得多。
+	// 幂等：本批已落过（文件里已有同一个 Seq 的批）⇒ 空操作（见
+	// projectBoardBatchAlreadyAppended：文件即会话，Seq 在文件内单调 ⇒ 同 Seq 即同一批）。
 	if projectBoardBatchAlreadyAppended(existing, rows) {
 		return watermark, nil
 	}
@@ -469,76 +562,67 @@ func appendProjectBoardRows(projectRoot, file string, rows []ProjectBoardRow) (u
 	return watermark, nil
 }
 
-// reclaimProjectBoard 回收某会话在项目看板里的行（删除会话时同批调用）。
+// reclaimProjectBoard 回收某会话自己的投影目录（删除会话时同批调用）。
 //
-// 落点是**项目级平铺文件**：一个会话退场 = 把它的行从这个项目的两份投影里摘掉
-// （其余会话的行原样保留），然后重渲染人读件。幂等：没有它的行 ⇒ 空操作。
+// 落点按会话分目录之后，回收就是"摘掉它自己那个目录"：不必再从共享文件里筛行，也
+// 不可能碰到别的会话的内容（这正是分目录要的**防串写**）。幂等：目录本来就不在 ⇒
+// 空操作。整目录删除是**破坏性**动作，所以路径只由 sessionBoardSegment 校验过的段拼出来，
+// 且只删 `<board>/<会话>` 这一层。
 func reclaimProjectBoard(projectRoot, sessionID string) error {
-	sessionID = strings.TrimSpace(sessionID)
-	if sessionID == "" || strings.TrimSpace(projectRoot) == "" {
+	if strings.TrimSpace(projectRoot) == "" || strings.TrimSpace(sessionID) == "" {
 		return nil
 	}
-	for _, name := range []string{ProjectBoardWorkFile, ProjectBoardTeamworkFile} {
-		if err := pruneProjectBoardSession(projectRoot, name, sessionID); err != nil {
-			return err
-		}
+	segment, err := sessionBoardSegment(sessionID)
+	if err != nil {
+		return err
+	}
+	if err := os.RemoveAll(filepath.Join(ProjectBoardDir(projectRoot), segment)); err != nil {
+		return err
 	}
 	refreshProjectBoardMarkdown(projectRoot)
 	return nil
-}
-
-// pruneProjectBoardSession 把某会话的行从一份投影文件里摘掉（原子重写；空则删文件）。
-func pruneProjectBoardSession(projectRoot, file, sessionID string) error {
-	path := projectBoardPath(projectRoot, file)
-	lock := projectBoardLock(path)
-	lock.Lock()
-	defer lock.Unlock()
-	raw, err := readProjectBoardFile(path)
-	if err != nil {
-		return err
-	}
-	if len(raw) == 0 {
-		return nil
-	}
-	kept := make([]ProjectBoardRow, 0, len(raw))
-	for _, row := range raw {
-		if strings.TrimSpace(row.Scope.Session) == sessionID {
-			continue
-		}
-		kept = append(kept, row)
-	}
-	if len(kept) == len(raw) {
-		return nil // 这个会话本来就没有行
-	}
-	if len(kept) == 0 {
-		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
-		return nil
-	}
-	data, err := encodeProjectBoardRows(kept)
-	if err != nil {
-		return err
-	}
-	return writeAtomic(path, data, 0o600)
 }
 
 // ---------------------------------------------------------------------------
 // 人读件（BOARD.md）：折叠后确定性渲染
 // ---------------------------------------------------------------------------
 
-// readProjectBoardFoldedRows 读回**本项目的全部折叠行**（两份白名单文件合并）。
+// readProjectBoardFoldedRows 读回**本项目的全部折叠行**（逐会话目录合并两份投影）。
+//
+// 会话目录按名字排序遍历（同一份盘面必得同一份输出 ⇒ 人读件字节稳定）；目录下只读
+// 白名单的那两份 jsonl（别的文件不是投影）。看板目录不存在 ⇒ 空投影。
 func readProjectBoardFoldedRows(projectRoot string) ([]ProjectBoardRow, error) {
 	var folded []ProjectBoardRow
-	for _, name := range []string{ProjectBoardWorkFile, ProjectBoardTeamworkFile} {
-		raw, err := readProjectBoardFile(projectBoardPath(projectRoot, name))
-		if err != nil {
-			return nil, err
+	for _, sessionDir := range projectBoardSessionDirs(projectRoot) {
+		for _, name := range []string{ProjectBoardWorkFile, ProjectBoardTeamworkFile} {
+			raw, err := readProjectBoardFile(filepath.Join(ProjectBoardDir(projectRoot), sessionDir, name))
+			if err != nil {
+				return nil, err
+			}
+			folded = append(folded, FoldProjectBoardRows(raw, nil)...)
 		}
-		folded = append(folded, FoldProjectBoardRows(raw, nil)...)
 	}
 	sort.SliceStable(folded, func(i, j int) bool { return projectBoardRowLess(folded[i], folded[j]) })
 	return folded, nil
+}
+
+// projectBoardSessionDirs 列出看板根下**按会话分出来的子目录名**（有序；不存在 ⇒ 空）。
+//
+// 只认目录：`BOARD.md` / `project-known.md` 是同级的文件，不是会话。
+func projectBoardSessionDirs(projectRoot string) []string {
+	entries, err := os.ReadDir(ProjectBoardDir(projectRoot))
+	if err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		names = append(names, entry.Name())
+	}
+	sort.Strings(names)
+	return names
 }
 
 // refreshProjectBoardMarkdown 按当前投影重建人读件；没有行 ⇒ 删掉它（I6：空则退场）。
@@ -551,7 +635,7 @@ func refreshProjectBoardMarkdown(projectRoot string) {
 		log.Printf("session storage: project board 人读件折叠读失败（%s）：%v", projectRoot, err)
 		return
 	}
-	path := projectBoardPath(projectRoot, ProjectBoardMarkdownFile)
+	path := projectBoardMarkdownPath(projectRoot)
 	lock := projectBoardLock(path)
 	lock.Lock()
 	defer lock.Unlock()
@@ -602,52 +686,43 @@ func (router *Router) projectBoardRootOf(sessionID string) string {
 
 // AppendProjectBoardRows 追加一批投影行，返回追加后的水位（= 文件内最大 Seq）。
 //
-// 空批不建文件；幂等（水位 >= 本批最小 Seq ⇒ 空操作）；越界显式报错。落点是
-// `<项目根>/.seelex/board/<file>`（项目目录，与数据根无关）。
-func (router *Router) AppendProjectBoardRows(projectRoot, file string, rows []ProjectBoardRow) (uint64, error) {
-	return appendProjectBoardRows(projectRoot, file, rows)
+// 空批不建文件；幂等（本批那个 Seq 已在文件里 ⇒ 空操作）；越界先压实再报错；行归属必须
+// 与本目录的会话一致（不一致显式报错）。落点是**这个会话自己的文件**：
+// `<项目根>/.seelex/board/<会话 ID>/<file>`（项目目录下按会话分目录，与数据根无关）。
+func (router *Router) AppendProjectBoardRows(projectRoot, sessionID, file string, rows []ProjectBoardRow) (uint64, error) {
+	return appendProjectBoardRows(projectRoot, sessionID, file, rows)
 }
 
-// ReadProjectBoardRows 读回某项目某投影文件的**折叠读**（唯一读法）。
+// ReadProjectBoardRows 读回**某会话某投影文件**的折叠读（唯一读法）。
 //
-// sessionID 非空 ⇒ 只留该会话的行；空 ⇒ 本项目全部行。文件不存在 ⇒ 空投影。
+// sessionID 必填（它就是落点目录名，缺了就没有文件可指）。文件不存在 ⇒ 空投影。
+// 跨会话汇总走 ReadProjectBoard（它逐个会话目录读）。
 func (router *Router) ReadProjectBoardRows(projectRoot, sessionID, file string) ([]ProjectBoardRow, error) {
-	name, err := projectBoardFile(file)
-	if err != nil {
-		return nil, err
-	}
 	if err := validateProjectRoot(projectRoot); err != nil {
 		return nil, err
 	}
-	raw, err := readProjectBoardFile(projectBoardPath(projectRoot, name))
+	path, err := projectBoardSessionPath(projectRoot, sessionID, file)
 	if err != nil {
 		return nil, err
 	}
-	folded := FoldProjectBoardRows(raw, nil)
-	sessionID = strings.TrimSpace(sessionID)
-	if sessionID == "" {
-		return folded, nil
+	raw, err := readProjectBoardFile(path)
+	if err != nil {
+		return nil, err
 	}
-	filtered := make([]ProjectBoardRow, 0, len(folded))
-	for _, row := range folded {
-		if strings.TrimSpace(row.Scope.Session) == sessionID {
-			filtered = append(filtered, row)
-		}
-	}
-	return filtered, nil
+	return FoldProjectBoardRows(raw, nil), nil
 }
 
-// ProjectBoardWatermark 返回某项目某投影文件的水位（= 文件内最大 Seq）。
+// ProjectBoardWatermark 返回某会话某投影文件的水位（= 文件内最大 Seq）。
 // 文件不存在 ⇒ 0。
-func (router *Router) ProjectBoardWatermark(projectRoot, file string) (uint64, error) {
-	name, err := projectBoardFile(file)
-	if err != nil {
-		return 0, err
-	}
+func (router *Router) ProjectBoardWatermark(projectRoot, sessionID, file string) (uint64, error) {
 	if err := validateProjectRoot(projectRoot); err != nil {
 		return 0, err
 	}
-	raw, err := readProjectBoardFile(projectBoardPath(projectRoot, name))
+	path, err := projectBoardSessionPath(projectRoot, sessionID, file)
+	if err != nil {
+		return 0, err
+	}
+	raw, err := readProjectBoardFile(path)
 	if err != nil {
 		return 0, err
 	}
@@ -655,56 +730,66 @@ func (router *Router) ProjectBoardWatermark(projectRoot, file string) (uint64, e
 }
 
 // ProjectBoardReadOptions 是聚合读的约束：File 指定读哪个白名单文件（空 ⇒
-// worktable.jsonl）；ExcludeSession 跳过某会话；MaxRows 有界（>0 才生效）。
-//
-// 落点是项目级平铺文件，所以**没有"跨会话枚举"这一步**：文件本身就是本项目的
-// 全部会话（这比旧口径的"列目录再逐个折叠"少一处读法）。
+// worktable.jsonl）；ExcludeSession 跳过某会话的目录；MaxSessions 限制枚举的会话数
+// （<=0 ⇒ 缺省 ProjectBoardReadMaxSessions）；MaxRows 有界（>0 才生效）。
 type ProjectBoardReadOptions struct {
 	File           string
 	ExcludeSession string
+	MaxSessions    int
 	MaxRows        int
 }
 
-// ReadProjectBoard 读回一个项目的**全部折叠行**（白名单文件之一），有界、只读。
+// ReadProjectBoard 读回一个项目**跨会话**的全部折叠行（白名单文件之一），有界、只读。
 //
-// 返回的 bool 表示**是否发生截断**（行数触顶），由调用方显式对外标注。
+// 落点按会话分目录 ⇒ 这里逐目录读（目录名有序，输出稳定），按 ExcludeSession 跳过、
+// 按 MaxSessions 限目录数、按 MaxRows 限行数。返回的 bool 表示**是否发生截断**
+// （行数或会话数触顶），由调用方显式对外标注。
 func (router *Router) ReadProjectBoard(projectRoot string, opts ProjectBoardReadOptions) ([]ProjectBoardRow, bool, error) {
 	file := strings.TrimSpace(opts.File)
 	if file == "" {
 		file = ProjectBoardWorkFile
 	}
-	name, err := projectBoardFile(file)
+	name, err := projectBoardSessionFile(file)
 	if err != nil {
 		return nil, false, err
 	}
 	if err := validateProjectRoot(projectRoot); err != nil {
 		return nil, false, err
 	}
-	raw, err := readProjectBoardFile(projectBoardPath(projectRoot, name))
-	if err != nil {
-		return nil, false, err
-	}
-	folded := FoldProjectBoardRows(raw, nil)
 	exclude := strings.TrimSpace(opts.ExcludeSession)
-	if exclude != "" {
-		kept := make([]ProjectBoardRow, 0, len(folded))
-		for _, row := range folded {
-			if strings.TrimSpace(row.Scope.Session) == exclude {
-				continue
-			}
-			kept = append(kept, row)
-		}
-		folded = kept
+	limitSessions := opts.MaxSessions
+	if limitSessions <= 0 {
+		limitSessions = ProjectBoardReadMaxSessions
 	}
+	folded := make([]ProjectBoardRow, 0, 16)
 	truncated := false
-	if opts.MaxRows > 0 && len(folded) > opts.MaxRows {
-		folded = folded[:opts.MaxRows]
-		truncated = true
+	sessions := 0
+	for _, sessionDir := range projectBoardSessionDirs(projectRoot) {
+		if sessionDir == exclude {
+			continue
+		}
+		if sessions >= limitSessions {
+			truncated = true
+			break
+		}
+		sessions++
+		raw, readErr := readProjectBoardFile(filepath.Join(ProjectBoardDir(projectRoot), sessionDir, name))
+		if readErr != nil {
+			return nil, false, readErr
+		}
+		rows := FoldProjectBoardRows(raw, nil)
+		if opts.MaxRows > 0 && len(folded)+len(rows) > opts.MaxRows {
+			folded = append(folded, rows[:opts.MaxRows-len(folded)]...)
+			truncated = true
+			break
+		}
+		folded = append(folded, rows...)
 	}
+	sort.SliceStable(folded, func(i, j int) bool { return projectBoardRowLess(folded[i], folded[j]) })
 	return folded, truncated, nil
 }
 
-// ReclaimProjectBoard 回收某会话在项目看板里的行（幂等：没有它的行不算错）。
+// ReclaimProjectBoard 回收某会话自己的投影目录（幂等：目录不在不算错）。
 //
 // 项目根由装配期注入的解析器给出（`SetProjectBoardRootFor`）；未装配 / 该会话没有
 // 工作区绑定 ⇒ 没有落点，直接返回（契约 §3：未关联会话不落盘）。
@@ -721,5 +806,5 @@ func (router *Router) ReadProjectBoardMarkdown(projectRoot string) ([]byte, erro
 	if err := validateProjectRoot(projectRoot); err != nil {
 		return nil, err
 	}
-	return os.ReadFile(projectBoardPath(projectRoot, ProjectBoardMarkdownFile))
+	return os.ReadFile(projectBoardMarkdownPath(projectRoot))
 }

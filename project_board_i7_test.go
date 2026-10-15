@@ -89,11 +89,11 @@ func writeMarkedProjectBoardProjection(t *testing.T, harness fullChainHarness, p
 			Payload: map[string]any{"task": projectBoardMarker, "status": "doing"},
 		}}
 	}
-	if _, err := harness.store.AppendProjectBoardRows(sinkRoot, sessionstore.ProjectBoardWorkFile,
+	if _, err := harness.store.AppendProjectBoardRows(sinkRoot, projectBoardMarkerSession, sessionstore.ProjectBoardWorkFile,
 		rows(sessionstore.ProjectBoardKindWork, "work:marker")); err != nil {
 		t.Fatalf("写 worktable 投影: %v", err)
 	}
-	if _, err := harness.store.AppendProjectBoardRows(sinkRoot, sessionstore.ProjectBoardTeamworkFile,
+	if _, err := harness.store.AppendProjectBoardRows(sinkRoot, projectBoardMarkerSession, sessionstore.ProjectBoardTeamworkFile,
 		rows(sessionstore.ProjectBoardKindMilestone, "milestone:marker")); err != nil {
 		t.Fatalf("写 teamwork 投影: %v", err)
 	}

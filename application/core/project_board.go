@@ -438,10 +438,12 @@ func (t ProjectBoardTrigger) Off() bool { return !t.anyTool && len(t.names) == 0
 // ProjectBoardStore 是投影的**写侧端口**（签名与 sessionstore.Router 同形：
 // *sessionstore.Router 直接就实现它，装配方不必写适配器）。
 //
-// 键是**项目根**（`<项目根>/.seelex/board/`）：看板跟着项目走，不再钉在数据根。
+// 键是**项目根 + 会话**（`<项目根>/.seelex/board/<会话 ID>/`）：看板跟着项目走，且
+// **按会话分目录**——同一个投影文件只有一个写者（防串写），水位/批号以"一会话一文件"
+// 为单位（幂等可判），回收就是摘掉该会话自己的目录。
 type ProjectBoardStore interface {
-	AppendProjectBoardRows(projectRoot, file string, rows []sessionstore.ProjectBoardRow) (uint64, error)
-	ProjectBoardWatermark(projectRoot, file string) (uint64, error)
+	AppendProjectBoardRows(projectRoot, sessionID, file string, rows []sessionstore.ProjectBoardRow) (uint64, error)
+	ProjectBoardWatermark(projectRoot, sessionID, file string) (uint64, error)
 }
 
 // ProjectBoardSink 是**工具完成**的订阅口（M3 把钩子接到它上：唯一一个方法，
@@ -657,7 +659,8 @@ func (s *ProjectBoardSyncer) flushSession(sessionID string) {
 		state = s.deps.TeamStateFor(sessionID)
 	}
 	// scope 只写会话：落点本身已经回答了"哪个项目"（行内再写 `ws-<nano>` 会让产物
-	// 不可提交，契约 §3 硬纪律）。
+	// 不可提交，契约 §3 硬纪律）。行内这个 session 与落点目录名同源（存储面还会核对
+	// 两者一致，不一致直接拒绝——那是"往别人的目录里塞行"）。
 	scope := sessionstore.ProjectBoardScope{Session: sessionID}
 	at := s.now().UTC().Unix()
 	s.flushFile(sessionID, projectRoot, scope, sessionstore.ProjectBoardWorkFile, at, items, plan, state)
@@ -680,7 +683,7 @@ func (s *ProjectBoardSyncer) flushFile(
 	plan *sessionstore.TeamworkPlan,
 	state *sessionstore.TeamworkState,
 ) {
-	watermark, err := s.deps.Store.ProjectBoardWatermark(projectRoot, file)
+	watermark, err := s.deps.Store.ProjectBoardWatermark(projectRoot, sessionID, file)
 	if err != nil {
 		log.Printf("[project-board] 读水位失败（%s/%s），本次不落盘：%v", sessionID, file, err)
 		return
@@ -719,7 +722,7 @@ func (s *ProjectBoardSyncer) flushFile(
 		s.remember(key, boardFileState{fingerprint: fingerprint, watermark: watermark})
 		return
 	}
-	next, err := s.deps.Store.AppendProjectBoardRows(projectRoot, file, batch)
+	next, err := s.deps.Store.AppendProjectBoardRows(projectRoot, sessionID, file, batch)
 	if err != nil {
 		// 不更新记账 ⇒ 下次触发重试（投影是派生数据，失败不 panic、不阻塞回合）。
 		log.Printf("[project-board] 追加投影失败（%s/%s），本次不落盘：%v", sessionID, file, err)

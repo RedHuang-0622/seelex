@@ -886,7 +886,9 @@ func registerProjectBoardReadTool(runtime *seelebridge.Runtime, store *sessionst
 	runtime.RegisterTool(
 		"project_board_read",
 		"Read the derived project board projection on demand: worktable.jsonl (todo/task rows) and "+
-			"teamwork.jsonl (milestones and their work items) under <project_root>/.seelex/board. "+
+			"teamwork.jsonl (milestones and their work items) under "+
+			"<project_root>/.seelex/board/<session id>/ (one directory per session); the aggregated "+
+			"human-readable board is <project_root>/.seelex/board/BOARD.md. "+
 			"Read-only and bounded, filterable by session. Use it when the user asks what a session or the "+
 			"project is doing, or when you pick up another session's tasks; the workspace read tools refuse "+
 			"`.seelex` (it can be the data root), so this is the bounded reader for that directory. "+

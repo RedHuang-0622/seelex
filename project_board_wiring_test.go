@@ -68,8 +68,8 @@ func projectBoardWiringDeps(projectRoot string) (
 	return rows, plan, state, func(string) string { return projectRoot }
 }
 
-// projectBoardMarkdown 读回落点的人读件（`BOARD.md`）：它与两份 jsonl 同处一个目录，
-// 是"投影真的落在项目目录里"的第二张判据面（外部 agent 直接读它，不经任何工具）。
+// projectBoardMarkdown 读回人读件（`BOARD.md`，落在**看板根**、不分会话）：它是
+// "投影真的落在项目目录里"的第二张判据面（外部 agent 直接读它，不经任何工具）。
 func projectBoardMarkdown(t *testing.T, projectRoot string) string {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(sessionstore.ProjectBoardDir(projectRoot), sessionstore.ProjectBoardMarkdownFile))
@@ -207,13 +207,17 @@ func TestProjectBoardEnabledWritesArtifacts(t *testing.T) {
 	}
 	boardPrefix := filepath.ToSlash(filepath.Join(".seelex", "board")) + "/"
 	for _, artifact := range artifacts {
-		// 落点是**项目目录里的固定名**（`<项目根>/.seelex/board/<名字>`，去 hash、去会话目录）：
-		// 既不含绝对路径，也不含字面会话 id（契约 §3）。文件名固定 ⇒ 这半条判据比旧口径更强。
+		// 落点是**项目目录 + 会话目录**（`<项目根>/.seelex/board/<会话 ID>/<名字>`）：
+		// 相对路径、无 hash 目录、无数据根副本。会话 ID 就在目录名上（用户口径：会话
+		// 通过 sessionid 自维护自己的内容），但**工作区 ID（`ws-`）不许进路径**。
 		if !strings.HasPrefix(artifact, boardPrefix) {
 			t.Fatalf("落点不在 <项目根>/.seelex/board/ 之下：%s", artifact)
 		}
-		if strings.Contains(artifact, projectBoardWiringSession) {
-			t.Fatalf("落点泄漏字面会话 id：%s", artifact)
+		if !strings.HasPrefix(artifact, boardPrefix+projectBoardWiringSession+"/") {
+			t.Fatalf("落点不是这个会话自己的目录：%s", artifact)
+		}
+		if strings.Contains(artifact, "ws-") {
+			t.Fatalf("落点泄漏工作区 ID：%s", artifact)
 		}
 		if filepath.IsAbs(artifact) {
 			t.Fatalf("落点不是相对路径：%s", artifact)
@@ -223,13 +227,14 @@ func TestProjectBoardEnabledWritesArtifacts(t *testing.T) {
 	if got := projectBoardArtifacts(t, dataRoot); len(got) != 0 {
 		t.Fatalf("投影仍落在数据根下（本轮要求搬走且不双写）：%v", got)
 	}
-	// ④ 人读件与两份 jsonl 同处一个目录（外部 agent 直接读 BOARD.md，不经任何工具）。
+	// ④ 人读件在**看板根**（全项目汇总，不分会话），两份 jsonl 在会话目录里
+	// （外部 agent 直接读 BOARD.md，不经任何工具）。
 	if markdown := projectBoardMarkdown(t, projectRoot); markdown == "" {
-		t.Fatal("BOARD.md 没落盘（人读件与两份 jsonl 必须在同一个目录里）")
+		t.Fatal("BOARD.md 没落盘")
 	} else if !strings.Contains(markdown, projectBoardWiringSession) {
 		t.Fatalf("BOARD.md 没带上会话列（人读件应当能指到会话）：%q", markdown)
 	}
-	// 行的 scope 里写的是**字面 id**（人读需要），落点目录名固定——两者都要成立。
+	// 行的 scope 里也写**字面 id**：产物自描述（外部 agent 光看 jsonl 不必反推目录名）。
 	body := readProjectBoardArtifact(t, projectRoot, sessionstore.ProjectBoardWorkFile)
 	if !strings.Contains(body, projectBoardWiringSession) {
 		t.Fatalf("投影行里应当带字面会话 id（scope.session）：%s", body)

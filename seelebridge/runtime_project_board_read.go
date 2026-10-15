@@ -2,7 +2,9 @@ package seelebridge
 
 // runtime_project_board_read.go — 项目看板的**按需读取面**（M4）。
 //
-// 落点（2026-10-15 搬迁后）：`<项目根>/.seelex/board/{worktable,teamwork}.jsonl`。
+// 落点（2026-10-15 起）：`<项目根>/.seelex/board/<会话 ID>/{worktable,teamwork}.jsonl`
+// **按会话分目录**（一个会话一份文件 ⇒ 不存在两个会话往同一个文件里交错追加；
+// 汇总人读件 `BOARD.md` 与项目摘要 `project-known.md` 在看板根下，不分会话）。
 // 投影就在**绑定工程之内**，所以这把工具的理由不再是"数据根在工程之外读不到"，而是
 // 两条**仍然成立**的理由：
 //
@@ -10,11 +12,12 @@ package seelebridge
 //     忽略目录——那是有意的：默认数据根恰好也叫 `.seelex/`（可能就在工程根下），
 //     整体放开会把 `lock.owner`、会话正文、媒体一起放给模型。既不放宽忽略名单，
 //     就得有一条**专用**的读法；
-//  2. 这条读法要**有界 + 可归属**：按会话过滤、按行数截断并显式标注（`.seelex/board/`
-//     里的 jsonl 是追加日志，直接 read_file 会整份拖进上下文）。
+//  2. 这条读法要**有界 + 可归属**：按会话取文件、跨会话汇总时按会话目录数/行数截断并
+//     显式标注（`.seelex/board/` 里的 jsonl 是追加日志，直接 read_file 会整份拖进上下文）。
 //
 // 外部 agent（codex / claude code）不走这条路：它们直接读盘上的
-// `<项目根>/.seelex/board/BOARD.md`（人读件）与两份 jsonl——那正是"搬到项目目录"的用意。
+// `<项目根>/.seelex/board/BOARD.md`（汇总人读件）与各会话目录下的 jsonl——那正是
+// "搬到项目目录 + 按会话分目录"的用意。
 //
 // 三条口径（与契约 §6 一致）：
 //
@@ -54,11 +57,12 @@ const (
 
 // ProjectBoardReadRequest 是 `project_board_read` 的入参（都可缺省）。
 type ProjectBoardReadRequest struct {
-	// Session：缺省 = 当前会话；`all` = 本项目内跨会话聚合。
+	// Session：缺省 = 当前会话（读它自己的目录）；`all` = 本项目内跨会话聚合。
 	Session string `json:"session"`
 	// File：缺省 = 两份都读；worktable | teamwork。
 	File string `json:"file"`
-	// ProjectRoot：缺省 = 当前会话所属工作区的项目根（落点 `<project_root>/.seelex/board`）。
+	// ProjectRoot：缺省 = 当前会话所属工作区的项目根
+	// （落点 `<project_root>/.seelex/board/<会话 ID>/`）。
 	ProjectRoot string `json:"project_root"`
 	// Limit：缺省 100；超过硬上限显式报错。
 	Limit int `json:"limit"`
@@ -66,7 +70,7 @@ type ProjectBoardReadRequest struct {
 
 // ProjectBoardReadResult 是读取面的取数结果（渲染由调用方负责）。
 type ProjectBoardReadResult struct {
-	// ProjectRoot 是生效的项目根（看板落点 = `<ProjectRoot>/.seelex/board`）。
+	// ProjectRoot 是生效的项目根（看板落点 = `<ProjectRoot>/.seelex/board/<会话 ID>/`）。
 	ProjectRoot string
 	// Session 是生效的会话位（"all" 或某会话 id）。
 	Session string

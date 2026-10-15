@@ -127,6 +127,22 @@ lands.
 
 ### Changed
 
+- **项目看板落点改按会话分目录（`docs/arch/seelex-project-board.md` §3 / §9.1 D-7 / §9 实现状态 M9）**.
+  `<项目根>/.seelex/board/<会话 ID>/{worktable,teamwork}.jsonl`——一个会话一份文件；人读件
+  `BOARD.md` 与项目摘要 `project-known.md` 留在看板根（全项目汇总）。三条都是用户口径：
+  **防串写**（同一个投影文件只有一个写者，两个会话不再交替追加同一份）、**幂等可判**（水位/批号
+  以"一会话一文件"为单位，幂等键退化成文件内 `Seq`）、**会话自维护**（回收 = `os.RemoveAll` 掉
+  它自己那个目录，不必再从共享文件里筛行）。会话 ID 当目录名要过 `sessionBoardSegment` 那道闸
+  （拒绝 `..`/分隔符/Windows 非法字符/控制字符/点空格结尾/>128 字节；写、读、回收三条路径都经它，
+  回收是 `RemoveAll` 所以尤其不能省）；行内 `scope.session` 与目录会话不一致时显式拒绝
+  （`projectBoardStampSession`——那是往别人的目录里塞行）。API 随之带上会话：
+  `AppendProjectBoardRows` / `ProjectBoardWatermark` 增 `sessionID`，`ReadProjectBoardRows` 的
+  `sessionID` 从"可选过滤"变成必填路径段，`ReadProjectBoard` 逐会话目录读并新增
+  `MaxSessions`（缺省 `ProjectBoardReadMaxSessions=32`，落在 I5 有界里）。判据：`TestProjectBoardSessionsOwnTheirFiles`
+  （两会话交错追加 ⇒ 各自文件只有自己的行、水位各自推进、回收只摘自己目录）、
+  `TestProjectBoardRejectsForeignSessionRows`、`TestProjectBoardSessionSegmentGuards`、
+  聚合读的 `MaxSessions` 截断。
+
 - **项目看板收口：出厂档打开 + 触顶先压实 + 写侧端到端用例（`docs/arch/seelex-project-board.md` §9.3 R-1/R-2/R-5）**.
   三条都在收同一个口子——"文档说实现了，盘上却没有"：
   - **出厂档 `limits.project_board.enabled` 改为 `true`**：M1–M7 全落地、出厂档却关着 ⇒ 盘上永远一个文件都

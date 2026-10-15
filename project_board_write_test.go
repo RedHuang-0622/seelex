@@ -100,10 +100,12 @@ func TestProjectBoardWriteEndToEndFromTodoTool(t *testing.T) {
 
 	// 工具完成 → 去抖 → 落盘（去抖窗是时间驱动的，不能假设立即到）。
 	artifacts := waitForProjectBoardArtifacts(t, projectRoot, sessionstore.ProjectBoardWorkFile)
-	// 全项目扫描：投影**只**该有 `.seelex/board/worktable.jsonl` 这一份——
+	// 全项目扫描：投影**只**该有 `.seelex/board/<会话 ID>/worktable.jsonl` 这一份——
 	//   - 不含 teamwork.jsonl：本会话没有团队计划，空则退场（I6）；
 	//   - 不含数据根下的副本：落点已经与数据根解耦，只认项目目录。
-	want := filepath.ToSlash(filepath.Join(".seelex", "board", sessionstore.ProjectBoardWorkFile))
+	want := filepath.ToSlash(filepath.Join(sessionstore.ProjectBoardDir(projectRoot), sessionID, sessionstore.ProjectBoardWorkFile))
+	want, _ = filepath.Rel(projectRoot, filepath.FromSlash(want))
+	want = filepath.ToSlash(want)
 	if len(artifacts) != 1 || artifacts[0] != want {
 		t.Fatalf("全项目扫描到的投影 = %v，期望只有 %q", artifacts, want)
 	}

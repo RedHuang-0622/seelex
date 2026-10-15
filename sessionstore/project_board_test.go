@@ -6,8 +6,10 @@ package sessionstore
 // 追加 / 水位 / 幂等），也查"读得对"（折叠读是唯一读法），还查"不越界不乱写"
 // （有界 / 空批不建文件 / 独立锁 / 删除绑定回收）。
 //
-// 落点（2026-10-15 搬迁）：`<项目根>/.seelex/board/{worktable,teamwork}.jsonl`
-// + `<项目根>/.seelex/board/BOARD.md`（**项目目录**，不是数据根的 hash 目录）。
+// 落点（2026-10-15 起）：`<项目根>/.seelex/board/<会话 ID>/{worktable,teamwork}.jsonl`
+// **按会话分目录**（一个会话一份文件：防串写、幂等可判、回收即摘目录），
+// 汇总人读件 `<项目根>/.seelex/board/BOARD.md` 与项目摘要在看板根下（不分会话）。
+// 项目目录，不是数据根的 hash 目录。
 
 import (
 	"os"
@@ -61,26 +63,38 @@ func projectBoardLineCount(t *testing.T, path string) int {
 	return count
 }
 
+// projectBoardTestPath 取某会话某投影文件的路径（走存储面**唯一**的带校验派生口；
+// 用例不自己拼路径，否则"落点变了"这类回归在用例里读不出来）。
+func projectBoardTestPath(t *testing.T, projectRoot, sessionID, file string) string {
+	t.Helper()
+	path, err := projectBoardSessionPath(projectRoot, sessionID, file)
+	if err != nil {
+		t.Fatalf("派生投影路径: %v", err)
+	}
+	return path
+}
+
 // TestProjectBoardAppendIdempotent 对应 T1.1：同一批行重复追加是幂等空操作。
 func TestProjectBoardAppendIdempotent(t *testing.T) {
 	router, projectRoot := projectBoardFixture(t)
+	const session = "session-a"
 	rows := []ProjectBoardRow{
-		projectBoardRow(ProjectBoardKindWork, "w1", 1, false),
-		projectBoardRow(ProjectBoardKindWork, "w2", 2, false),
+		withBoardSession(projectBoardRow(ProjectBoardKindWork, "w1", 1, false), session),
+		withBoardSession(projectBoardRow(ProjectBoardKindWork, "w2", 2, false), session),
 	}
-	watermark, err := router.AppendProjectBoardRows(projectRoot, ProjectBoardWorkFile, rows)
+	watermark, err := router.AppendProjectBoardRows(projectRoot, session, ProjectBoardWorkFile, rows)
 	if err != nil {
 		t.Fatalf("首次追加失败: %v", err)
 	}
 	if watermark != 2 {
 		t.Fatalf("水位 = %d，期望 2", watermark)
 	}
-	path := projectBoardPath(projectRoot, ProjectBoardWorkFile)
+	path := projectBoardTestPath(t, projectRoot, session, ProjectBoardWorkFile)
 	before := projectBoardLineCount(t, path)
 	if before != 2 {
 		t.Fatalf("落盘行数 = %d，期望 2", before)
 	}
-	again, err := router.AppendProjectBoardRows(projectRoot, ProjectBoardWorkFile, rows)
+	again, err := router.AppendProjectBoardRows(projectRoot, session, ProjectBoardWorkFile, rows)
 	if err != nil {
 		t.Fatalf("重复追加报错: %v", err)
 	}
@@ -165,11 +179,12 @@ func TestFoldProjectBoardRowsUnknownSkipped(t *testing.T) {
 // TestProjectBoardCrashTailSelfHeals 对应 T1.4：残尾行丢弃、追加从完整行边界续写。
 func TestProjectBoardCrashTailSelfHeals(t *testing.T) {
 	router, projectRoot := projectBoardFixture(t)
-	if _, err := router.AppendProjectBoardRows(projectRoot, ProjectBoardWorkFile,
-		[]ProjectBoardRow{projectBoardRow(ProjectBoardKindWork, "w1", 1, false)}); err != nil {
+	const session = "session-a"
+	if _, err := router.AppendProjectBoardRows(projectRoot, session, ProjectBoardWorkFile,
+		[]ProjectBoardRow{withBoardSession(projectBoardRow(ProjectBoardKindWork, "w1", 1, false), session)}); err != nil {
 		t.Fatal(err)
 	}
-	path := projectBoardPath(projectRoot, ProjectBoardWorkFile)
+	path := projectBoardTestPath(t, projectRoot, session, ProjectBoardWorkFile)
 	// 手工制造崩溃残尾：追加半行、不换行收尾。
 	handle, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
@@ -183,8 +198,8 @@ func TestProjectBoardCrashTailSelfHeals(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 下一次追加必须先丢残尾、再从完整行边界续写。
-	watermark, err := router.AppendProjectBoardRows(projectRoot, ProjectBoardWorkFile,
-		[]ProjectBoardRow{projectBoardRow(ProjectBoardKindWork, "w2", 2, false)})
+	watermark, err := router.AppendProjectBoardRows(projectRoot, session, ProjectBoardWorkFile,
+		[]ProjectBoardRow{withBoardSession(projectBoardRow(ProjectBoardKindWork, "w2", 2, false), session)})
 	if err != nil {
 		t.Fatalf("残尾后续写失败: %v", err)
 	}
@@ -201,7 +216,7 @@ func TestProjectBoardCrashTailSelfHeals(t *testing.T) {
 	if !strings.HasSuffix(string(data), "\n") {
 		t.Fatalf("文件没有以换行收尾：%q", data)
 	}
-	rows, err := router.ReadProjectBoardRows(projectRoot, "", ProjectBoardWorkFile)
+	rows, err := router.ReadProjectBoardRows(projectRoot, session, ProjectBoardWorkFile)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,47 +225,56 @@ func TestProjectBoardCrashTailSelfHeals(t *testing.T) {
 	}
 }
 
-// TestProjectBoardPathFollowsProjectRoot 对应 T1.5：路径钉在**项目目录**之下
-// （`<项目根>/.seelex/board/`），而不是数据根的 hash 目录。
+// TestProjectBoardPathFollowsProjectRoot 对应 T1.5：路径钉在**项目目录 + 会话目录**之下
+// （`<项目根>/.seelex/board/<会话 ID>/`），而不是数据根的 hash 目录。
 func TestProjectBoardPathFollowsProjectRoot(t *testing.T) {
 	router, projectRoot := projectBoardFixture(t)
-	path := projectBoardPath(projectRoot, ProjectBoardWorkFile)
-	want := filepath.Join(projectRoot, ".seelex", "board", ProjectBoardWorkFile)
+	const session = "session-path"
+	path := projectBoardTestPath(t, projectRoot, session, ProjectBoardWorkFile)
+	want := filepath.Join(projectRoot, ".seelex", "board", session, ProjectBoardWorkFile)
 	if path != want {
 		t.Fatalf("路径 = %q，期望 %q", path, want)
 	}
 	if !strings.HasPrefix(path, projectRoot) {
 		t.Fatalf("路径不在项目根之下：%q vs %q", path, projectRoot)
 	}
-	if _, err := router.AppendProjectBoardRows(projectRoot, ProjectBoardWorkFile,
-		[]ProjectBoardRow{projectBoardRow(ProjectBoardKindWork, "w1", 1, false)}); err != nil {
+	if _, err := router.AppendProjectBoardRows(projectRoot, session, ProjectBoardWorkFile,
+		[]ProjectBoardRow{withBoardSession(projectBoardRow(ProjectBoardKindWork, "w1", 1, false), session)}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("投影没有落在期望路径上：%v", err)
 	}
+	// 人读件与项目摘要留在**看板根**（不分会话）：它们是全项目汇总，不是某一会话的私产。
+	if markdown := projectBoardMarkdownPath(projectRoot); strings.Contains(markdown, session) {
+		t.Fatalf("BOARD.md 不该落在会话目录里：%q", markdown)
+	}
 }
 
-// TestProjectBoardPathNoAbsoluteNoUser 对应 T1.6：行内不出现工作区 ID / 绝对路径 /
-// 用户名；路径就是"项目根 + 固定两级目录"，会话 id 不再出现在路径里。
-func TestProjectBoardPathNoAbsoluteNoUser(t *testing.T) {
+// TestProjectBoardPathNoWorkspaceIDNoAbsolute 对应 T1.6：**行内**不出现工作区 ID
+// （`ws-<nano>`）/ 绝对路径 —— 那两样才是"不可提交、不可归属"的来源。
+//
+// 路径里的会话 ID 是**有意**留的（用户口径：会话通过 sessionid 自维护自己的内容，
+// 一个会话一个目录）。它既不是工作区 ID 也不是机器路径，产物照样可提交；
+// 这里反过来钉住"目录名就是会话 ID"这条形状。
+func TestProjectBoardPathNoWorkspaceIDNoAbsolute(t *testing.T) {
 	router, projectRoot := projectBoardFixture(t)
 	secretSession := "session-of-secret-user"
-	path := projectBoardPath(projectRoot, ProjectBoardWorkFile)
-	if strings.Contains(path, secretSession) {
-		t.Fatalf("路径泄漏了会话字面量：%q", path)
-	}
+	path := projectBoardTestPath(t, projectRoot, secretSession, ProjectBoardWorkFile)
 	relative, err := filepath.Rel(projectRoot, path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	segments := strings.Split(filepath.ToSlash(relative), "/")
-	if len(segments) != 3 || segments[0] != ".seelex" || segments[1] != "board" {
-		t.Fatalf("路径不是 <项目根>/.seelex/board/<file>：%#v", segments)
+	if len(segments) != 4 || segments[0] != ".seelex" || segments[1] != "board" || segments[2] != secretSession {
+		t.Fatalf("路径不是 <项目根>/.seelex/board/<会话 ID>/<file>：%#v", segments)
+	}
+	if strings.Contains(filepath.ToSlash(relative), "ws-") {
+		t.Fatalf("路径里出现了工作区 ID：%q", relative)
 	}
 	// 行内也不得出现工作区 ID（ws-<nano>）与绝对路径。
 	row := withBoardSession(projectBoardRow(ProjectBoardKindWork, "w1", 1, false), secretSession)
-	if _, err := router.AppendProjectBoardRows(projectRoot, ProjectBoardWorkFile, []ProjectBoardRow{row}); err != nil {
+	if _, err := router.AppendProjectBoardRows(projectRoot, secretSession, ProjectBoardWorkFile, []ProjectBoardRow{row}); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
@@ -283,7 +307,7 @@ func TestProjectBoardLocksDistinct(t *testing.T) {
 	}
 	// 行为面：持投影锁不得挡住 message 提交（不同串行点）。
 	router, projectRoot := projectBoardFixture(t)
-	path := projectBoardPath(projectRoot, ProjectBoardWorkFile)
+	path := projectBoardTestPath(t, projectRoot, "session-lock", ProjectBoardWorkFile)
 	held := projectBoardLock(path)
 	held.Lock()
 	done := make(chan error, 1)
@@ -307,14 +331,16 @@ func TestProjectBoardLocksDistinct(t *testing.T) {
 // TestProjectBoardRowsBounded 对应 T1.8：行数越界显式报错（不静默截断）。
 func TestProjectBoardRowsBounded(t *testing.T) {
 	router, projectRoot := projectBoardFixture(t)
+	const session = "session-bounded"
 	rows := make([]ProjectBoardRow, 0, ProjectBoardMaxRows+1)
 	for index := 0; index < ProjectBoardMaxRows+1; index++ {
-		rows = append(rows, projectBoardRow(ProjectBoardKindWork, "w"+strings.Repeat("x", index+1), uint64(index+1), false))
+		rows = append(rows, withBoardSession(
+			projectBoardRow(ProjectBoardKindWork, "w"+strings.Repeat("x", index+1), uint64(index+1), false), session))
 	}
-	if _, err := router.AppendProjectBoardRows(projectRoot, ProjectBoardWorkFile, rows); err == nil {
+	if _, err := router.AppendProjectBoardRows(projectRoot, session, ProjectBoardWorkFile, rows); err == nil {
 		t.Fatal("超过上限的批次应当显式报错")
 	}
-	path := projectBoardPath(projectRoot, ProjectBoardWorkFile)
+	path := projectBoardTestPath(t, projectRoot, session, ProjectBoardWorkFile)
 	if count := projectBoardLineCount(t, path); count != -1 {
 		t.Fatalf("越界批次仍然建了文件（行数 %d）——不许静默截断", count)
 	}
@@ -323,7 +349,8 @@ func TestProjectBoardRowsBounded(t *testing.T) {
 // TestProjectBoardEmptyNoFile 对应 T1.9：空批不建文件（空则退场）。
 func TestProjectBoardEmptyNoFile(t *testing.T) {
 	router, projectRoot := projectBoardFixture(t)
-	watermark, err := router.AppendProjectBoardRows(projectRoot, ProjectBoardWorkFile, nil)
+	const session = "session-empty"
+	watermark, err := router.AppendProjectBoardRows(projectRoot, session, ProjectBoardWorkFile, nil)
 	if err != nil {
 		t.Fatalf("空批追加报错: %v", err)
 	}
@@ -333,14 +360,17 @@ func TestProjectBoardEmptyNoFile(t *testing.T) {
 	if _, err := os.Stat(ProjectBoardDir(projectRoot)); !os.IsNotExist(err) {
 		t.Fatalf("空批不该建目录/文件：stat err = %v", err)
 	}
+	if _, err := os.Stat(ProjectBoardSessionDir(projectRoot, session)); !os.IsNotExist(err) {
+		t.Fatalf("空批不该建会话目录：stat err = %v", err)
+	}
 	// 水位读也照常工作（文件不存在 ⇒ 0）。
-	if got, err := router.ProjectBoardWatermark(projectRoot, ProjectBoardWorkFile); err != nil || got != 0 {
+	if got, err := router.ProjectBoardWatermark(projectRoot, session, ProjectBoardWorkFile); err != nil || got != 0 {
 		t.Fatalf("水位 = %d, err = %v，期望 0, nil", got, err)
 	}
 }
 
-// TestProjectBoardDeleteBindsSession 对应 T1.10：删除会话同批回收它在这个项目的行
-// （其它会话的行原样保留）。
+// TestProjectBoardDeleteBindsSession 对应 T1.10：删除会话同批回收它**自己那个目录**
+// （其它会话的目录与内容原样保留）。
 func TestProjectBoardDeleteBindsSession(t *testing.T) {
 	router, projectRoot := projectBoardFixture(t)
 	const projectID = "ws-delete"
@@ -351,7 +381,7 @@ func TestProjectBoardDeleteBindsSession(t *testing.T) {
 		}}); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := router.AppendProjectBoardRows(projectRoot, ProjectBoardWorkFile,
+		if _, err := router.AppendProjectBoardRows(projectRoot, sessionID, ProjectBoardWorkFile,
 			[]ProjectBoardRow{withBoardSession(projectBoardRow(ProjectBoardKindWork, "w-"+sessionID, 1, false), sessionID)}); err != nil {
 			t.Fatal(err)
 		}
@@ -359,7 +389,10 @@ func TestProjectBoardDeleteBindsSession(t *testing.T) {
 	if err := router.DeleteWorkspace(projectID, "session-drop"); err != nil {
 		t.Fatalf("删除会话失败: %v", err)
 	}
-	rows, err := router.ReadProjectBoardRows(projectRoot, "", ProjectBoardWorkFile)
+	if _, err := os.Stat(ProjectBoardSessionDir(projectRoot, "session-drop")); !os.IsNotExist(err) {
+		t.Fatalf("被删会话的投影目录还在：stat err = %v", err)
+	}
+	rows, err := router.ReadProjectBoardRows(projectRoot, "session-keep", ProjectBoardWorkFile)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,16 +405,32 @@ func TestProjectBoardDeleteBindsSession(t *testing.T) {
 	}
 }
 
-// TestProjectBoardReadProjectBoardAggregates 覆盖聚合读：按行数有界 + 可排除会话。
+// TestProjectBoardReadProjectBoardAggregates 覆盖聚合读：逐会话目录读、按行数/会话数
+// 有界、可排除会话。
 func TestProjectBoardReadProjectBoardAggregates(t *testing.T) {
 	router, projectRoot := projectBoardFixture(t)
 	sessionA, sessionB := "session-a", "session-b"
 	for _, sessionID := range []string{sessionA, sessionB} {
 		for index := 1; index <= 2; index++ {
-			if _, err := router.AppendProjectBoardRows(projectRoot, ProjectBoardWorkFile,
+			if _, err := router.AppendProjectBoardRows(projectRoot, sessionID, ProjectBoardWorkFile,
 				[]ProjectBoardRow{withBoardSession(
 					projectBoardRow(ProjectBoardKindWork, "w-"+sessionID+"-"+string(rune('0'+index)), uint64(index), false), sessionID)}); err != nil {
 				t.Fatal(err)
+			}
+		}
+	}
+	// 一个会话一份文件：两份目录各自只有自己的行（防串写的最小判据）。
+	for _, sessionID := range []string{sessionA, sessionB} {
+		rows, err := router.ReadProjectBoardRows(projectRoot, sessionID, ProjectBoardWorkFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) != 2 {
+			t.Fatalf("会话 %s 自己的文件里 = %d 行，期望 2", sessionID, len(rows))
+		}
+		for _, row := range rows {
+			if row.Scope.Session != sessionID {
+				t.Fatalf("会话 %s 的文件里混进了 %s 的行：%#v", sessionID, row.Scope.Session, row)
 			}
 		}
 	}
@@ -418,6 +467,17 @@ func TestProjectBoardReadProjectBoardAggregates(t *testing.T) {
 			t.Fatalf("ExcludeSession 没生效：%#v", row)
 		}
 	}
+	// 会话目录数也有界：只允许枚举 1 个会话 ⇒ 标注截断、只回一个会话的行。
+	rows, truncated, err = router.ReadProjectBoard(projectRoot, ProjectBoardReadOptions{MaxSessions: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !truncated {
+		t.Fatal("MaxSessions=1 扫 2 个会话目录应当标注截断")
+	}
+	if len(rows) != 2 {
+		t.Fatalf("只读 1 个会话 = %d 行，期望 2（另一个会话整份没读）", len(rows))
+	}
 }
 
 // TestProjectBoardMarkdownRenderedAndDeterministic 是新落点的**人读件**判据：
@@ -436,13 +496,13 @@ func TestProjectBoardMarkdownRenderedAndDeterministic(t *testing.T) {
 			"id": "wi-1", "milestone": "M1", "role": "coder", "name": "参数化路径", "status": "running", "session_id": "sess-1",
 		}), "sess-1"),
 	}
-	if _, err := router.AppendProjectBoardRows(projectRoot, ProjectBoardWorkFile, rows[:1]); err != nil {
+	if _, err := router.AppendProjectBoardRows(projectRoot, "sess-1", ProjectBoardWorkFile, rows[:1]); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := router.AppendProjectBoardRows(projectRoot, ProjectBoardTeamworkFile, rows[1:]); err != nil {
+	if _, err := router.AppendProjectBoardRows(projectRoot, "sess-1", ProjectBoardTeamworkFile, rows[1:]); err != nil {
 		t.Fatal(err)
 	}
-	path := projectBoardPath(projectRoot, ProjectBoardMarkdownFile)
+	path := projectBoardMarkdownPath(projectRoot)
 	first, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("BOARD.md 没有落在 %s：%v", path, err)
@@ -460,6 +520,145 @@ func TestProjectBoardMarkdownRenderedAndDeterministic(t *testing.T) {
 	// 确定性：同一份行两次渲染字节相同。
 	if second := ProjectBoardMarkdown(rows); string(second) != string(ProjectBoardMarkdown(rows)) {
 		t.Fatal("同一份行两次渲染字节不同")
+	}
+}
+
+// TestProjectBoardSessionsOwnTheirFiles 钉住"按会话分目录"要换来的三件事：
+// **防串写**（两会话交错追加也不进同一个文件）、**幂等可判**（水位/批号按会话各自推进）、
+// **会话自维护**（回收只摘自己那个目录）。
+//
+// 做法与现场同形：两个会话交替追加各自的全量行（同步器每轮就是"整份重盖自己的行"），
+// 最后逐目录断言"这里面只有我的行"，并断言两个会话的水位互不影响。
+func TestProjectBoardSessionsOwnTheirFiles(t *testing.T) {
+	router, projectRoot := projectBoardFixture(t)
+	// 回收走"删会话"那条既有链路（`Router.DeleteWorkspace` → `ReclaimProjectBoard`）：
+	// 它按注入的解析器取项目根，这里按生产装配注入一次。
+	router.SetProjectBoardRootFor(func(string) string { return projectRoot })
+	const sessionA, sessionB = "session-own-a", "session-own-b"
+	for round := 1; round <= 6; round++ {
+		for _, sessionID := range []string{sessionA, sessionB} {
+			rows := []ProjectBoardRow{withBoardSession(
+				projectBoardRow(ProjectBoardKindWork, "work:"+sessionID, uint64(round), false), sessionID)}
+			watermark, err := router.AppendProjectBoardRows(projectRoot, sessionID, ProjectBoardWorkFile, rows)
+			if err != nil {
+				t.Fatalf("会话 %s 第 %d 轮追加失败: %v", sessionID, round, err)
+			}
+			if watermark != uint64(round) {
+				t.Fatalf("会话 %s 第 %d 轮水位 = %d：水位必须按会话各自推进（两文件互不干扰）",
+					sessionID, round, watermark)
+			}
+		}
+	}
+	for _, sessionID := range []string{sessionA, sessionB} {
+		rows, err := router.ReadProjectBoardRows(projectRoot, sessionID, ProjectBoardWorkFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) != 1 {
+			t.Fatalf("会话 %s 折叠读 = %d 行，期望 1（本轮 value 已折叠到最新一版）", sessionID, len(rows))
+		}
+		if rows[0].Scope.Session != sessionID || rows[0].Key != "work:"+sessionID {
+			t.Fatalf("会话 %s 的文件里是别人的行：%#v", sessionID, rows[0])
+		}
+		// 串写的硬判据：文件里逐行都只可能是这个会话的。
+		raw, err := readProjectBoardFile(projectBoardTestPath(t, projectRoot, sessionID, ProjectBoardWorkFile))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, row := range raw {
+			if row.Scope.Session != sessionID {
+				t.Fatalf("会话 %s 的文件里混进了 %q 的行：%#v", sessionID, row.Scope.Session, row)
+			}
+		}
+	}
+	// 落点形状：一个会话一个目录，各持自己那份文件。
+	entries, err := os.ReadDir(ProjectBoardDir(projectRoot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dirs []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			dirs = append(dirs, entry.Name())
+		}
+	}
+	if strings.Join(dirs, ",") != sessionA+","+sessionB {
+		t.Fatalf("看板根下的会话目录 = %v，期望 [%s %s]", dirs, sessionA, sessionB)
+	}
+	// 回收只摘自己的目录：B 的目录与内容不受影响。
+	if err := router.ReclaimProjectBoard("ws-own", sessionA); err != nil {
+		t.Fatalf("回收会话 A 失败: %v", err)
+	}
+	if _, err := os.Stat(ProjectBoardSessionDir(projectRoot, sessionA)); !os.IsNotExist(err) {
+		t.Fatalf("回收后 A 的目录还在：stat err = %v", err)
+	}
+	kept, err := router.ReadProjectBoardRows(projectRoot, sessionB, ProjectBoardWorkFile)
+	if err != nil || len(kept) != 1 {
+		t.Fatalf("回收 A 之后 B 的投影 = %d 行（err=%v），期望不受影响", len(kept), err)
+	}
+}
+
+// TestProjectBoardRejectsForeignSessionRows：**串写防线**——一批行盖着别的会话的章，
+// 存储面必须显式拒绝且一行都不落（否则就是"往别人的目录里塞行"）。
+//
+// 空章则相反：补成本目录的会话（调用方不必自己盖章）。
+func TestProjectBoardRejectsForeignSessionRows(t *testing.T) {
+	router, projectRoot := projectBoardFixture(t)
+	const session = "session-owner"
+	foreign := []ProjectBoardRow{withBoardSession(projectBoardRow(ProjectBoardKindWork, "w1", 1, false), "session-other")}
+	if _, err := router.AppendProjectBoardRows(projectRoot, session, ProjectBoardWorkFile, foreign); err == nil {
+		t.Fatal("盖着别的会话章的批必须显式报错（拒绝串写）")
+	}
+	if _, err := os.Stat(ProjectBoardSessionDir(projectRoot, session)); !os.IsNotExist(err) {
+		t.Fatalf("被拒的批仍然建了目录：stat err = %v", err)
+	}
+	// 空章 = 补成本目录的会话。
+	stamped := []ProjectBoardRow{projectBoardRow(ProjectBoardKindWork, "w2", 1, false)}
+	if _, err := router.AppendProjectBoardRows(projectRoot, session, ProjectBoardWorkFile, stamped); err != nil {
+		t.Fatalf("空章批应当补成本会话的章: %v", err)
+	}
+	rows, err := router.ReadProjectBoardRows(projectRoot, session, ProjectBoardWorkFile)
+	if err != nil || len(rows) != 1 || rows[0].Scope.Session != session {
+		t.Fatalf("空章批落盘结果 = %#v（err=%v），期望归属 %q", rows, err, session)
+	}
+}
+
+// TestProjectBoardSessionSegmentGuards：会话 ID 当目录名前的**唯一一道闸**。
+//
+// 会话 ID 从进程外流进来（配置 / RPC / 前端快照），直接当目录名就能用 `..`、`/`、盘符
+// 逃出看板目录——那是"写别人的盘"。回收会 RemoveAll，所以这道闸必须先拦下。
+func TestProjectBoardSessionSegmentGuards(t *testing.T) {
+	router, projectRoot := projectBoardFixture(t)
+	// 注入项目根解析器，让回收那条路径真的走到校验闸（否则"没有落点"会先短路返回，
+	// 这道闸就等于没被测到）。
+	router.SetProjectBoardRootFor(func(string) string { return projectRoot })
+	for _, bad := range []string{
+		"", " ", ".", "..", "../escape", "a/b", `a\b`, "C:evil", "a:b", "a*b", "a?b", "a|b",
+		"a<b", "a>b", `a"b`, "a\x00b", "trailing.", strings.Repeat("x", 129),
+	} {
+		rows := []ProjectBoardRow{withBoardSession(projectBoardRow(ProjectBoardKindWork, "w1", 1, false), bad)}
+		if _, err := router.AppendProjectBoardRows(projectRoot, bad, ProjectBoardWorkFile, rows); err == nil {
+			t.Fatalf("会话 ID %q 必须被拒绝（不能当目录名）", bad)
+		}
+		if _, err := router.ReadProjectBoardRows(projectRoot, bad, ProjectBoardWorkFile); err == nil {
+			t.Fatalf("读路径也必须拒绝会话 ID %q", bad)
+		}
+		// 回收路径的危险输入才要求报错：空会话 = 没有东西可回收，短路返回是安全的；
+		// 危险的是"看着有内容、却不是合法目录段"的那些（`..`、`/`、盘符……）。
+		if strings.TrimSpace(bad) != "" {
+			if err := router.ReclaimProjectBoard("ws-guard", bad); err == nil {
+				t.Fatalf("回收路径必须拒绝会话 ID %q（它会 RemoveAll）", bad)
+			}
+		}
+	}
+	// 边界外的合法名照常可用（不是"一刀切拒绝"）。
+	if _, err := router.AppendProjectBoardRows(projectRoot, "seelex-1792058182747766700-1", ProjectBoardWorkFile,
+		[]ProjectBoardRow{withBoardSession(projectBoardRow(ProjectBoardKindWork, "w1", 1, false), "seelex-1792058182747766700-1")}); err != nil {
+		t.Fatalf("正常会话 ID 应当可用: %v", err)
+	}
+	// 首尾空白走**归一化**（与全仓句柄口径一致），不是拒绝：`" s "` 就是会话 `s` 的目录。
+	if got, err := sessionBoardSegment(" session-trim "); err != nil || got != "session-trim" {
+		t.Fatalf("会话 ID 首尾空白应归一化，得到 (%q, %v)", got, err)
 	}
 }
 
@@ -499,7 +698,7 @@ func TestProjectBoardKeepsUpdatingAfterBoundReached(t *testing.T) {
 		// 起才被删。
 		rows = append(rows, withBoardSession(
 			projectBoardRow(ProjectBoardKindWork, "work:gone", watermark+3, round >= 3), session))
-		next, err := router.AppendProjectBoardRows(projectRoot, ProjectBoardWorkFile, rows)
+		next, err := router.AppendProjectBoardRows(projectRoot, session, ProjectBoardWorkFile, rows)
 		if err != nil {
 			t.Fatalf("第 %d 轮追加失败（投影已经停止更新）：%v", round, err)
 		}
@@ -529,7 +728,7 @@ func TestProjectBoardKeepsUpdatingAfterBoundReached(t *testing.T) {
 		}
 	}
 	// 有界仍然成立：压实不是"无界增长"的挡箭牌。
-	if count := projectBoardLineCount(t, projectBoardPath(projectRoot, ProjectBoardWorkFile)); count > ProjectBoardMaxRows {
+	if count := projectBoardLineCount(t, projectBoardTestPath(t, projectRoot, session, ProjectBoardWorkFile)); count > ProjectBoardMaxRows {
 		t.Fatalf("文件行数 %d 超过上限 %d——压实没生效", count, ProjectBoardMaxRows)
 	}
 }

@@ -36,7 +36,7 @@ func projectBoardReadRow(kind, key string, seq uint64, payload map[string]any) s
 func TestProjectBoardReadSingleSessionFoldsBothFiles(t *testing.T) {
 	router := projectBoardReadRouter(t)
 	projectRoot := t.TempDir()
-	if _, err := router.AppendProjectBoardRows(projectRoot, sessionstore.ProjectBoardWorkFile,
+	if _, err := router.AppendProjectBoardRows(projectRoot, "session-a", sessionstore.ProjectBoardWorkFile,
 		[]sessionstore.ProjectBoardRow{
 			projectBoardReadRow(sessionstore.ProjectBoardKindWork, "work:todo:1", 1, map[string]any{"task": "调研", "status": "doing"}),
 			// 同一 key 的第二行：折叠读只保留 Seq 最大的一条。
@@ -46,15 +46,15 @@ func TestProjectBoardReadSingleSessionFoldsBothFiles(t *testing.T) {
 		}); err != nil {
 		t.Fatalf("写 worktable 投影: %v", err)
 	}
-	if _, err := router.AppendProjectBoardRows(projectRoot, sessionstore.ProjectBoardTeamworkFile,
+	if _, err := router.AppendProjectBoardRows(projectRoot, "session-a", sessionstore.ProjectBoardTeamworkFile,
 		[]sessionstore.ProjectBoardRow{
 			projectBoardReadRow(sessionstore.ProjectBoardKindMilestone, "milestone:m1", 4, map[string]any{"id": "m1", "status": "active"}),
 			projectBoardReadRow(sessionstore.ProjectBoardKindMilestoneItem, "milestone:m1/item:wi-1", 5, map[string]any{"id": "wi-1", "roll": "core"}),
 		}); err != nil {
 		t.Fatalf("写 teamwork 投影: %v", err)
 	}
-	// 落点在项目目录：`<项目根>/.seelex/board/`。
-	if _, err := os.Stat(filepath.Join(projectRoot, ".seelex", "board", sessionstore.ProjectBoardWorkFile)); err != nil {
+	// 落点在项目目录下**会话自己的目录**里：`<项目根>/.seelex/board/<会话 ID>/`。
+	if _, err := os.Stat(filepath.Join(projectRoot, ".seelex", "board", "session-a", sessionstore.ProjectBoardWorkFile)); err != nil {
 		t.Fatalf("投影没有落在项目目录下：%v", err)
 	}
 
@@ -92,7 +92,7 @@ func TestProjectBoardReadSingleSessionFoldsBothFiles(t *testing.T) {
 func TestProjectBoardReadSingleFile(t *testing.T) {
 	router := projectBoardReadRouter(t)
 	projectRoot := t.TempDir()
-	if _, err := router.AppendProjectBoardRows(projectRoot, sessionstore.ProjectBoardWorkFile,
+	if _, err := router.AppendProjectBoardRows(projectRoot, "session-a", sessionstore.ProjectBoardWorkFile,
 		[]sessionstore.ProjectBoardRow{
 			projectBoardReadRow(sessionstore.ProjectBoardKindWork, "work:todo:1", 1, map[string]any{"task": "调研"}),
 		}); err != nil {

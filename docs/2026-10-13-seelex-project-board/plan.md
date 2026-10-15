@@ -1,6 +1,7 @@
 # 项目看板（Project Board）：把「这个项目在忙什么」写成数据根里的派生投影，钩子被动落盘、按需读取
 
 > 状态：**已实现**（M0–M7 已落地，见 [`docs/arch/seelex-project-board.md`](../../arch/seelex-project-board.md)）。本文保留为**当时的设计方案与评审输入**；其"尚未实现"的原始状态声明已过期。
+> 后续偏离（别再照本文找落点）：落点先搬进**项目根**（M7），再改成**按会话分目录**——`<项目根>/.seelex/board/<会话 ID>/{worktable,teamwork}.jsonl`，人读件 `BOARD.md` 与 `project-known.md` 留在看板根（M9，见 arch 版 §3 / §9.1 D-7）。本文 §4.3、§5.4、§7.1、§7.2 里的 `<baseDir>/<boardRoot>/project-<hash>/session-<hash>/` 是**当时**的设想。
 > 日期：2026-10-14（第二版：按用户口径重建，非打补丁式修订）
 > 证据分级：**Confirmed** = 本轮逐点自读代码/磁盘实测（带 `文件:行`，可复现）；
 > **Hypothesis** = 推断，附「怎么坐实」。

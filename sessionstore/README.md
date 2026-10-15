@@ -139,6 +139,15 @@ flowchart LR
   写盘"的内部注入行（`kind=internal` 或正文以 `<!-- seelex:` 开头）。返回
   `hasLayout=false` 表示会话尚无已发布行（未落盘的新会话），调用方稍后重试。
 
+**模块 head 缺失的读面口径（teamwork 计划，2026-10-15）**：head 文件的"缺失"要按
+**业务状态**读，而不是当 IO 错误上抛。`ReadTeamworkPlan` 因此把缺失翻成**空计划
+（`TeamworkPlan.IsEmpty` 为真）+ nil**：还没 `team_plan` 过是一个正常状态。读面
+（team_items / team_context）据此给空结果，需要计划的写面自己判空并给领域文案
+（判据在 `seelebridge/teamwork` 的 `requireTeam`，不在这里复制）。同文件的
+`ReadTeamworkEvents` 早已是"缺失即空集"，本次是把同一口径补到计划那一路——现场是模型
+收到 `open …\metadata\teamwork.json: The system cannot find the path specified.`，
+并把正常的"还没有团队"读成了工具故障。
+
 旧会话（只含 `manifest.json` / `transcript.log` 的目录）**已彻底退役（D2/
 S12）**：读路径不再判定、不再打开（返回 `fs.ErrNotExist`），目录枚举跳过并
 保留磁盘内容；新会话与新写入一律走 message 事件行 + 模块 head 布局。
@@ -179,44 +188,59 @@ Router 用 RWMutex 把 active repository、config 和 project ID 绑定为原子
 
 显式 `LoadWorkspace` 等方法不修改 active write scope，避免恢复其他项目会话时读错 shard。
 
-## 项目看板投影（`<项目根>/.seelex/board/`，M1/M7）
+## 项目看板投影（`<项目根>/.seelex/board/<会话 ID>/`，M1/M7/M9）
 
 `project_board.go` 是项目看板的**存储面**：把已经存在的两份活体投影（工作表格 `buildWorkTable`
 与 teamwork 计划/运行态）按会话落成项目目录下的追加式 JSONL **派生件**——它不是事实源，
 删掉可重建（重建走本节的追加与折叠）。
 
-- **落点**：`ProjectBoardDir(projectRoot)` = `<项目根>/.seelex/board`（唯一的目录派生处），
-  下辖白名单文件名 `worktable.jsonl` / `teamwork.jsonl` / `BOARD.md`（`projectBoardFile`
-  拒绝其它名字，防路径穿越）。`projectRoot` 由调用方给出（application 侧 `Service.ProjectRootFor`）；
+- **落点（按会话分目录，M9）**：`ProjectBoardDir(projectRoot)` = `<项目根>/.seelex/board`（看板
+  根），`ProjectBoardSessionDir(projectRoot, sessionID)` = `<board>/<会话 ID>`（**会话私有目录**），
+  目录内只有两份白名单 jsonl：`worktable.jsonl` / `teamwork.jsonl`（`projectBoardSessionFile`
+  拒绝其它名字，防路径穿越）。**人读件 `BOARD.md` 与项目摘要 `project-known.md` 留在看板根**
+  （全项目汇总，不分会话）。`projectRoot` 由调用方给出（application 侧 `Service.ProjectRootFor`）；
   **空根显式报错**——未绑定工作区的会话没有落点，不落盘，也不退回数据根。
+  为什么分目录：**防串写**（一个投影文件只有一个写者，会话之间不共用文件）、**幂等可判**（水位/
+  批号以"一会话一文件"为单位）、**会话自维护**（回收 = 摘掉它自己那个目录，不必从共享文件里筛行）。
+- **会话 ID 当目录名要过闸**：`sessionBoardSegment` 是唯一判据——拒绝空串、`.`/`..`、路径分隔符、
+  Windows 非法字符 `<>:"|?*`、控制字符、点/空格结尾、> 128 字节；写/读/**回收**三条路径都经它
+  （回收会 `os.RemoveAll`，绝不拿没校验的串当路径）。首尾空白走归一化（trim），不拒绝。
 - **行信封**：`ProjectBoardRow{schema, kind, key, seq, at, scope{session}, payload}`。`seq` 在
-  **文件内**单调递增，批号由"水位 + 1"整批盖章；`(会话, Seq)` 是幂等键（落点是项目级平铺文件，
-  多个会话共用一个文件，只比水位会把另一个会话的批误判成"已落过"⇒静默丢批）。
+  **文件内**单调递增，批号由"文件水位 + 1"整批盖章；文件即会话 ⇒ 幂等键就是**文件内的 `Seq`**
+  （同一批重复提交 ⇒ 空操作）。行内 `scope.session` 仍写（产物自描述），写侧还会核对"行内会话 ==
+  目录会话"，不一致**显式拒绝**（`projectBoardStampSession`：那是往别人的目录里塞行）。
 - **唯一读法**：`FoldProjectBoardRows`——同一 `(会话, Key)` 取 `Seq` 最大的一行；最新行
   `payload["removed"] == true` ⇒ 该 Key 从结果消失（tombstone）；未知 schema/kind 跳过并记日志；
   输出按 `(Kind, Key, Session)` 稳定排序。
-- **追加**：`Router.AppendProjectBoardRows` → `appendProjectBoardRows`（**唯一实现**）。空批不建
-  文件（I6）；幂等（本批已落过 ⇒ 空操作）；先 `truncateCrashTail`（复用 `jsonl_io.go`）再逐行
-  追加；全程持**按文件路径分片**的独立锁 `projectBoardLock`（不新增 `storageModule` 枚举，
-  也不与 message/teamwork 模块锁串成一个串行点）。
+- **追加**：`Router.AppendProjectBoardRows(projectRoot, sessionID, file, rows)` →
+  `appendProjectBoardRows`（**唯一实现**）。空批不建文件（I6）；幂等（本批那个 Seq 已在文件里 ⇒
+  空操作）；先 `truncateCrashTail`（复用 `jsonl_io.go`）再逐行追加；全程持**按文件路径分片**的
+  独立锁 `projectBoardLock`（路径含会话 ⇒ 各会话各一把锁；不新增 `storageModule` 枚举，也不与
+  message/teamwork 模块锁串成一个串行点）。
 - **有界 + 压实（R-1）**：单批 > `ProjectBoardMaxRows` 直接报错；累计越界先
   `compactProjectBoardFile` **压实**（折成每个 `(会话, Key)` 的最新一行并丢掉 tombstone，
   复用 `FoldProjectBoardRows` + `encodeProjectBoardRows` + `writeAtomic`），压实后仍越界才显式
   报错。为什么必须有压实：同步器每轮"整份重盖"，只报错的话触顶即**投影永久停在旧版本**
   （文件与人读件都还在，读的人却拿到过期内容）。水位只增不减（压实可能丢掉最大 Seq 那一行）。
-- **人读件**：`ProjectBoardMarkdown`（`project_board_markdown.go`）把折叠后的行**确定性**渲染成
-  `BOARD.md`（不落 `at`、不含绝对路径与 `ws-<nano>`；同一份行两次渲染字节相同），追加成功后
-  重建；渲染失败只记一行日志，**不**把一次成功的行级追加判成失败（否则调用方重试会写出重复行）。
-- **回收**：删会话时 `Router.DeleteWorkspace` → `ReclaimProjectBoard` 按**项目根**摘掉该会话的行
-  （其它会话的行原样保留，空则删文件）；"会话 → 项目根"的解析器由 `SetProjectBoardRootFor`
-  注入（存储面不认识工作区）。
+- **人读件**：`ProjectBoardMarkdown`（`project_board_markdown.go`）把**逐会话目录折叠后**的行
+  **确定性**渲染成 `BOARD.md`（会话目录按名字排序遍历 ⇒ 字节稳定；不落 `at`、不含绝对路径与
+  `ws-<nano>`；同一份行两次渲染字节相同），追加成功后重建；渲染失败只记一行日志，**不**把一次
+  成功的行级追加判成失败（否则调用方重试会写出重复行）。它是**唯一**的共享产物，但内容是纯函数
+  结果（整份重渲染、不累积）⇒ 后写覆盖前写不丢信息。
+- **回收**：删会话时 `Router.DeleteWorkspace` → `ReclaimProjectBoard` → `os.RemoveAll(<board>/<会话>)`
+  + 重渲染人读件（其它会话的目录原样保留）；"会话 → 项目根"的解析器由 `SetProjectBoardRootFor`
+  注入（存储面不认识工作区）。幂等：目录本来就不在 ⇒ 空操作。
+- **聚合读**：`Router.ReadProjectBoard` 逐会话目录读（`projectBoardSessionDirs`，名字有序），
+  按 `ExcludeSession` 跳过、按 `MaxSessions`（缺省 `ProjectBoardReadMaxSessions=32`）限目录数、
+  按 `MaxRows` 限行数，触顶以 bool 显式标注截断。
 - **不做**：不判定、不重算状态（判据在 `buildWorkTable` 与 teamwork 事实里，本文件只做字段映射）；
   不进模型上下文（读面另见 `application/core` 与 `project_board_read` 工具）；不承诺跨进程一致性
   （数据根的 `lock.owner` 不覆盖项目目录，见契约 §9.3 R-3）。
 
-Review 风险：新调用方是否绕开 `ProjectBoardDir` 自造目录/文件名；是否把某个判据（状态、kind
-分类、上限）在存储面复制了第二份；压实后水位是否仍单调；`BOARD.md` 是否混进时刻、绝对路径或
-`ws-…`；空根是否被 `filepath.Join` 悄悄折成相对路径。
+Review 风险：新调用方是否绕开 `ProjectBoardDir` / `ProjectBoardSessionDir` 自造目录与文件名；
+会话 ID 是否**没经** `sessionBoardSegment` 就进了路径（尤其新增删除/回收类调用方）；是否把某个
+判据（状态、kind 分类、上限）在存储面复制了第二份；压实后水位是否仍单调；`BOARD.md` 是否混进
+时刻、绝对路径或 `ws-…`；空根是否被 `filepath.Join` 悄悄折成相对路径。
 
 验证：`go test ./sessionstore/ -run ProjectBoard -count=1`（含 `TestProjectBoardLandsInProjectBoardDir`、
 `TestProjectBoardRowsBounded`、`TestProjectBoardKeepsUpdatingAfterBoundReached`）；
