@@ -48,6 +48,11 @@ type ItemView struct {
 	// Interrupted 报告"状态说在跑，但本进程的作业表里查不到它的句柄"——
 	// jobs I-4 的显式化（句柄只在内存）。它不是错误，是**可重派**的信号。
 	Interrupted bool `json:"interrupted"`
+	// Gate 是这件事此刻的**卡点**（词表见 ItemGate），Next 是它对应的下一步动作。
+	// 两者都由 ItemGateOf / ItemGate.Next 这一处判据给出：说得出"卡在哪"就必须说得出
+	// "怎么做"（审计 D7/D8）。
+	Gate ItemGate `json:"gate"`
+	Next string   `json:"next,omitempty"`
 }
 
 // WorkItemSessionID 派生「一个 Work Item 一个 Session」的会话号。
@@ -790,10 +795,14 @@ func (c *Coordinator) Items(ctx context.Context) ([]ItemView, error) {
 	for _, milestone := range plan.Milestones {
 		for _, item := range milestone.Items {
 			_, hasBinding := live[item.ID]
+			gate := ItemGateOf(plan, item, c.jobReading(item.Handle))
 			views = append(views, ItemView{
-				Item:        item,
-				Live:        hasBinding,
-				Interrupted: item.StatusOrPending() == sessionstore.TeamworkItemRunning && !c.handleAlive(item.Handle),
+				Item: item,
+				Live: hasBinding,
+				// Interrupted 与卡点是同一个事实的两种渲染：判据仍是 ItemGateOf。
+				Interrupted: gate == ItemGateJobInterrupted,
+				Gate:        gate,
+				Next:        gate.Next(),
 			})
 		}
 	}
@@ -1128,11 +1137,14 @@ func settleMessage(item sessionstore.TeamworkWorkItem, milestone sessionstore.Te
 	case runErr != nil:
 		builder.WriteString("：这一轮失败——")
 		builder.WriteString(clipOneLine(runErr.Error()))
+		builder.WriteString("。下一步（照做即可）：在 " + item.Worktree + " 里看现场——还想要这份产出就补提交/合并后 team_accept；要重做就 team_fail 再用 team_dispatch 重派（复用同一会话号，记忆还在）")
 	case mergeErr != nil:
 		builder.WriteString("：改动**插入失败**（worktree 合并失败：" + clipOneLine(mergeErr.Error()) + "）")
-		builder.WriteString("；请 leader 亲自执行合并，现场保留在 " + item.Worktree)
+		builder.WriteString("。下一步（leader 照做即可）：在 " + item.Worktree + " 里 git status / git diff 看这份改动，" +
+			"主工作区干净之后 git merge --no-ff " + item.Worktree + "（冲突就地解）——合完 team_accept 销项，" +
+			"判定不要就 team_fail（现场与记忆都留着）")
 	default:
-		builder.WriteString("：跑完，改动已合并回主工作区，等待 leader 评估")
+		builder.WriteString("：跑完，改动已合并回主工作区，等待 leader 评估；下一步（照做即可）：看证据（team_context / git diff）后 team_accept 或 team_fail")
 	}
 	return builder.String()
 }

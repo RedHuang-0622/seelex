@@ -386,8 +386,17 @@ func (r *Runtime) registerForkTool() {
 					"items": map[string]interface{}{
 						"type": "object",
 						"properties": map[string]interface{}{
-							"id":   map[string]interface{}{"type": "string"},
-							"goal": map[string]interface{}{"type": "string"},
+							// 必填**且非空**：JSON Schema 的 required 只保证键在，空串照样能过；
+							// 而空 id 会在 handler 里被拒（`subagent "" must have id and goal`），
+							// 于是模型白跑一轮。约束写在模型读得到的位置（2026-10-15 审计 D8）。
+							"id": map[string]interface{}{
+								"type": "string", "minLength": 1,
+								"description": "这条子代理的稳定标识（同一批内唯一、非空）：产出正文与工作表格行都按它认人。",
+							},
+							"goal": map[string]interface{}{
+								"type": "string", "minLength": 1,
+								"description": "自然语言的达成目标（非空）：写清要它交什么、验收判据是什么。",
+							},
 							"max_loops": map[string]interface{}{
 								"type": "integer", "minimum": 1,
 								"description": "这条子代理自己的 ReAct 循环上限（可选）。缺省 = 本批默认（配置 limits.plan_node_max_loops，即配置层的子代理节点循环上限，默认 384）。与 effort 档位无关：切档位不会改变子代理的次数。只有越过进程级循环天花板（limits.input_loop_limit，默认 9999）才在调用处直接拒绝，不静默截断。",

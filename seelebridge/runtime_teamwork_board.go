@@ -353,19 +353,17 @@ func teamworkMemberCurrent(plan sessionstore.TeamworkPlan, role string) (session
 // 进程重启后句柄必然作废，这不是错误，是"可以重派"的信号）。
 func teamworkWorkItemViews(plan sessionstore.TeamworkPlan, bindings []sessionstore.TeamworkBinding, records []jobs.Record) []dto.TeamworkWorkItemView {
 	liveBindings := sessionstore.TeamworkBindings(bindings)
-	liveHandles := make(map[string]struct{}, len(records))
+	readings := make(map[string]teamwork.JobReading, len(records))
 	for _, record := range records {
-		liveHandles[string(record.Handle)] = struct{}{}
+		readings[string(record.Handle)] = teamwork.JobReading{Alive: true, Running: record.Running()}
 	}
 	views := make([]dto.TeamworkWorkItemView, 0)
 	for _, milestone := range plan.Milestones {
 		for _, item := range milestone.Items {
 			_, live := liveBindings[item.ID]
-			interrupted := false
-			if item.StatusOrPending() == sessionstore.TeamworkItemRunning {
-				_, alive := liveHandles[item.Handle]
-				interrupted = !alive || item.Handle == ""
-			}
+			// 卡点由编排面的**同一处判据**给出（ItemGateOf）：看板只是它的渲染面，
+			// 不自己再推一遍"卡在哪"（审计 D7）。
+			gate := teamwork.ItemGateOf(plan, item, readings[item.Handle])
 			views = append(views, dto.TeamworkWorkItemView{
 				ID: item.ID, Milestone: item.Milestone, Role: item.Role, Name: item.Name,
 				Description: item.Description, Goal: item.Goal,
@@ -373,7 +371,9 @@ func teamworkWorkItemViews(plan sessionstore.TeamworkPlan, bindings []sessionsto
 				Status:    item.StatusOrPending(), SessionID: item.SessionID, Worktree: item.Worktree,
 				Handle: item.Handle, Note: item.Note,
 				StartedAt: item.StartedAt, FinishedAt: item.FinishedAt,
-				Live: live, Interrupted: interrupted,
+				// Interrupted 与卡点是同一事实的两种渲染（判据仍是 ItemGateOf）。
+				Live: live, Interrupted: gate == teamwork.ItemGateJobInterrupted,
+				Gate: string(gate), Next: gate.Next(),
 			})
 		}
 	}

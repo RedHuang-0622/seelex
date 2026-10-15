@@ -15,6 +15,43 @@ lands.
 
 ### Added
 
+- **工作项卡点：`team_items` 多出 `gate` / `next` 两格，`team_close` 的拒绝文案逐件说清**
+  （2026-10-15；审计 D7/D8）. 缺陷：leader 只能靠状态/依赖/绑定自己反推"这件事卡在哪"（真实
+  会话里同一批取回工具被轮询几十次），而收口闸门的拒绝文案把几种情形一起列出来、不说当前是
+  哪一种。现在编排面有一处**唯一判据** `teamwork.ItemGateOf`（终态 > 在飞 > 待裁决（含合并
+  残边）> 失败 > 依赖闸门 > 可派）与一张卡点词表（`gate:依赖未 done` / `job:running` /
+  `job:句柄已作废（可重派）` / `merge:改动未合并待处置` / `review:等你裁决` /
+  `failed:待人工处置` / `ready:可派发` / `done:已验收`），每个卡点带 `Next()`——**说得出卡在哪
+  就必须说得出怎么做**。同一判据同时喂三处：`team_items` 的两格、看板投影的两格、
+  `team_close` 的逐件账目（`wi-x【job:running】→ 等它的回执…`）。认领"没落定"的那一格也不再
+  自己按状态推一遍条件（那正是文案与事实漂移的来源）。用例：`items_gate_test.go`（八种卡点逐个
+  钉住 + 闸门边界 + 拒绝文案点名）。
+
+- **teammate 的收尾纪律进系统提示；尾插失败给可直接照做的下一步**（2026-10-15；审计 D6）. 缺陷：
+  真实会话里 leader 为 4 件以上工作项手工补提交、变基、解冲突、合并——"完成即提交"此前只写在
+  leader 的 SKILL 里，执行面没有任何约束。现在 worker 回合的系统提示**必然**带
+  `<work-item-discipline>`（收尾前必须 git add + git commit；只动自己这件事的 worktree；做不完
+  如实说明），且盖得住已登记的员工提示词（系统事实，不是角色可选项）。尾插失败/执行失败/正常
+  三条回执都给出"下一步（照做即可）"（合并动作 / 销项 / 重派），不再只丢一句 bug 原文。
+
+- **"实际壳"的单一事实源 + 系统提示环境段 + 权限白名单按方言分派**（2026-10-15；审计 D4）. 缺陷：
+  `bash` 工具实际落到哪个壳**每次调用现算**（Git Bash → PATH → PowerShell/cmd 兜底），而模型面
+  与权限免打断表都按 POSIX 写死——白名单放行、执行层跑另一个壳、命令必失败，模型只拿到一条执行
+  错误（实测 34.4% 的调用折在判定上）。现在 `seelebridge/tools/shell_fact.go` 在**装配期解析一次**
+  （进程内缓存），执行层（`scopedBashCommand`）、模型面（`bash` / `bash_bg` 工具描述携带方言提示 +
+  系统提示的 Environment 段）、权限表（`PermissionRulesForShell`：免打断读命令按方言分槽，其余层
+  只有一份）读**同一份结论**。注入方式：`contract.Dependencies.EnvironmentSection`（应用层不反向
+  依赖执行面；装配期定值 ⇒ 前缀逐轮稳定）。用例：`shell_fact_test.go`、`environment_section_test.go`。
+
+- **"缺失即状态"的模块 head 读面口径（文档 + 门禁 + 两处实现修正）**（2026-10-15；审计 D3）.
+  通则落进 `docs/arch/absent-state-reads.md`：**"还没有这份数据"是状态，"读不出来"才是错误**，
+  并给出三档合法表达（①空值档 零值+nil；②哨兵档 明确哨兵 + 调用方在边界处翻；③退役档 恒
+  `fs.ErrNotExist`）与不适用边界（按 ref 的查找、写面判空）。实现层：两块**看板存档**的读面从
+  "缺失即 `fs.ErrNotExist`"改成零值 + nil（`readOptionalModuleHead` 是模块 head 的默认档），
+  消费方 `board_archive.go` 两种表达都认（零值 = 首次写；`fs.ErrNotExist` = 同一状态的旧表达；
+  其余错误照旧"不覆盖"）。门禁：`sessionstore/absent_state_reads_test.go` 把三档逐条登记，
+  **新增 head 读面必须进这张表**。
+
 - **作业身份层：句柄自带命名空间（`bt-` / `bs-` / `bteam-`）+ 管理工具改名 `bg_manage`**（2026-10-15；
   审计 `docs/2026-10-15-teamwork-defect-audit/README.md` D1，方案
   `docs/2026-10-15-teamwork-defect-audit/naming-identity-fix.md`）. 缺陷：本进程里**并存两张作业表**
@@ -148,6 +185,13 @@ lands.
   Ctrl+S 才落盘）、`git-log-view.test.mjs`（提交内文件内容同走共用分派且无写入口）。
 
 ### Changed
+
+- **`fork_subagents` 的 `id` / `goal`：约束落到模型读得到的位置**（2026-10-15；审计 D8）. `required`
+  只保证键在，空串照样能过——实测因此白跑一轮（`subagent "" must have id and goal`）。schema 补
+  `minLength: 1` 与两条字段说明（同一批内唯一、非空；写清交付与验收判据）。
+
+- **测试文件改名：`seelebridge/tools/job_manage_batch_test.go` → `bg_manage_batch_test.go`**
+  （2026-10-15）. 内容是 `bg_manage` 的批量取回用例，文件名与旧工具名一起退役。
 
 - **旧名 `job_manage` → `bg_manage`（代码与 `config/*.yaml` 零残留）**（2026-10-15）. 与团队作业面的
   `jobs_manage` 只差一个字母的名字退役；新名字与句柄 token（`bt-` / `bs-`）同源，且与 `jobs_manage`

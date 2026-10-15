@@ -277,7 +277,9 @@ func bashBgDescription() string {
 		"bg_manage(op=fetch, handle) for results, bg_manage(op=kill, handle) to terminate, " +
 		"bg_manage(op=observe, handle) to look at progress without consuming output, and " +
 		"bg_manage(op=done, handle) to retire it. description is required: one line on what " +
-		"the command is doing, which becomes the work-table row title."
+		"the command is doing, which becomes the work-table row title. " +
+		// 与 bash 同一个事实源：后台命令与前台命令跑在同一个壳里（审计 D4）。
+		ResolveShellFact().DialectHint()
 }
 
 // ── read_batch：批量读作业（inline，Add 的工具面）──────────────────────

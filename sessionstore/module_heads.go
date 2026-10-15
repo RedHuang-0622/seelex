@@ -826,6 +826,21 @@ func readModuleHeadPayload[T any](store *storeEngine, key Key, module storageMod
 	return decodeHeadPayload[T](headFile)
 }
 
+// readOptionalModuleHead 读一个**可选**模块 head：head 还没写过 = 这个模块还没有任何
+// 事实，于是返回**零值 + nil**（"不存在"是状态，不是 IO 错误；见
+// docs/arch/absent-state-reads.md）。
+//
+// 只给"缺失即空"这一档用；按显式 id 的查找读面（如 ReadNodeSession）不在这里——
+// 调用方点名了一个应当存在的东西，"它不在"就是错误。
+func readOptionalModuleHead[T any](store *storeEngine, key Key, module storageModule) (T, error) {
+	payload, err := readModuleHeadPayload[T](store, key, module)
+	if err != nil && errors.Is(err, os.ErrNotExist) {
+		var zero T
+		return zero, nil
+	}
+	return payload, err
+}
+
 // readModuleHeadPayloadLocked 是 readModuleHeadPayload 的持锁版本：调用方必须
 // 已持该模块锁（自愈重建会因此在锁内发布）。
 func readModuleHeadPayloadLocked[T any](store *storeEngine, key Key, module storageModule) (T, error) {

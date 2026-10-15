@@ -21,6 +21,7 @@
 | [`agent-team-seat-vs-claim.md`](arch/agent-team-seat-vs-claim.md) | 席位制 team work 与认领式 teamwork（任务池/认领/并行扇出）的优势、代价与扬长避短；含作品集叙事骨架、演示脚本、主张↔证据映射与未验证清单 |
 | [`agent-team-phase2-and-goal-vs-vmodel.md`](arch/agent-team-phase2-and-goal-vs-vmodel.md) | Agent Team 第二阶段反思：市面对照、现状诊断（带代码锚点）、改动清单，与 goal / V 模型的范畴澄清；含待商榷 fork（讨论输入，未改代码） |
 | [`teamwork-leader-worker-architecture.md`](arch/teamwork-leader-worker-architecture.md) | Teamwork 目标架构与里程碑：leader + 异步 worker（子进程工具调用范式）；Seele 新增 `jobs` 契约+Manager+`jobs_manage`、Seelex 提供 Executor/worktree(git)、`moduleTeamwork` 硬编排存储、teammate 约束与「回收作业+释放 worktree+删内容保在线」、job 作用域 `Scope{Session,Subject}`；含 M0–M4 详表与死代码清单（目标设计，未改代码） |
+| [`absent-state-reads.md`](arch/absent-state-reads.md) | 模块 head 的读面口径：**"还没有这份数据"是状态，"读不出来"才是错误**——三档合法表达（空值档 / 哨兵档 / 退役档）、消费方义务、不适用边界，以及逐条登记的 contract test |
 
 ## 🧭 product/ — 产品规划
 

@@ -671,6 +671,10 @@ func TestSettleReportsMergeFailureAndAsksTheLeader(t *testing.T) {
 	if !strings.Contains(texts[0], "插入失败") || !strings.Contains(texts[0], "leader") {
 		t.Fatalf("合并失败时尾插正文必须说明失败并让 leader 亲自执行: %q", texts[0])
 	}
+	// 只写"请你亲自执行"不够：回执要给出**可直接照做**的下一步（2026-10-15 审计 D6）。
+	if !strings.Contains(texts[0], "git merge --no-ff") || !strings.Contains(texts[0], "team_fail") {
+		t.Fatalf("失败回执必须给出可直接照做的下一步（合并动作与非做不可时的收尾动作）: %q", texts[0])
+	}
 	if !strings.Contains(item.Note, "merge conflict in main.go") {
 		t.Fatalf("bug 原文必须落到工作项上: %q", item.Note)
 	}

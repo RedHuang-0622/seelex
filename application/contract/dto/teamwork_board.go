@@ -181,6 +181,10 @@ type TeamworkWorkItemView struct {
 	FinishedAt  int64    `json:"finished_at,omitempty"`
 	Live        bool     `json:"live,omitempty"`
 	Interrupted bool     `json:"interrupted,omitempty"`
+	// Gate 是这件事此刻的**卡点**，Next 是清掉这个卡点的下一步动作（判据与词表见
+	// seelebridge/teamwork 的 ItemGate：编排面判、前端只显示）。
+	Gate string `json:"gate,omitempty"`
+	Next string `json:"next,omitempty"`
 }
 
 // TeamworkJobView 是一行作业投影。Node / Role 是桥给出的**权威归属**（Node = 工作项 id

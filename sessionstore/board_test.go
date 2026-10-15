@@ -11,7 +11,6 @@ package sessionstore
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -119,14 +118,15 @@ func TestTeamBoardRoundTrip(t *testing.T) {
 	}
 }
 
-// TestBoardReadMissingIsNotExist：没写过 → fs.ErrNotExist（读侧据此当成"没有存档"）。
-func TestBoardReadMissingIsNotExist(t *testing.T) {
+// TestBoardReadMissingIsEmptyNotError：没写过 = "还没有存档"这个**状态**，读面返回零值 + nil
+// （不是 IO 错误；口径见 docs/arch/absent-state-reads.md）。
+func TestBoardReadMissingIsEmptyNotError(t *testing.T) {
 	repository, key := boardFixture(t)
-	if _, err := repository.ReadGoalBoard(context.Background(), key); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("空 goal 看板 err = %v, want fs.ErrNotExist", err)
+	if meta, err := repository.ReadGoalBoard(context.Background(), key); err != nil || meta.Seq != 0 {
+		t.Fatalf("空 goal 看板 = (%+v, %v)，want 零值 + nil", meta, err)
 	}
-	if _, err := repository.ReadTeamBoard(context.Background(), key); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("空团队看板 err = %v, want fs.ErrNotExist", err)
+	if meta, err := repository.ReadTeamBoard(context.Background(), key); err != nil || meta.TeamID != "" || len(meta.Snapshot) != 0 {
+		t.Fatalf("空团队看板 = (%+v, %v)，want 零值 + nil", meta, err)
 	}
 }
 
@@ -208,8 +208,8 @@ func TestGoalBoardRejectsSameGoalInActiveAndHistory(t *testing.T) {
 	if err == nil {
 		t.Fatal("同一个 goal 同时出现在 active 与 history，写入竟然通过了")
 	}
-	if _, readErr := repository.ReadGoalBoard(context.Background(), key); !errors.Is(readErr, os.ErrNotExist) {
-		t.Fatalf("校验失败却落了盘：%v", readErr)
+	if meta, readErr := repository.ReadGoalBoard(context.Background(), key); readErr != nil || meta.Seq != 0 {
+		t.Fatalf("校验失败却落了盘：%+v（err=%v）", meta, readErr)
 	}
 }
 

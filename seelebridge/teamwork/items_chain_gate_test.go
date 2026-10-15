@@ -131,7 +131,8 @@ func TestCloseRefusesWhileItemRunning(t *testing.T) {
 	runningItem(t, fixture, "wi-req")
 
 	// ① 在跑：尾插还在飞（慢变基就落在这段窗口里）——收口不许动手。
-	if _, err := fixture.coordinator.Close(ctx); err == nil || !strings.Contains(err.Error(), "wi-req(running)") {
+	//    文案按**卡点**逐件说清（2026-10-15 审计 D8）：点名哪一件 + 卡在 job:running + 下一步。
+	if _, err := fixture.coordinator.Close(ctx); err == nil || !strings.Contains(err.Error(), "wi-req【job:running】") {
 		t.Fatalf("收口必须拦住还在跑的工作项，得到 %v", err)
 	}
 	if _, _, released := fixture.spaces.snapshot(); len(released) != 0 {
@@ -171,7 +172,7 @@ func TestCloseRefusesFailedItemUntilSettled(t *testing.T) {
 		t.Fatalf("FailItem: %v", err)
 	}
 
-	if _, err := fixture.coordinator.Close(ctx); err == nil || !strings.Contains(err.Error(), "wi-req(failed)") {
+	if _, err := fixture.coordinator.Close(ctx); err == nil || !strings.Contains(err.Error(), "wi-req【failed:待人工处置】") {
 		t.Fatalf("收口必须拦住未处置的失败项，得到 %v", err)
 	}
 	if _, _, released := fixture.spaces.snapshot(); len(released) != 0 {

@@ -50,7 +50,7 @@ Teammate（在编）
 | `team_item` | `id, role?, name?, description?, goal?, depends_on?` | 调整**尚未开始**的工作项。已开始（running/review）与已结束（done/failed）的是**既定事实**，改不了。 |
 | `team_dispatch` | `item`（或旧的 `role, goal`） | 派发**一个工作项**，立即拿 `handle`（**不等待**）。屏障没开、前置没 done、真超员，都会**显式拒绝**。 |
 | `team_context` | `roles[], include_body, max_bytes` | **只读**看成员工作上下文。**非消费读法**：不派发、不回收、不销项，游标不推进。 |
-| `team_items` | 无 | 读回全部工作项：状态 / 归属 / 依赖 / 这件事的 Session 与 worktree / 是否可重派。 |
+| `team_items` | 无 | 读回全部工作项：状态 / 归属 / 依赖 / 这件事的 Session 与 worktree / 是否可重派，以及**卡点**两格——`gate`（这件事此刻卡在哪：`gate:依赖未 done` / `job:running` / `job:句柄已作废（可重派）` / `merge:改动未合并待处置` / `review:等你裁决` / `failed:待人工处置` / `ready:可派发` / `done:已验收`）与 `next`（清掉这个卡点该做的动作）。**先读这两格再决定做什么**，别靠轮询反推。 |
 | `jobs_manage` | `op=observe\|fetch\|kill\|done, handle` | 观察 / **消费式取回** / 终止 / 销项一个**团队作业**（句柄形如 `bteam-7`；后台作业的 `bt-` / `bs-` 归另一个工具 `bg_manage`，拿错会被显式拒绝）。`fetch` 取尽即销项——**取回产出优先用 `team_context`**。验收通过会替你销掉那条作业行，不必自己 `op=done`。 |
 | `team_join` | `handles[], budget_ms` | **有界**汇合等待（真实强依赖点才用）。只观察、**不取回输出**。 |
 | `team_accept` | `id, note` | **验收通过**：工作项 → done，**并销掉这一件的作业行**（不必再自己 `jobs_manage(op=done)`），同时结束这件事的执行隔离（释放它的 worktree、清它的会话；下一件事重新开一套）。**这也是打开里程碑内下一步的时刻**（依赖闸门） 。 |

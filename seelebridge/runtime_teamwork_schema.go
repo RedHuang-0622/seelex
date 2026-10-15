@@ -198,7 +198,11 @@ func teamworkRecoverSchema() map[string]interface{} {
 
 func teamworkItemsDescription() string {
 	return "Read the work items (the gantt data): status, owner, milestone, dependencies, live binding (Session + worktree) and " +
-		"whether a running item is interrupted (its handle is gone from this process's job table)."
+		"whether a running item is interrupted (its handle is gone from this process's job table). " +
+		"Each item also carries `gate` (where it is stuck right now: gate:依赖未 done / job:running / " +
+		"job:句柄已作废（可重派） / merge:改动未合并待处置 / review:等你裁决 / failed:待人工处置 / " +
+		"ready:可派发 / done:已验收) and `next` (the action that clears that gate) — read them instead of " +
+		"inferring progress from the status yourself."
 }
 
 func teamworkItemsSchema() map[string]interface{} {

@@ -231,7 +231,59 @@ func DefaultPermissionSubjects() map[toolspermission.Subject]toolspermission.Sub
 //
 // 顺序即语义：框架按 LMRW（最后匹配胜出）求值，所以 danger deny 放最后。
 // 命令行工具（bash）的 patterns 匹配的是**命令本身**（见 policyArgsFor）。
+//
+// 方言：本函数给的是 **POSIX 方言**那一份（历史默认；等价于
+// `PermissionRulesForShell(ShellBash)`）。组合根按装配期解析出的**实际壳**选方言——
+// 见 PermissionRulesForShell 与 shell_fact.go。
 func DefaultPermissionRules() []toolspermission.PermissionRule {
+	return PermissionRulesForShell(ShellBash)
+}
+
+// bashAllowPatterns 是"免打断的读命令"这一层的**唯一一份**表，按方言分槽。
+//
+// 为什么要按壳分派：这一层的模式匹配的是**命令文本**，它放行就意味着"这条命令不会
+// 需要人看着"。而同一个字符串在不同壳里是两回事——`ls -la` 在 Git Bash 下是列目录，
+// 在 PowerShell 下是**必然失败**（`-la` 不是 Get-ChildItem 的参数）。此前这张表写死
+// POSIX 形态，而本机 shell 可能已经是 PowerShell，于是命令"**过闸即死**"：白名单放行、
+// 执行失败、模型只拿到一条执行错误（审计 D4 实测 34.4% 的调用折在判定上）。
+//
+// 共享槽与方言槽分开：`git *` / `go test *` 这类两种壳下都成立的命令只写一份，
+// 方言差异只出现在"读写文件/搜索/环境"那几条上。
+var bashAllowPatterns = struct {
+	Shared     []string
+	POSIX      []string
+	PowerShell []string
+	Cmd        []string
+}{
+	Shared: []string{"git *", "echo *", "go test *", "go build *", "go vet *", "gofmt *"},
+	POSIX: []string{"ls *", "cat *", "head *", "tail *",
+		"pwd", "which *", "whoami", "date", "df *", "du *", "printenv"},
+	PowerShell: []string{"Get-ChildItem*", "Get-Content *", "Get-Location", "Get-Date",
+		"Get-Command *", "Get-Item *", "Select-String *", "Select-Object *", "Where-Object *",
+		"Test-Path *", "Measure-Object *"},
+	Cmd: []string{"dir *", "dir", "type *", "where *", "findstr *", "cd"},
+}
+
+// bashAllowListForShell 折出这一档壳的免打断模式（共享槽 + 方言槽）。
+func bashAllowListForShell(kind ShellKind) []string {
+	dialect := bashAllowPatterns.POSIX
+	switch kind {
+	case ShellPowerShell:
+		dialect = bashAllowPatterns.PowerShell
+	case ShellCmd:
+		dialect = bashAllowPatterns.Cmd
+	}
+	patterns := make([]string, 0, len(bashAllowPatterns.Shared)+len(dialect))
+	patterns = append(patterns, bashAllowPatterns.Shared...)
+	return append(patterns, dialect...)
+}
+
+// PermissionRulesForShell 按**实际壳**给出同一张规则表。
+//
+// 除"免打断读命令"那一层之外，其余层（写类工具 ask、危险命令 deny、越界命令 ask）
+// 与壳无关，只有一份——两处各写一遍必然漂移。
+func PermissionRulesForShell(kind ShellKind) []toolspermission.PermissionRule {
+	allow := bashAllowListForShell(kind)
 	return []toolspermission.PermissionRule{
 		// 写盘 / 扩能力的工具：生效前需要人类过目。
 		{ToolName: "write_file", Action: toolspermission.ActionAsk},
@@ -249,17 +301,13 @@ func DefaultPermissionRules() []toolspermission.PermissionRule {
 		{ToolName: "bash_bg", Action: toolspermission.ActionAsk},
 		{
 			ToolName: "bash",
-			Patterns: []string{"git *", "ls *", "cat *", "echo *", "head *", "tail *",
-				"pwd", "which *", "whoami", "date", "df *", "du *", "printenv",
-				"go test *", "go build *", "go vet *", "gofmt *"},
-			Action: toolspermission.ActionAllow,
+			Patterns: allow,
+			Action:   toolspermission.ActionAllow,
 		},
 		{
 			ToolName: "bash_bg",
-			Patterns: []string{"git *", "ls *", "cat *", "echo *", "head *", "tail *",
-				"pwd", "which *", "whoami", "date", "df *", "du *", "printenv",
-				"go test *", "go build *", "go vet *", "gofmt *"},
-			Action: toolspermission.ActionAllow,
+			Patterns: allow,
+			Action:   toolspermission.ActionAllow,
 		},
 		{
 			ToolName: "bash",
@@ -288,12 +336,21 @@ func DefaultPermissionRules() []toolspermission.PermissionRule {
 // （缺位 = ask；子代理侧由 Enforcer 落成"直接拒绝"，员工侧落成"执行选择页面"）
 // + 最细粒度规则。调用方（main.go）在其上叠加 seele.yaml 的 permission 段覆盖。
 func DefaultPermissionConfig() toolspermission.PermissionConfig {
+	return PermissionConfigForShell(ShellBash)
+}
+
+// PermissionConfigForShell 按**装配期解析出的实际壳**装配默认权责配置（组合根用它）。
+//
+// 与 DefaultPermissionConfig 的关系：同一份实现，只有"免打断读命令"那一层随方言变
+// （见 PermissionRulesForShell）。默认入口保持 POSIX 口径，好让用例与其它宿主的行为
+// 与宿主机器无关。
+func PermissionConfigForShell(kind ShellKind) toolspermission.PermissionConfig {
 	return toolspermission.PermissionConfig{
 		Mode:       toolspermission.ModeManual,
 		Groups:     DefaultPermissionGroupList(),
 		Subjects:   DefaultPermissionSubjects(),
 		MissingBit: toolspermission.ActionAsk,
-		Rules:      DefaultPermissionRules(),
+		Rules:      PermissionRulesForShell(kind),
 	}
 }
 

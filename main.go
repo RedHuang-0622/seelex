@@ -2064,6 +2064,10 @@ func initApplication(
 		AccountWindowStore: runtimeLimitsStoreFile{path: runtimeLimitsPath()},
 		// 工具记录计数开关的落盘口：同一个覆盖层文件的 tool_record_enabled 格。
 		ToolRecordStore: runtimeLimitsStoreFile{path: runtimeLimitsPath()},
+		// 系统提示词的**环境段**：装配期解析一次"这台机器上 bash 工具实际落到哪个壳"，
+		// 写进提示词（模型写命令前唯一的方言事实；2026-10-15 审计 D4）。解析结果进程内
+		// 缓存，因此前缀逐轮稳定。
+		EnvironmentSection: seeltools.ResolveShellFact().PromptSection(),
 	})
 }
 
@@ -2128,7 +2132,10 @@ func setupPermissionGate(runtime permissionRuntime, approval *application.Approv
 	if err != nil {
 		return err
 	}
-	cfg := seeltools.DefaultPermissionConfig()
+	// 免打断的读命令白名单按**装配期解析出的实际壳**分派（2026-10-15 审计 D4）：
+	// 白名单是按命令文本匹配的，而同一个字符串在 POSIX 壳与 PowerShell 下是两回事——
+	// 写死 POSIX 形态会让 PowerShell 宿主上的命令"过闸即死"（放行 → 执行必失败）。
+	cfg := seeltools.PermissionConfigForShell(seeltools.ResolveShellFact().Kind)
 	fileCfg, err := loadPermissionConfig(ensureConfigFile(bootseed.PermissionConfigName, bootseed.PermissionConfigPack()))
 	if err != nil {
 		return err

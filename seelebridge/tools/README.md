@@ -135,6 +135,24 @@ string 只会让每个调用点多做一次编解码往返；框架的 `ToolHand
 - 名字从 `job_manage` 改成 `bg_manage`：旧名与 `jobs_manage` 只差一个字母（退役门禁见根目录
   `job_migration_residue_test.go`），新名与 token 同源。
 
+### 实际壳的单一事实源（2026-10-15）
+
+`bash` / `bash_bg` 到底在哪条壳里执行，是一条**装配期解析一次**的结论（`shell_fact.go` 的
+`ResolveShellFact`：Git Bash → PATH 上的 bash（WSL 的 bash 被拒）→ PowerShell → cmd → sh），
+进程内缓存。**执行层、模型面、权限表读同一份**：
+
+- 执行层：`scopedBashCommand` 直接取事实里的 `Path` + 方言 argv（不再每次现算）；
+- 模型面：两个工具的描述各带一句 `DialectHint`（本机壳是 POSIX 还是 PowerShell、该用哪些命令），
+  系统提示词另有一段 Environment（由组合根经 `contract.Dependencies.EnvironmentSection` 注入，
+  装配期定值 ⇒ 稳定前缀）；
+- 权限表：`PermissionRulesForShell` 的**免打断读命令**那一层按方言分槽（PowerShell 宿主放行
+  `Get-ChildItem*` / `Select-String *` 等，不放行 `ls *` / `head *` —— 那些命令在 PowerShell 下
+  是"放行即失败"），其余层（写类 ask、危险 deny、越界 ask）只有一份。
+
+为什么必须同源：白名单按**命令文本**匹配，同一个字符串在不同壳里是两回事。不同源的代价是
+"**过闸即死**"——白名单放行、执行层跑另一个壳、命令失败，模型只拿到一条执行错误（审计 D4）。
+判据在 `shell_fact_test.go`（事实稳定 + 执行同源 + 方言进模型面 + 权限分层）。
+
 工具面与形状：`bash`（唯一的 shell 入口：串行、同步，**不再有 `background`**；
 只读形态的免打断由权限模式表承担）/ `bash_bg`（`Add`，**必须带
 `description`**——它是工作打点表的行标题）/ `read_batch`（一次派发 N 个读作业）/

@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -687,36 +686,15 @@ func (r *Router) noteProcessTreeDegraded(shell string, tree *security.ProcessTre
 // bashProcessDegradedStage 是退化读数的阶段名（一个常量，免得两处起命令点各写一遍字面量）。
 const bashProcessDegradedStage = "bash.process.degraded"
 
-// scopedBashCommand chooses a shell that honors the public bash tool's syntax.
+// scopedBashCommand 按**装配期解析出的那一份实际壳结论**起命令（见 shell_fact.go）。
+//
 // Git for Windows supplies Bash on supported Windows development hosts; using
 // PowerShell first would reject ordinary model commands such as "pwd && ls -la".
-// Fixed install paths are probed first, then PATH (custom installs such as
-// scoop/chocolatey/portable), then PowerShell/cmd as last resort.
+// 探针（固定路径 → PATH → PowerShell/cmd 兜底）只在 ResolveShellFact 里跑一次；这里不再
+// 每次调用现算——否则"执行层用哪个壳"与"模型面/权限表以为用的是哪个壳"会各算各的（审计 D4）。
 func scopedBashCommand(command string) (string, []string) {
-	if runtime.GOOS == "windows" {
-		for _, bash := range []string{
-			`C:\Program Files\Git\bin\bash.exe`,
-			`C:\Program Files\Git\usr\bin\bash.exe`,
-			`C:\Program Files (x86)\Git\bin\bash.exe`,
-		} {
-			if security.FileExists(bash) {
-				return bash, []string{"-c", command}
-			}
-		}
-		if bash, err := exec.LookPath("bash"); err == nil && !security.IsWSLBash(bash) {
-			return bash, []string{"-c", command}
-		}
-	}
-	if _, err := os.Stat("/bin/bash"); err == nil {
-		return "bash", []string{"-c", command}
-	}
-	if powershell := `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`; security.FileExists(powershell) {
-		return powershell, []string{"-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command}
-	}
-	if commandPrompt := `C:\Windows\System32\cmd.exe`; security.FileExists(commandPrompt) {
-		return commandPrompt, []string{"/d", "/s", "/c", command}
-	}
-	return "sh", []string{"-c", command}
+	fact := ResolveShellFact()
+	return fact.Path, shellCommandArgs(fact.Kind, command)
 }
 
 // scopedToolTimeout 解析 bash 类工具的默认超时：优先显式 tool_call_timeout
@@ -803,7 +781,10 @@ func bashDescription() string {
 		"It is serial and synchronous — it holds the turn while the " +
 		"command runs — and it refuses a `timeout` above its " + serialBashBudgetLabel() +
 		" budget: commands expected to take longer belong to bash_bg, whose call returns only " +
-		"an acceptance receipt."
+		"an acceptance receipt. " +
+		// 实际壳是**装配期解析一次的事实**（见 shell_fact.go）：模型写命令前必须知道
+		// 自己写的是哪种方言，否则命令会"过闸即死"（审计 D4）。
+		ResolveShellFact().DialectHint()
 }
 
 // bashSchema 下发 bash 入参。

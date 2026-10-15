@@ -139,6 +139,8 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		// 技能目录的激活纪律句要引用应用侧 Skill 前缀：从 sigil 表注入，
 		// 避免提示文案与前缀契约漂移（见 prompt_layer.Deps.SkillSigil）。
 		SkillSigil: SigilSkill,
+		// 环境段来自组合根（执行面的实际事实：这台机器上 bash 工具落到哪个壳）。
+		Environment: assembler.deps.EnvironmentSection,
 	})
 	service.components.history = context_runtime.NewHistoryCoordinator(kernel)
 	service.components.sessions = session_runtime.NewCoordinator(session_runtime.Deps{

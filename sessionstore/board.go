@@ -307,7 +307,8 @@ func (repository *jsonRepository) WriteGoalBoard(_ context.Context, key Key, met
 	return repository.layout.commitModuleHead(key, moduleBoardGoal, "", meta)
 }
 
-// ReadGoalBoard 读回 goal 看板存档（缺失返回 fs.ErrNotExist）。
+// ReadGoalBoard 读回 goal 看板存档。缺失 = 这个会话还没有存档（正常状态）：
+// 返回**零值 + nil**，不是 IO 错误（口径见 docs/arch/absent-state-reads.md）。
 func (repository *jsonRepository) ReadGoalBoard(_ context.Context, key Key) (GoalBoardMeta, error) {
 	if err := key.validate(); err != nil {
 		return GoalBoardMeta{}, err
@@ -315,7 +316,7 @@ func (repository *jsonRepository) ReadGoalBoard(_ context.Context, key Key) (Goa
 	if repository.layout == nil {
 		return GoalBoardMeta{}, errors.New("session storage: board archive requires the v8 layout engine")
 	}
-	return readModuleHeadPayload[GoalBoardMeta](repository.layout, key, moduleBoardGoal)
+	return readOptionalModuleHead[GoalBoardMeta](repository.layout, key, moduleBoardGoal)
 }
 
 // WriteTeamBoard 写入（整份替换）团队看板存档。
@@ -332,7 +333,8 @@ func (repository *jsonRepository) WriteTeamBoard(_ context.Context, key Key, met
 	return repository.layout.commitModuleHead(key, moduleBoardTeam, "", meta)
 }
 
-// ReadTeamBoard 读回团队看板存档（缺失返回 fs.ErrNotExist）。
+// ReadTeamBoard 读回团队看板存档。缺失 = 还没有存档：返回**零值 + nil**
+// （与 ReadGoalBoard 同一口径）。
 func (repository *jsonRepository) ReadTeamBoard(_ context.Context, key Key) (TeamBoardMeta, error) {
 	if err := key.validate(); err != nil {
 		return TeamBoardMeta{}, err
@@ -340,5 +342,5 @@ func (repository *jsonRepository) ReadTeamBoard(_ context.Context, key Key) (Tea
 	if repository.layout == nil {
 		return TeamBoardMeta{}, errors.New("session storage: board archive requires the v8 layout engine")
 	}
-	return readModuleHeadPayload[TeamBoardMeta](repository.layout, key, moduleBoardTeam)
+	return readOptionalModuleHead[TeamBoardMeta](repository.layout, key, moduleBoardTeam)
 }

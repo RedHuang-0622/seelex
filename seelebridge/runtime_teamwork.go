@@ -655,6 +655,19 @@ func workerTurnLimit(requested int) int {
 	return roleTurnMaxLoops
 }
 
+// workerWorkItemDiscipline 是 teammate 回合的**作业纪律**：一件活的收尾动作写在系统提示里，
+// 而不只写在 leader 的 SKILL 里（2026-10-15 审计 D6）。
+//
+// 为什么放在装配处而不是 SKILL：SKILL 是**leader** 读的文档，teammate 的系统提示是它唯一
+// 必然读到的约束位。真实会话里的现象是 leader 为 4 件以上工作项手工补提交——"完成即提交"
+// 在执行面完全没约束。它是系统事实：每次 worker 回合都带上，已登记的员工提示词也盖不掉。
+const workerWorkItemDiscipline = `<work-item-discipline>
+- 你这次只做交给你的这一件事；改动只落在**你自己这件事的 worktree** 里，不碰主工作区，也不动别人的 worktree。
+- **收尾前必须提交**：把你的改动 git add + git commit 落成至少一次提交（提交信息写清这件事做了什么）。带着未提交改动结束 = 这件事交不出去，leader 得替你补提交并从主工作区再合一遍。
+- 做不完就如实说明卡在哪（缺什么信息 / 缺什么权限），不要伪造完成的结论。
+- 结束时给出：做了什么（含提交号）、证据在哪（相对路径）、还剩什么没做；结论 ≤800 字。
+</work-item-discipline>`
+
 // RunWorker 实现 teamwork.WorkerRunner：在角色会话里跑一轮有界回合。
 //
 // 执行体只跑、不判定顺序、不回收工作区——那些是 Coordinator 的事（leader 掌控
@@ -710,6 +723,10 @@ func (r *Runtime) RunWorker(ctx context.Context, request teamwork.WorkerRequest,
 // 但两层的文案来自同一份构建器 `workunit.RecoveryNote`（前缀族因此是同一种东西）。
 func (r *Runtime) workerRoleRoundSpec(request teamwork.WorkerRequest, mainSessionID string, maxLoops int) roleRoundSpec {
 	systemPrompt := r.roleTurnSystemPrompt(request.Role)
+	// 作业纪律是**系统事实**，不进 SKILL：teammate 的收尾动作必须硬约束在它的系统提示里
+	// （2026-10-15 审计 D6：真实会话里 leader 为 4 件以上工作项手工补提交，说明"完成即提交"
+	// 此前只写在 leader 的文档里，执行面没有任何约束）。
+	systemPrompt = systemPrompt + "\n\n" + workerWorkItemDiscipline
 	if note := r.consumeTeamResumeNote(request.RoleSessionID); note != "" {
 		systemPrompt = systemPrompt + "\n\n" + note
 	}

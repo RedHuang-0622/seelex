@@ -503,6 +503,13 @@ type Dependencies struct {
 	// （core 在真相源提交时刻调一次，把"到目前为止的整份累计"写进该会话的存储）。
 	// nil = 不落盘（读数只在本次进程内有效）。
 	ToolRecordSnapshotStore ToolRecordSnapshotStore
+	// EnvironmentSection 是系统提示词里的**环境段**（装配期定值，可选）：由组合根给出，
+	// 因为"这台机器上命令会落到哪个壳"是**执行面的事实**，只有桥层解析得了（见
+	// seelebridge/tools 的 ShellFact)，而应用层不许反向依赖它。
+	//
+	// 它是装配期常量而不是每轮现算：系统提示是**稳定前缀**，同一进程内必须逐字节稳定，
+	// 否则前缀缓存与压缩边界每轮都会变。
+	EnvironmentSection string
 }
 
 // ToolRecordSnapshotStore 把一个会话的工具记录读数落进**会话自己的**存储。

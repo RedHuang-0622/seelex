@@ -467,39 +467,6 @@ func (c *Coordinator) reclaimStepsLocked(ctx context.Context, plan sessionstore.
 	return nil
 }
 
-// unsettledItems 返回"没落定"的工作项（`id(状态)` 口径），供收口闸门拒收用：
-//
-//	running 且 handle 还在册 —— 尾插还在飞（现场正被合并使用）
-//	failed                  —— 尾插把现场留给 leader 人工处置
-//	review 且带未合并标记     —— 尾插没能把改动合进去（未提交 / 主工作区挡路）：
-//	                           不判死（一份已完成的产出不该被说成"得重派"），但现场里
-//	                           还留着没落地的产出，静默拆掉就是丢产出
-//
-// 待验收（review）**本身**不算没落定：尾插已走完、合并已落地，释放它的现场是安全的。
-// 这把尺子量的是**每一件工作项**（不按角色分档）：收口会把**所有** per-item 现场连同
-// 角色级现场一并拆掉，所以凡是"还被尾插拿着"或"留给 leader 人工处置"或"改动还没合进去"
-// 的现场都不许被它静默拆掉（见 Close 的注释）。
-func (c *Coordinator) unsettledItems(plan sessionstore.TeamworkPlan) []string {
-	unsettled := make([]string, 0)
-	for _, milestone := range plan.Milestones {
-		for _, item := range milestone.Items {
-			switch item.StatusOrPending() {
-			case sessionstore.TeamworkItemRunning:
-				if c.handleAlive(item.Handle) {
-					unsettled = append(unsettled, item.ID+"(running)")
-				}
-			case sessionstore.TeamworkItemFailed:
-				unsettled = append(unsettled, item.ID+"(failed)")
-			case sessionstore.TeamworkItemReview:
-				if _, unmerged := plan.State.Unmerged[item.ID]; unmerged {
-					unsettled = append(unsettled, item.ID+"(review:改动未合并)")
-				}
-			}
-		}
-	}
-	return unsettled
-}
-
 // AliveSceneNodes 返回计划里"本进程还有执行面"的现场 nodeID 集合（契约命名：
 // Work Item 级 = `<role>-<itemID>`，teammate 级 = `<role>`）。
 //
@@ -564,12 +531,10 @@ func (c *Coordinator) Close(ctx context.Context) (bool, error) {
 	//     要用的东西删了，分支也一并删——产出只剩 reflog。
 	// 待验收（review）**不拦**：尾插已走完、合并已落地，释放它的现场是安全的；pending
 	// 没有现场；running 而 handle 已作废（重启后）也不会再被合并使用（可重派/可清理）。
-	if unsettled := c.unsettledItems(plan); len(unsettled) > 0 {
-		return false, fmt.Errorf("teamwork: 还有 %d 件工作没落定（%s）——整队收口会把它们的现场一并拆掉，"+
-			"先把账收干净：还在跑的先等它的回执（尾插会先合并、再插回执），或 jobs_manage(op=kill) 停掉；"+
-			"失败/合并冲突/改动未合并的先人工处置（在它的 worktree 里解冲突、变基、合并）再 team_accept 销项，"+
-			"要重做就 team_fail 后 team_dispatch 重派",
-			len(unsettled), strings.Join(unsettled, ", "))
+	if unsettled := c.unsettledItemGates(plan); len(unsettled) > 0 {
+		return false, fmt.Errorf("teamwork: 还有 %d 件工作没落定——整队收口会把它们的现场一并拆掉。"+
+			"逐件账目与下一步：%s（处置完各自的卡点再 team_close；team_items 的 gate/next 两格给的是同一份判据）",
+			len(unsettled), FormatUnsettledItems(unsettled))
 	}
 	for _, member := range plan.Members {
 		if _, err := c.closeStepsLocked(ctx, member.Role); err != nil {

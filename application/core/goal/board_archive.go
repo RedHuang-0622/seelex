@@ -77,6 +77,9 @@ func (s *ContextStateStore) refreshGoalBoard(ctx context.Context, records []*Goa
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		// 前值读不出来（存档损坏/后端报错）：**不覆盖**——宁可留着旧快照，也不拿
 		// 一份丢了账本的快照去替换它；close 方向按 §7 上报（见下）。
+		// "还没有存档"**不在这条路径上**：读面按状态回答（零值 + nil，见
+		// docs/arch/absent-state-reads.md）；fs.ErrNotExist 是同一状态的**旧表达**，
+		// 消费方仍要认它（实现迁移期两种都可能出现）。
 		return reportBoardWriteFailure(state, err)
 	}
 	if err != nil {

@@ -37,6 +37,12 @@ type Deps struct {
 	// 激活纪律句里要引用它，而前缀契约归 core 的 sigil 表——由装配根注入，
 	// 本层不写字面量（否则前缀一改，模型拿着错前缀教用户，2026-09-17 就这么错过一次）。
 	SkillSigil string
+	// Environment 是系统提示词的**环境段**（装配期定值，可空）：组合根按执行面的实际
+	// 事实注入（如"这台机器上 bash 工具落到哪个壳"）。空 = 不推这一段。
+	//
+	// 与 identity / instructions 分开成独立 kind：环境段是**这台机器**的事实，
+	// 重装 agent 插件或换 effort 档位都不该动它（它也必须是稳定前缀）。
+	Environment string
 }
 
 // Coordinator 拥有 prompt 层组装与 provider 同步。
@@ -46,6 +52,7 @@ type Coordinator struct {
 	effortManager *prompt.EffortManager
 	tasks         TaskContextView
 	skillSigil    string
+	environment   string
 
 	// cacheMu 保护 lastSystemPrompt（prompt 域自有状态锁；G5 锁拆分：本层
 	// 只串行化自己的"前缀缓存 + 引擎同步"临界区，不借用 Core.ViewMu 护它）。
@@ -61,6 +68,7 @@ func NewCoordinator(deps Deps) *Coordinator {
 		effortManager: deps.EffortManager,
 		tasks:         deps.Tasks,
 		skillSigil:    deps.SkillSigil,
+		environment:   deps.Environment,
 	}
 }
 
@@ -72,6 +80,10 @@ func (c *Coordinator) BuildSystemPrompt() {
 	c.promptStack.ClearKind("identity")
 	c.promptStack.ClearKind("instructions")
 	c.promptStack.Push("identity", "identity", promptassets.SystemIdentity())
+	c.promptStack.ClearKind("environment")
+	if environment := strings.TrimSpace(c.environment); environment != "" {
+		c.promptStack.Push("environment", "environment", environment)
+	}
 	c.promptStack.ClearKind("base")
 	if current, ok := c.Deps.Plugins.Current(); ok {
 		if promptText := strings.TrimSpace(current.Prompt); promptText != "" {
