@@ -111,7 +111,10 @@ func (service *Service) reconcileLoadedContentLimit(protect string) {
 func (service *Service) contentLimitSnapshotLocked(protect string) residency.EvictionSnapshot {
 	service.pruneContentOrderLocked()
 	snapshot := residency.EvictionSnapshot{
-		Order:       service.loadedContentOrder,
+		// **必须复制**：`residency.Order.Forget` 是就地过滤（写回底层数组），而判据会在
+		// 临界区**外**遍历这个切片——直接交出去就是 data race（P20 现场：`-race` 抓到
+		// `Order.Forget` 的写与 `EvictUntilWithinLimit` 的读撞在同一段内存上）。
+		Order:       append(residency.Order(nil), service.loadedContentOrder...),
 		Protect:     protect,
 		Occupied:    make(map[string]bool, len(service.loadedContentOrder)),
 		Protected:   make(map[string]bool, len(service.loadedContentOrder)),

@@ -19,6 +19,9 @@ import (
 
 type archiveSessions struct {
 	fakeSessions
+	// mu 保护下面这些**会被目录刷新 worker 并发读**的字段（P20：`-race` 抓到
+	// `compactedSessionStore` 写入 `sessionID` 与 worker 的 `SessionsOf` 读撞车）。
+	mu         sync.Mutex
 	history    []contract.EngineMessage
 	historyErr error
 	record     model.SessionRecord
@@ -35,10 +38,19 @@ type archiveSessions struct {
 // SessionsOf 实现 session_runtime.SessionGranularPort：替身只认得一个会话，
 // 且只住在默认项目（未关联会话）里。
 func (sessions *archiveSessions) SessionsOf(projectID string) []model.SessionInfo {
+	sessions.mu.Lock()
+	defer sessions.mu.Unlock()
 	if projectID != "" || sessions.sessionID == "" {
 		return nil
 	}
 	return []model.SessionInfo{{ID: sessions.sessionID}}
+}
+
+// setSessionID 登记替身"认得"的会话（目录刷新 worker 会并发读，故走锁）。
+func (sessions *archiveSessions) setSessionID(sessionID string) {
+	sessions.mu.Lock()
+	defer sessions.mu.Unlock()
+	sessions.sessionID = sessionID
 }
 
 func (sessions *archiveSessions) SaveCurrent(string) error {

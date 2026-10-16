@@ -100,7 +100,8 @@ func (service *Service) residentEvictionSnapshotLocked() residency.EvictionSnaps
 	}
 	// residentOrder[0] = 最近使用 ⇒ 末尾最旧。
 	snapshot := residency.EvictionSnapshot{
-		Order:       service.residentOrder,
+		// 与正文层同一口径：判据在临界区外遍历，`Order.Forget` 又会就地写底层数组 ⇒ 复制。
+		Order:       append(residency.Order(nil), service.residentOrder...),
 		Occupied:    make(map[string]bool, len(service.residentOrder)),
 		Protected:   make(map[string]bool, len(service.residentOrder)),
 		LegacyLimit: Limits().ResidentSessionLimit,

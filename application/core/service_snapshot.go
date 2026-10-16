@@ -13,6 +13,12 @@ import (
 
 // Service 门面快照/订阅/投影/消息写入委托（实现位于 view_state 域包）。
 
+// Snapshot 返回视图快照（内部自取 `Core.ViewMu` 读锁）。
+//
+// **不可在持有 `Core.ViewMu` 时调用**：`sync.RWMutex` 不可重入，而目录刷新 worker
+// （`Coordinator.publishCatalogMirror`）会排队等同一把写锁——有写者排队时新读者一律阻塞，
+// 于是"持读锁再调 Snapshot"会永久自锁（P20 现场：3 并发跑本包，第一轮即挂死）。
+// 需要同临界区一致性读的调用方，请持锁后直接用 `service.Core.Snapshot` 或各 `*Locked` 读面。
 func (service *Service) Snapshot() model.Snapshot {
 	snapshot := service.components.view.SnapshotView()
 	// 会话状态属性富化：draft / running / queued / idle。

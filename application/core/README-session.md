@@ -129,6 +129,10 @@
 - `func (service *Service) ensureSessionContent(sessionID string) error` — ensureSessionContent 在目标会话正文已被卸载时从磁盘回读（热挂载不重建
 - `func (service *Service) reloadSessionContent(sessionID string) error` — reloadSessionContent 冷回读被卸载的可见正文窗口：经与「回到最新」同一条尾部
 
+### content_lru_snapshot_test.go
+
+- `func TestEvictionSnapshotsDoNotAliasOrderBackingArray(t *testing.T)` — P20 回归：超限收敛的**快照必须不别名**会话使用序的底层数组。
+
 ### content_lru_test.go
 
 - `func withContentLimit(limit int) func()` — withContentLimit 临时把进程级 loaded_content_limit 改成 limit，返回还原
@@ -174,6 +178,7 @@
 ### session_archive_test.go
 
 - `func (sessions *archiveSessions) SessionsOf(projectID string) []model.SessionInfo` — SessionsOf 实现 session_runtime.SessionGranularPort：替身只认得一个会话，
+- `func (sessions *archiveSessions) setSessionID(sessionID string)` — setSessionID 登记替身"认得"的会话（目录刷新 worker 会并发读，故走锁）。
 - `func (sessions *archiveSessions) SaveCurrent(string) error`
 - `func (sessions *archiveSessions) LoadHistory(string) ([]contract.EngineMessage, error)`
 - `func (sessions *archiveSessions) SaveSessionRecord(_ string, record model.SessionRecord) error`

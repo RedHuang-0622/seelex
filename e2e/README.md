@@ -210,6 +210,13 @@ go test . -run '^TestGUI' -count=1
 - `func TestTeammateSessionLiveWireShapeMatchesFrontend(t *testing.T)`
 - `func sortedKeys(object map[string]any) []string` — sortedKeys 只用于把实际键面打进失败信息（顺序无关，读的人一眼能看出漂移）。
 
+### view_lock_nesting_gate_test.go
+
+- `func TestNoNestedViewLockInApplicationCore(t *testing.T)`
+- `func holdsViewLockAtSnapshot(body string) bool` — holdsViewLockAtSnapshot 报告函数体里是否在**持锁期间**（没先 Unlock）调用了 `Snapshot()`。
+- `func stripComments(body string) string` — stripComments 去掉行注释与块注释（门禁只看代码，不数注释里提到的锁调用）。
+- `func splitFuncs(source string) map[string]string` — splitFuncs 把源码粗切成「func 头一行（含紧邻上方注释） + 函数体」，按函数名索引。
+
 ### workunit_ports_test.go
 
 - `func (v portGateViolation) String() string`

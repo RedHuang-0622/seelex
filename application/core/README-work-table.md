@@ -163,10 +163,10 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - `func (service *Service) refreshWorkTableFromSources()` — refreshWorkTableFromSources 是被动触发的统一入口：同步 plan/子代理树 →
 - `func (service *Service) startLifecycleConsumers()` — startLifecycleConsumers 启动四个消费者 goroutine：子代理树信号 → 刷新
 - `func (service *Service) stopLifecycleConsumers()`
-- `func (service *Service) consumeSubagentLifecycle()`
-- `func (service *Service) consumePlanNodeEvents()`
-- `func (service *Service) consumeTaskChanges()`
-- `func (service *Service) consumeAsyncRuns()` — consumeAsyncRuns 是第四个生命周期消费者：后台执行表一有可见变化（派发、终态、
+- `func (service *Service) consumeSubagentLifecycle(runtime contract.RuntimePort)`
+- `func (service *Service) consumePlanNodeEvents(runtime contract.RuntimePort)`
+- `func (service *Service) consumeTaskChanges(runtime contract.RuntimePort)`
+- `func (service *Service) consumeAsyncRuns(runtime contract.RuntimePort)` — consumeAsyncRuns 是第四个生命周期消费者：后台执行表一有可见变化（派发、终态、
 - `func (service *Service) safeLifecycleCall(call func())` — safeLifecycleCall 处理消费者中的 panic：数据竞争/逻辑故障不得静默吞掉
 - `func (service *Service) UpdateWorkItemStatus(id, status string) error` — UpdateWorkItemStatus 是工作表格的人工状态更新入口（v1：todo 三态
 - `func parseWorkItemID(id string) (kind string, index int, err error)`

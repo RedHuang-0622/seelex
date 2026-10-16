@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/view/worktable"
@@ -429,10 +430,18 @@ func (service *Service) startLifecycleConsumers() {
 	if service.lifecycleStop == nil {
 		service.lifecycleStop = make(chan struct{})
 	}
-	go service.consumeSubagentLifecycle()
-	go service.consumePlanNodeEvents()
-	go service.consumeTaskChanges()
-	go service.consumeAsyncRuns()
+	go service.consumeSubagentLifecycle(service.Deps.Runtime)
+	// 四个消费者都在**起 goroutine 之前**拿到宿主面：契约上信号口必须在 wiring.New 之前就绪
+	// （见 consumeAsyncRuns 的装配说明），所以消费者本来就不该在运行期读 `service.Deps.Runtime`
+	// ——顺带消掉"启动后替换 Deps.Runtime"与这些读之间的 data race（P20：`-race` 抓到
+	// served_route 用例写 `Deps.Runtime` 与 consume{PlanNodeEvents,TaskChanges,AsyncRuns} 的读撞车）。
+	go service.consumePlanNodeEvents(service.Deps.Runtime)
+	go service.consumeTaskChanges(service.Deps.Runtime)
+	// 宿主面在**起 goroutine 之前**读一次传进去：消费者不再碰 `service.Deps.Runtime`。
+	// 这既守住下面那条"信号口在 wiring.New 之前就绪、消费者只读一次通道"的装配契约，
+	// 也消掉"启动后替换 Deps.Runtime"与消费者读之间的 data race（P20：`-race` 抓到
+	// served_route 用例改 `Deps.Runtime` 与 `consumeAsyncRuns` 的读撞在一起）。
+	go service.consumeAsyncRuns(service.Deps.Runtime)
 }
 
 func (service *Service) stopLifecycleConsumers() {
@@ -441,8 +450,8 @@ func (service *Service) stopLifecycleConsumers() {
 	}
 }
 
-func (service *Service) consumeSubagentLifecycle() {
-	events := service.Deps.Runtime.SubagentTreeEvents()
+func (service *Service) consumeSubagentLifecycle(runtime contract.RuntimePort) {
+	events := runtime.SubagentTreeEvents()
 	if events == nil {
 		return
 	}
@@ -456,8 +465,8 @@ func (service *Service) consumeSubagentLifecycle() {
 	}
 }
 
-func (service *Service) consumePlanNodeEvents() {
-	events := service.Deps.Runtime.PlanNodeEventChannel()
+func (service *Service) consumePlanNodeEvents(runtime contract.RuntimePort) {
+	events := runtime.PlanNodeEventChannel()
 	if events == nil {
 		return
 	}
@@ -474,8 +483,8 @@ func (service *Service) consumePlanNodeEvents() {
 	}
 }
 
-func (service *Service) consumeTaskChanges() {
-	changes := service.Deps.Runtime.TaskChangedChannel()
+func (service *Service) consumeTaskChanges(runtime contract.RuntimePort) {
+	changes := runtime.TaskChangedChannel()
 	if changes == nil {
 		return
 	}
@@ -512,8 +521,8 @@ func (service *Service) consumeTaskChanges() {
 // **单接收者**通道——两个消费者同时等它时，一次发送只会交给先等待的那一个（FIFO），
 // 另一个永远收不到。现场表现就是"作业完成了，可什么都没发生"（本消费者先起，于是
 // 后起的那个一次也收不到）。信号是"有事发生"，一个消费者做完整套读侧动作才与契约一致。
-func (service *Service) consumeAsyncRuns() {
-	events := service.Deps.Runtime.AsyncRunEvents()
+func (service *Service) consumeAsyncRuns(runtime contract.RuntimePort) {
+	events := runtime.AsyncRunEvents()
 	// teammate 作业表（jobs.Manager）的信号口是**另一条**（见 contract.TeamworkJobCompletion）：
 	// 两张表各有各的上游，这里并进同一个消费者等它们——一个消费者做完整套读侧动作才与
 	// 契约一致（两个 goroutine 抢同一个容量 1 的通道时，后起的那个一次也收不到）。
@@ -524,7 +533,7 @@ func (service *Service) consumeAsyncRuns() {
 	// 后装配的宿主读到的必然是 nil——nil 在 select 里永不触发，"做完自动返回"会**静默
 	// 不存在**（不报错、不打日志）。这里不改成每次循环重读：一个消费者做完整套读侧动作
 	// 才与契约一致，靠重读掩盖顺序问题会把"装配写错了"变成"时好时坏"。
-	teamworkEvents := teamworkJobEvents(service.Deps.Runtime)
+	teamworkEvents := teamworkJobEvents(runtime)
 	if events == nil && teamworkEvents == nil {
 		return
 	}

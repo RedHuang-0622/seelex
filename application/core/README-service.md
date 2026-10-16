@@ -437,7 +437,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 ### service_snapshot.go
 
-- `func (service *Service) Snapshot() model.Snapshot`
+- `func (service *Service) Snapshot() model.Snapshot` — Snapshot 返回视图快照（内部自取 `Core.ViewMu` 读锁）。
 - `func (service *Service) ListSessions() []model.SessionInfo` — ListSessions 返回当前权威会话目录（C1 冷读面/headless 宿主）：与会话树
 - `func (service *Service) enrichDirectoryRowsLocked(rows []model.SessionInfo) []model.SessionInfo` — enrichDirectoryRowsLocked 给目录行补会话级可见状态（调用方持有
 - `func (service *Service) sessionStatusLocked(sessionID string) model.SessionStatus` — sessionStatusLocked 返回指定会话的可见状态（调用方持有 Core.ViewMu）。

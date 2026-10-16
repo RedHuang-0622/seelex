@@ -29,6 +29,10 @@ func (o Order) Touch(id string) Order {
 }
 
 // Forget 把 ID 移出序，其余相对顺序不变。
+//
+// **就地过滤（写回底层数组）**：调用方重新赋值即可继续用；但**不要**把这个切片交给
+// 临界区之外的读者——`o[:0]` 会把后面的元素盖到前面（P20 现场：锁外遍历与这里的写撞成
+// data race，见 `application/core/content_lru.go` 的快照复制）。跨临界区传递请先复制。
 func (o Order) Forget(id string) Order {
 	if id == "" || len(o) == 0 {
 		return o
