@@ -1,9 +1,9 @@
 package core
 
 import (
-	"testing"
-
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"testing"
 )
 
 // TestHotAttachKeepsBackgroundPlanProgress 回归：后台会话运行期间 plan 节点
@@ -14,16 +14,16 @@ func TestHotAttachKeepsBackgroundPlanProgress(t *testing.T) {
 	sessions := &liveCatalogSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
 	defer service.Shutdown()
-	sessions.setInfos([]SessionInfo{{ID: "sess-a"}, {ID: "sess-b"}})
+	sessions.setInfos([]model.SessionInfo{{ID: "sess-a"}, {ID: "sess-b"}})
 	engine.register("sess-a")
 	engine.register("sess-b")
 
 	if err := service.ResumeSession("sess-a"); err != nil {
 		t.Fatalf("resume a: %v", err)
 	}
-	service.components.tasks.SeedPlanProjection("sess-a", &PlanState{
+	service.components.tasks.SeedPlanProjection("sess-a", &model.PlanState{
 		Status: PlanPending,
-		Nodes:  []PlanNode{{ID: "n1", Status: NodePending}},
+		Nodes:  []model.PlanNode{{ID: "n1", Status: NodePending}},
 	})
 
 	if err := service.ResumeSession("sess-b"); err != nil {

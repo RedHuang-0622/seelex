@@ -2,10 +2,10 @@ package core
 
 import (
 	"encoding/json"
-	"testing"
-
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/view/worktable"
+	"testing"
 )
 
 // FuzzBuildWorkTable 以畸形输入喂投影构建器：深层嵌套、错类型、超大文本
@@ -17,9 +17,9 @@ func FuzzBuildWorkTable(f *testing.F) {
 	f.Add(``, `[]`)
 
 	f.Fuzz(func(t *testing.T, planJSON, taskJSON string) {
-		var plan *PlanState
+		var plan *model.PlanState
 		if planJSON != "" {
-			var candidate PlanState
+			var candidate model.PlanState
 			if err := json.Unmarshal([]byte(planJSON), &candidate); err == nil {
 				plan = &candidate
 			}

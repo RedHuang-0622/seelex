@@ -2,9 +2,9 @@ package core
 
 import (
 	"fmt"
-	"testing"
-
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"testing"
 )
 
 // turn_status_single_word_test.go — 「一次回合（请求）现在处在哪一步」这件事，
@@ -26,8 +26,8 @@ func TestTurnStatusSpeaksOneWordOnSnapshotAndArchive(t *testing.T) {
 	defer service.Shutdown()
 
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
-	service.components.tasks.BeginTask("task-1", "audit the repository", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "audit the repository", "high", nil, model.TaskCheckpoint{})
 	service.components.tasks.SetTaskStateLocked("task-1", TurnProgressing, "Task is in progress.")
 	service.ViewMu.Unlock()
 

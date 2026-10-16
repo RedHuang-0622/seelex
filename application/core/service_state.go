@@ -1,15 +1,17 @@
 package core
 
 import (
-	"sync"
-	"sync/atomic"
-	"time"
-
+	"github.com/RedHuang-0622/seelex/application/prompt"
+	input_router "github.com/RedHuang-0622/seelex/backend/engine/input"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/kernel/state"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/residency"
 	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"github.com/RedHuang-0622/seelex/session"
+	"sync"
+	"sync/atomic"
+	"time"
 )
 
 // serviceState is assembled from cohesive state groups. Components share the
@@ -19,7 +21,7 @@ import (
 // boundaries explicit.
 type serviceState struct {
 	*state.Core
-	commands *CommandRegistry
+	commands *input_router.CommandRegistry
 
 	conversationRuntimeState
 	lifecycleRuntimeState
@@ -125,7 +127,7 @@ type serviceState struct {
 // Workspace 为"工作区会话"草稿的工作区绑定（任务会话草稿为 nil）。
 type draftSlot struct {
 	ID        string
-	Workspace *WorkspaceInfo
+	Workspace *model.WorkspaceInfo
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -155,6 +157,6 @@ type lifecycleRuntimeState struct {
 }
 
 type promptRuntimeState struct {
-	promptStack   *PromptStack
-	effortManager *EffortManager
+	promptStack   *prompt.PromptStack
+	effortManager *prompt.EffortManager
 }

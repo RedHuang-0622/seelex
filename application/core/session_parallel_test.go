@@ -3,17 +3,16 @@ package core
 import (
 	"context"
 	"fmt"
+	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/internal/testutil"
 	"log"
 	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/Seele/types"
-	"github.com/RedHuang-0622/seelex/contract"
-	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/internal/testutil"
 )
 
 // debugLog 是 SEELEX_TEST_DEBUG=1 门控的临时诊断日志（复跑噪音点时用，
@@ -61,7 +60,7 @@ type multiSessionEngine struct {
 	mu          sync.Mutex
 	active      string
 	seq         int
-	sessions    map[string][]EngineMessage
+	sessions    map[string][]contract.EngineMessage
 	started     map[string]chan struct{}
 	release     map[string]chan struct{}
 	streamCalls map[string]int
@@ -74,7 +73,7 @@ var _ contract.SessionChatEngine = (*multiSessionEngine)(nil)
 
 func newMultiSessionEngine() *multiSessionEngine {
 	return &multiSessionEngine{
-		sessions:    map[string][]EngineMessage{},
+		sessions:    map[string][]contract.EngineMessage{},
 		started:     map[string]chan struct{}{},
 		release:     map[string]chan struct{}{},
 		streamCalls: map[string]int{},
@@ -171,17 +170,17 @@ func (e *multiSessionEngine) SessionID() string {
 	return e.active
 }
 
-func (e *multiSessionEngine) History() []EngineMessage {
+func (e *multiSessionEngine) History() []contract.EngineMessage {
 	return e.HistoryFor(e.SessionID())
 }
 
-func (e *multiSessionEngine) HistoryFor(sessionID string) []EngineMessage {
+func (e *multiSessionEngine) HistoryFor(sessionID string) []contract.EngineMessage {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return append([]EngineMessage(nil), e.sessions[sessionID]...)
+	return append([]contract.EngineMessage(nil), e.sessions[sessionID]...)
 }
 
-func (e *multiSessionEngine) ReplaceHistory(sessionID string, history []EngineMessage) error {
+func (e *multiSessionEngine) ReplaceHistory(sessionID string, history []contract.EngineMessage) error {
 	return e.ReplaceHistoryFor(sessionID, history)
 }
 
@@ -190,17 +189,17 @@ func (e *multiSessionEngine) ReplaceHistory(sessionID string, history []EngineMe
 // 路径用）。缺失该方法会使 *multiSessionEngine 不满足 SessionChatEngine，
 // Service 的会话路由全部回退到活跃会话路径，导致后台会话的 ChatStreamFor
 // 从未被调用、测试永久阻塞。
-func (e *multiSessionEngine) ReplaceHistoryFor(sessionID string, history []EngineMessage) error {
+func (e *multiSessionEngine) ReplaceHistoryFor(sessionID string, history []contract.EngineMessage) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	// 会话内历史替换（M2）：不切换活跃会话。
-	e.sessions[sessionID] = append([]EngineMessage(nil), history...)
+	e.sessions[sessionID] = append([]contract.EngineMessage(nil), history...)
 	return nil
 }
 
 // ResumeSession 模拟 production EnginePort.ResumeSession 语义：目标会话
 // 已有引擎实例时清空并重装历史，否则注册后装载，并把活跃别名切到目标。
-func (e *multiSessionEngine) ResumeSession(sessionID string, history []EngineMessage) error {
+func (e *multiSessionEngine) ResumeSession(sessionID string, history []contract.EngineMessage) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if _, ok := e.sessions[sessionID]; !ok {
@@ -209,7 +208,7 @@ func (e *multiSessionEngine) ResumeSession(sessionID string, history []EngineMes
 		e.release[sessionID] = make(chan struct{})
 		e.streamCalls[sessionID] = 0
 	}
-	e.sessions[sessionID] = append([]EngineMessage(nil), history...)
+	e.sessions[sessionID] = append([]contract.EngineMessage(nil), history...)
 	e.active = sessionID
 	return nil
 }
@@ -222,8 +221,8 @@ func (e *multiSessionEngine) ChatStreamFor(sessionID string, ctx context.Context
 	e.mu.Lock()
 	e.streamCalls[sessionID]++
 	e.sessions[sessionID] = append(e.sessions[sessionID],
-		EngineMessage{Role: "user", Content: input, ContentSet: true},
-		EngineMessage{Role: "assistant", Content: "answer", ContentSet: true},
+		contract.EngineMessage{Role: "user", Content: input, ContentSet: true},
+		contract.EngineMessage{Role: "assistant", Content: "answer", ContentSet: true},
 	)
 	// 会话通道按需创建（未注册/已卸载会话也能安全执行测试桩），并在锁内
 	// 完成首次 close（并发流不会 double-close）。
@@ -263,7 +262,7 @@ func (e *multiSessionEngine) AppendHistoryFor(sessionID string, msg types.Messag
 	if msg.Content != nil {
 		content = *msg.Content
 	}
-	e.sessions[sessionID] = append(e.sessions[sessionID], EngineMessage{Role: msg.Role, Content: content, ContentSet: true})
+	e.sessions[sessionID] = append(e.sessions[sessionID], contract.EngineMessage{Role: msg.Role, Content: content, ContentSet: true})
 }
 func (e *multiSessionEngine) ClearHistoryFor(sessionID string) {
 	e.mu.Lock()

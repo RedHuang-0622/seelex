@@ -19,11 +19,10 @@ package core
 // 不进引擎。
 
 import (
-	"log"
-
 	"github.com/RedHuang-0622/seelex/middle/residency"
 	"github.com/RedHuang-0622/seelex/middle/switch"
 	"github.com/RedHuang-0622/seelex/session"
+	"log"
 )
 
 // residentEngine 是驻留 LRU 依赖的引擎面（可选能力：legacy 单会话引擎不

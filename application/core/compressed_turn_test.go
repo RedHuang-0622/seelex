@@ -4,13 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
-	"testing"
-
 	"github.com/RedHuang-0622/Seele/types"
-
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/store"
+	"strings"
+	"testing"
 )
 
 // testStringPtr 返回字符串指针（测试消息正文）。
@@ -72,18 +70,18 @@ func TestCompressedTurnArchiverScopesCommitToSessionProject(t *testing.T) {
 // fakeTranscriptSession 实现 sessionTranscriptPort 读侧（LoadToolResultWorkspace）。
 type fakeTranscriptSession struct {
 	fakeSessions
-	results map[string]StoredToolResult
+	results map[string]model.StoredToolResult
 }
 
-func (f *fakeTranscriptSession) LoadTranscriptTailWorkspace(_, _ string, _, _ int) ([]TranscriptEvent, error) {
+func (f *fakeTranscriptSession) LoadTranscriptTailWorkspace(_, _ string, _, _ int) ([]model.TranscriptEvent, error) {
 	return nil, nil
 }
 
-func (f *fakeTranscriptSession) LoadToolResultWorkspace(_, _, ref string) (StoredToolResult, error) {
+func (f *fakeTranscriptSession) LoadToolResultWorkspace(_, _, ref string) (model.StoredToolResult, error) {
 	if result, ok := f.results[ref]; ok {
 		return result, nil
 	}
-	return StoredToolResult{}, errors.New("stored tool result not found")
+	return model.StoredToolResult{}, errors.New("stored tool result not found")
 }
 
 // TestCompressedTurnArchiverPersistsOriginal 写侧：溢出轮次原文序列化后
@@ -204,7 +202,7 @@ func TestReadCompressedTurnHandlerReadsOriginal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	st := &fakeTranscriptSession{results: map[string]StoredToolResult{
+	st := &fakeTranscriptSession{results: map[string]model.StoredToolResult{
 		"compressed:compact-sess-9": {ToolResultRef: model.ToolResultRef{Ref: "compressed:compact-sess-9"}, Content: string(encoded)},
 	}}
 	service := newTestService(t, &fakeEngine{sessionID: "session-1"}, withTestSessions(st))

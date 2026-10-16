@@ -1,15 +1,15 @@
 package core
 
 import (
-	"sync"
-
 	"github.com/RedHuang-0622/seelex/backend/engine/context"
 	"github.com/RedHuang-0622/seelex/backend/engine/prompt"
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/middle/view/board"
 	"github.com/RedHuang-0622/seelex/middle/view/state"
 	"github.com/RedHuang-0622/seelex/middle/view/subagent"
+	"sync"
 )
 
 // serviceComponents is the application composition graph. Service coordinates
@@ -57,7 +57,7 @@ type toolRecordPort struct {
 	// snapshotStore 是读数落盘口（会话粒度、批次更新，见 tool_record.go 的
 	// FlushToolRecord）。装配根在 New 之后注入（SetToolRecordSnapshotStore）：
 	// 它依赖存储后端与工作区解析，两者在装配顺序上都晚于 core 的构造。
-	snapshotStore ToolRecordSnapshotStore
+	snapshotStore contract.ToolRecordSnapshotStore
 }
 
 func (port *toolRecordPort) setEnabled(enabled bool) {
@@ -87,13 +87,13 @@ func (port *toolRecordPort) flushErrorMessage() string {
 	return port.lastFlushErr.Error()
 }
 
-func (port *toolRecordPort) setSnapshotStore(store ToolRecordSnapshotStore) {
+func (port *toolRecordPort) setSnapshotStore(store contract.ToolRecordSnapshotStore) {
 	port.mu.Lock()
 	port.snapshotStore = store
 	port.mu.Unlock()
 }
 
-func (port *toolRecordPort) snapshotStoreValue() ToolRecordSnapshotStore {
+func (port *toolRecordPort) snapshotStoreValue() contract.ToolRecordSnapshotStore {
 	port.mu.RLock()
 	defer port.mu.RUnlock()
 	return port.snapshotStore

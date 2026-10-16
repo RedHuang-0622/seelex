@@ -2,6 +2,8 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"testing"
 )
 
@@ -22,10 +24,10 @@ func (runtime *forkQueueRuntime) ForkInFlight(string) bool { return runtime.fork
 func TestSubmitQueuedWhileForkRunning(t *testing.T) {
 	engine := &blockingEngine{fakeEngine: &fakeEngine{}, blockCh: make(chan struct{})}
 	runtime := &forkQueueRuntime{fakeRuntime: &fakeRuntime{}, forkOn: true}
-	service := mustNew(t, Dependencies{
+	service := mustNew(t, contract.Dependencies{
 		Engine:   engine,
 		Runtime:  runtime,
-		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},
+		Plugins:  &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills:   fakeSkills{},
 		Sessions: fakeSessions{},
 	})
@@ -34,18 +36,18 @@ func TestSubmitQueuedWhileForkRunning(t *testing.T) {
 	if err := service.Submit(context.Background(), "first"); err != nil {
 		t.Fatalf("Submit(first): %v", err)
 	}
-	waitForSnapshot(t, service, func(snapshot Snapshot) bool { return snapshot.Chat.Running })
+	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return snapshot.Chat.Running })
 
 	// fork 在飞：提交必须收下并排队（不再拒绝）。
 	if err := service.Submit(context.Background(), "continue while fork runs"); err != nil {
 		t.Fatalf("fork 在跑时 Submit = %v, want nil（输入进队列，不拒绝）", err)
 	}
-	snapshot := waitForSnapshot(t, service, func(snapshot Snapshot) bool { return snapshot.Chat.QueuedCount == 1 })
+	snapshot := waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return snapshot.Chat.QueuedCount == 1 })
 	if len(snapshot.Chat.InputQueue) != 1 || snapshot.Chat.InputQueue[0] != "continue while fork runs" {
 		t.Fatalf("排队投影 = %v, want [continue while fork runs]", snapshot.Chat.InputQueue)
 	}
 
 	// 回合收尾：排队内容整批提升为下一轮（既有链路，本改动没碰它）。
 	close(engine.blockCh)
-	waitForSnapshot(t, service, func(snapshot Snapshot) bool { return snapshot.Chat.QueuedCount == 0 })
+	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return snapshot.Chat.QueuedCount == 0 })
 }

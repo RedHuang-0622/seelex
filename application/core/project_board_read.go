@@ -1,12 +1,12 @@
 package core
 
 import (
-	"strings"
-
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/view/board"
 	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"github.com/RedHuang-0622/seelex/store"
+	"strings"
 )
 
 // ---------------------------------------------------------------------------
@@ -19,7 +19,7 @@ import (
 // 子代理树/后台执行投影）：投影行因此天然等于"此刻工作表格里那几行"，投影侧不新增
 // 状态判定（I3）。后台执行（async）行也在此列——它就是既有活体投影的一部分（工作
 // 表格是跨会话台账），行自带 session_id 供读侧归属。
-func (service *Service) WorkTableRowsFor(sessionID string) []WorkItem {
+func (service *Service) WorkTableRowsFor(sessionID string) []model.WorkItem {
 	if service == nil || service.Deps.Runtime == nil {
 		return nil
 	}

@@ -1,6 +1,8 @@
 package core
 
 import (
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"testing"
 )
 
@@ -13,10 +15,10 @@ import (
 func TestRunningSessionNotRerootedByAttach(t *testing.T) {
 	runtime := &fakeRuntime{}
 	sessions := &scopedSessions{}
-	service := mustNew(t, Dependencies{
+	service := mustNew(t, contract.Dependencies{
 		Engine:   &fakeEngine{sessionID: "session-a"},
 		Runtime:  runtime,
-		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},
+		Plugins:  &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills:   fakeSkills{},
 		Sessions: sessions,
 	})
@@ -25,9 +27,9 @@ func TestRunningSessionNotRerootedByAttach(t *testing.T) {
 	// 视图会话 = A（异步冷恢复把视图切到目标后、原会话仍在后台跑的形态：
 	// 绑定方拿到的“当前会话”正是这个视图会话，不能因此放行重绑）。
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Session = SessionState{ID: "session-a"}
+	service.Core.Snapshot.Session = model.SessionState{ID: "session-a"}
 	unit := service.sessionUnitLocked("session-a")
-	unit.SetChatState(ChatState{Running: true, RequestID: "r1"}, nil)
+	unit.SetChatState(model.ChatState{Running: true, RequestID: "r1"}, nil)
 	service.ViewMu.Unlock()
 
 	rootB := t.TempDir()
@@ -41,7 +43,7 @@ func TestRunningSessionNotRerootedByAttach(t *testing.T) {
 
 	// 进程回到完全空闲后：允许重绑（工具按当前视图会话工作区恢复的前提）。
 	service.ViewMu.Lock()
-	unit.SetChatState(ChatState{}, nil)
+	unit.SetChatState(model.ChatState{}, nil)
 	service.ViewMu.Unlock()
 	if got := service.bindProjectRootIfSafe("session-a", rootB); !got {
 		t.Fatal("bindProjectRootIfSafe refused bind while idle")

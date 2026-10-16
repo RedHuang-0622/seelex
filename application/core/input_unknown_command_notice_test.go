@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 	"testing"
 )
@@ -14,7 +15,7 @@ import (
 //     ——照着面板打 `/compact_context` 只会得到"未知命令"，且不提示该怎么办；
 //   - `/help` 的提示行只写 "/=命令"，与面板口径（命令 + 工具 + Skill）不一致。
 func TestUnknownCommandNoticeSeparatesToolsFromCommands(t *testing.T) {
-	runtime := &fakeRuntime{visibleTools: []Tool{
+	runtime := &fakeRuntime{visibleTools: []model.Tool{
 		{Name: "compact_context", Description: "fold the transcript now"},
 		{Name: "bash", Description: "run a command"},
 	}}
@@ -56,7 +57,7 @@ func TestUnknownCommandNoticeSeparatesToolsFromCommands(t *testing.T) {
 // TestUnknownCommandSubmitKeepsNoticeNotError：未知命令仍然不是错误（照常回
 // notice），只是这次 notice 带能走下去的提示。
 func TestUnknownCommandSubmitKeepsNoticeNotError(t *testing.T) {
-	runtime := &fakeRuntime{visibleTools: []Tool{{Name: "compact_context"}}}
+	runtime := &fakeRuntime{visibleTools: []model.Tool{{Name: "compact_context"}}}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 	if err := service.submitCommand(context.Background(), "/compact_context"); err != nil {
 		t.Fatalf("未知命令不应报错：%v", err)

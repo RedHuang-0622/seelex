@@ -33,16 +33,16 @@ package core
 
 import (
 	"context"
+	types "github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/backend/engine/context"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/store"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	types "github.com/RedHuang-0622/Seele/types"
-
-	"github.com/RedHuang-0622/seelex/backend/engine/context"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 // archiverSessionsStub 是 CompressedTurnArchiver.Sessions 需要的写通道
@@ -120,17 +120,17 @@ func TestExplicitCompactFramePushSelfDeadlocksRepro(t *testing.T) {
 	// 直接构造而不走 newTestService：后者的 t.Cleanup(service.Shutdown) 也要取
 	// ViewMu，一旦复现出自锁就会连清理一起挂死（测试进程永不退出）。被冻住的
 	// goroutine 只持有本用例私有 service 的锁，是本用例要留下的事实。
-	service := mustNew(t, Dependencies{
+	service := mustNew(t, contract.Dependencies{
 		Engine:   &fakeEngine{},
 		Runtime:  runtime,
-		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},
+		Plugins:  &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills:   fakeSkills{},
 		Sessions: &fakeSessions{},
 	})
 	serviceRef = service
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-selflock"}
-	service.components.tasks.BeginTask("task-selflock", "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-selflock"}
+	service.components.tasks.BeginTask("task-selflock", "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	appendIndexRounds(t, service, "task-selflock")
 	sessionID := service.Snapshot().Session.ID

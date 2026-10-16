@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"testing"
 	"time"
 )
@@ -25,7 +26,7 @@ func TestChatStateIsPublishedNotInferred(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	states := []ChatState{}
+	states := []model.ChatState{}
 	deadline := time.After(500 * time.Millisecond)
 collect:
 	for {
@@ -37,7 +38,7 @@ collect:
 			if event.SessionID != service.Snapshot().Session.ID {
 				t.Fatalf("chat.changed routed to %q, want the view session", event.SessionID)
 			}
-			var state ChatState
+			var state model.ChatState
 			if err := json.Unmarshal(event.Payload, &state); err != nil {
 				t.Fatalf("decode chat.changed payload: %v", err)
 			}

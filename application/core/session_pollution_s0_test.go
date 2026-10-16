@@ -12,11 +12,10 @@ package core
 //   - A 的 scope 实时一致（TaskSnapshotFor(A) 能看到 A 后台新增的任务）。
 
 import (
-	"strings"
-	"testing"
-
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"strings"
+	"testing"
 )
 
 func TestS0BackgroundSessionTaskWriteMustNotPolluteActiveRegistry(t *testing.T) {
@@ -24,23 +23,23 @@ func TestS0BackgroundSessionTaskWriteMustNotPolluteActiveRegistry(t *testing.T) 
 	service := newTestService(t, &fakeEngine{sessionID: "session-a"}, withTestRuntime(runtime))
 	defer service.Shutdown()
 
-	planWith := func(nodes ...PlanNode) []model.SessionPlanFrame {
+	planWith := func(nodes ...model.PlanNode) []model.SessionPlanFrame {
 		return []model.SessionPlanFrame{{
 			ID:   "p1",
-			Plan: &PlanState{Status: PlanRunning, Nodes: nodes},
+			Plan: &model.PlanState{Status: PlanRunning, Nodes: nodes},
 		}}
 	}
 
 	// 1) A 前台：A 的 plan（n1）同步进 A 自身 scope
 	service.Deps.Runtime.SwitchSessionTasks("session-a", nil)
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Session = SessionState{ID: "session-a"}
+	service.Core.Snapshot.Session = model.SessionState{ID: "session-a"}
 	service.components.tasks.RestoreSessionTaskLockedFor("session-a", task_context.RestoredTaskState{
-		PlanStack:    planWith(PlanNode{ID: "n1", Label: "A 调研", Status: NodeRunning}),
+		PlanStack:    planWith(model.PlanNode{ID: "n1", Label: "A 调研", Status: NodeRunning}),
 		ActivePlanID: "p1",
 	})
 	service.Core.Snapshot.Runtime.Plan = task_context.ActivePlanFromStack(
-		planWith(PlanNode{ID: "n1", Label: "A 调研", Status: NodeRunning}), "p1",
+		planWith(model.PlanNode{ID: "n1", Label: "A 调研", Status: NodeRunning}), "p1",
 	)
 	service.ViewMu.Unlock()
 	service.syncTasksFromSourcesFor("session-a")
@@ -51,15 +50,15 @@ func TestS0BackgroundSessionTaskWriteMustNotPolluteActiveRegistry(t *testing.T) 
 	// 2) 切到 B：注册表当前槽换为 B（A 的 scope 分区保留）
 	service.Deps.Runtime.SwitchSessionTasks("session-b", nil)
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Session = SessionState{ID: "session-b"}
+	service.Core.Snapshot.Session = model.SessionState{ID: "session-b"}
 	service.ViewMu.Unlock()
 
 	// 3) A 后台继续跑：A 的 plan 新增 n2 并同步到 A 自身 scope
 	service.ViewMu.Lock()
 	service.components.tasks.RestoreSessionTaskLockedFor("session-a", task_context.RestoredTaskState{
 		PlanStack: planWith(
-			PlanNode{ID: "n1", Label: "A 调研", Status: NodeRunning},
-			PlanNode{ID: "n2", Label: "A 第二个节点", Status: NodeRunning},
+			model.PlanNode{ID: "n1", Label: "A 调研", Status: NodeRunning},
+			model.PlanNode{ID: "n2", Label: "A 第二个节点", Status: NodeRunning},
 		),
 		ActivePlanID: "p1",
 	})

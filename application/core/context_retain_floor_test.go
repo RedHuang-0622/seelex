@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
+	cc "github.com/RedHuang-0622/seelex/backend/engine/input/contextcontrol"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"strings"
@@ -37,19 +38,19 @@ func TestValidateRetainWindowStartupCheck(t *testing.T) {
 		t.Fatalf("比例下限应大于 0：%d", floor)
 	}
 	// 保留上限写小 → 非法组合。
-	if err := ValidateRetainWindow(WindowConfig{RetainTokens: floor / 2}, limit.Get(), windowTokens); err == nil {
+	if err := ValidateRetainWindow(cc.WindowConfig{RetainTokens: floor / 2}, limit.Get(), windowTokens); err == nil {
 		t.Fatalf("floor(%d) > retain_tokens(%d) 必须报错", floor, floor/2)
 	}
 	// 保留上限足够大 → 合法。
-	if err := ValidateRetainWindow(WindowConfig{RetainTokens: floor * 2}, limit.Get(), windowTokens); err != nil {
+	if err := ValidateRetainWindow(cc.WindowConfig{RetainTokens: floor * 2}, limit.Get(), windowTokens); err != nil {
 		t.Fatalf("合法组合被拒：%v", err)
 	}
 	// retain_tokens 未配置（0 → 运行时回退账号窗口）不构成非法组合。
-	if err := ValidateRetainWindow(WindowConfig{}, limit.Get(), windowTokens); err != nil {
+	if err := ValidateRetainWindow(cc.WindowConfig{}, limit.Get(), windowTokens); err != nil {
 		t.Fatalf("未配置保留上限时不应报错：%v", err)
 	}
 	// 账号未声明窗口 → 该维无从计算，不误报。
-	if err := ValidateRetainWindow(WindowConfig{}, limit.Get(), 0); err != nil {
+	if err := ValidateRetainWindow(cc.WindowConfig{}, limit.Get(), 0); err != nil {
 		t.Fatalf("窗口未知时不应报错：%v", err)
 	}
 }
@@ -62,7 +63,7 @@ func TestCompactRetainFloorRaisesProtectedWindow(t *testing.T) {
 		rounds      = 16
 		answerChars = 32_000
 	)
-	applyWindowConfig(t, WindowConfig{Ratio: 0.05})
+	applyWindowConfig(t, cc.WindowConfig{Ratio: 0.05})
 
 	// 基线：无下限（0 = 未配置）→ 占比窗口把保留区压到只够 1 轮。
 	applyTestLimits(t, func(applied *limit.Limits) { applied.ContextRetainFloorPercent = 0 })
@@ -94,7 +95,7 @@ func TestCompactRetainFloorRaisesProtectedWindow(t *testing.T) {
 // 帧正文里必须能回读到四区（分区 + 各区 token 数与来源）与保留窗口决策，读者据此
 // 把"判据说超了"与"哪个区占了多少"对上。
 func TestCompactFrameBodyCarriesZoneLayout(t *testing.T) {
-	applyWindowConfig(t, WindowConfig{RetainTokens: 9_000, Ratio: 0.7})
+	applyWindowConfig(t, cc.WindowConfig{RetainTokens: 9_000, Ratio: 0.7})
 	service, _, sessionID := compactTestService(t, "task-zone")
 	appendWindowRounds(t, service, "task-zone", 16, 32_000)
 

@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/middle/switch"
 	"strings"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/switch"
 )
 
 func (service *Service) ResolveInteraction(ctx context.Context, id, optionID string) error {
@@ -21,21 +22,21 @@ func (service *Service) ResolveInteraction(ctx context.Context, id, optionID str
 		// 非 approval 交互（session/account/plan_retry）保持视图单格校验。
 		if service.Approval != nil {
 			if _, ok := service.pendingApprovalSession(id); ok {
-				return service.Approval.Resolve(id, ApprovalDecision{OptionID: optionID})
+				return service.Approval.Resolve(id, contract.ApprovalDecision{OptionID: optionID})
 			}
 		}
 		return ErrInteractionNotFound
 	}
 	if optionID == switching.InteractionCancelOptionID {
 		if interaction.Kind == switching.InteractionKindApproval {
-			return service.Approval.Resolve(id, ApprovalDecision{OptionID: optionID})
+			return service.Approval.Resolve(id, contract.ApprovalDecision{OptionID: optionID})
 		}
 		service.closeInteraction(id)
 		return nil
 	}
 	switch interaction.Kind {
 	case switching.InteractionKindApproval:
-		return service.Approval.Resolve(id, ApprovalDecision{OptionID: optionID})
+		return service.Approval.Resolve(id, contract.ApprovalDecision{OptionID: optionID})
 	case switching.InteractionKindSession:
 		if err := service.resumeSession(optionID); err != nil {
 			service.addNotice("恢复失败: " + err.Error())
@@ -283,7 +284,7 @@ func (service *Service) SetPermissionTier(tier string) (string, error) {
 		// 点头就是污染。放行用 "allow"（本笔放行）而不是 "always"——自动放行
 		// 不得在共享 checker 里留下永久 allow 规则（那是持久权限污染，切回低档
 		// 后仍会在别的会话生效）。
-		service.Approval.ResolveAllFor(viewSessionID, ApprovalDecision{OptionID: "allow"})
+		service.Approval.ResolveAllFor(viewSessionID, contract.ApprovalDecision{OptionID: "allow"})
 	}
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Runtime.PermissionTier = effective
@@ -314,7 +315,7 @@ func (service *Service) SetFullAccess(on bool) bool {
 // Snapshot.Interaction 只镜像当前视图会话（或进程级空归属）的审批——
 // 后台会话的待批不进视图单格，由目录行 awaiting_approval 状态与跨会话
 // 待批计数承载。
-func (service *Service) observeInteraction(sessionID, requestID string, interaction *Interaction) {
+func (service *Service) observeInteraction(sessionID, requestID string, interaction *model.Interaction) {
 	sessionID = strings.TrimSpace(sessionID)
 	viewSessionID := service.currentViewSessionID()
 	service.ViewMu.Lock()
@@ -335,7 +336,7 @@ func (service *Service) observeInteraction(sessionID, requestID string, interact
 	} else {
 		copied := *interaction
 		copied.SessionID = sessionID
-		copied.Options = append([]InteractionOption(nil), interaction.Options...)
+		copied.Options = append([]model.InteractionOption(nil), interaction.Options...)
 		if sessionID != "" {
 			if unit := service.sessions.Unit(sessionID); unit != nil {
 				unit.AddApproval(requestID)
@@ -372,11 +373,11 @@ func (service *Service) mirrorPendingApprovalsLocked(sessionID string) {
 		return
 	}
 	copied := pending[0]
-	copied.Options = append([]InteractionOption(nil), pending[0].Options...)
+	copied.Options = append([]model.InteractionOption(nil), pending[0].Options...)
 	service.Core.Snapshot.Interaction = &copied
 }
 
-func (service *Service) openInteraction(interaction *Interaction) {
+func (service *Service) openInteraction(interaction *model.Interaction) {
 	if interaction == nil {
 		return
 	}
@@ -398,7 +399,7 @@ func (service *Service) closeInteraction(id string) {
 	service.publishSessionEvent(EventInteractionClosed, revision, id, service.currentViewSessionID(), nil)
 }
 
-func (service *Service) sessionInteraction() *Interaction {
+func (service *Service) sessionInteraction() *model.Interaction {
 	sessions := service.Snapshot().Sessions
 	choices := make([]switching.SessionChoice, 0, len(sessions))
 	for _, session := range sessions {
@@ -416,7 +417,7 @@ func (service *Service) sessionInteraction() *Interaction {
 	return &interaction
 }
 
-func (service *Service) accountInteraction() *Interaction {
+func (service *Service) accountInteraction() *model.Interaction {
 	accounts := service.Deps.Runtime.Accounts()
 	choices := make([]switching.AccountChoice, 0, len(accounts))
 	for _, account := range accounts {

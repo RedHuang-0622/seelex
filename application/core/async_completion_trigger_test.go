@@ -2,13 +2,13 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/switch"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/backend/limit"
-	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/switch"
 )
 
 // 后台作业终态触发对话（第五个生命周期消费者，async_completion.go）。
@@ -21,7 +21,7 @@ import (
 //
 // limits 必须在**信号到达之前**改：开关是每次信号现读的（关着就一次扫描都不做），
 // 因此在构造前改最省事。
-func asyncCompletionHarness(t *testing.T, trigger bool, engine ChatEngine) (*Service, *fakeRuntime) {
+func asyncCompletionHarness(t *testing.T, trigger bool, engine contract.ChatEngine) (*Service, *fakeRuntime) {
 	t.Helper()
 	applyTestLimits(t, func(applied *limit.Limits) {
 		applied.AsyncExec.Enabled = true

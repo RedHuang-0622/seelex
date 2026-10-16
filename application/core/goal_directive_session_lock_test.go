@@ -21,14 +21,14 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/Seele/session"
+	"github.com/RedHuang-0622/Seele/types"
+	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
+	"github.com/RedHuang-0622/seelex/contract"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/Seele/session"
-	"github.com/RedHuang-0622/Seele/types"
-	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
 )
 
 // sessionLockEngine 按 Seele v0.3.1 的锁语义假装成 session.Session：
@@ -39,7 +39,7 @@ type sessionLockEngine struct {
 	*fakeEngine
 
 	mu      sync.Mutex
-	history []EngineMessage
+	history []contract.EngineMessage
 
 	hooks   *session.LoopHooks
 	started chan struct{}
@@ -78,7 +78,7 @@ func (engine *sessionLockEngine) ChatStream(ctx context.Context, input string, o
 			return "", nil
 		}
 	}
-	engine.history = append(engine.history, EngineMessage{Role: "user", Content: input, ContentSet: true})
+	engine.history = append(engine.history, contract.EngineMessage{Role: "user", Content: input, ContentSet: true})
 	return "answer", nil
 }
 
@@ -86,13 +86,13 @@ func (engine *sessionLockEngine) ChatStreamFor(sessionID string, ctx context.Con
 	return engine.ChatStream(ctx, input, onChunk)
 }
 
-func (engine *sessionLockEngine) History() []EngineMessage {
+func (engine *sessionLockEngine) History() []contract.EngineMessage {
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
-	return append([]EngineMessage(nil), engine.history...)
+	return append([]contract.EngineMessage(nil), engine.history...)
 }
 
-func (engine *sessionLockEngine) HistoryFor(string) []EngineMessage { return engine.History() }
+func (engine *sessionLockEngine) HistoryFor(string) []contract.EngineMessage { return engine.History() }
 
 func (engine *sessionLockEngine) AppendHistory(msg types.Message) {
 	engine.mu.Lock()
@@ -101,7 +101,7 @@ func (engine *sessionLockEngine) AppendHistory(msg types.Message) {
 	if msg.Content != nil {
 		content = *msg.Content
 	}
-	engine.history = append(engine.history, EngineMessage{Role: msg.Role, Content: content, ContentSet: true})
+	engine.history = append(engine.history, contract.EngineMessage{Role: msg.Role, Content: content, ContentSet: true})
 }
 
 func (engine *sessionLockEngine) AppendHistoryFor(_ string, msg types.Message) {
@@ -116,14 +116,14 @@ func (engine *sessionLockEngine) ClearHistory() {
 
 func (engine *sessionLockEngine) ClearHistoryFor(string) { engine.ClearHistory() }
 
-func (engine *sessionLockEngine) ReplaceHistory(sessionID string, history []EngineMessage) error {
+func (engine *sessionLockEngine) ReplaceHistory(sessionID string, history []contract.EngineMessage) error {
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
-	engine.history = append([]EngineMessage(nil), history...)
+	engine.history = append([]contract.EngineMessage(nil), history...)
 	return nil
 }
 
-func (engine *sessionLockEngine) ReplaceHistoryFor(sessionID string, history []EngineMessage) error {
+func (engine *sessionLockEngine) ReplaceHistoryFor(sessionID string, history []contract.EngineMessage) error {
 	return engine.ReplaceHistory(sessionID, history)
 }
 

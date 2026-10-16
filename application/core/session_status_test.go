@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"sync"
 	"testing"
 	"time"
@@ -12,23 +13,23 @@ import (
 type liveCatalogSessions struct {
 	fakeSessions
 	mu    sync.Mutex
-	infos []SessionInfo
+	infos []model.SessionInfo
 }
 
-func (sessions *liveCatalogSessions) SessionsOf(string) []SessionInfo {
+func (sessions *liveCatalogSessions) SessionsOf(string) []model.SessionInfo {
 	sessions.mu.Lock()
 	defer sessions.mu.Unlock()
-	return append([]SessionInfo(nil), sessions.infos...)
+	return append([]model.SessionInfo(nil), sessions.infos...)
 }
 
-func (sessions *liveCatalogSessions) setInfos(infos []SessionInfo) {
+func (sessions *liveCatalogSessions) setInfos(infos []model.SessionInfo) {
 	sessions.mu.Lock()
-	sessions.infos = append([]SessionInfo(nil), infos...)
+	sessions.infos = append([]model.SessionInfo(nil), infos...)
 	sessions.mu.Unlock()
 }
 
 // catalogStatusOf 返回会话在 Snapshot 目录中的可见状态（等待目录刷新）。
-func catalogStatusOf(t *testing.T, service *Service, sessionID string) SessionStatus {
+func catalogStatusOf(t *testing.T, service *Service, sessionID string) model.SessionStatus {
 	t.Helper()
 	service.components.sessions.RequestCatalogRefresh()
 	deadline := time.Now().Add(3 * time.Second)
@@ -61,7 +62,7 @@ func TestSessionStatusReflectsRunningWhileChatActive(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("session A did not start")
 	}
-	sessions.setInfos([]SessionInfo{{ID: sessionID}})
+	sessions.setInfos([]model.SessionInfo{{ID: sessionID}})
 	if got := catalogStatusOf(t, service, sessionID); got != SessionStatusRunning {
 		t.Fatalf("status while running = %q, want running", got)
 	}
@@ -70,7 +71,7 @@ func TestSessionStatusReflectsRunningWhileChatActive(t *testing.T) {
 	if err := service.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
-	sessions.setInfos([]SessionInfo{{ID: sessionID}})
+	sessions.setInfos([]model.SessionInfo{{ID: sessionID}})
 	if got := catalogStatusOf(t, service, sessionID); got != SessionStatusIdle {
 		t.Fatalf("status after completion = %q, want idle", got)
 	}
@@ -93,7 +94,7 @@ func TestSwitchToRunningSessionPreservesState(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("session A did not start")
 	}
-	sessions.setInfos([]SessionInfo{{ID: aID}})
+	sessions.setInfos([]model.SessionInfo{{ID: aID}})
 	historyBefore := engine.HistoryFor(aID)
 
 	// 切到空闲 B（A 继续后台运行）。
@@ -133,7 +134,7 @@ func TestSwitchToRunningSessionPreservesState(t *testing.T) {
 	if err := service.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
-	sessions.setInfos([]SessionInfo{{ID: aID}})
+	sessions.setInfos([]model.SessionInfo{{ID: aID}})
 	if got := catalogStatusOf(t, service, aID); got != SessionStatusIdle {
 		t.Fatalf("A status after completion = %q, want idle", got)
 	}

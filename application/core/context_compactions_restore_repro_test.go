@@ -29,7 +29,11 @@ package core
 // `SaveSessionRecordWorkspace` / `LoadSessionRecord` 承载 record，与生产
 // store 的 record 通道同形。
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+)
 
 const restartCompactionRequestID = "task-restart-compaction"
 
@@ -37,7 +41,7 @@ const restartCompactionRequestID = "task-restart-compaction"
 // 会话里跑出 4 个已定稿轮次（上下文压力越软阈值）、显式压缩一次（记录进状态、
 // 进快照、并按会话落盘），session 的事件流与 record 都留在 store 上。返回的
 // retained 是压缩推前后的保留窗口起点（重启前的事实）。
-func compactedSessionStore(t *testing.T) (*archiveSessions, string, ContextCompaction, int) {
+func compactedSessionStore(t *testing.T) (*archiveSessions, string, model.ContextCompaction, int) {
 	t.Helper()
 	store := &archiveSessions{}
 	first := newTestService(t, &fakeEngine{},
@@ -45,8 +49,8 @@ func compactedSessionStore(t *testing.T) (*archiveSessions, string, ContextCompa
 		withTestRuntime(runtimeWithContextLimits{fakeRuntime: &fakeRuntime{}, window: 200_000, output: 8_192}),
 	)
 	first.ViewMu.Lock()
-	first.Core.Snapshot.Chat = ChatState{Running: true, RequestID: restartCompactionRequestID}
-	first.components.tasks.BeginTask(restartCompactionRequestID, "inspect", "high", nil, TaskCheckpoint{})
+	first.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: restartCompactionRequestID}
+	first.components.tasks.BeginTask(restartCompactionRequestID, "inspect", "high", nil, model.TaskCheckpoint{})
 	first.ViewMu.Unlock()
 	sessionID := first.Snapshot().Session.ID
 	if sessionID == "" {
@@ -65,10 +69,10 @@ func compactedSessionStore(t *testing.T) (*archiveSessions, string, ContextCompa
 	first.ViewMu.RLock()
 	state := first.components.tasks.CurrentTaskExecutionFor(sessionID)
 	var retained int
-	var transcript []TranscriptEvent
+	var transcript []model.TranscriptEvent
 	if state != nil {
 		retained = state.ContextRetainedFrom
-		transcript = append([]TranscriptEvent(nil), first.components.tasks.TranscriptFor(sessionID)...)
+		transcript = append([]model.TranscriptEvent(nil), first.components.tasks.TranscriptFor(sessionID)...)
 	}
 	first.ViewMu.RUnlock()
 	if state == nil || len(state.ContextCompactions) != 1 {

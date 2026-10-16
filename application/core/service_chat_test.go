@@ -3,14 +3,14 @@ package core
 import (
 	"context"
 	"errors"
-	"strings"
-	"testing"
-	"time"
-
 	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	selexsession "github.com/RedHuang-0622/seelex/session"
+	"strings"
+	"testing"
+	"time"
 )
 
 func TestReActBudgetStopsOnlyAfterItsToolBudget(t *testing.T) {
@@ -38,8 +38,8 @@ func TestReActBudgetStopsOnlyAfterItsToolBudget(t *testing.T) {
 
 func TestReActBudgetUsesReservedFinalDeliveryTurn(t *testing.T) {
 	rawResult := strings.Repeat("oversized-result", task_context.DefaultToolResultLimit())
-	engine := &fakeEngine{history: []EngineMessage{
-		{Role: "assistant", ToolCalls: []EngineToolCall{{ID: "call-large", Name: "bash"}}},
+	engine := &fakeEngine{history: []contract.EngineMessage{
+		{Role: "assistant", ToolCalls: []contract.EngineToolCall{{ID: "call-large", Name: "bash"}}},
 		{Role: "tool", ToolCallID: "call-large", Name: "bash", Content: rawResult, ContentSet: true},
 	}}
 	service := newTestService(t, engine)
@@ -47,8 +47,8 @@ func TestReActBudgetUsesReservedFinalDeliveryTurn(t *testing.T) {
 	service.ViewMu.Lock()
 	service.components.tasks.StartReActBudgetLocked("budget-request", ReActBudget{MaxToolRounds: 1})
 	service.components.tasks.SetReActBudgetExhaustedLocked("budget-request", "tool-round limit reached (1)")
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "budget-request"}
-	service.components.tasks.BeginTask("budget-request", "deliver result", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "budget-request"}
+	service.components.tasks.BeginTask("budget-request", "deliver result", "high", nil, model.TaskCheckpoint{})
 	stored := service.components.tasks.StoreToolResultLocked("bash", rawResult)
 	service.components.tasks.SetResultRefByCallIDLocked("call-large", stored.Ref)
 	service.ViewMu.Unlock()
@@ -62,7 +62,7 @@ func TestReActBudgetUsesReservedFinalDeliveryTurn(t *testing.T) {
 		}
 	}
 	engine.mu.Lock()
-	prepared := append([]EngineMessage(nil), engine.historyBeforeChat...)
+	prepared := append([]contract.EngineMessage(nil), engine.historyBeforeChat...)
 	engine.mu.Unlock()
 	for _, message := range prepared {
 		if strings.Contains(message.Content, "oversized-result") {
@@ -74,8 +74,8 @@ func TestReActBudgetUsesReservedFinalDeliveryTurn(t *testing.T) {
 func TestRuntimeMailboxDrainedAndDiscarded(t *testing.T) {
 	engine := &fakeEngine{}
 	runtime := &fakeRuntime{mailbox: []string{"child conclusion"}}
-	service := mustNew(t, Dependencies{
-		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	service := mustNew(t, contract.Dependencies{
+		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: fakeSessions{},
 	})
 	defer service.Shutdown()

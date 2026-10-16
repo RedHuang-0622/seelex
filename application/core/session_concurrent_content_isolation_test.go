@@ -15,14 +15,14 @@ package core
 
 import (
 	"context"
-	"strings"
-	"testing"
-	"time"
-
 	seelesession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/backend/engine/react"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	selexsession "github.com/RedHuang-0622/seelex/session"
+	"strings"
+	"testing"
+	"time"
 )
 
 func TestConcurrentSessionsKeepOwnContent(t *testing.T) {
@@ -42,10 +42,10 @@ func TestConcurrentSessionsKeepOwnContent(t *testing.T) {
 
 	service.ViewMu.Lock()
 	// 活跃视图 = B（前台），A 在后台并发运行。
-	service.Core.Snapshot.Session = SessionState{ID: "session-b"}
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "req-b"}
+	service.Core.Snapshot.Session = model.SessionState{ID: "session-b"}
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "req-b"}
 	for _, item := range cases {
-		service.components.tasks.BeginTaskFor(item.session, item.request, "并发会话 "+item.marker, "high", nil, TaskCheckpoint{})
+		service.components.tasks.BeginTaskFor(item.session, item.request, "并发会话 "+item.marker, "high", nil, model.TaskCheckpoint{})
 		// 每轮开头的可见占位（生产 startChatFor 语义）：assistant 占位承载
 		// 本轮流式正文。
 		service.appendSessionMessageLocked(item.session, "assistant", "", nil)
@@ -53,7 +53,7 @@ func TestConcurrentSessionsKeepOwnContent(t *testing.T) {
 	service.ViewMu.Unlock()
 	for _, item := range cases {
 		unit := service.sessionUnitLocked(item.session)
-		unit.SetChatState(ChatState{Running: true, RequestID: item.request, StartedAt: time.Now()}, nil)
+		unit.SetChatState(model.ChatState{Running: true, RequestID: item.request, StartedAt: time.Now()}, nil)
 		unit.SetStream(chat.NewVisibleOutputStream(item.request))
 	}
 
@@ -124,7 +124,7 @@ func TestConcurrentSessionsKeepOwnContent(t *testing.T) {
 }
 
 // concurrentTranscriptText 把 transcript 拼成可搜索文本（角色 + 正文 + 调用 ID）。
-func concurrentTranscriptText(events []TranscriptEvent) string {
+func concurrentTranscriptText(events []model.TranscriptEvent) string {
 	var builder strings.Builder
 	for _, event := range events {
 		builder.WriteString(event.Role)

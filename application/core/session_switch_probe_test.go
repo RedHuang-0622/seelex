@@ -2,6 +2,8 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"sync"
 	"testing"
 	"time"
@@ -26,7 +28,7 @@ func switchDuringInFlightChat(t *testing.T, label string) {
 	waitChatStarted(t, engine.started[aID])
 
 	engine.register("sess-b")
-	sessions.setInfos([]SessionInfo{{ID: aID}, {ID: "sess-b"}})
+	sessions.setInfos([]model.SessionInfo{{ID: aID}, {ID: "sess-b"}})
 
 	start := time.Now()
 	if err := service.ResumeSession("sess-b"); err != nil {
@@ -76,14 +78,14 @@ func (sessions *gatedHistorySessions) releaseNow() {
 	sessions.releaseOnce.Do(func() { close(sessions.release) })
 }
 
-func (sessions *gatedHistorySessions) LoadHistory(sessionID string) ([]EngineMessage, error) {
+func (sessions *gatedHistorySessions) LoadHistory(sessionID string) ([]contract.EngineMessage, error) {
 	if !sessions.gateEnabled(sessionID) {
 		return sessions.scopedSessions.LoadHistory(sessionID)
 	}
 	return sessions.scopedSessions.LoadHistory(sessionID)
 }
 
-func (sessions *gatedHistorySessions) LoadHistoryRange(sessionID string, offset, limit int) ([]EngineMessage, int, error) {
+func (sessions *gatedHistorySessions) LoadHistoryRange(sessionID string, offset, limit int) ([]contract.EngineMessage, int, error) {
 	if !sessions.gateEnabled(sessionID) {
 		return sessions.scopedSessions.LoadHistoryRange(sessionID, offset, limit)
 	}
@@ -116,13 +118,13 @@ func TestSwitchDuringColdLoadSerializes(t *testing.T) {
 	now := time.Now()
 	gated := &gatedHistorySessions{
 		scopedSessions: &scopedSessions{
-			catalog: map[string][]SessionInfo{
+			catalog: map[string][]model.SessionInfo{
 				"": {
 					{ID: "sess-cold", UpdatedAt: now},
 					{ID: "sess-b", UpdatedAt: now},
 				},
 			},
-			histories: map[string]map[string][]EngineMessage{
+			histories: map[string]map[string][]contract.EngineMessage{
 				"": {
 					"sess-cold": {{Role: "user", Content: "cold content"}},
 					"sess-b":    {{Role: "user", Content: "b content"}},
@@ -210,13 +212,13 @@ func TestSwitchDuringColdLoadSerializes(t *testing.T) {
 func TestBeginNewSessionSingleDraftOwner(t *testing.T) {
 	now := time.Now()
 	sessions := &scopedSessions{
-		catalog: map[string][]SessionInfo{
+		catalog: map[string][]model.SessionInfo{
 			"": {
 				{ID: "draft-old", Status: SessionStatusDraft, UpdatedAt: now.Add(-time.Hour)},
 				{ID: "draft-current", Status: SessionStatusDraft, UpdatedAt: now},
 			},
 		},
-		histories: map[string]map[string][]EngineMessage{
+		histories: map[string]map[string][]contract.EngineMessage{
 			"": {"draft-old": nil, "draft-current": nil},
 		},
 	}
@@ -225,7 +227,7 @@ func TestBeginNewSessionSingleDraftOwner(t *testing.T) {
 
 	service.ViewMu.Lock()
 	service.draft = &draftSlot{ID: "draft-current", CreatedAt: now, UpdatedAt: now}
-	service.Core.Snapshot.Session = SessionState{ID: "draft-current", Draft: true, Status: SessionStatusDraft}
+	service.Core.Snapshot.Session = model.SessionState{ID: "draft-current", Draft: true, Status: SessionStatusDraft}
 	service.sessions.SetActive("draft-current")
 	service.ViewMu.Unlock()
 

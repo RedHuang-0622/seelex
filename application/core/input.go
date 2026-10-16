@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 )
 
@@ -97,7 +98,7 @@ func (service *Service) endSkill() error {
 	return nil
 }
 
-func (service *Service) activateSkillAndSubmit(ctx context.Context, skill SkillInfo, args []string, input string) error {
+func (service *Service) activateSkillAndSubmit(ctx context.Context, skill model.SkillInfo, args []string, input string) error {
 	service.prepareCompletedTaskBoundary()
 	service.applySkill(skill)
 	if len(args) == 0 {
@@ -123,7 +124,7 @@ func (service *Service) prepareCompletedTaskBoundary() {
 	}
 }
 
-func (service *Service) applySkill(skill SkillInfo) {
+func (service *Service) applySkill(skill model.SkillInfo) {
 	service.promptStack.Push("skill", skill.Name, skill.Prompt)
 	// goal skill 不受 MaxLoops 限制（设大值模拟无上限）
 	if skill.Name == "goal" {

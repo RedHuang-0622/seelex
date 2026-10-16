@@ -2,11 +2,11 @@ package core
 
 import (
 	"encoding/json"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 )
 
 // plan 行的工作表格「依赖」列：plan_load 产出的是**平铺节点表 + 边集**
@@ -15,9 +15,9 @@ import (
 
 // TestWorkTablePlanRowsCarryDAGDependencies 投影面：平铺节点 + 边集 → 行依赖。
 func TestWorkTablePlanRowsCarryDAGDependencies(t *testing.T) {
-	plan := &PlanState{
+	plan := &model.PlanState{
 		Status: PlanRunning,
-		Nodes: []PlanNode{
+		Nodes: []model.PlanNode{
 			{ID: "inspect", Label: "inspect", Status: NodeCompleted},
 			{ID: "implement", Label: "implement", Status: NodeRunning},
 			{ID: "verify", Label: "verify", Status: NodePending},
@@ -36,7 +36,7 @@ func TestWorkTablePlanRowsCarryDAGDependencies(t *testing.T) {
 		{ID: "plan:verify", Key: "plan:verify", Phase: "plan", Task: "verify", Kind: "plan", SourceID: "verify"},
 	}
 	rows := worktable.BuildWorkTable(plan, tasks, nil, nil, workTableBounds())
-	byID := map[string]WorkItem{}
+	byID := map[string]model.WorkItem{}
 	for _, row := range rows {
 		byID[row.ID] = row
 	}
@@ -56,9 +56,9 @@ func TestWorkTablePlanRowsCarryDAGDependencies(t *testing.T) {
 // 同步 → 工作表格行带出依赖（用户看到的「依赖」列不再恒为空）。
 func TestServicePlanSyncExposesDAGDependencies(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	service.Core.Snapshot.Runtime.Plan = &PlanState{
+	service.Core.Snapshot.Runtime.Plan = &model.PlanState{
 		Status: PlanRunning,
-		Nodes: []PlanNode{
+		Nodes: []model.PlanNode{
 			{ID: "n1", Label: "inspect", Status: NodeCompleted},
 			{ID: "n2", Label: "implement", Status: NodeRunning},
 			{ID: "n3", Label: "verify", Status: NodePending},
@@ -67,7 +67,7 @@ func TestServicePlanSyncExposesDAGDependencies(t *testing.T) {
 	}
 	service.refreshWorkTableFromSources()
 
-	byID := map[string]WorkItem{}
+	byID := map[string]model.WorkItem{}
 	for _, row := range service.Snapshot().Runtime.WorkTable {
 		byID[row.ID] = row
 	}
@@ -87,9 +87,9 @@ func TestServicePlanSyncExposesDAGDependencies(t *testing.T) {
 func TestTaskChangedIncrementCarriesPlanDependencies(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	sessionID := service.Snapshot().Session.ID
-	service.Core.Snapshot.Runtime.Plan = &PlanState{
+	service.Core.Snapshot.Runtime.Plan = &model.PlanState{
 		Status: PlanRunning,
-		Nodes: []PlanNode{
+		Nodes: []model.PlanNode{
 			{ID: "n1", Label: "inspect", Status: NodeCompleted},
 			{ID: "n2", Label: "implement", Status: NodeRunning},
 		},
@@ -110,7 +110,7 @@ func TestTaskChangedIncrementCarriesPlanDependencies(t *testing.T) {
 			if event.Kind != EventTaskChanged {
 				continue
 			}
-			var payload TaskChangedEvent
+			var payload model.TaskChangedEvent
 			if err := json.Unmarshal(event.Payload, &payload); err != nil {
 				t.Fatalf("decode task.changed: %v", err)
 			}

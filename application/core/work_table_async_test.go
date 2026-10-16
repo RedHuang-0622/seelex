@@ -11,12 +11,12 @@ package core
 
 import (
 	"fmt"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 )
 
 func runningAsyncRecord(handle string) dto.AsyncRunRecord {
@@ -30,13 +30,13 @@ func runningAsyncRecord(handle string) dto.AsyncRunRecord {
 	}
 }
 
-func workItemByID(rows []WorkItem, id string) (WorkItem, bool) {
+func workItemByID(rows []model.WorkItem, id string) (model.WorkItem, bool) {
 	for _, row := range rows {
 		if row.ID == id {
 			return row, true
 		}
 	}
-	return WorkItem{}, false
+	return model.WorkItem{}, false
 }
 
 // 列位分配：描述→行标题、指令→描述列、探针读数→打点行、日志路径→附件列。
@@ -351,7 +351,7 @@ func TestAsyncBackfillStaysBounded(t *testing.T) {
 	}
 }
 
-func serviceWorkTableRows(service *Service) []WorkItem {
+func serviceWorkTableRows(service *Service) []model.WorkItem {
 	service.ViewMu.RLock()
 	defer service.ViewMu.RUnlock()
 	return CloneWorkItems(service.Core.Snapshot.Runtime.WorkTable)

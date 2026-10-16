@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/RedHuang-0622/seelex/backend/engine/context"
 	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 	"testing"
 )
@@ -19,7 +20,7 @@ func TestNonEmptyProviderInputExplainsEmptySubmission(t *testing.T) {
 }
 
 func TestPrepareProviderHistoryRepairsBeforeChat(t *testing.T) {
-	engine := &fakeEngine{history: []EngineMessage{{Role: "assistant", Content: ""}}}
+	engine := &fakeEngine{history: []contract.EngineMessage{{Role: "assistant", Content: ""}}}
 	service := newTestService(t, engine)
 	defer service.Shutdown()
 	if err := service.components.history.PrepareProviderHistory(); err != nil {
@@ -32,16 +33,16 @@ func TestPrepareProviderHistoryRepairsBeforeChat(t *testing.T) {
 }
 
 func TestRecoverProviderContextReplacesRejectedTranscriptWithPrivateCheckpoint(t *testing.T) {
-	engine := &fakeEngine{history: []EngineMessage{
+	engine := &fakeEngine{history: []contract.EngineMessage{
 		{Role: "system", Content: "private system instruction", ContentSet: true},
 		{Role: "user", Content: "original request", ContentSet: true},
-		{Role: "assistant", ToolCalls: []EngineToolCall{{ID: "call-1", Name: "bash", Arguments: `{"command":"Get-ChildItem"}`}}},
+		{Role: "assistant", ToolCalls: []contract.EngineToolCall{{ID: "call-1", Name: "bash", Arguments: `{"command":"Get-ChildItem"}`}}},
 		{Role: "tool", ToolCallID: "call-1", Name: "bash", Content: "raw command output that must not survive", ContentSet: true},
 	}}
 	service := newTestService(t, engine)
 	defer service.Shutdown()
 	service.ViewMu.Lock()
-	service.components.tasks.BeginTask("task-1", "audit the repository", "high", nil, TaskCheckpoint{})
+	service.components.tasks.BeginTask("task-1", "audit the repository", "high", nil, model.TaskCheckpoint{})
 	service.components.tasks.CurrentTaskExecution().Checkpoint("inspect", "inspect source", "completed", "found the call path", "")
 	service.ViewMu.Unlock()
 
@@ -69,7 +70,7 @@ func TestRecoverProviderContextReplacesRejectedTranscriptWithPrivateCheckpoint(t
 }
 
 func TestRecoverProviderContextIgnoresOtherProviderErrors(t *testing.T) {
-	engine := &fakeEngine{history: []EngineMessage{{Role: "user", Content: "keep me", ContentSet: true}}}
+	engine := &fakeEngine{history: []contract.EngineMessage{{Role: "user", Content: "keep me", ContentSet: true}}}
 	service := newTestService(t, engine)
 	defer service.Shutdown()
 	if err := service.recoverProviderContext(errors.New("HTTP 504 upstream timeout"), "new request"); err != nil {
@@ -81,7 +82,7 @@ func TestRecoverProviderContextIgnoresOtherProviderErrors(t *testing.T) {
 }
 
 func TestRecoverProviderTimeoutCreatesPrivateResumeCheckpoint(t *testing.T) {
-	engine := &fakeEngine{history: []EngineMessage{
+	engine := &fakeEngine{history: []contract.EngineMessage{
 		{Role: "system", Content: "private system instruction", ContentSet: true},
 		{Role: "user", Content: "audit source", ContentSet: true},
 		{Role: "tool", Name: "bash", Content: "raw output that must not survive", ContentSet: true},
@@ -89,8 +90,8 @@ func TestRecoverProviderTimeoutCreatesPrivateResumeCheckpoint(t *testing.T) {
 	service := newTestService(t, engine)
 	defer service.Shutdown()
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
-	service.components.tasks.BeginTask("task-1", "audit source", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "audit source", "high", nil, model.TaskCheckpoint{})
 	service.components.tasks.CurrentTaskExecution().Checkpoint("inspect", "source", "completed", "found a call path", "")
 	service.ViewMu.Unlock()
 
@@ -136,7 +137,7 @@ func TestContextExhaustionPersistsInterruptedProjectionAfterBoundedRetryFails(t 
 	}
 }
 
-func containsRecoveryHistory(history []EngineMessage, prefix string) bool {
+func containsRecoveryHistory(history []contract.EngineMessage, prefix string) bool {
 	for _, message := range history {
 		if strings.HasPrefix(message.Content, prefix) {
 			return true
@@ -187,7 +188,7 @@ func TestEmptyProviderContentRejectionResumesFromBoundedCheckpoint(t *testing.T)
 
 	engine.mu.Lock()
 	inputs := append([]string(nil), engine.chatInputs...)
-	resent := append([]EngineMessage(nil), engine.historyBeforeChat...)
+	resent := append([]contract.EngineMessage(nil), engine.historyBeforeChat...)
 	engine.mu.Unlock()
 	if len(inputs) != 2 {
 		t.Fatalf("provider calls = %d, want 2 (original + bounded recovery turn)", len(inputs))
@@ -219,14 +220,14 @@ func TestNonRecoverableProviderFailureMarksTaskFailed(t *testing.T) {
 }
 
 func TestIterationRepairsNewlyAddedEmptyToolHistory(t *testing.T) {
-	engine := &fakeEngine{history: []EngineMessage{{
-		Role: "assistant", ToolCalls: []EngineToolCall{{ID: "call-1", Name: "plan_load", Arguments: `{}`}},
+	engine := &fakeEngine{history: []contract.EngineMessage{{
+		Role: "assistant", ToolCalls: []contract.EngineToolCall{{ID: "call-1", Name: "plan_load", Arguments: `{}`}},
 	}}}
 	service := newTestService(t, engine)
 	defer service.Shutdown()
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
-	service.components.tasks.BeginTask("task-1", "load a plan", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "load a plan", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 
 	bridge := NewToolHookBridge()
@@ -341,7 +342,7 @@ func TestHistoryProtocolFailureResumesInsteadOfKillingTheSession(t *testing.T) {
 	}
 	engine.mu.Lock()
 	inputs := append([]string(nil), engine.chatInputs...)
-	resent := append([]EngineMessage(nil), engine.historyBeforeChat...)
+	resent := append([]contract.EngineMessage(nil), engine.historyBeforeChat...)
 	engine.mu.Unlock()
 	if len(inputs) != 2 {
 		t.Fatalf("provider calls = %d, want 2 (original + bounded recovery turn)", len(inputs))

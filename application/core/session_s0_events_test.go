@@ -3,11 +3,11 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/session"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/session"
 )
 
 // s0ChunkEngine 在 multiSessionEngine 上于 ChatStream 起点发射一段带会话
@@ -184,7 +184,7 @@ func TestS0SwitchResyncsBaseline(t *testing.T) {
 	}
 }
 
-func conversationTexts(messages []Message) []string {
+func conversationTexts(messages []model.Message) []string {
 	texts := make([]string, 0, len(messages))
 	for _, message := range messages {
 		texts = append(texts, message.Content)

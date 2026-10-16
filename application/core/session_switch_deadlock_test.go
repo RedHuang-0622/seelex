@@ -6,6 +6,7 @@ package core
 import (
 	"context"
 	"errors"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"runtime"
 	"strings"
 	"testing"
@@ -204,7 +205,7 @@ func TestDraftSlotRetainedAcrossSwitchRepro(t *testing.T) {
 	if snap := service.Snapshot(); !snap.Session.Draft || snap.Session.Status != SessionStatusDraft {
 		t.Fatalf("draft session = %+v", snap.Session)
 	}
-	hasDraftRow := func(snapshot Snapshot) bool {
+	hasDraftRow := func(snapshot model.Snapshot) bool {
 		for _, item := range snapshot.Sessions {
 			if item.ID != "" && item.Status == SessionStatusDraft {
 				return true

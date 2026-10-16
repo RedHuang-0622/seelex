@@ -2,14 +2,15 @@ package core
 
 import (
 	"encoding/base64"
+	"github.com/RedHuang-0622/seelex/backend/engine/context"
+	"github.com/RedHuang-0622/seelex/backend/engine/session"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/residency"
+	"github.com/RedHuang-0622/seelex/session"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/backend/engine/context"
-	"github.com/RedHuang-0622/seelex/backend/engine/session"
-	"github.com/RedHuang-0622/seelex/session"
 )
 
 // inputIndexService 用「durable 消息 + record + conversation 窗口读」的仿真
@@ -17,10 +18,10 @@ import (
 // 两条通道索引空间一致，正好验证"全量索引 = 整会话用户输入"。
 func inputIndexService(t *testing.T, store *pagedSessionStore) *Service {
 	t.Helper()
-	service := mustNew(t, Dependencies{
+	service := mustNew(t, contract.Dependencies{
 		Engine:    &fakeEngine{},
 		Runtime:   &fakeRuntime{},
-		Plugins:   &fakePlugins{current: PluginInfo{Name: "default"}},
+		Plugins:   &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills:    fakeSkills{},
 		Sessions:  store,
 		Workspace: newFakeWorkspace(),
@@ -30,11 +31,11 @@ func inputIndexService(t *testing.T, store *pagedSessionStore) *Service {
 }
 
 // setLoadedWindow 模拟"前端只加载了尾部一窗"：把可见窗口锚定在 [start,end)。
-func setLoadedWindow(t *testing.T, service *Service, sessionID string, start, end int, messages []Message) {
+func setLoadedWindow(t *testing.T, service *Service, sessionID string, start, end int, messages []model.Message) {
 	t.Helper()
 	service.ViewMu.Lock()
 	service.components.view.SessionViewMutateLocked(sessionID, func(view *session.View) {
-		view.Conversation = append([]Message(nil), messages[start:end]...)
+		view.Conversation = append([]model.Message(nil), messages[start:end]...)
 		view.TotalMessages = len(messages)
 		view.HistoryOffset = start
 		view.HasMoreHistory = start > 0
@@ -137,8 +138,8 @@ func TestSessionInputIndexTruncatesSummary(t *testing.T) {
 	store := newPagedSessionStore("summary-session", 0)
 	long := strings.Repeat("长", residency.InputIndexSummaryLimit+140)
 	store.setPublished(
-		Message{ID: "m1", Role: "user", Content: long, CreatedAt: time.Now()},
-		Message{ID: "m2", Role: "assistant", Content: "回答", CreatedAt: time.Now()},
+		model.Message{ID: "m1", Role: "user", Content: long, CreatedAt: time.Now()},
+		model.Message{ID: "m2", Role: "assistant", Content: "回答", CreatedAt: time.Now()},
 	)
 	service := inputIndexService(t, store)
 
@@ -172,16 +173,16 @@ func TestSessionInputIndexSkipsNonUserAndInternalRows(t *testing.T) {
 		base64.RawURLEncoding.EncodeToString([]byte(display)) +
 		skillContextEnvelopeSuffix + "\n内部材料正文（不应出现在摘要里）"
 	store.setPublished(
-		Message{ID: "m1", Role: "user", Content: "真正的输入", CreatedAt: time.Now()},
-		Message{ID: "m2", Role: "assistant", Content: "回答", CreatedAt: time.Now()},
-		Message{ID: "m3", Role: "tool", Content: "工具调用", CreatedAt: time.Now()},
-		Message{ID: "m4", Role: "tool_result", Content: "工具结果", CreatedAt: time.Now()},
-		Message{ID: "m5", Role: "system", Content: "系统行", CreatedAt: time.Now()},
-		Message{ID: "m6", Role: "user", Content: context_runtime.TaskContextCheckpointPrefix + "\n内部检查点", CreatedAt: time.Now()},
-		Message{ID: "m7", Role: "user", Content: session_runtime.SessionArchiveResumePrefix + "\n恢复摘要", CreatedAt: time.Now()},
-		Message{ID: "m8", Role: "user", Content: "   \n  ", CreatedAt: time.Now()},
-		Message{ID: "m9", Role: "user", Content: envelope, CreatedAt: time.Now()},
-		Message{ID: "m10", Role: "user", Content: "第二条真输入", CreatedAt: time.Now()},
+		model.Message{ID: "m1", Role: "user", Content: "真正的输入", CreatedAt: time.Now()},
+		model.Message{ID: "m2", Role: "assistant", Content: "回答", CreatedAt: time.Now()},
+		model.Message{ID: "m3", Role: "tool", Content: "工具调用", CreatedAt: time.Now()},
+		model.Message{ID: "m4", Role: "tool_result", Content: "工具结果", CreatedAt: time.Now()},
+		model.Message{ID: "m5", Role: "system", Content: "系统行", CreatedAt: time.Now()},
+		model.Message{ID: "m6", Role: "user", Content: context_runtime.TaskContextCheckpointPrefix + "\n内部检查点", CreatedAt: time.Now()},
+		model.Message{ID: "m7", Role: "user", Content: session_runtime.SessionArchiveResumePrefix + "\n恢复摘要", CreatedAt: time.Now()},
+		model.Message{ID: "m8", Role: "user", Content: "   \n  ", CreatedAt: time.Now()},
+		model.Message{ID: "m9", Role: "user", Content: envelope, CreatedAt: time.Now()},
+		model.Message{ID: "m10", Role: "user", Content: "第二条真输入", CreatedAt: time.Now()},
 	)
 	service := inputIndexService(t, store)
 

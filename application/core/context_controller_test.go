@@ -4,6 +4,7 @@ import (
 	"errors"
 	"github.com/RedHuang-0622/seelex/backend/engine/context"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"reflect"
 	"strings"
@@ -21,8 +22,8 @@ func (runtime runtimeWithContextLimits) MaxOutputTokens() int { return runtime.o
 
 func TestRejectToolResultsPreservesPairingWithoutPreview(t *testing.T) {
 	const rawOutput = "secret source detail"
-	history := []EngineMessage{
-		{Role: "assistant", ToolCalls: []EngineToolCall{{ID: "call-1", Name: "read_file", Arguments: `{"path":"source.txt"}`}}},
+	history := []contract.EngineMessage{
+		{Role: "assistant", ToolCalls: []contract.EngineToolCall{{ID: "call-1", Name: "read_file", Arguments: `{"path":"source.txt"}`}}},
 		{Role: "tool", ToolCallID: "call-1", Name: "read_file", Content: strings.Repeat(rawOutput, 300), ContentSet: true},
 	}
 
@@ -48,8 +49,8 @@ func TestPrepareExecutionContextCountsActiveSystemPrompt(t *testing.T) {
 	budget := task_context.DefaultContextBudget()
 	service.promptStack.Push("base", "oversized-system", strings.Repeat("s", budget.Budget*3))
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
-	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 
 	if _, err := service.components.context.PrepareExecutionContext("task-1", "continue"); !errors.Is(err, context_runtime.ErrProviderContextBudgetExceeded) {
@@ -65,8 +66,8 @@ func TestPrepareExecutionContextUsesRuntimeContextLimits(t *testing.T) {
 	legacyBudget := task_context.DefaultContextBudget()
 	service.promptStack.Push("base", "large-system", strings.Repeat("s", legacyBudget.Budget*3))
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
-	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 
 	if _, err := service.components.context.PrepareExecutionContext("task-1", "continue"); err != nil {
@@ -85,18 +86,18 @@ func TestPreparedRequestAutonomouslyCompactsOversizedRounds(t *testing.T) {
 	service := newTestService(t, engine)
 	defer service.Shutdown()
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
-	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, model.TaskCheckpoint{})
 	// 夹具：每个已定稿轮次本身都超过全部预算（小预算兜底账号）。协议单元
 	// 不可拆分、没有可发送的窗口时，装配不再直接拒绝发送（旧行为：静默清空
 	// 历史或报错，见 2026-09-08 上下文恢复评审 §3）——改为自主压缩为有界
 	// checkpoint 帧后继续本轮。
 	for round := 0; round < 8; round++ {
 		callID := "call-" + string(rune('a'+round))
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: "old-task", Role: "user", Content: strings.Repeat("request ", 2500)})
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: "old-task", Role: "assistant", ToolCalls: []TranscriptToolCall{{ID: callID, Name: "read"}}})
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: "old-task", Role: "tool", ToolCallID: callID, Name: "read", Content: strings.Repeat("result ", 2500)})
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: "old-task", Role: "assistant", Content: "round complete"})
+		service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{TaskID: "old-task", Role: "user", Content: strings.Repeat("request ", 2500)})
+		service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{TaskID: "old-task", Role: "assistant", ToolCalls: []model.TranscriptToolCall{{ID: callID, Name: "read"}}})
+		service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{TaskID: "old-task", Role: "tool", ToolCallID: callID, Name: "read", Content: strings.Repeat("result ", 2500)})
+		service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{TaskID: "old-task", Role: "assistant", Content: "round complete"})
 	}
 	service.ViewMu.Unlock()
 
@@ -123,13 +124,13 @@ func TestPrepareExecutionContextOrderAndNoCheckpoint(t *testing.T) {
 	service := newTestService(t, engine)
 	defer service.Shutdown()
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
-	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, model.TaskCheckpoint{})
 	// 已定稿轮次 = 累积 context 源。
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: "task-0", Role: "user", Content: "first request", TokenCount: 2})
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: "task-0", Role: "assistant", Content: "first answer", TokenCount: 2})
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: "task-0", Role: "user", Content: "second request", TokenCount: 2})
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: "task-0", Role: "assistant", Content: "second answer", TokenCount: 2})
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{TaskID: "task-0", Role: "user", Content: "first request", TokenCount: 2})
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{TaskID: "task-0", Role: "assistant", Content: "first answer", TokenCount: 2})
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{TaskID: "task-0", Role: "user", Content: "second request", TokenCount: 2})
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{TaskID: "task-0", Role: "assistant", Content: "second answer", TokenCount: 2})
 	plan := &model.PlanState{
 		Name: "audit", Status: model.PlanRunning,
 		Nodes: []model.PlanNode{{ID: "n1", Label: "inspect", Status: model.NodeRunning}},
@@ -174,12 +175,12 @@ func TestPrepareExecutionContextOrderAndNoCheckpoint(t *testing.T) {
 }
 
 func TestTranscriptTailKeepsInterruptedRoundAndDropsOrphanToolProtocols(t *testing.T) {
-	events := []TranscriptEvent{
+	events := []model.TranscriptEvent{
 		{Seq: 1, Role: "user", Content: "incomplete", TokenCount: 1},
-		{Seq: 2, Role: "assistant", ToolCalls: []TranscriptToolCall{{ID: "a"}, {ID: "b"}}, TokenCount: 1},
+		{Seq: 2, Role: "assistant", ToolCalls: []model.TranscriptToolCall{{ID: "a"}, {ID: "b"}}, TokenCount: 1},
 		{Seq: 3, Role: "tool", ToolCallID: "a", TokenCount: 1},
 		{Seq: 4, Role: "user", Content: "complete", TokenCount: 1},
-		{Seq: 5, Role: "assistant", ToolCalls: []TranscriptToolCall{{ID: "c"}, {ID: "d"}}, TokenCount: 1},
+		{Seq: 5, Role: "assistant", ToolCalls: []model.TranscriptToolCall{{ID: "c"}, {ID: "d"}}, TokenCount: 1},
 		{Seq: 6, Role: "tool", ToolCallID: "d", TokenCount: 1},
 		{Seq: 7, Role: "tool", ToolCallID: "c", TokenCount: 1},
 		{Seq: 8, Role: "assistant", Content: "finished", TokenCount: 1},
@@ -199,7 +200,7 @@ func TestTranscriptTailKeepsInterruptedRoundAndDropsOrphanToolProtocols(t *testi
 }
 
 func TestTranscriptTailKeepsTrailingUnansweredUserInput(t *testing.T) {
-	events := []TranscriptEvent{
+	events := []model.TranscriptEvent{
 		{Seq: 1, Role: "user", Content: "first", TokenCount: 1},
 		{Seq: 2, Role: "assistant", Content: "answer", TokenCount: 1},
 		{Seq: 3, Role: "user", Content: "please continue from the report", TokenCount: 1},
@@ -215,11 +216,11 @@ func TestTranscriptTailKeepsTrailingUnansweredUserInput(t *testing.T) {
 }
 
 func TestTranscriptTailAccumulatesAllSettledRoundsWhenUnlimited(t *testing.T) {
-	events := make([]TranscriptEvent, 0, 16)
+	events := make([]model.TranscriptEvent, 0, 16)
 	for round := 0; round < 8; round++ {
 		events = append(events,
-			TranscriptEvent{Seq: uint64(2*round + 1), TaskID: "task-0", Role: "user", Content: "request", TokenCount: 2},
-			TranscriptEvent{Seq: uint64(2*round + 2), TaskID: "task-0", Role: "assistant", Content: "answer", TokenCount: 2},
+			model.TranscriptEvent{Seq: uint64(2*round + 1), TaskID: "task-0", Role: "user", Content: "request", TokenCount: 2},
+			model.TranscriptEvent{Seq: uint64(2*round + 2), TaskID: "task-0", Role: "assistant", Content: "answer", TokenCount: 2},
 		)
 	}
 	// maxUnits <= 0 = 全量累积（append-only 已定稿轮次，不再 ≤4 轮有界窗口）。
@@ -237,14 +238,14 @@ func TestPrepareExecutionContextAccumulatesAllSettledRoundsAndByteStable(t *test
 	service := newTestService(t, engine)
 	defer service.Shutdown()
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
-	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, model.TaskCheckpoint{})
 	// 8 个已定稿轮次（远超 ContextMaxUnits=4），总 token 在软阈值内。
 	for round := 0; round < 8; round++ {
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 			TaskID: "task-0", Role: "user", Content: "request", TokenCount: 2,
 		})
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 			TaskID: "task-0", Role: "assistant", Content: "answer", TokenCount: 2,
 		})
 	}
@@ -268,7 +269,7 @@ func TestPrepareExecutionContextAccumulatesAllSettledRoundsAndByteStable(t *test
 	}
 }
 
-func historyContents(history []EngineMessage) []string {
+func historyContents(history []contract.EngineMessage) []string {
 	contents := make([]string, 0, len(history))
 	for _, message := range history {
 		contents = append(contents, message.Content)
@@ -277,7 +278,7 @@ func historyContents(history []EngineMessage) []string {
 }
 
 func TestRejectToolResultsRecognizesFrameworkTruncationMarker(t *testing.T) {
-	history := []EngineMessage{{
+	history := []contract.EngineMessage{{
 		Role: "tool", ToolCallID: "call-1", Name: "bash",
 		Content: strings.Repeat("x", 4000) + context_runtime.FrameworkToolOutputTruncatedMarker,
 	}}

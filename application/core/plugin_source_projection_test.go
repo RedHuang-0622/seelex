@@ -12,14 +12,14 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
+	"github.com/RedHuang-0622/seelex/backend/engine/skill"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/wiring/adapters"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
-	"github.com/RedHuang-0622/seelex/backend/engine/skill"
-	"github.com/RedHuang-0622/seelex/wiring/adapters"
 )
 
 func TestCollectRuntimeProjectionCarriesPluginSource(t *testing.T) {
@@ -50,7 +50,7 @@ func TestCollectRuntimeProjectionCarriesPluginSource(t *testing.T) {
 	svc := newTestService(t, &fakeEngine{}, withTestPlugins(adapters.PluginPort{Manager: manager}))
 	projection := svc.collectRuntimeProjection(t.Context())
 
-	byName := make(map[string]PluginInfo, len(projection.Runtime.Plugins))
+	byName := make(map[string]model.PluginInfo, len(projection.Runtime.Plugins))
 	for _, item := range projection.Runtime.Plugins {
 		byName[item.Name] = item
 	}

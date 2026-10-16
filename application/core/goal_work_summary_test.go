@@ -2,10 +2,10 @@ package core
 
 import (
 	"context"
+	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 	"testing"
-
-	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
 )
 
 // ① 的两段验证：
@@ -16,13 +16,13 @@ import (
 // TestSummarizeTurnWorkKeepsCurrentTurnOnly 钉住"只取最后一条 user 行之后"：
 // 上一轮的正文与工具不得混入，换行压成单行，工具名去重。
 func TestSummarizeTurnWorkKeepsCurrentTurnOnly(t *testing.T) {
-	messages := []Message{
+	messages := []model.Message{
 		{Role: "user", Content: "上一轮的问题"},
 		{Role: "assistant", Content: "上一轮的回答 OLD-MARKER"},
 		{Role: "user", Content: "这一轮的问题"},
-		{Role: "assistant", Content: "先看代码\n再改", Tool: &ToolCall{Name: "grep_search"}},
-		{Role: "tool", Content: "命中 3 处", Tool: &ToolCall{Name: "grep_search"}},
-		{Role: "tool", Content: "读到了", Tool: &ToolCall{Name: "read_file"}},
+		{Role: "assistant", Content: "先看代码\n再改", Tool: &model.ToolCall{Name: "grep_search"}},
+		{Role: "tool", Content: "命中 3 处", Tool: &model.ToolCall{Name: "grep_search"}},
+		{Role: "tool", Content: "读到了", Tool: &model.ToolCall{Name: "read_file"}},
 		{Role: "assistant", Content: "结论：NEW-MARKER 已接线"},
 	}
 	summary := summarizeTurnWork(messages)
@@ -38,7 +38,7 @@ func TestSummarizeTurnWorkKeepsCurrentTurnOnly(t *testing.T) {
 	if !strings.Contains(summary, "tools: grep_search, read_file") {
 		t.Fatalf("工具名应按出现顺序去重: %q", summary)
 	}
-	if got := summarizeTurnWork([]Message{{Role: "user", Content: "只有输入"}}); got != "" {
+	if got := summarizeTurnWork([]model.Message{{Role: "user", Content: "只有输入"}}); got != "" {
 		t.Fatalf("本轮无产出应返回空串, 得 %q", got)
 	}
 }
@@ -47,7 +47,7 @@ func TestSummarizeTurnWorkKeepsCurrentTurnOnly(t *testing.T) {
 // MaxSignalDetailRunes 决定（超长正文被截断，不会让信号校验失败）。
 func TestSummarizeTurnWorkIsBounded(t *testing.T) {
 	long := strings.Repeat("长", goaldomain.MaxSignalDetailRunes*2)
-	summary := summarizeTurnWork([]Message{
+	summary := summarizeTurnWork([]model.Message{
 		{Role: "user", Content: "问题"},
 		{Role: "assistant", Content: long},
 	})
@@ -72,11 +72,11 @@ func TestSummarizeTurnWorkCarriesComputerUseEvidence(t *testing.T) {
 	shot := `{"ref":"media:ce842be8c006587a575a8f81146e3235e945cf1b2c5e2aa0d0e0be34d09ed204",` +
 		`"name":"screenshot-20260915-120000.000.png","width":1024,"height":576,` +
 		`"foreground":{"title":"Visual Studio Code - seelex"},"cursor":{"x":1,"y":2}}`
-	summary := summarizeTurnWork([]Message{
+	summary := summarizeTurnWork([]model.Message{
 		{Role: "user", Content: "看看屏幕上是什么"},
-		{Role: "assistant", Tool: &ToolCall{Name: "computer_screenshot"}},
-		{Role: "tool_result", Content: shot, Tool: &ToolCall{Name: "computer_screenshot"}},
-		{Role: "tool_result", Content: "not-json-at-all", Tool: &ToolCall{Name: "bash"}},
+		{Role: "assistant", Tool: &model.ToolCall{Name: "computer_screenshot"}},
+		{Role: "tool_result", Content: shot, Tool: &model.ToolCall{Name: "computer_screenshot"}},
+		{Role: "tool_result", Content: "not-json-at-all", Tool: &model.ToolCall{Name: "bash"}},
 		{Role: "assistant", Content: "前台窗口是 Visual Studio Code"},
 	})
 	for _, want := range []string{"screen:", "media:ce842be8", "1024x576", `foreground="Visual Studio Code - seelex"`, "tools: computer_screenshot, bash"} {
@@ -89,9 +89,9 @@ func TestSummarizeTurnWorkCarriesComputerUseEvidence(t *testing.T) {
 	}
 
 	// 非 media 引用（例如 blob/compressed）不算屏幕证据。
-	noise := summarizeTurnWork([]Message{
+	noise := summarizeTurnWork([]model.Message{
 		{Role: "user", Content: "看个文件"},
-		{Role: "tool_result", Content: `{"ref":"blob:deadbeef","name":"x"}`, Tool: &ToolCall{Name: "read_file"}},
+		{Role: "tool_result", Content: `{"ref":"blob:deadbeef","name":"x"}`, Tool: &model.ToolCall{Name: "read_file"}},
 		{Role: "assistant", Content: "读完了"},
 	})
 	if strings.Contains(noise, "screen:") {
@@ -128,7 +128,7 @@ func TestGoalAdvanceAfterChatFeedsEXECWorkToAdvisor(t *testing.T) {
 
 	service.ViewMu.Lock()
 	service.appendSessionMessageLocked(sessionID, "user", "请修最小修复建议", nil)
-	service.appendSessionMessageLocked(sessionID, "assistant", "先看代码", &ToolCall{Name: "read_file"})
+	service.appendSessionMessageLocked(sessionID, "assistant", "先看代码", &model.ToolCall{Name: "read_file"})
 	service.appendSessionMessageLocked(sessionID, "assistant", "已修：WORK-CONTENT-MARKER-7", nil)
 	service.ViewMu.Unlock()
 

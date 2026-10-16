@@ -13,8 +13,8 @@ var _ = types.Message{} // used via fakeEngine implementing ChatEngine
 
 func TestCommandRegistry_RegisterAndGet(t *testing.T) {
 	r := NewCommandRegistry()
-	cmd := input_router.NewCommandFunc("test", "test command", func(_ context.Context, _ []string) (CommandResult, error) {
-		return CommandResult{Notice: "executed"}, nil
+	cmd := input_router.NewCommandFunc("test", "test command", func(_ context.Context, _ []string) (input_router.CommandResult, error) {
+		return input_router.CommandResult{Notice: "executed"}, nil
 	})
 	if err := r.Register(cmd); err != nil {
 		t.Fatal(err)
@@ -30,8 +30,8 @@ func TestCommandRegistry_RegisterAndGet(t *testing.T) {
 
 func TestCommandRegistry_RegisterDuplicate(t *testing.T) {
 	r := NewCommandRegistry()
-	cmd := input_router.NewCommandFunc("dup", "", func(_ context.Context, _ []string) (CommandResult, error) {
-		return CommandResult{}, nil
+	cmd := input_router.NewCommandFunc("dup", "", func(_ context.Context, _ []string) (input_router.CommandResult, error) {
+		return input_router.CommandResult{}, nil
 	})
 	_ = r.Register(cmd)
 	err := r.Register(cmd)
@@ -42,8 +42,8 @@ func TestCommandRegistry_RegisterDuplicate(t *testing.T) {
 
 func TestCommandRegistry_RegisterEmptyName(t *testing.T) {
 	r := NewCommandRegistry()
-	cmd := input_router.NewCommandFunc("  ", "", func(_ context.Context, _ []string) (CommandResult, error) {
-		return CommandResult{}, nil
+	cmd := input_router.NewCommandFunc("  ", "", func(_ context.Context, _ []string) (input_router.CommandResult, error) {
+		return input_router.CommandResult{}, nil
 	})
 	err := r.Register(cmd)
 	if err == nil {
@@ -61,14 +61,14 @@ func TestCommandRegistry_GetNotFound(t *testing.T) {
 
 func TestCommandRegistry_All(t *testing.T) {
 	r := NewCommandRegistry()
-	_ = r.Register(input_router.NewCommandFunc("b", "", func(_ context.Context, _ []string) (CommandResult, error) {
-		return CommandResult{}, nil
+	_ = r.Register(input_router.NewCommandFunc("b", "", func(_ context.Context, _ []string) (input_router.CommandResult, error) {
+		return input_router.CommandResult{}, nil
 	}))
-	_ = r.Register(input_router.NewCommandFunc("a", "", func(_ context.Context, _ []string) (CommandResult, error) {
-		return CommandResult{}, nil
+	_ = r.Register(input_router.NewCommandFunc("a", "", func(_ context.Context, _ []string) (input_router.CommandResult, error) {
+		return input_router.CommandResult{}, nil
 	}))
-	_ = r.Register(input_router.NewCommandFunc("c", "", func(_ context.Context, _ []string) (CommandResult, error) {
-		return CommandResult{}, nil
+	_ = r.Register(input_router.NewCommandFunc("c", "", func(_ context.Context, _ []string) (input_router.CommandResult, error) {
+		return input_router.CommandResult{}, nil
 	}))
 	all := r.All()
 	if len(all) != 3 {

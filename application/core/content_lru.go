@@ -28,10 +28,9 @@ package core
 
 import (
 	"fmt"
-	"log"
-
 	"github.com/RedHuang-0622/seelex/middle/residency"
 	"github.com/RedHuang-0622/seelex/session"
+	"log"
 )
 
 // touchContent 记录一次会话可见正文使用（冷加载完成/热挂载/分页读回/回读），

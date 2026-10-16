@@ -3,24 +3,26 @@ package core
 import (
 	"context"
 	"errors"
+	"github.com/RedHuang-0622/seelex/application/prompt"
+	"github.com/RedHuang-0622/seelex/backend/engine/context"
+	"github.com/RedHuang-0622/seelex/backend/engine/session"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/middle/view/state"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/backend/engine/context"
-	"github.com/RedHuang-0622/seelex/backend/engine/session"
-	"github.com/RedHuang-0622/seelex/backend/engine/task"
-	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/view/state"
 )
 
 type archiveSessions struct {
 	fakeSessions
-	history    []EngineMessage
+	history    []contract.EngineMessage
 	historyErr error
-	record     SessionRecord
-	transcript []TranscriptEvent
+	record     model.SessionRecord
+	transcript []model.TranscriptEvent
 	saved      int
 	tailBudget int
 	tailUnits  int
@@ -32,11 +34,11 @@ type archiveSessions struct {
 
 // SessionsOf 实现 session_runtime.SessionGranularPort：替身只认得一个会话，
 // 且只住在默认项目（未关联会话）里。
-func (sessions *archiveSessions) SessionsOf(projectID string) []SessionInfo {
+func (sessions *archiveSessions) SessionsOf(projectID string) []model.SessionInfo {
 	if projectID != "" || sessions.sessionID == "" {
 		return nil
 	}
-	return []SessionInfo{{ID: sessions.sessionID}}
+	return []model.SessionInfo{{ID: sessions.sessionID}}
 }
 
 func (sessions *archiveSessions) SaveCurrent(string) error {
@@ -44,36 +46,36 @@ func (sessions *archiveSessions) SaveCurrent(string) error {
 	return nil
 }
 
-func (sessions *archiveSessions) LoadHistory(string) ([]EngineMessage, error) {
-	return append([]EngineMessage(nil), sessions.history...), sessions.historyErr
+func (sessions *archiveSessions) LoadHistory(string) ([]contract.EngineMessage, error) {
+	return append([]contract.EngineMessage(nil), sessions.history...), sessions.historyErr
 }
 
-func (sessions *archiveSessions) SaveSessionRecord(_ string, record SessionRecord) error {
+func (sessions *archiveSessions) SaveSessionRecord(_ string, record model.SessionRecord) error {
 	sessions.record = record
 	return nil
 }
 
-func (sessions *archiveSessions) SaveSessionRecordWorkspace(_ string, _ string, record SessionRecord) error {
+func (sessions *archiveSessions) SaveSessionRecordWorkspace(_ string, _ string, record model.SessionRecord) error {
 	sessions.record = record
 	return nil
 }
 
-func (sessions *archiveSessions) LoadSessionRecord(string) (SessionRecord, error) {
+func (sessions *archiveSessions) LoadSessionRecord(string) (model.SessionRecord, error) {
 	return sessions.record, nil
 }
 
-func (sessions *archiveSessions) LoadSessionRecordWorkspace(string, string) (SessionRecord, error) {
+func (sessions *archiveSessions) LoadSessionRecordWorkspace(string, string) (model.SessionRecord, error) {
 	return sessions.record, nil
 }
 
-func (sessions *archiveSessions) LoadTranscriptTailWorkspace(_, _ string, tokenBudget, maxUnits int) ([]TranscriptEvent, error) {
+func (sessions *archiveSessions) LoadTranscriptTailWorkspace(_, _ string, tokenBudget, maxUnits int) ([]model.TranscriptEvent, error) {
 	sessions.tailBudget = tokenBudget
 	sessions.tailUnits = maxUnits
-	return append([]TranscriptEvent(nil), sessions.transcript...), nil
+	return append([]model.TranscriptEvent(nil), sessions.transcript...), nil
 }
 
-func (sessions *archiveSessions) LoadToolResultWorkspace(string, string, string) (StoredToolResult, error) {
-	return StoredToolResult{}, errors.New("tool result unavailable")
+func (sessions *archiveSessions) LoadToolResultWorkspace(string, string, string) (model.StoredToolResult, error) {
+	return model.StoredToolResult{}, errors.New("tool result unavailable")
 }
 
 // TestEnrichTranscriptMessageIDsPairsEventsToMessages 验证 event-to-message
@@ -106,17 +108,17 @@ func (sessions *contextAwareSessions) DetachSessionContext() {
 // 挂接（AttachSessionContext 携带 workspace/session 定位），下一轮 prompt
 // 组装前四栈已就绪。
 func TestResumeSessionAttachesSessionContext(t *testing.T) {
-	engine := &fakeEngine{sessionID: "session-a", history: []EngineMessage{{Role: "system", Content: "private prompt", ContentSet: true}}}
+	engine := &fakeEngine{sessionID: "session-a", history: []contract.EngineMessage{{Role: "system", Content: "private prompt", ContentSet: true}}}
 	sessions := &contextAwareSessions{archiveSessions: archiveSessions{history: engine.History()}}
 	service := newTestService(t, engine, withTestSessions(sessions))
 
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Session = SessionState{ID: "session-a", Name: "Keep this title"}
-	service.Core.Snapshot.Conversation = []Message{{ID: "user-1", Role: "user", Content: "Inspect the repository", CreatedAt: time.Now()}}
-	service.components.sessions.SetSessionTitleLocked("session-a", SessionTitle{Value: "Keep this title", Source: "first_request"})
+	service.Core.Snapshot.Session = model.SessionState{ID: "session-a", Name: "Keep this title"}
+	service.Core.Snapshot.Conversation = []model.Message{{ID: "user-1", Role: "user", Content: "Inspect the repository", CreatedAt: time.Now()}}
+	service.components.sessions.SetSessionTitleLocked("session-a", model.SessionTitle{Value: "Keep this title", Source: "first_request"})
 	service.ViewMu.Unlock()
 
-	if err := service.components.sessions.PersistCurrentSession(session_runtime.Location{Meta: SessionInfo{ID: "session-a"}}, "session-a"); err != nil {
+	if err := service.components.sessions.PersistCurrentSession(session_runtime.Location{Meta: model.SessionInfo{ID: "session-a"}}, "session-a"); err != nil {
 		t.Fatal(err)
 	}
 	restored := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
@@ -133,17 +135,17 @@ func TestResumeSessionAttachesSessionContext(t *testing.T) {
 // TestResumeSessionFailsWhenContextCorrupt 验证损坏/不可用的 context 模块
 // 使恢复显式失败（不静默降级成内存栈；模块化方案降级矩阵）。
 func TestResumeSessionFailsWhenContextCorrupt(t *testing.T) {
-	engine := &fakeEngine{sessionID: "session-a", history: []EngineMessage{{Role: "system", Content: "private prompt", ContentSet: true}}}
+	engine := &fakeEngine{sessionID: "session-a", history: []contract.EngineMessage{{Role: "system", Content: "private prompt", ContentSet: true}}}
 	sessions := &contextAwareSessions{archiveSessions: archiveSessions{history: engine.History()}}
 	sessions.attachErr = errors.New("context store unavailable")
 	service := newTestService(t, engine, withTestSessions(sessions))
 
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Session = SessionState{ID: "session-a", Name: "Keep this title"}
-	service.Core.Snapshot.Conversation = []Message{{ID: "user-1", Role: "user", Content: "Inspect the repository", CreatedAt: time.Now()}}
-	service.components.sessions.SetSessionTitleLocked("session-a", SessionTitle{Value: "Keep this title", Source: "first_request"})
+	service.Core.Snapshot.Session = model.SessionState{ID: "session-a", Name: "Keep this title"}
+	service.Core.Snapshot.Conversation = []model.Message{{ID: "user-1", Role: "user", Content: "Inspect the repository", CreatedAt: time.Now()}}
+	service.components.sessions.SetSessionTitleLocked("session-a", model.SessionTitle{Value: "Keep this title", Source: "first_request"})
 	service.ViewMu.Unlock()
-	if err := service.components.sessions.PersistCurrentSession(session_runtime.Location{Meta: SessionInfo{ID: "session-a"}}, "session-a"); err != nil {
+	if err := service.components.sessions.PersistCurrentSession(session_runtime.Location{Meta: model.SessionInfo{ID: "session-a"}}, "session-a"); err != nil {
 		t.Fatal(err)
 	}
 	restored := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
@@ -155,13 +157,13 @@ func TestResumeSessionFailsWhenContextCorrupt(t *testing.T) {
 // TestBeginNewSessionDetachesSessionContext 验证进入 draft/新建会话时解绑
 // context 模块，防止四栈串到下一个会话。
 func TestBeginNewSessionDetachesSessionContext(t *testing.T) {
-	engine := &fakeEngine{sessionID: "session-a", history: []EngineMessage{{Role: "system", Content: "private prompt", ContentSet: true}}}
+	engine := &fakeEngine{sessionID: "session-a", history: []contract.EngineMessage{{Role: "system", Content: "private prompt", ContentSet: true}}}
 	sessions := &contextAwareSessions{archiveSessions: archiveSessions{history: engine.History()}}
 	service := newTestService(t, engine, withTestSessions(sessions))
 
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Session = SessionState{ID: "session-a", Name: "old session"}
-	service.Core.Snapshot.Conversation = []Message{{ID: "user-1", Role: "user", Content: "previous turn", CreatedAt: time.Now()}}
+	service.Core.Snapshot.Session = model.SessionState{ID: "session-a", Name: "old session"}
+	service.Core.Snapshot.Conversation = []model.Message{{ID: "user-1", Role: "user", Content: "previous turn", CreatedAt: time.Now()}}
 	service.ViewMu.Unlock()
 	if err := service.BeginNewSession(); err != nil {
 		t.Fatal(err)
@@ -174,30 +176,30 @@ func TestBeginNewSessionDetachesSessionContext(t *testing.T) {
 }
 
 func TestSessionArchivePreservesVisibleHistoryPlanAndReadCache(t *testing.T) {
-	engine := &fakeEngine{sessionID: "session-a", history: []EngineMessage{{Role: "system", Content: "private prompt", ContentSet: true}}}
+	engine := &fakeEngine{sessionID: "session-a", history: []contract.EngineMessage{{Role: "system", Content: "private prompt", ContentSet: true}}}
 	sessions := &archiveSessions{history: engine.History()}
 	service := newTestService(t, engine, withTestSessions(sessions))
 
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Session = SessionState{ID: "session-a", Name: "Keep this title"}
-	service.Core.Snapshot.Conversation = []Message{{ID: "user-1", Role: "user", Content: "Inspect the repository", CreatedAt: time.Now()}}
-	service.Core.Snapshot.Runtime.Plan = &PlanState{EntryNodeID: "inspect", Status: PlanPending, Nodes: []PlanNode{{ID: "inspect", Status: NodePending}}}
-	service.Core.Snapshot.ReadFiles = []ReadFileRef{{Path: "application/core/chat.go", ReadAt: time.Now()}}
-	service.Core.Snapshot.Task = &TaskState{RequestID: "task-a", Status: TurnInterrupted, Summary: "checkpoint saved"}
-	service.Core.Snapshot.Chat = ChatState{RequestID: "task-a"}
-	service.components.sessions.SetSessionTitleLocked("session-a", SessionTitle{Value: "Keep this title", Source: "first_request"})
-	service.components.tasks.SetPlanStateLocked([]SessionPlanFrame{{ID: "plan-a", Plan: service.Core.Snapshot.Runtime.Plan, Arguments: `{"entry":"inspect","nodes":{"inspect":{"input":"read"}},"edges":{}}`}}, "plan-a")
-	service.components.tasks.BeginTask("task-a", "Inspect the repository", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Session = model.SessionState{ID: "session-a", Name: "Keep this title"}
+	service.Core.Snapshot.Conversation = []model.Message{{ID: "user-1", Role: "user", Content: "Inspect the repository", CreatedAt: time.Now()}}
+	service.Core.Snapshot.Runtime.Plan = &model.PlanState{EntryNodeID: "inspect", Status: PlanPending, Nodes: []model.PlanNode{{ID: "inspect", Status: NodePending}}}
+	service.Core.Snapshot.ReadFiles = []model.ReadFileRef{{Path: "application/core/chat.go", ReadAt: time.Now()}}
+	service.Core.Snapshot.Task = &model.TaskState{RequestID: "task-a", Status: TurnInterrupted, Summary: "checkpoint saved"}
+	service.Core.Snapshot.Chat = model.ChatState{RequestID: "task-a"}
+	service.components.sessions.SetSessionTitleLocked("session-a", model.SessionTitle{Value: "Keep this title", Source: "first_request"})
+	service.components.tasks.SetPlanStateLocked([]model.SessionPlanFrame{{ID: "plan-a", Plan: service.Core.Snapshot.Runtime.Plan, Arguments: `{"entry":"inspect","nodes":{"inspect":{"input":"read"}},"edges":{}}`}}, "plan-a")
+	service.components.tasks.BeginTask("task-a", "Inspect the repository", "high", nil, model.TaskCheckpoint{})
 	service.components.tasks.CurrentTaskExecution().Status = TurnInterrupted
 	service.components.tasks.CurrentTaskExecution().Checkpoint("inspect", "inspect source", NodeCompleted.String(), "found call path", "")
 	service.components.tasks.CurrentTaskExecution().PlanArguments = `{"entry":"inspect","nodes":{"inspect":{"input":"read"}},"edges":{}}`
-	service.components.tasks.ActivateTaskSkillsLocked(service.components.tasks.CurrentTaskExecution(), []PromptLayer{{Kind: "skill", Name: "review", Text: "review prompt"}})
+	service.components.tasks.ActivateTaskSkillsLocked(service.components.tasks.CurrentTaskExecution(), []prompt.PromptLayer{{Kind: "skill", Name: "review", Text: "review prompt"}})
 	// 技能正文以 internal 事件落 transcript；真实可见轮次跟随其后（transcript
 	// 非空即由事件重建可见对话——技能事件本身被 isInternalContent 过滤）。
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: "task-a", Role: "user", Content: "Inspect the repository"})
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{TaskID: "task-a", Role: "user", Content: "Inspect the repository"})
 	service.ViewMu.Unlock()
 
-	if err := service.components.sessions.PersistCurrentSession(session_runtime.Location{Meta: SessionInfo{ID: "session-a"}}, "session-a"); err != nil {
+	if err := service.components.sessions.PersistCurrentSession(session_runtime.Location{Meta: model.SessionInfo{ID: "session-a"}}, "session-a"); err != nil {
 		t.Fatal(err)
 	}
 	if sessions.saved != 1 || sessions.record.Title.Value != "Keep this title" || len(sessions.record.Conversation.Messages) != 1 || len(sessions.record.PlanStack) != 1 || len(sessions.record.Execution.ReadFiles) != 1 {
@@ -248,22 +250,22 @@ func TestResumeSessionDropsMetadataOnlyCheckpointAndUsesDurableConversation(t *t
 	const sessionID = "session-empty-checkpoint"
 	checkpointMarker := context_runtime.TaskContextCheckpointPrefix + `{"version":7,"covers_event_range":{"start":632,"end":632},"updated_at":"2026-08-05T00:00:00Z"}`
 	sessions := &archiveSessions{
-		record: SessionRecord{
+		record: model.SessionRecord{
 			Version: session_runtime.SessionRecordVersion,
 			ID:      sessionID,
-			Title:   SessionTitle{Value: "Review session", Source: "user"},
-			Conversation: ConversationRecord{Messages: []Message{
+			Title:   model.SessionTitle{Value: "Review session", Source: "user"},
+			Conversation: model.ConversationRecord{Messages: []model.Message{
 				{ID: "message-checkpoint", Role: "user", Content: checkpointMarker},
 				{ID: "message-question", Role: "user", Content: "所以你的评价是？"},
 				{ID: "message-report", Role: "assistant", Content: "评审报告摘要"},
 			}},
-			Projection: &TaskContextProjection{
+			Projection: &model.TaskContextProjection{
 				SchemaVersion: 1, SessionID: sessionID, TaskID: "task-review", Status: TurnInterrupted.String(),
 				ObjectiveRef: "event:632",
-				Checkpoint:   TaskCheckpoint{Version: 7, CoversEventRange: EventRange{Start: 632, End: 632}, UpdatedAt: time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC)},
+				Checkpoint:   model.TaskCheckpoint{Version: 7, CoversEventRange: model.EventRange{Start: 632, End: 632}, UpdatedAt: time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC)},
 			},
 		},
-		transcript: []TranscriptEvent{{Seq: 632, TaskID: "task-review", Role: "user", Content: checkpointMarker, TokenCount: 8}},
+		transcript: []model.TranscriptEvent{{Seq: 632, TaskID: "task-review", Role: "user", Content: checkpointMarker, TokenCount: 8}},
 	}
 	engine := &fakeEngine{sessionID: sessionID}
 	service := newTestService(t, engine, withTestSessions(sessions))
@@ -291,7 +293,7 @@ func TestResumeSessionDropsMetadataOnlyCheckpointAndUsesDurableConversation(t *t
 		t.Fatal(err)
 	}
 	engine.mu.Lock()
-	prepared := append([]EngineMessage(nil), engine.historyBeforeChat...)
+	prepared := append([]contract.EngineMessage(nil), engine.historyBeforeChat...)
 	engine.mu.Unlock()
 	if !service.components.sessions.HistoryContainsUser(prepared, "所以你的评价是？") || !historyContainsAssistant(prepared, "评审报告摘要") {
 		t.Fatalf("next-turn provider history lost durable conversation: %#v", prepared)
@@ -311,32 +313,32 @@ func TestResumeSessionDropsMetadataOnlyCheckpointAndUsesDurableConversation(t *t
 
 func TestResumeLongContextReasksOpeningQuestionFromCheckpoint(t *testing.T) {
 	const sessionID = "session-long-context"
-	conversation := []Message{
+	conversation := []model.Message{
 		{Role: "user", Content: "你好，我是hzr"},
 		{Role: "assistant", Content: "你好 hzr"},
 	}
 	for index := 0; index < 12; index++ {
 		conversation = append(conversation,
-			Message{Role: "user", Content: strings.Repeat("这是长上下文中的审查事实，不能覆盖开头身份信息。", 320)},
-			Message{Role: "assistant", Content: strings.Repeat("已记录该轮审查事实和证据。", 320)},
+			model.Message{Role: "user", Content: strings.Repeat("这是长上下文中的审查事实，不能覆盖开头身份信息。", 320)},
+			model.Message{Role: "assistant", Content: strings.Repeat("已记录该轮审查事实和证据。", 320)},
 		)
 	}
-	conversation = append(conversation, Message{Role: "user", Content: "我的名字是什么？"})
+	conversation = append(conversation, model.Message{Role: "user", Content: "我的名字是什么？"})
 	sessions := &archiveSessions{
-		record: SessionRecord{
+		record: model.SessionRecord{
 			Version:      session_runtime.SessionRecordVersion,
 			ID:           sessionID,
-			Conversation: ConversationRecord{Messages: conversation},
-			Projection: &TaskContextProjection{
+			Conversation: model.ConversationRecord{Messages: conversation},
+			Projection: &model.TaskContextProjection{
 				SchemaVersion: 1, SessionID: sessionID, TaskID: "task-long", Status: TurnInterrupted.String(),
-				Checkpoint: TaskCheckpoint{
+				Checkpoint: model.TaskCheckpoint{
 					Version:       8,
 					CompletedWork: []string{"user_name=hzr"},
 					UpdatedAt:     time.Now(),
 				},
 			},
 		},
-		transcript: []TranscriptEvent{{Seq: 632, TaskID: "task-long", Role: "user", Content: context_runtime.TaskContextCheckpointPrefix + `{"version":8}`, TokenCount: 2}},
+		transcript: []model.TranscriptEvent{{Seq: 632, TaskID: "task-long", Role: "user", Content: context_runtime.TaskContextCheckpointPrefix + `{"version":8}`, TokenCount: 2}},
 	}
 	engine := &fakeEngine{sessionID: sessionID}
 	service := newTestService(t, engine, withTestSessions(sessions))
@@ -351,7 +353,7 @@ func TestResumeLongContextReasksOpeningQuestionFromCheckpoint(t *testing.T) {
 	}
 
 	engine.mu.Lock()
-	prepared := append([]EngineMessage(nil), engine.historyBeforeChat...)
+	prepared := append([]contract.EngineMessage(nil), engine.historyBeforeChat...)
 	engine.mu.Unlock()
 	if !service.components.sessions.HistoryContainsUser(prepared, "我的名字是什么？") {
 		t.Fatalf("long-context smoke lost opening question: %#v", prepared)
@@ -371,7 +373,7 @@ func TestResumeLongContextReasksOpeningQuestionFromCheckpoint(t *testing.T) {
 	}
 }
 
-func historyContainsAssistant(history []EngineMessage, content string) bool {
+func historyContainsAssistant(history []contract.EngineMessage, content string) bool {
 	for _, message := range history {
 		if message.Role == "assistant" && message.Content == content {
 			return true
@@ -381,7 +383,7 @@ func historyContainsAssistant(history []EngineMessage, content string) bool {
 }
 
 func TestBoundConversationTailKeepsOnlyConfiguredVariableHeightWindow(t *testing.T) {
-	messages := []Message{
+	messages := []model.Message{
 		{ID: "system-1", Role: "system"},
 		{ID: "message-1", Role: "user"},
 		{ID: "message-2", Role: "assistant"},
@@ -400,25 +402,25 @@ func TestBoundConversationTailKeepsOnlyConfiguredVariableHeightWindow(t *testing
 }
 
 func TestPersistSessionRecordRebuildsConversationFromTranscript(t *testing.T) {
-	sessions := &archiveSessions{record: SessionRecord{
+	sessions := &archiveSessions{record: model.SessionRecord{
 		Version: session_runtime.SessionRecordVersion,
 		ID:      "session-window",
-		Conversation: ConversationRecord{Messages: []Message{
+		Conversation: model.ConversationRecord{Messages: []model.Message{
 			{ID: "message-1", Role: "user", Content: "old question"},
 			{ID: "message-2", Role: "assistant", Content: "stale answer"},
 		}},
 	}}
 	service := newTestService(t, &fakeEngine{sessionID: "session-window"}, withTestSessions(sessions))
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Session = SessionState{ID: "session-window"}
+	service.Core.Snapshot.Session = model.SessionState{ID: "session-window"}
 	// transcript 是全量权威事件源：record 由其全量重建（阶段 0 语义，
 	// 取代旧的"磁盘 record + 窗口投影增量合并"路径）。
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{Role: "user", Content: "old question"})
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{Role: "assistant", Content: "updated answer"})
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{Role: "user", Content: "new question"})
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{Role: "user", Content: "old question"})
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{Role: "assistant", Content: "updated answer"})
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{Role: "user", Content: "new question"})
 	service.ViewMu.Unlock()
 
-	if err := service.components.sessions.PersistCurrentSession(session_runtime.Location{Meta: SessionInfo{ID: "session-window"}}, "session-window"); err != nil {
+	if err := service.components.sessions.PersistCurrentSession(session_runtime.Location{Meta: model.SessionInfo{ID: "session-window"}}, "session-window"); err != nil {
 		t.Fatal(err)
 	}
 	got := sessions.record.Conversation.Messages
@@ -432,14 +434,14 @@ func TestSessionRecordStoresLargeContentByReference(t *testing.T) {
 	defer service.Shutdown()
 	raw := strings.Repeat("raw-secret-output", task_context.DefaultToolResultLimit())
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Session = SessionState{ID: "session-large"}
-	service.Core.Snapshot.Chat = ChatState{RequestID: "task-large"}
-	service.components.tasks.BeginTask("task-large", "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Session = model.SessionState{ID: "session-large"}
+	service.Core.Snapshot.Chat = model.ChatState{RequestID: "task-large"}
+	service.components.tasks.BeginTask("task-large", "inspect", "high", nil, model.TaskCheckpoint{})
 	stored := service.components.tasks.StoreToolResultLocked("bash", raw)
 	service.components.tasks.SetResultRefByCallIDLocked("call-large", stored.Ref)
-	service.Core.Snapshot.Conversation = []Message{
-		{Role: "tool", Tool: &ToolCall{ID: "call-large", Name: "bash", Result: raw}},
-		{Role: "tool_result", Content: raw, Tool: &ToolCall{ID: "call-large", Name: "bash", Result: raw}},
+	service.Core.Snapshot.Conversation = []model.Message{
+		{Role: "tool", Tool: &model.ToolCall{ID: "call-large", Name: "bash", Result: raw}},
+		{Role: "tool_result", Content: raw, Tool: &model.ToolCall{ID: "call-large", Name: "bash", Result: raw}},
 	}
 	record := service.components.sessions.SessionRecordLocked("session-large", nil)
 	service.ViewMu.Unlock()
@@ -459,11 +461,11 @@ func TestSessionRecordStoresLargeContentByReference(t *testing.T) {
 }
 
 func TestCompletedTaskClearsTaskScopedSkillsBeforeNextRequest(t *testing.T) {
-	for _, status := range []TurnStatus{TurnCompleted, TurnFailed} {
+	for _, status := range []model.TurnStatus{TurnCompleted, TurnFailed} {
 		service := newTestService(t, &fakeEngine{})
 		service.promptStack.Push("skill", "review", "review prompt")
 		service.ViewMu.Lock()
-		service.Core.Snapshot.Task = &TaskState{Status: status}
+		service.Core.Snapshot.Task = &model.TaskState{Status: status}
 		service.ViewMu.Unlock()
 		service.prepareCompletedTaskBoundary()
 		if skills := selectedSkillLayers(service.promptStack.Layers()); len(skills) != 0 {
@@ -497,11 +499,11 @@ func TestLoadedPlanIsAppendedToSessionPlanStack(t *testing.T) {
 func TestResumeSessionUsesRecordWhenProviderHistoryIsUnavailable(t *testing.T) {
 	sessions := &archiveSessions{
 		historyErr: errors.New("history shard unavailable"),
-		record: SessionRecord{
+		record: model.SessionRecord{
 			Version: 2,
 			ID:      "session-record-only",
-			Title:   SessionTitle{Value: "Saved title", Source: "user"},
-			Conversation: ConversationRecord{Messages: []Message{{
+			Title:   model.SessionTitle{Value: "Saved title", Source: "user"},
+			Conversation: model.ConversationRecord{Messages: []model.Message{{
 				ID: "message-1", Role: "assistant", Content: "Saved response",
 			}}},
 		},
@@ -520,12 +522,12 @@ func TestResumeSessionUsesRecordWhenProviderHistoryIsUnavailable(t *testing.T) {
 func TestResumeSessionContinuationKeepsTranscriptHistory(t *testing.T) {
 	const sessionID = "session-transcript"
 	sessions := &archiveSessions{
-		record: SessionRecord{
+		record: model.SessionRecord{
 			Version: session_runtime.SessionRecordVersion,
 			ID:      sessionID,
-			Title:   SessionTitle{Value: "Transcript session", Source: "user"},
+			Title:   model.SessionTitle{Value: "Transcript session", Source: "user"},
 		},
-		transcript: []TranscriptEvent{
+		transcript: []model.TranscriptEvent{
 			{Seq: 1, TaskID: "task-1", Role: "user", Content: "original question", TokenCount: 4},
 			{Seq: 2, TaskID: "task-1", Role: "assistant", Content: "original answer", TokenCount: 4},
 		},
@@ -544,7 +546,7 @@ func TestResumeSessionContinuationKeepsTranscriptHistory(t *testing.T) {
 	}
 
 	engine.mu.Lock()
-	history := append([]EngineMessage(nil), engine.historyBeforeChat...)
+	history := append([]contract.EngineMessage(nil), engine.historyBeforeChat...)
 	engine.mu.Unlock()
 	seenQuestion, seenAnswer := false, false
 	for _, message := range history {
@@ -572,17 +574,17 @@ func TestResumeSessionContinuationKeepsTranscriptHistory(t *testing.T) {
 func TestResumeSessionContinuationKeepsToolStepsWithoutEmptyAssistantEvents(t *testing.T) {
 	const sessionID = "session-tool-steps"
 	sessions := &archiveSessions{
-		record: SessionRecord{
+		record: model.SessionRecord{
 			Version: session_runtime.SessionRecordVersion,
 			ID:      sessionID,
-			Title:   SessionTitle{Value: "Tool step session", Source: "user"},
-			Conversation: ConversationRecord{Messages: []Message{
+			Title:   model.SessionTitle{Value: "Tool step session", Source: "user"},
+			Conversation: model.ConversationRecord{Messages: []model.Message{
 				{ID: "message-1", Role: "user", Content: "original question"},
 				{ID: "seq-2", Role: "assistant", ReasoningContent: "先读文件"},
-				{ID: "seq-2#tool-1", Role: "tool", Tool: &ToolCall{
+				{ID: "seq-2#tool-1", Role: "tool", Tool: &model.ToolCall{
 					ID: "call-1", Name: "read", Arguments: `{"path":"a.go"}`, Status: dto.ToolEventSuccess,
 				}},
-				{ID: "message-3", Role: "tool_result", Content: "package a", Tool: &ToolCall{
+				{ID: "message-3", Role: "tool_result", Content: "package a", Tool: &model.ToolCall{
 					ID: "call-1", Name: "read", Result: "package a", Status: dto.ToolEventSuccess,
 				}},
 				{ID: "message-4", Role: "assistant", Content: "original answer"},
@@ -603,7 +605,7 @@ func TestResumeSessionContinuationKeepsToolStepsWithoutEmptyAssistantEvents(t *t
 	}
 
 	engine.mu.Lock()
-	history := append([]EngineMessage(nil), engine.historyBeforeChat...)
+	history := append([]contract.EngineMessage(nil), engine.historyBeforeChat...)
 	engine.mu.Unlock()
 	callIndex, outputIndex, answerIndex := -1, -1, -1
 	for index, message := range history {
@@ -633,12 +635,12 @@ func TestResumeSessionContinuationKeepsToolStepsWithoutEmptyAssistantEvents(t *t
 func TestResumeSessionContinuationKeepsTrailingUnansweredUserInput(t *testing.T) {
 	const sessionID = "session-trailing-user"
 	sessions := &archiveSessions{
-		record: SessionRecord{
+		record: model.SessionRecord{
 			Version: session_runtime.SessionRecordVersion,
 			ID:      sessionID,
-			Title:   SessionTitle{Value: "Interrupted session", Source: "user"},
+			Title:   model.SessionTitle{Value: "Interrupted session", Source: "user"},
 		},
-		transcript: []TranscriptEvent{{
+		transcript: []model.TranscriptEvent{{
 			Seq: 1, TaskID: "task-1", Role: "user", Content: "evaluate the architecture review", TokenCount: 4,
 		}},
 	}
@@ -656,7 +658,7 @@ func TestResumeSessionContinuationKeepsTrailingUnansweredUserInput(t *testing.T)
 	}
 
 	engine.mu.Lock()
-	history := append([]EngineMessage(nil), engine.historyBeforeChat...)
+	history := append([]contract.EngineMessage(nil), engine.historyBeforeChat...)
 	engine.mu.Unlock()
 	for _, message := range history {
 		if message.Role == "user" && message.Content == "evaluate the architecture review" {
@@ -670,10 +672,10 @@ func TestProviderRepairNoteNeverBecomesVisibleAssistantText(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.ViewMu.Lock()
-	service.appendHistoryLocked([]EngineMessage{{
+	service.appendHistoryLocked([]contract.EngineMessage{{
 		Role:    "assistant",
 		Content: context_runtime.ToolCallHistoryContent,
-		ToolCalls: []EngineToolCall{{
+		ToolCalls: []contract.EngineToolCall{{
 			ID: "call-1", Name: "read_file", Arguments: `{"path":"README.md"}`,
 		}},
 	}})

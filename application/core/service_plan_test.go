@@ -5,15 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
-	"testing"
-	"time"
-
 	"github.com/RedHuang-0622/Seele/session"
 	seelsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	seelplan "github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	protocol_event "github.com/RedHuang-0622/seelex/middle/protocol/event"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/view/subagent"
+	"strings"
+	"testing"
+	"time"
 )
 
 func TestPlanRunJSONFailureOpensRecoveryInteraction(t *testing.T) {
@@ -214,7 +215,7 @@ func TestHandlePlanBranchEventUpdatesLifecycleAndRuntime(t *testing.T) {
 	seen := 0
 	deadline := time.After(time.Second)
 	for seen < 3 {
-		var event Event
+		var event protocol_event.Event
 		select {
 		case event = <-subscription.Events:
 		case <-deadline:
@@ -223,7 +224,7 @@ func TestHandlePlanBranchEventUpdatesLifecycleAndRuntime(t *testing.T) {
 		if event.Kind != EventSubagentChanged {
 			continue
 		}
-		var payload SubagentEvent
+		var payload model.SubagentEvent
 		if err := json.Unmarshal(event.Payload, &payload); err != nil {
 			t.Fatal(err)
 		}
@@ -270,7 +271,7 @@ func TestHandleSubagentToolEventProjectsBoundedIncrementals(t *testing.T) {
 		t.Fatalf("projected tool event = %#v", node.ToolEvents[0])
 	}
 
-	var first, second Event
+	var first, second protocol_event.Event
 	deadline := time.After(time.Second)
 	for first.Kind == "" || second.Kind == "" {
 		select {
@@ -285,7 +286,7 @@ func TestHandleSubagentToolEventProjectsBoundedIncrementals(t *testing.T) {
 			t.Fatalf("did not receive subagent tool events; started=%q completed=%q", first.Kind, second.Kind)
 		}
 	}
-	var payload SubagentToolEvent
+	var payload model.SubagentToolEvent
 	if err := json.Unmarshal(second.Payload, &payload); err != nil {
 		t.Fatal(err)
 	}

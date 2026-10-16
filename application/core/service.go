@@ -3,14 +3,15 @@ package core
 
 import (
 	"errors"
-	"strings"
-
+	"github.com/RedHuang-0622/seelex/application/prompt"
 	seelsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/switch"
 	"github.com/RedHuang-0622/seelex/middle/view/board"
 	"github.com/RedHuang-0622/seelex/middle/view/worktable"
+	"strings"
 )
 
 // defaultHistoryWindow 与 maxReplansPerPlanChain 已收编进 seele.yaml limits 段
@@ -92,7 +93,7 @@ func (service *Service) projectBoardSink() board.ProjectBoardSink {
 	return service.components.projectBoard.load()
 }
 
-func New(deps Dependencies) (*Service, error) {
+func New(deps contract.Dependencies) (*Service, error) {
 	return serviceAssembler{deps: deps}.assemble()
 }
 
@@ -105,7 +106,7 @@ func (service *Service) ActiveSkillIDs() []string {
 // PromptLayers 返回当前会话注入的 prompt 前缀层（system/base/effort/
 // instructions/skill；GUI 轨迹视图"前缀注入"数据源，经桥接方法单独拉取，
 // 不进 Snapshot 序列化——避免把私有指令泄漏进常规快照）。
-func (service *Service) PromptLayers() []PromptLayer {
+func (service *Service) PromptLayers() []prompt.PromptLayer {
 	if service == nil || service.promptStack == nil {
 		return nil
 	}

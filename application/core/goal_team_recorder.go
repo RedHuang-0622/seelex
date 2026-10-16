@@ -3,11 +3,10 @@ package core
 import (
 	"context"
 	"fmt"
-	"strings"
-
 	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
 	"github.com/RedHuang-0622/seelex/backend/multiagent/team"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"strings"
 )
 
 // goal_team_recorder.go — TL 每回合原文的记录器（my_design §8.3 统一写入流程）。

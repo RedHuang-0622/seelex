@@ -41,18 +41,18 @@ package core
 
 import (
 	"fmt"
+	"github.com/RedHuang-0622/seelex/backend/engine/context"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/backend/engine/context"
 )
 
 // internalCheckpointRow 造一条**已落盘**的内部行（上下文 checkpoint 标记）。
 // 存储层把它当普通 conversation 行（store/json_layout.go:295
 // derivedConversationMessages），可见会话必须剔除它（session_runtime/archive.go
 // isInternalConversationMessage → context_runtime.IsTaskContextCheckpoint）。
-func internalCheckpointRow(index int) Message {
-	return Message{
+func internalCheckpointRow(index int) model.Message {
+	return model.Message{
 		ID:      fmt.Sprintf("internal-%d", index),
 		Role:    "user",
 		Content: fmt.Sprintf("%s{\"version\":8,\"checkpoint\":%d}", context_runtime.TaskContextCheckpointPrefix, index),
@@ -63,13 +63,13 @@ func internalCheckpointRow(index int) Message {
 // 条内部行（内部行落在序列末尾，与「回合收尾先落 checkpoint 再落正文」的现场
 // 同形）。
 func seedDurableRows(store *pagedSessionStore, visible, trailingInternal int) {
-	rows := make([]Message, 0, visible+trailingInternal)
+	rows := make([]model.Message, 0, visible+trailingInternal)
 	for index := 0; index < visible; index++ {
 		role := "assistant"
 		if index%2 == 0 {
 			role = "user"
 		}
-		rows = append(rows, Message{
+		rows = append(rows, model.Message{
 			ID:        fmt.Sprintf("message-%d", index+1),
 			Role:      role,
 			Content:   fmt.Sprintf("durable-%d", index),

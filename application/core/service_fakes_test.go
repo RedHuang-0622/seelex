@@ -8,8 +8,10 @@ import (
 	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/testutil"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,8 +20,8 @@ import (
 type fakeEngine struct {
 	*testutil.EmbeddedChatEngine
 	mu                sync.Mutex
-	history           []EngineMessage
-	historyBeforeChat []EngineMessage
+	history           []contract.EngineMessage
+	historyBeforeChat []contract.EngineMessage
 	chunks            []string
 	prompt            string
 	chatErr           error
@@ -87,7 +89,7 @@ func (sessions *blockingSaveSessions) SaveCurrent(string) error {
 
 func (engine *fakeEngine) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error) {
 	engine.mu.Lock()
-	engine.historyBeforeChat = append([]EngineMessage(nil), engine.history...)
+	engine.historyBeforeChat = append([]contract.EngineMessage(nil), engine.history...)
 	engine.mu.Unlock()
 	for _, chunk := range engine.chunks {
 		select {
@@ -101,9 +103,9 @@ func (engine *fakeEngine) ChatStream(ctx context.Context, input string, onChunk 
 	engine.lastInput = input
 	engine.chatInputs = append(engine.chatInputs, input)
 	if engine.appendChatHistory {
-		engine.history = append(engine.history, EngineMessage{Role: "user", Content: input}, EngineMessage{Role: "assistant", Content: "answer"})
+		engine.history = append(engine.history, contract.EngineMessage{Role: "user", Content: input}, contract.EngineMessage{Role: "assistant", Content: "answer"})
 	} else {
-		engine.history = []EngineMessage{{Role: "user", Content: input}, {Role: "assistant", Content: "answer"}}
+		engine.history = []contract.EngineMessage{{Role: "user", Content: input}, {Role: "assistant", Content: "answer"}}
 	}
 	err := engine.chatErr
 	if len(engine.chatErrors) > 0 {
@@ -114,10 +116,10 @@ func (engine *fakeEngine) ChatStream(ctx context.Context, input string, onChunk 
 	return "answer", err
 }
 
-func (engine *fakeEngine) History() []EngineMessage {
+func (engine *fakeEngine) History() []contract.EngineMessage {
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
-	return append([]EngineMessage(nil), engine.history...)
+	return append([]contract.EngineMessage(nil), engine.history...)
 }
 
 func (engine *fakeEngine) ClearHistory() {
@@ -168,11 +170,11 @@ func (engine *fakeEngine) ActivateSession(sessionID string) error {
 	return nil
 }
 
-func (engine *fakeEngine) ReplaceHistory(sessionID string, history []EngineMessage) error {
+func (engine *fakeEngine) ReplaceHistory(sessionID string, history []contract.EngineMessage) error {
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
 	engine.sessionID = sessionID
-	engine.history = append([]EngineMessage(nil), history...)
+	engine.history = append([]contract.EngineMessage(nil), history...)
 	if engine.loadedSessions == nil {
 		engine.loadedSessions = make(map[string]bool)
 	}
@@ -221,11 +223,11 @@ func (engine *fakeEngine) AppendHistory(msg types.Message) {
 	if msg.Content != nil {
 		content = *msg.Content
 	}
-	toolCalls := make([]EngineToolCall, 0, len(msg.ToolCalls))
+	toolCalls := make([]contract.EngineToolCall, 0, len(msg.ToolCalls))
 	for _, call := range msg.ToolCalls {
-		toolCalls = append(toolCalls, EngineToolCall{ID: call.ID, Name: call.Function.Name, Arguments: call.Function.Arguments})
+		toolCalls = append(toolCalls, contract.EngineToolCall{ID: call.ID, Name: call.Function.Name, Arguments: call.Function.Arguments})
 	}
-	engine.history = append(engine.history, EngineMessage{Role: msg.Role, Content: content, ContentSet: msg.Content != nil, ReasoningContent: msg.ReasoningContent, ToolCalls: toolCalls, ToolCallID: msg.ToolCallID, Name: msg.Name})
+	engine.history = append(engine.history, contract.EngineMessage{Role: msg.Role, Content: content, ContentSet: msg.Content != nil, ReasoningContent: msg.ReasoningContent, ToolCalls: toolCalls, ToolCallID: msg.ToolCallID, Name: msg.Name})
 }
 
 func (*fakeEngine) TraceText() string { return "trace" }
@@ -295,7 +297,7 @@ func (engine *fakeEngine) ChatStreamFor(sessionID string, ctx context.Context, i
 	return engine.ChatStream(ctx, input, onChunk)
 }
 
-func (engine *fakeEngine) HistoryFor(sessionID string) []EngineMessage {
+func (engine *fakeEngine) HistoryFor(sessionID string) []contract.EngineMessage {
 	return engine.History()
 }
 
@@ -311,7 +313,7 @@ func (engine *fakeEngine) SetSystemPromptFor(sessionID, prompt string) {
 	engine.SetSystemPrompt(prompt)
 }
 
-func (engine *fakeEngine) ReplaceHistoryFor(sessionID string, history []EngineMessage) error {
+func (engine *fakeEngine) ReplaceHistoryFor(sessionID string, history []contract.EngineMessage) error {
 	return engine.ReplaceHistory(sessionID, history)
 }
 
@@ -335,7 +337,7 @@ type fakeRuntime struct {
 	planPolicy   dto.PlanPolicy
 	// visibleTools 覆盖 VisibleTools 的返回（默认给 [read]）：用例需要
 	// "某个工具名真的可见"时（未知命令提示要把工具与命令分开）才设置。
-	visibleTools []Tool
+	visibleTools []model.Tool
 	// releasedAsyncSessions 记录 ReleaseSessionAsync 收到过哪些会话（"会话销毁即杀
 	// 后台命令"的用例断言 core 真的转了这一道）。
 	releasedAsyncSessions []string
@@ -408,8 +410,8 @@ func (*fakeRuntime) Model() string { return "test-model" }
 
 func (*fakeRuntime) Provider() string { return "test-provider" }
 
-func (*fakeRuntime) Accounts() []AccountInfo {
-	return []AccountInfo{{Name: "primary", Provider: "test", Model: "m"}}
+func (*fakeRuntime) Accounts() []model.AccountInfo {
+	return []model.AccountInfo{{Name: "primary", Provider: "test", Model: "m"}}
 }
 
 func (runtime *fakeRuntime) SelectAccount(name string) bool {
@@ -420,11 +422,11 @@ func (runtime *fakeRuntime) SelectAccount(name string) bool {
 	return true
 }
 
-func (runtime *fakeRuntime) VisibleTools(context.Context) []Tool {
+func (runtime *fakeRuntime) VisibleTools(context.Context) []model.Tool {
 	if runtime != nil && len(runtime.visibleTools) > 0 {
 		return runtime.visibleTools
 	}
-	return []Tool{{Name: "read", Description: "read files"}}
+	return []model.Tool{{Name: "read", Description: "read files"}}
 }
 
 func (*fakeRuntime) ActivePlugin() string { return "default" }
@@ -1010,47 +1012,47 @@ type goalVisibilityRuntime struct {
 	*fakeRuntime
 }
 
-func (runtime *goalVisibilityRuntime) VisibleTools(context.Context) []Tool {
+func (runtime *goalVisibilityRuntime) VisibleTools(context.Context) []model.Tool {
 	if runtime.visibility.GoalSkillActive {
-		return []Tool{{Name: "plan_load", Description: "load plan"}}
+		return []model.Tool{{Name: "plan_load", Description: "load plan"}}
 	}
-	return []Tool{{Name: "read", Description: "read files"}}
+	return []model.Tool{{Name: "read", Description: "read files"}}
 }
 
-type fakePlugins struct{ current PluginInfo }
+type fakePlugins struct{ current model.PluginInfo }
 
-func (*fakePlugins) All() []PluginInfo {
-	return []PluginInfo{{Name: "default", Description: "default"}, {Name: "code", Description: "coding", Prompt: "code prompt"}}
+func (*fakePlugins) All() []model.PluginInfo {
+	return []model.PluginInfo{{Name: "default", Description: "default"}, {Name: "code", Description: "coding", Prompt: "code prompt"}}
 }
 
 func (plugins *fakePlugins) Activate(_ context.Context, name string) error {
 	if name != "code" && name != "default" {
 		return errors.New("missing plugin")
 	}
-	plugins.current = PluginInfo{Name: name, Prompt: name + " prompt"}
+	plugins.current = model.PluginInfo{Name: name, Prompt: name + " prompt"}
 	return nil
 }
 
 func (plugins *fakePlugins) Deactivate(context.Context) error {
-	plugins.current = PluginInfo{}
+	plugins.current = model.PluginInfo{}
 	return nil
 }
 
-func (plugins *fakePlugins) Current() (PluginInfo, bool) {
+func (plugins *fakePlugins) Current() (model.PluginInfo, bool) {
 	return plugins.current, plugins.current.Name != ""
 }
 
 type fakeSkills struct{}
 
-func (fakeSkills) All() []SkillInfo {
-	return []SkillInfo{{Name: "review", Description: "review code", Prompt: "review prompt"}}
+func (fakeSkills) All() []model.SkillInfo {
+	return []model.SkillInfo{{Name: "review", Description: "review code", Prompt: "review prompt"}}
 }
 
-func (fakeSkills) Get(name string) (SkillInfo, bool) {
+func (fakeSkills) Get(name string) (model.SkillInfo, bool) {
 	if name != "review" {
-		return SkillInfo{}, false
+		return model.SkillInfo{}, false
 	}
-	return SkillInfo{Name: "review", Prompt: "review prompt"}, true
+	return model.SkillInfo{Name: "review", Prompt: "review prompt"}, true
 }
 
 type fakeSessions struct{}
@@ -1059,16 +1061,16 @@ func (fakeSessions) SaveCurrent(string) error { return nil }
 
 func (fakeSessions) Resume(string) error { return errors.New("resume unsupported") }
 
-func (fakeSessions) List() []SessionInfo {
-	return []SessionInfo{{ID: "saved", UpdatedAt: time.Unix(1, 0), TokenCount: 4}}
+func (fakeSessions) List() []model.SessionInfo {
+	return []model.SessionInfo{{ID: "saved", UpdatedAt: time.Unix(1, 0), TokenCount: 4}}
 }
 
-func (fakeSessions) LoadHistory(string) ([]EngineMessage, error) {
-	return []EngineMessage{{Role: "assistant", Content: "saved answer"}}, nil
+func (fakeSessions) LoadHistory(string) ([]contract.EngineMessage, error) {
+	return []contract.EngineMessage{{Role: "assistant", Content: "saved answer"}}, nil
 }
 
-func (fakeSessions) LoadHistoryRange(string, int, int) ([]EngineMessage, int, error) {
-	return []EngineMessage{{Role: "assistant", Content: "saved answer"}}, 1, nil
+func (fakeSessions) LoadHistoryRange(string, int, int) ([]contract.EngineMessage, int, error) {
+	return []contract.EngineMessage{{Role: "assistant", Content: "saved answer"}}, 1, nil
 }
 
 func (fakeSessions) Delete(string) error { return nil }
@@ -1087,7 +1089,7 @@ type blockingCatalogSessions struct {
 	calls       atomic.Int64
 }
 
-func (sessions *blockingCatalogSessions) List() []SessionInfo {
+func (sessions *blockingCatalogSessions) List() []model.SessionInfo {
 	sessions.calls.Add(1)
 	sessions.enteredOnce.Do(func() { close(sessions.entered) })
 	<-sessions.release
@@ -1117,8 +1119,8 @@ type scopedSessions struct {
 	fakeSessions
 	mu              sync.RWMutex
 	workspace       string
-	catalog         map[string][]SessionInfo
-	histories       map[string]map[string][]EngineMessage
+	catalog         map[string][]model.SessionInfo
+	histories       map[string]map[string][]contract.EngineMessage
 	loadedWorkspace string
 	savedIDs        []string
 }
@@ -1149,10 +1151,10 @@ func (sessions *scopedSessions) SavedIDs() []string {
 }
 
 // SessionsOf 实现 session_runtime.SessionGranularPort：按项目索引枚举会话。
-func (sessions *scopedSessions) SessionsOf(projectID string) []SessionInfo {
+func (sessions *scopedSessions) SessionsOf(projectID string) []model.SessionInfo {
 	sessions.mu.RLock()
 	defer sessions.mu.RUnlock()
-	return append([]SessionInfo(nil), sessions.catalog[projectID]...)
+	return append([]model.SessionInfo(nil), sessions.catalog[projectID]...)
 }
 
 func (sessions *scopedSessions) LoadedWorkspace() string {
@@ -1163,7 +1165,7 @@ func (sessions *scopedSessions) LoadedWorkspace() string {
 
 // resolveWorkspaceFor 返回会话历史所在 workspace（扫描 histories；未找到
 // 返回 ""）。
-func (sessions *scopedSessions) resolveWorkspaceFor(sessionID string) (string, []EngineMessage, bool) {
+func (sessions *scopedSessions) resolveWorkspaceFor(sessionID string) (string, []contract.EngineMessage, bool) {
 	sessions.mu.Lock()
 	defer sessions.mu.Unlock()
 	for workspaceID, bySession := range sessions.histories {
@@ -1171,7 +1173,7 @@ func (sessions *scopedSessions) resolveWorkspaceFor(sessionID string) (string, [
 			continue
 		}
 		if history, ok := bySession[sessionID]; ok {
-			return workspaceID, append([]EngineMessage(nil), history...), true
+			return workspaceID, append([]contract.EngineMessage(nil), history...), true
 		}
 	}
 	return "", nil, false
@@ -1179,7 +1181,7 @@ func (sessions *scopedSessions) resolveWorkspaceFor(sessionID string) (string, [
 
 // LoadHistory 实现 SessionGranularPort：读取会话历史（会话粒度键；workspace
 // 由存储层解析——桩按扫描 histories 解析并记录加载面供断言）。
-func (sessions *scopedSessions) LoadHistory(sessionID string) ([]EngineMessage, error) {
+func (sessions *scopedSessions) LoadHistory(sessionID string) ([]contract.EngineMessage, error) {
 	workspaceID, history, ok := sessions.resolveWorkspaceFor(sessionID)
 	if !ok {
 		sessions.mu.Lock()
@@ -1194,7 +1196,7 @@ func (sessions *scopedSessions) LoadHistory(sessionID string) ([]EngineMessage, 
 }
 
 // LoadHistoryRange 实现 SessionGranularPort：按窗口读取会话历史。
-func (sessions *scopedSessions) LoadHistoryRange(sessionID string, offset, limit int) ([]EngineMessage, int, error) {
+func (sessions *scopedSessions) LoadHistoryRange(sessionID string, offset, limit int) ([]contract.EngineMessage, int, error) {
 	history, err := sessions.LoadHistory(sessionID)
 	if err != nil {
 		return nil, 0, err
@@ -1206,7 +1208,7 @@ func (sessions *scopedSessions) LoadHistoryRange(sessionID string, offset, limit
 	if limit <= 0 || end > len(history) {
 		end = len(history)
 	}
-	return append([]EngineMessage(nil), history[offset:end]...), len(history), nil
+	return append([]contract.EngineMessage(nil), history[offset:end]...), len(history), nil
 }
 
 // Delete 实现 SessionGranularPort：从全部项目索引删除会话。
@@ -1231,36 +1233,36 @@ func (sessions *scopedSessions) Delete(sessionID string) error {
 
 type fakeWorkspace struct {
 	mu       sync.Mutex
-	items    map[string]WorkspaceInfo
+	items    map[string]model.WorkspaceInfo
 	bindings map[string]string
 }
 
 func newFakeWorkspace() *fakeWorkspace {
-	return &fakeWorkspace{items: make(map[string]WorkspaceInfo), bindings: make(map[string]string)}
+	return &fakeWorkspace{items: make(map[string]model.WorkspaceInfo), bindings: make(map[string]string)}
 }
 
-func (repo *fakeWorkspace) Create(name, rootPath, gitRemote string) (WorkspaceInfo, error) {
+func (repo *fakeWorkspace) Create(name, rootPath, gitRemote string) (model.WorkspaceInfo, error) {
 	repo.mu.Lock()
 	defer repo.mu.Unlock()
-	item := WorkspaceInfo{ID: "project-1", Name: name, RootPath: rootPath, GitRemote: gitRemote}
+	item := model.WorkspaceInfo{ID: "project-1", Name: name, RootPath: rootPath, GitRemote: gitRemote}
 	repo.items[item.ID] = item
 	return item, nil
 }
 
-func (repo *fakeWorkspace) Get(id string) (WorkspaceInfo, error) {
+func (repo *fakeWorkspace) Get(id string) (model.WorkspaceInfo, error) {
 	repo.mu.Lock()
 	defer repo.mu.Unlock()
 	item, ok := repo.items[id]
 	if !ok {
-		return WorkspaceInfo{}, errors.New("workspace missing")
+		return model.WorkspaceInfo{}, errors.New("workspace missing")
 	}
 	return item, nil
 }
 
-func (repo *fakeWorkspace) List() []WorkspaceInfo {
+func (repo *fakeWorkspace) List() []model.WorkspaceInfo {
 	repo.mu.Lock()
 	defer repo.mu.Unlock()
-	items := make([]WorkspaceInfo, 0, len(repo.items))
+	items := make([]model.WorkspaceInfo, 0, len(repo.items))
 	for _, item := range repo.items {
 		items = append(items, item)
 	}
@@ -1286,12 +1288,12 @@ func (repo *fakeWorkspace) UnbindSession(sessionID string) {
 	delete(repo.bindings, sessionID)
 }
 
-func (repo *fakeWorkspace) SessionWorkspace(sessionID string) (WorkspaceInfo, bool) {
+func (repo *fakeWorkspace) SessionWorkspace(sessionID string) (model.WorkspaceInfo, bool) {
 	repo.mu.Lock()
 	defer repo.mu.Unlock()
 	workspaceID, ok := repo.bindings[sessionID]
 	if !ok {
-		return WorkspaceInfo{}, false
+		return model.WorkspaceInfo{}, false
 	}
 	item, ok := repo.items[workspaceID]
 	return item, ok

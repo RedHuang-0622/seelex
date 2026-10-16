@@ -5,10 +5,10 @@ package core
 // unload = persist + 释放内存态（scope/引擎/任务运行时）。
 
 import (
-	"strings"
-
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/switch"
+	"strings"
 )
 
 // hotAttachSession 热加载：目标会话已驻留（引擎实例在内存，含运行中），
@@ -34,7 +34,7 @@ func (service *Service) hotAttachSession(sessionID string) error {
 	}
 	// G5 出临界区化：workspace 查询（外部 WorkspacePort，可能含磁盘索引读）
 	// 在锁外完成一次并保存拷贝，ViewMu 临界区内不再调用外部端口。
-	var attachWorkspace *WorkspaceInfo
+	var attachWorkspace *model.WorkspaceInfo
 	if service.Deps.Workspace != nil {
 		workspace, ok := service.Deps.Workspace.SessionWorkspace(sessionID)
 		if ok {
@@ -57,7 +57,7 @@ func (service *Service) hotAttachSession(sessionID string) error {
 
 	service.ViewMu.Lock()
 	name := service.components.sessions.SessionTitleFor(sessionID).Value
-	service.Core.Snapshot.Session = SessionState{ID: sessionID, Name: name}
+	service.Core.Snapshot.Session = model.SessionState{ID: sessionID, Name: name}
 	service.sessions.SetActive(sessionID)
 	resumedRuntime := service.sessionUnitLocked(sessionID)
 	service.applyStoredPermissionTier(sessionID, storedTier)
@@ -68,7 +68,7 @@ func (service *Service) hotAttachSession(sessionID string) error {
 	} else {
 		service.Core.Snapshot.Task = nil
 	}
-	service.mirrorPlanProjectionForSessionLocked(sessionID, func() *PlanState {
+	service.mirrorPlanProjectionForSessionLocked(sessionID, func() *model.PlanState {
 		return task_context.ActivePlanFromStack(
 			service.components.tasks.PlanStackFor(sessionID),
 			service.components.tasks.ActivePlanIDFor(sessionID),
@@ -186,10 +186,10 @@ func (service *Service) switchViewToFreshDraftLocked() {
 	draftID := service.newDraftSessionIDLocked()
 	service.sessions.SetActive(draftID)
 	draftUnit := service.sessionUnitLocked(draftID)
-	draftUnit.SetChatState(ChatState{}, nil)
+	draftUnit.SetChatState(model.ChatState{}, nil)
 	draftUnit.SetCancel(nil)
 	draftUnit.SetRequests(nil)
-	service.Core.Snapshot.Session = SessionState{ID: draftID, Name: draftSessionName, Draft: true, Status: SessionStatusDraft}
+	service.Core.Snapshot.Session = model.SessionState{ID: draftID, Name: draftSessionName, Draft: true, Status: SessionStatusDraft}
 	service.Core.Snapshot.Conversation = nil
 	service.Core.Snapshot.Chat = draftUnit.ChatState()
 	service.Core.Snapshot.Task = nil

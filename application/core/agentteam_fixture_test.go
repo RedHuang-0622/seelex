@@ -1,9 +1,9 @@
 package core
 
 import (
-	"testing"
-
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"testing"
 )
 
 // agentteam_fixture_test.go — application 层的团队夹具。
@@ -122,7 +122,7 @@ func (s *librarySessions) setLibrary(library dto.TeamLibrary) {
 // 2026-10-12（J-1a）：它原先住在 input_team_test.go（召唤用例的夹具），那个文件随
 // `@` 手动召唤团队退场而删除；函数本身与会话团队面无关（只钉视图会话号），因此迁到
 // 本夹具文件继续供 goal 权限面等用例使用。
-func summonService(t *testing.T, sessions SessionPort) *Service {
+func summonService(t *testing.T, sessions contract.SessionPort) *Service {
 	t.Helper()
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
 	service.ViewMu.Lock()

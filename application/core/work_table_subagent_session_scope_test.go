@@ -16,11 +16,11 @@ package core
 //   - 后台会话同步时不再把视图会话（或任何别的会话）的子代理写进它的分区。
 
 import (
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 )
 
 // subagentSessionScopeFixture 造一个视图会话在 session-a 的服务，并把"进程级
@@ -30,7 +30,7 @@ func subagentSessionScopeFixture(t *testing.T) (*fakeRuntime, *Service) {
 	runtime := &fakeRuntime{currentTaskSession: "session-a"}
 	service := newTestService(t, &fakeEngine{sessionID: "session-a"}, withTestRuntime(runtime))
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Session = SessionState{ID: "session-a"}
+	service.Core.Snapshot.Session = model.SessionState{ID: "session-a"}
 	service.Core.Snapshot.Runtime.SubAgentTree = []dto.SubAgentTreeNode{
 		{ID: "main", Status: dto.SubAgentRunning},
 		{
@@ -81,7 +81,7 @@ func TestBackgroundSyncKeepsForeignSubagentRowsOut(t *testing.T) {
 
 	// 视图切到 B：A 变成后台会话（它自己的 plan 事件走 For 路径）。
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Session = SessionState{ID: "session-b"}
+	service.Core.Snapshot.Session = model.SessionState{ID: "session-b"}
 	service.ViewMu.Unlock()
 	runtime.currentTaskSession = "session-b"
 

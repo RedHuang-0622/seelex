@@ -3,13 +3,13 @@ package core
 import (
 	"context"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/RedHuang-0622/seelex/backend/engine/task"
-	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 )
 
 // ── 工作表格（Work Table）投影 ──────────────────────────────
@@ -45,7 +45,7 @@ func (state *serviceState) refreshWorkTableLocked(tasks []dto.TaskRecord, asyncR
 
 // publishWorkTable 在锁外发布整表（CSP 汇聚发布器，latest-wins；items 必须
 // 是同一临界区克隆的不可变快照，保证 revision 与内容一致）。
-func (state *serviceState) publishWorkTable(revision uint64, requestID string, items []WorkItem, batches []WorkTableBatch) {
+func (state *serviceState) publishWorkTable(revision uint64, requestID string, items []model.WorkItem, batches []model.WorkTableBatch) {
 	if state.workTablePublisher == nil {
 		return
 	}
@@ -65,11 +65,11 @@ func (state *serviceState) publishWorkTable(revision uint64, requestID string, i
 //
 // 只由 workTablePublisher 的发布 goroutine 调用：lastPublishedSubagentTreeSig
 // 因此无需额外加锁（发布器是单 goroutine）。
-func (service *Service) workTableEventPayload(update worktable.WorkTableUpdate) WorkTableEvent {
+func (service *Service) workTableEventPayload(update worktable.WorkTableUpdate) model.WorkTableEvent {
 	service.ViewMu.RLock()
 	tree := worktable.CloneSubAgentTreeForSync(service.Core.Snapshot.Runtime.SubAgentTree)
 	service.ViewMu.RUnlock()
-	payload := WorkTableEvent{Items: update.Items, Batches: update.Batches}
+	payload := model.WorkTableEvent{Items: update.Items, Batches: update.Batches}
 	signature := worktable.SubagentTreePayloadSignature(tree)
 	if signature == service.lastPublishedSubagentTreeSig {
 		return payload
@@ -102,7 +102,7 @@ func (service *Service) publishTaskChanged(record dto.TaskRecord, revision uint6
 	// 与整表投影同源补齐（plan 行依赖取自 plan 邻接面）：否则 task.changed
 	// 会把该行的依赖列擦成空。
 	item := service.workItemForRecord(record, sessionID)
-	service.publishSessionEvent(EventTaskChanged, revision, requestID, sessionID, TaskChangedEvent{TaskID: item.ID, Task: item})
+	service.publishSessionEvent(EventTaskChanged, revision, requestID, sessionID, model.TaskChangedEvent{TaskID: item.ID, Task: item})
 }
 
 // publishTaskDeltas 拉取注册表快照，锁内重建 worktable，发布
@@ -157,8 +157,8 @@ func (service *Service) syncTasksFromSourcesFor(sessionID string) {
 	service.ViewMu.RUnlock()
 
 	if plan != nil {
-		var walk func(nodes []PlanNode, parentID string)
-		walk = func(nodes []PlanNode, parentID string) {
+		var walk func(nodes []model.PlanNode, parentID string)
+		walk = func(nodes []model.PlanNode, parentID string) {
 			for _, node := range nodes {
 				service.syncPlanNodeTask(scope, node, parentID)
 				walk(node.Children, "plan:"+node.ID)
@@ -185,7 +185,7 @@ func (service *Service) syncTasksFromSourcesFor(sessionID string) {
 
 // sessionActivePlanLocked 返回指定会话当前 plan 投影：活跃会话读 Snapshot 镜像，
 // 后台会话读会话自身的 plan 栈（task_context 每会话持有）。
-func (service *Service) sessionActivePlanLocked(sessionID string) *PlanState {
+func (service *Service) sessionActivePlanLocked(sessionID string) *model.PlanState {
 	if sessionID == service.Core.Snapshot.Session.ID {
 		return worktable.ClonePlanForSync(service.Core.Snapshot.Runtime.Plan)
 	}
@@ -195,7 +195,7 @@ func (service *Service) sessionActivePlanLocked(sessionID string) *PlanState {
 	)
 }
 
-func (service *Service) syncPlanNodeTask(sessionID string, node PlanNode, parentID string) {
+func (service *Service) syncPlanNodeTask(sessionID string, node model.PlanNode, parentID string) {
 	key := "plan:" + node.ID
 	status := worktable.TaskStatusForNode(node.Status)
 	identity := dto.ActorIdentity("main", service.Deps.Engine.SessionID())
@@ -261,7 +261,7 @@ func (service *Service) syncSubagentTask(sessionID string, node dto.SubAgentTree
 //
 // task.changed 增量与 worktable.changed 整表必须同源：增量只带单条记录
 // （没有 plan 上下文），若不补齐，前端按增量更新该行时会把依赖列擦成空。
-func (service *Service) workItemForRecord(record dto.TaskRecord, sessionID string) WorkItem {
+func (service *Service) workItemForRecord(record dto.TaskRecord, sessionID string) model.WorkItem {
 	item := worktable.TaskRecordToWorkItem(record, workTableBounds())
 	if record.Kind != "plan" {
 		return item

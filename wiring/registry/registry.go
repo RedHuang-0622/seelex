@@ -26,6 +26,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/backend/tool/websearch"
 	"github.com/RedHuang-0622/seelex/internal/bootseed"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/view/board"
 	"github.com/RedHuang-0622/seelex/store"
 	"github.com/RedHuang-0622/seelex/wiring/adapters"
@@ -815,7 +816,7 @@ func RegisterAskApprove(runtime *seelebridge.Runtime, approval *application.Appr
 func ProjectBoardSinkFor(
 	limits limit.ProjectBoardLimits,
 	st board.ProjectBoardStore,
-	workTableRows func(sessionID string) []core.WorkItem,
+	workTableRows func(sessionID string) []model.WorkItem,
 	teamPlanFor func(sessionID string) *store.TeamworkPlan,
 	teamStateFor func(sessionID string) *store.TeamworkState,
 	projectRootFor func(sessionID string) string,

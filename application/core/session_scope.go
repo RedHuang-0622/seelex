@@ -4,18 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
-	"strings"
-	"sync"
-	"time"
-
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/protocol/event"
+	protocol_event "github.com/RedHuang-0622/seelex/middle/protocol/event"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"github.com/RedHuang-0622/seelex/session"
+	"log"
+	"strings"
+	"sync"
+	"time"
 )
 
 // transitionView 返回视图过渡锁（G5）：影响视图指针/当前视图会话生命周期
@@ -121,7 +121,7 @@ func (service *Service) writeSessionSystemPrompt(sessionID string) {
 //
 // 草稿物化（首次提交）与定时任务新建会话共用这一份；两处的差别只在"谁来定
 // 那个 ID"与"要不要顺带换视图指针"，不在这几行装配本身。
-func (service *Service) openSessionEngine(sessionID string, workspace *WorkspaceInfo) (string, error) {
+func (service *Service) openSessionEngine(sessionID string, workspace *model.WorkspaceInfo) (string, error) {
 	newID := strings.TrimSpace(sessionID)
 	if activator, ok := service.Deps.Engine.(interface{ ActivateSession(string) error }); ok {
 		// 会话路由宿主：按早分配 SID 显式创建引擎 bundle（草稿阶段
@@ -301,7 +301,7 @@ func (service *Service) mirrorActiveChatLocked() {
 	if unit := service.sessions.Unit(sessionID); unit != nil {
 		service.setSessionChatLockedFor(sessionID, unit.ChatState())
 	} else {
-		service.setSessionChatLockedFor(sessionID, ChatState{})
+		service.setSessionChatLockedFor(sessionID, model.ChatState{})
 	}
 }
 
@@ -329,8 +329,8 @@ func (service *Service) activeQueuedChatRequestsLocked() []chatRequest {
 
 // publishSessionEvent 发布事件；装配的 EventHub 支持会话路由时携带
 // sessionID，否则退化为普通 Publish。
-func (service *Service) publishSessionEvent(kind event.EventKind, revision uint64, requestID, sessionID string, payload any) event.Event {
-	if hub, ok := service.Events.(event.SessionAwareHub); ok {
+func (service *Service) publishSessionEvent(kind protocol_event.EventKind, revision uint64, requestID, sessionID string, payload any) protocol_event.Event {
+	if hub, ok := service.Events.(protocol_event.SessionAwareHub); ok {
 		return hub.PublishSession(kind, revision, requestID, sessionID, payload)
 	}
 	return service.Events.Publish(kind, revision, requestID, payload)
@@ -514,10 +514,10 @@ func (service *Service) ActivateSession(sessionID string) error {
 // ProcessSnapshot）。活跃会话与其它已驻留（LIVE）会话走同一条组装路径：
 // 会话身份/可见对话/聊天运行态/会话运行原件（本会话槽）/task/工作表格/
 // 子代理树/本会话 revision（INV-G5，与进程 revision 分离）。
-func (service *Service) SnapshotOf(sessionID string) (SessionSnapshot, error) {
+func (service *Service) SnapshotOf(sessionID string) (model.SessionSnapshot, error) {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
-		return SessionSnapshot{}, errors.New("session ID is required")
+		return model.SessionSnapshot{}, errors.New("session ID is required")
 	}
 	// C1 冷读面：未驻留（unit 不存在或 Resident=false）的会话走持久化基线，
 	// 不再 clone 视图 Runtime 冒充其它会话（M4 撤销）。
@@ -565,14 +565,14 @@ func (service *Service) sessionResidentLocked(unit *session.SessionUnit, session
 
 // snapshotOfResident 组装驻留会话（引擎 bundle 在内存）的会话快照：走单元
 // Runtime 槽/View/协调器每会话投影。调用方无需持有 Core.ViewMu（本方法自取）。
-func (service *Service) snapshotOfResident(sessionID string) (SessionSnapshot, error) {
+func (service *Service) snapshotOfResident(sessionID string) (model.SessionSnapshot, error) {
 	// 宿主读面（审批表 / 任务注册表 / 后台作业投影）在 ViewMu **之外**采样：
 	// AsyncRunsSnapshot() 会对每条后台作业做 stat + 读日志末窗（文件 I/O），
 	// TaskSnapshot() 同样是宿主实现。持进程级视图锁跑它们 = 把整块交互面押在一次
 	// 慢活上；更坏的情况是宿主实现回调进 Core.ViewMu（归档器当年就是"读
 	// app.Snapshot()"）——RWMutex 写者优先下，持读锁再取读锁就是自己等自己，
 	// 永久挂死（2026-09-29 锁面审计 §2.4/§2.5）。
-	var approvals []Interaction
+	var approvals []model.Interaction
 	if service.Approval != nil {
 		approvals = service.Approval.PendingBySession(sessionID)
 	}
@@ -583,7 +583,7 @@ func (service *Service) snapshotOfResident(sessionID string) (SessionSnapshot, e
 	defer service.ViewMu.RUnlock()
 	unit := service.sessions.Unit(sessionID)
 	if unit == nil {
-		return SessionSnapshot{}, ErrSessionSnapshotUnavailable
+		return model.SessionSnapshot{}, ErrSessionSnapshotUnavailable
 	}
 	view := service.components.view.SessionViewLocked(sessionID)
 	name := service.components.sessions.SessionTitleFor(sessionID).Value
@@ -592,33 +592,33 @@ func (service *Service) snapshotOfResident(sessionID string) (SessionSnapshot, e
 	if revision == 0 {
 		revision = service.Core.Snapshot.Revision
 	}
-	snapshot := SessionSnapshot{
+	snapshot := model.SessionSnapshot{
 		ProtocolVersion:    ProtocolVersion,
 		Revision:           revision,
-		Session:            SessionState{ID: sessionID, Name: name},
-		Conversation:       append([]Message(nil), view.Conversation...),
+		Session:            model.SessionState{ID: sessionID, Name: name},
+		Conversation:       append([]model.Message(nil), view.Conversation...),
 		Chat:               unit.ChatState(),
 		Runtime:            sessionRuntimeOf(runtime),
-		Capabilities:       Capabilities{SessionResume: true, SessionSnapshot: true},
+		Capabilities:       model.Capabilities{SessionResume: true, SessionSnapshot: true},
 		Resident:           true,
 		HistoryOffset:      view.HistoryOffset,
 		TotalMessages:      view.TotalMessages,
 		HasMoreHistory:     view.HasMoreHistory,
 		ConversationWindow: view.ConversationWindow,
-		ReadFiles:          append([]ReadFileRef(nil), view.ReadFiles...),
+		ReadFiles:          append([]model.ReadFileRef(nil), view.ReadFiles...),
 		// 待审阅请求随会话快照一起下发（会话作用域的可重放状态；前端起来/切回
 		// 该会话时按它补放）。冷读路径为空（不落盘）。
 		ReviewRequest: dto.CloneReviewRequest(view.ReviewRequest),
 	}
 	if len(approvals) > 0 {
-		snapshot.Approvals = append([]Interaction(nil), approvals...)
+		snapshot.Approvals = append([]model.Interaction(nil), approvals...)
 	}
 	if plan := service.planProjectionLocked(sessionID); plan != nil {
 		snapshot.Runtime.Plan = worktable.ClonePlanForSync(plan)
 	}
 	if task := service.components.tasks.VisibleTaskStateFor(sessionID); task != nil {
 		taskCopy := *task
-		taskCopy.ContextCompactions = append([]ContextCompaction(nil), task.ContextCompactions...)
+		taskCopy.ContextCompactions = append([]model.ContextCompaction(nil), task.ContextCompactions...)
 		snapshot.Task = &taskCopy
 	}
 	// 工作表格是项目/全局台账（与视图投影同源）：会话快照里的表格也取全局
@@ -635,14 +635,14 @@ func (service *Service) snapshotOfResident(sessionID string) (SessionSnapshot, e
 // sessionRuntimeOf 从全量 RuntimeState 投影提取会话专属运行原件（G3 字段
 // 归属表：进程级字段 model/provider/plugin/accounts/skills/tools/scheduled
 // 不进入 SessionSnapshot）。
-func sessionRuntimeOf(runtime RuntimeState) SessionRuntime {
-	return SessionRuntime{
+func sessionRuntimeOf(runtime model.RuntimeState) model.SessionRuntime {
+	return model.SessionRuntime{
 		Effort:           runtime.Effort,
 		FullAccess:       runtime.FullAccess,
 		PermissionTier:   runtime.PermissionTier,
 		Tokens:           runtime.Tokens,
 		Replan:           runtime.Replan,
-		Plan:             cloneRuntimeState(RuntimeState{Plan: runtime.Plan}).Plan,
+		Plan:             cloneRuntimeState(model.RuntimeState{Plan: runtime.Plan}).Plan,
 		TodoItems:        append([]dto.TodoItem(nil), runtime.TodoItems...),
 		SubAgentTree:     append([]dto.SubAgentTreeNode(nil), runtime.SubAgentTree...),
 		GoalSkillActive:  runtime.GoalSkillActive,
@@ -665,9 +665,9 @@ func cloneGoalGovernanceView(view *dto.GoalGovernanceView) *dto.GoalGovernanceVi
 }
 
 // sessionEventFilter 构造会话级订阅谓词（口径见 SubscribeSession）。
-func (service *Service) sessionEventFilter(sessionID string) func(event.Event) bool {
+func (service *Service) sessionEventFilter(sessionID string) func(protocol_event.Event) bool {
 	if sessionID != "" {
-		return func(event Event) bool {
+		return func(event protocol_event.Event) bool {
 			// G2/M2：进程类事件（resync.required / app.exit_requested）以空
 			// sid 投递给全部订阅者；会话类事件必须 sid 精确匹配——空 sid
 			// 不再作为显式会话订阅的通配（草稿占位由下方空订阅视图口径承接，
@@ -678,7 +678,7 @@ func (service *Service) sessionEventFilter(sessionID string) func(event.Event) b
 			return event.SessionID == sessionID
 		}
 	}
-	return func(event Event) bool {
+	return func(event protocol_event.Event) bool {
 		if event.Kind == EventResyncRequired || event.Kind == EventExitRequested {
 			return event.SessionID == ""
 		}
@@ -698,9 +698,9 @@ func (service *Service) sessionEventFilter(sessionID string) func(event.Event) b
 // replayWindow 条重放窗口：缓冲写满时事件不丢，落后的消费者可按 delivery_seq
 // 增量补取（Subscription.ReplaySince）。装配的 hub 不支持窗口时退化为
 // SubscribeSession 的旧溢出语义。
-func (service *Service) SubscribeSessionWithReplay(sessionID string, buffer, replayWindow int) (Subscription, error) {
+func (service *Service) SubscribeSessionWithReplay(sessionID string, buffer, replayWindow int) (protocol_event.Subscription, error) {
 	hub, ok := service.Events.(interface {
-		SubscribeWithReplay(func(event.Event) bool, int, int) Subscription
+		SubscribeWithReplay(func(protocol_event.Event) bool, int, int) protocol_event.Subscription
 	})
 	if !ok {
 		return service.SubscribeSession(sessionID, buffer)
@@ -715,12 +715,12 @@ func (service *Service) SubscribeSessionWithReplay(sessionID string, buffer, rep
 // 图指针的唯一持有者，草稿物化/切换的瞬间谓词即随之改变，不存在事件空洞。
 // 显式 sessionID 为严格过滤（多页签回看、headless 观察其它会话）。
 // 底层 Hub 不支持会话订阅时返回错误。
-func (service *Service) SubscribeSession(sessionID string, buffer int) (Subscription, error) {
+func (service *Service) SubscribeSession(sessionID string, buffer int) (protocol_event.Subscription, error) {
 	hub, ok := service.Events.(interface {
-		SubscribeFiltered(func(event.Event) bool, int) Subscription
+		SubscribeFiltered(func(protocol_event.Event) bool, int) protocol_event.Subscription
 	})
 	if !ok {
-		return Subscription{}, errors.New("event hub does not support session-scoped subscriptions")
+		return protocol_event.Subscription{}, errors.New("event hub does not support session-scoped subscriptions")
 	}
 	return hub.SubscribeFiltered(service.sessionEventFilter(strings.TrimSpace(sessionID)), buffer), nil
 }

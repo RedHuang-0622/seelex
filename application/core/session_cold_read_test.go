@@ -2,13 +2,14 @@ package core
 
 import (
 	"errors"
+	"github.com/RedHuang-0622/seelex/backend/engine/session"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/store"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/backend/engine/session"
-	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 type coldReadSessions struct {
@@ -49,10 +50,10 @@ func (sessions *coldReadSessions) setEvents(projectID, sessionID string, events 
 
 func newColdReadService(t *testing.T, sessions *coldReadSessions) *Service {
 	t.Helper()
-	service := mustNew(t, Dependencies{
+	service := mustNew(t, contract.Dependencies{
 		Engine:    &fakeEngine{},
 		Runtime:   &fakeRuntime{},
-		Plugins:   &fakePlugins{current: PluginInfo{Name: "default"}},
+		Plugins:   &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills:    fakeSkills{},
 		Sessions:  sessions,
 		Workspace: newFakeWorkspace(),
@@ -68,20 +69,20 @@ func TestSnapshotOfColdSessionAssemblesReadOnlyBaseline(t *testing.T) {
 	sessions := newColdReadSessions()
 	sessions.add("", "cold-1")
 	now := time.Now()
-	if err := sessions.SaveSessionRecordWorkspace("", "cold-1", SessionRecord{
+	if err := sessions.SaveSessionRecordWorkspace("", "cold-1", model.SessionRecord{
 		Version: session_runtime.SessionRecordVersion,
 		ID:      "cold-1",
-		Title:   SessionTitle{Value: "Cold Session"},
+		Title:   model.SessionTitle{Value: "Cold Session"},
 		Status:  SessionStatusIdle,
-		Conversation: ConversationRecord{Messages: []Message{{
+		Conversation: model.ConversationRecord{Messages: []model.Message{{
 			ID: "m1", Role: "user", Content: "cold content", CreatedAt: now,
 		}}},
-		Execution: SessionExecutionRecord{
-			Task: &TaskState{Status: TurnCompleted, Summary: "done"},
+		Execution: model.SessionExecutionRecord{
+			Task: &model.TaskState{Status: TurnCompleted, Summary: "done"},
 		},
-		PlanStack: []SessionPlanFrame{{
+		PlanStack: []model.SessionPlanFrame{{
 			ID: "plan-1",
-			Plan: &PlanState{
+			Plan: &model.PlanState{
 				Name: "cold plan", EntryNodeID: "n1", Status: PlanCompleted,
 			},
 		}},
@@ -181,7 +182,7 @@ func TestListSessionsReturnsAuthoritativeDirectory(t *testing.T) {
 	sessions := newColdReadSessions()
 	sessions.add("", "sess-1")
 	service := newColdReadService(t, sessions)
-	waitForSnapshot(t, service, func(snapshot Snapshot) bool { return len(snapshot.Sessions) == 1 })
+	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return len(snapshot.Sessions) == 1 })
 
 	rows := service.ListSessions()
 	if len(rows) != 1 || rows[0].ID != "sess-1" {

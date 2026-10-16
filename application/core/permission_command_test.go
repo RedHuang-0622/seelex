@@ -7,15 +7,15 @@ package core
 
 import (
 	"context"
+	input_router "github.com/RedHuang-0622/seelex/backend/engine/input"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 func permissionCommandFor(t *testing.T, service *Service) interface {
 	Description() string
-	Execute(context.Context, []string) (CommandResult, error)
+	Execute(context.Context, []string) (input_router.CommandResult, error)
 } {
 	t.Helper()
 	command, ok := service.commands.Get("permission")

@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 	"testing"
 )
@@ -40,7 +41,7 @@ func TestSessionSnapshotTransportShape(t *testing.T) {
 // TestSessionSnapshotCarriesResidentFlag C1：SessionSnapshot 顶层携带
 // resident（热=驻留，冷=只读基线 false），展示方可据此标只读/未加载。
 func TestSessionSnapshotCarriesResidentFlag(t *testing.T) {
-	encoded, err := json.Marshal(SessionSnapshot{ProtocolVersion: ProtocolVersion, Resident: true})
+	encoded, err := json.Marshal(model.SessionSnapshot{ProtocolVersion: ProtocolVersion, Resident: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,12 +53,12 @@ func TestSessionSnapshotCarriesResidentFlag(t *testing.T) {
 // TestProcessSnapshotTransportShape（G3）：ProcessSnapshot 承载进程级目录与
 // 能力清单，不含会话对话/聊天运行态。
 func TestProcessSnapshotTransportShape(t *testing.T) {
-	process := ProcessSnapshot{
+	process := model.ProcessSnapshot{
 		ProtocolVersion: ProtocolVersion,
 		Revision:        1,
-		Sessions:        []SessionInfo{{ID: "sess-a", Status: SessionStatusIdle}},
-		Capabilities:    Capabilities{SessionResume: true},
-		Runtime: ProcessRuntime{
+		Sessions:        []model.SessionInfo{{ID: "sess-a", Status: SessionStatusIdle}},
+		Capabilities:    model.Capabilities{SessionResume: true},
+		Runtime: model.ProcessRuntime{
 			Model:    "test-model",
 			Provider: "test-provider",
 		},

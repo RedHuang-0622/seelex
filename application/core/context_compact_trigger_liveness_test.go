@@ -24,12 +24,12 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/backend/engine/context"
+	"github.com/RedHuang-0622/seelex/internal/testutil"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/backend/engine/context"
-	"github.com/RedHuang-0622/seelex/internal/testutil"
 )
 
 // reentrantGateIndexRuntime 是"生产形状"的索引面桩：
@@ -81,8 +81,8 @@ func triggerLivenessFixture(t *testing.T, requestID string) (*Service, *reentran
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 	runtime.snapshot = func() { _ = service.Snapshot() }
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: requestID}
-	service.components.tasks.BeginTask(requestID, "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: requestID}
+	service.components.tasks.BeginTask(requestID, "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	appendIndexRounds(t, service, requestID)
 	sessionID := service.Snapshot().Session.ID
@@ -282,8 +282,8 @@ func TestCompactionChurnOnOneSessionDoesNotHang(t *testing.T) {
 	runtime := runtimeWithContextLimits{fakeRuntime: &fakeRuntime{}, window: 200_000, output: 8_192}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: requestID}
-	service.components.tasks.BeginTask(requestID, "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: requestID}
+	service.components.tasks.BeginTask(requestID, "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	appendIndexRounds(t, service, requestID)
 	sessionID := service.Snapshot().Session.ID

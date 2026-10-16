@@ -1,11 +1,11 @@
 package core
 
 import (
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/session"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/session"
 )
 
 // ── served route 回填（stampServedRoute）─────────────────────────────────────
@@ -25,7 +25,7 @@ func TestStampServedRouteFillsAssistantMessageAndPublishes(t *testing.T) {
 	}
 	// 本轮 assistant 消息（startChatFor 在请求前追加的占位形状）。
 	service.ViewMu.Lock()
-	appended := service.appendMessageWithOriginLocked("assistant", "", nil, MessageOrigin{RoleName: RoleNameMain})
+	appended := service.appendMessageWithOriginLocked("assistant", "", nil, model.MessageOrigin{RoleName: RoleNameMain})
 	service.ViewMu.Unlock()
 
 	runtime := &fakeRuntime{}
@@ -41,7 +41,7 @@ func TestStampServedRouteFillsAssistantMessageAndPublishes(t *testing.T) {
 		t.Fatalf("可见消息未回填路由：%+v", appended)
 	}
 	// 快照镜像同步带上（前端基线刷新同源）。
-	waitForSnapshot(t, service, func(snapshot Snapshot) bool {
+	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool {
 		for index := len(snapshot.Conversation) - 1; index >= 0; index-- {
 			message := snapshot.Conversation[index]
 			if message.Role != "assistant" || message.Tool != nil {
@@ -63,7 +63,7 @@ func TestStampServedRouteWithoutFactIsNoop(t *testing.T) {
 	sessionID := service.Core.Snapshot.Session.ID
 	service.ViewMu.RUnlock()
 	service.ViewMu.Lock()
-	appended := service.appendMessageWithOriginLocked("assistant", "", nil, MessageOrigin{RoleName: RoleNameMain})
+	appended := service.appendMessageWithOriginLocked("assistant", "", nil, model.MessageOrigin{RoleName: RoleNameMain})
 	service.ViewMu.Unlock()
 
 	service.stampServedRoute(sessionID, "chat-request-1")
@@ -79,7 +79,7 @@ func TestStampServedRouteSkipsAlreadyStampedTail(t *testing.T) {
 	sessionID := service.Core.Snapshot.Session.ID
 	service.ViewMu.RUnlock()
 	service.ViewMu.Lock()
-	service.appendMessageWithOriginLocked("assistant", "", nil, MessageOrigin{RoleName: RoleNameMain, RoundID: 7})
+	service.appendMessageWithOriginLocked("assistant", "", nil, model.MessageOrigin{RoleName: RoleNameMain, RoundID: 7})
 	service.ViewMu.Unlock()
 	// 上一轮消息已带路由：本轮占位缺失（异常形状）时不得把新路由串上去。
 	service.ViewMu.Lock()
@@ -114,10 +114,10 @@ func TestStampAssistantRouteForScopeAndIdempotence(t *testing.T) {
 	service.ViewMu.RLock()
 	sessionID := service.Core.Snapshot.Session.ID
 	service.ViewMu.RUnlock()
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: "req-1", Role: "user", Content: "q"})
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: "req-1", Role: "assistant", Content: "step"})
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: "req-2", Role: "assistant", Content: "other round"})
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: "req-1", Role: "tool", Content: "result"})
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{TaskID: "req-1", Role: "user", Content: "q"})
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{TaskID: "req-1", Role: "assistant", Content: "step"})
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{TaskID: "req-2", Role: "assistant", Content: "other round"})
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{TaskID: "req-1", Role: "tool", Content: "result"})
 
 	stamped := service.components.tasks.StampAssistantRouteFor(sessionID, "req-1", "agent", "glm-5.3-flash", "openai")
 	if stamped != 1 {

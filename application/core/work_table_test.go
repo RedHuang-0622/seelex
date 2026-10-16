@@ -2,14 +2,15 @@ package core
 
 import (
 	"encoding/json"
-	"strings"
-	"testing"
-	"time"
-
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	seelplan "github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	protocol_event "github.com/RedHuang-0622/seelex/middle/protocol/event"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/view/worktable"
+	"strings"
+	"testing"
+	"time"
 )
 
 // ── 工作表格投影（白盒功能测试；注册表为唯一 task 源）────────
@@ -18,23 +19,23 @@ func TestBuildWorkTableMapsPlanNodes(t *testing.T) {
 	queuedAt := time.Now().Add(-2 * time.Minute)
 	completedAt := time.Now().Add(-time.Minute)
 	toolAt := time.Now().Add(-30 * time.Second)
-	plan := &PlanState{
+	plan := &model.PlanState{
 		Status: PlanRunning,
-		Nodes: []PlanNode{
+		Nodes: []model.PlanNode{
 			{
 				ID: "n1", Label: "调研", Kind: "auto", Status: NodeCompleted, Output: "完成调研",
-				Events: []PlanNodeEventInfo{
+				Events: []model.PlanNodeEventInfo{
 					{Status: NodeQueued.String(), At: queuedAt, Output: "queued"},
 					{Status: NodeCompleted.String(), At: completedAt, Output: "ok"},
 				},
-				ToolEvents: []SubagentToolEvent{
+				ToolEvents: []model.SubagentToolEvent{
 					{ID: "t1", NodeID: "n1", Name: "read_file", Status: dto.ToolEventSuccess, StartedAt: toolAt, Result: "源码", Duration: 1500 * time.Millisecond},
 				},
 				Elapsed: "2m",
 			},
 			{
 				ID: "n2", Label: "实现", Status: NodeRunning,
-				Children: []PlanNode{{ID: "n2a", Label: "子任务", Status: NodePending}},
+				Children: []model.PlanNode{{ID: "n2a", Label: "子任务", Status: NodePending}},
 			},
 		},
 		Edges: []seelplan.PlanEdge{{From: "n1", To: "n2"}, {From: "n2", To: "n2a"}},
@@ -74,11 +75,11 @@ func TestBuildWorkTableMapsPlanNodes(t *testing.T) {
 
 func TestBuildWorkTableTasklistModeMarksCheckNode(t *testing.T) {
 	at := time.Now()
-	plan := &PlanState{
+	plan := &model.PlanState{
 		Status: PlanCompleted, // 非 running → tasklist 门禁模式
-		Nodes: []PlanNode{{
+		Nodes: []model.PlanNode{{
 			ID: "n1", Label: "步骤", Status: NodeCompleted,
-			Events: []PlanNodeEventInfo{{Status: NodeCompleted.String(), At: at, Output: "ok"}},
+			Events: []model.PlanNodeEventInfo{{Status: NodeCompleted.String(), At: at, Output: "ok"}},
 		}},
 	}
 	tasks := []dto.TaskRecord{{ID: "plan:n1", Phase: "plan", Task: "步骤", Status: dto.TaskCompleted, Kind: "plan", SourceID: "n1"}}
@@ -119,7 +120,7 @@ func TestBuildWorkTableMapsTodoItems(t *testing.T) {
 func TestBuildWorkTableBatches(t *testing.T) {
 	now := time.Now()
 	early := now.Add(-30 * time.Minute)
-	rows := []WorkItem{
+	rows := []model.WorkItem{
 		{ID: "todo:0", Kind: "todo", Phase: "tasklist", BatchID: "chat-2", CreatedAt: now.Add(-time.Minute)},
 		{ID: "task:1", Kind: "task", Phase: "task", BatchID: "chat-2", CreatedAt: now},
 		{ID: "plan:p1", Kind: "plan", Phase: "plan", BatchID: "chat-1", CreatedAt: early},
@@ -324,7 +325,7 @@ func TestRefreshWorkTableSnapshotPublishesSubagentRows(t *testing.T) {
 	}
 }
 
-func waitForWorkTableEvent(t testing.TB, subscription Subscription) WorkTableEvent {
+func waitForWorkTableEvent(t testing.TB, subscription protocol_event.Subscription) model.WorkTableEvent {
 	t.Helper()
 	deadline := time.After(2 * time.Second)
 	for {
@@ -333,7 +334,7 @@ func waitForWorkTableEvent(t testing.TB, subscription Subscription) WorkTableEve
 			if event.Kind != EventWorkTableChanged {
 				continue
 			}
-			var payload WorkTableEvent
+			var payload model.WorkTableEvent
 			if err := json.Unmarshal(event.Payload, &payload); err != nil {
 				t.Fatalf("decode worktable.changed: %v", err)
 			}

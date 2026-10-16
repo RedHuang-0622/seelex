@@ -2,12 +2,12 @@ package core
 
 import (
 	"encoding/json"
-	"testing"
-	"time"
-
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/view/worktable"
+	"testing"
+	"time"
 )
 
 // 归属会话必须从注册表记录透传到 WorkItem（GUI「会话」列与「仅本会话」筛选
@@ -98,7 +98,7 @@ func TestTaskChangedIncrementCarriesOwningSession(t *testing.T) {
 			if event.Kind != EventTaskChanged {
 				continue
 			}
-			var payload TaskChangedEvent
+			var payload model.TaskChangedEvent
 			if err := json.Unmarshal(event.Payload, &payload); err != nil {
 				t.Fatalf("decode task.changed: %v", err)
 			}

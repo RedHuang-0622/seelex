@@ -3,10 +3,11 @@ package core
 import (
 	"context"
 	"errors"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	selexsession "github.com/RedHuang-0622/seelex/session"
 	"sync"
 	"testing"
-
-	selexsession "github.com/RedHuang-0622/seelex/session"
 )
 
 // enqueueRawQueuedInput 用会话域 API 直接排队一条非 chatRequest 载荷的输入：
@@ -87,10 +88,10 @@ func TestReorderQueuedInputFollowsProjectionIndex(t *testing.T) {
 func startBlockingChat(t *testing.T) (*Service, *blockingEngine) {
 	t.Helper()
 	engine := &blockingEngine{fakeEngine: &fakeEngine{}, blockCh: make(chan struct{})}
-	service := mustNew(t, Dependencies{
+	service := mustNew(t, contract.Dependencies{
 		Engine:   engine,
 		Runtime:  &fakeRuntime{},
-		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},
+		Plugins:  &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills:   fakeSkills{},
 		Sessions: fakeSessions{},
 	})
@@ -98,7 +99,7 @@ func startBlockingChat(t *testing.T) (*Service, *blockingEngine) {
 	if err := service.Submit(context.Background(), "first"); err != nil {
 		t.Fatalf("Submit(first): %v", err)
 	}
-	waitForSnapshot(t, service, func(snapshot Snapshot) bool { return snapshot.Chat.Running })
+	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return snapshot.Chat.Running })
 	return service, engine
 }
 
@@ -156,7 +157,7 @@ func TestReorderQueuedInputDrivesPromotedBatchOrder(t *testing.T) {
 	}
 	close(engine.blockCh) // 放开首轮 → 队列提升为下一轮
 
-	promoted := waitForSnapshot(t, service, func(snapshot Snapshot) bool {
+	promoted := waitForSnapshot(t, service, func(snapshot model.Snapshot) bool {
 		for _, message := range snapshot.Conversation {
 			if message.Role == "user" && message.Content == "third\n---\nsecond" {
 				return true
@@ -228,7 +229,7 @@ func TestQueueEditErrorSemantics(t *testing.T) {
 		t.Fatalf("drain queue = %q/%v, want second/nil", text, err)
 	}
 	service.CancelChat("")
-	waitForSnapshot(t, service, func(snapshot Snapshot) bool { return !snapshot.Chat.Running })
+	waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return !snapshot.Chat.Running })
 	if err := service.ReorderQueuedInput("", 0, 0); !errors.Is(err, ErrQueueNotRunning) {
 		t.Fatalf("reorder while idle = %v, want ErrQueueNotRunning", err)
 	}

@@ -2,11 +2,11 @@ package core
 
 import (
 	"encoding/json"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 )
 
 // ── A/B 对比：worktable.changed（B）vs 整份 runtime.changed（A）──
@@ -29,15 +29,15 @@ func TestWorkTablePayloadSmallerThanFullRuntime(t *testing.T) {
 		t.Fatalf("table rows = %d exceed limit %d", len(table), Limits().WorkTableRows)
 	}
 
-	workPayload, err := json.Marshal(WorkTableEvent{Items: table})
+	workPayload, err := json.Marshal(model.WorkTableEvent{Items: table})
 	if err != nil {
 		t.Fatal(err)
 	}
-	workTreePayload, err := json.Marshal(WorkTableEvent{Items: table, SubAgentTree: tree})
+	workTreePayload, err := json.Marshal(model.WorkTableEvent{Items: table, SubAgentTree: tree})
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime := RuntimeState{Plan: plan, WorkTable: table}
+	runtime := model.RuntimeState{Plan: plan, WorkTable: table}
 	fullPayload, err := json.Marshal(runtime)
 	if err != nil {
 		t.Fatal(err)
@@ -61,22 +61,22 @@ func TestWorkTablePayloadSmallerThanFullRuntime(t *testing.T) {
 		len(workTreePayload), len(fullPayload), treeRatio)
 }
 
-func heavyTestPlan(nodes int) *PlanState {
-	plan := &PlanState{Status: PlanRunning}
+func heavyTestPlan(nodes int) *model.PlanState {
+	plan := &model.PlanState{Status: PlanRunning}
 	for index := 0; index < nodes; index++ {
 		id := string(rune('a' + index))
-		events := make([]PlanNodeEventInfo, 0, 30)
-		tools := make([]SubagentToolEvent, 0, 30)
+		events := make([]model.PlanNodeEventInfo, 0, 30)
+		tools := make([]model.SubagentToolEvent, 0, 30)
 		for eventIndex := 0; eventIndex < 30; eventIndex++ {
-			events = append(events, PlanNodeEventInfo{
+			events = append(events, model.PlanNodeEventInfo{
 				Status: NodeRunning.String(), At: time.Now(), Output: "节点事件证据文本，用于模拟长任务打点",
 			})
-			tools = append(tools, SubagentToolEvent{
+			tools = append(tools, model.SubagentToolEvent{
 				ID: "tool", NodeID: id, Name: "read_file", Arguments: "证据参数", Result: "证据结果",
 				Status: dto.ToolEventSuccess, StartedAt: time.Now(), Duration: 1234 * time.Millisecond,
 			})
 		}
-		plan.Nodes = append(plan.Nodes, PlanNode{
+		plan.Nodes = append(plan.Nodes, model.PlanNode{
 			ID: id, Label: "任务节点", Kind: "auto", Status: NodeRunning,
 			Output: "节点输出证据文本", Events: events, ToolEvents: tools,
 		})

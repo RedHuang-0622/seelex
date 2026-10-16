@@ -11,6 +11,7 @@ package core
 // 避免跨窗口分叉）。
 
 import (
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/switch"
 	"github.com/RedHuang-0622/seelex/session"
 )
@@ -48,11 +49,11 @@ func (service *Service) wakeCatalogRefresh() {
 
 // SetSessionMeta 写单个会话的展示元数据，随后唤醒目录刷新让所有客户端重拉。
 // meta 全为零值即清除该会话的条目（取消置顶 + 清空别名 + 复位排序）。判据在 `middle/switch`。
-func (service *Service) SetSessionMeta(sessionID string, meta SessionMeta) error {
+func (service *Service) SetSessionMeta(sessionID string, meta model.SessionMeta) error {
 	return switching.SetMeta(service.metaDeps(), sessionID, meta)
 }
 
 // SessionMeta 读取单个会话的展示元数据（未装配元数据存储时返回 switch.ErrMetaUnsupported）。
-func (service *Service) SessionMeta(sessionID string) (SessionMeta, error) {
+func (service *Service) SessionMeta(sessionID string) (model.SessionMeta, error) {
 	return switching.ReadMeta(service.metaDeps(), sessionID)
 }

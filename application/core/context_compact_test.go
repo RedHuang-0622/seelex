@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/backend/engine/task"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // compactTestService 构造带活跃任务执行的会话：主动压缩绑定请求纪元
@@ -19,8 +19,8 @@ func compactTestService(t *testing.T, requestID string) (*Service, *fakeEngine, 
 	engine := &fakeEngine{}
 	service := newTestService(t, engine, withTestRuntime(runtime))
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: requestID}
-	service.components.tasks.BeginTask(requestID, "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: requestID}
+	service.components.tasks.BeginTask(requestID, "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	sessionID := service.Snapshot().Session.ID
 	if sessionID == "" {
@@ -42,10 +42,10 @@ func TestCompactContextHandlerCompactsTranscript(t *testing.T) {
 	}
 	service.ViewMu.Lock()
 	for index := 0; index < 4; index++ {
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 			TaskID: "task-compact", Role: "user", Content: "question-" + string(rune('a'+index)),
 		})
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 			TaskID: "task-compact", Role: "assistant", Content: roundOf(index),
 		})
 	}
@@ -100,10 +100,10 @@ func TestCompactContextHandlerCompactsTranscript(t *testing.T) {
 func TestCompactManualCompactsBelowThreshold(t *testing.T) {
 	service, engine, sessionID := compactTestService(t, "task-compact-2")
 	service.ViewMu.Lock()
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 		TaskID: "task-compact", Role: "user", Content: "small question",
 	})
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 		TaskID: "task-compact", Role: "assistant", Content: "small answer",
 	})
 	service.ViewMu.Unlock()
@@ -150,7 +150,7 @@ func TestCompactManualCompactsBelowThreshold(t *testing.T) {
 func TestCompactManualAfterTurnRecordsExplicitOrigin(t *testing.T) {
 	service, _, sessionID := compactTestService(t, "task-finished")
 	service.ViewMu.Lock()
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 		TaskID: "task-finished", MessageID: "message-1", Role: "assistant", Content: strings.Repeat("B", 4_000),
 	})
 	// 回合收尾：任务执行不再是 Running（同时按真实收尾路径写一次任务面，
@@ -201,7 +201,7 @@ func TestCompactManualAfterTurnRecordsExplicitOrigin(t *testing.T) {
 func TestCompactAfterTurnSurfacesRecordWithoutTaskFace(t *testing.T) {
 	service, _, sessionID := compactTestService(t, "task-no-face")
 	service.ViewMu.Lock()
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 		TaskID: "task-no-face", MessageID: "message-1", Role: "assistant", Content: strings.Repeat("F", 4_000),
 	})
 	service.components.tasks.CurrentTaskExecution().Status = TurnCompleted
@@ -229,7 +229,7 @@ func TestCompactAfterTurnSurfacesRecordWithoutTaskFace(t *testing.T) {
 func TestCompactionFrameBodyIsReadableByRef(t *testing.T) {
 	service, _, sessionID := compactTestService(t, "task-frame-read")
 	service.ViewMu.Lock()
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 		TaskID: "task-frame-read", MessageID: "message-1", Role: "assistant", Content: strings.Repeat("G", 4_000),
 	})
 	service.components.tasks.CurrentTaskExecution().Status = TurnCompleted
@@ -269,10 +269,10 @@ func TestAutoCompactionAfterTurnKeepsRecordGate(t *testing.T) {
 	// 夹具：判据量过软阈值（4 轮 × 16 万字符 ≈ 16 万 tokens），且这批进展尚未被
 	// 自动压过（CompactedEpoch != ProgressEpoch）→ 自动路径会压缩。
 	for index := 0; index < 4; index++ {
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 			TaskID: "task-auto-finished", Role: "user", Content: "question-" + string(rune('a'+index)),
 		})
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 			TaskID: "task-auto-finished", Role: "assistant", Content: strings.Repeat("E", 160_000),
 		})
 	}
@@ -315,7 +315,7 @@ func TestCompactContextWithoutTaskExecutionCompactsImmediately(t *testing.T) {
 	// 冷加载的引擎历史：稳定 system 前缀 + 一段**不属于 transcript** 的旧对话
 	// （真实冷恢复会装载它）。压缩后这段必须退出 provider 历史，否则「压缩」
 	// 只是记录里的说法。
-	if err := service.replaceEngineHistory(sessionID, []EngineMessage{
+	if err := service.replaceEngineHistory(sessionID, []contract.EngineMessage{
 		{Role: "system", Content: "cold-load system prefix", ContentSet: true},
 		{Role: "user", Content: "stale-question-not-in-transcript", ContentSet: true},
 		{Role: "assistant", Content: "stale-answer-not-in-transcript", ContentSet: true},
@@ -446,8 +446,8 @@ func TestCompactEmptySessionRegistersAndRedeemsOnNextMessage(t *testing.T) {
 	// 下一条消息：新纪元建立后装配上下文 → 登记的强压兑现（判据量远低于软阈值）。
 	marks := appendWindowRounds(t, service, "task-empty", 2, 400)
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-empty-next"}
-	service.components.tasks.BeginTask("task-empty-next", "next", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-empty-next"}
+	service.components.tasks.BeginTask("task-empty-next", "next", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	if _, err := service.components.context.PrepareExecutionContextFor(sessionID, "task-empty-next", "next"); err != nil {
 		t.Fatalf("装配 provider 上下文: %v", err)
@@ -528,11 +528,11 @@ func TestCompactCommandNoticeReportsCompactedRange(t *testing.T) {
 	service, _, _ := compactTestService(t, "task-command-range")
 	service.ViewMu.Lock()
 	for index := 0; index < 4; index++ {
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 			TaskID: "task-command-range", MessageID: fmt.Sprintf("message-%d", index+1),
 			Role: "user", Content: fmt.Sprintf("q-%d", index),
 		})
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 			TaskID: "task-command-range", MessageID: fmt.Sprintf("message-%d", index+101),
 			Role: "assistant", Content: fmt.Sprintf("a-%d:%s", index, strings.Repeat("A", 4_000)),
 		})
@@ -607,7 +607,7 @@ func TestCompactionRangeLabel(t *testing.T) {
 func TestCompactCommandNeverReportsCompactionWithoutRecord(t *testing.T) {
 	service, _, _ := compactTestService(t, "task-command-after-turn")
 	service.ViewMu.Lock()
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 		TaskID: "task-command-after-turn", MessageID: "message-1", Role: "assistant", Content: strings.Repeat("C", 4_000),
 	})
 	service.components.tasks.CurrentTaskExecution().Status = TurnCompleted

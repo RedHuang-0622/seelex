@@ -1,9 +1,10 @@
 package core
 
 import (
-	"testing"
-
+	cc "github.com/RedHuang-0622/seelex/backend/engine/input/contextcontrol"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"testing"
 )
 
 // TestContextBudgetDoesNotRecompactWithoutNewContent 钉住回合边界达峰判据的
@@ -18,7 +19,7 @@ import (
 //     回合都压一次（现场表现：一发消息一条压缩记录）。
 func TestContextBudgetDoesNotRecompactWithoutNewContent(t *testing.T) {
 	pinMechanismCompactionRatios(t)
-	applyWindowConfig(t, WindowConfig{})
+	applyWindowConfig(t, cc.WindowConfig{})
 	service, engine, sessionID := compactTestService(t, "task-frequency-1")
 	// 20 轮 × 约 8k token ≈ 160k token：高于生效软阈值、低于生效预算 ——
 	// 首轮必须压缩，且压缩落点必须从"占比保留"（ratio × all）再
@@ -47,7 +48,7 @@ func TestContextBudgetDoesNotRecompactWithoutNewContent(t *testing.T) {
 	// 事实一行未增。装配不得再落压缩记录。
 	service.ViewMu.Lock()
 	previous := service.components.tasks.CurrentTaskExecutionFor(sessionID)
-	service.components.tasks.BeginTaskFor(sessionID, "task-frequency-2", "next request", "high", previous, TaskCheckpoint{})
+	service.components.tasks.BeginTaskFor(sessionID, "task-frequency-2", "next request", "high", previous, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	if _, err := service.components.context.PrepareExecutionContextFor(sessionID, "task-frequency-2", "next request"); err != nil {
 		t.Fatalf("第二个回合装配: %v", err)
@@ -61,7 +62,7 @@ func TestContextBudgetDoesNotRecompactWithoutNewContent(t *testing.T) {
 	appendWindowRounds(t, service, "task-frequency-2", 1, 16_000)
 	service.ViewMu.Lock()
 	previous = service.components.tasks.CurrentTaskExecutionFor(sessionID)
-	service.components.tasks.BeginTaskFor(sessionID, "task-frequency-3", "next request", "high", previous, TaskCheckpoint{})
+	service.components.tasks.BeginTaskFor(sessionID, "task-frequency-3", "next request", "high", previous, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	if _, err := service.components.context.PrepareExecutionContextFor(sessionID, "task-frequency-3", "next request"); err != nil {
 		t.Fatalf("第三个回合装配: %v", err)

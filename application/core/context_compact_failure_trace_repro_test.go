@@ -3,15 +3,15 @@ package core
 import (
 	"context"
 	"errors"
+	"github.com/RedHuang-0622/seelex/backend/engine/context"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/backend/engine/context"
-	"github.com/RedHuang-0622/seelex/backend/engine/task"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // 压缩失败的两条红灯复现（用户口径 2026-10-02）：
@@ -61,11 +61,11 @@ func appendSizedRounds(t *testing.T, service *Service, taskID string, rounds int
 	service.ViewMu.Lock()
 	defer service.ViewMu.Unlock()
 	for index := 0; index < rounds; index++ {
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 			TaskID: taskID, MessageID: "message-" + strconv.Itoa(index*2+1),
 			Role: "user", Content: "question-" + strconv.Itoa(index),
 		})
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 			TaskID: taskID, MessageID: "message-" + strconv.Itoa(index*2+2),
 			Role: "assistant", Content: strings.Repeat("A", asciiRunes),
 		})
@@ -80,13 +80,13 @@ func startCompactionFailureSession(t *testing.T, taskID string) (*Service, *fake
 
 // startCompactionFailureSessionWith 同上，但宿主由调用方给——两种失败形态（回执里
 // 只有本地压缩 / 读数调用本身就报错）只有 readback 那一格不同，不该各写一套装配。
-func startCompactionFailureSessionWith(t *testing.T, runtime RuntimePort, taskID string) (*Service, *fakeEngine, string) {
+func startCompactionFailureSessionWith(t *testing.T, runtime contract.RuntimePort, taskID string) (*Service, *fakeEngine, string) {
 	t.Helper()
 	engine := &fakeEngine{}
 	service := newTestService(t, engine, withTestRuntime(runtime))
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: taskID}
-	service.components.tasks.BeginTask(taskID, "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: taskID}
+	service.components.tasks.BeginTask(taskID, "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	return service, engine, service.Snapshot().Session.ID
 }
@@ -104,7 +104,7 @@ func compactionRecordsOf(t *testing.T, service *Service) []model.ContextCompacti
 }
 
 // historyHasContent 报告引擎工作历史里是否还留着某段正文。
-func historyHasContent(history []EngineMessage, needle string) bool {
+func historyHasContent(history []contract.EngineMessage, needle string) bool {
 	for _, message := range history {
 		if strings.Contains(message.Content, needle) {
 			return true

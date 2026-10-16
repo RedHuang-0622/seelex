@@ -2,18 +2,19 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/backend/engine/context"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/backend/engine/context"
-	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // trustedSkillInHistory 断言引擎历史中存在激活技能 internal 事件
 // （ActiveSkillMarker 标记、role=user）：技能正文在激活时 append 进 transcript，
 // 装配随定稿轮次出现在引擎历史中（本任务真实轮次之前）——不再进 system。
-func trustedSkillInHistory(t *testing.T, history []EngineMessage, name, text string) bool {
+func trustedSkillInHistory(t *testing.T, history []contract.EngineMessage, name, text string) bool {
 	t.Helper()
 	for _, message := range history {
 		if message.Role == "user" && strings.HasPrefix(message.Content, context_runtime.ActiveSkillPrefix) {
@@ -29,11 +30,11 @@ func TestSystemPromptStableAcrossPlanNodeChanges(t *testing.T) {
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Session.ID = engine.SessionID()
 	service.components.tasks.SetPlanStateLocked(nil, "plan-x")
-	service.Core.Snapshot.Runtime.Plan = &PlanState{
+	service.Core.Snapshot.Runtime.Plan = &model.PlanState{
 		Status: PlanRunning,
-		Nodes:  []PlanNode{{ID: "n1", Label: "第一步", Status: NodeRunning}},
+		Nodes:  []model.PlanNode{{ID: "n1", Label: "第一步", Status: NodeRunning}},
 	}
-	service.components.tasks.BeginTask("chat-x", "", "high", nil, TaskCheckpoint{})
+	service.components.tasks.BeginTask("chat-x", "", "high", nil, model.TaskCheckpoint{})
 	first := service.components.prompts.SystemPromptForActiveTaskLocked()
 	service.Core.Snapshot.Runtime.Plan.Nodes[0].Status = NodeCompleted
 	second := service.components.prompts.SystemPromptForActiveTaskLocked()
@@ -132,7 +133,7 @@ func TestPrepareExecutionContextCarriesWorkTableTraceBlock(t *testing.T) {
 // 项目/全局台账，/new 不清空跨会话表。
 
 func TestNewRejectsMissingDependencies(t *testing.T) {
-	if _, err := New(Dependencies{}); err == nil {
+	if _, err := New(contract.Dependencies{}); err == nil {
 		t.Fatal("expected missing dependency error")
 	}
 }
@@ -201,7 +202,7 @@ func TestSuggestionsAndSkillRouting(t *testing.T) {
 	engine.mu.Lock()
 	prompt := engine.prompt
 	modelInput := engine.lastInput
-	firstSentHistory := append([]EngineMessage(nil), engine.historyBeforeChat...)
+	firstSentHistory := append([]contract.EngineMessage(nil), engine.historyBeforeChat...)
 	engine.mu.Unlock()
 	// system 只含稳定 base + 被动技能目录；激活技能正文已移出 system，
 	// 改为激活时 append-only 落进 transcript（internal user 事件）。
@@ -228,7 +229,7 @@ func TestSuggestionsAndSkillRouting(t *testing.T) {
 	engine.mu.Lock()
 	prompt = engine.prompt
 	modelInput = engine.lastInput
-	secondSentHistory := append([]EngineMessage(nil), engine.historyBeforeChat...)
+	secondSentHistory := append([]contract.EngineMessage(nil), engine.historyBeforeChat...)
 	engine.mu.Unlock()
 	if modelInput != "$review focused" || strings.Contains(prompt, "## Trusted Active Skill") {
 		t.Fatalf("dollar Skill input=%q prompt=%q", modelInput, prompt)
@@ -253,9 +254,9 @@ func TestApprovalBrokerResolve(t *testing.T) {
 	subscription := hub.Subscribe(1)
 	defer subscription.Close()
 	broker := NewApprovalBroker(hub)
-	result := make(chan ApprovalDecision, 1)
+	result := make(chan contract.ApprovalDecision, 1)
 	go func() {
-		decision, err := broker.Request(context.Background(), ApprovalRequest{ID: "approval-1", Question: "continue?", Options: []InteractionOption{{ID: "yes", Label: "Yes"}}})
+		decision, err := broker.Request(context.Background(), contract.ApprovalRequest{ID: "approval-1", Question: "continue?", Options: []model.InteractionOption{{ID: "yes", Label: "Yes"}}})
 		if err == nil {
 			result <- decision
 		}
@@ -268,7 +269,7 @@ func TestApprovalBrokerResolve(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("approval request was not opened")
 	}
-	if err := broker.Resolve("approval-1", ApprovalDecision{OptionID: "yes"}); err != nil {
+	if err := broker.Resolve("approval-1", contract.ApprovalDecision{OptionID: "yes"}); err != nil {
 		t.Fatal(err)
 	}
 	select {

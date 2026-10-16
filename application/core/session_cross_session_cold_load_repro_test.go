@@ -28,13 +28,14 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"runtime"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // gatedColdSessions 只在冷会话 "sess-cold" 的区间读上设门闩：冷加载一旦进入
@@ -51,13 +52,13 @@ func (sessions *gatedColdSessions) releaseNow() {
 	sessions.releaseOnce.Do(func() { close(sessions.release) })
 }
 
-func (sessions *gatedColdSessions) LoadHistory(sessionID string) ([]EngineMessage, error) {
+func (sessions *gatedColdSessions) LoadHistory(sessionID string) ([]contract.EngineMessage, error) {
 	history, err := sessions.scopedSessions.LoadHistory(sessionID)
 	sessions.gate(sessionID)
 	return history, err
 }
 
-func (sessions *gatedColdSessions) LoadHistoryRange(sessionID string, offset, limit int) ([]EngineMessage, int, error) {
+func (sessions *gatedColdSessions) LoadHistoryRange(sessionID string, offset, limit int) ([]contract.EngineMessage, int, error) {
 	rows, total, err := sessions.scopedSessions.LoadHistoryRange(sessionID, offset, limit)
 	sessions.gate(sessionID)
 	return rows, total, err
@@ -75,13 +76,13 @@ func newGatedColdSessions() *gatedColdSessions {
 	now := time.Now()
 	return &gatedColdSessions{
 		scopedSessions: &scopedSessions{
-			catalog: map[string][]SessionInfo{
+			catalog: map[string][]model.SessionInfo{
 				"": {
 					{ID: "sess-cold", UpdatedAt: now},
 					{ID: "sess-b", UpdatedAt: now},
 				},
 			},
-			histories: map[string]map[string][]EngineMessage{
+			histories: map[string]map[string][]contract.EngineMessage{
 				"": {
 					"sess-cold": {
 						{Role: "user", Content: "cold-1"},

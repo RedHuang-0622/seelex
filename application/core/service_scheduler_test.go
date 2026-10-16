@@ -2,12 +2,13 @@ package core
 
 import (
 	"context"
+	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 	"testing"
 	"time"
-
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
-	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // TestStartScheduledSessionCreatesNewSessionInWorkspace 钉住定时触发的会话落点：
@@ -25,10 +26,10 @@ func TestStartScheduledSessionCreatesNewSessionInWorkspace(t *testing.T) {
 	engine := &fakeEngine{chunks: []string{"收到"}}
 	runtime := &fakeRuntime{}
 	workspaces := newFakeWorkspace()
-	workspaces.items["project-1"] = WorkspaceInfo{ID: "project-1", Name: "巡检项目", RootPath: root}
+	workspaces.items["project-1"] = model.WorkspaceInfo{ID: "project-1", Name: "巡检项目", RootPath: root}
 	sessions := &scopedSessions{}
-	service := mustNew(t, Dependencies{
-		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	service := mustNew(t, contract.Dependencies{
+		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
 	defer service.Shutdown()
@@ -84,9 +85,9 @@ func TestStartScheduledSessionWithoutWorkspaceKeepsSessionUnbound(t *testing.T) 
 	engine := &fakeEngine{chunks: []string{"收到"}}
 	runtime := &fakeRuntime{}
 	workspaces := newFakeWorkspace()
-	workspaces.items["project-1"] = WorkspaceInfo{ID: "project-1", Name: "巡检项目", RootPath: root}
-	service := mustNew(t, Dependencies{
-		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	workspaces.items["project-1"] = model.WorkspaceInfo{ID: "project-1", Name: "巡检项目", RootPath: root}
+	service := mustNew(t, contract.Dependencies{
+		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: &scopedSessions{}, Workspace: workspaces,
 	})
 	defer service.Shutdown()
@@ -121,7 +122,7 @@ func (runtime *fakeRuntime) sessionProjectRoot(sessionID string) string {
 }
 
 // conversationContents 把可见会话拼成一段文本（判据只看"出现过没有"）。
-func conversationContents(messages []Message) string {
+func conversationContents(messages []model.Message) string {
 	parts := make([]string, 0, len(messages))
 	for _, message := range messages {
 		parts = append(parts, message.Content)
@@ -135,9 +136,9 @@ func conversationContents(messages []Message) string {
 func TestUpdateScheduledTaskForwardsAndValidatesWorkspace(t *testing.T) {
 	runtime := &fakeRuntime{}
 	workspaces := newFakeWorkspace()
-	workspaces.items["project-1"] = WorkspaceInfo{ID: "project-1", Name: "巡检项目", RootPath: t.TempDir()}
-	service := mustNew(t, Dependencies{
-		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	workspaces.items["project-1"] = model.WorkspaceInfo{ID: "project-1", Name: "巡检项目", RootPath: t.TempDir()}
+	service := mustNew(t, contract.Dependencies{
+		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: &fakeSessions{}, Workspace: workspaces,
 	})
 	defer service.Shutdown()
@@ -183,8 +184,8 @@ func TestUpdateScheduledTaskForwardsAndValidatesWorkspace(t *testing.T) {
 func TestAssembleScheduledRunAppliesTierAndPlugins(t *testing.T) {
 	runtime := &fakeRuntime{}
 	engine := &fakeEngine{}
-	service := mustNew(t, Dependencies{
-		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	service := mustNew(t, contract.Dependencies{
+		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: &fakeSessions{},
 	})
 	defer service.Shutdown()
@@ -271,8 +272,8 @@ func TestAssembleScheduledRunAppliesTierAndPlugins(t *testing.T) {
 //  3. 非法取值在创建那一刻就拒（不是等到触发那天变成一次失败的运行）。
 func TestScheduledRunParamsDefaultsAndValidation(t *testing.T) {
 	runtime := &fakeRuntime{}
-	service := mustNew(t, Dependencies{
-		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	service := mustNew(t, contract.Dependencies{
+		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: &fakeSessions{},
 	})
 	defer service.Shutdown()
@@ -327,8 +328,8 @@ func TestScheduledRunParamsDefaultsAndValidation(t *testing.T) {
 // 在**创建/编辑**这一刻就拒绝（而不是等到触发那天变成"这一轮什么工具都没有"）。
 func TestScheduledPluginsValidatedAgainstCatalog(t *testing.T) {
 	runtime := &fakeRuntime{}
-	service := mustNew(t, Dependencies{
-		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	service := mustNew(t, contract.Dependencies{
+		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: &fakeSessions{},
 	})
 	defer service.Shutdown()

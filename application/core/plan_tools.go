@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
-	"time"
-
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	seelplan "github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/view/subagent"
+	"strings"
+	"time"
 )
 
 // updatePlanFromLoad 从 plan_load 的参数 JSON 初始化 PlanState。
@@ -40,14 +40,14 @@ func (service *Service) updatePlanFromLoad(argsJSON string) {
 	// 拓扑排序 → 稳定节点顺序
 	order := seelplan.TopoSort(input.Entry, input.Edges, allNodes)
 
-	nodes := make([]PlanNode, 0, len(input.Nodes))
+	nodes := make([]model.PlanNode, 0, len(input.Nodes))
 	for _, id := range order {
 		spec := input.Nodes[id]
 		kind := spec.Kind
 		if kind == "" {
 			kind = "auto"
 		}
-		nodes = append(nodes, PlanNode{ID: id, Label: id, Kind: kind, Status: NodePending})
+		nodes = append(nodes, model.PlanNode{ID: id, Label: id, Kind: kind, Status: NodePending})
 		if state := service.components.tasks.CurrentTaskExecution(); state != nil && state.RequestID == service.Core.Snapshot.Chat.RequestID {
 			state.Checkpoint(id, spec.Input, NodePending.String(), "", "")
 		}
@@ -56,7 +56,7 @@ func (service *Service) updatePlanFromLoad(argsJSON string) {
 	// 邻接表 → []PlanEdge
 	planEdges := seelplan.AdjacencyToEdges(input.Edges)
 
-	service.Core.Snapshot.Runtime.Plan = &PlanState{
+	service.Core.Snapshot.Runtime.Plan = &model.PlanState{
 		Name:        input.Entry,
 		EntryNodeID: input.Entry,
 		Status:      PlanPending,
@@ -91,7 +91,7 @@ func (service *Service) updatePlanFromRunResult(resultJSON string) {
 		return
 	}
 	if service.Core.Snapshot.Runtime.Plan == nil {
-		service.Core.Snapshot.Runtime.Plan = &PlanState{}
+		service.Core.Snapshot.Runtime.Plan = &model.PlanState{}
 	}
 	plan := service.Core.Snapshot.Runtime.Plan
 
@@ -110,7 +110,7 @@ func (service *Service) updatePlanFromRunResult(resultJSON string) {
 	if out.NodeCount > 0 && len(plan.Nodes) == 0 {
 		// 没有 plan_load 数据的情况下，用 node_count 创建占位节点
 		for i := range out.NodeCount {
-			plan.Nodes = append(plan.Nodes, PlanNode{
+			plan.Nodes = append(plan.Nodes, model.PlanNode{
 				ID:     fmt.Sprintf("node-%d", i+1),
 				Label:  fmt.Sprintf("step-%d", i+1),
 				Status: resolveNodeStatus(out.Nodes, fmt.Sprintf("node-%d", i+1)),
@@ -191,7 +191,7 @@ func resolveNodeStatus(nodes []struct {
 	Aborted   bool   `json:"aborted"`
 	StartedAt string `json:"started_at,omitempty"`
 	EndedAt   string `json:"ended_at,omitempty"`
-}, nodeID string) NodeStatus {
+}, nodeID string) model.NodeStatus {
 	for _, n := range nodes {
 		if n.NodeID == nodeID {
 			if status, ok := task_context.PlanNodeStatus(n.Status); ok {
@@ -213,11 +213,11 @@ func resolveNodeStatus(nodes []struct {
 // 当前会话与 Snapshot.Runtime.Plan 同一指针（视图镜像）；后台会话的投影
 // 缓存已归 task_context 协调器自有状态（planMu 护 map 结构，F），缺失时从
 // 会话 plan 帧重建（ActivePlanFromStack）。
-func (service *Service) planProjectionLocked(sessionID string) *PlanState {
+func (service *Service) planProjectionLocked(sessionID string) *model.PlanState {
 	if sessionID == "" || sessionID == service.Core.Snapshot.Session.ID {
 		return service.Core.Snapshot.Runtime.Plan
 	}
-	return service.components.tasks.PlanProjectionFor(sessionID, func() *PlanState {
+	return service.components.tasks.PlanProjectionFor(sessionID, func() *model.PlanState {
 		return task_context.ActivePlanFromStack(
 			service.components.tasks.PlanStackFor(sessionID),
 			service.components.tasks.ActivePlanIDFor(sessionID),
@@ -230,7 +230,7 @@ func (service *Service) planProjectionLocked(sessionID string) *PlanState {
 //   - 若协调器投影已有（后台事件/其它路径推进过），取投影副本——不得用 plan
 //     栈旧基线覆盖（否则切换回看会丢失运行期进度）；
 //   - 投影缺失时用 fallback（record/plan 栈）补种后再镜像。
-func (service *Service) mirrorPlanProjectionForSessionLocked(sessionID string, fallback func() *PlanState) {
+func (service *Service) mirrorPlanProjectionForSessionLocked(sessionID string, fallback func() *model.PlanState) {
 	plan := service.components.tasks.PlanProjectionCopy(sessionID)
 	if plan == nil {
 		plan = fallback()
@@ -290,7 +290,7 @@ func (service *Service) handleViewPlanNodeComplete(event dto.PlanNodeEvent, sess
 			}
 		}
 	}
-	var changedNode *PlanNode
+	var changedNode *model.PlanNode
 	if event.NodeID != "" {
 		if node := subagent_view.FindPlanNodeByID(plan.Nodes, event.NodeID); node != nil {
 			// 只有节点状态词推进节点状态（阶段词不许覆盖，见 AppendPlanNodeEvent 的注释）。
@@ -325,7 +325,7 @@ func (service *Service) handleViewPlanNodeComplete(event dto.PlanNodeEvent, sess
 	service.Core.Snapshot.Runtime.SubAgentTree = tree
 	revision := service.bumpLocked()
 	requestID := service.Core.Snapshot.Chat.RequestID
-	var changed SubagentEvent
+	var changed model.SubagentEvent
 	if changedNode != nil {
 		changed = subagent_view.SubagentChangedPayload(plan, event.PlanID, event.RunID, *changedNode)
 	}
@@ -400,7 +400,7 @@ func (service *Service) HandlePlanBranchEvent(event seelplan.PlanBranchEvent) {
 	revision := service.bumpLocked()
 	requestID := service.Core.Snapshot.Chat.RequestID
 	viewSessionID := service.Core.Snapshot.Session.ID
-	var changed SubagentEvent
+	var changed model.SubagentEvent
 	if node != nil {
 		changed = subagent_view.SubagentChangedPayload(plan, "", "", *node)
 	}
@@ -445,7 +445,7 @@ func isTerminalNodeStatus(word string) bool {
 
 // handlePlanRunFailure 处理 plan_run 执行失败的情况。
 // 更新 PlanState 中失败节点的状态，弹出 retry/skip/abort 交互。
-func (service *Service) handlePlanRunFailureLocked(errMsg, resultJSON string) *Interaction {
+func (service *Service) handlePlanRunFailureLocked(errMsg, resultJSON string) *model.Interaction {
 	plan := service.Core.Snapshot.Runtime.Plan
 	if plan == nil {
 		return nil
@@ -539,12 +539,12 @@ func (service *Service) handlePlanRunFailureLocked(errMsg, resultJSON string) *I
 	}
 
 	// 创建 retry/skip/abort 交互
-	interaction := &Interaction{
+	interaction := &model.Interaction{
 		ID:       fmt.Sprintf("plan-fail-%d", time.Now().UnixNano()),
 		Kind:     "plan_retry",
 		Title:    "节点执行失败",
 		Question: fmt.Sprintf("节点 %s 执行失败：%s", failedNodeID, errMsg),
-		Options: []InteractionOption{
+		Options: []model.InteractionOption{
 			{ID: "replan", Label: "Replan", Description: "Load a reviewed recovery plan without executing it.", Style: "primary"},
 			{ID: "retry", Label: "重试", Description: "重新执行整个工作流", Style: "warning"},
 			{ID: "skip", Label: "跳过", Description: "修改工作流跳过失败节点再执行", Style: "secondary"},

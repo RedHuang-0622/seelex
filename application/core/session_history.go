@@ -4,18 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
-	"sync"
-	"time"
-
 	"github.com/RedHuang-0622/seelex/backend/engine/context"
 	"github.com/RedHuang-0622/seelex/backend/engine/react"
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	history "github.com/RedHuang-0622/seelex/middle/switch/history"
 	"github.com/RedHuang-0622/seelex/middle/view/state"
 	"github.com/RedHuang-0622/seelex/session"
+	"strings"
+	"sync"
+	"time"
 )
 
 // persistedPlanRestorer 是 Runtime 的可选能力：resume 时按 plan 参数恢复
@@ -107,21 +108,21 @@ func (service *Service) beginAsyncRestore(sessionID string) (uint64, error) {
 	service.setRestoringLocked(sessionID)
 	name := service.components.sessions.SessionTitleFor(sessionID).Value
 	unit := service.sessionUnitLocked(sessionID)
-	unit.SetChatState(ChatState{}, nil)
+	unit.SetChatState(model.ChatState{}, nil)
 	unit.SetCancel(nil)
 	unit.SetRequests(nil)
 	// 空壳：清空该会话单元的可见区（新建单元默认空，此处幂等），避免把
 	// 上一视图会话 A 的内容留在 B 的投影里。
 	service.components.view.SessionViewMutateLocked(sessionID, func(view *session.View) {
 		view.Conversation = nil
-		view.Chat = ChatState{}
+		view.Chat = model.ChatState{}
 		view.ReadFiles = nil
 		view.TotalMessages = 0
 		view.HistoryOffset = 0
 		view.HasMoreHistory = false
 		view.ConversationWindow = 0
 	})
-	service.Core.Snapshot.Session = SessionState{ID: sessionID, Name: name, Status: SessionStatusRestoring}
+	service.Core.Snapshot.Session = model.SessionState{ID: sessionID, Name: name, Status: SessionStatusRestoring}
 	service.sessions.SetActive(sessionID)
 	service.Core.Snapshot.Conversation = nil
 	service.Core.Snapshot.Task = nil
@@ -169,7 +170,7 @@ func (service *Service) pointViewAtRestoringShell(sessionID string) {
 	}
 	name := service.components.sessions.SessionTitleFor(sessionID).Value
 	unit := service.sessionUnitLocked(sessionID)
-	service.Core.Snapshot.Session = SessionState{ID: sessionID, Name: name, Status: SessionStatusRestoring}
+	service.Core.Snapshot.Session = model.SessionState{ID: sessionID, Name: name, Status: SessionStatusRestoring}
 	service.sessions.SetActive(sessionID)
 	service.Core.Snapshot.Task = nil
 	service.Core.Snapshot.Runtime.Plan = nil
@@ -231,14 +232,14 @@ func (service *Service) resetViewToDraftAfterRestoreFailure() {
 	slot.UpdatedAt = time.Now()
 	draftID := slot.ID
 	service.nextViewEpochLocked()
-	service.Core.Snapshot.Session = SessionState{ID: draftID, Name: draftSessionName, Draft: true, Status: SessionStatusDraft}
+	service.Core.Snapshot.Session = model.SessionState{ID: draftID, Name: draftSessionName, Draft: true, Status: SessionStatusDraft}
 	service.sessions.SetActive(draftID)
 	service.Core.Snapshot.Conversation = nil
 	service.Core.Snapshot.Task = nil
 	service.Core.Snapshot.Runtime.Plan = nil
 	service.Core.Snapshot.Interaction = nil
 	runtime := service.sessionUnitLocked(draftID)
-	runtime.SetChatState(ChatState{}, nil)
+	runtime.SetChatState(model.ChatState{}, nil)
 	runtime.SetCancel(nil)
 	runtime.SetRequests(nil)
 	service.Core.Snapshot.Chat = runtime.ChatState()
@@ -247,7 +248,7 @@ func (service *Service) resetViewToDraftAfterRestoreFailure() {
 	// 仍持有该会话的档位选择）——两种情况 syncViewPermissionTierLocked 给出的都是
 	// 本会话的生效档位，而不是上一个会话留在快照里的那个。
 	service.syncViewPermissionTierLocked(draftID)
-	service.components.sessions.SetSessionTitleLocked(draftID, SessionTitle{})
+	service.components.sessions.SetSessionTitleLocked(draftID, model.SessionTitle{})
 	service.components.tasks.ResetForNewSessionLocked()
 	revision := service.bumpLocked()
 	service.ViewMu.Unlock()
@@ -271,12 +272,12 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 	// history 路径为尾部窗口读：先 (0,0) 取总数（只读 manifest，不解析 shard），
 	// 再 (total-window, window) 只解析覆盖尾部窗口的 1-2 个 shard。
 	var (
-		record        SessionRecord
+		record        model.SessionRecord
 		hasRecord     bool
-		history       []EngineMessage
+		history       []contract.EngineMessage
 		historyTotal  int
 		historyErr    error
-		transcript    []TranscriptEvent
+		transcript    []model.TranscriptEvent
 		transcriptErr error
 		recordErr     error
 	)
@@ -353,7 +354,7 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 	// 必须在引擎创建/恢复前登记绑定，后台会话 ChatStream 结束时不串写他域。
 	service.Deps.Runtime.SetSessionWorkspace(sessionID, location.WorkspaceID)
 	if enginePort, ok := service.Deps.Engine.(interface {
-		ResumeSession(string, []EngineMessage) error
+		ResumeSession(string, []contract.EngineMessage) error
 	}); ok {
 		// M1：恢复目标会话自己的引擎实例（会话注册表内存缓存，切走不再销毁）。
 		if err := enginePort.ResumeSession(sessionID, engineHistory); err != nil {
@@ -439,13 +440,13 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 		name = record.Title.Value
 	}
 	if mayActivate {
-		service.Core.Snapshot.Session = SessionState{ID: sessionID, Name: name}
+		service.Core.Snapshot.Session = model.SessionState{ID: sessionID, Name: name}
 		service.sessions.SetActive(sessionID)
 	}
 	resumedRuntime := service.sessionUnitLocked(sessionID)
 	resumedRuntime.SetCancel(nil)
 	service.applyStoredPermissionTier(sessionID, storedTier)
-	service.components.sessions.SetSessionTitleLocked(sessionID, SessionTitle{Value: name, Source: "legacy_history"})
+	service.components.sessions.SetSessionTitleLocked(sessionID, model.SessionTitle{Value: name, Source: "legacy_history"})
 	if hasRecord {
 		service.components.sessions.SetSessionTitleLocked(sessionID, record.Title)
 		transcriptSeq := uint64(0)
@@ -466,10 +467,10 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 		// 压缩记录通道是新址（v8/S20 起 record 通道停写停读，压缩记录只住在
 		// 这里，见 store/compaction_records.go）。旧址有值就以它为准
 		// ——同一份事实的两处副本不该被新址的空结果覆盖；旧址为空才读新址。
-		var contextCompactions []ContextCompaction
+		var contextCompactions []model.ContextCompaction
 		retainedFrom := 0
 		if storedTask := record.Execution.Task; storedTask != nil {
-			contextCompactions = append([]ContextCompaction(nil), storedTask.ContextCompactions...)
+			contextCompactions = append([]model.ContextCompaction(nil), storedTask.ContextCompactions...)
 		}
 		if len(contextCompactions) == 0 {
 			// 读不出来（通道损坏/未装配该端口）不阻断恢复：少的是可见面的一份
@@ -512,9 +513,9 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 	}
 	if hasRecord {
 		service.advanceMessageSeqLocked(sessionID, record.Conversation.Messages)
-		view.Conversation = append(view.Conversation, Message{Role: "system", Content: "已恢复会话: " + sessionID, CreatedAt: time.Now()})
+		view.Conversation = append(view.Conversation, model.Message{Role: "system", Content: "已恢复会话: " + sessionID, CreatedAt: time.Now()})
 		view.Conversation = append(view.Conversation, service.components.sessions.RecordConversationTail(record, Limits().HistoryWindow)...)
-		view.ReadFiles = append([]ReadFileRef(nil), record.Execution.ReadFiles...)
+		view.ReadFiles = append([]model.ReadFileRef(nil), record.Execution.ReadFiles...)
 		// 可见投影：冷恢复可能迟到完成，而目标会话在这期间可能已经跑过自己的
 		// 回合——它的可见会话是更新的活事实，用恢复快照覆盖会把这一轮顶掉
 		//（2026-09-11 TC-A2-01 第三层根因：fork 子会话首轮被迟到的基线整体
@@ -525,7 +526,7 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 		if mayActivate {
 			if record.Execution.Task != nil {
 				task := *record.Execution.Task
-				task.ContextCompactions = append([]ContextCompaction(nil), record.Execution.Task.ContextCompactions...)
+				task.ContextCompactions = append([]model.ContextCompaction(nil), record.Execution.Task.ContextCompactions...)
 				service.Core.Snapshot.Task = &task
 			} else {
 				service.Core.Snapshot.Task = nil
@@ -558,7 +559,7 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 	service.appendPendingTailNoticeLocked(sessionID, pendingTailNotice)
 	service.setSessionChatLockedFor(sessionID, resumedRuntime.ChatState())
 	if mayActivate {
-		service.mirrorPlanProjectionForSessionLocked(sessionID, func() *PlanState {
+		service.mirrorPlanProjectionForSessionLocked(sessionID, func() *model.PlanState {
 			return task_context.ActivePlanFromStack(record.PlanStack, record.ActivePlanID)
 		})
 		service.Core.Snapshot.Interaction = nil
@@ -805,7 +806,7 @@ func (service *Service) loadConversationTailPage(workspaceID, sessionID string, 
 // 扩到「已发布的行全读回来」仍没有对位（窗口首行是在飞行，磁盘上根本没有），或
 // 窗口为空（没有对位锚）时，返回读到的整段，交给安装路径按「宁可窗口短一页，也
 // 不在列表中间留一段谁都没有的下标区间」处理。
-func (service *Service) loadEarlierVisiblePage(workspaceID, sessionID string, offset, limit, window int, seam Message) (conversationPage, error) {
+func (service *Service) loadEarlierVisiblePage(workspaceID, sessionID string, offset, limit, window int, seam model.Message) (conversationPage, error) {
 	start := offset - limit
 	if start < 0 {
 		start = 0
@@ -842,7 +843,7 @@ func (service *Service) loadEarlierVisiblePage(workspaceID, sessionID string, of
 // 缺陷的根就是拿未过滤总数当可见总数。磁盘的未过滤总数因此只回答一个问题：
 // 这一页读到发布点了吗。
 type conversationPage struct {
-	rows      []Message
+	rows      []model.Message
 	rawRows   int
 	diskTotal int
 	start     int
@@ -886,7 +887,7 @@ func (service *Service) loadConversationPage(workspaceID, sessionID string, offs
 		if err != nil {
 			return conversationPage{}, fmt.Errorf("load conversation range: %w", err)
 		}
-		page.rows = service.components.sessions.RecordConversation(SessionRecord{Conversation: ConversationRecord{Messages: messages}})
+		page.rows = service.components.sessions.RecordConversation(model.SessionRecord{Conversation: model.ConversationRecord{Messages: messages}})
 		page.rawRows = len(messages)
 		page.diskTotal = count
 		return page, nil
@@ -895,7 +896,7 @@ func (service *Service) loadConversationPage(workspaceID, sessionID string, offs
 	if err != nil {
 		return conversationPage{}, fmt.Errorf("load history range: %w", err)
 	}
-	page.rows = make([]Message, 0, len(history))
+	page.rows = make([]model.Message, 0, len(history))
 	for _, msg := range history {
 		if !isVisibleHistoryMessage(msg) {
 			continue
@@ -937,7 +938,7 @@ func (service *Service) installVisibleHistory(sessionID string, page conversatio
 	service.components.view.SessionViewMutateLocked(sessionID, func(view *session.View) {
 		memoryRows := history.DurableRows(view.Conversation)
 		memoryStart := view.HistoryOffset
-		var rows []Message
+		var rows []model.Message
 		start := memoryStart
 		switch mode {
 		case historyPageReplace:
@@ -973,8 +974,8 @@ func (service *Service) installVisibleHistory(sessionID string, page conversatio
 
 // visibleWindowFirstRow 返回目标会话可见窗口的首条 durable 行——前置一页要接在它
 // 前面，所以它是「更早一页」的接缝对位锚（窗口为空时返回零值行：没有对位锚）。
-func (service *Service) visibleWindowFirstRow(sessionID string) Message {
-	var first Message
+func (service *Service) visibleWindowFirstRow(sessionID string) model.Message {
+	var first model.Message
 	service.components.view.SessionViewReadLocked(sessionID, func(view *session.View) {
 		rows := history.DurableRows(view.Conversation)
 		if len(rows) > 0 {
@@ -984,7 +985,7 @@ func (service *Service) visibleWindowFirstRow(sessionID string) Message {
 	return first
 }
 
-func adaptEngineMessage(msg EngineMessage) Message {
+func adaptEngineMessage(msg contract.EngineMessage) model.Message {
 	content := msg.Content
 	if msg.Role == "user" {
 		content = displayUserInput(content)
@@ -994,16 +995,16 @@ func adaptEngineMessage(msg EngineMessage) Message {
 	if context_runtime.IsProviderOnlyHistoryContent(content) {
 		content = ""
 	}
-	message := Message{Role: msg.Role, Content: content, ReasoningContent: msg.ReasoningContent}
+	message := model.Message{Role: msg.Role, Content: content, ReasoningContent: msg.ReasoningContent}
 	for _, toolCall := range msg.ToolCalls {
-		message.Tool = &ToolCall{
+		message.Tool = &model.ToolCall{
 			ID: toolCall.ID, Name: toolCall.Name, Arguments: toolCall.Arguments, Status: dto.ToolEventSuccess,
 		}
 	}
 	return message
 }
 
-func isVisibleHistoryMessage(message EngineMessage) bool {
+func isVisibleHistoryMessage(message contract.EngineMessage) bool {
 	if message.Role == "system" {
 		return false
 	}

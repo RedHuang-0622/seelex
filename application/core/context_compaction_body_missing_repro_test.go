@@ -2,13 +2,14 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/backend/engine/context"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"sort"
 	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/backend/engine/context"
-	"github.com/RedHuang-0622/seelex/backend/engine/task"
 )
 
 // ── 现场复现（红灯，第一跳：素材）──────────────────────────────────────
@@ -52,13 +53,13 @@ func TestCompactionMaterialMustCarryConversationBody(t *testing.T) {
 	}
 	// 现场形态：引擎历史只剩一条 system 行（messages_before=1）——上一次压缩
 	// 已把轮次折出保留窗口 / 冷加载刚物化，历史里没有对话行。
-	engine := &fakeEngine{history: []EngineMessage{
+	engine := &fakeEngine{history: []contract.EngineMessage{
 		{Role: "system", Content: "product system prompt", ContentSet: true},
 	}}
 	service := newTestService(t, engine, withTestRuntime(runtime))
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-body-missing"}
-	service.components.tasks.BeginTask("task-body-missing", "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-body-missing"}
+	service.components.tasks.BeginTask("task-body-missing", "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	// transcript 里有 4 个真实对话轮——这才是本次要压的正文。
 	appendIndexRounds(t, service, "task-body-missing")
@@ -137,8 +138,8 @@ func TestCompactionMaterialContrastEmptyEngineHistory(t *testing.T) {
 	engine := &fakeEngine{}
 	service := newTestService(t, engine, withTestRuntime(runtime))
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-empty-history"}
-	service.components.tasks.BeginTask("task-empty-history", "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-empty-history"}
+	service.components.tasks.BeginTask("task-empty-history", "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	appendIndexRounds(t, service, "task-empty-history")
 	sessionID := service.Snapshot().Session.ID
@@ -160,7 +161,7 @@ func TestCompactionMaterialContrastEmptyEngineHistory(t *testing.T) {
 // dialogueRows 返回引擎历史里的**对话正文行**（role=user/assistant 且内容非空）。
 // 要求素材里至少有一行：真实请求的字节里必然有它——一份没有任何对话行的素材
 // 不可能是「上一次真实请求的历史」。
-func dialogueRows(messages []EngineMessage) []string {
+func dialogueRows(messages []contract.EngineMessage) []string {
 	rows := make([]string, 0, len(messages))
 	for _, message := range messages {
 		if message.Role != "user" && message.Role != "assistant" {
@@ -175,7 +176,7 @@ func dialogueRows(messages []EngineMessage) []string {
 }
 
 // describeRoles 渲染素材的角色构成（红线里要能一眼看出「全是 system」）。
-func describeRoles(messages []EngineMessage) string {
+func describeRoles(messages []contract.EngineMessage) string {
 	counts := map[string]int{}
 	for _, message := range messages {
 		counts[message.Role]++

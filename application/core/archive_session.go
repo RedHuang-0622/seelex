@@ -14,9 +14,9 @@ package core
 
 import (
 	"errors"
-	"strings"
-
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/residency"
+	"strings"
 )
 
 // ErrSessionNotFoundArchive 表示目标会话不存在或 record 缺失/版本不兼容。
@@ -46,7 +46,7 @@ func (service *Service) archiveDeps(sessionID string) residency.ArchiveDeps {
 	return residency.ArchiveDeps{
 		Gate: func() residency.ArchiveGate { return service.archiveGate(sessionID) },
 		Store: residency.ArchiveStore{
-			Load: func(sessionID string) (SessionRecord, bool, error) {
+			Load: func(sessionID string) (model.SessionRecord, bool, error) {
 				return sessions.LoadSessionRecord(sessions.LocateSession(sessionID), sessionID)
 			},
 			Flush: func(sessionID string) error {

@@ -14,9 +14,10 @@ package core
 
 import (
 	"context"
-	"testing"
-
 	"github.com/RedHuang-0622/seelex/backend/engine/context"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"testing"
 )
 
 // retiredRecordChannelSessions 是现行存储布局（v8/S20）下的会话端口替身。
@@ -24,31 +25,31 @@ type retiredRecordChannelSessions struct {
 	archiveSessions
 	// facts 是压缩记录通道（按写入顺序；生产为 append-only 的
 	// compaction-records.jsonl + metadata/compaction.json 水位）。
-	facts []ContextCompaction
+	facts []model.ContextCompaction
 }
 
-func (sessions *retiredRecordChannelSessions) SaveSessionRecord(_ string, record SessionRecord) error {
+func (sessions *retiredRecordChannelSessions) SaveSessionRecord(_ string, record model.SessionRecord) error {
 	return sessions.persist(record)
 }
 
-func (sessions *retiredRecordChannelSessions) SaveSessionRecordWorkspace(_, _ string, record SessionRecord) error {
+func (sessions *retiredRecordChannelSessions) SaveSessionRecordWorkspace(_, _ string, record model.SessionRecord) error {
 	return sessions.persist(record)
 }
 
 // persist 模拟 v8 的落盘：record 通道收下 status/title/对话，`execution` 子树丢弃
 // （这正是"往 SessionRecord 加字段既写不进去也读不回来"的那一半），压缩记录改走
 // 压缩记录通道。
-func (sessions *retiredRecordChannelSessions) persist(record SessionRecord) error {
+func (sessions *retiredRecordChannelSessions) persist(record model.SessionRecord) error {
 	if record.Execution.Task != nil {
-		sessions.facts = append([]ContextCompaction(nil), record.Execution.Task.ContextCompactions...)
+		sessions.facts = append([]model.ContextCompaction(nil), record.Execution.Task.ContextCompactions...)
 		record.Execution.Task = nil
 	}
 	sessions.record = record
 	return nil
 }
 
-func (sessions *retiredRecordChannelSessions) LoadCompactionRecordsWorkspace(_, _ string) ([]ContextCompaction, error) {
-	return append([]ContextCompaction(nil), sessions.facts...), nil
+func (sessions *retiredRecordChannelSessions) LoadCompactionRecordsWorkspace(_, _ string) ([]model.ContextCompaction, error) {
+	return append([]model.ContextCompaction(nil), sessions.facts...), nil
 }
 
 // restartCompactionRuntime 造一个 200k 窗口的宿主；readback 决定这次压缩能不能
@@ -68,12 +69,12 @@ func restartCompactionRuntime(recorder *compactionIndexRecorder, source string) 
 
 // startRestartSession 起一个任务执行中的会话并追加 rounds 个已定稿轮次
 // （每轮约 8000 tokens：32,000 ASCII 字符 ≈ 8,000 tokens）。
-func startRestartSession(t *testing.T, store *retiredRecordChannelSessions, runtime RuntimePort, requestID string, rounds int) (*Service, string) {
+func startRestartSession(t *testing.T, store *retiredRecordChannelSessions, runtime contract.RuntimePort, requestID string, rounds int) (*Service, string) {
 	t.Helper()
 	service := newTestService(t, &fakeEngine{}, withTestSessions(store), withTestRuntime(runtime))
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: requestID}
-	service.components.tasks.BeginTask(requestID, "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: requestID}
+	service.components.tasks.BeginTask(requestID, "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	sessionID := service.Snapshot().Session.ID
 	appendWindowRounds(t, service, requestID, rounds, 32_000)
@@ -85,7 +86,7 @@ func startRestartSession(t *testing.T, store *retiredRecordChannelSessions, runt
 func persistRestartSession(t *testing.T, service *Service, store *retiredRecordChannelSessions, sessionID string) {
 	t.Helper()
 	service.ViewMu.RLock()
-	transcript := append([]TranscriptEvent(nil), service.components.tasks.TranscriptFor(sessionID)...)
+	transcript := append([]model.TranscriptEvent(nil), service.components.tasks.TranscriptFor(sessionID)...)
 	service.ViewMu.RUnlock()
 	store.transcript = transcript
 	if err := service.components.sessions.PersistCurrentSession(

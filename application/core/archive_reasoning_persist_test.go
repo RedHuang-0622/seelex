@@ -1,9 +1,9 @@
 package core
 
 import (
-	"testing"
-
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"testing"
 )
 
 // TestPersistKeepsToolNarrationAndReasoningInRecord：真实轨迹里工具轮之间
@@ -13,33 +13,33 @@ import (
 //   - 同一 assistant 事件“正文 + ToolCalls”里的正文（应先出 assistant
 //     消息，再出工具调用消息，与实时视图一致）。
 func TestPersistKeepsToolNarrationAndReasoningInRecord(t *testing.T) {
-	sessions := &archiveSessions{record: SessionRecord{
+	sessions := &archiveSessions{record: model.SessionRecord{
 		Version: session_runtime.SessionRecordVersion,
 		ID:      "session-reasoning",
 	}}
 	service := newTestService(t, &fakeEngine{sessionID: "session-reasoning"}, withTestSessions(sessions))
 	defer service.Shutdown()
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Session = SessionState{ID: "session-reasoning"}
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{Role: "user", Content: "q1"})
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+	service.Core.Snapshot.Session = model.SessionState{ID: "session-reasoning"}
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{Role: "user", Content: "q1"})
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 		Role: "assistant", Content: "answer1", ReasoningContent: "draft1",
 	})
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{Role: "user", Content: "q2"})
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{Role: "user", Content: "q2"})
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 		Role: "assistant", Content: "narration before tool", ReasoningContent: "draft-n",
-		ToolCalls: []TranscriptToolCall{{ID: "call-1", Name: "get_time", Arguments: `{}`}},
+		ToolCalls: []model.TranscriptToolCall{{ID: "call-1", Name: "get_time", Arguments: `{}`}},
 	})
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 		Role: "tool", ToolCallID: "call-1", Name: "get_time", Content: "ok",
 	})
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 		Role: "assistant", Content: "answer2", ReasoningContent: "draft2",
 	})
 	service.ViewMu.Unlock()
 
 	if err := service.components.sessions.PersistCurrentSession(
-		session_runtime.Location{Meta: SessionInfo{ID: "session-reasoning"}}, "session-reasoning",
+		session_runtime.Location{Meta: model.SessionInfo{ID: "session-reasoning"}}, "session-reasoning",
 	); err != nil {
 		t.Fatal(err)
 	}

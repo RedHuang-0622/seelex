@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
-
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"strings"
 )
 
 // —— 定时任务的执行参数（思考强度 / 循环次数）——
@@ -145,7 +145,7 @@ func (service *Service) validateScheduledWorkspace(workspaceID string) error {
 // resolveScheduledWorkspace 解析任务指定的工作区（空 ID = (nil, nil)，合法）。
 // "工作区能力没装配 / 工作区查不到"这组判据与文案只有这一处：创建、编辑、
 // 触发时解析都从这里走。
-func (service *Service) resolveScheduledWorkspace(workspaceID string) (*WorkspaceInfo, error) {
+func (service *Service) resolveScheduledWorkspace(workspaceID string) (*model.WorkspaceInfo, error) {
 	workspaceID = strings.TrimSpace(workspaceID)
 	if workspaceID == "" {
 		return nil, nil

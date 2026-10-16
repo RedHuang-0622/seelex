@@ -8,13 +8,12 @@ package core
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
-	"testing"
-
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/store"
+	"os"
+	"path/filepath"
+	"testing"
 )
 
 // routerForkSessions 是 Dependencies.Sessions 的测试双件：满足 base
@@ -68,11 +67,11 @@ func (s *routerForkSessions) List() []model.SessionInfo {
 	return s.SessionsOf(s.workspace)
 }
 
-func (s *routerForkSessions) LoadHistory(string) ([]EngineMessage, error) {
+func (s *routerForkSessions) LoadHistory(string) ([]contract.EngineMessage, error) {
 	return nil, nil
 }
 
-func (s *routerForkSessions) LoadHistoryRange(string, int, int) ([]EngineMessage, int, error) {
+func (s *routerForkSessions) LoadHistoryRange(string, int, int) ([]contract.EngineMessage, int, error) {
 	return nil, 0, nil
 }
 

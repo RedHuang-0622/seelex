@@ -1,10 +1,10 @@
 package core
 
 import (
-	"strings"
-
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/session"
 	"github.com/RedHuang-0622/seelex/store"
+	"strings"
 )
 
 // durable queue 的重启回填（写入侧接线的恢复半边）。
@@ -40,7 +40,7 @@ func (service *Service) reEnqueueRecoveredInputs(sessionID string, resent []stor
 		return
 	}
 	displays, count := unit.QueueProjection()
-	unit.UpdateChat(func(chat *ChatState) {
+	unit.UpdateChat(func(chat *model.ChatState) {
 		chat.InputQueue = displays
 		chat.QueuedCount = count
 	}, nil)
@@ -67,7 +67,7 @@ func (service *Service) drainRecoveredQueueLocked(unit *session.SessionUnit, req
 	}
 	unit.SetRequests(nil)
 	displays, count := unit.QueueProjection()
-	unit.UpdateChat(func(chat *ChatState) {
+	unit.UpdateChat(func(chat *model.ChatState) {
 		chat.InputQueue = displays
 		chat.QueuedCount = count
 	}, nil)

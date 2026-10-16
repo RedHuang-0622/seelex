@@ -3,6 +3,8 @@ package core
 import (
 	"context"
 	"errors"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 	"testing"
 	"time"
@@ -22,8 +24,8 @@ func (perSessionFakeRuntime) PerSessionExecution() bool { return true }
 func TestPerSessionHostDoesNotSkipGlobalScopeSideEffects(t *testing.T) {
 	runtime := &perSessionFakeRuntime{fakeRuntime: &fakeRuntime{}}
 	sessions := &scopedSessions{}
-	service := mustNew(t, Dependencies{
-		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	service := mustNew(t, contract.Dependencies{
+		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions,
 	})
 	defer service.Shutdown()

@@ -3,11 +3,11 @@ package core
 import (
 	"errors"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/backend/engine/session"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/middle/switch"
 	"strings"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/backend/engine/session"
-	"github.com/RedHuang-0622/seelex/middle/switch"
 )
 
 const draftSessionName = switching.DraftSessionName
@@ -102,7 +102,7 @@ func (service *Service) BeginNewSession() error {
 	}
 	slot.UpdatedAt = time.Now()
 	draftID := slot.ID
-	var restoredWorkspace *WorkspaceInfo
+	var restoredWorkspace *model.WorkspaceInfo
 	if slot.Workspace != nil {
 		item := *slot.Workspace
 		restoredWorkspace = &item
@@ -127,7 +127,7 @@ func (service *Service) BeginNewSession() error {
 
 	service.ViewMu.Lock()
 	service.nextViewEpochLocked()
-	service.Core.Snapshot.Session = SessionState{ID: draftID, Name: draftSessionName, Draft: true, Status: SessionStatusDraft}
+	service.Core.Snapshot.Session = model.SessionState{ID: draftID, Name: draftSessionName, Draft: true, Status: SessionStatusDraft}
 	service.sessions.SetActive(draftID)
 	service.Core.Snapshot.CurrentWorkspace = restoredWorkspace
 	service.Core.Snapshot.Conversation = nil
@@ -146,7 +146,7 @@ func (service *Service) BeginNewSession() error {
 	service.Core.Snapshot.Runtime.Plan = nil
 	service.Core.Snapshot.Interaction = nil
 	draftRuntime := service.sessionUnitLocked(draftID)
-	draftRuntime.SetChatState(ChatState{}, nil)
+	draftRuntime.SetChatState(model.ChatState{}, nil)
 	draftRuntime.SetCancel(nil)
 	draftRuntime.SetRequests(nil)
 	service.Core.Snapshot.Chat = draftRuntime.ChatState()
@@ -155,7 +155,7 @@ func (service *Service) BeginNewSession() error {
 	// 默认）覆盖掉上一个会话留在快照里的那个值——否则新会话的 chip 显示的是**上一个
 	// 会话的档位**，而真正生效的是本会话的档位（见 syncViewPermissionTierLocked）。
 	service.applyStoredPermissionTier(draftID, storedTier)
-	service.components.sessions.SetSessionTitleLocked(draftID, SessionTitle{})
+	service.components.sessions.SetSessionTitleLocked(draftID, model.SessionTitle{})
 	service.components.tasks.ResetForNewSessionLocked()
 	revision := service.bumpLocked()
 	service.ViewMu.Unlock()
@@ -183,7 +183,7 @@ func (service *Service) materializeDraftSession(firstQuestion string) error {
 	if service.draft != nil && service.draft.ID != "" {
 		draftID = service.draft.ID
 	}
-	var workspace *WorkspaceInfo
+	var workspace *model.WorkspaceInfo
 	if service.Core.Snapshot.CurrentWorkspace != nil {
 		item := *service.Core.Snapshot.CurrentWorkspace
 		workspace = &item
@@ -213,8 +213,8 @@ func (service *Service) materializeDraftSession(firstQuestion string) error {
 
 	service.ViewMu.Lock()
 	service.draft = nil // 草稿已物化为真实会话，消费槽位
-	title := SessionTitle{Value: session_runtime.SessionTitle(firstQuestion), Source: "first_request", FinalizedAt: time.Now()}
-	service.Core.Snapshot.Session = SessionState{ID: newID, Name: title.Value}
+	title := model.SessionTitle{Value: session_runtime.SessionTitle(firstQuestion), Source: "first_request", FinalizedAt: time.Now()}
+	service.Core.Snapshot.Session = model.SessionState{ID: newID, Name: title.Value}
 	// 视图单例一致性：V 的唯一镜像随物化切到新会话（与 hot_attach/resume 同
 	// 步路径），否则流式增量会按 ActiveID="" 误判为后台，Snapshot 收不到增量。
 	service.sessions.SetActive(newID)

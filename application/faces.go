@@ -25,10 +25,12 @@ import (
 	"context"
 
 	"github.com/RedHuang-0622/seelex/application/core"
+	"github.com/RedHuang-0622/seelex/application/prompt"
 	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
 	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/event"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/store"
 )
@@ -132,12 +134,12 @@ type ViewFace interface {
 	ActiveSkillIDs() []string
 	AnyChatRunning() bool
 	AssembleRoleWire(mainSessionID, roleName, roleSessionID string, budget, k int) (dto.RoleWireSnapshot, error)
-	GetSessionTranscript(sessionID string, fromSeq, toSeq uint64) ([]core.TranscriptEvent, error)
+	GetSessionTranscript(sessionID string, fromSeq, toSeq uint64) ([]model.TranscriptEvent, error)
 	GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView
 	GoalSkillActive() bool
 	GoalStatusFor(sessionID string) (goaldomain.StatusView, error)
 	ListRoleSessions(mainSessionID string) ([]string, error)
-	ListSessions() []core.SessionInfo
+	ListSessions() []model.SessionInfo
 	ListSubagentRecovery(sessionID string) ([]dto.SubagentRecoveryView, error)
 	LoadLatestHistory() error
 	LoadMoreHistory(limit int) error
@@ -145,20 +147,20 @@ type ViewFace interface {
 	ProjectBoardTeamPlanFor(sessionID string) *store.TeamworkPlan
 	ProjectBoardTeamStateFor(sessionID string) *store.TeamworkState
 	ProjectRootFor(sessionID string) string
-	PromptLayers() []core.PromptLayer
+	PromptLayers() []prompt.PromptLayer
 	ReadRoleDraft(mainSessionID, roleName, roleSessionID string) ([]dto.RoleDraftRow, error)
 	ReadRoleSessionRows(mainSessionID, roleName, roleSessionID string) ([]dto.RoleRow, error)
 	RoleSnapshot(mainSessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error)
 	SearchHistory(ctx context.Context, query string, limit int) (seelexctxsearch.Result, error)
 	SessionInputIndex(sessionID string) (model.SessionInputIndex, error)
-	SessionMeta(sessionID string) (core.SessionMeta, error)
+	SessionMeta(sessionID string) (model.SessionMeta, error)
 	SessionReleaseWindow() int
 	SessionStorageConfig() (store.Config, error)
-	Snapshot() core.Snapshot
-	SnapshotOf(sessionID string) (core.SessionSnapshot, error)
-	Subscribe(buffer int) core.Subscription
-	SubscribeSession(sessionID string, buffer int) (core.Subscription, error)
-	SubscribeSessionWithReplay(sessionID string, buffer, replayWindow int) (core.Subscription, error)
+	Snapshot() model.Snapshot
+	SnapshotOf(sessionID string) (model.SessionSnapshot, error)
+	Subscribe(buffer int) event.Subscription
+	SubscribeSession(sessionID string, buffer int) (event.Subscription, error)
+	SubscribeSessionWithReplay(sessionID string, buffer, replayWindow int) (event.Subscription, error)
 	SubagentSessionDetail(nodeID string) (*model.SubagentDetail, error)
 	TeammateSessionLiveFor(sessionID string) dto.TeammateSessionLiveView
 	TeammateSessionLivePageFor(sessionID string, offset, limit int) dto.TeammateSessionLiveView
@@ -168,7 +170,7 @@ type ViewFace interface {
 	ToolResultContent(_ context.Context, resultRef string, offset, limit int) (model.ToolResultPage, error)
 	WaitCatalogRefresh(ctx context.Context) error
 	WaitForIdle(ctx context.Context) error
-	WorkTableRowsFor(sessionID string) []core.WorkItem
+	WorkTableRowsFor(sessionID string) []model.WorkItem
 	WorkspaceChanges(limit int) (dto.WorkspaceChangesResult, error)
 	WorkspaceFileContent(relPath string, limit int64) (dto.FileContent, error)
 	WorkspaceFileCount() (dto.TreeCount, error)
@@ -223,7 +225,7 @@ type CommandFace interface {
 
 // PolicyFace 档位与策略（plan §1.3 D 组）：限制、档位、账号、存储配置、插件、角色与调度策略。
 type PolicyFace interface {
-	ActivateSkill(name string) (core.SkillInfo, error)
+	ActivateSkill(name string) (model.SkillInfo, error)
 	CancelScheduledTask(id string) error
 	ConfigureSessionStorage(ctx context.Context, config store.Config) error
 	CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (dto.RoleSessionInfo, error)
@@ -239,7 +241,7 @@ type PolicyFace interface {
 	SetPermissionTier(tier string) (string, error)
 	SetReasoningEffort(_ context.Context, effort string) error
 	SetRoleLifecycle(mainSessionID, roleName, roleSessionID string, joinSeq uint64, ref *dto.CompactFrameRef) error
-	SetSessionMeta(sessionID string, meta core.SessionMeta) error
+	SetSessionMeta(sessionID string, meta model.SessionMeta) error
 	SetSessionReleaseWindow(_ context.Context, window int) (int, error)
 	SwitchEffort(_ context.Context, level string) error
 	SwitchPlugin(ctx context.Context, name string) error

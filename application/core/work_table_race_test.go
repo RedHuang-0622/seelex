@@ -2,12 +2,12 @@ package core
 
 import (
 	"fmt"
+	seelsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"sync"
 	"testing"
 	"time"
-
-	seelsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
-	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // TestWorkTableRaceConcurrentMutations 并发执行工作表格三类变更路径：
@@ -23,9 +23,9 @@ func TestWorkTableRaceConcurrentMutations(t *testing.T) {
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Runtime.Plan = &PlanState{
+	service.Core.Snapshot.Runtime.Plan = &model.PlanState{
 		Status: PlanRunning,
-		Nodes:  []PlanNode{{ID: "n1", Label: "并行任务", Status: NodeRunning}},
+		Nodes:  []model.PlanNode{{ID: "n1", Label: "并行任务", Status: NodeRunning}},
 	}
 	service.refreshWorkTableLocked(service.Deps.Runtime.TaskSnapshot(), service.asyncRunsForTable())
 	service.ViewMu.Unlock()

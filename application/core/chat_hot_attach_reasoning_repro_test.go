@@ -10,7 +10,9 @@ package core
 // 永远看不到思考过程。
 
 import (
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"testing"
 )
 
@@ -20,11 +22,11 @@ func TestHotMountKeepsStepReasoningInVisibleWindow(t *testing.T) {
 	defer service.Shutdown()
 
 	sessionID := service.Core.Snapshot.Session.ID
-	engine.ReplaceHistory(sessionID, []EngineMessage{
+	engine.ReplaceHistory(sessionID, []contract.EngineMessage{
 		{Role: "user", Content: "看看项目"},
-		{Role: "assistant", ReasoningContent: "先列目录", ToolCalls: []EngineToolCall{{ID: "call-1", Name: "read", Arguments: `{}`}}},
+		{Role: "assistant", ReasoningContent: "先列目录", ToolCalls: []contract.EngineToolCall{{ID: "call-1", Name: "read", Arguments: `{}`}}},
 		{Role: "tool", ToolCallID: "call-1", Name: "read", Content: "ok"},
-		{Role: "assistant", ReasoningContent: "再看文件", ToolCalls: []EngineToolCall{{ID: "call-2", Name: "read", Arguments: `{}`}}},
+		{Role: "assistant", ReasoningContent: "再看文件", ToolCalls: []contract.EngineToolCall{{ID: "call-2", Name: "read", Arguments: `{}`}}},
 		{Role: "tool", ToolCallID: "call-2", Name: "read", Content: "ok"},
 		{Role: "assistant", Content: "结论", ReasoningContent: "综合结果"},
 	})
@@ -34,9 +36,9 @@ func TestHotMountKeepsStepReasoningInVisibleWindow(t *testing.T) {
 	service.ViewMu.Lock()
 	service.appendMessageLocked("user", "看看项目", nil)
 	service.appendMessageLocked("assistant", "", nil)
-	service.appendMessageLocked("tool", "", &ToolCall{ID: "call-1", Name: "read", Status: dto.ToolEventSuccess})
+	service.appendMessageLocked("tool", "", &model.ToolCall{ID: "call-1", Name: "read", Status: dto.ToolEventSuccess})
 	service.appendMessageLocked("assistant", "", nil)
-	service.appendMessageLocked("tool", "", &ToolCall{ID: "call-2", Name: "read", Status: dto.ToolEventSuccess})
+	service.appendMessageLocked("tool", "", &model.ToolCall{ID: "call-2", Name: "read", Status: dto.ToolEventSuccess})
 	service.appendMessageLocked("assistant", "结论", nil)
 	service.ViewMu.Unlock()
 

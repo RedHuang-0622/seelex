@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"log"
 	"strings"
 	"testing"
@@ -14,11 +16,11 @@ import (
 // failingSnapshotSessions 让快照持久化固定失败，用于断言"持久化失败不得声称进度已保存"。
 type failingSnapshotSessions struct{ fakeSessions }
 
-func (failingSnapshotSessions) SaveSessionSnapshot(string, []EngineMessage, SessionRecord, []TranscriptEvent, []StoredToolResult) error {
+func (failingSnapshotSessions) SaveSessionSnapshot(string, []contract.EngineMessage, model.SessionRecord, []model.TranscriptEvent, []model.StoredToolResult) error {
 	return errors.New("storage unavailable")
 }
 
-func (failingSnapshotSessions) SaveSessionSnapshotWorkspace(string, string, []EngineMessage, SessionRecord, []TranscriptEvent, []StoredToolResult) error {
+func (failingSnapshotSessions) SaveSessionSnapshotWorkspace(string, string, []contract.EngineMessage, model.SessionRecord, []model.TranscriptEvent, []model.StoredToolResult) error {
 	return errors.New("storage unavailable")
 }
 
@@ -118,7 +120,7 @@ func TestPersistenceFailureDoesNotClaimProgressWasSaved(t *testing.T) {
 	}
 }
 
-func conversationContains(conversation []Message, role, fragment string) bool {
+func conversationContains(conversation []model.Message, role, fragment string) bool {
 	for _, message := range conversation {
 		if message.Role == role && strings.Contains(message.Content, fragment) {
 			return true

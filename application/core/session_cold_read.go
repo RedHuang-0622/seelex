@@ -9,22 +9,22 @@ package core
 import (
 	"errors"
 	"fmt"
-	"strings"
-
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/view/worktable"
+	"strings"
 )
 
 // snapshotOfCold 组装未驻留会话的只读会话快照（record 事实源）。目录已归档
 // 会话同样可读（record 保留），不存在的会话返回 ErrSessionSnapshotUnavailable。
-func (service *Service) snapshotOfCold(sessionID string) (SessionSnapshot, error) {
+func (service *Service) snapshotOfCold(sessionID string) (model.SessionSnapshot, error) {
 	location := service.components.sessions.LocateSession(sessionID)
 	record, ok, err := service.components.sessions.LoadSessionRecord(location, sessionID)
 	if err != nil {
-		return SessionSnapshot{}, fmt.Errorf("cold snapshot load %q: %w", sessionID, err)
+		return model.SessionSnapshot{}, fmt.Errorf("cold snapshot load %q: %w", sessionID, err)
 	}
 	if !ok || record.ID != sessionID {
-		return SessionSnapshot{}, ErrSessionSnapshotUnavailable
+		return model.SessionSnapshot{}, ErrSessionSnapshotUnavailable
 	}
 
 	conversation := service.components.sessions.RecordConversation(record)
@@ -33,21 +33,21 @@ func (service *Service) snapshotOfCold(sessionID string) (SessionSnapshot, error
 		title = service.components.sessions.SessionTitleFor(sessionID).Value
 	}
 	plan := task_context.ActivePlanFromStack(record.PlanStack, record.ActivePlanID)
-	snapshot := SessionSnapshot{
+	snapshot := model.SessionSnapshot{
 		ProtocolVersion: ProtocolVersion,
-		Session:         SessionState{ID: sessionID, Name: title},
+		Session:         model.SessionState{ID: sessionID, Name: title},
 		Conversation:    conversation,
-		Chat:            ChatState{},
-		Runtime: SessionRuntime{
+		Chat:            model.ChatState{},
+		Runtime: model.SessionRuntime{
 			Plan:      worktable.ClonePlanForSync(plan),
 			WorkTable: nil,
 		},
-		Capabilities:       Capabilities{SessionResume: true, SessionSnapshot: true},
+		Capabilities:       model.Capabilities{SessionResume: true, SessionSnapshot: true},
 		HistoryOffset:      0,
 		TotalMessages:      len(conversation),
 		HasMoreHistory:     false,
 		ConversationWindow: len(conversation),
-		ReadFiles:          append([]ReadFileRef(nil), record.Execution.ReadFiles...),
+		ReadFiles:          append([]model.ReadFileRef(nil), record.Execution.ReadFiles...),
 		Resident:           false,
 	}
 	// 工作表格是项目/全局台账：冷读面 = 进程全局表 + 本会话持久化的自身
@@ -64,7 +64,7 @@ func (service *Service) snapshotOfCold(sessionID string) (SessionSnapshot, error
 	}
 	if task := record.Execution.Task; task != nil {
 		taskCopy := *task
-		taskCopy.ContextCompactions = append([]ContextCompaction(nil), task.ContextCompactions...)
+		taskCopy.ContextCompactions = append([]model.ContextCompaction(nil), task.ContextCompactions...)
 		snapshot.Task = &taskCopy
 	}
 	// v8/S20：record 通道退役后 record.Execution.Task 恒空，压缩记录住在本会话
@@ -72,11 +72,11 @@ func (service *Service) snapshotOfCold(sessionID string) (SessionSnapshot, error
 	// 「上下文压缩」读的就是这里——不还原它，未驻留旧会话的压缩栈在重启后为空。
 	if snapshot.Task == nil || len(snapshot.Task.ContextCompactions) == 0 {
 		if records, ok, _ := service.components.sessions.LoadSessionCompactionRecords(location, sessionID); ok && len(records) > 0 {
-			snapshot.Task = &TaskState{
+			snapshot.Task = &model.TaskState{
 				// 冷读面没有回合身份（无 RequestID），状态取 idle：这是"这个会话
 				// 当前没在跑"的如实说法，不是伪造一个已收尾的回合。
 				Status:             TurnIdle,
-				ContextCompactions: append([]ContextCompaction(nil), records...),
+				ContextCompactions: append([]model.ContextCompaction(nil), records...),
 			}
 		}
 	}
@@ -86,7 +86,7 @@ func (service *Service) snapshotOfCold(sessionID string) (SessionSnapshot, error
 // GetSessionTranscript 读取指定会话的事件库区间（fromSeq..toSeq 含端点；
 // (0,0) = 全量，与 store.EventStore.LoadRange 同一语义）。目标会话
 // 未驻留时同样可用（事件库按项目键直接读回，不依赖内存态）。
-func (service *Service) GetSessionTranscript(sessionID string, fromSeq, toSeq uint64) ([]TranscriptEvent, error) {
+func (service *Service) GetSessionTranscript(sessionID string, fromSeq, toSeq uint64) ([]model.TranscriptEvent, error) {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
 		return nil, errors.New("session ID is required")

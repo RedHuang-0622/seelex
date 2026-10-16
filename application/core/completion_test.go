@@ -1,6 +1,7 @@
 package core
 
 import (
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"testing"
 )
 
@@ -12,7 +13,7 @@ import (
 // 打错到工具名时的补救说明由 unknownCommandNotice 负责（见
 // input_unknown_command_notice_test.go），不靠把工具列进面板来"提醒"。
 func TestSuggestionsExcludeModelSideTools(t *testing.T) {
-	runtime := &fakeRuntime{visibleTools: []Tool{
+	runtime := &fakeRuntime{visibleTools: []model.Tool{
 		{Name: "compact_context", Description: "fold the transcript now"},
 		{Name: "read", Description: "读文件"},
 		{Name: "todolist_init", Description: "初始化待办（旧名）"},

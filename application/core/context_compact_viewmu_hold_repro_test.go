@@ -27,13 +27,13 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/backend/engine/context"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/backend/engine/context"
 )
 
 // blockingIndexRuntime 是"索引面在、但推帧这一步要跑很久"的 Runtime 桩：进到
@@ -95,8 +95,8 @@ func TestExplicitCompactReproViewMuHoldAcrossFramePush(t *testing.T) {
 	}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-viewmu"}
-	service.components.tasks.BeginTask("task-viewmu", "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-viewmu"}
+	service.components.tasks.BeginTask("task-viewmu", "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	// 4 个已定稿大轮（约 16 万 tokens）：越软阈值，显式压缩会折出非空溢出区，
 	// 压缩才会走到推帧那一关。

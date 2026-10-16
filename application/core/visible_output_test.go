@@ -1,17 +1,17 @@
 package core
 
 import (
+	"github.com/RedHuang-0622/seelex/backend/engine/react"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/backend/engine/react"
 )
 
 func TestAppendDeltaDoesNotExposeThoughtContent(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "request-1"}
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "request-1"}
 	service.sessionUnitLocked(service.Core.Snapshot.Session.ID).SetStream(chat.NewVisibleOutputStream("request-1"))
 	service.appendMessageLocked("assistant", "", nil)
 	service.ViewMu.Unlock()

@@ -2,9 +2,9 @@ package core
 
 import (
 	"context"
-	"testing"
-
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"testing"
 )
 
 // 红灯复现（用户现象）：**压缩执行之后的下一轮对话，压缩记录已经不见所踪**。
@@ -64,7 +64,7 @@ func TestReproCompactionRecordSurvivesNextRoundAfterColdMaintenance(t *testing.T
 	// 2. 下一轮对话：与 startChatFor 完全同形——取当前状态当 previous，再开新回合。
 	service.ViewMu.Lock()
 	previous := service.components.tasks.CurrentTaskExecutionFor(sessionID)
-	service.components.tasks.BeginTaskFor(sessionID, "task-next-repro", "next request", "high", previous, TaskCheckpoint{})
+	service.components.tasks.BeginTaskFor(sessionID, "task-next-repro", "next request", "high", previous, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 
 	// 3. 上下文事实必须随会话活下来。
@@ -119,7 +119,7 @@ func TestReproContextFactsSurviveCompletedTurnBoundary(t *testing.T) {
 
 	service.ViewMu.Lock()
 	previous := service.components.tasks.CurrentTaskExecutionFor(sessionID)
-	service.components.tasks.BeginTaskFor(sessionID, "task-after-completed", "next request", "high", previous, TaskCheckpoint{})
+	service.components.tasks.BeginTaskFor(sessionID, "task-after-completed", "next request", "high", previous, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 
 	service.ViewMu.RLock()

@@ -16,10 +16,10 @@ package core
 
 import (
 	"context"
+	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 	"testing"
-
-	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
 )
 
 func TestAdvisorDirectiveNeverEntersVisibleConversation(t *testing.T) {
@@ -27,7 +27,7 @@ func TestAdvisorDirectiveNeverEntersVisibleConversation(t *testing.T) {
 	if err := service.Submit(context.Background(), "开始"); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
-	snapshot := waitForSnapshot(t, service, func(snapshot Snapshot) bool { return !snapshot.Chat.Running })
+	snapshot := waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return !snapshot.Chat.Running })
 	sessionID := snapshot.Session.ID
 	if sessionID == "" {
 		t.Fatal("会话未物化")

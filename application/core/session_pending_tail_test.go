@@ -1,11 +1,11 @@
 package core
 
 import (
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 	"sync"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // 草稿尾恢复的应用侧装配（A4）接线证明：
@@ -150,7 +150,7 @@ func TestPendingTailRunningSessionNotTouched(t *testing.T) {
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
 
 	service.ViewMu.Lock()
-	service.sessionUnitLocked("sess-run").UpdateChat(func(chat *ChatState) { chat.Running = true }, nil)
+	service.sessionUnitLocked("sess-run").UpdateChat(func(chat *model.ChatState) { chat.Running = true }, nil)
 	service.ViewMu.Unlock()
 	if notice := service.recoverPendingMessageTailAtLoad("sess-run"); notice != "" {
 		t.Fatalf("运行中会话不该被恢复入口打扰：%q", notice)

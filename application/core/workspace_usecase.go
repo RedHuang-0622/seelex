@@ -3,11 +3,11 @@ package core
 import (
 	"errors"
 	"fmt"
-	"log"
-	"time"
-
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"log"
+	"time"
 )
 
 // releaseSessionAsync 把"这个会话没有了"转告执行域：杀掉它名下所有在途后台命令。
@@ -90,7 +90,7 @@ func (service *Service) BindWorkspace(workspaceID string) error {
 	return service.bindWorkspaceInfo(workspace)
 }
 
-func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
+func (service *Service) bindWorkspaceInfo(workspace model.WorkspaceInfo) error {
 	transition := service.transitionView()
 	transition.Lock()
 	defer transition.Unlock()
@@ -118,11 +118,11 @@ func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
 		service.setWorkspaceWriteScope(workspace.ID)
 		workspaceProjection := service.collectWorkspaceProjection()
 		service.ViewMu.Lock()
-		service.Core.Snapshot.CurrentWorkspace = &WorkspaceInfo{
+		service.Core.Snapshot.CurrentWorkspace = &model.WorkspaceInfo{
 			ID: workspace.ID, Name: workspace.Name, RootPath: workspace.RootPath, GitRemote: workspace.GitRemote,
 		}
 		if service.draft != nil {
-			service.draft.Workspace = &WorkspaceInfo{
+			service.draft.Workspace = &model.WorkspaceInfo{
 				ID: workspace.ID, Name: workspace.Name, RootPath: workspace.RootPath, GitRemote: workspace.GitRemote,
 			}
 			service.draft.UpdatedAt = time.Now()
@@ -196,7 +196,7 @@ func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
 		service.sessions.SetActive(currentSessionID)
 		service.appendMessageLocked("system", fmt.Sprintf("已切换到项目 %s，新建独立会话", workspace.Name), nil)
 	}
-	service.Core.Snapshot.CurrentWorkspace = &WorkspaceInfo{
+	service.Core.Snapshot.CurrentWorkspace = &model.WorkspaceInfo{
 		ID: workspace.ID, Name: workspace.Name, RootPath: workspace.RootPath, GitRemote: workspace.GitRemote,
 	}
 	service.applyWorkspaceProjectionLocked(workspaceProjection)
@@ -407,7 +407,7 @@ func (service *Service) workspaceRootPort(missingPortMessage string) (contract.W
 }
 
 type workspaceStateProjection struct {
-	workspaces []WorkspaceInfo
+	workspaces []model.WorkspaceInfo
 	bindings   map[string]string
 }
 
@@ -418,9 +418,9 @@ func (service *Service) collectWorkspaceProjection() workspaceStateProjection {
 		return workspaceStateProjection{}
 	}
 	all := service.Deps.Workspace.List()
-	projection := workspaceStateProjection{workspaces: make([]WorkspaceInfo, len(all))}
+	projection := workspaceStateProjection{workspaces: make([]model.WorkspaceInfo, len(all))}
 	for index, workspace := range all {
-		projection.workspaces[index] = WorkspaceInfo{
+		projection.workspaces[index] = model.WorkspaceInfo{
 			ID: workspace.ID, Name: workspace.Name, RootPath: workspace.RootPath, GitRemote: workspace.GitRemote,
 		}
 	}
@@ -429,7 +429,7 @@ func (service *Service) collectWorkspaceProjection() workspaceStateProjection {
 }
 
 func (service *Service) applyWorkspaceProjectionLocked(projection workspaceStateProjection) {
-	service.Core.Snapshot.Workspaces = append([]WorkspaceInfo(nil), projection.workspaces...)
+	service.Core.Snapshot.Workspaces = append([]model.WorkspaceInfo(nil), projection.workspaces...)
 	service.Core.Snapshot.SessionWorkspaces = make(map[string]string, len(projection.bindings))
 	for sessionID, workspaceID := range projection.bindings {
 		service.Core.Snapshot.SessionWorkspaces[sessionID] = workspaceID

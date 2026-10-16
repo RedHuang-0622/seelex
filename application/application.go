@@ -8,6 +8,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application/core"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
+	input_router "github.com/RedHuang-0622/seelex/backend/engine/input"
 	"github.com/RedHuang-0622/seelex/backend/limit/accountwindow"
 	limitapproval "github.com/RedHuang-0622/seelex/backend/limit/approval"
 	"github.com/RedHuang-0622/seelex/backend/tool/search"
@@ -23,8 +24,8 @@ type (
 	ToolHookDiagnosticEvent    = core.ToolHookDiagnosticEvent
 	ToolHookDiagnosticObserver = core.ToolHookDiagnosticObserver
 	Suggestion                 = core.Suggestion
-	Command                    = core.Command
-	CommandResult              = core.CommandResult
+	Command                    = input_router.Command
+	CommandResult              = input_router.CommandResult
 	Dependencies               = contract.Dependencies
 	EngineMessage              = contract.EngineMessage
 	EngineToolCall             = contract.EngineToolCall

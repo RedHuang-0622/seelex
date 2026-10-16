@@ -3,10 +3,9 @@ package core
 import (
 	"context"
 	"fmt"
-	"strings"
-
 	"github.com/RedHuang-0622/seelex/backend/engine/context"
 	"github.com/RedHuang-0622/seelex/contract"
+	"strings"
 )
 
 const contextRecoveryPrefix = "<!-- seelex:context-recovery:v1 -->"
@@ -85,8 +84,8 @@ replayed safely.
 	// 恢复说明是 Seelex 编排事实，走 provider system；原始用户请求保持 user。
 	// 两条分开，成功恢复后才能只删说明、保留真实 user 输入。
 	recovered = append(recovered,
-		EngineMessage{Role: "system", Content: recoveryNote, ContentSet: true},
-		EngineMessage{Role: "user", Content: nonEmptyProviderInput(originalRequest), ContentSet: true},
+		contract.EngineMessage{Role: "system", Content: recoveryNote, ContentSet: true},
+		contract.EngineMessage{Role: "user", Content: nonEmptyProviderInput(originalRequest), ContentSet: true},
 	)
 	if err := service.replaceEngineHistory(sessionID, recovered); err != nil {
 		return false, fmt.Errorf("recover provider context: %w", err)
@@ -167,7 +166,7 @@ func (service *Service) removeProviderContextRecovery() error {
 // 使下一轮装配从 transcript 重新构建、不在保留前缀里累积控制消息。
 func (service *Service) removeProviderContextRecoveryFor(sessionID string) error {
 	history := service.engineHistoryFor(sessionID)
-	filtered := make([]EngineMessage, 0, len(history))
+	filtered := make([]contract.EngineMessage, 0, len(history))
 	removed := false
 	for _, message := range history {
 		if message.Role == "system" && (strings.HasPrefix(message.Content, contextRecoveryPrefix) ||

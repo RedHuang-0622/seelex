@@ -8,16 +8,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/middle/view/board"
+	"github.com/RedHuang-0622/seelex/middle/view/board/boardtest"
+	"github.com/RedHuang-0622/seelex/store"
 	"sort"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/view/board"
-	"github.com/RedHuang-0622/seelex/middle/view/board/boardtest"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 func newBoardTestService(t *testing.T, options ...testServiceOption) (*Service, *fakeRuntime, string) {
@@ -54,7 +55,7 @@ func TestBuildProjectBoardRowsMatchesLiveProjection(t *testing.T) {
 
 	// 活体侧的期望行：kind ∈ {todo, task}（测试自己列，不复用生产判据表），折叠读排序口径
 	//（Kind, Key）下逐行对齐。
-	expected := make([]WorkItem, 0, len(live))
+	expected := make([]model.WorkItem, 0, len(live))
 	for _, item := range live {
 		if item.Kind == "todo" || item.Kind == "task" {
 			expected = append(expected, item)
@@ -138,7 +139,7 @@ func TestProjectBoardIsNotAnInput(t *testing.T) {
 	}
 }
 
-func marshalWorkItems(t *testing.T, items []WorkItem) string {
+func marshalWorkItems(t *testing.T, items []model.WorkItem) string {
 	t.Helper()
 	encoded, err := json.Marshal(items)
 	if err != nil {
@@ -162,7 +163,7 @@ func TestProjectBoardReadersForAssembly(t *testing.T) {
 	}
 	service := newTestService(t, &fakeEngine{},
 		withTestRuntime(planSource),
-		func(deps *Dependencies) { deps.Workspace = newFakeWorkspace() })
+		func(deps *contract.Dependencies) { deps.Workspace = newFakeWorkspace() })
 	session := service.Snapshot().Session.ID
 	planSource.fakeRuntime.currentTaskSession = session
 

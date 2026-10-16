@@ -16,6 +16,8 @@ import (
 	"context"
 	"fmt"
 	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/session"
 	"io/fs"
 	"sort"
@@ -42,12 +44,12 @@ type multiPagedStore struct {
 	fakeSessions
 	mu       sync.Mutex
 	sessions []string
-	messages map[string][]Message
+	messages map[string][]model.Message
 	titles   map[string]string
 }
 
 func newMultiPagedStore(counts map[string]int) *multiPagedStore {
-	store := &multiPagedStore{messages: map[string][]Message{}, titles: map[string]string{}}
+	store := &multiPagedStore{messages: map[string][]model.Message{}, titles: map[string]string{}}
 	ids := make([]string, 0, len(counts))
 	for sessionID := range counts {
 		ids = append(ids, sessionID)
@@ -61,7 +63,7 @@ func newMultiPagedStore(counts map[string]int) *multiPagedStore {
 			if index%2 == 0 {
 				role = "user"
 			}
-			store.messages[sessionID] = append(store.messages[sessionID], Message{
+			store.messages[sessionID] = append(store.messages[sessionID], model.Message{
 				ID:        fmt.Sprintf("%s-message-%d", sessionID, index+1),
 				Role:      role,
 				Content:   fmt.Sprintf("durable-%d", index),
@@ -73,28 +75,28 @@ func newMultiPagedStore(counts map[string]int) *multiPagedStore {
 }
 
 // SessionInfo 行只带标题（零正文读）：目录刷新不会把正文拉回内存。
-func (store *multiPagedStore) SessionsOf(projectID string) []SessionInfo {
+func (store *multiPagedStore) SessionsOf(projectID string) []model.SessionInfo {
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	infos := make([]SessionInfo, 0, len(store.sessions))
+	infos := make([]model.SessionInfo, 0, len(store.sessions))
 	for _, sessionID := range store.sessions {
-		infos = append(infos, SessionInfo{ID: sessionID, Name: store.titles[sessionID], UpdatedAt: time.Unix(1, 0)})
+		infos = append(infos, model.SessionInfo{ID: sessionID, Name: store.titles[sessionID], UpdatedAt: time.Unix(1, 0)})
 	}
 	return infos
 }
 
-func (store *multiPagedStore) LoadHistory(sessionID string) ([]EngineMessage, error) {
+func (store *multiPagedStore) LoadHistory(sessionID string) ([]contract.EngineMessage, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	messages := store.messages[sessionID]
-	history := make([]EngineMessage, 0, len(messages))
+	history := make([]contract.EngineMessage, 0, len(messages))
 	for _, message := range messages {
-		history = append(history, EngineMessage{Role: message.Role, Content: message.Content})
+		history = append(history, contract.EngineMessage{Role: message.Role, Content: message.Content})
 	}
 	return history, nil
 }
 
-func (store *multiPagedStore) LoadHistoryRange(sessionID string, offset, limit int) ([]EngineMessage, int, error) {
+func (store *multiPagedStore) LoadHistoryRange(sessionID string, offset, limit int) ([]contract.EngineMessage, int, error) {
 	history, err := store.LoadHistory(sessionID)
 	if err != nil {
 		return nil, 0, err
@@ -103,34 +105,34 @@ func (store *multiPagedStore) LoadHistoryRange(sessionID string, offset, limit i
 	return sliceWindow(&history, offset, limit), total, nil
 }
 
-func (store *multiPagedStore) LoadSessionRecordWorkspace(workspaceID, sessionID string) (SessionRecord, error) {
+func (store *multiPagedStore) LoadSessionRecordWorkspace(workspaceID, sessionID string) (model.SessionRecord, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	messages, ok := store.messages[sessionID]
 	if !ok {
-		return SessionRecord{}, fs.ErrNotExist
+		return model.SessionRecord{}, fs.ErrNotExist
 	}
-	record := SessionRecord{Version: 3, ID: sessionID}
+	record := model.SessionRecord{Version: 3, ID: sessionID}
 	record.Title.Value = store.titles[sessionID]
-	record.Conversation.Messages = append([]Message(nil), messages...)
+	record.Conversation.Messages = append([]model.Message(nil), messages...)
 	return record, nil
 }
 
 // SaveSessionRecord* 是 no-op：本夹具的 durable 消息由 messages 槽给出，卸载
 // 前的 flush 不改变「磁盘事实」（断言据此检查消息数不变即「不丢数据」）。
-func (store *multiPagedStore) SaveSessionRecord(sessionID string, record SessionRecord) error {
+func (store *multiPagedStore) SaveSessionRecord(sessionID string, record model.SessionRecord) error {
 	return nil
 }
 
-func (store *multiPagedStore) SaveSessionRecordWorkspace(workspaceID, sessionID string, record SessionRecord) error {
+func (store *multiPagedStore) SaveSessionRecordWorkspace(workspaceID, sessionID string, record model.SessionRecord) error {
 	return nil
 }
 
-func (store *multiPagedStore) LoadSessionRecord(sessionID string) (SessionRecord, error) {
+func (store *multiPagedStore) LoadSessionRecord(sessionID string) (model.SessionRecord, error) {
 	return store.LoadSessionRecordWorkspace("", sessionID)
 }
 
-func (store *multiPagedStore) LoadConversationRangeWorkspace(workspaceID, sessionID string, offset, limit int) ([]Message, int, error) {
+func (store *multiPagedStore) LoadConversationRangeWorkspace(workspaceID, sessionID string, offset, limit int) ([]model.Message, int, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	messages, ok := store.messages[sessionID]
@@ -245,14 +247,14 @@ func waitForContentUnloaded(t *testing.T, service *Service, sessionID string) co
 }
 
 // snapshotSessions 等一轮目录收敛后返回左侧列表行（按 ID 索引）。
-func snapshotSessions(t *testing.T, service *Service) map[string]SessionInfo {
+func snapshotSessions(t *testing.T, service *Service) map[string]model.SessionInfo {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := service.WaitCatalogRefresh(ctx); err != nil {
 		t.Fatalf("catalog settle: %v", err)
 	}
-	rows := map[string]SessionInfo{}
+	rows := map[string]model.SessionInfo{}
 	for _, item := range service.Snapshot().Sessions {
 		rows[item.ID] = item
 	}
@@ -341,7 +343,7 @@ func TestContentLimitKeepsBusyAndActiveSessions(t *testing.T) {
 	if unit == nil {
 		t.Fatal("sess-a has no unit")
 	}
-	unit.SetChatState(ChatState{Running: true, RequestID: "req-a", StartedAt: time.Now()}, nil)
+	unit.SetChatState(model.ChatState{Running: true, RequestID: "req-a", StartedAt: time.Now()}, nil)
 
 	if err := service.ResumeSession("sess-b"); err != nil {
 		t.Fatalf("resume sess-b: %v", err)

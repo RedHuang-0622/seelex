@@ -1,10 +1,10 @@
 package core
 
 import (
-	"testing"
-
 	seelplan "github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"testing"
 )
 
 // ── 子代理树投影（fork 内存态；GUI 树视图数据源）────────────────────
@@ -21,7 +21,7 @@ func TestHandlePlanNodeCompleteProjectsSubAgentTree(t *testing.T) {
 	}}}
 	svc := newTestService(t, engine)
 	svc.ViewMu.Lock()
-	svc.Core.Snapshot.Runtime.Plan = &PlanState{Status: PlanRunning, Nodes: []PlanNode{{ID: "s1", Status: NodePending}}}
+	svc.Core.Snapshot.Runtime.Plan = &model.PlanState{Status: PlanRunning, Nodes: []model.PlanNode{{ID: "s1", Status: NodePending}}}
 	svc.ViewMu.Unlock()
 
 	svc.HandlePlanNodeComplete(dto.PlanNodeEvent{NodeID: "s1", Status: "completed"})
@@ -46,7 +46,7 @@ func TestHandlePlanBranchEventProjectsSubAgentTree(t *testing.T) {
 	}}}
 	svc := newTestService(t, engine)
 	svc.ViewMu.Lock()
-	svc.Core.Snapshot.Runtime.Plan = &PlanState{Status: PlanPending, Nodes: []PlanNode{{ID: "s1", Status: NodePending}}}
+	svc.Core.Snapshot.Runtime.Plan = &model.PlanState{Status: PlanPending, Nodes: []model.PlanNode{{ID: "s1", Status: NodePending}}}
 	svc.ViewMu.Unlock()
 
 	svc.HandlePlanBranchEvent(seelplan.PlanBranchEvent{NodeID: "s1", Type: "failed"})

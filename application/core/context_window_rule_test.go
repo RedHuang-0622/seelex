@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/backend/engine/context"
+	cc "github.com/RedHuang-0622/seelex/backend/engine/input/contextcontrol"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/backend/engine/context"
-	"github.com/RedHuang-0622/seelex/backend/engine/input/contextcontrol"
-	"github.com/RedHuang-0622/seelex/backend/engine/task"
 )
 
 // 上下文压缩的保留窗口规则（seele.yaml window 段）：
@@ -23,11 +24,11 @@ import (
 // 区间**（事件序号 + 消息号），边界取自窗口决策本身而不是事后推算。
 
 // applyWindowConfig 应用 window 段并在测试结束恢复（进程内生效配置）。
-func applyWindowConfig(t *testing.T, config WindowConfig) {
+func applyWindowConfig(t *testing.T, config cc.WindowConfig) {
 	t.Helper()
-	previous := context_control.Current()
+	previous := cc.Current()
 	ApplyWindowConfig(config)
-	t.Cleanup(func() { context_control.Apply(previous) })
+	t.Cleanup(func() { cc.Apply(previous) })
 }
 
 // appendWindowRounds 追加 rounds 个已定稿轮次（短问 + 长答），返回每轮标记。
@@ -38,10 +39,10 @@ func appendWindowRounds(t *testing.T, service *Service, requestID string, rounds
 	service.ViewMu.Lock()
 	for index := 0; index < rounds; index++ {
 		mark := fmt.Sprintf("round-%02d", index)
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 			TaskID: requestID, Role: "user", Content: "q-" + mark,
 		})
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 			TaskID: requestID, Role: "assistant", Content: mark + ":" + strings.Repeat("A", answerChars),
 		})
 		marks = append(marks, mark)
@@ -51,7 +52,7 @@ func appendWindowRounds(t *testing.T, service *Service, requestID string, rounds
 }
 
 // retainedRounds 统计仍留在 provider 历史里的轮次数（按轮标记匹配）。
-func retainedRounds(history []EngineMessage, marks []string) int {
+func retainedRounds(history []contract.EngineMessage, marks []string) int {
 	kept := 0
 	for _, mark := range marks {
 		needle := mark + ":"
@@ -67,7 +68,7 @@ func retainedRounds(history []EngineMessage, marks []string) int {
 
 // compactNow 走显式压缩落点（/compact、compact_context 同一条路径），返回
 // 本次压缩记录——自动路径受"同一批进展只压一次"节流，显式路径不受。
-func compactNow(t *testing.T, service *Service, sessionID string) ContextCompaction {
+func compactNow(t *testing.T, service *Service, sessionID string) model.ContextCompaction {
 	t.Helper()
 	outcome, err := service.components.context.CompactContextNow(context.Background(), sessionID)
 	if err != nil {
@@ -89,12 +90,12 @@ func TestCompactRetainedPrefixIsMinOfTwoWindows(t *testing.T) {
 	)
 	cases := []struct {
 		name     string
-		config   WindowConfig
+		config   cc.WindowConfig
 		wantKept int // -1 = 只断言区间（1 < kept < rounds）
 	}{
-		{name: "两个窗口都宽：占比窗口 token2 截断旧轮次", config: WindowConfig{RetainTokens: 500_000, Ratio: 0.7}, wantKept: -1},
-		{name: "token1 收紧：配置保留窗口是较小者", config: WindowConfig{RetainTokens: 9_000, Ratio: 0.7}, wantKept: 1},
-		{name: "token2 收紧：占比窗口是较小者", config: WindowConfig{RetainTokens: 500_000, Ratio: 0.05}, wantKept: 1},
+		{name: "两个窗口都宽：占比窗口 token2 截断旧轮次", config: cc.WindowConfig{RetainTokens: 500_000, Ratio: 0.7}, wantKept: -1},
+		{name: "token1 收紧：配置保留窗口是较小者", config: cc.WindowConfig{RetainTokens: 9_000, Ratio: 0.7}, wantKept: 1},
+		{name: "token2 收紧：占比窗口是较小者", config: cc.WindowConfig{RetainTokens: 500_000, Ratio: 0.05}, wantKept: 1},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -133,7 +134,7 @@ func TestCompactHardThresholdForcesCompression(t *testing.T) {
 	const rounds, answerChars = 2, 400 // 远低于软阈值 125106
 
 	// 未配置硬阈值：不产生压缩记录（软阈值未达）。
-	applyWindowConfig(t, WindowConfig{})
+	applyWindowConfig(t, cc.WindowConfig{})
 	softService, softEngine, softSession := compactTestService(t, "task-soft")
 	softMarks := appendWindowRounds(t, softService, "task-soft", rounds, answerChars)
 	if _, err := softService.components.context.PrepareExecutionContextFor(softSession, "task-soft", "next"); err != nil {
@@ -147,7 +148,7 @@ func TestCompactHardThresholdForcesCompression(t *testing.T) {
 	}
 
 	// 配置硬阈值 1：同样的 transcript 必须压缩（自动路径，不带 forceCompact）。
-	applyWindowConfig(t, WindowConfig{ForceCompactTokens: 1})
+	applyWindowConfig(t, cc.WindowConfig{ForceCompactTokens: 1})
 	hardService, _, hardSession := compactTestService(t, "task-hard")
 	appendWindowRounds(t, hardService, "task-hard", rounds, answerChars)
 	if _, err := hardService.components.context.PrepareExecutionContextFor(hardSession, "task-hard", "next"); err != nil {
@@ -162,7 +163,7 @@ func TestCompactHardThresholdForcesCompression(t *testing.T) {
 // TestCompactHardThresholdBypassesEpochThrottle：硬压缩不被"同一批进展只压
 // 一次"的节流挡住——同一 progress epoch 内达到硬阈值仍必须压。
 func TestCompactHardThresholdBypassesEpochThrottle(t *testing.T) {
-	applyWindowConfig(t, WindowConfig{ForceCompactTokens: 1})
+	applyWindowConfig(t, cc.WindowConfig{ForceCompactTokens: 1})
 	service, _, sessionID := compactTestService(t, "task-throttle")
 	appendWindowRounds(t, service, "task-throttle", 2, 400)
 
@@ -187,12 +188,12 @@ func TestReadTailBudgetFollowsRetainedWindowRule(t *testing.T) {
 	window := task_context.DefaultContextBudget().Window
 	cases := []struct {
 		name   string
-		config WindowConfig
+		config cc.WindowConfig
 		want   int
 	}{
-		{name: "token1 收紧：配置保留窗口是较小者", config: WindowConfig{RetainTokens: window / 4}, want: window / 4},
-		{name: "token2 收紧：占比窗口是较小者", config: WindowConfig{Ratio: 0.05}, want: int(float64(window) * 0.05)},
-		{name: "两个都宽：占比窗口截断到 70% 账号窗口", config: WindowConfig{RetainTokens: 10 * window}, want: int(float64(window) * 0.7)},
+		{name: "token1 收紧：配置保留窗口是较小者", config: cc.WindowConfig{RetainTokens: window / 4}, want: window / 4},
+		{name: "token2 收紧：占比窗口是较小者", config: cc.WindowConfig{Ratio: 0.05}, want: int(float64(window) * 0.05)},
+		{name: "两个都宽：占比窗口截断到 70% 账号窗口", config: cc.WindowConfig{RetainTokens: 10 * window}, want: int(float64(window) * 0.7)},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -203,23 +204,23 @@ func TestReadTailBudgetFollowsRetainedWindowRule(t *testing.T) {
 		})
 	}
 
-	applyWindowConfig(t, WindowConfig{})
+	applyWindowConfig(t, cc.WindowConfig{})
 	if got, old := RetainedReadTailBudget(nil), task_context.DefaultContextBudget().TargetAfterCompaction; got == old {
 		t.Fatalf("读尾预算仍是旧的 60%% 预算口径（%d）", old)
 	}
 }
 
-func compactionRecords(service *Service, sessionID string) []ContextCompaction {
+func compactionRecords(service *Service, sessionID string) []model.ContextCompaction {
 	service.ViewMu.RLock()
 	defer service.ViewMu.RUnlock()
 	state := service.components.tasks.CurrentTaskExecutionFor(sessionID)
 	if state == nil {
 		return nil
 	}
-	return append([]ContextCompaction(nil), state.ContextCompactions...)
+	return append([]model.ContextCompaction(nil), state.ContextCompactions...)
 }
 
-func lastCompactionRecord(t *testing.T, service *Service, sessionID string) ContextCompaction {
+func lastCompactionRecord(t *testing.T, service *Service, sessionID string) model.ContextCompaction {
 	t.Helper()
 	records := compactionRecords(service, sessionID)
 	if len(records) == 0 {
@@ -231,7 +232,7 @@ func lastCompactionRecord(t *testing.T, service *Service, sessionID string) Cont
 // TestCompactContextHandlerReportsRecordedRange：compact_context 工具/命令的
 // 结果面带被压区间（消息号 + 事件序号），模型与用户据此回读原始轮次。
 func TestCompactContextHandlerReportsRecordedRange(t *testing.T) {
-	applyWindowConfig(t, WindowConfig{RetainTokens: 9_000, Ratio: 0.7})
+	applyWindowConfig(t, cc.WindowConfig{RetainTokens: 9_000, Ratio: 0.7})
 	service, _, sessionID := compactTestService(t, "task-range")
 	appendWindowRounds(t, service, "task-range", 16, 32_000)
 

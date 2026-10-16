@@ -3,12 +3,11 @@ package core
 import (
 	"context"
 	"errors"
-	"strings"
-
 	"github.com/RedHuang-0622/Seele/types"
-
 	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/session"
+	"strings"
 )
 
 // discardPendingSubagentContexts 排空 Runtime 持有的有界邮箱（活跃会话兼容
@@ -145,7 +144,7 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 		// 队列投影 = 会话域给出的同一套下标空间（见 SessionUnit.QueueProjection）：
 		// 展示的行序号就是后续 ReorderQueuedInput/RecallQueuedInput 作用的下标。
 		displays, count := runtime.QueueProjection()
-		runtime.UpdateChat(func(chat *ChatState) {
+		runtime.UpdateChat(func(chat *model.ChatState) {
 			chat.InputQueue = displays
 			chat.QueuedCount = count
 		}, nil)
@@ -219,7 +218,7 @@ func (service *Service) submitConversationFor(ctx context.Context, sessionID, in
 		runtime.Enqueue(session.QueuedRequest{DisplayInput: request.displayInput, Payload: request})
 		// 队列投影 = 会话域给出的同一套下标空间（见 SessionUnit.QueueProjection）。
 		displays, count := runtime.QueueProjection()
-		runtime.UpdateChat(func(chat *ChatState) {
+		runtime.UpdateChat(func(chat *model.ChatState) {
 			chat.InputQueue = displays
 			chat.QueuedCount = count
 		}, nil)

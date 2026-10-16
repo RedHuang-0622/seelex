@@ -3,34 +3,36 @@ package core
 import (
 	"context"
 	"fmt"
-	"time"
-
+	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/backend/engine/context"
 	"github.com/RedHuang-0622/seelex/backend/engine/prompt"
 	"github.com/RedHuang-0622/seelex/backend/engine/prompt/assets"
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/kernel/state"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/view/errors"
 	"github.com/RedHuang-0622/seelex/middle/view/state"
 	"github.com/RedHuang-0622/seelex/middle/view/subagent"
 	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"github.com/RedHuang-0622/seelex/session"
 	"github.com/RedHuang-0622/seelex/store"
+	"time"
 )
 
 // serviceAssembler is the composition root for the application service. It
 // supplies infrastructure defaults before wiring stateful collaborators.
 type serviceAssembler struct {
-	deps Dependencies
+	deps contract.Dependencies
 }
 
 // taskPromptPort 是 task_context.PromptPort 的根包适配（prompt 域尚未下沉
 // 时的装配适配层）。
 type taskPromptPort struct {
-	promptStack   *PromptStack
-	effortManager *EffortManager
+	promptStack   *prompt.PromptStack
+	effortManager *prompt.EffortManager
 }
 
 func (p taskPromptPort) CurrentEffort() string {
@@ -252,15 +254,15 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		now := time.Now()
 		service.draft = &draftSlot{ID: initialSessionID, CreatedAt: now, UpdatedAt: now}
 	}
-	initialSession := SessionState{ID: initialSessionID, Draft: initialDraft}
+	initialSession := model.SessionState{ID: initialSessionID, Draft: initialDraft}
 	if initialDraft {
 		initialSession.Name = draftSessionName
 	}
-	service.Core.Snapshot = Snapshot{
+	service.Core.Snapshot = model.Snapshot{
 		ProtocolVersion:    ProtocolVersion,
 		Session:            initialSession,
-		Runtime:            RuntimeState{Model: service.Deps.Runtime.Model(), Effort: service.effortManager.Current(), ReasoningEffort: reasoningEffortFor(service.effortManager.Current()), LoopLimit: maxLoopsFor(service.effortManager.Current())},
-		Capabilities:       Capabilities{SessionResume: true},
+		Runtime:            model.RuntimeState{Model: service.Deps.Runtime.Model(), Effort: service.effortManager.Current(), ReasoningEffort: reasoningEffortFor(service.effortManager.Current()), LoopLimit: maxLoopsFor(service.effortManager.Current())},
+		Capabilities:       model.Capabilities{SessionResume: true},
 		ConversationWindow: Limits().HistoryWindow,
 	}
 	service.sessions.SetActive(initialSessionID)
@@ -283,7 +285,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	return service, nil
 }
 
-func validateDependencies(deps Dependencies) error {
+func validateDependencies(deps contract.Dependencies) error {
 	checks := []struct {
 		name       string
 		dependency any

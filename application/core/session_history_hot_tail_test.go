@@ -22,6 +22,7 @@ package core
 
 import (
 	"fmt"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 	"testing"
 )
@@ -43,7 +44,7 @@ func beginInFlightTurn(t *testing.T, service *Service, store *pagedSessionStore,
 }
 
 // assertVisibleWindow 断言快照里的「窗口起点 + 窗口内容 + 已可见总数」。
-func assertVisibleWindow(t *testing.T, label string, snapshot Snapshot, wantOffset int, wantContents []string, wantTotal int) {
+func assertVisibleWindow(t *testing.T, label string, snapshot model.Snapshot, wantOffset int, wantContents []string, wantTotal int) {
 	t.Helper()
 	if got := snapshot.HistoryOffset; got != wantOffset {
 		t.Fatalf("%s: history_offset = %d, want %d（visible=%v total=%d）", label, got, wantOffset, visibleContents(snapshot), snapshot.TotalMessages)

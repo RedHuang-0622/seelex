@@ -11,15 +11,15 @@ package core
 
 import (
 	"errors"
-
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // ActivateSkill 把当前插件的一个技能激活进当前会话的 skill 层（模型侧 `skill_activate`
 // 工具的后端）。判据与文案在 `backend/engine/skill.Activator`；本方法只转发。
-func (service *Service) ActivateSkill(name string) (SkillInfo, error) {
+func (service *Service) ActivateSkill(name string) (model.SkillInfo, error) {
 	if service == nil {
-		return SkillInfo{}, errors.New("service is not initialized")
+		return model.SkillInfo{}, errors.New("service is not initialized")
 	}
 	return skill.NewActivator(skill.ActivateDeps{
 		Skills: service.Deps.Skills,

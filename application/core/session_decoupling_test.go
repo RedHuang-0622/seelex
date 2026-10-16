@@ -3,13 +3,13 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"github.com/RedHuang-0622/seelex/backend/engine/react"
+	"github.com/RedHuang-0622/seelex/middle/protocol/event"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/session"
 	"reflect"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/backend/engine/react"
-	"github.com/RedHuang-0622/seelex/middle/protocol/event"
-	"github.com/RedHuang-0622/seelex/session"
 )
 
 // TestCoreHoldsNoSessionContainerFields（T2.4 编译断言）：core 门面不再
@@ -153,10 +153,10 @@ func TestBackgroundDeltaDoesNotBlockOnGlobalLock(t *testing.T) {
 		unit, _ = session.NewSessionUnit(bgID)
 		service.sessions.Register(unit)
 	}
-	unit.SetChatState(ChatState{Running: true, RequestID: "bg-req"}, nil)
+	unit.SetChatState(model.ChatState{Running: true, RequestID: "bg-req"}, nil)
 	unit.SetStream(chat.NewVisibleOutputStream("bg-req"))
 	service.appendSessionMessageLocked(bgID, "assistant", "", nil)
-	service.components.tasks.BeginTaskFor(bgID, "bg-req", "bg objective", "high", nil, TaskCheckpoint{})
+	service.components.tasks.BeginTaskFor(bgID, "bg-req", "bg objective", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 
 	// 活跃会话（boot 态 session-1）持全局锁，模拟活跃独占临界区

@@ -10,6 +10,8 @@ package core
 import (
 	"context"
 	"errors"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"sync"
 	"testing"
 	"time"
@@ -60,12 +62,12 @@ func newMultiProjectWorkspace() *multiProjectWorkspace {
 	return &multiProjectWorkspace{fakeWorkspace: newFakeWorkspace()}
 }
 
-func (repo *multiProjectWorkspace) Create(name, rootPath, gitRemote string) (WorkspaceInfo, error) {
+func (repo *multiProjectWorkspace) Create(name, rootPath, gitRemote string) (model.WorkspaceInfo, error) {
 	repo.mu.Lock()
 	repo.sequence++
 	id := "project-" + string(rune('a'+repo.sequence-1))
 	repo.mu.Unlock()
-	item := WorkspaceInfo{ID: id, Name: name, RootPath: rootPath, GitRemote: gitRemote}
+	item := model.WorkspaceInfo{ID: id, Name: name, RootPath: rootPath, GitRemote: gitRemote}
 	repo.fakeWorkspace.mu.Lock()
 	repo.fakeWorkspace.items[id] = item
 	repo.fakeWorkspace.mu.Unlock()
@@ -81,9 +83,9 @@ func TestBackgroundSessionKeepsOwnProjectRoot(t *testing.T) {
 	runtime := &fakeRuntime{}
 	sessions := &scopedSessions{}
 	workspaces := newMultiProjectWorkspace()
-	service := mustNew(t, Dependencies{
+	service := mustNew(t, contract.Dependencies{
 		Engine: engine, Runtime: runtime,
-		Plugins: &fakePlugins{current: PluginInfo{Name: "default"}}, Skills: fakeSkills{},
+		Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}}, Skills: fakeSkills{},
 		Sessions: sessions, Workspace: workspaces,
 	})
 	defer service.Shutdown()

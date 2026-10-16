@@ -5,12 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
-
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/backend/tool/reference"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"strings"
 )
 
 // 引用工具分页默认值收编进 seele.yaml limits 段
@@ -76,7 +75,7 @@ func (service *Service) toolResultContent(resultRef string, offset, limit int, c
 		if !found {
 			return model.ToolResultPage{}, errors.New("read_tool_result: node result_ref is not available (node finished or ref unknown)")
 		}
-		result := StoredToolResult{ToolResultRef: model.ToolResultRef{Ref: resultRef}, Content: raw}
+		result := model.StoredToolResult{ToolResultRef: model.ToolResultRef{Ref: resultRef}, Content: raw}
 		return reference.BuildPage(result, offset, limit, contains), nil
 	}
 
@@ -173,7 +172,7 @@ func (service *Service) ReadPlanHandler(_ context.Context, argsJSON string) (str
 		return "", errors.New("read_plan: plan_ref is not available in the current session")
 	}
 	arguments := frame.Arguments
-	planState := cloneRuntimeState(RuntimeState{Plan: frame.Plan}).Plan
+	planState := cloneRuntimeState(model.RuntimeState{Plan: frame.Plan}).Plan
 	service.ViewMu.RUnlock()
 
 	var canonical map[string]any

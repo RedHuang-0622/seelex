@@ -46,6 +46,12 @@ package core
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/backend/engine/context"
+	cc "github.com/RedHuang-0622/seelex/backend/engine/input/contextcontrol"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/middle/protocol/event"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/store"
 	"os"
 	"path/filepath"
 	"sort"
@@ -53,12 +59,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/backend/engine/context"
-	"github.com/RedHuang-0622/seelex/backend/engine/task"
-	"github.com/RedHuang-0622/seelex/middle/protocol/event"
-	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	"github.com/RedHuang-0622/seelex/store"
 )
 
 const (
@@ -306,12 +306,12 @@ func realProbeLoadFacts(t *testing.T) *realProbeFacts {
 }
 
 // realProbeWindowConfig 读真实 seelex.yaml 的 window 段（缺省档见探针文件头）。
-func realProbeWindowConfig(t *testing.T) WindowConfig {
+func realProbeWindowConfig(t *testing.T) cc.WindowConfig {
 	path := realProbeResolve(t, realProbeEnv("SEELEX_REAL_CONFIG", realProbeDefaultConfig))
 	config, err := LoadWindowConfig(path)
 	if err != nil {
 		t.Logf("真实 window 配置不可读（%s）：%v；退回默认档", path, err)
-		return WindowConfig{}
+		return cc.WindowConfig{}
 	}
 	return config
 }
@@ -403,8 +403,8 @@ func realProbeRunArm(t *testing.T, facts *realProbeFacts, arm realProbeArm) real
 	}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(host))
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: arm.requestID}
-	service.components.tasks.BeginTask(arm.requestID, "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: arm.requestID}
+	service.components.tasks.BeginTask(arm.requestID, "inspect", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	sessionID := service.Snapshot().Session.ID
 	outcome.sessionID = sessionID
@@ -452,7 +452,7 @@ func realProbeRunArm(t *testing.T, facts *realProbeFacts, arm realProbeArm) real
 	}
 	outcome.records = compactionRecordsOf(t, service)
 	if snapshot, snapshotErr := service.SnapshotOf(sessionID); snapshotErr == nil && snapshot.Task != nil {
-		outcome.snapshotRecords = append([]ContextCompaction(nil), snapshot.Task.ContextCompactions...)
+		outcome.snapshotRecords = append([]model.ContextCompaction(nil), snapshot.Task.ContextCompactions...)
 	}
 	return outcome
 }

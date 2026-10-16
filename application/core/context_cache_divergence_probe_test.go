@@ -32,20 +32,20 @@ package core
 import (
 	"context"
 	"fmt"
-	"strings"
-	"testing"
-
 	"github.com/RedHuang-0622/Seele/seelectx"
 	seelesession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
-
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/memory"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/tokens"
 	"github.com/RedHuang-0622/seelex/backend/engine/react"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/store"
+	"strings"
+	"testing"
 )
 
 const prefixProbeRequestID = "prefix-probe-1"
@@ -71,7 +71,7 @@ type prefixProbeCall struct {
 	history  int
 	total    int
 	bytes    string
-	messages []EngineMessage
+	messages []contract.EngineMessage
 }
 
 // prefixProbeDivergence 是两次请求之间的前缀发散度量。
@@ -100,8 +100,8 @@ type prefixProbeHarness struct {
 	engine  *fakeEngine
 	runtime *fakeRuntime
 	session string
-	tools   []Tool
-	history []EngineMessage
+	tools   []model.Tool
+	history []contract.EngineMessage
 	calls   []prefixProbeCall
 	// lastSystem 是上一次 capture 时的 system prompt（用于检测回合内 system 漂移）。
 	lastSystem string
@@ -117,8 +117,8 @@ func newPrefixProbeHarness(t *testing.T, window int) *prefixProbeHarness {
 	sessionID := engine.SessionID()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Session.ID = sessionID
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: prefixProbeRequestID}
-	service.components.tasks.BeginTask(prefixProbeRequestID, "cross-turn prefix divergence probe", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: prefixProbeRequestID}
+	service.components.tasks.BeginTask(prefixProbeRequestID, "cross-turn prefix divergence probe", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	return &prefixProbeHarness{
 		t: t, service: service, engine: engine, runtime: runtime, session: sessionID,
@@ -150,7 +150,7 @@ func (h *prefixProbeHarness) beginTurn(input string) {
 	h.service.ViewMu.Lock()
 	h.service.appendMessageLocked("user", input, nil)
 	h.service.appendMessageLocked("assistant", "", nil)
-	h.service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+	h.service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 		TaskID: prefixProbeRequestID, Role: "user", Content: input,
 	})
 	h.service.ViewMu.Unlock()
@@ -158,9 +158,9 @@ func (h *prefixProbeHarness) beginTurn(input string) {
 	if err != nil {
 		h.t.Fatalf("prepare execution context: %v", err)
 	}
-	h.history = append([]EngineMessage(nil), h.engine.History()...)
+	h.history = append([]contract.EngineMessage(nil), h.engine.History()...)
 	// 当前输入（可能含工作打点表块）由循环追加为工作历史最后一条 user 消息。
-	h.history = append(h.history, EngineMessage{Role: "user", Content: currentInput, ContentSet: true})
+	h.history = append(h.history, contract.EngineMessage{Role: "user", Content: currentInput, ContentSet: true})
 }
 
 // streamText 走生产流式链路写可见正文（跨 ReAct 迭代追加到同一条 assistant
@@ -184,7 +184,7 @@ func (h *prefixProbeHarness) llmIteration(engineContent, reasoning string, calls
 		content = &value
 	}
 	h.engine.AppendHistory(types.Message{Role: "assistant", Content: content, ReasoningContent: reasoning, ToolCalls: calls})
-	h.history = append(h.history, EngineMessage{
+	h.history = append(h.history, contract.EngineMessage{
 		Role: "assistant", Content: engineContent, ContentSet: content != nil,
 		ReasoningContent: reasoning, ToolCalls: probeEngineCalls(calls),
 	})
@@ -204,14 +204,14 @@ func (h *prefixProbeHarness) toolRound(name, callID, arguments, result string) {
 	// 探针里复制算法。传入的 ID 与生产同形（桥接层合成值，框架真实调用 ID 由
 	// pendingProviderCalls 解析）。
 	h.service.components.tasks.AttributeToolNarrationLocked(h.session,
-		TranscriptToolCall{ID: "tool-" + callID, Name: name, Arguments: arguments},
+		model.TranscriptToolCall{ID: "tool-" + callID, Name: name, Arguments: arguments},
 		h.service.streamedAssistantTextLocked(h.session))
-	h.service.appendMessageLocked("tool", "", &ToolCall{ID: callID, Name: name, Arguments: arguments, Status: dto.ToolEventRunning})
+	h.service.appendMessageLocked("tool", "", &model.ToolCall{ID: callID, Name: name, Arguments: arguments, Status: dto.ToolEventRunning})
 	providerResult, _ := h.service.components.tasks.RecordToolTranscriptLocked(h.session, name, callID, arguments, result, nil)
 	h.service.components.tasks.ObserveTool(task_context.ToolObservation{RequestID: prefixProbeRequestID, Name: name, Result: providerResult})
 	h.service.ViewMu.Unlock()
 	h.engine.AppendHistory(types.Message{Role: "tool", ToolCallID: callID, Name: name, Content: &result})
-	h.history = append(h.history, EngineMessage{Role: "tool", ToolCallID: callID, Name: name, Content: result, ContentSet: true})
+	h.history = append(h.history, contract.EngineMessage{Role: "tool", ToolCallID: callID, Name: name, Content: result, ContentSet: true})
 	if providerResult != result {
 		h.t.Logf("  note: transcript layer rewrote provider-safe tool result (%d -> %d chars)", len(result), len(providerResult))
 	}
@@ -262,7 +262,7 @@ func (h *prefixProbeHarness) capture(turn, iter int, label string) {
 	total := h.service.components.tasks.CountRequestTokens(system, h.history, "", h.tools)
 	h.calls = append(h.calls, prefixProbeCall{
 		label: label, turn: turn, iter: iter, history: len(h.history),
-		total: total, bytes: serialized, messages: append([]EngineMessage(nil), h.history...),
+		total: total, bytes: serialized, messages: append([]contract.EngineMessage(nil), h.history...),
 	})
 	h.t.Logf("  call=%-10s turn=%d iter=%d msgs=%3d total=%6d tok", label, turn, iter, len(h.history), total)
 }
@@ -315,7 +315,7 @@ func prefixProbeCompare(prev, cur prefixProbeCall) prefixProbeDivergence {
 	return divergence
 }
 
-func prefixProbeFirstDiff(prev, cur []EngineMessage) (int, string) {
+func prefixProbeFirstDiff(prev, cur []contract.EngineMessage) (int, string) {
 	limit := len(prev)
 	if len(cur) < limit {
 		limit = len(cur)
@@ -332,7 +332,7 @@ func prefixProbeFirstDiff(prev, cur []EngineMessage) (int, string) {
 	return -1, "prefix"
 }
 
-func probeMessagesEqual(left, right EngineMessage) bool {
+func probeMessagesEqual(left, right contract.EngineMessage) bool {
 	if left.Role != right.Role || left.Content != right.Content ||
 		left.ReasoningContent != right.ReasoningContent ||
 		left.ToolCallID != right.ToolCallID || left.Name != right.Name {
@@ -351,15 +351,15 @@ func probeMessagesEqual(left, right EngineMessage) bool {
 	return true
 }
 
-func probeEngineCalls(calls []types.ToolCall) []EngineToolCall {
-	out := make([]EngineToolCall, 0, len(calls))
+func probeEngineCalls(calls []types.ToolCall) []contract.EngineToolCall {
+	out := make([]contract.EngineToolCall, 0, len(calls))
 	for _, call := range calls {
-		out = append(out, EngineToolCall{ID: call.ID, Name: call.Function.Name, Arguments: call.Function.Arguments})
+		out = append(out, contract.EngineToolCall{ID: call.ID, Name: call.Function.Name, Arguments: call.Function.Arguments})
 	}
 	return out
 }
 
-func probeCallIDs(calls []EngineToolCall) string {
+func probeCallIDs(calls []contract.EngineToolCall) string {
 	ids := make([]string, 0, len(calls))
 	for _, call := range calls {
 		ids = append(ids, call.ID)

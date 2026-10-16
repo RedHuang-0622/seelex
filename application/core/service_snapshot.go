@@ -3,16 +3,17 @@ package core
 import (
 	"context"
 	"encoding/json"
-	"strings"
-	"time"
-
+	"github.com/RedHuang-0622/seelex/middle/protocol/event"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/view/state"
 	"github.com/RedHuang-0622/seelex/session"
+	"strings"
+	"time"
 )
 
 // Service 门面快照/订阅/投影/消息写入委托（实现位于 view_state 域包）。
 
-func (service *Service) Snapshot() Snapshot {
+func (service *Service) Snapshot() model.Snapshot {
 	snapshot := service.components.view.SnapshotView()
 	// 会话状态属性富化：draft / running / queued / idle。
 	// SnapshotView 已释放 Core.ViewMu，这里重新取读锁补状态。
@@ -34,7 +35,7 @@ func (service *Service) Snapshot() Snapshot {
 		}
 		if !alreadyListed {
 			slot := *service.draft
-			snapshot.Sessions = append([]SessionInfo{{
+			snapshot.Sessions = append([]model.SessionInfo{{
 				ID:        slot.ID,
 				Name:      draftSessionName,
 				UpdatedAt: slot.UpdatedAt,
@@ -50,17 +51,17 @@ func (service *Service) Snapshot() Snapshot {
 // 同一数据源（catalog 联合镜像），按行补会话级可见状态（运行/排队/待批/
 // resident/审批计数），不含 UI 专用草稿占位槽。调用方可直接枚举而无需拉
 // 整份视图快照。
-func (service *Service) ListSessions() []SessionInfo {
+func (service *Service) ListSessions() []model.SessionInfo {
 	service.ViewMu.RLock()
 	defer service.ViewMu.RUnlock()
-	rows := append([]SessionInfo(nil), service.Core.Snapshot.Sessions...)
+	rows := append([]model.SessionInfo(nil), service.Core.Snapshot.Sessions...)
 	return service.enrichDirectoryRowsLocked(rows)
 }
 
 // enrichDirectoryRowsLocked 给目录行补会话级可见状态（调用方持有
 // Core.ViewMu）：草稿槽位行恒为 draft；其余行按单元运行态叠加状态/
 // 待批计数/resident 标记。
-func (service *Service) enrichDirectoryRowsLocked(rows []SessionInfo) []SessionInfo {
+func (service *Service) enrichDirectoryRowsLocked(rows []model.SessionInfo) []model.SessionInfo {
 	// 草稿行幂等防重：同一时刻只允许一个“新建会话草稿”出现在列表——当前
 	// 视图草稿（service.draft）持有责任；历史遗留的其它 draft record（如
 	// 崩溃前保存的旧草稿）隐藏但保留在磁盘，不造成列表多值。
@@ -92,7 +93,7 @@ func (service *Service) enrichDirectoryRowsLocked(rows []SessionInfo) []SessionI
 }
 
 // sessionStatusLocked 返回指定会话的可见状态（调用方持有 Core.ViewMu）。
-func (service *Service) sessionStatusLocked(sessionID string) SessionStatus {
+func (service *Service) sessionStatusLocked(sessionID string) model.SessionStatus {
 	if sessionID == "" {
 		return SessionStatusDraft
 	}
@@ -193,7 +194,7 @@ func (service *Service) sessionViewIntentLocked(sessionID string) uint64 {
 	return service.sessionViewIntent[sessionID]
 }
 
-func (service *Service) Subscribe(buffer int) Subscription {
+func (service *Service) Subscribe(buffer int) event.Subscription {
 	return service.components.view.Subscribe(buffer)
 }
 
@@ -247,32 +248,32 @@ func (service *Service) applyRuntimeProjectionForLocked(sessionID string, projec
 	service.components.view.ApplyRuntimeProjectionForLocked(sessionID, projection)
 }
 
-func (service *Service) appendMessageLocked(role, content string, tool *ToolCall) *Message {
+func (service *Service) appendMessageLocked(role, content string, tool *model.ToolCall) *model.Message {
 	return service.components.view.AppendMessageLocked(role, content, tool)
 }
 
 // appendMessageWithOriginLocked 追加一条带群聊归属的可见消息到活跃会话
 // （origin 由调用方按 transcript 的 R4 归属传入，见 model.MessageOrigin）。
-func (service *Service) appendMessageWithOriginLocked(role, content string, tool *ToolCall, origin MessageOrigin) *Message {
+func (service *Service) appendMessageWithOriginLocked(role, content string, tool *model.ToolCall, origin model.MessageOrigin) *model.Message {
 	return service.components.view.AppendMessageWithOriginLockedFor(service.Core.Snapshot.Session.ID, role, content, tool, origin)
 }
 
 // appendSessionMessageLocked 追加一条可见消息到指定会话（阶段 1：后台会话
 // 也维护自己的可见投影；活跃会话同步镜像 Snapshot）。
-func (service *Service) appendSessionMessageLocked(sessionID, role, content string, tool *ToolCall) *Message {
+func (service *Service) appendSessionMessageLocked(sessionID, role, content string, tool *model.ToolCall) *model.Message {
 	return service.components.view.AppendMessageLockedFor(sessionID, role, content, tool)
 }
 
 // appendSessionMessageWithOriginLocked 追加一条带群聊归属的可见消息到指定
 // 会话（后台会话同样保留归属，hot_attach 回看不会退化成 AGENT）。
-func (service *Service) appendSessionMessageWithOriginLocked(sessionID, role, content string, tool *ToolCall, origin MessageOrigin) *Message {
+func (service *Service) appendSessionMessageWithOriginLocked(sessionID, role, content string, tool *model.ToolCall, origin model.MessageOrigin) *model.Message {
 	return service.components.view.AppendMessageWithOriginLockedFor(sessionID, role, content, tool, origin)
 }
 
 // appendAssistantPlaceholderAfterToolLocked 在指定会话的 tool_result 之后补一条
 // 空 assistant 占位（活跃与后台同一语义；调用方持有 Core.ViewMu）。末条已是
 // 空 assistant（无内容、无工具）时不重复补，避免并行工具轮产生多余空行。
-func (service *Service) appendAssistantPlaceholderAfterToolLocked(sessionID string) *Message {
+func (service *Service) appendAssistantPlaceholderAfterToolLocked(sessionID string) *model.Message {
 	emptyAssistantTail := false
 	service.components.view.SessionViewReadLocked(sessionID, func(view *session.View) {
 		if n := len(view.Conversation); n > 0 {
@@ -285,7 +286,7 @@ func (service *Service) appendAssistantPlaceholderAfterToolLocked(sessionID stri
 	}
 	// 工具轮后的续写正文同样由 EXEC 主持：没有归属会让同一回合的后半段在聊天区
 	// 从 EXEC 掉回 AGENT。
-	return service.appendSessionMessageWithOriginLocked(sessionID, "assistant", "", nil, MessageOrigin{
+	return service.appendSessionMessageWithOriginLocked(sessionID, "assistant", "", nil, model.MessageOrigin{
 		RoleName: RoleNameMain, RoleSessionID: sessionID,
 		RoundID: service.components.tasks.RoleRoundFor(sessionID),
 	})
@@ -293,7 +294,7 @@ func (service *Service) appendAssistantPlaceholderAfterToolLocked(sessionID stri
 
 // setSessionChatLockedFor 写指定会话的聊天运行态投影（活跃会话镜像
 // Snapshot.Chat）。
-func (service *Service) setSessionChatLockedFor(sessionID string, chat ChatState) {
+func (service *Service) setSessionChatLockedFor(sessionID string, chat model.ChatState) {
 	service.components.view.SetSessionChatLockedFor(sessionID, chat)
 }
 
@@ -346,7 +347,7 @@ func (service *Service) recordReadFileForSessionLocked(sessionID, arguments stri
 				return
 			}
 		}
-		view.ReadFiles = append(view.ReadFiles, ReadFileRef{Path: input.Path, ReadAt: now})
+		view.ReadFiles = append(view.ReadFiles, model.ReadFileRef{Path: input.Path, ReadAt: now})
 	})
 	service.mirrorActiveViewLocked()
 }
@@ -370,6 +371,6 @@ func (service *Service) resetConversation(notice string) {
 }
 
 // advanceMessageSeqLocked 按既有消息 ID 推进**该会话**的消息派号（恢复路径委托）。
-func (service *Service) advanceMessageSeqLocked(sessionID string, messages []Message) {
+func (service *Service) advanceMessageSeqLocked(sessionID string, messages []model.Message) {
 	service.components.view.AdvanceMessageSeqForLocked(sessionID, messages)
 }

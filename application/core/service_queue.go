@@ -2,7 +2,7 @@ package core
 
 import (
 	"errors"
-
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/switch"
 	"github.com/RedHuang-0622/seelex/session"
 )
@@ -112,7 +112,7 @@ func (service *Service) queuedInputUnitLocked(sessionID string) (*session.Sessio
 func (service *Service) applyQueueEditLocked(unit *session.SessionUnit) {
 	sessionID := unit.ID
 	displays, count := unit.QueueProjection()
-	unit.UpdateChat(func(chat *ChatState) {
+	unit.UpdateChat(func(chat *model.ChatState) {
 		chat.InputQueue = displays
 		chat.QueuedCount = count
 	}, nil)

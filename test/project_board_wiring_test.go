@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/core"
 	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/view/board"
 	"github.com/RedHuang-0622/seelex/store"
 	"github.com/RedHuang-0622/seelex/wiring/registry"
@@ -47,13 +47,13 @@ func projectBoardWiringStore(t *testing.T) (router *store.Router, dataRoot, proj
 // 取数一律是**函数**（与生产同形）：本用例不碰 Service，只钉装配门的判据。解析器与生产
 // 同形——装配段注入的就是 `app.ProjectRootFor`（会话 → 它所属工作区的项目根）。
 func projectBoardWiringDeps(projectRoot string) (
-	func(string) []core.WorkItem,
+	func(string) []model.WorkItem,
 	func(string) *store.TeamworkPlan,
 	func(string) *store.TeamworkState,
 	func(string) string,
 ) {
-	rows := func(sessionID string) []core.WorkItem {
-		return []core.WorkItem{{
+	rows := func(sessionID string) []model.WorkItem {
+		return []model.WorkItem{{
 			ID: "todo:1", SessionID: sessionID, Kind: "todo", Phase: "tasklist",
 			Task: "调研", Status: "doing",
 		}}

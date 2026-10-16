@@ -20,10 +20,10 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/session"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/session"
 )
 
 // TestVisibleConversationCarriesRoleAttribution 复现实时聊天载荷缺归属：
@@ -34,10 +34,10 @@ func TestVisibleConversationCarriesRoleAttribution(t *testing.T) {
 	if err := service.Submit(context.Background(), "hello"); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
-	snapshot := waitForSnapshot(t, service, func(snapshot Snapshot) bool { return !snapshot.Chat.Running })
+	snapshot := waitForSnapshot(t, service, func(snapshot model.Snapshot) bool { return !snapshot.Chat.Running })
 	sessionID := snapshot.Session.ID
 
-	user := visibleMessage(t, snapshot.Conversation, func(message Message) bool {
+	user := visibleMessage(t, snapshot.Conversation, func(message model.Message) bool {
 		return message.Role == "user" && strings.Contains(message.Content, "hello")
 	})
 	if user.RoleName != "user" {
@@ -47,7 +47,7 @@ func TestVisibleConversationCarriesRoleAttribution(t *testing.T) {
 		t.Errorf("用户行缺 round_id：前端无法把这一轮的过程归到同一 R 徽标下：%+v", user)
 	}
 
-	assistant := visibleMessage(t, snapshot.Conversation, func(message Message) bool {
+	assistant := visibleMessage(t, snapshot.Conversation, func(message model.Message) bool {
 		return message.Role == "assistant" && strings.Contains(message.Content, "answer")
 	})
 	if assistant.RoleName != "main" {
@@ -74,7 +74,7 @@ func TestVisibleConversationCarriesRoleAttribution(t *testing.T) {
 }
 
 // visibleMessage 取第一条满足条件的可见消息（缺失即用例失败）。
-func visibleMessage(t *testing.T, messages []Message, match func(Message) bool) Message {
+func visibleMessage(t *testing.T, messages []model.Message, match func(model.Message) bool) model.Message {
 	t.Helper()
 	for _, message := range messages {
 		if match(message) {
@@ -82,14 +82,14 @@ func visibleMessage(t *testing.T, messages []Message, match func(Message) bool) 
 		}
 	}
 	t.Fatalf("可见会话中找不到目标消息：%#v", messages)
-	return Message{}
+	return model.Message{}
 }
 
 // visibleConversationFor 读取指定会话的可见投影（非活跃会话也能读）。
-func visibleConversationFor(service *Service, sessionID string) []Message {
-	var messages []Message
+func visibleConversationFor(service *Service, sessionID string) []model.Message {
+	var messages []model.Message
 	service.components.view.SessionViewReadLocked(sessionID, func(view *session.View) {
-		messages = append([]Message(nil), view.Conversation...)
+		messages = append([]model.Message(nil), view.Conversation...)
 	})
 	return messages
 }

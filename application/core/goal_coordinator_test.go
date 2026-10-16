@@ -2,10 +2,10 @@ package core
 
 import (
 	"context"
-	"testing"
-
 	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"testing"
 )
 
 // goal_coordinator_test.go — 会话级 goal 协调器的边界用例。
@@ -51,7 +51,7 @@ func TestGoalCoordinatorSessionIsolation(t *testing.T) {
 // TestSessionRuntimeCarriesGoalGovernance 验证 GoalGovernanceView 进入
 // SessionRuntime 槽并随 clone 深拷贝（前端快照字段归属）。
 func TestSessionRuntimeCarriesGoalGovernance(t *testing.T) {
-	runtime := RuntimeState{
+	runtime := model.RuntimeState{
 		GoalGovernance: &dto.GoalGovernanceView{Active: true, GoalID: "g-1", Title: "看板"},
 	}
 	cloned := cloneRuntimeState(runtime)

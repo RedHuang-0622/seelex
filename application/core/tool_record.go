@@ -2,11 +2,11 @@ package core
 
 import (
 	"fmt"
-	"strings"
-	"sync"
-
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/store/record"
+	"strings"
+	"sync"
 )
 
 // tool_record.go — **工具记录**（成功/失败计数 + 失败原因）的应用侧落点。
@@ -164,14 +164,14 @@ func (service *Service) loadToolRecord(sessionID string) {
 //
 // 为什么不是 Deps 字段而是装配后注入：它依赖存储后端与工作区解析（会话 → 项目作用域），
 // 两者在装配顺序上都晚于 `wiring.New`（与 SetProjectBoardSink 同一处境）。
-func (service *Service) SetToolRecordSnapshotStore(store ToolRecordSnapshotStore) {
+func (service *Service) SetToolRecordSnapshotStore(store contract.ToolRecordSnapshotStore) {
 	if service == nil || service.components.toolRecord == nil {
 		return
 	}
 	service.components.toolRecord.setSnapshotStore(store)
 }
 
-func (service *Service) toolRecordSnapshotStore() ToolRecordSnapshotStore {
+func (service *Service) toolRecordSnapshotStore() contract.ToolRecordSnapshotStore {
 	if service == nil || service.components.toolRecord == nil {
 		return nil
 	}

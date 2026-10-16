@@ -23,11 +23,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
-	"testing"
-
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/tokens"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"strings"
+	"testing"
 )
 
 // smokeTraceRow 是单轮请求的本地 trace 与命中指标。
@@ -51,8 +52,8 @@ func smokeService(t *testing.T, window int) (*Service, *fakeEngine) {
 	}))
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Session.ID = engine.SessionID()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "smoke-task-1"}
-	service.components.tasks.BeginTask("smoke-task-1", "smoke multi-turn", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "smoke-task-1"}
+	service.components.tasks.BeginTask("smoke-task-1", "smoke multi-turn", "high", nil, model.TaskCheckpoint{})
 	service.ViewMu.Unlock()
 	return service, engine
 }
@@ -62,21 +63,21 @@ func smokeService(t *testing.T, window int) (*Service, *fakeEngine) {
 // 已持有 ViewMu（与生产 AppendTranscriptEventLocked 契约一致）。
 func appendSettledRound(service *Service, round int, toolResultToken int) {
 	input := fmt.Sprintf("round-%d 目标：核对模块 X 的 append-only 前缀假设，并给出验证结论与冒烟测试。", round)
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 		TaskID: "smoke-task-1", Role: "user", Content: input,
 	})
 	callID := fmt.Sprintf("smoke-call-%d", round)
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 		TaskID: "smoke-task-1", Role: "assistant",
 		Content: fmt.Sprintf("我先读取 round-%d 相关文件并核对边界。", round),
-		ToolCalls: []TranscriptToolCall{{ID: callID, Name: "read_file",
+		ToolCalls: []model.TranscriptToolCall{{ID: callID, Name: "read_file",
 			Arguments: fmt.Sprintf(`{"path":"module/round-%d/source.go","note":"stable"}`, round)}},
 	})
 	body := strings.Repeat(fmt.Sprintf("file-round-%d line ", round), toolResultToken)
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 		TaskID: "smoke-task-1", Role: "tool", ToolCallID: callID, Name: "read_file", Content: body,
 	})
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+	service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 		TaskID: "smoke-task-1", Role: "assistant",
 		Content: fmt.Sprintf("round-%d 结论：前缀保持稳定、追加部分仅为本轮输出，建议进入下一轮核对。", round),
 	})
@@ -102,7 +103,7 @@ func serText(label, text string) string {
 // serializeRequest 把一次请求（system + history + current input + tools）固化为
 // 确定性字节流（本地 trace 的最小事实单位）。历史消息按字段序 JSON 化，前缀
 // 相等性即内容前缀相等性。
-func serializeRequest(system string, history []EngineMessage, input string, tools []Tool) string {
+func serializeRequest(system string, history []contract.EngineMessage, input string, tools []model.Tool) string {
 	var builder strings.Builder
 	builder.WriteString(serText("SYSTEM", system))
 	for index := range history {
@@ -182,7 +183,7 @@ func TestContextCacheSmoke_SingleSessionLongRun(t *testing.T) {
 
 		// 生产顺序：Submit 追加当前 user 事件 → PrepareExecutionContextFor 装配。
 		service.ViewMu.Lock()
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 			TaskID: "smoke-task-1", Role: "user", Content: input,
 		})
 		service.ViewMu.Unlock()
@@ -269,7 +270,7 @@ func TestContextCacheSmoke_SkillActivationAppendOnly(t *testing.T) {
 
 		input := fmt.Sprintf("第 %d 轮：继续会话内核对。", round)
 		service.ViewMu.Lock()
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		service.components.tasks.AppendTranscriptEventLocked(model.TranscriptEvent{
 			TaskID: "smoke-task-1", Role: "user", Content: input,
 		})
 		service.ViewMu.Unlock()

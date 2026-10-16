@@ -9,10 +9,10 @@ package core
 
 import (
 	"errors"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"sync"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // errTierSettingRejected 是"会话级设置写盘失败"的桩错误。
@@ -215,7 +215,7 @@ func TestBeginNewSessionRestoresPersistedDraftTier(t *testing.T) {
 
 	// 切走 + 卸载草稿单元：内存槽没了，档位只剩持久设置一份。
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Session = SessionState{ID: "session-other"}
+	service.Core.Snapshot.Session = model.SessionState{ID: "session-other"}
 	service.ViewMu.Unlock()
 	service.sessions.Remove(draftID)
 	if unit := service.sessions.Unit(draftID); unit != nil {
@@ -258,7 +258,7 @@ func TestPermissionTierSwitchMirrorsViewSnapshot(t *testing.T) {
 	switchView := func(sessionID string) {
 		stored := service.readStoredPermissionTier(sessionID)
 		service.ViewMu.Lock()
-		service.Core.Snapshot.Session = SessionState{ID: sessionID}
+		service.Core.Snapshot.Session = model.SessionState{ID: sessionID}
 		service.sessions.SetActive(sessionID)
 		service.sessionUnitLocked(sessionID)
 		service.applyStoredPermissionTier(sessionID, stored)

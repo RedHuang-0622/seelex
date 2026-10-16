@@ -2,6 +2,8 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 	"testing"
 )
@@ -10,18 +12,18 @@ func TestIterationHookDoesNotTriggerContextControl(t *testing.T) {
 	// OnIterationComplete 不再触发 compactTaskContext（压缩决策移交
 	// seelectx.ContextController，plan.md §3.5）：上下文控制失败不会在
 	// 迭代钩子中产生，迭代保持可用。
-	engine := &fakeEngine{history: []EngineMessage{{
+	engine := &fakeEngine{history: []contract.EngineMessage{{
 		Role: "tool", Content: strings.Repeat("output ", 4000), ContentSet: true,
 	}}}
-	service := mustNew(t, Dependencies{
-		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+	service := mustNew(t, contract.Dependencies{
+		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: fakeSessions{},
 	})
 	defer service.Shutdown()
 
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
-	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, TaskCheckpoint{})
+	service.Core.Snapshot.Chat = model.ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, model.TaskCheckpoint{})
 	service.components.tasks.SetTaskStateLocked("task-1", TurnProgressing, "Task is in progress.")
 	service.ViewMu.Unlock()
 

@@ -2,6 +2,8 @@ package core
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"strings"
 	"sync"
 	"testing"
@@ -76,14 +78,14 @@ func TestMaterializeDraftSessionBindsContextStoreForNewSession(t *testing.T) {
 // 症状、同一个根因面（store 与"会话当前在跑"的事实脱节）。空闲会话照旧解绑（见
 // TestBeginNewSessionDetachesSessionContext，那条口径不变）。
 func TestBeginNewSessionKeepsRunningSessionContextStore(t *testing.T) {
-	engine := &fakeEngine{sessionID: "session-a", history: []EngineMessage{{Role: "user", Content: "long turn"}}}
+	engine := &fakeEngine{sessionID: "session-a", history: []contract.EngineMessage{{Role: "user", Content: "long turn"}}}
 	sessions := &contextAwareSessions{archiveSessions: archiveSessions{history: engine.History()}}
 	service := newTestService(t, engine, withTestSessions(sessions))
 
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Session = SessionState{ID: "session-a", Name: "长任务"}
-	service.Core.Snapshot.Conversation = []Message{{ID: "user-1", Role: "user", Content: "跑着的一轮", CreatedAt: time.Now()}}
-	service.sessionUnitLocked("session-a").SetChatState(ChatState{Running: true, RequestID: "req-a"}, nil)
+	service.Core.Snapshot.Session = model.SessionState{ID: "session-a", Name: "长任务"}
+	service.Core.Snapshot.Conversation = []model.Message{{ID: "user-1", Role: "user", Content: "跑着的一轮", CreatedAt: time.Now()}}
+	service.sessionUnitLocked("session-a").SetChatState(model.ChatState{Running: true, RequestID: "req-a"}, nil)
 	service.ViewMu.Unlock()
 
 	if err := service.BeginNewSession(); err != nil {
@@ -123,12 +125,12 @@ func TestWorkspaceSwitchFreshSessionBindsContextStore(t *testing.T) {
 	runtime := &fakeRuntime{}
 	workspaces := newMultiProjectWorkspace()
 	sessions := &contextAwareScopedSessions{scopedSessions: &scopedSessions{}}
-	service := mustNew(t, Dependencies{
+	service := mustNew(t, contract.Dependencies{
 		Engine: engine,
 		Runtime: runtimeWithContextLimits{
 			fakeRuntime: runtime, window: 200_000, output: 8_192,
 		},
-		Plugins: &fakePlugins{current: PluginInfo{Name: "default"}}, Skills: fakeSkills{},
+		Plugins: &fakePlugins{current: model.PluginInfo{Name: "default"}}, Skills: fakeSkills{},
 		Sessions: sessions, Workspace: workspaces,
 	})
 	t.Cleanup(service.Shutdown)

@@ -2,9 +2,10 @@ package core
 
 import (
 	"fmt"
-	"testing"
-
+	cc "github.com/RedHuang-0622/seelex/backend/engine/input/contextcontrol"
 	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"testing"
 )
 
 // pinIneffectiveCompactRatios 把压缩比例钉成「压缩落点够不到软线」的**合法**档：
@@ -42,7 +43,7 @@ func TestContextBudgetSkipsCompactionWithoutMargin(t *testing.T) {
 	pinIneffectiveCompactRatios(t)
 	// 占比窗口拉满（ratio = 1）让保留区上限真的顶到 target：这样"无余量"由比例本身
 	// 决定，而不是由某个体积巧合决定，用例不随内容体积漂移。
-	applyWindowConfig(t, WindowConfig{Ratio: 1})
+	applyWindowConfig(t, cc.WindowConfig{Ratio: 1})
 	service, _, sessionID := compactTestService(t, "task-ineffective-1")
 
 	// 16 轮 × 约 8k token ≈ 128k token：高于生效软线（预算 × 60% = 100084），
@@ -64,7 +65,7 @@ func TestContextBudgetSkipsCompactionWithoutMargin(t *testing.T) {
 		requestID := fmt.Sprintf("task-ineffective-%d", index+2)
 		service.ViewMu.Lock()
 		previous := service.components.tasks.CurrentTaskExecutionFor(sessionID)
-		service.components.tasks.BeginTaskFor(sessionID, requestID, "next request", "high", previous, TaskCheckpoint{})
+		service.components.tasks.BeginTaskFor(sessionID, requestID, "next request", "high", previous, model.TaskCheckpoint{})
 		service.ViewMu.Unlock()
 		if _, err := service.components.context.PrepareExecutionContextFor(sessionID, requestID, "next request"); err != nil {
 			t.Fatalf("第 %d 个回合装配: %v", index+2, err)

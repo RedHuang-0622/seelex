@@ -3,16 +3,15 @@ package core
 import (
 	"context"
 	"fmt"
-	"sync"
-	"time"
-
 	"github.com/RedHuang-0622/Seele/session"
-
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	seelplan "github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/view/errors"
 	selexsession "github.com/RedHuang-0622/seelex/session"
+	"sync"
+	"time"
 )
 
 func (service *Service) handleToolStart(ctx context.Context, name, id, arguments string) {
@@ -37,21 +36,21 @@ func (service *Service) handleToolStart(ctx context.Context, name, id, arguments
 	// 叙述会落到别的迭代/轮次（见
 	// application/core/context_narration_attribution_test.go）。
 	service.components.tasks.AttributeToolNarrationLocked(sessionID,
-		TranscriptToolCall{ID: id, Name: name, Arguments: arguments},
+		model.TranscriptToolCall{ID: id, Name: name, Arguments: arguments},
 		service.streamedAssistantTextLocked(sessionID))
-	var message Message
+	var message model.Message
 	// 工具调起/结果归属调起方（EXEC）：与同轮的 assistant 行共享 role_name 与
 	// round_id，前端把过程归到主持这一轮的 agent 名下（§2.1 表：tool → 调起方）。
-	toolOrigin := MessageOrigin{
+	toolOrigin := model.MessageOrigin{
 		RoleName: RoleNameMain, RoleSessionID: sessionID,
 		RoundID: service.components.tasks.RoleRoundFor(sessionID),
 	}
 	if active {
-		tool := &ToolCall{ID: id, Name: name, Arguments: arguments, Status: dto.ToolEventRunning}
+		tool := &model.ToolCall{ID: id, Name: name, Arguments: arguments, Status: dto.ToolEventRunning}
 		message = *service.appendMessageWithOriginLocked("tool", "", tool, toolOrigin)
 	} else {
 		// 阶段 1：后台会话工具消息写自身 view（hot_attach 回看可见）。
-		message = *service.appendSessionMessageWithOriginLocked(sessionID, "tool", "", &ToolCall{ID: id, Name: name, Arguments: arguments, Status: dto.ToolEventRunning}, toolOrigin)
+		message = *service.appendSessionMessageWithOriginLocked(sessionID, "tool", "", &model.ToolCall{ID: id, Name: name, Arguments: arguments, Status: dto.ToolEventRunning}, toolOrigin)
 	}
 
 	// plan_load 启动时：解析 DAG 并初始化 PlanState（Plan 状态属活跃会话；
@@ -207,7 +206,7 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 		content = errorText
 	}
 
-	var planFailure *Interaction
+	var planFailure *model.Interaction
 	if active && name == "plan_run" {
 		switch {
 		case toolErr != nil:
@@ -221,13 +220,13 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 		}
 	}
 
-	var message Message
-	var assistant *Message
-	message = *service.appendSessionMessageWithOriginLocked(sessionID, "tool_result", content, &ToolCall{
+	var message model.Message
+	var assistant *model.Message
+	message = *service.appendSessionMessageWithOriginLocked(sessionID, "tool_result", content, &model.ToolCall{
 		ID: id, Name: name, Result: visibleContent, Error: errorText,
 		Status: status, Duration: duration,
 		ResultRef: resultRef, Truncated: truncated, TotalChars: totalChars,
-	}, MessageOrigin{
+	}, model.MessageOrigin{
 		RoleName: RoleNameMain, RoleSessionID: sessionID,
 		RoundID: service.components.tasks.RoleRoundFor(sessionID),
 	})

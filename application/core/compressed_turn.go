@@ -11,13 +11,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
-	"unicode/utf8"
-
 	"github.com/RedHuang-0622/Seele/types"
-
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/store"
+	"strings"
+	"unicode/utf8"
 )
 
 // compressedTurnRefPrefix 是压缩轮次原文在 ToolResults 通道中的 ref 前缀

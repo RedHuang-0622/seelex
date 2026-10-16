@@ -25,10 +25,10 @@ package core
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
-
 	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/session"
+	"strings"
 )
 
 // goalTurnWorkSummary 读目标会话的可见投影，返回本轮 EXEC 工作摘要（有界）。
@@ -50,7 +50,7 @@ func (service *Service) goalTurnWorkSummary(sessionID string) string {
 }
 
 // summarizeTurnWork 抽取本轮（最后一条 user 行之后）的 EXEC 产出摘要。
-func summarizeTurnWork(messages []Message) string {
+func summarizeTurnWork(messages []model.Message) string {
 	start := 0
 	for index := len(messages) - 1; index >= 0; index-- {
 		if messages[index].Role == "user" {
@@ -95,7 +95,7 @@ func summarizeTurnWork(messages []Message) string {
 // `media:<hash>` 引用、画面尺寸与前台窗口标题（都是 computer_screenshot 明文
 // 返回的公开字段，不含像素内容）。最多保留两份画面：Detail 是"有界一句话"，
 // 不是证据全文。
-func computerUseEvidence(messages []Message) string {
+func computerUseEvidence(messages []model.Message) string {
 	const (
 		maxScreens      = 2
 		titleRunes      = 80

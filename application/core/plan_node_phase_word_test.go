@@ -1,9 +1,9 @@
 package core
 
 import (
-	"testing"
-
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"testing"
 )
 
 // plan_node_phase_word_test.go — 「阶段词不是节点状态」的回归。
@@ -24,16 +24,16 @@ func TestPlanNodePhaseWordDoesNotOverwriteNodeStatus(t *testing.T) {
 	sessions := &liveCatalogSessions{}
 	service := newTestService(t, engine, withTestSessions(sessions))
 	defer service.Shutdown()
-	sessions.setInfos([]SessionInfo{{ID: "sess-a"}, {ID: "sess-b"}})
+	sessions.setInfos([]model.SessionInfo{{ID: "sess-a"}, {ID: "sess-b"}})
 	engine.register("sess-a")
 	engine.register("sess-b")
 
 	if err := service.ResumeSession("sess-a"); err != nil {
 		t.Fatalf("resume a: %v", err)
 	}
-	service.components.tasks.SeedPlanProjection("sess-a", &PlanState{
+	service.components.tasks.SeedPlanProjection("sess-a", &model.PlanState{
 		Status: PlanRunning,
-		Nodes:  []PlanNode{{ID: "n1", Status: NodePending}},
+		Nodes:  []model.PlanNode{{ID: "n1", Status: NodePending}},
 	})
 	// 视图切到 b：a 的 plan 事件走**后台投影**路径（协调器投影）。
 	if err := service.ResumeSession("sess-b"); err != nil {
@@ -60,7 +60,7 @@ func TestPlanNodePhaseWordDoesNotOverwriteNodeStatus(t *testing.T) {
 	}
 }
 
-func assertPhaseWordKeptNodeStatus(t *testing.T, name string, plan *PlanState) {
+func assertPhaseWordKeptNodeStatus(t *testing.T, name string, plan *model.PlanState) {
 	t.Helper()
 	if plan == nil || len(plan.Nodes) != 1 {
 		t.Fatalf("%s：plan 缺失", name)
