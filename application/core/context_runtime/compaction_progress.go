@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/event"
+	"github.com/RedHuang-0622/seelex/middle/protocol/event"
 )
 
 // 压缩门禁 id：一轮压缩从「判据估算」到「写压缩记录」实际经过的关口。顺序 =

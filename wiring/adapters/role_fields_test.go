@@ -3,7 +3,7 @@ package adapters
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // TestTranscriptRoleFieldsRoundTrip 钉住 R2/R4 字段不会在 model ↔

@@ -7,7 +7,7 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
-	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // TestColdResumeContinueAfterInterruptedToolChain：重启后 continue 场景端到端

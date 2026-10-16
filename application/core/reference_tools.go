@@ -10,7 +10,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
-	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // 引用工具分页默认值收编进 seele.yaml limits 段

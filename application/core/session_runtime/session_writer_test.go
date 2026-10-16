@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/core/internal/state"
-	"github.com/RedHuang-0622/seelex/application/model"
 	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/kernel/state"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // A3 单写者：会话落盘收口到 per-session actor（同会话串行 FIFO、跨会话并行），

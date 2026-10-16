@@ -12,7 +12,7 @@ package session_runtime
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // TestConversationFromTranscriptPreservesRoleAttribution 钉住事件 → 可见消息

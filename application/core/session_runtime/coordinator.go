@@ -5,11 +5,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/core/internal/state"
-	"github.com/RedHuang-0622/seelex/application/event"
-	"github.com/RedHuang-0622/seelex/application/model"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/kernel/state"
+	"github.com/RedHuang-0622/seelex/middle/protocol/event"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 const sessionCatalogShutdownWait = 100 * time.Millisecond

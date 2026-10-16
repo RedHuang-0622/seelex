@@ -7,7 +7,7 @@ import (
 	"log"
 	"sync"
 
-	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 type EventKind string

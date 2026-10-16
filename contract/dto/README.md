@@ -4,7 +4,7 @@
 
 `contract/dto` 是 Seelex 跨层共享的**纯数据契约**包：只放数据形状（结构体、枚举字面量、常量），不放行为方法，也不 import 存储、框架或 UI 包。
 
-主要调用方：`contract`（端口签名）、`application/core` 及其域包、`application/model`、
+主要调用方：`contract`（端口签名）、`application/core` 及其域包、`middle/protocol/model`、
 `gui/`、`tui/`，以及 `seelebridge/`（以类型 alias 复用同一定义，保证单源）。
 
 ## 职责与非职责
@@ -42,7 +42,7 @@
 flowchart LR
     CONTRACT["contract（端口签名）"] --> DTO["contract/dto"]
     CORE["application/core + 域包"] --> DTO
-    MODEL["application/model"] --> DTO
+    MODEL["middle/protocol/model"] --> DTO
     FE["gui/ · tui/"] --> DTO
     BRIDGE["seelebridge/（alias 复用，单源）"] --> DTO
     DTO -.->|禁止| STORE["store/ · plugin/ · Seele 内部类型"]
@@ -57,7 +57,7 @@ flowchart LR
   `ScheduledTaskKind` 的字符串值被前端筛选与后端判定共用，改名等于破坏协议。
 - **投影而非镜像**：`RuntimeVisibilityProjection` / `GoalGovernanceView` / 子代理树与
   恢复投影都是给 UI 的**有界只读视图**，不是权威状态本身；权威状态在
-  `application/model` 与各域协调器。
+  `middle/protocol/model` 与各域协调器。
 - **逻辑角色 vs provider role**：`RoleKind` 只是 metadata，provider role 仍然只有
   system / user / assistant / tool；subagent 是 tool calling 能力，不属于任何 `RoleKind`。
 
@@ -66,7 +66,7 @@ flowchart LR
 ```mermaid
 flowchart LR
     DOMAIN["域协调器<br/>goal · agentteam · task_context · session_runtime"] -->|组装投影| PROJ["DTO 投影"]
-    PROJ --> SNAP["application/model.Snapshot"]
+    PROJ --> SNAP["middle/protocol/model.Snapshot"]
     SNAP --> FE["GUI / TUI 渲染"]
     FE -->|写操作经端口回传| DOMAIN
     STORE["store 落地类型"] -->|wiring/adapters 映射| DTO

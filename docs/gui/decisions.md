@@ -23,7 +23,7 @@
 - 决策：Snapshot 和每个 Event 都携带 `protocol_version`；不兼容版本由客户端明确拒绝。
 - 理由：Wails 内嵌资源通常同版本，但调试缓存、未来 sidecar 和远程客户端需要可诊断的不兼容行为。
 - 后果：破坏性 schema 变化必须升级版本并提供迁移或明确错误。
-- 实现：`application/state.go:6-23`、`application/event.go:24-30`、`gui/frontend/dist/protocol.js:8-12`。
+- 实现：`application/state.go:6-23`、`middle/protocol/event.go:24-30`、`gui/frontend/dist/protocol.js:8-12`。
 
 ## ADR-GUI-004：Event reducer + Snapshot 兜底
 
@@ -228,7 +228,7 @@
 ## ADR-GUI-022：会话团队事实用 `team.changed` 通告，面板按需读面靠它作废缓存
 
 - 状态：**已退场（2026-10-12 J-1a）**——Agent Team 面板与 `AgentTeamView` 读面已整条删除，
-  `team.changed` **不再有发布者**（`application/event.EventTeamChanged` 常量、白名单与
+  `team.changed` **不再有发布者**（`middle/protocol/event.EventTeamChanged` 常量、白名单与
   console 日志分支仍在，属可清理残边）。现行团队面是 teamwork 看板（`snapshot.runtime`
   的 `TeamworkBoardView`，见 `modules/right-sidebar.md` 与
   `../arch/teamwork-leader-worker-architecture.md`）。以下是当时的决策原样保留。
@@ -236,7 +236,7 @@
   GUI 的 status 子页与 TUI 的 Alt+T 都按 RPC `AgentTeamView` 拉取，并把结果按会话键缓存。
   "事实变了"因此没有下行通道：GUI 曾靠 composer 文本以 `@` 开头来猜（面板收起、
   goal 自动装配、非本 composer 的来路全漏），TUI 只能靠用户再按一次 Alt+T。
-- 决策：新增会话级事件 `team.changed`（`application/event`，载荷为空、**revision=0**），
+- 决策：新增会话级事件 `team.changed`（`middle/protocol/event`，载荷为空、**revision=0**），
   由装配/顺序/入职/编辑成员的写路径发布；前端收到后**作废面板缓存**，面板可见时立即
   重取，不可见时只置脏位等下次展开/渲染。
   - 发布点钉在写路径，不钉在某个调用方：`MaterializeAgentTeam`（`@` 召唤 / goal 自动装配 /
@@ -253,11 +253,11 @@
   - 不变量：**读路径不发 `team.changed`**（否则"取成员表→通告→再取"自激循环）。
   - 团队库/员工库/默认顺序是**全局母本**，不在本事件范围内：母本 CRUD 的调用方按返回值刷新。
   - 前端不再按 composer 文本猜面板刷新（GUI），TUI 面板打开时自动重取。
-- 实现：`application/event/hub.go`、`application/core/agentteam_service.go`、
+- 实现：`middle/protocol/event/hub.go`、`application/core/agentteam_service.go`、
   `application/core/aliases.go`、`application/application.go`、
   `application/console/backend_console.go`（探针可见性）、
   `gui/frontend/dist/protocol.js`、`gui/frontend/dist/app.js`、`tui/tui.go`。
-- 验证：`go test ./application/event/ ./application/core/ -run TeamChanged`、
+- 验证：`go test ./middle/protocol/event/ ./application/core/ -run TeamChanged`、
   `go test ./application/console/ -run EventLogger`、`go test ./tui/ -run TeamPanel`、
   `node --test gui/frontend/dist/protocol.test.mjs
   gui/frontend/dist/agent-team-refresh.test.mjs`；真机探针

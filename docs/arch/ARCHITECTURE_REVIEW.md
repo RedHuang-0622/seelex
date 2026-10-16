@@ -29,7 +29,7 @@
 | 层 | 关键包 | 关键类型 | 行数（Go） |
 |---|---|---|---|
 | 应用门面 | `application/core` | `Service`/`serviceState`/`serviceComponents` | ~26 358（包含测试） |
-| 应用事件/审批 | `application/event`；审批实现已归位 `backend/limit/approval`（端口形状 `contract/approval.go`） | `EventHub`, `ApprovalBroker` | ~300 |
+| 应用事件/审批 | `middle/protocol/event`；审批实现已归位 `backend/limit/approval`（端口形状 `contract/approval.go`） | `EventHub`, `ApprovalBroker` | ~300 |
 | 应用契约 | `contract` | `ChatEngine`/`RuntimePort`/`Dependencies` | ~150 |
 | 上下文控制 | `seelexctx` + 子包 | `Controller`, `Assembler`, `Processor`, `Compressor`, `ContextWindowPolicy`, `DefaultWindowPolicy`, `ContextSnapshot` 等 | ~11 455 |
 | 上下文生命周期基建 | `seelexctx/lifecycle` | `ContextActor[T]`, `BatchPipeline[T]`, `Storage[T]` | ~1 246 |
@@ -218,7 +218,7 @@
 | 三路并行恢复 | `application/core/session_history.go:resumeSession` (sync.WaitGroup 3 goroutines) | session_history_test |
 | 锁外 publishRuntimeProjections | `application/core/runtime_projection.go:publishRuntimeProjections` (RLock 拷值, 锁外 publish) | service_test |
 | 锁外 collectRuntimeProjection | `application/core/service_snapshot.go:collectRuntimeProjection` (调外部 port 无锁) | service_test |
-| Slow subscriber 触发 resync | `application/event/hub.go:eventSubscriber.deliver` (drain + resync) | race_test |
+| Slow subscriber 触发 resync | `middle/protocol/event/hub.go:eventSubscriber.deliver` (drain + resync) | race_test |
 | 持久化用 ProjectID 隔离 | `store/store.go:Router.SetWorkspace` + 全部 `*Workspace` 变体 | `TestRouterReadsExplicitWorkspaceWithoutChangingActiveScope` |
 | 父子合并 copy-on-write | `seelexctx/merger/merger.go:MergeBack` (mu.Lock + copyDecisions/copyStrings) | `merger_test.go` |
 
@@ -265,7 +265,7 @@
 - H7：`SessionRecord` / `SessionContextStore` 的 state blob 与 `ProviderHistory` 是双写关系（`persistCurrentSession` 既写 framework history 也写 state blob）；但二者在落库失败时**只返回第一个错**，后续动作是否会回滚无显式事务。`store.WriteCommit` 显式接受一次 Commit（4 段），但 Commit 内部各段（ProviderHistory/Events/State/ToolResults）的失败一致性是 backend 决定的（JSON 后端是串行 `os.WriteFile` + `os.Rename`）。
 - H8：`RouterStorage.Append` 注释明确"基建期 O(n)"，并把增量优化（事件库 SaveCommit + 投影）列为后续切片。**当前若用作冷加载主路径，每次 Append 都是 read+merge+write 全量**——长会话下这是 O(n²) 的写入成本。一旦切到活跃生产，需要先把增量写做掉。
 
-### 5.3 应用门面 / 事件流（application/core + application/event + backend/limit/approval）
+### 5.3 应用门面 / 事件流（application/core + middle/protocol/event + backend/limit/approval）
 
 **设计**
 - `Service` 用 `serviceState` + `serviceComponents` 把状态按"基础设施/对话/生命周期/提示/会话/计划/任务"分组；`Service.mu`（RWMutex）作为整体门。

@@ -44,7 +44,7 @@
 | 本包函数 | 唯一实现 |
 |---|---|
 | `New` | `application/core.New` |
-| `NewEventHub` | `application/event.NewEventHub` |
+| `NewEventHub` | `middle/protocol/event.NewEventHub` |
 | `NewApprovalBroker` | `backend/limit/approval.NewApprovalBroker`（端口形状在 `contract/approval.go`） |
 | `NewToolHookBridge` | `application/core.NewToolHookBridge` |
 | `NewPromptStack` | `application/prompt.NewPromptStack` |

@@ -18,8 +18,8 @@
 
 | ID | 功能点 | 详细设计 | 实现代码段落位置 | 自动化证据 | 审查结论 |
 |----|--------|---------|------------------|------------|----------|
-| GUI-PRO-001 | Snapshot/Event 协议版本 | [Application §2](modules/application-protocol.md#2-数据契约) | `application/state.go:6-23`；`application/event.go:24-30`；`protocol.js:8-12` | `command_test.go:461`；`protocol.test.mjs:18` | 通过：版本缺失/不兼容有明确错误 |
-| GUI-PRO-002 | Event seq 缺口重同步 | [Client §3](modules/client-state.md#3-event-reducer) | `application/event.go:81-101`；`protocol.js:15-37` | `application_test.go:207`；`protocol.test.mjs:41` | 通过：背压与前端 gap 均覆盖 |
+| GUI-PRO-001 | Snapshot/Event 协议版本 | [Application §2](modules/application-protocol.md#2-数据契约) | `application/state.go:6-23`；`middle/protocol/event.go:24-30`；`protocol.js:8-12` | `command_test.go:461`；`protocol.test.mjs:18` | 通过：版本缺失/不兼容有明确错误 |
+| GUI-PRO-002 | Event seq 缺口重同步 | [Client §3](modules/client-state.md#3-event-reducer) | `middle/protocol/event.go:81-101`；`protocol.js:15-37` | `application_test.go:207`；`protocol.test.mjs:41` | 通过：背压与前端 gap 均覆盖 |
 | GUI-PRO-003 | Snapshot/Event 竞争保护 | [Client §4-5](modules/client-state.md#4-snapshot-管理) | `client-state.js:3-55`；`protocol.js:15-31` | `client-state.test.mjs:58,72`；`protocol.test.mjs:57,70` | 通过：旧 Snapshot 和 delta replay 均拒绝 |
 | GUI-CHAT-001 | 流式 delta 精确定位 | [Application §3](modules/application-protocol.md#3-chat-状态机) | `application/chat.go:85-102`；`protocol.js:65-74` | `application_test.go:222`；`protocol.test.mjs:24` | 通过：稳定 message_id 契约完整 |
 | GUI-CHAT-002 | 运行中输入队列 | [Application §3](modules/application-protocol.md#3-chat-状态机)；[Render §6](modules/conversation-rendering.md#6-chat-控件与活动尾部) | `application/app.go:114-151`；`components.js:68-84`；`chat-view.js:3-31` | `command_test.go:649`；`components.test.mjs:11-38` | 通过：Core 真队列进入 UI model |

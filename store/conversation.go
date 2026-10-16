@@ -29,7 +29,7 @@ type ConversationMessage struct {
 	RoundID       uint64 `json:"round_id,omitempty"`
 	UnitSeq       uint64 `json:"unit_seq,omitempty"`
 	// ConfigRole / ConfigModel / ConfigProvider 是 assistant 回应的实际承接
-	// 路由（请求解析中间件得出、随行派生；见 application/model.Message）。
+	// 路由（请求解析中间件得出、随行派生；见 middle/protocol/model.Message）。
 	ConfigRole     string `json:"config_role,omitempty"`
 	ConfigModel    string `json:"config_model,omitempty"`
 	ConfigProvider string `json:"config_provider,omitempty"`

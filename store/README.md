@@ -741,7 +741,7 @@ plan/task/goal 三栈用例经 `forEachStackBackend` 跑 JSON 后端（head 只�
   （`framework-events.json`）归属父会话执行，不复制到子会话。
 
 血缘 meta（`forked_from`/ForkPoint）与截断重写属于 application 层
-（`application/model` + `application/core/session_runtime`），存储层只负责
+（`middle/protocol/model` + `application/core/session_runtime`），存储层只负责
 通道与原子提交，不解释内容。
 
 ## 会话媒体分区（`meta/`）

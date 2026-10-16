@@ -165,11 +165,11 @@ func (reader *UnifiedEventReader) query(
 	return view, nil
 }
 
-// unifiedEventTopic 把框架执行事实事件映射为 application/event 桥接的
+// unifiedEventTopic 把框架执行事实事件映射为 middle/protocol/event 桥接的
 // (channel, sid) 契约（G2 白名单镜像）：事件带 agent.runtime 位置的
 // session_id → 会话类事件，sid 必填；无会话位置的进程级事件 → sid 空。
 // 本函数只给出映射（纯函数），实际投递由装配层 adapter 完成——seelebridge
-// 在依赖方向下层，不反向 import application/event。
+// 在依赖方向下层，不反向 import middle/protocol/event。
 func unifiedEventTopic(event frameworkevent.Event) (channel string, sessionID string, sessionScoped bool) {
 	for _, location := range event.Locations {
 		if location.Kind != "agent.runtime" {

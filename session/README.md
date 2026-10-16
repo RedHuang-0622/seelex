@@ -42,7 +42,7 @@ sequenceDiagram
     autonumber
     participant C as application/core
     participant D as session.Domain actor
-    participant E as application/event（投递端）
+    participant E as middle/protocol/event（投递端）
 
     C->>D: SetActive(unit)
     D->>D: 独占更新注册表与视图指针
@@ -67,7 +67,7 @@ sequenceDiagram
 - `Domain`（`domain_actor.go`）：会话域 actor —— 注册表与视图指针 V 由单条
   goroutine 独占，方法一律经 channel 命令交互，域内没有共享 mutex。
   - 写命令（`Register`/`Remove`/`SetActive`）等 actor 回包后才返回：视图指针是
-    事件投递端判定会话归属的依据（见 `application/event`），异步会让紧随其后
+    事件投递端判定会话归属的依据（见 `middle/protocol/event`），异步会让紧随其后
     的 `ActiveID()`/`Unit()` 读到旧状态。
   - `Close` 投递 `domainCmdClose`，由 actor 自己关闭 `stopCh` 并退出：因此重复
     与并发 `Close` 都幂等，也不需要往 `Domain` 上加共享可变状态（共享面约束由

@@ -32,7 +32,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // compactSmokeContextWindow / MaxTokens：把窗口调小到几十 k，让两三轮真实回合

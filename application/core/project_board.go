@@ -32,7 +32,7 @@ package core
 //   TeamworkPlan.Milestones   store/teamwork.go:98         里程碑与工作项的唯一事实源
 //   TeamworkState.Milestones  store/teamwork.go:151        里程碑运行态（优先读法）
 //   TeamworkState.State       store/teamwork.go:167        整队收口（空 = 未收口）
-//   WorkItem                  application/model/state.go:612      工作表格行（字段映射的输入）
+//   WorkItem                  middle/protocol/model/state.go:612      工作表格行（字段映射的输入）
 //
 // 本项**没有**第二份判定的地方（逐条对应）：无 status 归一/翻译（原样搬运，空串不补值）；
 // 无依赖推导（merger/planDependencies 那套留在活体投影里）；无收口判定（只与

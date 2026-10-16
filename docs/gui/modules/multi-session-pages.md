@@ -35,7 +35,7 @@
 ### 2.1 M1 落地（2026-08-23，会话保护粒度收窄）
 
 已完成（代码事实，见 `application/core/session_scope.go`、
-`internal/adapters/engine_port.go`、`application/event/hub.go`、
+`wiring/adapters/engine_port.go`、`middle/protocol/event/hub.go`、
 `gui/bridge.go`）：
 
 - 聊天保护从全局单例收窄为**会话级**：每会话独立 `ChatState`/cancel/

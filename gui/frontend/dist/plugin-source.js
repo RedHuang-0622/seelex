@@ -54,7 +54,7 @@ export function withPluginAssembly(payload, value) {
 //   ① 缺失来源**类型** ⇒ 不编来源：source_kind 键缺席 / 空串都算缺失，绝不默认成
 //      builtin（"不知道谁给的"与"随发行包"是两回事，编个默认值等于伪造出处）；
 //   ①' 但**载入位置不是来源类型**：source_root 在场就照报「载入根 <root>」——
-//      后端对未登记插件**刻意**只下发这一个键（application/model/state.go 的
+//      后端对未登记插件**刻意**只下发这一个键（middle/protocol/model/state.go 的
 //      source_root；断言见 application/core/plugin_source_projection_test.go
 //      「未登记插件的载入位置仍必须可读」），而用户当面问的「这些插件我没在我的
 //      plugins/ 下见过」正是靠这句解释。类型 / 地址 / 根三条事实**全缺**才整块退场

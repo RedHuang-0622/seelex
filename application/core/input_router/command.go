@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // Command 是内置命令的注册契约（实现：CommandFunc 或测试桩）。

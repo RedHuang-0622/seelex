@@ -3,9 +3,9 @@ package task_context
 import (
 	"crypto/sha256"
 	"fmt"
-	"github.com/RedHuang-0622/seelex/application/model"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"sort"
 	"strings"
 	"time"

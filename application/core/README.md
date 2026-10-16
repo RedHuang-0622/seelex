@@ -22,7 +22,7 @@
   `subagent_view/`（子代理详情/live/树投影）、`goal/`（Goal 状态机 +
   DS-A2A 双会话治理 + 终态 gate + 会话级第五栈持久化）、
   `agentteam/`（AgentTeam/角色会话通用装配：`TeamSpec` 工厂 + 团队库读面）。
-- 共享叶子：`internal/state`（锁 + 权威 Snapshot + 端口依赖 + 事件/审批
+- 共享叶子：`kernel/state`（锁 + 权威 Snapshot + 端口依赖 + 事件/审批
   内核）。判据类上限（`limits` 段类型、默认值、
   进程级快照）已于 2026-10-16 随 M2-A 迁到基座包 [`backend/limit`](../../backend/limit/README.md)。
 
@@ -65,7 +65,7 @@ flowchart TB
         RES["resume"]
     end
 
-    ST["internal/state.Core<br/>唯一共享锁 + Snapshot + Deps + Events + Approval"]
+    ST["kernel/state.Core<br/>唯一共享锁 + Snapshot + Deps + Events + Approval"]
     PORTS["contract 端口<br/>Engine / Runtime / Plugin / Skill / Session / Workspace"]
 
     COMP --> SR
@@ -188,7 +188,7 @@ flowchart LR
 | [agentteam/](agentteam/README.md) | A2A 角色团队通用装配（`TeamSpec` 工厂 + 团队库读面 + 幂等角色会话） |
 <!-- govern/ 已于 2026-10-03（阶段三 W3）随 goal 席位轮转退场删除 -->
 | [resume/](resume/README.md) | 未完成工作恢复模板（七步顺序 + 幂等键 + 可审计 Report） |
-| [internal/state/](internal/state/README.md) | 共享状态内核（锁 + Snapshot + 端口依赖） |
+| [../../kernel/state/](../../kernel/state/README.md) | 共享状态内核（锁 + Snapshot + 端口依赖；M5-R3 迁出 `application/core/internal/state/`） |
 
 ## 权威状态与生命周期
 

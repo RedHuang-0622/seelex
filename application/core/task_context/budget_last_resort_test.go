@@ -3,7 +3,7 @@ package task_context
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // TestTranscriptTailKeepsNewestUnitWhenItExceedsBudget：协议单元不可拆分，

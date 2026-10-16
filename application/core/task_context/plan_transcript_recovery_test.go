@@ -3,7 +3,7 @@ package task_context
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // interruptedTurn 构造"残缺工具链"回合：assistant 请求 t1/t2，只记录了 t1

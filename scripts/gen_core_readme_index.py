@@ -27,6 +27,10 @@ CORRUPTED_HEADER = re.compile(r"^## \?{7,}$")
 EXTRA_PACKAGES = [
     REPO / "backend" / "limit",
     REPO / "backend" / "limit" / "policy",
+    REPO / "kernel" / "state",
+    REPO / "middle" / "protocol" / "model",
+    REPO / "middle" / "protocol" / "event",
+    REPO / "wiring" / "adapters",
     REPO / "wiring" / "config",
     REPO / "wiring" / "registry",
     REPO / "wiring" / "bootstrap",
@@ -444,14 +448,9 @@ def main() -> None:
         text = strip_old_section(readme.read_text(encoding="utf-8")) if readme.exists() else ""
         text = text.rstrip() + "\n\n" + section(sorted(pkg.rglob("*.go")), pkg) + "\n"
         write_if_changed(readme, text)
-    # internal/limits 已于 2026-10-16 随 M2-A 迁到顶层 backend/limit（不在本脚本
-    # 的 application/core 作用域内），因此这里只剩 state 一个叶子包。
-    for leaf in ("internal/state",):
-        directory = ROOT / leaf
-        readme = directory / "README.md"
-        text = strip_old_section(readme.read_text(encoding="utf-8")) if readme.exists() else ""
-        text = text.rstrip() + "\n\n" + section(sorted(directory.glob("*.go")), directory) + "\n"
-        write_if_changed(readme, text)
+    # application/core 的两个旧叶子包都已迁出：internal/limits → backend/limit（M2-A）、
+    # internal/state → kernel/state（M5-R3）。两者都已在 EXTRA_PACKAGES 里，因此这里不再
+    # 保留叶子循环——留着它只会在下次刷新时对着已不存在的路径报 FileNotFoundError。
 
     # 基座包：单 README（生态位 + 索引），无分卷。
     for package in EXTRA_PACKAGES:

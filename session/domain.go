@@ -13,8 +13,8 @@ import (
 	"context"
 	"sync"
 
-	"github.com/RedHuang-0622/seelex/application/model"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // VisibleOutputSink 是流式可见输出接收器（由执行内核的 stream 类型实现）。

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/event"
+	"github.com/RedHuang-0622/seelex/middle/protocol/event"
 )
 
 // chunkCaptureEngine 在 multiSessionEngine 之上捕获每个会话进行中

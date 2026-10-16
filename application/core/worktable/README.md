@@ -16,7 +16,7 @@
 
 ## 依赖方向
 
-只依赖 `application/model`（`WorkItem`）与标准库；禁止反向依赖 `core` 根包。
+只依赖 `middle/protocol/model`（`WorkItem`）与标准库；禁止反向依赖 `core` 根包。
 
 ## 时序图
 

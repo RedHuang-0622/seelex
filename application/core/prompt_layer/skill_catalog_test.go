@@ -4,12 +4,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/core/internal/state"
 	pl "github.com/RedHuang-0622/seelex/application/core/prompt_layer"
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
-	"github.com/RedHuang-0622/seelex/application/model"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/kernel/state"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // ── 桩：只读 Skill 端口（按当前插件返回技能表，模拟 skill.Registry 隔离） ──

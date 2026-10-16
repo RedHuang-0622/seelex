@@ -3,7 +3,7 @@ package task_context
 import (
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // 会话级上下文维护：给**没有在飞回合**的会话（冷加载、刚清空）提供一次可

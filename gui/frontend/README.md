@@ -158,7 +158,7 @@ flowchart TB
 
 ## 状态流
 
-快照分型（G3，契约先行）：`application/model` 已把 DTO 拆成
+快照分型（G3，契约先行）：`middle/protocol/model` 已把 DTO 拆成
 `SessionSnapshot`/`SessionRuntime`（会话粒度、传输完备）与
 `ProcessSnapshot`/`ProcessRuntime`（进程目录/能力清单）。桌面 Workbench
 现阶段仍以联合 Snapshot 下发（进程字段内联在 `runtime`），`snapshot-shape.js`

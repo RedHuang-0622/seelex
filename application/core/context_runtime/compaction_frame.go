@@ -28,7 +28,7 @@ import (
 //
 // 与栈帧（store.CompactFrame）的关系：栈帧是**权威**，它的结构体字段本身就是
 // JSON 元数据、它的 Summary 字段就是读后感；本文件渲染的是栈帧的**完整回读投影**
-// （快照刻意不带正文，见 application/model/state.go 的 ContextCompaction 注释），
+// （快照刻意不带正文，见 middle/protocol/model/state.go 的 ContextCompaction 注释），
 // 不是第二份权威。因此读后感一律原样嵌入 Summary，绝不另写一份——两份措辞会漂移。
 //
 // 硬约束：JSON 块**只能**出现在这份回读正文里，绝不能进 CompactFrame.Summary。

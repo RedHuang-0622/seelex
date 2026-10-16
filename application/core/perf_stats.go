@@ -3,7 +3,7 @@ package core
 import (
 	"encoding/json"
 
-	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // PerfStats 返回 GUI 性能追踪钩子的后端数据面：只上报数量/体积等无内容

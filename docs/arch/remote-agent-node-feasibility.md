@@ -26,7 +26,7 @@
 
 - 端口：`contract/ports.go`（`ChatEngine` / `RuntimePort` / `PluginPort` /
   `SkillPort` / `SessionPort` / `WorkspacePort` / `ApprovalBroker` …）。
-- 实现：`internal/adapters/`、`seelebridge/`、`store/`、`workspace/`、`plugin/`。
+- 实现：`wiring/adapters/`、`seelebridge/`、`store/`、`workspace/`、`plugin/`。
 - 唯一装配点：`application/application.go` 的 `New(deps Dependencies) (*Service, error)`；
   组合根是 `main.go`。
 - 更严的一版：`seelebridge/workunit/contract.go` 的三格端口（作业面 / 现场 / 会话记录），

@@ -16,7 +16,7 @@
       ],
       "planned_paths": [
         "application/state.go",
-        "application/event.go",
+        "middle/protocol/event.go",
         "application/app.go",
         "application/chat.go",
         "application/ports.go"

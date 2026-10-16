@@ -3,11 +3,11 @@ package core
 import (
 	cc "github.com/RedHuang-0622/seelex/application/core/context_control"
 	"github.com/RedHuang-0622/seelex/application/core/input_router"
-	"github.com/RedHuang-0622/seelex/application/event"
-	"github.com/RedHuang-0622/seelex/application/model"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	limitapproval "github.com/RedHuang-0622/seelex/backend/limit/approval"
 	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/middle/protocol/event"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 type (

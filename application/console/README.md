@@ -16,7 +16,7 @@ flowchart LR
     START --> RUN["Run：提交提示 → 观察事件"]
     BIND --> SVC["application.Service"]
     RUN --> SVC
-    SVC --> HUB["application/event.Hub"]
+    SVC --> HUB["middle/protocol/event.Hub"]
     HUB --> LOG["NewEventLogger：脱敏事件日志"]
     LOG --> OUT["OpenOutput：stdout / 文件"]
 ```

@@ -6,9 +6,9 @@
 package task_context
 
 import (
-	"github.com/RedHuang-0622/seelex/application/core/internal/state"
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/kernel/state"
 )
 
 // 编译期断言：task_context.Coordinator 满足 session 域的 task/plan 权威状态

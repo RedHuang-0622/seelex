@@ -1,6 +1,6 @@
 // snapshot-shape.js ── 快照分型的字段归属契约（G3）
 //
-// 与 application/model 的 SessionSnapshot/SessionRuntime/
+// 与 middle/protocol/model 的 SessionSnapshot/SessionRuntime/
 // ProcessSnapshot/ProcessRuntime JSON 键一一对应（target-design §2.1/§2.3/
 // §2.4；Go 侧形状契约见 application/core/session_snapshot_test.go）。
 // 本模块是前端的只读类型表：桌面 Workbench 仍以联合 Snapshot 下发时，

@@ -102,7 +102,7 @@ Broker map 可以保存多个 pending，但 Service Snapshot 只有一个 `Inter
 
 ### P2：EventHub 与 Bridge 的背压/关闭边界可改进
 
-位置：`application/event.go:81-102`、`gui/bridge.go:109-161`。
+位置：`middle/protocol/event.go:81-102`、`gui/bridge.go:109-161`。
 
 EventHub 的 channel send 使用 non-blocking 分支，当前不会因普通满 buffer 永久阻塞；但它在全局锁内遍历、清空和投递所有 subscriber，高频 delta 下锁持有时间随订阅数增长。Bridge `stop` 无界等待 emitter goroutine；若外部 emitter 阻塞且忽略 context，关闭可能卡住。
 

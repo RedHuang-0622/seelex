@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
-	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // compactTestService 构造带活跃任务执行的会话：主动压缩绑定请求纪元

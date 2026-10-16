@@ -39,7 +39,7 @@ func TestUnifiedEventReaderQueryRange(t *testing.T) {
 	}
 }
 
-// TestUnifiedEventTopicMapping 钉住 seelebridge→application/event 桥的
+// TestUnifiedEventTopicMapping 钉住 seelebridge→middle/protocol/event 桥的
 // (channel, sid) 映射（G2 白名单：会话类事件 sid 必填，进程类必空）。
 func TestUnifiedEventTopicMapping(t *testing.T) {
 	scoped := frameworkevent.Event{

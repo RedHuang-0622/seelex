@@ -127,12 +127,12 @@ stateDiagram-v2
 
 ## 依赖和边界
 
-本包只依赖 `application/model`，不读取 Service 内部状态。经过投递端过滤后，全局
+本包只依赖 `middle/protocol/model`，不读取 Service 内部状态。经过投递端过滤后，全局
 `Seq` 必然跳号，连续性只以 `DeliverySeq` 判定：GUI 的 reducer 在 delivery_seq 缺口时
 先向宿主增量补取（`Bridge.ReplayEvents`），补不齐才重拉 Snapshot；渲染层每次应用后
 回报水位（`Bridge.AckEvents`），宿主据此重推未确认的事件。改动这套语义时，
 `gui/bridge.go`、`gui/frontend/dist/protocol.js` 与 `client-state.js` 必须同步，详见
-[`docs/gui`](../../docs/gui/README.md)。
+[`docs/gui`](../../../docs/gui/README.md)。
 
 ## Review 指南
 
@@ -160,8 +160,56 @@ stateDiagram-v2
 ## 测试
 
 ```text
-go test ./application/event -count=1
+go test ./middle/protocol/event -count=1
 go test ./application/core -run SubscribeSession -count=1
 node --test gui/frontend/dist/client-state.test.mjs
 node --test gui/frontend/dist/event-chain.test.mjs
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### hub.go
+
+- `func KindIsProcessClass(kind EventKind) bool` — KindIsProcessClass 报告 kind 是否属于进程级（空 sid 必填）。
+- `func KindIsSessionClass(kind EventKind) bool` — KindIsSessionClass 报告 kind 是否属于会话级（sid 必填）。
+- `func ValidateSessionRouting(kind EventKind, sessionID string) error` — ValidateSessionRouting 校验 (kind, sessionID) 归属（G2/M2 白名单口径）：
+- `func (subscription Subscription) ReplaySince(sinceSeq uint64) ReplayResult` — ReplaySince 返回本订阅内 delivery_seq > sinceSeq 且仍留在重放窗口里的事件。
+- `func (subscription Subscription) DeliveryWatermark() uint64` — DeliveryWatermark 返回本订阅已分配到的最后一个 delivery_seq。调用方用它区分
+- `func (subscription Subscription) Close()`
+- `func NewEventHub() *EventHub`
+- `func (hub *EventHub) Subscribe(buffer int) Subscription`
+- `func (hub *EventHub) SubscribeFiltered(filter func(Event) bool, buffer int) Subscription` — SubscribeFiltered 返回按谓词筛选的订阅：只有 filter(event) 为真的事件会
+- `func (hub *EventHub) SubscribeWithReplay(filter func(Event) bool, buffer, replayWindow int) Subscription` — SubscribeWithReplay 是带重放窗口的订阅：除 filter 筛选外，最近 replayWindow
+- `func (hub *EventHub) subscribe(filter func(Event) bool, buffer, replayWindow int) Subscription`
+- `func (hub *EventHub) Publish(kind EventKind, revision uint64, requestID string, payload any) Event`
+- `func (hub *EventHub) PublishSession(kind EventKind, revision uint64, requestID, sessionID string, payload any) Event` — PublishSession 与 Publish 等价，但事件携带会话路由键 sessionID，
+- `func (hub *EventHub) publish(kind EventKind, revision uint64, requestID, sessionID string, payload any) Event`
+- `func (hub *EventHub) SubscribeSession(sessionID string, buffer int) Subscription` — SubscribeSession 返回按会话过滤的订阅：只投递 sessionID 匹配（或全局
+- `func (subscriber *eventSubscriber) deliver(event Event)`
+- `func (subscriber *eventSubscriber) replaySince(sinceSeq uint64) ReplayResult` — replaySince 返回窗口内 delivery_seq > sinceSeq 的事件。Covered=false 表示窗口
+- `func (subscriber *eventSubscriber) deliveredWatermark() uint64` — deliveredWatermark 返回已分配的最大 delivery_seq（0 = 尚未投递任何事件）。
+- `func (subscriber *eventSubscriber) close()`
+
+### hub_replay_test.go
+
+- `func TestReplaySubscriptionKeepsOverflowReplayable(t *testing.T)` — TestReplaySubscriptionKeepsOverflowReplayable 覆盖 C4 的核心改变：开启重放
+- `func TestReplayWindowEvictionRequiresFullResync(t *testing.T)` — TestReplayWindowEvictionRequiresFullResync 钉住窗口上限：落后超过窗口时
+- `func TestReplayWindowRespectsDeliveryFilter(t *testing.T)` — TestReplayWindowRespectsDeliveryFilter 确认补取与投递同一套归属口径：被过滤
+- `func TestReplaySubscriptionSurvivesClose(t *testing.T)` — TestReplaySubscriptionSurvivesClose 确认关闭后的订阅不会给出可用窗口：
+
+### hub_test.go
+
+- `func TestSubscribeSessionDropsForeignEventsAtDelivery(t *testing.T)` — TestSubscribeSessionDropsForeignEventsAtDelivery 验证会话级订阅在投递端
+- `func TestFilteredSubscriptionDeliverySeqIsContiguous(t *testing.T)` — TestFilteredSubscriptionDeliverySeqIsContiguous 验证过滤后的投递序号连续：
+- `func TestOverflowResyncIsDeliveredGlobally(t *testing.T)` — TestOverflowResyncIsDeliveredGlobally 验证缓冲溢出的 resync 一定可达：它必须
+- `func TestSubscribeFilteredFollowsLivePredicate(t *testing.T)` — TestSubscribeFilteredFollowsLivePredicate 验证谓词在每次投递时求值：视图
+
+### hub_whitelist_test.go
+
+- `func TestKindWhitelistClassification(t *testing.T)` — TestKindWhitelistClassification（G2/M2）：白名单之外的 kind 都是会话类；
+- `func TestValidateSessionRouting(t *testing.T)` — TestValidateSessionRouting（G2/M2）：会话类空 sid 与进程类带 sid 均为
+- `func TestPublishSessionStrictWhitelist(t *testing.T)` — TestPublishSessionStrictWhitelist（G2 严格开启）：会话类 kind 空 sid 与
+

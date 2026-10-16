@@ -20,7 +20,7 @@ type EventLogEntry struct {
 
 // EventStore 是 seelex 侧执行事实事件库（双轨事件的「事实轨」）：
 // 实现 frameworkevent.Sink（Append），把执行事实追加到会话级事件库。
-// 前端快照轨由 application/event EventHub 承担；本库只负责追加持久化。
+// 前端快照轨由 middle/protocol/event EventHub 承担；本库只负责追加持久化。
 // Sink 失败显式返回错误，由调用方 ErrorHandler 隔离 —— 不破坏 WorkPlan
 // 或 Agent 的控制流结果（见 Seele event/README.md）。
 type EventStore struct {

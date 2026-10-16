@@ -37,7 +37,7 @@
 | **单元身份**（这条记录属于哪一类执行单元） | subagent \| teammate | `workunit.Kind`（**不是新枚举**：契约里早有这一格，`KindJob` 是基线标注） | **落盘**：记录快照 `store.NodeUnitRecord.Kind`（契约之下的 wire，空 = subagent）。恢复链按它**分派策略**（唯一转换点 `backend/engine/assemble/runtime_unit_recovery.go` 的 `unitKindOf`；加固前的老记录按团队事实兜底）；写侧是责任链上的两环（子代理那一环只填空缺、teammate 那一环写自己这一层）。落地记录 `docs/2026-10-06-workunit-jobs-port/step-4-unit-record-identity.md` |
 | **记录状态**（子代理节点生命周期） | queued\|running\|done\|failed\|interrupted | `dto.SubAgentNodeStatus` | **落盘**：`store.NodeSessionRecord.Status` 仍是字符串（store 在契约之下），边界 `seelebridge` 的 `subagentNodeStatusDone/Failed`、`session.SubAgent*` 转调对外词；未知词 → `SubAgentUnknown`（**不是终态**） |
 | **工具事件状态** | running\|success\|error | `dto.ToolEventStatus` | `dto.SubagentTool.Status` 与 `dto.SubagentToolEvent.Status` 两处字段同格 |
-| **工具调用视图词**（快照 / 事件 wire / 存档里的工具行） | running\|success\|error | `dto.ToolEventStatus`（**与工具事件状态同格**） | `model.ToolCall.Status` 从字符串换成枚举；**落盘**（`model.SessionArchive` 存档 + 事件 payload 的 JSON）读回经具名转换点 `model.ToolCallStatusOfRecord`（认不得的词与空词 → `ToolEventUnknown`，**不折成成功**）；store 那一侧的名词 `store.ConversationToolCallStatusSuccess` 由 `internal/adapters` 的 `TestToolCallStatusOfRecordLocksTheStoreVocabulary` 互锁。原来的漂移写点（子代理详情投影写 `completed`）已修正——这个词从来不在本格取值面里 |
+| **工具调用视图词**（快照 / 事件 wire / 存档里的工具行） | running\|success\|error | `dto.ToolEventStatus`（**与工具事件状态同格**） | `model.ToolCall.Status` 从字符串换成枚举；**落盘**（`model.SessionArchive` 存档 + 事件 payload 的 JSON）读回经具名转换点 `model.ToolCallStatusOfRecord`（认不得的词与空词 → `ToolEventUnknown`，**不折成成功**）；store 那一侧的名词 `store.ConversationToolCallStatusSuccess` 由 `wiring/adapters` 的 `TestToolCallStatusOfRecordLocksTheStoreVocabulary` 互锁。原来的漂移写点（子代理详情投影写 `completed`）已修正——这个词从来不在本格取值面里 |
 | **task 状态** | pending\|queued\|running\|doing\|completed\|failed\|retry\|interrupted | `dto.TaskStatus` | `TaskRecord.Status`、`TaskTracePoint.Status`；打点状态与条目状态同格 |
 | **回合状态** | idle\|progressing\|completed\|needs_user_decision\|blocked\|interrupted\|failed | `dto.TurnStatus` | 同一格两个面：可见面 `Snapshot.Task.Status`、存档面 `TaskContextProjection.Status`；存档老词 `running` 由 `task_context.TurnStatusOfRecord` 读回（**不再**是 `model.TaskStatus` + `task_context.Status*` 两份词表） |
 | **会话可见状态** | draft\|idle\|running\|queued\|awaiting_approval\|archived\|restoring | `dto.SessionStatus` | 持久子集在 `store.Status`（契约之下）；转换点 `adapters.sessionStatusOfRecord` |
@@ -73,7 +73,7 @@
 | 格 | 结论 |
 |---|---|
 | ~~`workunit.Status*`~~ | **已收口**：与记录状态同格，现在直接引 `dto.SubAgentQueued/SubAgentRunning`（构造上同一份，不再靠用例比对上另一份） |
-| ~~`application/model` 平行词表~~ | **已收口**：四格全部并成契约枚举（回合 / 会话可见 / 计划 / 节点），`model.*` 只剩别名 |
+| ~~`middle/protocol/model` 平行词表~~ | **已收口**：四格全部并成契约枚举（回合 / 会话可见 / 计划 / 节点），`model.*` 只剩别名 |
 | ~~`core/task_context` 的 `Status*`~~ | **已收口**：与回合状态同格（"running" 统一成 `progressing`，存档老词由 `TurnStatusOfRecord` 读回） |
 | ~~`seelebridge/scheduler` 的 `scheduledStatus*`~~ | **已收口**：`dto.ScheduleRunStatus` |
 | ~~goal 的 `Status` / `PeerState`~~ | **已收口**：`dto.GoalStatus` / `dto.PeerState`；看板 `open\|closed` 判定为 store wire（契约之下） |

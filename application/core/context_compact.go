@@ -14,7 +14,7 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
-	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // ContextCompactionResult 是压缩结果面（命令 notice 与工具 JSON 共用）：

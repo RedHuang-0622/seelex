@@ -3,8 +3,8 @@ package session_runtime
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/model"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // TestEnrichTranscriptMessageIDsPairsEventsToMessages 验证 event-to-message

@@ -211,7 +211,7 @@ tool / command 是同一个生态位**——激活后的正文是 transcript 里
 **③ 可见性隔离（activePlugin ≠ "" 才生效）**
 
 - `skill/skill.go` `Get`(76)/`All`(93)：只返回 `pluginSkills[activePlugin]`
-  → `internal/adapters/session_workspace_ports.go:121` `SkillPort.Get/All` →
+  → `wiring/adapters/session_workspace_ports.go:121` `SkillPort.Get/All` →
   `application/core/completion.go:33`（`#` 补全）与 `input.go:53`（`#<skill>`
   路由）只能看到当前插件技能（default→plan/code/review/…，freecad→cad-*）。
 - tools 侧的 goal skill 门同源：`backend/engine/assemble/runtime.go:314/361` 闭包读
@@ -462,7 +462,7 @@ floor  = max(最近 1 个完整协议单元, context_retain_floor_percent × 预
 | 压缩帧 | `seelexctx/frame.go`、`seelexctx/dag.go`、`seelexctx/replay.go`、`backend/engine/assemble/runtime_compaction_index.go` | 两章节 Summary（Chapter 1 锚点 + Chapter 2 八小节骨架）、`LocalChapter2WithCarry`、压缩 DAG 的帧拼装、前缀重放厚摘要（`PrefixReplaySummarizer`）、`PushCompactionFrame` |
 | 保护区窗口 | `seelexctx/window.go`、`application/core/task_context/plan_transcript.go` | 保留区候选取小、`TranscriptTailWindow`（按协议单元不截断、至少保 1 单元） |
 | 事实源与回读 | `store/message_rows.go`、`seelexctx/search`、`application/core/history_search.go` | 消息分片 `message_<from>_<to>.jsonl`、帧当语义索引 + `[From..To]` 读回真实记录 |
-| 模型 | `application/model` | `TokenAudit`（可加缓存命中观测）、`SessionRecord` |
+| 模型 | `middle/protocol/model` | `TokenAudit`（可加缓存命中观测）、`SessionRecord` |
 | 四区显式化/打点（《已落地》1、4） | `application/core/context_runtime/layout.go` | `ContextLayout`、`ContextZone`、`RetainDecision`、`ContextZones`、`retainWindowDecision` |
 | 保护区下限（《已落地》1） | `seelexctx/window.go`、`application/core/window.go` | `RetainedContextTokensWithFloor`、`RetainFloorTokens`、`ValidateRetainWindow` |
 | 帧摘要传递上限（《已落地》2） | `seelexctx/frame.go` | `CarryPreviousChapter2`、`CarryDiagnostics`、`CarryEvidence`、`AnchorSourceWithCarry`、`LocalChapter2WithCarry` |
@@ -528,7 +528,7 @@ floor  = max(最近 1 个完整协议单元, context_retain_floor_percent × 预
    —— 前者证明既有压缩链路未被破坏，后者证明保护区下限端到端生效
    （baseline retained=1361/floor=0 → floored retained=16476/floor=16476，`floor_applied` 翻真）
    且四区与打点在真实 provider 下如实出现。
-2. **数据竞争**：`go test -race ./seelexctx/... ./application/core/... ./application/event/... ./seelebridge/... .`
+2. **数据竞争**：`go test -race ./seelexctx/... ./application/core/... ./middle/protocol/event/... ./seelebridge/... .`
    —— 全绿。唯一例外 `TestWorkspaceSwitchConcurrentWithBackgroundPersist` 是**既有 flake**
    （Windows `TempDir` 清理与后台持久化抢跑；在改动前的基线上同样 2/8 复现），与本次改动无关，
    门禁运行时以 `-skip` 排除。

@@ -23,8 +23,8 @@
 
 | 目录 | 职责 |
 |---|---|
-| [`model/`](model/README.md) | Snapshot、Message、Plan、Interaction 等版本化 DTO。 |
-| [`event/`](event/README.md) | 有序事件封装、订阅和 fan-out。 |
+| [`../middle/protocol/model/`](../middle/protocol/model/README.md) | Snapshot、Message、Plan、Interaction 等版本化 DTO（M5-R3 迁出 `application/model/`）。 |
+| [`../middle/protocol/event/`](../middle/protocol/event/README.md) | 有序事件封装、订阅和 fan-out（M5-R3 迁出 `application/event/`）。 |
 | ~~`approval/`~~ | 异步审批已按 plan §2.8 归位到 [`backend/limit/approval/`](../backend/limit/approval/README.md)（M2-C）；端口形状在 [`contract/approval.go`](../contract/approval.go)。 |
 | [`prompt/`](prompt/README.md) | PromptStack 与 Effort 策略。 |
 | [`console/`](console/README.md) | backend 诊断前端共享的控制台输出与命令解析。 |
@@ -49,7 +49,7 @@
 | [`core/goal/`](core/goal/README.md) | 会话级 Goal 对象与状态机、DS-A2A 治理编排、goal 栈持久化。 |
 <!-- core/govern/ 已于 2026-10-03（阶段三 W3）随 goal 席位轮转退场删除 -->
 | [`core/input_router/`](core/input_router/README.md) | 输入分流（command/skill/plugin/conversation）与命令注册表。 |
-| [`core/internal/state/`](core/internal/state/README.md) | core 共享状态内核：唯一共享锁、Snapshot、Deps、Events、Approval。 |
+| [`../kernel/state/`](../kernel/state/README.md) | core 共享状态内核：唯一共享锁、Snapshot、Deps、Events、Approval（M5-R3 迁出 `application/core/internal/state/`）。 |
 | [`core/prompt_layer/`](core/prompt_layer/README.md) | system prompt 层组装与引擎同步（前缀缓存友好）。 |
 | [`core/resume/`](core/resume/README.md) | 「终止前未完成工作」的领域无关恢复模板。 |
 | [`core/session_runtime/`](core/session_runtime/README.md) | 会话域协调器：持久化、目录与标题恢复、项目 binding、会话三读。 |
@@ -189,7 +189,7 @@ sequenceDiagram
     participant F as GUI / TUI
     participant S as core.Service
     participant P as 端口实现
-    participant E as application/event.Hub
+    participant E as middle/protocol/event.Hub
 
     H->>A: New(Dependencies)
     A->>A: 校验必需端口 + 嵌入 prompt assets

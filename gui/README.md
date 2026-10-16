@@ -12,7 +12,7 @@
 flowchart TB
     WEB["gui/frontend/dist<br/>原生 HTML/CSS/ES modules"] -->|Wails invoke| BR["gui.Bridge"]
     BR --> SVC["application.Service"]
-    SVC --> HUB["application/event.Hub"]
+    SVC --> HUB["middle/protocol/event.Hub"]
     HUB -->|seelex:event 推送| BR
     BR --> WEB
 
@@ -38,7 +38,7 @@ sequenceDiagram
     autonumber
     participant FE as 前端 reducer
     participant BR as gui.Bridge
-    participant HUB as application/event.Hub
+    participant HUB as middle/protocol/event.Hub
     participant SVC as application.Service
 
     FE->>BR: Snapshot()

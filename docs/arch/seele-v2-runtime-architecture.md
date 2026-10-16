@@ -245,7 +245,7 @@ seelex 侧以适配器隔离以下缺口；Seele 实现后仅移除适配层，�
 | 垂直切片 | 按详细设计 10 个切片推进，每个切片保持 `go build ./...` 与测试通过 |
 | 旧包过渡 | Seele 中 `workplan/core`、`workplan/runtime`、`workplan/sugar`、`seelectx/{storage,tracer,ctx_manager,react}` 仍存在；仅在切片过渡期使用，新代码不引用 |
 | 双路径 | 会话/上下文以 feature flag 在旧 Engine 路径与新 Session 路径间切换（ContextWindowPolicy 类似机制），回滚只切 flag |
-| 前端契约稳定 | `application/model` DTO（Snapshot/TaskState/PlanState）不因本次重构改变字段；GUI/TUI 无破坏性变更 |
+| 前端契约稳定 | `middle/protocol/model` DTO（Snapshot/TaskState/PlanState）不因本次重构改变字段；GUI/TUI 无破坏性变更 |
 | 删除确认 | 迁移完成后删除 seelex 内全部 `Seele/engine`、`agent/core/*` 引用；不修改 Seele 仓库 |
 
 ## 6. 风险与缓解

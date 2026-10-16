@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
-	"github.com/RedHuang-0622/seelex/application/model"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
 // ForkSession 从父会话的指定切断点创建独立子会话，并切换到子会话继续。
