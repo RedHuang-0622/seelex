@@ -36,6 +36,8 @@
 | 文件 | 职责 |
 |---|---|
 | [`accountwindow.go`](accountwindow.go) | `MaxWindow`、`Presets()`、`Validate()` |
+| [`setter.go`](setter.go) | `Setter`：可调面的判据本体（校验 → 先写盘再改内存 → 报回生效值），M5-R-limita 随接收者转移从 `application/core` 归位 |
+| [`setter_test.go`](setter_test.go) | 上述判据的行为用例（原 `application/core/service_account_window_test.go`，随判据迁入） |
 
 ## 核心实现
 
@@ -50,6 +52,11 @@ Validate(window) → error                                   // 正数 + <= MaxW
 **上界是防手滑**，不是"模型真的有这么大"：它只拦掉多打一个 0 之类的输入；填得比模型
 真实窗口大，请求会被 provider 拒。
 
+**判据本体的落点**：`Setter.Set()` 是"设置 → 校验 → 先写盘再改内存 → 报回生效值"的唯一实现；
+门面（`application/core.SetAccountWindow`）只解析宿主端口并转发（+ nil 守卫）。
+依赖是契约端口，**结构满足即可**：`Runtime`（`contract.AccountWindowPort`，nil = 宿主未实现）
+与 `Store`（`contract.AccountWindowStore`，nil = 不落盘）。
+
 错误文案里的 `seelexctx:` 前缀是搬家前的历史包袱，按"行为零变化"逐字保留；
 要改前缀属于产品可见面的决定，另立一项。
 
@@ -57,7 +64,7 @@ Validate(window) → error                                   // 正数 + <= MaxW
 
 ```text
 GUI 设置 → 门面 AccountWindowPresets() → 本包 Presets()      （下发挡位表）
-GUI 提交 → application/core.SetAccountWindow → 本包 Validate()
+GUI 提交 → 门面 SetAccountWindow（解析宿主端口 + 转发）→ 本包 Setter.Set()（校验 → 写盘 → 改内存 → 报回生效值）
                                               → overlay.WriteAccountWindow（落盘）
                                               → RuntimePort.SetAccountWindow（生效）
 ```
@@ -90,8 +97,8 @@ GUI 提交 → application/core.SetAccountWindow → 本包 Validate()
 ## 测试与验证
 
 ```text
-go test ./backend/limit/accountwindow/... -count=1     # 本包目前无独立用例（薄判据，由下面两条覆盖）
-go test ./application/core -run AccountWindow -count=1 # 用法、次序、报错面
+go test ./backend/limit/accountwindow/... -count=1     # 判据本体的行为用例：校验次序 / 先写盘 / 生效值 / 无端口
+go test ./application/core -run AccountWindow -count=1 # 门面侧：nil 守卫 + 宿主端口断言
 node --test gui/frontend/dist/account-window.test.mjs  # 两端同源
 ```
 
@@ -103,3 +110,10 @@ node --test gui/frontend/dist/account-window.test.mjs  # 两端同源
 |---|---|---|
 | `Presets` | `func Presets() []int` | 返回界面挡位表（token，升序） |
 | `Validate` | `func Validate(window int) error` | 校验界面设的账号窗口（正数 + 防手滑上界） |
+
+### setter.go
+
+| 函数/类型 | 签名 | 摘要 |
+|---|---|---|
+| `Setter` | `type Setter struct{ Runtime contract.AccountWindowPort; Store contract.AccountWindowStore }` | 可调面：依赖全是契约端口，结构满足即可 |
+| `Set` | `func (s Setter) Set(name string, window int) (int, error)` | 改一个账号的窗口覆盖（0 = 清除），先写盘再改内存，返回生效值 |
