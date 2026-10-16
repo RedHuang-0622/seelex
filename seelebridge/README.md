@@ -120,7 +120,7 @@ flowchart TB
 | `tools/` | scoped 工具 Router、`RegistryState`（内联工具+权限门控）、websearch、computer use 原语与工具面（见 `tools/README.md`、`../backend/tool/computer/README.md`） |
 | `internal/model/` | 各域共享的纯类型层（`AccountSpec`/`AccountRole`/`NodeScope`，无运行时依赖） |
 | `internal/actor/` | 单消费者 actor 底座（有界命令通道 + 串行 handler + 幂等 Close；task/session 等 mailbox actor 复用，见 `../internal/actor/README.md`） |
-| `internal/mapper/` | 运行态结构 ↔ `contract/dto` 的无业务转换（`ToolEventToDTO` 等；见 `internal/mapper/README.md`） |
+| ~~`internal/mapper/`~~ | **已删除（2026-10-16，M4-T2）**：运行态结构 ↔ `contract/dto` 的无业务转换只有 `toolEventToDTO` 一处、唯一调用方是 `runtime_live.go`，已就地内联（plan §2.10 要求删该包） |
 | `internal/config/` | 简化账号 YAML 加载（`Config`/`AccountLimits`/`Load`） |
 | `internal/docker/` | Docker 守护进程自动恢复（探针/daemon-down 判定/恢复提示，见 `../internal/docker/README.md`） |
 | `internal/stream/` | 流式账号 Completer 适配（`NewStreamingCompleter`） |

@@ -58,7 +58,9 @@ const (
 // 更干净），因此上限抬到 70。
 // M4：`internal/jsonobj` 同口径——LLM 原文的 JSON 容错层从 `seelebridge/json_object.go`
 // 抽出成模块级叶子包（自身闭包 = 纯标准库），因此上限抬到 71。
-const facadeClosureAllowListMax = 71
+// 同一片里还删掉了 `seelebridge/internal/mapper`（plan §2.10 要求删；它唯一的函数内联进
+// 调用方 `runtime_live.go`）——闭包少一个包，上限**跟着降**回 70。
+const facadeClosureAllowListMax = 70
 
 var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application",
@@ -108,7 +110,6 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/internal/actor",
 	"github.com/RedHuang-0622/seelex/internal/config",
 	"github.com/RedHuang-0622/seelex/internal/docker",
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/mapper",
 	"github.com/RedHuang-0622/seelex/internal/model",
 	"github.com/RedHuang-0622/seelex/internal/stream",
 	"github.com/RedHuang-0622/seelex/internal/telemetry",

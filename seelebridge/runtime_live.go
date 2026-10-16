@@ -9,7 +9,6 @@ import (
 	subagentsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/model"
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/mapper"
 )
 
 // subagentLiveChanCap 是实时流订阅通道/分发通道的容量。
@@ -259,8 +258,22 @@ func stageLiveEvent(log model.NodeStageLog) dto.SubagentLiveEvent {
 	}
 }
 
+// toolEventToDTO 把子代理工具调用运行态事件投影为实时流对外 DTO：
+// Duration（time.Duration）→ DurationMS（毫秒），供 SubagentLiveEvent 推送。
+//
+// 2026-10-16（M4-T2）：这段原在 `seelebridge/internal/mapper`（plan §2.10 要求删除该包），
+// 它的调用方只有本文件的 toolLiveEvent ⇒ 就地内联，不新增第二份实现。
+func toolEventToDTO(event subagentsession.SubagentToolEvent) dto.SubagentTool {
+	return dto.SubagentTool{
+		ID: event.ID, NodeID: event.NodeID, Name: event.Name,
+		Arguments: event.Arguments, Result: event.Result, Error: event.Error,
+		Status: event.Status, StartedAt: event.StartedAt,
+		DurationMS: event.Duration.Milliseconds(),
+	}
+}
+
 func toolLiveEvent(event subagentsession.SubagentToolEvent) dto.SubagentLiveEvent {
-	tool := mapper.ToolEventToDTO(event)
+	tool := toolEventToDTO(event)
 	return dto.SubagentLiveEvent{
 		NodeID: event.NodeID, At: time.Now(), Kind: "tool",
 		Tool: &tool,
