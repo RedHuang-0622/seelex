@@ -1,6 +1,8 @@
-package assemble
+package board
 
-// runtime_project_board_read.go — 项目看板的**按需读取面**（M4）。
+// read.go 是项目看板的**按需读取面**（M4；P21-11「域方法随类型走」：从
+// `backend/engine/assemble/runtime_project_board_read.go` 归位，plan §2.4 把
+// `seelebridge/runtime_project_board_read.go` 列为 `middle/view/board/` 的目标）。
 //
 // 落点（2026-10-15 起）：`<项目根>/.seelex/board/<会话 ID>/{worktable,teamwork}.jsonl`
 // **按会话分目录**（一个会话一份文件 ⇒ 不存在两个会话往同一个文件里交错追加；

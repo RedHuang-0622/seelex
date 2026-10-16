@@ -43,6 +43,7 @@
 | P21-account-windows | **域方法随类型走**第七片：每账号上下文窗口覆盖层的**状态**（互斥量 + 表）与三条判据（入口过滤、改一格/清一格、**生效窗口的优先级**）下沉；顺带删掉装配层唯一读法 `Runtime.accountWindow`（域包 `For` 是唯一一份） | [`backend/engine/account`](../../engine/account/README.md) 的 `WindowOverlay`（`window_overlay.go`）；本包 `runtime_account.go` 只剩 `SetAccountWindow` / `AccountWindows` / `ContextWindowFor` 三个薄转发（公开签名逐字不变），宿主读数以 `account.WindowDeps` 注入（`limits.context_window` + 账号档自报两条函数值） |
 | P21-event-correlation | **域方法随类型走**第八片：双轨事件的关联面（`correlateMainSessionID` 与两轨关联说明）整文件下沉；**同时把"从事件读会话归属"这条判据收敛成唯一一份**——装配层 `eventSessionID` 与 `backend/tool/plan` 的 `sessionIDFromLocations` 都是 `store.sessionIDFromEvent` 的逐字副本，现统一为 `store.SessionIDFromEvent` / `store.SessionIDFromLocations`（含 obs 话题映射里的内联循环） | [`backend/engine/obs`](../../engine/obs/README.md) 的 `event_correlation.go`（`CorrelateMainSessionID`）+ [`store`](../../../store/README.md) 的 `SessionIDFromEvent` / `SessionIDFromLocations`（唯一判据处）；本包 `events.go` **删除**，`runtime_plan.go` 的 `SetEventPersister` 改为调用域包一行 |
 | P21-jobs-domain | **域方法随类型走**第九片：异步作业域的两面整文件下沉——作业生命周期事件流（`jobsEventStream` + 状态记忆 + 状态映射 + 时间基序号）与后台执行表投影（`AsyncRunsSnapshot` 的逐列搬运）；端口取窄（事件流只吃 `Snapshot(Scope)` 一格；投影只吃 `[]registry.AsyncRunInfo`） | 新建 [`backend/tool/jobs`](../../tool/jobs/README.md)（`event_stream.go` / `projection.go`，plan §2.6 的目标落点）；本包 `jobs_events.go` **删除**、`runtime_async.go` 只剩两个薄转发，`currentEventPersister` 移到 `runtime_plan.go`（与 `SetEventPersister` 同处），装配点 `SetTeamworkBackend` 改为 `tooljobs.NewEventStream(...)`。**顺带修掉一处停机隐患**：`Close` 在"从未 Start"时不再等一个永不关闭的 `done`（装配中途失败会让停机钉死） |
+| P21-project-board | **域方法随类型走**第十片：项目看板的两面下沉——按需读取面（`ReadProjectBoard` + 白名单归一 + 稳定排序 + 边界报错，整文件）与 `TeamworkPlanFor` 的取数判定（会话号归一 / 键完整性 / 读失败与空计划同解）；端口取两格函数值 | [`middle/view/board`](../../../middle/view/board/README.md) 的 `read.go` / `teamwork_plan.go`（plan §2.4 的目标落点）；本包 `runtime_project_board_read.go` **删除**、`runtime_project_board.go` 只剩方法转发 + `teamworkKeyFor` / `readTeamworkPlan` 两格宿主读数 + **直接**钉 `var _ board.TeamworkPlanSource = (*Runtime)(nil)`（依赖方向允许本层引用该接口名）；工具注册点 `wiring/registry/registry.go` 的 5 处引用改指域包。域级用例随实现搬进域包（`read_test.go` 断言逐字 + 5 条新的 `teamwork_plan_test.go`），宿主级用例（`runtime_project_board_test.go`，真 Runtime + 真存储）留在本包 |
 
 **仍未下沉**（按 plan §2.5–§2.8 的目标落点，逐域各一片）：engine 侧 `runtime_context`
 （→ `backend/engine/context`；同域的 `runtime_compaction_index` 已随 **P21-compaction-stack** 下沉）、
@@ -52,10 +53,11 @@ tool 侧 `runtime_plan`（→ `backend/tool/plan`）；
 multiagent 侧 `runtime_teamwork*` + `teamwork`（→ `backend/multiagent/teamwork`）、
 `runtime_subagent_*`（→ `backend/multiagent/subagent`；实时流与独立会话工厂已随 **P21-live-dispatch** /
 **P21-subagent-session** 下沉，剩余是恢复/续跑面）、`workunit_*`（→ `backend/multiagent/workunit`）、
-`runtime_role_turn` / `runtime_role_plugins`（→ `backend/multiagent/team`）；M5 侧 `runtime_project_board*`
-（→ `middle/view/board`）。已下沉的域另有：`runtime_account` 的路由事实注册表
+`runtime_role_turn` / `runtime_role_plugins`（→ `backend/multiagent/team`）。已下沉的域另有：`runtime_account` 的路由事实注册表
 （**P21-served-route** → `backend/engine/account`）、`review_files` 的工具形状
 （**P21-review-files** → `backend/tool/review`）、统一事件库（**P21-unified-events** → `backend/engine/obs`）。
+看板侧两面（`runtime_project_board*` → `middle/view/board`，**P21-project-board**）与
+作业侧两面（`runtime_async` / `jobs_events` → `backend/tool/jobs`，**P21-jobs-domain**）同样已归位。
 **收口片已完成**：`ports.go` 的每一段都按域归位后**文件被删除**
 （R11-task 收掉 task/todolist 状态与薄转发面、R11-schedule / R11-mcp / R11-plugin / R11-node
 各收掉自己的宿主转发面、收口片 R11-ports-zero 把 plan / 历史检索 / actor 边界三段并回域文件）。
@@ -125,8 +127,7 @@ flowchart TB
 | `runtime_session.go` | 主会话绑定状态（sessionBindings：ctxStore/historyRouter/mainHistory/project/turnArchiver/sessionID）+ merge-back 内部方法 |
 | `runtime_live.go` | node 第一视角实时流的**宿主转发面**（P21-2：状态/广播循环/事件源接线/窗口归一化/分页读法都在 [`backend/multiagent/subagent.LiveDispatcher`](../../multiagent/subagent/README.md)）：`SubscribeSubagentLive`（历史回放 + 实时通道）与**同一份回放窗口**的分页读法 `SubagentLiveHistoryPage` 一行转发；窗口**配置读数**留在本层（`RuntimeConfig.SubagentLiveWindow`），归一化判据在域包（0 → 默认 512，<50 → 50） |
 | `runtime_teammate_session_live.go` | **当前 teammate 会话**的实时只读投影：`TeammateSessionLive`（默认页 = 最近若干条）与 `TeammateSessionLivePage`（翻页）共用**唯一一份**裁剪/分页判据（`teammateSessionLiveSlice`）；只投影 user/assistant，会话不在本进程 → `Running=false` |
-| `runtime_project_board.go` | **项目看板的窄可选端口**（M3）：`TeamworkPlanFor(sessionID)` 实现 `application/core` 的 `TeamworkPlanSource`——按会话读 teamwork 计划（走既有 `PlanStore.ReadPlan` + `KeyFor` 解析作用域；未装配/无计划 → `(零值, false)`）。不判"是否已收口"：收口是投影要搬运的事实（行的 `team_state` 格） |
-| `runtime_project_board_read.go` | **项目看板的按需读取面**（M4）：`ProjectBoardReader` 窄端口 + `ReadProjectBoard(reader, request, defaultProject, defaultSession)` 的取数与边界（file 白名单、`limit` 硬上限显式报错、跨会话聚合有界、截断显式标注）。只读、有界；工具本体在组合根 `main.registerProjectBoardReadTool`（`limits.project_board.enabled` 才注册） |
+| `runtime_project_board.go` | **项目看板窄可选端口的宿主转发面**（M3；P21-11 判定下沉）：`TeamworkPlanFor(sessionID)` 实现 `board.TeamworkPlanSource`，一行转发到 [`middle/view/board.TeamworkPlanFor`](../../../middle/view/board/README.md)（判据：会话号归一 / 键完整性 / 读失败与空计划同解都在域包），本文件只把 teamwork 后端句柄接成两格读数 + 一条 `var _ board.TeamworkPlanSource = (*Runtime)(nil)`。`Runtime` 不判"是否已收口"：收口是投影要搬运的事实（行的 `team_state` 格） |
 
 ### workunit：一件活的生命周期（一份实现 + 三格端口）
 

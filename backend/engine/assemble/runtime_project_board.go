@@ -1,76 +1,64 @@
 package assemble
 
-// runtime_project_board.go — 项目看板的**窄可选端口**（M3 装配侧）。
+// runtime_project_board.go 是**项目看板窄可选端口的宿主转发面**。
 //
-// 生态位：application/core 的看板投影需要"某会话的 teamwork 计划"，但它不该认识
-// Runtime 的接口形状——所以那一侧只声明一个窄接口（`board.TeamworkPlanSource`），
-// 本文件让 Runtime 满足它（`TeamworkPlanFor`）。
+// 落点沿革（P21-11「域方法随类型走」）：取数判定（会话号归一、键完整性、读失败与空计划的
+// 处理）搬进看板域 [`middle/view/board`](../../../middle/view/board/README.md) 的
+// `TeamworkPlanFor`；这里只留**两格宿主读数**的接线——teamwork 后端句柄（`r.teamworkBackend`，
+// 装配期注入、可能未装配）与它的 `KeyFor` / `Store.ReadPlan`。
 //
-// 取数口径（与团队看板 `TeamworkBoardSnapshot` 同源，不新造一条读法）：
-//   - 作用域键由 `TeamworkBackend.KeyFor` 解析（会话 → 所属项目 + 会话）；
-//   - 计划读 `backend.Store.ReadPlan`（moduleTeamwork head，整份替换型内容）；
-//   - **不共享** `teamworkBoardCache`：那份缓存是团队看板自己的加速层（原地写入、
-//     随 team_* 失效），跨 goroutine 从它读会引入本文件不该引入的一致性问题。
-//     投影侧的取数发生在去抖后的 flush goroutine 上，每批一次小文件读不构成瓶颈。
-//
-// **不**判"计划是否已收口"：收口（`State.State == closed`）是投影要搬运的**事实**
-// （看板行的 `team_state` 一格），不是"要不要出图"的判据——那是团队看板 GUI 的口径。
-// 两者读同一份计划，各按自己的语义用。
+// 生态位：application/core 的看板投影需要"某会话的 teamwork 计划"，但它不该认识 Runtime 的接口
+// 形状——所以那一侧只声明窄接口（`board.TeamworkPlanSource`），本文件让 Runtime 满足它。
 
 import (
 	"context"
-	"strings"
+	"errors"
 
+	"github.com/RedHuang-0622/seelex/middle/view/board"
 	"github.com/RedHuang-0622/seelex/store"
 )
 
+// errTeamworkPlanUnavailable 是"teamwork 后端未装配"在计划读口上的报错（与"读失败"同解：
+// 域包对两者只做同一件事——回 (零值, false)）。
+var errTeamworkPlanUnavailable = errors.New("teamwork: 后端未装配")
+
 // TeamworkPlanFor 实现 `board.TeamworkPlanSource`：返回该会话的 teamwork 计划。
 //
-// 未装配 teamwork 面 / 会话解析不出作用域 / 键不完整 / 该会话没有计划 / 读失败
-// ⇒ (零值, false)。读失败与"没有计划"同解，是因为调用方（看板投影）对两者只做同一件事：
-// 整块退场（I6：空则退场，不建文件、不留空壳）。
+// 判定在域包（`board.TeamworkPlanFor`）；本方法只把"当前装配到的 teamwork 后端"接成两格读数。
 func (r *Runtime) TeamworkPlanFor(sessionID string) (store.TeamworkPlan, bool) {
 	if r == nil {
 		return store.TeamworkPlan{}, false
 	}
-	sessionID = strings.TrimSpace(sessionID)
-	if sessionID == "" {
-		return store.TeamworkPlan{}, false
-	}
+	return board.TeamworkPlanFor(sessionID, board.TeamworkPlanDeps{
+		KeyFor:   r.teamworkKeyFor,
+		ReadPlan: r.readTeamworkPlan,
+	})
+}
+
+// teamworkKeyFor 读当前装配的 teamwork 后端的作用域解析口（未装配 / 分量缺失 ⇒ ok = false）。
+func (r *Runtime) teamworkKeyFor(sessionID string) (store.Key, bool) {
 	r.teamworkMu.Lock()
 	backend := r.teamworkBackend
 	r.teamworkMu.Unlock()
-	if backend == nil || backend.Store == nil || backend.KeyFor == nil {
-		return store.TeamworkPlan{}, false
+	if backend == nil || backend.KeyFor == nil {
+		return store.Key{}, false
 	}
-	key, ok := backend.KeyFor(sessionID)
-	if !ok {
-		return store.TeamworkPlan{}, false
+	return backend.KeyFor(sessionID)
+}
+
+// readTeamworkPlan 读当前装配的 teamwork 后端的计划读口（未装配 ⇒ 报错，与"读失败"同解）。
+func (r *Runtime) readTeamworkPlan(ctx context.Context, key store.Key) (store.TeamworkPlan, error) {
+	r.teamworkMu.Lock()
+	backend := r.teamworkBackend
+	r.teamworkMu.Unlock()
+	if backend == nil || backend.Store == nil {
+		return store.TeamworkPlan{}, errTeamworkPlanUnavailable
 	}
-	// 键的两个分量都必须齐全：投影落点是按 (项目, 会话) 分层的，半截键读出来的东西
-	// 归不到任何一个会话上（口径与同包 coordinatorFor 的显式键校验一致，不新写一份判据）。
-	if strings.TrimSpace(key.ProjectID) == "" || strings.TrimSpace(key.SessionID) == "" {
-		return store.TeamworkPlan{}, false
-	}
-	plan, err := backend.Store.ReadPlan(context.Background(), key)
-	if err != nil {
-		return store.TeamworkPlan{}, false
-	}
-	// 空计划 = 还没有团队（读面契约：缺失返回空计划而不是错误）。投影面按
-	// "没有计划"处理，与读不到同款——否则一个空计划会被当成真计划去渲染一张空看板。
-	if plan.IsEmpty() {
-		return store.TeamworkPlan{}, false
-	}
-	return plan, true
+	return backend.Store.ReadPlan(ctx, key)
 }
 
 // 编译期钉子：*Runtime 必须满足 `board.TeamworkPlanSource` 的**形状**（同名同签名）。
 //
-// 为什么不直接写 `var _ board.TeamworkPlanSource = (*Runtime)(nil)`：依赖方向是
-// application/core → seelebridge（反向 import 会成环），本文件拿不到那个接口名。
-// 形状一致于是由两侧共同保证：本断言（桥这一侧）+ 装配根那一侧的断言（core 的
-// 调用面 `Service.ProjectBoardTeamPlanFor` 用类型断言取这个口，装配根用例里另有
-// 一条 `var _ board.TeamworkPlanSource = (*Runtime)(nil)` 钉住两端同一形状）。
-var _ interface {
-	TeamworkPlanFor(sessionID string) (store.TeamworkPlan, bool)
-} = (*Runtime)(nil)
+// 依赖方向是 assemble → middle/view/board（不反向），所以本文件**直接**拿得到那个接口名——
+// 形状由一条断言钉住，而不是靠两侧各写一份结构体字面量来表达同一件事。
+var _ board.TeamworkPlanSource = (*Runtime)(nil)

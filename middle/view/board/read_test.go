@@ -1,6 +1,7 @@
-package assemble
+package board
 
-// project_board_read_test.go — 项目看板按需读取面（M4）的验收。
+// read_test.go 是项目看板按需读取面（M4）的验收（P21-11：随实现从
+// `backend/engine/assemble/project_board_read_test.go` 搬到看板域，断言逐字不变）。
 //
 // 四件事：单会话折叠读（真存储面）、跨会话聚合的有界与截断传播（替身，只为钉住选项）、
 // 边界显式报错（未知 file / 超上限 limit / 没有项目根）、以及**落点在项目目录**。

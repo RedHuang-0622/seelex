@@ -6,9 +6,14 @@
 把活体工作表格 / 团队计划映射成投影行（`store.ProjectBoardRow`），并在工具完成段按
 一张触发表**标脏**、由唯一 flush goroutine 落进两个白名单文件。主要调用方是
 `application/core`（它持有取数口与订阅口）与 `wiring/registry`（装配门
-`ProjectBoardSinkFor`）。
+`ProjectBoardSinkFor`，以及 `project_board_read` 工具的注册面——它直接用本包的
+`ReadProjectBoard` 与 `ProjectBoardRead*` 常量）。
 
-本包是 M5-R5 从 `application/core/project_board.go` 拆出的：映射、触发表与同步器
+本包同时是**取数侧**的落点（P21-11「域方法随类型走」）：`ReadProjectBoard`（按需读取面）
+与 `TeamworkPlanFor`（窄端口背后的取数判定）原在 `backend/engine/assemble`，随
+"域方法随类型走"归位到看板域；装配层只留 `Runtime.TeamworkPlanFor` 的两格宿主读数接线。
+
+本包是 M5-R5 从 `application/core` 的看板实现（原 `project_board.go`）拆出的：映射、触发表与同步器
 原样搬入，行为零变化；`application/core` 只留 Service 侧的只读取数口
 （`project_board_read.go`），门面签名不变。
 
@@ -28,7 +33,11 @@
 |---|---|
 | `projection.go` | 纯函数映射（`BuildProjectBoardRows` 及其载荷/指纹助手）+ 触发装配表与档名词表 |
 | `syncer.go` | 写侧端口（`ProjectBoardStore`）、订阅口（`ProjectBoardSink`）、装配入参（`ProjectBoardDeps`）与同步器 `ProjectBoardSyncer` |
+| `read.go` | **按需读取面**（P21-11 从 `backend/engine/assemble` 归位）：`ProjectBoardReader` 窄端口 + `ProjectBoardReadRequest` / `ProjectBoardReadResult` + `ReadProjectBoard`（边界校验与取数，只读有界）+ 白名单文件名归一与稳定排序；缺省/硬上限常量 `ProjectBoardReadDefaultLimit` / `ProjectBoardReadMaxLimit` |
+| `teamwork_plan.go` | **取 teamwork 计划的那一跳**（P21-11 同上）：`TeamworkPlanDeps`（两格宿主读数）+ `TeamworkPlanFor(sessionID, deps)`；口径是"未装配 / 解析不出作用域 / 半截键 / 读失败 / 空计划 ⇒ (零值, false)"，调用方据此整块退场（I6） |
 | `projection_test.go` / `syncer_test.go` / `trigger_test.go` | 随代码搬入的用例（映射零判定、同步器语义、档名词表） |
+| `read_test.go` | 读取面验收（随实现搬入，断言逐字）：单会话折叠读 + 落点在项目目录、聚合读的有界与截断上抛、边界显式报错（未知 file / 超上限 limit / 没有项目根） |
+| `teamwork_plan_test.go` | 域级判据：两格读数缺一、空会话号（且不惊动宿主读数）、半截键（且不去读计划）、读失败与空计划同解、成功路径原样返回 + 键不重算 |
 | `boardtest/` | 两侧共用的测试夹具（内存存储面、行读取助手）；**刻意不 import 本包**，避免本包内部用例 import 它时形成测试环 |
 
 ## 核心实现
@@ -66,7 +75,8 @@ sequenceDiagram
 `contract/dto`、`middle/view/worktable`（证据截断的唯一实现 `TruncateWorkEvidence`）、
 `backend/limit`（进程级 limits 快照读数）、标准库。
 
-禁止：反向依赖 `application/*`（本包是中间层，只被应用层消费）；不得把 `Snapshot` /
+禁止：反向依赖 `application/*`（本包是中间层，只被应用层消费）与 `backend/engine/assemble`
+（装配层反过来 import 本包）；不得把 `Snapshot` /
 前端协议类型引进来（投影不是 Snapshot 的输入，也不是它的输出）。
 
 ## 并发与错误语义
@@ -132,6 +142,23 @@ debounce、指纹去重、水位、删除后重建、tombstone、关闭幂等、
 - `func TestProjectBoardTeamworkMilestonePriority(t *testing.T)`
 - `func TestProjectBoardTriggerTable(t *testing.T)`
 
+### read.go
+
+- `func ReadProjectBoard( reader ProjectBoardReader, request ProjectBoardReadRequest, defaultProjectRoot, defaultSession string, ) (ProjectBoardReadResult, error)` — ReadProjectBoard 按请求取数：**只取数与校验边界**，不渲染、不判定任何语义。
+- `func projectBoardReadFiles(file string) ([]string, error)` — projectBoardReadFiles 把 file 入参归一化成白名单文件名清单（空 = 两份都读）。
+- `func sortProjectBoardRows(rows []store.ProjectBoardRow)` — sortProjectBoardRows 按 (Kind, Key, Scope.Session) 稳定排序：
+
+### read_test.go
+
+- `func projectBoardReadRouter(t *testing.T) *store.Router`
+- `func projectBoardReadRow(kind, key string, seq uint64, payload map[string]any) store.ProjectBoardRow`
+- `func TestProjectBoardReadSingleSessionFoldsBothFiles(t *testing.T)` — TestProjectBoardReadSingleSessionFoldsBothFiles：单会话读两份文件、折叠、稳定排序。
+- `func TestProjectBoardReadSingleFile(t *testing.T)` — TestProjectBoardReadSingleFile：file 简名只读一份，且接受白名单文件名本身。
+- `func TestProjectBoardReadRejectsOutOfBounds(t *testing.T)` — TestProjectBoardReadRejectsOutOfBounds：边界**显式报错**（不静默截断/不静默降级）。
+- `func (reader *countingReadReader) ReadProjectBoard(_ string, options store.ProjectBoardReadOptions) ([]store.ProjectBoardRow, bool, error)`
+- `func (reader *countingReadReader) ReadProjectBoardRows(_, _, _ string) ([]store.ProjectBoardRow, error)`
+- `func TestProjectBoardReadAggregateIsBounded(t *testing.T)` — TestProjectBoardReadAggregateIsBounded：`session: all` 走聚合读，行数有界，
+
 ### syncer.go
 
 - `func NewProjectBoardSyncer(deps ProjectBoardDeps) *ProjectBoardSyncer` — NewProjectBoardSyncer 装配同步器并启动唯一 flush goroutine。
@@ -156,6 +183,19 @@ debounce、指纹去重、水位、删除后重建、tombstone、关闭幂等、
 - `func TestProjectBoardSyncerTombstonesRemovedKeys(t *testing.T)`
 - `func TestProjectBoardSyncerCloseIsIdempotent(t *testing.T)`
 - `func TestProjectBoardHookFailureNoHalfWrite(t *testing.T)`
+
+### teamwork_plan.go
+
+- `func TeamworkPlanFor(sessionID string, deps TeamworkPlanDeps) (store.TeamworkPlan, bool)` — TeamworkPlanFor 返回该会话的 teamwork 计划。
+
+### teamwork_plan_test.go
+
+- `func teamworkPlanFixture() store.TeamworkPlan`
+- `func TestTeamworkPlanForRejectsIncompleteDeps(t *testing.T)` — TestTeamworkPlanForRejectsIncompleteDeps：两格读数缺一（未装配 / nil 端口）⇒ false，
+- `func TestTeamworkPlanForRejectsEmptySession(t *testing.T)` — TestTeamworkPlanForRejectsEmptySession：空会话号（错的输入）⇒ false，且**不去碰**两格读数。
+- `func TestTeamworkPlanForRejectsHalfKey(t *testing.T)` — TestTeamworkPlanForRejectsHalfKey：键缺项目或缺会话分量 ⇒ false，**读口一次都不许被调**
+- `func TestTeamworkPlanForTreatsReadFailureAndEmptyPlanAlike(t *testing.T)` — TestTeamworkPlanForTreatsReadFailureAndEmptyPlanAlike：读失败与"空计划"同解
+- `func TestTeamworkPlanForReturnsPlanVerbatim(t *testing.T)` — TestTeamworkPlanForReturnsPlanVerbatim：有计划 ⇒ 原样返回（本口不做任何收口折算），
 
 ### trigger_test.go
 

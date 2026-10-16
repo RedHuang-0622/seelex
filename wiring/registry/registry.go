@@ -128,7 +128,7 @@ func RegisterProjectBoardReadTool(runtime *assemble.Runtime, st *store.Router, a
 			},
 			"file": map[string]interface{}{
 				"type":        "string",
-				"enum":        []string{assemble.ProjectBoardReadFileWorktable, assemble.ProjectBoardReadFileTeamwork},
+				"enum":        []string{board.ProjectBoardReadFileWorktable, board.ProjectBoardReadFileTeamwork},
 				"description": "读哪一份投影：worktable（会话的任务行）/ teamwork（里程碑与工作项）；缺省 = 两份都读",
 			},
 			"project_root": map[string]interface{}{
@@ -136,14 +136,14 @@ func RegisterProjectBoardReadTool(runtime *assemble.Runtime, st *store.Router, a
 				"description": "项目根目录（看板落点 = <project_root>/.seelex/board）；缺省 = 当前会话所属工作区的根",
 			},
 			"limit": map[string]interface{}{
-				"type": "integer", "minimum": 1, "maximum": assemble.ProjectBoardReadMaxLimit,
+				"type": "integer", "minimum": 1, "maximum": board.ProjectBoardReadMaxLimit,
 				"description": fmt.Sprintf("返回行数上限（缺省 %d，硬上限 %d；超限显式报错）",
-					assemble.ProjectBoardReadDefaultLimit, assemble.ProjectBoardReadMaxLimit),
+					board.ProjectBoardReadDefaultLimit, board.ProjectBoardReadMaxLimit),
 			},
 		},
 	}
 	handler := func(ctx context.Context, argsJSON string) (string, error) {
-		var request assemble.ProjectBoardReadRequest
+		var request board.ProjectBoardReadRequest
 		if strings.TrimSpace(argsJSON) != "" {
 			if err := json.Unmarshal([]byte(argsJSON), &request); err != nil {
 				return "", fmt.Errorf("project_board_read: %w", err)
@@ -155,7 +155,7 @@ func RegisterProjectBoardReadTool(runtime *assemble.Runtime, st *store.Router, a
 		if sessionID == "" {
 			sessionID = app.Snapshot().Session.ID
 		}
-		result, err := assemble.ReadProjectBoard(st, request, app.ProjectRootFor(sessionID), sessionID)
+		result, err := board.ReadProjectBoard(st, request, app.ProjectRootFor(sessionID), sessionID)
 		if err != nil {
 			return "", fmt.Errorf("project_board_read: %w", err)
 		}
