@@ -807,3 +807,35 @@ R6 续做（尚未开始）：`runtime_projection`/`diagnostics`/`perf_stats` �
 `async_completion`（→ `middle/switch/`）、`service_interaction`（→ `middle/switch/interaction/`）、
 `workspace_usecase`（→ `middle/switch/workspace/`）、`session/`（→ `middle/switch/sessionusecase/`）。
 注意：`work_table*` 与 `middle/view/worktable/**` 另有一个 worker 的在途改动（未提交），本批一直回避那批文件。
+
+## 17. M5-R6 第二片：R6-residency-order（`a5122479`，收敛重复判据）
+
+这一片不是"搬文件"，而是 plan §2.4 落点前置的一次**重复判据收敛**（AGENTS §8.3）：
+引擎驻留层与正文层的"LRU 使用序"、归档路径与释放面里，**同一段算法各有副本**，现在只剩一份。
+
+| 原位置 | 原形态 | 新唯一位置 |
+|---|---|---|
+| `resident_lru.go`（markResidentRecentLocked） | "移到序首（去重）"循环 | `middle/residency.Order.Touch` |
+| `content_lru.go`（markContentRecentLocked） | 同一段循环的第二份 | 同上 |
+| `content_lru.go`（forgetContentLocked） | "按 ID 摘除"就地过滤 | `middle/residency.Order.Forget` |
+| `session_release.go`（forgetResidentLocked） | 同上的第三份 | 同上（该函数成为"摘除 + 清单元标记"的唯一入口） |
+| `archive_session.go:74-81` | 先 `markResidentRecentLocked(id,false)` 再手写一遍同样的过滤（同一件事两次写） | `service.forgetResidentLocked` |
+| `session_release.go`（releaseBudget） | 额度判据（分层上限 − 受保护数 / 统一窗口） | `middle/residency.Budget`（`releaseBudget` 变一行转发，签名与调用点不变） |
+
+**结构性证据**：`rg 'residentOrder\[:0\]|loadedContentOrder\[:0\]|len\(service\.(residentOrder|loadedContentOrder)\)\+1'` 为空；
+`rg 'Forget\(sessionID\)'` 只剩两处入口（引擎序 / 正文序各一）；两个字段类型从 `[]string` 收敛为 `residency.Order`。
+
+**行为保真**：`Touch` 返回新切片（不改原序）、`Forget` 就地过滤（同迁移前）、空 ID 视为无效
+（正文层原本判空，引擎层调用点早有守卫）、额度两种口径与"受保护数 ≥ 上限 ⇒ 0"的边界逐条一致；
+归档路径的差异只在"不再先把会话往前挪一下再摘掉"——那是同一件事的两次写，结果相同。
+
+**过程记录**：首版提交时我以为重复只有四处，`rg` 复核发现 `session_release.go` 里还有第五段
+（`forgetResidentLocked`），而我在首版里新加的 `markResidentRemovedLocked` 恰好与它重复 —— 已改为
+删除新函数、让归档路径复用它，并把提交信息里的删除清单更正为五处后才 amend（"声明必须能被复跑出来"）。
+
+**用例**：新增 `middle/residency/order_test.go`（6 条：去重前置 / 不改原序 / 摘除保持相对顺序与空 ID /
+额度两种口径与三个边界）；core 的 `resident_lru_test.go`、`content_lru_test.go` 既有断言不动。
+
+**复核**：独立 worktree（`a5122479`）：`go build ./...` 0、`go vet ./...` 0、`go test ./e2e/` ok、
+`middle/residency` 与 `application/core -run 'Resident|Content|Release|Archive|Preview|SnapshotBudget'` 全 ok。
+R6 续做（尚未开始）：`runtime_projection`/`diagnostics`/`perf_stats` 三文件已是薄宿主缝（R5c 已把计算搬进 `middle/view`，只剩锁与取数）；其余按 plan §2.4 的落点继续搬
