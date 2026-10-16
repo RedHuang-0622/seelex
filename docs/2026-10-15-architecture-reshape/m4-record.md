@@ -322,6 +322,47 @@ job 契约 / 作业工具）+ 权限判据段并入 `backend/limit/policy`。
 本轮按 §5.12 不自行补全：把切法与建议写进
 [m4-decision-brief.md](m4-decision-brief.md) §6，等裁决。
 
+## 11. J1：根包整体落位 `backend/engine/assemble`（`436058df`）
+
+**删除清单**：`seelebridge/*.go`（52 个生产文件 **13,373 行** + **121 个用例文件**）+
+`seelebridge/README.md` → `backend/engine/assemble/**`（174 个文件，`git mv` 保留历史；
+包名 `seelebridge` → `assemble`）。导入方统一保留**显式别名 `seelebridge`**，所以
+**35 个进口方、197 个调用点零改动**——这一步只动"包在哪"，不动"谁怎么调它"。
+
+**为什么先做这一步**：plan §2.5 给 4 个装配文件点名的落点就是 `backend/engine/assemble/`；
+本步是 **staging**（先整体落位、再按域下沉，即决策简报 §4 的 B→A）。它**不决定类型结构**，
+也不与任何最终方案冲突——无论各域最终怎么分，这两个方向的移动都要发生。J 的类型拆分
+（谁持有 `Runtime`）仍待裁决，本步没碰。
+
+**搬迁暴露的两类"按层数写死"的路径**（`go build` / `go vet` 都看不见，跑用例才现形）：
+
+1. `assembly_chain_real_partition_test.go` 的 `const realPartitionRoot = "../plugins"`
+   ——4 条真划分链路用例全红（`没有 curated.yaml`），改为从仓库根拼；
+2. 同一文件的 `plugin.LoadCuratedFromRoot(filepath.Join("..", "plugins"))` —— 复用上一条的根。
+
+顺手把仓库里既有的 `e2e.repoRoot()`（写死"测试包在仓库下第 1 层"）收成**一处实现**：
+新增 `internal/testutil.RepoRoot()`（从 CWD 向上找第一个 `go.mod`，与层数无关），
+e2e 的 `repoRoot()` 改为转调它——一处实现、两个调用方（AGENTS §8.3）。
+
+**引用改写**：35 个进口方；58 个文件的 165 行现行文档/注释；assemble README 自身的 3 条相对
+链接（`../backend/limit/overlay/README.md` → `../../limit/overlay/README.md` 等）；e2e 门面闭包
+清单与 layout 模块清单换名字。历史叙述 24 行按 D-M4-15 原样保留。
+
+| ID | 新增偏差 | 处置 |
+|---|---|---|
+| D-M4-26 | 路径替换的历史标记是**启发式**：`gui/README.md` 那行只因正文里出现"真实请求历史"被判成历史，漏改（门禁抓到） | 已单独修正；规则收紧为"标记须与路径同句且指代迁移"，但仍是启发式——**门禁是最后一道保险** |
+| D-M4-27 | `docs/arch` 里 23 行指向"从未在现行树里存在过的旧文件名"（`seelebridge/actor.go`、`seelebridge/todo_tool.go`、`seelebridge/plugins.go` …） | **既有漂移**（先于本轮），与本方案无关；登记不动（门禁不查 docs/arch）。要清就单独立项，且需要逐行判断当时的意图 |
+| D-M4-28 | 别名 `seelebridge` 现在指向包 `assemble`（35 个文件） | 过渡命名：等 J2 下沉完成、门面收窄后统一改标识符（一次机械改名），现在改只会制造 197 处无谓改动 |
+
+**证据**：`gofmt` 干净；`go build ./...`、`go vet ./...` 无输出；`go test ./backend/engine/assemble`
+**55.7s ok**（含 4 条真划分链路用例）；`go test .`（根包）**148s ok**；
+`./application/...` 除基线 3 例外全 ok；`./internal/...`、`./gui/...`、`./tui/...`、
+`./store/...`、`./e2e/...` 全 ok；README 漂移 **12 条（新增 0）**。
+
+**现状**：`seelebridge/` 只剩 **`teamwork`、`workunit` 两个包**与 `.seelex/` 数据目录。
+J2（把 assemble 里的各域下沉到 engine/tool/multiagent）需要"谁持有 `Runtime`"的裁决；
+`workunit` 需要 V3；`teamwork` 需要 J2 一起做。
+
 | ID | 事项 | 处置 |
 |---|---|---|
 | D-M4-1 | 首轮替换脚本把 `docs/research/**`、`docs/test/**` 的路径也改写了（这两类是"把当时状态固定下来"的记录）。已 `git checkout` 还原，并把这两类目录加入脚本跳过清单，与 M3 §8.4 登记的口径一致 | 已修 |
