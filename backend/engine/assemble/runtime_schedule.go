@@ -10,8 +10,9 @@ package assemble
 // （`Runtime.scheduler` 只是持有 `*schedule.State` 的装配点引用），没有可下沉的状态，因此按任务书
 // S4/S5 条只搬转发面（参见 `docs/2026-10-15-architecture-reshape/r10-r11-p13-contract.md` §2.3）。
 //
-// 固定文案：`seelebridge: scheduler unavailable` 是**可观测行为**（错误文案），改名属行为变更，
-// 登记为迁移后提案而不在本片顺手改。
+// 文案（P19 已裁决并统一）：`seelex: scheduler unavailable`。历史前缀 `seelebridge:` 是旧包名，
+// 2026-10-17 按用户裁决把全仓用户可见的错误/log 前缀统一改成 `seelex: `（本片只改文案，语义与
+// 触发条件一字未动）。
 
 import (
 	"context"
@@ -67,7 +68,7 @@ func (r *Runtime) RestoreScheduledTasks() (int, int, error) {
 // RegisterScheduledCommand 登记白名单命令（重复键拒绝；main 装配调用）。
 func (r *Runtime) RegisterScheduledCommand(command ScheduledCommand) error {
 	if r == nil || r.scheduler == nil {
-		return errors.New("seelebridge: scheduler unavailable")
+		return errors.New("seelex: scheduler unavailable")
 	}
 	return r.scheduler.RegisterCommand(command)
 }
@@ -83,7 +84,7 @@ func (r *Runtime) ScheduledCommands() []ScheduledCommandInfo {
 // ScheduleTask 创建并启动一个定时/周期任务（校验入参；返回创建后的快照）。
 func (r *Runtime) ScheduleTask(ctx context.Context, spec ScheduledTaskSpec) (*ScheduledTaskStatus, error) {
 	if r == nil || r.scheduler == nil {
-		return nil, errors.New("seelebridge: scheduler unavailable")
+		return nil, errors.New("seelex: scheduler unavailable")
 	}
 	return r.scheduler.Schedule(ctx, spec)
 }
@@ -92,7 +93,7 @@ func (r *Runtime) ScheduleTask(ctx context.Context, spec ScheduledTaskSpec) (*Sc
 // 同一份判据，运行账目保留）。
 func (r *Runtime) UpdateScheduledTask(ctx context.Context, id string, spec ScheduledTaskSpec) (*ScheduledTaskStatus, error) {
 	if r == nil || r.scheduler == nil {
-		return nil, errors.New("seelebridge: scheduler unavailable")
+		return nil, errors.New("seelex: scheduler unavailable")
 	}
 	return r.scheduler.Update(ctx, id, spec)
 }
@@ -100,7 +101,7 @@ func (r *Runtime) UpdateScheduledTask(ctx context.Context, id string, spec Sched
 // CancelScheduledTask 取消并移除定时/周期任务。
 func (r *Runtime) CancelScheduledTask(id string) error {
 	if r == nil || r.scheduler == nil {
-		return errors.New("seelebridge: scheduler unavailable")
+		return errors.New("seelex: scheduler unavailable")
 	}
 	return r.scheduler.CancelTask(id)
 }

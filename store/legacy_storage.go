@@ -47,7 +47,7 @@ func (s *SessionStore) Save(sessionID string, messages []Message) error {
 
 func (s *SessionStore) Load(sessionID string) ([]Message, error) {
 	if s.store == nil {
-		return nil, fmt.Errorf("seelebridge: no storage configured")
+		return nil, fmt.Errorf("seelex: no storage configured")
 	}
 	return s.store.Load(sessionID)
 }
@@ -69,7 +69,7 @@ func (s *SessionStore) Delete(sessionID string) error {
 // LoadRange 读取 shard 文件，只加载覆盖 [offset, offset+limit) 的分片。
 func (s *SessionStore) LoadRange(sessionID string, offset, limit int) ([]Message, int, error) {
 	if limit <= 0 {
-		return nil, 0, fmt.Errorf("seelebridge: limit must be positive")
+		return nil, 0, fmt.Errorf("seelex: limit must be positive")
 	}
 	if offset < 0 {
 		offset = 0
@@ -86,11 +86,11 @@ func (s *SessionStore) LoadRange(sessionID string, offset, limit int) ([]Message
 	for _, f := range shardFiles {
 		b, err := os.ReadFile(filepath.Join(s.shardDir(sessionID), f))
 		if err != nil {
-			return nil, 0, fmt.Errorf("seelebridge: read shard %s: %w", f, err)
+			return nil, 0, fmt.Errorf("seelex: read shard %s: %w", f, err)
 		}
 		var shard []Message
 		if err := json.Unmarshal(b, &shard); err != nil {
-			return nil, 0, fmt.Errorf("seelebridge: unmarshal shard %s: %w", f, err)
+			return nil, 0, fmt.Errorf("seelex: unmarshal shard %s: %w", f, err)
 		}
 
 		shardStart := cumulative
@@ -132,7 +132,7 @@ func (s *SessionStore) listShardFiles(sessionID string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("seelebridge: session %q not found", sessionID)
+			return nil, fmt.Errorf("seelex: session %q not found", sessionID)
 		}
 		return nil, err
 	}
@@ -283,19 +283,19 @@ func (ns *NestedSessionStore) Load(sessionID string) ([]Message, error) {
 	if s := ns.activeStore(); s != nil {
 		return s.Load(sessionID)
 	}
-	return nil, fmt.Errorf("seelebridge: no storage configured")
+	return nil, fmt.Errorf("seelex: no storage configured")
 }
 
 func (ns *NestedSessionStore) LoadRange(sessionID string, offset, limit int) ([]Message, int, error) {
 	if s := ns.activeStore(); s != nil {
 		return s.LoadRange(sessionID, offset, limit)
 	}
-	return nil, 0, fmt.Errorf("seelebridge: no storage configured")
+	return nil, 0, fmt.Errorf("seelex: no storage configured")
 }
 
 func (ns *NestedSessionStore) MessageCount(sessionID string) (int, error) {
 	if s := ns.activeStore(); s != nil {
 		return s.MessageCount(sessionID)
 	}
-	return 0, fmt.Errorf("seelebridge: no storage configured")
+	return 0, fmt.Errorf("seelex: no storage configured")
 }

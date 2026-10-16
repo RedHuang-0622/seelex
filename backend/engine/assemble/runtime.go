@@ -320,7 +320,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 			"账号配置异常，已使用内置兜底账号: "+accountsErr.Error())
 	}
 	if len(loaded.Specs) == 0 {
-		return nil, fmt.Errorf("seelebridge: accounts configuration is empty")
+		return nil, fmt.Errorf("seelex: accounts configuration is empty")
 	}
 
 	// 1. 账号池：accountpool.P2CPool[agent.Completer]（P2C 租约）
@@ -334,7 +334,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	tracer := seeletelemetry.NewTracer()
 	hook, err := seeletelemetry.NewLifecycleHook(tracer)
 	if err != nil {
-		return nil, fmt.Errorf("seelebridge: create lifecycle hook: %w", err)
+		return nil, fmt.Errorf("seelex: create lifecycle hook: %w", err)
 	}
 
 	mcpStackOpts := []mcpstack.Option{
@@ -414,7 +414,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	if path := os.Getenv(obs.RequestLogEnv); path != "" {
 		logger, err := obs.OpenRequestLogger(path)
 		if err != nil {
-			return nil, fmt.Errorf("seelebridge: open request log %q: %w", path, err)
+			return nil, fmt.Errorf("seelex: open request log %q: %w", path, err)
 		}
 		r.requestLog = logger
 		r.completer = obs.NewRequestLogCompleter(r.completer, logger)
@@ -476,7 +476,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		bridge.WithVisibilityPolicy(r.visibilityPolicy.Filter),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("seelebridge: assemble tool runtime: %w", err)
+		return nil, fmt.Errorf("seelex: assemble tool runtime: %w", err)
 	}
 	agt, err := agent.NewWithComponents(agent.Components{
 		Completer:       r.completer,
@@ -484,7 +484,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		Tools:           runtimeAdapter,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("seelebridge: create agent: %w", err)
+		return nil, fmt.Errorf("seelex: create agent: %w", err)
 	}
 	r.agt = agt
 
@@ -567,7 +567,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		bridge.WithSessionID(r.nodeSessionID),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("seelebridge: create plan agent factory: %w", err)
+		return nil, fmt.Errorf("seelex: create plan agent factory: %w", err)
 	}
 	r.planExecutor.SetAgentFactory(planAgentFactory)
 	// 生命周期登记（装配序；Shutdown 逆序关停）。只登记真实资源持有者；
@@ -733,7 +733,7 @@ func (r *Runtime) newMainSession(sessionID string, hooks *session.LoopHooks) (*s
 	}
 	sess, err := session.NewSession(components)
 	if err != nil {
-		return nil, fmt.Errorf("seelebridge: create main session: %w", err)
+		return nil, fmt.Errorf("seelex: create main session: %w", err)
 	}
 	bundle.session = sess
 	bundle.hooks = hooks

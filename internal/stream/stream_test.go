@@ -232,7 +232,7 @@ func TestStreamingCompleterSelectorPinsAccount(t *testing.T) {
 // 中止时，错误面必须带出真实原因。accountpool.Acquire 只包 ctx.Err()（WithCancelCause
 // 之后恒为 context.Canceled），fail-fast 连坐 / 批次取消的真实原因只存在于
 // context.Cause——不显式取出来，兄弟节点就只能报出没有来由的 "context canceled"
-// （2026-09-29 事故：session loop 100: seelebridge: acquire streaming client:
+// （2026-09-29 事故：session loop 100: seelex: acquire streaming client:
 // accountpool: acquire: context canceled）。
 func TestStreamingCompleterReportsCancelCause(t *testing.T) {
 	pool := newStreamPool(t, map[string]agent.Completer{"agent-1": newScriptedStreamCompleter()})

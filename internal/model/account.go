@@ -123,5 +123,5 @@ func ResolveAccountSpec(specs []AccountSpec, role AccountRole) (AccountSpec, err
 			return spec, nil
 		}
 	}
-	return AccountSpec{}, fmt.Errorf("seelebridge: no accounts available")
+	return AccountSpec{}, fmt.Errorf("seelex: no accounts available")
 }

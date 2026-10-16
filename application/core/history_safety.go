@@ -129,7 +129,7 @@ func (service *Service) retryContextRecovery(ctx context.Context, requestID stri
 // 检查点，重放不会把被拒的记录再发一遍；判据是"这次拒绝发生在工具执行之前"：
 //   - 上下文耗尽：provider 在装配后、执行前拒绝，没有工具副作用；
 //   - 记录不合法（tool 配对协议 400）：同样是请求校验就被拒。2026-09-28 现场
-//     `session loop 0: seelebridge: stream with account "goalplan-1": ChatClient
+//     `session loop 0: seelex: stream with account "goalplan-1": ChatClient
 //     stream: HTTP 400 ... insufficient tool messages following tool_calls
 //     message` 把会话循环直接判死（恢复完却不重放，用户只看到"会话中断"）。
 //

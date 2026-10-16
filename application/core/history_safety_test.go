@@ -260,7 +260,7 @@ func TestServerFailuresAreRecoverableWithoutAutomaticReplay(t *testing.T) {
 // （现场中断在 session loop 15 / 22）。wire 出口已按协议剔除这种形状
 // （seelexctx 装配器的 tool 配对规整 + 本包投影修复），这里是措辞兜底。
 func TestToolProtocolRejectionsAreHistoryFailures(t *testing.T) {
-	err := errors.New(`engine loop 15: seelebridge: stream with account "agent-1": ` +
+	err := errors.New(`engine loop 15: seelex: stream with account "agent-1": ` +
 		`ChatClient stream: HTTP 400: {"error":{"message":"Messages with role 'tool' must be a ` +
 		`response to a preceding message with 'tool_calls'","type":"invalid_request_error",` +
 		`"param":null,"code":"invalid_request_error"}}`)
@@ -278,7 +278,7 @@ func TestToolProtocolRejectionsAreHistoryFailures(t *testing.T) {
 // 判死（同上一条用例的现场形状：一轮在第 N 次 LLM 往返上被 400 打断）。
 // 措辞实测来源：docs/2026-09-24-async-tool-deferred-ack/README.md §0 探针 P4。
 func TestInsufficientToolMessagesIsAHistoryFailure(t *testing.T) {
-	err := errors.New(`session loop 0: seelebridge: stream with account "agent-1": ` +
+	err := errors.New(`session loop 0: seelex: stream with account "agent-1": ` +
 		`ChatClient stream: HTTP 400: {"error":{"message":"An assistant message with 'tool_calls' ` +
 		`must be followed by tool messages responding to each 'tool_call_id'. ` +
 		`(insufficient tool messages following tool_calls message)","type":"invalid_request_error",` +
@@ -314,7 +314,7 @@ func TestRetryableAfterRecoveryOnlyReplaysPreExecutionRejections(t *testing.T) {
 // liveSessionLoopToolPairingFailure 是 2026-09-28 现场原文：会话循环第一次请求
 // 就带着一条没配齐回执的 assistant(tool_calls)，provider 直接 400，循环被判死。
 func liveSessionLoopToolPairingFailure() error {
-	return errors.New(`session loop 0: seelebridge: stream with account "goalplan-1": ` +
+	return errors.New(`session loop 0: seelex: stream with account "goalplan-1": ` +
 		`ChatClient stream: HTTP 400: {"error":{"message":"An assistant message with 'tool_calls' ` +
 		`must be followed by tool messages responding to each 'tool_call_id'. ` +
 		`(insufficient tool messages following tool_calls message)","type":"invalid_request_error",` +

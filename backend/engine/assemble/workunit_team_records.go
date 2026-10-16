@@ -90,7 +90,7 @@ func (r *Runtime) saveTeamUnitRecord(mainSessionID string, key teamUnitRecordKey
 	if err := writer.Save(scope.ProjectID, scope.SessionID, record); err != nil {
 		// 落盘失败**不改执行**：记录是恢复用的证据，丢了它不该让这一轮不跑（下一次写会
 		// 重来）。但它必须留痕——静默丢掉就是"重启失忆"被当成正常。
-		log.Printf("seelebridge: 落盘 teammate 单元记录 %q（会话 %s）失败：%v", key.NodeID, key.RoleSessionID, err)
+		log.Printf("seelex: 落盘 teammate 单元记录 %q（会话 %s）失败：%v", key.NodeID, key.RoleSessionID, err)
 	}
 }
 
@@ -183,7 +183,7 @@ func (r *Runtime) clearTeamUnitRecord(mainSessionID, roleSessionID string) {
 		return
 	}
 	if err := r.nodeSessionStore.Delete(scope.ProjectID, scope.SessionID, roleSessionID); err != nil {
-		log.Printf("seelebridge: 清 teammate 单元记录（会话 %s）失败：%v", roleSessionID, err)
+		log.Printf("seelex: 清 teammate 单元记录（会话 %s）失败：%v", roleSessionID, err)
 	}
 }
 
@@ -196,7 +196,7 @@ func (r *Runtime) clearTeamUnitRecords(sessionID string) int {
 	reader := r.teamUnitReader(sessionID, r.teamSceneIndex(sessionID))
 	list, err := reader.List()
 	if err != nil {
-		log.Printf("seelebridge: 读回 teammate 单元记录（会话 %s）失败：%v", sessionID, err)
+		log.Printf("seelex: 读回 teammate 单元记录（会话 %s）失败：%v", sessionID, err)
 		return 0
 	}
 	cleared := 0
@@ -278,7 +278,7 @@ func (r *Runtime) RecoverTeamworkUnits(ctx context.Context, sessionID string) (T
 	reader := r.teamUnitReader(sessionID, index)
 	records, err := reader.Records()
 	if err != nil {
-		log.Printf("seelebridge: 读回 teammate 单元记录（会话 %s）失败：%v", sessionID, err)
+		log.Printf("seelex: 读回 teammate 单元记录（会话 %s）失败：%v", sessionID, err)
 		records = nil
 	}
 	// 一次读、两份视图：读数（判在跑）与原始记录（恢复说明的正文）。**只读一次账本**——

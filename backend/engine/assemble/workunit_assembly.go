@@ -403,7 +403,7 @@ func (r *Runtime) beginNodeUnit(scope model.NodeScope, nodeID string) *worktree.
 	}
 	unit := r.newNodeWorkUnit(r.MainSessionID(), nodeID, scope)
 	if _, err := unit.Begin(context.Background()); err != nil {
-		log.Printf("seelebridge: 建节点现场 %q 失败：%v", nodeID, err)
+		log.Printf("seelex: 建节点现场 %q 失败：%v", nodeID, err)
 	}
 	return r.nodeWorktreeFor(nodeID)
 }

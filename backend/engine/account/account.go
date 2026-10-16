@@ -54,7 +54,7 @@ func RegisterAccounts(pool *accountpool.P2CPool[agent.Completer], specs []model.
 				"model":    spec.Model,
 			},
 		}); err != nil {
-			return fmt.Errorf("seelebridge: register account %q: %w", spec.Name, err)
+			return fmt.Errorf("seelex: register account %q: %w", spec.Name, err)
 		}
 	}
 	return nil
@@ -65,7 +65,7 @@ func RegisterAccounts(pool *accountpool.P2CPool[agent.Completer], specs []model.
 func ResolveForBranch(pool *accountpool.P2CPool[agent.Completer], role model.AccountRole, seed string) (string, error) {
 	entries := ForRole(pool, role)
 	if len(entries) == 0 {
-		return "", fmt.Errorf("seelebridge: no accounts available")
+		return "", fmt.Errorf("seelex: no accounts available")
 	}
 	return entries[StableIndex(seed, len(entries))].Snapshot.ID, nil
 }

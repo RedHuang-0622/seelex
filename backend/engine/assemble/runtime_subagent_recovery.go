@@ -104,7 +104,7 @@ func (r *Runtime) persistSubagentConclusion(mainSessionID string, record store.N
 		event.Status = frameworkevent.StatusFailed
 	}
 	if err := persister(context.Background(), event); err != nil {
-		log.Printf("seelebridge: persist subagent conclusion %q: %v", record.NodeID, err)
+		log.Printf("seelex: persist subagent conclusion %q: %v", record.NodeID, err)
 	}
 }
 
@@ -146,15 +146,15 @@ func (r *Runtime) RestoreSubagentAnchors(sessionID string) error {
 		// "不在册 + 干净"，认领晚了现场就已经被当孤儿删掉了（见
 		// worktree.WorktreeManager.Prune 与 runtime_teamwork_scene.go）。
 		if adopted := r.adoptTeamworkScenes(sessionID); adopted > 0 {
-			log.Printf("seelebridge: 认领团队现场 %d 个（来源：团队计划 + 绑定账本）", adopted)
+			log.Printf("seelex: 认领团队现场 %d 个（来源：团队计划 + 绑定账本）", adopted)
 		}
 		// 现场登记之后再清残留：恢复得到的现场不在册就会被误删（顺序是判据的一部分，
 		// 见 WorktreeManager.Prune）。
 		pruned, pruneErr := r.worktreeMgr.Prune()
 		if pruneErr != nil {
-			log.Printf("seelebridge: 回收 worktree 残留失败：%v", pruneErr)
+			log.Printf("seelex: 回收 worktree 残留失败：%v", pruneErr)
 		} else if len(pruned.Removed) > 0 || len(pruned.Kept) > 0 {
-			log.Printf("seelebridge: worktree 残留回收：删除 %d（孤儿），保留 %d（有未提交改动）",
+			log.Printf("seelex: worktree 残留回收：删除 %d（孤儿），保留 %d（有未提交改动）",
 				len(pruned.Removed), len(pruned.Kept))
 		}
 	}

@@ -192,7 +192,7 @@ func (s *jobsEventStream) append(record jobs.Record) {
 	}
 	if err := appendEvent(context.Background(), event); err != nil {
 		// 观察失败不改变控制流（见 Seele event/README.md）：只记一行，不返回错误。
-		log.Printf("seelebridge: 追加作业事件失败（句柄 %s）：%v", record.Handle, err)
+		log.Printf("seelex: 追加作业事件失败（句柄 %s）：%v", record.Handle, err)
 	}
 }
 

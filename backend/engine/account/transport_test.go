@@ -19,7 +19,7 @@ import (
 // 事故形状：账号 client 带 http.Client.Timeout=300s——它是**整请求 wall-clock
 // 上限，含 SSE body 读**。一个健康但缓慢的长流（22:02:33 起）恰好在 22:07:33
 // 满 300s 被 net/http 砍断，报出
-//   session loop 34: seelebridge: stream with account "subagent-1":
+//   session loop 34: seelex: stream with account "subagent-1":
 //   ChatClient stream: read SSE: context deadline exceeded
 //   (Client.Timeout or context cancellation while reading body)
 // 措辞本身区分不了「上游停滞」与「仍在正常推进」——这就是病灶。

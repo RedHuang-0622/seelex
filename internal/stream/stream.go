@@ -109,7 +109,7 @@ func (c *streamingAccountCompleter) CompleteStream(
 	onChunk func(string),
 ) (content string, reasoningContent string, toolCalls []types.ToolCall, err error) {
 	if c == nil || c.pool == nil {
-		return "", "", nil, fmt.Errorf("seelebridge: streaming account pool is unavailable")
+		return "", "", nil, fmt.Errorf("seelex: streaming account pool is unavailable")
 	}
 	base := accountpool.AcquireRequest{}
 	if c.selector != nil {
@@ -135,7 +135,7 @@ func (c *streamingAccountCompleter) CompleteStream(
 				// 而不是用「取不到账号」覆盖掉最初的原因。
 				return "", "", nil, lastFailure
 			}
-			return "", "", nil, fmt.Errorf("seelebridge: acquire streaming client: %w", withCancelCause(ctx, resolveErr))
+			return "", "", nil, fmt.Errorf("seelex: acquire streaming client: %w", withCancelCause(ctx, resolveErr))
 		}
 		accountID := lease.AccountID()
 		// 路由事实：这一轮换了号（第一志愿发生账号资格失败），或请求本来就
@@ -169,7 +169,7 @@ func (c *streamingAccountCompleter) CompleteStream(
 		// 租约覆盖整条流：EOF / 错误 / 提前 Close 任一退出路径都恰好释放一次
 		// （accountpool.Lease.Release 幂等）。
 		if releaseErr := lease.Release(); releaseErr != nil && err == nil {
-			err = fmt.Errorf("seelebridge: release streaming client %q: %w", accountID, releaseErr)
+			err = fmt.Errorf("seelex: release streaming client %q: %w", accountID, releaseErr)
 		}
 		if err == nil {
 			return content, reasoningContent, toolCalls, nil
@@ -183,7 +183,7 @@ func (c *streamingAccountCompleter) CompleteStream(
 		lastFailure = err
 		lastFailedID = accountID
 		lastFailedKind = kind
-		log.Printf("seelebridge: 账号 %q %s，改用同族下一个账号重试（第 %d 次）",
+		log.Printf("seelex: 账号 %q %s，改用同族下一个账号重试（第 %d 次）",
 			accountID, account.FailureAdvice(kind), len(excluded))
 	}
 	return "", "", nil, fmt.Errorf("%w（已排除 %d 个账号后仍无可用账号）", lastFailure, len(excluded))
@@ -203,7 +203,7 @@ func (c *streamingAccountCompleter) streamWithLease(
 		// 账号只实现了同步 Completer：退化为单次非流式返回（agent 侧同等回退）。
 		message, completeErr := client.Complete(ctx, messages, tools)
 		if completeErr != nil {
-			return "", "", nil, fmt.Errorf("seelebridge: complete with account %q: %w", lease.AccountID(), completeErr)
+			return "", "", nil, fmt.Errorf("seelex: complete with account %q: %w", lease.AccountID(), completeErr)
 		}
 		text := ""
 		if message.Content != nil {
@@ -216,7 +216,7 @@ func (c *streamingAccountCompleter) streamWithLease(
 	}
 	content, reasoningContent, toolCalls, err := streamer.CompleteStream(ctx, messages, tools, onChunk)
 	if err != nil {
-		return "", "", nil, fmt.Errorf("seelebridge: stream with account %q: %w", lease.AccountID(), withCancelCause(ctx, err))
+		return "", "", nil, fmt.Errorf("seelex: stream with account %q: %w", lease.AccountID(), withCancelCause(ctx, err))
 	}
 	return content, reasoningContent, toolCalls, nil
 }

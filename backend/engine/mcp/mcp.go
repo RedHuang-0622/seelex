@@ -94,7 +94,7 @@ func (m *Manager) BreakerEvents() <-chan frameworkmcp.BreakerEvent {
 //  3. Refreshes tool list so new tools are visible
 func (m *Manager) Attach(ctx context.Context, cfg Server) error {
 	if m.isClosed() {
-		return fmt.Errorf("seelebridge: MCP manager is closed")
+		return fmt.Errorf("seelex: MCP manager is closed")
 	}
 	provider := m.Provider()
 	frameworkCfg, err := ToFramework(cfg)
@@ -111,7 +111,7 @@ func (m *Manager) Attach(ctx context.Context, cfg Server) error {
 	}()
 
 	if err := provider.Attach(ctx, frameworkCfg); err != nil {
-		return fmt.Errorf("seelebridge: attach MCP %q: %w", cfg.Name, err)
+		return fmt.Errorf("seelex: attach MCP %q: %w", cfg.Name, err)
 	}
 	m.setNotes(cfg.Name, cfg.ToolNotes)
 	m.refreshTools(provider)
@@ -165,7 +165,7 @@ func (m *Manager) AttachServer(
 func (m *Manager) RegisterLazy(name string, cfg Server) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return fmt.Errorf("seelebridge: MCP name is empty")
+		return fmt.Errorf("seelex: MCP name is empty")
 	}
 	cfg.Name = name
 	if _, err := ToFramework(cfg); err != nil {
@@ -204,7 +204,7 @@ func (m *Manager) Load(ctx context.Context, name string) (int, error) {
 	cfg, ok := m.lazy[name]
 	m.lazyMu.RUnlock()
 	if !ok {
-		return 0, fmt.Errorf("seelebridge: unknown MCP server %q (registered: %v)", name, m.LazyNames())
+		return 0, fmt.Errorf("seelex: unknown MCP server %q (registered: %v)", name, m.LazyNames())
 	}
 	if alive, toolsCount, _ := m.Status(name); alive {
 		return toolsCount, nil
@@ -228,7 +228,7 @@ func (m *Manager) Detach(name string) error {
 func (m *Manager) Refresh(ctx context.Context, name string) error {
 	provider := m.Provider()
 	if err := provider.RefreshTools(ctx, name); err != nil {
-		return fmt.Errorf("seelebridge: refresh MCP %q: %w", name, err)
+		return fmt.Errorf("seelex: refresh MCP %q: %w", name, err)
 	}
 	m.refreshTools(provider)
 	return nil
@@ -309,7 +309,7 @@ func (m *Manager) notesSnapshot() map[string][]string {
 func ToFramework(cfg Server) (frameworkmcp.ServerConfig, error) {
 	cfg.Name = strings.TrimSpace(cfg.Name)
 	if cfg.Name == "" {
-		return frameworkmcp.ServerConfig{}, fmt.Errorf("seelebridge: MCP name is empty")
+		return frameworkmcp.ServerConfig{}, fmt.Errorf("seelex: MCP name is empty")
 	}
 	transport := strings.ToLower(strings.TrimSpace(cfg.Transport))
 	if transport == "" {
@@ -321,13 +321,13 @@ func ToFramework(cfg Server) (frameworkmcp.ServerConfig, error) {
 		}
 	}
 	if transport == "stdio" && strings.TrimSpace(cfg.Command) == "" {
-		return frameworkmcp.ServerConfig{}, fmt.Errorf("seelebridge: MCP %q requires command", cfg.Name)
+		return frameworkmcp.ServerConfig{}, fmt.Errorf("seelex: MCP %q requires command", cfg.Name)
 	}
 	if transport == "sse" && strings.TrimSpace(cfg.URL) == "" {
-		return frameworkmcp.ServerConfig{}, fmt.Errorf("seelebridge: MCP %q requires URL", cfg.Name)
+		return frameworkmcp.ServerConfig{}, fmt.Errorf("seelex: MCP %q requires URL", cfg.Name)
 	}
 	if transport != "stdio" && transport != "sse" {
-		return frameworkmcp.ServerConfig{}, fmt.Errorf("seelebridge: MCP %q unsupported transport %q", cfg.Name, transport)
+		return frameworkmcp.ServerConfig{}, fmt.Errorf("seelex: MCP %q unsupported transport %q", cfg.Name, transport)
 	}
 	return frameworkmcp.ServerConfig{
 		Name:      cfg.Name,

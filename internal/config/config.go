@@ -93,7 +93,7 @@ func Load(path string) (Config, error) {
 
 	var cfg simplifiedConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return Config{}, fmt.Errorf("seelebridge: parse accounts: %w", err)
+		return Config{}, fmt.Errorf("seelex: parse accounts: %w", err)
 	}
 	log.Printf("[config] parsed: agent=%d subagent=%d goalplan=%d",
 		len(cfg.Roles.Agent), len(cfg.Roles.SubAgent), len(cfg.Roles.GoalPlan))
@@ -111,7 +111,7 @@ func Load(path string) (Config, error) {
 		}
 	}
 	if len(availableRoles) == 0 {
-		return Config{}, fmt.Errorf("seelebridge: no accounts configured in any role")
+		return Config{}, fmt.Errorf("seelex: no accounts configured in any role")
 	}
 
 	specs := make([]model.AccountSpec, 0)
@@ -125,21 +125,21 @@ func Load(path string) (Config, error) {
 			}
 			if entry.MaxConcurrency != nil {
 				if *entry.MaxConcurrency <= 0 {
-					return Config{}, fmt.Errorf("seelebridge: account %q max_concurrency must be greater than zero", name)
+					return Config{}, fmt.Errorf("seelex: account %q max_concurrency must be greater than zero", name)
 				}
 				maxConcurrency = *entry.MaxConcurrency
 			}
 			limits, err := resolveAccountLimits(cfg.Defaults, entry)
 			if err != nil {
-				return Config{}, fmt.Errorf("seelebridge: account %q: %w", name, err)
+				return Config{}, fmt.Errorf("seelex: account %q: %w", name, err)
 			}
 			temperature, err := resolveTemperature(cfg.Defaults, entry)
 			if err != nil {
-				return Config{}, fmt.Errorf("seelebridge: account %q: %w", name, err)
+				return Config{}, fmt.Errorf("seelex: account %q: %w", name, err)
 			}
 			reasoningEffort, err := resolveReasoningEffort(cfg.Defaults, entry, role)
 			if err != nil {
-				return Config{}, fmt.Errorf("seelebridge: account %q: %w", name, err)
+				return Config{}, fmt.Errorf("seelex: account %q: %w", name, err)
 			}
 			provider := firstNonEmpty(entry.Provider, cfg.Defaults.Provider, "openai")
 			specs = append(specs, model.AccountSpec{

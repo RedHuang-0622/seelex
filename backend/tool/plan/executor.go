@@ -120,7 +120,7 @@ func NewExecutor(
 	}
 	if executor.eventError == nil {
 		executor.eventError = func(_ context.Context, err error) {
-			log.Printf("seelebridge: event sink: %v", err)
+			log.Printf("seelex: event sink: %v", err)
 		}
 	}
 	executor.provider = NewToolProvider(executor)
@@ -397,7 +397,7 @@ func (executor *Executor) persistCheckpoint(entryNodeID string, result *workplan
 	// Store.Save 直接落最终快照（含 status）；Resume 由 runner 内部的
 	// checkpoint.Manager 经同一 Store.Load 读取（runner.WithCheckpoint 注入）。
 	if err := store.Save(entryNodeID, snapshot); err != nil {
-		log.Printf("seelebridge: persist plan checkpoint %q: %v", entryNodeID, err)
+		log.Printf("seelex: persist plan checkpoint %q: %v", entryNodeID, err)
 	}
 }
 

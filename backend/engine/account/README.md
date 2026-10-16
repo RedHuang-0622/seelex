@@ -50,7 +50,7 @@ reading body)`——这句话区分不了「上游挂了」与「上游还在推
 
 - `streamHeaderTimeout`（默认 60s）：等响应头的上限；
 - `streamIdleTimeout`（默认 300s）：两次 body 数据之间的**空闲**上限——只要流还在
-  推进就永不触发；真停滞时报 `seelebridge: LLM stream stalled (no data received)
+  推进就永不触发；真停滞时报 `seelex: LLM stream stalled (no data received)
   after 5m0s`（自带语义，可定位）。
 
 看门狗挂在 Transport 上（`idleWatchdogBody`，逐次 Read 装表），同步与流式两条路径

@@ -103,7 +103,7 @@ func (r *Runtime) unitKindOf(record store.NodeSessionRecord, teamScenes map[stri
 		return kind
 	}
 	if word := strings.TrimSpace(record.Unit.Kind); word != "" {
-		log.Printf("seelebridge: 记录 %q 的身份词未知（%q），按 subagent 那一层恢复", record.NodeID, word)
+		log.Printf("seelex: 记录 %q 的身份词未知（%q），按 subagent 那一层恢复", record.NodeID, word)
 		return workunit.KindSubagent
 	}
 	if teamScenes[strings.TrimSpace(record.NodeID)] {
@@ -132,6 +132,6 @@ func (r *Runtime) restoreUnitRecords(sessionID string, records []store.NodeSessi
 			continue
 		}
 		strategy.Restore(batch)
-		log.Printf("seelebridge: 恢复 %s 记录 %d 条（会话 %s）", strategy.Kind(), len(batch), sessionID)
+		log.Printf("seelex: 恢复 %s 记录 %d 条（会话 %s）", strategy.Kind(), len(batch), sessionID)
 	}
 }

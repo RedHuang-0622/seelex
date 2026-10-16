@@ -36,7 +36,7 @@ var (
 
 // errStreamStalled 是流空闲看门狗的哨兵错误：文本自带「无数据」语义，经 api 层
 // "ChatClient stream: read SSE: %w" 与 stream.go 再包装后依然可读。
-var errStreamStalled = errors.New("seelebridge: LLM stream stalled (no data received)")
+var errStreamStalled = errors.New("seelex: LLM stream stalled (no data received)")
 
 // newStreamTransport 在 base 上叠加响应头超时与流空闲看门狗。base 为 *http.Transport
 // 时克隆后设置 ResponseHeaderTimeout（不污染调用方传入的传输层）。

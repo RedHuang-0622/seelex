@@ -135,7 +135,7 @@ func (r *Runtime) SetPlanPolicyFor(sessionID string, policy dto.PlanPolicy) {
 // agentDispatch 统一工具分发入口（agent.DirectDispatch 语义等价）。
 func (r *Runtime) agentDispatch(ctx context.Context, name, argsJSON string) (string, error) {
 	if r.agt == nil {
-		return "", fmt.Errorf("seelebridge: agent is unavailable")
+		return "", fmt.Errorf("seelex: agent is unavailable")
 	}
 	return r.agt.DirectDispatch(ctx, name, argsJSON)
 }

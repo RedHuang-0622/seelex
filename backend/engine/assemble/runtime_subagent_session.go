@@ -19,14 +19,14 @@ import (
 // 会话 ID 即节点 ID；注册后可从 SubagentSessions 读取运行中 History。
 func (r *Runtime) NewSubagentSessionWithID(sessionID string, hooks *frameworkSession.LoopHooks) (*frameworkSession.Session, error) {
 	if r == nil {
-		return nil, errors.New("seelebridge: runtime is nil")
+		return nil, errors.New("seelex: runtime is nil")
 	}
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
-		return nil, errors.New("seelebridge: subagent session ID is required")
+		return nil, errors.New("seelex: subagent session ID is required")
 	}
 	if r.subagentSessions != nil && r.subagentSessions.Session(sessionID) != nil {
-		return nil, fmt.Errorf("seelebridge: subagent session %q already exists", sessionID)
+		return nil, fmt.Errorf("seelex: subagent session %q already exists", sessionID)
 	}
 	components := frameworkSession.SessionComponents{
 		Agent:     r.agt,
@@ -43,7 +43,7 @@ func (r *Runtime) NewSubagentSessionWithID(sessionID string, hooks *frameworkSes
 	}
 	sess, err := frameworkSession.NewSession(components)
 	if err != nil {
-		return nil, fmt.Errorf("seelebridge: create subagent session: %w", err)
+		return nil, fmt.Errorf("seelex: create subagent session: %w", err)
 	}
 	if r.subagentSessions != nil {
 		r.subagentSessions.Register(sessionID, sess, "")

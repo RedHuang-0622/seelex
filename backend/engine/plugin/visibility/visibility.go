@@ -56,7 +56,7 @@ func NewManager() *Manager {
 // Define 定义或替换一个插件的可见性快照。
 func (m *Manager) Define(name, description string, include, exclude []string) error {
 	if name == "" {
-		return fmt.Errorf("seelebridge: plugin name is empty")
+		return fmt.Errorf("seelex: plugin name is empty")
 	}
 	m.mu.Lock()
 	m.defs[name] = Def{
@@ -83,7 +83,7 @@ func (m *Manager) Activate(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.defs[name]; !ok {
-		return fmt.Errorf("seelebridge: plugin %q is not defined", name)
+		return fmt.Errorf("seelex: plugin %q is not defined", name)
 	}
 	m.active = name
 	return nil

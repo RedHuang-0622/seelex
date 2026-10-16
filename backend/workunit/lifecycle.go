@@ -143,7 +143,7 @@ func (h *Host) Finish(ctx context.Context, u Unit, result Result, mergeErr error
 	if err != nil {
 		// 读不回来 = 不知道，按"还没收过尾"继续（与既有口径一致）：一次账本读失败
 		// 不该被当成"这件事已经收过尾"而静默丢掉收尾动作，也不该判死整件事。
-		log.Printf("seelebridge: 判定 %q 是否已收尾失败（按未收尾继续）：%v", u.ID(), err)
+		log.Printf("seelex: 判定 %q 是否已收尾失败（按未收尾继续）：%v", u.ID(), err)
 	} else if settled {
 		return Outcome{}, nil
 	}

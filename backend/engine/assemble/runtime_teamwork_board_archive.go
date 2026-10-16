@@ -62,7 +62,7 @@ func (r *Runtime) archiveTeamBoard(ctx context.Context) {
 		// "在册"卖给读侧（存档读侧只认 state=active）。收口之后 leader 仍可能再调
 		// team_milestone 之类的团队级工具，那些调用也会走到这里，所以这道闸卡在写侧唯一入口上。
 		if err := sealClosedTeamBoard(ctx, backend, manager, key, plan, time.Now().UTC(), r.teamBoardAssemblies(plan)); err != nil {
-			log.Printf("seelebridge: 团队看板封板失败（会话 %s）：%v", sessionID, err)
+			log.Printf("seelex: 团队看板封板失败（会话 %s）：%v", sessionID, err)
 		}
 		return
 	}
@@ -80,12 +80,12 @@ func (r *Runtime) archiveTeamBoard(ctx context.Context) {
 	}
 	payload, err := json.Marshal(buildTeamworkBoardView(plan, events, bindings, records, backend.MaxTeammates, r.teamBoardAssemblies(plan)))
 	if err != nil {
-		log.Printf("seelebridge: 团队看板存档编码失败（会话 %s）：%v", sessionID, err)
+		log.Printf("seelex: 团队看板存档编码失败（会话 %s）：%v", sessionID, err)
 		return
 	}
 	meta, write, err := nextTeamBoardMeta(ctx, backend.Boards, key, plan, payload, time.Now().UTC())
 	if err != nil {
-		log.Printf("seelebridge: 团队看板存档生命周期推进失败（会话 %s）：%v", sessionID, err)
+		log.Printf("seelex: 团队看板存档生命周期推进失败（会话 %s）：%v", sessionID, err)
 		return
 	}
 	if !write {
@@ -93,7 +93,7 @@ func (r *Runtime) archiveTeamBoard(ctx context.Context) {
 	}
 	if err := backend.Boards.WriteTeamBoard(ctx, key, meta); err != nil {
 		// §9：写存档失败不改变控制流——看板照常下发，只记一行。
-		log.Printf("seelebridge: 团队看板存档写入失败（会话 %s）：%v", sessionID, err)
+		log.Printf("seelex: 团队看板存档写入失败（会话 %s）：%v", sessionID, err)
 	}
 }
 
