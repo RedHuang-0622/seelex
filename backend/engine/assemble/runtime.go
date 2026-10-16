@@ -29,6 +29,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/plugin/visibility"
 	"github.com/RedHuang-0622/seelex/backend/engine/schedule"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/backend/limit/gate"
 	subagentsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
@@ -269,19 +270,14 @@ type Runtime struct {
 	lazyMCPServerMu  sync.RWMutex
 	lazyMCPServers   map[string]MCPServer // 已登记未连接的 MCP 服务器（冷启动）
 
-	// sessionTaskSnapshots 是会话切换时保存的 task 注册表快照（阶段 0：
-	// 后台会话持久化按会话取快照，不读活跃注册表；对应 R6/P2）。
-	sessionTaskMu        sync.Mutex
-	sessionTaskSnapshots map[string][]dto.TaskRecord
-	currentTaskSessionID string
+	// taskLedger 是 task **台账域**（跨会话工作表格读面 + 会话 scope 分区 +
+	// 会话级批次）：状态与判据都在 backend/engine/task.Ledger，宿主是下面的
+	// tasks 注册表——注册表结构上满足 LedgerHost，构造时注入（R11-task）。
+	taskLedger *task_context.Ledger
 	// sessionWorkspaces 是 application 通知的会话绑定 workspace（framework
 	// DurableHistory 按显式键落盘用，R3 键漂移收敛）。
 	sessionWorkspacesMu sync.RWMutex
 	sessionWorkspaces   map[string]string
-	// sessionBatches 是会话级默认批次（阶段 1 L3：后台会话不覆盖活跃
-	// 注册表默认批次）。
-	sessionBatchesMu sync.Mutex
-	sessionBatches   map[string]string
 }
 
 // MainSessionID 返回当前主会话 ID（压缩帧 SegmentID 溯源；空 = 未创建）。
@@ -385,18 +381,20 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		subagentTree:     subagentsession.NewSubagentTree(tracer),
 		subagentContext:  subagentsession.NewSubagentContextActor(tracer),
 
-		window:               seelexctx.NewDefaultWindowPolicy(cfg.WindowConfig),
-		tracer:               tracer,
-		hook:                 hook,
-		summaryLog:           NewSummaryLog(),
-		servedRoutes:         make(map[string]dto.ServedRoute),
-		routingNoticeSeen:    make(map[string]bool),
-		bundles:              make(map[string]*sessionBundle),
-		sessionTaskSnapshots: make(map[string][]dto.TaskRecord),
-		sessionWorkspaces:    make(map[string]string),
-		sessionBatches:       make(map[string]string),
-		startupWarnings:      startupWarnings,
+		window:            seelexctx.NewDefaultWindowPolicy(cfg.WindowConfig),
+		tracer:            tracer,
+		hook:              hook,
+		summaryLog:        NewSummaryLog(),
+		servedRoutes:      make(map[string]dto.ServedRoute),
+		routingNoticeSeen: make(map[string]bool),
+		bundles:           make(map[string]*sessionBundle),
+		sessionWorkspaces: make(map[string]string),
+		startupWarnings:   startupWarnings,
 	}
+	// task 台账域（跨会话工作表格 + 会话 scope 分区 + 会话级批次）：宿主就是
+	// task 注册表本身——它结构上满足 LedgerHost（见该包的编译期钉子），所以
+	// 这里没有适配层，也不把台账判据留在组合根。
+	r.taskLedger = task_context.NewLedger(r.tasks)
 	// 媒体域（待随图队列 + 会话媒体分区读写法）：宿主就是本 Runtime——它只经
 	// media.Host 的两格读面（HistoryRouter / SessionProjectID）回看状态。
 	r.media = toolmedia.New(r)

@@ -2,10 +2,19 @@
 
 ## 生态位
 
-任务执行域协调器：`TaskExecutionState`（功能打点快照与终态判定）、
-`TaskService`（Plan 打卡/终态工具）、append-only transcript、checkpoint、
-result-ref、token 审计（`CalibratedTokenCounter`）、plan 帧状态与 ReAct
-预算。
+任务域协调器，含两个面：
+
+- **任务执行域**（`Coordinator`/`TaskService`）：`TaskExecutionState`
+  （功能打点快照与终态判定）、`TaskService`（Plan 打卡/终态工具）、
+  append-only transcript、checkpoint、result-ref、token 审计
+  （`CalibratedTokenCounter`）、plan 帧状态与 ReAct 预算。
+- **任务台账域**（`Ledger`，R11-task 从 `backend/engine/assemble/ports.go`
+  下沉）：跨会话工作表格的合并读面、会话 scope 分区写面、会话级默认批次、
+  清单（`kind=todo`）面。
+
+主要调用方：`backend/engine/assemble`（组合根，构造 `Ledger` 并注入宿主，
+`Runtime` 只保留薄转发）；执行域的权威状态经 `session_runtime`/
+`context_runtime` 端口被其它域消费。
 
 ## 职责与非职责
 
@@ -42,12 +51,24 @@ result-ref、token 审计（`CalibratedTokenCounter`）、plan 帧状态与 ReAc
   不是回合事实）。已有上下文状态（冷恢复的 projection）时复用，不新建不覆盖；
   已有在飞回合时拒绝发放身份（不抢占真实身份）。
 - 不做：会话持久化跨域事务、chat 流式编排、context 装配。
+- 做：**跨会话 task 台账**（`ledger.go`）。工作表格是**跨会话台账**，会话只是
+  条目的产生地：全局读面（`Ledger.Snapshot`）合并实时注册表（归当前视图会话）
+  与各会话 scope 分区（归分区键），按跨会话身份去重（幂等键优先、否则行 ID）
+  并给每条标归属会话；写面按归属会话路由（`AddFor`/`SetStatusFor`/… 当前会话
+  写注册表，后台会话写自身分区，不污染当前注册表）；会话切换整表换血并把旧
+  注册表落回自己的分区；会话级默认批次（`SetBatch`）只对当前会话下发注册表。
+  清单项就是分区里 `kind=todo` 的 task 行，因此清单面与 task 分区同构（行顺序
+  即清单顺序）。
+- 不做（台账域）：不判"这条 task 该不该建"（工具/装配面），不持有注册表实现
+  （宿主经 `LedgerHost` 注入，注册表本体在 `backend/tool/task`），不落盘
+  （持久化归会话存储域）。
 
 ## 关键文件
 
 | 文件 | 职责 |
 |---|---|
-| `ports.go` | `Deps` + `PromptPort` + `TaskPersistencePort` 编译期断言。 |
+| `ports.go` | `Deps` + `PromptPort`（执行域）+ `LedgerHost`（台账域宿主面）+ `TaskPersistencePort` 编译期断言。 |
+| `ledger.go` | `Ledger` + `NewLedger`：task 台账域（跨会话合并读面、会话 scope 分区写面、会话级批次、清单面）。 |
 | `coordinator.go` | `Coordinator` + task/plan 子状态 + ReAct 预算 + 恢复装载。 |
 | `task_execution.go` | `TaskExecutionState`/`NodeCheckpoint` 与证据/摘要。 |
 | `task_service.go` | `TaskService` 终态判定/打点工具 + Plan 投影读取。 |
@@ -130,17 +151,34 @@ sequenceDiagram
 满足 `session_runtime.TaskPersistencePort` 与 context 域 `TaskPort`（编译期
 断言见 `ports.go` 与根包 compat）。
 
+台账域（`ledger.go`）只依赖 `contract/dto`、`backend/tool/task` 的包级纯函数与
+自动 ID 分配器（`NextAutoID`/`ObserveAutoID`/`TaskToTodoItem`/`TodoToTaskStatus`/
+`ValidTodoStatus`），以及注入的 `LedgerHost`。**不 import
+`backend/engine/assemble`**（依赖倒置：装配点把注册表注入进来，域不反向依赖
+组合根），`LedgerHost` 由 `*task.TaskRegistry` 结构满足（编译期钉子在
+`ledger.go` 末尾），因此没有适配层。
+
 ## 并发/安全语义
 
 `Coordinator` 嵌入内核锁；Locked 方法要求持有 `Core.Mu`。`TaskService` 只
 持有内核（锁 + 只读 Snapshot）与任务状态，不接触其它域；
 `CalibratedTokenCounter` 自持 `mu`。
 
+`Ledger` 自持两把锁：`mu` 保护会话 scope 分区 + 当前任务会话（分区读写与
+换血都在锁内一次完成），`batchesMu` 保护会话级批次。台账域只在**自己的锁内**
+调用宿主（注册表自带 actor 串行），不反向取调用方的锁。
+
 ## 扩展与 Review
 
 新增终态工具注册进 `TaskService.terminals`；替换 token 估算实现
 `RequestTokenCounter`。Review 重点：锁内不得调用外部端口、transcript 追加
 seq 单调、checkpoint 有界、终态判定依赖收敛的 Plan 投影。
+
+台账域 Review 重点：判据是否只存在于 `Ledger`（组合根只留薄转发，不得出现
+第二份分区/身份/批次判据）；分区行 ID 是否取**进程级**分配器（各会话各自从 1
+数会让跨会话台账同号去重丢行）；后台会话写是否只落自己的分区；会话切换后目标
+会话分区是否已清理（否则读到陈旧分片）；"未装配宿主"的读/写语义是否仍是
+nil / 显式错误。
 
 ## 测试
 
@@ -247,6 +285,67 @@ go test ./backend/engine/task -count=1
 
 - `func WithSessionID(ctx context.Context, sessionID string) context.Context` — WithSessionID 返回携带会话 ID 的上下文（幂等覆盖）。
 - `func SessionIDFromContext(ctx context.Context) string` — SessionIDFromContext 返回 ctx 中的会话 ID；未注入时返回 ""。
+
+### ledger.go
+
+- `func NewLedger(host LedgerHost) *Ledger` — NewLedger 构造台账域。宿主是提供实时注册表读写面的实现（生产装配点是
+- `func (l *Ledger) Snapshot() []dto.TaskRecord` — Snapshot 返回**项目/全局** task 表只读快照（worktable 投影数据源）：
+- `func (l *Ledger) snapshotAll() []dto.TaskRecord` — snapshotAll 合并实时注册表与所有会话分区（跨会话身份去重：有幂等键
+- `func ledgerIdentity(record dto.TaskRecord) string` — ledgerIdentity 是跨会话台账的去重身份：幂等键优先（注册表按 Key 去重，
+- `func (l *Ledger) SnapshotFor(sessionID string) []dto.TaskRecord` — SnapshotFor 返回指定会话的 task 注册表快照（会话级读面：持久化落盘
+- `func (l *Ledger) Add(spec dto.TaskSpec) (dto.TaskRecord, bool, error)` — Add 主动登记 task（幂等：Key 命中返回既有记录，不重复建条目）。
+- `func (l *Ledger) AddFor(sessionID string, spec dto.TaskSpec) (dto.TaskRecord, bool, error)` — AddFor 按归属会话登记 task：当前任务会话写实时注册表，后台会话写自身
+- `func (l *Ledger) addPartition(sessionID string, spec dto.TaskSpec) (dto.TaskRecord, bool, error)` — addPartition 把 task 写入指定会话的 scope 分区（幂等：Key 命中返回既有记录）。
+- `func partitionOccupied(records []dto.TaskRecord, id string) bool` — partitionOccupied 判断分区里是否已有同 ID 行（分区行键同样是 ID）。
+- `func (l *Ledger) ResolveByKey(key string) (dto.TaskRecord, bool, error)` — ResolveByKey 按幂等键查 task（B6 子代理装配：查重命中 → 绑定既有 id）。
+- `func (l *Ledger) ResolveByKeyFor(sessionID, key string) (dto.TaskRecord, bool, error)` — ResolveByKeyFor 按归属会话查 task。
+- `func (l *Ledger) SetStatus(id string, status dto.TaskStatus, evidence string) (dto.TaskRecord, error)` — SetStatus 更新 task 状态（生命周期打点）。
+- `func (l *Ledger) SetStatusFor(sessionID, id string, status dto.TaskStatus, evidence string) (dto.TaskRecord, error)` — SetStatusFor 按归属会话更新 task 状态。
+- `func (l *Ledger) AttachParticipant(id, participant string) (dto.TaskRecord, error)` — AttachParticipant 记录参与节点（并行执行证明）。
+- `func (l *Ledger) AppendTrace(id string, point dto.TaskTracePoint) (dto.TaskRecord, error)` — AppendTrace 追加任务生命周期 trace 点。
+- `func (l *Ledger) SwitchSession(sessionID string, records []dto.TaskRecord)` — SwitchSession 会话切换：保存旧会话注册表快照到其 scope 分区，装载
+- `func (l *Ledger) SetBatch(sessionID, batchID string)` — SetBatch 设置会话级默认批次（application startChat 按会话调用；后台会话
+- `func (l *Ledger) BatchFor(sessionID string) string` — BatchFor 返回指定会话的默认批次（Add 盖章辅助；空 = 未启动）。
+- `func (l *Ledger) Changed() <-chan dto.TaskRecord` — Changed 返回 task.changed 输出 channel（CSP：变更即投递）。
+- `func (l *Ledger) TodoSnapshot() []dto.TodoItem` — TodoSnapshot 返回当前清单只读拷贝（application 快照投影数据源；主代理
+- `func (l *Ledger) SetTodoStatus(index int, status dto.TodoItemStatus) error` — SetTodoStatus 设置指定待办项的三态（GUI 工作表格人工状态更新入口；
+- `func (l *Ledger) TodoSnapshotFor(sessionID string) []dto.TodoItem` — TodoSnapshotFor 按归属会话读清单（工具族按调用会话取数）。
+- `func (l *Ledger) ReplaceTodoFor(sessionID string, items []dto.TodoItem) error` — ReplaceTodoFor 按归属会话整体替换清单（todo_init）。
+- `func (l *Ledger) AppendTodoFor(sessionID string, item dto.TodoItem, limit int) error` — AppendTodoFor 按归属会话追加清单项（todo_add；上限与注册表同一口径）。
+- `func (l *Ledger) SetTodoStatusFor(sessionID string, index int, status task.TaskStatus) (dto.TaskRecord, error)` — SetTodoStatusFor 按归属会话设置清单项三态（todo_done）。
+- `func todoItemsFromRecords(records []dto.TaskRecord) []dto.TodoItem` — todoItemsFromRecords 还原分区里的清单（按行顺序 = 清单顺序）。
+- `func todoRecordsIn(records []dto.TaskRecord) []dto.TaskRecord` — todoRecordsIn 返回分区里的清单行（保持顺序）。
+- `func todoRecordPositions(records []dto.TaskRecord) []int` — todoRecordPositions 返回清单行在分区里的下标（顺序即清单顺序）。
+- `func partitionWithoutTodo(records []dto.TaskRecord) []dto.TaskRecord` — partitionWithoutTodo 去掉分区里的清单行（整体替换清单用；任务行原样保留）。
+- `func todoRecordFromItem(item dto.TodoItem) dto.TaskRecord` — todoRecordFromItem 由清单项构造 kind=todo 的分区行：形状与注册表建的行同构
+
+### ledger_test.go
+
+- `func newFakeLedgerHost() *fakeLedgerHost`
+- `func (h *fakeLedgerHost) Snapshot() []dto.TaskRecord`
+- `func (h *fakeLedgerHost) Add(spec dto.TaskSpec) (dto.TaskRecord, bool, error)`
+- `func (h *fakeLedgerHost) ResolveByKey(key string) (dto.TaskRecord, bool, error)`
+- `func (h *fakeLedgerHost) SetStatus(id string, status dto.TaskStatus, _ string) (dto.TaskRecord, error)`
+- `func (h *fakeLedgerHost) AttachParticipant(id, participant string) (dto.TaskRecord, error)`
+- `func (h *fakeLedgerHost) AppendTrace(id string, point dto.TaskTracePoint) (dto.TaskRecord, error)`
+- `func (h *fakeLedgerHost) ReplaceAll(records []dto.TaskRecord) error`
+- `func (h *fakeLedgerHost) SetDefaultBatch(batchID string) error`
+- `func (h *fakeLedgerHost) TaskChanged() <-chan dto.TaskRecord`
+- `func (h *fakeLedgerHost) TodoSnapshot() []dto.TaskRecord`
+- `func (h *fakeLedgerHost) ReplaceTodo(items []dto.TodoItem) error`
+- `func (h *fakeLedgerHost) AppendTodo(item dto.TodoItem, limit int) error`
+- `func (h *fakeLedgerHost) SetTodoStatusByIndex(index int, status dto.TaskStatus) (dto.TaskRecord, error)`
+- `func todoItemsToSlice(records []dto.TaskRecord) []dto.TodoItem`
+- `func TestLedgerIdentityPrefersKeyOverRowID(t *testing.T)`
+- `func TestLedgerSnapshotMergesRegistryAndPartitions(t *testing.T)` — 全局读面是跨会话台账：实时注册表（归当前会话）+ 各会话分区（归分区键）
+- `func TestLedgerSnapshotDeduplicatesByKeyAcrossSources(t *testing.T)` — 跨会话去重身份：实时注册表优先；同一幂等键在两处出现只留一行。
+- `func TestLedgerAddForRoutesToOwningSession(t *testing.T)` — 写面按归属会话路由：当前/空会话写实时注册表，后台会话写自身 scope 分区
+- `func TestLedgerSetStatusForRoutesAndCountsRetries(t *testing.T)` — 状态写面：当前会话走注册表，后台会话改分区本体并记重试数；查不到给显式错误。
+- `func TestLedgerSwitchSessionMovesRegistryIntoPartition(t *testing.T)` — 会话切换：旧会话实时注册表落进自己的分区，目标会话分区被装载并清理。
+- `func TestLedgerBatchIsSessionScoped(t *testing.T)` — 会话级批次：只记会话归属；只有当前会话才下发注册表默认批次（L3 写隔离）。
+- `func TestLedgerTodoPartitionOrderLimitAndThreeStates(t *testing.T)` — 清单面：分区清单按行顺序读回；整体替换保留任务行；上限与三态判据各有显式错误。
+- `func TestLedgerWithoutHostReportsUnavailable(t *testing.T)` — 未装配宿主（零值 Ledger / nil 句柄）语义与迁移前一致：读面 nil、写面显式错误，
+- `func TestLedgerChangedPassesThroughHostChannel(t *testing.T)` — Changed 是注册表变更通道的透传（CSP：变更即投递）。
 
 ### plan_projection.go
 

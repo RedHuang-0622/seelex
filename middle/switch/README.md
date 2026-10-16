@@ -52,7 +52,7 @@
 | `unload_test.go` | 空 ID 与门控两轴（含装配缺陷）、非活跃/活跃两条次序、持久化/释放失败即停与三条文案 |
 | `fork.go` | `ForkGate` + `MaxTranscriptEventSeq` + `DeepCopyRecord`：会话分叉的门控次序与两个纯助手 |
 | `fork_test.go` | 门控三轴次序与装配缺陷、事件最大 seq、深拷贝（消息/Tool 指针/四个切片/注入的 PlanStack 克隆器） |
-| `async.go` | `AsyncCompletionTriggers` + 两条触发正文（`AsyncCompletionPrompt` / `TeamworkCompletionPrompt`）+ teammate 作业表窄端口读取 |
+| `async.go` | `AsyncCompletionTriggers`（终态词表）+ `TeamworkTriggeredPrefix`（幂等账按表键）+ teammate 作业表窄端口读取（两条触发正文留在宿主，等 kind 词表落定后再搬） |
 | `async_test.go` | 终态词表（done/failed 触发，killed/running 不触发）、两条正文的字段收窄与工具指向、窄端口读取与未装配降级 |
 | `history/` | 历史分页的窗口装配判据（见其 README） |
 
@@ -155,6 +155,8 @@ go test ./wiring/adapters/ -run SessionSetting -count=1        # 存储端口实
 
 - `const TeamworkTriggeredPrefix = "teamwork:"` — 幂等账的按表键前缀（表身份优先于字面量）。
 - `func AsyncCompletionTriggers(state dto.AsyncState) bool` — 触发口径认的两个终态（done / failed 触发；killed / running 不触发）。
-- `func AsyncCompletionPrompt(record dto.AsyncRunRecord, evidenceChars int) string` — 后台作业完成触发的用户行正文（字段收窄 + bg_manage 指向）。
-- `func TeamworkCompletionPrompt(record dto.TeamworkJobCompletionRecord, evidenceChars int) string` — teammate 完成回执正文（指向 team_context / jobs_manage / team_accept）。
 - `func TeamworkJobCompletions(runtime any) []dto.TeamworkJobCompletionRecord` / `func TeamworkJobEvents(runtime any) <-chan struct{}` — teammate 作业表的窄可选端口读取（未装配 = nil）。
+
+> 未搬的部分（登记）：两条**用户行正文**（`asyncCompletionPrompt` / `teamworkCompletionPrompt`）与
+> "kind → 展示词"的词表仍留在宿主——那张词表正被另一个在途切片搬去 `middle/view/worktable`
+> （`worktable.PromptKind` 尚未提交），等它落地后再搬，避免制造第二份词表。

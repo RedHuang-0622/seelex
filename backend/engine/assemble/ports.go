@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"time"
 
 	frameworkmcp "github.com/RedHuang-0622/Seele/tools/mcp"
@@ -15,6 +14,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/mcp"
 	"github.com/RedHuang-0622/seelex/backend/engine/schedule"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	subagentsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/backend/tool/task"
@@ -28,275 +28,132 @@ import (
 // contract/dto。mainAgentNodeID 是子代理树的合成根节点 ID。
 const mainAgentNodeID = model.MainAgentNodeID
 
-// ── task 端口 ─────────────────────────────────────────────────────
+// ── task 台账域端口（薄转发）────────────────────────────────────────
+//
+// 判据与状态都在 backend/engine/task.Ledger：跨会话台账合并（Snapshot）、
+// 会话 scope 分区读写、会话级批次、清单面。本层只把 Runtime 的公开面接到域
+// 实现上——nil 接收者与"注册表/清单未装配"的判据由域内**一处**给出，这里不
+// 写第二份。
 
-// TaskSnapshot 返回**项目/全局** task 表只读快照（worktable 投影数据源）：
-// 实时注册表（当前会话）与各会话 scope 分区合并，按跨会话身份去重（幂等键
-// 优先，否则行 ID）、稳定排序。自动条目的行 ID（`task:<n>`/`todo:<n>`）由
-// 进程级分配器给出，进程内唯一（见 task.NextAutoID）——同 ID 在台账里是同一
-// 行，重号会丢行。
-//
-// 工作表格是一条**跨会话台账**——会话只是条目的产生地，不是表格的作用域。
-// 切走/新建会话都不应让先前会话的条目从表里消失（用户看的是"这个项目在办
-// 什么"，不是"这个会话在办什么"）。会话级读面（持久化落盘、请求尾部打点
-// 块）走 TaskSnapshotFor，仍按会话取数。
-//
-// 每条记录带**归属会话**（SessionID：实时注册表 = 当前会话，分区 = 分区键）：
-// 台账默认全量展示，前端会话筛选轴（"仅本会话"）据此过滤——全局口径不牺牲
-// "这行是谁在办的"的可判定性。
-func (r *Runtime) TaskSnapshot() []dto.TaskRecord {
-	if r == nil || r.tasks == nil {
+// ledger 返回台账域句柄：nil 接收者与"未装配"都返回 nil 句柄，判据由域自己给
+// （见 Ledger 的 nil 防护）。
+func (r *Runtime) ledger() *task_context.Ledger {
+	if r == nil {
 		return nil
 	}
-	return r.taskSnapshotAll()
+	return r.taskLedger
 }
 
-// taskSnapshotAll 合并实时注册表与所有会话分区（跨会话身份去重：有幂等键
-// 按 Key、否则按 ID；注册表记录优先）。每条记录标注**归属会话**：实时注册表
-// 的记录归当前会话，分区记录归分区键——工作表格的会话筛选轴（默认全部、可
-// 切「仅本会话」）按此判定，否则合并后无法回答「这行是谁在办的」。
-func (r *Runtime) taskSnapshotAll() []dto.TaskRecord {
-	r.sessionTaskMu.Lock()
-	defer r.sessionTaskMu.Unlock()
-	live := r.tasks.Snapshot()
-	records := make([]dto.TaskRecord, 0, len(live))
-	seen := make(map[string]struct{}, len(live))
-	for _, record := range live {
-		record.SessionID = r.currentTaskSessionID
-		seen[taskLedgerIdentity(record)] = struct{}{}
-		records = append(records, record)
-	}
-	for sessionID, partition := range r.sessionTaskSnapshots {
-		for _, record := range partition {
-			identity := taskLedgerIdentity(record)
-			if _, exists := seen[identity]; exists {
-				continue
-			}
-			seen[identity] = struct{}{}
-			record.SessionID = sessionID
-			records = append(records, record)
-		}
-	}
-	sort.SliceStable(records, func(left, right int) bool { return records[left].ID < records[right].ID })
-	return records
-}
-
-// taskLedgerIdentity 是跨会话台账的去重身份：幂等键优先（注册表按 Key 去重，
-// plan/subagent/todo 与 task_add 都有稳定 Key），缺失时才回退行 ID。优先级
-// 不能反过来——同一 plan 节点/子代理/待办文本会在会话切换、恢复、跨进程冷读
-// 时以不同来源出现，Key 才是它们的同一性；而回退行 ID 的自动号现在由进程级
-// 分配器保证唯一（见 task.NextAutoID），不会把两个会话的条目并成一行、也不
-// 会重号丢行（外部分配/跨版本数据仍按 ObserveAutoID 抬高水位）。
-func taskLedgerIdentity(record dto.TaskRecord) string {
-	if record.Key != "" {
-		return "key:" + record.Key
-	}
-	return "id:" + record.ID
+// TaskSnapshot 返回**项目/全局** task 表只读快照（worktable 投影数据源）。
+func (r *Runtime) TaskSnapshot() []dto.TaskRecord {
+	return r.ledger().Snapshot()
 }
 
 // TaskSnapshotFor 返回指定会话的 task 注册表快照（会话级读面：持久化落盘
-// 与请求尾部打点块用）。后台会话（非当前 task 会话）返回切换时保存的分片
-// 快照；当前会话返回注册表实时快照；空会话 ID 视为当前。
-//
-// 注意：工作表格本体取全局读面（TaskSnapshot），不是这里——本方法刻意保持
-// 会话粒度，避免把别的会话的活动任务注入本会话上下文；也刻意**不**标注
-// SessionID（调用方本来就知道是哪个会话，且本方法服务于落盘——归属会话由
-// 容器 `SessionRecord` 表达，不必写进每条记录）。
+// 与请求尾部打点块用）。
 func (r *Runtime) TaskSnapshotFor(sessionID string) []dto.TaskRecord {
-	if r == nil || r.tasks == nil {
-		return nil
-	}
-	r.sessionTaskMu.Lock()
-	defer r.sessionTaskMu.Unlock()
-	if sessionID == "" || sessionID == r.currentTaskSessionID {
-		return r.tasks.Snapshot()
-	}
-	return append([]dto.TaskRecord(nil), r.sessionTaskSnapshots[sessionID]...)
+	return r.ledger().SnapshotFor(sessionID)
 }
 
 // TaskAdd 主动登记 task（幂等：Key 命中返回既有记录，不重复建条目）。
 func (r *Runtime) TaskAdd(spec dto.TaskSpec) (dto.TaskRecord, bool, error) {
-	if r == nil || r.tasks == nil {
-		return dto.TaskRecord{}, false, errors.New("task: registry unavailable")
-	}
-	return r.tasks.Add(spec)
+	return r.ledger().Add(spec)
 }
 
 // TaskAddFor 按归属会话登记 task：当前任务会话写实时注册表，后台会话写自身
 // scope 分区（R6/P2 收口：写自有域，后台任务不再污染当前注册表）。
 func (r *Runtime) TaskAddFor(sessionID string, spec dto.TaskSpec) (dto.TaskRecord, bool, error) {
-	if r == nil || r.tasks == nil {
-		return dto.TaskRecord{}, false, errors.New("task: registry unavailable")
-	}
-	r.sessionTaskMu.Lock()
-	current := r.currentTaskSessionID
-	r.sessionTaskMu.Unlock()
-	if sessionID == "" || sessionID == current {
-		return r.tasks.Add(spec)
-	}
-	return r.addTaskPartition(sessionID, spec)
-}
-
-// addTaskPartition 把 task 写入指定会话的 scope 分区（幂等：Key 命中返回既有记录）。
-//
-// 自动 ID 取**进程级**分配器（见 task.NextAutoID）：分区里"每个会话各自从 1
-// 数"会让两个会话的无显式 ID 条目同号——跨会话台账按行 ID 去重时丢行，前端
-// keyed reconciliation 也只认一行。
-func (r *Runtime) addTaskPartition(sessionID string, spec dto.TaskSpec) (dto.TaskRecord, bool, error) {
-	r.sessionTaskMu.Lock()
-	defer r.sessionTaskMu.Unlock()
-	if r.sessionTaskSnapshots == nil {
-		r.sessionTaskSnapshots = make(map[string][]dto.TaskRecord)
-	}
-	records := r.sessionTaskSnapshots[sessionID]
-	if spec.Key != "" {
-		for _, record := range records {
-			if record.Key == spec.Key {
-				return record, false, nil
-			}
-		}
-	}
-	id := spec.ID
-	if id == "" {
-		id = task.NextAutoID("task")
-		for partitionOccupied(records, id) {
-			id = task.NextAutoID("task")
-		}
-	} else {
-		task.ObserveAutoID(id)
-	}
-	record := dto.TaskRecord{
-		ID: id, Key: spec.Key, Phase: spec.Phase, Task: spec.Task, Description: spec.Description,
-		Status: dto.TaskPending, Assignee: spec.Assignee, Kind: spec.Kind,
-		Dependencies: append([]string(nil), spec.Dependencies...),
-		Attachments:  append([]string(nil), spec.Attachments...),
-	}
-	r.sessionTaskSnapshots[sessionID] = append(records, record)
-	return record, true, nil
-}
-
-// partitionOccupied 判断分区里是否已有同 ID 行（分区行键同样是 ID）。
-func partitionOccupied(records []dto.TaskRecord, id string) bool {
-	for _, record := range records {
-		if record.ID == id {
-			return true
-		}
-	}
-	return false
+	return r.ledger().AddFor(sessionID, spec)
 }
 
 // ResolveTaskByKey 按幂等键查 task（B6 子代理装配：查重命中 → 绑定既有 id）。
 func (r *Runtime) ResolveTaskByKey(key string) (dto.TaskRecord, bool, error) {
-	if r == nil || r.tasks == nil {
-		return dto.TaskRecord{}, false, errors.New("task: registry unavailable")
-	}
-	return r.tasks.ResolveByKey(key)
+	return r.ledger().ResolveByKey(key)
 }
 
 // ResolveTaskByKeyFor 按归属会话查 task。
 func (r *Runtime) ResolveTaskByKeyFor(sessionID, key string) (dto.TaskRecord, bool, error) {
-	if r == nil || r.tasks == nil {
-		return dto.TaskRecord{}, false, errors.New("task: registry unavailable")
-	}
-	r.sessionTaskMu.Lock()
-	current := r.currentTaskSessionID
-	r.sessionTaskMu.Unlock()
-	if sessionID == "" || sessionID == current {
-		return r.tasks.ResolveByKey(key)
-	}
-	r.sessionTaskMu.Lock()
-	defer r.sessionTaskMu.Unlock()
-	for _, record := range r.sessionTaskSnapshots[sessionID] {
-		if record.Key == key {
-			return record, true, nil
-		}
-	}
-	return dto.TaskRecord{}, false, nil
+	return r.ledger().ResolveByKeyFor(sessionID, key)
 }
 
 // TaskSetStatus 更新 task 状态（生命周期打点）。
 func (r *Runtime) TaskSetStatus(id string, status dto.TaskStatus, evidence string) (dto.TaskRecord, error) {
-	if r == nil || r.tasks == nil {
-		return dto.TaskRecord{}, errors.New("task: registry unavailable")
-	}
-	return r.tasks.SetStatus(id, status, evidence)
+	return r.ledger().SetStatus(id, status, evidence)
 }
 
 // TaskSetStatusFor 按归属会话更新 task 状态。
 func (r *Runtime) TaskSetStatusFor(sessionID, id string, status dto.TaskStatus, evidence string) (dto.TaskRecord, error) {
-	if r == nil || r.tasks == nil {
-		return dto.TaskRecord{}, errors.New("task: registry unavailable")
-	}
-	r.sessionTaskMu.Lock()
-	current := r.currentTaskSessionID
-	r.sessionTaskMu.Unlock()
-	if sessionID == "" || sessionID == current {
-		return r.tasks.SetStatus(id, status, evidence)
-	}
-	r.sessionTaskMu.Lock()
-	defer r.sessionTaskMu.Unlock()
-	records := r.sessionTaskSnapshots[sessionID]
-	for index := range records {
-		if records[index].ID != id {
-			continue
-		}
-		record := records[index]
-		record.Status = status
-		if status == dto.TaskRetry {
-			record.RetryCount++
-		}
-		records[index] = record
-		r.sessionTaskSnapshots[sessionID] = records
-		return record, nil
-	}
-	return dto.TaskRecord{}, fmt.Errorf("task %q not found in session %q scope", id, sessionID)
+	return r.ledger().SetStatusFor(sessionID, id, status, evidence)
 }
 
 // TaskAttachParticipant 记录参与节点（并行执行证明）。
 func (r *Runtime) TaskAttachParticipant(id, participant string) (dto.TaskRecord, error) {
-	if r == nil || r.tasks == nil {
-		return dto.TaskRecord{}, errors.New("task: registry unavailable")
-	}
-	return r.tasks.AttachParticipant(id, participant)
+	return r.ledger().AttachParticipant(id, participant)
 }
 
 // TaskAppendTrace 追加任务生命周期 trace 点。
 func (r *Runtime) TaskAppendTrace(id string, point dto.TaskTracePoint) (dto.TaskRecord, error) {
-	if r == nil || r.tasks == nil {
-		return dto.TaskRecord{}, errors.New("task: registry unavailable")
-	}
-	return r.tasks.AppendTrace(id, point)
+	return r.ledger().AppendTrace(id, point)
 }
 
 // SwitchSessionTasks 会话切换：保存旧会话注册表快照到其 scope 分区，装载
-// 目标会话分区记录到当前注册表。sessionID 为空 = 进入草稿（无会话归属）。
-// 与旧语义的关键差异：后台会话的 TaskAddFor 分区写不再被切换覆盖（换血
-// 只作用于当前注册表本身，分区是写自有域的权威存储）。
-//
-// 注意：本方法只改变**当前会话**的实时注册表；工作表格走全局读面
-// （TaskSnapshot = 实时注册表 + 全部分区），切走/新建都不丢行。
+// 目标会话分区记录到当前注册表（空会话 ID = 进入草稿）。工作表格走全局读面，
+// 切走/新建都不丢行。
 func (r *Runtime) SwitchSessionTasks(sessionID string, records []dto.TaskRecord) {
-	if r == nil || r.tasks == nil {
-		return
-	}
-	r.sessionTaskMu.Lock()
-	defer r.sessionTaskMu.Unlock()
-	current := r.tasks.Snapshot()
-	if r.currentTaskSessionID != "" && r.currentTaskSessionID != sessionID {
-		r.sessionTaskSnapshots[r.currentTaskSessionID] = current
-	}
-	r.currentTaskSessionID = sessionID
-	// 目标会话已装载进当前注册表后，其分区即过期（实时读当前注册表）；
-	// 删除避免后续 TaskSnapshotFor 读到陈旧分片。
-	if sessionID != "" {
-		delete(r.sessionTaskSnapshots, sessionID)
-	}
-	_ = r.tasks.ReplaceAll(records)
+	r.ledger().SwitchSession(sessionID, records)
+}
+
+// TaskChangedChannel 返回 task.changed 输出 channel（CSP：变更即投递）。
+func (r *Runtime) TaskChangedChannel() <-chan dto.TaskRecord {
+	return r.ledger().Changed()
+}
+
+// SetCurrentTaskBatch 设置会话级默认批次（application startChat 按会话调用；
+// 后台会话不覆盖活跃注册表默认批次——L3 写隔离）。
+func (r *Runtime) SetCurrentTaskBatch(sessionID, batchID string) {
+	r.ledger().SetBatch(sessionID, batchID)
+}
+
+// CurrentTaskBatchFor 返回指定会话的默认批次（TaskAdd 盖章辅助；空 = 未启动）。
+func (r *Runtime) CurrentTaskBatchFor(sessionID string) string {
+	return r.ledger().BatchFor(sessionID)
+}
+
+// TodoSnapshot 返回当前清单只读拷贝（application 快照投影数据源；主代理
+// 每次 todolist_* 工具完成经 runtime.changed 增量带到 GUI）。
+func (r *Runtime) TodoSnapshot() []dto.TodoItem {
+	return r.ledger().TodoSnapshot()
+}
+
+// SetTodoStatus 设置指定待办项的三态（GUI 工作表格人工状态更新入口；
+// 只改状态，不新增工具族——todolist 仍是 harness 默认工具族）。
+func (r *Runtime) SetTodoStatus(index int, status dto.TodoItemStatus) error {
+	return r.ledger().SetTodoStatus(index, status)
+}
+
+// TodoSnapshotFor 按归属会话读清单（工具族按调用会话取数）。
+func (r *Runtime) TodoSnapshotFor(sessionID string) []dto.TodoItem {
+	return r.ledger().TodoSnapshotFor(sessionID)
+}
+
+// ReplaceTodoFor 按归属会话整体替换清单（todo_init）。
+func (r *Runtime) ReplaceTodoFor(sessionID string, items []dto.TodoItem) error {
+	return r.ledger().ReplaceTodoFor(sessionID, items)
+}
+
+// AppendTodoFor 按归属会话追加清单项（todo_add；上限与注册表同一口径）。
+func (r *Runtime) AppendTodoFor(sessionID string, item dto.TodoItem, limit int) error {
+	return r.ledger().AppendTodoFor(sessionID, item, limit)
+}
+
+// SetTodoStatusFor 按归属会话设置清单项三态（todo_done）。
+func (r *Runtime) SetTodoStatusFor(sessionID string, index int, status task.TaskStatus) (dto.TaskRecord, error) {
+	return r.ledger().SetTodoStatusFor(sessionID, index, status)
 }
 
 // SetSessionWorkspace 记录会话绑定的 workspace ID（application 在恢复/
 // 物化/绑定工作区时通知；framework DurableHistory 按显式键落盘，R3 键
-// 漂移收敛）。
+// 漂移收敛）。会话绑定事实，不属 task 台账域。
 func (r *Runtime) SetSessionWorkspace(sessionID, workspaceID string) {
 	if r == nil {
 		return
@@ -306,46 +163,8 @@ func (r *Runtime) SetSessionWorkspace(sessionID, workspaceID string) {
 	r.sessionWorkspacesMu.Unlock()
 }
 
-// SetCurrentTaskBatch 设置会话级默认批次（application startChat 按会话
-// 调用；后台会话不覆盖活跃注册表默认批次——L3 写隔离）。
-func (r *Runtime) SetCurrentTaskBatch(sessionID, batchID string) {
-	if r == nil || r.tasks == nil {
-		return
-	}
-	r.sessionTaskMu.Lock()
-	current := r.currentTaskSessionID
-	r.sessionTaskMu.Unlock()
-	r.sessionBatchesMu.Lock()
-	if r.sessionBatches == nil {
-		r.sessionBatches = make(map[string]string)
-	}
-	r.sessionBatches[sessionID] = batchID
-	r.sessionBatchesMu.Unlock()
-	if sessionID == current {
-		_ = r.tasks.SetDefaultBatch(batchID)
-	}
-}
-
-// CurrentTaskBatchFor 返回指定会话的默认批次（TaskAdd 盖章辅助；空 =
-// 未启动）。
-func (r *Runtime) CurrentTaskBatchFor(sessionID string) string {
-	if r == nil {
-		return ""
-	}
-	r.sessionBatchesMu.Lock()
-	defer r.sessionBatchesMu.Unlock()
-	return r.sessionBatches[sessionID]
-}
-
-// TaskChangedChannel 返回 task.changed 输出 channel（CSP：变更即投递）。
-func (r *Runtime) TaskChangedChannel() <-chan dto.TaskRecord {
-	if r == nil || r.tasks == nil {
-		return nil
-	}
-	return r.tasks.TaskChanged()
-}
-
 // RegisterTaskTerminalTools 把终态工具 provider 注册进工具注册表（幂等）。
+// 状态是**工具注册表**（不属 task 台账域），故留在装配层。
 func (r *Runtime) RegisterTaskTerminalTools(handler task.TaskTerminalHandler) {
 	state := r.registry
 	if state == nil || state.Registry == nil {
@@ -808,186 +627,6 @@ func (r *Runtime) SearchHistory(ctx context.Context, query string, limit int) (s
 	}
 	searcher := search.New(stack, search.NewRouterEventSource(router, router.Workspace(), r.MainSessionID()))
 	return searcher.Search(ctx, query, search.Options{Limit: limit})
-}
-
-// ── todolist/task 端口 ────────────────────────────────────────────
-
-// TodoSnapshot 返回当前清单只读拷贝（application 快照投影数据源；主代理
-// 每次 todolist_* 工具完成经 runtime.changed 增量带到 GUI）。
-func (r *Runtime) TodoSnapshot() []dto.TodoItem {
-	if r == nil || r.tasks == nil {
-		return nil
-	}
-	records := r.tasks.TodoSnapshot()
-	items := make([]dto.TodoItem, 0, len(records))
-	for _, record := range records {
-		items = append(items, task.TaskToTodoItem(record))
-	}
-	return items
-}
-
-// SetTodoStatus 设置指定待办项的三态（GUI 工作表格人工状态更新入口；
-// 只改状态，不新增工具族——todolist 仍是 harness 默认工具族）。
-func (r *Runtime) SetTodoStatus(index int, status dto.TodoItemStatus) error {
-	if r == nil || r.tasks == nil {
-		return errors.New("todolist: unavailable")
-	}
-	if !task.ValidTodoStatus(status) {
-		return fmt.Errorf("todolist: invalid status %q (want pending|doing|done)", status)
-	}
-	_, err := r.tasks.SetTodoStatusByIndex(index, task.TodoToTaskStatus(status))
-	return err
-}
-
-// ── todolist 工具族的会话归属（2026-09-29）────────────────────────────
-//
-// 工具族（todo_init/add/done/status）与 taskadd 同一口径：写的是**调用它的那个
-// 会话**的 scope。子代理看得见清单工具族，而子代理可能在后台会话里跑——若走实时
-// 注册表，它的 todo_init 会把**当前视图会话**的清单整表顶掉，行也贴错会话号
-// （工作表格会话轴张冠李戴）。清单项在注册表里就是 kind=todo 的 task 行，因此
-// 会话级读面与 task 分区同构：分区里按 Kind=="todo" 的**顺序**表达清单顺序。
-//
-// 空会话键 = 无 ctx 归属（旧调用面）→ 实时注册表，保持既有行为。
-
-// TodoSnapshotFor 按归属会话读清单（工具族按调用会话取数）。
-func (r *Runtime) TodoSnapshotFor(sessionID string) []dto.TodoItem {
-	if r == nil || r.tasks == nil {
-		return nil
-	}
-	r.sessionTaskMu.Lock()
-	current := r.currentTaskSessionID
-	records := append([]dto.TaskRecord(nil), r.sessionTaskSnapshots[sessionID]...)
-	r.sessionTaskMu.Unlock()
-	if sessionID == "" || sessionID == current {
-		return r.TodoSnapshot()
-	}
-	return todoItemsFromRecords(records)
-}
-
-// ReplaceTodoFor 按归属会话整体替换清单（todo_init）。
-func (r *Runtime) ReplaceTodoFor(sessionID string, items []dto.TodoItem) error {
-	if r == nil || r.tasks == nil {
-		return errors.New("todolist: unavailable")
-	}
-	r.sessionTaskMu.Lock()
-	current := r.currentTaskSessionID
-	r.sessionTaskMu.Unlock()
-	if sessionID == "" || sessionID == current {
-		return r.tasks.ReplaceTodo(items)
-	}
-	r.sessionTaskMu.Lock()
-	defer r.sessionTaskMu.Unlock()
-	records := partitionWithoutTodo(r.sessionTaskSnapshots[sessionID])
-	for _, item := range items {
-		records = append(records, todoRecordFromItem(item))
-	}
-	r.sessionTaskSnapshots[sessionID] = records
-	return nil
-}
-
-// AppendTodoFor 按归属会话追加清单项（todo_add；上限与注册表同一口径）。
-func (r *Runtime) AppendTodoFor(sessionID string, item dto.TodoItem, limit int) error {
-	if r == nil || r.tasks == nil {
-		return errors.New("todolist: unavailable")
-	}
-	r.sessionTaskMu.Lock()
-	current := r.currentTaskSessionID
-	r.sessionTaskMu.Unlock()
-	if sessionID == "" || sessionID == current {
-		return r.tasks.AppendTodo(item, limit)
-	}
-	r.sessionTaskMu.Lock()
-	defer r.sessionTaskMu.Unlock()
-	records := r.sessionTaskSnapshots[sessionID]
-	if limit > 0 && len(todoRecordsIn(records)) >= limit {
-		return fmt.Errorf("todo_add: list already at limit %d", limit)
-	}
-	r.sessionTaskSnapshots[sessionID] = append(records, todoRecordFromItem(item))
-	return nil
-}
-
-// SetTodoStatusFor 按归属会话设置清单项三态（todo_done）。
-func (r *Runtime) SetTodoStatusFor(sessionID string, index int, status task.TaskStatus) (dto.TaskRecord, error) {
-	if r == nil || r.tasks == nil {
-		return dto.TaskRecord{}, errors.New("todolist: unavailable")
-	}
-	r.sessionTaskMu.Lock()
-	current := r.currentTaskSessionID
-	r.sessionTaskMu.Unlock()
-	if sessionID == "" || sessionID == current {
-		return r.tasks.SetTodoStatusByIndex(index, status)
-	}
-	r.sessionTaskMu.Lock()
-	defer r.sessionTaskMu.Unlock()
-	records := r.sessionTaskSnapshots[sessionID]
-	positions := todoRecordPositions(records)
-	if index < 0 || index >= len(positions) {
-		return dto.TaskRecord{}, fmt.Errorf("todo_done: index %d out of range (0..%d)", index, len(positions)-1)
-	}
-	position := positions[index]
-	if status != task.TaskPending && status != task.TaskDoing && status != task.TaskCompleted {
-		return dto.TaskRecord{}, fmt.Errorf("task: todo 只支持三态 pending/doing/completed，不能迁移到 %s", status)
-	}
-	records[position].Status = status
-	r.sessionTaskSnapshots[sessionID] = records
-	return records[position], nil
-}
-
-// todoItemsFromRecords 还原分区里的清单（按行顺序 = 清单顺序）。
-func todoItemsFromRecords(records []dto.TaskRecord) []dto.TodoItem {
-	items := make([]dto.TodoItem, 0, len(records))
-	for _, record := range records {
-		if record.Kind != "todo" {
-			continue
-		}
-		items = append(items, task.TaskToTodoItem(record))
-	}
-	return items
-}
-
-// todoRecordsIn 返回分区里的清单行（保持顺序）。
-func todoRecordsIn(records []dto.TaskRecord) []dto.TaskRecord {
-	todos := make([]dto.TaskRecord, 0, len(records))
-	for _, record := range records {
-		if record.Kind == "todo" {
-			todos = append(todos, record)
-		}
-	}
-	return todos
-}
-
-// todoRecordPositions 返回清单行在分区里的下标（顺序即清单顺序）。
-func todoRecordPositions(records []dto.TaskRecord) []int {
-	positions := make([]int, 0, len(records))
-	for index, record := range records {
-		if record.Kind == "todo" {
-			positions = append(positions, index)
-		}
-	}
-	return positions
-}
-
-// partitionWithoutTodo 去掉分区里的清单行（整体替换清单用；任务行原样保留）。
-func partitionWithoutTodo(records []dto.TaskRecord) []dto.TaskRecord {
-	kept := make([]dto.TaskRecord, 0, len(records))
-	for _, record := range records {
-		if record.Kind == "todo" {
-			continue
-		}
-		kept = append(kept, record)
-	}
-	return kept
-}
-
-// todoRecordFromItem 由清单项构造 kind=todo 的分区行：形状与注册表建的行同构
-// （Phase=tasklist、Key=todo:<文本>、状态三态映射），ID 取**进程级**分配器——
-// 分区里"每个会话各自从 1 数"会让跨会话台账同号去重丢行（见 addTaskPartition）。
-func todoRecordFromItem(item dto.TodoItem) dto.TaskRecord {
-	id := task.NextAutoID("todo")
-	return dto.TaskRecord{
-		ID: id, Key: "todo:" + item.Text, Phase: dto.TaskPhaseTasklist,
-		Task: item.Text, Status: task.TodoToTaskStatus(item.Status), Kind: "todo",
-	}
 }
 
 // ── actor 消息边界（应用 → Runtime 单向发布）──────────────────────
