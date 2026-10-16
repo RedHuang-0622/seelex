@@ -29,6 +29,9 @@
    `gap` **只报告**（明说内容仍在磁盘，不发布不清理不猜测）；
 5. 判据与文案只此一份：空会话 ID 拒绝（`session ID is required`）、未装配存储
    （`ErrMetaUnsupported` = "session meta storage is not assembled"）、写盘失败冒泡且**不**唤醒。
+6. 队列编辑面判据（`queue.go`，M5-R6-queue-edit 接收者转移）：`QueueEditGate`（关闭优先于排空；缺错误值
+   响亮失败）、`QueueTargetSession` / `QueueTargetError`（空 = 视图会话；视图会话未注册按"没有回合在跑"）、
+   以及两个越界文案构造器与三个哨兵（宿主侧保留旧名作为**同一错误值别名**）。
 
 **不做**：不做会话事实（谁在跑、绑定哪个工作区）；不持久化（元数据落在存储层的项目级 meta blob，
 由宿主端口 `MetaStore` 代劳）；不发布事件（目录刷新由宿主的 `Wake` 回调负责）。
@@ -43,6 +46,8 @@
 | `release_test.go` | 忙态四轴、受保护集四条来源、空会话 ID 与空视图 ID 的边界 |
 | `pendingtail.go` | `PendingTailDeps` + `RecoverPendingTail`：草稿尾恢复的决策表与四条提示文案 |
 | `pendingtail_test.go` | 运行中不探测 / clean·未知静默 / 恢复并报数 / gap 只报告 / 探测与恢复失败的文案 |
+| `queue.go` | 队列编辑面：`ErrQueue*` 三哨兵 + `QueueEditGate` / `QueueTargetSession` / `QueueTargetError` / 两个越界文案 |
+| `queue_test.go` | 门禁次序与装配缺陷、目标会话解析（空/trim/未注册）、三条拒绝文案、越界文案与哨兵身份 |
 | `history/` | 历史分页的窗口装配判据（见其 README） |
 
 ## 核心实现
@@ -116,3 +121,12 @@ go test ./wiring/adapters/ -run SessionSetting -count=1        # 存储端口实
 
 - `type PendingTailDeps struct` — 草稿尾决策的宿主面（`Running` / `Probe` / `Recover` 三个窄口）。
 - `func RecoverPendingTail(deps PendingTailDeps, sessionID string) string` — 冷加载时探测/恢复草稿尾，返回要补进可见会话的 system 提示（"" = 静默）。
+
+### queue.go
+
+- `var ErrQueueNotRunning` / `ErrQueueSessionNotFound` / `ErrQueueIndexOutOfRange` — 队列编辑的三个哨兵（宿主侧保留同值别名）。
+- `type QueueGateErrors struct` — 门禁要原样返回的宿主错误值（`Closed` / `Draining`）。
+- `func QueueEditGate(closed, draining bool, errs QueueGateErrors) error` — 关闭优先于排空的队列编辑门禁；缺错误值即 `ErrQueueGateUnassembled`。
+- `func QueueTargetSession(sessionID, viewSessionID string) string` — 解析目标会话（空 = 视图会话）。
+- `func QueueTargetError(sessionID, viewSessionID string, known, running bool) error` — 目标会话可否编辑（未知 → SessionNotFound；未运行 → NotRunning；都带会话 ID）。
+- `func ReorderIndexError(from, to int) error` / `func RecallIndexError(index int) error` — 两个越界文案构造器。

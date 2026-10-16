@@ -8,6 +8,7 @@ import (
 	seelsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/middle/switch"
 	"github.com/RedHuang-0622/seelex/middle/view/board"
 	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 )
@@ -35,13 +36,13 @@ var (
 	ErrSessionSnapshotUnavailable = errors.New("session snapshot unavailable: no resident engine and no persisted record")
 	// ErrEmptySearchQuery 是历史检索空查询拒绝（检索必须有关键词）。
 	ErrEmptySearchQuery = errors.New("search_history: query is required")
-	// ErrQueueNotRunning 表示目标会话当前没有运行中的回合，因此不存在可
-	// 调换/撤回的「排队中」输入（队列只在回合运行期间承接输入）。
-	ErrQueueNotRunning = errors.New("no queued input: session is not running")
-	// ErrQueueIndexOutOfRange 表示调换/撤回的队列下标越界。
-	ErrQueueIndexOutOfRange = errors.New("queued input index out of range")
-	// ErrQueueSessionNotFound 表示目标会话不在会话域注册表中（不存在）。
-	ErrQueueSessionNotFound = errors.New("queue session not found")
+	// ErrQueueNotRunning / ErrQueueIndexOutOfRange / ErrQueueSessionNotFound 的**判据**
+	// 已在 M5-R6-queue-edit 随接收者转移归位 `middle/switch`（plan §2.4 的 `service_queue.go`）；
+	// 这三个名字是宿主侧的兼容面，与 `switching.ErrQueue*` 是**同一个错误值**
+	// （`errors.Is` 两个名字都成立，对外语义不拆）。
+	ErrQueueNotRunning      = switching.ErrQueueNotRunning
+	ErrQueueIndexOutOfRange = switching.ErrQueueIndexOutOfRange
+	ErrQueueSessionNotFound = switching.ErrQueueSessionNotFound
 	// ErrDraftNotInView 是草稿提交的归属门：草稿槽是进程单例，只有视图指针仍停在
 	// 那份草稿上时才能就地物化（物化会把共享视图镜像切到该 SID）。渲染层拿着过期
 	// 快照把输入发给一份已不在视图里的草稿时，明确失败比"投进别的会话"安全。
