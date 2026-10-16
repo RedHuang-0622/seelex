@@ -2,13 +2,12 @@ package core
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/middle/view/worktable"
+	"github.com/RedHuang-0622/seelex/middle/switch"
 )
 
 // ── 后台作业终态触发对话 ────────────────────────────────────────────────
@@ -40,13 +39,6 @@ import (
 // 开关：`limits.async_exec.trigger_conversation`（默认 false = 关，与 async_exec
 // 同一套"关就是关"的纪律）；关闭时调用方连扫描都不做。
 
-// asyncStateDone / asyncStateFailed 是触发口径认的两个终态：**转调契约的词表**
-// （dto.AsyncState*，字面量只有那一处），这里只是给触发口径起名，不新增第二套状态机。
-const (
-	asyncStateDone   = dto.AsyncStateDone
-	asyncStateFailed = dto.AsyncStateFailed
-)
-
 // triggerAsyncCompletions 对登记表做一次全量扫描：把"终态 + 会话空闲 + 还没触发过"
 // 的作业各自起一个回合。
 //
@@ -67,7 +59,7 @@ func (service *Service) triggerAsyncCompletions(triggered map[string]struct{}) {
 		// 裁剪账本：登记表里已经没有的句柄（被取回 / 销项 / 驱逐）从集合里去掉，
 		// 集合因此被登记表规模封顶，不会随进程存活时长无限增长。
 		present[handle] = struct{}{}
-		if !asyncCompletionTriggers(record.State) {
+		if !switching.AsyncCompletionTriggers(record.State) {
 			continue
 		}
 		sessionID := strings.TrimSpace(record.SessionID)
@@ -84,7 +76,7 @@ func (service *Service) triggerAsyncCompletions(triggered map[string]struct{}) {
 		}
 		// 先记账再提交：提交失败（关闭中/排空中）不该让每一次后续信号都重放一次。
 		triggered[handle] = struct{}{}
-		if err := service.submitConversationFor(context.Background(), sessionID, asyncCompletionPrompt(record)); err != nil {
+		if err := service.submitConversationFor(context.Background(), sessionID, switching.AsyncCompletionPrompt(record, Limits().EvidenceChars)); err != nil {
 			log.Printf("[async] 后台作业 %s 终态触发对话失败（session=%s）：%v", handle, sessionID, err)
 		}
 	}
@@ -93,12 +85,6 @@ func (service *Service) triggerAsyncCompletions(triggered map[string]struct{}) {
 			delete(triggered, handle)
 		}
 	}
-}
-
-// asyncCompletionTriggers 报告某个状态是否该触发对话。
-// done / failed 触发（用户口径 2026-10-01）；killed 与 running 都不触发。
-func asyncCompletionTriggers(state dto.AsyncState) bool {
-	return state == asyncStateDone || state == asyncStateFailed
 }
 
 // sessionIdleForAsyncTrigger 报告目标会话此刻是否**空闲到可以起一个新回合**。
@@ -125,34 +111,15 @@ func (service *Service) sessionIdleForAsyncTrigger(sessionID string) bool {
 	return !unit.ChatState().Running
 }
 
-// asyncCompletionPrompt 组装触发回合的正文。
-//
-// 它是一条**用户行**（走 submitConversationFor 的正常输入路径），因此必须自带上下文：
-// 用户会看到"为什么这里多了一轮"，模型也需要知道去取哪一条。字段刻意收窄到
-// handle / kind / state / exit / 有界摘要 / 有界标题——与打点块同一份口径
-// （绝对路径、末行原文、时间戳都不进上下文，见 dto.AsyncRunRecord 的字段分层）。
-func asyncCompletionPrompt(record dto.AsyncRunRecord) string {
-	var body strings.Builder
-	body.WriteString("后台作业已完成，请取回结果并继续：\n")
-	fmt.Fprintf(&body, "- handle: %s（kind=%s）\n", record.Handle, asyncPromptKind(record.Kind))
-	fmt.Fprintf(&body, "- 状态: %s · exit=%d\n", record.State, record.ExitCode)
-	if title := strings.TrimSpace(record.Description); title != "" {
-		fmt.Fprintf(&body, "- 作业: %s\n", worktable.TruncateWorkEvidence(title, 200))
-	}
-	if summary := strings.TrimSpace(record.Summary); summary != "" {
-		fmt.Fprintf(&body, "- 摘要: %s\n", worktable.TruncateWorkEvidence(summary, Limits().EvidenceChars))
-	}
-	fmt.Fprintf(&body, "取回全文用 bg_manage(op=fetch, handle=%q)；确认不需要了用 bg_manage(op=done, handle=%q) 销项。",
-		record.Handle, record.Handle)
-	return body.String()
+// teamworkJobCompletions / teamworkJobEvents 是 teammate 作业表的**宿主转发**：
+// 判据（窄可选端口读取）已在 M5-R6-async-completion 归位 `middle/switch`
+// （plan §2.4）；core 内部与 work_table.go 的调用点因此零改动。
+func teamworkJobCompletions(runtime contract.RuntimePort) []dto.TeamworkJobCompletionRecord {
+	return switching.TeamworkJobCompletions(runtime)
 }
 
-// asyncPromptKind 是进正文前的类别兜底：类别缺失时按 process 读，与打点块同口径。
-func asyncPromptKind(kind string) string {
-	if trimmed := strings.TrimSpace(kind); trimmed != "" {
-		return trimmed
-	}
-	return "process"
+func teamworkJobEvents(runtime contract.RuntimePort) <-chan struct{} {
+	return switching.TeamworkJobEvents(runtime)
 }
 
 // ── teammate 作业终态触发对话（2026-10-04）────────────────────────────
@@ -170,19 +137,13 @@ func asyncPromptKind(kind string) string {
 // 一处**刻意不同**：正文指向 `jobs_manage` 与 `team_context`，不是 `bg_manage`——
 // 两张表的取回工具不是同一个，指错了模型就会去一个取不到这条作业的地方捞。
 
-// teamworkTriggeredPrefix 是幂等账的**按表**键前缀。句柄现在自带命名空间（`bt-` / `bs-` /
-// `bteam-`，见 dto.JobNamespace），字面量撞车在语法上已不可能；这个前缀仍然留着，因为
-// 幂等账的口径是"哪张表的哪一条"，不是"哪一串字符"——靠字面量区分本来就是当年那张表
-// 各铸 `a<seq>` 时的将就（2026-10-15 审计 D1）。
-const teamworkTriggeredPrefix = "teamwork:"
-
 // triggerTeamworkJobCompletions 对 teammate 作业表做一次全量扫描：把"终态 + 会话空闲 +
 // 还没触发过"的作业各自起一个回合。
 //
 // 与 triggerAsyncCompletions 同一形状（全量扫描 + 幂等账 + 只唤醒空闲会话）：登记表是
 // 唯一事实源，信号只承诺"有事发生"。
 func (service *Service) triggerTeamworkJobCompletions(triggered map[string]struct{}) {
-	records := teamworkJobCompletions(service.Deps.Runtime)
+	records := switching.TeamworkJobCompletions(service.Deps.Runtime)
 	if len(records) == 0 {
 		return
 	}
@@ -192,9 +153,9 @@ func (service *Service) triggerTeamworkJobCompletions(triggered map[string]struc
 		if handle == "" {
 			continue
 		}
-		key := teamworkTriggeredPrefix + handle
+		key := switching.TeamworkTriggeredPrefix + handle
 		present[key] = struct{}{}
-		if !asyncCompletionTriggers(record.State) {
+		if !switching.AsyncCompletionTriggers(record.State) {
 			continue
 		}
 		sessionID := strings.TrimSpace(record.SessionID)
@@ -210,75 +171,16 @@ func (service *Service) triggerTeamworkJobCompletions(triggered map[string]struc
 			continue
 		}
 		triggered[key] = struct{}{}
-		if err := service.submitConversationFor(context.Background(), sessionID, teamworkCompletionPrompt(record)); err != nil {
+		if err := service.submitConversationFor(context.Background(), sessionID, switching.TeamworkCompletionPrompt(record, Limits().EvidenceChars)); err != nil {
 			log.Printf("[teamwork] teammate 作业 %s 终态触发对话失败（session=%s）：%v", handle, sessionID, err)
 		}
 	}
 	for key := range triggered {
-		if !strings.HasPrefix(key, teamworkTriggeredPrefix) {
+		if !strings.HasPrefix(key, switching.TeamworkTriggeredPrefix) {
 			continue
 		}
 		if _, ok := present[key]; !ok {
 			delete(triggered, key)
 		}
 	}
-}
-
-// teamworkJobCompletions 读窄可选端口（未装配 teamwork 的宿主 = nil）。
-func teamworkJobCompletions(runtime contract.RuntimePort) []dto.TeamworkJobCompletionRecord {
-	if runtime == nil {
-		return nil
-	}
-	completion, ok := runtime.(contract.TeamworkJobCompletion)
-	if !ok {
-		return nil
-	}
-	return completion.TeamworkJobCompletions()
-}
-
-// teamworkJobEvents 取 teammate 作业表的变化信号口（未装配 = nil；nil 通道在 select 里
-// 等于"这条链不存在"）。
-func teamworkJobEvents(runtime contract.RuntimePort) <-chan struct{} {
-	if runtime == nil {
-		return nil
-	}
-	completion, ok := runtime.(contract.TeamworkJobCompletion)
-	if !ok {
-		return nil
-	}
-	return completion.TeamworkJobEvents()
-}
-
-// teamworkCompletionPrompt 组装 teammate 完成回执的正文。
-//
-// 它是一条**用户行**（走 submitConversationFor 的正常输入路径），因此必须自带上下文：
-// 用户会看到"为什么这里多了一轮"，模型也要知道去哪收口。字段刻意收窄：只给归属
-// （teammate / 工作项）、句柄、状态、有界摘要——不给正文、不给日志路径（正文是
-// team_context / jobs_manage 的事，塞进来就是按轮数线性烧 token）。
-func teamworkCompletionPrompt(record dto.TeamworkJobCompletionRecord) string {
-	var body strings.Builder
-	body.WriteString("teammate 作业已完成，请收口：\n")
-	role := strings.TrimSpace(record.Role)
-	item := strings.TrimSpace(record.WorkItem)
-	switch {
-	case role != "" && item != "":
-		fmt.Fprintf(&body, "- teammate: %s（工作项 %s）\n", role, item)
-	case role != "":
-		fmt.Fprintf(&body, "- teammate: %s\n", role)
-	default:
-		body.WriteString("- teammate: —\n")
-	}
-	fmt.Fprintf(&body, "- handle: %s（kind=%s）\n", record.Handle, asyncPromptKind(record.Kind))
-	fmt.Fprintf(&body, "- 状态: %s · exit=%d\n", record.State, record.ExitCode)
-	if description := strings.TrimSpace(record.Description); description != "" {
-		fmt.Fprintf(&body, "- 作业: %s\n", worktable.TruncateWorkEvidence(description, 200))
-	}
-	if summary := strings.TrimSpace(record.Summary); summary != "" {
-		fmt.Fprintf(&body, "- 摘要: %s\n", worktable.TruncateWorkEvidence(summary, Limits().EvidenceChars))
-	}
-	fmt.Fprintf(&body,
-		"读结论用 team_context（非消费读，不推进游标）；产物正文用 jobs_manage(op=observe|fetch, handle=%q)；"+
-			"复核完用 team_accept / team_fail 收口（accept 才会打开下游依赖闸门）。",
-		record.Handle)
-	return body.String()
 }
