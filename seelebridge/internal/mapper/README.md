@@ -3,7 +3,7 @@
 ## 生态位
 
 `seelebridge/internal/mapper` 是 seelebridge 内部的**无业务转换**层：集中
-运行态结构（`seelebridge/internal/model`、`seelebridge/session` 等）与对外
+运行态结构（`seelebridge/internal/model`、`backend/multiagent/subagent` 等）与对外
 契约（`contract/dto`）之间的形状映射，禁止在业务文件中散落
 内联拷贝。
 
@@ -16,7 +16,7 @@
 
 ```mermaid
 flowchart LR
-    INTERNAL["seelebridge/internal/model<br/>seelebridge/session 等运行态结构"] --> MAPPER["internal/mapper<br/>纯字段映射"]
+    INTERNAL["seelebridge/internal/model<br/>backend/multiagent/subagent 等运行态结构"] --> MAPPER["internal/mapper<br/>纯字段映射"]
     MAPPER --> DTO["contract/dto<br/>对外契约形状"]
     DTO --> APP["application/core"]
     APP --> FE["GUI / TUI"]
@@ -36,7 +36,7 @@ flowchart LR
 ## 依赖方向
 
 - 允许依赖：`contract/dto`、`seelebridge/internal/model`、
-  `seelebridge/session` 等 seelebridge 域包。
+  `backend/multiagent/subagent` 等 seelebridge 域包。
 - 禁止反向依赖：任何域包不得依赖本包内的实现细节（转换只经公开函数调用）。
 
 ## 扩展方式

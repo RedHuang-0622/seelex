@@ -447,7 +447,7 @@ func (r *Runtime) NodeToolResult(nodeID, ref string) (string, bool) {
 }
 
 // NodeWorktreeInfo 是节点 worktree 现场的只读摘要（恢复数据面）；
-// 类型本体在 seelebridge/worktree 域。
+// 类型本体在 backend/tool/worktree 域。
 type NodeWorktreeInfo = worktree.NodeWorktreeInfo
 
 // NodeWorktreeInfoFor 返回节点 worktree 现场信息（无现场 → false）。

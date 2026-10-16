@@ -583,7 +583,7 @@ sessions-json/<project>/session-<mainID>/subagents/<mainID>-<subID>.json
 （`NodeSessionRecord`：NodeID/SessionID/Goal/Status/History/ContextJSON/
 StagesJSON/ResultJSON/Worktree 现场 + schema 版本）。
 
-生命周期（2026-08-24 策略）：运行期由 `seelebridge/session` 的
+生命周期（2026-08-24 策略）：运行期由 `backend/multiagent/subagent` 的
 `SubagentSessions` actor 在注册/阶段/结果/终态时写入（进程中断可恢复）；
 节点结束（done/failed）时最终结论经 `seelex.subagent.result` 事件写入主会话
 事件库（"结论跟随 mainagent"），随后删除节点记录文件。删除后详情数据面保留

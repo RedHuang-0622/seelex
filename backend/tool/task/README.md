@@ -2,7 +2,7 @@
 
 ## 生态位
 
-`seelebridge/task` 承载 worktable/task 注册表域：
+`backend/tool/task` 承载 worktable/task 注册表域：
 
 - `task.go`：`TaskRegistry` actor（mailbox 单消费者串行，按 task 键隔离状态）、
   `TaskRecord`/`TaskSpec`/`TaskStatus`/`TaskTracePoint`/`TaskPhase*` 共享 DTO、
@@ -86,7 +86,7 @@ task 是 worktable 状态面：node 完成/失败、fork 幂等登记均写 task
 ## 验证
 
 ```text
-go test ./seelebridge/task -count=1
+go test ./backend/tool/task -count=1
 ```
 
 `registry_test.go` 覆盖 actor 状态机与并发，`auto_id_test.go` 覆盖自动 ID 的

@@ -811,7 +811,7 @@ func (runtime *fakeRuntime) TaskAttachParticipant(id, participant string) (dto.T
 	if !ok {
 		return dto.TaskRecord{}, fmt.Errorf("fake task %s not found", id)
 	}
-	// 认领语义（与 seelebridge/task 注册表一致）：最近接管者成为当前 Assignee。
+	// 认领语义（与 backend/tool/task 注册表一致）：最近接管者成为当前 Assignee。
 	record.Assignee = participant
 	record.Participants = append(record.Participants, participant)
 	runtime.tasks[id] = record

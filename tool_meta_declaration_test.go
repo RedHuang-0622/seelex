@@ -274,7 +274,7 @@ func TestRegistrationScannerSeesEveryFamily(t *testing.T) {
 		"compact_context",             // main.go
 		"goal_begin",                  // register_goal_tools.go
 		"skill_activate",              // skill_activate_tool.go
-		"web_search",                  // seelebridge/tools/websearch
+		"web_search",                  // backend/tool/websearch
 		"switch_plugin", "mcp_create", // main.go（能力面）
 	} {
 		if _, ok := sites[name]; !ok {

@@ -400,7 +400,7 @@ func (s *SubagentSessions) finalizeLocked(nodeID string) {
 	projectID := s.writer.Store().ProjectID()
 	if record.SessionID != "" {
 		if err := s.writer.Store().Delete(projectID, mainID, record.SessionID); err != nil {
-			log.Printf("seelebridge/session: delete node session %q: %v", nodeID, err)
+			log.Printf("backend/multiagent/subagent: delete node session %q: %v", nodeID, err)
 		}
 	}
 }
@@ -465,7 +465,7 @@ func (s *SubagentSessions) persistLocked(nodeID string) {
 	}
 	// 写走**链**：链上每一环增补自己这一层知道的事实（子代理那一环写身份），末端一次落盘。
 	if err := s.writer.Save(projectID, mainID, record); err != nil {
-		log.Printf("seelebridge/session: persist node session %q: %v", nodeID, err)
+		log.Printf("backend/multiagent/subagent: persist node session %q: %v", nodeID, err)
 	}
 }
 

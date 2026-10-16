@@ -135,5 +135,5 @@ func TestRoutingNoticeObserverDedupesUnpinnedSummaryPerSessionAndAccount(t *test
 }
 
 // seelFailureKindQuota 复用 account.FailureQuota 的词表（同包测试的别名，避免
-// 测试文件再 import 一个包——词表唯一来源仍是 seelebridge/account）。
+// 测试文件再 import 一个包——词表唯一来源仍是 backend/engine/account）。
 const seelFailureKindQuota = "quota_exhausted"

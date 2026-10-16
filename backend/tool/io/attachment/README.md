@@ -1,8 +1,8 @@
-# seelebridge/attachment
+# backend/tool/io/attachment
 
 ## 生态位
 
-`seelebridge/attachment` 把「手上已有的附件」变成「provider 端点真的能收的载体」：
+`backend/tool/io/attachment` 把「手上已有的附件」变成「provider 端点真的能收的载体」：
 图片原样走附件通道，文档按端点实际能力降级为内联文本或诊断说明。
 
 主要调用方：`seelebridge` 根包的输入装配路径与真机冒烟测试。
@@ -64,6 +64,6 @@ flowchart LR
 ## 测试与验证
 
 ```text
-go test ./seelebridge/attachment -count=1
+go test ./backend/tool/io/attachment -count=1
 go test ./seelebridge/... -count=1
 ```

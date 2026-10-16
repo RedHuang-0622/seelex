@@ -10,7 +10,7 @@
 
 - `application/prompt`（effort 档位表取这里的读数，`MaxLoops` / `ReActBudgetFor` 转发到此处）；
 - `internal/adapters`（会话级引擎端口解析"这次用多少轮"）；
-- `seelebridge/fork`（`fork_subagents` 的子代理 `max_loops` 入口校验）。
+- `backend/tool/fork`（`fork_subagents` 的子代理 `max_loops` 入口校验）。
 
 ## 职责与非职责
 
@@ -55,7 +55,7 @@ ValidateSubagentMaxLoops(id, maxLoops, ceiling) → 负数 / 越天花板各一�
 
 `effort 档位的节点上限`（`PlanPolicy.MaxNodeLoops`）**不在这里**：那是主代理自己
 `plan_load` 节点的判据，拿来卡子代理等于"改一下 reasoning effort，子代理的次数跟着变"
-（2026-10-08 口径）。这条口径由 `seelebridge/fork` 的工具入口用例守着。
+（2026-10-08 口径）。这条口径由 `backend/tool/fork` 的工具入口用例守着。
 
 ## 数据流
 
@@ -68,7 +68,7 @@ application/prompt 的档位表 ──→ loop.For(level) ──→ MaxLoops / B
                                             │
 internal/adapters（会话钉住值）──→ loop.Effective(pin, 进程默认) ──→ engine.SetMaxLoops
                                             │
-seelebridge/fork（子代理声明）──→ loop.ValidateSubagentMaxLoops(…, ceiling)
+backend/tool/fork（子代理声明）──→ loop.ValidateSubagentMaxLoops(…, ceiling)
 ```
 
 ## 依赖方向

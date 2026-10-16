@@ -52,7 +52,7 @@ func NewEffortManager(stack *prompt.PromptStack, engine interface {
 //
 // 规划（尚未实现）：按 docs/2026-10-15-architecture-reshape/plan.md §2.2 归位到
 // `backend/tool/websearch`（M4）；本包只作为 M1-B 的过渡调用点，实现仍是
-// seelebridge/search.WebSearch 一份。
+// backend/tool/search.WebSearch 一份。
 func WebSearch(ctx context.Context, config search.WebSearchConfig, query string, maxResults int) (string, error) {
 	return search.WebSearch(ctx, config, query, maxResults)
 }

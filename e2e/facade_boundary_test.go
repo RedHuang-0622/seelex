@@ -85,7 +85,7 @@ var facadeClosureAllowList = []string{
 	// 清单规模不变（等量替换，见 D-M2-11）；契约层因此**少**了 application/approval。
 	"github.com/RedHuang-0622/seelex/backend/limit/approval",
 	// M2-B：ReAct 循环上限的判据层（从 application/prompt + internal/adapters +
-	// seelebridge/fork 抽出）。自身闭包 = 标准库，属"干净叶子"新模块。
+	// backend/tool/fork 抽出）。自身闭包 = 标准库，属"干净叶子"新模块。
 	"github.com/RedHuang-0622/seelex/backend/limit/loop",
 	// M2-C4：权限判据（主体类 / 路由组表 / 规则表 / 档位覆盖 / 工具簇属声明 /
 	// 壳类别词表）从 seelebridge/tools 抽出；执行门仍留在 tools。

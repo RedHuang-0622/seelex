@@ -598,7 +598,7 @@ func mergeWorkDependencies(recorded []string, derived []string) []string {
 // 的都是同一条跨会话台账"。身份 = 幂等键优先、否则行 ID：同一 plan 节点/
 // 子代理/待办文本在不同来源（实时注册表、会话分区、磁盘记录）出现时靠 Key
 // 认同一行；自动行 ID（`task:<n>`/`todo:<n>`）由进程级分配器保证进程内唯一，
-// 不会把两个会话的条目并成一行（见 seelebridge/task.NextAutoID）。
+// 不会把两个会话的条目并成一行（见 backend/tool/task.NextAutoID）。
 //
 // secondarySessionID 标注 secondary 的归属会话：磁盘记录不带会话标记（归属
 // 由容器 `SessionRecord` 表达），冷读时把该会话的持久化条目补上标记，会话

@@ -24,7 +24,7 @@ import (
 //
 // 因此从主会话索引（会话目录列举 / Router.List）即可直接定位全部子会话记录，
 // 无需全局扫描。内容格式参考主会话 state blob（opaque JSON，含 schema 版本），
-// 由调用方（seelebridge/session）写入 History / ContextSnapshot / 阶段日志 /
+// 由调用方（backend/multiagent/subagent）写入 History / ContextSnapshot / 阶段日志 /
 // 语义结果 / worktree 现场。
 
 // NodeSessionSchemaVersion 是 NodeSessionRecord 的当前 schema 版本。

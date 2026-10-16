@@ -95,7 +95,7 @@ func (n RoutingNotice) Message() string {
 	}
 }
 
-// failureKindText 把账号资格失败类别翻成一句中文（与 seelebridge/account 的
+// failureKindText 把账号资格失败类别翻成一句中文（与 backend/engine/account 的
 // FailureAdvice 同口径；dto 不引依赖，只认字符串词表）。
 func (n RoutingNotice) failureKindText() string {
 	switch n.FailureKind {

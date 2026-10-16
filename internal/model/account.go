@@ -42,8 +42,8 @@ const DefaultTemperature = 0.3
 //
 // 空值时 provider 走自己的默认，我们**绝不猜一个值**填进去。
 //
-// 放在 model 而不是各个装配点：账号池（seelebridge/account）与规划预检
-// （seelebridge/plan）都要构造 ChatClient，两处必须同一条口径——否则 "session"
+// 放在 model 而不是各个装配点：账号池（backend/engine/account）与规划预检
+// （backend/tool/plan）都要构造 ChatClient，两处必须同一条口径——否则 "session"
 // 会从其中一处原样漏到 wire 上，被 provider 判成非法值。
 func WireReasoningEffort(configured string) string {
 	if configured == ReasoningEffortSession {

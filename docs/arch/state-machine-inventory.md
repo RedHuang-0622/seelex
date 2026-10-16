@@ -60,7 +60,7 @@
 | git 类字段（porcelain XY、git 名状态）、`TaskPhase*`（plan\|tasklist\|task\|subagent） | 不是状态机：一个是外部工具的原始输出，一个是**类别**不是状态 |
 | 事件字段 `dto.PlanNodeEvent.Status` / `model.PlanNodeEventInfo.Status` | **混合面**：本格节点状态词 + 框架 workplan 词 + 我们自己的 worktree 收尾阶段词（`worktree_unmerged` / `merge_blocked`）混在同一个字段里。它不是"节点状态那一格"：认不得的词**不许覆盖节点状态**（旧写法 `default → pending` 会让跑完的节点显示成"待开始"，有回归用例 `plan_node_phase_word_test.go`）。阶段词本身登记在 `backend/tool/node/node_phase_words.go` |
 | 工具调用视图词（`model.ToolCall.Status`：running\|completed\|failed） | 与**工具事件状态**（running\|success\|error）同词不同格：详情页里"这条历史工具调用跑完了"是展示口径（快照/transcript wire），不是判定面；收口要连读方清单一起做，登记为下一批 |
-| todo 三态（`dto.TodoItemStatus`：pending\|doing\|done） | **已在移除窗口内**的兼容面（权威状态是 `TaskRecord.Status`，文件头写了移除窗口）；唯一转换点是 `seelebridge/task.TodoToTaskStatus`（一处映射）。给它套枚举等于给一个待删面化妆 |
+| todo 三态（`dto.TodoItemStatus`：pending\|doing\|done） | **已在移除窗口内**的兼容面（权威状态是 `TaskRecord.Status`，文件头写了移除窗口）；唯一转换点是 `backend/tool/task.TodoToTaskStatus`（一处映射）。给它套枚举等于给一个待删面化妆 |
 | 存储层的跨域"完成"判据（`store/stack_channel.go` 的 `terminalStackStatus`） | 计划帧 `closed` / 任务帧 `completed\|failed` / goal 帧 `completed\|failed\|aborted` / 子代理帧 `done` / 归档态 `archived`：这是"整批都完成才弹栈归档"的判据，而 store 不认识各域的类型（在契约之下，只存词）。逐词登记主人，不当成某一格 |
 | `CompactBoundaryComplete/Open`（complete\|open）、`StackItem.Status`、`TeamworkState*`、`BoardState*`、`TaskFrame.Status`（active\|completed\|failed\|needs_user_decision）、`PlanFrame.Status`（active\|closed） | store 在契约之下：存的是词；同格类型在上层，转换点逐格具名 |
 

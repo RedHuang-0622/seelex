@@ -29,5 +29,5 @@ flowchart LR
     INTERNAL --> M["toolrecord：工具调用记录台账"]
     INTERNAL --> W["winhide：子进程窗口隐藏"]
     A --> APP["contract"]
-    P --> PROMPT["application/prompt / seelebridge/node"]
+    P --> PROMPT["application/prompt / backend/tool/node"]
 ```

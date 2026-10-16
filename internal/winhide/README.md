@@ -2,7 +2,7 @@
 
 ## 生态位
 
-`internal/winhide` 为 GUI 应用在加载项目（git）、执行 bash 工具或沙箱命令时隐藏 Windows 子进程控制台窗口（`CREATE_NO_WINDOW`），避免弹出黑色终端窗口；非 Windows 平台为空操作。主要调用方：`workspace`、`seelebridge/worktree`、`seelebridge/tools`、`seelebridge/security`、`seelebridge/scheduler`。
+`internal/winhide` 为 GUI 应用在加载项目（git）、执行 bash 工具或沙箱命令时隐藏 Windows 子进程控制台窗口（`CREATE_NO_WINDOW`），避免弹出黑色终端窗口；非 Windows 平台为空操作。主要调用方：`workspace`、`backend/tool/worktree`、`seelebridge/tools`、`seelebridge/security`、`seelebridge/scheduler`。
 
 ## 职责与非职责
 

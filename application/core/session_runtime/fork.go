@@ -6,7 +6,7 @@
 // record/事件流/四栈快照 + tool-results 整通道物理复制（删父安全，T-FK-07）。
 //
 // **ForkSubagent 不走本文件**（`fork_subagents`）：子代理现场由 workplan DAG
-// 派发（`seelebridge/fork`），存储侧由 `store.newSubagent` 建
+// 派发（`backend/tool/fork`），存储侧由 `store.newSubagent` 建
 // `subagent_<hash>/` 子树，**不建独立 blob 目录**、大工具输出引用主会话
 // `big_tool_result`（my_design §8.2 / T-FK-05/06）。这条派发链不调用
 // `PrepareFork`，所以「按 ref 裁剪可达集合」这一步对它根本不发生——要改子代理

@@ -2,7 +2,7 @@
 
 ## 生态位
 
-`seelebridge/fork` 承载 `fork_subagents` 的纯类型与 DAG 构造：
+`backend/tool/fork` 承载 `fork_subagents` 的纯类型与 DAG 构造：
 
 - `types.go`：`Input`/`SubagentSpec` 输入契约、`SubagentsContractDescription`
   工具契约描述、`PlanCanonical` 规范 JSON（审计/展示）。

@@ -23,7 +23,7 @@ seelex 仍引用已删除包，**当前 `go build ./...` 处于构建阻断状�
 | `seelebridge/mcp.go` | `Seele/agent/core/tool/mcp` |
 | `seelebridge/plan_tool_provider.go` | `Seele/agent/core/tool/interfaces` |
 | `application_adapters.go` | `Seele/agent/core/tool/permission` |
-| `seelebridge/plan.go`、`branch.go` 等 | `Seele/workplan/runtime/serialize`、`workplan/core/*`（部分仍在但非新入口） |
+| `backend/tool/plan.go`、`branch.go` 等 | `Seele/workplan/runtime/serialize`、`workplan/core/*`（部分仍在但非新入口） |
 | `seelebridge/runtime.go` | `Seele/agent/core/api`（ChatClient/AccountPool） |
 
 ## 2. 结构性缺陷（迁移必须同时解决的问题）

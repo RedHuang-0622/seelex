@@ -1,4 +1,4 @@
-# seelebridge/node — 节点子代理执行域
+# backend/tool/node — 节点子代理执行域
 
 ## 生态位
 

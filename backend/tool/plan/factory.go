@@ -11,7 +11,7 @@ import (
 // NodeFactoryDeps 是 BuildNode 需要的跨域构造回调：agent/summary 节点由根包
 // 注入构造器，避免 plan→node/fork 反向依赖。
 type NodeFactoryDeps struct {
-	// NewAgentNode 构造子代理节点（seelebridge/node.AgentNode 包装）。
+	// NewAgentNode 构造子代理节点（backend/tool/node.AgentNode 包装）。
 	NewAgentNode func(spec codec.NodeSpec[SeelexNodeInput]) (frameworknode.Node, error)
 	// CurrentApprovalGate 返回当前审批门（approve/manual 节点读取）。
 	CurrentApprovalGate func() approve.ApprovalGate

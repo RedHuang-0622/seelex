@@ -47,7 +47,7 @@ flowchart TB
     EMBED -.->|兜底| LOAD
     LOAD --> VAL["启动 Validate() 校验（读解析后的那份）"]
     VAL --> PROMPT["application/prompt：层组合与 effort→policy 映射"]
-    VAL --> NODE["seelebridge/node：节点 charter 渲染"]
+    VAL --> NODE["backend/tool/node：节点 charter 渲染"]
     PROMPT --> ENGINE["Engine system prompt"]
     NOTE["属性：提示词与代码同版本<br/>单文件可部署"] -.-> BIN
 ```

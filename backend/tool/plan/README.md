@@ -2,7 +2,7 @@
 
 ## 生态位
 
-`seelebridge/plan` 承载 Plan 执行域（依赖方向：根 facade → plan；plan 不反向
+`backend/tool/plan` 承载 Plan 执行域（依赖方向：根 facade → plan；plan 不反向
 依赖 seelebridge 根包，共享账号类型经 `internal/model`，节点负载类型本包导出）：
 
 - `graph.go`：`PlanEdge` / `AdjacencyToEdges` / `DetectCycle` / `TopoSort`。
@@ -75,5 +75,5 @@ fail-fast（`forkexec.go` 的 `policy()`），不显式设置就会连坐。
 ## 验证
 
 ```text
-go test ./seelebridge/plan -count=1
+go test ./backend/tool/plan -count=1
 ```

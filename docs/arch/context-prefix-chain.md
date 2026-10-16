@@ -235,7 +235,7 @@ tool / command 是同一个生态位**——激活后的正文是 transcript 里
   记载「激活技能正文已移出 system，改为 internal 事件 append 进 transcript」。
 - `seelexctx.RenderStablePrefixBlocks` 的 SkillStack 顶层帧渲染器已接线
   `PrefixStacks`，但主会话无生产 `PushSkill` 压栈（仅测试/恢复拷贝）→ 该帧
-  实际不出现；节点子代理另经 `seelebridge/node` 注入 skill 目录块 + 匹配
+  实际不出现；节点子代理另经 `backend/tool/node` 注入 skill 目录块 + 匹配
   激活块（kind:agent 范围），并继承主代理稳定块。
 
 > 结论：**skill 列表的装配位置在 plugins 系统**（S0 loader 扫描插件技能目录

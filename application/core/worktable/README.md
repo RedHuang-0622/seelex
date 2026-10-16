@@ -12,7 +12,7 @@
   Revision/RequestID/Items。
 - 非职责：`WorkItem` 行投影的构建（`application/core/work_table.go` 的 `buildWorkTable`
   纯函数）、todo 三态更新、task 注册表同步——这些仍在 `core` 根包或
-  `seelebridge/task`。
+  `backend/tool/task`。
 
 ## 依赖方向
 

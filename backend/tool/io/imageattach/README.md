@@ -1,8 +1,8 @@
-# seelebridge/imageattach
+# backend/tool/io/imageattach
 
 ## 生态位
 
-`seelebridge/imageattach` 把「会话里刚看到的画面」送到模型眼前，落在
+`backend/tool/io/imageattach` 把「会话里刚看到的画面」送到模型眼前，落在
 **引擎与 provider 之间最窄的那条缝**上：`Completer` / `StreamCompleter`。
 
 为什么在这层：引擎按自己的历史构造消息，它并不知道 Seelex 的会话媒体分区里
@@ -98,6 +98,6 @@ sequenceDiagram
 ## 测试与验证
 
 ```text
-go test ./seelebridge/imageattach -count=1
+go test ./backend/tool/io/imageattach -count=1
 go test ./seelebridge/... -count=1
 ```

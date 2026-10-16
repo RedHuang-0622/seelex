@@ -255,4 +255,4 @@ go test ./docs... 2>/dev/null; go test . -run TestGUIDocumentContracts -count=1
 批次相关新增测试：`TestBuildWorkTableBatches`、
 `TestTaskRecordToWorkItemCarriesBatch`（application/core）、
 `TestTaskRegistryDefaultBatchStampsNewTasks`、
-`TestTaskRegistryTodoKindRestrictsStateMachine`（seelebridge/task）。
+`TestTaskRegistryTodoKindRestrictsStateMachine`（backend/tool/task）。

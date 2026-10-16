@@ -106,7 +106,7 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 	// durable queue 与调序/撤回同源）；没有回合在跑 → 照常开新回合。
 	//
 	// 并发写主工作区的风险改由合并侧收口，而不是靠拒绝输入回避：
-	// seelebridge/worktree 的收尾单写者 actor 把"可能的并行 merge"串行化，
+	// backend/tool/worktree 的收尾单写者 actor 把"可能的并行 merge"串行化，
 	// 主工作区脏/真冲突时落 ErrMergeBlockedByMain 待合并（保留现场 + 提示），
 	// 不再把一个子代理的产出判死。
 	request := newChatRequest(input, service.promptStack.Layers())

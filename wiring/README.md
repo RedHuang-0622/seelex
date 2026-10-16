@@ -47,7 +47,7 @@
 | `NewToolHookBridge` | `application/core.NewToolHookBridge` |
 | `NewPromptStack` | `application/prompt.NewPromptStack` |
 | `NewEffortManager` | `application/prompt.NewEffortManager` |
-| `WebSearch` | `seelebridge/search.WebSearch`（M4 迁 `backend/tool/websearch`） |
+| `WebSearch` | `backend/tool/search.WebSearch`（M4 迁 `backend/tool/websearch`） |
 
 `NewApprovalBroker` 的形参是具体类型 `*event.EventHub` 而不是 `event.Hub` 接口：
 调用方传 `nil` 时"接口持 nil 指针"与"nil 接口"语义不同，保持与迁移前逐字一致

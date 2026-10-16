@@ -34,7 +34,7 @@
 所以「扬长避短」不是把一条轴做得更像另一条，而是**分层**：席位制管治理面（目标、顺序、裁决、权限），
 认领制管执行面（扇出、并发、worktree 隔离、提交/合并作为机器证据），两侧的产物回落到同一条账本。
 本仓库这两条轴**已经是并存的**（`application/core/agentteam` + `application/core/goal` vs
-`seelebridge/fork` + `seelebridge/task` + `application/core/work_table.go`），缺的是把它们当成一个
+`backend/tool/fork` + `backend/tool/task` + `application/core/work_table.go`），缺的是把它们当成一个
 「治理 + 执行」的分层方案写进叙事（见 §6）。
 
 ---
@@ -259,7 +259,7 @@ flowchart TB
 
 | 命令 | 结果 |
 | --- | --- |
-| `go test ./seelebridge/task -run TestTaskRegistryPassiveIdentityAndClaim -count=1 -v` | PASS（认领语义） |
+| `go test ./backend/tool/task -run TestTaskRegistryPassiveIdentityAndClaim -count=1 -v` | PASS（认领语义） |
 | `go test ./application/core -run "TestGoalBeginJoinsTeammatesAtGoalTurn\|TestAdvisorVerdictVisibleInProducingTurn\|TestRingEscapeClosesGoalAndArchivesTLHistory\|TestRoleTurnSeatPassesRoleIdentityToExecutionFace" -count=1 -v` | 4/4 PASS |
 | `go test ./store -run TestRoleSnapshotMarksRowsOutsidePrefixMatch -count=1 -v` | PASS（切点与区间计数） |
 

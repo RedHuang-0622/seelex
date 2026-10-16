@@ -208,7 +208,7 @@
 | Provider 拒绝空 content | `application/core/history_safety.go:prepareProviderHistory` | `error_presentation_test.go` |
 | SubagentMailbox 满则计数 + 丢弃 | `seelebridge/actor.go:enqueueSubagentContext` (select+default) | `subagent_audit_test.go:TestSubagentMailboxIsBoundedAndNeverBlocksProducer` |
 | ToolHook 不重入 Service.mu | `taskRuntimeState.goalSkillActive` atomic.Bool | `TestToolCompletionDoesNotReenterServiceLockForGoalSkillVisibility` |
-| Plan 节点级 cycle 拒绝 | `seelebridge/plan.go:DetectCycle` (Kahn) | `plan_kernel_test.go` |
+| Plan 节点级 cycle 拒绝 | `backend/tool/plan.go:DetectCycle` (Kahn) | `plan_kernel_test.go` |
 | Plan 节点 budget 上限 | `seelebridge/plan_policy.go:validateLoad` (MaxNodeLoops/MaxNodeOutputTokens) | `plan_input_fuzz_test.go` |
 | Plan 节点事件时间线截断 | `application/core/chat.go:appendPlanNodeEvent` (limits.plan_node_events) | race_test / session_archive_test |
 | 流式 chunk 按 32 条 / 40ms 批 | `application/core/chat.go:newBatchedDeltaSink` | — |

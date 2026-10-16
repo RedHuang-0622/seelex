@@ -1,4 +1,4 @@
-# seelebridge/worktree — 子代理 worktree 生命周期域
+# backend/tool/worktree — 子代理 worktree 生命周期域
 
 ## 生态位
 

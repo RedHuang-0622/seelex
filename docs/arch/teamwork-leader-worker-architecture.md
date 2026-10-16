@@ -37,7 +37,7 @@ teamwork 的硬编排写进**独立存储 `moduleTeamwork`**，由 leader 掌控
 |---|---|---|
 | 驱动 | goal 治理循环 `govern.TurnGovernor` **同步**推座位（`goal_coordinator.go` 的 `AdvanceAfterChat`） | **leader 派发 worker 作业**（`jobs.Manager.Dispatch` → handle），worker 并发 |
 | 并发 | 座位串行（一轮一座） | **非串行**：N 个 worker 同一管理器下并行 |
-| 隔离 | 角色会话 `role_session_id`，无独立工作区 | 每个 teammate **绑定 worktree**（`seelebridge/worktree`，git）+ `emp_<role>` 主体 |
+| 隔离 | 角色会话 `role_session_id`，无独立工作区 | 每个 teammate **绑定 worktree**（`backend/tool/worktree`，git）+ `emp_<role>` 主体 |
 | 结果回传 | 座位 `Act` 同步返回一句话 | **作业句柄** `observe/fetch/kill/done`，消费式增量 |
 | 通知 | 无 | **变更信号口** + **回合边界有界摘要**（不唤醒忙会话） |
 | 顺序/阻塞 | `lifecycle.order_policy/order_roles` | leader 掌控的**硬编排计划** + 显式 join（`moduleTeamwork`） |
@@ -241,7 +241,7 @@ leader 判定某 teammate 的一轮任务结束 → `team_retire(role)`，**顺�
 | 步骤 | 动作 | 机制 |
 |---|---|---|
 | 1 | 回收该 teammate 名下未完成的作业 | **只在整队收口**（`team_close`）：`jobs.Manager.Reclaim(ctx, Scope{Session:"<主会话>", Subject:"emp_<role>"})`（只动这一个 teammate，不牵连同会话其他人；§10.1）。**单角色退场 `team_retire` 不回收作业**——作业与正文留到收口，退场不撤走证据 |
-| 2 | **释放 worktree**（节约存储，D7） | `seelebridge/worktree` 的 `Release`（`git worktree remove` + 删本地分支）；**释放前若工作区脏 → 先提交或按 `ErrUncommittedChanges` 语义显式报错，不静默丢弃** |
+| 2 | **释放 worktree**（节约存储，D7） | `backend/tool/worktree` 的 `Release`（`git worktree remove` + 删本地分支）；**释放前若工作区脏 → 先提交或按 `ErrUncommittedChanges` 语义显式报错，不静默丢弃** |
 | 3 | 清空该 teammate 的**会话记录内容**（工作历史 + durable 快照、message 行/上下文栈） | Seele `session.Reset(ctx)` + store 清该 `role_session_id` 的消息通道 |
 | 4 | **保留 teammate 在线** | 计划里的成员条目（`role_name`/`role_session_id`/`permission_groups`）**保留**、`worktree` 字段置空待重派；前端「员工在线」态不变 |
 
@@ -296,7 +296,7 @@ leader 判定某 teammate 的一轮任务结束 → `team_retire(role)`，**顺�
 
 ### 4.7 版本 / 分支管理：git 统一，Seelex 不内置（D9）
 
-- **唯一入口是 git**：worktree 创建/分支/rebase/merge/提交 全走 `seelebridge/worktree` 的 `GitRunner`（git 子进程），沿用 `NodeWorktree{Path,Branch:seelex/<id>,BaseCommit,MainBranch}` 语义。
+- **唯一入口是 git**：worktree 创建/分支/rebase/merge/提交 全走 `backend/tool/worktree` 的 `GitRunner`（git 子进程），沿用 `NodeWorktree{Path,Branch:seelex/<id>,BaseCommit,MainBranch}` 语义。
 - **Seelex 不建自有版本系统**：不存快照仓库、不做 diff/patch 数据库、不维护第二份"分支真相"；`moduleTeamwork` 只存**编排与绑定**（谁、什么顺序），不存内容。
 - **合并门**：沿用 `worktree_manager` 的 `approve.ApprovalGate`（合并审批）——审批是产品语义，允许留在 Seelex；**版本事实**仍由 git 提供。
 - worktree 失败现场保留（`ErrUncommittedChanges`）供人工恢复，不由框架静默删除。
@@ -375,7 +375,7 @@ leader 判定某 teammate 的一轮任务结束 → `team_retire(role)`，**顺�
 
 ### M1 — worker Executor + worktree（teammate 上线）
 - **目标**：`KindWorker` = 在角色会话跑限量回合；teammate 绑 worktree + `emp_<role>`；人数上限与子代理策略生效。
-- **交付物**：`seelebridge` worker Executor（`runtime_role_turn.go` 升格）；worktree 绑定/释放（复用 `seelebridge/worktree`，git）；
+- **交付物**：`seelebridge` worker Executor（`runtime_role_turn.go` 升格）；worktree 绑定/释放（复用 `backend/tool/worktree`，git）；
   `limits.team.max_teammates`（默认 6）；teammate 工具面**移除 `fork_subagents`（无开关）**。
 - **验收**：能派发/观察/取回/终止一个 teammate 作业；`Reclaim(Scope{Session,Subject})` 只杀该 teammate 而不动同会话其他作业；worktree 创建与释放（git）；越权工具被拒；**超员被拒**；**重复角色被拒**；teammate 工具面**不存在** `fork_subagents`（连开关都没有）。
 - **退出判据**：单个 teammate 端到端跑通（干净上下文 + worktree 落痕）。
@@ -489,7 +489,7 @@ O4 plan/stage id（脱离会话生命周期；`bash_bg` 这种非 teamwork 场�
 | M0 Seelex `go.mod` replace | **已实现（临时）** | `replace github.com/RedHuang-0622/Seele => G:/Program/go/seele`，`go work vendor` 已重生成 vendor；Seele 打 tag 发布 `jobs` 后即删除 |
 | M0 旧异步面迁到 `jobs.Manager` | **受阻（证据见 §12）** | `seelebridge/tools/{async_exec,async_run,async_probe,job_contract}.go` 仍是旧实现。**派发工具签名与语义未动**（`bash_bg`/`read_batch`/`job_manage` 行为零变化）；本轮只做了阻塞分析与文档，**未改任何生产代码**。§12 给出逐条实证：在「既有 `async_*_test.go` 一字不改」+「Seele `jobs` 契约冻结」两条硬约束下，忠实的门面化无法落地（能绕的几条，绕法就是把状态机在 Seelex 侧原样留一份，迁移变成名义上的） |
 | M1 worker Executor | **已实现（`KindSeat` 已于 2026-10-03 W3 退场）** | `seelebridge/teamwork/executor.go`：`KindWorker`（`KindSeat` 已删除）；载荷 `WorkerRequest` 既是 `jobs.Spec.Payload` 又是执行体入参；生产实现 = `Runtime.RunWorker`（角色会话里跑一轮有界回合，起手绑工作区/带 `emp_<role>` 权责） |
-| M1 worktree 绑定 / 释放 | **已实现** | `Runtime.ReleaseWorkspace` 接 `seelebridge/worktree`（脏工作区按 `ErrUncommittedChanges` 语义报错、不静默丢弃；`CleanupWorktree` 走 git；无现场幂等）；`Runtime.bindWorkerProjectRoot` 优先绑 worktree、缺失回退主工作区 |
+| M1 worktree 绑定 / 释放 | **已实现** | `Runtime.ReleaseWorkspace` 接 `backend/tool/worktree`（脏工作区按 `ErrUncommittedChanges` 语义报错、不静默丢弃；`CleanupWorktree` 走 git；无现场幂等）；`Runtime.bindWorkerProjectRoot` 优先绑 worktree、缺失回退主工作区 |
 | M1 人数上限 | **已实现** | `limit.TeamLimits`（默认 6）+ `config/seelex.yaml` 的 `limits.team.max_teammates` + 两道拒绝（计划校验 + 派发闸门）；组合根经 `Runtime.SetTeamworkBackend` 注入 |
 | M1 teammate 工具面移除 `fork_subagents` | **已实现** | `seelebridge/runtime_role_turn.go` 的 `teammateAgent`/`teammateToolFace`（硬移除：可见面剔除 + 派发口拒绝），`newRoleEngine` 装配点用 `teammateToolFace(r.agt)`；`runtime_role_face_test.go` 钉住（含"装配点确实用它"） |
 | M2 `moduleTeamwork` 存储 | **已实现** | `store/module_heads.go`（枚举 + **独立锁** + `mutexFor` case）+ `store/teamwork.go` |
@@ -507,7 +507,7 @@ O4 plan/stage id（脱离会话生命周期；`bash_bg` 这种非 teamwork 场�
 | 阶段四 S8 收口后看板退场 | **已实现（2026-10-03 口径修正）** | `TeamworkBoardSnapshot` 对 `plan.State.State=closed` 返回 `nil`——收口之后看板整块退场（与"没有计划"同解、"结束就是没有了"同口径），在编名册不再挂在面板上；域内 closed 事实仍归计划，存档仍按 `state=closed` 封板。落点：`runtime_teamwork_board.go`、`runtime_teamwork_board_closed_test.go`、[`team-board-gui-tui-contract.md`](team-board-gui-tui-contract.md) §2/§5/§7 |
 | 阶段四 S9 teammate 实时工具活动 | **已实现（2026-10-03）** | 员工**做工回合**（`team_dispatch` 的 worker）的每次工具调用 → `dto.RoleToolActivity` → `Runtime.SetRoleToolCallback`（装配根接 `app.HandleRoleToolActivity`）→ 会话级事件 `teammate.tool.started/completed`（载荷不进快照、`revision=0`）→ 前端「正在做（实时）」一节逐帧长出来。它是 `subagent.tool.*` 的**员工侧对称面**：修前角色回合的 ReAct 钩子只送 goal 域 TLStep sink（只有 ADVISOR 挂得上），teammate 在做工时前端一无所知。落点：`runtime_role_turn.go`（`roleWorkScope` / `roleLoopHooks`）、`runtime_teamwork.go`（`workerRoleRoundSpec`）、`runtime_role_tool_test.go`、`application/core/service.go` |
 | 阶段四 文案对齐 | **已实现** | 提示词与 schema 回到与实现同口径：`$teamwork` 工具表补 `team_close` / `team_context` 并改掉"`team_retire` 回收作业"、收尾第 1 步改用**非消费**读法（`team_context`）、§7 补「收口三步」；`$goal` 去掉"末尾必有一个 `review` 阶段"、工具表补 `goal_done`、节奏改为 `team_close → goal_done`；`teamworkRetireDescription` 与 `team_retire` 回执文案同步（不再称回收作业）；`goal_begin` 工具描述不再称"ADVISOR 回合制评审" |
-| 阶段五 Work Item 里程碑 | **已实现（2026-10-03）** | **Milestone 是屏障、Work Item 是调度单位**：`milestones[].depends_on`（里程碑之间串行）+ `work_items[].depends_on`（里程碑内 DAG）；**一个 Work Item 一个 Session + 一个 git worktree**（绑定账本 `teamwork/worktrees.jsonl`，生命周期到 `team_close`）；分里程碑排活（`team_work` 只给依赖已 done 的里程碑排活）；未开始的工作项可调整、已开始/已结束是既定事实（`team_item`）；验收通过销项并结束这件事的隔离（`team_accept`）；回合结束**自动尾插**（先合并 worktree → 有界回执进 teammate 消息队列，失败写明"请 leader 亲自执行"）；中断恢复复用原会话号（记忆建在，`team_recover`）。落点：`store/teamwork_items.go`、`seelebridge/teamwork/items.go`、`seelebridge/runtime_teamwork_items.go`、`seelebridge/worktree` 的 `BeginNamed`、`dto.TeamworkBoardView.WorkItems`、`team-board-view.js` 甘特 + 队列 + 执行进度子页面。详见 [`../devlog/2026-10-03-workitem-milestone-refactor.md`](../devlog/2026-10-03-workitem-milestone-refactor.md) |
+| 阶段五 Work Item 里程碑 | **已实现（2026-10-03）** | **Milestone 是屏障、Work Item 是调度单位**：`milestones[].depends_on`（里程碑之间串行）+ `work_items[].depends_on`（里程碑内 DAG）；**一个 Work Item 一个 Session + 一个 git worktree**（绑定账本 `teamwork/worktrees.jsonl`，生命周期到 `team_close`）；分里程碑排活（`team_work` 只给依赖已 done 的里程碑排活）；未开始的工作项可调整、已开始/已结束是既定事实（`team_item`）；验收通过销项并结束这件事的隔离（`team_accept`）；回合结束**自动尾插**（先合并 worktree → 有界回执进 teammate 消息队列，失败写明"请 leader 亲自执行"）；中断恢复复用原会话号（记忆建在，`team_recover`）。落点：`store/teamwork_items.go`、`seelebridge/teamwork/items.go`、`seelebridge/runtime_teamwork_items.go`、`backend/tool/worktree` 的 `BeginNamed`、`dto.TeamworkBoardView.WorkItems`、`team-board-view.js` 甘特 + 队列 + 执行进度子页面。详见 [`../devlog/2026-10-03-workitem-milestone-refactor.md`](../devlog/2026-10-03-workitem-milestone-refactor.md) |
 | M4 清场 | **已收口（2026-10-15，A04/A15）**——原状态列的 2026-10-01"待做"已不成立，§9 表各行已按事后事实更新 | §9 清单的**引用事实与退场条件**见 [`../devlog/2026-10-01-m4-deadcode-inventory.md`](../devlog/2026-10-01-m4-deadcode-inventory.md)：六条候选里只有 `TurnScheduler` 的 `Next/Request/Remove/Restore` 是 `test-only`（删它同时是改规格，要连带改 `scheduler_wiring_test.go` 与 README），其余五条都 `blocked`——`newGovernor`/`seatPlan`/`NewAdvisorSeat` 仍是座位循环正文（`runSeatRound`）的唯一座位派生来源、`teamRoleSeatsFor`/`RoleTurnPort` 仍有生产消费者、`order_policy/order_roles` 被席位环与前端 `team.set_order`（员工栏「摘除」时提交整张顺序表）共同消费。**已做的三步标注/清理**：① 2026-10-01 `order_policy` 在 `dto`（GoDoc）、`application/core/agentteam/README.md` 与 GUI 里标注为历史字段（字段本体、落盘取值与 `order_roles` 一字未动，退场条件仍 blocked），见 [`../devlog/2026-10-01-teamwork-legacy-order-fields.md`](../devlog/2026-10-01-teamwork-legacy-order-fields.md)；② 同日**删除内置形态目录**（`agentteam/presets.go` 与全部配套入口）——它不属于 §9 六条，但同属"旧面"，且 `goal` 上线自动装配团队会**整份替换掉会话已有的团队**（事故，不是自动化），见 [`../devlog/2026-10-01-no-builtin-team-shapes.md`](../devlog/2026-10-01-no-builtin-team-shapes.md)；③ 同日 **GUI 侧撤掉全部人工编排**（团队形态 chip / 顺序策略 / 拖拽调序 / 位置列一并退场，"次序 = 登记先后"落进面板与文档），见 [`../devlog/2026-10-01-team-panel-no-shapes.md`](../devlog/2026-10-01-team-panel-no-shapes.md)；④ 同日 **#1/#6 的员工执行面整条退场**（M2 的 `KindSeat` 已接管座位循环，员工干活改由 leader 派 worker 作业，退场条件「先建新面、后撤旧面」成立）：`RoleSeat` 只留 `RoleName`/`RoleKind`、`roleTurnSeat`/`newRoleTurnSeat`/`roleTurnNote`/`withRoleTurnInput`/`RoleTurnRunner`/`goalCoordinatorDeps.RoleTurnFor`/`application/core/role_turn.go` 与跨层的 `contract.RoleTurnPort`+`deps.RoleTurn`+`dto.RoleTurnRequest/RoleTurnOutcome`+`Runtime.RunRoleTurn` 一并删除（`runRoleRound` 保留——worker 作业与 ADVISOR 评审仍共用它），见 [`../devlog/2026-10-01-seat-employee-face-retired.md`](../devlog/2026-10-01-seat-employee-face-retired.md)；⑤ 同日 **#3 的 `TurnScheduler` 无消费者接口退场**：channel 投递（`Requests`/`Request`/`Next`）、顺序编辑三件（`Move`/`Remove`/`Restore`）、只读 getter `Prefix`，连同只服务它们的 `requests` 通道、`RuntimeOptions.Buffer`、`TurnRequest.RoundID` 与 `orderLocked`/`indexOfRole`；`scheduler_wiring_test.go` 的声明按事实改写并新增"退场必须被记下来"，见 [`../devlog/2026-10-01-turn-rotation-retired.md`](../devlog/2026-10-01-turn-rotation-retired.md)；⑥ 2026-10-03 **goal 席位轮转整条退场**（阶段三 W3）：goal 的驱动从"座位环"换成**提示词驱动的 leader 派活**，`application/core/govern`（整包）/ `goal/adapter.go` / 座位作业面 `jobs.KindSeat`（`SeatExecutor`/`SetSeatRoundRunner`/`RunSeat`…）/ headless `goal_gov_*` / 只读视图的 `Round`·`RoundLimit`·`CurrentSeat`·`Broken`·`BreakReason`·`RoundError` 一并删除；保留 `Controller` + 终态 gate + 逃生，见 [`../devlog/2026-10-03-seat-rotation-retired.md`](../devlog/2026-10-03-seat-rotation-retired.md) |
 
 **结论**：作业面（Seele `jobs`）与 teamwork 的**编排面 / 存储面 / 生命周期 / 工具面接线**已落地并有回归；
