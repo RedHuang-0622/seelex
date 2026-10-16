@@ -54,6 +54,8 @@
 | `fork_test.go` | 门控三轴次序与装配缺陷、事件最大 seq、深拷贝（消息/Tool 指针/四个切片/注入的 PlanStack 克隆器） |
 | `async.go` | `AsyncCompletionTriggers`（终态词表）+ `TeamworkTriggeredPrefix`（幂等账按表键）+ teammate 作业表窄端口读取（两条触发正文留在宿主，等 kind 词表落定后再搬） |
 | `async_test.go` | 终态词表（done/failed 触发，killed/running 不触发）、两条正文的字段收窄与工具指向、窄端口读取与未装配降级 |
+| `releasewindow.go` | `ReleaseWindowDeps` + `SetReleaseWindow` / `ReleaseWindow`：会话驻留窗口可调面的次序（校验 → 落盘 → 改内存） |
+| `releasewindow_test.go` | 次序断言、校验/落盘失败即停与文案、无落盘口仍生效、缺 apply 口响亮失败、读当前值 |
 | `history/` | 历史分页的窗口装配判据（见其 README） |
 
 ## 核心实现
@@ -160,3 +162,9 @@ go test ./wiring/adapters/ -run SessionSetting -count=1        # 存储端口实
 > 未搬的部分（登记）：两条**用户行正文**（`asyncCompletionPrompt` / `teamworkCompletionPrompt`）与
 > "kind → 展示词"的词表仍留在宿主——那张词表正被另一个在途切片搬去 `middle/view/worktable`
 > （`worktable.PromptKind` 尚未提交），等它落地后再搬，避免制造第二份词表。
+
+### releasewindow.go
+
+- `type ReleaseWindowDeps struct` — 宿主面：`Validate`（limit 域取值判据）、`Persist`（nil = 没装配落盘口）、`Apply`（改进程级值并返回生效值）、`Current`（当前读数）。
+- `func SetReleaseWindow(deps ReleaseWindowDeps, window int) (int, error)` — 先校验 → 再落盘（失败文案 `保存会话驻留窗口失败: %w`）→ 最后改内存；返回真正生效的值。
+- `func ReleaseWindow(deps ReleaseWindowDeps) int` — 当前生效的窗口（设置弹窗打开时读一次；不挂进快照）。
