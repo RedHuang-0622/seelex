@@ -838,4 +838,19 @@ R6 续做（尚未开始）：`runtime_projection`/`diagnostics`/`perf_stats` �
 
 **复核**：独立 worktree（`a5122479`）：`go build ./...` 0、`go vet ./...` 0、`go test ./e2e/` ok、
 `middle/residency` 与 `application/core -run 'Resident|Content|Release|Archive|Preview|SnapshotBudget'` 全 ok。
+
+## 18. M5-R6 第三片：R6-history-page（`d6cc1a81`，建包片）
+
+**建立 `middle/switch/` 及其 `history/` 子域**，落进去的是历史分页的**窗口装配判据**：
+
+| 项 | 内容 |
+|---|---|
+| 原位置 → 新唯一位置 | `application/core/session_history.go` 的 8 个纯函数 → `middle/switch/history/page.go`：`ReplaceTail`（原 replaceVisibleTail）、`Prepend`（原 prependVisibleHistory）、`DurableRows`、`IndexOfSameRow`、`SameByContent`、`HasRowIdentity`、`ContainsSameRow`（+ 包内 `lastRow`） |
+| 为什么是纯判据 | `rg` 逐一确认这 8 个函数**只在本文件内被调用**，且只吃 `[]model.Message` 与窗口参数；依赖只有 `middle/protocol/model` 与 `middle/view/state`（`BoundConversationTail/Head`），没有反向或跨层引用 |
+| 宿主留下什么 | 冷读面/分页读回（`loadConversationPage`、`loadConversationTailPage`、`loadEarlierVisiblePage`）、可见投影与快照写（`installVisibleHistory`）、恢复编排（resumeSession 家族）、`conversationPage.reachesPublishedTail` |
+| 坐标口径（随判据一起搬走的坑） | 可见空间 vs 未过滤空间不能相减相加；可见总数只增不减；窗口位置由**行身份**推出；**只拼得上的才拼**（接缝对不上返回空、窗口原地不动）；空占位不参与内容对位，工具行按调用 ID 对位 |
+| 用例 | 新增 `middle/switch/history/page_test.go`（7 条：接回热尾 / 无接缝用可见总数 / 空页保持窗口 / 前置换更早 / 无接缝不动窗口 / 空窗口取页尾 / 行身份与 durable 口径）；core 的 session_history 家族端到端用例保持不动 |
+| 门禁 | `e2e/layout_test.go` +1；`e2e/facade_boundary_test.go` +1、上限 80 → 81 |
+| 复核 | 独立 worktree（`d6cc1a81`）：`go build ./...` 0、`go vet ./...` 0、`go test ./e2e/` ok、`middle/switch/history` ok、`application/core` 全量失败集合 = **基线 3 例**（逐条核对，无新增） |
+| 过程记录 | 首版两条新用例的**期望写错了**（把"空 assistant 行"当成 0 可见行；把"空 tool 行"当成能按内容对位）——按实现口径改正后转绿；这再次说明新判据用例必须"对着实现口径写，而不是对着直觉写" |
 R6 续做（尚未开始）：`runtime_projection`/`diagnostics`/`perf_stats` 三文件已是薄宿主缝（R5c 已把计算搬进 `middle/view`，只剩锁与取数）；其余按 plan §2.4 的落点继续搬
