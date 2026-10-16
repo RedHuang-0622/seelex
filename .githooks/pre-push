@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# 推送前把"红线"跑一遍：编译 + vet 不过就不许推。
+# 跳过：SEELEX_SKIP_HOOKS=1。触发安排见同目录 README.md。
+set -uo pipefail
+
+if [[ "${SEELEX_SKIP_HOOKS:-0}" == "1" ]]; then
+  echo "[pre-push] 已按 SEELEX_SKIP_HOOKS=1 跳过检查"
+  exit 0
+fi
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT" || exit 0
+
+echo "[pre-push] go build ./... + go vet ./..."
+if ! go build ./...; then
+  echo "[pre-push] go build 失败，拒绝推送（SEELEX_SKIP_HOOKS=1 可跳过）" >&2
+  exit 1
+fi
+if ! go vet ./...; then
+  echo "[pre-push] go vet 失败，拒绝推送（SEELEX_SKIP_HOOKS=1 可跳过）" >&2
+  exit 1
+fi
+exit 0

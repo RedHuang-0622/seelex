@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# 快速护栏（<2s，只读暂存区）：拦下三类反复出现的事故——BOM、CRLF、暂存不该入库的东西。
+# 跳过：SEELEX_SKIP_HOOKS=1（会打印原因）。空白错误只提示不拦。
+# 规范说明见同目录 README.md。
+set -uo pipefail
+
+if [[ "${SEELEX_SKIP_HOOKS:-0}" == "1" ]]; then
+  echo "[pre-commit] 已按 SEELEX_SKIP_HOOKS=1 跳过检查"
+  exit 0
+fi
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR || true)
+[[ -z "$staged" ]] && exit 0
+
+fail=0
+
+# 1) .go 不得带 UTF-8 BOM（PowerShell Set-Content 会加）或 CRLF（脚本写文件漏了 newline="\n"）
+go_files=$(printf '%s\n' "$staged" | grep -E '\.go$' || true)
+if [[ -n "$go_files" ]]; then
+  while IFS= read -r f; do
+    [[ -f "$f" ]] || continue
+    if [[ "$(head -c 3 "$f" | od -An -tx1 | tr -d ' \n')" == "efbbbf" ]]; then
+      echo "[pre-commit] $f 带 UTF-8 BOM：Go 源码必须无 BOM（用 apply_patch 或落盘脚本 WriteAllText(UTF8Encoding(\$false))）" >&2
+      fail=1
+    fi
+    if grep -qU $'\r' "$f" 2>/dev/null; then
+      echo "[pre-commit] $f 含 CRLF：.gitattributes 规定 *.go 用 LF（Python write_text 要显式 newline=\"\\n\"）" >&2
+      fail=1
+    fi
+  done <<< "$go_files"
+
+  # 2) 暂存区里的 .go 必须 gofmt 干净
+  unformatted=$(printf '%s\n' "$go_files" | while IFS= read -r f; do
+    [[ -f "$f" ]] || continue
+    gofmt -l "$f" 2>/dev/null
+  done)
+  if [[ -n "$unformatted" ]]; then
+    echo "[pre-commit] 下面这些暂存的 .go 没 gofmt 干净（跑 gofmt -w 后重新 git add）：" >&2
+    printf '  %s\n' $unformatted >&2
+    fail=1
+  fi
+fi
+
+# 3) 不许暂存"临时工作区"与真实配置
+forbidden=$(printf '%s\n' "$staged" | grep -E '^(tmp/|_tmp/|_scratch/|_logs/|dist/)' || true)
+if [[ -n "$forbidden" ]]; then
+  echo "[pre-commit] 下面这些路径不该进版本库（gitignore 覆盖的临时工作区）：" >&2
+  printf '  %s\n' $forbidden >&2
+  fail=1
+fi
+secrets=$(printf '%s\n' "$staged" | grep -E '^config/(accounts\.yaml|account-pool\.yaml|mcp\.yaml|search_engine\.yaml)$|^config/.*\.(local|secret)\.yaml$' || true)
+if [[ -n "$secrets" ]]; then
+  echo "[pre-commit] 真实配置不得入库（只允许 config/*.example.yaml 与 config/seele.yaml、config/seelex.yaml）：" >&2
+  printf '  %s\n' $secrets >&2
+  fail=1
+fi
+
+# 4) 空白错误只提示不拦（文档里常有历史性的尾随空格）
+if ! git diff --cached --check >/dev/null 2>&1; then
+  echo "[pre-commit] 提示：git diff --cached --check 有空白类告警（不拦提交）" >&2
+fi
+
+exit "$fail"

@@ -1,16 +1,30 @@
 #!/usr/bin/env bash
-# Rebuild dev binaries after every commit so dist/ always matches HEAD.
-# Skip: SKIP_BUILD=1  (CLI only: SKIP_BUILD_GUI=1)
-# Enabled via: git config core.hooksPath .githooks
+# 按需重建 dev 二进制：只有本次提交动了"构建相关路径"才重建（纯文档/记录提交直接跳过）。
+#   SEELEX_POST_COMMIT_BUILD=0 → 强制跳过（长任务分支的默认心智）
+#   SEELEX_POST_COMMIT_BUILD=1 → 强制总是构建
+#   SKIP_BUILD=1               → 等价于跳过（向后兼容旧用法；CLI-only: SKIP_BUILD_GUI=1）
+# 跳过构建时不去动 dist/：那里有 dev GUI 的配置副本与可能的会话数据（见根 MEMORY.md 的事故记录）。
+# 触发安排与理由见同目录 README.md；启用方式：git config core.hooksPath .githooks
 set -euo pipefail
 
-if [[ "${SKIP_BUILD:-0}" == "1" ]]; then
+force="${SEELEX_POST_COMMIT_BUILD:-}"
+if [[ "${SKIP_BUILD:-0}" == "1" || "$force" == "0" ]]; then
+  echo "[post-commit] 跳过 dev 构建（SEELEX_POST_COMMIT_BUILD=${force:-未设置}）"
   exit 0
 fi
 
 ROOT="$(git rev-parse --show-toplevel)"
 if [[ -z "$ROOT" ]]; then
   exit 0
+fi
+
+if [[ "$force" != "1" ]]; then
+  # 构建相关路径：源码、依赖清单、配置样板与脚本、插件包、Makefile。
+  changed="$(git diff-tree --no-commit-id --name-only -r HEAD)"
+  if ! printf '%s\n' "$changed" | grep -qE '^(.*\.go|go\.mod|go\.sum|config/.*\.ya?ml|scripts/.*|plugins/.*|Makefile)$'; then
+    echo "[post-commit] 本次提交未触及构建相关路径，跳过 dev 构建（要强制：SEELEX_POST_COMMIT_BUILD=1）"
+    exit 0
+  fi
 fi
 
 echo "[post-commit] rebuilding dev binaries (SKIP_BUILD=1 to skip)..."
