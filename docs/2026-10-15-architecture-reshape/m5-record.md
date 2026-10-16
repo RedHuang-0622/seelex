@@ -1250,3 +1250,32 @@ B 在 01:03 落盘 `middle/switch/interaction.go` + `interaction_test.go` 并把
 3. **临时物不要用 `.go` 后缀**（`go build ./...` 会捡起来）；`tmp/` 下 `*.py` 里对 `Set-Content -Encoding UTF8`
    写出的文件要按 **utf-8-sig** 读（PS 5.1 会加 BOM）。
 4. **`Measure-Object -Line` 少算行数**；判断文件长度用 `(Get-Content).Count`。
+
+## 30. M5 出口验收（2026-10-17，全量 CI 等价）
+
+在工作树**干净**（无未提交改动，HEAD = `04bd5931`）时跑的一轮全量验收：
+
+| 检查 | 命令 | 结果 |
+|---|---|---|
+| 格式 | `gofmt -l .`（排除 tmp/vendor/stage/dist） | **空** |
+| 构建 | `go build ./...` | exit 0 |
+| 发布构建 | `go build -tags "gui,desktop,production" ./...` | exit 0 |
+| 静态检查 | `go vet ./...` | exit 0 |
+| 全量用例 | `go test ./... -count=1 -timeout 600s` | **93 个包 ok**；唯一红 = 基线 3 例（见下） |
+| 仓库级集成 | `go test ./test/ -count=1 -timeout 900s` | ok（54.2s） |
+| 钩子自测 | `bash scripts/hooks-selftest.sh` | pass=13 fail=0（exit 0） |
+| 前端用例 | `node --test gui/frontend/dist/*.test.mjs` | **778 pass / 0 fail** |
+| 可执行物 | post-commit 钩子重建 `dist/dev/seelex.exe` + `dist/seelex-gui-dev/seelex-gui.exe` | 每次提交都成功；`seelex.exe -version` → `dev`（exit 0） |
+| seelebridge 删除 | `git ls-files seelebridge` | **空** |
+
+唯一红的 3 例是**开工前就红**的基线（契约 §0.5：不许修）：
+`TestContextBudgetSkipsCompactionWithoutMargin` /
+`TestRunningSessionAccumulatesAllRoundsInOrderControl` /
+`TestColdRestoreTailFirstRequestKeepsTranscriptOrder`（全在 `application/core`）。
+
+两点说明：
+
+1. 本轮全量跑**没有复现** P20 那个高负载偶发挂死（`application/core` 52.1s 正常结束）——
+   与 §29.7 的判定一致：它是**负载相关**的既有问题，不是搬迁引入。
+2. 验收通过 = M5 的**工程出口**（架构落位 + 能构建能跑用例）。清单上仍欠 **R10b** 与 **R6 余片**
+   （见 §29.7 表第 7/8 行）——它们是"继续收窄"的增量工作，不影响本轮的"能正常运行"判据。
