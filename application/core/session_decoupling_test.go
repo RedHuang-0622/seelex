@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/core/chat"
+	"github.com/RedHuang-0622/seelex/backend/engine/react"
 	"github.com/RedHuang-0622/seelex/middle/protocol/event"
 	"github.com/RedHuang-0622/seelex/session"
 )

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/core/chat"
+	"github.com/RedHuang-0622/seelex/backend/engine/react"
 )
 
 func TestAppendDeltaDoesNotExposeThoughtContent(t *testing.T) {

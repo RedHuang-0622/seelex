@@ -21,7 +21,7 @@ import (
 
 	seelesession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
-	"github.com/RedHuang-0622/seelex/application/core/chat"
+	"github.com/RedHuang-0622/seelex/backend/engine/react"
 	selexsession "github.com/RedHuang-0622/seelex/session"
 )
 
