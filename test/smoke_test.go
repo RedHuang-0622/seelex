@@ -10,7 +10,6 @@ import (
 	"time"
 
 	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
-	"github.com/RedHuang-0622/seelex/store"
 	"github.com/RedHuang-0622/seelex/wiring/config"
 )
 
@@ -30,12 +29,6 @@ func TestSmokeLLM(t *testing.T) {
 	defer runtime.Shutdown()
 
 	// 2. 主会话（session.NewSession）
-	tmpDir, _ := os.MkdirTemp("", "seelex-smoke")
-	defer os.RemoveAll(tmpDir)
-	st, err := store.NewSessionStore(tmpDir)
-	if err != nil {
-		t.Fatal(err)
-	}
 	sess, err := runtime.NewMainSession(nil)
 	if err != nil {
 		t.Fatalf("创建主会话失败: %v", err)
@@ -61,8 +54,5 @@ func TestSmokeLLM(t *testing.T) {
 
 	if elapsed > 3*time.Second {
 		t.Logf("⚠ 耗时 %.1fs > 3s，需要优化", elapsed.Seconds())
-	}
-	if st != nil {
-		_ = st.FrameworkStore()
 	}
 }

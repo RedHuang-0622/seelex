@@ -146,7 +146,9 @@ ROOT_GROUPS = (
     VolumeSpec("agentteam", "AgentTeam 装配适配与群聊角色会话透传（端口形状与 A2A 元数据口径）", ("agentteam", "role_session"), ("role_turn.go", "role_turn_test.go")),
     VolumeSpec("composer", "输入草稿合成器的持久化与工作区绑定（重启后恢复）", ("composer",)),
     VolumeSpec("archive", "会话归档与收尾语义（归档隐藏/拒绝忙碌会话、推理与工具叙述随记录持久化、运行判定与取消排空）", ("archive",), ("close_semantics_test.go",)),
-    VolumeSpec("misc", "基础与杂项（aliases/limits/completion/compressed/diagnostics/fault-guard/perf/snapshot-budget/runtime/workspace/race）", (), ("aliases.go", "completion.go", "completion_test.go", "compressed_turn.go", "compressed_turn_test.go", "diagnostics.go", "fault_guard.go", "fault_guard_test.go", "limits.go", "perf_stats.go", "race_test.go", "review_files.go", "review_files_test.go", "resident_lru.go", "resident_lru_test.go", "runtime_projection.go", "snapshot_budget.go", "snapshot_budget_test.go", "workspace_usecase.go", "workspace_file_usecase_test.go", "workspace_tree_usecase_test.go", "plugin_source_projection_test.go", "served_route_test.go", "turn_status_single_word_test.go", "window.go")),
+    # P8/R10b（2026-10-17）：`aliases.go` 已删，拆成 `vocabulary.go`（词表与错误值）与
+    # `assembly_helpers.go`（装配与转发面），两者随本卷。
+    VolumeSpec("misc", "基础与杂项（vocabulary/assembly_helpers/limits/completion/compressed/diagnostics/fault-guard/perf/snapshot-budget/runtime/workspace/race）", (), ("vocabulary.go", "assembly_helpers.go", "completion.go", "completion_test.go", "compressed_turn.go", "compressed_turn_test.go", "diagnostics.go", "fault_guard.go", "fault_guard_test.go", "limits.go", "perf_stats.go", "race_test.go", "review_files.go", "review_files_test.go", "resident_lru.go", "resident_lru_test.go", "runtime_projection.go", "snapshot_budget.go", "snapshot_budget_test.go", "workspace_usecase.go", "workspace_file_usecase_test.go", "workspace_tree_usecase_test.go", "plugin_source_projection_test.go", "served_route_test.go", "turn_status_single_word_test.go", "window.go")),
 )
 
 # test/：仓库级集成用例包（文件数 > 15，按 readme-spec §4 分卷）。
@@ -175,7 +177,9 @@ STORE_VOLUMES = (
     VolumeSpec("board", "项目看板投影：行文件、会话分目录、项目知识记录与渲染件", ("board", "project_board", "project_known", "project_record")),
     VolumeSpec("team", "团队计划/工作项、角色会话与节点会话记账", ("teamwork", "team_registry", "role_session", "node_session_store", "unit_record_writer")),
     VolumeSpec("media", "媒体分区、检索索引与派生通道（工具记录、定时任务事件）", ("media", "search_index", "tool_record", "schedule_events")),
-    VolumeSpec("storage", "存储引擎底座：JSON v8 布局、模块 head 发布、fork 子树、历史迁移与保形别名", ("json_layout", "module_heads", "fork_store", "legacy_storage", "router_storage", "root_aliases")),
+    # P8 §5.2/§5.3（2026-10-17）：`root_aliases`（保形别名）与 `legacy_storage`（僵尸 shard 存储）
+    # 两个前缀已随兼容面/僵尸面清理删除，本卷覆盖随之收缩。
+    VolumeSpec("storage", "存储引擎底座：JSON v8 布局、模块 head 发布、fork 子树与历史迁移", ("json_layout", "module_heads", "fork_store", "router_storage")),
     VolumeSpec("misc", "跨卷用例与基础回归（会话状态/锁、head 发布与自愈、并发与读放大探针）", (), (), fallback=True),
 )
 
