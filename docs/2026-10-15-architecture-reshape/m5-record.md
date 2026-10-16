@@ -785,3 +785,25 @@ mutate、组件在 mutate 里取自己的锁"，次序不会倒；`knobs_test.go
 | 门禁 | `e2e/layout_test.go` +1；`e2e/facade_boundary_test.go` +1、上限 78 → 79 |
 | 复核 | 独立 worktree（`1650a2ca`）：`go build ./...` 0、`go vet ./...` 0、`go test ./e2e/` ok、`backend/tool/reference` 与 `application/core -run 'Reference|ToolResult|Plan'` 全 ok |
 | 过程教训 | 首版把 `EncodePage` 的调用点切过去后，core 测试里仍引用旧函数（`reference_tools_test.go`、`session_archive_test.go` 各一处）→ 已按"用例随判据走"处理；另有一处遗留的未用 import 被独立 worktree 的 `go vet` 抓到（主工作树的 vet 先撞上另一个 worker 的在途错误，容易漏看）——**主工作树 vet 有并行噪声时，必须以干净 worktree 的 vet 为准** |
+
+## 16. M5-R6 第一片：R6-residency-preview（`a482c231`，建包片）
+
+R6（中间层常驻/切换域）的第一片，**建立 plan §2.4 点名的 `middle/residency/`**：
+
+| 项 | 内容 |
+|---|---|
+| 原位置 → 新唯一位置 | `application/core/snapshot_budget.go` 的截断判据（UTF-8 边界安全切割 + 尾部去空白 + "… 快照已截断（完整输出 N 字符）"）→ `middle/residency/preview.go` 的 `Preview` |
+| 宿主留下什么 | `snapshotToolOutputLimit()`（读 `limits.snapshot_tool_output_chars`、缺省 8000）与 `boundToolResultForSnapshot`（超限归档为 `result_ref`、快照只放预览）；core 的 `toolOutputPreview` 退化为"取预算 + 转发" |
+| 为什么这么切 | plan §1.1 的"中间层不得依赖后端"⇒ 进程级预算的取数**不能**进 `middle/residency`，由宿主取数作参数传入；`limit <= 0` 在本包显式定义为"不截断"，避免默认值出现第二份（口径与 R5c 的"计算入中间层、取数留宿主"一致） |
+| 登记的行为差异 | 仅 `limit <= 0` 这一格：原实现会去读进程预算，现在统一由宿主取数（生产唯一调用点本来就传正数） |
+| 用例 | 纯截断用例从 `application/core/snapshot_budget_test.go` 迁入 `middle/residency/preview_test.go`，并补"UTF-8 边界 + rune 计数"与"limit≤0 透传"两条；core 保留宿主级三条（归档 / 预算注入 / 分页读回）与 `tool_hooks_truncation_test.go` 的接入面 |
+| 门禁 | `e2e/layout_test.go` +1（`middle/residency`）；`e2e/facade_boundary_test.go` +1、上限 79 → 80 |
+| 复核 | 独立 worktree（`a482c231`）：`go build ./...` 0、`go vet ./...` 0、`go test ./e2e/` ok、`middle/residency` 与 `application/core -run '…SnapshotBudget|ToolResult|Truncation'` 全 ok |
+
+R6 续做（尚未开始）：`runtime_projection`/`diagnostics`/`perf_stats` 三文件已是薄宿主缝（R5c 已把计算搬进 `middle/view`，只剩锁与取数）；其余按 plan §2.4 的落点继续搬
+`resident_lru` / `content_lru` / `session_catalog` / `session_cold_read` / `session_input_index` / `window` / `archive_session`
+（→ `middle/residency/`）、`session_history` / `history_search`（→ `middle/switch/history/`）、
+`session_{lifecycle,release,draft,fork,meta,ctx,pending_tail,queue_recover}`、`service_{scheduler,queue,release_window}`、
+`async_completion`（→ `middle/switch/`）、`service_interaction`（→ `middle/switch/interaction/`）、
+`workspace_usecase`（→ `middle/switch/workspace/`）、`session/`（→ `middle/switch/sessionusecase/`）。
+注意：`work_table*` 与 `middle/view/worktable/**` 另有一个 worker 的在途改动（未提交），本批一直回避那批文件。
