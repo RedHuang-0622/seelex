@@ -182,7 +182,7 @@ type TeamworkWorkItemView struct {
 	Live        bool     `json:"live,omitempty"`
 	Interrupted bool     `json:"interrupted,omitempty"`
 	// Gate 是这件事此刻的**卡点**，Next 是清掉这个卡点的下一步动作（判据与词表见
-	// seelebridge/teamwork 的 ItemGate：编排面判、前端只显示）。
+	// backend/multiagent/teamwork 的 ItemGate：编排面判、前端只显示）。
 	Gate string `json:"gate,omitempty"`
 	Next string `json:"next,omitempty"`
 }

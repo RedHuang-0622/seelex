@@ -37,7 +37,7 @@ const (
 	TeamworkItemRunning = "running"
 	// TeamworkItemReview 是**待验收**：teammate 已经跑完、改动已合并（或显式报告合并
 	// 失败），但 leader 还没给结论。它把"做完"与"验收通过"分开——这正是尾插程序与
-	// leader 评估之间的那一段（见 seelebridge/teamwork/items.go 的 SettleWorkItem）。
+	// leader 评估之间的那一段（见 backend/multiagent/teamwork/items.go 的 SettleWorkItem）。
 	TeamworkItemReview = "review"
 	TeamworkItemDone   = "done"
 	TeamworkItemFailed = "failed"

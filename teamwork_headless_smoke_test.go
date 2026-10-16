@@ -36,8 +36,8 @@ import (
 	"github.com/RedHuang-0622/seelex/application/core"
 	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/limit"
+	seeteamwork "github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	seeteamwork "github.com/RedHuang-0622/seelex/seelebridge/teamwork"
 	"github.com/RedHuang-0622/seelex/store"
 	workspacerepo "github.com/RedHuang-0622/seelex/store/workspace"
 )

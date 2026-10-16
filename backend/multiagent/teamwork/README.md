@@ -1,9 +1,15 @@
-# seelebridge/teamwork — leader/worker 团队编排域
+# teamwork（`backend/multiagent/teamwork`） — leader/worker 团队编排域
 
 ## 生态位
 
 把 teamwork 从「一排轮流发言的座位」重做成「**一个 leader + 一组可被派发 / 观察 /
 终止的 worker 作业**」。分工（`docs/arch/teamwork-leader-worker-architecture.md` §2 / D1）：
+
+物理位置：2026-10-16 按
+[plan.md](../../../docs/2026-10-15-architecture-reshape/plan.md) §2.7 从 `seelebridge/teamwork/`
+整包归位到这里（**包名不变、内容零 diff**，只有 import 路径与注释里的落点改写）。
+同域的执行体（角色回合、作业派发、看板投影、会话实时面）仍在装配包
+`backend/engine/assemble`，它们的下沉是 J2 的续做项。
 
 - **作业面**归 Seele 的 `jobs` 根能力（契约 + `Manager` + `jobs_manage`）；
 - **硬编排**归本包：计划（谁、什么顺序）+ 派发 + 汇合 + 里程碑 + 退场 + 整队收口；
@@ -56,7 +62,7 @@ stateDiagram-v2
   `work_items[].depends_on` 管里程碑内（DAG 并行）。跨里程碑的 item 依赖被**显式拒绝**。
 - **一个 Work Item 一个 Session + 一个 git worktree**：会话号
   `WorkItemSessionID(...)` = `<role_session>-wi-<itemID>`；worktree 指派名
-  `seelebridge/<role>-<itemID>`（与 worktree 管理器的 nodeID 同一套命名）。
+  `seelex/<role>-<itemID>`（与 worktree 管理器的 nodeID 同一套命名）。
   绑定落**追加型 JSONL**（`teamwork/worktrees.jsonl`，KV 语义：按 work_item 取最后一行）。
 - **尾插是自动的**：`workerExecutor` 在回合结束后调 `ItemSettler.SettleWorkItem` ——
   **先合并**这件事的 worktree，再把有界一行插进 teammate 的消息队列（= 审计流里
@@ -122,7 +128,7 @@ stateDiagram-v2
 ## 依赖方向
 
 `teamwork` → `Seele jobs`、`store`（计划/审计持久面）。**禁止** import
-`application/*` 或 `seelebridge` 根包；执行体与工作区经端口反向注入。
+`application/*` 或装配包 `backend/engine/assemble`；执行体与工作区经端口反向注入。
 
 ## 并发、存储、安全或错误语义
 
@@ -193,6 +199,6 @@ stateDiagram-v2
 端口桩驱动，不需要引擎/git（见 `teamwork_test.go`）。
 
 ```text
-go test ./seelebridge/teamwork/ -count=1
-go test ./seelebridge/... -count=1
+go test ./backend/multiagent/teamwork/ -count=1
+go test ./backend/multiagent/... -count=1
 ```

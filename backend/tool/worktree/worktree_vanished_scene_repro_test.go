@@ -20,7 +20,7 @@ package worktree
 // 这正是并发交错，而不是"目录一开始就不在"。本用例把两种时序各跑一遍对照。
 //
 // 让这条路成立的是 AcceptItem 的判据：review 与 **running 同权**
-//（seelebridge/teamwork/items.go 的 `case TeamworkItemReview, TeamworkItemRunning:`）。
+//（backend/multiagent/teamwork/items.go 的 `case TeamworkItemReview, TeamworkItemRunning:`）。
 // 工作项在跑 = 作业还在飞 = 尾插还在同一条链上。
 
 import (

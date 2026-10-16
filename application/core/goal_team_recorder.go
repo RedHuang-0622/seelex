@@ -63,7 +63,7 @@ func (service *Service) goalTLRecorderFor(sessionID string) goaldomain.TLRoundRe
 // 不记角色行"（见 RecordTLRound 的 `!view.Configured` 守卫），所以恒返回零值
 // TeamView 与退场前的可达分支**逐字同解**；用一条命名清楚的函数承载它，比把守卫
 // 从三处删掉更能说明"这里少的是读面，不是判据"。本会话的团队事实现在归 teamwork
-// （团队看板 / seelebridge/teamwork），那条面未动。
+// （团队看板 / backend/multiagent/teamwork），那条面未动。
 func (service *Service) sessionAgentTeamViewJ1A(mainSessionID string) (dto.TeamView, error) {
 	_ = mainSessionID
 	return dto.TeamView{}, nil

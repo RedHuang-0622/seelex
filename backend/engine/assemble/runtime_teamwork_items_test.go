@@ -18,8 +18,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
-	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
 )
 
 // teammateSceneBinding 造一份 teammate 级（角色级）现场绑定：指派名 `seelex/<role>`，

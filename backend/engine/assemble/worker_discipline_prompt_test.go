@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
+	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 )
 
 // TestWorkerSystemPromptCarriesTheWorkItemDiscipline：teammate 的**收尾纪律**必须落在它自己的

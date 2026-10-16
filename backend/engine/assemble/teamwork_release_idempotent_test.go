@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
-	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
 )
 
 // ── 缺陷 A：accept 释放幂等（2026-10-03）───────────────────────────────

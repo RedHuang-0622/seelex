@@ -6,7 +6,7 @@ package assemble
 //
 // 分工（docs/arch/teamwork-leader-worker-architecture.md §2 / §4.5 / D1）：
 //   - **作业面**归 Seele 的 jobs 根能力（契约 + Manager + jobs_manage）；
-//   - **硬编排**归 seelebridge/teamwork（计划 + 派发 + 汇合 + 里程碑 + 整队收口）；
+//   - **硬编排**归 backend/multiagent/teamwork（计划 + 派发 + 汇合 + 里程碑 + 整队收口）；
 //   - **执行体 / 工作区 / 会话复位**是端口，由本文件把 Runtime 的能力接上去：
 //     worker 执行体 = 角色会话里跑一轮有界回合；worktree = 释放 git worktree；
 //     session reset = 清角色会话的工作历史（保留在编）。
@@ -31,9 +31,9 @@ import (
 	"github.com/RedHuang-0622/Seele/jobs"
 	"github.com/RedHuang-0622/Seele/jobs/builtin"
 
+	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
 	"github.com/RedHuang-0622/seelex/store"
 )
 

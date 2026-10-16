@@ -91,7 +91,7 @@ func TestTeamworkPlanRoundTrip(t *testing.T) {
 // `open …\metadata\teamwork.json: The system cannot find the path specified.`——一条内部
 // 路径噪声，读面因此把"还没有团队"报成工具故障。同文件的 ReadTeamworkEvents 早已是
 // "缺失即空集"，本次把同一口径补到计划这一路：读面宽容（空计划），写面自己判空并给领域
-// 文案（见 seelebridge/teamwork 的 requireTeam）。
+// 文案（见 backend/multiagent/teamwork 的 requireTeam）。
 func TestReadTeamworkPlanMissingIsEmptyPlan(t *testing.T) {
 	repository, key := teamworkFixture(t)
 	plan, err := repository.ReadTeamworkPlan(context.Background(), key)

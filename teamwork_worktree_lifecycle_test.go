@@ -4,7 +4,7 @@ package main
 // （真 git + 真装配 + 脚本化 provider；不调真实 API，因此是默认跑的那一档）。
 //
 // 为什么补这一条：既有用例里，teammate 链的"现场"只有两半各自被验过——
-//   - `TestDispatchBindsTeammateSceneAndRecordsLedger`（`seelebridge/teamwork`）用**替身**
+//   - `TestDispatchBindsTeammateSceneAndRecordsLedger`（`backend/multiagent/teamwork`）用**替身**
 //     验"派发会调 BindWorkspace、指派名写进成员与账本"（不碰真 git）；
 //   - `TestWorkItemWorktreeIsBoundAsTeammateRoot`（`seelebridge`）验"绑根落到现场"，
 //     但**没有 worker 回合真的在里面干活**；

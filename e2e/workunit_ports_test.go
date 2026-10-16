@@ -53,7 +53,7 @@ const (
 
 // forbiddenPackages 是生命周期实现**不许 import** 的包（它们的具体类型只允许出现在装配处）。
 var forbiddenPackages = map[string]string{
-	"github.com/RedHuang-0622/seelex/seelebridge/teamwork":        "teamwork",
+	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork": "teamwork",
 	"github.com/RedHuang-0622/seelex/backend/tool/worktree":       "worktree",
 	"github.com/RedHuang-0622/seelex/store":                       "store",
 	"github.com/RedHuang-0622/seelex/backend/multiagent/subagent": "session",
@@ -338,7 +338,7 @@ func TestWorkunitPortGateCatchesViolations(t *testing.T) {
 	// ① 按层分支 + ② 具体类型（import 与限定符两种形态都在一份样例里）。
 	branching := `package seelebridge
 
-import "github.com/RedHuang-0622/seelex/seelebridge/teamwork"
+import "github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 
 func (h *lifecycleHost) broken(u workunit.Unit) {
 	if u.Kind() == workunit.KindTeammate {

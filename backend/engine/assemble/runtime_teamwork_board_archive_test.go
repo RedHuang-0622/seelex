@@ -20,8 +20,8 @@ import (
 	"sync"
 	"testing"
 
+	seeteamwork "github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	seeteamwork "github.com/RedHuang-0622/seelex/seelebridge/teamwork"
 	"github.com/RedHuang-0622/seelex/store"
 )
 

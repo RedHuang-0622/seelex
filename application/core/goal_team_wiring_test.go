@@ -267,7 +267,7 @@ func (s *teamRecordingSessions) joinSeqsSnapshot() []string {
 // 对象**不再存在。
 //
 // "teammate 的记录从入伙那一回合算起"这条产品口径**没有被丢掉**，它现在归 teamwork：
-// 一 Work Item = 一 Session + 一 worktree，作业的入伙切点由 `seelebridge/teamwork`
+// 一 Work Item = 一 Session + 一 worktree，作业的入伙切点由 `backend/multiagent/teamwork`
 // 的派活面带着走（那条面本条目未动）。
 
 // TestNoteTeamWorkPrefixReadsMainSessionContext 已随 A03（2026-10-15）删除：它钉的是

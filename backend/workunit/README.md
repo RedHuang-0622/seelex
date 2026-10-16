@@ -14,7 +14,7 @@
 [`backend/tool/node`](../tool/node/README.md)（收尾分类）、
 [`backend/tool/worktree`](../tool/worktree/README.md)（两个哨兵错误，反向依赖本包）、
 [`backend/tool/registry`](../tool/registry/README.md)（作业面同形那一格）、
-[`seelebridge/teamwork`](../../seelebridge/teamwork/README.md)（teammate 收尾分类与 `Ownership` 折算）、
+[`backend/multiagent/teamwork`](../multiagent/teamwork/README.md)（teammate 收尾分类与 `Ownership` 折算）、
 [`internal/telemetry`](../../internal/telemetry/README.md)（阶段预览裁剪）。
 
 物理位置：2026-10-16 按

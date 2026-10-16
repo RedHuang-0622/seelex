@@ -20,9 +20,9 @@ import (
 	"context"
 	"strings"
 
+	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
 )
 
 // ── 记录词表与定位键（纯读数，不碰端口）───────────────────────────────────

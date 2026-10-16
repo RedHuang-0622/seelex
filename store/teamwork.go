@@ -372,7 +372,7 @@ func (repository *jsonRepository) WriteTeamworkPlan(_ context.Context, key Key, 
 // `open …\metadata\teamwork.json: The system cannot find the path specified.`——
 // 一条内部路径噪声，读面（team_items / team_context）也因此报"错误"而不是"还没有团队"。
 // 读面宽容、写面显式：需要计划的写面自己用 `TeamworkPlan.IsEmpty` 判空并给领域文案
-// （见 seelebridge/teamwork 的 requireTeam）——判据在那一处，不在这里复制。
+// （见 backend/multiagent/teamwork 的 requireTeam）——判据在那一处，不在这里复制。
 // 同文件 ReadTeamworkEvents 的"缺失即空"是同一口径。
 func (repository *jsonRepository) ReadTeamworkPlan(_ context.Context, key Key) (TeamworkPlan, error) {
 	if err := key.validate(); err != nil {

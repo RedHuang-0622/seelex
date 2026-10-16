@@ -6,7 +6,7 @@ package assemble
 //   - teamwork.TeammateQueue：尾插的落点（teammate 的消息队列）；
 //   - teamwork.ItemSettler：worker 回合结束后的**自动**尾插接线。
 //
-// 分工：协调器（seelebridge/teamwork）只认识"这件事的 id 与指派名"，git 目录布局、
+// 分工：协调器（backend/multiagent/teamwork）只认识"这件事的 id 与指派名"，git 目录布局、
 // 项目根、会话作用域都在这里接上——**上层不认识 git，下层不认识编排**。
 
 import (
@@ -15,9 +15,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
 	"github.com/RedHuang-0622/seelex/backend/workunit"
-	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
 )
 
 // SettleWorkItem 实现 teamwork.ItemSettler：worker 一轮跑完之后**自动**做尾插

@@ -171,7 +171,7 @@ head 文件的"缺失"要按**业务状态**读，而不是当 IO 错误上抛�
 `state.json`）在那份文档里逐条登记。`ReadTeamworkPlan` 因此把缺失翻成**空计划
 （`TeamworkPlan.IsEmpty` 为真）+ nil**：还没 `team_plan` 过是一个正常状态。读面
 （team_items / team_context）据此给空结果，需要计划的写面自己判空并给领域文案
-（判据在 `seelebridge/teamwork` 的 `requireTeam`，不在这里复制）。同文件的
+（判据在 `backend/multiagent/teamwork` 的 `requireTeam`，不在这里复制）。同文件的
 `ReadTeamworkEvents` 早已是"缺失即空集"，本次是把同一口径补到计划那一路——现场是模型
 收到 `open …\metadata\teamwork.json: The system cannot find the path specified.`，
 并把正常的"还没有团队"读成了工具故障。
