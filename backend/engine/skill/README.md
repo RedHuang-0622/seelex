@@ -38,6 +38,10 @@ flowchart TB
 
 - `loader.go`：多 root 查找、目录/legacy flat-file 兼容、create/delete 和 plugin-dir load。
 - `skill.go`：`Skill` 模型、`ResourcePath` 安全解析和线程安全 Registry。
+- `activate.go`：`Activator`——"模型侧激活技能"（`skill_activate` 工具后端）的**判据落点**：
+  名字校验 / 可激活性（`goal` 不可激活）/ 命中查询；命中后交给宿主注入的落地动作（压 skill 层 + 会话通知）。
+  2026-10-16 随 M5-R-skill **接收者转移**从 `application/core/skill_activate.go` 归位（plan §2.5）。
+- `activate_test.go`：激活判据用例（空名 / 不可激活 / 未知技能 / 名字归一 / 未装配技能表）。
 
 ## 加载与优先级
 
@@ -84,6 +88,32 @@ flowchart LR
 ## 测试
 
 ```text
-go test ./skill -count=1
-go test ./plugin -count=1
+go test ./backend/engine/skill/ -count=1
+go test ./backend/engine/plugin/ -count=1
+go test ./application/core/ -run ActivateSkill -count=1   # 门面级集成（压层 + 下一次提交确信它）
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### skill.go
+
+- `type Skill struct` — 技能模型（名字 / 描述 / 正文 / 资源根）。
+- `func (s Skill) ResourcePath(relative string) (string, error)` — 资源路径的安全解析（留在技能目录内）。
+- `type Registry struct` — 线程安全的技能注册表（manual + loader，按 Plugin 作用域隔离）。
+- `func NewRegistry() *Registry` / `func (r *Registry) Register(s Skill)` / `func (r *Registry) Remove(name string)` / `func (r *Registry) Get(name string) (Skill, bool)` / `func (r *Registry) All() []Skill` — 注册表的建/增/删/查/列举。
+- `func (r *Registry) AddLoader(loader *Loader) error` / `func (r *Registry) Reload() error` / `func (r *Registry) SetPluginSkills(pluginName string, skills []Skill)` / `func (r *Registry) ClearPluginSkills(pluginName string)` / `func (r *Registry) ActivatePlugin(pluginName string)` / `func (r *Registry) ActivatePluginSkills(pluginName string) error` — Plugin 作用域的装载与激活。
+
+### loader.go
+
+- `type Loader struct` — 多 root 的技能加载器（目录格式优先于 legacy flat-file）。
+- 其余函数见源码 doc 注释（多 root 查找、create/delete、plugin-dir load）。
+
+### activate.go
+
+- `type SkillLookup interface` — "按名查技能"的窄读口（结构满足 `contract.SkillPort` 的 `Get`）。
+- `type ActivateDeps struct` — 激活落点的宿主面（技能表 + 落地动作）。
+- `type Activator struct` / `func NewActivator(deps ActivateDeps) *Activator` — 落点本体（无状态）。
+- `func (a *Activator) Activate(name string) (model.SkillInfo, error)` — 名字校验 → 命中查询 → 落地；被拒的名字不触发落地。
