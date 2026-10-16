@@ -21,6 +21,7 @@ package core
 import (
 	"log"
 
+	"github.com/RedHuang-0622/seelex/middle/switch"
 	"github.com/RedHuang-0622/seelex/session"
 )
 
@@ -102,15 +103,20 @@ func (service *Service) reconcileResidentLimit() {
 // sessionBusy 报告会话是否正忙（释放面的守卫判据之一：忙的会话绝不释放）：
 // 待审批、运行中、排队输入、在飞请求都算忙。
 func (service *Service) sessionBusy(unit *session.SessionUnit) bool {
+	return switching.Busy(sessionBusyState(unit))
+}
+
+// sessionBusyState 把会话单元的四个忙态读数装配成中间层的值（装配缝；判据在
+// `middle/switch.Busy`，M5-R6-release-surface 接收者转移）。
+func sessionBusyState(unit *session.SessionUnit) switching.BusyState {
 	if unit == nil {
-		return false
-	}
-	if unit.PendingApprovalCount() > 0 {
-		return true
+		return switching.BusyState{}
 	}
 	chat := unit.ChatState()
-	if chat.Running || chat.QueuedCount > 0 {
-		return true
+	return switching.BusyState{
+		PendingApprovals: unit.PendingApprovalCount(),
+		Running:          chat.Running,
+		QueuedCount:      chat.QueuedCount,
+		PendingRequests:  len(unit.PendingRequests()),
 	}
-	return len(unit.PendingRequests()) > 0
 }

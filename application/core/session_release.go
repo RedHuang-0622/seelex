@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/middle/residency"
+	"github.com/RedHuang-0622/seelex/middle/switch"
 	"github.com/RedHuang-0622/seelex/session"
 )
 
@@ -48,13 +49,12 @@ func (service *Service) protectedSessionLocked(sessionID string) bool {
 	if service == nil || sessionID == "" {
 		return true
 	}
-	if sessionID == service.Core.Snapshot.Session.ID {
-		return true
-	}
-	if service.isRestoringLocked(sessionID) {
-		return true
-	}
-	return service.sessionBusy(service.sessions.Unit(sessionID))
+	return switching.Protected(switching.ProtectedInput{
+		SessionID:     sessionID,
+		ViewSessionID: service.Core.Snapshot.Session.ID,
+		Restoring:     service.isRestoringLocked(sessionID),
+		State:         sessionBusyState(service.sessions.Unit(sessionID)),
+	})
 }
 
 // releaseBudget 把"本层能留几个"折算成一个数字。

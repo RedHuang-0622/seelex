@@ -21,7 +21,10 @@
 
 1. `SetMeta`：写单个会话的展示元数据（置顶 / 别名 / 手动排序位），成功后唤醒目录刷新让所有客户端重拉；
 2. `ReadMeta`：读单个会话的展示元数据；
-3. 判据与文案只此一份：空会话 ID 拒绝（`session ID is required`）、未装配存储
+3. 释放面判据（`release.go`，M5-R6-release-surface 接收者转移）：`Busy`（待审批 / 运行中 / 排队输入 /
+   在飞请求都算忙）与 `Protected`（受保护集：当前视图 / 待审批 / 运行·排队·在飞 / 正在恢复）——
+   引擎驻留层（`resident_lru`）与正文层（`content_lru`）的收敛循环都只调这一份；
+4. 判据与文案只此一份：空会话 ID 拒绝（`session ID is required`）、未装配存储
    （`ErrMetaUnsupported` = "session meta storage is not assembled"）、写盘失败冒泡且**不**唤醒。
 
 **不做**：不做会话事实（谁在跑、绑定哪个工作区）；不持久化（元数据落在存储层的项目级 meta blob，
@@ -33,6 +36,8 @@
 |---|---|
 | `meta.go` | `MetaDeps`（`MetaStore` + `Wake`）+ `SetMeta` / `ReadMeta` + `ErrMetaUnsupported` |
 | `meta_test.go` | 空 ID / 未装配 / 写盘失败不唤醒 / 成功唤醒一次 / 读回转发 |
+| `release.go` | `BusyState` + `Busy`、`ProtectedInput` + `Protected`：释放面的两条判据 |
+| `release_test.go` | 忙态四轴、受保护集四条来源、空会话 ID 与空视图 ID 的边界 |
 | `history/` | 历史分页的窗口装配判据（见其 README） |
 
 ## 核心实现
@@ -94,3 +99,10 @@ go test ./wiring/adapters/ -run SessionSetting -count=1        # 存储端口实
 - `var ErrMetaUnsupported` — 未装配元数据存储（目录枚举不受影响，元数据恒为零值）。
 - `func SetMeta(deps MetaDeps, sessionID string, meta model.SessionMeta) error` — 写元数据并唤醒目录刷新（失败路径不唤醒）。
 - `func ReadMeta(deps MetaDeps, sessionID string) (model.SessionMeta, error)` — 读元数据。
+
+### release.go
+
+- `type BusyState struct` — "会话是否正忙"的四个读数（待审批 / 运行中 / 排队输入 / 在飞请求）。
+- `func Busy(state BusyState) bool` — 四个读数任一非零即忙（零值 = 不忙，同 `sessionBusy(nil)` 口径）。
+- `type ProtectedInput struct` — 受保护集判据的输入（会话 ID + 视图会话 ID + 恢复态 + 忙态）。
+- `func Protected(input ProtectedInput) bool` — 是否属于受保护集（绝不释放）；空会话 ID 亦判为受保护。
