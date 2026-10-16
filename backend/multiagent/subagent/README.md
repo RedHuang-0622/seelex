@@ -78,6 +78,8 @@ sequenceDiagram
 | `session_factory.go` | 子代理**独立会话工厂**（P21-5 从 `backend/engine/assemble/runtime_subagent_session.go` 归位）：`SessionFactory` + `SessionFactoryDeps`（组件模板 / 模型名 / 历史路由 / 工作区解析器 / 注册表走函数值端口）+ `NewWithID` / `Count`；四条判据：显式 ID 必填、重名拒绝、有无 history router 两条装配支路、注册表缺失时只建不注册 |
 | `session_factory_test.go` | 装配缺口（nil 工厂）与入参判据（空会话 ID）、缺注册表时计数容忍 |
 | `subagent_sessions_test.go` | 会话注册表单元测试 |
+| `conclusion.go` | 子代理**最终结论的持久化投影**（P21-14 从 `backend/engine/assemble/runtime_subagent_recovery.go` 归位）：`ConclusionEventSource` 常量 + `Conclusion` 载荷 + `ConclusionEvent`（时间基序号 / done-failed 终态映射 / `agent.runtime` 定位挂**主会话**——"结论跟随 mainagent"）+ `ConclusionsFromEvents`（反向投影，跳过读不懂的条目）+ `TakeoverPredicate`（"记录的主人已不在本进程才按崩溃口径接管"） |
+| `conclusion_test.go` | 事件形状（定位挂主会话、序号时间基、终态映射、未知状态词不判死）、**正反两向互为逆**的往返、外族/坏条目跳过、接管判据 |
 
 ## 核心实现
 
@@ -167,6 +169,21 @@ go build ./...
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### conclusion.go
+
+- `func ConclusionEvent(mainSessionID string, record store.NodeSessionRecord, at time.Time) frameworkevent.Event` — ConclusionEvent 把一条节点会话记录投影为**结论事实事件**：
+- `func ConclusionsFromEvents(entries []store.EventLogEntry) []store.NodeSessionRecord` — ConclusionsFromEvents 从主会话事件库的条目里读出结论记录（**结论事件的反向投影**，
+- `func TakeoverPredicate(stillLive func(nodeID string) bool) func(store.NodeSessionRecord) bool` — TakeoverPredicate 返回恢复链上的**接管判据**：只有"记录的主人已经不在本进程里"的记录
+
+### conclusion_test.go
+
+- `func conclusionRecord() store.NodeSessionRecord`
+- `func TestConclusionEventShape(t *testing.T)` — TestConclusionEventShape 钉住事件形状：**结论跟随 mainagent**（定位挂主会话）、
+- `func TestConclusionsRoundTripIsLossless(t *testing.T)` — TestConclusionsRoundTripIsLossless 是**正反两向互为逆**的钉子：投影成事件、序列化、
+- `func TestConclusionsFromEventsSkipsForeignAndBrokenEntries(t *testing.T)` — TestConclusionsFromEventsSkipsForeignAndBrokenEntries：事件库是 A/B 类事实共用的追加日志，
+- `func TestTakeoverPredicateOnlyTakesOverDeadOwners(t *testing.T)` — TestTakeoverPredicateOnlyTakesOverDeadOwners：接管判据是"记录的主人已不在本进程"——
+- `func mustJSON(t *testing.T, value any) json.RawMessage`
 
 ### context_clone.go
 

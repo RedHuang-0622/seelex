@@ -2,15 +2,12 @@ package assemble
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
 	"time"
 
-	frameworkevent "github.com/RedHuang-0622/Seele/event"
 	subagentsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
-	"github.com/RedHuang-0622/seelex/contract/dto"
 
 	"github.com/RedHuang-0622/seelex/store"
 )
@@ -25,19 +22,9 @@ import (
 //   - 恢复锚点：重启后从主会话事件库重建子代理树（结论事件）与 worktable
 //     认领（Assignee → subagent:<节点会话ID>），崩溃遗留节点从残留记录恢复。
 
-// subagentConclusionEventSource 是子代理最终结论在统一事件库中的稳定 Source。
-const subagentConclusionEventSource = "seelex.subagent.result"
-
-// subagentConclusion 是子代理最终结论的事件载荷（跟随 mainagent 持久化）。
-type subagentConclusion struct {
-	NodeID    string          `json:"node_id"`
-	SessionID string          `json:"session_id"`
-	Status    string          `json:"status"` // done | failed
-	Goal      string          `json:"goal,omitempty"`
-	Summary   string          `json:"summary,omitempty"`
-	Error     string          `json:"error,omitempty"`
-	Result    json.RawMessage `json:"result,omitempty"`
-}
+// 结论事件的形状与两向投影（`ConclusionEvent` / `ConclusionsFromEvents`）在子代理域
+// [`backend/multiagent/subagent/conclusion.go`](../../multiagent/subagent/README.md)（P21-14
+// 归位）；本文件只剩"谁落盘、从哪读、按什么顺序"的接线。
 
 // AttachSubSessionStore 装配子代理会话记录持久化（Router 就绪后注入）：
 // 运行期落盘 + 结束时结论回传主会话 + 记录删除。幂等。
@@ -80,29 +67,9 @@ func (r *Runtime) persistSubagentConclusion(mainSessionID string, record store.N
 	if persister == nil {
 		return
 	}
-	conclusion := subagentConclusion{
-		NodeID: record.NodeID, SessionID: record.SessionID, Status: record.Status,
-		Goal: record.Goal, Summary: record.Summary, Error: record.Error,
-		Result: record.ResultJSON,
-	}
-	content, _ := json.Marshal(conclusion)
-	at := time.Now()
-	event := frameworkevent.Event{
-		Sequence:   uint64(at.UnixNano()),
-		OccurredAt: at,
-		Source:     subagentConclusionEventSource,
-		Type:       frameworkevent.TypeLifecycle,
-		Status:     frameworkevent.StatusCompleted,
-		Scope:      frameworkevent.Scope{NodeID: record.NodeID},
-		Content:    content,
-		Locations: []frameworkevent.Location{{
-			Kind: "agent.runtime",
-			IDs:  map[string]string{"session_id": mainSessionID},
-		}},
-	}
-	if nodeStateOfRecord(record.Status) == dto.SubAgentFailed {
-		event.Status = frameworkevent.StatusFailed
-	}
+	// 事件形状（序号时间基 / done-failed 映射 / 会话定位挂主会话）由域包投影，
+	// 本层只负责"交给谁落盘"与失败留痕。
+	event := subagentsession.ConclusionEvent(mainSessionID, record, time.Now())
 	if err := persister(context.Background(), event); err != nil {
 		log.Printf("seelex: persist subagent conclusion %q: %v", record.NodeID, err)
 	}
@@ -188,29 +155,6 @@ func loadSubagentConclusions(ctx context.Context, router *store.Router, projectI
 	if err != nil {
 		return nil, err
 	}
-	records := make([]store.NodeSessionRecord, 0, len(entries))
-	for _, entry := range entries {
-		var event frameworkevent.Event
-		if err := json.Unmarshal(entry.Payload, &event); err != nil {
-			continue
-		}
-		if event.Source != subagentConclusionEventSource || len(event.Content) == 0 {
-			continue
-		}
-		var conclusion subagentConclusion
-		if err := json.Unmarshal(event.Content, &conclusion); err != nil || conclusion.NodeID == "" {
-			continue
-		}
-		records = append(records, store.NodeSessionRecord{
-			SchemaVersion: store.NodeSessionSchemaVersion,
-			NodeID:        conclusion.NodeID,
-			SessionID:     conclusion.SessionID,
-			Goal:          conclusion.Goal,
-			Status:        conclusion.Status,
-			Summary:       conclusion.Summary,
-			Error:         conclusion.Error,
-			ResultJSON:    conclusion.Result,
-		})
-	}
-	return records, nil
+	// 反向投影（含"跳过读不懂的条目"的判据）在域包：与 ConclusionEvent 是同一条契约的两向。
+	return subagentsession.ConclusionsFromEvents(entries), nil
 }

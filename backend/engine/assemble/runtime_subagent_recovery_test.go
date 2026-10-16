@@ -8,6 +8,7 @@ import (
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
 
+	subagentsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/model"
 	"github.com/RedHuang-0622/seelex/store"
@@ -83,7 +84,7 @@ func TestSubagentConclusionFollowsMainAndAnchorsRebuild(t *testing.T) {
 	}
 	found := false
 	for _, event := range events {
-		if event.Source == subagentConclusionEventSource && event.Scope.NodeID == "n1" {
+		if event.Source == subagentsession.ConclusionEventSource && event.Scope.NodeID == "n1" {
 			found = true
 		}
 	}
