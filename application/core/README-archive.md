@@ -17,7 +17,10 @@
 
 ### archive_session.go
 
-- `func (service *Service) ArchiveSession(sessionID string) error` — ArchiveSession 归档指定会话：非 running/queued/awaiting_approval 才允许；
+- `var ErrSessionNotFoundArchive` — 目标会话不存在或 record 缺失/版本不兼容（`residency.ErrArchiveNotFound` 的宿主别名，同一错误值）。
+- `func (service *Service) ArchiveSession(sessionID string) error` — ArchiveSession 归档指定会话（判据与文案在 `middle/residency`）。
+- `func (service *Service) archiveDeps(sessionID string) residency.ArchiveDeps` — archiveDeps 装配归档用例的宿主面（每次调用构造一次值语义的 Deps；无状态）。
+- `func (service *Service) archiveGate(sessionID string) residency.ArchiveGate` — archiveGate 在视图锁内取归档门控的四个读数，并带上宿主自己的错误值。
 
 ### archive_session_test.go
 
