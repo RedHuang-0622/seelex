@@ -53,7 +53,7 @@ func TestWorkspaceSwitchConcurrentWithBackgroundPersist(t *testing.T) {
 		t.Fatalf("concurrent submits did not settle before assertions: %v", err)
 	}
 
-	record, ok := loadStoredRecord(t, scenario.store, "", scenario.sessionA)
+	record, ok := loadStoredRecord(t, scenario.st, "", scenario.sessionA)
 	if !ok {
 		t.Fatalf("A record missing after concurrent activity")
 	}

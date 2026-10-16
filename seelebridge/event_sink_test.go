@@ -9,16 +9,16 @@ import (
 	"time"
 
 	frameworkevent "github.com/RedHuang-0622/Seele/event"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/plan"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // newTestRouter 创建 JSON 后端测试 Router（事件库落盘目标）。
-func newTestRouter(t testing.TB) *sessionstore.Router {
+func newTestRouter(t testing.TB) *store.Router {
 	t.Helper()
 	baseDir := t.TempDir()
-	router, err := sessionstore.NewRouter(filepath.Join(baseDir, "session-storage.json"), baseDir)
+	router, err := store.NewRouter(filepath.Join(baseDir, "session-storage.json"), baseDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,14 +27,14 @@ func newTestRouter(t testing.TB) *sessionstore.Router {
 }
 
 // TestPlanRunExecutionFactsPersistToEventStore 验证双轨事件（slice 8）：
-// 事实轨 —— plan_run 执行事实经 event.Sink 落 sessionstore 事件库
+// 事实轨 —— plan_run 执行事实经 event.Sink 落 store 事件库
 // （按 agent.runtime Location 的 session_id 路由）；
 // 快照轨 —— 投影订阅（前端 EventHub 快照路径）仍正常投递。
 func TestPlanRunExecutionFactsPersistToEventStore(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
-	eventStore := sessionstore.NewEventStore(newTestRouter(t))
+	eventStore := store.NewEventStore(newTestRouter(t))
 	runtime.SetEventPersister(eventStore.Append)
 
 	projected := make(chan dto.PlanNodeEvent, 16)
@@ -55,7 +55,7 @@ func TestPlanRunExecutionFactsPersistToEventStore(t *testing.T) {
 		t.Fatalf("plan_run result = %q, want completed", result)
 	}
 
-	// 事实轨：执行事实落 sessionstore 事件库（按 session_id 路由）。
+	// 事实轨：执行事实落 store 事件库（按 session_id 路由）。
 	events, err := eventStore.Load(context.Background(), "session-1")
 	if err != nil {
 		t.Fatal(err)
@@ -120,7 +120,7 @@ func TestEventSinkFailureDoesNotBreakWorkPlanControlFlow(t *testing.T) {
 // TestEventStoreRoutesByAgentRuntimeLocation 验证 EventStore 按
 // agent.runtime Location（session_id）路由；缺失时跳过持久化（best-effort）。
 func TestEventStoreRoutesByAgentRuntimeLocation(t *testing.T) {
-	eventStore := sessionstore.NewEventStore(newTestRouter(t))
+	eventStore := store.NewEventStore(newTestRouter(t))
 
 	withLocation := frameworkevent.Event{
 		ID: "evt-1", Sequence: 1, Source: "workplan.runner",

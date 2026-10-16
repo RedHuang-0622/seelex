@@ -9,22 +9,22 @@ import (
 	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 func TestAssemblerProjectionOrder(t *testing.T) {
-	project := RenderProjectBlock(sessionstore.ProjectRecord{
+	project := RenderProjectBlock(store.ProjectRecord{
 		Version: "v1",
-		Modules: []sessionstore.ModuleSemantics{{Name: "context", Summary: "上下文模块", Path: "seelexctx"}},
+		Modules: []store.ModuleSemantics{{Name: "context", Summary: "上下文模块", Path: "seelexctx"}},
 	})
 	if project == nil {
 		t.Fatal("project block must render for non-empty record")
 	}
-	stacks := sessionstore.SessionContextRecord{
-		PlanStack:    []sessionstore.PlanFrame{{PlanID: "plan-1", Title: "重构", Status: "active"}},
-		TaskStack:    []sessionstore.TaskFrame{{TaskID: "task-1", Objective: "迁移上下文", Status: "active"}},
-		SkillStack:   []sessionstore.SkillFrame{{SkillID: "skill-1", Name: "go"}},
-		CompactStack: []sessionstore.CompactFrame{{SegmentID: "compact-1", From: 0, To: 2, Summary: "先期摘要"}},
+	stacks := store.SessionContextRecord{
+		PlanStack:    []store.PlanFrame{{PlanID: "plan-1", Title: "重构", Status: "active"}},
+		TaskStack:    []store.TaskFrame{{TaskID: "task-1", Objective: "迁移上下文", Status: "active"}},
+		SkillStack:   []store.SkillFrame{{SkillID: "skill-1", Name: "go"}},
+		CompactStack: []store.CompactFrame{{SegmentID: "compact-1", From: 0, To: 2, Summary: "先期摘要"}},
 	}
 	assembler := NewAssembler(AssemblerOptions{
 		SystemPrompt: func() string { return "system-prompt-v1" },
@@ -194,8 +194,8 @@ func TestAssemblerMemoriesSkipControlBlocksAndNil(t *testing.T) {
 }
 
 func TestRenderStackBlocksTopOnly(t *testing.T) {
-	record := sessionstore.SessionContextRecord{
-		PlanStack: []sessionstore.PlanFrame{
+	record := store.SessionContextRecord{
+		PlanStack: []store.PlanFrame{
 			{PlanID: "plan-old", Title: "旧计划", Status: "closed"},
 			{PlanID: "plan-new", Title: "新计划", Status: "active"},
 		},
@@ -213,11 +213,11 @@ func TestRenderStackBlocksTopOnly(t *testing.T) {
 }
 
 func TestRenderStackBlocksSplitPrefixAndTail(t *testing.T) {
-	record := sessionstore.SessionContextRecord{
-		PlanStack:    []sessionstore.PlanFrame{{PlanID: "plan-1", Title: "重构", Status: "active"}},
-		TaskStack:    []sessionstore.TaskFrame{{TaskID: "task-1", Objective: "迁移上下文", Status: "active"}},
-		SkillStack:   []sessionstore.SkillFrame{{SkillID: "skill-1", Name: "go"}},
-		CompactStack: []sessionstore.CompactFrame{{SegmentID: "compact-1", From: 0, To: 2, Summary: "先期摘要"}},
+	record := store.SessionContextRecord{
+		PlanStack:    []store.PlanFrame{{PlanID: "plan-1", Title: "重构", Status: "active"}},
+		TaskStack:    []store.TaskFrame{{TaskID: "task-1", Objective: "迁移上下文", Status: "active"}},
+		SkillStack:   []store.SkillFrame{{SkillID: "skill-1", Name: "go"}},
+		CompactStack: []store.CompactFrame{{SegmentID: "compact-1", From: 0, To: 2, Summary: "先期摘要"}},
 	}
 	prefix := RenderStablePrefixBlocks(record)
 	if got := blockNames(prefix); !reflect.DeepEqual(got, []string{"skill", "compact"}) {
@@ -234,15 +234,15 @@ func TestRenderStackBlocksSplitPrefixAndTail(t *testing.T) {
 }
 
 func TestRenderTailBlocksPlanFrameStaysCompact(t *testing.T) {
-	record := sessionstore.SessionContextRecord{
-		PlanStack: []sessionstore.PlanFrame{{
+	record := store.SessionContextRecord{
+		PlanStack: []store.PlanFrame{{
 			PlanID: "plan-1", Title: "重构", Status: "active",
-			Nodes: []sessionstore.NodeSummary{
+			Nodes: []store.NodeSummary{
 				{ID: "n1", Label: "inspect", Status: "running"},
 				{ID: "n2", Label: "implement", Status: "pending"},
 			},
 		}},
-		TaskStack: []sessionstore.TaskFrame{{TaskID: "task-1", Objective: "迁移上下文", Status: "active"}},
+		TaskStack: []store.TaskFrame{{TaskID: "task-1", Objective: "迁移上下文", Status: "active"}},
 	}
 	tail := RenderTailBlocks(record)
 	if got := blockNames(tail); !reflect.DeepEqual(got, []string{"plan", "task"}) {
@@ -277,7 +277,7 @@ func blockNames(blocks []seelectx.PromptBlock) []string {
 }
 
 func TestRenderProjectBlockEmpty(t *testing.T) {
-	if block := RenderProjectBlock(sessionstore.ProjectRecord{}); block != nil {
+	if block := RenderProjectBlock(store.ProjectRecord{}); block != nil {
 		t.Fatal("empty project record must not render a block")
 	}
 }

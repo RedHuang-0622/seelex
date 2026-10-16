@@ -23,20 +23,20 @@ import (
 
 	"github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // GapCoverageOptions 是真空区覆盖的全部输入。
 type GapCoverageOptions struct {
 	// AllEvents 会话完整事件流（append-only 真相源，含已压缩轮次）。
-	AllEvents []sessionstore.Event
+	AllEvents []store.Event
 
 	// TailStartUnit 尾窗第一个单元在 AllEvents 单元空间中的起始下标，由存储
 	// 层选窗时回报（尾窗为空时等于单元总数）。[0, TailStartUnit) 即"窗口之前"。
 	TailStartUnit int
 
 	// Record 当前压缩栈记录（Snapshot）。
-	Record sessionstore.SessionContextRecord
+	Record store.SessionContextRecord
 
 	// Stacks 压缩栈写入目标（nil → 只计算不推送）。
 	Stacks CompactStackStore
@@ -61,7 +61,7 @@ type GapCoverageResult struct {
 	// Covered 本次是否发现并覆盖了真空区。
 	Covered bool
 	// Frame 推送（或将要推送）的合并帧。
-	Frame sessionstore.CompactFrame
+	Frame store.CompactFrame
 	// UncoveredUnits 本次新覆盖的单元数。
 	UncoveredUnits int
 }
@@ -82,7 +82,7 @@ func CoverHistoryGap(ctx context.Context, opts GapCoverageOptions) (GapCoverageR
 	if opts.Tokens == nil {
 		opts.Tokens = ConservativeTokenCounter{}
 	}
-	allUnits := sessionstore.CompleteEventUnits(opts.AllEvents)
+	allUnits := store.CompleteEventUnits(opts.AllEvents)
 
 	// 覆盖终点 = 栈顶帧 To（累计单元索引；空栈 = -1）。
 	coverageEnd := -1
@@ -129,10 +129,10 @@ func CoverHistoryGap(ctx context.Context, opts GapCoverageOptions) (GapCoverageR
 func buildGapFrame(
 	ctx context.Context,
 	opts GapCoverageOptions,
-	uncovered [][]sessionstore.Event,
+	uncovered [][]store.Event,
 	gapEnd int,
-) (sessionstore.CompactFrame, error) {
-	var prevTop *sessionstore.CompactFrame
+) (store.CompactFrame, error) {
+	var prevTop *store.CompactFrame
 	if len(opts.Record.CompactStack) > 0 {
 		top := opts.Record.CompactStack[len(opts.Record.CompactStack)-1]
 		prevTop = &top
@@ -158,7 +158,7 @@ func buildGapFrame(
 		Record:           opts.Record,
 	})
 	summary := RenderFrameSummary(RenderAnchorChapter(prevTop), chapter2)
-	frame := sessionstore.CompactFrame{
+	frame := store.CompactFrame{
 		SegmentID:     gapSegmentID(opts.SessionID),
 		From:          from,
 		To:            gapEnd,
@@ -179,9 +179,9 @@ func buildGapFrame(
 	if opts.Turns != nil {
 		ref, err := opts.Turns.StoreTurn(ctx, frame.SegmentID, gapUnitMessages(uncovered))
 		if err != nil {
-			return sessionstore.CompactFrame{}, err
+			return store.CompactFrame{}, err
 		}
-		frame.Evidence = append(frame.Evidence, sessionstore.EvidenceRef{
+		frame.Evidence = append(frame.Evidence, store.EvidenceRef{
 			Ref:     ref,
 			Summary: "vacuum turns original (read_compressed_turn)",
 		})
@@ -192,7 +192,7 @@ func buildGapFrame(
 
 // gapRequestRange 从真空区事件单元提取首尾 requestID（Event.TaskID 关联
 // 字段；事件流无 TaskID → 空，调用方回退 ChatQueue 标签）。
-func gapRequestRange(uncovered [][]sessionstore.Event) (string, string) {
+func gapRequestRange(uncovered [][]store.Event) (string, string) {
 	var requestFrom, requestTo string
 	for _, unit := range uncovered {
 		for _, event := range unit {
@@ -219,8 +219,8 @@ func gapSegmentID(sessionID string) string {
 
 // gapEvidence 从真空区单元提取证据引用：事件携带 ResultRef 时直接引用，
 // 否则按工具调用 ID 推导 result 句柄。
-func gapEvidence(uncovered [][]sessionstore.Event) []sessionstore.EvidenceRef {
-	var evidence []sessionstore.EvidenceRef
+func gapEvidence(uncovered [][]store.Event) []store.EvidenceRef {
+	var evidence []store.EvidenceRef
 	for _, unit := range uncovered {
 		for _, event := range unit {
 			if event.Role != "tool" {
@@ -231,7 +231,7 @@ func gapEvidence(uncovered [][]sessionstore.Event) []sessionstore.EvidenceRef {
 				ref = "result:" + event.ToolCallID
 			}
 			if ref != "" {
-				evidence = append(evidence, sessionstore.EvidenceRef{Ref: ref})
+				evidence = append(evidence, store.EvidenceRef{Ref: ref})
 			}
 		}
 	}
@@ -240,7 +240,7 @@ func gapEvidence(uncovered [][]sessionstore.Event) []sessionstore.EvidenceRef {
 
 // renderEventUnitLine 渲染一个事件单元的单行摘要（与控制器 renderUnitLine
 // 同风格：用户输入前 80 字符 + 工具名）。
-func renderEventUnitLine(unit []sessionstore.Event) string {
+func renderEventUnitLine(unit []store.Event) string {
 	var builder strings.Builder
 	for _, event := range unit {
 		switch {
@@ -268,7 +268,7 @@ func renderEventUnitLine(unit []sessionstore.Event) string {
 }
 
 // gapUnitMessages 把真空区单元展平为 types.Message（原文归档载荷）。
-func gapUnitMessages(uncovered [][]sessionstore.Event) []types.Message {
+func gapUnitMessages(uncovered [][]store.Event) []types.Message {
 	total := 0
 	for _, unit := range uncovered {
 		total += len(unit)

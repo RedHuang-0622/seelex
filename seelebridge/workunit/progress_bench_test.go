@@ -11,13 +11,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
-func benchRecords(n int) []sessionstore.NodeSessionRecord {
-	records := make([]sessionstore.NodeSessionRecord, 0, n)
+func benchRecords(n int) []store.NodeSessionRecord {
+	records := make([]store.NodeSessionRecord, 0, n)
 	for i := 0; i < n; i++ {
-		records = append(records, sessionstore.NodeSessionRecord{
+		records = append(records, store.NodeSessionRecord{
 			NodeID:     "exec-wi-" + strings.Repeat("x", i%7) + string(rune('a'+i%26)),
 			SessionID:  "sess-" + string(rune('a'+i%26)),
 			Goal:       "把读面收成一份",

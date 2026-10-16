@@ -12,13 +12,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/chat"
 	"github.com/RedHuang-0622/seelex/application/core/internal/state"
 	"github.com/RedHuang-0622/seelex/application/event"
 	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge"
-	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/session"
 )
 
@@ -74,7 +74,7 @@ type Deps struct {
 		TeamworkBoardViewFor(sessionID string) *dto.TeamworkBoardView
 	}
 	// Limits 返回当前生效的运行时上限（窗口配置）。
-	Limits func() seelexctx.Limits
+	Limits func() limit.Limits
 }
 
 // Coordinator 拥有用户可见快照、消息序列与事件修订号。
@@ -98,7 +98,7 @@ type Coordinator struct {
 	teamwork interface {
 		TeamworkBoardViewFor(sessionID string) *dto.TeamworkBoardView
 	}
-	limits func() seelexctx.Limits
+	limits func() limit.Limits
 	// messageSeq 是**每会话独立**的可见消息派号（键 = 会话 ID；所有读写都在
 	// Core.ViewMu 下，与其它 *Locked 方法同一临界区）。此前是进程级单计数器：
 	// 会话 A 跑过之后新建会话 B，B 的第一条消息会接着 A 的号（例如 message-137），

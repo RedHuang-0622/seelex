@@ -3,7 +3,7 @@ package model
 import (
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // Node 第一视角 / 语义结果返回的数据契约（叶子类型，node/session/telemetry
@@ -30,7 +30,7 @@ const (
 // NodeStageLog 是同一 node 会话在某个阶段的上下文日志（第一视角数据面）。
 // 同一子代理的多个阶段日志必须携带相同 SessionID——这是"分阶段上下文出自
 // 同一个 subagent 而非多个 subagent 拼凑"的认证依据。
-// 结构体本体以 application/contract/dto 为单源（跨层投影与对外契约同一形状），
+// 结构体本体以 contract/dto 为单源（跨层投影与对外契约同一形状），
 // 本包用别名保持运行态引用面兼容。
 type NodeStageLog = dto.NodeStageLog
 

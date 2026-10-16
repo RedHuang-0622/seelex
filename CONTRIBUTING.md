@@ -15,7 +15,7 @@ Read [AGENTS.md](AGENTS.md) and the README in every module you intend to change.
 - `application/` owns product use cases and frontend-neutral state.
 - `tui/` and `gui/` consume Application DTOs, snapshots and events; they do not duplicate the business state machine.
 - `seelebridge/` adapts Seele runtime capabilities and prevents upstream types from leaking through the product.
-- `workspace/`, `session/` and `sessionstore/` preserve project/session scope and atomic persistence semantics.
+- `workspace/`, `session/` and `store/` preserve project/session scope and atomic persistence semantics.
 - Tool additions must pass ProjectScope, visibility and permission boundaries.
 - Planned behavior must be labelled as planned; do not describe it as implemented.
 

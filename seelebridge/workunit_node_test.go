@@ -19,7 +19,7 @@ import (
 	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
 	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // ── 1. 收尾分类：契约 OutcomeKind 与节点效果钉在同一张表上 ────────────────────
@@ -188,11 +188,11 @@ func TestRecoveryNoteIsOneFamilyAcrossLayers(t *testing.T) {
 		t.Fatalf("恢复说明 role = %q，契约 role = %q（两层必须同一个）",
 			SubagentRecoveryNoteRole, workunit.RecoveryNoteRole)
 	}
-	record := sessionstore.NodeSessionRecord{
+	record := store.NodeSessionRecord{
 		NodeID: "sub-1", SessionID: "node-1", Goal: "巡检存储层", Status: "running",
 		Summary: "读到 message_rows.go", Error: "deadline exceeded",
 		StagesJSON: []byte(`[{"stage":"running","preview":"read message_rows.go"}]`),
-		Worktree:   sessionstore.NodeWorktreeRecord{Path: "D:/tmp/x-seelex-sub-1", Branch: "seelex/sub-1"},
+		Worktree:   store.NodeWorktreeRecord{Path: "D:/tmp/x-seelex-sub-1", Branch: "seelex/sub-1"},
 	}
 	note := workunit.RecoveryNote(workunit.KindSubagent, record)
 	if !strings.HasPrefix(note, subagentRecoveryNotePrefix) {
@@ -218,14 +218,14 @@ func TestNodeWorkUnitSinglePath(t *testing.T) {
 	if err := runtime.BindProjectRoot(repo); err != nil {
 		t.Fatalf("bind project root: %v", err)
 	}
-	router, err := sessionstore.NewRouter(filepath.Join(t.TempDir(), "session-storage.json"), t.TempDir())
+	router, err := store.NewRouter(filepath.Join(t.TempDir(), "session-storage.json"), t.TempDir())
 	if err != nil {
 		t.Fatalf("new router: %v", err)
 	}
 	t.Cleanup(func() { _ = router.Close() })
-	store := sessionstore.NewNodeSessionStore(router)
+	st := store.NewNodeSessionStore(router)
 	runtime.AttachHistoryRouter(router)
-	runtime.AttachSubSessionStore(store)
+	runtime.AttachSubSessionStore(st)
 	if _, err := runtime.NewMainSessionWithID("sess_main", nil); err != nil {
 		t.Fatalf("new main session: %v", err)
 	}
@@ -260,8 +260,8 @@ func TestNodeWorkUnitSinglePath(t *testing.T) {
 	}
 
 	// 跑：这一件事在运行期落盘（一条记录 = 一份会话）。
-	if err := store.Save(projectID, "sess_main", sessionstore.NodeSessionRecord{
-		SchemaVersion: sessionstore.NodeSessionSchemaVersion,
+	if err := st.Save(projectID, "sess_main", store.NodeSessionRecord{
+		SchemaVersion: store.NodeSessionSchemaVersion,
 		NodeID:        "wu-1", SessionID: "node-wu-1", MainSessionID: "sess_main",
 		Goal: "do the thing", Status: "running", UpdatedAt: time.Now().UTC(),
 	}); err != nil {
@@ -293,7 +293,7 @@ func TestNodeWorkUnitSinglePath(t *testing.T) {
 	if _, ok := runtime.worktreeMgr.Info("wu-1"); ok {
 		t.Fatal("回收之后现场不得留在注册表")
 	}
-	records, err := store.List(projectID, "sess_main")
+	records, err := st.List(projectID, "sess_main")
 	if err != nil {
 		t.Fatalf("list session records: %v", err)
 	}

@@ -3,8 +3,7 @@ package task_context
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/core/internal/limits"
-	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/backend/limit"
 )
 
 type runtimeWithContextLimits struct {
@@ -36,16 +35,16 @@ func TestContextBudgetFallsBackForLegacyRuntime(t *testing.T) {
 
 // TestContextBudgetRatiosComeFromLimits：压缩预算比例是配置项（seelex.yaml
 // limits 段），不再是硬编码常量——调 context_hard_percent 必须改变硬/目标与
-// 单条外置阈值，且默认值只来自 seelexctx.DefaultLimits（窗口/8、98%、80%、50%）。
+// 单条外置阈值，且默认值只来自 limit.DefaultLimits（窗口/8、98%、80%、50%）。
 // 报表口径与判据口径必须来自同一份数字，这个用例把它钉死。
 //
 // 2026-09-30 起只剩一条线（取消软线提前量，见 context_runtime 的压缩判据）：
 // SoftThreshold 与 HardThreshold 同值——报告面因此不会出现"报表说已过软线、
 // 系统却没折"的口径分裂；limits.context_soft_percent 不再被消费（保留键兼容旧配置）。
 func TestContextBudgetRatiosComeFromLimits(t *testing.T) {
-	previous := limits.Get()
-	defer limits.Apply(previous)
-	limits.Apply(seelexctx.DefaultLimits())
+	previous := limit.Get()
+	defer limit.Apply(previous)
+	limit.Apply(limit.DefaultLimits())
 
 	base := ContextBudgetFor(runtimeWithContextLimits{window: 200_000, output: 8_192})
 	if base.SafetyReserve != 25_000 || base.Budget != 166_808 {
@@ -58,7 +57,7 @@ func TestContextBudgetRatiosComeFromLimits(t *testing.T) {
 		t.Fatalf("默认目标/单条外置阈值 = %+v", base)
 	}
 
-	limits.Apply(seelexctx.Limits{
+	limit.Apply(limit.Limits{
 		ContextSafetyReserveDivisor: 4,
 		ContextSoftPercent:          50,
 		ContextHardPercent:          80,
@@ -79,7 +78,7 @@ func TestContextBudgetRatiosComeFromLimits(t *testing.T) {
 	}
 
 	// 非法比例（0/负/超 100）回退默认，不得把预算算成 0（那会让每轮都压缩）。
-	limits.Apply(seelexctx.Limits{ContextSoftPercent: 0, ContextHardPercent: 200})
+	limit.Apply(limit.Limits{ContextSoftPercent: 0, ContextHardPercent: 200})
 	fallback := ContextBudgetFor(runtimeWithContextLimits{window: 200_000, output: 8_192})
 	if fallback.SoftThreshold != 163_471 || fallback.HardThreshold != 163_471 {
 		t.Fatalf("非法比例未回退默认: %+v", fallback)

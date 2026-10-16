@@ -38,7 +38,7 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/seelexctx"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 const (
@@ -60,8 +60,8 @@ func restoreProbeReply() string {
 
 type restoreProbeFixture struct {
 	runtime   *Runtime
-	router    *sessionstore.Router
-	store     *sessionstore.SessionContextStore
+	router    *store.Router
+	st        *store.SessionContextStore
 	completer *scriptedNodeCompleter
 }
 
@@ -75,7 +75,7 @@ func restoreProbeBoot(t *testing.T, root string, resume bool) *restoreProbeFixtu
 	t.Helper()
 	runtime := newTestRuntime(t)
 	t.Cleanup(runtime.Shutdown)
-	router, err := sessionstore.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
 	if err != nil {
 		t.Fatalf("NewRouter: %v", err)
 	}
@@ -84,7 +84,7 @@ func restoreProbeBoot(t *testing.T, root string, resume bool) *restoreProbeFixtu
 	if _, err := runtime.NewMainSessionWithID(restoreProbeSession, nil); err != nil {
 		t.Fatalf("NewMainSessionWithID: %v", err)
 	}
-	store := sessionstore.NewSessionContextStore(router, restoreProbeSession)
+	st := store.NewSessionContextStore(router, restoreProbeSession)
 	if resume {
 		if err := store.Load(context.Background()); err != nil {
 			t.Fatalf("重启后 Load: %v", err)
@@ -92,12 +92,12 @@ func restoreProbeBoot(t *testing.T, root string, resume bool) *restoreProbeFixtu
 	} else if err := store.SetSystemPrompt(restoreProbeSystem); err != nil {
 		t.Fatalf("SetSystemPrompt: %v", err)
 	}
-	runtime.AttachSessionContextStore(store)
+	runtime.AttachSessionContextStore(st)
 	completer := newScriptedNodeCompleter(restoreProbeReply())
 	injectScriptedCompleters(t, runtime, map[string]agent.Completer{"agent": completer})
 	runtime.RegisterBuiltins()
 	runtime.limits.ContextCompactionSummary.Enabled = true
-	return &restoreProbeFixture{runtime: runtime, router: router, store: store, completer: completer}
+	return &restoreProbeFixture{runtime: runtime, router: router, st: st, completer: completer}
 }
 
 func (fixture *restoreProbeFixture) calls() int {
@@ -122,7 +122,7 @@ func roundMessages(n, answerChars int) []types.Message {
 
 // modelVisibleCompactBlock 返回重启后**模型真能看到**的压缩上下文块正文
 // （装配顺序里 "压缩上下文 (now using compact context)" 那一个 PromptBlock）。
-func modelVisibleCompactBlock(record sessionstore.SessionContextRecord) string {
+func modelVisibleCompactBlock(record store.SessionContextRecord) string {
 	for _, block := range seelexctx.RenderStablePrefixBlocks(record) {
 		if block.Name != "compact" || len(block.Messages) == 0 || block.Messages[0].Content == nil {
 			continue
@@ -161,7 +161,7 @@ func TestRestoreProbeModelSeesNoPriorContent(t *testing.T) {
 	// ── 重启前 ────────────────────────────────────────────────────────
 	fixture := restoreProbeBoot(t, root, false)
 	rounds := roundMessages(200, 12_000)
-	if err := sessionstore.NewRouterStorage(fixture.router, restoreProbeSession).Append(ctx, rounds); err != nil {
+	if err := store.NewRouterStorage(fixture.router, restoreProbeSession).Append(ctx, rounds); err != nil {
 		t.Fatalf("seed session events: %v", err)
 	}
 	policy := seelexctx.NewContextWindowPolicy(fixture.runtime.ContextWindow(), fixture.runtime.MaxOutputTokens(), fixture.runtime.limits)
@@ -197,7 +197,7 @@ func TestRestoreProbeModelSeesNoPriorContent(t *testing.T) {
 	controllerCalls := fixture.calls() - before
 	t.Logf("链② 回合内控制器压缩: replace=%v 本次模型调用=%d（累计 %d）", decision.ReplaceHistory, controllerCalls, fixture.calls())
 
-	stack := fixture.store.Snapshot().CompactStack
+	stack := fixture.st.Snapshot().CompactStack
 	if len(stack) == 0 {
 		t.Fatal("两条链都没有落帧：探针前提不成立")
 	}
@@ -211,7 +211,7 @@ func TestRestoreProbeModelSeesNoPriorContent(t *testing.T) {
 	fixture.runtime.Shutdown()
 	_ = fixture.router.Close()
 	restarted := restoreProbeBoot(t, root, true)
-	record := restarted.store.Snapshot()
+	record := restarted.st.Snapshot()
 	block := modelVisibleCompactBlock(record)
 
 	report := &strings.Builder{}

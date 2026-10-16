@@ -3,7 +3,7 @@ package goal
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // TestControllerAuditAppendOnlyLifecycle 验证 Controller 自动审计：
@@ -12,8 +12,8 @@ import (
 func TestControllerAuditAppendOnlyLifecycle(t *testing.T) {
 	router := newSessionRouterForGoalTest(t)
 	sessionID := "session-goal-audit"
-	store := newGoalSessionStore(t, router, sessionID)
-	account := NewContextStateStore(store)
+	st := newGoalSessionStore(t, router, sessionID)
+	account := NewContextStateStore(st)
 	controller := NewController(Options{Depth: 1, Store: account, Audit: account})
 	if _, err := controller.Begin(testCtx, BeginRequest{Title: "审查 goal 域"}); err != nil {
 		t.Fatalf("begin: %v", err)
@@ -28,10 +28,10 @@ func TestControllerAuditAppendOnlyLifecycle(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("finish: %v", err)
 	}
-	if live := store.GoalStackSnapshot(); len(live) != 0 {
+	if live := st.GoalStackSnapshot(); len(live) != 0 {
 		t.Fatalf("GoalStack 终态应清空（什么都不存）: %+v", live)
 	}
-	audit := store.GoalAuditSnapshot()
+	audit := st.GoalAuditSnapshot()
 	if len(audit) != 3 {
 		t.Fatalf("审计账本应保留 3 条: %+v", audit)
 	}
@@ -54,8 +54,8 @@ func TestControllerAuditAppendOnlyLifecycle(t *testing.T) {
 func TestControllerAuditNestedRestoreAndTerminal(t *testing.T) {
 	router := newSessionRouterForGoalTest(t)
 	sessionID := "session-goal-audit-nested"
-	store := newGoalSessionStore(t, router, sessionID)
-	account := NewContextStateStore(store)
+	st := newGoalSessionStore(t, router, sessionID)
+	account := NewContextStateStore(st)
 	controller := NewController(Options{Depth: 2, Store: account, Audit: account})
 	for _, title := range []string{"父目标", "子目标"} {
 		if _, err := controller.Begin(testCtx, BeginRequest{Title: title}); err != nil {
@@ -68,7 +68,7 @@ func TestControllerAuditNestedRestoreAndTerminal(t *testing.T) {
 	if _, err := controller.Finish(testCtx, FinishRequest{Result: "父目标完成"}); err != nil {
 		t.Fatalf("finish parent: %v", err)
 	}
-	audit := store.GoalAuditSnapshot()
+	audit := st.GoalAuditSnapshot()
 	wantKinds := []string{
 		string(EventBegin), string(EventBegin),
 		string(EventFinish), string(EventRestore),
@@ -86,7 +86,7 @@ func TestControllerAuditNestedRestoreAndTerminal(t *testing.T) {
 	if restore.GoalID != "g-1" || restore.Status != StatusActive.String() {
 		t.Fatalf("restore 审计应指向父并置 active: %+v", restore)
 	}
-	if live := store.GoalStackSnapshot(); len(live) != 0 {
+	if live := st.GoalStackSnapshot(); len(live) != 0 {
 		t.Fatalf("全部收口后活栈应清空: %+v", live)
 	}
 }
@@ -97,8 +97,8 @@ func TestControllerAuditNestedRestoreAndTerminal(t *testing.T) {
 func TestAuditSourceSessionProvenanceRoundTrip(t *testing.T) {
 	router := newSessionRouterForGoalTest(t)
 	sessionID := "session-goal-audit-source"
-	store := newGoalSessionStore(t, router, sessionID)
-	account := NewContextStateStore(store)
+	st := newGoalSessionStore(t, router, sessionID)
+	account := NewContextStateStore(st)
 	if err := account.AppendGoalAudit(testCtx, AuditEntry{
 		Kind: EventFinish, GoalID: "g-1", Title: "重构 seelexctx", Status: StatusCompleted,
 		Result: "已在会话 B 完成", SourceSession: "session-b",
@@ -117,9 +117,9 @@ func TestAuditSourceSessionProvenanceRoundTrip(t *testing.T) {
 // 编号，不互相串写。
 func TestAuditPerSessionIsolation(t *testing.T) {
 	router := newSessionRouterForGoalTest(t)
-	makeController := func(sessionID, title string) (*Controller, *sessionstore.SessionContextStore) {
-		store := newGoalSessionStore(t, router, sessionID)
-		account := NewContextStateStore(store)
+	makeController := func(sessionID, title string) (*Controller, *store.SessionContextStore) {
+		st := newGoalSessionStore(t, router, sessionID)
+		account := NewContextStateStore(st)
 		controller := NewController(Options{Depth: 1, Store: account, Audit: account})
 		if _, err := controller.Begin(testCtx, BeginRequest{Title: title}); err != nil {
 			t.Fatalf("begin %s: %v", title, err)
@@ -127,7 +127,7 @@ func TestAuditPerSessionIsolation(t *testing.T) {
 		if _, err := controller.Finish(testCtx, FinishRequest{Result: title + " 完成"}); err != nil {
 			t.Fatalf("finish %s: %v", title, err)
 		}
-		return controller, store
+		return controller, st
 	}
 	_, storeA := makeController("session-goal-audit-a", "A 目标")
 	_, storeB := makeController("session-goal-audit-b", "B 目标")

@@ -114,7 +114,7 @@ flowchart TB
     end
 
     CTX["seelexctx/ — Assembler · Compressor · DAG · Memory · Merger"]
-    PERSIST["sessionstore/ · session/ · workspace/"]
+    PERSIST["store/ · session/ · workspace/"]
     EXT["plugin/ · skill/ · mcpstack/"]
     SEELE["Seele runtime: agent · session · tools · workplan · accountpool · mcp"]
 
@@ -219,7 +219,7 @@ seelebridge/ — runtime adaptation · tools (incl. computer use) · multimodal 
        │
 Seele runtime — Agent · ReAct · Tool Registry · WorkPlan · Account Pool · MCP
 
-plugin/ · skill/ · mcpstack/ · seelexctx/ · sessionstore/ · session/
+plugin/ · skill/ · mcpstack/ · seelexctx/ · store/ · session/
 ```
 
 The important design choice is that frontends do not own the agent state machine. They consume a versioned Snapshot + Event Delta protocol from the same Application Core, which keeps chat, plan, approval and persistence behavior testable without a UI or live model.

@@ -12,7 +12,7 @@ import (
 
 // Store 是 goal 栈的持久化接口：每次变更后 Controller 全量保存当前栈；
 // 弹栈（finish/abort）即从栈文件消失。审计历史（History）为进程内态。
-// 设计落位：未来由 sessionstore state blob 的第五栈实现（design §3.7）。
+// 设计落位：未来由 store state blob 的第五栈实现（design §3.7）。
 type Store interface {
 	// Load 读取当前会话 goal 栈（空栈返回空切片，nil 等价空）。
 	Load(ctx context.Context) ([]*GoalRecord, error)
@@ -53,7 +53,7 @@ func (m *MemoryStore) Save(_ context.Context, records []*GoalRecord) error {
 	return nil
 }
 
-// JSONFileStore 是单文件原子持久化 Store（原型；与 sessionstore JSON backend
+// JSONFileStore 是单文件原子持久化 Store（原型；与 store JSON backend
 // 的 generation 原子切换理念一致：temp + rename）。
 type JSONFileStore struct {
 	Path string

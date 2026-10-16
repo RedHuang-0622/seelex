@@ -15,7 +15,7 @@
 //	联调后复原：go mod edit -dropreplace github.com/RedHuang-0622/Seele
 //
 // 说明：本冒烟用注入的 Loader 覆盖「按 ref 加载」分支；真实会话媒体分区
-// （sessionstore.MediaStore）的写入由截屏工具接入，届时复用同一条接缝。
+// （store.MediaStore）的写入由截屏工具接入，届时复用同一条接缝。
 package seelebridge
 
 import (

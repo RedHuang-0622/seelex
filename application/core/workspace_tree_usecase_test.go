@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/adapters"
-	"github.com/RedHuang-0622/seelex/workspace"
+	"github.com/RedHuang-0622/seelex/store/workspace"
 )
 
 // treeFakeWorkspace 内嵌 fakeWorkspace（WorkspacePort）并实现

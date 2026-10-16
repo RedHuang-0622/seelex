@@ -12,21 +12,21 @@ package goal
 import (
 	"context"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // MaxAuditTextRunes 是审计文本字段（reason/result/detail）的 rune 上限，
 // 保证账本条目有界。
 const MaxAuditTextRunes = 1200
 
-// AuditAccount 是审计账本端口：由装配方注入（sessionstore GoalAudit 适配），
+// AuditAccount 是审计账本端口：由装配方注入（store GoalAudit 适配），
 // Controller 每次状态机变更成功后在锁内追加一条审计。nil 时不审计。
 type AuditAccount interface {
 	AppendGoalAudit(ctx context.Context, entry AuditEntry) error
 }
 
 // AuditEntry 是一次 goal 状态迁移的审计条目（goal 域形态；落库时映射为
-// sessionstore.GoalAuditEntry，Seq 由会话账本分配）。
+// store.GoalAuditEntry，Seq 由会话账本分配）。
 type AuditEntry struct {
 	Kind   EventKind
 	GoalID string
@@ -57,7 +57,7 @@ func truncateAuditText(value string) string {
 	return string(runes[:MaxAuditTextRunes-1]) + "…"
 }
 
-// AppendGoalAudit 实现 AuditAccount：映射为 sessionstore GoalAuditEntry 后
+// AppendGoalAudit 实现 AuditAccount：映射为 store GoalAuditEntry 后
 // 追加到会话账本（写入前确保会话 context 已 Load，避免覆盖既有账本）。
 func (s *ContextStateStore) AppendGoalAudit(ctx context.Context, entry AuditEntry) error {
 	if s == nil || s.session == nil {
@@ -67,7 +67,7 @@ func (s *ContextStateStore) AppendGoalAudit(ctx context.Context, entry AuditEntr
 		return err
 	}
 	entry = entry.normalized()
-	record := sessionstore.GoalAuditEntry{
+	record := store.GoalAuditEntry{
 		Kind:          string(entry.Kind),
 		GoalID:        entry.GoalID,
 		Title:         entry.Title,

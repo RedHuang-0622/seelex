@@ -4,7 +4,7 @@ package core
 //
 // 职责：按 sessionID 持有 goal.Controller + Supervisor，
 // 提供 Service 侧的 goal 方法面与只读治理视图（GoalGovernanceView）。goal
-// 状态/审计落 sessionstore 第五栈（ContextStateStore），未装配会话上下文
+// 状态/审计落 store 第五栈（ContextStateStore），未装配会话上下文
 // 存储时退化为内存（Store=nil，仅进程内）。本协调器不引入上帝对象：每会话
 // 独立 bundle，生命周期随会话；跨会话零共享。
 
@@ -12,9 +12,9 @@ import (
 	"context"
 	"sync"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // frameProgressLimit 是看板卡片上"一行摘要"保留的打点条数（详情面看 ProgressAll
@@ -24,7 +24,7 @@ const frameProgressLimit = 3
 // goalCoordinatorDeps 是 goal 协调器装配输入。
 type goalCoordinatorDeps struct {
 	// StoreFor 返回指定会话的 SessionContextStore（nil = 未装配 → 内存态）。
-	StoreFor func(sessionID string) *sessionstore.SessionContextStore
+	StoreFor func(sessionID string) *store.SessionContextStore
 	// Evaluator 是 TL 评估器（nil = TL 未启用，B4 直连收口语义）。
 	Evaluator goaldomain.TLEvaluator
 	// TLRecorderFor 返回指定会话的 TL 回合记录器（nil = 不记录 b 回合原文）。
@@ -75,7 +75,7 @@ func (g *goalCoordinator) bundleFor(sessionID string) *goalSessionRuntime {
 	if runtime := g.sessions[sessionID]; runtime != nil {
 		return runtime
 	}
-	var store goaldomain.Store
+	var st goaldomain.Store
 	var audit goaldomain.AuditAccount
 	if g.deps.StoreFor != nil {
 		if contextStore := g.deps.StoreFor(sessionID); contextStore != nil {
@@ -85,13 +85,13 @@ func (g *goalCoordinator) bundleFor(sessionID string) *goalSessionRuntime {
 			if boards, ok := g.boardFor(sessionID); ok {
 				adapter.BindBoards(boards)
 			}
-			store, audit = adapter, adapter
+			st, audit = adapter, adapter
 		}
 	}
 	controller := goaldomain.NewController(goaldomain.Options{
-		Depth: goaldomain.DefaultStackDepth, Store: store, Audit: audit,
+		Depth: goaldomain.DefaultStackDepth, Store: st, Audit: audit,
 	})
-	if store != nil {
+	if st != nil {
 		if err := controller.Reload(context.Background()); err != nil {
 			// 恢复失败不阻塞会话：退回内存态（进程内治理仍可用；持久化
 			// 故障由存储层显式报错，不静默吞掉审计语义）。
@@ -375,7 +375,7 @@ func (g *goalCoordinator) GoalGovernanceViewFor(sessionID string) *dto.GoalGover
 
 // boardFor 返回指定会话的看板存档取用面。未装配（StoreFor 缺席 / Router 缺席
 // / 非 JSON 布局）返回 false——调用方按"没有存档"降级，不报错、不阻断。
-func (g *goalCoordinator) boardFor(sessionID string) (sessionstore.SessionBoards, bool) {
+func (g *goalCoordinator) boardFor(sessionID string) (store.SessionBoards, bool) {
 	if g == nil || g.deps.StoreFor == nil {
 		return nil, false
 	}
@@ -392,14 +392,14 @@ func (g *goalCoordinator) boardFor(sessionID string) (sessionstore.SessionBoards
 
 // readGoalBoardArchive 读取该会话的看板存档。没有存档面 / 没有存档 / 存档损坏
 // 一律返回 false：调用方统一按"没有存档"降级（读侧不把存档当硬依赖）。
-func (g *goalCoordinator) readGoalBoardArchive(sessionID string) (sessionstore.GoalBoardMeta, bool) {
+func (g *goalCoordinator) readGoalBoardArchive(sessionID string) (store.GoalBoardMeta, bool) {
 	boards, ok := g.boardFor(sessionID)
 	if !ok {
-		return sessionstore.GoalBoardMeta{}, false
+		return store.GoalBoardMeta{}, false
 	}
 	archive, err := boards.ReadGoalBoard(context.Background())
 	if err != nil {
-		return sessionstore.GoalBoardMeta{}, false
+		return store.GoalBoardMeta{}, false
 	}
 	return archive, true
 }
@@ -407,8 +407,8 @@ func (g *goalCoordinator) readGoalBoardArchive(sessionID string) (sessionstore.G
 // recoveredGoalView 用存档里的 active 帧重建看板（Recovered=true 标记"这一帧
 // 来自快照，不是活体栈"）。存档不存在 / 已关闭 / 没有当前帧 → nil（由调用方
 // 决定"退场"还是"隐藏"）。
-func recoveredGoalView(archive sessionstore.GoalBoardMeta, hasArchive bool) *dto.GoalGovernanceView {
-	if !hasArchive || archive.State != sessionstore.BoardStateActive || archive.Active == nil {
+func recoveredGoalView(archive store.GoalBoardMeta, hasArchive bool) *dto.GoalGovernanceView {
+	if !hasArchive || archive.State != store.BoardStateActive || archive.Active == nil {
 		return nil
 	}
 	active := archive.Active
@@ -440,7 +440,7 @@ func recoveredGoalView(archive sessionstore.GoalBoardMeta, hasArchive bool) *dto
 // goalHistoryViews 把看板存档的收口账本投影成只读 DTO（空账本 → nil：没有条目
 // 就没有条目，不产生空壳）。history **不混进 Stack、也不当 active 那一帧**——
 // 它是"已收口目标"的账本，与活动栈是两个正交的面。
-func goalHistoryViews(archive sessionstore.GoalBoardMeta, hasArchive bool) []dto.GoalHistoryView {
+func goalHistoryViews(archive store.GoalBoardMeta, hasArchive bool) []dto.GoalHistoryView {
 	if !hasArchive || len(archive.History) == 0 {
 		return nil
 	}
@@ -459,7 +459,7 @@ func goalHistoryViews(archive sessionstore.GoalBoardMeta, hasArchive bool) []dto
 }
 
 // goalProgressViews 把看板存档里的打点投影成只读 DTO（空 → nil）。
-func goalProgressViews(items []sessionstore.GoalProgress) []dto.GoalProgressView {
+func goalProgressViews(items []store.GoalProgress) []dto.GoalProgressView {
 	if len(items) == 0 {
 		return nil
 	}

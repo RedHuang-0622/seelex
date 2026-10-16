@@ -9,7 +9,7 @@ import (
 
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
-	"github.com/RedHuang-0622/seelex/application/contract"
+	"github.com/RedHuang-0622/seelex/contract"
 )
 
 // 本文件钉住 S3b 的判据：**压缩路径上任何一次 port.mu 持有，都不得跨越一次可能

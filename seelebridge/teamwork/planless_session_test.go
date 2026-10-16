@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // 还没声明团队的会话：**读面给空结果，写面给领域文案**（2026-10-15 现场回归）。
@@ -83,11 +83,11 @@ func TestRequireTeamOnlyRefusesUndeclaredTeam(t *testing.T) {
 	fixture := newFixture(t, 6)
 	ctx := context.Background()
 	// 声明团队但一份活都不排：这**不是**"还没组队"，入口不得报 errNoPlan。
-	if err := fixture.coordinator.SetPlan(ctx, sessionstore.TeamworkPlan{
+	if err := fixture.coordinator.SetPlan(ctx, store.TeamworkPlan{
 		TeamID:     "probe-team",
 		Version:    1,
-		Members:    []sessionstore.TeamworkMember{{Role: "design"}},
-		Milestones: []sessionstore.TeamworkMilestone{{ID: "m-1", Name: "设计"}},
+		Members:    []store.TeamworkMember{{Role: "design"}},
+		Milestones: []store.TeamworkMilestone{{ID: "m-1", Name: "设计"}},
 	}); err != nil {
 		t.Fatalf("SetPlan: %v", err)
 	}

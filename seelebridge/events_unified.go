@@ -3,7 +3,7 @@
 //
 // 形态：A 类（plan/节点执行事实）全量持久化是唯一事实源；B 类
 // （llm/tool 意图-效果遥测）留内存实时面，另以有界脱敏摘要追加进
-// 同一 sessionstore 事件库（B 摘要与 A 类同库，查询统一、存储不双写）。
+// 同一 store 事件库（B 摘要与 A 类同库，查询统一、存储不双写）。
 // 统一查询按 sessionID/nodeID 关联两轨，用引用/索引而不是复制 payload。
 package seelebridge
 
@@ -17,28 +17,28 @@ import (
 	frameworktelemetry "github.com/RedHuang-0622/Seele/telemetry"
 
 	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
-// summaryEventSource 是 B 类摘要事件在统一事件库（sessionstore 事件库）中的
+// summaryEventSource 是 B 类摘要事件在统一事件库（store 事件库）中的
 // 稳定 Source 标识，与 A 类事实（workplan.runner / seelex.subagent）同库共存。
 const summaryEventSource = "seelex.telemetry.summary"
 
 // SummaryLog 是 B 类（llm/tool 意图-效果）脱敏摘要的统一日志：
 // 内存 append-only + 可选持久化钩子，形态镜像 plan.EventSink。
 // 持久化把摘要转换为 frameworkevent.Event（Source=seelex.telemetry.summary），
-// 经 Runtime.SetEventPersister 与 A 类事实写入同一 sessionstore 事件库。
+// 经 Runtime.SetEventPersister 与 A 类事实写入同一 store 事件库。
 // 节点级定位靠 Scope.NodeID（节点会话事件按主会话 session_id 落库，
 // 与框架 runner 事件的短期桥约定一致，见 events.go）。
 type SummaryLog struct {
 	mu        sync.Mutex
-	store     []seeletelemetry.SummaryEvent
+	st        []seeletelemetry.SummaryEvent
 	persister func(context.Context, frameworkevent.Event) error
 }
 
 // NewSummaryLog 创建摘要统一日志。
 func NewSummaryLog() *SummaryLog {
-	return &SummaryLog{store: make([]seeletelemetry.SummaryEvent, 0)}
+	return &SummaryLog{st: make([]seeletelemetry.SummaryEvent, 0)}
 }
 
 // RecordSummary 实现 seeletelemetry.SummaryRecorder（best-effort，void）。
@@ -52,7 +52,7 @@ func (log *SummaryLog) Append(ctx context.Context, event seeletelemetry.SummaryE
 		return nil
 	}
 	log.mu.Lock()
-	log.store = append(log.store, event)
+	log.st = append(log.st, event)
 	persister := log.persister
 	log.mu.Unlock()
 	if persister != nil {
@@ -68,10 +68,10 @@ func (log *SummaryLog) Summaries() []seeletelemetry.SummaryEvent {
 	}
 	log.mu.Lock()
 	defer log.mu.Unlock()
-	return append([]seeletelemetry.SummaryEvent(nil), log.store...)
+	return append([]seeletelemetry.SummaryEvent(nil), log.st...)
 }
 
-// SetPersister 安装摘要持久化钩子（与 A 类事实同一 sessionstore 事件库）。
+// SetPersister 安装摘要持久化钩子（与 A 类事实同一 store 事件库）。
 func (log *SummaryLog) SetPersister(fn func(context.Context, frameworkevent.Event) error) {
 	if log == nil {
 		return
@@ -198,8 +198,8 @@ func filterUnifiedEvents(events []frameworkevent.Event, nodeID string, limit int
 }
 
 // UnifiedEvents 按 sessionID/nodeID 查询统一事件视图：A 类事实 + B 类摘要的
-// 持久统一日志（sessionstore 事件库）+ B 类实时遥测（内存 tracer）。
-// sessionstore Router 未装配时返回可读错误。
+// 持久统一日志（store 事件库）+ B 类实时遥测（内存 tracer）。
+// store Router 未装配时返回可读错误。
 func (r *Runtime) UnifiedEvents(ctx context.Context, sessionID, nodeID string, limit int) (UnifiedEventView, error) {
 	if r == nil {
 		return UnifiedEventView{}, fmt.Errorf("unified events: runtime is nil")
@@ -209,8 +209,8 @@ func (r *Runtime) UnifiedEvents(ctx context.Context, sessionID, nodeID string, l
 		return UnifiedEventView{}, fmt.Errorf("unified events: sessionstore router is not attached")
 	}
 	reader := &UnifiedEventReader{
-		Load:      sessionstore.NewEventStore(router).Load,
-		LoadRange: sessionstore.NewEventStore(router).LoadRange,
+		Load:      store.NewEventStore(router).Load,
+		LoadRange: store.NewEventStore(router).LoadRange,
 		Live: func(ctx context.Context, limit int) (frameworktelemetry.ViewModel, error) {
 			if r.tracer == nil {
 				return frameworktelemetry.ViewModel{}, fmt.Errorf("unified events: tracer is unavailable")
@@ -231,9 +231,9 @@ func (r *Runtime) UnifiedEventsRange(ctx context.Context, sessionID, nodeID stri
 	if router == nil {
 		return UnifiedEventView{}, fmt.Errorf("unified events: sessionstore router is not attached")
 	}
-	store := sessionstore.NewEventStore(router)
+	st := store.NewEventStore(router)
 	reader := &UnifiedEventReader{
-		LoadRange: store.LoadRange,
+		LoadRange: st.LoadRange,
 		Live: func(ctx context.Context, limit int) (frameworktelemetry.ViewModel, error) {
 			if r.tracer == nil {
 				return frameworktelemetry.ViewModel{}, fmt.Errorf("unified events: tracer is unavailable")

@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/actor"
 )
 
@@ -31,7 +31,7 @@ import (
 // 本注册表（kind=todo 的任务保持有序列表与索引语义），每次操作写入 trace。
 // retry：status=retry 时 RetryCount 自增，重跑 running 保留计数。
 
-// TaskStatus/todo DTO 类型本体已下沉 application/contract/dto；本包以别名
+// TaskStatus/todo DTO 类型本体已下沉 contract/dto；本包以别名
 // 保持实现与调用面兼容（JSON 契约不变）。
 type TaskStatus = dto.TaskStatus
 

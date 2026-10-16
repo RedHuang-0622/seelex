@@ -31,8 +31,8 @@ import (
 	"github.com/RedHuang-0622/Seele/agent"
 	"github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // goalLLMEvaluator 实现 goaldomain.TLEvaluator：真实 LLM 评审 goal 域
@@ -117,7 +117,7 @@ const goalAdvisorOutputContract = `<output_contract>
 4. 无法判定或越权时用 escalate_human。
 </output_contract>`
 
-// advisorRoleName 是 ADVISOR 的逻辑角色名（与 sessionstore.RoleTL 一致）。
+// advisorRoleName 是 ADVISOR 的逻辑角色名（与 store.RoleTL 一致）。
 const advisorRoleName = "tl"
 
 // advisorSystemPrompt 组装 ADVISOR 回合的 system 提示词：**已登记的员工提示词

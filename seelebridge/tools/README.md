@@ -51,6 +51,14 @@ flowchart TB
     ACT -->|deny| BLOCK["硬拒（危险命令在任何档位都拦）"]
 ```
 
+**这一层的分工（2026-10-16 M2-C1/C4 后）**：图上"路由组表 / base 表 / 档位覆盖 /
+工具簇属声明 / 壳类别"这些**判据**已归位 `backend/limit/policy`
+（`DefaultPermissionGroupList` / `DefaultPermissionSubjects` / `ApplyTier` /
+`DeclaredToolMeta` / `ShellKind`），本包只保留**执行门**（`PermissionGate` 的
+类解析、可见性、工具面、员工主体解析与缓存）与注册表；审批落
+`backend/limit/approval` 的 broker（本包只注入超时并消费）。判据改在 policy 改，
+执行顺序改在本包改——两件事不要混。
+
 ## 核心实现
 
 - `Router`：Deps 闭包注入 Runtime 能力（filesystem/projectScope/docker
@@ -75,7 +83,7 @@ flowchart TB
   把这两条并成一条，要么后台命令被回执后的 ctx 杀掉，要么前台命令再也停不下来。
 - `RegistryState`：framework registry 包装 + `InlineProvider` 累积
   RegisterTool 产品工具（重名覆盖、快照重建）。
-- `PermissionGate`：middleware 闭包捕获，运行时原子更新。**权限档位按会话解析**（`SetPermissionTierFor` / `PermissionTierFor` / `effectiveTierLocked`，空会话 ID = 进程级默认面）：middleware 由执行 ctx 取会话（`SessionFromContext`）后按"主体类 + 会话档位"选 checker——root 读本会话档位表（`permission_tiers.go:ApplyTier` 剪掉若干 ask），`sub`/`emp_*` 一律读 base 表；`full` 档的执行门短路**只对 root**（`Enforce` 条件 `class == root`），所以 A 会话切档不会放行 B 会话、员工越权也不会被 `full` 档连带放行（回归见 `permission_tiers_test.go`、`permission_session_isolation_test.go`、`permission_state_test.go`）。`SetFullAccess*` / `FullAccessFor` 保留为兼容壳（⇔ `full`/`manual` 档）。
+- `PermissionGate`：middleware 闭包捕获，运行时原子更新。**权限档位按会话解析**（`SetPermissionTierFor` / `PermissionTierFor` / `effectiveTierLocked`，空会话 ID = 进程级默认面）：middleware 由执行 ctx 取会话（`SessionFromContext`）后按"主体类 + 会话档位"选 checker——root 读本会话档位表（`backend/limit/policy/tiers.go:ApplyTier` 剪掉若干 ask），`sub`/`emp_*` 一律读 base 表；`full` 档的执行门短路**只对 root**（`Enforce` 条件 `class == root`），所以 A 会话切档不会放行 B 会话、员工越权也不会被 `full` 档连带放行（回归见 `permission_tiers_test.go`、`permission_session_isolation_test.go`、`permission_state_test.go`）。`SetFullAccess*` / `FullAccessFor` 保留为兼容壳（⇔ `full`/`manual` 档）。
 - `computer/`（子包）：桌面 computer use 原语 + Seelex 侧工具族（`computer_*`）；
   工具面只依赖注入闭包（注册面/媒体分区/随图队列），原语平台无关桩保持跨平台
   可编译。输入注入类工具对子代理不可见（见 `policy.go` 的
@@ -123,7 +131,7 @@ string 只会让每个调用点多做一次编解码往返；框架的 `ToolHand
 | 后台子代理作业 | `fork_subagents`（subagent） | `bs-<seq>` | `bg_manage` |
 | 团队作业 | `team_dispatch`（teammate，Seele `jobs.Manager`） | `bteam-<seq>` | `jobs_manage` |
 
-- **文法与判据只有一处**：`application/contract/dto/job_namespace.go`（`JobHandle` 铸造 /
+- **文法与判据只有一处**：`contract/dto/job_namespace.go`（`JobHandle` 铸造 /
   `JobNamespaceOf` 识别 / `JobHandleSeq` 解析）。分隔符是文法的一部分——`bt` 是 `bteam` 的
   前缀，只有带上 `-` 匹配，`bteam-3` 才不会被判成 `bt-` 那一族。
 - **本域铸造**在 `async_exec.go` 的 `beginJob`（按 kind 取 token）；团队表由 Seelex 注入的
@@ -193,7 +201,7 @@ string 只会让每个调用点多做一次编解码往返；框架的 `ToolHand
   "是什么、在跑什么、现在怎么样"，不推进游标、不进上下文。
 
 - `asyncRegistry`：单锁句柄表。句柄 `<token>-<seq>`（本表是 `bt-` / `bs-`，token 表与文法见
-  `application/contract/dto/job_namespace.go`；seq 单调，不能用 `len(runs)` 推——驱逐过
+  `contract/dto/job_namespace.go`；seq 单调，不能用 `len(runs)` 推——驱逐过
   已完成项后会同号，两条执行共用输出文件）；去重键 = 会话+命令（只在 `state=running`
   期间生效，一次失败不得永久封死这条命令）；在途上限 32、记录槽 256，驱逐最老的已完成
   记录时**连带删输出文件**（记录槽有上限、文件没有，否则长会话把临时目录无界撑大）。
@@ -283,7 +291,7 @@ bash 诊断观察者 panic 隔离。作业域：`asyncRegistry` 单锁（执行�
 PowerShell，放行也执行失败）。命令面因此只剩 `bash` 与 `bash_bg`；读文件走
 `read_file`/`grep_search`/`glob`。
 
-**免打断的读命令**改由 `bash` 的**模式白名单**承担（`permission_policy.go` 的
+**免打断的读命令**改由 `bash` 的**模式白名单**承担（`backend/limit/policy/policy.go` 的
 `bash` Patterns：`git *` / `ls *` / `cat *` / `head *` / `tail *` / `pwd` / `go test *`
 … ⇒ `ActionAllow`），其余形态落到 `ActionAsk`。模式匹配比服务端分类弱，所以这里刻意
 只放保守形态（无管道、无重定向、无替换）。
@@ -291,7 +299,7 @@ PowerShell，放行也执行失败）。命令面因此只剩 `bash` 与 `bash_b
 ## 扩展方式
 
 新增 scoped 工具：扩展 `Router.Register`；新增内联产品工具：`AddInline`（簇属由
-`DeclaredToolMeta` 按路由组表自动填，新工具名必须先在**路由组表**里分封，否则
+`backend/limit/policy.DeclaredToolMeta` 按路由组表自动填，新工具名必须先在**路由组表**里分封，否则
 `RegistryState.UndeclaredTools()` 会把它列出来）。新增作业类型：实现 `JobTool`
 （`Add` + `Status`/`Fetch`/`Kill`/`Done`，管理动作委派 `jobManager`）并把执行体接进
 `asyncRun`——派发回执必须在自己的单元内完成配对，不得引入"迟到补记"写回历史中段的链路。

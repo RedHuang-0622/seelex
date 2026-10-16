@@ -1,7 +1,7 @@
 package main
 
 // A/B 全链路对比（记录见 docs/test/session-transition-ab.md）：同一脚本
-// 用真实链路（seelebridge Runtime + adapters.EnginePort + sessionstore
+// 用真实链路（seelebridge Runtime + adapters.EnginePort + store
 // 真数据 + 假 provider）跑两遍（变体 A/B），断言：
 //   - 每次运行内热挂载"运行中"会话快速返回（无死锁）；
 //   - A 的对话不掺入 B 内容、B 正常完成；

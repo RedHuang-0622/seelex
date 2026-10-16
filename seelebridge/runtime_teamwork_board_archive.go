@@ -24,9 +24,9 @@ import (
 
 	"github.com/RedHuang-0622/Seele/jobs"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // archiveTeamBoard 在 team_* 动作成功后刷新团队看板存档（best-effort）。
@@ -56,7 +56,7 @@ func (r *Runtime) archiveTeamBoard(ctx context.Context) {
 	if err != nil || !teamworkPlanHasOrchestration(plan) {
 		return // 没有可看的编排：存档没有意义（与读侧的空壳口径一致）。
 	}
-	if plan.State.State == sessionstore.TeamworkStateClosed {
+	if plan.State.State == store.TeamworkStateClosed {
 		// 整队已收口：连同**收口时的最终投影**一起封板（幂等）。**绝不能让下面的
 		// "新开一版"逻辑把它复活**——复活一块已关闭的看板，就是把"已关闭"当成
 		// "在册"卖给读侧（存档读侧只认 state=active）。收口之后 leader 仍可能再调
@@ -106,10 +106,10 @@ func (r *Runtime) archiveTeamBoard(ctx context.Context) {
 //   - 已有 active 且版本相同 → 只 seq+1 与 updated_at（opened_at 不动）。
 //
 // 指纹不变（且版本相同）时返回 write=false：载荷不变不写盘。
-func nextTeamBoardMeta(ctx context.Context, repository sessionstore.BoardRepository, key sessionstore.Key, plan sessionstore.TeamworkPlan, payload json.RawMessage, now time.Time) (sessionstore.TeamBoardMeta, bool, error) {
-	meta := sessionstore.TeamBoardMeta{
-		BoardLifecycle: sessionstore.BoardLifecycle{
-			Kind: sessionstore.BoardKindTeam, State: sessionstore.BoardStateActive,
+func nextTeamBoardMeta(ctx context.Context, repository store.BoardRepository, key store.Key, plan store.TeamworkPlan, payload json.RawMessage, now time.Time) (store.TeamBoardMeta, bool, error) {
+	meta := store.TeamBoardMeta{
+		BoardLifecycle: store.BoardLifecycle{
+			Kind: store.BoardKindTeam, State: store.BoardStateActive,
 			Seq: 1, OpenedAt: now.Unix(), UpdatedAt: now.Unix(), Fingerprint: boardFingerprint(payload),
 		},
 		TeamID: plan.TeamID, Version: plan.Version, Snapshot: payload,
@@ -120,20 +120,20 @@ func nextTeamBoardMeta(ctx context.Context, repository sessionstore.BoardReposit
 		// 覆盖写也是唯一的自愈路径（存档没有独立数据文件可重建）。
 		return meta, true, nil
 	}
-	if existing.State != sessionstore.BoardStateActive {
+	if existing.State != store.BoardStateActive {
 		return meta, true, nil // 已退场的那一版不再续命：新开一版。
 	}
 	if existing.Version == plan.Version && existing.Fingerprint == meta.Fingerprint {
-		return sessionstore.TeamBoardMeta{}, false, nil // §7 节流。
+		return store.TeamBoardMeta{}, false, nil // §7 节流。
 	}
 	if existing.Version != plan.Version {
 		closed := existing
-		closed.State = sessionstore.BoardStateClosed
+		closed.State = store.BoardStateClosed
 		closed.ClosedAt = now.Unix()
-		closed.ClosedReason = sessionstore.BoardCloseTeamReplan
+		closed.ClosedReason = store.BoardCloseTeamReplan
 		closed.UpdatedAt = now.Unix()
 		if err := repository.WriteTeamBoard(ctx, key, closed); err != nil {
-			return sessionstore.TeamBoardMeta{}, false, err
+			return store.TeamBoardMeta{}, false, err
 		}
 		return meta, true, nil // 新版本：opened_at/seq=1（meta 已就位）。
 	}
@@ -150,12 +150,12 @@ func nextTeamBoardMeta(ctx context.Context, repository sessionstore.BoardReposit
 //
 // 恢复出的看板 Recovered=true，且 Stale=true：存档里的作业行来自上一个进程，
 // jobs 句柄只在内存（jobs I-4），恢复出来的句柄一律视为过期。
-func (r *Runtime) readTeamBoardArchive(backend *TeamworkBackend, key sessionstore.Key) *dto.TeamworkBoardView {
+func (r *Runtime) readTeamBoardArchive(backend *TeamworkBackend, key store.Key) *dto.TeamworkBoardView {
 	if backend == nil || backend.Boards == nil {
 		return nil
 	}
 	meta, err := backend.Boards.ReadTeamBoard(context.Background(), key)
-	if err != nil || meta.State != sessionstore.BoardStateActive || len(meta.Snapshot) == 0 {
+	if err != nil || meta.State != store.BoardStateActive || len(meta.Snapshot) == 0 {
 		return nil
 	}
 	var view dto.TeamworkBoardView

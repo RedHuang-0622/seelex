@@ -100,7 +100,7 @@ Harness = 模型之外、支撑「模型能够自主完成编码任务」的运�
 | Codex | `--ask-for-approval` / `--full-auto` / sandbox 分级 | 逐工具审批 | exec_commands 白名单 |
 | Gemini CLI | sandbox 三态（unsandboxed/allowlist/denylist） | 文件/命令确认 | 工具隔离 |
 | Cline | auto-approve 配置 | 逐操作审批 | hooks |
-| **Seelex** | `seele.yaml` 声明式规则：**tool + patterns 匹配、LMRW 后匹配胜出**，allow/ask/deny；路径分区（plugin 只读 / workspace 读写 / config 拒绝 / 默认拒绝，`docs/arch/permission-path-gating.md`） | **异步 ApprovalBroker**（`application/approval/broker.go`）+ `ask_approve` 工具 + 终态 `task_needs_user_decision` | 插件可见性过滤（VisibilityPolicy）；无 hooks 体系 |
+| **Seelex** | `seele.yaml` 声明式规则：**tool + patterns 匹配、LMRW 后匹配胜出**，allow/ask/deny；路径分区（plugin 只读 / workspace 读写 / config 拒绝 / 默认拒绝，`docs/arch/permission-path-gating.md`） | **异步 ApprovalBroker**（`backend/limit/approval/broker.go`）+ `ask_approve` 工具 + 终态 `task_needs_user_decision` | 插件可见性过滤（VisibilityPolicy）；无 hooks 体系 |
 
 **差距**：Seelex 的声明式规则 + 路径分区 + 异步审批对齐甚至细于多数 CLI 产品（Codex/Gemini 的规则表达能力弱于 LMRW+patterns）；**缺 hooks 体系**（Pre/PostToolUse 拦截、命令钩子），也**缺 plan mode 的整体降权语义**（approve 节点是 DAG 节点而非全局权限档位）。
 
@@ -212,7 +212,7 @@ Harness = 模型之外、支撑「模型能够自主完成编码任务」的运�
 | 可逆压缩 | `seelexctx/compressor.go`、`compactor/compactor.go`、`processor.go`、`read_compressed_turn` |
 | 工具结果外化 | `seelexctx/processor.go`（>20000 字符 → result_ref，`limits.max_tool_result_chars` 可调） |
 | 权限规则 | `seele.yaml`（LMRW + tool/patterns）、`seelebridge/pathgate.go`、`docs/arch/permission-path-gating.md` |
-| 审批 | `application/approval/broker.go`（异步 Interaction） |
+| 审批 | `backend/limit/approval/broker.go`（异步 Interaction） |
 | Plan DAG | `seelebridge/plan_factory.go`、`plan.go`、`plan_preflight.go`、`plan_tool_provider.go` |
 | 子代理 | `seelebridge/agent_node.go`、`node_scope.go`、`context_components.go`、Seele `forkexec` |
 | 快照/压缩/合并 | `seelexctx/snapshot/`、`provider/`、`compactor/`、`merger/` |

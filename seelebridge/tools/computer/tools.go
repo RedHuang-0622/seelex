@@ -44,7 +44,7 @@ const (
 )
 
 // 默认上限：截图给模型看的宽度、单张截图的媒体字节上限（与
-// sessionstore 的 media.max_item_bytes 默认 8 MiB 对齐）。
+// store 的 media.max_item_bytes 默认 8 MiB 对齐）。
 const (
 	DefaultMaxWidth      = 1600
 	DefaultMaxMediaBytes = 8 << 20
@@ -63,7 +63,7 @@ const (
 	maxScrollDelta = 1200
 )
 
-// MediaAsset 是一次媒体写入请求（工具层不依赖 sessionstore：由装配层适配）。
+// MediaAsset 是一次媒体写入请求（工具层不依赖 store：由装配层适配）。
 type MediaAsset struct {
 	// Name 是原始文件名（落盘只取 basename）。
 	Name string
@@ -80,7 +80,7 @@ type MediaAsset struct {
 	Scale float64
 }
 
-// StoredMedia 是一条已落盘媒体资产的引用（sessionstore.MediaRef 的窄投影）。
+// StoredMedia 是一条已落盘媒体资产的引用（store.MediaRef 的窄投影）。
 type StoredMedia struct {
 	Ref   string
 	Hash  string
@@ -101,7 +101,7 @@ type PendingImage struct {
 }
 
 // Deps 是工具层的装配面：全部由 seelebridge.Runtime 注入闭包，因此本包
-// 不反向依赖 seelebridge / sessionstore / imageattach（保持原语包的边界）。
+// 不反向依赖 seelebridge / store / imageattach（保持原语包的边界）。
 type Deps struct {
 	// RegisterTool 注册一个工具（生产为 Runtime.RegisterTool）。
 	RegisterTool func(name, description string, schema map[string]any, handler func(context.Context, string) (string, error))

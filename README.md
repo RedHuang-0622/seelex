@@ -110,7 +110,7 @@ flowchart TB
     end
 
     CTX["seelexctx/<br/>Assembler · Compressor · DAG · Memory · Merger"]
-    PERSIST["sessionstore/ · session/ · workspace/"]
+    PERSIST["store/ · session/ · workspace/"]
     EXT["plugin/ · skill/ · mcpstack/"]
     SEELE["Seele runtime：agent · session · tools · workplan · accountpool · mcp"]
 
@@ -253,7 +253,7 @@ flowchart LR
 └─────────────────────────────────────────────────────────────┘
 
 Supporting modules:
-plugin/ · skill/ · sessionstore/ · workspace/ · session/ · mcpstack/
+plugin/ · skill/ · store/ · workspace/ · session/ · mcpstack/
 ~~~
 
 ### Seelex 与 Seele 的边界
@@ -286,7 +286,7 @@ Seelex 当前依赖 <code>github.com/RedHuang-0622/Seele v0.3.4</code>（见 <co
 
 Seelex 采用接近 **Hexagonal Architecture / Ports and Adapters** 的依赖方向：
 
-- <code>application/contract</code> 由消费方定义 Runtime、Session、Plugin、Workspace 等端口。
+- <code>contract</code> 由消费方定义 Runtime、Session、Plugin、Workspace 等端口。
 - 根目录 adapter、<code>seelebridge/</code> 和存储模块实现这些端口。
 - TUI 与 GUI 只依赖 Application DTO、Snapshot 和 Event，不直接调用 Seele Engine、数据库或 Plugin Manager。
 
@@ -408,7 +408,7 @@ Seelex 的截屏不再把 base64 塞进工具结果，而是走一条统一的�
 
 ### 11. 目标栈与裁决角色把「完成」变成外部裁决
 
-- 会话级 **LIFO 目标栈**（栈深上限 16）承载目标、验收条件与进展；活栈投影落 sessionstore，进程重启后继续治理，终态弹栈即删除。
+- 会话级 **LIFO 目标栈**（栈深上限 16）承载目标、验收条件与进展；活栈投影落 store，进程重启后继续治理，终态弹栈即删除。
 - 执行侧（EXEC）的事件驱动裁决侧（ADVISOR / TechLeader）在**独立上下文**中回合制评审，裁决以指令回投执行侧：指令邮箱容量 32（满则丢最旧并计数），指令正文 ≤1200 rune，信号 detail ≤400 rune。
 - **抽帧节流**：非关键信号在评估窗口（默认 3）内抑制，关键信号立即评估；回合完成后一次性抽帧，把 EXEC 的真实产出摘要带进裁决输入。
 - **缺席矩阵**：完成声明必须经裁决侧裁决；执行侧永不等待裁决侧；超时或限流按判负或转人工处理；审批请求先经裁决侧预筛（低风险代答、高风险转人工）；每次状态变更 append-only 记账。
@@ -656,11 +656,11 @@ permission:
 | [<code>application/</code>](application/README.md) | 稳定应用层：Chat、Task、Plan、Goal、AgentTeam、Worktable、审批、会话、项目和 Snapshot/Event |
 | [<code>seelebridge/</code>](seelebridge/README.md) | Seele 防腐层、工具面（含 computer use）、账号池、Plan、MCP、多模态与附件、ProjectScope 项目路径约束 |
 | [<code>seelexctx/</code>](seelexctx/README.md) | 上下文装配、预算、压缩 DAG、记忆、检索、快照和父子 Agent merge-back |
-| [<code>sessionstore/</code>](sessionstore/README.md) | JSON v8 持久化、顺序日志、模块 head、三栈通道与媒体分区；退役后端枚举与接口契约 |
+| [<code>store/</code>](store/README.md) | JSON v8 持久化、顺序日志、模块 head、三栈通道与媒体分区；退役后端枚举与接口契约 |
 | [<code>session/</code>](session/README.md) | 会话领域模型与投影 |
 | [<code>plugin/</code>](plugin/README.md) | Plugin loader、生命周期和事务式切换 |
 | [<code>skill/</code>](skill/README.md) | Skill 加载、资源安全和可见性 |
-| [<code>workspace/</code>](workspace/README.md) | Workspace 与 Session binding |
+| [<code>store/workspace/</code>](store/workspace/README.md) | Workspace 与 Session binding |
 | [<code>mcpstack/</code>](mcpstack/README.md) | MCP 调用轨迹、持久化和上下文摘要 |
 | [<code>tui/</code>](tui/README.md) | Bubble Tea 终端前端 |
 | [<code>gui/</code>](gui/README.md) | Wails GUI 适配层、headless RPC 与前端 |
@@ -712,7 +712,7 @@ Linux CI 还会执行 race detector、覆盖率和发布包安全检查。
 
 其中 Linux GUI 这条腿此前不在流水线里，只能靠 Linux 侧手工执行脚本再手传（v0.1.0 的 <code>linux-amd64-gui</code> 就是这么补的）；2026-10-03 起并入流水线（<code>gui-linux</code> job：<code>ubuntu-22.04</code> + <code>libgtk-3-dev</code> / <code>libwebkit2gtk-4.0-dev</code>，走脚本的 <code>--native</code> 分支），ABI 与手工路径保持一致。
 
-2026-09-14 在当前工作树执行 `go test ./... -covermode=count -coverprofile=coverage.out` 的可复现结果为全仓 **58.6%**（全部包通过）；关键包分布为 `application/core` **74.4%**、`seelebridge` **65.1%**、`seelexctx` **84.6%**、`sessionstore` **73.9%**、`plugin` **83.4%**、`gui` **69.0%**、`workspace` **78.1%**、`tui` **35.6%**。这个分布也暴露了剩余风险：TUI 仍明显低于核心编排层，不应只用全仓平均值掩盖前端交互测试不足。CI 使用同类命令，并叠加 `-race -covermode=atomic -coverpkg=./...`，上传 `coverage.out` 与 `coverage-summary.txt` 供复核。
+2026-09-14 在当前工作树执行 `go test ./... -covermode=count -coverprofile=coverage.out` 的可复现结果为全仓 **58.6%**（全部包通过）；关键包分布为 `application/core` **74.4%**、`seelebridge` **65.1%**、`seelexctx` **84.6%**、`store` **73.9%**、`plugin` **83.4%**、`gui` **69.0%**、`workspace` **78.1%**、`tui` **35.6%**。这个分布也暴露了剩余风险：TUI 仍明显低于核心编排层，不应只用全仓平均值掩盖前端交互测试不足。CI 使用同类命令，并叠加 `-race -covermode=atomic -coverpkg=./...`，上传 `coverage.out` 与 `coverage-summary.txt` 供复核。
 
 ## 性能测试与基准（历史基线）
 
@@ -788,9 +788,10 @@ Linux CI 还会执行 race detector、覆盖率和发布包安全检查。
 
 | 层 | 模块 README |
 |---|---|
-| 应用层 | [application/](application/README.md) · [application/core/](application/core/README.md)（含分卷与叶子包） · [contract/](application/contract/README.md) · [contract/dto/](application/contract/dto/README.md) · [model/](application/model/README.md) · [event/](application/event/README.md) · [approval/](application/approval/README.md) · [prompt/](application/prompt/README.md) |
+| 应用层 | [application/](application/README.md) · [application/core/](application/core/README.md)（含分卷与叶子包） · [model/](application/model/README.md) · [event/](application/event/README.md) · [prompt/](application/prompt/README.md) · 审批面已归位到 [backend/limit/approval/](backend/limit/approval/README.md) |
+| 底座（契约） | [contract/](contract/README.md) · [contract/dto/](contract/dto/README.md) |
 | 运行时适配 | [seelebridge/](seelebridge/README.md) · [security/](seelebridge/security/README.md) · [tools/](seelebridge/tools/README.md) · [plan/](seelebridge/plan/README.md) · [node/](seelebridge/node/README.md) · [fork/](seelebridge/fork/README.md) · [session/](seelebridge/session/README.md) · [account/](seelebridge/account/README.md) · [mcp/](seelebridge/mcp/README.md) · [computer/](seelebridge/tools/computer/README.md) |
-| 上下文与存储 | [seelexctx/](seelexctx/README.md) · [sessionstore/](sessionstore/README.md) · [session/](session/README.md) · [workspace/](workspace/README.md) |
+| 上下文与存储 | [seelexctx/](seelexctx/README.md) · [store/](store/README.md) · [session/](session/README.md) · [store/workspace/](store/workspace/README.md) |
 | 扩展与前端 | [plugin/](plugin/README.md) · [skill/](skill/README.md) · [mcpstack/](mcpstack/README.md) · [gui/](gui/README.md) · [tui/](tui/README.md) · [plugins/](plugins/README.md) |
 | 工程基座 | [e2e/](e2e/README.md) · [scripts/](scripts/README.md) · [config/](config/README.md) · [internal/](internal/README.md) |
 

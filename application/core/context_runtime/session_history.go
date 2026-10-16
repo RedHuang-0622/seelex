@@ -1,8 +1,8 @@
 package context_runtime
 
 import (
-	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/contract"
 )
 
 // 压缩/修复路径的历史读写入口。

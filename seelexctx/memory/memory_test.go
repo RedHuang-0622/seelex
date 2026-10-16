@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/seelexctx/tokens"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 func candidates(entries ...Candidate) []Candidate {
@@ -61,8 +61,8 @@ func TestSelectLimitAndRecency(t *testing.T) {
 
 func TestSelectFiltersByEvidenceRefs(t *testing.T) {
 	entries := candidates(
-		Candidate{SegmentID: "compact-a-1", Summary: "上下文栈持久化", Evidence: []sessionstore.EvidenceRef{{Ref: "result:abc", Summary: "permission gate test output"}}},
-		Candidate{SegmentID: "compact-a-2", Summary: "MCP 服务器刷新", Evidence: []sessionstore.EvidenceRef{{Ref: "result:def", Summary: "mcp attach result"}}},
+		Candidate{SegmentID: "compact-a-1", Summary: "上下文栈持久化", Evidence: []store.EvidenceRef{{Ref: "result:abc", Summary: "permission gate test output"}}},
+		Candidate{SegmentID: "compact-a-2", Summary: "MCP 服务器刷新", Evidence: []store.EvidenceRef{{Ref: "result:def", Summary: "mcp attach result"}}},
 	)
 	// 查询命中证据摘要而不是正文。
 	selected := Select("permission", entries, DefaultOptions())
@@ -111,7 +111,7 @@ func TestSelectEmptyCandidates(t *testing.T) {
 
 func TestRenderMemoryBlock(t *testing.T) {
 	selected := candidates(
-		Candidate{SegmentID: "compact-a-1", Summary: "权限 gate 设计与实现细节", From: 0, To: 5, Evidence: []sessionstore.EvidenceRef{{Ref: "result:abc"}}},
+		Candidate{SegmentID: "compact-a-1", Summary: "权限 gate 设计与实现细节", From: 0, To: 5, Evidence: []store.EvidenceRef{{Ref: "result:abc"}}},
 	)
 	block := RenderMemoryBlock(selected, 1024)
 	if block == nil {

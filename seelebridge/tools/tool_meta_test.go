@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"github.com/RedHuang-0622/seelex/backend/limit/policy"
 	"testing"
 
 	frameworktools "github.com/RedHuang-0622/Seele/tools"
@@ -18,19 +19,19 @@ func TestDeclaredToolMetaFollowsRouteTable(t *testing.T) {
 		wantKind frameworktools.ToolKind
 		want     string // 期望的组名；空 = 期望"未分封"
 	}{
-		{"read_file", frameworktools.ToolKindRead, GroupRO},
-		{"grep_search", frameworktools.ToolKindRead, GroupRO},
-		{"write_file", frameworktools.ToolKindWrite, GroupRW},
-		{"bash", frameworktools.ToolKindWrite, GroupRW},
-		{"compact_context", frameworktools.ToolKindWrite, GroupRWSession},
-		{"computer_click", frameworktools.ToolKindWrite, GroupRWDesktop},
-		{"task_complete", frameworktools.ToolKindControl, GroupCTL},
-		{"fork_subagents", frameworktools.ToolKindControl, GroupCTL},
-		{"switch_plugin", frameworktools.ToolKindAdmin, GroupADM},
+		{"read_file", frameworktools.ToolKindRead, policy.GroupRO},
+		{"grep_search", frameworktools.ToolKindRead, policy.GroupRO},
+		{"write_file", frameworktools.ToolKindWrite, policy.GroupRW},
+		{"bash", frameworktools.ToolKindWrite, policy.GroupRW},
+		{"compact_context", frameworktools.ToolKindWrite, policy.GroupRWSession},
+		{"computer_click", frameworktools.ToolKindWrite, policy.GroupRWDesktop},
+		{"task_complete", frameworktools.ToolKindControl, policy.GroupCTL},
+		{"fork_subagents", frameworktools.ToolKindControl, policy.GroupCTL},
+		{"switch_plugin", frameworktools.ToolKindAdmin, policy.GroupADM},
 		{"mcp_custom_tool", "", ""}, // 动态第三方工具：不猜
 	}
 	for _, tc := range cases {
-		meta := DeclaredToolMeta(tc.tool)
+		meta := policy.DeclaredToolMeta(tc.tool)
 		if tc.want == "" {
 			if len(meta.Groups) != 0 || meta.Kind != "" {
 				t.Errorf("%s 未分封应返零值簇属，得到 %+v", tc.tool, meta)
@@ -44,7 +45,7 @@ func TestDeclaredToolMetaFollowsRouteTable(t *testing.T) {
 			t.Errorf("%s 声明类别 = %q, want %q", tc.tool, meta.Kind, tc.wantKind)
 		}
 		// 声明与名字路由必须同源：Groups[0] 就是 RoutePermissionGroup 的结果。
-		group, routed := RoutePermissionGroup(DefaultPermissionGroupList(), tc.tool)
+		group, routed := policy.RoutePermissionGroup(policy.DefaultPermissionGroupList(), tc.tool)
 		if !routed || group.Name != meta.Groups[0] {
 			t.Errorf("%s 声明簇 %v 与名字路由 %q(routed=%v) 不一致", tc.tool, meta.Groups, group.Name, routed)
 		}
@@ -56,7 +57,7 @@ func TestDeclaredToolMetaFollowsRouteTable(t *testing.T) {
 // 而 Bits 没改，判定就与路由组表脱节，且没有任何报错面。
 func TestDeclaredToolMetaKeepsBitsZero(t *testing.T) {
 	for _, name := range []string{"read_file", "write_file", "bash", "switch_plugin", "task_complete"} {
-		if meta := DeclaredToolMeta(name); meta.Bits != 0 {
+		if meta := policy.DeclaredToolMeta(name); meta.Bits != 0 {
 			t.Errorf("%s 的声明填了 Bits=%d：所需位必须由组 Mode 派生（单一事实源）", name, meta.Bits)
 		}
 	}
@@ -71,17 +72,17 @@ func TestDeclaredToolMetaKeepsBitsZero(t *testing.T) {
 // 路由（未分封 ⇒ 默认 ask，也就是 K-0 之前的行为）。
 func TestSanitizeMetaDropsUnknownGroups(t *testing.T) {
 	state := &PermissionGate{}
-	state.Set(DefaultPermissionConfig(), nil)
+	state.Set(policy.DefaultPermissionConfig(), nil)
 
-	declared := frameworktools.ToolMeta{Kind: frameworktools.ToolKindWrite, Groups: []string{GroupRW}}
-	if got := state.sanitizeMeta(declared); len(got.Groups) != 1 || got.Groups[0] != GroupRW {
+	declared := frameworktools.ToolMeta{Kind: frameworktools.ToolKindWrite, Groups: []string{policy.GroupRW}}
+	if got := state.sanitizeMeta(declared); len(got.Groups) != 1 || got.Groups[0] != policy.GroupRW {
 		t.Fatalf("簇在配置里存在时不该被摘掉：%+v", got)
 	}
 
 	// 换一份"只有 ro 组"的配置（模拟用户的 permission.groups 替换）。
-	narrowed := DefaultPermissionConfig()
+	narrowed := policy.DefaultPermissionConfig()
 	narrowed.Groups = []toolspermission.PermissionGroup{{
-		Name: GroupRO, Mode: bitRead, Default: toolspermission.ActionAllow,
+		Name: policy.GroupRO, Mode: policy.BitRead, Default: toolspermission.ActionAllow,
 		Match: []string{"read_file"},
 	}}
 	state.Set(narrowed, nil)

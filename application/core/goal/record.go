@@ -4,7 +4,7 @@
 // 设计来源：docs/2026-09-07-goal-domain-techleader/{architecture,design,prototype}.md
 // 本包自持全部可变状态（Controller.mu），不依赖 application/core 其它子包，
 // 便于在既有运行链路外先行验证 goal 语义，再按 design.md §2 落位
-// task_context/sessionstore/gui/seelebridge 的接线。
+// task_context/store/gui/seelebridge 的接线。
 package goal
 
 import (
@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // 域内长度上限（有界性；与 seelexctx Limits 对齐的 goal 侧护栏）。
@@ -38,7 +38,7 @@ const (
 // Status 是 goal 生命周期状态（design §3.3 P0 子集 + 终态判定）。
 //
 // 词表只有一份，住在契约（`dto.GoalStatus`）：本包以别名保持读法，值引契约常量。
-// 存档那一侧的读回（`sessionstore.GoalFrame.Status`，store 在契约之下）走本包的
+// 存档那一侧的读回（`store.GoalFrame.Status`，store 在契约之下）走本包的
 // `goalStatusOfRecord`——认不得的词说认不得，不折成 active/paused。
 type Status = dto.GoalStatus
 

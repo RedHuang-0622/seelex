@@ -3,12 +3,13 @@ package tools
 import (
 	"context"
 	"errors"
+	"github.com/RedHuang-0622/seelex/backend/limit/policy"
 	"testing"
 	"time"
 
 	frameworktools "github.com/RedHuang-0622/Seele/tools"
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // permission_tiers_test.go — 主会话权限档位（tier）的判定矩阵、主体边界与会话隔离。
@@ -24,7 +25,7 @@ import (
 // tierMatrixConfig 是判定矩阵用的权责配置（默认分组 + 主体 + 规则；不叠加
 // seele.yaml，避免外部配置漂移影响断言）。
 func tierMatrixConfig() toolspermission.PermissionConfig {
-	return DefaultPermissionConfig()
+	return policy.DefaultPermissionConfig()
 }
 
 // TestTierDecisionMatrix 逐档位钉住 root 的代表性判定（checker 级）。
@@ -62,7 +63,7 @@ func TestTierDecisionMatrix(t *testing.T) {
 		{dto.PermissionTierAuto, false, "mcp_load", toolspermission.ResultAsk, "auto 能力面仍问人"},
 	}
 	for _, test := range cases {
-		checker := toolspermission.NewPermissionChecker(ApplyTier(cfg, test.tier))
+		checker := toolspermission.NewPermissionChecker(policy.ApplyTier(cfg, test.tier))
 		name, args := test.target, `{}`
 		if test.bash {
 			name, args = "bash", test.target
@@ -83,15 +84,15 @@ func TestTierDecisionMatrix(t *testing.T) {
 func TestApplyTierKeepsManualAndFullUnchanged(t *testing.T) {
 	cfg := tierMatrixConfig()
 	for _, tier := range []string{dto.PermissionTierManual, dto.PermissionTierFull, "", "unknown-tier"} {
-		if got := ApplyTier(cfg, tier); len(got.Rules) != len(cfg.Rules) {
-			t.Fatalf("ApplyTier(%q) 改动了规则数量：%d → %d", tier, len(cfg.Rules), len(got.Rules))
+		if got := policy.ApplyTier(cfg, tier); len(got.Rules) != len(cfg.Rules) {
+			t.Fatalf("policy.ApplyTier(%q) 改动了规则数量：%d → %d", tier, len(cfg.Rules), len(got.Rules))
 		}
 	}
 }
 
 // TestTierCatalogMirrorsDTO 钉住档位目录（id 序 + 标签齐全），前端按它渲染列表。
 func TestTierCatalogMirrorsDTO(t *testing.T) {
-	tiers := DefaultPermissionTiers()
+	tiers := policy.DefaultPermissionTiers()
 	want := []string{dto.PermissionTierManual, dto.PermissionTierEdit, dto.PermissionTierAuto, dto.PermissionTierFull}
 	if len(tiers) != len(want) {
 		t.Fatalf("档位数量 = %d, want %d", len(tiers), len(want))
@@ -135,7 +136,7 @@ func tierProbe(approvals *int, ran *int) *PermissionGate {
 		}
 		return &toolspermission.ApprovalResponse{RequestID: ctx.Request.ID, Choice: "allow"}, nil
 	}
-	state.Set(DefaultPermissionConfig(), handler)
+	state.Set(policy.DefaultPermissionConfig(), handler)
 	state.SetRoleSessionPolicyResolver(func(sessionID string) (string, bool) {
 		if sessionID == "role-1" {
 			return "readwrite", true
@@ -224,7 +225,7 @@ func TestTierDoesNotBypassSubagentBoundary(t *testing.T) {
 	if err := state.SetPermissionTierFor("main-1", dto.PermissionTierFull); err != nil {
 		t.Fatal(err)
 	}
-	subCtx := withSubjectClass(context.Background(), SubjectClassSub)
+	subCtx := withSubjectClass(context.Background(), policy.SubjectClassSub)
 	_, err := state.Middleware(time.Minute)("task_complete", frameworktools.ToolMeta{},
 		frameworktools.HandlerFunc(func(context.Context, string) (string, error) {
 			*ran++

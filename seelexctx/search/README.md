@@ -38,7 +38,7 @@ sequenceDiagram
 | 符号 | 语义 |
 |---|---|
 | `Searcher.Search(query, opts)` | 核心检索：索引路径（压缩栈）/ 兜底路径（尾部扫描） |
-| `StackSource` | 压缩栈读取（`sessionstore.SessionContextStore` / `seelexctx.CompactStackStore` 满足） |
+| `StackSource` | 压缩栈读取（`store.SessionContextStore` / `seelexctx.CompactStackStore` 满足） |
 | `EventSource` | 事件流读取（`NewRouterEventSource` 绑定 Router；测试可用假实现） |
 | `Result` | 权威返回：hits + 索引规模 + 轮数 + 预算 + 边界提示（JSON 序列化给工具/UI） |
 | `Options.Limit` | 命中数上限（默认 3，硬上限 20） |

@@ -8,34 +8,34 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/seelexctx/memory"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // fakeStack 是 StackSource 测试替身：返回固定压缩栈。
 type fakeStack struct {
-	record sessionstore.SessionContextRecord
+	record store.SessionContextRecord
 }
 
-func (s *fakeStack) Snapshot() sessionstore.SessionContextRecord { return s.record }
+func (s *fakeStack) Snapshot() store.SessionContextRecord { return s.record }
 
 // fakeEvents 是 EventSource 测试替身：返回固定事件流。
-type fakeEvents struct{ events []sessionstore.Event }
+type fakeEvents struct{ events []store.Event }
 
-func (s *fakeEvents) LoadAllEvents(context.Context) ([]sessionstore.Event, error) {
+func (s *fakeEvents) LoadAllEvents(context.Context) ([]store.Event, error) {
 	return s.events, nil
 }
 
 // unit 构造一个事件单元：user 输入 + assistant 工具链（调用 + 结果）。
-func unit(seqBase int, userText, toolName string) []sessionstore.Event {
-	return []sessionstore.Event{
+func unit(seqBase int, userText, toolName string) []store.Event {
+	return []store.Event{
 		{Seq: uint64(seqBase), Role: "user", Content: userText},
-		{Seq: uint64(seqBase + 1), Role: "assistant", ToolCalls: []sessionstore.EventToolCall{{ID: "call-1", Name: toolName}}},
+		{Seq: uint64(seqBase + 1), Role: "assistant", ToolCalls: []store.EventToolCall{{ID: "call-1", Name: toolName}}},
 		{Seq: uint64(seqBase + 2), Role: "tool", Name: toolName, ToolCallID: "call-1", Content: "工具结果内容", ResultRef: "result:call-1"},
 	}
 }
 
-func frame(segment string, from, to int, summary string) sessionstore.CompactFrame {
-	return sessionstore.CompactFrame{
+func frame(segment string, from, to int, summary string) store.CompactFrame {
+	return store.CompactFrame{
 		SegmentID: segment, From: from, To: to, Summary: summary, CompressedAt: time.Now(),
 	}
 }
@@ -43,7 +43,7 @@ func frame(segment string, from, to int, summary string) sessionstore.CompactFra
 func TestSearchSelectsRelevantFramesAndReadsRecords(t *testing.T) {
 	events := append(unit(0, "聊聊数据库索引", "grep_search"), unit(3, "讨论单元测试覆盖率", "bash")...)
 	events = append(events, unit(6, "继续讨论数据库优化方案", "read_file")...)
-	stack := &fakeStack{record: sessionstore.SessionContextRecord{CompactStack: []sessionstore.CompactFrame{
+	stack := &fakeStack{record: store.SessionContextRecord{CompactStack: []store.CompactFrame{
 		frame("compact-a", 0, 1, "数据库索引优化讨论"),
 		frame("compact-b", 2, 2, "单元测试覆盖率统计"),
 	}}}
@@ -90,7 +90,7 @@ func TestSearchSelectsRelevantFramesAndReadsRecords(t *testing.T) {
 
 func TestSearchClampsFrameRangeToEventStream(t *testing.T) {
 	events := unit(0, "唯一的对话", "bash")
-	stack := &fakeStack{record: sessionstore.SessionContextRecord{CompactStack: []sessionstore.CompactFrame{
+	stack := &fakeStack{record: store.SessionContextRecord{CompactStack: []store.CompactFrame{
 		frame("compact-out", -5, 99, "对话越界范围"), // 帧范围远超事件流
 	}}}
 	searcher := New(stack, &fakeEvents{events: events})
@@ -122,7 +122,7 @@ func TestSearchRejectsEmptyQuery(t *testing.T) {
 
 func TestSearchTokenBudgetTruncatesAndDropsLaterHits(t *testing.T) {
 	events := append(unit(0, "预算一", "bash"), unit(3, "预算二", "bash")...)
-	stack := &fakeStack{record: sessionstore.SessionContextRecord{CompactStack: []sessionstore.CompactFrame{
+	stack := &fakeStack{record: store.SessionContextRecord{CompactStack: []store.CompactFrame{
 		frame("compact-a", 0, 0, "预算一相关"),
 		frame("compact-b", 1, 1, "预算二相关"),
 	}}}
@@ -175,7 +175,7 @@ func TestSearchNoStackFallsBackToTailScan(t *testing.T) {
 }
 
 func TestSearchFallbackScanCap(t *testing.T) {
-	var events []sessionstore.Event
+	var events []store.Event
 	for index := 0; index < MaxFallbackScanUnits+10; index++ {
 		events = append(events, unit(index*3, "历史轮次", "bash")...)
 	}
@@ -217,9 +217,9 @@ func TestSearchEventSourceUnavailable(t *testing.T) {
 }
 
 func TestSearchToolResultRefFallbackFromCallID(t *testing.T) {
-	events := []sessionstore.Event{
+	events := []store.Event{
 		{Seq: 0, Role: "user", Content: "查一下工具结果"},
-		{Seq: 1, Role: "assistant", ToolCalls: []sessionstore.EventToolCall{{ID: "call-9", Name: "bash"}}},
+		{Seq: 1, Role: "assistant", ToolCalls: []store.EventToolCall{{ID: "call-9", Name: "bash"}}},
 		{Seq: 2, Role: "tool", Name: "bash", ToolCallID: "call-9", Content: "输出内容"}, // 无 ResultRef
 	}
 	result, err := New(nil, &fakeEvents{events: events}).Search(context.Background(), "工具结果", Options{Limit: 1})

@@ -6,13 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
+	"github.com/RedHuang-0622/seelex/contract"
 )
 
 // 推帧的窄串行（compactionPushLock）：压缩栈是链式结构，PushCompact 校验
 // PrevSegmentID / PrevRequestFrom / PrevRequestTo 必须与栈顶逐一相等（见
-// sessionstore.SessionContextStore.PushCompact）。装配层这条推帧路径原先是靠
+// store.SessionContextStore.PushCompact）。装配层这条推帧路径原先是靠
 // Core.ViewMu 的宽临界区**顺带**串行的；推帧移出 ViewMu 之后（见
 // prepareExecutionContextFor 的锁纪律）必须显式补回，否则两个压缩并发推同一会话
 // 时，后来者会撞锚点校验——那是我们自己引入的降级。

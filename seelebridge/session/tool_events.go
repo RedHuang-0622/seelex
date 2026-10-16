@@ -8,13 +8,13 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/tools"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 )
 
 // SubagentToolEvent 是 Runtime 对子代理工具调用的稳定投影，不暴露 Seele
 // 内部 hook 类型。Application 负责截断并写入 Snapshot/EventHub。
-// 结构体本体以 application/contract/dto 为单源（与 application 快照投影同一
+// 结构体本体以 contract/dto 为单源（与 application 快照投影同一
 // 形状），本包用别名保持运行态引用面兼容。
 type SubagentToolEvent = dto.SubagentToolEvent
 

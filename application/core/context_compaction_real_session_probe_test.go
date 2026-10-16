@@ -58,7 +58,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
 	"github.com/RedHuang-0622/seelex/application/event"
 	"github.com/RedHuang-0622/seelex/application/model"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 const (
@@ -144,7 +144,7 @@ type realProbeFacts struct {
 	sourceDir      string
 	events         []model.TranscriptEvent
 	frames         []realProbeFrameRow
-	channelFrames  []sessionstore.CompactFrame
+	channelFrames  []store.CompactFrame
 	records        []json.RawMessage
 	recordsHandled bool
 }
@@ -175,7 +175,7 @@ func realProbeCopyTree(t *testing.T, src, dst string) {
 	}
 }
 
-func realProbeTranscriptEvent(row sessionstore.Event) model.TranscriptEvent {
+func realProbeTranscriptEvent(row store.Event) model.TranscriptEvent {
 	event := model.TranscriptEvent{
 		Seq: row.Seq, TaskID: row.TaskID, MessageID: row.MessageID, Kind: row.Kind,
 		Role: row.Role, ReasoningContent: row.ReasoningContent, Content: row.Content,
@@ -255,7 +255,7 @@ func realProbeLoadFacts(t *testing.T) *realProbeFacts {
 	facts.projectID = realProbeProjectID(t, facts.root, facts.sessionID)
 
 	// 不拷 session-storage.json：Router 的既定缺省就是 json 后端 + <root>/sessions-json。
-	router, err := sessionstore.NewRouter(filepath.Join(tmp, "session-storage.json"), tmp)
+	router, err := store.NewRouter(filepath.Join(tmp, "session-storage.json"), tmp)
 	if err != nil {
 		t.Fatalf("NewRouter（临时副本）: %v", err)
 	}

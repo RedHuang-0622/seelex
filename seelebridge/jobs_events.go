@@ -4,7 +4,7 @@
 //
 //   - `event.Sink` 的实现必须在 `jobs.Manager` 的**构造期**定下，而构造期拿不到
 //     「这条作业属于哪个会话的哪条事件流」——Seele 的 `event.Recorder` 是**单例、
-//     序号全局**，而会话事件库（`sessionstore.EventStore`）是**按会话**追加、按
+//     序号全局**，而会话事件库（`store.EventStore`）是**按会话**追加、按
 //     会话排序的。
 //   - 于是框架侧发出来的事件 **append 不到会话事件流的尾部**，只能由产品事后
 //     **回填**会话归属（这也正是 `events.go` 里 `correlateMainSessionID` 对
@@ -38,7 +38,7 @@ import (
 const jobsEventSource = "seelex.jobs"
 
 // jobsMainAgentID 是主会话在事件定位里的稳定标识（与 plan 域同一取值口径；
-// `sessionstore.EventStore` 只按 agent.runtime 的 session_id 路由，agent_id 仅供读面）。
+// `store.EventStore` 只按 agent.runtime 的 session_id 路由，agent_id 仅供读面）。
 const jobsMainAgentID = "seelex-main"
 
 // jobsEventStream 把作业生命周期投影成会话事件流。
@@ -211,7 +211,7 @@ func jobsEventStatus(state jobs.State) frameworkevent.Status {
 }
 
 // currentEventPersister 返回装配期注入的事实持久化钩子（可能为 nil =
-// 宿主没接 sessionstore 事件库；此时事件流静默不落库，不报错）。
+// 宿主没接 store 事件库；此时事件流静默不落库，不报错）。
 func (r *Runtime) currentEventPersister() func(context.Context, frameworkevent.Event) error {
 	if r == nil {
 		return nil

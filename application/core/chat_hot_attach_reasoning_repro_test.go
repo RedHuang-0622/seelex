@@ -10,7 +10,7 @@ package core
 // 永远看不到思考过程。
 
 import (
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"testing"
 )
 

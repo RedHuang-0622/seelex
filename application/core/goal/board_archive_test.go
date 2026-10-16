@@ -14,17 +14,17 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // boardArchiveCtx 是本文件的测试上下文（不借用其它测试文件的包级变量）。
 var boardArchiveCtx = context.Background()
 
 // newBoardArchiveRouter 建一个临时会话存储（看板存档落在会话目录的 metadata 下）。
-func newBoardArchiveRouter(t *testing.T) *sessionstore.Router {
+func newBoardArchiveRouter(t *testing.T) *store.Router {
 	t.Helper()
 	root := t.TempDir()
-	router, err := sessionstore.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
 	if err != nil {
 		t.Fatalf("new session router: %v", err)
 	}
@@ -34,11 +34,11 @@ func newBoardArchiveRouter(t *testing.T) *sessionstore.Router {
 
 // newBoardArchiveStore 装配"会话存储 + 看板存档面"的 goal 域适配器。
 // 第二个返回值是存档取用面（断言用），第三个是会话存储（冷读用）。
-func newBoardArchiveStore(t *testing.T, router *sessionstore.Router, sessionID string) (
-	*ContextStateStore, sessionstore.SessionBoards, *sessionstore.SessionContextStore,
+func newBoardArchiveStore(t *testing.T, router *store.Router, sessionID string) (
+	*ContextStateStore, store.SessionBoards, *store.SessionContextStore,
 ) {
 	t.Helper()
-	session := sessionstore.NewSessionContextStore(router, sessionID)
+	session := store.NewSessionContextStore(router, sessionID)
 	if err := session.Load(boardArchiveCtx); err != nil {
 		t.Fatalf("load session context %q: %v", sessionID, err)
 	}
@@ -50,7 +50,7 @@ func newBoardArchiveStore(t *testing.T, router *sessionstore.Router, sessionID s
 }
 
 // readBoardArchive 读回看板存档（读取失败直接失败：这些用例都先写过）。
-func readBoardArchive(t *testing.T, boards sessionstore.SessionBoards) sessionstore.GoalBoardMeta {
+func readBoardArchive(t *testing.T, boards store.SessionBoards) store.GoalBoardMeta {
 	t.Helper()
 	meta, err := boards.ReadGoalBoard(boardArchiveCtx)
 	if err != nil {
@@ -60,7 +60,7 @@ func readBoardArchive(t *testing.T, boards sessionstore.SessionBoards) sessionst
 }
 
 // historyFor 返回账本里某个 goal 的条目条数（"不会重复进 history"的判据）。
-func historyFor(meta sessionstore.GoalBoardMeta, goalID string) int {
+func historyFor(meta store.GoalBoardMeta, goalID string) int {
 	count := 0
 	for _, entry := range meta.History {
 		if entry.GoalID == goalID {
@@ -77,8 +77,8 @@ func historyFor(meta sessionstore.GoalBoardMeta, goalID string) int {
 //   - 生命周期：首次 open 置 seq=1/opened_at，此后每次变化 seq+1、opened_at 不动。
 func TestGoalBoardArchiveSeparatesActiveFrameFromHistory(t *testing.T) {
 	router := newBoardArchiveRouter(t)
-	store, boards, _ := newBoardArchiveStore(t, router, "session-board-split")
-	controller := NewController(Options{Depth: 2, Store: store, Audit: store})
+	st, boards, _ := newBoardArchiveStore(t, router, "session-board-split")
+	controller := NewController(Options{Depth: 2, Store: st, Audit: st})
 
 	if _, err := controller.Begin(boardArchiveCtx, BeginRequest{
 		Title: "父目标", Acceptance: []string{"go build ./..."},
@@ -86,7 +86,7 @@ func TestGoalBoardArchiveSeparatesActiveFrameFromHistory(t *testing.T) {
 		t.Fatalf("begin parent: %v", err)
 	}
 	first := readBoardArchive(t, boards)
-	if first.State != sessionstore.BoardStateActive || first.Active == nil {
+	if first.State != store.BoardStateActive || first.Active == nil {
 		t.Fatalf("栈非空 → 看板应为 active 且带当前帧: %+v", first)
 	}
 	if first.Active.GoalID != "g-1" || first.Active.Title != "父目标" ||
@@ -122,7 +122,7 @@ func TestGoalBoardArchiveSeparatesActiveFrameFromHistory(t *testing.T) {
 		t.Fatalf("finish child: %v", err)
 	}
 	closed := readBoardArchive(t, boards)
-	if closed.State != sessionstore.BoardStateActive || closed.Active == nil ||
+	if closed.State != store.BoardStateActive || closed.Active == nil ||
 		closed.Active.GoalID != "g-1" {
 		t.Fatalf("子目标收口后父目标应回到当前帧: %+v", closed)
 	}
@@ -145,7 +145,7 @@ func TestGoalBoardArchiveSeparatesActiveFrameFromHistory(t *testing.T) {
 		t.Fatalf("finish parent: %v", err)
 	}
 	empty := readBoardArchive(t, boards)
-	if empty.State != sessionstore.BoardStateClosed {
+	if empty.State != store.BoardStateClosed {
 		t.Fatalf("栈空应让看板 closed: %+v", empty)
 	}
 	if empty.Active != nil {
@@ -167,8 +167,8 @@ func TestGoalBoardArchiveSeparatesActiveFrameFromHistory(t *testing.T) {
 // 第二条，也不会回改既有条目的字段。
 func TestGoalBoardArchiveHistoryIsAppendOnlyPerGoal(t *testing.T) {
 	router := newBoardArchiveRouter(t)
-	store, boards, _ := newBoardArchiveStore(t, router, "session-board-append")
-	controller := NewController(Options{Depth: 2, Store: store, Audit: store})
+	st, boards, _ := newBoardArchiveStore(t, router, "session-board-append")
+	controller := NewController(Options{Depth: 2, Store: st, Audit: st})
 
 	if _, err := controller.Begin(boardArchiveCtx, BeginRequest{Title: "第一轮"}); err != nil {
 		t.Fatalf("begin first: %v", err)
@@ -191,7 +191,7 @@ func TestGoalBoardArchiveHistoryIsAppendOnlyPerGoal(t *testing.T) {
 	if _, err := controller.Begin(boardArchiveCtx, BeginRequest{Title: "第二轮"}); err != nil {
 		t.Fatalf("begin second: %v", err)
 	}
-	if err := store.Save(boardArchiveCtx, controller.Status().Stack); err != nil {
+	if err := st.Save(boardArchiveCtx, controller.Status().Stack); err != nil {
 		t.Fatalf("replay save: %v", err)
 	}
 	replayed := readBoardArchive(t, boards)
@@ -211,8 +211,8 @@ func TestGoalBoardArchiveHistoryIsAppendOnlyPerGoal(t *testing.T) {
 // goal.Controller.History，也不靠活栈（活栈里收口目标已经消失）。
 func TestGoalBoardArchiveSurvivesColdRead(t *testing.T) {
 	router := newBoardArchiveRouter(t)
-	store, _, _ := newBoardArchiveStore(t, router, "session-board-cold")
-	controller := NewController(Options{Depth: 1, Store: store, Audit: store})
+	st, _, _ := newBoardArchiveStore(t, router, "session-board-cold")
+	controller := NewController(Options{Depth: 1, Store: st, Audit: st})
 	if _, err := controller.Begin(boardArchiveCtx, BeginRequest{Title: "冷读目标"}); err != nil {
 		t.Fatalf("begin: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestGoalBoardArchiveSurvivesColdRead(t *testing.T) {
 	if meta.History[0].Title != "冷读目标" || meta.History[0].ClosedReason != "已交付" {
 		t.Fatalf("账本条目应带标题与收口原因: %+v", meta.History[0])
 	}
-	if meta.State != sessionstore.BoardStateClosed {
+	if meta.State != store.BoardStateClosed {
 		t.Fatalf("收口后冷读应看到 closed 看板: %+v", meta)
 	}
 	// 冷读的活栈仍是空的：收口目标不会被"复活"成活目标。
@@ -251,26 +251,26 @@ func TestGoalBoardArchiveSurvivesColdRead(t *testing.T) {
 }
 
 // failingBoardRepository 是写必失败的存档面（验证"写失败怎么算"的显式口径）。
-// 它实现 sessionstore.SessionBoards（Key 已烘焙）：读侧按"没有存档"降级。
+// 它实现 store.SessionBoards（Key 已烘焙）：读侧按"没有存档"降级。
 type failingBoardRepository struct {
 	writes int
 }
 
-func (r *failingBoardRepository) WriteGoalBoard(context.Context, sessionstore.GoalBoardMeta) error {
+func (r *failingBoardRepository) WriteGoalBoard(context.Context, store.GoalBoardMeta) error {
 	r.writes++
 	return errors.New("测试用：存档只读")
 }
 
-func (r *failingBoardRepository) ReadGoalBoard(context.Context) (sessionstore.GoalBoardMeta, error) {
-	return sessionstore.GoalBoardMeta{}, fs.ErrNotExist
+func (r *failingBoardRepository) ReadGoalBoard(context.Context) (store.GoalBoardMeta, error) {
+	return store.GoalBoardMeta{}, fs.ErrNotExist
 }
 
-func (r *failingBoardRepository) WriteTeamBoard(context.Context, sessionstore.TeamBoardMeta) error {
+func (r *failingBoardRepository) WriteTeamBoard(context.Context, store.TeamBoardMeta) error {
 	return errors.New("测试用：存档只读")
 }
 
-func (r *failingBoardRepository) ReadTeamBoard(context.Context) (sessionstore.TeamBoardMeta, error) {
-	return sessionstore.TeamBoardMeta{}, fs.ErrNotExist
+func (r *failingBoardRepository) ReadTeamBoard(context.Context) (store.TeamBoardMeta, error) {
+	return store.TeamBoardMeta{}, fs.ErrNotExist
 }
 
 // TestGoalBoardArchiveWriteFailurePolicy 钉住写失败的**显式决定**（§7）：
@@ -280,13 +280,13 @@ func (r *failingBoardRepository) ReadTeamBoard(context.Context) (sessionstore.Te
 //   - 两个方向都不改变**栈的保存语义**：栈照常落盘（这里 close 后活栈为空）。
 func TestGoalBoardArchiveWriteFailurePolicy(t *testing.T) {
 	router := newBoardArchiveRouter(t)
-	session := sessionstore.NewSessionContextStore(router, "session-board-failure")
+	session := store.NewSessionContextStore(router, "session-board-failure")
 	if err := session.Load(boardArchiveCtx); err != nil {
 		t.Fatalf("load session context: %v", err)
 	}
 	boards := &failingBoardRepository{}
-	store := NewContextStateStore(session, boards)
-	controller := NewController(Options{Depth: 1, Store: store, Audit: store})
+	st := NewContextStateStore(session, boards)
+	controller := NewController(Options{Depth: 1, Store: st, Audit: st})
 
 	if _, err := controller.Begin(boardArchiveCtx, BeginRequest{Title: "存档写不进去"}); err != nil {
 		t.Fatalf("active 方向的存档失败不应阻断 goal 变更: %v", err)
@@ -309,23 +309,23 @@ func TestGoalBoardArchiveWriteFailurePolicy(t *testing.T) {
 // stubBoardRepository 是一份"内容可以是任意的、写进去就丢"的存档面：用来验证
 // **存档内容不参与任何判定**（I1）——读侧把存档当兜底数据，而不是当事实。
 type stubBoardRepository struct {
-	meta sessionstore.GoalBoardMeta
+	meta store.GoalBoardMeta
 }
 
-func (r *stubBoardRepository) WriteGoalBoard(context.Context, sessionstore.GoalBoardMeta) error {
+func (r *stubBoardRepository) WriteGoalBoard(context.Context, store.GoalBoardMeta) error {
 	return nil // 写进去就丢：本用例只看领域侧的结果受不受存档影响。
 }
 
-func (r *stubBoardRepository) ReadGoalBoard(context.Context) (sessionstore.GoalBoardMeta, error) {
+func (r *stubBoardRepository) ReadGoalBoard(context.Context) (store.GoalBoardMeta, error) {
 	return r.meta, nil
 }
 
-func (r *stubBoardRepository) WriteTeamBoard(context.Context, sessionstore.TeamBoardMeta) error {
+func (r *stubBoardRepository) WriteTeamBoard(context.Context, store.TeamBoardMeta) error {
 	return nil
 }
 
-func (r *stubBoardRepository) ReadTeamBoard(context.Context) (sessionstore.TeamBoardMeta, error) {
-	return sessionstore.TeamBoardMeta{}, fs.ErrNotExist
+func (r *stubBoardRepository) ReadTeamBoard(context.Context) (store.TeamBoardMeta, error) {
+	return store.TeamBoardMeta{}, fs.ErrNotExist
 }
 
 // TestGoalDomainDecisionsIgnoreBoardArchive 钉住 I1：**领域判定不吃存档**。
@@ -336,21 +336,21 @@ func (r *stubBoardRepository) ReadTeamBoard(context.Context) (sessionstore.TeamB
 // Controller，也不影响 Status/栈/审计。
 func TestGoalDomainDecisionsIgnoreBoardArchive(t *testing.T) {
 	router := newBoardArchiveRouter(t)
-	session := sessionstore.NewSessionContextStore(router, "session-board-hostile")
+	session := store.NewSessionContextStore(router, "session-board-hostile")
 	if err := session.Load(boardArchiveCtx); err != nil {
 		t.Fatalf("load session context: %v", err)
 	}
-	boards := &stubBoardRepository{meta: sessionstore.GoalBoardMeta{
-		BoardLifecycle: sessionstore.BoardLifecycle{
-			Kind: sessionstore.BoardKindGoal, State: sessionstore.BoardStateActive, Seq: 9,
+	boards := &stubBoardRepository{meta: store.GoalBoardMeta{
+		BoardLifecycle: store.BoardLifecycle{
+			Kind: store.BoardKindGoal, State: store.BoardStateActive, Seq: 9,
 		},
-		Active: &sessionstore.GoalBoardActive{GoalID: "g-99", Title: "存档里冒充的当前目标", Status: "active"},
-		History: []sessionstore.GoalBoardHistory{
+		Active: &store.GoalBoardActive{GoalID: "g-99", Title: "存档里冒充的当前目标", Status: "active"},
+		History: []store.GoalBoardHistory{
 			{GoalID: "g-98", Title: "存档里别人的收口", Status: "completed", ClosedReason: "goal.finish", ClosedAt: 1},
 		},
 	}}
-	store := NewContextStateStore(session, boards)
-	controller := NewController(Options{Depth: 2, Store: store, Audit: store})
+	st := NewContextStateStore(session, boards)
+	controller := NewController(Options{Depth: 2, Store: st, Audit: st})
 
 	began, err := controller.Begin(boardArchiveCtx, BeginRequest{Title: "真实目标"})
 	if err != nil {
@@ -387,15 +387,15 @@ func TestGoalDomainDecisionsIgnoreBoardArchive(t *testing.T) {
 // 才写。
 func TestGoalBoardArchiveThrottlesUnchangedPayload(t *testing.T) {
 	router := newBoardArchiveRouter(t)
-	store, boards, _ := newBoardArchiveStore(t, router, "session-board-throttle")
-	controller := NewController(Options{Depth: 2, Store: store, Audit: store})
+	st, boards, _ := newBoardArchiveStore(t, router, "session-board-throttle")
+	controller := NewController(Options{Depth: 2, Store: st, Audit: st})
 	if _, err := controller.Begin(boardArchiveCtx, BeginRequest{Title: "节流目标"}); err != nil {
 		t.Fatalf("begin: %v", err)
 	}
 	before := readBoardArchive(t, boards)
 
 	// 同一份栈投影再存一次：载荷与上次完全相同 → 不写盘。
-	if err := store.Save(boardArchiveCtx, controller.Status().Stack); err != nil {
+	if err := st.Save(boardArchiveCtx, controller.Status().Stack); err != nil {
 		t.Fatalf("repeat save: %v", err)
 	}
 	after := readBoardArchive(t, boards)

@@ -9,7 +9,7 @@ import (
 	"github.com/RedHuang-0622/Seele/agent/bridge"
 	"github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/account"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/config"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
@@ -156,7 +156,7 @@ func (r *Runtime) SelectAccount(name string) bool {
 	return r.accounts.Select(name)
 }
 
-// SetSessionReasoningEffort 实现 application/contract.ReasoningEffortPort（窄可选
+// SetSessionReasoningEffort 实现 contract.ReasoningEffortPort（窄可选
 // 能力面，结构满足、不引 application 依赖）：把档位对应的 wire 思考强度下发给
 // **配置为跟随会话**的账号，返回被改动的账号数；写死强度的账号不动。
 //

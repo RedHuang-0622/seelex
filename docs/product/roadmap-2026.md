@@ -44,7 +44,7 @@
 ### P3「AI 应用开发者 / 研究型用户」—— 张同学，24 岁，研究生或 AI 创业
 - 痛点：要自己搭 agent 流水线，但不想从零写 harness；想复现多 agent/上下文治理论文级设计。
 - 需求：清晰的架构边界（ports & adapters）、可替换模块、垂直插件样板（如 freecad）、文档。
-- 对应能力：`application/contract` 端口化、seelebridge 隔离、freecad 垂直样板、高密度文档。
+- 对应能力：`contract` 端口化、seelebridge 隔离、freecad 垂直样板、高密度文档。
 
 ---
 

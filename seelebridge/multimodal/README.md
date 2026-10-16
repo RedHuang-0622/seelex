@@ -10,26 +10,26 @@
 
 ```mermaid
 flowchart LR
-    MEDIA["sessionstore.MediaStore<br/>内容寻址媒体资产"] --> SRC["ImageSource<br/>读成可下发字节"]
+    MEDIA["store.MediaStore<br/>内容寻址媒体资产"] --> SRC["ImageSource<br/>读成可下发字节"]
     SRC --> ENC["编码 OpenAI 兼容 content parts<br/>text + image_url（data URL）"]
     ENC --> REQ["带图请求"]
     REQ --> CLIENT["最小带图同步客户端"]
     CLIENT --> PROVIDER["provider endpoint"]
     PROVIDER -->|失败| FAIL["显式失败语义（不静默降级成纯文本）"]
-    NOTE["不做：截图 / 落盘 / 配额与 GC<br/>（归 sessionstore 媒体分区）"] -.-> MEDIA
+    NOTE["不做：截图 / 落盘 / 配额与 GC<br/>（归 store 媒体分区）"] -.-> MEDIA
 ```
 
 ## 职责与非职责
 
 职责：
 
-- `sessionstore.MediaStore` → `ImageSource`：把已落盘的媒体资产读成可下发字节。
+- `store.MediaStore` → `ImageSource`：把已落盘的媒体资产读成可下发字节。
 - 编码 OpenAI 兼容 content parts：`text` + `image_url`（data URL）。
 - 提供最小带图请求客户端与显式失败语义。
 
 刻意不做：
 
-- 不截图、不落盘、不管配额与 GC（那是 `sessionstore` 媒体分区的事）。
+- 不截图、不落盘、不管配额与 GC（那是 `store` 媒体分区的事）。
 - 不替换引擎的对话循环。Seele 的 `types.Message.Content` 是 `*string`（v0.3.1 实测）
   （纯文本），带图请求无法经引擎下发；本包是这一能力缺口的 Seelex 侧适配，
   等 Seele 支持 content parts 后由引擎接管，本包只保留编码与冒烟用途。
@@ -69,8 +69,8 @@ flowchart LR
 
 ## 依赖方向
 
-- 允许依赖：`sessionstore`（读媒体资产）、标准库 `net/http`。
-- 禁止反向：`sessionstore` 不依赖本包；本包不反向依赖 `application/`、`session/`。
+- 允许依赖：`store`（读媒体资产）、标准库 `net/http`。
+- 禁止反向：`store` 不依赖本包；本包不反向依赖 `application/`、`session/`。
 - 真机冒烟测试额外依赖 `seelebridge/internal/config` 与 `internal/model` 解析账号，
   仅测试期使用。
 
@@ -84,7 +84,7 @@ flowchart LR
 ## 扩展方式
 
 新增 provider 协议（例如 Responses API 的 `input_image`）时，在本包内新增编码函数并
-复用 `ImageSource`/`LoadImage`；不要改动 `sessionstore` 的媒体布局。
+复用 `ImageSource`/`LoadImage`；不要改动 `store` 的媒体布局。
 
 ## Review 指南
 

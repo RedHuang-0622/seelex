@@ -3,7 +3,7 @@ package seelebridge
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // ── 红灯复现：工作表格的内容是「项目/全局」粒度，不是会话粒度 ──────────

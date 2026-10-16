@@ -69,7 +69,7 @@ tools.Registry (产品 provider + MCP + skill + plan/task 工具)      │
                           │
 seelex ProjectKnowledge（项目级模块语义）─────┐
 seelex SessionContextRecord（5 栈 + 窗口）────┤
-seelex DurableHistory (sessionstore 适配) ───┤
+seelex DurableHistory (store 适配) ───┤
 seelex Assembler/Compressor/Controller ─────┤
 seelex ToolResultProcessor ─────────────────┼── session.NewSession(SessionComponents{...})
 seelex LoopHooks（进度回调）────────────────┘
@@ -85,7 +85,7 @@ seelex LoopHooks（进度回调）───────────────�
                                    → runner.Run(ctx)
                                    → 每节点 = 独立 Session（subagent）
                                           │
-                                   event.Sink → sessionstore 事件库 → Task/PlanState 投影
+                                   event.Sink → store 事件库 → Task/PlanState 投影
                                           │
                                    telemetry Hook/Tracer → GUI/TUI 视图
 ```
@@ -94,7 +94,7 @@ seelex LoopHooks（进度回调）───────────────�
 
 ```text
 tui / gui ──> application（服务层，接口稳定）
-application ──> seelebridge（窄接口）/ seelexctx / sessionstore / plugin / skill
+application ──> seelebridge（窄接口）/ seelexctx / store / plugin / skill
 seelebridge ──> Seele 新根模块（agent/tools/session/workplan/seelectx/accountpool/event/errors/telemetry）
 禁止：seelexctx -> application；workplan 产品节点 -> seelex 业务包（反向依赖由调用方接口解耦）
 ```
@@ -122,7 +122,7 @@ seelebridge ──> Seele 新根模块（agent/tools/session/workplan/seelectx/a
 
 - `engine.Engine` 拆除为：
   - **主会话**：`session.NewSession(SessionComponents{Agent, History, Context, Hooks, Telemetry, SessionID, ModelName})`。`ChatStream(ctx, query, onChunk)` 对应旧 `eng.ChatStream`。
-  - **durable history**：`sessionstore` 适配 `seelectx.DurableHistory`（`Load/Save/Clear`）。Session 每次 Chat 前 Load、结束后 Save；`Reset(ctx)` 显式清空。transcript 事件与 TaskContextProjection 的持久化仍走 sessionstore.Router，但由 DurableHistory 实现统一编排。会话级上下文记录 `SessionContextRecord`（SystemPrompt + plan/task/skill/compact 五栈）由 Router state blob 承载，与 ChatQueue（ProviderHistory）分离；滑动窗口按轮读取（`ReadRange`/`ReadEventTail`），详见 §4.8。
+  - **durable history**：`store` 适配 `seelectx.DurableHistory`（`Load/Save/Clear`）。Session 每次 Chat 前 Load、结束后 Save；`Reset(ctx)` 显式清空。transcript 事件与 TaskContextProjection 的持久化仍走 store.Router，但由 DurableHistory 实现统一编排。会话级上下文记录 `SessionContextRecord`（SystemPrompt + plan/task/skill/compact 五栈）由 Router state blob 承载，与 ChatQueue（ProviderHistory）分离；滑动窗口按轮读取（`ReadRange`/`ReadEventTail`），详见 §4.8。
 - **工具钩子映射**（原 `ToolHookBridge`）：`SessionComponents.Hooks *LoopHooks`（`OnLLMStart/OnToolStart/OnToolComplete/OnIterationComplete`）同步进度回调；`OnIterationComplete` 不再直接调压缩——压缩决策移交 `ContextController`（见 4.6）。原 `handleToolStart/handleToolComplete/handlePlanNodeComplete` 的**观测与投影**逻辑移到 LoopHooks + 事件投影中。
 - `engine.History()/ReplaceHistory()/ClearHistory()` → working history 由 Session 持有；`History()` 语义由 DurableHistory/投影提供；`ReplaceHistory` 改由 `ContextController.Handle → ContextDecision{ReplaceHistory, History}` 驱动。
 
@@ -152,7 +152,7 @@ Task 状态机（`taskExecutionState` → `TaskService`）只消费：会话结�
 ### 4.6 上下文控制（seelectx 契约）
 
 - seelex 实现/适配 seelectx 四个原子策略，注入 `session.ContextComponents`：
-  1. **`DurableHistory`**：sessionstore 适配（见 4.3）；
+  1. **`DurableHistory`**：store 适配（见 4.3）；
   2. **`RequestAssembler`**：`seelexAssembler.Assemble(AssemblyRequest{Blocks, WorkingHistory})` 组合 system prompt（effort/skill）、`PromptBlock`（plan authority、task checkpoint、evidence）与 working history；`PlaceholderRequestAssembler` 解析 `{{plan}}/{{skill}}` 占位符；系统提示与 PromptBlocks **只进模型请求，不写 durable history**（新不变量）；原 `preflightPlanAuthorityContext` 的 XML envelope 由 `PromptBlock` 承载；
   3. **`ToolResultProcessor`**：`rejectOversizedToolResults` + `result_ref`/`read_tool_result` 分页语义迁移到此（与 example 09 一致），工具结果进入 working history 前先筛选为 `ToolResultView`；
   4. **`Compressor`/`ContextController`**：`seelexContextController.Handle(ContextEvent{Kind: before_model|after_assistant|after_tool, Turn, Query, History, Tool}) → ContextDecision{ReplaceHistory, History}`。原 `compactTaskContext/prepareExecutionContext` 的决策逻辑（软/硬阈值、`ContextWindowPolicy`、片段闭合压缩、checkpoint 消息 `<-- seelex:context-checkpoint:v1 -->` 的生成与移除）整体迁移进 Controller；需要 LLM 摘要时经 `Compressor`（`QuickChat` 隔离调用，无工具、独立 history）。压缩范围新规则（§4.8）：**只压缩 ChatQueue 滑动窗口之外的轮次**，产物 push CompactStack；窗口 N 由 `WindowPolicy` 决定（配置 + provider 推导，非魔法数字）。
@@ -167,7 +167,7 @@ Task 状态机（`taskExecutionState` → `TaskService`）只消费：会话结�
 ### 4.7 事件与遥测
 
 - `seelectx/tracer` → `telemetry.NewMemoryTracer()` + `telemetry.NewLifecycleHook(tracer)`；GUI/TUI 的 trace 视图改用 `tracer.Query`。`engine.ExportTrace()` 的兼容面由 `SessionComponents.Tracer` 承担（新 Session 支持注入 compat tracer）。
-- 执行事实：seelex 实现 `event.Sink`（`event.SinkFunc`），追加写入 sessionstore 事件库；KV/投影（PlanState/TaskState/SubAgentTree）只作为可重建投影。心跳（`WithEventHeartbeatPolicy`）用于长节点 liveness。
+- 执行事实：seelex 实现 `event.Sink`（`event.SinkFunc`），追加写入 store 事件库；KV/投影（PlanState/TaskState/SubAgentTree）只作为可重建投影。心跳（`WithEventHeartbeatPolicy`）用于长节点 liveness。
 - `errors`：跨模块错误统一 `seeleerrors.From(err)` 读取 `Struct/Function/Step/Path`；`application/core/error_presentation.go` 的错误码映射改为结构化读取，不再依赖错误字符串。
 
 ### 4.8 存储模型：项目级知识 + 会话级上下文（5 栈 + 队列 + 滑动窗口）
@@ -195,7 +195,7 @@ Task 状态机（`taskExecutionState` → `TaskService`）只消费：会话结�
 ```
 
 - **"now using X" = 栈顶**：模型与 UI 看到的是当前使用中的 plan/task/skill 与最近一次压缩摘要；栈保留完整使用史，会话恢复时按栈重建现场。
-- **轮（round）**：完整协议单元 = 用户回合 → assistant 回复（无工具）或工具链闭环（assistant tool-call + 全部 tool result），即 sessionstore `completeEventUnits` 语义。
+- **轮（round）**：完整协议单元 = 用户回合 → assistant 回复（无工具）或工具链闭环（assistant tool-call + 全部 tool result），即 store `completeEventUnits` 语义。
 - **压缩规则（唯一压缩面）**：只有 ChatQueue 中滑动窗口保留之外的轮次可被压缩；压缩产物以 `CompactFrame`（段范围 + 摘要 + 证据引用）push 到 CompactStack。窗口内轮次永不压缩——硬阈值（token）超限时先归档超大工具输出为 `result_ref`（ToolResultProcessor 路径），仍超限才经策略**收缩窗口**（不得低于 MinRounds），新移出窗口的轮次才进入压缩。SystemPrompt 与栈帧**永不压缩**、不写入 ProviderHistory 消息，会话不变量保持。
 - **CompactStack 读取规则**：活跃会话只读**栈顶一帧**（帧为"该时刻窗口外全部轮次的综合摘要"，栈顶自足）；更早帧仅作存储（压缩台账），用于 fork 新会话恢复、修改会话内容重开会话、或重新打开会话时取出栈顶。
 - **扩展预留（2026-08-01 决策）**：三个读栈场景目前仅规划、不做细节设计——stack 能力是给未来可扩展功能（目标形态参考**代码图谱（code graph）**式上下文重建）准备的底子。曾评估独立向量模型/embedding 方案，成本与收益不划算而否决；当前采用结构化栈帧（Summary/Evidence/From/To/SegmentID）的简单实现，**帧字段即未来图谱功能的接缝**：扩展时只消费帧结构，不改存储层。
@@ -209,14 +209,14 @@ N 由 `WindowPolicy` 构造注入决定：
 - 输出：窗口轮数 N 与窗口 token 预算；
 - 默认策略：`N = clamp((ContextTokens × ratio − Reserved) ÷ AvgRoundTokens, MinRounds, MaxRounds)`，ratio/Min/Max 来自配置，代码无硬编码常量；具体默认值列为详设确认点 5。
 
-#### 4.8.3 与 sessionstore / seelectx 契约映射
+#### 4.8.3 与 store / seelectx 契约映射
 
 | 存储概念 | seelex 落地 | Seele 契约 |
 |---|---|---|
 | ProjectKnowledge | `Repository.WriteProjectRecord/ReadProjectRecord`（新增，四后端） | 无（缺口 1，见 4.9） |
 | SystemPrompt | `SessionContextRecord.SystemPrompt`（state blob）→ 会话开始注入 `ContextComponents.SystemPrompt` | `session.ContextComponents.SystemPrompt` |
 | Plan/Task/Skill/Compact 栈 | `SessionContextRecord`（state blob），帧 DTO 见详设 §3.7.2 | `PromptBlock`（Assembler 渲染块） |
-| ChatQueue | ProviderHistory（sessionstore 分片） | `DurableHistory`（Load/Save/Clear） |
+| ChatQueue | ProviderHistory（store 分片） | `DurableHistory`（Load/Save/Clear） |
 | 滑动窗口 | `ReadRange`/`ReadEventTail` 按轮/预算读尾 | DurableHistory 无范围读（缺口 3） |
 | 窗口外压缩 | Controller 段压缩 → CompactStack push | `Compressor`/`ContextController`（无段范围，缺口 4） |
 
@@ -236,7 +236,7 @@ seelex 侧以适配器隔离以下缺口；Seele 实现后仅移除适配层，�
 | 2 | "now using X" 栈语义（LIFO、可嵌套、可恢复） | `PromptBlock` 为扁平列表 | `seelectx.ContextStack` 原语（Push/Pop/Top/Index）与渲染契约 |
 | 3 | 按轮保留的滑动窗口 | `DurableHistory` 只有全量 Load/Save/Clear | `DurableHistory.LoadTail(ctx, units)` 范围读 |
 | 4 | 只压缩窗口外段 | `Compressor.Compress` 面向整段 History | `CompressionRequest{From, To}` 段范围压缩 |
-| 5 | 轮 = 完整协议单元 | seelex sessionstore 已有 `completeEventUnits`（产品侧） | seelectx 提供单元化 History 视图 |
+| 5 | 轮 = 完整协议单元 | seelex store 已有 `completeEventUnits`（产品侧） | seelectx 提供单元化 History 视图 |
 
 ## 5. 迁移策略与兼容
 

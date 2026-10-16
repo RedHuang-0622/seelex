@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/backend/limit"
 )
 
 // withResidentLimit 把进程级 resident_limit 临时改成 limit，返回还原函数
@@ -138,10 +138,10 @@ func TestResidentLimitKeepsBusySessions(t *testing.T) {
 // （受保护集之外只保留上一个），两个分层覆盖键默认**未配置**（0 = 交给统一窗口
 // 管辖）——在这里补 6/12 老默认会让统一窗口永远失效。
 func TestSessionReleaseDefaults(t *testing.T) {
-	if got := seelexctx.DefaultLimits().ResidentSessionLimit; got != 0 {
+	if got := limit.DefaultLimits().ResidentSessionLimit; got != 0 {
 		t.Fatalf("default resident layer limit = %d, want 0（未配置 = 交给统一窗口）", got)
 	}
-	if got := seelexctx.DefaultLimits().ReleaseWindow(); got != 1 {
+	if got := limit.DefaultLimits().ReleaseWindow(); got != 1 {
 		t.Fatalf("default release window = %d, want 1（只保留上一个）", got)
 	}
 	if got := Limits().ReleaseWindow(); got != 1 {
@@ -151,10 +151,10 @@ func TestSessionReleaseDefaults(t *testing.T) {
 		t.Fatalf("active resident layer limit = %d, want 0", got)
 	}
 	// 窗口是配置项：显式配置生效，<=0 回落默认。
-	if got := (seelexctx.Limits{SessionReleaseWindow: 4}).ReleaseWindow(); got != 4 {
+	if got := (limit.Limits{SessionReleaseWindow: 4}).ReleaseWindow(); got != 4 {
 		t.Fatalf("configured release window = %d, want 4", got)
 	}
-	if got := (seelexctx.Limits{}).ReleaseWindow(); got != 1 {
+	if got := (limit.Limits{}).ReleaseWindow(); got != 1 {
 		t.Fatalf("zero-value release window = %d, want 1（零值回落默认）", got)
 	}
 	// 分层覆盖（老口径）折算：额度 = 上限 − 受保护数（下限 0）。

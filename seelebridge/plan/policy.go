@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // PlanPolicy defines the runtime constraints applied to a plan_load request.
@@ -14,7 +14,7 @@ import (
 // 移除：强制规划为失败设计，preflight 仅由显式 PrepareReplan 触发）。
 // 节点预算上限（MaxNodeLoops/MaxNodeOutputTokens，0 = 不限）：防止节点级
 // budget 参数滥用（见 nodeBudget，agent_node.go）。
-// 类型本体已下沉 application/contract/dto；行为经本包自由函数提供。
+// 类型本体已下沉 contract/dto；行为经本包自由函数提供。
 type PlanPolicy = dto.PlanPolicy
 
 type PlanLoadSpec struct {

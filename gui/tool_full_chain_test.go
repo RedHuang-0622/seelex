@@ -10,10 +10,11 @@ import (
 	frameworksession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/testutil"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
+	"github.com/RedHuang-0622/seelex/wiring"
 )
 
 type guiChainEngine struct {
@@ -175,7 +176,9 @@ func (*guiChainRuntime) SubagentTreeEvents() <-chan struct{}       { return nil 
 func (*guiChainRuntime) PlanNodeEventChannel() <-chan dto.PlanNodeEvent {
 	return nil
 }
-func (*guiChainRuntime) TakeServedRoute(string) (dto.ServedRoute, bool) { return dto.ServedRoute{}, false }
+func (*guiChainRuntime) TakeServedRoute(string) (dto.ServedRoute, bool) {
+	return dto.ServedRoute{}, false
+}
 func (*guiChainRuntime) SwitchSessionTasks(string, []dto.TaskRecord) {}
 func (*guiChainRuntime) SetSessionWorkspace(string, string)          {}
 func (*guiChainRuntime) ScheduledCommands() []seelebridge.ScheduledCommandInfo {
@@ -246,11 +249,11 @@ func (*guiChainSessions) Workspace() string   { return "" }
 
 func newGUIChainApplication(t *testing.T) (*application.Service, *application.ApprovalBroker) {
 	t.Helper()
-	events := application.NewEventHub()
-	approval := application.NewApprovalBroker(events)
-	hooks := application.NewToolHookBridge()
+	events := wiring.NewEventHub()
+	approval := wiring.NewApprovalBroker(events)
+	hooks := wiring.NewToolHookBridge()
 	engine := &guiChainEngine{hooks: hooks.Hooks()}
-	app, err := application.New(application.Dependencies{
+	app, err := wiring.New(application.Dependencies{
 		Engine: engine, Runtime: &guiChainRuntime{}, Plugins: &guiChainPlugins{},
 		Skills: &guiChainSkills{}, Sessions: &guiChainSessions{}, Events: events, Approval: approval,
 	})

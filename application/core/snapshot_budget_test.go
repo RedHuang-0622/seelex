@@ -5,7 +5,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/RedHuang-0622/seelex/application/core/internal/limits"
+	"github.com/RedHuang-0622/seelex/backend/limit"
 )
 
 // TestToolOutputPreviewTruncates 验证快照预览截断：超过阈值只留前 N 字符
@@ -121,11 +121,11 @@ func TestToolResultContentPagination(t *testing.T) {
 // TestSnapshotBudgetUsesConfiguredLimit 验证 limits 注入生效：设置较小
 // snapshot_tool_output_chars 后，截断线跟随配置（而非硬编码）。
 func TestSnapshotBudgetUsesConfiguredLimit(t *testing.T) {
-	previous := limits.Get()
+	previous := limit.Get()
 	configured := previous
 	configured.SnapshotToolOutputChars = 128
-	limits.Apply(configured)
-	defer limits.Apply(previous)
+	limit.Apply(configured)
+	defer limit.Apply(previous)
 
 	service := newTestService(t, &fakeEngine{})
 	big := strings.Repeat("z", 4096)

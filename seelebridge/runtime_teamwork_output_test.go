@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // runtime_teamwork_output_test.go — 产品自有作业输出面的行为（S5 / §4.7 输出归属）。
@@ -23,43 +23,43 @@ type fakeTeamworkStore struct {
 	dir string
 }
 
-func (s *fakeTeamworkStore) WriteTeamworkPlan(context.Context, sessionstore.Key, sessionstore.TeamworkPlan, int) error {
+func (s *fakeTeamworkStore) WriteTeamworkPlan(context.Context, store.Key, store.TeamworkPlan, int) error {
 	return nil
 }
 
-func (s *fakeTeamworkStore) ReadTeamworkPlan(context.Context, sessionstore.Key) (sessionstore.TeamworkPlan, error) {
-	return sessionstore.TeamworkPlan{}, nil
+func (s *fakeTeamworkStore) ReadTeamworkPlan(context.Context, store.Key) (store.TeamworkPlan, error) {
+	return store.TeamworkPlan{}, nil
 }
 
-func (s *fakeTeamworkStore) AppendTeamworkEvent(context.Context, sessionstore.Key, sessionstore.TeamworkEvent) error {
+func (s *fakeTeamworkStore) AppendTeamworkEvent(context.Context, store.Key, store.TeamworkEvent) error {
 	return nil
 }
 
-func (s *fakeTeamworkStore) ReadTeamworkEvents(context.Context, sessionstore.Key) ([]sessionstore.TeamworkEvent, error) {
+func (s *fakeTeamworkStore) ReadTeamworkEvents(context.Context, store.Key) ([]store.TeamworkEvent, error) {
 	return nil, nil
 }
 
-func (s *fakeTeamworkStore) TeamworkJobOutputDir(context.Context, sessionstore.Key) (string, error) {
+func (s *fakeTeamworkStore) TeamworkJobOutputDir(context.Context, store.Key) (string, error) {
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return "", err
 	}
 	return s.dir, nil
 }
 
-func (s *fakeTeamworkStore) AppendTeamworkBinding(context.Context, sessionstore.Key, sessionstore.TeamworkBinding) error {
+func (s *fakeTeamworkStore) AppendTeamworkBinding(context.Context, store.Key, store.TeamworkBinding) error {
 	return nil
 }
 
-func (s *fakeTeamworkStore) ReadTeamworkBindings(context.Context, sessionstore.Key) ([]sessionstore.TeamworkBinding, error) {
+func (s *fakeTeamworkStore) ReadTeamworkBindings(context.Context, store.Key) ([]store.TeamworkBinding, error) {
 	return nil, nil
 }
 
 func newOutputFixture(t *testing.T) (*TeamworkJobOutputs, string, context.Context) {
 	t.Helper()
 	dir := t.TempDir()
-	store := &fakeTeamworkStore{dir: dir}
-	outputs := NewTeamworkJobOutputs(store, func(sessionID string) (sessionstore.Key, bool) {
-		return sessionstore.Key{ProjectID: "project", SessionID: sessionID}, true
+	st := &fakeTeamworkStore{dir: dir}
+	outputs := NewTeamworkJobOutputs(st, func(sessionID string) (store.Key, bool) {
+		return store.Key{ProjectID: "project", SessionID: sessionID}, true
 	})
 	if outputs == nil {
 		t.Fatal("NewTeamworkJobOutputs 在给了 store 与 keyFor 时不该返回 nil")
@@ -219,8 +219,8 @@ func TestTeamworkJobOutputsLatestJobOutputPathPicksNewest(t *testing.T) {
 func TestWriteWorkerOutputRoutesThroughProductFaceAndDropsAfterClear(t *testing.T) {
 	r := newTestRuntime(t)
 	defer r.Shutdown()
-	outputs := NewTeamworkJobOutputs(&fakeTeamworkStore{dir: t.TempDir()}, func(id string) (sessionstore.Key, bool) {
-		return sessionstore.Key{ProjectID: "project", SessionID: id}, true
+	outputs := NewTeamworkJobOutputs(&fakeTeamworkStore{dir: t.TempDir()}, func(id string) (store.Key, bool) {
+		return store.Key{ProjectID: "project", SessionID: id}, true
 	})
 	backend := teamworkTestBackend(&memPlanStore{}, "s-team")
 	backend.JobOutputs = outputs

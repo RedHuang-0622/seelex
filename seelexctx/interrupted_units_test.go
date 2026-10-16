@@ -7,7 +7,7 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 )
 
-// interruptedChatTurn 构造残缺工具链 working history（与 sessionstore/task_context
+// interruptedChatTurn 构造残缺工具链 working history（与 store/task_context
 // 探针同构）：user 任务 → assistant 请求 t1/t2 → 只记录 t1 结果。
 func interruptedChatTurn(withSuffixText, atTail bool) []types.Message {
 	messages := []types.Message{

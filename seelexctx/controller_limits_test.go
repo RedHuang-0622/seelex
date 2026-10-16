@@ -16,6 +16,8 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/Seele/seelectx"
+
+	"github.com/RedHuang-0622/seelex/backend/limit"
 )
 
 // strictBudget 是 BudgetProvider 桩：只给账号窗口与最大输出。
@@ -30,7 +32,7 @@ func (b strictBudget) MaxOutputTokens() int { return b.output }
 // TestContextWindowPolicyUsesConfiguredRatios：四个比例真的进入阈值数字，
 // 且与默认比例算出的结果**不相等**（相等就等于没消费配置）。
 func TestContextWindowPolicyUsesConfiguredRatios(t *testing.T) {
-	custom := Limits{
+	custom := limit.Limits{
 		ContextSafetyReserveDivisor: 4,
 		ContextSoftPercent:          60,
 		ContextHardPercent:          85,
@@ -58,7 +60,7 @@ func TestContextWindowPolicyUsesConfiguredRatios(t *testing.T) {
 	}
 
 	// 与默认比例的差异必须存在：这是"配置被消费"的可证伪判据。
-	def := NewContextWindowPolicy(100_000, 8_192, DefaultLimits())
+	def := NewContextWindowPolicy(100_000, 8_192, limit.DefaultLimits())
 	if policy.SoftThreshold() == def.SoftThreshold() {
 		t.Fatalf("改 context_soft_percent 后软阈值不变（=%d）→ 配置没被消费", policy.SoftThreshold())
 	}
@@ -68,7 +70,7 @@ func TestContextWindowPolicyUsesConfiguredRatios(t *testing.T) {
 
 	// 零值 Limits 回退默认比例：构造即归一。归一被摘掉时阈值会变成 0，
 	// 后果是每一轮都被判成超限狂压上下文，所以这条必须钉住。
-	zero := NewContextWindowPolicy(100_000, 8_192, Limits{})
+	zero := NewContextWindowPolicy(100_000, 8_192, limit.Limits{})
 	if zero.Budget() != def.Budget() || zero.SoftThreshold() != def.SoftThreshold() {
 		t.Fatalf("零值 Limits 未回退默认：budget=%d soft=%d", zero.Budget(), zero.SoftThreshold())
 	}
@@ -77,22 +79,22 @@ func TestContextWindowPolicyUsesConfiguredRatios(t *testing.T) {
 // TestControllerOversizedToolUsesConfiguredLimit：注入的
 // limits.max_tool_result_chars 必须真的决定"这条工具结果算不算超大"。
 func TestControllerOversizedToolUsesConfiguredLimit(t *testing.T) {
-	limit := 100
-	controller := &seelexContextController{opts: ControllerOptions{MaxToolResultChars: limit}}
+	injectedLimit := 100
+	controller := &seelexContextController{opts: ControllerOptions{MaxToolResultChars: injectedLimit}}
 
-	oversized := &seelectx.ToolResult{Raw: strings.Repeat("a", limit+1)}
+	oversized := &seelectx.ToolResult{Raw: strings.Repeat("a", injectedLimit+1)}
 	if !controller.oversizedTool(oversized) {
-		t.Fatalf("%d 字节结果在 max_tool_result_chars=%d 下必须判为超大", limit+1, limit)
+		t.Fatalf("%d 字节结果在 max_tool_result_chars=%d 下必须判为超大", injectedLimit+1, injectedLimit)
 	}
-	boundary := &seelectx.ToolResult{Raw: strings.Repeat("a", limit)}
+	boundary := &seelectx.ToolResult{Raw: strings.Repeat("a", injectedLimit)}
 	if controller.oversizedTool(boundary) {
-		t.Fatalf("恰好 %d 字节不该判为超大（判定是严格大于）", limit)
+		t.Fatalf("恰好 %d 字节不该判为超大（判定是严格大于）", injectedLimit)
 	}
 
 	// 同一份内容在未注入（回退出厂默认）下不算超大：证明上一条差异来自配置，
 	// 不是 IsOversizedToolResult 本身恒真。
 	uninjected := &seelexContextController{}
 	if uninjected.oversizedTool(oversized) {
-		t.Fatalf("出厂默认上限 %d 下 %d 字节不该判为超大", DefaultToolResultLimit(), limit+1)
+		t.Fatalf("出厂默认上限 %d 下 %d 字节不该判为超大", limit.DefaultToolResultLimit(), injectedLimit+1)
 	}
 }

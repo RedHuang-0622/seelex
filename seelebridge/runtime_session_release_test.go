@@ -3,9 +3,9 @@ package seelebridge
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // hasBundle 读桥侧注册表里有没有该会话本体（包内用例直读，不为此export一个
@@ -26,8 +26,8 @@ func TestReleaseSessionBundleDropsBundleAndResidue(t *testing.T) {
 		bundles:            map[string]*sessionBundle{},
 		servedRoutes:       map[string]dto.ServedRoute{},
 		routingNoticeSeen:  map[string]bool{},
-		teamworkCoords:     map[sessionstore.Key]*teamwork.Coordinator{},
-		teamworkBoardCache: map[sessionstore.Key]teamworkBoardSnapshotCache{},
+		teamworkCoords:     map[store.Key]*teamwork.Coordinator{},
+		teamworkBoardCache: map[store.Key]teamworkBoardSnapshotCache{},
 	}
 	runtime.bundleFor("sess-a")
 	runtime.bundleFor("sess-b")
@@ -38,8 +38,8 @@ func TestReleaseSessionBundleDropsBundleAndResidue(t *testing.T) {
 	runtime.servedRoutes["sess-a"] = dto.ServedRoute{}
 	runtime.routingNoticeSeen["sess-a|acct"] = true
 	runtime.routingNoticeSeen["sess-b|acct"] = true
-	runtime.teamworkCoords[sessionstore.Key{ProjectID: "proj", SessionID: "sess-a"}] = nil
-	runtime.teamworkBoardCache[sessionstore.Key{ProjectID: "proj", SessionID: "sess-a"}] = teamworkBoardSnapshotCache{}
+	runtime.teamworkCoords[store.Key{ProjectID: "proj", SessionID: "sess-a"}] = nil
+	runtime.teamworkBoardCache[store.Key{ProjectID: "proj", SessionID: "sess-a"}] = teamworkBoardSnapshotCache{}
 
 	if !runtime.ReleaseSessionBundle("sess-a") {
 		t.Fatal("sess-a 应被释放（非活跃别名、无在飞 fork/后台命令）")

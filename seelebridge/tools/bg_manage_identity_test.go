@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // 作业身份层的判据（2026-10-15 审计 D1）：**句柄自带来源** + **拿错工具显式报错**。

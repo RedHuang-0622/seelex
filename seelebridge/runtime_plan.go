@@ -12,7 +12,7 @@ import (
 	workplancheckpoint "github.com/RedHuang-0622/Seele/workplan/runtime/checkpoint"
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/account"
 	"github.com/RedHuang-0622/seelex/seelebridge/fork"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
@@ -22,7 +22,7 @@ import (
 	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
 	"github.com/RedHuang-0622/seelex/seelexctx/provider"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // PlanNodeEventChannel 返回 plan 节点事件 channel（CSP：application 消费者
@@ -52,7 +52,7 @@ func (r *Runtime) SetEventErrorHandler(handler frameworkevent.ErrorHandler) {
 }
 
 // SetEventPersister 安装执行事实持久化钩子（双轨事件的事实轨：
-// event.Sink → sessionstore 事件库）。钩子失败经 ErrorHandler 隔离，
+// event.Sink → store 事件库）。钩子失败经 ErrorHandler 隔离，
 // 不破坏 WorkPlan 控制流（见 Seele event/README.md）。
 func (r *Runtime) SetEventPersister(fn func(context.Context, frameworkevent.Event) error) {
 	// 短期事件桥：持久化前为主会话事件补 session_id 关联（见 events.go）。
@@ -61,19 +61,19 @@ func (r *Runtime) SetEventPersister(fn func(context.Context, frameworkevent.Even
 	r.eventPersister = fn
 	r.eventPersisterMu.Unlock()
 	r.planExecutor.SetEventPersister(fn)
-	// 统一事件库：B 类摘要与 A 类事实同一 sessionstore 事件库（同库不双写）。
+	// 统一事件库：B 类摘要与 A 类事实同一 store 事件库（同库不双写）。
 	if r.summaryLog != nil {
 		r.summaryLog.SetPersister(fn)
 	}
 }
 
-// SetPlanCheckpointStore 装配 workplan checkpoint 持久化（sessionstore 实现；
+// SetPlanCheckpointStore 装配 workplan checkpoint 持久化（store 实现；
 // plan_run 结束后落最终快照，ResumePlan 从快照续跑）。
-func (r *Runtime) SetPlanCheckpointStore(store workplancheckpoint.Store) {
+func (r *Runtime) SetPlanCheckpointStore(st workplancheckpoint.Store) {
 	if r == nil || r.planExecutor == nil {
 		return
 	}
-	r.planExecutor.SetCheckpointStore(store)
+	r.planExecutor.SetCheckpointStore(st)
 }
 
 // ResumePlan 从 checkpoint（snapshotID = 节点 ID）续跑当前加载的 Plan DAG。
@@ -148,7 +148,7 @@ func (r *Runtime) beginNodeWorktree(scope seenode.NodeScope, nodeID string) *wor
 	}
 	wt := r.worktreeMgr.Begin(scope, nodeID)
 	if wt != nil && r.subagentSessions != nil {
-		r.subagentSessions.NoteWorktree(nodeID, sessionstore.NodeWorktreeRecord{
+		r.subagentSessions.NoteWorktree(nodeID, store.NodeWorktreeRecord{
 			Path: wt.Path, Branch: wt.Branch, BaseCommit: wt.BaseCommit, MainBranch: wt.MainBranch,
 		})
 	}

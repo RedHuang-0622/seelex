@@ -5,16 +5,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // TestGoalStackNotRenderedIntoContext 固化 goal 第五栈的语义边界：GoalStack
-// 随会话聊天记录同域持久化（sessionstore context 通道），但**不进模型上下文**
+// 随会话聊天记录同域持久化（store context 通道），但**不进模型上下文**
 // ——不渲染为前缀/尾部栈块，也不做记忆前缀与匹配。空四栈 + 非空 GoalStack 时
 // 渲染结果必须为零块；有 plan/task/skill/compact 时块集合不变。
 func TestGoalStackNotRenderedIntoContext(t *testing.T) {
-	goalOnly := sessionstore.SessionContextRecord{
-		GoalStack: []sessionstore.GoalFrame{{
+	goalOnly := store.SessionContextRecord{
+		GoalStack: []store.GoalFrame{{
 			GoalID: "goal-1", Title: "审查 goal 域（不入上下文）", Status: "active",
 		}},
 	}
@@ -28,12 +28,12 @@ func TestGoalStackNotRenderedIntoContext(t *testing.T) {
 		t.Fatalf("goal-only record must render zero tail blocks, got %d", len(blocks))
 	}
 
-	withStacks := sessionstore.SessionContextRecord{
-		PlanStack:    []sessionstore.PlanFrame{{PlanID: "plan-1", Title: "重构", Status: "active"}},
-		TaskStack:    []sessionstore.TaskFrame{{TaskID: "task-1", Objective: "迁移上下文", Status: "active"}},
-		SkillStack:   []sessionstore.SkillFrame{{SkillID: "skill-1", Name: "go"}},
-		CompactStack: []sessionstore.CompactFrame{{SegmentID: "compact-1", From: 0, To: 2, Summary: "先期摘要"}},
-		GoalStack: []sessionstore.GoalFrame{{
+	withStacks := store.SessionContextRecord{
+		PlanStack:    []store.PlanFrame{{PlanID: "plan-1", Title: "重构", Status: "active"}},
+		TaskStack:    []store.TaskFrame{{TaskID: "task-1", Objective: "迁移上下文", Status: "active"}},
+		SkillStack:   []store.SkillFrame{{SkillID: "skill-1", Name: "go"}},
+		CompactStack: []store.CompactFrame{{SegmentID: "compact-1", From: 0, To: 2, Summary: "先期摘要"}},
+		GoalStack: []store.GoalFrame{{
 			GoalID: "goal-1", Title: "审查 goal 域（不入上下文）", Status: "active",
 		}},
 	}
@@ -56,8 +56,8 @@ func TestGoalStackNotRenderedIntoContext(t *testing.T) {
 // 压缩摘要的“目标 (Goal)”素材（该小节仍由 TaskStack 顶承担）；聊天记录里的
 // #goal 文本作为普通转录内容经溢出单元（Overflow）照常被压缩。
 func TestGoalStackNotUsedForCompactionSummary(t *testing.T) {
-	record := sessionstore.SessionContextRecord{
-		GoalStack: []sessionstore.GoalFrame{{
+	record := store.SessionContextRecord{
+		GoalStack: []store.GoalFrame{{
 			GoalID: "goal-1", Title: "这是栈内目标，不得冒充压缩目标", Status: "active",
 		}},
 	}

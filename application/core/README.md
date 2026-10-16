@@ -23,7 +23,8 @@
   DS-A2A 双会话治理 + 终态 gate + 会话级第五栈持久化）、
   `agentteam/`（AgentTeam/角色会话通用装配：`TeamSpec` 工厂 + 团队库读面）。
 - 共享叶子：`internal/state`（锁 + 权威 Snapshot + 端口依赖 + 事件/审批
-  内核）、`internal/limits`（运行时上限）。
+  内核）。判据类上限（`limits` 段类型、默认值、
+  进程级快照）已于 2026-10-16 随 M2-A 迁到基座包 [`backend/limit`](../../backend/limit/README.md)。
 
 域包依赖 `state.Core` 与装配根注入的消费方窄接口，禁止反向依赖 core 根包；
 `service_assembler.go` 是唯一组合根。
@@ -65,7 +66,6 @@ flowchart TB
     end
 
     ST["internal/state.Core<br/>唯一共享锁 + Snapshot + Deps + Events + Approval"]
-    LIM["internal/limits"]
     PORTS["contract 端口<br/>Engine / Runtime / Plugin / Skill / Session / Workspace"]
 
     COMP --> SR
@@ -86,7 +86,6 @@ flowchart TB
     PL --> ST
     LEAF --> ST
     ST --> PORTS
-    ST --> LIM
 ```
 
 ## 用例图
@@ -190,7 +189,6 @@ flowchart LR
 <!-- govern/ 已于 2026-10-03（阶段三 W3）随 goal 席位轮转退场删除 -->
 | [resume/](resume/README.md) | 未完成工作恢复模板（七步顺序 + 幂等键 + 可审计 Report） |
 | [internal/state/](internal/state/README.md) | 共享状态内核（锁 + Snapshot + 端口依赖） |
-| [internal/limits/](internal/limits/README.md) | 运行时上限（seele.yaml limits 段） |
 
 ## 权威状态与生命周期
 
@@ -276,7 +274,7 @@ subagent、request-scoped authority lease 或向普通用户输入注入 hidden 
 
 ## 依赖边界
 
-允许依赖 Application 子包、`seelebridge` 的稳定桥接 DTO 和 `sessionstore.Config`。禁止依赖 `gui`、`tui`、根目录 main package 或具体数据库实现。
+允许依赖 Application 子包、`seelebridge` 的稳定桥接 DTO 和 `store.Config`。禁止依赖 `gui`、`tui`、根目录 main package 或具体数据库实现。
 
 ## Review 指南
 
@@ -360,7 +358,7 @@ sequenceDiagram
     participant U as 用户
     participant S as core.Service
     participant SR as session_runtime
-    participant ST as sessionstore.Router
+    participant ST as store.Router
     participant NEW as 子会话
 
     U->>S: ForkSessionLatest(父会话)
@@ -438,12 +436,12 @@ Provider history is an execution cache, not the user-visible source of truth. `p
 （`CreateRoleSession` / `AppendRoleDraft` / `SyncRoleDraft` / `RoleSnapshot` /
 `AssembleRoleWire` / `SetLifecycleOrder` / `schedule.*`）透传给 headless。
 Application 只做窄转发，不实现 sequencer、floor、draft 删除或 compact_ref
-校验；这些语义仍在 `sessionstore`。
+校验；这些语义仍在 `store`。
 
-端口形状在 S27 之后来自 `application/contract`：`contract.RoleSessionPort`
+端口形状在 S27 之后来自 `contract`：`contract.RoleSessionPort`
 与 `contract.SchedulePort`（可选能力，装配期用类型断言发现），签名只用
-`application/contract/dto` 纯 DTO，本包与 `gui/headless` 不再出现
-`sessionstore.*` 类型；DTO ↔ 存储映射是 `internal/adapters.SessionPort` 的
+`contract/dto` 纯 DTO，本包与 `gui/headless` 不再出现
+`store.*` 类型；DTO ↔ 存储映射是 `internal/adapters.SessionPort` 的
 职责。边界回归见 `e2e/dto_boundary_test.go`。
 
 `task_context` 的消息生产者给 `user` 行写 `role_name=user`、给

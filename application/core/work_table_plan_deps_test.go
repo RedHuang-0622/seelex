@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // plan 行的工作表格「依赖」列：plan_load 产出的是**平铺节点表 + 边集**

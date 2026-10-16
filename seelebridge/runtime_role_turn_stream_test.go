@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // runtime_role_turn_stream_test.go — 钉住「b 回合的进行中输出不再被丢掉」。

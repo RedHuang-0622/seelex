@@ -203,7 +203,7 @@ V 模型本身偏顺序（左→右做完再做右），而 §2.3 结论 2 说�
 - 座位派生与治理循环：`application/core/goal_coordinator.go`（`seatPlan.seats` / `newGovernor` / `AdvanceAfterChat` / `roleTurnSeat` / `RoleTurnRunner`）
 - 团队 preset 与顺序事实：`application/core/agentteam/{presets,spec,registry,runtime,scheduler}.go`
 - 员工执行面接线：`application/core/role_turn.go`、`application/core/service_assembler.go:119-122`、`application/core/agentteam_runtime.go`（`teamRoleSeatsFor`）
-- 员工回合执行体：`seelebridge/runtime_role_turn.go`（`RunRoleTurn`）；契约 `application/contract/ports.go`（`RoleTurnPort` / `Dependencies.RoleTurn`）
+- 员工回合执行体：`seelebridge/runtime_role_turn.go`（`RunRoleTurn`）；契约 `contract/ports.go`（`RoleTurnPort` / `Dependencies.RoleTurn`）
 - 评审者回合与只读工具：`seelebridge/runtime_goal_tl.go`
 - goal 方法论：`plugins/default/goal/SKILL.md`
 

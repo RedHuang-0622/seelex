@@ -10,7 +10,7 @@ import (
 
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
-	"github.com/RedHuang-0622/seelex/application/contract"
+	"github.com/RedHuang-0622/seelex/contract"
 )
 
 // 本文件钉住「回合进行中写历史」的正面事实与下界（Seele 方案 B 之后的行为）：

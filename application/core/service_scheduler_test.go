@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 )
 
@@ -19,7 +19,7 @@ import (
 //  3. 提示词落在**新会话**的可见投影里，当前视图会话一条都不多。
 //
 // 会话记录本身仍走会话自己的存储/读写纪律（这里只验"落在哪个会话、绑哪个
-// 项目"这一层，落盘口径由 sessionstore 的用例钉住）。
+// 项目"这一层，落盘口径由 store 的用例钉住）。
 func TestStartScheduledSessionCreatesNewSessionInWorkspace(t *testing.T) {
 	root := t.TempDir()
 	engine := &fakeEngine{chunks: []string{"收到"}}

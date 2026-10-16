@@ -26,8 +26,9 @@ import (
 	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/types"
 
+	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/seelexctx/tokens"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // CompactContextMarker 标记压缩帧块（窗口外压缩产物，进入 working history；
@@ -49,7 +50,8 @@ const ActivePlanContextMarker = "<!-- seelex:active-plan:v1 -->"
 // context_safety_reserve_divisor），与 application 层 newContextBudget 读同一份
 // 配置：同一个"软阈值"在装配层与回合内控制器只能有一个来源，否则用户调低
 // context_soft_percent 后，回合内仍按出厂比例压（报表说 60% 已压过、控制器还
-// 在 95% 等）。默认 8/95/98/80 由 Limits.WithDefaults 给出（见 limits.go）。
+// 在 95% 等）。默认 8/95/98/80 由 limit.Limits.WithDefaults 给出
+// （见 backend/limit/limits.go）。
 type ContextWindowPolicy struct {
 	Window         int // provider 上下文窗口
 	OutputReserve  int // 单次输出预留
@@ -66,7 +68,7 @@ type ContextWindowPolicy struct {
 // NewContextWindowPolicy 按 window/outputReserve + limits 生效值构造阈值策略
 // （与 newContextBudget 同款计算：safety = window/context_safety_reserve_divisor）。
 // limits 传零值不构成"阈值 0"：先经 WithDefaults 归一，未配置字段回退默认比例。
-func NewContextWindowPolicy(window, outputReserve int, limits Limits) ContextWindowPolicy {
+func NewContextWindowPolicy(window, outputReserve int, limits limit.Limits) ContextWindowPolicy {
 	settings := limits.WithDefaults()
 	safetyReserve := window / settings.ContextSafetyReserveDivisor
 	if safetyReserve < 0 {
@@ -143,30 +145,30 @@ type BudgetProvider interface {
 	MaxOutputTokens() int
 }
 
-// CompactStackStore 会话级压缩栈读写（sessionstore.SessionContextStore 满足；
+// CompactStackStore 会话级压缩栈读写（store.SessionContextStore 满足；
 // nil → 控制器内存态，活跃会话内仍可审计）。
 type CompactStackStore interface {
-	Snapshot() sessionstore.SessionContextRecord
-	PushCompact(frame sessionstore.CompactFrame) error
+	Snapshot() store.SessionContextRecord
+	PushCompact(frame store.CompactFrame) error
 }
 
 // memoryCompactStack 是 CompactStackStore 的内存态实现。
 type memoryCompactStack struct {
 	mu     sync.Mutex
-	frames []sessionstore.CompactFrame
+	frames []store.CompactFrame
 }
 
 // Snapshot 实现 CompactStackStore。
-func (m *memoryCompactStack) Snapshot() sessionstore.SessionContextRecord {
+func (m *memoryCompactStack) Snapshot() store.SessionContextRecord {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return sessionstore.SessionContextRecord{
-		CompactStack: append([]sessionstore.CompactFrame(nil), m.frames...),
+	return store.SessionContextRecord{
+		CompactStack: append([]store.CompactFrame(nil), m.frames...),
 	}
 }
 
 // PushCompact 实现 CompactStackStore。
-func (m *memoryCompactStack) PushCompact(frame sessionstore.CompactFrame) error {
+func (m *memoryCompactStack) PushCompact(frame store.CompactFrame) error {
 	if m == nil {
 		return fmt.Errorf("seelexctx: compact stack is unavailable")
 	}
@@ -256,7 +258,7 @@ func (c *seelexContextController) maxToolResultChars() int {
 	if c.opts.MaxToolResultChars > 0 {
 		return c.opts.MaxToolResultChars
 	}
-	return DefaultToolResultLimit()
+	return limit.DefaultToolResultLimit()
 }
 
 // renderUnitLine 渲染一个单元的单行摘要（用户输入前 80 字符 + 工具名）。
@@ -319,12 +321,12 @@ func renderUnitLine(unit []types.Message) string {
 }
 
 // overflowEvidence 从溢出轮次中的工具结果与任务栈证据提取证据引用。
-func overflowEvidence(overflow []historyUnit, record sessionstore.SessionContextRecord) []sessionstore.EvidenceRef {
-	var evidence []sessionstore.EvidenceRef
+func overflowEvidence(overflow []historyUnit, record store.SessionContextRecord) []store.EvidenceRef {
+	var evidence []store.EvidenceRef
 	for _, unit := range overflow {
 		for _, message := range unit.messages {
 			if message.Role == "tool" && message.ToolCallID != "" {
-				evidence = append(evidence, sessionstore.EvidenceRef{Ref: "result:" + message.ToolCallID})
+				evidence = append(evidence, store.EvidenceRef{Ref: "result:" + message.ToolCallID})
 			}
 		}
 	}

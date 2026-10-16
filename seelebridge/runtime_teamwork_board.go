@@ -4,7 +4,7 @@ package seelebridge
 //
 // 生态位（契约 docs/arch/team-board-gui-tui-contract.md §3/§4）：
 //
-//   - 事实三份：计划与审计落 sessionstore 的 moduleTeamwork（文件），作业行活在
+//   - 事实三份：计划与审计落 store 的 moduleTeamwork（文件），作业行活在
 //     jobs.Manager 的内存表里（jobs I-4：句柄只在内存，进程重启即作废）。
 //   - 本文件只做**搬运**：拓扑、阶段状态折算、层号全部由渲染件
 //     （gui/frontend/dist/team-board-view.js）的纯函数做——投影层再算一遍就是第二份事实。
@@ -22,9 +22,9 @@ import (
 
 	"github.com/RedHuang-0622/Seele/jobs"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // teamworkBoardEventLimit 是审计投影的条数上限：审计是**只追加**的流水，
@@ -45,9 +45,9 @@ func teamworkSubjectPrefix() string { return teamwork.SubjectForRole("") }
 // 不缓存"没有计划"就等于每次快照都去 stat 一个不存在的文件。失效同样由
 // invalidateTeamworkBoard 负责，因此 team_plan 之后的第一次采集立刻能看到新计划。
 type teamworkBoardSnapshotCache struct {
-	plan        sessionstore.TeamworkPlan
-	events      []sessionstore.TeamworkEvent
-	bindings    []sessionstore.TeamworkBinding
+	plan        store.TeamworkPlan
+	events      []store.TeamworkEvent
+	bindings    []store.TeamworkBinding
 	planMissing bool
 	// archive 是活体给不出看板时的**存档兜底**（§6 重启恢复）：nil = 无可用存档
 	// （没写过 / state=closed / 快照坏了）。它随同一份缓存条目一起取，而不是每次
@@ -64,7 +64,7 @@ type teamworkBoardSnapshotCache struct {
 // 和活体下发的不一样。装配读数（assemblies）因此是**参数**而不是在这里现算：算它需要
 // Runtime 的插件域与工具面，自由函数手里没有；三个调用方各自把 r.assemblyViews 的结果
 // 传进来，走的是同一条判据。
-func buildTeamworkBoardView(plan sessionstore.TeamworkPlan, events []sessionstore.TeamworkEvent, bindings []sessionstore.TeamworkBinding, records []jobs.Record, maxMembers int, assemblies []dto.PluginAssemblyView) dto.TeamworkBoardView {
+func buildTeamworkBoardView(plan store.TeamworkPlan, events []store.TeamworkEvent, bindings []store.TeamworkBinding, records []jobs.Record, maxMembers int, assemblies []dto.PluginAssemblyView) dto.TeamworkBoardView {
 	view := dto.TeamworkBoardView{
 		TeamID:     plan.TeamID,
 		Version:    plan.Version,
@@ -89,7 +89,7 @@ func buildTeamworkBoardView(plan sessionstore.TeamworkPlan, events []sessionstor
 // 读数走**已经存在的那一条判据**（r.assemblyViews → pluginFaceJudgement）：看板不另写
 // 一份"收窄算法"——另写一份就是第二个事实源，回执与看板迟早对同一个人给出两个工具面。
 // nil Runtime（未装配桥）→ nil：成员行的 Assembly 留 nil，前端据此不显示装配格。
-func (r *Runtime) teamBoardAssemblies(plan sessionstore.TeamworkPlan) []dto.PluginAssemblyView {
+func (r *Runtime) teamBoardAssemblies(plan store.TeamworkPlan) []dto.PluginAssemblyView {
 	if r == nil || len(plan.Members) == 0 {
 		return nil
 	}
@@ -128,8 +128,8 @@ func (r *Runtime) TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoardView
 		// 读失败**不上抛**：快照路径上的错误没有消费者（面板该做的是退场，
 		// 而不是把存储错误渗进会话快照）。缺计划与读失败在这里同解，并**进负缓存**。
 		missing := err != nil
-		var events []sessionstore.TeamworkEvent
-		var bindings []sessionstore.TeamworkBinding
+		var events []store.TeamworkEvent
+		var bindings []store.TeamworkBinding
 		if !missing {
 			events, err = backend.Store.ReadEvents(context.Background(), key)
 			if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -150,7 +150,7 @@ func (r *Runtime) TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoardView
 		}
 		r.teamworkMu.Lock()
 		if r.teamworkBoardCache == nil {
-			r.teamworkBoardCache = map[sessionstore.Key]teamworkBoardSnapshotCache{}
+			r.teamworkBoardCache = map[store.Key]teamworkBoardSnapshotCache{}
 		}
 		r.teamworkBoardCache[key] = cached
 		r.teamworkMu.Unlock()
@@ -164,7 +164,7 @@ func (r *Runtime) TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoardView
 	// 域内 closed 事实归计划（plan.State），它管的是"还在不在册"；投影这一侧只回答
 	// "有没有在册编排可看"。存档侧本来就是同一口径（readTeamBoardArchive 只恢复 active），
 	// 这里改完，活体与存档不再自相矛盾。
-	if cached.plan.State.State == sessionstore.TeamworkStateClosed {
+	if cached.plan.State.State == store.TeamworkStateClosed {
 		return nil
 	}
 
@@ -194,7 +194,7 @@ func (r *Runtime) TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoardView
 //
 // 判据 = 有里程碑（阶段口径 2026-10-04 整条退场：计划里**没有** stages 这个概念了）。
 // 里程碑是计划的最小形状（校验层也要求至少一份），所以"没有里程碑"就等于"没有计划"。
-func teamworkPlanHasOrchestration(plan sessionstore.TeamworkPlan) bool {
+func teamworkPlanHasOrchestration(plan store.TeamworkPlan) bool {
 	return len(plan.Milestones) > 0
 }
 
@@ -223,7 +223,7 @@ func (r *Runtime) invalidateTeamworkBoard() {
 // 生效面取调用方算好的读数（r.teamBoardAssemblies → 同一条 pluginFaceJudgement 判据）。
 // 两格都**拷贝**而不是共享底层数组：计划来自看板缓存（同一份计划会被多个快照与并发读者
 // 共享），让 DTO 指回缓存就是给"前端读到一半的写"留口子。
-func teamworkMemberViews(plan sessionstore.TeamworkPlan, events []sessionstore.TeamworkEvent, records []jobs.Record, assemblies []dto.PluginAssemblyView) []dto.TeamworkMemberView {
+func teamworkMemberViews(plan store.TeamworkPlan, events []store.TeamworkEvent, records []jobs.Record, assemblies []dto.PluginAssemblyView) []dto.TeamworkMemberView {
 	if len(plan.Members) == 0 {
 		return nil
 	}
@@ -257,14 +257,14 @@ func teamworkMemberViews(plan sessionstore.TeamworkPlan, events []sessionstore.T
 				if item.Role != member.Role {
 					continue
 				}
-				if item.StatusOrPending() == sessionstore.TeamworkItemDone {
+				if item.StatusOrPending() == store.TeamworkItemDone {
 					continue // 已销项：不占队列
 				}
 				view.Queue = append(view.Queue, item.Name)
 			}
 		}
 		for _, event := range events {
-			if event.Kind != sessionstore.TeamworkEventMessage || event.Role != member.Role {
+			if event.Kind != store.TeamworkEventMessage || event.Role != member.Role {
 				continue
 			}
 			view.Messages = append(view.Messages, dto.TeamworkTeammateMessageView{
@@ -286,13 +286,13 @@ func teamworkMemberViews(plan sessionstore.TeamworkPlan, events []sessionstore.T
 // 为什么没有 done / review：这个字段回答的是"**这个人此刻在不在干活**"。一件事做完没
 // 做完是工作项自己的 status 列，两处都写"完成"就是把同一个事实存两遍——而 teammate 的
 // 状态一旦出现 done，看板上就会出现"人 done 了但队列里还有活"这种自相矛盾的一帧。
-func teamworkMemberStatus(plan sessionstore.TeamworkPlan, member sessionstore.TeamworkMember) string {
+func teamworkMemberStatus(plan store.TeamworkPlan, member store.TeamworkMember) string {
 	for _, milestone := range plan.Milestones {
 		for _, item := range milestone.Items {
 			if item.Role != member.Role {
 				continue
 			}
-			if item.StatusOrPending() == sessionstore.TeamworkItemRunning {
+			if item.StatusOrPending() == store.TeamworkItemRunning {
 				return teamworkMemberRunning
 			}
 		}
@@ -312,7 +312,7 @@ const (
 // 为什么不能拿 RoleSessionID 顶替（2026-10-04 用户口径：看板点开的是"历史会话"而不是
 // 当前的 teammate 的会话）：RoleSessionID 是**员工的长期会话**（跨工作项、跨轮次），
 // 而"一 Work Item 一个 Session"的隔离意味着每一件事都有自己的会话号——面板要的是后者。
-func teamworkMemberCurrent(plan sessionstore.TeamworkPlan, role string) (sessionID, workItem string) {
+func teamworkMemberCurrent(plan store.TeamworkPlan, role string) (sessionID, workItem string) {
 	var runningSession, runningItem string
 	var reviewSession, reviewItem string
 	var lastSession, lastItem string
@@ -322,10 +322,10 @@ func teamworkMemberCurrent(plan sessionstore.TeamworkPlan, role string) (session
 				continue
 			}
 			switch item.StatusOrPending() {
-			case sessionstore.TeamworkItemRunning:
+			case store.TeamworkItemRunning:
 				// 在跑的那件事优先（同一个人同时只跑一件事：派发按工作项去重）。
 				runningSession, runningItem = item.SessionID, item.ID
-			case sessionstore.TeamworkItemReview:
+			case store.TeamworkItemReview:
 				// 等验收的次之：结论已经有了，但会话还是"这件事的会话"。
 				if reviewSession == "" {
 					reviewSession, reviewItem = item.SessionID, item.ID
@@ -351,8 +351,8 @@ func teamworkMemberCurrent(plan sessionstore.TeamworkPlan, role string) (session
 // Live / Interrupted 都是**读出来的事实**：Live = 这件事有一份未释放的工作区绑定；
 // Interrupted = 状态说在跑、而本进程作业表里查不到它的句柄（jobs I-4 的显式化——
 // 进程重启后句柄必然作废，这不是错误，是"可以重派"的信号）。
-func teamworkWorkItemViews(plan sessionstore.TeamworkPlan, bindings []sessionstore.TeamworkBinding, records []jobs.Record) []dto.TeamworkWorkItemView {
-	liveBindings := sessionstore.TeamworkBindings(bindings)
+func teamworkWorkItemViews(plan store.TeamworkPlan, bindings []store.TeamworkBinding, records []jobs.Record) []dto.TeamworkWorkItemView {
+	liveBindings := store.TeamworkBindings(bindings)
 	readings := make(map[string]teamwork.JobReading, len(records))
 	for _, record := range records {
 		readings[string(record.Handle)] = teamwork.JobReading{Alive: true, Running: record.Running()}
@@ -384,7 +384,7 @@ func teamworkWorkItemViews(plan sessionstore.TeamworkPlan, bindings []sessionsto
 }
 
 // teamworkMilestoneViews 搬运里程碑（after 是判据边，原样搬；status 空 = pending）。
-func teamworkMilestoneViews(milestones []sessionstore.TeamworkMilestone) []dto.TeamworkMilestoneView {
+func teamworkMilestoneViews(milestones []store.TeamworkMilestone) []dto.TeamworkMilestoneView {
 	if len(milestones) == 0 {
 		return nil
 	}
@@ -434,7 +434,7 @@ func roleFromSubject(subject string) string {
 }
 
 // teamworkEventViews 搬运审计流水；只取**最近** teamworkBoardEventLimit 条（保持文件顺序 = 发生顺序）。
-func teamworkEventViews(events []sessionstore.TeamworkEvent) []dto.TeamworkEventView {
+func teamworkEventViews(events []store.TeamworkEvent) []dto.TeamworkEventView {
 	if len(events) == 0 {
 		return nil
 	}
@@ -463,7 +463,7 @@ func teamworkEventViews(events []sessionstore.TeamworkEvent) []dto.TeamworkEvent
 //
 // 它只是一个提示位：不改变任何判定，也不阻止渲染——看板该显示的是事实，
 // 而不是"因为可能过期就不显示"。
-func teamworkProjectionStale(state sessionstore.TeamworkState, views []dto.TeamworkJobView) bool {
+func teamworkProjectionStale(state store.TeamworkState, views []dto.TeamworkJobView) bool {
 	if len(state.Jobs) == 0 {
 		return false
 	}

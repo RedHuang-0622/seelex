@@ -5,11 +5,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/core/internal/state"
 	"github.com/RedHuang-0622/seelex/application/event"
 	"github.com/RedHuang-0622/seelex/application/model"
-	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract"
 )
 
 const sessionCatalogShutdownWait = 100 * time.Millisecond
@@ -29,7 +29,7 @@ type Coordinator struct {
 	tailHistory          func([]model.TranscriptEvent, int, int) []contract.EngineMessage
 	oversizedWarning     func(name, resultRef string) string
 	contentWarning       func(resultRef string) string
-	limits               func() seelexctx.Limits
+	limits               func() limit.Limits
 	displayUserInput     func(string) string
 
 	sessionRuntimeState

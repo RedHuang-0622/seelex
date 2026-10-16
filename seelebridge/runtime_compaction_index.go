@@ -9,7 +9,7 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/seelexctx"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // 装配层压缩（application/core/context_runtime，回合开始前那条路径）把帧推进会话
@@ -26,7 +26,7 @@ import (
 // **栈帧**这一半——栈帧是权威，回读正文是它的投影。
 
 // CompactionFrameRequest 是装配层压缩推帧的入参（wire 中立类型已由 adapter 转换完
-// 毕，本层只见 types.Message，不反向依赖 application/contract）。
+// 毕，本层只见 types.Message，不反向依赖 contract）。
 type CompactionFrameRequest struct {
 	// Overflow 是被折出保留窗口的完整协议单元原文。
 	Overflow []types.Message
@@ -71,7 +71,7 @@ type CompactionFrameReceipt struct {
 // frameSummaryNote 从帧证据里读出降级原因（ref 前缀 `compact-local:` 的那条，由
 // seelexctx 的 chapter2Node 写入）。没有这条证据 → 返回空串：不编原因，
 // 也不把"没有解释"说成"没有降级"。
-func frameSummaryNote(frame sessionstore.CompactFrame) string {
+func frameSummaryNote(frame store.CompactFrame) string {
 	_, note := frameLocalDegrade(frame)
 	return note
 }
@@ -79,7 +79,7 @@ func frameSummaryNote(frame sessionstore.CompactFrame) string {
 // frameLocalDegrade 从帧证据里读出降级码与原因（ref `compact-local:<code>` 的
 // 那条，由 seelexctx 的 chapter2Node 写入）。没有这条证据 → 两个返回值都为空：
 // replay 成功的帧不留降级证据（只记降级，不记正常）。
-func frameLocalDegrade(frame sessionstore.CompactFrame) (code, note string) {
+func frameLocalDegrade(frame store.CompactFrame) (code, note string) {
 	for _, evidence := range frame.Evidence {
 		if suffix, ok := strings.CutPrefix(evidence.Ref, seelexctx.LocalCompactEvidenceRefPrefix); ok {
 			return suffix, strings.TrimSpace(evidence.Summary)
@@ -129,12 +129,12 @@ func (r *Runtime) ReadbackCompactionSummary(
 	if r == nil {
 		return CompactionFrameReceipt{}, errors.New("compaction index: runtime is unavailable")
 	}
-	store := r.sessionContextStore()
-	if store == nil {
+	st := r.sessionContextStore()
+	if st == nil {
 		return CompactionFrameReceipt{}, errors.New("compaction index: 会话上下文存储未绑定（压缩栈不可用）")
 	}
 	frame, err := r.MainCompactionDAG().Execute(ctx, seelexctx.CompactionInput{
-		Record:             store.Snapshot(),
+		Record:             st.Snapshot(),
 		Messages:           request.Overflow,
 		UnitCount:          request.UnitCount,
 		History:            request.ReplayHistory,
@@ -184,12 +184,12 @@ func (r *Runtime) PushCompactionFrame(
 	if r == nil {
 		return CompactionFrameReceipt{}, errors.New("compaction index: runtime is unavailable")
 	}
-	store := r.sessionContextStore()
-	if store == nil {
+	st := r.sessionContextStore()
+	if st == nil {
 		return CompactionFrameReceipt{}, errors.New("compaction index: 会话上下文存储未绑定（压缩栈不可用）")
 	}
 	frame, err := r.MainCompactionDAG().Execute(ctx, seelexctx.CompactionInput{
-		Record:    store.Snapshot(),
+		Record:    st.Snapshot(),
 		Messages:  request.Overflow,
 		UnitCount: request.UnitCount,
 		History:   request.ReplayHistory,
@@ -233,13 +233,13 @@ func (r *Runtime) PushCompactionFrame(
 		if archiveErr != nil {
 			return CompactionFrameReceipt{}, fmt.Errorf("compaction index: archive turns: %w", archiveErr)
 		}
-		frame.Evidence = append(frame.Evidence, sessionstore.EvidenceRef{
+		frame.Evidence = append(frame.Evidence, store.EvidenceRef{
 			Ref:     ref,
 			Summary: "assembly-compacted turns original (read_compressed_turn)",
 		})
 		frame.Summary += fmt.Sprintf("\n已压缩轮次原文可经 read_compressed_turn(segment_id=%s) 读回", frame.SegmentID)
 	}
-	if err := store.PushCompact(frame); err != nil {
+	if err := st.PushCompact(frame); err != nil {
 		return CompactionFrameReceipt{}, fmt.Errorf("compaction index: push frame: %w", err)
 	}
 	_ = sessionID // 会话归属由绑定的 store 决定；入参只用于调用方日志与将来的多栈路由

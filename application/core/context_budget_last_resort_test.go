@@ -6,8 +6,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
-	"github.com/RedHuang-0622/seelex/application/core/internal/limits"
-	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/backend/limit"
 )
 
 // pinMechanismCompactionRatios 把压缩阈值钉回 75/90/60：这组用例验证的是
@@ -16,15 +15,15 @@ import (
 // 95/98/80 调整不会再让机制用例随阈值漂移而红。
 func pinMechanismCompactionRatios(t *testing.T) {
 	t.Helper()
-	previous := limits.Get()
-	limits.Apply(seelexctx.Limits{
+	previous := limit.Get()
+	limit.Apply(limit.Limits{
 		ContextSafetyReserveDivisor: 8,
 		ContextSoftPercent:          75,
 		ContextHardPercent:          90,
 		ContextTargetPercent:        60,
 		ContextSingleItemPercent:    50,
 	})
-	t.Cleanup(func() { limits.Apply(previous) })
+	t.Cleanup(func() { limit.Apply(previous) })
 }
 
 // TestContextBudgetOvershootKeepsNewestSettledRound：达峰装配时单个已定稿

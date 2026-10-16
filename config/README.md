@@ -14,7 +14,7 @@
 |---|---|---|---|
 | 上下文预算 | token | 窗口：`seelex.yaml` 的 `limits.context_window`；输出预留：账号档 `max_tokens`（模型参数）；比例：`seelex.yaml` 的 `limits.context_*` | 窗口、压缩触发线、保留窗口（见 [docs/arch/context-prefix-chain.md](../docs/arch/context-prefix-chain.md) 的《压缩相关名词与取值》） |
 | 工具结果上限 | **字符数** | `seelex.yaml` 的 `limits.max_tool_result_chars`（60000） | 单条工具结果"太长"→ 归档为 `result_ref` + 省略警告，模型用 `read_tool_result` 回读 |
-| 存储侧 blob 限额 | 字符 / 字节 | `seelex.yaml` 的 `session_storage.big_tool_result_*`（60000 字符 / 16 MB / 64 MB 配额） | 文本大结果的截断、硬限报错与会话配额；**当前无生产调用方**（见 `sessionstore/storage_settings.go`） |
+| 存储侧 blob 限额 | 字符 / 字节 | `seelex.yaml` 的 `session_storage.big_tool_result_*`（60000 字符 / 16 MB / 64 MB 配额） | 文本大结果的截断、硬限报错与会话配额；**当前无生产调用方**（见 `store/storage_settings.go`） |
 
 `config/` 存放**四条彼此独立的配置链**：账号（`accounts.yaml`）、MCP 服务器清单
 （`mcp.yaml`）、搜索引擎（`search_engine.yaml`）、运行参数与权限（`seelex.yaml` /
@@ -59,14 +59,14 @@ flowchart LR
   进 `.gitignore`（含 `api_key`），不提交。
 - `*.local.yaml`：机器或开发者专用覆盖文件，同样不得发布。
 - `seele.yaml`：权限规则文件（permission.rules），`main.go` 优先读 `config/seele.yaml`，根目录版本回退兼容。
-- `seelex.yaml`：运行参数文件（window / limits），加载逻辑同上。**两个 `limits` 段只有一个家**：`window` 与 `limits`（含 `limits.session_storage`）都从 `config/seelex.yaml` 读（`core.LoadWindowConfig` 与 `seelexctx.LoadLimits` 收的是同一个路径，见 `main.go` 的 `initRuntime`）；`config/seele.yaml` 只放权限段。
+- `seelex.yaml`：运行参数文件（window / limits），加载逻辑同上。**两个 `limits` 段只有一个家**：`window` 与 `limits`（含 `limits.session_storage`）都从 `config/seelex.yaml` 读（`core.LoadWindowConfig` 与 `limit.LoadLimits` 收的是同一个路径，见 `main.go` 的 `initRuntime`）；`config/seele.yaml` 只放权限段。
 
 ## 多进程启动开关（`limits.runtime.allow_multi_process`）
 
 `config/seelex.yaml` 的 `limits.runtime.allow_multi_process` 决定进程是否同意
 **多进程**共用同一数据根，**默认 false = 单实例**：
 
-- 数据根是单进程写者（`sessionstore/data_root_lock.go` 的 `lock.owner`）。默认下
+- 数据根是单进程写者（`store/data_root_lock.go` 的 `lock.owner`）。默认下
   第二个进程启动即被拒绝：`main.go` 的 `guardMultiProcess` 给出**可读的启动期拒绝**，
   装配深处的数据根锁同样把冲突报成 `ErrDataRootLocked`。
 - 置 `true` 才放行：第二个进程不再被数据根锁拒绝（存储侧 `allow_multi_process`
@@ -74,13 +74,13 @@ flowchart LR
 - **代价**：多个进程可同时写同一数据根，失去**跨进程**写者串行化——进程内的模块锁
   不跨进程，并发写同一会话/同一模块会互相覆盖。谁保证一致性 = 使用者（典型用法是
   只读的旁路进程，或把并发写分给不同数据根）。
-- 代码零值 = 关（`seelexctx.RuntimeLimits.AllowMultiProcess` 的零值 false），与既有
+- 代码零值 = 关（`limit.RuntimeLimits.AllowMultiProcess` 的零值 false），与既有
   `async_exec` 同一套「整块缺失或显式 false 都走不允许路径、可一键回滚」的纪律；
-  两臂各有用例钉住（`seelexctx` 解析两臂 + `sessionstore` 数据根锁两臂）。
+  两臂各有用例钉住（`seelexctx` 解析两臂 + `store` 数据根锁两臂）。
   **`context_compaction_summary` 刻意不在这套纪律里**：它自 2026-10-04 起**缺省即开**
   （整块缺失、或块在但没写 `enabled` 键，都按出厂档打开；只有显式
   `enabled: false` 才关），因为关掉时帧会退化成"元数据投影"、现场极难归因。
-  钉子：`seelexctx/limits_test.go` 的 `TestLimitsCompactionSummaryDefaultsOpen`
+  钉子：`backend/limit/limits_test.go` 的 `TestLimitsCompactionSummaryDefaultsOpen`
   （缺省/显式两臂）与 `seelebridge/runtime_compaction_switch_test.go` 的
   `TestShippedCompactionSummarySwitchShipsOpen`（出厂档那一行）。
 

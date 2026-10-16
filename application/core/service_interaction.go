@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 func (service *Service) ResolveInteraction(ctx context.Context, id, optionID string) error {

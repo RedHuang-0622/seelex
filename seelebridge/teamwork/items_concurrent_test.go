@@ -25,21 +25,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
-// clonePlan 用 JSON 往返深拷贝一份计划。**这是生产持久面的语义**（sessionstore 把计划
+// clonePlan 用 JSON 往返深拷贝一份计划。**这是生产持久面的语义**（store 把计划
 // 序列化成 JSON 落盘、读回时解析），所以内存替身（teamwork_test.go 的 memoryPlanStore）
 // 也照抄：否则 ReadPlan 返回的是与 store 内部**共享底层数组**的计划，调用方对
 // `item.Status` 的原地修改会绕过 WritePlan 直接落到 store 上、并让 `Items()` 的只读扫描
 // 与写入方并发读写同一片数组——既把并发写-写冲突悄悄吸收掉（用例假绿），又是一处
 // 数据竞争（2026-10-05 复现时踩到过）。
-func clonePlan(plan sessionstore.TeamworkPlan) sessionstore.TeamworkPlan {
+func clonePlan(plan store.TeamworkPlan) store.TeamworkPlan {
 	raw, err := json.Marshal(plan)
 	if err != nil {
 		panic("memoryPlanStore: 计划无法序列化: " + err.Error())
 	}
-	var out sessionstore.TeamworkPlan
+	var out store.TeamworkPlan
 	if err := json.Unmarshal(raw, &out); err != nil {
 		panic("memoryPlanStore: 计划无法反序列化: " + err.Error())
 	}
@@ -172,7 +172,7 @@ func TestConcurrentSettleDoesNotLoseUpdates(t *testing.T) {
 	close(block)
 
 	for i := 0; i < n; i++ {
-		if status := itemState(t, fixture, itemID(i)).StatusOrPending(); status != sessionstore.TeamworkItemReview {
+		if status := itemState(t, fixture, itemID(i)).StatusOrPending(); status != store.TeamworkItemReview {
 			t.Fatalf("并发 settle 丢失更新：%s 状态 = %s，want review", itemID(i), status)
 		}
 	}
@@ -242,15 +242,15 @@ func TestConcurrentSettleAndAcceptDoNotResurrectDone(t *testing.T) {
 	close(block)
 
 	for i := 2; i < n; i++ {
-		if status := itemState(t, fixture, itemID(i)).StatusOrPending(); status != sessionstore.TeamworkItemDone {
+		if status := itemState(t, fixture, itemID(i)).StatusOrPending(); status != store.TeamworkItemDone {
 			t.Fatalf("已 done 被并发 settle 的陈旧快照覆盖：%s 状态 = %s，want done", itemID(i), status)
 		}
 	}
 	for i := 0; i < 2; i++ {
-		assertItemStatus(t, fixture, itemID(i), sessionstore.TeamworkItemReview)
+		assertItemStatus(t, fixture, itemID(i), store.TeamworkItemReview)
 	}
 	for i := 0; i < n; i++ {
-		if status := itemState(t, fixture, itemID(i)).StatusOrPending(); status == sessionstore.TeamworkItemRunning {
+		if status := itemState(t, fixture, itemID(i)).StatusOrPending(); status == store.TeamworkItemRunning {
 			t.Fatalf("收口风暴之后仍有工作项停在 running：%s（settle 与 accept 混跑丢了更新）", itemID(i))
 		}
 	}

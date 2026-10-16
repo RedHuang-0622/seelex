@@ -2,7 +2,7 @@ package core
 
 // project_board.go — 项目看板的**投影装配面**（M2：映射 + 同步器 + 只读取数口）。
 //
-// 口径（与 sessionstore/project_board.go 的存储面同一份契约，写在这里防误读）：
+// 口径（与 store/project_board.go 的存储面同一份契约，写在这里防误读）：
 //
 //  1. 本文件**不产出任何判定**（I3）：只把活体投影的字段搬到投影行里（"零判定"）。
 //     状态/依赖/收口一律**原样搬运**；域内判定照旧读 task 注册表、plan、teamwork 事实。
@@ -29,14 +29,14 @@ package core
 // 未新写第二份状态判定（"交付列复用清单"，一句话：本文件里没有任何一处是在**解释**状态）：
 //   buildWorkTable            application/core/work_table.go:30   活体 work 行（唯一实现）
 //   taskRecordsForSession     application/core/project_board.go   按会话取 task 注册表快照（与打点块同源）
-//   TeamworkPlan.Milestones   sessionstore/teamwork.go:98         里程碑与工作项的唯一事实源
-//   TeamworkState.Milestones  sessionstore/teamwork.go:151        里程碑运行态（优先读法）
-//   TeamworkState.State       sessionstore/teamwork.go:167        整队收口（空 = 未收口）
+//   TeamworkPlan.Milestones   store/teamwork.go:98         里程碑与工作项的唯一事实源
+//   TeamworkState.Milestones  store/teamwork.go:151        里程碑运行态（优先读法）
+//   TeamworkState.State       store/teamwork.go:167        整队收口（空 = 未收口）
 //   WorkItem                  application/model/state.go:612      工作表格行（字段映射的输入）
 //
 // 本项**没有**第二份判定的地方（逐条对应）：无 status 归一/翻译（原样搬运，空串不补值）；
 // 无依赖推导（merger/planDependencies 那套留在活体投影里）；无收口判定（只与
-// sessionstore.TeamworkStateClosed 这一个常量比对）；无会话归属判定（沿用行自带的
+// store.TeamworkStateClosed 这一个常量比对）；无会话归属判定（沿用行自带的
 // SessionID）；无"计划是否算有编排"这类内容判定（teamworkPlanHasOrchestration 是看板读侧的事）。
 
 import (
@@ -49,8 +49,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // ---------------------------------------------------------------------------
@@ -95,14 +95,14 @@ var projectBoardWorkKindProjected = map[string]bool{
 // 而里程碑 id 与工作项 id 是两套命名空间（ValidateTeamworkPlan 不查它们互不相同），
 // 前缀是"同一条 key 不会跨 kind 撞车"的唯一保证。
 func BuildProjectBoardRows(
-	scope sessionstore.ProjectBoardScope,
+	scope store.ProjectBoardScope,
 	seq uint64,
 	at int64,
 	workItems []WorkItem,
-	teamPlan *sessionstore.TeamworkPlan,
-	teamState *sessionstore.TeamworkState,
-) []sessionstore.ProjectBoardRow {
-	rows := make([]sessionstore.ProjectBoardRow, 0, len(workItems)+8)
+	teamPlan *store.TeamworkPlan,
+	teamState *store.TeamworkState,
+) []store.ProjectBoardRow {
+	rows := make([]store.ProjectBoardRow, 0, len(workItems)+8)
 	for _, item := range workItems {
 		if !projectBoardWorkKindProjected[strings.TrimSpace(item.Kind)] {
 			continue
@@ -112,7 +112,7 @@ func BuildProjectBoardRows(
 			continue // 没有身份的行上不了板（折叠读也按 key 去重，空 key 无意义）
 		}
 		rows = append(rows, projectBoardRow(scope, seq, at,
-			sessionstore.ProjectBoardKindWork, "work:"+id, projectBoardWorkPayload(item)))
+			store.ProjectBoardKindWork, "work:"+id, projectBoardWorkPayload(item)))
 	}
 	if teamPlan == nil {
 		return rows
@@ -124,7 +124,7 @@ func BuildProjectBoardRows(
 			continue
 		}
 		rows = append(rows, projectBoardRow(scope, seq, at,
-			sessionstore.ProjectBoardKindMilestone, "milestone:"+milestoneID,
+			store.ProjectBoardKindMilestone, "milestone:"+milestoneID,
 			projectBoardMilestonePayload(milestone, state)))
 		for _, item := range milestone.Items {
 			itemID := strings.TrimSpace(item.ID)
@@ -132,7 +132,7 @@ func BuildProjectBoardRows(
 				continue
 			}
 			rows = append(rows, projectBoardRow(scope, seq, at,
-				sessionstore.ProjectBoardKindMilestoneItem, "milestone_item:"+itemID,
+				store.ProjectBoardKindMilestoneItem, "milestone_item:"+itemID,
 				projectBoardMilestoneItemPayload(milestoneID, item)))
 		}
 	}
@@ -141,14 +141,14 @@ func BuildProjectBoardRows(
 
 // projectBoardRow 组装一行信封（信封字段只有这里一处写）。
 func projectBoardRow(
-	scope sessionstore.ProjectBoardScope,
+	scope store.ProjectBoardScope,
 	seq uint64,
 	at int64,
 	kind, key string,
 	payload map[string]any,
-) sessionstore.ProjectBoardRow {
-	return sessionstore.ProjectBoardRow{
-		Schema:  sessionstore.ProjectBoardSchema,
+) store.ProjectBoardRow {
+	return store.ProjectBoardRow{
+		Schema:  store.ProjectBoardSchema,
 		Kind:    kind,
 		Key:     key,
 		Seq:     seq,
@@ -196,7 +196,7 @@ func projectBoardWorkPayload(item WorkItem) map[string]any {
 // 整队收口写在里程碑行上（载荷 team_state / team_closed）：它是"这一板还在不在册"的唯一读法，
 // 而里程碑行是**团队块**的锚（work 行是"活"，里程碑行是"编排"）。没有里程碑时无从表达——
 // 没有编排就没有"收口"这一问（不是漏读）。
-func projectBoardMilestonePayload(milestone sessionstore.TeamworkMilestone, state sessionstore.TeamworkState) map[string]any {
+func projectBoardMilestonePayload(milestone store.TeamworkMilestone, state store.TeamworkState) map[string]any {
 	payload := map[string]any{"id": strings.TrimSpace(milestone.ID)}
 	projectBoardPutText(payload, "name", milestone.Name)
 	projectBoardPutText(payload, "status", projectBoardMilestoneStatus(milestone, state))
@@ -207,7 +207,7 @@ func projectBoardMilestonePayload(milestone sessionstore.TeamworkMilestone, stat
 	if len(milestone.Required) > 0 {
 		payload["required"] = append([]string(nil), milestone.Required...)
 	}
-	payload["team_closed"] = state.State == sessionstore.TeamworkStateClosed
+	payload["team_closed"] = state.State == store.TeamworkStateClosed
 	projectBoardPutText(payload, "team_state", state.State)
 	return payload
 }
@@ -215,8 +215,8 @@ func projectBoardMilestonePayload(milestone sessionstore.TeamworkMilestone, stat
 // projectBoardMilestoneStatus 是里程碑状态的**唯一读法**：运行态优先、声明态兜底。
 //
 // 空串**原样返回**（不补 "pending"）：`空 = pending` 是存储层的约定
-// （sessionstore/teamwork.go 的常量注释），补值就是把同一条约定写成第二份判据。
-func projectBoardMilestoneStatus(milestone sessionstore.TeamworkMilestone, state sessionstore.TeamworkState) string {
+// （store/teamwork.go 的常量注释），补值就是把同一条约定写成第二份判据。
+func projectBoardMilestoneStatus(milestone store.TeamworkMilestone, state store.TeamworkState) string {
 	if runtime := strings.TrimSpace(state.Milestones[strings.TrimSpace(milestone.ID)]); runtime != "" {
 		return runtime
 	}
@@ -227,7 +227,7 @@ func projectBoardMilestoneStatus(milestone sessionstore.TeamworkMilestone, state
 //
 // milestone 取**父节点 id**：归属就是 plan 的结构，而声明的 item.Milestone 在
 // ValidateTeamworkPlan 里必须与父节点一致（不一致整份计划被拒），读侧不再二次判定。
-func projectBoardMilestoneItemPayload(milestoneID string, item sessionstore.TeamworkWorkItem) map[string]any {
+func projectBoardMilestoneItemPayload(milestoneID string, item store.TeamworkWorkItem) map[string]any {
 	payload := map[string]any{
 		"id":        strings.TrimSpace(item.ID),
 		"milestone": milestoneID,
@@ -254,16 +254,16 @@ func projectBoardMilestoneItemPayload(milestoneID string, item sessionstore.Team
 // projectBoardTeamState 取整队运行态：显式传入的 TeamworkState 优先，否则用计划里那份兜底。
 //
 // 注意计划里的 `State` **本身就是**一个 TeamworkState（TeamworkPlan.State 字段类型，见
-// sessionstore/teamwork.go:98）——所以"读整队收口"读的永远是 TeamworkState.State，
+// store/teamwork.go:98）——所以"读整队收口"读的永远是 TeamworkState.State，
 // 不存在"TeamworkPlan.State 是另一个字符串"这种事。
-func projectBoardTeamState(plan *sessionstore.TeamworkPlan, state *sessionstore.TeamworkState) sessionstore.TeamworkState {
+func projectBoardTeamState(plan *store.TeamworkPlan, state *store.TeamworkState) store.TeamworkState {
 	if state != nil {
 		return *state
 	}
 	if plan != nil {
 		return plan.State
 	}
-	return sessionstore.TeamworkState{}
+	return store.TeamworkState{}
 }
 
 // projectBoardPutText 把非空文本写进载荷（空字段不落盘：读侧沿用"缺失 = 空 = 该域约定值"
@@ -278,11 +278,11 @@ func projectBoardPutText(payload map[string]any, key, value string) {
 
 // projectBoardBlocks 把映射结果按**落点**拆成两块：work → worktable.jsonl；
 // milestone / milestone_item → teamwork.jsonl。落点只由 kind 决定（一处判据）。
-func projectBoardBlocks(rows []sessionstore.ProjectBoardRow) (work, teamwork []sessionstore.ProjectBoardRow) {
-	work = make([]sessionstore.ProjectBoardRow, 0, len(rows))
-	teamwork = make([]sessionstore.ProjectBoardRow, 0, len(rows))
+func projectBoardBlocks(rows []store.ProjectBoardRow) (work, teamwork []store.ProjectBoardRow) {
+	work = make([]store.ProjectBoardRow, 0, len(rows))
+	teamwork = make([]store.ProjectBoardRow, 0, len(rows))
 	for _, row := range rows {
-		if row.Kind == sessionstore.ProjectBoardKindWork {
+		if row.Kind == store.ProjectBoardKindWork {
 			work = append(work, row)
 			continue
 		}
@@ -294,16 +294,16 @@ func projectBoardBlocks(rows []sessionstore.ProjectBoardRow) (work, teamwork []s
 // projectBoardRowsForFile 取**某一落点**的行集：按块取数（而不是取一遍再改 Seq），
 // 因为每文件的水位是独立事实，块内每行的 seq 直接由映射函数盖章。
 func projectBoardRowsForFile(
-	scope sessionstore.ProjectBoardScope,
+	scope store.ProjectBoardScope,
 	seq uint64,
 	at int64,
 	workItems []WorkItem,
-	teamPlan *sessionstore.TeamworkPlan,
-	teamState *sessionstore.TeamworkState,
+	teamPlan *store.TeamworkPlan,
+	teamState *store.TeamworkState,
 	file string,
-) []sessionstore.ProjectBoardRow {
+) []store.ProjectBoardRow {
 	work, teamwork := projectBoardBlocks(BuildProjectBoardRows(scope, seq, at, workItems, teamPlan, teamState))
-	if file == sessionstore.ProjectBoardTeamworkFile {
+	if file == store.ProjectBoardTeamworkFile {
 		return teamwork
 	}
 	return work
@@ -313,7 +313,7 @@ func projectBoardRowsForFile(
 // kind/key/payload 必得同样的指纹（seq/at 每次落盘必然不同，不参与比较）。
 //
 // 载荷是 map：encoding/json 按键字典序编码 ⇒ 字节稳定（同一份内容没有第二种字节）。
-func projectBoardRowsFingerprint(rows []sessionstore.ProjectBoardRow) string {
+func projectBoardRowsFingerprint(rows []store.ProjectBoardRow) string {
 	hash := sha256.New()
 	for _, row := range rows {
 		hash.Write([]byte(row.Kind))
@@ -435,14 +435,14 @@ func (t ProjectBoardTrigger) Off() bool { return !t.anyTool && len(t.names) == 0
 // 3) 写侧端口与同步器
 // ---------------------------------------------------------------------------
 
-// ProjectBoardStore 是投影的**写侧端口**（签名与 sessionstore.Router 同形：
-// *sessionstore.Router 直接就实现它，装配方不必写适配器）。
+// ProjectBoardStore 是投影的**写侧端口**（签名与 store.Router 同形：
+// *store.Router 直接就实现它，装配方不必写适配器）。
 //
 // 键是**项目根 + 会话**（`<项目根>/.seelex/board/<会话 ID>/`）：看板跟着项目走，且
 // **按会话分目录**——同一个投影文件只有一个写者（防串写），水位/批号以"一会话一文件"
 // 为单位（幂等可判），回收就是摘掉该会话自己的目录。
 type ProjectBoardStore interface {
-	AppendProjectBoardRows(projectRoot, sessionID, file string, rows []sessionstore.ProjectBoardRow) (uint64, error)
+	AppendProjectBoardRows(projectRoot, sessionID, file string, rows []store.ProjectBoardRow) (uint64, error)
 	ProjectBoardWatermark(projectRoot, sessionID, file string) (uint64, error)
 }
 
@@ -454,7 +454,7 @@ type ProjectBoardSink interface {
 
 // 编译期证明：存储面写口就是 Router 的那两个方法，订阅口的实现就是同步器本身。
 var (
-	_ ProjectBoardStore = (*sessionstore.Router)(nil)
+	_ ProjectBoardStore = (*store.Router)(nil)
 	_ ProjectBoardSink  = (*ProjectBoardSyncer)(nil)
 )
 
@@ -465,7 +465,7 @@ var (
 // harness 都要为一条没有消费者的能力改接口（与 contract.TeamworkBoardProjection
 // 同一口径：**有就有、没有就是没有**）。
 type TeamworkPlanSource interface {
-	TeamworkPlanFor(sessionID string) (sessionstore.TeamworkPlan, bool)
+	TeamworkPlanFor(sessionID string) (store.TeamworkPlan, bool)
 }
 
 // projectBoardDefaultFlushIdle 是 flush 静默窗缺省值（毫秒级抖动的合并窗口：同批
@@ -479,8 +479,8 @@ const projectBoardDefaultFlushIdle = 2 * time.Second
 type ProjectBoardDeps struct {
 	Store         ProjectBoardStore
 	WorkTableRows func(sessionID string) []WorkItem
-	TeamPlanFor   func(sessionID string) *sessionstore.TeamworkPlan
-	TeamStateFor  func(sessionID string) *sessionstore.TeamworkState
+	TeamPlanFor   func(sessionID string) *store.TeamworkPlan
+	TeamStateFor  func(sessionID string) *store.TeamworkState
 	// ProjectRootFor 是「会话 → 项目根」的解析（"" = 没有落点：未绑定工作区的会话
 	// 不落盘）。落点就是 `<项目根>/.seelex/board/`；不再要工作区 ID——它是
 	// `ws-<nano>`（机器本地 ID），写进产物会让看板不可提交（契约 §3 三条硬纪律）。
@@ -650,21 +650,21 @@ func (s *ProjectBoardSyncer) flushSession(sessionID string) {
 	if s.deps.WorkTableRows != nil {
 		items = s.deps.WorkTableRows(sessionID)
 	}
-	var plan *sessionstore.TeamworkPlan
+	var plan *store.TeamworkPlan
 	if s.deps.TeamPlanFor != nil {
 		plan = s.deps.TeamPlanFor(sessionID)
 	}
-	var state *sessionstore.TeamworkState
+	var state *store.TeamworkState
 	if s.deps.TeamStateFor != nil {
 		state = s.deps.TeamStateFor(sessionID)
 	}
 	// scope 只写会话：落点本身已经回答了"哪个项目"（行内再写 `ws-<nano>` 会让产物
 	// 不可提交，契约 §3 硬纪律）。行内这个 session 与落点目录名同源（存储面还会核对
 	// 两者一致，不一致直接拒绝——那是"往别人的目录里塞行"）。
-	scope := sessionstore.ProjectBoardScope{Session: sessionID}
+	scope := store.ProjectBoardScope{Session: sessionID}
 	at := s.now().UTC().Unix()
-	s.flushFile(sessionID, projectRoot, scope, sessionstore.ProjectBoardWorkFile, at, items, plan, state)
-	s.flushFile(sessionID, projectRoot, scope, sessionstore.ProjectBoardTeamworkFile, at, items, plan, state)
+	s.flushFile(sessionID, projectRoot, scope, store.ProjectBoardWorkFile, at, items, plan, state)
+	s.flushFile(sessionID, projectRoot, scope, store.ProjectBoardTeamworkFile, at, items, plan, state)
 }
 
 // flushFile 落一个文件：取水位 → 指纹去重 → 差集补 tombstone → 追加。
@@ -676,12 +676,12 @@ func (s *ProjectBoardSyncer) flushSession(sessionID string) {
 //   - I6 空则退场：没有行、也没有要吊销的 key ⇒ 不建文件（只记账）。
 func (s *ProjectBoardSyncer) flushFile(
 	sessionID, projectRoot string,
-	scope sessionstore.ProjectBoardScope,
+	scope store.ProjectBoardScope,
 	file string,
 	at int64,
 	items []WorkItem,
-	plan *sessionstore.TeamworkPlan,
-	state *sessionstore.TeamworkState,
+	plan *store.TeamworkPlan,
+	state *store.TeamworkState,
 ) {
 	watermark, err := s.deps.Store.ProjectBoardWatermark(projectRoot, sessionID, file)
 	if err != nil {
@@ -732,7 +732,7 @@ func (s *ProjectBoardSyncer) flushFile(
 }
 
 // projectBoardRemovedRow 组装一行 tombstone（折叠读遇到 payload["removed"]==true 即让该 key 消失）。
-func projectBoardRemovedRow(scope sessionstore.ProjectBoardScope, seq uint64, at int64, kind, key string) sessionstore.ProjectBoardRow {
+func projectBoardRemovedRow(scope store.ProjectBoardScope, seq uint64, at int64, kind, key string) store.ProjectBoardRow {
 	return projectBoardRow(scope, seq, at, kind, key, map[string]any{"removed": true})
 }
 
@@ -812,7 +812,7 @@ func (service *Service) ProjectRootFor(sessionID string) string {
 //
 // 这一步（端口探测 + 收窄）只写在这里：M3 装配时把它作为 ProjectBoardDeps.TeamPlanFor
 // 注入即可，同步器不必知道 Runtime 的接口形状。
-func (service *Service) ProjectBoardTeamPlanFor(sessionID string) *sessionstore.TeamworkPlan {
+func (service *Service) ProjectBoardTeamPlanFor(sessionID string) *store.TeamworkPlan {
 	if service == nil || service.Deps.Runtime == nil {
 		return nil
 	}
@@ -834,9 +834,9 @@ func (service *Service) ProjectBoardTeamPlanFor(sessionID string) *sessionstore.
 // ProjectBoardTeamStateFor 取该会话的 teamwork **运行态**（里程碑结论 / 整队收口）。
 //
 // 运行态就在计划载荷的那一格里（TeamworkPlan.State 是 TeamworkState，见
-// sessionstore/teamwork.go:98）：读它而不是另找一份，是"整队收口只有一个权威格"这条
+// store/teamwork.go:98）：读它而不是另找一份，是"整队收口只有一个权威格"这条
 // 裁决的落地。
-func (service *Service) ProjectBoardTeamStateFor(sessionID string) *sessionstore.TeamworkState {
+func (service *Service) ProjectBoardTeamStateFor(sessionID string) *store.TeamworkState {
 	plan := service.ProjectBoardTeamPlanFor(sessionID)
 	if plan == nil {
 		return nil

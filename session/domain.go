@@ -3,7 +3,7 @@
 // 会话之间零共享，继承只走深拷贝；热/冷判定由引擎 HasSession 驱动。
 //
 // 本包禁止 import application/core 的实现包（chat 流类型经接口收纳，队列载荷
-// 不透明化），确保依赖方向单向：core → session → sessionstore/workspace。
+// 不透明化），确保依赖方向单向：core → session → store/workspace。
 //
 // 9.5 清理：自造 Unit/ChatRuntime 平行容器已删除，聊天运行态（Chat 状态/
 // 取消/流/队列）直接收进 SessionUnit，core 直接经 SessionUnit 接入会话域。
@@ -13,8 +13,8 @@ import (
 	"context"
 	"sync"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // VisibleOutputSink 是流式可见输出接收器（由执行内核的 stream 类型实现）。

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // 复现（用户报告）：子代理判定有问题 —— "在会话 id 还是 draft 开头的时候诞生的
@@ -33,8 +33,8 @@ func TestSubagentRecordKeyedByMainSessionIDDriftsOnResume(t *testing.T) {
 	// ① 出生期：主会话 ID 还是早分配的草稿 SID（draft_…）。
 	const draftMainID = "draft_1790073103846285100_1"
 	born := newSessionKeyFixture(t, dsn, storageDir, draftMainID)
-	record := sessionstore.NodeSessionRecord{
-		SchemaVersion: sessionstore.NodeSessionSchemaVersion,
+	record := store.NodeSessionRecord{
+		SchemaVersion: store.NodeSessionSchemaVersion,
 		NodeID:        "sub-draft", SessionID: "node-draft-1", MainSessionID: draftMainID,
 		Goal: "inspect the storage layer", Status: "running", UpdatedAt: time.Now().UTC(),
 	}
@@ -74,22 +74,22 @@ func TestSubagentRecordKeyedByMainSessionIDDriftsOnResume(t *testing.T) {
 // 先后用同一个 dsn/storageDir，就等价于"进程重启后换了主会话 ID"。
 type sessionKeyFixture struct {
 	runtime   *Runtime
-	router    *sessionstore.Router
-	nodeStore *sessionstore.NodeSessionStore
+	router    *store.Router
+	nodeStore *store.NodeSessionStore
 	projectID string
 }
 
 func newSessionKeyFixture(t *testing.T, dsn, storageDir, mainSessionID string) *sessionKeyFixture {
 	t.Helper()
 	runtime := newTestRuntime(t)
-	router, err := sessionstore.NewRouter(dsn, storageDir)
+	router, err := store.NewRouter(dsn, storageDir)
 	if err != nil {
 		t.Fatalf("new router: %v", err)
 	}
-	nodeStore := sessionstore.NewNodeSessionStore(router)
+	nodeStore := store.NewNodeSessionStore(router)
 	runtime.AttachHistoryRouter(router)
 	runtime.AttachSubSessionStore(nodeStore)
-	runtime.SetEventPersister(sessionstore.NewEventStore(router).Append)
+	runtime.SetEventPersister(store.NewEventStore(router).Append)
 	if _, err := runtime.NewMainSessionWithID(mainSessionID, nil); err != nil {
 		t.Fatalf("new main session %q: %v", mainSessionID, err)
 	}

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // ── A/B 对比：worktable.changed（B）vs 整份 runtime.changed（A）──

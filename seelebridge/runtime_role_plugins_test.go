@@ -18,8 +18,8 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/seelebridge/tools"
-	"github.com/RedHuang-0622/seelex/sessionstore"
 	"github.com/RedHuang-0622/seelex/skill"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 func pluginFaceToolsOf(names ...string) []types.Tool {
@@ -167,7 +167,7 @@ func TestRoleSkillCatalogAndAssemblyReadings(t *testing.T) {
 		t.Fatalf("未发布技能的插件不得凭空造出目录段：%q", other)
 	}
 
-	views := runtime.assemblyViews([]sessionstore.TeamworkMember{
+	views := runtime.assemblyViews([]store.TeamworkMember{
 		{Role: "writer", Plugins: []string{" docs "}},
 		{Role: "exec"},
 	})
@@ -222,7 +222,7 @@ func TestValidateMemberPluginsRejectsUnknownAndOverCap(t *testing.T) {
 	defined := map[string]bool{"cad": true, "docs": true}
 	definedFn := func(name string) bool { return defined[name] }
 
-	members := []sessionstore.TeamworkMember{{Role: "exec", Plugins: []string{" cad ", "", "docs"}}}
+	members := []store.TeamworkMember{{Role: "exec", Plugins: []string{" cad ", "", "docs"}}}
 	if err := validateMemberPlugins(members, 3, definedFn); err != nil {
 		t.Fatalf("合法装配不得被拒：%v", err)
 	}
@@ -232,25 +232,25 @@ func TestValidateMemberPluginsRejectsUnknownAndOverCap(t *testing.T) {
 
 	// 重复 = 显式拒绝（与未知名/超限同口径）：修前这里静默去重 ⇒"唯一生效的口径"
 	// 是静默合并，而计划/存储层写的是显式拒绝（对抗复核 D）。
-	duplicated := []sessionstore.TeamworkMember{{Role: "exec", Plugins: []string{" cad ", "cad"}}}
+	duplicated := []store.TeamworkMember{{Role: "exec", Plugins: []string{" cad ", "cad"}}}
 	err := validateMemberPlugins(duplicated, 3, definedFn)
 	if err == nil || !strings.Contains(err.Error(), "重复") {
 		t.Fatalf("重复声明必须显式拒绝（不静默去重），得 %v", err)
 	}
 
-	unknown := []sessionstore.TeamworkMember{{Role: "exec", Plugins: []string{"ghost"}}}
+	unknown := []store.TeamworkMember{{Role: "exec", Plugins: []string{"ghost"}}}
 	err = validateMemberPlugins(unknown, 3, definedFn)
 	if err == nil || !strings.Contains(err.Error(), "未定义") {
 		t.Fatalf("未知名必须显式拒绝，得 %v", err)
 	}
 
-	over := []sessionstore.TeamworkMember{{Role: "exec", Plugins: []string{"a", "b", "c", "d"}}}
+	over := []store.TeamworkMember{{Role: "exec", Plugins: []string{"a", "b", "c", "d"}}}
 	err = validateMemberPlugins(over, 3, definedFn)
 	if err == nil || !strings.Contains(err.Error(), "上限") {
 		t.Fatalf("超上限必须显式拒绝（不静默截断），得 %v", err)
 	}
 
-	inherit := []sessionstore.TeamworkMember{{Role: "exec"}}
+	inherit := []store.TeamworkMember{{Role: "exec"}}
 	if err := validateMemberPlugins(inherit, 3, definedFn); err != nil || inherit[0].Plugins != nil {
 		t.Fatalf("空集 = 不覆盖（写回 nil），得 (%v, %#v)", err, inherit[0].Plugins)
 	}

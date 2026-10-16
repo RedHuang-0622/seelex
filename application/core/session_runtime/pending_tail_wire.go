@@ -1,12 +1,12 @@
 package session_runtime
 
 import (
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // 草稿尾部（seq_draft）在会话域的窄端口面。
 //
-// 语义（见 sessionstore/pending_tail.go 与 recovery-order.md）：
+// 语义（见 store/pending_tail.go 与 recovery-order.md）：
 //   - 发布点 = message head.LastSeq；seq > LastSeq 的行是**未提交草稿**；
 //   - 探测（PendingMessageTail）只读，不改任何状态；
 //   - 恢复（RecoverPendingMessageTail）是**唯一的发布入口**，且要求草稿尾部

@@ -10,15 +10,15 @@ import (
 	"github.com/RedHuang-0622/Seele/seelectx"
 
 	"github.com/RedHuang-0622/seelex/seelebridge/plan"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // resumeTestFixture 组装一个带持久化 Router/事件库/节点记录存储的 Runtime。
 type resumeTestFixture struct {
 	runtime    *Runtime
-	router     *sessionstore.Router
-	eventStore *sessionstore.EventStore
-	nodeStore  *sessionstore.NodeSessionStore
+	router     *store.Router
+	eventStore *store.EventStore
+	nodeStore  *store.NodeSessionStore
 	projectID  string
 	mainID     string
 }
@@ -26,12 +26,12 @@ type resumeTestFixture struct {
 func newResumeTestFixture(t *testing.T) *resumeTestFixture {
 	t.Helper()
 	runtime := newTestRuntime(t)
-	router, err := sessionstore.NewRouter(filepath.Join(t.TempDir(), "session-storage.json"), t.TempDir())
+	router, err := store.NewRouter(filepath.Join(t.TempDir(), "session-storage.json"), t.TempDir())
 	if err != nil {
 		t.Fatalf("new router: %v", err)
 	}
-	eventStore := sessionstore.NewEventStore(router)
-	nodeStore := sessionstore.NewNodeSessionStore(router)
+	eventStore := store.NewEventStore(router)
+	nodeStore := store.NewNodeSessionStore(router)
 	runtime.AttachHistoryRouter(router)
 	runtime.AttachSubSessionStore(nodeStore)
 	runtime.SetEventPersister(eventStore.Append)
@@ -49,10 +49,10 @@ func newResumeTestFixture(t *testing.T) *resumeTestFixture {
 	return fixture
 }
 
-func (fixture *resumeTestFixture) save(t *testing.T, record sessionstore.NodeSessionRecord) {
+func (fixture *resumeTestFixture) save(t *testing.T, record store.NodeSessionRecord) {
 	t.Helper()
 	if record.SchemaVersion == 0 {
-		record.SchemaVersion = sessionstore.NodeSessionSchemaVersion
+		record.SchemaVersion = store.NodeSessionSchemaVersion
 	}
 	if record.UpdatedAt.IsZero() {
 		record.UpdatedAt = time.Now().UTC()
@@ -68,7 +68,7 @@ func (fixture *resumeTestFixture) save(t *testing.T, record sessionstore.NodeSes
 func TestSubagentResumeRestartsInterruptedUnit(t *testing.T) {
 	fixture := newResumeTestFixture(t)
 	runtime := fixture.runtime
-	record := sessionstore.NodeSessionRecord{
+	record := store.NodeSessionRecord{
 		NodeID: "sub-1", SessionID: "node-hash-1", MainSessionID: fixture.mainID,
 		Goal: "inspect the storage layer", Status: "running",
 		StagesJSON: []byte(`[{"stage":"running","preview":"read message_rows.go"}]`),
@@ -169,7 +169,7 @@ func TestSubagentResumeRestartsInterruptedUnit(t *testing.T) {
 func TestSubagentResumeSkipsTerminalResidual(t *testing.T) {
 	fixture := newResumeTestFixture(t)
 	runtime := fixture.runtime
-	fixture.save(t, sessionstore.NodeSessionRecord{
+	fixture.save(t, store.NodeSessionRecord{
 		NodeID: "sub-done", SessionID: "node-hash-done", MainSessionID: fixture.mainID,
 		Goal: "already finished", Status: "done", Summary: "finished before crash",
 	})
@@ -205,7 +205,7 @@ func TestSubagentResumeSkipsTerminalResidual(t *testing.T) {
 func TestSubagentResumeSingleNodeFailureKeepsRecordRetryable(t *testing.T) {
 	fixture := newResumeTestFixture(t)
 	runtime := fixture.runtime
-	fixture.save(t, sessionstore.NodeSessionRecord{
+	fixture.save(t, store.NodeSessionRecord{
 		NodeID: "sub-boom", SessionID: "node-hash-boom", MainSessionID: fixture.mainID,
 		Goal: "will fail", Status: "running",
 	})
@@ -228,9 +228,9 @@ func TestSubagentResumeSingleNodeFailureKeepsRecordRetryable(t *testing.T) {
 }
 
 // mainHistoryLen 读取主会话持久化历史长度（断言恢复链路不污染 main）。
-func mainHistoryLen(t *testing.T, router *sessionstore.Router, sessionID string) int {
+func mainHistoryLen(t *testing.T, router *store.Router, sessionID string) int {
 	t.Helper()
-	history := sessionstore.NewDurableHistory(router, sessionID)
+	history := store.NewDurableHistory(router, sessionID)
 	messages, err := history.Load(context.Background())
 	if err != nil {
 		t.Fatalf("load main history: %v", err)

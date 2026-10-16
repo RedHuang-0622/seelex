@@ -3,9 +3,9 @@ package adapters
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/model"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // toolcall_status_record_test.go — "工具调用视图词"这一格在**存储面 → 契约枚举**的互锁。
@@ -19,7 +19,7 @@ import (
 //     （折成 success 比折不出更糟：看板与详情页会把"读不懂"显示成"成功了"）；
 //  3. 本格是闭合的：三个词各自读回自己，别的什么都不认。
 func TestToolCallStatusOfRecordLocksTheStoreVocabulary(t *testing.T) {
-	storeWord := sessionstore.ConversationToolCallStatusSuccess
+	storeWord := store.ConversationToolCallStatusSuccess
 	if storeWord != dto.ToolEventSuccess.String() {
 		t.Fatalf("store 的词 %q 与契约的词 %q 不一致（两包词表分叉）", storeWord, dto.ToolEventSuccess)
 	}

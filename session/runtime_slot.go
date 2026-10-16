@@ -3,8 +3,8 @@ package session
 import (
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // ComposerText 返回本会话未发送输入草稿正文。

@@ -37,7 +37,7 @@ func withHistoryWindow(window int) func() {
 // pagedSessionStore 仿生产会话端口：record 与 conversation 窗口读的是同一份
 // durable 消息（v8 布局里两者都由 message 事件行派生，索引空间一致）。
 //
-// published 是**发布点闸门**（sessionstore 的 head.LastSeq 同一语义）：record 与
+// published 是**发布点闸门**（store 的 head.LastSeq 同一语义）：record 与
 // conversation 区间读只看得见 messages[:published]。写者可以先物理 append
 // （appendDraft），发布点要等回合收尾才推进（publishDraftTail）——夹具据此表达
 // 「内存窗口领先磁盘」的在飞回合。

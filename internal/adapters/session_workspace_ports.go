@@ -11,15 +11,15 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/application/contract"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/plugin"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	"github.com/RedHuang-0622/seelex/session"
-	"github.com/RedHuang-0622/seelex/sessionstore"
 	"github.com/RedHuang-0622/seelex/skill"
-	"github.com/RedHuang-0622/seelex/workspace"
+	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/store/workspace"
 )
 
 type PluginPort struct{ Manager *plugin.Manager }
@@ -190,7 +190,7 @@ type SessionPort struct {
 	projectSource func() []string
 	// Meta 是项目级会话展示元数据存取（main.go 装配）。它是指针：SessionPort
 	// 会被值拷贝进 Dependencies，共享同一个实例才共用其读改写串行化。
-	Meta *sessionstore.SessionMetaStore
+	Meta *store.SessionMetaStore
 }
 
 // SetSessionMeta 实现 session.SessionMetaPort：写单个会话的展示元数据到其归属
@@ -254,11 +254,11 @@ func (port SessionPort) applySessionMetas(projectID string, infos []model.Sessio
 	return infos
 }
 
-func adaptSessionMetaToStore(meta model.SessionMeta) sessionstore.SessionDisplayMeta {
-	return sessionstore.SessionDisplayMeta{Pinned: meta.Pinned, Alias: meta.Alias, SortOrder: meta.SortOrder}
+func adaptSessionMetaToStore(meta model.SessionMeta) store.SessionDisplayMeta {
+	return store.SessionDisplayMeta{Pinned: meta.Pinned, Alias: meta.Alias, SortOrder: meta.SortOrder}
 }
 
-func adaptSessionMetaFromStore(meta sessionstore.SessionDisplayMeta) model.SessionMeta {
+func adaptSessionMetaFromStore(meta store.SessionDisplayMeta) model.SessionMeta {
 	return model.SessionMeta{Pinned: meta.Pinned, Alias: meta.Alias, SortOrder: meta.SortOrder}
 }
 
@@ -280,11 +280,11 @@ func (port *SessionPort) SetProjectSource(source func() []string) {
 
 // granular 返回会话粒度存储入口（Router 为物理布局，暴露层为
 // session:<id> 五片 API；session.Manager 不再承担存储桥）。
-func (port SessionPort) granular() *sessionstore.SessionGranularStore {
-	store := sessionstore.NewSessionGranularStore(port.Manager.Router())
-	store.SetWorkspaceResolver(port.workspaceResolver)
-	store.SetProjectSource(port.projectSource)
-	return store
+func (port SessionPort) granular() *store.SessionGranularStore {
+	st := store.NewSessionGranularStore(port.Manager.Router())
+	st.SetWorkspaceResolver(port.workspaceResolver)
+	st.SetProjectSource(port.projectSource)
+	return st
 }
 
 // AttachSessionContext 装配会话 context 模块（system prompt + 四栈）：
@@ -300,12 +300,12 @@ func (port SessionPort) granular() *sessionstore.SessionGranularStore {
 // fork 指令的第二个会话"（现场：project-03b5… 里三份只有 guide.json + system.json
 // 的壳目录）。
 func (port SessionPort) AttachSessionContext(workspaceID, sessionID string) error {
-	store := sessionstore.NewSessionContextStore(port.Manager.Router(), sessionID)
-	store.SetWorkspaceResolver(port.sessionContextWorkspace(workspaceID, sessionID))
-	if err := store.Load(context.Background()); err != nil {
+	st := store.NewSessionContextStore(port.Manager.Router(), sessionID)
+	st.SetWorkspaceResolver(port.sessionContextWorkspace(workspaceID, sessionID))
+	if err := st.Load(context.Background()); err != nil {
 		return fmt.Errorf("load session context %q: %w", sessionID, err)
 	}
-	port.Runtime.AttachSessionContextStore(store)
+	port.Runtime.AttachSessionContextStore(st)
 	return nil
 }
 
@@ -338,13 +338,13 @@ func (port SessionPort) SaveCurrent(id string) error     { return port.Manager.S
 func (port SessionPort) Resume(id string) error          { return port.Manager.Resume(id) }
 func (port SessionPort) SetWorkspace(workspaceID string) { port.Manager.SetWorkspace(workspaceID) }
 func (port SessionPort) Workspace() string               { return port.Manager.Workspace() }
-func (port SessionPort) StorageConfig() (sessionstore.Config, error) {
+func (port SessionPort) StorageConfig() (store.Config, error) {
 	return port.Manager.StorageConfig()
 }
-func (port SessionPort) TestStorage(ctx context.Context, config sessionstore.Config) error {
+func (port SessionPort) TestStorage(ctx context.Context, config store.Config) error {
 	return port.Manager.TestStorage(ctx, config)
 }
-func (port SessionPort) ConfigureStorage(ctx context.Context, config sessionstore.Config) error {
+func (port SessionPort) ConfigureStorage(ctx context.Context, config store.Config) error {
 	return port.Manager.ConfigureStorage(ctx, config)
 }
 
@@ -456,7 +456,7 @@ func (port SessionPort) SaveSessionSnapshot(
 	if err != nil {
 		return fmt.Errorf("encode session record: %w", err)
 	}
-	commit := sessionstore.Commit{
+	commit := store.Commit{
 		ProviderHistory:   restoreMessages(providerHistory),
 		Events:            storeTranscriptEvents(events),
 		State:             payload,
@@ -467,13 +467,13 @@ func (port SessionPort) SaveSessionSnapshot(
 }
 
 // LoadEventRangeWorkspace 按 EventSeq 范围读取事件流（fork 切断点解析用）。
-func (port SessionPort) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]sessionstore.Event, error) {
+func (port SessionPort) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]store.Event, error) {
 	return port.granular().EventRange(projectID, sessionID, fromSeq, toSeq)
 }
 
 // LoadToolResultsWorkspace 枚举会话 tool-results 通道全部结果（fork 深拷贝
 // 物理复制用）。
-func (port SessionPort) LoadToolResultsWorkspace(projectID, sessionID string) ([]sessionstore.ToolResult, error) {
+func (port SessionPort) LoadToolResultsWorkspace(projectID, sessionID string) ([]store.ToolResult, error) {
 	return port.granular().ListToolResults(projectID, sessionID)
 }
 
@@ -490,7 +490,7 @@ func (port SessionPort) SaveSessionSnapshotWorkspace(
 	if err != nil {
 		return fmt.Errorf("encode session record: %w", err)
 	}
-	commit := sessionstore.Commit{
+	commit := store.Commit{
 		ProviderHistory:   restoreMessages(providerHistory),
 		Events:            storeTranscriptEvents(events),
 		State:             payload,
@@ -594,7 +594,7 @@ func (port SessionPort) QueueFailConsumedWorkspace(projectID, sessionID, turnID 
 }
 
 // QueueItemsWorkspace 读 lifecycle 队列投影。
-func (port SessionPort) QueueItemsWorkspace(projectID, sessionID string) ([]sessionstore.QueueItem, bool, error) {
+func (port SessionPort) QueueItemsWorkspace(projectID, sessionID string) ([]store.QueueItem, bool, error) {
 	if port.Manager == nil || port.Manager.Router() == nil {
 		return nil, false, nil
 	}
@@ -602,9 +602,9 @@ func (port SessionPort) QueueItemsWorkspace(projectID, sessionID string) ([]sess
 }
 
 // QueueRecoverItemsWorkspace 重启恢复队列（条目级结果：重发项/出队项/待发项）。
-func (port SessionPort) QueueRecoverItemsWorkspace(projectID, sessionID string) (sessionstore.QueueRecoveryReport, bool, error) {
+func (port SessionPort) QueueRecoverItemsWorkspace(projectID, sessionID string) (store.QueueRecoveryReport, bool, error) {
 	if port.Manager == nil || port.Manager.Router() == nil {
-		return sessionstore.QueueRecoveryReport{}, false, nil
+		return store.QueueRecoveryReport{}, false, nil
 	}
 	return port.Manager.Router().QueueRecoverItemsWorkspace(projectID, sessionID)
 }
@@ -612,7 +612,7 @@ func (port SessionPort) QueueRecoverItemsWorkspace(projectID, sessionID string) 
 // PendingMessageTailWorkspace 探测 message 通道草稿尾部（seq_draft 只读
 // 探测；调用方据此决定 L2 恢复策略）。
 //
-// 返回纯 DTO：应用层（application/core）不得依赖 sessionstore 类型，映射职责
+// 返回纯 DTO：应用层（application/core）不得依赖 store 类型，映射职责
 // 收敛在本适配器（与 S27 的 role/schedule 端口收口同口径）。
 func (port SessionPort) PendingMessageTailWorkspace(projectID, sessionID string) (dto.PendingMessageTailReport, bool, error) {
 	if port.Manager == nil || port.Manager.Router() == nil {
@@ -642,7 +642,7 @@ func (port SessionPort) DiscardPendingMessageTailWorkspace(projectID, sessionID 
 
 // pendingTailDTO 把存储层报告映射成跨层 DTO（正文行本身不跨层：应用侧只需要
 // 状态/行数/区间来做「探测 → 决策 → 恢复|丢弃」与向用户呈现）。
-func pendingTailDTO(report sessionstore.PendingTailReport) dto.PendingMessageTailReport {
+func pendingTailDTO(report store.PendingTailReport) dto.PendingMessageTailReport {
 	return dto.PendingMessageTailReport{
 		SessionID:       report.SessionID,
 		Status:          report.Status,
@@ -657,7 +657,7 @@ func pendingTailDTO(report sessionstore.PendingTailReport) dto.PendingMessageTai
 
 // ---------- R2/R4 群聊角色会话适配（Application 可选能力面） ----------
 
-func (port SessionPort) roleRouter(mainSessionID string) (*sessionstore.Router, string, error) {
+func (port SessionPort) roleRouter(mainSessionID string) (*store.Router, string, error) {
 	if port.Manager == nil || port.Manager.Router() == nil {
 		return nil, "", errors.New("session storage is not assembled")
 	}
@@ -817,14 +817,14 @@ func (port SessionPort) ScheduleFire(sessionID string, payload dto.ScheduleEvent
 
 // ── DTO ↔ 存储映射（S27）：存储类型只在本文件出现 ────────────────────
 
-func storeRoleRows(rows []dto.RoleRow) []sessionstore.Event {
-	stored := make([]sessionstore.Event, len(rows))
+func storeRoleRows(rows []dto.RoleRow) []store.Event {
+	stored := make([]store.Event, len(rows))
 	for index, row := range rows {
-		calls := make([]sessionstore.EventToolCall, len(row.ToolCalls))
+		calls := make([]store.EventToolCall, len(row.ToolCalls))
 		for callIndex, call := range row.ToolCalls {
-			calls[callIndex] = sessionstore.EventToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments}
+			calls[callIndex] = store.EventToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments}
 		}
-		stored[index] = sessionstore.Event{
+		stored[index] = store.Event{
 			Seq: row.Seq, TaskID: row.TaskID, MessageID: row.MessageID, Kind: row.Kind, Role: row.Role,
 			ReasoningContent: row.ReasoningContent, Content: row.Content, ToolCallID: row.ToolCallID,
 			Name: row.Name, ToolCalls: calls, ResultRef: row.ResultRef, TokenCount: row.TokenCount,
@@ -836,7 +836,7 @@ func storeRoleRows(rows []dto.RoleRow) []sessionstore.Event {
 	return stored
 }
 
-func roleRows(events []sessionstore.Event) []dto.RoleRow {
+func roleRows(events []store.Event) []dto.RoleRow {
 	rows := make([]dto.RoleRow, len(events))
 	for index, event := range events {
 		calls := make([]dto.RoleToolCall, len(event.ToolCalls))
@@ -856,10 +856,10 @@ func roleRows(events []sessionstore.Event) []dto.RoleRow {
 	return rows
 }
 
-func storeRoleDraftRows(rows []dto.RoleDraftRow) []sessionstore.RoleDraftRow {
-	stored := make([]sessionstore.RoleDraftRow, len(rows))
+func storeRoleDraftRows(rows []dto.RoleDraftRow) []store.RoleDraftRow {
+	stored := make([]store.RoleDraftRow, len(rows))
 	for index, row := range rows {
-		stored[index] = sessionstore.RoleDraftRow{
+		stored[index] = store.RoleDraftRow{
 			RoundID: row.RoundID, RoleName: row.RoleName, RoleSessionID: row.RoleSessionID,
 			UnitSeq: row.UnitSeq, MessageID: row.MessageID,
 			Event: storeRoleRows([]dto.RoleRow{row.Event})[0],
@@ -868,33 +868,33 @@ func storeRoleDraftRows(rows []dto.RoleDraftRow) []sessionstore.RoleDraftRow {
 	return stored
 }
 
-func roleDraftRows(rows []sessionstore.RoleDraftRow) []dto.RoleDraftRow {
+func roleDraftRows(rows []store.RoleDraftRow) []dto.RoleDraftRow {
 	drafts := make([]dto.RoleDraftRow, len(rows))
 	for index, row := range rows {
 		drafts[index] = dto.RoleDraftRow{
 			RoundID: row.RoundID, RoleName: row.RoleName, RoleSessionID: row.RoleSessionID,
 			UnitSeq: row.UnitSeq, MessageID: row.MessageID,
-			Event: roleRows([]sessionstore.Event{row.Event})[0],
+			Event: roleRows([]store.Event{row.Event})[0],
 		}
 	}
 	return drafts
 }
 
-func storeCompactRef(ref *dto.CompactFrameRef) *sessionstore.CompactRef {
+func storeCompactRef(ref *dto.CompactFrameRef) *store.CompactRef {
 	if ref == nil {
 		return nil
 	}
-	return &sessionstore.CompactRef{FrameID: ref.FrameID, AppliedSeq: ref.AppliedSeq}
+	return &store.CompactRef{FrameID: ref.FrameID, AppliedSeq: ref.AppliedSeq}
 }
 
-func compactRef(ref *sessionstore.CompactRef) *dto.CompactFrameRef {
+func compactRef(ref *store.CompactRef) *dto.CompactFrameRef {
 	if ref == nil {
 		return nil
 	}
 	return &dto.CompactFrameRef{FrameID: ref.FrameID, AppliedSeq: ref.AppliedSeq}
 }
 
-func roleSnapshot(snapshot sessionstore.RoleSnapshot) dto.RoleSnapshot {
+func roleSnapshot(snapshot store.RoleSnapshot) dto.RoleSnapshot {
 	out := dto.RoleSnapshot{
 		MainSessionID: snapshot.MainSessionID, RoleName: snapshot.RoleName,
 		RoleSessionID: snapshot.RoleSessionID, Root: snapshot.Root,
@@ -918,7 +918,7 @@ func roleSnapshot(snapshot sessionstore.RoleSnapshot) dto.RoleSnapshot {
 	return out
 }
 
-func roleWireSnapshot(snapshot sessionstore.RoleWireSnapshot) dto.RoleWireSnapshot {
+func roleWireSnapshot(snapshot store.RoleWireSnapshot) dto.RoleWireSnapshot {
 	messages := make([]dto.RoleWireMessage, len(snapshot.Messages))
 	for index, message := range snapshot.Messages {
 		calls := make([]dto.RoleToolCall, len(message.ToolCalls))
@@ -942,8 +942,8 @@ func roleWireSnapshot(snapshot sessionstore.RoleWireSnapshot) dto.RoleWireSnapsh
 	}
 }
 
-func storeSchedulePayload(payload dto.ScheduleEventPayload) sessionstore.ScheduleEventPayload {
-	return sessionstore.ScheduleEventPayload{
+func storeSchedulePayload(payload dto.ScheduleEventPayload) store.ScheduleEventPayload {
+	return store.ScheduleEventPayload{
 		ScheduleID: payload.ScheduleID, RoleName: payload.RoleName, RoleSessionID: payload.RoleSessionID,
 		Cron: payload.Cron, Interval: payload.Interval, NextFireAt: payload.NextFireAt,
 		PayloadRef: payload.PayloadRef,
@@ -964,14 +964,14 @@ func (port SessionPort) LoadToolResultWorkspace(workspaceID, id, resultRef strin
 	}, nil
 }
 
-func storeTranscriptEvents(events []model.TranscriptEvent) []sessionstore.Event {
-	stored := make([]sessionstore.Event, len(events))
+func storeTranscriptEvents(events []model.TranscriptEvent) []store.Event {
+	stored := make([]store.Event, len(events))
 	for index, event := range events {
-		calls := make([]sessionstore.EventToolCall, len(event.ToolCalls))
+		calls := make([]store.EventToolCall, len(event.ToolCalls))
 		for callIndex, call := range event.ToolCalls {
-			calls[callIndex] = sessionstore.EventToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments}
+			calls[callIndex] = store.EventToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments}
 		}
-		stored[index] = sessionstore.Event{
+		stored[index] = store.Event{
 			Seq: event.Seq, TaskID: event.TaskID, MessageID: event.MessageID, Role: event.Role,
 			Kind: event.Kind, ReasoningContent: event.ReasoningContent, Content: event.Content,
 			ProviderContent: event.ProviderContent,
@@ -986,7 +986,7 @@ func storeTranscriptEvents(events []model.TranscriptEvent) []sessionstore.Event 
 	return stored
 }
 
-func adaptTranscriptEvents(events []sessionstore.Event) []model.TranscriptEvent {
+func adaptTranscriptEvents(events []store.Event) []model.TranscriptEvent {
 	adapted := make([]model.TranscriptEvent, len(events))
 	for index, event := range events {
 		calls := make([]model.TranscriptToolCall, len(event.ToolCalls))
@@ -1008,10 +1008,10 @@ func adaptTranscriptEvents(events []sessionstore.Event) []model.TranscriptEvent 
 	return adapted
 }
 
-func storeToolResults(results []model.StoredToolResult) []sessionstore.ToolResult {
-	stored := make([]sessionstore.ToolResult, len(results))
+func storeToolResults(results []model.StoredToolResult) []store.ToolResult {
+	stored := make([]store.ToolResult, len(results))
 	for index, result := range results {
-		stored[index] = sessionstore.ToolResult{
+		stored[index] = store.ToolResult{
 			Ref: result.Ref, Tool: result.Tool, Content: result.Content, Digest: result.Digest,
 			Size: result.Size, TokenCount: result.TokenCount, CreatedAt: result.CreatedAt,
 		}
@@ -1140,7 +1140,7 @@ func (port SessionPort) LoadConversationRangeWorkspace(workspaceID, id string, o
 
 // adaptStoredConversationMessage 把存储层 conversation DTO 转为 UI 消息
 // （Tool 指针独立拷贝，避免共享内部状态）。
-func adaptStoredConversationMessage(message sessionstore.ConversationMessage) model.Message {
+func adaptStoredConversationMessage(message store.ConversationMessage) model.Message {
 	adapted := model.Message{
 		ID: message.ID, Role: message.Role, Content: message.Content,
 		ReasoningContent: message.ReasoningContent, CreatedAt: message.CreatedAt,
@@ -1217,7 +1217,7 @@ func migrateSessionArchive(sessionID string, archive model.SessionArchive) model
 	}
 	return record
 }
-func adaptGranularInfos(sessions []sessionstore.SessionInfo) []model.SessionInfo {
+func adaptGranularInfos(sessions []store.SessionInfo) []model.SessionInfo {
 	result := make([]model.SessionInfo, 0, len(sessions))
 	for _, item := range sessions {
 		result = append(result, model.SessionInfo{

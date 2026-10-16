@@ -1,8 +1,8 @@
 package goal
 
-// sessionstore_store.go — goal 域第五栈的 sessionstore 适配。
+// sessionstore_store.go — goal 域第五栈的 store 适配。
 //
-// goal 栈（LIFO）随会话聊天记录同域持久化到 sessionstore 的
+// goal 栈（LIFO）随会话聊天记录同域持久化到 store 的
 // SessionContextRecord.GoalStack（context 通道，按 (project, session) 隔离）。
 // 语义边界（docs/2026-09-08-govern-loop/design.md §2.1 + 澄清）：
 //
@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // ContextStateStore 实现 Store：把 goal.Controller 栈投影到会话级
@@ -34,25 +34,25 @@ import (
 // 关闭"由 reportBoardWriteFailure 承接），未装配存档面（BoardsFor 返回 false）
 // 时全部降级为"没有存档"，不报错、不阻断。
 type ContextStateStore struct {
-	session *sessionstore.SessionContextStore
+	session *store.SessionContextStore
 	// boards 是看板存档取用面（可选装配，**绑定会话**）；nil = 该域没有存档面。
-	boards sessionstore.SessionBoards
+	boards store.SessionBoards
 }
 
 // NewContextStateStore 构造适配器。session 为 nil 时 Load/Save 返回
 // ErrStoreUnavailable（未装配会话上下文存储的降级路径）；boards 可选（缺省 =
 // 没有看板存档面，写侧全部降级），也可事后用 BindBoards 注入。
-func NewContextStateStore(session *sessionstore.SessionContextStore, boards ...sessionstore.SessionBoards) *ContextStateStore {
-	store := &ContextStateStore{session: session}
+func NewContextStateStore(session *store.SessionContextStore, boards ...store.SessionBoards) *ContextStateStore {
+	st := &ContextStateStore{session: session}
 	if len(boards) > 0 {
-		store.boards = boards[0]
+		st.boards = boards[0]
 	}
-	return store
+	return st
 }
 
-// BindBoards 注入会话看板存档取用面（sessionstore.Router.BoardsForSession 的产物）。
+// BindBoards 注入会话看板存档取用面（store.Router.BoardsForSession 的产物）。
 // 未注入 → 写侧不写存档、读侧按"没有存档"降级。
-func (s *ContextStateStore) BindBoards(boards sessionstore.SessionBoards) {
+func (s *ContextStateStore) BindBoards(boards store.SessionBoards) {
 	if s == nil {
 		return
 	}
@@ -60,7 +60,7 @@ func (s *ContextStateStore) BindBoards(boards sessionstore.SessionBoards) {
 }
 
 // boardRepository 返回看板存档取用面（**绑定会话**的面）；未装配返回 false。
-func (s *ContextStateStore) boardRepository() (sessionstore.SessionBoards, bool) {
+func (s *ContextStateStore) boardRepository() (store.SessionBoards, bool) {
 	if s == nil || s.boards == nil {
 		return nil, false
 	}
@@ -97,18 +97,18 @@ func (s *ContextStateStore) Save(ctx context.Context, records []*GoalRecord) err
 	return s.refreshGoalBoard(ctx, records)
 }
 
-// goalFramesFromRecords 把 goal 域记录投影为 sessionstore 第五栈帧
+// goalFramesFromRecords 把 goal 域记录投影为 store 第五栈帧
 // （深拷贝切片/映射；EnteredAt 由 CreatedAt 推导，fork 时间截断可用）。
-func goalFramesFromRecords(records []*GoalRecord) []sessionstore.GoalFrame {
+func goalFramesFromRecords(records []*GoalRecord) []store.GoalFrame {
 	if len(records) == 0 {
 		return nil
 	}
-	out := make([]sessionstore.GoalFrame, 0, len(records))
+	out := make([]store.GoalFrame, 0, len(records))
 	for _, record := range records {
 		if record == nil {
 			continue
 		}
-		frame := sessionstore.GoalFrame{
+		frame := store.GoalFrame{
 			GoalID:     record.ID,
 			Title:      record.Title,
 			Statement:  record.Statement,
@@ -119,14 +119,14 @@ func goalFramesFromRecords(records []*GoalRecord) []sessionstore.GoalFrame {
 			CreatedAt:  record.CreatedAt,
 			UpdatedAt:  record.UpdatedAt,
 			FinishedAt: record.FinishedAt,
-			Budget: sessionstore.GoalBudget{
+			Budget: store.GoalBudget{
 				MaxLoops:      record.Budget.MaxLoops,
 				MaxTokens:     record.Budget.MaxTokens,
 				TLTokensShare: record.Budget.TLTokensShare,
 			},
 		}
 		for _, item := range record.Progress {
-			frame.Progress = append(frame.Progress, sessionstore.GoalProgress{
+			frame.Progress = append(frame.Progress, store.GoalProgress{
 				At: item.At, Kind: string(item.Kind), Content: item.Content,
 			})
 		}
@@ -144,10 +144,10 @@ func goalFramesFromRecords(records []*GoalRecord) []sessionstore.GoalFrame {
 	return out
 }
 
-// recordsFromGoalFrames 把 sessionstore 第五栈帧还原为 goal 域记录
+// recordsFromGoalFrames 把 store 第五栈帧还原为 goal 域记录
 // （Reload 输入；Status 非法时保留原字符串，由 Controller.Reload 的
 // 位置语义修正 active/paused）。
-func recordsFromGoalFrames(frames []sessionstore.GoalFrame) []*GoalRecord {
+func recordsFromGoalFrames(frames []store.GoalFrame) []*GoalRecord {
 	if len(frames) == 0 {
 		return nil
 	}

@@ -28,7 +28,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // foreignTaskLabel 是项目 A 的活动任务标题（断言"它是否被注入项目 B 的上下文"）。

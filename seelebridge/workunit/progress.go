@@ -5,7 +5,7 @@ package workunit
 //
 // 为什么这一格属于 workunit（勘定见 docs/arch/workunit-progress-read-surface.md）：
 //
-//	① 数据形状早就统一——两条链都落同一张 `sessionstore.NodeSessionRecord`、都经同一个
+//	① 数据形状早就统一——两条链都落同一张 `store.NodeSessionRecord`、都经同一个
 //	   `workunit.SessionLedger` 读写；真正"看不懂"的原因是「记录 → 进度」这一步被**手写了三处**
 //	   （subagent 写侧 `buildRecordLocked`、读侧 `restoreLocked`、teammate 侧
 //	   `saveTeamUnitRecord`/`teamUnitRecords`）——同一件事的第二、第三份实现。
@@ -40,7 +40,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // StagePreviewLimit 是一条打点的预览字符上限（按 rune 计）：记录会进恢复说明（system 注入）
@@ -140,12 +140,12 @@ type Progress struct {
 	// 契约不替它写死。
 	Status string `json:"status"`
 	// InFlight = InFlight(Status)，是"还在不在跑"的**唯一**答案（词表只有一份）。
-	InFlight  bool                            `json:"in_flight"`
-	Summary   string                          `json:"summary,omitempty"`
-	Error     string                          `json:"error,omitempty"`
-	Stages    []Stage                         `json:"stages,omitempty"`
-	Worktree  sessionstore.NodeWorktreeRecord `json:"worktree,omitempty"`
-	UpdatedAt time.Time                       `json:"updated_at"`
+	InFlight  bool                     `json:"in_flight"`
+	Summary   string                   `json:"summary,omitempty"`
+	Error     string                   `json:"error,omitempty"`
+	Stages    []Stage                  `json:"stages,omitempty"`
+	Worktree  store.NodeWorktreeRecord `json:"worktree,omitempty"`
+	UpdatedAt time.Time                `json:"updated_at"`
 }
 
 // ProgressOf 把一条会话记录折成进度读数——**唯一一份折算**。
@@ -154,7 +154,7 @@ type Progress struct {
 // teammate 会话级读回（`workunit_team_records.go` 的 `teamUnitRecords`）与生命周期的记录读面
 // （`workunit_assembly.go` 的 hostPorts）全部经 `UnitReader` 转调这里；写侧只负责把"这一轮的
 // 事实"塞进 record。它**不编造**记录里没有的事实，也不替任何一层写终态词表。
-func ProgressOf(kind Kind, record sessionstore.NodeSessionRecord) Progress {
+func ProgressOf(kind Kind, record store.NodeSessionRecord) Progress {
 	return Progress{
 		Kind:      kind,
 		NodeID:    strings.TrimSpace(record.NodeID),
@@ -183,7 +183,7 @@ type UnitReader struct {
 	projectID     string
 	mainSessionID string
 	kind          Kind
-	owned         func(sessionstore.NodeSessionRecord) bool
+	owned         func(store.NodeSessionRecord) bool
 }
 
 // NewUnitReader 建一个**面向一层**的读面。
@@ -192,7 +192,7 @@ type UnitReader struct {
 //	owned = 归属过滤：两层**共用同一张记录表**（同一个 `subagents/` 目录），因此"这条记录
 //	        属不属于本次读"由调用方给出（teammate 侧今天就是按现场名单过滤的）。
 //	        nil = 调用方保证这张账本只装这一层的记录。
-func NewUnitReader(ledger SessionLedger, projectID, mainSessionID string, kind Kind, owned func(sessionstore.NodeSessionRecord) bool) *UnitReader {
+func NewUnitReader(ledger SessionLedger, projectID, mainSessionID string, kind Kind, owned func(store.NodeSessionRecord) bool) *UnitReader {
 	return &UnitReader{
 		ledger:        ledger,
 		projectID:     strings.TrimSpace(projectID),
@@ -226,7 +226,7 @@ func (r *UnitReader) Read(nodeID string) (Progress, bool, error) {
 //
 // 需要**读数**时用 `Read` / `List`（它们把记录折成 `Progress`）；需要原始记录时用这里或
 // `Record`——但"List"这件事只有本读面这一处，调用方不再自己拿账本列一遍。
-func (r *UnitReader) Records() ([]sessionstore.NodeSessionRecord, error) {
+func (r *UnitReader) Records() ([]store.NodeSessionRecord, error) {
 	return r.records()
 }
 
@@ -235,10 +235,10 @@ func (r *UnitReader) Records() ([]sessionstore.NodeSessionRecord, error) {
 //
 // 定位与归属过滤与 `Read` 走**同一条**实现：多一条读法就是多一份"按 nodeID 找记录"的实现。
 // 无存储 / 无记录 / 被归属过滤掉 → found=false（正常读数，不是错误）。
-func (r *UnitReader) Record(nodeID string) (sessionstore.NodeSessionRecord, bool, error) {
+func (r *UnitReader) Record(nodeID string) (store.NodeSessionRecord, bool, error) {
 	records, err := r.records()
 	if err != nil {
-		return sessionstore.NodeSessionRecord{}, false, err
+		return store.NodeSessionRecord{}, false, err
 	}
 	nodeID = strings.TrimSpace(nodeID)
 	for _, record := range records {
@@ -246,7 +246,7 @@ func (r *UnitReader) Record(nodeID string) (sessionstore.NodeSessionRecord, bool
 			return record, true, nil
 		}
 	}
-	return sessionstore.NodeSessionRecord{}, false, nil
+	return store.NodeSessionRecord{}, false, nil
 }
 
 // List 返回本账本里**归属于本读面**的全部单元进度读数（按 NodeID 稳定排序）。
@@ -266,10 +266,10 @@ func (r *UnitReader) List() ([]Progress, error) {
 }
 
 // records 读回本会话的单元记录（未装配账本 = 空读数；归属过滤在这里统一落地）。
-func (r *UnitReader) records() ([]sessionstore.NodeSessionRecord, error) {
+func (r *UnitReader) records() ([]store.NodeSessionRecord, error) {
 	if r == nil || r.ledger == nil {
 		// 显式零值：没有账本 = nil 记录（调用方一律看 len）；门禁禁的是裸 `return nil, nil`。
-		return []sessionstore.NodeSessionRecord(nil), nil
+		return []store.NodeSessionRecord(nil), nil
 	}
 	records, err := r.ledger.List(r.projectID, r.mainSessionID)
 	if err != nil {
@@ -278,7 +278,7 @@ func (r *UnitReader) records() ([]sessionstore.NodeSessionRecord, error) {
 	if r.owned == nil {
 		return records, nil
 	}
-	kept := make([]sessionstore.NodeSessionRecord, 0, len(records))
+	kept := make([]store.NodeSessionRecord, 0, len(records))
 	for _, record := range records {
 		if r.owned(record) {
 			kept = append(kept, record)

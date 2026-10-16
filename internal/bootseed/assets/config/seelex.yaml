@@ -86,7 +86,7 @@ limits:
   #   ③ 超大工具结果上限（**字符数**，不是 token、与预算无关）：本文件的
   #      max_tool_result_chars。超过就把整条结果归档为 result_ref，请求里只留引用。
   #      另有一组**存储侧**同类键 session_storage.big_tool_result_*（字符软限截断 /
-  #      字节硬限报错 / 会话配额），实现在 sessionstore/big_tool_result.go；**当前
+  #      字节硬限报错 / 会话配额），实现在 store/big_tool_result.go；**当前
   #      没有生产调用方**（只有单测），软限也**不调 LLM 做总结**（软限只截断）。
   #   ② 与 ③ 是两套口径：② 管"上下文要装不下了"，③ 管"单条结果太长"。调 ③ 不改 ②，
   #   改窗口也不会放宽 ③；报错里说 tokens 的是 ②（或窗口），说 chars 的才是 ③。
@@ -104,7 +104,7 @@ limits:
   #       请求前缀，provider 的前缀缓存整段作废，折回来的余量不值得每轮付这份代价，
   #       所以只在真的逼近上限时折一次。键保留只为兼容既有配置（报告面展示的 soft 与
   #       hard 同源，不再出现"报表说已过软线、系统却没折"的口径分裂）；下一版连同
-  #       seelexctx.LoadLimits 的 soft<hard 校验一起摘除。
+  #       limit.LoadLimits 的 soft<hard 校验一起摘除。
   #       **在摘除之前，soft 必须 < hard，否则启动期直接报错**——所以 2026-10-15
   #       把 hard 从 98 降到 90 时，soft 一并从 95 降到 85。它不是判据，取值只为满足
   #       这条相对关系（想换别的值，只要仍 < hard 即可）。
@@ -116,7 +116,7 @@ limits:
   # 压缩是"产出元数据 + 由模型按章节写读后感"这条流程里的一步，只有握着上一次真实请求
   # 原件的装配层做得到。控制器现在只剩一个动作：超大工具结果的兜底归档。
   # 出厂档（本文件）= 除数 10，soft 85，hard 90，target 65，single-item 50；
-  # 代码内置兜底档（seelexctx.DefaultLimits）= 除数 8，soft 95，hard 98，target 80，
+  # 代码内置兜底档（limit.DefaultLimits）= 除数 8，soft 95，hard 98，target 80，
   # single-item 50（只在本文件整块缺失时生效）。软线已不参与判据，两档都留着它，
   # 免得旧配置读回来"键没了"。
   #
@@ -145,14 +145,14 @@ limits:
   # 出厂**打开**（本文件 enabled: true，2026-09-29 起），且**缺省即开**（2026-10-04
   # 起）。口径分三层，别互相搬：
   #   · 整块缺失 / 块在但没写 enabled 键 → **开**（"没表态"按出厂档走；判定在
-  #     seelexctx.LoadLimits 与 DefaultLimits——bool 字段的零值分不清"没写"与
+  #     limit.LoadLimits 与 limit.DefaultLimits——bool 字段的零值分不清"没写"与
   #     "写了 false"，所以这份区分留在配置入口）；
   #   · 显式 enabled: false → **关**：恒走本地确定性压缩（帧 summary_source=local），
   #     一次模型调用都不发，不静默降级——这一个值就是回滚臂；
   #   · 直接构造 Limits{} 的宿主/测试 → 关（字段零值不变，WithDefaults 不补这一位）。
   # 出厂文件这一行有测试钉着
   # （seelebridge/runtime_compaction_switch_test.go 的 TestShippedCompactionSummarySwitchShipsOpen；
-  #   缺省语义由 seelexctx/limits_test.go 的 TestLimitsCompactionSummaryDefaultsOpen 钉住）。
+  #   缺省语义由 backend/limit/limits_test.go 的 TestLimitsCompactionSummaryDefaultsOpen 钉住）。
   #
   # 打开一次失败的排障入口：帧正文 JSON 的 readback.note 与 Markdown 的
   # 「压缩材料」段都会写出这次**为什么没有模型读后感**（开关关闭 / 无重放素材 /
@@ -299,12 +299,12 @@ limits:
     # 落盘去抖窗（毫秒）：窗内多次触发只落一次盘；0 = 用缺省（2000）。
     flush_idle_ms: 2000
     # 注：没有 max_rows —— 单次追加的行数上限是存储面的硬不变量
-    # （sessionstore.ProjectBoardMaxRows）。累计越界时存储面先**压实**（折成每个
+    # （store.ProjectBoardMaxRows）。累计越界时存储面先**压实**（折成每个
     # (会话, Key) 的最新一行再原子重写），压实后仍越界才显式报错；配置里再放一个上限
     # 就是对同一次追加的第二份判据。
   # ── 进程级启动行为（runtime）────────────────────────────────────
   # 是否同意**多进程**共用同一数据根。默认 false = 单实例：数据根独占锁
-  # （sessionstore/data_root_lock.go 的 lock.owner）把「单数据根 = 单进程写者」
+  # （store/data_root_lock.go 的 lock.owner）把「单数据根 = 单进程写者」
   # 钉成不变量，第二个进程启动即被拒绝（main.guardMultiProcess 给可读拒绝）。
   #
   # 只有明确知情才打开：

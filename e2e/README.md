@@ -50,6 +50,17 @@ flowchart LR
 - [`scenario/`](scenario/README.md)：scenario v1 schema、loader、scripted engine、runner、event recorder 和 harness。
 - fixture 由 `docs/gui/schemas/agent-scenario-v1.schema.json` 约束；新增 fixture 应放在 `e2e/fixtures/`。
 
+本目录同时承载两组**架构门禁**（不是用户旅程，而是边界本身）：
+
+- [`layout_test.go`](layout_test.go)：模块必须有 README、README 链接必须可解析、mermaid 块结构合法。
+- [`facade_boundary_test.go`](facade_boundary_test.go)：plan §1.3 的门面不变量 I1–I4
+  （门面依赖闭包只许收缩、契约层闭包 = stdlib、前端只 import 门面、门面无构造函数、
+  门面类型必须保形别名）。清单是 ratchet：**只许收缩**。
+- [`store_boundary_test.go`](store_boundary_test.go)：plan 的 **I6**（底座无向上依赖）——
+  底座 `store/**` 的 Seelex 内依赖闭包只允许是它自己，测试文件的 import 同样受约束；
+  `store` 那条待清理的 `seelexctx/lifecycle` 向上边登记在同一张 ratchet 里，
+  M3-S4 删掉后清单归零。清单**只许收缩**。
+
 ## 边界
 
 E2E harness 可以实现 Application ports，但不复制生产实现。真实浏览器/Wails smoke 属于 GUI 测试层，不应塞进纯 Go scenario runner。

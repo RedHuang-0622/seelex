@@ -12,9 +12,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/model"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // routerForkSessions 是 Dependencies.Sessions 的测试双件：满足 base
@@ -22,30 +22,30 @@ import (
 // granular 可选端口，全部直连真实 Router（与 internal/adapters.SessionPort
 // 同语义，但不依赖 seelebridge.Runtime 的 context 挂接）。
 type routerForkSessions struct {
-	router    *sessionstore.Router
-	granular  *sessionstore.SessionGranularStore
+	router    *store.Router
+	granular  *store.SessionGranularStore
 	workspace string
 }
 
 func newRouterForkSessions(t *testing.T) *routerForkSessions {
 	t.Helper()
 	root := t.TempDir()
-	router, err := sessionstore.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
 	if err != nil {
 		t.Fatalf("NewRouter: %v", err)
 	}
 	t.Cleanup(func() { _ = router.Close() })
-	return &routerForkSessions{router: router, granular: sessionstore.NewSessionGranularStore(router)}
+	return &routerForkSessions{router: router, granular: store.NewSessionGranularStore(router)}
 }
 
 func (s *routerForkSessions) saveParentFixture(t *testing.T, record model.SessionRecord,
-	events []sessionstore.Event, contextPayload []byte) {
+	events []store.Event, contextPayload []byte) {
 	t.Helper()
 	payload, err := json.Marshal(record)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.granular.SaveCommit("", record.ID, sessionstore.Commit{
+	if err := s.granular.SaveCommit("", record.ID, store.Commit{
 		Events: events,
 		State:  payload,
 	}); err != nil {
@@ -149,18 +149,18 @@ func (s *routerForkSessions) SaveSessionSnapshotWorkspace(
 	if err != nil {
 		return err
 	}
-	return s.granular.SaveCommit(projectID, sessionID, sessionstore.Commit{
+	return s.granular.SaveCommit(projectID, sessionID, store.Commit{
 		Events:      transcriptEventsToStore(events),
 		State:       payload,
 		ToolResults: storedToolResultsToStore(results),
 	})
 }
 
-func (s *routerForkSessions) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]sessionstore.Event, error) {
+func (s *routerForkSessions) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]store.Event, error) {
 	return s.granular.EventRange(projectID, sessionID, fromSeq, toSeq)
 }
 
-func (s *routerForkSessions) LoadToolResultsWorkspace(projectID, sessionID string) ([]sessionstore.ToolResult, error) {
+func (s *routerForkSessions) LoadToolResultsWorkspace(projectID, sessionID string) ([]store.ToolResult, error) {
 	return s.granular.ListToolResults(projectID, sessionID)
 }
 
@@ -194,14 +194,14 @@ func (s *routerForkSessions) LoadToolResultWorkspace(projectID, sessionID, ref s
 
 // ─── 转换 ──────────────────────────────────────────────────────────────
 
-func transcriptEventsToStore(events []model.TranscriptEvent) []sessionstore.Event {
-	stored := make([]sessionstore.Event, len(events))
+func transcriptEventsToStore(events []model.TranscriptEvent) []store.Event {
+	stored := make([]store.Event, len(events))
 	for index, event := range events {
-		calls := make([]sessionstore.EventToolCall, len(event.ToolCalls))
+		calls := make([]store.EventToolCall, len(event.ToolCalls))
 		for callIndex, call := range event.ToolCalls {
-			calls[callIndex] = sessionstore.EventToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments}
+			calls[callIndex] = store.EventToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments}
 		}
-		stored[index] = sessionstore.Event{
+		stored[index] = store.Event{
 			Seq: event.Seq, TaskID: event.TaskID, MessageID: event.MessageID, Role: event.Role,
 			ReasoningContent: event.ReasoningContent, Content: event.Content,
 			ToolCallID: event.ToolCallID, Name: event.Name, ToolCalls: calls,
@@ -211,7 +211,7 @@ func transcriptEventsToStore(events []model.TranscriptEvent) []sessionstore.Even
 	return stored
 }
 
-func storeEventsToTranscript(events []sessionstore.Event) []model.TranscriptEvent {
+func storeEventsToTranscript(events []store.Event) []model.TranscriptEvent {
 	adapted := make([]model.TranscriptEvent, len(events))
 	for index, event := range events {
 		calls := make([]model.TranscriptToolCall, len(event.ToolCalls))
@@ -228,10 +228,10 @@ func storeEventsToTranscript(events []sessionstore.Event) []model.TranscriptEven
 	return adapted
 }
 
-func storedToolResultsToStore(results []model.StoredToolResult) []sessionstore.ToolResult {
-	stored := make([]sessionstore.ToolResult, len(results))
+func storedToolResultsToStore(results []model.StoredToolResult) []store.ToolResult {
+	stored := make([]store.ToolResult, len(results))
 	for index, result := range results {
-		stored[index] = sessionstore.ToolResult{
+		stored[index] = store.ToolResult{
 			Ref:        result.ToolResultRef.Ref,
 			Tool:       result.ToolResultRef.Tool,
 			Size:       result.ToolResultRef.Size,
@@ -255,7 +255,7 @@ func TestForkChildVisibleWithRealStore(t *testing.T) {
 			{ID: "m2", Role: "assistant", Content: "hello"},
 		}},
 	}
-	events := []sessionstore.Event{
+	events := []store.Event{
 		{Seq: 1, TaskID: "chat-1", Role: "user", Content: "hi", MessageID: "m1"},
 		{Seq: 2, TaskID: "chat-1", Role: "assistant", Content: "hello", MessageID: "m2"},
 	}

@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/backend/limit/policy"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,26 +33,25 @@ import (
 
 	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
-	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // TeamworkBackend 是组合根注入的 teamwork 持久面与作用域解析。
 type TeamworkBackend struct {
-	// Store 是计划与审计的持久面（生产实现 = sessionstore 的 moduleTeamwork）。
+	// Store 是计划与审计的持久面（生产实现 = store 的 moduleTeamwork）。
 	Store teamwork.PlanStore
-	// Boards 是团队看板**存档**的读/写面（生产实现 = sessionstore 的
+	// Boards 是团队看板**存档**的读/写面（生产实现 = store 的
 	// moduleBoardTeam，取用面 Router.BoardsFor）。可选：未注入 = 不刷新存档、
 	// 读侧也无从恢复——"有就有、没有就是没装配"。
-	Boards sessionstore.BoardRepository
+	Boards store.BoardRepository
 	// JobOutputs 是 teammate 作业输出文件的产品面（S5 / §4.7 输出归属；生产实现 =
 	// NewTeamworkJobOutputs）。可选：未注入 = Spec.OutputPath 留空，框架自建输出文件
 	// 并按框架语义在销项 / 驱逐 / Close 时删除。
 	JobOutputs teamwork.JobOutputs
 	// KeyFor 把会话 ID 解析成存储作用域键（project_id + session_id）。
-	KeyFor func(sessionID string) (sessionstore.Key, bool)
-	// MaxTeammates 是产品级人数上限（seelexctx.TeamLimits.MaxTeammates）。
+	KeyFor func(sessionID string) (store.Key, bool)
+	// MaxTeammates 是产品级人数上限（limit.TeamLimits.MaxTeammates）。
 	MaxTeammates int
 	// MaxTurns 是每个 teammate 作业的回合上限（0 = 装配层默认）。
 	MaxTurns int
@@ -102,7 +102,7 @@ func (r *Runtime) SetTeamworkBackend(backend TeamworkBackend) error {
 	r.teamworkMu.Lock()
 	r.teamworkBackend = &backend
 	r.teamworkJobs = manager
-	r.teamworkCoords = map[sessionstore.Key]*teamwork.Coordinator{}
+	r.teamworkCoords = map[store.Key]*teamwork.Coordinator{}
 	r.teamworkJobSignals = signals
 	r.teamworkJobEvents = appJobEvents
 	r.lifecycle = append(r.lifecycle, func() { _ = manager.Close(context.Background()) })
@@ -180,7 +180,7 @@ func (r *Runtime) coordinatorFor(ctx context.Context) (*teamwork.Coordinator, er
 }
 
 // coordinatorForKey 取（必要时建）某个会话作用域键对应的 Coordinator。
-func (r *Runtime) coordinatorForKey(key sessionstore.Key) (*teamwork.Coordinator, error) {
+func (r *Runtime) coordinatorForKey(key store.Key) (*teamwork.Coordinator, error) {
 	r.teamworkMu.Lock()
 	defer r.teamworkMu.Unlock()
 	backend, manager := r.teamworkBackend, r.teamworkJobs
@@ -208,7 +208,7 @@ func (r *Runtime) coordinatorForKey(key sessionstore.Key) (*teamwork.Coordinator
 		return nil, err
 	}
 	if r.teamworkCoords == nil {
-		r.teamworkCoords = map[sessionstore.Key]*teamwork.Coordinator{}
+		r.teamworkCoords = map[store.Key]*teamwork.Coordinator{}
 	}
 	r.teamworkCoords[key] = coordinator
 	return coordinator, nil
@@ -248,7 +248,7 @@ func (r *Runtime) registerTeamworkTools() {
 	manager := r.teamworkJobs
 	r.teamworkMu.Unlock()
 	if manager != nil && r.registry != nil && r.registry.Registry != nil {
-		provider := builtin.New(manager, builtin.WithMeta(seeltools.DeclaredToolMeta("jobs_manage")))
+		provider := builtin.New(manager, builtin.WithMeta(policy.DeclaredToolMeta("jobs_manage")))
 		_ = r.registry.Registry.Register(provider)
 	}
 }
@@ -257,10 +257,10 @@ func (r *Runtime) registerTeamworkTools() {
 
 func (r *Runtime) teamPlanHandler(ctx context.Context, argsJSON string) (string, error) {
 	var raw struct {
-		TeamID     string                           `json:"team_id"`
-		Version    int                              `json:"version"`
-		Members    []sessionstore.TeamworkMember    `json:"members"`
-		Milestones []sessionstore.TeamworkMilestone `json:"milestones"`
+		TeamID     string                    `json:"team_id"`
+		Version    int                       `json:"version"`
+		Members    []store.TeamworkMember    `json:"members"`
+		Milestones []store.TeamworkMilestone `json:"milestones"`
 	}
 	if err := json.Unmarshal([]byte(argsJSON), &raw); err != nil {
 		return "", fmt.Errorf("team_plan: 参数解析失败: %w", err)
@@ -268,7 +268,7 @@ func (r *Runtime) teamPlanHandler(ctx context.Context, argsJSON string) (string,
 	if raw.Version == 0 {
 		raw.Version = 1
 	}
-	plan := sessionstore.TeamworkPlan{
+	plan := store.TeamworkPlan{
 		TeamID: raw.TeamID, Version: raw.Version,
 		Members: raw.Members, Milestones: raw.Milestones,
 	}
@@ -337,7 +337,7 @@ func (r *Runtime) dispatchAssemblyReading(ctx context.Context, coordinator *team
 		if member.Role != role {
 			continue
 		}
-		views := r.assemblyViews([]sessionstore.TeamworkMember{member})
+		views := r.assemblyViews([]store.TeamworkMember{member})
 		if len(views) == 0 {
 			return nil
 		}

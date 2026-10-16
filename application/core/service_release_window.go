@@ -2,8 +2,8 @@ package core
 
 // service_release_window.go — 「会话驻留窗口」的可调面（前端 设置 → 会话驻留）。
 //
-// 口径：窗口值住在**进程级 limits**（seelexctx.Limits.SessionReleaseWindow），由
-// application/core/internal/limits 的原子快照持有；释放面**每次决策现读**它
+// 口径：窗口值住在**进程级 limits**（limit.Limits.SessionReleaseWindow），由
+// backend/limit 的原子快照持有；释放面**每次决策现读**它
 // （session_release.go 的 releaseBudget → Limits().ReleaseWindow()）。所以这里的写
 // 路径只换掉那一格：下一次释放就用新值，不必重启、不必遍历释放调用点、不必重建任何
 // LRU 结构。
@@ -17,7 +17,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/backend/limit"
 )
 
 // SetSessionReleaseWindow 改「受保护集之外最多保留几个已加载会话」，返回**真正生效**
@@ -33,7 +33,7 @@ import (
 // 静默**的会话可以被释放"——受保护集含运行/排队/在飞会话（见 protectedSessionLocked），
 // 所以会话在跑时改它既打断不了谁，也放不掉任何在飞的内存。
 func (service *Service) SetSessionReleaseWindow(_ context.Context, window int) (int, error) {
-	if err := seelexctx.ValidateSessionReleaseWindow(window); err != nil {
+	if err := limit.ValidateSessionReleaseWindow(window); err != nil {
 		return 0, err
 	}
 	if service != nil && service.Deps.ReleaseWindowStore != nil {

@@ -10,8 +10,9 @@ import (
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/telemetry"
 	"github.com/RedHuang-0622/Seele/types"
-	"github.com/RedHuang-0622/seelex/application/contract"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/backend/limit/loop"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
@@ -49,7 +50,8 @@ type EnginePort struct {
 	maxLoops      int
 	// sessionMaxLoops 是**按会话**钉住的循环上限（sessionID → loops）：定时任务
 	// 声明的那次会话跑多少轮。查找口径只有一份（loopsForLocked）：本会话钉了就用
-	// 钉住的，否则回退进程级 maxLoops（composer"循环次数"拉条的读数）。
+	// 钉住的，否则回退进程级 maxLoops（composer"循环次数"拉条的读数）；
+	// 判据本身在 `loop.Effective`。
 	//
 	// 生命周期与会话引擎同域：UnloadSession（LRU 驱逐/会话卸载）会把这一格一并清掉
 	// ——端口对已卸载的会话不留任何状态，重开的会话按进程默认值跑。
@@ -984,11 +986,11 @@ func (port *EnginePort) SetSessionMaxLoopsFor(sessionID string, loops int) {
 
 // loopsForLocked 是"这个会话该用多少轮"的唯一读法：本会话钉了就用钉住的，否则回退
 // 进程级 maxLoops（composer 拉条的读数）。调用方必须持有 port.mu。
+//
+// 解析规则本身在 `loop.Effective`（判据层）；这里只负责取两个输入：
+// 会话钉住值与进程级默认值。
 func (port *EnginePort) loopsForLocked(sessionID string) int {
-	if loops := port.sessionMaxLoops[sessionID]; loops > 0 {
-		return loops
-	}
-	return port.maxLoops
+	return loop.Effective(port.sessionMaxLoops[sessionID], port.maxLoops)
 }
 
 func (port *EnginePort) SetMaxLoops(n int) {

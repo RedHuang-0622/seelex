@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract"
+	"github.com/RedHuang-0622/seelex/contract"
 )
 
 // TestHasConversationBodyTable 钉住"引擎历史里有没有对话正文"这组形状。

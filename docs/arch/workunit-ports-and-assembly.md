@@ -17,7 +17,7 @@
 |---|---|---|---|---|---|
 | 1 | **作业面** `JobFace` | 一件在飞的活：提交、句柄、状态、增量读、取消、销项、按作用域回收、变更信号 | 按能力切成的**四格 + 一个合成**：`JobSubmitter`（`Dispatch`=提交）/ `JobReader`（`Observe`=状态、`Peek`=增量读不推进游标、`Snapshot`=全量）/ `JobController`（`Kill` / `Done` / `Reclaim(ctx, Scope)` 按作用域）/ `JobSignals`（`Events()`）；`Jobs` = 四格的合成 | Seele `jobs.Manager`（teammate 现在）：**八格逐字对齐**，`contract.go` 的 `var _ Jobs = (jobs.Manager)(nil)`；`tools` 那张 async 表（subagent / `bash_bg` 现在）：今天只在 `JobSignals` 那一格同形（断言在 `seelebridge/tools/async_exec.go`） | 装配处（new） |
 | 2 | **现场** `SceneFace` | 一件活的现场：建、收尾合并、回收、重启认领 | `Begin(ctx, identity)(Scene,err)` / `Finish(ctx, scene, result, mergeErr)(Outcome,err)` / `Reclaim(ctx, scene)` / `Adopt/Restore(ctx)` | `*worktree.WorktreeManager`（已是一份实现） | 装配处（new） |
-| 3 | **会话/记录** `SessionFace` | 跑到哪、现场在哪、重启怎么回灌 | `Save/Load/List/Delete(record)` / `Recover(ctx, scope)(Resume,err)` / `InFlight(status)` | `*sessionstore.NodeSessionStore`（`SessionLedger` 已有编译期断言） | 装配处（new） |
+| 3 | **会话/记录** `SessionFace` | 跑到哪、现场在哪、重启怎么回灌 | `Save/Load/List/Delete(record)` / `Recover(ctx, scope)(Resume,err)` / `InFlight(status)` | `*store.NodeSessionStore`（`SessionLedger` 已有编译期断言） | 装配处（new） |
 | 4 | **读面** `ReadFace` | 进度 / 阶段 / 结论 / 在跑与否（只读，不新起事实源） | `Stage` / `EncodeStages·DecodeStages` / `Progress·ProgressOf` / `UnitReader`（`a3` 勘定：`docs/arch/workunit-progress-read-surface.md`，建议落 `seelebridge/workunit/progress.go`） | 投影自 ① + ③，**不新增一张表** | 装配处（new） |
 | 5 | 编排闸门 | 屏障、依赖、在编校验 | —— | leader 侧（`teamwork.Coordinator`） | **不进 workunit**，以回调/端口接 |
 | 6 | 装配 | plugin / 系统提示词 / skill 前缀 | —— | `runtime_role_turn` 一侧 | **不进 workunit**，以回调/端口接 |
@@ -29,9 +29,9 @@
 **① 落地版（2026-10-06）**：生命周期实现（`seelebridge/workunit_parent.go` 的 `lifecycleHost`）
 只持**三格宿主端口**——`sceneFace`（现场）/ `unitFace`（编排闸门 + 账本）/ `recordFace`
 （会话记录）；这三格的唯一实现是 `seelebridge/workunit_assembly.go` 的 `hostPorts`，`teamwork` /
-`worktree` / `sessionstore` 的具体类型只允许出现在那个文件里（机械门禁：
+`worktree` / `store` 的具体类型只允许出现在那个文件里（机械门禁：
 `e2e/workunit_ports_test.go`）。会话记录端口的**记录形状**仍是契约自己声明的
-`sessionstore.NodeSessionRecord` / `sessionstore.Key`（`session.go` 的 `SessionLedger` 就是它）
+`store.NodeSessionRecord` / `store.Key`（`session.go` 的 `SessionLedger` 就是它）
 ——那是"复用同一份记录、不另立第二种真相"的落点，不是"持具体实现"。
 作业面（第 1 行）今天由 `unitFace` 那一格驱动（`Coordinator.reclaimStepsLocked` 步 1 是全仓唯一
 的作业回收调用点），宿主**先不**直接驱动它：多一个调用点就是第二条回收路径，那是 §5② 的落点。
@@ -77,7 +77,7 @@
 3. 契约里写清：`Peek`（增量、不推进游标）与 `Snapshot`（全量）是两个用法；`Reclaim` 只按 scope 回收。
 4. 装配表落地一版：生命周期实现只持有端口，不持有 `teamwork` / `worktree` / `session` 的具体类型。
 5. 读面按 `a3` 的勘定收口一版：`workunit/progress.go`（`Stage` 编解码 + `ProgressOf` + `UnitReader`）；
-   `a3` 已钉出真因不是形状不统一（两层本来就落同一张 `sessionstore.NodeSessionRecord`、走同一个
+   `a3` 已钉出真因不是形状不统一（两层本来就落同一张 `store.NodeSessionRecord`、走同一个
    `workunit.SessionLedger`），而是"记录→进度折算"**三份手写** + teammate 阶段打点恒为单元素。
    折算的合并归 ② 那一波（它跨 `session/` 与 `workunit_team_records.go`），① 只先把读法定形。
 6. 验证：`gofmt` / `go build ./...` / `go vet` / 相关包 `-count=1` 真跑并记录；**不做**行为迁移，

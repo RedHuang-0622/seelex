@@ -4,12 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"strings"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/application/core/internal/limits"
-	"github.com/RedHuang-0622/seelex/application/model"
 )
 
 // PlanProjectionReader 是 TaskService 的 Plan 投影读取面。PlanState 由事件
@@ -494,7 +493,7 @@ func AppendPlanNodeEvent(node *model.PlanNode, event dto.PlanNodeEvent) {
 		}
 	}
 	node.Events = append(node.Events, model.PlanNodeEventInfo{Status: status, At: event.At, Output: output})
-	if limit := limits.Get().PlanNodeEvents; limit > 0 && len(node.Events) > limit {
+	if limit := limit.Get().PlanNodeEvents; limit > 0 && len(node.Events) > limit {
 		node.Events = node.Events[len(node.Events)-limit:]
 	}
 }

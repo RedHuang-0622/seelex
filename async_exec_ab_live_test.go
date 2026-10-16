@@ -65,7 +65,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/backend/limit"
 )
 
 const (
@@ -299,7 +299,7 @@ func abRunTurn(t *testing.T, accountsSource, upstream, taskID, arm string, rep, 
 	sleepBefore := abSleepProcesses()
 
 	harness := newFullChainHarnessWithLimits(t, accountsPath, projectRoot, 90*time.Second, true,
-		seelexctx.Limits{AsyncExec: seelexctx.AsyncExecLimits{Enabled: arm == abArmB}})
+		limit.Limits{AsyncExec: limit.AsyncExecLimits{Enabled: arm == abArmB}})
 	ctx, cancel := context.WithTimeout(context.Background(), abTurnBudget)
 	defer cancel()
 

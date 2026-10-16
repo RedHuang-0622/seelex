@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
 	"github.com/RedHuang-0622/seelex/application/core/internal/state"
 	"github.com/RedHuang-0622/seelex/application/core/prompt_layer"
@@ -14,9 +13,10 @@ import (
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
 	"github.com/RedHuang-0622/seelex/application/core/view_state"
 	"github.com/RedHuang-0622/seelex/application/core/worktable"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/promptassets"
 	"github.com/RedHuang-0622/seelex/session"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // serviceAssembler is the composition root for the application service. It
@@ -120,9 +120,9 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	})
 	// P1：会话级 goal 治理协调器（第五栈持久化经 Runtime 按会话注入；
 	// Runtime 未实现 SessionContextStoreFor 时退化为内存态）。
-	var goalStoreFor func(sessionID string) *sessionstore.SessionContextStore
+	var goalStoreFor func(sessionID string) *store.SessionContextStore
 	if provider, ok := assembler.deps.Runtime.(interface {
-		SessionContextStoreFor(sessionID string) *sessionstore.SessionContextStore
+		SessionContextStoreFor(sessionID string) *store.SessionContextStore
 	}); ok {
 		goalStoreFor = provider.SessionContextStoreFor
 	}

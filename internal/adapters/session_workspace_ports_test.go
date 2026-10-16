@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/session"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // TestSessionPortTitleRoundTrip：标题读写面在适配层落地——写穿到真实存储
@@ -15,7 +15,7 @@ import (
 // 用真存储验证这条链。
 func TestSessionPortTitleRoundTrip(t *testing.T) {
 	root := t.TempDir()
-	router, err := sessionstore.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,8 +23,8 @@ func TestSessionPortTitleRoundTrip(t *testing.T) {
 
 	const projectID = "project-adapter"
 	const sessionID = "sess-adapter"
-	if err := router.SaveCommitWorkspace(projectID, sessionID, sessionstore.Commit{
-		Events: []sessionstore.Event{{Seq: 1, Role: "user", Content: "first"}},
+	if err := router.SaveCommitWorkspace(projectID, sessionID, store.Commit{
+		Events: []store.Event{{Seq: 1, Role: "user", Content: "first"}},
 	}); err != nil {
 		t.Fatalf("seed session: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestSessionPortTitleRoundTrip(t *testing.T) {
 // （跳过以 user 身份写盘的注入行）。
 func TestSessionPortFirstUserInputs(t *testing.T) {
 	root := t.TempDir()
-	router, err := sessionstore.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,10 +58,10 @@ func TestSessionPortFirstUserInputs(t *testing.T) {
 
 	const projectID = "project-adapter-inputs"
 	const sessionID = "sess-adapter-inputs"
-	if err := router.SaveCommitWorkspace(projectID, sessionID, sessionstore.Commit{
-		Events: []sessionstore.Event{
-			{Seq: 1, Role: "user", Kind: sessionstore.EventKindInternal, Content: "<!-- seelex:active-skill:v1 -->"},
-			{Seq: 2, Role: "user", Kind: sessionstore.EventKindUserInput, Content: "适配器层的第一问"},
+	if err := router.SaveCommitWorkspace(projectID, sessionID, store.Commit{
+		Events: []store.Event{
+			{Seq: 1, Role: "user", Kind: store.EventKindInternal, Content: "<!-- seelex:active-skill:v1 -->"},
+			{Seq: 2, Role: "user", Kind: store.EventKindUserInput, Content: "适配器层的第一问"},
 		},
 	}); err != nil {
 		t.Fatalf("seed session: %v", err)
@@ -70,7 +70,7 @@ func TestSessionPortFirstUserInputs(t *testing.T) {
 	port := SessionPort{Manager: session.NewManager().WithRouter(router)}
 	port.SetWorkspaceResolver(func(string) string { return projectID })
 
-	inputs, hasLayout, err := port.FirstUserInputs(projectID, sessionID, sessionstore.FirstUserInputProbeRows)
+	inputs, hasLayout, err := port.FirstUserInputs(projectID, sessionID, store.FirstUserInputProbeRows)
 	if err != nil || !hasLayout {
 		t.Fatalf("FirstUserInputs hasLayout=%v err=%v", hasLayout, err)
 	}
@@ -83,20 +83,20 @@ func TestSessionPortFirstUserInputs(t *testing.T) {
 }
 
 // TestAdaptGranularInfosCarriesTimelineFields（左侧栏日期占位回归）：目录
-// 枚举摘要从 sessionstore 适配到 model.SessionInfo 时，updated_at 与
+// 枚举摘要从 store 适配到 model.SessionInfo 时，updated_at 与
 // token_count 必须透传。适配层把它们置零会让快照里的 updated_at 恒为
 // 0001-01-01T00:00:00Z，前端侧栏每条会话都渲染成同一个占位日期。
 func TestAdaptGranularInfosCarriesTimelineFields(t *testing.T) {
 	now := time.Date(2026, 9, 2, 10, 30, 0, 0, time.UTC)
-	rows := []sessionstore.SessionInfo{
-		{ID: "s1", Title: "会话一", Status: sessionstore.StatusIdle, UpdatedAt: now, TokenCount: 42},
+	rows := []store.SessionInfo{
+		{ID: "s1", Title: "会话一", Status: store.StatusIdle, UpdatedAt: now, TokenCount: 42},
 	}
 	out := adaptGranularInfos(rows)
 	if len(out) != 1 {
 		t.Fatalf("adapt len = %d, want 1", len(out))
 	}
 	row := out[0]
-	if row.ID != "s1" || row.Name != "会话一" || row.Status.String() != string(sessionstore.StatusIdle) {
+	if row.ID != "s1" || row.Name != "会话一" || row.Status.String() != string(store.StatusIdle) {
 		t.Fatalf("identity fields lost: %+v", row)
 	}
 	if row.UpdatedAt.IsZero() || !row.UpdatedAt.Equal(now) {

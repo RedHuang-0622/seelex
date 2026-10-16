@@ -5,14 +5,14 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	seelsession "github.com/RedHuang-0622/seelex/seelebridge/session"
 )
 
 // defaultHistoryWindow 与 maxReplansPerPlanChain 已收编进 seele.yaml limits 段
 // （history_window / max_replans_per_plan_chain）；默认值定义在
-// seelexctx.DefaultLimits，消费点经 Limits() 读取。
+// limit.DefaultLimits，消费点经 Limits() 读取。
 
 var (
 	ErrChatRunning         = errors.New("chat is already running")

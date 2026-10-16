@@ -18,7 +18,7 @@ import (
 	frameworknode "github.com/RedHuang-0622/Seele/workplan/core/node"
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/promptassets"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"

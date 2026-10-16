@@ -15,10 +15,11 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/adapters"
 	"github.com/RedHuang-0622/seelex/seelebridge"
+	"github.com/RedHuang-0622/seelex/wiring"
 )
 
 // TestManualSmokeRealAccountPlan verifies the real account path without
@@ -62,13 +63,13 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hooks := application.NewToolHookBridge()
+	hooks := wiring.NewToolHookBridge()
 	frameworkEngine, err := initEngine(runtime, hooks, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	events := application.NewEventHub()
-	approval := application.NewApprovalBroker(events)
+	events := wiring.NewEventHub()
+	approval := wiring.NewApprovalBroker(events)
 	runtime.SetPlanApprovalGate(&adapters.PlanApprovalGate{Broker: approval})
 	if err := activateDefaultPlugin(plugins, frameworkEngine); err != nil {
 		t.Fatal(err)

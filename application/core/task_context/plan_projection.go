@@ -3,8 +3,8 @@ package task_context
 import (
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // PlanProjectionFor 返回指定**后台**会话的 plan 显示投影的只读深拷贝

@@ -5,15 +5,16 @@
 package application
 
 import (
-	"context"
-
-	"github.com/RedHuang-0622/seelex/application/approval"
-	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/core"
 	"github.com/RedHuang-0622/seelex/application/event"
 	"github.com/RedHuang-0622/seelex/application/model"
 	"github.com/RedHuang-0622/seelex/application/prompt"
+	"github.com/RedHuang-0622/seelex/backend/limit/accountwindow"
+	limitapproval "github.com/RedHuang-0622/seelex/backend/limit/approval"
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/seelebridge/search"
+	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 type (
@@ -94,13 +95,25 @@ type (
 	ReplayResult               = event.ReplayResult
 	Subscription               = event.Subscription
 	EventHub                   = event.EventHub
-	ApprovalRequest            = approval.ApprovalRequest
-	ApprovalDecision           = approval.ApprovalDecision
-	ApprovalBroker             = approval.ApprovalBroker
-	PromptLayer                = prompt.PromptLayer
-	PromptStack                = prompt.PromptStack
-	EffortManager              = prompt.EffortManager
-	WebSearchConfig            = search.WebSearchConfig
+	// 审批端口形状的事实源在 contract（见 contract/approval.go）；实现体在
+	// backend/limit/approval。门面这里只是把两者按既有名字再导出。
+	ApprovalRequest  = contract.ApprovalRequest
+	ApprovalDecision = contract.ApprovalDecision
+	ApprovalBroker   = limitapproval.ApprovalBroker
+	PromptLayer      = prompt.PromptLayer
+	PromptStack      = prompt.PromptStack
+	EffortManager    = prompt.EffortManager
+	WebSearchConfig  = search.WebSearchConfig
+	// 会话存储配置：`SessionStorageConfig` / `TestSessionStorage` /
+	// `ConfigureSessionStorage` 三处用例共用的形状（GUI 设置页数据源）。
+	// 终局（规划）：M3 store 归位后由 store 侧提供 DTO，本别名重指向即可，
+	// 前端零改动。
+	SessionStorageConfig = store.Config
+	// 会话历史检索结果（`SearchHistory` 用例的返回形状，GUI 历史检索面板
+	// 数据源）。终局（规划）：plan §2.1 的 `contract.SearchPort`（M4）。
+	SearchResult = seelexctxsearch.Result
+	SearchHit    = seelexctxsearch.Hit
+	SearchRecord = seelexctxsearch.ChatRecord
 )
 
 const (
@@ -162,8 +175,8 @@ const (
 var (
 	ErrChatRunning         = core.ErrChatRunning
 	ErrApplicationDraining = core.ErrApplicationDraining
-	ErrInteractionNotFound = approval.ErrInteractionNotFound
-	ErrInteractionResolved = approval.ErrInteractionResolved
+	ErrInteractionNotFound = contract.ErrInteractionNotFound
+	ErrInteractionResolved = contract.ErrInteractionResolved
 )
 
 // ── 输入前缀（sigil）契约 ────────────────────────────────────────────────
@@ -187,27 +200,24 @@ func HasSigilPrefix(input string) bool { return core.HasSigilPrefix(input) }
 // SigilOf 返回输入的首字符前缀；不可解析时返回空串。
 func SigilOf(input string) string { return core.SigilOf(input) }
 
-func New(deps Dependencies) (*Service, error) { return core.New(deps) }
-
-func NewEventHub() *EventHub { return event.NewEventHub() }
-
-func NewApprovalBroker(events *EventHub) *ApprovalBroker { return approval.NewApprovalBroker(events) }
-
-func NewToolHookBridge() *ToolHookBridge { return core.NewToolHookBridge() }
-
-func NewPromptStack() *PromptStack { return prompt.NewPromptStack() }
-
-func NewEffortManager(stack *PromptStack, engine interface {
-	SetMaxLoops(int)
-	SetSystemPrompt(string)
-}) *EffortManager {
-	return prompt.NewEffortManager(stack, engine)
-}
-
+// ValidEffortLevels 返回合法的推理档位名（门面 E 组：无状态纯函数）。
 func ValidEffortLevels() []string { return prompt.ValidEffortLevels() }
 
+// AccountWindowPresets 返回"每账号上下文窗口"的界面挡位（token，升序）。
+//
+// 挡位表只有一处（`seelexctx` 的 limits 段），前端不自己写死一份——与权限档位、
+// effort 档位同一条口径（门面 E 组：无状态纯函数）。
+func AccountWindowPresets() []int { return accountwindow.Presets() }
+
+// RenderDiag 构建诊断文本，供 `/diag` 命令使用（门面 E 组：无状态纯函数）。
 func RenderDiag(snapshot Snapshot) string { return core.RenderDiag(snapshot) }
 
-func WebSearch(ctx context.Context, config WebSearchConfig, query string, maxResults int) (string, error) {
-	return search.WebSearch(ctx, config, query, maxResults)
-}
+// ── 门面不持有构造函数（M1-B） ──────────────────────────────────────────
+//
+// 构造只发生在组合根：`New` / `NewEventHub` / `NewApprovalBroker` /
+// `NewToolHookBridge` / `NewPromptStack` / `NewEffortManager` / `WebSearch` 已按
+// docs/2026-10-15-architecture-reshape/plan.md §2.2 迁到 `wiring/`（WebSearch 的
+// 终局是 `backend/tool/websearch`，见 M4）。前端只消费这里的类型身份、常量与
+// 用例方法面；组合根与测试基座从 `wiring` 取构造函数。
+//
+// 门面"包内无 func New*"是可机械断言的不变量（I3，见 M1-D）。

@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"errors"
+	"github.com/RedHuang-0622/seelex/backend/limit/policy"
 	"testing"
 	"time"
 
@@ -66,7 +67,7 @@ func TestPermissionGateDeniesWithFrameworkError(t *testing.T) {
 // 等于会话 ID（见 permission_policy.go）。这里用子代理主体（有 ro/rw 位、无
 // ctl/adm 位）覆盖"位齐 → 放行"与"位缺 → 不可见"两侧。
 func TestPermissionGateRoutesByToolDeclaredClusters(t *testing.T) {
-	cfg := DefaultPermissionConfig()
+	cfg := policy.DefaultPermissionConfig()
 	subCtx := model.WithNodeScope(context.Background(), model.NodeScope{
 		NodeID: "node-1", Role: model.RoleSubAgent,
 	})
@@ -79,12 +80,12 @@ func TestPermissionGateRoutesByToolDeclaredClusters(t *testing.T) {
 	}{
 		{
 			name:    "有位则放行",
-			meta:    frameworktools.ToolMeta{Kind: frameworktools.ToolKindRead, Groups: []string{GroupRO}, Bits: bitRead},
+			meta:    frameworktools.ToolMeta{Kind: frameworktools.ToolKindRead, Groups: []string{policy.GroupRO}, Bits: policy.BitRead},
 			wantRan: 1,
 		},
 		{
 			name:    "缺位即不可见",
-			meta:    frameworktools.ToolMeta{Kind: frameworktools.ToolKindWrite, Groups: []string{GroupCTL}, Bits: bitExecute},
+			meta:    frameworktools.ToolMeta{Kind: frameworktools.ToolKindWrite, Groups: []string{policy.GroupCTL}, Bits: policy.BitExecute},
 			wantErr: frameworktools.ErrToolNotVisible,
 		},
 	}

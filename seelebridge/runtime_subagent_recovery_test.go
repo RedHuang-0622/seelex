@@ -8,9 +8,9 @@ import (
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // recoveryTestCompleter 是最小 ChatCompleter（组件测试不发起真实模型调用）。
@@ -43,13 +43,13 @@ func TestSubagentConclusionFollowsMainAndAnchorsRebuild(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 
-	router, err := sessionstore.NewRouter(filepath.Join(t.TempDir(), "session-storage.json"), t.TempDir())
+	router, err := store.NewRouter(filepath.Join(t.TempDir(), "session-storage.json"), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer router.Close()
-	eventStore := sessionstore.NewEventStore(router)
-	nodeStore := sessionstore.NewNodeSessionStore(router)
+	eventStore := store.NewEventStore(router)
+	nodeStore := store.NewNodeSessionStore(router)
 
 	runtime.AttachHistoryRouter(router)
 	runtime.AttachSubSessionStore(nodeStore)

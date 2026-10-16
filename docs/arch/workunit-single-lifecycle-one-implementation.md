@@ -64,7 +64,7 @@ type Unit interface {                 // 层的读数：只有身份与策略，
 
 ```
 lifecycleHost            // 父：唯一实现，持有全部端口
-  ├─ ledger   workunit.SessionLedger   // 快照读/写（结构上就是 *sessionstore.NodeSessionStore）
+  ├─ ledger   workunit.SessionLedger   // 快照读/写（结构上就是 *store.NodeSessionStore）
   ├─ spaces   *worktree.WorktreeManager // 现场：fork / merge / rebase / 主工作区保护（一份）
   ├─ jobs     jobs.Manager              // 作业与子进程树：Reclaim(ctx, scope)
   ├─ bindings 团队绑定账本 + 计划存储     // teammate 归属与终态

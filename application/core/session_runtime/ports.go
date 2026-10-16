@@ -9,11 +9,11 @@ import (
 	"context"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/core/internal/state"
 	"github.com/RedHuang-0622/seelex/application/model"
-	"github.com/RedHuang-0622/seelex/seelexctx"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // TaskPersistencePort 是会话持久化对 task/plan 权威状态的读写面。
@@ -98,10 +98,10 @@ type SessionContextPort interface {
 type SessionForkPort interface {
 	// LoadEventRangeWorkspace 按 EventSeq 范围（含端点）读取事件流
 	// （fork 切断点解析/段落边界校验用）。
-	LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]sessionstore.Event, error)
+	LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]store.Event, error)
 	// LoadToolResultsWorkspace 枚举父会话 tool-results 通道全部结果
 	// （fork 深拷贝物理复制用）。
-	LoadToolResultsWorkspace(projectID, sessionID string) ([]sessionstore.ToolResult, error)
+	LoadToolResultsWorkspace(projectID, sessionID string) ([]store.ToolResult, error)
 	// SaveSessionSnapshotWorkspace 在显式项目作用域下原子写入子会话快照
 	// （截断后的 record + events + tool-results 物理复制）。
 	SaveSessionSnapshotWorkspace(projectID, sessionID string, providerHistory []contract.EngineMessage, record model.SessionRecord, events []model.TranscriptEvent, results []model.StoredToolResult) error
@@ -116,7 +116,7 @@ type SessionForkPort interface {
 
 // SessionGranularPort 是会话粒度读取面：原子单位 = session，调用方只传
 // sessionID/项目 ID，不再以 workspace 粒度口读写。实现方为
-// sessionstore.SessionGranularStore 的适配器（装配根注入）。
+// store.SessionGranularStore 的适配器（装配根注入）。
 type SessionGranularPort interface {
 	// SessionsOf 按项目索引枚举会话（project = 会话集合）。
 	SessionsOf(projectID string) []model.SessionInfo
@@ -158,9 +158,9 @@ type FirstUserInputPort interface {
 
 // SessionStoragePort 是会话存储设置面（可选能力断言）。
 type SessionStoragePort interface {
-	StorageConfig() (sessionstore.Config, error)
-	TestStorage(context.Context, sessionstore.Config) error
-	ConfigureStorage(context.Context, sessionstore.Config) error
+	StorageConfig() (store.Config, error)
+	TestStorage(context.Context, store.Config) error
+	ConfigureStorage(context.Context, store.Config) error
 }
 
 // ViewPort 是 Snapshot revision bump 的消费方窄接口（实现：view 域
@@ -197,7 +197,7 @@ type Deps struct {
 	// 纯逻辑，装配根注入）。
 	ContentReferenceWarning func(resultRef string) string
 	// Limits 返回当前生效的运行时上限（装配根注入，见 core.Limits）。
-	Limits func() seelexctx.Limits
+	Limits func() limit.Limits
 	// DisplayUserInput 把 provider 可见输入还原为 UI 显示输入（chat 域纯
 	// 逻辑，装配根注入），会话标题恢复用。
 	DisplayUserInput func(modelInput string) string

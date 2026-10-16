@@ -3,11 +3,11 @@ package gui
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // fakeRoleApplication 在 headless RPC 单测里复刻 Application 的 R2/R4 扩展面，
-// 不复制存储语义（语义由 sessionstore 测试与真实 headless 冒烟覆盖）。
+// 不复制存储语义（语义由 store 测试与真实 headless 冒烟覆盖）。
 type fakeRoleApplication struct {
 	*fakeApplication
 	created   dto.RoleSessionInfo

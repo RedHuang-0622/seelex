@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract"
+	"github.com/RedHuang-0622/seelex/contract"
 )
 
 // interruptedChainHistory 构造残缺工具链 provider 历史（同三处探针语义）：

@@ -132,7 +132,7 @@ type TranscriptToolCall struct {
 
 // TranscriptEventKind 是历史记录条目的显式类别，供轨迹多线谱（tool/llm/input/…）
 // 与恢复顺序重放直接识别，避免仅靠 role/content 启发式判定。
-// 取值与 sessionstore.Event.Kind 一致；空串表示旧数据，读取方必须回退到 role 判定。
+// 取值与 store.Event.Kind 一致；空串表示旧数据，读取方必须回退到 role 判定。
 const (
 	TranscriptEventKindUserInput  = "user_input"
 	TranscriptEventKindInternal   = "internal"

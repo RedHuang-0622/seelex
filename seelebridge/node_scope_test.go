@@ -18,11 +18,11 @@ import (
 	"github.com/RedHuang-0622/Seele/workplan/codec"
 	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	seelaccount "github.com/RedHuang-0622/seelex/seelebridge/account"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/plan"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // ── NodeScope 上下文助手 ─────────────────────────────────────────────
@@ -201,10 +201,10 @@ func TestNodeScopeAssemblerInheritsStableContextBlocks(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 	runtime.SetParentEvidenceProjection(ParentEvidenceProjection{SessionID: "src-1", Goal: "parent-goal", ConversationCount: 1})
-	runtime.SetProjectKnowledgeProvider(func() *sessionstore.ProjectRecord {
-		return &sessionstore.ProjectRecord{
+	runtime.SetProjectKnowledgeProvider(func() *store.ProjectRecord {
+		return &store.ProjectRecord{
 			Version: "v1",
-			Modules: []sessionstore.ModuleSemantics{
+			Modules: []store.ModuleSemantics{
 				{Name: "billing", Summary: "payment subsystem", Path: "internal/billing"},
 			},
 		}

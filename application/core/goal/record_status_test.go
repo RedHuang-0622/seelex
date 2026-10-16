@@ -3,13 +3,13 @@ package goal
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // record_status_test.go — goal 状态格的判据：**存档面读回 + 终态判定**。
 //
 // 判据三条：
-//  1. 存档里认得的词读回同一个状态（存档面 `sessionstore.GoalFrame.Status` 是
+//  1. 存档里认得的词读回同一个状态（存档面 `store.GoalFrame.Status` 是
 //     契约之下的 wire，store 存的是词）；
 //  2. 认不得的词 / 空串 → `dto.GoalStatusUnknown`：**不折成 active/paused**——
 //     折了就是替存档编一个它没说过的事实（随后 Reload 的**位置语义**才是修正

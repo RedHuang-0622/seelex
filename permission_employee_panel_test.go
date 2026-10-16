@@ -10,6 +10,7 @@ import (
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 	"github.com/RedHuang-0622/seelex/application"
 	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
+	"github.com/RedHuang-0622/seelex/wiring"
 )
 
 // permission_employee_panel_test.go — 跨层验收：员工（角色会话）越权提权的审批
@@ -35,7 +36,7 @@ func TestEmployeeEscalationLandsInOwnerSessionPanel(t *testing.T) {
 	cfg := mergedPermissionConfig(t)
 	// 用真实事件 hub（NewApprovalBroker 接收 *EventHub；传 nil 会变成"非 nil 接口持
 	// 空指针"的坑，生产装配也没有无 hub 的路径）。
-	broker := application.NewApprovalBroker(application.NewEventHub())
+	broker := wiring.NewApprovalBroker(wiring.NewEventHub())
 
 	gate := &seeltools.PermissionGate{SessionFromContext: toolspermission.SessionIDFromContext}
 	gate.Set(cfg, newPermissionBridge(broker))

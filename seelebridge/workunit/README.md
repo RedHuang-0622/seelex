@@ -10,7 +10,7 @@
 | 层 | 相对下层**增**了什么 | 现场 | 会话 | 收尾策略 |
 |---|---|---|---|---|
 | `job` | ——（基线） | 无 | 无（后台运行 + 结果回传） | 不适用：**不实现 `Unit`** |
-| `subagent` | worktree 现场 + 一件活自己的异步会话 + 存储与合并纪律 | **临时**（派出即建、收尾即清） | 一件活一条，落 `sessionstore.NodeSessionStore` | `Immediate` |
+| `subagent` | worktree 现场 + 一件活自己的异步会话 + 存储与合并纪律 | **临时**（派出即建、收尾即清） | 一件活一条，落 `store.NodeSessionStore` | `Immediate` |
 | `teammate` | 听 leader 调度 + 装配（plugin / 系统提示词 / skill 前缀复用） | 归 team | 归 team | `AtTeamClose` |
 
 两条关键口径：
@@ -64,7 +64,7 @@
 |---|---|
 | `contract.go` | `Kind` / `Scene` / `Result` / `Outcome(Kind)` / `Ownership`（归属读数）/ `Unit`（层读数：`Kind` `ID` `SessionPath` `Policy` `Owns`）/ `Lifecycle`（父实现契约面：`Begin` `Finish` `Reclaim` `Recover` `AlreadySettled` `Notice`）/ `FinishPolicy`（`Immediate`、`AtTeamClose`）/ **作业面四格 + 合成** `Jobs`（`JobSubmitter`：`Dispatch`；`JobReader`：`Observe` `Peek` `Snapshot`；`JobController`：`Kill` `Done` `Reclaim`；`JobSignals`：`Events`） |
 | `classify.go` | `ClassifyFinish(result, mergeErr)`：三层**唯一一份**收尾分类（跑失败判死 → 未提交（不判死）→ 主工作区挡路（不判死）→ 其他合并错误判死 → 落定）+ `bounded` + 它认的两个哨兵 `ErrUncommittedChanges` / `ErrMergeBlockedByMain`（与 `Is*` 判据；定义在这里 = 依赖方向是 实现 → 契约） |
-| `session.go` | `SessionLedger`（结构上就是 `*sessionstore.NodeSessionStore`）/ `Resume` / `RecoveryNoteRole` / `RecoveryNotePrefix` / `RecoveryNote(kind, record)` |
+| `session.go` | `SessionLedger`（结构上就是 `*store.NodeSessionStore`）/ `Resume` / `RecoveryNoteRole` / `RecoveryNotePrefix` / `RecoveryNote(kind, record)` |
 | `progress.go` | 进度**读面**：`Stage` + `EncodeStages`/`DecodeStages`（打点载荷的唯一一份编解码 + `ClipPreview` 唯一一份预览裁剪）+ `Progress`/`ProgressOf`（记录 → 进度的唯一一份折算）+ `UnitReader`（按 nodeID 读一件事的进度：`Read`/`Record`/`List`/`Records`）。步骤②已把它接进生产读路（宿主记录读面 / 子代理恢复定位 / teammate 会话级读回） |
 
 **依赖方向**（步骤③E 之后）：契约包**不 import 任何实现包**——`classify.go` 认的两个哨兵错误
@@ -93,7 +93,7 @@
 
 ## 四、会话恢复（重启回灌）
 
-1. **形状一致**：一个工作单元 = 一条 `sessionstore.NodeSessionRecord`（`NodeID` 定位：
+1. **形状一致**：一个工作单元 = 一条 `store.NodeSessionRecord`（`NodeID` 定位：
    subagent 是节点 id，teammate 是 `<role>-<itemID>`）；记录里的 `History` / `StagesJSON` /
    `ContextJSON` / `Worktree` 就是"跑到哪、现场在哪"。
 2. **运行期落盘**：跑着就写（进程中断可从最近一次记录恢复），落定再写终态。

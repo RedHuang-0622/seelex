@@ -4,26 +4,25 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/core/internal/limits"
-	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/backend/limit"
 )
 
 // pinIneffectiveCompactRatios 把压缩比例钉成「压缩落点够不到软线」的**合法**档：
 // 软线 60%、目标 80%（目标 > 软线 ⇒ 保留窗口上限本身就高于软线）。
-// 配置校验只要求 soft < hard（见 seelexctx.LoadLimits），因此这是能被加载的组合；
+// 配置校验只要求 soft < hard（见 limit.LoadLimits），因此这是能被加载的组合；
 // 代码内置默认档是 8/95/98/80/50，这里注入的是同一族旋钮的另一种取值，用来钉
 // **机制**（幂等/有效性校验）而不是出厂档（出厂档由 seelexctx/limits_test.go 钉住）。
 func pinIneffectiveCompactRatios(t *testing.T) {
 	t.Helper()
-	previous := limits.Get()
-	limits.Apply(seelexctx.Limits{
+	previous := limit.Get()
+	limit.Apply(limit.Limits{
 		ContextSafetyReserveDivisor: 8,
 		ContextSoftPercent:          60,
 		ContextHardPercent:          90,
 		ContextTargetPercent:        80,
 		ContextSingleItemPercent:    50,
 	})
-	t.Cleanup(func() { limits.Apply(previous) })
+	t.Cleanup(func() { limit.Apply(previous) })
 }
 
 // TestContextBudgetSkipsCompactionWithoutMargin 钉住软线压缩的**幂等/有效性校验**：

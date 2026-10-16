@@ -15,7 +15,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 func pluginsEqual(got, want []string) bool {
@@ -137,7 +137,7 @@ func TestDispatchItemCarriesPluginsAfterPlanRewrite(t *testing.T) {
 		t.Fatalf("载荷必须取计划里的当前声明（new），得 %#v", requests)
 	}
 	// 顺带钉住"声明进了计划"这一层：读回来的成员条目就是派发用的那一份。
-	stored, err := fixture.store.ReadPlan(ctx, sessionstore.Key{ProjectID: "p", SessionID: "s"})
+	stored, err := fixture.st.ReadPlan(ctx, store.Key{ProjectID: "p", SessionID: "s"})
 	if err != nil {
 		t.Fatalf("ReadPlan: %v", err)
 	}

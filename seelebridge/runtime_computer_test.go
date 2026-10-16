@@ -12,7 +12,7 @@ import (
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 	bridgecomputer "github.com/RedHuang-0622/seelex/seelebridge/tools/computer"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 func TestComputerUseEnabledParsing(t *testing.T) {
@@ -72,7 +72,7 @@ func TestRegisterBuiltinsRegistersComputerTools(t *testing.T) {
 // 会话自己**的媒体分区：项目按会话绑定解析，另一个会话按同一 ref 读不到。
 func TestStoreSessionMediaWritesIntoExecutingSessionPartition(t *testing.T) {
 	dir := t.TempDir()
-	router, err := sessionstore.NewRouter(filepath.Join(dir, "session-storage.json"), dir)
+	router, err := store.NewRouter(filepath.Join(dir, "session-storage.json"), dir)
 	if err != nil {
 		t.Fatal(err)
 	}

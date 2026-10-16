@@ -6,7 +6,7 @@
 
 当前子模块：
 
-- [`adapters/`](adapters/README.md)：把引擎/运行时/插件/Skill/会话/工作区能力适配为 `application/contract` 端口。
+- [`adapters/`](adapters/README.md)：把引擎/运行时/插件/Skill/会话/工作区能力适配为 `contract` 端口。
 - [`buildinfo/`](buildinfo/README.md)：构建期注入的版本与默认前端。
 - [`frontmatter/`](frontmatter/README.md)：Markdown YAML front matter 解析。
 - [`promptassets/`](promptassets/README.md)：Seelex-owned 提示词资产（构建期嵌入）。
@@ -28,6 +28,6 @@ flowchart LR
     INTERNAL --> T["testutil：测试桩"]
     INTERNAL --> M["toolrecord：工具调用记录台账"]
     INTERNAL --> W["winhide：子进程窗口隐藏"]
-    A --> APP["application/contract"]
+    A --> APP["contract"]
     P --> PROMPT["application/prompt / seelebridge/node"]
 ```

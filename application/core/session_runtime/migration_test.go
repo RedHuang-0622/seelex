@@ -7,9 +7,9 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/Seele/types"
-	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/model"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // TestWorkspaceScopedDataReadableThroughSessionGranularStore（迁移测试）：
@@ -17,7 +17,7 @@ import (
 // 保留为物理布局；暴露层切到会话粒度，键不漂移）。
 func TestWorkspaceScopedDataReadableThroughSessionGranularStore(t *testing.T) {
 	root := t.TempDir()
-	router, err := sessionstore.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,14 +39,14 @@ func TestWorkspaceScopedDataReadableThroughSessionGranularStore(t *testing.T) {
 		{Role: "user", Content: &content},
 		{Role: "assistant", Content: &content},
 	}
-	recordPayload, err := json.Marshal(sessionstore.Record{
+	recordPayload, err := json.Marshal(store.Record{
 		ID:     sessionID,
-		Kind:   sessionstore.KindMain,
+		Kind:   store.KindMain,
 		Title:  "旧会话",
-		Status: sessionstore.StatusIdle,
-		Binding: sessionstore.Binding{
+		Status: store.StatusIdle,
+		Binding: store.Binding{
 			WorkspaceID: projectID,
-			Kind:        sessionstore.KindMain,
+			Kind:        store.KindMain,
 		},
 	})
 	if err != nil {
@@ -55,16 +55,16 @@ func TestWorkspaceScopedDataReadableThroughSessionGranularStore(t *testing.T) {
 	if err := router.SaveStateWorkspace(projectID, sessionID, recordPayload); err != nil {
 		t.Fatalf("legacy record write: %v", err)
 	}
-	if err := router.SaveCommitWorkspace(projectID, sessionID, sessionstore.Commit{
+	if err := router.SaveCommitWorkspace(projectID, sessionID, store.Commit{
 		ProviderHistory: legacyHistory,
-		Events:          []sessionstore.Event{{Seq: 1, Role: "user", Content: "hi"}},
-		ToolResults: []sessionstore.ToolResult{
+		Events:          []store.Event{{Seq: 1, Role: "user", Content: "hi"}},
+		ToolResults: []store.ToolResult{
 			{Ref: "legacy:1", Tool: "bash", Content: "out", Size: 3},
 		},
 	}); err != nil {
 		t.Fatalf("legacy commit write: %v", err)
 	}
-	contextPayload, err := json.Marshal(sessionstore.ContextStack{Task: []string{"t1"}})
+	contextPayload, err := json.Marshal(store.ContextStack{Task: []string{"t1"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,8 +73,8 @@ func TestWorkspaceScopedDataReadableThroughSessionGranularStore(t *testing.T) {
 	}
 
 	// 会话粒度读取（同键不漂移）。
-	store := sessionstore.NewSessionGranularStore(router)
-	record, ok, err := store.LoadSession(projectID, sessionID)
+	st := store.NewSessionGranularStore(router)
+	record, ok, err := st.LoadSession(projectID, sessionID)
 	if err != nil || !ok {
 		t.Fatalf("granular load record ok=%v err=%v", ok, err)
 	}
@@ -86,28 +86,28 @@ func TestWorkspaceScopedDataReadableThroughSessionGranularStore(t *testing.T) {
 
 	// v8 JSON 布局（S11）：provider 整段历史（legacyHistory）不再落盘，
 	// 读由 commit.Events 的 message 行派生。
-	history, err := store.History(sessionID).Load(context.Background())
+	history, err := st.History(sessionID).Load(context.Background())
 	if err != nil || len(history) != 1 || history[0].Role != "user" ||
 		history[0].Content == nil || *history[0].Content != "hi" {
 		t.Fatalf("granular history len=%d err=%v", len(history), err)
 	}
 
-	transcript, err := store.Transcript(projectID, sessionID)
+	transcript, err := st.Transcript(projectID, sessionID)
 	if err != nil || len(transcript) != 1 || transcript[0].Seq != 1 {
 		t.Fatalf("granular transcript = %+v err=%v", transcript, err)
 	}
 
-	refs, err := store.ToolResults(projectID, sessionID)
+	refs, err := st.ToolResults(projectID, sessionID)
 	if err != nil || len(refs) != 1 || refs[0].Ref != "legacy:1" {
 		t.Fatalf("granular toolresults = %+v err=%v", refs, err)
 	}
 
-	stack, err := store.Context(projectID, sessionID)
+	stack, err := st.Context(projectID, sessionID)
 	if err != nil || len(stack.Task) != 1 || stack.Task[0] != "t1" {
 		t.Fatalf("granular context = %+v err=%v", stack, err)
 	}
 
-	infos, err := store.SessionsOf(projectID)
+	infos, err := st.SessionsOf(projectID)
 	if err != nil || len(infos) != 1 || infos[0].ID != sessionID {
 		t.Fatalf("granular index = %+v err=%v", infos, err)
 	}

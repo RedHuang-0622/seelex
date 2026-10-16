@@ -2,7 +2,7 @@
 //   - Router 装配与 workspace 写作用域；
 //   - SaveCurrent/Resume 回调注入（main.go 装配点）；
 //   - 存储桥与 workspace 粒度旧口已删除——持久化一律经
-//     sessionstore.SessionGranularStore（会话粒度五片）。
+//     store.SessionGranularStore（会话粒度五片）。
 package session
 
 import (
@@ -10,13 +10,13 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // Manager 是会话装配薄壳：持有 Router（物理布局）、workspace 写作用域与
 // 保存/恢复回调。不再承担任何会话数据读写（存储归 SessionGranularStore）。
 type Manager struct {
-	router *sessionstore.Router
+	router *store.Router
 	mu     sync.Mutex
 	saveFn func(sessionID string) error // 注入：保存当前会话到 store
 	loadFn func(sessionID string) error // 注入：从 store 加载到 engine
@@ -28,13 +28,13 @@ func NewManager() *Manager {
 }
 
 // WithRouter 安装会话存储路由（原子、可配置仓库；生产装配点）。
-func (m *Manager) WithRouter(router *sessionstore.Router) *Manager {
+func (m *Manager) WithRouter(router *store.Router) *Manager {
 	m.router = router
 	return m
 }
 
 // Router 返回底层存储路由（context 模块装配等用途；未装配时 nil）。
-func (m *Manager) Router() *sessionstore.Router {
+func (m *Manager) Router() *store.Router {
 	return m.router
 }
 
@@ -53,21 +53,21 @@ func (m *Manager) Workspace() string {
 	return ""
 }
 
-func (m *Manager) StorageConfig() (sessionstore.Config, error) {
+func (m *Manager) StorageConfig() (store.Config, error) {
 	if m.router == nil {
-		return sessionstore.Config{}, fmt.Errorf("session: configurable storage is unavailable")
+		return store.Config{}, fmt.Errorf("session: configurable storage is unavailable")
 	}
 	return m.router.Config(), nil
 }
 
-func (m *Manager) TestStorage(ctx context.Context, config sessionstore.Config) error {
+func (m *Manager) TestStorage(ctx context.Context, config store.Config) error {
 	if m.router == nil {
 		return fmt.Errorf("session: configurable storage is unavailable")
 	}
 	return m.router.Test(ctx, config)
 }
 
-func (m *Manager) ConfigureStorage(ctx context.Context, config sessionstore.Config) error {
+func (m *Manager) ConfigureStorage(ctx context.Context, config store.Config) error {
 	if m.router == nil {
 		return fmt.Errorf("session: configurable storage is unavailable")
 	}
@@ -90,7 +90,7 @@ func (m *Manager) InjectSaveLoad(saveFn, loadFn func(sessionID string) error) {
 // 装配方把 Manager 注进 CompressedTurnArchiver，但 Manager 没有这个能力，类型
 // 断言失败 → 压缩原文一律写不出去（read_compressed_turn 只剩 unrecoverable）。
 // 显式作用域是刻意的：后台会话的落盘不能跟着视图的活跃项目漂移。
-func (m *Manager) SaveCommitWorkspace(projectID, sessionID string, commit sessionstore.Commit) error {
+func (m *Manager) SaveCommitWorkspace(projectID, sessionID string, commit store.Commit) error {
 	if m == nil || m.router == nil {
 		return fmt.Errorf("session: commit storage is unavailable (router not attached)")
 	}

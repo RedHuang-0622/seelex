@@ -12,76 +12,76 @@ import (
 	"testing"
 
 	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 type memPlanStore struct {
 	mu       sync.Mutex
-	plans    map[sessionstore.Key]sessionstore.TeamworkPlan
-	events   map[sessionstore.Key][]sessionstore.TeamworkEvent
-	bindings map[sessionstore.Key][]sessionstore.TeamworkBinding
+	plans    map[store.Key]store.TeamworkPlan
+	events   map[store.Key][]store.TeamworkEvent
+	bindings map[store.Key][]store.TeamworkBinding
 }
 
-func (m *memPlanStore) WritePlan(_ context.Context, key sessionstore.Key, plan sessionstore.TeamworkPlan, _ int) error {
+func (m *memPlanStore) WritePlan(_ context.Context, key store.Key, plan store.TeamworkPlan, _ int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.plans == nil {
-		m.plans = map[sessionstore.Key]sessionstore.TeamworkPlan{}
+		m.plans = map[store.Key]store.TeamworkPlan{}
 	}
 	m.plans[key] = plan
 	return nil
 }
 
-func (m *memPlanStore) ReadPlan(_ context.Context, key sessionstore.Key) (sessionstore.TeamworkPlan, error) {
+func (m *memPlanStore) ReadPlan(_ context.Context, key store.Key) (store.TeamworkPlan, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	plan, ok := m.plans[key]
 	if !ok {
-		return sessionstore.TeamworkPlan{}, context.Canceled // 任意错误：缺失即未写入
+		return store.TeamworkPlan{}, context.Canceled // 任意错误：缺失即未写入
 	}
 	return plan, nil
 }
 
-func (m *memPlanStore) AppendEvent(_ context.Context, key sessionstore.Key, event sessionstore.TeamworkEvent) error {
+func (m *memPlanStore) AppendEvent(_ context.Context, key store.Key, event store.TeamworkEvent) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.events == nil {
-		m.events = map[sessionstore.Key][]sessionstore.TeamworkEvent{}
+		m.events = map[store.Key][]store.TeamworkEvent{}
 	}
 	m.events[key] = append(m.events[key], event)
 	return nil
 }
 
-func (m *memPlanStore) ReadEvents(_ context.Context, key sessionstore.Key) ([]sessionstore.TeamworkEvent, error) {
+func (m *memPlanStore) ReadEvents(_ context.Context, key store.Key) ([]store.TeamworkEvent, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return append([]sessionstore.TeamworkEvent(nil), m.events[key]...), nil
+	return append([]store.TeamworkEvent(nil), m.events[key]...), nil
 }
 
-func (m *memPlanStore) AppendBinding(_ context.Context, key sessionstore.Key, binding sessionstore.TeamworkBinding) error {
+func (m *memPlanStore) AppendBinding(_ context.Context, key store.Key, binding store.TeamworkBinding) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.bindings == nil {
-		m.bindings = map[sessionstore.Key][]sessionstore.TeamworkBinding{}
+		m.bindings = map[store.Key][]store.TeamworkBinding{}
 	}
 	m.bindings[key] = append(m.bindings[key], binding)
 	return nil
 }
 
-func (m *memPlanStore) ReadBindings(_ context.Context, key sessionstore.Key) ([]sessionstore.TeamworkBinding, error) {
+func (m *memPlanStore) ReadBindings(_ context.Context, key store.Key) ([]store.TeamworkBinding, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return append([]sessionstore.TeamworkBinding(nil), m.bindings[key]...), nil
+	return append([]store.TeamworkBinding(nil), m.bindings[key]...), nil
 }
 
-func teamworkTestBackend(store *memPlanStore, sessionID string) TeamworkBackend {
+func teamworkTestBackend(st *memPlanStore, sessionID string) TeamworkBackend {
 	return TeamworkBackend{
-		Store: store,
-		KeyFor: func(id string) (sessionstore.Key, bool) {
+		Store: st,
+		KeyFor: func(id string) (store.Key, bool) {
 			if id != sessionID {
-				return sessionstore.Key{}, false
+				return store.Key{}, false
 			}
-			return sessionstore.Key{ProjectID: "p-team", SessionID: sessionID}, true
+			return store.Key{ProjectID: "p-team", SessionID: sessionID}, true
 		},
 		MaxTeammates: 6,
 	}
@@ -107,8 +107,8 @@ func TestTeamworkToolsRegisteredOnlyWithBackend(t *testing.T) {
 func TestTeamworkPlanHandlerPersistsPlan(t *testing.T) {
 	r := newTestRuntime(t)
 	defer r.Shutdown()
-	store := &memPlanStore{}
-	if err := r.SetTeamworkBackend(teamworkTestBackend(store, "s-team")); err != nil {
+	st := &memPlanStore{}
+	if err := r.SetTeamworkBackend(teamworkTestBackend(st, "s-team")); err != nil {
 		t.Fatalf("SetTeamworkBackend: %v", err)
 	}
 	ctx := seeletelemetry.WithSessionID(context.Background(), "s-team")
@@ -123,7 +123,7 @@ func TestTeamworkPlanHandlerPersistsPlan(t *testing.T) {
 	if receipt == "" {
 		t.Fatal("team_plan 应返回受理回执")
 	}
-	plan, err := store.ReadPlan(context.Background(), sessionstore.Key{ProjectID: "p-team", SessionID: "s-team"})
+	plan, err := st.ReadPlan(context.Background(), store.Key{ProjectID: "p-team", SessionID: "s-team"})
 	if err != nil {
 		t.Fatalf("计划未落持久面: %v", err)
 	}
@@ -144,8 +144,8 @@ func TestTeamworkPlanHandlerPersistsPlan(t *testing.T) {
 func TestTeamworkDispatchRefusesUnenrolledRole(t *testing.T) {
 	r := newTestRuntime(t)
 	defer r.Shutdown()
-	store := &memPlanStore{}
-	if err := r.SetTeamworkBackend(teamworkTestBackend(store, "s-team")); err != nil {
+	st := &memPlanStore{}
+	if err := r.SetTeamworkBackend(teamworkTestBackend(st, "s-team")); err != nil {
 		t.Fatalf("SetTeamworkBackend: %v", err)
 	}
 	ctx := seeletelemetry.WithSessionID(context.Background(), "s-team")

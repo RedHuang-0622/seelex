@@ -3,9 +3,9 @@ package task_context
 import (
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/application/contract"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // PlanNodeStatus 把框架/事件里的节点状态词折成我们的节点状态；第二个返回值报告
@@ -291,7 +291,7 @@ func transcriptEventMessage(event model.TranscriptEvent) contract.EngineMessage 
 // Content（呈现文本）——工具失败/超限的呈现文本只属于视图，进 wire 会让下一轮
 // 重投影改写该消息、provider 前缀缓存自该点起失效。
 //
-// 与 sessionstore.providerContentOrContent 是同一规则的两处实现（应用侧投影 /
+// 与 store.providerContentOrContent 是同一规则的两处实现（应用侧投影 /
 // 存储侧投影），改动必须同步。
 func providerContentForEvent(event model.TranscriptEvent) string {
 	if event.ProviderContent != "" {

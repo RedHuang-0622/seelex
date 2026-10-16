@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"github.com/RedHuang-0622/seelex/backend/limit/policy"
 	"strings"
 	"testing"
 
@@ -38,25 +39,25 @@ func TestShellFactIsResolvedOnceAndDrivesExecution(t *testing.T) {
 // 不然它会照着 POSIX 写，而本机壳可能根本不认那些命令。
 func TestShellDialectIsCarriedToTheModel(t *testing.T) {
 	cases := []struct {
-		kind         ShellKind
+		kind         policy.ShellKind
 		hintWants    []string
 		sectionWants []string
 		hintAbsent   []string
 	}{
 		{
-			kind:         ShellPowerShell,
+			kind:         policy.ShellPowerShell,
 			hintWants:    []string{"Get-ChildItem", "Select-String", "do NOT work"},
 			sectionWants: []string{"PowerShell", "Get-ChildItem"},
 			hintAbsent:   []string{"POSIX syntax applies"},
 		},
 		{
-			kind:         ShellBash,
+			kind:         policy.ShellBash,
 			hintWants:    []string{"POSIX syntax applies"},
 			sectionWants: []string{"POSIX syntax applies"},
 			hintAbsent:   []string{"do NOT work"},
 		},
 		{
-			kind:         ShellCmd,
+			kind:         policy.ShellCmd,
 			hintWants:    []string{"cmd.exe", "dir"},
 			sectionWants: []string{"cmd.exe", "dir"},
 			hintAbsent:   []string{"POSIX syntax applies"},
@@ -90,8 +91,8 @@ func TestShellDialectIsCarriedToTheModel(t *testing.T) {
 
 // TestPermissionAllowListFollowsTheShellDialect：免打断白名单按方言分派，其余层只有一份。
 func TestPermissionAllowListFollowsTheShellDialect(t *testing.T) {
-	posix := PermissionRulesForShell(ShellBash)
-	powershell := PermissionRulesForShell(ShellPowerShell)
+	posix := policy.PermissionRulesForShell(policy.ShellBash)
+	powershell := policy.PermissionRulesForShell(policy.ShellPowerShell)
 
 	// 只有"免打断读命令"那一层的 patterns 变；ask / deny 层逐条相同（一份判据）。
 	if len(posix) != len(powershell) {
@@ -108,7 +109,7 @@ func TestPermissionAllowListFollowsTheShellDialect(t *testing.T) {
 		}
 	}
 
-	powershellAllow := bashAllowListForShell(ShellPowerShell)
+	powershellAllow := bashAllowListForTest(policy.ShellPowerShell)
 	for _, dead := range []string{"ls *", "cat *", "head *", "tail *", "which *", "df *", "du *", "printenv"} {
 		if containsString(powershellAllow, dead) {
 			t.Fatalf("PowerShell 宿主不该放行 POSIX 形态 %q：它会过闸即死（审计 D4）", dead)
@@ -121,12 +122,12 @@ func TestPermissionAllowListFollowsTheShellDialect(t *testing.T) {
 	}
 	// 共享槽（两种壳下都成立）与壳无关，必须两边都在。
 	for _, shared := range []string{"git *", "go test *"} {
-		if !containsString(powershellAllow, shared) || !containsString(bashAllowListForShell(ShellBash), shared) {
+		if !containsString(powershellAllow, shared) || !containsString(bashAllowListForTest(policy.ShellBash), shared) {
 			t.Fatalf("共享模式 %q 在两种方言下都该放行", shared)
 		}
 	}
 	// 默认入口保持 POSIX 口径（用例与宿主机器无关）。
-	if got := PermissionRulesForShell(ShellBash); len(got) != len(DefaultPermissionRules()) {
+	if got := policy.PermissionRulesForShell(policy.ShellBash); len(got) != len(policy.DefaultPermissionRules()) {
 		t.Fatalf("默认规则必须等价于 POSIX 方言")
 	}
 }
@@ -138,4 +139,18 @@ func containsString(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// bashAllowListForTest 取某档壳下的 bash 免打断模式。
+//
+// 判据（`bashAllowListForShell`）已随 M2-C4 归位 backend/limit/policy，本包只能经
+// **导出面**读同一份值：`PermissionRulesForShell` 的 bash allow 规则 Patterns 就是
+// 那张表的折叠结果——因此这里不是第二份判据，只是换一条读法（断言逐条不变）。
+func bashAllowListForTest(kind policy.ShellKind) []string {
+	for _, rule := range policy.PermissionRulesForShell(kind) {
+		if rule.ToolName == "bash" && rule.Action == toolspermission.ActionAllow {
+			return rule.Patterns
+		}
+	}
+	return nil
 }

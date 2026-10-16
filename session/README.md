@@ -25,7 +25,7 @@ flowchart TB
 
     subgraph LEGACY["legacy 存储桥（manager.go，降级为迁移辅助）"]
         STORE["Store：List / Delete / Load / Range / Count"]
-        MGR["Manager：持有 legacy store + 可选 NestedSessionStore + sessionstore.Router"]
+        MGR["Manager：持有 legacy store + 可选 NestedSessionStore + store.Router"]
         SAW["SaveCommitWorkspace / LoadEventRangeByWorkspace<br/>显式项目作用域读写（fork 深拷贝）"]
         CFG["StorageConfig / ConfigureStorage<br/>委托 Router 原子切换 backend"]
     end
@@ -55,7 +55,7 @@ sequenceDiagram
 ## 核心实现
 
 - `Store`：兼容旧 Seele store 的最小 List/Delete/Load/Range/Count 接口。
-- `Manager`：持有 legacy store、可选 `NestedSessionStore` 和生产 `sessionstore.Router`。
+- `Manager`：持有 legacy store、可选 `NestedSessionStore` 和生产 `store.Router`。
 - `InjectSaveLoad`：连接 Engine 当前会话的 Save/Resume callback。
 - `SetWorkspace`/`Workspace`：只影响后续默认读写 scope。
 - `ListByWorkspace`/`LoadHistoryByWorkspace`/`DeleteByWorkspace`：不改变 active scope 的显式读取。
@@ -81,12 +81,12 @@ sequenceDiagram
   - `SessionSettingPort`：**会话级用户设置**（当前为 `SessionPermissionTier`/
     `SetSessionPermissionTier`，即主会话在本会话的权限档位）。档位是用户选择而非执行
     事实，但它必须跨重启保留，因此落在存储层的项目级会话元数据 blob 里（与展示元数据
-    同一份存储、两套写面；为什么不能进 `SessionRecord` 见 `sessionstore/README.md`）。
+    同一份存储、两套写面；为什么不能进 `SessionRecord` 见 `store/README.md`）。
     未实现该端口的宿主退回"档位只在内存"的旧语义，切档不报错。
 
 ## 生态位
 
-Application 关心“保存/恢复哪一个 session”，sessionstore 关心“如何原子存储”；Manager 隔离两者并保留旧调用兼容。
+Application 关心“保存/恢复哪一个 session”，store 关心“如何原子存储”；Manager 隔离两者并保留旧调用兼容。
 
 ## 并发与 Review
 
@@ -104,7 +104,7 @@ go test ./application/core -run 'Session|History|Workspace' -count=1
 
 ## Atomic recovery APIs
 
-`SaveCommit` adapts the Application snapshot to `sessionstore.Commit`. `LoadEventTailByWorkspace` performs token-bounded complete-unit recovery without changing the active workspace, and `LoadToolResultByWorkspace` supports scoped read-only result retrieval. These APIs require the configurable Router; legacy stores retain history-only compatibility.
+`SaveCommit` adapts the Application snapshot to `store.Commit`. `LoadEventTailByWorkspace` performs token-bounded complete-unit recovery without changing the active workspace, and `LoadToolResultByWorkspace` supports scoped read-only result retrieval. These APIs require the configurable Router; legacy stores retain history-only compatibility.
 
 对话 fork 一期（深拷贝 + 血缘 meta）：`ForkSession` 由 application 层编排
 （`application/core`），Manager 提供显式项目作用域的枚举/提交/上下文读写，

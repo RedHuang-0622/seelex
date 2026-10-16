@@ -3,13 +3,12 @@ package task_context
 import (
 	"crypto/sha256"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/application/prompt"
+	"github.com/RedHuang-0622/seelex/backend/limit"
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application/core/internal/limits"
-	"github.com/RedHuang-0622/seelex/application/model"
-	"github.com/RedHuang-0622/seelex/application/prompt"
 )
 
 const (
@@ -274,7 +273,7 @@ func (state *TaskExecutionState) ContextSummary() string {
 	if !meaningful {
 		return ""
 	}
-	limit := limits.Get().MaxToolResultChars
+	limit := limit.Get().MaxToolResultChars
 	var out strings.Builder
 	appendContextSummary(&out, limit, fmt.Sprintf("objective: %s\nstatus: %s\neffort: %s\n", state.Objective, state.Status, state.Effort))
 	if state.PlanArguments != "" {
@@ -351,7 +350,7 @@ func BoundedEvidence(value string) string {
 	if value == "" {
 		return ""
 	}
-	maxChars := limits.Get().EvidenceChars // limits.evidence_chars（默认 800）
+	maxChars := limit.Get().EvidenceChars // limits.evidence_chars（默认 800）
 	if len(value) > maxChars {
 		return value[:maxChars] + "…"
 	}

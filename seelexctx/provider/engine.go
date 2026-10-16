@@ -58,7 +58,7 @@ func (p *EngineProvider) Export(_ context.Context) (*snapshot.ContextSnapshot, e
 }
 
 // HistoryProvider 实现 Provider 接口，从 seelectx.DurableHistory 导出
-// （sessionstore 适配；plan.md §2.5：provider 读 DurableHistory /
+// （store 适配；plan.md §2.5：provider 读 DurableHistory /
 // SessionRecord，不再依赖旧 engine.History()）。
 type HistoryProvider struct {
 	history   seelectx.DurableHistory

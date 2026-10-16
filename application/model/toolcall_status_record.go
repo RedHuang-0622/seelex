@@ -3,7 +3,7 @@ package model
 import (
 	"encoding/json"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // ToolCallStatusOfRecord 是"工具调用视图词"这一格在**记录/边界那一侧**的唯一转换点：

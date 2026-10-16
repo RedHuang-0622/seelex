@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // boardSnapshot 在 goal 快照上挂一份团队看板投影（与后端下发的形状一致）。

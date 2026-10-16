@@ -1,7 +1,7 @@
 package seelebridge
 
 // runtime_unit_recovery.go — 恢复链的**策略面**：一条持久记录该按哪一层恢复，由记录快照里的
-// **身份**（`sessionstore.NodeUnitRecord.Kind`）决定，而不是由 nodeID 的拼法去猜。
+// **身份**（`store.NodeUnitRecord.Kind`）决定，而不是由 nodeID 的拼法去猜。
 //
 // 为什么恢复侧必须是策略、写侧却是责任链：两条链**要读的东西、要恢复的内容确实不同**——
 //   - subagent：恢复"崩溃遗留的节点"（详情数据面 + 子代理树节点 + 现场登记），跑完即清；
@@ -18,7 +18,7 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // unitRecoveryStrategy 是恢复链上的一格策略：认哪些记录、把它们恢复成什么。
@@ -26,7 +26,7 @@ type unitRecoveryStrategy interface {
 	// Kind 报告本策略管哪一层（诊断读数与用例的判据）。
 	Kind() workunit.Kind
 	// Restore 恢复本策略**认得的那一批**记录（空批 = 幂等的无事路径）。
-	Restore(records []sessionstore.NodeSessionRecord)
+	Restore(records []store.NodeSessionRecord)
 }
 
 // subagentRecovery 恢复子代理层：详情数据面 + 子代理树 + 现场登记。
@@ -40,7 +40,7 @@ type subagentRecovery struct {
 
 func (s subagentRecovery) Kind() workunit.Kind { return workunit.KindSubagent }
 
-func (s subagentRecovery) Restore(records []sessionstore.NodeSessionRecord) {
+func (s subagentRecovery) Restore(records []store.NodeSessionRecord) {
 	if len(records) == 0 || s.runtime == nil {
 		return
 	}
@@ -72,7 +72,7 @@ type teamUnitRecovery struct {
 
 func (t teamUnitRecovery) Kind() workunit.Kind { return workunit.KindTeammate }
 
-func (t teamUnitRecovery) Restore(records []sessionstore.NodeSessionRecord) {
+func (t teamUnitRecovery) Restore(records []store.NodeSessionRecord) {
 	if len(records) == 0 || t.runtime == nil || t.runtime.worktreeMgr == nil {
 		return
 	}
@@ -97,7 +97,7 @@ func (r *Runtime) unitRecoveryStrategies(sessionID string) []unitRecoveryStrateg
 //     nodeID 的形状"：那份名单是"这个 nodeID 属于谁"的正本。
 //
 // 认不得的词（将来加了新层而这里没跟上）不静默归类：按既有链（子代理）恢复并留痕。
-func (r *Runtime) unitKindOf(record sessionstore.NodeSessionRecord, teamScenes map[string]bool) workunit.Kind {
+func (r *Runtime) unitKindOf(record store.NodeSessionRecord, teamScenes map[string]bool) workunit.Kind {
 	switch kind := workunit.Kind(strings.TrimSpace(record.Unit.Kind)); kind {
 	case workunit.KindSubagent, workunit.KindTeammate:
 		return kind
@@ -113,7 +113,7 @@ func (r *Runtime) unitKindOf(record sessionstore.NodeSessionRecord, teamScenes m
 }
 
 // restoreUnitRecords 是恢复链的**分派点**：先按身份把记录切开，再交给各自的策略。
-func (r *Runtime) restoreUnitRecords(sessionID string, records []sessionstore.NodeSessionRecord) {
+func (r *Runtime) restoreUnitRecords(sessionID string, records []store.NodeSessionRecord) {
 	if r == nil || len(records) == 0 {
 		return
 	}
@@ -121,7 +121,7 @@ func (r *Runtime) restoreUnitRecords(sessionID string, records []sessionstore.No
 	for _, entry := range r.teamSceneIndex(sessionID) {
 		scenes[entry.NodeID] = true
 	}
-	owned := make(map[workunit.Kind][]sessionstore.NodeSessionRecord, 2)
+	owned := make(map[workunit.Kind][]store.NodeSessionRecord, 2)
 	for _, record := range records {
 		kind := r.unitKindOf(record, scenes)
 		owned[kind] = append(owned[kind], record)

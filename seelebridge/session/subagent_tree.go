@@ -9,14 +9,14 @@ import (
 
 	frameworksession "github.com/RedHuang-0622/Seele/session"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/fork"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/seelexctx/provider"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // ──── 子代理树（fork 内存态可视化数据面）────
@@ -355,7 +355,7 @@ func (s *SubagentTree) Clear() error {
 // 本进程仍在跑的节点（内存态有活会话）不被记录覆盖：崩溃口径（running →
 // interrupted）只适用于"记录的主人已经不在这个进程里"，照搬会把手头正在跑
 // 的节点显示成中断。
-func (s *SubagentTree) Restore(records []sessionstore.NodeSessionRecord, mainSessionID string, belongsToCurrent func(sessionstore.NodeSessionRecord) bool) {
+func (s *SubagentTree) Restore(records []store.NodeSessionRecord, mainSessionID string, belongsToCurrent func(store.NodeSessionRecord) bool) {
 	if s == nil || len(records) == 0 {
 		return
 	}

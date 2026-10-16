@@ -25,21 +25,21 @@ import (
 	"testing"
 
 	bridgesession "github.com/RedHuang-0622/seelex/seelebridge/session"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // teamUnitRecordFixture 搭出"旧进程落一条 teammate 单元记录 + 建出现场"的现场。
 //
 // 现场用 `BeginNamed`（与派发时 `BindWorkspace` 同一条命名）在**真 git 仓库**里建，记录用
 // 产品写点 `markTeamUnitRunning` 落（不手搓 JSON：要钉的正是"写侧写出去什么形状"）。
-func teamUnitRecordFixture(t *testing.T, sessionID, nodeID, roleSessionID string, write func(*Runtime, *sessionstore.NodeSessionStore)) (repo, scenePath string, router *sessionstore.Router, nodeStore *sessionstore.NodeSessionStore) {
+func teamUnitRecordFixture(t *testing.T, sessionID, nodeID, roleSessionID string, write func(*Runtime, *store.NodeSessionStore)) (repo, scenePath string, router *store.Router, nodeStore *store.NodeSessionStore) {
 	t.Helper()
-	router, err := sessionstore.NewRouter(filepath.Join(t.TempDir(), "session-storage.json"), t.TempDir())
+	router, err := store.NewRouter(filepath.Join(t.TempDir(), "session-storage.json"), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = router.Close() })
-	nodeStore = sessionstore.NewNodeSessionStore(router)
+	nodeStore = store.NewNodeSessionStore(router)
 	repo = setupGitRepo(t)
 
 	previous := newTestRuntime(t)
@@ -99,7 +99,7 @@ func TestTeamUnitRecordRestoresAsTeamworkSceneNotSubagentNode(t *testing.T) {
 		roleSess  = "sess-1-t-exec"
 	)
 	repo, scenePath, router, nodeStore := teamUnitRecordFixture(t, sessionID, nodeID, roleSess,
-		func(r *Runtime, _ *sessionstore.NodeSessionStore) {
+		func(r *Runtime, _ *store.NodeSessionStore) {
 			r.markTeamUnitRunning(sessionID, teamUnitRecordKey{
 				NodeID: nodeID, RoleSessionID: roleSess, Goal: "只写文档：把现场四栏写全",
 			})
@@ -167,12 +167,12 @@ func TestLegacyTeamUnitRecordWithoutIdentityIsClassifiedByTeamScene(t *testing.T
 		roleSess = "sess-legacy-t-exec"
 	)
 	repo := setupGitRepo(t)
-	router, err := sessionstore.NewRouter(filepath.Join(t.TempDir(), "session-storage.json"), t.TempDir())
+	router, err := store.NewRouter(filepath.Join(t.TempDir(), "session-storage.json"), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer router.Close()
-	nodeStore := sessionstore.NewNodeSessionStore(router)
+	nodeStore := store.NewNodeSessionStore(router)
 
 	// 老进程：建现场；把**加固前形状**的记录直接落盘（没有 Unit 那一格）。
 	previous := newTestRuntime(t)
@@ -185,14 +185,14 @@ func TestLegacyTeamUnitRecordWithoutIdentityIsClassifiedByTeamScene(t *testing.T
 	if created == nil {
 		t.Fatal("前置：真实 git 仓库里应能建出现场")
 	}
-	legacy := sessionstore.NodeSessionRecord{
-		SchemaVersion: sessionstore.NodeSessionSchemaVersion,
+	legacy := store.NodeSessionRecord{
+		SchemaVersion: store.NodeSessionSchemaVersion,
 		NodeID:        nodeID,
 		SessionID:     roleSess,
 		MainSessionID: sessionID,
 		Goal:          "老记录：快照里没有身份那一格",
 		Status:        "running",
-		Worktree:      sessionstore.NodeWorktreeRecord{Path: created.Path, Branch: created.Branch},
+		Worktree:      store.NodeWorktreeRecord{Path: created.Path, Branch: created.Branch},
 	}
 	if err := nodeStore.Save("p-team", sessionID, legacy); err != nil {
 		t.Fatal(err)
@@ -200,15 +200,15 @@ func TestLegacyTeamUnitRecordWithoutIdentityIsClassifiedByTeamScene(t *testing.T
 	previous.Shutdown()
 
 	// 重启：团队事实（计划 + 账本）说这个 nodeID 是 teammate 的。
-	store := &memPlanStore{}
-	if err := store.WritePlan(t.Context(), sessionstore.Key{ProjectID: "p-team", SessionID: sessionID}, sceneTestTeamPlan(), 0); err != nil {
+	st := &memPlanStore{}
+	if err := st.WritePlan(t.Context(), store.Key{ProjectID: "p-team", SessionID: sessionID}, sceneTestTeamPlan(), 0); err != nil {
 		t.Fatal(err)
 	}
 	restarted := restartOverScene(t, repo)
 	restarted.AttachHistoryRouter(router)
 	restarted.AttachSubSessionStore(nodeStore)
 	restarted.SetSessionWorkspace(sessionID, "p-team")
-	if err := restarted.SetTeamworkBackend(teamworkTestBackend(store, sessionID)); err != nil {
+	if err := restarted.SetTeamworkBackend(teamworkTestBackend(st, sessionID)); err != nil {
 		t.Fatalf("SetTeamworkBackend: %v", err)
 	}
 	if err := restarted.RestoreSubagentAnchors(sessionID); err != nil {

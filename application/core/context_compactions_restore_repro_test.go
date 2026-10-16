@@ -27,7 +27,7 @@ package core
 // 会话落盘 → Shutdown → 同一 store 上新建第二份 Service 冷加载
 // （`ResumeSession`）。store 用 `archiveSessions`（record 的读写面），它按
 // `SaveSessionRecordWorkspace` / `LoadSessionRecord` 承载 record，与生产
-// sessionstore 的 record 通道同形。
+// store 的 record 通道同形。
 
 import "testing"
 

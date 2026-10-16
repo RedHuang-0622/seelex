@@ -21,7 +21,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // TeamworkPlanFor 实现 `core.TeamworkPlanSource`：返回该会话的 teamwork 计划。
@@ -29,37 +29,37 @@ import (
 // 未装配 teamwork 面 / 会话解析不出作用域 / 键不完整 / 该会话没有计划 / 读失败
 // ⇒ (零值, false)。读失败与"没有计划"同解，是因为调用方（看板投影）对两者只做同一件事：
 // 整块退场（I6：空则退场，不建文件、不留空壳）。
-func (r *Runtime) TeamworkPlanFor(sessionID string) (sessionstore.TeamworkPlan, bool) {
+func (r *Runtime) TeamworkPlanFor(sessionID string) (store.TeamworkPlan, bool) {
 	if r == nil {
-		return sessionstore.TeamworkPlan{}, false
+		return store.TeamworkPlan{}, false
 	}
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
-		return sessionstore.TeamworkPlan{}, false
+		return store.TeamworkPlan{}, false
 	}
 	r.teamworkMu.Lock()
 	backend := r.teamworkBackend
 	r.teamworkMu.Unlock()
 	if backend == nil || backend.Store == nil || backend.KeyFor == nil {
-		return sessionstore.TeamworkPlan{}, false
+		return store.TeamworkPlan{}, false
 	}
 	key, ok := backend.KeyFor(sessionID)
 	if !ok {
-		return sessionstore.TeamworkPlan{}, false
+		return store.TeamworkPlan{}, false
 	}
 	// 键的两个分量都必须齐全：投影落点是按 (项目, 会话) 分层的，半截键读出来的东西
 	// 归不到任何一个会话上（口径与同包 coordinatorFor 的显式键校验一致，不新写一份判据）。
 	if strings.TrimSpace(key.ProjectID) == "" || strings.TrimSpace(key.SessionID) == "" {
-		return sessionstore.TeamworkPlan{}, false
+		return store.TeamworkPlan{}, false
 	}
 	plan, err := backend.Store.ReadPlan(context.Background(), key)
 	if err != nil {
-		return sessionstore.TeamworkPlan{}, false
+		return store.TeamworkPlan{}, false
 	}
 	// 空计划 = 还没有团队（读面契约：缺失返回空计划而不是错误）。投影面按
 	// "没有计划"处理，与读不到同款——否则一个空计划会被当成真计划去渲染一张空看板。
 	if plan.IsEmpty() {
-		return sessionstore.TeamworkPlan{}, false
+		return store.TeamworkPlan{}, false
 	}
 	return plan, true
 }
@@ -72,5 +72,5 @@ func (r *Runtime) TeamworkPlanFor(sessionID string) (sessionstore.TeamworkPlan, 
 // 调用面 `Service.ProjectBoardTeamPlanFor` 用类型断言取这个口，装配根用例里另有
 // 一条 `var _ core.TeamworkPlanSource = (*seelebridge.Runtime)(nil)` 钉住两端同一形状）。
 var _ interface {
-	TeamworkPlanFor(sessionID string) (sessionstore.TeamworkPlan, bool)
+	TeamworkPlanFor(sessionID string) (store.TeamworkPlan, bool)
 } = (*Runtime)(nil)

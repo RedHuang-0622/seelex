@@ -20,7 +20,7 @@ import (
 
 	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // fakeMemberJobs 是收窄端口的最小假体：它**只**有读法（读面的类型级保证）。
@@ -151,7 +151,7 @@ func TestTeamworkContextBounded(t *testing.T) {
 
 func TestTeamworkContextRolesFilterAndClosedFlag(t *testing.T) {
 	plan := boardPlanFixture()
-	plan.State = sessionstore.TeamworkState{State: sessionstore.TeamworkStateClosed}
+	plan.State = store.TeamworkState{State: store.TeamworkStateClosed}
 	port := &fakeMemberJobs{}
 	view := buildTeamworkContextView(context.Background(), plan, nil, port, nil,
 		teamworkContextOptions{Roles: []string{" impl_ui ", ""}})
@@ -167,8 +167,8 @@ func TestTeamworkContextRolesFilterAndClosedFlag(t *testing.T) {
 func TestTeamContextToolReportsIdleMembers(t *testing.T) {
 	r := newTestRuntime(t)
 	defer r.Shutdown()
-	store := &memPlanStore{}
-	if err := r.SetTeamworkBackend(teamworkTestBackend(store, "s-team")); err != nil {
+	st := &memPlanStore{}
+	if err := r.SetTeamworkBackend(teamworkTestBackend(st, "s-team")); err != nil {
 		t.Fatalf("SetTeamworkBackend: %v", err)
 	}
 	if _, ok := r.registry.FindTool("team_context"); !ok {

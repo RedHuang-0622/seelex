@@ -25,7 +25,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // ErrPortNotAssembled 表示恢复模板未装配端口（组合根漏接线）。

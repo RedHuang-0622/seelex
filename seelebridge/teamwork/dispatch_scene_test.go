@@ -24,7 +24,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/Seele/jobs"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // boundWorktrees 返回建现场时收到的**指派名**——现场在册与否看的就是这个键。放在这
@@ -81,11 +81,11 @@ func TestDispatchBindsTeammateSceneAndRecordsLedger(t *testing.T) {
 	if member.Worktree != "seelex/exec" {
 		t.Fatalf("成员条目应看到现场指派名，得 %q", member.Worktree)
 	}
-	rows, err := fixture.store.ReadBindings(ctx, fixture.coordinator.Key())
+	rows, err := fixture.st.ReadBindings(ctx, fixture.coordinator.Key())
 	if err != nil {
 		t.Fatalf("ReadBindings: %v", err)
 	}
-	live := sessionstore.TeamworkBindings(rows)
+	live := store.TeamworkBindings(rows)
 	found := false
 	for _, binding := range live {
 		if binding.Role == "exec" && binding.Worktree == "seelex/exec" {
@@ -124,7 +124,7 @@ func TestCloseReleasesEverySceneOfRole(t *testing.T) {
 		if _, err := fixture.coordinator.DispatchItem(ctx, id); err != nil {
 			t.Fatalf("DispatchItem(%s): %v", id, err)
 		}
-		waitItemStatus(t, fixture, id, sessionstore.TeamworkItemReview)
+		waitItemStatus(t, fixture, id, store.TeamworkItemReview)
 		if err := fixture.coordinator.FailItem(ctx, id, "留现场待处置"); err != nil {
 			t.Fatalf("FailItem(%s): %v", id, err)
 		}
@@ -145,11 +145,11 @@ func TestCloseReleasesEverySceneOfRole(t *testing.T) {
 	if _, _, released := fixture.spaces.snapshot(); len(released) != 0 {
 		t.Fatalf("收口之前不该释放任何现场，却释放了 %v", released)
 	}
-	rows, err := fixture.store.ReadBindings(ctx, fixture.coordinator.Key())
+	rows, err := fixture.st.ReadBindings(ctx, fixture.coordinator.Key())
 	if err != nil {
 		t.Fatalf("ReadBindings: %v", err)
 	}
-	live := sessionstore.TeamworkBindings(rows)
+	live := store.TeamworkBindings(rows)
 	for _, id := range []string{"wi-a", "wi-b"} {
 		if _, ok := live[id]; !ok {
 			t.Fatalf("收口之前 %q 的绑定应当还在册（收口才结束它）: %+v", id, live)
@@ -182,11 +182,11 @@ func TestCloseReleasesEverySceneOfRole(t *testing.T) {
 			t.Fatalf("收口应释放工作项 %q 的现场（已释放 %v）——不得只释放一个", id, released)
 		}
 	}
-	rows, err = fixture.store.ReadBindings(ctx, fixture.coordinator.Key())
+	rows, err = fixture.st.ReadBindings(ctx, fixture.coordinator.Key())
 	if err != nil {
 		t.Fatalf("ReadBindings: %v", err)
 	}
-	for _, binding := range sessionstore.TeamworkBindings(rows) {
+	for _, binding := range store.TeamworkBindings(rows) {
 		if binding.Role == "exec" {
 			t.Fatalf("收口后该角色名下不该还有活绑定: %+v", binding)
 		}
@@ -222,7 +222,7 @@ func (s *failingSpaces) ReleaseWorkspaceItem(ctx context.Context, binding Worksp
 // 失败的替身（既有 fixture 不为"释放失败"留口子，这里不改动它）。
 func newSceneFixture(t *testing.T, spaces *failingSpaces) *itemFixture {
 	t.Helper()
-	store := &memoryPlanStore{}
+	st := &memoryPlanStore{}
 	runner := &fakeRunner{}
 	queue := &fakeQueue{}
 	log := &callLog{}
@@ -237,8 +237,8 @@ func newSceneFixture(t *testing.T, spaces *failingSpaces) *itemFixture {
 	}
 	t.Cleanup(func() { _ = manager.Close(context.Background()) })
 	coordinator, err := New(Options{
-		Key:          sessionstore.Key{ProjectID: "p", SessionID: "s"},
-		Store:        store,
+		Key:          store.Key{ProjectID: "p", SessionID: "s"},
+		Store:        st,
 		Jobs:         manager,
 		Workers:      runner,
 		Worktrees:    fakeWorktrees{log: log},
@@ -253,7 +253,7 @@ func newSceneFixture(t *testing.T, spaces *failingSpaces) *itemFixture {
 	}
 	holder.coordinator = coordinator
 	return &itemFixture{
-		coordinator: coordinator, store: store, jobs: manager,
+		coordinator: coordinator, st: st, jobs: manager,
 		runner: runner, spaces: spaces.fakeSpaces, queue: queue, calls: log,
 	}
 }
@@ -281,7 +281,7 @@ func TestCloseNamesTheItemWhoseSceneFailedToRelease(t *testing.T) {
 		if _, err := fixture.coordinator.DispatchItem(ctx, id); err != nil {
 			t.Fatalf("DispatchItem(%s): %v", id, err)
 		}
-		waitItemStatus(t, fixture, id, sessionstore.TeamworkItemReview)
+		waitItemStatus(t, fixture, id, store.TeamworkItemReview)
 		// 销项（现场仍归 team 托管：验收不再是回收点），让收口闸门放行。
 		if err := fixture.coordinator.AcceptItem(ctx, id, "销项，现场留到收口"); err != nil {
 			t.Fatalf("AcceptItem(%s): %v", id, err)
@@ -297,11 +297,11 @@ func TestCloseNamesTheItemWhoseSceneFailedToRelease(t *testing.T) {
 	if _, _, released := fixture.spaces.snapshot(); !containsName(released, "wi-a") {
 		t.Fatalf("同一批里其余的现场照旧要释放（不得只释放一个），已释放 %v", released)
 	}
-	rows, err := fixture.store.ReadBindings(ctx, fixture.coordinator.Key())
+	rows, err := fixture.st.ReadBindings(ctx, fixture.coordinator.Key())
 	if err != nil {
 		t.Fatalf("ReadBindings: %v", err)
 	}
-	if _, alive := sessionstore.TeamworkBindings(rows)["wi-b"]; !alive {
+	if _, alive := store.TeamworkBindings(rows)["wi-b"]; !alive {
 		t.Fatal("释放失败的现场不该记成已释放（账不先销，现场还在）")
 	}
 }

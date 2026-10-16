@@ -97,7 +97,7 @@ func TestPushCompactionFrameWithEmptyReadbackRefusesStackFrame(t *testing.T) {
 					t.Fatalf("错误必须携带真实失败原因 %q，实际 %q", want, err.Error())
 				}
 			}
-			if stack := fixture.store.Snapshot().CompactStack; len(stack) != 0 {
+			if stack := fixture.st.Snapshot().CompactStack; len(stack) != 0 {
 				t.Fatalf("没有模型读后感就不得更新压缩栈，实际栈有 %d 帧（栈顶 %+v）", len(stack), stack[len(stack)-1])
 			}
 			if calls, sawDeadline := testCase.completer.recorded(); sawDeadline {
@@ -150,7 +150,7 @@ func TestReadbackCompactionSummaryReturnsReadbackFailure(t *testing.T) {
 			if receipt.SummarySource == "replay" {
 				t.Fatalf("读数失败不得报成 replay 成功：%+v", receipt)
 			}
-			if stack := fixture.store.Snapshot().CompactStack; len(stack) != 0 {
+			if stack := fixture.st.Snapshot().CompactStack; len(stack) != 0 {
 				t.Fatalf("读数闸无副作用：不得压栈，实际栈有 %d 帧", len(stack))
 			}
 			if _, sawDeadline := testCase.completer.recorded(); sawDeadline {

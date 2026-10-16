@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/backend/limit/policy"
 	"os"
 	"path/filepath"
 	"strings"
@@ -591,14 +592,14 @@ func TestBashFamilyRoutingTable(t *testing.T) {
 		tool  string
 		group string
 	}{
-		{"bash", GroupRW},
-		{"bash_bg", GroupRW},
-		{"bg_manage", GroupRW},
-		{"read_batch", GroupRO},
+		{"bash", policy.GroupRW},
+		{"bash_bg", policy.GroupRW},
+		{"bg_manage", policy.GroupRW},
+		{"read_batch", policy.GroupRO},
 	}
-	groups := DefaultPermissionGroupList()
+	groups := policy.DefaultPermissionGroupList()
 	for _, testCase := range cases {
-		group, ok := RoutePermissionGroup(groups, testCase.tool)
+		group, ok := policy.RoutePermissionGroup(groups, testCase.tool)
 		if !ok {
 			t.Errorf("%s 未归入任何权限组：未分封的工具按框架默认走审批", testCase.tool)
 			continue
@@ -609,7 +610,7 @@ func TestBashFamilyRoutingTable(t *testing.T) {
 	}
 	// 旧名字必须彻底下线（L-2/L-4 的判据）：还留在表里就意味着还有一条注册路径活着。
 	for _, retired := range []string{"async_output", "async_kill"} {
-		if _, ok := RoutePermissionGroup(groups, retired); ok {
+		if _, ok := policy.RoutePermissionGroup(groups, retired); ok {
 			t.Errorf("%s 已下线，不得再出现在权限表里", retired)
 		}
 	}

@@ -5,11 +5,11 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/session"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // forkServiceSessions 是 Service.ForkSession 的会话桩：持有父会话数据面并
@@ -17,9 +17,9 @@ import (
 type forkServiceSessions struct {
 	fakeSessions
 	parent     SessionRecord
-	events     []sessionstore.Event
+	events     []store.Event
 	context    []byte
-	results    []sessionstore.ToolResult
+	results    []store.ToolResult
 	generation string
 
 	savedChild   string
@@ -44,11 +44,11 @@ func (s *forkServiceSessions) SaveSessionRecordWorkspace(string, string, Session
 	return nil
 }
 
-func (s *forkServiceSessions) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]sessionstore.Event, error) {
+func (s *forkServiceSessions) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]store.Event, error) {
 	return s.events, nil
 }
 
-func (s *forkServiceSessions) LoadToolResultsWorkspace(projectID, sessionID string) ([]sessionstore.ToolResult, error) {
+func (s *forkServiceSessions) LoadToolResultsWorkspace(projectID, sessionID string) ([]store.ToolResult, error) {
 	return s.results, nil
 }
 
@@ -88,13 +88,13 @@ func TestForkSessionCreatesAndSwitchesToChild(t *testing.T) {
 	}
 	sessions := &forkServiceSessions{
 		parent: parent,
-		events: []sessionstore.Event{
+		events: []store.Event{
 			{Seq: 1, TaskID: "chat-1", Role: "user", Content: "hi", MessageID: "m1"},
 			{Seq: 2, TaskID: "chat-1", Role: "assistant", Content: "hello", MessageID: "m2"},
 		},
 		context:    []byte(`{"schema_version":3}`),
 		generation: "generation-parent",
-		results:    []sessionstore.ToolResult{{Ref: "result:1", Tool: "bash", Content: "out", Digest: "d", Size: 3, TokenCount: 1}},
+		results:    []store.ToolResult{{Ref: "result:1", Tool: "bash", Content: "out", Digest: "d", Size: 3, TokenCount: 1}},
 	}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
 
@@ -142,7 +142,7 @@ func TestForkSessionChildContentVisibleAfterResume(t *testing.T) {
 	}
 	sessions := &forkServiceSessions{
 		parent: parent,
-		events: []sessionstore.Event{
+		events: []store.Event{
 			{Seq: 1, TaskID: "chat-1", Role: "user", Content: "hi", MessageID: "m1"},
 			{Seq: 2, TaskID: "chat-1", Role: "assistant", Content: "hello", MessageID: "m2"},
 		},
@@ -207,7 +207,7 @@ func TestForkSessionLatestResolvesNewestParagraph(t *testing.T) {
 	}
 	sessions := &forkServiceSessions{
 		parent: parent,
-		events: []sessionstore.Event{
+		events: []store.Event{
 			{Seq: 1, TaskID: "chat-1", Role: "user", Content: "hi", MessageID: "m1"},
 			{Seq: 2, TaskID: "chat-1", Role: "assistant", Content: "hello", MessageID: "m2"},
 			{Seq: 3, TaskID: "chat-2", Role: "user", Content: "again", MessageID: "m3"},
@@ -241,7 +241,7 @@ func TestForkCommandForksCurrentSession(t *testing.T) {
 	}
 	sessions := &forkServiceSessions{
 		parent: parent,
-		events: []sessionstore.Event{
+		events: []store.Event{
 			{Seq: 1, TaskID: "chat-1", Role: "user", Content: "hi", MessageID: "m1"},
 			{Seq: 2, TaskID: "chat-1", Role: "assistant", Content: "hello", MessageID: "m2"},
 		},
@@ -285,9 +285,9 @@ func TestForkSessionDeepCopyIsolation(t *testing.T) {
 	}
 	sessions := &forkServiceSessions{
 		parent: parent,
-		events: []sessionstore.Event{
+		events: []store.Event{
 			{Seq: 1, TaskID: "chat-1", Role: "user", Content: "hi", MessageID: "m1"},
-			{Seq: 2, TaskID: "chat-1", Role: "assistant", ToolCalls: []sessionstore.EventToolCall{{ID: "t1", Name: "read", Arguments: "{}"}}, MessageID: "m2"},
+			{Seq: 2, TaskID: "chat-1", Role: "assistant", ToolCalls: []store.EventToolCall{{ID: "t1", Name: "read", Arguments: "{}"}}, MessageID: "m2"},
 			{Seq: 3, TaskID: "chat-1", Role: "tool", ToolCallID: "t1", Name: "read", Content: "out", MessageID: "m3"},
 		},
 		context:    []byte(`{"schema_version":3}`),

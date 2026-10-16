@@ -18,7 +18,7 @@ import (
 	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
 	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // TestLifecycleOneImplementationAcrossLayers：两个注册点，一份结论（含重入）。
@@ -31,13 +31,13 @@ func TestLifecycleOneImplementationAcrossLayers(t *testing.T) {
 	if err := nodeRuntime.BindProjectRoot(setupGitRepo(t)); err != nil {
 		t.Fatalf("bind project root: %v", err)
 	}
-	nodeRouter, err := sessionstore.NewRouter(filepath.Join(t.TempDir(), "node-storage.json"), t.TempDir())
+	nodeRouter, err := store.NewRouter(filepath.Join(t.TempDir(), "node-storage.json"), t.TempDir())
 	if err != nil {
 		t.Fatalf("new router: %v", err)
 	}
 	t.Cleanup(func() { _ = nodeRouter.Close() })
 	nodeRuntime.AttachHistoryRouter(nodeRouter)
-	nodeRuntime.AttachSubSessionStore(sessionstore.NewNodeSessionStore(nodeRouter))
+	nodeRuntime.AttachSubSessionStore(store.NewNodeSessionStore(nodeRouter))
 	if _, err := nodeRuntime.NewMainSessionWithID("sess_main", nil); err != nil {
 		t.Fatalf("new main session: %v", err)
 	}

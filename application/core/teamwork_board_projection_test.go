@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // teamBoardRuntime 给测试桩补上**窄可选**能力面：Runtime 实现它，投影里就有团队看板；

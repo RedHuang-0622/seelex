@@ -5,7 +5,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/jobs"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // 工作项的**卡点**（"这件事此刻卡在哪"）——唯一判据 + 唯一词表（2026-10-15 审计 D7/D8）。
@@ -79,21 +79,21 @@ type JobReading struct {
 //
 // 优先级：终态 > 在飞 > 待裁决（含合并残边）> 失败 > 依赖闸门 > 可派。顺序本身就是语义：
 // 一件已是 done 的事不该再报"依赖未 done"，一件还在跑的事也不该报"等你裁决"。
-func ItemGateOf(plan sessionstore.TeamworkPlan, item sessionstore.TeamworkWorkItem, job JobReading) ItemGate {
+func ItemGateOf(plan store.TeamworkPlan, item store.TeamworkWorkItem, job JobReading) ItemGate {
 	switch item.StatusOrPending() {
-	case sessionstore.TeamworkItemDone:
+	case store.TeamworkItemDone:
 		return ItemGateDone
-	case sessionstore.TeamworkItemRunning:
+	case store.TeamworkItemRunning:
 		if job.Alive && job.Running {
 			return ItemGateJobRunning
 		}
 		return ItemGateJobInterrupted
-	case sessionstore.TeamworkItemReview:
+	case store.TeamworkItemReview:
 		if _, unmerged := plan.State.Unmerged[item.ID]; unmerged {
 			return ItemGateMerge
 		}
 		return ItemGateReview
-	case sessionstore.TeamworkItemFailed:
+	case store.TeamworkItemFailed:
 		return ItemGateFailed
 	}
 	if unmet := unmetDependencies(plan, item); len(unmet) > 0 {
@@ -143,7 +143,7 @@ func unsettledBySandboxGate(gate ItemGate) bool {
 // 它是**唯一**的"没落定"判据：闸门文案、`team_items` 的卡点格、看板投影读的都是同一条链路
 // （ItemGateOf → unsettledBySandboxGate）。此前的实现按三种状态各写一遍条件，于是文案与事实
 // 会漂移（审计 D8：列了四种情形却说不清当前是哪种）。
-func (c *Coordinator) unsettledItemGates(plan sessionstore.TeamworkPlan) []UnsettledItem {
+func (c *Coordinator) unsettledItemGates(plan store.TeamworkPlan) []UnsettledItem {
 	unsettled := make([]UnsettledItem, 0)
 	for _, milestone := range plan.Milestones {
 		for _, item := range milestone.Items {
@@ -170,11 +170,11 @@ func FormatUnsettledItems(items []UnsettledItem) string {
 }
 
 // unmetDependencies 返回这件工作项里**还没 done** 的依赖项 id。
-func unmetDependencies(plan sessionstore.TeamworkPlan, item sessionstore.TeamworkWorkItem) []string {
+func unmetDependencies(plan store.TeamworkPlan, item store.TeamworkWorkItem) []string {
 	unmet := make([]string, 0, len(item.DependsOn))
 	for _, dependency := range item.DependsOn {
 		_, dependencyItem, ok := findItem(&plan, dependency)
-		if !ok || dependencyItem.StatusOrPending() != sessionstore.TeamworkItemDone {
+		if !ok || dependencyItem.StatusOrPending() != store.TeamworkItemDone {
 			unmet = append(unmet, dependency)
 		}
 	}

@@ -77,7 +77,7 @@ func (r *Runtime) teamSceneIndex(sessionID string) []teamSceneEntry {
 		}
 	}
 	if rows, err := backend.Store.ReadBindings(ctx, key); err == nil {
-		// 用**原始行**而不经 `sessionstore.TeamworkBindings` 的折叠结果：折叠以
+		// 用**原始行**而不经 `store.TeamworkBindings` 的折叠结果：折叠以
 		// work_item 为键，会把 WorkItem 留空的 teammate 级行（leader 定的账本行形状）
 		// 整行丢掉。
 		for _, row := range rows {

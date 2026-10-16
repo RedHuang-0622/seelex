@@ -9,7 +9,7 @@ package seelebridge
 // 看板，GUI 的「团队看板」section 与 TUI 的看板节都不退场，连同在编名册（成员行）一起
 // 残留在收口之后。读侧因此分不清"这支队还在跑"与"早就收口了"。
 //
-// 三份事实的分工不变：closed 的**域内权威仍是计划**（sessionstore.TeamworkPlan.State），
+// 三份事实的分工不变：closed 的**域内权威仍是计划**（store.TeamworkPlan.State），
 // 它管的是"还在不在册"；本文件管的是投影侧的口径——**不在册就没有看板**。存档侧本来就是
 // 同一口径（readTeamBoardArchive 只恢复 state=active），活体与存档因此不再自相矛盾。
 //
@@ -19,20 +19,20 @@ import (
 	"context"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 func TestTeamworkBoardSnapshotRetiresClosedPlan(t *testing.T) {
 	r := newTestRuntime(t)
 	defer r.Shutdown()
-	store := &memPlanStore{}
-	if err := r.SetTeamworkBackend(teamworkTestBackend(store, "s-team")); err != nil {
+	st := &memPlanStore{}
+	if err := r.SetTeamworkBackend(teamworkTestBackend(st, "s-team")); err != nil {
 		t.Fatalf("SetTeamworkBackend: %v", err)
 	}
-	key := sessionstore.Key{ProjectID: "p-team", SessionID: "s-team"}
+	key := store.Key{ProjectID: "p-team", SessionID: "s-team"}
 
 	// 未收口：计划在册 → 看板在（这是"还在册"的正例，别把退场读成"看板从来不出现"）。
-	if err := store.WritePlan(context.Background(), key, boardPlanFixture(), 6); err != nil {
+	if err := st.WritePlan(context.Background(), key, boardPlanFixture(), 6); err != nil {
 		t.Fatalf("WritePlan: %v", err)
 	}
 	open := r.TeamworkBoardSnapshot("s-team")
@@ -45,12 +45,12 @@ func TestTeamworkBoardSnapshotRetiresClosedPlan(t *testing.T) {
 
 	// 收口：计划标 closed（域内权威），看板必须退场——不留空壳、不留残留的在编名册。
 	closed := boardPlanFixture()
-	closed.State = sessionstore.TeamworkState{
-		State:        sessionstore.TeamworkStateClosed,
+	closed.State = store.TeamworkState{
+		State:        store.TeamworkStateClosed,
 		ClosedAt:     1759392000,
-		ClosedReason: sessionstore.BoardCloseTeamClose,
+		ClosedReason: store.BoardCloseTeamClose,
 	}
-	if err := store.WritePlan(context.Background(), key, closed, 6); err != nil {
+	if err := st.WritePlan(context.Background(), key, closed, 6); err != nil {
 		t.Fatalf("WritePlan(closed): %v", err)
 	}
 	r.invalidateTeamworkBoard()

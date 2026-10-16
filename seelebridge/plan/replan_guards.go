@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/backend/limit"
 )
 
 // ReplanGuards 是按会话的 ReplanGuard 注册表（G1/M5）：每个 sid 一个额度
@@ -21,7 +21,7 @@ type ReplanGuards struct {
 
 // NewReplanGuards 构造按会话 replan 额度注册表（默认值与单 guard 一致）。
 func NewReplanGuards(maxConcurrent, maxWindowAttempts, maxProviderRequests int, window time.Duration) *ReplanGuards {
-	defaults := seelexctx.DefaultLimits()
+	defaults := limit.DefaultLimits()
 	if maxConcurrent <= 0 {
 		maxConcurrent = defaults.MaxConcurrentReplans
 	}

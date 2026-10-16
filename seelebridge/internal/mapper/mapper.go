@@ -1,9 +1,9 @@
-// Package mapper 集中 seelebridge 运行态结构 ↔ application/contract/dto
+// Package mapper 集中 seelebridge 运行态结构 ↔ contract/dto
 // 的无业务转换（只做形状映射，不含截断/校验/策略）。
 package mapper
 
 import (
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	subagentsession "github.com/RedHuang-0622/seelex/seelebridge/session"
 )
 

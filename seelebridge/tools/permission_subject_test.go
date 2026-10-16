@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"errors"
+	"github.com/RedHuang-0622/seelex/backend/limit/policy"
 	"strconv"
 	"testing"
 
@@ -31,7 +32,7 @@ func employeeGate(sessionID, toolsPolicy string, approval toolspermission.Approv
 	state := &PermissionGate{
 		SessionFromContext: toolspermission.SessionIDFromContext,
 	}
-	state.Set(DefaultPermissionConfig(), approval)
+	state.Set(policy.DefaultPermissionConfig(), approval)
 	state.SetRoleSessionPolicyResolver(func(got string) (string, bool) {
 		if got != sessionID {
 			return "", false
@@ -64,7 +65,7 @@ func callToolArgs(t *testing.T, state *PermissionGate, ctx context.Context, name
 // （位缺 = 违权）与未分封工具，一律直接拒绝，且**不弹执行选择页面**。
 func TestSubagentOutOfAuthorityIsDeniedWithoutPrompt(t *testing.T) {
 	approvals := 0
-	state := sessionScopedGate("sess-sub", DefaultPermissionConfig(),
+	state := sessionScopedGate("sess-sub", policy.DefaultPermissionConfig(),
 		func(*toolspermission.ApprovalContext) (*toolspermission.ApprovalResponse, error) {
 			approvals++
 			return &toolspermission.ApprovalResponse{Choice: "allow"}, nil
@@ -107,7 +108,7 @@ func TestSubagentOutOfAuthorityIsDeniedWithoutPrompt(t *testing.T) {
 // 问人"的调用也不弹页面（无人可问；位已经表达了它的授权范围）。
 func TestSubagentAuthorizedCallsRunWithoutPrompt(t *testing.T) {
 	approvals := 0
-	state := sessionScopedGate("sess-sub", DefaultPermissionConfig(),
+	state := sessionScopedGate("sess-sub", policy.DefaultPermissionConfig(),
 		func(*toolspermission.ApprovalContext) (*toolspermission.ApprovalResponse, error) {
 			approvals++
 			return &toolspermission.ApprovalResponse{Choice: "allow"}, nil
@@ -132,7 +133,7 @@ func TestSubagentAuthorizedCallsRunWithoutPrompt(t *testing.T) {
 // TestSubagentHardDenyStaysDenied：显式 deny 规则对子代理同样硬（位齐也不放行）。
 // patterns 匹配的是命令本体（policyArgsFor 归一化），不是工具入参 JSON。
 func TestSubagentHardDenyStaysDenied(t *testing.T) {
-	state := sessionScopedGate("sess-sub", DefaultPermissionConfig(), nil)
+	state := sessionScopedGate("sess-sub", policy.DefaultPermissionConfig(), nil)
 
 	ran := 0
 	handler := state.Middleware(0)("bash", frameworktools.ToolMeta{},
@@ -159,7 +160,7 @@ func TestSubagentHardDenyStaysDenied(t *testing.T) {
 // seele.yaml 里的"能力白名单 / 危险命令拒绝"整块失效）。
 func TestBashPatternRulesAreLive(t *testing.T) {
 	approvals := 0
-	state := sessionScopedGate("sess-main", DefaultPermissionConfig(),
+	state := sessionScopedGate("sess-main", policy.DefaultPermissionConfig(),
 		func(*toolspermission.ApprovalContext) (*toolspermission.ApprovalResponse, error) {
 			approvals++
 			return &toolspermission.ApprovalResponse{Choice: "allow"}, nil
@@ -270,17 +271,18 @@ func TestEmployeePageDenialKeepsCallDenied(t *testing.T) {
 
 // TestEmployeeToolsPolicyMapsToSubjectClass：ToolsPolicy 口径 → 主体类。
 func TestEmployeeToolsPolicyMapsToSubjectClass(t *testing.T) {
-	cases := map[string]SubjectClass{
-		"":          SubjectClassRoot,
-		"readonly":  SubjectClassEmployeeRO,
-		"readwrite": SubjectClassEmployeeRW,
-		"full":      SubjectClassRoot,
-		" inherit ": SubjectClassRoot,
-		"unknown":   SubjectClassRoot,
+	cases := map[string]policy.SubjectClass{
+		"":          policy.SubjectClassRoot,
+		"readonly":  policy.SubjectClassEmployeeRO,
+		"readwrite": policy.SubjectClassEmployeeRW,
+		"full":      policy.SubjectClassRoot,
+		" inherit ": policy.SubjectClassRoot,
+		"unknown":   policy.SubjectClassRoot,
 	}
-	for policy, want := range cases {
-		if got := ClassForToolsPolicy(policy); got != want {
-			t.Fatalf("ClassForToolsPolicy(%q) = %q, want %q", policy, got, want)
+	// 循环变量改名 toolsPolicy：包名 policy（judgment 层）不能同名遮蔽。
+	for toolsPolicy, want := range cases {
+		if got := policy.ClassForToolsPolicy(toolsPolicy); got != want {
+			t.Fatalf("policy.ClassForToolsPolicy(%q) = %q, want %q", toolsPolicy, got, want)
 		}
 	}
 }
@@ -290,16 +292,16 @@ func TestEmployeeToolsPolicyMapsToSubjectClass(t *testing.T) {
 func TestSubjectClassFromContext(t *testing.T) {
 	state := employeeGate("role-session-1", "readwrite", nil)
 
-	if got := state.classFor(context.Background()); got != SubjectClassRoot {
+	if got := state.classFor(context.Background()); got != policy.SubjectClassRoot {
 		t.Fatalf("无 ctx 标记 = root，got %q", got)
 	}
-	if got := state.classFor(subagentCtx()); got != SubjectClassSub {
+	if got := state.classFor(subagentCtx()); got != policy.SubjectClassSub {
 		t.Fatalf("子代理节点作用域 = sub，got %q", got)
 	}
-	if got := state.classFor(toolspermission.WithSessionID(context.Background(), "role-session-1")); got != SubjectClassEmployeeRW {
+	if got := state.classFor(toolspermission.WithSessionID(context.Background(), "role-session-1")); got != policy.SubjectClassEmployeeRW {
 		t.Fatalf("员工角色会话 = emp_rw，got %q", got)
 	}
-	if got := state.classFor(toolspermission.WithSessionID(context.Background(), "other-session")); got != SubjectClassRoot {
+	if got := state.classFor(toolspermission.WithSessionID(context.Background(), "other-session")); got != policy.SubjectClassRoot {
 		t.Fatalf("未登记会话 = root，got %q", got)
 	}
 }
@@ -308,14 +310,14 @@ func TestSubjectClassFromContext(t *testing.T) {
 func TestEmployeePolicyResolverCached(t *testing.T) {
 	calls := 0
 	state := &PermissionGate{SessionFromContext: toolspermission.SessionIDFromContext}
-	state.Set(DefaultPermissionConfig(), nil)
+	state.Set(policy.DefaultPermissionConfig(), nil)
 	state.SetRoleSessionPolicyResolver(func(string) (string, bool) {
 		calls++
 		return "readonly", true
 	})
 	ctx := toolspermission.WithSessionID(context.Background(), "role-session-1")
 	for i := 0; i < 5; i++ {
-		if got := state.classFor(ctx); got != SubjectClassEmployeeRO {
+		if got := state.classFor(ctx); got != policy.SubjectClassEmployeeRO {
 			t.Fatalf("员工角色会话 = emp_ro，got %q", got)
 		}
 	}
@@ -323,7 +325,7 @@ func TestEmployeePolicyResolverCached(t *testing.T) {
 		t.Fatalf("同一会话的解析应当命中缓存，calls=%d", calls)
 	}
 	state.SetRoleSessionPolicyResolver(func(string) (string, bool) { return "readwrite", true })
-	if got := state.classFor(ctx); got != SubjectClassEmployeeRW {
+	if got := state.classFor(ctx); got != policy.SubjectClassEmployeeRW {
 		t.Fatalf("换解析器后缓存应作废，got %q", got)
 	}
 }
@@ -331,7 +333,7 @@ func TestEmployeePolicyResolverCached(t *testing.T) {
 // TestSubagentKeepsBitsUnderSessionFullAccess：子代理不因会话全权而获得 ctl/adm
 // （全权是会话自己的用户决定，不该把无权主体变成有权主体）。
 func TestSubagentKeepsBitsUnderSessionFullAccess(t *testing.T) {
-	state := sessionScopedGate("sess-sub", DefaultPermissionConfig(), nil)
+	state := sessionScopedGate("sess-sub", policy.DefaultPermissionConfig(), nil)
 	state.SetFullAccessFor("sess-sub", true)
 
 	err, ran := callTool(t, state, subagentCtx(), "task_complete")
@@ -349,7 +351,7 @@ func TestSubagentKeepsBitsUnderSessionFullAccess(t *testing.T) {
 // TestSubagentVisibleToolsAreAuthorized：可见性名单与位断言一致——子代理看得见的
 // 每个工具都能真的调用（位齐），看不见的不必再试。防止"可见但一调就被拒"。
 func TestSubagentVisibleToolsAreAuthorized(t *testing.T) {
-	state := sessionScopedGate("sess-sub", DefaultPermissionConfig(), nil)
+	state := sessionScopedGate("sess-sub", policy.DefaultPermissionConfig(), nil)
 	visible := []string{
 		"read_file", "read_plan", "read_tool_result", "read_compressed_turn", "search_history",
 		"grep_search", "glob", "get_time", "web_search", "todo_status", "todolist_status",
@@ -369,18 +371,18 @@ func TestSubagentVisibleToolsAreAuthorized(t *testing.T) {
 
 // TestRoutePermissionGroupIsLastMatchWins：路由 LMRW（最后匹配胜出）与分组不重叠。
 func TestRoutePermissionGroupIsLastMatchWins(t *testing.T) {
-	groups := DefaultPermissionGroupList()
+	groups := policy.DefaultPermissionGroupList()
 	cases := map[string]string{
-		"read_file":           GroupRO,
-		"write_file":          GroupRW,
-		"compact_context":     GroupRWSession,
-		"computer_click":      GroupRWDesktop,
-		"computer_screenshot": GroupRO,
-		"task_complete":       GroupCTL,
-		"switch_plugin":       GroupADM,
+		"read_file":           policy.GroupRO,
+		"write_file":          policy.GroupRW,
+		"compact_context":     policy.GroupRWSession,
+		"computer_click":      policy.GroupRWDesktop,
+		"computer_screenshot": policy.GroupRO,
+		"task_complete":       policy.GroupCTL,
+		"switch_plugin":       policy.GroupADM,
 	}
 	for tool, want := range cases {
-		group, ok := RoutePermissionGroup(groups, tool)
+		group, ok := policy.RoutePermissionGroup(groups, tool)
 		if !ok {
 			t.Fatalf("%s 未分封", tool)
 		}
@@ -388,7 +390,7 @@ func TestRoutePermissionGroupIsLastMatchWins(t *testing.T) {
 			t.Fatalf("%s 路由到 %q, want %q", tool, group.Name, want)
 		}
 	}
-	if _, ok := RoutePermissionGroup(groups, "no_such_tool"); ok {
+	if _, ok := policy.RoutePermissionGroup(groups, "no_such_tool"); ok {
 		t.Fatal("未分封工具不应路由出组")
 	}
 }

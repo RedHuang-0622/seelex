@@ -13,15 +13,17 @@ import (
 )
 
 var repositoryModules = []string{
-	".", ".claude", ".github", "application", "application/approval", "application/contract",
+	".", ".claude", ".github", "application", "contract",
 	"application/core", "application/core/chat", "application/core/context_control",
 	"application/core/context_runtime", "application/core/input_router",
-	"application/core/internal/limits", "application/core/internal/state",
+	"application/core/internal/state",
 	"application/core/prompt_layer", "application/core/session_runtime",
 	"application/core/subagent_view", "application/core/task_context",
 	"application/core/view_state", "application/core/worktable",
 	"application/event", "application/model", "application/prompt",
-	"application/console", "config", "docs",
+	"application/console", "backend/limit", "backend/limit/accountwindow", "backend/limit/approval",
+	"backend/limit/loop",
+	"backend/limit/overlay", "backend/limit/policy", "config", "docs",
 	"docs/arch", "docs/devlog", "docs/gui", "docs/gui/schemas", "docs/product", "docs/research",
 	"docs/test", "e2e", "e2e/scenario", "gui", "gui/frontend", "internal", "internal/adapters",
 	"internal/buildinfo", "internal/frontmatter", "mcpstack", "mcpstack/config", "plugin", "plugins", "plugins/default",
@@ -31,7 +33,8 @@ var repositoryModules = []string{
 	"seelebridge/internal/telemetry", "seelebridge/plan",
 	"seelebridge/search", "seelebridge/security", "seelebridge/task", "seelebridge/tools/websearch", "seelexctx", "seelexctx/compactor",
 	"seelexctx/merger", "seelexctx/provider", "seelexctx/search", "seelexctx/snapshot",
-	"session", "sessionstore", "skill", "tui", "tui/splash", "workspace",
+	"session", "skill", "store", "store/root", "store/workspace",
+	"tui", "tui/splash", "wiring",
 }
 
 var repositoryModuleDocumentation = map[string]string{

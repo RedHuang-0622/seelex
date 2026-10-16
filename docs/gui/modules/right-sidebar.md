@@ -134,7 +134,7 @@ provider · model + 不可用标记），点击走 `#account-list` 容器委托�
 最新在下。它是"此刻在做什么"，与下面的记录表（权威投影，拉取面）分工——两者不互相冒充。
 
 判据只来自后端投影，前端不推演：会话工作区把 `draft_rows` 与 `main_rows/role_rows`
-分列返回（`sessionstore/role_session.go` 的 `syncRoleDraft` / `readRoleSnapshot`），
+分列返回（`store/role_session.go` 的 `syncRoleDraft` / `readRoleSnapshot`），
 **一轮结束时**的 `SyncRoleDraft` 才把草稿发布成 message（草稿行不带 seq，发布后
 draft 文件删除）。所以「本轮完成」= 草稿变成已发布行、「本轮取消」= 草稿按未同步
 原样留着——前端只渲染这份权威投影，不做回写。

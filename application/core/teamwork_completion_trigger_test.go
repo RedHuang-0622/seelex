@@ -18,14 +18,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // teamworkCompletionHarness 造一个装配好 teammate 触发路径的 Service。
 func teamworkCompletionHarness(t *testing.T, trigger bool, engine ChatEngine) (*Service, *fakeRuntime) {
 	t.Helper()
-	applyTestLimits(t, func(applied *seelexctx.Limits) {
+	applyTestLimits(t, func(applied *limit.Limits) {
 		applied.AsyncExec.Enabled = true
 		applied.AsyncExec.TriggerConversation = trigger
 	})
@@ -150,7 +150,7 @@ func TestTeamworkCompletionTriggersOncePerHandle(t *testing.T) {
 // （`bt-` / `bteam-`，见 dto.JobNamespace），两条链的键天然不同——但幂等账仍然按表记账，
 // 因为口径是"哪张表的哪一条"，不是"哪一串字符"。
 func TestTeamworkCompletionDoesNotCollideWithToolHandles(t *testing.T) {
-	applyTestLimits(t, func(applied *seelexctx.Limits) {
+	applyTestLimits(t, func(applied *limit.Limits) {
 		applied.AsyncExec.Enabled = true
 		applied.AsyncExec.TriggerConversation = true
 	})

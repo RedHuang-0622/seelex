@@ -23,7 +23,7 @@ package core
 //     session_runtime/archive.go:482-507）；
 //   - 分页读回（LoadMoreHistory / LoadLatestHistory → loadConversationPage，
 //     session_history.go:716-739）拿到的 count 却是**未过滤空间**的总数：存储侧
-//     派生会话由 message 行直接展开（sessionstore/json_layout.go:295
+//     派生会话由 message 行直接展开（store/json_layout.go:295
 //     derivedConversationMessages 不剔内部行；internal/adapters/
 //     session_workspace_ports.go:921 storeTranscriptEvents 原样落行——
 //     application/core/session_archive_test.go:325 就是一条落盘的
@@ -48,7 +48,7 @@ import (
 )
 
 // internalCheckpointRow 造一条**已落盘**的内部行（上下文 checkpoint 标记）。
-// 存储层把它当普通 conversation 行（sessionstore/json_layout.go:295
+// 存储层把它当普通 conversation 行（store/json_layout.go:295
 // derivedConversationMessages），可见会话必须剔除它（session_runtime/archive.go
 // isInternalConversationMessage → context_runtime.IsTaskContextCheckpoint）。
 func internalCheckpointRow(index int) Message {

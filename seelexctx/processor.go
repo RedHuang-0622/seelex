@@ -12,6 +12,8 @@ import (
 
 	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/types"
+
+	"github.com/RedHuang-0622/seelex/backend/limit"
 )
 
 // ToolResultOmittedPrefix 是超大工具结果省略块的起始标记。
@@ -138,18 +140,18 @@ type seelexToolResultProcessor struct {
 	archive ToolResultArchiver
 }
 
-// NewToolResultProcessor 构造结果处理器。limit ≤ 0 时兜底到 DefaultToolResultLimit()
-// （= limits.max_tool_result_chars 的出厂默认 60000）；生产接线由 seelebridge 显式
-// 注入配置生效值，因此用户改配置即改这里。archive 为 nil 时使用内存归档器
-// （会话内可读）。
-func NewToolResultProcessor(limit int, archive ToolResultArchiver) seelectx.ToolResultProcessor {
-	if limit <= 0 {
-		limit = DefaultToolResultLimit()
+// NewToolResultProcessor 构造结果处理器。maxToolResultChars ≤ 0 时兜底到
+// limit.DefaultToolResultLimit()（= limits.max_tool_result_chars 的出厂默认 60000）；
+// 生产接线由 seelebridge 显式注入配置生效值，因此用户改配置即改这里。archive 为 nil
+// 时使用内存归档器（会话内可读）。
+func NewToolResultProcessor(maxToolResultChars int, archive ToolResultArchiver) seelectx.ToolResultProcessor {
+	if maxToolResultChars <= 0 {
+		maxToolResultChars = limit.DefaultToolResultLimit()
 	}
 	if archive == nil {
 		archive = NewInMemoryToolResultArchiver()
 	}
-	return seelexToolResultProcessor{limit: limit, archive: archive}
+	return seelexToolResultProcessor{limit: maxToolResultChars, archive: archive}
 }
 
 // Process 实现 seelectx.ToolResultProcessor。

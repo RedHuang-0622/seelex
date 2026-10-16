@@ -3,7 +3,7 @@ package core
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	seelplan "github.com/RedHuang-0622/seelex/seelebridge/plan"
 )
 

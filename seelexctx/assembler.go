@@ -20,7 +20,7 @@ import (
 	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // AssemblerOptions 装配器依赖（全部可省略；nil 的提供者被跳过）。
@@ -186,14 +186,14 @@ func LastUserQuery(history []types.Message) string {
 // 顺序：稳定前缀 skill/compact + 动态尾部 plan/task）。各栈只渲染栈顶一帧
 // （当前使用中的模块），空栈不渲染。帧内容结构化（JSON），供模型与 UI
 // 读取当前上下文。
-func RenderStackBlocks(record sessionstore.SessionContextRecord) []seelectx.PromptBlock {
+func RenderStackBlocks(record store.SessionContextRecord) []seelectx.PromptBlock {
 	return append(RenderStablePrefixBlocks(record), RenderTailBlocks(record)...)
 }
 
 // RenderStablePrefixBlocks 渲染稳定前缀栈块（skill/compact，now using =
 // 栈顶）：放在记忆块之后、累积 context 之前（前缀缓存稳定段；skill 先于
 // compact，保持 compact 紧邻 context）。
-func RenderStablePrefixBlocks(record sessionstore.SessionContextRecord) []seelectx.PromptBlock {
+func RenderStablePrefixBlocks(record store.SessionContextRecord) []seelectx.PromptBlock {
 	blocks := make([]seelectx.PromptBlock, 0, 2)
 	if len(record.SkillStack) > 0 {
 		top := record.SkillStack[len(record.SkillStack)-1]
@@ -219,7 +219,7 @@ func RenderStablePrefixBlocks(record sessionstore.SessionContextRecord) []seelec
 // （注意力焦点）。plan 帧只携带克制信息（plan_id/title/status），节点详情
 // 由 coordinator 的 plan 尾部消息（plan_ref + 当前节点 slice）与 read_plan
 // 提供，整计划全量不入尾部。
-func RenderTailBlocks(record sessionstore.SessionContextRecord) []seelectx.PromptBlock {
+func RenderTailBlocks(record store.SessionContextRecord) []seelectx.PromptBlock {
 	blocks := make([]seelectx.PromptBlock, 0, 2)
 	if len(record.PlanStack) > 0 {
 		top := record.PlanStack[len(record.PlanStack)-1]
@@ -252,7 +252,7 @@ func renderStackBlock(name, title string, payload map[string]any) seelectx.Promp
 // RenderProjectBlock 渲染项目级模块语义块（ProjectKnowledge，plan.md
 // §3.7.1 / 架构文档 4.8.4：会话开始预读，内容 hash 版本化）。无模块时
 // 返回 nil（不渲染空块）。
-func RenderProjectBlock(record sessionstore.ProjectRecord) *seelectx.PromptBlock {
+func RenderProjectBlock(record store.ProjectRecord) *seelectx.PromptBlock {
 	if record.Version == "" && len(record.Modules) == 0 {
 		return nil
 	}

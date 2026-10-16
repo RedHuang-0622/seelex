@@ -7,8 +7,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // goalRPCFakeApp 复刻 headless goal 链路的 Application 扩展面：记录调用

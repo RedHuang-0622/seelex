@@ -18,6 +18,7 @@ package seelebridge
 import (
 	"context"
 	"errors"
+	"github.com/RedHuang-0622/seelex/backend/limit/policy"
 	"strings"
 	"sync"
 	"testing"
@@ -25,10 +26,9 @@ import (
 
 	"github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/agentteam"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
-	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 )
 
 // fakeRoleEngine 是角色会话引擎的桩：记录系统提示/循环上限/输入/ctx，不碰网络。
@@ -119,7 +119,7 @@ func (engine *fakeRoleEngine) snapshot() (prompt string, maxLoops, calls int, ct
 func newRoleTurnRuntime(t *testing.T) (*Runtime, *fakeRoleEngine, *int) {
 	t.Helper()
 	runtime := newTestRuntime(t)
-	runtime.SetPermissionConfig(seeltools.DefaultPermissionConfig(), nil)
+	runtime.SetPermissionConfig(policy.DefaultPermissionConfig(), nil)
 	engine := &fakeRoleEngine{output: "拆出 3 个子任务，下一步验证边界"}
 	created := 0
 	runtime.SetRoleEngineFactory(func(sessionID string) (roleEngine, error) {
@@ -428,7 +428,7 @@ func TestRoleEngineDefaultKeepsRoleSessionIdentity(t *testing.T) {
 // 覆盖），这里只会造出 1 个引擎。修后角色会话号带主会话身份，两个会话各造一个。
 func TestTeamMemberInstancesAreSessionScoped(t *testing.T) {
 	runtime := newTestRuntime(t)
-	runtime.SetPermissionConfig(seeltools.DefaultPermissionConfig(), nil)
+	runtime.SetPermissionConfig(policy.DefaultPermissionConfig(), nil)
 	var mu sync.Mutex
 	engines := map[string]*fakeRoleEngine{}
 	runtime.SetRoleEngineFactory(func(sessionID string) (roleEngine, error) {

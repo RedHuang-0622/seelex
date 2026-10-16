@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/agentteam"
 	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // goal_team_recorder.go — TL 每回合原文的记录器（my_design §8.3 统一写入流程）。
@@ -30,7 +30,7 @@ import (
 //
 // **用户可见的 TL 证据不依赖本文件**（均为独立路径，勿随本文件一起判死）：
 //   - `GoalGovernanceView`（活动栈 / status / `RoundSteps` 评审过程）→ GUI 治理面板；
-//   - goal 的 `tl_directives`（`sessionstore/session_context.go` + headless `goal_tl_directives`）；
+//   - goal 的 `tl_directives`（`store/session_context.go` + headless `goal_tl_directives`）；
 //   - GoalStack / GoalAudit / GoalBoard archive（收口与逃生留痕）。
 //
 // **删除清单（未来做时一次做完，别只删一半）**：

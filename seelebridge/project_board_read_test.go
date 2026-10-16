@@ -10,13 +10,13 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
-func projectBoardReadRouter(t *testing.T) *sessionstore.Router {
+func projectBoardReadRouter(t *testing.T) *store.Router {
 	t.Helper()
 	root := t.TempDir()
-	router, err := sessionstore.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
 	if err != nil {
 		t.Fatalf("new session router: %v", err)
 	}
@@ -24,10 +24,10 @@ func projectBoardReadRouter(t *testing.T) *sessionstore.Router {
 	return router
 }
 
-func projectBoardReadRow(kind, key string, seq uint64, payload map[string]any) sessionstore.ProjectBoardRow {
-	return sessionstore.ProjectBoardRow{
-		Schema: sessionstore.ProjectBoardSchema, Kind: kind, Key: key, Seq: seq, At: int64(seq),
-		Scope:   sessionstore.ProjectBoardScope{Session: "session-a"},
+func projectBoardReadRow(kind, key string, seq uint64, payload map[string]any) store.ProjectBoardRow {
+	return store.ProjectBoardRow{
+		Schema: store.ProjectBoardSchema, Kind: kind, Key: key, Seq: seq, At: int64(seq),
+		Scope:   store.ProjectBoardScope{Session: "session-a"},
 		Payload: payload,
 	}
 }
@@ -36,25 +36,25 @@ func projectBoardReadRow(kind, key string, seq uint64, payload map[string]any) s
 func TestProjectBoardReadSingleSessionFoldsBothFiles(t *testing.T) {
 	router := projectBoardReadRouter(t)
 	projectRoot := t.TempDir()
-	if _, err := router.AppendProjectBoardRows(projectRoot, "session-a", sessionstore.ProjectBoardWorkFile,
-		[]sessionstore.ProjectBoardRow{
-			projectBoardReadRow(sessionstore.ProjectBoardKindWork, "work:todo:1", 1, map[string]any{"task": "调研", "status": "doing"}),
+	if _, err := router.AppendProjectBoardRows(projectRoot, "session-a", store.ProjectBoardWorkFile,
+		[]store.ProjectBoardRow{
+			projectBoardReadRow(store.ProjectBoardKindWork, "work:todo:1", 1, map[string]any{"task": "调研", "status": "doing"}),
 			// 同一 key 的第二行：折叠读只保留 Seq 最大的一条。
-			projectBoardReadRow(sessionstore.ProjectBoardKindWork, "work:todo:1", 2, map[string]any{"task": "调研", "status": "done"}),
+			projectBoardReadRow(store.ProjectBoardKindWork, "work:todo:1", 2, map[string]any{"task": "调研", "status": "done"}),
 			// tombstone：该 key 从结果里消失。
-			projectBoardReadRow(sessionstore.ProjectBoardKindWork, "work:todo:2", 3, map[string]any{"removed": true}),
+			projectBoardReadRow(store.ProjectBoardKindWork, "work:todo:2", 3, map[string]any{"removed": true}),
 		}); err != nil {
 		t.Fatalf("写 worktable 投影: %v", err)
 	}
-	if _, err := router.AppendProjectBoardRows(projectRoot, "session-a", sessionstore.ProjectBoardTeamworkFile,
-		[]sessionstore.ProjectBoardRow{
-			projectBoardReadRow(sessionstore.ProjectBoardKindMilestone, "milestone:m1", 4, map[string]any{"id": "m1", "status": "active"}),
-			projectBoardReadRow(sessionstore.ProjectBoardKindMilestoneItem, "milestone:m1/item:wi-1", 5, map[string]any{"id": "wi-1", "roll": "core"}),
+	if _, err := router.AppendProjectBoardRows(projectRoot, "session-a", store.ProjectBoardTeamworkFile,
+		[]store.ProjectBoardRow{
+			projectBoardReadRow(store.ProjectBoardKindMilestone, "milestone:m1", 4, map[string]any{"id": "m1", "status": "active"}),
+			projectBoardReadRow(store.ProjectBoardKindMilestoneItem, "milestone:m1/item:wi-1", 5, map[string]any{"id": "wi-1", "roll": "core"}),
 		}); err != nil {
 		t.Fatalf("写 teamwork 投影: %v", err)
 	}
 	// 落点在项目目录下**会话自己的目录**里：`<项目根>/.seelex/board/<会话 ID>/`。
-	if _, err := os.Stat(filepath.Join(projectRoot, ".seelex", "board", "session-a", sessionstore.ProjectBoardWorkFile)); err != nil {
+	if _, err := os.Stat(filepath.Join(projectRoot, ".seelex", "board", "session-a", store.ProjectBoardWorkFile)); err != nil {
 		t.Fatalf("投影没有落在项目目录下：%v", err)
 	}
 
@@ -69,9 +69,9 @@ func TestProjectBoardReadSingleSessionFoldsBothFiles(t *testing.T) {
 		t.Fatalf("缺省应当两份都读，得到 %v", result.Files)
 	}
 	want := []struct{ kind, key string }{
-		{sessionstore.ProjectBoardKindMilestone, "milestone:m1"},
-		{sessionstore.ProjectBoardKindMilestoneItem, "milestone:m1/item:wi-1"},
-		{sessionstore.ProjectBoardKindWork, "work:todo:1"},
+		{store.ProjectBoardKindMilestone, "milestone:m1"},
+		{store.ProjectBoardKindMilestoneItem, "milestone:m1/item:wi-1"},
+		{store.ProjectBoardKindWork, "work:todo:1"},
 	}
 	if len(result.Rows) != len(want) {
 		t.Fatalf("行数 = %d，希望 %d（%+v）", len(result.Rows), len(want), result.Rows)
@@ -92,18 +92,18 @@ func TestProjectBoardReadSingleSessionFoldsBothFiles(t *testing.T) {
 func TestProjectBoardReadSingleFile(t *testing.T) {
 	router := projectBoardReadRouter(t)
 	projectRoot := t.TempDir()
-	if _, err := router.AppendProjectBoardRows(projectRoot, "session-a", sessionstore.ProjectBoardWorkFile,
-		[]sessionstore.ProjectBoardRow{
-			projectBoardReadRow(sessionstore.ProjectBoardKindWork, "work:todo:1", 1, map[string]any{"task": "调研"}),
+	if _, err := router.AppendProjectBoardRows(projectRoot, "session-a", store.ProjectBoardWorkFile,
+		[]store.ProjectBoardRow{
+			projectBoardReadRow(store.ProjectBoardKindWork, "work:todo:1", 1, map[string]any{"task": "调研"}),
 		}); err != nil {
 		t.Fatalf("写 worktable 投影: %v", err)
 	}
-	for _, file := range []string{ProjectBoardReadFileWorktable, sessionstore.ProjectBoardWorkFile, " Worktable "} {
+	for _, file := range []string{ProjectBoardReadFileWorktable, store.ProjectBoardWorkFile, " Worktable "} {
 		result, err := ReadProjectBoard(router, ProjectBoardReadRequest{Session: "session-a", File: file}, projectRoot, "")
 		if err != nil {
 			t.Fatalf("file=%q: %v", file, err)
 		}
-		if len(result.Files) != 1 || result.Files[0] != sessionstore.ProjectBoardWorkFile {
+		if len(result.Files) != 1 || result.Files[0] != store.ProjectBoardWorkFile {
 			t.Fatalf("file=%q 归一化结果 = %v", file, result.Files)
 		}
 		if len(result.Rows) != 1 {
@@ -149,18 +149,18 @@ func TestProjectBoardReadRejectsOutOfBounds(t *testing.T) {
 
 // countingReadReader 是只读面替身：记下聚合读收到的选项，返回可控的截断信号。
 type countingReadReader struct {
-	rows       []sessionstore.ProjectBoardRow
+	rows       []store.ProjectBoardRow
 	truncated  bool
-	options    []sessionstore.ProjectBoardReadOptions
+	options    []store.ProjectBoardReadOptions
 	singleRead int
 }
 
-func (reader *countingReadReader) ReadProjectBoard(_ string, options sessionstore.ProjectBoardReadOptions) ([]sessionstore.ProjectBoardRow, bool, error) {
+func (reader *countingReadReader) ReadProjectBoard(_ string, options store.ProjectBoardReadOptions) ([]store.ProjectBoardRow, bool, error) {
 	reader.options = append(reader.options, options)
 	return reader.rows, reader.truncated, nil
 }
 
-func (reader *countingReadReader) ReadProjectBoardRows(_, _, _ string) ([]sessionstore.ProjectBoardRow, error) {
+func (reader *countingReadReader) ReadProjectBoardRows(_, _, _ string) ([]store.ProjectBoardRow, error) {
 	reader.singleRead++
 	return nil, nil
 }
@@ -168,9 +168,9 @@ func (reader *countingReadReader) ReadProjectBoardRows(_, _, _ string) ([]sessio
 // TestProjectBoardReadAggregateIsBounded：`session: all` 走聚合读，行数有界，
 // 截断信号**原样上抛**（"读到的比在册的少"必须让人看见）。
 func TestProjectBoardReadAggregateIsBounded(t *testing.T) {
-	rows := []sessionstore.ProjectBoardRow{
-		projectBoardReadRow(sessionstore.ProjectBoardKindWork, "work:a", 1, map[string]any{"task": "a"}),
-		projectBoardReadRow(sessionstore.ProjectBoardKindWork, "work:b", 2, map[string]any{"task": "b"}),
+	rows := []store.ProjectBoardRow{
+		projectBoardReadRow(store.ProjectBoardKindWork, "work:a", 1, map[string]any{"task": "a"}),
+		projectBoardReadRow(store.ProjectBoardKindWork, "work:b", 2, map[string]any{"task": "b"}),
 	}
 	reader := &countingReadReader{rows: rows, truncated: true}
 	result, err := ReadProjectBoard(reader, ProjectBoardReadRequest{

@@ -88,7 +88,7 @@ Bridge.TerminalOpen(cols, rows, dir)
 
 - 允许依赖：`github.com/aymanbagabas/go-pty`（PTY）、标准库。
 - 禁止反向依赖：`gui/terminal` 不 import `gui`（否则形成环）、不 import
-  `application`；`gui` 单向 import 本包。跨域类型不下沉到 `application/contract`
+  `application`；`gui` 单向 import 本包。跨域类型不下沉到 `contract`
   ——终端不是应用层契约。
 
 ## 并发、错误与安全语义

@@ -10,14 +10,14 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/types"
-	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/core/context_control"
-	"github.com/RedHuang-0622/seelex/application/core/internal/limits"
 	"github.com/RedHuang-0622/seelex/application/core/internal/state"
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
 	"github.com/RedHuang-0622/seelex/application/event"
 	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
@@ -81,7 +81,7 @@ type Coordinator struct {
 //
 // 为什么需要一条**只包推帧**的窄串行：压缩栈是链式结构，PushCompact 会校验
 // PrevSegmentID / PrevRequestFrom / PrevRequestTo 必须与栈顶逐一相等（见
-// sessionstore.SessionContextStore.PushCompact）。两个压缩并发推同一会话时，
+// store.SessionContextStore.PushCompact）。两个压缩并发推同一会话时，
 // 后者按自己读到的栈顶填锚点，必然撞上这条校验。推帧原先在 Core.ViewMu 的临界
 // 区里，这条串行是**顺带**得到的；推帧移出锁（见 prepareExecutionContextFor 的
 // 锁纪律）之后必须显式补回，否则就是我们在缩小锁粒度时把一条既有不变量丢了。
@@ -665,7 +665,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	// 保留窗口决策（③ 的边界）提前到判据之前：它的值就是「压缩后整条请求最多能到
 	// 哪」，判据要拿它做下面的**幂等/有效性校验**。纯算术 + 一次配置读取，提前
 	// 计算不改变任何既有语义（下方压缩分支直接复用这一份，不再重算第二遍）。
-	retain := retainWindowDecision(windowConfig, allContextTokens, budget, limits.Get().ContextRetainFloorPercent)
+	retain := retainWindowDecision(windowConfig, allContextTokens, budget, limit.Get().ContextRetainFloorPercent)
 	// 固定开销 = 整条请求估算 − transcript 一侧估算：system 稳定层 + plan 上下文 +
 	// 工具 + 当轮输入。这部分**不参与压缩**，因此它独立于保留窗口决策存在。
 	requestOverhead := rawTokens - allContextTokens
@@ -1258,7 +1258,7 @@ func (c *Coordinator) fitExecutionHistory(
 	// 完整单元（即使估算超过 target），不再走 events=nil 的 system+plan
 	// 空历史分支；估算仍超出全量预算时由调用方以 ErrProviderContextBudgetExceeded
 	// 拒绝发送（拒绝优于“模型失忆”，正常路径不用 checkpoint 兜底）。
-	for shrink := limits.Get().ContextMaxUnits; shrink > 0; shrink-- {
+	for shrink := limit.Get().ContextMaxUnits; shrink > 0; shrink-- {
 		if history, retainedFrom, estimated := c.tryFitExecutionHistory(systemPrompt, base, planMessage, events, currentInput, tools, target, shrink); estimated <= target {
 			return history, retainedFrom, estimated
 		}
@@ -1539,7 +1539,7 @@ func OversizedToolResultWarning(name, resultRef string) string {
 
 // ProviderSafeToolResult 把超限工具结果替换为警告（provider 路径）。
 func ProviderSafeToolResult(name, result string, toolErr error) string {
-	if toolErr != nil || !IsOversizedToolResult(result, limits.Get().MaxToolResultChars) {
+	if toolErr != nil || !IsOversizedToolResult(result, limit.Get().MaxToolResultChars) {
 		return result
 	}
 	return OversizedToolResultWarning(name, "")

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // Chapter2Body 是帧摘要两章节边界的唯一归一化件：链上有一个出口（装配层读数闸
@@ -47,7 +47,7 @@ func TestChapter2BodyNormalizesWholeFrameSummary(t *testing.T) {
 // 不得再有两章节标题——这是"读回来还能用"的充要条件。
 func TestFrameChapter2HasNoChapterHeadings(t *testing.T) {
 	body := "### 目标 (Goal)\n把帧正文换成真摘要"
-	frame := sessionstore.CompactFrame{
+	frame := store.CompactFrame{
 		Summary: RenderFrameSummary(RenderAnchorChapter(nil), body),
 	}
 	got := FrameChapter2(frame)
@@ -64,7 +64,7 @@ func TestFrameChapter2HasNoChapterHeadings(t *testing.T) {
 // 归一化后的正文进 OneLineSummary：锚点的一句话必须是正文散文，而不是章节标题。
 func TestFrameChapter2FeedsOneLineSummary(t *testing.T) {
 	body := "### 目标 (Goal)\n把帧正文换成真摘要"
-	frame := sessionstore.CompactFrame{
+	frame := store.CompactFrame{
 		Summary: RenderFrameSummary(RenderAnchorChapter(nil), body),
 	}
 	if got := OneLineSummary(frame); got != "把帧正文换成真摘要" {

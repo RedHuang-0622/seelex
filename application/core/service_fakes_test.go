@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/RedHuang-0622/Seele/types"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/testutil"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
@@ -379,10 +379,10 @@ type fakeRuntime struct {
 	// 用例预置；读即清，与生产 Runtime 同语义——二次调用返回 false）。
 	servedRouteSession string
 	servedRoute        dto.ServedRoute
-	currentBatch          string
-	todoMu                sync.Mutex
-	todoItems             []dto.TodoItem
-	tasks                 map[string]dto.TaskRecord
+	currentBatch       string
+	todoMu             sync.Mutex
+	todoItems          []dto.TodoItem
+	tasks              map[string]dto.TaskRecord
 	// sessionTaskSnapshots 是会话切换时保存的 task 快照（镜像生产 Runtime
 	// 的按会话分片语义；阶段 0 持久化按会话取快照）。
 	sessionTaskSnapshots map[string][]dto.TaskRecord

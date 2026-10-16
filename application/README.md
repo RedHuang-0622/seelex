@@ -12,7 +12,10 @@
 ## 职责与非职责
 
 - 做：用例编排、跨域事务顺序、权威状态与事件投影、DTO 与协议版本、前端可消费的目录型投影。
-- 不做：不实现 Agent 循环（归 Seele）、不实现存储原子写（归 `sessionstore`）、不实现工具路由与权限判定（归 `seelebridge`）、不渲染 UI（归 `tui`/`gui`）。
+- 不做：不实现 Agent 循环（归 Seele）、不实现存储原子写（归 `store`）、不实现工具路由与权限判定（归 `seelebridge`）、不渲染 UI（归 `tui`/`gui`）。
+- 不做：**不持有构造函数**。`New` / `NewEventHub` / `NewApprovalBroker` / `NewToolHookBridge` /
+  `NewPromptStack` / `NewEffortManager` / `WebSearch` 已于 2026-10-16（M1-B）迁到
+  [`wiring/`](../wiring/README.md)：前端不得自造引擎，构造只发生在组合根。
 
 ## 子模块
 
@@ -22,12 +25,15 @@
 |---|---|
 | [`model/`](model/README.md) | Snapshot、Message、Plan、Interaction 等版本化 DTO。 |
 | [`event/`](event/README.md) | 有序事件封装、订阅和 fan-out。 |
-| [`approval/`](approval/README.md) | 异步审批请求、决议、超时和关闭。 |
-| [`contract/`](contract/README.md) | Application 拥有的 Engine、Runtime、Plugin、Session、Workspace 端口。 |
-| [`contract/dto/`](contract/dto/README.md) | 跨层共享的纯数据契约（Plan / Task / Goal / AgentTeam / 角色会话）。 |
+| ~~`approval/`~~ | 异步审批已按 plan §2.8 归位到 [`backend/limit/approval/`](../backend/limit/approval/README.md)（M2-C）；端口形状在 [`contract/approval.go`](../contract/approval.go)。 |
 | [`prompt/`](prompt/README.md) | PromptStack 与 Effort 策略。 |
 | [`console/`](console/README.md) | backend 诊断前端共享的控制台输出与命令解析。 |
 | [`core/`](core/README.md) | Service 用例、聊天状态机、命令、session/project 作用域和工具事件。 |
+
+契约层已于 2026-10-16 按
+[`docs/2026-10-15-architecture-reshape`](../docs/2026-10-15-architecture-reshape/plan.md) §2.3 的 M1-A
+物理归位到**顶层** [`contract/`](../contract/README.md) 与 [`contract/dto/`](../contract/dto/README.md)：
+它不再是本目录的子包，本门面改为单向依赖它。
 
 ### `core` 叶子包
 
@@ -43,7 +49,6 @@
 | [`core/goal/`](core/goal/README.md) | 会话级 Goal 对象与状态机、DS-A2A 治理编排、goal 栈持久化。 |
 <!-- core/govern/ 已于 2026-10-03（阶段三 W3）随 goal 席位轮转退场删除 -->
 | [`core/input_router/`](core/input_router/README.md) | 输入分流（command/skill/plugin/conversation）与命令注册表。 |
-| [`core/internal/limits/`](core/internal/limits/README.md) | 进程级运行时上限（`seele.yaml` limits 段）叶子包。 |
 | [`core/internal/state/`](core/internal/state/README.md) | core 共享状态内核：唯一共享锁、Snapshot、Deps、Events、Approval。 |
 | [`core/prompt_layer/`](core/prompt_layer/README.md) | system prompt 层组装与引擎同步（前缀缓存友好）。 |
 | [`core/resume/`](core/resume/README.md) | 「终止前未完成工作」的领域无关恢复模板。 |
@@ -53,8 +58,28 @@
 | [`core/view_state/`](core/view_state/README.md) | 用户可见 Snapshot 读写与事件发布。 |
 | [`core/worktable/`](core/worktable/README.md) | 工作表格增量事件中枢（CSP 汇聚、latest-wins、有界背压）。 |
 
+`core/internal/limits/` 已于 2026-10-16 随 M2-A 迁至基座包
+[`backend/limit/`](../backend/limit/README.md)（运行时上限的类型、默认值、校验与进程级快照
+同一处）；
 `application/search` 已于 2026-08-22 迁至 `seelebridge/search/`（后端能力归位）；
-`application` 门面保留 `WebSearchConfig`/`WebSearch` 兼容别名与薄转发。
+`application` 门面只保留 `WebSearchConfig` 类型别名；`WebSearch` 的执行入口（薄转发）已于
+2026-10-16 随 M1-B 迁到 [`wiring/`](../wiring/README.md)，其终局是 `backend/tool/websearch`（M4）。
+
+### 门面再导出的 DTO（M1-C）
+
+前端（`gui`/`tui`/`console`）**只经门面**消费下面这些形状，不再直接 import 后端包
+（2026-10-16 M1-C 前的 4 条越层边：`store` / `seelexctx` / `seelexctx/search` / `seelebridge`）：
+
+| 门面导出 | 指向 | 消费用例 | 终局（规划，尚未实现） |
+|---|---|---|---|
+| `SessionStorageConfig` | `store.Config` | `SessionStorageConfig` / `TestSessionStorage` / `ConfigureSessionStorage` | M3 store 归位后由 store 侧提供，门面别名重指向 |
+| `SearchResult` / `SearchHit` / `SearchRecord` | `seelexctx/search` 的 `Result` / `Hit` / `ChatRecord` | `SearchHistory` | plan §2.1 的 `contract.SearchPort`（M4） |
+| `AccountWindowPresets()` | `backend/limit/accountwindow.Presets` | 账号上下文窗口挡位表（只下发一次，前端不写死） | **已归位（M2-C3）**，无待迁项 |
+
+定时任务的 `ScheduledTaskSpec` / `ScheduledTaskStatus` **不在门面再导出**：它们的事实源已经是
+[`contract/dto/scheduler.go`](../contract/dto/scheduler.go)，`seelebridge` 的同名符号只是遗留别名
+（plan §2.10 列入删除），因此 `gui/bridge.go` 直接改用 `dto.ScheduledTaskSpec` /
+`dto.ScheduledTaskStatus`——即「改用上游类型」，而不是再造一层门面别名。
 后端适配器（`application/adapters`）同步迁至 `internal/adapters/`，只依赖
 `contract` 层，不再反向依赖本门面。
 
@@ -79,18 +104,18 @@ flowchart TB
         DOM["域协调器<br/>session_runtime · task_context · context_runtime"]
         LEAF["叶子包<br/>goal · agentteam · chat · resume · worktable"]
         ST["internal/state<br/>唯一共享锁 + Snapshot + Deps"]
-        VIEW["view_state · subagent_view · prompt_layer<br/>input_router · context_control · internal/limits"]
+        VIEW["view_state · subagent_view · prompt_layer<br/>input_router · context_control"]
     end
 
-    subgraph SIDE["同级子包"]
+    subgraph SIDE["同级子包 / 顶层契约"]
         MODEL["model：Snapshot DTO"]
         EVENT["event：EventHub"]
         APPROVAL["approval：异步审批"]
-        CONTRACT["contract + contract/dto：端口与纯数据契约"]
+        CONTRACT["顶层 contract + contract/dto：端口与纯数据契约"]
         PROMPT["prompt：PromptStack + Effort"]
     end
 
-    PORTS["端口实现<br/>seelebridge · sessionstore · workspace · plugin"]
+    PORTS["端口实现<br/>seelebridge · store · workspace · plugin"]
     SEELE["Seele runtime"]
 
     TUI --> FAC
@@ -129,7 +154,7 @@ flowchart LR
     UC5(["命令、Skill 与输入前缀分流"])
     UC6(["Plan / Goal / AgentTeam / Worktable 用例"])
     UC7(["读取 Snapshot、订阅 Event 增量"])
-    UC8(["application.New 装配与端口校验"])
+    UC8(["wiring.New 装配与端口校验"])
     UC9(["切换 Plugin / Skill / MCP 能力面"])
 
     SYS["application.Service"]
@@ -160,7 +185,7 @@ flowchart LR
 sequenceDiagram
     autonumber
     participant H as 组合根 / 测试 harness
-    participant A as application.New
+    participant A as wiring.New
     participant F as GUI / TUI
     participant S as core.Service
     participant P as 端口实现
@@ -206,14 +231,14 @@ flowchart LR
     FE["TUI / GUI / root adapters"] --> FAC["application facade"]
     FAC --> CORE["application/core"]
     CORE --> SIDE["contract + model + event + approval + prompt"]
-    IMPL["root adapters / seelebridge / sessionstore"] -.->|实现端口| SIDE
+    IMPL["root adapters / seelebridge / store"] -.->|实现端口| SIDE
 ```
 
 接口定义在消费方 `contract/`，实现放在根目录适配器或基础设施模块。禁止 `application` 反向依赖 `gui`、`tui` 或 composition root。
 
 ## 核心运行流
 
-1. `application.New` 接收 `Dependencies`，校验必需端口与 embedded prompt assets，并返回 `(*core.Service, error)`；构造失败不会终止进程。
+1. 组合根调用 `wiring.New` 接收 `Dependencies`，校验必需端口与 embedded prompt assets，并返回 `(*core.Service, error)`；构造失败不会终止进程。
 2. 前端调用 `Submit`、`ResolveInteraction`、`BindWorkspace` 等用例。
 3. Service 更新权威 Snapshot，并通过 EventHub 发布增量事件。
 4. TUI/GUI 先读取 Snapshot，再应用连续 Event；出现序列缺口时重新同步 Snapshot。

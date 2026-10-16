@@ -10,7 +10,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application/core/internal/state"
 	"github.com/RedHuang-0622/seelex/application/model"
 	"github.com/RedHuang-0622/seelex/application/prompt"
-	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/backend/limit"
 )
 
 // Coordinator 是任务执行域协调器：task 子状态、plan 子状态与 token 审计
@@ -24,7 +24,7 @@ type Coordinator struct {
 	*state.Core
 	prompt PromptPort
 
-	limits            func() seelexctx.Limits
+	limits            func() limit.Limits
 	isInternalContent func(string) bool
 	isOversized       func(string, int) bool
 	oversizedWarning  func(string, string) string

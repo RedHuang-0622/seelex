@@ -24,8 +24,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/application/contract"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // ensureViewIdle 是本文件与 SwitchEffort 共用的运行守卫：返回视图会话 ID，并在

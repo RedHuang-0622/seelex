@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // effortWireRuntime 是 contract.ReasoningEffortPort 的记录桩：只记下"档位变化时

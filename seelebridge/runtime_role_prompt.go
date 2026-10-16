@@ -6,7 +6,7 @@
 //     从 Agent Team 角色注册表读），ADVISOR/TL 回合据此用用户登记的提示词，未
 //     登记时回退内置提示词。这是"提示词装配"真正生效的那一段——此前
 //     RoleSpec.SystemPrompt 只落盘、无人消费。
-//   - 优化：`OptimizeRolePrompt` 实现 application/contract.RolePromptPort：一次
+//   - 优化：`OptimizeRolePrompt` 实现 contract.RolePromptPort：一次
 //     LLM 回合把员工提示词改写成更明确可执行的版本，只返回候选文本，不落盘、
 //     不写会话消息（落盘仍由用户在入职/保存动作里确认）。
 //
@@ -28,7 +28,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // SetRolePromptProvider 注入"已装配提示词"读面；传 nil 取消注入（回退内置）。
@@ -91,7 +91,7 @@ const rolePromptOptimizeSystemPrompt = `<role>
 notes 最多 5 条，每条不超过 60 字。
 </output_format>`
 
-// OptimizeRolePrompt 实现 application/contract.RolePromptPort：一次有界 LLM
+// OptimizeRolePrompt 实现 contract.RolePromptPort：一次有界 LLM
 // 回合，把员工提示词改写成候选版本。
 func (r *Runtime) OptimizeRolePrompt(ctx context.Context, request dto.RolePromptOptimizeRequest) (dto.RolePromptOptimizeResult, error) {
 	if r == nil || r.completer == nil {

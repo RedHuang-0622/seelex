@@ -12,10 +12,11 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/wiring"
 )
 
 type emittedEvent struct {
@@ -108,7 +109,7 @@ func (fake *recordingCancelApplication) CancelChat(requestID string) bool {
 
 func newFakeApplication() *fakeApplication {
 	return &fakeApplication{
-		hub: application.NewEventHub(),
+		hub: wiring.NewEventHub(),
 		snapshot: application.Snapshot{
 			ProtocolVersion: application.ProtocolVersion,
 			Revision:        1,
@@ -179,7 +180,7 @@ func (fake *fakeApplication) SessionReleaseWindow() int {
 	if fake.releaseWindowReading > 0 {
 		return fake.releaseWindowReading
 	}
-	return 1 // 出厂窗口（seelexctx.DefaultLimits().SessionReleaseWindow）
+	return 1 // 出厂窗口（limit.DefaultLimits().SessionReleaseWindow）
 }
 
 // SetAccountWindow 模仿后端语义：0 = 清掉该账号的覆盖，返回**生效值**。
@@ -264,13 +265,13 @@ func (fake *fakeApplication) SetPermissionTier(tier string) (string, error) {
 	fake.selectedTier = tier
 	return tier, nil
 }
-func (fake *fakeApplication) SessionStorageConfig() (sessionstore.Config, error) {
-	return sessionstore.Config{Backend: sessionstore.BackendJSON, Path: "sessions"}, nil
+func (fake *fakeApplication) SessionStorageConfig() (store.Config, error) {
+	return store.Config{Backend: store.BackendJSON, Path: "sessions"}, nil
 }
-func (fake *fakeApplication) TestSessionStorage(context.Context, sessionstore.Config) error {
+func (fake *fakeApplication) TestSessionStorage(context.Context, store.Config) error {
 	return nil
 }
-func (fake *fakeApplication) ConfigureSessionStorage(context.Context, sessionstore.Config) error {
+func (fake *fakeApplication) ConfigureSessionStorage(context.Context, store.Config) error {
 	return nil
 }
 func (fake *fakeApplication) SubagentSessionDetail(string) (*application.SubagentDetail, error) {

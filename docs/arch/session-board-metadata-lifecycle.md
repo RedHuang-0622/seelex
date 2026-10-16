@@ -2,7 +2,7 @@
 
 > 状态：**已裁决（2026-10-02）**。三件事按推荐落地（§9）；另加一条硬要求——
 > goal 看板必须把 **active seq 的 goal** 与 **history goals** 分开（§3.1）。
-> 落笔依据：本仓既有存储布局（`sessionstore/module_heads.go` 的 `storageModule` 枚举 + `metadata/<module>.json` 原子 head 发布）与两块看板的现状投影路径（`runtime.goal_governance` / `runtime.teamwork_board`）。
+> 落笔依据：本仓既有存储布局（`store/module_heads.go` 的 `storageModule` 枚举 + `metadata/<module>.json` 原子 head 发布）与两块看板的现状投影路径（`runtime.goal_governance` / `runtime.teamwork_board`）。
 
 ## 0. 一句话
 
@@ -109,7 +109,7 @@
 
 沿用既有布局，**不新造机制**：
 
-- 两个新模块枚举（`sessionstore/module_heads.go`）：`moduleBoardGoal = "board_goal"`、
+- 两个新模块枚举（`store/module_heads.go`）：`moduleBoardGoal = "board_goal"`、
   `moduleBoardTeam = "board_team"` → 文件 `metadata/board_goal.json` / `metadata/board_team.json`。
   **两个模块而不是一个**：两块看板由不同子系统写（goal 域 / teamwork 域），S16 拆栈 head 的理由
   在这里同样成立——共用一个模块就是给它们造一个共享串行点。
@@ -117,7 +117,7 @@
   checksum 校验、失败不动已发布 head）。
 - 模块锁必须各加一个 `case`（`mutexFor` 对未映射枚举**panic**，且 `TestModuleLocksAreDistinct`
   遍历枚举钉住"禁止 default 别名"）——加枚举忘了加 case 会在测试里立刻炸，不会静默别名成别人的锁。
-- 读写面按 `sessionstore/teamwork.go`（`TeamworkRepository`）的既定形态提供
+- 读写面按 `store/teamwork.go`（`TeamworkRepository`）的既定形态提供
   （`BoardRepository.ReadBoardMeta / WriteBoardMeta`），`Key` 口径与其它模块一致。
 
 ## 5. 生命周期
@@ -219,7 +219,7 @@
 
 ## 10. 工作量分解（裁决后开工）
 
-1. `sessionstore`：两个模块枚举 + 两个锁 + `BoardRepository` 读写面 + 用例（含 I3/I6）。
+1. `store`：两个模块枚举 + 两个锁 + `BoardRepository` 读写面 + 用例（含 I3/I6）。
 2. `dto`：`BoardMeta` 形状（或直接复用两块看板的既有视图） + 指纹口径。
 3. 投影侧：goal 看板 / 团队看板的产出点写存档（节流 + 生命周期迁移）+ 兜底读路径 + 用例（I1/I2/I4/I5）。
 4. 前端/TUI：`recovered` 标记的可见面（一句话，与 stale 同形）。
@@ -231,8 +231,8 @@
 
 ### 落点
 
-- **存储面**：`sessionstore/module_heads.go` 新增 `moduleBoardGoal` / `moduleBoardTeam` + 两把独立锁
-  （`mutexFor` 各一 case）；`sessionstore/board.go`（新）：`BoardLifecycle` / `GoalBoardActive` /
+- **存储面**：`store/module_heads.go` 新增 `moduleBoardGoal` / `moduleBoardTeam` + 两把独立锁
+  （`mutexFor` 各一 case）；`store/board.go`（新）：`BoardLifecycle` / `GoalBoardActive` /
   `GoalBoardHistory` / `GoalBoardMeta`（active/history 分离）/ `TeamBoardMeta`（视图快照原样搬运）+
   `ValidateGoalBoardMeta` / `ValidateTeamBoardMeta` + `BoardRepository`（带 Key 的机械面）与
   `BoardsForSession`（Key 烘焙进实现，领域侧只知道 sessionID）。
@@ -258,7 +258,7 @@
 ### 回归证据
 
 - `go build ./...` exit 0；`go vet ./...` exit 0。
-- `go test -count=1 ./...` 全绿（sessionstore 75.9s / application/core 32.7s / seelebridge 47.8s / tui）。
+- `go test -count=1 ./...` 全绿（store 75.9s / application/core 32.7s / seelebridge 47.8s / tui）。
 - `node --test gui/frontend/dist/*.test.mjs` → tests 613 / pass 613 / fail 0。
 
 ### 边界（如实标注）

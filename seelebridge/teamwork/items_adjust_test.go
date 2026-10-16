@@ -18,7 +18,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // TestAdjustItemRewritesPendingWorkAndReadsBack 覆盖正向路径的前半：未开始的工作项
@@ -69,7 +69,7 @@ func TestAdjustItemRewritesPendingWorkAndReadsBack(t *testing.T) {
 	if after.ID != "wi-test" || after.Milestone != "m-build" {
 		t.Fatalf("调整动了不该动的格（id/里程碑）：%+v", after)
 	}
-	if after.StatusOrPending() != sessionstore.TeamworkItemPending {
+	if after.StatusOrPending() != store.TeamworkItemPending {
 		t.Fatalf("调整不是派发：状态仍是 pending，得到 %q", after.StatusOrPending())
 	}
 	// 未派发的工作项没有自己的会话/现场（那是派发才发生的）。
@@ -119,7 +119,7 @@ func TestAdjustItemDependencyIsAHardGate(t *testing.T) {
 	}
 	// 被拒之后不得留下任何派发痕迹（没有会话/现场/绑定）。
 	blocked := itemState(t, fixture, "wi-test")
-	if blocked.StatusOrPending() != sessionstore.TeamworkItemPending || blocked.SessionID != "" ||
+	if blocked.StatusOrPending() != store.TeamworkItemPending || blocked.SessionID != "" ||
 		blocked.Worktree != "" || blocked.StartedAt != 0 {
 		t.Fatalf("派发被拒不得改动工作项：%+v", blocked)
 	}
@@ -128,7 +128,7 @@ func TestAdjustItemDependencyIsAHardGate(t *testing.T) {
 	if _, err := fixture.coordinator.DispatchItem(ctx, "wi-req"); err != nil {
 		t.Fatalf("DispatchItem(wi-req): %v", err)
 	}
-	waitItemStatus(t, fixture, "wi-req", sessionstore.TeamworkItemReview)
+	waitItemStatus(t, fixture, "wi-req", store.TeamworkItemReview)
 	if err := fixture.coordinator.AcceptItem(ctx, "wi-req", "通过"); err != nil {
 		t.Fatalf("AcceptItem: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestAdjustItemDependencyIsAHardGate(t *testing.T) {
 		t.Fatalf("依赖完成后必须放行：%v", err)
 	}
 	dispatched := itemState(t, fixture, "wi-test")
-	if dispatched.StatusOrPending() != sessionstore.TeamworkItemRunning {
+	if dispatched.StatusOrPending() != store.TeamworkItemRunning {
 		t.Fatalf("放行后工作项应在跑，得到 %q", dispatched.StatusOrPending())
 	}
 	if dispatched.SessionID == "" || dispatched.Worktree == "" {
@@ -164,7 +164,7 @@ func TestAdjustItemStillRefusesRunningReviewAndDone(t *testing.T) {
 	}
 
 	// 待验收（review）：teammate 跑完了，但结论还没落 —— 同样是既定事实。
-	waitItemStatus(t, fixture, "wi-req", sessionstore.TeamworkItemReview)
+	waitItemStatus(t, fixture, "wi-req", store.TeamworkItemReview)
 	if err := fixture.coordinator.AdjustItem(ctx, "wi-req", WorkItemSpec{Goal: "改目标"}); err == nil ||
 		!strings.Contains(err.Error(), "既定的") {
 		t.Fatalf("待验收的工作项必须拒绝调整，得到 %v", err)

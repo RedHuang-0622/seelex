@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // ── 定时周期任务（scheduler）测试 ────────────────────────────────────────

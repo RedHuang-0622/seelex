@@ -40,12 +40,12 @@ Seelex 的设计取舍就是逐条对着 F1–F5 来的。
 
 1. **单一帧账本**：会话里每一次进出都是账本上的一帧，`seq` 单调递增、带 `role_name`。
    队友的行与主会话的行**同账本、同序号空间**——不是两套 history 互相 CV。
-   - 存储层：`sessionstore/role_session.go`；契约：`application/contract/dto/rolesession.go`
+   - 存储层：`store/role_session.go`；契约：`contract/dto/rolesession.go`
 2. **上下文 = 账本前缀投影（不是"打包一段给它"）**：角色记录自切点 `C` 起算
    （`seq > C` 才属于它），`C` 由 `join_seq_id`（入伙那一回合）决定，compact 之后由
    `applied_seq` 抬高；**main 恒为 `C=0`**（主会话复用主会话自身，不受入伙闸门约束）。
-   - 装配与判据：`application/core/agentteam/runtime.go`、`sessionstore/role_session.go`
-   - 钉住判据的测试：`application/core/agentteam/prefix_test.go`、`sessionstore/role_session_test.go`
+   - 装配与判据：`application/core/agentteam/runtime.go`、`store/role_session.go`
+   - 钉住判据的测试：`application/core/agentteam/prefix_test.go`、`store/role_session_test.go`
 3. **两把尺子，别混用**：
    - `assembleRoleWire`（**喂模型**的那段）= "此刻的共享上下文"；
    - `RoleSnapshot`（**给人看**的那份）= "它入伙以来的账"。

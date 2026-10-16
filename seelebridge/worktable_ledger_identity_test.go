@@ -3,7 +3,7 @@ package seelebridge
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // ── 残留风险红灯：跨会话台账的行身份必须**进程内唯一** ────────────────

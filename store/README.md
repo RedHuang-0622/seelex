@@ -1,0 +1,827 @@
+# Session Store
+
+## Application state sidecar
+
+Alongside framework message history, the JSON v8 backend persists an opaque
+application-owned state blob keyed by `(project_id, session_id)`.
+`Router.SaveState` and `LoadState` use the JSON backend selection as history.
+The store does not inspect the blob; application code uses it for the visible
+transcript, Plan projection, and provenance caches without putting those records
+into provider history.
+
+**v8 JSON 布局下 state/record 通道已退役（S20/D9）**：`WriteState` 为空操作、
+`ReadState` 恒 `fs.ErrNotExist`；会话 record 与 conversation 由
+`message head.Meta` + message 事件行 + `lifecycle.archived_at` 派生
+（`DerivedRecordWorkspace`），会话展示元数据（置顶/别名/排序）落
+`project-*/session-meta.json`。SQLite/PostgreSQL/Redis 后端实现已退役（R1），
+新后端须按 `Repository`/`stackJournal` 接口重写。
+
+派生规则（`derivedConversationMessages`）与运行期可见投影同形，逐行保序：
+有正文或思考的行派生成一条消息（`content` 与 `reasoning_content` 分开携带）、
+行内**每个** `tool_call` 派生成一条 `role=tool` 调用消息（保留 `arguments`）、
+`role=tool` 的输出行派生成一条 `role=tool_result` 结果消息。同一行派生多条
+消息时 ID 加 `#tool-N` 后缀，避免与行 ID 撞键。行内多调用截断或把输出行拆成
+「调用 + 结果」两条，会让恢复后的长会话丢掉调用却留着结果、把同一次调用重复
+计入窗口，表现为「工具挤成一坨、助手正文掉队」。
+
+## Unified partition and shard contract
+
+The JSON v8 backend partitions first by `project_id`, then isolates `session_id`,
+then stores message event rows in fixed-size shards. Module heads publish each
+append-only channel, so readers observe either the preceding committed watermark
+or the next one. Retired backend enums are kept only for explicit configuration
+errors; they do not participate in range/recovery semantics.
+
+## 生态位
+
+`store` 提供统一、原子、项目作用域的会话持久化。当前实现为 JSON v8；
+调用方只依赖 `Repository`/`Router`。SQLite、PostgreSQL、Redis 枚举保留用于
+显式报错，旧实现已删除。
+
+基座机制（数据根独占锁、进程存活探测、无锁共享读、原子发布 `WriteAtomic`、JSONL 残尾
+`TruncateCrashTail`、存储运行参数 `Settings`）已在 M3-S2 抽成独立的 `store/root` 包
+（依赖闭包 = 纯标准库，见 [`root/README.md`](root/README.md)）。
+本包以 import 别名 `storeroot` 使用它，并在 [`root_aliases.go`](root_aliases.go) 里保留
+`Settings` / 哨兵错误 / 数据根锁读函数的保形别名——调用点与 `main.go` 因此零改动；
+本包**不再**自己实现这些机制（同一判据只许有一处实现）。
+
+主要调用方：`application/core/session_runtime`（持久化与会话三读）、`session`
+（fork 的显式项目作用域读写）、`internal/adapters`（DTO ↔ 存储映射）与
+`gui`/`headless`（目录与元数据读面）。
+
+## 分卷 README（根包按文件前缀）
+
+根包文件较多（134 个 `.go`），按**文件前缀**分卷：每卷含生态位与「文件与函数索引」，
+索引由源码 doc 注释自动提取（生成器 [`../scripts/gen_store_readme_volumes.py`](../scripts/gen_store_readme_volumes.py)，
+复用 `scripts/gen_core_readme_index.py` 的提取逻辑）。
+
+| 分卷 | 覆盖文件（前缀） | 一句话生态位 |
+|---|---|---|
+| [README-session.md](README-session.md) | `sessionstore`/`session_granular`/`session_context`/`session_meta`/`durable_history`/`runtime_api`/`conversation`/`history_resume_readers` | 会话句柄与上下文状态、历史读面 |
+| [README-message.md](README-message.md) | `message_rows`/`structural_events`/`event_store`/`event_range`/`paragraphs`/`wire_assembler`/`big_tool_result`/`provider_wire` | message/event 事件行与 wire 装配 |
+| [README-compact.md](README-compact.md) | `compact_frames`/`compaction_records`/`checkpoint_store`/`context_state`/`material_cache`/`attempt_cache` | 压缩帧与记录、运行期缓存 |
+| [README-stack.md](README-stack.md) | `stack_channel`/`stack_journal` | 上下文四栈的通道与日志 |
+| [README-retention.md](README-retention.md) | `retention`/`pending_tail`/`lifecycle`/`queue_consume` | 草稿尾、队列与 LRU 回收 |
+| [README-board.md](README-board.md) | `board`/`project_board`/`project_known`/`project_record` | 项目看板投影与项目知识记录 |
+| [README-team.md](README-team.md) | `teamwork`/`team_registry`/`role_session`/`node_session_store`/`unit_record_writer` | 团队、角色与节点会话记账 |
+| [README-media.md](README-media.md) | `media`/`search_index`/`tool_record`/`schedule_events` | 媒体分区、检索索引与派生通道 |
+| [README-storage.md](README-storage.md) | `json_layout`/`module_heads`/`fork_store`/`legacy_storage`/`router_storage`/`root_aliases` | 存储引擎底座：布局、head 发布、迁移与别名 |
+| [README-misc.md](README-misc.md) | 兜底卷：无前缀归属的测试文件 | 跨卷用例与基础回归 |
+
+## 架构图
+
+```mermaid
+flowchart TB
+    CALLER["调用方<br/>application/core · session · internal/adapters"] --> ROUTER["store.Router"]
+
+    subgraph LAYOUT["JSON v8 分区布局"]
+        P["先按 project_id 分区"]
+        S["再按 session_id 隔离"]
+        SHARD["message 事件行按固定大小分片追加"]
+        HEAD["模块 head：只装水位"]
+    end
+
+    subgraph CHANNELS["append-only 通道"]
+        C1["message 事件行（正文事实源）"]
+        C2["plan / task / goal 三栈"]
+        C3["media 媒体分区（内容寻址）"]
+        C4["lifecycle / 元数据"]
+    end
+
+    DEP["退役后端枚举<br/>SQLite / PostgreSQL / Redis<br/>只用于显式报错"] -.-> ROUTER
+    ROUTER --> LAYOUT
+    LAYOUT --> CHANNELS
+    HEAD --> READER["读者：只能看到旧水位或新水位对应的已发布内容"]
+```
+
+## 数据流图
+
+```mermaid
+flowchart LR
+    APPEND["追加 message 事件行"] --> WRITE["写入分片"]
+    WRITE --> PUBLISH["模块 head 原子发布（新数据完整写入后）"]
+    PUBLISH --> READ["LoadSessionRecord / LoadHistoryTailWindow"]
+    READ --> DERIVE["派生：record 与 conversation 由 head.Meta<br/>+ 事件行 + lifecycle.archived_at 生成"]
+    DERIVE --> CALLER["application/core"]
+    FAIL["中途失败 / 未发布行"] -.->|不会被当作当前会话事实| READ
+    LOCK["数据根单写者锁 lock.owner<br/>进程消失 + 心跳超龄才可接管"] -.-> WRITE
+```
+
+## 数据模型
+
+`Key{ProjectID, SessionID}` 是唯一存储键。名称不是索引。空 ProjectID 表示未绑定项目的默认 scope。
+
+`Repository` 契约：
+
+- `WriteAtomic`：完整替换一个逻辑 history，读者只能看到旧版本或新版本。
+- `Read`/`ReadRange`/`List`/`Delete`：都显式接收 project scope。
+- `Ping`/`Close`：生命周期管理。
+
+## Backends
+
+### JSON
+
+**v8 布局（M1–M4 已实现，新会话默认）**：新会话不再写 generation/manifest，
+而是：
+
+- `session/metadata/guide.json` 只做读索引/路由；各模块 head 独立成
+  `metadata/<module>.json`（message/event/compact/stack/lifecycle/retention/
+  subagent/toolresult），写锁按模块、各自原子发布；
+- 正文事实源 = `session/message/message_{m}_{n}.jsonl` 事件行（分片按默认
+  100 行），`commit_id` 标记一次持久提交，同提交多行共享；head 是发布点，
+  崩溃残尾/未发布行按恢复语义截断或不可见；
+- **message 读路径不持 `messageMu`（C2，2026-09-23）**：`readRows` /
+  `readTailRowsForSelection` 只做一次**无锁 head 快照**（自愈读入口，绝不把
+  未发布行提升为已提交），随后在**锁外**解码分片。写者因此不必排在长全量解码
+  后面——原实现读写共用一把独占 mutex，pprof 里 66% 的锁等待其实是**写者在等
+  读者**。可见性：读者看到的是快照那一刻的发布点（陈旧读；草稿尾天然不可见）；
+  并发清理删掉快照引用的分片时以新快照**重试一次**（有界，坐标没变即原样报错）。
+  并发发布/淘汰还要求**只读文件用带 `FILE_SHARE_DELETE` 的句柄打开**（Windows）：统一走
+  `storeroot.OpenSharedRead`/`storeroot.ReadSharedFile`（`store/root/file_shared_read_windows.go` / `_other.go`），接线
+  `readModuleHeadFileRaw`/`readHeadEnvelopeLenient`/`readMetaFromDir`/`readMessageRowsFileAt`/
+  `scanShardUserInputs`——默认共享位下读者会在 rename 发布窗口 open 失败
+  （`ERROR_SHARING_VIOLATION`），并挡住 LRU/reap 的删除；rename 覆盖仍要求目标无打开句柄，
+  故写侧 `store/root` 的 `renameBackoff` 保留。
+  验收：`message_read_lock_test.go`（结构性：读者钉在解码里，提交仍须完成）+
+  `lock_hotspot_test.go`（时序：读者造成的额外等待 ≤ 预算）；写侧整片重读 +
+  `fileSHA256` 整片重算（H3）与 head 每次提交整份重写（C1）仍是同一专项的
+  未完成项，归 `lock_hotspot_probe_test.go`（`-tags lockprobe`）定量跟踪；
+- provider 整段历史缓存（`history.json`）**已退役（S11/D9）**：Read/ReadRange
+  全量读一律由 message 事件行派生；`Router.Save`/`WriteCommit` 的
+  `ProviderHistory` 不再落盘（同一提交以 `Events` 为准，dev 阶段丢字段已
+  接受）；
+- 结构性 EVENT（compacted/fork/subagent/interrupted/…）独立进
+  `session/event/event_{m}_{n}.jsonl`；compact 摘要帧进 `compact.jsonl`；
+- LRU 行删除、draft/queue lifecycle、fork session/subagent、单会话关键词
+  索引、big_tool_result blob 由 `v8_*.go` 引擎承载（契约测试 T-M1/T-R1/
+  T-R2/T-R3/T-LC/T-FK/T-WM/T-EV/T-SR/T-BL/T-CFG）。
+- 会话标题是 head 的目录枚举面（`head.Meta.Summary`）：`SetSessionTitleWorkspace`/
+  `SessionTitleWorkspace` 提供写穿面与 header-only 只读面（不打开任何分片）。
+  标题写穿上线前落盘的会话没有标题，应用侧需要重建"用户第一问"时用
+  `FirstUserInputsWorkspace`/`SessionGranularStore.FirstUserInputs`：**有界读**
+  ——只打开首个消息分片（`Shards[0]`，且必须从 seq 1 起，否则说明首问已被 LRU
+  淘汰，不拿会话中段的提问冒充），从头按行扫描，够数或触到 256 KB 预算/单行
+  64 KB 上限即停（整片解码 100+ ms/会话 vs 早停扫描 ~1 ms）；跳过"以 user 身份
+  写盘"的内部注入行（`kind=internal` 或正文以 `<!-- seelex:` 开头）。返回
+  `hasLayout=false` 表示会话尚无已发布行（未落盘的新会话），调用方稍后重试。
+
+**模块 head 缺失的读面口径（2026-10-15；通则见 `docs/arch/absent-state-reads.md`）**：
+head 文件的"缺失"要按**业务状态**读，而不是当 IO 错误上抛。本模块的统一实现是
+`readOptionalModuleHead`（模块 head 的默认档），例外两档（按显式 id 的查找读面、已退役的
+`state.json`）在那份文档里逐条登记。`ReadTeamworkPlan` 因此把缺失翻成**空计划
+（`TeamworkPlan.IsEmpty` 为真）+ nil**：还没 `team_plan` 过是一个正常状态。读面
+（team_items / team_context）据此给空结果，需要计划的写面自己判空并给领域文案
+（判据在 `seelebridge/teamwork` 的 `requireTeam`，不在这里复制）。同文件的
+`ReadTeamworkEvents` 早已是"缺失即空集"，本次是把同一口径补到计划那一路——现场是模型
+收到 `open …\metadata\teamwork.json: The system cannot find the path specified.`，
+并把正常的"还没有团队"读成了工具故障。
+
+**工具记录读数（`<sessionRoot>/tool-record.jsonl`，2026-10-15）**：`tool_*` 计数的
+落盘面——**会话粒度 + 批次更新**。一行 = 一次批量更新（"到目前为止的整份累计"，形状由
+上层给、本层不认识字段），读侧取**最后一行**；残尾（没换行收尾）与坏行跳过、回退到上一
+行完整快照（快照是整份的，回退不丢上一批之前的读数）。为什么不做"每次工具调用 append
+一行"：工具调用是回合内高频事件，逐次落盘会让磁盘一直忙（2026-10-15 用户口径）——
+批次点由应用层给（真相源提交时刻，见 `application/core` 的 `FlushToolRecord`）。
+接口：`Router.ToolRecordFor()` → `AppendToolRecordSnapshot` / `ReadToolRecordSnapshot`
+（与 `TeamworkFor()` 同一手法：有就有、没有就是没装配）。
+
+旧会话（只含 `manifest.json` / `transcript.log` 的目录）**已彻底退役（D2/
+S12）**：读路径不再判定、不再打开（返回 `fs.ErrNotExist`），目录枚举跳过并
+保留磁盘内容；新会话与新写入一律走 message 事件行 + 模块 head 布局。
+SQLite/PostgreSQL/Redis 后端实现已删除（R1）；枚举保留，`Open` 返回
+`ErrBackendRetired`，不会静默回退到其它后端。
+[`docs/2026-09-08-session-storage-architecture/README.md`](../docs/2026-09-08-session-storage-architecture/README.md)）。
+
+旧布局写路径描述（保留作 legacy 语义参考）：
+
+每次写创建新的 `generation-*` 目录，将 history 按 100 条分 shard，最后原子替换 `manifest.json` 指向新 generation。旧 generation 不会在 manifest 提交前暴露。
+
+**transcript 事件按增量追加到会话目录 `transcript.log`**（append-only JSONL，一行一个
+`Event`，含显式 `kind`：user_input/llm/tool_call/tool_output/error/…），不再随
+generation rollover 整代重写 `events.NNN.json`。追加按 `Seq > 已落盘 head` 求增量，
+重复提交幂等；崩溃残尾（未换行收尾的半行）按恢复语义跳过。事件读取
+（`ReadEventTail`/`ReadEventRange`）以日志为物理事实源；history/state 仍走
+generation 快照，属于派生投影。
+
+状态：**JSON 后端统一走 message 事件行 + 模块 head 布局；旧 manifest 会话
+不再打开（S12）**。其它后端实现已退役，待按当前接口重写。
+
+**rollout 全序日志（P2 垂直切片）已删除/退役**：运行期恢复不再走 rollout
+重放，JSON 会话统一走 wire 装配（compact 摘要 + 尾窗 + 最近 K 条尝试）；
+rollout 实现文件、读接口与双写已随旧链路删除（历史设计见
+[docs/2026-09-08-session-rollout-p2/README.md](../docs/2026-09-08-session-rollout-p2/README.md)。
+
+### Retired backends
+
+`BackendSQLite`、`BackendPostgreSQL`、`BackendRedis` 枚举保留，避免旧配置被
+静默改写；`Config.Normalize` 与 `Open` 对三者统一返回
+`ErrBackendRetired`（错误文本附 `use json`）。旧 SQL 表、Redis key、
+manifest/generation/shard 实现和专属测试已删除（R1），磁盘上的旧数据目录不做
+清理。新增后端必须实现 `Repository` 与 `stackJournal` 契约后再恢复枚举入口。
+
+## Router
+
+Router 用 RWMutex 把 active repository、config 和 project ID 绑定为原子视图。`Configure` 先 normalize/open/ping/save config，再在锁内 swap，最后关闭旧 backend。进行中的旧操作完成后，新操作才看到 replacement。
+
+显式 `LoadWorkspace` 等方法不修改 active write scope，避免恢复其他项目会话时读错 shard。
+
+## 项目看板投影（`<项目根>/.seelex/board/<会话 ID>/`，M1/M7/M9）
+
+`project_board.go` 是项目看板的**存储面**：把已经存在的两份活体投影（工作表格 `buildWorkTable`
+与 teamwork 计划/运行态）按会话落成项目目录下的追加式 JSONL **派生件**——它不是事实源，
+删掉可重建（重建走本节的追加与折叠）。
+
+- **落点（按会话分目录，M9）**：`ProjectBoardDir(projectRoot)` = `<项目根>/.seelex/board`（看板
+  根），`ProjectBoardSessionDir(projectRoot, sessionID)` = `<board>/<会话 ID>`（**会话私有目录**），
+  目录内只有两份白名单 jsonl：`worktable.jsonl` / `teamwork.jsonl`（`projectBoardSessionFile`
+  拒绝其它名字，防路径穿越）。**人读件 `BOARD.md` 与项目摘要 `project-known.md` 留在看板根**
+  （全项目汇总，不分会话）。`projectRoot` 由调用方给出（application 侧 `Service.ProjectRootFor`）；
+  **空根显式报错**——未绑定工作区的会话没有落点，不落盘，也不退回数据根。
+  为什么分目录：**防串写**（一个投影文件只有一个写者，会话之间不共用文件）、**幂等可判**（水位/
+  批号以"一会话一文件"为单位）、**会话自维护**（回收 = 摘掉它自己那个目录，不必从共享文件里筛行）。
+- **会话 ID 当目录名要过闸**：`sessionBoardSegment` 是唯一判据——拒绝空串、`.`/`..`、路径分隔符、
+  Windows 非法字符 `<>:"|?*`、控制字符、点/空格结尾、> 128 字节；写/读/**回收**三条路径都经它
+  （回收会 `os.RemoveAll`，绝不拿没校验的串当路径）。首尾空白走归一化（trim），不拒绝。
+- **行信封**：`ProjectBoardRow{schema, kind, key, seq, at, scope{session}, payload}`。`seq` 在
+  **文件内**单调递增，批号由"文件水位 + 1"整批盖章；文件即会话 ⇒ 幂等键就是**文件内的 `Seq`**
+  （同一批重复提交 ⇒ 空操作）。行内 `scope.session` 仍写（产物自描述），写侧还会核对"行内会话 ==
+  目录会话"，不一致**显式拒绝**（`projectBoardStampSession`：那是往别人的目录里塞行）。
+- **唯一读法**：`FoldProjectBoardRows`——同一 `(会话, Key)` 取 `Seq` 最大的一行；最新行
+  `payload["removed"] == true` ⇒ 该 Key 从结果消失（tombstone）；未知 schema/kind 跳过并记日志；
+  输出按 `(Kind, Key, Session)` 稳定排序。
+- **追加**：`Router.AppendProjectBoardRows(projectRoot, sessionID, file, rows)` →
+  `appendProjectBoardRows`（**唯一实现**）。空批不建文件（I6）；幂等（本批那个 Seq 已在文件里 ⇒
+  空操作）；先 `storeroot.TruncateCrashTail`（`store/root/jsonl_io.go`）再逐行追加；全程持**按文件路径分片**的
+  独立锁 `projectBoardLock`（路径含会话 ⇒ 各会话各一把锁；不新增 `storageModule` 枚举，也不与
+  message/teamwork 模块锁串成一个串行点）。
+- **有界 + 压实（R-1）**：单批 > `ProjectBoardMaxRows` 直接报错；累计越界先
+  `compactProjectBoardFile` **压实**（折成每个 `(会话, Key)` 的最新一行并丢掉 tombstone，
+  复用 `FoldProjectBoardRows` + `encodeProjectBoardRows` + `storeroot.WriteAtomic`），压实后仍越界才显式
+  报错。为什么必须有压实：同步器每轮"整份重盖"，只报错的话触顶即**投影永久停在旧版本**
+  （文件与人读件都还在，读的人却拿到过期内容）。水位只增不减（压实可能丢掉最大 Seq 那一行）。
+- **人读件**：`ProjectBoardMarkdown`（`project_board_markdown.go`）把**逐会话目录折叠后**的行
+  **确定性**渲染成 `BOARD.md`（会话目录按名字排序遍历 ⇒ 字节稳定；不落 `at`、不含绝对路径与
+  `ws-<nano>`；同一份行两次渲染字节相同），追加成功后重建；渲染失败只记一行日志，**不**把一次
+  成功的行级追加判成失败（否则调用方重试会写出重复行）。它是**唯一**的共享产物，但内容是纯函数
+  结果（整份重渲染、不累积）⇒ 后写覆盖前写不丢信息。
+- **回收**：删会话时 `Router.DeleteWorkspace` → `ReclaimProjectBoard` → `os.RemoveAll(<board>/<会话>)`
+  + 重渲染人读件（其它会话的目录原样保留）；"会话 → 项目根"的解析器由 `SetProjectBoardRootFor`
+  注入（存储面不认识工作区）。幂等：目录本来就不在 ⇒ 空操作。
+- **聚合读**：`Router.ReadProjectBoard` 逐会话目录读（`projectBoardSessionDirs`，名字有序），
+  按 `ExcludeSession` 跳过、按 `MaxSessions`（缺省 `ProjectBoardReadMaxSessions=32`）限目录数、
+  按 `MaxRows` 限行数，触顶以 bool 显式标注截断。
+- **不做**：不判定、不重算状态（判据在 `buildWorkTable` 与 teamwork 事实里，本文件只做字段映射）；
+  不进模型上下文（读面另见 `application/core` 与 `project_board_read` 工具）；不承诺跨进程一致性
+  （数据根的 `lock.owner` 不覆盖项目目录，见契约 §9.3 R-3）。
+
+Review 风险：新调用方是否绕开 `ProjectBoardDir` / `ProjectBoardSessionDir` 自造目录与文件名；
+会话 ID 是否**没经** `sessionBoardSegment` 就进了路径（尤其新增删除/回收类调用方）；是否把某个
+判据（状态、kind 分类、上限）在存储面复制了第二份；压实后水位是否仍单调；`BOARD.md` 是否混进
+时刻、绝对路径或 `ws-…`；空根是否被 `filepath.Join` 悄悄折成相对路径。
+
+验证：`go test ./store/ -run ProjectBoard -count=1`（含 `TestProjectBoardLandsInProjectBoardDir`、
+`TestProjectBoardRowsBounded`、`TestProjectBoardKeepsUpdatingAfterBoundReached`）；
+"真工具调用 ⇒ 真落盘"的端到端在根包 `project_board_write_test.go`。
+
+## 项目级记录（`project-record.json`，`project_refresh` 的落点）
+
+`ProjectRecord`（`project_record.go`）是**项目级**模块语义：`Version`（由来源 hash 派生）、
+`Modules`、`SourceHashes`、`BuiltAt`。它跨会话共享、会话只读，唯一的写者是 `project_refresh`。
+
+- **键**：`<root>/project-<hash(projectID)>/project-record.json`，`projectID` 是**工作区 ID**
+  `ws-<nano>`（`workspace.New` 生成），不是路径。
+  `RefreshProjectKnowledge(ctx, store, projectID, builder, force)` 显式收这个键——写入键与
+  读面（`main.go` 装配根 `RuntimeDeps.ProjectKnowledge` 的
+  `store.LoadProjectRecord(store.Workspace())`）必须同键，否则记录写在了没人读的键上
+  （回归用例 `TestProjectRefreshWriteReadSameKey`）。空键显式报错，不落盘。
+- **来源**（`ProjectKnowledgeSources`，三字段皆可覆盖）：模块文档目录 `<root>/docs/modules`、
+  模块元数据 `<root>/docs/gui/module_dotting.json`（登记表的真实位置在 `docs/gui`）、
+  可选手写说明 `<root>/seelex.project.md`。三路默认来源全落空 ⇒ 显式
+  `project knowledge: no sources found under ...` 错误，**不产出空记录**；
+  `TestProjectRefreshSourcesConfigurable` 与 `TestProjectRefreshRealRepositorySources`
+  （后者按本仓库真实布局）钉住默认值。
+- **三分支**：来源 hash 未变 → 复用（不重建，`BuiltAt` 不动）；已变/首建 → 重建并原子落盘；
+  重建失败 → 保留上一版本（`Fallback`）；首建失败 → 显式错误。
+- **不做**：不进 `SessionRecord`，不参与会话状态机与 gate/裁决；会话不写项目记录。
+
+Review 风险：新调用方是否误把扫描根路径当项目键传进来；登记的元数据是否随文档搬家而漂移
+（漂移时应该有一条真实布局用例先红，而不是静默退化成 `no sources`）。
+
+## 项目摘要渲染件（`project-known.md`，M5）
+
+`ProjectKnownMarkdown`（`project_known.go`）把 `ProjectRecord` **确定性渲染**成人读
+markdown，`WriteProjectKnown` / `ReadProjectKnown` 把它原子落到项目级目录下：
+
+- **产物定位**：`ProjectRecord` 的**人读渲染（读侧视图），不是输入源**。渲染不参与任何判定、
+  不写事实——领域判定照旧读 task/teamwork 事实；它也**不进模型上下文**（只在被读时进入）。
+- **落点**：`<项目根>/.seelex/board/project-known.md`（与看板**同一个目录**、同一条生命周期；
+  目录派生**复用** `ProjectBoardDir(projectRoot)`，发布**复用** `storeroot.WriteAtomic`，锁**复用**
+  按路径分片的投影锁；不新增 `storageModule` 枚举）。2026-10-15 起落点跟**会话所属工作区**走
+  （解析器由 `Service.ProjectRootFor` / `Router.SetProjectBoardRootFor` 注入），换项目根落点随之变
+  （`TestProjectKnownPathFollowsProjectRoot`）。
+- **确定性**：同一 `ProjectRecord` 两次渲染**字节相同**；模块按 `Name` 稳定排序、`Docs`
+  排序去重。**剔除 `BuiltAt`、绝对路径、`ws-<nano>`**（可提交件三铁律）——绝对路径的
+  `Path` 丢弃、`Docs` 同理，prose 里的 `ws-…` / 盘符路径清洗成占位符。
+- **被动（R6）**：**无显式调用 → 不产文件**。不在装配期构建、不自动刷新；只有
+  `project_refresh` 工具被调用时由 `main.go` 的 handler 渲染 + 落盘，返回体带
+  `known_written` / `known_bytes`（`TestProjectKnownPassiveOnly`）。
+- **责任链不变**：谁能产出 `ProjectRecord` 仍只有 `ProjectKnowledgeBuilder`（来源合并链：
+  元数据→文档目录→手写说明）与 `RefreshProjectKnowledge`（复用/重建/回退三分支）。本项
+  **只加一步渲染**：命中即处理、未命中传递，不新写第二条项目知识链。
+- **失败语义**：重建失败 → 回退保留上一版本（渲染件**不重写**，既有回退语义不变）；
+  首建失败 / 空键 / 空内容 → 显式报错，**不产空文件**；非 JSON 会话存储布局下写面报错、
+  读面按不可用返回（与 `ReadProjectBoardRows` 同口径）。
+- **命名不撞车**：`seelex.project.md` 是**来源名**，`project-record.json` 是**记录**，
+  `project-known.md` 是**渲染件**——三者不是同一个东西。
+- **复用清单（禁止第二份实现）**：目录派生 `projectBoardRoot`（`project_board.go:165`）、
+  `storeroot.Hash`（`store/root/atomic.go`）、原子发布 `storeroot.WriteAtomic`（`store/root/atomic.go`）、
+  按路径锁 `projectBoardLock`（`project_board.go:191`）、项目作用域写面
+  `Router.withJSONRepositoryAt`（`store.go:1066`）、键校验 `validateProjectID`
+  （`store.go:248`）、项目知识链 `ProjectKnowledgeBuilder` / `RefreshProjectKnowledge`
+  （`project_record.go:73` / `:460`）。
+  **删除清单**：本项**没有**新增第二套目录命名、第二份 rename 发布、第二个 `storageModule`
+  锁枚举、第二份项目知识构建/判定、第二把工具（`project_refresh` 仍是唯一入口）、
+  任何装配期构建或自动刷新钩子。
+
+## 会话展示元数据（`SessionMetaStore`）
+
+`SessionMeta`（置顶、别名、手动排序位）描述"用户怎么看这个会话"，不参与执行与存储
+归属。它以**项目级 blob** 落在 state 通道的伪会话键 `seelex:project:session-meta`
+上：
+
+- 为什么不并进 `SessionRecord`：record 每次回合结束都由存活状态整体重建，夹在其中的
+  展示字段会被覆盖；独立 blob 与记录写路径完全隔离。
+- 为什么不造新通道：JSON v8 的目录枚举只认有 guide/message head 的会话目录，只写 state 的
+  键不会出现在 `SessionsOf`/`List` 里（回归用例 `TestSessionMetaStoreRoundTrip` 钉住
+  这一点，避免造出幽灵会话）；`Delete(session)` 也删不到它。
+- 写是读-改-写，进程内由 `SessionMetaStore.mu` 串行化（桌面单进程形态；实例由
+  `main.go` 构造一次并以指针注入 `SessionPort`，值拷贝后仍共用同一把锁）。
+  `TestSessionMetaStoreConcurrentSets` 在 `-race` 下断言无丢失更新。
+- 读失败或缺键一律按"无元数据"处理：展示元数据不得让会话目录整体失败。
+- **展示字段与"会话级设置"共用一个 blob、两套写面**：`Set` 只覆盖置顶/别名/排序位
+  （合并写——条目里其它字段原样保留），`SetPermissionTier` 只写权限档位。
+  这条分界是必须的：若 `Set` 整条替换，用户"取消置顶"会顺手抹掉他选的权限档位。
+  `Empty()` 纳入档位后，"清展示字段"只在条目真的无信息量时才删除条目。
+  回归用例 `TestSessionMetaStorePermissionTierIsolation`。
+- `PermissionTier` 是**主会话在本会话的权限档位**（空 = 从未选择 → 运行时回退进程
+  默认档位）。它是用户选择而非执行事实，但同样不能进 `SessionRecord`：现行 v8 布局
+  （S20）下 record 通道已退役——`SaveRecordRaw` 只写穿 `status`/`title`，
+  `LoadRecordRaw` 交回按 message head/行派生的最小 record，新增字段写不进也读不回。
+  跨重启记忆的回归在 `application/core`（`TestPermissionTierSurvivesSessionReload`）。
+
+**已知缺口**：`Delete(session)` 不清理该会话的元数据条目（置顶/别名早已如此，档位
+沿用同一现状）。条目按会话 ID 建键，删除后的 ID 不会复用，因此只是遗留垃圾而非串写。
+
+## Seele v2 会话适配
+
+两个适配器把 Router 接到 Seele（当前 `v0.3.4`，见 `go.mod`）的会话契约：
+
+- `durable_history.go` — `DurableHistory` 实现 `seelectx.DurableHistory`
+  （Load/Save/Clear）：Session 每次 Chat 前 Load、结束后 Save；`Reset`
+  显式清空。v8 JSON 布局（S11）：ProviderHistory 不再落盘，Save 只负责
+  会话状态 blob（SaveState 编排），正文事实源 = `SaveCommit` 的 message
+  事件行，Load 由行派生。
+- `session_context.go` — `SessionContextStore` 读写会话级上下文记录
+  （state blob）：SystemPrompt + Skill 记录 + Compact 栈 + GoalAudit。
+  Schema 当前 **v3**：v3 起 blob **不再承载 plan/task/goal 三栈**（权威在
+  §2.4 栈通道，见下节），v2 及更早的「栈内联在 blob」记录一律显式拒绝加载
+  （不静默迁移、不降级为内存栈），走会话恢复错误路径。`SessionContextStore`
+  的四栈 API 因此是两个后端的组合门面：blob 字段读写 blob，三栈读写通道。
+
+### goal 帧：走栈通道，不走 blob
+
+goal 帧与 plan/task 同属 §2.4 栈通道（`session/goal/{active,history}.jsonl`
++ `metadata/stack.json` 水位），`SessionContextStore` 的 `PushGoal` /
+`CloseTopGoal` / `ReplaceGoalStack` / `GoalStackSnapshot` 只做「goal 域 DTO ↔
+栈条目 payload」的编解码，落盘一律经 `Router.Stack*`。语义边界不变：
+
+- 栈内 goal **不进模型上下文**：seelexctx 的栈块渲染（稳定前缀/动态尾部）
+  只消费 Plan/Task/Skill/Compact，goal 帧不渲染、不做记忆前缀与匹配；
+- 聊天记录中的 `#goal` 文本是普通转录内容，随上下文窗口/压缩一起被压缩；
+- goal 域 `Controller` 每次状态机变更经 `ReplaceGoalStack` 全量写回当前栈
+  投影；**goal 是活栈投影 + 单条目批次 LIFO**（只有栈顶可弹），批次收口即
+  整批归档进 `history.jsonl`，恢复时读 active 重建；JSON 后端 head 按 kind
+  分文件：`metadata/stack_{plan,task,goal}.json`（S16），每 kind 一把锁。
+
+fork 子会话**不继承父 goal/plan/task 栈的"未来"条目**：按 message 锚重建
+"该点"快照（`Router.ForkStacks`，起点早于 LRU 水位显式报错）。
+
+### goal 审计账本（GoalAudit，append-only，按会话隔离）
+
+`SessionContextRecord.GoalAudit` 是 goal 生命周期审计（begin/update/finish/
+abort/restore 各一条），Seq 由本会话单调递增，**只追加不回改**。审计与活栈
+正交：GoalStack 弹栈即删除、终态为空；审计保留收口记录（reason/result 与
+可选 SourceSession 出处——用户可能在其它会话完成了该 goal，装配方收口时可
+携带出处写回原会话账本，**不写入其它会话、不做跨会话回放**）。fork 子会话
+同样不继承父 GoalAudit。
+
+主 Runtime 通过 `seelebridge.Runtime.AttachHistoryRouter` 独立装配 `DurableHistory`，不复用 `SessionContextStore` 的 application-owned state blob。恢复会话时 DurableHistory 与框架 Session 使用同一个 session ID；Application 成功提交完整 `SessionRecord` 后才释放 provider working history，下一轮再从 durable tail 冷加载。
+
+## plan / task / goal 栈通道（v8 §2.4，已实现）
+
+三栈是**独立数据通道**，不再塞进任何 blob（塞进 context 单文件会让一次栈写入
+与整份上下文重写抢同一把锁）。
+
+- 放置（§3.2）：`session/{plan,task,goal}/active.jsonl`（当前投影）与
+  `history.jsonl`（append-only 归档）；JSON head 在
+  `metadata/stack_{plan,task,goal}.json`，**只装逐 kind 水位**
+  （head_seq / active_count / history_count / history_bytes），条目内容不进 head。
+- 语义（§2.4 + §0 条目 4）：批次内未完成 → 整批留 active；全部完成 → 整批
+  弹栈归档；goal 是单条目批次且 LIFO（只有栈顶可收口）；每条带 message 锚
+  `item_message_id` / `batch_message_from` / `batch_message_to`，fork 按锚
+  重建"该点"快照。
+- 写序（I5）：数据文件 → 模块 head（提交发布点）→ EVENT（`plan.*`/`task.*`/
+  `goal.*` 状态迁移摘要，I4：不参与装配）。head 未发布的行按 `revision` 判定
+  不可见，崩溃残尾按 JSONL 行边界丢弃，head 记录的 `history_bytes` 让下一次
+  提交 O(1) 回收「已落盘但未发布」的归档尾行。
+
+### 后端矩阵
+
+`Repository` 暴露 `stackJournal()`（不可在包外实现）；R1 后 JSON v8 是唯一
+实现，新后端必须同时给出栈通道。通道语义（批次、水位、锚、迁移、fork、
+verify）只在 `stack_channel.go` + `stack_journal.go` 写一次，后端只实现
+`load / publish / anchor / watermark / recordEvents / dropCache / stats`：
+
+| 后端 | 数据放置 | 发布点 | 锚（message 坐标） |
+|---|---|---|---|
+| JSON | `{kind}/active.jsonl` + `history.jsonl` + `metadata/stack_{kind}.json` | 先数据后 head（rename），读侧按 revision 过滤 | 事件行 `message_id` + `seq` |
+| SQLite / PostgreSQL / Redis | 旧实现已删除（R1） | `Open` 返回 `ErrBackendRetired` | 不适用 |
+
+### 并发与读路径（为什么读者不等写者）
+
+- **单写者 actor**：一次变更是一个提交闭包（`StackMutation` 工厂），在同一
+  会话的 `stackMu` 临界区内执行；可变投影只被该临界区触碰 → 无数据竞争。
+  head 是跨 kind 共享的发布点，所以临界区按会话而非按 kind。
+- **读走内存快照**：每次发布把 active 投影连同 head 水位塞进
+  `atomic.Pointer[stackView]`，读者只做一次原子装载 + 小切片复制，既不取锁
+  也不打开文件句柄 —— Windows 上任何句柄都会让 rename 发布失败，读者持柄只会
+  把失败转成退避等待（发布原语的重试预算 ≈77 ms，见「结构性 EVENT 通道」节末）。
+- **写路径不解析归档文件**：归档计数/字节水位取自 head，history.jsonl 只在
+  读者与 fork 需要时解析。
+- **EVENT 移出栈临界区**：写序不变（数据 → head → EVENT），只是 EVENT 的分片
+  IO 不再拉长栈锁；EVENT 失败不撤销已发布 head（§2.0 规则 4 的短窗口分离）。
+- `Router.StackStorageStats()` 逐域计量（锁等待 / active / history_append /
+  history_read / head / guide / EVENT + 冷读次数），`-race` 与延迟归因由
+  `TestStackChannelLockAttribution` 验收。
+- 作废点：删除会话、fork 覆盖子目录后必须 `dropSessionCaches`（快照与本进程
+  写者同源，目录不在了就作废）。单数据根 = 单进程写者（§9）是该内存快照
+  成立的前提：JSON 数据根在打开时抢 `<root>/lock.owner`（同进程引用计数
+  共享；**跨进程存活锁一律立即报错**，绝不接管；心跳按
+  `lock.stale_after_seconds/3` 续约），`jsonRepository.Close` 归还
+  （契约测试见 `data_root_lock_test.go`）。
+
+  **崩溃残留锁的默认口径（2026-09-17 起）**：默认配置写死
+  `lock_auto_recover: true`——持有者进程消失且心跳超过
+  `lock.stale_after_seconds`（默认 300）后，下一次 `Open` 直接接管陈旧锁，
+  而不是报错拒绝启动。安全前提不变：接管只在**两条陈旧判据同时成立**时发生，
+  所以"另一个还活着的 seelex 正在写同一数据根"永远不会被抢锁（这是单写者
+  不变量）；`lock_auto_recover: false` 仍可显式恢复"只报错不接管"的保守口径。
+
+  **多进程放行（2026-10-01 起，`limits.runtime.allow_multi_process`）**：默认
+  false = 单实例，跨进程存活锁一律拒绝（上面的单写者不变量）。显式置 true 后，
+  锁在冲突时退化为**诊断信息**——本进程照常启动，但不持锁、不续租、`Close` 也不删
+  别人的锁文件；代价是失去跨进程写者串行化（进程内模块锁不跨进程，并发写同一会话
+  /模块会互相覆盖，一致性由使用者负责）。配置说明见 `config/README.md`，两臂用例见
+  `data_root_lock_multiprocess_test.go`。
+
+  **存活判定（2026-09-18 修正，`store/root/process_alive_windows.go`）**：Windows 的进程对象在
+  「进程已终结、但仍有句柄引用」时依旧可以被打开（PID 也仍被占用），因此
+  `os.FindProcess`/`OpenProcess` 成功**不能**证明持有者活着——被强杀的 dev GUI 会被
+  误判成活持有者，锁永远判不了陈旧（症状：`Open` 报 `ErrDataRootLocked`，GUI 启动即
+  退出）。现口径改为 `OpenProcess(SYNCHRONIZE|QUERY_LIMITED_INFORMATION)` +
+  `WaitForSingleObject(handle,0)`：`WAIT_TIMEOUT` 才是活着；`WAIT_OBJECT_0`（已终结）
+  算死；拒绝访问按活着保守处理（对齐 unix 的 `EPERM` 口径）。
+  回归测试见 `data_root_lock_windows_test.go`。
+
+## 结构性 EVENT 通道（v8 §7 / 附录 A）
+
+`store/structural_events.go` 承载「对会话做了什么」的结构性摘要，不参与
+模型上下文装配（I4），不承担幂等计数。
+
+- **放置**：`session/event/event_{from}_{to}.jsonl`（append-only，按
+  `message.shard_rows` 滚动）；发布点在 `metadata/event.json`。行 = `event_id`、
+  `kind`、`anchor_message_id`/`anchor_seq`（事件发生在该行**之后**）、`frame_id`、
+  `commit_id`、`payload`、`created_at`。
+- **写形态 = 与 message 同构的 append-only**：`structuralEventCommit` 只读
+  head（水位 + 分片路由 `count`/`bytes`），据此定位尾分片剩余容量并追加，
+  **不读任何已发布事件行**。
+- **幂等 = 水位式**（三条，全部只看 head）：`event_id = 0` → 引擎续号追加；
+  显式 `event_id ≤ last_event_id` → 已发布，跳过；`commit_id` 等于
+  `last_commit_id` 且 head 已推进 → 同 commit 重复持久化，整次空操作。幂等窗口
+  = 紧邻一次发布，需要更大窗口的生产者必须自带稳定坐标。**跨 commit 的重复行
+  属审计噪音**，不为它回看历史。
+- **崩溃语义**：head 是发布点。append 完成但 head 未替换 = 未提交，下次提交由
+  `reapEventUnpublishedLocked` 删除未索引分片并把尾分片截回水位；半行残尾由
+  `storeroot.TruncateCrashTail` 丢弃。只有字节数与 head 记录不一致时才读一次尾分片，
+  常态提交零重读。
+- **计量**：`store.event`（`commits` / `appended` / `shardReads`）。
+  `shardReads` 是写路径读历史分片次数，正常负载必须为 0 ——
+  `TestStructuralEventCommitNeverReadsHistoryShards`（T-EV-05）逐次断言。
+  `verifyEvents` 校验分片行数、id 区间递增与 head 一致（行数可小于水位：
+  显式 `event_id` 允许留空洞）。
+- 测试：`TestStructuralEventAnchorAfterMessage`（T-EV-01）、
+  `TestStructuralEventDuplicateCommitIdempotent`（T-EV-02）、
+  `TestStructuralEventMissingEventOK`（T-EV-03）、
+  `TestStructuralEventAnchorAtOrBelowWatermarkOK`（T-EV-04）、
+  `TestStructuralEventWatermarkIdempotent`、`...UnpublishedAppendInvisible`、
+  `...HeadAbsentMeansNothingPublished`、`...CrashTailDropped`、
+  `TestStructuralEventCommitNeverReadsHistoryShards`（T-EV-05）。
+
+### 原子发布的 rename 退避
+
+`storeroot.WriteAtomic`（全部模块 head 与 config 的发布原语，实现 = `store/root/atomic.go`）在 rename 失败时按
+`renameBackoff`（2/5/10/20/40 ms，累计 ≈77 ms）重试同一个 tmp，超预算则删除
+tmp 并显式报错。原因：Windows 上目标文件被任何句柄打开即令 rename 失败，实测
+持柄者松开耗时 0–18 ms（`-tags redprobe` 的
+`TestProbeStackHeadPublishHandle` 用 share=0 独占打开探测）。**提交级重试禁止**：
+数据 append 已发生，重放会重复追加归档行 —— 重试只能落在 rename 本身。契约
+见 `TestWriteAtomicSurvivesTransientHandle` 与
+`TestWriteAtomicGivesUpWithinBudgetAndLeavesNoTemp`。
+
+## 执行事实事件库（`framework-events.json`）
+
+双轨事件的「事实轨」（`event.Sink` → `store/event_store.go`）按会话落盘，
+不随 generation rollover 失效（v2 模块布局，与 `session/event/` 的 transcript
+结构事件是两回事）。
+
+- **放置**：`<sessionRoot>/framework-events.json`，**逐行日志**（一条事实 = 一行
+  `EventLogEntry`：`seq` + `payload`）。
+- **写形态 = 真追加**：`AppendFrameworkEvent` 以 `O_APPEND|O_CREATE` 写一行就返回，
+  **不读旧内容、不重写整份文件** —— 临界区长度与事件库体积解耦（锁面审计 §2.9
+  记的「读整份 → merge → 原子整文件重写」已移除；旧形态下每追加一条的代价随库
+  线性增长，且 `store.mu`/`repository.mu` 上的排队被放大）。
+- **锁**：仍走 `jsonRepository.mu` 写锁（跨会话共用）。这是**取舍**：没有为事件库
+  另开按会话的模块锁，理由是追加已是 O(1) 尾写，代价不再随负载放大（要再切分请先
+  量出排队，别只凭「共用一把锁」下结论）。
+- **读形态**：两种形态都认。升级前落盘的「整份 JSON 数组」照读；首次追加时就地
+  重写成逐行日志（`storeroot.WriteAtomic` 原子发布）。v1 布局遗留
+  `generation-N/events.json` 与会话根 `events.json` 仍按旧口径合并迁移。
+- **幂等**：按 `seq` 去重，**后写者胜**（与旧「读整份 → `mergeEventLogEntries`」
+  一致）；读回按 `seq` 升序。
+- **崩溃语义**：文件不以换行结束 = 最后一条是半条记录。读时丢弃该尾行不报损坏，
+  下一次追加前把它截掉（自愈，从尾部按 64 KiB 块向前找最后一条完整记录）；已以
+  换行结束的行损坏仍显式报错。写侧不做 fsync，与 `storeroot.WriteAtomic` 同口径。
+- 判据：`TestEventLogAppendsLinesWithoutRewriting`（逐行形态 + 前缀不被改写，
+  有牙：换回「读整份 → 重写」立刻红）、`TestEventLogMigratesLegacyArrayFileOnFirstAppend`、
+  `TestEventLogMigratesLegacyGenerationFilesOnFirstAppend`、
+  `TestEventLogDropsTornTailAndHealsOnNextAppend`、
+  `TestEventLogKeepsLastEntryForRepeatedSeq`、
+  `TestEventLogConcurrentAppendsKeepEveryEntry`（`-race`）。
+- 边界：事件库随会话单调增长，**没有轮转/压缩**（消费方按 `seq` 区间读；是否需要
+  保留策略属产品项）。
+
+## 子代理会话记录（NodeSessionRecord）
+
+子代理（fork/plan 的 `kind:agent` 节点）会话记录按主会话索引落盘：
+
+```text
+sessions-json/<project>/session-<mainID>/subagents/<mainID>-<subID>.json
+```
+
+文件名为 `<mainSessionID>-<subSessionID>.json`（用户约定：从主会话索引可直接
+列举全部子会话，无需全局扫描）。内容为 opaque JSON 记录
+（`NodeSessionRecord`：NodeID/SessionID/Goal/Status/History/ContextJSON/
+StagesJSON/ResultJSON/Worktree 现场 + schema 版本）。
+
+生命周期（2026-08-24 策略）：运行期由 `seelebridge/session` 的
+`SubagentSessions` actor 在注册/阶段/结果/终态时写入（进程中断可恢复）；
+节点结束（done/failed）时最终结论经 `seelex.subagent.result` 事件写入主会话
+事件库（"结论跟随 mainagent"），随后删除节点记录文件。删除后详情数据面保留
+在进程内存快照；重启后恢复锚点从主会话事件库重建。
+
+`NodeSessionStore`（JSON backend 已实现）提供 `Save/Load/List/Delete`，显式
+项目作用域，不改变 Router 的 active write scope；其它后端已退役，待按接口
+重写。
+
+## 配置与安全
+
+- JSON 使用本地 path；SQLite/PostgreSQL/Redis 枚举仍可被配置解析，但
+  `Open` 明确返回 `ErrBackendRetired`。
+- `Config.Safe` 不把 DSN 返回 GUI，只报告 configured。
+- 配置文件写入采用原子替换和私有权限。
+- project/session ID 进入路径前经过 hash/安全编码，不能直接形成逃逸路径。
+
+## 群聊角色会话与 role draft（R2/R4 基建）
+
+R2/R4 存储侧接口已落地，应用层 actor / EVENT 生产者尚未接线。入口见
+`role_session.go` / `role_session_router.go` / `material_cache.go` /
+`schedule_events.go`：
+
+- 非 main 角色会话子树：`session/goal_<hash>/`（TL）与
+  `session/role_<hash>/`（未来 agent-team），复用 `storeEngine`，物理隔离，
+  message/event/metadata 同构；`CreateRoleSessionWorkspace` 创建并写
+  `join_seq_id`。
+- goal 栈条目通过 `StackItemInput`/`StackItemRecord` 的
+  `role_name`/`role_session_id` 记录角色会话锚；head 仍只装水位。
+- role draft = `<role_session>/draft/<role_name>.jsonl`，append-only 未同步
+  WAL；`AppendRoleDraftWorkspace` 写、`SyncRoleDraftWorkspace` 由 sequencer
+  同步进 main message 后立即删除；半同步批按确定性 `commit_id` 幂等删除。
+- message `Event` 增加 `role_name`/`role_session_id`/`round_id`/`unit_seq`；
+  `messageHead.Floor` 随 message head 原子发布当前发言角色（唯一写者 =
+  sequencer）；读出口是 `ReadMessageFloorWorkspace`（Agent Team 面板的 floor
+  高亮据此填充；未 sync 过的会话返回 nil，不是错误）。
+- 群聊顺序/角色冷恢复坐标落 `lifecycle.order_policy/order_roles/join_seq_id/
+  compact_ref`；定时插话 EVENT 为 `schedule.registered|cancelled|fired`。
+- R3 物化缓存接口 `MaterialCache`（进程内 LRU，失效键 = message head commit/
+  revision + compact applied_seq/frame_id + floor）；装配命中/回写接线留后续。
+- 角色 wire：`AssembleRoleWireWorkspace` = main compact_ref + `seq >
+  max(join_seq_id, compact_ref.applied_seq)` 已发布行 + 该角色自身 pending
+  draft；`RoleSnapshotWorkspace` 汇总 main/备份/draft/floor/compact_ref 与
+  设计偏差提示，供 headless 真实 API 冒烟与巡检读取。
+- `gui/headless` 暴露 `role.create/list/append_draft/read_draft/sync_draft/
+  append_backup/read_backup/snapshot/wire/set_order/set_lifecycle` 与
+  `schedule.register|cancel|fire`；真实 API 冒烟见
+  `gui/role_live_probe_test.go`（`SMOKE_ROLE_LIVE=1`）。
+
+### 员工注册表与全局母本（A06：已退场，legacy 只读兼容）
+
+**退场状态（2026-10-15，A06）**：写入这一面的用户能力（装配 / 员工入职 / 团队库 /
+员工库 / 全局母本 / 角色管理面板）已随 2026-10-12 J-1a 整条退场；本仓源码里
+`team_global.go`、`team_library.go` 与 `Read/WriteTeamLibraryGlobal`、
+`Read/WriteEmployeeLibraryGlobal`、`Read/WriteDefaultOrderGlobal` **都已删除**。
+`store` 只剩角色注册表文件本身：
+
+- `session/team/roles.json`（`team_registry.go`）：**某个会话**当前在编的员工表
+  （`RoleSpec` 清单 + `team_kind` + 顺序策略），整份原子替换、替换成功即发布；
+  `order_policy`/`order_roles` 的运行时权威曾是 `metadata/lifecycle.json`（现在是
+  read-compat 历史字段，见 A05），本文件只做角色配置的持久事实。
+  **读能力保留、当前没有生产调用方**（静态判据与口径见 `team_registry.go` 文件头）。
+
+#### 旧 Agent Team 数据（legacy）的兼容政策
+
+旧数据是用户数据，处理口径如下（本条目**不执行任何磁盘动作**）：
+
+| 项 | 口径 |
+|---|---|
+| 保留 | `Read/Write/RemoveTeamRegistryWorkspace` 与幂等建角色会话原语；旧 `roles.json` 必须能被读回、诊断与迁移（删 reader = 旧数据失去唯一入口，不是清理） |
+| 不做 | 不删旧文件、不迁移、不改格式、不停止写入；任何磁盘清理/迁移必须另行中文预警 + 备份 + 用户确认（根 `MEMORY.md`、`AGENTS.md` §0） |
+| 移除条件 | 确认产品不再读这些形状后，**先停止写入**；DTO/端口按**版本化 API 变更**移除，并配旧 `roles.json` fixture 的冷读用例 |
+| 历史字段 | `lifecycle.order_policy/order_roles`（read-compat，不驱动行为）与 `message head.floor`（活动的历史/归属事实，sequencer 仍是唯一写者）都**不随退场面删除**；字段清除需独立迁移（A05） |
+| 别混 | teammate 执行链的 `ToolsPolicy` / `PermissionGroups` / `Plugins`（`runRoleRound` + WorkerRequest）是**活动**配置，不属于本节的 legacy 数据（A07） |
+
+退场轨迹与逐条判据见
+[`docs/2026-10-15-product-architecture-pre-design/legacy-capability-audit.md`](../docs/2026-10-15-product-architecture-pre-design/legacy-capability-audit.md)
+（A05/A06）、
+[`docs/devlog/2026-10-01-teamwork-legacy-order-fields.md`](../docs/devlog/2026-10-01-teamwork-legacy-order-fields.md)。
+
+### team plan / 审计流里的旧 shape（A10：计划阶段退场 ≠ 执行进度打点存活）
+
+两处都叫 "stage"，但**生命周期与所属模块完全不同**，不要混为一谈：
+
+| 形状 | 现状 | 口径 |
+|---|---|---|
+| 计划里的 `stages[]`（阶段制时代，`TeamworkPlan` 已无该字段） | **计划阶段模型整条退场**（2026-10-04） | 旧 `plan.json` 里的 `stages` / `order_roles` 是未知字段，读入时被忽略、不当顺序事实；**读侧不做任何 destructive rewrite**，`WriteTeamworkPlan` 只在产品自己整份替换计划时按当前 schema 重写。冷读用例 `TestTeamworkPlanColdReadsLegacyStagesPayload` |
+| 审计流的 `retire` 行（`TeamworkEventRetire`） | **只读历史值**（`team_retire` 入口已整条删除，不再有新写入） | 常量与解码保留的唯一理由是"老 `events.jsonl` 还能读回"；审计**只追加不重写**。冷读用例 `TestTeamworkAuditColdReadsLegacyRetireRow` |
+| `NodeSessionRecord.StagesJSON`（执行进度阶段打点） | **活动**（subagent / teammate 的运行打点与中断恢复） | 由 `seelebridge/workunit` 的 `EncodeStages` / `DecodeStages` 编解码，`ProgressOf` 折算进度；**不属于本条退场范围**，不可一起删 |
+
+判据与验证口径见
+[`docs/devlog/2026-10-15-legacy-capability-retirement-a07-a10.md`](../docs/devlog/2026-10-15-legacy-capability-retirement-a07-a10.md)。
+
+## Review 指南
+
+- 新增后端是否实现同一逻辑 snapshot 语义，并显式实现 `stackJournal()`。
+- JSON 模块 head 是否最后提交；未发布行是否不可见。
+- 退役后端是否始终返回显式 `ErrBackendRetired`，没有静默回退。
+- Router 是否在任何错误路径关闭 replacement、保留 old repository。
+- Router 运行期出口是否只在 `router.mu` 读锁内取 repository 快照
+  （`jsonRepository()`）；裸读 `router.repository` 会与 `Configure`/`Close`
+  的 swap 在 `-race` 下形成数据竞争。
+- range offset/limit 和 empty history 的语义是否一致。
+- 栈通道：新增后端时 `stackJournal()` 是否实现（接口编译期强制，禁止用
+  `ok=false` 兜底）；head 是否仍只装水位；写路径是否又开始解析 history。
+- EVENT 通道：提交是否仍只读 head（`store.event.shardReads` 必须为 0，只在崩溃
+  恢复路径允许 +1）；幂等是否还靠回看历史算指纹；发布失败是否被误当成可以
+  提交级重放（append 已发生，只有 rename 可重试）。
+- 任何"让读者不持锁读文件"的改动：先确认发布形态不再是 rename 覆盖，否则
+  锁等待会被换成提交失败。
+
+## 测试
+
+```text
+go test ./store -count=1
+go test ./store -run 'TestV8' -count=1   # M1–M4 契约（65 条）
+go test ./store -run 'ProjectRecord|ProjectRefresh|ProjectKnowledge' -count=1
+```
+
+## Atomic transcript and result contract
+
+`WriteCommit` publishes bounded provider history, append-only transcript events, opaque application state, and immutable tool-result objects under one `(project_id, session_id)` scope. `WriteAtomic` remains a compatibility wrapper for history-only callers.
+
+`ReadEventTail` returns newest complete protocol units within token and unit limits. A user turn may include sequential or parallel tool rounds, but it is omitted if any tool call lacks a matching result; orphan tool events are never returned alone. `ReadToolResult` is read-only. The JSON v8 layout publishes the committed result-reference set through the module head.
+
+Message events carry two distinct text facts for tool results: `content` is what the view/trace renders (e.g. the application's classified tool-error text or the `tr-<digest>` oversized warning), while the provider-only `provider_content` is the bytes **actually sent on the wire** (the framework's `{"error": %q}` JSON for failed tools; the processor's `result_ref=result:<callID>` warning for oversized results). Provider projections must prefer `provider_content` when set: mixing them rewrites already-sent bytes on the next turn and invalidates provider prefix caching from that point (see `application/core/README-context.md` §跨轮前缀不变量与 provider 投影归零). Guards: `store/provider_content_test.go`, `prefix_invariant_fullchain_test.go`.
+
+测试覆盖 JSON v8 的 message 事件行原子性、状态 sidecar 退役、显式 workspace
+read 不污染 active scope，以及退役后端的显式错误（`TestRetiredBackendsReturnExplicitError`）。
+plan/task/goal 三栈用例经 `forEachStackBackend` 跑 JSON 后端（head 只装水位、
+批次整批弹栈、message 锚、迁移 EVENT、LIFO、投影替换、并发单写者、fork 按锚
+重建、跨实例持久化）；另测物理放置、head 未发布不可见、崩溃残尾与归档回收，
+以及 `-race` 下的延迟归因（`TestStackChannel*`）。
+
+## 会话 fork 存储契约（一期，已实现）
+
+对话 fork（新开会话的分支，**非 subagent fork**）在存储层的契约：
+
+- **段落边界**：`EventParagraphs` 由完整协议单元（`CompleteEventUnits`）推导
+  段落表（EventFrom/EventTo/RequestID/MessageFrom/MessageTo）；fork 切断点
+  必须落在段落边界（`IsParagraphBoundary`），EventSeq 含端点，避免截出半截
+  轮次。
+- **通道枚举**：`ListToolResults` 返回 tool-results 通道全部不可变结果（含
+  `compressed:<segment_id>` 压缩原文归档），供 fork 深拷贝物理复制。
+- **快照版本**：`CurrentGeneration` 返回会话当前已发布 generation，是血缘
+  `forked_from_generation` 的事实来源（不可变快照绑定，禁止引用父的最新
+  内存状态或后续提交）。
+- **落盘路径**：fork 由 application 层构建截断后的 `Commit`（继承事件流 +
+  截断 SessionRecord + 父通道全量 tool-results；ProviderHistory 整段缓存
+  已随 S11 退役），经 `WriteCommit` 原子写入子会话 key；两端此后完全独立。
+  删父安全的前提是
+  tool-results 物理复制——`read_tool_result`/`read_compressed_turn` 在删父后
+  仍从子会话自己的通道读回。
+- **不随 fork 传播**：子代理节点记录（`subagents/`）与执行事实事件库
+  （`framework-events.json`）归属父会话执行，不复制到子会话。
+
+血缘 meta（`forked_from`/ForkPoint）与截断重写属于 application 层
+（`application/model` + `application/core/session_runtime`），存储层只负责
+通道与原子提交，不解释内容。
+
+## 会话媒体分区（`meta/`）
+
+### 生态位
+
+会话粒度的二进制媒体资产（截图、图片输入、其它非文本产物）落盘与取用通道。
+调用方是 Seelex 侧的工具实现（例如截屏工具）与多模态 wire 编码
+（`seelebridge/multimodal`）；`big_tool_result` 继续承载文本大结果，两者是同一套
+「会话旁路资产 + 引用 + GC」语义下的两个分区。
+
+### 布局契约
+
+```text
+<sessionRoot>/meta/<sha256>/<原名>      二进制原文（永不截断）
+<sessionRoot>/meta/<sha256>/meta.json   单条索引（MediaRef）
+<sessionRoot>/metadata/media.json       会话级索引 head（可重建派生，白名单内）
+```
+
+- 目录名 = 内容 sha256：同一份字节只落一份（重复截屏天然去重）。
+- 文件名 = 写入方给的原名（仅剥离目录与文件系统非法字符），便于人眼定位与就地替换。
+- 引用形如 `media:<sha256>`，与 `blob:<hash>`、`compressed:<segment_id>` 并列。
+- 工具结果通过 `ToolResult.Multimodal []MediaRef`（JSON `multimodal`）挂引用；
+  记录本身不复制字节。
+- 读写接缝：`Router.WriteMediaWorkspace` / `Router.ReadMediaWorkspace` 在**显式
+  项目作用域**下落盘与读回（不改 Router 的活跃写作用域），后台/并行会话各写
+  自己的 (项目, 会话) 分片；后端不支持媒体分区时返回 `ErrMediaUnsupported`
+  （`MediaStoreOf` 显式判空，不做静默降级）。截屏工具（`seelebridge`）是首个
+  调用方。
+
+### 阈值刻意分轴
+
+`big_tool_result` 与媒体不是同一把尺子：文本按字符（≈token）计语义成本，媒体按
+字节计磁盘成本、按像素长边计视觉成本。
+
+| 维度 | `big_tool_result`（文本） | `meta/`（媒体） |
+|---|---|---|
+| 软限 | `big_tool_result_soft_limit_chars`（60000）截断正文 | **无软限** |
+| 单件硬限 | `big_tool_result_hard_limit_bytes`（16 MB） | `media_max_item_bytes`（8 MB） |
+| 像素限制 | 不适用 | `media_max_long_side`（4096），超出须先降采样 |
+| 条目数 | 不适用 | `media_max_items_per_session`（500） |
+| 会话配额 | `big_tool_result_session_quota_bytes`（64 MB） | `media_session_quota_bytes`（256 MB） |
+| 超限动作 | 截断 + `result_ref` 保留全文 | **整体拒绝**（`ErrMediaTooLarge`/`ErrMediaDimensions`/`ErrMediaQuota`） |
+
+> **现状（2026-10-15）**：上表 `big_tool_result`（文本）三项限额的唯一写入路径
+> `writeBlob` **目前没有生产调用方**（只有包内单测），所以"软限截断 / 硬限报错 /
+> 会话配额"今天不影响运行中的会话；生产里"超大工具结果"走的是
+> `limits.max_tool_result_chars`（字符数）→ `result_ref` + 省略警告
+> （`application/core/context_runtime` 的 `OversizedToolResultWarning`），模型用
+> `read_tool_result` 分页回读。软限**不调 LLM 做总结**；"软限→LLM 总结 / 硬限→
+> 要求重试"这套语义**尚未实现**。两族数别混：`limits.*` 是 token 预算口径，
+> 本表是字符/字节口径。
+
+不变式：**文本可截断，媒体永不截断**。截断一张 PNG 得到的是坏文件而不是「更短的
+图」，所以媒体没有字符软限路径；配额也只统计二进制载荷（`meta.json` 是可重建派生
+元数据，不计费）。两个分区配额独立计账，长截屏循环不会挤爆文本大结果通道。
+
+### 核心实现
+
+- `media.go`：`MediaItem`（写入请求）、`MediaRef`（引用与元数据）、`MediaStore`
+  能力接口（`WriteMedia`/`ReadMedia`/`ListMedia`/`CollectMedia`）。
+- `MediaStoreOf(repository)`：媒体是可选能力，不进 `Repository` 主契约，调用方显式取用。
+- `ReferencedMediaHashes(results []ToolResult)`：从工具结果收集引用集，供 GC 使用。
+- 尺寸校验使用调用方提供的 `Width/Height`（存储层不解码图片），因此“先降采样再写”
+  是调用方责任，例如截屏原语的 `MaxWidth` + `ScaleNearest`。
+
+### Review 风险
+
+- 写入必须走 `store.mu(key, moduleMedia)`：media 与 message **各自一把锁**——模块与锁
+  一对一，`mutexFor` 未映射的枚举会显式失败（`panic`）而不是静默别名，别把两个模块的
+  读写放进同一个临界区（那既是互相串行，也是不可重入自锁的埋点）。
+  验收：`TestModuleLocksAreDistinct` / `TestUnmappedModuleLockPanicsInsteadOfAliasing` /
+  `TestMediaReadNotBlockedByHeldMessageLock`。
+- 内容寻址意味着**同字节不同名只是别名**，不要假设「文件名就是唯一标识」。
+- ref 非法或缺失必须显式报错（`ErrMediaRefInvalid` / `os.ErrNotExist`），
+  不得静默退化成空结果——那会让模型以为「图里没有内容」。
+- 媒体目录属于用户数据，任何清理都必须先备份、先中文预警。
+
+### 验证
+
+```text
+go test ./store/ -run TestMedia -count=1
+```

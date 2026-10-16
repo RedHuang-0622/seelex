@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // session_permission_tier_test.go — 主会话权限档位（tier）在 application 层的验收：

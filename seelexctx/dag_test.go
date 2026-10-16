@@ -9,7 +9,7 @@ import (
 
 	frameworktypes "github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // countingReplaySummarizer 记录重放调用次数并按脚本返回厚摘要/错误。
@@ -29,7 +29,7 @@ func (s *countingReplaySummarizer) Summarize(_ context.Context, _ ReplayRequest)
 
 func dagInput(messages []frameworktypes.Message) CompactionInput {
 	return CompactionInput{
-		Record:   sessionstore.SessionContextRecord{},
+		Record:   store.SessionContextRecord{},
 		Messages: messages,
 		Kind:     LocalCompactOverflow,
 	}
@@ -85,7 +85,7 @@ func TestCompactionDAGChainFields(t *testing.T) {
 		t.Fatalf("first frame must have no prev_segment_id, got %q", first.PrevSegmentID)
 	}
 	secondInput := CompactionInput{
-		Record:   sessionstore.SessionContextRecord{CompactStack: []sessionstore.CompactFrame{first}},
+		Record:   store.SessionContextRecord{CompactStack: []store.CompactFrame{first}},
 		Messages: roundHistory(3),
 		Kind:     LocalCompactOverflow,
 	}

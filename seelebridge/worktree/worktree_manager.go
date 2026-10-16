@@ -13,13 +13,13 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/winhide"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/actor"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/security"
 	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // ─── 子代理 worktree 生命周期管理器（Runtime 装配件拆分 Step 1）───
@@ -686,7 +686,7 @@ func (w *WorktreeManager) Release(nodeID string) {
 // MainBranch 决定合回哪条分支、变基读 BaseCommit）。本进程在册的那一份来自 `beginNamed` /
 // `Adopt`（同一现场、更准），覆盖它等于把"合回现场记录的分支"静默降级成"合进当前 HEAD"
 // ——所以这里与 `Adopt`/`beginNamed` 同一条判据：**谁先到都一样**，先到的那份留下。
-func (w *WorktreeManager) Restore(records []sessionstore.NodeSessionRecord) {
+func (w *WorktreeManager) Restore(records []store.NodeSessionRecord) {
 	if w == nil || len(records) == 0 {
 		return
 	}

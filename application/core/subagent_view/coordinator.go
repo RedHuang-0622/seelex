@@ -10,12 +10,12 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/Seele/types"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/internal/state"
 	"github.com/RedHuang-0622/seelex/application/event"
 	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	seelsession "github.com/RedHuang-0622/seelex/seelebridge/session"
-	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
@@ -31,7 +31,7 @@ type Deps struct {
 	// View 用于事件增量 revision bump（锁内调用）。
 	View ViewPort
 	// Limits 返回当前生效的运行时上限（截断配置）。
-	Limits func() seelexctx.Limits
+	Limits func() limit.Limits
 	// RecordToolOutcome 是工具记录的**判据入口**（装配处注入 core 的实现）：本包只报
 	// "谁、什么状态、错误原文"，"这算不算失败、原因归哪一格"由那一处判（判据不在这里复制）。
 	// 参数吃**类型化状态**（本链到达形态就是这一格枚举），不是字符串——枚举转字符串
@@ -49,7 +49,7 @@ type ViewPort interface {
 type Coordinator struct {
 	*state.Core
 	view              ViewPort
-	limits            func() seelexctx.Limits
+	limits            func() limit.Limits
 	recordToolOutcome func(sessionID, name string, status dto.ToolEventStatus, errorText string)
 }
 

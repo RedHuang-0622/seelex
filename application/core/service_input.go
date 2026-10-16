@@ -7,7 +7,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/application/contract"
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/session"
 )
 
@@ -155,7 +155,7 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 		service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 		service.publishChatStateFor(sessionID)
 		// durable queue 镜像（先队列后草稿）：排队项正文落盘，崩溃/重启后按
-		// 「该轮是否已发布」的消费凭据恢复重发（sessionstore/queue_consume.go）。
+		// 「该轮是否已发布」的消费凭据恢复重发（store/queue_consume.go）。
 		// 放在 ViewMu 之外：文件 IO 不占内核锁。落盘失败不回滚内存队列——
 		// 权威是会话域队列，durable queue 只是崩溃兜底。
 		if enqueueErr := service.components.sessions.QueueEnqueueInput(service.components.sessions.LocateSession(sessionID), sessionID, request.displayInput); enqueueErr != nil {

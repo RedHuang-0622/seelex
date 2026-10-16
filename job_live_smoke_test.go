@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/backend/limit"
 )
 
 // liveToolCall 是本轮真实 API 调用留下的一条工具完成记录（名字 / 状态 / 结果原文）。
@@ -68,7 +68,7 @@ func TestManualSmokeRealAccountJobContract(t *testing.T) {
 	// 作业面必须显式打开（limits.async_exec.enabled）；工具超时给足，让 10s 的长命令
 	// 在 kill 之前一直活着。
 	harness := newFullChainHarnessWithLimits(t, accountsPath, projectRoot, 60*time.Second, true,
-		seelexctx.Limits{AsyncExec: seelexctx.AsyncExecLimits{Enabled: true}, ForkTimeoutSec: 120})
+		limit.Limits{AsyncExec: limit.AsyncExecLimits{Enabled: true}, ForkTimeoutSec: 120})
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer cancel()
 

@@ -63,7 +63,7 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "单元身份",
 		files: map[string]string{
-			"sessionstore/node_session_store.go":       "定义：记录快照里的身份那一格（NodeUnitRecord.Kind，契约之下的 wire）",
+			"store/node_session_store.go":              "定义：记录快照里的身份那一格（NodeUnitRecord.Kind，契约之下的 wire）",
 			"seelebridge/session/subagent_sessions.go": "写：子代理那一环（只填空缺——身份已经有了就不动）",
 			"seelebridge/workunit_team_records.go":     "写：teammate 那一环（写下自己这一层的身份）",
 			"seelebridge/runtime_unit_recovery.go":     "读：恢复链按身份分派策略（唯一转换点 unitKindOf）",
@@ -139,7 +139,7 @@ var statusVocabularyScopes = []statusVocabularyScope{
 			"tui/state.go": "读：工具行图标与耗时（精确判 running）",
 		},
 		// 这一格的取值面 = dto.ToolEvent*（model.ToolCall.Status；与工具事件状态同格）。
-		// store 那一侧（sessionstore.ConversationToolCall.Status）是契约之下的 wire，本层不 import
+		// store 那一侧（store.ConversationToolCall.Status）是契约之下的 wire，本层不 import
 		// 契约包；它写出的词由 internal/adapters 的 TestToolCallStatusOfRecordLocksTheStoreVocabulary 互锁。
 		words: map[string]bool{"running": true, "success": true, "error": true},
 	},
@@ -190,7 +190,7 @@ var statusVocabularyScopes = []statusVocabularyScope{
 			"tui/view.go": "读：待批会话行（跨会话计数）",
 		},
 		// 这一格的取值面 = dto.SessionStatus*（SessionState/SessionInfo.Status）。
-		// 落盘那一侧（sessionstore.Status）是契约之下的 wire，取值面是这里的**持久子集**，
+		// 落盘那一侧（store.Status）是契约之下的 wire，取值面是这里的**持久子集**，
 		// 两包同一份词由 internal/adapters 的 TestSessionStatusOfRecordLocksTheStoreVocabulary 互锁。
 		words: map[string]bool{
 			"draft": true, "idle": true, "running": true, "queued": true,
@@ -254,7 +254,7 @@ var statusVocabularyScopes = []statusVocabularyScope{
 			"tui/goalteam.go":                             "读：目标面板",
 		},
 		// 这一格的取值面 = dto.Goal*（GoalRecord.Status / GoalGovernanceView.Status /
-		// sessionstore.GoalFrame.Status 同一格；存档面由 goal.StatusOfRecord 读回）。
+		// store.GoalFrame.Status 同一格；存档面由 goal.StatusOfRecord 读回）。
 		words: map[string]bool{
 			"active": true, "paused": true, "reviewing": true, "completed": true,
 			"failed": true, "aborted": true, "waiting_human": true,
@@ -449,7 +449,7 @@ const (
 	// 反向对照：引契约常量不是违规。
 	clean := `package p
 
-import "github.com/RedHuang-0622/seelex/application/contract/dto"
+import "github.com/RedHuang-0622/seelex/contract/dto"
 
 const asyncStateDone = dto.AsyncStateDone
 

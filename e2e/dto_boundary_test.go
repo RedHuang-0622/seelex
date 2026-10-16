@@ -11,7 +11,7 @@ import (
 )
 
 // TestRoleSessionPortsDoNotLeakStorageTypes 钉住 S27 收口：R2/R4 的角色会话与
-// 定时插话端口只用 application/contract 的纯 DTO，存储实现类型（sessionstore.*）
+// 定时插话端口只用 contract 的纯 DTO，存储实现类型（store.*）
 // 不得出现在应用层端口签名与 headless 透传面里。
 //
 // 语义：AGENTS.md §1「frontend 只能通过 Application API 消费状态」——GUI 与
@@ -19,15 +19,15 @@ import (
 // internal/adapters 的映射函数里。
 //
 // 范围：本用例只覆盖 S27 声明的面（角色会话 / role draft / 顺序 / 定时插话）。
-// sessionstore 在其它既有链路（session 路由、goal 审计、compaction 等）的
+// store 在其它既有链路（session 路由、goal 审计、compaction 等）的
 // 依赖是历史状态，不在本用例内，避免把无关重构捆进这次收口。
 func TestRoleSessionPortsDoNotLeakStorageTypes(t *testing.T) {
 	root := repoRoot()
-	storageImport := "github.com/RedHuang-0622/seelex/sessionstore"
+	storageImport := "github.com/RedHuang-0622/seelex/store"
 
 	forbidden := []string{
-		filepath.Join("application", "contract", "ports.go"),
-		filepath.Join("application", "contract", "dto", "rolesession.go"),
+		filepath.Join("contract", "ports.go"),
+		filepath.Join("contract", "dto", "rolesession.go"),
 		filepath.Join("application", "core", "role_session.go"),
 		// 原表里还有 application/core/agentteam_service.go 与 gui/headless_team.go——
 		// Agent Team 面已整体退场（bab08c2f "Agent Team 面退场与 @ 手动召唤删除"），
@@ -41,7 +41,7 @@ func TestRoleSessionPortsDoNotLeakStorageTypes(t *testing.T) {
 		path := filepath.Join(root, relative)
 		imports := fileImports(t, path)
 		if _, leaked := imports[storageImport]; leaked {
-			t.Errorf("%s imports %s：R2/R4 端口必须只用 application/contract DTO", relative, storageImport)
+			t.Errorf("%s imports %s：R2/R4 端口必须只用 contract DTO", relative, storageImport)
 		}
 	}
 
@@ -77,14 +77,14 @@ func fileImports(t *testing.T, path string) map[string]struct{} {
 // 与前端都按这些字段名读写，改名会同时打断 headless 巡检与 GUI 渲染。
 func TestRoleSessionDTOFieldsMatchWireContract(t *testing.T) {
 	sources := map[string]string{
-		filepath.Join("application", "contract", "dto", "rolesession.go"):           readRepoFile(t, "application", "contract", "dto", "rolesession.go"),
-		filepath.Join("application", "contract", "dto", "agentteam.go"):             readRepoFile(t, "application", "contract", "dto", "agentteam.go"),
-		filepath.Join("application", "contract", "dto", "teammate_session_live.go"): readRepoFile(t, "application", "contract", "dto", "teammate_session_live.go"),
-		filepath.Join("application", "contract", "dto", "subagent_live.go"):         readRepoFile(t, "application", "contract", "dto", "subagent_live.go"),
-		filepath.Join("application", "model", "state.go"):                           readRepoFile(t, "application", "model", "state.go"),
+		filepath.Join("contract", "dto", "rolesession.go"):           readRepoFile(t, "contract", "dto", "rolesession.go"),
+		filepath.Join("contract", "dto", "agentteam.go"):             readRepoFile(t, "contract", "dto", "agentteam.go"),
+		filepath.Join("contract", "dto", "teammate_session_live.go"): readRepoFile(t, "contract", "dto", "teammate_session_live.go"),
+		filepath.Join("contract", "dto", "subagent_live.go"):         readRepoFile(t, "contract", "dto", "subagent_live.go"),
+		filepath.Join("application", "model", "state.go"):            readRepoFile(t, "application", "model", "state.go"),
 	}
 	required := map[string]map[string][]string{
-		filepath.Join("application", "contract", "dto", "rolesession.go"): {
+		filepath.Join("contract", "dto", "rolesession.go"): {
 			"RoleRow":              {"role_name", "role_session_id", "round_id", "unit_seq", "message_id"},
 			"RoleDraftRow":         {"round_id", "role_name", "role_session_id", "unit_seq", "event"},
 			"RoleSnapshot":         {"join_seq_id", "compact_ref", "order_policy", "order_roles", "floor"},
@@ -93,7 +93,7 @@ func TestRoleSessionDTOFieldsMatchWireContract(t *testing.T) {
 		},
 		// 前端 normalizeAgentTeam/renderAgentTeam 按这些字段名读取：改名会同时
 		// 打断 GUI 面板与 headless 巡检的 JSON 形状。
-		filepath.Join("application", "contract", "dto", "agentteam.go"): {
+		filepath.Join("contract", "dto", "agentteam.go"): {
 			"TeamView":   {"session_id", "team_kind", "order_policy", "order_roles", "members", "scheduled", "configured", "floor_role", "design_notice"},
 			"TeamMember": {"role_name", "role_kind", "role_session_id", "order_index", "in_order", "join_policy"},
 			"RoleSpec":   {"role_name", "role_kind", "order_priority", "join_policy", "tools_policy"},
@@ -109,13 +109,13 @@ func TestRoleSessionDTOFieldsMatchWireContract(t *testing.T) {
 		// 读到一份空对象，而两端用例各自都绿）。
 		// offset/limit/total/has_more 是分页读法（TeammateSessionLivePage）的键：
 		// 前端据此翻页与报"第 X–Y 条 / 共 N 条"，缺一个就退化成"只有尾巴"。
-		filepath.Join("application", "contract", "dto", "teammate_session_live.go"): {
+		filepath.Join("contract", "dto", "teammate_session_live.go"): {
 			"TeammateSessionLiveView":    {"session_id", "role", "live", "running", "messages", "truncated", "offset", "limit", "total", "has_more"},
 			"TeammateSessionLiveMessage": {"role", "text"},
 		},
 		// node 第一视角实时回放的**分页载荷**（详情弹窗翻页读历史）：前端按这些键读，
 		// 缺 has_more 就永远以为"翻到底了"。
-		filepath.Join("application", "contract", "dto", "subagent_live.go"): {
+		filepath.Join("contract", "dto", "subagent_live.go"): {
 			"SubagentLiveHistoryPage": {"scope_id", "offset", "limit", "total", "has_more", "events"},
 		},
 	}

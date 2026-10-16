@@ -33,13 +33,13 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	seeteamwork "github.com/RedHuang-0622/seelex/seelebridge/teamwork"
-	"github.com/RedHuang-0622/seelex/seelexctx"
-	"github.com/RedHuang-0622/seelex/sessionstore"
-	workspacerepo "github.com/RedHuang-0622/seelex/workspace"
+	"github.com/RedHuang-0622/seelex/store"
+	workspacerepo "github.com/RedHuang-0622/seelex/store/workspace"
 )
 
 // smokeStep 是一次探针：名字 + 结论（宁可留痕，也不静默通过）。
@@ -360,7 +360,7 @@ type teamworkSmoke struct {
 	// planStore / keyFor 是**取证面**：探针要能把"落盘的计划事实"与"看板投影"分开读，
 	// 否则"投影陈旧"会被误判成"尾插没落"（反过来也一样）。
 	planStore seeteamwork.PlanStore
-	keyFor    func(sessionID string) (sessionstore.Key, bool)
+	keyFor    func(sessionID string) (store.Key, bool)
 }
 
 // newTeamworkSmoke 装配真实链路：真实 store / 工作区 / 引擎端口 / application，
@@ -380,7 +380,7 @@ func newTeamworkSmoke(t *testing.T, provider *teamworkSmokeProvider) *teamworkSm
 		t.Fatal(err)
 	}
 	// 后台作业终态触发回合（"做完自动返回"）必须开着：这是本轮要验的那条链。
-	limits := seelexctx.Limits{}
+	limits := limit.Limits{}
 	limits.AsyncExec.Enabled = true
 	limits.AsyncExec.TriggerConversation = true
 	// 但开关的**读侧**读的是进程内那份生效 limits（`core.Limits()`，由组合根
@@ -392,24 +392,24 @@ func newTeamworkSmoke(t *testing.T, provider *teamworkSmokeProvider) *teamworkSm
 	t.Cleanup(func() { core.ApplyLimits(previousLimits) })
 
 	// teamwork 编排面：与 main.go 同一段装配（PlanStore + Boards + JobOutputs + KeyFor），
-	// 而且**同一个位置**——在 application.New 之前。位置是契约的一部分：应用的
-	// 生命周期消费者在 application.New 里就把信号口读走，晚注入 ⇒ 它读到 nil 通道 ⇒
+	// 而且**同一个位置**——在 wiring.New 之前。位置是契约的一部分：应用的
+	// 生命周期消费者在 wiring.New 里就把信号口读走，晚注入 ⇒ 它读到 nil 通道 ⇒
 	// 「做完自动返回」静默消失（见 fullChainBackendInstaller 的注释）。
 	var planStoreForProbe seeteamwork.PlanStore
-	var keyForForProbe func(string) (sessionstore.Key, bool)
+	var keyForForProbe func(string) (store.Key, bool)
 	harness := newFullChainHarnessWithLimits(t, accountsPath, tempDir, 60*time.Second, true, limits,
-		func(store *sessionstore.Router, workspaces *workspacerepo.Repo, runtime *seelebridge.Runtime) error {
-			repo, ok := store.TeamworkFor()
+		func(st *store.Router, workspaces *workspacerepo.Repo, runtime *seelebridge.Runtime) error {
+			repo, ok := st.TeamworkFor()
 			if !ok {
 				t.Fatal("真实 JSON 后端应提供 teamwork 读/写面")
 			}
-			boards, _ := store.BoardsFor()
-			keyFor := func(sessionID string) (sessionstore.Key, bool) {
+			boards, _ := st.BoardsFor()
+			keyFor := func(sessionID string) (store.Key, bool) {
 				workspace, exists := workspaces.SessionWorkspace(sessionID)
 				if !exists || strings.TrimSpace(workspace.ID) == "" {
-					return sessionstore.Key{}, false
+					return store.Key{}, false
 				}
-				return sessionstore.Key{ProjectID: workspace.ID, SessionID: sessionID}, true
+				return store.Key{ProjectID: workspace.ID, SessionID: sessionID}, true
 			}
 			planStore := seeteamwork.NewPlanStore(repo)
 			planStoreForProbe, keyForForProbe = planStore, keyFor
@@ -429,17 +429,17 @@ func newTeamworkSmoke(t *testing.T, provider *teamworkSmokeProvider) *teamworkSm
 }
 
 // persistedItem 读**落盘**的计划里这一项（取证用：与看板投影分开读）。
-func (s *teamworkSmoke) persistedItem(ctx context.Context, itemID string) (sessionstore.TeamworkWorkItem, bool) {
+func (s *teamworkSmoke) persistedItem(ctx context.Context, itemID string) (store.TeamworkWorkItem, bool) {
 	if s.planStore == nil || s.keyFor == nil {
-		return sessionstore.TeamworkWorkItem{}, false
+		return store.TeamworkWorkItem{}, false
 	}
 	key, ok := s.keyFor(s.app.Snapshot().Session.ID)
 	if !ok {
-		return sessionstore.TeamworkWorkItem{}, false
+		return store.TeamworkWorkItem{}, false
 	}
 	plan, err := s.planStore.ReadPlan(ctx, key)
 	if err != nil {
-		return sessionstore.TeamworkWorkItem{}, false
+		return store.TeamworkWorkItem{}, false
 	}
 	for _, milestone := range plan.Milestones {
 		for _, item := range milestone.Items {
@@ -448,7 +448,7 @@ func (s *teamworkSmoke) persistedItem(ctx context.Context, itemID string) (sessi
 			}
 		}
 	}
-	return sessionstore.TeamworkWorkItem{}, false
+	return store.TeamworkWorkItem{}, false
 }
 
 // startProjectSession 建一个绑定到项目工作区的会话（KeyFor 才有解）。

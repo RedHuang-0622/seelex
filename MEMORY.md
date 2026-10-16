@@ -15,7 +15,7 @@
 ## 执行前必查清单
 
 1. **运行中的进程**：`Get-Process | Where-Object { $_.ProcessName -match 'seelex' }`——有则禁止 clean/删除，先请用户关闭；
-2. **会话记录**：目标目录内是否存在 `.seelex/`（`sessions`、`sessions-json`、`sessionstore` 数据）；
+2. **会话记录**：目标目录内是否存在 `.seelex/`（`sessions`、`sessions-json`、`store` 数据）；
 3. **真实配置**：是否存在 `config/accounts.yaml`、`config/mcp.yaml`、`config/search_engine.yaml`、`*.local.yaml`、`seele.yaml`、`seelex.yaml` 或 dist 内的配置副本；
 4. **备份**：可恢复数据先复制到临时目录（如 `$env:TEMP`）再操作；
 5. **确认**：把上述检查结果用中文告知用户，明确"将删除 X、影响 Y、可/不可恢复"，获得同意后执行。
@@ -60,7 +60,7 @@
    - 崭新能力/新领域 → 评估是否值得新开包。
 2. **相关代码应放进哪个已有模块？**
    - 先查 AGENTS.md 的模块边界表与仓库模块清单；
-   - 同类职责归同包；跨域共享类型下沉到 `application/contract/dto` 或 `seelebridge/internal/model`；
+   - 同类职责归同包；跨域共享类型下沉到 `contract/dto` 或 `seelebridge/internal/model`；
    - 带行为方法的类型下沉时，遵循"DTO 纯化 + 方法转自由函数"（避免把行为捆进共享 DTO）。
 3. **是否需要新开包/新文件夹？**
    - 新领域、新生命周期、可独立维护 → 新开 `xxx/` 包并配 README；

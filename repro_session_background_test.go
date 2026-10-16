@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // backgroundScenario 是"A 运行中切 B → B 完成 → A 后台完成"的标准场景产物。
@@ -29,7 +29,7 @@ type backgroundScenario struct {
 	provider *requestCountingProvider
 	sessionA string
 	sessionB string
-	store    *sessionstore.Router
+	st       *store.Router
 }
 
 // startBackgroundCompletionScenario 执行与 repro_session_disappear_test 相同
@@ -102,20 +102,20 @@ func startBackgroundCompletionScenario(t *testing.T, bindProject bool) *backgrou
 		t.Fatalf("wait idle after release: %v", err)
 	}
 
-	store, err := initStore()
+	st, err := initStore()
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
-	t.Cleanup(func() { _ = store.Close() })
-	return &backgroundScenario{harness: harness, provider: provider, sessionA: sessionA, sessionB: sessionB, store: store}
+	t.Cleanup(func() { _ = st.Close() })
+	return &backgroundScenario{harness: harness, provider: provider, sessionA: sessionA, sessionB: sessionB, st: st}
 }
 
 // loadStoredRecord 读取 workspace 下会话的持久化 record。
-func loadStoredRecord(t *testing.T, store *sessionstore.Router, workspaceID, sessionID string) (application.SessionRecord, bool) {
+func loadStoredRecord(t *testing.T, st *store.Router, workspaceID, sessionID string) (application.SessionRecord, bool) {
 	t.Helper()
 	// S20：record 通道退役，优先读派生态（message head.Meta + message 行 +
 	// lifecycle）；非 v8 后端回退 state 通道。
-	payload, handled, err := store.DerivedRecordWorkspace(workspaceID, sessionID)
+	payload, handled, err := st.DerivedRecordWorkspace(workspaceID, sessionID)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return application.SessionRecord{}, false
@@ -127,7 +127,7 @@ func loadStoredRecord(t *testing.T, store *sessionstore.Router, workspaceID, ses
 			return application.SessionRecord{}, false
 		}
 	} else {
-		payload, err = store.LoadStateWorkspace(workspaceID, sessionID)
+		payload, err = st.LoadStateWorkspace(workspaceID, sessionID)
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
 				return application.SessionRecord{}, false
@@ -154,7 +154,7 @@ func recordConversationTexts(record application.SessionRecord) []string {
 // 全域只属 A（无 B 内容）。
 func TestBackgroundCompletionPreservesARecordDomains(t *testing.T) {
 	scenario := startBackgroundCompletionScenario(t, true)
-	record, ok := loadStoredRecord(t, scenario.store, "", scenario.sessionA)
+	record, ok := loadStoredRecord(t, scenario.st, "", scenario.sessionA)
 	if !ok {
 		t.Fatalf("A record missing from workspace after background completion")
 	}
@@ -175,7 +175,7 @@ func TestBackgroundCompletionPreservesARecordDomains(t *testing.T) {
 		}
 	}
 	// transcript 事件通道也不含 B 内容。
-	events, err := scenario.store.LoadEventTailWorkspace("", scenario.sessionA, 1<<20, 10000)
+	events, err := scenario.st.LoadEventTailWorkspace("", scenario.sessionA, 1<<20, 10000)
 	if err != nil {
 		t.Fatalf("load A event tail: %v", err)
 	}
@@ -318,14 +318,14 @@ func TestBackgroundCompletionKeepsActiveSessionQueue(t *testing.T) {
 	}
 	// A 后台完成。
 	close(provider.release[2])
-	store, err := initStore()
+	st, err := initStore()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = store.Close() }()
+	defer func() { _ = st.Close() }()
 	deadlineA := time.Now().Add(20 * time.Second)
 	for {
-		record, ok := loadStoredRecord(t, store, "", sessionA)
+		record, ok := loadStoredRecord(t, st, "", sessionA)
 		if ok {
 			joined := strings.Join(recordConversationTexts(record), "\n")
 			if strings.Contains(joined, "long task A") {
@@ -447,14 +447,14 @@ func TestBackgroundCompletionWhileSwitchingToC(t *testing.T) {
 		t.Fatal("C second turn did not block")
 	}
 	close(provider.release[2])
-	store, err := initStore()
+	st, err := initStore()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = store.Close() }()
+	defer func() { _ = st.Close() }()
 	deadlineA := time.Now().Add(20 * time.Second)
 	for {
-		record, ok := loadStoredRecord(t, store, "", sessionA)
+		record, ok := loadStoredRecord(t, st, "", sessionA)
 		if ok {
 			joined := strings.Join(recordConversationTexts(record), "\n")
 			if strings.Contains(joined, "long task A") {
@@ -471,7 +471,7 @@ func TestBackgroundCompletionWhileSwitchingToC(t *testing.T) {
 	if snapshot.Session.ID != sessionC || !snapshot.Chat.Running {
 		t.Fatalf("C execution affected by A completion: %+v", snapshot.Chat)
 	}
-	record, ok := loadStoredRecord(t, store, "", sessionA)
+	record, ok := loadStoredRecord(t, st, "", sessionA)
 	if !ok {
 		t.Fatalf("A record missing")
 	}

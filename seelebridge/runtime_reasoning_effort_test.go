@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/agent/core/api"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // reasoningEffortOfAccount 读回账号池里某个账号当前**实际**会发到 wire 的思考强度
@@ -29,7 +29,7 @@ func reasoningEffortOfAccount(t testing.TB, runtime *Runtime, name string) strin
 }
 
 // TestRuntimeSetSessionReasoningEffortOnlyMovesSessionAccounts 钉住 Runtime 侧下发口
-// （application/contract.ReasoningEffortPort 的 seelebridge 实现）的两件事：
+// （contract.ReasoningEffortPort 的 seelebridge 实现）的两件事：
 //
 //  1. 档位变化后，**跟随会话**的账号的 wire 思考强度被更新（agent-1 没写
 //     reasoning_effort → 角色默认 session）；

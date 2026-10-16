@@ -3,7 +3,7 @@ package plan
 import (
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // PlanBranchEvent is the Seelex-owned representation of a branch lifecycle
@@ -19,5 +19,5 @@ type PlanBranchEvent struct {
 // PlanBranchBinding freezes the request-scoped values used to construct
 // branch runtimes. Empty AccountID delegates selection to the role router.
 // PlanBranchBinding freezes the request-scoped values used to construct
-// a plan branch???????? application/contract/dto??
+// a plan branch???????? contract/dto??
 type PlanBranchBinding = dto.PlanBranchBinding

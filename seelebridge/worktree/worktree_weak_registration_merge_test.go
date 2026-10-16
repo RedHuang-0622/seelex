@@ -35,7 +35,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // gitCallLog 记录交给 git 的实参（诊断「实现到底拼出了什么字符串」）。
@@ -77,8 +77,8 @@ func emptyRefArgs(lines []string) []string {
 
 // weakSceneRecord 造一条**teammate 落盘形态**的记录：现场栏只有 Path/Branch，
 // MainBranch/BaseCommit 空——与 `teamUnitWorktreeRecord` 写出的形状逐字一致。
-func weakSceneRecord(nodeID, path, branch string) sessionstore.NodeSessionRecord {
-	return sceneRecordFor(nodeID, sessionstore.NodeWorktreeRecord{Path: path, Branch: branch})
+func weakSceneRecord(nodeID, path, branch string) store.NodeSessionRecord {
+	return sceneRecordFor(nodeID, store.NodeWorktreeRecord{Path: path, Branch: branch})
 }
 
 // weakSceneFixture 搭出「旧进程建现场 + 现场里一条已提交产出 + 主工作区自己也在前进」的现场：
@@ -105,7 +105,7 @@ func weakSceneFixture(t *testing.T, nodeID string) (string, *WorktreeManager, *g
 	t.Cleanup(mgr.Close)
 	mgr.git = log.wrap(mgr.git)
 	// 恢复链的固定顺序：记录投影（弱登记）先到。
-	mgr.Restore([]sessionstore.NodeSessionRecord{weakSceneRecord(nodeID, created.Path, created.Branch)})
+	mgr.Restore([]store.NodeSessionRecord{weakSceneRecord(nodeID, created.Path, created.Branch)})
 	return root, mgr, log, created, sceneCommit, mainCommit
 }
 

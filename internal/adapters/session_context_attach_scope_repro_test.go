@@ -10,7 +10,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	"github.com/RedHuang-0622/seelex/session"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // ── 错误复现：会话 context 的落盘键（AttachSessionContext 的装配缺口）──────────
@@ -32,7 +32,7 @@ import (
 // 仍然只落在会话自己的项目里。
 func TestAttachSessionContextBindsSessionProjectNotViewScope(t *testing.T) {
 	root := t.TempDir()
-	router, err := sessionstore.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
 	if err != nil {
 		t.Fatalf("NewRouter: %v", err)
 	}
@@ -42,8 +42,8 @@ func TestAttachSessionContextBindsSessionProjectNotViewScope(t *testing.T) {
 	const viewProject = "ws-view"   // 视图当前项目（= Router 活跃写作用域）
 	const sessionID = "sess-context-attach-scope"
 
-	if err := router.SaveCommitWorkspace(ownerProject, sessionID, sessionstore.Commit{
-		Events: []sessionstore.Event{{Seq: 1, Role: "user", Content: "owner-side"}},
+	if err := router.SaveCommitWorkspace(ownerProject, sessionID, store.Commit{
+		Events: []store.Event{{Seq: 1, Role: "user", Content: "owner-side"}},
 	}); err != nil {
 		t.Fatalf("seed session: %v", err)
 	}
@@ -79,14 +79,14 @@ func TestAttachSessionContextBindsSessionProjectNotViewScope(t *testing.T) {
 	if err := port.AttachSessionContext(viewProject, sessionID); err != nil {
 		t.Fatalf("AttachSessionContext: %v", err)
 	}
-	store := runtime.SessionContextStoreFor(sessionID)
-	if store == nil {
+	st := runtime.SessionContextStoreFor(sessionID)
+	if st == nil {
 		t.Fatal("AttachSessionContext 之后 Runtime 里应有本会话的 context store")
 	}
-	if err := store.SetSystemPrompt("会话级提示：按会话归属落盘"); err != nil {
+	if err := st.SetSystemPrompt("会话级提示：按会话归属落盘"); err != nil {
 		t.Fatalf("SetSystemPrompt: %v", err)
 	}
-	if err := store.PushCompact(sessionstore.CompactFrame{
+	if err := st.PushCompact(store.CompactFrame{
 		SegmentID: "seg-1", From: 0, To: 4, Summary: "compressed rounds", CompressedAt: time.Now(),
 	}); err != nil {
 		t.Fatalf("PushCompact: %v", err)

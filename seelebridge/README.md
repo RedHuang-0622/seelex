@@ -11,7 +11,7 @@
 可装配、可限制和可测试的 Runtime，同时隔离上游 API 变化。
 
 主要调用方：根目录组合根（`main.go`）、`application/core` 经
-`application/contract` 端口消费、`gui`/`tui` 只经 Application 间接使用。
+`contract` 端口消费、`gui`/`tui` 只经 Application 间接使用。
 
 ## 架构图
 
@@ -53,10 +53,10 @@ flowchart TB
 | 文件 | 职责 |
 |---|---|
 | `runtime.go` | 组合根骨架：RuntimeConfig/Runtime 结构体 + NewRuntime（拓扑序装配链）+ Shutdown（生命周期逆序关停）+ 主会话装配 |
-| `ports.go` | application/contract 端口实现：task/plan/子代理树/节点/MCP/plugin/调度器/历史检索/todolist 的逐行委托与兼容别名 |
+| `ports.go` | contract 端口实现：task/plan/子代理树/节点/MCP/plugin/调度器/历史检索/todolist 的逐行委托与兼容别名 |
 | `runtime_plan.go` | plan 执行域装配与委托（SetPlan*/Replan/事件通道/分支账号/NodeFactory/plan 与 fork/node 的 Deps 闭包） |
 | `runtime_context.go` | 上下文接线（Assembler/Controller/Compressor/窗口/stack/project/memory/归档） |
-| `runtime_account.go` | 账号路由委托（account.Manager：选中账号/provider/限额/选择器）；**每账号上下文窗口**的取值面：`ContextWindowFor`（账号级覆盖 > `limits.context_window` 全局 > 账号档自报值）、`SetAccountWindow`（界面「设置 → 账号」改一格，改后立刻生效）、`AccountWindows`（拷贝，诊断/对账用）。覆盖层的落盘在数据根 `runtime-limits.json`（宿主侧 `runtime_limits_overlay.go`），**不写回** `seelex.yaml` 与账号档 |
+| `runtime_account.go` | 账号路由委托（account.Manager：选中账号/provider/限额/选择器）；**每账号上下文窗口**的取值面：`ContextWindowFor`（账号级覆盖 > `limits.context_window` 全局 > 账号档自报值）、`SetAccountWindow`（界面「设置 → 账号」改一格，改后立刻生效）、`AccountWindows`（拷贝，诊断/对账用）。覆盖层的落盘在数据根 `runtime-limits.json`（宿主侧 [`backend/limit/overlay`](../backend/limit/overlay/README.md)），**不写回** `seelex.yaml` 与账号档 |
 | `request_log.go` | LLM 请求记录中间件（`SEELEX_REQUEST_LOG` 门控，默认关闭）：包装 Completer/StreamCompleter，把每次真实请求的 role + 内容 hash + 工具调用名按顺序写 JSONL（不落正文/参数原文），供 headless 冒烟做“请求顺序 ↔ 存储内容”匹配 |
 | `runtime_deps.go` | 启动期装配结构 `RuntimeDeps` + `ApplyDeps`（一次性注入；装配点不散装单字段 setter） |
 | `events.go` | 事件体系双轨（workplan event.Sink ↔ telemetry.Hook）的短期收敛：关联字段说明 + 主会话 session_id 补全 |
@@ -82,7 +82,7 @@ flowchart TB
 
 | 文件 | 职责 |
 |---|---|
-| `workunit_parent.go` | **唯一一份生命周期实现**（`lifecycleHost`：Begin/Finish/Reclaim/Recover/AlreadySettled/Notice）。只持三格端口（`sceneFace`/`unitFace`/`recordFace`），文件里搜不到 teamwork/worktree/sessionstore 的具体类型、也搜不到按层分支 |
+| `workunit_parent.go` | **唯一一份生命周期实现**（`lifecycleHost`：Begin/Finish/Reclaim/Recover/AlreadySettled/Notice）。只持三格端口（`sceneFace`/`unitFace`/`recordFace`），文件里搜不到 teamwork/worktree/store 的具体类型、也搜不到按层分支 |
 | `workunit_assembly.go` | **装配表**：三格端口的唯一实现（`hostPorts`，宿主能力面的适配）+ 子代理层的生产驱动点（`beginNodeUnit`/`finishNodeUnit`）。具体类型只允许出现在这里 |
 | `workunit_node.go` | subagent 层的**注册点**（`nodeUnitReadings` + 纯转发） |
 | `workunit_team.go` | teammate 层的**注册点**（`teamUnitReadings` + 纯转发） |
@@ -120,7 +120,7 @@ flowchart TB
 | `tools/` | scoped 工具 Router、`RegistryState`（内联工具+权限门控）、websearch、computer use 原语与工具面（见 `tools/README.md`、`tools/computer/README.md`） |
 | `internal/model/` | 各域共享的纯类型层（`AccountSpec`/`AccountRole`/`NodeScope`，无运行时依赖） |
 | `internal/actor/` | 单消费者 actor 底座（有界命令通道 + 串行 handler + 幂等 Close；task/session 等 mailbox actor 复用，见 `internal/actor/README.md`） |
-| `internal/mapper/` | 运行态结构 ↔ `application/contract/dto` 的无业务转换（`ToolEventToDTO` 等；见 `internal/mapper/README.md`） |
+| `internal/mapper/` | 运行态结构 ↔ `contract/dto` 的无业务转换（`ToolEventToDTO` 等；见 `internal/mapper/README.md`） |
 | `internal/config/` | 简化账号 YAML 加载（`Config`/`AccountLimits`/`Load`） |
 | `internal/docker/` | Docker 守护进程自动恢复（探针/daemon-down 判定/恢复提示，见 `internal/docker/README.md`） |
 | `internal/stream/` | 流式账号 Completer 适配（`NewStreamingCompleter`） |
@@ -128,7 +128,7 @@ flowchart TB
 
 根包对子包保持单向依赖；子包禁止 import seelebridge 根包，跨域协作一律走
 Deps 闭包或端口接口注入（`node.Coordinator`、`fork.Tool`、`tools.Router`、
-`mcp.Manager` 均为先例）。公开 DTO 统一走 `application/contract/dto`。
+`mcp.Manager` 均为先例）。公开 DTO 统一走 `contract/dto`。
 
 根包只保留少量跨域**类型别名**（`ports.go`/`runtime.go`：`Account`、`MCPServer`、
 `NodeWorktree`/`NodeWorktreeInfo`、`ScheduledTask*`、`RuntimeVisibilityProjection`、
@@ -153,7 +153,7 @@ Deps 闭包或端口接口注入（`node.Coordinator`、`fork.Tool`、`tools.Rou
    `PlanNodeEvent`，订阅者（Application）实时更新 Plan 状态与前端快照。
 6. `Shutdown` 关闭 MCP、账号池和后台资源。
 
-权限门始终保存一份 `manual` 基线表。主会话档位是**声明式覆盖**（`permission_tiers.go:ApplyTier`）：
+权限门始终保存一份 `manual` 基线表。主会话档位是**声明式覆盖**（`backend/limit/policy/tiers.go:ApplyTier`）：
 只剪掉若干 `ask` 规则，从不新增 allow、从不触碰危险 `deny`，因此 `rm -rf` 根目录、
 `dd if=* of=*`、`mkfs*` 在任何档位下都保持硬拦。`Runtime.SetPermissionTierFor(sessionID, tier)`
 按会话切换 `manual` / `edit` / `auto` / `full`；`full` 档的执行门短路**只对 root 主体成立**
@@ -162,7 +162,7 @@ Deps 闭包或端口接口注入（`node.Coordinator`、`fork.Tool`、`tools.Rou
 `Runtime.FullAccess()` 仍可作为 `full` 档的派生读面。即使 CLI 以 `-permission full` 启动，
 composition root 也先装配 `manual` 规则和审批桥，再打开覆盖层，因此 GUI 可以安全切回。
 
-主 Session 可通过 `AttachHistoryRouter` 独立装配 `sessionstore.DurableHistory`；指定恢复 ID 时 `NewMainSessionWithID` 同时用它作为框架 Session identity 和 durable key。该路径不读取或覆盖 `SessionContextStore` 的 application state blob。
+主 Session 可通过 `AttachHistoryRouter` 独立装配 `store.DurableHistory`；指定恢复 ID 时 `NewMainSessionWithID` 同时用它作为框架 Session identity 和 durable key。该路径不读取或覆盖 `SessionContextStore` 的 application state blob。
 
 主会话在 seelebridge 侧按**会话槽化**：每个逻辑会话一个独立
 `sessionBundle`（独立 `session.Session`、锁与会话绑定状态），
@@ -229,7 +229,7 @@ Plan 策略、分支绑定、run ID、事件通道、重规划护栏、审批门
 （`SetPlanPolicy`/`SetPlanBranchBinding`/`SetPlanApprovalGate`/
 `SetPlanNodeCallback`/`PlanNodeEventChannel`/`SetEventPersister`/
 `SetEventErrorHandler`/`ReplanMetrics`/`PrepareReplan`），
-`application/contract/ports.go` 不变。组件不持有 `*Runtime`：
+`contract/ports.go` 不变。组件不持有 `*Runtime`：
 `accounts`/`loadPlanDefinition`/`dispatch`/`nodeFactory` 以 deps 闭包注入，
 `plan.ToolProvider`（`plan/tool_provider.go`，`plan.NewToolProvider` 绑定
 `*plan.Executor`）持有执行器引用；节点工厂（`nodeFactory`/`nodeFactoryDeps`/
@@ -246,7 +246,7 @@ Runtime 的节点作用域与子代理上下文服务。
 另可读 Plan 的节点事件、工具活动与子会话快照。
 
 句柄的命名空间（`bt-` 工具作业 / `bs-` 子代理作业 / `bteam-` 团队作业）与文法见
-`application/contract/dto/job_namespace.go`：它让"拿错表的句柄"不再可能命中无关作业；
+`contract/dto/job_namespace.go`：它让"拿错表的句柄"不再可能命中无关作业；
 团队作业表的管理工具是框架 builtin `jobs_manage`，`bg_manage` 收到 `bteam-` 句柄会显式拒绝。
 
 为什么不再提供"阻塞到全部跑完"的入口：阻塞调用期间模型没有下一次调用，"观察/提前终止

@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/session"
-	"github.com/RedHuang-0622/seelex/application/contract"
-	"github.com/RedHuang-0622/seelex/application/core/internal/limits"
 	"github.com/RedHuang-0622/seelex/application/model"
 	"github.com/RedHuang-0622/seelex/application/prompt"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract"
 )
 
 const (
@@ -23,7 +23,7 @@ const (
 	// context_runtime.ActiveSkillPrefix 同源字符串（task_context 不反向依赖
 	// context_runtime）。它是一条 append-only 的 internal user 轮次，三件事的
 	// 准确答法：
-	//   - 落盘：**落**，但按 wire material 落——sessionstore 的
+	//   - 落盘：**落**，但按 wire material 落——store 的
 	//     providerRoleForEvent 对含本标记的行保持 user 角色（不折叠成 system），
 	//     wire_assembler 以 user + Internal 回放 → resume 可回放、检索可回读；
 	//   - 可见性：前端可见会话与「用户输入」视图里没有它（装配/存档/import 以
@@ -663,7 +663,7 @@ func frameworkToolErrorContent(err error) string {
 // defaultToolResultLimit 返回工具结果字符预算（seelex.yaml limits 段
 // max_tool_result_chars，出厂默认 60000）。
 func defaultToolResultLimit() int {
-	return limits.Get().MaxToolResultChars
+	return limit.Get().MaxToolResultChars
 }
 
 // DefaultToolResultLimit 返回工具结果字符预算（导出面；根包兼容包装用）。

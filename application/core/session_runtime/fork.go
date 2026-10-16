@@ -6,11 +6,11 @@
 // record/事件流/四栈快照 + tool-results 整通道物理复制（删父安全，T-FK-07）。
 //
 // **ForkSubagent 不走本文件**（`fork_subagents`）：子代理现场由 workplan DAG
-// 派发（`seelebridge/fork`），存储侧由 `sessionstore.newSubagent` 建
+// 派发（`seelebridge/fork`），存储侧由 `store.newSubagent` 建
 // `subagent_<hash>/` 子树，**不建独立 blob 目录**、大工具输出引用主会话
 // `big_tool_result`（my_design §8.2 / T-FK-05/06）。这条派发链不调用
 // `PrepareFork`，所以「按 ref 裁剪可达集合」这一步对它根本不发生——要改子代理
-// 的继承口径，改存储侧（`sessionstore/fork_store.go`），不要在这里加减规则。
+// 的继承口径，改存储侧（`store/fork_store.go`），不要在这里加减规则。
 package session_runtime
 
 import (
@@ -22,9 +22,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/model"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // ForkContext 是 fork 落盘所需的子会话数据（深拷贝结果）：Record 是截断后
@@ -107,7 +107,7 @@ func (c *Coordinator) PrepareFork(location Location, childID, parentID string, r
 		ForkPoint: model.ForkPoint{
 			EventSeq:     cut,
 			EventCount:   uint64(len(inherited)),
-			Round:        uint64(len(sessionstore.EventParagraphs(inherited))),
+			Round:        uint64(len(store.EventParagraphs(inherited))),
 			RequestID:    strings.TrimSpace(request.RequestID),
 			MessageID:    cutMessageID,
 			MessageCount: len(c.RecordConversation(record)),
@@ -137,14 +137,14 @@ func (c *Coordinator) LatestForkCut(location Location, parentID string) (uint64,
 	if err != nil {
 		return 0, fmt.Errorf("session fork: load parent transcript: %w", err)
 	}
-	paragraphs := sessionstore.EventParagraphs(events)
+	paragraphs := store.EventParagraphs(events)
 	if len(paragraphs) == 0 {
 		return 0, nil
 	}
 	return paragraphs[len(paragraphs)-1].EventTo, nil
 }
 
-func forkTranscriptEvents(events []sessionstore.Event) []model.TranscriptEvent {
+func forkTranscriptEvents(events []store.Event) []model.TranscriptEvent {
 	adapted := make([]model.TranscriptEvent, len(events))
 	for index, event := range events {
 		calls := make([]model.TranscriptToolCall, len(event.ToolCalls))
@@ -166,7 +166,7 @@ func forkTranscriptEvents(events []sessionstore.Event) []model.TranscriptEvent {
 
 // conversationMessagesFromEvents 把 message 事件行派生为 record conversation
 // 消息（S20：record 通道退役后的父会话正文事实源）。
-func conversationMessagesFromEvents(events []sessionstore.Event) []model.Message {
+func conversationMessagesFromEvents(events []store.Event) []model.Message {
 	messages := make([]model.Message, 0, len(events))
 	for _, event := range events {
 		id := event.MessageID
@@ -180,7 +180,7 @@ func conversationMessagesFromEvents(events []sessionstore.Event) []model.Message
 	return messages
 }
 
-func forkStoredToolResults(results []sessionstore.ToolResult) []model.StoredToolResult {
+func forkStoredToolResults(results []store.ToolResult) []model.StoredToolResult {
 	stored := make([]model.StoredToolResult, len(results))
 	for index, result := range results {
 		stored[index] = model.StoredToolResult{
@@ -197,7 +197,7 @@ func forkStoredToolResults(results []sessionstore.ToolResult) []model.StoredTool
 // resolveForkCut 解析 fork 切断点（EventSeq 含端点，段落边界语义）。
 // RequestID 解析为该轮完整单元的最后 EventSeq；显式 EventSeq 必须落在
 // 段落边界，否则拒绝并提示最近边界。
-func resolveForkCut(events []sessionstore.Event, request model.ForkRequest) (uint64, *sessionstore.Event, error) {
+func resolveForkCut(events []store.Event, request model.ForkRequest) (uint64, *store.Event, error) {
 	requestID := strings.TrimSpace(request.RequestID)
 	if requestID != "" && request.EventSeq != 0 {
 		return 0, nil, errors.New("session fork: request_id and event_seq are mutually exclusive")
@@ -205,7 +205,7 @@ func resolveForkCut(events []sessionstore.Event, request model.ForkRequest) (uin
 	if requestID != "" {
 		cut := uint64(0)
 		found := false
-		for _, paragraph := range sessionstore.EventParagraphs(events) {
+		for _, paragraph := range store.EventParagraphs(events) {
 			if paragraph.RequestID == requestID && paragraph.EventTo > cut {
 				cut = paragraph.EventTo
 				found = true
@@ -219,7 +219,7 @@ func resolveForkCut(events []sessionstore.Event, request model.ForkRequest) (uin
 	if request.EventSeq == 0 {
 		return 0, nil, nil // fork 起点：空继承
 	}
-	end, ok := sessionstore.ParagraphEnd(events, request.EventSeq)
+	end, ok := store.ParagraphEnd(events, request.EventSeq)
 	if !ok {
 		return 0, nil, fmt.Errorf("session fork: event_seq %d is not inside a complete paragraph", request.EventSeq)
 	}
@@ -229,7 +229,7 @@ func resolveForkCut(events []sessionstore.Event, request model.ForkRequest) (uin
 	return request.EventSeq, eventAt(events, request.EventSeq), nil
 }
 
-func eventAt(events []sessionstore.Event, seq uint64) *sessionstore.Event {
+func eventAt(events []store.Event, seq uint64) *store.Event {
 	for index := range events {
 		if events[index].Seq == seq {
 			return &events[index]
@@ -238,11 +238,11 @@ func eventAt(events []sessionstore.Event, seq uint64) *sessionstore.Event {
 	return nil
 }
 
-func forkInheritedEvents(events []sessionstore.Event, cut uint64) []sessionstore.Event {
+func forkInheritedEvents(events []store.Event, cut uint64) []store.Event {
 	if cut == 0 {
 		return nil
 	}
-	inherited := make([]sessionstore.Event, 0)
+	inherited := make([]store.Event, 0)
 	for _, event := range events {
 		if event.Seq <= cut {
 			inherited = append(inherited, event)
@@ -262,7 +262,7 @@ func forkInheritedEvents(events []sessionstore.Event, cut uint64) []sessionstore
 //
 // 压缩记录（ContextCompactions）按**整批历史证据**继承：结论（状态/计划）晚于
 // 切断点会被清空，压缩记录连同其 FrameRef 保留，见下方可达集合。
-func truncateForkRecord(record model.SessionRecord, events []sessionstore.Event, frames []sessionstore.CompactFrame, cutTime time.Time, displayUserInput func(string) string) model.SessionRecord {
+func truncateForkRecord(record model.SessionRecord, events []store.Event, frames []store.CompactFrame, cutTime time.Time, displayUserInput func(string) string) model.SessionRecord {
 	now := time.Now().UTC()
 	cut := forkCutSeq(events)
 	truncated := model.SessionRecord{
@@ -300,7 +300,7 @@ func truncateForkRecord(record model.SessionRecord, events []sessionstore.Event,
 	return truncated
 }
 
-func forkCutSeq(events []sessionstore.Event) uint64 {
+func forkCutSeq(events []store.Event) uint64 {
 	if len(events) == 0 {
 		return 0
 	}
@@ -322,7 +322,7 @@ func inheritedForkTitle(title model.SessionTitle, messages []model.Message, now 
 	return model.SessionTitle{Value: "fork", Source: "fork", FinalizedAt: now}
 }
 
-func forkConversationMessages(messages []model.Message, events []sessionstore.Event, cutTime time.Time) []model.Message {
+func forkConversationMessages(messages []model.Message, events []store.Event, cutTime time.Time) []model.Message {
 	inheritedIDs := make(map[string]struct{}, len(events))
 	for _, event := range events {
 		if event.MessageID != "" {
@@ -441,8 +441,8 @@ func forkReadFiles(files []model.ReadFileRef, cutTime time.Time) []model.ReadFil
 // ToolResultRefs、继承压缩帧的 Evidence 与 compressed:<segment_id> 原文归档。
 // 注册表只保留可达 ref，防止子会话通过 read_tool_result 提示触达 fork 点
 // 之后的内容。（ForkSubagent 不经过这里——子代理派发链不调用本函数；
-// 两条路的存储形态见 `sessionstore/fork_store.go` 头部与 my_design §8。）
-func reachableToolResultRefs(events []sessionstore.Event, record model.SessionRecord, frames []sessionstore.CompactFrame) map[string]struct{} {
+// 两条路的存储形态见 `store/fork_store.go` 头部与 my_design §8。）
+func reachableToolResultRefs(events []store.Event, record model.SessionRecord, frames []store.CompactFrame) map[string]struct{} {
 	reachable := make(map[string]struct{})
 	for _, event := range events {
 		if event.ResultRef != "" {
@@ -478,7 +478,7 @@ func reachableToolResultRefs(events []sessionstore.Event, record model.SessionRe
 	}
 	for _, frame := range frames {
 		if frame.SegmentID != "" {
-			reachable[sessionstore.CompressedTurnRefPrefix+frame.SegmentID] = struct{}{}
+			reachable[store.CompressedTurnRefPrefix+frame.SegmentID] = struct{}{}
 		}
 		for _, evidence := range frame.Evidence {
 			if evidence.Ref != "" {
@@ -504,7 +504,7 @@ func forkToolResultRegistry(refs []model.ToolResultRef, reachable map[string]str
 // goal）不在这里处理——它们的权威是 §2.4 栈通道，fork 时由存储层按 message
 // 锚重建（storeEngine.stackSnapshotAt）；GoalAudit 与 goal 治理状态默认不
 // 继承（D4）。
-func (c *Coordinator) forkContextRecord(location Location, parentID string, cut uint64, cutTime time.Time, cutMessageID string) ([]byte, []sessionstore.CompactFrame, error) {
+func (c *Coordinator) forkContextRecord(location Location, parentID string, cut uint64, cutTime time.Time, cutMessageID string) ([]byte, []store.CompactFrame, error) {
 	forkPort, ok := c.Core.Deps.Sessions.(SessionForkPort)
 	if !ok {
 		return nil, nil, errors.New("session fork: durable fork storage is unavailable")
@@ -512,17 +512,17 @@ func (c *Coordinator) forkContextRecord(location Location, parentID string, cut 
 	payload, err := forkPort.LoadContextStateWorkspace(location.WorkspaceID, parentID)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			data, _ := json.Marshal(sessionstore.SessionContextRecord{SchemaVersion: sessionstore.SessionContextSchemaVersion})
+			data, _ := json.Marshal(store.SessionContextRecord{SchemaVersion: store.SessionContextSchemaVersion})
 			return data, nil, nil
 		}
 		return nil, nil, fmt.Errorf("session fork: load parent context: %w", err)
 	}
-	var record sessionstore.SessionContextRecord
+	var record store.SessionContextRecord
 	if err := json.Unmarshal(payload, &record); err != nil {
 		return nil, nil, fmt.Errorf("session fork: decode parent context: %w", err)
 	}
-	if record.SchemaVersion != sessionstore.SessionContextSchemaVersion {
-		return nil, nil, fmt.Errorf("session fork: parent context has unsupported schema version %d (want %d)", record.SchemaVersion, sessionstore.SessionContextSchemaVersion)
+	if record.SchemaVersion != store.SessionContextSchemaVersion {
+		return nil, nil, fmt.Errorf("session fork: parent context has unsupported schema version %d (want %d)", record.SchemaVersion, store.SessionContextSchemaVersion)
 	}
 	record.PlanStack = nil
 	record.TaskStack = nil
@@ -538,8 +538,8 @@ func (c *Coordinator) forkContextRecord(location Location, parentID string, cut 
 	return data, frames, nil
 }
 
-func forkContextSkillFrames(frames []sessionstore.SkillFrame, cutTime time.Time) []sessionstore.SkillFrame {
-	result := make([]sessionstore.SkillFrame, 0, len(frames))
+func forkContextSkillFrames(frames []store.SkillFrame, cutTime time.Time) []store.SkillFrame {
+	result := make([]store.SkillFrame, 0, len(frames))
 	for _, frame := range frames {
 		if frame.ActivatedAt.IsZero() || !frame.ActivatedAt.After(cutTime) {
 			result = append(result, frame)
@@ -551,8 +551,8 @@ func forkContextSkillFrames(frames []sessionstore.SkillFrame, cutTime time.Time)
 // rewriteForkCompactStack 处理压缩帧内的 fork 切断：整帧继承 + 范围重写
 // （EventTo/MessageTo 到切断点）。EventRevision 保留父修订（标识继承事件
 // 的来源提交，正是"切断点所属版本"）；完全晚于切断点的帧丢弃。
-func rewriteForkCompactStack(frames []sessionstore.CompactFrame, cut uint64, cutMessageID string) []sessionstore.CompactFrame {
-	result := make([]sessionstore.CompactFrame, 0, len(frames))
+func rewriteForkCompactStack(frames []store.CompactFrame, cut uint64, cutMessageID string) []store.CompactFrame {
+	result := make([]store.CompactFrame, 0, len(frames))
 	for _, frame := range frames {
 		if frame.EventFrom == 0 && frame.EventTo == 0 {
 			// 旧帧无事件坐标：无可截断依据，保守保留。

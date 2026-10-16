@@ -8,12 +8,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/chat"
 	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
 	"github.com/RedHuang-0622/seelex/application/core/view_state"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/session"
 )
 
@@ -463,7 +463,7 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 		//
 		// 两处的关系：record.Execution.Task 是旧址（非 v8 布局、旧记录仍有），
 		// 压缩记录通道是新址（v8/S20 起 record 通道停写停读，压缩记录只住在
-		// 这里，见 sessionstore/compaction_records.go）。旧址有值就以它为准
+		// 这里，见 store/compaction_records.go）。旧址有值就以它为准
 		// ——同一份事实的两处副本不该被新址的空结果覆盖；旧址为空才读新址。
 		var contextCompactions []ContextCompaction
 		retainedFrom := 0
@@ -831,7 +831,7 @@ func (service *Service) loadEarlierVisiblePage(workspaceID, sessionID string, of
 
 // conversationPage 是一段冷读结果，**两个坐标空间分开记**：
 //
-//   - 冷读面（sessionstore 由 message 行直接展开 conversation）把内部标记行
+//   - 冷读面（store 由 message 行直接展开 conversation）把内部标记行
 //     （上下文 checkpoint、运行期提示……）也当成普通会话行，行数与下标都是
 //     **未过滤**空间的；
 //   - 可见会话（view.Conversation / view.HistoryOffset / view.TotalMessages）

@@ -108,7 +108,7 @@ func TestIsOversizedToolResult(t *testing.T) {
 }
 
 func TestProcessorDefaultLimitUsesSeelexDefault(t *testing.T) {
-	// limit=0 → seelex 生效默认 DefaultToolResultLimit()（60000）。
+	// limit=0 → seelex 生效默认 limit.DefaultToolResultLimit()（60000）。
 	processor := NewToolResultProcessor(0, nil)
 	view, err := processor.Process(context.Background(), seelectx.ToolResult{
 		CallID: "call-6", Name: "bash", Raw: strings.Repeat("x", 70_000),

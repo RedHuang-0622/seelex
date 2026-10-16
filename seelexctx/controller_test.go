@@ -9,7 +9,8 @@ import (
 
 	"github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // heavyTokenCounter 放大 token 估算（len×100），让测试用小历史即可跨过
@@ -69,8 +70,8 @@ func roundHistory(rounds int) []types.Message {
 // 溢出/压缩/归档/去重本身，不验证出厂默认档。默认档口径（2026-09-26 起
 // 95/98/80）由 limits_test.go 钉住——机制用例显式给出自己假设的比例，默认档
 // 调整不会把机制用例带红，也不会让"配置被消费"的断言变成对默认值的隐式依赖。
-func controllerTestLimits() Limits {
-	return Limits{
+func controllerTestLimits() limit.Limits {
+	return limit.Limits{
 		ContextSafetyReserveDivisor: 8,
 		ContextSoftPercent:          75,
 		ContextHardPercent:          90,
@@ -92,18 +93,18 @@ func newController(stacks CompactStackStore) *seelexContextController {
 // 记录（含任务/计划栈帧），PushCompact 追加压缩帧。
 type recordStack struct {
 	mu     sync.Mutex
-	record sessionstore.SessionContextRecord
+	record store.SessionContextRecord
 }
 
-func (s *recordStack) Snapshot() sessionstore.SessionContextRecord {
+func (s *recordStack) Snapshot() store.SessionContextRecord {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	record := s.record
-	record.CompactStack = append([]sessionstore.CompactFrame(nil), s.record.CompactStack...)
+	record.CompactStack = append([]store.CompactFrame(nil), s.record.CompactStack...)
 	return record
 }
 
-func (s *recordStack) PushCompact(frame sessionstore.CompactFrame) error {
+func (s *recordStack) PushCompact(frame store.CompactFrame) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.record.CompactStack = append(s.record.CompactStack, frame)

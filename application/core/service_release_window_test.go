@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/backend/limit"
 )
 
 // 「会话驻留窗口」可调面的用例（service_release_window.go）。
@@ -19,7 +19,7 @@ import (
 //     与"界面上的值"不会分叉，前端回滚是诚实的；
 //  4. 宿主没装配落盘口时，改的值只在本次运行有效（不算失败）。
 //
-// 不在这里测的：真实落盘文件（根包 runtime_limits_overlay_test.go）、前端控件接线
+// 不在这里测的：真实落盘文件（backend/limit/overlay/overlay_test.go）、前端控件接线
 // （gui/frontend/dist/settings-release-window.test.mjs）。
 
 // recordingReleaseWindowStore 记录落盘调用，并可注入一次失败。
@@ -85,7 +85,7 @@ func TestSetSessionReleaseWindowAppliesImmediately(t *testing.T) {
 func TestSetSessionReleaseWindowAcceptsBoundaries(t *testing.T) {
 	snapshotWindowLimits(t)
 	service := newTestService(t, &fakeEngine{})
-	for _, window := range []int{seelexctx.SessionReleaseWindowMin, seelexctx.SessionReleaseWindowMax} {
+	for _, window := range []int{limit.SessionReleaseWindowMin, limit.SessionReleaseWindowMax} {
 		applied, err := service.SetSessionReleaseWindow(context.Background(), window)
 		if err != nil {
 			t.Fatalf("SetSessionReleaseWindow(%d) 应当被接受：%v", window, err)
@@ -103,7 +103,7 @@ func TestSetSessionReleaseWindowRejectsOutOfRange(t *testing.T) {
 	service := newTestService(t, &fakeEngine{}, withTestReleaseWindowStore(store))
 	before := service.SessionReleaseWindow()
 
-	for _, window := range []int{0, -1, seelexctx.SessionReleaseWindowMax + 1, 1000, 1 << 20} {
+	for _, window := range []int{0, -1, limit.SessionReleaseWindowMax + 1, 1000, 1 << 20} {
 		if _, err := service.SetSessionReleaseWindow(context.Background(), window); err == nil {
 			t.Fatalf("SetSessionReleaseWindow(%d) 应当被拒", window)
 		}

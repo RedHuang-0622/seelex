@@ -14,8 +14,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/application/contract"
-	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/backend/limit/accountwindow"
+	"github.com/RedHuang-0622/seelex/contract"
 )
 
 // SetAccountWindow 改一个账号的上下文窗口（设置弹窗的挡位/自定义值）。
@@ -40,7 +40,7 @@ func (service *Service) SetAccountWindow(_ context.Context, name string, window 
 		return 0, fmt.Errorf("account window: window must be >= 0 (0 = 清除该账号的覆盖), got %d", window)
 	}
 	if window > 0 {
-		if err := seelexctx.ValidateAccountContextWindow(window); err != nil {
+		if err := accountwindow.Validate(window); err != nil {
 			return 0, err
 		}
 	}

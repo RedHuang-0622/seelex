@@ -11,7 +11,7 @@ package seelebridge
 import (
 	"github.com/RedHuang-0622/Seele/jobs"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // TeamworkJobCompletions 实现在册 teammate 作业的只读投影。

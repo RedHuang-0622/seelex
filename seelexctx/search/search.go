@@ -25,7 +25,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/seelexctx/memory"
 	"github.com/RedHuang-0622/seelex/seelexctx/tokens"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // ── 上限（token 预算硬上限 / 命中数上限 / 兜底扫描轮数）──────────────
@@ -112,35 +112,35 @@ func (o *Options) applyDefaults() {
 }
 
 // StackSource 是压缩栈（语义索引）读取源。
-// sessionstore.SessionContextStore / seelexctx.CompactStackStore 均满足。
+// store.SessionContextStore / seelexctx.CompactStackStore 均满足。
 type StackSource interface {
-	Snapshot() sessionstore.SessionContextRecord
+	Snapshot() store.SessionContextRecord
 }
 
 // EventSource 是会话事件流读取源（append-only 真相源，按 Seq 升序）。
 type EventSource interface {
-	LoadAllEvents(ctx context.Context) ([]sessionstore.Event, error)
+	LoadAllEvents(ctx context.Context) ([]store.Event, error)
 }
 
-// routerEventSource 把 sessionstore.Router 绑定到项目/会话后作为事件源。
+// routerEventSource 把 store.Router 绑定到项目/会话后作为事件源。
 type routerEventSource struct {
-	router    *sessionstore.Router
+	router    *store.Router
 	projectID string
 	sessionID string
 }
 
 // NewRouterEventSource 构造绑定到 Router 的事件源（LoadEventTailWorkspace
 // 全量读取，MaxInt 双限 = selectEventTail 无截断）。
-func NewRouterEventSource(router *sessionstore.Router, projectID, sessionID string) EventSource {
+func NewRouterEventSource(router *store.Router, projectID, sessionID string) EventSource {
 	return routerEventSource{router: router, projectID: projectID, sessionID: sessionID}
 }
 
 // LoadAllEvents 实现 EventSource。会话不存在（尚无事件库）→ 空流不报错
 // （与 DurableHistory.LoadEventTail 的会话未找到语义一致）。
-func (source routerEventSource) LoadAllEvents(ctx context.Context) ([]sessionstore.Event, error) {
+func (source routerEventSource) LoadAllEvents(ctx context.Context) ([]store.Event, error) {
 	events, err := source.router.LoadEventTailWorkspace(source.projectID, source.sessionID, math.MaxInt, math.MaxInt)
 	if err != nil && isSessionNotFound(err) {
-		return []sessionstore.Event{}, nil
+		return []store.Event{}, nil
 	}
 	return events, err
 }
@@ -178,13 +178,13 @@ func (s *Searcher) Search(ctx context.Context, query string, opts Options) (Resu
 	if err != nil {
 		return Result{}, fmt.Errorf("search: load events: %w", err)
 	}
-	units := sessionstore.CompleteEventUnits(allEvents)
+	units := store.CompleteEventUnits(allEvents)
 	result := Result{Query: query, TotalUnits: len(units), Budget: opts.TokenBudget}
 	if len(units) == 0 {
 		result.Note = "会话暂无事件记录（历史检索不可用）"
 		return result, nil
 	}
-	var record sessionstore.SessionContextRecord
+	var record store.SessionContextRecord
 	if s.stack != nil {
 		record = s.stack.Snapshot()
 	}
@@ -227,7 +227,7 @@ func (s *Searcher) Search(ctx context.Context, query string, opts Options) (Resu
 
 // collectHits 把选中的候选帧逐一读回真实记录：共享 token 预算累计，
 // 预算耗尽停止（Result.Truncated）；帧内记录被截断（Hit.Truncated）。
-func collectHits(query string, selected []memory.Candidate, units [][]sessionstore.Event, budget int) ([]Hit, bool) {
+func collectHits(query string, selected []memory.Candidate, units [][]store.Event, budget int) ([]Hit, bool) {
 	hits := make([]Hit, 0, len(selected))
 	remaining := budget
 	truncated := false
@@ -266,7 +266,7 @@ func collectHits(query string, selected []memory.Candidate, units [][]sessionsto
 // 为什么第 1 条不许回退到 clamp：clamp 会产出一个"看起来合法但指向别的轮次"的
 // 区间，读回的是错的原文却不报错——静默错读比空命中糟得多。
 // Summary 截断到展示长度；Score 复用 memory.Select 同款打分。
-func buildHit(query string, candidate memory.Candidate, units [][]sessionstore.Event, budget int) Hit {
+func buildHit(query string, candidate memory.Candidate, units [][]store.Event, budget int) Hit {
 	hit := Hit{
 		SegmentID: candidate.SegmentID,
 		From:      candidate.From,
@@ -317,7 +317,7 @@ type unitRange struct {
 // from = 首个"最大 Seq >= eventFrom"的单元；to = 末个"最小 Seq <= eventTo"的单元。
 // Seq 为 0 的事件（合成事件，见 TranscriptPrefixRange 的同款跳过规则）不参与定界。
 // 任一端找不到 → ok=false，调用方必须空命中，不得回退 clamp。
-func eventSeqUnitRange(units [][]sessionstore.Event, eventFrom, eventTo uint64) (unitRange, bool) {
+func eventSeqUnitRange(units [][]store.Event, eventFrom, eventTo uint64) (unitRange, bool) {
 	if eventTo == 0 || len(units) == 0 {
 		return unitRange{}, false
 	}
@@ -341,7 +341,7 @@ func eventSeqUnitRange(units [][]sessionstore.Event, eventFrom, eventTo uint64) 
 }
 
 // unitSeqBounds 返回一个单元内非零 EventSeq 的最小/最大值（都为 0 = 无真实序号）。
-func unitSeqBounds(unit []sessionstore.Event) (low, high uint64) {
+func unitSeqBounds(unit []store.Event) (low, high uint64) {
 	for _, event := range unit {
 		if event.Seq == 0 {
 			continue
@@ -358,7 +358,7 @@ func unitSeqBounds(unit []sessionstore.Event) (low, high uint64) {
 
 // renderUnitRecords 渲染一个事件单元为记录列表（token 预算内；预算耗尽
 // 返回 truncated=true，单元内剩余事件不再渲染）。
-func renderUnitRecords(unit []sessionstore.Event, budget int) ([]ChatRecord, bool) {
+func renderUnitRecords(unit []store.Event, budget int) ([]ChatRecord, bool) {
 	var records []ChatRecord
 	used := 0
 	for _, event := range unit {
@@ -376,7 +376,7 @@ func renderUnitRecords(unit []sessionstore.Event, budget int) ([]ChatRecord, boo
 // recordFromEvent 把一个事件渲染为聊天记录：用户输入、assistant 文本/
 // 工具调用名、tool 结果（正文截断 + 引用句柄，ResultRef 缺失时按调用
 // ID 推导 result 句柄，与 gap 证据提取同源）。
-func recordFromEvent(event sessionstore.Event) ChatRecord {
+func recordFromEvent(event store.Event) ChatRecord {
 	record := ChatRecord{Role: event.Role, Content: truncateContent(event.Content)}
 	switch event.Role {
 	case "assistant":
@@ -399,7 +399,7 @@ func recordFromEvent(event sessionstore.Event) ChatRecord {
 
 // renderUnitSummaryLine 渲染一个事件单元的单行摘要（兜底候选帧的
 // Summary：用户输入前 80 字符 + 工具名，与控制器 renderUnitLine 同风格）。
-func renderUnitSummaryLine(unit []sessionstore.Event) string {
+func renderUnitSummaryLine(unit []store.Event) string {
 	var builder strings.Builder
 	for _, event := range unit {
 		switch {

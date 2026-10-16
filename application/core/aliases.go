@@ -1,13 +1,13 @@
 package core
 
 import (
-	"github.com/RedHuang-0622/seelex/application/approval"
-	"github.com/RedHuang-0622/seelex/application/contract"
 	cc "github.com/RedHuang-0622/seelex/application/core/context_control"
 	"github.com/RedHuang-0622/seelex/application/core/input_router"
 	"github.com/RedHuang-0622/seelex/application/event"
 	"github.com/RedHuang-0622/seelex/application/model"
 	"github.com/RedHuang-0622/seelex/application/prompt"
+	limitapproval "github.com/RedHuang-0622/seelex/backend/limit/approval"
+	"github.com/RedHuang-0622/seelex/contract"
 )
 
 type (
@@ -92,9 +92,9 @@ type (
 	MessageDelta            = event.MessageDelta
 	Subscription            = event.Subscription
 	EventHub                = event.EventHub
-	ApprovalRequest         = approval.ApprovalRequest
-	ApprovalDecision        = approval.ApprovalDecision
-	ApprovalBroker          = approval.ApprovalBroker
+	ApprovalRequest         = contract.ApprovalRequest
+	ApprovalDecision        = contract.ApprovalDecision
+	ApprovalBroker          = limitapproval.ApprovalBroker
 	PromptLayer             = prompt.PromptLayer
 	PromptStack             = prompt.PromptStack
 	EffortManager           = prompt.EffortManager
@@ -200,15 +200,17 @@ const (
 )
 
 var (
-	ErrInteractionNotFound = approval.ErrInteractionNotFound
-	ErrInteractionResolved = approval.ErrInteractionResolved
+	ErrInteractionNotFound = contract.ErrInteractionNotFound
+	ErrInteractionResolved = contract.ErrInteractionResolved
 	CloneWorkItems         = model.CloneWorkItems
 	CloneWorkTableBatches  = model.CloneWorkTableBatches
 )
 
 func NewEventHub() *EventHub { return event.NewEventHub() }
 
-func NewApprovalBroker(events event.Hub) *ApprovalBroker { return approval.NewApprovalBroker(events) }
+func NewApprovalBroker(events event.Hub) *ApprovalBroker {
+	return limitapproval.NewApprovalBroker(events)
+}
 
 func NewPromptStack() *PromptStack { return prompt.NewPromptStack() }
 

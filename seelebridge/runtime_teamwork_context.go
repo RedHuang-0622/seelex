@@ -24,10 +24,10 @@ import (
 
 	"github.com/RedHuang-0622/Seele/jobs"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 const (
@@ -99,23 +99,23 @@ func (r *Runtime) teamworkContextHandler(ctx context.Context, argsJSON string) (
 // teamworkReadScope 解析"读面"需要的三件：后端、作业表、作用域键。
 //
 // 与 coordinatorFor 分开：读面**不建 Coordinator**——建它就要装配执行体，而读面只是读。
-func (r *Runtime) teamworkReadScope(ctx context.Context) (*TeamworkBackend, jobs.Manager, sessionstore.Key, error) {
+func (r *Runtime) teamworkReadScope(ctx context.Context) (*TeamworkBackend, jobs.Manager, store.Key, error) {
 	if r == nil {
-		return nil, nil, sessionstore.Key{}, errors.New("teamwork: runtime 为空")
+		return nil, nil, store.Key{}, errors.New("teamwork: runtime 为空")
 	}
 	r.teamworkMu.Lock()
 	backend, manager := r.teamworkBackend, r.teamworkJobs
 	r.teamworkMu.Unlock()
 	if backend == nil || manager == nil {
-		return nil, nil, sessionstore.Key{}, errors.New("teamwork: 读面未装配（缺 SetTeamworkBackend）")
+		return nil, nil, store.Key{}, errors.New("teamwork: 读面未装配（缺 SetTeamworkBackend）")
 	}
 	sessionID := strings.TrimSpace(seeletelemetry.SessionIDFromContext(ctx))
 	if sessionID == "" {
-		return nil, nil, sessionstore.Key{}, errors.New("teamwork: 当前调用没有会话归属（team_* 工具必须在会话回合内调用）")
+		return nil, nil, store.Key{}, errors.New("teamwork: 当前调用没有会话归属（team_* 工具必须在会话回合内调用）")
 	}
 	key, ok := backend.KeyFor(sessionID)
 	if !ok {
-		return nil, nil, sessionstore.Key{}, fmt.Errorf("teamwork: 无法解析会话 %q 的作用域键", sessionID)
+		return nil, nil, store.Key{}, fmt.Errorf("teamwork: 无法解析会话 %q 的作用域键", sessionID)
 	}
 	return backend, manager, key, nil
 }
@@ -134,11 +134,11 @@ func teamworkMemberOutputsFor(backend *TeamworkBackend) teamworkMemberOutputs {
 // 抽成自由函数：它是本读面的**唯一**组装路径（与看板的 buildTeamworkBoardView 同款），
 // 于是"读到的是什么"只有一个答案，用例可以直接钉它。outputs 是回读残边用的输出面（nil =
 // 没有回读），只在"行不在册"时才用得到。
-func buildTeamworkContextView(ctx context.Context, plan sessionstore.TeamworkPlan, records []jobs.Record, port teamworkMemberJobs, outputs teamworkMemberOutputs, options teamworkContextOptions) dto.TeamworkContextView {
+func buildTeamworkContextView(ctx context.Context, plan store.TeamworkPlan, records []jobs.Record, port teamworkMemberJobs, outputs teamworkMemberOutputs, options teamworkContextOptions) dto.TeamworkContextView {
 	view := dto.TeamworkContextView{
 		TeamID:  plan.TeamID,
 		Version: plan.Version,
-		Closed:  plan.State.State == sessionstore.TeamworkStateClosed,
+		Closed:  plan.State.State == store.TeamworkStateClosed,
 	}
 	wanted := roleFilter(options.Roles)
 	view.Members = make([]dto.TeamworkMemberContextView, 0, len(plan.Members))
@@ -154,7 +154,7 @@ func buildTeamworkContextView(ctx context.Context, plan sessionstore.TeamworkPla
 }
 
 // teamworkMemberContext 组装一个成员的工作上下文：先找它名下**最新**的作业行，再按需取正文。
-func teamworkMemberContext(ctx context.Context, plan sessionstore.TeamworkPlan, member sessionstore.TeamworkMember, records []jobs.Record, port teamworkMemberJobs, outputs teamworkMemberOutputs, options teamworkContextOptions) dto.TeamworkMemberContextView {
+func teamworkMemberContext(ctx context.Context, plan store.TeamworkPlan, member store.TeamworkMember, records []jobs.Record, port teamworkMemberJobs, outputs teamworkMemberOutputs, options teamworkContextOptions) dto.TeamworkMemberContextView {
 	view := dto.TeamworkMemberContextView{
 		Role:          member.Role,
 		RoleSessionID: member.RoleSessionID,
@@ -259,7 +259,7 @@ func latestRecordFor(records []jobs.Record, subject string) (jobs.Record, bool) 
 // 它是"这个人此刻在干什么"的定位坐标。阶段口径已退场：不再有"角色的归属阶段"这回事——
 // 同一个角色可以在不同里程碑的多个工作项里出现，所以这个值回答的是"它最早出现在哪一步"，
 // 而不是一条顺序事实（顺序事实是 milestones[].depends_on 与 work_items[].depends_on）。
-func teamworkRoleMilestone(plan sessionstore.TeamworkPlan, role string) string {
+func teamworkRoleMilestone(plan store.TeamworkPlan, role string) string {
 	for _, milestone := range plan.Milestones {
 		for _, item := range milestone.Items {
 			if item.Role == role {

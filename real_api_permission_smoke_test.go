@@ -26,6 +26,7 @@ package main
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/backend/limit/policy"
 	"os"
 	"path/filepath"
 	"strings"
@@ -126,7 +127,7 @@ func TestRealAPIPermissionSmoke(t *testing.T) {
 	harness := newFullChainHarness(t, accountsPath, projectRoot, 60*time.Second)
 	// 装上**生产同形**的权责配置与**生产审批桥**：默认分组 + 主体授权表 +
 	// config/seele.yaml 覆盖，审批走 ApprovalBroker（GUI 同一条路）。
-	cfg := seeltools.DefaultPermissionConfig()
+	cfg := policy.DefaultPermissionConfig()
 	if fileCfg, err := loadPermissionConfig(ensureConfigFile(bootseed.PermissionConfigName, bootseed.PermissionConfigPack())); err != nil {
 		t.Fatalf("loadPermissionConfig: %v", err)
 	} else {

@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // waitRoleToolEvent 等一条 teammate.tool.* 事件（超时即失败）。

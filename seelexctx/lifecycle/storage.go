@@ -42,7 +42,7 @@ func (s *memoryStorage[T]) Count() int {
 }
 
 // discardStorage 是"磁盘冷存储"的 mock：Append 只计数不保留内容
-// （模拟落库后内容不在内存——真实实现为 sessionstore 磁盘后端）。
+// （模拟落库后内容不在内存——真实实现为 store 磁盘后端）。
 // 内存对比基准用它验证冷加载策略的驻留收益（对比 memoryStorage 的
 // 假冷：内容仍驻留）。
 type discardStorage[T any] struct {

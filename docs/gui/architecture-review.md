@@ -94,7 +94,7 @@
 
 ### P1：Approval 是单槽 UI 模型，不支持规划中的并发 session
 
-位置：`application/approval.go`、`application/app.go:274-293`。
+位置：`backend/limit/approval/broker.go`（2026-10-16 前在 `application/approval`）、门面接线见 `application/application.go`。
 
 Broker map 可以保存多个 pending，但 Service Snapshot 只有一个 `Interaction`，observer 也只有一个。任一 timeout/remove 调用 `observer(nil)` 会清空当前展示，即使其他 pending 仍存在。当前单 Engine 下可受控，多 SessionActor 下会串审批。
 

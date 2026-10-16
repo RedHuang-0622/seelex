@@ -10,8 +10,9 @@ import (
 	"github.com/RedHuang-0622/Seele/agent"
 	"github.com/RedHuang-0622/Seele/types"
 
+	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/seelexctx"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // 压缩处厚摘要开关（limits.context_compaction_summary）的两臂钉子。
@@ -47,7 +48,7 @@ const compactionSwitchSystemPrompt = "你是 Seelex，按证据工作的工程�
 
 type compactionSwitchFixture struct {
 	runtime  *Runtime
-	store    *sessionstore.SessionContextStore
+	st       *store.SessionContextStore
 	scripted *scriptedNodeCompleter
 	session  string
 }
@@ -68,7 +69,7 @@ func newCompactionSwitchFixtureWith(t *testing.T, enabled bool, completer agent.
 	t.Cleanup(runtime.Shutdown)
 
 	root := t.TempDir()
-	router, err := sessionstore.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
 	if err != nil {
 		t.Fatalf("NewRouter: %v", err)
 	}
@@ -79,11 +80,11 @@ func newCompactionSwitchFixtureWith(t *testing.T, enabled bool, completer agent.
 	if _, err := runtime.NewMainSessionWithID(sessionID, nil); err != nil {
 		t.Fatalf("NewMainSessionWithID: %v", err)
 	}
-	store := sessionstore.NewSessionContextStore(router, sessionID)
-	if err := store.SetSystemPrompt(compactionSwitchSystemPrompt); err != nil {
+	st := store.NewSessionContextStore(router, sessionID)
+	if err := st.SetSystemPrompt(compactionSwitchSystemPrompt); err != nil {
 		t.Fatalf("SetSystemPrompt: %v", err)
 	}
-	runtime.AttachSessionContextStore(store)
+	runtime.AttachSessionContextStore(st)
 
 	injectScriptedCompleters(t, runtime, map[string]agent.Completer{"agent": completer})
 	// 注册内联工具面：重放请求的 Tools 取自 VisibleTools（与真实请求同 schema），没有
@@ -92,7 +93,7 @@ func newCompactionSwitchFixtureWith(t *testing.T, enabled bool, completer agent.
 
 	runtime.limits.ContextCompactionSummary.Enabled = enabled
 	scriptedCompleter, _ := completer.(*scriptedNodeCompleter)
-	return &compactionSwitchFixture{runtime: runtime, store: store, scripted: scriptedCompleter, session: sessionID}
+	return &compactionSwitchFixture{runtime: runtime, st: st, scripted: scriptedCompleter, session: sessionID}
 }
 
 // push 走生产推帧入口：溢出区原文 + "上一次真实请求"的历史字节。
@@ -109,9 +110,9 @@ func (fixture *compactionSwitchFixture) push(t *testing.T) CompactionFrameReceip
 }
 
 // stackTop 返回推帧后的栈顶帧（推帧没落栈直接失败：摘要来源只有进了栈才算数）。
-func (fixture *compactionSwitchFixture) stackTop(t *testing.T) sessionstore.CompactFrame {
+func (fixture *compactionSwitchFixture) stackTop(t *testing.T) store.CompactFrame {
 	t.Helper()
-	stack := fixture.store.Snapshot().CompactStack
+	stack := fixture.st.Snapshot().CompactStack
 	if len(stack) != 1 {
 		t.Fatalf("推帧后压缩栈应有 1 帧，实际 %d 帧", len(stack))
 	}
@@ -155,7 +156,7 @@ func TestCompactionSummarySwitchClosedKeepsLocalCompact(t *testing.T) {
 // 让每一次模型调用稳定报错。用例钉的是"重放失败时帧里必须写出真实报错"，
 // 不是网络行为。
 
-func hasLocalCompactEvidence(frame sessionstore.CompactFrame, code string) bool {
+func hasLocalCompactEvidence(frame store.CompactFrame, code string) bool {
 	for _, evidence := range frame.Evidence {
 		if evidence.Ref == seelexctx.LocalCompactEvidenceRefPrefix+code {
 			return true
@@ -197,7 +198,7 @@ func TestCompactionSummarySwitchOpenReplayFailureRefusesStackFrame(t *testing.T)
 			t.Fatalf("错误应含 %q，实际 %q", want, err.Error())
 		}
 	}
-	if stack := fixture.store.Snapshot().CompactStack; len(stack) != 0 {
+	if stack := fixture.st.Snapshot().CompactStack; len(stack) != 0 {
 		t.Fatalf("读后感失败不得更新压缩栈，实际栈有 %d 帧", len(stack))
 	}
 }
@@ -273,7 +274,7 @@ func TestCompactionSummarySwitchOpenReplaysPrefixIntoStackFrame(t *testing.T) {
 // 只认出厂档这一行。
 func TestShippedCompactionSummarySwitchShipsOpen(t *testing.T) {
 	path := filepath.Join("..", "config", "seelex.yaml")
-	limits, err := seelexctx.LoadLimits(path)
+	limits, err := limit.LoadLimits(path)
 	if err != nil {
 		t.Fatalf("LoadLimits(%s): %v", path, err)
 	}

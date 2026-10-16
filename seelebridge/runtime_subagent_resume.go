@@ -8,12 +8,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/resume"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/fork"
 	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // 子代理中断恢复：subagent 是劳务派遣式 tool calling 能力（不是 AgentTeam
@@ -273,7 +273,7 @@ func (r *Runtime) newSubagentResumePort(sessionID string) (*subagentResumePort, 
 		runtime:       r,
 		mainSessionID: sessionID,
 		projectID:     projectID,
-		records:       map[string]sessionstore.NodeSessionRecord{},
+		records:       map[string]store.NodeSessionRecord{},
 		conclusions:   map[string]struct{}{},
 	}, nil
 }
@@ -285,7 +285,7 @@ type subagentResumePort struct {
 	projectID     string
 
 	// Locate 的产物（同一次恢复轮次内复用）。
-	records     map[string]sessionstore.NodeSessionRecord
+	records     map[string]store.NodeSessionRecord
 	conclusions map[string]struct{}
 }
 
@@ -309,7 +309,7 @@ func (p *subagentResumePort) Locate(ctx context.Context) ([]resume.Unit, error) 
 		return nil, err
 	}
 	p.conclusions = conclusions
-	p.records = make(map[string]sessionstore.NodeSessionRecord, len(records))
+	p.records = make(map[string]store.NodeSessionRecord, len(records))
 	units := make([]resume.Unit, 0, len(records))
 	for _, record := range records {
 		progress := workunit.ProgressOf(workunit.KindSubagent, record)
@@ -354,7 +354,7 @@ func (p *subagentResumePort) Locate(ctx context.Context) ([]resume.Unit, error) 
 //
 // nodeStateOfRecord 把**落盘记录里的状态词**折成契约枚举——落盘格的唯一转换点。
 //
-// sessionstore 在契约之下（存的是词，不是枚举），所以这里折一次。认不得的词落
+// store 在契约之下（存的是词，不是枚举），所以这里折一次。认不得的词落
 // dto.SubAgentUnknown：**读旧文件/外来文件不许炸**，而且 Unknown **不是终态**——
 // "读不懂"绝不会被折算成"已完成"（判定面在 Locate/ensureConclusion 的保守分支里）。
 //
@@ -418,7 +418,7 @@ func (p *subagentResumePort) InjectNote(_ context.Context, unit resume.Unit, sce
 //   - recovered messages：回灌回来的历史长度。
 //
 // 两条都有界（progress 已被 RestoreScene 截到 240 字节内，条数是一个整数）。
-func subagentResumeExtraFacts(record sessionstore.NodeSessionRecord, progress string) string {
+func subagentResumeExtraFacts(record store.NodeSessionRecord, progress string) string {
 	builder := &strings.Builder{}
 	if progress = strings.TrimSpace(progress); progress != "" {
 		builder.WriteString("\n- last known progress: ")
@@ -555,7 +555,7 @@ func (r *Runtime) subagentConclusionSet(ctx context.Context, projectID, sessionI
 //
 // 解码走契约那**唯一一份**（`workunit.DecodeStages`）：此前这里手写了一个匿名结构自己解
 // 同一串载荷——同一件事的第二份解码实现，载荷形状一变只有一处会跟着改。
-func lastSubagentStagePreview(record sessionstore.NodeSessionRecord) string {
+func lastSubagentStagePreview(record store.NodeSessionRecord) string {
 	stages := workunit.DecodeStages(record.StagesJSON)
 	if len(stages) == 0 {
 		return ""

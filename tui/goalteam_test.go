@@ -1,4 +1,3 @@
-
 package tui
 
 import (
@@ -8,7 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // goalteam_test.go — 目标/团队只读面板（Alt+G / Alt+T）的验收：

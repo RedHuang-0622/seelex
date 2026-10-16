@@ -46,7 +46,7 @@ type Config struct {
 type simplifiedDefaults struct {
 	Provider string `yaml:"provider"`
 	// ContextWindow 是**遗留兼容**键（defaults 与账号条目各一份）：窗口的配置家是
-	// config/seelex.yaml 的 `limits.context_window`（见 seelexctx.Limits.ContextWindow
+	// config/seelex.yaml 的 `limits.context_window`（见 limit.Limits.ContextWindow
 	// 与 Runtime.ContextWindow）。保留解析只为读旧账号档、并在 seelex.yaml 未配置时兜底；
 	// 模板 config/accounts.example.yaml 与文档不再提供该键（账号档只放凭据与模型参数）。
 	ContextWindow   *int     `yaml:"context_window"`

@@ -13,7 +13,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // 锁竞争门禁（pprof mutex + block profile）。
@@ -169,7 +169,7 @@ func contentionGateSharedWorker(worker int, shared CompactStackStore) error {
 		// 写共享压缩栈：2026-09-30 起回合内控制器不再折帧，写栈的只剩装配层压缩
 		// 路径——这里按它同一条契约（PushCompact）造真竞争。否则 B 臂的探针会
 		// 退化成"空集上的真命题"（本文件头注释警告的那件事）。
-		if err := shared.PushCompact(sessionstore.CompactFrame{
+		if err := shared.PushCompact(store.CompactFrame{
 			SegmentID: fmt.Sprintf("compact-%s-%d", sessionID, iteration),
 			From:      iteration,
 			To:        iteration + 1,

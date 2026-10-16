@@ -7,7 +7,7 @@ import (
 )
 
 // TestTranscriptRoleFieldsRoundTrip 钉住 R2/R4 字段不会在 model ↔
-// sessionstore 适配层被擦除。
+// store 适配层被擦除。
 func TestTranscriptRoleFieldsRoundTrip(t *testing.T) {
 	events := []model.TranscriptEvent{{
 		Seq: 7, Role: "assistant", Kind: model.TranscriptEventKindLLM,

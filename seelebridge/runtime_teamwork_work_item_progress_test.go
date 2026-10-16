@@ -7,12 +7,12 @@ package seelebridge
 //
 //	(a) 会话详情面   Service.TeammateSessionLiveFor(sessionID) → dto.TeammateSessionLiveView
 //	    带 session_id / role / live / running / messages / truncated；
-//	    **不带 worktree、不带状态词/阶段**（application/contract/dto/teammate_session_live.go:21）。
+//	    **不带 worktree、不带状态词/阶段**（contract/dto/teammate_session_live.go:21）。
 //	    它是"这件事此刻在说什么"，与子代理详情（SubagentDetail 一份载荷就带 worktree）不同口径。
 //
 //	(b) 看板投影面   Service.TeamworkBoardViewFor(sessionID) → dto.TeamworkBoardView.WorkItems[]
 //	    每个工作项带 SessionID / Worktree / Status / Milestone / Handle / Live / Interrupted
-//	    （application/contract/dto/teamwork_board.go:167；搬运点 seelebridge/runtime_teamwork_board.go:354
+//	    （contract/dto/teamwork_board.go:167；搬运点 seelebridge/runtime_teamwork_board.go:354
 //	    teamworkWorkItemViews）。**session id + worktree + 状态词 + 所属里程碑（阶段）这一组
 //	    ("这件事跑到哪") 只在 (b) 读得到。**
 //
@@ -29,25 +29,25 @@ import (
 	"context"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // workItemProgressFixture 造一份"某件工作正在跑"的计划：工作项自带它自己的会话号与现场。
-func workItemProgressFixture() sessionstore.TeamworkPlan {
-	return sessionstore.TeamworkPlan{
+func workItemProgressFixture() store.TeamworkPlan {
+	return store.TeamworkPlan{
 		TeamID:  "t-progress",
 		Version: 1,
-		Members: []sessionstore.TeamworkMember{
+		Members: []store.TeamworkMember{
 			{Role: "exec", RoleSessionID: "s-team-exec", ToolsPolicy: "readwrite"},
 		},
-		Milestones: []sessionstore.TeamworkMilestone{
+		Milestones: []store.TeamworkMilestone{
 			{
 				ID: "m-impl", Name: "实现", Content: "把渲染件写完",
-				Items: []sessionstore.TeamworkWorkItem{
+				Items: []store.TeamworkWorkItem{
 					{
 						ID: "wi-impl", Milestone: "m-impl", Role: "exec", Name: "实现 UI",
-						Status: sessionstore.TeamworkItemRunning,
+						Status: store.TeamworkItemRunning,
 						// 这两格就是「一 Work Item 一个 Session + 一个 worktree」的事实。
 						SessionID: "s-team-exec-wi-wi-impl",
 						Worktree:  "seelex/exec-wi-impl",
@@ -65,18 +65,18 @@ func workItemProgressFixture() sessionstore.TeamworkPlan {
 func TestTeamworkBoardReadsWorkItemProgressDetail(t *testing.T) {
 	r := newTestRuntime(t)
 	defer r.Shutdown()
-	store := &memPlanStore{}
-	backend := teamworkTestBackend(store, "s-team")
+	st := &memPlanStore{}
+	backend := teamworkTestBackend(st, "s-team")
 	if err := r.SetTeamworkBackend(backend); err != nil {
 		t.Fatalf("SetTeamworkBackend: %v", err)
 	}
 	ctx := context.Background()
-	key := sessionstore.Key{ProjectID: "p-team", SessionID: "s-team"}
-	if err := store.WritePlan(ctx, key, workItemProgressFixture(), backend.MaxTeammates); err != nil {
+	key := store.Key{ProjectID: "p-team", SessionID: "s-team"}
+	if err := st.WritePlan(ctx, key, workItemProgressFixture(), backend.MaxTeammates); err != nil {
 		t.Fatalf("WritePlan: %v", err)
 	}
 	// 绑定账本一行：这件事有一份**未释放**的现场（Live = 读出来的事实）。
-	if err := store.AppendBinding(ctx, key, sessionstore.TeamworkBinding{
+	if err := st.AppendBinding(ctx, key, store.TeamworkBinding{
 		WorkItem: "wi-impl", Milestone: "m-impl", Role: "exec",
 		SessionID: "s-team-exec-wi-wi-impl", Worktree: "seelex/exec-wi-impl",
 	}); err != nil {
@@ -102,8 +102,8 @@ func TestTeamworkBoardReadsWorkItemProgressDetail(t *testing.T) {
 	if detail.Worktree != "seelex/exec-wi-impl" {
 		t.Fatalf("进度详情必须带现场（worktree）：%q", detail.Worktree)
 	}
-	if detail.Status != sessionstore.TeamworkItemRunning {
-		t.Fatalf("进度详情必须带状态词：%q，want %q", detail.Status, sessionstore.TeamworkItemRunning)
+	if detail.Status != store.TeamworkItemRunning {
+		t.Fatalf("进度详情必须带状态词：%q，want %q", detail.Status, store.TeamworkItemRunning)
 	}
 	if detail.Milestone != "m-impl" {
 		t.Fatalf("进度详情必须带阶段（所属里程碑）：%q", detail.Milestone)

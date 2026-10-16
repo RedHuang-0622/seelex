@@ -3,7 +3,7 @@ package seelebridge
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // ── 会话筛选轴的数据面：全局台账每行必须能判定归属会话 ────────────────

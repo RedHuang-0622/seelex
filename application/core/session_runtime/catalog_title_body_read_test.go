@@ -4,11 +4,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/core/internal/state"
 	"github.com/RedHuang-0622/seelex/application/event"
 	"github.com/RedHuang-0622/seelex/application/model"
-	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract"
 )
 
 // catalogProbeSessions 是目录刷新探针桩：分别计数三条不同的读路径——
@@ -124,7 +124,7 @@ func newCatalogProbeCoordinator(t *testing.T, sessions contract.SessionPort) *Co
 		Closed:            func() bool { return false },
 		IsInternalContent: func(string) bool { return false },
 		DisplayUserInput:  func(input string) string { return input },
-		Limits:            func() seelexctx.Limits { return seelexctx.Limits{HistoryWindow: 200, SessionNameRunes: 16} },
+		Limits:            func() limit.Limits { return limit.Limits{HistoryWindow: 200, SessionNameRunes: 16} },
 	})
 }
 

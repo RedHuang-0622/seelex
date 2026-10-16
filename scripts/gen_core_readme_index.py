@@ -17,8 +17,17 @@ import pathlib
 import re
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent / "application" / "core"
+REPO = pathlib.Path(__file__).resolve().parent.parent
 SECTION_HEADER = "## 文件与函数索引"
 CORRUPTED_HEADER = re.compile(r"^## \?{7,}$")
+
+# 基座包（非 application/core）：复用**同款**提取逻辑生成单 README 的索引段
+# （docs/arch/readme-spec.md §3「其它包的 README 可复用同一提取逻辑」）。
+# 这里只列已经归位、且 README 存在的包；新增基座包时补一行即可。
+EXTRA_PACKAGES = [
+    REPO / "backend" / "limit",
+    REPO / "backend" / "limit" / "policy",
+]
 
 # 会话/视图/审批等跨域回归测试：文件名前缀不表达归属，用显式名单挂到 session 卷
 SESSION_EXTRA = [
@@ -279,7 +288,13 @@ def write_if_changed(path: pathlib.Path, content: str) -> None:
     if path.exists() and path.read_text(encoding="utf-8") == content:
         return
     path.write_text(content, encoding="utf-8")
-    print("wrote", path.relative_to(ROOT))
+    # 基座包（EXTRA_PACKAGES）不在 application/core 下，relative_to(ROOT) 会抛错；
+    # 优先按仓库根打印，退化时用绝对路径。
+    try:
+        shown = path.relative_to(REPO)
+    except ValueError:
+        shown = path
+    print("wrote", shown)
 
 
 def main() -> None:
@@ -289,11 +304,22 @@ def main() -> None:
         text = strip_old_section(readme.read_text(encoding="utf-8")) if readme.exists() else ""
         text = text.rstrip() + "\n\n" + section(sorted(pkg.rglob("*.go")), pkg) + "\n"
         write_if_changed(readme, text)
-    for leaf in ("internal/limits", "internal/state"):
+    # internal/limits 已于 2026-10-16 随 M2-A 迁到顶层 backend/limit（不在本脚本
+    # 的 application/core 作用域内），因此这里只剩 state 一个叶子包。
+    for leaf in ("internal/state",):
         directory = ROOT / leaf
         readme = directory / "README.md"
         text = strip_old_section(readme.read_text(encoding="utf-8")) if readme.exists() else ""
         text = text.rstrip() + "\n\n" + section(sorted(directory.glob("*.go")), directory) + "\n"
+        write_if_changed(readme, text)
+
+    # 基座包：单 README（生态位 + 索引），无分卷。
+    for package in EXTRA_PACKAGES:
+        readme = package / "README.md"
+        if not readme.exists():
+            continue
+        text = strip_old_section(readme.read_text(encoding="utf-8"))
+        text = text.rstrip() + "\n\n" + section(sorted(package.glob("*.go")), package) + "\n"
         write_if_changed(readme, text)
 
     # 根包：移除主 README 的索引段（由分卷 README 承载）

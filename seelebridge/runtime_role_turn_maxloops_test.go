@@ -3,7 +3,7 @@ package seelebridge
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // TestRoleSessionHonoursDeclaredMaxLoops：一个 teammate **自己声明的**回合上限真的

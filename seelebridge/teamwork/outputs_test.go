@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/Seele/jobs"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // outputs_test.go — S5「作业正文活到 close」的两条路：
@@ -56,7 +56,7 @@ func (o *fakeJobOutputs) LatestJobOutputPath(context.Context, string) (string, b
 // 替身与断言共用**同一条** callLog（各建一条日志就是"断言看不见调用"的经典坑）。
 func newOutputFixture(t *testing.T, withOutputs bool) (*Coordinator, jobs.Manager, *memoryPlanStore, *fakeRunner, *callLog, *fakeJobOutputs) {
 	t.Helper()
-	store := &memoryPlanStore{}
+	st := &memoryPlanStore{}
 	runner := &fakeRunner{}
 	log := &callLog{}
 	var outputs *fakeJobOutputs
@@ -75,8 +75,8 @@ func newOutputFixture(t *testing.T, withOutputs bool) (*Coordinator, jobs.Manage
 	}
 	t.Cleanup(func() { _ = manager.Close(context.Background()) })
 	coordinator, err := New(Options{
-		Key:          sessionstore.Key{ProjectID: "p", SessionID: "s"},
-		Store:        store,
+		Key:          store.Key{ProjectID: "p", SessionID: "s"},
+		Store:        st,
 		Jobs:         manager,
 		Workers:      runner,
 		Worktrees:    fakeWorktrees{log: log},
@@ -88,7 +88,7 @@ func newOutputFixture(t *testing.T, withOutputs bool) (*Coordinator, jobs.Manage
 	if err != nil {
 		t.Fatalf("teamwork.New: %v", err)
 	}
-	return coordinator, manager, store, runner, log, outputs
+	return coordinator, manager, st, runner, log, outputs
 }
 
 func requestsOf(runner *fakeRunner) []WorkerRequest {

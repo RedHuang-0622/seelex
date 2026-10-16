@@ -8,7 +8,8 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/workplan/codec"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/backend/limit/loop"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/seelebridge/plan"
@@ -68,7 +69,8 @@ func (t *Tool) Handle(ctx context.Context, argsJSON string) (string, error) {
 			return "", fmt.Errorf("fork_subagents: duplicate subagent id %q", spec.ID)
 		}
 		seen[spec.ID] = true
-		if err := validateSubagentLoops(t.deps.LoopLimitCeiling, spec); err != nil {
+		// 子代理循环上限的判据只有一份：backend/limit/loop（进程级天花板）。
+		if err := loop.ValidateSubagentMaxLoops(spec.ID, spec.MaxLoops, t.deps.LoopLimitCeiling); err != nil {
 			return "", err
 		}
 	}
@@ -136,23 +138,6 @@ func (t *Tool) Handle(ctx context.Context, argsJSON string) (string, error) {
 	// 调用，"主动查看/提前终止子代理"在阻塞形态下根本没有入口——不是缺工具，是缺
 	// 时机。作业化之后 observe / kill / done 才有意义（设计文档 §B.3）。
 	return t.dispatchJobs(ctx, loaded, input, forkTimeout)
-}
-
-// validateSubagentLoops 判一条子代理自己声明的循环次数能不能用。
-//
-// 判据只有**进程级循环天花板**（limits.input_loop_limit，与循环次数拉条同一份
-// 哨兵）：工作单元跑多少轮由"这一条自己声明 → 否则配置默认"决定，effort 档位的
-// 节点上限（PlanPolicy.MaxNodeLoops）在这里**不出现**——它是主代理自己 plan_load
-// 节点的判据，拿来卡子代理就等于"设一下 reasoning effort，子代理的次数跟着变"
-// （2026-10-08 口径）。0 = 没声明（不是"零轮"），留给本批默认。
-func validateSubagentLoops(ceiling int, spec SubagentSpec) error {
-	if spec.MaxLoops < 0 {
-		return fmt.Errorf("fork_subagents: subagent %q max_loops must be >= 1 (got %d)", spec.ID, spec.MaxLoops)
-	}
-	if ceiling > 0 && spec.MaxLoops > ceiling {
-		return fmt.Errorf("fork_subagents: subagent %q max_loops=%d exceeds the process loop ceiling %d", spec.ID, spec.MaxLoops, ceiling)
-	}
-	return nil
 }
 
 // dispatchJobs 把这一批子代理**作业化派发**：登记 N 条 Kind=subagent 作业 → 立刻返回

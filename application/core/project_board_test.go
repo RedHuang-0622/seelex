@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 const (
@@ -37,7 +37,7 @@ const (
 // （水位 = 文件内最大 Seq；追加即可读回），只够同步器用。
 type fakeBoardStore struct {
 	mu      sync.Mutex
-	rows    map[string][]sessionstore.ProjectBoardRow
+	rows    map[string][]store.ProjectBoardRow
 	appends []fakeBoardAppend
 }
 
@@ -45,11 +45,11 @@ type fakeBoardAppend struct {
 	projectRoot string
 	sessionID   string
 	file        string
-	rows        []sessionstore.ProjectBoardRow
+	rows        []store.ProjectBoardRow
 }
 
 func newFakeBoardStore() *fakeBoardStore {
-	return &fakeBoardStore{rows: make(map[string][]sessionstore.ProjectBoardRow)}
+	return &fakeBoardStore{rows: make(map[string][]store.ProjectBoardRow)}
 }
 
 // boardStoreKey 是内存替身的文件键：落点是**按会话分目录**的一份文件
@@ -59,29 +59,29 @@ func boardStoreKey(projectRoot, sessionID, file string) string {
 	return projectRoot + "/" + sessionID + "/" + file
 }
 
-func (store *fakeBoardStore) AppendProjectBoardRows(projectRoot, sessionID, file string, rows []sessionstore.ProjectBoardRow) (uint64, error) {
-	store.mu.Lock()
-	defer store.mu.Unlock()
-	store.appends = append(store.appends, fakeBoardAppend{
+func (st *fakeBoardStore) AppendProjectBoardRows(projectRoot, sessionID, file string, rows []store.ProjectBoardRow) (uint64, error) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.appends = append(st.appends, fakeBoardAppend{
 		projectRoot: projectRoot, sessionID: sessionID, file: file,
-		rows: append([]sessionstore.ProjectBoardRow(nil), rows...),
+		rows: append([]store.ProjectBoardRow(nil), rows...),
 	})
 	if len(rows) > 0 {
 		key := boardStoreKey(projectRoot, sessionID, file)
-		store.rows[key] = append(store.rows[key], rows...)
+		st.rows[key] = append(st.rows[key], rows...)
 	}
-	return store.watermarkLocked(projectRoot, sessionID, file), nil
+	return st.watermarkLocked(projectRoot, sessionID, file), nil
 }
 
-func (store *fakeBoardStore) ProjectBoardWatermark(projectRoot, sessionID, file string) (uint64, error) {
-	store.mu.Lock()
-	defer store.mu.Unlock()
-	return store.watermarkLocked(projectRoot, sessionID, file), nil
+func (st *fakeBoardStore) ProjectBoardWatermark(projectRoot, sessionID, file string) (uint64, error) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return st.watermarkLocked(projectRoot, sessionID, file), nil
 }
 
-func (store *fakeBoardStore) watermarkLocked(projectRoot, sessionID, file string) uint64 {
+func (st *fakeBoardStore) watermarkLocked(projectRoot, sessionID, file string) uint64 {
 	var watermark uint64
-	for _, row := range store.rows[boardStoreKey(projectRoot, sessionID, file)] {
+	for _, row := range st.rows[boardStoreKey(projectRoot, sessionID, file)] {
 		if row.Seq > watermark {
 			watermark = row.Seq
 		}
@@ -89,11 +89,11 @@ func (store *fakeBoardStore) watermarkLocked(projectRoot, sessionID, file string
 	return watermark
 }
 
-func (store *fakeBoardStore) writeCount(file string) int {
-	store.mu.Lock()
-	defer store.mu.Unlock()
+func (st *fakeBoardStore) writeCount(file string) int {
+	st.mu.Lock()
+	defer st.mu.Unlock()
 	count := 0
-	for _, call := range store.appends {
+	for _, call := range st.appends {
 		if call.file == file && len(call.rows) > 0 {
 			count++
 		}
@@ -101,33 +101,33 @@ func (store *fakeBoardStore) writeCount(file string) int {
 	return count
 }
 
-func (store *fakeBoardStore) lastWrite(file string) []sessionstore.ProjectBoardRow {
-	store.mu.Lock()
-	defer store.mu.Unlock()
-	for index := len(store.appends) - 1; index >= 0; index-- {
-		if store.appends[index].file == file && len(store.appends[index].rows) > 0 {
-			return store.appends[index].rows
+func (st *fakeBoardStore) lastWrite(file string) []store.ProjectBoardRow {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	for index := len(st.appends) - 1; index >= 0; index-- {
+		if st.appends[index].file == file && len(st.appends[index].rows) > 0 {
+			return st.appends[index].rows
 		}
 	}
 	return nil
 }
 
 // raw 是**某会话某文件**的原始行（未折叠；I6 断言"空集合不建文件"用它）。
-func (store *fakeBoardStore) raw(projectRoot, sessionID, file string) []sessionstore.ProjectBoardRow {
-	store.mu.Lock()
-	defer store.mu.Unlock()
-	return append([]sessionstore.ProjectBoardRow(nil), store.rows[boardStoreKey(projectRoot, sessionID, file)]...)
+func (st *fakeBoardStore) raw(projectRoot, sessionID, file string) []store.ProjectBoardRow {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return append([]store.ProjectBoardRow(nil), st.rows[boardStoreKey(projectRoot, sessionID, file)]...)
 }
 
 // folded 复用存储面**唯一读法**（折叠读），不自己实现第二份。
-func (store *fakeBoardStore) folded(projectRoot, sessionID, file string) []sessionstore.ProjectBoardRow {
-	return sessionstore.FoldProjectBoardRows(store.raw(projectRoot, sessionID, file), nil)
+func (st *fakeBoardStore) folded(projectRoot, sessionID, file string) []store.ProjectBoardRow {
+	return store.FoldProjectBoardRows(st.raw(projectRoot, sessionID, file), nil)
 }
 
-func (store *fakeBoardStore) dropFile(projectRoot, sessionID, file string) {
-	store.mu.Lock()
-	defer store.mu.Unlock()
-	delete(store.rows, boardStoreKey(projectRoot, sessionID, file))
+func (st *fakeBoardStore) dropFile(projectRoot, sessionID, file string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	delete(st.rows, boardStoreKey(projectRoot, sessionID, file))
 }
 
 // newBoardTestService 造一个带 fakeRuntime 的 Service，并返回其**当前视图会话**
@@ -145,27 +145,27 @@ func newBoardTestService(t *testing.T, options ...testServiceOption) (*Service, 
 }
 
 // boardDeps 造同步器入参（默认走默认触发档，落点固定 ws-board）。
-func boardDeps(store ProjectBoardStore, idle time.Duration, rows func(string) []WorkItem) ProjectBoardDeps {
+func boardDeps(st ProjectBoardStore, idle time.Duration, rows func(string) []WorkItem) ProjectBoardDeps {
 	return ProjectBoardDeps{
-		Store:         store,
-		WorkTableRows: rows,
+		Store:          st,
+		WorkTableRows:  rows,
 		ProjectRootFor: func(sessionID string) string { return boardTestProjectRoot },
-		Triggers:      TriggerFor("todo_list"),
-		FlushIdle:     idle,
-		Now:           func() time.Time { return time.Unix(boardTestAt, 0) },
+		Triggers:       TriggerFor("todo_list"),
+		FlushIdle:      idle,
+		Now:            func() time.Time { return time.Unix(boardTestAt, 0) },
 	}
 }
 
-func waitForBoardWrites(t *testing.T, store *fakeBoardStore, file string, want int) {
+func waitForBoardWrites(t *testing.T, st *fakeBoardStore, file string, want int) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		if store.writeCount(file) >= want {
+		if st.writeCount(file) >= want {
 			return
 		}
 		time.Sleep(time.Millisecond)
 	}
-	t.Fatalf("project board %s 落盘次数 = %d，希望至少 %d", file, store.writeCount(file), want)
+	t.Fatalf("project board %s 落盘次数 = %d，希望至少 %d", file, st.writeCount(file), want)
 }
 
 // settleBoard 等过若干倍静默窗：用来证明"没有第 N 次落盘"（消极断言需要时间）。
@@ -173,7 +173,7 @@ func settleBoard(idle time.Duration) {
 	time.Sleep(6 * idle)
 }
 
-func marshalBoardRows(t *testing.T, rows []sessionstore.ProjectBoardRow) string {
+func marshalBoardRows(t *testing.T, rows []store.ProjectBoardRow) string {
 	t.Helper()
 	encoded, err := json.Marshal(rows)
 	if err != nil {
@@ -182,16 +182,16 @@ func marshalBoardRows(t *testing.T, rows []sessionstore.ProjectBoardRow) string 
 	return string(encoded)
 }
 
-func boardRowByKey(rows []sessionstore.ProjectBoardRow, key string) (sessionstore.ProjectBoardRow, bool) {
+func boardRowByKey(rows []store.ProjectBoardRow, key string) (store.ProjectBoardRow, bool) {
 	for _, row := range rows {
 		if row.Key == key {
 			return row, true
 		}
 	}
-	return sessionstore.ProjectBoardRow{}, false
+	return store.ProjectBoardRow{}, false
 }
 
-func boardPayloadText(row sessionstore.ProjectBoardRow, key string) string {
+func boardPayloadText(row store.ProjectBoardRow, key string) string {
 	value, ok := row.Payload[key].(string)
 	if !ok {
 		return ""
@@ -200,7 +200,7 @@ func boardPayloadText(row sessionstore.ProjectBoardRow, key string) string {
 }
 
 // boardKeys 取行集的 key 集（排序后），用于"投影/不投影"的集合断言。
-func boardKeys(rows []sessionstore.ProjectBoardRow) []string {
+func boardKeys(rows []store.ProjectBoardRow) []string {
 	keys := make([]string, 0, len(rows))
 	for _, row := range rows {
 		keys = append(keys, row.Key)
@@ -272,7 +272,7 @@ func TestBuildProjectBoardRowsMatchesLiveProjection(t *testing.T) {
 		t.Fatalf("活体工作表格行数 = %d，希望 4（todo/task/plan/subagent 各一）", len(live))
 	}
 
-	scope := sessionstore.ProjectBoardScope{Project: boardTestProject, Session: session}
+	scope := store.ProjectBoardScope{Project: boardTestProject, Session: session}
 	rows := BuildProjectBoardRows(scope, 1, boardTestAt, live, nil, nil)
 	again := BuildProjectBoardRows(scope, 1, boardTestAt, live, nil, nil)
 	if marshalBoardRows(t, rows) != marshalBoardRows(t, again) {
@@ -289,13 +289,13 @@ func TestBuildProjectBoardRowsMatchesLiveProjection(t *testing.T) {
 	}
 	sort.Slice(expected, func(left, right int) bool { return expected[left].ID < expected[right].ID })
 
-	folded := sessionstore.FoldProjectBoardRows(rows, nil)
+	folded := store.FoldProjectBoardRows(rows, nil)
 	if len(folded) != len(expected) {
 		t.Fatalf("折叠读行数 = %d，希望 %d（活体里的 todo/task 行数）", len(folded), len(expected))
 	}
 	for index, row := range folded {
 		item := expected[index]
-		if row.Kind != sessionstore.ProjectBoardKindWork {
+		if row.Kind != store.ProjectBoardKindWork {
 			t.Fatalf("折叠读第 %d 行 kind = %q，希望 work", index, row.Kind)
 		}
 		if row.Key != "work:"+item.ID {
@@ -307,7 +307,7 @@ func TestBuildProjectBoardRowsMatchesLiveProjection(t *testing.T) {
 		if got := boardPayloadText(row, "task"); got != item.Task {
 			t.Fatalf("折叠读第 %d 行 task = %q，活体 = %q", index, got, item.Task)
 		}
-		if row.Seq != 1 || row.At != boardTestAt || row.Schema != sessionstore.ProjectBoardSchema {
+		if row.Seq != 1 || row.At != boardTestAt || row.Schema != store.ProjectBoardSchema {
 			t.Fatalf("折叠读第 %d 行信封 = seq:%d at:%d schema:%d", index, row.Seq, row.At, row.Schema)
 		}
 		if row.Scope != scope {
@@ -321,18 +321,18 @@ func TestBuildProjectBoardRowsMatchesLiveProjection(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestBuildProjectBoardRowsNoJudgement(t *testing.T) {
-	scope := sessionstore.ProjectBoardScope{Project: boardTestProject, Session: "s-1"}
+	scope := store.ProjectBoardScope{Project: boardTestProject, Session: "s-1"}
 	items := []WorkItem{
 		{ID: "todo:0", Kind: "todo", Phase: "tasklist", Task: "a", Status: "x", Dependencies: []string{"task:9"}},
 		boardTaskItem("task:1", "b", "y"),
 	}
-	plan := &sessionstore.TeamworkPlan{Milestones: []sessionstore.TeamworkMilestone{{
+	plan := &store.TeamworkPlan{Milestones: []store.TeamworkMilestone{{
 		ID: "m1", Status: "declared-weird", DependsOn: []string{"m0"},
-		Items: []sessionstore.TeamworkWorkItem{{
+		Items: []store.TeamworkWorkItem{{
 			ID: "wi1", Role: "exec", Name: "干活", Status: "item-weird", DependsOn: []string{"wi0"},
 		}},
 	}}}
-	state := &sessionstore.TeamworkState{Milestones: map[string]string{"m1": "runtime-weird"}}
+	state := &store.TeamworkState{Milestones: map[string]string{"m1": "runtime-weird"}}
 
 	rows := BuildProjectBoardRows(scope, 3, boardTestAt, items, plan, state)
 
@@ -367,8 +367,8 @@ func TestBuildProjectBoardRowsNoJudgement(t *testing.T) {
 	}
 
 	// 空状态**不补值**（"空 = pending"是存储层的约定，投影不发明第二份默认）。
-	emptyPlan := &sessionstore.TeamworkPlan{Milestones: []sessionstore.TeamworkMilestone{{
-		ID: "m2", Items: []sessionstore.TeamworkWorkItem{{ID: "wi2", Role: "exec", Status: ""}},
+	emptyPlan := &store.TeamworkPlan{Milestones: []store.TeamworkMilestone{{
+		ID: "m2", Items: []store.TeamworkWorkItem{{ID: "wi2", Role: "exec", Status: ""}},
 	}}}
 	empty := BuildProjectBoardRows(scope, 3, boardTestAt, nil, emptyPlan, nil)
 	for _, key := range []string{"milestone:m2", "milestone_item:wi2"} {
@@ -387,7 +387,7 @@ func TestBuildProjectBoardRowsNoJudgement(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestBuildProjectBoardRowsKindMapping(t *testing.T) {
-	scope := sessionstore.ProjectBoardScope{Project: boardTestProject, Session: "s-1"}
+	scope := store.ProjectBoardScope{Project: boardTestProject, Session: "s-1"}
 	items := []WorkItem{
 		{ID: "plan:n1", Kind: "plan", Phase: "plan", Task: "p", Status: "running"},
 		boardTodoItem("todo:0", "t0", "doing"),
@@ -411,7 +411,7 @@ func TestBuildProjectBoardRowsKindMapping(t *testing.T) {
 	for _, testCase := range cases {
 		projected := false
 		for _, row := range rows {
-			if row.Kind == sessionstore.ProjectBoardKindWork && boardPayloadText(row, "kind") == testCase.kind {
+			if row.Kind == store.ProjectBoardKindWork && boardPayloadText(row, "kind") == testCase.kind {
 				projected = true
 			}
 		}
@@ -430,17 +430,17 @@ func TestBuildProjectBoardRowsKindMapping(t *testing.T) {
 
 func TestProjectBoardSyncerDebounce(t *testing.T) {
 	const idle = 20 * time.Millisecond
-	store := newFakeBoardStore()
+	st := newFakeBoardStore()
 	live := newBoardLiveRows(boardTodoItem("todo:0", "a", "doing"))
-	syncer := NewProjectBoardSyncer(boardDeps(store, idle, func(string) []WorkItem { return live.rows() }))
+	syncer := NewProjectBoardSyncer(boardDeps(st, idle, func(string) []WorkItem { return live.rows() }))
 	defer syncer.Close()
 
 	for index := 0; index < 5; index++ {
 		syncer.OnToolComplete("todo_add", nil, "s-1")
 	}
-	waitForBoardWrites(t, store, sessionstore.ProjectBoardWorkFile, 1)
+	waitForBoardWrites(t, st, store.ProjectBoardWorkFile, 1)
 	settleBoard(idle)
-	if got := store.writeCount(sessionstore.ProjectBoardWorkFile); got != 1 {
+	if got := st.writeCount(store.ProjectBoardWorkFile); got != 1 {
 		t.Fatalf("同批 5 次触发落盘 %d 次，希望 1 次", got)
 	}
 }
@@ -451,27 +451,27 @@ func TestProjectBoardSyncerDebounce(t *testing.T) {
 
 func TestProjectBoardSyncerFingerprint(t *testing.T) {
 	const idle = 20 * time.Millisecond
-	store := newFakeBoardStore()
+	st := newFakeBoardStore()
 	live := newBoardLiveRows(boardTodoItem("todo:0", "a", "doing"))
-	syncer := NewProjectBoardSyncer(boardDeps(store, idle, func(string) []WorkItem { return live.rows() }))
+	syncer := NewProjectBoardSyncer(boardDeps(st, idle, func(string) []WorkItem { return live.rows() }))
 	defer syncer.Close()
 
 	syncer.OnToolComplete("todo_add", nil, "s-1")
-	waitForBoardWrites(t, store, sessionstore.ProjectBoardWorkFile, 1)
+	waitForBoardWrites(t, st, store.ProjectBoardWorkFile, 1)
 
 	// 活体变了 ⇒ 必须落第二次（这一步同时证明"管道还活着"，否则"没落盘"的断言毫无意义）。
 	live.add(boardTaskItem("task:1", "b", "running"))
 	syncer.OnToolComplete("todo_add", nil, "s-1")
-	waitForBoardWrites(t, store, sessionstore.ProjectBoardWorkFile, 2)
+	waitForBoardWrites(t, st, store.ProjectBoardWorkFile, 2)
 
 	// 内容没变（连触发都给了）⇒ 不写盘。
 	syncer.OnToolComplete("todo_add", nil, "s-1")
 	syncer.OnToolComplete("task_add", nil, "s-1")
 	settleBoard(idle)
-	if got := store.writeCount(sessionstore.ProjectBoardWorkFile); got != 2 {
+	if got := st.writeCount(store.ProjectBoardWorkFile); got != 2 {
 		t.Fatalf("内容没变仍落盘 %d 次，希望 2 次（指纹去重）", got)
 	}
-	if got := len(store.folded(boardTestProjectRoot, "s-1", sessionstore.ProjectBoardWorkFile)); got != 2 {
+	if got := len(st.folded(boardTestProjectRoot, "s-1", store.ProjectBoardWorkFile)); got != 2 {
 		t.Fatalf("折叠读行数 = %d，希望 2", got)
 	}
 }
@@ -482,42 +482,42 @@ func TestProjectBoardSyncerFingerprint(t *testing.T) {
 
 func TestProjectBoardSyncerWatermark(t *testing.T) {
 	const idle = 20 * time.Millisecond
-	store := newFakeBoardStore()
+	st := newFakeBoardStore()
 	live := newBoardLiveRows(boardTodoItem("todo:0", "a", "doing"))
-	syncer := NewProjectBoardSyncer(boardDeps(store, idle, func(string) []WorkItem { return live.rows() }))
+	syncer := NewProjectBoardSyncer(boardDeps(st, idle, func(string) []WorkItem { return live.rows() }))
 	defer syncer.Close()
 
 	syncer.OnToolComplete("todo_add", nil, "s-1")
-	waitForBoardWrites(t, store, sessionstore.ProjectBoardWorkFile, 1)
-	first := store.lastWrite(sessionstore.ProjectBoardWorkFile)
+	waitForBoardWrites(t, st, store.ProjectBoardWorkFile, 1)
+	first := st.lastWrite(store.ProjectBoardWorkFile)
 	if len(first) != 1 || first[0].Seq != 1 {
 		t.Fatalf("第一批 seq = %+v，希望 1（水位 0 + 1）", first)
 	}
-	if watermark, _ := store.ProjectBoardWatermark(boardTestProjectRoot, "s-1", sessionstore.ProjectBoardWorkFile); watermark != 1 {
+	if watermark, _ := st.ProjectBoardWatermark(boardTestProjectRoot, "s-1", store.ProjectBoardWorkFile); watermark != 1 {
 		t.Fatalf("水位 = %d，希望 1", watermark)
 	}
 
 	// 重复提交（内容没变）⇒ 空操作：水位不动、没有新的追加批。
 	syncer.OnToolComplete("todo_add", nil, "s-1")
 	settleBoard(idle)
-	if got := store.writeCount(sessionstore.ProjectBoardWorkFile); got != 1 {
+	if got := st.writeCount(store.ProjectBoardWorkFile); got != 1 {
 		t.Fatalf("重复提交落盘 %d 次，希望仍是 1 次", got)
 	}
-	if watermark, _ := store.ProjectBoardWatermark(boardTestProjectRoot, "s-1", sessionstore.ProjectBoardWorkFile); watermark != 1 {
+	if watermark, _ := st.ProjectBoardWatermark(boardTestProjectRoot, "s-1", store.ProjectBoardWorkFile); watermark != 1 {
 		t.Fatalf("重复提交后水位 = %d，希望仍是 1", watermark)
 	}
 
 	// 内容变了 ⇒ 水位推进：下一批 seq = 2。
 	live.add(boardTaskItem("task:1", "b", "running"))
 	syncer.OnToolComplete("todo_add", nil, "s-1")
-	waitForBoardWrites(t, store, sessionstore.ProjectBoardWorkFile, 2)
-	second := store.lastWrite(sessionstore.ProjectBoardWorkFile)
+	waitForBoardWrites(t, st, store.ProjectBoardWorkFile, 2)
+	second := st.lastWrite(store.ProjectBoardWorkFile)
 	for _, row := range second {
 		if row.Seq != 2 {
 			t.Fatalf("第二批 seq = %d，希望 2（水位 1 + 1）", row.Seq)
 		}
 	}
-	if watermark, _ := store.ProjectBoardWatermark(boardTestProjectRoot, "s-1", sessionstore.ProjectBoardWorkFile); watermark != 2 {
+	if watermark, _ := st.ProjectBoardWatermark(boardTestProjectRoot, "s-1", store.ProjectBoardWorkFile); watermark != 2 {
 		t.Fatalf("水位 = %d，希望 2", watermark)
 	}
 }
@@ -527,33 +527,33 @@ func TestProjectBoardSyncerWatermark(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestProjectBoardTeamworkMilestonePriority(t *testing.T) {
-	scope := sessionstore.ProjectBoardScope{Project: boardTestProject, Session: "s-1"}
-	plan := &sessionstore.TeamworkPlan{Milestones: []sessionstore.TeamworkMilestone{
-		{ID: "m1", Name: "第一步", Status: sessionstore.TeamworkMilestonePending, DependsOn: []string{"m0"}},
-		{ID: "m2", Name: "第二步", Status: sessionstore.TeamworkMilestoneDone},
+	scope := store.ProjectBoardScope{Project: boardTestProject, Session: "s-1"}
+	plan := &store.TeamworkPlan{Milestones: []store.TeamworkMilestone{
+		{ID: "m1", Name: "第一步", Status: store.TeamworkMilestonePending, DependsOn: []string{"m0"}},
+		{ID: "m2", Name: "第二步", Status: store.TeamworkMilestoneDone},
 	}}
 
 	// 运行态优先：m1 在运行态里是 active（计划里声明的是 pending）；m2 运行态没说 ⇒ 声明兜底。
-	state := &sessionstore.TeamworkState{Milestones: map[string]string{"m1": sessionstore.TeamworkMilestoneActive}}
+	state := &store.TeamworkState{Milestones: map[string]string{"m1": store.TeamworkMilestoneActive}}
 	rows := BuildProjectBoardRows(scope, 1, boardTestAt, nil, plan, state)
 	m1, _ := boardRowByKey(rows, "milestone:m1")
-	if got := boardPayloadText(m1, "status"); got != sessionstore.TeamworkMilestoneActive {
+	if got := boardPayloadText(m1, "status"); got != store.TeamworkMilestoneActive {
 		t.Fatalf("m1 status = %q，希望运行态 active（运行态优先）", got)
 	}
 	m2, _ := boardRowByKey(rows, "milestone:m2")
-	if got := boardPayloadText(m2, "status"); got != sessionstore.TeamworkMilestoneDone {
+	if got := boardPayloadText(m2, "status"); got != store.TeamworkMilestoneDone {
 		t.Fatalf("m2 status = %q，希望声明态 done（运行态兜底）", got)
 	}
 
 	// 运行态整份缺席 ⇒ 全用声明态。
 	rows = BuildProjectBoardRows(scope, 1, boardTestAt, nil, plan, nil)
 	m1, _ = boardRowByKey(rows, "milestone:m1")
-	if got := boardPayloadText(m1, "status"); got != sessionstore.TeamworkMilestonePending {
+	if got := boardPayloadText(m1, "status"); got != store.TeamworkMilestonePending {
 		t.Fatalf("无运行态时 m1 status = %q，希望声明态 pending", got)
 	}
 
 	// 整队收口读 TeamworkState.State：空 = 未收口；closed = 已收口（**不是**别的字段）。
-	open := BuildProjectBoardRows(scope, 1, boardTestAt, nil, plan, &sessionstore.TeamworkState{})
+	open := BuildProjectBoardRows(scope, 1, boardTestAt, nil, plan, &store.TeamworkState{})
 	openRow, _ := boardRowByKey(open, "milestone:m1")
 	if openRow.Payload["team_closed"] != false {
 		t.Fatalf("未收口时 team_closed = %v，希望 false", openRow.Payload["team_closed"])
@@ -562,31 +562,31 @@ func TestProjectBoardTeamworkMilestonePriority(t *testing.T) {
 		t.Fatalf("未收口时空 State 不该落 team_state（%v）", openRow.Payload["team_state"])
 	}
 	closed := BuildProjectBoardRows(scope, 1, boardTestAt, nil, plan,
-		&sessionstore.TeamworkState{State: sessionstore.TeamworkStateClosed})
+		&store.TeamworkState{State: store.TeamworkStateClosed})
 	closedRow, _ := boardRowByKey(closed, "milestone:m1")
 	if closedRow.Payload["team_closed"] != true {
 		t.Fatalf("收口后 team_closed = %v，希望 true", closedRow.Payload["team_closed"])
 	}
-	if got := boardPayloadText(closedRow, "team_state"); got != sessionstore.TeamworkStateClosed {
+	if got := boardPayloadText(closedRow, "team_state"); got != store.TeamworkStateClosed {
 		t.Fatalf("收口后 team_state = %q，希望 closed", got)
 	}
 
 	// 落点：里程碑行进 teamwork.jsonl；没有 work 行 ⇒ **不建** worktable.jsonl（I6）。
 	const idle = 20 * time.Millisecond
-	store := newFakeBoardStore()
-	deps := boardDeps(store, idle, func(string) []WorkItem { return nil })
-	deps.TeamPlanFor = func(string) *sessionstore.TeamworkPlan { return plan }
-	deps.TeamStateFor = func(string) *sessionstore.TeamworkState {
-		return &sessionstore.TeamworkState{State: sessionstore.TeamworkStateClosed}
+	st := newFakeBoardStore()
+	deps := boardDeps(st, idle, func(string) []WorkItem { return nil })
+	deps.TeamPlanFor = func(string) *store.TeamworkPlan { return plan }
+	deps.TeamStateFor = func(string) *store.TeamworkState {
+		return &store.TeamworkState{State: store.TeamworkStateClosed}
 	}
 	syncer := NewProjectBoardSyncer(deps)
 	defer syncer.Close()
 	syncer.OnToolComplete("todo_add", nil, "s-1")
-	waitForBoardWrites(t, store, sessionstore.ProjectBoardTeamworkFile, 1)
-	if got := len(store.folded(boardTestProjectRoot, "s-1", sessionstore.ProjectBoardTeamworkFile)); got != 2 {
+	waitForBoardWrites(t, st, store.ProjectBoardTeamworkFile, 1)
+	if got := len(st.folded(boardTestProjectRoot, "s-1", store.ProjectBoardTeamworkFile)); got != 2 {
 		t.Fatalf("teamwork 折叠读行数 = %d，希望 2 条里程碑行", got)
 	}
-	if raw := store.raw(boardTestProjectRoot, "s-1", sessionstore.ProjectBoardWorkFile); len(raw) != 0 {
+	if raw := st.raw(boardTestProjectRoot, "s-1", store.ProjectBoardWorkFile); len(raw) != 0 {
 		t.Fatalf("没有 work 行却建了 worktable.jsonl：%d 行（I6：空集合不建文件）", len(raw))
 	}
 }
@@ -597,25 +597,25 @@ func TestProjectBoardTeamworkMilestonePriority(t *testing.T) {
 
 func TestProjectBoardRebuildAfterDelete(t *testing.T) {
 	const idle = 20 * time.Millisecond
-	store := newFakeBoardStore()
+	st := newFakeBoardStore()
 	live := newBoardLiveRows(boardTodoItem("todo:0", "a", "doing"), boardTaskItem("task:1", "b", "running"))
-	syncer := NewProjectBoardSyncer(boardDeps(store, idle, func(string) []WorkItem { return live.rows() }))
+	syncer := NewProjectBoardSyncer(boardDeps(st, idle, func(string) []WorkItem { return live.rows() }))
 	defer syncer.Close()
 
 	syncer.OnToolComplete("todo_add", nil, "s-1")
-	waitForBoardWrites(t, store, sessionstore.ProjectBoardWorkFile, 1)
-	before := marshalBoardRows(t, store.folded(boardTestProjectRoot, "s-1", sessionstore.ProjectBoardWorkFile))
+	waitForBoardWrites(t, st, store.ProjectBoardWorkFile, 1)
+	before := marshalBoardRows(t, st.folded(boardTestProjectRoot, "s-1", store.ProjectBoardWorkFile))
 
 	// 文件被删（人删 / 数据根搬迁 / 掉了一块盘）：下一次触发必须重建。
-	store.dropFile(boardTestProjectRoot, "s-1", sessionstore.ProjectBoardWorkFile)
+	st.dropFile(boardTestProjectRoot, "s-1", store.ProjectBoardWorkFile)
 	syncer.OnToolComplete("todo_add", nil, "s-1")
-	waitForBoardWrites(t, store, sessionstore.ProjectBoardWorkFile, 2)
-	after := marshalBoardRows(t, store.folded(boardTestProjectRoot, "s-1", sessionstore.ProjectBoardWorkFile))
+	waitForBoardWrites(t, st, store.ProjectBoardWorkFile, 2)
+	after := marshalBoardRows(t, st.folded(boardTestProjectRoot, "s-1", store.ProjectBoardWorkFile))
 	if before != after {
 		t.Fatalf("重建结果与删除前不同：\n before=%s\n after =%s", before, after)
 	}
 	// 水位从 0 重来 ⇒ 重建批的 seq 又是 1（水位是**文件内**的事实）。
-	for _, row := range store.lastWrite(sessionstore.ProjectBoardWorkFile) {
+	for _, row := range st.lastWrite(store.ProjectBoardWorkFile) {
 		if row.Seq != 1 {
 			t.Fatalf("重建批 seq = %d，希望 1（文件没了，水位归零）", row.Seq)
 		}
@@ -636,11 +636,11 @@ func TestProjectBoardIsNotAnInput(t *testing.T) {
 	}
 
 	// 篡改投影文件：把那条 todo 改成 done（外加一行 schema/kind 都认不得的垃圾行）。
-	store := newFakeBoardStore()
-	if _, err := store.AppendProjectBoardRows(boardTestProjectRoot, session, sessionstore.ProjectBoardWorkFile,
-		[]sessionstore.ProjectBoardRow{
-			{Schema: sessionstore.ProjectBoardSchema, Kind: sessionstore.ProjectBoardKindWork, Key: "work:todo:0", Seq: 99, At: boardTestAt,
-				Scope:   sessionstore.ProjectBoardScope{Project: boardTestProject, Session: session},
+	st := newFakeBoardStore()
+	if _, err := st.AppendProjectBoardRows(boardTestProjectRoot, session, store.ProjectBoardWorkFile,
+		[]store.ProjectBoardRow{
+			{Schema: store.ProjectBoardSchema, Kind: store.ProjectBoardKindWork, Key: "work:todo:0", Seq: 99, At: boardTestAt,
+				Scope:   store.ProjectBoardScope{Project: boardTestProject, Session: session},
 				Payload: map[string]any{"id": "todo:0", "kind": "todo", "status": "done"}},
 			{Schema: 99, Kind: "not-a-kind", Key: "work:todo:1", Seq: 100, At: boardTestAt,
 				Payload: map[string]any{"status": "done"}},
@@ -649,7 +649,7 @@ func TestProjectBoardIsNotAnInput(t *testing.T) {
 	}
 
 	// 文件的读**确实**被改了（否则这个反例什么都没证明）。
-	folded := store.folded(boardTestProjectRoot, session, sessionstore.ProjectBoardWorkFile)
+	folded := st.folded(boardTestProjectRoot, session, store.ProjectBoardWorkFile)
 	if len(folded) != 1 || boardPayloadText(folded[0], "status") != "done" {
 		t.Fatalf("篡改后的文件读 = %+v，希望一条 done", folded)
 	}
@@ -664,7 +664,7 @@ func TestProjectBoardIsNotAnInput(t *testing.T) {
 		t.Fatalf("篡改投影文件后 task 注册表变了：%+v", records)
 	}
 	// 投影输入（活体取数）也不受文件影响：再映射一次仍是 doing。
-	rows := BuildProjectBoardRows(sessionstore.ProjectBoardScope{Project: boardTestProject, Session: session},
+	rows := BuildProjectBoardRows(store.ProjectBoardScope{Project: boardTestProject, Session: session},
 		1, boardTestAt, service.WorkTableRowsFor(session), nil, nil)
 	if len(rows) != 1 || boardPayloadText(rows[0], "status") != "doing" {
 		t.Fatalf("活体输入映射出的行 = %+v，希望 status=doing", rows)
@@ -729,9 +729,9 @@ func TestProjectBoardTriggerTable(t *testing.T) {
 
 func TestProjectBoardSyncerIgnoresFailedAndUntriggeredCalls(t *testing.T) {
 	const idle = 20 * time.Millisecond
-	store := newFakeBoardStore()
+	st := newFakeBoardStore()
 	live := newBoardLiveRows(boardTodoItem("todo:0", "a", "doing"))
-	deps := boardDeps(store, idle, func(string) []WorkItem { return live.rows() })
+	deps := boardDeps(st, idle, func(string) []WorkItem { return live.rows() })
 	deps.Triggers = TriggerFor("task_complete")
 	syncer := NewProjectBoardSyncer(deps)
 	defer syncer.Close()
@@ -740,12 +740,12 @@ func TestProjectBoardSyncerIgnoresFailedAndUntriggeredCalls(t *testing.T) {
 	syncer.OnToolComplete("task_complete", errors.New("boom"), "s-1") // 工具失败
 	syncer.OnToolComplete("task_complete", nil, "")                   // 没有归属会话
 	settleBoard(idle)
-	if got := store.writeCount(sessionstore.ProjectBoardWorkFile); got != 0 {
+	if got := st.writeCount(store.ProjectBoardWorkFile); got != 0 {
 		t.Fatalf("不该落盘却落了 %d 次", got)
 	}
 
 	syncer.OnToolComplete("task_complete", nil, "s-1") // 命中：正常落盘
-	waitForBoardWrites(t, store, sessionstore.ProjectBoardWorkFile, 1)
+	waitForBoardWrites(t, st, store.ProjectBoardWorkFile, 1)
 }
 
 // ---------------------------------------------------------------------------
@@ -754,21 +754,21 @@ func TestProjectBoardSyncerIgnoresFailedAndUntriggeredCalls(t *testing.T) {
 
 func TestProjectBoardSyncerTombstonesRemovedKeys(t *testing.T) {
 	const idle = 20 * time.Millisecond
-	store := newFakeBoardStore()
+	st := newFakeBoardStore()
 	live := newBoardLiveRows(boardTodoItem("todo:0", "a", "doing"), boardTaskItem("task:1", "b", "running"))
-	syncer := NewProjectBoardSyncer(boardDeps(store, idle, func(string) []WorkItem { return live.rows() }))
+	syncer := NewProjectBoardSyncer(boardDeps(st, idle, func(string) []WorkItem { return live.rows() }))
 	defer syncer.Close()
 
 	syncer.OnToolComplete("todo_add", nil, "s-1")
-	waitForBoardWrites(t, store, sessionstore.ProjectBoardWorkFile, 1)
-	if got := len(store.folded(boardTestProjectRoot, "s-1", sessionstore.ProjectBoardWorkFile)); got != 2 {
+	waitForBoardWrites(t, st, store.ProjectBoardWorkFile, 1)
+	if got := len(st.folded(boardTestProjectRoot, "s-1", store.ProjectBoardWorkFile)); got != 2 {
 		t.Fatalf("折叠读行数 = %d，希望 2", got)
 	}
 
 	live.drop(1) // 活没了：task:1 从活体投影里消失
 	syncer.OnToolComplete("todo_add", nil, "s-1")
-	waitForBoardWrites(t, store, sessionstore.ProjectBoardWorkFile, 2)
-	batch := store.lastWrite(sessionstore.ProjectBoardWorkFile)
+	waitForBoardWrites(t, st, store.ProjectBoardWorkFile, 2)
+	batch := st.lastWrite(store.ProjectBoardWorkFile)
 	removed := false
 	for _, row := range batch {
 		if row.Key == "work:task:1" {
@@ -781,7 +781,7 @@ func TestProjectBoardSyncerTombstonesRemovedKeys(t *testing.T) {
 	if !removed {
 		t.Fatalf("没有为消失的 key work:task:1 补 tombstone：%+v", batch)
 	}
-	folded := store.folded(boardTestProjectRoot, "s-1", sessionstore.ProjectBoardWorkFile)
+	folded := st.folded(boardTestProjectRoot, "s-1", store.ProjectBoardWorkFile)
 	if got := boardKeys(folded); len(got) != 1 || got[0] != "work:todo:0" {
 		t.Fatalf("折叠读 key 集 = %v，希望只剩 work:todo:0", got)
 	}
@@ -793,8 +793,8 @@ func TestProjectBoardSyncerTombstonesRemovedKeys(t *testing.T) {
 
 func TestProjectBoardSyncerCloseIsIdempotent(t *testing.T) {
 	const idle = 20 * time.Millisecond
-	store := newFakeBoardStore()
-	syncer := NewProjectBoardSyncer(boardDeps(store, idle, func(string) []WorkItem { return nil }))
+	st := newFakeBoardStore()
+	syncer := NewProjectBoardSyncer(boardDeps(st, idle, func(string) []WorkItem { return nil }))
 
 	syncer.OnToolComplete("todo_add", nil, "s-1")
 	done := make(chan struct{})
@@ -811,7 +811,7 @@ func TestProjectBoardSyncerCloseIsIdempotent(t *testing.T) {
 	// 关闭之后再触发是无害的空操作（不 panic、不落盘）。
 	syncer.OnToolComplete("todo_add", nil, "s-1")
 	settleBoard(idle)
-	if got := store.writeCount(sessionstore.ProjectBoardWorkFile); got != 0 {
+	if got := st.writeCount(store.ProjectBoardWorkFile); got != 0 {
 		t.Fatalf("Close 之后仍落盘 %d 次", got)
 	}
 }
@@ -824,9 +824,9 @@ func TestProjectBoardReadersForAssembly(t *testing.T) {
 	// 已装配 teamwork 计划端口（Runtime 额外实现了 TeamworkPlanSource）：装配期注入，不做事后改 Deps。
 	planSource := &boardPlanRuntime{
 		fakeRuntime: &fakeRuntime{},
-		plan: sessionstore.TeamworkPlan{
+		plan: store.TeamworkPlan{
 			TeamID: "team-1",
-			State:  sessionstore.TeamworkState{State: sessionstore.TeamworkStateClosed},
+			State:  store.TeamworkState{State: store.TeamworkStateClosed},
 		},
 	}
 	service := newTestService(t, &fakeEngine{},
@@ -854,7 +854,7 @@ func TestProjectBoardReadersForAssembly(t *testing.T) {
 		t.Fatalf("装配后计划 = %+v，希望 team-1", plan)
 	}
 	state := service.ProjectBoardTeamStateFor(session)
-	if state == nil || state.State != sessionstore.TeamworkStateClosed {
+	if state == nil || state.State != store.TeamworkStateClosed {
 		t.Fatalf("装配后运行态 = %+v，希望 closed", state)
 	}
 	if got := len(service.WorkTableRowsFor(session)); got != 0 {
@@ -878,12 +878,12 @@ func TestProjectBoardReadersForAssembly(t *testing.T) {
 // boardPlanRuntime 是"Runtime 额外实现 TeamworkPlanSource"的桩（窄可选端口的正例）。
 type boardPlanRuntime struct {
 	*fakeRuntime
-	plan sessionstore.TeamworkPlan
+	plan store.TeamworkPlan
 }
 
-func (runtime *boardPlanRuntime) TeamworkPlanFor(sessionID string) (sessionstore.TeamworkPlan, bool) {
+func (runtime *boardPlanRuntime) TeamworkPlanFor(sessionID string) (store.TeamworkPlan, bool) {
 	if strings.TrimSpace(sessionID) == "" {
-		return sessionstore.TeamworkPlan{}, false
+		return store.TeamworkPlan{}, false
 	}
 	return runtime.plan, true
 }
@@ -929,9 +929,9 @@ func (sink *recordingBoardSink) snapshot() []boardSinkCall {
 // 落点**按会话分目录**（`<项目根>/.seelex/board/<会话 ID>/<file>`）：这个会话的行只可能在
 // 它自己的文件里，所以行数 = 该文件的折叠读行数。多会话断言因此天然互不串味——这正是
 // 分目录要的"防串写"，也是本文件不再需要按 scope.session 过滤的原因。
-func boardSessionRows(t *testing.T, store *fakeBoardStore, session, file string) int {
+func boardSessionRows(t *testing.T, st *fakeBoardStore, session, file string) int {
 	t.Helper()
-	rows := store.folded(boardTestProjectRoot, session, file)
+	rows := st.folded(boardTestProjectRoot, session, file)
 	for _, row := range rows {
 		if row.Scope.Session != session {
 			t.Fatalf("会话 %q 的文件里混进了 %q 的行（串写）：%#v", session, row.Scope.Session, row)
@@ -947,13 +947,13 @@ func TestProjectBoardHooksOnExistingSyncPoint(t *testing.T) {
 
 	// 装配期交接（生产里这一步在 main.go）：注入订阅口；取数走**既有活体读法**
 	// （service.WorkTableRowsFor），不重算任何状态。
-	store := newFakeBoardStore()
-	syncer := NewProjectBoardSyncer(boardDeps(store, idle, service.WorkTableRowsFor))
+	st := newFakeBoardStore()
+	syncer := NewProjectBoardSyncer(boardDeps(st, idle, service.WorkTableRowsFor))
 	defer syncer.Close()
 	recorder := &recordingBoardSink{next: syncer}
 	service.SetProjectBoardSink(recorder)
 
-	workFile := sessionstore.ProjectBoardWorkFile
+	workFile := store.ProjectBoardWorkFile
 	complete := func(ctx context.Context, name, id string, toolErr error) {
 		service.handleToolCompleteObserved(ctx, name, id, "", "result", toolErr, time.Millisecond, nil)
 	}
@@ -968,11 +968,11 @@ func TestProjectBoardHooksOnExistingSyncPoint(t *testing.T) {
 		t.Fatalf("sink 收到 (%q, %v, %q)，希望 (todo_add, <nil>, %q)", calls[0].name, calls[0].err, calls[0].sessionID, session)
 	}
 	// 缝不是"通了但没效果"：投影真的按既有落点落了盘。
-	waitForBoardWrites(t, store, workFile, 1)
-	if got := boardSessionRows(t, store, session, workFile); got == 0 {
+	waitForBoardWrites(t, st, workFile, 1)
+	if got := boardSessionRows(t, st, session, workFile); got == 0 {
 		t.Fatal("命中触发面后 worktable 里一行都没有")
 	}
-	afterHit := boardSessionRows(t, store, session, workFile)
+	afterHit := boardSessionRows(t, st, session, workFile)
 
 	// ② 未命中触发面（read_file 不在 todo_list 档）：投影**零动作**——不落盘、不加行。
 	//
@@ -984,7 +984,7 @@ func TestProjectBoardHooksOnExistingSyncPoint(t *testing.T) {
 		t.Fatalf("完成段转发次数 = %d，希望 2（未命中也要交接，判据在下家）", got)
 	}
 	settleBoard(idle)
-	if got := boardSessionRows(t, store, session, workFile); got != afterHit {
+	if got := boardSessionRows(t, st, session, workFile); got != afterHit {
 		t.Fatalf("未命中触发面却写了投影：行数 %d → %d", afterHit, got)
 	}
 
@@ -996,7 +996,7 @@ func TestProjectBoardHooksOnExistingSyncPoint(t *testing.T) {
 		t.Fatalf("sink 收到的 err = %v，希望原样透传 %v", last.err, boom)
 	}
 	settleBoard(idle)
-	if got := boardSessionRows(t, store, session, workFile); got != afterHit {
+	if got := boardSessionRows(t, st, session, workFile); got != afterHit {
 		t.Fatalf("失败调用却写了投影：行数 %d → %d", afterHit, got)
 	}
 
@@ -1015,7 +1015,7 @@ func TestProjectBoardHooksOnExistingSyncPoint(t *testing.T) {
 	if got := len(recorder.snapshot()); got != 4 {
 		t.Fatalf("收回订阅口后仍转发了 %d 次（希望仍是 4）", got)
 	}
-	if got := boardSessionRows(t, store, session, workFile); got != afterHit {
+	if got := boardSessionRows(t, st, session, workFile); got != afterHit {
 		t.Fatalf("收回订阅口后仍写了投影：行数 %d → %d", afterHit, got)
 	}
 }
@@ -1031,17 +1031,17 @@ type flakyBoardStore struct {
 	failTimes int
 }
 
-func (store *flakyBoardStore) AppendProjectBoardRows(projectRoot, sessionID, file string, rows []sessionstore.ProjectBoardRow) (uint64, error) {
-	store.mu.Lock()
-	fail := store.failTimes > 0
+func (st *flakyBoardStore) AppendProjectBoardRows(projectRoot, sessionID, file string, rows []store.ProjectBoardRow) (uint64, error) {
+	st.mu.Lock()
+	fail := st.failTimes > 0
 	if fail {
-		store.failTimes--
+		st.failTimes--
 	}
-	store.mu.Unlock()
+	st.mu.Unlock()
 	if fail {
 		return 0, errors.New("board store unavailable")
 	}
-	return store.fakeBoardStore.AppendProjectBoardRows(projectRoot, sessionID, file, rows)
+	return st.fakeBoardStore.AppendProjectBoardRows(projectRoot, sessionID, file, rows)
 }
 
 func TestProjectBoardHookFailureNoHalfWrite(t *testing.T) {
@@ -1054,14 +1054,14 @@ func TestProjectBoardHookFailureNoHalfWrite(t *testing.T) {
 	// 第一次触发：写盘失败 ⇒ 文件里一行都没有（不是"写了一半"）、水位也没被占号。
 	syncer.OnToolComplete("todo_add", nil, "s-1")
 	settleBoard(idle)
-	if got := flaky.raw(boardTestProjectRoot, "s-1", sessionstore.ProjectBoardWorkFile); len(got) != 0 {
+	if got := flaky.raw(boardTestProjectRoot, "s-1", store.ProjectBoardWorkFile); len(got) != 0 {
 		t.Fatalf("失败的批次留下了半截行：%+v", got)
 	}
 
 	// 记账没推进 ⇒ 下一次触发重试成功，且水位从 1 起（失败批次没占 Seq）。
 	syncer.OnToolComplete("todo_add", nil, "s-1")
-	waitForBoardWrites(t, flaky.fakeBoardStore, sessionstore.ProjectBoardWorkFile, 1)
-	batch := flaky.lastWrite(sessionstore.ProjectBoardWorkFile)
+	waitForBoardWrites(t, flaky.fakeBoardStore, store.ProjectBoardWorkFile, 1)
+	batch := flaky.lastWrite(store.ProjectBoardWorkFile)
 	if len(batch) != 2 {
 		t.Fatalf("重试批行数 = %d，希望 2（%+v）", len(batch), batch)
 	}

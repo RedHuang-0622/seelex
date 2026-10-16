@@ -9,21 +9,21 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/jobs"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // ── 端口替身（本包因此可在没有引擎、没有 git 的测试里跑完编排语义）──
 
 type memoryPlanStore struct {
 	mu       sync.Mutex
-	plan     sessionstore.TeamworkPlan
-	events   []sessionstore.TeamworkEvent
-	bindings []sessionstore.TeamworkBinding
+	plan     store.TeamworkPlan
+	events   []store.TeamworkEvent
+	bindings []store.TeamworkBinding
 	limit    int
 }
 
-func (s *memoryPlanStore) WritePlan(_ context.Context, _ sessionstore.Key, plan sessionstore.TeamworkPlan, maxTeammates int) error {
-	if err := sessionstore.ValidateTeamworkPlan(plan, maxTeammates); err != nil {
+func (s *memoryPlanStore) WritePlan(_ context.Context, _ store.Key, plan store.TeamworkPlan, maxTeammates int) error {
+	if err := store.ValidateTeamworkPlan(plan, maxTeammates); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -32,7 +32,7 @@ func (s *memoryPlanStore) WritePlan(_ context.Context, _ sessionstore.Key, plan 
 	return nil
 }
 
-func (s *memoryPlanStore) ReadPlan(context.Context, sessionstore.Key) (sessionstore.TeamworkPlan, error) {
+func (s *memoryPlanStore) ReadPlan(context.Context, store.Key) (store.TeamworkPlan, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	// 替身必须跟着**端口契约**走（PlanStore.ReadPlan 的注释）：还没声明团队时返回
@@ -41,30 +41,30 @@ func (s *memoryPlanStore) ReadPlan(context.Context, sessionstore.Key) (sessionst
 	return clonePlan(s.plan), nil
 }
 
-func (s *memoryPlanStore) AppendEvent(_ context.Context, _ sessionstore.Key, event sessionstore.TeamworkEvent) error {
+func (s *memoryPlanStore) AppendEvent(_ context.Context, _ store.Key, event store.TeamworkEvent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.events = append(s.events, event)
 	return nil
 }
 
-func (s *memoryPlanStore) ReadEvents(context.Context, sessionstore.Key) ([]sessionstore.TeamworkEvent, error) {
+func (s *memoryPlanStore) ReadEvents(context.Context, store.Key) ([]store.TeamworkEvent, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]sessionstore.TeamworkEvent(nil), s.events...), nil
+	return append([]store.TeamworkEvent(nil), s.events...), nil
 }
 
-func (s *memoryPlanStore) AppendBinding(_ context.Context, _ sessionstore.Key, binding sessionstore.TeamworkBinding) error {
+func (s *memoryPlanStore) AppendBinding(_ context.Context, _ store.Key, binding store.TeamworkBinding) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.bindings = append(s.bindings, binding)
 	return nil
 }
 
-func (s *memoryPlanStore) ReadBindings(context.Context, sessionstore.Key) ([]sessionstore.TeamworkBinding, error) {
+func (s *memoryPlanStore) ReadBindings(context.Context, store.Key) ([]store.TeamworkBinding, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]sessionstore.TeamworkBinding(nil), s.bindings...), nil
+	return append([]store.TeamworkBinding(nil), s.bindings...), nil
 }
 
 func (s *memoryPlanStore) kinds() []string {
@@ -149,7 +149,7 @@ func (s fakeSessions) ResetSession(_ context.Context, roleSessionID string) erro
 
 type fixture struct {
 	coordinator *Coordinator
-	store       *memoryPlanStore
+	st          *memoryPlanStore
 	jobs        jobs.Manager
 	runner      *fakeRunner
 	calls       *callLog
@@ -157,7 +157,7 @@ type fixture struct {
 
 func newFixture(t *testing.T, maxTeammates int) *fixture {
 	t.Helper()
-	store := &memoryPlanStore{}
+	st := &memoryPlanStore{}
 	runner := &fakeRunner{}
 	log := &callLog{}
 	manager, err := jobs.New(
@@ -170,8 +170,8 @@ func newFixture(t *testing.T, maxTeammates int) *fixture {
 	}
 	t.Cleanup(func() { _ = manager.Close(context.Background()) })
 	coordinator, err := New(Options{
-		Key:          sessionstore.Key{ProjectID: "p", SessionID: "s"},
-		Store:        store,
+		Key:          store.Key{ProjectID: "p", SessionID: "s"},
+		Store:        st,
 		Jobs:         manager,
 		Workers:      runner,
 		Worktrees:    fakeWorktrees{log: log},
@@ -182,29 +182,29 @@ func newFixture(t *testing.T, maxTeammates int) *fixture {
 	if err != nil {
 		t.Fatalf("teamwork.New: %v", err)
 	}
-	return &fixture{coordinator: coordinator, store: store, jobs: manager, runner: runner, calls: log}
+	return &fixture{coordinator: coordinator, st: st, jobs: manager, runner: runner, calls: log}
 }
 
 // vmodelPlan 是 V 模型口径的计划：**里程碑屏障**（m-req → m-impl）+ 里程碑内的工作项。
 // **没有阶段**（2026-10-04 阶段口径整条退场）：顺序的唯一事实是 milestones[].depends_on
 // 与 items[].depends_on。
-func vmodelPlan() sessionstore.TeamworkPlan {
-	return sessionstore.TeamworkPlan{
+func vmodelPlan() store.TeamworkPlan {
+	return store.TeamworkPlan{
 		TeamID:  "v-model",
 		Version: 1,
-		Members: []sessionstore.TeamworkMember{
+		Members: []store.TeamworkMember{
 			{Role: "pm"},
 			{Role: "exec", Worktree: "seelex/exec"},
 			{Role: "test_case"},
 		},
-		Milestones: []sessionstore.TeamworkMilestone{
+		Milestones: []store.TeamworkMilestone{
 			{
 				ID: "m-req", Name: "需求", Required: []string{"pm"},
-				Items: []sessionstore.TeamworkWorkItem{{ID: "wi-req", Milestone: "m-req", Role: "pm", Name: "需求"}},
+				Items: []store.TeamworkWorkItem{{ID: "wi-req", Milestone: "m-req", Role: "pm", Name: "需求"}},
 			},
 			{
 				ID: "m-impl", Name: "实现", Required: []string{"exec"}, DependsOn: []string{"m-req"},
-				Items: []sessionstore.TeamworkWorkItem{{ID: "wi-impl", Milestone: "m-impl", Role: "exec", Name: "实现"}},
+				Items: []store.TeamworkWorkItem{{ID: "wi-impl", Milestone: "m-impl", Role: "exec", Name: "实现"}},
 			},
 		},
 	}
@@ -239,7 +239,7 @@ func TestSetPlanDerivesRoleSessionIDsAndAudits(t *testing.T) {
 	if plan.Members[0].RoleSessionID != "s-v-model-pm" {
 		t.Fatalf("role_session_id 未按 (主会话, team_id, role) 派生: %q", plan.Members[0].RoleSessionID)
 	}
-	if kinds := fixture.store.kinds(); len(kinds) != 1 || kinds[0] != sessionstore.TeamworkEventPlan {
+	if kinds := fixture.st.kinds(); len(kinds) != 1 || kinds[0] != store.TeamworkEventPlan {
 		t.Fatalf("计划改写必须留下审计行: %v", kinds)
 	}
 }
@@ -270,7 +270,7 @@ func TestDispatchJoinMilestoneLifecycle(t *testing.T) {
 		t.Fatalf("Milestone: %v", err)
 	}
 	plan, _ := fixture.coordinator.Plan(ctx)
-	if plan.State.Milestones["m-impl"] == "" || plan.Milestones[0].Status != sessionstore.TeamworkMilestoneDone {
+	if plan.State.Milestones["m-impl"] == "" || plan.Milestones[0].Status != store.TeamworkMilestoneDone {
 		t.Fatalf("里程碑没有落到计划: %+v", plan.Milestones[0])
 	}
 
@@ -424,7 +424,7 @@ func TestCloseReclaimsEveryJobOnTheRoster(t *testing.T) {
 // TestCloseRequiresWorkspaceAndSessionPorts：回收唯一入口是整队收口——缺工作区端口时
 // 必须在收口步 2 显式报错（缺端口 = 显式错误，不是静默跳过）。
 func TestCloseRequiresWorkspaceAndSessionPorts(t *testing.T) {
-	store := &memoryPlanStore{}
+	st := &memoryPlanStore{}
 	manager, err := jobs.New(
 		jobs.WithNamer(testNamer{}),
 		jobs.WithExecutor(WorkerExecutor(&fakeRunner{}, nil, 4)),
@@ -434,8 +434,8 @@ func TestCloseRequiresWorkspaceAndSessionPorts(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = manager.Close(context.Background()) })
 	coordinator, err := New(Options{
-		Key:   sessionstore.Key{ProjectID: "p", SessionID: "s"},
-		Store: store,
+		Key:   store.Key{ProjectID: "p", SessionID: "s"},
+		Store: st,
 		Jobs:  manager,
 	})
 	if err != nil {
@@ -464,7 +464,7 @@ func TestNewRefusesIncompleteWiring(t *testing.T) {
 	if _, err := New(Options{}); err == nil {
 		t.Fatal("缺会话作用域必须被拒")
 	}
-	if _, err := New(Options{Key: sessionstore.Key{ProjectID: "p", SessionID: "s"}}); err == nil {
+	if _, err := New(Options{Key: store.Key{ProjectID: "p", SessionID: "s"}}); err == nil {
 		t.Fatal("缺 PlanStore 必须被拒")
 	}
 	manager, err := jobs.New(jobs.WithNamer(testNamer{}))
@@ -472,7 +472,7 @@ func TestNewRefusesIncompleteWiring(t *testing.T) {
 		t.Fatalf("jobs.New: %v", err)
 	}
 	t.Cleanup(func() { _ = manager.Close(context.Background()) })
-	if _, err := New(Options{Key: sessionstore.Key{ProjectID: "p", SessionID: "s"}, Store: &memoryPlanStore{}}); err == nil {
+	if _, err := New(Options{Key: store.Key{ProjectID: "p", SessionID: "s"}, Store: &memoryPlanStore{}}); err == nil {
 		t.Fatal("缺 jobs.Manager 必须被拒")
 	}
 }
@@ -546,10 +546,10 @@ func TestCoordinatorCloseSealsBoard(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
-	if plan.State.State != sessionstore.TeamworkStateClosed {
+	if plan.State.State != store.TeamworkStateClosed {
 		t.Fatalf("收口后计划必须标 closed: %+v", plan.State)
 	}
-	if plan.State.ClosedAt == 0 || plan.State.ClosedReason != sessionstore.BoardCloseTeamClose {
+	if plan.State.ClosedAt == 0 || plan.State.ClosedReason != store.BoardCloseTeamClose {
 		t.Fatalf("收口事实必须带 closed_at / closed_reason(team.close): %+v", plan.State)
 	}
 	if len(plan.State.Jobs) != 0 {
@@ -562,16 +562,16 @@ func TestCoordinatorCloseSealsBoard(t *testing.T) {
 	}
 	// 4. 审计：恰好一条 close；旧口径的 retire 审计不再有新写入（常量保留只为读回历史）。
 	closes, retires := 0, 0
-	for _, kind := range fixture.store.kinds() {
+	for _, kind := range fixture.st.kinds() {
 		switch kind {
-		case sessionstore.TeamworkEventClose:
+		case store.TeamworkEventClose:
 			closes++
-		case sessionstore.TeamworkEventRetire:
+		case store.TeamworkEventRetire:
 			retires++
 		}
 	}
 	if closes != 1 || retires != 0 {
-		t.Fatalf("整队收口的审计应恰好一条 close、零条 retire: closes=%d retires=%d %v", closes, retires, fixture.store.kinds())
+		t.Fatalf("整队收口的审计应恰好一条 close、零条 retire: closes=%d retires=%d %v", closes, retires, fixture.st.kinds())
 	}
 	close(eventually)
 }
@@ -588,7 +588,7 @@ func TestCloseIdempotentAlreadyClosed(t *testing.T) {
 		t.Fatalf("首次收口应成功且不报 already_closed: alreadyClosed=%v err=%v", alreadyClosed, err)
 	}
 	callsBefore := len(fixture.calls.snapshot())
-	auditBefore := len(fixture.store.kinds())
+	auditBefore := len(fixture.st.kinds())
 	alreadyClosed, err := fixture.coordinator.Close(ctx)
 	if err != nil {
 		t.Fatalf("重复收口必须幂等（不是错误路径）: %v", err)
@@ -599,17 +599,17 @@ func TestCloseIdempotentAlreadyClosed(t *testing.T) {
 	if got := len(fixture.calls.snapshot()); got != callsBefore {
 		t.Fatalf("重复收口不得再退场/封板: 端口调用 %d → %d (%v)", callsBefore, got, fixture.calls.snapshot())
 	}
-	if got := len(fixture.store.kinds()); got != auditBefore {
-		t.Fatalf("重复收口不得重复落审计: 审计行 %d → %d (%v)", auditBefore, got, fixture.store.kinds())
+	if got := len(fixture.st.kinds()); got != auditBefore {
+		t.Fatalf("重复收口不得重复落审计: 审计行 %d → %d (%v)", auditBefore, got, fixture.st.kinds())
 	}
 	closes := 0
-	for _, kind := range fixture.store.kinds() {
-		if kind == sessionstore.TeamworkEventClose {
+	for _, kind := range fixture.st.kinds() {
+		if kind == store.TeamworkEventClose {
 			closes++
 		}
 	}
 	if closes != 1 {
-		t.Fatalf("close 审计恰好一条，实际 %d: %v", closes, fixture.store.kinds())
+		t.Fatalf("close 审计恰好一条，实际 %d: %v", closes, fixture.st.kinds())
 	}
 }
 

@@ -19,7 +19,7 @@ import (
 
 // Attachment 是一次「待随图」。
 type Attachment struct {
-	// Ref 指向会话媒体分区（sessionstore 的 media:<hash>），用于溯源与界面展示。
+	// Ref 指向会话媒体分区（store 的 media:<hash>），用于溯源与界面展示。
 	Ref string
 	// Label 是给人看的来源说明，例如 `screenshot 1280x720`。
 	Label string

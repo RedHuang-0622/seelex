@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/backend/limit/accountwindow"
 )
 
 // 「每账号上下文窗口」可调面的用例（service_account_window.go）。
@@ -19,7 +19,7 @@ import (
 //  4. 宿主没装配落盘口时，改的值只在本次运行有效（不算失败）；没实现 AccountWindowPort
 //     的宿主得到一句明确错误，而不是静默无效。
 //
-// 不在这里测的：覆盖层的真实落盘（根包 runtime_limits_overlay_test.go）、优先级的
+// 不在这里测的：覆盖层的真实落盘（backend/limit/overlay/overlay_test.go）、优先级的
 // 三跳（seelebridge 的 TestRuntimeAccountWindowPriority）、前端控件接线
 // （gui/frontend/dist 下的设置面用例）。
 
@@ -195,12 +195,12 @@ func TestSetAccountWindowNeedsRuntimePort(t *testing.T) {
 
 // TestAccountContextWindowPresetsAreUsable：挡位表归后端（前端只渲染它），且每个挡位都过校验。
 func TestAccountContextWindowPresetsAreUsable(t *testing.T) {
-	presets := seelexctx.AccountContextWindowPresets()
+	presets := accountwindow.Presets()
 	if len(presets) == 0 {
 		t.Fatal("挡位表不能为空")
 	}
 	for index, preset := range presets {
-		if err := seelexctx.ValidateAccountContextWindow(preset); err != nil {
+		if err := accountwindow.Validate(preset); err != nil {
 			t.Fatalf("挡位 %d 通不过校验：%v", preset, err)
 		}
 		if index > 0 && preset <= presets[index-1] {

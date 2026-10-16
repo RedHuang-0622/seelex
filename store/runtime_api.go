@@ -1,0 +1,331 @@
+// 运行期装配 API：Router 面向运行期（resume/compact/retention/lifecycle）与
+// 数据通道（栈）的能力出口。
+//
+// 通道口径：栈通道由每个后端实现（Repository.stackJournal），不存在「某后端
+// 没有栈」的运行期分支；wire 装配 / compact 帧 / retention 建议 / LRU 删除 /
+// lifecycle 恢复仍只在会话存储布局生效（非该布局返回 ok=false），把它们做成
+// 后端无关是设计稿待办（见 conformance-checklist §4）。
+package store
+
+import (
+	"strings"
+
+	"github.com/RedHuang-0622/Seele/types"
+)
+
+// RetentionAdvisory 是 retention 水位建议（运行期只读，不自动删）。
+type RetentionAdvisory struct {
+	Layout     string `json:"layout"`
+	FrameCount int    `json:"frame_count"`
+	Threshold  int    `json:"threshold"`
+	RawBytes   uint64 `json:"raw_bytes"`
+	AlertBytes uint64 `json:"alert_bytes"`
+	Eligible   bool   `json:"eligible"`
+	Mode       string `json:"mode"`
+}
+
+// jsonRepositoryLocked 返回当前 repository（若为 JSON 会话存储布局）。
+func (router *Router) jsonRepositoryLocked() (*jsonRepository, bool) {
+	repository, ok := router.repository.(*jsonRepository)
+	return repository, ok
+}
+
+// jsonRepository 在 RLock 下返回当前 repository 快照（若为 JSON 会话存储
+// 布局）。运行期读路径必须走这里：Configure/Close 会在写锁内 swap
+// repository，裸读 router.repository 会与 swap 形成数据竞争。
+func (router *Router) jsonRepository() (*jsonRepository, bool) {
+	router.mu.RLock()
+	defer router.mu.RUnlock()
+	return router.jsonRepositoryLocked()
+}
+
+// AssembleWireWorkspace 对会话执行 wire 装配（frame 摘要 + tail + 最近 K
+// 条尝试）。非该布局返回 ok=false。
+func (router *Router) AssembleWireWorkspace(projectID, sessionID string, budget, k int) ([]types.Message, bool, error) {
+	var messages []types.Message
+	var supported bool
+	ok, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, projectID string) error {
+		var inner error
+		messages, supported, inner = repository.assembleWireWorkspace(Key{ProjectID: projectID, SessionID: sessionID}, budget, k)
+		return inner
+	})
+	if !ok {
+		return nil, false, err
+	}
+	return messages, supported, err
+}
+
+// CommitCompactFrameWorkspace 把运行期压缩帧写入 compact 通道（帧摘要
+// 供 wire 装配；非该布局返回 ok=false）。
+func (router *Router) CommitCompactFrameWorkspace(projectID, sessionID string, frame CompactFrame) (bool, error) {
+	var committed bool
+	ok, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, projectID string) error {
+		var inner error
+		committed, inner = repository.commitCompactFrameWorkspace(Key{ProjectID: projectID, SessionID: sessionID}, frame)
+		return inner
+	})
+	if !ok {
+		return false, err
+	}
+	return committed, err
+}
+
+// RetentionAdvisoryWorkspace 返回会话 retention 水位建议（v8；非 v8 返回
+// Layout=legacy 的零值建议）。
+func (router *Router) RetentionAdvisoryWorkspace(projectID, sessionID string) (RetentionAdvisory, error) {
+	var advisory RetentionAdvisory
+	ok, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, projectID string) error {
+		var inner error
+		advisory, inner = repository.retentionAdvisoryWorkspace(Key{ProjectID: projectID, SessionID: sessionID})
+		return inner
+	})
+	if !ok {
+		return RetentionAdvisory{Layout: "legacy"}, err
+	}
+	return advisory, err
+}
+
+// LRUDeleteWorkspace 用户确认后删除 watermark 前连续前缀（v8；manual 模式
+// 未确认返回 ErrRetentionRequiresConfirm）。
+func (router *Router) LRUDeleteWorkspace(projectID, sessionID string, upToSeq uint64, confirmed bool) (bool, error) {
+	var removed bool
+	ok, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, projectID string) error {
+		var inner error
+		removed, inner = repository.lruDeleteWorkspace(Key{ProjectID: projectID, SessionID: sessionID}, upToSeq, confirmed)
+		return inner
+	})
+	if !ok {
+		return false, err
+	}
+	return removed, err
+}
+
+// LifecycleRecoverWorkspace 重启恢复 lifecycle 队列（发送未确认项回
+// queued；message 已发布项出队）。返回恢复条数 + ok。
+func (router *Router) LifecycleRecoverWorkspace(projectID, sessionID string) (int, bool, error) {
+	var recovered int
+	var supported bool
+	ok, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, projectID string) error {
+		var inner error
+		recovered, supported, inner = repository.lifecycleRecoverWorkspace(Key{ProjectID: projectID, SessionID: sessionID})
+		return inner
+	})
+	if !ok {
+		return 0, false, err
+	}
+	return recovered, supported, err
+}
+
+// PendingMessageTailWorkspace 探测 message 通道的草稿尾部（seq > head
+// last_seq 的未提交行）：只读，不发布、不清理。non-v8 返回 ok=false。
+func (router *Router) PendingMessageTailWorkspace(projectID, sessionID string) (PendingTailReport, bool, error) {
+	var report PendingTailReport
+	var supported bool
+	ok, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, projectID string) error {
+		var inner error
+		report, supported, inner = repository.pendingTailWorkspace(Key{ProjectID: projectID, SessionID: sessionID})
+		return inner
+	})
+	if !ok {
+		return PendingTailReport{}, false, err
+	}
+	return report, supported, err
+}
+
+// RecoverPendingMessageTailWorkspace 显式恢复草稿尾部（L2）：基座一致时
+// 把未提交行提升为已发布（原子发布 head）；基座断裂时只报告不发布。
+// 返回报告（Status = clean/recovered/gap）；non-v8 返回 ok=false。
+func (router *Router) RecoverPendingMessageTailWorkspace(projectID, sessionID string) (PendingTailReport, bool, error) {
+	var report PendingTailReport
+	var supported bool
+	ok, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, projectID string) error {
+		var inner error
+		report, supported, inner = repository.recoverPendingTailWorkspace(Key{ProjectID: projectID, SessionID: sessionID})
+		return inner
+	})
+	if !ok {
+		return PendingTailReport{}, false, err
+	}
+	return report, supported, err
+}
+
+// DiscardPendingMessageTailWorkspace 显式清理草稿尾部（等价于提交路径的
+// reap，但可观测、可审计）。返回被丢弃的行数；non-v8 返回 ok=false。
+func (router *Router) DiscardPendingMessageTailWorkspace(projectID, sessionID string) (PendingTailReport, bool, error) {
+	var report PendingTailReport
+	var supported bool
+	ok, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, projectID string) error {
+		var inner error
+		report, supported, inner = repository.discardPendingTailWorkspace(Key{ProjectID: projectID, SessionID: sessionID})
+		return inner
+	})
+	if !ok {
+		return PendingTailReport{}, false, err
+	}
+	return report, supported, err
+}
+
+// QueueEnqueueWorkspace 把一条排队输入镜像落盘（durable queue 写入侧；
+// 同 requestID 重放幂等）。非 v8 无操作。
+func (router *Router) QueueEnqueueWorkspace(projectID, sessionID, requestID, content string) error {
+	ok, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, projectID string) error {
+		_, inner := repository.queueEnqueueWorkspace(Key{ProjectID: projectID, SessionID: sessionID}, requestID, content)
+		return inner
+	})
+	if !ok {
+		return err
+	}
+	return err
+}
+
+// QueueMarkConsumedWorkspace 把 lifecycle 队列中全部待发送项标记为被 turnID
+// 这一轮消费（提升批次时调用；非 v8 无操作）。
+func (router *Router) QueueMarkConsumedWorkspace(projectID, sessionID, turnID string) error {
+	ok, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, projectID string) error {
+		_, inner := repository.queueMarkConsumedWorkspace(Key{ProjectID: projectID, SessionID: sessionID}, turnID)
+		return inner
+	})
+	if !ok {
+		return err
+	}
+	return err
+}
+
+// QueueConfirmConsumedWorkspace 该轮 message 已发布 → 消费项出队。
+func (router *Router) QueueConfirmConsumedWorkspace(projectID, sessionID, turnID string) error {
+	ok, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, projectID string) error {
+		_, inner := repository.queueConfirmConsumedWorkspace(Key{ProjectID: projectID, SessionID: sessionID}, turnID)
+		return inner
+	})
+	if !ok {
+		return err
+	}
+	return err
+}
+
+// QueueFailConsumedWorkspace 该轮未发布（失败）→ 消费项内容回草稿并出队。
+func (router *Router) QueueFailConsumedWorkspace(projectID, sessionID, turnID string) error {
+	ok, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, projectID string) error {
+		_, inner := repository.queueFailConsumedWorkspace(Key{ProjectID: projectID, SessionID: sessionID}, turnID)
+		return inner
+	})
+	if !ok {
+		return err
+	}
+	return err
+}
+
+// QueueItemsWorkspace 读 lifecycle 队列投影（UI/诊断）。
+func (router *Router) QueueItemsWorkspace(projectID, sessionID string) ([]QueueItem, bool, error) {
+	var rows []QueueItem
+	var supported bool
+	ok, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, projectID string) error {
+		var inner error
+		rows, supported, inner = repository.queueItemsWorkspace(Key{ProjectID: projectID, SessionID: sessionID})
+		return inner
+	})
+	if !ok {
+		return nil, false, err
+	}
+	return rows, supported, err
+}
+
+// QueueRecoverItemsWorkspace 重启恢复队列并返回条目级结果（重发项/出队项/
+// 仍在队列项）。
+func (router *Router) QueueRecoverItemsWorkspace(projectID, sessionID string) (QueueRecoveryReport, bool, error) {
+	var report QueueRecoveryReport
+	var supported bool
+	ok, err := router.withJSONRepositoryAt(projectID, func(repository *jsonRepository, projectID string) error {
+		var inner error
+		report, supported, inner = repository.queueRecoverItemsWorkspace(Key{ProjectID: projectID, SessionID: sessionID})
+		return inner
+	})
+	if !ok {
+		return QueueRecoveryReport{}, false, err
+	}
+	return report, supported, err
+}
+
+// ---------- 栈通道（my_design §2.4/§3.2）----------
+
+// StackPush 把一批条目压入指定栈（batchID 为空 = 本次入栈自成一批）。
+func (router *Router) StackPush(projectID, sessionID string, kind StackKind, batchID string, items []StackItemInput) (StackMutation, error) {
+	return router.stackMutate(projectID, sessionID, kind, stackPushMessage(kind, batchID, items))
+}
+
+// StackSetStatus 更新栈条目状态；所属批次全部完成时整批弹栈归档。
+func (router *Router) StackSetStatus(projectID, sessionID string, kind StackKind, itemID, status string) (StackMutation, error) {
+	return router.stackMutate(projectID, sessionID, kind, stackSetStatusMessage(itemID, status))
+}
+
+// StackPopTop 弹出栈顶条目（goal LIFO）。
+func (router *Router) StackPopTop(projectID, sessionID string, kind StackKind, itemID, status string) (StackMutation, error) {
+	return router.stackMutate(projectID, sessionID, kind, stackPopTopMessage(itemID, status))
+}
+
+// StackReplace 用新的条目集合替换 active 栈，并推导出逐条迁移。
+func (router *Router) StackReplace(projectID, sessionID string, kind StackKind, items []StackItemInput, closedStatus string) (StackMutation, error) {
+	return router.stackMutate(projectID, sessionID, kind, stackReplaceMessage(kind, items, closedStatus))
+}
+
+// stackMutate 是栈通道的统一写入口：变更以闭包（actor 消息）交给当前后端的
+// 会话提交临界区执行 → 单写者，可变投影不会被第二个 goroutine 同时触碰。
+func (router *Router) stackMutate(projectID, sessionID string, kind StackKind, mutate func(*stackState) (StackMutation, error)) (StackMutation, error) {
+	var mutation StackMutation
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		var err error
+		mutation, err = stackCommit(repository.stackJournal(), Key{ProjectID: projectID, SessionID: sessionID}, kind, mutate)
+		return err
+	})
+	return mutation, err
+}
+
+// StackActive 返回指定栈当前 active 条目（按 seq 升序）。
+func (router *Router) StackActive(projectID, sessionID string, kind StackKind) ([]StackItemRecord, error) {
+	var rows []StackItemRecord
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		var err error
+		rows, err = stackReadActive(repository.stackJournal(), Key{ProjectID: projectID, SessionID: sessionID}, kind)
+		return err
+	})
+	return rows, err
+}
+
+// StackHistory 返回指定栈的归档条目。
+func (router *Router) StackHistory(projectID, sessionID string, kind StackKind) ([]StackItemRecord, error) {
+	var rows []StackItemRecord
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		var err error
+		rows, err = stackReadHistory(repository.stackJournal(), Key{ProjectID: projectID, SessionID: sessionID}, kind)
+		return err
+	})
+	return rows, err
+}
+
+// StackVerify 校验栈通道 head 水位与数据计数一致（M5 巡检的栈通道部分）。
+func (router *Router) StackVerify(projectID, sessionID string) error {
+	return router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		return stackVerify(repository.stackJournal(), Key{ProjectID: projectID, SessionID: sessionID})
+	})
+}
+
+// StackStorageStats 返回栈通道的延迟归因：栈锁等待与 active / history / head /
+// guide / EVENT 各数据域耗时，用于回答「延迟落在哪个文件」。
+func (router *Router) StackStorageStats() (stackJournalStats, error) {
+	var stats stackJournalStats
+	err := router.withRepository(func(repository Repository, projectID string) error {
+		stats = repository.stackJournal().stats()
+		return nil
+	})
+	return stats, err
+}
+
+// ForkStacks 按 message 锚把父会话三栈重建进子会话（§8.1 + T-FK-02）。
+// fromSeq 必须 ≥ 父会话 LRU watermark（I7），否则显式报错、不产生半成品栈。
+func (router *Router) ForkStacks(parentProjectID, parentSessionID, childProjectID, childSessionID string, fromSeq uint64) error {
+	return router.withRepositoryAt(childProjectID, func(repository Repository, childProjectID string) error {
+		return stackFork(repository.stackJournal(),
+			Key{ProjectID: strings.TrimSpace(parentProjectID), SessionID: parentSessionID},
+			Key{ProjectID: childProjectID, SessionID: childSessionID}, fromSeq)
+	})
+}

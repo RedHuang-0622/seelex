@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 func TestNewTestServiceCleansUpCatalogWorker(t *testing.T) {

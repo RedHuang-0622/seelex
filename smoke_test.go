@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/seelebridge"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 func TestSmokeLLM(t *testing.T) {
@@ -31,7 +31,7 @@ func TestSmokeLLM(t *testing.T) {
 	// 2. 主会话（session.NewSession）
 	tmpDir, _ := os.MkdirTemp("", "seelex-smoke")
 	defer os.RemoveAll(tmpDir)
-	store, err := sessionstore.NewSessionStore(tmpDir)
+	st, err := store.NewSessionStore(tmpDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestSmokeLLM(t *testing.T) {
 	if elapsed > 3*time.Second {
 		t.Logf("⚠ 耗时 %.1fs > 3s，需要优化", elapsed.Seconds())
 	}
-	if store != nil {
-		_ = store.FrameworkStore()
+	if st != nil {
+		_ = st.FrameworkStore()
 	}
 }

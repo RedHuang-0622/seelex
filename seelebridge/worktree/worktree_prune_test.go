@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // TestPruneRemovesOrphanWorktreesAndKeepsDirtyOnes 钉住「残留兜底清理器」的两条判据：
@@ -107,9 +107,9 @@ func TestRestoreSkipsWorktreesThatNoLongerExist(t *testing.T) {
 		t.Fatalf("前置条件失败：%q 竟然存在", missing)
 	}
 
-	mgr.Restore([]sessionstore.NodeSessionRecord{
-		{NodeID: "alive", Worktree: sessionstore.NodeWorktreeRecord{Path: alive, Branch: "seelex/alive"}},
-		{NodeID: "ghost", Worktree: sessionstore.NodeWorktreeRecord{Path: missing, Branch: "seelex/ghost"}},
+	mgr.Restore([]store.NodeSessionRecord{
+		{NodeID: "alive", Worktree: store.NodeWorktreeRecord{Path: alive, Branch: "seelex/alive"}},
+		{NodeID: "ghost", Worktree: store.NodeWorktreeRecord{Path: missing, Branch: "seelex/ghost"}},
 	})
 
 	if _, ok := mgr.Info("alive"); !ok {

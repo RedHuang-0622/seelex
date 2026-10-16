@@ -7,9 +7,9 @@ package state
 import (
 	"sync"
 
-	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/event"
 	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/contract"
 )
 
 // New 构造共享状态内核。deps 必须是装配根已补齐默认值后的依赖集合；

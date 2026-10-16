@@ -9,7 +9,7 @@ import (
 
 	frameworkevent "github.com/RedHuang-0622/Seele/event"
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // mainAgentID 是主会话在 agent.EventLocator 中的稳定标识（事件定位用）。
@@ -19,12 +19,12 @@ const mainAgentID = "seelex-main"
 // NodeID 为空表示计划级状态（PlanStatus 投影），否则为节点级状态
 // （NodeStatus 投影）。Status 取值与 PlanNodeStatus 对齐：
 // queued | running | completed | failed | aborted | skipped | canceled | panicked。
-// PlanNodeEvent ? plan ????????????????? application/contract/dto??
+// PlanNodeEvent ? plan ????????????????? contract/dto??
 type PlanNodeEvent = dto.PlanNodeEvent
 
 // planEventSink 实现 event.Sink：追加到内存事件库（append-only），
 // 并把事件投影为 PlanNodeEvent 转发给订阅者（HandlePlanNodeComplete
-// 从框架回调改为投影订阅）。持久化（sessionstore 事件库）经 persister
+// 从框架回调改为投影订阅）。持久化（store 事件库）经 persister
 // 钩子接入：slice 4 保持内存事件库 + 投影订阅，会话级事件落库随
 // 会话恢复流程（slice 6+）接线。
 type EventSink struct {
@@ -148,7 +148,7 @@ func (s *EventSink) Subscribe(fn func(PlanNodeEvent)) {
 	s.mu.Unlock()
 }
 
-// SetPersister 安装事件持久化钩子（sessionstore 事件库接线点）。
+// SetPersister 安装事件持久化钩子（store 事件库接线点）。
 func (s *EventSink) SetPersister(fn func(context.Context, frameworkevent.Event) error) {
 	if s == nil {
 		return

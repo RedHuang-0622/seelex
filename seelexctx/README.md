@@ -84,12 +84,12 @@ flowchart LR
 
 | 配置键 | 作用 | 注入点 |
 |---|---|---|
-| `context_window` | **覆盖账号档的上下文窗口**（token；0 = 不覆盖）——窗口是预算的基数，配在这里才随出厂档分发；覆盖是全局的（所有账号含子代理一刀切） | `Limits.ContextWindow` → `seelebridge.Runtime.ContextWindow()`（`ContextBudgetFor` 消费它） |
+| `context_window` | **覆盖账号档的上下文窗口**（token；0 = 不覆盖）——窗口是预算的基数，配在这里才随出厂档分发；覆盖是全局的（所有账号含子代理一刀切） | `limit.Limits.ContextWindow` → `seelebridge.Runtime.ContextWindow()`（`ContextBudgetFor` 消费它） |
 | `context_safety_reserve_divisor` | 安全预留 = 窗口 ÷ 该值，决定预算基数 | `NewContextWindowPolicy(window, output, r.limits)` |
 | `context_hard_percent` | **自动压缩的唯一阈值**：请求估算到达 `预算 × %`（代码默认 98；本仓 2026-10-15 起 90）即折出保留窗口外的 transcript 前缀（装配层执行） | 装配层 `ContextBudgetFor`；`NewContextWindowPolicy` 为同一公式的导出面 |
-| `context_soft_percent` | **已不参与判据**（2026-09-30 取消软线提前量）：本包 `ContextWindowPolicy.SoftThreshold()` 仍按它算（公式面）；装配层的报表/进度字段 `SoftThreshold` 按硬线比例产出，因此 `soft=` 与硬线同值。该键保留仅为兼容旧配置，**且必须 < `context_hard_percent`**（否则 `LoadLimits` 启动期报错）——本仓 2026-10-15 随 hard 降到 90 一并把 soft 由 95 调到 85 | 同上 |
+| `context_soft_percent` | **已不参与判据**（2026-09-30 取消软线提前量）：本包 `ContextWindowPolicy.SoftThreshold()` 仍按它算（公式面）；装配层的报表/进度字段 `SoftThreshold` 按硬线比例产出，因此 `soft=` 与硬线同值。该键保留仅为兼容旧配置，**且必须 < `context_hard_percent`**（否则 `limit.LoadLimits` 启动期报错）——本仓 2026-10-15 随 hard 降到 90 一并把 soft 由 95 调到 85 | 同上 |
 | `context_target_percent` | 压缩后落点，同时是保留区硬上限（默认 80；`hard − target` 即每次压缩留给下一轮的余量） | 同上 |
-| `max_tool_result_chars` | 单条工具结果多大算"超大"（→ 归档为 `result_ref` + 省略警告，模型用 `read_tool_result` 回读）。**字符数，不是 token、也不是压缩阈值**——它只管"单条结果太长"，与上面那组 `context_*` 比例不是一套数 | `ControllerOptions.MaxToolResultChars` 与 `NewToolResultProcessor(limit, …)` |
+| `max_tool_result_chars` | 单条工具结果多大算"超大"（→ 归档为 `result_ref` + 省略警告，模型用 `read_tool_result` 回读）。**字符数，不是 token、也不是压缩阈值**——它只管"单条结果太长"，与上面那组 `context_*` 比例不是一套数 | `ControllerOptions.MaxToolResultChars` 与 `NewToolResultProcessor(maxToolResultChars, …)` |
 
 **触发点**：压缩由装配层在**回合开始前**的同一次装配里完成（判据 → 读数闸 → 装配 →
 推帧 → 落记录）；`/compact` 命令与 `compact_context` 工具是同一落点的显式入口。
@@ -97,8 +97,8 @@ flowchart LR
 **超大工具结果兜底归档**，不再折帧——回合内的工作历史拿不到与 wire 同源的字节，
 拿它做前缀重放会付一次全价调用却命中不到缓存（2026-09-30 现场）。
 
-**注入而非全局**：`Limits` 类型属于本包，`application/core/internal/limits` 只是这
-同一份结构的进程持有者（它 import 本包，反向即成环）。因此沿用 `FrameCarryTokens`
+**注入而非全局**：`Limits` 类型已于 2026-10-16（M2-A）迁到基座包 `backend/limit`，`limit.Apply`/`limit.Get` 是这
+同一份结构的进程持有者（与类型同包，不再有反向依赖环）。因此沿用 `FrameCarryTokens`
 已在走的"调用方注入"通路，不再新增第二份进程级持有者。
 
 **回归防线**：`controller_limits_test.go` 钉住三件事——改比例真的改变软/硬/目标

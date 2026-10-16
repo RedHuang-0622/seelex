@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/RedHuang-0622/seelex/backend/limit/policy"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -10,8 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-
-	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 )
 
 // TestEveryRegisteredToolDeclaresGroups 是打点 K-0 的判据（TC-K0-1）：
@@ -44,14 +43,14 @@ func TestEveryRegisteredToolDeclaresGroups(t *testing.T) {
 	sort.Strings(names)
 
 	for _, name := range names {
-		group, routed := seeltools.RoutePermissionGroup(seeltools.DefaultPermissionGroupList(), name)
+		group, routed := policy.RoutePermissionGroup(policy.DefaultPermissionGroupList(), name)
 		if !routed {
 			t.Errorf("工具 %s（注册于 %s）未分封：它没有权限策略、也没有并发分类。"+
-				"请在 tools/permission_policy.go 的 DefaultPermissionGroupList 里给它一个组",
+				"请在 tools/permission_policy.go 的 policy.DefaultPermissionGroupList 里给它一个组",
 				name, sites[name])
 			continue
 		}
-		if meta := seeltools.DeclaredToolMeta(name); len(meta.Groups) != 1 || meta.Groups[0] != group.Name {
+		if meta := policy.DeclaredToolMeta(name); len(meta.Groups) != 1 || meta.Groups[0] != group.Name {
 			t.Errorf("工具 %s 的簇属声明 %v 与路由组 %q 不一致（声明路径必须与路由组表同源）",
 				name, meta.Groups, group.Name)
 		}

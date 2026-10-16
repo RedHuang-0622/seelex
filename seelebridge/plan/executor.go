@@ -15,9 +15,9 @@ import (
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
 	workplancheckpoint "github.com/RedHuang-0622/Seele/workplan/runtime/checkpoint"
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
+	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
 // ExecutorDeps 是 Executor 的能力注入点（闭包均指向 Runtime 装配面，
@@ -25,7 +25,7 @@ import (
 type ExecutorDeps struct {
 	Model               string
 	Heartbeat           time.Duration
-	Limits              seelexctx.Limits
+	Limits              limit.Limits
 	PlanDecisionTimeout time.Duration
 	Accounts            func() []model.AccountSpec
 	LoadPlanDefinition  func() (types.Tool, bool)
@@ -300,7 +300,7 @@ func (executor *Executor) SetPlanNodeCallback(cb func(PlanNodeEvent)) {
 	executor.events.Subscribe(cb)
 }
 
-// SetEventPersister 安装执行事实持久化钩子（sessionstore 事件库）。
+// SetEventPersister 安装执行事实持久化钩子（store 事件库）。
 func (executor *Executor) SetEventPersister(fn func(context.Context, frameworkevent.Event) error) {
 	if executor == nil {
 		return
@@ -328,7 +328,7 @@ func (executor *Executor) CurrentEventError() frameworkevent.ErrorHandler {
 	return executor.eventError
 }
 
-// SetCheckpointStore 装配 workplan checkpoint 持久化（sessionstore.CheckpointStore
+// SetCheckpointStore 装配 workplan checkpoint 持久化（store.CheckpointStore
 // 或其他实现）。未装配时 plan_run 保持原有行为（无快照、无 Resume 入口）。
 func (executor *Executor) SetCheckpointStore(store workplancheckpoint.Store) {
 	if executor == nil {

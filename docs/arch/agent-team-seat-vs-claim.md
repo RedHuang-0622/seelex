@@ -48,7 +48,7 @@
 | 协作介质 | task 行（`Assignee` / `Participants` / `Trace`）+ 子代理摘要 + worktree 合并 | **唯一帧账本**（同一 `seq` 空间，逐帧带 `role_name`）+ 角色 lifecycle |
 | 执行单元 | plan 节点 / fork 子代理（DAG，可并发） | 席位回合（`roleTurnSeat.Act` → `RunRoleTurn`） |
 | 「做完」的判据 | 任务终态 + 有界自述摘要（+ worktree 提交/合并痕迹） | goal `acceptance` + 终态 gate 的裁决（`verdict_done` 才收口） |
-| 主要代码锚点 | `seelebridge/task/task.go`、`application/core/work_table.go`、`seelebridge/fork/tool.go`、`seelebridge/worktree/worktree_manager.go` | `application/core/agentteam/{spec,scheduler,runtime,factory}.go`、`application/core/goal_coordinator.go`、`application/core/goal/gate.go`、`sessionstore/role_session.go` |
+| 主要代码锚点 | `seelebridge/task/task.go`、`application/core/work_table.go`、`seelebridge/fork/tool.go`、`seelebridge/worktree/worktree_manager.go` | `application/core/agentteam/{spec,scheduler,runtime,factory}.go`、`application/core/goal_coordinator.go`、`application/core/goal/gate.go`、`store/role_session.go` |
 
 **认领的确切语义（B）**：`attachParticipantLocked` 里，「认领」= **最后一个接管者成为当前 `Assignee`**，
 名单只增不减，没有 lease / TTL / unclaim / 排他检查（`seelebridge/task/task.go`）。
@@ -114,14 +114,14 @@ flowchart TB
    `seelebridge/fork/bind_subagent_task_test.go`）。
 3. **上下文口径可算、有界、可展示**：切点 `C` 的计算式、端点语义（`seq > C`）、
    main 恒 `C=0`、缺 `compact_ref` 硬报错而不静默兼容、以及前端把「不在区间内」的行渲染成占位 `—`
-   ——这套口径让「它当时能看到什么」变成可核对的事实（B：`sessionstore/role_session.go`；
+   ——这套口径让「它当时能看到什么」变成可核对的事实（B：`store/role_session.go`；
    数据流详见 [`2026-09-16-team-work-record-dataflow/README.md`](../2026-09-16-team-work-record-dataflow/README.md)）。
 4. **质量对抗面是结构性的**：ADVISOR 座位由 role kind 派生（改名不丢座位），指令与裁决落在同一账本，
    且在**产出它的那一回合**就可见（B/C：`application/core/goal_coordinator.go`、
    [`2026-09-16-advisor-verdict-visible-immediately.md`](../devlog/2026-09-16-advisor-verdict-visible-immediately.md)）。
 5. **人类控制面中途可得**：会话粒度权限档 `manual/edit/auto/full`（升序 = 自动度递增，只剪 `ask` 规则、
    从不新增 allow、从不触碰 deny；`full` 只对 root 短路，员工/子代理判定链一字不改），
-   外加审批预筛的「默认拒绝兜底」（B/C：`seelebridge/tools/permission_tiers.go`、
+  外加审批预筛的「默认拒绝兜底」（B/C：`backend/limit/policy/tiers.go`、
    [`2026-09-16-session-permission-tiers.md`](../devlog/2026-09-16-session-permission-tiers.md)、
    [`agent-permission-subjects.md`](agent-permission-subjects.md)）。
 6. **恢复语义干净**：环是可重建的派生态（`Runtime.Reset` 只清 `stopped/round/noProgress`，
@@ -226,7 +226,7 @@ flowchart TB
 
 | 主张 | 证据 |
 | --- | --- |
-| 上下文口径可算 | `sessionstore/role_session.go`（切点计算 + 缺帧硬报错）；`TestRoleSnapshotMarksRowsOutsidePrefixMatch`、`TestAssembleRoleWireForMainIsMainSessionContext` |
+| 上下文口径可算 | `store/role_session.go`（切点计算 + 缺帧硬报错）；`TestRoleSnapshotMarksRowsOutsidePrefixMatch`、`TestAssembleRoleWireForMainIsMainSessionContext` |
 | 队友在 goal 那一回合入伙 | `TestGoalBeginJoinsTeammatesAtGoalTurn` |
 | 裁决不靠「下一次用户回合」 | `TestAdvisorVerdictVisibleInProducingTurn` |
 | 座位按 kind 派生（改名不丢座位） | `goal_seats_test.go`（`TestSeatPlanFollowsRoleKindNotRoleName` 等） |
@@ -261,13 +261,13 @@ flowchart TB
 | --- | --- |
 | `go test ./seelebridge/task -run TestTaskRegistryPassiveIdentityAndClaim -count=1 -v` | PASS（认领语义） |
 | `go test ./application/core -run "TestGoalBeginJoinsTeammatesAtGoalTurn\|TestAdvisorVerdictVisibleInProducingTurn\|TestRingEscapeClosesGoalAndArchivesTLHistory\|TestRoleTurnSeatPassesRoleIdentityToExecutionFace" -count=1 -v` | 4/4 PASS |
-| `go test ./sessionstore -run TestRoleSnapshotMarksRowsOutsidePrefixMatch -count=1 -v` | PASS（切点与区间计数） |
+| `go test ./store -run TestRoleSnapshotMarksRowsOutsidePrefixMatch -count=1 -v` | PASS（切点与区间计数） |
 
 ### 7.B 静态锚点（B 类，本次只读）
 
 `application/core/agentteam/{spec,scheduler,runtime,factory,presets}.go`、
 `application/core/goal/{gate,record,stack}.go`、`application/core/goal_coordinator.go`、
-`application/core/goal_service.go`、`application/core/work_table.go`、`sessionstore/role_session.go`、
+`application/core/goal_service.go`、`application/core/work_table.go`、`store/role_session.go`、
 `seelebridge/task/task.go`、`seelebridge/fork/{tool,summary}.go`、`seelebridge/plan/policy.go`、
 `seelebridge/worktree/worktree_manager.go`、`seelebridge/session/subagent_tree.go`、
 `gui/frontend/dist/agent-team-view.js`。静态检索结论：`GatePolicy` / `CompactPolicy` /

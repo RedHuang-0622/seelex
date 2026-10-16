@@ -37,14 +37,14 @@ import (
 
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // TeamworkJobOutputs 实现 teamwork.JobOutputs：把"分配 / 写入 / 清理 / 回读" teammate
 // 作业输出文件落在会话存储的 teamwork 模块目录上。
 type TeamworkJobOutputs struct {
-	store  sessionstore.TeamworkRepository
-	keyFor func(sessionID string) (sessionstore.Key, bool)
+	st     store.TeamworkRepository
+	keyFor func(sessionID string) (store.Key, bool)
 
 	// mu 同时守着 seq（序号）与 live（在册落点），**并且跨文件 I/O 持有**：WriteJobOutput
 	// 与 ClearJobOutputs 因此串行——收口清目录不会与"被取消回合的最后一次写"并发（S5 残边）。
@@ -58,11 +58,11 @@ type TeamworkJobOutputs struct {
 
 // NewTeamworkJobOutputs 装配产品自有输出面。store / keyFor 缺失时返回 nil：调用方据此
 // 不把它交给 teamwork 编排面（缺失 = 交回框架自建，不是降级成半残实现）。
-func NewTeamworkJobOutputs(store sessionstore.TeamworkRepository, keyFor func(sessionID string) (sessionstore.Key, bool)) *TeamworkJobOutputs {
-	if store == nil || keyFor == nil {
+func NewTeamworkJobOutputs(st store.TeamworkRepository, keyFor func(sessionID string) (store.Key, bool)) *TeamworkJobOutputs {
+	if st == nil || keyFor == nil {
 		return nil
 	}
-	return &TeamworkJobOutputs{store: store, keyFor: keyFor, seq: map[string]int{}, live: map[string]string{}}
+	return &TeamworkJobOutputs{st: st, keyFor: keyFor, seq: map[string]int{}, live: map[string]string{}}
 }
 
 // JobOutputPath 分配一次派发的输出文件路径（调用方把它同时交给执行体与
@@ -81,7 +81,7 @@ func (o *TeamworkJobOutputs) JobOutputPath(ctx context.Context, role string) (st
 	if err != nil {
 		return "", err
 	}
-	dir, err := o.store.TeamworkJobOutputDir(ctx, key)
+	dir, err := o.st.TeamworkJobOutputDir(ctx, key)
 	if err != nil {
 		return "", err
 	}
@@ -145,7 +145,7 @@ func (o *TeamworkJobOutputs) ClearJobOutputs(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	dir, err := o.store.TeamworkJobOutputDir(ctx, key)
+	dir, err := o.st.TeamworkJobOutputDir(ctx, key)
 	if err != nil {
 		return err
 	}
@@ -174,7 +174,7 @@ func (o *TeamworkJobOutputs) LatestJobOutputPath(ctx context.Context, role strin
 	if err != nil {
 		return "", false, err
 	}
-	dir, err := o.store.TeamworkJobOutputDir(ctx, key)
+	dir, err := o.st.TeamworkJobOutputDir(ctx, key)
 	if err != nil {
 		return "", false, err
 	}
@@ -233,17 +233,17 @@ func readOutputHead(path string, limit int) (string, error) {
 
 // resolve 解析当前调用的（会话作用域键, 会话 ID）。会话归属与 jobs 的解析同源
 // （telemetry 的 SessionIDFromContext），不引入第二套"当前会话"判据。
-func (o *TeamworkJobOutputs) resolve(ctx context.Context) (sessionstore.Key, string, error) {
-	if o == nil || o.store == nil || o.keyFor == nil {
-		return sessionstore.Key{}, "", errors.New("teamwork: 作业输出面未装配")
+func (o *TeamworkJobOutputs) resolve(ctx context.Context) (store.Key, string, error) {
+	if o == nil || o.st == nil || o.keyFor == nil {
+		return store.Key{}, "", errors.New("teamwork: 作业输出面未装配")
 	}
 	sessionID := strings.TrimSpace(telemetry.SessionIDFromContext(ctx))
 	if sessionID == "" {
-		return sessionstore.Key{}, "", errors.New("teamwork: 当前调用没有会话归属")
+		return store.Key{}, "", errors.New("teamwork: 当前调用没有会话归属")
 	}
 	key, ok := o.keyFor(sessionID)
 	if !ok || strings.TrimSpace(key.ProjectID) == "" || strings.TrimSpace(key.SessionID) == "" {
-		return sessionstore.Key{}, "", fmt.Errorf("teamwork: 无法解析会话 %q 的作用域键", sessionID)
+		return store.Key{}, "", fmt.Errorf("teamwork: 无法解析会话 %q 的作用域键", sessionID)
 	}
 	return key, sessionID, nil
 }

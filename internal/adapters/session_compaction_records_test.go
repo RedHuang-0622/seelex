@@ -7,7 +7,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application/model"
 	"github.com/RedHuang-0622/seelex/session"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // TestSessionPortCompactionRecordsRoundTrip：压缩记录跨重启链路的**存储侧**验收。
@@ -19,7 +19,7 @@ import (
 // 带压缩记录）→ 重建端口（模拟重启）→ 读回。
 func TestSessionPortCompactionRecordsRoundTrip(t *testing.T) {
 	root := t.TempDir()
-	router, err := sessionstore.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,8 +27,8 @@ func TestSessionPortCompactionRecordsRoundTrip(t *testing.T) {
 
 	const projectID = "project-compaction-facts"
 	const sessionID = "sess-compaction-facts"
-	if err := router.SaveCommitWorkspace(projectID, sessionID, sessionstore.Commit{
-		Events: []sessionstore.Event{{Seq: 1, Role: "user", Content: "seed"}},
+	if err := router.SaveCommitWorkspace(projectID, sessionID, store.Commit{
+		Events: []store.Event{{Seq: 1, Role: "user", Content: "seed"}},
 	}); err != nil {
 		t.Fatalf("seed session: %v", err)
 	}

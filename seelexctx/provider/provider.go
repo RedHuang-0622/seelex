@@ -7,7 +7,7 @@
 //
 // 内置实现：
 //   - EngineProvider — 从会话（session.Session）导出
-//   - HistoryProvider — 从 seelectx.DurableHistory 导出（sessionstore 适配）
+//   - HistoryProvider — 从 seelectx.DurableHistory 导出（store 适配）
 //   - TraceProvider  — 从 telemetry 生命周期事件自动提取结构信息
 package provider
 

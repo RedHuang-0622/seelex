@@ -1,6 +1,6 @@
 package goal
 
-import "github.com/RedHuang-0622/seelex/application/contract/dto"
+import "github.com/RedHuang-0622/seelex/contract/dto"
 
 // advisor.go — DS-A2A 治理落地（协议 docs/2026-09-07-seele-a2a-framework-req/ds-a2a-protocol.md §1-§10 的
 // goal 域可运行切片；配套 ds-a2a-detailed-design.md §4）。

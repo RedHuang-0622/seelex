@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // ForkSession 从父会话的指定切断点创建独立子会话，并切换到子会话继续。
@@ -19,7 +19,7 @@ import (
 // 与可达集合裁剪见 `session_runtime/fork.go` 头部（那条路只服务本入口）。
 // **ForkSubagent（`fork_subagents` 子代理派发）不是同一条路**：它经 workplan
 // DAG 建子代理现场，存储侧落 `subagent_<hash>/` 子树、不建独立 blob 目录、
-// 大工具输出引用主会话 `big_tool_result`（见 `sessionstore/fork_store.go` 头部、
+// 大工具输出引用主会话 `big_tool_result`（见 `store/fork_store.go` 头部、
 // my_design §8.1/§8.2），派发链不经过 `PrepareFork`，因此没有这条按 ref 裁剪。
 func (service *Service) ForkSession(parentID string, request model.ForkRequest) (string, error) {
 	parentID = strings.TrimSpace(parentID)

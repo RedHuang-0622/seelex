@@ -5,18 +5,18 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/Seele/types"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/internal/state"
 	"github.com/RedHuang-0622/seelex/application/model"
-	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
 func testCoordinator() *Coordinator {
 	return NewCoordinator(Deps{
 		Core: &state.Core{},
-		Limits: func() seelexctx.Limits {
-			return seelexctx.DefaultLimits()
+		Limits: func() limit.Limits {
+			return limit.DefaultLimits()
 		},
 	})
 }

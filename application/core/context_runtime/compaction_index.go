@@ -4,9 +4,9 @@ import (
 	"context"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
 	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/contract"
 )
 
 // 装配层压缩（prepareExecutionContextFor）把折出保留窗口的区间推进会话压缩栈的

@@ -6,11 +6,11 @@ import (
 	frameworkevent "github.com/RedHuang-0622/Seele/event"
 	approve "github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	subagentsession "github.com/RedHuang-0622/seelex/seelebridge/session"
 	"github.com/RedHuang-0622/seelex/seelexctx"
-	"github.com/RedHuang-0622/seelex/sessionstore"
 	"github.com/RedHuang-0622/seelex/skill"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // RuntimeDeps 是 Runtime 的启动期一次性装配（main.go 装配点一次注入；
@@ -24,11 +24,11 @@ type RuntimeDeps struct {
 	// TurnArchiver 压缩轮次原文归档实现（application 层持久化通道）。
 	TurnArchiver seelexctx.TurnArchiver
 	// ProjectKnowledge 项目级模块语义提供者（nil 关闭 project 块）。
-	ProjectKnowledge func() *sessionstore.ProjectRecord
+	ProjectKnowledge func() *store.ProjectRecord
 	// EventErrorHandler Sink 失败处理器（默认 log.Printf 兜底）。
 	EventErrorHandler frameworkevent.ErrorHandler
 	// EventPersister 执行事实持久化钩子（双轨事件的事实轨：
-	// event.Sink → sessionstore 事件库）。
+	// event.Sink → store 事件库）。
 	EventPersister func(context.Context, frameworkevent.Event) error
 	// PlanApprovalGate plan kind:approve/manual 节点审批门控（延迟读取）。
 	PlanApprovalGate approve.ApprovalGate

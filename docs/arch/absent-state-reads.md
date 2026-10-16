@@ -1,7 +1,7 @@
 # 缺失即状态：模块 head 的读面口径
 
 > 状态：**已实现**（2026-10-15）。来源：`docs/2026-10-15-teamwork-defect-audit/README.md` D3。
-> 作用面：`sessionstore` 的模块 head 读面，以及消费它的 `seelebridge` / `application` 读面。
+> 作用面：`store` 的模块 head 读面，以及消费它的 `seelebridge` / `application` 读面。
 
 ## 1. 口径
 
@@ -49,6 +49,6 @@ open …\metadata\teamwork.json: The system cannot find the path specified.
 
 ## 5. 门禁
 
-`sessionstore/absent_state_reads_test.go` 把上面三档**逐条登记**：①档断言"零值 + nil"，
+`store/absent_state_reads_test.go` 把上面三档**逐条登记**：①档断言"零值 + nil"，
 ②③档断言各自的哨兵值。**新增 head 读面必须进这张表**——没登记的面就是下一个把"还没有"
 报成 IO 错误的面。

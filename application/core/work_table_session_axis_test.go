@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // 归属会话必须从注册表记录透传到 WorkItem（GUI「会话」列与「仅本会话」筛选

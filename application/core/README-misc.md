@@ -59,7 +59,7 @@
 ### compressed_turn_test.go
 
 - `func testStringPtr(value string) *string` — testStringPtr 返回字符串指针（测试消息正文）。
-- `func (f *fakeCommitSession) SaveCommitWorkspace(projectID, sessionID string, commit sessionstore.Commit) error`
+- `func (f *fakeCommitSession) SaveCommitWorkspace(projectID, sessionID string, commit store.Commit) error`
 - `func TestCompressedTurnArchiverScopesCommitToSessionProject(t *testing.T)` — TestCompressedTurnArchiverScopesCommitToSessionProject 写侧项目作用域：先按
 - `func (f *fakeTranscriptSession) LoadTranscriptTailWorkspace(_, _ string, _, _ int) ([]TranscriptEvent, error)`
 - `func (f *fakeTranscriptSession) LoadToolResultWorkspace(_, _, ref string) (StoredToolResult, error)`
@@ -86,8 +86,8 @@
 
 ### limits.go
 
-- `func ApplyLimits(l seelexctx.Limits)` — ApplyLimits 应用 seele.yaml limits 段（零值字段自动补默认）；
-- `func Limits() seelexctx.Limits` — Limits 返回当前生效的运行时上限（只读拷贝语义）。
+- `func ApplyLimits(l limit.Limits)` — ApplyLimits 应用 seele.yaml limits 段（零值字段自动补默认）；
+- `func Limits() limit.Limits` — Limits 返回当前生效的运行时上限（只读拷贝语义）。
 - `func ApplySessionReleaseWindow(window int) (int, error)` — ApplySessionReleaseWindow 校验并**立刻生效**一个「会话驻留窗口」，返回真正生效的
 
 ### perf_stats.go
@@ -211,7 +211,7 @@
 - `func CurrentWindowConfig() WindowConfig` — CurrentWindowConfig 返回当前生效的 window 段（含默认值）。
 - `func RetainedReadTailBudget(runtime any) int` — RetainedReadTailBudget 返回**读尾**（冷恢复装载 transcript/history 尾部）的
 - `func RetainFloorTokens(budget task_context.ContextBudget) int` — RetainFloorTokens 返回当前配置下保护区下限的**比例部分**（token 数）：
-- `func ValidateRetainWindow(config WindowConfig, limits seelexctx.Limits, windowTokens int) error` — ValidateRetainWindow 校验 window 段与 limits 段的组合是否自洽（启动期调用）：
+- `func ValidateRetainWindow(config WindowConfig, limits limit.Limits, windowTokens int) error` — ValidateRetainWindow 校验 window 段与 limits 段的组合是否自洽（启动期调用）：
 - `func (r retainWindowLimits) ContextWindow() int`
 - `func (r retainWindowLimits) MaxOutputTokens() int`
 

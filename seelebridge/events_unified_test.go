@@ -10,7 +10,7 @@ import (
 	frameworkevent "github.com/RedHuang-0622/Seele/event"
 	frameworktelemetry "github.com/RedHuang-0622/Seele/telemetry"
 	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 func TestSummaryEventToFrameworkEvent(t *testing.T) {
@@ -127,7 +127,7 @@ func TestUnifiedEventsEndToEndPersistsSummaryAndMergesFacts(t *testing.T) {
 	defer runtime.Shutdown()
 	router := newTestRouter(t)
 	runtime.AttachHistoryRouter(router)
-	eventStore := sessionstore.NewEventStore(router)
+	eventStore := store.NewEventStore(router)
 	runtime.SetEventPersister(eventStore.Append)
 	if _, err := runtime.NewMainSession(nil); err != nil {
 		t.Fatal(err)
@@ -187,12 +187,12 @@ func TestUnifiedEventsEndToEndPersistsSummaryAndMergesFacts(t *testing.T) {
 	}
 }
 
-// TestUnifiedEventsRequiresRouter 验证未装配 sessionstore Router 时统一
+// TestUnifiedEventsRequiresRouter 验证未装配 store Router 时统一
 // 查询返回可读错误（不 panic、不静默降级）。
 func TestUnifiedEventsRequiresRouter(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 	if _, err := runtime.UnifiedEvents(context.Background(), "session-x", "", 10); err == nil {
-		t.Fatal("want error when sessionstore router is not attached")
+		t.Fatal("want error when store router is not attached")
 	}
 }

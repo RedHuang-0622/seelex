@@ -54,8 +54,8 @@ import (
 	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 )
 

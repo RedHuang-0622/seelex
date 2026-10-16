@@ -8,7 +8,7 @@ package context_runtime
 import (
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/application/contract"
+	"github.com/RedHuang-0622/seelex/contract"
 )
 
 // replayMaterialFor 选这次压缩喂给重放的那份素材。

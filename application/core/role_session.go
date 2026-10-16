@@ -3,15 +3,15 @@
 // 边界：Application 只做窄转发，不解释 role draft/顺序/floor 语义；真正的
 // 排序、幂等、同步即删与 head 发布仍由存储侧 sequencer 入口执行。
 //
-// S27 收口：本文件的端口与 DTO 全部来自 application/contract，本包不再出现
-// 存储类型（sessionstore.*），GUI/headless 也随之只消费应用层 DTO。
+// S27 收口：本文件的端口与 DTO 全部来自 contract，本包不再出现
+// 存储类型（store.*），GUI/headless 也随之只消费应用层 DTO。
 package core
 
 import (
 	"errors"
 
-	"github.com/RedHuang-0622/seelex/application/contract"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // rolePorts 聚合角色会话与定时插话两个可选端口；两者都由会话端口实现在

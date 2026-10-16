@@ -7,9 +7,10 @@ import (
 
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
+	"github.com/RedHuang-0622/seelex/wiring"
 )
 
 func NewHarnessRunner(value Scenario) (*Runner, error) {
@@ -26,14 +27,14 @@ func newHarnessRunner(value Scenario, factory ToolExecutorFactory) (*Runner, err
 	if err := value.Validate(); err != nil {
 		return nil, err
 	}
-	events := application.NewEventHub()
-	approvals := application.NewApprovalBroker(events)
-	hookBridge := application.NewToolHookBridge()
+	events := wiring.NewEventHub()
+	approvals := wiring.NewApprovalBroker(events)
+	hookBridge := wiring.NewToolHookBridge()
 	tools := &applicationToolLifecycle{hooks: hookBridge.Hooks()}
 	scriptedEngine := NewScriptedEngine(value.EngineScript, tools, approvals)
 	scriptedEngine.SetSessionID(initialSessionID(value))
 	plugin := initialPlugin(value)
-	service, err := application.New(application.Dependencies{
+	service, err := wiring.New(application.Dependencies{
 		Engine: scriptedEngine, Runtime: harnessRuntime{plugin: plugin},
 		Plugins: &harnessPlugins{current: application.PluginInfo{Name: plugin}},
 		Skills:  harnessSkills{}, Sessions: &harnessSessions{},

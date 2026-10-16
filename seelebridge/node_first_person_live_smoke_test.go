@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
-	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
 // TestNodeFirstPersonLiveSmoke 真实 API 冒烟（非默认运行）：
@@ -46,8 +46,8 @@ func TestNodeFirstPersonLiveSmoke(t *testing.T) {
 		// 回放窗口显式放大：默认 512 是"给人看的一段"，而这一档要按**分页口径**核对
 		// "整轮的 stage/tool 都留得住、且逐页读得到"（超出窗口会丢最旧，读数会变小）。
 		SubagentLiveWindow: 4096,
-		Limits: seelexctx.Limits{
-			AsyncExec:      seelexctx.AsyncExecLimits{Enabled: true},
+		Limits: limit.Limits{
+			AsyncExec:      limit.AsyncExecLimits{Enabled: true},
 			ForkTimeoutSec: 20 * 60,
 		},
 	})

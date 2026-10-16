@@ -9,10 +9,10 @@ import (
 	"time"
 
 	frameworkevent "github.com/RedHuang-0622/Seele/event"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	subagentsession "github.com/RedHuang-0622/seelex/seelebridge/session"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // 子代理会话记录的生命周期（用户约定，2026-08-24）：
@@ -43,13 +43,13 @@ type subagentConclusion struct {
 // 运行期落盘 + 结束时结论回传主会话 + 记录删除。幂等。
 //
 // 写侧装配的是**责任链**（末端 = 这个存储、链上第一环 = 子代理身份）：teammate 那一层
-// 在同一条链上再加一环，因此不必另立第二条写路径（见 sessionstore.NodeSessionRecordWriter）。
-func (r *Runtime) AttachSubSessionStore(store *sessionstore.NodeSessionStore) {
-	if r == nil || r.subagentSessions == nil || store == nil {
+// 在同一条链上再加一环，因此不必另立第二条写路径（见 store.NodeSessionRecordWriter）。
+func (r *Runtime) AttachSubSessionStore(st *store.NodeSessionStore) {
+	if r == nil || r.subagentSessions == nil || st == nil {
 		return
 	}
-	r.nodeSessionStore = store
-	r.unitRecordWriter = sessionstore.NewNodeSessionRecordWriter(store).With(subagentsession.SubagentUnitRecordLink)
+	r.nodeSessionStore = st
+	r.unitRecordWriter = store.NewNodeSessionRecordWriter(st).With(subagentsession.SubagentUnitRecordLink)
 	r.subagentSessions.Configure(r.unitRecordWriter, r.MainSessionID, func() string {
 		return r.sessionProjectIDFor(r.MainSessionID())
 	}, r.persistSubagentConclusion)
@@ -69,8 +69,8 @@ func (r *Runtime) sessionProjectIDFor(sessionID string) string {
 
 // persistSubagentConclusion 把子代理最终结论写入主会话事件库
 // （"结论跟随 mainagent"）：事件携带 agent.runtime session_id 定位，
-// 与 A/B 类事实同一 sessionstore 事件库；best-effort。
-func (r *Runtime) persistSubagentConclusion(mainSessionID string, record sessionstore.NodeSessionRecord) {
+// 与 A/B 类事实同一 store 事件库；best-effort。
+func (r *Runtime) persistSubagentConclusion(mainSessionID string, record store.NodeSessionRecord) {
 	if r == nil || mainSessionID == "" || record.NodeID == "" {
 		return
 	}
@@ -127,7 +127,7 @@ func (r *Runtime) RestoreSubagentAnchors(sessionID string) error {
 		return nil
 	}
 	projectID := r.sessionProjectIDFor(sessionID)
-	records := []sessionstore.NodeSessionRecord{}
+	records := []store.NodeSessionRecord{}
 	if r.nodeSessionStore != nil {
 		var err error
 		records, err = r.nodeSessionStore.List(projectID, sessionID)
@@ -174,7 +174,7 @@ func (r *Runtime) RestoreSubagentAnchors(sessionID string) error {
 // 表达，恢复不得把它覆盖成中断。
 //
 // 未装配子代理会话注册表时返回 true（保持既有语义：没有内存判据时按记录恢复）。
-func (r *Runtime) recordBelongsToCurrentMain(record sessionstore.NodeSessionRecord) bool {
+func (r *Runtime) recordBelongsToCurrentMain(record store.NodeSessionRecord) bool {
 	if r == nil || r.subagentSessions == nil {
 		return true
 	}
@@ -183,12 +183,12 @@ func (r *Runtime) recordBelongsToCurrentMain(record sessionstore.NodeSessionReco
 }
 
 // loadSubagentConclusions 从主会话事件库读取子代理最终结论事件。
-func loadSubagentConclusions(ctx context.Context, router *sessionstore.Router, projectID, sessionID string) ([]sessionstore.NodeSessionRecord, error) {
+func loadSubagentConclusions(ctx context.Context, router *store.Router, projectID, sessionID string) ([]store.NodeSessionRecord, error) {
 	entries, err := router.ReadFrameworkEventsWorkspace(ctx, projectID, sessionID)
 	if err != nil {
 		return nil, err
 	}
-	records := make([]sessionstore.NodeSessionRecord, 0, len(entries))
+	records := make([]store.NodeSessionRecord, 0, len(entries))
 	for _, entry := range entries {
 		var event frameworkevent.Event
 		if err := json.Unmarshal(entry.Payload, &event); err != nil {
@@ -201,8 +201,8 @@ func loadSubagentConclusions(ctx context.Context, router *sessionstore.Router, p
 		if err := json.Unmarshal(event.Content, &conclusion); err != nil || conclusion.NodeID == "" {
 			continue
 		}
-		records = append(records, sessionstore.NodeSessionRecord{
-			SchemaVersion: sessionstore.NodeSessionSchemaVersion,
+		records = append(records, store.NodeSessionRecord{
+			SchemaVersion: store.NodeSessionSchemaVersion,
 			NodeID:        conclusion.NodeID,
 			SessionID:     conclusion.SessionID,
 			Goal:          conclusion.Goal,

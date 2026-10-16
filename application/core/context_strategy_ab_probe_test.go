@@ -43,7 +43,7 @@ import (
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/seelexctx/memory"
 	"github.com/RedHuang-0622/seelex/seelexctx/tokens"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // ── 脚本 ────────────────────────────────────────────────────────────────
@@ -588,9 +588,9 @@ func TestContextStrategyAB_DynamicFactsPlacement(t *testing.T) {
 	options := memory.DefaultOptions()
 	queryOne := "第 1 轮：provider cache hit rate versus tool result size。"
 	queryTwo := "第 2 轮：memory select lexical score with CJK bigram and worktable position。"
-	record := sessionstore.SessionContextRecord{
-		SkillStack: []sessionstore.SkillFrame{{SkillID: "skill-review", Name: "review"}},
-		CompactStack: []sessionstore.CompactFrame{{
+	record := store.SessionContextRecord{
+		SkillStack: []store.SkillFrame{{SkillID: "skill-review", Name: "review"}},
+		CompactStack: []store.CompactFrame{{
 			SegmentID: "compact-s-4", From: 23, To: 30, Summary: candidates[3].Summary,
 		}},
 	}

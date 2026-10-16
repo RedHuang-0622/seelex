@@ -13,6 +13,7 @@ package tools
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/backend/limit/policy"
 	"strings"
 	"testing"
 
@@ -79,14 +80,14 @@ func TestEmployeeSubjectNameNormalizes(t *testing.T) {
 // 生效——另一个同档位员工不受影响。
 func TestEmployeePermissionsAssignCapabilitiesBeyondTiers(t *testing.T) {
 	state := &PermissionGate{SessionFromContext: toolspermission.SessionIDFromContext}
-	state.Set(DefaultPermissionConfig(), nil)
+	state.Set(policy.DefaultPermissionConfig(), nil)
 	err := state.SetEmployeePermissions([]EmployeePermission{
 		{RoleName: "runner", Policy: "readwrite", Groups: map[string]uint8{
-			GroupRO:        GroupBitRead,
-			GroupRW:        GroupBitRead | GroupBitWrite,
-			GroupRWDesktop: GroupBitRead | GroupBitWrite, // 档位给不出的那一格
-			GroupCTL:       0,
-			GroupADM:       0,
+			policy.GroupRO:        GroupBitRead,
+			policy.GroupRW:        GroupBitRead | GroupBitWrite,
+			policy.GroupRWDesktop: GroupBitRead | GroupBitWrite, // 档位给不出的那一格
+			policy.GroupCTL:       0,
+			policy.GroupADM:       0,
 		}},
 		{RoleName: "pm", Policy: "readwrite"},
 	})
@@ -119,13 +120,13 @@ func TestEmployeePermissionsAssignCapabilitiesBeyondTiers(t *testing.T) {
 func TestEmployeeAssignedGroupsOverrideTierOnEnforcement(t *testing.T) {
 	approvals := 0
 	state := &PermissionGate{SessionFromContext: toolspermission.SessionIDFromContext}
-	state.Set(DefaultPermissionConfig(), func(*toolspermission.ApprovalContext) (*toolspermission.ApprovalResponse, error) {
+	state.Set(policy.DefaultPermissionConfig(), func(*toolspermission.ApprovalContext) (*toolspermission.ApprovalResponse, error) {
 		approvals++
 		return &toolspermission.ApprovalResponse{Choice: "deny"}, nil
 	})
 	if err := state.SetEmployeePermissions([]EmployeePermission{{
 		RoleName: "auditor", Policy: "readwrite",
-		Groups: map[string]uint8{GroupRO: GroupBitRead, GroupRW: 0, GroupCTL: 0, GroupADM: 0},
+		Groups: map[string]uint8{policy.GroupRO: GroupBitRead, policy.GroupRW: 0, policy.GroupCTL: 0, policy.GroupADM: 0},
 	}}); err != nil {
 		t.Fatalf("SetEmployeePermissions: %v", err)
 	}
@@ -152,7 +153,7 @@ func TestEmployeeAssignedGroupsOverrideTierOnEnforcement(t *testing.T) {
 // （不回归）——否则"没分配"会变成"没有任何能力"。
 func TestEmployeeWithoutAssignmentFallsBackToTier(t *testing.T) {
 	state := &PermissionGate{SessionFromContext: toolspermission.SessionIDFromContext}
-	state.Set(DefaultPermissionConfig(), nil)
+	state.Set(policy.DefaultPermissionConfig(), nil)
 
 	readonly := employeeCtx("goal-a2a-x", "reviewer", "readonly")
 	if !state.ToolFaceForContext(readonly, "read_file") {
@@ -171,7 +172,7 @@ func TestEmployeeWithoutAssignmentFallsBackToTier(t *testing.T) {
 // 无意义的授权（那会变成"看起来分配了、其实按宿主默认判"）。
 func TestSetEmployeePermissionsValidatesInput(t *testing.T) {
 	state := &PermissionGate{}
-	state.Set(DefaultPermissionConfig(), nil)
+	state.Set(policy.DefaultPermissionConfig(), nil)
 	cases := []struct {
 		name       string
 		permission EmployeePermission
@@ -199,15 +200,15 @@ func TestSetEmployeePermissionsValidatesInput(t *testing.T) {
 // 就静默吃掉分配结果。
 func TestAssignedEmployeePermissionsSurviveConfigRefresh(t *testing.T) {
 	state := &PermissionGate{SessionFromContext: toolspermission.SessionIDFromContext}
-	state.Set(DefaultPermissionConfig(), nil)
+	state.Set(policy.DefaultPermissionConfig(), nil)
 	if err := state.SetEmployeePermissions([]EmployeePermission{{
 		RoleName: "runner", Policy: "readwrite",
-		Groups: map[string]uint8{GroupRO: GroupBitRead, GroupRW: GroupBitRead | GroupBitWrite,
-			GroupRWDesktop: GroupBitRead | GroupBitWrite},
+		Groups: map[string]uint8{policy.GroupRO: GroupBitRead, policy.GroupRW: GroupBitRead | GroupBitWrite,
+			policy.GroupRWDesktop: GroupBitRead | GroupBitWrite},
 	}}); err != nil {
 		t.Fatalf("SetEmployeePermissions: %v", err)
 	}
-	state.Set(DefaultPermissionConfig(), nil) // 配置刷新
+	state.Set(policy.DefaultPermissionConfig(), nil) // 配置刷新
 
 	ctx := employeeCtx("goal-a2a-runner", "runner", "readwrite")
 	if !state.ToolFaceForContext(ctx, "computer_click") {
@@ -219,13 +220,13 @@ func TestAssignedEmployeePermissionsSurviveConfigRefresh(t *testing.T) {
 // 主体条目，判定完全落回宿主口径（root）——"继承"必须真的是继承。
 func TestInheritHostDefaultEmployeeKeepsRootJudgement(t *testing.T) {
 	state := &PermissionGate{SessionFromContext: toolspermission.SessionIDFromContext}
-	state.Set(DefaultPermissionConfig(), nil)
+	state.Set(policy.DefaultPermissionConfig(), nil)
 
 	ctx := toolspermission.WithSessionID(context.Background(), "goal-a2a-owner")
-	if class := state.classFor(WithEmployeeSubject(ctx, "owner", "")); class != SubjectClassRoot {
+	if class := state.classFor(WithEmployeeSubject(ctx, "owner", "")); class != policy.SubjectClassRoot {
 		t.Fatalf("空口径员工主体类 = %q, want root（继承宿主默认）", class)
 	}
-	if _, decided := state.Enforce(ctx, toolspermission.Subject(SubjectForClass(SubjectClassRoot)),
+	if _, decided := state.Enforce(ctx, toolspermission.Subject(policy.SubjectForClass(policy.SubjectClassRoot)),
 		frameworktools.ToolMeta{}, "write_file", "{}"); decided {
 		t.Fatal("继承宿主默认的员工不该由员工口径接管")
 	}

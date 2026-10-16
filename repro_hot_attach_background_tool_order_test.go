@@ -27,7 +27,8 @@ import (
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/internal/adapters"
 	"github.com/RedHuang-0622/seelex/seelebridge"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/wiring"
 )
 
 // newToolInlineHarness 复制 full-chain harness 装配，并额外注册一个必然
@@ -56,20 +57,20 @@ func newToolInlineHarness(t *testing.T, accountsPath, projectRoot string, toolTi
 	originalStorePath := *storePath
 	*storePath = filepath.Join(projectRoot, "sessions")
 	t.Cleanup(func() { *storePath = originalStorePath })
-	store, err := initStore()
+	st, err := initStore()
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = store.Close() })
-	runtimeBridge.AttachHistoryRouter(store)
-	runtimeBridge.SetEventPersister(sessionstore.NewEventStore(store).Append)
+	t.Cleanup(func() { _ = st.Close() })
+	runtimeBridge.AttachHistoryRouter(st)
+	runtimeBridge.SetEventPersister(store.NewEventStore(st).Append)
 
 	skills := initSkillSystem()
 	plugins, _, err := initPluginSystem(runtimeBridge, skills)
 	if err != nil {
 		t.Fatal(err)
 	}
-	hooks := application.NewToolHookBridge()
+	hooks := wiring.NewToolHookBridge()
 	frameworkEngine, err := initEngine(runtimeBridge, hooks, "")
 	if err != nil {
 		t.Fatal(err)
@@ -89,13 +90,13 @@ func newToolInlineHarness(t *testing.T, accountsPath, projectRoot string, toolTi
 	if err != nil {
 		t.Fatal(err)
 	}
-	events := application.NewEventHub()
-	approval := application.NewApprovalBroker(events)
+	events := wiring.NewEventHub()
+	approval := wiring.NewApprovalBroker(events)
 	app, err := initApplication(
 		appEngine,
 		runtimeBridge,
 		plugins,
-		initSessionManager(store, appEngine),
+		initSessionManager(st, appEngine),
 		skills,
 		workspaces,
 		events,

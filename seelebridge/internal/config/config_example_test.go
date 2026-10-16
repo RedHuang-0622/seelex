@@ -34,7 +34,7 @@ func TestShippedAccountsExampleLoads(t *testing.T) {
 
 // TestShippedAccountsExampleCarriesNoRuntimeConfig 钉住 2026-10-15 的口径：**账号档只放
 // 凭据与逐账号的模型参数**，运行配置不许出现在模板里——窗口的家是 config/seelex.yaml 的
-// `limits.context_window`（见 seelexctx.Limits.ContextWindow 与 Runtime.ContextWindow）。
+// `limits.context_window`（见 limit.Limits.ContextWindow 与 Runtime.ContextWindow）。
 //
 // 为什么要一条牙：模板是用户照抄的形状（README、发行包都用它），`context_window` 一旦被
 // 加回模板，等于又把运行配置教给用户放进凭据文件。判"写没写"用 loader 自己的 schema

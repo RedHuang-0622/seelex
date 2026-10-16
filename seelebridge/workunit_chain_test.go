@@ -10,7 +10,7 @@ import (
 	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
 	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
 	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // ── 三层一致性：同一份脚本跑两遍（第三层是基线，不实现 Unit）────────────────
@@ -103,14 +103,14 @@ func chainClassifyRows() []chainClassifyRow {
 	uncommitted := fmt.Errorf("worktree %q: 现场有未提交改动: %w", "wu-1", worktree.ErrUncommittedChanges)
 	blocked := fmt.Errorf("worktree %q: 合并被主工作区挡住: %w", "wu-1", worktree.ErrMergeBlockedByMain)
 	return []chainClassifyRow{
-		{"干净落定", nil, nil, workunit.OutcomeSettled, "", false, sessionstore.TeamworkItemReview, false},
-		{"这一轮跑失败", errors.New("provider 402"), nil, workunit.OutcomeFailed, "", true, sessionstore.TeamworkItemFailed, false},
-		{"现场有未提交改动", nil, uncommitted, workunit.OutcomeUncommitted, "worktree_unmerged", false, sessionstore.TeamworkItemReview, true},
-		{"主工作区挡路", nil, blocked, workunit.OutcomeMergeBlocked, "merge_blocked", false, sessionstore.TeamworkItemReview, true},
-		{"其他合并错误", nil, errors.New("rebase 冲突"), workunit.OutcomeFailed, "", true, sessionstore.TeamworkItemFailed, false},
+		{"干净落定", nil, nil, workunit.OutcomeSettled, "", false, store.TeamworkItemReview, false},
+		{"这一轮跑失败", errors.New("provider 402"), nil, workunit.OutcomeFailed, "", true, store.TeamworkItemFailed, false},
+		{"现场有未提交改动", nil, uncommitted, workunit.OutcomeUncommitted, "worktree_unmerged", false, store.TeamworkItemReview, true},
+		{"主工作区挡路", nil, blocked, workunit.OutcomeMergeBlocked, "merge_blocked", false, store.TeamworkItemReview, true},
+		{"其他合并错误", nil, errors.New("rebase 冲突"), workunit.OutcomeFailed, "", true, store.TeamworkItemFailed, false},
 		{"两种收尾失败同时具备 → 未提交优先", nil,
 			errors.Join(worktree.ErrUncommittedChanges, worktree.ErrMergeBlockedByMain),
-			workunit.OutcomeUncommitted, "worktree_unmerged", false, sessionstore.TeamworkItemReview, true},
+			workunit.OutcomeUncommitted, "worktree_unmerged", false, store.TeamworkItemReview, true},
 	}
 }
 
@@ -163,7 +163,7 @@ func TestChainOneFinishScriptForBothLayers(t *testing.T) {
 			}
 
 			// ── 右腿：teammate 层 ─────────────────────────────────────────
-			coordinator, store, _, queue := newSettleFixture(t, row.mergeErr)
+			coordinator, st, _, queue := newSettleFixture(t, row.mergeErr)
 			outcome, err := coordinator.SettleWorkItemOutcome(ctx, teamwork.WorkerRequest{
 				MainSessionID: "sess-1", WorkItemID: "wi-1",
 			}, row.runErr)
@@ -173,7 +173,7 @@ func TestChainOneFinishScriptForBothLayers(t *testing.T) {
 			if outcome.Kind != contract.Kind {
 				t.Errorf("teammate 层分类 = %s，契约 = %s（这一层不许自己再判一次）", outcome.Kind, contract.Kind)
 			}
-			plan, err := store.ReadPlan(ctx, teamTestKey)
+			plan, err := st.ReadPlan(ctx, teamTestKey)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -290,13 +290,13 @@ func TestChainRecoveryNoteIsOneFamily(t *testing.T) {
 	if want := workunit.RecoveryNotePrefix + " " + string(workunit.KindSubagent); subagentRecoveryNotePrefix != want {
 		t.Errorf("subagent 前缀 = %q，想要 %q", subagentRecoveryNotePrefix, want)
 	}
-	record := sessionstore.NodeSessionRecord{
+	record := store.NodeSessionRecord{
 		NodeID:    "exec-wi-1",
 		SessionID: "node-sess-1",
 		Goal:      "把收尾口径接进契约",
 		Status:    workunit.StatusRunning.String(),
 		Summary:   "改到一半",
-		Worktree:  sessionstore.NodeWorktreeRecord{Path: `C:\wt\exec-wi-1`, Branch: "seelex/exec-wi-1"},
+		Worktree:  store.NodeWorktreeRecord{Path: `C:\wt\exec-wi-1`, Branch: "seelex/exec-wi-1"},
 	}
 	facts := []string{"exec-wi-1", "node-sess-1", "把收尾口径接进契约", workunit.StatusRunning.String(), "改到一半", "seelex/exec-wi-1"}
 	for _, kind := range []workunit.Kind{workunit.KindSubagent, workunit.KindTeammate} {

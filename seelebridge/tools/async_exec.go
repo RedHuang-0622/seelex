@@ -13,7 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
 )
 
@@ -30,7 +30,7 @@ import (
 // 本文件只管表与状态；执行体在 async_run.go，工具面在 async_tools.go。
 
 const (
-	// 状态词表只有一份定义（application/contract/dto 的 AsyncState*）：本层这几个名字是**转调**，
+	// 状态词表只有一份定义（contract/dto 的 AsyncState*）：本层这几个名字是**转调**，
 	// 改词只改契约那一处（③U6）。
 	asyncStateRunning = dto.AsyncStateRunning
 	asyncStateDone    = dto.AsyncStateDone

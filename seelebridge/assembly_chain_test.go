@@ -4,7 +4,7 @@ package seelebridge
 //
 // 链路是一条透传链，任一跳断掉都是"派发时带了、执行时丢了"：
 //
-//	team_plan members[].plugins → plan(sessionstore) → WorkerRequest.Plugins →
+//	team_plan members[].plugins → plan(store) → WorkerRequest.Plugins →
 //	roleRoundSpec.Plugins → rolePluginAssembly（显式声明 > 角色自带 > 空集）→
 //	本轮 ctx（seeltools.WithRolePlugins）→ Policy.Filter 的**最后一道** PluginFace →
 //	工具可见面；同一集合另渲染成技能目录段追加进 system prompt，并给出装配读数进回执。
@@ -33,12 +33,12 @@ import (
 
 	"github.com/RedHuang-0622/Seele/types"
 
+	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/plugin"
 	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/seelebridge/tools"
-	"github.com/RedHuang-0622/seelex/seelexctx"
-	"github.com/RedHuang-0622/seelex/sessionstore"
 	"github.com/RedHuang-0622/seelex/skill"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // ── 基座 ────────────────────────────────────────────────────────────────────
@@ -401,24 +401,24 @@ func TestAssemblyChainRejectionsSpellOutTheReason(t *testing.T) {
 	if err := runtime.DefinePlugin("default", "Baseline", nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	if got := runtime.maxPluginsPerTeammate(); got != seelexctx.DefaultPluginsPerTeammate {
-		t.Fatalf("未配置时每会话上限应走出厂值 %d，得 %d", seelexctx.DefaultPluginsPerTeammate, got)
+	if got := runtime.maxPluginsPerTeammate(); got != limit.DefaultPluginsPerTeammate {
+		t.Fatalf("未配置时每会话上限应走出厂值 %d，得 %d", limit.DefaultPluginsPerTeammate, got)
 	}
 
 	const sessionID = "s-reject"
-	store := &memPlanStore{}
-	if err := runtime.SetTeamworkBackend(teamworkTestBackend(store, sessionID)); err != nil {
+	st := &memPlanStore{}
+	if err := runtime.SetTeamworkBackend(teamworkTestBackend(st, sessionID)); err != nil {
 		t.Fatal(err)
 	}
 	ctx := seeletelemetry.WithSessionID(context.Background(), sessionID)
-	key := sessionstore.Key{ProjectID: "p-team", SessionID: sessionID}
+	key := store.Key{ProjectID: "p-team", SessionID: sessionID}
 
 	// 先落一份合法计划当基准：后面每一条被拒之后，落盘的必须**还是这一份**。
 	accepted := `{"team_id":"t-accepted","milestones":[{"id":"m-1"}],"members":[{"role":"exec","plugins":["docs"]}]}`
 	if _, err := runtime.teamPlanHandler(ctx, accepted); err != nil {
 		t.Fatalf("合法装配不得被拒：%v", err)
 	}
-	baseline, err := store.ReadPlan(context.Background(), key)
+	baseline, err := st.ReadPlan(context.Background(), key)
 	if err != nil {
 		t.Fatalf("基准计划未落盘：%v", err)
 	}
@@ -450,7 +450,7 @@ func TestAssemblyChainRejectionsSpellOutTheReason(t *testing.T) {
 			t.Fatalf("%s 必须被显式拒绝", tc.name)
 		}
 		assemblyChainWantError(t, tc.name, err, tc.want...)
-		after, readErr := store.ReadPlan(context.Background(), key)
+		after, readErr := st.ReadPlan(context.Background(), key)
 		if readErr != nil {
 			t.Fatalf("%s：拒绝之后计划不见了：%v", tc.name, readErr)
 		}
@@ -475,8 +475,8 @@ func TestAssemblyChainReceiptCarriesCatalogReadingsAndYellow(t *testing.T) {
 	runtime.SetSkillRegistry(registry)
 
 	const sessionID = "s-readings"
-	store := &memPlanStore{}
-	if err := runtime.SetTeamworkBackend(teamworkTestBackend(store, sessionID)); err != nil {
+	st := &memPlanStore{}
+	if err := runtime.SetTeamworkBackend(teamworkTestBackend(st, sessionID)); err != nil {
 		t.Fatal(err)
 	}
 	ctx := seeletelemetry.WithSessionID(context.Background(), sessionID)
@@ -512,7 +512,7 @@ func TestAssemblyChainReceiptCarriesCatalogReadingsAndYellow(t *testing.T) {
 	if err := json.Unmarshal([]byte(receipt), &got); err != nil {
 		t.Fatalf("回执不是可解析的 JSON（%v）：%s", err, receipt)
 	}
-	if got.PluginLimit != seelexctx.DefaultPluginsPerTeammate {
+	if got.PluginLimit != limit.DefaultPluginsPerTeammate {
 		t.Fatalf("回执必须带上限读数：得 %d", got.PluginLimit)
 	}
 	if len(got.Assemblies) != 3 {
@@ -551,7 +551,7 @@ func TestAssemblyChainReceiptCarriesCatalogReadingsAndYellow(t *testing.T) {
 	if !assemblyChainSameStrings(got.Assemblies[2].Plugins, []string{assemblyChainOpsPlugin}) || got.Assemblies[2].PluginCount != 1 {
 		t.Fatalf("规整结果必须写回并出现在回执里：%#v", got.Assemblies[2])
 	}
-	plan, err := store.ReadPlan(context.Background(), sessionstore.Key{ProjectID: "p-team", SessionID: sessionID})
+	plan, err := st.ReadPlan(context.Background(), store.Key{ProjectID: "p-team", SessionID: sessionID})
 	if err != nil {
 		t.Fatalf("计划未落盘：%v", err)
 	}
@@ -600,13 +600,13 @@ func TestAssemblyChainReceiptCarriesCatalogReadingsAndYellow(t *testing.T) {
 
 	// ⑥ 配置口径：发行档里的 limits.plugins.per_teammate 必须真的能读出来（上限不是
 	// 散在代码里的常量），且与回执报的是同一个数。
-	limits, err := seelexctx.LoadLimits(filepath.Join("..", "config", "seelex.yaml"))
+	limits, err := limit.LoadLimits(filepath.Join("..", "config", "seelex.yaml"))
 	if err != nil {
 		t.Fatalf("读发行配置：%v", err)
 	}
-	if limits.Plugins.PerTeammate != seelexctx.DefaultPluginsPerTeammate {
+	if limits.Plugins.PerTeammate != limit.DefaultPluginsPerTeammate {
 		t.Fatalf("config/seelex.yaml 的 limits.plugins.per_teammate = %d，want %d（回执报的就是这一项）",
-			limits.Plugins.PerTeammate, seelexctx.DefaultPluginsPerTeammate)
+			limits.Plugins.PerTeammate, limit.DefaultPluginsPerTeammate)
 	}
 }
 
@@ -778,13 +778,13 @@ type assemblyChainPlanResult struct {
 // assemblyChainPlanStore 调一次 team_plan 并回报：错误，以及"这次调用是否**没有**留下计划"。
 func assemblyChainPlanStore(t *testing.T, runtime *Runtime, sessionID, argsJSON string) assemblyChainPlanResult {
 	t.Helper()
-	store := &memPlanStore{}
-	if err := runtime.SetTeamworkBackend(teamworkTestBackend(store, sessionID)); err != nil {
+	st := &memPlanStore{}
+	if err := runtime.SetTeamworkBackend(teamworkTestBackend(st, sessionID)); err != nil {
 		t.Fatalf("SetTeamworkBackend: %v", err)
 	}
 	ctx := seeletelemetry.WithSessionID(context.Background(), sessionID)
 	_, err := runtime.teamPlanHandler(ctx, argsJSON)
-	plan, readErr := store.ReadPlan(context.Background(), sessionstore.Key{ProjectID: "p-team", SessionID: sessionID})
+	plan, readErr := st.ReadPlan(context.Background(), store.Key{ProjectID: "p-team", SessionID: sessionID})
 	return assemblyChainPlanResult{err: err, empty: readErr != nil || plan.TeamID == ""}
 }
 

@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/adapters"
-	"github.com/RedHuang-0622/seelex/workspace"
+	"github.com/RedHuang-0622/seelex/store/workspace"
 )
 
 // reviewFixture 在一个真实临时工作区里摆出各类文件（正常 / 敏感 / 二进制 /

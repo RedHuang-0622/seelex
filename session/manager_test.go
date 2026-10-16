@@ -5,11 +5,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // ── 装配薄壳测试（存储桥已迁移到 SessionGranularStore，见
-// sessionstore/session_granular_test.go）──────────────────────
+// store/session_granular_test.go）──────────────────────
 
 func TestNewManager(t *testing.T) {
 	m := NewManager()
@@ -38,7 +38,7 @@ func TestNewManager(t *testing.T) {
 // 压缩原文一律写不出去（read_compressed_turn 永远读不到）。
 func TestSaveCommitWorkspaceRoundTrip(t *testing.T) {
 	root := t.TempDir()
-	router, err := sessionstore.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,11 +46,11 @@ func TestSaveCommitWorkspaceRoundTrip(t *testing.T) {
 
 	manager := NewManager().WithRouter(router)
 	// 真实顺序：会话先落盘（空 commit 建索引条目），压缩归档再追加原文。
-	if err := router.SaveCommitWorkspace("", "sess-1", sessionstore.Commit{}); err != nil {
+	if err := router.SaveCommitWorkspace("", "sess-1", store.Commit{}); err != nil {
 		t.Fatalf("init commit: %v", err)
 	}
 	archived := `[{"role":"user","content":"被压缩的原文"}]`
-	commit := sessionstore.Commit{ToolResults: []sessionstore.ToolResult{{
+	commit := store.Commit{ToolResults: []store.ToolResult{{
 		Ref: "compressed:seg-1", Tool: "compact_frame", Content: archived, Size: len(archived),
 	}}}
 	if err := manager.SaveCommitWorkspace("", "sess-1", commit); err != nil {
@@ -68,14 +68,14 @@ func TestSaveCommitWorkspaceRoundTrip(t *testing.T) {
 // TestSaveCommitWorkspaceWithoutRouterFailsLoud 未装配 Router 时显式报错：
 // 宁可失败，也不静默丢掉压缩原文。
 func TestSaveCommitWorkspaceWithoutRouterFailsLoud(t *testing.T) {
-	if err := NewManager().SaveCommitWorkspace("", "sess-1", sessionstore.Commit{}); err == nil {
+	if err := NewManager().SaveCommitWorkspace("", "sess-1", store.Commit{}); err == nil {
 		t.Fatal("SaveCommitWorkspace without a router must fail loudly")
 	}
 }
 
 func TestWithRouterAndWorkspace(t *testing.T) {
 	root := t.TempDir()
-	router, err := sessionstore.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
 	if err != nil {
 		t.Fatal(err)
 	}

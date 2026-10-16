@@ -35,7 +35,7 @@
 - `func (s *queueRecordingSessions) QueueMarkConsumedWorkspace(_, _, turnID string) error`
 - `func (s *queueRecordingSessions) QueueConfirmConsumedWorkspace(_, _, turnID string) error`
 - `func (s *queueRecordingSessions) QueueFailConsumedWorkspace(_, _, turnID string) error`
-- `func (s *queueRecordingSessions) QueueRecoverItemsWorkspace(_, _ string) (sessionstore.QueueRecoveryReport, bool, error)`
+- `func (s *queueRecordingSessions) QueueRecoverItemsWorkspace(_, _ string) (store.QueueRecoveryReport, bool, error)`
 - `func (s *queueRecordingSessions) queueCalls() (enqueued, marked, confirmed, failed []string)`
 - `func (*snapshotFailingSessions) SaveSessionSnapshot( string, []contract.EngineMessage, model.SessionRecord, []model.TranscriptEvent, []model.StoredToolResult, ) error`
 - `func (*snapshotFailingSessions) SaveSessionSnapshotWorkspace( string, string, []contract.EngineMessage, model.SessionRecord, []model.TranscriptEvent, []model.StoredToolResult, ) error`

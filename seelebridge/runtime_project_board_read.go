@@ -32,15 +32,15 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
-// ProjectBoardReader 是看板投影的只读面（`*sessionstore.Router` 天然满足它）。
+// ProjectBoardReader 是看板投影的只读面（`*store.Router` 天然满足它）。
 type ProjectBoardReader interface {
 	// ReadProjectBoard 是一个项目内**全部会话**的聚合读（bool = 是否截断）。
-	ReadProjectBoard(projectRoot string, options sessionstore.ProjectBoardReadOptions) ([]sessionstore.ProjectBoardRow, bool, error)
+	ReadProjectBoard(projectRoot string, options store.ProjectBoardReadOptions) ([]store.ProjectBoardRow, bool, error)
 	// ReadProjectBoardRows 是单会话单文件的**折叠读**（文件不存在 ⇒ 空投影）。
-	ReadProjectBoardRows(projectRoot, sessionID, file string) ([]sessionstore.ProjectBoardRow, error)
+	ReadProjectBoardRows(projectRoot, sessionID, file string) ([]store.ProjectBoardRow, error)
 }
 
 const (
@@ -77,7 +77,7 @@ type ProjectBoardReadResult struct {
 	// Files 是本次真正读过的白名单文件名（按请求顺序）。
 	Files []string
 	// Rows 是按 (Kind, Key, Scope.Session) 稳定排序、已折叠的投影行。
-	Rows []sessionstore.ProjectBoardRow
+	Rows []store.ProjectBoardRow
 	// Truncated 表示"读到的比在册的少"（行数触顶）。
 	Truncated bool
 }
@@ -121,7 +121,7 @@ func ReadProjectBoard(
 	result := ProjectBoardReadResult{ProjectRoot: projectRoot, Session: sessionID, Files: files}
 	if sessionID == ProjectBoardReadSessionAll {
 		for _, file := range files {
-			rows, truncated, readErr := reader.ReadProjectBoard(projectRoot, sessionstore.ProjectBoardReadOptions{
+			rows, truncated, readErr := reader.ReadProjectBoard(projectRoot, store.ProjectBoardReadOptions{
 				File:    file,
 				MaxRows: limit,
 			})
@@ -156,11 +156,11 @@ func ReadProjectBoard(
 func projectBoardReadFiles(file string) ([]string, error) {
 	switch strings.ToLower(strings.TrimSpace(file)) {
 	case "":
-		return []string{sessionstore.ProjectBoardWorkFile, sessionstore.ProjectBoardTeamworkFile}, nil
-	case ProjectBoardReadFileWorktable, sessionstore.ProjectBoardWorkFile:
-		return []string{sessionstore.ProjectBoardWorkFile}, nil
-	case ProjectBoardReadFileTeamwork, sessionstore.ProjectBoardTeamworkFile:
-		return []string{sessionstore.ProjectBoardTeamworkFile}, nil
+		return []string{store.ProjectBoardWorkFile, store.ProjectBoardTeamworkFile}, nil
+	case ProjectBoardReadFileWorktable, store.ProjectBoardWorkFile:
+		return []string{store.ProjectBoardWorkFile}, nil
+	case ProjectBoardReadFileTeamwork, store.ProjectBoardTeamworkFile:
+		return []string{store.ProjectBoardTeamworkFile}, nil
 	default:
 		return nil, fmt.Errorf(
 			"project board: file = %q 不在白名单（%s / %s，留空 = 两份都读）",
@@ -170,7 +170,7 @@ func projectBoardReadFiles(file string) ([]string, error) {
 
 // sortProjectBoardRows 按 (Kind, Key, Scope.Session) 稳定排序：
 // 同一份输入必得同一份输出（读面给人的东西不该每次换顺序）。
-func sortProjectBoardRows(rows []sessionstore.ProjectBoardRow) {
+func sortProjectBoardRows(rows []store.ProjectBoardRow) {
 	sort.SliceStable(rows, func(i, j int) bool {
 		if rows[i].Kind != rows[j].Kind {
 			return rows[i].Kind < rows[j].Kind

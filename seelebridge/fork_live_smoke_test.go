@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/backend/limit"
 )
 
 // TestForkSubagentsLiveSmoke 真实 API 冒烟（非默认运行）：
@@ -40,8 +40,8 @@ func TestForkSubagentsLiveSmoke(t *testing.T) {
 		ToolCallTimeout:   5 * time.Minute,
 		ApprovalTimeout:   10 * time.Minute,
 		HeartbeatInterval: 5 * time.Second,
-		Limits: seelexctx.Limits{
-			AsyncExec:      seelexctx.AsyncExecLimits{Enabled: true},
+		Limits: limit.Limits{
+			AsyncExec:      limit.AsyncExecLimits{Enabled: true},
 			ForkTimeoutSec: 15 * 60,
 		},
 	})

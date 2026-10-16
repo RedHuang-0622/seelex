@@ -230,27 +230,27 @@ go test ./application/core/session_runtime -count=1
 
 - `func (c *Coordinator) PrepareFork(location Location, childID, parentID string, request model.ForkRequest) (ForkContext, error)` — PrepareFork 基于父会话的已发布快照构建子会话深拷贝（一期决策契约）：
 - `func (c *Coordinator) LatestForkCut(location Location, parentID string) (uint64, error)` — LatestForkCut 返回父会话最新完整段落边界（最后一个完整轮次的 EventSeq，
-- `func forkTranscriptEvents(events []sessionstore.Event) []model.TranscriptEvent`
-- `func conversationMessagesFromEvents(events []sessionstore.Event) []model.Message` — conversationMessagesFromEvents 把 message 事件行派生为 record conversation
-- `func forkStoredToolResults(results []sessionstore.ToolResult) []model.StoredToolResult`
-- `func resolveForkCut(events []sessionstore.Event, request model.ForkRequest) (uint64, *sessionstore.Event, error)` — resolveForkCut 解析 fork 切断点（EventSeq 含端点，段落边界语义）。
-- `func eventAt(events []sessionstore.Event, seq uint64) *sessionstore.Event`
-- `func forkInheritedEvents(events []sessionstore.Event, cut uint64) []sessionstore.Event`
-- `func truncateForkRecord(record model.SessionRecord, events []sessionstore.Event, frames []sessionstore.CompactFrame, cutTime time.Time, displayUserInput func(string) string) model.SessionRecord` — truncateForkRecord 把父 SessionRecord 截断到 fork 时刻：Conversation/
-- `func forkCutSeq(events []sessionstore.Event) uint64`
+- `func forkTranscriptEvents(events []store.Event) []model.TranscriptEvent`
+- `func conversationMessagesFromEvents(events []store.Event) []model.Message` — conversationMessagesFromEvents 把 message 事件行派生为 record conversation
+- `func forkStoredToolResults(results []store.ToolResult) []model.StoredToolResult`
+- `func resolveForkCut(events []store.Event, request model.ForkRequest) (uint64, *store.Event, error)` — resolveForkCut 解析 fork 切断点（EventSeq 含端点，段落边界语义）。
+- `func eventAt(events []store.Event, seq uint64) *store.Event`
+- `func forkInheritedEvents(events []store.Event, cut uint64) []store.Event`
+- `func truncateForkRecord(record model.SessionRecord, events []store.Event, frames []store.CompactFrame, cutTime time.Time, displayUserInput func(string) string) model.SessionRecord` — truncateForkRecord 把父 SessionRecord 截断到 fork 时刻：Conversation/
+- `func forkCutSeq(events []store.Event) uint64`
 - `func inheritedForkTitle(title model.SessionTitle, messages []model.Message, now time.Time, displayUserInput func(string) string) model.SessionTitle`
-- `func forkConversationMessages(messages []model.Message, events []sessionstore.Event, cutTime time.Time) []model.Message`
+- `func forkConversationMessages(messages []model.Message, events []store.Event, cutTime time.Time) []model.Message`
 - `func forkPlanFramesByTime(frames []model.SessionPlanFrame, cutTime time.Time) []model.SessionPlanFrame`
 - `func hasPlanFrame(frames []model.SessionPlanFrame, planID string) bool`
 - `func forkTaskRecordsByTime(tasks []dto.TaskRecord, cutTime time.Time) []dto.TaskRecord` — forkTaskRecordsByTime 按切断时间截断父 task 注册表，并丢弃 kind=todo
 - `func forkCheckpoints(checkpoints []model.TaskCheckpoint, cut uint64) []model.TaskCheckpoint`
 - `func forkProjection(projection *model.TaskContextProjection, cut uint64, sessionID string) *model.TaskContextProjection`
 - `func forkReadFiles(files []model.ReadFileRef, cutTime time.Time) []model.ReadFileRef`
-- `func reachableToolResultRefs(events []sessionstore.Event, record model.SessionRecord, frames []sessionstore.CompactFrame) map[string]struct` — reachableToolResultRefs 汇总**会话分叉（ForkSession）**子会话可达的
+- `func reachableToolResultRefs(events []store.Event, record model.SessionRecord, frames []store.CompactFrame) map[string]struct` — reachableToolResultRefs 汇总**会话分叉（ForkSession）**子会话可达的
 - `func forkToolResultRegistry(refs []model.ToolResultRef, reachable map[string]struct{}) []model.ToolResultRef`
-- `func (c *Coordinator) forkContextRecord(location Location, parentID string, cut uint64, cutTime time.Time, cutMessageID string) ([]byte, []sessionstore.CompactFrame, error)` — forkContextRecord 重写父 context 为子会话独立起点：Skill 记录按进入时间
-- `func forkContextSkillFrames(frames []sessionstore.SkillFrame, cutTime time.Time) []sessionstore.SkillFrame`
-- `func rewriteForkCompactStack(frames []sessionstore.CompactFrame, cut uint64, cutMessageID string) []sessionstore.CompactFrame` — rewriteForkCompactStack 处理压缩帧内的 fork 切断：整帧继承 + 范围重写
+- `func (c *Coordinator) forkContextRecord(location Location, parentID string, cut uint64, cutTime time.Time, cutMessageID string) ([]byte, []store.CompactFrame, error)` — forkContextRecord 重写父 context 为子会话独立起点：Skill 记录按进入时间
+- `func forkContextSkillFrames(frames []store.SkillFrame, cutTime time.Time) []store.SkillFrame`
+- `func rewriteForkCompactStack(frames []store.CompactFrame, cut uint64, cutMessageID string) []store.CompactFrame` — rewriteForkCompactStack 处理压缩帧内的 fork 切断：整帧继承 + 范围重写
 
 ### fork_test.go
 
@@ -265,8 +265,8 @@ go test ./application/core/session_runtime -count=1
 - `func (s *forkTestSessions) SaveSessionRecordWorkspace(string, string, model.SessionRecord) error`
 - `func (s *forkTestSessions) LoadSessionRecord(string) (model.SessionRecord, error)`
 - `func (s *forkTestSessions) LoadSessionRecordWorkspace(projectID, sessionID string) (model.SessionRecord, error)`
-- `func (s *forkTestSessions) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]sessionstore.Event, error)`
-- `func (s *forkTestSessions) LoadToolResultsWorkspace(projectID, sessionID string) ([]sessionstore.ToolResult, error)`
+- `func (s *forkTestSessions) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]store.Event, error)`
+- `func (s *forkTestSessions) LoadToolResultsWorkspace(projectID, sessionID string) ([]store.ToolResult, error)`
 - `func (s *forkTestSessions) SaveSessionSnapshotWorkspace(projectID, sessionID string, history []contract.EngineMessage, record model.SessionRecord, events []model.TranscriptEvent, results []model.StoredToolResult) error`
 - `func (s *forkTestSessions) LoadContextStateWorkspace(projectID, sessionID string) ([]byte, error)`
 - `func (s *forkTestSessions) SaveContextStateWorkspace(projectID, sessionID string, payload []byte) error`
@@ -309,7 +309,7 @@ go test ./application/core/session_runtime -count=1
 - `func (c *Coordinator) QueueMarkConsumedInput(location Location, sessionID, turnID string) error` — QueueMarkConsumedInput 提升批次为下一轮时标记消费。
 - `func (c *Coordinator) QueueConfirmConsumedInput(location Location, sessionID, turnID string) error` — QueueConfirmConsumedInput 该轮快照已发布 → 消费项出队。
 - `func (c *Coordinator) QueueFailConsumedInput(location Location, sessionID, turnID string) error` — QueueFailConsumedInput 该轮未发布（失败）→ 消费项内容回草稿。
-- `func (c *Coordinator) QueueRecoverInputs(location Location, sessionID string) ([]sessionstore.QueueItem, bool, error)` — QueueRecoverInputs 重启恢复生命周期的待发项：返回"已发送未确认需重发"的
+- `func (c *Coordinator) QueueRecoverInputs(location Location, sessionID string) ([]store.QueueItem, bool, error)` — QueueRecoverInputs 重启恢复生命周期的待发项：返回"已发送未确认需重发"的
 
 ### scope.go
 
@@ -344,14 +344,14 @@ go test ./application/core/session_runtime -count=1
 
 ### storage.go
 
-- `func (c *Coordinator) SessionStorageConfig() (sessionstore.Config, error)` — SessionStorageConfig 返回会话存储设置（可选能力：无 storage 端口报错）。
-- `func (c *Coordinator) TestSessionStorage(ctx context.Context, config sessionstore.Config) error` — TestSessionStorage 验证会话存储配置可用性（可选能力）。
-- `func (c *Coordinator) ConfigureSessionStorage(ctx context.Context, config sessionstore.Config) error` — ConfigureSessionStorage 应用会话存储配置并清空标题缓存（可选能力）。
+- `func (c *Coordinator) SessionStorageConfig() (store.Config, error)` — SessionStorageConfig 返回会话存储设置（可选能力：无 storage 端口报错）。
+- `func (c *Coordinator) TestSessionStorage(ctx context.Context, config store.Config) error` — TestSessionStorage 验证会话存储配置可用性（可选能力）。
+- `func (c *Coordinator) ConfigureSessionStorage(ctx context.Context, config store.Config) error` — ConfigureSessionStorage 应用会话存储配置并清空标题缓存（可选能力）。
 
 ### transcript_range.go
 
 - `func (c *Coordinator) LoadTranscriptRange(sessionID string, fromSeq, toSeq uint64) ([]model.TranscriptEvent, error)` — LoadTranscriptRange 按 Seq 区间（含端点）读回会话事件日志并转换为
-- `func modelTranscriptEventsFromStore(events []sessionstore.Event) []model.TranscriptEvent` — modelTranscriptEventsFromStore 把存储层事件转换为应用层 transcript 事件
+- `func modelTranscriptEventsFromStore(events []store.Event) []model.TranscriptEvent` — modelTranscriptEventsFromStore 把存储层事件转换为应用层 transcript 事件
 
 ### transition_actor.go
 

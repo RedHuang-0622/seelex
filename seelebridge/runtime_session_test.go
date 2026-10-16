@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/Seele/types"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // TestRuntimeMainSessionIDTracksCurrentSession 验证 MainSessionID 跟踪
@@ -38,7 +38,7 @@ func TestRuntimeNewMainSessionWithIDKeepsDurableResumeIdentity(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 	root := t.TempDir()
-	router, err := sessionstore.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestRuntimeSessionBundlesArePerSession(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 	root := t.TempDir()
-	router, err := sessionstore.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestRuntimeSessionBundlesArePerSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 为 session-a 装配独立 context store（Attach 路由到当前激活会话）。
-	storeA := sessionstore.NewSessionContextStore(router, "session-a")
+	storeA := store.NewSessionContextStore(router, "session-a")
 	if err := storeA.SetSystemPrompt("prompt-a"); err != nil {
 		t.Fatal(err)
 	}

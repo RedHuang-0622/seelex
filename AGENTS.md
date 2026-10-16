@@ -11,7 +11,7 @@
 - `application/` 是前端共享的应用层；`tui/` 和 `gui/` 只能通过 Application API 消费状态与提交操作，不复制业务状态机。
 - `seelebridge/` 是 Seelex 到远程 Go module `github.com/RedHuang-0622/Seele v0.3.4` 的兼容与能力适配层；优先复用 Seele，不在 Seelex 重造引擎能力。
 - `plugin/` 管理 Plugin 生命周期，`plugins/` 存放声明式能力包；`skill/` 负责 Skill 加载与可见性。
-- `session/` 是会话用例适配器，`sessionstore/` 是原子、项目作用域的持久化实现，`workspace/` 管理项目及 session binding。
+- `session/` 是会话用例适配器，`store/` 是原子、项目作用域的持久化实现，`workspace/` 管理项目及 session binding。
 - `main.go` 和根目录适配器只负责装配。业务规则应进入拥有该规则的模块。
 - 当前实现、规划设计和历史研发记录必须明确区分。代码与测试是“已实现”能力的最终事实来源。
 

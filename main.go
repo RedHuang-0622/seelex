@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/backend/limit/policy"
 	"io"
 	"log"
 	"os"
@@ -24,10 +25,12 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/console"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core"
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 	coretask "github.com/RedHuang-0622/seelex/application/core/task_context"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/backend/limit/overlay"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/gui"
 	"github.com/RedHuang-0622/seelex/internal/adapters"
 	"github.com/RedHuang-0622/seelex/internal/bootseed"
@@ -40,13 +43,13 @@ import (
 	seeteamwork "github.com/RedHuang-0622/seelex/seelebridge/teamwork"
 	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 	"github.com/RedHuang-0622/seelex/seelebridge/tools/websearch"
-	"github.com/RedHuang-0622/seelex/seelexctx"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
 	"github.com/RedHuang-0622/seelex/session"
-	"github.com/RedHuang-0622/seelex/sessionstore"
 	"github.com/RedHuang-0622/seelex/skill"
+	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/store/workspace"
 	"github.com/RedHuang-0622/seelex/tui"
-	"github.com/RedHuang-0622/seelex/workspace"
+	"github.com/RedHuang-0622/seelex/wiring"
 )
 
 var (
@@ -64,8 +67,14 @@ var (
 	backendLogPath = flag.String("backend-log", "", "后端诊断日志文件（仅 -frontend backend；仍同步输出到标准输出）")
 	backendProject = flag.String("backend-project", "", "后端诊断绑定的项目根目录（仅 -frontend backend；显式提供才会绑定）")
 	showVersion    = flag.Bool("version", false, "显示版本号并退出")
-	runtimeLimits  seelexctx.Limits // initRuntime 加载的 limits（后续初始化消费）
+	runtimeLimits  limit.Limits // initRuntime 加载的 limits（后续初始化消费）
 )
+
+// runtimeLimitsPath 把「运行时上限覆盖层」的落点绑到数据根：数据根来自 `-store`
+// 参数（组合根的事），拼接口径在 `backend/limit/overlay.Path`（IO 与形状在那一层）。
+func runtimeLimitsPath() string {
+	return overlay.Path(filepath.Dir(*storePath))
+}
 
 // accountsPath 返回 accounts.yaml 的路径。
 // 优先使用二进制所在目录（正式部署），回退到当前工作目录（go run / 开发场景）。
@@ -473,28 +482,28 @@ func run() error {
 		return err
 	}
 	console.LogStageIf(backendTrace, "startup.plugins.ready")
-	store, err := initStore()
+	st, err := initStore()
 	if err != nil {
 		return err
 	}
-	defer store.Close()
+	defer st.Close()
 	console.LogStageIf(backendTrace, "startup.store.ready")
-	runtime.AttachHistoryRouter(store)
+	runtime.AttachHistoryRouter(st)
 	// 子代理会话记录持久化（运行期落盘 + 结束时结论归主会话 + 记录删除）
 	// 与 plan checkpoint 持久化（RunPlan 落最终快照，ResumePlan 续跑）。
-	runtime.AttachSubSessionStore(sessionstore.NewNodeSessionStore(store))
-	runtime.SetPlanCheckpointStore(sessionstore.NewCheckpointStore(store, store.Workspace()))
-	events := application.NewEventHub()
-	approval := application.NewApprovalBroker(events)
-	// 双轨事件（slice 8）：执行事实 → sessionstore 事件库（事实轨），
+	runtime.AttachSubSessionStore(store.NewNodeSessionStore(st))
+	runtime.SetPlanCheckpointStore(store.NewCheckpointStore(st, st.Workspace()))
+	events := wiring.NewEventHub()
+	approval := wiring.NewApprovalBroker(events)
+	// 双轨事件（slice 8）：执行事实 → store 事件库（事实轨），
 	// EventHub 继续前端快照（快照轨）。Sink 失败经 ErrorHandler 隔离，
 	// 不破坏 WorkPlan 控制流（见 Seele event/README.md）。
-	eventStore := sessionstore.NewEventStore(store)
+	eventStore := store.NewEventStore(st)
 	if err := setupPermissionGate(runtime, approval); err != nil {
 		return fmt.Errorf("权限模式无效: %w", err)
 	}
 	console.LogStageIf(backendTrace, "startup.permissions.ready")
-	toolHooks := application.NewToolHookBridge()
+	toolHooks := wiring.NewToolHookBridge()
 	if backendTrace != nil {
 		toolHooks.SetDiagnosticObserver(backendTrace.LogToolHookEvent)
 	}
@@ -533,7 +542,7 @@ func run() error {
 		// 等于把"驱逐"做成空操作，见 docs/2026-10-14-memory-cpu-accumulation/。
 		ReleaseSessionBundle: runtime.ReleaseSessionBundle,
 	})
-	sessionManager := initSessionManager(store, appEngine)
+	sessionManager := initSessionManager(st, appEngine)
 	wsRepo, err := initWorkspaceRepo()
 	if err != nil {
 		return err
@@ -548,14 +557,14 @@ func run() error {
 	})
 	// teamwork 编排面：leader 的六件套工具 + jobs_manage。计划/审计落 moduleTeamwork
 	// （JSON 后端）；作用域键由"会话 → 所属项目"解析，与执行事实事件库同源。
-	if repo, ok := store.TeamworkFor(); ok {
+	if repo, ok := st.TeamworkFor(); ok {
 		// 看板存档面（会话粒度元数据 + 重启快照恢复）：与计划/审计同一个 JSON 后端，
 		// 落 metadata/board_team.json。非 JSON 后端不实现它 → nil，读侧无从恢复，
 		// 活体投影照常工作。
-		boardRepo, _ := store.BoardsFor()
+		boardRepo, _ := st.BoardsFor()
 		// 作用域键解析只有一份（sessionKeyFor，见文件尾部）：团队作业与工具记录
 		// 都用它，免得两处各写一遍"会话 → (项目, 会话)"的解析。
-		keyFor := func(sessionID string) (sessionstore.Key, bool) { return sessionKeyFor(wsRepo, sessionID) }
+		keyFor := func(sessionID string) (store.Key, bool) { return sessionKeyFor(wsRepo, sessionID) }
 		if err := runtime.SetTeamworkBackend(seelebridge.TeamworkBackend{
 			Store:  seeteamwork.NewPlanStore(repo),
 			Boards: boardRepo,
@@ -641,14 +650,14 @@ func run() error {
 	registerContextReadTools(runtime, app)
 	// J-2：agent 请求 GUI 打开待审阅文件（一次批处理召唤，上限 10 份）。
 	registerReviewFilesTool(runtime, app)
-	registerProjectRefreshTool(runtime, store, app)
+	registerProjectRefreshTool(runtime, st, app)
 	registerScheduledTaskCapability(runtime)
 	toolHooks.Bind(app)
 	// 项目看板（可选能力，M3 装配门）：装配期**一次**交接——开关关 ⇒ 不注入订阅口
 	// （工具完成段判空后什么都不做，一个文件都不写）；开 ⇒ 唯一写盘路径挂上。
 	// 关就是关的口径见 docs/arch/seelex-project-board.md §5.3。
 	projectBoardSink, closeProjectBoard, err := projectBoardSinkFor(
-		runtimeLimits.ProjectBoard, store,
+		runtimeLimits.ProjectBoard, st,
 		app.WorkTableRowsFor, app.ProjectBoardTeamPlanFor,
 		app.ProjectBoardTeamStateFor, app.ProjectRootFor,
 	)
@@ -661,15 +670,15 @@ func run() error {
 	// **批次**（真相源提交时刻统一更新一次，见 core.FlushToolRecord）——不做"每次工具调用
 	// 写一次盘"（回合内高频调用会把磁盘写忙，2026-10-15 用户口径）。
 	app.SetToolRecordSnapshotStore(sessionToolRecordStore{
-		router:     store,
-		resolveKey: func(sessionID string) (sessionstore.Key, bool) { return sessionKeyFor(wsRepo, sessionID) },
+		router:     st,
+		resolveKey: func(sessionID string) (store.Key, bool) { return sessionKeyFor(wsRepo, sessionID) },
 	})
 	// 计数开关：默认**开**（先收数据），界面上改过的值落在数据根 runtime-limits.json 的
 	// tool_record_enabled 格（指针：nil = 没改过 ⇒ 用默认）。
 	// 开关的权威值在数据根覆盖层（同一份 runtime-limits.json：设置里拨过就写它）。
 	// 这里自己读一次而不是复用 initRuntime 里的那份：两处装配点不同（这个在更早的
 	// 前端装配段），读一次文件的代价换来"装配顺序不构成隐式依赖"。
-	toolRecordOverlay := readRuntimeLimitsOverlay(runtimeLimitsPath())
+	toolRecordOverlay := overlay.Read(runtimeLimitsPath())
 	toolRecordEnabled := true
 	if toolRecordOverlay.ToolRecordEnabled != nil {
 		toolRecordEnabled = *toolRecordOverlay.ToolRecordEnabled
@@ -678,8 +687,8 @@ func run() error {
 	// "先落盘、再改内存"。这样覆盖层文件只在用户真改过之后才出现这一格。
 	app.ApplyToolRecordEnabled(toolRecordEnabled)
 	// 会话删除时同批回收项目目录里的投影：项目根只有装配根知道（存储层不认识工作区），
-	// 所以在这里把解析器交给 Router 一次（见 sessionstore.SetProjectBoardRootFor）。
-	store.SetProjectBoardRootFor(func(sessionID string) string {
+	// 所以在这里把解析器交给 Router 一次（见 store.SetProjectBoardRootFor）。
+	st.SetProjectBoardRootFor(func(sessionID string) string {
 		if workspace, ok := wsRepo.SessionWorkspace(sessionID); ok {
 			return strings.TrimSpace(workspace.RootPath)
 		}
@@ -687,7 +696,7 @@ func run() error {
 	})
 	// 读取面：**只在这一档注册**（关 ⇒ 工具根本不存在 = 零读取面，而不是"注册了但报错"）。
 	if runtimeLimits.ProjectBoard.Enabled {
-		registerProjectBoardReadTool(runtime, store, app)
+		registerProjectBoardReadTool(runtime, st, app)
 	}
 	// plan 节点事件 / 子代理树生命周期 / task 变更均由 application 内的
 	// CSP 消费者经 channel 处理（service_assembler 启动），无需模型调用
@@ -727,8 +736,8 @@ func run() error {
 				return session_runtime.WorkspaceID(app.Snapshot().CurrentWorkspace)
 			},
 		},
-		ProjectKnowledge: func() *sessionstore.ProjectRecord {
-			record, readErr := store.LoadProjectRecord(store.Workspace())
+		ProjectKnowledge: func() *store.ProjectRecord {
+			record, readErr := st.LoadProjectRecord(st.Workspace())
 			if readErr != nil {
 				return nil
 			}
@@ -833,7 +842,7 @@ func registerContextReadTools(runtime *seelebridge.Runtime, app *application.Ser
 // 直接复用（内容版本化）；重建失败保留上一版本（可回退）。
 //
 // M5：成功刷新后**追加一步渲染**——把 `result.Record` 确定性渲染成
-// `project-known.md`（`sessionstore.ProjectKnownMarkdown` + `WriteProjectKnown`），
+// `project-known.md`（`store.ProjectKnownMarkdown` + `WriteProjectKnown`），
 // 返回体里带 known_written / known_bytes。渲染**不改判定**：谁能产出
 // ProjectRecord 仍只有 RefreshProjectKnowledge 这条链。
 //
@@ -850,7 +859,7 @@ func registerContextReadTools(runtime *seelebridge.Runtime, app *application.Ser
 //
 // **注册门在调用点**（看 run 里的 `if runtimeLimits.ProjectBoard.Enabled`）：能力关 ⇒
 // 这把工具根本不存在（零读取面），而不是"注册了但返回错误"。
-func registerProjectBoardReadTool(runtime *seelebridge.Runtime, store *sessionstore.Router, app *application.Service) {
+func registerProjectBoardReadTool(runtime *seelebridge.Runtime, st *store.Router, app *application.Service) {
 	schema := map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -887,7 +896,7 @@ func registerProjectBoardReadTool(runtime *seelebridge.Runtime, store *sessionst
 		if sessionID == "" {
 			sessionID = app.Snapshot().Session.ID
 		}
-		result, err := seelebridge.ReadProjectBoard(store, request, app.ProjectRootFor(sessionID), sessionID)
+		result, err := seelebridge.ReadProjectBoard(st, request, app.ProjectRootFor(sessionID), sessionID)
 		if err != nil {
 			return "", fmt.Errorf("project_board_read: %w", err)
 		}
@@ -921,7 +930,7 @@ func registerProjectBoardReadTool(runtime *seelebridge.Runtime, store *sessionst
 // projectBoardReadRows 把投影行渲染成给模型看的紧凑载荷：只带判定所需的那几格，
 // 不带任何本机路径（落点只有 kind/key/at/scope/payload —— 契约 §4.1 的行信封本身
 // 就不含绝对路径）。
-func projectBoardReadRows(rows []sessionstore.ProjectBoardRow) []map[string]interface{} {
+func projectBoardReadRows(rows []store.ProjectBoardRow) []map[string]interface{} {
 	views := make([]map[string]interface{}, 0, len(rows))
 	for _, row := range rows {
 		views = append(views, map[string]interface{}{
@@ -935,7 +944,7 @@ func projectBoardReadRows(rows []sessionstore.ProjectBoardRow) []map[string]inte
 	return views
 }
 
-func registerProjectRefreshTool(runtime *seelebridge.Runtime, store *sessionstore.Router, app *application.Service) {
+func registerProjectRefreshTool(runtime *seelebridge.Runtime, st *store.Router, app *application.Service) {
 	schema := map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -951,12 +960,12 @@ func registerProjectRefreshTool(runtime *seelebridge.Runtime, store *sessionstor
 		if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
 			return "", fmt.Errorf("project_refresh: %w", err)
 		}
-		builder := sessionstore.NewProjectKnowledgeBuilder(sessionstore.ProjectKnowledgeSources{Root: input.ProjectRoot})
+		builder := store.NewProjectKnowledgeBuilder(store.ProjectKnowledgeSources{Root: input.ProjectRoot})
 		// 项目级记录的**键是工作区 ID**（`ws-<nano>`），不是扫描根路径：读面
 		// （下方 RuntimeDeps.ProjectKnowledge 的 store.LoadProjectRecord(store.Workspace())）
 		// 用的就是这个键。写键≠读键会让记录永远读不到（G5 断点②），
 		// 所以这里显式取一次工作区 ID 传进去，而不是让存储层去猜。
-		result, err := sessionstore.RefreshProjectKnowledge(ctx, store, store.Workspace(), builder, input.Force)
+		result, err := store.RefreshProjectKnowledge(ctx, st, st.Workspace(), builder, input.Force)
 		if err != nil {
 			// 首建失败（无来源 / 落盘失败）：显式报错，**不产空渲染件**。
 			return "", fmt.Errorf("project_refresh: %w", err)
@@ -973,7 +982,7 @@ func registerProjectRefreshTool(runtime *seelebridge.Runtime, store *sessionstor
 			// 不在回退分支重写：盘上的上一版渲染件就是"上一版本"。
 			knownNote = "fallback：保留上一版本渲染件（未重写）"
 		} else {
-			markdown := sessionstore.ProjectKnownMarkdown(result.Record)
+			markdown := store.ProjectKnownMarkdown(result.Record)
 			// 渲染件与看板同一个目录：<项目根>/.seelex/board/。项目根优先取**会话绑定**
 			// （与看板落点同源）；未绑定时退回本次扫描根（显式给了 project_root 的用法）。
 			sessionID := strings.TrimSpace(coretask.SessionIDFromContext(ctx))
@@ -984,7 +993,7 @@ func registerProjectRefreshTool(runtime *seelebridge.Runtime, store *sessionstor
 			if renderRoot == "" {
 				renderRoot = builder.Root()
 			}
-			if writeErr := store.WriteProjectKnown(renderRoot, markdown); writeErr != nil {
+			if writeErr := st.WriteProjectKnown(renderRoot, markdown); writeErr != nil {
 				return "", fmt.Errorf("project_refresh: %w", writeErr)
 			}
 			knownWritten = true
@@ -999,7 +1008,7 @@ func registerProjectRefreshTool(runtime *seelebridge.Runtime, store *sessionstor
 			"built_at":      result.Record.BuiltAt.Format(time.RFC3339),
 			"known_written": knownWritten,
 			"known_bytes":   knownBytes,
-			"known_file":    sessionstore.ProjectBoardKnownFile,
+			"known_file":    store.ProjectBoardKnownFile,
 			"known_note":    knownNote,
 		}
 		encoded, err := json.Marshal(payload)
@@ -1146,16 +1155,16 @@ func initRuntime() (*seelebridge.Runtime, error) {
 	if err != nil {
 		return nil, fmt.Errorf("加载 window 配置失败: %w", err)
 	}
-	limits, err := seelexctx.LoadLimits(runtimeConfigPath)
+	limits, err := limit.LoadLimits(runtimeConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("加载 limits 配置失败: %w", err)
 	}
 	limits = limits.WithDefaults()
 	// 界面上的覆盖层优先于配置：用户在设置弹窗里改过的运行时参数落盘在数据根，
 	// 启动时叠在 config/seelex.yaml 的 limits 段之上（内置默认 ← 配置 ← 覆盖层），
-	// 见 runtime_limits_overlay.go。
-	limitsOverlay := readRuntimeLimitsOverlay(runtimeLimitsPath())
-	limits = applyRuntimeLimitsOverlay(limits, limitsOverlay)
+	// 见 backend/limit/overlay（M2-C2 归位前在仓库根的 runtime_limits_overlay.go）。
+	limitsOverlay := overlay.Read(runtimeLimitsPath())
+	limits = overlay.Apply(limits, limitsOverlay)
 	runtimeLimits = limits // initStore/initEngine 等后续初始化消费
 	toolCallTimeout, _, planDecision, heartbeat, replanWindow, searchTimeout := limits.Durations()
 	core.ApplyLimits(limits)
@@ -1166,7 +1175,7 @@ func initRuntime() (*seelebridge.Runtime, error) {
 	runtime, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{
 		AccountsPath: accountsPath(), StorePath: *storePath,
 		// 定时任务定义落**全局** JSONL：与 workspace_index.json 同级（store 的
-		// 基目录），不按项目分区、不按会话分片。会话记录仍走 sessionstore。
+		// 基目录），不按项目分区、不按会话分片。会话记录仍走 store。
 		ScheduledTasksPath:        filepath.Join(filepath.Dir(*storePath), "scheduled-tasks.jsonl"),
 		ToolCallTimeout:           toolCallTimeout,
 		PlanDecisionTimeout:       planDecision,
@@ -1761,12 +1770,12 @@ func registerAskApprove(runtime *seelebridge.Runtime, approval *application.Appr
 }
 
 // guardMultiProcess 是启动期多进程闸门：数据根是单进程写者
-// （sessionstore/data_root_lock.go 的 lock.owner）。默认单实例——另一个实例正在写
+// （store/data_root_lock.go 的 lock.owner）。默认单实例——另一个实例正在写
 // 同一数据根时，这里给出**可读**的拒绝（对齐 ErrDataRootLocked 的口径，但更早、
 // 更可操作）。只有 limits.runtime.allow_multi_process: true 才放行；代价见
 // config/seelex.yaml 的 runtime 块（放行后失去跨进程写者串行化，一致性由使用者负责）。
 //
-// 这是**早期**闸门（发生在抢锁之前）：真正的不变量仍由 initStore → sessionstore
+// 这是**早期**闸门（发生在抢锁之前）：真正的不变量仍由 initStore → store
 // 的数据根锁兜底，所以这里只做「能早就早」的可读拒绝，不替代锁本身。
 // projectBoardSinkFor 是项目看板的**装配门**：按配置决定挂不挂订阅口、挂哪一档触发面。
 //
@@ -1778,11 +1787,11 @@ func registerAskApprove(runtime *seelebridge.Runtime, approval *application.Appr
 // 取数依赖一律用 application 侧的只读口（WorkTableRowsFor / ProjectBoardTeamPlanFor /
 // ProjectBoardTeamStateFor / ProjectRootFor）：同步器不重算任何状态（I3）。
 func projectBoardSinkFor(
-	limits seelexctx.ProjectBoardLimits,
-	store core.ProjectBoardStore,
+	limits limit.ProjectBoardLimits,
+	st core.ProjectBoardStore,
 	workTableRows func(sessionID string) []core.WorkItem,
-	teamPlanFor func(sessionID string) *sessionstore.TeamworkPlan,
-	teamStateFor func(sessionID string) *sessionstore.TeamworkState,
+	teamPlanFor func(sessionID string) *store.TeamworkPlan,
+	teamStateFor func(sessionID string) *store.TeamworkState,
 	projectRootFor func(sessionID string) string,
 ) (core.ProjectBoardSink, func(), error) {
 	if !limits.Enabled {
@@ -1793,7 +1802,7 @@ func projectBoardSinkFor(
 		return nil, func() {}, err
 	}
 	syncer := core.NewProjectBoardSyncer(core.ProjectBoardDeps{
-		Store:          store,
+		Store:          st,
 		WorkTableRows:  workTableRows,
 		TeamPlanFor:    teamPlanFor,
 		TeamStateFor:   teamStateFor,
@@ -1830,7 +1839,7 @@ func guardMultiProcess() error {
 	}
 	dataRoot := filepath.Dir(*storePath)
 	staleAfter := time.Duration(runtimeLimits.SessionStorage.LockStaleAfterSeconds) * time.Second
-	if owner, held := sessionstore.DataRootLockedByWith(dataRoot, staleAfter); held {
+	if owner, held := store.DataRootLockedByWith(dataRoot, staleAfter); held {
 		return fmt.Errorf(
 			"数据根 %s 正被另一个 Seelex 实例独占（pid=%d program=%s host=%s）：默认单实例。"+
 				"要允许并行启动，在 config/seelex.yaml 设 limits.runtime.allow_multi_process: true"+
@@ -1840,11 +1849,11 @@ func guardMultiProcess() error {
 	return nil
 }
 
-func initStore() (*sessionstore.Router, error) {
+func initStore() (*store.Router, error) {
 	// NestedSessionStore 的 baseDir 与 workspace_index.json 同级
 	baseDir := filepath.Dir(*storePath)
-	sessionstore.ApplyLimits(runtimeLimits.SummaryChars)
-	router, err := sessionstore.NewRouter(
+	store.ApplyLimits(runtimeLimits.SummaryChars)
+	router, err := store.NewRouter(
 		filepath.Join(baseDir, "session-storage.json"), baseDir, sessionStorageLimits())
 	if err != nil {
 		return nil, fmt.Errorf("初始化嵌套存储失败: %w", err)
@@ -1855,12 +1864,12 @@ func initStore() (*sessionstore.Router, error) {
 // sessionStorageLimits 把 seele.yaml limits.session_storage 映射成存储覆盖层
 // （my_design §11 覆盖链的中间一层：默认值 ← limits ← session-storage.json）。
 // 分片行数沿用既有顶层键 limits.message_shard_size。
-func sessionStorageLimits() sessionstore.Settings {
+func sessionStorageLimits() store.Settings {
 	limits := runtimeLimits.SessionStorage
 	// 指针：把 limits.runtime.allow_multi_process 原样传进 §9 数据根锁（存储侧默认
 	// 也是 false，这里显式带过去，让配置一眼看得出生效）。
 	allowMultiProcess := runtimeLimits.Runtime.AllowMultiProcess
-	return sessionstore.Settings{
+	return store.Settings{
 		MessageShardRows:        runtimeLimits.MessageShardSize,
 		RetryCacheMaxItems:      limits.RetryCacheMaxItems,
 		RetryCacheMaxChars:      limits.RetryCacheMaxChars,
@@ -1904,7 +1913,7 @@ func initEngine(runtime *seelebridge.Runtime, hooks *application.ToolHookBridge,
 	return sess, nil
 }
 
-// 编译期钉子（落盘口的结构满足）在 sessionstore 那一侧：`var _ ToolRecordRepository =
+// 编译期钉子（落盘口的结构满足）在 store 那一侧：`var _ ToolRecordRepository =
 // (*jsonRepository)(nil)`——具体类型不导出，装配根写不出这条断言。
 
 // toolCommandOutcomeObserver 把命令面的退出码折成一次工具记录（成功/失败），再把事件
@@ -1934,15 +1943,15 @@ func toolCommandOutcomeObserver(next seelebridge.BashDiagnosticObserver, app *ap
 // sessionKeyFor 把会话 ID 解析成存储作用域键（项目 + 会话）：**按会话自己的项目绑定**解析，
 // 未绑定会话返回 false（不落到别人的项目目录里）。装配期的三处（teamwork backend、
 // 工具记录）共用这一份解析，不各写一遍。
-func sessionKeyFor(workspaces *workspace.Repo, sessionID string) (sessionstore.Key, bool) {
+func sessionKeyFor(workspaces *workspace.Repo, sessionID string) (store.Key, bool) {
 	if workspaces == nil {
-		return sessionstore.Key{}, false
+		return store.Key{}, false
 	}
 	bound, ok := workspaces.SessionWorkspace(sessionID)
 	if !ok || strings.TrimSpace(bound.ID) == "" {
-		return sessionstore.Key{}, false
+		return store.Key{}, false
 	}
-	return sessionstore.Key{ProjectID: bound.ID, SessionID: sessionID}, true
+	return store.Key{ProjectID: bound.ID, SessionID: sessionID}, true
 }
 
 // sessionToolRecordStore 是 contract.ToolRecordSnapshotStore 在本宿主上的实现：
@@ -1952,28 +1961,28 @@ func sessionKeyFor(workspaces *workspace.Repo, sessionID string) (sessionstore.K
 // 让会话提交失败（错误由调用方按 LastError 的同一口径处理，这里选择"静默跳过"是因为
 // 键解析失败通常意味着会话还没绑项目——那时也还没有可写的位置）。
 type sessionToolRecordStore struct {
-	router     *sessionstore.Router
-	resolveKey func(sessionID string) (sessionstore.Key, bool)
+	router     *store.Router
+	resolveKey func(sessionID string) (store.Key, bool)
 }
 
-func (store sessionToolRecordStore) SaveToolRecordSnapshot(sessionID string, snapshot application.ToolRecordSnapshot) error {
-	repository, ok := store.repository()
+func (st sessionToolRecordStore) SaveToolRecordSnapshot(sessionID string, snapshot application.ToolRecordSnapshot) error {
+	repository, ok := st.repository()
 	if !ok {
 		return nil
 	}
-	key, ok := store.key(sessionID)
+	key, ok := st.key(sessionID)
 	if !ok {
 		return nil
 	}
 	return repository.AppendToolRecordSnapshot(context.Background(), key, snapshot)
 }
 
-func (store sessionToolRecordStore) LoadToolRecordSnapshot(sessionID string) (application.ToolRecordSnapshot, bool, error) {
-	repository, ok := store.repository()
+func (st sessionToolRecordStore) LoadToolRecordSnapshot(sessionID string) (application.ToolRecordSnapshot, bool, error) {
+	repository, ok := st.repository()
 	if !ok {
 		return application.ToolRecordSnapshot{}, false, nil
 	}
-	key, ok := store.key(sessionID)
+	key, ok := st.key(sessionID)
 	if !ok {
 		return application.ToolRecordSnapshot{}, false, nil
 	}
@@ -1988,21 +1997,21 @@ func (store sessionToolRecordStore) LoadToolRecordSnapshot(sessionID string) (ap
 	return snapshot, true, nil
 }
 
-func (store sessionToolRecordStore) repository() (sessionstore.ToolRecordRepository, bool) {
-	if store.router == nil {
+func (st sessionToolRecordStore) repository() (store.ToolRecordRepository, bool) {
+	if st.router == nil {
 		return nil, false
 	}
-	return store.router.ToolRecordFor()
+	return st.router.ToolRecordFor()
 }
 
-func (store sessionToolRecordStore) key(sessionID string) (sessionstore.Key, bool) {
-	if store.resolveKey == nil {
-		return sessionstore.Key{}, false
+func (st sessionToolRecordStore) key(sessionID string) (store.Key, bool) {
+	if st.resolveKey == nil {
+		return store.Key{}, false
 	}
-	return store.resolveKey(sessionID)
+	return st.resolveKey(sessionID)
 }
 
-func initSessionManager(router *sessionstore.Router, eng *adapters.EnginePort) *session.Manager {
+func initSessionManager(router *store.Router, eng *adapters.EnginePort) *session.Manager {
 	manager := session.NewManager().WithRouter(router)
 	manager.InjectSaveLoad(
 		func(sessionID string) error { return router.Save(sessionID, eng.RawHistory()) },
@@ -2026,7 +2035,7 @@ func initApplication(
 	sessionPort := adapters.SessionPort{Manager: sessions, Runtime: runtime}
 	// 会话展示元数据（置顶/别名/排序位）按项目存一份 blob：与 SessionRecord 的
 	// 落盘路径完全隔离，不会被回合结束的记录重建覆盖。
-	sessionPort.Meta = sessionstore.NewSessionMetaStore(sessions.Router())
+	sessionPort.Meta = store.NewSessionMetaStore(sessions.Router())
 	// 会话级操作（删除/读历史）按会话绑定项目解析，避免视图切换后活跃
 	// 写作用域变化导致删错/读错项目（R3 键漂移 + 列表污染根因）。
 	sessionPort.SetWorkspaceResolver(func(sessionID string) string {
@@ -2045,7 +2054,7 @@ func initApplication(
 		}
 		return ids
 	})
-	return application.New(application.Dependencies{
+	return wiring.New(application.Dependencies{
 		Engine: eng, Runtime: adapters.RuntimePort{Runtime: runtime},
 		Plugins: adapters.PluginPort{Manager: plugins}, Skills: adapters.SkillPort{Registry: skills},
 		Sessions: sessionPort, Workspace: adapters.WorkspacePort{Repo: workspaces},
@@ -2058,12 +2067,12 @@ func initApplication(
 		EmployeePermissions: runtime,
 		// 会话驻留窗口的落盘口：设置弹窗改的值写进数据根 runtime-limits.json，
 		// 下次启动由 applyRuntimeLimitsOverlay 叠回 limits 之上。
-		ReleaseWindowStore: runtimeLimitsStoreFile{path: runtimeLimitsPath()},
+		ReleaseWindowStore: overlay.StoreFile{Path: runtimeLimitsPath()},
 		// 每账号上下文窗口的落盘口：同一个覆盖层文件的 account_windows 表
 		// （设置 → 账号的挡位/自定义值）。
-		AccountWindowStore: runtimeLimitsStoreFile{path: runtimeLimitsPath()},
+		AccountWindowStore: overlay.StoreFile{Path: runtimeLimitsPath()},
 		// 工具记录计数开关的落盘口：同一个覆盖层文件的 tool_record_enabled 格。
-		ToolRecordStore: runtimeLimitsStoreFile{path: runtimeLimitsPath()},
+		ToolRecordStore: overlay.StoreFile{Path: runtimeLimitsPath()},
 		// 系统提示词的**环境段**：装配期解析一次"这台机器上 bash 工具实际落到哪个壳"，
 		// 写进提示词（模型写命令前唯一的方言事实；2026-10-15 审计 D4）。解析结果进程内
 		// 缓存，因此前缀逐轮稳定。
@@ -2135,7 +2144,7 @@ func setupPermissionGate(runtime permissionRuntime, approval *application.Approv
 	// 免打断的读命令白名单按**装配期解析出的实际壳**分派（2026-10-15 审计 D4）：
 	// 白名单是按命令文本匹配的，而同一个字符串在 POSIX 壳与 PowerShell 下是两回事——
 	// 写死 POSIX 形态会让 PowerShell 宿主上的命令"过闸即死"（放行 → 执行必失败）。
-	cfg := seeltools.PermissionConfigForShell(seeltools.ResolveShellFact().Kind)
+	cfg := policy.PermissionConfigForShell(seeltools.ResolveShellFact().Kind)
 	fileCfg, err := loadPermissionConfig(ensureConfigFile(bootseed.PermissionConfigName, bootseed.PermissionConfigPack()))
 	if err != nil {
 		return err

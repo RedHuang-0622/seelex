@@ -67,7 +67,7 @@ func (service *Service) snapshotOfCold(sessionID string) (SessionSnapshot, error
 		snapshot.Task = &taskCopy
 	}
 	// v8/S20：record 通道退役后 record.Execution.Task 恒空，压缩记录住在本会话
-	// 自己的通道里（见 sessionstore/compaction_records.go）。非驻留会话的右栏
+	// 自己的通道里（见 store/compaction_records.go）。非驻留会话的右栏
 	// 「上下文压缩」读的就是这里——不还原它，未驻留旧会话的压缩栈在重启后为空。
 	if snapshot.Task == nil || len(snapshot.Task.ContextCompactions) == 0 {
 		if records, ok, _ := service.components.sessions.LoadSessionCompactionRecords(location, sessionID); ok && len(records) > 0 {
@@ -83,7 +83,7 @@ func (service *Service) snapshotOfCold(sessionID string) (SessionSnapshot, error
 }
 
 // GetSessionTranscript 读取指定会话的事件库区间（fromSeq..toSeq 含端点；
-// (0,0) = 全量，与 sessionstore.EventStore.LoadRange 同一语义）。目标会话
+// (0,0) = 全量，与 store.EventStore.LoadRange 同一语义）。目标会话
 // 未驻留时同样可用（事件库按项目键直接读回，不依赖内存态）。
 func (service *Service) GetSessionTranscript(sessionID string, fromSeq, toSeq uint64) ([]TranscriptEvent, error) {
 	sessionID = strings.TrimSpace(sessionID)

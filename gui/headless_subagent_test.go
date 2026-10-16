@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // fakeSubagentApplication 在 headless RPC 单测里复刻 A 流的 subagent.* 扩展面；

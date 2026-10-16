@@ -37,10 +37,10 @@ package adapters
 import (
 	"context"
 
-	"github.com/RedHuang-0622/seelex/application/contract"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // TeamworkBoardSnapshot 实现 contract.TeamworkBoardProjection：把某会话的团队看板
@@ -56,7 +56,7 @@ func (port RuntimePort) TeamworkBoardSnapshot(sessionID string) *dto.TeamworkBoa
 // SessionContextStoreFor 实现 application/core 的会话上下文存储取用面：goal 第五栈
 // （以及绑定它的两块看板存档面）经它按会话注入。未实例化/未绑定 → nil，goal 域退回
 // 内存态（不报错、不阻断）——那是能力缺失的降级，不是错误。
-func (port RuntimePort) SessionContextStoreFor(sessionID string) *sessionstore.SessionContextStore {
+func (port RuntimePort) SessionContextStoreFor(sessionID string) *store.SessionContextStore {
 	if port.Runtime == nil {
 		return nil
 	}
@@ -167,9 +167,9 @@ func (port RuntimePort) SetSessionReasoningEffort(effort string) int {
 // nil ⇒ 项目看板的"这件事的团队计划/运行态"两格整块为空（`ProjectBoardTeamStateFor`
 // 也一起空）。这与 2026-10-02 那次 TeamworkBoardSnapshot 漏接是同一类：bridge 上
 // 有这个方法、core 也在探测，中间少了一行转发就功能整块消失。
-func (port RuntimePort) TeamworkPlanFor(sessionID string) (sessionstore.TeamworkPlan, bool) {
+func (port RuntimePort) TeamworkPlanFor(sessionID string) (store.TeamworkPlan, bool) {
 	if port.Runtime == nil {
-		return sessionstore.TeamworkPlan{}, false
+		return store.TeamworkPlan{}, false
 	}
 	return port.Runtime.TeamworkPlanFor(sessionID)
 }
@@ -191,7 +191,7 @@ var (
 		ReadbackCompactionSummary(context.Context, string, context_runtime.CompactionIndexRequest) (context_runtime.CompactionIndexReceipt, error)
 	} = RuntimePort{}
 	_ interface {
-		SessionContextStoreFor(string) *sessionstore.SessionContextStore
+		SessionContextStoreFor(string) *store.SessionContextStore
 	} = RuntimePort{}
 	_ interface {
 		ReplanMetricsFor(string) dto.ReplanMetrics
@@ -212,6 +212,6 @@ var (
 	// core.TeamworkPlanSource（application/core/project_board.go，包内命名接口）：
 	// 项目看板按会话取 teamwork 计划 + 运行态。断言失败 = 那两格恒空。
 	_ interface {
-		TeamworkPlanFor(string) (sessionstore.TeamworkPlan, bool)
+		TeamworkPlanFor(string) (store.TeamworkPlan, bool)
 	} = RuntimePort{}
 )

@@ -15,7 +15,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/config"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // TestLiveMultimodalImageSmoke 是真机多模态冒烟（opt-in）：
@@ -54,21 +54,21 @@ func TestLiveMultimodalImageSmoke(t *testing.T) {
 
 	// 1) 会话媒体分区：真落盘、真读回（不绕过存储层直接喂内存字节）。
 	storePath := t.TempDir()
-	repository, err := sessionstore.Open(ctx, sessionstore.Config{
-		Backend: sessionstore.BackendJSON, Path: storePath,
+	repository, err := store.Open(ctx, store.Config{
+		Backend: store.BackendJSON, Path: storePath,
 	})
 	if err != nil {
 		t.Fatalf("open session store: %v", err)
 	}
 	t.Cleanup(func() { _ = repository.Close() })
-	media, ok := sessionstore.MediaStoreOf(repository)
+	media, ok := store.MediaStoreOf(repository)
 	if !ok {
 		t.Fatal("session store does not expose the media partition")
 	}
-	key := sessionstore.Key{ProjectID: "p-live-multimodal", SessionID: "s-live-multimodal"}
+	key := store.Key{ProjectID: "p-live-multimodal", SessionID: "s-live-multimodal"}
 	pngBytes := liveSplitPNG(t, 128, 128)
 	name := "prompt-smoke-" + time.Now().UTC().Format("20060102-150405.000") + ".png"
-	item, err := media.WriteMedia(ctx, key, sessionstore.MediaItem{
+	item, err := media.WriteMedia(ctx, key, store.MediaItem{
 		Name: name, MimeType: "image/png", Kind: "screenshot",
 		Data: pngBytes, Width: 128, Height: 128, Scale: 1,
 	})
@@ -83,7 +83,7 @@ func TestLiveMultimodalImageSmoke(t *testing.T) {
 		t.Fatalf("stored name = %q, want original name %q", listed[0].Name, name)
 	}
 	onDisk, parent := findStoredFile(t, storePath, name)
-	hash := strings.TrimPrefix(item.Ref, sessionstore.MediaRefPrefix)
+	hash := strings.TrimPrefix(item.Ref, store.MediaRefPrefix)
 	if parent != hash {
 		t.Fatalf("media folder = %q, want content hash %q (path %s)", parent, hash, onDisk)
 	}

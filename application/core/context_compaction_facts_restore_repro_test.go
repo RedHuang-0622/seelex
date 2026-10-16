@@ -9,7 +9,7 @@ package core
 // 不在」：右栏「上下文压缩」整条为空、保留窗口起点归零。
 //
 // 本文件的替身把这条实测事实写进形状里：record 通道停写 `execution`（置 nil），压缩
-// 记录改由 `LoadCompactionRecordsWorkspace`（= 生产 sessionstore 的
+// 记录改由 `LoadCompactionRecordsWorkspace`（= 生产 store 的
 // compaction-records.jsonl 通道）承载。改掉读侧之前，下面两条用例都是红的。
 
 import (

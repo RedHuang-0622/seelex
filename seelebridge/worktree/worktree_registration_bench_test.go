@@ -15,24 +15,24 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // sceneRecordsForBench 造 32 条"记录投影来源"的记录，每条都有真实存在的现场目录
 // （`Restore` 判"目录真的在"）。
-func sceneRecordsForBench(b *testing.B, dir string) []sessionstore.NodeSessionRecord {
+func sceneRecordsForBench(b *testing.B, dir string) []store.NodeSessionRecord {
 	b.Helper()
-	records := make([]sessionstore.NodeSessionRecord, 0, 32)
+	records := make([]store.NodeSessionRecord, 0, 32)
 	for index := 0; index < 32; index++ {
 		nodeID := fmt.Sprintf("exec-wi-%02d", index)
 		path := filepath.Join(dir, nodeID)
 		if err := os.Mkdir(path, 0o755); err != nil {
 			b.Fatal(err)
 		}
-		records = append(records, sessionstore.NodeSessionRecord{
-			SchemaVersion: sessionstore.NodeSessionSchemaVersion,
+		records = append(records, store.NodeSessionRecord{
+			SchemaVersion: store.NodeSessionSchemaVersion,
 			NodeID:        nodeID,
-			Worktree: sessionstore.NodeWorktreeRecord{
+			Worktree: store.NodeWorktreeRecord{
 				Path: path, Branch: "seelex/" + nodeID, MainBranch: "main", BaseCommit: "0123456789",
 			},
 		})

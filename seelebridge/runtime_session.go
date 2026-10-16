@@ -8,7 +8,7 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // 主会话与子代理 merge-back 的会话侧内部方法。公开会话端口见 ports.go。
@@ -19,8 +19,8 @@ import (
 // 只随 bundle 持有会话态；锁粒度随会话（决策契约 §1）。
 type sessionBindings struct {
 	mu          sync.RWMutex
-	ctxStore    *sessionstore.SessionContextStore
-	mainHistory *sessionstore.DurableHistory
+	ctxStore    *store.SessionContextStore
+	mainHistory *store.DurableHistory
 
 	mainSessionMu sync.RWMutex
 	mainSessionID string
@@ -38,7 +38,7 @@ func (b *sessionBindings) setSessionID(id string) {
 	b.mainSessionMu.Unlock()
 }
 
-func (b *sessionBindings) setMainHistory(history *sessionstore.DurableHistory) {
+func (b *sessionBindings) setMainHistory(history *store.DurableHistory) {
 	b.mu.Lock()
 	b.mainHistory = history
 	b.mu.Unlock()
@@ -55,13 +55,13 @@ func (b *sessionBindings) prepareMainSessionHistory(sessionID string, messages [
 	return true
 }
 
-func (b *sessionBindings) attachContextStore(store *sessionstore.SessionContextStore) {
+func (b *sessionBindings) attachContextStore(st *store.SessionContextStore) {
 	b.mu.Lock()
-	b.ctxStore = store
+	b.ctxStore = st
 	b.mu.Unlock()
 }
 
-func (b *sessionBindings) contextStore() *sessionstore.SessionContextStore {
+func (b *sessionBindings) contextStore() *store.SessionContextStore {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.ctxStore
@@ -69,7 +69,7 @@ func (b *sessionBindings) contextStore() *sessionstore.SessionContextStore {
 
 // SessionContextStoreFor 返回指定会话的 SessionContextStore（goal 第五栈
 // 装配旁路；未实例化/未绑定 → nil）。
-func (r *Runtime) SessionContextStoreFor(sessionID string) *sessionstore.SessionContextStore {
+func (r *Runtime) SessionContextStoreFor(sessionID string) *store.SessionContextStore {
 	if r == nil || sessionID == "" {
 		return nil
 	}
@@ -91,7 +91,7 @@ func (r *Runtime) getTurnArchiver() seelexctx.TurnArchiver {
 
 // setProjectKnowledge 设置全局项目级模块语义提供者（ProjectKnowledge
 // 会话前预读；nil 关闭 project 块）。
-func (r *Runtime) setProjectKnowledge(provider func() *sessionstore.ProjectRecord) {
+func (r *Runtime) setProjectKnowledge(provider func() *store.ProjectRecord) {
 	r.projectMu.Lock()
 	r.project = provider
 	r.projectMu.Unlock()

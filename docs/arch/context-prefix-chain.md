@@ -228,7 +228,7 @@ tool / command 是同一个生态位**——激活后的正文是 transcript 里
   + `## Trusted Active Skill: <name>` + 正文），随 `TranscriptTailHistory` 进
   context 区、按协议单元切分并**参与压缩**（同处注释明示：压缩/历史安全路径不特殊
   处理，可被压掉，由帧摘要与检索承载）。该事件同时以 **wire material 落盘**
-  （`sessionstore/durable_history.go:205-218` 保持 `user` 角色回放、
+  （`store/durable_history.go:205-218` 保持 `user` 角色回放、
   `wire_assembler.go:266-280` 以 `user` 回放且 `Internal: true`）→ resume 可回放、
   `search_history` 可回读。**system 不再渲染该段**：
   `prompt_layer/coordinator.go` 的 `SystemPromptForActiveTaskLockedFor` 注释明确
@@ -301,7 +301,7 @@ tool / command 是同一个生态位**——激活后的正文是 transcript 里
 >   `application/core/context_runtime` 的 `rejectOversizedToolResults`。
 > - **存储侧另一组**（`session_storage.big_tool_result_soft_limit_chars` 截断 /
 >   `_hard_limit_bytes` 16 MB 不落盘报错 / `_session_quota_bytes` 64 MB 配额）：
->   实现在 `sessionstore/big_tool_result.go`（`writeBlob`），**当前没有生产调用方**
+>   实现在 `store/big_tool_result.go`（`writeBlob`），**当前没有生产调用方**
 >   （只有单测）。
 > - **没有**"软限触发一次 LLM 总结、把总结写进 big result"这一步：软限（存储侧）只
 >   截断，LLM 总结（QuickChat）只用在**上下文压缩**上。这条属规划，不在本文描述的
@@ -411,7 +411,7 @@ floor  = max(最近 1 个完整协议单元, context_retain_floor_percent × 预
 配置校验：`floor > retain_tokens` 必须**报错**，不许静默取小（否则「用户设了个大数」这类问题会被吞掉）。
 已实现落点：`seelexctx.WindowConfig.ValidateRetainWindow` + `application/core.ValidateRetainWindow`
 （后者由 `main.initRuntime` 在 Runtime 建成后调用，预算口径与压缩判据同源）；比例类旋钮超界
-（不在 [0,100]）在 `seelexctx.LoadLimits` 报错，不再静默回退默认值。
+（不在 [0,100]）在 `limit.LoadLimits` 报错，不再静默回退默认值。
 
 ### 粒度：不截断 + 判定顺序
 
@@ -444,9 +444,9 @@ floor  = max(最近 1 个完整协议单元, context_retain_floor_percent × 预
 |---|---|
 | 保护区不截断 + 至少 1 单元 | `application/core/task_context/plan_transcript.go`（`TranscriptTailWindow`、`transcriptProtocolUnitList`） |
 | 保护区候选取小 | `seelexctx/window.go`（retained tokens 取 min） |
-| 帧只存指针 + 摘要 | `sessionstore.CompactFrame`、`seelexctx/dag.go`（`CompactionDAG` 的 merge 节点）、`seelebridge/runtime_compaction_index.go`（`PushCompactionFrame`） |
+| 帧只存指针 + 摘要 | `store.CompactFrame`、`seelexctx/dag.go`（`CompactionDAG` 的 merge 节点）、`seelebridge/runtime_compaction_index.go`（`PushCompactionFrame`） |
 | 回读检索 | `application/core/history_search.go` → `seelexctx/search` |
-| 分片事实源 | `sessionstore/message_rows.go`（`message_<from>_<to>.jsonl`） |
+| 分片事实源 | `store/message_rows.go`（`message_<from>_<to>.jsonl`） |
 | 重放（分片落点） | `seelexctx/replay.go`（`PrefixReplaySummarizer`） |
 
 ## 数据结构与涉及文件
@@ -457,11 +457,11 @@ floor  = max(最近 1 个完整协议单元, context_retain_floor_percent × 预
 | 框架装配 | `seelexctx/assembler.go` | `AssemblerOptions{SystemPrompt, ProjectBlock, PrefixStacks, TailStacks, Memories, Window}`、`Assemble` 投影顺序、`RenderStablePrefixBlocks`（skill/compact）+ `RenderTailBlocks`（plan/task） |
 | 运行时接线 | `seelebridge/runtime_context.go` | `seelexAssembler`、`relatedMemoryBlocks`、`stackBlocks`、`projectBlock` |
 | 系统提示 | `application/core/prompt_layer/coordinator.go` | `SystemPromptForActiveTaskLockedFor` |
-| 会话上下文 | `sessionstore.SessionContextRecord` | `PlanStack` / `TaskStack` / `SkillStack` / `CompactStack` |
+| 会话上下文 | `store.SessionContextRecord` | `PlanStack` / `TaskStack` / `SkillStack` / `CompactStack` |
 | Fork | `application/core/session_runtime/fork.go` | `truncateForkRecord`（过滤 `kind=todo` 的 Tasks） |
 | 压缩帧 | `seelexctx/frame.go`、`seelexctx/dag.go`、`seelexctx/replay.go`、`seelebridge/runtime_compaction_index.go` | 两章节 Summary（Chapter 1 锚点 + Chapter 2 八小节骨架）、`LocalChapter2WithCarry`、压缩 DAG 的帧拼装、前缀重放厚摘要（`PrefixReplaySummarizer`）、`PushCompactionFrame` |
 | 保护区窗口 | `seelexctx/window.go`、`application/core/task_context/plan_transcript.go` | 保留区候选取小、`TranscriptTailWindow`（按协议单元不截断、至少保 1 单元） |
-| 事实源与回读 | `sessionstore/message_rows.go`、`seelexctx/search`、`application/core/history_search.go` | 消息分片 `message_<from>_<to>.jsonl`、帧当语义索引 + `[From..To]` 读回真实记录 |
+| 事实源与回读 | `store/message_rows.go`、`seelexctx/search`、`application/core/history_search.go` | 消息分片 `message_<from>_<to>.jsonl`、帧当语义索引 + `[From..To]` 读回真实记录 |
 | 模型 | `application/model` | `TokenAudit`（可加缓存命中观测）、`SessionRecord` |
 | 四区显式化/打点（《已落地》1、4） | `application/core/context_runtime/layout.go` | `ContextLayout`、`ContextZone`、`RetainDecision`、`ContextZones`、`retainWindowDecision` |
 | 保护区下限（《已落地》1） | `seelexctx/window.go`、`application/core/window.go` | `RetainedContextTokensWithFloor`、`RetainFloorTokens`、`ValidateRetainWindow` |
@@ -504,7 +504,7 @@ floor  = max(最近 1 个完整协议单元, context_retain_floor_percent × 预
 
 6. 已实现：保护区下限 `context_retain_floor_percent`（`seelexctx/window.go` +
    `application/core/window.go`）；`floor > retain_tokens` 在 `main.initRuntime` 报错拒绝启动；
-   比例类旋钮超界在 `seelexctx.LoadLimits` 报错。
+   比例类旋钮超界在 `limit.LoadLimits` 报错。
 7. 已实现：帧摘要传递上限 `context_frame_carry_tokens`
    （`seelexctx.CarryPreviousChapter2`，压缩 DAG 的本地兜底 / 真空区 / 装配层推帧
    三条路径共用；回合内控制器已不折帧，不再在列）。
@@ -553,7 +553,7 @@ floor  = max(最近 1 个完整协议单元, context_retain_floor_percent × 预
    `seelexctx/window.go` 的 `RetainedContextTokensWithFloor` / `RetainFloorTokens`。
    非法组合 `floor > retain_tokens` 由 `WindowConfig.ValidateRetainWindow` **报错**，
    在 `main.initRuntime` 建起 Runtime 之后立刻校验（账号窗口已知，预算与判据同源）——
-   拒绝启动，而不是静默取小；比例类旋钮超界（不在 [0,100]）也在 `seelexctx.LoadLimits` 报错
+   拒绝启动，而不是静默取小；比例类旋钮超界（不在 [0,100]）也在 `limit.LoadLimits` 报错
    （此前是 `percentOf` 静默回退默认值）。
    - **打点**：判据关 Detail 带 `all= budget= cap= ratio= floor= retained= floor_applied=`；
      `floor_applied` 只在**下限真的抬高结果**时为真（"配了却没生效"不报成生效）；
@@ -612,16 +612,16 @@ floor  = max(最近 1 个完整协议单元, context_retain_floor_percent × 预
    skill 目录段 **1227 字符 / 388 token**（10 个技能，插件级稳定）；plan 政策段
    **287 字符 / 85 token**；一条典型 plan payload（含 `current_slice`）**347 字符 / 119 token**。
    - **a) 激活 skill 正文不做 provider-only 前缀消息**：它本来就是 append-only 的
-     **wire 材料**——`sessionstore/durable_history.go:205-218` `providerRoleForEvent` 对含
+     **wire 材料**——`store/durable_history.go:205-218` `providerRoleForEvent` 对含
      `<!-- seelex:active-skill:` 的行保持 `user` 角色回放（不折叠成 system），
-     `sessionstore/wire_assembler.go:266-280` 在 `WireMaterial` 为真时以 `user` 回放到
+     `store/wire_assembler.go:266-280` 在 `WireMaterial` 为真时以 `user` 回放到
      wire（`Internal: true`）：激活后到被压缩前稳定命中缓存，resume 也能回放；
      做成「前缀消息」只能塞回 system 稳定区——正是刚从 system 移出的那件事。
    - **a-1) 注释措辞已修（2026-09-24）**：`ActiveSkillMarker` 的注释原写「事件**不落盘**」，
-     与 sessionstore 侧 wire material 落盘/回放相矛盾。现按三问改写：
+     与 store 侧 wire material 落盘/回放相矛盾。现按三问改写：
      「**落盘**（wire material，resume 回放、检索回读）／不进可见会话与「用户输入」视图／
      **会被压缩裁掉**」；`context_runtime/coordinator.go` 的 `ActiveSkillPrefix` 注释同步补上
-     落盘与裁剪说明。`sessionstore/durable_history.go` 的 `providerRoleForEvent` 注释无歧义，未动。
+     落盘与裁剪说明。`store/durable_history.go` 的 `providerRoleForEvent` 注释无歧义，未动。
    - **a-2) 缺口处理：定为 (iii) 接受现状（2026-09-24 决定）**。事实链：技能事件是独立协议
      单元（`plan_transcript.go` 的 `transcriptProtocolUnitList` 分支），压缩窗口裁剪后正文从 wire
      消失；同一任务内再次 `skill_activate` **不会**补写（去重基准 `state.ActiveSkills`，

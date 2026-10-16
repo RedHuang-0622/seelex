@@ -13,7 +13,7 @@ package seelebridge
 import (
 	"github.com/RedHuang-0622/Seele/jobs"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // teamworkJobNamer 是团队作业表的命名器：`bteam-<seq>`。

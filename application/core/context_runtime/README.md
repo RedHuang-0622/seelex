@@ -425,5 +425,5 @@ go test ./application/core/context_runtime -count=1
 - `func (port *recordingSessionPort) PersistCurrentSession(location session_runtime.Location, sessionID string) error`
 - `func (port *recordingSessionPort) LocateSessionResolved(sessionID string) (session_runtime.Location, bool)`
 - `func (port *recordingSessionPort) locations() []string`
-- `func listed(router *sessionstore.Router, projectID, sessionID string) bool` — listed 报告项目目录枚举（左侧栏的数据源口径）里是否列出了该会话。
+- `func listed(router *store.Router, projectID, sessionID string) bool` — listed 报告项目目录枚举（左侧栏的数据源口径）里是否列出了该会话。
 

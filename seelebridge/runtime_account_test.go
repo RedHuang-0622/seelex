@@ -10,11 +10,11 @@ import (
 
 	"github.com/RedHuang-0622/Seele/accountpool"
 	"github.com/RedHuang-0622/Seele/agent"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	seelaccount "github.com/RedHuang-0622/seelex/seelebridge/account"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/config"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
-	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
 func TestAccountLimitsHonorDefaultsAndAccountOverrides(t *testing.T) {
@@ -243,7 +243,7 @@ roles:
 	runtime, err := NewRuntime(RuntimeConfig{
 		AccountsPath:    path,
 		ToolCallTimeout: time.Second,
-		Limits:          seelexctx.Limits{ContextWindow: 400_000},
+		Limits:          limit.Limits{ContextWindow: 400_000},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -294,7 +294,7 @@ roles:
 	runtime, err := NewRuntime(RuntimeConfig{
 		AccountsPath:    path,
 		ToolCallTimeout: time.Second,
-		Limits:          seelexctx.Limits{ContextWindow: 400_000},
+		Limits:          limit.Limits{ContextWindow: 400_000},
 		AccountWindows:  map[string]int{"subagent-1": 1_000_000},
 	})
 	if err != nil {

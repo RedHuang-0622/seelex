@@ -25,7 +25,7 @@ func TestStateEnumNeverCastToString(t *testing.T) {
 	sources := map[string]string{
 		"违规样例（枚举直接转字符串）": `package p
 
-import "github.com/RedHuang-0622/seelex/application/contract/dto"
+import "github.com/RedHuang-0622/seelex/contract/dto"
 
 func mark() string { return string(dto.SubAgentDone) }
 `,
@@ -45,7 +45,7 @@ func mark() bool { return record.Status == string(subagentNodeStatusFailed) }
 	// 反向对照：`.String()` 是唯一合法写法，不许误伤。
 	clean := `package p
 
-import "github.com/RedHuang-0622/seelex/application/contract/dto"
+import "github.com/RedHuang-0622/seelex/contract/dto"
 
 func mark() string { return dto.SubAgentDone.String() }
 
@@ -58,7 +58,7 @@ func same(status string) bool { return status == dto.TaskCompleted.String() }
 	// 生产源码：全仓扫一遍（含测试源码——同一类陷阱在用例里也算错误）。
 	root := repoRoot()
 	violations := []string{}
-	for _, dir := range []string{"application", "seelebridge", "e2e", "sessionstore", "seelexctx", "tui", "gui"} {
+	for _, dir := range []string{"application", "seelebridge", "e2e", "store", "seelexctx", "tui", "gui"} {
 		found, err := scanTreeForStateEnumCasts(root, dir)
 		if err != nil {
 			t.Fatalf("扫 %s：%v", dir, err)

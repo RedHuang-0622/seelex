@@ -17,15 +17,15 @@ package core
 //
 // 保留面完好：`AppendRoleDraft` / `SyncRoleDraft` / `RoleSnapshot` / 角色 draft 的
 // 存储实现与 headless RPC 一字未改（见 application/core/role_session.go、
-// sessionstore/role_session*.go、gui/headless.go 的 `role.*`）。
+// store/role_session*.go、gui/headless.go 的 `role.*`）。
 
 import (
 	"context"
 	"sync"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // draftRecordingSessions 记录 role draft 的两个动作（append / sync）及其顺序，

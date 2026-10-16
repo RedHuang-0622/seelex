@@ -5,7 +5,7 @@ package main
 // 三件事，一件一个判据：
 //   - 关就是关（enabled:false）：不返回订阅口、不落任何文件；
 //   - 拼错的 hook 档名**显式失败**（不静默降级成"开了但没生效"）；
-//   - 开着时：真实存储面（sessionstore.Router）+ 真实同步器 ⇒ 命中触发面的工具完成后
+//   - 开着时：真实存储面（store.Router）+ 真实同步器 ⇒ 命中触发面的工具完成后
 //     投影真的落到 `<项目根>/.seelex/board/` 里（**数据根下一份都不落**），未命中的工具
 //     一行都不写，Close 可重入。
 
@@ -18,8 +18,8 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application/core"
-	"github.com/RedHuang-0622/seelex/seelexctx"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 const projectBoardWiringSession = "session-board-wiring"
@@ -28,11 +28,11 @@ const projectBoardWiringSession = "session-board-wiring"
 //
 // 两者刻意是两个不同的目录：本轮的判据正是"投影不再落在数据根下，而是落在项目根的
 // `.seelex/board/` 里"——把两个夹做成同一个临时目录，这半条判据就退化成同义反复。
-func projectBoardWiringStore(t *testing.T) (router *sessionstore.Router, dataRoot, projectRoot string) {
+func projectBoardWiringStore(t *testing.T) (router *store.Router, dataRoot, projectRoot string) {
 	t.Helper()
 	dataRoot = t.TempDir()
 	projectRoot = t.TempDir()
-	router, err := sessionstore.NewRouter(filepath.Join(dataRoot, "session-storage.json"), dataRoot)
+	router, err := store.NewRouter(filepath.Join(dataRoot, "session-storage.json"), dataRoot)
 	if err != nil {
 		t.Fatalf("new session router: %v", err)
 	}
@@ -46,8 +46,8 @@ func projectBoardWiringStore(t *testing.T) (router *sessionstore.Router, dataRoo
 // 同形——main.go 注入的就是 `app.ProjectRootFor`（会话 → 它所属工作区的项目根）。
 func projectBoardWiringDeps(projectRoot string) (
 	func(string) []core.WorkItem,
-	func(string) *sessionstore.TeamworkPlan,
-	func(string) *sessionstore.TeamworkState,
+	func(string) *store.TeamworkPlan,
+	func(string) *store.TeamworkState,
 	func(string) string,
 ) {
 	rows := func(sessionID string) []core.WorkItem {
@@ -56,14 +56,14 @@ func projectBoardWiringDeps(projectRoot string) (
 			Task: "调研", Status: "doing",
 		}}
 	}
-	plan := func(string) *sessionstore.TeamworkPlan {
-		return &sessionstore.TeamworkPlan{
+	plan := func(string) *store.TeamworkPlan {
+		return &store.TeamworkPlan{
 			TeamID: "team-1", Version: 1,
-			Milestones: []sessionstore.TeamworkMilestone{{ID: "m1", Name: "第一步"}},
+			Milestones: []store.TeamworkMilestone{{ID: "m1", Name: "第一步"}},
 		}
 	}
-	state := func(string) *sessionstore.TeamworkState {
-		return &sessionstore.TeamworkState{State: sessionstore.TeamworkStateClosed, Milestones: map[string]string{"m1": "done"}}
+	state := func(string) *store.TeamworkState {
+		return &store.TeamworkState{State: store.TeamworkStateClosed, Milestones: map[string]string{"m1": "done"}}
 	}
 	return rows, plan, state, func(string) string { return projectRoot }
 }
@@ -72,7 +72,7 @@ func projectBoardWiringDeps(projectRoot string) (
 // "投影真的落在项目目录里"的第二张判据面（外部 agent 直接读它，不经任何工具）。
 func projectBoardMarkdown(t *testing.T, projectRoot string) string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(sessionstore.ProjectBoardDir(projectRoot), sessionstore.ProjectBoardMarkdownFile))
+	data, err := os.ReadFile(filepath.Join(store.ProjectBoardDir(projectRoot), store.ProjectBoardMarkdownFile))
 	if err != nil {
 		return ""
 	}
@@ -90,7 +90,7 @@ func projectBoardArtifacts(t *testing.T, root string) []string {
 		if entry.IsDir() {
 			return nil
 		}
-		if entry.Name() == sessionstore.ProjectBoardWorkFile || entry.Name() == sessionstore.ProjectBoardTeamworkFile {
+		if entry.Name() == store.ProjectBoardWorkFile || entry.Name() == store.ProjectBoardTeamworkFile {
 			relative, _ := filepath.Rel(root, path)
 			found = append(found, filepath.ToSlash(relative))
 		}
@@ -124,7 +124,7 @@ func TestProjectBoardDisabledInjectsNothing(t *testing.T) {
 	rows, plan, state, projectRootFor := projectBoardWiringDeps(projectRoot)
 
 	sink, closeSink, err := projectBoardSinkFor(
-		seelexctx.ProjectBoardLimits{Enabled: false, Hook: "", FlushIdleMS: 20},
+		limit.ProjectBoardLimits{Enabled: false, Hook: "", FlushIdleMS: 20},
 		router, rows, plan, state, projectRootFor,
 	)
 	if err != nil {
@@ -148,7 +148,7 @@ func TestProjectBoardRejectsUnknownHook(t *testing.T) {
 	rows, plan, state, projectRootFor := projectBoardWiringDeps(projectRoot)
 
 	sink, closeSink, err := projectBoardSinkFor(
-		seelexctx.ProjectBoardLimits{Enabled: true, Hook: "todo-list", FlushIdleMS: 20},
+		limit.ProjectBoardLimits{Enabled: true, Hook: "todo-list", FlushIdleMS: 20},
 		router, rows, plan, state, projectRootFor,
 	)
 	if err == nil {
@@ -165,7 +165,7 @@ func TestProjectBoardRejectsUnknownHook(t *testing.T) {
 	// 空串 = 未配置 ⇒ 缺省档 todo_list（与出厂档一致）。
 	for _, hook := range []string{"", " todo_list ", "TOOL_COMPLETE"} {
 		if _, closeIdle, err := projectBoardSinkFor(
-			seelexctx.ProjectBoardLimits{Enabled: true, Hook: hook, FlushIdleMS: 20},
+			limit.ProjectBoardLimits{Enabled: true, Hook: hook, FlushIdleMS: 20},
 			router, rows, plan, state, projectRootFor,
 		); err != nil {
 			t.Fatalf("hook=%q 被拒绝：%v", hook, err)
@@ -182,7 +182,7 @@ func TestProjectBoardEnabledWritesArtifacts(t *testing.T) {
 	rows, plan, state, projectRootFor := projectBoardWiringDeps(projectRoot)
 
 	sink, closeSink, err := projectBoardSinkFor(
-		seelexctx.ProjectBoardLimits{Enabled: true, Hook: core.ProjectBoardHookModeTodoList, FlushIdleMS: 20},
+		limit.ProjectBoardLimits{Enabled: true, Hook: core.ProjectBoardHookModeTodoList, FlushIdleMS: 20},
 		router, rows, plan, state, projectRootFor,
 	)
 	if err != nil {
@@ -198,11 +198,11 @@ func TestProjectBoardEnabledWritesArtifacts(t *testing.T) {
 
 	// ② 命中触发面（todo_add）：worktable.jsonl 与 teamwork.jsonl 各落一份。
 	sink.OnToolComplete("todo_add", nil, projectBoardWiringSession)
-	waitForProjectBoardArtifacts(t, projectRoot, sessionstore.ProjectBoardWorkFile)
+	waitForProjectBoardArtifacts(t, projectRoot, store.ProjectBoardWorkFile)
 	// 两个文件是同一次 flush 里先后落的（work 先行）：等第二个也要轮询，不能假设它
 	// 与第一个在同一瞬间可见。
-	artifacts := waitForProjectBoardArtifacts(t, projectRoot, sessionstore.ProjectBoardTeamworkFile)
-	if !containsArtifact(artifacts, sessionstore.ProjectBoardWorkFile) {
+	artifacts := waitForProjectBoardArtifacts(t, projectRoot, store.ProjectBoardTeamworkFile)
+	if !containsArtifact(artifacts, store.ProjectBoardWorkFile) {
 		t.Fatalf("work 行没落 worktable.jsonl：%v", artifacts)
 	}
 	boardPrefix := filepath.ToSlash(filepath.Join(".seelex", "board")) + "/"
@@ -235,16 +235,16 @@ func TestProjectBoardEnabledWritesArtifacts(t *testing.T) {
 		t.Fatalf("BOARD.md 没带上会话列（人读件应当能指到会话）：%q", markdown)
 	}
 	// 行的 scope 里也写**字面 id**：产物自描述（外部 agent 光看 jsonl 不必反推目录名）。
-	body := readProjectBoardArtifact(t, projectRoot, sessionstore.ProjectBoardWorkFile)
+	body := readProjectBoardArtifact(t, projectRoot, store.ProjectBoardWorkFile)
 	if !strings.Contains(body, projectBoardWiringSession) {
 		t.Fatalf("投影行里应当带字面会话 id（scope.session）：%s", body)
 	}
 
 	// ③ 失败的工具完成：不标脏（I4：失败的调用不改动"活"）。
-	before := readProjectBoardArtifact(t, projectRoot, sessionstore.ProjectBoardWorkFile)
+	before := readProjectBoardArtifact(t, projectRoot, store.ProjectBoardWorkFile)
 	sink.OnToolComplete("todo_add", errProjectBoardWiring, projectBoardWiringSession)
 	time.Sleep(80 * time.Millisecond)
-	if after := readProjectBoardArtifact(t, projectRoot, sessionstore.ProjectBoardWorkFile); after != before {
+	if after := readProjectBoardArtifact(t, projectRoot, store.ProjectBoardWorkFile); after != before {
 		t.Fatal("失败的完成调用不该写盘")
 	}
 

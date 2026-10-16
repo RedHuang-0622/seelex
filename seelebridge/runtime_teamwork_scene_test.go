@@ -19,21 +19,21 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // sceneTestTeamPlan 造一份含两个现场的计划：teammate 级（member.Worktree）与
 // Work Item 级（items[0].Worktree）。
-func sceneTestTeamPlan() sessionstore.TeamworkPlan {
-	return sessionstore.TeamworkPlan{
+func sceneTestTeamPlan() store.TeamworkPlan {
+	return store.TeamworkPlan{
 		TeamID:  "t-scene",
 		Version: 1,
-		Members: []sessionstore.TeamworkMember{
+		Members: []store.TeamworkMember{
 			{Role: "exec", RoleSessionID: "sess-1-t-scene-exec", Worktree: "seelex/exec"},
 		},
-		Milestones: []sessionstore.TeamworkMilestone{{
+		Milestones: []store.TeamworkMilestone{{
 			ID: "m1",
-			Items: []sessionstore.TeamworkWorkItem{
+			Items: []store.TeamworkWorkItem{
 				{ID: "wi-clean", Milestone: "m1", Role: "exec", Name: "干净但还没合并", Worktree: "seelex/exec-wi-clean"},
 			},
 		}},
@@ -44,31 +44,31 @@ func sceneTestTeamPlan() sessionstore.TeamworkPlan {
 // 重启 + 宿主恢复之后，团队现场在册、目录/分支保留、Prune 不删它，且绑根落到现场。
 func TestRestoreAnchorsAdoptsTeamScenesBeforePrune(t *testing.T) {
 	ctx := context.Background()
-	key := sessionstore.Key{ProjectID: "p-team", SessionID: "sess-1"}
-	store := &memPlanStore{}
-	if err := store.WritePlan(ctx, key, sceneTestTeamPlan(), 0); err != nil {
+	key := store.Key{ProjectID: "p-team", SessionID: "sess-1"}
+	st := &memPlanStore{}
+	if err := st.WritePlan(ctx, key, sceneTestTeamPlan(), 0); err != nil {
 		t.Fatal(err)
 	}
 	// 账本两种行形状都要认领：
 	//   - Work Item 级（WorkItem 非空）；
 	//   - teammate 级（WorkItem 留空、Role=角色名、Worktree=seelex/<role>，leader 定的形状）
-	//     ——`sessionstore.TeamworkBindings` 的折叠按 work_item 为键，会把这一行整行丢掉，
+	//     ——`store.TeamworkBindings` 的折叠按 work_item 为键，会把这一行整行丢掉，
 	//     所以恢复侧必须读**原始行**。
-	for _, row := range []sessionstore.TeamworkBinding{
+	for _, row := range []store.TeamworkBinding{
 		{WorkItem: "wi-clean", Role: "exec", SessionID: "sess-1-t-scene-exec", Worktree: "seelex/exec-wi-clean"},
 		{WorkItem: "", Role: "exec", SessionID: "sess-1-t-scene-exec", Worktree: "seelex/exec"},
 	} {
-		if err := store.AppendBinding(ctx, key, row); err != nil {
+		if err := st.AppendBinding(ctx, key, row); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	router, err := sessionstore.NewRouter(filepath.Join(t.TempDir(), "session-storage.json"), t.TempDir())
+	router, err := store.NewRouter(filepath.Join(t.TempDir(), "session-storage.json"), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer router.Close()
-	nodeStore := sessionstore.NewNodeSessionStore(router)
+	nodeStore := store.NewNodeSessionStore(router)
 	repo := setupGitRepo(t)
 
 	// ── 旧进程：建出两个现场（都**干净**——探针实测里被 Prune 删掉的就是这种）
@@ -99,7 +99,7 @@ func TestRestoreAnchorsAdoptsTeamScenesBeforePrune(t *testing.T) {
 	if err := restarted.BindProjectRoot(repo); err != nil {
 		t.Fatal(err)
 	}
-	if err := restarted.SetTeamworkBackend(teamworkTestBackend(store, "sess-1")); err != nil {
+	if err := restarted.SetTeamworkBackend(teamworkTestBackend(st, "sess-1")); err != nil {
 		t.Fatalf("SetTeamworkBackend: %v", err)
 	}
 	if restarted.worktreeMgr.RegisteredCount() != 0 {
@@ -142,17 +142,17 @@ func TestRestoreAnchorsAdoptsTeamScenesBeforePrune(t *testing.T) {
 // 已释放（Released）的绑定不再认领。
 func TestTeamSceneNodeIDsReadsPlanAndRawLedgerRows(t *testing.T) {
 	ctx := context.Background()
-	key := sessionstore.Key{ProjectID: "p-team", SessionID: "sess-1"}
-	store := &memPlanStore{}
-	if err := store.WritePlan(ctx, key, sceneTestTeamPlan(), 0); err != nil {
+	key := store.Key{ProjectID: "p-team", SessionID: "sess-1"}
+	st := &memPlanStore{}
+	if err := st.WritePlan(ctx, key, sceneTestTeamPlan(), 0); err != nil {
 		t.Fatal(err)
 	}
-	for _, row := range []sessionstore.TeamworkBinding{
+	for _, row := range []store.TeamworkBinding{
 		{WorkItem: "wi-clean", Role: "exec", SessionID: "rs", Worktree: "seelex/exec-wi-clean"},
 		{WorkItem: "", Role: "exec", SessionID: "rs", Worktree: "seelex/exec"},
 		{WorkItem: "wi-old", Role: "exec", SessionID: "rs", Worktree: "seelex/exec-wi-old", Released: true, Reason: "accept"},
 	} {
-		if err := store.AppendBinding(ctx, key, row); err != nil {
+		if err := st.AppendBinding(ctx, key, row); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -165,7 +165,7 @@ func TestTeamSceneNodeIDsReadsPlanAndRawLedgerRows(t *testing.T) {
 		t.Fatalf("未装配 teamwork 后端时不得给出任何 nodeID：%v", got)
 	}
 
-	if err := runtime.SetTeamworkBackend(teamworkTestBackend(store, "sess-1")); err != nil {
+	if err := runtime.SetTeamworkBackend(teamworkTestBackend(st, "sess-1")); err != nil {
 		t.Fatal(err)
 	}
 	got := runtime.teamSceneNodeIDs("sess-1")

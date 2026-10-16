@@ -7,7 +7,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // 后台命令的轮询型执行域·实时探针：把登记表里的一次执行采样成"能看懂的一眼"，

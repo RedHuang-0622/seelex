@@ -169,7 +169,7 @@ func scanRuntimePortAssertions(t *testing.T) []assertionSite {
 //
 // 优先取"命名接口"（跨包类型名，如 contract.TeamworkBoardProjection）；否则取窗口里
 // 第一个方法名（内联接口与包内命名接口都落这一支）。不取参数/返回值的点分类型
-// （如 *sessionstore.SessionContextStore）——那是载荷类型，不是端口身份。
+// （如 *store.SessionContextStore）——那是载荷类型，不是端口身份。
 func narrowPortKey(window string) string {
 	if match := namedPortTypeRe.FindStringSubmatch(window); match != nil {
 		return match[1]

@@ -15,6 +15,7 @@ package tools
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/backend/limit/policy"
 	"testing"
 
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
@@ -37,7 +38,7 @@ func TestInheritEmployeeInheritsFullToolFace(t *testing.T) {
 	state := employeeGate(roleSessionID, "", nil)
 	ctx := inheritEmployeeCtx(roleSessionID, "owner")
 
-	if class := state.classFor(ctx); class != SubjectClassRoot {
+	if class := state.classFor(ctx); class != policy.SubjectClassRoot {
 		t.Fatalf("继承口径员工主体类 = %q, want root（继承宿主默认）", class)
 	}
 	for _, name := range employeeFaceTools() {
@@ -172,7 +173,7 @@ func TestEmployeeApprovalOwnershipDoesNotChangeJudgement(t *testing.T) {
 		toolspermission.WithSessionID(context.Background(), "goal-a2a-reviewer"),
 		"reviewer", "readonly", nil,
 	)
-	if subject := state.resolveEmployeeSubject(employeeCtx, SubjectClassEmployeeRO); subject != "emp_reviewer" {
+	if subject := state.resolveEmployeeSubject(employeeCtx, policy.SubjectClassEmployeeRO); subject != "emp_reviewer" {
 		t.Fatalf("折算后员工主体 = %q, want emp_reviewer", subject)
 	}
 }

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // composer 底部两条「独立拉条」的落点测试（service_knobs.go）。

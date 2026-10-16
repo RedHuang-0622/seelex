@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
-	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/wiring"
 )
 
 func TestParseFrontendMode(t *testing.T) {
@@ -123,7 +123,7 @@ func TestFullAccessStartupKeepsManualPermissionBaseline(t *testing.T) {
 	t.Cleanup(func() { *permissionMode = originalMode })
 
 	runtime := &permissionRuntimeRecorder{}
-	if err := setupPermissionGate(runtime, application.NewApprovalBroker(nil)); err != nil {
+	if err := setupPermissionGate(runtime, wiring.NewApprovalBroker(nil)); err != nil {
 		t.Fatal(err)
 	}
 	if runtime.config.Mode != toolspermission.ModeManual {

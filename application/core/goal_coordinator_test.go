@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // goal_coordinator_test.go — 会话级 goal 协调器的边界用例。

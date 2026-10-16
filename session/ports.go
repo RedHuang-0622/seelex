@@ -17,31 +17,31 @@ import (
 	seelesession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/application/model"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
-// 会话粒度类型以 sessionstore 为单一事实源（存储模块定义，端口层别名；
-// sessionstore 不得反向依赖本包，见 session_granular.go 说明）。
+// 会话粒度类型以 store 为单一事实源（存储模块定义，端口层别名；
+// store 不得反向依赖本包，见 session_granular.go 说明）。
 type (
-	SessionKind     = sessionstore.Kind
-	SessionStatus   = sessionstore.Status
-	SessionRecord   = sessionstore.Record
-	TranscriptEvent = sessionstore.TranscriptEvent
-	ToolResultRef   = sessionstore.ToolResultRef
-	ContextStack    = sessionstore.ContextStack
-	SessionInfo     = sessionstore.SessionInfo
-	SessionBinding  = sessionstore.Binding
+	SessionKind     = store.Kind
+	SessionStatus   = store.Status
+	SessionRecord   = store.Record
+	TranscriptEvent = store.TranscriptEvent
+	ToolResultRef   = store.ToolResultRef
+	ContextStack    = store.ContextStack
+	SessionInfo     = store.SessionInfo
+	SessionBinding  = store.Binding
 )
 
 const (
-	KindMain               = sessionstore.KindMain
-	KindSubagent           = sessionstore.KindSubagent
-	StatusDraft            = sessionstore.StatusDraft
-	StatusIdle             = sessionstore.StatusIdle
-	StatusRunning          = sessionstore.StatusRunning
-	StatusQueued           = sessionstore.StatusQueued
-	StatusAwaitingApproval = sessionstore.StatusAwaitingApproval
-	StatusArchived         = sessionstore.StatusArchived
+	KindMain               = store.KindMain
+	KindSubagent           = store.KindSubagent
+	StatusDraft            = store.StatusDraft
+	StatusIdle             = store.StatusIdle
+	StatusRunning          = store.StatusRunning
+	StatusQueued           = store.StatusQueued
+	StatusAwaitingApproval = store.StatusAwaitingApproval
+	StatusArchived         = store.StatusArchived
 )
 
 // EngineHandle 是引擎/loop 句柄（E_i，opaque：seelebridge bundle 持有

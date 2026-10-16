@@ -19,7 +19,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // subagentSessionScopeFixture 造一个视图会话在 session-a 的服务，并把"进程级

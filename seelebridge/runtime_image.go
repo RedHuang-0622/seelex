@@ -12,7 +12,7 @@ import (
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 	bridgecomputer "github.com/RedHuang-0622/seelex/seelebridge/tools/computer"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // AttachImage 把一张画面挂进「下一次模型请求随图」队列。
@@ -51,7 +51,7 @@ func (r *Runtime) storeSessionMedia(ctx context.Context, asset bridgecomputer.Me
 	if router == nil {
 		return bridgecomputer.StoredMedia{}, errors.New("computer: 会话存储未装配，截图无法落盘")
 	}
-	ref, err := router.WriteMediaWorkspace(ctx, r.mediaProjectIDFor(ctx, sessionID), sessionID, sessionstore.MediaItem{
+	ref, err := router.WriteMediaWorkspace(ctx, r.mediaProjectIDFor(ctx, sessionID), sessionID, store.MediaItem{
 		Name:     asset.Name,
 		MimeType: asset.MimeType,
 		Kind:     asset.Kind,
@@ -125,13 +125,13 @@ func (r *Runtime) loadSessionMedia(ctx context.Context, ref string) (types.FileP
 	}, nil
 }
 
-// mediaProjectIDFor 解析媒体资产的归属项目（sessionstore 的 projectID 与
+// mediaProjectIDFor 解析媒体资产的归属项目（store 的 projectID 与
 // workspace ID 同域）：
 //
 //  1. 执行会话自己的绑定（主代理/后台主会话走这条）；
 //  2. 节点作用域的工作区（子代理/Plan 节点执行：node 会话没有独立绑定，但
 //     ctx 里带着节点自己的工作区，与节点记录持久化同域且并行安全）；
-//  3. 都没有则回落默认项目 ""（与 sessionstore 的"未绑定 = 默认项目"一致）。
+//  3. 都没有则回落默认项目 ""（与 store 的"未绑定 = 默认项目"一致）。
 //
 // 刻意不读 Router 的活跃写作用域、也不用 MainSessionID 兜底：并行子代理执行
 // 期间视图可能已经切到别的会话，用它们解析会把截图写进另一个项目（子代理

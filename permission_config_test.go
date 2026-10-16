@@ -3,11 +3,12 @@ package main
 import (
 	"context"
 	"errors"
+	"github.com/RedHuang-0622/seelex/backend/limit/policy"
 	"testing"
 
 	frameworktools "github.com/RedHuang-0622/Seele/tools"
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
 	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 )
@@ -53,7 +54,7 @@ var permissionToolNames = []string{
 // mergedPermissionConfig 复刻组合根的装配：默认权责配置 + config/seele.yaml 覆盖。
 func mergedPermissionConfig(t *testing.T) toolspermission.PermissionConfig {
 	t.Helper()
-	base := seeltools.DefaultPermissionConfig()
+	base := policy.DefaultPermissionConfig()
 	fileCfg, err := loadPermissionConfig("config/seele.yaml")
 	if err != nil {
 		t.Fatalf("loadPermissionConfig: %v", err)
@@ -69,7 +70,7 @@ func TestEveryRegisteredToolIsRouted(t *testing.T) {
 		t.Fatalf("分组/主体表必须已装配：groups=%d subjects=%d", len(cfg.Groups), len(cfg.Subjects))
 	}
 	for _, name := range permissionToolNames {
-		group, ok := seeltools.RoutePermissionGroup(cfg.Groups, name)
+		group, ok := policy.RoutePermissionGroup(cfg.Groups, name)
 		if !ok {
 			t.Fatalf("%s 未分封：注册工具面出现漏点", name)
 		}

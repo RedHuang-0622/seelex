@@ -1,7 +1,7 @@
 package session_runtime
 
 import (
-	"github.com/RedHuang-0622/seelex/application/contract"
+	"github.com/RedHuang-0622/seelex/contract"
 )
 
 // SessionWireAssemblerPort 是 R2 wire 装配的可选能力：实现方对 会话

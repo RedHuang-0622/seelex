@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // ── 全局 JSONL 任务定义（粒度 + 冷启动重建）─────────────────────────────

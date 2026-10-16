@@ -3,7 +3,7 @@
 //
 // 生态位：application/core 在工具完成段判出这次是成功还是失败（判据在 core 的
 // `toolStatusFailed` / `toolRecordReason`），把 (工具名, 成败, 失败原因) 交给本包累加；
-// **落盘归会话存储**（`sessionstore` 的 `tool-record.jsonl`），由 core 在**真相源提交点**
+// **落盘归会话存储**（`store` 的 `tool-record.jsonl`），由 core 在**真相源提交点**
 // 批量更新（默认草稿物化进真相源那一刻，见 core 的 flushToolRecord）——本包**不做任何 IO**。
 //
 // 为什么粒度是"一会话一份"而不是进程级一份（2026-10-15 用户口径）：
@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // Accumulator 是一个会话的工具记录累计（内存态；落盘走会话存储）。

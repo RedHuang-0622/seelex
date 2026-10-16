@@ -5,7 +5,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/jobs"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // 团队作业表的命名器判据（2026-10-15 审计 D1）：Seele 不再自命名，命名由 Seelex 注入。

@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"github.com/RedHuang-0622/seelex/backend/limit/policy"
 	"testing"
 
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
@@ -35,8 +36,8 @@ func TestTeammateInGrantRunsDirectlyAndOutOfGrantGoesToTheEscalationPage(t *test
 		{name: "readwrite teammate 跑命令（位内 → 直通）", role: "exec", policy: "readwrite", tool: "bash"},
 		{name: "readonly teammate 读文件（位内）", role: "review", policy: "readonly", tool: "read_file"},
 		{name: "readonly teammate 写文件（越权 → 提权页）", role: "review", policy: "readonly", tool: "write_file", wantPage: true},
-		{name: "逐格格子只给 ro：写文件越权（格子优先于档位）", role: "audit", policy: "readwrite", groups: map[string]uint8{GroupRO: GroupBitRead}, tool: "write_file", wantPage: true},
-		{name: "逐格格子给 rw：写文件位内（格子优先于档位）", role: "audit2", policy: "readonly", groups: map[string]uint8{GroupRO: GroupBitRead, GroupRW: GroupBitRead | GroupBitWrite}, tool: "write_file"},
+		{name: "逐格格子只给 ro：写文件越权（格子优先于档位）", role: "audit", policy: "readwrite", groups: map[string]uint8{policy.GroupRO: GroupBitRead}, tool: "write_file", wantPage: true},
+		{name: "逐格格子给 rw：写文件位内（格子优先于档位）", role: "audit2", policy: "readonly", groups: map[string]uint8{policy.GroupRO: GroupBitRead, policy.GroupRW: GroupBitRead | GroupBitWrite}, tool: "write_file"},
 		{name: "任何 teammate 碰 ctl（能力面断位 → 越权）", role: "exec", policy: "readwrite", tool: "task_complete", wantPage: true},
 		{name: "任何 teammate 碰 adm（能力面断位 → 越权）", role: "exec", policy: "readwrite", tool: "switch_plugin", wantPage: true},
 		{name: "任何 teammate 碰共享外设（断位 → 越权）", role: "exec", policy: "readwrite", tool: "computer_click", wantPage: true},
@@ -44,7 +45,7 @@ func TestTeammateInGrantRunsDirectlyAndOutOfGrantGoesToTheEscalationPage(t *test
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			approvals := 0
-			state := sessionScopedGate("sess-teammate", DefaultPermissionConfig(),
+			state := sessionScopedGate("sess-teammate", policy.DefaultPermissionConfig(),
 				func(ctx *toolspermission.ApprovalContext) (*toolspermission.ApprovalResponse, error) {
 					approvals++
 					return &toolspermission.ApprovalResponse{RequestID: ctx.Request.ID, Choice: "allow"}, nil
@@ -77,7 +78,7 @@ func TestTeammateInGrantRunsDirectlyAndOutOfGrantGoesToTheEscalationPage(t *test
 // TestTeammateEscalationDeniedKeepsTheCallDenied：越权提权页面上选拒绝 → 调用被拒
 // （提权是"单次口令"，不是自动放行）。
 func TestTeammateEscalationDeniedKeepsTheCallDenied(t *testing.T) {
-	state := sessionScopedGate("sess-teammate", DefaultPermissionConfig(),
+	state := sessionScopedGate("sess-teammate", policy.DefaultPermissionConfig(),
 		func(*toolspermission.ApprovalContext) (*toolspermission.ApprovalResponse, error) {
 			return &toolspermission.ApprovalResponse{Choice: "deny"}, nil
 		})
@@ -95,7 +96,7 @@ func TestTeammateEscalationDeniedKeepsTheCallDenied(t *testing.T) {
 // 能力面调用（越权面不因档位而开）。
 func TestTeammateCapabilityFaceStaysClosedUnderFullTier(t *testing.T) {
 	approvals := 0
-	state := sessionScopedGate("sess-teammate", DefaultPermissionConfig(),
+	state := sessionScopedGate("sess-teammate", policy.DefaultPermissionConfig(),
 		func(ctx *toolspermission.ApprovalContext) (*toolspermission.ApprovalResponse, error) {
 			approvals++
 			return &toolspermission.ApprovalResponse{RequestID: ctx.Request.ID, Choice: "allow"}, nil

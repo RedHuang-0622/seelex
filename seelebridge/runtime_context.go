@@ -13,22 +13,22 @@ import (
 	"github.com/RedHuang-0622/seelex/seelexctx/compactor"
 	"github.com/RedHuang-0622/seelex/seelexctx/memory"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // AttachSessionContextStore 绑定会话上下文存储（state blob，plan.md §3.7.2）。
 // 会话恢复流程接线时由调用方注入（router + sessionID 就绪后）。
-func (r *Runtime) AttachSessionContextStore(store *sessionstore.SessionContextStore) {
+func (r *Runtime) AttachSessionContextStore(st *store.SessionContextStore) {
 	if bundle := r.activeBundle(); bundle != nil {
 		bundle.mu.Lock()
-		bundle.binding.attachContextStore(store)
+		bundle.binding.attachContextStore(st)
 		bundle.mu.Unlock()
 	}
 }
 
 // SetProjectKnowledgeProvider 注入项目级模块语义提供者（ProjectKnowledge
 // 会话前预读；nil 关闭 project 块）。
-func (r *Runtime) SetProjectKnowledgeProvider(provider func() *sessionstore.ProjectRecord) {
+func (r *Runtime) SetProjectKnowledgeProvider(provider func() *store.ProjectRecord) {
 	r.setProjectKnowledge(provider)
 }
 
@@ -48,7 +48,7 @@ func (r *Runtime) compressionSnapshot(_ string) *snapshot.ContextSnapshot {
 // 起点 tailStartUnit 直接对齐，[栈顶To+1, tailStartUnit-1] 即未覆盖区间；它
 // 压入会话压缩栈（state blob / 内存兜底），原文经 TurnArchiver 归档
 // （read_compressed_turn 可读回）。无真空区 → 无副作用。
-func (r *Runtime) coverHistoryGap(ctx context.Context, allEvents []sessionstore.Event, tailStartUnit int) error {
+func (r *Runtime) coverHistoryGap(ctx context.Context, allEvents []store.Event, tailStartUnit int) error {
 	if len(allEvents) == 0 {
 		return nil
 	}
@@ -126,11 +126,11 @@ func (r *Runtime) nodeController() seelectx.ContextController {
 // （不止栈顶：超长会话的久远相关段经 seelexctx/memory 词法选取器召回）。
 // 无绑定存储 / 空查询 / 无命中 → 不注入（请求内容不变）。
 func (r *Runtime) relatedMemoryBlocks(_ context.Context, query string) []seelectx.PromptBlock {
-	store := r.sessionContextStore()
-	if store == nil {
+	st := r.sessionContextStore()
+	if st == nil {
 		return nil
 	}
-	record := store.Snapshot()
+	record := st.Snapshot()
 	if len(record.CompactStack) == 0 {
 		return nil
 	}
@@ -279,8 +279,8 @@ func (r *Runtime) MainCompactionDAG() *seelexctx.CompactionDAG {
 		Summarizer:        summarizer,
 		SummarizerNote:    summarizerNote,
 		SystemPrompt: func() string {
-			if store := r.sessionContextStore(); store != nil {
-				return store.SystemPrompt()
+			if st := r.sessionContextStore(); st != nil {
+				return st.SystemPrompt()
 			}
 			return ""
 		},
@@ -297,7 +297,7 @@ func (r *Runtime) MainCompactionDAG() *seelexctx.CompactionDAG {
 }
 
 // sessionContextStore 返回绑定的会话上下文存储（nil = 未绑定）。
-func (r *Runtime) sessionContextStore() *sessionstore.SessionContextStore {
+func (r *Runtime) sessionContextStore() *store.SessionContextStore {
 	if bundle := r.activeBundle(); bundle != nil {
 		return bundle.binding.contextStore()
 	}
@@ -308,31 +308,31 @@ func (r *Runtime) sessionContextStore() *sessionstore.SessionContextStore {
 // plan/task；now using = 栈顶；未绑定存储 → 无块）。节点子代理继承路径
 // 兼容入口（InheritedBlocks），保持原有块集合不变。
 func (r *Runtime) stackBlocks() []seelectx.PromptBlock {
-	store := r.sessionContextStore()
-	if store == nil {
+	st := r.sessionContextStore()
+	if st == nil {
 		return nil
 	}
-	return seelexctx.RenderStackBlocks(store.Snapshot())
+	return seelexctx.RenderStackBlocks(st.Snapshot())
 }
 
 // prefixStacks 渲染稳定前缀栈块（skill/compact，now using = 栈顶；未绑定
 // 存储 → 无块）：主会话装配器在记忆块之后、累积 context 之前注入。
 func (r *Runtime) prefixStacks() []seelectx.PromptBlock {
-	store := r.sessionContextStore()
-	if store == nil {
+	st := r.sessionContextStore()
+	if st == nil {
 		return nil
 	}
-	return seelexctx.RenderStablePrefixBlocks(store.Snapshot())
+	return seelexctx.RenderStablePrefixBlocks(st.Snapshot())
 }
 
 // tailStacks 渲染动态尾部栈块（plan/task，now using = 栈顶；未绑定存储 →
 // 无块）：主会话装配器在 WorkingHistory 之后、贴近当前输入注入。
 func (r *Runtime) tailStacks() []seelectx.PromptBlock {
-	store := r.sessionContextStore()
-	if store == nil {
+	st := r.sessionContextStore()
+	if st == nil {
 		return nil
 	}
-	return seelexctx.RenderTailBlocks(store.Snapshot())
+	return seelexctx.RenderTailBlocks(st.Snapshot())
 }
 
 // windowPolicy 返回当前窗口策略（NewRuntime 时按配置构造）。

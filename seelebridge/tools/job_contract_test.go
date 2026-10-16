@@ -10,7 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // 作业契约本身的判据（打点 K-1 / K-2 / K-6 与 L-1 / L-3 / L-4）。

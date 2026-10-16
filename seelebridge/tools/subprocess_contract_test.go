@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"github.com/RedHuang-0622/seelex/backend/limit/policy"
 	"testing"
 )
 
@@ -69,32 +70,32 @@ func TestObserveDoesNotAdvanceCursor(t *testing.T) {
 // bash 工具族分裂（打点 K-3）与 async_output 下线（打点 L-2）都只改这张表。
 // 表变了这里就该变——这是有意的耦合，不是脆弱的重复。
 func TestJobContractToolFaceRoutingTable(t *testing.T) {
-	groups := DefaultPermissionGroupList()
+	groups := policy.DefaultPermissionGroupList()
 	cases := []struct {
 		tool  string
 		group string
 		why   string
 	}{
 		// 读簇：不改任何共享状态。
-		{"read_file", GroupRO, "读文件不改状态"},
-		{"grep_search", GroupRO, "只读搜索"},
-		{"glob", GroupRO, "只读列举"},
+		{"read_file", policy.GroupRO, "读文件不改状态"},
+		{"grep_search", policy.GroupRO, "只读搜索"},
+		{"glob", policy.GroupRO, "只读列举"},
 		// bash 工具族（打点 K-3）：只读面免打断，后台面与串行面同组。
-		{"read_batch", GroupRO, "只读扇出作业（Kind=inline），不碰共享状态"},
+		{"read_batch", policy.GroupRO, "只读扇出作业（Kind=inline），不碰共享状态"},
 		// 写簇：跟 bash 同组，sub/员工才能取回/杀掉自己派发的后台作业。
-		{"write_file", GroupRW, "写项目文件"},
-		{"edit_file", GroupRW, "改项目文件"},
-		{"bash", GroupRW, "同步串行命令：保守归类为写"},
-		{"bash_bg", GroupRW, "后台受管：实现 §A.1 的 Add，回执不是结果"},
-		{"bg_manage", GroupRW, "取回/终止/销项管的正是 bash 起的执行体"},
+		{"write_file", policy.GroupRW, "写项目文件"},
+		{"edit_file", policy.GroupRW, "改项目文件"},
+		{"bash", policy.GroupRW, "同步串行命令：保守归类为写"},
+		{"bash_bg", policy.GroupRW, "后台受管：实现 §A.1 的 Add，回执不是结果"},
+		{"bg_manage", policy.GroupRW, "取回/终止/销项管的正是 bash 起的执行体"},
 		// 循环控制流 / 能力面。
-		{"task_complete", GroupCTL, "结束 loop"},
-		{"fork_subagents", GroupCTL, "派生执行结构"},
-		{"switch_plugin", GroupADM, "改变能力面本身"},
-		{"computer_click", GroupRWDesktop, "共享外设"},
+		{"task_complete", policy.GroupCTL, "结束 loop"},
+		{"fork_subagents", policy.GroupCTL, "派生执行结构"},
+		{"switch_plugin", policy.GroupADM, "改变能力面本身"},
+		{"computer_click", policy.GroupRWDesktop, "共享外设"},
 	}
 	for _, item := range cases {
-		group, ok := RoutePermissionGroup(groups, item.tool)
+		group, ok := policy.RoutePermissionGroup(groups, item.tool)
 		if !ok {
 			t.Errorf("%s 未归入任何权限组：未分封的工具按框架默认走审批，而它的理由是 %q", item.tool, item.why)
 			continue

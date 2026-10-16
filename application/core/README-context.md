@@ -28,21 +28,21 @@
   处理器归档引用（`result_ref=result:<callID>`），而视图/轨迹读的是应用呈现文本
   （`presentToolError` / `tr-<digest>` 归档引用）。记录侧为此增 provider-only 字段
   `provider_content`（`application/model/context.go` 的 `TranscriptEvent`、
-  `sessionstore/sessionstore.go` 的 `Event`），三个 provider 投影出口统一取它：
-  `sessionstore/durable_history.go` 的 `eventsToMessages`、`sessionstore/wire_assembler.go`
+  `store/store.go` 的 `Event`），三个 provider 投影出口统一取它：
+  `store/durable_history.go` 的 `eventsToMessages`、`store/wire_assembler.go`
   的会话 wire 装配、`application/core/task_context/plan_transcript.go` 的
   `transcriptEventMessage`。守卫用例：
   `prefix_invariant_fullchain_test.go::TestFullChainPrefixInvariantToolErrorAcrossTurns`
   与 `...OversizedToolResultAcrossTurns`（比对生产路径录到的真实 wire 字节）、
-  `sessionstore/provider_content_test.go`（落盘 + 冷载 + 重启恢复）。
+  `store/provider_content_test.go`（落盘 + 冷载 + 重启恢复）。
 - 工具轮说明正文（wire 上被丢弃、只经 `onChunk` 进视图的那段）**在工具钩子边界按
   迭代归位**到本次迭代的 assistant(tool_calls) 事件
   （`task_context.AttributeToolNarrationLocked`；回合收尾不再做事后填充——旧做法会
   把叙述写到别的轮次上）。归位只影响 record / 视图，投影侧仍归零，二者共同保证
 "重投影 == 已发出"。归零有两处实现，对应两条投影出口：引擎历史路径
 （`RepairEmptyHistoryContent`）与**生产实际出口**——框架 WorkingHistory 来自
-`sessionstore.DurableHistory.Load`（尾窗重投影），归零在那里由
-`sessionstore.ProviderWireMessages` 实施（2026-09-12 真实 API 冒烟发现前者到不了
+`store.DurableHistory.Load`（尾窗重投影），归零在那里由
+`store.ProviderWireMessages` 实施（2026-09-12 真实 API 冒烟发现前者到不了
 wire）。守卫用例：`TestToolNarrationStaysWithOwningIteration`、
 `TestConcurrentSessionsKeepOwnContent`、`TestFullChainPrefixInvariantAcrossTurns`。
 - 红灯用例：`context_prefix_invariant_test.go`（沿生产装配路径断言「每条请求是
@@ -312,7 +312,7 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 
 ### context_compact_selfdeadlock_repro_test.go
 
-- `func (stub *archiverSessionsStub) SaveCommitWorkspace(_, _ string, _ sessionstore.Commit) error`
+- `func (stub *archiverSessionsStub) SaveCommitWorkspace(_, _ string, _ store.Commit) error`
 - `func (stub *archiverSessionsStub) commitCount() int`
 - `func (runtime *productionArchiveIndexRuntime) PushCompactionFrame( ctx context.Context, _ string, request context_runtime.CompactionIndexRequest, ) (context_runtime.CompactionIndexReceipt, error)`
 - `func TestExplicitCompactFramePushSelfDeadlocksRepro(t *testing.T)` — TestExplicitCompactFramePushSelfDeadlocksRepro：在真实归档接线（main.go:310 同形）
@@ -381,7 +381,7 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 - `func realProbeRepoRoot(t *testing.T) string` — realProbeRepoRoot 从测试的工作目录（go test 把 CWD 设在包目录）向上找到仓库根。
 - `func realProbeResolve(t *testing.T, path string) string` — realProbeResolve 把相对路径解析到仓库根下（绝对路径原样保留）。
 - `func realProbeCopyTree(t *testing.T, src, dst string)`
-- `func realProbeTranscriptEvent(row sessionstore.Event) model.TranscriptEvent`
+- `func realProbeTranscriptEvent(row store.Event) model.TranscriptEvent`
 - `func realProbeSessionID(t *testing.T, sessionDir string) string` — realProbeSessionID 从会话自己的 message head 读回 Router 的会话键：磁盘目录名是
 - `func realProbeProjectID(t *testing.T, root, sessionID string) string` — realProbeProjectID 从 workspace_index.json 的 bindings（会话 → 项目）读回项目键。
 - `func realProbeLoadFacts(t *testing.T) *realProbeFacts` — realProbeLoadFacts 只读拷贝真实会话目录到临时根，再按生产读面把事实读回来。
@@ -450,7 +450,7 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 
 ### context_retain_floor_test.go
 
-- `func applyTestLimits(t *testing.T, mutate func(*seelexctx.Limits))` — applyTestLimits 在测试内改一项 limits 配置并在结束恢复（进程内生效配置）。
+- `func applyTestLimits(t *testing.T, mutate func(*limit.Limits))` — applyTestLimits 在测试内改一项 limits 配置并在结束恢复（进程内生效配置）。
 - `func TestValidateRetainWindowStartupCheck(t *testing.T)` — TestValidateRetainWindowStartupCheck：《压缩四区模型》的配置校验——保护区下限
 - `func TestCompactRetainFloorRaisesProtectedWindow(t *testing.T)` — TestCompactRetainFloorRaisesProtectedWindow：保护区下限生效——同样的 transcript
 - `func TestCompactFrameBodyCarriesZoneLayout(t *testing.T)` — TestCompactFrameBodyCarriesZoneLayout：四区显式化的**报表落点**——压缩记录指向的

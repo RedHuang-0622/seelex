@@ -3,7 +3,7 @@ package seelebridge
 import (
 	"context"
 	"errors"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
 	session "github.com/RedHuang-0622/seelex/seelebridge/session"

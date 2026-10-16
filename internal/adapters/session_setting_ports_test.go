@@ -4,10 +4,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/session"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // TestSessionPermissionTierRoundTrip：会话级权限档位设置经适配层落到真实存储
@@ -15,7 +15,7 @@ import (
 // 顺手抹掉档位，改档位也不得动别名/排序位。这条链是"档位跨重启记住"的物理面。
 func TestSessionPermissionTierRoundTrip(t *testing.T) {
 	root := t.TempDir()
-	router, err := sessionstore.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,8 +25,8 @@ func TestSessionPermissionTierRoundTrip(t *testing.T) {
 	const sessionID = "sess-setting"
 	const otherSessionID = "sess-setting-other"
 	for _, id := range []string{sessionID, otherSessionID} {
-		if err := router.SaveCommitWorkspace(projectID, id, sessionstore.Commit{
-			Events: []sessionstore.Event{{Seq: 1, Role: "user", Content: "seed"}},
+		if err := router.SaveCommitWorkspace(projectID, id, store.Commit{
+			Events: []store.Event{{Seq: 1, Role: "user", Content: "seed"}},
 		}); err != nil {
 			t.Fatalf("seed %s: %v", id, err)
 		}
@@ -34,7 +34,7 @@ func TestSessionPermissionTierRoundTrip(t *testing.T) {
 
 	port := SessionPort{
 		Manager: session.NewManager().WithRouter(router),
-		Meta:    sessionstore.NewSessionMetaStore(router),
+		Meta:    store.NewSessionMetaStore(router),
 	}
 	port.SetWorkspaceResolver(func(string) string { return projectID })
 
@@ -76,7 +76,7 @@ func TestSessionPermissionTierRoundTrip(t *testing.T) {
 	if tier, err := port.SessionPermissionTier(sessionID); err != nil || tier != "" {
 		t.Fatalf("cleared tier = %q err=%v, want empty", tier, err)
 	}
-	metas, err := sessionstore.NewSessionMetaStore(router).Meta(projectID)
+	metas, err := store.NewSessionMetaStore(router).Meta(projectID)
 	if err != nil {
 		t.Fatalf("meta read: %v", err)
 	}

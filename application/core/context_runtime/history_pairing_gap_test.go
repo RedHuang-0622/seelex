@@ -3,7 +3,7 @@ package context_runtime
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract"
+	"github.com/RedHuang-0622/seelex/contract"
 )
 
 // history_pairing_gap_test.go — provider 的第二半措辞

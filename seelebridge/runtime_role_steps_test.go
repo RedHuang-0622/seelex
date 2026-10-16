@@ -18,8 +18,8 @@ import (
 
 	"github.com/RedHuang-0622/Seele/session"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 func TestRoleLoopHooksReportToolStepsToGoalSink(t *testing.T) {

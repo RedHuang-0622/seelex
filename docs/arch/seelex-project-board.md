@@ -30,7 +30,7 @@
 
 | 名字 | 是什么 | 谁写 | 进上下文？ |
 |---|---|---|---|
-| `board_goal` / `board_team`（`metadata/*.json`） | 会话级**看板存档**（快照恢复用） | goal / teamwork 域 | ❌（`sessionstore/board.go:1-20` I7） |
+| `board_goal` / `board_team`（`metadata/*.json`） | 会话级**看板存档**（快照恢复用） | goal / teamwork 域 | ❌（`store/board.go:1-20` I7） |
 | `ProjectRecord`（`project-record.json`） | 项目级**模块语义记录** | `project_refresh` 工具 | ✅（前缀 `project` 块） |
 | `project-known.md`（本文） | `ProjectRecord` 的**人读渲染** | `project_refresh` 的渲染动作 | 按需 |
 | `worktable.jsonl` / `teamwork.jsonl`（本文） | 会话级**任务/里程碑投影** | 工具完成钩子（代码） | 按需 |
@@ -45,9 +45,9 @@
 | **I1 派生而非事实** | 删掉投影文件，系统功能不变，且能被重建 | 删文件 → 触发同步 → 折叠读结果与活体投影逐行相等 |
 | **I2 活体优先** | 本会话读**活体投影**；文件只在活体给不出时兜底 | **反例用例**：篡改文件不得影响活体与领域判定 |
 | **I3 不新增第二份判据** | 状态、分类、里程碑语义只由既有处产生 | `buildWorkTable` / `TeamworkPlan` / `TeamworkState` 是唯一判据处；新代码只做字段映射（`AGENTS.md §8.3`） |
-| **I4 单写者 + 原子追加** | 一个**投影文件**只有一个写者（**一个会话一份文件** ⇒ 会话之间不存在共用写者）；行级追加不重写整份；崩溃残尾视为未提交 | 复用 `sessionstore/jsonl_io.go` 的 `truncateCrashTail`；写者是进程内的同步器，锁按**文件路径**分片（路径含会话 ⇒ 各会话各一把锁）；唯一共享产物是 `BOARD.md`（纯渲染、确定性、后写覆盖前写不丢信息）。数据根的 `lock.owner` 不覆盖项目目录，见 §9.3 R-3 |
+| **I4 单写者 + 原子追加** | 一个**投影文件**只有一个写者（**一个会话一份文件** ⇒ 会话之间不存在共用写者）；行级追加不重写整份；崩溃残尾视为未提交 | 复用 `store/jsonl_io.go` 的 `truncateCrashTail`；写者是进程内的同步器，锁按**文件路径**分片（路径含会话 ⇒ 各会话各一把锁）；唯一共享产物是 `BOARD.md`（纯渲染、确定性、后写覆盖前写不丢信息）。数据根的 `lock.owner` 不覆盖项目目录，见 §9.3 R-3 |
 | **I5 有界** | 读取行数、跨会话**会话目录数**、单文件行数、单行字节都有上限；截断显式标注 | 对齐尾部块既有口径：`ProjectBoardMaxRows`（单文件）/ `ProjectBoardReadMaxSessions`（聚合读枚举） |
-| **I6 空则退场** | 没有任务/里程碑 → 不建文件、不渲染、不留空壳 | 对齐 `sessionstore/board.go` 的退场语义 |
+| **I6 空则退场** | 没有任务/里程碑 → 不建文件、不渲染、不留空壳 | 对齐 `store/board.go` 的退场语义 |
 | **I7 不进模型上下文** | 投影**不得**进入 system/project 前缀，也**不得**进入请求尾部 | 回归用例：能力开/关，装配前缀字节**完全一致**；请求尾部**不含**项目看板段 |
 
 ---
@@ -162,13 +162,13 @@ func FoldProjectBoardRows(rows []ProjectBoardRow, logf func(string, ...any)) []P
 - 里程碑状态取数：**运行态 `TeamworkState.Milestones[id]` 优先**，计划里的
   `TeamworkMilestone.Status` 兜底；整队是否收口读 **`TeamworkState.State`**
   （空 = 未收口；`closed`）——`TeamworkPlan.State` 是 `TeamworkState` **结构体本身**
-  （`sessionstore/teamwork.go:98-105` 与 `:151-172` 对照）。
+  （`store/teamwork.go:98-105` 与 `:151-172` 对照）。
 
 ---
 
 ## 5. API 契约（冻结）
 
-### 5.1 `sessionstore`（存储面）
+### 5.1 `store`（存储面）
 
 ```go
 const (
@@ -234,7 +234,7 @@ func (router *Router) SetProjectBoardRootFor(resolve func(sessionID string) stri
 ```
 
 **锁**：新增**独立**的按路径互斥锁（不与 message / teamwork 模块锁共用），
-不新增 `storageModule` 枚举（`sessionstore/module_heads.go` 的枚举—锁一一对应不变量因此不动）。
+不新增 `storageModule` 枚举（`store/module_heads.go` 的枚举—锁一一对应不变量因此不动）。
 
 ### 5.2 `application/core`（投影 + 同步器）
 
@@ -248,8 +248,8 @@ type ProjectBoardSink interface {
 type ProjectBoardDeps struct {
 	Store         ProjectBoardStore
 	WorkTableRows func(sessionID string) []WorkItem                    // 既有 buildWorkTable 输出
-	TeamPlanFor   func(sessionID string) *sessionstore.TeamworkPlan    // nil = 本会话无团队计划
-	TeamStateFor  func(sessionID string) *sessionstore.TeamworkState   // 运行态投影（可 nil）
+	TeamPlanFor   func(sessionID string) *store.TeamworkPlan    // nil = 本会话无团队计划
+	TeamStateFor  func(sessionID string) *store.TeamworkState   // 运行态投影（可 nil）
 	ProjectRootFor func(sessionID string) string                       // 会话 → **项目根**（"" = 无落点，不落盘）
 	Triggers      ProjectBoardTrigger
 	FlushIdle     time.Duration
@@ -257,7 +257,7 @@ type ProjectBoardDeps struct {
 }
 
 type ProjectBoardStore interface {
-	AppendProjectBoardRows(projectRoot, sessionID, file string, rows []sessionstore.ProjectBoardRow) (uint64, error)
+	AppendProjectBoardRows(projectRoot, sessionID, file string, rows []store.ProjectBoardRow) (uint64, error)
 	ProjectBoardWatermark(projectRoot, sessionID, file string) (uint64, error)
 }
 
@@ -266,9 +266,9 @@ func (s *ProjectBoardSyncer) OnToolComplete(name string, err error, sessionID st
 func (s *ProjectBoardSyncer) Close() // 终止唯一 flush goroutine（可重复调用）
 
 // 纯函数映射：语义只映射、不判定（I3）。seq 是本批起始 Seq，行内依次 +1。
-func BuildProjectBoardRows(scope sessionstore.ProjectBoardScope, seq uint64, at int64,
-	workItems []WorkItem, teamPlan *sessionstore.TeamworkPlan,
-	teamState *sessionstore.TeamworkState) []sessionstore.ProjectBoardRow
+func BuildProjectBoardRows(scope store.ProjectBoardScope, seq uint64, at int64,
+	workItems []WorkItem, teamPlan *store.TeamworkPlan,
+	teamState *store.TeamworkState) []store.ProjectBoardRow
 
 // 触发装配表（不是散落的 if name == …）
 type ProjectBoardTrigger struct{ /* 非导出 */ }
@@ -374,8 +374,8 @@ M0 契约冻结
 
 | # | 里程碑 | 交付物 | 验收判据（可测） | depends_on |
 |---|---|---|---|---|
-| **M0** | 契约冻结 | **本文**；`sessionstore/README.md` / `application/core/README-work-table.md` 增节（M6 补齐） | 真名 API（拒绝 plan 的三处假 API）；评审通过 | — |
-| **M1** | 存储面 | `sessionstore/project_board.go`；Router 五个方法；删除会话时回收；**G5 两处断点修复（红灯先行）** | 追加幂等；残尾自愈；未知 schema 跳过**且记日志**；路径随**项目根**变（M7 起）；不含绝对路径/用户名；空则不建文件 | M0 |
+| **M0** | 契约冻结 | **本文**；`store/README.md` / `application/core/README-work-table.md` 增节（M6 补齐） | 真名 API（拒绝 plan 的三处假 API）；评审通过 | — |
+| **M1** | 存储面 | `store/project_board.go`；Router 五个方法；删除会话时回收；**G5 两处断点修复（红灯先行）** | 追加幂等；残尾自愈；未知 schema 跳过**且记日志**；路径随**项目根**变（M7 起）；不含绝对路径/用户名；空则不建文件 | M0 |
 | **M2** | 投影 + 同步器 | `application/core/project_board.go` | **一致性**：折叠读 == 活体投影，逐行相等；删文件后重建相同（I1）；反例：篡改文件不影响活体（I2） | M1 |
 | **M3** | 钩子 + 开关 + 装配 | `config/seelex.yaml` + `main.go` 装配门 + 触发装配表 | `enabled:false` ⇒ 零文件、零读取面；`hook:todo_list` 只被 todo/task 族触发；写盘失败不阻塞回合；syncer 可终止 | M2 |
 | **M4** | 按需读取面 | 被动技能条目 + `project_board_read` | **回归**：能力开/关装配前缀字节**完全一致**；请求尾部不含项目看板段 | M3 |
@@ -395,12 +395,12 @@ M0 契约冻结
 
 | 需求 | **复用** | 不新写 |
 |---|---|---|
-| JSONL 追加 + 残尾自愈 | `sessionstore/jsonl_io.go` 的 `truncateCrashTail` | 第二份尾修复 |
-| 落点目录派生 | `sessionstore.ProjectBoardDir(projectRoot)`（`<项目根>/.seelex/board`） | 第二套目录命名 / 自造 hash 目录 |
+| JSONL 追加 + 残尾自愈 | `store/jsonl_io.go` 的 `truncateCrashTail` | 第二份尾修复 |
+| 落点目录派生 | `store.ProjectBoardDir(projectRoot)`（`<项目根>/.seelex/board`） | 第二套目录命名 / 自造 hash 目录 |
 | 项目作用域写面 | `Router.withRepositoryAt` | 直连文件系统 |
 | 会话枚举 | `Router.ListWorkspace` | 自造枚举 |
 | 工作表格投影 | `application/core/work_table.go` 的 `buildWorkTable` | 重算状态 |
-| 里程碑/工作项语义 | `sessionstore/teamwork.go` 的 `TeamworkPlan` / `TeamworkState` | 第二套状态机 |
+| 里程碑/工作项语义 | `store/teamwork.go` 的 `TeamworkPlan` / `TeamworkState` | 第二套状态机 |
 | 项目知识链 | `ProjectKnowledgeBuilder` / `RefreshProjectKnowledge` | 第二份项目知识实现 |
 | 工具完成同步点 | `application/core/tool_hooks.go` 完成段 | 第二个工具完成回调 |
 | 被动技能目录 | `RenderSkillCatalog` | 第二条"去哪读"通道 |
@@ -408,7 +408,7 @@ M0 契约冻结
 ## 9. 实现状态
 
 > 2026-10-14 收口：M1–M6 全部落地。本节是**实现状态与证据**的单一处（README 增节见
-> `sessionstore/README.md`、`application/core/README-work-table.md`）。
+> `store/README.md`、`application/core/README-work-table.md`）。
 > 2026-10-15 落点搬迁（M7）：投影从数据根 hash 目录搬到**项目目录**
 > `<项目根>/.seelex/board/`（flat、去 hash、一个项目一份文件、多会话共用），并新增人读件
 > `BOARD.md`；`project-known.md` 同目录。
@@ -416,14 +416,14 @@ M0 契约冻结
 | 里程碑 | 状态 | 落点 |
 |---|---|---|
 | M0 契约冻结 | **已落地** | 本文 |
-| M1 存储面 | **已落地** | `sessionstore/project_board.go` + `project_board_test.go`（T1.1–T1.11 + 聚合读）；G5 双修见 `project_record.go` + `project_refresh_key_test.go` |
+| M1 存储面 | **已落地** | `store/project_board.go` + `project_board_test.go`（T1.1–T1.11 + 聚合读）；G5 双修见 `project_record.go` + `project_refresh_key_test.go` |
 | M2 投影 + 同步器 | **已落地** | `application/core/project_board.go`（映射 + 同步器 + 触发装配表 + 取数口）+ `project_board_test.go`（T2.1–T2.9 + 触发表 + I1/I2/I6 + Close 幂等）；`work_table.go` 抽出 `taskRecordsForSession` |
-| M3 钩子 + 开关 + 装配 | **已落地** | 核心侧：`Service.SetProjectBoardSink`（`service_components.go` 的 `projectBoardPort`）+ `tool_hooks.go` 完成段（既有 `refreshWorkTableFromSources()` 之后）；装配侧：`seelexctx.ProjectBoardLimits`、`config/seelex.yaml`、`main.projectBoardSinkFor`、`seelebridge/runtime_project_board.go`（`TeamworkPlanFor` 窄端口） |
+| M3 钩子 + 开关 + 装配 | **已落地** | 核心侧：`Service.SetProjectBoardSink`（`service_components.go` 的 `projectBoardPort`）+ `tool_hooks.go` 完成段（既有 `refreshWorkTableFromSources()` 之后）；装配侧：`limit.ProjectBoardLimits`、`config/seelex.yaml`、`main.projectBoardSinkFor`、`seelebridge/runtime_project_board.go`（`TeamworkPlanFor` 窄端口） |
 | M4 按需读取面 | **已落地** | `plugins/default/project-board/SKILL.md`（被动技能条目）+ `seelebridge/runtime_project_board_read.go` + `main.registerProjectBoardReadTool`（只在 enabled 时注册）+ `project_board_read` 入 ro 簇 |
-| M5 项目摘要渲染 | **已落地** | `sessionstore/project_known.go` + `project_known_test.go`（T5.3–T5.6）+ `main.registerProjectRefreshTool` 的渲染动作 |
+| M5 项目摘要渲染 | **已落地** | `store/project_known.go` + `project_known_test.go`（T5.3–T5.6）+ `main.registerProjectRefreshTool` 的渲染动作 |
 | M6 收口 | **已落地** | 本节 + 模块 README 增节与索引 + 端到端用例 + 交付说明（下节） |
-| M7 落点搬迁 | **已落地** | 存储面：`sessionstore/project_board.go`（`ProjectBoardDir` / `projectBoardPath` / `validateProjectRoot` / 按路径分片锁 / `reclaimProjectBoard`）+ `project_board_markdown.go`（`BOARD.md` 确定性渲染）+ `project_known.go`（改吃 projectRoot）+ `sessionstore.go`（`Router.SetProjectBoardRootFor`；会话删除回收移入 `Router.DeleteWorkspace`）。核心面：`application/core/project_board.go`（`ProjectRootFor` 取代 `ProjectIDFor`；取 "" ⇒ 不落盘）。装配面：`main.go`（注入 `app.ProjectRootFor` + 读工具 schema 加 `project_root`）。读面：`seelebridge/runtime_project_board_read.go`。用例：`sessionstore/project_board_landing_test.go`（判据）+ core/main/seelebridge 三处签名同步 |
-| M8 收口补齐（2026-10-15） | **已落地** | ① **写侧端到端用例**（此前唯一缺口）：根包 `project_board_write_test.go`——生产口径的会话（建工作区 → `BeginNewSession` → 绑定 → 物化）+ 模型真的调 `todo_add` ⇒ `<项目根>/.seelex/board/{worktable.jsonl,BOARD.md}` 出现、行归属该会话、全项目扫描只此一份。② **R-1 压实**：`sessionstore/project_board.go` 的 `compactProjectBoardFile` + `readProjectBoardRowsForAppend`，红灯用例 `TestProjectBoardKeepsUpdatingAfterBoundReached`。③ **出厂档打开 + 注释纠漂**：`config/seelex.yaml`、`internal/bootseed/assets/config/seelex.yaml`（经 `scripts/sync-bootseed-defaults.ps1`）、`seelexctx/limits.go` 口径注释、`TestShippedSeelexYamlProjectBoardOpen`。④ 模块 README 增节：`sessionstore/README.md`（看板存储面）、`application/core/README-work-table.md`（写侧端到端 + 出厂档口径） |
+| M7 落点搬迁 | **已落地** | 存储面：`store/project_board.go`（`ProjectBoardDir` / `projectBoardPath` / `validateProjectRoot` / 按路径分片锁 / `reclaimProjectBoard`）+ `project_board_markdown.go`（`BOARD.md` 确定性渲染）+ `project_known.go`（改吃 projectRoot）+ `store.go`（`Router.SetProjectBoardRootFor`；会话删除回收移入 `Router.DeleteWorkspace`）。核心面：`application/core/project_board.go`（`ProjectRootFor` 取代 `ProjectIDFor`；取 "" ⇒ 不落盘）。装配面：`main.go`（注入 `app.ProjectRootFor` + 读工具 schema 加 `project_root`）。读面：`seelebridge/runtime_project_board_read.go`。用例：`store/project_board_landing_test.go`（判据）+ core/main/seelebridge 三处签名同步 |
+| M8 收口补齐（2026-10-15） | **已落地** | ① **写侧端到端用例**（此前唯一缺口）：根包 `project_board_write_test.go`——生产口径的会话（建工作区 → `BeginNewSession` → 绑定 → 物化）+ 模型真的调 `todo_add` ⇒ `<项目根>/.seelex/board/{worktable.jsonl,BOARD.md}` 出现、行归属该会话、全项目扫描只此一份。② **R-1 压实**：`store/project_board.go` 的 `compactProjectBoardFile` + `readProjectBoardRowsForAppend`，红灯用例 `TestProjectBoardKeepsUpdatingAfterBoundReached`。③ **出厂档打开 + 注释纠漂**：`config/seelex.yaml`、`internal/bootseed/assets/config/seelex.yaml`（经 `scripts/sync-bootseed-defaults.ps1`）、`backend/limit/limits.go` 口径注释、`TestShippedSeelexYamlProjectBoardOpen`。④ 模块 README 增节：`store/README.md`（看板存储面）、`application/core/README-work-table.md`（写侧端到端 + 出厂档口径） |
 | M9 按会话分目录（2026-10-15） | **已落地** | 落点从"项目级平铺文件 + 行内 scope.session"改成**一会话一目录**：`<项目根>/.seelex/board/<会话 ID>/{worktable,teamwork}.jsonl`（`BOARD.md` / `project-known.md` 留在看板根）。存储面：`ProjectBoardSessionDir` / `projectBoardSessionPath` / `sessionBoardSegment`（唯一的目录段校验：拒绝 `..`、分隔符、Windows 非法字符、控制字符、点/空格结尾、>128 字节）/ `projectBoardSessionDirs`（聚合读枚举）/ `reclaimProjectBoard` 改 `os.RemoveAll(<board>/<会话>)` / `projectBoardStampSession`（**串写防线**：行内会话 ≠ 目录会话 ⇒ 显式拒绝；空串补上）。API：`AppendProjectBoardRows` / `ProjectBoardWatermark` 增 `sessionID` 形参，`ReadProjectBoardRows` 的 `sessionID` 由"可选过滤"变成**必填路径段**，`ReadProjectBoard` 逐会话目录读 + 新增 `MaxSessions`（缺省 `ProjectBoardReadMaxSessions=32`）。用例：`TestProjectBoardSessionsOwnTheirFiles`（两会话交错追加 ⇒ 各自文件只有自己的行、水位各自推进、回收只摘自己目录）、`TestProjectBoardRejectsForeignSessionRows`、`TestProjectBoardSessionSegmentGuards`、聚合读的 `MaxSessions` 截断 |
 
 **验证读数（2026-10-14，本地 Windows，`CGO_ENABLED=0`）**
@@ -431,7 +431,7 @@ M0 契约冻结
 | 判据 | 读数 |
 |---|---|
 | 构建 / 静态检查 | `go build ./...` exit 0；`go vet ./...` 清洁；`gofmt -l` 对本次新增/修改文件无输出 |
-| 存储面 | `go test ./sessionstore/ -count=1` ⇒ `ok`（含 T1.1–T1.11、聚合读、G5 双修、T5.3–T5.6） |
+| 存储面 | `go test ./store/ -count=1` ⇒ `ok`（含 T1.1–T1.11、聚合读、G5 双修、T5.3–T5.6） |
 | 投影 + 同步器 + 完成段 | `go test ./application/core/ -run ProjectBoard` ⇒ 全部 PASS（14 条 M2/T3.x + 词表不变量） |
 | 读取面 | `go test ./seelebridge/ -run ProjectBoardRead` ⇒ 4/4 PASS |
 | 装配门 + I7 | `go test . -run ProjectBoard` ⇒ 6/6 PASS（关则零文件 / 未知名显式失败 / 真实存储面落盘 / 装配前缀字节一致 / 投影不进请求 / 端到端读回） |
@@ -441,7 +441,7 @@ M0 契约冻结
 
 | 判据 | 读数 |
 |---|---|
-| 落点（红灯 → 绿灯） | `go test .../sessionstore -run ProjectBoard` ⇒ `ok`。红灯先行用例 `TestProjectBoardMustNotLandUnderDataRoot` 搬迁前 FAIL（「投影仍落在数据根的 hash 目录（…\sessions-json\project-board）」）；正面用例 `TestProjectBoardLandsInProjectBoardDir` 钉 `BOARD.md` + `worktable.jsonl` 同时出现在 `<项目根>/.seelex/board/` |
+| 落点（红灯 → 绿灯） | `go test .../store -run ProjectBoard` ⇒ `ok`。红灯先行用例 `TestProjectBoardMustNotLandUnderDataRoot` 搬迁前 FAIL（「投影仍落在数据根的 hash 目录（…\sessions-json\project-board）」）；正面用例 `TestProjectBoardLandsInProjectBoardDir` 钉 `BOARD.md` + `worktable.jsonl` 同时出现在 `<项目根>/.seelex/board/` |
 | 装配门 | `go test . -run ProjectBoard` ⇒ 6/6 PASS；`TestProjectBoardEnabledWritesArtifacts` 断言落点是 `<项目根>/.seelex/board/<固定名>`、**数据根零文件**、`BOARD.md` 在册 |
 | I7（投影不进上下文） | 同批 PASS：`TestProjectBoardPrefixBytesIdentical`、`TestProjectBoardNeverReachesRequest`（写侧的会话按工作区绑定解析落点后重跑） |
 | 端到端读面 | 同批 PASS：`TestProjectBoardEndToEndThroughToolFace`（读面按会话过滤读**同项目另一会话**的行） |
@@ -453,8 +453,8 @@ M0 契约冻结
 
 | 判据 | 读数 |
 |---|---|
-| 写侧红灯（R-1） | `go test ./sessionstore/ -run TestProjectBoardKeepsUpdatingAfterBoundReached` ⇒ 修前 FAIL：`第 256 轮追加失败（投影已经停止更新）：行数越界（现有 511 + 本批 2 > 上限 512）`；修后 PASS（258 轮后折叠读 = 最新一版，文件行数 ≤ 512，被删的 Key 不复活） |
-| 存储面全量 | `go test ./sessionstore/ -count=1` ⇒ `ok`（57 s，含压实与已有 T1.x/T5.x） |
+| 写侧红灯（R-1） | `go test ./store/ -run TestProjectBoardKeepsUpdatingAfterBoundReached` ⇒ 修前 FAIL：`第 256 轮追加失败（投影已经停止更新）：行数越界（现有 511 + 本批 2 > 上限 512）`；修后 PASS（258 轮后折叠读 = 最新一版，文件行数 ≤ 512，被删的 Key 不复活） |
+| 存储面全量 | `go test ./store/ -count=1` ⇒ `ok`（57 s，含压实与已有 T1.x/T5.x） |
 | 写侧端到端 | `go test . -run TestProjectBoardWriteEndToEndFromTodoTool -count=1` ⇒ PASS（2.2 s；工具完成 → 去抖 → 落盘，`BOARD.md` 含该待办文本） |
 | 出厂档口径 | `seelexctx` 的 `TestShippedSeelexYamlProjectBoardOpen` 钉住 enabled: true / 无 `max_rows` / 注释不含旧落点；内嵌档由 `TestEmbeddedConfigDefaultsMatchRepository` 与仓库档逐字节对齐 |
 | 诊断读数（本机） | 视图会话 = 运行时当前 task 会话时 `WorkTableRowsFor=1`（落盘）；不经该口径的会话 `WorkTableRowsFor=0`、`TaskSnapshotFor("")=0`（I6 退场，什么都不落）——R-2 的两面 |
@@ -463,7 +463,7 @@ M0 契约冻结
 
 | 判据 | 读数 |
 |---|---|
-| 存储面 | `go test ./sessionstore/ -run ProjectBoard -count=1` ⇒ `ok`（含新用例三项：`TestProjectBoardSessionsOwnTheirFiles` / `TestProjectBoardRejectsForeignSessionRows` / `TestProjectBoardSessionSegmentGuards`，以及聚合读的 `MaxSessions` 截断） |
+| 存储面 | `go test ./store/ -run ProjectBoard -count=1` ⇒ `ok`（含新用例三项：`TestProjectBoardSessionsOwnTheirFiles` / `TestProjectBoardRejectsForeignSessionRows` / `TestProjectBoardSessionSegmentGuards`，以及聚合读的 `MaxSessions` 截断） |
 | 投影 + 同步器 | `go test ./application/core/ -count=1` ⇒ `ok`（同步器替身按"项目根 + 会话 + 文件"分键，判据从"行内 filter 会话"退化成"文件即会话"） |
 | 读面 | `go test ./seelebridge/ -count=1` ⇒ `ok`（单会话读的是 `<board>/<会话>/<file>`；聚合读走目录枚举） |
 | 装配门 + I7 + 写侧端到端 | `go test . -run ProjectBoard -count=1` ⇒ 7/7 PASS（落点断言改成 `<board>/<会话 ID>/<file>`、且路径里不许出现 `ws-`） |
@@ -475,7 +475,7 @@ M0 契约冻结
 | # | 契约写法 | 实现 | 为什么 |
 |---|---|---|---|
 | D-1 | §4.3 落点写 `<baseDir>/<boardRoot>` | 钉在 `<jsonRepository.root>/project-board/...`（**已被 D-5 取代**） | "单写者 + 原子追加 + 残尾自愈 + 独立锁"这套纪律全部长在 `jsonRepository` 上，落在它的 `root` 下才是零新增写盘实现 |
-| D-2 | §5.4 配置块含 `max_rows: 512` | **不提供**该键 | 单次追加的行数上限是存储面的硬不变量（`sessionstore.ProjectBoardMaxRows`）。配置再放一个可调上限，就是对同一次追加的第二份判据（配置说 1000、存储说 512，用户只看到"没生效"）。出厂档注释里写明了这条 |
+| D-2 | §5.4 配置块含 `max_rows: 512` | **不提供**该键 | 单次追加的行数上限是存储面的硬不变量（`store.ProjectBoardMaxRows`）。配置再放一个可调上限，就是对同一次追加的第二份判据（配置说 1000、存储说 512，用户只看到"没生效"）。出厂档注释里写明了这条 |
 | D-3 | §5.4 未指名 hook 取值拼错的后果 | 装配期**显式启动失败** | `TriggerFor` 对未知档名按默认档兜底（"配置写错了退化成默认"）是安全的读法，但"开了却没生效"必须能被看见：`main.projectBoardHookMode` 用 `core.ProjectBoardHookModes()`（词表唯一来源）校验，拼错即报错 |
 | D-4 | §6 只说"技能条目 + 只读工具" | 技能条目**静态**存在（随插件），工具**按开关注册** | 技能条目只有 name+description 进目录，是"去哪读"的目录行（静态 ⇒ 前缀字节与开关无关，I7 的字节回归因此成立）；真正的读取面是工具，关着时它根本不存在（M3 的"零读取面"） |
 | D-5 | §3 落点写 `<jsonRoot>/project-board/project-<hash(projectID)>/session-<hash(sessionID)>/` | 改钉**项目根**：`<项目根>/.seelex/board/`（flat、去 hash、一个项目一份文件、多会话共用）+ 人读件 `BOARD.md` | 旧落点**不可提交也不可归属**：数据根在工程之外、目录名是 hash、行内还带 `ws-<nano>`。落点即项目归属之后，外部 agent（codex / claude code）直接读盘上的 `BOARD.md` 就能接手，且 `.seelex/` 已被 `.gitignore:14` 忽略 ⇒ 派生数据自动不入库。写盘纪律仍是同一份实现（追加 + 残尾自愈 + 按路径分片的投影锁），只换了路径来源；代价是**数据根的 `lock.owner` 不再覆盖**这份投影（见 R-3） |
@@ -494,7 +494,7 @@ M0 契约冻结
 
 | 不写的东西 | 复用了什么 |
 |---|---|
-| 第二套 JSONL 追加 / 残尾修复 | `sessionstore/jsonl_io.go` 的 `truncateCrashTail`、`appendEventLogLine` |
+| 第二套 JSONL 追加 / 残尾修复 | `store/jsonl_io.go` 的 `truncateCrashTail`、`appendEventLogLine` |
 | 第二套目录命名 / 锁枚举 | `ProjectBoardDir(projectRoot)`（`<项目根>/.seelex/board`，**固定名、不派生 hash 目录**）；投影自带按路径分片的独立锁（**不**新增 `storageModule` 枚举） |
 | 第二份工作表格判据 | `buildWorkTable`；按会话取 task 快照的判据抽成 `taskRecordsForSession`（打点块与看板共用一份） |
 | 第二套里程碑状态机 | `TeamworkPlan` / `TeamworkState`（运行态优先、声明态兜底） |
@@ -506,7 +506,7 @@ M0 契约冻结
 
 | # | 风险 | 现状与缓解 |
 |---|---|---|
-| R-1 | **单文件 512 行上限**：M2 的指纹去重是"内容一变就整份重盖 seq"，长期会话的 `worktable.jsonl` 会触顶，之后每次 flush 都因越界被存储面**显式拒绝**（不静默写坏，但也确实停止更新）。M7 之后更紧：文件是**项目级**的，同项目多会话共用一份 ⇒ 行数按项目累加而不是按会话。 | **已修（2026-10-15，M8）**：累计越界先**压实**再判（`compactProjectBoardFile`：折成每个 `(会话, Key)` 的最新一行、丢 tombstone、原子重写），压实后仍越界才显式报错。红灯先行：`sessionstore` 的 `TestProjectBoardKeepsUpdatingAfterBoundReached`（搬迁前第 256 轮即 `行数越界（现有 511 + 本批 2 > 上限 512）`、投影永久停在旧版本；修后 258 轮仍是最新一版，且文件行数 ≤ 512、被删的 Key 不复活）。**剩余边界**：活体行本身（压实后）超过 512 时仍会显式报错——这是"一个项目同时挂着 512 条以上活体任务/里程碑"的量级，不属本期；届时的解是读侧窗口（保留最近 N 条活体行），不是把上限调大。 |
+| R-1 | **单文件 512 行上限**：M2 的指纹去重是"内容一变就整份重盖 seq"，长期会话的 `worktable.jsonl` 会触顶，之后每次 flush 都因越界被存储面**显式拒绝**（不静默写坏，但也确实停止更新）。M7 之后更紧：文件是**项目级**的，同项目多会话共用一份 ⇒ 行数按项目累加而不是按会话。 | **已修（2026-10-15，M8）**：累计越界先**压实**再判（`compactProjectBoardFile`：折成每个 `(会话, Key)` 的最新一行、丢 tombstone、原子重写），压实后仍越界才显式报错。红灯先行：`store` 的 `TestProjectBoardKeepsUpdatingAfterBoundReached`（搬迁前第 256 轮即 `行数越界（现有 511 + 本批 2 > 上限 512）`、投影永久停在旧版本；修后 258 轮仍是最新一版，且文件行数 ≤ 512、被删的 Key 不复活）。**剩余边界**：活体行本身（压实后）超过 512 时仍会显式报错——这是"一个项目同时挂着 512 条以上活体任务/里程碑"的量级，不属本期；届时的解是读侧窗口（保留最近 N 条活体行），不是把上限调大。 |
 | R-2 | **活体 task 分区口径**：`WorkTableRowsFor` 对"视图/活跃会话"读实时注册表（`""` 分区）。**实测（2026-10-15）**：全链路 harness 里同一次 todo 落在会话分区、视图分区为空 ⇒ 该现场下投影为空（`WorkTableRowsFor=0`）；按**生产口径**新建的会话——建工作区 → `BeginNewSession`（早分配 SID）→ 绑定工作区 → 首次提交物化（`openSessionEngine` 复用同一 SID，且 `SwitchSessionTasks` 已把注册表指向它）——则 `WorkTableRowsFor=1`，投影真的落盘。 | **前提写进用例**：根包 `project_board_write_test.go`（模型真的调 `todo_add` → `<项目根>/.seelex/board/{worktable.jsonl,BOARD.md}` 出现、行归属该会话）。**结构性根因（未修，留待专门一轮）**：`taskRecordsForSession` 把"视图会话"重写成 `""`，等于把 runtime 的"这批行属不属于该会话"判据复制了一份（runtime 的 `TaskSnapshotFor(sessionID)` 本来就有这条别名语义，且对"注册表指针没跟上视图"的现场会给出**正确**答案：该会话自己的分区）。这个别名一旦失配，后果有两面——**取到空集**（本次现场：什么都不落）或**取到别的会话的行**（S2 那类跨会话串台）。改它会影响打点块（同一份判据的唯一实现），所以单独立一轮：红灯用例 = 视图会话 ≠ 运行时当前 task 会话时，`workTableTraceBlockFor` 与 `WorkTableRowsFor` 都必须只取该会话自己的行。 |
 | R-3 | **多进程共用项目根**：投影是进程内单写者（按路径分片的投影锁不跨进程），且 M7 之后它落在**项目目录**里——**数据根的 `lock.owner` 不再覆盖**这份投影。 | 与既有口径一致：`limits.runtime.allow_multi_process` 默认关；开了之后一致性由使用者负责（契约 §2 I4 只承诺单写者）。**M9 分目录后风险收窄**：两个进程即使投影的是**不同会话**，也不会互相追加到同一份文件里（路径含会话）；仍然**不承诺**的是"两个进程同时投影**同一个会话**"时的交错顺序（同进程内由该路径的锁串起来，跨进程没有）。同一项目根下 `BOARD.md` 是共享渲染件，多进程下同样按"后写覆盖前写"取值 |
 | R-4 | **技能条目静态存在**：能力关着时，技能目录里仍有 `project-board` 一行（正文不会被注入）。 | 有意（D-4）：前缀字节与开关无关是 I7 的可测形式；代价是"关着时也有一条几十 token 的目录行"。 |

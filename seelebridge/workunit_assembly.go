@@ -12,7 +12,7 @@ package seelebridge
 //	  unitFace    编排闸门 + 账本：归属判定 / 重入判定 / 收尾回执 / 单个回收 / 重启回灌
 //	  recordFace  会话记录：状态读数 / 会话级回灌读数 / 落盘 / 写终态 / 清记录
 //
-//	这三格的实现（hostPorts）是**唯一**知道 `teamwork` / `worktree` / `sessionstore` 的地方；
+//	这三格的实现（hostPorts）是**唯一**知道 `teamwork` / `worktree` / `store` 的地方；
 //	lifecycleHost 的方法体里因此搜不到任何一个具体类型，也搜不到按层分支（层差异只剩"装配哪
 //	几格"与"什么时候回收"这一条策略，见 workunit.FinishPolicy）。
 //
@@ -36,7 +36,7 @@ import (
 	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
 	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
 	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // ── 端口（生命周期实现只认识这三个名字）──────────────────────────────────
@@ -77,7 +77,7 @@ type unitFace interface {
 	RecoverUnits(ctx context.Context, sessionPath string) (workunit.Resume, error)
 }
 
-// recordFace 是**会话记录端口**：一个工作单元 = 一条 `sessionstore.NodeSessionRecord`。
+// recordFace 是**会话记录端口**：一个工作单元 = 一条 `store.NodeSessionRecord`。
 //
 // 作用域的解析（团队账本键 vs 会话工作区绑定）只有这一格知道——它是"记录落在哪个项目/会话
 // 目录"这件事的唯一一处实现（此前两个调用点各算一次，迟早算成两个目录）。
@@ -372,35 +372,35 @@ func (p *hostPorts) Clear(ctx context.Context, own workunit.Ownership, nodeID, s
 //
 // Kind 留空（`Progress.Kind` 是描述性标注）：本格是**两层共用**的记录端口（父实现的服务面），
 // 给读数贴一个层标注就是说谎——调用方不需要它，需要时按自己的层给。
-func (p *hostPorts) unitReader(ctx context.Context, own workunit.Ownership, sessionPath string) (*workunit.UnitReader, sessionstore.Key, bool) {
+func (p *hostPorts) unitReader(ctx context.Context, own workunit.Ownership, sessionPath string) (*workunit.UnitReader, store.Key, bool) {
 	if p == nil || p.r == nil {
-		return nil, sessionstore.Key{}, false
+		return nil, store.Key{}, false
 	}
 	ledger := p.r.teamUnitLedger()
 	if ledger == nil {
-		return nil, sessionstore.Key{}, false
+		return nil, store.Key{}, false
 	}
 	key, ok := p.sessionScope(ctx, own, sessionPath)
 	if !ok {
-		return nil, sessionstore.Key{}, false
+		return nil, store.Key{}, false
 	}
 	return workunit.NewUnitReader(ledger, key.ProjectID, key.SessionID, "", nil), key, true
 }
 
 // sessionScope 解析本层的会话账本作用域（**唯一一处解析**）：团队归属的单元记在团队账本
 // 同一个键上（组合根注入的 KeyFor），其余记在会话自己的工作区绑定上。
-func (p *hostPorts) sessionScope(ctx context.Context, own workunit.Ownership, sessionPath string) (sessionstore.Key, bool) {
+func (p *hostPorts) sessionScope(ctx context.Context, own workunit.Ownership, sessionPath string) (store.Key, bool) {
 	if p == nil || p.r == nil {
-		return sessionstore.Key{}, false
+		return store.Key{}, false
 	}
 	sessionID := strings.TrimSpace(sessionPath)
 	if sessionID == "" {
-		return sessionstore.Key{}, false
+		return store.Key{}, false
 	}
 	if p.Owned(ctx, sessionID, own) {
 		return p.r.teamUnitScope(sessionID)
 	}
-	key := sessionstore.Key{ProjectID: p.r.sessionProjectIDFor(sessionID), SessionID: sessionID}
+	key := store.Key{ProjectID: p.r.sessionProjectIDFor(sessionID), SessionID: sessionID}
 	return key, true
 }
 

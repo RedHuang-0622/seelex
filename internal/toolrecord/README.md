@@ -14,7 +14,7 @@
 - `application/core` 的 `ToolRecordBoard()`：把某会话的累计折成
   `dto.ToolRecordBoard` 给 TUI / GUI；
 - **落盘不在这里**：读数的持久化归**会话存储**
-  （`sessionstore` 的 `<sessionRoot>/tool-record.jsonl`），由 core 在真相源提交点
+  （`store` 的 `<sessionRoot>/tool-record.jsonl`），由 core 在真相源提交点
   **批量**调一次（`FlushToolRecord`）。
 
 ## 职责与非职责
@@ -59,18 +59,18 @@
 工具完成（三族：主代理/后台会话 · 子代理 · teammate）+ 命令退出码（bash.process.exited）
    → core：开关？→ 结果帧？→ toolStatusFailed + toolRecordReason（唯一两处判据）
    → Accumulator.Record（内存，按会话）
-   → 真相源提交点：core.FlushToolRecord → sessionstore 写一行整份快照
+   → 真相源提交点：core.FlushToolRecord → store 写一行整份快照
    → core.ToolRecordBoard → TUI 面板 / GUI 柱形图 + 原因饼图
 ```
 
 ## 依赖方向
 
-- 允许：标准库 + `application/contract/dto`（共享 DTO 与原因词表：形状只有一份）。
-- 禁止：任何反向依赖（本包不认识 application/core 的其它部分、seelebridge、sessionstore）。
+- 允许：标准库 + `contract/dto`（共享 DTO 与原因词表：形状只有一份）。
+- 禁止：任何反向依赖（本包不认识 application/core 的其它部分、seelebridge、store）。
 
 ## 并发、存储与错误语义
 
-- 本包**不落盘**：所有错误语义（残尾、坏行、权限）归 `sessionstore/tool_record.go`。
+- 本包**不落盘**：所有错误语义（残尾、坏行、权限）归 `store/tool_record.go`。
 - `Load` 是幂等的"填充"：重复调用不会把已有的更大读数改小（同一进程只加载一次，见 core
   的 `loadToolRecord`）。
 - `Snapshot` 会清 `dirty`：**调用方必须先成功落盘再丢弃快照**，否则那批读数会丢——
@@ -82,7 +82,7 @@
   判据注释与本 README。
 - 加原因：只在 `dto.ToolReason*` 词表加一格 + core 的 `toolRecordReason` 匹配分支
   （词表是唯一事实源，前端标签表跟着加一行）。
-- 换存储：`sessionstore` 那一侧换实现即可，本包是纯内存。
+- 换存储：`store` 那一侧换实现即可，本包是纯内存。
 
 ## Review 指南
 
@@ -97,7 +97,7 @@
 ```text
 go test ./internal/toolrecord/ -count=1
 go test ./application/core/ -run TestToolRecord -count=1   # 接线、开关、批次落盘与读回
-go test ./sessionstore/ -run ToolRecord -count=1           # 会话级一行一批的落盘/读回
+go test ./store/ -run ToolRecord -count=1           # 会话级一行一批的落盘/读回
 node --test gui/frontend/dist/tool-record-board.test.mjs    # 柱形图/原因饼图/空态
 ```
 

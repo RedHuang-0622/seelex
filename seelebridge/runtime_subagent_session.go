@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // 子代理独立会话（thin-wrapper-session-design.md §3.3，UC7）：
@@ -37,7 +37,7 @@ func (r *Runtime) NewSubagentSessionWithID(sessionID string, hooks *frameworkSes
 		ModelName: r.model,
 	}
 	if router := r.durableHistoryRouter(); router != nil {
-		history := sessionstore.NewDurableHistory(router, sessionID)
+		history := store.NewDurableHistory(router, sessionID)
 		history.SetWorkspaceResolver(r.sessionWorkspaceFor(sessionID))
 		components.History = history
 	}

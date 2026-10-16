@@ -3,11 +3,11 @@
 // 定位：Seele v0.1.3 的 types.Message.Content 是 *string（纯文本），
 // 带图请求无法经由引擎下发；本包是 Seelex 侧的最小能力适配：
 //
-//   - 把 sessionstore 媒体分区的 `media:<sha256>` 资产读成 wire 可用的字节；
+//   - 把 store 媒体分区的 `media:<sha256>` 资产读成 wire 可用的字节；
 //   - 编码成 OpenAI 兼容的 content parts（text + image_url data URL）；
 //   - 提供最小流式之外的同步客户端，供真机 smoke 与后续接入使用。
 //
-// 非职责：不做截图、不落盘、不管配额与 GC（那是 sessionstore 媒体分区的事），
+// 非职责：不做截图、不落盘、不管配额与 GC（那是 store 媒体分区的事），
 // 也不替换引擎的对话循环（等 Seele 支持 content parts 后由引擎接管）。
 package multimodal
 
@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // ErrImageInvalid 表示图片缺少 MIME 类型或字节。
@@ -56,8 +56,8 @@ type Message struct {
 }
 
 // LoadImage 从会话媒体分区读出一条媒体资产，装配成可下发图片。
-func LoadImage(ctx context.Context, store sessionstore.MediaStore, key sessionstore.Key, ref string) (ImageSource, error) {
-	meta, data, err := store.ReadMedia(ctx, key, ref)
+func LoadImage(ctx context.Context, st store.MediaStore, key store.Key, ref string) (ImageSource, error) {
+	meta, data, err := st.ReadMedia(ctx, key, ref)
 	if err != nil {
 		return ImageSource{}, err
 	}
@@ -79,7 +79,7 @@ func BuildParts(text string, images []ImageSource) ([]Part, error) {
 		if strings.TrimSpace(image.MimeType) == "" || len(image.Data) == 0 {
 			return nil, fmt.Errorf("%w (index %d)", ErrImageInvalid, index)
 		}
-		if image.Ref != "" && sessionstore.MediaRefHash(image.Ref) == "" {
+		if image.Ref != "" && store.MediaRefHash(image.Ref) == "" {
 			return nil, fmt.Errorf("multimodal: image ref %q is not a session media ref", image.Ref)
 		}
 		parts = append(parts, Part{

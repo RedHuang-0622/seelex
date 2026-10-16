@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/backend/limit/policy"
 	"testing"
 
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
@@ -64,8 +65,8 @@ func TestEmployeeToolFaceFollowsToolsPolicy(t *testing.T) {
 
 	for _, name := range employeeFaceTools() {
 		class := readOnly.classFor(ctx)
-		if class != SubjectClassEmployeeRO {
-			t.Fatalf("classFor(%s) = %q, want %q", sessionID, class, SubjectClassEmployeeRO)
+		if class != policy.SubjectClassEmployeeRO {
+			t.Fatalf("classFor(%s) = %q, want %q", sessionID, class, policy.SubjectClassEmployeeRO)
 		}
 		roVisible := readOnly.ToolFaceForContext(ctx, name)
 		rwVisible := readWrite.ToolFaceForContext(ctx, name)
@@ -96,7 +97,7 @@ func TestEmployeeToolFaceLeavesRootAndSubagentAlone(t *testing.T) {
 
 	// 主代理 / 未登记会话 → root：工具面不收窄（即使名字未分封）。
 	mainCtx := toolspermission.WithSessionID(context.Background(), "sess-main")
-	if class := gate.classFor(mainCtx); class != SubjectClassRoot {
+	if class := gate.classFor(mainCtx); class != policy.SubjectClassRoot {
 		t.Fatalf("主会话主体类 = %q, want root", class)
 	}
 	for _, name := range employeeFaceTools() {
@@ -107,7 +108,7 @@ func TestEmployeeToolFaceLeavesRootAndSubagentAlone(t *testing.T) {
 
 	// 子代理 → sub：口径仍归 tools/policy.go 的节点作用域规则，本收窄不介入。
 	subCtx := subagentCtx()
-	if class := gate.classFor(subCtx); class != SubjectClassSub {
+	if class := gate.classFor(subCtx); class != policy.SubjectClassSub {
 		t.Fatalf("子代理主体类 = %q, want sub", class)
 	}
 	for _, name := range employeeFaceTools() {
@@ -122,7 +123,7 @@ func TestEmployeeToolFaceFailsOpenWithoutPolicyModel(t *testing.T) {
 	// 只有 rules 的旧配置：Groups / Subjects 为空（未装配权责模型）。
 	state.Set(toolspermission.PermissionConfig{
 		Mode:  toolspermission.ModeManual,
-		Rules: DefaultPermissionRules(),
+		Rules: policy.DefaultPermissionRules(),
 	}, nil)
 	state.SetRoleSessionPolicyResolver(func(string) (string, bool) { return "readonly", true })
 

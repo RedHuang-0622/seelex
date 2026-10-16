@@ -7,8 +7,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // teamRecordingSessions 在默认 fakeSessions 上补出 A2A 团队存储面（顺序策略 + 注册表），
@@ -71,7 +71,7 @@ func (s *teamRecordingSessions) WriteTeamRegistry(_ string, registry dto.TeamReg
 }
 
 // RemoveTeamRegistry 是 agentteam.DismissPort 的桩：团队离场 = 注册表清空 + 顺序复位
-// （与 sessionstore 的"删文件 = 读面 Configured=false"同一语义）。
+// （与 store 的"删文件 = 读面 Configured=false"同一语义）。
 func (s *teamRecordingSessions) RemoveTeamRegistry(string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

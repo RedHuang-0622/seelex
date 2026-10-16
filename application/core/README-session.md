@@ -236,8 +236,8 @@
 ### session_cold_read_test.go
 
 - `func newColdReadSessions() *coldReadSessions`
-- `func (sessions *coldReadSessions) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]sessionstore.Event, error)`
-- `func (sessions *coldReadSessions) setEvents(projectID, sessionID string, events []sessionstore.Event)`
+- `func (sessions *coldReadSessions) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]store.Event, error)`
+- `func (sessions *coldReadSessions) setEvents(projectID, sessionID string, events []store.Event)`
 - `func newColdReadService(t *testing.T, sessions *coldReadSessions) *Service`
 - `func TestSnapshotOfColdSessionAssemblesReadOnlyBaseline(t *testing.T)` — TestSnapshotOfColdSessionAssemblesReadOnlyBaseline C1：未驻留（无 unit）
 - `func TestSnapshotOfColdUnknownSessionStillUnavailable(t *testing.T)` — TestSnapshotOfColdUnknownSessionStillUnavailable 钉住未知会话的失败语义
@@ -324,7 +324,7 @@
 ### session_fork_store_regression_test.go
 
 - `func newRouterForkSessions(t *testing.T) *routerForkSessions`
-- `func (s *routerForkSessions) saveParentFixture(t *testing.T, record model.SessionRecord, events []sessionstore.Event, contextPayload []byte)`
+- `func (s *routerForkSessions) saveParentFixture(t *testing.T, record model.SessionRecord, events []store.Event, contextPayload []byte)`
 - `func (s *routerForkSessions) SaveCurrent(string) error`
 - `func (s *routerForkSessions) SetWorkspace(projectID string)`
 - `func (s *routerForkSessions) Workspace() string`
@@ -339,16 +339,16 @@
 - `func (s *routerForkSessions) LoadSessionRecordWorkspace(projectID, sessionID string) (model.SessionRecord, error)`
 - `func (s *routerForkSessions) SaveSessionSnapshot( sessionID string, history []contract.EngineMessage, record model.SessionRecord, events []model.TranscriptEvent, results []model.StoredToolResult, ) error`
 - `func (s *routerForkSessions) SaveSessionSnapshotWorkspace( projectID, sessionID string, _ []contract.EngineMessage, record model.SessionRecord, events []model.TranscriptEvent, results []model.StoredToolResult, ) error`
-- `func (s *routerForkSessions) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]sessionstore.Event, error)`
-- `func (s *routerForkSessions) LoadToolResultsWorkspace(projectID, sessionID string) ([]sessionstore.ToolResult, error)`
+- `func (s *routerForkSessions) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]store.Event, error)`
+- `func (s *routerForkSessions) LoadToolResultsWorkspace(projectID, sessionID string) ([]store.ToolResult, error)`
 - `func (s *routerForkSessions) LoadContextStateWorkspace(projectID, sessionID string) ([]byte, error)`
 - `func (s *routerForkSessions) SaveContextStateWorkspace(projectID, sessionID string, payload []byte) error`
 - `func (s *routerForkSessions) CurrentGenerationWorkspace(projectID, sessionID string) (string, error)`
 - `func (s *routerForkSessions) LoadTranscriptTailWorkspace(projectID, sessionID string, _, _ int) ([]model.TranscriptEvent, error)`
 - `func (s *routerForkSessions) LoadToolResultWorkspace(projectID, sessionID, ref string) (model.StoredToolResult, error)`
-- `func transcriptEventsToStore(events []model.TranscriptEvent) []sessionstore.Event`
-- `func storeEventsToTranscript(events []sessionstore.Event) []model.TranscriptEvent`
-- `func storedToolResultsToStore(results []model.StoredToolResult) []sessionstore.ToolResult`
+- `func transcriptEventsToStore(events []model.TranscriptEvent) []store.Event`
+- `func storeEventsToTranscript(events []store.Event) []model.TranscriptEvent`
+- `func storedToolResultsToStore(results []model.StoredToolResult) []store.ToolResult`
 - `func TestForkChildVisibleWithRealStore(t *testing.T)`
 
 ### session_fork_test.go
@@ -357,8 +357,8 @@
 - `func (s *forkServiceSessions) LoadSessionRecordWorkspace(_, sessionID string) (SessionRecord, error)`
 - `func (s *forkServiceSessions) SaveSessionRecord(string, SessionRecord) error`
 - `func (s *forkServiceSessions) SaveSessionRecordWorkspace(string, string, SessionRecord) error`
-- `func (s *forkServiceSessions) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]sessionstore.Event, error)`
-- `func (s *forkServiceSessions) LoadToolResultsWorkspace(projectID, sessionID string) ([]sessionstore.ToolResult, error)`
+- `func (s *forkServiceSessions) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]store.Event, error)`
+- `func (s *forkServiceSessions) LoadToolResultsWorkspace(projectID, sessionID string) ([]store.ToolResult, error)`
 - `func (s *forkServiceSessions) SaveSessionSnapshotWorkspace(projectID, sessionID string, history []EngineMessage, record SessionRecord, events []model.TranscriptEvent, results []model.StoredToolResult) error`
 - `func (s *forkServiceSessions) LoadContextStateWorkspace(projectID, sessionID string) ([]byte, error)`
 - `func (s *forkServiceSessions) SaveContextStateWorkspace(projectID, sessionID string, payload []byte) error`
@@ -628,7 +628,7 @@
 
 ### session_queue_recover.go
 
-- `func (service *Service) reEnqueueRecoveredInputs(sessionID string, resent []sessionstore.QueueItem)` — durable queue 的重启回填（写入侧接线的恢复半边）。
+- `func (service *Service) reEnqueueRecoveredInputs(sessionID string, resent []store.QueueItem)` — durable queue 的重启回填（写入侧接线的恢复半边）。
 - `func (service *Service) drainRecoveredQueueLocked(unit *session.SessionUnit, request chatRequest) (chatRequest, bool)` — drainRecoveredQueueLocked 把本会话队列里已有的待发项与本次提交合并为同一轮
 
 ### session_race_test.go
@@ -764,9 +764,9 @@
 
 ### session_storage.go
 
-- `func (service *Service) SessionStorageConfig() (sessionstore.Config, error)`
-- `func (service *Service) TestSessionStorage(ctx context.Context, config sessionstore.Config) error`
-- `func (service *Service) ConfigureSessionStorage(ctx context.Context, config sessionstore.Config) error`
+- `func (service *Service) SessionStorageConfig() (store.Config, error)`
+- `func (service *Service) TestSessionStorage(ctx context.Context, config store.Config) error`
+- `func (service *Service) ConfigureSessionStorage(ctx context.Context, config store.Config) error`
 
 ### session_stress_test.go
 

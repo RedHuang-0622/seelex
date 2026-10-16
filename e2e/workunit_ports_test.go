@@ -7,7 +7,7 @@ package e2e
 //
 //	① 生命周期实现（seelebridge/workunit_parent.go）里**没有按层分支**（不出现 KindTeammate /
 //	   KindSubagent 这类"按层判断"的证据）；
-//	② 生命周期实现里**没有 teamwork / worktree / sessionstore 的具体类型**（只有端口）；
+//	② 生命周期实现里**没有 teamwork / worktree / store 的具体类型**（只有端口）；
 //	③ **每个作业面/生命周期实现都带编译期断言**（契约那份 Jobs 的实现、tools 自建表的同形那一格、
 //	   生命周期实现本身、装配处三格端口）。
 //
@@ -42,17 +42,17 @@ const assemblyFile = "seelebridge/workunit_assembly.go"
 var forbiddenPackages = map[string]string{
 	"github.com/RedHuang-0622/seelex/seelebridge/teamwork": "teamwork",
 	"github.com/RedHuang-0622/seelex/seelebridge/worktree": "worktree",
-	"github.com/RedHuang-0622/seelex/sessionstore":         "sessionstore",
+	"github.com/RedHuang-0622/seelex/store":                "store",
 	"github.com/RedHuang-0622/seelex/seelebridge/session":  "session",
 }
 
 // forbiddenQualifiers 是同一件事在源码里的第二种形态：包名限定的选择器
 // （`teamwork.WorkerRequest` 这种）。import 与限定符两条都查，漏一条就等于没查。
 var forbiddenQualifiers = map[string]string{
-	"teamwork":     "teamwork",
-	"worktree":     "worktree",
-	"sessionstore": "sessionstore",
-	"session":      "session",
+	"teamwork": "teamwork",
+	"worktree": "worktree",
+	"store":    "store",
+	"session":  "session",
 }
 
 // layerBranchIdentifiers 是"按层判断"的字面证据：实现里出现它们，说明层差异漏进了实现

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // ── 作业（bash_bg / read_batch / subagent）的工作表格投影 ──────────────

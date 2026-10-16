@@ -51,7 +51,7 @@
   命令面另有一条判据：`RecordToolCommandOutcome`（进程退出码非零 = 一次失败，原因归
   `command-failed`），上报口是工具层既有的 `bash.process.exited` 诊断事件。
   **落盘是批次**：`FlushToolRecord` 在真相源提交时刻（草稿物化）与停机兜底各写一次整份
-  读数（会话粒度，见 sessionstore 的 `tool-record.jsonl`）——不做逐次工具写盘，避免磁盘写忙。
+  读数（会话粒度，见 store 的 `tool-record.jsonl`）——不做逐次工具写盘，避免磁盘写忙。
   原因归并吃的是**原始错误**而不是给模型看的包装文案（后者刻意不含内部细节）。
 ### tool_record.go
 

@@ -34,7 +34,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // gatedColdSessions 只在冷会话 "sess-cold" 的区间读上设门闩：冷加载一旦进入

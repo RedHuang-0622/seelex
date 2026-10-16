@@ -7,7 +7,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // ── 现场复现（第二跳：验收）────────────────────────────────────────────
@@ -127,7 +127,7 @@ func TestReplayWithConversationBodyStillCompacts(t *testing.T) {
 }
 
 // hasEvidenceRef 报告帧证据里有没有这条 ref（降级出口的唯一解释来源）。
-func hasEvidenceRef(frame sessionstore.CompactFrame, ref string) bool {
+func hasEvidenceRef(frame store.CompactFrame, ref string) bool {
 	for _, evidence := range frame.Evidence {
 		if evidence.Ref == ref {
 			return true

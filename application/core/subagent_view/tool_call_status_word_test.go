@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/Seele/types"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // TestSubagentConversationSpeaksTheToolCallCellWords 钉住"工具调用视图词"这一格的取值面：

@@ -6,29 +6,29 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 type coldReadSessions struct {
 	archiveCommandSessions
 	mu     sync.Mutex
-	events map[string][]sessionstore.Event
+	events map[string][]store.Event
 }
 
 func newColdReadSessions() *coldReadSessions {
 	return &coldReadSessions{
 		archiveCommandSessions: *newArchiveCommandSessions(),
-		events:                 map[string][]sessionstore.Event{},
+		events:                 map[string][]store.Event{},
 	}
 }
 
-func (sessions *coldReadSessions) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]sessionstore.Event, error) {
+func (sessions *coldReadSessions) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]store.Event, error) {
 	sessions.mu.Lock()
 	defer sessions.mu.Unlock()
 	all := sessions.events[projectID+"|"+sessionID]
-	selected := make([]sessionstore.Event, 0, len(all))
+	selected := make([]store.Event, 0, len(all))
 	for _, event := range all {
 		if fromSeq == 0 && toSeq == 0 {
 			selected = append(selected, event)
@@ -41,7 +41,7 @@ func (sessions *coldReadSessions) LoadEventRangeWorkspace(projectID, sessionID s
 	return selected, nil
 }
 
-func (sessions *coldReadSessions) setEvents(projectID, sessionID string, events []sessionstore.Event) {
+func (sessions *coldReadSessions) setEvents(projectID, sessionID string, events []store.Event) {
 	sessions.mu.Lock()
 	defer sessions.mu.Unlock()
 	sessions.events[projectID+"|"+sessionID] = events
@@ -144,7 +144,7 @@ func TestSnapshotOfColdUnknownSessionStillUnavailable(t *testing.T) {
 func TestGetSessionTranscriptRange(t *testing.T) {
 	sessions := newColdReadSessions()
 	sessions.add("", "cold-1")
-	sessions.setEvents("", "cold-1", []sessionstore.Event{
+	sessions.setEvents("", "cold-1", []store.Event{
 		{Seq: 1, Role: "user", Content: "one"},
 		{Seq: 2, Role: "assistant", Content: "two"},
 		{Seq: 3, Role: "tool", Content: "three"},

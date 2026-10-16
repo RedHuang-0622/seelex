@@ -8,7 +8,7 @@ package task_context
 import (
 	"github.com/RedHuang-0622/seelex/application/core/internal/state"
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
-	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/backend/limit"
 )
 
 // 编译期断言：task_context.Coordinator 满足 session 域的 task/plan 权威状态
@@ -29,7 +29,7 @@ type Deps struct {
 	Core   *state.Core
 	Prompt PromptPort
 
-	Limits func() seelexctx.Limits
+	Limits func() limit.Limits
 	// IsInternalContent 判定内容是否为内部标记（task-context checkpoint /
 	// provider-only），transcript 导入过滤用。
 	IsInternalContent func(content string) bool

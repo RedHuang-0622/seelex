@@ -52,7 +52,7 @@
 //   - Reclaim 是**唯一**"拆现场 + 清会话 + 回收作业"的动作，且幂等；脏现场显式报错，
 //     绝不静默丢。
 //   - Recover 必须在 `Prune` 之前完成认领（顺序是判据的一部分，见
-//     worktree.WorktreeManager.Prune）；会话回灌复用 sessionstore.NodeSessionStore 的形状
+//     worktree.WorktreeManager.Prune）；会话回灌复用 store.NodeSessionStore 的形状
 //     （记录携带 History / StagesJSON / Worktree）。
 package workunit
 

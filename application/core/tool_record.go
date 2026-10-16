@@ -5,7 +5,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/toolrecord"
 )
 
@@ -163,7 +163,7 @@ func (service *Service) loadToolRecord(sessionID string) {
 // SetToolRecordSnapshotStore 注入（或收回：传 nil）读数落盘口。
 //
 // 为什么不是 Deps 字段而是装配后注入：它依赖存储后端与工作区解析（会话 → 项目作用域），
-// 两者在装配顺序上都晚于 `application.New`（与 SetProjectBoardSink 同一处境）。
+// 两者在装配顺序上都晚于 `wiring.New`（与 SetProjectBoardSink 同一处境）。
 func (service *Service) SetToolRecordSnapshotStore(store ToolRecordSnapshotStore) {
 	if service == nil || service.components.toolRecord == nil {
 		return

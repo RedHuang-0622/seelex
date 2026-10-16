@@ -30,7 +30,7 @@ package seelebridge
 //     那里手里有插件定义；到执行面才发现名字没了 = 插件被 root 撤销过，按"失灵"
 //     处理（见 runtime.go 的 PluginFace 收口），绝不静默放宽。
 //   - **重复声明显式拒绝**，不是静默合并：与"未知名/超限"同口径（唯一生效的口径
-//     只有一套，见 dto.NormalizePlugins 与 sessionstore.ValidateTeamworkPlan 的两处
+//     只有一套，见 dto.NormalizePlugins 与 store.ValidateTeamworkPlan 的两处
 //     拒绝）。本文件里的规整（normalizePluginNames）是**读侧/传输侧**的规范化，不是
 //     声明侧的口径：它面对的是已经过入口校验的事实。
 //   - **root 路径不受影响**：主代理仍走全局单选（Manager.active），本文件的集合
@@ -42,13 +42,13 @@ import (
 
 	"github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/prompt_layer"
 	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/plugin"
-	"github.com/RedHuang-0622/seelex/seelexctx"
-	"github.com/RedHuang-0622/seelex/sessionstore"
 	"github.com/RedHuang-0622/seelex/skill"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // pluginsCatalogTokenWarn 是装配目录段的**黄牌**阈值（token 估算）。
@@ -124,7 +124,7 @@ func (r *Runtime) rolePluginAssembly(spec roleRoundSpec) []string {
 // 与"装配了零个"必须是同一个形态，否则空集语义会在某一条分支上变成"装配了空集"）。
 //
 // **这不是声明侧的口径**：声明侧的重复在入口就被显式拒绝了（dto.NormalizePlugins /
-// sessionstore.ValidateTeamworkPlan），走到这里的都是已经过校验的事实（计划成员条目、
+// store.ValidateTeamworkPlan），走到这里的都是已经过校验的事实（计划成员条目、
 // 角色自带读面）。这一层的去重因此是**传输/读侧的规范化**：它不会把 leader 写的重复
 // 名单吞掉——那种输入根本到不了这里（2026-10-05 对抗复核 D 的口径统一）。
 func normalizePluginNames(names []string) []string {
@@ -171,7 +171,7 @@ func normalizePluginNames(names []string) []string {
 //
 // 抽成函数是为了可测：它只依赖"上限"与"名字是否存在"两个事实，不需要整个
 // coordinator / 存储面在场（拒绝口径的回归测试因此是纯函数级的）。
-func validateMemberPlugins(members []sessionstore.TeamworkMember, limit int, defined func(string) bool) error {
+func validateMemberPlugins(members []store.TeamworkMember, limit int, defined func(string) bool) error {
 	for index := range members {
 		plugins, err := dto.NormalizePlugins(members[index].Plugins, limit)
 		if err != nil {
@@ -189,12 +189,12 @@ func validateMemberPlugins(members []sessionstore.TeamworkMember, limit int, def
 
 func (r *Runtime) maxPluginsPerTeammate() int {
 	if r == nil {
-		return seelexctx.DefaultPluginsPerTeammate
+		return limit.DefaultPluginsPerTeammate
 	}
 	if configured := r.limits.Plugins.PerTeammate; configured > 0 {
 		return configured
 	}
-	return seelexctx.DefaultPluginsPerTeammate
+	return limit.DefaultPluginsPerTeammate
 }
 
 // pluginFaceJudgement 是一次**装配面裁决**：读数用它，运行面也用它。
@@ -317,7 +317,7 @@ func skillInfosOf(skills []skill.Skill) []model.SkillInfo {
 // 两份手抄字段的结构体会漂移（改一处漏一处，两个读面对同一个人给出两个形状而两端用例
 // 都绿），别名连漂移的语法空间都不存在。
 //
-// 字段与 tag 的**唯一一份定义**在 application/contract/dto/teamwork_board.go
+// 字段与 tag 的**唯一一份定义**在 contract/dto/teamwork_board.go
 // （PluginAssemblyView）；本文件只留"怎么算"（assemblyViews）与 mode 字面量。
 type rolePluginAssemblyView = dto.PluginAssemblyView
 
@@ -327,7 +327,7 @@ type rolePluginAssemblyView = dto.PluginAssemblyView
 //   - 声明装配的成员：面 = 集合收窄后的工具数；
 //   - inherit-host 的成员：面 = **宿主当前装配**收窄后的工具数（真读数，不是 0）；
 //   - 声明还在、定义没了：面 = 0 且带失灵说明（**不报满面**）。
-func (r *Runtime) assemblyViews(members []sessionstore.TeamworkMember) []rolePluginAssemblyView {
+func (r *Runtime) assemblyViews(members []store.TeamworkMember) []rolePluginAssemblyView {
 	views := make([]rolePluginAssemblyView, 0, len(members))
 	for _, member := range members {
 		plugins := normalizePluginNames(member.Plugins)

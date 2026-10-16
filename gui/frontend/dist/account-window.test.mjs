@@ -58,11 +58,14 @@ test("app.js 注册并接线：开弹窗拉挡位表、提交采纳生效值、�
   assert.match(handler[0], /catch \(error\)[\s\S]*renderAccountWindowRows\(\)[\s\S]*showToast\(error\)/, "失败要回滚并露出来");
 });
 
-test("挡位表两端同源（seelexctx/window.go 是唯一事实源）", async () => {
-  const go = await readFile(new URL("../../../seelexctx/window.go", import.meta.url), "utf8");
-  const presets = go.match(/func AccountContextWindowPresets\(\) \[\]int \{\s*return \[\]int\{([^}]*)\}/);
-  assert.ok(presets, "要在 seelexctx/window.go 里找到挡位表");
+test("挡位表两端同源（backend/limit/accountwindow 是唯一事实源）", async () => {
+  const go = await readFile(
+    new URL("../../../backend/limit/accountwindow/accountwindow.go", import.meta.url),
+    "utf8",
+  );
+  const presets = go.match(/func Presets\(\) \[\]int \{\s*return \[\]int\{([^}]*)\}/);
+  assert.ok(presets, "要在 backend/limit/accountwindow/accountwindow.go 里找到挡位表");
   const values = presets[1].split(",").map(part => Number(part.replace(/_/g, "").trim())).filter(value => Number.isFinite(value));
   assert.deepEqual(values, [200000, 400000, 600000, 1000000], "挡位表就是这四挡（后端下发，前端不另抄）");
-  assert.match(go, /func ValidateAccountContextWindow\(/, "校验面归后端（见 service_account_window.go）");
+  assert.match(go, /func Validate\(/, "校验面归后端（判据在 accountwindow，用例在 application/core）");
 });

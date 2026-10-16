@@ -21,7 +21,7 @@
 flowchart LR
     LEADER["leader 会话<br/>team_plan / dispatch / context / join / milestone / retire / close"] --> CO["teamwork.Coordinator"]
     CO --> JOBS["Seele jobs.Manager（作业表 / 状态机 / jobs_manage）"]
-    CO --> STORE["PlanStore → sessionstore.moduleTeamwork<br/>plan 头 + events.jsonl 审计"]
+    CO --> STORE["PlanStore → store.moduleTeamwork<br/>plan 头 + events.jsonl 审计"]
     JOBS --> WE["WorkerExecutor（Kind=worker）"]
     WE --> WR["WorkerRunner 端口 → runtime_role_turn"]
     CO --> WT["WorkspaceReleaser 端口 → worktree 域"]
@@ -87,10 +87,10 @@ stateDiagram-v2
 |---|---|
 | `teamwork.go` | 端口契约（`PlanStore` / `WorkerRunner` / `WorkspaceReleaser` / `Workspaces` / `TeammateQueue` / `SessionResetter` / `BoardCloser` / `JobOutputs` / `ItemSettler`）、`Options`、`Coordinator` 装配、计划校验、成员权限格子折叠 |
 | `coordinator.go` | 计划/派发/汇合/里程碑/退场/收口（`SetPlan` / `Dispatch` / `Join` / `Milestone` / `Retire` / `Close`，`Retire` 与 `Close` 复用 `retireStepsLocked(reclaim bool)`），以及 `audit` |
-| `planlock.go` | **计划头读-改-写的进程内互斥锁**（按 `sessionstore.Key` 分片的包级锁表；`lockPlan` / `unlockPlan`） |
+| `planlock.go` | **计划头读-改-写的进程内互斥锁**（按 `store.Key` 分片的包级锁表；`lockPlan` / `unlockPlan`） |
 | `items.go` | **Work Item 生命周期**：`PlanMilestone` / `AdjustItem` / `DispatchItem` / `SettleWorkItem`（尾插）/ `AcceptItem` / `FailItem` / `Items` / `Recover`，屏障与里程碑内依赖闸门、绑定账本折叠 |
 | `executor.go` | 作业执行体：`WorkerExecutor(runner, settler, maxTurns)`（`Kind=worker`）；回合结束后**自动尾插**（`SeatExecutor` 已随 goal 席位轮转退场） |
-| `store.go` | `sessionstore` 持久面的适配与计划/绑定读写 |
+| `store.go` | `store` 持久面的适配与计划/绑定读写 |
 | `teamwork_test.go` / `items_test.go` | 端口桩驱动的编排语义测试（后者按 Work Item 口径逐条覆盖九类要求） |
 | `items_concurrent_test.go` | **并发 settle 丢失更新**的回归用例：`TestConcurrentSettleDoesNotLoseUpdates`（N=5 全并发 settle）+ `TestConcurrentSettleAndAcceptDoNotResurrectDone`（settle 混 accept，done 不得被写回）。用会合点（`rendezvous`）排定交错，不靠 sleep；内存替身按生产语义 JSON 深拷贝计划 |
 
@@ -121,7 +121,7 @@ stateDiagram-v2
 
 ## 依赖方向
 
-`teamwork` → `Seele jobs`、`sessionstore`（计划/审计持久面）。**禁止** import
+`teamwork` → `Seele jobs`、`store`（计划/审计持久面）。**禁止** import
 `application/*` 或 `seelebridge` 根包；执行体与工作区经端口反向注入。
 
 ## 并发、存储、安全或错误语义
@@ -145,7 +145,7 @@ stateDiagram-v2
 
 - **计划头读-改-写是原子的**：`SetPlan` / `PlanMilestone` / `AdjustItem` / `DispatchItem` /
   `SettleWorkItem` / `AcceptItem` / `FailItem` / `Dispatch` / `Milestone` / `Retire` /
-  `Close` 都在**同一把按 `sessionstore.Key` 分片的包级计划锁**内完成"读计划 → 改 → 写计划"
+  `Close` 都在**同一把按 `store.Key` 分片的包级计划锁**内完成"读计划 → 改 → 写计划"
   （`planlock.go`）。store 的模块锁只覆盖单次 `commitModuleHead`，跨这三步没有锁——不补这把
   锁就会出现"5 个并发 settle、2 个被后写覆盖回 running"的丢失更新（2026-10-05 实测）。
   为什么不是 store 层 CAS、锁粒度为什么选在 Key，见 `planlock.go` 的取舍注释。
@@ -171,7 +171,7 @@ stateDiagram-v2
 
 ## 扩展方式
 
-- 换持久面：实现 `PlanStore`（生产实现是 `sessionstore.moduleTeamwork`）；
+- 换持久面：实现 `PlanStore`（生产实现是 `store.moduleTeamwork`）；
 - 换执行体：实现 `WorkerRunner`；
 - 换工作区策略：实现 `WorkspaceReleaser`（须遵守 `ErrUncommittedChanges` 语义）；
 - 换看板存档面 / 作业输出面：实现 `BoardCloser` / `JobOutputs`。两者都是**可选**端口

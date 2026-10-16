@@ -16,8 +16,8 @@
 | --- | --- | --- |
 | 框架（Seele） | `tools/permission/{checker,middleware,approval}.go` | 组/位/规则/审批的**判定与错误语义**；`Gate` 是唯一判定入口 |
 | 框架 | `tools/tools.go` `ToolMeta{Kind,Groups,Bits,Resource}` | 工具自报门第（**可选**，见 §7） |
-| 产品（Seelex） | `seelebridge/tools/permission_policy.go` | 授权表（路由组 + 主体位）、主体类解析、主体类策略（Enforcer） |
-| 产品 | `seelebridge/tools/permission_tiers.go` | **主会话权限档位**的覆盖实现（`ApplyTier`：只剪 ask，不碰 deny） |
+| 产品（Seelex） | `backend/limit/policy/policy.go`（授权表 / 路由组 / 主体位，判据）+ `seelebridge/tools/permission_policy.go`（主体类策略 Enforcer） | 授权表（路由组 + 主体位）、主体类解析、主体类策略（Enforcer） |
+| 产品 | `backend/limit/policy/tiers.go` | **主会话权限档位**的覆盖实现（`ApplyTier`：只剪 ask，不碰 deny） |
 | 产品 | `seelebridge/tools/registry_state.go` | 把框架 `Gate` 接进工具调度链；会话级档位选表 + `full` 档短路 |
 | 组合根 | `main.go`（`setupPermissionGate` / `mergePermissionConfig` / `newPermissionBridge`） | 装配：默认表 + `config/seele.yaml` 覆盖 + 审批桥。**注（2026-10-12 J-1a）**：`SetRoleSessionPolicyResolver` / `SetRoleSessionOwnerResolver` 的注入已随之退场——它们的事实源是 Agent Team 反向索引（随退场删除），未注入时的口径是"员工主体识别按调用 ctx 判、审批归属按调用会话原样归属"；员工主体识别的权威通路仍是角色回合执行体按构造写 ctx（`tools.WithEmployeeGrant`，`seelebridge/runtime_role_turn.go`）。 |
 | 配置 | `config/seele.yaml` | **只写覆盖**（`missing_bit` + 最细粒度 `rules`） |
@@ -111,8 +111,8 @@ deny**（危险命令段在任何档位下都硬拦）。
 | `auto` | 再剪 `bash` 的全部 ask | 任意命令直跑（危险 deny 仍在） |
 | `full` | 执行门短路 | 本会话全部放行（= 旧 `full_access`） |
 
-- 词表（id/标签/说明）的唯一事实在 `application/contract/dto`（前端按它渲染列表）；
-  覆盖实现在 `seelebridge/tools/permission_tiers.go`。
+- 词表（id/标签/说明）的唯一事实在 `contract/dto`（前端按它渲染列表）；
+  覆盖实现在 `backend/limit/policy/tiers.go`。
 - **只对 root 生效**：`gate()` 按"主体类 + 会话档位"选表——非 root（`sub`/`emp_*`）
   一律用 base 表；`full` 档的短路条件收紧为 `class == root`。因此档位只改主 agent 的
   "问不问"，不改任何主体的"有没有位"（员工越权照旧审批提权）。

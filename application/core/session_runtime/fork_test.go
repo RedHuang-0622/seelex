@@ -6,20 +6,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/internal/state"
 	"github.com/RedHuang-0622/seelex/application/model"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // forkTestSessions 是 PrepareFork 的持久化面桩：持有父会话数据面，并记录
 // 子会话快照落盘参数。
 type forkTestSessions struct {
 	parentRecord model.SessionRecord
-	events       []sessionstore.Event
+	events       []store.Event
 	context      []byte
-	results      []sessionstore.ToolResult
+	results      []store.ToolResult
 	generation   string
 	workspaceID  string
 
@@ -54,10 +54,10 @@ func (s *forkTestSessions) LoadSessionRecordWorkspace(projectID, sessionID strin
 	return s.parentRecord, nil
 }
 
-func (s *forkTestSessions) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]sessionstore.Event, error) {
+func (s *forkTestSessions) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]store.Event, error) {
 	return s.events, nil
 }
-func (s *forkTestSessions) LoadToolResultsWorkspace(projectID, sessionID string) ([]sessionstore.ToolResult, error) {
+func (s *forkTestSessions) LoadToolResultsWorkspace(projectID, sessionID string) ([]store.ToolResult, error) {
 	return s.results, nil
 }
 func (s *forkTestSessions) SaveSessionSnapshotWorkspace(projectID, sessionID string, history []contract.EngineMessage, record model.SessionRecord, events []model.TranscriptEvent, results []model.StoredToolResult) error {
@@ -96,9 +96,9 @@ func forkTestFixture() (*forkTestSessions, time.Time) {
 	t3 := time.Unix(3, 0)
 	t4 := time.Unix(4, 0)
 	t5 := time.Unix(5, 0)
-	events := []sessionstore.Event{
+	events := []store.Event{
 		{Seq: 1, TaskID: "chat-1", Role: "user", Content: "inspect", MessageID: "m1", CreatedAt: t1},
-		{Seq: 2, TaskID: "chat-1", Role: "assistant", ToolCalls: []sessionstore.EventToolCall{{ID: "a", Name: "read"}}, MessageID: "m2", CreatedAt: t2},
+		{Seq: 2, TaskID: "chat-1", Role: "assistant", ToolCalls: []store.EventToolCall{{ID: "a", Name: "read"}}, MessageID: "m2", CreatedAt: t2},
 		{Seq: 3, TaskID: "chat-1", Role: "tool", ToolCallID: "a", Name: "read", ResultRef: "result:read", MessageID: "m3", CreatedAt: t3},
 		{Seq: 4, TaskID: "chat-2", Role: "user", Content: "next", MessageID: "m4", CreatedAt: t4},
 		{Seq: 5, TaskID: "chat-2", Role: "assistant", Content: "answer", MessageID: "m5", CreatedAt: t5},
@@ -159,40 +159,40 @@ func forkTestFixture() (*forkTestSessions, time.Time) {
 		ToolResults: []model.ToolResultRef{
 			{Ref: "result:read", Tool: "read"},
 			{Ref: "result:checkpoint", Tool: "checkpoint"},
-			{Ref: sessionstore.CompressedTurnRefPrefix + "seg-cross", Tool: "compact_frame"},
+			{Ref: store.CompressedTurnRefPrefix + "seg-cross", Tool: "compact_frame"},
 			{Ref: "tr-frame-before", Tool: "context_compaction_frame"},
 			{Ref: "result:later", Tool: "later"},
 		},
 		UpdatedAt: t5,
 	}
-	contextRecord := sessionstore.SessionContextRecord{
-		SchemaVersion: sessionstore.SessionContextSchemaVersion,
+	contextRecord := store.SessionContextRecord{
+		SchemaVersion: store.SessionContextSchemaVersion,
 		SystemPrompt:  "system prompt",
-		PlanStack: []sessionstore.PlanFrame{
+		PlanStack: []store.PlanFrame{
 			{PlanID: "plan-1", Title: "p1", Status: "active", EnteredAt: t1},
 			{PlanID: "plan-2", Title: "p2", Status: "active", EnteredAt: t4},
 		},
-		TaskStack: []sessionstore.TaskFrame{
+		TaskStack: []store.TaskFrame{
 			{TaskID: "task-1", Objective: "one", Status: "active", EnteredAt: t1},
 			{TaskID: "task-2", Objective: "two", Status: "active", EnteredAt: t4},
 		},
-		SkillStack: []sessionstore.SkillFrame{
+		SkillStack: []store.SkillFrame{
 			{SkillID: "s1", Name: "one", ActivatedAt: t1},
 			{SkillID: "s2", Name: "two", ActivatedAt: t4},
 		},
-		GoalStack: []sessionstore.GoalFrame{
+		GoalStack: []store.GoalFrame{
 			{GoalID: "goal-1", Title: "父目标", Status: "active", EnteredAt: t1},
 			{GoalID: "goal-2", Title: "fork 后新目标", Status: "active", EnteredAt: t4},
 		},
-		GoalAudit: []sessionstore.GoalAuditEntry{
+		GoalAudit: []store.GoalAuditEntry{
 			{Seq: 1, Kind: "goal.begin", GoalID: "goal-1", Title: "父目标", Status: "active", At: t1.Unix()},
 			{Seq: 2, Kind: "goal.begin", GoalID: "goal-2", Title: "fork 后新目标", Status: "active", At: t4.Unix()},
 		},
-		CompactStack: []sessionstore.CompactFrame{
+		CompactStack: []store.CompactFrame{
 			{
 				SegmentID: "seg-cross", From: 0, To: 2, EventFrom: 1, EventTo: 5,
 				MessageFrom: "m1", MessageTo: "m5",
-				Evidence: []sessionstore.EvidenceRef{{Ref: "result:evidence"}},
+				Evidence: []store.EvidenceRef{{Ref: "result:evidence"}},
 				Summary:  "summary up to five",
 			},
 			{
@@ -206,9 +206,9 @@ func forkTestFixture() (*forkTestSessions, time.Time) {
 		parentRecord: record,
 		events:       events,
 		context:      contextPayload,
-		results: []sessionstore.ToolResult{
+		results: []store.ToolResult{
 			{Ref: "result:read", Tool: "read", Content: "found", Digest: "d1", Size: 5, TokenCount: 1, CreatedAt: t3},
-			{Ref: sessionstore.CompressedTurnRefPrefix + "seg-cross", Tool: "compact_frame", Content: "archived", Digest: "d2", Size: 8, TokenCount: 2, CreatedAt: t2},
+			{Ref: store.CompressedTurnRefPrefix + "seg-cross", Tool: "compact_frame", Content: "archived", Digest: "d2", Size: 8, TokenCount: 2, CreatedAt: t2},
 			{Ref: "result:later", Tool: "later", Content: "post fork", Digest: "d3", Size: 9, TokenCount: 3, CreatedAt: t5},
 		},
 		generation:  "generation-parent-1",
@@ -278,7 +278,7 @@ func TestPrepareForkTruncatesToRequestBoundary(t *testing.T) {
 	if record.Execution.Continuation != "" {
 		t.Fatalf("continuation must not be inherited: %q", record.Execution.Continuation)
 	}
-	wantRefs := []string{"result:read", "result:checkpoint", sessionstore.CompressedTurnRefPrefix + "seg-cross", "tr-frame-before"}
+	wantRefs := []string{"result:read", "result:checkpoint", store.CompressedTurnRefPrefix + "seg-cross", "tr-frame-before"}
 	gotRefs := make(map[string]bool, len(record.ToolResults))
 	for _, ref := range record.ToolResults {
 		gotRefs[ref.Ref] = true
@@ -299,7 +299,7 @@ func TestPrepareForkTruncatesToRequestBoundary(t *testing.T) {
 	// context blob 不再承载三栈：plan/task 权威 = §2.4 栈通道（子会话由
 	// ForkStacks 按 message 锚重建），blob 内不得留影子副本；skill 记录仍按
 	// fork 时刻过滤，压缩帧整帧继承 + 重写。
-	var contextRecord sessionstore.SessionContextRecord
+	var contextRecord store.SessionContextRecord
 	if err := json.Unmarshal(forkContext.Context, &contextRecord); err != nil {
 		t.Fatal(err)
 	}
@@ -316,8 +316,8 @@ func TestPrepareForkTruncatesToRequestBoundary(t *testing.T) {
 	if len(contextRecord.GoalAudit) != 0 {
 		t.Fatalf("fork 会话不得继承父 goal 审计账本: %#v", contextRecord.GoalAudit)
 	}
-	if contextRecord.SchemaVersion != sessionstore.SessionContextSchemaVersion {
-		t.Fatalf("fork context schema = %d, want %d", contextRecord.SchemaVersion, sessionstore.SessionContextSchemaVersion)
+	if contextRecord.SchemaVersion != store.SessionContextSchemaVersion {
+		t.Fatalf("fork context schema = %d, want %d", contextRecord.SchemaVersion, store.SessionContextSchemaVersion)
 	}
 	if len(contextRecord.CompactStack) != 1 {
 		t.Fatalf("compact stack = %#v, want only the inherited crossing frame", contextRecord.CompactStack)
@@ -338,7 +338,7 @@ func TestPrepareForkTruncatesToRequestBoundary(t *testing.T) {
 // not-exist（正文其实还在存储里）；而 fork 点之后的 ref（result:later）必须被裁掉。
 //
 // 反面对照（故意不在本测试覆盖）：ForkSubagent 走 `fork_subagents` DAG +
-// `sessionstore.newSubagent`，子代理复用主会话 big_tool_result、没有独立 refs
+// `store.newSubagent`，子代理复用主会话 big_tool_result、没有独立 refs
 // 索引，因此不经过 truncateForkRecord，也就没有这条按 ref 裁剪。
 func TestForkSessionKeepsCompactionFrameRefReachable(t *testing.T) {
 	sessions, _ := forkTestFixture()
@@ -398,7 +398,7 @@ func TestPrepareForkAtStartProducesEmptyChild(t *testing.T) {
 	if forkContext.Record.ForkedFrom == nil || forkContext.Record.ForkedFrom.ForkPoint.EventSeq != 0 {
 		t.Fatalf("fork start lineage = %#v", forkContext.Record.ForkedFrom)
 	}
-	var contextRecord sessionstore.SessionContextRecord
+	var contextRecord store.SessionContextRecord
 	if err := json.Unmarshal(forkContext.Context, &contextRecord); err != nil {
 		t.Fatal(err)
 	}

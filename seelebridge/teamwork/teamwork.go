@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/jobs"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // 作业类别：在 jobs 的开放 Kind 上注册，框架不解释这个值。
@@ -32,7 +32,7 @@ const (
 )
 
 // SubjectForRole 是 teammate 的主体名：既是权限主体，也是作业作用域的第二
-// 分量（与 sessionstore 的 emp 主体同名，权限面因此不需要第二套映射）。
+// 分量（与 store 的 emp 主体同名，权限面因此不需要第二套映射）。
 func SubjectForRole(role string) string { return "emp_" + role }
 
 // DefaultRoleSessionID 派生角色会话号：同一个 (主会话, team_id, role) 永远得到同一
@@ -50,20 +50,20 @@ func DefaultRoleSessionID(mainSessionID, teamID, roleName string) string {
 	return mainSessionID + "-" + teamID + "-" + roleName
 }
 
-// PlanStore 是计划的持久面（生产实现 = sessionstore.TeamworkRepository）。
+// PlanStore 是计划的持久面（生产实现 = store.TeamworkRepository）。
 //
 // ReadPlan 的**读面契约**：还没声明团队时返回**空计划 + nil**（`IsEmpty` 为真），
 // 不把"文件不存在"当错误上抛——读面宽容（team_items / team_context 对空计划给空结果），
 // 写面显式（需要计划的入口用 requireTeam 翻成领域文案）。
 type PlanStore interface {
-	WritePlan(ctx context.Context, key sessionstore.Key, plan sessionstore.TeamworkPlan, maxTeammates int) error
-	ReadPlan(ctx context.Context, key sessionstore.Key) (sessionstore.TeamworkPlan, error)
-	AppendEvent(ctx context.Context, key sessionstore.Key, event sessionstore.TeamworkEvent) error
-	ReadEvents(ctx context.Context, key sessionstore.Key) ([]sessionstore.TeamworkEvent, error)
+	WritePlan(ctx context.Context, key store.Key, plan store.TeamworkPlan, maxTeammates int) error
+	ReadPlan(ctx context.Context, key store.Key) (store.TeamworkPlan, error)
+	AppendEvent(ctx context.Context, key store.Key, event store.TeamworkEvent) error
+	ReadEvents(ctx context.Context, key store.Key) ([]store.TeamworkEvent, error)
 	// AppendBinding / ReadBindings 是「一个 Work Item ↔ 一个 Session + 一个 worktree」
-	// 的绑定账本（追加型 JSONL，KV 语义；见 sessionstore.TeamworkBinding）。
-	AppendBinding(ctx context.Context, key sessionstore.Key, binding sessionstore.TeamworkBinding) error
-	ReadBindings(ctx context.Context, key sessionstore.Key) ([]sessionstore.TeamworkBinding, error)
+	// 的绑定账本（追加型 JSONL，KV 语义；见 store.TeamworkBinding）。
+	AppendBinding(ctx context.Context, key store.Key, binding store.TeamworkBinding) error
+	ReadBindings(ctx context.Context, key store.Key) ([]store.TeamworkBinding, error)
 }
 
 // WorkerRequest 是一次 teammate 作业的全部输入。它同时是作业载荷
@@ -191,7 +191,7 @@ type SessionResetter interface {
 // BoardCloser 封板团队看板**存档**（closed / team.close）。
 //
 // 为什么是一个窄端口而不是让本包认识看板存档的形状：存档是**下游历史面**
-// （sessionstore 的 moduleBoardTeam），本包只说"把这支团队的看板关掉"，记录形状与
+// （store 的 moduleBoardTeam），本包只说"把这支团队的看板关掉"，记录形状与
 // 写序归 seelebridge（那里已有唯一的存档写路径）。缺失 = 不写存档（域内 closed 与
 // 审计照常）——"有就有、没有就是没装配"。
 type BoardCloser interface {
@@ -225,7 +225,7 @@ type JobOutputs interface {
 // 缺失时对应的动作显式报错（不静默降级）。
 type Options struct {
 	// Key 是会话作用域（会话键 = 作业隔离与回收粒度）。
-	Key sessionstore.Key
+	Key store.Key
 	// Store 是计划与审计的持久面。
 	Store PlanStore
 	// Jobs 是作业面（frame jobs.Manager），worker/seat 执行体注册在它上面。
@@ -246,7 +246,7 @@ type Options struct {
 	// JobOutputs 分配 / 清理 teammate 作业的输出文件（缺失 ⇒ 交回框架自建文件，
 	// 按框架语义在销项 / 驱逐 / Close 时删除）。
 	JobOutputs JobOutputs
-	// MaxTeammates 是产品级人数上限（seelexctx.TeamLimits.MaxTeammates）。
+	// MaxTeammates 是产品级人数上限（limit.TeamLimits.MaxTeammates）。
 	// <= 0 = 不限制（不推荐：框架在途上限会先于产品约束生效）。
 	MaxTeammates int
 	// MaxTurns 是每个 teammate 作业的回合上限（0 = 装配层默认）。
@@ -263,8 +263,8 @@ type Options struct {
 // 掌控顺序、作用域与收口——这正是"leader 阻塞与否与 worker 是否推进正交"的
 // 落点（§6.3）。
 type Coordinator struct {
-	key        sessionstore.Key
-	store      PlanStore
+	key        store.Key
+	st         PlanStore
 	jobs       jobs.Manager
 	workers    WorkerRunner
 	worktrees  WorkspaceReleaser
@@ -300,7 +300,7 @@ func New(options Options) (*Coordinator, error) {
 	}
 	return &Coordinator{
 		key:        options.Key,
-		store:      options.Store,
+		st:         options.Store,
 		jobs:       options.Jobs,
 		workers:    options.Workers,
 		worktrees:  options.Worktrees,
@@ -317,22 +317,22 @@ func New(options Options) (*Coordinator, error) {
 }
 
 // Key 返回会话作用域。
-func (c *Coordinator) Key() sessionstore.Key { return c.key }
+func (c *Coordinator) Key() store.Key { return c.key }
 
 // audit 追加一条审计行。审计失败**不吞**：它与计划是同一份事实的两个面。
-func (c *Coordinator) audit(ctx context.Context, event sessionstore.TeamworkEvent) error {
+func (c *Coordinator) audit(ctx context.Context, event store.TeamworkEvent) error {
 	event.At = c.clock().UTC()
-	return c.store.AppendEvent(ctx, c.key, event)
+	return c.st.AppendEvent(ctx, c.key, event)
 }
 
 // memberFor 返回在编成员。
-func memberFor(plan sessionstore.TeamworkPlan, role string) (sessionstore.TeamworkMember, bool) {
+func memberFor(plan store.TeamworkPlan, role string) (store.TeamworkMember, bool) {
 	for _, member := range plan.Members {
 		if member.Role == role {
 			return member, true
 		}
 	}
-	return sessionstore.TeamworkMember{}, false
+	return store.TeamworkMember{}, false
 }
 
 // maxTurnsFor 返回一个 teammate 生效的角色回合上限：成员条目自带的 max_turns
@@ -342,7 +342,7 @@ func memberFor(plan sessionstore.TeamworkPlan, role string) (sessionstore.Teamwo
 // 上限的唯一来源——于是"这条 teammate 需要多跑几轮"只能整队一起调。成员条目现在
 // 可以各自声明（与 subagent 的 per-subagent max_loops 同构），这里就是那个抉择点。
 // 0 = 没声明（不是"零轮"），回退默认。
-func maxTurnsFor(member sessionstore.TeamworkMember, fallback int) int {
+func maxTurnsFor(member store.TeamworkMember, fallback int) int {
 	if member.MaxTurns > 0 {
 		return member.MaxTurns
 	}
@@ -352,7 +352,7 @@ func maxTurnsFor(member sessionstore.TeamworkMember, fallback int) int {
 // memberPermissionGroups 把计划里的权限格子（组 → 位）折成框架的 uint8 位图。
 // 位是非负整数且落在 0..255；越界是**计划写错了**，显式报错而不是截断伪装成
 // "分配成功"。
-func memberPermissionGroups(member sessionstore.TeamworkMember) (map[string]uint8, error) {
+func memberPermissionGroups(member store.TeamworkMember) (map[string]uint8, error) {
 	if len(member.Permission) == 0 {
 		// 没写权限格子 = 没有要折的位，不是错误：显式写出类型的零值而不是裸
 		// `return nil, nil`（静态门禁口径，见 permission.go 里同一条注释）。

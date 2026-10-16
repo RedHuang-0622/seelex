@@ -7,7 +7,7 @@
 // 口径是 leader 2026-10-05 的裁决：
 //
 //   提交侧只做 trim + 丢空项；重复项**原样提交**，由后端按既有口径裁决
-//   （application/contract/dto/plugin_assembly.go 的 NormalizePlugins：
+//   （contract/dto/plugin_assembly.go 的 NormalizePlugins：
 //   「重复声明显式拒绝，不静默去重」）并把错误回显；
 //   回读 / 展示侧保持现状（去重后的清单更好读，且不改变已落盘的事实）。
 //

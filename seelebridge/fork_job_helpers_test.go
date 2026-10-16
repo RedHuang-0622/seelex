@@ -19,8 +19,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // newAsyncTestRuntime 造一个打开了作业面（含子代理作业）的测试 Runtime。
@@ -39,8 +39,8 @@ func newAsyncTestRuntime(t testing.TB) *Runtime {
 	runtime, err := NewRuntime(RuntimeConfig{
 		AccountsPath:    path,
 		ToolCallTimeout: 30 * time.Second,
-		Limits: seelexctx.Limits{
-			AsyncExec:      seelexctx.AsyncExecLimits{Enabled: true},
+		Limits: limit.Limits{
+			AsyncExec:      limit.AsyncExecLimits{Enabled: true},
 			ForkTimeoutSec: 120,
 		},
 	})
@@ -74,8 +74,8 @@ func newAsyncTestRuntimeWithSubagents(t testing.TB) *Runtime {
 	runtime, err := NewRuntime(RuntimeConfig{
 		AccountsPath:    path,
 		ToolCallTimeout: 30 * time.Second,
-		Limits: seelexctx.Limits{
-			AsyncExec:      seelexctx.AsyncExecLimits{Enabled: true},
+		Limits: limit.Limits{
+			AsyncExec:      limit.AsyncExecLimits{Enabled: true},
 			ForkTimeoutSec: 120,
 		},
 	})

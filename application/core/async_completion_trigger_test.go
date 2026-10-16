@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // 后台作业终态触发对话（第五个生命周期消费者，async_completion.go）。
@@ -22,7 +22,7 @@ import (
 // 因此在构造前改最省事。
 func asyncCompletionHarness(t *testing.T, trigger bool, engine ChatEngine) (*Service, *fakeRuntime) {
 	t.Helper()
-	applyTestLimits(t, func(applied *seelexctx.Limits) {
+	applyTestLimits(t, func(applied *limit.Limits) {
 		applied.AsyncExec.Enabled = true
 		applied.AsyncExec.TriggerConversation = trigger
 	})

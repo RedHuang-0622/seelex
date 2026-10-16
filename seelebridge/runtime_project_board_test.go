@@ -18,7 +18,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 func TestTeamworkPlanForRequiresBackendAndScope(t *testing.T) {
@@ -30,8 +30,8 @@ func TestTeamworkPlanForRequiresBackendAndScope(t *testing.T) {
 		t.Fatalf("未装 teamwork 时不得报告拿到了计划：%+v", plan)
 	}
 
-	store := &memPlanStore{}
-	if err := r.SetTeamworkBackend(teamworkTestBackend(store, "s-team")); err != nil {
+	st := &memPlanStore{}
+	if err := r.SetTeamworkBackend(teamworkTestBackend(st, "s-team")); err != nil {
 		t.Fatalf("SetTeamworkBackend: %v", err)
 	}
 
@@ -51,14 +51,14 @@ func TestTeamworkPlanForReturnsStoredPlan(t *testing.T) {
 	r := newTestRuntime(t)
 	defer r.Shutdown()
 
-	store := &memPlanStore{}
-	backend := teamworkTestBackend(store, "s-team")
+	st := &memPlanStore{}
+	backend := teamworkTestBackend(st, "s-team")
 	if err := r.SetTeamworkBackend(backend); err != nil {
 		t.Fatalf("SetTeamworkBackend: %v", err)
 	}
 	plan := boardPlanFixture()
 	key, _ := backend.KeyFor("s-team")
-	if err := store.WritePlan(context.Background(), key, plan, 6); err != nil {
+	if err := st.WritePlan(context.Background(), key, plan, 6); err != nil {
 		t.Fatalf("WritePlan: %v", err)
 	}
 
@@ -86,21 +86,21 @@ func TestTeamworkPlanForReturnsStoredPlan(t *testing.T) {
 // 为什么单列一条：投影落点是按 (项目, 会话) 分层的（契约 §3），半截键读出来的东西
 // 归不到任何一个会话上。口径与同包 coordinatorFor 的显式键校验一致——键完整性只有一份判据。
 func TestTeamworkPlanForRejectsHalfKey(t *testing.T) {
-	store := &memPlanStore{}
+	st := &memPlanStore{}
 	plan := boardPlanFixture()
 	// 半截键下**真的有**一份计划：这样"返回 false"只能是键完整性判据的结果，而不是
 	// "存储里恰好没有"。
-	if err := store.WritePlan(context.Background(), sessionstore.Key{SessionID: "s-half"}, plan, 6); err != nil {
+	if err := st.WritePlan(context.Background(), store.Key{SessionID: "s-half"}, plan, 6); err != nil {
 		t.Fatalf("WritePlan: %v", err)
 	}
 
 	r := newTestRuntime(t)
 	defer r.Shutdown()
 	if err := r.SetTeamworkBackend(TeamworkBackend{
-		Store: store,
-		KeyFor: func(id string) (sessionstore.Key, bool) {
+		Store: st,
+		KeyFor: func(id string) (store.Key, bool) {
 			// 故意只给会话：项目分量缺失（半截键）。
-			return sessionstore.Key{SessionID: id}, true
+			return store.Key{SessionID: id}, true
 		},
 		MaxTeammates: 6,
 	}); err != nil {

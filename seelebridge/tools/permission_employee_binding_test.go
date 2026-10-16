@@ -12,6 +12,7 @@ package tools
 
 import (
 	"context"
+	"github.com/RedHuang-0622/seelex/backend/limit/policy"
 	"testing"
 
 	frameworktools "github.com/RedHuang-0622/Seele/tools"
@@ -23,7 +24,7 @@ import (
 func TestEmployeeClassInContextInterceptsWrite(t *testing.T) {
 	approvals := 0
 	state := &PermissionGate{SessionFromContext: toolspermission.SessionIDFromContext}
-	state.Set(DefaultPermissionConfig(), func(*toolspermission.ApprovalContext) (*toolspermission.ApprovalResponse, error) {
+	state.Set(policy.DefaultPermissionConfig(), func(*toolspermission.ApprovalContext) (*toolspermission.ApprovalResponse, error) {
 		approvals++
 		return &toolspermission.ApprovalResponse{Choice: "deny"}, nil
 	})
@@ -33,8 +34,8 @@ func TestEmployeeClassInContextInterceptsWrite(t *testing.T) {
 		toolspermission.WithSessionID(context.Background(), roleSessionID),
 		"readonly",
 	)
-	if got := state.classFor(ctx); got != SubjectClassEmployeeRO {
-		t.Fatalf("classFor = %q, want %q（ctx 里的员工主体类必须优先）", got, SubjectClassEmployeeRO)
+	if got := state.classFor(ctx); got != policy.SubjectClassEmployeeRO {
+		t.Fatalf("classFor = %q, want %q（ctx 里的员工主体类必须优先）", got, policy.SubjectClassEmployeeRO)
 	}
 
 	err, ran := callToolArgs(t, state, ctx, "write_file", `{}`)
@@ -50,10 +51,10 @@ func TestEmployeeClassInContextInterceptsWrite(t *testing.T) {
 
 	// 对照组：同一会话号、没有员工主体类 → 交回框架判定（主体类策略不接管）。
 	rootCtx := toolspermission.WithSessionID(context.Background(), roleSessionID)
-	if got := state.classFor(rootCtx); got != SubjectClassRoot {
+	if got := state.classFor(rootCtx); got != policy.SubjectClassRoot {
 		t.Fatalf("无主体类时应是 root，得到 %q", got)
 	}
-	if _, decided := state.Enforce(rootCtx, toolspermission.Subject(SubjectForClass(SubjectClassRoot)),
+	if _, decided := state.Enforce(rootCtx, toolspermission.Subject(policy.SubjectForClass(policy.SubjectClassRoot)),
 		frameworktools.ToolMeta{}, "write_file", "{}"); decided {
 		t.Fatal("root 不该由员工口径接管（否则主代理的写调用会被无谓收窄）")
 	}
@@ -69,7 +70,7 @@ func TestEmployeeClassInContextMatchesIndexPath(t *testing.T) {
 	if left, right := state.classFor(byIndex), state.classFor(byContext); left != right {
 		t.Fatalf("按反查 = %q，按构造注入 = %q：两条路必须一致", left, right)
 	}
-	if got := state.classFor(byIndex); got != SubjectClassEmployeeRW {
-		t.Fatalf("readwrite 员工主体类 = %q, want %q", got, SubjectClassEmployeeRW)
+	if got := state.classFor(byIndex); got != policy.SubjectClassEmployeeRW {
+		t.Fatalf("readwrite 员工主体类 = %q, want %q", got, policy.SubjectClassEmployeeRW)
 	}
 }

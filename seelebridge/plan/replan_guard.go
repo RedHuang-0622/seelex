@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 var (
@@ -19,7 +19,7 @@ var (
 // ReplanMetrics is a non-secret, process-wide accounting snapshot. Provider
 // calls are an intentional cost proxy when a provider does not expose token
 // usage for tool-only responses.
-// ReplanMetrics ?????????????????? application/contract/dto??
+// ReplanMetrics ?????????????????? contract/dto??
 type ReplanMetrics = dto.ReplanMetrics
 
 type ReplanGuard struct {
@@ -36,7 +36,7 @@ type ReplanGuard struct {
 }
 
 func NewReplanGuard(maxConcurrent, maxWindowAttempts, maxProviderRequests int, window time.Duration) *ReplanGuard {
-	defaults := seelexctx.DefaultLimits()
+	defaults := limit.DefaultLimits()
 	if maxConcurrent <= 0 {
 		maxConcurrent = defaults.MaxConcurrentReplans
 	}

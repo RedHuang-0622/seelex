@@ -15,15 +15,14 @@ package core
 import (
 	"context"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/session"
 	"io/fs"
 	"sort"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/seelexctx"
-	"github.com/RedHuang-0622/seelex/session"
 )
 
 // withContentLimit 临时把进程级 loaded_content_limit 改成 limit，返回还原
@@ -264,13 +263,13 @@ func snapshotSessions(t *testing.T, service *Service) map[string]SessionInfo {
 // loaded_content_limit 是**分层覆盖**（默认未配置 = 0 = 交给统一窗口
 // limits.session_release_window 管辖），窗口默认 1（只保留上一个）。
 func TestLoadedContentLayerLimitDefaults(t *testing.T) {
-	if got := seelexctx.DefaultLimits().LoadedContentLimit; got != 0 {
+	if got := limit.DefaultLimits().LoadedContentLimit; got != 0 {
 		t.Fatalf("default loaded content layer limit = %d, want 0（未配置 = 交给统一窗口）", got)
 	}
 	if got := Limits().LoadedContentLimit; got != 0 {
 		t.Fatalf("active loaded content layer limit = %d, want 0", got)
 	}
-	if got := seelexctx.DefaultLimits().ReleaseWindow(); got != 1 {
+	if got := limit.DefaultLimits().ReleaseWindow(); got != 1 {
 		t.Fatalf("default release window = %d, want 1", got)
 	}
 	// 显式配置分层键仍生效（老口径：该层总数上限，含受保护会话）。

@@ -10,9 +10,9 @@ import (
 
 	"github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/model"
-	"github.com/RedHuang-0622/seelex/workspace"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/store/workspace"
 )
 
 // TestTranscriptEventWireMaterialRoundTrip 覆盖 S19/D8：内部 user 材料的

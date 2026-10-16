@@ -18,44 +18,44 @@ import (
 	"testing"
 
 	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // memBoardRepo 是最小的看板存档假体：只实现团队那一半，goal 那一半显式不支持。
 type memBoardRepo struct {
 	mu     sync.Mutex
-	boards map[sessionstore.Key]sessionstore.TeamBoardMeta
+	boards map[store.Key]store.TeamBoardMeta
 }
 
-func (m *memBoardRepo) WriteGoalBoard(context.Context, sessionstore.Key, sessionstore.GoalBoardMeta) error {
+func (m *memBoardRepo) WriteGoalBoard(context.Context, store.Key, store.GoalBoardMeta) error {
 	return errors.New("memBoardRepo: goal 看板不在本用例的作用域里")
 }
 
-func (m *memBoardRepo) ReadGoalBoard(context.Context, sessionstore.Key) (sessionstore.GoalBoardMeta, error) {
-	return sessionstore.GoalBoardMeta{}, fs.ErrNotExist
+func (m *memBoardRepo) ReadGoalBoard(context.Context, store.Key) (store.GoalBoardMeta, error) {
+	return store.GoalBoardMeta{}, fs.ErrNotExist
 }
 
-func (m *memBoardRepo) WriteTeamBoard(_ context.Context, key sessionstore.Key, meta sessionstore.TeamBoardMeta) error {
+func (m *memBoardRepo) WriteTeamBoard(_ context.Context, key store.Key, meta store.TeamBoardMeta) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.boards == nil {
-		m.boards = map[sessionstore.Key]sessionstore.TeamBoardMeta{}
+		m.boards = map[store.Key]store.TeamBoardMeta{}
 	}
 	m.boards[key] = meta
 	return nil
 }
 
-func (m *memBoardRepo) ReadTeamBoard(_ context.Context, key sessionstore.Key) (sessionstore.TeamBoardMeta, error) {
+func (m *memBoardRepo) ReadTeamBoard(_ context.Context, key store.Key) (store.TeamBoardMeta, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	meta, ok := m.boards[key]
 	if !ok {
-		return sessionstore.TeamBoardMeta{}, fs.ErrNotExist
+		return store.TeamBoardMeta{}, fs.ErrNotExist
 	}
 	return meta, nil
 }
 
-func (m *memBoardRepo) board(key sessionstore.Key) (sessionstore.TeamBoardMeta, bool) {
+func (m *memBoardRepo) board(key store.Key) (store.TeamBoardMeta, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	meta, ok := m.boards[key]
@@ -80,24 +80,24 @@ func TestTeamCloseToolRegistered(t *testing.T) {
 func TestTeamCloseSealsBoardAndIsIdempotent(t *testing.T) {
 	r := newTestRuntime(t)
 	defer r.Shutdown()
-	store := &memPlanStore{}
+	st := &memPlanStore{}
 	boards := &memBoardRepo{}
-	backend := teamworkTestBackend(store, "s-team")
+	backend := teamworkTestBackend(st, "s-team")
 	backend.Boards = boards
 	if err := r.SetTeamworkBackend(backend); err != nil {
 		t.Fatalf("SetTeamworkBackend: %v", err)
 	}
 	ctx := seeletelemetry.WithSessionID(context.Background(), "s-team")
-	key := sessionstore.Key{ProjectID: "p-team", SessionID: "s-team"}
+	key := store.Key{ProjectID: "p-team", SessionID: "s-team"}
 
 	// 计划落盘（members 为空：本用例只验收口的收口面，逐人退场由 coordinator 用例覆盖）+
 	// 一版在册的存档，收口要能把这一版关掉。
 	if _, err := r.teamPlanHandler(ctx, `{"team_id":"team-close","milestones":[{"id":"m-impl"}],"members":[]}`); err != nil {
 		t.Fatalf("team_plan: %v", err)
 	}
-	if err := boards.WriteTeamBoard(ctx, key, sessionstore.TeamBoardMeta{
-		BoardLifecycle: sessionstore.BoardLifecycle{
-			Kind: sessionstore.BoardKindTeam, State: sessionstore.BoardStateActive, Seq: 3, OpenedAt: 100,
+	if err := boards.WriteTeamBoard(ctx, key, store.TeamBoardMeta{
+		BoardLifecycle: store.BoardLifecycle{
+			Kind: store.BoardKindTeam, State: store.BoardStateActive, Seq: 3, OpenedAt: 100,
 		},
 		TeamID: "team-close", Version: 1,
 	}); err != nil {
@@ -116,14 +116,14 @@ func TestTeamCloseSealsBoardAndIsIdempotent(t *testing.T) {
 		t.Fatalf("首次收口应回报 already_closed=false：%s", receipt)
 	}
 
-	plan, err := store.ReadPlan(ctx, key)
+	plan, err := st.ReadPlan(ctx, key)
 	if err != nil {
 		t.Fatalf("ReadPlan: %v", err)
 	}
-	if plan.State.State != sessionstore.TeamworkStateClosed {
+	if plan.State.State != store.TeamworkStateClosed {
 		t.Fatalf("收口必须把域内计划标 closed（域内权威）：%+v", plan.State)
 	}
-	if plan.State.ClosedReason != sessionstore.BoardCloseTeamClose || plan.State.ClosedAt == 0 {
+	if plan.State.ClosedReason != store.BoardCloseTeamClose || plan.State.ClosedAt == 0 {
 		t.Fatalf("收口原因/时间必须落域内：%+v", plan.State)
 	}
 	if len(plan.State.Jobs) != 0 {
@@ -134,17 +134,17 @@ func TestTeamCloseSealsBoardAndIsIdempotent(t *testing.T) {
 	if !ok {
 		t.Fatal("存档那一版必须还在（它是历史面）")
 	}
-	if !closed.Closed() || closed.ClosedReason != sessionstore.BoardCloseTeamClose || closed.ClosedAt == 0 {
+	if !closed.Closed() || closed.ClosedReason != store.BoardCloseTeamClose || closed.ClosedAt == 0 {
 		t.Fatalf("收口必须封板存档（否则重启恢复会拿一块 active 冒充在册）：%+v", closed.BoardLifecycle)
 	}
 
-	events, err := store.ReadEvents(ctx, key)
+	events, err := st.ReadEvents(ctx, key)
 	if err != nil {
 		t.Fatalf("ReadEvents: %v", err)
 	}
 	closeEvents := 0
 	for _, event := range events {
-		if event.Kind == sessionstore.TeamworkEventClose {
+		if event.Kind == store.TeamworkEventClose {
 			closeEvents++
 		}
 	}
@@ -164,13 +164,13 @@ func TestTeamCloseSealsBoardAndIsIdempotent(t *testing.T) {
 	if again["already_closed"] != true {
 		t.Fatalf("第二次收口应回报 already_closed=true：%s", second)
 	}
-	events, err = store.ReadEvents(ctx, key)
+	events, err = st.ReadEvents(ctx, key)
 	if err != nil {
 		t.Fatalf("ReadEvents: %v", err)
 	}
 	closeEvents = 0
 	for _, event := range events {
-		if event.Kind == sessionstore.TeamworkEventClose {
+		if event.Kind == store.TeamworkEventClose {
 			closeEvents++
 		}
 	}

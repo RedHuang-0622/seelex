@@ -1,15 +1,14 @@
 package task_context
 
 import (
+	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/seelexctx/tokens"
 	"math"
 	"strings"
 	"sync"
-
-	"github.com/RedHuang-0622/seelex/application/contract"
-	"github.com/RedHuang-0622/seelex/application/core/internal/limits"
-	"github.com/RedHuang-0622/seelex/application/model"
-	"github.com/RedHuang-0622/seelex/seelexctx"
-	"github.com/RedHuang-0622/seelex/seelexctx/tokens"
 )
 
 // ContextBudget 是 provider 上下文 token 预算（窗口/输出预留/安全预留/压缩
@@ -109,7 +108,7 @@ func (c *CalibratedTokenCounter) CountRequest(systemPrompt string, history []con
 		// Runtime exposes the stable name and description, while provider
 		// adapters add a function-schema envelope. Reserve enough protocol
 		// space for that schema even when its exact tokenizer is unavailable.
-		count += limits.Get().ToolTokenOverhead + c.CountText(tool.Name) + c.CountText(tool.Description) // limits.tool_token_overhead（默认 64）
+		count += limit.Get().ToolTokenOverhead + c.CountText(tool.Name) + c.CountText(tool.Description) // limits.tool_token_overhead（默认 64）
 	}
 	return count
 }
@@ -147,8 +146,8 @@ func (c *CalibratedTokenCounter) Observe(estimated, actual int) {
 func DefaultContextBudget() ContextBudget {
 	window := seelexctx.DefaultContextConfig().MaxTokens
 	outputReserve := window / 8
-	if outputReserve < limits.Get().OutputReserveTokens { // limits.output_reserve_tokens（默认 512）
-		outputReserve = limits.Get().OutputReserveTokens
+	if outputReserve < limit.Get().OutputReserveTokens { // limits.output_reserve_tokens（默认 512）
+		outputReserve = limit.Get().OutputReserveTokens
 	}
 	return newContextBudget(window, outputReserve)
 }
@@ -173,14 +172,14 @@ func ContextBudgetFor(runtime any) ContextBudget {
 // context_soft_percent / context_hard_percent / context_target_percent /
 // context_single_item_percent），不在这里硬编码：调参不该改代码，而魔法数字一旦
 // 散在代码里，报表口径与判据口径就会各说各话（读者看到"超了硬线"却什么都没发生）。
-// 默认值只有一处来源：seelexctx.DefaultLimits()（配置默认档）。本函数只做
+// 默认值只有一处来源：limit.DefaultLimits()（配置默认档）。本函数只做
 // "调用方手写字面量/老装配"的防御性兜底，不另立一套数字。
 func newContextBudget(window, outputReserve int) ContextBudget {
 	if window <= 0 {
 		return ContextBudget{}
 	}
-	settings := limits.Get()
-	defaults := seelexctx.DefaultLimits()
+	settings := limit.Get()
+	defaults := limit.DefaultLimits()
 	divisor := settings.ContextSafetyReserveDivisor
 	if divisor <= 0 {
 		divisor = defaults.ContextSafetyReserveDivisor

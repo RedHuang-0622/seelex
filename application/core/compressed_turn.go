@@ -2,7 +2,7 @@
 // 窗口外轮次被压缩为 Summary 后，原文经 TurnArchiver 持久化到会话存储
 // （ToolResults 通道，ref = "compressed:"+segmentID）；模型需要细节时经
 // read_compressed_turn 工具读回原文——压缩丢失可逆，减少对摘要的幻觉。
-// 读方法根据聊天记录的存储（sessionstore）装配：写 = SaveCommitWorkspace（显式
+// 读方法根据聊天记录的存储（store）装配：写 = SaveCommitWorkspace（显式
 // 项目作用域），读 = LoadToolResultWorkspace（与 read_tool_result 同一持久化通道）。
 package core
 
@@ -17,12 +17,12 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // compressedTurnRefPrefix 是压缩轮次原文在 ToolResults 通道中的 ref 前缀
-// （与 sessionstore.CompressedTurnRefPrefix 同源，存储通道命名空间唯一）。
-const compressedTurnRefPrefix = sessionstore.CompressedTurnRefPrefix
+// （与 store.CompressedTurnRefPrefix 同源，存储通道命名空间唯一）。
+const compressedTurnRefPrefix = store.CompressedTurnRefPrefix
 
 // sessionCommitPort 是压缩轮次原文持久化的写通道：在**显式项目作用域**下追加
 // 一个只含 ToolResults 的 commit（append-only，ref = "compressed:"+segmentID）。
@@ -32,7 +32,7 @@ const compressedTurnRefPrefix = sessionstore.CompressedTurnRefPrefix
 // 另一个项目（R3 键漂移），而读面用的是显式键
 // LoadToolResultWorkspace(workspaceID, sessionID, ref)：两侧必须同键。
 type sessionCommitPort interface {
-	SaveCommitWorkspace(projectID, sessionID string, commit sessionstore.Commit) error
+	SaveCommitWorkspace(projectID, sessionID string, commit store.Commit) error
 }
 
 // CompressedTurnArchiver 实现 seelexctx.TurnArchiver：溢出轮次原文序列化
@@ -72,7 +72,7 @@ func (a *CompressedTurnArchiver) resolveProjectID(sessionID string) string {
 // StoreTurn 实现 seelexctx.TurnArchiver。会话归属优先取 ctx（runChat 注入
 // 的会话 ID，Seele loop 原样透传给上下文控制器），provider 仅兜底。
 func (a *CompressedTurnArchiver) StoreTurn(ctx context.Context, segmentID string, messages []types.Message) (string, error) {
-	store, ok := a.Sessions.(sessionCommitPort)
+	st, ok := a.Sessions.(sessionCommitPort)
 	if !ok {
 		return "", errors.New("read_compressed_turn: durable commit storage is unavailable")
 	}
@@ -88,10 +88,10 @@ func (a *CompressedTurnArchiver) StoreTurn(ctx context.Context, segmentID string
 		return "", fmt.Errorf("read_compressed_turn: marshal turns: %w", err)
 	}
 	ref := compressedTurnRefPrefix + segmentID
-	commit := sessionstore.Commit{ToolResults: []sessionstore.ToolResult{{
+	commit := store.Commit{ToolResults: []store.ToolResult{{
 		Ref: ref, Tool: "compact_frame", Content: string(data), Size: len(data),
 	}}}
-	if err := store.SaveCommitWorkspace(a.resolveProjectID(sessionID), sessionID, commit); err != nil {
+	if err := st.SaveCommitWorkspace(a.resolveProjectID(sessionID), sessionID, commit); err != nil {
 		return "", fmt.Errorf("read_compressed_turn: persist: %w", err)
 	}
 	return ref, nil
@@ -126,11 +126,11 @@ func (service *Service) ReadCompressedTurnHandler(_ context.Context, argsJSON st
 	currentWorkspaceID := session_runtime.WorkspaceID(service.Core.Snapshot.CurrentWorkspace)
 	service.ViewMu.RUnlock()
 
-	store, ok := service.Deps.Sessions.(session_runtime.SessionTranscriptPort)
+	st, ok := service.Deps.Sessions.(session_runtime.SessionTranscriptPort)
 	if !ok {
 		return "", errors.New("read_compressed_turn: durable storage is unavailable")
 	}
-	result, err := store.LoadToolResultWorkspace(
+	result, err := st.LoadToolResultWorkspace(
 		currentWorkspaceID,
 		sessionID,
 		compressedTurnRefPrefix+input.SegmentID,

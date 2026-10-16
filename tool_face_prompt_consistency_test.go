@@ -10,7 +10,7 @@ import (
 
 	seelebuiltin "github.com/RedHuang-0622/Seele/jobs/builtin"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // 工具面与提示词的一致性门禁（2026-10-15 审计 D5 的落地）。

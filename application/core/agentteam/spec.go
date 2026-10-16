@@ -27,7 +27,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // ErrUnknownPreset 已随内置形态目录删除（2026-10-01）：团队只从数据来，不再有
@@ -166,7 +166,7 @@ func resolveRoleKind(roleName string, kind dto.RoleKind) dto.RoleKind {
 	return dto.RoleKindAgent
 }
 
-// RoleTechlead 是 goal 团队的 techleader 逻辑角色名（与 sessionstore.RoleTL /
+// RoleTechlead 是 goal 团队的 techleader 逻辑角色名（与 store.RoleTL /
 // 历史 message 行的 role_name 一致；"techlead" 是 kind，不是角色名）。
 const RoleTechlead = "tl"
 

@@ -16,7 +16,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // Candidate 是一条可被选取的历史记忆：压缩栈中的一帧。
@@ -24,7 +24,7 @@ import (
 type Candidate struct {
 	SegmentID string
 	Summary   string
-	Evidence  []sessionstore.EvidenceRef
+	Evidence  []store.EvidenceRef
 	From      int // 累计 ChatQueue 单元索引（CompactFrame.From）
 	To        int // 累计 ChatQueue 单元索引（CompactFrame.To）
 	// EventFrom/EventTo 是 transcript EventSeq 区间（含端点；0 = 该帧未声明）。

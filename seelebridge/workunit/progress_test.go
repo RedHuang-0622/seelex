@@ -7,7 +7,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/jobs"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // progress_test.go — 读面（progress.go）的形状证据：打点编解码只有一份、折算不编造事实、
@@ -29,13 +29,13 @@ var (
 
 // fakeLedger 是会话账本替身：只装"一条记录清单"，够读面用（写侧不在这轮的面上）。
 type fakeLedger struct {
-	records []sessionstore.NodeSessionRecord
+	records []store.NodeSessionRecord
 	err     error
 }
 
-func (f *fakeLedger) Save(string, string, sessionstore.NodeSessionRecord) error { return nil }
-func (f *fakeLedger) Delete(string, string, string) error                       { return nil }
-func (f *fakeLedger) List(string, string) ([]sessionstore.NodeSessionRecord, error) {
+func (f *fakeLedger) Save(string, string, store.NodeSessionRecord) error { return nil }
+func (f *fakeLedger) Delete(string, string, string) error                { return nil }
+func (f *fakeLedger) List(string, string) ([]store.NodeSessionRecord, error) {
 	return f.records, f.err
 }
 
@@ -84,7 +84,7 @@ func TestStageCodecRoundTripsAndBounds(t *testing.T) {
 // TestProgressOfIsAReadOnlyProjection：折算逐一对应记录里已有的格子，不加事实。
 func TestProgressOfIsAReadOnlyProjection(t *testing.T) {
 	updated := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
-	record := sessionstore.NodeSessionRecord{
+	record := store.NodeSessionRecord{
 		NodeID:     "exec-wi-1",
 		SessionID:  "sess-1-t-exec-wi-1",
 		Goal:       "把读面定形",
@@ -92,7 +92,7 @@ func TestProgressOfIsAReadOnlyProjection(t *testing.T) {
 		Summary:    "改到一半",
 		Error:      "",
 		StagesJSON: EncodeStages([]Stage{{Stage: "round_output", Preview: "已改完"}}),
-		Worktree:   sessionstore.NodeWorktreeRecord{Path: `C:\wt\exec-wi-1`, Branch: "seelex/exec-wi-1"},
+		Worktree:   store.NodeWorktreeRecord{Path: `C:\wt\exec-wi-1`, Branch: "seelex/exec-wi-1"},
 		UpdatedAt:  updated,
 	}
 	progress := ProgressOf(KindTeammate, record)
@@ -122,7 +122,7 @@ func TestProgressOfIsAReadOnlyProjection(t *testing.T) {
 	if settled.Error != "boom" || settled.Kind != KindSubagent {
 		t.Fatalf("终态读数不对：%+v", settled)
 	}
-	empty := ProgressOf(KindSubagent, sessionstore.NodeSessionRecord{})
+	empty := ProgressOf(KindSubagent, store.NodeSessionRecord{})
 	if empty.InFlight || empty.NodeID != "" || !empty.UpdatedAt.IsZero() {
 		t.Fatalf("空记录折成零值读数（不编造）：%+v", empty)
 	}
@@ -131,13 +131,13 @@ func TestProgressOfIsAReadOnlyProjection(t *testing.T) {
 // TestUnitReaderReadsByNodeIDAndFiltersOwnership：读法收成一份，归属过滤由调用方给出
 // （两层共用同一张记录表，读面不替调用方猜）。
 func TestUnitReaderReadsByNodeIDAndFiltersOwnership(t *testing.T) {
-	ledger := &fakeLedger{records: []sessionstore.NodeSessionRecord{
+	ledger := &fakeLedger{records: []store.NodeSessionRecord{
 		{NodeID: "exec-wi-1", SessionID: "s1", Status: StatusRunning.String()},
 		{NodeID: "wu-2", SessionID: "s2", Status: "done"},
 		{NodeID: "exec-wi-2", SessionID: "s3", Status: StatusQueued.String()},
 	}}
 	// 归属名单 = 现场名单（teammate 侧今天就是这么过滤的）。
-	onScene := func(record sessionstore.NodeSessionRecord) bool {
+	onScene := func(record store.NodeSessionRecord) bool {
 		return strings.HasPrefix(record.NodeID, "exec-")
 	}
 	reader := NewUnitReader(ledger, "p-team", "sess-1", KindTeammate, onScene)
@@ -175,11 +175,11 @@ func TestUnitReaderReadsByNodeIDAndFiltersOwnership(t *testing.T) {
 // 子代理打点里的 turn/at）不在 `Progress` 里——需要它们时读 `Record`，而**定位与归属过滤**
 // 与 `Read` 走同一条实现（多一条读法就是多一份"按 nodeID 找记录"）。
 func TestUnitReaderRecordSharesTheSameLookup(t *testing.T) {
-	ledger := &fakeLedger{records: []sessionstore.NodeSessionRecord{
+	ledger := &fakeLedger{records: []store.NodeSessionRecord{
 		{NodeID: "exec-wi-1", SessionID: "s1", Status: StatusRunning.String(), ResultJSON: []byte(`{"ok":true}`)},
 		{NodeID: "wu-2", SessionID: "s2", Status: "done"},
 	}}
-	reader := NewUnitReader(ledger, "p", "sess", KindTeammate, func(record sessionstore.NodeSessionRecord) bool {
+	reader := NewUnitReader(ledger, "p", "sess", KindTeammate, func(record store.NodeSessionRecord) bool {
 		return record.NodeID == "exec-wi-1"
 	})
 	record, found, err := reader.Record("exec-wi-1")
@@ -197,7 +197,7 @@ func TestUnitReaderRecordSharesTheSameLookup(t *testing.T) {
 // TestUnitReaderCannotBranchOnKind：Kind 是描述性标注，读面不据它分支——同一份记录、同一份
 // 读法，换一个 Kind 只换读数上的那一个字。
 func TestUnitReaderCannotBranchOnKind(t *testing.T) {
-	record := sessionstore.NodeSessionRecord{NodeID: "n-1", SessionID: "s-1", Status: StatusRunning.String()}
+	record := store.NodeSessionRecord{NodeID: "n-1", SessionID: "s-1", Status: StatusRunning.String()}
 	sub := ProgressOf(KindSubagent, record)
 	team := ProgressOf(KindTeammate, record)
 	if sub.NodeID != team.NodeID || sub.SessionID != team.SessionID ||

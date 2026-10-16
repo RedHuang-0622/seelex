@@ -10,7 +10,7 @@ import (
 	frameworkmcp "github.com/RedHuang-0622/Seele/tools/mcp"
 	"github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/mcp"
 	"github.com/RedHuang-0622/seelex/seelebridge/scheduler"
@@ -23,9 +23,9 @@ import (
 	"github.com/RedHuang-0622/seelex/skill"
 )
 
-// ports.go 承载 Runtime 对 application/contract 端口的实现方法（组合根公开面）。
+// ports.go 承载 Runtime 对 contract 端口的实现方法（组合根公开面）。
 // 域实现已下沉子包；本文件只保留类型别名与逐行委托，DTO 统一走
-// application/contract/dto。mainAgentNodeID 是子代理树的合成根节点 ID。
+// contract/dto。mainAgentNodeID 是子代理树的合成根节点 ID。
 const mainAgentNodeID = model.MainAgentNodeID
 
 // ── task 端口 ─────────────────────────────────────────────────────

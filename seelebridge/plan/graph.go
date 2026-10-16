@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // PlanEdge is the Seelex-owned serializable edge type.
-// 单源定义在 application/contract/dto（JSON 格式与旧 serialize.PlanEdgeSpec
+// 单源定义在 contract/dto（JSON 格式与旧 serialize.PlanEdgeSpec
 // 保持同形，PlanState.Edges 的 DTO 契约不变），本包以 alias 复用。
 type PlanEdge = dto.PlanEdge
 

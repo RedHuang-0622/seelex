@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/backend/limit/policy"
 	"sort"
 	"strings"
 	"sync"
@@ -12,7 +13,7 @@ import (
 	frameworktools "github.com/RedHuang-0622/Seele/tools"
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 	"github.com/RedHuang-0622/Seele/types"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // RegistryState 包装 framework tools.Registry：内联工具 provider 由
@@ -69,7 +70,7 @@ func (s *RegistryState) AddInline(
 		s.inline = &InlineProvider{}
 		_ = s.Registry.Register(s.inline)
 	}
-	meta := DeclaredToolMeta(name)
+	meta := policy.DeclaredToolMeta(name)
 	if len(meta.Groups) == 0 {
 		s.noteUndeclared(name)
 	}
@@ -276,7 +277,7 @@ func (state *PermissionGate) rebuildLocked() {
 			state.tierCheckers[info.ID] = state.checker
 			continue
 		}
-		state.tierCheckers[info.ID] = toolspermission.NewPermissionChecker(ApplyTier(state.cfg, info.ID))
+		state.tierCheckers[info.ID] = toolspermission.NewPermissionChecker(policy.ApplyTier(state.cfg, info.ID))
 	}
 }
 
@@ -453,8 +454,8 @@ func (state *PermissionGate) effectiveTierLocked(sessionID string) string {
 //   - 非 root（sub / emp_*）一律用 base checker —— 档位只覆盖 root 的问/放，绝不
 //     改变员工/子代理的"位"（否则 auto/edit 会把员工越权静默放行，违反产品决定）；
 //   - root 用会话档位对应的 checker（manual 即 base）。
-func (state *PermissionGate) checkerForLocked(sessionID string, class SubjectClass) *toolspermission.PermissionChecker {
-	if class != SubjectClassRoot {
+func (state *PermissionGate) checkerForLocked(sessionID string, class policy.SubjectClass) *toolspermission.PermissionChecker {
+	if class != policy.SubjectClassRoot {
 		return state.checker
 	}
 	if checker, ok := state.tierCheckers[state.effectiveTierLocked(sessionID)]; ok {
@@ -543,14 +544,14 @@ func policyArgsFor(name, argsJSON string) string {
 // 拒绝（`approve` 里 Approval==nil → DenialError），位缺（违权）本来就走
 // denyOrPrompt 的拒绝分支——即"违权操作直接拒绝"，绝不挂起等一个不会有人回答
 // 的选择页面。
-func (state *PermissionGate) gate(approvalTimeout time.Duration, class SubjectClass, sessionID string) *toolspermission.Gate {
+func (state *PermissionGate) gate(approvalTimeout time.Duration, class policy.SubjectClass, sessionID string) *toolspermission.Gate {
 	state.mu.RLock()
 	// checker 按"主体类 + 会话档位"选：root 用本会话档位的规则表（edit/auto 剪掉
 	// 若干 ask），sub/员工一律用 base 表（档位不改变任何主体的位）。checker 与审批
 	// 处理器在调用瞬间快照，因此 Set 重建 checker 不会让在途调用落在旧表或 nil 上。
 	checker, handler := state.checkerForLocked(sessionID, class), state.handler
 	state.mu.RUnlock()
-	if class == SubjectClassSub {
+	if class == policy.SubjectClassSub {
 		handler = nil
 	}
 	return &toolspermission.Gate{
@@ -574,7 +575,7 @@ func (state *PermissionGate) gate(approvalTimeout time.Duration, class SubjectCl
 //
 // 其余（root、非 full 档）返回 ok=false，完全落回框架判定（checker 已按档位选表）。
 func (state *PermissionGate) Enforce(ctx context.Context, subject toolspermission.Subject, meta frameworktools.ToolMeta, name, argsJSON string) (toolspermission.Action, bool) {
-	if class := state.classFor(ctx); class == SubjectClassRoot && state.FullAccessFor(state.sessionFromContext(ctx)) {
+	if class := state.classFor(ctx); class == policy.SubjectClassRoot && state.FullAccessFor(state.sessionFromContext(ctx)) {
 		return toolspermission.ActionAllow, true
 	}
 	return state.enforceClass(ctx, subject, name, meta, argsJSON)

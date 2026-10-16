@@ -3,12 +3,12 @@ package seelebridge
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // subagent_record_state_boundary_test.go — **落盘那一格**的未知词取舍。
 //
-// 记录状态（`sessionstore.NodeSessionRecord.Status`）是唯一落盘的状态格。它的枚举化
+// 记录状态（`store.NodeSessionRecord.Status`）是唯一落盘的状态格。它的枚举化
 // （`dto.SubAgentNodeStatus`，int+iota）带来一个必须显式回答的问题：**旧文件/外来文件里
 // 认不得的词怎么办**？
 //

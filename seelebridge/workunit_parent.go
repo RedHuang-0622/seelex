@@ -2,7 +2,7 @@ package seelebridge
 
 // workunit_parent.go — 一件活的生命周期的**唯一一份实现**（父）。本文件只写"怎么判"，不写
 // "谁去做"：它持有的三个字段全是**端口**（sceneFace / unitFace / recordFace，实现在装配处
-// workunit_assembly.go），因此文件里搜不到任何一个 `teamwork` / `worktree` / `sessionstore`
+// workunit_assembly.go），因此文件里搜不到任何一个 `teamwork` / `worktree` / `store`
 // 的具体类型，也搜不到按层分支。
 //
 // 口径（docs/arch/workunit-single-lifecycle-one-implementation.md §3 接口先行 + §7 纪律，

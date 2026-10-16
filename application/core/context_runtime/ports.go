@@ -9,11 +9,11 @@ import (
 	"context"
 	"errors"
 
-	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/core/internal/state"
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
 	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/contract"
 )
 
 // TaskPort 是 context 域对 task 域的窄端口。
@@ -85,7 +85,7 @@ type HistoryPort interface {
 //
 // 为什么区间只给 EventSeq / MessageID 而不给单元下标：装配层手里的权威事实就是
 // EventSeq（TranscriptPrefixRange 的产物），而"单元下标"属于持久化事件流的空间
-// （sessionstore.CompleteEventUnits 会跳过孤儿 tool 与未知角色，因此两者不是减法
+// （store.CompleteEventUnits 会跳过孤儿 tool 与未知角色，因此两者不是减法
 // 关系）。让接收方或检索侧按 Seq 反查，才不会出现第二个单元空间生产者
 // （见 seelexctx/search 的 eventSeqUnitRange）。
 type CompactionIndexRequest struct {
@@ -164,7 +164,7 @@ var ErrCompactionIndexUnavailable = errors.New("context_runtime: compaction inde
 // 把它变成所有实现方的义务。
 //
 // 实现方必须自己处理压缩栈的链锚点校验（非首帧的 PrevSegmentID / PrevRequestFrom /
-// PrevRequestTo 必须与栈顶逐一相等，见 sessionstore.PushCompact），调用方不代劳。
+// PrevRequestTo 必须与栈顶逐一相等，见 store.PushCompact），调用方不代劳。
 type CompactionIndexPort interface {
 	// PushCompactionFrame 生成并压入一帧，返回回执。error 时调用方只记日志、
 	// 不中断装配：索引缺失是降级，不是错误。

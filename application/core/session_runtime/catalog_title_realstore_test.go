@@ -4,9 +4,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/model"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // realStoreTitleSessions 把标题三面接到真存储（Router/SessionGranularStore）：
@@ -15,7 +15,7 @@ import (
 // 这条链在真实存储上端到端成立（不只是桩）。
 type realStoreTitleSessions struct {
 	*forkTestSessions
-	granular *sessionstore.SessionGranularStore
+	granular *store.SessionGranularStore
 	project  string
 }
 
@@ -58,7 +58,7 @@ func (s *realStoreTitleSessions) FirstUserInputs(projectID, sessionID string, li
 // **首条用户输入**重建，且不能为此每轮读整片正文。
 func TestCatalogRefreshBackfillsLegacyTitleOnRealStore(t *testing.T) {
 	root := t.TempDir()
-	router, err := sessionstore.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
 	if err != nil {
 		t.Fatalf("NewRouter: %v", err)
 	}
@@ -69,16 +69,16 @@ func TestCatalogRefreshBackfillsLegacyTitleOnRealStore(t *testing.T) {
 	const question = "老会话的用户第一问"
 	// 老会话形态：首行是"以 user 身份写盘"的内部注入行，第二行才是真用户输入；
 	// 会话头里没有标题（S20 之前落盘的会话都是这样）。
-	if err := router.SaveCommitWorkspace(projectID, sessionID, sessionstore.Commit{
-		Events: []sessionstore.Event{
-			{Seq: 1, Role: "user", Kind: sessionstore.EventKindInternal, Content: "<!-- seelex:active-skill:v1 -->\n## Trusted Active Skill: goal"},
-			{Seq: 2, Role: "user", Kind: sessionstore.EventKindUserInput, Content: question},
-			{Seq: 3, Role: "assistant", Kind: sessionstore.EventKindLLM, Content: "回答"},
+	if err := router.SaveCommitWorkspace(projectID, sessionID, store.Commit{
+		Events: []store.Event{
+			{Seq: 1, Role: "user", Kind: store.EventKindInternal, Content: "<!-- seelex:active-skill:v1 -->\n## Trusted Active Skill: goal"},
+			{Seq: 2, Role: "user", Kind: store.EventKindUserInput, Content: question},
+			{Seq: 3, Role: "assistant", Kind: store.EventKindLLM, Content: "回答"},
 		},
 	}); err != nil {
 		t.Fatalf("seed session: %v", err)
 	}
-	granular := sessionstore.NewSessionGranularStore(router)
+	granular := store.NewSessionGranularStore(router)
 	// 生产装配（main.go）：会话绑定由 workspace.Repo 解析；标题写穿按绑定落盘。
 	granular.SetWorkspaceResolver(func(string) string { return projectID })
 

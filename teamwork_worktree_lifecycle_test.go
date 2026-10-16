@@ -23,8 +23,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // sceneProbe 是运行期对 teammate 现场的逐帧取证（只读轮询，不改运行时行为）。
@@ -223,7 +223,7 @@ func TestTeamworkWorktreeLifecycleChain(t *testing.T) {
 	if !ok {
 		t.Fatal("④ 拿不到会话作用域键（KeyFor 无解）")
 	}
-	nodeStore := sessionstore.NewNodeSessionStore(smoke.harness.store)
+	nodeStore := store.NewNodeSessionStore(smoke.harness.st)
 	records, err := nodeStore.List(key.ProjectID, key.SessionID)
 	if err != nil {
 		t.Fatalf("④ 读单元记录：%v", err)
@@ -299,7 +299,7 @@ func TestTeamworkWorktreeLifecycleChain(t *testing.T) {
 	<-probeDone
 }
 
-func hasNodeRecord(records []sessionstore.NodeSessionRecord, nodeID string) bool {
+func hasNodeRecord(records []store.NodeSessionRecord, nodeID string) bool {
 	for _, record := range records {
 		if record.NodeID == nodeID {
 			return true

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // fakeReviewFilesPort 记录落点收到的清单并回一份可控收据。

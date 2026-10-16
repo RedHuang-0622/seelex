@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // ReviewFilesPort 是「agent 请求 GUI 在侧边资源管理器打开待审阅文件」这一能力的

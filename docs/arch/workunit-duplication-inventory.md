@@ -41,7 +41,7 @@
 | 同一件事 | 现有实现数 | 锚点 | 现状一句话 |
 |---|---|---|---|
 | 新建会话 | **2 份** | 子代理：`seelebridge/node/agent_node.go:141`（`factory.NewAgent`）+ `:144`（`RegisterNodeSession`），另有一条公开构造 `seelebridge/runtime_subagent_session.go:20`（`NewSubagentSessionWithID`）；teammate：`seelebridge/runtime_role_turn.go:324`（`roleSessionFor`）开 `roleTurnState.sessions` 引擎槽 | 子代理的会话是**框架 Session** 并登记进 `SubagentSessions`；teammate 的会话是进程内引擎槽。两条链各开各的会话（`workunit_node.go:60` 明确"Begin 不越权替它开会话"）。 |
-| 运行期落盘（"跑到哪、现场在哪"） | **2 份写入 / 1 份记录形状** | 子代理：`seelebridge/session/subagent_sessions.go:475`（`buildRecordLocked`，经 actor 写 `NodeSessionStore`；调用点 `:379`/`:444`）；teammate：`workunit_team_records.go:68`（`saveTeamUnitRecord`，**直写** `NodeSessionStore`） | 记录形状已统一（`sessionstore.NodeSessionRecord`，`workunit/session.go:32` 的 `SessionLedger` 编译期断言在 `:41`），但**写入口有两条**（一条经 actor、一条直写）。 |
+| 运行期落盘（"跑到哪、现场在哪"） | **2 份写入 / 1 份记录形状** | 子代理：`seelebridge/session/subagent_sessions.go:475`（`buildRecordLocked`，经 actor 写 `NodeSessionStore`；调用点 `:379`/`:444`）；teammate：`workunit_team_records.go:68`（`saveTeamUnitRecord`，**直写** `NodeSessionStore`） | 记录形状已统一（`store.NodeSessionRecord`，`workunit/session.go:32` 的 `SessionLedger` 编译期断言在 `:41`），但**写入口有两条**（一条经 actor、一条直写）。 |
 | 会话状态词表 | **1 处（③U6 已落地；清单原记 3 处）** | 契约 `seelebridge/workunit/session.go:60-63`（`StatusQueued`/`StatusRunning` 直接引 `dto.SubAgentQueued/SubAgentRunning` + `InFlight`）；teammate 侧转调见 `workunit_team.go:36-43`；子代理侧"在跑"判据 `runtime_subagent_resume.go:328`（`case progress.InFlight:`） | 清单原文记的两处字面量**都已消失**：`subagent_sessions.go:515` 现在是局部变量名（`_, running := s.sessions[nodeID]`），`runtime_subagent_resume.go:329` 的 `case "queued","running"` 改成读契约。**但仍有 5 个残留写/读点**（`fork/tool.go:212/257`、`runtime_role_turn.go:490/502/504`、`application/core/service.go:125`）——见 `step-3-audit.md` §4。 |
 | 重启回灌（认领 + 回灌 + 判中断） | **2 条链** | 子代理：`seelebridge/runtime_subagent_recovery.go:114`（`RestoreSubagentAnchors`）+ `seelebridge/runtime_subagent_resume.go:140`（`ResumeInterruptedSubagents`，七步模板）；teammate：`workunit_team_records.go:223`（`RecoverTeamworkUnits`）+ `seelebridge/runtime_teamwork_scene.go:117`（认领） | 两条链各有一套"重启后读回"；契约的 `Recover` 只在 `workunit_node.go:89` / `workunit_team.go:184` 做适配转发（真实现 `workunit_parent.go:190`）。 |
 | **恢复续跑（重派同一件事）** | **1 份，只存在于子代理链** | 子代理：`runtime_subagent_resume.go` 的 `Reexecute`（`fork_subagents` 同键重跑） | teammate 链只有"认领现场 + 注入恢复说明"，**没有重派/续跑动作**；重派交给 leader 的 `team_dispatch`。同一件事（恢复续跑）在 teammate 链是缺的。 |
@@ -135,7 +135,7 @@
 
 - `NoteWorktree` 全仓命中（源文件仅两处：定义 + 一个调用点）：
   - `seelebridge/session/subagent_sessions.go:806` — `func (s *SubagentSessions) NoteWorktree(...)`（定义；清单原文记 `:803`）
-  - `seelebridge/runtime_plan.go:151` — `r.subagentSessions.NoteWorktree(nodeID, sessionstore.NodeWorktreeRecord{`（**唯一调用点**，在 `beginNodeWorktree` 内；未变）
+  - `seelebridge/runtime_plan.go:151` — `r.subagentSessions.NoteWorktree(nodeID, store.NodeWorktreeRecord{`（**唯一调用点**，在 `beginNodeWorktree` 内；未变）
   - 其余命中均为注释/文档/测试（`runtime_subagent_recovery.go:140`、`runtime_teamwork_scene.go:9/12`、`workunit_node.go:20/55/60`、`runtime_teamwork_scene_test.go:6` 等）。
 - `beginNodeWorktree`：定义 `seelebridge/runtime_plan.go:145`（未变）；注入点 `runtime_plan.go:310`（`nodeDeps` 的 `BeginNodeWorktree`，清单原文记 `:306`）；测试 6 处（`worktree_test.go:111/158/196/234/255/290`，未变）。
 - `BeginNamed`：定义 `seelebridge/worktree/worktree_manager.go:266`（清单原文记 `:256`）；唯一生产调用点 `seelebridge/runtime_teamwork_items.go:66`（`BindWorkspace` 内 `wt := r.worktreeMgr.BeginNamed(nodeID)`，未变）。
@@ -171,7 +171,7 @@
     `runtime_subagent_recovery.go:138 Restore` → `:144 adoptTeamworkScenes`，而 teammate 记录只带
     Path/Branch（`workunit_team_records.go:97`）⇒ **先到的是"弱"的那一份**，`beginNamed` 不刷新已在册登记。
     这一段无用例覆盖，标**仍开放**——见 `docs/2026-10-06-workunit-jobs-port/step-3-audit.md` §2。
-- **U3｜`roleTurnState` 之外，`sessionstore/role_session.go`（群聊 role draft / role wire）是否仍在生产链上？** 它是一套**第三份**角色会话持久化（`sessionstore/role_session.go` + `role_session_router.go`），来源是 AgentTeam/群聊模型。
+- **U3｜`roleTurnState` 之外，`store/role_session.go`（群聊 role draft / role wire）是否仍在生产链上？** 它是一套**第三份**角色会话持久化（`store/role_session.go` + `role_session_router.go`），来源是 AgentTeam/群聊模型。
   - 验证：`git grep -n "RoleSnapshotWorkspace\|SyncRoleDraft" -- application/ internal/` 看当前装配是否调用；若已被 Work Item 口径取代，可作为"同一件事三份"的补记，否则需要单独判定它是否与 teammate 链重叠。
 - **U4｜两条链的"中断判定"是否会给出两个答案？** `Coordinator.Recover` 的 `report.Interrupted`（按句柄）与 `RecoverTeamworkUnits` 的记录侧判定（按记录 status + 执行面）是两份判据，代码用并集合并，但未验证"记录说在跑、句柄仍在册"这类冲突态下的预期口径。
   - 验证：构造"句柄在册但记录 status=running 且角色会话槽已空"的用例，断言 `Resume.Interrupted` 与 `Report.Interrupted` 的差集符合预期。
@@ -188,7 +188,7 @@
   - **第二批已落地**：① 后台作业状态词收成 `dto.AsyncState*`（`tools/async_exec.go`、`application/core/async_completion.go`、`application/core/work_table_async.go` 全部转调）；② 计划批次结果状态词收成 `dto.PlanRunStatus*`（写侧 `plan/tool_provider.go`、读侧 `application/core/plan_tools.go` 的四个点全部转调——plan 包因此第一次引用契约，因为 plan_run 的结果 JSON 本来就是两层的契约面）。
   - **第三批（枚举化；用户口径"状态用枚举和 iota 来规范，不要用零散的字符串做硬编码比较"）已落地**：`dto.AsyncState` 与 `dto.PlanRunStatus` 从"契约里的一处**无类型字符串**"升级成 **int + iota 枚举**——`String()` 给对外词（JSON / 工具结果 / 看板只在 `words` 表里出现一次）、`ParseX` 读回、`MarshalJSON`/`UnmarshalJSON` 保住 wire 形状；字段类型跟着换：`AsyncRunRecord.State`、`tools` 的 `asyncRun.state` / `asyncPayload.State` / 探针 `State`、`fork` 的子代理作业终态端口 `Complete(handle, state dto.AsyncState)`、`TeamworkJobCompletionRecord.State`（框架 `jobs.State*` 在 seelebridge 投影处**折一次**）。效果：**字符串比较编译不过**——写错一个词是编译错误，不再是"记录说已完成、看板说还在跑"（读数与迁移面见 `docs/2026-10-06-workunit-jobs-port/step-3-u-items-delivery-3.md`）。
   - **仍开放（第四批）**：③ 子代理工具事件状态词与工具调用状态词在 `session/tool_events.go`、`application/core/tool_hooks.go`、`application/core/subagent_view/coordinator.go` 三处交织（running|success|error 与 running|completed|failed 两张表叠在一起），**收口前先把读方点清点**；④ 统一事件摘要状态词（`events_unified.go:89`）是 Seele 框架 `SummaryEvent.Status` 的词，不归我们的契约；⑤ 回执状态词（`observed|killed|already_finished|finished`）目前只在白名单里登记了一处理由（`async_exec.go` 的 `Status: "killed"`），要连 `job_manage` 的四种 op 一起收；⑥ **记录状态那一格**（`dto.SubAgentNodeStatus`）面更大：既落盘（会话记录）又上 GUI，枚举化要连恢复路径一起过。
-  - **2026-10-06 复核补记（只更正现状句）**：⑥ **已落地** —— `application/contract/dto/subagent.go:12` 现为
+  - **2026-10-06 复核补记（只更正现状句）**：⑥ **已落地** —— `contract/dto/subagent.go:12` 现为
     `type SubAgentNodeStatus uint8` + iota（unknown/queued/running/done/failed/interrupted，
     words 表 `:27`，四方法转调 `stateCodec`）；落盘格的唯一转换点是 `runtime_subagent_resume.go:369 nodeStateOfRecord`
     （认不得 → `SubAgentUnknown`，**不是终态**），记录写点 `node/coordinator.go:132/134/137`、`session/subagent_sessions.go:208`

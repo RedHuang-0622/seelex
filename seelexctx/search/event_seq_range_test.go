@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/seelexctx/memory"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // orphanHeavyStream 造一条**事件下标与单元下标不同步**的事件流：中间夹一个孤儿
@@ -16,8 +16,8 @@ import (
 //
 // 于是"事件下标 3 → 单元下标"既不是 3 也不是 3−1：孤儿与未知角色各吃掉一个下标，
 // 任何减法都会错位。这正是装配层压缩帧只能按 Seq 反查、不能推算的原因。
-func orphanHeavyStream() []sessionstore.Event {
-	return []sessionstore.Event{
+func orphanHeavyStream() []store.Event {
+	return []store.Event{
 		{Seq: 1, Role: "user", Content: "查一下压缩帧索引面为什么是空的"},
 		{Seq: 2, Role: "assistant", Content: "因为装配层压缩不推 CompactStack"},
 		{Seq: 3, Role: "tool", Name: "orphan_result", Content: "孤儿工具结果，不构成单元"},
@@ -33,7 +33,7 @@ func orphanHeavyStream() []sessionstore.Event {
 // 有牙：把 buildHit 里的 EventSeq 分支删掉（回退 clamp From/To），
 // TestBuildHitPrefersEventSeqOverUnitIndex 立刻红在读回错误的轮次上。
 func TestEventSeqUnitRangeMapsByLookupNotArithmetic(t *testing.T) {
-	units := sessionstore.CompleteEventUnits(orphanHeavyStream())
+	units := store.CompleteEventUnits(orphanHeavyStream())
 	if len(units) != 3 {
 		t.Fatalf("孤儿/未知角色应被跳过，单元数 = %d，want 3", len(units))
 	}
@@ -64,7 +64,7 @@ func TestEventSeqUnitRangeMapsByLookupNotArithmetic(t *testing.T) {
 // TestEventSeqUnitRangeRefusesToGuess：定不了界就如实说定不了，不 clamp、不猜。
 // 空命中比"看起来合法但指向别的轮次"的错读安全得多。
 func TestEventSeqUnitRangeRefusesToGuess(t *testing.T) {
-	units := sessionstore.CompleteEventUnits(orphanHeavyStream())
+	units := store.CompleteEventUnits(orphanHeavyStream())
 	for _, testCase := range []struct {
 		name      string
 		eventFrom uint64
@@ -81,7 +81,7 @@ func TestEventSeqUnitRangeRefusesToGuess(t *testing.T) {
 		t.Fatal("空事件流不得定位成功")
 	}
 	// 全零 Seq 的单元（合成事件）无法定界。
-	synthetic := [][]sessionstore.Event{{{Seq: 0, Role: "user", Content: "合成事件"}}}
+	synthetic := [][]store.Event{{{Seq: 0, Role: "user", Content: "合成事件"}}}
 	if _, ok := eventSeqUnitRange(synthetic, 1, 2); ok {
 		t.Fatal("只有合成事件的单元不得定位成功")
 	}
@@ -91,7 +91,7 @@ func TestEventSeqUnitRangeRefusesToGuess(t *testing.T) {
 // 以 EventSeq 为准。装配层压缩帧的 From/To 是 0（它算不准单元下标），若仍按
 // From/To clamp，就会读到事件流最开头的单元——那是**别的轮次**，而且不报错。
 func TestBuildHitPrefersEventSeqOverUnitIndex(t *testing.T) {
-	units := sessionstore.CompleteEventUnits(orphanHeavyStream())
+	units := store.CompleteEventUnits(orphanHeavyStream())
 	candidate := memory.Candidate{
 		SegmentID: "compact-sess-1",
 		Summary:   "接通压缩帧索引面",
@@ -110,7 +110,7 @@ func TestBuildHitPrefersEventSeqOverUnitIndex(t *testing.T) {
 // TestBuildHitReportsUnmappableRangeInsteadOfClamping：定不了界时在 Summary 里
 // 说清原因并返回空记录，绝不 clamp 出一个假区间。
 func TestBuildHitReportsUnmappableRangeInsteadOfClamping(t *testing.T) {
-	units := sessionstore.CompleteEventUnits(orphanHeavyStream())
+	units := store.CompleteEventUnits(orphanHeavyStream())
 	hit := buildHit("索引面", memory.Candidate{
 		SegmentID: "compact-stale", Summary: "旧帧", EventFrom: 900, EventTo: 999,
 	}, units, 4_000)
@@ -125,7 +125,7 @@ func TestBuildHitReportsUnmappableRangeInsteadOfClamping(t *testing.T) {
 // TestBuildHitKeepsUnitIndexFallbackForLegacyFrames：未声明 EventSeq 的帧
 // （控制器帧 / 真空区帧 / 旧记录）仍走 From/To，行为逐位不变。
 func TestBuildHitKeepsUnitIndexFallbackForLegacyFrames(t *testing.T) {
-	units := sessionstore.CompleteEventUnits(orphanHeavyStream())
+	units := store.CompleteEventUnits(orphanHeavyStream())
 	hit := buildHit("兜底", memory.Candidate{
 		SegmentID: "compact-gap-1", Summary: "真空区帧", From: 0, To: 1,
 	}, units, 4_000)

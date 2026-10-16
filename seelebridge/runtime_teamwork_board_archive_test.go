@@ -22,7 +22,7 @@ import (
 
 	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 	seeteamwork "github.com/RedHuang-0622/seelex/seelebridge/teamwork"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // memBoardStore 是看板存档的进程内实现（并记录写序——"先关旧、后开新"这条
@@ -32,46 +32,46 @@ import (
 // 留作"这个桩不支持 goal 看板"的显式失败，而不是让类型断言在装配处就崩掉。
 type memBoardStore struct {
 	mu     sync.Mutex
-	metas  map[sessionstore.Key]sessionstore.TeamBoardMeta
-	writes []sessionstore.TeamBoardMeta
+	metas  map[store.Key]store.TeamBoardMeta
+	writes []store.TeamBoardMeta
 }
 
-func (m *memBoardStore) WriteGoalBoard(context.Context, sessionstore.Key, sessionstore.GoalBoardMeta) error {
+func (m *memBoardStore) WriteGoalBoard(context.Context, store.Key, store.GoalBoardMeta) error {
 	return errors.New("测试桩：不支持 goal 看板存档")
 }
 
-func (m *memBoardStore) ReadGoalBoard(context.Context, sessionstore.Key) (sessionstore.GoalBoardMeta, error) {
-	return sessionstore.GoalBoardMeta{}, fs.ErrNotExist
+func (m *memBoardStore) ReadGoalBoard(context.Context, store.Key) (store.GoalBoardMeta, error) {
+	return store.GoalBoardMeta{}, fs.ErrNotExist
 }
 
-func (m *memBoardStore) WriteTeamBoard(_ context.Context, key sessionstore.Key, meta sessionstore.TeamBoardMeta) error {
+func (m *memBoardStore) WriteTeamBoard(_ context.Context, key store.Key, meta store.TeamBoardMeta) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.metas == nil {
-		m.metas = map[sessionstore.Key]sessionstore.TeamBoardMeta{}
+		m.metas = map[store.Key]store.TeamBoardMeta{}
 	}
 	m.metas[key] = meta
 	m.writes = append(m.writes, meta)
 	return nil
 }
 
-func (m *memBoardStore) ReadTeamBoard(_ context.Context, key sessionstore.Key) (sessionstore.TeamBoardMeta, error) {
+func (m *memBoardStore) ReadTeamBoard(_ context.Context, key store.Key) (store.TeamBoardMeta, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	meta, ok := m.metas[key]
 	if !ok {
-		return sessionstore.TeamBoardMeta{}, fs.ErrNotExist
+		return store.TeamBoardMeta{}, fs.ErrNotExist
 	}
 	return meta, nil
 }
 
-func (m *memBoardStore) snapshot() []sessionstore.TeamBoardMeta {
+func (m *memBoardStore) snapshot() []store.TeamBoardMeta {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return append([]sessionstore.TeamBoardMeta(nil), m.writes...)
+	return append([]store.TeamBoardMeta(nil), m.writes...)
 }
 
-func (m *memBoardStore) latest(key sessionstore.Key) (sessionstore.TeamBoardMeta, bool) {
+func (m *memBoardStore) latest(key store.Key) (store.TeamBoardMeta, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	meta, ok := m.metas[key]
@@ -83,11 +83,11 @@ func archiveBackend(plans *memPlanStore, boards *memBoardStore, sessionID string
 	return TeamworkBackend{
 		Store:  plans,
 		Boards: boards,
-		KeyFor: func(id string) (sessionstore.Key, bool) {
+		KeyFor: func(id string) (store.Key, bool) {
 			if id != sessionID {
-				return sessionstore.Key{}, false
+				return store.Key{}, false
 			}
-			return sessionstore.Key{ProjectID: "p-team", SessionID: sessionID}, true
+			return store.Key{ProjectID: "p-team", SessionID: sessionID}, true
 		},
 		MaxTeammates: 6,
 	}
@@ -113,7 +113,7 @@ func TestTeamBoardArchiveVersionProgressionClosesOld(t *testing.T) {
 		t.Fatalf("SetTeamworkBackend: %v", err)
 	}
 	ctx := seetelemetry.WithSessionID(context.Background(), "s-team")
-	key := sessionstore.Key{ProjectID: "p-team", SessionID: "s-team"}
+	key := store.Key{ProjectID: "p-team", SessionID: "s-team"}
 
 	if _, err := r.teamPlanHandler(ctx, boardPlanArgs("t-archive", 1)); err != nil {
 		t.Fatalf("team_plan(v1): %v", err)
@@ -123,7 +123,7 @@ func TestTeamBoardArchiveVersionProgressionClosesOld(t *testing.T) {
 		t.Fatalf("首次 team_plan 应恰好写一版存档，实际 %d：%+v", len(writes), writes)
 	}
 	first := writes[0]
-	if first.State != sessionstore.BoardStateActive || first.Version != 1 || first.Seq != 1 {
+	if first.State != store.BoardStateActive || first.Version != 1 || first.Seq != 1 {
 		t.Fatalf("首版应为 active v1 seq=1：%+v", first)
 	}
 	if first.OpenedAt <= 0 || first.UpdatedAt <= 0 {
@@ -142,7 +142,7 @@ func TestTeamBoardArchiveVersionProgressionClosesOld(t *testing.T) {
 		t.Fatalf("版本递进应写两次（关旧 + 开新），累计 3，实际 %d：%+v", len(writes), writes)
 	}
 	closed := writes[1]
-	if closed.State != sessionstore.BoardStateClosed || closed.ClosedReason != sessionstore.BoardCloseTeamReplan {
+	if closed.State != store.BoardStateClosed || closed.ClosedReason != store.BoardCloseTeamReplan {
 		t.Fatalf("旧版必须先记为 closed/team.replan：%+v", closed)
 	}
 	if closed.Version != 1 {
@@ -152,11 +152,11 @@ func TestTeamBoardArchiveVersionProgressionClosesOld(t *testing.T) {
 		t.Fatal("closed 存档必须带 closed_at")
 	}
 	opened := writes[2]
-	if opened.State != sessionstore.BoardStateActive || opened.Version != 2 || opened.Seq != 1 {
+	if opened.State != store.BoardStateActive || opened.Version != 2 || opened.Seq != 1 {
 		t.Fatalf("新版必须重新开一版 active v2 seq=1（不是续 seq）：%+v", opened)
 	}
 	latest, ok := boards.latest(key)
-	if !ok || latest.State != sessionstore.BoardStateActive || latest.Version != 2 {
+	if !ok || latest.State != store.BoardStateActive || latest.Version != 2 {
 		t.Fatalf("盘上最终态应是 active v2：%+v", latest)
 	}
 }
@@ -169,7 +169,7 @@ func TestTeamBoardArchiveThrottlesIdenticalPayload(t *testing.T) {
 		t.Fatalf("SetTeamworkBackend: %v", err)
 	}
 	ctx := seetelemetry.WithSessionID(context.Background(), "s-team")
-	key := sessionstore.Key{ProjectID: "p-team", SessionID: "s-team"}
+	key := store.Key{ProjectID: "p-team", SessionID: "s-team"}
 
 	if _, err := r.teamPlanHandler(ctx, boardPlanArgs("t-archive", 1)); err != nil {
 		t.Fatalf("team_plan: %v", err)
@@ -197,11 +197,11 @@ func TestTeamworkBoardSnapshotRecoversFromArchive(t *testing.T) {
 	if err := r.SetTeamworkBackend(archiveBackend(&memPlanStore{}, boards, "s-team")); err != nil {
 		t.Fatalf("SetTeamworkBackend: %v", err)
 	}
-	key := sessionstore.Key{ProjectID: "p-team", SessionID: "s-team"}
+	key := store.Key{ProjectID: "p-team", SessionID: "s-team"}
 	snapshot := json.RawMessage(`{"team_id":"t-archive","version":3,"milestones":[{"id":"m-design","name":"设计"}]}`)
-	if err := boards.WriteTeamBoard(context.Background(), key, sessionstore.TeamBoardMeta{
-		BoardLifecycle: sessionstore.BoardLifecycle{
-			Kind: sessionstore.BoardKindTeam, State: sessionstore.BoardStateActive, Seq: 2,
+	if err := boards.WriteTeamBoard(context.Background(), key, store.TeamBoardMeta{
+		BoardLifecycle: store.BoardLifecycle{
+			Kind: store.BoardKindTeam, State: store.BoardStateActive, Seq: 2,
 		},
 		TeamID: "t-archive", Version: 3, Snapshot: snapshot,
 	}); err != nil {
@@ -234,11 +234,11 @@ func TestTeamworkBoardSnapshotNilWhenArchiveClosed(t *testing.T) {
 	if err := r.SetTeamworkBackend(archiveBackend(&memPlanStore{}, boards, "s-team")); err != nil {
 		t.Fatalf("SetTeamworkBackend: %v", err)
 	}
-	key := sessionstore.Key{ProjectID: "p-team", SessionID: "s-team"}
-	if err := boards.WriteTeamBoard(context.Background(), key, sessionstore.TeamBoardMeta{
-		BoardLifecycle: sessionstore.BoardLifecycle{
-			Kind: sessionstore.BoardKindTeam, State: sessionstore.BoardStateClosed,
-			ClosedAt: 1760000000, ClosedReason: sessionstore.BoardCloseTeamClose,
+	key := store.Key{ProjectID: "p-team", SessionID: "s-team"}
+	if err := boards.WriteTeamBoard(context.Background(), key, store.TeamBoardMeta{
+		BoardLifecycle: store.BoardLifecycle{
+			Kind: store.BoardKindTeam, State: store.BoardStateClosed,
+			ClosedAt: 1760000000, ClosedReason: store.BoardCloseTeamClose,
 		},
 		TeamID: "t-archive", Version: 1,
 		Snapshot: json.RawMessage(`{"team_id":"t-archive","version":1,"milestones":[{"id":"m-design"}]}`),
@@ -254,7 +254,7 @@ func TestTeamBoardArchiveSurvivesColdRuntime(t *testing.T) {
 	// "重启"验收：存档真的落进存储后端（metadata/board_team.json），换一个
 	// Runtime 实例（活体计划面为空）冷读仍在——存档不在 Runtime 的内存里。
 	root := t.TempDir()
-	router, err := sessionstore.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
 	if err != nil {
 		t.Fatalf("NewRouter: %v", err)
 	}
@@ -272,8 +272,8 @@ func TestTeamBoardArchiveSurvivesColdRuntime(t *testing.T) {
 	planStore := seeteamwork.NewPlanStore(plans)
 	if err := first.SetTeamworkBackend(TeamworkBackend{
 		Store: planStore, Boards: boards,
-		KeyFor: func(id string) (sessionstore.Key, bool) {
-			return sessionstore.Key{ProjectID: "p-archive", SessionID: id}, true
+		KeyFor: func(id string) (store.Key, bool) {
+			return store.Key{ProjectID: "p-archive", SessionID: id}, true
 		},
 		MaxTeammates: 6,
 	}); err != nil {
@@ -302,8 +302,8 @@ func TestTeamBoardArchiveSurvivesColdRuntime(t *testing.T) {
 	defer second.Shutdown()
 	if err := second.SetTeamworkBackend(TeamworkBackend{
 		Store: &memPlanStore{}, Boards: boards,
-		KeyFor: func(id string) (sessionstore.Key, bool) {
-			return sessionstore.Key{ProjectID: "p-archive", SessionID: id}, true
+		KeyFor: func(id string) (store.Key, bool) {
+			return store.Key{ProjectID: "p-archive", SessionID: id}, true
 		},
 		MaxTeammates: 6,
 	}); err != nil {

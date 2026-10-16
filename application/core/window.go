@@ -3,6 +3,7 @@ package core
 import (
 	cc "github.com/RedHuang-0622/seelex/application/core/context_control"
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
+	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
@@ -49,7 +50,7 @@ func RetainFloorTokens(budget task_context.ContextBudget) int {
 // （窗口 − 输出预留 − 窗口/安全除数），与压缩判据共用同一份口径；
 // windowTokens <= 0（账号未声明窗口）时只校验比例本身（比例 × 预算无从计算，
 // 该维留给运行期把下限夹进上限）。
-func ValidateRetainWindow(config WindowConfig, limits seelexctx.Limits, windowTokens int) error {
+func ValidateRetainWindow(config WindowConfig, limits limit.Limits, windowTokens int) error {
 	budget := 0
 	if windowTokens > 0 {
 		budget = task_context.ContextBudgetFor(retainWindowLimits{

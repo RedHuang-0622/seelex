@@ -10,7 +10,8 @@ import (
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/config"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/plan"
@@ -63,7 +64,7 @@ type CoordinatorDeps struct {
 	Plan            *plan.Executor
 	Evidence        func() *snapshot.ContextSnapshot
 	Skills          *skill.Registry
-	Limits          seelexctx.Limits
+	Limits          limit.Limits
 	GoalSkillActive func() bool
 	AccountLimits   func() config.AccountLimits
 	InheritedBlocks func() []seelectx.PromptBlock

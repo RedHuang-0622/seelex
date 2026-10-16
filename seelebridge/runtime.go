@@ -21,7 +21,8 @@ import (
 	"github.com/RedHuang-0622/Seele/telemetry"
 	"github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/mcpstack"
 	"github.com/RedHuang-0622/seelex/seelebridge/account"
 	"github.com/RedHuang-0622/seelex/seelebridge/fork"
@@ -42,8 +43,8 @@ import (
 	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
 	"github.com/RedHuang-0622/seelex/seelexctx"
-	"github.com/RedHuang-0622/seelex/sessionstore"
 	"github.com/RedHuang-0622/seelex/skill"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 type RuntimeConfig struct {
@@ -66,9 +67,9 @@ type RuntimeConfig struct {
 	// 0 → 默认 512（subagentLiveHistoryCap）；<50 → 50（窗口至少要装得下一页）。
 	SubagentLiveWindow int                    // 实时回放窗口上限（见 runtime_live.go 的读法）
 	WindowConfig       seelexctx.WindowConfig // 滑动窗口配置段（seele.yaml；零值 = 默认，plan.md §3.7.3）
-	Limits             seelexctx.Limits       // 运行时上限（seele.yaml limits 段；零值 = 默认）
+	Limits             limit.Limits           // 运行时上限（seele.yaml limits 段；零值 = 默认）
 	// AccountWindows 是**按账号**覆盖的上下文窗口（token；键 = 账号名）。它来自宿主
-	// 的界面覆盖层（数据根 runtime-limits.json，见 runtime_limits_overlay.go）——界面
+	// 的界面覆盖层（数据根 runtime-limits.json，落点与读写见 backend/limit/overlay/README.md）——界面
 	// 「设置 → 账号」改的就是它。优先级：账号级覆盖 > Limits.ContextWindow（seelex.yaml
 	// 的全局值）> 账号档自报值；空/0 = 该账号没被单独设过。
 	AccountWindows map[string]int
@@ -93,11 +94,11 @@ type Runtime struct {
 	// 跨会话共享装配（决策契约 §5：保留共享，按会话路由）：存储路由、
 	// 轮次归档器与项目知识提供者。
 	historyRouterMu sync.RWMutex
-	historyRouter   *sessionstore.Router
+	historyRouter   *store.Router
 	turnArchiverMu  sync.RWMutex
 	turnArchiver    seelexctx.TurnArchiver
 	projectMu       sync.RWMutex
-	project         func() *sessionstore.ProjectRecord
+	project         func() *store.ProjectRecord
 
 	// 遥测（slice 8）：内存追踪器 + 生命周期钩子。会话级 llm/tool
 	// intent-effect 事件经 hook 写入 tracer；GUI/TUI 的 trace 视图经
@@ -198,8 +199,8 @@ type Runtime struct {
 	planDecisionTimeout time.Duration
 	approvalTimeout     time.Duration
 	heartbeatInterval   time.Duration
-	limits              seelexctx.Limits // seele.yaml limits 段（含默认；seelebridge 消费点读取）
-	accountWindowsMu    sync.RWMutex     // 每账号上下文窗口覆盖（界面设置面；值拷贝读写）
+	limits              limit.Limits // seele.yaml limits 段（含默认；seelebridge 消费点读取）
+	accountWindowsMu    sync.RWMutex // 每账号上下文窗口覆盖（界面设置面；值拷贝读写）
 	accountWindows      map[string]int
 	scopedToolsReady    bool
 	scopedTools         *seeltools.Router // 后台命令执行域（会话销毁即杀的入口）
@@ -227,7 +228,7 @@ type Runtime struct {
 	teamworkMu      sync.Mutex
 	teamworkBackend *TeamworkBackend
 	teamworkJobs    jobs.Manager
-	teamworkCoords  map[sessionstore.Key]*teamwork.Coordinator
+	teamworkCoords  map[store.Key]*teamwork.Coordinator
 	// teamworkJobSignals / teamworkJobEvents 是 teammate 作业信号口的一次扇出与
 	// application 侧那条订阅（见 teamwork_job_signals.go）：上游 jobs.Manager.Events()
 	// 是单接收者通道，而"事件投影"与"终态触发回合"两个读侧动作都要跟着它走。
@@ -236,7 +237,7 @@ type Runtime struct {
 	// teamworkBoardCache 是「计划 + 审计」的按会话缓存（见 runtime_teamwork_board.go）：
 	// 会话快照是高频采集路径，不允许每次都做 O(events) 的文件读；team_* 工具成功
 	// 返回后失效（作业行不进缓存——jobs.Manager.Snapshot 是内存读，随取随新）。
-	teamworkBoardCache map[sessionstore.Key]teamworkBoardSnapshotCache
+	teamworkBoardCache map[store.Key]teamworkBoardSnapshotCache
 
 	// 上下文控制接线（seelebridge/context_components.go）：
 	// 窗口策略（RuntimeConfig.WindowConfig 构造）、会话上下文存储与
@@ -244,12 +245,12 @@ type Runtime struct {
 	windowMu sync.RWMutex
 	window   seelexctx.WindowPolicy
 	// 节点会话记录持久化（用户约定：<mainSessionID>-<subSessionID>.json，
-	// 见 sessionstore.NodeSessionRecord）；Router 就绪后 AttachSubSessionStore 注入。
+	// 见 store.NodeSessionRecord）；Router 就绪后 AttachSubSessionStore 注入。
 	// 写走 `unitRecordWriter`（责任链：子代理那一环写身份 → 末端落盘），teammate 那一层
 	// 在同一条链上再加一环；读与删除仍走 `nodeSessionStore`。
-	nodeSessionStore *sessionstore.NodeSessionStore
+	nodeSessionStore *store.NodeSessionStore
 	// unitRecordWriter 是本进程会话记录的**写入链**（子代理那一环已装好）；未装配 = nil。
-	unitRecordWriter *sessionstore.NodeSessionRecordWriter
+	unitRecordWriter *store.NodeSessionRecordWriter
 	// subagentResume 保存中断子代理恢复期的状态：节点 → system 恢复说明
 	// （仅该节点的下一次装配读取）与父侧历史补齐钩子。见
 	// runtime_subagent_resume.go。
@@ -633,12 +634,12 @@ func (r *Runtime) NewMainSessionWithID(sessionID string, hooks *session.LoopHook
 
 // AttachHistoryRouter installs the provider-history plane independently from
 // SessionContextStore, whose state blob has a different owner.
-func (r *Runtime) AttachHistoryRouter(router *sessionstore.Router) {
+func (r *Runtime) AttachHistoryRouter(router *store.Router) {
 	r.historyRouterMu.Lock()
 	r.historyRouter = router
 	r.historyRouterMu.Unlock()
 }
-func (r *Runtime) durableHistoryRouter() *sessionstore.Router {
+func (r *Runtime) durableHistoryRouter() *store.Router {
 	r.historyRouterMu.RLock()
 	defer r.historyRouterMu.RUnlock()
 	return r.historyRouter
@@ -688,7 +689,7 @@ func (r *Runtime) newMainSession(sessionID string, hooks *session.LoopHooks) (*s
 	// （main.go）始终在会话创建前 AttachHistoryRouter(store)，不会走到
 	// 该兜底（存储双轨只读迁移语义，见解耦方案 §02.5）。
 	if router := r.durableHistoryRouter(); router != nil {
-		history := sessionstore.NewDurableHistory(router, sessionID)
+		history := store.NewDurableHistory(router, sessionID)
 		history.SetWorkspaceResolver(r.sessionWorkspaceFor(sessionID))
 		history.SetTailBudget(r.windowTailBudget())
 		// 真空区覆盖：滑动窗口与压缩内容之间未压缩轮次的断档填补
@@ -894,15 +895,15 @@ type runtimeCompactStacks struct {
 	memory  seelexctx.CompactStackStore
 }
 
-func (s runtimeCompactStacks) Snapshot() sessionstore.SessionContextRecord {
-	if store := s.runtime.sessionContextStore(); store != nil {
-		return store.Snapshot()
+func (s runtimeCompactStacks) Snapshot() store.SessionContextRecord {
+	if st := s.runtime.sessionContextStore(); st != nil {
+		return st.Snapshot()
 	}
 	return s.memory.Snapshot()
 }
-func (s runtimeCompactStacks) PushCompact(frame sessionstore.CompactFrame) error {
-	if store := s.runtime.sessionContextStore(); store != nil {
-		return store.PushCompact(frame)
+func (s runtimeCompactStacks) PushCompact(frame store.CompactFrame) error {
+	if st := s.runtime.sessionContextStore(); st != nil {
+		return st.PushCompact(frame)
 	}
 	return s.memory.PushCompact(frame)
 }

@@ -8,7 +8,7 @@ package core
 //   - 其余「已加载过且已静默」的会话（典型：切走之后回合跑完的那个）按 LRU 释放，
 //     **窗口默认 1** ⇒ 只保留上一个：切走一个不释放，再切走一个才释放最旧的。
 //   - 窗口是配置项：`config/seelex.yaml` 的 `limits.session_release_window`
-//     （见 seelexctx.Limits.ReleaseWindow）；`resident_limit` /
+//     （见 limit.Limits.ReleaseWindow）；`resident_limit` /
 //     `loaded_content_limit` 是**分层覆盖**的老口径（显式 >0 才生效）。
 //
 // 一次释放放掉的面（重到轻）：引擎实例（EnginePort）→ 桥侧会话本体

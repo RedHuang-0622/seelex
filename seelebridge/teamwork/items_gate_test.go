@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // 卡点（D7）与收口拒绝文案（D8）的判据：**一处判断，两处渲染**。
@@ -15,18 +15,18 @@ import (
 
 // TestItemGateNamesWhereEveryItemIsStuck 把每一种卡点逐个钉住：判据是纯函数，词表就是它的输出。
 func TestItemGateNamesWhereEveryItemIsStuck(t *testing.T) {
-	plan := sessionstore.TeamworkPlan{
+	plan := store.TeamworkPlan{
 		TeamID:  "v-model",
 		Version: 1,
-		Milestones: []sessionstore.TeamworkMilestone{{
+		Milestones: []store.TeamworkMilestone{{
 			ID: "m-build",
-			Items: []sessionstore.TeamworkWorkItem{
-				{ID: "wi-done", Status: sessionstore.TeamworkItemDone},
-				{ID: "wi-running", Status: sessionstore.TeamworkItemRunning, Handle: "bteam-1"},
-				{ID: "wi-interrupted", Status: sessionstore.TeamworkItemRunning, Handle: "bteam-2"},
-				{ID: "wi-review", Status: sessionstore.TeamworkItemReview},
-				{ID: "wi-merge", Status: sessionstore.TeamworkItemReview},
-				{ID: "wi-failed", Status: sessionstore.TeamworkItemFailed},
+			Items: []store.TeamworkWorkItem{
+				{ID: "wi-done", Status: store.TeamworkItemDone},
+				{ID: "wi-running", Status: store.TeamworkItemRunning, Handle: "bteam-1"},
+				{ID: "wi-interrupted", Status: store.TeamworkItemRunning, Handle: "bteam-2"},
+				{ID: "wi-review", Status: store.TeamworkItemReview},
+				{ID: "wi-merge", Status: store.TeamworkItemReview},
+				{ID: "wi-failed", Status: store.TeamworkItemFailed},
 				{ID: "wi-blocked", DependsOn: []string{"wi-running"}},
 				{ID: "wi-ready", DependsOn: []string{"wi-done"}},
 			},

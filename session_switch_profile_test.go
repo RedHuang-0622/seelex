@@ -29,7 +29,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // TestSessionSwitchHotColdProfile 应用层多会话冷热切换 + 重启恢复探查。
@@ -173,7 +173,7 @@ func TestSessionSwitchHotColdProfile(t *testing.T) {
 // TestStorageConcurrentSessionLockProfile 存储层多会话并发读写（锁竞争/热点）。
 func TestStorageConcurrentSessionLockProfile(t *testing.T) {
 	root := t.TempDir()
-	router, err := sessionstore.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +182,7 @@ func TestStorageConcurrentSessionLockProfile(t *testing.T) {
 	sessions := []string{"sess-w0", "sess-w1", "sess-w2", "sess-w3"}
 	// 先建布局，避免读者与首写竞争时按“不存在会话”走旧回退报错。
 	for _, sessionID := range sessions {
-		if err := router.SaveCommitWorkspace(projectID, sessionID, sessionstore.Commit{}); err != nil {
+		if err := router.SaveCommitWorkspace(projectID, sessionID, store.Commit{}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -196,12 +196,12 @@ func TestStorageConcurrentSessionLockProfile(t *testing.T) {
 			now := time.Now().UTC()
 			for round := 0; round < 60; round++ {
 				seq++
-				event := sessionstore.Event{
+				event := store.Event{
 					Seq: seq, Role: "user", Content: fmt.Sprintf("w%d-r%d", base, round),
 					CreatedAt: now, TokenCount: 1,
 				}
-				commit := sessionstore.Commit{
-					Events: []sessionstore.Event{event},
+				commit := store.Commit{
+					Events: []store.Event{event},
 					State:  []byte(fmt.Sprintf(`{"id":%q,"round":%d}`, sessionID, round)),
 				}
 				if err := router.SaveCommitWorkspace(projectID, sessionID, commit); err != nil {

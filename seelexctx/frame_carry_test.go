@@ -5,12 +5,12 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/seelexctx/tokens"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // carryTestFrame 构造一个带 Chapter 2 正文与完整链锚字段的帧（前一栈顶）。
-func carryTestFrame(body string) sessionstore.CompactFrame {
-	return sessionstore.CompactFrame{
+func carryTestFrame(body string) store.CompactFrame {
+	return store.CompactFrame{
 		SegmentID:   "compact-sess-7-1700000000000",
 		From:        3,
 		To:          9,
@@ -77,7 +77,7 @@ func TestCarryPreviousChapter2DefaultsAndEmpty(t *testing.T) {
 	}
 	// 旧记录（Summary 为空）→ FrameChapter2 退化为空串，因此不产生并入内容，
 	// 也不该被误标为锚点降级。
-	empty := sessionstore.CompactFrame{SegmentID: "compact-legacy"}
+	empty := store.CompactFrame{SegmentID: "compact-legacy"}
 	if body, facts := CarryPreviousChapter2(&empty, 1024); body != "" || facts.Anchor {
 		t.Fatalf("空摘要不应产生锚点降级，得到 %q %+v", body, facts)
 	}

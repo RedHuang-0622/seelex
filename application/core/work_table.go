@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
 	"github.com/RedHuang-0622/seelex/application/core/worktable"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // ── 工作表格（Work Table）投影 ──────────────────────────────
@@ -922,7 +922,7 @@ func (service *Service) consumeAsyncRuns() {
 	// 两张表各有各的上游，这里并进同一个消费者等它们——一个消费者做完整套读侧动作才与
 	// 契约一致（两个 goroutine 抢同一个容量 1 的通道时，后起的那个一次也收不到）。
 	//
-	// **装配顺序是契约**：两个信号口都必须在 `application.New` 之前就绪（组合根的顺序见
+	// **装配顺序是契约**：两个信号口都必须在 `wiring.New` 之前就绪（组合根的顺序见
 	// main.go：SetTeamworkBackend 在 initApplication 之前；测试基座同序见
 	// tool_full_chain_test.go 的 fullChainBackendInstaller）。消费者只在这里读一次通道，
 	// 后装配的宿主读到的必然是 nil——nil 在 select 里永不触发，"做完自动返回"会**静默

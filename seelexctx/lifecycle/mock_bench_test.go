@@ -465,7 +465,7 @@ func TestPolicyMemoryComparison(t *testing.T) {
 	const itemLen = 64 // 每条 ~64 字节 → 全量 ~640KB 常驻
 
 	build := func(policy LifecyclePolicy) (*ContextActor[string], uint64) {
-		// 冷存储 mock：落库后内容不驻留（模拟 sessionstore 磁盘后端）。
+		// 冷存储 mock：落库后内容不驻留（模拟 store 磁盘后端）。
 		actor := NewContextActor[string](policy, newDiscardStorage[string](), Options{Window: 512})
 		before := measureHeap()
 		for i := 0; i < items/100; i++ {

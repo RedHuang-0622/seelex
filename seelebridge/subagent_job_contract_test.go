@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/agent"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // 子代理作业契约（打点 L-5）的端到端判据：**模型侧**能把一批子代理当作业派发，
@@ -35,8 +35,8 @@ func TestForkSubagentsAsyncRunsAsJobs(t *testing.T) {
 	runtime, err := NewRuntime(RuntimeConfig{
 		AccountsPath:    path,
 		ToolCallTimeout: 30 * time.Second,
-		Limits: seelexctx.Limits{
-			AsyncExec:      seelexctx.AsyncExecLimits{Enabled: true},
+		Limits: limit.Limits{
+			AsyncExec:      limit.AsyncExecLimits{Enabled: true},
 			ForkTimeoutSec: 60,
 		},
 	})

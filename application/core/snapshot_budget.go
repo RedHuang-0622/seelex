@@ -5,7 +5,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/RedHuang-0622/seelex/application/core/internal/limits"
+	"github.com/RedHuang-0622/seelex/backend/limit"
 )
 
 // snapshotToolOutputLimit 返回可见会话快照单条工具输出的字符预算
@@ -14,7 +14,7 @@ import (
 // （会话恢复路径）。provider 侧历史不受此值影响，仍由
 // max_tool_result_chars 单独约束。
 func snapshotToolOutputLimit() int {
-	limit := limits.Get().SnapshotToolOutputChars
+	limit := limit.Get().SnapshotToolOutputChars
 	if limit <= 0 {
 		limit = 8000
 	}

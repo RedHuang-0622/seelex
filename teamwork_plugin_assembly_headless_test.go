@@ -27,10 +27,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/plugin"
 	"github.com/RedHuang-0622/seelex/seelebridge"
-	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/skill"
 )
 
@@ -99,7 +99,7 @@ func TestTeamworkPluginAssemblyHeadlessSmoke(t *testing.T) {
 
 	// ── A1：计划落盘 + 回执读数（真插件根下的三份划分）────────────────────
 	receipt := decodeAssemblyReceipt(t, smoke.toolResultOf("team_plan"))
-	if receipt.PluginLimit == nil || *receipt.PluginLimit != seelexctx.DefaultPluginsPerTeammate {
+	if receipt.PluginLimit == nil || *receipt.PluginLimit != limit.DefaultPluginsPerTeammate {
 		t.Fatalf("A1 失败：回执没带上限读数（上限必须来自配置，不是散在代码里的常量）：%q",
 			smoke.toolResultOf("team_plan"))
 	}

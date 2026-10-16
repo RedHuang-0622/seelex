@@ -3,8 +3,8 @@ package adapters
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // session_status_record_test.go — 存储面的会话可见状态读回：**跨包同一份词**的互锁。
@@ -16,13 +16,13 @@ import (
 //     （折了就是替存储层编事实，驱逐/归档/待批判据会照着错的读）；
 //  3. 越界的枚举值读不出"某个已知状态"（词表是闭合的）。
 func TestSessionStatusOfRecordLocksTheStoreVocabulary(t *testing.T) {
-	durable := []sessionstore.Status{
-		sessionstore.StatusDraft,
-		sessionstore.StatusIdle,
-		sessionstore.StatusRunning,
-		sessionstore.StatusQueued,
-		sessionstore.StatusAwaitingApproval,
-		sessionstore.StatusArchived,
+	durable := []store.Status{
+		store.StatusDraft,
+		store.StatusIdle,
+		store.StatusRunning,
+		store.StatusQueued,
+		store.StatusAwaitingApproval,
+		store.StatusArchived,
 	}
 	for _, word := range durable {
 		got := sessionStatusOfRecord(word)
@@ -31,7 +31,7 @@ func TestSessionStatusOfRecordLocksTheStoreVocabulary(t *testing.T) {
 		}
 	}
 
-	for _, wire := range []sessionstore.Status{"", "half-exploded", "Restoring", "IDLE"} {
+	for _, wire := range []store.Status{"", "half-exploded", "Restoring", "IDLE"} {
 		if got := sessionStatusOfRecord(wire); got != dto.SessionStatusUnknown {
 			t.Errorf("认不得的存储词 %q 读回成了 %q，必须落 unknown（不是任何已知态）", wire, got)
 		}

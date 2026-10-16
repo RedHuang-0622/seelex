@@ -6,8 +6,8 @@ import (
 	"log"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/application/contract"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // ── 后台作业终态触发对话 ────────────────────────────────────────────────

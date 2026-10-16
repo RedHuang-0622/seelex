@@ -9,7 +9,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // 实时探针的判据（台账 §10 S3/探针）。

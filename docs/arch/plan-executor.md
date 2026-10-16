@@ -110,7 +110,7 @@ application → plan_load → planExecutor.provider（policy 校验 + codec 导�
 
 - 新增 plan 工具族：在 `planToolProvider` 注册并保持 policy 校验；
 - 调整重规划护栏：`replanGuard` 参数（并发/窗口/provider 请求预算）；
-- 调整事件持久化：`SetEventPersister` 注入 sessionstore 事件库接线。
+- 调整事件持久化：`SetEventPersister` 注入 store 事件库接线。
 
 ## Review 指南
 

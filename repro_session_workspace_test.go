@@ -14,12 +14,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // startCrossWorkspaceScenario：A 绑定 workspace X；切到 workspace Y 建 B；
 // A 运行中切 B 完成；A 后台完成落盘。返回两 workspace ID 与 store。
-func startCrossWorkspaceScenario(t *testing.T) (harness fullChainHarness, sessionA, sessionB, wsX, wsY string, store *sessionstore.Router) {
+func startCrossWorkspaceScenario(t *testing.T) (harness fullChainHarness, sessionA, sessionB, wsX, wsY string, st *store.Router) {
 	t.Helper()
 	provider := newBlockingProvider(3)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -122,19 +122,19 @@ func startCrossWorkspaceScenario(t *testing.T) (harness fullChainHarness, sessio
 	if err := harness.app.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
-	store, err := initStore()
+	st, err := initStore()
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = store.Close() })
-	return harness, sessionA, sessionB, wsX, wsY, store
+	t.Cleanup(func() { _ = st.Close() })
+	return harness, sessionA, sessionB, wsX, wsY, st
 }
 
 // TC-A4-01/02：A 的 record 落在自身 workspace X；Y 下无 A 键；Router 写作用域
 // 仍为 Y（后台完成无副作用）。
 func TestBackgroundPersistUsesSessionWorkspaceKey(t *testing.T) {
-	_, sessionA, _, wsX, wsY, store := startCrossWorkspaceScenario(t)
-	record, ok := loadStoredRecord(t, store, wsX, sessionA)
+	_, sessionA, _, wsX, wsY, st := startCrossWorkspaceScenario(t)
+	record, ok := loadStoredRecord(t, st, wsX, sessionA)
 	if !ok {
 		t.Fatalf("A record missing from workspace X after background completion")
 	}
@@ -142,7 +142,7 @@ func TestBackgroundPersistUsesSessionWorkspaceKey(t *testing.T) {
 	if !strings.Contains(joined, "long task A") {
 		t.Fatalf("A record in X lost in-flight message: %v", recordConversationTexts(record))
 	}
-	if _, ok := loadStoredRecord(t, store, wsY, sessionA); ok {
+	if _, ok := loadStoredRecord(t, st, wsY, sessionA); ok {
 		t.Fatalf("A record leaked into workspace Y")
 	}
 }
@@ -159,8 +159,8 @@ func TestBackgroundPersistDoesNotMutateWriteScope(t *testing.T) {
 
 // TC-A4-03：workspace Y 的 catalog 不含 A 会话条目（无幽灵会话）。
 func TestNoPhantomSessionInForeignWorkspace(t *testing.T) {
-	_, sessionA, _, _, wsY, store := startCrossWorkspaceScenario(t)
-	for _, meta := range store.ListWorkspace(wsY) {
+	_, sessionA, _, _, wsY, st := startCrossWorkspaceScenario(t)
+	for _, meta := range st.ListWorkspace(wsY) {
 		if meta.SessionID == sessionA {
 			t.Fatalf("session A appears in workspace Y catalog: %#v", meta)
 		}
@@ -169,7 +169,7 @@ func TestNoPhantomSessionInForeignWorkspace(t *testing.T) {
 
 // TC-A5-02：fork 不改变其它会话落盘键（fork 后 C 仍落自身 workspace）。
 func TestForkDoesNotShiftOtherSessionPersistKey(t *testing.T) {
-	harness, _, sessionB, wsX, wsY, store := startCrossWorkspaceScenario(t)
+	harness, _, sessionB, wsX, wsY, st := startCrossWorkspaceScenario(t)
 	child, err := harness.app.ForkSessionLatest(sessionB)
 	if err != nil {
 		t.Fatal(err)
@@ -178,12 +178,12 @@ func TestForkDoesNotShiftOtherSessionPersistKey(t *testing.T) {
 		t.Fatalf("fork shifted write scope: %#v", harness.app.Snapshot().CurrentWorkspace)
 	}
 	// fork 子会话写自身 workspace（Y），不写 X。
-	childRecord, ok := loadStoredRecord(t, store, wsY, child)
+	childRecord, ok := loadStoredRecord(t, st, wsY, child)
 	if !ok {
 		t.Fatalf("forked child missing from workspace Y")
 	}
 	_ = childRecord
-	if _, ok := loadStoredRecord(t, store, wsX, child); ok {
+	if _, ok := loadStoredRecord(t, st, wsX, child); ok {
 		t.Fatalf("forked child leaked into workspace X")
 	}
 }

@@ -11,7 +11,7 @@
 
 ```mermaid
 flowchart LR
-    CONTRACT["application/contract<br/>端口接口（消费方定义）"] -.->|实现| ADAPTERS["internal/adapters"]
+    CONTRACT["contract<br/>端口接口（消费方定义）"] -.->|实现| ADAPTERS["internal/adapters"]
 
     subgraph PORTS["本包落地的端口"]
         E["EnginePort<br/>包装框架 session.Session 的 ReAct 会话面"]

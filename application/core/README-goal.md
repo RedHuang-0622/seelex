@@ -21,9 +21,9 @@ goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回
 
 ### goal_board_archive_read_test.go
 
-- `func boardRouterForArchive(t *testing.T) *sessionstore.Router` — boardRouterForArchive 建一个临时会话存储（看板存档落在其 metadata 目录）。
-- `func boardStoreFor(router *sessionstore.Router) func(string) *sessionstore.SessionContextStore` — boardStoreFor 返回协调器的按会话存储入口（每次给一个新的会话存储实例：与生产
-- `func writeBoardArchiveFor(t *testing.T, router *sessionstore.Router, sessionID string, meta sessionstore.GoalBoardMeta)` — writeBoardArchiveFor 直接发布一份看板存档（构造"只有存档、没有活体栈"的现场）。
+- `func boardRouterForArchive(t *testing.T) *store.Router` — boardRouterForArchive 建一个临时会话存储（看板存档落在其 metadata 目录）。
+- `func boardStoreFor(router *store.Router) func(string) *store.SessionContextStore` — boardStoreFor 返回协调器的按会话存储入口（每次给一个新的会话存储实例：与生产
+- `func writeBoardArchiveFor(t *testing.T, router *store.Router, sessionID string, meta store.GoalBoardMeta)` — writeBoardArchiveFor 直接发布一份看板存档（构造"只有存档、没有活体栈"的现场）。
 - `func TestGoalGovernanceViewRecoversBoardFromArchive(t *testing.T)` — TestGoalGovernanceViewRecoversBoardFromArchive 验证兜底读：本次进程还没碰过该
 - `func TestGoalGovernanceViewRetiresBoardOnClosedArchive(t *testing.T)` — TestGoalGovernanceViewRetiresBoardOnClosedArchive 验证"看板退场"：存档 state=closed
 - `func TestGoalGovernanceViewCarriesHistoryLedgerWhileLive(t *testing.T)` — TestGoalGovernanceViewCarriesHistoryLedgerWhileLive 验证账本与活动栈**正交**：
@@ -47,11 +47,11 @@ goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回
 - `func goalStackFrames(stack []*goaldomain.GoalRecord) []dto.GoalFrameView` — goalStackFrames 把 Controller 的活动栈投影成逐帧只读视图（栈底→栈顶，末元素
 - `func goalStepViews(steps []goaldomain.TLStep) []dto.GoalStepView` — goalStepViews 把 goal 域的评审过程步骤投影成只读 DTO（nil 进 → nil 出，
 - `func (g *goalCoordinator) GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView` — GoalGovernanceViewFor 组装只读治理视图（无 bundle/无 goal/无存档 → nil，前端隐藏）。
-- `func (g *goalCoordinator) boardFor(sessionID string) (sessionstore.SessionBoards, bool)` — boardFor 返回指定会话的看板存档取用面。未装配（StoreFor 缺席 / Router 缺席
-- `func (g *goalCoordinator) readGoalBoardArchive(sessionID string) (sessionstore.GoalBoardMeta, bool)` — readGoalBoardArchive 读取该会话的看板存档。没有存档面 / 没有存档 / 存档损坏
-- `func recoveredGoalView(archive sessionstore.GoalBoardMeta, hasArchive bool) *dto.GoalGovernanceView` — recoveredGoalView 用存档里的 active 帧重建看板（Recovered=true 标记"这一帧
-- `func goalHistoryViews(archive sessionstore.GoalBoardMeta, hasArchive bool) []dto.GoalHistoryView` — goalHistoryViews 把看板存档的收口账本投影成只读 DTO（空账本 → nil：没有条目
-- `func goalProgressViews(items []sessionstore.GoalProgress) []dto.GoalProgressView` — goalProgressViews 把看板存档里的打点投影成只读 DTO（空 → nil）。
+- `func (g *goalCoordinator) boardFor(sessionID string) (store.SessionBoards, bool)` — boardFor 返回指定会话的看板存档取用面。未装配（StoreFor 缺席 / Router 缺席
+- `func (g *goalCoordinator) readGoalBoardArchive(sessionID string) (store.GoalBoardMeta, bool)` — readGoalBoardArchive 读取该会话的看板存档。没有存档面 / 没有存档 / 存档损坏
+- `func recoveredGoalView(archive store.GoalBoardMeta, hasArchive bool) *dto.GoalGovernanceView` — recoveredGoalView 用存档里的 active 帧重建看板（Recovered=true 标记"这一帧
+- `func goalHistoryViews(archive store.GoalBoardMeta, hasArchive bool) []dto.GoalHistoryView` — goalHistoryViews 把看板存档的收口账本投影成只读 DTO（空账本 → nil：没有条目
+- `func goalProgressViews(items []store.GoalProgress) []dto.GoalProgressView` — goalProgressViews 把看板存档里的打点投影成只读 DTO（空 → nil）。
 - `func tailProgressViews(items []dto.GoalProgressView, limit int) []dto.GoalProgressView` — tailProgressViews 取末尾 limit 条（卡片一行摘要用；详情面用全量）。
 
 ### goal_coordinator_test.go

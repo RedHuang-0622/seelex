@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/model"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // durable queue 应用侧接线（A1b）的接线证明：
@@ -31,7 +31,7 @@ type queueRecordingSessions struct {
 	marked    []string
 	confirmed []string
 	failed    []string
-	resent    []sessionstore.QueueItem
+	resent    []store.QueueItem
 }
 
 func (s *queueRecordingSessions) QueueEnqueueWorkspace(_, _, _, content string) error {
@@ -62,10 +62,10 @@ func (s *queueRecordingSessions) QueueFailConsumedWorkspace(_, _, turnID string)
 	return nil
 }
 
-func (s *queueRecordingSessions) QueueRecoverItemsWorkspace(_, _ string) (sessionstore.QueueRecoveryReport, bool, error) {
+func (s *queueRecordingSessions) QueueRecoverItemsWorkspace(_, _ string) (store.QueueRecoveryReport, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return sessionstore.QueueRecoveryReport{Resent: append([]sessionstore.QueueItem(nil), s.resent...)}, true, nil
+	return store.QueueRecoveryReport{Resent: append([]store.QueueItem(nil), s.resent...)}, true, nil
 }
 
 func (s *queueRecordingSessions) queueCalls() (enqueued, marked, confirmed, failed []string) {
@@ -195,7 +195,7 @@ func TestDurableQueueBackfillVisibleAndDrainedOnNextSubmit(t *testing.T) {
 	service := newTestService(t, engine, withTestSessions(sessions))
 	sessionID := service.Snapshot().Session.ID
 
-	service.reEnqueueRecoveredInputs(sessionID, []sessionstore.QueueItem{
+	service.reEnqueueRecoveredInputs(sessionID, []store.QueueItem{
 		{Seq: 1, Content: "重启恢复的输入", State: string("queued")},
 	})
 	snapshot := service.Snapshot()

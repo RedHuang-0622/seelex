@@ -38,6 +38,7 @@ import (
 	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/types"
 
+	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
@@ -48,7 +49,7 @@ func TestReplayProbeBrokenToolChainShape(t *testing.T) {
 	limitsPath := probeEnvPath("SEELEX_PROBE_LIMITS", `G:\Program\go\seelex\config\seelex.yaml`)
 	accountsPath := probeEnvPath("SEELEX_PROBE_ACCOUNTS", `G:\Program\go\seelex\config\accounts.yaml`)
 
-	limits, err := seelexctx.LoadLimits(limitsPath)
+	limits, err := limit.LoadLimits(limitsPath)
 	if err != nil {
 		t.Fatalf("加载 limits 失败: %v", err)
 	}

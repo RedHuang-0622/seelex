@@ -1,5 +1,12 @@
 package tools
 
+// permission_policy.go —— 权限**执行门**（PermissionGate）与员工主体解析的落点。
+//
+// 2026-10-16 M2-C4 后这个文件只留**带状态的执行面**：纯判据与词表（主体类、路由
+// 组表、规则表、档位覆盖、工具氇属声明）已归位到 backend/limit/policy，本文件只调用
+// policy.*。为什么分：判据与词表只能有一份，而执行门持有注册表状态、
+// 必须与工具实现同处一层。
+
 import (
 	"context"
 	"fmt"
@@ -9,438 +16,9 @@ import (
 
 	frameworktools "github.com/RedHuang-0622/Seele/tools"
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/backend/limit/policy"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 )
-
-// permission_policy.go — 权责模型（主体 × 路由组 × 位 × 动作）的单一落点。
-//
-// 长期口径见 docs/2026-09-15-agent-permission-routing-groups/README.md §2；本文件是
-// 它在 seelex 侧的可执行形态：
-//
-//	主体（谁在调用）   root（主代理 / entry 节点 / goalplan 节点，uid 0）
-//	                   sub（子代理：plan kind:agent 节点 / fork_subagents 派生）
-//	                   emp_ro / emp_rw（员工：由 dto.RoleSpec.ToolsPolicy 决定）
-//	路由组（哪一族）   ro / rw / rw_session / rw_desktop / ctl / adm（按名字 glob 路由）
-//	位（rwx）          组给 mode，主体给 grant；位齐 → 组默认动作，位缺 → 不可路由
-//	动作              组默认 allow/ask；rules 做最细粒度覆盖（LMRW 最后匹配胜出）
-//
-// 三条产品决定（不是可选配置）：
-//
-//  1. **子代理没有人类在环**：任何"需要问人"的调用（组默认 ask / 规则 ask / 位缺）
-//     一律**直接拒绝**，绝不落到执行选择页面上去挂起等待。子代理的授权范围由位
-//     表达（位齐 = 授权范围内），作用域另有 worktree / ProjectScope 收窄。
-//  2. **员工有宿主人类，且赋权即免审批**：位齐（在 leader 下发的权限范围内）→
-//     **直接执行**，不再落回 rules 的"问人"；位缺 / 未分封（权外）→ 走执行选择
-//     页面**提权**（人类的选择页 = sudo 口令，单次放行）。显式 deny 规则仍然硬，
-//     不因提权页面而变成可放开。
-//  3. **主代理完全落回框架**：组默认 + rules 的判定与接线前逐条一致，权责模型
-//     对 root 只增加"位必须齐"这一道（root 全位，等价于不增加）。
-//
-// 主体与框架 `permission.Engine` 是同一个 id：middleware 把主体写进 ctx
-// （WithEngine），checker 用它查授权表，本文件的 Enforcer 用同一身份做类策略。
-
-// SubjectClass 是"谁在调用"的分类口径（Linux user 维度）。
-type SubjectClass string
-
-const (
-	// SubjectClassRoot 是主代理 / Plan entry 节点 / goalplan 节点：持全部位（uid 0 / sudo）。
-	SubjectClassRoot SubjectClass = SubjectClass(toolspermission.SubjectRoot)
-	// SubjectClassSub 是子代理：ro + rw(project)，ctl=0、adm=0、rw 不含 desktop/session。
-	SubjectClassSub SubjectClass = "sub"
-	// SubjectClassEmployeeRO 是 ToolsPolicy=readonly 的员工：只有读位。
-	SubjectClassEmployeeRO SubjectClass = "emp_ro"
-	// SubjectClassEmployeeRW 是 ToolsPolicy=readwrite 的员工：读位 + 项目写位。
-	SubjectClassEmployeeRW SubjectClass = "emp_rw"
-)
-
-// 路由组名（位与默认动作见 DefaultPermissionGroupList）。
-//
-// 字面量的**唯一事实在 application/contract/dto**（dto.PermissionGroup*）：组名
-// 同时是"前端权限装配面板"的格子名与"写入侧校验"的枚举，两边必须是同一份；
-// 这里只做别名，方便本包内部引用。
-const (
-	GroupRO        = dto.PermissionGroupRO        // 读簇：不改任何共享状态
-	GroupRW        = dto.PermissionGroupRW        // 写簇：项目文件 + 自有工作台
-	GroupRWSession = dto.PermissionGroupRWSession // 写簇：本会话可变 transcript（子代理无位）
-	GroupRWDesktop = dto.PermissionGroupRWDesktop // 写簇：共享外设（一块桌面，子代理无位）
-	GroupCTL       = dto.PermissionGroupCTL       // 叫停 loop 簇：结束 / 挂起 / 派生 / 装载执行结构
-	GroupADM       = dto.PermissionGroupADM       // 属主簇：改变能力面本身（仅 root）
-)
-
-// 位的 resource 限定口径（rw 必须落在哪片资源上）。
-const (
-	ResourceProject = "project" // 会话绑定的项目根（已被 ProjectScope 收窄）
-	ResourceSession = "session" // 本会话的可变工作台
-	ResourceDesktop = "desktop" // 共享外设：所有并行子代理共用一块桌面
-)
-
-// 位值（r=4 / w=2 / x=1）。字面量同样取自 dto（跨层词表），这里只是别名。
-const (
-	bitRead    uint8 = dto.PermissionBitRead
-	bitWrite   uint8 = dto.PermissionBitWrite
-	bitExecute uint8 = dto.PermissionBitExecute
-	bitAll     uint8 = dto.PermissionBitAll
-)
-
-// DefaultPermissionGroupList 是默认路由组表：按工具名 glob 路由，组带对象 mode 与默认动作。
-//
-// 路由是 LMRW（最后匹配胜出，与框架 routeLocked 同语义），因此组之间不重叠；
-// 语义判据见设计稿 §2.2：ro 不碰共享状态、rw 写项目/工作台、ctl 改循环控制流、
-// adm 改能力面本身。
-func DefaultPermissionGroupList() []toolspermission.PermissionGroup {
-	return []toolspermission.PermissionGroup{
-		{
-			Name:    GroupRO,
-			Mode:    bitRead,
-			Default: toolspermission.ActionAllow,
-			Match: []string{
-				"read_file", "read_plan", "read_tool_result", "read_compressed_turn",
-				"search_history", "grep_search", "glob",
-				// read_batch 派发的是一批**只读**扇出作业（Kind=inline），不碰共享状态：
-				// 派发面免打断，取回/终止/销项走 bg_manage（rw 簇）。
-				"read_batch",
-				"get_time", "web_search",
-				"todo_status", "todolist_status", "plan_status", "goal_status",
-				"plugins_list", "skills_list", "mcp_list",
-				"plan_validate", "plan_export",
-				// show_files（2026-10-12，J-2）：agent 请求 GUI 打开待审阅文件。归 ro
-				// 而非 rw_desktop/session——它不改任何共享状态：请求落在**本会话**的
-				// 只读快照段里（人可忽略、可关掉，不是模态框/置顶窗），且工具返回值
-				// 只带路径与计数（文件内容不进上下文，也不写任何文件）。定级结论：
-				// 「agent 控制 agentGUI / 只读浏览」档，不高于会话读写档（见
-				// docs/arch/agent-permission-subjects.md §2.2 与 §7.2 第 5 条）。
-				"show_files",
-				// project_board_read（M4）：按需读**派生投影**（会话任务行 / 里程碑）。
-				// 归 ro：它只读、有界，不改任何共享状态，也不写任何文件；工具本身是否
-				// 存在由装配门决定（limits.project_board.enabled）。
-				"project_board_read",
-				"computer_screenshot", "computer_windows", "computer_scroll_targets", "computer_wait",
-			},
-		},
-		{
-			Name:     GroupRW,
-			Mode:     bitRead | bitWrite,
-			Resource: ResourceProject,
-			Default:  toolspermission.ActionAllow,
-			Match: []string{
-				"write_file", "edit_file", "bash",
-				// bash_bg / bg_manage 与 bash 同组：它们管的正是 bash 起的执行体。
-				// 放 CTL 会让 sub/员工断位，它们自己派发的后台作业就谁也取不回、杀不掉；
-				// 真正的门是 handler 里的"句柄必须属于本会话"。
-				"bash_bg", "bg_manage",
-				// jobs_manage 是 Seele jobs 的**通用管理工具**（observe/fetch/kill/done），
-				// 与 bash_bg/bg_manage 同组：它管的正是作业面的执行体（含 teammate 作业）。
-				"jobs_manage",
-				"todo_init", "todo_add", "todo_done",
-				"todolist_init", "todolist_add", "todolist_done",
-				"task_add", "taskadd",
-				"project_refresh", "plugin_create", "skill_create",
-			},
-		},
-		{
-			Name:     GroupRWSession,
-			Mode:     bitRead | bitWrite,
-			Resource: ResourceSession,
-			Default:  toolspermission.ActionAllow,
-			Match:    []string{"compact_context"},
-		},
-		{
-			Name:     GroupRWDesktop,
-			Mode:     bitRead | bitWrite,
-			Resource: ResourceDesktop,
-			Default:  toolspermission.ActionAsk,
-			Match: []string{
-				"computer_click", "computer_move", "computer_drag", "computer_scroll",
-				"computer_type", "computer_keys", "computer_focus",
-			},
-		},
-		{
-			Name:    GroupCTL,
-			Mode:    bitExecute,
-			Default: toolspermission.ActionAllow,
-			Match: []string{
-				"task_complete", "task_failed", "task_needs_user_decision", "task_check_node",
-				"ask_approve", "fork_subagents",
-				"plan_load", "plan_clear", "plan_run",
-				// goal 栈是主代理的治理状态：policy.go 对子代理整族不可见，
-				// 因此跟着 ctl 一起断位（比设计稿 §3.2 的 rw 更贴合现有口径）。
-				"goal_begin", "goal_update", "goal_propose_finish", "goal_done",
-				// teamwork leader 编排面：改的是"团队顺序与作业"这条循环控制流，
-				// 与 fork_subagents/plan_* 同族——sub/员工断位（teammate 不该编排
-				// 团队），主代理（root）默认 allow。
-				"team_plan", "team_dispatch", "team_join", "team_milestone", "team_close", "team_context",
-				// Work Item 口径（2026-10-03）：排活 / 调整 / 验收 / 判失败 / 中断恢复。
-				// 与上面同族——它们改的都是"团队顺序与结论"，员工与子代理一律断位。
-				"team_work", "team_item", "team_accept", "team_fail", "team_recover", "team_items",
-			},
-		},
-		{
-			Name:    GroupADM,
-			Mode:    bitAll,
-			Default: toolspermission.ActionAsk,
-			Match: []string{
-				"switch_plugin", "switch_mode", "skill_activate",
-				"plugins_reload", "mcp_create", "mcp_load",
-			},
-		},
-	}
-}
-
-// DefaultPermissionSubjects 是默认授权表：主体 → 各组位与 resource 限定。
-//
-// root 全位（含 desktop / session）；sub 拿满项目写位但 ctl/adm 断位、无共享外设位；
-// 员工按 ToolsPolicy 两档（只读 / 读+项目写），ctl/adm 与共享外设同样断位。
-func DefaultPermissionSubjects() map[toolspermission.Subject]toolspermission.SubjectGrant {
-	root := toolspermission.SubjectGrant{Bits: map[string]toolspermission.GrantBit{
-		GroupRO:        {Bits: bitRead},
-		GroupRW:        {Bits: bitRead | bitWrite, Resources: []string{ResourceProject}},
-		GroupRWSession: {Bits: bitRead | bitWrite, Resources: []string{ResourceSession}},
-		GroupRWDesktop: {Bits: bitRead | bitWrite, Resources: []string{ResourceDesktop}},
-		GroupCTL:       {Bits: bitExecute},
-		GroupADM:       {Bits: bitAll},
-	}}
-	sub := toolspermission.SubjectGrant{Bits: map[string]toolspermission.GrantBit{
-		GroupRO:  {Bits: bitRead},
-		GroupRW:  {Bits: bitRead | bitWrite, Resources: []string{ResourceProject}},
-		GroupCTL: {Bits: 0},
-		GroupADM: {Bits: 0},
-	}}
-	employeeRO := toolspermission.SubjectGrant{Bits: map[string]toolspermission.GrantBit{
-		GroupRO:  {Bits: bitRead},
-		GroupRW:  {Bits: 0},
-		GroupCTL: {Bits: 0},
-		GroupADM: {Bits: 0},
-	}}
-	employeeRW := toolspermission.SubjectGrant{Bits: map[string]toolspermission.GrantBit{
-		GroupRO:  {Bits: bitRead},
-		GroupRW:  {Bits: bitRead | bitWrite, Resources: []string{ResourceProject}},
-		GroupCTL: {Bits: 0},
-		GroupADM: {Bits: 0},
-	}}
-	return map[toolspermission.Subject]toolspermission.SubjectGrant{
-		SubjectForClass(SubjectClassRoot):       root,
-		SubjectForClass(SubjectClassSub):        sub,
-		SubjectForClass(SubjectClassEmployeeRO): employeeRO,
-		SubjectForClass(SubjectClassEmployeeRW): employeeRW,
-	}
-}
-
-// DefaultPermissionRules 是默认的最细粒度覆盖层（args 级）：把"必须问人"和
-// "必须拒绝"的工具钉死，其余交给路由组的默认动作。
-//
-// 顺序即语义：框架按 LMRW（最后匹配胜出）求值，所以 danger deny 放最后。
-// 命令行工具（bash）的 patterns 匹配的是**命令本身**（见 policyArgsFor）。
-//
-// 方言：本函数给的是 **POSIX 方言**那一份（历史默认；等价于
-// `PermissionRulesForShell(ShellBash)`）。组合根按装配期解析出的**实际壳**选方言——
-// 见 PermissionRulesForShell 与 shell_fact.go。
-func DefaultPermissionRules() []toolspermission.PermissionRule {
-	return PermissionRulesForShell(ShellBash)
-}
-
-// bashAllowPatterns 是"免打断的读命令"这一层的**唯一一份**表，按方言分槽。
-//
-// 为什么要按壳分派：这一层的模式匹配的是**命令文本**，它放行就意味着"这条命令不会
-// 需要人看着"。而同一个字符串在不同壳里是两回事——`ls -la` 在 Git Bash 下是列目录，
-// 在 PowerShell 下是**必然失败**（`-la` 不是 Get-ChildItem 的参数）。此前这张表写死
-// POSIX 形态，而本机 shell 可能已经是 PowerShell，于是命令"**过闸即死**"：白名单放行、
-// 执行失败、模型只拿到一条执行错误（审计 D4 实测 34.4% 的调用折在判定上）。
-//
-// 共享槽与方言槽分开：`git *` / `go test *` 这类两种壳下都成立的命令只写一份，
-// 方言差异只出现在"读写文件/搜索/环境"那几条上。
-var bashAllowPatterns = struct {
-	Shared     []string
-	POSIX      []string
-	PowerShell []string
-	Cmd        []string
-}{
-	Shared: []string{"git *", "echo *", "go test *", "go build *", "go vet *", "gofmt *"},
-	POSIX: []string{"ls *", "cat *", "head *", "tail *",
-		"pwd", "which *", "whoami", "date", "df *", "du *", "printenv"},
-	PowerShell: []string{"Get-ChildItem*", "Get-Content *", "Get-Location", "Get-Date",
-		"Get-Command *", "Get-Item *", "Select-String *", "Select-Object *", "Where-Object *",
-		"Test-Path *", "Measure-Object *"},
-	Cmd: []string{"dir *", "dir", "type *", "where *", "findstr *", "cd"},
-}
-
-// bashAllowListForShell 折出这一档壳的免打断模式（共享槽 + 方言槽）。
-func bashAllowListForShell(kind ShellKind) []string {
-	dialect := bashAllowPatterns.POSIX
-	switch kind {
-	case ShellPowerShell:
-		dialect = bashAllowPatterns.PowerShell
-	case ShellCmd:
-		dialect = bashAllowPatterns.Cmd
-	}
-	patterns := make([]string, 0, len(bashAllowPatterns.Shared)+len(dialect))
-	patterns = append(patterns, bashAllowPatterns.Shared...)
-	return append(patterns, dialect...)
-}
-
-// PermissionRulesForShell 按**实际壳**给出同一张规则表。
-//
-// 除"免打断读命令"那一层之外，其余层（写类工具 ask、危险命令 deny、越界命令 ask）
-// 与壳无关，只有一份——两处各写一遍必然漂移。
-func PermissionRulesForShell(kind ShellKind) []toolspermission.PermissionRule {
-	allow := bashAllowListForShell(kind)
-	return []toolspermission.PermissionRule{
-		// 写盘 / 扩能力的工具：生效前需要人类过目。
-		{ToolName: "write_file", Action: toolspermission.ActionAsk},
-		{ToolName: "edit_file", Action: toolspermission.ActionAsk},
-		{ToolName: "plugin_create", Action: toolspermission.ActionAsk},
-		{ToolName: "skill_create", Action: toolspermission.ActionAsk},
-
-		// bash 能力白名单：安全命令直接执行，越界命令问人，危险命令拒绝。
-		//
-		// 口径同时覆盖 bash_bg（后台受管命令）——它跑的是同一类命令，只是活过这一轮。
-		// 这张模式表就是"免打断的读命令"的**唯一落点**（bash_read 已删除）：模式匹配
-		// 弱于服务端分类，因此这里刻意只放保守形态（无管道、无重定向、无替换），
-		// 越界就退化成问人——宁可多弹一次审批，也不要"挂着只读名牌的写命令"。
-		{ToolName: "bash", Action: toolspermission.ActionAsk},
-		{ToolName: "bash_bg", Action: toolspermission.ActionAsk},
-		{
-			ToolName: "bash",
-			Patterns: allow,
-			Action:   toolspermission.ActionAllow,
-		},
-		{
-			ToolName: "bash_bg",
-			Patterns: allow,
-			Action:   toolspermission.ActionAllow,
-		},
-		{
-			ToolName: "bash",
-			Patterns: []string{"npm install *", "npm ci*", "make *", "docker *", "rm *", "mv *", "chmod *", "chown *"},
-			Action:   toolspermission.ActionAsk,
-		},
-		{
-			ToolName: "bash_bg",
-			Patterns: []string{"npm install *", "npm ci*", "make *", "docker *", "rm *", "mv *", "chmod *", "chown *"},
-			Action:   toolspermission.ActionAsk,
-		},
-		{
-			ToolName: "bash",
-			Patterns: []string{"rm -rf /*", "rm -fr /*", ":(){ :|:& };:", "dd if=* of=*", "mkfs*", "shutdown*", "reboot*"},
-			Action:   toolspermission.ActionDeny,
-		},
-		{
-			ToolName: "bash_bg",
-			Patterns: []string{"rm -rf /*", "rm -fr /*", ":(){ :|:& };:", "dd if=* of=*", "mkfs*", "shutdown*", "reboot*"},
-			Action:   toolspermission.ActionDeny,
-		},
-	}
-}
-
-// DefaultPermissionConfig 是 manual 模式的默认权责配置：分组 + 主体 + 缺位口径
-// （缺位 = ask；子代理侧由 Enforcer 落成"直接拒绝"，员工侧落成"执行选择页面"）
-// + 最细粒度规则。调用方（main.go）在其上叠加 seele.yaml 的 permission 段覆盖。
-func DefaultPermissionConfig() toolspermission.PermissionConfig {
-	return PermissionConfigForShell(ShellBash)
-}
-
-// PermissionConfigForShell 按**装配期解析出的实际壳**装配默认权责配置（组合根用它）。
-//
-// 与 DefaultPermissionConfig 的关系：同一份实现，只有"免打断读命令"那一层随方言变
-// （见 PermissionRulesForShell）。默认入口保持 POSIX 口径，好让用例与其它宿主的行为
-// 与宿主机器无关。
-func PermissionConfigForShell(kind ShellKind) toolspermission.PermissionConfig {
-	return toolspermission.PermissionConfig{
-		Mode:       toolspermission.ModeManual,
-		Groups:     DefaultPermissionGroupList(),
-		Subjects:   DefaultPermissionSubjects(),
-		MissingBit: toolspermission.ActionAsk,
-		Rules:      PermissionRulesForShell(kind),
-	}
-}
-
-// SubjectForClass 把主体类映射成框架授权主体 id（= 写入 ctx 的 engine id）。
-func SubjectForClass(class SubjectClass) toolspermission.Subject {
-	switch class {
-	case SubjectClassSub:
-		return toolspermission.Subject(SubjectClassSub)
-	case SubjectClassEmployeeRO:
-		return toolspermission.Subject(SubjectClassEmployeeRO)
-	case SubjectClassEmployeeRW:
-		return toolspermission.Subject(SubjectClassEmployeeRW)
-	default:
-		return toolspermission.Subject(toolspermission.SubjectRoot)
-	}
-}
-
-// ClassForToolsPolicy 把员工的 ToolsPolicy 口径映射成主体类：
-// readonly → emp_ro；readwrite → emp_rw；full / inherit(空) / 未识别 → root（继承宿主默认）。
-func ClassForToolsPolicy(policy string) SubjectClass {
-	switch strings.ToLower(strings.TrimSpace(policy)) {
-	case "readonly":
-		return SubjectClassEmployeeRO
-	case "readwrite":
-		return SubjectClassEmployeeRW
-	default:
-		return SubjectClassRoot
-	}
-}
-
-// ClassForNodeScope 把工具调度 ctx 的节点作用域映射成主体类：带 NodeID 的
-// RoleSubAgent 节点 = 子代理；其余（无作用域 / 主代理 / entry / goalplan）= root。
-// 口径与 tools/policy.go 的可见性判定同源（它同样只按 RoleSubAgent 收窄）。
-func ClassForNodeScope(scope model.NodeScope) SubjectClass {
-	if scope.NodeID != "" && scope.Role == model.RoleSubAgent {
-		return SubjectClassSub
-	}
-	return SubjectClassRoot
-}
-
-// RoutePermissionGroup 按名字 glob 路由到路由组（LMRW：最后匹配胜出）。
-// 与框架 checker.routeLocked 同语义，供 Enforcer 在判定前回答"这个工具分封过吗"。
-func RoutePermissionGroup(groups []toolspermission.PermissionGroup, toolName string) (toolspermission.PermissionGroup, bool) {
-	var matched toolspermission.PermissionGroup
-	found := false
-	for _, group := range groups {
-		for _, pattern := range group.Match {
-			if matchToolGlob(pattern, toolName) {
-				matched, found = group, true
-				break
-			}
-		}
-	}
-	return matched, found
-}
-
-// matchToolGlob 与框架 permission.matchGlob 同语义：只有 `*` 通配，整串匹配。
-func matchToolGlob(pattern, name string) bool {
-	if pattern == "" || name == "" {
-		return pattern == name
-	}
-	if pattern == "*" {
-		return true
-	}
-	if !strings.Contains(pattern, "*") {
-		return pattern == name
-	}
-	pi, ni := 0, 0
-	star, mark := -1, 0
-	for ni < len(name) {
-		switch {
-		case pi < len(pattern) && pattern[pi] == name[ni]:
-			pi++
-			ni++
-		case pi < len(pattern) && pattern[pi] == '*':
-			star, mark = pi, ni
-			pi++
-		case star != -1:
-			pi = star + 1
-			mark++
-			ni = mark
-		default:
-			return false
-		}
-	}
-	for pi < len(pattern) && pattern[pi] == '*' {
-		pi++
-	}
-	return pi == len(pattern)
-}
 
 // rolePolicyCacheTTL 是"角色会话 → 员工权限口径"解析结果的缓存时长。解析器由
 // main.go 注入（读角色注册表），这里只负责把每次工具调用的成本压到一次 map 命中；
@@ -458,26 +36,26 @@ type rolePolicyCacheEntry struct {
 // 段上——并行会话/子代理同时调工具时共享字段必被互相污染。
 type subjectClassCtxKey struct{}
 
-func withSubjectClass(ctx context.Context, class SubjectClass) context.Context {
+func withSubjectClass(ctx context.Context, class policy.SubjectClass) context.Context {
 	return context.WithValue(ctx, subjectClassCtxKey{}, class)
 }
 
-func subjectClassFromContext(ctx context.Context) (SubjectClass, bool) {
+func subjectClassFromContext(ctx context.Context) (policy.SubjectClass, bool) {
 	if ctx == nil {
 		return "", false
 	}
-	class, ok := ctx.Value(subjectClassCtxKey{}).(SubjectClass)
+	class, ok := ctx.Value(subjectClassCtxKey{}).(policy.SubjectClass)
 	return class, ok
 }
 
 // classFor 解析本次调用的主体类：节点作用域（子代理）优先，其次是角色会话登记
 // （员工 ToolsPolicy），都不是 = root（主代理 / entry / goalplan / 未登记会话）。
-func (state *PermissionGate) classFor(ctx context.Context) SubjectClass {
+func (state *PermissionGate) classFor(ctx context.Context) policy.SubjectClass {
 	if class, ok := subjectClassFromContext(ctx); ok {
 		return class
 	}
 	scope := model.NodeScopeFromContextOrEmpty(ctx)
-	if class := ClassForNodeScope(scope); class == SubjectClassSub {
+	if class := policy.ClassForNodeScope(scope); class == policy.SubjectClassSub {
 		return class
 	}
 	return state.roleSessionClass(state.sessionFromContext(ctx))
@@ -485,40 +63,41 @@ func (state *PermissionGate) classFor(ctx context.Context) SubjectClass {
 
 // roleSessionClass 查"这个会话是不是员工角色会话"，是则按 ToolsPolicy 给类。
 // 未注入解析器 / 非角色会话 / 查不到 = root。
-func (state *PermissionGate) roleSessionClass(sessionID string) SubjectClass {
+func (state *PermissionGate) roleSessionClass(sessionID string) policy.SubjectClass {
 	if state == nil || strings.TrimSpace(sessionID) == "" {
-		return SubjectClassRoot
+		return policy.SubjectClassRoot
 	}
 	state.mu.RLock()
 	resolver := state.RoleSessionPolicy
 	state.mu.RUnlock()
 	if resolver == nil {
-		return SubjectClassRoot
+		return policy.SubjectClassRoot
 	}
 	now := time.Now()
 	state.mu.Lock()
 	if cached, ok := state.rolePolicyCache[sessionID]; ok && now.Sub(cached.at) < rolePolicyCacheTTL {
 		state.mu.Unlock()
 		if !cached.found {
-			return SubjectClassRoot
+			return policy.SubjectClassRoot
 		}
-		return ClassForToolsPolicy(cached.policy)
+		return policy.ClassForToolsPolicy(cached.policy)
 	}
 	state.mu.Unlock()
 
-	policy, found := resolver(sessionID)
+	// 形参/局部名 toolsPolicy：包名 policy（judgment 层）必须可见，不能同名遮蔽。
+	toolsPolicy, found := resolver(sessionID)
 
 	state.mu.Lock()
 	if state.rolePolicyCache == nil {
 		state.rolePolicyCache = make(map[string]rolePolicyCacheEntry)
 	}
-	state.rolePolicyCache[sessionID] = rolePolicyCacheEntry{policy: policy, found: found, at: now}
+	state.rolePolicyCache[sessionID] = rolePolicyCacheEntry{policy: toolsPolicy, found: found, at: now}
 	state.mu.Unlock()
 
 	if !found {
-		return SubjectClassRoot
+		return policy.SubjectClassRoot
 	}
-	return ClassForToolsPolicy(policy)
+	return policy.ClassForToolsPolicy(toolsPolicy)
 }
 
 // configSnapshot 取当前权限配置快照（Enforcer 用它做路由/分封判断）。
@@ -578,9 +157,9 @@ func (state *PermissionGate) enforceClass(ctx context.Context, subject toolsperm
 		return "", false
 	}
 	switch state.classFor(ctx) {
-	case SubjectClassSub:
+	case policy.SubjectClassSub:
 		return state.enforceSubAgent(cfg, subject, name, meta, argsJSON)
-	case SubjectClassEmployeeRO, SubjectClassEmployeeRW:
+	case policy.SubjectClassEmployeeRO, policy.SubjectClassEmployeeRW:
 		return state.enforceEmployee(cfg, subject, name, meta, argsJSON)
 	default:
 		return "", false
@@ -599,7 +178,7 @@ func (state *PermissionGate) enforceSubAgent(cfg toolspermission.PermissionConfi
 	if result, _ := state.decideFor(subject, name, meta, argsJSON); result == toolspermission.ResultDeny {
 		return toolspermission.ActionDeny, true
 	}
-	if _, routed := RoutePermissionGroup(cfg.Groups, name); !routed {
+	if _, routed := policy.RoutePermissionGroup(cfg.Groups, name); !routed {
 		return "", false
 	}
 	if visible := state.visibleFor(subject, name, meta); !visible {
@@ -624,7 +203,7 @@ func (state *PermissionGate) enforceEmployee(cfg toolspermission.PermissionConfi
 	if result, _ := state.decideFor(subject, name, meta, argsJSON); result == toolspermission.ResultDeny {
 		return toolspermission.ActionDeny, true
 	}
-	if _, routed := RoutePermissionGroup(cfg.Groups, name); !routed {
+	if _, routed := policy.RoutePermissionGroup(cfg.Groups, name); !routed {
 		return toolspermission.ActionAsk, true
 	}
 	if visible := state.visibleFor(subject, name, meta); !visible {
@@ -671,8 +250,8 @@ func (state *PermissionGate) visibleFor(subject toolspermission.Subject, name st
 //     给宿主人类。要给员工开放，先在权限配置里分封（permission.groups）；
 //   - 分封但位缺（如 emp_ro 的 rw/ctl/adm）→ 不在面上：工具面就是"授权范围内的
 //     能力清单"，位缺的能力不摆出来（提权仍可通过选择页面发生）。
-func (state *PermissionGate) ToolFaceFor(class SubjectClass, toolName string) bool {
-	return state.ToolFaceForSubject(SubjectForClass(class), toolName)
+func (state *PermissionGate) ToolFaceFor(class policy.SubjectClass, toolName string) bool {
+	return state.ToolFaceForSubject(policy.SubjectForClass(class), toolName)
 }
 
 // ToolFaceForSubject 是工具面的**主体版**判定：把主体（root / sub / emp_ro /
@@ -688,7 +267,7 @@ func (state *PermissionGate) ToolFaceForSubject(subject toolspermission.Subject,
 	if !state.policyReady(cfg) {
 		return true
 	}
-	group, routed := RoutePermissionGroup(cfg.Groups, toolName)
+	group, routed := policy.RoutePermissionGroup(cfg.Groups, toolName)
 	if !routed {
 		return false
 	}
@@ -715,7 +294,7 @@ func (state *PermissionGate) ToolFaceForContext(ctx context.Context, toolName st
 	}
 	class := state.classFor(ctx)
 	switch class {
-	case SubjectClassEmployeeRO, SubjectClassEmployeeRW:
+	case policy.SubjectClassEmployeeRO, policy.SubjectClassEmployeeRW:
 		return state.ToolFaceForSubject(state.resolveEmployeeSubject(ctx, class), toolName)
 	default:
 		return true
@@ -732,10 +311,10 @@ const EmployeeSubjectPrefix = "emp_"
 
 // 员工分组位的可读别名（与框架位值 r=4 / w=2 / x=1 一致）。
 const (
-	GroupBitRead    uint8 = bitRead
-	GroupBitWrite   uint8 = bitWrite
-	GroupBitExecute uint8 = bitExecute
-	GroupBitAll     uint8 = bitAll
+	GroupBitRead    uint8 = policy.BitRead
+	GroupBitWrite   uint8 = policy.BitWrite
+	GroupBitExecute uint8 = policy.BitExecute
+	GroupBitAll     uint8 = policy.BitAll
 )
 
 // EmployeeSubjectName 把角色名规范化成员工主体名：小写，非 [a-z0-9_-] 归一为 '_'。
@@ -808,12 +387,12 @@ type EmployeePermission struct {
 
 // EmployeeGroupsForPolicy 把 ToolsPolicy 档位派生成逐组位（与 emp_ro / emp_rw
 // 同口径）。未识别的口径返回 nil（= 不分配主体条目）。
-func EmployeeGroupsForPolicy(policy string) map[string]uint8 {
-	switch strings.ToLower(strings.TrimSpace(policy)) {
+func EmployeeGroupsForPolicy(toolsPolicy string) map[string]uint8 {
+	switch strings.ToLower(strings.TrimSpace(toolsPolicy)) {
 	case "readonly":
-		return map[string]uint8{GroupRO: bitRead, GroupRW: 0, GroupCTL: 0, GroupADM: 0}
+		return map[string]uint8{policy.GroupRO: policy.BitRead, policy.GroupRW: 0, policy.GroupCTL: 0, policy.GroupADM: 0}
 	case "readwrite":
-		return map[string]uint8{GroupRO: bitRead, GroupRW: bitRead | bitWrite, GroupCTL: 0, GroupADM: 0}
+		return map[string]uint8{policy.GroupRO: policy.BitRead, policy.GroupRW: policy.BitRead | policy.BitWrite, policy.GroupCTL: 0, policy.GroupADM: 0}
 	default:
 		return nil
 	}
@@ -821,11 +400,11 @@ func EmployeeGroupsForPolicy(policy string) map[string]uint8 {
 
 // EmployeeGrantFor 把 ToolsPolicy 档位派生成框架授权条目（未识别口径 → root 位，
 // 与 ClassForToolsPolicy 的兜底一致：给不出"员工档"时按宿主默认）。
-func EmployeeGrantFor(policy string) toolspermission.SubjectGrant {
-	groups := EmployeeGroupsForPolicy(policy)
+func EmployeeGrantFor(toolsPolicy string) toolspermission.SubjectGrant {
+	groups := EmployeeGroupsForPolicy(toolsPolicy)
 	if groups == nil {
-		subjects := DefaultPermissionSubjects()
-		if root, ok := subjects[SubjectForClass(SubjectClassRoot)]; ok {
+		subjects := policy.DefaultPermissionSubjects()
+		if root, ok := subjects[policy.SubjectForClass(policy.SubjectClassRoot)]; ok {
 			return root
 		}
 		return toolspermission.SubjectGrant{}
@@ -859,12 +438,12 @@ func grantFromEmployeeGroups(groups map[string]uint8) toolspermission.SubjectGra
 
 func employeeResourcesFor(group string) []string {
 	switch group {
-	case GroupRW:
-		return []string{ResourceProject}
-	case GroupRWSession:
-		return []string{ResourceSession}
-	case GroupRWDesktop:
-		return []string{ResourceDesktop}
+	case policy.GroupRW:
+		return []string{policy.ResourceProject}
+	case policy.GroupRWSession:
+		return []string{policy.ResourceSession}
+	case policy.GroupRWDesktop:
+		return []string{policy.ResourceDesktop}
 	default:
 		return nil
 	}
@@ -898,7 +477,7 @@ type employeeIdentity struct {
 // 适合"只想知道按哪档判"的调用；要按员工自己的主体分配与判定（emp_<角色名>），用
 // WithEmployeeSubject / WithEmployeeGrant（它们同时把档位写进主体类，本函数是子集）。
 func WithEmployeeSubjectClass(ctx context.Context, toolsPolicy string) context.Context {
-	return withSubjectClass(ctx, ClassForToolsPolicy(toolsPolicy))
+	return withSubjectClass(ctx, policy.ClassForToolsPolicy(toolsPolicy))
 }
 
 // WithEmployeeSubject 把"员工是谁"放进 ctx：角色回合执行体（员工自己的工具回合）
@@ -939,19 +518,19 @@ func WithEmployeeGrant(ctx context.Context, roleName, toolsPolicy string, groups
 // 条目的位决定。显式格子非空时，只要有任何非 ro 能力就按读写档分支（"这是有写/执行
 // 能力的员工"），否则按只读档分支；档位为空/未识别也不会退化成 root——那会让
 // "前端装配过权限的员工"按主代理判，是 fail-open。
-func ClassForEmployeeGrant(toolsPolicy string, groups map[string]uint8) SubjectClass {
+func ClassForEmployeeGrant(toolsPolicy string, groups map[string]uint8) policy.SubjectClass {
 	if len(groups) == 0 {
-		return ClassForToolsPolicy(toolsPolicy)
+		return policy.ClassForToolsPolicy(toolsPolicy)
 	}
 	for group, bits := range groups {
-		if group == GroupRO {
+		if group == policy.GroupRO {
 			continue
 		}
 		if bits != 0 {
-			return SubjectClassEmployeeRW
+			return policy.SubjectClassEmployeeRW
 		}
 	}
-	return SubjectClassEmployeeRO
+	return policy.SubjectClassEmployeeRO
 }
 
 // cloneEmployeeGroups 复制一份权限格子（ctx 里的身份不该与调用方的 map 共享可变状态）。
@@ -982,14 +561,14 @@ func employeeFromContext(ctx context.Context) (employeeIdentity, bool) {
 //   - ctx 里带员工身份（员工执行面）→ 这个员工自己的主体 emp_<角色>，
 //     缺条目时按他的（显式格子优先，其次档位）补一条默认（装配期显式分配的条目优先）；
 //   - 其余 → 主体类对应的共享主体（root / sub / emp_ro / emp_rw）。
-func (state *PermissionGate) resolveEmployeeSubject(ctx context.Context, class SubjectClass) toolspermission.Subject {
+func (state *PermissionGate) resolveEmployeeSubject(ctx context.Context, class policy.SubjectClass) toolspermission.Subject {
 	identity, ok := employeeFromContext(ctx)
 	if !ok {
-		return SubjectForClass(class)
+		return policy.SubjectForClass(class)
 	}
 	subject, ok := EmployeeSubject(identity.RoleName)
 	if !ok {
-		return SubjectForClass(class)
+		return policy.SubjectForClass(class)
 	}
 	state.ensureEmployeeSubject(subject, identity)
 	return subject

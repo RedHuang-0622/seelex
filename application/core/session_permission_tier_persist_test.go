@@ -12,13 +12,13 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // errTierSettingRejected 是"会话级设置写盘失败"的桩错误。
 var errTierSettingRejected = errors.New("session setting write rejected")
 
-// tierMemSessions 是带"会话级设置"持久化的内存会话桩：模拟 sessionstore 的项目级
+// tierMemSessions 是带"会话级设置"持久化的内存会话桩：模拟 store 的项目级
 // 会话元数据 blob 中 per-session 的权限档位条目，并在"重启前/重启后"两个 Service
 // 之间共享同一份数据。
 type tierMemSessions struct {

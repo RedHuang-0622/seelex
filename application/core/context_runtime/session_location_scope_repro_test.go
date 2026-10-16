@@ -7,7 +7,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application/core/internal/state"
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 	"github.com/RedHuang-0622/seelex/application/model"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // ── 错误复现：压缩 checkpoint 的落点解析（sessionLocationLocked）───────────────
@@ -47,13 +47,13 @@ func TestCompactionCheckpointPersistMustNotLandInViewWorkspace(t *testing.T) {
 	const sessionID = "sess-compaction-scope"
 
 	root := t.TempDir()
-	router, err := sessionstore.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
 	if err != nil {
 		t.Fatalf("NewRouter: %v", err)
 	}
 	t.Cleanup(func() { _ = router.Close() })
 
-	seed := sessionstore.Commit{Events: []sessionstore.Event{{Seq: 1, Role: "user", Content: "owner-side"}}}
+	seed := store.Commit{Events: []store.Event{{Seq: 1, Role: "user", Content: "owner-side"}}}
 	if err := router.SaveCommitWorkspace(ownerProject, sessionID, seed); err != nil {
 		t.Fatalf("seed session: %v", err)
 	}
@@ -149,8 +149,8 @@ func TestCompactionCheckpointPersistMustNotLandInViewWorkspace(t *testing.T) {
 
 // plainSessionPort 是**没有**归属解析面（不实现 SessionLocator）的会话端口替身。
 type plainSessionPort struct {
-	router *sessionstore.Router
-	seed   sessionstore.Commit
+	router *store.Router
+	seed   store.Commit
 	wrote  []string
 }
 
@@ -167,8 +167,8 @@ func (port *plainSessionPort) locations() []string {
 // PersistCurrentSession → SaveSessionSnapshotWorkspace 的整键替换）+ 会话归属解析
 // （生产实现是 session_runtime.Coordinator.LocateSessionResolved）。
 type recordingSessionPort struct {
-	router         *sessionstore.Router
-	seed           sessionstore.Commit
+	router         *store.Router
+	seed           store.Commit
 	locateProject  string
 	locateResolved bool
 	wrote          []string
@@ -194,7 +194,7 @@ func (port *recordingSessionPort) locations() []string {
 }
 
 // listed 报告项目目录枚举（左侧栏的数据源口径）里是否列出了该会话。
-func listed(router *sessionstore.Router, projectID, sessionID string) bool {
+func listed(router *store.Router, projectID, sessionID string) bool {
 	for _, meta := range router.ListWorkspace(projectID) {
 		if meta.SessionID == sessionID {
 			return true

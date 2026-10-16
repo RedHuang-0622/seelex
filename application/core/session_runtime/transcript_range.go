@@ -8,19 +8,19 @@ import (
 	"fmt"
 
 	"github.com/RedHuang-0622/seelex/application/model"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // transcriptRangePort 是事件区间读的可选能力面（生产实现：internal/adapters
 // SessionPort.LoadEventRangeWorkspace；窄接口避免把 fork 的整组能力塞进冷读
 // 契约——测试桩只需实现这一个方法）。
 type transcriptRangePort interface {
-	LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]sessionstore.Event, error)
+	LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]store.Event, error)
 }
 
 // LoadTranscriptRange 按 Seq 区间（含端点）读回会话事件日志并转换为
 // application model.TranscriptEvent。fromSeq/toSeq == 0 表示全量（与
-// sessionstore.EventStore.LoadRange 的 (0,0) 语义一致）。
+// store.EventStore.LoadRange 的 (0,0) 语义一致）。
 func (c *Coordinator) LoadTranscriptRange(sessionID string, fromSeq, toSeq uint64) ([]model.TranscriptEvent, error) {
 	port, ok := c.Core.Deps.Sessions.(transcriptRangePort)
 	if !ok {
@@ -36,7 +36,7 @@ func (c *Coordinator) LoadTranscriptRange(sessionID string, fromSeq, toSeq uint6
 
 // modelTranscriptEventsFromStore 把存储层事件转换为应用层 transcript 事件
 // （与 internal/adapters 落盘转换互逆；字段一一对应）。
-func modelTranscriptEventsFromStore(events []sessionstore.Event) []model.TranscriptEvent {
+func modelTranscriptEventsFromStore(events []store.Event) []model.TranscriptEvent {
 	adapted := make([]model.TranscriptEvent, 0, len(events))
 	for _, event := range events {
 		calls := make([]model.TranscriptToolCall, 0, len(event.ToolCalls))

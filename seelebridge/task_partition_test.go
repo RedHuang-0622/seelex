@@ -3,7 +3,7 @@ package seelebridge
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // TestTaskAddForRoutesToOwningSessionPartition 验证 task 写按归属会话路由 +

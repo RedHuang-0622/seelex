@@ -5,13 +5,13 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
-func newSessionRouterForGoalTest(t *testing.T) *sessionstore.Router {
+func newSessionRouterForGoalTest(t *testing.T) *store.Router {
 	t.Helper()
 	root := t.TempDir()
-	router, err := sessionstore.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	router, err := store.NewRouter(filepath.Join(root, "session-storage.json"), root)
 	if err != nil {
 		t.Fatalf("new session router: %v", err)
 	}
@@ -19,23 +19,23 @@ func newSessionRouterForGoalTest(t *testing.T) *sessionstore.Router {
 	return router
 }
 
-func newGoalSessionStore(t *testing.T, router *sessionstore.Router, sessionID string) *sessionstore.SessionContextStore {
+func newGoalSessionStore(t *testing.T, router *store.Router, sessionID string) *store.SessionContextStore {
 	t.Helper()
-	store := sessionstore.NewSessionContextStore(router, sessionID)
-	if err := store.Load(context.Background()); err != nil {
+	st := store.NewSessionContextStore(router, sessionID)
+	if err := st.Load(context.Background()); err != nil {
 		t.Fatalf("load session context %q: %v", sessionID, err)
 	}
-	return store
+	return st
 }
 
 // TestContextStateStoreReloadRestoresNestedStack 验证会话恢复：Controller
-// 栈变更经 ContextStateStore 落 sessionstore GoalStack；新 Controller
+// 栈变更经 ContextStateStore 落 store GoalStack；新 Controller
 // Reload 后恢复嵌套栈（下层 paused / 栈顶 active + progress）与 seq 续号。
 func TestContextStateStoreReloadRestoresNestedStack(t *testing.T) {
 	router := newSessionRouterForGoalTest(t)
 	sessionID := "session-goal-restore"
-	store := newGoalSessionStore(t, router, sessionID)
-	controller := NewController(Options{Depth: 2, Store: NewContextStateStore(store)})
+	st := newGoalSessionStore(t, router, sessionID)
+	controller := NewController(Options{Depth: 2, Store: NewContextStateStore(st)})
 
 	if _, err := controller.Begin(testCtx, BeginRequest{Title: "父目标"}); err != nil {
 		t.Fatalf("begin parent: %v", err)
@@ -116,19 +116,19 @@ func TestContextStateStoreSessionIsolation(t *testing.T) {
 func TestContextStateStoreFinishPopsToEmpty(t *testing.T) {
 	router := newSessionRouterForGoalTest(t)
 	sessionID := "session-goal-pop"
-	store := newGoalSessionStore(t, router, sessionID)
-	controller := NewController(Options{Depth: 2, Store: NewContextStateStore(store)})
+	st := newGoalSessionStore(t, router, sessionID)
+	controller := NewController(Options{Depth: 2, Store: NewContextStateStore(st)})
 	if _, err := controller.Begin(testCtx, BeginRequest{Title: "父目标"}); err != nil {
 		t.Fatalf("begin parent: %v", err)
 	}
-	if persisted := store.GoalStackSnapshot(); len(persisted) != 1 ||
+	if persisted := st.GoalStackSnapshot(); len(persisted) != 1 ||
 		persisted[0].Title != "父目标" || persisted[0].Status != StatusActive.String() {
 		t.Fatalf("begin 后持久化活栈 = %+v", persisted)
 	}
 	if _, err := controller.Begin(testCtx, BeginRequest{Title: "子目标"}); err != nil {
 		t.Fatalf("begin child: %v", err)
 	}
-	if persisted := store.GoalStackSnapshot(); len(persisted) != 2 ||
+	if persisted := st.GoalStackSnapshot(); len(persisted) != 2 ||
 		persisted[0].Title != "父目标" || persisted[0].Status != StatusPaused.String() ||
 		persisted[1].Title != "子目标" {
 		t.Fatalf("嵌套压栈后持久化活栈 = %+v", persisted)
@@ -136,7 +136,7 @@ func TestContextStateStoreFinishPopsToEmpty(t *testing.T) {
 	if _, err := controller.Finish(testCtx, FinishRequest{Result: "子目标完成"}); err != nil {
 		t.Fatalf("finish child: %v", err)
 	}
-	if persisted := store.GoalStackSnapshot(); len(persisted) != 1 ||
+	if persisted := st.GoalStackSnapshot(); len(persisted) != 1 ||
 		persisted[0].Title != "父目标" || persisted[0].Status != StatusActive.String() {
 		t.Fatalf("子完成弹栈应同步删除 g-2，持久化只剩父且 active: %+v", persisted)
 	}
@@ -172,11 +172,11 @@ func TestContextStateStoreFinishPopsToEmpty(t *testing.T) {
 
 // TestContextStateStoreNilRejects 验证未装配会话上下文存储时 Store 显式失败。
 func TestContextStateStoreNilRejects(t *testing.T) {
-	store := NewContextStateStore(nil)
-	if _, err := store.Load(testCtx); err == nil {
+	st := NewContextStateStore(nil)
+	if _, err := st.Load(testCtx); err == nil {
 		t.Fatal("nil session context store Load 应失败")
 	}
-	if err := store.Save(testCtx, nil); err == nil {
+	if err := st.Save(testCtx, nil); err == nil {
 		t.Fatal("nil session context store Save 应失败")
 	}
 }

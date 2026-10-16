@@ -17,13 +17,14 @@ import (
 
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/adapters"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	"github.com/RedHuang-0622/seelex/seelebridge/security"
-	"github.com/RedHuang-0622/seelex/seelexctx"
-	"github.com/RedHuang-0622/seelex/sessionstore"
-	workspacerepo "github.com/RedHuang-0622/seelex/workspace"
+	"github.com/RedHuang-0622/seelex/store"
+	workspacerepo "github.com/RedHuang-0622/seelex/store/workspace"
+	"github.com/RedHuang-0622/seelex/wiring"
 )
 
 // requireGitBash 断言环境提供真实 bash（git-bash 或非 WSL 的 PATH bash）。
@@ -175,7 +176,7 @@ type fullChainHarness struct {
 	// store / workspaces 是组合根的存储面与工作区仓库：**teamwork 编排面**的装配
 	// （SetTeamworkBackend 的 PlanStore + KeyFor）要用它们。只读交出，不改 harness 的
 	// 既有装配（在 harness 里默认装 teamwork 会改变所有全链路用例的工具面）。
-	store      *sessionstore.Router
+	st         *store.Router
 	workspaces *workspacerepo.Repo
 	// runtime 是组合根的 seelebridge 实例：让用例能在装配后重新安装权限配置
 	// （harness 缺省装 full_access，权限用例要换成 manual 权责配置 + 审批桩）。
@@ -195,24 +196,24 @@ func newUnboundFullChainHarness(t *testing.T, accountsPath, projectRoot string, 
 }
 
 func newFullChainHarnessWithProjectBinding(t *testing.T, accountsPath, projectRoot string, toolTimeout time.Duration, bindProject bool) fullChainHarness {
-	return newFullChainHarnessWithLimits(t, accountsPath, projectRoot, toolTimeout, bindProject, seelexctx.Limits{})
+	return newFullChainHarnessWithLimits(t, accountsPath, projectRoot, toolTimeout, bindProject, limit.Limits{})
 }
 
 // fullChainBackendInstaller 是"在 application 之前"注入编排面的钩子。
 //
-// 为什么顺序本身是契约的一部分：应用的四个**生命周期消费者**在 `application.New` 里就把
+// 为什么顺序本身是契约的一部分：应用的四个**生命周期消费者**在 `wiring.New` 里就把
 // 信号口读走了（`consumeAsyncRuns` 读 `AsyncRunEvents()` 与 teammate 作业信号口）。若团队
-// 编排面在 `application.New` **之后**才注入，消费者读到的是 nil 通道——nil 在 select 里
+// 编排面在 `wiring.New` **之后**才注入，消费者读到的是 nil 通道——nil 在 select 里
 // 永不触发，"做完自动返回"那条链于是**静默不存在**。组合根的顺序是
-// store → SetTeamworkBackend → application.New（main.go），测试基座必须同序装配，
+// store → SetTeamworkBackend → wiring.New（main.go），测试基座必须同序装配，
 // 否则冒烟会把"装配顺序错了"误报成"链子是坏的"。
-type fullChainBackendInstaller func(store *sessionstore.Router, workspaces *workspacerepo.Repo, runtime *seelebridge.Runtime) error
+type fullChainBackendInstaller func(st *store.Router, workspaces *workspacerepo.Repo, runtime *seelebridge.Runtime) error
 
 // newFullChainHarnessWithLimits 是同一套装配，只多交出 limits 段：A/B 两臂要求
 // 除 limits.async_exec.enabled 外逐字段相同，开关是唯一变量。
 //
-// installers 按组合根的位置在 store/workspaces 就绪之后、application.New 之前逐个执行。
-func newFullChainHarnessWithLimits(t *testing.T, accountsPath, projectRoot string, toolTimeout time.Duration, bindProject bool, limits seelexctx.Limits, installers ...fullChainBackendInstaller) fullChainHarness {
+// installers 按组合根的位置在 store/workspaces 就绪之后、wiring.New 之前逐个执行。
+func newFullChainHarnessWithLimits(t *testing.T, accountsPath, projectRoot string, toolTimeout time.Duration, bindProject bool, limits limit.Limits, installers ...fullChainBackendInstaller) fullChainHarness {
 	t.Helper()
 	runtimeBridge, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{
 		AccountsPath:    accountsPath,
@@ -235,27 +236,27 @@ func newFullChainHarnessWithLimits(t *testing.T, accountsPath, projectRoot strin
 	originalStorePath := *storePath
 	*storePath = filepath.Join(projectRoot, "sessions")
 	t.Cleanup(func() { *storePath = originalStorePath })
-	store, err := initStore()
+	st, err := initStore()
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = store.Close() })
-	runtimeBridge.AttachHistoryRouter(store)
+	t.Cleanup(func() { _ = st.Close() })
+	runtimeBridge.AttachHistoryRouter(st)
 	// 子代理 / teammate 的**单元记录**持久化：组合根在同一个位置装了它
 	// （main.go:380，紧跟 AttachHistoryRouter）。测试基座缺这一句时
 	// `Runtime.teamUnitLedger()` 是 nil，`saveTeamUnitRecord` 直接 return——
 	// **记录一律不落盘，恢复链在基座上读的是一个空集**，而所有走 harness 的用例
 	// 都跑在这个装配上（2026-10-06 实测：teammate 端到端用例的"单元记录在册"
 	// 断言在补上这一句之前恒为空集，冒烟因为读的是**计划**而不是记录，一直没发现）。
-	runtimeBridge.AttachSubSessionStore(sessionstore.NewNodeSessionStore(store))
-	runtimeBridge.SetEventPersister(sessionstore.NewEventStore(store).Append)
+	runtimeBridge.AttachSubSessionStore(store.NewNodeSessionStore(st))
+	runtimeBridge.SetEventPersister(store.NewEventStore(st).Append)
 
 	skills := initSkillSystem()
 	plugins, _, err := initPluginSystem(runtimeBridge, skills)
 	if err != nil {
 		t.Fatal(err)
 	}
-	hooks := application.NewToolHookBridge()
+	hooks := wiring.NewToolHookBridge()
 	frameworkEngine, err := initEngine(runtimeBridge, hooks, "")
 	if err != nil {
 		t.Fatal(err)
@@ -275,22 +276,22 @@ func newFullChainHarnessWithLimits(t *testing.T, accountsPath, projectRoot strin
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 编排面按组合根的位置注入：**在 application.New 之前**（见 fullChainBackendInstaller）。
+	// 编排面按组合根的位置注入：**在 wiring.New 之前**（见 fullChainBackendInstaller）。
 	for _, install := range installers {
 		if install == nil {
 			continue
 		}
-		if err := install(store, workspaces, runtimeBridge); err != nil {
+		if err := install(st, workspaces, runtimeBridge); err != nil {
 			t.Fatalf("在 application 之前注入编排面失败: %v", err)
 		}
 	}
-	events := application.NewEventHub()
-	approval := application.NewApprovalBroker(events)
+	events := wiring.NewEventHub()
+	approval := wiring.NewApprovalBroker(events)
 	app, err := initApplication(
 		appEngine,
 		runtimeBridge,
 		plugins,
-		initSessionManager(store, appEngine),
+		initSessionManager(st, appEngine),
 		skills,
 		workspaces,
 		events,
@@ -313,7 +314,7 @@ func newFullChainHarnessWithLimits(t *testing.T, accountsPath, projectRoot strin
 	hooks.Bind(app)
 	return fullChainHarness{
 		app: app, events: events, runtime: runtimeBridge, approval: approval,
-		store: store, workspaces: workspaces,
+		st: st, workspaces: workspaces,
 	}
 }
 

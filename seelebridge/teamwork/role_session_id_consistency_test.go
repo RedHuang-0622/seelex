@@ -10,7 +10,7 @@ package teamwork
 //   - `agentteam.RoleSessionID`：空白 `team_id` 兜底 `dto.DefaultTeamID`（历史身份分量：
 //     改它 = 既有角色会话号全体分裂），且三个分量都做 `TrimSpace`；
 //   - `teamwork.DefaultRoleSessionID`：不做 team 兜底、只 trim 主会话号——它面对的输入
-//     已经过计划校验（`sessionstore.ValidateTeamworkPlan` 要求 `team_id` 非空），多一层
+//     已经过计划校验（`store.ValidateTeamworkPlan` 要求 `team_id` 非空），多一层
 //     兜底只会把"上游坏了"掩盖成"另一个员工的会话"。
 //
 // 判据不同（空值/空白语义不同）所以不合并；但**两者都拿到非空规范输入时必须逐字同解**

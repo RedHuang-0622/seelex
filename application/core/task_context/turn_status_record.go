@@ -1,6 +1,6 @@
 package task_context
 
-import "github.com/RedHuang-0622/seelex/application/contract/dto"
+import "github.com/RedHuang-0622/seelex/contract/dto"
 
 // turn_status_record.go — **回合状态在存档面上的读回收口**（全仓唯一一个转换点）。
 //

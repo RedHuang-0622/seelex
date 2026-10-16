@@ -16,7 +16,7 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/seelexctx/tokens"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // PrefixReplayInstruction 是前缀重放请求唯一新增的固定尾巴（详设 §4.4）：
@@ -268,11 +268,11 @@ const PrecomputedLocalDegradeCode = "precomputed-local"
 
 // LocalCompactEvidence 把"为什么这次没有模型摘要"写成帧证据。与 ReplayEvidence 同一条
 // 纪律：没这件事（replay 成功）就不留痕。
-func LocalCompactEvidence(code, note string) []sessionstore.EvidenceRef {
+func LocalCompactEvidence(code, note string) []store.EvidenceRef {
 	if strings.TrimSpace(code) == "" {
 		return nil
 	}
-	return []sessionstore.EvidenceRef{{
+	return []store.EvidenceRef{{
 		Ref:     LocalCompactEvidenceRefPrefix + code,
 		Summary: strings.TrimSpace(note),
 	}}
@@ -281,11 +281,11 @@ func LocalCompactEvidence(code, note string) []sessionstore.EvidenceRef {
 // ReplayEvidence 把分片重放的决策事实写成帧证据（打点落点：帧持久化在会话
 // state blob 的 CompactStack 里）。未分片（片数 <= 1）时不写——没有这件事就
 // 不留痕，避免报表里出现"分片 1 片"这种无信息项。
-func ReplayEvidence(plan ReplayChunkPlan) []sessionstore.EvidenceRef {
+func ReplayEvidence(plan ReplayChunkPlan) []store.EvidenceRef {
 	if len(plan.Chunks) <= 1 {
 		return nil
 	}
-	return []sessionstore.EvidenceRef{{
+	return []store.EvidenceRef{{
 		Ref: fmt.Sprintf("replay-chunked:%d", len(plan.Chunks)),
 		Summary: fmt.Sprintf("overflow region replayed in %d protocol-unit chunks with forward-passed summaries (no prefix-cache reuse beyond chunk 1)",
 			len(plan.Chunks)),

@@ -38,9 +38,9 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge"
-	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
 const (
@@ -63,7 +63,7 @@ func TestManualSmokeRealAccountJobBackfillWithoutManage(t *testing.T) {
 	// 作业面必须显式打开（limits.async_exec.enabled）；工具超时给足，别让派发回合
 	// 被超时掐掉。
 	harness := newFullChainHarnessWithLimits(t, accountsPath, projectRoot, 60*time.Second, true,
-		seelexctx.Limits{AsyncExec: seelexctx.AsyncExecLimits{Enabled: true}, ForkTimeoutSec: 120})
+		limit.Limits{AsyncExec: limit.AsyncExecLimits{Enabled: true}, ForkTimeoutSec: 120})
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
 

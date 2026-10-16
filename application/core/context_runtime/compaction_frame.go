@@ -26,7 +26,7 @@ import (
 // `tokens: compared N → assembled M`）：散文行既不能被 json.Unmarshal，也就不能被
 // 任何对拍用例逐字段比对；改一个措辞就改掉了一条事实的表达，而读侧无从察觉。
 //
-// 与栈帧（sessionstore.CompactFrame）的关系：栈帧是**权威**，它的结构体字段本身就是
+// 与栈帧（store.CompactFrame）的关系：栈帧是**权威**，它的结构体字段本身就是
 // JSON 元数据、它的 Summary 字段就是读后感；本文件渲染的是栈帧的**完整回读投影**
 // （快照刻意不带正文，见 application/model/state.go 的 ContextCompaction 注释），
 // 不是第二份权威。因此读后感一律原样嵌入 Summary，绝不另写一份——两份措辞会漂移。

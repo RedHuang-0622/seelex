@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // newLiveWindowRuntime 造一个显式配置回放窗口的 Runtime（账号用临时文件，不碰真账号）。

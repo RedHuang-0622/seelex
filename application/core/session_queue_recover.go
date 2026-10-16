@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/session"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // durable queue 的重启回填（写入侧接线的恢复半边）。
@@ -19,7 +19,7 @@ import (
 //     的非运行分支）——这样"重启后输入仍在"与"不会悄悄计费"同时成立。
 //
 // 幂等：同一批条目的内容为空则跳过；回填只发生在会话冷加载路径一次。
-func (service *Service) reEnqueueRecoveredInputs(sessionID string, resent []sessionstore.QueueItem) {
+func (service *Service) reEnqueueRecoveredInputs(sessionID string, resent []store.QueueItem) {
 	if service == nil || len(resent) == 0 {
 		return
 	}

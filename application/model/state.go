@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // ProtocolVersion identifies the Snapshot/Event contract consumed by frontends.
@@ -78,7 +78,7 @@ type ContextCompaction struct {
 	MessageTo   string `json:"message_to,omitempty"`
 	EventFrom   uint64 `json:"event_from,omitempty"`
 	EventTo     uint64 `json:"event_to,omitempty"`
-	// SegmentID 是本次压缩在**会话压缩栈**（sessionstore.CompactFrame）里那一帧的
+	// SegmentID 是本次压缩在**会话压缩栈**（store.CompactFrame）里那一帧的
 	// 标识，是快照侧记录与栈帧之间的互链键，同时是 read_compressed_turn 的必选
 	// 入参。没有它，模型对这段被折出的区间就拿不到细筛入口——原文明明还在盘上，
 	// 却只能靠 search_history 碰运气。
@@ -163,7 +163,7 @@ func messageRangeLabel(from, to string) string {
 
 // TurnStatus 是一次回合（用户这一次请求）的执行状态与结论。
 //
-// 词表只有一份，住在契约 `application/contract/dto`（`dto.TurnStatus`）：本包以别名
+// 词表只有一份，住在契约 `contract/dto`（`dto.TurnStatus`）：本包以别名
 // 保持 model 侧的读法，**不再定义第二份词表**。历史上本包有一个 `type TaskStatus string`
 // 与 `dto.TaskStatus`（工作表条目那一格）**同名却是两台不同的机器**，两套词表只在
 // "进行中"上分叉（progressing vs running），中间靠一处手写映射接着——这一格合并的就是它。
@@ -201,8 +201,8 @@ type ComposerDraft struct {
 
 // SessionStatus 描述一个会话的可见状态（会话树/当前会话徽标数据源）。
 //
-// 词表只有一份，住在契约 `application/contract/dto`（`dto.SessionStatus`）：本包以别名
-// 保持 model 侧的读法，**不再定义第二份词表**。落盘那一侧（sessionstore 的
+// 词表只有一份，住在契约 `contract/dto`（`dto.SessionStatus`）：本包以别名
+// 保持 model 侧的读法，**不再定义第二份词表**。落盘那一侧（store 的
 // `Status` 字符串）在契约之下，转换点见 `internal/adapters` 的 `sessionStatusOfRecord`。
 type SessionStatus = dto.SessionStatus
 

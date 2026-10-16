@@ -5,32 +5,32 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // gapEvents 构造 N 个完整协议单元的事件流（user → assistant 文本轮）。
-func gapEvents(units int) []sessionstore.Event {
-	var events []sessionstore.Event
+func gapEvents(units int) []store.Event {
+	var events []store.Event
 	for index := 0; index < units; index++ {
 		content := "round " + string(rune('A'+index))
 		events = append(events,
-			sessionstore.Event{Seq: uint64(index*2 + 1), Role: "user", Content: content},
-			sessionstore.Event{Seq: uint64(index*2 + 2), Role: "assistant", Content: "reply to " + content},
+			store.Event{Seq: uint64(index*2 + 1), Role: "user", Content: content},
+			store.Event{Seq: uint64(index*2 + 2), Role: "assistant", Content: "reply to " + content},
 		)
 	}
 	return events
 }
 
-func gapStackRecord(t *testing.T, frames ...sessionstore.CompactFrame) sessionstore.SessionContextRecord {
+func gapStackRecord(t *testing.T, frames ...store.CompactFrame) store.SessionContextRecord {
 	t.Helper()
-	return sessionstore.SessionContextRecord{CompactStack: frames}
+	return store.SessionContextRecord{CompactStack: frames}
 }
 
 func TestCoverHistoryGapCoversUncompactedRegion(t *testing.T) {
 	// 10 个单元（索引 0..9），压缩栈覆盖到 To=2，尾窗从单元 7 开始
 	// → 真空区 = 单元 3..6（栈顶To+1 .. 尾窗起点-1）。
 	stack := NewMemoryCompactStack()
-	record := gapStackRecord(t, sessionstore.CompactFrame{
+	record := gapStackRecord(t, store.CompactFrame{
 		SegmentID: "compact-a-1", From: 0, To: 2, Summary: "先前压缩内容",
 	})
 	result, err := CoverHistoryGap(context.Background(), GapCoverageOptions{
@@ -72,7 +72,7 @@ func TestCoverHistoryGapNoStackCoversHead(t *testing.T) {
 	stack := NewMemoryCompactStack()
 	result, err := CoverHistoryGap(context.Background(), GapCoverageOptions{
 		AllEvents: gapEvents(6), TailStartUnit: 4,
-		Record: sessionstore.SessionContextRecord{}, Stacks: stack,
+		Record: store.SessionContextRecord{}, Stacks: stack,
 	})
 	if err != nil {
 		t.Fatalf("cover gap: %v", err)
@@ -85,7 +85,7 @@ func TestCoverHistoryGapNoStackCoversHead(t *testing.T) {
 
 func TestCoverHistoryGapNoGapWhenStackCoversWindowStart(t *testing.T) {
 	// 栈顶 To=7 已覆盖到尾窗起点 7 → 无真空区。
-	record := gapStackRecord(t, sessionstore.CompactFrame{SegmentID: "compact-a-1", From: 0, To: 7, Summary: "全覆盖"})
+	record := gapStackRecord(t, store.CompactFrame{SegmentID: "compact-a-1", From: 0, To: 7, Summary: "全覆盖"})
 	result, err := CoverHistoryGap(context.Background(), GapCoverageOptions{
 		AllEvents: gapEvents(10), TailStartUnit: 7, Record: record,
 		Stacks: NewMemoryCompactStack(),
@@ -102,7 +102,7 @@ func TestCoverHistoryGapNoGapWhenEverythingLoaded(t *testing.T) {
 	// 尾窗从单元 0 开始（装载了全部单元）→ gapEnd < 0，无真空区。
 	result, err := CoverHistoryGap(context.Background(), GapCoverageOptions{
 		AllEvents: gapEvents(4), TailStartUnit: 0,
-		Record: sessionstore.SessionContextRecord{}, Stacks: NewMemoryCompactStack(),
+		Record: store.SessionContextRecord{}, Stacks: NewMemoryCompactStack(),
 	})
 	if err != nil {
 		t.Fatalf("cover gap: %v", err)
@@ -118,7 +118,7 @@ func TestCoverHistoryGapRepeatedCoverageIsIdempotent(t *testing.T) {
 	stack := NewMemoryCompactStack()
 	opts := GapCoverageOptions{
 		AllEvents: gapEvents(10), TailStartUnit: 7,
-		Record: sessionstore.SessionContextRecord{}, Stacks: stack,
+		Record: store.SessionContextRecord{}, Stacks: stack,
 	}
 	first, err := CoverHistoryGap(context.Background(), opts)
 	if err != nil || !first.Covered {
@@ -145,7 +145,7 @@ func TestCoverHistoryGapRestoresCoverageContiguity(t *testing.T) {
 	stack := NewMemoryCompactStack()
 	opts := GapCoverageOptions{
 		AllEvents: all, TailStartUnit: 9, Stacks: stack, SessionID: "sess-c",
-		Record: gapStackRecord(t, sessionstore.CompactFrame{
+		Record: gapStackRecord(t, store.CompactFrame{
 			SegmentID: "compact-a-1", From: 0, To: 3, Summary: "基线帧",
 		}),
 	}
@@ -202,7 +202,7 @@ func TestCoverHistoryGapRejectsInputsOutsideUnitSpace(t *testing.T) {
 			result, err := CoverHistoryGap(context.Background(), GapCoverageOptions{
 				AllEvents:     gapEvents(units),
 				TailStartUnit: tc.tailStart,
-				Record: gapStackRecord(t, sessionstore.CompactFrame{
+				Record: gapStackRecord(t, store.CompactFrame{
 					SegmentID: "compact-a-1", From: 0, To: tc.topTo, Summary: "基线帧",
 				}),
 				Stacks: stack,
@@ -233,7 +233,7 @@ func TestCoverHistoryGapRejectsInputsOutsideUnitSpace(t *testing.T) {
 			result, err := CoverHistoryGap(context.Background(), GapCoverageOptions{
 				AllEvents:     gapEvents(units),
 				TailStartUnit: units,
-				Record: gapStackRecord(t, sessionstore.CompactFrame{
+				Record: gapStackRecord(t, store.CompactFrame{
 					SegmentID: "compact-a-1", From: 0, To: tc.topTo, Summary: "基线帧",
 				}),
 				Stacks: stack,
@@ -251,14 +251,14 @@ func TestCoverHistoryGapRejectsInputsOutsideUnitSpace(t *testing.T) {
 func TestCoverHistoryGapEmptyInputs(t *testing.T) {
 	stack := NewMemoryCompactStack()
 	if result, err := CoverHistoryGap(context.Background(), GapCoverageOptions{
-		AllEvents: nil, TailStartUnit: 0, Record: sessionstore.SessionContextRecord{}, Stacks: stack,
+		AllEvents: nil, TailStartUnit: 0, Record: store.SessionContextRecord{}, Stacks: stack,
 	}); err != nil || result.Covered {
 		t.Fatalf("empty events must not cover: %+v %v", result, err)
 	}
 	// 有事件但尾窗为空（startUnit == 单元总数）→ 全部单元都是真空区。
 	result, err := CoverHistoryGap(context.Background(), GapCoverageOptions{
 		AllEvents: gapEvents(3), TailStartUnit: 3,
-		Record: sessionstore.SessionContextRecord{}, Stacks: stack,
+		Record: store.SessionContextRecord{}, Stacks: stack,
 	})
 	if err != nil || !result.Covered || result.Frame.To != 2 {
 		t.Fatalf("empty tail must cover everything: %+v %v", result, err)
@@ -267,9 +267,9 @@ func TestCoverHistoryGapEmptyInputs(t *testing.T) {
 
 func TestCoverHistoryGapEvidenceAndTurns(t *testing.T) {
 	// 4 个单元：unit0 = user + 工具链（含 tool 结果），unit1..3 = user+assistant 文本轮。
-	events := []sessionstore.Event{
+	events := []store.Event{
 		{Seq: 1, Role: "user", Content: "请读取窗口大小"},
-		{Seq: 2, Role: "assistant", ToolCalls: []sessionstore.EventToolCall{{ID: "call-1", Name: "read_window"}}},
+		{Seq: 2, Role: "assistant", ToolCalls: []store.EventToolCall{{ID: "call-1", Name: "read_window"}}},
 		{Seq: 3, Role: "tool", ToolCallID: "call-1", Name: "read_window", ResultRef: "result:abc"},
 		{Seq: 4, Role: "user", Content: "好的"},
 		{Seq: 5, Role: "assistant", Content: "继续"},
@@ -283,7 +283,7 @@ func TestCoverHistoryGapEvidenceAndTurns(t *testing.T) {
 
 	result, err := CoverHistoryGap(context.Background(), GapCoverageOptions{
 		AllEvents: events, TailStartUnit: 2,
-		Record: sessionstore.SessionContextRecord{}, Stacks: stack,
+		Record: store.SessionContextRecord{}, Stacks: stack,
 		SessionID: "sess-2", Turns: archiver,
 	})
 	if err != nil {

@@ -5,11 +5,11 @@ package model
 import (
 	"fmt"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // AccountRole represents the task category an account is used for
-// （类型本体下沉 application/contract/dto）。
+// （类型本体下沉 contract/dto）。
 type AccountRole = dto.AccountRole
 
 const (
@@ -68,7 +68,7 @@ type AccountSpec struct {
 	Role            AccountRole
 }
 
-// ReasoningEffortSession 与角色默认思考强度统一登记在 application/contract/dto
+// ReasoningEffortSession 与角色默认思考强度统一登记在 contract/dto
 // （跨层契约：seelebridge 与 application 都要用，而 application 依赖 seelebridge，
 // 反向引用成环，故落在两边都引的叶子包）。这里按本包既有习惯（AccountRole 也是
 // 这样）再导出一次，免得调用方同时引两个包。

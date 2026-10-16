@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"github.com/RedHuang-0622/seelex/backend/limit/policy"
 	"os"
 	"os/exec"
 	"runtime"
@@ -20,21 +21,9 @@ import (
 //
 // 因此：装配期解析一次（进程内缓存），执行层、模型面、权限表**读同一份结论**。
 
-// ShellKind 是执行壳的类别：模型面与权限表按它分派方言。
-type ShellKind string
-
-const (
-	// ShellBash 是 POSIX 方言的壳（Git Bash / 系统 bash / sh）。
-	ShellBash ShellKind = "bash"
-	// ShellPowerShell 是 Windows PowerShell（本机 bash 不可用时的兜底之一）。
-	ShellPowerShell ShellKind = "powershell"
-	// ShellCmd 是 cmd.exe（最后兜底）。
-	ShellCmd ShellKind = "cmd"
-)
-
 // ShellFact 是**唯一一份**实际壳结论：谁需要知道"命令会被谁执行"，都读它。
 type ShellFact struct {
-	Kind ShellKind
+	Kind policy.ShellKind
 	// Path 是壳的可执行文件路径。
 	Path string
 	// Name 是给人/模型看的名字（如 "Windows PowerShell 5.1"）。
@@ -66,33 +55,33 @@ func resolveShellFact() ShellFact {
 			`C:\Program Files (x86)\Git\bin\bash.exe`,
 		} {
 			if security.FileExists(bash) {
-				return ShellFact{Kind: ShellBash, Path: bash, Name: "Git Bash"}
+				return ShellFact{Kind: policy.ShellBash, Path: bash, Name: "Git Bash"}
 			}
 		}
 		if bash, err := exec.LookPath("bash"); err == nil && !security.IsWSLBash(bash) {
-			return ShellFact{Kind: ShellBash, Path: bash, Name: "bash"}
+			return ShellFact{Kind: policy.ShellBash, Path: bash, Name: "bash"}
 		}
 	}
 	if _, err := os.Stat("/bin/bash"); err == nil {
-		return ShellFact{Kind: ShellBash, Path: "bash", Name: "bash"}
+		return ShellFact{Kind: policy.ShellBash, Path: "bash", Name: "bash"}
 	}
 	if powershell := `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`; security.FileExists(powershell) {
 		// 路径里的 v1.0 是 Windows PowerShell 的安装版本号，实际是 5.x——查一次版本要
 		// 起一个进程（几百毫秒），装配期不值得，这里按路径给名字。
-		return ShellFact{Kind: ShellPowerShell, Path: powershell, Name: "Windows PowerShell 5.x"}
+		return ShellFact{Kind: policy.ShellPowerShell, Path: powershell, Name: "Windows PowerShell 5.x"}
 	}
 	if commandPrompt := `C:\Windows\System32\cmd.exe`; security.FileExists(commandPrompt) {
-		return ShellFact{Kind: ShellCmd, Path: commandPrompt, Name: "cmd.exe"}
+		return ShellFact{Kind: policy.ShellCmd, Path: commandPrompt, Name: "cmd.exe"}
 	}
-	return ShellFact{Kind: ShellBash, Path: "sh", Name: "sh"}
+	return ShellFact{Kind: policy.ShellBash, Path: "sh", Name: "sh"}
 }
 
 // shellCommandArgs 按壳的方言把一条命令折成 argv 尾巴（唯一一处方言表）。
-func shellCommandArgs(kind ShellKind, command string) []string {
+func shellCommandArgs(kind policy.ShellKind, command string) []string {
 	switch kind {
-	case ShellPowerShell:
+	case policy.ShellPowerShell:
 		return []string{"-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command}
-	case ShellCmd:
+	case policy.ShellCmd:
 		return []string{"/d", "/s", "/c", command}
 	default:
 		return []string{"-c", command}
@@ -102,12 +91,12 @@ func shellCommandArgs(kind ShellKind, command string) []string {
 // DialectHint 是工具描述里那句"你写命令时该用什么语法"。
 func (f ShellFact) DialectHint() string {
 	switch f.Kind {
-	case ShellPowerShell:
+	case policy.ShellPowerShell:
 		return "This host executes bash commands through " + f.Name +
 			": POSIX-only commands/flags (`ls -la`, `head`, `tail`, `grep`, `which`, `printenv`) " +
 			"do NOT work — use `Get-ChildItem`, `Get-Content`, `Select-String`, `Select-Object -First`, " +
 			"`Where-Object`, `Test-Path`, and prefer `rg` for searching."
-	case ShellCmd:
+	case policy.ShellCmd:
 		return "This host executes bash commands through cmd.exe: use cmd syntax " +
 			"(`dir`, `type`, `findstr`, `where`); POSIX commands/flags do NOT work."
 	default:
@@ -121,13 +110,13 @@ func (f ShellFact) PromptSection() string {
 	builder.WriteString("## Environment\n\n")
 	builder.WriteString("- Host shell for the `bash` / `bash_bg` tools: **" + f.Name + "** (`" + f.Path + "`).\n")
 	switch f.Kind {
-	case ShellPowerShell:
+	case policy.ShellPowerShell:
 		builder.WriteString("- Write those commands in **PowerShell** syntax: `ls -la`, `head`, `tail`, `grep`, " +
 			"`which`, `printenv` are not available. Use `Get-ChildItem`, `Get-Content`, `Select-String`, " +
 			"`Select-Object -First`, `Test-Path`; search with `rg`.\n")
 		builder.WriteString("- Commands in the POSIX style will be accepted by the approval layer and then fail at " +
 			"execution: the approval whitelist and this line come from the same resolved shell.\n")
-	case ShellCmd:
+	case policy.ShellCmd:
 		builder.WriteString("- Write those commands in **cmd.exe** syntax (`dir`, `type`, `findstr`, `where`); " +
 			"POSIX commands will fail at execution.\n")
 	default:

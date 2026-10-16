@@ -6,8 +6,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/contract"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // releaseSessionAsync 把"这个会话没有了"转告执行域：杀掉它名下所有在途后台命令。

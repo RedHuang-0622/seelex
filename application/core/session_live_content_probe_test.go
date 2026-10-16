@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/contract"
+	"github.com/RedHuang-0622/seelex/contract"
 )
 
 // stagedChatEngine 分两段流式输出：第一段在提交后立即到达，第二段在

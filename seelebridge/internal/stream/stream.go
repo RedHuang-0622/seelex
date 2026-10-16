@@ -16,8 +16,8 @@ import (
 	"github.com/RedHuang-0622/Seele/agent/bridge"
 	"github.com/RedHuang-0622/Seele/types"
 
-	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 
 	"github.com/RedHuang-0622/seelex/seelebridge/account"
 )
@@ -59,8 +59,8 @@ type RoutingNotice struct {
 
 // RoutingNotice 的 Reason 取值。
 const (
-	ReasonRequest          = "request"
-	ReasonFailover         = "failover"
+	ReasonRequest           = "request"
+	ReasonFailover          = "failover"
 	ReasonUnpinnedSelection = "unpinned_selection"
 )
 

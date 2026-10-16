@@ -27,8 +27,8 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
+	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
 // headlessEnvPort 是启用 headless 冒烟接口的环境变量（回环端口号）。
@@ -340,8 +340,8 @@ func (server *headlessServer) dispatch(method string, args []json.RawMessage) (a
 }
 
 // roleRPCApplication 是 Application 的 R2/R4 群聊角色扩展面（headless
-// 冒烟/巡检透传；真实排序/幂等/floor 仍由 sessionstore 执行）。
-// S27 收口：接口只用 application/contract/dto 纯 DTO，gui 不 import 存储包。
+// 冒烟/巡检透传；真实排序/幂等/floor 仍由 store 执行）。
+// S27 收口：接口只用 contract/dto 纯 DTO，gui 不 import 存储包。
 type roleRPCApplication interface {
 	CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (dto.RoleSessionInfo, error)
 	AppendRoleDraft(mainSessionID, roleName, roleSessionID string, rows []dto.RoleDraftRow) error

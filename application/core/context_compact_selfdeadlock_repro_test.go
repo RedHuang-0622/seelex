@@ -42,7 +42,7 @@ import (
 	types "github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
-	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // archiverSessionsStub 是 CompressedTurnArchiver.Sessions 需要的写通道
@@ -52,7 +52,7 @@ type archiverSessionsStub struct {
 	commits int
 }
 
-func (stub *archiverSessionsStub) SaveCommitWorkspace(_, _ string, _ sessionstore.Commit) error {
+func (stub *archiverSessionsStub) SaveCommitWorkspace(_, _ string, _ store.Commit) error {
 	stub.mu.Lock()
 	defer stub.mu.Unlock()
 	stub.commits++
