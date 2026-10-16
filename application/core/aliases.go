@@ -1,9 +1,9 @@
 package core
 
 import (
-	cc "github.com/RedHuang-0622/seelex/application/core/context_control"
-	"github.com/RedHuang-0622/seelex/application/core/input_router"
 	"github.com/RedHuang-0622/seelex/application/prompt"
+	"github.com/RedHuang-0622/seelex/backend/engine/input"
+	cc "github.com/RedHuang-0622/seelex/backend/engine/input/contextcontrol"
 	limitapproval "github.com/RedHuang-0622/seelex/backend/limit/approval"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/middle/protocol/event"

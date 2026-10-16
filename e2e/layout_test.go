@@ -14,8 +14,8 @@ import (
 
 var repositoryModules = []string{
 	".", ".claude", ".github", "application", "contract",
-	"application/core", "application/core/chat", "application/core/context_control",
-	"application/core/context_runtime", "application/core/input_router",
+	"application/core", "application/core/chat", "backend/engine/input/contextcontrol",
+	"application/core/context_runtime", "backend/engine/input",
 	"kernel/state",
 	"backend/engine/prompt", "application/core/session_runtime",
 	"middle/view/subagent", "backend/engine/task",

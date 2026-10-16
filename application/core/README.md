@@ -10,10 +10,12 @@
 `docs/2026-08-22-application-split/plan.md`）：
 
 - 零依赖叶子域：`chat/`（流式批次与可见输出）、`../../middle/view/worktable/`（表格增量 CSP
-  汇聚发布器）、`input_router/`（命令注册表 + 输入路由）、`context_control/`
-  （窗口策略配置加载）。（`resume/`（未完成工作恢复模板：七步顺序 + 幂等键 + 可审计
+  汇聚发布器）。（`resume/`（未完成工作恢复模板：七步顺序 + 幂等键 + 可审计
   Report，领域实现走 `Port`）已于 2026-10-16 随 M5-R8b 归位
   [`backend/multiagent/resume`](../../backend/multiagent/resume/README.md)。）
+  （`input_router/`（命令注册表 + 输入路由）与 `context_control/`（窗口策略配置加载）已于
+  2026-10-16 随 M5-R7 归位 [`backend/engine/input`](../../backend/engine/input/README.md)
+  与 [`backend/engine/input/contextcontrol`](../../backend/engine/input/contextcontrol/README.md)。）
   （`govern/` 曾是"多代理回合制治理循环抽象：座次/轮次/断环"，已随
   2026-10-03 的 goal 席位轮转退场整包删除。）
 - 有状态域协调器：`session_runtime/`（会话持久化/目录/项目绑定）、
@@ -62,8 +64,8 @@ flowchart TB
     subgraph LEAF["零依赖叶子域"]
         CHAT["chat"]
         WT["middle/view/worktable"]
-        IR["input_router"]
-        CC["context_control"]
+        IR["backend/engine/input"]
+        CC["backend/engine/input/contextcontrol"]
         RES["resume"]
     end
 
@@ -178,8 +180,8 @@ flowchart LR
 |---|---|
 | [chat/](chat/README.md) | 流式批次管道（`StreamBatcher`）与 `<think>` 可见输出剥离 |
 | [../../middle/view/worktable/](../../middle/view/worktable/README.md) | worktable.changed CSP 汇聚发布器（latest-wins、背压、关闭排空尾态） |
-| [input_router/](input_router/README.md) | 命令注册表与输入路由 |
-| [context_control/](context_control/README.md) | 窗口策略配置加载 |
+| [../../backend/engine/input/](../../backend/engine/input/README.md) | 命令注册表与输入路由（M5-R7 归位，包名 `input_router`） |
+| [../../backend/engine/input/contextcontrol/](../../backend/engine/input/contextcontrol/README.md) | 窗口策略配置加载（M5-R7 归位，包名 `context_control`；plan 原写与本包同目录，一目录两包不成立，按"一包一目录"落成子目录） |
 | [session_runtime/](session_runtime/README.md) | 会话持久化/目录/项目绑定协调器 |
 | [../../backend/engine/task/](../../backend/engine/task/README.md) | 任务执行/checkpoint/transcript/token 审计协调器（M5-R7 归位，包名 `task_context`） |
 | [context_runtime/](context_runtime/README.md) | provider 上下文装配/压缩/历史安全协调器 |
