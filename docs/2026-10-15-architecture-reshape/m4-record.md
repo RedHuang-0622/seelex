@@ -200,6 +200,26 @@ io 组 6（含 e2e 门面闭包清单与 `layout_test.go` 的模块清单）。
 | D-M4-12 | 散文引用是一类独立于"路径字面量"的漂移面：`见 seelebridge/xxx.Fn`、`` `seelebridge/yyy` `` 这类写法既有编译器看不见，也**部分**被 README 门禁漏掉（门禁只查带文件后缀的字面量与 md 链接） | 已补工具 `tmp/reshape/m4_bare_refs.py`（带词边界）+ 跨 commit 审计 |
 | D-M4-13 | 提交时漏暂存根级文件 ⇒ 单个提交的树里出现悬空注释（编译不受影响） | 已补 `e525aa6e`；后续按脚本报告清单逐条 `git add` |
 
+## 7. 追加三片（B / T1 / T2）与两条新偏差
+
+| commit | 内容 | 证据要点 |
+|---|---|---|
+| `531de9f6` | **B 片**：`seelebridge/security`（7 生产文件 909 行）→ `backend/limit/gate/`（包名仍为 `security`） | V9 的前置依据：那次 security 改动已落地（`554cd976`，2026-10-15 23:39，改 `process_tree_windows.go` 与其用例），且该目录无未提交改动。引用改写 16 文件（含 `seelebridge/{runtime,scheduler,tools}`、`backend/tool/worktree`、`internal/docker`、`tool_full_chain_test.go`、e2e 两条清单） |
+| `77430c23` | **T1 片**：`seelebridge/json_object.go`（176 行）+ 用例 → `internal/jsonobj/`，入口改名 `decodeJSONObjectLenient` → `DecodeLenient` | plan §2.5 点名的第一块"模块级叶子"。facade 闭包按"新模块可 +1"抬到 71（自身闭包 = 纯标准库）；新包 README 里对原文件的引用带"已移除"标记，漂移新增 0 |
+| `fd96de6f` | **T2 片**：删除 `seelebridge/internal/mapper`（19 行 + README），唯一函数 `ToolEventToDTO` **就地内联**进唯一调用方 `runtime_live.go` 的 `toolEventToDTO` | plan §2.10 明写"删"。删后 `seelebridge/internal/` 整个目录消失；facade 闭包允许清单删条目、**上限跟着降** 71 → 70 |
+| `421a1201` | 修 `531de9f6`/`da34e1c1` 两处**毯式替换的语义损伤** | 见 D-M4-15 |
+| `17c8da1c` | 决策简报（四项待裁决 + J 片设计前提，各附证据与建议） | [m4-decision-brief.md](m4-decision-brief.md) |
+
+| ID | 新增偏差 | 处置 |
+|---|---|---|
+| D-M4-14 | `backend/limit/gate/` 的**目录名与包名不一致**（目录按 plan §2.8 取名 `gate`，包名保持 `security`） | 只挪目录不动标识符（§5.1"改名不是搬迁"）；是否把包名统一到 `gate` 留给用户（M3 有过 `sessionstore`→`store` 这类**成对改名**的先例，但那要连字符串形式的门禁一起改） |
+| D-M4-15 | **毯式路径替换会伤到语义**：plan/历史的引述句被一起改掉（`backend/limit/README.md` 那条"规划，尚未实现：seelebridge/security → gate/"被改成自指废句；`loop_test.go` 注释"迁移前 seelebridge/fork"里的**历史名**也被替换） | 两处已按语义重写（`421a1201`）；其余 66+7 处逐行看过。后续规则：时间/计划引述句里的旧路径**不要**跟着改 |
+| D-M4-16 | facade 闭包上限一次上抬（`internal/jsonobj` 新模块 +1：70 → 71），同片 T2 又因删包降回 70 | 上下限都写进常量处的理由，来源可查 |
+
+**本片结束时的实况**：`seelebridge/` 只剩 **6 个包**——`mcp`、`plugin`、`scheduler`、`teamwork`、
+`tools`、`workunit`（外加 `.seelex/` 数据目录）；`seelebridge/internal/` 已整体消失。
+根包仍是 53 个生产文件 / 13,373 行，等 J 片。
+
 | ID | 事项 | 处置 |
 |---|---|---|
 | D-M4-1 | 首轮替换脚本把 `docs/research/**`、`docs/test/**` 的路径也改写了（这两类是"把当时状态固定下来"的记录）。已 `git checkout` 还原，并把这两类目录加入脚本跳过清单，与 M3 §8.4 登记的口径一致 | 已修 |
