@@ -69,6 +69,17 @@ func (r *Runtime) SetEventPersister(fn func(context.Context, frameworkevent.Even
 	}
 }
 
+// currentEventPersister 返回装配期注入的事实持久化钩子（可能为 nil =
+// 宿主没接 store 事件库；此时作业事件流静默不落库，不报错）。
+func (r *Runtime) currentEventPersister() func(context.Context, frameworkevent.Event) error {
+	if r == nil {
+		return nil
+	}
+	r.eventPersisterMu.Lock()
+	defer r.eventPersisterMu.Unlock()
+	return r.eventPersister
+}
+
 // SetPlanCheckpointStore 装配 workplan checkpoint 持久化（store 实现；
 // plan_run 结束后落最终快照，ResumePlan 从快照续跑）。
 func (r *Runtime) SetPlanCheckpointStore(st workplancheckpoint.Store) {

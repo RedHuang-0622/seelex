@@ -8,6 +8,7 @@ import (
 
 	frameworkevent "github.com/RedHuang-0622/Seele/event"
 	"github.com/RedHuang-0622/Seele/jobs"
+	tooljobs "github.com/RedHuang-0622/seelex/backend/tool/jobs"
 )
 
 // TestJobsEventStreamProjectsLifecycleIntoSessionLog 钉住任务 0 的回退口径：
@@ -42,7 +43,7 @@ func TestJobsEventStreamProjectsLifecycleIntoSessionLog(t *testing.T) {
 	signals := newTeamworkJobSignals()
 	signals.start(manager.Events())
 	t.Cleanup(signals.close)
-	stream := newJobsEventStream(manager, func() func(context.Context, frameworkevent.Event) error {
+	stream := tooljobs.NewEventStream(manager, func() func(context.Context, frameworkevent.Event) error {
 		return func(_ context.Context, event frameworkevent.Event) error {
 			mu.Lock()
 			appends = append(appends, event)
@@ -50,8 +51,8 @@ func TestJobsEventStreamProjectsLifecycleIntoSessionLog(t *testing.T) {
 			return nil
 		}
 	}, signals.subscribe())
-	stream.start()
-	t.Cleanup(stream.close)
+	stream.Start()
+	t.Cleanup(stream.Close)
 
 	statuses := func() map[frameworkevent.Status]bool {
 		mu.Lock()
@@ -92,8 +93,8 @@ func TestJobsEventStreamProjectsLifecycleIntoSessionLog(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	for _, event := range appends {
-		if event.Source != jobsEventSource {
-			t.Fatalf("source = %q, want %q", event.Source, jobsEventSource)
+		if event.Source != tooljobs.EventSource {
+			t.Fatalf("source = %q, want %q", event.Source, tooljobs.EventSource)
 		}
 		if event.Type != frameworkevent.TypeLifecycle {
 			t.Fatalf("type = %q, want lifecycle", event.Type)

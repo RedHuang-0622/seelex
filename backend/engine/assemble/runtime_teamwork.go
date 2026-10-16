@@ -30,6 +30,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/jobs"
 	"github.com/RedHuang-0622/Seele/jobs/builtin"
+	tooljobs "github.com/RedHuang-0622/seelex/backend/tool/jobs"
 
 	"github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
@@ -86,7 +87,7 @@ func (r *Runtime) SetTeamworkBackend(backend TeamworkBackend) error {
 	if err != nil {
 		return fmt.Errorf("teamwork: 装配 jobs.Manager 失败: %w", err)
 	}
-	// 作业事件流（Seelex 侧构建，见 jobs_events.go）：订阅 jobs.Events() 的变更
+	// 作业事件流（Seelex 侧构建，实现在作业域 backend/tool/jobs/event_stream.go）：订阅 jobs.Events() 的变更
 	// 信号，把在册作业的新状态按会话追加到事件库——框架侧不发事件（event.Sink 在
 	// 构造期定不下会话、序号全局，只 append 不到尾部）。
 	// 停机顺序 = 登记逆序：先登记 manager.Close、后登记 stream.close，于是停机时
@@ -98,7 +99,7 @@ func (r *Runtime) SetTeamworkBackend(backend TeamworkBackend) error {
 	signals := newTeamworkJobSignals()
 	signals.start(manager.Events())
 	appJobEvents := signals.subscribe()
-	stream := newJobsEventStream(manager, r.currentEventPersister, signals.subscribe())
+	stream := tooljobs.NewEventStream(manager, r.currentEventPersister, signals.subscribe())
 	r.teamworkMu.Lock()
 	r.teamworkBackend = &backend
 	r.teamworkJobs = manager
@@ -106,10 +107,10 @@ func (r *Runtime) SetTeamworkBackend(backend TeamworkBackend) error {
 	r.teamworkJobSignals = signals
 	r.teamworkJobEvents = appJobEvents
 	r.lifecycle = append(r.lifecycle, func() { _ = manager.Close(context.Background()) })
-	r.lifecycle = append(r.lifecycle, stream.close)
+	r.lifecycle = append(r.lifecycle, stream.Close)
 	r.lifecycle = append(r.lifecycle, signals.close)
 	r.teamworkMu.Unlock()
-	stream.start()
+	stream.Start()
 	// 装配即注册 leader 工具面：RegisterBuiltins 在组合根更早处跑（那时 router /
 	// workspace 还没就绪），因此工具注册跟在 backend 注入之后。
 	r.registerTeamworkTools()
