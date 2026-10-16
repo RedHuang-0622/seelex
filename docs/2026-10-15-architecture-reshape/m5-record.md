@@ -1505,3 +1505,29 @@ README 有未解析引用**（共 59 个里），全部是**搬迁留下的路�
 | `runtime_session_release.go`（84） | `middle/switch` | **部分可搬**：释放窗口的三条拒绝判据 + 残格清单 |
 | `runtime_session.go` / `role_host_session.go` / `runtime_history.go` / `runtime_visibility.go` / `runtime_bundle.go` / `runtime_deps.go` / `runtime_task.go` / `runtime_schedule.go` / `runtime_node.go` / `runtime_mcp.go` / `runtime_plugin.go` / `runtime_computer.go` | 各异 | **判定为装配面（不搬）**：它们是宿主状态的取值/转发/注册（bundles 注册表、调度 actor 转发、节点只读面、MCP/插件装载、工具注册、端口宿主面），符合 AGENTS §8.4"具体实现在装配处注入"；逐文件的理由见各自 README 的行注 |
 | `runtime_subagent_session.go` / `runtime_live.go` / `runtime_teammate_session_live.go` / `runtime_account.go` / `runtime_async.go` / `events*.go` / `runtime_goal_tl.go` / `runtime_project_board.go` / `runtime_role_prompt.go` | — | **已归位**（P21-1…15），本表不再列 |
+
+
+## 39. P21 续片（2026-10-17 第七轮：P21-16 / P21-17 / P21-18）
+
+| 片 | 内容 | 提交 |
+|---|---|---|
+| P21-16 | **恢复链判据 + 恢复说明容器** → `backend/workunit/recovery.go`：`KindOf`（记录身份三段顺序：写明的身份 → 团队现场名单兜底 → 认不得的词按既有链归类并把词交回调用方留痕）、`RecoveryStrategy` + `RestoreDeps{SceneNodes, Strategies, Log}` + `RestoreUnits` 分派、`ResumeNotes` 容器（`Set`/`Take` 读完即消/`Peek`/`Clear`）。装配层只留两层策略的**宿主动作**（详情数据面 / 子代理树 / 现场登记）与分派接线，`resume_notes.go` **删除**（容器改 `workunit.ResumeNotes`，subagent 与 teammate 的键语义留在各自调用点）。域级 5 条新用例 | `f1a16b0c` |
+| P21-17 | **上下文面判据** → `backend/engine/context/wiring.go`：`ReplayInputTokens`（旋钮零值语义：未配置才走窗口 3/4）、`NewCompactionSummarizer`（三条 nil 出口各带理由文案）、`WindowTailBudget`（读尾预算 + 轮数回退）、`CoverHistoryGap` + `GapCoverageDeps`（**没有压缩基线就不补真空区**）、`RelatedMemoryBlocks`（候选 → 词法选取 → 渲染，无命中不注入）。装配层保留**组件工厂**（把宿主 limits/completer/会话上下文存储/窗口策略接成构造参数）与五个一行转发。域级 5 条新用例 | `8e6062fc` |
+| P21-18 | **插件装配判据** → `backend/multiagent/team/plugin_assembly.go`：`ResolvePluginAssembly`（显式声明替换集合 → 角色自带 → 空集不覆盖）、`NormalizePluginNames`（读侧规范化）、`ValidateMemberPlugins`（编排入口四条显式拒绝）、`PluginFaceJudgement` 三形态（读数面与运行面同源；**失灵一个都不给**）。装配层留宿主读数面与装配读数，判据处改走同身份别名（函数值别名 ×2 + 类型别名 ×1 —— 既有调用点与用例零改动）。域级 4 条新用例 | `42fa029d` |
+
+**§38 表的两处更新（按本轮实际落地修正）**：
+
+- `runtime_context.go` 一行由"可搬（下一批）"改为**已搬判据**（P21-17；组件工厂按 §8.4 留在装配处）；
+- `runtime_role_plugins.go` 一行由"部分可搬"改为**判据已搬**（P21-18；宿主读数面与装配读数留在装配处）。
+
+**仍待办（按价值排序）**：`runtime_subagent_resume.go` 的判据（Locate 状态折算 / Scene 摘要回退 /
+Note 组合 / 重跑目标回退 / 幂等收敛）、`runtime_plan.go` 的分支账号与节点会话号派生、
+`runtime_session_release.go` 的三条拒绝判据（→ `middle/switch`）、`workunit_*` 其余判据、
+`runtime_role_turn.go` 的回合构造口径、`runtime_tools.go` 的项目作用域词表。
+
+**新暴露（未动，等裁决）**：`stableHash`（`assemble/runtime_plan.go`）与 `account.StableIndex`
+（`backend/engine/account/account.go`）以及 `backend/tool/registry/permission_policy.go` 各有一份
+FNV-1a 32 位散列（**同一原语三处**）。它们的"判据"是同一个（用哪个散列算法、稳定不稳定），但**用途各不相同**
+（节点会话号派生 / 账号 pool 定序 / 权限策略摘要），且都是**兼容面**（换算法即换 nodeID / 换钉账号）。
+按 AGENTS §8.2 这属于"要不要并成一份共享原语"的取舍：并的收益是算法口径只有一处，代价是要新建一个共享包并
+触碰权限策略那处 —— **未动，等裁决**。
