@@ -972,4 +972,29 @@ worker 的 `work_table*` 改动暂时无法编译，与本片无关，走干净 
 `/root/r11_task_domain`（R11 第一片：task 域从 `assemble.Runtime` 拆出）与 `/root/p13_index_gen`
 （P13 生成器全仓化 + `--check`）都已落 progress 文件并开工。R10a（五组窄接口 + I5 断言，不碰 core）
 待空槽再派；R10b（删 `aliases.go`）必须等 core 静默（R6 片仍在动 core 文件）。
+
+## 25. M5-R6 第十三片：R6-async-completion（`9e07bc83`，含一次"重做"）
+
+| 项 | 内容 |
+|---|---|
+| 原位置 → 新唯一位置 | `application/core/async_completion.go` 的**触发判据** → `middle/switch/async.go`：终态词表（`AsyncCompletionTriggers`）、幂等账按表键前缀（`TeamworkTriggeredPrefix`）、teammate 作业表两个窄端口读取（`TeamworkJobCompletions` / `TeamworkJobEvents`，`runtime any` + 能力断言） |
+| 宿主留下什么 | 驱动链（全量扫描 + 幂等账裁剪 + `sessionIdleForAsyncTrigger` + 起回合）、两条**用户行正文**（`asyncCompletionPrompt` / `teamworkCompletionPrompt`）与 kind 展示词（`asyncPromptKind`）；`teamworkJobCompletions` / `teamworkJobEvents` 在 core 保留一行转发（`work_table.go` 调用点零改动）；`asyncStateDone/Failed` 两个常量在 core 保留为**词表命名**（判据在 middle） |
+| 登记偏差 | 两条正文与 kind 词表**本片不搬**：那张词表正被另一个在途切片搬去 `middle/view/worktable`（`worktable.PromptKind` **尚未提交**），现在搬就会造出第二份词表 |
+
+**一次"重做"与教训（重要）**：本片首版把并行 worker 对 `application/core/async_completion.go` 的**在途改动**
+（改用 `worktable.PromptKind`）一起提交了，并且我的新代码引用了同一个未提交符号 ⇒ **提交在干净 worktree 里
+编译不过**（主工作树里能过，因为工作树有那个未提交文件）。修正过程：
+
+1. 把该文件内容重置回 `c1f8fd45` 的原版 + 只施加本片改动（用脚本逐段删/替换，不看工作树版本）；
+2. middle 侧删掉对未提交符号的引用；
+3. 顺带修掉 core 里引用被搬走符号的**另一个测试文件**（`async_completion_trigger_test.go` 改用
+   `dto.AsyncState*` + `switching.AsyncCompletionTriggers`）；
+4. amend 后用**干净 worktree** 复核：`go build`/`go vet` 0、`go test ./e2e/` ok、
+   `middle/switch` 与 `application/core -run 'Async|Teamwork'` ok、`application/core` 全量 = 基线 3 例。
+
+纪律更新（写进下一轮的任务书与记录）：**提交前必须确认"待提交差异里没有别人的在途改动"**——
+`go build` 在工作树里过**不构成证据**（工作树有你引用的未提交文件）；判据是
+`git diff <parent> -- <file>` 的每一行都能归因到自己，且在**干净 worktree** 里 build/vet 过。
+另：本轮重置 `async_completion.go` 时，并行 worker 在该文件上的在途编辑（改用 `worktable.PromptKind`）
+被丢弃（它的 `middle/view/worktable/async.go` 仍在，重新应用代价很小）。
 R6 续做（尚未开始）：`runtime_projection`/`diagnostics`/`perf_stats` 三文件已是薄宿主缝（R5c 已把计算搬进 `middle/view`，只剩锁与取数）；其余按 plan §2.4 的落点继续搬
