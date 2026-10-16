@@ -746,3 +746,17 @@ mutate、组件在 mutate 里取自己的锁"，次序不会倒；`knobs_test.go
 **复核证据（本批结束时的实况）**：`go build ./...` 0、`-tags "gui,desktop,production"` 0、
 `go vet ./...` 0、`go test ./e2e/` ok、`go test ./backend/limit/... ./backend/multiagent/... ./test/` 全 ok；
 `application/core` 的失败集合 = 开工前就红的**基线 3 例**，无新增。
+
+## 13. M5 第二半（续 3）：R-tool-review（`72bd5d12`）
+
+| 项 | 内容 |
+|---|---|
+| 原位置 → 新唯一位置 | `application/core/review_files.go`（129 行）的落点本体 → `backend/tool/review/review.go`（`Requests` + `Host`） |
+| 门面留下什么 | `serviceReviewHost`（workspace 读面解析 / 召唤 ID 派发 / 会话归属 / 视图锁内写请求 / 快照发布）+ `RequestFileReview` / `ClearReviewRequest` 两个一行转发 |
+| 判据唯一 | `ClassifyReadError`（读失败 → `dto.ReviewSkip*` 的唯一分类表）、`NormalizeKey`、超限/空清单文案、`ProbeLimit`（64 KiB）都在新包，core 侧没有第二份 |
+| 通道不变 | 裁决仍走 `contract.WorkspaceFilePort.ReadFile(root, path, ProbeLimit)`——与前端点开文件行同一个 Port、同一处 root，沙盒边界仍只在 workspace 域一处实现 |
+| 锁纪律 | 裁决（含磁盘读）在锁外；写请求 + `bumpLocked` 由宿主在自己的视图锁内一次完成，发布在锁外（与迁移前同序） |
+| 门禁 | `e2e/layout_test.go` +1；`e2e/facade_boundary_test.go` +1、上限 77 → 78 |
+| 用例 | 新包 7 条（分类表 9 格 / 去重键 / 全跳过不碰宿主 / 无会话不发布 / 回退视图会话 / workspace 失败冒泡 / Clear 归属）；`application/core/review_files_test.go` 6 条端到端用例保持不动 |
+| 登记偏差 | plan §2.6 把"工具注册那一半"（`RegisterReviewFilesTool`，签名绑在 `*assemble.Runtime`）也点进本包 → 随 R11（`Runtime` 按域下沉）一起搬，本轮只搬落点 |
+| 复核 | 独立 worktree：`go build ./...` 0、`-tags "gui,desktop,production"` 0、`go vet ./...` 0、`go test ./e2e/` ok、`backend/tool/review` 与 `application/core -run Review` 全 ok |
