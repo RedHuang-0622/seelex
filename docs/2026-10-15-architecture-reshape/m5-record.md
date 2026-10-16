@@ -1233,7 +1233,7 @@ B 在 01:03 落盘 `middle/switch/interaction.go` + `interaction_test.go` 并把
 | 4 | R5b（工作表格域） | ✅ | `middle/view/worktable` 持有投影判据，宿主用例一行未改 |
 | 5 | R10a（门面五组窄接口） | ✅ | `go test ./e2e/ -run Facade` 全绿（含 I5） |
 | 6 | P13（README 索引全仓化 + 收尾） | ✅ | `--check` exit 0 |
-| 7 | **R10b**：删 `application/core/aliases.go`（234 行）+ core 内改限定名 | ⛔ **未做**（本轮后面做） | core 内不再有本地类型别名；`core.Command` 等被外部引用的别名要同时改指向 |
+| 7 | **R10b**：删 `application/core/aliases.go`（234 行）+ core 内改限定名 | ⚠ **已尝试、中止并登记（P22）** | 契约 §1.3 的前提不实：该文件是"别名 + 词表 const + 未导出 input 别名 + 8 个构造函数 + 5 个转发 helper"的混合体，实测 1736 处引用 / 247 文件。处置见 §31 |
 | 8 | **R6 余片**：`session_lifecycle.go`（`hotAttachSession`）、`session_release.go` 余项、`session_history.go` 剩余宿主部分、顶层 `session/` → `middle/switch/sessionusecase/` | ⛔ 未做 | plan §2.4 落点表 |
 | 9 | `service_scheduler.go` 参数默认值下沉 | ⏸ 前置未清 | 等 plan §1.5 的 `application/prompt/effort.go` → `backend/limit/{loop,effort}` |
 | 10 | M5 出口验收（全量 CI 等价） | ⛔ 未做 | `gofmt`/`go build`/`-tags`/`go vet`/`go test ./...`/`./test/`/`node --test gui/frontend/dist/*.test.mjs`/`hooks-selftest.sh` |
@@ -1279,3 +1279,33 @@ B 在 01:03 落盘 `middle/switch/interaction.go` + `interaction_test.go` 并把
    与 §29.7 的判定一致：它是**负载相关**的既有问题，不是搬迁引入。
 2. 验收通过 = M5 的**工程出口**（架构落位 + 能构建能跑用例）。清单上仍欠 **R10b** 与 **R6 余片**
    （见 §29.7 表第 7/8 行）——它们是"继续收窄"的增量工作，不影响本轮的"能正常运行"判据。
+
+## 31. R10b 的尝试与中止（2026-10-17，登记形态）
+
+**做了什么**：按契约 §1.3 的 R10b 实现了一遍"删 `aliases.go` + core 内改限定名"，机器半自动完成：
+
+- 普查（`tmp/reshape/r10b_census.py`）：91 个别名 → 目标；core 内 **1736 处**引用、分布 **247 个文件**；
+  外部以 `core.X` 引用这些别名 **12 处**（`application/application.go` 的 `Command`/`CommandResult`、
+  `application/faces.go` 的 6 个、`test/` 与 `wiring/registry` 各若干）。
+- 替换器（`tmp/reshape/r10b_rewrite.py`）：带状态机**只动代码态**（跳过行注释/块注释/双引号串/反引号串/字符字面量），
+  再按需补 import；dry-run 报"替换 1536 处 / 167 文件 / 补 import 245 条"
+  （1736 − 1536 ≈ 200 处落在注释与字符串里，正确跳过）。apply 之后编译器抓出两类误伤：
+  **方法定义名**（`func (service *Service) model.Snapshot()`，2 处）与**结构体字段名/字段键**
+  （23 处，`tmp/reshape/r10b_fix_fields.py` 修回）。
+
+**为什么中止**：
+
+1. **契约前提不实**：`aliases.go` 不只是别名——它还有词表 const 块、3 个未导出 input 别名、
+   **8 个构造函数**（`NewEventHub` / `NewApprovalBroker` / `NewPromptStack` / `NewEffortManager` /
+   `NewCommandRegistry` / `NewDefaultWindowPolicy` / `DefaultWindowConfig` / `LoadWindowConfig`）
+   与 5 个纯转发 helper。"删文件"会把它们一起删掉（首轮 `go build` 就报 `undefined: ReActBudget` /
+   `TurnProgressing` / `inputDispatcher` …）。正确顺序是**先拆文件**（词表 → `vocabulary.go`，
+   构造器与 helper → `assembly_helpers.go`，`New*` 一族按 plan §1.3 ④ 最终迁 `wiring/`），
+   再做限定名替换。
+2. **替换器还有两个未收敛的问题**：①`sort_imports` 把 `"strings"` 这类标准库分到了外部组（分组错，风格问题）；
+   ②出现一处**未定位**的丢限定符（`event.Arguments = …` → `Arguments = …`，变量名与包名同名时）。
+   在没搞清 ② 的机理之前，批量落到 167 个文件上是不负责任的——所以**整批回滚**（`git restore` +
+   `git clean -f -- <两个新文件>`），工作树回到 `41141349` 的干净绿状态，`go build ./...` = 0。
+
+**结论**：R10b 不是"收尾片"，是一件独立的"命名面收窄"工程（拆文件 + 全包替换 + 外部引用重指向），
+已按 P22 登记（含可复用脚本与实测数字），建议排在 M5 交付之后做。
