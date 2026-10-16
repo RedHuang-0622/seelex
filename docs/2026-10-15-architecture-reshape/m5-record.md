@@ -918,4 +918,42 @@ R6 续做（尚未开始）：`runtime_projection`/`diagnostics`/`perf_stats` �
 `archive_test.go` 9 条用例写好、`go build ./...` 通过；它自己也识别出"`application/core` 测试包因另一个在途
 worker 的 `work_table*` 改动暂时无法编译，与本片无关，走干净 worktree 复核"——与 root 的口径一致。
 它交付后由 root 复核（重跑 build/vet/e2e + 逐条对照行为保真清单 + 核对删除清单）。
+
+## 22. M5-R6 第八片：R6-archive（`994ed0c0`，子代理交付 + root 独立复核）
+
+**原位置 → 新唯一位置**：`application/core/archive_session.go` 的判据与次序 → `middle/residency/archive.go`
+（`ArchiveGate` / `ArchiveStore` / `ArchiveEngine` / `ArchiveDeps` + `Archive`）；门面只剩 `archiveDeps`
+装配缝（存储动作按会话定位落点、引擎面、门控读数）与一行转发（仍在会话过渡锁内）。
+
+**root 独立复核（不看自述）**：
+
+| 复核项 | 方法 | 结果 |
+|---|---|---|
+| 次序保真 | 逐行读 `Archive` 与迁移前实现对照 | 门控（关闭 → 排空 → 忙‖恢复中）→ 读 record → 缺失/归属不符即 not-found → `Status==archived` 幂等（不碰引擎/不写盘/不刷新）→ 驻留时 `flush → unload → 摘驻留序` → 写归档状态 → 释放后台命令 → 按项目刷新：**逐条一致** |
+| 文案保真 | `rg` 逐条核对 9 条文案 | 全部逐字保留（三轴错误值由宿主注入，中间层不重定义宿主域错误） |
+| 门禁/结构证据 | 读 diff | 未改 `e2e/`；复用了 `resident_lru.go` 的 `residentEngine` 断言（删掉一份重复声明） |
+| 独立实跑 | 干净 worktree（该 SHA） | `go build`/`go vet` 0、`go test ./e2e/` ok、`middle/residency` 与 `application/core -run Archive` ok、`application/core` 全量 = 基线 3 例 |
+| 历史卫生 | 读提交 | **偏差 1**：子代理的 5 个文件被它误 amend 进 root 的 docs 提交（`fd9de682`）→ root 已把历史拆成 `994ed0c0`（实现）+ `0e81bd8e`（记录），内容一字未改 |
+
+**接受的两条偏差（登记）**：
+
+1. **空会话 ID 现在也会过一次会话过渡锁**（迁移前在取锁前返回）。返回值、文案与副作用不变；理由是
+   "trim + 空值拒绝只有一份实现"，门面不再复制校验；
+2. 三个门控**错误值与"应用已 shutdown 文案"仍留在宿主**（由错误值注入机制决定），中间层拥有的是
+   "哪条轴先拒绝"的次序判据——已在 `archive.go` 与 README 写清。
+
+**子代理发现的既有债（登记，留给收口批）**：`application/core` 的**分卷 README 索引存在既有漂移**——
+跑 `scripts/gen_core_readme_index.py` 会重写 9 个与本片无关的 README（早前切片未刷新）。子代理按纪律只改
+本片相关的 `README-archive.md` 与索引行，其余 `git restore` 退回、未夹带；索引行用同款提取逻辑生成
+（脚本 `tmp/reshape/r6archive_index.py`）。这与 D-M2-4 同源，属 P13（生成器全仓化）一并处理。
+
+## 23. M5-R6 第九片：R6-input-index（`64759f1e`）
+
+| 项 | 内容 |
+|---|---|
+| 原位置 → 新唯一位置 | `application/core/session_input_index.go` 的纯装配判据 → `middle/residency/inputindex.go`（`InputIndexSummaryLimit` + `SummarizeInputText` / `AlignLoadedInputTexts` / `BuildInputIndex`） |
+| 宿主留下什么 | 会话存储 conversation 区间读 / record 回退（`SessionInputIndex`、`sessionInputIndexConversation`、`sessionInputIndexWindowLoaded`）与 `inputIndexUserText`（会话恢复前缀、provider-only 内部行、展示正文还原——后端域判据） |
+| 端口设计 | `BuildInputIndex(..., userText func(model.Message) string)`：把"算不算用户输入"作为**参数**收下，本包因此不依赖后端 |
+| 用例随判据走 | 迁入摘要截断表、对齐算法表、构建索引的 Loaded 与序号偏移；core 只删这些纯函数用例与其中的纯函数子表，**Service 级用例保持不动**；常量引用改 `residency.InputIndexSummaryLimit` |
+| 复核 | 干净 worktree（`64759f1e`）：`go build`/`go vet` 0、`go test ./e2e/` ok、`middle/residency` 与 `application/core -run InputIndex` ok、`application/core` 全量 = **基线 3 例** |
 R6 续做（尚未开始）：`runtime_projection`/`diagnostics`/`perf_stats` 三文件已是薄宿主缝（R5c 已把计算搬进 `middle/view`，只剩锁与取数）；其余按 plan §2.4 的落点继续搬
