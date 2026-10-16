@@ -22,6 +22,7 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/backend/engine/account"
+	"github.com/RedHuang-0622/seelex/backend/engine/schedule"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/backend/limit/gate"
 	subagentsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
@@ -39,7 +40,6 @@ import (
 	"github.com/RedHuang-0622/seelex/mcpstack"
 	"github.com/RedHuang-0622/seelex/seelebridge/mcp"
 	"github.com/RedHuang-0622/seelex/seelebridge/plugin"
-	"github.com/RedHuang-0622/seelex/seelebridge/scheduler"
 	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
 	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 	"github.com/RedHuang-0622/seelex/seelexctx"
@@ -166,7 +166,7 @@ type Runtime struct {
 	forkMu       sync.Mutex
 	forkActive   map[string]int     // 会话 → 进行中的 fork 数（ForkBegin/ForkEnd 维护）
 	tasks        *task.TaskRegistry // task 注册表 actor（task/；todolist 融合为 kind=todo 的 task）
-	scheduler    *scheduler.State   // 定时周期任务 actor（scheduler/ 域）
+	scheduler    *schedule.State    // 定时周期任务 actor（scheduler/ 域）
 	toolEvents   *subagentsession.ToolEventState
 	// live* 是 node 第一视角实时流分发器（runtime_live.go）：阶段+工具事件
 	// 统一通道按 nodeID 广播；liveStarted/liveStop 保护启动与停机。
@@ -364,7 +364,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		sandbox:      security.NewNativeProjectCWD(),
 		tasks:        task.NewTaskRegistry(),
 		// 定时任务定义走**全局** JSONL（与项目/会话存储分开；空路径 = 不持久化）。
-		scheduler:           scheduler.NewStateWithStore(storeschedule.NewFileStore(cfg.ScheduledTasksPath)),
+		scheduler:           schedule.NewStateWithStore(storeschedule.NewFileStore(cfg.ScheduledTasksPath)),
 		toolEvents:          subagentsession.NewToolEventState(),
 		subagentLiveWindow:  cfg.SubagentLiveWindow,
 		toolCallTimeout:     cfg.ToolCallTimeout,

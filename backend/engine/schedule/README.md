@@ -1,9 +1,15 @@
-# scheduler 域
+# schedule 域（backend/engine/schedule）
 
 ## 生态位
 
 承载 seelex 的定时/周期任务 actor：标准库 time.Ticker 驱动单循环 goroutine，
 任务两类（command 白名单命令 / prompt 复用 agent 会话），排期两种：
+
+物理位置：2026-10-16 按
+[plan.md](../../../docs/2026-10-15-architecture-reshape/plan.md) §2.12.1 从
+`seelebridge/scheduler/`（包名 `scheduler`）整包归位到这里，包名改为 `schedule`；
+同一片的持久化面已先拆出去（`FileStore` → `store/schedule`、端口 → `contract`、
+记录 → `contract/dto`），本包只认端口。
 周期重复（minute/hour/day/week/month 或固定 Interval）与一次性定时（RunAt）。
 
 任务**定义**落在一个**全局** JSONL 里（默认 `<store>/scheduled-tasks.jsonl`，
@@ -149,7 +155,10 @@ prompt 任务的落点只有一条判据（`PromptExecutor` 契约，实现在�
 
 ## 依赖方向
 
-允许依赖：`dto`、`security`。禁止依赖：seelebridge 根包及其它域、store。
+允许依赖：`contract` / `contract/dto`、`backend/limit/gate`（沙箱命令原语）、
+`internal/winhide`（隐藏子进程控制台）。禁止依赖：`seelebridge` 根包及其它域、
+`store`（持久化只经 `contract.ScheduledTaskPersistence` 端口，实现在 `store/schedule`）、
+`application/*`（状态回写走 `SetObserver` 回调，不反向 import）。
 
 ## 并发、存储、安全
 
@@ -186,18 +195,18 @@ JSONL 是 append-only 单写者通道（`store/schedule.FileStore` 的 `mu` 串�
 ## 测试与验证
 
 ```text
-go test ./seelebridge/scheduler/... -count=1
+go test ./backend/engine/schedule/... -count=1
 ```
 
-- `scheduler_test.go`：排期/锚点/白名单/重叠执行/执行器落点参数/编辑（整体替换、
+- `schedule_test.go`：排期/锚点/白名单/重叠执行/执行器落点参数/编辑（整体替换、
   与创建共用校验、ID 不变、账目保留）/装配（默认 full、插件归一、非法显式拒绝）/
   执行参数（空 = 未声明由装配层落默认、声明值归一、非法取值显式拒绝）。
-- `persistence_test.go`：全局单文件、冷启动重建、取消墓碑、逐条跳过判据、
+- `global_jsonl_test.go`：经 `State` 的全局单文件集成面——冷启动重建、取消墓碑、逐条跳过判据、
   编辑追加同 ID 定义行后的恢复、装配随定义恢复、残尾丢弃。
 
 ## 文件与函数索引
 
-- `scheduler.go`
+- `schedule.go`
   - `type State struct`：定时任务的 actor 资源（自带锁，读写即消息进出；存储经 `contract.ScheduledTaskPersistence` 注入）。
   - `func NewState() *State`：构造调度器状态（base ctx 用于停机时取消运行中任务）。
   - `func NewStateWithStore(store contract.ScheduledTaskPersistence) *State`：构造带全局 JSONL 任务定义的调度器状态。

@@ -6,7 +6,7 @@
 // 也**不**按会话分片——同一份任务列表在任何工作区下都该是同一份。触发产生的会话
 // 记录仍走会话自己的存储与读写纪律，本包不碰会话正文。
 //
-// 物理位置：2026-10-16 按 plan §2.12.1 从 `seelebridge/scheduler/persistence.go` 归位
+// 物理位置：2026-10-16 按 plan §2.12.1 从 `backend/engine/schedule/persistence.go` 归位
 // 到 `store/schedule/`（同一份实现，未新增第二份）。
 package schedule
 

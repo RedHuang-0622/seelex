@@ -9,7 +9,7 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
-// 本文件是从 `seelebridge/scheduler/persistence_test.go` 搬出来的**纯 FileStore 用例**
+// 本文件是从 `backend/engine/schedule/persistence_test.go` 搬出来的**纯 FileStore 用例**
 // （2026-10-16，M4 调度器持久化面拆分）：它们只碰落盘通道，不依赖调度器夹具；
 // 依赖 `State` 夹具的那几条留在调度器包里（那边是"经 State 的集成面"）。
 

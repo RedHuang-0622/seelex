@@ -925,7 +925,7 @@ func (runtime *fakeRuntime) CancelScheduledTask(id string) error {
 
 // UpdateScheduledTask 是编辑入口的桩：记录"改哪一条、改成什么"，并把快照里
 // 那一条整体替换成新定义（ID 不变）。真实语义（校验、重算排期、落盘）在
-// seelebridge/scheduler 的用例里钉住。
+// backend/engine/schedule 的用例里钉住。
 func (runtime *fakeRuntime) UpdateScheduledTask(_ context.Context, id string, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
 	if runtime.scheduleErr != nil {
 		return nil, runtime.scheduleErr

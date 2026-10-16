@@ -47,9 +47,9 @@ WorkItem DAG，leader 掌控），goal 终态由 goal 域 gate 判定；**发言
 | `spec.go` | `TeamSpec`/`RoleSpec` 写入侧规整与校验（`Normalize` / `NormalizeRole` / `ValidToolPolicy` / `resolveOrderRoles`）、角色会话号派生（`RoleSessionID`） |
 | `spec_plugins_test.go` | 本包当前仅存的用例：`NormalizeRole` 的插件装配写入侧口径（去空白 / 显式拒绝重复 / 上限 / 空 = 不覆盖） |
 
-已删除（勿再按名字找）：`factory.go`、`registry.go`、`library.go`、`global.go`、
-`runtime.go`、`scheduler.go`、`agentteam_test.go`、`team_view_test.go`、
-`runtime_test.go`、`scheduler_test.go`、`scheduler_wiring_test.go`、`prefix_test.go`。
+已删除（勿再按名字找，均已删除）：`factory.go`、`registry.go`、`library.go`、`global.go`、`runtime.go`、
+`scheduler.go`、`agentteam_test.go`、`team_view_test.go`、`runtime_test.go`、`scheduler_test.go`、
+`scheduler_wiring_test.go`、`prefix_test.go` 均已删除。
 
 ## 核心实现
 

@@ -393,7 +393,7 @@
 - 调度器一次性定时任务：`dto.ScheduledTaskSpec` 新增 `RunAt`，
   `ScheduledTaskStatus` 新增 `run_at`/`one_shot`；`nextScheduledAt` 优先
   返回 `RunAt`，执行完成后自动停用并清除下次排期
-  （`seelebridge/scheduler/scheduler.go` + `scheduler_test.go`）。
+  （`backend/engine/schedule/scheduler.go` + `scheduler_test.go`）。
 - 定时任务面板一次性任务展示：任务行显示「定时 MM-dd HH:mm」与「一次性」
   chip，空态文案统一为「暂无定时任务」（`scheduled-tasks-view.js` +
   `scheduled-tasks-view.test.mjs`）。
@@ -454,7 +454,7 @@
 - 后端 `ScheduledTaskSpec/Status` 增加 `period_unit`/`period_value`；
   调度器支持日历月周期（`addCalendarMonths` 月末钳制），小时/天/周为
   固定时长；旧任务以 `interval_seconds` 回退展示
-  （`seelebridge/scheduler/scheduler.go` + `scheduler_test.go`）。
+  （`backend/engine/schedule/scheduler.go` + `scheduler_test.go`）。
 - 会话树工作区组可折叠：点击组头收起/展开其下会话（`app.js`
   `toggleWorkspaceGroup`，折叠状态 localStorage 记忆，重渲染保持）。
 - 全局去线框：badge/chip/icon-button 默认去边框（hover 再出现），

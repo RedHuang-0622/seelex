@@ -61,7 +61,7 @@ const (
 // 同一片里还删掉了 `seelebridge/internal/mapper`（plan §2.10 要求删；它唯一的函数内联进
 // 调用方 `runtime_live.go`）——闭包少一个包，上限**跟着降**回 70。
 // M4-C（调度器持久化面）：`store/schedule` 同口径——定时任务定义的全局 JSONL 从
-// `seelebridge/scheduler/persistence.go` 抽出成基座子包（直接依赖 = 标准库 + contract 系），
+// `backend/engine/schedule/persistence.go` 抽出成基座子包（直接依赖 = 标准库 + contract 系），
 // 因此上限抬到 71。
 const facadeClosureAllowListMax = 71
 
@@ -120,7 +120,7 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/backend/tool/node",
 	"github.com/RedHuang-0622/seelex/backend/tool/plan",
 	"github.com/RedHuang-0622/seelex/seelebridge/plugin",
-	"github.com/RedHuang-0622/seelex/seelebridge/scheduler",
+	"github.com/RedHuang-0622/seelex/backend/engine/schedule",
 	"github.com/RedHuang-0622/seelex/backend/tool/search",
 	"github.com/RedHuang-0622/seelex/backend/limit/gate",
 	"github.com/RedHuang-0622/seelex/backend/multiagent/subagent",

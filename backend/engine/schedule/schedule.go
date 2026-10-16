@@ -1,7 +1,7 @@
 // Package scheduler 承载 seelex 的定时周期任务 actor：标准库 time.Ticker
 // 驱动单循环 goroutine，任务两类（command 白名单命令 / prompt 复用 agent
 // 会话），状态只读快照经 Runtime 投影到 GUI。域内不依赖 seelebridge 根包。
-package scheduler
+package schedule
 
 import (
 	"context"

@@ -77,7 +77,7 @@ func (service *Service) applyScheduledRunParams(sessionID string, task seelebrid
 }
 
 // ── 定时周期任务服务面（GUI Bridge 变更入口）────────────────────────────
-// 数据与执行都归 seelebridge 调度器（见 seelebridge/scheduler.go）；
+// 数据与执行都归 seelebridge 调度器（见 backend/engine/schedule/schedule.go）；
 // application 只提供变更入口 + 快照投影发布：变更成功后重新收集运行时投影
 // 并发布 runtime.changed 增量，GUI 定时任务面板随之更新。
 // 调度器运行中的状态变化（开始/完成/失败）经 main 装配的 observer 回调

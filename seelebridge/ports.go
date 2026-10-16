@@ -10,13 +10,13 @@ import (
 	frameworkmcp "github.com/RedHuang-0622/Seele/tools/mcp"
 	"github.com/RedHuang-0622/Seele/types"
 
+	"github.com/RedHuang-0622/seelex/backend/engine/schedule"
 	subagentsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	"github.com/RedHuang-0622/seelex/backend/tool/task"
 	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/mcp"
-	"github.com/RedHuang-0622/seelex/seelebridge/scheduler"
 	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 	"github.com/RedHuang-0622/seelex/seelexctx/search"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
@@ -686,12 +686,12 @@ type ScheduledTaskSpec = dto.ScheduledTaskSpec
 type ScheduledTaskStatus = dto.ScheduledTaskStatus
 
 // ScheduledPromptOutcome 是一次定时提示词触发的落点（展示文本 + 本次会话号）。
-type ScheduledPromptOutcome = scheduler.PromptOutcome
+type ScheduledPromptOutcome = schedule.PromptOutcome
 
 // ScheduledPromptExecutor 提示词任务执行器（main 装配注入；nil = prompt 任务
 // 不可创建）。落点口径：sessionID 非空 → 投递该会话；空（默认）→ **新建会话
 // 发起**，workspaceID 非空时把新会话装配到该工作区。
-type ScheduledPromptExecutor = scheduler.PromptExecutor
+type ScheduledPromptExecutor = schedule.PromptExecutor
 
 // RestoreScheduledTasks 从全局 JSONL 读回定时任务定义（冷启动重建）：返回
 // （恢复数, 跳过数）。跳过 = 记录已不适用（一次性已过期/命令不在白名单/

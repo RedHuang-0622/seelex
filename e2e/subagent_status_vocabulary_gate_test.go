@@ -235,7 +235,7 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "定时任务上次运行结果",
 		files: map[string]string{
-			"seelebridge/scheduler/scheduler.go": "写：上一次运行的落点（pending|running|ok|failed|skipped）",
+			"backend/engine/schedule/schedule.go": "写：上一次运行的落点（pending|running|ok|failed|skipped）",
 		},
 		// 这一格的取值面 = dto.ScheduleRun*（ScheduledTaskStatus.LastStatus）。
 		words: map[string]bool{

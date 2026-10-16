@@ -4,12 +4,12 @@
 
 `store/schedule` 承载**定时任务定义**的全局落盘：一个路径、一条 append-only JSONL、
 一行一条变更。它是 `contract.ScheduledTaskPersistence` 端口的唯一实现，
-主要调用方是调度器（`seelebridge/scheduler`，M4 之后落 `backend/engine/schedule/`），
+主要调用方是调度器（`backend/engine/schedule`，2026-10-16 由 `seelebridge/scheduler` 整包归位），
 由组合根在装配处注入。
 
 物理位置：2026-10-16 按
 [plan.md](../../docs/2026-10-15-architecture-reshape/plan.md) §2.12.1 从
-`seelebridge/scheduler/persistence.go`（该文件已移除）归位到这里——同一份实现，
+`backend/engine/schedule/persistence.go`（该文件已移除）归位到这里——同一份实现，
 没有第二份。
 
 ## 职责与非职责
@@ -54,7 +54,7 @@ go test ./store/schedule -count=1
 ```
 
 经 `State` 的集成面用例（定义/取消/编辑/重启恢复）留在调度器包里，见
-`seelebridge/scheduler/persistence_test.go`。
+`backend/engine/schedule/global_jsonl_test.go`。
 
 ## Review 指南
 
