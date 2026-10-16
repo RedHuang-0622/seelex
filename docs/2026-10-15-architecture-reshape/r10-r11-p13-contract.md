@@ -75,10 +75,16 @@ type QueueFace interface { /* 逐字 */ }
 ### 2.1 冻结的接口
 
 - `contract.RuntimePort`（以及 `Dependencies`）**签名不变**；`wiring/**` 只允许改 import 与构造调用；
-- `backend/engine/assemble.Runtime` **必须继续满足 `contract.RuntimePort`**：
-  在 `backend/engine/assemble/runtime.go` 顶部加编译期钉子
-  `var _ contract.RuntimePort = (*Runtime)(nil)`（已存在则复用）。
-
+- 窄转发的编译期钉子钉在装配侧，不在引擎侧：
+  `var _ contract.RuntimePort = RuntimePort{}`（`wiring/adapters/engine_port.go`，已存在则复用）。
+  `assemble.Runtime` 本身**不是**窄转发者，不要写 `var _ contract.RuntimePort = (*Runtime)(nil)`；
+- `backend/engine/assemble.Runtime` 的**公开方法名与签名逐字不变**：R11 各片只在包内搬家，
+  或把状态下沉到域包后留**一行薄转发**。不许删方法、改名、改签名——前端与 `wiring/adapters`
+  的手写窄转发都靠它；
+- 若某片确实需要新增/改动 `Runtime` 的公开方法，必须同步在
+  `wiring/adapters/runtime_narrow_ports.go` 补窄转发 + `var _` 断言，并跑
+  `go test ./wiring/... -run RuntimePort`；
+- `ports.go` 的终点是**文件不存在**（内容按域搬进域包或 `runtime_<域>.go`），不是删面。
 ### 2.2 每个域的冻结形状（依赖倒置）
 
 每个被拆出的域**在自己的包里**（例如 `backend/engine/task`、`backend/tool/record`…）：
