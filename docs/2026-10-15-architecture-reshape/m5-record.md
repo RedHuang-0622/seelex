@@ -801,6 +801,27 @@ R6（中间层常驻/切换域）的第一片，**建立 plan §2.4 点名的 `m
 | 复核 | 独立 worktree（`a482c231`）：`go build ./...` 0、`go vet ./...` 0、`go test ./e2e/` ok、`middle/residency` 与 `application/core -run '…SnapshotBudget|ToolResult|Truncation'` 全 ok |
 
 R6 续做（尚未开始）：`runtime_projection`/`diagnostics`/`perf_stats` 三文件已是薄宿主缝（R5c 已把计算搬进 `middle/view`，只剩锁与取数）；其余按 plan §2.4 的落点继续搬
+
+## 27. M5-R6 第十五片：R6-draft（`763877f4`）
+
+| 项 | 内容 |
+|---|---|
+| 原位置 → 新唯一位置 | `application/core/session_draft.go` 的草稿身份两条判据 → `middle/switch/draft.go`（`DraftSessionName` / `DraftSessionIDPrefix` / `NewDraftSessionID` / `DraftTarget.Matches` + `InView`） |
+| 形状（先定形状再依赖倒置） | `DraftTarget{HasSlot, SlotID, ViewDraft, ViewID}` 把判据的两个来源（进程单例**草稿槽** + 共享**视图镜像**）显式建模；`Matches` = 二者取或（廉价闸门，不抢视图过渡锁），`InView` = 视图必须停在草稿上（物化闸门，槽空 = 尚未物化） |
+| 宿主装配 | 新增 `draftTargetLocked()`（持 `Core.ViewMu` 构造 `DraftTarget`），两处调用点各一行转发；`draftSlot`（含 Workspace/CreatedAt/UpdatedAt）、`ErrDraftNotInView`、草稿状态机（字段清理、工作区绑定、事件次序）全部留在宿主 |
+| 判据唯一 | `const draftSessionName = switching.DraftSessionName`（同值别名，4 个使用点零改动）；SID 拼串口径只剩中间层一处 |
+| 用例 | `middle/switch/draft_test.go` 4 组（常量值钉住 = **持久化键口径**、同 tick 去重与格式、`Matches` 九格真值表、`InView` 六格含"视图切走但槽仍命中"的反例）；`application/core` 既有 `session_draft_context_{attach,scope}_test.go` **一行未改**并全绿 = 跨实现一致性 |
+| 复核 | 干净 worktree `tmp/verify-r6draft`（detach `86506780` + 本片文件）：`gofmt -l` 空、`go build ./...` 0、`go vet ./...` 0、`go test ./middle/switch/` ok、`go test ./application/core/ -run Draft` ok、`go test ./e2e/` ok(18.8s)；`contract/**`、`gui/**`、`tui/**`、`middle/protocol/**` 零改动 |
+
+**偏差（提交卫生，登记不改历史）**：`application/core/README-session.md` 在本片 `apply_patch` 之后、提交之前
+被**并行的 R6-content-lru 会话**重新生成过（`--only application/core`），我的 pathspec 提交把这批再生成结果
+一并带走——该文件在本片提交里的 50 行索引增删中只有 1 行（`draftTargetLocked`）属于本主题，其余属 `7c930a86`
+的主题。处置同 §22 先例：**不动历史**（tip 提交做 soft reset 会与并行会话的在途 README 改动抢同一文件），
+但把纪律写进下一轮派单：**生成物（README 分卷）提交前必须 `git diff` 逐行归因，或由负责该文件的会话单独提交**。
+
+**同轮并行（另外两个会话）**：`86506780` 更正契约 §2.1（窄转发钉子钉在 `wiring/adapters/engine_port.go`，
+`assemble.Runtime` 不是窄转发者，只保证公开面逐字不变），并各自独立复核了 R11-task 片与 P13 片；
+`7c930a86` 是 R6-content-lru 的收口提交。
 `resident_lru` / `content_lru` / `session_catalog` / `session_cold_read` / `session_input_index` / `window` / `archive_session`
 （→ `middle/residency/`）、`session_history` / `history_search`（→ `middle/switch/history/`）、
 `session_{lifecycle,release,draft,fork,meta,ctx,pending_tail,queue_recover}`、`service_{scheduler,queue,release_window}`、
