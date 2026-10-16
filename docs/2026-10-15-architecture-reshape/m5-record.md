@@ -760,3 +760,16 @@ mutate、组件在 mutate 里取自己的锁"，次序不会倒；`knobs_test.go
 | 用例 | 新包 7 条（分类表 9 格 / 去重键 / 全跳过不碰宿主 / 无会话不发布 / 回退视图会话 / workspace 失败冒泡 / Clear 归属）；`application/core/review_files_test.go` 6 条端到端用例保持不动 |
 | 登记偏差 | plan §2.6 把"工具注册那一半"（`RegisterReviewFilesTool`，签名绑在 `*assemble.Runtime`）也点进本包 → 随 R11（`Runtime` 按域下沉）一起搬，本轮只搬落点 |
 | 复核 | 独立 worktree：`go build ./...` 0、`-tags "gui,desktop,production"` 0、`go vet ./...` 0、`go test ./e2e/` ok、`backend/tool/review` 与 `application/core -run Review` 全 ok |
+
+## 14. M5 第二半（续 4）：R-skill（`998793e5`）
+
+| 项 | 内容 |
+|---|---|
+| 原位置 → 新唯一位置 | `application/core/skill_activate.go`（33 行）的判据 → `backend/engine/skill/activate.go`（`Activator` + `ActivateDeps{Skills, Apply}`） |
+| 门面留下什么 | nil 守卫（"service is not initialized"）+ 把 `Deps.Skills` 与 `applySkill` 交给落点的一行转发；`wiring/bootstrap` 的 activate 注入不变 |
+| 判据唯一 | 名字 trim → 空名 / `goal` 不可激活 / 未知技能三条文案；**被拒的名字不调用落地动作**；命中时恰好落地一次并回传技能信息；未装配技能表给明确错误 |
+| 端口结构满足 | `SkillLookup{ Get(name) (model.SkillInfo, bool) }` 由 `contract.SkillPort` 直接满足，无适配层 |
+| 用例 | 新包 `activate_test.go` 3 条（拒绝不落地 / 归一与落地一次 / 未装配技能表）；`application/core/skill_activate_test.go` 的端到端用例（压层 + 下一次提交信任它 + 幂等）保持不动 |
+| 文档 | `backend/engine/skill/README.md` 文件结构 + 测试命令（改掉过期的 `./skill`、`./plugin` 路径）+ 新增「文件与函数索引」节（该 README 原先缺这一节，顺带补齐 skill.go / loader.go / activate.go） |
+| 登记偏差 | plan 同批点名的 `skill_context.go`（128 行）**未搬**：它的类型（`chatRequest` / `PromptLayer` / `ReActBudget`）属 ReAct/chat 域，须随 `chat.go → backend/engine/react` 一起动；单独搬会把 core 的聊天请求簿记拖进 skill 包。已登记，随 react 片处理 |
+| 复核 | 独立 worktree：`go build ./...` 0、`go vet ./...` 0、`go test ./e2e/` ok、`backend/engine/skill` 与 `application/core -run 'Skill|Activate'` 全 ok |
