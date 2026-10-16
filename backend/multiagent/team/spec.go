@@ -1,4 +1,5 @@
-// Package agentteam 现在只剩「角色身份 + 写入侧规整」两件事。
+// Package team（原 `application/core/agentteam`，M5-R8b 随 plan §2.7 归位
+// `backend/multiagent/team/`）现在只剩「角色身份 + 写入侧规整」两件事。
 //
 // 状态（2026-10-15，A03/A04）：**装配面与发言环都已退场**——`Factory` / `Registry` /
 // 团队库 / 员工库 / 全局母本 / 员工入职 / `@` 召唤（J-1a，2026-10-12）与发言环
@@ -20,7 +21,7 @@
 //
 // 非职责：subagent 是 tool calling 能力，不属于 AgentTeam，本包不接纳、不排序、
 // 不为其建角色会话；message 的写入仍只由 sequencer 负责，本包不写 message。
-package agentteam
+package team
 
 import (
 	"errors"

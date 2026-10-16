@@ -42,7 +42,7 @@
 
 | 目录 | 职责 |
 |---|---|
-| [`core/agentteam/`](core/agentteam/README.md) | A2A 角色团队装配（`TeamSpec`/`RoleSpec` → 角色会话 + 工作顺序 + 成员表）。 |
+| [`../backend/multiagent/team/`](../backend/multiagent/team/README.md) | A2A 角色团队装配（`TeamSpec`/`RoleSpec` → 角色会话 + 工作顺序 + 成员表）；原 `core/agentteam/`，M5-R8b 归位多代理板块（包名 `team`）。 |
 | [`core/chat/`](core/chat/README.md) | 聊天流式输出叶子域：`StreamBatcher` 与 `VisibleOutputStream`。 |
 | [`core/context_control/`](core/context_control/README.md) | `seele.yaml` window 配置段与窗口策略类型装载。 |
 | [`core/context_runtime/`](core/context_runtime/README.md) | provider 上下文预算/压缩/result-ref 与历史归一化。 |
@@ -51,7 +51,7 @@
 | [`core/input_router/`](core/input_router/README.md) | 输入分流（command/skill/plugin/conversation）与命令注册表。 |
 | [`../kernel/state/`](../kernel/state/README.md) | core 共享状态内核：唯一共享锁、Snapshot、Deps、Events、Approval（M5-R3 迁出 `application/core/internal/state/`）。 |
 | [`core/prompt_layer/`](core/prompt_layer/README.md) | system prompt 层组装与引擎同步（前缀缓存友好）。 |
-| [`core/resume/`](core/resume/README.md) | 「终止前未完成工作」的领域无关恢复模板。 |
+| [`../backend/multiagent/resume/`](../backend/multiagent/resume/README.md) | 「终止前未完成工作」的领域无关恢复模板；原 `core/resume/`，M5-R8b 归位多代理板块。 |
 | [`core/session_runtime/`](core/session_runtime/README.md) | 会话域协调器：持久化、目录与标题恢复、项目 binding、会话三读。 |
 | [`../middle/view/subagent/`](../middle/view/subagent/README.md) | 子代理投影面：详情分类、live 流透传、树/节点事件投影（M5-R4 迁出 `core/subagent_view/`）。 |
 | [`core/task_context/`](core/task_context/README.md) | 任务执行域协调器：打点与终态、transcript、checkpoint、token 审计。 |

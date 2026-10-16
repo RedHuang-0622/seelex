@@ -1,4 +1,4 @@
-package agentteam
+package team
 
 import (
 	"strings"

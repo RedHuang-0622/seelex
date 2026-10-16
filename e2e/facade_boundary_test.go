@@ -86,7 +86,7 @@ const facadeClosureAllowListMax = 75
 var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application",
 	"github.com/RedHuang-0622/seelex/application/core",
-	"github.com/RedHuang-0622/seelex/application/core/agentteam",
+	"github.com/RedHuang-0622/seelex/backend/multiagent/team",
 	"github.com/RedHuang-0622/seelex/application/core/chat",
 	"github.com/RedHuang-0622/seelex/application/core/context_control",
 	"github.com/RedHuang-0622/seelex/application/core/context_runtime",
@@ -94,7 +94,7 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application/core/input_router",
 	"github.com/RedHuang-0622/seelex/kernel/state",
 	"github.com/RedHuang-0622/seelex/application/core/prompt_layer",
-	"github.com/RedHuang-0622/seelex/application/core/resume",
+	"github.com/RedHuang-0622/seelex/backend/multiagent/resume",
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime",
 	"github.com/RedHuang-0622/seelex/middle/view/subagent",
 	// M5-R5：项目看板的行投影与同步器（从 application/core/project_board.go 抽出）。

@@ -1,12 +1,13 @@
-# core/resume
+# multiagent/resume（原 core/resume）
 
 ## 生态位
 
-`application/core/resume` 是「终止前未完成工作」的**领域无关恢复模板**：把
+`backend/multiagent/resume`（原 `application/core/resume`，M5-R8b 按 plan §2.7 归位，
+包名不变）是「终止前未完成工作」的**领域无关恢复模板**：把
 「定位 → 判定 → 补历史 → 重建现场 → 注入说明 → 同键重跑 → 收敛」这条流水线
 固化成唯一权威顺序，具体领域（subagent、role draft、后续其它派发单元）只
 提供 `Port` 实现。主要调用方：`application/core/session_runtime` 与
-`seelebridge` 的子代理恢复路径；设计依据见
+`backend/engine/assemble` 的子代理恢复路径（`runtime_subagent_resume.go`）；设计依据见
 [docs/arch/a2a-agent-team-factory.md](../../../docs/arch/a2a-agent-team-factory.md)
 的 §5.1 与 §9（AT10）。
 
@@ -94,7 +95,7 @@ sequenceDiagram
 ## 测试与验证
 
 ```text
-go test ./application/core/resume -count=1
+go test ./backend/multiagent/resume -count=1
 ```
 
 `resume_test.go` 覆盖步骤顺序稳定、active/terminal 分派、按 Key 去重与空键

@@ -7,7 +7,7 @@ package teamwork
 // **不合并**（A12 裁决，见
 // docs/2026-10-15-product-architecture-pre-design/legacy-capability-audit.md）：
 //
-//   - `agentteam.RoleSessionID`：空白 `team_id` 兜底 `dto.DefaultTeamID`（历史身份分量：
+//   - `team.RoleSessionID`：空白 `team_id` 兜底 `dto.DefaultTeamID`（历史身份分量：
 //     改它 = 既有角色会话号全体分裂），且三个分量都做 `TrimSpace`；
 //   - `teamwork.DefaultRoleSessionID`：不做 team 兜底、只 trim 主会话号——它面对的输入
 //     已经过计划校验（`store.ValidateTeamworkPlan` 要求 `team_id` 非空），多一层
@@ -20,7 +20,7 @@ package teamwork
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/core/agentteam"
+	"github.com/RedHuang-0622/seelex/backend/multiagent/team"
 )
 
 func TestRoleSessionIDHelpersAgreeOnCanonicalInputs(t *testing.T) {
@@ -41,7 +41,7 @@ func TestRoleSessionIDHelpersAgreeOnCanonicalInputs(t *testing.T) {
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			got := DefaultRoleSessionID(testCase.mainSessionID, testCase.teamID, testCase.roleName)
-			want := agentteam.RoleSessionID(testCase.mainSessionID, testCase.teamID, testCase.roleName)
+			want := team.RoleSessionID(testCase.mainSessionID, testCase.teamID, testCase.roleName)
 			if got != want {
 				t.Fatalf("非空规范输入下两个派生必须同解：teamwork=%q agentteam=%q", got, want)
 			}

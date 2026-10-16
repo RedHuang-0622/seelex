@@ -41,7 +41,7 @@ const teamworkEventFile = "events.jsonl"
 // 永不删），正文就活到**产品自己决定的那一刻**（整队收口），并且跟着会话一起被清理。
 const teamworkJobSubdir = "jobs"
 
-// 内置角色复用主会话（agentteam.needsRoleSession），不得作为 teammate 派发。
+// 内置角色复用主会话（team.needsRoleSession），不得作为 teammate 派发。
 // 这里重复一次常量而不是 import agentteam：存储层不该依赖上层角色装配，
 // 而这条约束必须在**计划可被 leader 改写**的第二道校验关口上仍然成立。
 const (
@@ -256,7 +256,7 @@ func (store *storeEngine) teamworkJobDir(key Key) string {
 // ValidateTeamworkPlan 校验一份计划（M2 的第二道关口）。
 //
 // 为什么存储边界也要校验一次：计划**可被 leader 改写**，装配侧的
-// agentteam.Normalize 只保住了"装配那一刻"的唯一性；把校验放在真正落盘的那
+// team.Normalize 只保住了"装配那一刻"的唯一性；把校验放在真正落盘的那
 // 一步，才能保证"写进会话的每一份计划都是合法的"这条不因调用方不同而漂移。
 //
 // maxTeammates <= 0 表示调用方不掌握人数上限（只做结构性校验）。

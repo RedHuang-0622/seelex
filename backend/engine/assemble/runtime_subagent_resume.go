@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/core/resume"
+	"github.com/RedHuang-0622/seelex/backend/multiagent/resume"
 	"github.com/RedHuang-0622/seelex/backend/tool/fork"
 	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/contract/dto"

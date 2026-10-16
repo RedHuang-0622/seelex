@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/application/core/agentteam"
 	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
+	"github.com/RedHuang-0622/seelex/backend/multiagent/team"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
@@ -78,7 +78,7 @@ func (r goalTLRecorder) RecordTLRound(_ context.Context, record goaldomain.TLRou
 		return nil // 未装配 team 的会话不记角色行
 	}
 	const roleName = "tl"
-	roleSessionID := agentteam.RoleSessionID(r.sessionID, view.TeamID, roleName)
+	roleSessionID := team.RoleSessionID(r.sessionID, view.TeamID, roleName)
 	if strings.TrimSpace(roleSessionID) == "" {
 		return nil
 	}
@@ -153,7 +153,7 @@ func (r goalTLRecorder) ArchiveTLHistory(_ context.Context, record goaldomain.TL
 		return nil
 	}
 	const roleName = "tl"
-	roleSessionID := agentteam.RoleSessionID(r.sessionID, view.TeamID, roleName)
+	roleSessionID := team.RoleSessionID(r.sessionID, view.TeamID, roleName)
 	if strings.TrimSpace(roleSessionID) == "" {
 		return nil
 	}

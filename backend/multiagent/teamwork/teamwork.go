@@ -36,12 +36,12 @@ const (
 func SubjectForRole(role string) string { return "emp_" + role }
 
 // DefaultRoleSessionID 派生角色会话号：同一个 (主会话, team_id, role) 永远得到同一
-// 个值（重复装配幂等）。与 agentteam.RoleSessionID 同形；装配层可用
+// 个值（重复装配幂等）。与 team.RoleSessionID 同形；装配层可用
 // Options.DeriveRoleSessionID 注入权威实现。
 //
 // 主会话身份是**必需分量**（2026-10-01，用例 2「团队会话粒度」）：两个会话召唤同一
 // 支团队时，worker 的角色会话必须各自独立——否则角色引擎槽、项目根绑定、权责反查
-// 会把两条会话的同名员工当成同一个人（详见 agentteam.RoleSessionID 的说明）。
+// 会把两条会话的同名员工当成同一个人（详见 team.RoleSessionID 的说明）。
 func DefaultRoleSessionID(mainSessionID, teamID, roleName string) string {
 	mainSessionID = strings.TrimSpace(mainSessionID)
 	if mainSessionID == "" {

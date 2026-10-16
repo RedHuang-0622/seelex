@@ -26,7 +26,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/application/core/agentteam"
+	"github.com/RedHuang-0622/seelex/backend/multiagent/team"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 )
@@ -444,7 +444,7 @@ func TestTeamMemberInstancesAreSessionScoped(t *testing.T) {
 	ids := make([]string, 0, len(mainSessions))
 	for _, mainSession := range mainSessions {
 		// 身份派生走生产口径：工厂按 (主会话, team_id, role_name) 派发成员实例。
-		roleSessionID := agentteam.RoleSessionID(mainSession, teamID, role)
+		roleSessionID := team.RoleSessionID(mainSession, teamID, role)
 		ids = append(ids, roleSessionID)
 		if _, err := runtime.runRoleRound(context.Background(), runtime.employeeSpec(
 			mainSession, role, roleSessionID, dto.ToolPolicyReadonly,

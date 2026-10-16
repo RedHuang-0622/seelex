@@ -11,16 +11,18 @@
 
 - 零依赖叶子域：`chat/`（流式批次与可见输出）、`../../middle/view/worktable/`（表格增量 CSP
   汇聚发布器）、`input_router/`（命令注册表 + 输入路由）、`context_control/`
-  （窗口策略配置加载）、`resume/`（未完成工作恢复模板：七步顺序 +
-  幂等键 + 可审计 Report，领域实现走 `Port`）。
+  （窗口策略配置加载）。（`resume/`（未完成工作恢复模板：七步顺序 + 幂等键 + 可审计
+  Report，领域实现走 `Port`）已于 2026-10-16 随 M5-R8b 归位
+  [`backend/multiagent/resume`](../../backend/multiagent/resume/README.md)。）
   （`govern/` 曾是"多代理回合制治理循环抽象：座次/轮次/断环"，已随
   2026-10-03 的 goal 席位轮转退场整包删除。）
 - 有状态域协调器：`session_runtime/`（会话持久化/目录/项目绑定）、
   `task_context/`（任务执行/checkpoint/transcript/token 审计/plan 状态）、
   `context_runtime/`（provider 上下文装配/压缩/历史安全）、`prompt_layer/`
   （system prompt 组装）、`goal/`（Goal 状态机 +
-  DS-A2A 双会话治理 + 终态 gate + 会话级第五栈持久化）、
-  `agentteam/`（AgentTeam/角色会话通用装配：`TeamSpec` 工厂 + 团队库读面）。
+  DS-A2A 双会话治理 + 终态 gate + 会话级第五栈持久化）。（`agentteam/`（AgentTeam/角色会话
+  通用装配：`TeamSpec` 工厂 + 团队库读面）的纯基座部分已于 2026-10-16 随 M5-R8b 归位
+  [`backend/multiagent/team`](../../backend/multiagent/team/README.md)，包名 `team`。）
 - 共享叶子：`kernel/state`（锁 + 权威 Snapshot + 端口依赖 + 事件/审批
   内核）。判据类上限（`limits` 段类型、默认值、
   进程级快照）已于 2026-10-16 随 M2-A 迁到基座包 [`backend/limit`](../../backend/limit/README.md)。
@@ -158,7 +160,7 @@ flowchart LR
 | [README-task.md](README-task.md) | `task_*_test.go` | 任务执行集成测试 |
 | [README-subagent.md](README-subagent.md) | `subagent_*_test.go` | 子代理投影集成测试 |
 | [README-goal.md](README-goal.md) | `goal_*.go` | goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回归 |
-| [README-agentteam.md](README-agentteam.md) | `agentteam_runtime.go`、`role_session.go`（+ `application/core/agentteam/**` 的纯基座部分） | **角色会话基座**（`RoleSessionID` 派生、角色 draft/floor 透传）与遗留的发言调度原语；Agent Team 装配面**已退场（2026-10-12 J-1a）** |
+| [README-agentteam.md](README-agentteam.md) | `agentteam_runtime.go`、`role_session.go` | **角色会话基座**（`RoleSessionID` 派生、角色 draft/floor 透传）与遗留的发言调度原语；Agent Team 装配面**已退场（2026-10-12 J-1a）**。纯基座部分（`spec.go`：`RoleSessionID` / `Normalize*` / `ValidToolPolicy`）已于 M5-R8b 归位 `backend/multiagent/team/` |
 | [README-composer.md](README-composer.md) | `composer_*.go` | 输入草稿合成器的持久化与工作区绑定 |
 | [README-archive.md](README-archive.md) | `archive_*.go`、`close_semantics_test.go` | 会话归档与收尾语义 |
 | [README-misc.md](README-misc.md) | 显式名单（aliases/completion/compressed/diagnostics/fault-guard/limits/perf/snapshot-budget/runtime/workspace/race） | 基础与杂项 |
@@ -184,9 +186,9 @@ flowchart LR
 | [../../middle/view/state/](../../middle/view/state/README.md) | Snapshot 读/写/事件发布协调器 |
 | [../../middle/view/subagent/](../../middle/view/subagent/README.md) | 子代理详情/live/树投影 |
 | [backend/multiagent/goal/](../../backend/multiagent/goal/README.md) | Goal 状态机、DS-A2A 双会话治理、终态 gate 与会话级第五栈持久化（M5-R8a 归位多代理板块） |
-| [agentteam/](agentteam/README.md) | A2A 角色团队通用装配（`TeamSpec` 工厂 + 团队库读面 + 幂等角色会话） |
+| [../backend/multiagent/team/](../../backend/multiagent/team/README.md) | A2A 角色团队通用装配（`TeamSpec` 工厂 + 团队库读面 + 幂等角色会话）；原 `agentteam/`，M5-R8b 归位（包名 `team`） |
 <!-- govern/ 已于 2026-10-03（阶段三 W3）随 goal 席位轮转退场删除 -->
-| [resume/](resume/README.md) | 未完成工作恢复模板（七步顺序 + 幂等键 + 可审计 Report） |
+| [../backend/multiagent/resume/](../../backend/multiagent/resume/README.md) | 未完成工作恢复模板（七步顺序 + 幂等键 + 可审计 Report）；原 `resume/`，M5-R8b 归位 |
 | [../../kernel/state/](../../kernel/state/README.md) | 共享状态内核（锁 + Snapshot + 端口依赖；M5-R3 迁出 `application/core/internal/state/`） |
 
 ## 权威状态与生命周期
