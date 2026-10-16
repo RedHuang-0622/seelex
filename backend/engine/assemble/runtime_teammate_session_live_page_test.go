@@ -12,8 +12,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/Seele/types"
 )
 
 // TestTeammateSessionLivePageCoversSessionByPages 多轮之后逐页读：
@@ -151,21 +149,6 @@ func TestTeammateSessionLivePageCoversSessionByPages(t *testing.T) {
 	}
 }
 
-// TestTeammateSessionLiveProjectFiltersToolPayloads 钉住投影口径（分页前后同一份）：
-// 只留 user/assistant 两类、按历史顺序；工具载荷不进这个面板。
-func TestTeammateSessionLiveProjectFiltersToolPayloads(t *testing.T) {
-	// 复合字面量后面直接跟方法调用，在**元素表**里必须括起来（`{Role:"user"}.WithText` 不是
-	// 合法元素 —— 省略类型的字面量不能接选择子）。
-	all, clipped := teammateSessionLiveProject([]types.Message{
-		(types.Message{Role: "user"}).WithText("把契约落成代码"),
-		(types.Message{Role: "tool"}).WithText("（工具载荷：执行细节，不进面板）"),
-		(types.Message{Role: "assistant"}).WithText("改好了"),
-		(types.Message{Role: "system"}).WithText("（系统提示：同样不进）"),
-	})
-	if clipped {
-		t.Fatal("没有超长正文，不该标 clipped")
-	}
-	if len(all) != 2 || all[0].Role != "user" || all[1].Role != "assistant" {
-		t.Fatalf("投影必须只留 user/assistant 且保持顺序：%+v", all)
-	}
-}
+// 投影口径（只留 user/assistant、按历史顺序、工具载荷不进面板）随实现搬进团队域
+// （`backend/multiagent/teamwork/teammate_live_test.go` 的 `…ProjectKeepsOnlyDialogue`，
+// P21-12）；本文件只留**宿主接线**的用例（分页读数经真 Runtime 走同一条链）。

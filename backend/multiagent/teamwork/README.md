@@ -98,6 +98,8 @@ stateDiagram-v2
 | `executor.go` | 作业执行体：`WorkerExecutor(runner, settler, maxTurns)`（`Kind=worker`）；回合结束后**自动尾插**（`SeatExecutor` 已随 goal 席位轮转退场） |
 | `store.go` | `store` 持久面的适配与计划/绑定读写 |
 | `board.go` | **团队看板读面**（原 `application/core/teamwork_service.go`，M5-R8c 归位）：`BoardReader` 只做转发与"未装配 / 宿主不支持该投影"时的空视图口径（不解释、不缓存、不做判定）；`application/core` 侧只留同名门面方法 |
+| `teammate_live.go` | **当前 teammate 会话的实时只读投影**（P21-12 从 `backend/engine/assemble/runtime_teammate_session_live.go` 归位，plan §2.7）：`TeammateSessionLive`（默认页）/ `TeammateSessionLivePage`（分页）+ 唯一一份裁剪分页判据 `teammateSessionLiveSlice` + 投影 `teammateSessionLiveProject`（只留 user/assistant、单条长度上限）+ `TeammateLiveDeps` / `TeammateLiveSession`（宿主读数：角色名 / 是否在飞 / 引擎历史） |
+| `teammate_live_test.go` | 域级用例：有界裁剪（条数 + 单条长度 + 如实标 Truncated）、只留 user/assistant、分页归一（负 offset / limit<=0 / 越界页）、默认页取尾部、执行面不在本进程时的空视图语义 |
 | `teamwork_test.go` / `items_test.go` | 端口桩驱动的编排语义测试（后者按 Work Item 口径逐条覆盖九类要求） |
 | `items_concurrent_test.go` | **并发 settle 丢失更新**的回归用例：`TestConcurrentSettleDoesNotLoseUpdates`（N=5 全并发 settle）+ `TestConcurrentSettleAndAcceptDoNotResurrectDone`（settle 混 accept，done 不得被写回）。用会合点（`rendezvous`）排定交错，不靠 sleep；内存替身按生产语义 JSON 深拷贝计划 |
 
@@ -446,6 +448,27 @@ go test ./backend/multiagent/... -count=1
 - `func (s planStore) ReadEvents(ctx context.Context, key store.Key) ([]store.TeamworkEvent, error)`
 - `func (s planStore) AppendBinding(ctx context.Context, key store.Key, binding store.TeamworkBinding) error`
 - `func (s planStore) ReadBindings(ctx context.Context, key store.Key) ([]store.TeamworkBinding, error)`
+
+### teammate_live.go
+
+- `func TeammateSessionLive(sessionID string, deps TeammateLiveDeps) dto.TeammateSessionLiveView` — TeammateSessionLive 实现 `contract.TeammateSessionProjection`：**默认页**。
+- `func TeammateSessionLivePage(sessionID string, offset, limit int, deps TeammateLiveDeps) dto.TeammateSessionLiveView` — TeammateSessionLivePage 是**当前 teammate 会话**的分页读法（有界窗口 + 分页）。
+- `func TeammateSessionLiveMessages(history []types.Message) ([]dto.TeammateSessionLiveMessage, bool)` — TeammateSessionLiveMessages 是**默认页**读数的历史入口（历史 → 最近若干条 + 是否截断）。
+- `func teammateSessionLiveWindow(sessionID string, deps TeammateLiveDeps) (dto.TeammateSessionLiveView, []dto.TeammateSessionLiveMessage, bool)` — teammateSessionLiveWindow 读执行面并把历史投影成**全量**对话行（尚未分页）。
+- `func teammateSessionLiveSlice(view dto.TeammateSessionLiveView, all []dto.TeammateSessionLiveMessage, clipped bool, offset, limit int) dto.TeammateSessionLiveView` — teammateSessionLiveSlice 是**唯一**一份裁剪/分页判据：全量对话行 + (offset, limit) → 一页。
+- `func teammateSessionLiveDefaultOffset(all []dto.TeammateSessionLiveMessage) int` — teammateSessionLiveDefaultOffset 是默认页的起点：最近若干条（不足一页就从最旧开始）。
+- `func teammateSessionLiveProject(history []types.Message) ([]dto.TeammateSessionLiveMessage, bool)` — teammateSessionLiveProject 把执行面的历史投影成**全量**对话行（未分页）。
+
+### teammate_live_test.go
+
+- `func teammateLiveHistory(count int) []types.Message`
+- `func teammateLiveMessage(role, text string) types.Message` — teammateLiveMessage 造一条带正文的消息（`Content` 是 `*string`，用 `WithText` 统一构造）。
+- `func TestTeammateSessionLiveBoundsMessages(t *testing.T)` — TestTeammateSessionLiveBoundsMessages：实时读数是有界的（面板是「扫一眼」的地方），
+- `func TestTeammateSessionLiveProjectKeepsOnlyDialogue(t *testing.T)` — TestTeammateSessionLiveProjectKeepsOnlyDialogue：只投影 user/assistant 且跳过空正文
+- `func TestTeammateSessionLivePageNormalizesWindow(t *testing.T)` — TestTeammateSessionLivePageNormalizesWindow：分页归一（offset<0 → 0；limit<=0 → 默认页大小；
+- `func TestTeammateSessionLiveDefaultPageIsTail(t *testing.T)` — TestTeammateSessionLiveDefaultPageIsTail：默认页是**最近若干条**（不足一页从最旧开始），
+- `func TestTeammateSessionLiveReportsMissingExecutionFace(t *testing.T)` — TestTeammateSessionLiveReportsMissingExecutionFace：会话不在本进程（端口回 false、端口为 nil）
+- `func TestTeammateSessionLiveCarriesRoleAndLive(t *testing.T)` — TestTeammateSessionLiveCarriesRoleAndLive：读数带上"这是谁在干"与"此刻在飞"（面板的两格状态）。
 
 ### teamwork.go
 

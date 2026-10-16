@@ -11,8 +11,6 @@ import (
 	"context"
 	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/Seele/types"
 )
 
 func TestTeammateSessionLiveReadsCurrentRound(t *testing.T) {
@@ -60,24 +58,6 @@ func TestTeammateSessionLiveReportsMissingExecutionFace(t *testing.T) {
 	}
 }
 
-// TestTeammateSessionLiveBoundsMessages：实时读数是有界的（面板是「扫一眼」的地方），
-// 超长正文与超多条数都要被裁掉，且**如实标 Truncated**。
-func TestTeammateSessionLiveBoundedMessages(t *testing.T) {
-	long := strings.Repeat("很长的正文", teammateSessionLiveMessageLimit)
-	history := make([]types.Message, 0, teammateSessionLiveMaxMessages+5)
-	for index := 0; index < teammateSessionLiveMaxMessages+5; index++ {
-		history = append(history, types.Message{Role: "user"}.WithText(long))
-	}
-	messages, truncated := teammateSessionLiveMessages(history)
-	if !truncated {
-		t.Fatal("裁掉了内容就必须标 Truncated（否则读的人以为这就是全部）")
-	}
-	if len(messages) != teammateSessionLiveMaxMessages {
-		t.Fatalf("条数上限没生效：%d", len(messages))
-	}
-	for _, message := range messages {
-		if len([]rune(message.Text)) > teammateSessionLiveMessageLimit+1 {
-			t.Fatalf("单条长度上限没生效：%d", len([]rune(message.Text)))
-		}
-	}
-}
+// 有界裁剪（条数上限 + 单条长度上限 + 如实标 Truncated）随实现搬进团队域
+// （`backend/multiagent/teamwork/teammate_live_test.go`，P21-12）；本文件只留**宿主接线**
+// 的用例：执行面在本进程时读得到这一轮的对话，不在本进程时如实说"执行面不在本进程"。
