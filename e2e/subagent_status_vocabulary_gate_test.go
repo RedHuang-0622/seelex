@@ -75,7 +75,7 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "记录状态",
 		files: map[string]string{
-			"seelebridge/node/coordinator.go":          "写：节点结束 → Sessions.NoteOutcome 的终态词",
+			"backend/tool/node/coordinator.go":         "写：节点结束 → Sessions.NoteOutcome 的终态词",
 			"seelebridge/session/subagent_sessions.go": "写：节点结束兜底终态（subagentOutcome.status）",
 			"seelebridge/session/subagent_tree.go":     "读：恢复时判「记录本身已终结」（restoredSubAgentStatus）",
 			"seelebridge/runtime_subagent_recovery.go": "读：残留记录判终态（Locate/ensureConclusion）",
@@ -220,8 +220,8 @@ var statusVocabularyScopes = []statusVocabularyScope{
 			"application/core/plan_tools.go":                   "写+读：plan_run 结果/事件折成节点状态，时间线保留原始词",
 			"application/core/work_table.go":                   "读：节点打点合成工作表格 trace",
 			"application/core/subagent_view/coordinator.go":    "读：详情页状态（记录状态/任务状态 → 节点状态）",
-			"tui/plan.go":                    "读：节点状态上色（参数是枚举，不再比字面量）",
-			"seelebridge/node/agent_node.go": "写：节点执行期状态词与收尾结论词（两条阶段词登记在 node_phase_words.go，**不属于本格**）",
+			"tui/plan.go":                     "读：节点状态上色（参数是枚举，不再比字面量）",
+			"backend/tool/node/agent_node.go": "写：节点执行期状态词与收尾结论词（两条阶段词登记在 node_phase_words.go，**不属于本格**）",
 		},
 		// 这一格的取值面 = dto.Node*（PlanNode.Status）。
 		// 事件字段 dto.PlanNodeEvent.Status 是**混合面**（本格词 + 框架词 + 我们的阶段词），

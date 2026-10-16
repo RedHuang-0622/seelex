@@ -5,7 +5,7 @@
 承载 `plan kind:agent` 节点的子代理执行包装与节点级提示词装配。主要调用方：
 
 - 根包 `runtime_plan.go` 的 `nodeFactoryDeps`（`NewAgentNode: seenode.NewAgentNode`）——plan_load 构造节点；
-- `fork/` 域 `buildForkPlan` 经 `Deps.NodeFactory` 复用同一构造，生成 fork DAG 的 agent 节点；
+- `backend/tool/fork/` 域 `buildForkPlan` 经 `Deps.NodeFactory` 复用同一构造，生成 fork DAG 的 agent 节点；
 - 根包 `runtime_plan.go` 的 `nodeDeps()`（Deps 全为闭包，域内不依赖根包）。
 
 ## 与其它域的关系
@@ -70,8 +70,8 @@ sequenceDiagram
 非职责：
 
 - 不持有会话/账号池/任务注册表/父证据（全部经 `Deps` 回调）；
-- 不实现 worktree 生命周期（`worktree/` 域）；
-- 不做 plan 调度与事件（`plan/` 域）。
+- 不实现 worktree 生命周期（`backend/tool/worktree/` 域）；
+- 不做 plan 调度与事件（`backend/tool/plan/` 域）。
 
 ## 目录或文件结构
 

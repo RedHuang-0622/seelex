@@ -2,7 +2,7 @@
 
 ## 生态位
 
-承载子代理节点的独立 worktree 生命周期：创建（Begin）→ 执行期间工作区隔离 → 收尾（Finish：变基 → 提交判定 → 合并审批 → merge → 清理）→ 释放（Release）。主要调用方：根包 `worktree.go` 门面、`node/` 域 `AgentNode.Run` 经 `Deps.Begin/Finish/ReleaseNodeWorktree`。
+承载子代理节点的独立 worktree 生命周期：创建（Begin）→ 执行期间工作区隔离 → 收尾（Finish：变基 → 提交判定 → 合并审批 → merge → 清理）→ 释放（Release）。主要调用方：根包 `worktree.go` 门面、`backend/tool/node/` 域 `AgentNode.Run` 经 `Deps.Begin/Finish/ReleaseNodeWorktree`。
 
 ## 与其它域的关系
 
@@ -46,7 +46,7 @@ stateDiagram-v2
 
 非职责：
 
-- 不决定节点何时开/关 worktree（调用方 `node/` 域决定）；
+- 不决定节点何时开/关 worktree（调用方 `backend/tool/node/` 域决定）；
 - 不实现 git 命令本身之外的版本控制策略；
 - 不落盘会话数据。
 
@@ -69,7 +69,7 @@ stateDiagram-v2
 
 这一格的判据只有一处：`classifySceneMergeTarget`（有名分支 / 游离 HEAD / **空栏**）。**空栏 = 登记缺栏，一律显式失败**（`errSceneFactsIncomplete`，`errors.Is` 可判）：`alignMergeTarget` 不再 `return nil`（过去空栏等于"合进当前 HEAD"，M2 在这条路上等于没装），`branchBehindBase`/`commitCountSince`/`diffStat` 也**绝不**把空栏拼进 ref 字符串——`HEAD..` / `..HEAD` 这种写法 git **不报错**（本机 git 2.51 实测 `git rev-list --count "HEAD.."` → `0`、exit 0），于是"缺栏"会被读成"没有落后 / 没有提交"，一路静默走到 `cleanup`：**现场与 `seelex/<nodeID>` 分支一起被删、产出一个字节都没合回来，而 `Finish` 报成功**（2026-10-06 红灯实测，`worktree_weak_registration_merge_test.go`）。空栏的成因只有一个：**弱登记先到**——teammate 记录只写 Path/Branch（`workunit_team_records.go` 的 `teamUnitWorktreeRecord`），恢复链里 `Restore` 先于 `Adopt`，`Adopt` 被"已在册"挡回，于是缺栏的那一份成为收尾读到的事实。补栏要改**记录侧**（本包无写点，见该用例头注）。
 
-失败是**可分类**的：`commitCountSince` 判定为"工作区脏且无提交"（子代理未执行收尾协议 `git add -A && git commit`）时，返回包装了 `ErrUncommittedChanges` 的错误，并由 `IsUncommittedChanges(err)`（`errors.Is`）判定。语义边界：现场一律保留（绝不静默删除子代理产出），但该失败**不表示节点结论无效**——调用方（`node/` 域）据此把它降级为产出中的显式警告，避免 workplan fail-fast 取其失败连坐同批兄弟节点。其余失败（rebase 冲突、审批被拒、merge 冲突/失败）仍是硬失败，不可降级。
+失败是**可分类**的：`commitCountSince` 判定为"工作区脏且无提交"（子代理未执行收尾协议 `git add -A && git commit`）时，返回包装了 `ErrUncommittedChanges` 的错误，并由 `IsUncommittedChanges(err)`（`errors.Is`）判定。语义边界：现场一律保留（绝不静默删除子代理产出），但该失败**不表示节点结论无效**——调用方（`backend/tool/node/` 域）据此把它降级为产出中的显式警告，避免 workplan fail-fast 取其失败连坐同批兄弟节点。其余失败（rebase 冲突、审批被拒、merge 冲突/失败）仍是硬失败，不可降级。
 
 **残留回收（`Prune`）**：成功收尾才 `git worktree remove`，失败/中断的现场按设计保留，因此必须有兜底清理器，否则每个残留 = 一份完整检出 + 一个 `seelex/<id>` 分支，磁盘随历史失败数无界增长。`Prune` 走本仓库自己的 `git worktree list`，只回收**同时满足**两条的现场：
 

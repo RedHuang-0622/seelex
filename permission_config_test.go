@@ -8,8 +8,8 @@ import (
 
 	frameworktools "github.com/RedHuang-0622/Seele/tools"
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
+	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
 	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 )
 

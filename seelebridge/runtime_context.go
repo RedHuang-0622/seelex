@@ -8,7 +8,7 @@ import (
 	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
 
-	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
+	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/seelexctx/compactor"
 	"github.com/RedHuang-0622/seelex/seelexctx/memory"

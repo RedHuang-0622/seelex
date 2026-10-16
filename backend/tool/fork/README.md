@@ -77,7 +77,7 @@ fork 批次的节点彼此独立（各自 worktree、各自账号、各自 goal�
 背景（2026-09-29 事故）：`fix-return-to-latest` 的流在 22:02:33 起满 300s 被
 整请求超时掐断（failed），旧 fail-fast 立刻 cancel 整批，`fix-coldload-interference`
 在 0.346s 后被连坐取消并报出没有来由的 `context canceled`，已完成产出一起被丢。
-同一策略已在 `node/agent_node.go` 的 worktree 收尾降级（2026-09-11 事故）有过先例。
+同一策略已在 `backend/tool/node/agent_node.go` 的 worktree 收尾降级（2026-09-11 事故）有过先例。
 
 ## 验证
 

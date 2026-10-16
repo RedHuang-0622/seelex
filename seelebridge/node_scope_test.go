@@ -16,7 +16,7 @@ import (
 	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/Seele/workplan/codec"
-	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
+	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
 
 	"github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/contract/dto"

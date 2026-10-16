@@ -419,7 +419,7 @@ func (executor *Executor) newPlanRunner(loaded *LoadedPlanDoc, binding PlanBranc
 	// 彼此独立（各自 worktree、各自账号、各自 goal），单点失败不该让整批归零。
 	// best-effort 下兄弟节点照常跑完，失败仍按节点行报出（state=failed）。
 	//
-	// 同源先例：seelebridge/node/agent_node.go 的 worktree 收尾降级（2026-09-11 事故）。
+	// 同源先例：backend/tool/node/agent_node.go 的 worktree 收尾降级（2026-09-11 事故）。
 	planRunner.SetForkPolicy(forkexec.PolicyBestEffort)
 	return planRunner
 }

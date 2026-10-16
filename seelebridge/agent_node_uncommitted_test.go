@@ -9,7 +9,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/agent"
 	"github.com/RedHuang-0622/Seele/types"
-	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
+	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
 )
 
 // ── 收尾协议未执行的节点产出保全（2026-09-11 事故回归）────────────────

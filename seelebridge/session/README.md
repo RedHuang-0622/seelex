@@ -58,7 +58,7 @@ sequenceDiagram
 
 非职责：
 
-- 不执行子代理（执行在 `node/` 域）；
+- 不执行子代理（执行在 `backend/tool/node/` 域）；
 - 不决定合并策略（`seelexctx/merger` 负责）；
 - 不接触主会话锁（mailbox 只是消息进出）。
 
@@ -88,7 +88,7 @@ sequenceDiagram
 
 ## 数据流或生命周期
 
-子代理完成 → `node/` 域 `mergeBack` 导出快照 → `SubagentContextActor.MergeBackIntoParent`（合并写回 parentEvidence）→ `Format()` 文本 `Enqueue` → 主会话 ChatStream 前后 `injectPendingSubagentContexts` 排空 mailbox 注入。
+子代理完成 → `backend/tool/node/` 域 `mergeBack` 导出快照 → `SubagentContextActor.MergeBackIntoParent`（合并写回 parentEvidence）→ `Format()` 文本 `Enqueue` → 主会话 ChatStream 前后 `injectPendingSubagentContexts` 排空 mailbox 注入。
 
 ## 依赖方向
 
@@ -126,7 +126,7 @@ sequenceDiagram
   - 为什么不能读：`Session.ChatStream` 从进函数持到出函数整段持有会话锁，
     `Session.History()`/`ExportSnapshot` 用同一把锁。子代理长文流式（实测
     1200 字 ≈ 42s）期间读它会各被挡约 28s，表现为「工作表格卡住不动」。
-  - 计数来源：节点在请求装配路径（`seelebridge/node/coordinator.go` 的
+  - 计数来源：节点在请求装配路径（`backend/tool/node/coordinator.go` 的
     `ScopeAssembler`，即持该节点会话锁的那个 goroutine）调用
     `Coordinator.NoteProgress` 上报 `len(WorkingHistory)`，因此观测侧读到它
     是无锁的；计数变化才 notify，避免每轮装配触发一次重投影。

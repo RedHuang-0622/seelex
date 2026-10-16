@@ -3,9 +3,9 @@ package seelebridge
 import (
 	"context"
 	"errors"
+	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/model"
-	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
 	session "github.com/RedHuang-0622/seelex/seelebridge/session"
 	"testing"
 )

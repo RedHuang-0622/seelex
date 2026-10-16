@@ -10,7 +10,7 @@ package seelebridge
 //
 // 基准面选 `NodeFirstPersonView(id).Result.Output`——该子代理自己的语义结果（AgentNode
 // 收尾时从子代理会话快照提取登记，经 session.SubagentSessions.Result 只读取回，见
-// seelebridge/node/agent_node.go:mergeBack）。它和取回正文来自**两条不同的路径**
+// backend/tool/node/agent_node.go:mergeBack）。它和取回正文来自**两条不同的路径**
 // （语义结果面 vs 作业正文面：作业正文由 fork 编排按 spec.ID 取子代理树摘要写入、
 // 经 bg_manage(op=fetch) 消费式取回），所以"哈希相等"不是同义反复。
 
@@ -25,7 +25,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/agent"
 	"github.com/RedHuang-0622/Seele/types"
-	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
+	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
 )
 
 // normalizeForkProduct 是产物规范化：**只**去首尾空白（作业正文末尾带一个换行，
@@ -51,7 +51,7 @@ func forkProductEdges(product string) (string, string) {
 	return product[:edge], product[len(product)-edge:]
 }
 
-// forkNodeOutputMax 是**产品侧**的语义结果 Output 上限（`seelebridge/node/agent_node.go:294
+// forkNodeOutputMax 是**产品侧**的语义结果 Output 上限（`backend/tool/node/agent_node.go:294
 // nodeOutputMax = 2000`，`truncateNodePreview` 同文件 :298 按**字节**截断并补一个 `…`）。
 // 它在这里只有一个作用：识别"基准面自己就是截断产物"这件事。
 const forkNodeOutputMax = 2000
