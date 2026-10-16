@@ -31,6 +31,8 @@
 |---|---|
 | `review.go` | `Requests`（落点本体）+ `Host`（宿主面）+ `ProbeLimit` / `NormalizeKey` / `ClassifyReadError` |
 | `review_test.go` | 读错误分类表、去重键、以及"全被跳过不写宿主 / 无会话不发布"等宿主契约用例 |
+| `show_files.go` | **show_files 的工具形状**（P21-4 从 `backend/engine/assemble/review_files.go` 归位）：`ShowFilesToolName` / `ShowFilesDescription` / `ShowFilesSchema` / `ShowFilesHandler` + `ShowFilesPort`（落点端口）与 `ShowFilesReceipt`（模型面回执）。工具面与落点分工不变：形状在这里，落点由宿主实现端口注入 |
+| `show_files_test.go` | schema 上下限回契约常量、名字与描述口径、形状校验先于落点（空清单/坏 JSON/超限都不惊动落点）、回执计数与跳过原因、落点错误原样冒泡 |
 
 ## 核心实现
 

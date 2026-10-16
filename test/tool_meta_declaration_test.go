@@ -79,6 +79,11 @@ func scanToolRegistrations(t *testing.T, root string) (map[string]string, []stri
 	// （例如 backend/tool/registry 的 router.go 注册、job_tools.go 声明），而"包级常量"这条
 	// 判据本来就不该按文件划线。先收一遍常量，再走一遍注册点。
 	constsByDir := map[string]map[string]string{}
+	// constsByPackage 按**声明包名**索引同一批常量：工具的注册点可能跨包引用工具名
+	// 常量（P21 把工具形状搬进域包之后就是这样，如 `review.ShowFilesToolName`），
+	// 只按目录索引会让这类注册点被判成"名字无法静态解析"——而判据的本意是"名字能被
+	// 源码看见"，跨包常量同样看得见。
+	constsByPackage := map[string]map[string]string{}
 	collectConsts := func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil || entry.IsDir() {
 			return nil
@@ -94,8 +99,18 @@ func scanToolRegistrations(t *testing.T, root string) (map[string]string, []stri
 		if constsByDir[dir] == nil {
 			constsByDir[dir] = map[string]string{}
 		}
+		pkgName := ""
+		if file.Name != nil {
+			pkgName = file.Name.Name
+		}
+		if pkgName != "" && constsByPackage[pkgName] == nil {
+			constsByPackage[pkgName] = map[string]string{}
+		}
 		for name, value := range constStringsOf(file) {
 			constsByDir[dir][name] = value
+			if pkgName != "" {
+				constsByPackage[pkgName][name] = value
+			}
 		}
 		return nil
 	}
@@ -136,7 +151,7 @@ func scanToolRegistrations(t *testing.T, root string) (map[string]string, []stri
 			if !ok || !isRegistrationCall(call, aliases) || len(call.Args) == 0 {
 				return true
 			}
-			switch name, ok := literalOrConst(call.Args[0], consts); {
+			switch name, ok := literalOrConst(call.Args[0], consts, constsByPackage); {
 			case !ok:
 				unresolved = append(unresolved, relative+":"+strconv.Itoa(token.NewFileSet().Position(call.Pos()).Line))
 			case sites[name] == "":
@@ -241,7 +256,7 @@ func isRegistrationCall(call *ast.CallExpr, aliases map[string]bool) bool {
 }
 
 // literalOrConst 解析注册点的第一个实参：字面量、包内常量、或 `包.常量`。
-func literalOrConst(expr ast.Expr, consts map[string]string) (string, bool) {
+func literalOrConst(expr ast.Expr, consts map[string]string, constsByPackage map[string]map[string]string) (string, bool) {
 	switch value := expr.(type) {
 	case *ast.BasicLit:
 		if value.Kind != token.STRING {
@@ -253,7 +268,16 @@ func literalOrConst(expr ast.Expr, consts map[string]string) (string, bool) {
 		text, ok := consts[value.Name]
 		return text, ok
 	case *ast.SelectorExpr:
-		text, ok := consts[value.Sel.Name]
+		// 先按本目录（同包内用包名限定的写法），再按**声明包名**跨包解析
+		// （`review.ShowFilesToolName` 这类）。
+		if text, ok := consts[value.Sel.Name]; ok {
+			return text, true
+		}
+		qualifier, ok := value.X.(*ast.Ident)
+		if !ok {
+			return "", false
+		}
+		text, ok := constsByPackage[qualifier.Name][value.Sel.Name]
 		return text, ok
 	default:
 		return "", false

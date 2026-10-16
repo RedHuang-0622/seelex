@@ -84,5 +84,5 @@
 - `func registrationAliases(file *ast.File) map[string]bool` — registrationAliases 收集"注册面的局部别名"：任何被赋值为 `<…>.RegisterTool`
 - `func containsRegisterToolSelector(expr ast.Expr) bool`
 - `func isRegistrationCall(call *ast.CallExpr, aliases map[string]bool) bool`
-- `func literalOrConst(expr ast.Expr, consts map[string]string) (string, bool)` — literalOrConst 解析注册点的第一个实参：字面量、包内常量、或 `包.常量`。
+- `func literalOrConst(expr ast.Expr, consts map[string]string, constsByPackage map[string]map[string]string) (string, bool)` — literalOrConst 解析注册点的第一个实参：字面量、包内常量、或 `包.常量`。
 - `func TestRegistrationScannerSeesEveryFamily(t *testing.T)` — TestRegistrationScannerSeesEveryFamily 钉住扫描器本身：漏掉一族工具就等于
