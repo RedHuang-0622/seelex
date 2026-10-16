@@ -16,10 +16,8 @@ package search
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
-	"io/fs"
 	"math"
 	"strings"
 
@@ -136,18 +134,14 @@ func NewRouterEventSource(router *store.Router, projectID, sessionID string) Eve
 }
 
 // LoadAllEvents 实现 EventSource。会话不存在（尚无事件库）→ 空流不报错
-// （与 DurableHistory.LoadEventTail 的会话未找到语义一致）。
+// （与 DurableHistory.LoadEventTail 的会话未找到语义一致：两边都走
+// `store.IsSessionNotFound` 这一处判据，不再各自维护副本）。
 func (source routerEventSource) LoadAllEvents(ctx context.Context) ([]store.Event, error) {
 	events, err := source.router.LoadEventTailWorkspace(source.projectID, source.sessionID, math.MaxInt, math.MaxInt)
-	if err != nil && isSessionNotFound(err) {
+	if err != nil && store.IsSessionNotFound(err) {
 		return []store.Event{}, nil
 	}
 	return events, err
-}
-
-// isSessionNotFound 判断会话不存在错误（fs.ErrNotExist / sql.ErrNoRows）。
-func isSessionNotFound(err error) bool {
-	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, sql.ErrNoRows)
 }
 
 // Searcher 在压缩栈帧（语义索引）上执行历史检索。依赖全部构造注入

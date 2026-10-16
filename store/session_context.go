@@ -305,7 +305,7 @@ func (s *SessionContextStore) loadBlob(_ context.Context) error {
 	}
 	payload, err := s.router.LoadContextState(s.sessionID)
 	if err != nil {
-		if isSessionNotFound(err) {
+		if IsSessionNotFound(err) {
 			// v8 会话可以没有 context blob（各字段已有独立落点）——继续从
 			// 模块/通道回读，而不是提前结束（S19）。
 			payload = nil
@@ -330,7 +330,7 @@ func (s *SessionContextStore) loadBlob(_ context.Context) error {
 	// S19：system prompt 权威在 metadata/system.json（v8 JSON 布局）；blob 只
 	// 保留未 v8 化字段。
 	if snapshot, handled, err := s.router.LoadSystemPromptWorkspace(s.workspace(), s.sessionID); err != nil {
-		if !isSessionNotFound(err) {
+		if !IsSessionNotFound(err) {
 			return fmt.Errorf("session context: load system prompt %q: %w", s.sessionID, err)
 		}
 	} else if handled && snapshot.Prompt != "" {
@@ -339,7 +339,7 @@ func (s *SessionContextStore) loadBlob(_ context.Context) error {
 	// S19：CompactStack 权威在 compact 通道；v8 JSON 布局从通道回读（blob
 	// 不再双写），未 v8 化后端保留 blob。
 	if frames, handled, err := s.router.CompactFramesWorkspace(s.workspace(), s.sessionID); err != nil {
-		if !isSessionNotFound(err) {
+		if !IsSessionNotFound(err) {
 			return fmt.Errorf("session context: load compact frames %q: %w", s.sessionID, err)
 		}
 	} else if handled {
@@ -379,7 +379,7 @@ func (s *SessionContextStore) Persist(ctx context.Context) error {
 	// 桥接落盘），v8 JSON 布局的 blob 不再承载。
 	compactHandled := false
 	if _, handled, err := s.router.CompactFramesWorkspace(s.workspace(), s.sessionID); err != nil {
-		if !isSessionNotFound(err) {
+		if !IsSessionNotFound(err) {
 			return fmt.Errorf("session context: check compact channel %q: %w", s.sessionID, err)
 		}
 	} else if handled {

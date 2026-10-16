@@ -273,7 +273,8 @@ type Repository interface {
 	ListToolResults(context.Context, Key) ([]ToolResult, error)
 	// CurrentGeneration 返回会话当前已发布 generation（不可变快照版本；
 	// fork 血缘的 forked_from_generation 来源）。会话不存在时返回
-	// fs.ErrNotExist / sql.ErrNoRows。
+	// fs.ErrNotExist（唯一判据见 IsSessionNotFound；SQL 后端已退役，
+	// 不再有 sql.ErrNoRows 路径）。
 	CurrentGeneration(context.Context, Key) (string, error)
 	WriteState(context.Context, Key, []byte) error
 	ReadState(context.Context, Key) ([]byte, error)
@@ -927,7 +928,8 @@ func (router *Router) ReadFrameworkEventsWorkspace(ctx context.Context, projectI
 }
 
 // LoadProjectRecord 读取项目级模块语义记录（会话开始前即可读）。
-// 记录尚未构建时返回 fs.ErrNotExist / sql.ErrNoRows，由调用方按「未构建」处理。
+// 记录尚未构建时返回 fs.ErrNotExist，由调用方按「未构建」处理
+// （判定统一走 IsSessionNotFound；SQL 后端已退役，不再有 sql.ErrNoRows 路径）。
 func (router *Router) LoadProjectRecord(projectID string) (ProjectRecord, error) {
 	var record ProjectRecord
 	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {

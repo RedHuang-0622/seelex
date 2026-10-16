@@ -12,9 +12,19 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 )
 
-// isSessionNotFound 判断「会话不存在」错误。会话恢复的语义是空历史/空记录，
-// 而不是失败。
-func isSessionNotFound(err error) bool {
+// IsSessionNotFound 判断「会话不存在」错误——**全仓唯一判据**。会话恢复的语义是
+// 空历史/空记录，而不是失败，所以消费方在这里统一判定，不许各自复制一份
+// （AGENTS §8.3「同一判据 = 一处函数」；P10 判据漂移的收口点）。
+//
+// 判据只看 `fs.ErrNotExist`，依据是**编码者**在 store 自己：
+//
+//   - 会话存储只有 JSON 布局在场（`store/sessionstore.go` 的 `ErrBackendRetired`：
+//     SQLite / PostgreSQL / Redis 是保留枚举，`Open` 直接拒绝），因此没有任何
+//     代码路径能产生 `sql.ErrNoRows`；「未找到」一律编码为 `fs.ErrNotExist`
+//     （见 `store/absent_state_reads_test.go` 对退役档的断言）。
+//   - 任何新增后端若换了「未找到」的编码，必须改这里一处，而不是让调用方
+//     各自兼容——这正是本函数导出的原因。
+func IsSessionNotFound(err error) bool {
 	return errors.Is(err, fs.ErrNotExist)
 }
 
@@ -163,7 +173,7 @@ func (d *DurableHistory) Load(ctx context.Context) ([]types.Message, error) {
 	}
 	messages, err := d.router.LoadWorkspace(d.workspace(), d.sessionID)
 	if err != nil {
-		if isSessionNotFound(err) {
+		if IsSessionNotFound(err) {
 			return []types.Message{}, nil
 		}
 		return nil, fmt.Errorf("durable history: load %q: %w", d.sessionID, err)
@@ -270,7 +280,7 @@ func (d *DurableHistory) LoadEventTail(_ context.Context, tokenBudget, maxUnits 
 	}
 	events, err := d.router.LoadEventTailWorkspace(d.workspace(), d.sessionID, tokenBudget, maxUnits)
 	if err != nil {
-		if isSessionNotFound(err) {
+		if IsSessionNotFound(err) {
 			return []Event{}, nil
 		}
 		return nil, fmt.Errorf("durable history: load event tail %q: %w", d.sessionID, err)

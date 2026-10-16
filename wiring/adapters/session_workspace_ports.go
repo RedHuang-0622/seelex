@@ -2,7 +2,6 @@ package adapters
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1065,7 +1064,7 @@ func adaptCompactionRecords(payloads []json.RawMessage) []model.ContextCompactio
 func (port SessionPort) LoadCompactionRecordsWorkspace(workspaceID, id string) ([]model.ContextCompaction, error) {
 	records, err := port.granular().LoadCompactionRecords(workspaceID, id)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, sql.ErrNoRows) {
+		if store.IsSessionNotFound(err) {
 			// 显式零值：记录不存在 = nil（调用方一律看 len / range）；门禁禁的是裸 `return nil, nil`。
 			return []model.ContextCompaction(nil), nil
 		}
@@ -1079,7 +1078,7 @@ func (port SessionPort) LoadSessionRecord(id string) (model.SessionRecord, error
 	workspaceID := granular.ResolveProjectForSession(id)
 	payload, err := granular.LoadRecordRaw(workspaceID, id)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, sql.ErrNoRows) {
+		if store.IsSessionNotFound(err) {
 			// S20：record 通道退役；无派生 payload 时按该会话自身的事件流
 			// 构造最小 record，避免上层回退到引擎共享历史造成视图串写。
 			return port.deriveSessionRecord(workspaceID, id)
@@ -1092,7 +1091,7 @@ func (port SessionPort) LoadSessionRecord(id string) (model.SessionRecord, error
 func (port SessionPort) LoadSessionRecordWorkspace(workspaceID, id string) (model.SessionRecord, error) {
 	payload, err := port.granular().LoadRecordRaw(workspaceID, id)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, sql.ErrNoRows) {
+		if store.IsSessionNotFound(err) {
 			return port.deriveSessionRecord(workspaceID, id)
 		}
 		return model.SessionRecord{}, err
@@ -1105,7 +1104,7 @@ func (port SessionPort) LoadSessionRecordWorkspace(workspaceID, id string) (mode
 func (port SessionPort) deriveSessionRecord(workspaceID, sessionID string) (model.SessionRecord, error) {
 	events, err := port.LoadEventRangeWorkspace(workspaceID, sessionID, 1, math.MaxUint64)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, sql.ErrNoRows) {
+		if store.IsSessionNotFound(err) {
 			return model.SessionRecord{}, fs.ErrNotExist
 		}
 		return model.SessionRecord{}, err

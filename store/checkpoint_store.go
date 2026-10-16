@@ -69,7 +69,7 @@ func (store *CheckpointStore) Load(id string) (*workplanTypes.Snapshot, error) {
 		payload, err = store.router.LoadCheckpointWorkspace(store.projectID, key)
 	}
 	if err != nil {
-		if isSessionNotFound(err) {
+		if IsSessionNotFound(err) {
 			return nil, fmt.Errorf("%w: %q", ErrCheckpointNotFound, id)
 		}
 		return nil, fmt.Errorf("session storage: load checkpoint %q: %w", id, err)

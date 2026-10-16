@@ -26,7 +26,7 @@
 | P7 | 前端收口三件 | `gui/**`（`headless*.go`、注释/README 旧路径）、`application/console` → `console/`、`tui` | 仍在原地；注释与 README 有旧路径（D-M3-13） | 按 plan §2.1：`headless/` 独立、`console/` 顶层化、旧路径注释一次对齐 | 前端行为零改动 | 做（按建议），搬迁收尾后一批 | **已裁决（按建议做）** |
 | P8 | 契约 vs 兼容面甄别（别名/转发面清理） | `backend/workunit`、`backend/limit/policy`、`store`、`middle/protocol/*`、`internal/*` | 搬迁期留了一层 `type X = Y` 别名与转发（`GroupBit*`、`NodeScope`、`Settings`、`StoreFile` 等） | **先判性质**：①**契约抽象**（如 `workunit` = 后台工作 agent 的抽象，含 subagent/teammate，并为未来后台 agent 方案（含规划中的远程 agent 调用）提供契约；`policy` = 多条件 select 出 bool 决定权限的统一抽象与契约）→ 保留并归位；②**兼容面**（只为不动调用点而存在的转发/别名）→ 删；③**冗余或僵尸面** → **先暴露清单与详解，交用户决定**，不自行删 | 判错性质会把契约当垃圾删掉，或把垃圾当契约供起来 | 按上述三类处置；**每一条都要先给"为什么是这一类"的判据与证据** | **已裁决（按三类甄别；冗余/僵尸先暴露给用户决定）** |
 | P9 | 错误文案统一 | `backend/engine/assemble/events_unified.go`（原 `seelebridge/events_unified.go`；提案原文写的 `backend/engine/obs` 是**错位置**，已按 `rg` 更正） | 文案里仍写 `"unified events: sessionstore router is not attached"`（D-M3-12），两处各写一份 | 改成当前包名措辞，并归到**一处**（两个入口共用同一句） | 用户可见面；改则同步用例 | 做（按建议），单独一个 commit | **已修复（见 [p-items-record.md](p-items-record.md) §P9）** |
-| P10 | **判据漂移（较高优先级 bug）**：`isSessionNotFound` 两份实现 | `store/durable_history.go`、`seelexctx/search/search.go`（终局 `backend/engine/context/seelectx/search`） | 两处各自判断"会话不存在"，后者还多认 `sql.ErrNoRows`（SQL 后端已退役）→ 两处**已不一致** | 合并成一处唯一判据（保留哪一份的语义要有依据） | AGENTS §8.3「同一判据两处即缺陷」；不合并会让"会话不存在"在不同路径下两种答案 | **先写会红的用例复现差异，再合并** | **已裁决（较高优先级修复）** |
+| P10 | **判据漂移（较高优先级 bug）**：`isSessionNotFound` 多份实现 | `store/durable_history.go`、`seelexctx/search/search.go`、`application/core/session_runtime/archive.go`、`wiring/adapters/session_workspace_ports.go`（终局 `backend/engine/context/seelectx/search`） | 实测漂移面是**7 处、4 个包**（比提案写的"两份"更宽）：store / search 各一个同名函数，另有两处**内联**副本（archive.go 1 处、adapters 4 处），且语义已分叉（fs-only vs fs+`sql.ErrNoRows`） | 归到**一处**，落点是「未找到」错误的编码者 `store`；语义取 `fs.ErrNotExist`（SQL 后端已 `ErrBackendRetired`，无路径可产生 `sql.ErrNoRows`） | AGENTS §8.3「同一判据两处即缺陷」；不合并会让"会话不存在"在不同路径下两种答案 | 先写会红的用例复现差异，再合并；**并加机械门禁防回潮** | **已修复（见 [p-items-record.md](p-items-record.md) §P10）** |
 | P11 | 覆盖缺口：节点预算上限守卫 | `backend/tool/plan`、`backend/engine/assemble` | `docs/arch/ARCHITECTURE_REVIEW.md` 声称为 `plan_input_fuzz_test.go`；复核更正：该文件**存在**（`backend/engine/assemble/plan_input_fuzz_test.go`），但只 fuzz `NormalizePlanLoadArguments`，**不触及** `ValidatePolicyLoad` 的 MaxNodeLoops/MaxNodeOutputTokens 分支 → 覆盖缺口为真、理由不同 | 补用例（原描述的二选一里选"补"） | 不补=文档失真 | 补边界用例，并把文档指向真实用例名 | **已修复（见 [p-items-record.md](p-items-record.md) §P11）** |
 | P12 | 文档漂移清理 | `docs/arch/**`、模块 README、`docs/gui/**` | `docs/arch` 约 23 行指向从未存在的旧文件名；README 漂移门禁现存 12 条（与本方案无关） | 逐条改指当前实现或标"已删除" | 不打红 CI（有容忍表），但损害"文档即事实" | 按建议做，可并入 P7 收口片 | **已裁决（按建议判别）** |
 | P13 | 「文件与函数索引」生成器全仓化 | `scripts/gen_core_readme_index.py`、全仓 Go 包 README | 生成器只覆盖 `application/core` 分卷与少数登记包 | 提取逻辑扩到全仓，一次补齐 | 逐包手补会漂移 | 按建议做；先确认"中文 doc 注释缺失"包的降级行为 | **已裁决（按建议判别）** |
@@ -141,3 +141,72 @@
 - 本文件里**已执行**的提案条目（做过的删除/新增与证据）：[p-items-record.md](p-items-record.md)。
 - 剩余搬迁切片与切分技术：[m5-slices.md](m5-slices.md)、[m4-decision-brief.md](m4-decision-brief.md)。
 - 本文件只放**提案**（未做）+ 用户裁决，与"已做/在做"的记录分开，避免把规划写成既成事实。
+
+---
+
+## 5. P8 实测判别：契约抽象 / 兼容面 / 冗余·僵尸面（2026-10-16）
+
+（§1 汇总表里 P8 行的状态以本节为准：**判别已完成**。）
+
+**盘点口径**：全仓 `type X = Y`（含 `type (...)` 块内）共 **266 处**（脚本 `tmp/reshape/alias_census.py`，按词边界统计）。逐条判定改用**限定名**精确计数（`rg -n '\bpkg\.Name\b'`），避免同名符号互相污染；"包内用量"另按裸名在定义包内单独统计。用户口径：① 契约抽象 → 保留并归位；② 兼容面 → 删；③ 冗余/僵尸面 → **先暴露清单与详解，由用户决定**（§5.3 即此清单，本轮未动）。
+
+### 5.1 契约抽象（保留；只欠文档里指向已删模块的陈述）
+
+| 面 | 位置 | 判据（证据） |
+|---|---|---|
+| `workunit` 生命周期契约 | `backend/workunit/{contract.go,ports.go}` | 消费方 9 处：`backend/multiagent/{subagent,teamwork}`、`backend/tool/{worktree,node}`、`internal/telemetry`、`backend/engine/assemble/workunit_*`；`ports.go` 的三根宿主端口让生命周期实现里搜不到 `teamwork.`/`worktree.`/`store.` 限定符（`e2e/workunit_ports_test.go` 机械门禁）——正是用户定义的"后台工作 agent（subagent/teammate，及未来远程 agent）契约"。**欠**：`contract.go` 顶部仍写"实现包（`seelebridge` 的 lifecycleHost）"，落点早已是 `backend/engine/assemble/workunit_*`（文档漂移，并入 P12） |
+| `policy` 权限判定契约 | `backend/limit/policy/{policy.go,tiers.go,tool_meta.go,shellkind.go}` | 档位目录与路由组表的事实源在 `contract/dto`（`dto.PermissionTiers()`/`NormalizePermissionTier`），本包只做两件事：按档位剪掉 `ask` 规则（`ApplyTier`，从不新增 allow、从不触碰 deny）、按名字把组翻成框架 `ToolMeta`（`DeclaredToolMeta` → `ToolKindForGroup`）；`tiers.go` 明写"档位是声明式覆盖，不是新判定机制"。符合用户定义的"多条件 select 出 bool 的权限统一抽象与契约"。保留 |
+| `dto` 词汇别名（9 条） | `middle/protocol/model/state.go` | 定义只有一份（`contract/dto`），本包以别名给中层词汇：`model.X` 被 35+ 文件消费，`application/application.go` 再把它抬成前端门面词汇。删别名只是把限定符从 `model.X` 换成 `dto.X`，无漂移风险可消除 |
+| 领域包词汇别名（约 15 条） | `backend/tool/{task,plan,worktree,node}`、`backend/multiagent/{subagent,goal}`、`backend/engine/schedule`、`internal/model/*` | 同构：领域包的公共词汇指向契约里的唯一形状。保留 |
+| 平台/桥接别名 | `backend/tool/computer/darwin_core.go`（`cgFloat = float64`）、`gui/terminal_bridge.go`（`TerminalSession = terminal.Info`） | 与迁移无关的命名选择。保留 |
+
+### 5.2 兼容面（删；都是"只为不动调用点"而存在）
+
+| 位置 | 条数 | 现状证据 | 删除动作 |
+|---|---|---|---|
+| `application/core/aliases.go` | 230 行 | `application/core` 包内与 `application/console` 当本地词汇用；`application/application.go` 已自己重导出同一批名字（前端门面不会断） | R10：整文件删；包内改引 `model.X`/`contract.X`/`dto.X`，**以编译器报错为全量清单** |
+| `store/root_aliases.go` | 7 条 | 外部只有 3 处：`wiring/bootstrap/runtime.go` 用 `store.Settings`(2) 与 `store.DataRootLockedByWith`(1)；`store.NewSettings`、`store.ErrDataRootLocked`、`store.ErrDataRootStaleLock`、`store.DataRootLockedBy` 的**限定名引用 = 0**，只剩 `store/` 自己的测试在用 | 删文件；3 处外部改 `storeroot.X`；`store/` 测试改限定名 |
+| `backend/engine/assemble/{ports.go,runtime.go,runtime_role_plugins.go}` | 15 条（11+3+1） | 旧根包名遗留 | R11 随 `ports.go` 一并删 |
+| `application/core/service_scheduler.go:333,336` | 2 条 | `core.ScheduledTaskSpec`/`ScheduledTaskStatus` 限定名 **= 0**（包内也无人用）；同文件第 10 行的 import 别名仍叫 `seelebridge`，实际指向 `backend/engine/assemble` | 删这 2 条 + import 别名改 `assemble` |
+| `application/prompt/effort.go:29`（`ReActBudget`） | 1 条 | `prompt.ReActBudget` 限定名 = 0；包内仅定义行 | 删；调用点直接用 `loop.Budget` |
+| `session/ports.go:26,29`（`SessionKind`/`TranscriptEvent`） | 2 条 | `session.SessionKind`/`session.TranscriptEvent` 限定名 = 0；包内仅定义行 | 删；改用 `store.Kind`/`store.TranscriptEvent` |
+
+### 5.3 冗余/僵尸面（**等你决定；本轮未动**）
+
+**Z1 `store/legacy_storage.go`（296 行）整文件存疑。**
+
+- 它定义 `SessionStore` + `NestedSessionStore` 两个类型与两个构造（legacy shard 文件存储、按工作区路由的嵌套存储）。
+- 全仓限定名引用：`store.SessionStore` = 0、`store.NestedSessionStore` = 0、`store.NewNestedSessionStore` = 0；`store.NewSessionStore` = **1**，唯一消费者是 `test/smoke_test.go:35`，而那里拿到 `st` 之后只做了一句 `_ = st.FrameworkStore()`，整段流程随后走 `runtime.NewMainSession`。
+- 包内：`store/` 里只有 `legacy_storage.go` 自己引用这两个类型名。
+- 文件头三处陈述都已失真：`// Package storage ...`（包名是 `store`）、"置于 `internal/`"（实际在 `store/`）、"根包经 `storage_aliases.go` 重导出"（`store/storage_aliases.go` **不存在**）。
+- 为什么可疑：现代会话存储是 `store/sessionstore.go` 那条线；这一份"看起来还能用"的第二套存储留在包里，读者会以为存在两条写路径。
+- **删了会怎样**：`test/smoke_test.go` 去掉那 4 行（本来也没用它的产出）→ 全仓会话存储只剩一条路径；`store/README-storage.md` 的索引段同步删。**不删的代价**：僵尸面长期挂着，且注释继续骗人。
+- **我的建议**：删。若你要留作"legacy 兼容读"，那它至少要有一条真实读路径 + 一条钉住格式的用例，否则就是幽灵。
+
+**Z2 `store/legacy_storage.go` 的两个包内别名 `Message`/`SessionMeta`。**
+
+- `type Message = types.Message`（Seele 框架类型）、`type SessionMeta = storage.SessionMeta`（Seele 框架存储类型）。
+- 包内以**裸名**使用它们：`Message` 出现在 16 个文件、`SessionMeta` 出现在 4 个文件（`json_layout.go`/`sessionstore.go`/`message_rows.go`/`legacy_storage.go`）。
+- 为什么可疑：它不是"第二份实现"（定义只有一份），但把"这个类型来自框架"这一事实藏起来了——`store` 的公开面看起来像自有类型，实际是 Seele 类型别名，将来换引擎类型时没有编译期信号。
+- **删了会怎样**：16 个文件里 `Message` → `types.Message`、4 个文件里 `SessionMeta` → `storage.SessionMeta`（纯限定符改写 + README 索引同步）。**不删的代价**：类型来源在调用点不可见。
+- **我的建议**：删（与 Z1 同批；若 Z1 保留，至少把注释写成"这是框架类型的本地别名"）。
+
+**Z3 `seelebridge` 命名残留**（模块已删，名字还在；脚本 `tmp/reshape/seelebridge_residue.py`，实测）：
+
+| 载体 | 数量 | 说明 |
+|---|---:|---|
+| Go 文件提到 `seelebridge` | 207 | 其中 123 个同时含"迁移前/原/曾经"这类**历史陈述**（合法，保留） |
+| 作为 **import 别名**（`seelebridge "…/backend/engine/assemble"`） | 34 | 例：`gui/bridge_test.go`、`wiring/registry/registry.go`、`application/console/backend_console.go`、`backend/workunit/*`、`contract/ports.go`、`internal/telemetry/summary.go` |
+| 作为**限定符**（`seelebridge.X`） | 56 | 全是上面那些别名的使用点 |
+| 作为**字符串字面量**（用户可见文案） | 24 | 例：`store/legacy_storage.go` 的 7 处 `"seelebridge: …"` |
+| 出现在 `//` 注释 | 169 | 需逐条判断：历史陈述保留、指向当前实现的改成新落点 |
+| Markdown 文档提到 | 414 | 336 含历史陈述（保留）；93 处限定符指向已删包名 |
+
+- **删了会怎样**：34 处 import 别名 → `assemble`；24 处文案 → 当前包名口径（**这部分已并入 P9**，且不碰正在搬迁的 `application/core/**`、`middle/**`、`backend/engine/assemble/**`、`backend/tool/registry/**`）；169 处注释与 414 篇文档只改**指向当前实现**的陈述（并入 P12），历史记录不许改写成"从没存在过"。
+- **我的建议**：别名改名 + 文案改写**做**（机械、零行为变化）；注释/文档按"历史陈述保留、现状陈述改新落点"逐条处理。
+
+### 5.4 建议的执行顺序
+
+1. **5.2 的兼容面删除**（`store/root_aliases.go`、`service_scheduler.go` 两条 + import 别名、`prompt.ReActBudget`、`session/ports.go` 两条）：与 M5 并行、零行为变化。`application/core/aliases.go` 与 `backend/engine/assemble/*` 两组分别在 R10/R11 收口。
+2. **Z3 的别名与文案**：随 P9 一起（已扩范围），只动不在搬迁路径上的文件。
+3. **Z1/Z2**：等你一句"删/留"；删的话与 Z3 同批做（同文件冲突面大，不拆两片）。

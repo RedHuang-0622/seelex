@@ -324,7 +324,7 @@ func (store *SessionGranularStore) LoadSession(projectID, sessionID string) (Rec
 	}
 	payload, err := store.router.LoadStateWorkspace(store.projectID(projectID), sessionID)
 	if err != nil {
-		if isSessionNotFound(err) {
+		if IsSessionNotFound(err) {
 			return Record{}, false, nil
 		}
 		return Record{}, false, err
@@ -423,7 +423,7 @@ func (store *SessionGranularStore) Transcript(projectID, sessionID string) ([]Tr
 	}
 	events, err := store.router.LoadEventTailWorkspace(store.projectID(projectID), sessionID, math.MaxInt, math.MaxInt)
 	if err != nil {
-		if isSessionNotFound(err) {
+		if IsSessionNotFound(err) {
 			return []TranscriptEvent{}, nil
 		}
 		return nil, err
@@ -445,7 +445,7 @@ func (store *SessionGranularStore) TranscriptTail(projectID, sessionID string, t
 	}
 	events, err := store.router.LoadEventTailWorkspace(store.projectID(projectID), sessionID, tokenBudget, maxUnits)
 	if err != nil {
-		if isSessionNotFound(err) {
+		if IsSessionNotFound(err) {
 			return []Event{}, nil
 		}
 		return nil, err
@@ -460,7 +460,7 @@ func (store *SessionGranularStore) EventRange(projectID, sessionID string, fromS
 	}
 	events, err := store.router.LoadEventRangeWorkspace(store.projectID(projectID), sessionID, fromSeq, toSeq)
 	if err != nil {
-		if isSessionNotFound(err) {
+		if IsSessionNotFound(err) {
 			return []Event{}, nil
 		}
 		return nil, err
@@ -475,7 +475,7 @@ func (store *SessionGranularStore) ToolResults(projectID, sessionID string) ([]T
 	}
 	results, err := store.router.ListToolResultsWorkspace(store.projectID(projectID), sessionID)
 	if err != nil {
-		if isSessionNotFound(err) {
+		if IsSessionNotFound(err) {
 			return []ToolResultRef{}, nil
 		}
 		return nil, err
@@ -506,7 +506,7 @@ func (store *SessionGranularStore) ListToolResults(projectID, sessionID string) 
 	}
 	results, err := store.router.ListToolResultsWorkspace(store.projectID(projectID), sessionID)
 	if err != nil {
-		if isSessionNotFound(err) {
+		if IsSessionNotFound(err) {
 			return []ToolResult{}, nil
 		}
 		return nil, err
@@ -521,7 +521,7 @@ func (store *SessionGranularStore) Context(projectID, sessionID string) (Context
 	}
 	payload, err := store.router.LoadContextStateWorkspace(store.projectID(projectID), sessionID)
 	if err != nil {
-		if isSessionNotFound(err) {
+		if IsSessionNotFound(err) {
 			return ContextStack{}, nil
 		}
 		return ContextStack{}, err

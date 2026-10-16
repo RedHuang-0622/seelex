@@ -54,7 +54,7 @@ func (s *RouterStorage) ReadRange(ctx context.Context, offset, limit int) ([]typ
 	}
 	messages, total, err := s.router.LoadRange(s.sessionID, offset, limit)
 	if err != nil {
-		if isSessionNotFound(err) {
+		if IsSessionNotFound(err) {
 			return []types.Message{}, 0, nil
 		}
 		return nil, 0, fmt.Errorf("router storage: read range %q: %w", s.sessionID, err)

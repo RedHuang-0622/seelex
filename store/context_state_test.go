@@ -46,7 +46,7 @@ func TestContextStateIsolatedFromSessionState(t *testing.T) {
 			}
 			// 两个通道互不覆盖：state 仍是 SessionRecord，context 仍是 SessionContextRecord。
 			// S20：JSON v8 的 state 通道停写停读。
-			if _, err := repository.ReadState(context.Background(), key); !isSessionNotFound(err) {
+			if _, err := repository.ReadState(context.Background(), key); !IsSessionNotFound(err) {
 				t.Fatalf("json state err=%v, want not-found", err)
 			}
 			contextState, err := repository.ReadContextState(context.Background(), key)
@@ -57,7 +57,7 @@ func TestContextStateIsolatedFromSessionState(t *testing.T) {
 			if err := repository.Delete(context.Background(), key); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := repository.ReadContextState(context.Background(), key); !isSessionNotFound(err) {
+			if _, err := repository.ReadContextState(context.Background(), key); !IsSessionNotFound(err) {
 				t.Fatalf("context after delete err = %v, want not-found", err)
 			}
 		})
@@ -115,7 +115,7 @@ func TestSessionContextStorePersistsToIsolatedChannel(t *testing.T) {
 			if err := store.Persist(context.Background()); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := repository.ReadState(context.Background(), key); !isSessionNotFound(err) {
+			if _, err := repository.ReadState(context.Background(), key); !IsSessionNotFound(err) {
 				t.Fatalf("json state err=%v, want not-found", err)
 			}
 			// 新实例 Load 读回 compact 帧（跨实例持久）。
@@ -143,7 +143,7 @@ func TestContextStateMissingReturnsNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repository.ReadContextState(context.Background(), Key{ProjectID: "project", SessionID: "missing"}); !isSessionNotFound(err) {
+	if _, err := repository.ReadContextState(context.Background(), Key{ProjectID: "project", SessionID: "missing"}); !IsSessionNotFound(err) {
 		t.Fatalf("missing context err = %v, want not-found", err)
 	}
 }

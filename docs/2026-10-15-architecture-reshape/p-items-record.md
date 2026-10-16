@@ -87,3 +87,50 @@ D-M3-12 的成因：M3 改名 `sessionstore` → `store` 时文案没跟着走�
 **验证**：`go test ./backend/engine/assemble/ -count=1 -run TestUnifiedEvents` 绿；
 `gofmt -l backend/engine/assemble/` 空；`rg 'sessionstore router is not attached' -g '*.go'` 无命中；
 `rg 'sessionstore'` 在现行生产代码里的残留另见 P8 清单（本片只负责这一句文案）。
+
+---
+
+## P10 —— 「会话不存在」判据漂移收口（较高优先级 bug）
+
+提交：见本条记录的 commit（`fix(store): ...`）。
+
+**执行中发现漂移面比提案更宽**：提案写"两份实现"，实测是 **7 处、4 个包**：
+
+| 位置 | 修复前形态 | 语义 |
+|---|---|---|
+| `store/durable_history.go` | `func isSessionNotFound` | 只看 `fs.ErrNotExist` |
+| `seelexctx/search/search.go` | `func isSessionNotFound` | `fs.ErrNotExist \|\| sql.ErrNoRows` |
+| `application/core/session_runtime/archive.go` | **内联**判据 | `fs \|\| sql` |
+| `wiring/adapters/session_workspace_ports.go` | **内联** 4 处 | `fs \|\| sql` |
+
+**落点与语义的选择（有依据，不是随手取一份）**
+
+- 落点 = **`store`**：它是"未找到"这个错误的**编码者**（JSON 布局把未找到编码为 `fs.ErrNotExist`），
+  判据应贴着编码者放，消费方调用它——判据放消费方会随消费方数量分裂。
+- 语义 = **只看 `fs.ErrNotExist`**（不是并集）：`store/sessionstore.go` 的 `ErrBackendRetired`
+  说明 SQLite / PostgreSQL / Redis 只是保留枚举、`Open` 直接拒绝，**今天没有任何代码路径能产生
+  `sql.ErrNoRows`**；保留它等于让"同一份输入"在两条路径上给两种答案（正是本 bug 的形态）。
+- 导出 `store.IsSessionNotFound`，函数 doc 里写清"新增后端若换编码只改这一处"，把这条约束钉在代码里。
+
+**机械门禁（防回潮，不是"用例全绿"）**：新增 `e2e/session_not_found_single_criterion_test.go`
+
+1. `TestSessionNotFoundCriterionIsDeclaredExactlyOnce`：扫全仓 Go 源码（含用例）的函数声明，
+   按**名字集合**（`IsSessionNotFound`/`isSessionNotFound`/`sessionNotFound`/`SessionNotFound`/
+   `isSessionAbsent`）判"判据只许一处，且必须是 `store/durable_history.go:IsSessionNotFound`"；
+2. `TestRetiredSQLNoRowsIsReferencedOnlyByListedTestData`：`database/sql` 与 `sql.ErrNoRows`
+   只允许出现在**白色清单**登记的文件里（今天只允许红灯用例把 `sql.ErrNoRows` 当**输入数据**喂进去），
+   清单还有**规模上限**（只许收缩）与**过期条目检测**（登记了却不再引用就报错）。
+
+**门禁的齿（复核者独立做的变异验证）**：临时放入一份 `sessionNotFound(err)` + `sql.ErrNoRows` 的
+探针文件后，**两条门禁同时报红**且分别指名道姓（"实测 2 处"、"已退役的 SQL 后端错误码被代码引用"）；
+删除探针即绿。证明门禁钉在判据上，而不是"跟着实现写"。
+
+**红先行的证据**：`seelexctx/search/session_not_found_test.go` 把五种输入（`fs.ErrNotExist`、
+`sql.ErrNoRows`、被 `fmt.Errorf("%w")` 包装的 `fs.ErrNotExist`、普通错误、`nil`）喂给唯一判据，
+钉住"未找到 = 只看 fs"与"该包已经**不存在**本地副本"（用例里直接扫本包声明）。
+
+**诚实边界**（写进用例头注释，不夸大覆盖）：机械手段只能证明"判据函数唯一 + 退役错误码不再被代码引用"；
+一个**新的内联** `errors.Is(err, fs.ErrNotExist)` 副本在语法上与合法用法不可区分，抓不到，那部分靠 review。
+
+**验证**：`go test ./e2e/ -count=1 -run 'TestSessionNotFound|TestRetiredSQLNoRows'` 绿；
+`go test ./store/ ./seelexctx/search/ -count=1` 绿；`gofmt -l .` 空。

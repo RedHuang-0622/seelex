@@ -2,11 +2,9 @@ package session_runtime
 
 import (
 	"crypto/sha256"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"sort"
 	"strings"
 	"time"
@@ -15,6 +13,7 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 const (
@@ -62,8 +61,8 @@ func (c *Coordinator) persistCurrentSessionLocked(location Location, sessionID s
 	}
 	// L2：内存标题缺失（纯后台启动从未激活）时回退磁盘 record 标题，
 	// 不读全局活跃 Snapshot 标题。
-	if store, ok := c.Core.Deps.Sessions.(SessionRecordPort); ok {
-		if existing, err := store.LoadSessionRecordWorkspace(location.WorkspaceID, sessionID); err == nil {
+	if sessionStore, ok := c.Core.Deps.Sessions.(SessionRecordPort); ok {
+		if existing, err := sessionStore.LoadSessionRecordWorkspace(location.WorkspaceID, sessionID); err == nil {
 			if record.Title.Value == "" && existing.Title.Value != "" {
 				record.Title = existing.Title
 			}
@@ -77,10 +76,10 @@ func (c *Coordinator) persistCurrentSessionLocked(location Location, sessionID s
 	}
 	enrichTranscriptMessageIDs(events, record)
 
-	if store, ok := c.Core.Deps.Sessions.(SessionSnapshotPort); ok {
+	if sessionStore, ok := c.Core.Deps.Sessions.(SessionSnapshotPort); ok {
 		// 原子快照：transcript 是全量权威事件源，record 由其全量重建，
 		// 整键替换即可，无需增量合并。
-		if err := store.SaveSessionSnapshotWorkspace(location.WorkspaceID, sessionID, c.engineHistoryFor(sessionID), record, events, pendingResults); err != nil {
+		if err := sessionStore.SaveSessionSnapshotWorkspace(location.WorkspaceID, sessionID, c.engineHistoryFor(sessionID), record, events, pendingResults); err != nil {
 			return fmt.Errorf("save atomic session snapshot: %w", err)
 		}
 		c.Core.ViewMu.Lock()
@@ -92,18 +91,18 @@ func (c *Coordinator) persistCurrentSessionLocked(location Location, sessionID s
 	if err := c.Core.Deps.Sessions.SaveCurrent(sessionID); err != nil {
 		return err
 	}
-	store, ok := c.Core.Deps.Sessions.(SessionRecordPort)
+	sessionStore, ok := c.Core.Deps.Sessions.(SessionRecordPort)
 	if !ok {
 		return nil
 	}
 	// 非原子路径防御：transcript 为空（异常/旧数据）时保留磁盘既有可见
 	// 对话，避免整键替换丢内容。
 	if len(record.Conversation.Messages) == 0 {
-		if existing, err := store.LoadSessionRecordWorkspace(location.WorkspaceID, sessionID); err == nil {
+		if existing, err := sessionStore.LoadSessionRecordWorkspace(location.WorkspaceID, sessionID); err == nil {
 			record.Conversation.Messages = c.RecordConversation(model.SessionRecord{Conversation: existing.Conversation})
 		}
 	}
-	if err := store.SaveSessionRecordWorkspace(location.WorkspaceID, sessionID, record); err != nil {
+	if err := sessionStore.SaveSessionRecordWorkspace(location.WorkspaceID, sessionID, record); err != nil {
 		return fmt.Errorf("save session record: %w", err)
 	}
 	return nil
@@ -113,11 +112,11 @@ func (c *Coordinator) persistCurrentSessionLocked(location Location, sessionID s
 // + 内存新增（按 Seq 去重合并）。恢复后内存 transcript 只有尾部窗口，
 // 必须以此保证 record/事件通道整键替换不丢旧消息。
 func (c *Coordinator) allTranscriptEventsForSession(location Location, sessionID string, memory []model.TranscriptEvent) []model.TranscriptEvent {
-	store, ok := c.Core.Deps.Sessions.(SessionTranscriptPort)
+	sessionStore, ok := c.Core.Deps.Sessions.(SessionTranscriptPort)
 	if !ok {
 		return memory
 	}
-	persisted, err := store.LoadTranscriptTailWorkspace(location.WorkspaceID, sessionID, 1<<30, 1<<30)
+	persisted, err := sessionStore.LoadTranscriptTailWorkspace(location.WorkspaceID, sessionID, 1<<30, 1<<30)
 	if err != nil {
 		return memory
 	}
@@ -408,11 +407,11 @@ func (c *Coordinator) SessionRecordLocked(sessionID string, tasks []dto.TaskReco
 // 传 Location 而不是裸 sessionID：与 record 读面同一把键（项目作用域显式化，
 // 阶段 0 的键漂移修复），否则跨项目同名会话会读到别人的压缩历史。
 func (c *Coordinator) LoadSessionCompactionRecords(location Location, sessionID string) ([]model.ContextCompaction, bool, error) {
-	store, ok := c.Core.Deps.Sessions.(SessionCompactionFactPort)
+	sessionStore, ok := c.Core.Deps.Sessions.(SessionCompactionFactPort)
 	if !ok {
 		return nil, false, nil
 	}
-	records, err := store.LoadCompactionRecordsWorkspace(location.WorkspaceID, sessionID)
+	records, err := sessionStore.LoadCompactionRecordsWorkspace(location.WorkspaceID, sessionID)
 	if err != nil {
 		return nil, true, err
 	}
@@ -422,12 +421,12 @@ func (c *Coordinator) LoadSessionCompactionRecords(location Location, sessionID 
 // LoadSessionRecord 读取会话归档 record（可选能力：无 record 端口或版本/
 // ID 不匹配时返回 (零值, false, nil)）。
 func (c *Coordinator) LoadSessionRecord(location Location, sessionID string) (model.SessionRecord, bool, error) {
-	store, ok := c.Core.Deps.Sessions.(SessionRecordPort)
+	sessionStore, ok := c.Core.Deps.Sessions.(SessionRecordPort)
 	if !ok {
 		return model.SessionRecord{}, false, nil
 	}
-	record, err := store.LoadSessionRecordWorkspace(location.WorkspaceID, sessionID)
-	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, sql.ErrNoRows) {
+	record, err := sessionStore.LoadSessionRecordWorkspace(location.WorkspaceID, sessionID)
+	if store.IsSessionNotFound(err) {
 		return model.SessionRecord{}, false, nil
 	}
 	if err != nil {
@@ -448,11 +447,11 @@ func (c *Coordinator) LoadSessionRecord(location Location, sessionID string) (mo
 // 目录分格枚举过滤归档行后，会话从常规列表隐藏，仍可按 ID 冷读/重开
 // （存储层 SessionsOf 与 LocateSession 原样返回归档行）。
 func (c *Coordinator) MarkSessionArchived(location Location, sessionID string) error {
-	store, ok := c.Core.Deps.Sessions.(SessionRecordPort)
+	sessionStore, ok := c.Core.Deps.Sessions.(SessionRecordPort)
 	if !ok {
 		return errors.New("session record persistence is not assembled")
 	}
-	record, err := store.LoadSessionRecordWorkspace(location.WorkspaceID, sessionID)
+	record, err := sessionStore.LoadSessionRecordWorkspace(location.WorkspaceID, sessionID)
 	if err != nil {
 		return err
 	}
@@ -464,19 +463,19 @@ func (c *Coordinator) MarkSessionArchived(location Location, sessionID string) e
 	}
 	record.Status = model.SessionStatusArchived
 	record.UpdatedAt = time.Now()
-	return store.SaveSessionRecordWorkspace(location.WorkspaceID, sessionID, record)
+	return sessionStore.SaveSessionRecordWorkspace(location.WorkspaceID, sessionID, record)
 }
 
 // LoadSessionTranscript 读取会话 transcript 尾部窗口：token 预算由装配端口
 // 给 window 段的保留窗口规则（min(retain_tokens, ratio × 账号上下文窗口)），
 // 单元上限是存储层"读哪些分片"的选择边界（0 会被判为不读），过滤内部标记事件。
 func (c *Coordinator) LoadSessionTranscript(location Location, sessionID string) ([]model.TranscriptEvent, error) {
-	store, ok := c.Core.Deps.Sessions.(SessionTranscriptPort)
+	sessionStore, ok := c.Core.Deps.Sessions.(SessionTranscriptPort)
 	if !ok {
 		return []model.TranscriptEvent{}, nil
 	}
 	budget := c.transcriptTailBudget(c.Core.Deps.Runtime)
-	events, err := store.LoadTranscriptTailWorkspace(location.WorkspaceID, sessionID, budget, 4)
+	events, err := sessionStore.LoadTranscriptTailWorkspace(location.WorkspaceID, sessionID, budget, 4)
 	if err != nil {
 		return nil, err
 	}
