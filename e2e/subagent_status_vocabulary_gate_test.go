@@ -16,7 +16,7 @@ package e2e
 //	④ switch 状态分支：`switch nr.Status { case "failed": … }`
 //	⑤ 状态常量声明：`asyncStateDone = "done"`（**第二份定义**的典型长相，前四种都抓不到它）
 //	⑥ map 状态键：`map[string]string{"state": "running"}`（受理回执这类"没有结构体、只有
-//	   map"的载荷——前五种都抓不到它，而本项目里它就在 `seelebridge/fork/tool.go`）
+//	   map"的载荷——前五种都抓不到它，而本项目里它就在 `backend/tool/fork/tool.go`）
 //
 // **门禁的边界写在这里**（免得它变成一块越界的大毯子）：只扫下面 `statusVocabularyScopes` 里
 // 逐条声明的文件。没进清单的同形词表由各自的一批收口，本门禁不越界判它们（越界判 = 只能靠
@@ -32,7 +32,7 @@ package e2e
 //     `application/core/plan_tools.go`（同一文件里既读计划批次结果、又读节点状态）**故意不进
 //     计划批次那一格的清单**；它读批次结果的那三个分支改成引契约常量，由编译器钉住；
 //   - 统一事件摘要状态（failed|completed）是 Seele 框架 `SummaryEvent.Status` 的词；
-//   - `seelebridge/fork/tool.go` 折子代理作业终态时读的 `completed` / `aborted` 是 **plan_run
+//   - `backend/tool/fork/tool.go` 折子代理作业终态时读的 `completed` / `aborted` 是 **plan_run
 //     结果里的框架节点状态词**（框架 workplan 的 `NodeBase.Status`，与 `plan/tool_provider.go`
 //     那条边界同源），不在"后台作业状态"这一格的取值面里——门禁按取值面判，不越界判它；
 //   - todo 三态（`application/core/work_table.go`）与"回执状态"（finished|already_finished）。
@@ -90,7 +90,7 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "后台作业状态",
 		files: map[string]string{
-			"seelebridge/fork/tool.go":             "写：子代理作业化派发的受理回执（jobs[].state 那一栏）与整批终态",
+			"backend/tool/fork/tool.go":            "写：子代理作业化派发的受理回执（jobs[].state 那一栏）与整批终态",
 			"seelebridge/tools/async_exec.go":      "写：登记表的状态词表（本层常量）与状态迁移",
 			"seelebridge/tools/async_probe.go":     "读：探针把状态折进工作表格/观察行",
 			"seelebridge/tools/async_run.go":       "写：执行体落终态",
@@ -467,7 +467,7 @@ func done(status string) bool { return status == dto.AsyncStateDone || status ==
 // TestSubagentStatusVocabularyGateCatchesMapStateKey 是**第六形态**（map 状态键）的阴性对照：
 // 只有 map 的载荷（受理回执那种 `map[string]string{"state": "running"}`）必须被同一套扫描
 // 函数判红——前五种形态都看不见它（键是字符串字面量，不是标识符），而本项目里它就在
-// `seelebridge/fork/tool.go` 的 jobs[].state 那一栏。
+// `backend/tool/fork/tool.go` 的 jobs[].state 那一栏。
 func TestSubagentStatusVocabularyGateCatchesMapStateKey(t *testing.T) {
 	words := map[string]bool{"running": true, "done": true, "failed": true, "killed": true}
 

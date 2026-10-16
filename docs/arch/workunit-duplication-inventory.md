@@ -194,6 +194,6 @@
     （认不得 → `SubAgentUnknown`，**不是终态**），记录写点 `node/coordinator.go:132/134/137`、`session/subagent_sessions.go:208`
     全部转调，机械门禁见 `e2e/subagent_status_vocabulary_gate_test.go` 的"记录状态"格（`:56–77`）。
   - **另 5 个残留点不在这一格**（本轮新发现，仍在跑状态的不同格）：
-    `seelebridge/fork/tool.go:212/257`（后台作业状态格）、`seelebridge/runtime_role_turn.go:490/502/504` 与
+    `backend/tool/fork/tool.go:212/257`（后台作业状态格）、`seelebridge/runtime_role_turn.go:490/502/504` 与
     `application/core/service.go:125`（工具事件状态格）——清单与门禁都没覆盖它们，见
     `docs/2026-10-06-workunit-jobs-port/step-3-audit.md` §4。

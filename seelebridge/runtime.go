@@ -22,6 +22,7 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/backend/tool/fork"
 	"github.com/RedHuang-0622/seelex/backend/tool/task"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/config"
@@ -29,7 +30,6 @@ import (
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/mcpstack"
 	"github.com/RedHuang-0622/seelex/seelebridge/account"
-	"github.com/RedHuang-0622/seelex/seelebridge/fork"
 	"github.com/RedHuang-0622/seelex/seelebridge/fs"
 	"github.com/RedHuang-0622/seelex/seelebridge/imageattach"
 	"github.com/RedHuang-0622/seelex/seelebridge/mcp"

@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
-	"github.com/RedHuang-0622/seelex/seelebridge/fork"
+	"github.com/RedHuang-0622/seelex/backend/tool/fork"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 

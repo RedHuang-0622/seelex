@@ -31,6 +31,7 @@
 | [`2026-09-30-goal-a2a-flow-and-techleader.md`](2026-09-30-goal-a2a-flow-and-techleader.md) | goal-a2a 现状流程 × 市面对照 × 更好的结合方式 × 更优 TechLeader 流程（2026-09-30） |
 | [`2026-10-02-compaction-record-and-failure-trace-survey.md`](2026-10-02-compaction-record-and-failure-trace-survey.md) | 上下文压缩 / 压缩失败的「记录与留痕」现状调研（2026-10-02） |
 | [`2026-10-05-teammate-plugin-assembly-external-research.md`](2026-10-05-teammate-plugin-assembly-external-research.md) | teammate 的「插件装配」——外部一手调研（2026-10-05） |
+| [`2026-10-15-agent-remote-collaboration-protocols.md`](2026-10-15-agent-remote-collaboration-protocols.md) | Agent 远程协作的通信协议与传输绑定调研：SeelexDot 的唯一定义与同名物辨析、DS-A2A v0.1「transport 无关」的实际含义、MCP/A2A/ACP/ANP/SLIM 一手对照，以及维持契约下的 L0/L1/L2 替换点与 7 项待补缺口（2026-10-15） |
 | [`codex-claude-goal-harness-2026-09.md`](codex-claude-goal-harness-2026-09.md) | Codex / Claude 的 goal：harness 层如何承载（2026-09） |
 | [`goal-context-governance-2026-09.md`](goal-context-governance-2026-09.md) | Goal 上下文治理：业界做法调研（2026-09） |
 | [`websearch-provider-design-research-2026-08.md`](websearch-provider-design-research-2026-08.md) | websearch 通用接入设计模式调研（2026-08） |

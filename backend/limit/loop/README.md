@@ -104,7 +104,7 @@ seelebridge/fork（子代理声明）──→ loop.ValidateSubagentMaxLoops(…
 ```text
 go test ./backend/limit/loop/... -count=1
 go test ./application/prompt/... -count=1      # 跨入口一致性用例在这里
-go test ./internal/adapters/... ./seelebridge/fork/... -count=1
+go test ./internal/adapters/... ./backend/tool/fork/... -count=1
 ```
 
 关键用例：`TestTierTableExactValues`（唯一数字表）、`TestEffectiveResolution`、

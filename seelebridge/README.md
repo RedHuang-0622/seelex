@@ -109,7 +109,7 @@ flowchart TB
 | `fs/` | `FileSystem` 文件系统 actor（写路径分片串行化，见 `fs/README.md`） |
 | `plan/` | Plan 执行域：`Executor`/`ToolProvider`/`PlanPolicy`/`PlanPreflight`/`PlanNodeEvent`/`ReplanGuard`/`SeelexNodeInput`/`PlanBranchBinding`/`BuildNode` 等（见 `plan/README.md`） |
 | `task/` | `TaskRegistry` actor、`TaskRecord`/`TodoItem` 共享 DTO、`TaskTerminalProvider`/`Tools`（见 `../backend/tool/task/README.md`） |
-| `fork/` | `fork_subagents` 纯类型、summary 节点与执行编排 `Tool`（见 `fork/README.md`） |
+| `fork/` | `fork_subagents` 纯类型、summary 节点与执行编排 `Tool`（见 `../backend/tool/fork/README.md`） |
 | `node/` | `kind:agent` 节点执行域：`AgentNode`/`Coordinator`/`ScopeAssembler`/预算/charter/skill 匹配/工具结果归档（见 `node/README.md`） |
 | `session/` | 子代理会话注册表、fork 子代理树与父证据/merge-back actor（见 `session/README.md`） |
 | `worktree/` | 子代理 worktree 生命周期管理器（见 `worktree/README.md`） |
