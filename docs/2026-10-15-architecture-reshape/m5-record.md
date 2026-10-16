@@ -1309,3 +1309,32 @@ B 在 01:03 落盘 `middle/switch/interaction.go` + `interaction_test.go` 并把
 
 **结论**：R10b 不是"收尾片"，是一件独立的"命名面收窄"工程（拆文件 + 全包替换 + 外部引用重指向），
 已按 P22 登记（含可复用脚本与实测数字），建议排在 M5 交付之后做。
+
+**后续（同一轮之内已做完）**：R10b 在定位到"字段修补器吃掉选择器表达式"与"逗号模式吃掉多值
+case"两个工具缺陷后**重做成功**，见 §33。
+
+## 33. 用户裁决的附加必做项（P8 / P18 / P19 / P20 / P21-1）
+
+用户裁决要点：**清理僵尸面（P8）、规整冗余面（P18）、修正错误文案（P19）、P20 要做出稳定复现
+再修（观察锁竞争或数据竞争）、P21 域方面随类型走；做完这些再做 `-race`**。
+
+| 项 | 落地 | 证据 |
+|---|---|---|
+| **R10b 重做** | `application/core/aliases.go` 删除：91 个别名块删 + core 内 167 文件 1536 处改限定名；词表 const → `vocabulary.go`，装配/转发面（含 8 个构造函数）→ `assembly_helpers.go`；外部 12 处 `core.X` 重指向 | 提交 `909c9f97`；工具链 `tmp/reshape/r10b_*.py`；红灯 = 新签名/新落点不存在时编译不过 |
+| **P8 §5.2 兼容面** | `store/root_aliases.go` 删（90 处改 `storeroot.X`）、`service_scheduler.go` 两条别名删、`session/ports.go` 两条零用户别名删、`assemble/runtime.go` 两条 `BashDiagnostic*` 别名删（调用点改 `toolreg.X`）；`e2e` 的 console 越层边允许表目标随之更新 | 提交 `1053a1b4` |
+| **P8 §5.3-Z1/Z2 僵尸面** | `store/legacy_storage.go`（301 行 shard 存储 + 31 行用例）整文件删；两个隐身份别名随之消失；`test/smoke_test.go` 去掉 9 行。**数据面提示**：老数据根若仍有 legacy shard 文件，本仓自此没有回读路径（需要时从 git 历史取回或另写一次性读取器） | 提交 `b7f078b1` |
+| **P8 §5.3-Z3 命名残留** | 37 处 import 别名 `seelebridge` → `assemble` + 217 处限定符（58 文件）；注释里的历史陈述、`CHANGELOG`、devlog **一律不动** | 同 `1053a1b4` |
+| **P18 草稿冗余规整** | 三条"进草稿壳"路径的字段清理收成一处 `enterDraftShellLocked` + `draftShellOptions` 显式差异表（四条 keep/reset 开关＝今日真实差异）；三条用例钉住矩阵。**登记待裁决的两处漂移**：02 不清 `ReadFiles`、03 不清 `Interaction` | 提交 `e3030197` |
+| **P19 错误文案** | 用户可见的错误/log 前缀 `seelebridge: ` → `seelex: `：28 文件 85 处（含测试夹具里引用的真实错误串）；历史记录不改 | 提交 `6445742d` |
+| **P20 挂死 + 竞态** | 复现器 `tmp/reshape/p20_repro.py`：修复前 3 并发第 1 轮挂 2 个；根因 = 用例嵌套 `ViewMu.RLock()`→`Snapshot()` 与目录刷新 worker 排队写锁互等（RWMutex 有写者排队时新读者阻塞）；修复 = 用例改序 + `Snapshot()` doc 写"不可重入" + 机械门禁 `e2e/view_lock_nesting_gate_test.go`（**红灯先行**验证过）；`-race` 5 处竞态 → **0**（其中 1 处是生产竞态：R6 收敛片 `Order.Forget` 就地过滤与锁外遍历共用底层数组 ⇒ 快照改复制 + 回归用例 `content_lru_snapshot_test.go`） | 提交 `bd10b083`；dump/race 报告在 `tmp/reshape/p20-*.txt` |
+| **P21 域方法随类型走** | 第一片：装配层压缩推帧接收侧 → `backend/engine/context.CompactionStack`（四个函数值端口 + 装配点注入），装配层只留薄转发 + 同身份别名，公开面逐字不变 | 提交 `49bbe6ee` |
+
+**`-race` 可用性**（用户要求试）：本机 `CGO_ENABLED=1` + Strawberry Perl 的 mingw gcc ⇒
+`go test -race` 可用（`bash` 那条路通的是 WSL，看不到 `G:` 盘；直接 PowerShell 跑即可）。
+`go test -race ./application/core/` = 竞态 0、无超时、只剩基线 3 例（108.2s）。
+
+**P21 剩余域**（各一片，形状已定：域包先定类型与端口 → 装配点注入 → 装配层只留薄转发 +
+同身份别名）：`runtime_teamwork*` + `runtime_role_*` + `runtime_subagent_*` + `workunit_*`
+（多智能体侧 ≈6.5k 行）、`runtime_context`、`runtime_account`、`runtime_session` /
+`role_host_session`、`runtime_plan`、`runtime_async` / `jobs_events`、`review_files`、
+`runtime_project_board*`。
