@@ -880,4 +880,26 @@ R6 续做（尚未开始）：`runtime_projection`/`diagnostics`/`perf_stats` �
 `session_{lifecycle,release,draft,fork,ctx,pending_tail,queue_recover}` / `service_{scheduler,queue,release_window}` /
 `async_completion` / `service_interaction` / `workspace_usecase` / 顶层 `session/`）都需要"宿主状态 + 端口"
 的接收者转移（比纯判据重一档），按 R6 续做逐片推进。
+
+## 20. M5-R6 第五/六片：R6-session-catalog、R6-release-surface、R6-residency-prune（`dd7eb112` / `44f86237` / `8f760044`）
+
+| 片 | commit | 原位置 → 新唯一位置 | 要点 |
+|---|---|---|---|
+| R6-session-catalog | `dd7eb112` | `application/core/session_catalog.go` 的判据 → `middle/residency/catalog.go`（`CatalogRefresher` + `WaitCatalogRefresh`） | 端口**必须非 nil**（迁移前就是直接调用宿主）；ctx 超时返回 `ctx.Err()` 且"之后回执到达仍可等待"有专门用例；`gui` 的 `WaitCatalogRefresh` RPC 用例不动 |
+| R6-release-surface | `44f86237` | `resident_lru.go` 的 `sessionBusy` + `session_release.go` 的 `protectedSessionLocked` 判据 → `middle/switch/release.go`（`BusyState`/`Busy`、`ProtectedInput`/`Protected`） | 判据与宿主状态解耦：宿主把四个读数装配成 `BusyState` 值；两个 LRU 与释放面共用同一份；行为逐字保留（含"零值 BusyState = 不忙"） |
+| R6-residency-prune | `8f760044` | `content_lru.go` 的 `pruneContentOrderLocked` 循环体 → `middle/residency.PruneOrder(order, loaded, unitIDs)` | order 家族的最后一份副本（去重 + 丢弃已卸载 + 按单元表收养）；纯函数，宿主只传 `loaded` 与 `unitIDs` |
+
+三片都在独立 worktree 复核（build / vet / e2e / 目标包测试全绿；`application/core` 失败集合 = 基线 3 例）。
+
+**同批派出的子代理（首次成功送达）**：`/root/r6_archive`，任务书
+[`tmp/reshape/r6-archive-task.md`](../../tmp/reshape/r6-archive-task.md)（自包含：范围、端口要求、行为保真清单、
+交付格式、环境纪律、反停滞纪律）。要点：
+
+- **送达方式很重要**：上一轮"长消息"派发失败（对方只收到工作区说明）；这轮改成**极短消息 + 任务书文件路径**，
+  子代理在 1 分钟内落了 `tmp/reshape/r6archive-progress.txt` 并开始读代码——以后派单沿用这个形状。
+- **同批文件所有权**：它的片只碰 `application/core/archive_session.go` + 新建
+  `middle/residency/archive.go`/`archive_test.go` + `middle/residency/README.md`；我已用消息把
+  `session_release.go`/`resident_lru.go`/`content_lru.go` 划为自己独占（我的 release/prune 两片正在改它们），
+  并提醒它在改 README 前 `git pull`/重读（避免两边同时改同一段）。
+- 它的交付由 root 下一轮**独立复核**（不看自述：重跑 build/vet/e2e、逐条对照行为保真清单、核对删除清单）。
 R6 续做（尚未开始）：`runtime_projection`/`diagnostics`/`perf_stats` 三文件已是薄宿主缝（R5c 已把计算搬进 `middle/view`，只剩锁与取数）；其余按 plan §2.4 的落点继续搬
