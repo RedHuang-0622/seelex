@@ -1,4 +1,4 @@
-package toolrecord
+package record
 
 import (
 	"testing"

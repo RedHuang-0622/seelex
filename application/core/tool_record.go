@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/internal/toolrecord"
+	"github.com/RedHuang-0622/seelex/store/record"
 )
 
 // tool_record.go — **工具记录**（成功/失败计数 + 失败原因）的应用侧落点。
@@ -31,16 +31,16 @@ import (
 // 进程级一份会让"切会话后看到别人的读数"。
 type toolRecordAccumulators struct {
 	mu     sync.Mutex
-	byID   map[string]*toolrecord.Accumulator
+	byID   map[string]*record.Accumulator
 	loaded map[string]bool
 }
 
 func newToolRecordAccumulators() *toolRecordAccumulators {
-	return &toolRecordAccumulators{byID: map[string]*toolrecord.Accumulator{}, loaded: map[string]bool{}}
+	return &toolRecordAccumulators{byID: map[string]*record.Accumulator{}, loaded: map[string]bool{}}
 }
 
 // accumulator 取（必要时建）某会话的累计。
-func (table *toolRecordAccumulators) accumulator(sessionID string) *toolrecord.Accumulator {
+func (table *toolRecordAccumulators) accumulator(sessionID string) *record.Accumulator {
 	sessionID = strings.TrimSpace(sessionID)
 	if table == nil || sessionID == "" {
 		return nil
@@ -50,7 +50,7 @@ func (table *toolRecordAccumulators) accumulator(sessionID string) *toolrecord.A
 	if existing, ok := table.byID[sessionID]; ok {
 		return existing
 	}
-	created := toolrecord.NewAccumulator()
+	created := record.NewAccumulator()
 	table.byID[sessionID] = created
 	return created
 }

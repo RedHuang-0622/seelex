@@ -10,7 +10,6 @@
 - [`frontmatter/`](frontmatter/README.md)：Markdown YAML front matter 解析。
 - [`promptassets/`](promptassets/README.md)：Seelex-owned 提示词资产（构建期嵌入）。
 - [`testutil/`](testutil/README.md)：仅测试使用的共享桩（EmbeddedChatEngine 等）。
-- [`toolrecord/`](toolrecord/README.md)：工具调用记录的全局 JSONL 台账（成功/失败 + 失败原因，`<数据根>/tool-record.jsonl`）。
 - [`winhide/`](winhide/README.md)：Windows 子进程控制台窗口隐藏（非 Windows 空操作）。
 
 新增 internal 包前应确认它确实被多个内部模块复用；只被单一模块使用的 helper 优先留在拥有者目录。
@@ -24,7 +23,6 @@ flowchart LR
     INTERNAL --> F["frontmatter：front matter 解析"]
     INTERNAL --> P["promptassets：嵌入提示词"]
     INTERNAL --> T["testutil：测试桩"]
-    INTERNAL --> M["toolrecord：工具调用记录台账"]
     INTERNAL --> W["winhide：子进程窗口隐藏"]
     P --> PROMPT["application/prompt / backend/tool/node"]
 ```

@@ -45,7 +45,7 @@
 - **工具记录**（`tool_record.go`，2026-10-15）：三条工具完成路径（主代理/后台会话的
   `tool.completed`、子代理、teammate）都经**唯一两处判据**（`toolStatusFailed` 判成败、
   `toolRecordReason` 归原因）后，累加进**按会话**的内存读数（`toolRecordAccumulators`，
-  落盘在 `internal/toolrecord` 的 `Accumulator`）。口径：**只有结果帧**（success/error）
+  落盘在 `store/record` 的 `Accumulator`）。口径：**只有结果帧**（success/error）
   才记；**成功与失败都记**（没有分母的失败计数会把优化带偏）；开关
   （`SetToolRecordEnabled`，设置里那一格，落 runtime-limits.json）关着时一个字节都不记。
   命令面另有一条判据：`RecordToolCommandOutcome`（进程退出码非零 = 一次失败，原因归
@@ -157,7 +157,7 @@
 ### tool_record.go
 
 - `func newToolRecordAccumulators() *toolRecordAccumulators`
-- `func (table *toolRecordAccumulators) accumulator(sessionID string) *toolrecord.Accumulator` — accumulator 取（必要时建）某会话的累计。
+- `func (table *toolRecordAccumulators) accumulator(sessionID string) *record.Accumulator` — accumulator 取（必要时建）某会话的累计。
 - `func (table *toolRecordAccumulators) markLoaded(sessionID string) bool` — markLoaded 报告"这个会话还是第一次从存储读回"（每个会话只读一次，免得每次记录/看板都读盘）。
 - `func (service *Service) SetToolRecordEnabled(enabled bool) (bool, error)` — SetToolRecordEnabled 开关计数（设置里那一个开关的落点）。
 - `func (service *Service) ApplyToolRecordEnabled(enabled bool)` — ApplyToolRecordEnabled 只改内存（**装配期**用：启动时把配置/覆盖层里的值装进来）。

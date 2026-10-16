@@ -5,7 +5,7 @@ import "time"
 // tool_record.go — **工具记录**（成功/失败计数 + 失败原因）的只读投影。
 //
 // 生态位：读数是进程级台账（`<数据根>/tool-record.jsonl`，实现 =
-// `internal/toolrecord`），经 `Application.ToolRecordBoard()` 暴露给 TUI / GUI。
+// `store/record`），经 `Application.ToolRecordBoard()` 暴露给 TUI / GUI。
 // 它是**全局**读数（跨会话、跨项目），因此刻意**不进** `Snapshot`：快照是会话作用域的
 // 可重放状态，把进程级计数塞进去会让"重放一份会话快照"听起来像"重放这台机器的计数"。
 //

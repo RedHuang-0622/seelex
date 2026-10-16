@@ -108,7 +108,9 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/contract/dto",
 	"github.com/RedHuang-0622/seelex/internal/frontmatter",
 	"github.com/RedHuang-0622/seelex/internal/promptassets",
-	"github.com/RedHuang-0622/seelex/internal/toolrecord",
+	// M5-R2：工具调用读数的内存累计从 `internal/toolrecord` 归位到 store 板块
+	// （plan §2.10 / §2.12.2）。同一份代码换落点，属等量替换，清单上限不变。
+	"github.com/RedHuang-0622/seelex/store/record",
 	"github.com/RedHuang-0622/seelex/internal/winhide",
 	"github.com/RedHuang-0622/seelex/internal/jsonobj",
 	// M5-R9：mcpstack 归位到 engine 板块的 mcp 子域（plan §2.5）；原先的

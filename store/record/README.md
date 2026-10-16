@@ -1,10 +1,13 @@
-# toolrecord — 工具调用读数（内存累计）
+# record — 工具调用读数（内存累计）
 
 ## 生态位
 
-`internal/toolrecord` 是**工具调用读数**的内存累计：一个会话一份"工具名 → 成功/失败/失败
+`store/record` 是**工具调用读数**的内存累计：一个会话一份"工具名 → 成功/失败/失败
 原因"。它回答两个问题：**哪个工具最该优化**（成功与失败都要有，否则只有分子没有分母）、
 **它坏在哪一类原因上**（看板点开柱子看的是原因占比）。
+
+落点沿革：M5-R2 之前是 `internal/toolrecord`（包名 `toolrecord`）；plan §2.10/§2.12.2
+把它归到 store 板块，包名随之改为 `record`——同一份代码换落点 + 换名，行为零变化。
 
 主要调用方：
 
@@ -14,7 +17,7 @@
 - `application/core` 的 `ToolRecordBoard()`：把某会话的累计折成
   `dto.ToolRecordBoard` 给 TUI / GUI；
 - **落盘不在这里**：读数的持久化归**会话存储**
-  （`store` 的 `<sessionRoot>/tool-record.jsonl`），由 core 在真相源提交点
+  （`store` 的会话作用域 `tool-record.jsonl`），由 core 在真相源提交点
   **批量**调一次（`FlushToolRecord`）。
 
 ## 职责与非职责
@@ -95,7 +98,7 @@
 ## 测试与验证
 
 ```text
-go test ./internal/toolrecord/ -count=1
+go test ./store/record/ -count=1
 go test ./application/core/ -run TestToolRecord -count=1   # 接线、开关、批次落盘与读回
 go test ./store/ -run ToolRecord -count=1           # 会话级一行一批的落盘/读回
 node --test gui/frontend/dist/tool-record-board.test.mjs    # 柱形图/原因饼图/空态
