@@ -956,4 +956,20 @@ worker 的 `work_table*` 改动暂时无法编译，与本片无关，走干净 
 | 端口设计 | `BuildInputIndex(..., userText func(model.Message) string)`：把"算不算用户输入"作为**参数**收下，本包因此不依赖后端 |
 | 用例随判据走 | 迁入摘要截断表、对齐算法表、构建索引的 Loaded 与序号偏移；core 只删这些纯函数用例与其中的纯函数子表，**Service 级用例保持不动**；常量引用改 `residency.InputIndexSummaryLimit` |
 | 复核 | 干净 worktree（`64759f1e`）：`go build`/`go vet` 0、`go test ./e2e/` ok、`middle/residency` 与 `application/core -run InputIndex` ok、`application/core` 全量 = **基线 3 例** |
+
+## 24. M5-R6 第十/十一/十二片 + R11/P13 派单（2026-10-17 第一轮）
+
+| 片 | commit | 原位置 → 新唯一位置 | 要点 |
+|---|---|---|---|
+| R6-queue-edit | `9facb355` | `application/core/service_queue.go` 的判据 → `middle/switch/queue.go` | 三哨兵（core 侧改同值别名）+ `QueueEditGate`（关闭优先于排空；缺错误值 `ErrQueueGateUnassembled`）+ `QueueTargetSession`/`QueueTargetError`（三条带会话 ID 的拒绝语义）+ 两个越界文案 |
+| R6-unload | `f0c839e6` | `application/core/session_lifecycle.go` 的 `UnloadSession` → `middle/switch/unload.go` | 门控两轴（恢复中/运行中 → 宿主忙碌错误；缺值响亮失败）→ 非活跃先持久化（失败不释放）→ 释放（`releaseFull`）→ 活跃收口视图 → 发布 → 刷新；`hotAttachSession` 留待下一片（已登记） |
+| R6-fork | `13368593` | `application/core/session_fork.go` 的门控 + `maxTranscriptEventSeq` + `deepCopyForkRecord` → `middle/switch/fork.go` | `ForkGate`（关→排空→父会话在跑的次序）+ `MaxTranscriptEventSeq`（序号基线对齐，TC-A2-01 的根因）+ `DeepCopyRecord`（PlanStack 克隆器由宿主注入）；`forkSessionLocked` 的落盘编排留待 sessionusecase 片（后端类型无法在中间层命名） |
+| 文档归一 | `ea06cde2` | `MEMORY.md` + `plan.md` | 依 `/root/r6_archive` 的只读核对报告落四处最小补丁：MEMORY 三面下沉 + 落位权威指针；plan 头部状态改"已实施"并写明 `appface` ≡ 原地保留 `application/`；§1.2 中间层改"契约 + 窄端口"；§1.4 审批落点更正为 `backend/limit/approval` |
+
+三片都在独立 worktree 复核（build/vet/e2e + 目标包测试全绿）。
+
+**R11/P13 派单（按 [`r10-r11-p13-contract.md`](r10-r11-p13-contract.md) 的**冻结契约**）**：
+`/root/r11_task_domain`（R11 第一片：task 域从 `assemble.Runtime` 拆出）与 `/root/p13_index_gen`
+（P13 生成器全仓化 + `--check`）都已落 progress 文件并开工。R10a（五组窄接口 + I5 断言，不碰 core）
+待空槽再派；R10b（删 `aliases.go`）必须等 core 静默（R6 片仍在动 core 文件）。
 R6 续做（尚未开始）：`runtime_projection`/`diagnostics`/`perf_stats` 三文件已是薄宿主缝（R5c 已把计算搬进 `middle/view`，只剩锁与取数）；其余按 plan §2.4 的落点继续搬
