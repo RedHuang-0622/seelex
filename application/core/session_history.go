@@ -13,6 +13,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	history "github.com/RedHuang-0622/seelex/middle/switch/history"
 	"github.com/RedHuang-0622/seelex/middle/view/state"
 	"github.com/RedHuang-0622/seelex/session"
 )
@@ -818,10 +819,10 @@ func (service *Service) loadEarlierVisiblePage(workspaceID, sessionID string, of
 		if err != nil {
 			return conversationPage{}, err
 		}
-		if containsSameRow(page.rows, seam) || (start == 0 && page.reachesPublishedTail()) {
+		if history.ContainsSameRow(page.rows, seam) || (start == 0 && page.reachesPublishedTail()) {
 			return page, nil
 		}
-		if !hasRowIdentity(seam) {
+		if !history.HasRowIdentity(seam) {
 			// 没有对位锚（窗口为空）：扩读没有意义。
 			return page, nil
 		}
@@ -934,15 +935,15 @@ func (service *Service) installVisibleHistory(sessionID string, page conversatio
 		}
 	}
 	service.components.view.SessionViewMutateLocked(sessionID, func(view *session.View) {
-		memoryRows := durableConversationRows(view.Conversation)
+		memoryRows := history.DurableRows(view.Conversation)
 		memoryStart := view.HistoryOffset
 		var rows []Message
 		start := memoryStart
 		switch mode {
 		case historyPageReplace:
-			rows, start = replaceVisibleTail(page.rows, memoryRows, memoryStart, view.TotalMessages, window)
+			rows, start = history.ReplaceTail(page.rows, memoryRows, memoryStart, view.TotalMessages, window)
 		case historyPagePrepend:
-			rows, start = prependVisibleHistory(page.rows, memoryRows, memoryStart, window)
+			rows, start = history.Prepend(page.rows, memoryRows, memoryStart, window)
 		}
 		if len(rows) == 0 {
 			// 一页可见行都没读到（尾段整段是内部标记行、或会话还没有可见正文）：
@@ -970,145 +971,17 @@ func (service *Service) installVisibleHistory(sessionID string, page conversatio
 	return nil
 }
 
-// replaceVisibleTail 组装「回到最新 / 冷回读」的尾部窗口：以冷读页为底，把内存
-// 窗口里发布点之后的那段热尾（本轮尚未落盘的行）按**行身份**接回页尾；页尾接上
-// 了热尾时窗口右界就是内存窗口的右界（内存窗口贴着有效尾），否则右界是可见总数
-// （窗口右界 = 已发布的最新一条可见行）。
-//
-// 两个右界都在可见空间里，读回面多出来的内部标记行不会让窗口「永远差几格」。
-// 可见总数落后于磁盘已发布的可见行（同一会话由单一视图台账维护，正常不会发生）
-// 时这里给出的是下界：窗口里仍是真实的最新一行，只有起点偏保守。
-func replaceVisibleTail(pageRows, memoryRows []Message, memoryStart, memoryTotal, window int) ([]Message, int) {
-	rows := append([]Message(nil), pageRows...)
-	end := memoryTotal
-	if at := indexOfSameRow(memoryRows, lastRow(rows)); at >= 0 {
-		rows = append(rows, memoryRows[at+1:]...)
-		end = memoryStart + len(memoryRows)
-	}
-	rows = view_state.BoundConversationTail(rows, window)
-	visible := len(durableConversationRows(rows))
-	if visible == 0 {
-		return nil, memoryStart
-	}
-	start := end - visible
-	if start < 0 {
-		start = 0
-	}
-	return rows, start
-}
-
-// prependVisibleHistory 组装「加载更早」的窗口：页里接缝（窗口首行）之前的可见行
-// 前置到窗口头部，窗口整体后退一页（不改总数——总数是可见空间里所有已可见行）。
-//
-// 接缝对不上（窗口首行不在页里、或它前面没有可见行）时返回空：宁可窗口原地不动，
-// 也不在列表中间留一段谁都没有的下标区间。窗口为空（没有对位锚）时没有「连续」
-// 可言：这一页就是窗口之前的一段，按调用方给的可见下标推定位置。
-func prependVisibleHistory(pageRows, memoryRows []Message, memoryStart, window int) ([]Message, int) {
-	if len(pageRows) == 0 {
-		return nil, memoryStart
-	}
-	if len(memoryRows) == 0 {
-		rows := view_state.BoundConversationTail(append([]Message(nil), pageRows...), window)
-		start := memoryStart - len(durableConversationRows(rows))
-		if start < 0 {
-			start = 0
-		}
-		return rows, start
-	}
-	seam := indexOfSameRow(pageRows, memoryRows[0])
-	if seam <= 0 {
-		return nil, memoryStart
-	}
-	earlier := append([]Message(nil), pageRows[:seam]...)
-	if len(earlier) > window {
-		earlier = earlier[len(earlier)-window:]
-	}
-	rows := view_state.BoundConversationHead(append(earlier, memoryRows...), window)
-	start := memoryStart - len(earlier)
-	if start < 0 {
-		start = 0
-	}
-	return rows, start
-}
-
 // visibleWindowFirstRow 返回目标会话可见窗口的首条 durable 行——前置一页要接在它
 // 前面，所以它是「更早一页」的接缝对位锚（窗口为空时返回零值行：没有对位锚）。
 func (service *Service) visibleWindowFirstRow(sessionID string) Message {
 	var first Message
 	service.components.view.SessionViewReadLocked(sessionID, func(view *session.View) {
-		rows := durableConversationRows(view.Conversation)
+		rows := history.DurableRows(view.Conversation)
 		if len(rows) > 0 {
 			first = rows[0]
 		}
 	})
 	return first
-}
-
-// hasRowIdentity 报告一行是否带得出身份（空行无法对位）。
-func hasRowIdentity(message Message) bool {
-	return message.ID != "" || message.Content != "" || message.ReasoningContent != "" || message.Tool != nil
-}
-
-// sameByContent 按「角色 + 正文 + 思考」对位（没有稳定消息 ID 的行只能这样认）；
-// 空行（占位 assistant、只有工具调用的 tool 行）不参与内容对位——两条空占位长得
-// 一模一样，认错就把接缝挪了位：工具行按调用 ID 对位，其余空行一律不对位。
-func sameByContent(left, right Message) bool {
-	if left.Role != right.Role {
-		return false
-	}
-	if left.Content != "" || left.ReasoningContent != "" {
-		return left.Content == right.Content && left.ReasoningContent == right.ReasoningContent
-	}
-	if left.Tool != nil && right.Tool != nil {
-		return left.Tool.ID != "" && left.Tool.ID == right.Tool.ID
-	}
-	return false
-}
-
-// indexOfSameRow 返回 rows 里第一条与 want 同身份的行下标（-1 = 没找到）。先按
-// 消息 ID 认（同一条消息在内存窗口与磁盘行里同 ID，最稳）；ID 认不出来再退回内容
-// 对位——旧格式 provider 历史行没有稳定 ID（每次读回都由调用方重新派号），只有
-// 「角色 + 正文 + 思考」可比。
-func indexOfSameRow(rows []Message, want Message) int {
-	if want.ID != "" {
-		for index := range rows {
-			if rows[index].ID == want.ID {
-				return index
-			}
-		}
-	}
-	for index := range rows {
-		if sameByContent(rows[index], want) {
-			return index
-		}
-	}
-	return -1
-}
-
-// containsSameRow 报告 rows 里有没有与 want 同身份的行。
-func containsSameRow(rows []Message, want Message) bool {
-	return indexOfSameRow(rows, want) >= 0
-}
-
-// lastRow 返回最后一行（空序列返回零值行：与任何行都不是同一条）。
-func lastRow(rows []Message) Message {
-	if len(rows) == 0 {
-		return Message{}
-	}
-	return rows[len(rows)-1]
-}
-
-// durableConversationRows 取出可见窗口里参与历史游标的行（system 引导行不占
-// durable 下标空间，与 view_state.DurableConversationCount 同一口径）。
-func durableConversationRows(messages []Message) []Message {
-	rows := make([]Message, 0, len(messages))
-	for _, message := range messages {
-		if message.Role == "system" {
-			continue
-		}
-		rows = append(rows, message)
-	}
-	return rows
 }
 
 func adaptEngineMessage(msg EngineMessage) Message {

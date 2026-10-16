@@ -94,7 +94,9 @@ const (
 // `application/core` 抽成独立模块（plan §2.6），因此是**一条进**的新模块，上限抬到 79。
 // M5-R6-residency-preview：`middle/residency`（快照预算的截断判据）同口径——从
 // `application/core` 抽成中间层叶子模块（plan §2.4），因此是**一条进**的新模块，上限抬到 80。
-const facadeClosureAllowListMax = 80
+// M5-R6-history-page：`middle/switch/history`（历史分页的窗口装配判据）同口径——从
+// `application/core` 抽成中间层叶子模块（plan §2.4），因此是**一条进**的新模块，上限抬到 81。
+const facadeClosureAllowListMax = 81
 
 var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application",
@@ -175,6 +177,10 @@ var facadeClosureAllowList = []string{
 	// `middle/residency`，本片建包）。**新增登记的理由**："计算入中间层、取数留宿主"的
 	// 换落点 + 落点新建；新包只依赖标准库，没有引入第三方或反向依赖。
 	"github.com/RedHuang-0622/seelex/middle/residency",
+	// M5-R6-history-page：历史分页的窗口装配判据归位 `middle/switch/history`（plan §2.4，本片建包）。
+	// **新增登记的理由**："把 core 的窗口装配判据抽成中间层叶子模块"的换落点 + 落点新建；
+	// 新包只依赖 `middle/protocol/model` 与 `middle/view/state`（都已在清单内），没有引入第三方或反向依赖。
+	"github.com/RedHuang-0622/seelex/middle/switch/history",
 	"github.com/RedHuang-0622/seelex/internal/actor",
 	"github.com/RedHuang-0622/seelex/internal/config",
 	"github.com/RedHuang-0622/seelex/internal/docker",
