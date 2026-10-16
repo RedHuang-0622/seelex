@@ -4,7 +4,7 @@ package worktree
 // 各自一份实现，它们本身的代价应当落在**亚微秒到个位数微秒**这一档——真正的开销在那些
 // `git` 子进程上（本文件用 fake runner，因此量到的是**判据自己**的成本，不含进程启动）。
 //
-// 用法：`go test ./seelebridge/worktree/ -run '^$' -bench Judgment -benchmem -count=1`
+// 用法：`go test ./backend/tool/worktree/ -run '^$' -bench Judgment -benchmem -count=1`
 
 import (
 	"strings"

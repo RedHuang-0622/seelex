@@ -588,7 +588,7 @@ sink 形状做不到「`job_manage` 之后保持稳定前缀、再把数据追�
   - 契约与类别：`job_contract.go:JobSpec/JobHandle/JobTool/jobManager`（三类共表共状态机）
   - 隔离：`async_run.go:CloseSessionAsync`；`job_contract.go` 的 `run.sessionID != sessionID` 判据
   - 归属：`async_probe.go:JobInfo{SessionID,BatchID}`、`router.go:AsyncBatchID`、`runtime_tools.go:AsyncBatchID`、`task/task.go:defaultBatchID`
-- 子代理：`backend/tool/fork/{tool,types}.go`；worktree（git）：`seelebridge/worktree/worktree_manager.go`（`GitRunner`/`NodeWorktree`/`approve.ApprovalGate`）
+- 子代理：`backend/tool/fork/{tool,types}.go`；worktree（git）：`backend/tool/worktree/worktree_manager.go`（`GitRunner`/`NodeWorktree`/`approve.ApprovalGate`）
 - 进程树：`seelebridge/security/process_tree_{windows,other}.go`
 - 团队（角色唯一/会话派生）：`application/core/agentteam/{spec,registry}.go`（`Normalize` duplicate 校验、`RoleSessionID`、`needsRoleSession`）
 - 治理（降级目标）：`application/core/govern/`、`application/core/goal_coordinator.go`

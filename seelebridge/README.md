@@ -112,7 +112,7 @@ flowchart TB
 | `fork/` | `fork_subagents` 纯类型、summary 节点与执行编排 `Tool`（见 `../backend/tool/fork/README.md`） |
 | `node/` | `kind:agent` 节点执行域：`AgentNode`/`Coordinator`/`ScopeAssembler`/预算/charter/skill 匹配/工具结果归档（见 `../backend/tool/node/README.md`） |
 | `session/` | 子代理会话注册表、fork 子代理树与父证据/merge-back actor（见 `session/README.md`） |
-| `worktree/` | 子代理 worktree 生命周期管理器（见 `worktree/README.md`） |
+| `worktree/` | 子代理 worktree 生命周期管理器（见 `../backend/tool/worktree/README.md`） |
 | `account/` | 账号装配与选择：ClientFor/RegisterAccounts/ResolveForBranch/ForRole/ByName（见 `account/README.md`） |
 | `mcp/` | MCP 服务器生命周期 Manager：provider 懒创建/breaker/lazy 登记/工具重挂载（见 `mcp/README.md`） |
 | `plugin/` | 插件 include/exclude 可见性过滤 Manager（见 `plugin/README.md`） |

@@ -14,7 +14,7 @@ package teamwork
 //
 // 复现记录：这条链在补闸门之前**两端都没有**。缺验收端时，真实 git 上得到
 // `git [rev-list --count <base>..HEAD]: fork/exec …git.exe: The directory name is invalid`
-//（报错原文与"哪一拍动手"的指纹见 seelebridge/worktree/worktree_vanished_scene_repro_test.go）；
+//（报错原文与"哪一拍动手"的指纹见 backend/tool/worktree/worktree_vanished_scene_repro_test.go）；
 // 缺收口端时，一次 `team_close` 会把"还没来得及人工变基的那份现场"连同分支一起删掉。
 
 import (

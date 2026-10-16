@@ -28,7 +28,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
-	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
+	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
 )
 
 // liveApproveGate 是收尾合并审批门的记录器：它被问到，就证明确实在工作区里**提交过**

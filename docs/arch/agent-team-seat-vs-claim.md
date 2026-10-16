@@ -48,7 +48,7 @@
 | 协作介质 | task 行（`Assignee` / `Participants` / `Trace`）+ 子代理摘要 + worktree 合并 | **唯一帧账本**（同一 `seq` 空间，逐帧带 `role_name`）+ 角色 lifecycle |
 | 执行单元 | plan 节点 / fork 子代理（DAG，可并发） | 席位回合（`roleTurnSeat.Act` → `RunRoleTurn`） |
 | 「做完」的判据 | 任务终态 + 有界自述摘要（+ worktree 提交/合并痕迹） | goal `acceptance` + 终态 gate 的裁决（`verdict_done` 才收口） |
-| 主要代码锚点 | `backend/tool/task/task.go`、`application/core/work_table.go`、`backend/tool/fork/tool.go`、`seelebridge/worktree/worktree_manager.go` | `application/core/agentteam/{spec,scheduler,runtime,factory}.go`、`application/core/goal_coordinator.go`、`application/core/goal/gate.go`、`store/role_session.go` |
+| 主要代码锚点 | `backend/tool/task/task.go`、`application/core/work_table.go`、`backend/tool/fork/tool.go`、`backend/tool/worktree/worktree_manager.go` | `application/core/agentteam/{spec,scheduler,runtime,factory}.go`、`application/core/goal_coordinator.go`、`application/core/goal/gate.go`、`store/role_session.go` |
 
 **认领的确切语义（B）**：`attachParticipantLocked` 里，「认领」= **最后一个接管者成为当前 `Assignee`**，
 名单只增不减，没有 lease / TTL / unclaim / 排他检查（`backend/tool/task/task.go`）。
@@ -170,7 +170,7 @@ flowchart TB
 2. 认领轴的产物必须回落到同一账本（节点输出 / 摘要 / worktree 合并结果 → 主会话行），
    再由 ADVISOR 回合裁决；这样「并行干活」不会把证据切碎到各自的 message history 里。
 3. 已知的机器证据链：`worktree` 的提交存在性与合并结果是**可机器验证**的收尾判据
-   （B：`seelebridge/worktree/worktree_manager.go`）；把它当认领轴的验收锚点用，
+   （B：`backend/tool/worktree/worktree_manager.go`）；把它当认领轴的验收锚点用，
    而不是只看 `"subagent:"+status` 这种固定字符串 evidence。
 
 **B. 补强席位制最弱的两条（吞吐 / 弹性）**
@@ -269,7 +269,7 @@ flowchart TB
 `application/core/goal/{gate,record,stack}.go`、`application/core/goal_coordinator.go`、
 `application/core/goal_service.go`、`application/core/work_table.go`、`store/role_session.go`、
 `backend/tool/task/task.go`、`backend/tool/fork/{tool,summary}.go`、`backend/tool/plan/policy.go`、
-`seelebridge/worktree/worktree_manager.go`、`seelebridge/session/subagent_tree.go`、
+`backend/tool/worktree/worktree_manager.go`、`seelebridge/session/subagent_tree.go`、
 `gui/frontend/dist/agent-team-view.js`。静态检索结论：`GatePolicy` / `CompactPolicy` /
 `PresencePolicy` / `ModelPolicy` / `DirectiveSchema` 仅出现在 DTO、preset、注册表、适配器与
 工厂回读处，未见运行时消费分支。

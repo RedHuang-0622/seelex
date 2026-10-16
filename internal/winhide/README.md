@@ -14,7 +14,7 @@
 ```mermaid
 flowchart LR
     W["workspace（git 加载）"] --> H["internal/winhide"]
-    WT["seelebridge/worktree"] --> H
+    WT["backend/tool/worktree"] --> H
     T["seelebridge/tools（bash）"] --> H
     SEC["seelebridge/security（沙箱命令）"] --> H
     SCH["seelebridge/scheduler（白名单命令）"] --> H

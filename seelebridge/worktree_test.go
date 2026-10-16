@@ -11,8 +11,8 @@ import (
 	"github.com/RedHuang-0622/Seele/agent"
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
+	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
 	"github.com/RedHuang-0622/seelex/internal/model"
-	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
 )
 
 // ── worktree 生命周期（切片 4，docs/2026-08-03-subagent-fork-architecture/plan.md §3）──

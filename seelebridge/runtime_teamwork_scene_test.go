@@ -18,7 +18,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
+	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
 	"github.com/RedHuang-0622/seelex/store"
 )
 

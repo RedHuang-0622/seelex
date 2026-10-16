@@ -40,10 +40,10 @@ const assemblyFile = "seelebridge/workunit_assembly.go"
 
 // forbiddenPackages 是生命周期实现**不许 import** 的包（它们的具体类型只允许出现在装配处）。
 var forbiddenPackages = map[string]string{
-	"github.com/RedHuang-0622/seelex/seelebridge/teamwork": "teamwork",
-	"github.com/RedHuang-0622/seelex/seelebridge/worktree": "worktree",
-	"github.com/RedHuang-0622/seelex/store":                "store",
-	"github.com/RedHuang-0622/seelex/seelebridge/session":  "session",
+	"github.com/RedHuang-0622/seelex/seelebridge/teamwork":  "teamwork",
+	"github.com/RedHuang-0622/seelex/backend/tool/worktree": "worktree",
+	"github.com/RedHuang-0622/seelex/store":                 "store",
+	"github.com/RedHuang-0622/seelex/seelebridge/session":   "session",
 }
 
 // forbiddenQualifiers 是同一件事在源码里的第二种形态：包名限定的选择器
@@ -160,7 +160,7 @@ func worktreeDependentsIn(dir string) ([]string, error) {
 		}
 		for _, imported := range parsed.Imports {
 			importPath, unquoteErr := strconv.Unquote(imported.Path.Value)
-			if unquoteErr == nil && importPath == "github.com/RedHuang-0622/seelex/seelebridge/worktree" {
+			if unquoteErr == nil && importPath == "github.com/RedHuang-0622/seelex/backend/tool/worktree" {
 				dependents = append(dependents, name)
 			}
 		}
@@ -289,7 +289,7 @@ var _ workunit.Lifecycle = (*lifecycleHost)(nil)
 	}
 	dirty := `package workunit
 
-import "github.com/RedHuang-0622/seelex/seelebridge/worktree"
+import "github.com/RedHuang-0622/seelex/backend/tool/worktree"
 
 var _ = worktree.ErrUncommittedChanges
 `

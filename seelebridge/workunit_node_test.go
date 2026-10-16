@@ -15,8 +15,8 @@ import (
 
 	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
 	"github.com/RedHuang-0622/seelex/backend/tool/plan"
+	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
 	"github.com/RedHuang-0622/seelex/internal/model"
-	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
 	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 	"github.com/RedHuang-0622/seelex/store"

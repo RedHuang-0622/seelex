@@ -3,7 +3,7 @@ package worktree
 // worktree_registration_bench_test.go — U2 落地后的**量级读数**：登记来源那一条判据
 // （`Restore` 的"已在册不覆盖"）本身的代价。
 //
-// 用法：`go test ./seelebridge/worktree/ -run '^$' -bench SceneRegistration -benchmem -count=1`
+// 用法：`go test ./backend/tool/worktree/ -run '^$' -bench SceneRegistration -benchmem -count=1`
 //
 // 两个子基准分别对应两条路：① 已在册（首判跳过：一次 map 读/记录）；② 空注册表（重建：
 // 一次 map 写/记录）。判据自己应当落在**亚微秒到个位数微秒**这一档——真正的开销在

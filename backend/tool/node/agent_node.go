@@ -19,11 +19,11 @@ import (
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
 
 	"github.com/RedHuang-0622/seelex/backend/tool/plan"
+	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/model"
 	"github.com/RedHuang-0622/seelex/internal/promptassets"
 	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
 	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/seelexctx/provider"

@@ -671,7 +671,7 @@ func applySettleOutcome(plan *store.TeamworkPlan, item *store.TeamworkWorkItem, 
 // SessionID/Worktree 留在账上——它们指向的现场活到收口那一刻，收口拿它们把现场一并拆掉。
 // 这样就不会再出现"下游抢在上游前面拆现场"的时间窗（旧口径要在尾插走完之后才敢 release，
 // 真实 git 上的现场形状是 `fork/exec …git.exe: The directory name is invalid`，复现：
-// seelebridge/worktree/worktree_vanished_scene_repro_test.go）。
+// backend/tool/worktree/worktree_vanished_scene_repro_test.go）。
 //
 // 「还在跑」的判据是**作业状态**（jobRunning；旧口径见下方更正说明）：
 // running = 这一件事真的还在飞（→ 拒绝，让它把尾插走完）。

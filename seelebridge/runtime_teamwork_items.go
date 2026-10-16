@@ -15,8 +15,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
 	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
-	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
 	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
 )
 

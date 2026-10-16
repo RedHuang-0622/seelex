@@ -117,7 +117,7 @@ stateDiagram-v2
 本包内：`worktree_manager_test.go`、`worktree_failure_smoke_test.go`（fakeGit，无真实 git 依赖）；真实 git 集成用例（根包 `worktree_test.go`）需本机 git，沙箱受限时按 skip 名单跳过。验证：
 
 ```text
-go test ./seelebridge/worktree/ -count=1
+go test ./backend/tool/worktree/ -count=1
 go test ./seelebridge/... -count=1
 ```
 

@@ -24,7 +24,7 @@
 
 | 同一件事 | 现有实现数 | 锚点 | 现状一句话 |
 |---|---|---|---|
-| 建现场（`git worktree add` + 命名 `seelex/<nodeID>`） | **1 份实现 / 2 条调用链** | 实现 `seelebridge/worktree/worktree_manager.go:282`（`beginNamed`，四条路径：认领/不碰/复用分支/新建）；命名只有一处拼法（`sceneNameInfix:383` / `sceneDirName:386` / `scenePath:396`） | 两条链最终都落到 `beginNamed`，现场创建本身**没有**复制。 |
+| 建现场（`git worktree add` + 命名 `seelex/<nodeID>`） | **1 份实现 / 2 条调用链** | 实现 `backend/tool/worktree/worktree_manager.go:282`（`beginNamed`，四条路径：认领/不碰/复用分支/新建）；命名只有一处拼法（`sceneNameInfix:383` / `sceneDirName:386` / `scenePath:396`） | 两条链最终都落到 `beginNamed`，现场创建本身**没有**复制。 |
 | ├ 子代理链调用点 | | `backend/tool/node/agent_node.go:126`（`BeginNodeWorktree` 调用点，字段声明 `:39`）→ `seelebridge/runtime_plan.go:145`（`beginNodeWorktree`，注入点 `:310`）→ `worktree_manager.go:256`（`Begin`，仅 `RoleSubAgent` 才建） | 子代理经 `node.Deps.BeginNodeWorktree` 建现场。 |
 | └ teammate 链调用点 | | `seelebridge/workunit_team.go:169`（`teamUnit.Begin`）→ `seelebridge/runtime_teamwork_items.go:58`（`BindWorkspace`，`BeginNamed` 调用点 `:66`）→ `worktree_manager.go:266`（`BeginNamed`） | teammate 经 `BindWorkspace` 建现场，与子代理同实现、同命名（用例 `worktree_merge_serial_test.go:374` 钉住）。 |
 | 收尾合并（rebase → 提交判定 → 审批 → merge → cleanup） | **1 份实现 / 2 条调用链** | `worktree_manager.go:457`（`Finish`，有界重试 `:457–480`）→ `:485`（`finishExclusive`，收尾单写者 actor 的消费者 `:200`） | 合并是唯一一份实现；子代理走 `runtime_plan.go:208`（`finishNodeWorktree`），teammate 走 `runtime_teamwork_items.go:81`（`MergeWorkspace`），二者都在合并后补一次 `Release`（定义 `worktree_manager.go:593`；调用点 `runtime_plan.go:408` / `runtime_teamwork_items.go:124`）。 |
@@ -138,12 +138,12 @@
   - `seelebridge/runtime_plan.go:151` — `r.subagentSessions.NoteWorktree(nodeID, store.NodeWorktreeRecord{`（**唯一调用点**，在 `beginNodeWorktree` 内；未变）
   - 其余命中均为注释/文档/测试（`runtime_subagent_recovery.go:140`、`runtime_teamwork_scene.go:9/12`、`workunit_node.go:20/55/60`、`runtime_teamwork_scene_test.go:6` 等）。
 - `beginNodeWorktree`：定义 `seelebridge/runtime_plan.go:145`（未变）；注入点 `runtime_plan.go:310`（`nodeDeps` 的 `BeginNodeWorktree`，清单原文记 `:306`）；测试 6 处（`worktree_test.go:111/158/196/234/255/290`，未变）。
-- `BeginNamed`：定义 `seelebridge/worktree/worktree_manager.go:266`（清单原文记 `:256`）；唯一生产调用点 `seelebridge/runtime_teamwork_items.go:66`（`BindWorkspace` 内 `wt := r.worktreeMgr.BeginNamed(nodeID)`，未变）。
+- `BeginNamed`：定义 `backend/tool/worktree/worktree_manager.go:266`（清单原文记 `:256`）；唯一生产调用点 `seelebridge/runtime_teamwork_items.go:66`（`BindWorkspace` 内 `wt := r.worktreeMgr.BeginNamed(nodeID)`，未变）。
 - `security.NewProcessTree`：**源文件只剩一处通路** —— `seelebridge/tools/router.go:571` 经工厂变量
   `var newExecProcessTree = security.NewProcessTree`（`:551`），由 `newProcessTreeCommand`（`:570`）统一组装；
   两条链的调用点变成 `tools/async_run.go:245` 与 `tools/router.go:606`（docker 重试 `:653`）。
   清单原文"全仓仅两个调用点"**已不成立**（新增用例 `process_tree_degraded_bench_test.go:22` 也直接建树）。
-- `git status --porcelain` **源文件只剩一处**：`seelebridge/worktree/worktree_manager.go:799`（`pathDirtyWith` 内；
+- `git status --porcelain` **源文件只剩一处**：`backend/tool/worktree/worktree_manager.go:799`（`pathDirtyWith` 内；
   注释在 `:789/:791`），③B 收口。清单原文的三处（`worktree_manager.go:689`、`:750`、`seelebridge/runtime_teamwork.go:861`）
   已分别变成"同一函数的旧行号"与"已删除函数留下的注释（`:859–861`）"。
 - `jobs.Scope` 命中：`seelebridge/teamwork/coordinator.go:217/426/627`、`seelebridge/teamwork/items.go:412`、`seelebridge/jobs_events.go:123`、`seelebridge/runtime_teamwork_board.go:187`、`runtime_teamwork_board_archive.go:75`、`runtime_teamwork_board_close.go:76`、`runtime_teamwork_context.go:86`、`runtime_teamwork_jobs.go:26`（teammate 作业只有 `jobs.Manager` 这一个事实源）。
@@ -165,7 +165,7 @@
   - 验证：写一条"teammate 单元记录 → 重启 → 观察 `RegisteredCount()` 与 `adoptTeamworkScenes` 返回值"的用例（或在测试里断言两次登记的 nodeID 相同不产生第二个目录）。
   - **结论（已落地）**：**不会重复登记**——注册表的键是 `nodeID`，现场目录名/分支名也只按 nodeID 拼（`sceneDirName`/`sceneDirPrefix`，`worktree_manager.go:386/391`），两个来源指向**同一个目录**；`Adopt`（`:350`）与 `beginNamed`（`:282`）进门先判"已在册就原样返回"，重建前那句 `worktree remove --force` 因此走不到。
   - **落地时发现并修掉的一处分叉**：`Restore`（`:617`）过去是**无条件覆盖**（清单写作时为 `:610`），而 teammate 记录只写 Path/Branch（`teamUnitWorktreeRecord`，`workunit_team_records.go:97-107`），于是"会话恢复链在本次进程里对已在册的 nodeID 跑一次"会把活登记的 `MainBranch`/`BaseCommit` 覆盖成空栏位——收尾的 `alignMergeTarget` 随即静默降级成"合进当前 HEAD"（正是 2026-10-06 那条红灯的形状）。现在 `Restore` 与 `Adopt`/`beginNamed` 是同一条判据：**已在册不覆盖**（"谁先到都一样"这句话的范围见下面 2026-10-06 复核补记）。
-  - 用例：`seelebridge/worktree/worktree_registration_sources_test.go:43`（两种顺序各一条 + 活登记不被降级 `:97` + 重启仍能重建 `:132` + "目录不在不登记"的防幽灵语义仍在）。
+  - 用例：`backend/tool/worktree/worktree_registration_sources_test.go:43`（两种顺序各一条 + 活登记不被降级 `:97` + 重启仍能重建 `:132` + "目录不在不登记"的防幽灵语义仍在）。
   - **2026-10-06 复核补记（只更正现状句，不改判据）**："已在册不覆盖，**谁先到都一样**"里的"一样"只对
     "不产生第二个目录 / 不覆盖登记"成立；**登记内容仍由先到者决定**：恢复链顺序固定为
     `runtime_subagent_recovery.go:138 Restore` → `:144 adoptTeamworkScenes`，而 teammate 记录只带
