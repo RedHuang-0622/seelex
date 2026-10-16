@@ -50,6 +50,8 @@
 | `queue_test.go` | 门禁次序与装配缺陷、目标会话解析（空/trim/未注册）、三条拒绝文案、越界文案与哨兵身份 |
 | `unload.go` | `UnloadGate` / `UnloadDeps` + `Unload`：会话卸载的判据与次序（非活跃先持久化 → 释放 → 活跃收口视图 → 发布 → 刷新目录） |
 | `unload_test.go` | 空 ID 与门控两轴（含装配缺陷）、非活跃/活跃两条次序、持久化/释放失败即停与三条文案 |
+| `fork.go` | `ForkGate` + `MaxTranscriptEventSeq` + `DeepCopyRecord`：会话分叉的门控次序与两个纯助手 |
+| `fork_test.go` | 门控三轴次序与装配缺陷、事件最大 seq、深拷贝（消息/Tool 指针/四个切片/注入的 PlanStack 克隆器） |
 | `history/` | 历史分页的窗口装配判据（见其 README） |
 
 ## 核心实现
@@ -139,3 +141,10 @@ go test ./wiring/adapters/ -run SessionSetting -count=1        # 存储端口实
 - `func (gate UnloadGate) Reject() error` — 恢复中或运行中一律拒绝（缺错误值即 `ErrUnloadGateUnassembled`）。
 - `type UnloadDeps struct` — 宿主面：门控取数、是否视图会话、持久化、释放、视图收口、发布、目录刷新。
 - `func Unload(deps UnloadDeps, sessionID string) error` — 卸载用例的判据与次序（空 ID → 门控 → 非活跃先持久化 → 释放 → 活跃收口视图 → 发布 → 刷新）。
+
+### fork.go
+
+- `type ForkGate struct` — fork 门控读数（关闭/排空/父会话在跑）与三条宿主错误值。
+- `func (gate ForkGate) Reject() error` — 关 → 排空 → 在跑的次序判决；缺错误值即 `ErrForkGateUnassembled`。
+- `func MaxTranscriptEventSeq(events []model.TranscriptEvent) uint64` — 事件流最大 Seq（子会话序号基线对齐用）。
+- `func DeepCopyRecord(record model.SessionRecord, clonePlanStack func([]model.SessionPlanFrame) []model.SessionPlanFrame) model.SessionRecord` — fork 深拷贝判据（消息/Tool 指针/四个派生切片深拷贝；PlanStack 用注入的克隆器）。

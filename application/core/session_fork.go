@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
-	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/middle/switch"
 )
 
 // ForkSession 从父会话的指定切断点创建独立子会话，并切换到子会话继续。
@@ -77,14 +77,14 @@ func (service *Service) forkSessionLocked(parentID string, request model.ForkReq
 		running = unit.ChatState().Running
 	}
 	service.ViewMu.RUnlock()
-	if closed {
-		return "", errors.New("application is shut down")
+	gate := switching.ForkGate{
+		Closed: closed, Draining: draining, Running: running,
+		ErrClosed:   errors.New("application is shut down"),
+		ErrDraining: ErrApplicationDraining,
+		ErrRunning:  ErrChatRunning,
 	}
-	if draining {
-		return "", ErrApplicationDraining
-	}
-	if running {
-		return "", ErrChatRunning
+	if err := gate.Reject(); err != nil {
+		return "", err
 	}
 	forkPort, ok := service.Deps.Sessions.(session_runtime.SessionForkPort)
 	if !ok {
@@ -119,7 +119,7 @@ func (service *Service) forkSessionLocked(parentID string, request model.ForkReq
 	// 无可导入的引擎历史），此时子会话自己的事件会从 seq 1 起算并与继承
 	// 区间重叠——落盘合并按 seq 覆盖，子会话自己的消息会被旧行顶掉
 	// （2026-09-11 TC-A2-01 回归：fork 后 C 的第一轮聊天丢失）。
-	service.components.tasks.SeedTranscriptSeqFor(childID, maxTranscriptEventSeq(forkContext.Events))
+	service.components.tasks.SeedTranscriptSeqFor(childID, switching.MaxTranscriptEventSeq(forkContext.Events))
 	// ProviderHistory 是可重建缓存：子会话冷恢复由事件流/record 重建，
 	// 不继承父的 provider 缓存（避免消息↔事件坐标映射的不确定性）。
 	// ToolResults 为父通道全量物理复制（含 compressed:<segment_id> 原文）。
@@ -154,35 +154,8 @@ func (service *Service) forkSessionLocked(parentID string, request model.ForkReq
 	return childID, nil
 }
 
-// maxTranscriptEventSeq 返回事件流中的最大 Seq（空流返回 0）。
-func maxTranscriptEventSeq(events []model.TranscriptEvent) uint64 {
-	var maxSeq uint64
-	for _, event := range events {
-		if event.Seq > maxSeq {
-			maxSeq = event.Seq
-		}
-	}
-	return maxSeq
-}
-
-// deepCopyForkRecord 深拷贝 fork 子会话 record：Conversation 消息（含
-// Tool 引用）、Tasks、Checkpoints、ToolResults、ReadFiles、PlanStack 全部
-// 新建切片/对象，父子引用不相交。
+// deepCopyForkRecord 是 fork 深拷贝判据的**宿主转发**：判据在 `middle/switch.DeepCopyRecord`
+// （M5-R6-fork），PlanStack 的克隆实现（后端 `session.CloneSessionPlanStack`）由宿主注入。
 func deepCopyForkRecord(record model.SessionRecord) model.SessionRecord {
-	copy := record
-	copy.Conversation.Messages = make([]model.Message, len(record.Conversation.Messages))
-	for index, message := range record.Conversation.Messages {
-		cloned := message
-		if message.Tool != nil {
-			tool := *message.Tool
-			cloned.Tool = &tool
-		}
-		copy.Conversation.Messages[index] = cloned
-	}
-	copy.Tasks = append([]dto.TaskRecord(nil), record.Tasks...)
-	copy.Checkpoints = append([]model.TaskCheckpoint(nil), record.Checkpoints...)
-	copy.ToolResults = append([]model.ToolResultRef(nil), record.ToolResults...)
-	copy.PlanStack = session_runtime.CloneSessionPlanStack(record.PlanStack)
-	copy.Execution.ReadFiles = append([]model.ReadFileRef(nil), record.Execution.ReadFiles...)
-	return copy
+	return switching.DeepCopyRecord(record, session_runtime.CloneSessionPlanStack)
 }
