@@ -1002,4 +1002,25 @@ worker 的 `work_table*` 改动暂时无法编译，与本片无关，走干净 
 **历史卫生登记**：`fd549859`（首版，树不可独立构建）仍在分支祖先里，`9e07bc83` 在其上修复；
 严格"每提交可构建"要求在 push 前把这两条 squash 成一条（本环境同时有 3 个子代理在同一工作树里工作，
 **现在做交互式 rebase 的破坏面大于收益**，故登记而不动）。
+
+## 26. M5-R6 第十四片：R6-release-window（`b7d224d5`）+ R10a 派单
+
+| 项 | 内容 |
+|---|---|
+| 原位置 → 新唯一位置 | `application/core/service_release_window.go` 的判据与次序 → `middle/switch/releasewindow.go`（`ReleaseWindowDeps` + `SetReleaseWindow` / `ReleaseWindow`） |
+| 判据唯一 | **先校验 → 再落盘 → 最后改内存**；文案 `保存会话驻留窗口失败: %w` 逐字保留；没装配落盘口 = 只本次运行有效；没装配 apply 口 = 装配缺陷响亮失败；读面**不挂进快照**（进程级设置） |
+| 端口 | 全部由宿主注入（校验在 limit 域、落盘口 `Deps.ReleaseWindowStore`、`ApplySessionReleaseWindow`、`Limits().ReleaseWindow()`）——中间层不读配置、不持 store |
+| 用例 | `middle/switch/releasewindow_test.go` 3 条（次序与两处失败即停、无落盘口仍生效 + 缺 apply 口报错、读当前值与降级） |
+| 复核 | 干净 worktree（`b7d224d5`）：`go build`/`go vet` 0、`go test ./e2e/` ok、`middle/switch` 与 `application/core -run ReleaseWindow` ok |
+
+**R10a 已派单**（按契约 §1，不碰 `application/core`）：`/root/r10a_faces`，任务书
+[`tmp/reshape/r10a-faces-task.md`](../../tmp/reshape/r10a-faces-task.md)——四组行为面接口
+（`ViewFace`/`CommandFace`/`PolicyFace`/`QueueFace`，方法名逐字取今日门面导出面、一个方法只属一组）+
+A 组别名清单 `FaceTypeNames` + 四条断言（编译期结构满足、方法集快照逐字比对、别名集合逐字比对、
+前端零改动）。它与 R11（backend）、P13（README/scripts）零文件重叠。
+
+**下一片的前置（登记）**：`service_scheduler.go` 的"每次触发参数默认值与判据"看着可搬，但它的两个口径
+（默认档位读数 `application/prompt`、循环上限判据 `backend/limit`）今天都不可从中间层引用
+⇒ 先等 plan §1.5 的 `application/prompt/effort.go` → `backend/limit/{loop,effort}` 下沉（或把两条口径
+改成宿主注入）再搬，避免写出"注入一堆回调"的空壳中间层。
 R6 续做（尚未开始）：`runtime_projection`/`diagnostics`/`perf_stats` 三文件已是薄宿主缝（R5c 已把计算搬进 `middle/view`，只剩锁与取数）；其余按 plan §2.4 的落点继续搬
