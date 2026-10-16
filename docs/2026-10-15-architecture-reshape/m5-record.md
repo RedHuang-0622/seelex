@@ -773,3 +773,15 @@ mutate、组件在 mutate 里取自己的锁"，次序不会倒；`knobs_test.go
 | 文档 | `backend/engine/skill/README.md` 文件结构 + 测试命令（改掉过期的 `./skill`、`./plugin` 路径）+ 新增「文件与函数索引」节（该 README 原先缺这一节，顺带补齐 skill.go / loader.go / activate.go） |
 | 登记偏差 | plan 同批点名的 `skill_context.go`（128 行）**未搬**：它的类型（`chatRequest` / `PromptLayer` / `ReActBudget`）属 ReAct/chat 域，须随 `chat.go → backend/engine/react` 一起动；单独搬会把 core 的聊天请求簿记拖进 skill 包。已登记，随 react 片处理 |
 | 复核 | 独立 worktree：`go build ./...` 0、`go vet ./...` 0、`go test ./e2e/` ok、`backend/engine/skill` 与 `application/core -run 'Skill|Activate'` 全 ok |
+
+## 15. M5 第二半（续 5）：R-tool-reference（`1650a2ca`）
+
+| 项 | 内容 |
+|---|---|
+| 原位置 → 新唯一位置 | `application/core/reference_tools.go` 的判据 → `backend/tool/reference/reference.go`（`NodeResultRef` / `BuildPage` / `EncodePage` + UTF-8 助手） |
+| 门面留下什么 | "从哪读"的编排与工具面接线：`ReadToolResultHandler` / `ToolResultContent` / `toolResultContent`（pending → 落盘 → 引擎桥节点归档）、`resolveToolResultRefAlias`（`result:call_` 别名要读任务域映射）、`nodeToolResult` / `hasToolResultRefLocked`、`ReadPlanHandler` |
+| 判据唯一 | `BuildPage` 是 **GUI 与模型面共用**的那一份（同一份归档、同一页边界）；越界 offset 由 `EncodePage` 显式报错；UTF-8 边界对齐 + "一次一字节也要前进" |
+| 用例随判据走（并去掉一处重复覆盖） | 迁入 `reference_test.go`：前缀解析表、JSON 形状、分页 UTF-8 边界（新增 0/4→0/3 与末页）、contains 过滤（含越界页）、"一次一字节也要前进"（**从 `session_archive_test.go` 迁入**，避免同一判据两处断言）；core 只留两条 Service 级集成用例（引擎桥 / `result:call_` 别名） |
+| 门禁 | `e2e/layout_test.go` +1；`e2e/facade_boundary_test.go` +1、上限 78 → 79 |
+| 复核 | 独立 worktree（`1650a2ca`）：`go build ./...` 0、`go vet ./...` 0、`go test ./e2e/` ok、`backend/tool/reference` 与 `application/core -run 'Reference|ToolResult|Plan'` 全 ok |
+| 过程教训 | 首版把 `EncodePage` 的调用点切过去后，core 测试里仍引用旧函数（`reference_tools_test.go`、`session_archive_test.go` 各一处）→ 已按"用例随判据走"处理；另有一处遗留的未用 import 被独立 worktree 的 `go vet` 抓到（主工作树的 vet 先撞上另一个 worker 的在途错误，容易漏看）——**主工作树 vet 有并行噪声时，必须以干净 worktree 的 vet 为准** |
