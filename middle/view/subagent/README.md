@@ -83,7 +83,7 @@ sequenceDiagram
 ## 测试
 
 ```text
-go test ./application/core/subagent_view -count=1
+go test ./middle/view/subagent -count=1
 ```
 
 根包 `subagent_detail_test.go`/`subagent_tree_test.go` 覆盖集成；本包

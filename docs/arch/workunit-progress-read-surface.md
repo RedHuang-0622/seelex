@@ -64,7 +64,7 @@
    `Stage.Preview` / `Tool.Status` / `Tool.DurationMS`（`subagent_live.go:26-56`）。
    → 前端能画出"第几轮、在调哪个工具、成功没、耗时多少、模型正在写什么"。
 2. **历史可回放**：`SubscribeSubagentLive` 返回 `[]SubagentLiveEvent`（历史）+ `<-chan`（增量）
-   ——详情**中途打开也能补全**（`application/core/subagent_view/README.md` 的时序图：
+   ——详情**中途打开也能补全**（`middle/view/subagent/README.md` 的时序图：
    "低频权威刷新 + live 即时刷新双通道"）。
 3. **阶段是累积的**：`subagent_sessions.go:281` `append` + turn 自增 → `StagesJSON` 是一条**时间线**
    （`SubagentDetail.Stages` 直接用），不是一条被覆盖的状态。

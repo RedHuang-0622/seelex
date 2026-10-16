@@ -9,7 +9,7 @@
 本包按域拆分子包（装配件 + 消费方窄接口的容器化方向，见
 `docs/2026-08-22-application-split/plan.md`）：
 
-- 零依赖叶子域：`chat/`（流式批次与可见输出）、`worktable/`（表格增量 CSP
+- 零依赖叶子域：`chat/`（流式批次与可见输出）、`../../middle/view/worktable/`（表格增量 CSP
   汇聚发布器）、`input_router/`（命令注册表 + 输入路由）、`context_control/`
   （窗口策略配置加载）、`resume/`（未完成工作恢复模板：七步顺序 +
   幂等键 + 可审计 Report，领域实现走 `Port`）。
@@ -18,8 +18,7 @@
 - 有状态域协调器：`session_runtime/`（会话持久化/目录/项目绑定）、
   `task_context/`（任务执行/checkpoint/transcript/token 审计/plan 状态）、
   `context_runtime/`（provider 上下文装配/压缩/历史安全）、`prompt_layer/`
-  （system prompt 组装）、`view_state/`（Snapshot 读/写/事件发布）、
-  `subagent_view/`（子代理详情/live/树投影）、`goal/`（Goal 状态机 +
+  （system prompt 组装）、`goal/`（Goal 状态机 +
   DS-A2A 双会话治理 + 终态 gate + 会话级第五栈持久化）、
   `agentteam/`（AgentTeam/角色会话通用装配：`TeamSpec` 工厂 + 团队库读面）。
 - 共享叶子：`kernel/state`（锁 + 权威 Snapshot + 端口依赖 + 事件/审批
@@ -50,8 +49,8 @@ flowchart TB
         SR["session_runtime<br/>会话持久化/目录/项目绑定"]
         TC["task_context<br/>打点/终态/checkpoint/token 审计"]
         CR["context_runtime<br/>上下文装配/压缩/历史安全"]
-        VS["view_state<br/>Snapshot 读写 + 事件发布"]
-        SV["subagent_view<br/>子代理详情/live/树投影"]
+        VS["middle/view/state<br/>Snapshot 读写 + 事件发布"]
+        SV["middle/view/subagent<br/>子代理详情/live/树投影"]
         GOAL["goal<br/>Goal 状态机 + DS-A2A 治理"]
         TEAM["agentteam<br/>TeamSpec 工厂 + preset"]
         PL["prompt_layer<br/>system prompt 组装"]
@@ -59,7 +58,7 @@ flowchart TB
 
     subgraph LEAF["零依赖叶子域"]
         CHAT["chat"]
-        WT["worktable"]
+        WT["middle/view/worktable"]
         IR["input_router"]
         CC["context_control"]
         RES["resume"]
@@ -175,15 +174,15 @@ flowchart LR
 | 包 | 生态位 |
 |---|---|
 | [chat/](chat/README.md) | 流式批次管道（`StreamBatcher`）与 `<think>` 可见输出剥离 |
-| [worktable/](worktable/README.md) | worktable.changed CSP 汇聚发布器（latest-wins、背压、关闭排空尾态） |
+| [../../middle/view/worktable/](../../middle/view/worktable/README.md) | worktable.changed CSP 汇聚发布器（latest-wins、背压、关闭排空尾态） |
 | [input_router/](input_router/README.md) | 命令注册表与输入路由 |
 | [context_control/](context_control/README.md) | 窗口策略配置加载 |
 | [session_runtime/](session_runtime/README.md) | 会话持久化/目录/项目绑定协调器 |
 | [task_context/](task_context/README.md) | 任务执行/checkpoint/transcript/token 审计协调器 |
 | [context_runtime/](context_runtime/README.md) | provider 上下文装配/压缩/历史安全协调器 |
 | [prompt_layer/](prompt_layer/README.md) | system prompt 组装与引擎同步 |
-| [view_state/](view_state/README.md) | Snapshot 读/写/事件发布协调器 |
-| [subagent_view/](subagent_view/README.md) | 子代理详情/live/树投影 |
+| [../../middle/view/state/](../../middle/view/state/README.md) | Snapshot 读/写/事件发布协调器 |
+| [../../middle/view/subagent/](../../middle/view/subagent/README.md) | 子代理详情/live/树投影 |
 | [goal/](goal/README.md) | Goal 状态机、DS-A2A 双会话治理、终态 gate 与会话级第五栈持久化 |
 | [agentteam/](agentteam/README.md) | A2A 角色团队通用装配（`TeamSpec` 工厂 + 团队库读面 + 幂等角色会话） |
 <!-- govern/ 已于 2026-10-03（阶段三 W3）随 goal 席位轮转退场删除 -->

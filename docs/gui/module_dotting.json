@@ -197,7 +197,7 @@
       ],
       "planned_paths": [
         "application/core/work_table.go",
-        "application/core/worktable_publisher.go",
+        "middle/view/worktable_publisher.go",
         "gui/frontend/dist/work-table.js"
       ],
       "inputs": [

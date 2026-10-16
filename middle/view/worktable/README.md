@@ -2,7 +2,7 @@
 
 ## 生态位
 
-`application/core/worktable` 是工作表格（Work Table）增量事件的中枢投递
+`middle/view/worktable` 是工作表格（Work Table）增量事件的中枢投递
 机制：`WorkTablePublisher` 以 CSP 汇聚（latest-wins、有界背压、关闭排空
 尾态）发布 `worktable.changed` 所需的最新表格快照。
 
@@ -54,7 +54,7 @@ flowchart LR
 ## 测试
 
 ```text
-go test ./application/core/worktable -count=1
+go test ./middle/view/worktable -count=1
 ```
 
 `worktable_publisher_test.go` 覆盖突发汇聚、关闭尾态与关闭后 Send 安全性。

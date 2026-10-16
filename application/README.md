@@ -53,10 +53,10 @@
 | [`core/prompt_layer/`](core/prompt_layer/README.md) | system prompt 层组装与引擎同步（前缀缓存友好）。 |
 | [`core/resume/`](core/resume/README.md) | 「终止前未完成工作」的领域无关恢复模板。 |
 | [`core/session_runtime/`](core/session_runtime/README.md) | 会话域协调器：持久化、目录与标题恢复、项目 binding、会话三读。 |
-| [`core/subagent_view/`](core/subagent_view/README.md) | 子代理投影面：详情分类、live 流透传、树/节点事件投影。 |
+| [`../middle/view/subagent/`](../middle/view/subagent/README.md) | 子代理投影面：详情分类、live 流透传、树/节点事件投影（M5-R4 迁出 `core/subagent_view/`）。 |
 | [`core/task_context/`](core/task_context/README.md) | 任务执行域协调器：打点与终态、transcript、checkpoint、token 审计。 |
-| [`core/view_state/`](core/view_state/README.md) | 用户可见 Snapshot 读写与事件发布。 |
-| [`core/worktable/`](core/worktable/README.md) | 工作表格增量事件中枢（CSP 汇聚、latest-wins、有界背压）。 |
+| [`../middle/view/state/`](../middle/view/state/README.md) | 用户可见 Snapshot 读写与事件发布（M5-R4 迁出 `core/view_state/`）。 |
+| [`../middle/view/worktable/`](../middle/view/worktable/README.md) | 工作表格增量事件中枢（CSP 汇聚、latest-wins、有界背压）（M5-R4 迁出 `core/worktable/`）。 |
 
 `core/internal/limits/` 已于 2026-10-16 随 M2-A 迁至基座包
 [`backend/limit/`](../backend/limit/README.md)（运行时上限的类型、默认值、校验与进程级快照
@@ -102,9 +102,10 @@ flowchart TB
     subgraph CORE["application/core"]
         SVC["Service 用例门面"]
         DOM["域协调器<br/>session_runtime · task_context · context_runtime"]
-        LEAF["叶子包<br/>goal · agentteam · chat · resume · worktable"]
+        LEAF["叶子包<br/>goal · agentteam · chat · resume"]
+        MIDV["middle/view<br/>state · subagent · worktable（M5-R4 迁出）"]
         ST["internal/state<br/>唯一共享锁 + Snapshot + Deps"]
-        VIEW["view_state · subagent_view · prompt_layer<br/>input_router · context_control"]
+        VIEW["prompt_layer · input_router · context_control"]
     end
 
     subgraph SIDE["同级子包 / 顶层契约"]

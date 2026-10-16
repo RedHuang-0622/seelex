@@ -3,9 +3,9 @@ package core
 import (
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/application/core/view_state"
 	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/view/state"
 )
 
 // publishRuntimeProjections 在 service.ViewMu 下拷贝应用自有状态，释放锁后发布

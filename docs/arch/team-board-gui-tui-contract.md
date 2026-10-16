@@ -178,7 +178,7 @@ middle/protocol/model/state.go      SessionRuntime.TeamworkBoard  json:"teamwork
 | 作业行 | `jobs.Manager.Snapshot(jobs.Scope{Session: sessionID})`（内存态，`backend/engine/assemble/runtime_teamwork.go` 的 `r.teamworkJobs`） |
 | 组装 | `backend/engine/assemble/runtime_teamwork_board.go` `(*Runtime).TeamworkBoardSnapshot`（**已落地**） |
 | 端口 | `contract/ports.go` `TeamworkBoardProjection`（**已落地**；窄可选接口，位置与 `RuntimePort` 同文件） |
-| 收集 | `application/core/view_state/coordinator.go` `Deps.Teamwork` + `CollectRuntimeProjectionFor`（**已落地**） |
+| 收集 | `middle/view/state/coordinator.go` `Deps.Teamwork` + `CollectRuntimeProjectionFor`（**已落地**） |
 | 转发 | `application/core/teamwork_service.go` `(*Service).TeamworkBoardViewFor`（**已落地**：Deps.Teamwork 的接口名是「会话 → 视图」，由这一层类型断言到 Runtime 的 `TeamworkBoardSnapshot`） |
 | 装配 | `application/core/service_assembler.go` 里 `view_state.NewCoordinator(Deps{...})` 的 `Teamwork: service`（**已落地**） |
 | 会话槽 | `middle/protocol/model/state.go` `SessionRuntime` / `RuntimeState` 的 `TeamworkBoard` + `CloneRuntimeState` → `CloneTeamworkBoardView` 深拷贝（**已落地**） |
@@ -310,7 +310,7 @@ middle/protocol/model/state.go      SessionRuntime.TeamworkBoard  json:"teamwork
 |---|---|---|
 | 1 | `go build ./...` | 通过 |
 | 2 | `go vet ./application/... ./seelebridge/... ./tui/...` | 无告警 |
-| 3 | `go test ./middle/protocol/model/... ./application/core/view_state/... ./seelebridge/...` | 全绿 |
+| 3 | `go test ./middle/protocol/model/... ./middle/view/state/... ./seelebridge/...` | 全绿 |
 | 4 | `go test ./tui/...` | 全绿（含新增团队看板面板用例） |
 | 5 | `go test -bench=TeamworkBoard -benchmem ./seelebridge/...` | 有量级输出；采集 100 次文件读 = 1 |
 | 6 | `node --test gui/frontend/dist/*.test.mjs`（仓库规范写法；全仓无 package.json） | 全绿（含 `team-board-view` / `goal-*` / `snapshot-shape` / `element-registry`） |

@@ -162,7 +162,7 @@ draft 文件删除）。所以「本轮完成」= 草稿变成已发布行、「
   （`runtime.goal_skill_active`）。
 
 无目标文本、无任务且无激活 skill 时整个 section 隐藏。数据在
-`application/core/view_state` 收集投影（锁内快照），`runtime.changed` 增量携带，
+`middle/view/state` 收集投影（锁内快照），`runtime.changed` 增量携带，
 不需要额外 Bridge 调用。
 
 ## 资源管理器子页：三个平级子页（工作树 / 提交记录 / 工作区更改）+ 文件预览

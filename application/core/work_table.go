@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
-	"github.com/RedHuang-0622/seelex/application/core/worktable"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 )
 
 // ── 工作表格（Work Table）投影 ──────────────────────────────

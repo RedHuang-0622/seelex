@@ -118,12 +118,12 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "工具事件状态",
 		files: map[string]string{
-			"backend/multiagent/subagent/tool_events.go":    "写：工具调用事件的三种状态（发布/落态）",
-			"backend/engine/assemble/runtime_role_turn.go":  "写：员工回合的工具活动投影两帧（dto.RoleToolActivity.Status）",
-			"application/core/tool_hooks.go":                "写：工具完成钩子把结果折成成功/失败",
-			"application/core/subagent_view/coordinator.go": "读：详情投影判「在跑」",
-			"application/core/service.go":                   "读：员工工具活动投影判「在跑」（折成 teammate.tool.started/completed）",
-			"tui/state.go":                                  "读：TUI 判「在跑」（转调契约枚举的对外词）",
+			"backend/multiagent/subagent/tool_events.go":   "写：工具调用事件的三种状态（发布/落态）",
+			"backend/engine/assemble/runtime_role_turn.go": "写：员工回合的工具活动投影两帧（dto.RoleToolActivity.Status）",
+			"application/core/tool_hooks.go":               "写：工具完成钩子把结果折成成功/失败",
+			"middle/view/subagent/coordinator.go":          "读：详情投影判「在跑」",
+			"application/core/service.go":                  "读：员工工具活动投影判「在跑」（折成 teammate.tool.started/completed）",
+			"tui/state.go":                                 "读：TUI 判「在跑」（转调契约枚举的对外词）",
 		},
 		// 这一格的取值面 = dto.ToolEvent*（SubagentTool/SubagentToolEvent.Status）。
 		words: map[string]bool{"running": true, "success": true, "error": true},
@@ -131,13 +131,13 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "工具调用视图词",
 		files: map[string]string{
-			"middle/protocol/model/state.go":                "定义：这一格的字段类型与落盘读法（转换点 ToolCallStatusOfRecord）",
-			"application/core/tool_hooks.go":                "写：工具调起（running）与完成（success|error）的可见行 + 视图回写",
-			"application/core/chat.go":                      "写：引擎历史回灌的可见工具行",
-			"application/core/session_history.go":           "写：引擎消息折成可见消息时的工具行",
-			"application/core/session_runtime/archive.go":   "写：存档投影里的工具行",
-			"application/core/subagent_view/coordinator.go": "写：子代理详情会话的工具行（曾经写 completed，本格不收）",
-			"wiring/adapters/session_workspace_ports.go":    "读：存储面的词 → 枚举（转换点 ToolCallStatusOfRecord）",
+			"middle/protocol/model/state.go":              "定义：这一格的字段类型与落盘读法（转换点 ToolCallStatusOfRecord）",
+			"application/core/tool_hooks.go":              "写：工具调起（running）与完成（success|error）的可见行 + 视图回写",
+			"application/core/chat.go":                    "写：引擎历史回灌的可见工具行",
+			"application/core/session_history.go":         "写：引擎消息折成可见消息时的工具行",
+			"application/core/session_runtime/archive.go": "写：存档投影里的工具行",
+			"middle/view/subagent/coordinator.go":         "写：子代理详情会话的工具行（曾经写 completed，本格不收）",
+			"wiring/adapters/session_workspace_ports.go":  "读：存储面的词 → 枚举（转换点 ToolCallStatusOfRecord）",
 			"tui/state.go": "读：工具行图标与耗时（精确判 running）",
 		},
 		// 这一格的取值面 = dto.ToolEvent*（model.ToolCall.Status；与工具事件状态同格）。
@@ -221,9 +221,9 @@ var statusVocabularyScopes = []statusVocabularyScope{
 			"application/core/task_context/task_service.go":    "读：终态节点判定（checkpoint 汇总）+ 时间线流水",
 			"application/core/plan_tools.go":                   "写+读：plan_run 结果/事件折成节点状态，时间线保留原始词",
 			"application/core/work_table.go":                   "读：节点打点合成工作表格 trace",
-			"application/core/subagent_view/coordinator.go":    "读：详情页状态（记录状态/任务状态 → 节点状态）",
-			"tui/plan.go":                     "读：节点状态上色（参数是枚举，不再比字面量）",
-			"backend/tool/node/agent_node.go": "写：节点执行期状态词与收尾结论词（两条阶段词登记在 node_phase_words.go，**不属于本格**）",
+			"middle/view/subagent/coordinator.go":              "读：详情页状态（记录状态/任务状态 → 节点状态）",
+			"tui/plan.go":                                      "读：节点状态上色（参数是枚举，不再比字面量）",
+			"backend/tool/node/agent_node.go":                  "写：节点执行期状态词与收尾结论词（两条阶段词登记在 node_phase_words.go，**不属于本格**）",
 		},
 		// 这一格的取值面 = dto.Node*（PlanNode.Status）。
 		// 事件字段 dto.PlanNodeEvent.Status 是**混合面**（本格词 + 框架词 + 我们的阶段词），

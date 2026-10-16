@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/core/subagent_view"
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
 	seelplan "github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/view/subagent"
 )
 
 // updatePlanFromLoad 从 plan_load 的参数 JSON 初始化 PlanState。

@@ -506,7 +506,7 @@
   替换 Plan 树 / 待办 / 子代理三个分区；节点详情弹窗保留。
 - `application/core/work_table.go`：plan/todo/subagent → 扁平 WorkItem 读模型
   （有界：`work_table_rows` / `plan_node_events` / `evidence_chars`）。
-- `application/core/worktable_publisher.go`：CSP 汇聚发布器（latest-wins，
+- `middle/view/worktable_publisher.go`：CSP 汇聚发布器（latest-wins，
   生产者阻塞背压，关闭排空尾态）。
 - `seelebridge/todo_tool.go`：todoState 改为 Actor + Mailbox；TodoItem 增加
   三态 `status`（pending/doing/done），`Done` 为派生字段；新增
