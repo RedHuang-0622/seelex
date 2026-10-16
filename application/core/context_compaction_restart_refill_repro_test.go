@@ -15,7 +15,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
+	"github.com/RedHuang-0622/seelex/backend/engine/context"
 )
 
 // restartRefillRounds 是重启后新追加的轮数（每轮约 8000 tokens）。26 轮 = 实测

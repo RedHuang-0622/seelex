@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
+	"github.com/RedHuang-0622/seelex/backend/engine/context"
 )
 
 const contextRecoveryPrefix = "<!-- seelex:context-recovery:v1 -->"

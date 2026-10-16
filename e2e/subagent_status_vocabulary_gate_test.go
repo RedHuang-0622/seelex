@@ -169,7 +169,7 @@ var statusVocabularyScopes = []statusVocabularyScope{
 			"application/core/history_safety.go":                 "写：provider 失败回收（回合中断）",
 			"application/core/session_cold_read.go":              "写：冷读面的 idle（这个会话没有在飞回合）",
 			"application/core/input.go":                          "读：终态边界（收尾过的回合）",
-			"application/core/context_runtime/coordinator.go":    "读：显式压缩的来源判定（是否在飞回合）",
+			"backend/engine/context/coordinator.go":              "读：显式压缩的来源判定（是否在飞回合）",
 		},
 		// 这一格的取值面 = dto.Turn*（Snapshot.Task.Status 与 TaskContextProjection.Status 同格）。
 		words: map[string]bool{

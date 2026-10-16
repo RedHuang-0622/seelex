@@ -44,7 +44,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
+	"github.com/RedHuang-0622/seelex/backend/engine/context"
 )
 
 // internalCheckpointRow 造一条**已落盘**的内部行（上下文 checkpoint 标记）。

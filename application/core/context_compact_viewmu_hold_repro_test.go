@@ -33,7 +33,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
+	"github.com/RedHuang-0622/seelex/backend/engine/context"
 )
 
 // blockingIndexRuntime 是"索引面在、但推帧这一步要跑很久"的 Runtime 桩：进到

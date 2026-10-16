@@ -16,7 +16,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
+	"github.com/RedHuang-0622/seelex/backend/engine/context"
 )
 
 // retiredRecordChannelSessions 是现行存储布局（v8/S20）下的会话端口替身。
