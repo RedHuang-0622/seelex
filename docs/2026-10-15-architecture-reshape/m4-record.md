@@ -23,11 +23,11 @@
 |---|---|---|---|
 | A | `seelebridge/tools/computer`（+`mcp`，41 文件）→ `backend/tool/computer` | 无 | **已落地**（8468ce72） |
 | F | `seelebridge/internal/{actor,config,docker,model,stream,telemetry}` → 模块根 `internal/*` | 无（**它是别的片的前置**） | **已落地**（见 §4） |
-| B | `seelebridge/security` → `backend/limit/gate` | V9 未确认 ⇒ 暂缓（§3） |
-| C | `seelebridge/{fs,attachment,imageattach,multimodal}` + `runtime_image.go` → `backend/tool/io` | 需与根包拆分协同（`runtime_image.go` 在根包内） |
-| D | `seelebridge/tools/websearch` + `seelebridge/search` → `backend/tool/websearch` | `seelebridge/tools/websearch` 只被 `search` 与 `main.go` 引用 |
-| E | `seelebridge/{plan,worktree,task,node,fork}` → `backend/tool/*` | `fork` 被 `session` 引用 |
-| G | `seelebridge/{account,mcp,plugin}`、`internal/config` → `backend/engine/*` | 无 |
+| B | `seelebridge/security` → `backend/limit/gate` | V9 未确认 ⇒ **暂缓**（§3） |
+| C | `seelebridge/{fs,attachment,imageattach,multimodal}` → `backend/tool/io/*` | 无 | **已落地**（dde48d63；`runtime_image.go` 在根包内，随 J 片走） |
+| D | `seelebridge/search` + `seelebridge/tools/websearch` → `backend/tool/{search,websearch}` | 无 | **已落地**（31c37b2f） |
+| E | `seelebridge/{task,fork,plan,node,worktree}` → `backend/tool/*` | 无（F 先行） | **已落地**（be5e6741 / 78718881 / 40f6bb33 / ea87386f / f9c4aef1） |
+| G | `seelebridge/account` → `backend/engine/account`（G1） | 无 | **已落地**（c4c10618）；G2（`mcp`/`plugin`）见 §5.3 |
 | H | `seelebridge/{session,workunit}`、`internal/actor` → `backend/multiagent/*` | V3（workunit 归属）未裁决 |
 | I | `seelebridge/teamwork`、`runtime_teamwork*.go`、`workunit_*` → `backend/multiagent/teamwork` | 冻结解除依据见 D-M4-3 |
 | J | 根包按域拆分（engine / tool / multiagent + 装配） | 需先定"谁持有 `Runtime`"（§3） |
@@ -125,6 +125,48 @@ Go 的 `internal` 规则只允许**同一子树**导入。于是所有依赖 `se
 在 `git worktree` 出来的**干净 `main`（96fc163b）副本**上同样 3/3 失败 ⇒ 与本轮搬迁无关
 （该副本已删除，不留在仓库里）。
 
+## 5. E / C / D / G1 片：tool 与 engine 的叶包群（均已落地）
+
+### 5.1 删除清单（原位置 → 新唯一位置；全部 `git mv`，同一份实现只换落点）
+
+| 片 / commit | 原位置 → 新唯一位置 | 规模 |
+|---|---|---|
+| E1 `be5e6741` | `seelebridge/task` → `backend/tool/task` | 3 生产文件 1211 行 + 3 用例 |
+| E2 `78718881` | `seelebridge/fork` → `backend/tool/fork` | 4 生产文件 654 行 + 4 用例 |
+| E3 `40f6bb33` | `seelebridge/plan` → `backend/tool/plan` | 13 生产文件 2695 行 + 4 用例 |
+| E4 `ea87386f` | `seelebridge/node` → `backend/tool/node` | 5 生产文件 955 行 + 1 用例 |
+| E5 `f9c4aef1` | `seelebridge/worktree` → `backend/tool/worktree` | 1 生产文件 1121 行 + 10 用例 |
+| C `dde48d63` | `seelebridge/{fs,attachment,imageattach,multimodal}` → `backend/tool/io/{同名}` | 6 生产文件 812 行 |
+| D `31c37b2f` | `seelebridge/search` → `backend/tool/search`；`seelebridge/tools/websearch` → `backend/tool/websearch` | 9 生产文件 819 行 |
+| G1 `c4c10618` | `seelebridge/account` → `backend/engine/account` | 4 生产文件 648 行 |
+
+每片一次"移动 + 引用改写 + README/门禁清单跟随 + 局部测试"的循环，引用改写规模：
+plan 31 文件、node 23、fork 17、account 16、task 14、worktree 27、search+websearch 11、
+io 组 6（含 e2e 门面闭包清单与 `layout_test.go` 的模块清单）。
+
+### 5.2 每片的验证口径（都一样，故不重复列）
+
+`gofmt -l`（不含 `tmp/`）干净 → `go build ./...` → `go vet ./...` 无输出 → 该包自身
+`go test` → 进口方所在包（`./seelebridge`、`./seelebridge/session`、`./seelebridge/tools`、
+`./application/core` 等按片）→ `go test ./e2e/...` → `scripts/check_readme_refs.py --strict`
+**新增条目为 0**。已知既有红只有两处：`application/core` 的基线 3 例、`seelebridge/tools`
+的 1 条环境性失败（D-M4-11）。
+
+### 5.3 还没做的（按阻塞性质分类，不是遗漏）
+
+1. **等裁决**：`seelebridge/security`（V9 / B 片）、`seelebridge/workunit` 归属（V3 / H 片）、
+   `seelebridge/mcp` 与 `seelebridge/plugin` 的落点（plan 让它们进 `backend/engine/{mcp,plugin}`，
+   而顶层 `mcpstack/`、`plugin/` 也指向同一目录 ⇒ 需要"主包 + 适配子目录"的命名裁决）、
+   `internal/*` 的终局落点（D-M4-8）。
+2. **需要先拆再搬（不是纯移动）**：`seelebridge/scheduler`（plan §2.5/§2.12.1 要求拆成
+   actor+触发判定 / `FileStore` / `Persistence` 接口三处）、`seelebridge/tools`（13 文件 5076 行，
+   按注册表 / 路由 / 作业 / 权限门控拆）、`internal/mapper`（plan §2.10 要求删，删它要改
+   `runtime_live.go`）。
+3. **J 片（根包拆分）**：`seelebridge` 根包仍是 53 个生产文件 / 13,373 行，`Runtime` 单类型跨文件；
+   这一片决定"seelebridge 目录消失"能否达成，需要先定"谁持有 `Runtime`"。
+4. **I 片（teamwork）**：用户已说明该域改动完成（D-M4-3），可以搬；但它仍依赖 `workunit`
+   的归属（V3），所以排在 H 之后更省事。
+
 | ID | 事项 | 处置 |
 |---|---|---|
 | D-M4-1 | 首轮替换脚本把 `docs/research/**`、`docs/test/**` 的路径也改写了（这两类是"把当时状态固定下来"的记录）。已 `git checkout` 还原，并把这两类目录加入脚本跳过清单，与 M3 §8.4 登记的口径一致 | 已修 |
@@ -134,3 +176,7 @@ Go 的 `internal` 规则只允许**同一子树**导入。于是所有依赖 `se
 | D-M4-5 | V3（`workunit` 归属：`backend/multiagent/workunit` 还是独立 `backend/workunit`）未裁决 ⇒ H/I 片的 `workunit_*` 先不动 | 待裁决 |
 | D-M4-6 | J 片不是"搬文件"：`Runtime` 单类型跨 53 文件，拆分需要先定"谁持有 Runtime、各域如何被装配处组合"。建议 J 单独立项、按域多次提交 | 计划性风险 |
 | D-M4-7 | M2-D（loop 预警）与 M2-C5（中间件定序）已由用户裁决**延后到 M5 之后**（见 `m2-record.md` D-M2-10）⇒ M4 不碰这两项 | 已知延后 |
+| D-M4-8 | `seelebridge/internal/*` 的**终局**落点：本轮按编译器约束落在模块根 `internal/*`（过渡解，见 §4）。终局是否再下沉进某个板块，等 J 片（根包拆分）之后收口 | 待收口 |
+| D-M4-9 | plan §2.6 写 `seelebridge/search` 与 `seelebridge/tools/websearch` **都进** `backend/tool/websearch/`——一个目录装不下两个包。本轮按"一包一目录、目录名 = 包名"落成 `backend/tool/search/` 与 `backend/tool/websearch/`，语义仍是同一板块 | 需点头 |
+| D-M4-10 | **相对链接深度漂移**（本轮抓到的第二类纯路径盲点）：README 里的 `../../x` 在搬迁后少一级/多一级。门禁抓到两处（`backend/tool/search` 的 `../../docs/research/...`、`backend/tool/websearch` 的 `../../search/README.md`），已改为 `../../../` 与 `../`。`go build` 与 `go vet` 都看不见这类错 | 已修 |
+| D-M4-11 | `seelebridge/tools` 的 `TestJobHandlesCarryTheirTableToken` 在当前环境**稳定失败**（失败面是 Windows `TempDir` 清理时的句柄占用，三个子用例本身全 PASS）。在干净 `main` 副本上同样 3/3 失败 ⇒ 与本轮搬迁无关，不在本轮修 | 既有环境性 |
