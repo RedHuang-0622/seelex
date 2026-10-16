@@ -1479,3 +1479,29 @@ README 有未解析引用**（共 59 个里），全部是**搬迁留下的路�
 
 **未动**：这是一批纯文档修缮（与代码行为无关），修它要么逐条核实"当时的事实是否仍成立"、要么把已迁走的
 落点改写成指向新家的链接——按用户口径属"细节修缮（p-x）"一类，等裁决是否排期。
+
+
+## 38. P21 续片（2026-10-17 第六轮：P21-13 / P21-14 / P21-15）
+
+> 本轮起**全程序行自做**（子代理通道仍不投递任务正文，见 §35）。每片一个 commit，提交前都跑
+> gofmt / build / vet / 目标包测试 / `gen_core_readme_index.py --check` / `check_readme_refs.py --strict`。
+
+| 片 | 内容 | 提交 |
+|---|---|---|
+| P21-13 | **ADVISOR(TL) 真实评估器**整文件下沉 goal 域（提示词四段与输出契约追加、工具边界与实际执行面**同源**判定、只读权限口径、裁决解析与域校验）→ `backend/multiagent/goal/advisor_evaluator.go`（plan §2.5）；装配层 `runtime_goal_tl.go` 只剩 `GoalTLEvaluator` + 三格宿主读数（无工具兜底 / 提示词读面 / `AdvisorRoundRequest` → `roleRoundSpec` 的**唯一**一处翻译）。域级用例 9 条（随搬 2 + 新增 7：两条执行面同源、只读口径与 FreshContext、`ErrTLDisabled` 与 `ErrBadDirective` 的区分、宽松解析、安全截断）。顺带把装配层零散助手 `stringPtr` / `truncateRunes` 抽到新文件 `strings.go`（它们不止 goal 用，原来挂在被搬走的文件尾部），并写明与别处四处同名 `truncateRunes`"像却不并"的理由 | `85459f70` |
+| P21-14 | **子代理结论两向投影 + 接管判据**下沉子代理域 → `backend/multiagent/subagent/conclusion.go`（plan §2.7）：`ConclusionEventSource` / `Conclusion` / `ConclusionEvent`（时间基序号、done-failed 映射、定位挂**主会话**）/ `ConclusionsFromEvents`（跳过外族与坏条目）/ `TakeoverPredicate`。装配层 `persistSubagentConclusion` / `loadSubagentConclusions` 签名与判据不变、正文只剩"交给谁落盘 / 从哪读"（下一片 `runtime_subagent_resume.go` 仍在调这两个）。域级 4 条新用例，含**正反两向互为逆**的往返断言 | `6f90e2ec` |
+| P21-15 | **员工提示词优化回合**下沉提示词域 → `backend/engine/prompt/role_prompt_optimize.go`（plan §2.5）：固定元指令 + 三条入口判据 + 员工上下文按标签渲染 + 输出契约宽松解析（`optimized` 必填 / 理由去空截断 5 条每条 ≤60 rune）+ 回执组装；读面（`SetRolePromptProvider` / `rolePromptFor`，宿主注入的状态）留在装配层。域级用例 5 条（随搬 1 + 新增 4） | `8f6a40fa` |
+
+### 剩余清单（按 plan §2.5–§2.7 的目标落点，装配层保留**宿主转发面**的为多数）
+
+| 文件（assembly） | 目标域（plan） | 判定 |
+|---|---|---|
+| `runtime_context.go`（365） | `backend/engine/context`（`context_runtime`） | **可搬（下一批）**：`coverHistoryGap`（无压缩基线 ⇒ 不补真空区的判据）、`replayInputTokens`（配置 > 窗口 3/4 的推导）、`compactionSummarizerWithNote`（三条 nil 出口与理由文案）、`windowTailBudget`（轮数回退）、`relatedMemoryBlocks`（候选→选取→渲染）；其余是组件工厂（宿主读数接线），留装配层 |
+| `runtime_plan.go`（467） | `backend/tool/plan` | **部分可搬**：`roleForPlanBranch` / `stableHash` / `resolvePlanBranchAccount` 的判据；`planExecutor` 装配、事件通道、NodeFactory/Deps 闭包是装配面 |
+| `runtime_tools.go`（347） | `backend/engine/toolregistry`（**新建包**） | **部分可搬**：可见性策略装配与内联工具表、权限门接线；注册表状态在 `backend/tool/registry` |
+| `runtime_role_turn.go`（700）/ `runtime_role_plugins.go`（401） | `backend/multiagent/team` | **部分可搬**：角色回合的构造口径（员工主体、只读评审口径、插件集合装配、FreshContext 语义）；执行面（开引擎/会话槽/释放）是宿主 |
+| `runtime_teamwork*.go`（≈3.1k）/ `workunit_*.go`（≈1.1k） | `backend/multiagent/{teamwork,workunit}` | **部分可搬**：判据（`unitKindOf` 身份折算、`restoreUnitRecords` 分派、场景认领与 Prune 顺序、记录 writer 链）；三格端口适配器（`workunit_assembly.go` 的 `hostPorts`）**按设计文档留在装配处**（workunit-ports-and-assembly.md §2/§3） |
+| `runtime_subagent_resume.go`（577） | `backend/multiagent/subagent` | **部分可搬**：`Locate` 的状态折算（已大量复用 `workunit.UnitReader/ProgressOf`）、`RestoreScene` 的摘要回退、`InjectNote` 的契约 builder + 追加事实、`Reexecute` 的目标回退与 ctx 会话注入、`Converge/ensureConclusion` 的幂等结论；端口本体依赖宿主组件（重派发 / 记录删除 / 会话槽），属装配面 |
+| `runtime_session_release.go`（84） | `middle/switch` | **部分可搬**：释放窗口的三条拒绝判据 + 残格清单 |
+| `runtime_session.go` / `role_host_session.go` / `runtime_history.go` / `runtime_visibility.go` / `runtime_bundle.go` / `runtime_deps.go` / `runtime_task.go` / `runtime_schedule.go` / `runtime_node.go` / `runtime_mcp.go` / `runtime_plugin.go` / `runtime_computer.go` | 各异 | **判定为装配面（不搬）**：它们是宿主状态的取值/转发/注册（bundles 注册表、调度 actor 转发、节点只读面、MCP/插件装载、工具注册、端口宿主面），符合 AGENTS §8.4"具体实现在装配处注入"；逐文件的理由见各自 README 的行注 |
+| `runtime_subagent_session.go` / `runtime_live.go` / `runtime_teammate_session_live.go` / `runtime_account.go` / `runtime_async.go` / `events*.go` / `runtime_goal_tl.go` / `runtime_project_board.go` / `runtime_role_prompt.go` | — | **已归位**（P21-1…15），本表不再列 |
