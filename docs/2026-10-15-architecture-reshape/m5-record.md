@@ -561,9 +561,66 @@ git diff --cached -M --numstat（片内）
   `TestColdRestoreTailFirstRequestKeepsTranscriptOrder`）+ **1 例已取证的 Windows 环境性红**
   （`backend/tool/registry.TestJobHandlesCarryTheirTableToken`，TempDir 句柄占用）。**无新增失败**。
 
-**下一步**
+---
 
-- R8b：同口径搬 `application/core/agentteam/` → `backend/multiagent/team/`（包名 `agentteam` → `team`，
-  与后续 `role_session.go` 汇合）、`application/core/resume/` → `backend/multiagent/resume/`。
-- 之后按 plan §2.5 搬 `task_context` / `context_runtime` / `session_runtime` / `chat` / `prompt_layer` /
-  `input_router` / `context_control`（这些是**整包搬迁**，不涉及接收者转移）。
+## M5-R8b：`agentteam` / `resume` 归位多代理板块（commit `1db3720d`）
+
+**删除清单（原位置 → 新唯一位置）**
+
+| 原位置 | 新位置 | 变化 |
+|---|---|---|
+| `application/core/agentteam/spec.go` | `backend/multiagent/team/spec.go` | `git mv`，包名 `agentteam` → `team`；代码 0 字节改动 |
+| `application/core/agentteam/spec_plugins_test.go` | `backend/multiagent/team/spec_plugins_test.go` | 同上（只改 `package` 行） |
+| `application/core/agentteam/README.md` | `backend/multiagent/team/README.md` | 加"落点 / 退场时间线"说明 |
+| `application/core/resume/{resume.go,resume_test.go,README.md}` | `backend/multiagent/resume/…` | `git mv`，包名不变，代码 0 字节改动 |
+
+**取用侧（只改 import 路径或注释，不改判据）**：`application/core/goal_team_recorder.go`、
+`backend/engine/assemble/runtime_subagent_resume.go`、`backend/engine/assemble/runtime_role_turn_test.go`、
+`store/teamwork.go`、`backend/multiagent/teamwork/{teamwork.go,role_session_id_consistency_test.go}`、
+`application/README.md`、`application/core/README.md`。
+
+**门禁同步**：`e2e/layout_test.go` 模块表 +2 行；`e2e/facade_boundary_test.go` 闭包清单两条换成新落点
+（条数不变，上限 75 不动）。
+
+**有意不改（口径同 D-M3-12"改名不追文案"）**：`team/spec.go` 的错误文案前缀仍是 `agentteam: …`；
+`role_session_id_consistency_test.go` 的失败文案仍写 `agentteam=%q`。
+
+**保真证据**：`git diff -M --numstat` 显示被搬的 6 个文件全为 `0 0`（纯 rename）——即同一个字节的代码
+换了落点，改的只有包名行、import 路径与文档。
+
+## M5-R8c：团队看板读面归位 `backend/multiagent/teamwork`（commit `ab852d2b`）
+
+**删除清单（原位置 → 新唯一位置）**
+
+| 原位置:行 | 新唯一位置 |
+|---|---|
+| `application/core/teamwork_service.go:24` `TeamworkBoardViewFor` 的方法体 | `backend/multiagent/teamwork/board.go` `BoardReader.BoardViewFor` |
+| `application/core/teamwork_service.go:46` `TeammateSessionLiveFor` 的方法体 | 同文件 `BoardReader.SessionLiveFor` |
+| `application/core/teamwork_service.go:63` `TeammateSessionLivePageFor` 的方法体 | 同文件 `BoardReader.SessionLivePageFor` |
+| （`application/core` 侧三条方法的空视图判定各写一遍） | 收进 `BoardReader` 一处：看板 → `nil`；live → 回显会话号 + `Running=false`；分页 → 回显会话号与分页参数 |
+
+`application/core/teamwork_service.go` 保留三条同名门面方法，各一行转发（`service == nil` 的守卫留在门面）。
+
+**新增用例**：`backend/multiagent/teamwork/board_test.go` 三条——未装配（`nil` 宿主）、
+宿主存在但不支持该窄端口、装配后逐字透传且不缓存。第二支此前**没有覆盖**（`application/core` 侧只
+覆盖了真实宿主与 nil 两支）。
+
+**保真证据**：方法体逐字搬运；核心判据（`contract.TeamworkBoardProjection` /
+`contract.TeammateSessionProjection` 的类型断言）一字未改；无行为/文案/字段变化。
+
+**验证（本机实跑）**：`gofmt -l .` 空；`go build ./...` 与 `-tags "gui,desktop,production"` 构建绿；
+`go test ./e2e/ ./backend/multiagent/teamwork/ ./application/core/ -count=1` 中 e2e 与 teamwork 绿，
+`application/core` 失败集合 = **基线 3 例**（与 `tmp/reshape/baseline-test.log` 逐条同名）。
+
+**下一步（R8 余下，均为 `application/core` 根包的接收者转移 + 分包）**
+
+- `role_session.go`（168 行 / 17 函数）→ `backend/multiagent/team/`；
+  `teamwork_service.go` 余下部分与 `teamwork_service.go` 相关的写面 → `backend/multiagent/teamwork/`。
+- 工具域：`review_files.go` + `reference_tools.go` → `backend/tool/{review,reference}/`；
+  `tool_hooks.go`、`plan_tools.go` → `backend/tool/`。
+- limit 域：`service_knobs.go` → `backend/limit/`；`session_permission_tier.go` → `backend/limit/tier/`；
+  `service_account_window.go` → `backend/limit/accountwindow/`（该文件只剩编排：校验 → 写盘 →
+  改内存 → 读回生效值，落点应是 `accountwindow` 的 use case + `store`/宿主两个窄端口）。
+- 这些文件全是 `*Service` 方法，按 `m5-slices.md` §2 的两段式（先同包接收者转移、再分包）施工。
+- 之后按 plan §2.5 搬整包：`task_context` / `context_runtime` / `session_runtime` / `chat` /
+  `prompt_layer` / `input_router` / `context_control`。
