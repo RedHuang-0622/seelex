@@ -167,6 +167,44 @@ io 组 6（含 e2e 门面闭包清单与 `layout_test.go` 的模块清单）。
 4. **I 片（teamwork）**：用户已说明该域改动完成（D-M4-3），可以搬；但它仍依赖 `workunit`
    的归属（V3），所以排在 H 之后更省事。
 
+## 6. 收尾三个提交与跨 commit 审计
+
+### 6.1 收尾提交
+
+| commit | 内容 | 为什么需要它 |
+|---|---|---|
+| `e525aa6e` | 补 M4-G1 漏暂存的根级用例注释引用 | 账号那一片引用改写覆盖了根级 `README.md` 与 `repro_session_background_test.go`，但提交时只暂存了目录级改动 ⇒ `c4c10618` 那棵树的注释仍指向已搬走的包（**编译不受影响，但"每个提交自洽"被破坏**）。教训：暂存要按"改写脚本报告的文件清单"逐条来，不能按目录粗筛 |
+| `da34e1c1` | 散文引用跟随：66 处 `seelebridge/<已搬包>` → 新落点（30 个文件） | 搬运器覆盖的是 import 路径、带斜杠的盘相对路径、带引号的包路径；注释与 README 句子里**直接点名包**的写法（`见 seelebridge/task.NextAutoID`、`` `seelebridge/fork` ``）漏了。规则加了词边界：`seelebridge/task` 不会误伤仍在的根包文件 `seelebridge/task_registry.go`（`_` 属词内字符） |
+| `301c3f09` | 修 plan/task 域在 2026-P2b（`26de0f09`）时代遗留的 6 处根包文件名引用 | 既有漂移（不是本轮引入）：那些文件在 plan/task 下沉子包时就不在仓库根了。顺带**如实登记**：`ARCHITECTURE_REVIEW.md` 原先给节点预算上限写的守卫用例 `plan_input_fuzz_test.go` 不存在，该分支当前**没有测试覆盖**，不冒充覆盖 |
+
+### 6.2 跨 commit 悬空引用审计（`tmp/reshape/m4_commit_audit.py`）
+
+判据：某包在提交 C 的树里已不存在（已搬走）⇒ C 的树里不应再出现 `seelebridge/<pkg>`
+字面量（时间封存文档除外）。做法是 `git grep` 每个提交的树，逐包检查。
+
+- **HEAD 的残留 = 0**（此前 6 处是根包文件名误匹配，已在 6.1 的第三个提交里改掉）。
+- 历史提交里仍有散文残留（越早的提交越多）——这是**已提交的历史**，不重写；能保证的是：
+  每个提交的**编译**都是干净的（import 路径当次就改对了），散文引用在 `da34e1c1` 收口。
+
+### 6.3 本轮结束时的实况
+
+- `seelebridge/` 从 23 个子目录缩到 **9 个**：`internal`（只剩 `mapper`）、`mcp`、`plugin`、
+  `scheduler`、`security`、`session`（已搬，见 6.4 注）、`teamwork`、`tools`、`workunit`。
+- 搬出 12 个包（含 `internal/*` 6 个）：tools/computer、internal/{actor,config,docker,model,stream,telemetry}、
+  task、fork、plan、node、worktree、fs、attachment、imageattach、multimodal、search、tools/websearch、
+  account、session。
+- 根包 **53 个生产文件 / 13,373 行未动**（J 片的活），`Runtime` 仍是单类型跨文件。
+
+> 6.4 注：上表把 `session` 同时列在"9 个"里是笔误——`seelebridge/session` 已在 `1d9dba53`
+> 搬到 `backend/multiagent/subagent`，收尾时 `seelebridge/` 实际只剩 8 个子目录
+> （`internal`、`mcp`、`plugin`、`scheduler`、`security`、`teamwork`、`tools`、`workunit`）
+> 与 `.seelex/` 数据目录。
+
+| ID | 新增偏差 | 处置 |
+|---|---|---|
+| D-M4-12 | 散文引用是一类独立于"路径字面量"的漂移面：`见 seelebridge/xxx.Fn`、`` `seelebridge/yyy` `` 这类写法既有编译器看不见，也**部分**被 README 门禁漏掉（门禁只查带文件后缀的字面量与 md 链接） | 已补工具 `tmp/reshape/m4_bare_refs.py`（带词边界）+ 跨 commit 审计 |
+| D-M4-13 | 提交时漏暂存根级文件 ⇒ 单个提交的树里出现悬空注释（编译不受影响） | 已补 `e525aa6e`；后续按脚本报告清单逐条 `git add` |
+
 | ID | 事项 | 处置 |
 |---|---|---|
 | D-M4-1 | 首轮替换脚本把 `docs/research/**`、`docs/test/**` 的路径也改写了（这两类是"把当时状态固定下来"的记录）。已 `git checkout` 还原，并把这两类目录加入脚本跳过清单，与 M3 §8.4 登记的口径一致 | 已修 |
