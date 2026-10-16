@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
+	subagentsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/mapper"
-	subagentsession "github.com/RedHuang-0622/seelex/seelebridge/session"
 )
 
 // subagentLiveChanCap 是实时流订阅通道/分发通道的容量。

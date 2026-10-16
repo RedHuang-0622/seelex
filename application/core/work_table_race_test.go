@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	seelsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	seelsession "github.com/RedHuang-0622/seelex/seelebridge/session"
 )
 
 // TestWorkTableRaceConcurrentMutations 并发执行工作表格三类变更路径：

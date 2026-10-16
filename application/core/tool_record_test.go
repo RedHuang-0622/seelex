@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
+	seelsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	seelsession "github.com/RedHuang-0622/seelex/seelebridge/session"
 )
 
 // recordingSnapshotStore 是落盘口替身：记下每次批量写，并能吐回一份"旧读数"。

@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application/model"
+	subagentsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	subagentsession "github.com/RedHuang-0622/seelex/seelebridge/session"
 )
 
 // lockOrderEngine 复刻真实锁序：节点执行期间会持有 "session 锁"

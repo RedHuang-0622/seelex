@@ -381,7 +381,7 @@ func (service *Service) syncTasksFromSources() {
 // 会话自身的 task scope（R6/P2 收口：写自有域，后台会话不再污染当前注册表）。
 //
 // 子代理行按**归属会话**收窄（2026-09-29）：子代理树是进程级的一张（多会话的
-// fork 共处一树，见 seelebridge/session/subagent_tree.go），而工作表格行是会话
+// fork 共处一树，见 backend/multiagent/subagent/subagent_tree.go），而工作表格行是会话
 // 粒度的——前端按 `row.session_id` 做「仅本会话」与「实发」筛选，并把空归属
 // 兜底成"本会话"。整棵树下投影的后果是：行落在谁的表格里取决于**谁触发了这次
 // 同步**（视图切走后为后台会话同步，就把视图会话的子代理写进后台会话的分区，

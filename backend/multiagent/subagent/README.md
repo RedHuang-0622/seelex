@@ -112,7 +112,7 @@ sequenceDiagram
   - 回归覆盖：`TestSubagentSessionsReadsDoNotBlockOnStreamingNode`
     （运行中节点自身读取 + 另一节点不被拖住）、`TestSubagentSessions*`。
 - 运行期记录落盘（`<mainSessionID>-<subSessionID>.json`，见
-  [store/README.md](../../store/README.md)）；节点结束
+  [store/README.md](../../../store/README.md)）；节点结束
   （done/failed）时最终结论写入主会话事件库（`seelex.subagent.result`），
   节点记录文件随即删除——详情数据面保留在内存快照，进程存活期可读，
   重启后由恢复锚点（`Runtime.RestoreSubagentAnchors`）从主会话事件库重建；
@@ -154,7 +154,7 @@ sequenceDiagram
 本包内：`subagent_sessions_test.go`；merge-back mailbox 并发/overflow 用例在根包 `merge_back_concurrency_test.go`（联调，保留根测试包）。验证：
 
 ```text
-go test ./seelebridge/session/ -run 'TestProjection|TestSubAgent|TestSubagentSessions' -count=1
-go test ./seelebridge/session/ ./seelebridge/ -count=1
+go test ./backend/multiagent/subagent/ -run 'TestProjection|TestSubAgent|TestSubagentSessions' -count=1
+go test ./backend/multiagent/subagent/ ./seelebridge/ -count=1
 go build ./...
 ```

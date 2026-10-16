@@ -3,10 +3,10 @@ package seelebridge
 import (
 	"context"
 	"errors"
+	session "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/model"
-	session "github.com/RedHuang-0622/seelex/seelebridge/session"
 	"testing"
 )
 

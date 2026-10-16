@@ -3,8 +3,8 @@
 package mapper
 
 import (
+	subagentsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	subagentsession "github.com/RedHuang-0622/seelex/seelebridge/session"
 )
 
 // ToolEventToDTO 把子代理工具调用运行态事件投影为实时流对外 DTO：

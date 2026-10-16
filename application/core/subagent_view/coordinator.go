@@ -14,8 +14,8 @@ import (
 	"github.com/RedHuang-0622/seelex/application/event"
 	"github.com/RedHuang-0622/seelex/application/model"
 	"github.com/RedHuang-0622/seelex/backend/limit"
+	seelsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	seelsession "github.com/RedHuang-0622/seelex/seelebridge/session"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 

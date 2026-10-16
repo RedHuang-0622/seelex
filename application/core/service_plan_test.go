@@ -11,9 +11,9 @@ import (
 
 	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/seelex/application/core/subagent_view"
+	seelsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	seelplan "github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	seelsession "github.com/RedHuang-0622/seelex/seelebridge/session"
 )
 
 func TestPlanRunJSONFailureOpensRecoveryInteraction(t *testing.T) {

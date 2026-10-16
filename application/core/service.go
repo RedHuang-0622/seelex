@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/application/model"
+	seelsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	seelsession "github.com/RedHuang-0622/seelex/seelebridge/session"
 )
 
 // defaultHistoryWindow 与 maxReplansPerPlanChain 已收编进 seele.yaml limits 段

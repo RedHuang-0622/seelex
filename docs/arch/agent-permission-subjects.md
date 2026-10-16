@@ -204,12 +204,12 @@ PermissionGate.Set(cfg, handler)                        # 重建 checker + 保�
 ```powershell
 go vet ./...                                            # 退出码 0
 go test ./... -count=1                                  # 全包 ok
-go test -race ./seelebridge/tools/... ./seelebridge/session/... ./application/core/goal/... ./seelexctx/... -count=1
+go test -race ./seelebridge/tools/... ./backend/multiagent/subagent/... ./application/core/goal/... ./seelexctx/... -count=1
 
 # 确定性用例（不需凭据）
 go test ./seelebridge/tools/ -run "Subagent|Employee|Bash|Subject|Route" -v -count=1
 go test . -run "TestEveryRegisteredToolIsRouted|TestMainAgentToolDecisions|TestMergedConfigSubagentAndEmployee" -v -count=1
-go test ./seelebridge/session/ -run "LifecycleRelease" -v -count=1
+go test ./backend/multiagent/subagent/ -run "LifecycleRelease" -v -count=1
 
 # 真实 API 冒烟（opt-in，需凭据；走生产审批桥）
 $env:SEELEX_SMOKE_ACCOUNTS='<repo>\config\accounts.yaml'

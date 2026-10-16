@@ -25,10 +25,10 @@
 
 | 读数 | subagent 链（产生点） | teammate 链（产生点） |
 |---|---|---|
-| **阶段 / 打点**（"到哪一步"） | 引擎 telemetry `Before` 钩子按 `NodeScope` 逐次投影：`internal/telemetry/stage_hook.go:61` `record()` → `StageRecorder.RecordStage`；装配点 `backend/tool/node/agent_node.go:156`（spawn/注册）与 `:263`（收尾）；落点 `seelebridge/session/subagent_sessions.go:710` `RecordStage` → actor `:281` **append**（turn 递增，无上限） | 团队尾插三处**整条重写**：`seelebridge/workunit_team.go:181` `markTeamUnitRunning`（stage=`running`）、`:186` `recordTeamUnitRoundOutput`（stage=`round_output`）、`:193` `settleTeamUnitRecord`（stage=收尾 kind）；编码 `:176` `teamUnitStages` —— **恒为单元素数组**（每条 stage 覆盖前一条） |
-| **是否在跑** | 会话在册 ⇒ `running`，否则 `queued`：`seelebridge/session/subagent_sessions.go:474` `buildRecordLocked`（兜底分支 `subagent_sessions.go:515` 一带写死字面量） | 写方显式给 `running`/`done`/`failed`：`seelebridge/workunit_team.go:41` 常量；判"在跑"已转调契约 `seelebridge/workunit_team.go:50` `teamUnitInFlight` → `workunit.InFlight` |
-| **结论 / 错误** | `seelebridge/session/subagent_sessions.go:812` `NoteOutcome`（status/summary/errMsg）；由 `backend/tool/node/coordinator.go` `CompleteSubagentNode` 调用 | `settleTeamUnitRecord`（`workunit_team.go:193`）把 `workunit.Outcome` 折成记录终态 |
-| **现场** | `NoteWorktree`（`seelebridge/session/subagent_sessions.go:803`），唯一生产调用点 `seelebridge/runtime_plan.go:151` | `teamUnitWorktreeRecord`（`workunit_team.go`，取 worktree 注册表现值；**不落"曾经在哪"**） |
+| **阶段 / 打点**（"到哪一步"） | 引擎 telemetry `Before` 钩子按 `NodeScope` 逐次投影：`internal/telemetry/stage_hook.go:61` `record()` → `StageRecorder.RecordStage`；装配点 `backend/tool/node/agent_node.go:156`（spawn/注册）与 `:263`（收尾）；落点 `backend/multiagent/subagent/subagent_sessions.go:710` `RecordStage` → actor `:281` **append**（turn 递增，无上限） | 团队尾插三处**整条重写**：`seelebridge/workunit_team.go:181` `markTeamUnitRunning`（stage=`running`）、`:186` `recordTeamUnitRoundOutput`（stage=`round_output`）、`:193` `settleTeamUnitRecord`（stage=收尾 kind）；编码 `:176` `teamUnitStages` —— **恒为单元素数组**（每条 stage 覆盖前一条） |
+| **是否在跑** | 会话在册 ⇒ `running`，否则 `queued`：`backend/multiagent/subagent/subagent_sessions.go:474` `buildRecordLocked`（兜底分支 `subagent_sessions.go:515` 一带写死字面量） | 写方显式给 `running`/`done`/`failed`：`seelebridge/workunit_team.go:41` 常量；判"在跑"已转调契约 `seelebridge/workunit_team.go:50` `teamUnitInFlight` → `workunit.InFlight` |
+| **结论 / 错误** | `backend/multiagent/subagent/subagent_sessions.go:812` `NoteOutcome`（status/summary/errMsg）；由 `backend/tool/node/coordinator.go` `CompleteSubagentNode` 调用 | `settleTeamUnitRecord`（`workunit_team.go:193`）把 `workunit.Outcome` 折成记录终态 |
+| **现场** | `NoteWorktree`（`backend/multiagent/subagent/subagent_sessions.go:803`），唯一生产调用点 `seelebridge/runtime_plan.go:151` | `teamUnitWorktreeRecord`（`workunit_team.go`，取 worktree 注册表现值；**不落"曾经在哪"**） |
 | **时间戳** | 记录带 `StartedAt/EndedAt`（记录形状里有） | **刻意不写**：`workunit_team.go` 注释——"哪一刻开始/落定是计划 `item.StartedAt/FinishedAt` 的事实" |
 
 ### 1.2 中间层（持久化 + 契约端口）
@@ -37,9 +37,9 @@
 |---|---|---|
 | 记录形状（唯一一份） | `store/node_session_store.go:43` `NodeSessionRecord`（`Goal/Status/Summary/Error/History/ContextJSON/StagesJSON/ResultJSON/Worktree/StartedAt/EndedAt/UpdatedAt`） | 两条链共用同一个 `subagents/` 目录、同一张表 |
 | 契约持久化端口 | `seelebridge/workunit/session.go:52` `SessionLedger`（`Save/List`）+ 编译期断言 `var _ SessionLedger = (*store.NodeSessionStore)(nil)` | **不写适配器、不另立记录类型**——这是"复用"的落点 |
-| subagent 写 | `seelebridge/session/subagent_sessions.go:474` `buildRecordLocked`（经 actor，`persistLocked`） | 读侧折算（`Status` 兜底）也在这一个函数里 |
+| subagent 写 | `backend/multiagent/subagent/subagent_sessions.go:474` `buildRecordLocked`（经 actor，`persistLocked`） | 读侧折算（`Status` 兜底）也在这一个函数里 |
 | teammate 写 | `seelebridge/workunit_team.go:134` `saveTeamUnitRecord`（**直写** `NodeSessionStore`） | 与 subagent 同一张表，但写入口是第二条（见"归类"①） |
-| subagent 读回 | `seelebridge/session/subagent_sessions.go:394` `restoreLocked`（解 `StagesJSON`/`ResultJSON`/`Worktree`/终态） | 读侧折算的第二份 |
+| subagent 读回 | `backend/multiagent/subagent/subagent_sessions.go:394` `restoreLocked`（解 `StagesJSON`/`ResultJSON`/`Worktree`/终态） | 读侧折算的第二份 |
 | teammate 读回 | `seelebridge/workunit_team.go:412` `teamUnitRecords`（`List` + 按现场名单过滤）+ `:331` `RecoverTeamworkUnits` | 读侧折算的第三份 |
 | 共用判据（已收口） | `seelebridge/workunit/session.go:60` `StatusQueued/StatusRunning` + `InFlight` | 子代理侧仍有两处字面量未转调（`runtime_subagent_resume.go:329`、`subagent_sessions.go:515`） |
 | 共用恢复说明 | `seelebridge/workunit/session.go` `RecoveryNote`（生产接线：`runtime_subagent_resume.go:386`、`workunit_team.go:383`） | 已是"同一族"，不是自造说明 |
@@ -256,7 +256,7 @@ function applyUnitProgress(event) {
 | 改动 | 文件 | 量级 |
 |---|---|---|
 | 后端：新增 `workunit/progress.go`（`Stage`/编解码/`ProgressOf`/`UnitReader`） | 新文件 | 小（~80 行纯函数 + 端口，无 I/O 新增） |
-| 后端：subagent 读侧折算转调 `ProgressOf`（写侧仍各层） | `seelebridge/session/subagent_sessions.go`（`buildRecordLocked`/`restoreLocked`）、`seelebridge/workunit_node.go`（`ledgerRecord`） | 小（局部替换折算体） |
+| 后端：subagent 读侧折算转调 `ProgressOf`（写侧仍各层） | `backend/multiagent/subagent/subagent_sessions.go`（`buildRecordLocked`/`restoreLocked`）、`seelebridge/workunit_node.go`（`ledgerRecord`） | 小（局部替换折算体） |
 | 后端：teammate 折算转调 `ProgressOf` + `UnitReader` | `seelebridge/workunit_team.go`（`saveTeamUnitRecord`/`teamUnitRecords`/`RecoverTeamworkUnits`） | 小-中 |
 | 后端：把两处实时投递点接到**同一条事件**（`subagent.tool.*` 与 `teammate.tool.*` 的发布点） | `seelebridge/runtime_live.go`、`seelebridge/runtime_role_turn.go`（`RoleToolCallback`）、`application/core/service.go:111`、`main.go:612` | **中-大**（跨 seelebridge→application→装配根三段；这是本次**不建议**与读面折算同批做的一步） |
 | 后端：让 `TeamworkWorkItemView` 增加进度格（`stage`/`preview`/`in_flight`），从 `ProgressOf` 取 | `contract/dto/teamwork_board.go`、`seelebridge/runtime_teamwork_board.go` | 小-中（**可选**，见下） |
@@ -288,8 +288,8 @@ function applyUnitProgress(event) {
   会不会改变落盘语义？** 现在写侧在"无 outcome 且有会话 ⇒ running，否则 queued"，读侧 `restoreLocked`
   原样还原。需要确认 `ProgressOf` 不把"写侧兜底"与"读侧还原"混成一个分支（记录里 `Status` 为空时
   的兜底只属于写侧）。
-  - 验证：`go test ./seelebridge/session/ -run TestSubagentPersist -count=1`（现有
-    `seelebridge/session/subagent_persist_test.go` 断言 `Status=="done" && len(StagesJSON)>0`）
+  - 验证：`go test ./backend/multiagent/subagent/ -run TestSubagentPersist -count=1`（现有
+    `backend/multiagent/subagent/subagent_persist_test.go` 断言 `Status=="done" && len(StagesJSON)>0`）
     与 `go test ./seelebridge/ -run TestWorkUnit -count=1` 全绿；再补一条"空 Status 的旧记录读回
     不额外改写 Status"的用例。
 - **U4｜`teamUnitStages` 单元素 → 时间线，会改回灌文案吗？** `workunit.RecoveryNote` 把 `StagesJSON`

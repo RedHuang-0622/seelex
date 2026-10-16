@@ -24,7 +24,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	bridgesession "github.com/RedHuang-0622/seelex/seelebridge/session"
+	bridgesession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	"github.com/RedHuang-0622/seelex/store"
 )
 
