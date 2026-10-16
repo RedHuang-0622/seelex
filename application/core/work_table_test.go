@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
+	seelplan "github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	seelplan "github.com/RedHuang-0622/seelex/seelebridge/plan"
 )
 
 // ── 工作表格投影（白盒功能测试；注册表为唯一 task 源）────────

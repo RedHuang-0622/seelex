@@ -9,8 +9,8 @@ import (
 	"github.com/RedHuang-0622/Seele/session"
 
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
+	seelplan "github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	seelplan "github.com/RedHuang-0622/seelex/seelebridge/plan"
 	selexsession "github.com/RedHuang-0622/seelex/session"
 )
 

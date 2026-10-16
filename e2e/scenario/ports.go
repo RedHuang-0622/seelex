@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
-	seelplan "github.com/RedHuang-0622/seelex/seelebridge/plan"
+	seelplan "github.com/RedHuang-0622/seelex/backend/tool/plan"
 )
 
 type Application interface {

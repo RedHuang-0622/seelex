@@ -13,9 +13,9 @@ import (
 	"github.com/RedHuang-0622/Seele/workplan/codec"
 	frameworknode "github.com/RedHuang-0622/Seele/workplan/core/node"
 
+	"github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/internal/model"
 	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
-	"github.com/RedHuang-0622/seelex/seelebridge/plan"
 	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
 	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"

@@ -3,7 +3,7 @@
 // 同一运行有两类事实，分别落两套存储/命名：
 //
 //  1. workplan 执行事实轨：frameworkevent.Sink
-//     （seelebridge/plan/events.go 的 EventSink，planExecutor 持有）→
+//     （backend/tool/plan/events.go 的 EventSink，planExecutor 持有）→
 //     store 事件库（store/event_store.go）。
 //     关联字段：event.Locations["agent.runtime"]["session_id"] +
 //     event.Scope{PlanID, RunID, NodeID}。框架 runner 事件缺失 session_id

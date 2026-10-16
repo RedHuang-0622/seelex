@@ -23,6 +23,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/backend/tool/fork"
+	"github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/backend/tool/task"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/config"
@@ -34,7 +35,6 @@ import (
 	"github.com/RedHuang-0622/seelex/seelebridge/imageattach"
 	"github.com/RedHuang-0622/seelex/seelebridge/mcp"
 	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
-	"github.com/RedHuang-0622/seelex/seelebridge/plan"
 	"github.com/RedHuang-0622/seelex/seelebridge/plugin"
 	"github.com/RedHuang-0622/seelex/seelebridge/scheduler"
 	"github.com/RedHuang-0622/seelex/seelebridge/security"

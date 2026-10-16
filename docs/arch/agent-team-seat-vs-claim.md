@@ -268,7 +268,7 @@ flowchart TB
 `application/core/agentteam/{spec,scheduler,runtime,factory,presets}.go`、
 `application/core/goal/{gate,record,stack}.go`、`application/core/goal_coordinator.go`、
 `application/core/goal_service.go`、`application/core/work_table.go`、`store/role_session.go`、
-`backend/tool/task/task.go`、`backend/tool/fork/{tool,summary}.go`、`seelebridge/plan/policy.go`、
+`backend/tool/task/task.go`、`backend/tool/fork/{tool,summary}.go`、`backend/tool/plan/policy.go`、
 `seelebridge/worktree/worktree_manager.go`、`seelebridge/session/subagent_tree.go`、
 `gui/frontend/dist/agent-team-view.js`。静态检索结论：`GatePolicy` / `CompactPolicy` /
 `PresencePolicy` / `ModelPolicy` / `DirectiveSchema` 仅出现在 DTO、preset、注册表、适配器与

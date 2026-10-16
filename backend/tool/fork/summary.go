@@ -10,7 +10,7 @@ import (
 	"github.com/RedHuang-0622/Seele/workplan/codec"
 	"github.com/RedHuang-0622/Seele/workplan/core/node"
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
-	"github.com/RedHuang-0622/seelex/seelebridge/plan"
+	"github.com/RedHuang-0622/seelex/backend/tool/plan"
 )
 
 // summaryLineLimit 是单行摘要长度上限（按 rune/“字”计数，中文不因

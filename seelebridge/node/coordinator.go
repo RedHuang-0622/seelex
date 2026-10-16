@@ -11,10 +11,10 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/config"
 	"github.com/RedHuang-0622/seelex/internal/model"
-	"github.com/RedHuang-0622/seelex/seelebridge/plan"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 	"github.com/RedHuang-0622/seelex/skill"

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/seelebridge/plan"
+	"github.com/RedHuang-0622/seelex/backend/tool/plan"
 )
 
 // TestForkPlanNodesHonourPerSubagentMaxLoops：**一个工作单元自己的执行参数**在

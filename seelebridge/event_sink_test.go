@@ -9,8 +9,8 @@ import (
 	"time"
 
 	frameworkevent "github.com/RedHuang-0622/Seele/event"
+	"github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/seelebridge/plan"
 	"github.com/RedHuang-0622/seelex/store"
 )
 

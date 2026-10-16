@@ -11,8 +11,8 @@ import (
 
 	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/seelex/application/core/subagent_view"
+	seelplan "github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	seelplan "github.com/RedHuang-0622/seelex/seelebridge/plan"
 	seelsession "github.com/RedHuang-0622/seelex/seelebridge/session"
 )
 

@@ -9,11 +9,11 @@ import (
 
 	"github.com/RedHuang-0622/Seele/workplan/codec"
 	"github.com/RedHuang-0622/seelex/backend/limit/loop"
+	"github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/backend/tool/task"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/model"
 	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/seelebridge/plan"
 )
 
 // Deps 是 fork_subagents 工具执行所需的运行时回调集合，由根包（Runtime）注入。

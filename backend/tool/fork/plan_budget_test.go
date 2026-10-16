@@ -7,8 +7,8 @@ import (
 	"github.com/RedHuang-0622/Seele/workplan/codec"
 	frameworknode "github.com/RedHuang-0622/Seele/workplan/core/node"
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
+	"github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/seelebridge/node"
-	"github.com/RedHuang-0622/seelex/seelebridge/plan"
 )
 
 // stubAutoNode 是最小 auto 节点（buildForkPlan 渲染 start 用）。

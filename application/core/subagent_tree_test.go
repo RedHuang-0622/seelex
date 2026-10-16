@@ -3,8 +3,8 @@ package core
 import (
 	"testing"
 
+	seelplan "github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	seelplan "github.com/RedHuang-0622/seelex/seelebridge/plan"
 )
 
 // ── 子代理树投影（fork 内存态；GUI 树视图数据源）────────────────────

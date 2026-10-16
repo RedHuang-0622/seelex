@@ -14,9 +14,9 @@ import (
 	"github.com/RedHuang-0622/Seele/workplan/codec"
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
 	"github.com/RedHuang-0622/seelex/backend/tool/fork"
+	"github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
-	"github.com/RedHuang-0622/seelex/seelebridge/plan"
 )
 
 // scopeRecordingCompleter 记录每次请求的 NodeScope.TaskID（验证 B6 装配件

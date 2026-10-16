@@ -2,7 +2,7 @@ package seelebridge
 
 import (
 	"encoding/json"
-	"github.com/RedHuang-0622/seelex/seelebridge/plan"
+	"github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"testing"
 )
 

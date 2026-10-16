@@ -9,7 +9,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/seelectx"
 
-	"github.com/RedHuang-0622/seelex/seelebridge/plan"
+	"github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/store"
 )
 

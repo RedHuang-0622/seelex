@@ -31,7 +31,7 @@ var repositoryModules = []string{
 	"plugins/hardware", "plugins/impeccable", "scripts",
 	"seelebridge", "backend/tool/fork", "seelebridge/fs", "internal/config",
 	"internal/model", "internal/stream",
-	"internal/telemetry", "seelebridge/plan",
+	"internal/telemetry", "backend/tool/plan",
 	"seelebridge/search", "seelebridge/security", "backend/tool/task", "seelebridge/tools/websearch", "seelexctx", "seelexctx/compactor",
 	"seelexctx/merger", "seelexctx/provider", "seelexctx/search", "seelexctx/snapshot",
 	"session", "skill", "store", "store/root", "store/workspace",

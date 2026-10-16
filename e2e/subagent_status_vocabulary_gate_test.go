@@ -108,7 +108,7 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "计划批次结果状态",
 		files: map[string]string{
-			"seelebridge/plan/tool_provider.go": "写：plan_run 结果 JSON 的 status（读侧见文件头：故意不进清单）",
+			"backend/tool/plan/tool_provider.go": "写：plan_run 结果 JSON 的 status（读侧见文件头：故意不进清单）",
 		},
 		// 这一格的取值面 = dto.PlanRunStatus*（plan_run 工具结果的 status）。
 		words: map[string]bool{"completed": true, "failed": true, "aborted": true},
@@ -295,12 +295,12 @@ var allowedStatusLiterals = []statusAllowedLiteral{
 			"回执词表的收口要连 bg_manage 的四种 op 一起做，登记为下一批",
 	},
 	{
-		scope: "计划批次结果状态", file: "seelebridge/plan/tool_provider.go", word: "failed",
+		scope: "计划批次结果状态", file: "backend/tool/plan/tool_provider.go", word: "failed",
 		reason: "`switch nr.Status` 读的是**框架 workplan 的节点状态**（NodeBase.Status：completed|failed|…），" +
 			"不是 plan_run 结果里这一批的 status（那个是本格，已引 dto.PlanRunStatus*）",
 	},
 	{
-		scope: "计划批次结果状态", file: "seelebridge/plan/tool_provider.go", word: "completed",
+		scope: "计划批次结果状态", file: "backend/tool/plan/tool_provider.go", word: "completed",
 		reason: "同上（框架节点状态词的另一半）",
 	},
 }
