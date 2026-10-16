@@ -853,4 +853,31 @@ R6 续做（尚未开始）：`runtime_projection`/`diagnostics`/`perf_stats` �
 | 门禁 | `e2e/layout_test.go` +1；`e2e/facade_boundary_test.go` +1、上限 80 → 81 |
 | 复核 | 独立 worktree（`d6cc1a81`）：`go build ./...` 0、`go vet ./...` 0、`go test ./e2e/` ok、`middle/switch/history` ok、`application/core` 全量失败集合 = **基线 3 例**（逐条核对，无新增） |
 | 过程记录 | 首版两条新用例的**期望写错了**（把"空 assistant 行"当成 0 可见行；把"空 tool 行"当成能按内容对位）——按实现口径改正后转绿；这再次说明新判据用例必须"对着实现口径写，而不是对着直觉写" |
+
+## 19. M5-R6 第四片：R6-session-meta（`77359805`，建包片）+ 两处"搬不动项"登记
+
+**建立 `middle/switch` 根包（包名 `switching`——`switch` 是 Go 关键字，与 `middle/view/state` 落成
+`view_state` 同类处理）**，落进去的是会话展示元数据的读写判据：
+
+| 项 | 内容 |
+|---|---|
+| 原位置 → 新唯一位置 | `application/core/session_meta.go`（判据：会话 ID 校验 / 未装配存储错误 / "成功才唤醒目录刷新"）→ `middle/switch/meta.go`（`MetaDeps{Store, Wake}` + `SetMeta` / `ReadMeta` + `ErrMetaUnsupported`） |
+| 门面留下什么 | `metaDeps()`（对 `Deps.Sessions` 的**可选端口断言**——装配缝）+ `wakeCatalogRefresh()`（目录刷新由宿主实现）+ 两个一行转发 |
+| 端口结构满足 | `MetaStore{SetSessionMeta, SessionMeta}` 正是 `session.SessionMetaPort` 的方法集，宿主断言后直接注入 ⇒ 中间层不依赖 `session` 域包 |
+| 兼容面处置 | core 原先导出的 `ErrSessionMetaUnsupported` 随判据搬走（`application/application.go` 从未再导出它，`rg` 全仓无外部消费者） |
+| 用例 | `middle/switch/meta_test.go` 5 条（目标/未装配两条路径都不唤醒、成功唤醒一次并原样落盘、写盘失败冒泡且不唤醒、读回转发与两种失败）；core 与 wiring 既有用例不动 |
+| 门禁 | `e2e/layout_test.go` +1；`e2e/facade_boundary_test.go` +1、上限 81 → 82 |
+| 复核 | 独立 worktree（`77359805`）：`go build ./...` 0、`go vet ./...` 0、`go test ./e2e/` ok、`middle/switch/...` 与 `wiring/adapters` ok、`application/core` 全量失败集合 = **基线 3 例** |
+
+**两处"搬不动项"（本片一并登记，属"等层反转"，不是疏忽）**：
+
+| plan 行 | 为何现在搬不动 | 前置 |
+|---|---|---|
+| `window.go` → `middle/residency/` | 内容是 `contextcontrol` / `seelectx` / `task_context.ContextBudgetFor` / `limit` 的**宿主侧组合**（全在后端），中间层不得引用（plan §1.1） | 预算公式与保留下限判据下沉到更低层（契约/后端基座）之后再搬 |
+| `history_search.go` → `middle/switch/history/` | 返回类型是后端 `seelectx/search.Result`，中间层无法命名该类型 | plan §2.11.4 的"`seelexctx/search` 被 gui 直接 import 的边 → `contract.SearchPort`"落定之后 |
+
+其余 R6 文件（`session_catalog` / `session_cold_read` / `session_input_index` / `archive_session` /
+`session_{lifecycle,release,draft,fork,ctx,pending_tail,queue_recover}` / `service_{scheduler,queue,release_window}` /
+`async_completion` / `service_interaction` / `workspace_usecase` / 顶层 `session/`）都需要"宿主状态 + 端口"
+的接收者转移（比纯判据重一档），按 R6 续做逐片推进。
 R6 续做（尚未开始）：`runtime_projection`/`diagnostics`/`perf_stats` 三文件已是薄宿主缝（R5c 已把计算搬进 `middle/view`，只剩锁与取数）；其余按 plan §2.4 的落点继续搬
