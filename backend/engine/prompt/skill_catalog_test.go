@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	pl "github.com/RedHuang-0622/seelex/application/core/prompt_layer"
 	"github.com/RedHuang-0622/seelex/application/prompt"
+	pl "github.com/RedHuang-0622/seelex/backend/engine/prompt"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/kernel/state"

@@ -93,7 +93,7 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/backend/multiagent/goal",
 	"github.com/RedHuang-0622/seelex/application/core/input_router",
 	"github.com/RedHuang-0622/seelex/kernel/state",
-	"github.com/RedHuang-0622/seelex/application/core/prompt_layer",
+	"github.com/RedHuang-0622/seelex/backend/engine/prompt",
 	"github.com/RedHuang-0622/seelex/backend/multiagent/resume",
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime",
 	"github.com/RedHuang-0622/seelex/middle/view/subagent",

@@ -17,8 +17,7 @@
   （`govern/` 曾是"多代理回合制治理循环抽象：座次/轮次/断环"，已随
   2026-10-03 的 goal 席位轮转退场整包删除。）
 - 有状态域协调器：`session_runtime/`（会话持久化/目录/项目绑定）、
-  `context_runtime/`（provider 上下文装配/压缩/历史安全）、`prompt_layer/`
-  （system prompt 组装）、`goal/`（Goal 状态机 +
+  `context_runtime/`（provider 上下文装配/压缩/历史安全）、`goal/`（Goal 状态机 +
   DS-A2A 双会话治理 + 终态 gate + 会话级第五栈持久化）。（`agentteam/`（AgentTeam/角色会话
   通用装配：`TeamSpec` 工厂 + 团队库读面）的纯基座部分已于 2026-10-16 随 M5-R8b 归位
   [`backend/multiagent/team`](../../backend/multiagent/team/README.md)，包名 `team`。）
@@ -57,7 +56,7 @@ flowchart TB
         SV["middle/view/subagent<br/>子代理详情/live/树投影"]
         GOAL["goal<br/>Goal 状态机 + DS-A2A 治理"]
         TEAM["agentteam<br/>TeamSpec 工厂 + preset"]
-        PL["prompt_layer<br/>system prompt 组装"]
+        PL["backend/engine/prompt<br/>prompt_layer：system prompt 组装"]
     end
 
     subgraph LEAF["零依赖叶子域"]
@@ -184,7 +183,7 @@ flowchart LR
 | [session_runtime/](session_runtime/README.md) | 会话持久化/目录/项目绑定协调器 |
 | [../../backend/engine/task/](../../backend/engine/task/README.md) | 任务执行/checkpoint/transcript/token 审计协调器（M5-R7 归位，包名 `task_context`） |
 | [context_runtime/](context_runtime/README.md) | provider 上下文装配/压缩/历史安全协调器 |
-| [prompt_layer/](prompt_layer/README.md) | system prompt 组装与引擎同步 |
+| [../../backend/engine/prompt/](../../backend/engine/prompt/README.md) | system prompt 组装与引擎同步（M5-R7 归位，包名 `prompt_layer`） |
 | [../../middle/view/state/](../../middle/view/state/README.md) | Snapshot 读/写/事件发布协调器 |
 | [../../middle/view/subagent/](../../middle/view/subagent/README.md) | 子代理详情/live/树投影 |
 | [backend/multiagent/goal/](../../backend/multiagent/goal/README.md) | Goal 状态机、DS-A2A 双会话治理、终态 gate 与会话级第五栈持久化（M5-R8a 归位多代理板块） |
