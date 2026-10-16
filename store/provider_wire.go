@@ -10,7 +10,7 @@ import "github.com/RedHuang-0622/Seele/types"
 // `types.Message{Role:"assistant", Content:nil, ToolCalls: toolCalls}`），provider
 // 从未收到这段正文；而 durable 记录里该事件的正文是 **record-only** 的迭代说明
 // 文本（在工具钩子边界按迭代归位，见
-// application/core/task_context.AttributeToolNarrationLocked）——视图、轨迹与
+// backend/engine/task.AttributeToolNarrationLocked）——视图、轨迹与
 // 重启恢复需要它，provider 请求不需要。
 //
 // 为什么必须在**这一层**做：生产装配下框架的 WorkingHistory 来自

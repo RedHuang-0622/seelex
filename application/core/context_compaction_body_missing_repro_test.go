@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
-	"github.com/RedHuang-0622/seelex/application/core/task_context"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
 )
 
 // ── 现场复现（红灯，第一跳：素材）──────────────────────────────────────

@@ -97,7 +97,7 @@ type TranscriptEvent struct {
 	// 是「已发出字节」——下一轮重投影必须取它，否则这条消息被改写、provider
 	// 前缀缓存自该点起全部失效。当前只有工具结果会分叉（失败：wire 是
 	// `{"error": %q}` 原始错误 JSON；超限：wire 警告里是 "result:<callID>"
-	// 引用）。见 application/core/task_context 的记录侧。
+	// 引用）。见 backend/engine/task 的记录侧。
 	ProviderContent string               `json:"provider_content,omitempty"`
 	ToolCallID      string               `json:"tool_call_id,omitempty"`
 	Name            string               `json:"name,omitempty"`

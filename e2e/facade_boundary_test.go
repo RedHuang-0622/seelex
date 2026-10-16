@@ -101,7 +101,7 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/middle/view/board",
 	// M5-R5c：视图读数面（从 application/core/{diagnostics,perf_stats,runtime_projection}.go 抽出）。
 	"github.com/RedHuang-0622/seelex/middle/view",
-	"github.com/RedHuang-0622/seelex/application/core/task_context",
+	"github.com/RedHuang-0622/seelex/backend/engine/task",
 	"github.com/RedHuang-0622/seelex/middle/view/state",
 	"github.com/RedHuang-0622/seelex/middle/view/worktable",
 	"github.com/RedHuang-0622/seelex/middle/protocol/event",

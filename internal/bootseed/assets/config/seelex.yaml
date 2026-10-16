@@ -96,7 +96,7 @@ limits:
   #   budget = context_window − max_tokens − context_window ÷ 安全除数；
   # 下面各百分比都以 budget 为基数。各键的消费者**逐个列明**：
   #   context_safety_reserve_divisor / context_hard_percent
-  #     → 装配层消费（application/core/task_context，发请求前每次算一次）：请求估算
+  #     → 装配层消费（backend/engine/task，发请求前每次算一次）：请求估算
   #       （与引擎缓存峰值取大）≥ budget×hard% 就压缩可变 transcript——这是自动路径
   #       **唯一**的阈值；显式入口（/compact、compact_context）与 window.force_compact_tokens
   #       不受它约束。

@@ -145,7 +145,7 @@ seq 单调、checkpoint 有界、终态判定依赖收敛的 Plan 投影。
 ## 测试
 
 ```text
-go test ./application/core/task_context -count=1
+go test ./backend/engine/task -count=1
 ```
 
 ## 文件与函数索引

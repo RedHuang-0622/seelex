@@ -17,11 +17,11 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/core"
-	coretask "github.com/RedHuang-0622/seelex/application/core/task_context"
 	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	mcpconfig "github.com/RedHuang-0622/seelex/backend/engine/mcp/mcpstack/config"
 	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
+	coretask "github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/backend/tool/websearch"
 	"github.com/RedHuang-0622/seelex/internal/bootseed"

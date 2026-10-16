@@ -160,16 +160,16 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "回合状态",
 		files: map[string]string{
-			"application/core/task_context/task_execution.go":              "写：新回合开局（在飞）与续接判据",
-			"application/core/task_context/task_service.go":                "写：终态工具落结论（completed|needs_user_decision|blocked|failed）",
-			"application/core/task_context/session_context_maintenance.go": "写：会话上下文维护身份（没有在飞回合）",
-			"application/core/task_context/task_context_state.go":          "写：快照面 + 中断/续接 + 存档面",
-			"application/core/task_context/turn_status_record.go":          "读：存档面的词（合并前那一格的 running 在**本格取值面之外**，见该文件头上的口径）",
-			"application/core/chat.go":                                     "写：请求开始时的在飞回合",
-			"application/core/history_safety.go":                           "写：provider 失败回收（回合中断）",
-			"application/core/session_cold_read.go":                        "写：冷读面的 idle（这个会话没有在飞回合）",
-			"application/core/input.go":                                    "读：终态边界（收尾过的回合）",
-			"application/core/context_runtime/coordinator.go":              "读：显式压缩的来源判定（是否在飞回合）",
+			"backend/engine/task/task_execution.go":              "写：新回合开局（在飞）与续接判据",
+			"backend/engine/task/task_service.go":                "写：终态工具落结论（completed|needs_user_decision|blocked|failed）",
+			"backend/engine/task/session_context_maintenance.go": "写：会话上下文维护身份（没有在飞回合）",
+			"backend/engine/task/task_context_state.go":          "写：快照面 + 中断/续接 + 存档面",
+			"backend/engine/task/turn_status_record.go":          "读：存档面的词（合并前那一格的 running 在**本格取值面之外**，见该文件头上的口径）",
+			"application/core/chat.go":                           "写：请求开始时的在飞回合",
+			"application/core/history_safety.go":                 "写：provider 失败回收（回合中断）",
+			"application/core/session_cold_read.go":              "写：冷读面的 idle（这个会话没有在飞回合）",
+			"application/core/input.go":                          "读：终态边界（收尾过的回合）",
+			"application/core/context_runtime/coordinator.go":    "读：显式压缩的来源判定（是否在飞回合）",
 		},
 		// 这一格的取值面 = dto.Turn*（Snapshot.Task.Status 与 TaskContextProjection.Status 同格）。
 		words: map[string]bool{
@@ -202,10 +202,10 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "计划状态",
 		files: map[string]string{
-			"application/core/task_context/plan_projection.go": "写：从节点事件推进计划状态（词折一次再判）",
-			"application/core/task_context/plan_transcript.go": "写：ActivePlanProjection.Status（对外词）",
-			"application/core/task_context/task_service.go":    "读：计划投影判「已装载但未执行」与终态",
-			"application/core/plan_tools.go":                   "写：plan_run 结果与事件折成计划状态",
+			"backend/engine/task/plan_projection.go": "写：从节点事件推进计划状态（词折一次再判）",
+			"backend/engine/task/plan_transcript.go": "写：ActivePlanProjection.Status（对外词）",
+			"backend/engine/task/task_service.go":    "读：计划投影判「已装载但未执行」与终态",
+			"application/core/plan_tools.go":         "写：plan_run 结果与事件折成计划状态",
 		},
 		// 这一格的取值面 = dto.Plan*（PlanState.Status / SubagentEvent.PlanStatus）。
 		// 与 plan_run **批次结果**（dto.PlanRunStatus，只有终态词）是两格，见各自文件头。
@@ -216,14 +216,14 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "节点状态",
 		files: map[string]string{
-			"application/core/task_context/plan_projection.go": "写+读：事件折成节点状态（**阶段词不许覆盖节点状态**）",
-			"application/core/task_context/plan_transcript.go": "读：折框架/事件里的节点状态词（PlanNodeStatus 的唯一实现）",
-			"application/core/task_context/task_service.go":    "读：终态节点判定（checkpoint 汇总）+ 时间线流水",
-			"application/core/plan_tools.go":                   "写+读：plan_run 结果/事件折成节点状态，时间线保留原始词",
-			"application/core/work_table.go":                   "读：节点打点合成工作表格 trace",
-			"middle/view/subagent/coordinator.go":              "读：详情页状态（记录状态/任务状态 → 节点状态）",
-			"tui/plan.go":                                      "读：节点状态上色（参数是枚举，不再比字面量）",
-			"backend/tool/node/agent_node.go":                  "写：节点执行期状态词与收尾结论词（两条阶段词登记在 node_phase_words.go，**不属于本格**）",
+			"backend/engine/task/plan_projection.go": "写+读：事件折成节点状态（**阶段词不许覆盖节点状态**）",
+			"backend/engine/task/plan_transcript.go": "读：折框架/事件里的节点状态词（PlanNodeStatus 的唯一实现）",
+			"backend/engine/task/task_service.go":    "读：终态节点判定（checkpoint 汇总）+ 时间线流水",
+			"application/core/plan_tools.go":         "写+读：plan_run 结果/事件折成节点状态，时间线保留原始词",
+			"application/core/work_table.go":         "读：节点打点合成工作表格 trace",
+			"middle/view/subagent/coordinator.go":    "读：详情页状态（记录状态/任务状态 → 节点状态）",
+			"tui/plan.go":                            "读：节点状态上色（参数是枚举，不再比字面量）",
+			"backend/tool/node/agent_node.go":        "写：节点执行期状态词与收尾结论词（两条阶段词登记在 node_phase_words.go，**不属于本格**）",
 		},
 		// 这一格的取值面 = dto.Node*（PlanNode.Status）。
 		// 事件字段 dto.PlanNodeEvent.Status 是**混合面**（本格词 + 框架词 + 我们的阶段词），

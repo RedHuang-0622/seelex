@@ -18,7 +18,7 @@ var repositoryModules = []string{
 	"application/core/context_runtime", "application/core/input_router",
 	"kernel/state",
 	"application/core/prompt_layer", "application/core/session_runtime",
-	"middle/view/subagent", "application/core/task_context",
+	"middle/view/subagent", "backend/engine/task",
 	"middle/view/state", "middle/view/worktable",
 	// M5-R5：项目看板的行投影与同步器从 application/core/project_board.go 归位；
 	// boardtest 是两侧共用的测试夹具包（无生产调用方）。

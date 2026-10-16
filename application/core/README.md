@@ -17,12 +17,14 @@
   （`govern/` 曾是"多代理回合制治理循环抽象：座次/轮次/断环"，已随
   2026-10-03 的 goal 席位轮转退场整包删除。）
 - 有状态域协调器：`session_runtime/`（会话持久化/目录/项目绑定）、
-  `task_context/`（任务执行/checkpoint/transcript/token 审计/plan 状态）、
   `context_runtime/`（provider 上下文装配/压缩/历史安全）、`prompt_layer/`
   （system prompt 组装）、`goal/`（Goal 状态机 +
   DS-A2A 双会话治理 + 终态 gate + 会话级第五栈持久化）。（`agentteam/`（AgentTeam/角色会话
   通用装配：`TeamSpec` 工厂 + 团队库读面）的纯基座部分已于 2026-10-16 随 M5-R8b 归位
   [`backend/multiagent/team`](../../backend/multiagent/team/README.md)，包名 `team`。）
+  （`task_context/`（任务执行/checkpoint/transcript/token 审计/plan 状态）已于
+  2026-10-16 随 M5-R7 归位
+  [`backend/engine/task`](../../backend/engine/task/README.md)，包名不变。）
 - 共享叶子：`kernel/state`（锁 + 权威 Snapshot + 端口依赖 + 事件/审批
   内核）。判据类上限（`limits` 段类型、默认值、
   进程级快照）已于 2026-10-16 随 M2-A 迁到基座包 [`backend/limit`](../../backend/limit/README.md)。
@@ -49,7 +51,7 @@ flowchart TB
 
     subgraph DOMAIN["域协调器（有状态）"]
         SR["session_runtime<br/>会话持久化/目录/项目绑定"]
-        TC["task_context<br/>打点/终态/checkpoint/token 审计"]
+        TC["backend/engine/task<br/>task_context：打点/终态/checkpoint/token 审计"]
         CR["context_runtime<br/>上下文装配/压缩/历史安全"]
         VS["middle/view/state<br/>Snapshot 读写 + 事件发布"]
         SV["middle/view/subagent<br/>子代理详情/live/树投影"]
@@ -180,7 +182,7 @@ flowchart LR
 | [input_router/](input_router/README.md) | 命令注册表与输入路由 |
 | [context_control/](context_control/README.md) | 窗口策略配置加载 |
 | [session_runtime/](session_runtime/README.md) | 会话持久化/目录/项目绑定协调器 |
-| [task_context/](task_context/README.md) | 任务执行/checkpoint/transcript/token 审计协调器 |
+| [../../backend/engine/task/](../../backend/engine/task/README.md) | 任务执行/checkpoint/transcript/token 审计协调器（M5-R7 归位，包名 `task_context`） |
 | [context_runtime/](context_runtime/README.md) | provider 上下文装配/压缩/历史安全协调器 |
 | [prompt_layer/](prompt_layer/README.md) | system prompt 组装与引擎同步 |
 | [../../middle/view/state/](../../middle/view/state/README.md) | Snapshot 读/写/事件发布协调器 |

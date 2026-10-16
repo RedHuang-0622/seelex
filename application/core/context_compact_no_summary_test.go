@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
-	"github.com/RedHuang-0622/seelex/application/core/task_context"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
 )
 
 // compactionIndexNoSummaryRuntime 在索引面之上再实现「这次压缩能不能拿到模型

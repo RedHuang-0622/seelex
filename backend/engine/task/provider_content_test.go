@@ -5,7 +5,7 @@ package task_context
 // **已发出的字节**（框架 wire 形状），装配层（TranscriptTailHistory）投影时取
 // 后者。两者混用会让下一轮重投影改写该消息、provider 前缀缓存自该点起失效。
 //
-// 运行：go test ./application/core/task_context -run ProviderContent -v -count=1
+// 运行：go test ./backend/engine/task -run ProviderContent -v -count=1
 
 import (
 	"errors"

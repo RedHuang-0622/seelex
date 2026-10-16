@@ -3,7 +3,7 @@ package core
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/core/task_context"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
 )
 
 // TestContextBudgetDoesNotRecompactWithoutNewContent 钉住回合边界达峰判据的

@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/application/core/task_context"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
 )
 
 // snapshotOfCold 组装未驻留会话的只读会话快照（record 事实源）。目录已归档

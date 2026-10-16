@@ -9,7 +9,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application/core/context_control"
 	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
-	"github.com/RedHuang-0622/seelex/application/core/task_context"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
 )
 
 // 上下文压缩的保留窗口规则（seele.yaml window 段）：

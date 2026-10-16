@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/application/core/task_context"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
 )
 
 // hotAttachSession 热加载：目标会话已驻留（引擎实例在内存，含运行中），

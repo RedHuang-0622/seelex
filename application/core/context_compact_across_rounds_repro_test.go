@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/core/task_context"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
 )
 
 // 红灯复现（用户现象）：**压缩执行之后的下一轮对话，压缩记录已经不见所踪**。

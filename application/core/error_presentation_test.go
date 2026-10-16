@@ -12,7 +12,7 @@ import (
 	"time"
 
 	seeleerrors "github.com/RedHuang-0622/Seele/errors"
-	"github.com/RedHuang-0622/seelex/application/core/task_context"
+	"github.com/RedHuang-0622/seelex/backend/engine/task"
 )
 
 type failingSnapshotSessions struct{ fakeSessions }

@@ -54,7 +54,7 @@
 | [`../backend/multiagent/resume/`](../backend/multiagent/resume/README.md) | 「终止前未完成工作」的领域无关恢复模板；原 `core/resume/`，M5-R8b 归位多代理板块。 |
 | [`core/session_runtime/`](core/session_runtime/README.md) | 会话域协调器：持久化、目录与标题恢复、项目 binding、会话三读。 |
 | [`../middle/view/subagent/`](../middle/view/subagent/README.md) | 子代理投影面：详情分类、live 流透传、树/节点事件投影（M5-R4 迁出 `core/subagent_view/`）。 |
-| [`core/task_context/`](core/task_context/README.md) | 任务执行域协调器：打点与终态、transcript、checkpoint、token 审计。 |
+| [`../backend/engine/task/`](../backend/engine/task/README.md) | 任务执行域协调器：打点与终态、transcript、checkpoint、token 审计（M5-R7 迁出 `core/task_context/`，包名不变）。 |
 | [`../middle/view/state/`](../middle/view/state/README.md) | 用户可见 Snapshot 读写与事件发布（M5-R4 迁出 `core/view_state/`）。 |
 | [`../middle/view/worktable/`](../middle/view/worktable/README.md) | 工作表格增量事件中枢（CSP 汇聚、latest-wins、有界背压）（M5-R4 迁出 `core/worktable/`）。 |
 
@@ -101,7 +101,7 @@ flowchart TB
 
     subgraph CORE["application/core"]
         SVC["Service 用例门面"]
-        DOM["域协调器<br/>session_runtime · task_context · context_runtime"]
+        DOM["域协调器<br/>session_runtime · context_runtime"]
         LEAF["叶子包<br/>goal · agentteam · chat · resume"]
         MIDV["middle/view<br/>state · subagent · worktable（M5-R4 迁出）"]
         ST["internal/state<br/>唯一共享锁 + Snapshot + Deps"]

@@ -30,7 +30,7 @@
   `provider_content`（`middle/protocol/model/context.go` 的 `TranscriptEvent`、
   `store/sessionstore.go` 的 `Event`），三个 provider 投影出口统一取它：
   `store/durable_history.go` 的 `eventsToMessages`、`store/wire_assembler.go`
-  的会话 wire 装配、`application/core/task_context/plan_transcript.go` 的
+  的会话 wire 装配、`backend/engine/task/plan_transcript.go` 的
   `transcriptEventMessage`。守卫用例：
   `prefix_invariant_fullchain_test.go::TestFullChainPrefixInvariantToolErrorAcrossTurns`
   与 `...OversizedToolResultAcrossTurns`（比对生产路径录到的真实 wire 字节）、

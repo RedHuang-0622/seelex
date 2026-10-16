@@ -27,7 +27,7 @@ func pollRaw(t *testing.T, router *Router, ctx context.Context, handle string, w
 // 每轮重烧一次前缀缓存（见 asyncPayload 头注与 A/B 判据 5）。
 //
 // 正因为字节相同，core 侧"按载荷指纹算进展"的口径会把还在跑的回合判死；修法是
-// "有在途后台执行被查询"本身算进展（见 application/core/task_context）。
+// "有在途后台执行被查询"本身算进展（见 backend/engine/task）。
 func TestQuietPollResultsAreByteIdentical(t *testing.T) {
 	router := asyncTestRouter(t, true)
 	ctx := asyncTestCtx(t.TempDir(), "sess-quiet")
