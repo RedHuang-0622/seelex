@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/backend/multiagent/resume"
+	subagentsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	"github.com/RedHuang-0622/seelex/backend/tool/fork"
 	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -310,37 +311,13 @@ func (p *subagentResumePort) Locate(ctx context.Context) ([]resume.Unit, error) 
 	}
 	p.conclusions = conclusions
 	p.records = make(map[string]store.NodeSessionRecord, len(records))
-	units := make([]resume.Unit, 0, len(records))
 	for _, record := range records {
 		progress := workunit.ProgressOf(workunit.KindSubagent, record)
-		key := progress.NodeID
-		if key == "" {
-			key = progress.SessionID
-		}
-		if key == "" {
-			continue
-		}
+		key := subagentsession.ResumeUnitKey(progress)
 		p.records[key] = record
-		status := resume.UnitDone
-		switch {
-		// "还在跑"的判据只有一份（workunit.InFlight / Progress.InFlight）：与 teammate 侧、
-		// 与树投影用的是同一条，不再在这里写一遍字面量。
-		case progress.InFlight:
-			status = resume.UnitActive
-		case nodeStateOfRecord(progress.Status) == dto.SubAgentFailed:
-			status = resume.UnitFailed
-		}
-		if _, concluded := conclusions[key]; concluded {
-			// 结论唯一：已有结论 → 残留记录只是半同步残留，按终结处理。
-			status = resume.UnitDone
-		}
-		units = append(units, resume.Unit{
-			Key: key, Kind: subagentResumeKind, Status: status,
-			SessionID: progress.SessionID, ParentSessionID: p.mainSessionID,
-			Goal: progress.Goal, UpdatedAt: progress.UpdatedAt,
-		})
 	}
-	return units, nil
+	// 状态折算（在跑 / 判失败 / 已有结论按终结）只有一份实现，在子代理域。
+	return subagentsession.LocateResumeUnits(p.mainSessionID, records, conclusions), nil
 }
 
 // ── 记录那一格的终态词表（字面量只有一份，在对外契约里）────────────────────
@@ -386,15 +363,8 @@ func (p *subagentResumePort) RestoreScene(_ context.Context, unit resume.Unit) (
 	if !ok {
 		return resume.Scene{}, fmt.Errorf("scene record missing for %q", unit.Key)
 	}
-	payload, err := json.Marshal(record)
-	if err != nil {
-		return resume.Scene{}, fmt.Errorf("encode scene: %w", err)
-	}
-	summary := strings.TrimSpace(record.Summary)
-	if summary == "" {
-		summary = lastSubagentStagePreview(record)
-	}
-	return resume.Scene{Payload: payload, Summary: summary}, nil
+	// 现场投影（载荷 + 摘要回退到"之前做到哪"）在子代理域。
+	return subagentsession.SceneOf(record)
 }
 
 // InjectNote 生成并以 system 注入恢复说明：只进被执行单元自己的上下文
@@ -406,28 +376,9 @@ func (p *subagentResumePort) RestoreScene(_ context.Context, unit resume.Unit) (
 // **外面**追上去，不丢事实。
 func (p *subagentResumePort) InjectNote(_ context.Context, unit resume.Unit, scene resume.Scene) error {
 	record := p.records[unit.Key]
-	note := workunit.RecoveryNote(workunit.KindSubagent, record) +
-		subagentResumeExtraFacts(record, scene.Summary)
-	p.runtime.setSubagentResumeNote(unit.Key, note)
+	// 恢复说明的组合（契约正文 + 追加事实）只有一份实现，在子代理域；键语义留在这里。
+	p.runtime.setSubagentResumeNote(unit.Key, subagentsession.ResumeNote(record, scene.Summary))
 	return nil
-}
-
-// subagentResumeExtraFacts 追加契约 builder 之外的记录事实（可以为空）：
-//
-//   - last known progress：阶段打点里最后一条预览（人可读的"之前做到哪"）；
-//   - recovered messages：回灌回来的历史长度。
-//
-// 两条都有界（progress 已被 RestoreScene 截到 240 字节内，条数是一个整数）。
-func subagentResumeExtraFacts(record store.NodeSessionRecord, progress string) string {
-	builder := &strings.Builder{}
-	if progress = strings.TrimSpace(progress); progress != "" {
-		builder.WriteString("\n- last known progress: ")
-		builder.WriteString(progress)
-	}
-	if len(record.History) > 0 {
-		builder.WriteString(fmt.Sprintf("\n- recovered messages: %d", len(record.History)))
-	}
-	return builder.String()
 }
 
 // Reexecute 以同一幂等键（节点 ID = fork 子代理 id）重新派发：
@@ -524,7 +475,7 @@ func (p *subagentResumePort) ensureConclusion(ctx context.Context, unit resume.U
 		record = latest
 		p.records[unit.Key] = latest
 	}
-	if state := nodeStateOfRecord(record.Status); state != dto.SubAgentDone && state != dto.SubAgentFailed {
+	if !subagentsession.RecordIsTerminal(record) {
 		return nil
 	}
 	record.MainSessionID = p.mainSessionID
@@ -551,21 +502,9 @@ func (r *Runtime) subagentConclusionSet(ctx context.Context, projectID, sessionI
 	return set, nil
 }
 
-// lastSubagentStagePreview 读取阶段日志里最后一条预览（恢复说明的“之前做到哪”）。
-//
-// 解码走契约那**唯一一份**（`workunit.DecodeStages`）：此前这里手写了一个匿名结构自己解
-// 同一串载荷——同一件事的第二份解码实现，载荷形状一变只有一处会跟着改。
-func lastSubagentStagePreview(record store.NodeSessionRecord) string {
-	stages := workunit.DecodeStages(record.StagesJSON)
-	if len(stages) == 0 {
-		return ""
-	}
-	last := stages[len(stages)-1]
-	if last.Preview == "" {
-		return last.Stage
-	}
-	return last.Stage + ": " + last.Preview
-}
+// lastSubagentStagePreview 是子代理域 `LastStagePreview` 的同身份别名
+// （"之前做到哪"的解码走契约那唯一一份 `workunit.DecodeStages`，实现只有一份）。
+var lastSubagentStagePreview = subagentsession.LastStagePreview
 
 // truncateSubagentResumePreview 截断摘要（报告/恢复说明用）——转调契约那**唯一一份**预览
 // 裁剪（`workunit.ClipPreview`：按 rune 裁）。

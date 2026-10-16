@@ -80,6 +80,8 @@ sequenceDiagram
 | `subagent_sessions_test.go` | 会话注册表单元测试 |
 | `conclusion.go` | 子代理**最终结论的持久化投影**（P21-14 从 `backend/engine/assemble/runtime_subagent_recovery.go` 归位）：`ConclusionEventSource` 常量 + `Conclusion` 载荷 + `ConclusionEvent`（时间基序号 / done-failed 终态映射 / `agent.runtime` 定位挂**主会话**——"结论跟随 mainagent"）+ `ConclusionsFromEvents`（反向投影，跳过读不懂的条目）+ `TakeoverPredicate`（"记录的主人已不在本进程才按崩溃口径接管"） |
 | `conclusion_test.go` | 事件形状（定位挂主会话、序号时间基、终态映射、未知状态词不判死）、**正反两向互为逆**的往返、外族/坏条目跳过、接管判据 |
+| `resume_units.go` | **中断恢复的判据面**（P21-19 从 `backend/engine/assemble/runtime_subagent_resume.go` 归位，plan §2.7）：`LocateResumeUnits`（残留记录 → 恢复单元的判定口径：在跑 ⇒ active / 判失败 ⇒ failed / 其余 ⇒ done / **已有结论一律按终结**）、`ResumeUnitKey`（幂等键：节点 id 优先，退到会话号）、`RecordIsFailed` / `RecordIsTerminal`（落盘格的唯一转换点；认不得的词不判死也不当终结）、`SceneOf`（现场投影：载荷 + 摘要回退到"之前做到哪"）、`LastStagePreview`、`ResumeExtraFacts` / `ResumeNote`（契约正文 + 两条有界的追加事实） |
+| `resume_units_test.go` | 状态折算六例（含"在跑但已有结论"与未知状态词）、键回退与空身份跳过、两个终态谓词的分工、现场投影与摘要回退、恢复说明组合与有界 |
 
 ## 核心实现
 
@@ -213,6 +215,27 @@ go build ./...
 - `func TestLiveDispatcherHistoryPageKeepsWindowBound(t *testing.T)`
 - `func TestLiveDispatcherRecordAssistantNeedsSubscriber(t *testing.T)`
 - `func TestLiveDispatcherStageAndToolEventProjection(t *testing.T)`
+
+### resume_units.go
+
+- `func LocateResumeUnits(parentSessionID string, records []store.NodeSessionRecord, conclusions map[string]struct{}) []resume.Unit` — LocateResumeUnits 把残留记录折算成恢复单元。
+- `func ResumeUnitKey(progress workunit.Progress) string` — ResumeUnitKey 是恢复单元的幂等键：节点 id 优先，缺了退到它自己的会话号（键为空 = 这条记录
+- `func RecordIsFailed(record store.NodeSessionRecord) bool` — RecordIsFailed 报告落盘记录是不是**判失败**的终态。
+- `func RecordIsTerminal(record store.NodeSessionRecord) bool` — RecordIsTerminal 报告落盘记录本身是否已是**终结态**（done/failed）。
+- `func SceneOf(record store.NodeSessionRecord) (resume.Scene, error)` — SceneOf 重建被执行单元自己的现场：目标/已知进展/工作树。
+- `func LastStagePreview(record store.NodeSessionRecord) string` — LastStagePreview 读取阶段日志里最后一条预览（恢复说明的"之前做到哪"）。
+- `func ResumeExtraFacts(record store.NodeSessionRecord, progress string) string` — ResumeExtraFacts 追加契约 builder 之外的记录事实（可以为空）：
+- `func ResumeNote(record store.NodeSessionRecord, progress string) string` — ResumeNote 组装一条子代理恢复说明：契约正文 + 追加事实（**唯一一份**组合口径）。
+
+### resume_units_test.go
+
+- `func stringPointer(value string) *string`
+- `func resumeRecord(nodeID, sessionID, status string) store.NodeSessionRecord`
+- `func TestLocateResumeUnitsStatusDerivation(t *testing.T)` — TestLocateResumeUnitsStatusDerivation 钉住"残留记录 → 恢复单元"的判定口径：
+- `func TestResumeUnitKeyFallsBackToSession(t *testing.T)` — TestResumeUnitKeyFallsBackToSession 钉住幂等键口径：节点 id 优先，缺了退到会话号；
+- `func TestRecordTerminalPredicates(t *testing.T)` — TestRecordTerminalPredicates 钉住两个谓词的分工：`RecordIsFailed` 只认 failed；
+- `func TestSceneOfPrefersSummaryAndFallsBackToLastStage(t *testing.T)` — TestSceneOfPrefersSummaryAndFallsBackToLastStage：现场投影——摘要取记录自带的那份，
+- `func TestResumeNoteCombinesContractBodyWithFacts(t *testing.T)` — TestResumeNoteCombinesContractBodyWithFacts：恢复说明 = 契约正文（`workunit.RecoveryNote`）
 
 ### session_factory.go
 
