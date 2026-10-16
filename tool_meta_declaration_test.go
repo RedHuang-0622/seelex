@@ -76,7 +76,7 @@ func scanToolRegistrations(t *testing.T, root string) (map[string]string, []stri
 	files := 0
 
 	// 常量按**目录**（= 一个 package）收集：注册点与"工具名常量"可以分居两个文件
-	// （例如 seelebridge/tools 的 router.go 注册、job_tools.go 声明），而"包级常量"这条
+	// （例如 backend/tool/registry 的 router.go 注册、job_tools.go 声明），而"包级常量"这条
 	// 判据本来就不该按文件划线。先收一遍常量，再走一遍注册点。
 	constsByDir := map[string]map[string]string{}
 	collectConsts := func(path string, entry fs.DirEntry, walkErr error) error {
@@ -266,7 +266,7 @@ func literalOrConst(expr ast.Expr, consts map[string]string) (string, bool) {
 func TestRegistrationScannerSeesEveryFamily(t *testing.T) {
 	sites, _, _ := scanToolRegistrations(t, ".")
 	for _, name := range []string{
-		"read_file", "bash", "write_file", // seelebridge/tools/router.go
+		"read_file", "bash", "write_file", // backend/tool/registry/router.go
 		"todo_init", "task_add", // backend/tool/task/tools.go
 		"computer_click", "computer_screenshot", // backend/tool/computer/tools.go（别名形态）
 		"fork_subagents",              // seelebridge/runtime_plan.go

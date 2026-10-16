@@ -20,7 +20,7 @@ package main
 //	   人类在环：位齐直接放行），整轮正常收口。
 //
 // 违权直接拒绝（子代理碰 ctl/adm/共享外设）与内存释放由确定性用例覆盖：
-// seelebridge/tools/permission_subject_test.go、permission_config_test.go、
+// backend/tool/registry/permission_subject_test.go、permission_config_test.go、
 // backend/multiagent/subagent/subagent_lifecycle_release_test.go。让模型稳定地"故意越权"
 // 不是可复现的冒烟手段，所以不放进真实 API 冒烟。
 
@@ -37,8 +37,8 @@ import (
 	"encoding/json"
 
 	"github.com/RedHuang-0622/seelex/application"
+	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/internal/bootseed"
-	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 )
 
 // approvalPage 是"执行选择页面"的测试侧人类：盯住生产审批 broker 的待批集合，

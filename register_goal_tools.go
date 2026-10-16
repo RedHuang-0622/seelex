@@ -4,7 +4,7 @@ package main
 //
 // 与 registerTaskTerminalTools 同款组合根模式：Runtime 只负责注册，
 // handler 路由到 application.Service 的 goal 方法面（按执行 ctx 会话）。
-// 工具可见性门控见 seelebridge/tools/policy.go（isGoalTool + GoalActive）。
+// 工具可见性门控见 backend/tool/registry/policy.go（isGoalTool + GoalActive）。
 
 import (
 	"github.com/RedHuang-0622/seelex/application"

@@ -115,7 +115,7 @@ func (service *Service) GoalProposeFinish(ctx context.Context, request goaldomai
 //
 // 口径（2026-10-02 用户裁决 B）：main agent 就是 TL 的角色，它可以自己拍板收口——不送
 // 终态 gate、不产生提议（领域侧见 goalCoordinator.FinishDirect）。teammate 子会话仍禁：
-// goal 工具族对 subagent 整族不可见（seelebridge/tools/policy.go isGoalTool）。
+// goal 工具族对 subagent 整族不可见（backend/tool/registry/policy.go isGoalTool）。
 //
 // 收口后的收尾与提议路径同款：刷新运行态投影 + 让"干完就走人"成立（栈里没有 active
 // goal 时在编团队离场）。目标看板不在这里封板——它跟着审计流水走（goal.finish /

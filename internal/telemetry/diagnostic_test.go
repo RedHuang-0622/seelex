@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/Seele/telemetry"
-	"github.com/RedHuang-0622/seelex/seelebridge/tools"
+	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 )
 
 func TestDiagnosticHookMarksBashBeforeAndAfter(t *testing.T) {
@@ -15,7 +15,7 @@ func TestDiagnosticHookMarksBashBeforeAndAfter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hook := NewDiagnosticHook(func(event tools.BashDiagnosticEvent) {
+	hook := NewDiagnosticHook(func(event toolreg.BashDiagnosticEvent) {
 		stages = append(stages, event.Stage)
 	})(base)
 	ctx, invocation, err := hook.Before(context.Background(), telemetry.Action{Type: telemetry.EventToolBefore, Name: "bash"})

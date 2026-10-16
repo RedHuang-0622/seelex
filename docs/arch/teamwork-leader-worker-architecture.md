@@ -47,7 +47,7 @@ teamwork 的硬编排写进**独立存储 `moduleTeamwork`**，由 leader 掌控
 `session` 一次会话串行（回合闸门）、多会话可并发、`Reset(ctx)` 可清空；`event` 有 Sink/Recorder/Heartbeat；`tools/permission` 有 Subject×Group×Bits+sudo。
 **唯独缺**「把一次长任务表达为可派发/可观察/可终止的作业」那层契约。
 
-**Seelex 现状（要下沉的范式原型）**：`seelebridge/tools/job_contract.go` 头注即「**作业契约**」——
+**Seelex 现状（要下沉的范式原型）**：`backend/tool/registry/job_contract.go` 头注即「**作业契约**」——
 派发（`bash_bg`/`read_batch`/`subagent`）→ handle → `job_manage(observe/fetch/kill/done)`；
 三类作业（`JobKindProcess`/`JobKindInline`/`JobKindSubagent`）**共用同一张登记表与同一套状态机**，
 管理面只有一份实现（`jobManager`）；隔离靠 `JobSpec.SessionID`（`Router.CloseSessionAsync` 会话销毁即杀），
@@ -170,7 +170,7 @@ func WithReclaimer(func(ctx, Scope) error) Option   // 作用域回收钩子（�
 | I-6 输出有界 | 输出文件字节上限（超限截断仍向子进程报"已消费"，避免把基础设施限制伪装成命令失败）；增量=文件偏移游标 |
 | I-7 跨作用域拒绝 | 取回/终止一律拒绝跨 `Scope` 访问（照抄既有 `run.sessionID != sessionID` 的判据，扩成 Scope 不等即拒） |
 
-> 这些是 seelex 异步面现有不变式的**框架化**（`seelebridge/tools/job_contract.go` 头注 + `async_exec.go` + `tools/README.md`），落地时以既有测试当回归。
+> 这些是 seelex 异步面现有不变式的**框架化**（`backend/tool/registry/job_contract.go` 头注 + `async_exec.go` + `tools/README.md`），落地时以既有测试当回归。
 
 ### 3.3 事件与信号
 
@@ -229,7 +229,7 @@ jobs/
 | 约束 | 设计 | 落点 |
 |---|---|---|
 | **人数上限** | `limits.team.max_teammates`（配置；默认取与 `ResidentSessionLimit` 同量级，建议 **6**）。超限的 `team_dispatch`/`team_plan` **显式拒绝**（不静默排队） | `backend/limit/limits.go`（新增 `TeamLimits` 块）+ 计划校验 |
-| **子代理策略** | **不设开关：teammate 工具面直接不注册 `fork_subagents`（硬移除）**。理由：① 一角色一 teammate 已定，嵌套子代理会**绕过人数上限**；② teammate 绑 worktree，子代理会派生更多 worktree——**生命周期说不清就会留下删不干净的 worktree 与孤儿作业**；③ 需要并行广度时，正确做法是 **leader 多派几个 teammate**，而不是让 teammate 再分叉 | teammate 工具面装配（`seelebridge/tools` 装配点） |
+| **子代理策略** | **不设开关：teammate 工具面直接不注册 `fork_subagents`（硬移除）**。理由：① 一角色一 teammate 已定，嵌套子代理会**绕过人数上限**；② teammate 绑 worktree，子代理会派生更多 worktree——**生命周期说不清就会留下删不干净的 worktree 与孤儿作业**；③ 需要并行广度时，正确做法是 **leader 多派几个 teammate**，而不是让 teammate 再分叉 | teammate 工具面装配（`backend/tool/registry` 装配点） |
 
 > 与在途上限的关系：`jobs` 的在途上限（现 32）是框架级兜底；**团队人数上限是产品级约束，必须先于框架兜底生效**（否则"限制"形同虚设）。
 > worktree 数量因此被 teammate 数量封顶（无子代理 ⇒ 无孙 worktree），再叠加 `team_retire` 即释放（§4.4），不会累积残留。
@@ -318,7 +318,7 @@ leader 判定某 teammate 的一轮任务结束 → `team_retire(role)`，**顺�
 
 ### 6.1 铁律：不得唤醒忙会话
 
-异步面选型已证明：push 结果进会话必回闯 `ChatStream` 持有的会话锁，且迟到 `role=tool` 在 wire 层非法、破坏前缀缓存（`seelebridge/tools/README.md` 引 `docs/2026-09-24-async-tool-deferred-ack/README.md` §0）。故「通知」＝：
+异步面选型已证明：push 结果进会话必回闯 `ChatStream` 持有的会话锁，且迟到 `role=tool` 在 wire 层非法、破坏前缀缓存（`backend/tool/registry/README.md` 引 `docs/2026-09-24-async-tool-deferred-ack/README.md` §0）。故「通知」＝：
 - **变更信号口**（`jobs.Events()`）→ 服务投影/UI，不推进游标、不进上下文；
 - **回合边界有界摘要**（完成行 ≤512B）→ 在 leader 下一回合随请求尾部打点块回填（对齐 K-5 完成回填）。
 
@@ -368,8 +368,8 @@ leader 判定某 teammate 的一轮任务结束 → `team_retire(role)`，**顺�
 ### M0 — Seele `jobs` 根能力（框架：契约 + Manager + `jobs_manage`）
 - **目标**：作业契约/管理器/管理工具进 Seele；行为与 seelex 现有异步面**逐字节对齐**。**`bash_bg` 等派发侧实现不动**（D1）。
 - **交付物**：`G:\program\go\seele\jobs\{job,manager,executor,options,events}.go` + `jobs/builtin/`（`jobs_manage`）+ `jobs/README.md` + `docs/arch/1x-jobs-contracts.md`；
-  Seelex：`go.mod` 加 replace；`seelebridge/tools/*` 的**记录/状态机**迁到 `jobs.Manager`（`Scope{Session,Subject}` 与既有 `SessionID` 逐位对齐；**派发工具签名与语义不变**）；`process`/`inline` Executor 落地。
-- **触碰面**：`G:\program\go\seele\jobs\**`、`seelebridge/tools/{job_*,async_*}.go`、`backend/limit/limits.go`（`AsyncExec` 保留）。
+  Seelex：`go.mod` 加 replace；`backend/tool/registry/*` 的**记录/状态机**迁到 `jobs.Manager`（`Scope{Session,Subject}` 与既有 `SessionID` 逐位对齐；**派发工具签名与语义不变**）；`process`/`inline` Executor 落地。
+- **触碰面**：`G:\program\go\seele\jobs\**`、`backend/tool/registry/{job_*,async_*}.go`、`backend/limit/limits.go`（`AsyncExec` 保留）。
 - **验收**：seelex 既有 `async_*_test.go` + `job_contract_test.go` 全绿（`bash_bg`/`read_batch`/`job_manage` 行为不变，含 `TestCloseSessionAsyncKillsOnlyOwnSession`）；Seele `go test ./... -count=1 -timeout 300s` + `go vet ./...` + `go build ./...` 绿；`jobs` 无 seelex import。
 - **退出判据**：作业面无回归；`jobs` 契约冻结（后续变更走 Seele 评审）。
 
@@ -452,7 +452,7 @@ leader 判定某 teammate 的一轮任务结束 → `team_retire(role)`，**顺�
 **为什么不拼串**：既有 todo / task / subagent 的绑定范式已经把这件事做对了——
 `JobSpec.SessionID`（隔离 + 回收，`Router.CloseSessionAsync` 按它杀）+ `JobSpec.BatchID`（归属盖印章，
 由 `Router.currentBatch` 注入，task/todo/plan/subagent 条目自动盖章）**是两个并列字段**，
-跨会话访问靠 `run.sessionID != sessionID` 直接拒绝（`seelebridge/tools/job_contract.go`）。
+跨会话访问靠 `run.sessionID != sessionID` 直接拒绝（`backend/tool/registry/job_contract.go`）。
 自造 `a/b` 或 `a::b` 只会新增**转义规则与碰撞面**（会话 id、角色名里都可能出现该字符），而收益为零。
 
 **字段分工（照抄既有分工）**：
@@ -487,7 +487,7 @@ O4 plan/stage id（脱离会话生命周期；`bash_bg` 这种非 teamwork 场�
 |---|---|---|
 | M0 Seele `jobs` 根能力 | **已实现** | `Seele/jobs/{job,manager,executor,options,output}.go` + `jobs/builtin`（`jobs_manage`）+ `jobs/README.md` + `Seele/docs/arch/16-jobs-contracts.md`；不变式 I-1..I-7 逐条有用例（含去重、跨作用域拒绝、两档 Snapshot/Reclaim、硬上限 124 / 被杀 137 / panic 收尾、输出封顶不改判终态） |
 | M0 Seelex `go.mod` replace | **已实现（临时）** | `replace github.com/RedHuang-0622/Seele => G:/Program/go/seele`，`go work vendor` 已重生成 vendor；Seele 打 tag 发布 `jobs` 后即删除 |
-| M0 旧异步面迁到 `jobs.Manager` | **受阻（证据见 §12）** | `seelebridge/tools/{async_exec,async_run,async_probe,job_contract}.go` 仍是旧实现。**派发工具签名与语义未动**（`bash_bg`/`read_batch`/`job_manage` 行为零变化）；本轮只做了阻塞分析与文档，**未改任何生产代码**。§12 给出逐条实证：在「既有 `async_*_test.go` 一字不改」+「Seele `jobs` 契约冻结」两条硬约束下，忠实的门面化无法落地（能绕的几条，绕法就是把状态机在 Seelex 侧原样留一份，迁移变成名义上的） |
+| M0 旧异步面迁到 `jobs.Manager` | **受阻（证据见 §12）** | `backend/tool/registry/{async_exec,async_run,async_probe,job_contract}.go` 仍是旧实现。**派发工具签名与语义未动**（`bash_bg`/`read_batch`/`job_manage` 行为零变化）；本轮只做了阻塞分析与文档，**未改任何生产代码**。§12 给出逐条实证：在「既有 `async_*_test.go` 一字不改」+「Seele `jobs` 契约冻结」两条硬约束下，忠实的门面化无法落地（能绕的几条，绕法就是把状态机在 Seelex 侧原样留一份，迁移变成名义上的） |
 | M1 worker Executor | **已实现（`KindSeat` 已于 2026-10-03 W3 退场）** | `seelebridge/teamwork/executor.go`：`KindWorker`（`KindSeat` 已删除）；载荷 `WorkerRequest` 既是 `jobs.Spec.Payload` 又是执行体入参；生产实现 = `Runtime.RunWorker`（角色会话里跑一轮有界回合，起手绑工作区/带 `emp_<role>` 权责） |
 | M1 worktree 绑定 / 释放 | **已实现** | `Runtime.ReleaseWorkspace` 接 `backend/tool/worktree`（脏工作区按 `ErrUncommittedChanges` 语义报错、不静默丢弃；`CleanupWorktree` 走 git；无现场幂等）；`Runtime.bindWorkerProjectRoot` 优先绑 worktree、缺失回退主工作区 |
 | M1 人数上限 | **已实现** | `limit.TeamLimits`（默认 6）+ `config/seelex.yaml` 的 `limits.team.max_teammates` + 两道拒绝（计划校验 + 派发闸门）；组合根经 `Runtime.SetTeamworkBackend` 注入 |
@@ -584,7 +584,7 @@ sink 形状做不到「`job_manage` 之后保持稳定前缀、再把数据追�
 ## 附：锚点索引
 
 **Seelex（本轮静读）**
-- 异步作业面（范本）：`seelebridge/tools/{job_contract,job_tools,job_run,job_subagent,async_exec,async_run,async_probe}.go`、`seelebridge/tools/README.md`、`seelebridge/runtime_async.go`、`seelebridge/runtime_tools.go`
+- 异步作业面（范本）：`backend/tool/registry/{job_contract,job_tools,job_run,job_subagent,async_exec,async_run,async_probe}.go`、`backend/tool/registry/README.md`、`seelebridge/runtime_async.go`、`seelebridge/runtime_tools.go`
   - 契约与类别：`job_contract.go:JobSpec/JobHandle/JobTool/jobManager`（三类共表共状态机）
   - 隔离：`async_run.go:CloseSessionAsync`；`job_contract.go` 的 `run.sessionID != sessionID` 判据
   - 归属：`async_probe.go:JobInfo{SessionID,BatchID}`、`router.go:AsyncBatchID`、`runtime_tools.go:AsyncBatchID`、`task/task.go:defaultBatchID`

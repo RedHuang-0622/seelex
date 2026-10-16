@@ -25,7 +25,7 @@ package seelebridge
 //     主体（判定落在 emp_<角色> 上）。缺任何一样，角色就只是"发言权"而不是
 //     "做工权"（见 docs/2026-09-16-ring-escape-permission-bearing/A2A-VALUE-REVIEW.md §1）。
 //   - 权责落地必须是**起点条件**而不是事后解析：本文件在起手把角色主体按构造
-//     放进 ctx（seeltools.WithEmployeeGrant），因此即使角色会话 → 权责的反向
+//     放进 ctx（toolreg.WithEmployeeGrant），因此即使角色会话 → 权责的反向
 //     索引冷启动没查到，角色回合的工具调用照样按角色口径拦（"按构造授权"永远比
 //     "按反查授权"可靠）。
 //
@@ -55,8 +55,8 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
+	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 )
 
 // roleTurnMaxLoops 是角色回合的 ReAct 循环上限：角色回合必须**有界**——一轮角色
@@ -285,11 +285,11 @@ func (r *Runtime) runRoleRound(ctx context.Context, spec roleRoundSpec) (string,
 
 	// 按构造把角色主体放进 ctx：不依赖任何反查（roleSessionClass 的索引可能冷），
 	// 且工具面按这个角色自己的主体算（同档位的两个角色可以有不同能力面）。
-	turnCtx := seeltools.WithEmployeeGrant(ctx, roleName, spec.ToolsPolicy, spec.PermissionGroups)
+	turnCtx := toolreg.WithEmployeeGrant(ctx, roleName, spec.ToolsPolicy, spec.PermissionGroups)
 	// 能力轴也按构造放进本轮 ctx（与主体类同一个姿势）：工具可见性每轮从 ctx
 	// 现算，**不在句柄上缓存"当前装配"**——两个 teammate 并发回合时，缓存会被
 	// 后写的那份覆盖（并发丢失更新的另一面）。
-	turnCtx = seeltools.WithRolePlugins(turnCtx, assembly)
+	turnCtx = toolreg.WithRolePlugins(turnCtx, assembly)
 	// telemetry 标签写成角色会话：角色回合的 llm/tool 事件可按角色归因（审计面）。
 	turnCtx = WithTelemetrySessionID(turnCtx, roleSessionID)
 

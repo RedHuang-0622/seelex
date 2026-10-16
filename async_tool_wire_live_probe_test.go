@@ -188,7 +188,7 @@ const (
 	probeAck    = "已受理，异步执行中。call_id=" + probeCallID + " 输出落点=async://probe/out.log，结果稍后作为独立事件补记。"
 )
 
-// 轮询形态的两次取回。载荷按 seelebridge/tools/async_exec.go renderPolled 的实际
+// 轮询形态的两次取回。载荷按 backend/tool/registry/async_exec.go renderPolled 的实际
 // 字段形状手写：确定性、不含时间戳与耗时——这些字节会永久留在可缓存前缀里。
 const (
 	pollCallID1  = "call_poll_1"

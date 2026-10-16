@@ -33,7 +33,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/seelebridge/tools"
+	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/skill"
 )
 
@@ -356,7 +356,7 @@ func (p *promptMatrixProbe) ChatStream(ctx context.Context, _ string, _ func(str
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.ctx = ctx
-	p.ctxPlugins = tools.RolePluginsFromContext(ctx)
+	p.ctxPlugins = toolreg.RolePluginsFromContext(ctx)
 	p.visible = names
 	return "done", nil
 }

@@ -50,7 +50,7 @@
 | 词汇 | 用 Seele 的 `jobs`（`Spec`/`Handle`/`Record`/`Scope`/`FetchBudget`）；`github.com/RedHuang-0622/Seele/jobs` 是 vendored 的外部契约，**不改它**，只做窄投影 + 编译期断言（先例：`SessionLedger`） |
 | 方法名 | 就是 `jobs.Manager` 的名字（`Dispatch` = 提交、`Observe` = 状态读数……）——换名字 `var _ Jobs = (jobs.Manager)(nil)` 这条就钉不住（接口是结构化的，名字也是结构的一部分） |
 | 实现一（teammate） | `jobs.Manager`：**八格逐字对齐**，编译期断言在 `contract.go` |
-| 实现二（subagent / `bash_bg`） | tools 自建 async 表：今天只在 **`JobSignals`** 那一格上与这里同形（`seelebridge/tools/async_exec.go` 的断言）；其余七格的名字与签名都不同 |
+| 实现二（subagent / `bash_bg`） | tools 自建 async 表：今天只在 **`JobSignals`** 那一格上与这里同形（`backend/tool/registry/async_exec.go` 的断言）；其余七格的名字与签名都不同 |
 | 两张表 | **本轮只求同形，一张都不搬**——搬表是步骤②（`CHANGELOG.md:112-116` 已登记七点不一致，`docs/arch/workunit-ports-and-assembly.md` §5② 是路线） |
 
 `docs/arch/workunit-ports-and-assembly.md` §2 把这一族端口与现场/会话/读面并列；生命周期实现

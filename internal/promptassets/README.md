@@ -100,7 +100,7 @@ with `bash_bg` (its `description` becomes the work-table row title), the serial
 entries refuse a `timeout` above that budget and name `bash_bg` instead, and a
 runtime without the background surface falls back to an explicit serial `timeout`.
 The number in the asset is the one the code enforces
-(`seelebridge/tools.serialBashBudget`): a test there renders this asset and fails
+(`backend/tool/registry.serialBashBudget`): a test there renders this asset and fails
 when prose and code drift apart.
 
 ## Visual answers

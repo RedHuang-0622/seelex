@@ -9,7 +9,7 @@ import (
 	frameworktools "github.com/RedHuang-0622/Seele/tools"
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 	"github.com/RedHuang-0622/seelex/application"
-	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
+	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/wiring"
 )
 
@@ -38,7 +38,7 @@ func TestEmployeeEscalationLandsInOwnerSessionPanel(t *testing.T) {
 	// 空指针"的坑，生产装配也没有无 hub 的路径）。
 	broker := wiring.NewApprovalBroker(wiring.NewEventHub())
 
-	gate := &seeltools.PermissionGate{SessionFromContext: toolspermission.SessionIDFromContext}
+	gate := &toolreg.PermissionGate{SessionFromContext: toolspermission.SessionIDFromContext}
 	gate.Set(cfg, newPermissionBridge(broker))
 	// 角色会话权责：空 = 继承宿主默认（工具面全量，逐次由中间件判定）。
 	gate.SetRoleSessionPolicyResolver(func(sessionID string) (string, bool) {

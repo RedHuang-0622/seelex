@@ -192,7 +192,7 @@ func TestWorkunitPortGate(t *testing.T) {
 		"var _ Jobs = (jobs.Manager)(nil)",
 		"契约必须钉住『作业面的实现 = jobs.Manager』")...)
 	violations = append(violations, requireSnippet(
-		"seelebridge/tools/async_exec.go", read("seelebridge/tools/async_exec.go"),
+		"backend/tool/registry/async_exec.go", read("backend/tool/registry/async_exec.go"),
 		"var _ workunit.JobSignals = (*asyncRegistry)(nil)",
 		"tools 自建作业表必须钉住它与作业面同形的那一格")...)
 	violations = append(violations, requireSnippet(

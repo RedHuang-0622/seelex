@@ -319,7 +319,7 @@ func (service *Service) CancelAllChats() {
 //
 //  1. 先停在跑的前台工具调用：取消会话回合的 ctx，引擎 ReAct 循环与正在执行的前台
 //     工具（同步 bash 及其派生的整棵进程树）随之中止——工具调用不会在停止之后继续
-//     跑完，也不会再按住收尾等它（见 seelebridge/tools 的进程树终止原语）。
+//     跑完，也不会再按住收尾等它（见 backend/tool/registry 的进程树终止原语）。
 //  2. 不动后台子进程：bash_bg / read_batch / subagent 作业用 context.WithoutCancel
 //     摘掉了回合 ctx，生死只由 bg_manage(op=kill) 与硬上限决定；点停止不杀它们。
 //  3. 清空消息队列并全部发出去：排队输入在回合收尾整批提升为下一轮（见 runChat），

@@ -4,7 +4,7 @@ import (
 	"context"
 
 	frameworktelemetry "github.com/RedHuang-0622/Seele/telemetry"
-	"github.com/RedHuang-0622/seelex/seelebridge/tools"
+	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 )
 
 type bashTelemetryContextKey struct{}
@@ -15,12 +15,12 @@ type bashTelemetryContextKey struct{}
 // the application completion hook.
 type DiagnosticHook struct {
 	next    frameworktelemetry.Hook
-	observe func(event tools.BashDiagnosticEvent)
+	observe func(event toolreg.BashDiagnosticEvent)
 }
 
 // NewDiagnosticHook 构造诊断观察面（Wrapper 形态，由 Chain 负责透传）；
 // observe 由 Runtime 注入（bash 诊断观察者）。
-func NewDiagnosticHook(observe func(event tools.BashDiagnosticEvent)) Wrapper {
+func NewDiagnosticHook(observe func(event toolreg.BashDiagnosticEvent)) Wrapper {
 	return func(next frameworktelemetry.Hook) frameworktelemetry.Hook {
 		if next == nil {
 			return nil
@@ -33,14 +33,14 @@ func NewDiagnosticHook(observe func(event tools.BashDiagnosticEvent)) Wrapper {
 func (hook *DiagnosticHook) Before(ctx context.Context, action frameworktelemetry.Action) (context.Context, frameworktelemetry.Invocation, error) {
 	isBash := action.Name == "bash"
 	if isBash {
-		hook.observe(tools.BashDiagnosticEvent{Stage: "bash.telemetry.before.start"})
+		hook.observe(toolreg.BashDiagnosticEvent{Stage: "bash.telemetry.before.start"})
 	}
 	nextCtx, invocation, err := hook.next.Before(ctx, action)
 	if isBash {
 		if err != nil {
-			hook.observe(tools.BashDiagnosticEvent{Stage: "bash.telemetry.before.error", Err: err})
+			hook.observe(toolreg.BashDiagnosticEvent{Stage: "bash.telemetry.before.error", Err: err})
 		} else {
-			hook.observe(tools.BashDiagnosticEvent{Stage: "bash.telemetry.before.done"})
+			hook.observe(toolreg.BashDiagnosticEvent{Stage: "bash.telemetry.before.done"})
 		}
 		nextCtx = context.WithValue(nextCtx, bashTelemetryContextKey{}, true)
 	}
@@ -51,14 +51,14 @@ func (hook *DiagnosticHook) Before(ctx context.Context, action frameworktelemetr
 func (hook *DiagnosticHook) After(ctx context.Context, invocation frameworktelemetry.Invocation, effect frameworktelemetry.Effect) error {
 	isBash, _ := ctx.Value(bashTelemetryContextKey{}).(bool)
 	if isBash {
-		hook.observe(tools.BashDiagnosticEvent{Stage: "bash.telemetry.after.start"})
+		hook.observe(toolreg.BashDiagnosticEvent{Stage: "bash.telemetry.after.start"})
 	}
 	err := hook.next.After(ctx, invocation, effect)
 	if isBash {
 		if err != nil {
-			hook.observe(tools.BashDiagnosticEvent{Stage: "bash.telemetry.after.error", Err: err})
+			hook.observe(toolreg.BashDiagnosticEvent{Stage: "bash.telemetry.after.error", Err: err})
 		} else {
-			hook.observe(tools.BashDiagnosticEvent{Stage: "bash.telemetry.after.done"})
+			hook.observe(toolreg.BashDiagnosticEvent{Stage: "bash.telemetry.after.done"})
 		}
 	}
 	return err

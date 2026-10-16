@@ -8,11 +8,11 @@ import (
 	frameworktools "github.com/RedHuang-0622/Seele/tools"
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 
+	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/backend/tool/task"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/docker"
 	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 )
 
 // mcpRegistryAdapter 把 Runtime 工具注册表适配为 mcp.RegistryPort
@@ -81,17 +81,17 @@ func (r *Runtime) AssignEmployeePermissions(roles []dto.RoleSpec) error {
 	if r == nil || r.permission == nil {
 		return nil
 	}
-	permissions := make([]seeltools.EmployeePermission, 0, len(roles))
+	permissions := make([]toolreg.EmployeePermission, 0, len(roles))
 	for _, role := range roles {
 		policy := strings.ToLower(strings.TrimSpace(role.ToolsPolicy))
 		groups, err := dto.NormalizePermissionGroups(role.PermissionGroups)
 		if err != nil {
 			return fmt.Errorf("员工 %q 的权限格子非法: %w", role.RoleName, err)
 		}
-		if len(groups) == 0 && seeltools.EmployeeGroupsForPolicy(policy) == nil {
+		if len(groups) == 0 && toolreg.EmployeeGroupsForPolicy(policy) == nil {
 			continue
 		}
-		permissions = append(permissions, seeltools.EmployeePermission{
+		permissions = append(permissions, toolreg.EmployeePermission{
 			RoleName: role.RoleName,
 			Policy:   policy,
 			Groups:   groups,
@@ -104,7 +104,7 @@ func (r *Runtime) AssignEmployeePermissions(roles []dto.RoleSpec) error {
 }
 
 // EmployeePermissions 读回装配期分配过的员工权限（巡检/诊断面）。
-func (r *Runtime) EmployeePermissions() []seeltools.EmployeePermission {
+func (r *Runtime) EmployeePermissions() []toolreg.EmployeePermission {
 	if r == nil || r.permission == nil {
 		return nil
 	}
@@ -161,7 +161,7 @@ func (r *Runtime) observeBash(event BashDiagnosticEvent) {
 // registerProjectScopedTools overrides the Seele builtin filesystem tools
 // （委托 tools.Router；RegisterBuiltins 内调用）。
 func (r *Runtime) registerProjectScopedTools() {
-	router := seeltools.NewRouter(r.scopedToolsDeps())
+	router := toolreg.NewRouter(r.scopedToolsDeps())
 	router.Register()
 	r.scopedTools = router
 	// 后台命令的输出目录是进程级资源：登记进逆序关停链，否则每个进程都在临时目录
@@ -203,8 +203,8 @@ func (r *Runtime) registerTodoTools() {
 }
 
 // scopedToolsDeps 把 Runtime 能力面注入 tools 域（Deps 全部为闭包）。
-func (r *Runtime) scopedToolsDeps() seeltools.Deps {
-	return seeltools.Deps{
+func (r *Runtime) scopedToolsDeps() toolreg.Deps {
+	return toolreg.Deps{
 		RegisterTool: r.RegisterTool,
 		ProjectScope: r.projectScope,
 		// 工具路径根按执行 ctx 的会话解析：后台/并行会话各用自己的项目根。

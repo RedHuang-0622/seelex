@@ -12,7 +12,7 @@
 - 做：定义 Plan / Task / Goal 治理投影 / AgentTeam / 角色会话 / 子代理树与 live 事件 /
   调度任务 / 工作树 / worktree / 员工权限等跨层词汇；保证 JSON 字段名与前端 reducer 一致。
 - 不做：不带方法、不发事件、不读写存储、不持有运行时状态、不做权限判定
-  （判据在 `backend/limit/policy`、执行门在 `seelebridge/tools`，
+  （判据在 `backend/limit/policy`、执行门在 `backend/tool/registry`，
   本包只提供**前后端共用的那份字面量**）。
 
 ## 文件结构

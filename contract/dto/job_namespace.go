@@ -7,7 +7,7 @@ import (
 
 // 作业句柄的**命名空间**（唯一一份定义）：句柄必须自证来源。
 //
-// 为什么需要它：本进程里**并存两张作业表**——seelebridge/tools 的后台作业表（`bash_bg` /
+// 为什么需要它：本进程里**并存两张作业表**——backend/tool/registry 的后台作业表（`bash_bg` /
 // `read_batch` / `fork_subagents`）与 Seele `jobs.Manager` 的团队作业表（teammate，取回走
 // `jobs_manage`）。两张表各自维护自己的派发序号；句柄形状如果相同，同一个会话里就会同时
 // 存在两条同名的句柄，于是**把 A 表的句柄交给 B 表的管理工具会静默命中一条无关作业**
@@ -46,7 +46,7 @@ func jobNamespacePrefix(namespace JobNamespace) string {
 }
 
 // JobHandle 铸造一个句柄。它是**唯一一处**把 token 与序号拼起来的地方：两张作业表的铸造点
-// （seelebridge/tools 的后台作业表、Seele `jobs.Manager` 经注入 Namer）都调它。
+// （backend/tool/registry 的后台作业表、Seele `jobs.Manager` 经注入 Namer）都调它。
 func JobHandle(namespace JobNamespace, seq int) string {
 	return jobNamespacePrefix(namespace) + strconv.Itoa(seq)
 }

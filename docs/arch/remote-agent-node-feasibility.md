@@ -85,13 +85,13 @@ type roleEngine interface {
 |---|---|---|---|
 | 1 | **Seelex 自己的包没有任何网络服务端** | `seelebridge/ application/ internal/ gui/ tui/ plugin/ mcpstack/ main.go` 下 `net.Listen` / `ListenAndServe` 零命中；`NewMCPServer` 全仓零命中；唯一的"服务端"是 `computer-mcp` 那个 stdio JSON-RPC | 远端节点要写服务端，或走 ssh 隧道复用 stdio |
 | 2 | **通道型端口不能跨进程** | `RuntimePort` 含 `AsyncRunEvents() <-chan struct{}`、`TaskChangedChannel() <-chan dto.TaskRecord`、`SubagentTreeEvents() <-chan struct{}`、`PlanNodeEventChannel() <-chan dto.PlanNodeEvent`、`SubscribeSubagentLive() (…, <-chan …, func(), error)`；`TeamworkJobCompletion.TeamworkJobEvents()` 同理 | **这是"别远程化 RuntimePort"的硬理由**；它另有几十个 `X` / `XFor(sessionID)` 成对方法，全带会话级内存所有权与锁纪律 |
-| 3 | **权限是进程内的** | 主体写在调度 ctx 上、不落共享字段（`docs/arch/agent-permission-subjects.md` §2.1）；`emp_<role>` 是本地权责表条目（`seelebridge/tools/permission_policy.go:194` `DefaultPermissionSubjects`） | 跨机之后需要**第二道**门："谁可以驱动这个节点"。现有员工权限管不到这条边界 |
+| 3 | **权限是进程内的** | 主体写在调度 ctx 上、不落共享字段（`docs/arch/agent-permission-subjects.md` §2.1）；`emp_<role>` 是本地权责表条目（`backend/tool/registry/permission_policy.go:194` `DefaultPermissionSubjects`） | 跨机之后需要**第二道**门："谁可以驱动这个节点"。现有员工权限管不到这条边界 |
 | 4 | **数据根是单进程锁** | `store/root/data_root_lock.go` + `data_root_lock_multiprocess_test.go` | 多节点**必须各自 data root**，汇聚只能走网络。这与"隔离"同向，不是障碍 |
 | 5 | **员工桌面输入位为零** | 见 §4.1 | "让员工随便用桌面"要重新裁决权限口径 |
 
 ### 4.1 员工今天在桌面上的实际权责（代码确认）
 
-`seelebridge/tools/permission_policy.go:194-232` 的 `DefaultPermissionSubjects`：
+`backend/tool/registry/permission_policy.go:194-232` 的 `DefaultPermissionSubjects`：
 
 | 主体 | ro | rw(project) | rw_session | **rw_desktop** | ctl | adm |
 |---|---|---|---|---|---|---|

@@ -143,7 +143,7 @@ func (g *goalCoordinator) ProposeFinish(ctx context.Context, sessionID string, r
 // 口径（2026-10-02 用户裁决 B，推翻 contract_review 的 U5）：主代理就是 TL 的角色——它在
 // 团队里拍板收口，也应当能对目标拍板收口，因此 goal_done 是**真收口**而不是提议。
 // teammate（角色会话）仍禁：goal 工具族在可见性层对 subagent 整族不可见
-// （seelebridge/tools/policy.go isGoalTool），员工连工具都看不到，谈不上调用。
+// （backend/tool/registry/policy.go isGoalTool），员工连工具都看不到，谈不上调用。
 //
 // 与 ProposeFinish 的分工：那条路送终态 gate（TL 评估器裁决，可能纠偏）；这一条是裁决者
 // 自己拍板。两条路落到同一个 Controller.Finish/Abort——收口的副作用（弹栈 + History 留

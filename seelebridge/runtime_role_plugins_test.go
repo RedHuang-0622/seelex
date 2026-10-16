@@ -17,7 +17,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/seelebridge/tools"
+	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/skill"
 	"github.com/RedHuang-0622/seelex/store"
 )
@@ -80,7 +80,7 @@ func TestPluginAssemblyEmptySetMatchesHostFace(t *testing.T) {
 	defer runtime.Shutdown()
 	all := pluginFaceToolsOf("cad_draw", "doc_read", "write_file", "get_time")
 
-	hostPolicy := tools.NewPolicy(tools.PolicyDeps{PluginFilter: runtime.plugins.Filter})
+	hostPolicy := toolreg.NewPolicy(toolreg.PolicyDeps{PluginFilter: runtime.plugins.Filter})
 	want := pluginFaceNamesOf(hostPolicy.Filter(context.Background(), all))
 	got := pluginFaceNamesOf(runtime.visibilityPolicy.Filter(context.Background(), all))
 	if !pluginFaceSameNames(got, want) {
@@ -109,8 +109,8 @@ func TestPluginAssemblyIsolatedPerTurnContext(t *testing.T) {
 	defer runtime.Shutdown()
 	all := pluginFaceToolsOf("cad_draw", "doc_read", "write_file", "get_time")
 
-	ctxCad := tools.WithRolePlugins(context.Background(), []string{"cad"})
-	ctxDocs := tools.WithRolePlugins(context.Background(), []string{"docs"})
+	ctxCad := toolreg.WithRolePlugins(context.Background(), []string{"cad"})
+	ctxDocs := toolreg.WithRolePlugins(context.Background(), []string{"docs"})
 	gotCad := pluginFaceNamesOf(runtime.visibilityPolicy.Filter(ctxCad, all))
 	gotDocs := pluginFaceNamesOf(runtime.visibilityPolicy.Filter(ctxDocs, all))
 	if !pluginFaceSameNames(gotCad, []string{"cad_draw"}) {
@@ -138,7 +138,7 @@ func TestPluginAssemblyUndefinedNameFailsClosed(t *testing.T) {
 	runtime := newPluginAssemblyRuntime(t)
 	defer runtime.Shutdown()
 	all := pluginFaceToolsOf("cad_draw", "doc_read", "write_file", "get_time")
-	ctx := tools.WithRolePlugins(context.Background(), []string{"ghost"})
+	ctx := toolreg.WithRolePlugins(context.Background(), []string{"ghost"})
 	if got := runtime.visibilityPolicy.Filter(ctx, all); len(got) != 0 {
 		t.Fatalf("未定义插件名必须失灵（空面），得 %v", pluginFaceNamesOf(got))
 	}
@@ -271,7 +271,7 @@ func (e *pluginRoundProbeEngine) SetMaxLoops(int)          {}
 func (e *pluginRoundProbeEngine) ClearHistory()            {}
 func (e *pluginRoundProbeEngine) History() []types.Message { return nil }
 func (e *pluginRoundProbeEngine) ChatStream(ctx context.Context, _ string, _ func(string)) (string, error) {
-	e.ctxPlugins = tools.RolePluginsFromContext(ctx)
+	e.ctxPlugins = toolreg.RolePluginsFromContext(ctx)
 	return "done", nil
 }
 

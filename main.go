@@ -30,6 +30,7 @@ import (
 	coretask "github.com/RedHuang-0622/seelex/application/core/task_context"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/backend/limit/overlay"
+	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/backend/tool/search"
 	"github.com/RedHuang-0622/seelex/backend/tool/websearch"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -42,7 +43,6 @@ import (
 	"github.com/RedHuang-0622/seelex/plugin"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	seeteamwork "github.com/RedHuang-0622/seelex/seelebridge/teamwork"
-	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
 	"github.com/RedHuang-0622/seelex/session"
 	"github.com/RedHuang-0622/seelex/skill"
@@ -632,7 +632,7 @@ func run() error {
 	// "不是角色会话"回退）。因此这里不再接线，而不是留一个恒 false 的闭包。
 	//
 	// 员工权限的**权威判定**在"按构造"那条路（角色回合起手用
-	// `seelebridge/tools.WithEmployeeGrant` / `WithEmployeeSubjectClass` 把员工主体放进
+	// `backend/tool/registry.WithEmployeeGrant` / `WithEmployeeSubjectClass` 把员工主体放进
 	// ctx），那条路不依赖反查索引，本条目未改 seelebridge（见
 	// docs/arch/agent-permission-subjects.md）。`seelebridge` 侧的
 	// `SetRoleSessionPolicyResolver` / `SetRoleSessionOwnerResolver` 仍在（运行时公开
@@ -2076,7 +2076,7 @@ func initApplication(
 		// 系统提示词的**环境段**：装配期解析一次"这台机器上 bash 工具实际落到哪个壳"，
 		// 写进提示词（模型写命令前唯一的方言事实；2026-10-15 审计 D4）。解析结果进程内
 		// 缓存，因此前缀逐轮稳定。
-		EnvironmentSection: seeltools.ResolveShellFact().PromptSection(),
+		EnvironmentSection: toolreg.ResolveShellFact().PromptSection(),
 	})
 }
 
@@ -2144,7 +2144,7 @@ func setupPermissionGate(runtime permissionRuntime, approval *application.Approv
 	// 免打断的读命令白名单按**装配期解析出的实际壳**分派（2026-10-15 审计 D4）：
 	// 白名单是按命令文本匹配的，而同一个字符串在 POSIX 壳与 PowerShell 下是两回事——
 	// 写死 POSIX 形态会让 PowerShell 宿主上的命令"过闸即死"（放行 → 执行必失败）。
-	cfg := policy.PermissionConfigForShell(seeltools.ResolveShellFact().Kind)
+	cfg := policy.PermissionConfigForShell(toolreg.ResolveShellFact().Kind)
 	fileCfg, err := loadPermissionConfig(ensureConfigFile(bootseed.PermissionConfigName, bootseed.PermissionConfigPack()))
 	if err != nil {
 		return err

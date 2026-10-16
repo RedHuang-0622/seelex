@@ -11,7 +11,7 @@
 
 主要调用方：
 
-- `seelebridge/tools`（执行门 `PermissionGate` 的类解析、可见性、工具面与注册表；
+- `backend/tool/registry`（执行门 `PermissionGate` 的类解析、可见性、工具面与注册表；
   判据搬走后它只调用 `policy.*`）；
 - `seelebridge` 根包与 `main.go`（装配期的配置表、壳类别、子代理/员工权限派生）；
 - `internal/adapters`、`application/*`（员工权限装配、工具声明的读面）。
@@ -21,7 +21,7 @@
 - 做：登记权责模型表（主体 × 路由组 × 位 × 动作）、按壳给规则表、按档位剪 ask 规则、
   把节点作用域/工具策略映射成主体类、把工具名路由到路由组、派生工具簇属。
 - 不做：不持有任何运行期状态（角色会话的策略缓存、注册表、审批 broker、当前档位与
-  配置快照都在 `seelebridge/tools` 与消费方）；不做权限**判定**（判定委托给上游
+  配置快照都在 `backend/tool/registry` 与消费方）；不做权限**判定**（判定委托给上游
   Seele `permission.Gate`）；不做路径闸（`backend/limit/gate` 的 ProjectScope）；
   不做 UI 词表（档位目录的唯一事实在 `contract/dto`，这里只转发）。
 
@@ -68,7 +68,7 @@ bitAll` ⇒ `BitRead/BitWrite/BitExecute/BitAll`（它们要跨新边界），�
 config/seelex.yaml 的 permission 段 ──┐
                                       ├─→ DefaultPermission* / PermissionRulesForShell
 执行壳解析结果（tools.ResolveShellFact）┘        │
-                                                ├─→ seelebridge/tools 的 PermissionGate
+                                                ├─→ backend/tool/registry 的 PermissionGate
 档位（dto.PermissionTier*）──→ ApplyTier ────────┤   （判定仍委托框架 permission.Gate）
                                                 │
 工具名 ──→ RoutePermissionGroup ──→ DeclaredToolMeta ──→ 注册表条目的簇属
@@ -118,11 +118,11 @@ config/seelex.yaml 的 permission 段 ──┐
 gofmt -l backend/limit/policy
 go build ./...
 go vet ./...
-go test ./backend/limit/policy/ ./seelebridge/tools/ ./backend/limit/... -count=1
+go test ./backend/limit/policy/ ./backend/tool/registry/ ./backend/limit/... -count=1
 go test ./e2e/ -count=1          # 模块清单与门面闭包 ratchet
 ```
 
-判据层的消费侧用例在 `seelebridge/tools`（同包测试：权限主体、员工授权、档位覆盖、
+判据层的消费侧用例在 `backend/tool/registry`（同包测试：权限主体、员工授权、档位覆盖、
 工具簇属、壳方言白名单），它们经 `policy.*` 的导出面覆盖同一份判据。
 
 ## 文件与函数索引

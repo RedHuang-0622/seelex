@@ -4,7 +4,7 @@ package policy
 //
 // 2026-10-16 从 seelebridge/tools/permission_policy.go 的前半段归位（M2-C4，行为零变化）：
 // 这里只留**纯判据与词表**；带状态的执行门（PermissionGate 及其 classFor /
-// decideFor / enforce* / visibleFor / ToolFaceFor*）与注册表仍留在 seelebridge/tools。
+// decideFor / enforce* / visibleFor / ToolFaceFor*）与注册表仍留在 backend/tool/registry。
 //
 // 长期口径见 docs/2026-09-15-agent-permission-routing-groups/README.md §2；下面是
 // 它在 seelex 侧的可执行形态：
@@ -29,7 +29,7 @@ package policy
 //     对 root 只增加"位必须齐"这一道（root 全位，等价于不增加）。
 //
 // 主体与框架 `permission.Engine` 是同一个 id：middleware 把主体写进 ctx
-// （WithEngine），checker 用它查授权表，seelebridge/tools 的 Enforcer 用同一身份做类策略。
+// （WithEngine），checker 用它查授权表，backend/tool/registry 的 Enforcer 用同一身份做类策略。
 
 import (
 	"strings"

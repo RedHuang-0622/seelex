@@ -5,11 +5,11 @@ import "strings"
 // permission.go 是「员工权限装配」的跨层词汇：**路由组名 + 位值**。
 //
 // 生态位：权责模型（主体 × 路由组 × 位 × 动作）的可执行形态在
-// seelebridge/tools（PermissionGate / EmployeePermission）；这里只放**前端与后端
+// backend/tool/registry（PermissionGate / EmployeePermission）；这里只放**前端与后端
 // 共用的那一份字面量**——前端要按组渲染"逐格装配"的权限面板，后端要在写入侧
 // 校验这些格子，两边必须是同一个集合，否则一个拼写错误会静默变成"没分配"。
 //
-// 唯一事实：组名与位值的字面量定义在这里，seelebridge/tools 的 Group* / bit*
+// 唯一事实：组名与位值的字面量定义在这里，backend/tool/registry 的 Group* / bit*
 // 常量是它们的别名（不是第二份定义）。任何一侧新增组名，另一侧跟着改别名即可。
 
 // 路由组名（与 seele.yaml permission.groups 的默认组分封一致）。

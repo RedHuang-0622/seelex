@@ -12,7 +12,7 @@ import (
 // 进程树终止（POSIX）：Setpgid 让执行体自成进程组，终止 = 对负 PID 发 SIGKILL，
 // 组内所有成员一起走。
 //
-// 与 Windows 变体同签名，调用方（seelebridge/tools 的后台执行域）不需要分平台。
+// 与 Windows 变体同签名，调用方（backend/tool/registry 的后台执行域）不需要分平台。
 
 const processTreeKillExitCode = 137
 

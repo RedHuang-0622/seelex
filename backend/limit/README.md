@@ -37,13 +37,13 @@ Seelex 的**判据与档位基座包**：集中运行时上限（`config/seelex.
 - 不持有工具、不跑 ReAct 循环：那些属于 `backend/tool` 与 `backend/engine`。
   权限**判据**（授权表 / 路由组 / 档位覆盖 / 工具簇属声明 / 壳类别词表）已在
   [policy/](policy/README.md)：本包不做判定、policy 也不做判定（判定委托上游
-  Seele `permission.Gate`），执行门仍在 `seelebridge/tools`。
+  Seele `permission.Gate`），执行门仍在 `backend/tool/registry`。
 - 不做"读一处、判一处"的第二份实现：默认值表、比例校验、窗口边界都只在本包出现，
   上层不得复制。
 - 不 import 任何 Seelex 包（见「依赖方向」）。
 
 **规划，尚未实现**（plan §2.8 的其余行）：
-权限三件套 + `tool_meta.go` → `policy/`（需先把 `seelebridge/tools` 的依赖抽成接口）；
+权限三件套 + `tool_meta.go` → `policy/`（需先把 `backend/tool/registry` 的依赖抽成接口）；
 `application/prompt/effort.go` 的 effort 策略面 → `effort/`。
 
 **已完成**：`loop/`（循环上限判据，M2-B）；`approval/`（审批 broker，M2-C1；端口形状与

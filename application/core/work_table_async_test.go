@@ -23,7 +23,7 @@ func runningAsyncRecord(handle string) dto.AsyncRunRecord {
 	return dto.AsyncRunRecord{
 		SessionID: "session-a", Handle: handle, Description: "跑一整轮集成测试",
 		Command: "go test ./... -count=1", State: dto.AsyncStateRunning, ExitCode: -1,
-		LogBytes: 1300, Tail: "ok seelebridge/tools 6.5s",
+		LogBytes: 1300, Tail: "ok backend/tool/registry 6.5s",
 		LastByteAt: now, LogPath: `C:\Temp\seelex-async-1\a3.log`,
 		BatchID: "req-1", StartedAt: now.Add(-2 * time.Second),
 	}
@@ -68,7 +68,7 @@ func TestAsyncRunProjectsEveryVisibleColumn(t *testing.T) {
 	if point.Operation != asyncProbeOperation || point.Status != dto.AsyncStateRunning.String() {
 		t.Fatalf("探针打点身份不符: %+v", point)
 	}
-	for _, want := range []string{"1.3KiB", "ok seelebridge/tools 6.5s"} {
+	for _, want := range []string{"1.3KiB", "ok backend/tool/registry 6.5s"} {
 		if !strings.Contains(point.Evidence, want) {
 			t.Fatalf("探针证据缺 %q: %q", want, point.Evidence)
 		}
@@ -142,7 +142,7 @@ func TestAsyncTraceLinesCarryNoPathsOrLogContent(t *testing.T) {
 	terminal := record
 	terminal.State = dto.AsyncStateDone
 	terminal.Notified = true
-	terminal.Summary = "done · exit=0 · 12 行 · 1.3KiB · 末行: ok seelebridge/tools"
+	terminal.Summary = "done · exit=0 · 12 行 · 1.3KiB · 末行: ok backend/tool/registry"
 	terminalLines := asyncTraceLines([]dto.AsyncRunRecord{terminal}, "session-a")
 	if len(terminalLines) != 1 {
 		t.Fatalf("完成行（已回填）必须进打点块: %v", terminalLines)

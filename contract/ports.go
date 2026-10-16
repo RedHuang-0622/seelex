@@ -504,7 +504,7 @@ type Dependencies struct {
 	ToolRecordSnapshotStore ToolRecordSnapshotStore
 	// EnvironmentSection 是系统提示词里的**环境段**（装配期定值，可选）：由组合根给出，
 	// 因为"这台机器上命令会落到哪个壳"是**执行面的事实**，只有桥层解析得了（见
-	// seelebridge/tools 的 ShellFact)，而应用层不许反向依赖它。
+	// backend/tool/registry 的 ShellFact)，而应用层不许反向依赖它。
 	//
 	// 它是装配期常量而不是每轮现算：系统提示是**稳定前缀**，同一进程内必须逐字节稳定，
 	// 否则前缀缓存与压缩边界每轮都会变。

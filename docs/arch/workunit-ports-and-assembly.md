@@ -15,7 +15,7 @@
 
 | # | 父/端口 | 它回答什么 | 方法面 | 现有实现候选 | 谁注入 |
 |---|---|---|---|---|---|
-| 1 | **作业面** `JobFace` | 一件在飞的活：提交、句柄、状态、增量读、取消、销项、按作用域回收、变更信号 | 按能力切成的**四格 + 一个合成**：`JobSubmitter`（`Dispatch`=提交）/ `JobReader`（`Observe`=状态、`Peek`=增量读不推进游标、`Snapshot`=全量）/ `JobController`（`Kill` / `Done` / `Reclaim(ctx, Scope)` 按作用域）/ `JobSignals`（`Events()`）；`Jobs` = 四格的合成 | Seele `jobs.Manager`（teammate 现在）：**八格逐字对齐**，`contract.go` 的 `var _ Jobs = (jobs.Manager)(nil)`；`tools` 那张 async 表（subagent / `bash_bg` 现在）：今天只在 `JobSignals` 那一格同形（断言在 `seelebridge/tools/async_exec.go`） | 装配处（new） |
+| 1 | **作业面** `JobFace` | 一件在飞的活：提交、句柄、状态、增量读、取消、销项、按作用域回收、变更信号 | 按能力切成的**四格 + 一个合成**：`JobSubmitter`（`Dispatch`=提交）/ `JobReader`（`Observe`=状态、`Peek`=增量读不推进游标、`Snapshot`=全量）/ `JobController`（`Kill` / `Done` / `Reclaim(ctx, Scope)` 按作用域）/ `JobSignals`（`Events()`）；`Jobs` = 四格的合成 | Seele `jobs.Manager`（teammate 现在）：**八格逐字对齐**，`contract.go` 的 `var _ Jobs = (jobs.Manager)(nil)`；`tools` 那张 async 表（subagent / `bash_bg` 现在）：今天只在 `JobSignals` 那一格同形（断言在 `backend/tool/registry/async_exec.go`） | 装配处（new） |
 | 2 | **现场** `SceneFace` | 一件活的现场：建、收尾合并、回收、重启认领 | `Begin(ctx, identity)(Scene,err)` / `Finish(ctx, scene, result, mergeErr)(Outcome,err)` / `Reclaim(ctx, scene)` / `Adopt/Restore(ctx)` | `*worktree.WorktreeManager`（已是一份实现） | 装配处（new） |
 | 3 | **会话/记录** `SessionFace` | 跑到哪、现场在哪、重启怎么回灌 | `Save/Load/List/Delete(record)` / `Recover(ctx, scope)(Resume,err)` / `InFlight(status)` | `*store.NodeSessionStore`（`SessionLedger` 已有编译期断言） | 装配处（new） |
 | 4 | **读面** `ReadFace` | 进度 / 阶段 / 结论 / 在跑与否（只读，不新起事实源） | `Stage` / `EncodeStages·DecodeStages` / `Progress·ProgressOf` / `UnitReader`（`a3` 勘定：`docs/arch/workunit-progress-read-surface.md`，建议落 `seelebridge/workunit/progress.go`） | 投影自 ① + ③，**不新增一张表** | 装配处（new） |
@@ -88,7 +88,7 @@
 | # | 落地物 | 位置 |
 |---|---|---|
 | 1 | 作业面四格 + 合成 `Jobs`；`var _ Jobs = (jobs.Manager)(nil)` 保留原处 | `seelebridge/workunit/contract.go` |
-| 2 | tools 自建表同形那一格的断言（只加断言行，行为零变化） | `seelebridge/tools/async_exec.go` |
+| 2 | tools 自建表同形那一格的断言（只加断言行，行为零变化） | `backend/tool/registry/async_exec.go` |
 | 3 | 现场 / 编排账本 / 会话记录三格端口 + 装配处 | `seelebridge/workunit_assembly.go` |
 | 4 | 生命周期实现只持端口（无按层分支、无具体类型） | `seelebridge/workunit_parent.go` |
 | 5 | 读面定形（`Stage` / `EncodeStages`·`DecodeStages` / `ProgressOf` / `UnitReader`） | `seelebridge/workunit/progress.go` |

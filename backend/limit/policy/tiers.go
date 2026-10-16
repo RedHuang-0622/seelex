@@ -17,7 +17,7 @@ package policy
 //	manual  无（完全按权责表）
 //	edit    剪 write_file / edit_file 的 ask（项目文件写不再打断）
 //	auto    再剪 bash 的全部 ask（任意命令直跑；危险 deny 仍在）
-//	full    BypassAll（执行门短路放行，见 seelebridge/tools/registry_state.go 的 Enforce）
+//	full    BypassAll（执行门短路放行，见 backend/tool/registry/registry_state.go 的 Enforce）
 //
 // 刻意**不放进中档**的两族：rw_desktop（一块共享外设）与 adm（改变能力面本身），
 // 只有 full 档才放开——逐次确认共享外设与"先扩权再干活"是安全底线。

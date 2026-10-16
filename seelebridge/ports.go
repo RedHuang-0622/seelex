@@ -12,12 +12,12 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/engine/schedule"
 	subagentsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
+	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/backend/tool/task"
 	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/mcp"
-	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 	"github.com/RedHuang-0622/seelex/seelexctx/search"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 	"github.com/RedHuang-0622/seelex/skill"
@@ -775,7 +775,7 @@ func (r *Runtime) SetSchedulerObserver(observer func()) {
 
 // WithPluginAssembly 返回把"这一轮装配哪些插件"带进执行 ctx 的派生 ctx。
 //
-// 与 teammate 回合用的是**同一个原语**（seeltools.WithRolePlugins）：工具可见性
+// 与 teammate 回合用的是**同一个原语**（toolreg.WithRolePlugins）：工具可见性
 // 每轮从 ctx 现算，不在任何句柄上缓存"当前装配"——缓存在并发回合里会被后写的那份
 // 覆盖。空集合原样返回 ctx（= 不覆盖，继承宿主当前激活插件）。
 //
@@ -786,7 +786,7 @@ func (r *Runtime) WithPluginAssembly(ctx context.Context, plugins []string) cont
 	if ctx == nil || r == nil || len(plugins) == 0 {
 		return ctx
 	}
-	return seeltools.WithRolePlugins(ctx, plugins)
+	return toolreg.WithRolePlugins(ctx, plugins)
 }
 
 // ── 历史检索端口 ──────────────────────────────────────────────────

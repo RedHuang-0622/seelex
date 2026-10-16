@@ -272,7 +272,7 @@ type Jobs interface {
 // 这条断言同时是"完整作业面"的**形状证据**：`jobs.Manager` 的这八格（提交 / 状态 / 增量读 /
 // 全量读 / 取消 / 销项 / 按作用域回收 / 变更信号）与契约逐字对齐——不写适配器、不另立第二份
 // 作业模型。tools 自建 async 表是第二个作业面实现候选，它今天只在 `JobSignals` 这一格上
-// 与这里同形（断言落在 `seelebridge/tools/async_exec.go`），其余七格的名字与签名都不同：
+// 与这里同形（断言落在 `backend/tool/registry/async_exec.go`），其余七格的名字与签名都不同：
 // 那是 docs/arch/workunit-ports-and-assembly.md §5② 的先行项，不在本轮。
 var _ Jobs = (jobs.Manager)(nil)
 

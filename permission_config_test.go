@@ -9,8 +9,8 @@ import (
 	frameworktools "github.com/RedHuang-0622/Seele/tools"
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
+	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 )
 
 // permission_config_test.go — 权责系统的装配验收：默认配置 + config/seele.yaml 合并后，
@@ -179,7 +179,7 @@ func TestMergedConfigSubagentAndEmployee(t *testing.T) {
 
 	// 子代理：ctl / adm 断位 → ErrToolNotVisible，且不产生审批请求。
 	approvals := 0
-	subGate := &seeltools.PermissionGate{SessionFromContext: toolspermission.SessionIDFromContext}
+	subGate := &toolreg.PermissionGate{SessionFromContext: toolspermission.SessionIDFromContext}
 	subGate.Set(cfg, func(*toolspermission.ApprovalContext) (*toolspermission.ApprovalResponse, error) {
 		approvals++
 		return &toolspermission.ApprovalResponse{Choice: "allow"}, nil
@@ -201,7 +201,7 @@ func TestMergedConfigSubagentAndEmployee(t *testing.T) {
 
 	// 员工（readwrite）：碰 adm → 走执行选择页面；人类放行后本次执行。
 	empApprovals := 0
-	empGate := &seeltools.PermissionGate{SessionFromContext: toolspermission.SessionIDFromContext}
+	empGate := &toolreg.PermissionGate{SessionFromContext: toolspermission.SessionIDFromContext}
 	empGate.Set(cfg, func(ctx *toolspermission.ApprovalContext) (*toolspermission.ApprovalResponse, error) {
 		empApprovals++
 		return &toolspermission.ApprovalResponse{RequestID: ctx.Request.ID, Choice: "allow"}, nil

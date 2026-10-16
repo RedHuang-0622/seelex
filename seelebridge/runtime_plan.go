@@ -16,11 +16,11 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/tool/fork"
 	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
 	"github.com/RedHuang-0622/seelex/backend/tool/plan"
+	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/model"
 	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 	"github.com/RedHuang-0622/seelex/seelexctx/provider"
 	"github.com/RedHuang-0622/seelex/store"
 )
@@ -244,8 +244,8 @@ func (a subagentJobsAdapter) Add(spec fork.SubagentJobSpec, cancel context.Cance
 	if router == nil {
 		return "", fmt.Errorf("子代理作业面不可用（工具路由未装配）；子代理派发只走作业面，不退化成阻塞调用")
 	}
-	return router.AddSubagentJob(seeltools.JobSpec{
-		Kind:      seeltools.JobKindSubagent,
+	return router.AddSubagentJob(toolreg.JobSpec{
+		Kind:      toolreg.JobKindSubagent,
 		SessionID: spec.SessionID,
 		Command:   spec.Goal,
 		// 行标题：worktree 隔离的子代理，标题就是它在干什么（id 是身份，不是标题）。
@@ -270,7 +270,7 @@ func (a subagentJobsAdapter) Complete(handle string, state dto.AsyncState) {
 // router 延迟解析工具路由：fork 域在 **NewRuntime 构造期**就拿到这个端口（那时
 // 工具路由还没装配），必须在调用时现取——否则会把 nil 记一辈子，作业面永远
 // 报"未装配"。
-func (a subagentJobsAdapter) router() *seeltools.Router {
+func (a subagentJobsAdapter) router() *toolreg.Router {
 	if a.runtime == nil {
 		return nil
 	}

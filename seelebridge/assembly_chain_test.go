@@ -34,9 +34,9 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/backend/limit"
+	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/plugin"
-	"github.com/RedHuang-0622/seelex/seelebridge/tools"
 	"github.com/RedHuang-0622/seelex/skill"
 	"github.com/RedHuang-0622/seelex/store"
 )
@@ -255,7 +255,7 @@ func TestAssemblyChainEmptySetIsByteIdenticalToToday(t *testing.T) {
 
 	// ① 工具面：同一条早退路（宿主全局装配），不是"等价实现"。
 	all := assemblyChainTools()
-	legacy := tools.NewPolicy(tools.PolicyDeps{PluginFilter: runtime.plugins.Filter})
+	legacy := toolreg.NewPolicy(toolreg.PolicyDeps{PluginFilter: runtime.plugins.Filter})
 	legacyFace := assemblyChainNames(legacy.Filter(context.Background(), all))
 	liveFace := assemblyChainNames(runtime.visibilityPolicy.Filter(snapshot.ctx, all))
 	if !assemblyChainSameStrings(legacyFace, []string{"cad_draw"}) {
@@ -658,7 +658,7 @@ func (p *assemblyChainProbe) ChatStream(ctx context.Context, _ string, _ func(st
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.ctx = ctx
-	p.ctxPlugins = tools.RolePluginsFromContext(ctx)
+	p.ctxPlugins = toolreg.RolePluginsFromContext(ctx)
 	p.visible = assemblyChainNames(p.runtime.visibilityPolicy.Filter(ctx, p.all))
 	return "done", nil
 }

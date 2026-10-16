@@ -4,7 +4,7 @@ package policy
 //
 // 2026-10-16 从 seelebridge/tools/shell_fact.go 的判据段归位（M2-C4，行为零变化）：
 // ShellKind 是"权限表怎么分派 bash 免打断模式"的判据，因此与权责表同处一包；
-// 壳的**实际解析结论**（ShellFact / ResolveShellFact）仍留在 seelebridge/tools。
+// 壳的**实际解析结论**（ShellFact / ResolveShellFact）仍留在 backend/tool/registry。
 
 // ShellKind 是执行壳的类别：模型面与权限表按它分派方言。
 type ShellKind string

@@ -1,15 +1,15 @@
 package seelebridge
 
 import (
+	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 )
 
 // 作业（bash_bg / read_batch / subagent）到 Application 侧的**只读投影面**。
 //
 // 为什么单独立一个文件而不是塞进 runtime_tools.go：这一面不属于"工具注册与调度"，
 // 它是执行域状态的对外读侧（工作表格与请求尾部打点块的输入）。写侧（派发、取回、
-// 终止）全在 seelebridge/tools 里，这里只做字段搬运，不含任何判定。
+// 终止）全在 backend/tool/registry 里，这里只做字段搬运，不含任何判定。
 //
 // 投影是只读的、且永不落盘：后台句柄活在内存，而 core 的 task 注册表随会话 record
 // 持久化。把它写进注册表，重启后就会留下一条永远 running 的假行（不变量 I-21）。
@@ -34,7 +34,7 @@ func (r *Runtime) AsyncRunsSnapshot() []dto.AsyncRunRecord {
 
 // asyncRunRecordFrom 搬运探针读数到 DTO。单独成函数是为了让"漏搬一列"能被用例钉住
 // ——投影面只做搬运，任何判定都不许长在这里。
-func asyncRunRecordFrom(info seeltools.AsyncRunInfo) dto.AsyncRunRecord {
+func asyncRunRecordFrom(info toolreg.AsyncRunInfo) dto.AsyncRunRecord {
 	return dto.AsyncRunRecord{
 		SessionID:   info.SessionID,
 		Handle:      info.Handle,

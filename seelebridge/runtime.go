@@ -31,6 +31,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/tool/io/imageattach"
 	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
 	"github.com/RedHuang-0622/seelex/backend/tool/plan"
+	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/backend/tool/task"
 	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -41,7 +42,6 @@ import (
 	"github.com/RedHuang-0622/seelex/seelebridge/mcp"
 	"github.com/RedHuang-0622/seelex/seelebridge/plugin"
 	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
-	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/skill"
 	"github.com/RedHuang-0622/seelex/store"
@@ -76,7 +76,7 @@ type RuntimeConfig struct {
 	AccountWindows map[string]int
 }
 type Runtime struct {
-	registry  *seeltools.RegistryState
+	registry  *toolreg.RegistryState
 	pool      *accountpool.P2CPool[agent.Completer]
 	completer agent.Completer
 	streamer  agent.StreamCompleter
@@ -129,10 +129,10 @@ type Runtime struct {
 	// AttachMCP 时自动启动熔断事件监听，无需手动装配。
 	MCPStack *mcpstack.MCPStack
 
-	mcpManager           *mcp.Manager      // MCP 服务器生命周期（mcp/ 域）
-	planExecutor         *plan.Executor    // Plan 执行域组件（plan_executor.go）：策略/绑定/runID/事件/replan/工厂
-	accounts             *account.Manager  // 账号路由状态（account/ 域）：选中账号/provider/限额
-	visibilityPolicy     *seeltools.Policy // 可见性策略（tools/ 域）：节点作用域 + 插件过滤
+	mcpManager           *mcp.Manager     // MCP 服务器生命周期（mcp/ 域）
+	planExecutor         *plan.Executor   // Plan 执行域组件（plan_executor.go）：策略/绑定/runID/事件/replan/工厂
+	accounts             *account.Manager // 账号路由状态（account/ 域）：选中账号/provider/限额
+	visibilityPolicy     *toolreg.Policy  // 可见性策略（tools/ 域）：节点作用域 + 插件过滤
 	visibilityProjection atomic.Pointer[RuntimeVisibilityProjection]
 	// subagentContext 是子代理上下文 actor（装配件拆分第一步）：父证据
 	// 的读-合并-写回与 merge-back 队列收进单一 goroutine（channel 命令 +
@@ -204,13 +204,13 @@ type Runtime struct {
 	accountWindowsMu    sync.RWMutex // 每账号上下文窗口覆盖（界面设置面；值拷贝读写）
 	accountWindows      map[string]int
 	scopedToolsReady    bool
-	scopedTools         *seeltools.Router // 后台命令执行域（会话销毁即杀的入口）
-	lifecycle           []func()          // 生命周期登记（NewRuntime 装配序；Shutdown 逆序）
-	shutdownOnce        sync.Once         // Shutdown 幂等守卫：并发/重复调用只执行一次（lifecycle 各实现不保证并发安全）
+	scopedTools         *toolreg.Router // 后台命令执行域（会话销毁即杀的入口）
+	lifecycle           []func()        // 生命周期登记（NewRuntime 装配序；Shutdown 逆序）
+	shutdownOnce        sync.Once       // Shutdown 幂等守卫：并发/重复调用只执行一次（lifecycle 各实现不保证并发安全）
 
 	plugins *plugin.Manager // 插件可见性配置（plugin/ 域）
 
-	permission *seeltools.PermissionGate
+	permission *toolreg.PermissionGate
 
 	// 角色回合执行面（runtime_role_turn.go）：角色会话 → 引擎槽。与主会话 bundles
 	// 分离——角色回合是派生的、可丢弃的执行面，不该进活跃会话/持久化路由。
@@ -374,7 +374,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		limits:              cfg.Limits.WithDefaults(),
 		accountWindows:      copyAccountWindows(cfg.AccountWindows),
 		plugins:             plugin.NewManager(),
-		permission: &seeltools.PermissionGate{
+		permission: &toolreg.PermissionGate{
 			// 波 4 approval 会话级归属：权限审批随调度 ctx 归属发起会话。
 			SessionFromContext: seeletelemetry.SessionIDFromContext,
 		},
@@ -399,7 +399,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	r.accounts = account.NewManager(loaded.Specs, loaded.Limits, first.Name, pool)
 	// ── 拓扑序装配链（config→account→registry→completer→agent→plan→node→…）──
 	// 2. 工具注册表：WithCallTimeout 保留工具超时语义；权限门控作为 middleware。
-	r.registry = seeltools.NewRegistryState(cfg.ToolCallTimeout, r.permission, approvalTimeout, r.toolEvents.Middleware(), r.bashDiagnosticMiddleware())
+	r.registry = toolreg.NewRegistryState(cfg.ToolCallTimeout, r.permission, approvalTimeout, r.toolEvents.Middleware(), r.bashDiagnosticMiddleware())
 
 	// 3. Completer / StreamCompleter（共享账号选择器，无 api.ChatClient 强转）
 	if err := r.assembleCompleters(); err != nil {
@@ -425,7 +425,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	// 4. 可见性策略：goal skill 激活判定 + 插件过滤，经闭包注入 tools.Policy。
 	// （GoalSkillActive 是运行期状态，闭包在 Dispatch 期求值；node 可能尚未
 	// 装配，nil 防护回退 false。）
-	r.visibilityPolicy = seeltools.NewPolicy(seeltools.PolicyDeps{
+	r.visibilityPolicy = toolreg.NewPolicy(toolreg.PolicyDeps{
 		GoalSkillActive: func() bool {
 			if r.node == nil {
 				return false
@@ -464,7 +464,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 			if r.plugins == nil {
 				return tools
 			}
-			return r.pluginFaceJudgement(seeltools.RolePluginsFromContext(ctx)).face(tools)
+			return r.pluginFaceJudgement(toolreg.RolePluginsFromContext(ctx)).face(tools)
 		},
 	})
 
@@ -916,7 +916,7 @@ var (
 
 type dockerProbe = docker.Prober
 type (
-	BashDiagnosticEvent    = seeltools.BashDiagnosticEvent
-	BashDiagnosticObserver = seeltools.BashDiagnosticObserver
+	BashDiagnosticEvent    = toolreg.BashDiagnosticEvent
+	BashDiagnosticObserver = toolreg.BashDiagnosticObserver
 )
 type NodeWorktree = worktree.NodeWorktree

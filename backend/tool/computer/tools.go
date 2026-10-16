@@ -25,7 +25,7 @@ import (
 //
 // 安全边界：本层不做审批判断，工具的 allow/ask/deny 由权限门控（
 // seele.yaml 的 permission.rules）决定；默认兜底规则 `* → ask` 即要求逐次
-// 审批。输入注入类工具对子代理不可见（见 seelebridge/tools/policy.go）：
+// 审批。输入注入类工具对子代理不可见（见 backend/tool/registry/policy.go）：
 // 并行子代理共享同一块桌面，同时注入输入会互相打断。
 
 // 工具名（稳定契约：权限规则、插件 include/exclude、可见性策略都按名字匹配）。

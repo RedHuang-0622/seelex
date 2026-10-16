@@ -21,8 +21,8 @@ import (
 
 	"github.com/RedHuang-0622/Seele/types"
 
+	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/seelebridge/tools"
 	"github.com/RedHuang-0622/seelex/store"
 )
 
@@ -73,7 +73,7 @@ func TestAssemblyReadingAgreesWithRuntimeAfterPluginRevoked(t *testing.T) {
 	defer runtime.Shutdown()
 	member := store.TeamworkMember{Role: "exec", Plugins: []string{assemblyChainDocsPlugin}}
 	all := assemblyChainTools()
-	ctx := tools.WithRolePlugins(context.Background(), member.Plugins)
+	ctx := toolreg.WithRolePlugins(context.Background(), member.Plugins)
 
 	// 声明时：读数与运行面一致且非零（这一段是基线，证明后面的差异不是"读数一直为 0"）。
 	before := runtime.assemblyViews([]store.TeamworkMember{member})[0]
@@ -175,7 +175,7 @@ func (p *pluginChainProbe) History() []types.Message { return nil }
 
 func (p *pluginChainProbe) ChatStream(ctx context.Context, _ string, _ func(string)) (string, error) {
 	p.rounds <- pluginChainRound{
-		ctxPlugins: tools.RolePluginsFromContext(ctx),
+		ctxPlugins: toolreg.RolePluginsFromContext(ctx),
 		visible:    assemblyChainNames(p.runtime.visibilityPolicy.Filter(ctx, p.all)),
 	}
 	return "done", nil

@@ -95,7 +95,8 @@ var facadeClosureAllowList = []string{
 	// backend/tool/fork 抽出）。自身闭包 = 标准库，属"干净叶子"新模块。
 	"github.com/RedHuang-0622/seelex/backend/limit/loop",
 	// M2-C4：权限判据（主体类 / 路由组表 / 规则表 / 档位覆盖 / 工具簇属声明 /
-	// 壳类别词表）从 seelebridge/tools 抽出；执行门仍留在 tools。
+	// 壳类别词表）从 seelebridge/tools 抽出（M2-C4）；执行门当时仍留在 tools，
+	// 2026-10-16 M4-T3 整包归位到 backend/tool/registry（包名 registry）。
 	"github.com/RedHuang-0622/seelex/backend/limit/policy",
 	"github.com/RedHuang-0622/seelex/contract",
 	"github.com/RedHuang-0622/seelex/contract/dto",
@@ -126,7 +127,7 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/backend/multiagent/subagent",
 	"github.com/RedHuang-0622/seelex/backend/tool/task",
 	"github.com/RedHuang-0622/seelex/seelebridge/teamwork",
-	"github.com/RedHuang-0622/seelex/seelebridge/tools",
+	"github.com/RedHuang-0622/seelex/backend/tool/registry",
 	"github.com/RedHuang-0622/seelex/backend/tool/computer",
 	"github.com/RedHuang-0622/seelex/backend/tool/worktree",
 	"github.com/RedHuang-0622/seelex/seelebridge/workunit",

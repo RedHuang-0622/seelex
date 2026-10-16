@@ -16,7 +16,7 @@
 白名单 + `git`/`go`/`dotnet` 子命令白名单 + 参数级写形态"，语法标记（`&& || ; | > < $`
 反引号换行）整串拒绝；现场 479 次调用 34.4% 折在这条判定上，成因分布是复合语法 102 /
 PowerShell 命令面 38 / 白名单外子命令 18 / 其它 7。删除它换来的是"只读面只有一处事实"
-：命令面只剩 `bash`（rw）+ `bash_bg`，免打断的读命令由 `seelebridge/tools` 的
+：命令面只剩 `bash`（rw）+ `bash_bg`，免打断的读命令由 `backend/tool/registry` 的
 `bash` 模式白名单承担。
 - `command_windows.go`/`command_other.go`：`ConfigureHiddenCommand`（平台构建标签）——**合并写入** `SysProcAttr` 而不是整体赋值：`internal/winhide` 也往同一处写 `CREATE_NO_WINDOW`，谁赋值谁就把对方抹掉。
 - `process_tree_windows.go`/`process_tree_other.go`：`ProcessTree`（Windows = Job Object + `KILL_ON_JOB_CLOSE`；POSIX = 进程组 + `kill(-pgid)`）与 `ConfigureProcessTree`。**`taskkill /T` 不够**：MSYS2/Git Bash 的 fork 子 shell 不一定挂在直接父 PID 下，实测杀不掉；Job Object 不看父子关系，关句柄即整树回收。Job 建不出来时退化为按 PID 杀，由 `Degraded()` 如实报出（此时不得主张"整棵进程树已终止"）。

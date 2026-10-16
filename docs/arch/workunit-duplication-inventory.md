@@ -54,7 +54,7 @@
 
 | 同一件事 | 现有实现数 | 锚点 | 现状一句话 |
 |---|---|---|---|
-| 作业登记表 / 状态机 / 取回 | **2 张表** | ① `seelebridge/tools`：`async_exec.go:266`（`asyncRegistry.beginJob`，调用点 `:248`）、状态机 `async_exec.go` 全文、`jobManager`（`job_contract.go:301` `Kill` 等）② Seele `jobs.Manager`：装配点 `runtime_teamwork.go:72`（`jobs.New(...)`），执行体 `seelebridge/teamwork/executor.go:26` | bash_bg / read_batch / fork_subagents 走 tools 表；teammate worker 作业走 `jobs.Manager`。**同一件事（作业从创建到回收）两套表**。`CHANGELOG.md:112` 记载"M0 最后一步——把后台作业面搬到 `jobs.Manager`——被挡住"。 |
+| 作业登记表 / 状态机 / 取回 | **2 张表** | ① `backend/tool/registry`：`async_exec.go:266`（`asyncRegistry.beginJob`，调用点 `:248`）、状态机 `async_exec.go` 全文、`jobManager`（`job_contract.go:301` `Kill` 等）② Seele `jobs.Manager`：装配点 `runtime_teamwork.go:72`（`jobs.New(...)`），执行体 `seelebridge/teamwork/executor.go:26` | bash_bg / read_batch / fork_subagents 走 tools 表；teammate worker 作业走 `jobs.Manager`。**同一件事（作业从创建到回收）两套表**。`CHANGELOG.md:112` 记载"M0 最后一步——把后台作业面搬到 `jobs.Manager`——被挡住"。 |
 | 作业 scope 模型 | **2 份** | tools 侧按 `JobSpec.SessionID`（`job_contract.go:45`）；jobs 侧按 `jobs.Scope{Session, Subject}`（`teamwork/coordinator.go:217`、`items.go:412`） | 隔离键不同：一个只有会话，一个是会话 + 主体（`emp_<role>`）。 |
 | 作业回收入口 | **2 份、时机与粒度不同** | tools：`seelebridge/runtime_tools.go:179`（`ReleaseSessionAsync`，会话销毁即杀）→ `tools/async_run.go:119-120`（`CloseSessionAsync` → `async_exec.go:451 killSession`）；全局 `async_run.go:107`（`CloseAsync`，注册进 `r.lifecycle`，`runtime_tools.go:169`）。jobs：`teamwork/coordinator.go:407`（`Reclaim`）→ `jobs.Manager.Reclaim`，时机 = `team_retire`/`team_close`（`coordinator.go:379` `closeStepsLocked` + `items.go:948` `releaseAllItems`） | **两条链没有走到同一处**：tools 表按会话销毁回收，jobs 表按"角色/团队收口"回收；`team_retire` 已明确**不回收作业**（"谁还在跑留到整队收口"）。 |
 | 子代理作业的完成（被动终态） | 1 份 | `tools/job_subagent.go:75`（`AddSubagentJob`）/ `:110`（`CompleteJob`，执行体收尾合成终态）；调用点 `fork/tool.go:165/205/243/250` | 只有一份；`subagentJobsAdapter`（`runtime_plan.go:238`）是薄转发。 |
@@ -139,7 +139,7 @@
   - 其余命中均为注释/文档/测试（`runtime_subagent_recovery.go:140`、`runtime_teamwork_scene.go:9/12`、`workunit_node.go:20/55/60`、`runtime_teamwork_scene_test.go:6` 等）。
 - `beginNodeWorktree`：定义 `seelebridge/runtime_plan.go:145`（未变）；注入点 `runtime_plan.go:310`（`nodeDeps` 的 `BeginNodeWorktree`，清单原文记 `:306`）；测试 6 处（`worktree_test.go:111/158/196/234/255/290`，未变）。
 - `BeginNamed`：定义 `backend/tool/worktree/worktree_manager.go:266`（清单原文记 `:256`）；唯一生产调用点 `seelebridge/runtime_teamwork_items.go:66`（`BindWorkspace` 内 `wt := r.worktreeMgr.BeginNamed(nodeID)`，未变）。
-- `security.NewProcessTree`：**源文件只剩一处通路** —— `seelebridge/tools/router.go:571` 经工厂变量
+- `security.NewProcessTree`：**源文件只剩一处通路** —— `backend/tool/registry/router.go:571` 经工厂变量
   `var newExecProcessTree = security.NewProcessTree`（`:551`），由 `newProcessTreeCommand`（`:570`）统一组装；
   两条链的调用点变成 `tools/async_run.go:245` 与 `tools/router.go:606`（docker 重试 `:653`）。
   清单原文"全仓仅两个调用点"**已不成立**（新增用例 `process_tree_degraded_bench_test.go:22` 也直接建树）。
@@ -150,7 +150,7 @@
 - `ResetSession` → 定义 `seelebridge/runtime_teamwork.go:836`（未变）；调用点 `seelebridge/teamwork/coordinator.go:441`（`closeStepsLocked` 步 3）、`seelebridge/teamwork/items.go:847`（`releaseBinding` 清会话内容，定义 `:840`；清单原文记 `items.go:793`）。
 - `retireSteps` / 收口：`seelebridge/teamwork/coordinator.go:379`（`closeStepsLocked`）、`:407`（`Reclaim`）、`:517`（`Close`）、`items.go:948`（`releaseAllItems`，清单原文记 `:894`）；文档 `docs/arch/teamwork-leader-worker-architecture.md:471/473` 明确 `team_retire` **不回收作业**，回收统一到 `team_close`。
 - `ReleaseSessionAsync`：定义 `seelebridge/runtime_tools.go:179`（未变）；调用点 `application/core/workspace_usecase.go:18`（会话删除/归档，未变）；配套用例 `application/core/session_release_async_test.go:22`。
-- `CloseSessionAsync` / `CloseAsync`：`seelebridge/tools/async_run.go:119` / `:107`（未变）；`CloseAsync` 注册进关停链 `seelebridge/runtime_tools.go:169`（未变）；`CloseSessionAsync` 体内是 `return r.async.killSession(...)`（`:120`）。
+- `CloseSessionAsync` / `CloseAsync`：`backend/tool/registry/async_run.go:119` / `:107`（未变）；`CloseAsync` 注册进关停链 `seelebridge/runtime_tools.go:169`（未变）；`CloseSessionAsync` 体内是 `return r.async.killSession(...)`（`:120`）。
 - `CHANGELOG.md:112` 原文要点：M0 最后一步（把后台作业面搬到 Seele `jobs.Manager`）**被挡住**——异步面与框架 `jobs.Manager` 在……（不一致）。
 - 契约包现状：`seelebridge/workunit/contract.go`（`Unit`/`FinishPolicy`/`Jobs`）、`classify.go`（`ClassifyFinish`）、`session.go`（`InFlight`/`RecoveryNote`/`SessionLedger`）；`seelebridge/workunit/README.md` 已把四条不变式（现场是人的资产 / 认领先于 Prune / 收尾分类只有一份 / 恢复说明只有一族）写成文档。
 - 最近提交（2026-10-06 复核时 `git log --oneline -3`）：`bdbfeba`（验收：subagent / teamwork 两条链的现场生命周期，真机 + 真 git）、`51eccf7`（状态机枚举统一第三波：工具调用视图词）、`2070399`（R5：恢复单元状态并成契约一格 `dto.UnitStatus`）。清单初稿记录的 `746b00e`（三层共用一份在跑词表）、`db9e7f4`（subagent 侧接线统一契约）、`09643d5`（`ErrMergeBlockedByMain` + 收尾串行化）**都已在本文件之后的提交里被 ③ 波与状态枚举波吸收**：`746b00e` 那件事现在由 `e2e/subagent_status_vocabulary_gate_test.go`（13 格）+ `workunit/session.go:60-63` 钉住；`09643d5` 那两件在 `worktree_manager.go:112/125`（挡路判据）与 `:172/200/210`（单写者）。
@@ -177,10 +177,10 @@
   - 验证：构造"句柄在册但记录 status=running 且角色会话槽已空"的用例，断言 `Resume.Interrupted` 与 `Report.Interrupted` 的差集符合预期。
 - **U5｜进程树退化路径的覆盖面**：`ProcessTree.Degraded()`（`process_tree_windows.go:128`）的 fallback 只在单测覆盖（`docs/2026-09-24-async-tool-deferred-ack/README.md:619` 记载"本机从未真实触发"）；两条调用链（`async_run` / `router`）在退化时的对外主张是否一致未验证。
   - 验证：在 Job 创建被拒的环境/假树注入下，分别跑 `bash_bg` 与同步 `bash`，比对其错误文案与 `Degraded` 读数。
-  - **结论（已落地）**：**装配口径一致，读数过去不一致**。装配只有一份（`newProcessTreeCommand` / `startWithProcessTree`，同步链与后台链同源、挂不上都不放弃执行）；读数只有后台链有——探针把 `Degraded` 折进 `AsyncRunInfo.Degraded`（工作表格那一栏）与观察行"· 进程树挂不上，终止只及直接子进程"（`async_probe.go:62/:125`），同步链（bash / bash_read，含 docker 重试）**一个都没有**。现在同步链在起命令后读**同一处判据**（`tree.Degraded()`）并产出 `bash.process.degraded` 诊断读数：`seelebridge/tools/router.go` 的 `noteProcessTreeDegraded`，两处起命令点都调它；不退化时一个字都不发（既有"诊断阶段逐个相等"用例是这条的守卫）。
+  - **结论（已落地）**：**装配口径一致，读数过去不一致**。装配只有一份（`newProcessTreeCommand` / `startWithProcessTree`，同步链与后台链同源、挂不上都不放弃执行）；读数只有后台链有——探针把 `Degraded` 折进 `AsyncRunInfo.Degraded`（工作表格那一栏）与观察行"· 进程树挂不上，终止只及直接子进程"（`async_probe.go:62/:125`），同步链（bash / bash_read，含 docker 重试）**一个都没有**。现在同步链在起命令后读**同一处判据**（`tree.Degraded()`）并产出 `bash.process.degraded` 诊断读数：`backend/tool/registry/router.go` 的 `noteProcessTreeDegraded`，两处起命令点都调它；不退化时一个字都不发（既有"诊断阶段逐个相等"用例是这条的守卫）。
   - **仍开放**：① 同步链这条读数目前只到**后端诊断口**（`application/console` 的 `LogBashEvent`），要不要把退化事实带进**工具结果**（改对外形状 / 进不进 dto）是独立一批的决定。
   - **残②已落地**：`Degraded()` 过去判的是"Job 建没建成"（`job == 0`），**"Job 建成了但这个进程没挂进去"这一形态不进判据**——`Attach` 失败只是 `return err`，树照样报 `Degraded() == false`，调用方于是可以拿"整棵树已终止"去主张一个没保证的事实（Job 终止打不到不在 Job 里的进程，漏掉的是孙进程）。现在 `Attach` 的两条失败路径都置位，`Degraded() = job == 0 || attachFailed`；POSIX 侧仍是恒 false（Setpgid + kill(-pgid) 覆盖整组，没有"挂不上"这一形态，注释里写清了这处平台差异）。用例：`backend/limit/gate/process_tree_attach_test.go`（失败必报退化 + 活进程挂上必不报；真红先跑，见落地记录）。
-  - 用例：`seelebridge/tools/process_tree_degraded_reading_test.go`（退化必报 + 健康必静默）。建树工厂 `newExecProcessTree` 只在用例里被换掉：`&security.ProcessTree{}` 就是"Job 没建成"的真实形态，而"Job 建不出来"没法在真机上按需复现。
+  - 用例：`backend/tool/registry/process_tree_degraded_reading_test.go`（退化必报 + 健康必静默）。建树工厂 `newExecProcessTree` 只在用例里被换掉：`&security.ProcessTree{}` 就是"Job 没建成"的真实形态，而"Job 建不出来"没法在真机上按需复现。
 - **U6｜`InFlight` 未收敛处是否有行为差异**：`runtime_subagent_resume.go:329` 只认 `queued|running`，与契约 `InFlight` 目前一致；但若契约词表扩展（例如新增 `paused`），此处不会跟随。
   - 验证：`git grep -n '"queued"\|"running"' -- seelebridge/ | grep -v _test` 列出全部字面量点，逐个判定是否应转调 `workunit.InFlight`。
   - **结论（已落地）**：判"还在不在跑"的那半份只有契约一处（`workunit.StatusQueued/StatusRunning` + `InFlight`）；两个**终态**过去有**两份定义**（`workunit_team.go:36-37` 与 `runtime_subagent_resume.go:353-354` 各写一遍字面量，互相没有约束）+ 两处直接写字面量的写点（`node/coordinator.go:132/135`、`session/subagent_sessions.go:208`）+ 一处按字面量判（`session/subagent_tree.go:422/424`）。现在四个取值面的**字面量只有 `dto.SubAgent*` 一份**，其余全部转调（`string(dto.SubAgentDone)`），跨包互锁在 `stage_preview_judgment_test.go` 的 `TestSubagentStatusVocabularyAgreesWithTheWire`（teammate 侧与 `session` 包再导出都进了表）。

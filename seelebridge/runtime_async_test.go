@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
+	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 )
 
 // 投影面只做字段搬运：这一条钉住"探针读数每一列都真的到了 Application 侧"。
@@ -14,10 +14,10 @@ func TestAsyncRunRecordMappingCarriesEveryColumn(t *testing.T) {
 	started := time.Now().Add(-3 * time.Second)
 	ended := started.Add(2 * time.Second)
 	lastByte := ended.Add(-time.Second)
-	info := seeltools.AsyncRunInfo{
+	info := toolreg.AsyncRunInfo{
 		Handle: "a3", SessionID: "sess-1", Description: "跑集成测试", Command: "go test ./...",
 		State: dto.AsyncStateFailed, Exit: 2, LogPath: `C:\Temp\seelex-async-1\a3.log`, LogBytes: 2048,
-		LastByteAt: lastByte, Tail: "FAIL seelebridge/tools", Truncated: true, Degraded: true,
+		LastByteAt: lastByte, Tail: "FAIL backend/tool/registry", Truncated: true, Degraded: true,
 		BatchID: "req-9", StartedAt: started, EndedAt: ended,
 		// 打点 K-2 的行 schema：类别 / 有界摘要 / 行数 / 回填位 / 同批下标。
 		Kind: "inline", Summary: "failed · exit=2 · 40 行 · 2.0KiB · 末行: FAIL", Lines: 40,

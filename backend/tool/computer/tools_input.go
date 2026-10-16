@@ -14,7 +14,7 @@ import (
 // 这些动作有真实副作用（会改变用户桌面），因此：
 //   - 坐标一律是虚拟桌面物理像素（进程启动即声明 Per-Monitor V2 DPI 感知）；
 //   - 参数越界显式报错，不静默改写用户意图（clicks、times、delta 都有硬上限）；
-//   - 对子代理不可见（见 seelebridge/tools/policy.go）：并行子代理共享同一块
+//   - 对子代理不可见（见 backend/tool/registry/policy.go）：并行子代理共享同一块
 //     桌面，同时注入输入会互相打断。
 
 type pointArg struct {
