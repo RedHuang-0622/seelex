@@ -90,7 +90,9 @@ const (
 // 实现抽成独立模块（plan §2.8），因此是**一条进**的新模块，上限抬到 77。
 // M5-R-tool-review：`backend/tool/review`（show_files 落点）同口径——从 `application/core`
 // 抽成独立模块（plan §2.6），因此是**一条进**的新模块，上限抬到 78。
-const facadeClosureAllowListMax = 78
+// M5-R-tool-reference：`backend/tool/reference`（工具结果引用与分页判据）同口径——从
+// `application/core` 抽成独立模块（plan §2.6），因此是**一条进**的新模块，上限抬到 79。
+const facadeClosureAllowListMax = 79
 
 var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application",
@@ -163,6 +165,10 @@ var facadeClosureAllowList = []string{
 	// "把 core 的落点抽成独立模块"的一次换落点 + 落点新建；新包只依赖 `contract`/`contract/dto`
 	// 与标准库，没有引入第三方或反向依赖。
 	"github.com/RedHuang-0622/seelex/backend/tool/review",
+	// M5-R-tool-reference：工具结果引用与分页判据归位 tool 板块（plan §2.6）。**新增登记的理由**：
+	// "把 core 的判据抽成独立叶子模块"的一次换落点 + 落点新建；新包只依赖 `middle/protocol/model`
+	// （已在清单内）与标准库，没有引入第三方或反向依赖。
+	"github.com/RedHuang-0622/seelex/backend/tool/reference",
 	"github.com/RedHuang-0622/seelex/internal/actor",
 	"github.com/RedHuang-0622/seelex/internal/config",
 	"github.com/RedHuang-0622/seelex/internal/docker",

@@ -474,17 +474,6 @@ func TestCompletedTaskClearsTaskScopedSkillsBeforeNextRequest(t *testing.T) {
 	}
 }
 
-func TestToolResultPaginationMakesProgressAcrossUTF8Boundaries(t *testing.T) {
-	result := StoredToolResult{ToolResultRef: ToolResultRef{Ref: "tr-unicode", Tool: "read"}, Content: "中文"}
-	page, err := encodeToolResultPage(result, 0, 1, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(page, `"content":"中"`) || !strings.Contains(page, `"next_offset":3`) {
-		t.Fatalf("unicode page = %s", page)
-	}
-}
-
 func TestLoadedPlanIsAppendedToSessionPlanStack(t *testing.T) {
 	engine := &fakeEngine{sessionID: "session-plan"}
 	service := newTestService(t, engine)
