@@ -8,6 +8,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 )
 
 // ── 后台作业终态触发对话 ────────────────────────────────────────────────
@@ -136,10 +137,10 @@ func asyncCompletionPrompt(record dto.AsyncRunRecord) string {
 	fmt.Fprintf(&body, "- handle: %s（kind=%s）\n", record.Handle, asyncPromptKind(record.Kind))
 	fmt.Fprintf(&body, "- 状态: %s · exit=%d\n", record.State, record.ExitCode)
 	if title := strings.TrimSpace(record.Description); title != "" {
-		fmt.Fprintf(&body, "- 作业: %s\n", truncateWorkEvidence(title, 200))
+		fmt.Fprintf(&body, "- 作业: %s\n", worktable.TruncateWorkEvidence(title, 200))
 	}
 	if summary := strings.TrimSpace(record.Summary); summary != "" {
-		fmt.Fprintf(&body, "- 摘要: %s\n", truncateWorkEvidence(summary, Limits().EvidenceChars))
+		fmt.Fprintf(&body, "- 摘要: %s\n", worktable.TruncateWorkEvidence(summary, Limits().EvidenceChars))
 	}
 	fmt.Fprintf(&body, "取回全文用 bg_manage(op=fetch, handle=%q)；确认不需要了用 bg_manage(op=done, handle=%q) 销项。",
 		record.Handle, record.Handle)
@@ -270,10 +271,10 @@ func teamworkCompletionPrompt(record dto.TeamworkJobCompletionRecord) string {
 	fmt.Fprintf(&body, "- handle: %s（kind=%s）\n", record.Handle, asyncPromptKind(record.Kind))
 	fmt.Fprintf(&body, "- 状态: %s · exit=%d\n", record.State, record.ExitCode)
 	if description := strings.TrimSpace(record.Description); description != "" {
-		fmt.Fprintf(&body, "- 作业: %s\n", truncateWorkEvidence(description, 200))
+		fmt.Fprintf(&body, "- 作业: %s\n", worktable.TruncateWorkEvidence(description, 200))
 	}
 	if summary := strings.TrimSpace(record.Summary); summary != "" {
-		fmt.Fprintf(&body, "- 摘要: %s\n", truncateWorkEvidence(summary, Limits().EvidenceChars))
+		fmt.Fprintf(&body, "- 摘要: %s\n", worktable.TruncateWorkEvidence(summary, Limits().EvidenceChars))
 	}
 	fmt.Fprintf(&body,
 		"读结论用 team_context（非消费读，不推进游标）；产物正文用 jobs_manage(op=observe|fetch, handle=%q)；"+

@@ -20,6 +20,9 @@ var repositoryModules = []string{
 	"application/core/prompt_layer", "application/core/session_runtime",
 	"middle/view/subagent", "application/core/task_context",
 	"middle/view/state", "middle/view/worktable",
+	// M5-R5：项目看板的行投影与同步器从 application/core/project_board.go 归位；
+	// boardtest 是两侧共用的测试夹具包（无生产调用方）。
+	"middle/view/board", "middle/view/board/boardtest",
 	"middle/protocol/event", "middle/protocol/model", "application/prompt",
 	"application/console", "backend/limit", "backend/limit/accountwindow", "backend/limit/approval",
 	"backend/limit/loop",

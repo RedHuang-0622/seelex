@@ -19,6 +19,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application/core"
 	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/middle/view/board"
 	"github.com/RedHuang-0622/seelex/store"
 	"github.com/RedHuang-0622/seelex/wiring/registry"
 )
@@ -183,7 +184,7 @@ func TestProjectBoardEnabledWritesArtifacts(t *testing.T) {
 	rows, plan, state, projectRootFor := projectBoardWiringDeps(projectRoot)
 
 	sink, closeSink, err := registry.ProjectBoardSinkFor(
-		limit.ProjectBoardLimits{Enabled: true, Hook: core.ProjectBoardHookModeTodoList, FlushIdleMS: 20},
+		limit.ProjectBoardLimits{Enabled: true, Hook: board.ProjectBoardHookModeTodoList, FlushIdleMS: 20},
 		router, rows, plan, state, projectRootFor,
 	)
 	if err != nil {

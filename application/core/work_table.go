@@ -74,7 +74,7 @@ func taskRecordToWorkItem(record dto.TaskRecord) WorkItem {
 	for _, point := range record.Trace {
 		trace = append(trace, WorkTracePoint{
 			At: point.At, Status: point.Status.String(), Operation: point.Operation,
-			Evidence: truncateWorkEvidence(point.Evidence, Limits().EvidenceChars), Duration: point.Duration,
+			Evidence: worktable.TruncateWorkEvidence(point.Evidence, Limits().EvidenceChars), Duration: point.Duration,
 		})
 	}
 	trace = boundWorkTrace(trace)
@@ -89,8 +89,8 @@ func taskRecordToWorkItem(record dto.TaskRecord) WorkItem {
 	}
 	return WorkItem{
 		ID: record.ID, SessionID: record.SessionID, Phase: record.Phase,
-		Task:        truncateWorkEvidence(record.Task, 200),
-		Description: truncateWorkEvidence(record.Description, Limits().EvidenceChars),
+		Task:        worktable.TruncateWorkEvidence(record.Task, 200),
+		Description: worktable.TruncateWorkEvidence(record.Description, Limits().EvidenceChars),
 		Status:      status, RetryCount: record.RetryCount, Assignee: record.Assignee,
 		Dependencies: append([]string(nil), record.Dependencies...),
 		Attachments:  append([]string(nil), record.Attachments...),
@@ -190,7 +190,7 @@ func planNodeTrace(node PlanNode, tasklistMode bool) []WorkTracePoint {
 		}
 		points = append(points, WorkTracePoint{
 			At: event.At, Status: event.Status, Operation: operation,
-			Evidence: truncateWorkEvidence(event.Output, Limits().EvidenceChars),
+			Evidence: worktable.TruncateWorkEvidence(event.Output, Limits().EvidenceChars),
 		})
 	}
 	for _, tool := range node.ToolEvents {
@@ -203,7 +203,7 @@ func planNodeTrace(node PlanNode, tasklistMode bool) []WorkTracePoint {
 		}
 		points = append(points, WorkTracePoint{
 			At: tool.StartedAt, Status: tool.Status.String(), Operation: tool.Name,
-			Evidence: truncateWorkEvidence(evidence, Limits().EvidenceChars),
+			Evidence: worktable.TruncateWorkEvidence(evidence, Limits().EvidenceChars),
 			Duration: formatWorkDuration(tool.Duration),
 		})
 	}
@@ -225,13 +225,6 @@ func boundWorkTrace(points []WorkTracePoint) []WorkTracePoint {
 		points = points[:workTableTraceLimit]
 	}
 	return points
-}
-
-func truncateWorkEvidence(value string, limit int) string {
-	if limit <= 0 || len([]rune(value)) <= limit {
-		return value
-	}
-	return string([]rune(value)[:limit]) + "…"
 }
 
 func formatWorkDuration(duration time.Duration) string {
@@ -726,7 +719,7 @@ func (state *serviceState) workTableTraceBlockFor(sessionID string) string {
 			retry = fmt.Sprintf(" retry=%d", record.RetryCount)
 		}
 		lines = append(lines, fmt.Sprintf("- %s %s%s %s",
-			record.ID, record.Status, retry, truncateWorkEvidence(record.Task, 80)))
+			record.ID, record.Status, retry, worktable.TruncateWorkEvidence(record.Task, 80)))
 	}
 	asyncLines := asyncTraceLines(state.Deps.Runtime.AsyncRunsSnapshot(), effectiveSession)
 	lines = append(lines, asyncLines...)

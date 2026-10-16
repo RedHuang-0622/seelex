@@ -1,4 +1,4 @@
-package core
+package board
 
 // project_board.go — 项目看板的**投影装配面**（M2：映射 + 同步器 + 只读取数口）。
 //
@@ -38,18 +38,15 @@ package core
 // 无依赖推导（merger/planDependencies 那套留在活体投影里）；无收口判定（只与
 // store.TeamworkStateClosed 这一个常量比对）；无会话归属判定（沿用行自带的
 // SessionID）；无"计划是否算有编排"这类内容判定（teamworkPlanHasOrchestration 是看板读侧的事）。
-
 import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"log"
-	"sort"
 	"strings"
-	"sync"
-	"time"
 
-	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"github.com/RedHuang-0622/seelex/store"
 )
 
@@ -85,7 +82,7 @@ var projectBoardWorkKindProjected = map[string]bool{
 //
 // 映射规则（全部是字段搬运）：
 //   - work 行：只搬 kind ∈ {todo, task}（判据表见 projectBoardWorkKindProjected），
-//     key = "work:<id>"，载荷 = WorkItem 的字段白名单；
+//     key = "work:<id>"，载荷 = model.WorkItem 的字段白名单；
 //   - milestone 行：来自 teamPlan.Milestones，key = "milestone:<id>"，状态取数 =
 //     运行态 TeamworkState.Milestones[id] 优先、计划里 ms.Status 兜底（**空串原样保留**：
 //     "空 = pending"是存储层的约定，投影不替它补值——补值就是第二份判据）；
@@ -98,7 +95,7 @@ func BuildProjectBoardRows(
 	scope store.ProjectBoardScope,
 	seq uint64,
 	at int64,
-	workItems []WorkItem,
+	workItems []model.WorkItem,
 	teamPlan *store.TeamworkPlan,
 	teamState *store.TeamworkState,
 ) []store.ProjectBoardRow {
@@ -159,7 +156,7 @@ func projectBoardRow(
 }
 
 // projectBoardWorkPayload 把 work 行映射成载荷（字段白名单；空字段不落盘）。
-func projectBoardWorkPayload(item WorkItem) map[string]any {
+func projectBoardWorkPayload(item model.WorkItem) map[string]any {
 	payload := map[string]any{
 		"id":    strings.TrimSpace(item.ID),
 		"kind":  strings.TrimSpace(item.Kind),
@@ -167,7 +164,7 @@ func projectBoardWorkPayload(item WorkItem) map[string]any {
 	}
 	projectBoardPutText(payload, "task", item.Task)
 	projectBoardPutText(payload, "status", item.Status)
-	projectBoardPutText(payload, "description", truncateWorkEvidence(item.Description, Limits().EvidenceChars))
+	projectBoardPutText(payload, "description", worktable.TruncateWorkEvidence(item.Description, limit.Get().EvidenceChars))
 	projectBoardPutText(payload, "assignee", item.Assignee)
 	projectBoardPutText(payload, "session_id", item.SessionID)
 	projectBoardPutText(payload, "source_id", item.SourceID)
@@ -200,7 +197,7 @@ func projectBoardMilestonePayload(milestone store.TeamworkMilestone, state store
 	payload := map[string]any{"id": strings.TrimSpace(milestone.ID)}
 	projectBoardPutText(payload, "name", milestone.Name)
 	projectBoardPutText(payload, "status", projectBoardMilestoneStatus(milestone, state))
-	projectBoardPutText(payload, "content", truncateWorkEvidence(milestone.Content, Limits().EvidenceChars))
+	projectBoardPutText(payload, "content", worktable.TruncateWorkEvidence(milestone.Content, limit.Get().EvidenceChars))
 	if len(milestone.DependsOn) > 0 {
 		payload["depends_on"] = append([]string(nil), milestone.DependsOn...)
 	}
@@ -235,10 +232,10 @@ func projectBoardMilestoneItemPayload(milestoneID string, item store.TeamworkWor
 	projectBoardPutText(payload, "role", item.Role)
 	projectBoardPutText(payload, "name", item.Name)
 	projectBoardPutText(payload, "status", item.Status)
-	projectBoardPutText(payload, "description", truncateWorkEvidence(item.Description, Limits().EvidenceChars))
-	projectBoardPutText(payload, "goal", truncateWorkEvidence(item.Goal, Limits().EvidenceChars))
+	projectBoardPutText(payload, "description", worktable.TruncateWorkEvidence(item.Description, limit.Get().EvidenceChars))
+	projectBoardPutText(payload, "goal", worktable.TruncateWorkEvidence(item.Goal, limit.Get().EvidenceChars))
 	projectBoardPutText(payload, "session_id", item.SessionID)
-	projectBoardPutText(payload, "note", truncateWorkEvidence(item.Note, Limits().EvidenceChars))
+	projectBoardPutText(payload, "note", worktable.TruncateWorkEvidence(item.Note, limit.Get().EvidenceChars))
 	if len(item.DependsOn) > 0 {
 		payload["depends_on"] = append([]string(nil), item.DependsOn...)
 	}
@@ -297,7 +294,7 @@ func projectBoardRowsForFile(
 	scope store.ProjectBoardScope,
 	seq uint64,
 	at int64,
-	workItems []WorkItem,
+	workItems []model.WorkItem,
 	teamPlan *store.TeamworkPlan,
 	teamState *store.TeamworkState,
 	file string,
@@ -430,438 +427,3 @@ func (t ProjectBoardTrigger) Matches(name string) bool {
 
 // Off 报告这个触发面是否"什么都不触发"（诊断 / 装配自检用）。
 func (t ProjectBoardTrigger) Off() bool { return !t.anyTool && len(t.names) == 0 }
-
-// ---------------------------------------------------------------------------
-// 3) 写侧端口与同步器
-// ---------------------------------------------------------------------------
-
-// ProjectBoardStore 是投影的**写侧端口**（签名与 store.Router 同形：
-// *store.Router 直接就实现它，装配方不必写适配器）。
-//
-// 键是**项目根 + 会话**（`<项目根>/.seelex/board/<会话 ID>/`）：看板跟着项目走，且
-// **按会话分目录**——同一个投影文件只有一个写者（防串写），水位/批号以"一会话一文件"
-// 为单位（幂等可判），回收就是摘掉该会话自己的目录。
-type ProjectBoardStore interface {
-	AppendProjectBoardRows(projectRoot, sessionID, file string, rows []store.ProjectBoardRow) (uint64, error)
-	ProjectBoardWatermark(projectRoot, sessionID, file string) (uint64, error)
-}
-
-// ProjectBoardSink 是**工具完成**的订阅口（M3 把钩子接到它上：唯一一个方法，
-// 名字与钩子的语义一一对应；同步器是"Sink"而不是"hook"——它不改变工具行为）。
-type ProjectBoardSink interface {
-	OnToolComplete(name string, err error, sessionID string)
-}
-
-// 编译期证明：存储面写口就是 Router 的那两个方法，订阅口的实现就是同步器本身。
-var (
-	_ ProjectBoardStore = (*store.Router)(nil)
-	_ ProjectBoardSink  = (*ProjectBoardSyncer)(nil)
-)
-
-// TeamworkPlanSource 是**窄可选端口**：Runtime 实现了它才算"这个宿主有 teamwork 计划可读"。
-//
-// 为什么不塞进 contract.RuntimePort：计划只在 v8 JSON 布局上有意义，且有读它的只有
-// 看板一条路；让 RuntimePort 长出一个"没装配就恒返回 false"的成员，会让每个 fake /
-// harness 都要为一条没有消费者的能力改接口（与 contract.TeamworkBoardProjection
-// 同一口径：**有就有、没有就是没有**）。
-type TeamworkPlanSource interface {
-	TeamworkPlanFor(sessionID string) (store.TeamworkPlan, bool)
-}
-
-// projectBoardDefaultFlushIdle 是 flush 静默窗缺省值（毫秒级抖动的合并窗口：同批
-// 多次触发只落一次盘）。
-const projectBoardDefaultFlushIdle = 2 * time.Second
-
-// ProjectBoardDeps 是同步器的装配入参。
-//
-// 取数一律是**函数**（而不是数据）：flush 在独立 goroutine 上"取活体"，装配方因此
-// 不必关心视图锁与调用时机——函数内部按既有活体路径取数（见 Service.WorkTableRowsFor）。
-type ProjectBoardDeps struct {
-	Store         ProjectBoardStore
-	WorkTableRows func(sessionID string) []WorkItem
-	TeamPlanFor   func(sessionID string) *store.TeamworkPlan
-	TeamStateFor  func(sessionID string) *store.TeamworkState
-	// ProjectRootFor 是「会话 → 项目根」的解析（"" = 没有落点：未绑定工作区的会话
-	// 不落盘）。落点就是 `<项目根>/.seelex/board/`；不再要工作区 ID——它是
-	// `ws-<nano>`（机器本地 ID），写进产物会让看板不可提交（契约 §3 三条硬纪律）。
-	ProjectRootFor func(sessionID string) string
-	Triggers       ProjectBoardTrigger
-	FlushIdle      time.Duration
-	Now            func() time.Time
-}
-
-// ProjectBoardSyncer 是投影同步器：唯一写盘路径 + 唯一 flush goroutine。
-//
-// 语义（三步，一步都不多做）：
-//   - OnToolComplete：判触发面（err != nil 或未命中 ⇒ 返回）→ 标脏 → 唤醒（容量 1、latest-wins）；
-//   - flush：取活体 → BuildProjectBoardRows 拆两块 → 指纹去重 → 差集补 tombstone → 落盘；
-//   - 失败只记日志（I1：投影可重建，不 panic、不阻塞回合）。
-type ProjectBoardSyncer struct {
-	deps ProjectBoardDeps
-	idle time.Duration
-	now  func() time.Time
-
-	wake      chan struct{}
-	done      chan struct{}
-	closeOnce sync.Once
-	wg        sync.WaitGroup
-
-	mu    sync.Mutex
-	dirty map[string]struct{}
-	// last 是每 (会话, 文件) 的上次落盘记账：指纹（去 seq/at）、水位、key→kind。
-	// 它只是**落盘方的内存记账**（不是事实源）：进程重启即空，下次触发重建一遍即可（I1）。
-	last map[boardFileKey]boardFileState
-}
-
-// boardFileKey 是落盘记账的索引（会话 × 白名单文件）。
-type boardFileKey struct {
-	session string
-	file    string
-}
-
-// boardFileState 是一次成功落盘之后的记账值。
-type boardFileState struct {
-	fingerprint string
-	watermark   uint64
-	kinds       map[string]string
-}
-
-// NewProjectBoardSyncer 装配同步器并启动唯一 flush goroutine。
-//
-// Store 为 nil（宿主没装配存储面）⇒ 不启动 goroutine，OnToolComplete 恒为空操作——
-// "没装配就没有投影"，而不是让宿主为一条没有落点的路径付一个常驻 goroutine。
-func NewProjectBoardSyncer(deps ProjectBoardDeps) *ProjectBoardSyncer {
-	syncer := &ProjectBoardSyncer{
-		deps:  deps,
-		idle:  deps.FlushIdle,
-		now:   deps.Now,
-		wake:  make(chan struct{}, 1), // 容量 1：突发触发合并成一次唤醒（latest-wins）
-		done:  make(chan struct{}),
-		dirty: make(map[string]struct{}),
-		last:  make(map[boardFileKey]boardFileState),
-	}
-	if syncer.idle <= 0 {
-		syncer.idle = projectBoardDefaultFlushIdle
-	}
-	if syncer.now == nil {
-		syncer.now = time.Now
-	}
-	if deps.Store == nil {
-		return syncer
-	}
-	syncer.wg.Add(1)
-	go syncer.run()
-	return syncer
-}
-
-// OnToolComplete 是 ProjectBoardSink 的实现：**不做任何 IO**。
-//
-// err != nil（工具失败）⇒ 不标脏：失败的调用不改动"活"，投影没必要跟着抖一次。
-func (s *ProjectBoardSyncer) OnToolComplete(name string, err error, sessionID string) {
-	if s == nil || s.deps.Store == nil || err != nil {
-		return
-	}
-	if !s.deps.Triggers.Matches(name) {
-		return
-	}
-	sessionID = strings.TrimSpace(sessionID)
-	if sessionID == "" {
-		return // 没有归属会话就没有落点（投影文件是按会话派生的一层）
-	}
-	s.mu.Lock()
-	s.dirty[sessionID] = struct{}{}
-	s.mu.Unlock()
-	s.signal()
-}
-
-// signal 非阻塞唤醒 flush goroutine（信号口容量 1）。
-//
-// 丢唤醒是安全的：脏集合是**集合**，且 flush 落盘前重新取活体——多丢一次只意味着
-// "下一次唤醒时一起落"，不会丢数据（latest-wins）。
-func (s *ProjectBoardSyncer) signal() {
-	select {
-	case s.wake <- struct{}{}:
-	default:
-	}
-}
-
-// run 是唯一的 flush goroutine：唤醒重设静默窗（debounce），窗口到期落盘，Close 时补一次。
-func (s *ProjectBoardSyncer) run() {
-	defer s.wg.Done()
-	timer := time.NewTimer(s.idle)
-	if !timer.Stop() {
-		select {
-		case <-timer.C:
-		default:
-		}
-	}
-	defer timer.Stop()
-	for {
-		select {
-		case <-s.done:
-			s.flushDirty() // 收口补一次：关闭前把脏数据落掉（失败只记日志）
-			return
-		case <-s.wake:
-			// 静默窗从**这一次**触发重新计时：同批多次触发只落一次盘。
-			if !timer.Stop() {
-				select {
-				case <-timer.C:
-				default:
-				}
-			}
-			timer.Reset(s.idle)
-		case <-timer.C:
-			s.flushDirty()
-		}
-	}
-}
-
-// flushDirty 把脏集合取走（先取走再落盘：落盘期间新来的触发会攒进下一批，不会丢）。
-func (s *ProjectBoardSyncer) flushDirty() {
-	s.mu.Lock()
-	dirty := s.dirty
-	s.dirty = make(map[string]struct{})
-	s.mu.Unlock()
-	if len(dirty) == 0 {
-		return
-	}
-	sessions := make([]string, 0, len(dirty))
-	for sessionID := range dirty {
-		sessions = append(sessions, sessionID)
-	}
-	sort.Strings(sessions)
-	for _, sessionID := range sessions {
-		s.flushSession(sessionID)
-	}
-}
-
-// flushSession 落一个会话的两个投影文件（work 行与 milestone 行各落各的）。
-func (s *ProjectBoardSyncer) flushSession(sessionID string) {
-	projectRoot := ""
-	if s.deps.ProjectRootFor != nil {
-		projectRoot = strings.TrimSpace(s.deps.ProjectRootFor(sessionID))
-	}
-	if projectRoot == "" {
-		// 没有项目根 = 没有落点（未绑定工作区的会话不落盘）。
-		log.Printf("[project-board] 会话 %s 没有工作区绑定，本次不落投影", sessionID)
-		return
-	}
-	var items []WorkItem
-	if s.deps.WorkTableRows != nil {
-		items = s.deps.WorkTableRows(sessionID)
-	}
-	var plan *store.TeamworkPlan
-	if s.deps.TeamPlanFor != nil {
-		plan = s.deps.TeamPlanFor(sessionID)
-	}
-	var state *store.TeamworkState
-	if s.deps.TeamStateFor != nil {
-		state = s.deps.TeamStateFor(sessionID)
-	}
-	// scope 只写会话：落点本身已经回答了"哪个项目"（行内再写 `ws-<nano>` 会让产物
-	// 不可提交，契约 §3 硬纪律）。行内这个 session 与落点目录名同源（存储面还会核对
-	// 两者一致，不一致直接拒绝——那是"往别人的目录里塞行"）。
-	scope := store.ProjectBoardScope{Session: sessionID}
-	at := s.now().UTC().Unix()
-	s.flushFile(sessionID, projectRoot, scope, store.ProjectBoardWorkFile, at, items, plan, state)
-	s.flushFile(sessionID, projectRoot, scope, store.ProjectBoardTeamworkFile, at, items, plan, state)
-}
-
-// flushFile 落一个文件：取水位 → 指纹去重 → 差集补 tombstone → 追加。
-//
-// 三处判据都在这里（**只此一处**）：
-//   - 指纹去重：去掉 seq/at 后内容没变 ⇒ 不写盘（"没变"不该产生一行追加）；
-//   - I1 自愈：文件不在了（水位退到记账值之下）⇒ 即使内容没变也重建（否则一次误删
-//     会被指纹去重固化成"投影永远缺失"）；
-//   - I6 空则退场：没有行、也没有要吊销的 key ⇒ 不建文件（只记账）。
-func (s *ProjectBoardSyncer) flushFile(
-	sessionID, projectRoot string,
-	scope store.ProjectBoardScope,
-	file string,
-	at int64,
-	items []WorkItem,
-	plan *store.TeamworkPlan,
-	state *store.TeamworkState,
-) {
-	watermark, err := s.deps.Store.ProjectBoardWatermark(projectRoot, sessionID, file)
-	if err != nil {
-		log.Printf("[project-board] 读水位失败（%s/%s），本次不落盘：%v", sessionID, file, err)
-		return
-	}
-	rows := projectBoardRowsForFile(scope, watermark+1, at, items, plan, state, file)
-	fingerprint := projectBoardRowsFingerprint(rows)
-	kinds := make(map[string]string, len(rows))
-	for _, row := range rows {
-		kinds[row.Key] = row.Kind
-	}
-
-	key := boardFileKey{session: sessionID, file: file}
-	s.mu.Lock()
-	previous, known := s.last[key]
-	s.mu.Unlock()
-
-	if known && previous.fingerprint == fingerprint && watermark >= previous.watermark {
-		return // 内容没变且文件还在：不写盘
-	}
-	batch := rows
-	if known {
-		// 与上次的 key 集合做差：消失的 key 补一行 tombstone（payload{"removed":true}），
-		// 否则 upsert 语义下"删掉的条目永远消失不掉"。
-		removed := make([]string, 0, len(previous.kinds))
-		for previousKey := range previous.kinds {
-			if _, still := kinds[previousKey]; !still {
-				removed = append(removed, previousKey)
-			}
-		}
-		sort.Strings(removed) // 稳定顺序（同一份内容没有第二种字节序）
-		for _, previousKey := range removed {
-			batch = append(batch, projectBoardRemovedRow(scope, watermark+1, at, previous.kinds[previousKey], previousKey))
-		}
-	}
-	if len(batch) == 0 {
-		s.remember(key, boardFileState{fingerprint: fingerprint, watermark: watermark})
-		return
-	}
-	next, err := s.deps.Store.AppendProjectBoardRows(projectRoot, sessionID, file, batch)
-	if err != nil {
-		// 不更新记账 ⇒ 下次触发重试（投影是派生数据，失败不 panic、不阻塞回合）。
-		log.Printf("[project-board] 追加投影失败（%s/%s），本次不落盘：%v", sessionID, file, err)
-		return
-	}
-	s.remember(key, boardFileState{fingerprint: fingerprint, watermark: next, kinds: kinds})
-}
-
-// projectBoardRemovedRow 组装一行 tombstone（折叠读遇到 payload["removed"]==true 即让该 key 消失）。
-func projectBoardRemovedRow(scope store.ProjectBoardScope, seq uint64, at int64, kind, key string) store.ProjectBoardRow {
-	return projectBoardRow(scope, seq, at, kind, key, map[string]any{"removed": true})
-}
-
-// remember 更新落盘记账。
-func (s *ProjectBoardSyncer) remember(key boardFileKey, state boardFileState) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.last == nil {
-		s.last = make(map[boardFileKey]boardFileState)
-	}
-	s.last[key] = state
-}
-
-// Close 幂等：关掉唯一 goroutine 并等它退出（退出前补一次落盘）。
-//
-// 不泄漏 goroutine：第二次 Close 只等已退出的 goroutine（wg.Wait 立即返回）。
-// **不得**在 flush goroutine 自己身上调用（会在 wg.Wait 上自等）。
-func (s *ProjectBoardSyncer) Close() {
-	if s == nil {
-		return
-	}
-	s.closeOnce.Do(func() { close(s.done) })
-	s.wg.Wait()
-}
-
-// ---------------------------------------------------------------------------
-// 4) Service 侧的只读取数口（M3 装配用；本项**不接钩子**）
-// ---------------------------------------------------------------------------
-
-// WorkTableRowsFor 返回指定会话的**活体工作表格投影**（只读；不重算任何状态）。
-//
-// 取数路径与实时重投影**同一份实现**（buildWorkTable + 按会话取 task 快照 + 既有
-// 子代理树/后台执行投影）：投影行因此天然等于"此刻工作表格里那几行"，投影侧不新增
-// 状态判定（I3）。后台执行（async）行也在此列——它就是既有活体投影的一部分（工作
-// 表格是跨会话台账），行自带 session_id 供读侧归属。
-func (service *Service) WorkTableRowsFor(sessionID string) []WorkItem {
-	if service == nil || service.Deps.Runtime == nil {
-		return nil
-	}
-	sessionID = strings.TrimSpace(sessionID)
-	service.ViewMu.RLock()
-	viewSessionID := service.Core.Snapshot.Session.ID
-	plan := service.sessionActivePlanLocked(sessionID)
-	tree := cloneSubAgentTreeForSync(service.Core.Snapshot.Runtime.SubAgentTree)
-	service.ViewMu.RUnlock()
-	return buildWorkTable(
-		plan,
-		service.taskRecordsForSession(sessionID, viewSessionID),
-		tree,
-		service.asyncRunsForTable(),
-	)
-}
-
-// ProjectRootFor 返回会话所属工作区的**项目根**（绝对路径；"" = 未绑定/无落点）。
-//
-// 项目根的权威读法是 WorkspacePort.SessionWorkspace（与 bindSessionProjectRoot /
-// restoreInitialWorkspace 同源）——看板的落点就是 `<项目根>/.seelex/board/`，
-// 所以"项目根"这一格必须来自**绑定事实**，不能由视图/活跃工作区猜。
-//
-// 未绑定工作区的会话返回 ""（**没有落点**：不落盘，契约 §3）。这里**不**回退到
-// Sessions.Workspace()：那是"视图当前工作区"，拿它当落点等于把别的项目的看板写进去。
-func (service *Service) ProjectRootFor(sessionID string) string {
-	if service == nil || service.Deps.Workspace == nil {
-		return ""
-	}
-	sessionID = strings.TrimSpace(sessionID)
-	if sessionID == "" {
-		return ""
-	}
-	if workspace, ok := service.Deps.Workspace.SessionWorkspace(sessionID); ok {
-		return strings.TrimSpace(workspace.RootPath)
-	}
-	return ""
-}
-
-// ProjectBoardTeamPlanFor 按**窄可选端口**取 teamwork 计划（未装配 / 该会话没有计划 ⇒ nil）。
-//
-// 这一步（端口探测 + 收窄）只写在这里：M3 装配时把它作为 ProjectBoardDeps.TeamPlanFor
-// 注入即可，同步器不必知道 Runtime 的接口形状。
-func (service *Service) ProjectBoardTeamPlanFor(sessionID string) *store.TeamworkPlan {
-	if service == nil || service.Deps.Runtime == nil {
-		return nil
-	}
-	sessionID = strings.TrimSpace(sessionID)
-	if sessionID == "" {
-		return nil
-	}
-	source, ok := service.Deps.Runtime.(TeamworkPlanSource)
-	if !ok {
-		return nil
-	}
-	plan, ok := source.TeamworkPlanFor(sessionID)
-	if !ok {
-		return nil
-	}
-	return &plan
-}
-
-// ProjectBoardTeamStateFor 取该会话的 teamwork **运行态**（里程碑结论 / 整队收口）。
-//
-// 运行态就在计划载荷的那一格里（TeamworkPlan.State 是 TeamworkState，见
-// store/teamwork.go:98）：读它而不是另找一份，是"整队收口只有一个权威格"这条
-// 裁决的落地。
-func (service *Service) ProjectBoardTeamStateFor(sessionID string) *store.TeamworkState {
-	plan := service.ProjectBoardTeamPlanFor(sessionID)
-	if plan == nil {
-		return nil
-	}
-	state := plan.State
-	return &state
-}
-
-// taskRecordsForSession 按会话取 task 注册表快照：视图/活跃会话 = 实时注册表（"" 分区），
-// 后台会话 = 自身 scope 分区；Runtime 未实现 TaskSnapshotFor 时退化为全局快照。
-//
-// **唯一实现**：打点表（workTableTraceBlockFor）与看板取数（WorkTableRowsFor）走同一份，
-// 避免"同一条会话作用域判据写两遍"（两遍迟早不一致：一份改了、另一份没改）。
-func (state *serviceState) taskRecordsForSession(sessionID, viewSessionID string) []dto.TaskRecord {
-	if state == nil || state.Deps.Runtime == nil {
-		return nil
-	}
-	forTasks, ok := state.Deps.Runtime.(interface{ TaskSnapshotFor(string) []dto.TaskRecord })
-	if !ok {
-		return state.Deps.Runtime.TaskSnapshot()
-	}
-	scope := sessionID
-	if scope == "" || scope == viewSessionID {
-		// 视图/活跃会话的 task scope 恒为实时注册表（"" 分区）。
-		scope = ""
-	}
-	return forTasks.TaskSnapshotFor(scope)
-}

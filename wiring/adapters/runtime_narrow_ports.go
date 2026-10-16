@@ -209,7 +209,7 @@ var (
 	_ interface {
 		WithPluginAssembly(context.Context, []string) context.Context
 	} = RuntimePort{}
-	// core.TeamworkPlanSource（application/core/project_board.go，包内命名接口）：
+	// board.TeamworkPlanSource（middle/view/board/syncer.go，包内命名接口）：
 	// 项目看板按会话取 teamwork 计划 + 运行态。断言失败 = 那两格恒空。
 	_ interface {
 		TeamworkPlanFor(string) (store.TeamworkPlan, bool)

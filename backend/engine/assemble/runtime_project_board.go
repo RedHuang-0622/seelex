@@ -3,7 +3,7 @@ package assemble
 // runtime_project_board.go — 项目看板的**窄可选端口**（M3 装配侧）。
 //
 // 生态位：application/core 的看板投影需要"某会话的 teamwork 计划"，但它不该认识
-// Runtime 的接口形状——所以那一侧只声明一个窄接口（`core.TeamworkPlanSource`），
+// Runtime 的接口形状——所以那一侧只声明一个窄接口（`board.TeamworkPlanSource`），
 // 本文件让 Runtime 满足它（`TeamworkPlanFor`）。
 //
 // 取数口径（与团队看板 `TeamworkBoardSnapshot` 同源，不新造一条读法）：
@@ -24,7 +24,7 @@ import (
 	"github.com/RedHuang-0622/seelex/store"
 )
 
-// TeamworkPlanFor 实现 `core.TeamworkPlanSource`：返回该会话的 teamwork 计划。
+// TeamworkPlanFor 实现 `board.TeamworkPlanSource`：返回该会话的 teamwork 计划。
 //
 // 未装配 teamwork 面 / 会话解析不出作用域 / 键不完整 / 该会话没有计划 / 读失败
 // ⇒ (零值, false)。读失败与"没有计划"同解，是因为调用方（看板投影）对两者只做同一件事：
@@ -64,13 +64,13 @@ func (r *Runtime) TeamworkPlanFor(sessionID string) (store.TeamworkPlan, bool) {
 	return plan, true
 }
 
-// 编译期钉子：*Runtime 必须满足 `core.TeamworkPlanSource` 的**形状**（同名同签名）。
+// 编译期钉子：*Runtime 必须满足 `board.TeamworkPlanSource` 的**形状**（同名同签名）。
 //
-// 为什么不直接写 `var _ core.TeamworkPlanSource = (*Runtime)(nil)`：依赖方向是
+// 为什么不直接写 `var _ board.TeamworkPlanSource = (*Runtime)(nil)`：依赖方向是
 // application/core → seelebridge（反向 import 会成环），本文件拿不到那个接口名。
 // 形状一致于是由两侧共同保证：本断言（桥这一侧）+ 装配根那一侧的断言（core 的
 // 调用面 `Service.ProjectBoardTeamPlanFor` 用类型断言取这个口，装配根用例里另有
-// 一条 `var _ core.TeamworkPlanSource = (*seelebridge.Runtime)(nil)` 钉住两端同一形状）。
+// 一条 `var _ board.TeamworkPlanSource = (*Runtime)(nil)` 钉住两端同一形状）。
 var _ interface {
 	TeamworkPlanFor(sessionID string) (store.TeamworkPlan, bool)
 } = (*Runtime)(nil)

@@ -25,6 +25,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/backend/tool/websearch"
 	"github.com/RedHuang-0622/seelex/internal/bootseed"
+	"github.com/RedHuang-0622/seelex/middle/view/board"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
 	"github.com/RedHuang-0622/seelex/store"
 	"github.com/RedHuang-0622/seelex/wiring/adapters"
@@ -806,19 +807,19 @@ func RegisterAskApprove(runtime *seelebridge.Runtime, approval *application.Appr
 //
 // 关就是关（契约 §5.3）：Enabled=false ⇒ 返回 (nil, 空收尾, nil)——工具完成段判空后
 // 什么都不做，一个文件都不写，读取面也不注册。开启时先把 hook 取值按**唯一词表**
-// （core.ProjectBoardHookModes）校验：拼错的名字**显式启动失败**，不静默降级成 off
+// （board.ProjectBoardHookModes）校验：拼错的名字**显式启动失败**，不静默降级成 off
 // ——后者会把"开了但没生效"变成一桩只能靠读代码才能解的悬案。
 //
 // 取数依赖一律用 application 侧的只读口（WorkTableRowsFor / ProjectBoardTeamPlanFor /
 // ProjectBoardTeamStateFor / ProjectRootFor）：同步器不重算任何状态（I3）。
 func ProjectBoardSinkFor(
 	limits limit.ProjectBoardLimits,
-	st core.ProjectBoardStore,
+	st board.ProjectBoardStore,
 	workTableRows func(sessionID string) []core.WorkItem,
 	teamPlanFor func(sessionID string) *store.TeamworkPlan,
 	teamStateFor func(sessionID string) *store.TeamworkState,
 	projectRootFor func(sessionID string) string,
-) (core.ProjectBoardSink, func(), error) {
+) (board.ProjectBoardSink, func(), error) {
 	if !limits.Enabled {
 		return nil, func() {}, nil
 	}
@@ -826,13 +827,13 @@ func ProjectBoardSinkFor(
 	if err != nil {
 		return nil, func() {}, err
 	}
-	syncer := core.NewProjectBoardSyncer(core.ProjectBoardDeps{
+	syncer := board.NewProjectBoardSyncer(board.ProjectBoardDeps{
 		Store:          st,
 		WorkTableRows:  workTableRows,
 		TeamPlanFor:    teamPlanFor,
 		TeamStateFor:   teamStateFor,
 		ProjectRootFor: projectRootFor,
-		Triggers:       core.TriggerFor(hook),
+		Triggers:       board.TriggerFor(hook),
 		FlushIdle:      time.Duration(limits.FlushIdleMS) * time.Millisecond,
 	})
 	// 收尾就是同步器自己的 Close（幂等）：终止唯一 flush goroutine，退出前补一次落盘。
@@ -999,18 +1000,18 @@ func projectBoardReadRows(rows []store.ProjectBoardRow) []map[string]interface{}
 // projectBoardHookMode 归一化并校验项目看板的触发面取值。
 //
 // 空串 = 未配置 ⇒ 缺省 todo_list（与 config/seelex.yaml 的出厂值一致）；词表不在这里
-// 抄第二份——唯一来源是 core.ProjectBoardHookModes（触发装配表自己也认同一份）。
+// 抄第二份——唯一来源是 board.ProjectBoardHookModes（触发装配表自己也认同一份）。
 func projectBoardHookMode(hook string) (string, error) {
 	mode := strings.ToLower(strings.TrimSpace(hook))
 	if mode == "" {
-		mode = core.ProjectBoardHookModeTodoList
+		mode = board.ProjectBoardHookModeTodoList
 	}
-	for _, allowed := range core.ProjectBoardHookModes() {
+	for _, allowed := range board.ProjectBoardHookModes() {
 		if mode == allowed {
 			return mode, nil
 		}
 	}
 	return "", fmt.Errorf(
 		"limits.project_board.hook = %q 不是合法取值（可选：%s）",
-		hook, strings.Join(core.ProjectBoardHookModes(), " / "))
+		hook, strings.Join(board.ProjectBoardHookModes(), " / "))
 }

@@ -69,7 +69,14 @@ const (
 // （原 assemble 的 `runtime_image.go`）带着宿主端口搬进自己的包。它不引入任何新的
 // 下游包（只用已在清单内的 `store` / `backend/tool/computer` / `imageattach` /
 // `internal/{model,telemetry}`），所以闭包只多它自己一格，上限抬到 73。
-const facadeClosureAllowListMax = 73
+// M5-R5：`middle/view/board` 同口径——项目看板的行投影 + 触发表 + 同步器从
+// `application/core/project_board.go` 抽成中间层模块（自身直接依赖 = 标准库 +
+// `store` + `middle/protocol/model` + `contract/dto` + `middle/view/worktable` +
+// `backend/limit`，全在清单内）。此前它是 `application/core` 内部的一个文件、
+// 不是独立包，因此这是**一条进**的新模块，上限抬到 74。
+// 同片还抽走了 `middle/view/board/boardtest`（测试夹具包）：它只被两处用例 import，
+// 不在门面闭包里（`go list -deps ./application` 不含测试依赖），故不登记。
+const facadeClosureAllowListMax = 74
 
 var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application",
@@ -85,6 +92,8 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application/core/resume",
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime",
 	"github.com/RedHuang-0622/seelex/middle/view/subagent",
+	// M5-R5：项目看板的行投影与同步器（从 application/core/project_board.go 抽出）。
+	"github.com/RedHuang-0622/seelex/middle/view/board",
 	"github.com/RedHuang-0622/seelex/application/core/task_context",
 	"github.com/RedHuang-0622/seelex/middle/view/state",
 	"github.com/RedHuang-0622/seelex/middle/view/worktable",

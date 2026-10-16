@@ -24,8 +24,8 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 ### service.go
 
-- `func (service *Service) SetProjectBoardSink(sink ProjectBoardSink)` — SetProjectBoardSink 注入（或收回：传 nil）项目看板投影的写侧端口。
-- `func (service *Service) projectBoardSink() ProjectBoardSink` — projectBoardSink 取一份当前订阅口快照（读锁；返回的是一份接口值副本）。
+- `func (service *Service) SetProjectBoardSink(sink board.ProjectBoardSink)` — SetProjectBoardSink 注入（或收回：传 nil）项目看板投影的写侧端口。
+- `func (service *Service) projectBoardSink() board.ProjectBoardSink` — projectBoardSink 取一份当前订阅口快照（读锁；返回的是一份接口值副本）。
 - `func New(deps Dependencies) (*Service, error)`
 - `func (service *Service) ActiveSkillIDs() []string` — ActiveSkillIDs 返回当前任务的激活 skill ID 列表（goal skill 激活判定用，
 - `func (service *Service) PromptLayers() []PromptLayer` — PromptLayers 返回当前会话注入的 prompt 前缀层（system/base/effort/
@@ -84,8 +84,8 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (port *toolRecordPort) flushErrorMessage() string`
 - `func (port *toolRecordPort) setSnapshotStore(store ToolRecordSnapshotStore)`
 - `func (port *toolRecordPort) snapshotStoreValue() ToolRecordSnapshotStore`
-- `func (port *projectBoardPort) store(sink ProjectBoardSink)`
-- `func (port *projectBoardPort) load() ProjectBoardSink`
+- `func (port *projectBoardPort) store(sink board.ProjectBoardSink)`
+- `func (port *projectBoardPort) load() board.ProjectBoardSink`
 
 ### service_components_test.go
 

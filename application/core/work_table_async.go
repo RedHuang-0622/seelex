@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 )
 
 // ── 作业（bash_bg / read_batch / subagent）的工作表格投影 ──────────────
@@ -84,8 +85,8 @@ func asyncRunToWorkItem(record dto.AsyncRunRecord) WorkItem {
 		Phase:       "task",
 		Kind:        "task",
 		SourceID:    rowID,
-		Task:        truncateWorkEvidence(task, 200),
-		Description: truncateWorkEvidence("后台命令: "+record.Command+"（handle="+record.Handle+"）", Limits().EvidenceChars),
+		Task:        worktable.TruncateWorkEvidence(task, 200),
+		Description: worktable.TruncateWorkEvidence("后台命令: "+record.Command+"（handle="+record.Handle+"）", Limits().EvidenceChars),
 		Status:      asyncWorkStatus(record.State),
 		Attachments: []string{record.LogPath},
 		BatchID:     record.BatchID,
@@ -122,7 +123,7 @@ func asyncProbePoint(record dto.AsyncRunRecord, elapsed time.Duration) WorkTrace
 	}
 	return WorkTracePoint{
 		At: at, Status: record.State.String(), Operation: asyncProbeOperation,
-		Evidence: truncateWorkEvidence(evidence, Limits().EvidenceChars),
+		Evidence: worktable.TruncateWorkEvidence(evidence, Limits().EvidenceChars),
 		Duration: formatWorkDuration(elapsed),
 	}
 }
@@ -205,14 +206,14 @@ func asyncTraceLine(record dto.AsyncRunRecord) string {
 	fields := []string{asyncWorkRowPrefix + record.Handle, kind, record.State.String(), formatAsyncBytes(record.LogBytes)}
 	if record.State != dto.AsyncStateRunning {
 		// 完成行带**有界摘要**（回填的全部内容）。
-		if summary := truncateWorkEvidence(record.Summary, Limits().EvidenceChars); summary != "" {
+		if summary := worktable.TruncateWorkEvidence(record.Summary, Limits().EvidenceChars); summary != "" {
 			fields = append(fields, summary)
 		}
 		return "- " + strings.Join(fields, " ")
 	}
-	if detail := truncateWorkEvidence(record.Description, 40); detail != "" {
+	if detail := worktable.TruncateWorkEvidence(record.Description, 40); detail != "" {
 		fields = append(fields, detail)
-	} else if command := truncateWorkEvidence(record.Command, 40); command != "" {
+	} else if command := worktable.TruncateWorkEvidence(record.Command, 40); command != "" {
 		fields = append(fields, command)
 	}
 	return "- " + strings.Join(fields, " ")
@@ -257,12 +258,12 @@ func teamworkTraceLine(record dto.TeamworkJobCompletionRecord) string {
 		fields = append(fields, owner)
 	}
 	if record.State != dto.AsyncStateRunning {
-		if summary := truncateWorkEvidence(record.Summary, Limits().EvidenceChars); summary != "" {
+		if summary := worktable.TruncateWorkEvidence(record.Summary, Limits().EvidenceChars); summary != "" {
 			fields = append(fields, summary)
 		}
 		return "- " + strings.Join(fields, " ")
 	}
-	if detail := truncateWorkEvidence(record.Description, 40); detail != "" {
+	if detail := worktable.TruncateWorkEvidence(record.Description, 40); detail != "" {
 		fields = append(fields, detail)
 	}
 	return "- " + strings.Join(fields, " ")

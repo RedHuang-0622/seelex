@@ -1,4 +1,10 @@
-package core
+package board
+
+// HEADER-trigger_test.go
+
+import (
+	"testing"
+)
 
 // project_board_hook_modes_test.go — 钉住触发档名的**词表唯一性**（M3 装配侧）。
 //
@@ -9,8 +15,6 @@ package core
 //
 // 两者一旦分家，就会出现"配置里能写、运行时不认"（或反过来）这种只能靠读代码才能
 // 发现的缝。这条用例把"恰好同一个集合"钉成不变量。
-
-import "testing"
 
 func TestProjectBoardHookModeVocabularyMatchesTable(t *testing.T) {
 	modes := ProjectBoardHookModes()

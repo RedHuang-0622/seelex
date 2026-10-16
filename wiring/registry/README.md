@@ -118,7 +118,7 @@ go test ./test/ -run 'TestTool|TestProjectBoard|TestPlugin' -count=1
 - `func RegisterPluginSelfTools(runtime *seelebridge.Runtime, plugins *plugin.Manager)` — RegisterPluginSelfTools 注册插件/技能/MCP 的自迭代工具族：
 - `func ApplyPluginPrompt(eng pluginPromptEngine, plugins *plugin.Manager)`
 - `func RegisterAskApprove(runtime *seelebridge.Runtime, approval *application.ApprovalBroker)`
-- `func ProjectBoardSinkFor( limits limit.ProjectBoardLimits, st core.ProjectBoardStore, workTableRows func(sessionID string) []core.WorkItem, teamPlanFor func(sessionID string) *store.TeamworkPlan, teamStateFor func(sessionID string) *store.TeamworkState, projectRootFor func(sessionID string) string, ) (core.ProjectBoardSink, func(), error)` — guardMultiProcess 是启动期多进程闸门：数据根是单进程写者
+- `func ProjectBoardSinkFor( limits limit.ProjectBoardLimits, st board.ProjectBoardStore, workTableRows func(sessionID string) []core.WorkItem, teamPlanFor func(sessionID string) *store.TeamworkPlan, teamStateFor func(sessionID string) *store.TeamworkState, projectRootFor func(sessionID string) string, ) (board.ProjectBoardSink, func(), error)` — guardMultiProcess 是启动期多进程闸门：数据根是单进程写者
 - `func PluginByName(plugins []plugin.Plugin, name string) (plugin.Plugin, error)`
 - `func RegisterGoalTools(runtime *seelebridge.Runtime, app *application.Service)`
 - `func RegisterSkillActivateTool(runtime *seelebridge.Runtime, skills *skill.Registry, activate func(name string) (skill.Skill, error))` — RegisterSkillActivateTool 注册模型侧的技能激活工具（Codex 式 "调用 skill"
