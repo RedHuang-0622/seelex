@@ -78,3 +78,28 @@ J 片之后不再下沉。若你更希望它们有"底座"名分，替代方案�
 2. `seelebridge/tools`（13 文件 5076 行）里**与权限判定无关**的部分：`internal/mapper` 的删除
    （plan §2.10 明写"删"）、`json_object.go` → `internal/jsonobj/`。
 3. 把 M4 的 `ports.go` / 19 处别名清单做成"K 片待删表"（只做清点，不动代码）。
+
+## 6. T4：`backend/tool/registry` 的二次拆分（新，需要落点/接口口径的裁决）
+
+**为什么它不是"再搬一次"**：plan §2.6 要求把这一包切成 `backend/tool/{registry,jobs}`，
+再把权限判据段并入 `backend/limit/policy`。实测跨组引用（搬前逐符号数出来的）：
+
+| 组 | 规模 | 依赖另一组的私有符号 |
+|---|---|---|
+| 作业组（`async_exec.go`、`async_run.go`、`async_probe.go`、`job_{contract,tools,run,subagent}.go`） | 7 文件 2720 行 | **14 个**：`Router`(type)、`Deps`、`ResolveShellFact`、`DialectHint`、`newProcessTreeCommand`、`resolveNodePath`、`scopedBashCommand`、`scopedToolTimeout`、`serialBashBudgetLabel`、`sessionKey`、`startWithProcessTree` 等 |
+| 权限组（`permission_policy.go` 601 行、`policy.go` 172 行） | 2 文件 773 行 | **8 个**：`PermissionGate`、`Enforce`、`Middleware`、`rebuildLocked`、`sessionFromContext`（registry_state.go）、`Write`（async_run.go）、`sessionID`（job_contract.go） |
+| 注册表组（`router.go`、`registry_state.go`、`shell_fact.go`、`role_plugins.go`） | 4 文件 1583 行 | 反向引用为 0 |
+
+**建议（按"先接口后搬文件"的顺序，三步各一 commit）**：
+
+1. **作业组抽端口**：把作业组需要的 14 个符号收敛成 1–2 个窄接口（例如
+   `JobsHost`：会话键、节点路径解析、进程树启动、壳事实、预算标签），定义放 `contract/`
+   （或 `backend/tool/jobs/ports.go`），注册表侧用编译期断言钉住"结构满足"。
+2. 作业组搬到 `backend/tool/jobs/`（此时它不再 import 注册表组）。
+3. 权限判据段并入 `backend/limit/policy/`：`permission_policy.go` 需要执行门的 5 个符号，
+   同样先抽端口（`Gate` 端口），再搬；`policy.go`（可见性策略，172 行）是否一起进
+   `backend/limit/policy/` 需要你定——它做的是**工具面收窄**（子代理/员工能看到哪些工具），
+   与"权限判定表"是两件事，可留 `backend/tool/registry/`。
+
+**需要你裁决的只有两条**：① `policy.go`（可见性）进 `backend/limit/policy/` 还是留注册表板；
+② 端口层的落点（`contract/` 还是各自板内的 `ports.go`）。其余我按上面三步做。

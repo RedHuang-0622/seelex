@@ -291,6 +291,37 @@ io 组 6（含 e2e 门面闭包清单与 `layout_test.go` 的模块清单）。
 （外加根包与 `.seelex/` 数据目录）。T4 计划：`registry` 内部再切 `backend/tool/jobs`（异步执行 /
 job 契约 / 作业工具）+ 权限判据段并入 `backend/limit/policy`。
 
+## 10. G2：`mcp` / `plugin` 归位；T4 的耦合实测
+
+`seelebridge/{mcp,plugin}` → `backend/engine/{mcp,plugin}`（`068ba79e`）：两包共 3 个生产文件
+714 行 + 3 用例，进口方只有 `seelebridge/{runtime.go,ports.go,runtime_role_plugins.go}`、
+`runtime_tools_test.go`、`backend/tool/registry/role_plugins_test.go` 与 e2e 清单，属纯搬迁。
+落点说明：final nesting（决策简报的方案 A/B）仍待裁决——本轮先落在板下，
+无论选哪个方案板级落点都在这，之后若选 A 只需再挪一层。
+
+**本片结束时的实况**：`seelebridge/` 只剩 **2 个包**——`teamwork` 与 `workunit`（外加根包
+52 个生产文件与 `.seelex/` 数据目录）。这两包都不是"能直接搬"的状态：
+
+- `workunit`：等 V3 裁决（归属），且与根包的 6 个 `workunit*` 文件同域；
+- `teamwork`：与根包的 11 个 `runtime_teamwork*.go`、`workflow_job_*` 同域，要随 J 片一起动。
+
+### 10.1 T4（`registry` 二次拆分）的耦合实测——它是"拆"不是"搬"
+
+`backend/tool/registry` 现有 13 个生产文件 5076 行，plan §2.6 要求切成
+`backend/tool/{registry,jobs}` 再加权限段并入 `backend/limit/policy`。实测跨组引用：
+
+- **作业组（7 文件，2720 行）引用注册表组的 14 个符号**：`Router`（type）被 5 个作业文件用、
+  `Deps`、`ResolveShellFact`/`DialectHint`（shell_fact.go），以及 `router.go` 的
+  `newProcessTreeCommand` / `resolveNodePath` / `scopedBashCommand` / `scopedToolTimeout` /
+  `serialBashBudgetLabel` / `sessionKey` / `startWithProcessTree`。
+- **权限组（`permission_policy.go` 601 行 + `policy.go` 172 行）引用另外两组 8 个符号**：
+  `PermissionGate` / `Enforce` / `Middleware` / `rebuildLocked` / `sessionFromContext`
+  （`registry_state.go`）、`Write`（`async_run.go`）、`sessionID`（`job_contract.go`）。
+
+⇒ 直接按文件切会让一个 commit 同时背"搬迁 + 抽接口"，且要在 8–14 个私有符号上做归属判断。
+本轮按 §5.12 不自行补全：把切法与建议写进
+[m4-decision-brief.md](m4-decision-brief.md) §6，等裁决。
+
 | ID | 事项 | 处置 |
 |---|---|---|
 | D-M4-1 | 首轮替换脚本把 `docs/research/**`、`docs/test/**` 的路径也改写了（这两类是"把当时状态固定下来"的记录）。已 `git checkout` 还原，并把这两类目录加入脚本跳过清单，与 M3 §8.4 登记的口径一致 | 已修 |
