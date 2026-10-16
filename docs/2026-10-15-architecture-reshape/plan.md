@@ -1,8 +1,13 @@
 # Seelex 架构重排方案（三大层 + 底座）
 
 日期：2026-10-15
-状态：**方案／待裁决，不是实施记录**。本轮没有修改任何业务代码、测试、配置、持久化格式或正式事实文档，
-没有执行构建、测试、清理、迁移、发布或提交。
+状态：**方案；已从 2026-10-16 起实施**。实施记录见同目录 `m1-record.md` … `m5-record.md`
+（M1–M4 已达成：`seelebridge/` 目录已删除；M5 进行中）。本文正文里的"待裁决"字样只指**尚未落地的项**，
+不要读成"目标模型还没定"；§1 的模块图与依赖方向已是**现行落位口径**。
+（本文最初写作时标注"方案／待裁决，不是实施记录"，那句描述的是当时状态。）
+门面落点：§1 写的 `appface` 与 §2.2 的"或原地保留 `application/`"二者等价，当前实现取后者
+（`application/application.go` 保形层 + 五组窄接口，见
+[`r10-r11-p13-contract.md`](r10-r11-p13-contract.md) §1）。
 范围：模块重排（物理归位 + 包改名 + 依赖方向纠正）与配套里程碑、长程约束。
 非范围：行为变更、数据格式变更、Seele 引擎能力重写、产品/协议新设计。
 
@@ -51,7 +56,7 @@
 |---|---|---|---|---|
 | 前端 | `gui`、`tui`、`headless`、`console` | 纯视图状态 | 门面 | 直接 import store/engine/tool/limit |
 | 门面 | `appface` | 无 | `contract`（+ 零依赖 protocol） | 持有 store 句柄、暴露构造函数、暴露完整 Service |
-| 中间层 | `middle/*` | 会话视图、驻留、切换 | 契约 + store 读端口 | 写会话事实、调用 Seele |
+| 中间层 | `middle/*` | 会话视图、驻留、切换 | 契约 + 窄端口（store 读面经端口注入，中间层包不直接 import `store`） | 写会话事实、调用 Seele |
 | 后端 | `backend/engine` | 运行会话、在途执行 | 契约 + store 写端口 + Seele | import 中间层/前端 |
 | 后端 | `backend/tool` | 工具注册表、执行句柄、作业行 | 契约 + `backend/limit` | 自判权限 |
 | 后端 | `backend/limit` | 权限判据、档位、循环预算 | 契约 | 持有工具实现 |
@@ -113,7 +118,7 @@ Seelex 侧现已在 `seelebridge/tools/registry_state.go` 一次挂载 `r.permis
 1. subject / tier 解析     （复用 Seele permission.WithEngine / WithSessionID）
 2. 路径门 / ProjectScope   （seelebridge/security/project_scope.go）
 3. 权限判定                （委托 Seele permission.Gate，Seelex 不自判）
-4. 审批                    （application/approval → 端口）
+4. 审批                    （`backend/limit/approval`（原 `application/approval`，M2 已归位）→ 端口）
 5. 循环预警                （新增，见 §1.5）
 ```
 
