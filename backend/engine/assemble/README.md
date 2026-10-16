@@ -210,7 +210,7 @@ memory → 稳定前缀栈（skill/compact）→ WorkingHistory（累积 context
 `CompactStack` 压缩基线时执行（栈顶之后确有未覆盖区间才补帧）；**从未压缩
 过的会话恢复时不凭空生成合成摘要帧**，保证恢复后首请求与“未重启继续运行”
 的上下文逐条一致（headless 双进程回归见
-[`headless_restore_prefix_probe_test.go`](../../../headless_restore_prefix_probe_test.go)）。
+	[`headless_restore_prefix_probe_test.go`](../../../test/headless_restore_prefix_probe_test.go)）。
 
 尾窗预算的边界（`windowTailBudget`）：它只决定「从磁盘读哪些分片」的宽度，
 不是压缩保留前缀的口径（那走 `WindowConfig.RetainedContextTokens` 的

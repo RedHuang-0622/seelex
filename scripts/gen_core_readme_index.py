@@ -30,6 +30,7 @@ EXTRA_PACKAGES = [
     REPO / "wiring" / "config",
     REPO / "wiring" / "registry",
     REPO / "wiring" / "bootstrap",
+    REPO / "test",
 ]
 
 # 会话/视图/审批等跨域回归测试：文件名前缀不表达归属，用显式名单挂到 session 卷
@@ -250,9 +251,10 @@ def group_section(
     prefixes,
     names,
     prose: str = "",
+    title: str = "",
 ) -> str:
     out = [
-        f"# core/{group_name}（根包分卷）",
+        title or f"# core/{group_name}（根包分卷）",
         "",
         "## 生态位",
         "",
@@ -275,6 +277,15 @@ def group_section(
     )
     out.append(build_index(go_files, base))
     return "\n".join(out).rstrip() + "\n"
+
+
+def strip_navigation(text: str) -> str:
+    """去掉上一轮的「分卷 README」导航段（本次重写）。"""
+    marker = "## 分卷 README"
+    index = text.find(marker)
+    if index < 0:
+        return text
+    return text[:index].rstrip() + "\n"
 
 
 def strip_old_section(text: str) -> str:
@@ -303,6 +314,129 @@ def write_if_changed(path: pathlib.Path, content: str) -> None:
     print("wrote", shown)
 
 
+# ── test/：仓库级集成用例包（文件数 > 15，按 readme-spec §4 分卷） ──────────────
+#
+# 判据同 application/core 的根包分卷：每个 .go 必须**恰好**归入一卷，漏归属或重复归属
+# 直接失败——新增用例文件不归卷就刷新不了文档，这是"索引静默漏文档"的报警器。
+TEST_PACKAGE = REPO / "test"
+TEST_VOLUMES = [
+    (
+        "harness",
+        "用例基座：包说明、TestMain 的 CWD 口径与 launchFlags 摆现场句柄。",
+        [],
+        ["doc.go", "main_test.go"],
+    ),
+    (
+        "live",
+        "真 API / 手工冒烟族：由 build tag 与环境变量双开关，缺凭证即 skip（默认集合不红）。",
+        ["async_", "compact_live", "computer_use", "context_long", "job_backfill", "job_live",
+         "manual_smoke", "prefix_chain", "real_api_", "scheduled_task", "smoke_"],
+        [],
+    ),
+    (
+        "repro",
+        "会话/工具链回归复现：用户现象 → 会红的断言（含多会话并发与热切场景）。",
+        ["repro_"],
+        ["prefix_invariant_fullchain_test.go"],
+    ),
+    (
+        "session",
+        "会话生命周期与切换成本：链路基准与切换剖面。",
+        ["session_"],
+        [],
+    ),
+    (
+        "plugin",
+        "插件与精选目录契约：目录登记、根解析、自省工具、技能激活、工具声明分封。",
+        ["plugin_", "dev_plugin_", "curated_", "skill_activate_tool", "tool_meta_declaration",
+         "tool_face_prompt"],
+        [],
+    ),
+    (
+        "project-board",
+        "项目看板：读/写/刷新工具与装配接线。",
+        ["project_board_"],
+        [],
+    ),
+    (
+        "teamwork",
+        "teamwork / 子代理装配：headless 冒烟、插件装配与 worktree 生命周期。",
+        ["teamwork_"],
+        [],
+    ),
+    (
+        "tool",
+        "工具面全链：装配基座与上下文读工具、工具记录写路径。",
+        ["tool_full_chain"],
+        [],
+    ),
+    (
+        "permission",
+        "权限门与审批桥：配置叠加、员工面板、真 API 权限冒烟。",
+        ["permission_"],
+        [],
+    ),
+    (
+        "release",
+        "发布与交付契约：版本号、默认档位、构建布局、图标资源、快照校验与启动种子。",
+        ["release_", "build_layout", "icon_resource", "boot_"],
+        [],
+    ),
+    (
+        "probe",
+        "一次性探针：headless 恢复前缀顺序与作业迁移残留（现场取证用，保持可复跑）。",
+        ["headless_restore_prefix_probe", "job_migration_residue"],
+        [],
+    ),
+]
+
+
+def test_volume_coverage(all_files):
+    hits = {}
+    for group_name, _, prefixes, names in TEST_VOLUMES:
+        for path in all_files:
+            if any(path.name.startswith(prefix) for prefix in prefixes) or path.name in names:
+                hits.setdefault(path.name, []).append(group_name)
+    orphans = sorted(name for name in (p.name for p in all_files) if name not in hits)
+    overlaps = {name: groups for name, groups in hits.items() if len(groups) > 1}
+    problems = []
+    if orphans:
+        problems.append("未归属任何分卷：" + "、".join(orphans))
+    if overlaps:
+        problems.append(
+            "同时命中多个分卷：" + "、".join(f"{n}→{'/'.join(g)}" for n, g in sorted(overlaps.items()))
+        )
+    if problems:
+        raise SystemExit("test/ 分卷覆盖自检失败（请把新用例归入某个分卷）：\n  " + "\n  ".join(problems))
+    return {name: groups[0] for name, groups in hits.items()}
+
+
+def test_volume_navigation(owner) -> str:
+    out = [
+        "## 分卷 README",
+        "",
+        "本包文件数超过 15，按 readme-spec §4 分卷承载「文件与函数索引」（每卷一个 "
+        "`README-<卷名>.md`）：",
+        "",
+        "| 卷 | 覆盖 | 内容 |",
+        "|---|---|---|",
+    ]
+    for group_name, overview, prefixes, names in TEST_VOLUMES:
+        covered = sorted(name for name, group in owner.items() if group == group_name)
+        if not covered:
+            continue
+        out.append(
+            "| [README-%s.md](README-%s.md) | %s | %s |"
+            % (
+                group_name,
+                group_name,
+                "、".join("`%s`" % n for n in covered),
+                overview,
+            )
+        )
+    return "\n".join(out).rstrip() + "\n"
+
+
 def main() -> None:
     # 子包：单 README，含生态位概述 + 索引
     for pkg in sorted(p for p in ROOT.iterdir() if p.is_dir() and p.name != "internal"):
@@ -327,6 +461,33 @@ def main() -> None:
         text = strip_old_section(readme.read_text(encoding="utf-8"))
         text = text.rstrip() + "\n\n" + section(sorted(package.glob("*.go")), package) + "\n"
         write_if_changed(readme, text)
+
+    # test/：集成用例包按前缀分卷（文件多），主 README 只留导航表。
+    test_files = sorted(TEST_PACKAGE.glob("*.go"))
+    if test_files:
+        test_owner = test_volume_coverage(test_files)
+        for group_name, overview, prefixes, names in TEST_VOLUMES:
+            group_files = [f for f in test_files if test_owner[f.name] == group_name]
+            if not group_files:
+                continue
+            volume = TEST_PACKAGE / f"README-{group_name}.md"
+            write_if_changed(
+                volume,
+                group_section(
+                    group_name,
+                    overview,
+                    group_files,
+                    TEST_PACKAGE,
+                    prefixes,
+                    names,
+                    title=f"# test/{group_name}（集成用例分卷）",
+                ),
+            )
+        main_readme = TEST_PACKAGE / "README.md"
+        if main_readme.exists():
+            base = strip_old_section(main_readme.read_text(encoding="utf-8")).rstrip()
+            base = strip_navigation(base)
+            write_if_changed(main_readme, base + "\n\n" + test_volume_navigation(test_owner) + "\n")
 
     # 根包：移除主 README 的索引段（由分卷 README 承载）
     main_readme = ROOT / "README.md"

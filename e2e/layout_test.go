@@ -42,6 +42,7 @@ var repositoryModules = []string{
 	"wiring/config",
 	"wiring/registry",
 	"wiring/bootstrap",
+	"test",
 }
 
 var repositoryModuleDocumentation = map[string]string{
