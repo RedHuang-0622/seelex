@@ -158,3 +158,53 @@ python scripts/gen_core_readme_index.py           # 索引刷新（test/ 分卷 
 - plan §5.1（M1–M5 只做物理归位、行为零变化）：S1–S4 遵守（三条显式化改写与一条判据归一已登记
   为偏差）；S5 的钩子改动属工具链缺陷修复，不涉及产品行为。
 - plan 的 M5 目标 `main.go < 400` 行：超额达成（48 行）。
+
+## 10. M5 第二半：按 `m5-slices.md` 推进的切片
+
+### R1 —— `internal/adapters/` → `wiring/adapters/`（plan §2.10，commit `853f6b31`）
+
+**删除清单（原位置 → 新唯一位置）**
+
+| 原位置 | 新唯一位置 |
+|---|---|
+| `internal/adapters/`（23 文件 2454 行 + README） | `wiring/adapters/`（包名仍为 `adapters`，逐字节搬） |
+
+**为什么这是"只搬位置"**：23 个文件无一字节改变（`git show --stat` 里 22 个文件 0 行差异、
+1 个是 README 的路径修正）；改动**只出现在取用侧**：13 个 Go 进口方改 import 路径、
+`gofmt` 因路径变长重排 import 块。
+
+**同步的登记面（漏一个就打红 CI）**
+
+| 面 | 改法 |
+|---|---|
+| `e2e/layout_test.go` 的 `repositoryModules` | `internal/adapters` 换登 `wiring/adapters`；`internal` 仍在（其余子包未动） |
+| `e2e/dto_boundary_test.go` 的反向断言 | 路径是 `filepath.Join(root, "internal", "adapters", ...)` **分段式**，纯字符串替换抓不到 —— 必须单改（这是本切片唯一一次"跑起来才发现"的漏点） |
+| `e2e/subagent_status_vocabulary_gate_test.go` | 写死路径表里的 `internal/adapters/session_workspace_ports.go` → `wiring/adapters/...`，判据一字未改 |
+| `internal/README.md` | 删掉 `adapters/` 一节（否则链接指向已删的 `adapters/README.md`）＋架构图节点/边同步 |
+| `wiring/README.md` | "规划（尚未实现）：`internal/adapters/` 将搬到 `wiring/adapters/`" 改成已落位事实；`WebSearch` 那一格仍标**规划**（唯一实现当前是 `backend/tool/search`） |
+| `wiring/adapters/README.md` | 生态位/架构图/composition root 改为 `wiring/bootstrap`；`seelebridge.Runtime` 措辞改为 `backend/engine/assemble.Runtime`（该包源码里仍以局部别名 `seelebridge` 引入，别名不改行为） |
+
+**偏差登记**
+
+| 编号 | 偏差 | 理由 |
+|---|---|---|
+| D-M5-R1-1 | 未删 `internal/adapters` 之外的两个空目录（`seelebridge/workunit/`、`internal/toolmetrics/`） | 仓库 §0 铁律要求删除类操作先向用户预警并取得确认——已提给用户，不擅自执行 |
+| D-M5-R1-2 | 未给 `wiring/adapters/README.md` 补「文件与函数索引」 | 该段是 readme-spec §3 要求（`wiring/{config,registry}` 已有），但本切片只做归位；补索引要扩 `scripts/gen_core_readme_index.py` 的目标包清单，登记为 R10 门面收窄时一并做 |
+
+**验证（原始输出）**
+
+```text
+gofmt -l .（排除 tmp/ 工作树）           → 空
+go build ./...                          → 无输出
+go build -tags "gui,desktop,production" ./... → 无输出
+go vet ./...                            → 无输出
+go test ./e2e/ ./wiring/... ./contract/... ./session/... ./store/... -count=1 → 全 ok
+go test ./... -count=1 -timeout=900s     → 失败集合 = 基线（application/core 3 例：
+                                           TestContextBudgetSkipsCompactionWithoutMargin /
+                                           TestRunningSessionAccumulatesAllRoundsInOrderControl /
+                                           TestColdRestoreTailFirstRequestKeepsTranscriptOrder）
+```
+
+**过程事故**：本轮派出的两个子代理（`m5_adapters`、它再派生的 `m5_k1`）在 25 分钟内**没有产生
+任何文件改动**，也未回报；按"长时间无响应就串行执行"的约定，我已中断它们并亲自完成本切片。
+教训：子代理侧要有"多久没落地就交回"的硬超时，不能靠它自述状态。
