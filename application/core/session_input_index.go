@@ -22,13 +22,10 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/context"
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
+	"github.com/RedHuang-0622/seelex/middle/residency"
 	"github.com/RedHuang-0622/seelex/middle/view/state"
 	"github.com/RedHuang-0622/seelex/session"
 )
-
-// inputIndexSummaryLimit 是刻度摘要的字符上限（rune）：悬停只需要一行提示，
-// 正文不回传（"零正文全量读"：整份索引只有摘要，摘要长度有界）。
-const inputIndexSummaryLimit = 60
 
 // SessionInputIndex 返回目标会话的**全量**用户输入索引（含未加载的早期轮次）。
 //
@@ -45,7 +42,7 @@ func (service *Service) SessionInputIndex(sessionID string) (model.SessionInputI
 		return model.SessionInputIndex{}, err
 	}
 	window, loaded := service.sessionInputWindowLoaded(sessionID, total)
-	items := buildSessionInputIndex(conversation, loaded, inputIndexSummaryLimit)
+	items := residency.BuildInputIndex(conversation, loaded, residency.InputIndexSummaryLimit, inputIndexUserText)
 	return model.SessionInputIndex{
 		SessionID:  sessionID,
 		Total:      total,
@@ -125,45 +122,6 @@ func (service *Service) sessionInputWindowLoaded(sessionID string, total int) (m
 	return window, loaded
 }
 
-// buildSessionInputIndex 从完整可见会话构建全量用户输入索引（纯函数）。
-//
-//   - 只保留 user 行且展示正文非空（内部标记 / 会话恢复前缀不算用户输入）；
-//   - loaded 是当前已加载窗口内的用户输入正文（顺序一致），命中段标 Loaded；
-//   - 摘要按 limit 截断（rune），Chars 保留原文长度（> len(Summary) = 已截断）。
-func buildSessionInputIndex(conversation []model.Message, loaded []string, limit int) []model.SessionInputIndexRow {
-	if limit <= 0 {
-		limit = inputIndexSummaryLimit
-	}
-	rows := make([]model.SessionInputIndexRow, 0, len(conversation))
-	texts := make([]string, 0, len(conversation))
-	for offset, message := range conversation {
-		text := inputIndexUserText(message)
-		if text == "" {
-			continue
-		}
-		summary, chars := summarizeInputIndexText(text, limit)
-		rows = append(rows, model.SessionInputIndexRow{
-			Round:         len(rows) + 1,
-			MessageID:     message.ID,
-			Offset:        offset,
-			RoundID:       message.RoundID,
-			Seq:           message.UnitSeq,
-			RoleName:      message.RoleName,
-			RoleSessionID: message.RoleSessionID,
-			CreatedAt:     message.CreatedAt,
-			Summary:       summary,
-			Chars:         chars,
-		})
-		texts = append(texts, text)
-	}
-	if start, length := alignLoadedInputTexts(texts, loaded); length > 0 {
-		for index := start; index < start+length && index < len(rows); index++ {
-			rows[index].Loaded = true
-		}
-	}
-	return rows
-}
-
 // inputIndexUserText 返回一条可见消息作为「用户输入」的展示正文；非用户输入
 // 返回空串（调用方据此跳过）。
 func inputIndexUserText(message model.Message) string {
@@ -177,45 +135,4 @@ func inputIndexUserText(message model.Message) string {
 		return ""
 	}
 	return strings.TrimSpace(displayUserInput(message.Content))
-}
-
-// summarizeInputIndexText 把正文压成有界摘要：空白折叠 + rune 截断（末尾省略号）。
-// 返回摘要与原文 rune 数。
-func summarizeInputIndexText(text string, limit int) (string, int) {
-	if limit <= 0 {
-		limit = inputIndexSummaryLimit
-	}
-	flat := strings.Join(strings.Fields(text), " ")
-	chars := len([]rune(flat))
-	if chars <= limit {
-		return flat, chars
-	}
-	runes := []rune(flat)
-	return string(runes[:limit]) + "…", chars
-}
-
-// alignLoadedInputTexts 把「窗口内已加载的用户输入」对齐到全量输入序列：
-// 先求最长前缀的**连续整段命中**（自尾部向前搜索，窗口通常是尾部窗口），
-// 未命中再退一步用更短前缀（最新一条输入可能尚未落盘/尚未进入索引）。
-// 返回命中起点与长度；无法命中返回 (0,0)——宁可不标 Loaded（前端仍按 DOM
-// 命中兜底），也不能标错。
-func alignLoadedInputTexts(texts, loaded []string) (int, int) {
-	if len(texts) == 0 || len(loaded) == 0 || len(loaded) > len(texts) {
-		return 0, 0
-	}
-	for length := len(loaded); length >= 1; length-- {
-		for start := len(texts) - length; start >= 0; start-- {
-			matched := true
-			for offset := 0; offset < length; offset++ {
-				if texts[start+offset] != loaded[offset] {
-					matched = false
-					break
-				}
-			}
-			if matched {
-				return start, length
-			}
-		}
-	}
-	return 0, 0
 }

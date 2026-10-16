@@ -2,7 +2,7 @@
 
 ## 生态位
 
-`middle/residency` 是中间层的**常驻与预算**落点（plan §2.4），当前已有四件判据：
+`middle/residency` 是中间层的**常驻与预算**落点（plan §2.4），当前已有五件判据：
 
 1. 可见快照的**预览截断**（`Preview`，来自 `snapshot_budget.go`）；
 2. **LRU 使用序维护**（`Order.Touch` / `Order.Forget`）与**释放额度**（`Budget`）——
@@ -54,6 +54,8 @@
 | `catalog_test.go` | 回执到达即返回、恰好请求一次、ctx 超时返回 `ctx.Err()` 且之后仍可等待 |
 | `archive.go` | `ArchiveGate` / `ArchiveStore` / `ArchiveEngine` / `ArchiveDeps` + `Archive`：会话归档的唯一判据 |
 | `archive_test.go` | 门控四轴次序与装配缺陷、空 ID 与 trim、record 缺失/归属不符、已归档幂等、驻留次序、跳过引擎、三条失败即停 |
+| `inputindex.go` | `InputIndexSummaryLimit` + `SummarizeInputText` / `AlignLoadedInputTexts` / `BuildInputIndex`：用户输入索引的装配判据 |
+| `inputindex_test.go` | 摘要截断（rune / 折空白 / 默认上限）、对齐算法（尾窗 / 整段 / 退让 / 不对齐）、命中段标 Loaded 与序号偏移 |
 
 ## 核心实现
 
@@ -149,6 +151,13 @@ go test ./application/core/ -run 'Archive' -count=1                             
 
 - `type CatalogRefresher interface` — 请求一次目录刷新的窄口（结构满足会话协调器的同名方法）。
 - `func WaitCatalogRefresh(ctx context.Context, refresher CatalogRefresher) error` — 等一轮覆盖本次请求的目录刷新；ctx 超时返回 `ctx.Err()`（不是失败）。
+
+### inputindex.go
+
+- `const InputIndexSummaryLimit = 60` — 刻度摘要的字符上限（rune）。
+- `func SummarizeInputText(text string, limit int) (string, int)` — 空白折叠 + rune 截断（省略号），返回摘要与原文 rune 数。
+- `func AlignLoadedInputTexts(texts, loaded []string) (int, int)` — 把已加载窗口对齐到全量序列（最长整段命中 → 退让到更短前缀 → 不命中 0/0）。
+- `func BuildInputIndex(conversation []model.Message, loaded []string, limit int, userText func(model.Message) string) []model.SessionInputIndexRow` — 从完整可见会话构建索引（只保留宿主谓词判定的用户输入行，命中段标 Loaded）。
 
 ### archive.go
 
