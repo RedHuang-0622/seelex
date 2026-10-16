@@ -22,9 +22,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/skill"
 	"github.com/RedHuang-0622/seelex/store"
 )
 

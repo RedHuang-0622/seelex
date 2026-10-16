@@ -12,6 +12,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/engine/mcp"
 	"github.com/RedHuang-0622/seelex/backend/engine/schedule"
+	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	subagentsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/backend/tool/task"
@@ -20,7 +21,6 @@ import (
 	"github.com/RedHuang-0622/seelex/internal/model"
 	"github.com/RedHuang-0622/seelex/seelexctx/search"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
-	"github.com/RedHuang-0622/seelex/skill"
 )
 
 // ports.go 承载 Runtime 对 contract 端口的实现方法（组合根公开面）。

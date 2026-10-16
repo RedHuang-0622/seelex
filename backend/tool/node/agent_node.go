@@ -18,6 +18,7 @@ import (
 	frameworknode "github.com/RedHuang-0622/Seele/workplan/core/node"
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
 
+	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	"github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
 	"github.com/RedHuang-0622/seelex/backend/workunit"
@@ -28,7 +29,6 @@ import (
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/seelexctx/provider"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
-	"github.com/RedHuang-0622/seelex/skill"
 )
 
 // Deps 是 AgentNode 执行所需的运行时回调集合，由根包（Runtime）注入。

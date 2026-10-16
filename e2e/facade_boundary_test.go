@@ -130,6 +130,9 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/backend/tool/node",
 	"github.com/RedHuang-0622/seelex/backend/tool/plan",
 	"github.com/RedHuang-0622/seelex/backend/engine/plugin",
+	// M5-R9：skill 从仓库顶层归位到 engine 板块（plan §2.5）。同一份代码换落点，
+	// 属"一条出一条进"的等量替换，清单上限不变。
+	"github.com/RedHuang-0622/seelex/backend/engine/skill",
 	"github.com/RedHuang-0622/seelex/backend/engine/schedule",
 	"github.com/RedHuang-0622/seelex/backend/tool/search",
 	"github.com/RedHuang-0622/seelex/backend/limit/gate",
@@ -151,7 +154,6 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/seelexctx/tokens",
 	"github.com/RedHuang-0622/seelex/session",
 	"github.com/RedHuang-0622/seelex/store",
-	"github.com/RedHuang-0622/seelex/skill",
 	// M3-S2：会话存储的基座机制（数据根锁 / 进程存活 / 共享读 / 原子发布 / 残尾 /
 	// Settings）从 store 抽出。同一份代码换落点，属"新模块可 +1"，且自身
 	// 闭包是纯标准库（`go list -deps ./store/root` 除自身外无带点的包）。

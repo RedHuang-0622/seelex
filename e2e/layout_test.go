@@ -37,11 +37,13 @@ var repositoryModules = []string{
 	"internal/telemetry", "backend/tool/plan",
 	"backend/tool/search", "backend/limit/gate", "backend/tool/task", "backend/tool/websearch", "seelexctx", "seelexctx/compactor",
 	"seelexctx/merger", "seelexctx/provider", "seelexctx/search", "seelexctx/snapshot",
-	"session", "skill", "store", "store/root", "store/schedule", "store/workspace",
+	"session", "store", "store/root", "store/schedule", "store/workspace",
 	"tui", "tui/splash", "wiring",
 	"wiring/config",
 	"wiring/registry",
 	"wiring/bootstrap",
+	// M5-R9：skill 从仓库顶层归位到 engine 板块（plan §2.5）。
+	"backend/engine/skill",
 	"test",
 }
 

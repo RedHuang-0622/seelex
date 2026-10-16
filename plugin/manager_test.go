@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/skill"
+	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 )
 
 type fakeTools struct {

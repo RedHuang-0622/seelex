@@ -33,8 +33,8 @@ import (
 
 	"github.com/RedHuang-0622/Seele/types"
 
+	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
-	"github.com/RedHuang-0622/seelex/skill"
 )
 
 // promptMatrixCatalogHeader 是目录段标题（口径来自 application/core/prompt_layer/

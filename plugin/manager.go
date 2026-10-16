@@ -7,7 +7,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/RedHuang-0622/seelex/skill"
+	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 )
 
 type ToolBackend interface {

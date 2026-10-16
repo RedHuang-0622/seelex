@@ -9,8 +9,8 @@
 M1-A，本包从 `application/contract/` 归位到仓库顶层 `contract/`。包名、导出面与 JSON 形状均未变化，
 调用方只改 import 路径。
 
-主要调用方：`application/core`（只依赖端口）、`wiring/adapters`、`seelebridge/`、
-`plugin/`、`skill/`、`session/`、`workspace/`（各自实现对应端口），以及 `e2e/scenario` 的 fake ports。
+主要调用方：`application/core`（只依赖端口）、`wiring/adapters`、`backend/engine/assemble/`、
+`plugin/`、`backend/engine/skill/`、`session/`、`workspace/`（各自实现对应端口），以及 `e2e/scenario` 的 fake ports。
 
 ## 架构图
 

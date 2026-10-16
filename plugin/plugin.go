@@ -1,7 +1,7 @@
 // Package plugin loads and activates Seelex product plugins.
 package plugin
 
-import "github.com/RedHuang-0622/seelex/skill"
+import "github.com/RedHuang-0622/seelex/backend/engine/skill"
 
 const CurrentSchemaVersion = 1
 

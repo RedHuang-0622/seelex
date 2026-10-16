@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	"github.com/RedHuang-0622/seelex/internal/frontmatter"
-	"github.com/RedHuang-0622/seelex/skill"
 )
 
 const manifestFile = "plugin.md"

@@ -6,10 +6,10 @@ import (
 	frameworkevent "github.com/RedHuang-0622/Seele/event"
 	approve "github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 
+	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	subagentsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelexctx"
-	"github.com/RedHuang-0622/seelex/skill"
 	"github.com/RedHuang-0622/seelex/store"
 )
 

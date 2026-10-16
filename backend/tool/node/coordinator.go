@@ -10,6 +10,7 @@ import (
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
 
+	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -17,7 +18,6 @@ import (
 	"github.com/RedHuang-0622/seelex/internal/model"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
-	"github.com/RedHuang-0622/seelex/skill"
 )
 
 // SessionPort 是 Coordinator 需要的子代理会话注册表面（由根包注入

@@ -17,8 +17,8 @@ import (
 
 	"github.com/RedHuang-0622/Seele/types"
 
+	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
-	"github.com/RedHuang-0622/seelex/skill"
 	"github.com/RedHuang-0622/seelex/store"
 )
 

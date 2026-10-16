@@ -18,7 +18,7 @@
 - 职责：`Manager.Define/Undefine/Activate/Deactivate/Active` 与
   `Filter`（include/exclude 模式过滤）。
 - 非职责：插件声明式能力包加载（归顶层 `plugin/` + `plugins/`）、
-  skill 联动（归 `skill/`）。
+  skill 联动（归 `backend/engine/skill/`）。
 
 ## 与其它域的关系
 

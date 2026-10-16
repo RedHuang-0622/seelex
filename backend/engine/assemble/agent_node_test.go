@@ -5,11 +5,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
 	"github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/model"
-	"github.com/RedHuang-0622/seelex/skill"
 )
 
 // ── 节点预算参数注入（A3，docs/2026-08-03-subagent-fork-architecture/plan.md §7.3）
