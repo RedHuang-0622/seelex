@@ -2,10 +2,9 @@
 
 // 原子发布在 Windows 上的持柄契约：目标文件被瞬时句柄占住时，rename 必须靠
 // 有界退避自救；超出预算则显式失败且不留残 tmp（H1/H7 同一形态）。
-package store
+package root
 
 import (
-	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"os"
 	"path/filepath"
 	"sync"
@@ -43,7 +42,7 @@ func TestWriteAtomicSurvivesTransientHandle(t *testing.T) {
 		release()
 	}()
 	begin := time.Now()
-	if err := storeroot.WriteAtomic(path, []byte("v1"), 0o600); err != nil {
+	if err := WriteAtomic(path, []byte("v1"), 0o600); err != nil {
 		t.Fatalf("瞬时持柄（25ms，在重试预算内）未被救回: %v", err)
 	}
 	spent := time.Since(begin)
@@ -71,7 +70,7 @@ func TestWriteAtomicGivesUpWithinBudgetAndLeavesNoTemp(t *testing.T) {
 	// 无关地确定为"显式失败"。原先用计时器在「最后一次退避 × 3」后释放，等于
 	// 把判定交给墙钟——机器负载高时 writeAtomic 的累计 sleep 会被拉长，释放
 	// 可能落在重试中途，剩下的重试就成功了（2026-09-11 偶发红灯）。
-	err := storeroot.WriteAtomic(path, []byte("v1"), 0o600)
+	err := WriteAtomic(path, []byte("v1"), 0o600)
 	if err == nil {
 		release()
 		t.Fatal("超出重试预算的发布被当作成功")

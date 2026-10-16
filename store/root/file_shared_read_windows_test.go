@@ -1,10 +1,9 @@
 //go:build windows
 
-package store
+package root
 
 import (
 	"errors"
-	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -59,7 +58,7 @@ func TestReadSharedFileSurvivesPublishWindow(t *testing.T) {
 	holder := holdForDelete(t, path)
 	defer holder.Close()
 
-	got, err := storeroot.ReadSharedFile(path)
+	got, err := ReadSharedFile(path)
 	if err != nil {
 		t.Fatalf("发布窗口内读失败（缺 FILE_SHARE_DELETE 的形态）: %v", err)
 	}
@@ -85,7 +84,7 @@ func TestOpenSharedReadDoesNotBlockEvictionDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reader, err := storeroot.OpenSharedRead(path)
+	reader, err := OpenSharedRead(path)
 	if err != nil {
 		t.Fatal(err)
 	}

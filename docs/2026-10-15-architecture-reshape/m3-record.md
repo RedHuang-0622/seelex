@@ -76,7 +76,16 @@
 
 **结论**：文件级落点表一律按工作区生成，不照抄 plan §2.9。
 
-### D-M3-4（需复核者点头）：工具记录**保留独立 JSONL**，不改为走 module head
+### D-M3-4：工具记录**保留独立 JSONL**，不改为走 module head —— **用户已裁决（2026-10-16）**
+
+**裁决**：工具记录保留**独立 JSONL**（不走 `store/session` 的 module head）。
+并且明确：**"这台机器哪个工具最该优化"的看板读数不进 `Snapshot`**（V10 裁决 = 方案 (b) 的读面口径），
+该钩子**直接与 JSONL 交互**（读写都走这份文件，不经过快照投影）。
+
+影响：plan §2.12.2 表格里"落点 = 会话粒度 module head"那一行按裁决改为"独立 JSONL"；
+`contract/dto/tool_record.go` 若仍写着"进程级全局台账"的旧口径，属于**文档漂移**，
+但读数语义（全局 / 跨会话）以用户裁决为准：看板读数仍是"这台机器哪个工具最该优化"，
+只是不进 Snapshot。
 
 plan §2.12.2 的裁决是"落点 = `store/session/` 下的一个 module（走 `publishModuleHead`）"。
 现状是会话目录内的独立 append-only JSONL（`<sessionRoot>/tool-record.jsonl`，**一行 = 一批整份快照**，
@@ -119,6 +128,29 @@ S2（抽 `store/root`）与 S5（目录改名）**分两个独立可回退的批
   M3 按实现对齐注释；"是否进 Snapshot"仍待用户裁决，M3 不改快照协议。
 
 ## 4. 各步证据（实跑输出）
+
+### 4.0 写放大 A/B 对照数字（用户要求补；2026-10-16 实测）
+
+口径先说清：
+
+- **迁移前那份"每次调用一次 open+write+fsync+close"的实现从未进过 git**（plan §2.12.2 自述
+  `internal/toolrecord` 当时是"未跟踪新包"），所以 A 侧**不是**拉旧提交跑出来的，而是
+  **同层代理**：同一份 `<会话根>/tool-record.jsonl`、同样 `os.OpenFile(O_APPEND)+Write+Sync+Close`
+  的序列，每次调用追加一行整份快照。
+- 测量方式：临时探针（跑完已删）在 `store` 包内用 `kernel32!GetProcessIoCounters` 读本进程写操作计数；
+  B1 的内存累计用真实 `internal/toolrecord.Accumulator.Record`。
+
+同一会话、200 次工具结果（一轮）：
+
+| 侧 | 形态 | 写操作数 | 写入字节 | 耗时 |
+|---|---|---:|---:|---:|
+| **B1 工具完成段（当前）** | 200 × `Accumulator.Record`（纯内存） | **0** | 0 | 0 |
+| **B2 提交点（当前）** | 1 × `AppendToolRecordSnapshot`（一行一批 + 一次 fsync） | **1** | 14 | **9.02 ms** |
+| **A 迁移前形态（同层代理）** | 200 × `AppendToolRecordSnapshot` | **200** | 2800 | **805.88 ms** |
+
+结论：同一轮 200 次工具调用，**写操作 200 → 1（200×）**、记录路径耗时 **806 ms → 9 ms（≈90×）**，
+两次提交点之间零磁盘写。原缺口（plan §2.12.2）闭合，且**不需要**为此改实现——
+实现早在 `970d1547` 就是批次落盘了。
 
 ### 4.1 S2 `store/root` 抽取
 
@@ -263,10 +295,22 @@ $ rg -l 'seelex/store/root'                       # 除 store/** 外无引用者
 
 ## 7. 未达成 / 残留
 
-1. **`store/root` 没有自己的测试文件**：其机制由 `store/` 侧的白盒用例覆盖（搬迁前后这些
-   用例逐字未改，见 `store/data_root_lock*_test.go`、`file_shared_read_windows_test.go`、
-   `atomic_publish_windows_test.go`、`retention_search_blob_test.go` 等）。理由：这些用例同时
-   验证"Router 打开数据根 → 锁行为"的集成面，搬走会丢覆盖；复制一份则违反 §8.1。
+1. ~~**`store/root` 没有自己的测试文件**~~ —— **已补（2026-10-16，用户要求）**：
+   - **搬到被测包**（整文件 `git mv`，不是复制）：`store/atomic_publish_windows_test.go`、
+     `store/file_shared_read_windows_test.go` → `store/root/`，包名改 `root`、`storeroot.` 限定符去掉。
+     它们是 `WriteAtomic` 持柄契约与共享读契约的**单元**用例，此前只是住在 `store/`。
+   - **新增 `store/root/root_unit_test.go`**（包内白盒，只依赖标准库）：`WriteAtomic` 新建/覆盖/
+     不留临时文件、**失败姿态**（目标不可替换 → 报错且不破坏既有目标、不留残 tmp）、
+     `Hash` 稳定与区分度、`RandomID` 200 次不撞、`RemoveAllWithBackoff`（含不存在路径幂等）、
+     `TruncateCrashTail` 五条边界（完整行/半行/纯残尾/空文件/单换行）、`ProcessAlive`（自身活、
+     0 与负数判死、不存在 pid 判死）、`Settings` 覆盖链与校验面（零值补默认、指针表达显式 false、
+     零值层不覆盖、越界显式拒绝）。
+   - **留在 `store/` 的**：`data_root_lock*_test.go`（3 个文件）——它们验证的是"`Open` 打开数据根 →
+     锁生命周期/多进程两臂"的**集成面**，搬走会丢覆盖。
+   - 因此 D-M3-8 的 5 项 test-only 导出（`NewOwnerRecord`/`ReadOwnerRecord`/`WriteOwnerRecord`/
+     `DataRootLockFile`/`ProcessAlive`，另加类型 `OwnerRecord`）**仍然保留**：实测它们被 `store/`
+     侧那 3 个集成用例消费（要伪造/replay 锁文件），取消导出就得让用例复制锁文件格式
+     （那才是第二份实现）。证据：`rg -n --fixed-strings 'storeroot.<符号>'` 的命中全在 `store/*_test.go`。
 2. **写放大对照（M3 退出条件之一）**：写路径已在 2026-10-15 改为"批次落盘"（结论见 §0.5 与
    `store/tool_record.go`），本轮搬迁未触碰该通道；"同一回合 N 次调用 ⇒ 1 次落盘"的
    **可复现 A/B 数字**尚未补齐（既有的 `application/core/tool_record_test.go` 与
