@@ -22,6 +22,7 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/backend/engine/account"
+	context_runtime "github.com/RedHuang-0622/seelex/backend/engine/context"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
 	"github.com/RedHuang-0622/seelex/backend/engine/mcp"
 	"github.com/RedHuang-0622/seelex/backend/engine/mcp/mcpstack"
@@ -274,6 +275,10 @@ type Runtime struct {
 	// 会话级批次）：状态与判据都在 backend/engine/task.Ledger，宿主是下面的
 	// tasks 注册表——注册表结构上满足 LedgerHost，构造时注入（R11-task）。
 	taskLedger *task_context.Ledger
+	// compactionStack 是**装配层压缩推帧接收侧**（`backend/engine/context` 的
+	// `CompactionStack`；P21 从 `runtime_compaction_index.go` 下沉）：状态在宿主注入的
+	// 会话上下文存储上，本层只持有句柄并做一行薄转发。
+	compactionStack *context_runtime.CompactionStack
 	// sessionWorkspaces 是 application 通知的会话绑定 workspace（framework
 	// DurableHistory 按显式键落盘用，R3 键漂移收敛）。
 	sessionWorkspacesMu sync.RWMutex
@@ -395,6 +400,14 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	// task 注册表本身——它结构上满足 LedgerHost（见该包的编译期钉子），所以
 	// 这里没有适配层，也不把台账判据留在组合根。
 	r.taskLedger = task_context.NewLedger(r.tasks)
+	// 压缩推帧接收侧（域包 `backend/engine/context`）：四个读取面都是本包私有访问器，
+	// 故按函数值端口注入（域包不能反向依赖装配层）。
+	r.compactionStack = context_runtime.NewCompactionStack(context_runtime.CompactionStackDeps{
+		Store:      r.sessionContextStore,
+		DAG:        r.MainCompactionDAG,
+		Summarizer: r.compactionSummarizer,
+		Archiver:   r.getTurnArchiver,
+	})
 	// 媒体域（待随图队列 + 会话媒体分区读写法）：宿主就是本 Runtime——它只经
 	// media.Host 的两格读面（HistoryRouter / SessionProjectID）回看状态。
 	r.media = toolmedia.New(r)

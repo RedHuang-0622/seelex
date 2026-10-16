@@ -67,6 +67,8 @@
 | `ports.go` | `TaskPort`/`SessionPort`/`PromptPort`/`ViewPort`/`HistoryPort` + `Deps`。 |
 | `coordinator.go` | 上下文装配/压缩协调器与纯 helper（警告文本、checkpoint 判定）。 |
 | `history.go` | provider 历史归一化（`HistoryCoordinator`）。 |
+| `compaction_stack.go` | **装配层压缩推帧的接收侧**（P21「域方法随类型走」从 `backend/engine/assemble/runtime_compaction_index.go` 归位）：`CompactionStack` + `CompactionStackDeps`（四个函数值读取面由装配点注入）+ `Push` / `Readback` / `SummaryAvailable` + 两个帧降级助手（`frameLocalDegrade` / `frameSummaryNote`）。调用侧（`compaction_index.go`）与端口（`ports.go` 的 `CompactionIndexPort`）本来就在本包，接收侧回归后这一域不再跨包往返。 |
+| `compaction_stack_test.go` | 降级码与原因（去首尾空白、无证据不编原因）、探针跟摘要器走、未绑定存储/未装配 runtime 的两种装配缺口文案 |
 
 ## 数据流图
 
