@@ -75,6 +75,8 @@ sequenceDiagram
 | `context_clone.go` | `ContextSnapshot` 深拷贝辅助 |
 | `live_dispatch.go` | 第一视角实时流分发器（P21-2 从 `backend/engine/assemble/runtime_live.go` 归位）：`LiveDispatcher` + `LiveDispatcherDeps`（阶段日志/工具事件两条事件源走函数值端口）+ `Start` / `Stop` / `Subscribe` / `HistoryPage` / `Broadcast` / `RecordAssistant` + 窗口归一化 `NormalizeLiveWindow` + 三个事件投影助手 |
 | `live_dispatch_test.go` | 窗口归一化、订阅回放与实时投递（含取消幂等、取消后广播不 panic）、窗口上限与分页（越界/收敛/空节点）、正文增量只在有订阅者时入窗、阶段与工具事件投影（Duration→ms） |
+| `session_factory.go` | 子代理**独立会话工厂**（P21-5 从 `backend/engine/assemble/runtime_subagent_session.go` 归位）：`SessionFactory` + `SessionFactoryDeps`（组件模板 / 模型名 / 历史路由 / 工作区解析器 / 注册表走函数值端口）+ `NewWithID` / `Count`；四条判据：显式 ID 必填、重名拒绝、有无 history router 两条装配支路、注册表缺失时只建不注册 |
+| `session_factory_test.go` | 装配缺口（nil 工厂）与入参判据（空会话 ID）、缺注册表时计数容忍 |
 | `subagent_sessions_test.go` | 会话注册表单元测试 |
 
 ## 核心实现
@@ -194,6 +196,17 @@ go build ./...
 - `func TestLiveDispatcherHistoryPageKeepsWindowBound(t *testing.T)`
 - `func TestLiveDispatcherRecordAssistantNeedsSubscriber(t *testing.T)`
 - `func TestLiveDispatcherStageAndToolEventProjection(t *testing.T)`
+
+### session_factory.go
+
+- `func NewSessionFactory(deps SessionFactoryDeps) *SessionFactory` — NewSessionFactory 装配一例（装配点是组合根 `assemble.Runtime` 的构造器）。
+- `func (factory *SessionFactory) NewWithID(sessionID string, hooks *frameworkSession.LoopHooks) (*frameworkSession.Session, error)` — NewWithID 创建独立子代理会话单元：与主会话同构（框架 Session + DurableHistory），
+- `func (factory *SessionFactory) Count() int` — Count 返回当前注册的子代理会话数（监控/测试）。
+
+### session_factory_test.go
+
+- `func TestSessionFactoryRequiresComponentsAndSessionID(t *testing.T)`
+- `func TestSessionFactoryCountToleratesMissingRegistry(t *testing.T)`
 
 ### subagent_context.go
 

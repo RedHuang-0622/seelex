@@ -1,60 +1,38 @@
 package assemble
 
+// runtime_subagent_session.go 是**子代理独立会话工厂**的宿主转发面。
+//
+// 落点沿革（P21-5，plan §2.5 的 `runtime_subagent_session.go` → `backend/multiagent/subagent/`）：
+// 工厂与它的四条判据（显式 ID / 非空 / 重名拒绝 / 有无 history router 两条装配支路）搬进域包
+// [`backend/multiagent/subagent/session_factory.go`](../multiagent/subagent/session_factory.go)
+// 的 `SessionFactory`；这里只留一行薄转发——`Runtime` 的公开方法名与签名逐字不变。
+//
+// 组件模板（Agent / Context / Telemetry）由本层装配后经函数值端口交进域包：域包因此不必
+// 认识 agent 与 telemetry 的类型，只管本次会话专属的四格（Hooks / SessionID / ModelName / History）。
+
 import (
 	"errors"
-	"fmt"
-	"strings"
 
-	frameworkSession "github.com/RedHuang-0622/Seele/session"
-	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/Seele/session"
+
+	subagentsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 )
 
-// 子代理独立会话（thin-wrapper-session-design.md §3.3，UC7）：
-// plan 节点 = 一个 SubagentSession（own loop/视图/历史），经
-// NewSubagentSessionWithID 以显式会话 ID 创建并注册进 subagentSessions
-// registry；结束经 Unregister 回收（导出快照 → merge-back 主会话，UC8）。
-
-// NewSubagentSessionWithID 创建独立子代理会话单元：与主会话同构（框架
-// Session + DurableHistory），但使用节点上下文组件（own context/loop）。
-// 会话 ID 即节点 ID；注册后可从 SubagentSessions 读取运行中 History。
-func (r *Runtime) NewSubagentSessionWithID(sessionID string, hooks *frameworkSession.LoopHooks) (*frameworkSession.Session, error) {
-	if r == nil {
+// NewSubagentSessionWithID 创建独立子代理会话单元（域包 `SessionFactory.NewWithID`）。
+func (r *Runtime) NewSubagentSessionWithID(sessionID string, hooks *session.LoopHooks) (*session.Session, error) {
+	if r == nil || r.subagentSessionFactory == nil {
 		return nil, errors.New("seelex: runtime is nil")
 	}
-	sessionID = strings.TrimSpace(sessionID)
-	if sessionID == "" {
-		return nil, errors.New("seelex: subagent session ID is required")
-	}
-	if r.subagentSessions != nil && r.subagentSessions.Session(sessionID) != nil {
-		return nil, fmt.Errorf("seelex: subagent session %q already exists", sessionID)
-	}
-	components := frameworkSession.SessionComponents{
-		Agent:     r.agt,
-		Context:   r.nodeContextComponents(),
-		Hooks:     hooks,
-		Telemetry: r.hook,
-		SessionID: sessionID,
-		ModelName: r.model,
-	}
-	if router := r.HistoryRouter(); router != nil {
-		history := store.NewDurableHistory(router, sessionID)
-		history.SetWorkspaceResolver(r.sessionWorkspaceFor(sessionID))
-		components.History = history
-	}
-	sess, err := frameworkSession.NewSession(components)
-	if err != nil {
-		return nil, fmt.Errorf("seelex: create subagent session: %w", err)
-	}
-	if r.subagentSessions != nil {
-		r.subagentSessions.Register(sessionID, sess, "")
-	}
-	return sess, nil
+	return r.subagentSessionFactory.NewWithID(sessionID, hooks)
 }
 
 // SubagentSessionCount 返回当前注册的子代理会话数（监控/测试）。
 func (r *Runtime) SubagentSessionCount() int {
-	if r == nil || r.subagentSessions == nil {
+	if r == nil || r.subagentSessionFactory == nil {
 		return 0
 	}
-	return r.subagentSessions.Count()
+	return r.subagentSessionFactory.Count()
 }
+
+// subagentSessionFactory 句柄的类型声明（装配见 runtime.go 的构造器）。
+var _ = subagentsession.NewSessionFactory

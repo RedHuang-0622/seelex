@@ -184,6 +184,10 @@ type Runtime struct {
 	// 运行中读子会话 History（子代理 actor 独立锁，安全）；结束后保留快照；
 	// node:<nodeID>: 前缀工具结果归档器由组件托管，运行中/结束后均可读回。
 	subagentSessions *subagentsession.SubagentSessions
+	// subagentSessionFactory 是**子代理独立会话的工厂**（P21-5 下沉到
+	// `backend/multiagent/subagent.SessionFactory`）：组件模板由本层装配后经函数值端口注入，
+	// 域包只管本次会话专属的四格；本层只持有句柄并做一行薄转发。
+	subagentSessionFactory *subagentsession.SessionFactory
 	// requestLog 是 LLM 请求记录中间件（SEELEX_REQUEST_LOG 门控；nil =
 	// 关闭）。包装 Completer/StreamCompleter，把每次真实请求的顺序与内容
 	// 指纹落 JSONL，供 headless 冒烟做「请求顺序 ↔ 存储内容」匹配。
@@ -407,6 +411,21 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 				r.summaryLog.RecordSummary(event)
 			}
 		},
+	})
+	// 子代理独立会话工厂（域包 `backend/multiagent/subagent`）：组件模板（Agent/Context/Telemetry）
+	// 由本层装配；本次会话专属的 Hooks/SessionID/ModelName/History 由域包补。
+	r.subagentSessionFactory = subagentsession.NewSessionFactory(subagentsession.SessionFactoryDeps{
+		Components: func() session.SessionComponents {
+			return session.SessionComponents{
+				Agent:     r.agt,
+				Context:   r.nodeContextComponents(),
+				Telemetry: r.hook,
+			}
+		},
+		ModelName:         func() string { return r.model },
+		HistoryRouter:     r.HistoryRouter,
+		WorkspaceResolver: r.sessionWorkspaceFor,
+		Registry:          r.subagentSessions,
 	})
 	// 实时流分发器（域包 `backend/multiagent/subagent`）：两个事件源走函数值端口，
 	// 窗口按域包的归一化判据取（配置读数仍是本层的 subagentLiveWindow）。
