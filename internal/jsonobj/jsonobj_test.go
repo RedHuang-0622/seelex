@@ -1,4 +1,4 @@
-package seelebridge
+package jsonobj
 
 import "testing"
 
@@ -67,7 +67,7 @@ func TestDecodeJSONObjectLenient(t *testing.T) {
 				Kind    string `json:"kind"`
 				Content string `json:"content"`
 			}
-			err := decodeJSONObjectLenient(tc.raw, &got)
+			err := DecodeLenient(tc.raw, &got)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("期望解码失败，实际成功：%+v", got)

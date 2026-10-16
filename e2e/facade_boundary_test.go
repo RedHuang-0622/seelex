@@ -56,7 +56,9 @@ const (
 // M3-S2：`store/root` 同口径——数据根锁 / 原子发布 / 共享读 / 残尾 / `Settings` 从
 // `store` 抽出，是**一条进**的基座模块（自身闭包 = 纯标准库，比 `backend/limit`
 // 更干净），因此上限抬到 70。
-const facadeClosureAllowListMax = 70
+// M4：`internal/jsonobj` 同口径——LLM 原文的 JSON 容错层从 `seelebridge/json_object.go`
+// 抽出成模块级叶子包（自身闭包 = 纯标准库），因此上限抬到 71。
+const facadeClosureAllowListMax = 71
 
 var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application",
@@ -96,6 +98,7 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/internal/promptassets",
 	"github.com/RedHuang-0622/seelex/internal/toolrecord",
 	"github.com/RedHuang-0622/seelex/internal/winhide",
+	"github.com/RedHuang-0622/seelex/internal/jsonobj",
 	"github.com/RedHuang-0622/seelex/mcpstack",
 	"github.com/RedHuang-0622/seelex/seelebridge",
 	"github.com/RedHuang-0622/seelex/backend/engine/account",

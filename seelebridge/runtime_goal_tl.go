@@ -33,6 +33,7 @@ import (
 
 	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/internal/jsonobj"
 )
 
 // goalLLMEvaluator 实现 goaldomain.TLEvaluator：真实 LLM 评审 goal 域
@@ -220,15 +221,15 @@ func (e *goalLLMEvaluator) review(ctx context.Context, embed goaldomain.TLSessio
 //
 // 解析失败一律包 goaldomain.ErrBadDirective：这类失败是"b 已作答、裁决不可用"，
 // 不是"b 缺席（429/超时）"。gate 依赖这个区分给用户如实的收口说明——把转义细节
-// 说成"缺席"会让人看到与实际相反的 goal 状态（事故见 json_object.go 的说明）。
+// 说成"缺席"会让人看到与实际相反的 goal 状态（事故见 internal/jsonobj 的说明）。
 //
 // 容错只修语法（未转义引号 / 裸控制字符 / 非法转义），不改语义：kind 取值范围、
 // goal 漂移、refs 合法性仍由 TLDirective.Validate() 判定。
 func parseGoalDirective(raw string) (goaldomain.TLDirective, error) {
 	raw = strings.TrimSpace(raw)
 	var directive goaldomain.TLDirective
-	if err := decodeJSONObjectLenient(raw, &directive); err != nil {
-		if errors.Is(err, ErrNoJSONObject) {
+	if err := jsonobj.DecodeLenient(raw, &directive); err != nil {
+		if errors.Is(err, jsonobj.ErrNoJSONObject) {
 			return goaldomain.TLDirective{}, fmt.Errorf("%w: goal TL 输出缺少 JSON 对象（原文 %q）",
 				goaldomain.ErrBadDirective, truncateRunes(raw, 300))
 		}

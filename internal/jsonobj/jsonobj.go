@@ -1,6 +1,6 @@
-package seelebridge
+package jsonobj
 
-// json_object.go — 从 LLM 原文里取 JSON 对象的容错层（只修语法，不改语义）。
+// jsonobj — 从 LLM 原文里取 JSON 对象的容错层（原 seelebridge/json_object.go，2026-10-16 归位）（只修语法，不改语义）。
 //
 // 为什么需要它（证据）：2026-09-16 22:06 的真实 goal 收口回合里，ADVISOR 的裁决
 // 原文在 content 值里带了**未转义的内层引号**（"定义—执行—验证"）。旧实现
@@ -30,9 +30,9 @@ import (
 // ErrNoJSONObject 表示原文里找不到任何可解码的 JSON 对象。
 var ErrNoJSONObject = errors.New("no JSON object found")
 
-// decodeJSONObjectLenient 取 raw 里第一个平衡的 JSON 对象并解码到 out。
+// DecodeLenient 取 raw 里第一个平衡的 JSON 对象并解码到 out。
 // 三档依次尝试，任一成功即返回：严格 → 提取 → 修复后提取。
-func decodeJSONObjectLenient(raw string, out any) error {
+func DecodeLenient(raw string, out any) error {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return ErrNoJSONObject
