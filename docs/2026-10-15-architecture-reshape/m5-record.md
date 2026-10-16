@@ -1122,3 +1122,131 @@ R6 续做（尚未开始）：`runtime_projection`/`diagnostics`/`perf_stats` �
   R6-draft，改取 `content_lru.go` 这片，并把双方权域写进 `tmp/reshape/root-claim-A.txt`。
 - 教训复用：提交一律 `git commit -F <msg> -- <显式路径>`（新增文件先 `git add -- <显式路径>` 且在**同一条命令**里提交，
   把"先 add 再 commit"的窗口压到最小）；判据是**干净 worktree** 过 build/vet/test，主工作树 `go build` 不作证据。
+
+## 29. M5 收口轮（2026-10-17 第二轮）：R11 S1–S6 + R5b + R6-interaction + R10a + P13 收尾
+
+（本节由 root 会话 A 撰写。§27 = B 的 R6-draft、§28 = A 的第一轮；本轮把两轮之间**积压在工作树里的
+未提交切片**与 R11/R10 的收口一次做完，工作树回到干净。）
+
+### 29.1 本轮入库清单（一片一 commit）
+
+| 片 | SHA | 内容 |
+|---|---|---|
+| 契约更正 | `86506780` | §2.1：窄转发钉子钉在 `wiring/adapters`，`assemble.Runtime` 只保证公开面逐字不变 |
+| 记录 §28 | `35fc276e` | R11-task/P13 独立复核 + 契约更正 + R11 收口派单 + R6-content-lru（并修小节错位） |
+| R6-content-lru | `7c930a86` | 正文层超限收敛 → `middle/residency`（见 §28.4） |
+| R6-resident-lru | `c091dbba` | 引擎驻留层收敛**并入同一份判据**（`contentlimit.go` → `eviction.go`，类型改中性命名；两层只差读数与动作） |
+| R11-S1 schedule | `71e270f6` | 定时任务域转发面 → `runtime_schedule.go`（`ports.go` 660 → 548） |
+| R11-S2 mcp | `0177be12` | MCP 转发面 → `runtime_mcp.go`（549 → 448） |
+| R11-S3 plugin | `d3aebe10` | 插件面 + `WithPluginAssembly` → `runtime_plugin.go`（446 → 374） |
+| R11-S4 node | `0f5e58e0` | 子代理树 + 节点只读面 → `runtime_node.go`（375 → 235） |
+| R11-S5 task-forwarder | `3b554917` | task 台账薄转发段 → `runtime_task.go`（228 → 80） |
+| R11-S6 ports-zero | `c9e114ae` | plan / 历史检索 / actor 边界三段各回域文件，**`ports.go` 删除（文件不存在）** |
+| R5b | `c01065a9` | 工作表格投影下沉 `middle/view/worktable` + 身份判据注入化（见 29.3） |
+| R6-interaction | `5a09497e` | 交互面词表与装配 → `middle/switch/interaction.go`（**代收** B 的未提交在途工作，见 29.5） |
+| R10a | `2d189b77` | 门面五组窄接口 + 4 条机械断言（见 29.4） |
+| P13 收尾 | `b66adb02` | 延后树清零，86 个 README 一次刷新（见 29.6） |
+
+### 29.2 R11 收口：`ports.go` 归零
+
+契约 §2.3 的收口片按 S1→S6 顺序串行做完（**不并行**：两片都要改同一个 `ports.go`，并行必然互相覆盖）：
+
+`ports.go` 660 行 → **文件删除**；落点 = `runtime_{schedule,mcp,plugin,node,task,history,visibility}.go`
+（新）+ `runtime_plan.go` / `runtime_node.go`（追加）。`git ls-files backend/engine/assemble/ports.go` 为空。
+
+- 每片的**形状登记**都写在同一处：S1/S2/S3 的域状态**早已在域包**（`schedule.State` / `mcp` 管理器 /
+  `plugin` 管理器），`Runtime` 面上没有可下沉的状态，故按任务书 S4/S5 条**只搬转发面**，
+  不新造"域包 + 构造注入"的空壳；S4 的状态归 `Runtime` 自己持有的域组件；S5 是 R11-task 之后的薄转发段。
+- 独立复核 @`c9e114ae`（干净 worktree）：`gofmt -l` 空、`go build ./...` 0、`-tags gui,desktop,production` 0、
+  `go vet ./...` 0、`go test ./middle/... ./backend/engine/task/` 全 ok、`go test ./e2e/` ok(9.0s)、
+  `git diff --name-only 0177be12^ c9e114ae -- contract gui tui middle/protocol` 空。
+
+### 29.3 R5b：工作表格投影下沉 + 一条判据收敛
+
+这坨是**半途被丢下**的切片（原 worker 消失 → B 接手后转做 R6-draft → A 派的子代理只补了缺失 import）。
+本轮把它做成单一主题提交 `c01065a9`：
+
+- **删除清单**：`application/core/work_table.go` 的投影判据（−416 行）→ `middle/view/worktable/projection.go`；
+  `application/core/work_table_async.go`（整文件）→ `middle/view/worktable/async.go`；
+  `mergeTaskRecords` + `taskRecordLedgerIdentity` → `MergeTaskRecords`（注入身份判据）。
+- **判据收敛（AGENTS §8.3 + 依赖倒置）**：台账去重身份"幂等键优先、否则行 ID"在域包
+  `backend/engine/task` 本来就有第二份（`ledgerIdentity`，注册表读面用它），而中间层不能 import 后端域包。
+  处置照 R6-input-index 的先例：域内 `ledgerIdentity` **改名导出**为 `LedgerIdentity`（唯一实现，调用点与
+  域级用例同步改名），`MergeTaskRecords(..., identity func(dto.TaskRecord) string)` 只持端口，
+  宿主 `session_cold_read.go` 传 `task_context.LedgerIdentity`。红灯 = 新签名不存在时
+  `middle/view/worktable/projection_test.go` 编译不过；绿 = 注入桩判据真的改变合并结果（3 条新用例）。
+- **取数留宿主**：投影只声明用到哪三格上限（`worktable.Limits{WorkTableRows,EvidenceChars,PlanNodeEvents}`），
+  `application/core/limits.go` 新增 `workTableBounds()` 作为**唯一一处** `limit.Limits → worktable.Limits` 转换。
+- 登记不夹带：`application/core/README-{agentteam,…}.md` 另外 7 卷的生成物漂移**已 `git restore` 回退**，
+  只留本片自己的两卷；整批刷新在 P13 收尾（29.6）。
+- 独立复核 @`c01065a9`：`gofmt -l` 空、`go build ./...` 0、`-tags` 0、`go vet ./...` 0、
+  `go test ./middle/... ./backend/engine/task/` 全 ok；定向 `application/core` 只剩基线
+  `TestColdRestoreTailFirstRequestKeepsTranscriptOrder`；`go test ./e2e/` ok。
+
+### 29.4 R10a：门面五组窄接口
+
+`application/faces.go`（新）+ `e2e/facade_narrow_faces_test.go`（新）+ `application/README.md` 一节；
+`e2e/facade_boundary_test.go` 的 I4 门加了一个**具名例外表**（四个窄接口是门面自己的契约类型，
+不是搬迁来的别名）。
+
+| 组 | 规模 | 说明 |
+|---|---|---|
+| A | 88 | `FaceTypeNames`：`application.go` 的 `type (...)` 别名块，字母序逐字 |
+| B `ViewFace` | 48 | 只读投影 / 订阅 / 历史窗口读回 |
+| C `CommandFace` | 38 | 提交与取消 / 会话与工作区生命周期 / 子代理与角色草稿 |
+| D `PolicyFace` | 22 | 限制、档位、账号、存储配置、插件、角色、调度 |
+| E `QueueFace` | 3 | 队列召回/调序 + 建议（同组的无状态函数仍是包级函数） |
+| 装配/工具面 | 29 | `Set*`/`Apply*` 注入、11 个 `*Handler`、4 个 `Handle*`、`Publish*`/`Refresh*`/`Flush*`/`Record*`/`Prepare*`、调度装配面 |
+
+48+38+22+3+29 = 140（今日 `Service` 的公开方法数）✓。方法名与签名**逐字**取自
+`go doc -all ./application/core`，生成器 `tmp/reshape/r10a_gen_faces.py` + 显式分组表
+`tmp/reshape/r10a_groups.py`（分类口径：B 只读、C 改状态、D 档位策略、E 队列建议）。
+
+断言：①四个面方法集与冻结清单逐字；②**本片追加**：`Service` 每个公开方法要么在四组、要么在装配面清单
+（防新方法绕过）；③A 组别名集合 = `FaceTypeNames`（Go 反射列不出包级别名，故**解析事实源源码**的
+`type (...)` 块比对）；④`git diff -- gui tui` 为空（I5）。证据：`gofmt -l application e2e` 空、
+`go build ./...` 0、`-tags` 0、`go vet` 0、`go test ./e2e/ -count=1` ok(9.6s)。
+
+### 29.5 R6-interaction：代收 B 的未提交在途工作
+
+B 在 01:03 落盘 `middle/switch/interaction.go` + `interaction_test.go` 并把 `service_interaction.go`
+改成引词表之后**静默 45 分钟未提交**（其 A 派出的两个子代理也只登记了报告、没有写任何文件——
+其中一个明确回报"本轮没有收到任务文本"）。按"不留半成品在工作树"的纪律，A 复核该片自洽
+（`go build ./...` 0、`go test ./middle/switch/` ok、`application/core -run 'Interaction|Approval|Resolve'` ok）后
+**原样代收**入库（`5a09497e`），只补了 B 未来得及补的 `middle/switch/README.md`（职责第 8 条 + 文件表两行 +
+索引段两个生成块）。
+
+### 29.6 P13 收尾：延后树清零
+
+`DEFERRED_TREES` / `REGISTERED_IN_DEFERRED` 清空（判据与实现不变），生成器写模式跑一遍 →
+10 个 README 刷新（`application/core` 9 卷 + `e2e/README.md`）；`--check` = "检查 86 个 README，无漂移"（exit 0）；
+再跑一遍计数不变（幂等）；`check_readme_refs.py` 未解析 20 → **19**；
+`git status` 只有 `.md` 与脚本本身（commit `b66adb02`）。
+
+### 29.7 M5 出口清单：**还差什么**
+
+| # | 项 | 状态 | 出口判据 |
+|---|---|---|---|
+| 1 | `seelebridge/` 目录删除 | ✅ | `git ls-files seelebridge` 空 |
+| 2 | `contract/` 提顶、`wiring/*` 就位、根测试进 `test/` | ✅ | 见 §10–§16 |
+| 3 | R11 `ports.go` 归零 | ✅ | `git ls-files backend/engine/assemble/ports.go` 空 |
+| 4 | R5b（工作表格域） | ✅ | `middle/view/worktable` 持有投影判据，宿主用例一行未改 |
+| 5 | R10a（门面五组窄接口） | ✅ | `go test ./e2e/ -run Facade` 全绿（含 I5） |
+| 6 | P13（README 索引全仓化 + 收尾） | ✅ | `--check` exit 0 |
+| 7 | **R10b**：删 `application/core/aliases.go`（234 行）+ core 内改限定名 | ⛔ **未做**（本轮后面做） | core 内不再有本地类型别名；`core.Command` 等被外部引用的别名要同时改指向 |
+| 8 | **R6 余片**：`session_lifecycle.go`（`hotAttachSession`）、`session_release.go` 余项、`session_history.go` 剩余宿主部分、顶层 `session/` → `middle/switch/sessionusecase/` | ⛔ 未做 | plan §2.4 落点表 |
+| 9 | `service_scheduler.go` 参数默认值下沉 | ⏸ 前置未清 | 等 plan §1.5 的 `application/prompt/effort.go` → `backend/limit/{loop,effort}` |
+| 10 | M5 出口验收（全量 CI 等价） | ⛔ 未做 | `gofmt`/`go build`/`-tags`/`go vet`/`go test ./...`/`./test/`/`node --test gui/frontend/dist/*.test.mjs`/`hooks-selftest.sh` |
+| 11 | push 前历史卫生 | ⛔ 未做 | squash `fd549859`（单提交不可构建）与 `9e07bc83`（夹带 R11-task 7 文件）；本分支**未 push** |
+| 12 | 待你裁决 | ⏸ | P8 的 5.3 冗余/僵尸面 + 本轮新增 **P18–P21**（见 post-migration-proposals.md） |
+
+### 29.8 本轮踩到的坑（写进纪律）
+
+1. **子代理在本环境里可能收不到任务文本**：`/root/r10a_faces_v2` 明确回报"没有 `NEW_TASK`"，
+   于是零落盘；另一路（`r11_ports_remainder` 这一名字实际是 B 会话的工作面）也只留下报告。
+   结论：**要害工作由 root 串行做**，派单只作探索。
+2. **两个 root 会话共享工作树**：B 会在同一文件上并发落盘（`m5-record.md` 出现过同号 §27 与
+   小节错位）。处置：让位改号 + 只做搬运的重排 + 把权域写进 `tmp/reshape/root-claim-{A,B}.txt`。
+3. **临时物不要用 `.go` 后缀**（`go build ./...` 会捡起来）；`tmp/` 下 `*.py` 里对 `Set-Content -Encoding UTF8`
+   写出的文件要按 **utf-8-sig** 读（PS 5.1 会加 BOM）。
+4. **`Measure-Object -Line` 少算行数**；判断文件长度用 `(Get-Content).Count`。
