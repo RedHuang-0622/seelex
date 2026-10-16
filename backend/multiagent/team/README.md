@@ -52,6 +52,8 @@ WorkItem DAG，leader 掌控），goal 终态由 goal 域 gate 判定；**发言
 |---|---|
 | `spec.go` | `TeamSpec`/`RoleSpec` 写入侧规整与校验（`Normalize` / `NormalizeRole` / `ValidToolPolicy` / `resolveOrderRoles`）、角色会话号派生（`RoleSessionID`） |
 | `spec_plugins_test.go` | 本包当前仅存的用例：`NormalizeRole` 的插件装配写入侧口径（去空白 / 显式拒绝重复 / 上限 / 空 = 不覆盖） |
+| `plugin_assembly.go` | **运行时插件装配判据**（P21-18 从 `backend/engine/assemble/runtime_role_plugins.go` 归位，plan §2.7）：`ResolvePluginAssembly`（显式声明替换集合 → 角色自带 → 空集不覆盖）、`NormalizePluginNames`（读侧/传输侧规范化：trim + 保序去重 + 空清完归一为 nil）、`ValidateMemberPlugins`（编排入口的四条口径：语法规整写回成员 / 未知名显式拒绝 / 超限显式拒绝 / 重复显式拒绝）、`PluginFaceJudgement`（装配面裁决的三种形态：有定义按定义收窄 / 空定义一律可见 / **失灵一个都不给**）+ `Visible` / `Face` / `FaultNote` |
+| `plugin_assembly_test.go` | 三层口径与读侧规整、四条显式拒绝（含"没有目录面时只做语法与数量校验"）、装配面裁决三形态（读数面与运行面同源、失灵不静默放宽） |
 | `roles.go` | 角色会话 / 定时插话门面的**端口解析与窄转发**（`RoleSessions`）：M5-R8d 随接收者转移从 `application/core/role_session.go` 归位（plan §2.11.1）。 |
 | `roles_test.go` | 端口解析判据（未装配 / 未暴露能力的三种错误文案）与一条转发用例。 |
 
@@ -398,6 +400,22 @@ go test -race ./backend/multiagent/team -count=1
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### plugin_assembly.go
+
+- `func ResolvePluginAssembly(explicit, roleOwn []string) []string` — ResolvePluginAssembly 解析"这一轮装配哪些插件"：显式声明替换集合 → 角色自带 → 空集（不覆盖）。
+- `func NormalizePluginNames(names []string) []string` — NormalizePluginNames 去首尾空白、丢弃空项、保序去重；清完为空 = nil（"没装配"
+- `func ValidateMemberPlugins(members []store.TeamworkMember, limit int, defined func(string) bool) error` — ValidateMemberPlugins 是编排入口的两道**显式拒绝**（外加语法规整）：
+- `func (j PluginFaceJudgement) Visible(name string) bool` — Visible 是"这个工具名在本装配面下可见吗"——**读数**用的那一半。
+- `func (j PluginFaceJudgement) Face(tools []types.Tool) []types.Tool` — Face 是"这份工具面收窄之后是什么"——**运行面**用的那一半。
+- `func (j PluginFaceJudgement) FaultNote(declared []string) string` — FaultNote 把失灵写成一句可回执的话（回执/日志"说清"这件事，而不是让 leader 从一个
+
+### plugin_assembly_test.go
+
+- `func TestResolvePluginAssemblyPrefersExplicitDeclaration(t *testing.T)` — TestResolvePluginAssemblyPrefersExplicitDeclaration：三层口径——显式声明**替换**集合，
+- `func TestNormalizePluginNamesKeepsOrderAndDropsEmpties(t *testing.T)` — TestNormalizePluginNamesKeepsOrderAndDropsEmpties 钉住读侧规范化的形状：
+- `func TestValidateMemberPluginsRejectsExplicitly(t *testing.T)` — TestValidateMemberPluginsRejectsExplicitly 钉住**四条显式拒绝/规整**：
+- `func TestPluginFaceJudgementThreeShapes(t *testing.T)` — TestPluginFaceJudgementThreeShapes 钉住装配面裁决的**三种形态**（覆盖全部输入，
 
 ### roles.go
 

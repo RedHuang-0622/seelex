@@ -37,15 +37,12 @@ package assemble
 //     只进角色回合的 ctx。
 
 import (
-	"fmt"
 	"strings"
 
-	"github.com/RedHuang-0622/Seele/types"
-
-	"github.com/RedHuang-0622/seelex/backend/engine/plugin/visibility"
 	"github.com/RedHuang-0622/seelex/backend/engine/prompt"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	"github.com/RedHuang-0622/seelex/backend/limit"
+	teamdomain "github.com/RedHuang-0622/seelex/backend/multiagent/team"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/store"
@@ -112,43 +109,15 @@ func (r *Runtime) rolePluginsFor(roleName string) []string {
 }
 
 // rolePluginAssembly 解析"这一轮装配哪些插件"：显式声明替换集合 → 角色自带 →
-// 空集（不覆盖）。三层的顺序即契约 6 的"集合"口径。
+// 空集（不覆盖）。三层的顺序即契约 6 的"集合"口径（判据在团队域
+// [`backend/multiagent/team.ResolvePluginAssembly`](../../multiagent/team/README.md)）。
 func (r *Runtime) rolePluginAssembly(spec roleRoundSpec) []string {
-	if names := normalizePluginNames(spec.Plugins); len(names) > 0 {
-		return names
-	}
-	return r.rolePluginsFor(spec.RoleName)
+	return teamdomain.ResolvePluginAssembly(spec.Plugins, r.rolePluginsFor(spec.RoleName))
 }
 
-// normalizePluginNames 去首尾空白、丢弃空项、保序去重；清完为空 = nil（"没装配"
-// 与"装配了零个"必须是同一个形态，否则空集语义会在某一条分支上变成"装配了空集"）。
-//
-// **这不是声明侧的口径**：声明侧的重复在入口就被显式拒绝了（dto.NormalizePlugins /
-// store.ValidateTeamworkPlan），走到这里的都是已经过校验的事实（计划成员条目、
-// 角色自带读面）。这一层的去重因此是**传输/读侧的规范化**：它不会把 leader 写的重复
-// 名单吞掉——那种输入根本到不了这里（2026-10-05 对抗复核 D 的口径统一）。
-func normalizePluginNames(names []string) []string {
-	if len(names) == 0 {
-		return nil
-	}
-	cleaned := make([]string, 0, len(names))
-	seen := make(map[string]struct{}, len(names))
-	for _, raw := range names {
-		name := strings.TrimSpace(raw)
-		if name == "" {
-			continue
-		}
-		if _, duplicate := seen[name]; duplicate {
-			continue
-		}
-		seen[name] = struct{}{}
-		cleaned = append(cleaned, name)
-	}
-	if len(cleaned) == 0 {
-		return nil
-	}
-	return cleaned
-}
+// normalizePluginNames 是团队域 `NormalizePluginNames` 的**同身份别名**
+// （读侧/传输侧规范化只有一份实现，既有调用点零改动）。
+var normalizePluginNames = teamdomain.NormalizePluginNames
 
 // maxPluginsPerTeammate 返回每个 teammate 的插件数上限（配置键
 // limits.plugins.per_teammate；未配置/非正 = 出厂默认 3）。
@@ -171,21 +140,8 @@ func normalizePluginNames(names []string) []string {
 //
 // 抽成函数是为了可测：它只依赖"上限"与"名字是否存在"两个事实，不需要整个
 // coordinator / 存储面在场（拒绝口径的回归测试因此是纯函数级的）。
-func validateMemberPlugins(members []store.TeamworkMember, limit int, defined func(string) bool) error {
-	for index := range members {
-		plugins, err := dto.NormalizePlugins(members[index].Plugins, limit)
-		if err != nil {
-			return fmt.Errorf("成员 %q 的插件装配非法: %w", members[index].Role, err)
-		}
-		for _, name := range plugins {
-			if defined != nil && !defined(name) {
-				return fmt.Errorf("插件 %q 未定义（成员 %q；显式拒绝，不静默忽略）", name, members[index].Role)
-			}
-		}
-		members[index].Plugins = plugins
-	}
-	return nil
-}
+// validateMemberPlugins 是团队域 `ValidateMemberPlugins` 的同身份别名（两道显式拒绝只有一份实现）。
+var validateMemberPlugins = teamdomain.ValidateMemberPlugins
 
 func (r *Runtime) maxPluginsPerTeammate() int {
 	if r == nil {
@@ -197,51 +153,9 @@ func (r *Runtime) maxPluginsPerTeammate() int {
 	return limit.DefaultPluginsPerTeammate
 }
 
-// pluginFaceJudgement 是一次**装配面裁决**：读数用它，运行面也用它。
-//
-// 为什么要有这个类型：回执里的"插件面有几个工具"如果另写一套判据，回执就会与运行事实
-// **相反**——最刺眼的一种是"插件被 root 撤销之后，回执报满面、运行面为空"。
-//
-// 三种形态（覆盖全部输入，且与运行事实一一对应）：
-//
-//	Defs 有值        → 按这份定义集合收窄（include 取并集、exclude 并集硬拆）；
-//	Defs 为空        → 一律可见（"没装配"或"宿主没激活插件"的等价形态）；
-//	Faulted = true   → **失灵**：声明还在，定义没了（Missing 是那些名字）⇒ 一个都不给。
-//
-// 最后一条是刻意的：visibility.VisibleName 对空 defs 返回 true（"没装配就不改变工具面"），
-// 那条规则是给 Defs 为空的情形用的，**不能**被"装配了但定义没了"复用——复用就等于
-// 静默放宽（丢掉某份收窄）。
-type pluginFaceJudgement struct {
-	Defs    []visibility.Def
-	Missing []string
-	Faulted bool
-}
-
-// visible 是"这个工具名在本装配面下可见吗"——**读数**用的那一半。
-func (j pluginFaceJudgement) visible(name string) bool {
-	if j.Faulted {
-		return false
-	}
-	return visibility.VisibleName(j.Defs, name)
-}
-
-// face 是"这份工具面收窄之后是什么"——**运行面**用的那一半。
-func (j pluginFaceJudgement) face(tools []types.Tool) []types.Tool {
-	if j.Faulted {
-		return nil
-	}
-	return visibility.Face(j.Defs, tools)
-}
-
-// faultNote 把失灵写成一句可回执的话（回执/日志"说清"这件事，而不是让 leader 从一个
-// 0 里猜它是"没装配"还是"坏了"）。
-func (j pluginFaceJudgement) faultNote(declared []string) string {
-	if !j.Faulted {
-		return ""
-	}
-	return fmt.Sprintf("声明 %s，现已失灵（本进程未定义：%s），工具面为空（不静默放宽为宿主面）",
-		strings.Join(declared, ", "), strings.Join(j.Missing, ", "))
-}
+// pluginFaceJudgement 是团队域装配面裁决类型的**同身份别名**（三种形态的判据只有一份实现，
+// 读数与运行面共用它——回执与运行事实因此不可能相反）。
+type pluginFaceJudgement = teamdomain.PluginFaceJudgement
 
 // pluginFaceJudgement 解析"这一轮的装配集合"该按哪份定义收窄——**唯一的装配面判据**
 // （运行面见 runtime.go 的 PolicyDeps.PluginFace，读数见 assemblyViews）。
@@ -359,14 +273,14 @@ func (r *Runtime) assemblyViews(members []store.TeamworkMember) []rolePluginAsse
 		view.TotalTools = len(all)
 		admitted := 0
 		for _, tool := range all {
-			if judgement.visible(tool.Name) {
+			if judgement.Visible(tool.Name) {
 				admitted++
 			}
 		}
 		view.PluginFaceTools = admitted
 		view.PluginFaceFaulted = judgement.Faulted
 		view.PluginFaceMissing = judgement.Missing
-		view.PluginFaceNote = judgement.faultNote(plugins)
+		view.PluginFaceNote = judgement.FaultNote(plugins)
 		view.Yellow, view.YellowReason = r.pluginsCatalogYellow(view.SkillCatalogTokensEst)
 		views = append(views, view)
 	}

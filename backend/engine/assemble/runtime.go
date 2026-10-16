@@ -512,7 +512,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 			if r.plugins == nil {
 				return tools
 			}
-			return r.pluginFaceJudgement(toolreg.RolePluginsFromContext(ctx)).face(tools)
+			return r.pluginFaceJudgement(toolreg.RolePluginsFromContext(ctx)).Face(tools)
 		},
 	})
 
