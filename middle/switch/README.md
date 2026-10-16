@@ -48,6 +48,8 @@
 | `pendingtail_test.go` | 运行中不探测 / clean·未知静默 / 恢复并报数 / gap 只报告 / 探测与恢复失败的文案 |
 | `queue.go` | 队列编辑面：`ErrQueue*` 三哨兵 + `QueueEditGate` / `QueueTargetSession` / `QueueTargetError` / 两个越界文案 |
 | `queue_test.go` | 门禁次序与装配缺陷、目标会话解析（空/trim/未注册）、三条拒绝文案、越界文案与哨兵身份 |
+| `unload.go` | `UnloadGate` / `UnloadDeps` + `Unload`：会话卸载的判据与次序（非活跃先持久化 → 释放 → 活跃收口视图 → 发布 → 刷新目录） |
+| `unload_test.go` | 空 ID 与门控两轴（含装配缺陷）、非活跃/活跃两条次序、持久化/释放失败即停与三条文案 |
 | `history/` | 历史分页的窗口装配判据（见其 README） |
 
 ## 核心实现
@@ -130,3 +132,10 @@ go test ./wiring/adapters/ -run SessionSetting -count=1        # 存储端口实
 - `func QueueTargetSession(sessionID, viewSessionID string) string` — 解析目标会话（空 = 视图会话）。
 - `func QueueTargetError(sessionID, viewSessionID string, known, running bool) error` — 目标会话可否编辑（未知 → SessionNotFound；未运行 → NotRunning；都带会话 ID）。
 - `func ReorderIndexError(from, to int) error` / `func RecallIndexError(index int) error` — 两个越界文案构造器。
+
+### unload.go
+
+- `type UnloadGate struct` — 卸载门控读数（`Restoring` / `Running`）与宿主忙碌错误值。
+- `func (gate UnloadGate) Reject() error` — 恢复中或运行中一律拒绝（缺错误值即 `ErrUnloadGateUnassembled`）。
+- `type UnloadDeps struct` — 宿主面：门控取数、是否视图会话、持久化、释放、视图收口、发布、目录刷新。
+- `func Unload(deps UnloadDeps, sessionID string) error` — 卸载用例的判据与次序（空 ID → 门控 → 非活跃先持久化 → 释放 → 活跃收口视图 → 发布 → 刷新）。

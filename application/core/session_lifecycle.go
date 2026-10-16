@@ -5,11 +5,10 @@ package core
 // unload = persist + 释放内存态（scope/引擎/任务运行时）。
 
 import (
-	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/middle/switch"
 )
 
 // hotAttachSession 热加载：目标会话已驻留（引擎实例在内存，含运行中），
@@ -119,55 +118,60 @@ func (service *Service) hotAttachSession(sessionID string) error {
 // cold_load。运行中会话拒绝卸载。
 func (service *Service) UnloadSession(sessionID string) error {
 	sessionID = strings.TrimSpace(sessionID)
-	if sessionID == "" {
-		return errors.New("session ID is required")
-	}
 	transition := service.transitionForSession(sessionID)
 	transition.Lock()
 	defer transition.Unlock()
+	return switching.Unload(service.unloadDeps(sessionID), sessionID)
+}
 
+// unloadDeps 装配卸载用例的宿主面（判据在 `middle/switch.Unload`，M5-R6-unload 接收者转移）。
+func (service *Service) unloadDeps(sessionID string) switching.UnloadDeps {
+	return switching.UnloadDeps{
+		Gate: func() switching.UnloadGate { return service.unloadGate(sessionID) },
+		IsViewSession: func(sessionID string) bool {
+			service.ViewMu.RLock()
+			defer service.ViewMu.RUnlock()
+			return sessionID == service.Core.Snapshot.Session.ID
+		},
+		Persist: func(sessionID string) error {
+			location := service.components.sessions.LocateSession(sessionID)
+			return service.components.sessions.PersistCurrentSession(location, sessionID)
+		},
+		Release: func(sessionID string) error {
+			// 释放内存态（统一释放面）：引擎实例 + 桥侧会话本体 + 可见正文 +
+			// 会话单元/标题/任务投影一起离场（LRU 释放走同一条，但用 releaseIdle）。
+			return service.releaseSessionMemory(sessionID, releaseFull)
+		},
+		RenewView: func() {
+			service.ViewMu.Lock()
+			// 视图单例一致性：卸载活跃会话后进入新的早分配 SID 草稿单元
+			// （HasSession=false，不建引擎 bundle；不写槽位）。
+			service.switchViewToFreshDraftLocked()
+			service.ViewMu.Unlock()
+		},
+		PublishSnapshotChanged: func(sessionID string) {
+			service.ViewMu.Lock()
+			revision := service.bumpLocked()
+			service.ViewMu.Unlock()
+			service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
+		},
+		RefreshCatalog: func() {
+			service.components.sessions.RequestCatalogRefresh()
+		},
+	}
+}
+
+// unloadGate 在视图锁内取卸载门控的两轴读数，并带上宿主自己的忙碌错误值。
+// （迁移前是两段 RLock：先判恢复中、再判运行中；这里合成一段读数，判据次序不变。）
+func (service *Service) unloadGate(sessionID string) switching.UnloadGate {
 	service.ViewMu.RLock()
 	restoring := service.isRestoringLocked(sessionID)
-	service.ViewMu.RUnlock()
-	if restoring {
-		return ErrChatRunning
-	}
-
-	service.ViewMu.RLock()
 	running := false
 	if unit := service.sessions.Unit(sessionID); unit != nil {
 		running = unit.ChatState().Running
 	}
-	active := sessionID == service.Core.Snapshot.Session.ID
 	service.ViewMu.RUnlock()
-	if running {
-		return ErrChatRunning
-	}
-	location := service.components.sessions.LocateSession(sessionID)
-	if !active {
-		if err := service.components.sessions.PersistCurrentSession(location, sessionID); err != nil {
-			return fmt.Errorf("unload persist %q: %w", sessionID, err)
-		}
-	}
-	// 释放内存态（统一释放面）：引擎实例 + 桥侧会话本体（框架 Session/上下文
-	// 存储）+ 可见正文 + 会话单元/标题/任务投影一起离场。释放面只有这一条路——
-	// LRU 释放走同一条（releaseIdle，多一次 flush、保留会话单元）。
-	if err := service.releaseSessionMemory(sessionID, releaseFull); err != nil {
-		return fmt.Errorf("release session %q: %w", sessionID, err)
-	}
-	// ViewMu 写段：卸载后的视图单例收口（active 分支）与 revision 递增。
-	service.ViewMu.Lock()
-	if active {
-		// 视图单例一致性：卸载活跃会话后进入新的早分配 SID 草稿单元
-		// （HasSession=false，不建引擎 bundle；不写槽位——卸载后的空白草稿
-		// 不进入会话树，与卸载前语义一致）。
-		service.switchViewToFreshDraftLocked()
-	}
-	revision := service.bumpLocked()
-	service.ViewMu.Unlock()
-	service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
-	service.components.sessions.RequestCatalogRefresh()
-	return nil
+	return switching.UnloadGate{Restoring: restoring, Running: running, ErrBusy: ErrChatRunning}
 }
 
 // switchViewToFreshDraftLocked 把视图切到一个**就地新建**的早分配草稿单元（调用方
