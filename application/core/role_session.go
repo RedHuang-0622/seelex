@@ -1,173 +1,83 @@
-// role_session.go 把 R2/R4 的会话存储基建接到 Application 可选能力面。
+// role_session.go 是角色会话 / 定时插话门面的**端口解析 + 一行转发**。
 //
-// 边界：Application 只做窄转发，不解释 role draft/顺序/floor 语义；真正的
-// 排序、幂等、同步即删与 head 发布仍由存储侧 sequencer 入口执行。
+// 判据与转发实现已在 M5-R8d 随接收者转移归位 `backend/multiagent/team.RoleSessions`
+// （plan §2.11.1）；本文件只剩门面自己的职责：把 `Deps.Sessions` 上的两个**可选**能力
+// 类型断言出来交给 team 侧（断言本身是装配缝，不是域判据）。
 //
-// S27 收口：本文件的端口与 DTO 全部来自 contract，本包不再出现
+// S27 收口（历史结论，保留）：本文件的端口与 DTO 全部来自 contract，本包不再出现
 // 存储类型（store.*），GUI/headless 也随之只消费应用层 DTO。
 package core
 
 import (
-	"errors"
-
+	"github.com/RedHuang-0622/seelex/backend/multiagent/team"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 
-// rolePorts 聚合角色会话与定时插话两个可选端口；两者都由会话端口实现在
-// 装配期一并提供（wiring/adapters.SessionPort）。
-type rolePorts struct {
-	roles    contract.RoleSessionPort
-	schedule contract.SchedulePort
-}
-
-func (service *Service) rolePorts() (rolePorts, error) {
+// roleSessions 把会话端口上可选的两项能力断言出来（两者都由 wiring/adapters.SessionPort
+// 在装配期一并提供）。`Assembled` 区分"会话端口本身没装配"与"装配了但没暴露这一项能力"——
+// 两者错误文案不同，判据在 team 侧。
+func (service *Service) roleSessions() team.RoleSessions {
 	if service == nil || service.Deps.Sessions == nil {
-		return rolePorts{}, errors.New("role session storage is not assembled")
+		return team.RoleSessions{}
 	}
-	var ports rolePorts
-	if roles, ok := service.Deps.Sessions.(contract.RoleSessionPort); ok {
-		ports.roles = roles
-	}
-	if schedule, ok := service.Deps.Sessions.(contract.SchedulePort); ok {
-		ports.schedule = schedule
-	}
-	if ports.roles == nil && ports.schedule == nil {
-		return rolePorts{}, errors.New("session port does not expose role session storage")
-	}
-	return ports, nil
-}
-
-func (service *Service) roleSessionPort() (contract.RoleSessionPort, error) {
-	ports, err := service.rolePorts()
-	if err != nil {
-		return nil, err
-	}
-	if ports.roles == nil {
-		return nil, errors.New("session port does not expose role session storage")
-	}
-	return ports.roles, nil
-}
-
-func (service *Service) schedulePort() (contract.SchedulePort, error) {
-	ports, err := service.rolePorts()
-	if err != nil {
-		return nil, err
-	}
-	if ports.schedule == nil {
-		return nil, errors.New("session port does not expose schedule events")
-	}
-	return ports.schedule, nil
+	roles, _ := service.Deps.Sessions.(contract.RoleSessionPort)
+	schedule, _ := service.Deps.Sessions.(contract.SchedulePort)
+	return team.RoleSessions{Roles: roles, Schedule: schedule, Assembled: true}
 }
 
 func (service *Service) CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (dto.RoleSessionInfo, error) {
-	port, err := service.roleSessionPort()
-	if err != nil {
-		return dto.RoleSessionInfo{}, err
-	}
-	return port.CreateRoleSession(mainSessionID, roleName, roleSessionID, joinSeq)
+	return service.roleSessions().CreateRoleSession(mainSessionID, roleName, roleSessionID, joinSeq)
 }
 
 func (service *Service) AppendRoleDraft(mainSessionID, roleName, roleSessionID string, rows []dto.RoleDraftRow) error {
-	port, err := service.roleSessionPort()
-	if err != nil {
-		return err
-	}
-	return port.AppendRoleDraft(mainSessionID, roleName, roleSessionID, rows)
+	return service.roleSessions().AppendRoleDraft(mainSessionID, roleName, roleSessionID, rows)
 }
 
 func (service *Service) ReadRoleDraft(mainSessionID, roleName, roleSessionID string) ([]dto.RoleDraftRow, error) {
-	port, err := service.roleSessionPort()
-	if err != nil {
-		return nil, err
-	}
-	return port.ReadRoleDraft(mainSessionID, roleName, roleSessionID)
+	return service.roleSessions().ReadRoleDraft(mainSessionID, roleName, roleSessionID)
 }
 
 func (service *Service) SyncRoleDraft(mainSessionID, roleName, roleSessionID string, order []string) (dto.RoleDraftSyncResult, error) {
-	port, err := service.roleSessionPort()
-	if err != nil {
-		return dto.RoleDraftSyncResult{}, err
-	}
-	return port.SyncRoleDraft(mainSessionID, roleName, roleSessionID, order)
+	return service.roleSessions().SyncRoleDraft(mainSessionID, roleName, roleSessionID, order)
 }
 
 func (service *Service) AppendRoleSessionRows(mainSessionID, roleName, roleSessionID string, rows []dto.RoleRow) error {
-	port, err := service.roleSessionPort()
-	if err != nil {
-		return err
-	}
-	return port.AppendRoleSessionRows(mainSessionID, roleName, roleSessionID, rows)
+	return service.roleSessions().AppendRoleSessionRows(mainSessionID, roleName, roleSessionID, rows)
 }
 
 func (service *Service) ReadRoleSessionRows(mainSessionID, roleName, roleSessionID string) ([]dto.RoleRow, error) {
-	port, err := service.roleSessionPort()
-	if err != nil {
-		return nil, err
-	}
-	return port.ReadRoleSessionRows(mainSessionID, roleName, roleSessionID)
+	return service.roleSessions().ReadRoleSessionRows(mainSessionID, roleName, roleSessionID)
 }
 
 func (service *Service) RoleSnapshot(mainSessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error) {
-	port, err := service.roleSessionPort()
-	if err != nil {
-		return dto.RoleSnapshot{}, err
-	}
-	return port.RoleSnapshot(mainSessionID, roleName, roleSessionID)
+	return service.roleSessions().RoleSnapshot(mainSessionID, roleName, roleSessionID)
 }
 
 func (service *Service) AssembleRoleWire(mainSessionID, roleName, roleSessionID string, budget, k int) (dto.RoleWireSnapshot, error) {
-	port, err := service.roleSessionPort()
-	if err != nil {
-		return dto.RoleWireSnapshot{}, err
-	}
-	return port.AssembleRoleWire(mainSessionID, roleName, roleSessionID, budget, k)
+	return service.roleSessions().AssembleRoleWire(mainSessionID, roleName, roleSessionID, budget, k)
 }
 
 func (service *Service) SetLifecycleOrder(sessionID, policy string, roles []string) error {
-	port, err := service.roleSessionPort()
-	if err != nil {
-		return err
-	}
-	return port.SetLifecycleOrder(sessionID, policy, roles)
+	return service.roleSessions().SetLifecycleOrder(sessionID, policy, roles)
 }
 
 func (service *Service) SetRoleLifecycle(mainSessionID, roleName, roleSessionID string, joinSeq uint64, ref *dto.CompactFrameRef) error {
-	port, err := service.roleSessionPort()
-	if err != nil {
-		return err
-	}
-	return port.SetRoleLifecycle(mainSessionID, roleName, roleSessionID, joinSeq, ref)
+	return service.roleSessions().SetRoleLifecycle(mainSessionID, roleName, roleSessionID, joinSeq, ref)
 }
 
 func (service *Service) ListRoleSessions(mainSessionID string) ([]string, error) {
-	port, err := service.roleSessionPort()
-	if err != nil {
-		return nil, err
-	}
-	return port.ListRoleSessions(mainSessionID)
+	return service.roleSessions().ListRoleSessions(mainSessionID)
 }
 
 func (service *Service) ScheduleRegister(sessionID string, payload dto.ScheduleEventPayload) error {
-	port, err := service.schedulePort()
-	if err != nil {
-		return err
-	}
-	return port.ScheduleRegister(sessionID, payload)
+	return service.roleSessions().ScheduleRegister(sessionID, payload)
 }
 
 func (service *Service) ScheduleCancel(sessionID string, payload dto.ScheduleEventPayload) error {
-	port, err := service.schedulePort()
-	if err != nil {
-		return err
-	}
-	return port.ScheduleCancel(sessionID, payload)
+	return service.roleSessions().ScheduleCancel(sessionID, payload)
 }
 
 func (service *Service) ScheduleFire(sessionID string, payload dto.ScheduleEventPayload) error {
-	port, err := service.schedulePort()
-	if err != nil {
-		return err
-	}
-	return port.ScheduleFire(sessionID, payload)
+	return service.roleSessions().ScheduleFire(sessionID, payload)
 }

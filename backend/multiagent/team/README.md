@@ -52,6 +52,8 @@ WorkItem DAG，leader 掌控），goal 终态由 goal 域 gate 判定；**发言
 |---|---|
 | `spec.go` | `TeamSpec`/`RoleSpec` 写入侧规整与校验（`Normalize` / `NormalizeRole` / `ValidToolPolicy` / `resolveOrderRoles`）、角色会话号派生（`RoleSessionID`） |
 | `spec_plugins_test.go` | 本包当前仅存的用例：`NormalizeRole` 的插件装配写入侧口径（去空白 / 显式拒绝重复 / 上限 / 空 = 不覆盖） |
+| `roles.go` | 角色会话 / 定时插话门面的**端口解析与窄转发**（`RoleSessions`）：M5-R8d 随接收者转移从 `application/core/role_session.go` 归位（plan §2.11.1）。 |
+| `roles_test.go` | 端口解析判据（未装配 / 未暴露能力的三种错误文案）与一条转发用例。 |
 
 已删除（勿再按名字找，均已删除）：`factory.go`、`registry.go`、`library.go`、`global.go`、`runtime.go`、
 `scheduler.go`、`agentteam_test.go`、`team_view_test.go`、`runtime_test.go`、`scheduler_test.go`、
@@ -411,4 +413,16 @@ go test -race ./backend/multiagent/team -count=1
 ### spec_plugins_test.go
 
 - `func TestNormalizeRoleNormalizesPlugins(t *testing.T)` — TestNormalizeRoleNormalizesPlugins 钉住写入侧的**语法**口径（与编排侧共用
+
+### roles.go
+
+- `type RoleSessions struct` — 角色会话 / 定时插话两个可选端口的窄门面（`Assembled` 区分"端口未装配"与"未暴露该能力"）。
+- `func (r RoleSessions) RolePort() (contract.RoleSessionPort, error)` — 解析角色会话端口（三种错误文案见本文件头）。
+- `func (r RoleSessions) SchedulePort() (contract.SchedulePort, error)` — 解析定时插话端口。
+- `func (r RoleSessions) CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (dto.RoleSessionInfo, error)` — 转发：建角色会话。
+- `func (r RoleSessions) AppendRoleDraft(...) error` / `ReadRoleDraft(...)` / `SyncRoleDraft(...)` — 转发：角色草稿的追加 / 读取 / 按顺序同步。
+- `func (r RoleSessions) AppendRoleSessionRows(...) error` / `ReadRoleSessionRows(...)` — 转发：角色会话行的追加 / 读取。
+- `func (r RoleSessions) RoleSnapshot(...) (dto.RoleSnapshot, error)` / `AssembleRoleWire(...) (dto.RoleWireSnapshot, error)` — 转发：角色快照与 wire 装配。
+- `func (r RoleSessions) SetLifecycleOrder(...) error` / `SetRoleLifecycle(...) error` / `ListRoleSessions(...) ([]string, error)` — 转发：生命周期顺序、角色生命周期与列表。
+- `func (r RoleSessions) ScheduleRegister(...) error` / `ScheduleCancel(...)` / `ScheduleFire(...)` — 转发：定时插话的注册 / 取消 / 触发。
 
