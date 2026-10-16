@@ -268,6 +268,29 @@ io 组 6（含 e2e 门面闭包清单与 `layout_test.go` 的模块清单）。
 `workunit`（外加根包与 `.seelex/` 数据目录）。facade 闭包上限因 `store/schedule` 新模块 +1
 （70 → 71），同片删 `mapper` 时降过一次，现在这张表的每次上下调都能在常量处读到理由。
 
+## 9. T3：`seelebridge/tools` 整包归位（`4f6832fa`）
+
+规模：**13 个生产文件 5076 行 + 33 个用例文件**，是 M4 里最大的一包。它是"一包多域"（注册表 / 路由 /
+异步作业 / job 契约 / 权限主体 / 可见性策略 / 壳事实），plan §2.6 要求切成 `backend/tool/{registry,jobs}`
+再加权限段并入 `backend/limit/policy`。本轮先做**整包物理归位**（`seelebridge/tools` →
+`backend/tool/registry`，包名 `tools` → `registry`），二次拆分留作后续切片——理由：包内这些文件
+互相引用私有类型，直接切会让一个 commit 同时背"搬迁 + 解耦"两件事。
+
+**证据**：进口方只有 **18 个文件 / 54 个调用点**（搬前实测），所以可以干净改名而不是留兼容别名。
+`gofmt` 干净、`go build ./...`、`go vet ./...` 无输出；`go test ./backend/tool/registry/...` ok（36.9s，
+含原先那条环境敏感的作业句柄用例）；`go test ./seelebridge` ok；`go test ./e2e/...` ok；
+根包 `-run 'Permission|ToolMeta|Job|Async'` ok；README 漂移 12 条（新增 0）。
+
+| ID | 新增偏差 | 处置 |
+|---|---|---|
+| D-M4-23 | 包名 `registry` 与 `Runtime` 的**字段名** `registry`（Seele 工具注册表）在同一文件里并存 | 导入方统一别名 **`toolreg`**：把"字段遮蔽包名"这类静默错误一次掐掉（`runtime_tools.go` 一个文件里两者都要用） |
+| D-M4-24 | 首轮替换脚本按"跨行别名"匹配，把上一行的标识符当别名：`internal/telemetry/diagnostic.go` 的 Seele import 被吃掉、e2e 清单元素被写成 `toolreg "路径"` | 构建立刻报错；`git checkout` 还原 18 个文件后改**逐行**规则（只有 import 行才加别名；列表元素只换引号内的路径）。教训与 D-M4-15 同族：路径替换要么按行、要么按"引号内的字面量"，不能用跨行正则 |
+| D-M4-25 | plan §2.8 要把 `permission_policy.go`（员工主体/授权面）并入 `backend/limit/policy/` | **本轮未做**：它与 `registry_state.go` 的 `PermissionGate`（执行门）互锁，属于"先拆再搬"，排 T4 |
+
+**本片结束时的实况**：`seelebridge/` 只剩 **4 个包**——`mcp`、`plugin`、`teamwork`、`workunit`
+（外加根包与 `.seelex/` 数据目录）。T4 计划：`registry` 内部再切 `backend/tool/jobs`（异步执行 /
+job 契约 / 作业工具）+ 权限判据段并入 `backend/limit/policy`。
+
 | ID | 事项 | 处置 |
 |---|---|---|
 | D-M4-1 | 首轮替换脚本把 `docs/research/**`、`docs/test/**` 的路径也改写了（这两类是"把当时状态固定下来"的记录）。已 `git checkout` 还原，并把这两类目录加入脚本跳过清单，与 M3 §8.4 登记的口径一致 | 已修 |
