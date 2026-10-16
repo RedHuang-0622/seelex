@@ -247,13 +247,13 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "goal 状态",
 		files: map[string]string{
-			"application/core/goal/controller.go":         "写：栈位置语义（栈顶 active / 下层 paused / 收口终态）",
-			"application/core/goal/sessionstore_store.go": "写+读：存档面（GoalFrame.Status 的词，读回走 StatusOfRecord）",
-			"application/core/goal/audit.go":              "写：审计条目的状态词",
-			"application/core/goal/board_archive.go":      "读：看板存档帧",
-			"application/core/goal/techleader.go":         "读：治理快照里的 goal 状态",
-			"application/core/goal_coordinator.go":        "读：治理投影（GoalGovernanceView.Status）",
-			"tui/goalteam.go":                             "读：目标面板",
+			"backend/multiagent/goal/controller.go":         "写：栈位置语义（栈顶 active / 下层 paused / 收口终态）",
+			"backend/multiagent/goal/sessionstore_store.go": "写+读：存档面（GoalFrame.Status 的词，读回走 StatusOfRecord）",
+			"backend/multiagent/goal/audit.go":              "写：审计条目的状态词",
+			"backend/multiagent/goal/board_archive.go":      "读：看板存档帧",
+			"backend/multiagent/goal/techleader.go":         "读：治理快照里的 goal 状态",
+			"application/core/goal_coordinator.go":          "读：治理投影（GoalGovernanceView.Status）",
+			"tui/goalteam.go":                               "读：目标面板",
 		},
 		// 这一格的取值面 = dto.Goal*（GoalRecord.Status / GoalGovernanceView.Status /
 		// store.GoalFrame.Status 同一格；存档面由 goal.StatusOfRecord 读回）。
@@ -265,10 +265,10 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "评审者状态",
 		files: map[string]string{
-			"application/core/goal/advisor.go":     "定义层：PeerState 别名 + 契约取值",
-			"application/core/goal/techleader.go":  "写：Supervisor 快照里的 peer 状态",
-			"application/core/goal_coordinator.go": "读：治理投影（peer_state）",
-			"tui/goalteam.go":                      "读：目标面板 peer 行",
+			"backend/multiagent/goal/advisor.go":    "定义层：PeerState 别名 + 契约取值",
+			"backend/multiagent/goal/techleader.go": "写：Supervisor 快照里的 peer 状态",
+			"application/core/goal_coordinator.go":  "读：治理投影（peer_state）",
+			"tui/goalteam.go":                       "读：目标面板 peer 行",
 		},
 		// 这一格的取值面 = dto.Peer*（AdvisorSession.State / GoalGovernanceView.PeerState）。
 		words: map[string]bool{

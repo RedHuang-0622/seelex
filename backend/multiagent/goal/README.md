@@ -236,8 +236,8 @@ goal 第五栈语义边界（docs/2026-09-08-govern-loop/design.md §2.1 澄清�
 ## 测试与验证
 
 ```text
-go test ./application/core/goal/... -count=1
-go test -race ./application/core/goal/ -count=1
+go test ./backend/multiagent/goal/... -count=1
+go test -race ./backend/multiagent/goal/ -count=1
 真实 API 隔离冒烟：$env:SEELEX_LIVE_SMOKE=1; go test ./_tmp/goal-tl-live-smoke -v
 （`_tmp/` 是本地 scratch 归档（2026-09-17 由 `tmp/` 改名）：Go 工具链的
 `./...` 通配会跳过 `_` 前缀目录，避免 scratch 包污染仓库门禁；显式路径仍可

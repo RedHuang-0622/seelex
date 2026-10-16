@@ -12,7 +12,7 @@ import (
 	"context"
 	"testing"
 
-	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
+	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
 )
 
 // stubStepEvaluator 在评审回合里上报"工具步骤"（模拟 ADVISOR 在角色会话里调只读工具）。

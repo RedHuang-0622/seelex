@@ -26,6 +26,9 @@ var repositoryModules = []string{
 	// M5-R5c：视图读数面（诊断文本 / 性能指标 / 运行时投影）从 application/core
 	// 的三个根文件归位到中间层视图根包（plan §2.4）。
 	"middle/view",
+	// M5-R8a：goal 域（原 application/core/goal，35 文件）归位多代理板块
+	// （plan §2.7）。同一份代码换落点，包名与判据不变。
+	"backend/multiagent/goal",
 	"middle/protocol/event", "middle/protocol/model", "application/prompt",
 	"application/console", "backend/limit", "backend/limit/accountwindow", "backend/limit/approval",
 	"backend/limit/loop",

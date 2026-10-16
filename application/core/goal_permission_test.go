@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
+	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
 )
 
 // goal_permission_test.go — goal 变更/取消的权限口径（2026-09-29）。

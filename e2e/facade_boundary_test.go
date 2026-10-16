@@ -90,7 +90,7 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application/core/chat",
 	"github.com/RedHuang-0622/seelex/application/core/context_control",
 	"github.com/RedHuang-0622/seelex/application/core/context_runtime",
-	"github.com/RedHuang-0622/seelex/application/core/goal",
+	"github.com/RedHuang-0622/seelex/backend/multiagent/goal",
 	"github.com/RedHuang-0622/seelex/application/core/input_router",
 	"github.com/RedHuang-0622/seelex/kernel/state",
 	"github.com/RedHuang-0622/seelex/application/core/prompt_layer",
@@ -244,7 +244,7 @@ var frontendDirectImportAllowList = map[string][]string{
 	"./gui": {
 		"github.com/RedHuang-0622/seelex/application",
 		// D-M1-6：headless RPC 透传 goal 域的请求/响应形状；随 headless 拆分（M5）收口。
-		"github.com/RedHuang-0622/seelex/application/core/goal",
+		"github.com/RedHuang-0622/seelex/backend/multiagent/goal",
 		// D-M1-2：纯数据形状，plan 口径暂列允许项，M5 门面收窄时统一裁决。
 		"github.com/RedHuang-0622/seelex/middle/protocol/model",
 		"github.com/RedHuang-0622/seelex/contract/dto",

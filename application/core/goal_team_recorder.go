@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/application/core/agentteam"
-	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
+	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
 

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
+	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
 )
 
 // ① 的两段验证：

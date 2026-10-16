@@ -28,7 +28,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
-	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
+	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
 )
 
 // sessionLockEngine 按 Seele v0.3.1 的锁语义假装成 session.Session：
