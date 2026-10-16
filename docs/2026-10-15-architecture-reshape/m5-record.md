@@ -1457,3 +1457,25 @@ case"两个工具缺陷后**重做成功**，见 §33。
 这条边属"换落点 + 收窄"的独立一片（改动面在 `middle/view/state` 与 `wiring` 的装配点），
 **未动，等裁决**：要不要把它排进 P21 剩余清单（做成第 N 片），以及是否需要先给出 `middle/view/state`
 的端口清单。
+
+### 本轮新暴露、待用户裁决的文档漂移批（未动）
+
+`python scripts/check_readme_refs.py --strict backend middle store wiring backend/tool` 报 **11 个
+README 有未解析引用**（共 59 个里），全部是**搬迁留下的路径字面量**（文件已删/已移，README 的散文没跟上），
+与本轮改动无关（本轮碰过的 `obs` / `board` / `jobs` / `account` / `assemble` / `store` README 均**不在**名单里）：
+
+| README | 未解析引用（摘要） |
+|---|---|
+| `backend/engine/context` | `seelexctx/history_safety.go` |
+| `backend/engine/context/seelectx/tokens` | `seelexctx/controller.go` |
+| `backend/engine/input/contextcontrol` | `seelexctx/window.go` |
+| `backend/engine/prompt/assets` | `config/prompt/system/instructions.md`（示例路径？需人判） |
+| `backend/engine/schedule` / `backend/engine/task` | `backend/engine/assemble/ports.go`（R11 已删该文件） |
+| `backend/limit` | `seelexctx/controller_limits_test.go`、`seelexctx/window.go` |
+| `backend/limit/accountwindow` | `application/core/service_account_window_test.go`、`seelexctx/window.go` |
+| `backend/multiagent/team` | 19 条（`agentteam*`、`application/core/agentteam*`、`gui/headless_team*` 等） |
+| `backend/multiagent/teamwork` | `metadata/teamwork.json`（数据文件名，可能只需加进检查器的忽略表） |
+| `backend/tool/registry` | `application/core/work_table_async.go`（M5-R5b 已删） |
+
+**未动**：这是一批纯文档修缮（与代码行为无关），修它要么逐条核实"当时的事实是否仍成立"、要么把已迁走的
+落点改写成指向新家的链接——按用户口径属"细节修缮（p-x）"一类，等裁决是否排期。
