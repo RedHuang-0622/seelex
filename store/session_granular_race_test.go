@@ -171,7 +171,7 @@ func TestEventStoreConcurrentAppendAndLoad(t *testing.T) {
 				t.Fatalf("%s seq not monotonic: %d after %d", sessionID, event.Sequence, last)
 			}
 			last = event.Sequence
-			if got := sessionIDFromEvent(event); got != sessionID {
+			if got := SessionIDFromEvent(event); got != sessionID {
 				t.Fatalf("event %d belongs to %q, loaded under %q", event.Sequence, got, sessionID)
 			}
 		}

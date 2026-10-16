@@ -75,7 +75,7 @@ func (store *EventStore) Append(ctx context.Context, event frameworkevent.Event)
 	if store == nil || store.router == nil {
 		return nil
 	}
-	sessionID := sessionIDFromEvent(event)
+	sessionID := SessionIDFromEvent(event)
 	if sessionID == "" {
 		return nil
 	}
@@ -137,10 +137,23 @@ func (store *EventStore) loadRange(ctx context.Context, sessionID string, fromSe
 	return events, nil
 }
 
-// sessionIDFromEvent 从事件的 agent.runtime Location 提取会话标识
+// SessionIDFromEvent 从事件的 agent.runtime Location 提取会话标识
 // （agent.EventLocator.SessionID 的投影；缺失时无法落会话级事件库）。
-func sessionIDFromEvent(event frameworkevent.Event) string {
-	for _, location := range event.Locations {
+//
+// **这是"从事件读会话归属"的唯一一处判据**（AGENTS §8.3：同一判据只许出现在一处）。
+// 三个消费者都问这一句：事件落库前的路由（本文件的 Append）、统一事件查询的话题映射
+// （backend/engine/obs 的 UnifiedEventTopic）与聚合读面（backend/tool/plan 的事件投影）、
+// 持久化前的关联补全（obs.CorrelateMainSessionID）。这条判据一旦漂移，事件会"落进 A 会话、
+// 被读成 B 会话"，所以不许各写一份（历史上 assemble 与 tool/plan 各有一份逐字副本，
+// 2026-10-17 的 P21-9 收敛到此）。
+func SessionIDFromEvent(event frameworkevent.Event) string {
+	return SessionIDFromLocations(event.Locations)
+}
+
+// SessionIDFromLocations 是上面那条判据在 Location 切片上的形态（给只有 Locations 的
+// 调用方用；语义与 SessionIDFromEvent 完全一致，两条入口共用下面这一份循环）。
+func SessionIDFromLocations(locations []frameworkevent.Location) string {
+	for _, location := range locations {
 		if location.Kind != "agent.runtime" {
 			continue
 		}

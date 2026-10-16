@@ -7,8 +7,8 @@
 //     序号全局**，而会话事件库（`store.EventStore`）是**按会话**追加、按
 //     会话排序的。
 //   - 于是框架侧发出来的事件 **append 不到会话事件流的尾部**，只能由产品事后
-//     **回填**会话归属（这也正是 `events.go` 里 `correlateMainSessionID` 对
-//     workplan runner 事件做的事）；而且全局序号在按会话排序下不成立，
+//     **回填**会话归属（这也正是 `backend/engine/obs/event_correlation.go` 里
+//     `CorrelateMainSessionID` 对 workplan runner 事件做的事）；而且全局序号在按会话排序下不成立，
 //     与 Seelex 自己的时间基序号（`uint64(at.UnixNano())`，见
 //     `events_unified.go` / `plan.AppendPhase`）也对不齐。
 //

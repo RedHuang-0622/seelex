@@ -14,6 +14,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/engine/account"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/provider"
+	"github.com/RedHuang-0622/seelex/backend/engine/obs"
 	"github.com/RedHuang-0622/seelex/backend/tool/fork"
 	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
 	"github.com/RedHuang-0622/seelex/backend/tool/plan"
@@ -55,8 +56,9 @@ func (r *Runtime) SetEventErrorHandler(handler frameworkevent.ErrorHandler) {
 // event.Sink → store 事件库）。钩子失败经 ErrorHandler 隔离，
 // 不破坏 WorkPlan 控制流（见 Seele event/README.md）。
 func (r *Runtime) SetEventPersister(fn func(context.Context, frameworkevent.Event) error) {
-	// 短期事件桥：持久化前为主会话事件补 session_id 关联（见 events.go）。
-	fn = correlateMainSessionID(r.MainSessionID, fn)
+	// 短期事件桥：持久化前为主会话事件补 session_id 关联（判据与实现在观测域
+	// backend/engine/obs/event_correlation.go，P21-9 归位）。
+	fn = obs.CorrelateMainSessionID(r.MainSessionID, fn)
 	r.eventPersisterMu.Lock()
 	r.eventPersister = fn
 	r.eventPersisterMu.Unlock()

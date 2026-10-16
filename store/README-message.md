@@ -42,7 +42,8 @@ message/event 事件行、段落投影、wire 装配与大工具结果归档
 - `func (store *EventStore) Load(ctx context.Context, sessionID string) ([]frameworkevent.Event, error)` — Load 读取会话级事件库（按 Seq 排序，追加顺序）。
 - `func (store *EventStore) LoadRange(ctx context.Context, sessionID string, fromSeq, toSeq uint64) ([]frameworkevent.Event, error)` — LoadRange 读取会话级事件库的 Seq 区间（含端点；按追加顺序排序）。
 - `func (store *EventStore) loadRange(ctx context.Context, sessionID string, fromSeq, toSeq uint64) ([]frameworkevent.Event, error)` — loadRange 读取并按范围过滤（from=to=0 表示全量）。
-- `func sessionIDFromEvent(event frameworkevent.Event) string` — sessionIDFromEvent 从事件的 agent.runtime Location 提取会话标识
+- `func SessionIDFromEvent(event frameworkevent.Event) string` — SessionIDFromEvent 从事件的 agent.runtime Location 提取会话标识
+- `func SessionIDFromLocations(locations []frameworkevent.Location) string` — SessionIDFromLocations 是上面那条判据在 Location 切片上的形态（给只有 Locations 的
 
 ### event_store_test.go
 

@@ -21,7 +21,9 @@ token"变成可查询的读数，并保管**统一事件库**（A 类事实与 B
   （`SessionTokenCount`）；
   ③ 统一事件库——B 类（llm/tool 意图-效果）脱敏摘要的 append-only 内存日志 + 可选持久化钩子
   （`SummaryLog`），以及按 sessionID/nodeID 关联两轨的统一查询（`UnifiedEvents` 的两个读法与
-  `UnifiedEventTopic` 的话题映射判据）。
+  `UnifiedEventTopic` 的话题映射判据）；
+  ④ 事件关联面——双轨事件（事实轨 `event.Sink` / 遥测轨 `telemetry.Hook`）的关联说明与
+  `CorrelateMainSessionID`（持久化前为主会话事件补 `session_id`）。
 - **不做**：不做任何业务判断、不改变请求内容（记录点只读传入的 messages/tools）、不落盘会话正文；
   画像里只留摘要与指纹，不留原文。统一事件库不写第二份存储：B 类摘要经宿主注入的持久化钩子
   追加进**同一** store 事件库（A 类事实的库），不做双写；也不决定"持久化到哪里"——那是宿主的装配读数。
@@ -49,8 +51,10 @@ B 类摘要（SummaryLog.Append → 持久化钩子，Source=seelex.telemetry.su
 | `request_log.go` | `RequestLogger` / `OpenRequestLogger` / `RequestLogEnv` / 两个包装器（同步与流式）+ 消息摘要与 wire 文本归一 |
 | `session_telemetry.go` | `WithTelemetrySessionID` / `SessionTokenCount` |
 | `unified_events.go` | 统一事件库：`SummaryLog`（`NewSummaryLog` / `RecordSummary` / `Append` / `Summaries` / `SetPersister`）+ 摘要→框架事件转换 + `UnifiedEventView` / `UnifiedEventReader` / `UnifiedEvents`（`Query` / `QueryRange`）+ `UnifiedEventTopic` 话题映射 + `filterUnifiedEvents` 过滤 + `SummaryEventSource` / `ErrUnifiedEventsRouterMissing` |
+| `event_correlation.go` | 双轨事件关联面：`CorrelateMainSessionID`（宿主闭包给主会话读数，缺失 `session_id` 的事实轨事件在持久化前补上 `agent.runtime` 定位）+ 两条轨的关联字段说明 |
 | `request_log_test.go` | 画像落盘、开关语义、包装器透传 |
 | `unified_events_test.go` | 摘要落库语义（Source/Seq 稳定、节点作用域）、两个读法（Router 缺失时报错、区间裁剪与 limit 上限）、话题映射与过滤判据 |
+| `event_correlation_test.go` | 关联补全（缺失才补、已有不改、主会话未就绪原样透传）+ **跨实现一致性**用例（`store.SessionIDFromLocations` / `store.SessionIDFromEvent` / `UnifiedEventTopic` 三处对同一输入同解） |
 
 ## 核心实现
 
@@ -64,6 +68,10 @@ B 类摘要（SummaryLog.Append → 持久化钩子，Source=seelex.telemetry.su
   两格都在**调用时**读取，保持"Router 可能后装配 / tracer 可能未接线"的既有语义。
 - `UnifiedEventTopic` / `filterUnifiedEvents`：两轨关联的**唯一判据处**（哪些通道算会话级、按
   sessionID/nodeID 归属与 limit 截断），查询与区间查询共用。
+- `CorrelateMainSessionID`：包装持久化钩子的**唯一一处**（两格入参都是函数值：主会话读数由宿主
+  闭包给，下游钩子原样转调；任一为空即原样返回下游）。它**不自己解析**会话归属——那句判据在
+  `store.SessionIDFromEvent`（本包 `UnifiedEventTopic` 与 `backend/tool/plan` 的事件投影
+  也问同一句）。
 
 ## 并发、安全与错误语义
 

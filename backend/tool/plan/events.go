@@ -10,6 +10,7 @@ import (
 	frameworkevent "github.com/RedHuang-0622/Seele/event"
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/store"
 )
 
 // mainAgentID 是主会话在 agent.EventLocator 中的稳定标识（事件定位用）。
@@ -188,7 +189,7 @@ func planEventProjection(ev frameworkevent.Event) *PlanNodeEvent {
 			return nil
 		}
 		return &PlanNodeEvent{
-			SessionID: sessionIDFromLocations(ev.Locations),
+			SessionID: store.SessionIDFromLocations(ev.Locations),
 			PlanID:    ev.Scope.PlanID,
 			RunID:     ev.Scope.RunID,
 			NodeID:    ev.Scope.NodeID,
@@ -200,7 +201,7 @@ func planEventProjection(ev frameworkevent.Event) *PlanNodeEvent {
 		return nil
 	}
 	projected := &PlanNodeEvent{
-		SessionID: sessionIDFromLocations(ev.Locations),
+		SessionID: store.SessionIDFromLocations(ev.Locations),
 		PlanID:    ev.Scope.PlanID,
 		RunID:     ev.Scope.RunID,
 		NodeID:    ev.Scope.NodeID,
@@ -216,19 +217,4 @@ func planEventProjection(ev frameworkevent.Event) *PlanNodeEvent {
 		}
 	}
 	return projected
-}
-
-// sessionIDFromLocations 从 framework 事件定位读取会话归属（agent.runtime
-// 定位的 session_id；无定位返回空）。事件定位由 runner WithEventLocators /
-// Seelex 合成路径（AppendPhase/AppendNodeResult）写入。
-func sessionIDFromLocations(locations []frameworkevent.Location) string {
-	for _, location := range locations {
-		if location.Kind != "agent.runtime" {
-			continue
-		}
-		if sessionID := location.IDs["session_id"]; sessionID != "" {
-			return sessionID
-		}
-	}
-	return ""
 }

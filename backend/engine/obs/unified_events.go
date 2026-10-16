@@ -238,15 +238,9 @@ func (reader *UnifiedEventReader) query(
 // 本函数只给出映射（纯函数），实际投递由装配层 adapter 完成——引擎侧在依赖方向下层，
 // 不反向 import middle/protocol/event。
 func UnifiedEventTopic(event frameworkevent.Event) (channel string, sessionID string, sessionScoped bool) {
-	for _, location := range event.Locations {
-		if location.Kind != "agent.runtime" {
-			continue
-		}
-		if sid := location.IDs["session_id"]; sid != "" {
-			return string(event.Type), sid, true
-		}
-	}
-	return string(event.Type), "", false
+	// 会话归属判据只有一份（store.SessionIDFromEvent），本函数只做"有/无"的映射。
+	sessionID = store.SessionIDFromEvent(event)
+	return string(event.Type), sessionID, sessionID != ""
 }
 
 // filterUnifiedEvents 按 nodeID 过滤并按 limit 截断（不修改入参切片）。
