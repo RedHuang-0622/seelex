@@ -203,12 +203,13 @@ type Runtime struct {
 	approvalTimeout     time.Duration
 	heartbeatInterval   time.Duration
 	limits              limit.Limits // seele.yaml limits 段（含默认；seelebridge 消费点读取）
-	accountWindowsMu    sync.RWMutex // 每账号上下文窗口覆盖（界面设置面；值拷贝读写）
-	accountWindows      map[string]int
-	scopedToolsReady    bool
-	scopedTools         *toolreg.Router // 后台命令执行域（会话销毁即杀的入口）
-	lifecycle           []func()        // 生命周期登记（NewRuntime 装配序；Shutdown 逆序）
-	shutdownOnce        sync.Once       // Shutdown 幂等守卫：并发/重复调用只执行一次（lifecycle 各实现不保证并发安全）
+	// 每账号上下文窗口覆盖（界面设置面）。P21-8：状态与判据在账号域
+	// （account.WindowOverlay），本层只持句柄、只做薄转发。
+	accountWindows   *account.WindowOverlay
+	scopedToolsReady bool
+	scopedTools      *toolreg.Router // 后台命令执行域（会话销毁即杀的入口）
+	lifecycle        []func()        // 生命周期登记（NewRuntime 装配序；Shutdown 逆序）
+	shutdownOnce     sync.Once       // Shutdown 幂等守卫：并发/重复调用只执行一次（lifecycle 各实现不保证并发安全）
 
 	plugins *visibility.Manager // 插件可见性配置（plugin/ 域）
 
@@ -372,7 +373,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		approvalTimeout:     approvalTimeout,
 		heartbeatInterval:   heartbeatInterval,
 		limits:              cfg.Limits.WithDefaults(),
-		accountWindows:      copyAccountWindows(cfg.AccountWindows),
+		accountWindows:      account.NewWindowOverlay(cfg.AccountWindows),
 		plugins:             visibility.NewManager(),
 		permission: &toolreg.PermissionGate{
 			// 波 4 approval 会话级归属：权限审批随调度 ctx 归属发起会话。

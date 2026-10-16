@@ -2,7 +2,6 @@ package assemble
 
 import (
 	"context"
-	"strings"
 
 	"github.com/RedHuang-0622/Seele/accountpool"
 	"github.com/RedHuang-0622/Seele/agent"
@@ -124,56 +123,19 @@ func (r *Runtime) currentAccountLimits() config.AccountLimits {
 
 // ── 每账号上下文窗口（界面设置面）────────────────────────────────────
 //
-// 三个来源各有自己的家，这里只做取值的那一跳：
-//
-//	账号级覆盖（界面设过；数据根 runtime-limits.json）
-//	  > limits.context_window（config/seelex.yaml 的全局值）
-//	    > 账号档自报的 context_window（遗留兼容键）
-//	      > 代码兜底 DefaultContextWindow
-//
-// 为什么要账号级：窗口是压缩预算的基数，而"主账号 1M、便宜的子代理账号 200k"
-// 是常态——一刀切会让子代理账号被按大窗口算预算。覆盖值只影响判据用的窗口，
-// provider 侧仍有自己的硬限制（填大了请求会被拒）。
-
-// copyAccountWindows 复制一份账号窗口表（装配期一次性调用；空表返回 nil）。
-func copyAccountWindows(source map[string]int) map[string]int {
-	if len(source) == 0 {
-		return nil
-	}
-	copied := make(map[string]int, len(source))
-	for name, window := range source {
-		if strings.TrimSpace(name) == "" || window <= 0 {
-			continue
-		}
-		copied[name] = window
-	}
-	if len(copied) == 0 {
-		return nil
-	}
-	return copied
-}
+// 落点沿革（P21-8「域方法随类型走」）：覆盖层的活体状态（互斥量 + 表）与三条判据
+// （入口过滤、改一格/清一格、以及"覆盖 > limits.context_window > 账号档自报"的优先级）
+// 都搬进账号域 [`backend/engine/account/window_overlay.go`](../account/window_overlay.go)
+// 的 `WindowOverlay`；这里只剩四个薄转发（`r.accountWindows` 是装配点注入的句柄）。
+// 落盘（数据根 `runtime-limits.json`）在宿主侧 [`backend/limit/overlay`](../../limit/overlay/README.md)，
+// 界面侧的校验在 [`backend/limit/accountwindow`](../../limit/accountwindow/README.md)，三者不各判一次。
 
 // SetAccountWindow 改一个账号的窗口覆盖（window <= 0 = 清掉这一格，回落到全局值）。
-// 改后**立刻生效**：下一次装配/判据就按新值算，不需要重启——界面上的挡位因此是
-// "按下去就作数"，与 SessionReleaseWindow 同一条口径。
 func (r *Runtime) SetAccountWindow(name string, window int) {
 	if r == nil {
 		return
 	}
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return
-	}
-	r.accountWindowsMu.Lock()
-	defer r.accountWindowsMu.Unlock()
-	if window > 0 {
-		if r.accountWindows == nil {
-			r.accountWindows = map[string]int{}
-		}
-		r.accountWindows[name] = window
-		return
-	}
-	delete(r.accountWindows, name)
+	r.accountWindows.Set(name, window)
 }
 
 // AccountWindows 返回一份拷贝（诊断与落盘对账用；调用方改不动运行时的表）。
@@ -181,31 +143,16 @@ func (r *Runtime) AccountWindows() map[string]int {
 	if r == nil {
 		return nil
 	}
-	r.accountWindowsMu.RLock()
-	defer r.accountWindowsMu.RUnlock()
-	return copyAccountWindows(r.accountWindows)
+	return r.accountWindows.Snapshot()
 }
 
-// accountWindow 读该账号的界面覆盖（没有 → 0）。
-func (r *Runtime) accountWindow(name string) int {
-	if r == nil || strings.TrimSpace(name) == "" {
-		return 0
-	}
-	r.accountWindowsMu.RLock()
-	defer r.accountWindowsMu.RUnlock()
-	return r.accountWindows[name]
-}
-
-// ContextWindowFor 返回指定账号**生效**的上下文窗口（优先级见本文件顶部注释）。
+// ContextWindowFor 返回指定账号**生效**的上下文窗口（优先级判据在域包）。
 func (r *Runtime) ContextWindowFor(name string) int {
 	if r == nil {
 		return 0
 	}
-	if window := r.accountWindow(name); window > 0 {
-		return window
-	}
-	if r.limits.ContextWindow > 0 {
-		return r.limits.ContextWindow
-	}
-	return r.accounts.LimitsFor(name).ContextWindow
+	return r.accountWindows.Effective(name, account.WindowDeps{
+		Global:          r.limits.ContextWindow,
+		AccountFallback: func(accountName string) int { return r.accounts.LimitsFor(accountName).ContextWindow },
+	})
 }

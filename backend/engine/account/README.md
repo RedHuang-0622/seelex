@@ -43,6 +43,13 @@ flowchart LR
   「会话+账号」只记一次摘要（主链路未固定账号时它每轮都发生），`failover` 不去重（每次都要可审计）；
   ④ `Take` **读即清**（事实只服务「本轮 response 回填真相源」一次）。宿主面只差一个摘要落点
   （`ServedRouteDeps.RecordSummary`）。
+- `WindowOverlay`（`window_overlay.go`，P21-8 从 `backend/engine/assemble/runtime_account.go` 归位）：
+  **每账号上下文窗口的活体覆盖层**。它持有唯一一份状态（互斥量 + 表）与三条判据：① 入口过滤
+  （空白名与非正值不进表，空表归一为 nil）；② 改一格 / 清一格（`window <= 0` 是**清除**这个
+  账号的覆盖、回落到全局值，不是"设成 0"）；③ **生效窗口的唯一一处优先级**——账号级覆盖 >
+  `limits.context_window` 全局值 > 账号档自报（遗留兜底），三个读数由 `WindowDeps` 在装配点注入
+  （函数值，域包因此不认识配置与账号池）。落盘在 `backend/limit/overlay`，界面侧校验在
+  `backend/limit/accountwindow`，两边都只校验/落盘/读生效值，不各判一次优先级。
 
 ## 流式超时纪律（2026-09-29 事故）
 
@@ -76,7 +83,10 @@ NewRuntime 读取账号 YAML → `RegisterAccounts` 注册池 → 请求时
 
 ## 并发、存储、安全
 
-本域无状态、纯函数；凭据不落日志（Metadata 只放 provider/model）。
+构造式函数（`ClientFor` / `ForRole` / `StableIndex`）无状态、纯函数；两个**显式注入的**有状态
+类型各持自己的锁、都不读全局：`ServedRouteRegistry`（每会话承接路由，读即清）与
+`WindowOverlay`（每账号窗口覆盖，值拷贝读写）。本域不落盘：覆盖层的持久化在
+`backend/limit/overlay`，本域只持有内存里的活体一份。凭据不落日志（Metadata 只放 provider/model）。
 
 ## 扩展方式
 
@@ -94,4 +104,7 @@ NewRuntime 读取账号 YAML → `RegisterAccounts` 注册池 → 请求时
 `transport_test.go` / `transport_watchdog_test.go`——后者用 httptest 的 OpenAI 兼容
 SSE 上游钉住事故形状（整请求超时会掐断健康慢流、复现那句措辞；换成空闲看门狗后
 同一条流活下来，真停滞则报可读错误）。稳定选择由根包
-`runtime_test.go` 的 TestResolveAccountForBranchIsStableAndRoleScoped 覆盖。
+`runtime_test.go` 的 TestResolveAccountForBranchIsStableAndRoleScoped 覆盖；
+`served_route_test.go` / `window_overlay_test.go` 是两片域级状态判据（去重与读即清、
+入口过滤/改清一格/优先级三条支路/值拷贝与 nil 接收者），端到端那一跳留在装配层
+`runtime_account_test.go`（经 `SetAccountWindow` → `ContextWindowFor` 走同一条链）。
