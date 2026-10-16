@@ -701,6 +701,14 @@ func itemHasLiveBinding(t *testing.T, fixture *itemFixture, id string) bool {
 func TestSettlePrintsTheRunErrorIntoTheTeammateMessage(t *testing.T) {
 	fixture := newItemFixture(t, 6)
 	setupItemPlan(t, fixture)
+	// DispatchItem 会**真起执行体**（`WorkerExecutor`），而执行体跑完会带着自己的 runErr
+	// 自动尾插一次。本用例要钉的是"带错误的手动尾插"那一段，所以先把执行体挡在闸门上：
+	// 否则自动尾插可能先落笔，手动尾插撞上"已经收过尾"的幂等闸门（那是**设计如此**），
+	// 队列里就只剩自动尾插那条成功回执，断言变成时序抽签
+	//（2026-10-17 实测：负载下 `-count=50` 会红；闸门之后不再有这条路径）。
+	block := make(chan struct{})
+	fixture.runner.block = block
+	defer close(block)
 	ctx := context.Background()
 	if _, err := fixture.coordinator.DispatchItem(ctx, "wi-req"); err != nil {
 		t.Fatalf("DispatchItem: %v", err)
