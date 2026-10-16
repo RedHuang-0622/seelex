@@ -55,15 +55,15 @@ func same(status string) bool { return status == dto.TaskCompleted.String() }
 		t.Fatalf("`.String()` 是合法写法，不该被判红：%v", found)
 	}
 
-	// 生产源码：全仓扫一遍（含测试源码——同一类陷阱在用例里也算错误）。
-	root := repoRoot()
-	violations := []string{}
-	for _, dir := range []string{"application", "seelebridge", "e2e", "store", "seelexctx", "tui", "gui"} {
-		found, err := scanTreeForStateEnumCasts(root, dir)
-		if err != nil {
-			t.Fatalf("扫 %s：%v", dir, err)
-		}
-		violations = append(violations, found...)
+	// 生产源码：全模块扫一遍（含测试源码——同一类陷阱在用例里也算错误）。
+	//
+	// 为什么按"模块"而不是列目录名：这里以前写死过一串目录（`application`、`seelebridge`、…），
+	// 结果是**双重失真**——新板块（`backend/`、`contract/`、`wiring/`）从来没被扫到，而目录一改名/搬走
+	// 就整条报错（2026-10-16 `seelebridge` 解散时，这条门禁在全新 clone 上直接红）。判据本身说的是
+	// "仓库里任何地方"，那就按模块扫，别用清单当代理。
+	violations, err := scanModuleForStateEnumCasts(repoRoot())
+	if err != nil {
+		t.Fatalf("扫模块：%v", err)
 	}
 	for _, violation := range violations {
 		t.Errorf("%s\n  枚举化之后不许 `string(枚举值)`：用 `.String()` 取对外词（词只在枚举那一处）", violation)
@@ -125,7 +125,43 @@ func stateEnumStringCasts(relative string, source []byte) []string {
 	return found
 }
 
-// scanTreeForStateEnumCasts 递归扫一棵源码树。
+// scanModuleForStateEnumCasts 递归扫整个模块（跳过非源码目录），是这条门禁的**唯一扫描口径**：
+// 判据说"仓库里任何地方"，所以不维护目录清单，避免"清单漏了新板块 / 老目录一改名就报错"。
+func scanModuleForStateEnumCasts(root string) ([]string, error) {
+	skip := map[string]bool{
+		".git": true, ".gocache": true, ".venv": true, "vendor": true,
+		"node_modules": true, "dist": true, "build": true, "stage": true,
+		"tmp": true, "_tmp": true, "_scratch": true, "_logs": true, "local": true,
+	}
+	found := []string{}
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			if path != root && skip[entry.Name()] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(entry.Name(), ".go") {
+			return nil
+		}
+		source, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		relative, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			relative = path
+		}
+		found = append(found, stateEnumStringCasts(filepath.ToSlash(relative), source)...)
+		return nil
+	})
+	return found, err
+}
+
+// scanTreeForStateEnumCasts 递归扫一棵源码树（保留给按树的定点检查）。
 func scanTreeForStateEnumCasts(root, dir string) ([]string, error) {
 	found := []string{}
 	err := filepath.Walk(filepath.Join(root, dir), func(path string, info os.FileInfo, err error) error {
