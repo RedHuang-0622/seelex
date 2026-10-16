@@ -80,12 +80,12 @@ func (l *Ledger) snapshotAll() []dto.TaskRecord {
 	seen := make(map[string]struct{}, len(live))
 	for _, record := range live {
 		record.SessionID = l.currentSessionID
-		seen[ledgerIdentity(record)] = struct{}{}
+		seen[LedgerIdentity(record)] = struct{}{}
 		records = append(records, record)
 	}
 	for sessionID, partition := range l.partitions {
 		for _, record := range partition {
-			identity := ledgerIdentity(record)
+			identity := LedgerIdentity(record)
 			if _, exists := seen[identity]; exists {
 				continue
 			}
@@ -98,13 +98,18 @@ func (l *Ledger) snapshotAll() []dto.TaskRecord {
 	return records
 }
 
-// ledgerIdentity 是跨会话台账的去重身份：幂等键优先（注册表按 Key 去重，
+// LedgerIdentity 是跨会话台账的去重身份：幂等键优先（注册表按 Key 去重，
 // plan/subagent/todo 与 task_add 都有稳定 Key），缺失时才回退行 ID。优先级
 // 不能反过来——同一 plan 节点/子代理/待办文本会在会话切换、恢复、跨进程冷读
 // 时以不同来源出现，Key 才是它们的同一性；而回退行 ID 的自动号现在由进程级
 // 分配器保证唯一（见 task.NextAutoID），不会把两个会话的条目并成一行、也不
 // 会重号丢行（外部分配/跨版本数据仍按 ObserveAutoID 抬高水位）。
-func ledgerIdentity(record dto.TaskRecord) string {
+//
+// 导出理由（M5-R5b 的依赖倒置）：宿主侧的冷读合并
+// （`middle/view/worktable.MergeTaskRecords`）也要按同一身份去重，而中间层不能
+// import 本包——于是**判据留在域内、由宿主把它当参数注入**（与 R6-input-index
+// 的 `BuildInputIndex(..., userText)` 同一招）。中间层不再留第二份同口径实现。
+func LedgerIdentity(record dto.TaskRecord) string {
 	if record.Key != "" {
 		return "key:" + record.Key
 	}

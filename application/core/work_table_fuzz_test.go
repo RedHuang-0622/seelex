@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 )
 
 // FuzzBuildWorkTable 以畸形输入喂投影构建器：深层嵌套、错类型、超大文本
@@ -26,7 +27,7 @@ func FuzzBuildWorkTable(f *testing.F) {
 		var tasks []dto.TaskRecord
 		_ = json.Unmarshal([]byte(taskJSON), &tasks)
 
-		rows := buildWorkTable(plan, tasks, nil, nil)
+		rows := worktable.BuildWorkTable(plan, tasks, nil, nil, workTableBounds())
 		if len(rows) > Limits().WorkTableRows {
 			t.Fatalf("rows = %d exceed limit %d", len(rows), Limits().WorkTableRows)
 		}

@@ -20,6 +20,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 )
 
 // teamworkCompletionHarness 造一个装配好 teammate 触发路径的 Service。
@@ -186,11 +187,11 @@ func TestTeamworkCompletionStaysOffWhenDisabled(t *testing.T) {
 // 忙会话的读法：**回合边界打点块**里的 teammate 完成行（这是"回执被看见"的另一半——
 // 终态触发绝不唤醒忙会话，忙的时候只剩这条路）。
 func TestTeamworkTraceLinesCarryCompletionReceipt(t *testing.T) {
-	lines := teamworkTraceLines([]dto.TeamworkJobCompletionRecord{
+	lines := worktable.TeamworkTraceLines([]dto.TeamworkJobCompletionRecord{
 		completedTeammateRecord("ab20", asyncStateDone),
 		{Handle: "ab21", Kind: "worker", State: dto.AsyncStateRunning, SessionID: "session-a", Role: "verify", WorkItem: "wi-verify", Description: "复核渲染件"},
 		{Handle: "ab22", Kind: "worker", State: asyncStateDone, SessionID: "session-b", Role: "other", WorkItem: "wi-other"},
-	}, "session-a")
+	}, "session-a", workTableBounds())
 
 	if len(lines) != 2 {
 		t.Fatalf("打点块只取本会话的 teammate 行（另一会话的行不得混进来）：%+v", lines)

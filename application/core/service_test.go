@@ -9,6 +9,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 )
 
 func TestNewTestServiceCleansUpCatalogWorker(t *testing.T) {
@@ -638,7 +639,7 @@ func TestBeginNewSessionKeepsGlobalWorkTable(t *testing.T) {
 	}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Runtime.WorkTable = buildWorkTable(nil, runtime.TaskSnapshot(), nil, nil)
+	service.Core.Snapshot.Runtime.WorkTable = worktable.BuildWorkTable(nil, runtime.TaskSnapshot(), nil, nil, workTableBounds())
 	service.ViewMu.Unlock()
 
 	if err := service.BeginNewSession(); err != nil {

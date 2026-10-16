@@ -2,6 +2,7 @@ package core
 
 import (
 	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 )
 
 // ApplyLimits 应用 seele.yaml limits 段（零值字段自动补默认）；
@@ -13,6 +14,20 @@ func ApplyLimits(l limit.Limits) {
 // Limits 返回当前生效的运行时上限（只读拷贝语义）。
 func Limits() limit.Limits {
 	return limit.Get()
+}
+
+// workTableBounds 把进程级上限里**工作表格投影**用到的那三格按值取出，交给中间层的
+// 纯投影（`middle/view/worktable` 不反向依赖 `backend/limit`）。
+//
+// 这是本仓库唯一一处"limit.Limits → worktable.Limits"的转换点：投影侧只声明它用到
+// 哪些上限，宿主只负责取数（判据仍在 `backend/limit` 一处）。
+func workTableBounds() worktable.Limits {
+	values := Limits()
+	return worktable.Limits{
+		WorkTableRows:  values.WorkTableRows,
+		EvidenceChars:  values.EvidenceChars,
+		PlanNodeEvents: values.PlanNodeEvents,
+	}
 }
 
 // ApplySessionReleaseWindow 校验并**立刻生效**一个「会话驻留窗口」，返回真正生效的

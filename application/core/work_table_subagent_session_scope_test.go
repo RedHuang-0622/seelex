@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 )
 
 // subagentSessionScopeFixture 造一个视图会话在 session-a 的服务，并把"进程级
@@ -101,7 +102,7 @@ func TestSubagentWorkItemCarriesOwningSession(t *testing.T) {
 	runtime, service := subagentSessionScopeFixture(t)
 
 	service.syncTasksFromSources()
-	rows := buildWorkTable(nil, runtime.TaskSnapshot(), nil, nil)
+	rows := worktable.BuildWorkTable(nil, runtime.TaskSnapshot(), nil, nil, workTableBounds())
 	found := false
 	for _, row := range rows {
 		if row.ID != "subagent:node-a" {

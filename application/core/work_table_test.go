@@ -9,6 +9,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	seelplan "github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 )
 
 // ── 工作表格投影（白盒功能测试；注册表为唯一 task 源）────────
@@ -44,7 +45,7 @@ func TestBuildWorkTableMapsPlanNodes(t *testing.T) {
 		{ID: "plan:n2a", Key: "plan:n2a", Phase: "plan", Task: "子任务", Status: dto.TaskPending, Kind: "plan", SourceID: "n2a", Dependencies: []string{"plan:n2"}},
 	}
 
-	rows := buildWorkTable(plan, tasks, nil, nil)
+	rows := worktable.BuildWorkTable(plan, tasks, nil, nil, workTableBounds())
 	if len(rows) != 3 {
 		t.Fatalf("rows = %d, want 3", len(rows))
 	}
@@ -81,7 +82,7 @@ func TestBuildWorkTableTasklistModeMarksCheckNode(t *testing.T) {
 		}},
 	}
 	tasks := []dto.TaskRecord{{ID: "plan:n1", Phase: "plan", Task: "步骤", Status: dto.TaskCompleted, Kind: "plan", SourceID: "n1"}}
-	rows := buildWorkTable(plan, tasks, nil, nil)
+	rows := worktable.BuildWorkTable(plan, tasks, nil, nil, workTableBounds())
 	ops := make([]string, 0, len(rows[0].Trace))
 	for _, point := range rows[0].Trace {
 		ops = append(ops, point.Operation)
@@ -98,7 +99,7 @@ func TestBuildWorkTableMapsTodoItems(t *testing.T) {
 		{ID: "todo:2", Phase: "tasklist", Task: "c", Status: dto.TaskCompleted, Kind: "todo"},
 		{ID: "todo:3", Phase: "tasklist", Task: "d", Status: dto.TaskCompleted, Kind: "todo"},
 	}
-	rows := buildWorkTable(nil, tasks, nil, nil)
+	rows := worktable.BuildWorkTable(nil, tasks, nil, nil, workTableBounds())
 	if len(rows) != 4 {
 		t.Fatalf("rows = %d", len(rows))
 	}
@@ -124,7 +125,7 @@ func TestBuildWorkTableBatches(t *testing.T) {
 		{ID: "plan:p1", Kind: "plan", Phase: "plan", BatchID: "chat-1", CreatedAt: early},
 		{ID: "subagent:s1", Kind: "subagent", Phase: "subagent", BatchID: "", CreatedAt: now.Add(-2 * time.Hour)},
 	}
-	batches := buildWorkTableBatches(rows)
+	batches := worktable.BuildWorkTableBatches(rows)
 	if len(batches) != 3 {
 		t.Fatalf("batches = %d, want 3: %+v", len(batches), batches)
 	}
@@ -151,12 +152,12 @@ func TestTaskRecordToWorkItemCarriesBatch(t *testing.T) {
 		ID: "task:1", Phase: "task", Task: "t", Status: dto.TaskPending, Kind: "task",
 		BatchID: "chat-9", CreatedAt: createdAt,
 	}
-	row := taskRecordToWorkItem(record)
+	row := worktable.TaskRecordToWorkItem(record, workTableBounds())
 	if row.BatchID != "chat-9" || row.CreatedAt != createdAt || row.BatchLabel == "" {
 		t.Fatalf("row = %+v", row)
 	}
-	if row.BatchLabel != batchLabel("chat-9", createdAt) {
-		t.Fatalf("batch label = %q, want %q", row.BatchLabel, batchLabel("chat-9", createdAt))
+	if row.BatchLabel != worktable.BatchLabel("chat-9", createdAt) {
+		t.Fatalf("batch label = %q, want %q", row.BatchLabel, worktable.BatchLabel("chat-9", createdAt))
 	}
 }
 
@@ -179,7 +180,7 @@ func TestBuildWorkTableMapsSubagentTasks(t *testing.T) {
 			},
 		},
 	}
-	rows := buildWorkTable(nil, tasks, nil, nil)
+	rows := worktable.BuildWorkTable(nil, tasks, nil, nil, workTableBounds())
 	if len(rows) != 2 {
 		t.Fatalf("rows = %d, want 2", len(rows))
 	}
@@ -206,16 +207,16 @@ func TestBuildWorkTableBoundsRowsAndTruncatesEvidence(t *testing.T) {
 			Task: "t", Status: dto.TaskPending, Kind: "todo",
 		})
 	}
-	rows := buildWorkTable(nil, tasks, nil, nil)
+	rows := worktable.BuildWorkTable(nil, tasks, nil, nil, workTableBounds())
 	if len(rows) != Limits().WorkTableRows {
 		t.Fatalf("rows = %d, want %d", len(rows), Limits().WorkTableRows)
 	}
 
 	long := strings.Repeat("x", Limits().EvidenceChars*2)
-	row := buildWorkTable(nil, []dto.TaskRecord{{
+	row := worktable.BuildWorkTable(nil, []dto.TaskRecord{{
 		ID: "task:1", Phase: "task", Task: long, Description: long, Kind: "task",
 		Trace: []dto.TaskTracePoint{{Status: dto.TaskPending, Operation: "task.add", Evidence: long}},
-	}}, nil, nil)[0]
+	}}, nil, nil, workTableBounds())[0]
 	if !strings.HasSuffix(row.Description, "…") || len([]rune(row.Description)) != Limits().EvidenceChars+1 {
 		t.Fatalf("description truncation = %d runes", len([]rune(row.Description)))
 	}

@@ -158,8 +158,8 @@ func TestLedgerIdentityPrefersKeyOverRowID(t *testing.T) {
 		{dto.TaskRecord{Key: "todo:写文档"}, "key:todo:写文档"},
 	}
 	for _, one := range cases {
-		if got := ledgerIdentity(one.record); got != one.want {
-			t.Fatalf("ledgerIdentity(%+v) = %q, want %q", one.record, got, one.want)
+		if got := LedgerIdentity(one.record); got != one.want {
+			t.Fatalf("LedgerIdentity(%+v) = %q, want %q", one.record, got, one.want)
 		}
 	}
 }

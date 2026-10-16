@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -22,221 +21,9 @@ import (
 // 事件（B2）：task 内部变更 → task.changed（逐任务增量，脏标记驱动）；
 // worktable 结构 → worktable.changed（整表，CSP 汇聚 latest-wins）。
 // retry（B3）：status=retry + RetryCount，前端展示 RETRY n。
-
-// buildWorkTable 组装工作表格行：注册表 task → WorkItem；plan 行额外合并
-// 节点事件/工具活动打点（详情数据面仍直接读 plan 节点）；后台命令（asyncRuns）
-// 以**只读投影**并入，不进注册表（见 work_table_async.go 与不变量 I-21）。
-// 有界：行数 ≤ limits.work_table_rows，trace ≤ workTableTraceLimit。
-func buildWorkTable(plan *PlanState, tasks []dto.TaskRecord, subagentTree []dto.SubAgentTreeNode, asyncRuns []dto.AsyncRunRecord) []WorkItem {
-	nodeByID := make(map[string]PlanNode)
-	if plan != nil {
-		var walk func(nodes []PlanNode)
-		walk = func(nodes []PlanNode) {
-			for _, node := range nodes {
-				nodeByID[node.ID] = node
-				walk(node.Children)
-			}
-		}
-		walk(plan.Nodes)
-	}
-	phaseOrder := map[string]int{"plan": 0, "task": 1, "tasklist": 2, "subagent": 3}
-	rows := make([]WorkItem, 0, len(tasks))
-	for _, record := range tasks {
-		item := taskRecordToWorkItem(record)
-		if record.Kind == "plan" {
-			if node, ok := nodeByID[planNodeIDFor(record)]; ok {
-				item.Trace = boundWorkTrace(append(item.Trace, planNodeTrace(node, plan != nil && plan.Status != PlanRunning)...))
-				// plan 行依赖取自 plan 邻接面（plan_load 产出的是平铺节点表 +
-				// 边集，注册表按树形父子推导会让 plan 行的「依赖」列恒为空）。
-				item.Dependencies = mergeWorkDependencies(item.Dependencies, planDependencies(plan, node.ID))
-			}
-		}
-		rows = append(rows, item)
-	}
-	rows = append(rows, asyncWorkItems(asyncRuns)...)
-	sort.SliceStable(rows, func(left, right int) bool {
-		leftOrder := phaseOrder[rows[left].Phase]
-		rightOrder := phaseOrder[rows[right].Phase]
-		if leftOrder != rightOrder {
-			return leftOrder < rightOrder
-		}
-		return rows[left].ID < rows[right].ID
-	})
-	if limit := Limits().WorkTableRows; limit > 0 && len(rows) > limit {
-		rows = rows[:limit]
-	}
-	return rows
-}
-
-// taskRecordToWorkItem 把注册表 task 快照映射为 WorkItem（含 retry 计数）。
-func taskRecordToWorkItem(record dto.TaskRecord) WorkItem {
-	trace := make([]WorkTracePoint, 0, len(record.Trace))
-	for _, point := range record.Trace {
-		trace = append(trace, WorkTracePoint{
-			At: point.At, Status: point.Status.String(), Operation: point.Operation,
-			Evidence: worktable.TruncateWorkEvidence(point.Evidence, Limits().EvidenceChars), Duration: point.Duration,
-		})
-	}
-	trace = boundWorkTrace(trace)
-	status := record.Status.String()
-	if record.Kind == "todo" && record.Status == dto.TaskCompleted {
-		// todo 三态契约：done（前端状态按钮 active 判定兼容）。
-		status = "done"
-	}
-	if record.Kind == "subagent" && record.Status == dto.TaskCompleted {
-		// 子代理阶段沿用 running/done/failed 语义。
-		status = "done"
-	}
-	return WorkItem{
-		ID: record.ID, SessionID: record.SessionID, Phase: record.Phase,
-		Task:        worktable.TruncateWorkEvidence(record.Task, 200),
-		Description: worktable.TruncateWorkEvidence(record.Description, Limits().EvidenceChars),
-		Status:      status, RetryCount: record.RetryCount, Assignee: record.Assignee,
-		Dependencies: append([]string(nil), record.Dependencies...),
-		Attachments:  append([]string(nil), record.Attachments...),
-		Kind:         record.Kind, SourceID: record.SourceID,
-		Participants: append([]string(nil), record.Participants...),
-		BatchID:      record.BatchID,
-		BatchLabel:   batchLabel(record.BatchID, record.CreatedAt),
-		CreatedAt:    record.CreatedAt,
-		StartedAt:    record.StartedAt, EndedAt: record.EndedAt, Elapsed: record.Elapsed,
-		Trace: trace,
-	}
-}
-
-// legacyBatchID 是早期/未分批会话的伪批次 ID（空串；展示标签「早期任务」，
-// 排序置底，不与真实 chat 请求批次混排）。
-const legacyBatchID = ""
-
-// batchLabel 由批次 ID 与创建时间派生展示标签：真实批次用本地时间
-// （YYYY-MM-DD HH:MM），早期/未分批会话固定为「早期任务」。
-func batchLabel(id string, createdAt time.Time) string {
-	if id == "" {
-		return "早期任务"
-	}
-	if createdAt.IsZero() {
-		return id
-	}
-	return createdAt.Format("2006-01-02 15:04")
-}
-
-// buildWorkTableBatches 从工作表格行派生批次分片头：按 BatchID 分组，
-// 组内取最早 CreatedAt 作为批次时间；按 CreatedAt 升序返回，空批次（早期
-// 会话）置底。Counts 按权威类型统计（all/plan/task/todo/subagent），
-// 仅包含有内容的批次。
-func buildWorkTableBatches(rows []WorkItem) []WorkTableBatch {
-	type batchGroup struct {
-		id        string
-		createdAt time.Time
-		counts    map[string]int
-	}
-	order := make([]string, 0, 4)
-	byID := make(map[string]*batchGroup)
-	for _, row := range rows {
-		id := row.BatchID
-		group := byID[id]
-		if group == nil {
-			group = &batchGroup{
-				id: id,
-				counts: map[string]int{
-					"all": 0, "plan": 0, "task": 0, "todo": 0, "subagent": 0,
-				},
-			}
-			byID[id] = group
-			order = append(order, id)
-		}
-		group.counts["all"]++
-		group.counts[row.Kind]++
-		if group.createdAt.IsZero() || (!row.CreatedAt.IsZero() && row.CreatedAt.Before(group.createdAt)) {
-			group.createdAt = row.CreatedAt
-		}
-	}
-	batches := make([]WorkTableBatch, 0, len(order))
-	for _, id := range order {
-		group := byID[id]
-		batches = append(batches, WorkTableBatch{
-			ID:        group.id,
-			Label:     batchLabel(group.id, group.createdAt),
-			CreatedAt: group.createdAt,
-			Counts:    group.counts,
-		})
-	}
-	sort.SliceStable(batches, func(left, right int) bool {
-		leftLegacy := batches[left].ID == legacyBatchID
-		rightLegacy := batches[right].ID == legacyBatchID
-		if leftLegacy != rightLegacy {
-			return !leftLegacy // 早期/未分批置底
-		}
-		leftAt, rightAt := batches[left].CreatedAt, batches[right].CreatedAt
-		if leftAt.IsZero() != rightAt.IsZero() {
-			return !leftAt.IsZero() // 无时间的批次靠后
-		}
-		if !leftAt.Equal(rightAt) {
-			return leftAt.Before(rightAt)
-		}
-		return batches[left].ID < batches[right].ID
-	})
-	return batches
-}
-
-// planNodeTrace 由节点事件 + 子代理工具活动合成打点（按时间倒序、有界；
-// 详情弹窗数据面仍直接读 plan 节点，此处只是工作表格概览合并）。
-func planNodeTrace(node PlanNode, tasklistMode bool) []WorkTracePoint {
-	points := make([]WorkTracePoint, 0, len(node.Events)+len(node.ToolEvents))
-	for _, event := range node.Events {
-		operation := "node.lifecycle"
-		if tasklistMode && event.Status == NodeCompleted.String() {
-			operation = "task_check_node"
-		}
-		points = append(points, WorkTracePoint{
-			At: event.At, Status: event.Status, Operation: operation,
-			Evidence: worktable.TruncateWorkEvidence(event.Output, Limits().EvidenceChars),
-		})
-	}
-	for _, tool := range node.ToolEvents {
-		evidence := tool.Error
-		if evidence == "" {
-			evidence = tool.Result
-		}
-		if evidence == "" {
-			evidence = tool.Arguments
-		}
-		points = append(points, WorkTracePoint{
-			At: tool.StartedAt, Status: tool.Status.String(), Operation: tool.Name,
-			Evidence: worktable.TruncateWorkEvidence(evidence, Limits().EvidenceChars),
-			Duration: formatWorkDuration(tool.Duration),
-		})
-	}
-	return points
-}
-
-// workTableTraceLimit 是工作表格概览的行内打点上限（完整时间线在详情弹窗）。
-const workTableTraceLimit = 10
-
-// boundWorkTrace 按时间倒序排序并截断。
-func boundWorkTrace(points []WorkTracePoint) []WorkTracePoint {
-	sort.SliceStable(points, func(left, right int) bool {
-		return points[left].At.After(points[right].At)
-	})
-	if limit := Limits().PlanNodeEvents; limit > 0 && len(points) > limit {
-		points = points[:limit]
-	}
-	if len(points) > workTableTraceLimit {
-		points = points[:workTableTraceLimit]
-	}
-	return points
-}
-
-func formatWorkDuration(duration time.Duration) string {
-	if duration <= 0 {
-		return ""
-	}
-	ms := float64(duration) / float64(time.Millisecond)
-	if ms < 1000 {
-		return fmt.Sprintf("%.0fms", ms)
-	}
-	return fmt.Sprintf("%.2fs", ms/1000)
-}
+//
+// 落点（M5-R5b）：**投影判据**（行怎么排、状态怎么映射、证据怎么截断）已下沉
+// `middle/view/worktable`；本文件只剩宿主侧的三件事——锁下取数、注册表同步、事件发布。
 
 // refreshWorkTableLocked 在 service.ViewMu 持锁时重建工作表格投影。
 //
@@ -245,14 +32,15 @@ func formatWorkDuration(duration time.Duration) string {
 // 写锁采样 = 把整块交互面押在一次慢活上（2026-09-29 锁面审计 §2.5，与 2026-09-29
 // 压缩持 ViewMu 推帧的"后果②"同形）。
 func (state *serviceState) refreshWorkTableLocked(tasks []dto.TaskRecord, asyncRuns []dto.AsyncRunRecord) {
-	rows := buildWorkTable(
+	rows := worktable.BuildWorkTable(
 		state.Snapshot.Runtime.Plan,
 		tasks,
 		state.Snapshot.Runtime.SubAgentTree,
 		asyncRuns,
+		workTableBounds(),
 	)
 	state.Snapshot.Runtime.WorkTable = rows
-	state.Snapshot.Runtime.WorkTableBatches = buildWorkTableBatches(rows)
+	state.Snapshot.Runtime.WorkTableBatches = worktable.BuildWorkTableBatches(rows)
 }
 
 // publishWorkTable 在锁外发布整表（CSP 汇聚发布器，latest-wins；items 必须
@@ -279,10 +67,10 @@ func (state *serviceState) publishWorkTable(revision uint64, requestID string, i
 // 因此无需额外加锁（发布器是单 goroutine）。
 func (service *Service) workTableEventPayload(update worktable.WorkTableUpdate) WorkTableEvent {
 	service.ViewMu.RLock()
-	tree := cloneSubAgentTreeForSync(service.Core.Snapshot.Runtime.SubAgentTree)
+	tree := worktable.CloneSubAgentTreeForSync(service.Core.Snapshot.Runtime.SubAgentTree)
 	service.ViewMu.RUnlock()
 	payload := WorkTableEvent{Items: update.Items, Batches: update.Batches}
-	signature := subagentTreePayloadSignature(tree)
+	signature := worktable.SubagentTreePayloadSignature(tree)
 	if signature == service.lastPublishedSubagentTreeSig {
 		return payload
 	}
@@ -293,36 +81,6 @@ func (service *Service) workTableEventPayload(update worktable.WorkTableUpdate) 
 	}
 	payload.SubAgentTree = tree
 	return payload
-}
-
-// subagentTreePayloadSignature 生成子代理树投影的内容签名，用于判断
-// worktable.changed 是否需要随包携带树。签名覆盖身份/状态/会话号与各文本
-// 字段、上下文计数的长度，既能识别投影内容变化，也避免为比较把整棵树
-// 序列化一遍（树是运行期唯一较重的投影，表格增量本身要保持轻量）。
-func subagentTreePayloadSignature(nodes []dto.SubAgentTreeNode) string {
-	var builder strings.Builder
-	var walk func(items []dto.SubAgentTreeNode)
-	walk = func(items []dto.SubAgentTreeNode) {
-		fmt.Fprintf(&builder, "%d:", len(items))
-		for _, node := range items {
-			fmt.Fprintf(&builder, "%s|%s|%s|%s|%d|%d|%d|%d|%d;",
-				node.ID, node.Status, node.SessionID, node.MainSessionID,
-				len(node.Goal), len(node.Summary), len(node.Error),
-				node.StartedAt.UnixNano(), node.EndedAt.UnixNano())
-			if node.Context != nil {
-				fmt.Fprintf(&builder, "ctx:%d|%d|%d|%d|%d|",
-					len(node.Context.Goal), node.Context.MessageCount, node.Context.TokenEstimate,
-					len(node.Context.Progress), len(node.Context.Findings))
-				for _, finding := range node.Context.Findings {
-					fmt.Fprintf(&builder, "%d|", len(finding))
-				}
-			}
-			builder.WriteString(";")
-			walk(node.Children)
-		}
-	}
-	walk(nodes)
-	return builder.String()
 }
 
 // publishTaskChanged 发布单 task 增量（task.changed；直发 hub，不汇聚——
@@ -390,7 +148,7 @@ func (service *Service) syncTasksFromSourcesFor(sessionID string) {
 		ownerSessionID = viewSessionID
 	}
 	plan := service.sessionActivePlanLocked(sessionID)
-	tree := cloneSubAgentTreeForSync(service.Core.Snapshot.Runtime.SubAgentTree)
+	tree := worktable.CloneSubAgentTreeForSync(service.Core.Snapshot.Runtime.SubAgentTree)
 	// 活跃会话的 task scope 恒为实时注册表（""）；后台会话写自身分区。
 	scope := sessionID
 	if sessionID == "" || sessionID == viewSessionID {
@@ -429,7 +187,7 @@ func (service *Service) syncTasksFromSourcesFor(sessionID string) {
 // 后台会话读会话自身的 plan 栈（task_context 每会话持有）。
 func (service *Service) sessionActivePlanLocked(sessionID string) *PlanState {
 	if sessionID == service.Core.Snapshot.Session.ID {
-		return clonePlanForSync(service.Core.Snapshot.Runtime.Plan)
+		return worktable.ClonePlanForSync(service.Core.Snapshot.Runtime.Plan)
 	}
 	return task_context.ActivePlanFromStack(
 		service.components.tasks.PlanStackFor(sessionID),
@@ -439,7 +197,7 @@ func (service *Service) sessionActivePlanLocked(sessionID string) *PlanState {
 
 func (service *Service) syncPlanNodeTask(sessionID string, node PlanNode, parentID string) {
 	key := "plan:" + node.ID
-	status := taskStatusForNode(node.Status)
+	status := worktable.TaskStatusForNode(node.Status)
 	identity := dto.ActorIdentity("main", service.Deps.Engine.SessionID())
 	existing, found, err := service.Deps.Runtime.ResolveTaskByKeyFor(sessionID, key)
 	if err != nil {
@@ -467,7 +225,7 @@ func (service *Service) syncPlanNodeTask(sessionID string, node PlanNode, parent
 
 func (service *Service) syncSubagentTask(sessionID string, node dto.SubAgentTreeNode, parentID string) {
 	key := "subagent:" + node.ID
-	status := taskStatusForSubagent(node.Status)
+	status := worktable.TaskStatusForSubagent(node.Status)
 	identity := dto.ActorIdentity("subagent", node.SessionID)
 	existing, found, err := service.Deps.Runtime.ResolveTaskByKeyFor(sessionID, key)
 	if err != nil {
@@ -498,160 +256,23 @@ func (service *Service) syncSubagentTask(sessionID string, node dto.SubAgentTree
 	}
 }
 
-func taskStatusForNode(status NodeStatus) dto.TaskStatus {
-	switch status {
-	case NodeRunning, NodeWorktreeCreating, NodeRebasing, NodeMerging, NodeQueued:
-		return dto.TaskRunning
-	case NodeCompleted, NodeSkipped:
-		return dto.TaskCompleted
-	case NodeFailed, NodePanicked:
-		return dto.TaskFailed
-	case NodeAborted, NodeCanceled:
-		return dto.TaskFailed
-	default:
-		return dto.TaskPending
-	}
-}
-
-func taskStatusForSubagent(status dto.SubAgentNodeStatus) dto.TaskStatus {
-	switch status {
-	case dto.SubAgentQueued:
-		return dto.TaskQueued
-	case dto.SubAgentRunning:
-		return dto.TaskRunning
-	case dto.SubAgentDone:
-		return dto.TaskCompleted
-	case dto.SubAgentFailed:
-		return dto.TaskFailed
-	case dto.SubAgentInterrupted:
-		return dto.TaskInterrupted
-	default:
-		return dto.TaskInterrupted
-	}
-}
-
-// planNodeIDFor 返回 plan 行对应的 plan 节点 ID：SourceID 优先，缺失时
-// 回退 ID 的 plan: 前缀（恢复会话/老数据可能没有 SourceID，而 plan:<nodeID>
-// 是工作表格行的权威键）。
-func planNodeIDFor(record dto.TaskRecord) string {
-	if record.SourceID != "" {
-		return record.SourceID
-	}
-	if nodeID, ok := strings.CutPrefix(record.ID, "plan:"); ok {
-		return nodeID
-	}
-	return ""
-}
-
-// planDependencies 由 plan 邻接面取节点的前置任务 ID（plan:<前置节点>）。
-//
-// plan 的依赖是 **DAG 入边**（plan_load 的 edges），不是树形父子关系：
-// plan_load 产出的是平铺节点表 + 边集，按父子推导会让所有 plan 行的依赖
-// 恒为空——工作表格「依赖」列对 plan 行不可见（用户看不到自己在等谁）。
-func planDependencies(plan *PlanState, nodeID string) []string {
-	if plan == nil || nodeID == "" || len(plan.Edges) == 0 {
-		return nil
-	}
-	deps := make([]string, 0, 2)
-	for _, edge := range plan.Edges {
-		if edge.To != nodeID || edge.From == "" {
-			continue
-		}
-		deps = append(deps, "plan:"+edge.From)
-	}
-	return deps
-}
-
-// mergeWorkDependencies 合并依赖来源（注册表记录 + plan 邻接面）：去重、
-// 稳定排序（UI 与用例的确定性），空结果返回 nil（JSON omitempty 面）。
-func mergeWorkDependencies(recorded []string, derived []string) []string {
-	if len(derived) == 0 {
-		return recorded
-	}
-	merged := make([]string, 0, len(recorded)+len(derived))
-	seen := make(map[string]struct{}, len(recorded)+len(derived))
-	for _, source := range [][]string{recorded, derived} {
-		for _, dependency := range source {
-			if dependency == "" {
-				continue
-			}
-			if _, exists := seen[dependency]; exists {
-				continue
-			}
-			seen[dependency] = struct{}{}
-			merged = append(merged, dependency)
-		}
-	}
-	sort.Strings(merged)
-	return merged
-}
-
-// mergeTaskRecords 合并两组 task 记录（按跨会话身份去重，前者优先，稳定
-// 排序）：冷读面用全局表 + 会话持久化的自身条目拼一张表，保证"任何入口看到
-// 的都是同一条跨会话台账"。身份 = 幂等键优先、否则行 ID：同一 plan 节点/
-// 子代理/待办文本在不同来源（实时注册表、会话分区、磁盘记录）出现时靠 Key
-// 认同一行；自动行 ID（`task:<n>`/`todo:<n>`）由进程级分配器保证进程内唯一，
-// 不会把两个会话的条目并成一行（见 backend/tool/task.NextAutoID）。
-//
-// secondarySessionID 标注 secondary 的归属会话：磁盘记录不带会话标记（归属
-// 由容器 `SessionRecord` 表达），冷读时把该会话的持久化条目补上标记，会话
-// 筛选轴才不会把它们的行判成"无主"。
-func mergeTaskRecords(primary, secondary []dto.TaskRecord, secondarySessionID string) []dto.TaskRecord {
-	if len(secondary) == 0 {
-		return primary
-	}
-	merged := make([]dto.TaskRecord, 0, len(primary)+len(secondary))
-	seen := make(map[string]struct{}, len(primary)+len(secondary))
-	appendRecord := func(record dto.TaskRecord) {
-		identity := taskRecordLedgerIdentity(record)
-		if identity == "" {
-			return
-		}
-		if _, exists := seen[identity]; exists {
-			return
-		}
-		seen[identity] = struct{}{}
-		merged = append(merged, record)
-	}
-	for _, record := range primary {
-		appendRecord(record)
-	}
-	for _, record := range secondary {
-		if record.SessionID == "" {
-			record.SessionID = secondarySessionID
-		}
-		appendRecord(record)
-	}
-	sort.SliceStable(merged, func(left, right int) bool { return merged[left].ID < merged[right].ID })
-	return merged
-}
-
-// taskRecordLedgerIdentity 返回记录在跨会话台账里的去重身份（幂等键优先、
-// 否则行 ID；与 seelebridge 侧的 taskLedgerIdentity 同口径）。
-func taskRecordLedgerIdentity(record dto.TaskRecord) string {
-	if record.Key != "" {
-		return "key:" + record.Key
-	}
-	if record.ID != "" {
-		return "id:" + record.ID
-	}
-	return ""
-}
-
 // workItemForRecord 把注册表记录映射为工作表格行，并按 plan 邻接面补齐
 // plan 行的依赖。
 //
 // task.changed 增量与 worktable.changed 整表必须同源：增量只带单条记录
 // （没有 plan 上下文），若不补齐，前端按增量更新该行时会把依赖列擦成空。
 func (service *Service) workItemForRecord(record dto.TaskRecord, sessionID string) WorkItem {
-	item := taskRecordToWorkItem(record)
+	item := worktable.TaskRecordToWorkItem(record, workTableBounds())
 	if record.Kind != "plan" {
 		return item
 	}
 	service.ViewMu.RLock()
 	plan := service.sessionActivePlanLocked(sessionID)
 	service.ViewMu.RUnlock()
-	item.Dependencies = mergeWorkDependencies(item.Dependencies, planDependencies(plan, planNodeIDFor(record)))
+	item.Dependencies = worktable.MergeWorkDependencies(
+		item.Dependencies,
+		worktable.PlanDependencies(plan, worktable.PlanNodeIDFor(record)),
+	)
 	return item
 }
 
@@ -721,11 +342,11 @@ func (state *serviceState) workTableTraceBlockFor(sessionID string) string {
 		lines = append(lines, fmt.Sprintf("- %s %s%s %s",
 			record.ID, record.Status, retry, worktable.TruncateWorkEvidence(record.Task, 80)))
 	}
-	asyncLines := asyncTraceLines(state.Deps.Runtime.AsyncRunsSnapshot(), effectiveSession)
+	asyncLines := worktable.AsyncTraceLines(state.Deps.Runtime.AsyncRunsSnapshot(), effectiveSession, workTableBounds())
 	lines = append(lines, asyncLines...)
 	// teammate 作业（jobs.Manager 那张表）单独成行：句柄空间与取回工具都不同
 	// （jobs_manage vs bg_manage），合并成同一种行模型就会拿错工具。
-	teamworkLines := teamworkTraceLines(teamworkJobCompletions(state.Deps.Runtime), effectiveSession)
+	teamworkLines := worktable.TeamworkTraceLines(teamworkJobCompletions(state.Deps.Runtime), effectiveSession, workTableBounds())
 	lines = append(lines, teamworkLines...)
 	if len(lines) == 0 {
 		return ""
@@ -772,24 +393,6 @@ func (state *serviceState) workTableTraceBlockFor(sessionID string) string {
 	}
 	builder.WriteString(workTableTraceMarkerClose)
 	return builder.String()
-}
-
-func clonePlanForSync(plan *PlanState) *PlanState {
-	if plan == nil {
-		return nil
-	}
-	return cloneRuntimeState(RuntimeState{Plan: plan}).Plan
-}
-
-func cloneSubAgentTreeForSync(nodes []dto.SubAgentTreeNode) []dto.SubAgentTreeNode {
-	if len(nodes) == 0 {
-		return nil
-	}
-	cloned := append([]dto.SubAgentTreeNode(nil), nodes...)
-	for index := range cloned {
-		cloned[index].Children = cloneSubAgentTreeForSync(nodes[index].Children)
-	}
-	return cloned
 }
 
 // RefreshWorkTableSnapshot 是子代理树生命周期变更的被动投影入口（由 CSP
@@ -1008,4 +611,17 @@ func (service *Service) refreshRuntimeAfterTodoChange() {
 	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventRuntimeChanged, revision, requestID, sessionID, service.Snapshot().Runtime)
 	service.publishWorkTable(revision, requestID, items, batches)
+}
+
+// asyncRunsForTable 读后台执行投影。三处建表入口（实时重投影、会话快照、冷读面）
+// 都走它，保证同一张表不管从哪个读面看都有同一批后台行。
+//
+// 为什么留在宿主（M5-R5b）：这是**取数**（Runtime 端口 + 登记表锁），行怎么投影已在
+// `middle/view/worktable`；登记表锁是叶子锁（tools 侧从不回调进 application），
+// 所以持 ViewMu 时调用不会成环。
+func (state *serviceState) asyncRunsForTable() []dto.AsyncRunRecord {
+	if state == nil || state.Deps.Runtime == nil {
+		return nil
+	}
+	return state.Deps.Runtime.AsyncRunsSnapshot()
 }

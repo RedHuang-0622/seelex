@@ -14,6 +14,7 @@ import (
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/event"
+	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"github.com/RedHuang-0622/seelex/session"
 )
 
@@ -613,7 +614,7 @@ func (service *Service) snapshotOfResident(sessionID string) (SessionSnapshot, e
 		snapshot.Approvals = append([]Interaction(nil), approvals...)
 	}
 	if plan := service.planProjectionLocked(sessionID); plan != nil {
-		snapshot.Runtime.Plan = clonePlanForSync(plan)
+		snapshot.Runtime.Plan = worktable.ClonePlanForSync(plan)
 	}
 	if task := service.components.tasks.VisibleTaskStateFor(sessionID); task != nil {
 		taskCopy := *task
@@ -624,9 +625,9 @@ func (service *Service) snapshotOfResident(sessionID string) (SessionSnapshot, e
 	// 读面，避免"切到哪个会话才看到哪些行"。会话级读面（落盘）仍走
 	// TaskSnapshotFor。
 	if len(taskRecords) > 0 || len(asyncRuns) > 0 {
-		rows := buildWorkTable(snapshot.Runtime.Plan, taskRecords, nil, asyncRuns)
+		rows := worktable.BuildWorkTable(snapshot.Runtime.Plan, taskRecords, nil, asyncRuns, workTableBounds())
 		snapshot.Runtime.WorkTable = rows
-		snapshot.Runtime.WorkTableBatches = buildWorkTableBatches(rows)
+		snapshot.Runtime.WorkTableBatches = worktable.BuildWorkTableBatches(rows)
 	}
 	return snapshot, nil
 }

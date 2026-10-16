@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 )
 
 // ── A/B 对比：worktable.changed（B）vs 整份 runtime.changed（A）──
@@ -23,7 +24,7 @@ func TestWorkTablePayloadSmallerThanFullRuntime(t *testing.T) {
 	}
 	tree := heavySubagentTree(10)
 
-	table := buildWorkTable(plan, tasks, tree, nil)
+	table := worktable.BuildWorkTable(plan, tasks, tree, nil, workTableBounds())
 	if len(table) > Limits().WorkTableRows {
 		t.Fatalf("table rows = %d exceed limit %d", len(table), Limits().WorkTableRows)
 	}

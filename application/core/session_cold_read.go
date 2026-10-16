@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 )
 
 // snapshotOfCold 组装未驻留会话的只读会话快照（record 事实源）。目录已归档
@@ -38,7 +39,7 @@ func (service *Service) snapshotOfCold(sessionID string) (SessionSnapshot, error
 		Conversation:    conversation,
 		Chat:            ChatState{},
 		Runtime: SessionRuntime{
-			Plan:      clonePlanForSync(plan),
+			Plan:      worktable.ClonePlanForSync(plan),
 			WorkTable: nil,
 		},
 		Capabilities:       Capabilities{SessionResume: true, SessionSnapshot: true},
@@ -53,13 +54,13 @@ func (service *Service) snapshotOfCold(sessionID string) (SessionSnapshot, error
 	// 条目（冷会话未驻留，其条目只在 record 里），合并后投影成同一张表。
 	records := record.Tasks
 	if service.Deps.Runtime != nil {
-		records = mergeTaskRecords(service.Deps.Runtime.TaskSnapshot(), record.Tasks, sessionID)
+		records = worktable.MergeTaskRecords(service.Deps.Runtime.TaskSnapshot(), record.Tasks, sessionID, task_context.LedgerIdentity)
 	}
 	asyncRuns := service.asyncRunsForTable()
 	if len(records) > 0 || len(asyncRuns) > 0 {
-		rows := buildWorkTable(snapshot.Runtime.Plan, records, nil, asyncRuns)
+		rows := worktable.BuildWorkTable(snapshot.Runtime.Plan, records, nil, asyncRuns, workTableBounds())
 		snapshot.Runtime.WorkTable = rows
-		snapshot.Runtime.WorkTableBatches = buildWorkTableBatches(rows)
+		snapshot.Runtime.WorkTableBatches = worktable.BuildWorkTableBatches(rows)
 	}
 	if task := record.Execution.Task; task != nil {
 		taskCopy := *task

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 )
 
 // plan 行的工作表格「依赖」列：plan_load 产出的是**平铺节点表 + 边集**
@@ -34,7 +35,7 @@ func TestWorkTablePlanRowsCarryDAGDependencies(t *testing.T) {
 		{ID: "plan:implement", Key: "plan:implement", Phase: "plan", Task: "implement", Kind: "plan", SourceID: "implement"},
 		{ID: "plan:verify", Key: "plan:verify", Phase: "plan", Task: "verify", Kind: "plan", SourceID: "verify"},
 	}
-	rows := buildWorkTable(plan, tasks, nil, nil)
+	rows := worktable.BuildWorkTable(plan, tasks, nil, nil, workTableBounds())
 	byID := map[string]WorkItem{}
 	for _, row := range rows {
 		byID[row.ID] = row

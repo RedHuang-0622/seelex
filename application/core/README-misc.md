@@ -88,6 +88,7 @@
 
 - `func ApplyLimits(l limit.Limits)` — ApplyLimits 应用 seele.yaml limits 段（零值字段自动补默认）；
 - `func Limits() limit.Limits` — Limits 返回当前生效的运行时上限（只读拷贝语义）。
+- `func workTableBounds() worktable.Limits` — workTableBounds 把进程级上限里**工作表格投影**用到的那三格按值取出，交给中间层的
 - `func ApplySessionReleaseWindow(window int) (int, error)` — ApplySessionReleaseWindow 校验并**立刻生效**一个「会话驻留窗口」，返回真正生效的
 
 ### perf_stats.go
@@ -147,6 +148,7 @@
 - `func (service *Service) markResidentRecentLocked(sessionID string, resident bool)` — markResidentRecentLocked 把会话移到 LRU 使用序最前并标记驻留（调用方持
 - `func (service *Service) reconcileResidentLimit()` — reconcileResidentLimit 按释放面口径收敛驻留引擎（引擎层）：受保护集（当前视图 /
 - `func (service *Service) sessionBusy(unit *session.SessionUnit) bool` — sessionBusy 报告会话是否正忙（释放面的守卫判据之一：忙的会话绝不释放）：
+- `func sessionBusyState(unit *session.SessionUnit) switching.BusyState` — sessionBusyState 把会话单元的四个忙态读数装配成中间层的值（装配缝；判据在
 
 ### resident_lru_test.go
 
@@ -158,11 +160,16 @@
 
 ### review_files.go
 
-- `func (service *Service) RequestFileReview(ctx context.Context, files []dto.ReviewFileRef) (dto.ReviewRequest, error)` — RequestFileReview 实现 seelebridge.ReviewFilesPort：把一次「请 GUI 在侧边资源
+- `func (service *Service) reviewRequests() *review.Requests` — reviewRequests 返回落点（每次调用构造一次值语义的宿主适配；无状态）。
+- `func (service *Service) RequestFileReview(ctx context.Context, files []dto.ReviewFileRef) (dto.ReviewRequest, error)` — RequestFileReview 实现 seelebridge.ReviewFilesPort（判据在 `backend/tool/review`）。
 - `func (service *Service) ClearReviewRequest(sessionID string)` — ClearReviewRequest 清空指定会话的待审阅请求（工作区切换/解绑的失效面；
-- `func (service *Service) newReviewRequestID() string` — newReviewRequestID 派一个跨调用唯一的召唤 ID（前端据此区分"新的一次请求"与
-- `func normalizeReviewKey(path string) string` — normalizeReviewKey 归一化用于"同批次去重"的路径键（分隔符归一；不做路径语义
-- `func classifyReviewReadError(err error) string` — classifyReviewReadError 把 workspace 域的读取拒绝归到契约词表里的原因格。
+- `func (host serviceReviewHost) WorkspaceFile() (contract.WorkspaceFilePort, string, error)`
+- `func (host serviceReviewHost) NextRequestID() string` — NextRequestID 派一个跨调用唯一的召唤 ID（前端据此区分"新的一次请求"与"同一份快照的补放"）。
+- `func (host serviceReviewHost) SessionIDFromContext(ctx context.Context) string`
+- `func (host serviceReviewHost) ViewSessionID() string`
+- `func (host serviceReviewHost) SetReviewRequest(sessionID string, request *dto.ReviewRequest) uint64`
+- `func (host serviceReviewHost) ClearReviewRequest(sessionID string)`
+- `func (host serviceReviewHost) PublishSnapshotChanged(sessionID string, revision uint64)`
 
 ### review_files_test.go
 
@@ -188,12 +195,11 @@
 ### snapshot_budget.go
 
 - `func snapshotToolOutputLimit() int` — snapshotToolOutputLimit 返回可见会话快照单条工具输出的字符预算
-- `func toolOutputPreview(content string, limit int) (string, bool)` — toolOutputPreview 把超限工具输出截断为快照预览：取前 limit 字节（按
+- `func toolOutputPreview(content string, limit int) (string, bool)` — toolOutputPreview 是快照预览截断判据的**宿主转发**：判据本体在中间层
 - `func (service *Service) boundToolResultForSnapshot(name, content string) (visible string, ref string, truncated bool, totalChars int)` — boundToolResultForSnapshot 生成进入可见会话快照的工具输出（调用方持有
 
 ### snapshot_budget_test.go
 
-- `func TestToolOutputPreviewTruncates(t *testing.T)` — TestToolOutputPreviewTruncates 验证快照预览截断：超过阈值只留前 N 字符
 - `func TestBoundToolResultForSnapshotArchives(t *testing.T)` — TestBoundToolResultForSnapshotArchives 验证截断链入口：超限输出归档为
 - `func TestToolResultContentPagination(t *testing.T)` — TestToolResultContentPagination 验证分页读回：offset/limit/UTF-8 边界
 - `func TestSnapshotBudgetUsesConfiguredLimit(t *testing.T)` — TestSnapshotBudgetUsesConfiguredLimit 验证 limits 注入生效：设置较小

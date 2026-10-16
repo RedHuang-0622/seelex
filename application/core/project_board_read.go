@@ -5,6 +5,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/view/board"
+	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"github.com/RedHuang-0622/seelex/store"
 )
 
@@ -26,13 +27,14 @@ func (service *Service) WorkTableRowsFor(sessionID string) []WorkItem {
 	service.ViewMu.RLock()
 	viewSessionID := service.Core.Snapshot.Session.ID
 	plan := service.sessionActivePlanLocked(sessionID)
-	tree := cloneSubAgentTreeForSync(service.Core.Snapshot.Runtime.SubAgentTree)
+	tree := worktable.CloneSubAgentTreeForSync(service.Core.Snapshot.Runtime.SubAgentTree)
 	service.ViewMu.RUnlock()
-	return buildWorkTable(
+	return worktable.BuildWorkTable(
 		plan,
 		service.taskRecordsForSession(sessionID, viewSessionID),
 		tree,
 		service.asyncRunsForTable(),
+		workTableBounds(),
 	)
 }
 

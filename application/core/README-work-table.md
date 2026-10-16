@@ -102,13 +102,12 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 ### async_completion.go
 
 - `func (service *Service) triggerAsyncCompletions(triggered map[string]struct{})` — triggerAsyncCompletions 对登记表做一次全量扫描：把"终态 + 会话空闲 + 还没触发过"
-- `func asyncCompletionTriggers(state dto.AsyncState) bool` — asyncCompletionTriggers 报告某个状态是否该触发对话。
-- `func (service *Service) sessionIdleForAsyncTrigger(sessionID string) bool` — sessionIdleForAsyncTrigger 报告目标会话此刻是否**空闲到可以起一个新回合**。
+- `func (service *Service) sessionIdleForAsyncTrigger(sessionID string) bool` — asyncCompletionTriggers 报告某个状态是否该触发对话。
 - `func asyncCompletionPrompt(record dto.AsyncRunRecord) string` — asyncCompletionPrompt 组装触发回合的正文。
 - `func asyncPromptKind(kind string) string` — asyncPromptKind 是进正文前的类别兜底：类别缺失时按 process 读，与打点块同口径。
 - `func (service *Service) triggerTeamworkJobCompletions(triggered map[string]struct{})` — triggerTeamworkJobCompletions 对 teammate 作业表做一次全量扫描：把"终态 + 会话空闲 +
-- `func teamworkJobCompletions(runtime contract.RuntimePort) []dto.TeamworkJobCompletionRecord` — teamworkJobCompletions 读窄可选端口（未装配 teamwork 的宿主 = nil）。
-- `func teamworkJobEvents(runtime contract.RuntimePort) <-chan struct` — teamworkJobEvents 取 teammate 作业表的变化信号口（未装配 = nil；nil 通道在 select 里
+- `func teamworkJobCompletions(runtime contract.RuntimePort) []dto.TeamworkJobCompletionRecord` — teamworkJobCompletions / teamworkJobEvents 是 teammate 作业表的**宿主转发**：
+- `func teamworkJobEvents(runtime contract.RuntimePort) <-chan struct`
 - `func teamworkCompletionPrompt(record dto.TeamworkJobCompletionRecord) string` — teamworkCompletionPrompt 组装 teammate 完成回执的正文。
 
 ### async_completion_trigger_test.go
@@ -147,17 +146,9 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 
 ### work_table.go
 
-- `func buildWorkTable(plan *PlanState, tasks []dto.TaskRecord, subagentTree []dto.SubAgentTreeNode, asyncRuns []dto.AsyncRunRecord) []WorkItem` — buildWorkTable 组装工作表格行：注册表 task → WorkItem；plan 行额外合并
-- `func taskRecordToWorkItem(record dto.TaskRecord) WorkItem` — taskRecordToWorkItem 把注册表 task 快照映射为 WorkItem（含 retry 计数）。
-- `func batchLabel(id string, createdAt time.Time) string` — batchLabel 由批次 ID 与创建时间派生展示标签：真实批次用本地时间
-- `func buildWorkTableBatches(rows []WorkItem) []WorkTableBatch` — buildWorkTableBatches 从工作表格行派生批次分片头：按 BatchID 分组，
-- `func planNodeTrace(node PlanNode, tasklistMode bool) []WorkTracePoint` — planNodeTrace 由节点事件 + 子代理工具活动合成打点（按时间倒序、有界；
-- `func boundWorkTrace(points []WorkTracePoint) []WorkTracePoint` — boundWorkTrace 按时间倒序排序并截断。
-- `func formatWorkDuration(duration time.Duration) string`
 - `func (state *serviceState) refreshWorkTableLocked(tasks []dto.TaskRecord, asyncRuns []dto.AsyncRunRecord)` — refreshWorkTableLocked 在 service.ViewMu 持锁时重建工作表格投影。
 - `func (state *serviceState) publishWorkTable(revision uint64, requestID string, items []WorkItem, batches []WorkTableBatch)` — publishWorkTable 在锁外发布整表（CSP 汇聚发布器，latest-wins；items 必须
 - `func (service *Service) workTableEventPayload(update worktable.WorkTableUpdate) WorkTableEvent` — workTableEventPayload 组装 worktable.changed 的 payload：表格 + 批次头 +
-- `func subagentTreePayloadSignature(nodes []dto.SubAgentTreeNode) string` — subagentTreePayloadSignature 生成子代理树投影的内容签名，用于判断
 - `func (service *Service) publishTaskChanged(record dto.TaskRecord, revision uint64, requestID, sessionID string)` — publishTaskChanged 发布单 task 增量（task.changed；直发 hub，不汇聚——
 - `func (service *Service) publishTaskDeltas()` — publishTaskDeltas 拉取注册表快照，锁内重建 worktable，发布
 - `func (service *Service) syncTasksFromSources()` — syncTasksFromSources 同步当前活跃会话的 plan/子代理树到其自身 task scope。
@@ -165,18 +156,9 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - `func (service *Service) sessionActivePlanLocked(sessionID string) *PlanState` — sessionActivePlanLocked 返回指定会话当前 plan 投影：活跃会话读 Snapshot 镜像，
 - `func (service *Service) syncPlanNodeTask(sessionID string, node PlanNode, parentID string)`
 - `func (service *Service) syncSubagentTask(sessionID string, node dto.SubAgentTreeNode, parentID string)`
-- `func taskStatusForNode(status NodeStatus) dto.TaskStatus`
-- `func taskStatusForSubagent(status dto.SubAgentNodeStatus) dto.TaskStatus`
-- `func planNodeIDFor(record dto.TaskRecord) string` — planNodeIDFor 返回 plan 行对应的 plan 节点 ID：SourceID 优先，缺失时
-- `func planDependencies(plan *PlanState, nodeID string) []string` — planDependencies 由 plan 邻接面取节点的前置任务 ID（plan:<前置节点>）。
-- `func mergeWorkDependencies(recorded []string, derived []string) []string` — mergeWorkDependencies 合并依赖来源（注册表记录 + plan 邻接面）：去重、
-- `func mergeTaskRecords(primary, secondary []dto.TaskRecord, secondarySessionID string) []dto.TaskRecord` — mergeTaskRecords 合并两组 task 记录（按跨会话身份去重，前者优先，稳定
-- `func taskRecordLedgerIdentity(record dto.TaskRecord) string` — taskRecordLedgerIdentity 返回记录在跨会话台账里的去重身份（幂等键优先、
 - `func (service *Service) workItemForRecord(record dto.TaskRecord, sessionID string) WorkItem` — workItemForRecord 把注册表记录映射为工作表格行，并按 plan 邻接面补齐
 - `func (state *serviceState) workTableTraceBlock() string` — workTableTraceBlock 返回当前活跃会话的打点表标记块（活跃会话即
 - `func (state *serviceState) workTableTraceBlockFor(sessionID string) string` — workTableTraceBlockFor 返回指定会话的打点表标记块：只含该会话 scope 中
-- `func clonePlanForSync(plan *PlanState) *PlanState`
-- `func cloneSubAgentTreeForSync(nodes []dto.SubAgentTreeNode) []dto.SubAgentTreeNode`
 - `func (service *Service) RefreshWorkTableSnapshot()` — RefreshWorkTableSnapshot 是子代理树生命周期变更的被动投影入口（由 CSP
 - `func (service *Service) refreshWorkTableFromSources()` — refreshWorkTableFromSources 是被动触发的统一入口：同步 plan/子代理树 →
 - `func (service *Service) startLifecycleConsumers()` — startLifecycleConsumers 启动四个消费者 goroutine：子代理树信号 → 刷新
@@ -189,26 +171,13 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - `func (service *Service) UpdateWorkItemStatus(id, status string) error` — UpdateWorkItemStatus 是工作表格的人工状态更新入口（v1：todo 三态
 - `func parseWorkItemID(id string) (kind string, index int, err error)`
 - `func (service *Service) refreshRuntimeAfterTodoChange()` — refreshRuntimeAfterTodoChange 在 todo 状态变更后重投影并发布三类增量：
+- `func (state *serviceState) asyncRunsForTable() []dto.AsyncRunRecord` — asyncRunsForTable 读后台执行投影。三处建表入口（实时重投影、会话快照、冷读面）
 
 ### work_table_ab_test.go
 
 - `func TestWorkTablePayloadSmallerThanFullRuntime(t *testing.T)`
 - `func heavyTestPlan(nodes int) *PlanState`
 - `func heavySubagentTree(rows int) []dto.SubAgentTreeNode`
-
-### work_table_async.go
-
-- `func (state *serviceState) asyncRunsForTable() []dto.AsyncRunRecord` — asyncRunsForTable 读后台执行投影。三处建表入口（实时重投影、会话快照、冷读面）
-- `func asyncWorkItems(records []dto.AsyncRunRecord) []WorkItem` — asyncWorkItems 把后台执行全量投影成工作表格行（跨会话：工作表格是全局台账，
-- `func asyncRunToWorkItem(record dto.AsyncRunRecord) WorkItem` — asyncRunToWorkItem 映射一条后台执行到工作表格行。
-- `func asyncProbePoint(record dto.AsyncRunRecord, elapsed time.Duration) WorkTracePoint` — asyncProbePoint 是一次探针采样的打点行：状态、字节数、末行、耗时。
-- `func asyncWorkStatus(state dto.AsyncState) string` — asyncWorkStatus 把执行域状态映射到工作表格的权威状态字面量。
-- `func asyncTraceLines(records []dto.AsyncRunRecord, sessionID string) []string` — asyncTraceLines 生成打点块里的作业行，且只取本会话——打点块注入在组装请求的那个
-- `func asyncTraceLine(record dto.AsyncRunRecord) string` — asyncTraceLine 渲染一条作业行：句柄、类别、状态、（完成行）摘要或（在途行）标题。
-- `func teamworkTraceLines(records []dto.TeamworkJobCompletionRecord, sessionID string) []string` — teamworkTraceLines 生成打点块里的 **teammate 作业行**（与 asyncTraceLines 同一块、
-- `func teamworkTraceLine(record dto.TeamworkJobCompletionRecord) string` — teamworkTraceLine 渲染一条 teammate 作业行：句柄、状态、归属（teammate/工作项）、
-- `func teamworkOwnerText(record dto.TeamworkJobCompletionRecord) string` — teamworkOwnerText 是 teammate 行的归属文本（`<role>/<work item>`）。
-- `func formatAsyncBytes(bytes int64) string` — formatAsyncBytes 把字节数写成便于扫读的量级（界面与打点块共用一个口径）。
 
 ### work_table_async_test.go
 
