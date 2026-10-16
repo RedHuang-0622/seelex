@@ -4,8 +4,8 @@
 
 `skill` 加载目录化 Skill、解析 `SKILL.md`、限制资源路径，并根据当前 Plugin 计算可见 Skill 集合。
 
-主要调用方：`application/core`（任务激活时注入 skill 栈）、`plugin`（激活/停用时的可见集切换）、
-`seelebridge`（装配与调用 Skill 指令）。
+主要调用方：`application/core`（任务激活时注入 skill 栈）、`backend/engine/plugin`（激活/停用时的可见集切换）、
+`backend/engine/assemble`（装配与调用 Skill 指令）。
 
 ## 架构图
 

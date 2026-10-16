@@ -24,7 +24,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/account"
 	"github.com/RedHuang-0622/seelex/backend/engine/mcp"
 	"github.com/RedHuang-0622/seelex/backend/engine/obs"
-	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
+	"github.com/RedHuang-0622/seelex/backend/engine/plugin/visibility"
 	"github.com/RedHuang-0622/seelex/backend/engine/schedule"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	"github.com/RedHuang-0622/seelex/backend/limit"
@@ -211,7 +211,7 @@ type Runtime struct {
 	lifecycle           []func()        // 生命周期登记（NewRuntime 装配序；Shutdown 逆序）
 	shutdownOnce        sync.Once       // Shutdown 幂等守卫：并发/重复调用只执行一次（lifecycle 各实现不保证并发安全）
 
-	plugins *plugin.Manager // 插件可见性配置（plugin/ 域）
+	plugins *visibility.Manager // 插件可见性配置（plugin/ 域）
 
 	permission *toolreg.PermissionGate
 
@@ -375,7 +375,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		heartbeatInterval:   heartbeatInterval,
 		limits:              cfg.Limits.WithDefaults(),
 		accountWindows:      copyAccountWindows(cfg.AccountWindows),
-		plugins:             plugin.NewManager(),
+		plugins:             visibility.NewManager(),
 		permission: &toolreg.PermissionGate{
 			// 波 4 approval 会话级归属：权限审批随调度 ctx 归属发起会话。
 			SessionFromContext: seeletelemetry.SessionIDFromContext,

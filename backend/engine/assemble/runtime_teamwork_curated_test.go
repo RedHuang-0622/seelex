@@ -20,7 +20,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/plugin"
+	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
 )
 
 // curatedRuntimeRead 造一份**运行期会见到**的精选目录读数：entries 三个已装插件、

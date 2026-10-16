@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/Seele/types"
-	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
+	"github.com/RedHuang-0622/seelex/backend/engine/plugin/visibility"
 )
 
 func faceToolsOf(names ...string) []types.Tool {
@@ -85,7 +85,7 @@ func TestPolicyPluginFaceCannotWidenPermissionFace(t *testing.T) {
 		ToolFace: func(_ context.Context, name string) bool { return name != "write_file" },
 		PluginFace: func(_ context.Context, tools []types.Tool) []types.Tool {
 			// 一个"什么都要"的插件定义：没有 include = 不设准入，没有 exclude。
-			return plugin.Face([]plugin.Def{{Name: "wide"}}, tools)
+			return visibility.Face([]visibility.Def{{Name: "wide"}}, tools)
 		},
 	})
 	got := faceNamesOf(policy.Filter(context.Background(), all))
@@ -98,7 +98,7 @@ func TestPolicyPluginFaceCannotWidenPermissionFace(t *testing.T) {
 	// 反过来：插件收窄只做减法。
 	narrow := NewPolicy(PolicyDeps{
 		PluginFace: func(_ context.Context, tools []types.Tool) []types.Tool {
-			return plugin.Face([]plugin.Def{{Name: "cad", Include: []string{"cad_*"}}}, tools)
+			return visibility.Face([]visibility.Def{{Name: "cad", Include: []string{"cad_*"}}}, tools)
 		},
 	})
 	if got := faceNamesOf(narrow.Filter(context.Background(), all)); len(got) != 1 || got[0] != "cad_draw" {

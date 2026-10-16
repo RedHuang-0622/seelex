@@ -38,10 +38,10 @@ import (
 
 	"github.com/RedHuang-0622/Seele/types"
 
+	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/internal/testutil"
-	"github.com/RedHuang-0622/seelex/plugin"
 )
 
 // ── 当前划分（三方同一份事实）───────────────────────────────────────────────

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/plugin"
+	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
 	"github.com/RedHuang-0622/seelex/wiring/adapters"
 )
 
@@ -27,7 +27,7 @@ var repositoryModules = []string{
 	"backend/tool/computer",
 	"docs/arch", "docs/devlog", "docs/gui", "docs/gui/schemas", "docs/product", "docs/research",
 	"docs/test", "e2e", "e2e/scenario", "gui", "gui/frontend", "internal", "wiring/adapters",
-	"internal/buildinfo", "internal/frontmatter", "mcpstack", "mcpstack/config", "plugin", "plugins", "plugins/default",
+	"internal/buildinfo", "internal/frontmatter", "mcpstack", "mcpstack/config", "plugins", "plugins/default",
 	"plugins/hardware", "plugins/impeccable", "scripts",
 	"backend/engine/assemble", "backend/engine/obs", "backend/tool/fork", "backend/tool/io/fs",
 	"backend/tool/io/media", "internal/config",
@@ -44,6 +44,10 @@ var repositoryModules = []string{
 	"wiring/bootstrap",
 	// M5-R9：skill 从仓库顶层归位到 engine 板块（plan §2.5）。
 	"backend/engine/skill",
+	// M5-R9：plugin 归位到 engine 板块；同一目录下的 visibility 子包承载
+	// Runtime 的可见性投影缓存（原 backend/engine/plugin，包名 plugin → visibility）。
+	"backend/engine/plugin",
+	"backend/engine/plugin/visibility",
 	"test",
 }
 

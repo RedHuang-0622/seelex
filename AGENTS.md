@@ -10,7 +10,7 @@
 
 - `application/` 是前端共享的应用层；`tui/` 和 `gui/` 只能通过 Application API 消费状态与提交操作，不复制业务状态机。
 - `backend/engine/assemble` 是 Seelex 到远程 Go module `github.com/RedHuang-0622/Seele` 的兼容与能力适配层（引擎侧宿主面，仍在按域下沉）；`backend/{engine,tool,multiagent,limit}` 是 Seelex 自己的领域实现。优先复用 Seele，不在 Seelex 重造引擎能力。
-- `plugin/` 管理 Plugin 生命周期，`plugins/` 存放声明式能力包；`backend/engine/skill/` 负责 Skill 加载与可见性。
+- `backend/engine/plugin/` 管理 Plugin 生命周期，`plugins/` 存放声明式能力包；`backend/engine/skill/` 负责 Skill 加载与可见性。
 - `session/` 是会话用例适配器，`store/` 是原子、项目作用域的持久化实现，`store/workspace/` 管理项目及 session binding。
 - 入口只做五步：`wiring/config.BindFlags` → `flag.Parse` → pprof 构建钩子 → `-version` →
   `wiring/bootstrap.Run` → `Serve` → `Shutdown`。启动参数在 `wiring/config`，装配顺序在

@@ -9,8 +9,8 @@ import (
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
 
 	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
-	"github.com/RedHuang-0622/seelex/plugin"
 	"github.com/RedHuang-0622/seelex/wiring/config"
 	"github.com/RedHuang-0622/seelex/wiring/registry"
 )

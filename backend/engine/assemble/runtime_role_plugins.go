@@ -21,7 +21,7 @@ package assemble
 //
 //     这句"只收窄"要读准对象（2026-10-05，对抗复核 F）：它**只相对权限面成立**，
 //     **不相对宿主装配**。相对"继承宿主"（空集）它可以是**放宽**：精选目录里
-//     `plugins/default/plugin.md` 的 include/exclude 皆空 ⇒ 一个 inherit-host 的
+//     `plugins/default/visibility.md` 的 include/exclude 皆空 ⇒ 一个 inherit-host 的
 //     teammate 声明 `plugins:["default"]` 就拿到了**全工具面**，比它不声明时更宽
 //     （不声明要过宿主全局激活的那个插件的 include/exclude）。所以这条边界说的是
 //     "插件不放宽**权限**"，不是"装配不放宽**工具面**"——后者的真相是：装配集合
@@ -43,7 +43,7 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/application/core/prompt_layer"
-	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
+	"github.com/RedHuang-0622/seelex/backend/engine/plugin/visibility"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -208,11 +208,11 @@ func (r *Runtime) maxPluginsPerTeammate() int {
 //	Defs 为空        → 一律可见（"没装配"或"宿主没激活插件"的等价形态）；
 //	Faulted = true   → **失灵**：声明还在，定义没了（Missing 是那些名字）⇒ 一个都不给。
 //
-// 最后一条是刻意的：plugin.VisibleName 对空 defs 返回 true（"没装配就不改变工具面"），
+// 最后一条是刻意的：visibility.VisibleName 对空 defs 返回 true（"没装配就不改变工具面"），
 // 那条规则是给 Defs 为空的情形用的，**不能**被"装配了但定义没了"复用——复用就等于
 // 静默放宽（丢掉某份收窄）。
 type pluginFaceJudgement struct {
-	Defs    []plugin.Def
+	Defs    []visibility.Def
 	Missing []string
 	Faulted bool
 }
@@ -222,7 +222,7 @@ func (j pluginFaceJudgement) visible(name string) bool {
 	if j.Faulted {
 		return false
 	}
-	return plugin.VisibleName(j.Defs, name)
+	return visibility.VisibleName(j.Defs, name)
 }
 
 // face 是"这份工具面收窄之后是什么"——**运行面**用的那一半。
@@ -230,7 +230,7 @@ func (j pluginFaceJudgement) face(tools []types.Tool) []types.Tool {
 	if j.Faulted {
 		return nil
 	}
-	return plugin.Face(j.Defs, tools)
+	return visibility.Face(j.Defs, tools)
 }
 
 // faultNote 把失灵写成一句可回执的话（回执/日志"说清"这件事，而不是让 leader 从一个
@@ -247,7 +247,7 @@ func (j pluginFaceJudgement) faultNote(declared []string) string {
 // （运行面见 runtime.go 的 PolicyDeps.PluginFace，读数见 assemblyViews）。
 //
 // 空集 = 不覆盖：这时按**宿主全局激活插件**的定义收窄，与 r.plugins.Filter 同解
-// （Filter 就是"用激活插件的这一份定义过一遍"，单元素集合下 plugin.Face 与它逐条等价：
+// （Filter 就是"用激活插件的这一份定义过一遍"，单元素集合下 visibility.Face 与它逐条等价：
 // 未激活 / 未定义 = 空 defs = 一律可见）。
 //
 // 注意空集那一支读的是**那一刻**的全局激活态：宿主面是一个随时间变的事实，读数只保证

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/plugin"
+	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
 )
 
 // PluginRootChain 返回 Plugin 根在责任链上的候选（按优先级、去重保序）：

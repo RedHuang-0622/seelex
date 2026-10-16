@@ -129,7 +129,11 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/backend/engine/mcp",
 	"github.com/RedHuang-0622/seelex/backend/tool/node",
 	"github.com/RedHuang-0622/seelex/backend/tool/plan",
-	"github.com/RedHuang-0622/seelex/backend/engine/plugin",
+	// M5-R9：这里是 Runtime 的插件可见性投影缓存，原先就装在
+	// `backend/engine/plugin` 目录里；plugin 生命周期包从仓库顶层归位到同一个
+	// 目录后，缓存退到子包 `backend/engine/plugin/visibility`（包名 plugin →
+	// visibility）。同一份代码换落点，属等量替换，清单上限不变。
+	"github.com/RedHuang-0622/seelex/backend/engine/plugin/visibility",
 	// M5-R9：skill 从仓库顶层归位到 engine 板块（plan §2.5）。同一份代码换落点，
 	// 属"一条出一条进"的等量替换，清单上限不变。
 	"github.com/RedHuang-0622/seelex/backend/engine/skill",
