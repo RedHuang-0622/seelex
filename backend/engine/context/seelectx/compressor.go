@@ -14,8 +14,8 @@ import (
 	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/seelexctx/compactor"
-	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/compactor"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 )
 
 // CompressorOptions 压缩器依赖。

@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/seelexctx/lifecycle"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/lifecycle"
 )
 
 // StreamBatcher serializes chunk delivery through BatchPipeline. The storage

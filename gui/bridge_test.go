@@ -13,8 +13,8 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application"
 	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
 	"github.com/RedHuang-0622/seelex/store"
 	"github.com/RedHuang-0622/seelex/wiring"
 )

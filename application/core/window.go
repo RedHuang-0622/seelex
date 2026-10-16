@@ -1,10 +1,10 @@
 package core
 
 import (
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
 	cc "github.com/RedHuang-0622/seelex/backend/engine/input/contextcontrol"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/backend/limit"
-	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
 // ApplyWindowConfig 应用 seele.yaml window 段（零值字段自动补默认）；

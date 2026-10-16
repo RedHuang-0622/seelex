@@ -5,11 +5,11 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/kernel/state"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
 func testCoordinator() *Coordinator {

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
 )
 
 // 复现「压缩成功，帧却是空骨架」。

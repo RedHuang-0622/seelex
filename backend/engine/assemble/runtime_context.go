@@ -8,11 +8,11 @@ import (
 	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
 
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/compactor"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/memory"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
-	"github.com/RedHuang-0622/seelex/seelexctx"
-	"github.com/RedHuang-0622/seelex/seelexctx/compactor"
-	"github.com/RedHuang-0622/seelex/seelexctx/memory"
-	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 	"github.com/RedHuang-0622/seelex/store"
 )
 

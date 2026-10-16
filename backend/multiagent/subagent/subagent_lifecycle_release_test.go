@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
 	"github.com/RedHuang-0622/seelex/backend/tool/fork"
-	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
 // subagent_lifecycle_release_test.go — 子代理"完成后"的生命周期释放验收：

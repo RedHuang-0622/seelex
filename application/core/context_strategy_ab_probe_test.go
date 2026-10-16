@@ -40,9 +40,9 @@ import (
 	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/seelexctx"
-	"github.com/RedHuang-0622/seelex/seelexctx/memory"
-	"github.com/RedHuang-0622/seelex/seelexctx/tokens"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/memory"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/tokens"
 	"github.com/RedHuang-0622/seelex/store"
 )
 

@@ -7,7 +7,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/types"
-	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 )
 
 // SessionSource 是会话语义的最小读取面（*session.Session 满足）。

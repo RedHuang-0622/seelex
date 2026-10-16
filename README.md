@@ -109,7 +109,7 @@ flowchart TB
         CAP["account · mcp · plugin · session · search"]
     end
 
-    CTX["seelexctx/<br/>Assembler · Compressor · DAG · Memory · Merger"]
+    CTX["backend/engine/context/seelectx/<br/>Assembler · Compressor · DAG · Memory · Merger"]
     PERSIST["store/ · session/ · workspace/"]
     EXT["backend/engine/plugin · backend/engine/skill · backend/engine/mcp/mcpstack"]
     SEELE["Seele runtime：agent · session · tools · workplan · accountpool · mcp"]
@@ -242,7 +242,7 @@ flowchart LR
 └───────────────┬──────────────────────────┬──────────────────┘
                 │                          │
 ┌───────────────▼────────────┐  ┌──────────▼──────────────────┐
-│ assemble/                  │  │ seelexctx/                  │
+│ assemble/                  │  │ context/seelectx/           │
 │ Runtime · Tools · Plan     │  │ Assemble · Compact · DAG    │
 │ Account · MCP · Security    │  │ Memory · Search · Merge     │
 └───────────────┬────────────┘  └──────────┬──────────────────┘
@@ -273,7 +273,7 @@ Seelex 当前依赖 <code>github.com/RedHuang-0622/Seele v0.3.4</code>（见 <co
 |---|---|
 | 会话数据流：状态流转（Mermaid） | [application/core/README.md](application/core/README.md)「会话数据流：状态流转」 |
 | 会话数据流：架构层与方法（Mermaid） | [docs/arch/README.md](docs/arch/README.md)「会话数据流：架构层与方法」 |
-| 上下文压缩占比（字符画，启用/未启用对照） | [seelexctx/README.md](seelexctx/README.md)「上下文压缩的占比表现」 |
+| 上下文压缩占比（字符画，启用/未启用对照） | [backend/engine/context/seelectx/README.md](backend/engine/context/seelectx/README.md)「上下文压缩的占比表现」 |
 | Fork 对话机制（字符画，切点与深拷贝占比） | [application/core/README.md](application/core/README.md)「Fork 对话机制」 |
 | Skill 加载位置（Mermaid） | [backend/engine/skill/README.md](backend/engine/skill/README.md)「Skill 加载位置」 |
 | 上下文前缀链路（稳定前缀 + 累积 context + plan/task 后置，已实现） | [docs/arch/context-prefix-chain.md](docs/arch/context-prefix-chain.md) |
@@ -655,7 +655,7 @@ permission:
 |---|---|
 | [<code>application/</code>](application/README.md) | 稳定应用层：Chat、Task、Plan、Goal、AgentTeam、Worktable、审批、会话、项目和 Snapshot/Event |
 | [<code>backend/engine/assemble/</code>](backend/engine/assemble/README.md) | Seele 防腐层、工具面（含 computer use）、账号池、Plan、MCP、多模态与附件、ProjectScope 项目路径约束 |
-| [<code>seelexctx/</code>](seelexctx/README.md) | 上下文装配、预算、压缩 DAG、记忆、检索、快照和父子 Agent merge-back |
+| [<code>backend/engine/context/seelectx/</code>](backend/engine/context/seelectx/README.md) | 上下文装配、预算、压缩 DAG、记忆、检索、快照和父子 Agent merge-back（M5-R7 迁出仓库根 `seelexctx/`，包名不变） |
 | [<code>store/</code>](store/README.md) | JSON v8 持久化、顺序日志、模块 head、三栈通道与媒体分区；退役后端枚举与接口契约 |
 | [<code>session/</code>](session/README.md) | 会话领域模型与投影 |
 | [<code>backend/engine/plugin/</code>](backend/engine/plugin/README.md) | Plugin loader、生命周期和事务式切换 |
@@ -791,7 +791,7 @@ Linux CI 还会执行 race detector、覆盖率和发布包安全检查。
 | 应用层 | [application/](application/README.md) · [application/core/](application/core/README.md)（含分卷与叶子包） · [model/](middle/protocol/model/README.md) · [event/](middle/protocol/event/README.md) · [prompt/](application/prompt/README.md) · 审批面已归位到 [backend/limit/approval/](backend/limit/approval/README.md) |
 | 底座（契约） | [contract/](contract/README.md) · [contract/dto/](contract/dto/README.md) |
 | 运行时适配 | [backend/engine/assemble/](backend/engine/assemble/README.md) · [backend/limit/gate/](backend/limit/gate/README.md) · [backend/tool/registry/](backend/tool/registry/README.md) · [backend/tool/plan/](backend/tool/plan/README.md) · [backend/tool/node/](backend/tool/node/README.md) · [backend/tool/fork/](backend/tool/fork/README.md) · [backend/multiagent/subagent/](backend/multiagent/subagent/README.md) · [backend/engine/account/](backend/engine/account/README.md) · [backend/engine/mcp/](backend/engine/mcp/README.md) · [backend/tool/computer/](backend/tool/computer/README.md) |
-| 上下文与存储 | [seelexctx/](seelexctx/README.md) · [store/](store/README.md) · [session/](session/README.md) · [store/workspace/](store/workspace/README.md) |
+| 上下文与存储 | [backend/engine/context/seelectx/](backend/engine/context/seelectx/README.md) · [store/](store/README.md) · [session/](session/README.md) · [store/workspace/](store/workspace/README.md) |
 | 扩展与前端 | [backend/engine/plugin/](backend/engine/plugin/README.md) · [backend/engine/skill/](backend/engine/skill/README.md) · [backend/engine/mcp/mcpstack/](backend/engine/mcp/mcpstack/README.md) · [gui/](gui/README.md) · [tui/](tui/README.md) · [plugins/](plugins/README.md) |
 | 工程基座 | [e2e/](e2e/README.md) · [scripts/](scripts/README.md) · [config/](config/README.md) · [internal/](internal/README.md) |
 

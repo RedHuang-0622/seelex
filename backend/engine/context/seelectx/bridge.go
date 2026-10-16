@@ -16,8 +16,8 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/types"
-	"github.com/RedHuang-0622/seelex/seelexctx/provider"
-	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/provider"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 )
 
 // SessionState 是 Import 需要的会话可变面（*session.Session 满足）。

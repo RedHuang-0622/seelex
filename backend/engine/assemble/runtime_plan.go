@@ -13,6 +13,7 @@ import (
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 
 	"github.com/RedHuang-0622/seelex/backend/engine/account"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/provider"
 	"github.com/RedHuang-0622/seelex/backend/tool/fork"
 	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
 	"github.com/RedHuang-0622/seelex/backend/tool/plan"
@@ -21,7 +22,6 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/model"
 	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/seelexctx/provider"
 	"github.com/RedHuang-0622/seelex/store"
 )
 

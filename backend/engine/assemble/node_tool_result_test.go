@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
 	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
 	"github.com/RedHuang-0622/seelex/internal/model"
-	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
 // TestNodeToolResultArchiverPrefixAndReadback 验证 P1 桥：节点会话的工具

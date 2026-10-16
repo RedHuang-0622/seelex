@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/Seele/telemetry"
-	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 )
 
 // ── EngineProvider ────────────────────────────────────────────

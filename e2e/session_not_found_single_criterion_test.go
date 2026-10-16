@@ -49,7 +49,7 @@ const (
 // sessionNotFoundCriterionAllowList 登记**允许**出现 `sql.ErrNoRows` / `database/sql`
 // 的文件（相对仓库根），值写清它为什么不是"第二份判据"。
 var sessionNotFoundCriterionAllowList = map[string]string{
-	"seelexctx/search/session_not_found_test.go": "把已退役后端可能产生的 sql.ErrNoRows 当**输入数据**喂给唯一判据，" +
+	"backend/engine/context/seelectx/search/session_not_found_test.go": "把已退役后端可能产生的 sql.ErrNoRows 当**输入数据**喂给唯一判据，" +
 		"证明它必须判 false（红灯先行用例）。这是用例数据，不是第二份判据。",
 }
 

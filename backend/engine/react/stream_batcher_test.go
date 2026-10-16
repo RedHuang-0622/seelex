@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/seelexctx/lifecycle"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/lifecycle"
 )
 
 // ── 基建-C：StreamBatcher 流式批次骨架（非 happy path）────────────────

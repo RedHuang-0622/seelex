@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/seelexctx/tokens"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/tokens"
 	"github.com/RedHuang-0622/seelex/store"
 )
 

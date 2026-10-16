@@ -8,9 +8,9 @@ import (
 	"fmt"
 
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
 // EmbeddedChatEngine 是 ChatEngine 的可嵌底座：所有方法默认 panic，测试

@@ -5,12 +5,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/merger"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/provider"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 	seelactor "github.com/RedHuang-0622/seelex/internal/actor"
 	"github.com/RedHuang-0622/seelex/internal/model"
-	"github.com/RedHuang-0622/seelex/seelexctx"
-	"github.com/RedHuang-0622/seelex/seelexctx/merger"
-	"github.com/RedHuang-0622/seelex/seelexctx/provider"
-	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
 // ── 子代理上下文 actor（装配件拆分第一步）────────────────────────

@@ -14,7 +14,7 @@ package provider
 import (
 	"context"
 
-	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 )
 
 // Provider 抽象上下文来源。

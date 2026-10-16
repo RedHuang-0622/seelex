@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
+	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
 )
 
 // searchRuntime 是支持检索断言的 fakeRuntime 包装（记录查询参数）。

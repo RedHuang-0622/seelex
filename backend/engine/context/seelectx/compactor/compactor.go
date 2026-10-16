@@ -13,8 +13,8 @@ import (
 	"fmt"
 	"unicode/utf8"
 
-	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
-	"github.com/RedHuang-0622/seelex/seelexctx/tokens"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/tokens"
 )
 
 type Compactor struct{}

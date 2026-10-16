@@ -10,7 +10,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
 )
 
 // WindowPolicy 滑动窗口轮数 N 的确定机制（plan.md §3.7.3）。

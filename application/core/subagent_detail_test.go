@@ -6,8 +6,8 @@ import (
 	"time"
 
 	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
 // TestAdaptSubagentConversation 验证会话记录适配：截断（evidence_chars）、

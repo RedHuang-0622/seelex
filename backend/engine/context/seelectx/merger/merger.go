@@ -15,7 +15,7 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 )
 
 type Merger struct{ mu sync.Mutex }

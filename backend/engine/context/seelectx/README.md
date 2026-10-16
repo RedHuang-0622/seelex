@@ -174,7 +174,7 @@ history_window = 200k tokens（填充 ▓ 每字符 ≈ 10k，宽度按占比）
 > 恢复路径保留）。越线才压缩：请求估算 ≥ `context_hard_percent`（或显式
 > `/compact`、`compact_context`）时折出保留窗口外的 transcript 前缀，产出 compact
 > 帧 + 有界保留窗口；plan/task 不参与压缩。设计见
-> [docs/arch/context-prefix-chain.md](../docs/arch/context-prefix-chain.md)。
+> [docs/arch/context-prefix-chain.md](../../../../docs/arch/context-prefix-chain.md)。
 
 > 已实现（2026-09-06 压缩 DAG 首批）：CompactFrame 携带超上下文 request 首尾
 > 与链锚字段（`prev_segment_id`/request/一句话 + summary/anchor 来源标记），
@@ -184,11 +184,11 @@ history_window = 200k tokens（填充 ▓ 每字符 ≈ 10k，宽度按占比）
 > 摘要器，开关 `limits.context_compaction_summary.enabled` 出厂为开；2026-10-02 起
 > 压缩前先实测读数，拿不到模型读后感就不折、不推栈顶）。回合内控制器 / 节点链路
 > 结构上不注入摘要器，走本地确定性压缩（`summary_source=local`）。详设见
-> [docs/2026-09-06-compaction-dag/design.md](../docs/2026-09-06-compaction-dag/design.md)。
+> [docs/2026-09-06-compaction-dag/design.md](../../../../docs/2026-09-06-compaction-dag/design.md)。
 
 ## 测试
 
 ```text
-go test ./seelexctx/... -count=1
-go test -race ./seelexctx/lifecycle -count=1
+go test ./backend/engine/context/seelectx/... -count=1
+go test -race ./backend/engine/context/seelectx/lifecycle -count=1
 ```

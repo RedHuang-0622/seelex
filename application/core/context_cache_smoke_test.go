@@ -27,7 +27,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/application/prompt"
-	"github.com/RedHuang-0622/seelex/seelexctx/tokens"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/tokens"
 )
 
 // smokeTraceRow 是单轮请求的本地 trace 与命中指标。

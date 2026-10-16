@@ -11,11 +11,11 @@ import (
 	"github.com/RedHuang-0622/Seele/telemetry"
 	"github.com/RedHuang-0622/Seele/types"
 	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 	"github.com/RedHuang-0622/seelex/backend/engine/obs"
 	"github.com/RedHuang-0622/seelex/backend/limit/loop"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
 var _ contract.RuntimePort = RuntimePort{}

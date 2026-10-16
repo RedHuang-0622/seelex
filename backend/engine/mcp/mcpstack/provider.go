@@ -3,7 +3,7 @@ package mcpstack
 import (
 	"fmt"
 
-	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 )
 
 // TraceProvider exports the MCP call trace as a ContextSnapshot for LLM

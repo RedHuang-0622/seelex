@@ -10,7 +10,7 @@ import (
 	"github.com/RedHuang-0622/Seele/seelectx/ctx_manager"
 	"github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/seelexctx/tokens"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/tokens"
 )
 
 // ── Token 估算 ──────────────────────────────────────────────────

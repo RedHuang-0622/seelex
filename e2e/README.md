@@ -58,7 +58,7 @@ flowchart LR
   门面类型必须保形别名）。清单是 ratchet：**只许收缩**。
 - [`store_boundary_test.go`](store_boundary_test.go)：plan 的 **I6**（底座无向上依赖）——
   底座 `store/**` 的 Seelex 内依赖闭包只允许是它自己，测试文件的 import 同样受约束；
-  `store` 那条待清理的 `seelexctx/lifecycle` 向上边登记在同一张 ratchet 里，
+  `store` 那条待清理的 `backend/engine/context/seelectx/lifecycle`（原 `seelexctx/lifecycle`，M5-R7 归位）向上边登记在同一张 ratchet 里，
   M3-S4 删掉后清单归零。清单**只许收缩**。
 
 ## 边界

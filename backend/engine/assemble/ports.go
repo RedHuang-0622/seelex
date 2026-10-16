@@ -10,6 +10,8 @@ import (
 	frameworkmcp "github.com/RedHuang-0622/Seele/tools/mcp"
 	"github.com/RedHuang-0622/Seele/types"
 
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 	"github.com/RedHuang-0622/seelex/backend/engine/mcp"
 	"github.com/RedHuang-0622/seelex/backend/engine/schedule"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
@@ -19,8 +21,6 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/model"
-	"github.com/RedHuang-0622/seelex/seelexctx/search"
-	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
 // ports.go 承载 Runtime 对 contract 端口的实现方法（组合根公开面）。

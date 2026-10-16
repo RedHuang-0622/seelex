@@ -13,12 +13,12 @@ import (
 	"github.com/RedHuang-0622/Seele/workplan/codec"
 	frameworknode "github.com/RedHuang-0622/Seele/workplan/core/node"
 
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
 	"github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
 	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/internal/model"
-	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 	"github.com/RedHuang-0622/seelex/store"
 )
 

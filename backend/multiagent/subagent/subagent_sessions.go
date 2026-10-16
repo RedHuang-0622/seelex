@@ -9,12 +9,12 @@ import (
 
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/provider"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/internal/actor"
 	"github.com/RedHuang-0622/seelex/internal/model"
-	"github.com/RedHuang-0622/seelex/seelexctx"
-	"github.com/RedHuang-0622/seelex/seelexctx/provider"
-	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 	"github.com/RedHuang-0622/seelex/store"
 )
 

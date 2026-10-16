@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 	session "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
-	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
 // TestMergeBackParallelSubagentsNoRace 验证两个并行子代理完成时各自

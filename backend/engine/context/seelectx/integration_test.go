@@ -9,11 +9,11 @@ import (
 
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
 	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
-	"github.com/RedHuang-0622/seelex/seelexctx"
-	"github.com/RedHuang-0622/seelex/seelexctx/compactor"
-	"github.com/RedHuang-0622/seelex/seelexctx/merger"
-	"github.com/RedHuang-0622/seelex/seelexctx/provider"
-	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/compactor"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/merger"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/provider"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 )
 
 func createTestSession(t *testing.T) (*frameworkSession.Session, *seelebridge.Runtime) {

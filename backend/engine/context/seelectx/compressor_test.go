@@ -9,8 +9,8 @@ import (
 	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/seelexctx/compactor"
-	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/compactor"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 )
 
 // fakeQuickChat 记录调用次数并返回固定摘要（QuickChat 契约）。

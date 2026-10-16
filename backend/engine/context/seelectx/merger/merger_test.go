@@ -3,7 +3,7 @@ package merger
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 )
 
 func TestMergeBack_NilParent(t *testing.T) {

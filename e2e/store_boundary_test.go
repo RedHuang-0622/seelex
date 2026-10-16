@@ -15,7 +15,7 @@ import (
 //
 // 为什么需要它（而不是靠口头约定）：M3-S2 把数据根锁 / 原子发布 / 共享读 / 残尾 /
 // `Settings` 下成 `store/root`，其价值只有在"闭包 = 纯标准库"成立时才存在；
-// 一旦有人在底座里 import 一次 `seelexctx` 或 `store`，依赖方向就倒过来，
+// 一旦有人在底座里 import 一次 `backend/engine/context/seelectx` 或 `store`，依赖方向就倒过来，
 // 而这种事在代码评审里恰恰最容易溜过去（看起来只是"复用一下"）。
 //
 // 允许清单是 **ratchet（只许收缩）**：`store` 那条 `seelexctx/lifecycle` 向上边

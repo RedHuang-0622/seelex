@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
 	"github.com/RedHuang-0622/seelex/backend/engine/input/contextcontrol"
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
@@ -18,7 +19,6 @@ import (
 	"github.com/RedHuang-0622/seelex/kernel/state"
 	"github.com/RedHuang-0622/seelex/middle/protocol/event"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
-	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
 const (

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/seelexctx/memory"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/memory"
 	"github.com/RedHuang-0622/seelex/store"
 )
 

@@ -1,6 +1,6 @@
 package session
 
-import "github.com/RedHuang-0622/seelex/seelexctx/snapshot"
+import "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 
 // cloneContextSnapshot 返回快照的深拷贝（读侧导出与 parentEvidence 合并共用）。
 func cloneContextSnapshot(source *snapshot.ContextSnapshot) *snapshot.ContextSnapshot {

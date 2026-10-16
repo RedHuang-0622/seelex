@@ -3,8 +3,8 @@ package node
 import (
 	"context"
 
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
 	"github.com/RedHuang-0622/seelex/internal/model"
-	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
 // ToolResultArchiver 是节点会话的 ToolResultArchiver 适配（P1 修复

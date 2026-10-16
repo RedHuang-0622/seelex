@@ -9,8 +9,8 @@ import (
 	"github.com/RedHuang-0622/seelex/middle/protocol/event"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 
-	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
-	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
+	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 )
 
 type EngineMessage struct {

@@ -22,6 +22,7 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/backend/engine/account"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
 	"github.com/RedHuang-0622/seelex/backend/engine/mcp"
 	"github.com/RedHuang-0622/seelex/backend/engine/mcp/mcpstack"
 	"github.com/RedHuang-0622/seelex/backend/engine/obs"
@@ -44,7 +45,6 @@ import (
 	"github.com/RedHuang-0622/seelex/internal/config"
 	"github.com/RedHuang-0622/seelex/internal/docker"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/store"
 	storeschedule "github.com/RedHuang-0622/seelex/store/schedule"
 )

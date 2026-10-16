@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/telemetry"
-	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
+	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 )
 
 // TraceSource 是遥测追踪的最小读取面（*telemetry.MemoryTracer 满足）。
