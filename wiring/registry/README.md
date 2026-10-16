@@ -87,8 +87,8 @@
 ```text
 go test ./wiring/registry/ -count=1     # 本包无独立用例（注册是纯转发）
 go build ./wiring/registry
-go test . -run 'TestEveryRegisteredToolDeclaresGroups|TestRegistrationScannerSeesEveryFamily' -count=1
-go test . -run 'TestTool|TestProjectBoard|TestPlugin' -count=1
+go test ./test/ -run 'TestEveryRegisteredToolDeclaresGroups|TestRegistrationScannerSeesEveryFamily' -count=1
+go test ./test/ -run 'TestTool|TestProjectBoard|TestPlugin' -count=1
 ```
 
 关键跨包用例（随 M5 收尾搬进 `test/`）：`tool_meta_declaration_test.go`（每个注册的工具

@@ -96,7 +96,7 @@ headless 宿主、测试基座），第二份"看起来差不多"的装配正是
 ```text
 go test ./wiring/bootstrap/ -count=1     # 本包随装配被根包/测试基座用例覆盖
 go build ./wiring/bootstrap
-go test . -count=1                        # full-chain harness 逐段复用 Init*
+go test ./test/ -count=1                 # full-chain harness 逐段复用 Init*
 go test ./e2e/ -count=1
 ```
 

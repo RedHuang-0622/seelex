@@ -101,7 +101,7 @@ go list -deps ./wiring/config
 ```
 
 关键用例：本包 `config_unit_test.go`（数据根避让/复用陈旧锁 + 进程存活判据只有一份实现）；
-根包侧的责任链用例（随 M5 收尾搬进 `test/`）：`boot_seed_test.go`（缺失即初始化与
+仓库级用例（M5-S4 已归位 `test/`）：`boot_seed_test.go`（缺失即初始化与
 "没有 main.py 就不登记"）、`boot_prompt_test.go`（提示词目录链三代口径）、
 `plugin_roots_test.go`（根链顺序/去重/零插件报错/调用点唯一）、
 `plugin_curated_runtime_test.go`（精选目录读数与 first-wins）、`release_test.go`
