@@ -39,6 +39,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application"
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/internal/bootseed"
+	"github.com/RedHuang-0622/seelex/wiring/config"
 )
 
 // approvalPage 是"执行选择页面"的测试侧人类：盯住生产审批 broker 的待批集合，
@@ -121,14 +122,14 @@ func TestRealAPIPermissionSmoke(t *testing.T) {
 		t.Skip("set SEELEX_SMOKE_ACCOUNTS to an accounts.yaml path to run the live smoke test")
 	}
 	projectRoot := t.TempDir()
-	accountsPath := filepath.Join(projectRoot, "accounts.yaml")
-	copyOpaqueFileManual(t, accountsSource, accountsPath)
+	AccountsPath := filepath.Join(projectRoot, "accounts.yaml")
+	copyOpaqueFileManual(t, accountsSource, AccountsPath)
 
-	harness := newFullChainHarness(t, accountsPath, projectRoot, 60*time.Second)
+	harness := newFullChainHarness(t, AccountsPath, projectRoot, 60*time.Second)
 	// 装上**生产同形**的权责配置与**生产审批桥**：默认分组 + 主体授权表 +
 	// config/seele.yaml 覆盖，审批走 ApprovalBroker（GUI 同一条路）。
 	cfg := policy.DefaultPermissionConfig()
-	if fileCfg, err := loadPermissionConfig(ensureConfigFile(bootseed.PermissionConfigName, bootseed.PermissionConfigPack())); err != nil {
+	if fileCfg, err := loadPermissionConfig(config.EnsureConfigFile(bootseed.PermissionConfigName, bootseed.PermissionConfigPack())); err != nil {
 		t.Fatalf("loadPermissionConfig: %v", err)
 	} else {
 		cfg = mergePermissionConfig(cfg, fileCfg)

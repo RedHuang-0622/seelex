@@ -39,6 +39,7 @@ var repositoryModules = []string{
 	"seelexctx/merger", "seelexctx/provider", "seelexctx/search", "seelexctx/snapshot",
 	"session", "skill", "store", "store/root", "store/schedule", "store/workspace",
 	"tui", "tui/splash", "wiring",
+	"wiring/config",
 }
 
 var repositoryModuleDocumentation = map[string]string{

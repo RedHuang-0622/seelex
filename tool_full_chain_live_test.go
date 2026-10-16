@@ -26,9 +26,9 @@ func TestManualSmokeRealAccountBashFullChain(t *testing.T) {
 	}
 
 	projectRoot := t.TempDir()
-	accountsPath := filepath.Join(projectRoot, "accounts.yaml")
-	copyOpaqueFile(t, accountsSource, accountsPath)
-	harness := newFullChainHarness(t, accountsPath, projectRoot, 30*time.Second)
+	AccountsPath := filepath.Join(projectRoot, "accounts.yaml")
+	copyOpaqueFile(t, accountsSource, AccountsPath)
+	harness := newFullChainHarness(t, AccountsPath, projectRoot, 30*time.Second)
 
 	subscription := harness.events.Subscribe(256)
 	defer subscription.Close()
@@ -76,9 +76,9 @@ func TestManualSmokeRealAccountGUIBridgeBashFullChain(t *testing.T) {
 	}
 
 	projectRoot := t.TempDir()
-	accountsPath := filepath.Join(projectRoot, "accounts.yaml")
-	copyOpaqueFile(t, accountsSource, accountsPath)
-	harness := newFullChainHarness(t, accountsPath, projectRoot, 30*time.Second)
+	AccountsPath := filepath.Join(projectRoot, "accounts.yaml")
+	copyOpaqueFile(t, accountsSource, AccountsPath)
+	harness := newFullChainHarness(t, AccountsPath, projectRoot, 30*time.Second)
 	bridge, err := gui.NewBridge(harness.app, gui.Options{Title: "Seelex live smoke"})
 	if err != nil {
 		t.Fatal(err)
@@ -140,9 +140,9 @@ func TestManualSmokeRealAccountTodoFullChain(t *testing.T) {
 	}
 
 	projectRoot := t.TempDir()
-	accountsPath := filepath.Join(projectRoot, "accounts.yaml")
-	copyOpaqueFile(t, accountsSource, accountsPath)
-	harness := newFullChainHarness(t, accountsPath, projectRoot, 30*time.Second)
+	AccountsPath := filepath.Join(projectRoot, "accounts.yaml")
+	copyOpaqueFile(t, accountsSource, AccountsPath)
+	harness := newFullChainHarness(t, AccountsPath, projectRoot, 30*time.Second)
 
 	subscription := harness.events.Subscribe(256)
 	defer subscription.Close()

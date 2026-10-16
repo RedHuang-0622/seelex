@@ -17,7 +17,7 @@ import (
 func newSkillToolHarness(t *testing.T) (*seelebridge.Runtime, *skill.Registry, *[]string) {
 	t.Helper()
 	temp := t.TempDir()
-	accountsPath := filepath.Join(temp, "accounts.yaml")
+	AccountsPath := filepath.Join(temp, "accounts.yaml")
 	minimalAccounts := `defaults:
   provider: openai
   context_window: 200000
@@ -31,11 +31,11 @@ roles:
       api_key: test-only-key
 mcp_servers: []
 `
-	if err := os.WriteFile(accountsPath, []byte(minimalAccounts), 0o600); err != nil {
+	if err := os.WriteFile(AccountsPath, []byte(minimalAccounts), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	runtime, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{
-		AccountsPath:    accountsPath,
+		AccountsPath:    AccountsPath,
 		StorePath:       filepath.Join(temp, "runtime"),
 		ToolCallTimeout: 30 * time.Second,
 	})

@@ -44,14 +44,14 @@ func startBackgroundCompletionScenario(t *testing.T, bindProject bool) *backgrou
 	t.Cleanup(server.Close)
 
 	tempDir := t.TempDir()
-	accountsPath := filepath.Join(tempDir, "accounts.yaml")
+	AccountsPath := filepath.Join(tempDir, "accounts.yaml")
 	accounts := "roles:\n  agent:\n    - model: test-model\n      base_url: " + server.URL +
 		"\n      api_key: test-key-1\n    - model: test-model\n      base_url: " + server.URL +
 		"\n      api_key: test-key-2\n"
-	if err := os.WriteFile(accountsPath, []byte(accounts), 0o600); err != nil {
+	if err := os.WriteFile(AccountsPath, []byte(accounts), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	harness := newFullChainHarnessWithProjectBinding(t, accountsPath, tempDir, 30*time.Second, bindProject)
+	harness := newFullChainHarnessWithProjectBinding(t, AccountsPath, tempDir, 30*time.Second, bindProject)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	t.Cleanup(cancel)
 
@@ -265,14 +265,14 @@ func TestBackgroundCompletionKeepsActiveSessionQueue(t *testing.T) {
 	}))
 	defer server.Close()
 	tempDir := t.TempDir()
-	accountsPath := filepath.Join(tempDir, "accounts.yaml")
+	AccountsPath := filepath.Join(tempDir, "accounts.yaml")
 	accounts := "roles:\n  agent:\n    - model: test-model\n      base_url: " + server.URL +
 		"\n      api_key: test-key-1\n    - model: test-model\n      base_url: " + server.URL +
 		"\n      api_key: test-key-2\n"
-	if err := os.WriteFile(accountsPath, []byte(accounts), 0o600); err != nil {
+	if err := os.WriteFile(AccountsPath, []byte(accounts), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	harness := newFullChainHarness(t, accountsPath, tempDir, 30*time.Second)
+	harness := newFullChainHarness(t, AccountsPath, tempDir, 30*time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
@@ -364,14 +364,14 @@ func TestBackgroundCompletionWhileSwitchingToC(t *testing.T) {
 	}))
 	defer server.Close()
 	tempDir := t.TempDir()
-	accountsPath := filepath.Join(tempDir, "accounts.yaml")
+	AccountsPath := filepath.Join(tempDir, "accounts.yaml")
 	accounts := "roles:\n  agent:\n    - model: test-model\n      base_url: " + server.URL +
 		"\n      api_key: test-key-1\n    - model: test-model\n      base_url: " + server.URL +
 		"\n      api_key: test-key-2\n"
-	if err := os.WriteFile(accountsPath, []byte(accounts), 0o600); err != nil {
+	if err := os.WriteFile(AccountsPath, []byte(accounts), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	harness := newFullChainHarness(t, accountsPath, tempDir, 30*time.Second)
+	harness := newFullChainHarness(t, AccountsPath, tempDir, 30*time.Second)
 	// 预算与同文件的兄弟用例对齐（它们用 90s）：race 下整条全链更慢，
 	// 60s 曾在 CI（run 37105792167 的 race-and-coverage）压线失败。
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)

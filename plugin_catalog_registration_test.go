@@ -62,15 +62,15 @@ presets:
 // runtime + 真插件系统。pre 在**启动之前**跑，用来放"别处进来的"插件目录。
 func catalogHarness(t *testing.T, pre func(root string)) (string, func(name, args string) (string, error)) {
 	t.Helper()
-	originalPlugins := *pluginsPaths
-	originalStore := *storePath
+	originalPlugins := launchFlags.PluginsPaths
+	originalStore := launchFlags.StorePath
 	temp := t.TempDir()
 	root := filepath.Join(temp, "plugins")
-	*pluginsPaths = root
-	*storePath = filepath.Join(temp, "sessions")
+	launchFlags.PluginsPaths = root
+	launchFlags.StorePath = filepath.Join(temp, "sessions")
 	t.Cleanup(func() {
-		*pluginsPaths = originalPlugins
-		*storePath = originalStore
+		launchFlags.PluginsPaths = originalPlugins
+		launchFlags.StorePath = originalStore
 	})
 
 	if err := os.MkdirAll(filepath.Join(root, "seed"), 0o755); err != nil {
@@ -87,7 +87,7 @@ func catalogHarness(t *testing.T, pre func(root string)) (string, func(name, arg
 		pre(root)
 	}
 
-	accountsPath := filepath.Join(temp, "accounts.yaml")
+	AccountsPath := filepath.Join(temp, "accounts.yaml")
 	minimalAccounts := `defaults:
   provider: openai
   context_window: 200000
@@ -101,12 +101,12 @@ roles:
       api_key: test-only-key
 mcp_servers: []
 `
-	if err := os.WriteFile(accountsPath, []byte(minimalAccounts), 0o600); err != nil {
+	if err := os.WriteFile(AccountsPath, []byte(minimalAccounts), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
 	runtime, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{
-		AccountsPath:    accountsPath,
+		AccountsPath:    AccountsPath,
 		StorePath:       filepath.Join(temp, "runtime"),
 		ToolCallTimeout: 30 * time.Second,
 	})

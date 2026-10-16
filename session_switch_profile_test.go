@@ -36,8 +36,8 @@ import (
 func TestSessionSwitchHotColdProfile(t *testing.T) {
 	server := newEchoProvider(t)
 	tempDir := t.TempDir()
-	accountsPath := filepath.Join(tempDir, "accounts.yaml")
-	if err := os.WriteFile(accountsPath, []byte(fmt.Sprintf(
+	AccountsPath := filepath.Join(tempDir, "accounts.yaml")
+	if err := os.WriteFile(AccountsPath, []byte(fmt.Sprintf(
 		"roles:\n  agent:\n    - model: test-model\n      base_url: %s\n      api_key: test-key\n",
 		server.URL,
 	)), 0o600); err != nil {
@@ -45,7 +45,7 @@ func TestSessionSwitchHotColdProfile(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
-	harness := newFullChainHarness(t, accountsPath, tempDir, 10*time.Second)
+	harness := newFullChainHarness(t, AccountsPath, tempDir, 10*time.Second)
 
 	submitAndIdle := func(text string) string {
 		t.Helper()
@@ -145,7 +145,7 @@ func TestSessionSwitchHotColdProfile(t *testing.T) {
 	// 进程重启 → 冷恢复 C，验证跨会话数据仍在各自键下。
 	sessionID := sessionC
 	harness.app.Shutdown()
-	harnessRestarted := newFullChainHarness(t, accountsPath, tempDir, 10*time.Second)
+	harnessRestarted := newFullChainHarness(t, AccountsPath, tempDir, 10*time.Second)
 	start := time.Now()
 	if err := harnessRestarted.app.ResumeSession(sessionID); err != nil {
 		t.Fatalf("restart resume: %v", err)

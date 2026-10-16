@@ -31,11 +31,11 @@ func TestProjectBoardWriteEndToEndFromTodoTool(t *testing.T) {
 
 	projectRoot := t.TempDir()
 	provider := newProjectBoardE2EServer(t)
-	accountsPath := projectBoardAccountsFor(t, provider.URL, projectRoot)
+	AccountsPath := projectBoardAccountsFor(t, provider.URL, projectRoot)
 
 	limits := limit.Limits{}
 	limits.ProjectBoard.Enabled = true // 装配门：关着时本用例的前提就不成立（另有用例钉"关就是关"）
-	harness := newFullChainHarnessWithLimits(t, accountsPath, projectRoot, 30*time.Second, true, limits)
+	harness := newFullChainHarnessWithLimits(t, AccountsPath, projectRoot, 30*time.Second, true, limits)
 	// 按**生产装配**挂写侧：同步器 + 会话→项目根解析器（main.run 里是同一对调用）。
 	sink, closeSink, err := projectBoardSinkFor(
 		limits.ProjectBoard, harness.st,

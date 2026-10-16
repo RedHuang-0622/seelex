@@ -51,11 +51,11 @@ func TestCompactLivePreflight(t *testing.T) {
 		t.Skip("设置 SEELEX_SMOKE_ACCOUNTS 指向 accounts.yaml 才能运行真实 API compact 冒烟")
 	}
 	projectRoot := t.TempDir()
-	accountsPath := filepath.Join(projectRoot, "accounts.yaml")
-	copyAccountsOpaqueForCompact(t, accountsSource, accountsPath)
-	rewriteAccountsContextLimits(t, accountsPath, compactSmokeContextWindow, compactSmokeMaxTokens)
+	AccountsPath := filepath.Join(projectRoot, "accounts.yaml")
+	copyAccountsOpaqueForCompact(t, accountsSource, AccountsPath)
+	rewriteAccountsContextLimits(t, AccountsPath, compactSmokeContextWindow, compactSmokeMaxTokens)
 
-	harness := newFullChainHarness(t, accountsPath, projectRoot, 60*time.Second)
+	harness := newFullChainHarness(t, AccountsPath, projectRoot, 60*time.Second)
 	defer harness.app.Shutdown()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
@@ -81,11 +81,11 @@ func TestCompactLiveSmoke(t *testing.T) {
 	}
 
 	projectRoot := t.TempDir()
-	accountsPath := filepath.Join(projectRoot, "accounts.yaml")
-	copyAccountsOpaqueForCompact(t, accountsSource, accountsPath)
-	rewriteAccountsContextLimits(t, accountsPath, compactSmokeContextWindow, compactSmokeMaxTokens)
+	AccountsPath := filepath.Join(projectRoot, "accounts.yaml")
+	copyAccountsOpaqueForCompact(t, accountsSource, AccountsPath)
+	rewriteAccountsContextLimits(t, AccountsPath, compactSmokeContextWindow, compactSmokeMaxTokens)
 
-	harness := newFullChainHarness(t, accountsPath, projectRoot, 90*time.Second)
+	harness := newFullChainHarness(t, AccountsPath, projectRoot, 90*time.Second)
 	defer harness.app.Shutdown()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)

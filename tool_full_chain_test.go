@@ -60,12 +60,12 @@ func TestFullAccessBashToolCompletionReachesApplication(t *testing.T) {
 	defer server.Close()
 
 	tempDir := t.TempDir()
-	accountsPath := filepath.Join(tempDir, "accounts.yaml")
+	AccountsPath := filepath.Join(tempDir, "accounts.yaml")
 	accounts := fmt.Sprintf("roles:\n  agent:\n    - model: test-model\n      base_url: %s\n      api_key: test-key\n", server.URL)
-	if err := os.WriteFile(accountsPath, []byte(accounts), 0o600); err != nil {
+	if err := os.WriteFile(AccountsPath, []byte(accounts), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	harness := newFullChainHarness(t, accountsPath, tempDir, 5*time.Second)
+	harness := newFullChainHarness(t, AccountsPath, tempDir, 5*time.Second)
 	app, events := harness.app, harness.events
 
 	subscription := events.Subscribe(256)
@@ -135,12 +135,12 @@ func TestFullAccessUnboundBashFailureReachesApplication(t *testing.T) {
 	server.expectedToolResult = "project scope"
 
 	tempDir := t.TempDir()
-	accountsPath := filepath.Join(tempDir, "accounts.yaml")
+	AccountsPath := filepath.Join(tempDir, "accounts.yaml")
 	accounts := fmt.Sprintf("roles:\n  agent:\n    - model: test-model\n      base_url: %s\n      api_key: test-key\n", server.URL)
-	if err := os.WriteFile(accountsPath, []byte(accounts), 0o600); err != nil {
+	if err := os.WriteFile(AccountsPath, []byte(accounts), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	harness := newUnboundFullChainHarness(t, accountsPath, tempDir, 5*time.Second)
+	harness := newUnboundFullChainHarness(t, AccountsPath, tempDir, 5*time.Second)
 	subscription := harness.events.Subscribe(256)
 	defer subscription.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
@@ -187,16 +187,16 @@ type fullChainHarness struct {
 	approval *application.ApprovalBroker
 }
 
-func newFullChainHarness(t *testing.T, accountsPath, projectRoot string, toolTimeout time.Duration) fullChainHarness {
-	return newFullChainHarnessWithProjectBinding(t, accountsPath, projectRoot, toolTimeout, true)
+func newFullChainHarness(t *testing.T, AccountsPath, projectRoot string, toolTimeout time.Duration) fullChainHarness {
+	return newFullChainHarnessWithProjectBinding(t, AccountsPath, projectRoot, toolTimeout, true)
 }
 
-func newUnboundFullChainHarness(t *testing.T, accountsPath, projectRoot string, toolTimeout time.Duration) fullChainHarness {
-	return newFullChainHarnessWithProjectBinding(t, accountsPath, projectRoot, toolTimeout, false)
+func newUnboundFullChainHarness(t *testing.T, AccountsPath, projectRoot string, toolTimeout time.Duration) fullChainHarness {
+	return newFullChainHarnessWithProjectBinding(t, AccountsPath, projectRoot, toolTimeout, false)
 }
 
-func newFullChainHarnessWithProjectBinding(t *testing.T, accountsPath, projectRoot string, toolTimeout time.Duration, bindProject bool) fullChainHarness {
-	return newFullChainHarnessWithLimits(t, accountsPath, projectRoot, toolTimeout, bindProject, limit.Limits{})
+func newFullChainHarnessWithProjectBinding(t *testing.T, AccountsPath, projectRoot string, toolTimeout time.Duration, bindProject bool) fullChainHarness {
+	return newFullChainHarnessWithLimits(t, AccountsPath, projectRoot, toolTimeout, bindProject, limit.Limits{})
 }
 
 // fullChainBackendInstaller 是"在 application 之前"注入编排面的钩子。
@@ -213,10 +213,10 @@ type fullChainBackendInstaller func(st *store.Router, workspaces *workspacerepo.
 // 除 limits.async_exec.enabled 外逐字段相同，开关是唯一变量。
 //
 // installers 按组合根的位置在 store/workspaces 就绪之后、wiring.New 之前逐个执行。
-func newFullChainHarnessWithLimits(t *testing.T, accountsPath, projectRoot string, toolTimeout time.Duration, bindProject bool, limits limit.Limits, installers ...fullChainBackendInstaller) fullChainHarness {
+func newFullChainHarnessWithLimits(t *testing.T, AccountsPath, projectRoot string, toolTimeout time.Duration, bindProject bool, limits limit.Limits, installers ...fullChainBackendInstaller) fullChainHarness {
 	t.Helper()
 	runtimeBridge, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{
-		AccountsPath:    accountsPath,
+		AccountsPath:    AccountsPath,
 		StorePath:       filepath.Join(projectRoot, "runtime"),
 		ToolCallTimeout: toolTimeout,
 		Limits:          limits,
@@ -233,9 +233,9 @@ func newFullChainHarnessWithLimits(t *testing.T, accountsPath, projectRoot strin
 		}
 	}
 
-	originalStorePath := *storePath
-	*storePath = filepath.Join(projectRoot, "sessions")
-	t.Cleanup(func() { *storePath = originalStorePath })
+	originalStorePath := launchFlags.StorePath
+	launchFlags.StorePath = filepath.Join(projectRoot, "sessions")
+	t.Cleanup(func() { launchFlags.StorePath = originalStorePath })
 	st, err := initStore()
 	if err != nil {
 		t.Fatal(err)

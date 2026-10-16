@@ -108,10 +108,10 @@ func writeMarkedProjectBoardProjection(t *testing.T, harness fullChainHarness, p
 func TestProjectBoardPrefixBytesIdentical(t *testing.T) {
 	projectRoot := t.TempDir()
 	provider := newFullChainPrefixServer(t, "read_file", filepath.Join(projectRoot, "i7_probe.txt"))
-	accountsPath := projectBoardAccountsFor(t, provider.URL, projectRoot)
+	AccountsPath := projectBoardAccountsFor(t, provider.URL, projectRoot)
 
 	offRoot := t.TempDir()
-	off := newFullChainHarnessWithLimits(t, accountsPath, offRoot, 30*time.Second, true, limit.Limits{})
+	off := newFullChainHarnessWithLimits(t, AccountsPath, offRoot, 30*time.Second, true, limit.Limits{})
 	offPrefix := promptLayerBytes(t, off.app)
 
 	onRoot := t.TempDir()
@@ -119,7 +119,7 @@ func TestProjectBoardPrefixBytesIdentical(t *testing.T) {
 	onLimits.ProjectBoard.Enabled = true
 	onLimits.ProjectBoard.Hook = "todo_list"
 	onLimits.ProjectBoard.FlushIdleMS = 20
-	on := newFullChainHarnessWithLimits(t, accountsPath, onRoot, 30*time.Second, true, onLimits)
+	on := newFullChainHarnessWithLimits(t, AccountsPath, onRoot, 30*time.Second, true, onLimits)
 	// 能力开的这一臂按生产装配补齐两件事：注入订阅口 + 注册读取面。
 	sink, closeSink, err := projectBoardSinkFor(
 		onLimits.ProjectBoard, on.st,
@@ -155,11 +155,11 @@ func TestProjectBoardNeverReachesRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	provider := newFullChainPrefixServer(t, "read_file", probePath)
-	accountsPath := projectBoardAccountsFor(t, provider.URL, projectRoot)
+	AccountsPath := projectBoardAccountsFor(t, provider.URL, projectRoot)
 
 	limits := limit.Limits{}
 	limits.ProjectBoard.Enabled = true
-	harness := newFullChainHarnessWithLimits(t, accountsPath, projectRoot, 30*time.Second, true, limits)
+	harness := newFullChainHarnessWithLimits(t, AccountsPath, projectRoot, 30*time.Second, true, limits)
 	sink, closeSink, err := projectBoardSinkFor(
 		limits.ProjectBoard, harness.st,
 		harness.app.WorkTableRowsFor, harness.app.ProjectBoardTeamPlanFor,

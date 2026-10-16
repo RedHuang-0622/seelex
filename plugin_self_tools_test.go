@@ -16,17 +16,17 @@ import (
 // plugins_list / skill_create / skills_list / mcp_create / mcp_list）注册且
 // 可调用：临时 plugins 根 + 临时账号配置，无真实网络调用。
 func TestPluginSelfTools(t *testing.T) {
-	originalPlugins := *pluginsPaths
-	originalStore := *storePath
+	originalPlugins := launchFlags.PluginsPaths
+	originalStore := launchFlags.StorePath
 	temp := t.TempDir()
-	*pluginsPaths = filepath.Join(temp, "plugins")
-	*storePath = filepath.Join(temp, "sessions")
+	launchFlags.PluginsPaths = filepath.Join(temp, "plugins")
+	launchFlags.StorePath = filepath.Join(temp, "sessions")
 	defer func() {
-		*pluginsPaths = originalPlugins
-		*storePath = originalStore
+		launchFlags.PluginsPaths = originalPlugins
+		launchFlags.StorePath = originalStore
 	}()
 
-	accountsPath := filepath.Join(temp, "accounts.yaml")
+	AccountsPath := filepath.Join(temp, "accounts.yaml")
 	minimalAccounts := `defaults:
   provider: openai
   context_window: 200000
@@ -48,14 +48,14 @@ roles:
       api_key: test-only-key
 mcp_servers: []
 `
-	if err := os.WriteFile(accountsPath, []byte(minimalAccounts), 0o600); err != nil {
+	if err := os.WriteFile(AccountsPath, []byte(minimalAccounts), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
 	// 插件根不再是"空着也能启动"的地方：零插件在启动期显式报错（main.go 的
-	// requirePlugins）。这里先给临时根放一个最小插件，代表"发行包自带 plugins/"，
+	// config.RequirePlugins）。这里先给临时根放一个最小插件，代表"发行包自带 plugins/"，
 	// 再走自迭代闭环（plugin_create → plugins_reload 看到新增）。
-	seedDir := filepath.Join(*pluginsPaths, "seed")
+	seedDir := filepath.Join(launchFlags.PluginsPaths, "seed")
 	if err := os.MkdirAll(seedDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ mcp_servers: []
 	}
 
 	runtime, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{
-		AccountsPath:    accountsPath,
+		AccountsPath:    AccountsPath,
 		StorePath:       filepath.Join(temp, "runtime"),
 		ToolCallTimeout: 30 * time.Second,
 	})
@@ -94,7 +94,7 @@ mcp_servers: []
 	if !strings.Contains(created, `"status":"created"`) {
 		t.Fatalf("plugin_create result: %s", created)
 	}
-	if _, err := os.Stat(filepath.Join(*pluginsPaths, "smoke_plugin", "plugin.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(launchFlags.PluginsPaths, "smoke_plugin", "plugin.md")); err != nil {
 		t.Fatalf("plugin.md not written: %v", err)
 	}
 

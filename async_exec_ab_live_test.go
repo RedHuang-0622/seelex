@@ -273,12 +273,12 @@ func abRunTurn(t *testing.T, accountsSource, upstream, taskID, arm string, rep, 
 	}
 	proxy := newPrefixLiveProxy(t, upstream)
 	projectRoot := t.TempDir()
-	accountsPath := filepath.Join(projectRoot, "accounts.yaml")
+	AccountsPath := filepath.Join(projectRoot, "accounts.yaml")
 	rewritten := bytes.ReplaceAll(raw, []byte(upstream), []byte(proxy.URL))
 	if bytes.Equal(rewritten, raw) {
 		t.Fatalf("accounts file base_url %q not found for rewrite", upstream)
 	}
-	if err := os.WriteFile(accountsPath, rewritten, 0o600); err != nil {
+	if err := os.WriteFile(AccountsPath, rewritten, 0o600); err != nil {
 		t.Fatalf("write rewritten accounts file: %v", err)
 	}
 	for name, content := range map[string]string{
@@ -298,7 +298,7 @@ func abRunTurn(t *testing.T, accountsSource, upstream, taskID, arm string, rep, 
 	dirsBefore, bytesBefore := abAsyncTempFootprint()
 	sleepBefore := abSleepProcesses()
 
-	harness := newFullChainHarnessWithLimits(t, accountsPath, projectRoot, 90*time.Second, true,
+	harness := newFullChainHarnessWithLimits(t, AccountsPath, projectRoot, 90*time.Second, true,
 		limit.Limits{AsyncExec: limit.AsyncExecLimits{Enabled: arm == abArmB}})
 	ctx, cancel := context.WithTimeout(context.Background(), abTurnBudget)
 	defer cancel()

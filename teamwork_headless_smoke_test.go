@@ -373,10 +373,10 @@ func newTeamworkSmoke(t *testing.T, provider *teamworkSmokeProvider) *teamworkSm
 	t.Cleanup(server.Close)
 
 	tempDir := t.TempDir()
-	accountsPath := filepath.Join(tempDir, "accounts.yaml")
+	AccountsPath := filepath.Join(tempDir, "accounts.yaml")
 	accounts := "roles:\n  agent:\n    - model: test-model\n      base_url: " + server.URL +
 		"\n      api_key: test-key\n"
-	if err := os.WriteFile(accountsPath, []byte(accounts), 0o600); err != nil {
+	if err := os.WriteFile(AccountsPath, []byte(accounts), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	// 后台作业终态触发回合（"做完自动返回"）必须开着：这是本轮要验的那条链。
@@ -397,7 +397,7 @@ func newTeamworkSmoke(t *testing.T, provider *teamworkSmokeProvider) *teamworkSm
 	// 「做完自动返回」静默消失（见 fullChainBackendInstaller 的注释）。
 	var planStoreForProbe seeteamwork.PlanStore
 	var keyForForProbe func(string) (store.Key, bool)
-	harness := newFullChainHarnessWithLimits(t, accountsPath, tempDir, 60*time.Second, true, limits,
+	harness := newFullChainHarnessWithLimits(t, AccountsPath, tempDir, 60*time.Second, true, limits,
 		func(st *store.Router, workspaces *workspacerepo.Repo, runtime *seelebridge.Runtime) error {
 			repo, ok := st.TeamworkFor()
 			if !ok {

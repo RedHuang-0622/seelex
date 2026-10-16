@@ -113,12 +113,12 @@ func TestRealSwitchWhileChattingRepro(t *testing.T) {
 	defer server.Close()
 
 	tempDir := t.TempDir()
-	accountsPath := filepath.Join(tempDir, "accounts.yaml")
+	AccountsPath := filepath.Join(tempDir, "accounts.yaml")
 	accounts := fmt.Sprintf("roles:\n  agent:\n    - model: test-model\n      base_url: %s\n      api_key: test-key\n", server.URL)
-	if err := os.WriteFile(accountsPath, []byte(accounts), 0o600); err != nil {
+	if err := os.WriteFile(AccountsPath, []byte(accounts), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	harness := newFullChainHarness(t, accountsPath, tempDir, 30*time.Second)
+	harness := newFullChainHarness(t, AccountsPath, tempDir, 30*time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
@@ -178,12 +178,12 @@ func TestRealBeginNewWhileChattingRepro(t *testing.T) {
 	defer server.Close()
 
 	tempDir := t.TempDir()
-	accountsPath := filepath.Join(tempDir, "accounts.yaml")
+	AccountsPath := filepath.Join(tempDir, "accounts.yaml")
 	accounts := fmt.Sprintf("roles:\n  agent:\n    - model: test-model\n      base_url: %s\n      api_key: test-key\n", server.URL)
-	if err := os.WriteFile(accountsPath, []byte(accounts), 0o600); err != nil {
+	if err := os.WriteFile(AccountsPath, []byte(accounts), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	harness := newFullChainHarness(t, accountsPath, tempDir, 30*time.Second)
+	harness := newFullChainHarness(t, AccountsPath, tempDir, 30*time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
@@ -228,12 +228,12 @@ func TestRealNewSessionDraftRetainedOnSwitchRepro(t *testing.T) {
 	defer server.Close()
 
 	tempDir := t.TempDir()
-	accountsPath := filepath.Join(tempDir, "accounts.yaml")
+	AccountsPath := filepath.Join(tempDir, "accounts.yaml")
 	accounts := fmt.Sprintf("roles:\n  agent:\n    - model: test-model\n      base_url: %s\n      api_key: test-key\n", server.URL)
-	if err := os.WriteFile(accountsPath, []byte(accounts), 0o600); err != nil {
+	if err := os.WriteFile(AccountsPath, []byte(accounts), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	harness := newFullChainHarness(t, accountsPath, tempDir, 30*time.Second)
+	harness := newFullChainHarness(t, AccountsPath, tempDir, 30*time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 

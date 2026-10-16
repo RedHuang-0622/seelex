@@ -219,7 +219,7 @@ type Options struct {
 	// 配置警告（配置损坏仍可启动，不闪退）。
 	StartupWarning string
 	// AppearancePath 是 GUI 外观设置（当前皮肤 + 由它派生的窗口材质）的落盘路径，
-	// 由宿主按配置责任链给出（见 main.go guiAppearancePath）。建窗期读它决定窗口
+	// 由宿主按配置责任链给出（见 wiring/config 的 GUIAppearancePath）。建窗期读它决定窗口
 	// 是否走透明/亚克力；换肤期由 Bridge.SetWindowAppearance 写它。
 	// 空串 = 不落盘：窗口保持不透明，换肤照常。
 	AppearancePath string

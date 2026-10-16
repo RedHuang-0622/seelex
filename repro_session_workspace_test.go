@@ -35,14 +35,14 @@ func startCrossWorkspaceScenario(t *testing.T) (harness fullChainHarness, sessio
 	if err := os.MkdirAll(yRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	accountsPath := filepath.Join(tempDir, "accounts.yaml")
+	AccountsPath := filepath.Join(tempDir, "accounts.yaml")
 	accounts := "roles:\n  agent:\n    - model: test-model\n      base_url: " + server.URL +
 		"\n      api_key: test-key-1\n    - model: test-model\n      base_url: " + server.URL +
 		"\n      api_key: test-key-2\n"
-	if err := os.WriteFile(accountsPath, []byte(accounts), 0o600); err != nil {
+	if err := os.WriteFile(AccountsPath, []byte(accounts), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	harness = newUnboundFullChainHarness(t, accountsPath, tempDir, 30*time.Second)
+	harness = newUnboundFullChainHarness(t, AccountsPath, tempDir, 30*time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	t.Cleanup(cancel)
 

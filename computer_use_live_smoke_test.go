@@ -75,16 +75,16 @@ func TestComputerUseLiveSmoke(t *testing.T) {
 	}
 
 	projectRoot := t.TempDir()
-	accountsPath := filepath.Join(projectRoot, "accounts.yaml")
-	copyAccountsOpaque(t, accountsSource, accountsPath)
+	AccountsPath := filepath.Join(projectRoot, "accounts.yaml")
+	copyAccountsOpaque(t, accountsSource, AccountsPath)
 	// 出站证据面：把账号副本里的 base_url 改指向本地记录代理，代理再原样转发到
 	// 真实端点。「画面有没有作为图像进请求」由请求体本身判定，不依赖模型行为；
 	// 读到的 base_url 只作为转发目标，密钥等字段不解析、不打印。
-	originalBase := readAccountsBaseURL(t, accountsPath)
+	originalBase := readAccountsBaseURL(t, AccountsPath)
 	recorder, providerProxy := newProviderRecordingProxy(t, originalBase)
 	defer providerProxy.Close()
-	rewriteAccountsBaseURL(t, accountsPath, originalBase, providerProxy.URL)
-	harness := newFullChainHarness(t, accountsPath, projectRoot, 60*time.Second)
+	rewriteAccountsBaseURL(t, AccountsPath, originalBase, providerProxy.URL)
+	harness := newFullChainHarness(t, AccountsPath, projectRoot, 60*time.Second)
 	defer harness.app.Shutdown()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)

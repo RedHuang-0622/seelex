@@ -11,13 +11,14 @@ import (
 
 	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/wiring/config"
 )
 
 func TestSmokeLLM(t *testing.T) {
 	if os.Getenv("SEELEX_RUN_LLM_SMOKE") != "1" {
 		t.Skip("set SEELEX_RUN_LLM_SMOKE=1 to run the external LLM smoke test")
 	}
-	cfgPath := accountsPath()
+	cfgPath := config.AccountsPath()
 
 	// 1. 创建框架运行时（新装配模型：账号池 + 注册表 + Agent + 主会话）
 	runtime, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{

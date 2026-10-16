@@ -28,9 +28,9 @@ func TestRealAPISessionRestoreSmoke(t *testing.T) {
 		t.Skip("set SEELEX_SMOKE_ACCOUNTS to an accounts.yaml path to run the live smoke test")
 	}
 	projectRoot := t.TempDir()
-	accountsPath := filepath.Join(projectRoot, "accounts.yaml")
-	copyOpaqueFileManual(t, accountsSource, accountsPath)
-	harness := newFullChainHarness(t, accountsPath, projectRoot, 45*time.Second)
+	AccountsPath := filepath.Join(projectRoot, "accounts.yaml")
+	copyOpaqueFileManual(t, accountsSource, AccountsPath)
+	harness := newFullChainHarness(t, AccountsPath, projectRoot, 45*time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
 	defer cancel()
 
@@ -58,7 +58,7 @@ func TestRealAPISessionRestoreSmoke(t *testing.T) {
 	}
 	harness.app.Shutdown()
 
-	restarted := newFullChainHarness(t, accountsPath, projectRoot, 45*time.Second)
+	restarted := newFullChainHarness(t, AccountsPath, projectRoot, 45*time.Second)
 	if err := restarted.app.ResumeSession(sessionID); err != nil {
 		t.Fatalf("restart resume live session: %v", err)
 	}

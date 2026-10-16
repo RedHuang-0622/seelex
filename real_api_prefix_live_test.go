@@ -532,19 +532,19 @@ func TestManualSmokeRealAccountPrefixInvariant(t *testing.T) {
 	proxy := newPrefixLiveProxy(t, upstream)
 
 	projectRoot := t.TempDir()
-	accountsPath := filepath.Join(projectRoot, "accounts.yaml")
+	AccountsPath := filepath.Join(projectRoot, "accounts.yaml")
 	rewritten := bytes.ReplaceAll(raw, []byte(upstream), []byte(proxy.URL))
 	if bytes.Equal(rewritten, raw) {
 		t.Fatalf("accounts file base_url %q not found for rewrite", upstream)
 	}
-	if err := os.WriteFile(accountsPath, rewritten, 0o600); err != nil {
+	if err := os.WriteFile(AccountsPath, rewritten, 0o600); err != nil {
 		t.Fatalf("write rewritten accounts file: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(projectRoot, "prefix_probe.txt"), []byte("PREFIX-PROBE-OK\n"), 0o644); err != nil {
 		t.Fatalf("write probe file: %v", err)
 	}
 
-	harness := newFullChainHarness(t, accountsPath, projectRoot, 60*time.Second)
+	harness := newFullChainHarness(t, AccountsPath, projectRoot, 60*time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 

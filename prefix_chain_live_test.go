@@ -99,11 +99,11 @@ func TestPrefixChainRetainFloorLiveSmoke(t *testing.T) {
 	}
 
 	projectRoot := t.TempDir()
-	accountsPath := filepath.Join(projectRoot, "accounts.yaml")
-	copyAccountsOpaqueForCompact(t, accountsSource, accountsPath)
-	rewriteAccountsContextLimits(t, accountsPath, compactSmokeContextWindow, compactSmokeMaxTokens)
+	AccountsPath := filepath.Join(projectRoot, "accounts.yaml")
+	copyAccountsOpaqueForCompact(t, accountsSource, AccountsPath)
+	rewriteAccountsContextLimits(t, AccountsPath, compactSmokeContextWindow, compactSmokeMaxTokens)
 
-	harness := newFullChainHarness(t, accountsPath, projectRoot, 90*time.Second)
+	harness := newFullChainHarness(t, AccountsPath, projectRoot, 90*time.Second)
 	defer harness.app.Shutdown()
 
 	// 占比窗口收到 0.05：min(token1, token2) 本会把保留区压到很小 —— 这正是保护区

@@ -33,16 +33,16 @@ func TestReproQueuedInputThenSwitchSessions(t *testing.T) {
 	t.Cleanup(provider.releaseAll)
 
 	tempDir := t.TempDir()
-	accountsPath := filepath.Join(tempDir, "accounts.yaml")
+	AccountsPath := filepath.Join(tempDir, "accounts.yaml")
 	accounts := "roles:\n  agent:\n" +
 		fmt.Sprintf("    - model: test-model\n      base_url: %s\n      api_key: test-key-1\n", server.URL) +
 		fmt.Sprintf("    - model: test-model\n      base_url: %s\n      api_key: test-key-2\n", server.URL) +
 		fmt.Sprintf("    - model: test-model\n      base_url: %s\n      api_key: test-key-3\n", server.URL) +
 		fmt.Sprintf("    - model: test-model\n      base_url: %s\n      api_key: test-key-4\n", server.URL)
-	if err := os.WriteFile(accountsPath, []byte(accounts), 0o600); err != nil {
+	if err := os.WriteFile(AccountsPath, []byte(accounts), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	harness := newFullChainHarness(t, accountsPath, tempDir, 30*time.Second)
+	harness := newFullChainHarness(t, AccountsPath, tempDir, 30*time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 

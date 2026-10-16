@@ -11,9 +11,7 @@ import (
 	"io"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -50,289 +48,18 @@ import (
 	"github.com/RedHuang-0622/seelex/store/workspace"
 	"github.com/RedHuang-0622/seelex/tui"
 	"github.com/RedHuang-0622/seelex/wiring"
+	"github.com/RedHuang-0622/seelex/wiring/config"
 )
 
-var (
-	// Version / DefaultFrontend 是构建期注入点：默认值来自 internal/buildinfo，
-	// 发布构建通过 ldflags "-X main.Version=<tag>" / "-X main.DefaultFrontend=gui" 覆盖。
-	Version         = buildinfo.Version
-	DefaultFrontend = buildinfo.DefaultFrontend
-
-	storePath      = flag.String("store", ".seelex/sessions", "持久化存储路径")
-	pluginsPaths   = flag.String("plugins", "", "Plugin 根目录（逗号分隔，可多根）；留空走责任链：$SEELEX_PLUGINS > <exe>/plugins > <exe>/../plugins > plugins(CWD)")
-	permissionMode = flag.String("permission", "manual", "权限档位: manual(默认) | edit(自动改文件) | auto(自动执行) | full(全权，旧别名 full_access)")
-	frontendMode   = flag.String("frontend", DefaultFrontend, "前端模式: tui | gui | headless | backend")
-	backendPrompt  = flag.String("backend-prompt", "", "后端诊断请求（仅 -frontend backend；为空时从标准输入逐行读取）")
-	backendTimeout = flag.Duration("backend-timeout", 2*time.Minute, "后端单次诊断请求的最大等待时间")
-	backendLogPath = flag.String("backend-log", "", "后端诊断日志文件（仅 -frontend backend；仍同步输出到标准输出）")
-	backendProject = flag.String("backend-project", "", "后端诊断绑定的项目根目录（仅 -frontend backend；显式提供才会绑定）")
-	showVersion    = flag.Bool("version", false, "显示版本号并退出")
-	runtimeLimits  limit.Limits // initRuntime 加载的 limits（后续初始化消费）
-)
-
-// runtimeLimitsPath 把「运行时上限覆盖层」的落点绑到数据根：数据根来自 `-store`
-// 参数（组合根的事），拼接口径在 `backend/limit/overlay.Path`（IO 与形状在那一层）。
-func runtimeLimitsPath() string {
-	return overlay.Path(filepath.Dir(*storePath))
-}
-
-// accountsPath 返回 accounts.yaml 的路径。
-// 优先使用二进制所在目录（正式部署），回退到当前工作目录（go run / 开发场景）。
-func accountsPath() string {
-	exe, err := os.Executable()
-	if err == nil {
-		p := filepath.Join(filepath.Dir(exe), "config", "accounts.yaml")
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
-	}
-	return filepath.Join("config", "accounts.yaml")
-}
-
-// runtimeConfigChain 返回配置文件在责任链上的候选（按优先级）与允许初始化的落盘根：
+// launchFlags 是本入口的命令行参数：flag 名、默认值与说明文案的权威定义在
+// wiring/config（启动项可复用的关键——第二个入口只需 BindFlags 一次）。包级绑定
+// 保持「启动参数在任何装配之前就位」的既有语义。
 //
-//  1. config/<name>        CWD 相对（仓库里那份 / 开发场景；用户改过的就是它）
-//  2. <name>               根目录回退（历史兼容）
-//  3. <exe>/config/<name>  包内配置（正式部署：二进制旁边自带一份）
-//
-// 落盘根**固定取 <exe>/config**：CWD 可能是用户的项目目录，不能在那里凭空造出
-// config/ 来；二进制所在目录才是这个应用自己的地盘。落盘失败（只读安装目录等）
-// 由调用方回退代码默认值，不阻断启动。
-func runtimeConfigChain(name string) (candidates []string, seedRoot string) {
-	candidates = []string{filepath.Join("config", name), name}
-	if exe, err := os.Executable(); err == nil {
-		exeDir := filepath.Dir(exe)
-		candidates = append(candidates, filepath.Join(exeDir, "config", name))
-		seedRoot = filepath.Join(exeDir, "config")
-	}
-	return candidates, seedRoot
-}
+// 版本号与默认前端不在这里：它们是构建期 ldflags 注入点，权威值在 internal/buildinfo。
+var launchFlags = config.BindFlags(flag.CommandLine)
 
-// guiAppearancePath 用同一套配置责任链给出 **GUI 外观设置**（当前皮肤 + 窗口材质）的
-// 落盘路径，口径与 ensureConfigFile 一致，只差"不播种"：外观没有"内嵌默认档"要下发，
-// 缺省就是代码里的不透明，所以这里只挑路径——
-//
-//	存在即读也即写：链上第一份已存在的文件就是它（读和写都落同一份，不会出现
-//	                "读 CWD 那份、写 <exe> 那份"的错位）；
-//	全缺则落到 <exe>/config（与其它配置同一个"应用自己的地盘"，不往用户项目目录里造）。
-//
-// 链本身由 runtimeConfigChain 给（CWD config/ → CWD → <exe>/config/）。
-func guiAppearancePath() string {
-	candidates, seedRoot := runtimeConfigChain("gui-appearance.json")
-	for _, candidate := range candidates {
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate
-		}
-	}
-	if seedRoot != "" {
-		return filepath.Join(seedRoot, "gui-appearance.json")
-	}
-	return candidates[0]
-}
-
-// pluginRootChain 返回 Plugin 根在责任链上的候选（按优先级、去重保序）：
-//
-//  1. -plugins <paths>      显式旗标（最高优先；逗号分隔可多根，先出现的根胜出）
-//  2. $SEELEX_PLUGINS       环境变量（容器/CI/多份发行包并存时的注入点）
-//  3. <exe>/plugins         交付树自带（发行包：二进制旁边就有一份 plugins/）
-//  4. <exe>/../plugins      交付树上一级（stage 布局：exe 落在子目录里）
-//  5. plugins               CWD 相对（仓库 / go run 开发场景）
-//
-// 语义是**顺序覆盖**而不是"择一"：加载器本身是多根 first-wins（plugin/loader.go
-// 的 LoadAll：先出现的同名插件胜出、不存在的根静默跳过），所以这条链只决定"去哪里找"。
-// 显式旗标排在最前，因此 `-plugins <开发目录>` 能覆盖发行包里那份同名插件；
-// 而"到底哪个根真的供上了插件"由启动期的根报告（logPluginRoots）写明，不靠猜。
-func pluginRootChain(flagValue, envValue, exePath string) []string {
-	roots := make([]string, 0, 6)
-	roots = append(roots, splitPaths(flagValue)...)
-	roots = append(roots, splitPaths(envValue)...)
-	if exePath != "" {
-		exeDir := filepath.Dir(exePath)
-		roots = append(roots, filepath.Join(exeDir, "plugins"), filepath.Join(exeDir, "..", "plugins"))
-	}
-	roots = append(roots, "plugins")
-	return dedupRoots(roots)
-}
-
-// pluginRoots 用真实环境（旗标 / SEELEX_PLUGINS / 可执行文件位置）解析责任链。
-func pluginRoots() []string {
-	exe, err := os.Executable()
-	if err != nil {
-		exe = ""
-	}
-	return pluginRootChain(*pluginsPaths, os.Getenv("SEELEX_PLUGINS"), exe)
-}
-
-// dedupRoots 去空、去重（保序）。Windows 上路径大小写不敏感，同一份目录可能以两种
-// 写法出现在链上，重复项会让启动期的根报告出现"两个 0 个插件"的噪声行。
-func dedupRoots(roots []string) []string {
-	seen := make(map[string]bool, len(roots))
-	result := make([]string, 0, len(roots))
-	for _, root := range roots {
-		if root = strings.TrimSpace(root); root == "" {
-			continue
-		}
-		cleaned := filepath.Clean(root)
-		key := cleaned
-		if os.PathSeparator == '\\' {
-			key = strings.ToLower(cleaned)
-		}
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		result = append(result, cleaned)
-	}
-	return result
-}
-
-// requirePlugins 把"零插件"从静默降级变成一次显式失败。
-//
-// 没有 Plugin 的启动不是"功能少一点"：default 插件不存在 ⇒ 无 skill 目录、`#` 切换
-// 为空、模型拿不到任何领域纪律，而旧口径下日志里一个字都没有（loader 跳过不存在的根
-// → 空表不报错 → 找不到 default 就 `return nil`）。这条错误把"试过哪些根"和"怎么救"
-// 一起说出来，让故障在启动期可见，而不是以"模型什么都不会"的形式显现。
-func requirePlugins(roots []string, loaded []plugin.Plugin) error {
-	if len(loaded) > 0 {
-		return nil
-	}
-	tried := "（责任链为空）"
-	if len(roots) > 0 {
-		tried = strings.Join(roots, ", ")
-	}
-	return fmt.Errorf(
-		"零插件：责任链上 %d 个根都没有加载到任何 Plugin（试过: %s）。"+
-			"用 -plugins <路径> 或 $SEELEX_PLUGINS 显式指定插件根；发行包应把 plugins/ 放在二进制旁边（<exe>/plugins）",
-		len(roots), tried)
-}
-
-// pluginRootReport 生成"插件到底从哪来"的**一条读数**：责任链上每个根各供上了几个
-// 插件，以及每个插件最终来自哪个根（多根 first-wins，同名插件只算链上先出现的那个）。
-//
-// 这条读数**两处共写**：终端日志（logPluginRoots）与 UI 面（run() 里进启动通知）。
-// 旧口径只有前者，于是同一条事实在 GUI 里根本看不到——所以"广播"那个词名不副实；
-// 现在它是"启动读数"，两处同源（改一处两处一起变，不会出现两份对不上的读数）。
-func pluginRootReport(roots []string, loaded []plugin.Plugin) string {
-	absLoaded := make([]string, 0, len(loaded))
-	for _, p := range loaded {
-		if abs, err := filepath.Abs(p.RootDir); err == nil {
-			absLoaded = append(absLoaded, abs)
-		}
-	}
-	parts := make([]string, 0, len(roots))
-	for _, root := range roots {
-		count := 0
-		if abs, err := filepath.Abs(root); err == nil {
-			prefix := abs + string(os.PathSeparator)
-			for _, dir := range absLoaded {
-				if dir == abs || strings.HasPrefix(dir, prefix) {
-					count++
-				}
-			}
-		}
-		parts = append(parts, fmt.Sprintf("%s=%d", root, count))
-	}
-	origins := make([]string, 0, len(loaded))
-	for _, p := range loaded {
-		origins = append(origins, fmt.Sprintf("%s←%s", p.Name, p.RootDir))
-	}
-	report := fmt.Sprintf("根 %s（共加载 %d 个插件）", strings.Join(parts, ", "), len(loaded))
-	if len(origins) > 0 {
-		report += "；来源 " + strings.Join(origins, ", ")
-	}
-	return report
-}
-
-// logPluginRoots 把根读数写成启动期一行终端日志。**它不再是唯一出口**：同一条读数由
-// run() 送进 UI 面（启动通知），见 pluginRootReport。返回这行读数，供调用方复用同一份
-// 字节（两处各生成一次就会出现两份对不上的读数）。
-//
-// 这是"一处发现、处处可用"的可观察面——静默降级被这条读数替换掉（0 个插件的根会
-// 明明白白显示为 0），排障不必再靠猜二进制旁边有没有 plugins/。
-func logPluginRoots(roots []string, loaded []plugin.Plugin) string {
-	report := pluginRootReport(roots, loaded)
-	log.Printf("plugin: %s", report)
-	return report
-}
-
-// resolveCuratedRead 从**已解析的插件根**（责任链，多根 first-wins）读一次精选目录。
-//
-// 语义三条：
-//   - **first-wins**：链上第一个带 curated.yaml 的根说话（与加载器"同名插件先出现的
-//     根胜出"同一姿势）；第一个存在的那份读不动就**当场报**，不悄悄退到下一个根——
-//     退让会把"这份目录坏了"藏成"目录里没有这个名字"。
-//   - **交叉校验用真实加载集合**：installed 取的是本次启动**真正加载出来**的插件名
-//     （多根并集），不是某一个根的 LoadAll。
-//   - **差异是回报、不是错误**：目录与这台机器已装集合不一致（本机自装插件、退役插件）
-//     不阻断、不报警告，只留成 Drift 供日志回报——否则使用者"自己改下插件"就会永远
-//     背着一条他改不动、也不该由他改的发行侧警告。
-//   - **一个根都没有 ⇒ Absent**：自建根/用户树可以不带精选目录。Err 仍非 nil（装配面
-//     要显式拒绝并说清"没有目录可比对"），但它不是配置缺陷、不进启动警告。
-func resolveCuratedRead(roots []string, loaded []plugin.Plugin) plugin.CuratedRead {
-	installed := make([]string, 0, len(loaded))
-	for _, p := range loaded {
-		installed = append(installed, p.Name)
-	}
-	for _, root := range roots {
-		path := filepath.Join(root, plugin.CuratedFileName)
-		if _, err := os.Stat(path); err != nil {
-			continue
-		}
-		// 运行期读数：目录**自身**的问题才是错误；"与这台机器已装集合不一致"退成回报。
-		catalog, drift, err := plugin.LoadCuratedForRuntime(root, installed)
-		if err != nil {
-			return plugin.CuratedRead{Roots: roots, Path: path, Err: err}
-		}
-		return plugin.CuratedRead{Catalog: catalog, Roots: roots, Path: path, Drift: drift}
-	}
-	return plugin.CuratedRead{Roots: roots, Absent: true, Err: fmt.Errorf(
-		"责任链上 %d 个根都没有 %s（根解析见 pluginRootChain；用 -plugins 或 $SEELEX_PLUGINS 指定插件根）",
-		len(roots), plugin.CuratedFileName)}
-}
-
-// curatedAssemblyJudge 把精选目录读数包成装配面的判决函数（"未定义的名字怎么判/怎么说"）。
-//
-// 判定的分支与文案全在 `plugin.CuratedRead.Judge`：那里同时有目录（entries / pending /
-// 实读页）与"已装名单"，是唯一能一次说清三件事的地方；本函数只负责把**运行时的事实**
-// （本进程已定义插件名）递进去，不复制判定。
-func curatedAssemblyJudge(read plugin.CuratedRead) func(name string, installed []string) error {
-	return func(name string, installed []string) error {
-		return read.Judge(name, installed)
-	}
-}
-
-// ensureConfigFile 按责任链给出配置文件路径（口径见 internal/bootseed）：
-//
-//	存在即读：候选链上第一份存在的文件就是答案——用户改过的、包内自带的、
-//	          仓库里的，都优先于默认数据，本函数一个字节都不写。
-//	缺失即初始化：候选链上全都没有 → 用内嵌默认档在 <exe>/config 里落盘，再读它。
-//
-// 返回"该读哪个路径"；确实没有可用文件时返回链上第一个候选（与老口径一致：让
-// 宽容的加载器按"文件不存在"处置，走代码默认值）。
-func ensureConfigFile(name string, pack bootseed.Pack) string {
-	candidates, seedRoot := runtimeConfigChain(name)
-	result, err := bootseed.Resolve(bootseed.Spec{
-		Name:       name,
-		Candidates: candidates,
-		SeedRoot:   seedRoot,
-		Entry:      name,
-		Pack:       pack,
-	})
-	if err != nil {
-		log.Printf("config: %s 初始化默认档失败（回退代码默认值）: %v", name, err)
-		return candidates[0]
-	}
-	switch result.Kind {
-	case bootseed.KindSeeded:
-		log.Printf("config: %s 候选链上都没有，已用内嵌默认档初始化到 %s（存在即读：之后直接用这份）", name, result.Path)
-	case bootseed.KindMissing:
-		log.Printf("config: %s 候选链上都没有，且无处落盘（回退代码默认值）", name)
-	}
-	if result.Path != "" {
-		return result.Path
-	}
-	return candidates[0]
-}
+// runtimeLimits 是 initRuntime 加载的 limits（后续初始化消费）。
+var runtimeLimits limit.Limits
 
 func main() {
 	if err := run(); err != nil {
@@ -341,100 +68,24 @@ func main() {
 	}
 }
 
-// promptDirChain 返回提示词资产目录在责任链上的候选与落盘根（口径同
-// runtimeConfigChain，只是载荷从"一个文件"变成"一个目录"）：
-//
-//  1. config/prompt/system/instructions.md        CWD 相对（仓库 / go run 开发场景；
-//     用户改过的就是它）
-//  2. <exe>/config/prompt/system/instructions.md  包内目录（正式部署：二进制旁边自带一份）
-//
-// 判据取目录里的入口文件（promptassets.Entry）——空目录不算命中，会走初始化。
-// 落盘根固定取 <exe>/config/prompt：CWD 可能是用户的项目目录，不能在那里凭空造出
-// 一个 prompt/ 来。
-func promptDirChain() (candidates []string, seedRoot string) {
-	exe, err := os.Executable()
-	if err != nil {
-		exe = ""
-	}
-	return promptDirChainAt(exe)
-}
-
-// promptDirChainAt 是 promptDirChain 的可测内核（可执行文件路径由调用方给，
-// 测试才好摆现场），与 pluginRootChain 同一姿势。
-func promptDirChainAt(exePath string) (candidates []string, seedRoot string) {
-	entry := filepath.FromSlash(promptassets.Entry)
-	candidates = []string{filepath.Join("config", "prompt", entry)}
-	if exePath != "" {
-		exeDir := filepath.Dir(exePath)
-		candidates = append(candidates, filepath.Join(exeDir, "config", "prompt", entry))
-		seedRoot = filepath.Join(exeDir, "config", "prompt")
-	}
-	return candidates, seedRoot
-}
-
-// resolvePromptDir 按责任链给出**提示词资产目录**并返回它（调用方拿它设
-// promptassets.SetDir）。口径与 ensureConfigFile 一致：
-//
-//	存在即读：候选链上第一份存在的入口文件所在目录就是答案——用户改过的优先于
-//	          内嵌默认，本函数一个字节都不写。
-//	缺失即初始化：候选链全缺 → 用内嵌默认词在 <exe>/config/prompt 落盘，再读它。
-//
-// 返回 "" 表示没有可用目录（无处落盘）：调用方据此让 promptassets 全走内嵌词，
-// 不视为启动失败（与"配置读不到就回退代码默认值"同一条口径）。
-func resolvePromptDir() string {
-	candidates, seedRoot := promptDirChain()
-	return resolvePromptDirAt(candidates, seedRoot)
-}
-
-// resolvePromptDirAt 是 resolvePromptDir 的可测内核（候选链与落盘根由调用方给）。
-func resolvePromptDirAt(candidates []string, seedRoot string) string {
-	pack := bootseed.Pack{Name: "prompt"}
-	for _, rel := range promptassets.DefaultFiles() {
-		pack.Files = append(pack.Files, bootseed.File{Rel: rel, Source: rel})
-	}
-	result, err := bootseed.ResolveFS(bootseed.Spec{
-		Name:       "prompt",
-		Candidates: candidates,
-		SeedRoot:   seedRoot,
-		Entry:      promptassets.Entry,
-		Pack:       pack,
-	}, promptassets.DefaultFS())
-	if err != nil {
-		log.Printf("prompt: 初始化默认提示词失败（回退内嵌提示词）: %v", err)
-		return ""
-	}
-	switch result.Kind {
-	case bootseed.KindHit:
-		// 命中的是"入口文件"，result.Root 是入口所在目录
-		// （…/config/prompt/system）；SetDir 要的是提示词根，按 Entry 层级上溯。
-		return promptassets.DirOf(result.Path)
-	case bootseed.KindSeeded:
-		log.Printf("prompt: 候选链上都没有，已用内嵌默认词初始化到 %s（存在即读：之后直接用这份）", result.Root)
-		return result.Root
-	case bootseed.KindMissing:
-		log.Printf("prompt: 候选链上都没有，且无处落盘（回退内嵌提示词）")
-	}
-	return ""
-}
-
 func run() error {
 	flag.Parse()
 	// pprof 构建钩子（-tags pprof）：Go 侧采样端口，默认 127.0.0.1:6060，
 	// 与 GUI 前端性能钩子（window.__seelexPerf / PerfStats）配合做内存对照。
 	startPprofHook()
-	if *showVersion {
-		fmt.Println(Version)
+	if launchFlags.ShowVersion {
+		fmt.Println(buildinfo.Version)
 		return nil
 	}
-	frontend, err := parseFrontendMode(*frontendMode)
+	frontend, err := config.ParseFrontendMode(launchFlags.FrontendMode)
 	if err != nil {
 		return fmt.Errorf("前端模式无效: %w", err)
 	}
-	*frontendMode = frontend
+	launchFlags.FrontendMode = frontend
 	var backendOutput io.Writer
 	var backendTrace *console.EventLogger
 	if frontend == "backend" {
-		output, closeOutput, outputErr := console.OpenOutput(*backendLogPath)
+		output, closeOutput, outputErr := console.OpenOutput(launchFlags.BackendLogPath)
 		if outputErr != nil {
 			return outputErr
 		}
@@ -446,18 +97,18 @@ func run() error {
 	if frontend == "gui" && !gui.Available() {
 		return fmt.Errorf(`当前二进制未包含 GUI；请使用 go run -tags "gui,desktop,production" . -frontend gui`)
 	}
-	mode, err := parsePermissionMode(*permissionMode)
+	mode, err := config.ParsePermissionMode(launchFlags.PermissionMode)
 	if err != nil {
 		return fmt.Errorf("权限模式无效: %w", err)
 	}
-	*permissionMode = mode
-	*storePath = resolveStorePath(*storePath)
+	launchFlags.PermissionMode = mode
+	launchFlags.StorePath = config.ResolveStorePath(launchFlags.StorePath)
 
 	// 提示词资产目录（config/prompt）：先按责任链定目录（候选链全缺则用内嵌
 	// 默认词初始化），再让 promptassets 按"外部优先、内嵌逐文件兜底"解析。
 	// 必须早于任何提示词消费——装配期的 promptassets.Validate 与运行期的
 	// system prompt 组装都读它。
-	promptassets.SetDir(resolvePromptDir())
+	promptassets.SetDir(config.ResolvePromptDir())
 
 	console.LogStageIf(backendTrace, "startup.runtime.begin")
 	runtime, err := initRuntime()
@@ -593,8 +244,8 @@ func run() error {
 		app.AddNotice("⚠ 启动配置警告: " + warning)
 	}
 	// 插件根读数（加载了几个插件、从哪个根）**进 UI 面**：旧口径里这条只写进终端
-	// 日志（logPluginRoots），GUI 里根本看不到——所以"广播"那个词名不副实（它既不是
-	// 广播，也没有第二个读者）。现在终端与 UI 两处写的是**同一条读数**（pluginRootReport
+	// 日志（wiring/config 的 LogPluginRoots），GUI 里根本看不到——所以"广播"那个词名不副实（它既不是
+	// 广播，也没有第二个读者）。现在终端与 UI 两处写的是**同一条读数**（config.PluginRootReport
 	// 生成一次，两处引用同一份字节）。
 	if pluginStartup.RootReading != "" {
 		app.AddNotice("插件: " + pluginStartup.RootReading)
@@ -678,7 +329,7 @@ func run() error {
 	// 开关的权威值在数据根覆盖层（同一份 runtime-limits.json：设置里拨过就写它）。
 	// 这里自己读一次而不是复用 initRuntime 里的那份：两处装配点不同（这个在更早的
 	// 前端装配段），读一次文件的代价换来"装配顺序不构成隐式依赖"。
-	toolRecordOverlay := overlay.Read(runtimeLimitsPath())
+	toolRecordOverlay := overlay.Read(config.RuntimeLimitsPath(launchFlags.StorePath))
 	toolRecordEnabled := true
 	if toolRecordOverlay.ToolRecordEnabled != nil {
 		toolRecordEnabled = *toolRecordOverlay.ToolRecordEnabled
@@ -770,8 +421,8 @@ func run() error {
 	} else if restored > 0 || skipped > 0 {
 		log.Printf("定时任务恢复：%d 条已排期，%d 条跳过（已过期/已失效）", restored, skipped)
 	}
-	if frontend == "backend" && strings.TrimSpace(*backendProject) != "" {
-		if err := console.BindProject(app, *backendProject); err != nil {
+	if frontend == "backend" && strings.TrimSpace(launchFlags.BackendProject) != "" {
+		if err := console.BindProject(app, launchFlags.BackendProject); err != nil {
 			return err
 		}
 		console.LogStageIf(backendTrace, "startup.workspace.ready")
@@ -1061,8 +712,8 @@ func scheduledPromptExecutor(app *application.Service) seelebridge.ScheduledProm
 // 任务执行器与状态 observer 由主流程经 Runtime.ApplyDeps 一次注入
 // （对应 RuntimeDeps.ScheduledPromptExecutor / SchedulerObserver）。
 func registerScheduledTaskCapability(runtime *seelebridge.Runtime) {
-	if scriptDir, ok := resolveAutoGetJobsDir(); ok {
-		if python := resolvePythonCommand(); python != "" {
+	if scriptDir, ok := config.ResolveAutoGetJobsDir(); ok {
+		if python := config.ResolvePythonCommand(); python != "" {
 			if err := runtime.RegisterScheduledCommand(seelebridge.ScheduledCommand{
 				Key:         "auto_get_jobs",
 				Label:       "BOSS直聘自动投简历",
@@ -1077,66 +728,6 @@ func registerScheduledTaskCapability(runtime *seelebridge.Runtime) {
 	}
 }
 
-// resolveAutoGetJobsDir 定位 auto_get_jobs 脚本目录（责任链 + 缺失即初始化，
-// 口径见 internal/bootseed）：
-//
-//	存在即读：CWD 相对的 local/tools/auto_get_jobs/main.py、二进制旁边那份，
-//	          谁先存在就用谁（用户自己放好的脚本永远优先）。
-//	缺失即初始化：两处都没有 main.py → 把**骨架**（README.md + .env.example）
-//	          写到二进制旁边的 local/tools/auto_get_jobs/，让"该放什么、放哪儿"
-//	          在文件系统上可见；脚本本体是第三方项目，不随包分发。
-//
-// 命令登记的安全口径不变：没有 main.py 就不登记（登记即信任、argv 固定直传）。
-func resolveAutoGetJobsDir() (string, bool) {
-	exeDir := ""
-	if exe, err := os.Executable(); err == nil {
-		exeDir = filepath.Dir(exe)
-	}
-	return resolveToolDir(filepath.Join("local", "tools", "auto_get_jobs"), exeDir, bootseed.AutoGetJobsPack())
-}
-
-// resolveToolDir 是 resolveAutoGetJobsDir 的可测内核（exeDir 由调用方给，测试才好
-// 摆现场）：按责任链找工具目录，两个候选是 CWD 相对的那份与 <exeDir>/ 下那份。
-// 命中即用；全缺则把骨架（pack）初始化到 <exeDir>/<relative>，但没有 main.py 就
-// 不认账——返回 false，调用方跳过白名单命令登记。
-func resolveToolDir(relative, exeDir string, pack bootseed.Pack) (string, bool) {
-	candidates := []string{filepath.Join(relative, "main.py")}
-	seedRoot := ""
-	if exeDir != "" {
-		candidates = append(candidates, filepath.Join(exeDir, relative, "main.py"))
-		seedRoot = filepath.Join(exeDir, relative)
-	}
-	result, err := bootseed.Resolve(bootseed.Spec{
-		Name:       relative,
-		Candidates: candidates,
-		SeedRoot:   seedRoot,
-		Pack:       pack,
-	})
-	if err != nil {
-		log.Printf("scheduled tasks: 初始化 %s 目录骨架失败: %v", relative, err)
-	}
-	if result.Kind == bootseed.KindHit {
-		return filepath.Dir(result.Path), true
-	}
-	if len(result.Written) > 0 {
-		log.Printf("scheduled tasks: %s 脚本目录未找到（期望 %s），已初始化骨架 %v；仍缺 main.py，跳过该白名单命令登记", pack.Name, relative, result.Written)
-		return "", false
-	}
-	log.Printf("scheduled tasks: %s 脚本目录未找到（期望 %s），跳过该白名单命令登记", pack.Name, relative)
-	return "", false
-}
-
-// resolvePythonCommand 探测可用的 python 解释器（python → py；找不到时返回空）。
-func resolvePythonCommand() string {
-	for _, candidate := range []string{"python", "py"} {
-		if path, err := exec.LookPath(candidate); err == nil {
-			return path
-		}
-	}
-	log.Printf("scheduled tasks: 未找到 python 解释器，跳过 auto_get_jobs 白名单命令登记")
-	return ""
-}
-
 // registerTaskTerminalTools 把 task_complete/task_failed/task_needs_user_decision
 // 注册进 tools.Registry（taskTerminalProvider，见 backend/tool/task/terminal.go）；
 // handler 内调用 TaskService.VerifyAndApply（投影 flush + 终态校验）。
@@ -1147,10 +738,10 @@ func registerTaskTerminalTools(runtime *seelebridge.Runtime, app *application.Se
 func initRuntime() (*seelebridge.Runtime, error) {
 	// 运行参数在 config/seelex.yaml（配置参数文件；权限在 config/seele.yaml）：
 	// 责任链 = CWD 的 config/ → CWD 根目录 → 二进制目录的 config/（见
-	// runtimeConfigChain）。命中就按它读（存在即读）；全都没有 → 用内嵌默认档在
+	// config.RuntimeConfigChain）。命中就按它读（存在即读）；全都没有 → 用内嵌默认档在
 	// 二进制旁边初始化，再读它（internal/bootseed）。滑动窗口段缺失 → 零值走默认；
 	// limits 缺失字段 → 默认值。
-	runtimeConfigPath := ensureConfigFile(bootseed.RuntimeConfigName, bootseed.RuntimeConfigPack())
+	runtimeConfigPath := config.EnsureConfigFile(bootseed.RuntimeConfigName, bootseed.RuntimeConfigPack())
 	windowConfig, err := core.LoadWindowConfig(runtimeConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("加载 window 配置失败: %w", err)
@@ -1163,7 +754,7 @@ func initRuntime() (*seelebridge.Runtime, error) {
 	// 界面上的覆盖层优先于配置：用户在设置弹窗里改过的运行时参数落盘在数据根，
 	// 启动时叠在 config/seelex.yaml 的 limits 段之上（内置默认 ← 配置 ← 覆盖层），
 	// 见 backend/limit/overlay（M2-C2 归位前在仓库根的 runtime_limits_overlay.go）。
-	limitsOverlay := overlay.Read(runtimeLimitsPath())
+	limitsOverlay := overlay.Read(config.RuntimeLimitsPath(launchFlags.StorePath))
 	limits = overlay.Apply(limits, limitsOverlay)
 	runtimeLimits = limits // initStore/initEngine 等后续初始化消费
 	toolCallTimeout, _, planDecision, heartbeat, replanWindow, searchTimeout := limits.Durations()
@@ -1173,10 +764,10 @@ func initRuntime() (*seelebridge.Runtime, error) {
 	core.ApplyWindowConfig(windowConfig)
 	search.ApplyLimits(int(searchTimeout / time.Second))
 	runtime, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{
-		AccountsPath: accountsPath(), StorePath: *storePath,
+		AccountsPath: config.AccountsPath(), StorePath: launchFlags.StorePath,
 		// 定时任务定义落**全局** JSONL：与 workspace_index.json 同级（store 的
 		// 基目录），不按项目分区、不按会话分片。会话记录仍走 store。
-		ScheduledTasksPath:        filepath.Join(filepath.Dir(*storePath), "scheduled-tasks.jsonl"),
+		ScheduledTasksPath:        filepath.Join(filepath.Dir(launchFlags.StorePath), "scheduled-tasks.jsonl"),
 		ToolCallTimeout:           toolCallTimeout,
 		PlanDecisionTimeout:       planDecision,
 		HeartbeatInterval:         heartbeat,
@@ -1210,7 +801,8 @@ func initSkillSystem() *skill.Registry {
 	return skill.NewRegistry()
 }
 
-// pluginStartup 是一次插件系统启动的读数（终端日志与 UI 面**同源**，见 pluginRootReport）：
+// pluginStartup 是一次插件系统启动的读数（终端日志与 UI 面**同源**，见 wiring/config 的
+// PluginRootReport）：
 //
 //	RootReading —— 根读数（加载了几个插件、从哪个根；进终端日志 + UI 启动通知）
 //	Curated     —— 精选目录读不到时的出声（空 = 目录已读到，无声；非空 = 启动期警告）
@@ -1224,18 +816,18 @@ func initPluginSystem(
 	skills *skill.Registry,
 ) (*plugin.Manager, pluginStartup, error) {
 	// 根解析 = 责任链（-plugins > $SEELEX_PLUGINS > <exe>/plugins > <exe>/../plugins
-	// > plugins(CWD)），见 pluginRootChain；加载器是多根 first-wins。
-	roots := pluginRoots()
+	// > plugins(CWD)），见 config.PluginRootChain；加载器是多根 first-wins。
+	roots := config.PluginRoots(launchFlags.PluginsPaths)
 	loader := plugin.NewLoader(roots...)
 	manager := plugin.NewManager(loader, runtime, runtime, skills)
 	if err := manager.Load(); err != nil {
 		return nil, pluginStartup{}, fmt.Errorf("加载 Plugin 失败: %w", err)
 	}
 	loaded := manager.All()
-	if err := requirePlugins(roots, loaded); err != nil {
+	if err := config.RequirePlugins(roots, loaded); err != nil {
 		return nil, pluginStartup{}, err
 	}
-	startup := pluginStartup{RootReading: logPluginRoots(roots, loaded)}
+	startup := pluginStartup{RootReading: config.LogPluginRoots(roots, loaded)}
 	// 精选目录（A：从"声明面"变成"装配面"）：**启动时**从已解析的插件根读一次，
 	// 读到的判决函数接进运行期的装配校验（team_plan members[].plugins）——
 	// pending 候选（路线图）要能点名上游来源、认不出的名字要说清两边都不在。
@@ -1255,13 +847,13 @@ func initPluginSystem(
 		log.Printf("plugin: 已发现并登记本机自建插件进 %s: %s",
 			plugin.CuratedFileName, strings.Join(registered, ", "))
 	}
-	curated := resolveCuratedRead(roots, loaded)
+	curated := config.ResolveCuratedRead(roots, loaded)
 	// 来源读数（「这个插件从哪来」）的判定源挂到 manager 上：运行期视图经 adapters 的
 	// PluginPort 读它，把 source_kind/source_url 补进每个插件——判定与文案全在
 	// plugin.CuratedCatalog.ReadSource，前端不复制判定、组合根也不复制。
 	// 目录缺席/损坏时传的是零值 ⇒ 来源面留空（缺失来源不编默认值）。
 	manager.SetCuratedCatalog(curated.Catalog)
-	runtime.SetPluginUnassembledReason(curatedAssemblyJudge(curated))
+	runtime.SetPluginUnassembledReason(config.CuratedAssemblyJudge(curated))
 	switch {
 	case curated.Absent:
 		log.Printf("plugin: 没有精选目录——%v（找过: %s）；自建根/用户树可以不带它，装配面对未定义名仍显式拒绝",
@@ -1301,8 +893,8 @@ type pluginPromptEngine interface {
 
 func registerProductTools(runtime *seelebridge.Runtime, plugins *plugin.Manager, eng pluginPromptEngine, approval *application.ApprovalBroker, skills *skill.Registry) {
 	registerTimeTool(runtime)
-	websearch.Register(runtime, ensureConfigFile(bootseed.SearchEngineConfigName, bootseed.SearchEngineConfigPack()))
-	registerMCPServers(runtime, ensureConfigFile(bootseed.MCPConfigName, bootseed.MCPConfigPack())) // mcpstack/config 加载 + Runtime 冷启动登记
+	websearch.Register(runtime, config.EnsureConfigFile(bootseed.SearchEngineConfigName, bootseed.SearchEngineConfigPack()))
+	registerMCPServers(runtime, config.EnsureConfigFile(bootseed.MCPConfigName, bootseed.MCPConfigPack())) // mcpstack/config 加载 + Runtime 冷启动登记
 	registerMCPLoadTool(runtime)
 	registerPluginSwitchTools(runtime, plugins, eng)
 	registerPluginSelfTools(runtime, plugins)
@@ -1837,7 +1429,7 @@ func guardMultiProcess() error {
 	if runtimeLimits.Runtime.AllowMultiProcess {
 		return nil
 	}
-	dataRoot := filepath.Dir(*storePath)
+	dataRoot := filepath.Dir(launchFlags.StorePath)
 	staleAfter := time.Duration(runtimeLimits.SessionStorage.LockStaleAfterSeconds) * time.Second
 	if owner, held := store.DataRootLockedByWith(dataRoot, staleAfter); held {
 		return fmt.Errorf(
@@ -1851,7 +1443,7 @@ func guardMultiProcess() error {
 
 func initStore() (*store.Router, error) {
 	// NestedSessionStore 的 baseDir 与 workspace_index.json 同级
-	baseDir := filepath.Dir(*storePath)
+	baseDir := filepath.Dir(launchFlags.StorePath)
 	store.ApplyLimits(runtimeLimits.SummaryChars)
 	router, err := store.NewRouter(
 		filepath.Join(baseDir, "session-storage.json"), baseDir, sessionStorageLimits())
@@ -1895,7 +1487,7 @@ func sessionStorageLimits() store.Settings {
 }
 
 func initWorkspaceRepo() (*workspace.Repo, error) {
-	baseDir := filepath.Dir(*storePath)
+	baseDir := filepath.Dir(launchFlags.StorePath)
 	repo, err := workspace.NewRepoWithStore(baseDir)
 	if err != nil {
 		return nil, fmt.Errorf("初始化工作区存储失败: %w", err)
@@ -2067,12 +1659,12 @@ func initApplication(
 		EmployeePermissions: runtime,
 		// 会话驻留窗口的落盘口：设置弹窗改的值写进数据根 runtime-limits.json，
 		// 下次启动由 applyRuntimeLimitsOverlay 叠回 limits 之上。
-		ReleaseWindowStore: overlay.StoreFile{Path: runtimeLimitsPath()},
+		ReleaseWindowStore: overlay.StoreFile{Path: config.RuntimeLimitsPath(launchFlags.StorePath)},
 		// 每账号上下文窗口的落盘口：同一个覆盖层文件的 account_windows 表
 		// （设置 → 账号的挡位/自定义值）。
-		AccountWindowStore: overlay.StoreFile{Path: runtimeLimitsPath()},
+		AccountWindowStore: overlay.StoreFile{Path: config.RuntimeLimitsPath(launchFlags.StorePath)},
 		// 工具记录计数开关的落盘口：同一个覆盖层文件的 tool_record_enabled 格。
-		ToolRecordStore: overlay.StoreFile{Path: runtimeLimitsPath()},
+		ToolRecordStore: overlay.StoreFile{Path: config.RuntimeLimitsPath(launchFlags.StorePath)},
 		// 系统提示词的**环境段**：装配期解析一次"这台机器上 bash 工具实际落到哪个壳"，
 		// 写进提示词（模型写命令前唯一的方言事实；2026-10-15 审计 D4）。解析结果进程内
 		// 缓存，因此前缀逐轮稳定。
@@ -2091,13 +1683,13 @@ func startTUI(model tui.Model) error {
 }
 
 func startFrontend(app *application.Service, backendOutput io.Writer, startupWarning string) error {
-	switch *frontendMode {
+	switch launchFlags.FrontendMode {
 	case "gui":
 		if err := gui.Run(app, gui.Options{
-			Title: "Seelex", Version: Version, StartupWarning: startupWarning,
+			Title: "Seelex", Version: buildinfo.Version, StartupWarning: startupWarning,
 			// 外观设置（皮肤 → 窗口材质）的落盘路径：建窗期读它决定窗口要不要走
 			// 透明/亚克力（毛玻璃皮肤），换肤期由 Bridge.SetWindowAppearance 写它。
-			AppearancePath: guiAppearancePath(),
+			AppearancePath: config.GUIAppearancePath(),
 		}); err != nil {
 			return fmt.Errorf("GUI 错误: %w", err)
 		}
@@ -2110,19 +1702,9 @@ func startFrontend(app *application.Service, backendOutput io.Writer, startupWar
 		}
 		return nil
 	case "backend":
-		return console.Start(app, *backendPrompt, *backendTimeout, backendOutput)
+		return console.Start(app, launchFlags.BackendPrompt, launchFlags.BackendTimeout, backendOutput)
 	default:
 		return startTUI(initTUI(app))
-	}
-}
-
-func parseFrontendMode(value string) (string, error) {
-	mode := strings.ToLower(strings.TrimSpace(value))
-	switch mode {
-	case "tui", "gui", "headless", "backend":
-		return mode, nil
-	default:
-		return "", fmt.Errorf("%q，允许值为 tui、gui、headless 或 backend", value)
 	}
 }
 
@@ -2137,7 +1719,7 @@ type permissionRuntime interface {
 // 的 permission 段按字段覆盖它（缺失/为空的字段保持默认，不再整体替换规则集）。
 // 权限档位（manual/edit/auto/full）只作为进程级默认启用；运行期由 GUI/CLI 按会话切换。
 func setupPermissionGate(runtime permissionRuntime, approval *application.ApprovalBroker) error {
-	tier, err := parsePermissionMode(*permissionMode)
+	tier, err := config.ParsePermissionMode(launchFlags.PermissionMode)
 	if err != nil {
 		return err
 	}
@@ -2145,7 +1727,7 @@ func setupPermissionGate(runtime permissionRuntime, approval *application.Approv
 	// 白名单是按命令文本匹配的，而同一个字符串在 POSIX 壳与 PowerShell 下是两回事——
 	// 写死 POSIX 形态会让 PowerShell 宿主上的命令"过闸即死"（放行 → 执行必失败）。
 	cfg := policy.PermissionConfigForShell(toolreg.ResolveShellFact().Kind)
-	fileCfg, err := loadPermissionConfig(ensureConfigFile(bootseed.PermissionConfigName, bootseed.PermissionConfigPack()))
+	fileCfg, err := loadPermissionConfig(config.EnsureConfigFile(bootseed.PermissionConfigName, bootseed.PermissionConfigPack()))
 	if err != nil {
 		return err
 	}
@@ -2237,26 +1819,6 @@ func loadPermissionConfig(path string) (toolspermission.PermissionConfig, error)
 	return file.Permission, nil
 }
 
-// parsePermissionMode 解析 -permission 标志为**权限档位 id**（manual/edit/auto/
-// full；兼容旧别名 full_access → full）。空/缺省 → manual。
-//
-// 档位取代旧的二元 manual/full_access：manual/edit/auto 是对 root 规则表的声明式
-// 覆盖，full 是执行门短路放行（= 旧 full_access）。
-func parsePermissionMode(value string) (string, error) {
-	trimmed := strings.ToLower(strings.TrimSpace(value))
-	if trimmed == "" {
-		return dto.PermissionTierManual, nil
-	}
-	if trimmed == string(toolspermission.ModeFullAccess) {
-		return dto.PermissionTierFull, nil
-	}
-	tier, err := dto.NormalizePermissionTier(trimmed)
-	if err != nil {
-		return "", fmt.Errorf("%q，允许值为 manual、edit、auto、full（旧别名 full_access）", value)
-	}
-	return tier, nil
-}
-
 // newPermissionBridge 创建连接 permission.ApprovalHandler → ApprovalBroker 的桥接器。
 // 每次工具触发审批时，阻塞等待用户在 TUI 交互面板中作出选择。
 func newPermissionBridge(broker *application.ApprovalBroker) toolspermission.ApprovalHandler {
@@ -2288,17 +1850,6 @@ func newPermissionBridge(broker *application.ApprovalBroker) toolspermission.App
 	}
 }
 
-func splitPaths(value string) []string {
-	parts := strings.Split(value, ",")
-	result := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if part = strings.TrimSpace(part); part != "" {
-			result = append(result, part)
-		}
-	}
-	return result
-}
-
 func pluginByName(plugins []plugin.Plugin, name string) (plugin.Plugin, error) {
 	for _, p := range plugins {
 		if p.Name == name {
@@ -2307,43 +1858,3 @@ func pluginByName(plugins []plugin.Plugin, name string) (plugin.Plugin, error) {
 	}
 	return plugin.Plugin{}, fmt.Errorf("plugin %q not found", name)
 }
-
-// resolveStorePath 确保多实例不冲突：检测 .lock 文件中的 PID，
-// 若该 PID 还活着则自动递增路径后缀（sessions → sessions_1 → sessions_2…）。
-func resolveStorePath(basePath string) string {
-	for i := 0; i < 100; i++ {
-		path := basePath
-		if i > 0 {
-			path = basePath + "_" + strconv.Itoa(i)
-		}
-		lockFile := filepath.Join(path, ".lock")
-		if tryAcquireLock(lockFile) {
-			return path
-		}
-	}
-	// 理论上不会到这里（100 个实例够多了）
-	path := basePath + "_" + strconv.FormatInt(time.Now().UnixNano(), 36)
-	os.MkdirAll(path, 0755)
-	return path
-}
-
-// tryAcquireLock 尝试创建锁文件并写入当前 PID。返回 true 表示获取成功。
-// 如果锁文件已存在但持有进程已死（stale lock），则覆盖。
-func tryAcquireLock(lockFile string) bool {
-	// 检查已有锁
-	if data, err := os.ReadFile(lockFile); err == nil {
-		pid, parseErr := strconv.Atoi(strings.TrimSpace(string(data)))
-		if parseErr == nil && pid > 0 && processExists(pid) {
-			return false // 锁被活着的进程持有
-		}
-		// Stale lock — 清理
-		os.Remove(lockFile)
-	}
-	// 创建目录 + 锁文件
-	if err := os.MkdirAll(filepath.Dir(lockFile), 0755); err != nil {
-		return false
-	}
-	return os.WriteFile(lockFile, []byte(strconv.Itoa(os.Getpid())), 0644) == nil
-}
-
-// processExists 检查指定 PID 的进程是否存在（平台实现见 main_unix.go / main_windows.go）。

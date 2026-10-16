@@ -6,7 +6,9 @@ import (
 
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/internal/buildinfo"
 	"github.com/RedHuang-0622/seelex/wiring"
+	"github.com/RedHuang-0622/seelex/wiring/config"
 )
 
 func TestParseFrontendMode(t *testing.T) {
@@ -20,16 +22,16 @@ func TestParseFrontendMode(t *testing.T) {
 		{input: "HEADLESS", want: "headless"},
 		{input: "BACKEND", want: "backend"},
 	} {
-		got, err := parseFrontendMode(test.input)
+		got, err := config.ParseFrontendMode(test.input)
 		if err != nil {
-			t.Fatalf("parseFrontendMode(%q): %v", test.input, err)
+			t.Fatalf("config.ParseFrontendMode(%q): %v", test.input, err)
 		}
 		if got != test.want {
-			t.Fatalf("parseFrontendMode(%q) = %q, want %q", test.input, got, test.want)
+			t.Fatalf("config.ParseFrontendMode(%q) = %q, want %q", test.input, got, test.want)
 		}
 	}
-	if _, err := parseFrontendMode("browser"); err == nil {
-		t.Fatal("parseFrontendMode accepted an unsupported frontend")
+	if _, err := config.ParseFrontendMode("browser"); err == nil {
+		t.Fatal("ParseFrontendMode accepted an unsupported frontend")
 	}
 }
 
@@ -46,23 +48,26 @@ func TestParsePermissionMode(t *testing.T) {
 		// 旧别名：full_access → full 档。
 		{input: " FULL_ACCESS ", want: dto.PermissionTierFull},
 	} {
-		got, err := parsePermissionMode(test.input)
+		got, err := config.ParsePermissionMode(test.input)
 		if err != nil {
-			t.Fatalf("parsePermissionMode(%q): %v", test.input, err)
+			t.Fatalf("config.ParsePermissionMode(%q): %v", test.input, err)
 		}
 		if got != test.want {
-			t.Fatalf("parsePermissionMode(%q) = %q, want %q", test.input, got, test.want)
+			t.Fatalf("config.ParsePermissionMode(%q) = %q, want %q", test.input, got, test.want)
 		}
 	}
-	if _, err := parsePermissionMode("unsafe"); err == nil {
-		t.Fatal("parsePermissionMode accepted an unsupported permission mode")
+	if _, err := config.ParsePermissionMode("unsafe"); err == nil {
+		t.Fatal("ParsePermissionMode accepted an unsupported permission mode")
 	}
 }
 
 func TestReleaseVersionIsNotStale(t *testing.T) {
 	t.Parallel()
-	if Version != "dev" {
-		t.Fatalf("source version = %q, want dev; releases must inject their tag with ldflags", Version)
+	// 版本号的权威值是**构建期注入点**（internal/buildinfo）：发布构建用
+	// `-X github.com/RedHuang-0622/seelex/internal/buildinfo.Version=<tag>` 覆盖它，
+	// 源码里的 dev 必须留得住——否则 ldflags 没接上也能"看起来发布过了"。
+	if buildinfo.Version != "dev" {
+		t.Fatalf("source version = %q, want dev; releases must inject their tag with ldflags", buildinfo.Version)
 	}
 }
 
@@ -118,9 +123,9 @@ func (runtime *permissionRuntimeRecorder) SetPermissionTierFor(_ string, tier st
 }
 
 func TestFullAccessStartupKeepsManualPermissionBaseline(t *testing.T) {
-	originalMode := *permissionMode
-	*permissionMode = string(toolspermission.ModeFullAccess)
-	t.Cleanup(func() { *permissionMode = originalMode })
+	originalMode := launchFlags.PermissionMode
+	launchFlags.PermissionMode = string(toolspermission.ModeFullAccess)
+	t.Cleanup(func() { launchFlags.PermissionMode = originalMode })
 
 	runtime := &permissionRuntimeRecorder{}
 	if err := setupPermissionGate(runtime, wiring.NewApprovalBroker(nil)); err != nil {

@@ -44,11 +44,11 @@ func TestManualSmokeRealAccountScheduledPromptChain(t *testing.T) {
 		t.Skip("set SEELEX_SMOKE_ACCOUNTS to an accounts.yaml path to run the live smoke test")
 	}
 	projectRoot := t.TempDir()
-	accountsPath := filepath.Join(projectRoot, "accounts.yaml")
-	copyOpaqueFile(t, accountsSource, accountsPath)
+	AccountsPath := filepath.Join(projectRoot, "accounts.yaml")
+	copyOpaqueFile(t, accountsSource, AccountsPath)
 
 	// 工具超时给足：这一轮里模型只回一句话，但排队 + 流式 + 落盘都要时间。
-	harness := newFullChainHarness(t, accountsPath, projectRoot, 90*time.Second)
+	harness := newFullChainHarness(t, AccountsPath, projectRoot, 90*time.Second)
 	bridge, err := gui.NewBridge(harness.app, gui.Options{Title: "Seelex 定时任务冒烟"})
 	if err != nil {
 		t.Fatal(err)

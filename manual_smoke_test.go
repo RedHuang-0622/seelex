@@ -29,14 +29,14 @@ import (
 //	$env:SEELEX_SMOKE_ACCOUNTS = (Resolve-Path config/accounts.yaml)
 //	go test -tags manualsmoke . -run TestManualSmokeRealAccountPlan -count=1 -timeout=5m
 func TestManualSmokeRealAccountPlan(t *testing.T) {
-	accountsPath := strings.TrimSpace(os.Getenv("SEELEX_SMOKE_ACCOUNTS"))
-	if accountsPath == "" {
+	AccountsPath := strings.TrimSpace(os.Getenv("SEELEX_SMOKE_ACCOUNTS"))
+	if AccountsPath == "" {
 		t.Skip("set SEELEX_SMOKE_ACCOUNTS to an accounts.yaml path to run the live smoke test")
 	}
 
 	tempDir := t.TempDir()
 	tempAccounts := filepath.Join(tempDir, "accounts.yaml")
-	copyOpaqueFile(t, accountsPath, tempAccounts)
+	copyOpaqueFile(t, AccountsPath, tempAccounts)
 
 	runtime, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{
 		AccountsPath:    tempAccounts,
@@ -54,9 +54,9 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	// chat 时 activateTaskSkillsLocked 投影到任务 activeSkills），直接写
 	// Runtime 投影会被 publishRuntimeProjections 按任务状态覆盖。
 
-	originalStorePath := *storePath
-	*storePath = filepath.Join(tempDir, "sessions")
-	defer func() { *storePath = originalStorePath }()
+	originalStorePath := launchFlags.StorePath
+	launchFlags.StorePath = filepath.Join(tempDir, "sessions")
+	defer func() { launchFlags.StorePath = originalStorePath }()
 
 	skills := initSkillSystem()
 	plugins, _, err := initPluginSystem(runtime, skills)

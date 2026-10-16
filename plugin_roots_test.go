@@ -11,11 +11,12 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/plugin"
+	"github.com/RedHuang-0622/seelex/wiring/config"
 )
 
 func TestPluginRootChainOrderAndDedup(t *testing.T) {
 	exe := filepath.Join("bin", "seelex.exe")
-	got := pluginRootChain("a, b ,a", "c", exe)
+	got := config.PluginRootChain("a, b ,a", "c", exe)
 	want := []string{
 		"a", "b", "c",
 		filepath.Join("bin", "plugins"),
@@ -37,7 +38,7 @@ func TestPluginRootChainOrderAndDedup(t *testing.T) {
 
 func TestPluginRootChainWithoutFlagFallsBackToExeThenCwd(t *testing.T) {
 	exe := filepath.Join(string(filepath.Separator), "app", "bin", "seelex")
-	got := pluginRootChain("", "", exe)
+	got := config.PluginRootChain("", "", exe)
 	want := []string{
 		filepath.Join(string(filepath.Separator), "app", "bin", "plugins"),
 		filepath.Join(string(filepath.Separator), "app", "plugins"),
@@ -48,7 +49,7 @@ func TestPluginRootChainWithoutFlagFallsBackToExeThenCwd(t *testing.T) {
 	}
 
 	// 重复根只留一份：CWD 就是二进制所在目录时，<exe>/../plugins 与收尾的 plugins 是同一个。
-	deduped := pluginRootChain("plugins", "", filepath.Join("plugins", "seelex.exe"))
+	deduped := config.PluginRootChain("plugins", "", filepath.Join("plugins", "seelex.exe"))
 	if len(deduped) != 2 {
 		t.Fatalf("deduped chain = %v, want 2 entries", deduped)
 	}
@@ -60,12 +61,12 @@ func TestPluginRootChainWithoutFlagFallsBackToExeThenCwd(t *testing.T) {
 // TestPluginRootsUsesFlagThenEnvThenExe 是真实环境下的链序（旗标 / $SEELEX_PLUGINS /
 // 可执行文件位置）。
 func TestPluginRootsUsesFlagThenEnvThenCwd(t *testing.T) {
-	original := *pluginsPaths
-	defer func() { *pluginsPaths = original }()
+	original := launchFlags.PluginsPaths
+	defer func() { launchFlags.PluginsPaths = original }()
 
 	t.Setenv("SEELEX_PLUGINS", filepath.Join("env", "plugins"))
-	*pluginsPaths = filepath.Join("flag", "plugins")
-	roots := pluginRoots()
+	launchFlags.PluginsPaths = filepath.Join("flag", "plugins")
+	roots := config.PluginRoots(launchFlags.PluginsPaths)
 	if len(roots) == 0 || roots[0] != filepath.Join("flag", "plugins") {
 		t.Fatalf("roots = %v, want the flag root first", roots)
 	}
@@ -77,19 +78,19 @@ func TestPluginRootsUsesFlagThenEnvThenCwd(t *testing.T) {
 	}
 
 	// 旗标为空时链首落到环境变量（defer 恢复见上）。
-	*pluginsPaths = ""
-	if roots := pluginRoots(); roots[0] != filepath.Join("env", "plugins") {
+	launchFlags.PluginsPaths = ""
+	if roots := config.PluginRoots(launchFlags.PluginsPaths); roots[0] != filepath.Join("env", "plugins") {
 		t.Fatalf("roots = %v, want $SEELEX_PLUGINS first when -plugins is empty", roots)
 	}
 }
 
 func TestRequirePluginsIsExplicitAboutZeroPlugins(t *testing.T) {
 	loaded := []plugin.Plugin{{Name: "default"}}
-	if err := requirePlugins([]string{"plugins"}, loaded); err != nil {
+	if err := config.RequirePlugins([]string{"plugins"}, loaded); err != nil {
 		t.Fatalf("non-empty plugin set must pass: %v", err)
 	}
 
-	err := requirePlugins([]string{"a/plugins", "b/plugins"}, nil)
+	err := config.RequirePlugins([]string{"a/plugins", "b/plugins"}, nil)
 	if err == nil {
 		t.Fatal("zero plugins must be an explicit error, not a silent downgrade")
 	}
@@ -100,24 +101,60 @@ func TestRequirePluginsIsExplicitAboutZeroPlugins(t *testing.T) {
 		}
 	}
 
-	if err := requirePlugins(nil, nil); err == nil || !strings.Contains(err.Error(), "责任链为空") {
+	if err := config.RequirePlugins(nil, nil); err == nil || !strings.Contains(err.Error(), "责任链为空") {
 		t.Fatalf("empty chain error = %v, want it to spell out that nothing was tried", err)
 	}
 }
 
-// TestPluginRootChainIsTheOnlySourceOfLoaderRoots 钉住"根解析只有一条路"：main.go 里
-// 除了 pluginRootChain 不该再有第二处拼插件根的地方（旧口径直接 splitPaths(*pluginsPaths)）。
+// TestPluginRootChainIsTheOnlySourceOfLoaderRoots 钉住"根解析只有一条路"：全仓生产代码里
+// 拼插件根的地方只有 wiring/config/plugins.go 一处。旧口径在组合根里直接
+// `splitPaths(*pluginsPaths)`，于是发行包旁边的 plugins/ 是死的。
+//
+// 判据从"某个文件里没有某个字符串"升级成"**调用点只有一处**"：搬迁之后陈旧写法会跟着
+// 代码换文件，只有数调用点才钉得住。
 func TestPluginRootChainIsTheOnlySourceOfLoaderRoots(t *testing.T) {
 	source, err := os.ReadFile("main.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(source)
-	if strings.Contains(text, "plugin.NewLoader(splitPaths(*pluginsPaths)...)") {
-		t.Fatal("main.go 仍在直接消费 -plugins：根解析必须走 pluginRootChain（否则链上其余根是死的）")
-	}
 	if !strings.Contains(text, "plugin.NewLoader(roots...)") {
-		t.Fatal("initPluginSystem 应当用 pluginRootChain 解析出的 roots 构造 loader")
+		t.Fatal("initPluginSystem 应当用责任链解析出的 roots 构造 loader")
+	}
+	if !strings.Contains(text, "config.PluginRoots(launchFlags.PluginsPaths)") {
+		t.Fatal("组合根必须把 -plugins 交给 config.PluginRoots 解析（自己拼根会让链上其余根变死）")
+	}
+
+	const want = "wiring/config/plugins.go"
+	var callers []string
+	err = filepath.WalkDir(".", func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			switch entry.Name() {
+			case ".git", "dist", "tmp", "vendor", "node_modules", ".gocache", "_scratch", "local":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		if strings.Contains(string(data), "PluginRootChain(") {
+			callers = append(callers, filepath.ToSlash(path))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(callers) != 1 || callers[0] != want {
+		t.Fatalf("拼插件根的地方只能有一处（%s），得到 %v", want, callers)
 	}
 }
 

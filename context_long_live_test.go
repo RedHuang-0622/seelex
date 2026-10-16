@@ -25,9 +25,9 @@ func TestManualSmokeRealAccountLongContextRehydration(t *testing.T) {
 	}
 
 	projectRoot := t.TempDir()
-	accountsPath := filepath.Join(projectRoot, "accounts.yaml")
-	copyOpaqueFile(t, accountsSource, accountsPath)
-	harness := newFullChainHarness(t, accountsPath, projectRoot, 45*time.Second)
+	AccountsPath := filepath.Join(projectRoot, "accounts.yaml")
+	copyOpaqueFile(t, accountsSource, AccountsPath)
+	harness := newFullChainHarness(t, AccountsPath, projectRoot, 45*time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer cancel()
 

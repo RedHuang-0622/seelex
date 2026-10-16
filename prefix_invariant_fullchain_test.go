@@ -185,13 +185,13 @@ func TestFullChainPrefixInvariantAcrossTurns(t *testing.T) {
 		t.Fatal(err)
 	}
 	provider := newFullChainPrefixServer(t, "read_file", probePath)
-	accountsPath := filepath.Join(projectRoot, "accounts.yaml")
+	AccountsPath := filepath.Join(projectRoot, "accounts.yaml")
 	accounts := fmt.Sprintf("roles:\n  agent:\n    - model: test-model\n      base_url: %s\n      api_key: test-key\n", provider.URL)
-	if err := os.WriteFile(accountsPath, []byte(accounts), 0o644); err != nil {
+	if err := os.WriteFile(AccountsPath, []byte(accounts), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	harness := newFullChainHarness(t, accountsPath, projectRoot, 30*time.Second)
+	harness := newFullChainHarness(t, AccountsPath, projectRoot, 30*time.Second)
 	submit := func(prompt string) {
 		t.Helper()
 		if err := harness.app.Submit(ctx, prompt); err != nil {
@@ -299,13 +299,13 @@ func TestFullChainPrefixInvariantToolErrorAcrossTurns(t *testing.T) {
 	// 未绑定 project：read_file 必定失败（project scope: no project is bound to
 	// this session），使工具结果走「wire 原文 ≠ 记录侧呈现文本」这条分叉路径。
 	provider := newFullChainPrefixServer(t, "read_file", "unbound-probe.txt")
-	accountsPath := filepath.Join(projectRoot, "accounts.yaml")
+	AccountsPath := filepath.Join(projectRoot, "accounts.yaml")
 	accounts := fmt.Sprintf("roles:\n  agent:\n    - model: test-model\n      base_url: %s\n      api_key: test-key\n", provider.URL)
-	if err := os.WriteFile(accountsPath, []byte(accounts), 0o644); err != nil {
+	if err := os.WriteFile(AccountsPath, []byte(accounts), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	harness := newUnboundFullChainHarness(t, accountsPath, projectRoot, 30*time.Second)
+	harness := newUnboundFullChainHarness(t, AccountsPath, projectRoot, 30*time.Second)
 	submit := func(prompt string) {
 		t.Helper()
 		if err := harness.app.Submit(ctx, prompt); err != nil {
@@ -357,13 +357,13 @@ func TestFullChainPrefixInvariantOversizedToolResultAcrossTurns(t *testing.T) {
 		t.Fatal(err)
 	}
 	provider := newFullChainPrefixServer(t, "read_file", probePath)
-	accountsPath := filepath.Join(projectRoot, "accounts.yaml")
+	AccountsPath := filepath.Join(projectRoot, "accounts.yaml")
 	accounts := fmt.Sprintf("roles:\n  agent:\n    - model: test-model\n      base_url: %s\n      api_key: test-key\n", provider.URL)
-	if err := os.WriteFile(accountsPath, []byte(accounts), 0o644); err != nil {
+	if err := os.WriteFile(AccountsPath, []byte(accounts), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	harness := newFullChainHarness(t, accountsPath, projectRoot, 30*time.Second)
+	harness := newFullChainHarness(t, AccountsPath, projectRoot, 30*time.Second)
 	submit := func(prompt string) {
 		t.Helper()
 		if err := harness.app.Submit(ctx, prompt); err != nil {

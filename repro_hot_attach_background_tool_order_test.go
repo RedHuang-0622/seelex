@@ -34,10 +34,10 @@ import (
 // newToolInlineHarness 复制 full-chain harness 装配，并额外注册一个必然
 // 成功的 inline 工具 ping_tool（避免 read_file 依赖项目根/文件系统细节，
 // 让复现只针对“后台工具轮顺序”）。
-func newToolInlineHarness(t *testing.T, accountsPath, projectRoot string, toolTimeout time.Duration) fullChainHarness {
+func newToolInlineHarness(t *testing.T, AccountsPath, projectRoot string, toolTimeout time.Duration) fullChainHarness {
 	t.Helper()
 	runtimeBridge, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{
-		AccountsPath:    accountsPath,
+		AccountsPath:    AccountsPath,
 		StorePath:       filepath.Join(projectRoot, "runtime"),
 		ToolCallTimeout: toolTimeout,
 	})
@@ -54,9 +54,9 @@ func newToolInlineHarness(t *testing.T, accountsPath, projectRoot string, toolTi
 		t.Fatal(err)
 	}
 
-	originalStorePath := *storePath
-	*storePath = filepath.Join(projectRoot, "sessions")
-	t.Cleanup(func() { *storePath = originalStorePath })
+	originalStorePath := launchFlags.StorePath
+	launchFlags.StorePath = filepath.Join(projectRoot, "sessions")
+	t.Cleanup(func() { launchFlags.StorePath = originalStorePath })
 	st, err := initStore()
 	if err != nil {
 		t.Fatal(err)
@@ -286,14 +286,14 @@ func TestHotAttachBackgroundToolRoundKeepsToolBeforeFinalLLM(t *testing.T) {
 	}()
 
 	tempDir := t.TempDir()
-	accountsPath := filepath.Join(tempDir, "accounts.yaml")
+	AccountsPath := filepath.Join(tempDir, "accounts.yaml")
 	accounts := "roles:\n  agent:\n" +
 		fmt.Sprintf("    - model: test-model\n      base_url: %s\n      api_key: test-key-1\n", server.URL) +
 		fmt.Sprintf("    - model: test-model\n      base_url: %s\n      api_key: test-key-2\n", server.URL)
-	if err := os.WriteFile(accountsPath, []byte(accounts), 0o600); err != nil {
+	if err := os.WriteFile(AccountsPath, []byte(accounts), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	harness := newToolInlineHarness(t, accountsPath, tempDir, 10*time.Second)
+	harness := newToolInlineHarness(t, AccountsPath, tempDir, 10*time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 

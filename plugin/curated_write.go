@@ -175,7 +175,7 @@ func pluginLivesInRoot(p Plugin, root string) bool {
 }
 
 // sameFilePath 比对两条路径是否同一处（Windows 上大小写不敏感——同一个根可能以两种写法
-// 出现在责任链上，见 main.go 的 dedupRoots）。
+// 出现在责任链上，见 wiring/config 的 DedupRoots）。
 func sameFilePath(a, b string) bool {
 	if a == b {
 		return true

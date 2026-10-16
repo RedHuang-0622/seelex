@@ -149,13 +149,13 @@ func newScriptedHarness(t *testing.T, responses []scriptedResponse) (*fullChainH
 	t.Cleanup(server.Close)
 
 	tempDir := t.TempDir()
-	accountsPath := filepath.Join(tempDir, "accounts.yaml")
+	AccountsPath := filepath.Join(tempDir, "accounts.yaml")
 	accounts := "roles:\n  agent:\n" +
 		fmt.Sprintf("    - model: test-model\n      base_url: %s\n      api_key: test-key\n", server.URL)
-	if err := os.WriteFile(accountsPath, []byte(accounts), 0o600); err != nil {
+	if err := os.WriteFile(AccountsPath, []byte(accounts), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	harness := newToolInlineHarness(t, accountsPath, tempDir, 10*time.Second)
+	harness := newToolInlineHarness(t, AccountsPath, tempDir, 10*time.Second)
 	return &harness, provider
 }
 

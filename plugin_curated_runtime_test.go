@@ -5,15 +5,15 @@ package main
 // 复核实读背景（2026-10-05）：`plugin.LoadCuratedFromRoot` / `ActivateFromCatalog` 当时
 // 只出现在测试里 —— 真走 team_plan 时，一个 pending 名字落到的是 `validateMemberPlugins`
 // 的"插件 %q 未定义"，文案里既没有 pending 也没有来源；`main.go` 的 `startupWarnings` 是
-// 唯一进 UI 面的通路，而根读数（logPluginRoots）只写终端日志。
+// 唯一进 UI 面的通路，而根读数（config.LogPluginRoots）只写终端日志。
 //
 // 本文件钉四件事：
-//  1. `resolveCuratedRead` 真的从**已解析的插件根**读（first-wins）、并与本次真正加载出来的
+//  1. `config.ResolveCuratedRead` 真的从**已解析的插件根**读（first-wins）、并与本次真正加载出来的
 //     插件集合交叉校验；
 //  2. 目录**读不到**时出声（Err 非空 + 说清找过哪些根），判决函数对每个未定义名显式拒绝
 //     ——不得静默当空目录；
 //  3. 判决文案三种分支各自可判别（pending + 上游来源 + 实读页 / 两边都不在 / 目录说它已落盘）；
-//  4. 根读数（加载了几个、从哪个根）与 logPluginRoots 是**同一份字节**，且进得了 UI 面。
+//  4. 根读数（加载了几个、从哪个根）与 config.LogPluginRoots 是**同一份字节**，且进得了 UI 面。
 
 import (
 	"os"
@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/plugin"
+	"github.com/RedHuang-0622/seelex/wiring/config"
 )
 
 // ── A：运行期读精选目录 ─────────────────────────────────────────────────────
@@ -33,7 +34,7 @@ func TestResolveCuratedReadReadsFromResolvedRootsAndJudges(t *testing.T) {
 	writeCuratedRootFile(t, root, curatedFixtureYAML("default", "docs"))
 
 	loaded := loadCuratedRootPlugins(t, root)
-	read := resolveCuratedRead([]string{root}, loaded)
+	read := config.ResolveCuratedRead([]string{root}, loaded)
 	if read.Err != nil {
 		t.Fatalf("合法目录必须读得出来：%v", read.Err)
 	}
@@ -48,7 +49,7 @@ func TestResolveCuratedReadReadsFromResolvedRootsAndJudges(t *testing.T) {
 		t.Fatalf("目录里的 pending %q 没被读出来——判决函数就无从点名来源", curatedFixtureRoadmap)
 	}
 
-	judge := curatedAssemblyJudge(read)
+	judge := config.CuratedAssemblyJudge(read)
 	installed := []string{"default", "docs"}
 
 	// ① pending（路线图）：拒，且点名 pending + 上游来源 + 实读页。
@@ -89,7 +90,7 @@ func TestResolveCuratedReadMissIsExplicitButNotAStartupWarning(t *testing.T) {
 	other := t.TempDir()
 	roots := []string{empty, other}
 
-	read := resolveCuratedRead(roots, nil)
+	read := config.ResolveCuratedRead(roots, nil)
 	if read.Err == nil {
 		t.Fatal("责任链上一个根都没有 curated.yaml 时必须留 Err（静默当空目录会把 pending 判成错别字）")
 	}
@@ -99,7 +100,7 @@ func TestResolveCuratedReadMissIsExplicitButNotAStartupWarning(t *testing.T) {
 	if len(read.Drift) != 0 {
 		t.Errorf("目录都没读到，不该有漂移读数: %v", read.Drift)
 	}
-	judge := curatedAssemblyJudge(read)
+	judge := config.CuratedAssemblyJudge(read)
 	err := judge(curatedFixtureRoadmap, []string{"default"})
 	if err == nil {
 		t.Fatal("目录缺席时的装配必须被拒绝（不得静默当空目录）")
@@ -109,7 +110,7 @@ func TestResolveCuratedReadMissIsExplicitButNotAStartupWarning(t *testing.T) {
 	// 解析失败（字段缺失）算"存在却读不动"：Absent 为假，且要点名那一份坏文件。
 	broken := t.TempDir()
 	writeCuratedRootFile(t, broken, "schema_version: 1\nkind: curated-catalog\n")
-	read = resolveCuratedRead([]string{broken}, nil)
+	read = config.ResolveCuratedRead([]string{broken}, nil)
 	if read.Err == nil {
 		t.Fatal("坏目录必须留 Err")
 	}
@@ -119,7 +120,7 @@ func TestResolveCuratedReadMissIsExplicitButNotAStartupWarning(t *testing.T) {
 	if read.Path != filepath.Join(broken, plugin.CuratedFileName) {
 		t.Fatalf("坏目录也要点名实读页，得 %q", read.Path)
 	}
-	curatedWantError(t, "目录解析失败", curatedAssemblyJudge(read)(curatedFixtureRoadmap, nil),
+	curatedWantError(t, "目录解析失败", config.CuratedAssemblyJudge(read)(curatedFixtureRoadmap, nil),
 		"没读到", plugin.CuratedFileName)
 }
 
@@ -136,7 +137,7 @@ func TestResolveCuratedReadToleratesLocalPluginDrift(t *testing.T) {
 	writeCuratedRootFile(t, root, curatedFixtureYAML("default", "ghost"))
 
 	installed := loadCuratedRootPlugins(t, root)
-	read := resolveCuratedRead([]string{root}, installed)
+	read := config.ResolveCuratedRead([]string{root}, installed)
 	if read.Err != nil {
 		t.Fatalf("本机自装/退役插件只是差异、不是错误，目录必须读得出来：%v", read.Err)
 	}
@@ -157,7 +158,7 @@ func TestResolveCuratedReadToleratesLocalPluginDrift(t *testing.T) {
 	}
 }
 
-// installedNames 把加载出来的插件渲染成名字清单（与 resolveCuratedRead 内部同一口径）。
+// installedNames 把加载出来的插件渲染成名字清单（与 config.ResolveCuratedRead 内部同一口径）。
 func installedNames(plugins []plugin.Plugin) []string {
 	names := make([]string, 0, len(plugins))
 	for _, p := range plugins {
@@ -169,7 +170,7 @@ func installedNames(plugins []plugin.Plugin) []string {
 // ── B：根读数进 UI 面 ──────────────────────────────────────────────────────
 
 // TestPluginRootReadingIsSharedAndReachesTheUIFace 钉住 B 的两半：
-//  1. 根读数写明"每个根供了几个 + 每个插件来自哪个根"，且 logPluginRoots **返回同一份字节**
+//  1. 根读数写明"每个根供了几个 + 每个插件来自哪个根"，且 config.LogPluginRoots **返回同一份字节**
 //     （两处各生成一次就会出现两份对不上的读数）；
 //  2. 这条读数确实进 UI 面（run() 的启动通知），不是只写终端日志。
 func TestPluginRootReadingIsSharedAndReachesTheUIFace(t *testing.T) {
@@ -181,7 +182,7 @@ func TestPluginRootReadingIsSharedAndReachesTheUIFace(t *testing.T) {
 		t.Fatalf("夹具应加载出 2 个插件，得 %d", len(loaded))
 	}
 
-	report := logPluginRoots([]string{first, second}, loaded)
+	report := config.LogPluginRoots([]string{first, second}, loaded)
 	curatedWantError(t, "根读数", errorString(report),
 		first+"=1", second+"=1", "共加载 2 个插件", "alpha←", "beta←")
 
@@ -192,7 +193,7 @@ func TestPluginRootReadingIsSharedAndReachesTheUIFace(t *testing.T) {
 	if len(loaded) != 2 {
 		t.Fatalf("同名插件去重后应仍是 2 个，得 %d", len(loaded))
 	}
-	report = logPluginRoots([]string{first, second}, loaded)
+	report = config.LogPluginRoots([]string{first, second}, loaded)
 	curatedWantError(t, "first-wins 根读数", errorString(report),
 		first+"=1", second+"=1", "共加载 2 个插件", "alpha←"+filepath.Join(first, "alpha"))
 	if strings.Contains(report, "alpha←"+filepath.Join(second, "alpha")) {
@@ -211,8 +212,11 @@ func TestPluginRootReadingIsSharedAndReachesTheUIFace(t *testing.T) {
 	if !strings.Contains(text, `app.AddNotice("插件: " + pluginStartup.RootReading)`) {
 		t.Fatal("根读数必须进 UI 面（app.AddNotice）——只写 log.Printf 的话，GUI 里根本看不到")
 	}
-	if !strings.Contains(text, "pluginRootReport(roots, loaded)") {
-		t.Fatal("根读数必须只有一处生成（pluginRootReport），终端与 UI 两处引用同一份字节")
+	// 根读数只有一处生成：`config.PluginRootReport` 的唯一调用点在
+	// wiring/config/plugins.go 的 LogPluginRoots 里，装配面拿到的就是它返回的那份字节。
+	// 装配面因此只能通过 `config.LogPluginRoots(...)` 取读数，不能自己再拼一条。
+	if !strings.Contains(text, "config.LogPluginRoots(roots, loaded)") {
+		t.Fatal("装配面必须经 config.LogPluginRoots 取根读数（读数生成只有 PluginRootReport 一处）")
 	}
 }
 

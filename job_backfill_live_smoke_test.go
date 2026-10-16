@@ -57,12 +57,12 @@ func TestManualSmokeRealAccountJobBackfillWithoutManage(t *testing.T) {
 		t.Skip("set SEELEX_SMOKE_ACCOUNTS to an accounts.yaml path to run the live smoke test")
 	}
 	projectRoot := t.TempDir()
-	accountsPath := filepath.Join(projectRoot, "accounts.yaml")
-	copyOpaqueFile(t, accountsSource, accountsPath)
+	AccountsPath := filepath.Join(projectRoot, "accounts.yaml")
+	copyOpaqueFile(t, accountsSource, AccountsPath)
 
 	// 作业面必须显式打开（limits.async_exec.enabled）；工具超时给足，别让派发回合
 	// 被超时掐掉。
-	harness := newFullChainHarnessWithLimits(t, accountsPath, projectRoot, 60*time.Second, true,
+	harness := newFullChainHarnessWithLimits(t, AccountsPath, projectRoot, 60*time.Second, true,
 		limit.Limits{AsyncExec: limit.AsyncExecLimits{Enabled: true}, ForkTimeoutSec: 120})
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()

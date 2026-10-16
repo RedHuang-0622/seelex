@@ -154,11 +154,11 @@ func TestProjectBoardEndToEndThroughToolFace(t *testing.T) {
 
 	projectRoot := t.TempDir()
 	provider := newProjectBoardE2EServer(t)
-	accountsPath := projectBoardAccountsFor(t, provider.URL, projectRoot)
+	AccountsPath := projectBoardAccountsFor(t, provider.URL, projectRoot)
 
 	limits := limit.Limits{}
 	limits.ProjectBoard.Enabled = true
-	harness := newFullChainHarnessWithLimits(t, accountsPath, projectRoot, 30*time.Second, true, limits)
+	harness := newFullChainHarnessWithLimits(t, AccountsPath, projectRoot, 30*time.Second, true, limits)
 	// 落点是**会话所属工作区的项目根**（`<项目根>/.seelex/board/`）：生产里由工作区绑定给出，
 	// 所以这里也先把这个会话绑到一个真实工作区上——不绑就没有落点，读面读不到东西。
 	viewSession := harness.app.Snapshot().Session.ID
