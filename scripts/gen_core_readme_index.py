@@ -28,6 +28,7 @@ EXTRA_PACKAGES = [
     REPO / "backend" / "limit",
     REPO / "backend" / "limit" / "policy",
     REPO / "wiring" / "config",
+    REPO / "wiring" / "registry",
 ]
 
 # 会话/视图/审批等跨域回归测试：文件名前缀不表达归属，用显式名单挂到 session 卷

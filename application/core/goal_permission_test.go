@@ -78,7 +78,7 @@ func TestAgentGoalUpdateCannotRewriteDefinition(t *testing.T) {
 	}
 
 	// ④ 取消路径：agent 面**没有**直接取消 goal 的工具（工具族 = goal_begin /
-	// goal_update / goal_status / goal_propose_finish，见 register_goal_tools.go），
+	// goal_update / goal_status / goal_propose_finish，见 wiring/registry），
 	// 收口只能由 TL 裁决（verdict_done）或 B4 缺席回退给出。
 	// 注：未启用 ADVISOR 的会话里"提议即直连收口"（OutcomeNoTL）是既有 B4 安全默认
 	// ——没有 b 可问时不能让目标永远无法收口；那不是 agent 多出来的权力，本轮的权限

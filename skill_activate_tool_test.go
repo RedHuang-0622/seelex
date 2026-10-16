@@ -10,6 +10,7 @@ import (
 
 	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/skill"
+	"github.com/RedHuang-0622/seelex/wiring/registry"
 )
 
 // newSkillToolHarness 构造 skill_activate 工具测试台：真实 skill.Registry +
@@ -45,7 +46,7 @@ mcp_servers: []
 	t.Cleanup(runtime.Shutdown)
 	skills := initSkillSystem()
 	var activated []string
-	registerSkillActivateTool(runtime, skills, func(name string) (skill.Skill, error) {
+	registry.RegisterSkillActivateTool(runtime, skills, func(name string) (skill.Skill, error) {
 		activated = append(activated, name)
 		if name != "s1" && name != "s2" && name != "s3" {
 			return skill.Skill{}, os.ErrNotExist

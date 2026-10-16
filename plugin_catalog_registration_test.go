@@ -21,6 +21,7 @@ import (
 
 	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/plugin"
+	"github.com/RedHuang-0622/seelex/wiring/registry"
 )
 
 // catalogFixtureYAML 是"发行包自带的那份目录"的缩样：一个已登记插件（seed）+ 一条装配
@@ -118,7 +119,7 @@ mcp_servers: []
 	if err != nil {
 		t.Fatalf("initPluginSystem: %v", err)
 	}
-	registerPluginSelfTools(runtime, plugins)
+	registry.RegisterPluginSelfTools(runtime, plugins)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)

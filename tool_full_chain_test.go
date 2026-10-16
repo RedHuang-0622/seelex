@@ -25,6 +25,7 @@ import (
 	"github.com/RedHuang-0622/seelex/store"
 	workspacerepo "github.com/RedHuang-0622/seelex/store/workspace"
 	"github.com/RedHuang-0622/seelex/wiring"
+	"github.com/RedHuang-0622/seelex/wiring/registry"
 )
 
 // requireGitBash 断言环境提供真实 bash（git-bash 或非 WSL 的 PATH bash）。
@@ -301,15 +302,15 @@ func newFullChainHarnessWithLimits(t *testing.T, AccountsPath, projectRoot strin
 		t.Fatal(err)
 	}
 	// 回读类工具（read_tool_result / read_compressed_turn / search_history /
-	// compact_context）在生产里由 main.run() 经 registerContextReadTools 登记。
+	// compact_context）在生产里由 main.run() 经 registry.RegisterContextReadTools 登记。
 	// 测试装配必须同等登记：否则模型收到「超限输入已外置，请用 read_tool_result
 	// 回读」的告示却根本没有这个工具，只能退回 bash/computer_screenshot 去找
 	// 内容——用例测到的行为与产品不一致（冒烟里模型把截图当回读入口就是这么来的）。
-	registerContextReadTools(runtimeBridge, app)
-	// 周期提示词任务的执行器：与组合根同一份（main.scheduledPromptExecutor）。
+	registry.RegisterContextReadTools(runtimeBridge, app)
+	// 周期提示词任务的执行器：与组合根同一份（registry.ScheduledPromptExecutor）。
 	// 缺这一句时 scheduler 的 executor 是 nil，prompt 任务**根本创建不出来**
 	// （"提示词任务执行器未装配"），冒烟会把装配缺口误报成链子坏了。
-	runtimeBridge.SetScheduledPromptExecutor(scheduledPromptExecutor(app))
+	runtimeBridge.SetScheduledPromptExecutor(registry.ScheduledPromptExecutor(app))
 	t.Cleanup(app.Shutdown)
 	hooks.Bind(app)
 	return fullChainHarness{

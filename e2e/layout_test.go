@@ -40,6 +40,7 @@ var repositoryModules = []string{
 	"session", "skill", "store", "store/root", "store/schedule", "store/workspace",
 	"tui", "tui/splash", "wiring",
 	"wiring/config",
+	"wiring/registry",
 }
 
 var repositoryModuleDocumentation = map[string]string{

@@ -20,6 +20,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application/core"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/wiring/registry"
 )
 
 const projectBoardWiringSession = "session-board-wiring"
@@ -123,12 +124,12 @@ func TestProjectBoardDisabledInjectsNothing(t *testing.T) {
 	router, dataRoot, projectRoot := projectBoardWiringStore(t)
 	rows, plan, state, projectRootFor := projectBoardWiringDeps(projectRoot)
 
-	sink, closeSink, err := projectBoardSinkFor(
+	sink, closeSink, err := registry.ProjectBoardSinkFor(
 		limit.ProjectBoardLimits{Enabled: false, Hook: "", FlushIdleMS: 20},
 		router, rows, plan, state, projectRootFor,
 	)
 	if err != nil {
-		t.Fatalf("projectBoardSinkFor: %v", err)
+		t.Fatalf("registry.ProjectBoardSinkFor: %v", err)
 	}
 	if sink != nil {
 		t.Fatal("enabled=false 必须不返回订阅口（关就是关）")
@@ -147,7 +148,7 @@ func TestProjectBoardRejectsUnknownHook(t *testing.T) {
 	router, _, projectRoot := projectBoardWiringStore(t)
 	rows, plan, state, projectRootFor := projectBoardWiringDeps(projectRoot)
 
-	sink, closeSink, err := projectBoardSinkFor(
+	sink, closeSink, err := registry.ProjectBoardSinkFor(
 		limit.ProjectBoardLimits{Enabled: true, Hook: "todo-list", FlushIdleMS: 20},
 		router, rows, plan, state, projectRootFor,
 	)
@@ -164,7 +165,7 @@ func TestProjectBoardRejectsUnknownHook(t *testing.T) {
 
 	// 空串 = 未配置 ⇒ 缺省档 todo_list（与出厂档一致）。
 	for _, hook := range []string{"", " todo_list ", "TOOL_COMPLETE"} {
-		if _, closeIdle, err := projectBoardSinkFor(
+		if _, closeIdle, err := registry.ProjectBoardSinkFor(
 			limit.ProjectBoardLimits{Enabled: true, Hook: hook, FlushIdleMS: 20},
 			router, rows, plan, state, projectRootFor,
 		); err != nil {
@@ -181,12 +182,12 @@ func TestProjectBoardEnabledWritesArtifacts(t *testing.T) {
 	router, dataRoot, projectRoot := projectBoardWiringStore(t)
 	rows, plan, state, projectRootFor := projectBoardWiringDeps(projectRoot)
 
-	sink, closeSink, err := projectBoardSinkFor(
+	sink, closeSink, err := registry.ProjectBoardSinkFor(
 		limit.ProjectBoardLimits{Enabled: true, Hook: core.ProjectBoardHookModeTodoList, FlushIdleMS: 20},
 		router, rows, plan, state, projectRootFor,
 	)
 	if err != nil {
-		t.Fatalf("projectBoardSinkFor: %v", err)
+		t.Fatalf("registry.ProjectBoardSinkFor: %v", err)
 	}
 
 	// ① 未命中触发面（read_file 不在 todo_list 档）：一行都不写。

@@ -25,6 +25,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/wiring/registry"
 )
 
 // projectBoardMarker 是写进投影载荷的**唯一标记**：它只可能来自投影文件，
@@ -121,17 +122,17 @@ func TestProjectBoardPrefixBytesIdentical(t *testing.T) {
 	onLimits.ProjectBoard.FlushIdleMS = 20
 	on := newFullChainHarnessWithLimits(t, AccountsPath, onRoot, 30*time.Second, true, onLimits)
 	// 能力开的这一臂按生产装配补齐两件事：注入订阅口 + 注册读取面。
-	sink, closeSink, err := projectBoardSinkFor(
+	sink, closeSink, err := registry.ProjectBoardSinkFor(
 		onLimits.ProjectBoard, on.st,
 		on.app.WorkTableRowsFor, on.app.ProjectBoardTeamPlanFor,
 		on.app.ProjectBoardTeamStateFor, on.app.ProjectRootFor,
 	)
 	if err != nil {
-		t.Fatalf("projectBoardSinkFor: %v", err)
+		t.Fatalf("registry.ProjectBoardSinkFor: %v", err)
 	}
 	defer closeSink()
 	on.app.SetProjectBoardSink(sink)
-	registerProjectBoardReadTool(on.runtime, on.st, on.app)
+	registry.RegisterProjectBoardReadTool(on.runtime, on.st, on.app)
 	writeMarkedProjectBoardProjection(t, on, onRoot)
 
 	onPrefix := promptLayerBytes(t, on.app)
@@ -160,17 +161,17 @@ func TestProjectBoardNeverReachesRequest(t *testing.T) {
 	limits := limit.Limits{}
 	limits.ProjectBoard.Enabled = true
 	harness := newFullChainHarnessWithLimits(t, AccountsPath, projectRoot, 30*time.Second, true, limits)
-	sink, closeSink, err := projectBoardSinkFor(
+	sink, closeSink, err := registry.ProjectBoardSinkFor(
 		limits.ProjectBoard, harness.st,
 		harness.app.WorkTableRowsFor, harness.app.ProjectBoardTeamPlanFor,
 		harness.app.ProjectBoardTeamStateFor, harness.app.ProjectRootFor,
 	)
 	if err != nil {
-		t.Fatalf("projectBoardSinkFor: %v", err)
+		t.Fatalf("registry.ProjectBoardSinkFor: %v", err)
 	}
 	defer closeSink()
 	harness.app.SetProjectBoardSink(sink)
-	registerProjectBoardReadTool(harness.runtime, harness.st, harness.app)
+	registry.RegisterProjectBoardReadTool(harness.runtime, harness.st, harness.app)
 	writeMarkedProjectBoardProjection(t, harness, projectRoot)
 
 	if err := harness.app.Submit(ctx, "只回复『收到』两个字，不要调用任何工具。"); err != nil {

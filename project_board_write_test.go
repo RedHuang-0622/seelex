@@ -16,6 +16,7 @@ import (
 	"context"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/wiring/registry"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,13 +38,13 @@ func TestProjectBoardWriteEndToEndFromTodoTool(t *testing.T) {
 	limits.ProjectBoard.Enabled = true // 装配门：关着时本用例的前提就不成立（另有用例钉"关就是关"）
 	harness := newFullChainHarnessWithLimits(t, AccountsPath, projectRoot, 30*time.Second, true, limits)
 	// 按**生产装配**挂写侧：同步器 + 会话→项目根解析器（main.run 里是同一对调用）。
-	sink, closeSink, err := projectBoardSinkFor(
+	sink, closeSink, err := registry.ProjectBoardSinkFor(
 		limits.ProjectBoard, harness.st,
 		harness.app.WorkTableRowsFor, harness.app.ProjectBoardTeamPlanFor,
 		harness.app.ProjectBoardTeamStateFor, harness.app.ProjectRootFor,
 	)
 	if err != nil {
-		t.Fatalf("projectBoardSinkFor: %v", err)
+		t.Fatalf("registry.ProjectBoardSinkFor: %v", err)
 	}
 	defer closeSink()
 	harness.app.SetProjectBoardSink(sink)

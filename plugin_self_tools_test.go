@@ -10,6 +10,7 @@ import (
 	"time"
 
 	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	"github.com/RedHuang-0622/seelex/wiring/registry"
 )
 
 // TestPluginSelfTools 验证内置自迭代工具族（plugin_create / plugins_reload /
@@ -78,7 +79,7 @@ mcp_servers: []
 	if err != nil {
 		t.Fatalf("initPluginSystem: %v", err)
 	}
-	registerPluginSelfTools(runtime, plugins)
+	registry.RegisterPluginSelfTools(runtime, plugins)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

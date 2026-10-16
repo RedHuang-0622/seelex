@@ -20,6 +20,7 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/adapters"
 	"github.com/RedHuang-0622/seelex/wiring"
+	"github.com/RedHuang-0622/seelex/wiring/registry"
 )
 
 // TestManualSmokeRealAccountPlan verifies the real account path without
@@ -111,7 +112,7 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	// task_needs_user_decision / task_check_node。此前冒烟漏掉此调用，
 	// 模型正确报告"task_complete not available"——终态工具在冒烟 runtime
 	// 中从未注册，计划类阶段的模型行为因此失真。
-	registerTaskTerminalTools(runtime, app)
+	registry.RegisterTaskTerminalTools(runtime, app)
 	// 子代理上下文闭环（与 main.go 同款，Actor 消息边界）：父证据注入走
 	// application 镜像 + 遥测（绝不访问主会话——plan_run 期间主会话被
 	// ChatStream 持锁，直接访问会死锁）；merge-back 经 mailbox 排队注入。
