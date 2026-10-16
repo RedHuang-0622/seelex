@@ -230,6 +230,44 @@ io 组 6（含 e2e 门面闭包清单与 `layout_test.go` 的模块清单）。
   ok 38.3s）；② 高负载时在**干净 `main`（96fc163b）副本**上同样失败（3/3）。失败面是
   `TempDir RemoveAll cleanup` 的 `unlinkat ... being used by another process`，子用例本身全 PASS。
 
+## 8. scheduler 拆分（两片）与四条新偏差
+
+### 8.1 持久化面先拆（`91f1ee2e`）
+
+| 原位置 | 新唯一位置 | 内容 |
+|---|---|---|
+| `seelebridge/scheduler/persistence.go` 的 `ScheduledTaskRecord` | `contract/dto/scheduled_task_record.go` | JSONL 行形状（一行一变更 + `deleted` 墓碑） |
+| 同文件的 `Persistence` 接口 | `contract/scheduled_task_store.go` | 端口改名 `ScheduledTaskPersistence`（泛名不进契约层，D-M4-18） |
+| 同文件的 `FileStore` / `NewFileStore` / `Append` / `Load` / `Path` | `store/schedule/file_store.go` | 逐字同一份实现；端口断言写在实现自己的包里（D-M4-19） |
+| 同文件的纯 FileStore 用例 | `store/schedule/file_store_test.go` | 残尾丢弃、缺文件 = 空集、未配置路径 = 空操作 |
+| 依赖 `State` 夹具的六条用例 | 留在调度器包（现 `backend/engine/schedule/global_jsonl_test.go`） | 经 `State` 的集成面（定义/取消/编辑/重启恢复） |
+
+**plan §2.12.1 有一处内部矛盾**（D-M4-17）：它要求 `Persistence` 接口 → `contract/`、同时
+`ScheduledTaskRecord` → `store/schedule/`。端口签名用到记录，而契约层不能反向依赖 store
+——两者不能同时成立。本轮按"形状随端口走"把记录放进 `contract/dto`（它本来就是线上/落盘
+形状），`store/schedule` 只 import 契约层。
+
+### 8.2 引擎侧整包搬（`62722544`）
+
+`seelebridge/scheduler/**` → `backend/engine/schedule/**`，包名 `scheduler` → `schedule`；
+文件名 `scheduler.go/scheduler_test.go` → `schedule.go/schedule_test.go`，
+`persistence_test.go` → `global_jsonl_test.go`。接线面只有 `seelebridge/{runtime.go,ports.go}`
+两处：**字段名也叫 `scheduler`**（`r.scheduler.X`）必须原样保留——改包名不等于改字段，
+毯式替换会在这里出错。
+
+| ID | 新增偏差 | 处置 |
+|---|---|---|
+| D-M4-17 | plan §2.12.1 的"接口进 contract + 记录进 store"不能同时成立 | 记录随端口进 `contract/dto`，理由写进两个文件的头注 |
+| D-M4-18 | 端口在契约层改名 `Persistence` → `ScheduledTaskPersistence` | 契约层不出现泛名；实现与调用点同批改 |
+| D-M4-19 | 端口断言写在**实现自己的包**里（plan 说写在装配处） | 换实现改不动这条断言；接口漂移立刻编译失败 |
+| D-M4-20 | **故意不**把 `store/schedule` 登记进 `e2e/store_boundary_test.go` 的 I6 scope | 它的直接依赖 = 标准库 + `contract` 系（干净）；`go list -deps` 的传递闭包会被 `contract` 自身的污染带脏，那笔账已由 `contractClosureAllowList` 单独管着，抄第二份就是"同一件事判两处"。理由写在常量处，与 `store/workspace` 同款 |
+| D-M4-21 | 门禁的"任意同名文件"兜底会**掩盖**既有悬空引用：`scheduler_test.go` 一改名，`application/core/agentteam/README.md` 里三行"已删除文件名单"立刻显形 | 已把那两行并成一行并与"已删除"标记同行（语义不变，漂移门禁反而少两条） |
+| D-M4-22 | plan §2.12.1 还想把 `store/schedule_events.go` 搬进 `store/schedule/` | **本轮未搬**：它是 `storeEngine` 的结构事件写方法（`scheduleEventCommit`），与 store 的单写者纪律、`Key`/`structuralEventKind` 内部类型绑在一起；搬出去要暴露 store 内部实现，属"先拆再搬"，需要你点头 |
+
+**本片结束时的实况**：`seelebridge/` 只剩 **5 个包**——`mcp`、`plugin`、`teamwork`、`tools`、
+`workunit`（外加根包与 `.seelex/` 数据目录）。facade 闭包上限因 `store/schedule` 新模块 +1
+（70 → 71），同片删 `mapper` 时降过一次，现在这张表的每次上下调都能在常量处读到理由。
+
 | ID | 事项 | 处置 |
 |---|---|---|
 | D-M4-1 | 首轮替换脚本把 `docs/research/**`、`docs/test/**` 的路径也改写了（这两类是"把当时状态固定下来"的记录）。已 `git checkout` 还原，并把这两类目录加入脚本跳过清单，与 M3 §8.4 登记的口径一致 | 已修 |
