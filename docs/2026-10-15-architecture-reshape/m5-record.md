@@ -802,33 +802,6 @@ R6（中间层常驻/切换域）的第一片，**建立 plan §2.4 点名的 `m
 
 R6 续做（尚未开始）：`runtime_projection`/`diagnostics`/`perf_stats` 三文件已是薄宿主缝（R5c 已把计算搬进 `middle/view`，只剩锁与取数）；其余按 plan §2.4 的落点继续搬
 
-## 27. M5-R6 第十五片：R6-draft（`763877f4`）
-
-| 项 | 内容 |
-|---|---|
-| 原位置 → 新唯一位置 | `application/core/session_draft.go` 的草稿身份两条判据 → `middle/switch/draft.go`（`DraftSessionName` / `DraftSessionIDPrefix` / `NewDraftSessionID` / `DraftTarget.Matches` + `InView`） |
-| 形状（先定形状再依赖倒置） | `DraftTarget{HasSlot, SlotID, ViewDraft, ViewID}` 把判据的两个来源（进程单例**草稿槽** + 共享**视图镜像**）显式建模；`Matches` = 二者取或（廉价闸门，不抢视图过渡锁），`InView` = 视图必须停在草稿上（物化闸门，槽空 = 尚未物化） |
-| 宿主装配 | 新增 `draftTargetLocked()`（持 `Core.ViewMu` 构造 `DraftTarget`），两处调用点各一行转发；`draftSlot`（含 Workspace/CreatedAt/UpdatedAt）、`ErrDraftNotInView`、草稿状态机（字段清理、工作区绑定、事件次序）全部留在宿主 |
-| 判据唯一 | `const draftSessionName = switching.DraftSessionName`（同值别名，4 个使用点零改动）；SID 拼串口径只剩中间层一处 |
-| 用例 | `middle/switch/draft_test.go` 4 组（常量值钉住 = **持久化键口径**、同 tick 去重与格式、`Matches` 九格真值表、`InView` 六格含"视图切走但槽仍命中"的反例）；`application/core` 既有 `session_draft_context_{attach,scope}_test.go` **一行未改**并全绿 = 跨实现一致性 |
-| 复核 | 干净 worktree `tmp/verify-r6draft`（detach `86506780` + 本片文件）：`gofmt -l` 空、`go build ./...` 0、`go vet ./...` 0、`go test ./middle/switch/` ok、`go test ./application/core/ -run Draft` ok、`go test ./e2e/` ok(18.8s)；`contract/**`、`gui/**`、`tui/**`、`middle/protocol/**` 零改动 |
-
-**偏差（提交卫生，登记不改历史）**：`application/core/README-session.md` 在本片 `apply_patch` 之后、提交之前
-被**并行的 R6-content-lru 会话**重新生成过（`--only application/core`），我的 pathspec 提交把这批再生成结果
-一并带走——该文件在本片提交里的 50 行索引增删中只有 1 行（`draftTargetLocked`）属于本主题，其余属 `7c930a86`
-的主题。处置同 §22 先例：**不动历史**（tip 提交做 soft reset 会与并行会话的在途 README 改动抢同一文件），
-但把纪律写进下一轮派单：**生成物（README 分卷）提交前必须 `git diff` 逐行归因，或由负责该文件的会话单独提交**。
-
-**同轮并行（另外两个会话）**：`86506780` 更正契约 §2.1（窄转发钉子钉在 `wiring/adapters/engine_port.go`，
-`assemble.Runtime` 不是窄转发者，只保证公开面逐字不变），并各自独立复核了 R11-task 片与 P13 片；
-`7c930a86` 是 R6-content-lru 的收口提交。
-`resident_lru` / `content_lru` / `session_catalog` / `session_cold_read` / `session_input_index` / `window` / `archive_session`
-（→ `middle/residency/`）、`session_history` / `history_search`（→ `middle/switch/history/`）、
-`session_{lifecycle,release,draft,fork,meta,ctx,pending_tail,queue_recover}`、`service_{scheduler,queue,release_window}`、
-`async_completion`（→ `middle/switch/`）、`service_interaction`（→ `middle/switch/interaction/`）、
-`workspace_usecase`（→ `middle/switch/workspace/`）、`session/`（→ `middle/switch/sessionusecase/`）。
-注意：`work_table*` 与 `middle/view/worktable/**` 另有一个 worker 的在途改动（未提交），本批一直回避那批文件。
-
 ## 17. M5-R6 第二片：R6-residency-order（`a5122479`，收敛重复判据）
 
 这一片不是"搬文件"，而是 plan §2.4 落点前置的一次**重复判据收敛**（AGENTS §8.3）：
@@ -1045,3 +1018,107 @@ A 组别名清单 `FaceTypeNames` + 四条断言（编译期结构满足、方�
 ⇒ 先等 plan §1.5 的 `application/prompt/effort.go` → `backend/limit/{loop,effort}` 下沉（或把两条口径
 改成宿主注入）再搬，避免写出"注入一堆回调"的空壳中间层。
 R6 续做（尚未开始）：`runtime_projection`/`diagnostics`/`perf_stats` 三文件已是薄宿主缝（R5c 已把计算搬进 `middle/view`，只剩锁与取数）；其余按 plan §2.4 的落点继续搬
+
+## 27. M5-R6 第十五片：R6-draft（`763877f4`）
+
+| 项 | 内容 |
+|---|---|
+| 原位置 → 新唯一位置 | `application/core/session_draft.go` 的草稿身份两条判据 → `middle/switch/draft.go`（`DraftSessionName` / `DraftSessionIDPrefix` / `NewDraftSessionID` / `DraftTarget.Matches` + `InView`） |
+| 形状（先定形状再依赖倒置） | `DraftTarget{HasSlot, SlotID, ViewDraft, ViewID}` 把判据的两个来源（进程单例**草稿槽** + 共享**视图镜像**）显式建模；`Matches` = 二者取或（廉价闸门，不抢视图过渡锁），`InView` = 视图必须停在草稿上（物化闸门，槽空 = 尚未物化） |
+| 宿主装配 | 新增 `draftTargetLocked()`（持 `Core.ViewMu` 构造 `DraftTarget`），两处调用点各一行转发；`draftSlot`（含 Workspace/CreatedAt/UpdatedAt）、`ErrDraftNotInView`、草稿状态机（字段清理、工作区绑定、事件次序）全部留在宿主 |
+| 判据唯一 | `const draftSessionName = switching.DraftSessionName`（同值别名，4 个使用点零改动）；SID 拼串口径只剩中间层一处 |
+| 用例 | `middle/switch/draft_test.go` 4 组（常量值钉住 = **持久化键口径**、同 tick 去重与格式、`Matches` 九格真值表、`InView` 六格含"视图切走但槽仍命中"的反例）；`application/core` 既有 `session_draft_context_{attach,scope}_test.go` **一行未改**并全绿 = 跨实现一致性 |
+| 复核 | 干净 worktree `tmp/verify-r6draft`（detach `86506780` + 本片文件）：`gofmt -l` 空、`go build ./...` 0、`go vet ./...` 0、`go test ./middle/switch/` ok、`go test ./application/core/ -run Draft` ok、`go test ./e2e/` ok(18.8s)；`contract/**`、`gui/**`、`tui/**`、`middle/protocol/**` 零改动 |
+
+**偏差（提交卫生，登记不改历史）**：`application/core/README-session.md` 在本片 `apply_patch` 之后、提交之前
+被**并行的 R6-content-lru 会话**重新生成过（`--only application/core`），我的 pathspec 提交把这批再生成结果
+一并带走——该文件在本片提交里的 50 行索引增删中只有 1 行（`draftTargetLocked`）属于本主题，其余属 `7c930a86`
+的主题。处置同 §22 先例：**不动历史**（tip 提交做 soft reset 会与并行会话的在途 README 改动抢同一文件），
+但把纪律写进下一轮派单：**生成物（README 分卷）提交前必须 `git diff` 逐行归因，或由负责该文件的会话单独提交**。
+
+**同轮并行（另外两个会话）**：`86506780` 更正契约 §2.1（窄转发钉子钉在 `wiring/adapters/engine_port.go`，
+`assemble.Runtime` 不是窄转发者，只保证公开面逐字不变），并各自独立复核了 R11-task 片与 P13 片；
+`7c930a86` 是 R6-content-lru 的收口提交。
+`resident_lru` / `content_lru` / `session_catalog` / `session_cold_read` / `session_input_index` / `window` / `archive_session`
+（→ `middle/residency/`）、`session_history` / `history_search`（→ `middle/switch/history/`）、
+`session_{lifecycle,release,draft,fork,meta,ctx,pending_tail,queue_recover}`、`service_{scheduler,queue,release_window}`、
+`async_completion`（→ `middle/switch/`）、`service_interaction`（→ `middle/switch/interaction/`）、
+`workspace_usecase`（→ `middle/switch/workspace/`）、`session/`（→ `middle/switch/sessionusecase/`）。
+注意：`work_table*` 与 `middle/view/worktable/**` 另有一个 worker 的在途改动（未提交），本批一直回避那批文件。
+
+## 28. R11-task / P13 独立复核 + 契约 §2.1 更正 + R11 收口派单 + R6-content-lru（`86506780` / `7c930a86`）
+
+（本节由 root 会话 A 撰写。§27 是会话 B 的 R6-draft 记录（`763877f4`）——A 起草本节时两名会话
+同时提交了同号小节，A 让位改号为 §28，历史不改写（登记：`26611359` 只带 B 的 21 行，A 的 76 行
+仍在工作树，随即以本节入库）。并发分工与编号预留见 `tmp/reshape/root-claim-A.txt`。）
+
+### 28.1 两片交付的独立复核（干净 worktree `tmp/verify-root`，`GOWORK='off'`）
+
+| 片 | SHA | 我复跑的命令与结论 |
+|---|---|---|
+| R11-task | 内容落在 `9e07bc83`（提交卫生问题见 §25） | `go build ./...` 0；`go vet ./...` 0；`go test ./e2e/ -count=1` ok(25.4s)；`go list -deps ./backend/engine/task \| grep -c 'backend/engine/assemble'` = **0**；`git diff --name-only 9e07bc83^ 9e07bc83 -- contract gui tui middle/protocol` 为空 |
+| P13 | `f60feef7` + `ac6aecc6` | `python scripts/gen_core_readme_index.py --check` 连跑两次 exit 0（"检查 67 个 README，无漂移"，跳过 52 个延后包）；写模式跑一遍后 `git status --porcelain` 为空（**幂等**）；`scripts/check_readme_refs.py` = 176 个 README / 20 处未解析（与改动前**同数**，未增）；两个 commit 的 `git show --stat` 只含 `.md` / `.py` |
+
+结论：两片按子代理自报验收，逐条对上。R11-task 的"文件被别人的提交扫走"按 §22 先例**不改写历史**，
+登记 §25，push 前 squash（同时处理 `fd549859`）。
+
+### 28.2 契约 §2.1 更正（`86506780`，+10/−4）
+
+派 R11 收口子代理时发现契约 §2.1 与现状不符：`assemble.Runtime` **不是**窄转发者——
+`var _ contract.RuntimePort = RuntimePort{}` 实际在 `wiring/adapters/engine_port.go:21`，
+`assemble.Runtime` 是被包的那个。按旧文案实现会写出一个编不过的
+`var _ contract.RuntimePort = (*Runtime)(nil)`。已改为：
+
+1. 钉子钉在装配侧（`wiring/adapters`，已存在则复用）；
+2. `assemble.Runtime` 的**公开方法名与签名逐字不变**（各片只搬家 + 一行薄转发）；
+3. 万一必须动公开面，同步补 `wiring/adapters/runtime_narrow_ports.go` 的窄转发与断言，并跑
+   `go test ./wiring/... -run RuntimePort`；
+4. `ports.go` 的终点是**文件不存在**（内容按域搬进域包或 `runtime_<域>.go`），不是删面。
+
+改动脚本 `tmp/reshape/patch_contract_21.py`（锚 `### 2.1 ` → `### 2.2 `，断言单次命中，行数 163 → 169），
+同日把这条更正同步给了在跑的子代理。
+
+### 28.3 R11 收口派单：`/root/r11_ports_remainder`
+
+任务书 [`tmp/reshape/r11-ports-remainder-task.md`](../../tmp/reshape/r11-ports-remainder-task.md)，
+严格按契约 §2.3 的顺序串行五片、一片一 commit（同一 `ports.go`/`runtime.go` 上的并行编辑必然互相覆盖，
+故**不再并行第二个 R11 子代理**）：
+
+| 片 | 范围 | 目标 |
+|---|---|---|
+| S1 | R11-schedule | `RestoreScheduledTasks` … `SetSchedulerObserver` + `Scheduled*` 别名 → `backend/engine/schedule` |
+| S2 | R11-mcp | MCP 转发面 + `MCPServer` 别名 → `backend/engine/mcp` |
+| S3 | R11-plugin | 插件面 + `WithPluginAssembly` → `backend/engine/plugin` |
+| S4 | R11-node | 子代理树 / 节点只读面（状态本就归 `Runtime`，允许只搬进 `runtime_node.go`） |
+| S5 | R11-tail | `PrepareReplan` / `SearchHistory` / 可见性投影 / `SetSessionWorkspace` / `RegisterTaskTerminalTools` + 余下别名，**最后删掉 `ports.go`** |
+
+开发次序按用户要求冻结为"**先形状、再依赖倒置**"：域包先写零依赖 `Host`（stdlib + `contract` +
+`middle/protocol`）与 `New(host)`，宿主既有类型能结构满足就加 `var _ Host = (*X)(nil)` 钉子
+（不写适配层），装配点注入，域用例随域包走，装配层既有端到端用例一行不改。
+
+### 28.4 第十四片 R6-content-lru（`7c930a86`）
+
+`content_lru.go` 的**挑选与迭代判据**归位 `middle/residency.EvictUntilWithinLimit`。
+
+| 原位置 | 内容 | 新唯一位置 |
+|---|---|---|
+| `application/core/content_lru.go:83-117`（循环体 `87-116`） | 收敛循环体：使用序收敛 → 候选过滤（空 ID / 无正文 / `protect` / 受保护集）→ `releaseBudget` 折算 → 取最旧候选 → 卸载 → 重试 | `middle/residency/contentlimit.go`（`EvictUntilWithinLimit` + `ContentLimitSnapshot` + `ContentLimitDeps`） |
+| 同上 | 每轮在 `Core.ViewMu` 临界区内**取齐**的一组读数 | `application/core/content_lru.go` 的 `contentLimitSnapshotLocked`（读数仍在宿主同一临界区内取齐；只对持有正文的会话读受保护集，与迁移前读取次序逐字一致） |
+
+- 保真：额度仍只由 `residency.Budget` 给（宿主 `releaseBudget` 是绑定窗口版薄壳）；受保护集仍只由
+  `switching.Protected` 判；失败沿用 `[content-lru] evict %q: %v` 日志；挑选**不做**二次确认
+  （二次确认在宿主 `evictLoadedContent` 里，与迁移前一致）。
+- 域级新增 9 条用例（统一窗口 / 分层额度 / 受保护集不计数不挑选 / 无正文与空 ID 跳过 / 最旧端先走 /
+  失败即停并报一次 / 无候选容忍超限且不空转 / 缺装配不 panic）。
+- 跨实现一致性：`application/core/content_lru_test.go` **一行未改**且全绿。
+- 独立复核 @`7c930a86`（干净 worktree）：`gofmt -l`（排除 tmp/vendor/stage/dist）空；`go build ./...` 0；
+  `go build -tags "gui,desktop,production" ./...` 0；`go vet ./...` 0；`go test ./middle/...` 全 ok；
+  `go test ./e2e/ -count=1` ok(12.1s)；`go test ./application/core/ -count=1` = **基线 3 例**，无新增。
+
+### 28.5 并发纪律（本工作树里同时有两个 root 会话）
+
+- 会话 B 在 00:38 起接手 R5b（`work_table*` → `middle/view/worktable`，尚未提交），00:50 又开了 R6-draft
+  （新增未跟踪 `middle/switch/draft*.go`，改 `application/core/session_draft.go`）。A 因此**退让**
+  R6-draft，改取 `content_lru.go` 这片，并把双方权域写进 `tmp/reshape/root-claim-A.txt`。
+- 教训复用：提交一律 `git commit -F <msg> -- <显式路径>`（新增文件先 `git add -- <显式路径>` 且在**同一条命令**里提交，
+  把"先 add 再 commit"的窗口压到最小）；判据是**干净 worktree** 过 build/vet/test，主工作树 `go build` 不作证据。
