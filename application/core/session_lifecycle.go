@@ -182,19 +182,13 @@ func (service *Service) unloadGate(sessionID string) switching.UnloadGate {
 // 草稿不写槽位（不进入会话树，与卸载前语义一致），档位与任务投影在同一临界区里重算：
 // 否则快照里留着的是刚被移除会话的档位/任务（与 BeginNewSession 同一口径）。
 func (service *Service) switchViewToFreshDraftLocked() {
-	service.nextViewEpochLocked()
 	draftID := service.newDraftSessionIDLocked()
-	service.sessions.SetActive(draftID)
-	draftUnit := service.sessionUnitLocked(draftID)
-	draftUnit.SetChatState(model.ChatState{}, nil)
-	draftUnit.SetCancel(nil)
-	draftUnit.SetRequests(nil)
-	service.Core.Snapshot.Session = model.SessionState{ID: draftID, Name: draftSessionName, Draft: true, Status: SessionStatusDraft}
-	service.Core.Snapshot.Conversation = nil
-	service.Core.Snapshot.Chat = draftUnit.ChatState()
-	service.Core.Snapshot.Task = nil
-	service.Core.Snapshot.Runtime.Plan = nil
-	service.Core.Snapshot.ReadFiles = nil
-	service.syncViewPermissionTierLocked(draftID)
-	service.components.tasks.ResetForNewSessionLocked()
+	// 差异（`draftShellOptions` 的显式开关）：本路径只换单元、不碰工作区绑定与交互单格，
+	// 也不清窗口读数与标题（对齐"与卸载前语义一致"，见类型文档里的三条角色）。
+	service.enterDraftShellLocked(draftShellOptions{
+		sessionID:       draftID,
+		keepWorkspace:   true,
+		keepInteraction: true,
+		tier:            func(sessionID string) { service.syncViewPermissionTierLocked(sessionID) },
+	})
 }

@@ -6,6 +6,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/middle/switch"
+	"github.com/RedHuang-0622/seelex/session"
 	"strings"
 	"time"
 )
@@ -126,37 +127,21 @@ func (service *Service) BeginNewSession() error {
 	// 写作用域（若其它会话运行中，切换会串写；首次提交物化时再绑定）。
 
 	service.ViewMu.Lock()
-	service.nextViewEpochLocked()
-	service.Core.Snapshot.Session = model.SessionState{ID: draftID, Name: draftSessionName, Draft: true, Status: SessionStatusDraft}
-	service.sessions.SetActive(draftID)
-	service.Core.Snapshot.CurrentWorkspace = restoredWorkspace
-	service.Core.Snapshot.Conversation = nil
-	service.Core.Snapshot.HistoryOffset = 0
-	service.Core.Snapshot.TotalMessages = 0
-	service.Core.Snapshot.HasMoreHistory = false
-	// 进入草稿 = 换会话：上一会话留在快照里的**会话事实**必须一并清掉，否则新会话会
-	// 显示（并在首次提交时按会话落盘成自己的历史）上一个会话的任务面与已读文件。
-	//
-	// `Task` 是压缩记录（`ContextCompactions`）与任务状态的唯一投影面，`ReadFiles`
-	// 会被 `PersistCurrentSession` 写成目标会话的 `Execution`——两者都归会话所有。
-	// 这一段与 `unloadSession` 的同名字段清理必须口径一致（2026-10-01 用户现场：
-	// 新建会话的右栏「上下文压缩」仍列着上一个会话的记录，就是这里漏了 Task）。
-	service.Core.Snapshot.Task = nil
-	service.Core.Snapshot.ReadFiles = nil
-	service.Core.Snapshot.Runtime.Plan = nil
-	service.Core.Snapshot.Interaction = nil
-	draftRuntime := service.sessionUnitLocked(draftID)
-	draftRuntime.SetChatState(model.ChatState{}, nil)
-	draftRuntime.SetCancel(nil)
-	draftRuntime.SetRequests(nil)
-	service.Core.Snapshot.Chat = draftRuntime.ChatState()
-	service.Core.Snapshot.Session.Composer = draftRuntime.ComposerText()
 	// 档位重算落在同一临界区里（会话单元已就位）：草稿自己的档位（会话槽或进程
 	// 默认）覆盖掉上一个会话留在快照里的那个值——否则新会话的 chip 显示的是**上一个
 	// 会话的档位**，而真正生效的是本会话的档位（见 syncViewPermissionTierLocked）。
-	service.applyStoredPermissionTier(draftID, storedTier)
-	service.components.sessions.SetSessionTitleLocked(draftID, model.SessionTitle{})
-	service.components.tasks.ResetForNewSessionLocked()
+	// `/new` 是唯一要读盘取档位的路径（草稿槽可复用 ⇒ "这个会话之前选过档位"真实存在），
+	// 读盘已在锁外完成，这里只把值应用下去。
+	service.enterDraftShellLocked(draftShellOptions{
+		sessionID:          draftID,
+		workspace:          restoredWorkspace,
+		resetHistoryWindow: true,
+		composerFromUnit:   true,
+		resetTitle:         true,
+		tier: func(sessionID string) {
+			service.applyStoredPermissionTier(sessionID, storedTier)
+		},
+	})
 	revision := service.bumpLocked()
 	service.ViewMu.Unlock()
 	service.publishRuntimeProjections()
@@ -168,6 +153,88 @@ func (service *Service) BeginNewSession() error {
 	service.refreshWorkTableFromSources()
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", draftID, nil)
 	return nil
+}
+
+// draftShellOptions 是一次"把视图单例切到草稿壳"的**显式差异表**（M5-P18：三条路径的字段清理收成一处）。
+//
+// 草稿在系统里有三个角色（2026-10-17 用户裁决时点明）：
+//
+//  1. **`/new` 进草稿**（`BeginNewSession`）：可能复用保留的草稿槽——恢复它的展示绑定与档位，
+//     清掉上一个会话留在快照里的全部会话事实；
+//  2. **冷加载中断时恢复草稿内容**（`resetViewToDraftAfterRestoreFailure`）：冷恢复失败且无前一会话
+//     可回退时把视图退回草稿壳；**不做任何持久化**（避免空壳覆盖目标会话记录），因此保留窗口读数；
+//  3. **卸载/删掉正在看的会话**（`switchViewToFreshDraftLocked`）：视图单例必须始终有对应单元，
+//     就地新建一个早分配草稿单元；**不写槽位**（不进入会话树，与卸载前语义一致）。
+//
+// 这四条 `keep*`/`reset*` 开关就是三条路径今日的**真实差异**（本片之前是三份手抄的清理清单，
+// 集合各不相同、看不出哪些是有意的）。差异矩阵与理由见 `session_draft_shell_test.go`。
+// 其中 02 不清 `ReadFiles`、03 不清 `Interaction` 两条**看起来是漂移**（另两条路径都清），
+// 已登记在 `m5-record.md` 里等你裁决，本片保持行为零变化。
+type draftShellOptions struct {
+	// sessionID 是草稿的早分配 SID。
+	sessionID string
+	// workspace 写进 `Snapshot.CurrentWorkspace`；`keepWorkspace=true` 时整格不动。
+	workspace     *model.WorkspaceInfo
+	keepWorkspace bool
+	// resetHistoryWindow 把 `HistoryOffset` / `TotalMessages` / `HasMoreHistory` 归零。
+	resetHistoryWindow bool
+	// keepReadFiles 保留上一会话留在快照里的已读文件（02 的"不持久化"降级路径）。
+	keepReadFiles bool
+	// keepInteraction 保留 `Snapshot.Interaction`（03 就地换单元，不碰交互单格）。
+	keepInteraction bool
+	// composerFromUnit 把草稿单元的 composer 文本写进快照（只有 01 写）。
+	composerFromUnit bool
+	// resetTitle 把该会话的标题清成空（01/02 清，03 不动）。
+	resetTitle bool
+	// tier 在临界区内重算本会话的生效档位：01 用**读盘值**，02/03 用会话单元的读数。
+	tier func(sessionID string)
+}
+
+// enterDraftShellLocked 把视图单例切到草稿壳（调用方持有 Core.ViewMu），返回草稿的会话单元。
+//
+// 公共部分只有一份：会话指针、会话事实（`Task` / `Runtime.Plan`）、对话、聊天运行态都在这里清，
+// 差异由 `draftShellOptions` 的开关显式表达。历史口径（2026-10-01 现场）：`Task` 是压缩记录与
+// 任务状态的唯一投影面、`ReadFiles` 会被 `PersistCurrentSession` 写成目标会话的 `Execution`——
+// 两者都归会话所有，换视图指针就必须清，否则新会话会显示、并落盘成上一会话的历史。
+func (service *Service) enterDraftShellLocked(options draftShellOptions) *session.SessionUnit {
+	service.nextViewEpochLocked()
+	service.Core.Snapshot.Session = model.SessionState{
+		ID: options.sessionID, Name: draftSessionName, Draft: true, Status: SessionStatusDraft,
+	}
+	service.sessions.SetActive(options.sessionID)
+	if !options.keepWorkspace {
+		service.Core.Snapshot.CurrentWorkspace = options.workspace
+	}
+	service.Core.Snapshot.Conversation = nil
+	if options.resetHistoryWindow {
+		service.Core.Snapshot.HistoryOffset = 0
+		service.Core.Snapshot.TotalMessages = 0
+		service.Core.Snapshot.HasMoreHistory = false
+	}
+	service.Core.Snapshot.Task = nil
+	if !options.keepReadFiles {
+		service.Core.Snapshot.ReadFiles = nil
+	}
+	service.Core.Snapshot.Runtime.Plan = nil
+	if !options.keepInteraction {
+		service.Core.Snapshot.Interaction = nil
+	}
+	runtime := service.sessionUnitLocked(options.sessionID)
+	runtime.SetChatState(model.ChatState{}, nil)
+	runtime.SetCancel(nil)
+	runtime.SetRequests(nil)
+	service.Core.Snapshot.Chat = runtime.ChatState()
+	if options.composerFromUnit {
+		service.Core.Snapshot.Session.Composer = runtime.ComposerText()
+	}
+	if options.tier != nil {
+		options.tier(options.sessionID)
+	}
+	if options.resetTitle {
+		service.components.sessions.SetSessionTitleLocked(options.sessionID, model.SessionTitle{})
+	}
+	service.components.tasks.ResetForNewSessionLocked()
+	return runtime
 }
 
 // materializeDraftSession 为首条请求创建引擎会话与项目绑定：复用早分配

@@ -231,25 +231,20 @@ func (service *Service) resetViewToDraftAfterRestoreFailure() {
 	}
 	slot.UpdatedAt = time.Now()
 	draftID := slot.ID
-	service.nextViewEpochLocked()
-	service.Core.Snapshot.Session = model.SessionState{ID: draftID, Name: draftSessionName, Draft: true, Status: SessionStatusDraft}
-	service.sessions.SetActive(draftID)
-	service.Core.Snapshot.Conversation = nil
-	service.Core.Snapshot.Task = nil
-	service.Core.Snapshot.Runtime.Plan = nil
-	service.Core.Snapshot.Interaction = nil
-	runtime := service.sessionUnitLocked(draftID)
-	runtime.SetChatState(model.ChatState{}, nil)
-	runtime.SetCancel(nil)
-	runtime.SetRequests(nil)
-	service.Core.Snapshot.Chat = runtime.ChatState()
 	// 档位与其它会话字段同一口径重算：这条路径在 Core.ViewMu 下完成（不读盘），
 	// 草稿槽位要么是就地新建（无持久设置可读），要么是保留中的槽位（其会话单元
 	// 仍持有该会话的档位选择）——两种情况 syncViewPermissionTierLocked 给出的都是
 	// 本会话的生效档位，而不是上一个会话留在快照里的那个。
-	service.syncViewPermissionTierLocked(draftID)
-	service.components.sessions.SetSessionTitleLocked(draftID, model.SessionTitle{})
-	service.components.tasks.ResetForNewSessionLocked()
+	//
+	// 差异（`draftShellOptions` 的显式开关）：本路径**不持久化**，所以保留上一会话的
+	// 窗口读数与已读文件（见类型文档里的三条角色）。
+	service.enterDraftShellLocked(draftShellOptions{
+		sessionID:     draftID,
+		keepWorkspace: true,
+		keepReadFiles: true,
+		resetTitle:    true,
+		tier:          func(sessionID string) { service.syncViewPermissionTierLocked(sessionID) },
+	})
 	revision := service.bumpLocked()
 	service.ViewMu.Unlock()
 	service.publishRuntimeProjections()
