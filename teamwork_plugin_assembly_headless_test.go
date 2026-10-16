@@ -6,7 +6,7 @@ package main
 //   - `backend/engine/assemble/assembly_chain_real_partition_test.go`：用注入探针钉"这条链的函数对不对"
 //     （不跑真回合、不开 worktree、不落计划）；
 //   - 本文件：把同一件事放到**真实装配**上跑——真 store / 真 workspace / 真插件根
-//     （`config.PluginRoots(launchFlags.PluginsPaths)` 解析到的那一份，与 main.go 的 initPluginSystem 同一条路）/ 真计划落盘 /
+//     （`wiring/bootstrap` 里 InitPluginSystem 用 config.PluginRoots 解析到的那一份）/ 真计划落盘 /
 //     真 role session / 真 worktree，模型侧用脚本化 provider（不真调模型）。
 //
 // 为什么非要这一层：装配的**落点**是"员工那一轮的 system prompt 里有没有装配进来的技能目录"
@@ -288,7 +288,7 @@ func assemblyDispatchHandles(t *testing.T, receipts []string) []string {
 // attachRealSkills 把**真插件根**的技能装上 Runtime 的员工目录读面。
 //
 // 为什么要自己补这一跳：员工回合的技能目录读的是 `Runtime.skills`（见
-// backend/engine/assemble/runtime_role_plugins.go 的 skillRegistryFor），组合根在 main.go:609 经
+// backend/engine/assemble/runtime_role_plugins.go 的 skillRegistryFor），装配段在 wiring/bootstrap 经
 // `ApplyDeps(RuntimeDeps{SkillRegistry: …})` 把它装上；全链路 harness 只把 registry 交给
 // 插件系统与应用，**没有装上 Runtime**。少了这一跳，装配进来的目录段会**静默为零**
 // （skill_count=0、system prompt 里没有目录段），本用例就会把"基座缺一跳"误判成
@@ -309,7 +309,7 @@ func attachRealSkills(t *testing.T, runtime *seelebridge.Runtime) {
 			t.Fatalf("发布插件 %q 的技能失败：%v", item.Name, err)
 		}
 	}
-	// 启动基线的技能集（宿主面 = default 那一份，与 activateDefaultPlugin 同姿势）。
+	// 启动基线的技能集（宿主面 = default 那一份，与 bootstrap.ActivateDefaultPlugin 同姿势）。
 	if err := registry.ActivatePluginSkills("default"); err != nil {
 		t.Fatalf("激活 default 的技能失败：%v", err)
 	}

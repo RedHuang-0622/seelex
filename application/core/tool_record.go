@@ -229,7 +229,7 @@ func (service *Service) ToolRecordBoard() dto.ToolRecordBoard {
 //
 // 退出码非零的原因归 `command-failed`（"这条命令失败了"是独立的一类修法：先看命令与 cwd，
 // 而不是看权限/入参/通道）。上报口 = 工具层既有的 `bash.process.exited` 诊断事件
-// （见 main.go 的 toolCommandOutcomeObserver：那条 stage 只由同步 bash 链发出）。
+// （见 wiring/bootstrap 的 toolCommandOutcomeObserver：那条 stage 只由同步 bash 链发出）。
 func (service *Service) RecordToolCommandOutcome(sessionID, tool string, exitCode int) {
 	service.recordToolOutcome(sessionID, tool, exitCode != 0, fmt.Sprintf("exit code %d", exitCode))
 }

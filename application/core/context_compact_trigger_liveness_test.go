@@ -4,7 +4,7 @@ package core
 //
 // 历史：装配层压缩的落点（prepareExecutionContextFor）原先把「推进状态 + 推帧 +
 // 帧正文落存储」放在**单个** Core.ViewMu 写锁临界区里，而生产推帧会回调宿主读面
-// （main.go 注入的 CompressedTurnArchiver.SessionIDProvider 读 app.Snapshot()），
+// （wiring/bootstrap 注入的 CompressedTurnArchiver.SessionIDProvider 读 app.Snapshot()），
 // 于是同 goroutine 持写锁再取读锁 = 确定性自锁（f643f2d 修，见
 // docs/devlog/2026-09-29-compaction-fold-lock-granularity.md）。
 //
@@ -34,7 +34,7 @@ import (
 
 // reentrantGateIndexRuntime 是"生产形状"的索引面桩：
 //
-//   - 推帧内部先读一次视图快照（= main.go 的 CompressedTurnArchiver.SessionIDProvider
+//   - 推帧内部先读一次视图快照（= wiring/bootstrap 的 CompressedTurnArchiver.SessionIDProvider
 //     → app.Snapshot() → ViewMu.RLock）；
 //   - 第一次推帧阻塞到 release（= 前缀重放厚摘要的模型调用 / 原文归档写盘），
 //     其余推帧直接放行（同会话链式栈由 compactionPushLock 串行）。

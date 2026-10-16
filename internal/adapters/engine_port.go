@@ -88,7 +88,7 @@ type EnginePort struct {
 	releaseSessionBundle func(sessionID string) bool
 }
 
-// EnginePortDeps 是 EnginePort 的启动期装配（main.go 装配点一次注入；
+// EnginePortDeps 是 EnginePort 的启动期装配（wiring/bootstrap 装配点一次注入；
 // 对应原散装单字段 setter，统一走 Deps 结构——禁止再新增单字段 setter）。
 type EnginePortDeps struct {
 	// NodeConversations 子代理会话记录查询（节点详情数据面；只读子代理

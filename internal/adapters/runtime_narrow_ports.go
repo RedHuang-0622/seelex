@@ -7,7 +7,7 @@ package adapters
 // application/core 对"不是每个后端都有的能力"一律用**类型断言**探测
 // （见 contract.TeamworkBoardProjection / context_runtime.CompactionIndexPort 的
 // 注释："有就有、没有就是没装配"）。这些断言的接收者是 `Deps.Runtime`，而组合根
-// （main.go）注入的**不是** *seelebridge.Runtime，而是本包的 RuntimePort：
+// （wiring/bootstrap）注入的**不是** *seelebridge.Runtime，而是本包的 RuntimePort：
 //
 //	Engine: eng, Runtime: adapters.RuntimePort{Runtime: runtime},
 //
@@ -26,7 +26,7 @@ package adapters
 //	   （用户报"goal 看板没有重启恢复"）。
 //
 // 两条都在真实 store 上取证过：同一次会话的 metadata/ 里有 teamwork.json 与
-// board_team.json（团队侧经 main.go 的 SetTeamworkBackend 直接走 Runtime，不经过
+// board_team.json（团队侧经 wiring/bootstrap 的 SetTeamworkBackend 直接走 Runtime，不经过
 // 本包装，所以那条链路是通的），却**没有** board_goal.json。
 //
 // 纪律（把清单变成编译期事实）：application/core 里新增一个窄可选端口断言时，

@@ -25,7 +25,7 @@ func writeModuleDotting(t *testing.T, root string, relative ...string) {
 // TestProjectRefreshWriteReadSameKey 钉住「写入键 = 读取键 = 调用方给的工作区 ID」。
 //
 // 断点②现象（修复前）：RefreshProjectKnowledge 用 builder.Root()（绝对路径）当 projectID
-// 读写，而项目级读面（main.go 装配根的 RuntimeDeps.ProjectKnowledge）用
+// 读写，而项目级读面（wiring/bootstrap 的 RuntimeDeps.ProjectKnowledge）用
 // store.Workspace()（ws-<nano>）读 ⇒ 写进去的永远读不到，全仓 **/project-record.json 零命中。
 func TestProjectRefreshWriteReadSameKey(t *testing.T) {
 	router := newTestRouter(t)
@@ -49,7 +49,7 @@ func TestProjectRefreshWriteReadSameKey(t *testing.T) {
 		t.Fatal("空 projectID 必须显式报错")
 	}
 
-	// 读面：与 main.go 的 RuntimeDeps.ProjectKnowledge 同一个键（store.Workspace()）。
+	// 读面：与 wiring/bootstrap 的 RuntimeDeps.ProjectKnowledge 同一个键（store.Workspace()）。
 	got, readErr := router.LoadProjectRecord(router.Workspace())
 	if readErr != nil {
 		t.Fatalf("refresh 写下的记录按工作区键读不到（写键≠读键）：%v", readErr)

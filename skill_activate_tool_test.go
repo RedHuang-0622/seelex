@@ -10,6 +10,7 @@ import (
 
 	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/skill"
+	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
 	"github.com/RedHuang-0622/seelex/wiring/registry"
 )
 
@@ -44,7 +45,7 @@ mcp_servers: []
 		t.Fatalf("NewRuntime: %v", err)
 	}
 	t.Cleanup(runtime.Shutdown)
-	skills := initSkillSystem()
+	skills := bootstrap.InitSkillSystem()
 	var activated []string
 	registry.RegisterSkillActivateTool(runtime, skills, func(name string) (skill.Skill, error) {
 		activated = append(activated, name)

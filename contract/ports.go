@@ -459,7 +459,7 @@ type ApprovalBroker interface {
 // 面板，而该入口已随 2026-10-12 J-1a 退场；静态全仓索引里 `RolePromptPort` /
 // `OptimizeRolePrompt` 只剩本文件（契约）、`application/core/aliases.go`（别名）、
 // `backend/engine/assemble/runtime_role_prompt.go`（实现）与测试，没有应用层生产调用者；
-// `Dependencies.RolePrompt` 在组合根**不再注入**（见 `main.go` 的 J-1a 说明）。
+// `Dependencies.RolePrompt` 在组合根**不再注入**（见 `wiring/bootstrap` 的 J-1a 说明）。
 // 保留的理由：它是**对外可选能力契约**（宿主/第三方可自行装配实现），删除等于
 // 版本化 API 破坏。移除条件 = 下一次对外 API 版本变更，且与 `Dependencies.RolePrompt`
 // 字段、`SetRolePromptProvider` 读面同批处理。
@@ -523,7 +523,7 @@ type ToolRecordSnapshotStore interface {
 	LoadToolRecordSnapshot(sessionID string) (dto.ToolRecordSnapshot, bool, error)
 }
 
-// ToolRecordStore 把"界面上改过的工具记录开关"落到宿主自己的存储里（实现方 main.go
+// ToolRecordStore 把"界面上改过的工具记录开关"落到宿主自己的存储里（实现方 wiring/bootstrap
 // 写数据根 runtime-limits.json 的 tool_record_enabled 格，与其它界面改动同层）。
 //
 // 关掉**不删**已记的台账：那是已经发生的事实，开关只决定"接下来还记不记"。
@@ -537,14 +537,14 @@ type ToolRecordStore interface {
 // 与"界面上看到的值"不会分叉；反过来（先改内存后写盘）会留下"这一次生效了、重启又
 // 变回去"的假成功，而前端拿到的错误会去回滚一个其实已经生效的控件。
 //
-// 实现方（main.go）写的是数据根里的覆盖层文件，启动时作最高优先覆盖层叠加在
+// 实现方（wiring/bootstrap）写的是数据根里的覆盖层文件，启动时作最高优先覆盖层叠加在
 // config/seelex.yaml 的 limits 段之上。
 type ReleaseWindowStore interface {
 	SaveSessionReleaseWindow(window int) error
 }
 
 // AccountWindowStore 把"界面上按账号设的上下文窗口"落到宿主自己的存储里（实现方
-// main.go 写数据根 runtime-limits.json 的 account_windows 表，与其他界面改动同层）。
+// wiring/bootstrap 写数据根 runtime-limits.json 的 account_windows 表，与其他界面改动同层）。
 //
 // window <= 0 表示**清掉这个账号的覆盖**（回落到 seelex.yaml 的全局
 // limits.context_window），不是"设成 0"。

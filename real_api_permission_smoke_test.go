@@ -10,7 +10,7 @@ package main
 //	go test -tags manualsmoke2 . -run 'TestRealAPIPermissionSmoke' -count=1 -v -timeout 1500s
 //
 // 与其它用例的区别：审批面不再用桩，而是装**生产审批桥**
-// （main.go:newPermissionBridge → application.ApprovalBroker），也就是 GUI/TUI
+// （wiring/bootstrap 的 NewPermissionBridge → application.ApprovalBroker），也就是 GUI/TUI
 // 渲染并回填的那条路径。因此下面三条断言都是"真实模型 + 真实工具调度 + 真审批页面"：
 //
 //	A. 主代理跑白名单命令（git status）→ 工具真的执行，且**页面一次都没打开**；
@@ -39,6 +39,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application"
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/internal/bootseed"
+	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
 	"github.com/RedHuang-0622/seelex/wiring/config"
 )
 
@@ -129,12 +130,12 @@ func TestRealAPIPermissionSmoke(t *testing.T) {
 	// 装上**生产同形**的权责配置与**生产审批桥**：默认分组 + 主体授权表 +
 	// config/seele.yaml 覆盖，审批走 ApprovalBroker（GUI 同一条路）。
 	cfg := policy.DefaultPermissionConfig()
-	if fileCfg, err := loadPermissionConfig(config.EnsureConfigFile(bootseed.PermissionConfigName, bootseed.PermissionConfigPack())); err != nil {
-		t.Fatalf("loadPermissionConfig: %v", err)
+	if fileCfg, err := bootstrap.LoadPermissionConfig(config.EnsureConfigFile(bootseed.PermissionConfigName, bootseed.PermissionConfigPack())); err != nil {
+		t.Fatalf("bootstrap.LoadPermissionConfig: %v", err)
 	} else {
-		cfg = mergePermissionConfig(cfg, fileCfg)
+		cfg = bootstrap.MergePermissionConfig(cfg, fileCfg)
 	}
-	harness.runtime.SetPermissionConfig(cfg, newPermissionBridge(harness.approval))
+	harness.runtime.SetPermissionConfig(cfg, bootstrap.NewPermissionBridge(harness.approval))
 
 	// 事件订阅与审批页面都必须在回合之前建立：两者都是实时流。
 	recorder := toolEvents(harness)

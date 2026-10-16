@@ -3,7 +3,7 @@ package core
 // goal_service.go — Service 侧 goal 方法面与工具 handler（P1）。
 //
 // 每个方法按 ctx/显式 sessionID 路由到 components.goal 协调器；无 goal
-// 协调器（未装配）时返回显式错误或 nil 视图。工具 handler 与 main.go 的
+// 协调器（未装配）时返回显式错误或 nil 视图。工具 handler 与 wiring/registry 的
 // goal_begin/goal_update/goal_status/goal_propose_finish 注册配对。
 
 import (
@@ -288,7 +288,7 @@ func (service *Service) dismissTeamWhenGoalClosed(sessionID string) {
 // ADVISOR 是被调用的 agent（终态 gate 的评审者），不是对话席位——裁决只走受信
 // 注入（injectGoalDirectives）与它自己的 tl 角色会话（goal_team_recorder）。
 
-// goalBeginHandler 是 goal_begin 工具 handler（main.go 注册）。
+// goalBeginHandler 是 goal_begin 工具 handler（wiring/registry 注册）。
 func (service *Service) goalBeginHandler(ctx context.Context, argsJSON string) (string, error) {
 	var request goaldomain.BeginRequest
 	if err := json.Unmarshal([]byte(argsJSON), &request); err != nil {
@@ -404,7 +404,7 @@ func marshalGoalResult(value any) (string, error) {
 }
 
 // GoalBeginHandler / GoalUpdateHandler / GoalStatusHandler /
-// GoalProposeFinishHandler 是 goal 工具族的公开 handler（main.go 注册；
+// GoalProposeFinishHandler 是 goal 工具族的公开 handler（wiring/registry 注册；
 // Seele 工具面签名：ctx + argsJSON → JSON 字符串）。
 func (service *Service) GoalBeginHandler(ctx context.Context, argsJSON string) (string, error) {
 	return service.goalBeginHandler(ctx, argsJSON)

@@ -56,7 +56,7 @@ type Service struct {
 
 // SetProjectBoardSink 注入（或收回：传 nil）项目看板投影的写侧端口。
 //
-// **接口冻结（M3 装配项按此签名写 main.go，签名不再变）**：
+// **接口冻结（M3 装配项按此签名写装配段（wiring/bootstrap），签名不再变）**：
 //
 //	func (service *Service) SetProjectBoardSink(sink ProjectBoardSink)
 //

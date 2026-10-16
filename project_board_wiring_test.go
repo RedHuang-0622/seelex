@@ -44,7 +44,7 @@ func projectBoardWiringStore(t *testing.T) (router *store.Router, dataRoot, proj
 // projectBoardWiringDeps 造一份最小活体投影：一条 todo + 一个里程碑，外加**落点解析器**。
 //
 // 取数一律是**函数**（与生产同形）：本用例不碰 Service，只钉装配门的判据。解析器与生产
-// 同形——main.go 注入的就是 `app.ProjectRootFor`（会话 → 它所属工作区的项目根）。
+// 同形——装配段注入的就是 `app.ProjectRootFor`（会话 → 它所属工作区的项目根）。
 func projectBoardWiringDeps(projectRoot string) (
 	func(string) []core.WorkItem,
 	func(string) *store.TeamworkPlan,

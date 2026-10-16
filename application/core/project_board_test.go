@@ -945,7 +945,7 @@ func TestProjectBoardHooksOnExistingSyncPoint(t *testing.T) {
 	service, runtime, session := newBoardTestService(t)
 	runtime.todoItems = []dto.TodoItem{{Text: "调研", Status: dto.TodoItemDoing}}
 
-	// 装配期交接（生产里这一步在 main.go）：注入订阅口；取数走**既有活体读法**
+	// 装配期交接（生产里这一步在 wiring/bootstrap）：注入订阅口；取数走**既有活体读法**
 	// （service.WorkTableRowsFor），不重算任何状态。
 	st := newFakeBoardStore()
 	syncer := NewProjectBoardSyncer(boardDeps(st, idle, service.WorkTableRowsFor))

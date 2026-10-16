@@ -1,6 +1,6 @@
 // Package session 的 Manager 是会话装配薄壳（thin-wrapper 9.5 清理后）：
 //   - Router 装配与 workspace 写作用域；
-//   - SaveCurrent/Resume 回调注入（main.go 装配点）；
+//   - SaveCurrent/Resume 回调注入（wiring/bootstrap 装配点）；
 //   - 存储桥与 workspace 粒度旧口已删除——持久化一律经
 //     store.SessionGranularStore（会话粒度五片）。
 package session
@@ -74,7 +74,7 @@ func (m *Manager) ConfigureStorage(ctx context.Context, config store.Config) err
 	return m.router.Configure(ctx, config)
 }
 
-// InjectSaveLoad 注入保存/加载回调（由 main.go 装配时传入）。
+// InjectSaveLoad 注入保存/加载回调（由 wiring/bootstrap 装配时传入）。
 func (m *Manager) InjectSaveLoad(saveFn, loadFn func(sessionID string) error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

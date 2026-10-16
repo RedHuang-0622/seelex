@@ -315,7 +315,7 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 - `func (stub *archiverSessionsStub) SaveCommitWorkspace(_, _ string, _ store.Commit) error`
 - `func (stub *archiverSessionsStub) commitCount() int`
 - `func (runtime *productionArchiveIndexRuntime) PushCompactionFrame( ctx context.Context, _ string, request context_runtime.CompactionIndexRequest, ) (context_runtime.CompactionIndexReceipt, error)`
-- `func TestExplicitCompactFramePushSelfDeadlocksRepro(t *testing.T)` — TestExplicitCompactFramePushSelfDeadlocksRepro：在真实归档接线（main.go:310 同形）
+- `func TestExplicitCompactFramePushSelfDeadlocksRepro(t *testing.T)` — TestExplicitCompactFramePushSelfDeadlocksRepro：在真实归档接线（wiring/bootstrap 的 CompressedTurnArchiver 接线 同形）
 
 ### context_compact_test.go
 

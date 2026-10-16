@@ -454,7 +454,7 @@ type ProjectRefreshResult struct {
 // （显式跳过并提示）。force=true 强制重建。
 //
 // projectID 是**项目级记录的键**，写入键与读取键必须是同一个：读面（装配根的
-// RuntimeDeps.ProjectKnowledge / main.go）按 `store.Workspace()`（`ws-<nano>`）读，
+// RuntimeDeps.ProjectKnowledge / wiring/bootstrap）按 `store.Workspace()`（`ws-<nano>`）读，
 // 因此调用方必须把自己的工作区 ID 传进来。曾经这里用 builder.Root()（绝对路径）
 // 当键读写 ⇒ 写进去的记录在 `ws-*` 键下永远读不到（G5 断点②）。
 func RefreshProjectKnowledge(ctx context.Context, store *Router, projectID string, builder *ProjectKnowledgeBuilder, force bool) (ProjectRefreshResult, error) {

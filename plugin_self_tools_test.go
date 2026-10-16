@@ -10,6 +10,7 @@ import (
 	"time"
 
 	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
 	"github.com/RedHuang-0622/seelex/wiring/registry"
 )
 
@@ -53,7 +54,7 @@ mcp_servers: []
 		t.Fatal(err)
 	}
 
-	// 插件根不再是"空着也能启动"的地方：零插件在启动期显式报错（main.go 的
+	// 插件根不再是"空着也能启动"的地方：零插件在启动期显式报错（wiring/bootstrap 的
 	// config.RequirePlugins）。这里先给临时根放一个最小插件，代表"发行包自带 plugins/"，
 	// 再走自迭代闭环（plugin_create → plugins_reload 看到新增）。
 	seedDir := filepath.Join(launchFlags.PluginsPaths, "seed")
@@ -74,10 +75,10 @@ mcp_servers: []
 		t.Fatalf("NewRuntime: %v", err)
 	}
 	defer runtime.Shutdown()
-	skills := initSkillSystem()
-	plugins, _, err := initPluginSystem(runtime, skills)
+	skills := bootstrap.InitSkillSystem()
+	plugins, _, err := bootstrap.InitPluginSystem(runtime, skills, launchFlags.PluginsPaths)
 	if err != nil {
-		t.Fatalf("initPluginSystem: %v", err)
+		t.Fatalf("bootstrap.InitPluginSystem: %v", err)
 	}
 	registry.RegisterPluginSelfTools(runtime, plugins)
 

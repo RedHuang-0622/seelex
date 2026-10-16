@@ -121,7 +121,7 @@ func NewSessionGranularStore(router *Router) *SessionGranularStore {
 	return &SessionGranularStore{router: router}
 }
 
-// SetWorkspaceResolver 注入会话绑定项目解析器（main.go 装配点：从
+// SetWorkspaceResolver 注入会话绑定项目解析器（wiring/bootstrap 装配点：从
 // workspace.Repo.SessionWorkspace 读绑定；同 EventStore 模式）。
 func (store *SessionGranularStore) SetWorkspaceResolver(resolver func(sessionID string) string) {
 	if store == nil {
@@ -139,7 +139,7 @@ func (store *SessionGranularStore) resolver() func(string) string {
 	return store.workspaceResolver
 }
 
-// SetProjectSource 注入应用已知项目列表（main.go 装配点：workspace.Repo.List），
+// SetProjectSource 注入应用已知项目列表（wiring/bootstrap 装配点：workspace.Repo.List），
 // 供归属解析在绑定缺失时按"数据实际所在"定位。
 func (store *SessionGranularStore) SetProjectSource(source func() []string) {
 	if store == nil {

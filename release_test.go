@@ -8,6 +8,7 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/buildinfo"
 	"github.com/RedHuang-0622/seelex/wiring"
+	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
 	"github.com/RedHuang-0622/seelex/wiring/config"
 )
 
@@ -83,7 +84,7 @@ func TestSafeFlagDefaults(t *testing.T) {
 
 func TestDefaultManualRulesAllowSafeControlPlaneTools(t *testing.T) {
 	checker := toolspermission.NewPermissionChecker(toolspermission.PermissionConfig{
-		Mode: toolspermission.ModeManual, Rules: defaultManualRules(),
+		Mode: toolspermission.ModeManual, Rules: bootstrap.DefaultManualRules(),
 	})
 	for _, name := range []string{
 		"todolist_init", "todolist_add", "todolist_done", "todolist_status",
@@ -123,12 +124,12 @@ func (runtime *permissionRuntimeRecorder) SetPermissionTierFor(_ string, tier st
 }
 
 func TestFullAccessStartupKeepsManualPermissionBaseline(t *testing.T) {
-	originalMode := launchFlags.PermissionMode
-	launchFlags.PermissionMode = string(toolspermission.ModeFullAccess)
-	t.Cleanup(func() { launchFlags.PermissionMode = originalMode })
-
 	runtime := &permissionRuntimeRecorder{}
-	if err := setupPermissionGate(runtime, wiring.NewApprovalBroker(nil)); err != nil {
+	// 档位由调用方显式给出（装配段不再读包级 flag）：M5-S3 之前这里是
+	// `launchFlags.PermissionMode = full_access` 再调 setupPermissionGate。
+	if err := bootstrap.SetupPermissionGate(
+		runtime, wiring.NewApprovalBroker(nil), string(toolspermission.ModeFullAccess),
+	); err != nil {
 		t.Fatal(err)
 	}
 	if runtime.config.Mode != toolspermission.ModeManual {

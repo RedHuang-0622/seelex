@@ -4,7 +4,7 @@ package main
 //
 // 复核实读背景（2026-10-05）：`plugin.LoadCuratedFromRoot` / `ActivateFromCatalog` 当时
 // 只出现在测试里 —— 真走 team_plan 时，一个 pending 名字落到的是 `validateMemberPlugins`
-// 的"插件 %q 未定义"，文案里既没有 pending 也没有来源；`main.go` 的 `startupWarnings` 是
+// 的"插件 %q 未定义"，文案里既没有 pending 也没有来源；装配段的 `startupWarnings` 是
 // 唯一进 UI 面的通路，而根读数（config.LogPluginRoots）只写终端日志。
 //
 // 本文件钉四件事：
@@ -200,14 +200,15 @@ func TestPluginRootReadingIsSharedAndReachesTheUIFace(t *testing.T) {
 		t.Fatalf("first-wins 下读数只能报链首那份的来源：%q", report)
 	}
 
-	// 第二半：这条读数在 UI 面上的落点（main.go 的启动通知通路）。
-	source, err := os.ReadFile("main.go")
+	// 第二半：这条读数在 UI 面上的落点（装配段的启动通知通路）。M5-S3 之后装配段在
+	// wiring/bootstrap/bootstrap.go（根读数由 wiring/bootstrap/plugins.go 生成）。
+	source, err := os.ReadFile(filepath.Join("wiring", "bootstrap", "bootstrap.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(source)
 	if !strings.Contains(text, "pluginStartup.RootReading") {
-		t.Fatal("main.go 没有把根读数带出 initPluginSystem（它进不了 UI 面，就只能是终端日志）")
+		t.Fatal("装配段没有把根读数带出 InitPluginSystem（它进不了 UI 面，就只能是终端日志）")
 	}
 	if !strings.Contains(text, `app.AddNotice("插件: " + pluginStartup.RootReading)`) {
 		t.Fatal("根读数必须进 UI 面（app.AddNotice）——只写 log.Printf 的话，GUI 里根本看不到")
@@ -215,7 +216,11 @@ func TestPluginRootReadingIsSharedAndReachesTheUIFace(t *testing.T) {
 	// 根读数只有一处生成：`config.PluginRootReport` 的唯一调用点在
 	// wiring/config/plugins.go 的 LogPluginRoots 里，装配面拿到的就是它返回的那份字节。
 	// 装配面因此只能通过 `config.LogPluginRoots(...)` 取读数，不能自己再拼一条。
-	if !strings.Contains(text, "config.LogPluginRoots(roots, loaded)") {
+	pluginsSource, err := os.ReadFile(filepath.Join("wiring", "bootstrap", "plugins.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(pluginsSource), "config.LogPluginRoots(roots, loaded)") {
 		t.Fatal("装配面必须经 config.LogPluginRoots 取根读数（读数生成只有 PluginRootReport 一处）")
 	}
 }

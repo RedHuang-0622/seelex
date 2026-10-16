@@ -50,7 +50,7 @@ func TestShippedCuratedCatalogMatchesInstalledPlugins(t *testing.T) {
 		t.Errorf("entries = %d 条，已落盘插件 = %d 个：精选目录只列已落盘插件", len(catalog.Entries), len(loaded))
 	}
 
-	// 启动基线必须在册且指向 default（activateDefaultPlugin 装配的就是它）。
+	// 启动基线必须在册且指向 default（bootstrap.ActivateDefaultPlugin 装配的就是它）。
 	baseline, ok := catalog.Preset(plugin.CuratedBaselinePreset)
 	if !ok {
 		t.Fatalf("缺少 %q preset", plugin.CuratedBaselinePreset)

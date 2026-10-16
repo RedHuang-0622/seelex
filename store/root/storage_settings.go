@@ -17,7 +17,7 @@ import (
 // NewSettings 返回一个只含指定覆盖项的 Settings（全部零值 = 用默认）。
 func NewSettings() Settings { return Settings{} }
 
-// Settings 是 v8 存储运行参数（默认值 = my_design §11 初稿）。装配根（main.go）
+// Settings 是 v8 存储运行参数（默认值 = my_design §11 初稿）。装配根（wiring/bootstrap）
 // 注入覆盖层：字段零值 = 未配置，由 ResolveSettings 补默认值；布尔项用指针，
 // 因为设计默认值里有 false，零值无法区分「未设置」。
 type Settings struct {

@@ -15,7 +15,7 @@ package core
 //	                           └─ CompressedTurnArchiver.StoreTurn(ctx, …)（归档原文）
 //	                                ├─ sessionIDFromContext(ctx) == ""   ← Background 不带会话
 //	                                └─ a.SessionIDProvider()             ← 兜底会话归属
-//	                                     └─ main.go:312 `app.Snapshot().Session.ID`
+//	                                     └─ wiring/bootstrap 的 TurnArchiver.SessionIDProvider `app.Snapshot().Session.ID`
 //	                                          └─ view_state.Coordinator.SnapshotView
 //	                                               └─ ViewMu.RLock()  ← 同 goroutine 再取读锁
 //
@@ -27,7 +27,7 @@ package core
 //	Submit 的第一步（ViewMu.RLock）永不返回 → 消息连队列都进不去。
 //
 // 触发条件是「压缩折出了非空区间」（overflow 非空，才会走到归档）且装配了轮次归档器
-// —— 生产装配（main.go:310 注入 CompressedTurnArchiver）恒为真，所以这条路径在真实
+// —— 生产装配（wiring/bootstrap 的 CompressedTurnArchiver 接线 注入 CompressedTurnArchiver）恒为真，所以这条路径在真实
 // 进程里是**确定性**自锁，不是概率事件，与是否打开 context_compaction_summary 无关
 // （打开时只是在自锁之前多跑一次模型调用）。
 
@@ -91,7 +91,7 @@ func (runtime *productionArchiveIndexRuntime) PushCompactionFrame(
 	}, nil
 }
 
-// TestExplicitCompactFramePushSelfDeadlocksRepro：在真实归档接线（main.go:310 同形）
+// TestExplicitCompactFramePushSelfDeadlocksRepro：在真实归档接线（wiring/bootstrap 的 CompressedTurnArchiver 接线 同形）
 // 下提交一次 `/compact`，判定交互面是否被永久冻死。
 //
 // 修法（2026-09-29）：压缩落点拆成三段——锁内提交状态（A）→ **锁外**推帧与渲染
@@ -105,7 +105,7 @@ func TestExplicitCompactFramePushSelfDeadlocksRepro(t *testing.T) {
 	var providerOnce sync.Once
 	archiver := &CompressedTurnArchiver{
 		Sessions: commits,
-		// 与 main.go:312 同形：归档器的兜底会话归属读的是视图快照。
+		// 与 wiring/bootstrap 的 TurnArchiver.SessionIDProvider 同形：归档器的兜底会话归属读的是视图快照。
 		SessionIDProvider: func() string {
 			providerOnce.Do(func() { close(providerEntered) })
 			return serviceRef.Snapshot().Session.ID

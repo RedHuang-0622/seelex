@@ -297,7 +297,7 @@ type TeamLimits struct {
 type RuntimeLimits struct {
 	// AllowMultiProcess 决定启动期是否同意第二个进程共用同一数据根。
 	//   - false（默认，含整块缺失）：单实例。另一个进程在写同一数据根时，
-	//     启动期闸门（main.guardMultiProcess）给出可读拒绝；装配深处的数据根锁
+	//     启动期闸门（bootstrap.guardMultiProcess）给出可读拒绝；装配深处的数据根锁
 	//     同样会把冲突报成 ErrDataRootLocked。
 	//   - true：放行。第二个进程不再被数据根锁拒绝，代价是失去跨进程写者
 	//     串行化——一致性由使用者负责（配置注释里写清了代价）。

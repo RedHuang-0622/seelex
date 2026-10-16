@@ -29,6 +29,7 @@ import (
 	"github.com/RedHuang-0622/seelex/internal/adapters"
 	"github.com/RedHuang-0622/seelex/store"
 	"github.com/RedHuang-0622/seelex/wiring"
+	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
 )
 
 // newToolInlineHarness 复制 full-chain harness 装配，并额外注册一个必然
@@ -57,7 +58,7 @@ func newToolInlineHarness(t *testing.T, AccountsPath, projectRoot string, toolTi
 	originalStorePath := launchFlags.StorePath
 	launchFlags.StorePath = filepath.Join(projectRoot, "sessions")
 	t.Cleanup(func() { launchFlags.StorePath = originalStorePath })
-	st, err := initStore()
+	st, err := bootstrap.InitStore(launchFlags.StorePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,42 +66,43 @@ func newToolInlineHarness(t *testing.T, AccountsPath, projectRoot string, toolTi
 	runtimeBridge.AttachHistoryRouter(st)
 	runtimeBridge.SetEventPersister(store.NewEventStore(st).Append)
 
-	skills := initSkillSystem()
-	plugins, _, err := initPluginSystem(runtimeBridge, skills)
+	skills := bootstrap.InitSkillSystem()
+	plugins, _, err := bootstrap.InitPluginSystem(runtimeBridge, skills, launchFlags.PluginsPaths)
 	if err != nil {
 		t.Fatal(err)
 	}
 	hooks := wiring.NewToolHookBridge()
-	frameworkEngine, err := initEngine(runtimeBridge, hooks, "")
+	frameworkEngine, err := bootstrap.InitEngine(runtimeBridge, hooks, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := activateDefaultPlugin(plugins, frameworkEngine); err != nil {
+	if err := bootstrap.ActivateDefaultPlugin(plugins, frameworkEngine); err != nil {
 		t.Fatal(err)
 	}
 	appEngine := adapters.NewEnginePort(frameworkEngine, func(sessionID string) adapters.ReactorEngine {
-		fresh, createErr := initEngine(runtimeBridge, hooks, sessionID)
+		fresh, createErr := bootstrap.InitEngine(runtimeBridge, hooks, sessionID)
 		if createErr != nil {
 			return nil
 		}
 		return fresh
 	}, runtimeBridge.Tracer())
 	appEngine.EnableWorkingHistoryRelease()
-	workspaces, err := initWorkspaceRepo()
+	workspaces, err := bootstrap.InitWorkspaceRepo(launchFlags.StorePath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	events := wiring.NewEventHub()
 	approval := wiring.NewApprovalBroker(events)
-	app, err := initApplication(
+	app, err := bootstrap.InitApplication(
 		appEngine,
 		runtimeBridge,
 		plugins,
-		initSessionManager(st, appEngine),
+		bootstrap.InitSessionManager(st, appEngine),
 		skills,
 		workspaces,
 		events,
 		approval,
+		launchFlags.StorePath,
 	)
 	if err != nil {
 		t.Fatal(err)

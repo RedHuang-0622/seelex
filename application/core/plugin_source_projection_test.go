@@ -44,7 +44,7 @@ func TestCollectRuntimeProjectionCarriesPluginSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读精选目录: %v", err)
 	}
-	// 与组合根（initPluginSystem）同一动作：来源判定源挂到 manager 上。
+	// 与装配段（wiring/bootstrap 的 InitPluginSystem）同一动作：来源判定源挂到 manager 上。
 	manager.SetCuratedCatalog(catalog)
 
 	svc := newTestService(t, &fakeEngine{}, withTestPlugins(adapters.PluginPort{Manager: manager}))

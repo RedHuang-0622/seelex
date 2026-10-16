@@ -25,6 +25,7 @@ import (
 	"github.com/RedHuang-0622/seelex/store"
 	workspacerepo "github.com/RedHuang-0622/seelex/store/workspace"
 	"github.com/RedHuang-0622/seelex/wiring"
+	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
 	"github.com/RedHuang-0622/seelex/wiring/registry"
 )
 
@@ -206,7 +207,7 @@ func newFullChainHarnessWithProjectBinding(t *testing.T, AccountsPath, projectRo
 // 信号口读走了（`consumeAsyncRuns` 读 `AsyncRunEvents()` 与 teammate 作业信号口）。若团队
 // 编排面在 `wiring.New` **之后**才注入，消费者读到的是 nil 通道——nil 在 select 里
 // 永不触发，"做完自动返回"那条链于是**静默不存在**。组合根的顺序是
-// store → SetTeamworkBackend → wiring.New（main.go），测试基座必须同序装配，
+// store → SetTeamworkBackend → wiring.New（wiring/bootstrap），测试基座必须同序装配，
 // 否则冒烟会把"装配顺序错了"误报成"链子是坏的"。
 type fullChainBackendInstaller func(st *store.Router, workspaces *workspacerepo.Repo, runtime *seelebridge.Runtime) error
 
@@ -237,14 +238,14 @@ func newFullChainHarnessWithLimits(t *testing.T, AccountsPath, projectRoot strin
 	originalStorePath := launchFlags.StorePath
 	launchFlags.StorePath = filepath.Join(projectRoot, "sessions")
 	t.Cleanup(func() { launchFlags.StorePath = originalStorePath })
-	st, err := initStore()
+	st, err := bootstrap.InitStore(launchFlags.StorePath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	runtimeBridge.AttachHistoryRouter(st)
 	// 子代理 / teammate 的**单元记录**持久化：组合根在同一个位置装了它
-	// （main.go:380，紧跟 AttachHistoryRouter）。测试基座缺这一句时
+	// （wiring/bootstrap，紧跟 AttachHistoryRouter）。测试基座缺这一句时
 	// `Runtime.teamUnitLedger()` 是 nil，`saveTeamUnitRecord` 直接 return——
 	// **记录一律不落盘，恢复链在基座上读的是一个空集**，而所有走 harness 的用例
 	// 都跑在这个装配上（2026-10-06 实测：teammate 端到端用例的"单元记录在册"
@@ -252,28 +253,28 @@ func newFullChainHarnessWithLimits(t *testing.T, AccountsPath, projectRoot strin
 	runtimeBridge.AttachSubSessionStore(store.NewNodeSessionStore(st))
 	runtimeBridge.SetEventPersister(store.NewEventStore(st).Append)
 
-	skills := initSkillSystem()
-	plugins, _, err := initPluginSystem(runtimeBridge, skills)
+	skills := bootstrap.InitSkillSystem()
+	plugins, _, err := bootstrap.InitPluginSystem(runtimeBridge, skills, launchFlags.PluginsPaths)
 	if err != nil {
 		t.Fatal(err)
 	}
 	hooks := wiring.NewToolHookBridge()
-	frameworkEngine, err := initEngine(runtimeBridge, hooks, "")
+	frameworkEngine, err := bootstrap.InitEngine(runtimeBridge, hooks, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := activateDefaultPlugin(plugins, frameworkEngine); err != nil {
+	if err := bootstrap.ActivateDefaultPlugin(plugins, frameworkEngine); err != nil {
 		t.Fatal(err)
 	}
 	appEngine := adapters.NewEnginePort(frameworkEngine, func(sessionID string) adapters.ReactorEngine {
-		fresh, createErr := initEngine(runtimeBridge, hooks, sessionID)
+		fresh, createErr := bootstrap.InitEngine(runtimeBridge, hooks, sessionID)
 		if createErr != nil {
 			return nil
 		}
 		return fresh
 	}, runtimeBridge.Tracer())
 	appEngine.EnableWorkingHistoryRelease()
-	workspaces, err := initWorkspaceRepo()
+	workspaces, err := bootstrap.InitWorkspaceRepo(launchFlags.StorePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,15 +289,16 @@ func newFullChainHarnessWithLimits(t *testing.T, AccountsPath, projectRoot strin
 	}
 	events := wiring.NewEventHub()
 	approval := wiring.NewApprovalBroker(events)
-	app, err := initApplication(
+	app, err := bootstrap.InitApplication(
 		appEngine,
 		runtimeBridge,
 		plugins,
-		initSessionManager(st, appEngine),
+		bootstrap.InitSessionManager(st, appEngine),
 		skills,
 		workspaces,
 		events,
 		approval,
+		launchFlags.StorePath,
 	)
 	if err != nil {
 		t.Fatal(err)

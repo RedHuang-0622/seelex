@@ -64,7 +64,7 @@ func TestAttachSessionContextBindsSessionProjectNotViewScope(t *testing.T) {
 	}
 
 	port := SessionPort{Manager: session.NewManager().WithRouter(router), Runtime: runtime}
-	// main.go 装配点：会话 → 绑定项目的解析器（workspace.Repo，权威）。
+	// wiring/bootstrap 装配点：会话 → 绑定项目的解析器（workspace.Repo，权威）。
 	port.SetWorkspaceResolver(func(sid string) string {
 		if sid == sessionID {
 			return ownerProject

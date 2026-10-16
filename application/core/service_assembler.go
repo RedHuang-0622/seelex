@@ -66,7 +66,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	}
 	service := &Service{serviceState: svcState}
 	// 项目看板订阅口槽位在装配期建好（M3）：写路径"判 nil 才是漏锁的老毛病"，
-	// 槽位自己持有锁，注入方（main.go / 测试）随时可 SetProjectBoardSink。
+	// 槽位自己持有锁，注入方（wiring/bootstrap / 测试）随时可 SetProjectBoardSink。
 	service.components.projectBoard = &projectBoardPort{}
 	// 工具记录台账槽位同理在装配期建好：未注入时判空什么都不做（有就有、没有就是没装配）。
 	service.components.toolRecord = &toolRecordPort{}

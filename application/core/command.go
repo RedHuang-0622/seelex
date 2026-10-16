@@ -194,7 +194,7 @@ func (service *Service) registerBuiltinCommands() error {
 		}
 		return CommandResult{Notice: "Effort 已切换为: " + level}, nil
 	})
-	// 运行期切档（main.go 装配注释承诺的 CLI 面）：与 GUI chip / headless 共用
+	// 运行期切档（wiring/bootstrap 的装配注释承诺的 CLI 面）：与 GUI chip / headless 共用
 	// SetPermissionTier 单一路径——写入侧校验、会话粒度落地（含跨重启落盘）、执行门
 	// 与审批面按本会话同步。刻意**不加 running 守卫**：运行中切档正是用来放行/收紧
 	// 当前审批的（与 /effort 的守卫语义不同）。

@@ -413,7 +413,7 @@ type TeamGlobalConfig struct {
 // 状态（A08，2026-10-15 已裁决）：**端口、实现与这两个 DTO 都保留，标为 legacy
 // 可选能力面**。入口（员工入职面板）已随 2026-10-12 J-1a 退场；静态全仓索引里
 // `contract.RolePromptPort` / `seelebridge.OptimizeRolePrompt` 只剩契约、实现与测试，
-// `Dependencies.RolePrompt` 在组合根不再注入（见 main.go）。不删的理由是它是
+// `Dependencies.RolePrompt` 在组合根不再注入（见 wiring/bootstrap）。不删的理由是它是
 // **对外可选能力契约**（宿主/第三方可自行装配），删 = 版本化 API 破坏；移除条件 =
 // 下一次对外 API 版本变更，与 `Dependencies.RolePrompt`、`SetRolePromptProvider`
 // 读面同批。ADVISOR 的 `rolePromptFor` 内置回退是活动的，不属本条。

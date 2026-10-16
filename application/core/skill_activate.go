@@ -17,7 +17,7 @@ import (
 //     把正文作为 internal user 事件 append-only 落进 transcript（## Trusted
 //     Active Skill 段，见 task_context.ensureActiveSkillEventsLocked）——装配随
 //     已定稿轮次携带，不再进 system；
-//   - 工具本轮直接拿到技能正文（main.go 回传给模型），因此模型在同一
+//   - 工具本轮直接拿到技能正文（装配段回传给模型），因此模型在同一
 //     ReAct 循环内即可按技能继续执行——即 Codex "激活后按技能继续" 的语义。
 //
 // 安全边界：本方法只改 promptStack 与会话通知，不触碰引擎锁（运行中会话

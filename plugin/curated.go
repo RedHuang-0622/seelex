@@ -82,7 +82,7 @@ func curatedVerifiedLevelNames() string {
 	return CuratedVerifiedListingOnly + " / " + CuratedVerifiedFullText
 }
 
-// curatedPermissionTiers 是 preset 允许声明的权限档，与 `main.go` 的 `-permission`
+// curatedPermissionTiers 是 preset 允许声明的权限档，与 wiring/config 的 `-permission`
 // 旗标同一组取值（manual/edit/auto/full）。档位是**宿主**给的，不是插件自带的。
 var curatedPermissionTiers = map[string]bool{
 	"manual": true, "edit": true, "auto": true, "full": true,

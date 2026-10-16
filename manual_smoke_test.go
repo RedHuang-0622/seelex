@@ -20,6 +20,7 @@ import (
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/adapters"
 	"github.com/RedHuang-0622/seelex/wiring"
+	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
 	"github.com/RedHuang-0622/seelex/wiring/registry"
 )
 
@@ -59,48 +60,49 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	launchFlags.StorePath = filepath.Join(tempDir, "sessions")
 	defer func() { launchFlags.StorePath = originalStorePath }()
 
-	skills := initSkillSystem()
-	plugins, _, err := initPluginSystem(runtime, skills)
+	skills := bootstrap.InitSkillSystem()
+	plugins, _, err := bootstrap.InitPluginSystem(runtime, skills, launchFlags.PluginsPaths)
 	if err != nil {
 		t.Fatal(err)
 	}
 	hooks := wiring.NewToolHookBridge()
-	frameworkEngine, err := initEngine(runtime, hooks, "")
+	frameworkEngine, err := bootstrap.InitEngine(runtime, hooks, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	events := wiring.NewEventHub()
 	approval := wiring.NewApprovalBroker(events)
 	runtime.SetPlanApprovalGate(&adapters.PlanApprovalGate{Broker: approval})
-	if err := activateDefaultPlugin(plugins, frameworkEngine); err != nil {
+	if err := bootstrap.ActivateDefaultPlugin(plugins, frameworkEngine); err != nil {
 		t.Fatal(err)
 	}
 
 	appEngine := adapters.NewEnginePort(frameworkEngine, func(sessionID string) adapters.ReactorEngine {
-		fresh, createErr := initEngine(runtime, hooks, sessionID)
+		fresh, createErr := bootstrap.InitEngine(runtime, hooks, sessionID)
 		if createErr != nil {
 			return nil
 		}
 		return fresh
 	}, runtime.Tracer())
-	store, err := initStore()
+	store, err := bootstrap.InitStore(launchFlags.StorePath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	workspaces, err := initWorkspaceRepo()
+	workspaces, err := bootstrap.InitWorkspaceRepo(launchFlags.StorePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	app, err := initApplication(
+	app, err := bootstrap.InitApplication(
 		appEngine,
 		runtime,
 		plugins,
-		initSessionManager(store, appEngine),
+		bootstrap.InitSessionManager(store, appEngine),
 		skills,
 		workspaces,
 		events,
 		approval,
+		launchFlags.StorePath,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -113,7 +115,7 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	// 模型正确报告"task_complete not available"——终态工具在冒烟 runtime
 	// 中从未注册，计划类阶段的模型行为因此失真。
 	registry.RegisterTaskTerminalTools(runtime, app)
-	// 子代理上下文闭环（与 main.go 同款，Actor 消息边界）：父证据注入走
+	// 子代理上下文闭环（与 wiring/bootstrap 同款，Actor 消息边界）：父证据注入走
 	// application 镜像 + 遥测（绝不访问主会话——plan_run 期间主会话被
 	// ChatStream 持锁，直接访问会死锁）；merge-back 经 mailbox 排队注入。
 	app.PublishRuntimeProjections()

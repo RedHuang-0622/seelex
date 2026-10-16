@@ -12,7 +12,7 @@ package store
 //     `RefreshProjectKnowledge`（「复用 / 重建 / 回退」三分支）。本文件**只加一步
 //     渲染**（`ProjectKnownMarkdown`）与一步落盘（`WriteProjectKnown`）。
 //  3. **被动（R6）**：无显式调用 → 不产文件。不在装配期构建、不自动刷新；只有
-//     `project_refresh` 工具被调用时才渲染 + 落盘（main.go 的 handler）。
+//     `project_refresh` 工具被调用时才渲染 + 落盘（wiring/registry 的 handler）。
 //  4. **可提交件三铁律**：渲染件不含 `BuiltAt`、不含绝对路径、不含 `ws-<nano>`；
 //     只写仓库相对路径（绝对路径的 `Path` 丢弃，`Docs` 同理）。同一 `ProjectRecord`
 //     两次渲染**字节完全相同**（模块按 `Name` 稳定排序）。

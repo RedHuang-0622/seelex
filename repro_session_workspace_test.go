@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
 )
 
 // startCrossWorkspaceScenario：A 绑定 workspace X；切到 workspace Y 建 B；
@@ -122,7 +123,7 @@ func startCrossWorkspaceScenario(t *testing.T) (harness fullChainHarness, sessio
 	if err := harness.app.WaitForIdle(ctx); err != nil {
 		t.Fatal(err)
 	}
-	st, err := initStore()
+	st, err := bootstrap.InitStore(launchFlags.StorePath)
 	if err != nil {
 		t.Fatal(err)
 	}

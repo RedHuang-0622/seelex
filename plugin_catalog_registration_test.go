@@ -8,7 +8,7 @@ package main
 // 就是把机器该做的簿记推给人。
 //
 // 本文件把「**发现 → 读回 → 落进 yaml**」这条闭环钉在真链路上：临时插件根（含一份发行
-// 风格的 curated.yaml + 一个 seed 插件）+ 真 `initPluginSystem` + 真 `plugin_create` /
+// 风格的 curated.yaml + 一个 seed 插件）+ 真 `bootstrap.InitPluginSystem` + 真 `plugin_create` /
 // `plugins_reload` 工具，断言那份 yaml **文件本身**真的多出了登记条目。
 
 import (
@@ -21,6 +21,7 @@ import (
 
 	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/plugin"
+	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
 	"github.com/RedHuang-0622/seelex/wiring/registry"
 )
 
@@ -115,9 +116,9 @@ mcp_servers: []
 		t.Fatalf("NewRuntime: %v", err)
 	}
 	t.Cleanup(runtime.Shutdown)
-	plugins, _, err := initPluginSystem(runtime, initSkillSystem())
+	plugins, _, err := bootstrap.InitPluginSystem(runtime, bootstrap.InitSkillSystem(), launchFlags.PluginsPaths)
 	if err != nil {
-		t.Fatalf("initPluginSystem: %v", err)
+		t.Fatalf("bootstrap.InitPluginSystem: %v", err)
 	}
 	registry.RegisterPluginSelfTools(runtime, plugins)
 

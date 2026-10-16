@@ -364,7 +364,7 @@ type teamworkSmoke struct {
 }
 
 // newTeamworkSmoke 装配真实链路：真实 store / 工作区 / 引擎端口 / application，
-// 并按组合根的方式注入 teamwork 编排面（main.go 的 SetTeamworkBackend 那一段）。
+// 并按组合根的方式注入 teamwork 编排面（wiring/bootstrap 的 SetTeamworkBackend 那一段）。
 func newTeamworkSmoke(t *testing.T, provider *teamworkSmokeProvider) *teamworkSmoke {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -384,14 +384,14 @@ func newTeamworkSmoke(t *testing.T, provider *teamworkSmokeProvider) *teamworkSm
 	limits.AsyncExec.Enabled = true
 	limits.AsyncExec.TriggerConversation = true
 	// 但开关的**读侧**读的是进程内那份生效 limits（`core.Limits()`，由组合根
-	// `core.ApplyLimits` 注入，见 main.go 的装配段），不是 RuntimeConfig 里那一份。
+	// `core.ApplyLimits` 注入，见 wiring/bootstrap 的装配段），不是 RuntimeConfig 里那一份。
 	// 少了这一步，消费者会按默认（关）跳过整条扫描——"做完自动返回"在冒烟里永远是关的，
 	// 测试就永远验不到它（假绿：什么都没发生也叫通过）。
 	previousLimits := core.Limits()
 	core.ApplyLimits(limits)
 	t.Cleanup(func() { core.ApplyLimits(previousLimits) })
 
-	// teamwork 编排面：与 main.go 同一段装配（PlanStore + Boards + JobOutputs + KeyFor），
+	// teamwork 编排面：与 wiring/bootstrap 同一段装配（PlanStore + Boards + JobOutputs + KeyFor），
 	// 而且**同一个位置**——在 wiring.New 之前。位置是契约的一部分：应用的
 	// 生命周期消费者在 wiring.New 里就把信号口读走，晚注入 ⇒ 它读到 nil 通道 ⇒
 	// 「做完自动返回」静默消失（见 fullChainBackendInstaller 的注释）。

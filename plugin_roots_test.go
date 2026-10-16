@@ -113,16 +113,18 @@ func TestRequirePluginsIsExplicitAboutZeroPlugins(t *testing.T) {
 // 判据从"某个文件里没有某个字符串"升级成"**调用点只有一处**"：搬迁之后陈旧写法会跟着
 // 代码换文件，只有数调用点才钉得住。
 func TestPluginRootChainIsTheOnlySourceOfLoaderRoots(t *testing.T) {
-	source, err := os.ReadFile("main.go")
+	// M5-S3 之后装配段在 wiring/bootstrap：loader 在那里用责任链解析出的 roots 构造，
+	// 而“-plugins 的值不许被别处自己拼”这条判据仍由下面的调用点计数来钉。
+	source, err := os.ReadFile(filepath.Join("wiring", "bootstrap", "plugins.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(source)
 	if !strings.Contains(text, "plugin.NewLoader(roots...)") {
-		t.Fatal("initPluginSystem 应当用责任链解析出的 roots 构造 loader")
+		t.Fatal("InitPluginSystem 应当用责任链解析出的 roots 构造 loader")
 	}
-	if !strings.Contains(text, "config.PluginRoots(launchFlags.PluginsPaths)") {
-		t.Fatal("组合根必须把 -plugins 交给 config.PluginRoots 解析（自己拼根会让链上其余根变死）")
+	if !strings.Contains(text, "config.PluginRoots(pluginsPaths)") {
+		t.Fatal("装配段必须把 -plugins 交给 config.PluginRoots 解析（自己拼根会让链上其余根变死）")
 	}
 
 	const want = "wiring/config/plugins.go"

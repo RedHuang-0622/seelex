@@ -21,6 +21,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
 )
 
 // backgroundScenario 是"A 运行中切 B → B 完成 → A 后台完成"的标准场景产物。
@@ -102,7 +103,7 @@ func startBackgroundCompletionScenario(t *testing.T, bindProject bool) *backgrou
 		t.Fatalf("wait idle after release: %v", err)
 	}
 
-	st, err := initStore()
+	st, err := bootstrap.InitStore(launchFlags.StorePath)
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -318,7 +319,7 @@ func TestBackgroundCompletionKeepsActiveSessionQueue(t *testing.T) {
 	}
 	// A 后台完成。
 	close(provider.release[2])
-	st, err := initStore()
+	st, err := bootstrap.InitStore(launchFlags.StorePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -447,7 +448,7 @@ func TestBackgroundCompletionWhileSwitchingToC(t *testing.T) {
 		t.Fatal("C second turn did not block")
 	}
 	close(provider.release[2])
-	st, err := initStore()
+	st, err := bootstrap.InitStore(launchFlags.StorePath)
 	if err != nil {
 		t.Fatal(err)
 	}

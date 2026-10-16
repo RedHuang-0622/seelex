@@ -11,6 +11,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application"
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/wiring"
+	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
 )
 
 // permission_employee_panel_test.go — 跨层验收：员工（角色会话）越权提权的审批
@@ -26,7 +27,7 @@ import (
 // 于是对宿主完全不可见，只能等到审批超时被拒。折算到宿主主会话（RoleSessionOwner）
 // 后，面板/目录/会话快照三条既有读面原样复用——这就是"直接用现有的"。
 
-// TestEmployeeEscalationLandsInOwnerSessionPanel 走真实组合根桥接（newPermissionBridge）
+// TestEmployeeEscalationLandsInOwnerSessionPanel 走真实组合根桥接（bootstrap.NewPermissionBridge）
 // 验收：员工越权提权 → broker 待批 → 归属宿主主会话 → 放行后调用执行。
 func TestEmployeeEscalationLandsInOwnerSessionPanel(t *testing.T) {
 	const (
@@ -39,7 +40,7 @@ func TestEmployeeEscalationLandsInOwnerSessionPanel(t *testing.T) {
 	broker := wiring.NewApprovalBroker(wiring.NewEventHub())
 
 	gate := &toolreg.PermissionGate{SessionFromContext: toolspermission.SessionIDFromContext}
-	gate.Set(cfg, newPermissionBridge(broker))
+	gate.Set(cfg, bootstrap.NewPermissionBridge(broker))
 	// 角色会话权责：空 = 继承宿主默认（工具面全量，逐次由中间件判定）。
 	gate.SetRoleSessionPolicyResolver(func(sessionID string) (string, bool) {
 		return "", sessionID == roleSessionID

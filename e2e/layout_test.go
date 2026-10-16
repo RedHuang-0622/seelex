@@ -41,6 +41,7 @@ var repositoryModules = []string{
 	"tui", "tui/splash", "wiring",
 	"wiring/config",
 	"wiring/registry",
+	"wiring/bootstrap",
 }
 
 var repositoryModuleDocumentation = map[string]string{

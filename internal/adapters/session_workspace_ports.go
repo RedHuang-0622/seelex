@@ -188,7 +188,7 @@ type SessionPort struct {
 	// projectSource 提供应用已知项目列表（workspace.Repo.List）：绑定缺失时
 	// 归属解析按"数据实际所在"定位，未找到即未关联（默认项目）。
 	projectSource func() []string
-	// Meta 是项目级会话展示元数据存取（main.go 装配）。它是指针：SessionPort
+	// Meta 是项目级会话展示元数据存取（wiring/bootstrap 装配）。它是指针：SessionPort
 	// 会被值拷贝进 Dependencies，共享同一个实例才共用其读改写串行化。
 	Meta *store.SessionMetaStore
 }
@@ -262,7 +262,7 @@ func adaptSessionMetaFromStore(meta store.SessionDisplayMeta) model.SessionMeta 
 	return model.SessionMeta{Pinned: meta.Pinned, Alias: meta.Alias, SortOrder: meta.SortOrder}
 }
 
-// SetWorkspaceResolver 注入会话绑定项目解析器（main.go 装配点）。
+// SetWorkspaceResolver 注入会话绑定项目解析器（wiring/bootstrap 装配点）。
 func (port *SessionPort) SetWorkspaceResolver(resolver func(sessionID string) string) {
 	if port == nil {
 		return
@@ -270,7 +270,7 @@ func (port *SessionPort) SetWorkspaceResolver(resolver func(sessionID string) st
 	port.workspaceResolver = resolver
 }
 
-// SetProjectSource 注入已知项目列表（main.go 装配点）。
+// SetProjectSource 注入已知项目列表（wiring/bootstrap 装配点）。
 func (port *SessionPort) SetProjectSource(source func() []string) {
 	if port == nil {
 		return
