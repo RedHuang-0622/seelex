@@ -624,3 +624,80 @@ git diff --cached -M --numstat（片内）
 - 这些文件全是 `*Service` 方法，按 `m5-slices.md` §2 的两段式（先同包接收者转移、再分包）施工。
 - 之后按 plan §2.5 搬整包：`task_context` / `context_runtime` / `session_runtime` / `chat` /
   `prompt_layer` / `input_router` / `context_control`。
+
+## 11. M5 第二半（续）：R7a–R7h、R5d、R-limita（2026-10-16 本轮）
+
+本轮把 plan §2.5/§2.11.1 里**还留在 `application/core` 的独立子包**整包归位完毕，并开了第一片
+**接收者转移**（root 包 `*Service` 方法下沉）。所有片都是可独立回退的单一主题提交，逐片在
+**独立 worktree**（`tmp/reshape/r7verify`，`GOWORK=off`）复核。
+
+### 11.1 整包归位（纯搬迁：包名与限定名一字未动）
+
+| 片 | commit | 原位置 → 新唯一位置 | 规模 | 门禁同步 |
+|---|---|---|---|---|
+| R7a | `821fad19` | `application/core/task_context/` → `backend/engine/task/` | 20 文件 / 50 进口方 | layout 1 条、subagent 词表 11 条、facade 闭包 1 条 |
+| R7b | `4e139090` | `application/core/prompt_layer/` → `backend/engine/prompt/` | 4 文件 / 7 进口方 | layout 1、facade 1 |
+| R7c | `36bc7dd5` | `input_router/` → `backend/engine/input/`；`context_control/` → `.../input/contextcontrol/` | 5 文件 / 10 进口方 | layout 2、facade 2 |
+| R7d | `3c1206f6` | `application/core/chat/` → `backend/engine/react/` | 4 文件 / 9 进口方 | layout 1、facade 1 |
+| R7e | `65f78ae9` | `application/core/context_runtime/` → `backend/engine/context/` | 17 文件 / 34 进口方 | layout 1、subagent 词表 1、facade 1 |
+| R7f | `2ee49a70` | `application/core/session_runtime/` → `backend/engine/session/` | 22 文件 / 26 进口方 | layout 1、subagent 词表 3、facade 1 |
+| R7g | `d7a778d5` | `seelexctx/`（根 + 8 子包）→ `backend/engine/context/seelectx/` | 80 进口方 / 136 文件变更 | layout 6、store 边界 1、facade 1、P10 白名单 1 |
+| R7h | `ebaca93b` | `internal/promptassets/` → `backend/engine/prompt/assets/` | 10 进口方 | layout（原清单未登记，无命中） |
+
+**为什么都是"只搬位置"**：每个目标包都不依赖父包 `application/core`（`go list -deps` 实测），
+所以不需要接收者转移——进口方只改 import 字符串，限定名（`task_context.X` 等）一字未动。
+被搬 README 的相对链接另有专门校准（见 11.4）。
+
+### 11.2 接收者转移第一片：R-limita（`a3fe7f9e`）
+
+| 项 | 内容 |
+|---|---|
+| 判据本体 | `application/core/service_account_window.go` → `backend/limit/accountwindow/setter.go` 的 `Setter.Set` |
+| 门面 | `Service.SetAccountWindow` 保留为一行转发 + nil 守卫（外部调用点零改动） |
+| 端口 | `Runtime contract.AccountWindowPort`（nil = 宿主未实现）、`Store contract.AccountWindowStore`（nil = 不落盘）——**结构满足**，无适配层；两个端口本就在契约层，符合 limit 板块"只依赖契约"的允许依赖 |
+| 用例 | `application/core/service_account_window_test.go` → `backend/limit/accountwindow/setter_test.go`（git 判为重命名）；门面侧新增 `service_account_window_forward_test.go` 只钉 nil 守卫与端口断言（不重复判据） |
+| 保真 | 错误文案逐字、次序（校验 → 写盘 → 内存 → 回读生效值）、写盘失败内存不动、返回值是宿主回读值，全部保留 |
+
+### 11.3 判据归位：R5d（`e0c22ca6`，plan §2.4）
+
+- `application/core/{error_codes.go, error_presentation.go}` → `middle/view/errors/`（包名 `viewerrors`）；
+- **跨层判据下沉 `contract`**（新增 `contract/errors.go`：结构化错误码、`ErrReActBudgetExceeded` 哨兵、
+  provider 失败分类 `ClassifyProviderFailure` 与 `IsProviderContextExhaustion`）。理由：plan §1.1 规定
+  「前端 → 门面 → 中间层 → 后端 → 底座」，中间层不得 import 后端、后端不得 import 中间层，
+  而这两处的判据同时被**中间层呈现**与**后端恢复策略**消费 ⇒ 只能落契约层。新增文件只用 stdlib，
+  **不改 `contract` 的依赖闭包**（契约 ratchet 未动）。
+- 删除的重复实现：`classifyPresentedError` → `viewerrors.Classify`；`presentToolError` → `viewerrors.PresentToolError`；
+  `isProviderContextExhaustion` / `classifyProviderFailure` / `providerFailureKind` 常量 →
+  `contract.*`（`history_safety.go` 与呈现层从此共享一份）；`task_context.ErrReActBudgetExceeded` → `contract.ErrReActBudgetExceeded`。
+- 用例拆分：纯呈现用例 → `middle/view/errors/presentation_test.go`；Service 级用例 → `application/core/chat_error_surface_test.go`。
+- 门禁：`e2e/layout_test.go` +1；`e2e/facade_boundary_test.go` +1 且 `facadeClosureAllowListMax` 75 → 76
+  （按该文件既有"新模块可 +1、必须写清多了谁"的约定）。
+
+### 11.4 施工纪律（本轮新增，后续切片必须遵守）
+
+1. **并行编辑隔离**：工作树里有另一个 worker 在并行改 `application/core` 的若干文件（未提交）。
+   直接 `git add <file>` 会把它的在途改动夹带进本片提交（本轮 R7b 首版就踩了，已用 plumbing
+   重建 blob 修复并 amend）。纪律：**只 `git add` 显式路径列表**；对同时被并行改写的文件用
+   `tmp/reshape/stage_clean.py` / `stage_blob.py`（父提交内容 + 本片替换，再 gofmt）重建 blob。
+2. **被搬 README 的相对链接深度必须校准**：R7g 时 `seelexctx/README.md`（一层）搬到四层后
+   `../docs/...` 全部失效，门禁 `TestRepositoryModuleReadmeLinks` 抓到。`tmp/reshape/fix_rel_links.py`
+   按"解析不到就补一层 `../`、最多 6 层"自动校准；历史工作包里的失效链接**不动**（它们记的是当时事实）。
+3. **换名/换落点后要扫"硬编码路径"的用例**：R7h 的 `test/tool_face_prompt_consistency_test.go`
+   与 R7g 的 `e2e/session_not_found_single_criterion_test.go` 白名单都写死了旧路径。
+4. **临时文件禁区**：`tmp/` 下的临时 `.go` 会被 `go build ./...` 捡起来（本轮踩过一次）——
+   探针一律用 `.go.txt` 后缀或放进带嵌套 `go.mod` 的目录。
+
+### 11.5 本轮结束时的实况与剩余
+
+- `application/core` 的子包**只剩根包文件**（250 个 `.go`，含用例）：接收者转移是剩余工作的主体。
+- 已完成的接收者转移只有 1 片（R-limita）。剩余按 plan §2.11.1 逐个做：
+  `service_knobs.go`/`session_permission_tier.go` → `backend/limit/*`；`plan_tools.go`/`tool_hooks.go`/
+  `reference_tools.go`/`review_files.go` → `backend/tool/*`；`role_session.go`/`teamwork_service.go` →
+  `backend/multiagent/*`；`context_compact*.go`/`history_safety.go` → `backend/engine/context/`；
+  `chat.go` → `backend/engine/react/`；`command.go`/`completion.go`/`input.go`/`service_input.go` →
+  `backend/engine/input/`；`skill_activate.go`/`skill_context.go` → `backend/engine/skill/`；
+  以及 R6（常驻/切换域）、R8 余项、R10（删 `aliases.go` + 门面收窄五组 + I5）、R11（删 `ports.go`、`Runtime` 按域下沉）。
+- 工作树里仍有另一个 worker 的 R5b 半成品（`middle/view/worktable/{async,projection}.go` +
+  `application/core/{work_table*,async_completion,session_cold_read,session_scope,service_*}.go`，19 个文件未提交）；
+  本轮的每一片都**没有碰**它的文件，但它负责的 `e2e/subagent_status_vocabulary_gate_test.go` 更新尚未落地，
+  所以**主工作树**的 `go test ./e2e/` 目前会因它而红；本轮的复核一律在独立 worktree 里做（那里没有它的在途改动）。
