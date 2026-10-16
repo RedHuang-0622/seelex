@@ -522,3 +522,54 @@ Seelex 实现包**（`lifecycle.go` 只 import stdlib，`ports.go` 只 import `c
 下一片 = `teamwork` 片（`seelebridge/teamwork` + 根包 `runtime_teamwork*.go` 13 文件 ≈3,700 行 +
 `teamwork_job_signals.go` + `runtime_teammate_session_live.go` → `backend/multiagent/teamwork/`），
 做完 `seelebridge/` 目录即消失（M4 出口条件的第一个标志）。
+
+## 14. M4-TW1：`teamwork` 整包归位（`seelebridge/` 目录清空）
+
+plan §2.7 给 `teamwork` 点名的落点就是 `backend/multiagent/teamwork/`，本片照此**整包 `git mv`**。
+它不涉及 `Runtime` 拆分（那是 J2 续做），因此是纯路径搬迁——判据只有一条：**内容零 diff**。
+
+### 14.1 删除清单（原位置 → 新唯一位置）
+
+| 原位置 | 新唯一位置 | 说明 |
+|---|---|---|
+| `seelebridge/teamwork/`（6 生产文件：`coordinator.go` 555、`items.go` 1003、`items_gate.go` 145、`teamwork.go` 278、`executor.go` 62、`planlock.go` 42、`store.go` 45 行）+ 16 个用例 + README | `backend/multiagent/teamwork/` 同名文件 | `git mv`，**包名 `teamwork` 不变**；`--numstat` 显示 22 个文件 `0 0`（纯改名） |
+| 31 个 `.go` 的 `import "…/seelebridge/teamwork"` 与注释里的落点 | 同上，改为 `…/backend/multiagent/teamwork` | 全是 1–2 行改写：assemble（22）、main.go、`application/core`、`store`、`contract/dto`、根包用例、`e2e` 两条门禁 |
+| 两处"带文件后缀"的注释引用（`backend/tool/worktree/worktree_vanished_scene_repro_test.go`、`store/teamwork_items.go`） | 同上 | 词边界脚本看不见这种形态，手工补（D-M4-TW1） |
+| 门禁里的历史路径：门面闭包 allow list 条目、workunit 端口门禁的 `forbiddenPackages` 键与阴性对照样例 | 改为新路径 | allow list **条数与上限不变**（改名不是新模块）；`e2e/layout_test.go` 的 `repositoryModules` +1 |
+
+### 14.2 证据（实跑）
+
+| 检查 | 结果 |
+|---|---|
+| `gofmt -l .`（排除 `tmp/`） | 空（搬迁后 23 个文件需要 import 重排，已 `gofmt -w`） |
+| `go build ./...` / `-tags "gui,desktop,production"` | 均通过 |
+| `go vet ./...` | 无输出 |
+| `go test ./backend/multiagent/...` | ok（`teamwork` 4.5s + `subagent` 7.1s） |
+| `go test ./backend/engine/...` | 全 ok（`assemble` 56.9s，含 teamwork 域的全部接线用例） |
+| `go test ./store/... ./internal/adapters/... ./backend/workunit/...` | 全 ok（`store` 91.5s） |
+| `go test .`（根包，含 `teamwork_headless_smoke_test.go` / `tool_full_chain_test.go`） | ok（189.8s） |
+| `go test ./e2e/` | ok |
+| `go test ./... -count=1 -timeout=900s` | **失败集合 = 基线 3 条**（`application/core`） |
+| `node --test gui/frontend/dist/*.test.mjs` | 778/778 |
+| `python scripts/check_readme_refs.py` | 12 条（**新增 0**） |
+| 目录结构 | `seelebridge/` 下 **`.go` 计数 = 0**（只剩 `.seelex/` 运行数据与不被 git 跟踪的空 `workunit/` 目录） |
+
+### 14.3 本片新偏差
+
+| ID | 偏差 | 处置 |
+|---|---|---|
+| D-M4-TW1 | **词边界脚本的第三类盲点**：`seelebridge/teamwork/items.go` 这种"路径 + 文件后缀"的形态不被 `(?<![\w/])…(?![\w/])` 命中（前瞻把 `/` 排除掉了）。前两类盲点是相对链接深度（D-M4-10）与散文里的裸包名 | 手工补两处，并把"收尾必查：`rg <旧路径>`（不加词边界）"写进本片流程；以后搬迁脚本按"先宽后窄"两遍扫 |
+| D-M4-TW2 | `backend/multiagent/teamwork` 仍 import `application/core/agentteam`（**既有方向**，非本片引入）。plan §2.7 要求 `agentteam/` → `backend/multiagent/team` | 登记为后续片；本片不动它（动了就是行为变更，不属于"物理归位"） |
+| D-M4-TW3 | 同域**执行体**仍在装配包：`runtime_teamwork*.go`（11 文件）、`teamwork_job_signals.go`、`runtime_teammate_session_live.go`、`runtime_teamwork_board*.go`、`workunit_team*.go` | J2 续做项：它们要 `Runtime` 的会话绑定 / 计划存储 / 角色会话句柄，属宿主适配，按 J2 模板（端口先行 → 状态随方法走 → 装配侧留持有与拓扑）逐域下沉 |
+| D-M4-TW4 | 提交时发现工作区里有**并行的无关改动**（`.githooks/*`，由上一级代理在同目录进行中） | 按 AGENTS §7「不混入无关文件」处理：`git restore --staged .githooks` 后只提交本片文件；未触碰、未丢弃对方的工作树改动 |
+
+### 14.4 里程碑位置
+
+**M4 出口条件的第一个标志（`seelebridge` 目录消失）已达成**：`seelebridge/` 下不再有任何 Go 包，
+`go list ./...` 里不再出现 `seelebridge`。M4 剩下的部分不再是"搬 seelebridge"，而是
+**J2 续做**（把 `assemble` 里的各域按端口下沉到 engine/tool/multiagent）与 **K 片**
+（删 `ports.go` 的 1020 行逐行委托 + 11 条兼容别名）。两者都不阻塞 M5 的前置条件
+（M5 = 中间层切割 + `Service` 门面收窄 + `main.go` < 400 行），因此下一片可二选一：
+
+1. **K 片**：删 `ports.go`，让契约层闭包变干净（现在它为了两个别名反向依赖 assemble）；
+2. **M5 起步**：`application/core` 按域切分（先 `kernel/state`）+ `main.go` 的注册段迁 `wiring/registry/`。
