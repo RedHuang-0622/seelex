@@ -18,10 +18,10 @@ import (
 	"github.com/RedHuang-0622/Seele/workplan/codec"
 	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
 
+	seelaccount "github.com/RedHuang-0622/seelex/backend/engine/account"
 	"github.com/RedHuang-0622/seelex/backend/tool/plan"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/model"
-	seelaccount "github.com/RedHuang-0622/seelex/seelebridge/account"
 	"github.com/RedHuang-0622/seelex/store"
 )
 

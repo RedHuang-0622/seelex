@@ -124,8 +124,8 @@ func forkScriptedProduct(taskID string) string {
 //
 //  1. **按账号**给固定回复（"child-one 答 time、child-two 答 file"）不成立——fork 子代理的
 //     账号解析不是契约：子代理作用域没有 branchID 时走"当前余量最大的账号"
-//     （seelebridge/account/manager.go:186-196 leastBusyForRole），有 branchID 时才走
-//     FNV-1a 稳定哈希（seelebridge/account/account.go:59 ResolveForBranch / :104 StableIndex）。
+//     （backend/engine/account/manager.go:186-196 leastBusyForRole），有 branchID 时才走
+//     FNV-1a 稳定哈希（backend/engine/account/account.go:59 ResolveForBranch / :104 StableIndex）。
 //     实测 -count=15：id 取 one_agent/two_agent 时**两个子代理恒被同一账号服务**
 //     （child-two 15/15），id 取 time_agent/file_agent 时恒分居两个账号 15/15。
 //     靠 id 撞账号来"保证两条产物不同"，判据就被账号解析的偶然性牵着走。

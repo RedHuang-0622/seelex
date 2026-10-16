@@ -27,7 +27,7 @@ import (
 // http.Client.Timeout——**整请求 wall-clock 上限，含 SSE body 读**。长流因此会被
 // 「总时长」而不是「停滞」判死，报错措辞 `…(Client.Timeout or context cancellation
 // while reading body)` 还区分不了两者。这里显式清零该字段（NewChatClient 对
-// Timeout<=0 会回落到 60s，所以必须清在构造之后——见 seelebridge/account/README.md），
+// Timeout<=0 会回落到 60s，所以必须清在构造之后——见 backend/engine/account/README.md），
 // 改用 Transport 级看门狗：响应头超时 + body 空闲看门狗（transport.go）。
 func ClientFor(spec model.AccountSpec) agent.Completer {
 	client := api.NewChatClient(types.LLMConfig{

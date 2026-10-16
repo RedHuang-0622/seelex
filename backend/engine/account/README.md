@@ -83,7 +83,7 @@ NewRuntime 读取账号 YAML → `RegisterAccounts` 注册池 → 请求时
 
 ## 测试与验证
 
-`go test ./seelebridge/account/...`：`manager_test.go`（账号选择/provider 过滤）+
+`go test ./backend/engine/account/...`：`manager_test.go`（账号选择/provider 过滤）+
 `transport_test.go` / `transport_watchdog_test.go`——后者用 httptest 的 OpenAI 兼容
 SSE 上游钉住事故形状（整请求超时会掐断健康慢流、复现那句措辞；换成空闲看门狗后
 同一条流活下来，真停滞则报可读错误）。稳定选择由根包

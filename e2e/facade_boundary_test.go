@@ -98,7 +98,7 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/internal/winhide",
 	"github.com/RedHuang-0622/seelex/mcpstack",
 	"github.com/RedHuang-0622/seelex/seelebridge",
-	"github.com/RedHuang-0622/seelex/seelebridge/account",
+	"github.com/RedHuang-0622/seelex/backend/engine/account",
 	"github.com/RedHuang-0622/seelex/backend/tool/fork",
 	"github.com/RedHuang-0622/seelex/backend/tool/io/fs",
 	"github.com/RedHuang-0622/seelex/backend/tool/io/imageattach",

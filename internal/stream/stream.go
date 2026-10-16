@@ -19,7 +19,7 @@ import (
 	"github.com/RedHuang-0622/seelex/internal/model"
 	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 
-	"github.com/RedHuang-0622/seelex/seelebridge/account"
+	"github.com/RedHuang-0622/seelex/backend/engine/account"
 )
 
 // streamFailoverAttempts 是一次流式请求最多换几个账号。

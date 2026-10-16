@@ -21,6 +21,7 @@ import (
 	"github.com/RedHuang-0622/Seele/telemetry"
 	"github.com/RedHuang-0622/Seele/types"
 
+	"github.com/RedHuang-0622/seelex/backend/engine/account"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/backend/tool/fork"
 	"github.com/RedHuang-0622/seelex/backend/tool/io/fs"
@@ -34,7 +35,6 @@ import (
 	"github.com/RedHuang-0622/seelex/internal/docker"
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/mcpstack"
-	"github.com/RedHuang-0622/seelex/seelebridge/account"
 	"github.com/RedHuang-0622/seelex/seelebridge/mcp"
 	"github.com/RedHuang-0622/seelex/seelebridge/plugin"
 	"github.com/RedHuang-0622/seelex/seelebridge/scheduler"

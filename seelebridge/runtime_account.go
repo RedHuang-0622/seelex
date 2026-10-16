@@ -9,12 +9,12 @@ import (
 	"github.com/RedHuang-0622/Seele/agent/bridge"
 	"github.com/RedHuang-0622/Seele/types"
 
+	"github.com/RedHuang-0622/seelex/backend/engine/account"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/config"
 	"github.com/RedHuang-0622/seelex/internal/model"
 	"github.com/RedHuang-0622/seelex/internal/stream"
 	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/seelebridge/account"
 )
 
 // 账号路由状态已收敛为 account.Manager（选中账号/provider 过滤/限额/选择器）。
