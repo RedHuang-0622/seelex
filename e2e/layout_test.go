@@ -55,6 +55,9 @@ var repositoryModules = []string{
 	"internal/model", "internal/stream",
 	"internal/telemetry", "backend/tool/plan",
 	"backend/tool/search", "backend/limit/gate", "backend/tool/task", "backend/tool/websearch", "backend/engine/context/seelectx", "backend/engine/context/seelectx/compactor",
+	// M5-R-tool-review：`show_files` 的落点（原 application/core/review_files.go）归位 tool 板块
+	// （plan §2.6；工具注册那一半仍在 backend/engine/assemble，等 R11）。
+	"backend/tool/review",
 	"backend/engine/context/seelectx/merger", "backend/engine/context/seelectx/provider", "backend/engine/context/seelectx/search", "backend/engine/context/seelectx/snapshot",
 	"session", "store", "store/root", "store/schedule", "store/workspace",
 	"tui", "tui/splash", "wiring",
