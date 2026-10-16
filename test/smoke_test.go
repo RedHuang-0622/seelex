@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/store"
 	"github.com/RedHuang-0622/seelex/wiring/config"
 )
@@ -21,7 +21,7 @@ func TestSmokeLLM(t *testing.T) {
 	cfgPath := config.AccountsPath()
 
 	// 1. 创建框架运行时（新装配模型：账号池 + 注册表 + Agent + 主会话）
-	runtime, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{
+	runtime, err := assemble.NewRuntime(assemble.RuntimeConfig{
 		AccountsPath: cfgPath, ToolCallTimeout: 30 * time.Second,
 	})
 	if err != nil {

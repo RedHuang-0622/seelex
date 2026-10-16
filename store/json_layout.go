@@ -26,7 +26,7 @@ import (
 	storeroot "github.com/RedHuang-0622/seelex/store/root"
 )
 
-func newJSONRepositoryWithLayout(root string, settings storageSettings) (*jsonRepository, error) {
+func newJSONRepositoryWithLayout(root string, settings storeroot.Settings) (*jsonRepository, error) {
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return nil, fmt.Errorf("session storage: create JSON root: %w", err)
 	}

@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,7 +10,7 @@ import (
 
 func roleSessionFixture(t *testing.T) (*storeEngine, Key) {
 	t.Helper()
-	store := newStoreEngine(t.TempDir(), storageSettings{})
+	store := newStoreEngine(t.TempDir(), storeroot.Settings{})
 	key := Key{ProjectID: "project-1", SessionID: "main-session"}
 	if _, err := store.messageCommit(key, "init", []Event{{
 		Role: "user", Content: "start", Kind: EventKindUserInput,

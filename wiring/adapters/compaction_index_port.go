@@ -3,7 +3,7 @@ package adapters
 import (
 	"context"
 
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/engine/context"
 )
 
@@ -25,7 +25,7 @@ func (port RuntimePort) PushCompactionFrame(
 	if port.Runtime == nil {
 		return context_runtime.CompactionIndexReceipt{}, context_runtime.ErrCompactionIndexUnavailable
 	}
-	receipt, err := port.Runtime.PushCompactionFrame(ctx, sessionID, seelebridge.CompactionFrameRequest{
+	receipt, err := port.Runtime.PushCompactionFrame(ctx, sessionID, assemble.CompactionFrameRequest{
 		Overflow:      restoreMessages(request.Overflow),
 		UnitCount:     request.UnitCount,
 		ReplayHistory: restoreMessages(request.ReplayHistory),
@@ -65,7 +65,7 @@ func (port RuntimePort) ReadbackCompactionSummary(
 	if port.Runtime == nil {
 		return context_runtime.CompactionIndexReceipt{}, context_runtime.ErrCompactionIndexUnavailable
 	}
-	receipt, err := port.Runtime.ReadbackCompactionSummary(ctx, sessionID, seelebridge.CompactionFrameRequest{
+	receipt, err := port.Runtime.ReadbackCompactionSummary(ctx, sessionID, assemble.CompactionFrameRequest{
 		Overflow:      restoreMessages(request.Overflow),
 		ReplayHistory: restoreMessages(request.ReplayHistory),
 	})

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,7 +17,7 @@ import (
 // 目录扫描）。
 func messageFixture(t *testing.T, shardRows int) (*storeEngine, Key) {
 	t.Helper()
-	store := newStoreEngine(t.TempDir(), storageSettings{MessageShardRows: shardRows})
+	store := newStoreEngine(t.TempDir(), storeroot.Settings{MessageShardRows: shardRows})
 	return store, Key{ProjectID: "project-p1", SessionID: "session-s1"}
 }
 

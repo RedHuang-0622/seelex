@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
 	"github.com/RedHuang-0622/seelex/wiring/registry"
@@ -16,7 +16,7 @@ import (
 
 // newSkillToolHarness 构造 skill_activate 工具测试台：真实 skill.Registry +
 // 真实 runtime（DirectDispatch 免权限），activate 注入桩记录调用名。
-func newSkillToolHarness(t *testing.T) (*seelebridge.Runtime, *skill.Registry, *[]string) {
+func newSkillToolHarness(t *testing.T) (*assemble.Runtime, *skill.Registry, *[]string) {
 	t.Helper()
 	temp := t.TempDir()
 	AccountsPath := filepath.Join(temp, "accounts.yaml")
@@ -36,7 +36,7 @@ mcp_servers: []
 	if err := os.WriteFile(AccountsPath, []byte(minimalAccounts), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	runtime, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{
+	runtime, err := assemble.NewRuntime(assemble.RuntimeConfig{
 		AccountsPath:    AccountsPath,
 		StorePath:       filepath.Join(temp, "runtime"),
 		ToolCallTimeout: 30 * time.Second,

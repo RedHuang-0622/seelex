@@ -10,7 +10,7 @@ import (
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/telemetry"
 	"github.com/RedHuang-0622/Seele/types"
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 	"github.com/RedHuang-0622/seelex/backend/engine/obs"
 	"github.com/RedHuang-0622/seelex/backend/limit/loop"
@@ -69,7 +69,7 @@ type EnginePort struct {
 	// Runtime 注入，只读子代理归档器，安全）。
 	nodeToolResult func(string, string) (string, bool)
 	// nodeWorktree 是节点 worktree 现场查询（失败现场恢复入口；Runtime 注入）。
-	nodeWorktree func(string) (seelebridge.NodeWorktreeInfo, bool)
+	nodeWorktree func(string) (assemble.NodeWorktreeInfo, bool)
 	// subAgentTree 是 fork 子代理树投影查询（GUI 树视图数据源；Runtime
 	// 注入，内存态只读 actor，安全）。
 	subAgentTree func() []dto.SubAgentTreeNode
@@ -82,7 +82,7 @@ type EnginePort struct {
 	// nodeStageLogs 是 node 第一视角阶段日志历史查询（详情弹窗"第一视角"
 	// 历史回放源；Runtime 注入，只读子代理 actor，安全）。
 	nodeStageLogs func(nodeID string) []dto.NodeStageLog
-	// releaseSessionBundle 是桥侧会话本体释放面（seelebridge.Runtime.ReleaseSession）：
+	// releaseSessionBundle 是桥侧会话本体释放面（assemble.Runtime.ReleaseSession）：
 	// 会话释放面把框架 Session + 会话上下文存储 + 主历史一起放掉（见
 	// application/core/session_release.go）。nil = 未装配（legacy 引擎/测试）。
 	releaseSessionBundle func(sessionID string) bool
@@ -99,7 +99,7 @@ type EnginePortDeps struct {
 	// NodeToolResult 子代理工具结果读回（ref 带 node:<nodeID>: 前缀）。
 	NodeToolResult func(string, string) (string, bool)
 	// NodeWorktree 节点 worktree 现场查询（失败现场恢复入口；只读注册表）。
-	NodeWorktree func(string) (seelebridge.NodeWorktreeInfo, bool)
+	NodeWorktree func(string) (assemble.NodeWorktreeInfo, bool)
 	// SubAgentTree fork 子代理树投影查询（GUI 树视图数据源；内存态只读
 	// actor，安全）。
 	SubAgentTree func() []dto.SubAgentTreeNode
@@ -113,7 +113,7 @@ type EnginePortDeps struct {
 	// PrepareHistory Runtime-owned one-shot handoff（framework Session 的
 	// DurableHistory.Load 使用；启动期配置，必须在并发开始前完成）。
 	PrepareHistory func(string, []types.Message)
-	// ReleaseSessionBundle 释放桥侧会话本体（seelebridge.Runtime.ReleaseSession）：
+	// ReleaseSessionBundle 释放桥侧会话本体（assemble.Runtime.ReleaseSession）：
 	// 会话释放面把框架 Session + 会话上下文存储 + 主历史一起放掉；返回是否真的
 	// 释放（在飞 fork / 后台命令，或该会话仍是桥的活跃别名时返回 false）。
 	// nil = 未装配：释放面退化成"只丢引擎引用"（legacy 引擎的语义）。
@@ -463,9 +463,9 @@ func (port *EnginePort) NodeToolResult(nodeID, ref string) (string, bool) {
 
 // NodeWorktreeInfoFor 转发节点 worktree 现场查询（失败现场恢复入口；
 // 查询源经 ApplyDeps 注入，只读注册表，安全）。
-func (port *EnginePort) NodeWorktreeInfoFor(nodeID string) (seelebridge.NodeWorktreeInfo, bool) {
+func (port *EnginePort) NodeWorktreeInfoFor(nodeID string) (assemble.NodeWorktreeInfo, bool) {
 	if port == nil || port.nodeWorktree == nil {
-		return seelebridge.NodeWorktreeInfo{}, false
+		return assemble.NodeWorktreeInfo{}, false
 	}
 	return port.nodeWorktree(nodeID)
 }

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
@@ -59,11 +59,11 @@ func TestSubagentSessionDetailCarriesContext(t *testing.T) {
 func TestSubagentSessionDetailCarriesWorktree(t *testing.T) {
 	engine := &fakeEngine{
 		nodeContext: &snapshot.ContextSnapshot{Goal: "audit module", MessageCount: 3},
-		nodeWorktreeInfoFn: func(nodeID string) (seelebridge.NodeWorktreeInfo, bool) {
+		nodeWorktreeInfoFn: func(nodeID string) (assemble.NodeWorktreeInfo, bool) {
 			if nodeID != "worker" {
-				return seelebridge.NodeWorktreeInfo{}, false
+				return assemble.NodeWorktreeInfo{}, false
 			}
-			return seelebridge.NodeWorktreeInfo{
+			return assemble.NodeWorktreeInfo{
 				Path: "G:/tmp/seelex-seelex-worker", Branch: "seelex/worker", MainBranch: "main",
 			}, true
 		},
@@ -88,7 +88,7 @@ func TestSubagentSessionDetailCarriesWorktree(t *testing.T) {
 // CancelScheduledTask 变更入口转发到 Runtime 并刷新投影。
 func TestScheduledTasksProjectIntoRuntimeSnapshot(t *testing.T) {
 	runtime := &fakeRuntime{
-		scheduledTasks: []seelebridge.ScheduledTaskStatus{{
+		scheduledTasks: []assemble.ScheduledTaskStatus{{
 			ID: "sched_1", Name: "抓职位", Kind: "command",
 			Enabled: true, NextRunAt: time.Now().Add(time.Minute),
 		}},
@@ -103,8 +103,8 @@ func TestScheduledTasksProjectIntoRuntimeSnapshot(t *testing.T) {
 		t.Fatalf("allowlist must project: %+v", commands)
 	}
 
-	created, err := svc.ScheduleTask(context.Background(), seelebridge.ScheduledTaskSpec{
-		Name: "周期提醒", Kind: seelebridge.ScheduledTaskPrompt,
+	created, err := svc.ScheduleTask(context.Background(), assemble.ScheduledTaskSpec{
+		Name: "周期提醒", Kind: assemble.ScheduledTaskPrompt,
 		Prompt: "检查发布状态", Interval: time.Minute, Enabled: true,
 	})
 	if err != nil {

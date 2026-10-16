@@ -21,7 +21,7 @@ type SubagentLiveEvent struct {
 //
 // 与 `SubscribeSubagentLive` 是**同一份窗口**的两种读法（add but not modify：订阅面的
 // 签名与返回值不变）：订阅面给"历史快照 + 实时通道"，本载荷给"翻页读窗口里的历史"。
-// 窗口上限由宿主配置（`seelebridge.RuntimeConfig.SubagentLiveWindow`，超出丢最旧）。
+// 窗口上限由宿主配置（`assemble.RuntimeConfig.SubagentLiveWindow`，超出丢最旧）。
 //
 // 语义：`offset` 从**窗口内最旧一条**算起（0 = 最旧）；`events` 在窗口内由旧到新；
 // `total` = 窗口内条数；`offset >= total` → 空页且 `has_more=false`；

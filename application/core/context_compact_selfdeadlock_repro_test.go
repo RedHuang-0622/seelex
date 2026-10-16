@@ -11,7 +11,7 @@ package core
 //	            └─ CompactionIndexPort.PushCompactionFrame(context.Background(), …)
 //	                 （context_runtime/compaction_index.go:68 —— ctx 是 Background）
 //	                 └─ adapters.RuntimePort.PushCompactionFrame（只转发）
-//	                      └─ seelebridge.Runtime.PushCompactionFrame
+//	                      └─ assemble.Runtime.PushCompactionFrame
 //	                           └─ CompressedTurnArchiver.StoreTurn(ctx, …)（归档原文）
 //	                                ├─ sessionIDFromContext(ctx) == ""   ← Background 不带会话
 //	                                └─ a.SessionIDProvider()             ← 兜底会话归属

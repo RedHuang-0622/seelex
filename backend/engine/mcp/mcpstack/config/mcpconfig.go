@@ -21,7 +21,7 @@ import (
 const FileName = "mcp.yaml"
 
 // MCPServerConfig 对应 mcp.yaml 根级 mcp_servers 列表的单条配置。
-// 与 seelebridge.MCPServer 字段一一映射，但加了 yaml tag。
+// 与 assemble.MCPServer 字段一一映射，但加了 yaml tag。
 type MCPServerConfig struct {
 	Name      string   `yaml:"name"`
 	Transport string   `yaml:"transport"`

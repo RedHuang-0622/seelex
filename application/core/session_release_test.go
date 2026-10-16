@@ -31,7 +31,7 @@ func withSessionReleaseWindow(window int) func() {
 
 // releaseAwareEngine 在 multiSessionEngine 之上记录「桥侧会话本体」的释放
 // （application 侧 ReleaseSessionBundle 端口；生产实现是
-// seelebridge.Runtime.ReleaseSessionBundle）。没有这一格，用例只能看到"引擎被
+// assemble.Runtime.ReleaseSessionBundle）。没有这一格，用例只能看到"引擎被
 // 卸载了"，而看不出"驱逐是否真的把本体放掉了"——那正是 2026-10-14 的缺口。
 type releaseAwareEngine struct {
 	*multiSessionEngine

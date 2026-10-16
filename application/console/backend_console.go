@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 )
 
 // backendApplication is the diagnostic console's narrow Application boundary.
@@ -184,7 +184,7 @@ func (logger *EventLogger) LogStage(stage string) {
 // LogBashEvent records the process-boundary diagnostics emitted by scopedBash.
 // Like the application event logger, it intentionally excludes user command
 // text, paths, arguments, and command output.
-func (logger *EventLogger) LogBashEvent(event seelebridge.BashDiagnosticEvent) {
+func (logger *EventLogger) LogBashEvent(event toolreg.BashDiagnosticEvent) {
 	logger.mu.Lock()
 	defer logger.mu.Unlock()
 	if event.Err != nil {

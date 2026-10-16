@@ -3,7 +3,7 @@ package core
 import (
 	"context"
 
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 )
 
 // goalReadSessionID 是「读 goal 看板」该用的会话号。
@@ -17,12 +17,12 @@ import (
 // "goal: session ID is required"（见 goal_service.go 的 goalCoordinatorFor）。
 //
 // 看板属 leader，所以员工回合按**宿主主会话**读——宿主会话由 roleWorkScope 按构造
-// 带在 ctx 上（seelebridge.HostSessionForToolCall），不必反查角色会话归属表。
+// 带在 ctx 上（assemble.HostSessionForToolCall），不必反查角色会话归属表。
 // 这是只读路径：员工据此看得到 leader 的看板，但 goal 的写/收口工具仍在 ctl 组，
 // 员工面上没有位（越权由权限门在执行判定上拒，不靠这里）。
 func goalReadSessionID(ctx context.Context) string {
 	if sessionID := sessionIDFromContext(ctx); sessionID != "" {
 		return sessionID
 	}
-	return seelebridge.HostSessionForToolCall(ctx)
+	return assemble.HostSessionForToolCall(ctx)
 }

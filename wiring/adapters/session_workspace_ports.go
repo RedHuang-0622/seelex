@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	"github.com/RedHuang-0622/seelex/contract"
@@ -180,7 +180,7 @@ func (port SkillPort) All() []model.SkillInfo {
 
 type SessionPort struct {
 	Manager *session.Manager
-	Runtime *seelebridge.Runtime
+	Runtime *assemble.Runtime
 	// workspaceResolver 解析会话绑定的项目（workspace.Repo 装配注入；
 	// Delete/LoadHistory 等会话级操作按归属项目落键，避免删错/读错作用域）。
 	workspaceResolver func(sessionID string) string

@@ -26,7 +26,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application/core"
 	"github.com/RedHuang-0622/seelex/application/prompt"
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
 	goaldomain "github.com/RedHuang-0622/seelex/backend/multiagent/goal"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -232,7 +232,7 @@ type PolicyFace interface {
 	ScheduleCancel(sessionID string, payload dto.ScheduleEventPayload) error
 	ScheduleFire(sessionID string, payload dto.ScheduleEventPayload) error
 	ScheduleRegister(sessionID string, payload dto.ScheduleEventPayload) error
-	ScheduleTask(ctx context.Context, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error)
+	ScheduleTask(ctx context.Context, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error)
 	SelectAccount(_ context.Context, name string) error
 	SetAccountWindow(_ context.Context, name string, window int) (int, error)
 	SetFullAccess(on bool) bool
@@ -246,7 +246,7 @@ type PolicyFace interface {
 	SwitchEffort(_ context.Context, level string) error
 	SwitchPlugin(ctx context.Context, name string) error
 	TestSessionStorage(ctx context.Context, config store.Config) error
-	UpdateScheduledTask(ctx context.Context, id string, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error)
+	UpdateScheduledTask(ctx context.Context, id string, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error)
 }
 
 // QueueFace 队列面（plan §1.3 E 组）：排队输入的召回/调序与输入建议；同组的无状态函数（`HasSigilPrefix` / `SigilOf` / `RenderDiag` / `ValidEffortLevels` / `AccountWindowPresets`）不是接口成员，仍以包级函数提供。

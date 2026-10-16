@@ -9,7 +9,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/application"
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/testutil"
@@ -214,8 +214,8 @@ func (*ScriptedEngine) NodeContextSnapshot(string) (*snapshot.ContextSnapshot, b
 	return nil, false
 }
 func (*ScriptedEngine) NodeToolResult(string, string) (string, bool) { return "", false }
-func (*ScriptedEngine) NodeWorktreeInfoFor(string) (seelebridge.NodeWorktreeInfo, bool) {
-	return seelebridge.NodeWorktreeInfo{}, false
+func (*ScriptedEngine) NodeWorktreeInfoFor(string) (assemble.NodeWorktreeInfo, bool) {
+	return assemble.NodeWorktreeInfo{}, false
 }
 func (*ScriptedEngine) SubscribeSubagentLive(string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error) {
 	return nil, nil, func() {}, nil

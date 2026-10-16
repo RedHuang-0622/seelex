@@ -10,7 +10,7 @@ import (
 
 func retentionFixture(t *testing.T) (*storeEngine, Key) {
 	t.Helper()
-	store := newStoreEngine(t.TempDir(), storageSettings{})
+	store := newStoreEngine(t.TempDir(), storeroot.Settings{})
 	return store, Key{ProjectID: "p-wm", SessionID: "s-wm"}
 }
 
@@ -430,8 +430,8 @@ func TestStorageSettingsOverrideAndValidation(t *testing.T) {
 		t.Fatalf("wireBudget = %d/%d/%d", budget, soft, target)
 	}
 	// 覆盖链：后一层只覆盖它显式给出的字段。
-	limits := storageSettings{MessageShardRows: 50, StaleAfterSeconds: 60}
-	persisted := storageSettings{RetryCacheMaxItems: 8}
+	limits := storeroot.Settings{MessageShardRows: 50, StaleAfterSeconds: 60}
+	persisted := storeroot.Settings{RetryCacheMaxItems: 8}
 	merged := storeroot.ResolveSettings(limits, persisted)
 	if merged.MessageShardRows != 50 || merged.StaleAfterSeconds != 60 || merged.RetryCacheMaxItems != 8 {
 		t.Fatalf("merged = %+v", merged)
@@ -451,7 +451,7 @@ func TestStorageSettingsOverrideAndValidation(t *testing.T) {
 	}
 	// 零值布尔项：显式 false 也要能覆盖默认 true。
 	off := false
-	overridden := storeroot.ResolveSettings(storageSettings{QueuePersistPending: &off})
+	overridden := storeroot.ResolveSettings(storeroot.Settings{QueuePersistPending: &off})
 	if overridden.QueuePersistPending == nil || *overridden.QueuePersistPending {
 		t.Fatal("queue.persist_pending=false 被吞掉")
 	}

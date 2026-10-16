@@ -169,7 +169,7 @@ func TestRestoreProbeModelSeesNoPriorContent(t *testing.T) {
 		fixture.runtime.limits.ContextCompactionSummary.Enabled, policy.Window, policy.Budget(),
 		policy.SoftThreshold(), policy.HardThreshold(), fixture.runtime.limits.ContextFrameCarryTokens)
 
-	// 链 ①：装配层压缩（回合开始前那条路径 → seelebridge.MainCompactionDAG）——注入了摘要器。
+	// 链 ①：装配层压缩（回合开始前那条路径 → assemble.MainCompactionDAG）——注入了摘要器。
 	assemblyReceipt, err := fixture.runtime.PushCompactionFrame(ctx, restoreProbeSession, CompactionFrameRequest{
 		Overflow: []types.Message{
 			{Role: "user", Content: pointer("把保留窗口外的轮次折进 checkpoint 帧。")},

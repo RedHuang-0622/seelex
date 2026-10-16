@@ -5,10 +5,10 @@
 `store/root` 是 Seelex 会话持久化的**基座机制**包：数据根独占锁、进程存活探测、
 无锁共享读、原子发布、JSONL 残尾纪律，以及存储运行参数（`Settings`）。
 
-主要调用方是 `store`：它以 import 别名 `storeroot` 使用本包，并在
-[`../store/root_aliases.go`](../../store/root_aliases.go) 里保留
-`Settings` / 哨兵错误 / 数据根锁读函数的**保形别名**，使得 `main.go` 与既有调用点
-零改动（类型身份与错误值身份都不变）。除 `store` 外没有其它调用方。
+主要调用方是 `store`：它以 import 别名 `storeroot` 使用本包，`Settings` / 哨兵错误 /
+数据根锁读函数一律写限定名（类型身份与错误值身份都不变）。2026-10-17（P8 §5.2）删掉了
+过渡期的 `store/root_aliases.go`——那批保形别名只为"搬迁期不动调用点"而存在。
+除 `store` 与 `wiring/bootstrap` 外没有其它调用方。
 
 来源：M3-S2 按 [`plan.md`](../../docs/2026-10-15-architecture-reshape/plan.md) §2.9
 （底座 · store → `store/root/`）从 `store` 抽出，属**物理归位**：

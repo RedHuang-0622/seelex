@@ -305,7 +305,11 @@ var frontendDirectImportAllowList = map[string][]string{
 		"github.com/RedHuang-0622/seelex/application",
 		// D-M1-7：console 尚未搬出 application/（plan §2.1 计划搬 console/），
 		// 搬迁时随 §2.10 的 seelebridge 解散一并收口。
-		"github.com/RedHuang-0622/seelex/backend/engine/assemble",
+		// 2026-10-17（P8 §5.2）：`assemble` 里那两条 `BashDiagnosticEvent/Observer`
+		// 别名已删（类型的事实源本来就是本包），所以这条越层边的**目标**从
+		// `backend/engine/assemble` 换成类型定义处 `backend/tool/registry`；
+		// 边本身仍属 D-M1-7，等 console 搬出 `application/` 时收口。
+		"github.com/RedHuang-0622/seelex/backend/tool/registry",
 	},
 }
 

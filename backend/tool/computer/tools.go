@@ -12,7 +12,7 @@ import (
 //
 // 原语层（同包 desktop.go 的抽象面 + 平台实现，见 desktop.go 的路由说明）之上的一层：把
 // 「看屏幕、动鼠标、敲键盘、找窗口」暴露成 Seelex 自己的工具，模型在会话里
-// 直接调用；主要调用方是 seelebridge.Runtime.RegisterBuiltins。
+// 直接调用；主要调用方是 assemble.Runtime.RegisterBuiltins。
 //
 // 与 MCP 面（mcp/main.go）的分工是刻意的：
 //
@@ -100,7 +100,7 @@ type PendingImage struct {
 	Height   int
 }
 
-// Deps 是工具层的装配面：全部由 seelebridge.Runtime 注入闭包，因此本包
+// Deps 是工具层的装配面：全部由 assemble.Runtime 注入闭包，因此本包
 // 不反向依赖 seelebridge / store / imageattach（保持原语包的边界）。
 type Deps struct {
 	// RegisterTool 注册一个工具（生产为 Runtime.RegisterTool）。

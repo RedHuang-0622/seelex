@@ -27,7 +27,7 @@ import (
 	"testing"
 	"time"
 
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	"github.com/RedHuang-0622/seelex/backend/limit"
@@ -294,7 +294,7 @@ func assemblyDispatchHandles(t *testing.T, receipts []string) []string {
 // （skill_count=0、system prompt 里没有目录段），本用例就会把"基座缺一跳"误判成
 // "装配没落到员工面"——所以这里按组合根那条路补上（同一条 `config.PluginRoots(launchFlags.PluginsPaths)` 责任链 +
 // 同一条启动基线 `default`），而不是去改公共 harness（那会改到别的全链路用例的提示词字节）。
-func attachRealSkills(t *testing.T, runtime *seelebridge.Runtime) {
+func attachRealSkills(t *testing.T, runtime *assemble.Runtime) {
 	t.Helper()
 	loaded, err := plugin.NewLoader(config.PluginRoots(launchFlags.PluginsPaths)...).LoadAll()
 	if err != nil {

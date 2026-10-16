@@ -3,7 +3,7 @@ package adapters
 import "testing"
 
 // TestEnginePortReleaseSessionBundleForwardsToBridge：端口只把释放面转给桥
-// （seelebridge.Runtime.ReleaseSessionBundle 注入的闭包）；未装配时返回 false
+// （assemble.Runtime.ReleaseSessionBundle 注入的闭包）；未装配时返回 false
 // ——legacy 引擎的语义是"释放面退化成只丢引擎引用"，调用方据 false 保持驻留。
 func TestEnginePortReleaseSessionBundleForwardsToBridge(t *testing.T) {
 	port := NewEnginePort(nil, nil, nil)

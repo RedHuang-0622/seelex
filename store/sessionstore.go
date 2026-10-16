@@ -65,7 +65,7 @@ type Config struct {
 	Path    string  `json:"path,omitempty"`
 	DSN     string  `json:"dsn,omitempty"`
 	// SessionStorage 是 §11 存储运行参数覆盖（零值 = 用默认/limits 层）。
-	SessionStorage storageSettings `json:"session_storage,omitempty"`
+	SessionStorage storeroot.Settings `json:"session_storage,omitempty"`
 }
 
 func (config Config) Normalize(defaultPath string) (Config, error) {
@@ -327,7 +327,7 @@ type Router struct {
 	opsOnce   sync.Once
 }
 
-func NewRouter(configPath, defaultPath string, limits ...storageSettings) (*Router, error) {
+func NewRouter(configPath, defaultPath string, limits ...storeroot.Settings) (*Router, error) {
 	config, err := loadConfig(configPath)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
@@ -1141,7 +1141,7 @@ func Open(ctx context.Context, config Config) (Repository, error) {
 
 type jsonRepository struct {
 	root     string
-	settings storageSettings
+	settings storeroot.Settings
 	mu       sync.RWMutex
 	// v8 是 会话存储布局引擎（新建会话消息/模块 head；见 对应模块文件）。
 	layout *storeEngine
@@ -1149,7 +1149,7 @@ type jsonRepository struct {
 	attempts *attemptCache
 }
 
-func newJSONRepository(root string, settings storageSettings) (*jsonRepository, error) {
+func newJSONRepository(root string, settings storeroot.Settings) (*jsonRepository, error) {
 	return newJSONRepositoryWithLayout(root, settings)
 }
 

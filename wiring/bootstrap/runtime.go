@@ -12,12 +12,14 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/core"
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/backend/limit/overlay"
+	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/backend/tool/search"
 	"github.com/RedHuang-0622/seelex/internal/bootseed"
 	"github.com/RedHuang-0622/seelex/store"
+	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"github.com/RedHuang-0622/seelex/store/workspace"
 	"github.com/RedHuang-0622/seelex/wiring/config"
 )
@@ -27,7 +29,7 @@ var runtimeLimits limit.Limits
 
 // initRuntime 装配 Runtime：配置责任链 → limits（含数据根覆盖层）→ 账号池。
 // storePath 是数据根（显式输入：覆盖层落点由它决定）。
-func initRuntime(storePath string) (*seelebridge.Runtime, error) {
+func initRuntime(storePath string) (*assemble.Runtime, error) {
 	// 运行参数在 config/seelex.yaml（配置参数文件；权限在 config/seele.yaml）：
 	// 责任链 = CWD 的 config/ → CWD 根目录 → 二进制目录的 config/（见
 	// config.RuntimeConfigChain）。命中就按它读（存在即读）；全都没有 → 用内嵌默认档在
@@ -55,7 +57,7 @@ func initRuntime(storePath string) (*seelebridge.Runtime, error) {
 	// ratio × 全量上下文)，硬压缩阈值 force_compact_tokens）。
 	core.ApplyWindowConfig(windowConfig)
 	search.ApplyLimits(int(searchTimeout / time.Second))
-	runtime, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{
+	runtime, err := assemble.NewRuntime(assemble.RuntimeConfig{
 		AccountsPath: config.AccountsPath(), StorePath: storePath,
 		// 定时任务定义落**全局** JSONL：与 workspace_index.json 同级（store 的
 		// 基目录），不按项目分区、不按会话分片。会话记录仍走 store。
@@ -93,7 +95,7 @@ func guardMultiProcess(storePath string) error {
 	}
 	dataRoot := filepath.Dir(storePath)
 	staleAfter := time.Duration(runtimeLimits.SessionStorage.LockStaleAfterSeconds) * time.Second
-	if owner, held := store.DataRootLockedByWith(dataRoot, staleAfter); held {
+	if owner, held := storeroot.DataRootLockedByWith(dataRoot, staleAfter); held {
 		return fmt.Errorf(
 			"数据根 %s 正被另一个 Seelex 实例独占（pid=%d program=%s host=%s）：默认单实例。"+
 				"要允许并行启动，在 config/seelex.yaml 设 limits.runtime.allow_multi_process: true"+
@@ -118,12 +120,12 @@ func InitStore(storePath string) (*store.Router, error) {
 // sessionStorageLimits 把 seele.yaml limits.session_storage 映射成存储覆盖层
 // （my_design §11 覆盖链的中间一层：默认值 ← limits ← session-storage.json）。
 // 分片行数沿用既有顶层键 limits.message_shard_size。
-func sessionStorageLimits() store.Settings {
+func sessionStorageLimits() storeroot.Settings {
 	limits := runtimeLimits.SessionStorage
 	// 指针：把 limits.runtime.allow_multi_process 原样传进 §9 数据根锁（存储侧默认
 	// 也是 false，这里显式带过去，让配置一眼看得出生效）。
 	allowMultiProcess := runtimeLimits.Runtime.AllowMultiProcess
-	return store.Settings{
+	return storeroot.Settings{
 		MessageShardRows:        runtimeLimits.MessageShardSize,
 		RetryCacheMaxItems:      limits.RetryCacheMaxItems,
 		RetryCacheMaxChars:      limits.RetryCacheMaxChars,
@@ -159,7 +161,7 @@ func InitWorkspaceRepo(storePath string) (*workspace.Repo, error) {
 
 // InitEngine 按新装配模型创建主会话（session.NewSession）。
 // EnginePort 的 ReactorEngine 接口由 *session.Session 直接满足。
-func InitEngine(runtime *seelebridge.Runtime, hooks *application.ToolHookBridge, sessionID string) (*frameworkSession.Session, error) {
+func InitEngine(runtime *assemble.Runtime, hooks *application.ToolHookBridge, sessionID string) (*frameworkSession.Session, error) {
 	sess, err := runtime.NewMainSessionWithID(sessionID, hooks.Hooks())
 	if err != nil {
 		return nil, fmt.Errorf("初始化主会话失败: %w", err)
@@ -178,8 +180,8 @@ func InitEngine(runtime *seelebridge.Runtime, hooks *application.ToolHookBridge,
 // 边界：这条 stage 目前**只由同步 `bash` 链发出**（bash_bg 走 async_run 的另一条链，
 // 不经 executeScopedBash）。将来若有第二个工具复用那条同步链，必须先把工具名带进事件
 // （BashDiagnosticEvent.Tool），否则命令结果会被记到 bash 名下。
-func toolCommandOutcomeObserver(next seelebridge.BashDiagnosticObserver, app *application.Service) seelebridge.BashDiagnosticObserver {
-	return func(event seelebridge.BashDiagnosticEvent) {
+func toolCommandOutcomeObserver(next toolreg.BashDiagnosticObserver, app *application.Service) toolreg.BashDiagnosticObserver {
+	return func(event toolreg.BashDiagnosticEvent) {
 		if event.Stage == "bash.process.exited" {
 			// 会话号由工具层带在事件上（BashDiagnosticEvent.Session，只填 ID 不带正文）：
 			// 后台会话/teammate 跑的命令因此记在**它自己的**会话读数里，不会被归到视图会话。

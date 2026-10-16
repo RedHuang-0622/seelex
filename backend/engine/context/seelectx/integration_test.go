@@ -8,7 +8,7 @@ import (
 	"time"
 
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/compactor"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/merger"
@@ -16,14 +16,14 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 )
 
-func createTestSession(t *testing.T) (*frameworkSession.Session, *seelebridge.Runtime) {
+func createTestSession(t *testing.T) (*frameworkSession.Session, *assemble.Runtime) {
 	t.Helper()
 	configPath := t.TempDir() + "/accounts.yaml"
 	config := []byte("roles:\n  agent:\n    - model: test-model\n      base_url: http://localhost\n      api_key: test-only\n")
 	if err := os.WriteFile(configPath, config, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	runtime, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{
+	runtime, err := assemble.NewRuntime(assemble.RuntimeConfig{
 		AccountsPath: configPath, ToolCallTimeout: 10 * time.Second,
 	})
 	if err != nil {

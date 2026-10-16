@@ -1,6 +1,7 @@
 package store
 
 import (
+	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -37,7 +38,7 @@ func seedMessageRows(t *testing.T, store *storeEngine, key Key, count int) {
 // 有牙：把 head 的 Bytes 抹掉（= 索引没记账，优化前的状态）后同一个提交立刻
 // 产生 2 次整片解码，本用例变红——它钉的是"解码次数"，不是耗时。
 func TestCommitSkipsTailShardDecode(t *testing.T) {
-	store := newStoreEngine(t.TempDir(), storageSettings{})
+	store := newStoreEngine(t.TempDir(), storeroot.Settings{})
 	key := Key{ProjectID: "p", SessionID: "s"}
 	// 10 行：末分片未满（默认每片 100 行），提交会**续写同一片**，所以两条路径
 	// 都必须知道末分片已有多少行——快路径取索引，慢路径整片读回。
@@ -77,7 +78,7 @@ func TestCommitSkipsTailShardDecode(t *testing.T) {
 // 完全一致（摘要仍然覆盖**整片**，不是只覆盖本次追加），且通道自校验通过。
 func TestTrustedTailKeepsIndexExact(t *testing.T) {
 	root := t.TempDir()
-	store := newStoreEngine(root, storageSettings{})
+	store := newStoreEngine(root, storeroot.Settings{})
 	key := Key{ProjectID: "p", SessionID: "s"}
 	seedMessageRows(t, store, key, 10)
 	for round := 0; round < 3; round++ {
@@ -119,7 +120,7 @@ func TestTrustedTailKeepsIndexExact(t *testing.T) {
 // 这条钉的是用户点名的红线："逐步草稿尾与普通提交由同一写者串行——否则两者会
 // 互相 reap 草稿"：此处证明即便草稿行落在同一分片上，提交也不会把索引当真相。
 func TestTrustedTailFallsBackWhenDraftRowsPresent(t *testing.T) {
-	store := newStoreEngine(t.TempDir(), storageSettings{})
+	store := newStoreEngine(t.TempDir(), storeroot.Settings{})
 	key := Key{ProjectID: "p", SessionID: "s"}
 	seedMessageRows(t, store, key, 10)
 	head, err := store.readMessageHead(key)

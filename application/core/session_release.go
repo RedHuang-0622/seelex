@@ -12,7 +12,7 @@ package core
 //     `loaded_content_limit` 是**分层覆盖**的老口径（显式 >0 才生效）。
 //
 // 一次释放放掉的面（重到轻）：引擎实例（EnginePort）→ 桥侧会话本体
-// （seelebridge.Runtime.bundles：框架 Session + 会话上下文存储 + 主历史）→
+// （assemble.Runtime.bundles：框架 Session + 会话上下文存储 + 主历史）→
 // 可见正文（View.Conversation）→ 使用序与 per-会话残格。**保留**会话单元、
 // 目录行、标题、统计与磁盘事实：重开走冷加载（正文尾部窗口 + 上下文按盘重建）。
 //

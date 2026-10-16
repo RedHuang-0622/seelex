@@ -22,7 +22,7 @@ import (
 )
 
 // inheritEmployeeCtx 造一个"继承宿主默认"的员工回合 ctx：与角色回合执行体
-// （seelebridge.runRoleRound）同形——会话号 + 角色身份（档位空 = 继承）。
+// （assemble.runRoleRound）同形——会话号 + 角色身份（档位空 = 继承）。
 func inheritEmployeeCtx(roleSessionID, roleName string) context.Context {
 	return WithEmployeeGrant(
 		toolspermission.WithSessionID(context.Background(), roleSessionID),

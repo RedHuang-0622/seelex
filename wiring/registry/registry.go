@@ -17,7 +17,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/core"
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
 	mcpconfig "github.com/RedHuang-0622/seelex/backend/engine/mcp/mcpstack/config"
 	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
@@ -39,7 +39,7 @@ type pluginPromptEngine interface {
 	SetSystemPrompt(string)
 }
 
-func RegisterContextReadTools(runtime *seelebridge.Runtime, app *application.Service) {
+func RegisterContextReadTools(runtime *assemble.Runtime, app *application.Service) {
 	readResultSchema := map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -118,7 +118,7 @@ func RegisterContextReadTools(runtime *seelebridge.Runtime, app *application.Ser
 //
 // **注册门在调用点**（看 run 里的 `if runtimeLimits.ProjectBoard.Enabled`）：能力关 ⇒
 // 这把工具根本不存在（零读取面），而不是"注册了但返回错误"。
-func RegisterProjectBoardReadTool(runtime *seelebridge.Runtime, st *store.Router, app *application.Service) {
+func RegisterProjectBoardReadTool(runtime *assemble.Runtime, st *store.Router, app *application.Service) {
 	schema := map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -128,7 +128,7 @@ func RegisterProjectBoardReadTool(runtime *seelebridge.Runtime, st *store.Router
 			},
 			"file": map[string]interface{}{
 				"type":        "string",
-				"enum":        []string{seelebridge.ProjectBoardReadFileWorktable, seelebridge.ProjectBoardReadFileTeamwork},
+				"enum":        []string{assemble.ProjectBoardReadFileWorktable, assemble.ProjectBoardReadFileTeamwork},
 				"description": "读哪一份投影：worktable（会话的任务行）/ teamwork（里程碑与工作项）；缺省 = 两份都读",
 			},
 			"project_root": map[string]interface{}{
@@ -136,14 +136,14 @@ func RegisterProjectBoardReadTool(runtime *seelebridge.Runtime, st *store.Router
 				"description": "项目根目录（看板落点 = <project_root>/.seelex/board）；缺省 = 当前会话所属工作区的根",
 			},
 			"limit": map[string]interface{}{
-				"type": "integer", "minimum": 1, "maximum": seelebridge.ProjectBoardReadMaxLimit,
+				"type": "integer", "minimum": 1, "maximum": assemble.ProjectBoardReadMaxLimit,
 				"description": fmt.Sprintf("返回行数上限（缺省 %d，硬上限 %d；超限显式报错）",
-					seelebridge.ProjectBoardReadDefaultLimit, seelebridge.ProjectBoardReadMaxLimit),
+					assemble.ProjectBoardReadDefaultLimit, assemble.ProjectBoardReadMaxLimit),
 			},
 		},
 	}
 	handler := func(ctx context.Context, argsJSON string) (string, error) {
-		var request seelebridge.ProjectBoardReadRequest
+		var request assemble.ProjectBoardReadRequest
 		if strings.TrimSpace(argsJSON) != "" {
 			if err := json.Unmarshal([]byte(argsJSON), &request); err != nil {
 				return "", fmt.Errorf("project_board_read: %w", err)
@@ -155,7 +155,7 @@ func RegisterProjectBoardReadTool(runtime *seelebridge.Runtime, st *store.Router
 		if sessionID == "" {
 			sessionID = app.Snapshot().Session.ID
 		}
-		result, err := seelebridge.ReadProjectBoard(st, request, app.ProjectRootFor(sessionID), sessionID)
+		result, err := assemble.ReadProjectBoard(st, request, app.ProjectRootFor(sessionID), sessionID)
 		if err != nil {
 			return "", fmt.Errorf("project_board_read: %w", err)
 		}
@@ -186,7 +186,7 @@ func RegisterProjectBoardReadTool(runtime *seelebridge.Runtime, st *store.Router
 		schema, handler)
 }
 
-func RegisterProjectRefreshTool(runtime *seelebridge.Runtime, st *store.Router, app *application.Service) {
+func RegisterProjectRefreshTool(runtime *assemble.Runtime, st *store.Router, app *application.Service) {
 	schema := map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -273,26 +273,26 @@ func RegisterProjectRefreshTool(runtime *seelebridge.Runtime, st *store.Router, 
 //
 // 单独成函数而不是就地写成闭包：测试基座（newFullChainHarness）装的就是这一份，
 // 冒烟测的才是产品的那条链。
-func ScheduledPromptExecutor(app *application.Service) seelebridge.ScheduledPromptExecutor {
-	return func(ctx context.Context, task seelebridge.ScheduledTaskSpec) (seelebridge.ScheduledPromptOutcome, error) {
+func ScheduledPromptExecutor(app *application.Service) assemble.ScheduledPromptExecutor {
+	return func(ctx context.Context, task assemble.ScheduledTaskSpec) (assemble.ScheduledPromptOutcome, error) {
 		if bound := strings.TrimSpace(task.SessionID); bound != "" {
 			// 显式绑定会话：装配同样落到那个会话（任务声明什么，就用什么跑）。
 			assembled, err := app.AssembleScheduledRun(ctx, bound, task)
 			if err != nil {
-				return seelebridge.ScheduledPromptOutcome{}, err
+				return assemble.ScheduledPromptOutcome{}, err
 			}
 			if err := app.SubmitToSession(assembled, bound, task.Prompt); err != nil {
-				return seelebridge.ScheduledPromptOutcome{}, fmt.Errorf("定时任务投递到绑定会话 %s 失败: %w", bound, err)
+				return assemble.ScheduledPromptOutcome{}, fmt.Errorf("定时任务投递到绑定会话 %s 失败: %w", bound, err)
 			}
-			return seelebridge.ScheduledPromptOutcome{
+			return assemble.ScheduledPromptOutcome{
 				Message: fmt.Sprintf("已提交到绑定会话 %s（异步输出见会话记录）", bound), SessionID: bound,
 			}, nil
 		}
 		newSessionID, err := app.StartScheduledSession(ctx, task)
 		if err != nil {
-			return seelebridge.ScheduledPromptOutcome{SessionID: newSessionID}, err
+			return assemble.ScheduledPromptOutcome{SessionID: newSessionID}, err
 		}
-		return seelebridge.ScheduledPromptOutcome{
+		return assemble.ScheduledPromptOutcome{
 			Message: fmt.Sprintf("已新建会话 %s 发起（异步输出见会话记录）", newSessionID), SessionID: newSessionID,
 		}, nil
 	}
@@ -302,10 +302,10 @@ func ScheduledPromptExecutor(app *application.Service) seelebridge.ScheduledProm
 // 登记 auto_get_jobs（脚本目录或 python 不可用时跳过并告警）。prompt
 // 任务执行器与状态 observer 由主流程经 Runtime.ApplyDeps 一次注入
 // （对应 RuntimeDeps.ScheduledPromptExecutor / SchedulerObserver）。
-func RegisterScheduledTaskCapability(runtime *seelebridge.Runtime) {
+func RegisterScheduledTaskCapability(runtime *assemble.Runtime) {
 	if scriptDir, ok := config.ResolveAutoGetJobsDir(); ok {
 		if python := config.ResolvePythonCommand(); python != "" {
-			if err := runtime.RegisterScheduledCommand(seelebridge.ScheduledCommand{
+			if err := runtime.RegisterScheduledCommand(assemble.ScheduledCommand{
 				Key:         "auto_get_jobs",
 				Label:       "BOSS直聘自动投简历",
 				Description: "周期抓取招聘职位并自动筛选投递（local/tools/auto_get_jobs/main.py；需先按脚本 README 配置 .env 与 user_requirements.txt）",
@@ -322,11 +322,11 @@ func RegisterScheduledTaskCapability(runtime *seelebridge.Runtime) {
 // RegisterTaskTerminalTools 把 task_complete/task_failed/task_needs_user_decision
 // 注册进 tools.Registry（taskTerminalProvider，见 backend/tool/task/terminal.go）；
 // handler 内调用 TaskService.VerifyAndApply（投影 flush + 终态校验）。
-func RegisterTaskTerminalTools(runtime *seelebridge.Runtime, app *application.Service) {
+func RegisterTaskTerminalTools(runtime *assemble.Runtime, app *application.Service) {
 	runtime.RegisterTaskTerminalTools(app.TaskTerminalHandler)
 }
 
-func RegisterProductTools(runtime *seelebridge.Runtime, plugins *plugin.Manager, eng pluginPromptEngine, approval *application.ApprovalBroker, skills *skill.Registry) {
+func RegisterProductTools(runtime *assemble.Runtime, plugins *plugin.Manager, eng pluginPromptEngine, approval *application.ApprovalBroker, skills *skill.Registry) {
 	RegisterTimeTool(runtime)
 	websearch.Register(runtime, config.EnsureConfigFile(bootseed.SearchEngineConfigName, bootseed.SearchEngineConfigPack()))
 	RegisterMCPServers(runtime, config.EnsureConfigFile(bootseed.MCPConfigName, bootseed.MCPConfigPack())) // mcpstack/config 加载 + Runtime 冷启动登记
@@ -343,15 +343,15 @@ func RegisterProductTools(runtime *seelebridge.Runtime, plugins *plugin.Manager,
 // 分工：工具形状与硬门在 seelebridge（RegisterReviewFilesTool），落点端口在
 // application（会话作用域的可重放请求 + workspace 域统一裁决沙盒/敏感/二进制/上限）。
 // 与 RegisterAskApprove 同一分法——组合根只做装配，不在这里写第二份语义。
-func RegisterReviewFilesTool(runtime *seelebridge.Runtime, app *application.Service) {
-	seelebridge.RegisterReviewFilesTool(runtime, app)
+func RegisterReviewFilesTool(runtime *assemble.Runtime, app *application.Service) {
+	assemble.RegisterReviewFilesTool(runtime, app)
 }
 
 // RegisterMCPServers 将 mcp.yaml 配置的 MCP 服务器全部登记到 Runtime
 // （冷启动：只存配置不连接，启动路径零 MCP 进程）。配置加载在 mcpstack/config。
 // 首次需要时经内置 mcp_load 工具按名加载（spawn + initialize + tools/list），
 // 加载后的 MCP 工具自动通过 mcpstack 中间件记录调用 trace。
-func RegisterMCPServers(runtime *seelebridge.Runtime, mcpPath string) {
+func RegisterMCPServers(runtime *assemble.Runtime, mcpPath string) {
 	servers := mcpconfig.Load(mcpPath)
 	if len(servers) == 0 {
 		return
@@ -370,7 +370,7 @@ func RegisterMCPServers(runtime *seelebridge.Runtime, mcpPath string) {
 			}
 		}
 
-		cfg := seelebridge.MCPServer{
+		cfg := assemble.MCPServer{
 			Name: s.Name, Transport: transport, Command: s.Command,
 			Args: s.Args, Env: s.Env, URL: s.URL, ToolNotes: s.ToolNotes,
 		}
@@ -384,7 +384,7 @@ func RegisterMCPServers(runtime *seelebridge.Runtime, mcpPath string) {
 
 // RegisterMCPLoadTool 注册按需加载工具：连接已登记但未连接的 MCP 服务器
 // （冷启动加载点），加载后其工具立即可用（下一轮调用）。
-func RegisterMCPLoadTool(runtime *seelebridge.Runtime) {
+func RegisterMCPLoadTool(runtime *assemble.Runtime) {
 	schema := map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -418,7 +418,7 @@ func RegisterMCPLoadTool(runtime *seelebridge.Runtime) {
 	)
 }
 
-func RegisterTimeTool(runtime *seelebridge.Runtime) {
+func RegisterTimeTool(runtime *assemble.Runtime) {
 	runtime.RegisterTool(
 		"get_time",
 		"获取当前日期和时间",
@@ -430,7 +430,7 @@ func RegisterTimeTool(runtime *seelebridge.Runtime) {
 }
 
 func RegisterPluginSwitchTools(
-	runtime *seelebridge.Runtime,
+	runtime *assemble.Runtime,
 	plugins *plugin.Manager,
 	eng pluginPromptEngine,
 ) {
@@ -494,7 +494,7 @@ func RegisterPluginSwitchTools(
 // 创建（写盘）→ 加载（reload）→ 列表查看，闭环让 main agent 可以自己扩展
 // 运行时能力。plugin 与 skill 的写盘都**不改变运行时状态**，由 plugins_reload
 // 事务式应用；MCP 走冷启动登记 + mcp_load 连接。
-func RegisterPluginSelfTools(runtime *seelebridge.Runtime, plugins *plugin.Manager) {
+func RegisterPluginSelfTools(runtime *assemble.Runtime, plugins *plugin.Manager) {
 	// ── plugin_create ──────────────────────────────────────────────
 	runtime.RegisterTool(
 		"plugin_create",
@@ -690,7 +690,7 @@ func RegisterPluginSelfTools(runtime *seelebridge.Runtime, plugins *plugin.Manag
 			for key, value := range input.Env {
 				env = append(env, key+"="+value)
 			}
-			cfg := seelebridge.MCPServer{
+			cfg := assemble.MCPServer{
 				Name: input.Name, Transport: input.Transport, Command: input.Command,
 				Args: input.Args, Env: env, URL: input.URL,
 			}
@@ -750,7 +750,7 @@ func ApplyPluginPrompt(eng pluginPromptEngine, plugins *plugin.Manager) {
 	eng.SetSystemPrompt(strings.TrimSpace(current.Prompt))
 }
 
-func RegisterAskApprove(runtime *seelebridge.Runtime, approval *application.ApprovalBroker) {
+func RegisterAskApprove(runtime *assemble.Runtime, approval *application.ApprovalBroker) {
 	runtime.RegisterTool(
 		"ask_approve",
 		"向用户请求操作确认。当需要执行高风险操作时调用此工具。",
@@ -850,7 +850,7 @@ func PluginByName(plugins []plugin.Plugin, name string) (plugin.Plugin, error) {
 	return plugin.Plugin{}, fmt.Errorf("plugin %q not found", name)
 }
 
-func RegisterGoalTools(runtime *seelebridge.Runtime, app *application.Service) {
+func RegisterGoalTools(runtime *assemble.Runtime, app *application.Service) {
 	beginSchema := map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -925,7 +925,7 @@ func RegisterGoalTools(runtime *seelebridge.Runtime, app *application.Service) {
 //   - activate 由调用方注入（生产 = application.Service.ActivateSkill，把
 //     技能压进会话 skill 层，供下一轮提交经 S2 注入 Trusted Active Skill），
 //     测试注入桩即可验证工具逻辑。
-func RegisterSkillActivateTool(runtime *seelebridge.Runtime, skills *skill.Registry, activate func(name string) (skill.Skill, error)) {
+func RegisterSkillActivateTool(runtime *assemble.Runtime, skills *skill.Registry, activate func(name string) (skill.Skill, error)) {
 	runtime.RegisterTool(
 		"skill_activate",
 		"激活当前插件的一个技能：把它的指令注入当前任务/会话作为 Trusted Skill。技能列表由 system 的 ## Available Skills 段给出，随 switch_plugin 切换；manual 权限下本调用需用户审批。命中后立即按返回的技能指令执行。",

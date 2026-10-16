@@ -9,6 +9,7 @@ package store
 import (
 	"encoding/json"
 	"fmt"
+	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -31,7 +32,7 @@ type stackHarness struct {
 
 func newJSONStackHarness(t *testing.T) *stackHarness {
 	t.Helper()
-	store := newStoreEngine(t.TempDir(), storageSettings{})
+	store := newStoreEngine(t.TempDir(), storeroot.Settings{})
 	return &stackHarness{
 		t: t, name: "json", store: store, journal: store.stackJournal(),
 		key:               Key{ProjectID: "p-stack", SessionID: "s-stack"},
@@ -366,13 +367,13 @@ func TestStackChannelPersistsAcrossInstances(t *testing.T) {
 	t.Run("json", func(t *testing.T) {
 		root := t.TempDir()
 		key := Key{ProjectID: "p-stack", SessionID: "s-reopen"}
-		first := newStoreEngine(root, storageSettings{})
+		first := newStoreEngine(root, storeroot.Settings{})
 		commitRoundRows(t, first, key, []Event{messageRow(1, "msg1", "user", EventKindUserInput, "x")})
 		if _, err := stackCommit(first.stackJournal(), key, StackKindPlan,
 			stackPushMessage(StackKindPlan, "b", []StackItemInput{{ItemID: "again", Kind: StackKindPlan}})); err != nil {
 			t.Fatal(err)
 		}
-		second := newStoreEngine(root, storageSettings{})
+		second := newStoreEngine(root, storeroot.Settings{})
 		rows, err := stackReadActive(second.stackJournal(), key, StackKindPlan)
 		if err != nil {
 			t.Fatal(err)

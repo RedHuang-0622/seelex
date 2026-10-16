@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/RedHuang-0622/seelex/application/prompt"
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -26,7 +26,7 @@ import (
 // 行为不该随用户此刻把拉条拖到哪儿而漂移；落进定义 = 面板上看得见、跨重启稳定。
 
 // withScheduledRunDefaults 把没声明的执行参数落成默认值（创建/编辑入口调用）。
-func withScheduledRunDefaults(spec seelebridge.ScheduledTaskSpec) seelebridge.ScheduledTaskSpec {
+func withScheduledRunDefaults(spec assemble.ScheduledTaskSpec) assemble.ScheduledTaskSpec {
 	spec.ReasoningEffort, spec.LoopLimit = scheduledRunParams(spec.ReasoningEffort, spec.LoopLimit)
 	return spec
 }
@@ -51,7 +51,7 @@ func scheduledRunParams(effort string, loopLimit int) (string, int) {
 
 // validateScheduledRunParams 校验任务声明的两条执行参数（创建/编辑入口调用；取值判据
 // 与两条拉条同源：强度走契约词表，次数走 limits.input_loop_limit）。
-func (service *Service) validateScheduledRunParams(spec seelebridge.ScheduledTaskSpec) error {
+func (service *Service) validateScheduledRunParams(spec assemble.ScheduledTaskSpec) error {
 	if _, err := dto.NormalizeWireReasoningEffort(spec.ReasoningEffort); err != nil {
 		return err
 	}
@@ -66,7 +66,7 @@ func (service *Service) validateScheduledRunParams(spec seelebridge.ScheduledTas
 //
 // 次数这一格是**硬依赖**：宿主给不出按会话的循环上限时显式报错（fail-closed），
 // 不静默退回进程默认值——那正是"面板说 48 轮、实际按 384 轮跑"的读数与行为相反。
-func (service *Service) applyScheduledRunParams(sessionID string, task seelebridge.ScheduledTaskSpec) error {
+func (service *Service) applyScheduledRunParams(sessionID string, task assemble.ScheduledTaskSpec) error {
 	effort, loops := scheduledRunParams(task.ReasoningEffort, task.LoopLimit)
 	pinner, ok := service.Deps.Engine.(contract.SessionLoopLimitPort)
 	if !ok {
@@ -85,7 +85,7 @@ func (service *Service) applyScheduledRunParams(sessionID string, task seelebrid
 // RefreshRuntimeSnapshot，同样走 runtime.changed 增量路径。
 
 // ScheduleTask 创建并启动一个定时/周期任务（校验在 Runtime 调度器内完成）。
-func (service *Service) ScheduleTask(ctx context.Context, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
+func (service *Service) ScheduleTask(ctx context.Context, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error) {
 	// 执行参数（思考强度 / 循环次数）：没声明的在这里落成**默认参数**，随后才交给
 	// 调度器（定义里存的就是触发时要用的值，面板上不会出现"这两格空着、行为靠猜"）。
 	spec = withScheduledRunDefaults(spec)
@@ -113,7 +113,7 @@ func (service *Service) ScheduleTask(ctx context.Context, spec seelebridge.Sched
 // UpdateScheduledTask 编辑既有定时/周期任务（ID 是操作键，定义整体替换）。
 // 校验口径与创建完全一致：定义合法性在调度器内（与 Schedule 共用同一份判据），
 // 工作区存在性在这里（与 ScheduleTask 共用同一份判据）。
-func (service *Service) UpdateScheduledTask(ctx context.Context, id string, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
+func (service *Service) UpdateScheduledTask(ctx context.Context, id string, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error) {
 	if strings.TrimSpace(id) == "" {
 		return nil, errors.New("任务 ID 不能为空")
 	}
@@ -207,7 +207,7 @@ func (service *Service) validateScheduledPlugins(plugins []string) error {
 //
 // 返回带装配的 ctx，调用方用它提交这一轮。新建会话路径与显式绑定会话路径
 // 共用这一份，不各写一遍。
-func (service *Service) AssembleScheduledRun(ctx context.Context, sessionID string, task seelebridge.ScheduledTaskSpec) (context.Context, error) {
+func (service *Service) AssembleScheduledRun(ctx context.Context, sessionID string, task assemble.ScheduledTaskSpec) (context.Context, error) {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
 		return ctx, errors.New("会话 ID 不能为空")
@@ -287,7 +287,7 @@ func (service *Service) RefreshRuntimeSnapshot() {
 //
 // 会话记录仍然按会话自己的存储与读写纪律落盘（项目作用域由绑定决定），本方法
 // 不碰任何存储实现——它只是"新建 + 装配 + 提交"。
-func (service *Service) StartScheduledSession(ctx context.Context, task seelebridge.ScheduledTaskSpec) (string, error) {
+func (service *Service) StartScheduledSession(ctx context.Context, task assemble.ScheduledTaskSpec) (string, error) {
 	input := strings.TrimSpace(task.Prompt)
 	if input == "" {
 		return "", errors.New("提示词内容不能为空")
@@ -331,7 +331,5 @@ func (service *Service) StartScheduledSession(ctx context.Context, task seelebri
 }
 
 // ScheduledTaskSpec 是定时/周期任务创建入参的类型别名（GUI Bridge 直接使用）。
-type ScheduledTaskSpec = seelebridge.ScheduledTaskSpec
 
 // ScheduledTaskStatus 是定时/周期任务快照的类型别名（GUI 面板消费）。
-type ScheduledTaskStatus = seelebridge.ScheduledTaskStatus

@@ -25,7 +25,7 @@ import (
 
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 	"github.com/RedHuang-0622/seelex/application"
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/store"
 	"github.com/RedHuang-0622/seelex/wiring"
 	"github.com/RedHuang-0622/seelex/wiring/adapters"
@@ -37,7 +37,7 @@ import (
 // 让复现只针对“后台工具轮顺序”）。
 func newToolInlineHarness(t *testing.T, AccountsPath, projectRoot string, toolTimeout time.Duration) fullChainHarness {
 	t.Helper()
-	runtimeBridge, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{
+	runtimeBridge, err := assemble.NewRuntime(assemble.RuntimeConfig{
 		AccountsPath:    AccountsPath,
 		StorePath:       filepath.Join(projectRoot, "runtime"),
 		ToolCallTimeout: toolTimeout,

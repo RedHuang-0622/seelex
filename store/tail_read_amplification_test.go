@@ -1,6 +1,7 @@
 package store
 
 import (
+	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"reflect"
 	"testing"
 	"time"
@@ -10,7 +11,7 @@ import (
 // 读放大：5000 行（50 个分片）下对比 readRows(全量) 与
 // readTailRowsForSelection(尾窗)，并断言两者经 selectEventTail 后语义一致。
 func TestTailReadAmplificationMeasurement(t *testing.T) {
-	store := newStoreEngine(t.TempDir(), storageSettings{})
+	store := newStoreEngine(t.TempDir(), storeroot.Settings{})
 	key := Key{ProjectID: "p-amplify", SessionID: "s-amplify"}
 	const totalRows = 5000
 	batch := make([]Event, 0, totalRows)

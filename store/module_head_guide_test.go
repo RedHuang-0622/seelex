@@ -1,6 +1,7 @@
 package store
 
 import (
+	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"os"
 	"strings"
 	"testing"
@@ -10,7 +11,7 @@ import (
 // D9、S14）：guide.json 只做布局/版本判定，不登记模块地址；首写各模块
 // head 时 guide 不得被重写（写次数 = 0）。
 func TestGuideNotRewrittenAfterModuleHeadWrites(t *testing.T) {
-	store := newStoreEngine(t.TempDir(), storageSettings{})
+	store := newStoreEngine(t.TempDir(), storeroot.Settings{})
 	key := Key{ProjectID: "p-dp04", SessionID: "s-dp04"}
 
 	// 会话创建 = 布局创建，允许写一次 guide（空 message head 发布）。
@@ -41,7 +42,7 @@ func TestGuideNotRewrittenAfterModuleHeadWrites(t *testing.T) {
 		moduleStackTask: stackModuleHead{SessionID: key.SessionID, Kinds: map[StackKind]stackWatermark{}},
 		moduleStackGoal: stackModuleHead{SessionID: key.SessionID, Kinds: map[StackKind]stackWatermark{}},
 		moduleLifecycle: lifecycleHead{SessionID: key.SessionID},
-		moduleRetention: retentionHead{SessionID: key.SessionID, Mode: retentionModeManual},
+		moduleRetention: retentionHead{SessionID: key.SessionID, Mode: storeroot.RetentionModeManual},
 		moduleSubagent:  stackModuleHead{SessionID: key.SessionID, Kinds: map[StackKind]stackWatermark{}},
 	} {
 		if err := store.commitModuleHead(key, module, "c-"+string(module), payload); err != nil {

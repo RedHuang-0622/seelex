@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"io/fs"
 	"path/filepath"
 	"reflect"
@@ -109,7 +110,7 @@ func TestConversationRangeFromMessageRows(t *testing.T) {
 // TestConversationRangeDerivedFromMessageRows 验证 S20 后 conversation 由
 // message 事件行派生（不再读 state.json）。
 func TestConversationRangeDerivedFromMessageRows(t *testing.T) {
-	repository, err := newJSONRepository(t.TempDir(), storageSettings{})
+	repository, err := newJSONRepository(t.TempDir(), storeroot.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +134,7 @@ func TestConversationRangeDerivedFromMessageRows(t *testing.T) {
 // 停读（WriteState 空操作、ReadState not-exist），conversation 改由 message
 // 行派生。
 func TestStateChannelRetiredOnJSON(t *testing.T) {
-	repository, err := newJSONRepository(t.TempDir(), storageSettings{})
+	repository, err := newJSONRepository(t.TempDir(), storeroot.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}

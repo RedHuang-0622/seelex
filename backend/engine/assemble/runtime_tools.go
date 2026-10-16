@@ -121,13 +121,13 @@ func (r *Runtime) bashDiagnosticMiddleware() frameworktools.Middleware {
 			return next
 		}
 		return frameworktools.HandlerFunc(func(ctx context.Context, argsJSON string) (string, error) {
-			r.observeBash(BashDiagnosticEvent{Stage: "bash.registry.dispatch.start"})
+			r.observeBash(toolreg.BashDiagnosticEvent{Stage: "bash.registry.dispatch.start"})
 			result, err := next.Execute(ctx, argsJSON)
 			if err != nil {
-				r.observeBash(BashDiagnosticEvent{Stage: "bash.registry.dispatch.error", Err: err})
+				r.observeBash(toolreg.BashDiagnosticEvent{Stage: "bash.registry.dispatch.error", Err: err})
 				return result, err
 			}
-			r.observeBash(BashDiagnosticEvent{Stage: "bash.registry.dispatch.done"})
+			r.observeBash(toolreg.BashDiagnosticEvent{Stage: "bash.registry.dispatch.done"})
 			return result, nil
 		})
 	}
@@ -144,7 +144,7 @@ func (r *Runtime) ensureDockerForRuntime(ctx context.Context) error {
 
 // observeBash 投递 scoped bash 诊断事件（工具调用不可被诊断改变；观察者
 // 意外 panic 也不影响工具调用）。
-func (r *Runtime) observeBash(event BashDiagnosticEvent) {
+func (r *Runtime) observeBash(event toolreg.BashDiagnosticEvent) {
 	if r == nil {
 		return
 	}

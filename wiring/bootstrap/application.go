@@ -2,7 +2,7 @@ package bootstrap
 
 import (
 	"github.com/RedHuang-0622/seelex/application"
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	"github.com/RedHuang-0622/seelex/backend/limit/overlay"
@@ -31,7 +31,7 @@ func InitSessionManager(router *store.Router, eng *adapters.EnginePort) *session
 }
 
 func InitApplication(
-	eng *adapters.EnginePort, runtime *seelebridge.Runtime, plugins *plugin.Manager,
+	eng *adapters.EnginePort, runtime *assemble.Runtime, plugins *plugin.Manager,
 	sessions *session.Manager, skills *skill.Registry,
 	workspaces *workspace.Repo,
 	events *application.EventHub, approval *application.ApprovalBroker,

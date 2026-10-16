@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/RedHuang-0622/Seele/types"
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 	"github.com/RedHuang-0622/seelex/contract"
@@ -42,7 +42,7 @@ type fakeEngine struct {
 	loadedSessions     map[string]bool
 	nodeContext        *snapshot.ContextSnapshot
 	nodeToolResultFn   func(string, string) (string, bool)
-	nodeWorktreeInfoFn func(string) (seelebridge.NodeWorktreeInfo, bool)
+	nodeWorktreeInfoFn func(string) (assemble.NodeWorktreeInfo, bool)
 	subAgentTree       []dto.SubAgentTreeNode
 	subagentLiveFn     func(string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error)
 	subagentLivePageFn func(string, int, int) dto.SubagentLiveHistoryPage
@@ -250,9 +250,9 @@ func (engine *fakeEngine) NodeToolResult(nodeID, ref string) (string, bool) {
 	return engine.nodeToolResultFn(nodeID, ref)
 }
 
-func (engine *fakeEngine) NodeWorktreeInfoFor(nodeID string) (seelebridge.NodeWorktreeInfo, bool) {
+func (engine *fakeEngine) NodeWorktreeInfoFor(nodeID string) (assemble.NodeWorktreeInfo, bool) {
 	if engine.nodeWorktreeInfoFn == nil {
-		return seelebridge.NodeWorktreeInfo{}, false
+		return assemble.NodeWorktreeInfo{}, false
 	}
 	return engine.nodeWorktreeInfoFn(nodeID)
 }
@@ -355,8 +355,8 @@ type fakeRuntime struct {
 	// Runtime.SetPlanPolicyFor 语义；fake 需锁保护并发 runChat 写入）。
 	planPolicyMu        sync.Mutex
 	planPolicyBySession map[string]dto.PlanPolicy
-	visibility          seelebridge.RuntimeVisibilityProjection
-	evidence            seelebridge.ParentEvidenceProjection
+	visibility          assemble.RuntimeVisibilityProjection
+	evidence            assemble.ParentEvidenceProjection
 	mailbox             []string
 	mailboxMu           sync.Mutex
 	replans             []dto.ReplanRequest
@@ -390,8 +390,8 @@ type fakeRuntime struct {
 	sessionTaskSnapshots map[string][]dto.TaskRecord
 	currentTaskSession   string
 	sessionWorkspaces    map[string]string
-	scheduledTasks       []seelebridge.ScheduledTaskStatus
-	scheduledSpecs       []seelebridge.ScheduledTaskSpec
+	scheduledTasks       []assemble.ScheduledTaskStatus
+	scheduledSpecs       []assemble.ScheduledTaskSpec
 	updatedTasks         []string
 	cancelledTasks       []string
 	// pluginAssemblies 记录"哪一轮装配了哪些插件"（镜像生产 Runtime 的
@@ -490,14 +490,14 @@ func (runtime *fakeRuntime) SetPermissionTierFor(sessionID, tier string) error {
 // 多个 runChat 并发调用（M2：每个会话各自 publishRuntimeProjections），
 // 生产 Runtime 的投影存储是并发安全的；fake 需用锁镜像，否则 -race 报
 // 数据竞争。
-func (runtime *fakeRuntime) SetRuntimeVisibilityProjection(projection seelebridge.RuntimeVisibilityProjection) {
+func (runtime *fakeRuntime) SetRuntimeVisibilityProjection(projection assemble.RuntimeVisibilityProjection) {
 	runtime.mailboxMu.Lock()
 	runtime.visibility = projection
 	runtime.mailboxMu.Unlock()
 	debugLog("fakeRuntime.SetRuntimeVisibilityProjection goalskill=%v", projection.GoalSkillActive)
 }
 
-func (runtime *fakeRuntime) SetParentEvidenceProjection(projection seelebridge.ParentEvidenceProjection) {
+func (runtime *fakeRuntime) SetParentEvidenceProjection(projection assemble.ParentEvidenceProjection) {
 	runtime.mailboxMu.Lock()
 	runtime.evidence = projection
 	runtime.mailboxMu.Unlock()
@@ -893,20 +893,20 @@ func (runtime *fakeRuntime) PluginAssembly() []string {
 	return append([]string(nil), runtime.pluginAssemblies["last"]...)
 }
 
-func (runtime *fakeRuntime) ScheduledCommands() []seelebridge.ScheduledCommandInfo {
-	return []seelebridge.ScheduledCommandInfo{{Key: "auto_get_jobs", Label: "BOSS直聘自动投简历"}}
+func (runtime *fakeRuntime) ScheduledCommands() []assemble.ScheduledCommandInfo {
+	return []assemble.ScheduledCommandInfo{{Key: "auto_get_jobs", Label: "BOSS直聘自动投简历"}}
 }
 
-func (runtime *fakeRuntime) ScheduledTasksSnapshot() []seelebridge.ScheduledTaskStatus {
-	return append([]seelebridge.ScheduledTaskStatus(nil), runtime.scheduledTasks...)
+func (runtime *fakeRuntime) ScheduledTasksSnapshot() []assemble.ScheduledTaskStatus {
+	return append([]assemble.ScheduledTaskStatus(nil), runtime.scheduledTasks...)
 }
 
-func (runtime *fakeRuntime) ScheduleTask(_ context.Context, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
+func (runtime *fakeRuntime) ScheduleTask(_ context.Context, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error) {
 	if runtime.scheduleErr != nil {
 		return nil, runtime.scheduleErr
 	}
 	runtime.scheduledSpecs = append(runtime.scheduledSpecs, spec)
-	created := seelebridge.ScheduledTaskStatus{
+	created := assemble.ScheduledTaskStatus{
 		ID: "sched_test", Name: spec.Name, Kind: string(spec.Kind),
 		IntervalSec: int64(spec.Interval.Seconds()), Enabled: spec.Enabled,
 	}
@@ -928,13 +928,13 @@ func (runtime *fakeRuntime) CancelScheduledTask(id string) error {
 // UpdateScheduledTask 是编辑入口的桩：记录"改哪一条、改成什么"，并把快照里
 // 那一条整体替换成新定义（ID 不变）。真实语义（校验、重算排期、落盘）在
 // backend/engine/schedule 的用例里钉住。
-func (runtime *fakeRuntime) UpdateScheduledTask(_ context.Context, id string, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
+func (runtime *fakeRuntime) UpdateScheduledTask(_ context.Context, id string, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error) {
 	if runtime.scheduleErr != nil {
 		return nil, runtime.scheduleErr
 	}
 	runtime.scheduledSpecs = append(runtime.scheduledSpecs, spec)
 	runtime.updatedTasks = append(runtime.updatedTasks, id)
-	updated := seelebridge.ScheduledTaskStatus{
+	updated := assemble.ScheduledTaskStatus{
 		ID: id, Name: spec.Name, Kind: string(spec.Kind),
 		IntervalSec: int64(spec.Interval.Seconds()), Enabled: spec.Enabled,
 		WorkspaceID: spec.WorkspaceID, Prompt: spec.Prompt,

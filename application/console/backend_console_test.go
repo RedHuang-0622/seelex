@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/wiring"
 )
@@ -133,9 +133,9 @@ func TestBackendEventLoggerLogsBashStagesWithoutCommandContent(t *testing.T) {
 	var output bytes.Buffer
 	now := time.Unix(0, 0)
 	logger := NewEventLogger(&output, func() time.Time { return now })
-	logger.LogBashEvent(seelebridge.BashDiagnosticEvent{Stage: "bash.process.started", Shell: "bash.exe"})
+	logger.LogBashEvent(toolreg.BashDiagnosticEvent{Stage: "bash.process.started", Shell: "bash.exe"})
 	now = now.Add(15 * time.Millisecond)
-	logger.LogBashEvent(seelebridge.BashDiagnosticEvent{Stage: "bash.process.exited", Shell: "bash.exe", ExitCode: 1})
+	logger.LogBashEvent(toolreg.BashDiagnosticEvent{Stage: "bash.process.exited", Shell: "bash.exe", ExitCode: 1})
 
 	got := output.String()
 	if !strings.Contains(got, "stage=bash.process.started shell=bash.exe") || !strings.Contains(got, "stage=bash.process.exited shell=bash.exe exit_code=1") {

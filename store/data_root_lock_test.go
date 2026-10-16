@@ -33,8 +33,8 @@ func TestJSONDataRootLockAcquiredAndReleased(t *testing.T) {
 	if _, err := os.Stat(lockPath); err != nil {
 		t.Fatalf("lock.owner missing after open: %v", err)
 	}
-	if _, held := DataRootLockedBy(root); !held {
-		t.Fatal("DataRootLockedBy must report held after open")
+	if _, held := storeroot.DataRootLockedBy(root); !held {
+		t.Fatal("storeroot.DataRootLockedBy must report held after open")
 	}
 
 	// 同进程（同一写者）重复打开同一数据根 = 引用计数共享，不报错。
@@ -42,7 +42,7 @@ func TestJSONDataRootLockAcquiredAndReleased(t *testing.T) {
 	if err := second.Close(); err != nil {
 		t.Fatalf("close second holder: %v", err)
 	}
-	if _, held := DataRootLockedBy(root); !held {
+	if _, held := storeroot.DataRootLockedBy(root); !held {
 		t.Fatal("lock must stay held while first holder is open")
 	}
 
@@ -52,8 +52,8 @@ func TestJSONDataRootLockAcquiredAndReleased(t *testing.T) {
 	if _, err := os.Stat(lockPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("lock.owner must be removed after last Close (err=%v)", err)
 	}
-	if _, held := DataRootLockedBy(root); held {
-		t.Fatal("DataRootLockedBy must report free after release")
+	if _, held := storeroot.DataRootLockedBy(root); held {
+		t.Fatal("storeroot.DataRootLockedBy must report free after release")
 	}
 
 	// 归还后可再次打开。
@@ -83,8 +83,8 @@ func TestJSONDataRootLockForeignProcessRejected(t *testing.T) {
 	}
 
 	_, err := Open(context.Background(), Config{Backend: BackendJSON, Path: root})
-	if !errors.Is(err, ErrDataRootLocked) {
-		t.Fatalf("open under foreign live lock err = %v, want ErrDataRootLocked", err)
+	if !errors.Is(err, storeroot.ErrDataRootLocked) {
+		t.Fatalf("open under foreign live lock err = %v, want storeroot.ErrDataRootLocked", err)
 	}
 }
 
@@ -102,13 +102,13 @@ func TestJSONDataRootStaleLockRespectsAutoRecover(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	if _, err := Open(ctx, Config{Backend: BackendJSON, Path: root}); !errors.Is(err, ErrDataRootStaleLock) {
-		t.Fatalf("open under stale lock (no recover) err = %v, want ErrDataRootStaleLock", err)
+	if _, err := Open(ctx, Config{Backend: BackendJSON, Path: root}); !errors.Is(err, storeroot.ErrDataRootStaleLock) {
+		t.Fatalf("open under stale lock (no recover) err = %v, want storeroot.ErrDataRootStaleLock", err)
 	}
 
 	repository, err := Open(ctx, Config{
 		Backend: BackendJSON, Path: root,
-		SessionStorage: storageSettings{AutoRecover: boolPtr(true), StaleAfterSeconds: 300},
+		SessionStorage: storeroot.Settings{AutoRecover: boolPtr(true), StaleAfterSeconds: 300},
 	})
 	if err != nil {
 		t.Fatalf("open with auto_recover=true must take over stale lock: %v", err)
@@ -145,14 +145,14 @@ func TestJSONDataRootCrashedGUIResidualLockRecovered(t *testing.T) {
 
 	// 2) 修复前口径（保守）：只报错，拒绝启动。
 	ctx := context.Background()
-	if _, err := Open(ctx, Config{Backend: BackendJSON, Path: root}); !errors.Is(err, ErrDataRootStaleLock) {
-		t.Fatalf("conservative open err = %v, want ErrDataRootStaleLock", err)
+	if _, err := Open(ctx, Config{Backend: BackendJSON, Path: root}); !errors.Is(err, storeroot.ErrDataRootStaleLock) {
+		t.Fatalf("conservative open err = %v, want storeroot.ErrDataRootStaleLock", err)
 	}
 
 	// 3) 修复后默认口径：接管残留锁并正常打开，无需用户手工删锁。
 	repository, err := Open(ctx, Config{
 		Backend: BackendJSON, Path: root,
-		SessionStorage: storageSettings{AutoRecover: boolPtr(true), StaleAfterSeconds: 300},
+		SessionStorage: storeroot.Settings{AutoRecover: boolPtr(true), StaleAfterSeconds: 300},
 	})
 	if err != nil {
 		t.Fatalf("open after crash (auto_recover=true) = %v, want takeover", err)
@@ -177,7 +177,7 @@ func TestJSONDataRootCrashedGUIResidualLockRecovered(t *testing.T) {
 	}
 	clean, err := Open(ctx, Config{
 		Backend: BackendJSON, Path: root,
-		SessionStorage: storageSettings{AutoRecover: boolPtr(true), StaleAfterSeconds: 300},
+		SessionStorage: storeroot.Settings{AutoRecover: boolPtr(true), StaleAfterSeconds: 300},
 	})
 	if err != nil {
 		t.Fatalf("open after clean close = %v", err)

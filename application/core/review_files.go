@@ -24,7 +24,7 @@ func (service *Service) reviewRequests() *review.Requests {
 	return review.NewRequests(serviceReviewHost{service: service})
 }
 
-// RequestFileReview 实现 seelebridge.ReviewFilesPort（判据在 `backend/tool/review`）。
+// RequestFileReview 实现 assemble.ReviewFilesPort（判据在 `backend/tool/review`）。
 func (service *Service) RequestFileReview(ctx context.Context, files []dto.ReviewFileRef) (dto.ReviewRequest, error) {
 	return service.reviewRequests().Request(ctx, files)
 }

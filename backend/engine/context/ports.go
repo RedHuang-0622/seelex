@@ -110,7 +110,7 @@ type CompactionIndexRequest struct {
 	// 在改写上下文之前就知道（见 compactionReadbackProbe）。
 	//
 	// 语义是 **Chapter 2 正文**：读数闸回执天然带整份两章节摘要，交到这里之前按
-	// Chapter2Body 归一化（seelebridge.ReadbackCompactionSummary 已经在出口一侧
+	// Chapter2Body 归一化（assemble.ReadbackCompactionSummary 已经在出口一侧
 	// 对齐）。整份摘要当正文用会让帧出现双重标题，且再读回来时正文被裁成空。
 	PrecomputedSummary string
 	// PrecomputedSummarySource 是上面那份读后感的来源（replay | local；空 →

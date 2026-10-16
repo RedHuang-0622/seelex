@@ -11,6 +11,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"os"
 	"path/filepath"
 	"testing"
@@ -18,7 +19,7 @@ import (
 
 func boardFixture(t *testing.T) (*jsonRepository, Key) {
 	t.Helper()
-	repository, err := newJSONRepository(t.TempDir(), storageSettings{})
+	repository, err := newJSONRepository(t.TempDir(), storeroot.Settings{})
 	if err != nil {
 		t.Fatalf("newJSONRepository: %v", err)
 	}
@@ -135,7 +136,7 @@ func TestBoardReadMissingIsEmptyNotError(t *testing.T) {
 func TestBoardArchiveSurvivesReopen(t *testing.T) {
 	root := t.TempDir()
 	key := Key{ProjectID: "project-reopen", SessionID: "session-reopen"}
-	first, err := newJSONRepository(root, storageSettings{})
+	first, err := newJSONRepository(root, storeroot.Settings{})
 	if err != nil {
 		t.Fatalf("newJSONRepository: %v", err)
 	}
@@ -146,7 +147,7 @@ func TestBoardArchiveSurvivesReopen(t *testing.T) {
 		t.Fatalf("WriteTeamBoard: %v", err)
 	}
 
-	second, err := newJSONRepository(root, storageSettings{})
+	second, err := newJSONRepository(root, storeroot.Settings{})
 	if err != nil {
 		t.Fatalf("newJSONRepository(second): %v", err)
 	}

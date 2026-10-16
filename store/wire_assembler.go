@@ -15,6 +15,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"strings"
 )
 
@@ -84,10 +85,10 @@ func (params wireParams) normalized() wireParams {
 // WireTargetRatio（裁剪到目标）属压缩路径口径，由调用方以
 // budget.TargetAfterCompaction 消费，不在装配侧重复。
 //
-// 接收者改成第一个参数（原 `storageSettings.applyWireBudget`，随 M3-S2 下沉
+// 接收者改成第一个参数（原 `Settings.applyWireBudget`，随 M3-S2 下沉
 // Settings 时留在本包）：判据本身逐字未变，只是 `wireParams` 属本包的装配域，
 // 不随 `Settings` 进 `store/root`。
-func applyWireBudget(settings storageSettings, base wireParams) wireParams {
+func applyWireBudget(settings storeroot.Settings, base wireParams) wireParams {
 	budget, soft, _ := settings.WireBudget()
 	if base.Budget <= 0 {
 		base.Budget = soft

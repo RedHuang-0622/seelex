@@ -6,7 +6,7 @@ package core
 // 两条判据（各自的机理由源码给出，断言只认可观测量）：
 //
 //  1. 冷加载在**进程级视图过渡 key** 上读完整个磁盘才放手。
-//     生产宿主 seelebridge.Runtime.PerSessionExecution()==false
+//     生产宿主 assemble.Runtime.PerSessionExecution()==false
 //     （backend/engine/assemble/runtime.go:718），于是 service.transitionForSession
 //     （application/core/session_scope.go:37）一律回退 transitionForKey("")
 //     ——视图过渡锁是**全进程唯一**的一把。resumeSession
@@ -256,7 +256,7 @@ func TestReproColdLoadBlocksAnotherSessionSubmit(t *testing.T) {
 	releaseEngineSession(engine, "sess-b")
 
 	if blocked {
-		t.Fatalf("红灯：A 冷加载在读盘期间攥着**进程级**视图过渡锁（seelebridge.Runtime.PerSessionExecution()==false → "+
+		t.Fatalf("红灯：A 冷加载在读盘期间攥着**进程级**视图过渡锁（assemble.Runtime.PerSessionExecution()==false → "+
 			"session_scope.go:37 回退 transitionForKey(\"\")），B 会话的提交（SubmitToSession→ActivateSession）整段排队，"+
 			"800ms 内没有受理——GUI 侧就是「另一个会话发不出消息/超时报错」。\n阻塞现场（相关 goroutine）：\n%s",
 			lateStacks)

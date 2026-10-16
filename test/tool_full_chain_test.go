@@ -17,7 +17,7 @@ import (
 
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 	"github.com/RedHuang-0622/seelex/application"
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/backend/limit/gate"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -182,7 +182,7 @@ type fullChainHarness struct {
 	workspaces *workspacerepo.Repo
 	// runtime 是组合根的 seelebridge 实例：让用例能在装配后重新安装权限配置
 	// （harness 缺省装 full_access，权限用例要换成 manual 权责配置 + 审批桩）。
-	runtime *seelebridge.Runtime
+	runtime *assemble.Runtime
 	// approval 是**生产审批 broker**（与 GUI/TUI 同一个实例）：权限用例可以
 	// 通过它对"执行选择页面"做端到端断言（页面是否打开、打开了几次、工具名），
 	// 而不是只在工具侧看一个桩被调了几次。
@@ -209,7 +209,7 @@ func newFullChainHarnessWithProjectBinding(t *testing.T, AccountsPath, projectRo
 // 永不触发，"做完自动返回"那条链于是**静默不存在**。组合根的顺序是
 // store → SetTeamworkBackend → wiring.New（wiring/bootstrap），测试基座必须同序装配，
 // 否则冒烟会把"装配顺序错了"误报成"链子是坏的"。
-type fullChainBackendInstaller func(st *store.Router, workspaces *workspacerepo.Repo, runtime *seelebridge.Runtime) error
+type fullChainBackendInstaller func(st *store.Router, workspaces *workspacerepo.Repo, runtime *assemble.Runtime) error
 
 // newFullChainHarnessWithLimits 是同一套装配，只多交出 limits 段：A/B 两臂要求
 // 除 limits.async_exec.enabled 外逐字段相同，开关是唯一变量。
@@ -217,7 +217,7 @@ type fullChainBackendInstaller func(st *store.Router, workspaces *workspacerepo.
 // installers 按组合根的位置在 store/workspaces 就绪之后、wiring.New 之前逐个执行。
 func newFullChainHarnessWithLimits(t *testing.T, AccountsPath, projectRoot string, toolTimeout time.Duration, bindProject bool, limits limit.Limits, installers ...fullChainBackendInstaller) fullChainHarness {
 	t.Helper()
-	runtimeBridge, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{
+	runtimeBridge, err := assemble.NewRuntime(assemble.RuntimeConfig{
 		AccountsPath:    AccountsPath,
 		StorePath:       filepath.Join(projectRoot, "runtime"),
 		ToolCallTimeout: toolTimeout,

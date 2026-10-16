@@ -1,6 +1,7 @@
 package store
 
 import (
+	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"testing"
 	"time"
 )
@@ -17,7 +18,7 @@ import (
 // queueFixture 建一个空会话（lifecycle 通道无需先写 message）。
 func queueFixture(t *testing.T) (*storeEngine, Key) {
 	t.Helper()
-	store := newStoreEngine(t.TempDir(), storageSettings{MessageShardRows: 0})
+	store := newStoreEngine(t.TempDir(), storeroot.Settings{MessageShardRows: 0})
 	return store, Key{ProjectID: "project-q", SessionID: "session-q"}
 }
 

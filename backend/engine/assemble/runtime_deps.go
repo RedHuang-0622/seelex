@@ -9,6 +9,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	subagentsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
+	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/store"
 )
@@ -20,7 +21,7 @@ import (
 type RuntimeDeps struct {
 	// BashDiagnosticObserver bash 工具诊断观察者（nil = 关闭；事件不含命令
 	// 文本/参数/输出，可安全用于停滞工具排查）。
-	BashDiagnosticObserver BashDiagnosticObserver
+	BashDiagnosticObserver toolreg.BashDiagnosticObserver
 	// TurnArchiver 压缩轮次原文归档实现（application 层持久化通道）。
 	TurnArchiver seelexctx.TurnArchiver
 	// ProjectKnowledge 项目级模块语义提供者（nil 关闭 project 块）。

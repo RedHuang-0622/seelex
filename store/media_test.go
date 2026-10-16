@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"image"
 	"image/color"
 	"image/png"
@@ -33,7 +34,7 @@ func mediaTestPNG(t *testing.T, width, height int) []byte {
 	return buffer.Bytes()
 }
 
-func openMediaTestStore(t *testing.T, settings Settings) (Repository, MediaStore) {
+func openMediaTestStore(t *testing.T, settings storeroot.Settings) (Repository, MediaStore) {
 	t.Helper()
 	repository, err := Open(context.Background(), Config{
 		Backend: BackendJSON, Path: t.TempDir(), SessionStorage: settings,
@@ -54,7 +55,7 @@ func mediaTestKey() Key { return Key{ProjectID: "p-media", SessionID: "s-media"}
 // TestMediaStoreKeepsOriginalNameUnderHashFolder 锁定布局契约：
 // 目录名 = 内容 hash，文件名 = 原名，head 落在元数据白名单内的 media.json。
 func TestMediaStoreKeepsOriginalNameUnderHashFolder(t *testing.T) {
-	repository, media := openMediaTestStore(t, Settings{})
+	repository, media := openMediaTestStore(t, storeroot.Settings{})
 	key := mediaTestKey()
 	data := mediaTestPNG(t, 16, 8)
 
@@ -96,7 +97,7 @@ func TestMediaStoreKeepsOriginalNameUnderHashFolder(t *testing.T) {
 // 无论二进制多长或多「不友好」都必须逐字节往返；超硬限只能整体拒绝。
 func TestMediaStoreNeverTruncates(t *testing.T) {
 	binary := append([]byte{0x89, 'P', 'N', 'G', 0x00, 0xFF, 0xFE}, bytes.Repeat([]byte{0x00, 0xC3, 0x28}, 300)...)
-	_, media := openMediaTestStore(t, Settings{})
+	_, media := openMediaTestStore(t, storeroot.Settings{})
 	item, err := media.WriteMedia(context.Background(), mediaTestKey(), MediaItem{
 		Name: "raw.bin", MimeType: "application/octet-stream", Data: binary,
 	})
@@ -115,7 +116,7 @@ func TestMediaStoreNeverTruncates(t *testing.T) {
 	}
 
 	// 超硬限：显式拒绝，且不落任何半成品。
-	_, limited := openMediaTestStore(t, Settings{MediaMaxItemBytes: 32, MediaSessionQuotaBytes: 64})
+	_, limited := openMediaTestStore(t, storeroot.Settings{MediaMaxItemBytes: 32, MediaSessionQuotaBytes: 64})
 	_, err = limited.WriteMedia(context.Background(), mediaTestKey(), MediaItem{
 		Name: "big.png", MimeType: "image/png", Data: mediaTestPNG(t, 64, 64),
 	})
@@ -133,29 +134,29 @@ func TestMediaStoreRejectsByLimitAxis(t *testing.T) {
 	pngBytes := mediaTestPNG(t, 32, 32)
 	cases := []struct {
 		name     string
-		settings Settings
+		settings storeroot.Settings
 		item     MediaItem
 		prepare  func(t *testing.T, media MediaStore)
 		wantErr  error
 	}{
 		{
-			name: "invalid item", settings: Settings{},
+			name: "invalid item", settings: storeroot.Settings{},
 			item: MediaItem{Name: "", MimeType: "", Data: nil}, wantErr: ErrMediaInvalid,
 		},
 		{
 			name:     "item bytes over limit",
-			settings: Settings{MediaMaxItemBytes: 16, MediaSessionQuotaBytes: 64},
+			settings: storeroot.Settings{MediaMaxItemBytes: 16, MediaSessionQuotaBytes: 64},
 			item:     MediaItem{Name: "shot.png", MimeType: "image/png", Data: pngBytes},
 			wantErr:  ErrMediaTooLarge,
 		},
 		{
 			name:     "long side over limit",
-			settings: Settings{MediaMaxLongSide: 16},
+			settings: storeroot.Settings{MediaMaxLongSide: 16},
 			item:     MediaItem{Name: "shot.png", MimeType: "image/png", Data: pngBytes, Width: 32, Height: 32},
 			wantErr:  ErrMediaDimensions,
 		},
 		{
-			name: "item count over limit", settings: Settings{MediaMaxItemsPerSession: 1},
+			name: "item count over limit", settings: storeroot.Settings{MediaMaxItemsPerSession: 1},
 			item: MediaItem{Name: "second.png", MimeType: "image/png", Data: append(append([]byte{}, pngBytes...), 'x')},
 			prepare: func(t *testing.T, media MediaStore) {
 				t.Helper()
@@ -169,7 +170,7 @@ func TestMediaStoreRejectsByLimitAxis(t *testing.T) {
 		},
 		{
 			name:     "session quota over limit",
-			settings: Settings{MediaMaxItemBytes: 1024, MediaSessionQuotaBytes: 1536},
+			settings: storeroot.Settings{MediaMaxItemBytes: 1024, MediaSessionQuotaBytes: 1536},
 			item:     MediaItem{Name: "second.png", MimeType: "image/png", Data: bytes.Repeat([]byte{'b'}, 1000)},
 			prepare: func(t *testing.T, media MediaStore) {
 				t.Helper()
@@ -198,7 +199,7 @@ func TestMediaStoreRejectsByLimitAxis(t *testing.T) {
 // TestMediaStoreDeduplicatesByContent 验证内容寻址：同字节只落一份，
 // 换名写入记为别名且不重复占配额。
 func TestMediaStoreDeduplicatesByContent(t *testing.T) {
-	repository, media := openMediaTestStore(t, Settings{})
+	repository, media := openMediaTestStore(t, storeroot.Settings{})
 	key := mediaTestKey()
 	data := mediaTestPNG(t, 8, 8)
 
@@ -229,7 +230,7 @@ func TestMediaStoreDeduplicatesByContent(t *testing.T) {
 // TestMediaStoreCollectsUnreferenced 验证 GC：引用集内的保留，集合外的删除，
 // dryRun 只报告不删除。
 func TestMediaStoreCollectsUnreferenced(t *testing.T) {
-	_, media := openMediaTestStore(t, Settings{})
+	_, media := openMediaTestStore(t, storeroot.Settings{})
 	key := mediaTestKey()
 	keep, err := media.WriteMedia(context.Background(), key, MediaItem{
 		Name: "keep.png", MimeType: "image/png", Data: mediaTestPNG(t, 8, 8),
@@ -266,7 +267,7 @@ func TestMediaStoreCollectsUnreferenced(t *testing.T) {
 
 // TestMediaStoreRejectsBadRef 覆盖非法与缺失引用：必须显式报错，不得静默空结果。
 func TestMediaStoreRejectsBadRef(t *testing.T) {
-	_, media := openMediaTestStore(t, Settings{})
+	_, media := openMediaTestStore(t, storeroot.Settings{})
 	cases := []struct {
 		ref     string
 		wantErr error
@@ -289,7 +290,7 @@ func TestMediaStoreRejectsBadRef(t *testing.T) {
 // TestMediaQuotaIsIndependentFromTextBlob 验证分轴配额的独立性：
 // 媒体配额打满不影响文本大结果通道，反之文本通道挤满也不影响媒体。
 func TestMediaQuotaIsIndependentFromTextBlob(t *testing.T) {
-	repository, media := openMediaTestStore(t, Settings{
+	repository, media := openMediaTestStore(t, storeroot.Settings{
 		MediaMaxItemBytes: 1024, MediaSessionQuotaBytes: 1024,
 		BlobSoftLimitChars: 1, BlobHardLimitBytes: 1 << 20, BlobSessionQuotaBytes: 1 << 20,
 	})
@@ -316,7 +317,7 @@ func TestMediaQuotaIsIndependentFromTextBlob(t *testing.T) {
 
 // TestMediaRefsRoundTripThroughToolResult 验证多模态引用随工具结果落盘可还原。
 func TestMediaRefsRoundTripThroughToolResult(t *testing.T) {
-	repository, media := openMediaTestStore(t, Settings{})
+	repository, media := openMediaTestStore(t, storeroot.Settings{})
 	key := mediaTestKey()
 	item, err := media.WriteMedia(context.Background(), key, MediaItem{
 		Name: "shot.png", MimeType: "image/png", Kind: "screenshot", Data: mediaTestPNG(t, 8, 8), Width: 8, Height: 8,

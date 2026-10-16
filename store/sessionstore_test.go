@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/Seele/types"
+	storeroot "github.com/RedHuang-0622/seelex/store/root"
 )
 
 func messages(count int, marker string) []types.Message {
@@ -104,7 +105,7 @@ func TestRouterReadsExplicitWorkspaceWithoutChangingActiveScope(t *testing.T) {
 // 存在时 ReadRange 只解析覆盖目标范围的 shard（尾部窗口读），结果与全量
 // 读一致。3 个 shard（250 条消息）尾部 5 条窗口。
 func TestJSONRepositoryReadRangeWindowed(t *testing.T) {
-	repository, err := newJSONRepository(t.TempDir(), storageSettings{})
+	repository, err := newJSONRepository(t.TempDir(), storeroot.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +174,7 @@ func firstContent(messages []types.Message) string {
 // TestJSONRepositoryReadRangeTotalOnly 验证 limit<=0 语义：只读 manifest 拿
 // 总数、不解析任何 shard（会话切换"先探 total 再尾部窗口读"的依赖）。
 func TestJSONRepositoryReadRangeTotalOnly(t *testing.T) {
-	repository, err := newJSONRepository(t.TempDir(), storageSettings{})
+	repository, err := newJSONRepository(t.TempDir(), storeroot.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}

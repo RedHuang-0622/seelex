@@ -150,7 +150,7 @@ func TestForkSessionChildContentVisibleAfterResume(t *testing.T) {
 		generation: "generation-parent",
 	}
 	engine := newMultiSessionEngine()
-	// 生产 seelebridge.Runtime.PerSessionExecution()=false（per-session
+	// 生产 assemble.Runtime.PerSessionExecution()=false（per-session
 	// project root 未落地前），fork 走 legacy StartSession 分支；回归必须
 	// 用默认 runtime 才能钉住该路径。
 	service := newTestService(t, engine, withTestSessions(sessions))

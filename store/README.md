@@ -41,9 +41,10 @@ errors; they do not participate in range/recovery semantics.
 基座机制（数据根独占锁、进程存活探测、无锁共享读、原子发布 `WriteAtomic`、JSONL 残尾
 `TruncateCrashTail`、存储运行参数 `Settings`）已在 M3-S2 抽成独立的 `store/root` 包
 （依赖闭包 = 纯标准库，见 [`root/README.md`](root/README.md)）。
-本包以 import 别名 `storeroot` 使用它，并在 [`root_aliases.go`](root_aliases.go) 里保留
-`Settings` / 哨兵错误 / 数据根锁读函数的保形别名——调用点与 `main.go` 因此零改动；
-本包**不再**自己实现这些机制（同一判据只许有一处实现）。
+本包以 import 别名 `storeroot` 使用它（`Settings` / 哨兵错误 / 数据根锁读函数一律写限定名）。
+2026-10-17（P8 §5.2）删掉了过渡期的 `root_aliases.go`：那批保形别名只为"搬迁期不动调用点"存在，
+外部只有 `wiring/bootstrap` 三处，改成 `storeroot.X` 后与包内口径一致；本包**不再**自己实现
+这些机制（同一判据只许有一处实现）。
 
 主要调用方：`application/core/session_runtime`（持久化与会话三读）、`session`
 （fork 的显式项目作用域读写）、`wiring/adapters`（DTO ↔ 存储映射）与
@@ -66,7 +67,7 @@ errors; they do not participate in range/recovery semantics.
 | [README-board.md](README-board.md) | `board`/`project_board`/`project_known`/`project_record` | 项目看板投影与项目知识记录 |
 | [README-team.md](README-team.md) | `teamwork`/`team_registry`/`role_session`/`node_session_store`/`unit_record_writer` | 团队、角色与节点会话记账 |
 | [README-media.md](README-media.md) | `media`/`search_index`/`tool_record`/`schedule_events` | 媒体分区、检索索引与派生通道 |
-| [README-storage.md](README-storage.md) | `json_layout`/`module_heads`/`fork_store`/`legacy_storage`/`router_storage`/`root_aliases` | 存储引擎底座：布局、head 发布、迁移与别名 |
+| [README-storage.md](README-storage.md) | `json_layout`/`module_heads`/`fork_store`/`legacy_storage`/`router_storage` | 存储引擎底座：布局、head 发布与迁移 |
 | [README-misc.md](README-misc.md) | 兜底卷：无前缀归属的测试文件 | 跨卷用例与基础回归 |
 
 ## 架构图

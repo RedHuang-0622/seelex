@@ -19,7 +19,7 @@ import (
 // routerForkSessions 是 Dependencies.Sessions 的测试双件：满足 base
 // SessionPort，并提供 fork/resume 需要的 record/snapshot/transcript/
 // granular 可选端口，全部直连真实 Router（与 wiring/adapters.SessionPort
-// 同语义，但不依赖 seelebridge.Runtime 的 context 挂接）。
+// 同语义，但不依赖 assemble.Runtime 的 context 挂接）。
 type routerForkSessions struct {
 	router    *store.Router
 	granular  *store.SessionGranularStore

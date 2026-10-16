@@ -12,13 +12,14 @@ import (
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/console"
 	"github.com/RedHuang-0622/seelex/application/core"
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/engine/prompt/assets"
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	coretask "github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/backend/limit/overlay"
 	seeteamwork "github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
+	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/gui"
 	"github.com/RedHuang-0622/seelex/store"
 	"github.com/RedHuang-0622/seelex/wiring"
@@ -42,7 +43,7 @@ type Options struct {
 // `defer` 链逐条相同；入口必须在 Serve 返回后（或 defer）调用它一次。
 type App struct {
 	Application *application.Service
-	Runtime     *seelebridge.Runtime
+	Runtime     *assemble.Runtime
 	Store       *store.Router
 
 	Flags          *config.Flags
@@ -232,12 +233,12 @@ func Run(opts Options) (*App, error) {
 		// 作用域键解析只有一份（sessionKeyFor，见文件尾部）：团队作业与工具记录
 		// 都用它，免得两处各写一遍"会话 → (项目, 会话)"的解析。
 		keyFor := func(sessionID string) (store.Key, bool) { return sessionKeyFor(wsRepo, sessionID) }
-		if err := runtime.SetTeamworkBackend(seelebridge.TeamworkBackend{
+		if err := runtime.SetTeamworkBackend(assemble.TeamworkBackend{
 			Store:  seeteamwork.NewPlanStore(repo),
 			Boards: boardRepo,
 			// 作业输出归产品（S5）：正文落会话的 teamwork/jobs，销项 / 驱逐 / Close
 			// 都不由框架删，整队收口（team_close）时才清——"正文活到 close"。
-			JobOutputs:   seelebridge.NewTeamworkJobOutputs(repo, keyFor),
+			JobOutputs:   assemble.NewTeamworkJobOutputs(repo, keyFor),
 			KeyFor:       keyFor,
 			MaxTeammates: runtimeLimits.Team.MaxTeammates,
 		}); err != nil {
@@ -375,7 +376,7 @@ func Run(opts Options) (*App, error) {
 	// 启动期装配一次注入（RuntimeDeps）：项目知识/子代理工具回调/skill 目录
 	// + 计划事件钩子 + 压缩归档 + 调度器执行器/观察者 + 诊断观察者。
 	// 对应原散装单字段 setter，装配点统一走 Deps 结构。
-	var bashObserver seelebridge.BashDiagnosticObserver
+	var bashObserver toolreg.BashDiagnosticObserver
 	if backendTrace != nil {
 		bashObserver = backendTrace.LogBashEvent
 	}
@@ -384,7 +385,7 @@ func Run(opts Options) (*App, error) {
 	// 命令面因此不需要第二个上报口。"退出码非零 = 一次命令失败"的判据在 core
 	// （RecordToolCommandOutcome），这里只做搬运；诊断日志照旧转发给下游。
 	bashObserver = toolCommandOutcomeObserver(bashObserver, app)
-	runtime.ApplyDeps(seelebridge.RuntimeDeps{
+	runtime.ApplyDeps(assemble.RuntimeDeps{
 		BashDiagnosticObserver: bashObserver,
 		TurnArchiver: &core.CompressedTurnArchiver{
 			Sessions:          sessionManager,

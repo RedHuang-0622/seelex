@@ -12,6 +12,7 @@ package store
 import (
 	"encoding/json"
 	"errors"
+	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"os"
 	"path/filepath"
 	"sort"
@@ -58,7 +59,7 @@ func (store *storeEngine) readRetentionHead(key Key) (retentionHead, error) {
 	}
 	head = retentionHead{
 		SessionID:        key.SessionID,
-		Mode:             retentionModeManual,
+		Mode:             storeroot.RetentionModeManual,
 		DryRun:           true,
 		CompactThreshold: threshold,
 		RawBytesAlert:    alertBytes,
@@ -79,12 +80,12 @@ func (store *storeEngine) lRUDelete(key Key, upToSeq uint64, confirmed bool) (re
 	retention, err := store.readRetentionHeadLocked(key)
 	if err != nil {
 		retention = retentionHead{
-			SessionID: key.SessionID, Mode: retentionModeManual, DryRun: true,
+			SessionID: key.SessionID, Mode: storeroot.RetentionModeManual, DryRun: true,
 			CompactThreshold: threshold,
 			RawBytesAlert:    alertBytes,
 		}
 	}
-	if retention.Mode == retentionModeManual && !confirmed {
+	if retention.Mode == storeroot.RetentionModeManual && !confirmed {
 		return retentionHead{}, ErrRetentionRequiresConfirm
 	}
 	oldWatermark := retention.WatermarkSeq

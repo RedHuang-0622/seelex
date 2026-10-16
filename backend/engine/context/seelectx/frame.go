@@ -368,7 +368,7 @@ func FrameChapter2(frame store.CompactFrame) string {
 //
 // 为什么需要这道归一化：帧摘要的内部边界是两章节（Chapter 1 链锚点 / Chapter 2
 // 厚内容），而它在链上有两个出口会把**整份摘要**当正文交出去——装配层读数闸的
-// 回执（它交回的是整份帧摘要，见 seelebridge.ReadbackCompactionSummary）与已经
+// 回执（它交回的是整份帧摘要，见 assemble.ReadbackCompactionSummary）与已经
 // 嵌套过的旧帧。整份摘要直接当 Chapter 2 用会得到双重标题帧；更要紧的是再读回来
 // 时 frameChapter 在 Chapter 2 标题后立刻撞上另一个 "## " 标题、正文被裁成空串，
 // 于是记忆块 / OneLineSummary / carry 这些读者拿到的都不是正文——现场那句话

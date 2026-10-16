@@ -200,7 +200,7 @@ type Runtime struct {
 	subagentTree        *subagentsession.SubagentTree
 	toolCallTimeout     time.Duration
 	bashObserverMu      sync.RWMutex
-	bashObserver        BashDiagnosticObserver
+	bashObserver        toolreg.BashDiagnosticObserver
 	planDecisionTimeout time.Duration
 	approvalTimeout     time.Duration
 	heartbeatInterval   time.Duration
@@ -771,7 +771,7 @@ func (r *Runtime) Shutdown() {
 // arguments, workdir, output, or account data, so a console logger can be
 // enabled while investigating a stalled tool call without exposing payloads.
 // Passing nil disables the observer.
-func (r *Runtime) SetBashDiagnosticObserver(observer BashDiagnosticObserver) {
+func (r *Runtime) SetBashDiagnosticObserver(observer toolreg.BashDiagnosticObserver) {
 	if r == nil {
 		return
 	}
@@ -945,8 +945,5 @@ var (
 )
 
 type dockerProbe = docker.Prober
-type (
-	BashDiagnosticEvent    = toolreg.BashDiagnosticEvent
-	BashDiagnosticObserver = toolreg.BashDiagnosticObserver
-)
+type ()
 type NodeWorktree = worktree.NodeWorktree

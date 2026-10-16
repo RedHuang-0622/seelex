@@ -3,13 +3,13 @@ package adapters
 import (
 	"context"
 
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
 
-type RuntimePort struct{ Runtime *seelebridge.Runtime }
+type RuntimePort struct{ Runtime *assemble.Runtime }
 
 func (port RuntimePort) Model() string         { return port.Runtime.Model() }
 func (port RuntimePort) Provider() string      { return port.Runtime.Provider() }
@@ -31,10 +31,10 @@ func (port RuntimePort) PerSessionExecution() bool {
 func (port RuntimePort) ForkInFlight(sessionID string) bool {
 	return port.Runtime.ForkInFlight(sessionID)
 }
-func (port RuntimePort) SetRuntimeVisibilityProjection(projection seelebridge.RuntimeVisibilityProjection) {
+func (port RuntimePort) SetRuntimeVisibilityProjection(projection assemble.RuntimeVisibilityProjection) {
 	port.Runtime.SetRuntimeVisibilityProjection(projection)
 }
-func (port RuntimePort) SetParentEvidenceProjection(projection seelebridge.ParentEvidenceProjection) {
+func (port RuntimePort) SetParentEvidenceProjection(projection assemble.ParentEvidenceProjection) {
 	port.Runtime.SetParentEvidenceProjection(projection)
 }
 func (port RuntimePort) DrainSubagentContexts() []string { return port.Runtime.DrainSubagentContexts() }
@@ -135,16 +135,16 @@ func (port RuntimePort) SwitchSessionTasks(sessionID string, records []dto.TaskR
 func (port RuntimePort) SetSessionWorkspace(sessionID, workspaceID string) {
 	port.Runtime.SetSessionWorkspace(sessionID, workspaceID)
 }
-func (port RuntimePort) ScheduledCommands() []seelebridge.ScheduledCommandInfo {
+func (port RuntimePort) ScheduledCommands() []assemble.ScheduledCommandInfo {
 	return port.Runtime.ScheduledCommands()
 }
-func (port RuntimePort) ScheduledTasksSnapshot() []seelebridge.ScheduledTaskStatus {
+func (port RuntimePort) ScheduledTasksSnapshot() []assemble.ScheduledTaskStatus {
 	return port.Runtime.ScheduledTasksSnapshot()
 }
-func (port RuntimePort) ScheduleTask(ctx context.Context, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
+func (port RuntimePort) ScheduleTask(ctx context.Context, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error) {
 	return port.Runtime.ScheduleTask(ctx, spec)
 }
-func (port RuntimePort) UpdateScheduledTask(ctx context.Context, id string, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
+func (port RuntimePort) UpdateScheduledTask(ctx context.Context, id string, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error) {
 	return port.Runtime.UpdateScheduledTask(ctx, id, spec)
 }
 func (port RuntimePort) CancelScheduledTask(id string) error {

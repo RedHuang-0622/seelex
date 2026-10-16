@@ -4,7 +4,7 @@ package store
 //
 // 事实链（teamwork 的 teammate 走的就是这一条）：
 //   - teammate 的一轮活跑在**这件事自己的会话**上（一 Work Item 一套 Session），而那是
-//     **进程内执行面**：`seelebridge.runRoleRound` 造引擎时**刻意不接 DurableHistory**，
+//     **进程内执行面**：`assemble.runRoleRound` 造引擎时**刻意不接 DurableHistory**，
 //     也不调 `CreateRoleSessionWorkspace`，所以角色子树下**一行都没有**；
 //   - 而 GUI 的「员工会话」入口读的是**角色会话只读观察面** `RoleSnapshot`，它的形状是
 //     「main 车道（主会话整段）+ 自身车道 + 草稿」——主会话是真会话，自身车道为空。

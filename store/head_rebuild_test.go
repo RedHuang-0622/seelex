@@ -1,6 +1,7 @@
 package store
 
 import (
+	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"os"
 	"testing"
 	"time"
@@ -10,7 +11,7 @@ import (
 // 模块 head 两次校验仍失败时，reader 按数据文件重建 head（修补）并发布，
 // 不返回旧值也不判损坏。
 func TestHeadRepairRebuildsMessageFromData(t *testing.T) {
-	store := newStoreEngine(t.TempDir(), storageSettings{})
+	store := newStoreEngine(t.TempDir(), storeroot.Settings{})
 	key := Key{ProjectID: "p-m109", SessionID: "s-m109"}
 	if _, err := store.messageCommit(key, "c1", []Event{
 		{Role: "user", Content: "a", MessageID: "m-1"},
@@ -38,7 +39,7 @@ func TestHeadRepairRebuildsMessageFromData(t *testing.T) {
 
 // TestHeadRepairRebuildsEventFromData 验证 EVENT head 同样按分片重建。
 func TestHeadRepairRebuildsEventFromData(t *testing.T) {
-	store := newStoreEngine(t.TempDir(), storageSettings{})
+	store := newStoreEngine(t.TempDir(), storeroot.Settings{})
 	key := Key{ProjectID: "p-ev109", SessionID: "s-ev109"}
 	if _, err := store.structuralEventCommit(key, "c1", []structuralEvent{
 		{Kind: structuralEventFork, AnchorSeq: 1, CommitID: "c1", CreatedAt: time.Now().UTC()},
@@ -60,7 +61,7 @@ func TestHeadRepairRebuildsEventFromData(t *testing.T) {
 // TestHeadRepairRebuildsCompactFromData 验证 compact head 从 compact.jsonl
 // 重建（latest frame 冗余恢复）。
 func TestHeadRepairRebuildsCompactFromData(t *testing.T) {
-	store := newStoreEngine(t.TempDir(), storageSettings{})
+	store := newStoreEngine(t.TempDir(), storeroot.Settings{})
 	key := Key{ProjectID: "p-cp109", SessionID: "s-cp109"}
 	if _, err := store.messageCommit(key, "c1", []Event{
 		{Role: "user", Content: "q1", MessageID: "m-1"},

@@ -24,7 +24,7 @@ import (
 )
 
 func TestProbeForkEventConstantCommitID(t *testing.T) {
-	store := newStoreEngine(t.TempDir(), storageSettings{})
+	store := newStoreEngine(t.TempDir(), storeroot.Settings{})
 	parent := Key{ProjectID: "p", SessionID: "parent"}
 	if _, err := store.messageCommit(parent, "", []Event{
 		{Role: "user", Content: "a"}, {Role: "assistant", Content: "b"},

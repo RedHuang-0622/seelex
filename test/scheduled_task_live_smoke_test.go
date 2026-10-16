@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/gui"
 )
@@ -61,8 +61,8 @@ func TestManualSmokeRealAccountScheduledPromptChain(t *testing.T) {
 	marker := "周期任务冒烟-" + time.Now().Format("150405")
 	prompt := "只回复这一行，不要调用任何工具：" + marker
 
-	created, err := bridge.ScheduleTask(seelebridge.ScheduledTaskSpec{
-		Name: "冒烟·每分钟", Kind: seelebridge.ScheduledTaskPrompt,
+	created, err := bridge.ScheduleTask(assemble.ScheduledTaskSpec{
+		Name: "冒烟·每分钟", Kind: assemble.ScheduledTaskPrompt,
 		Prompt: prompt, Interval: time.Minute, Enabled: true,
 	})
 	if err != nil {
@@ -85,7 +85,7 @@ func TestManualSmokeRealAccountScheduledPromptChain(t *testing.T) {
 
 	// 判据 2 + 3：等它真的触发，并等真实模型把这一轮跑完。
 	deadlineFirstRun := time.Now().Add(3 * time.Minute)
-	var fired seelebridge.ScheduledTaskStatus
+	var fired assemble.ScheduledTaskStatus
 	for {
 		snapshot := bridge.Snapshot()
 		for _, task := range snapshot.Runtime.ScheduledTasks {
@@ -148,8 +148,8 @@ func TestManualSmokeRealAccountScheduledPromptChain(t *testing.T) {
 	// 判据 5：**编辑**走真实链路（GUI Bridge 的同一落点 UpdateScheduledTask）：
 	// ID 不变、定义整体替换、下次运行按新定义重算，运行账目保留。
 	renamed := "冒烟·每分钟（已编辑 " + time.Now().Format("150405") + "）"
-	edited, err := bridge.UpdateScheduledTask(created.ID, seelebridge.ScheduledTaskSpec{
-		Name: renamed, Kind: seelebridge.ScheduledTaskPrompt,
+	edited, err := bridge.UpdateScheduledTask(created.ID, assemble.ScheduledTaskSpec{
+		Name: renamed, Kind: assemble.ScheduledTaskPrompt,
 		Prompt: prompt + "（编辑后）", Interval: time.Minute, Enabled: true,
 	})
 	if err != nil {
@@ -214,7 +214,7 @@ func sessionConversationText(snapshot application.SessionSnapshot) string {
 	return strings.Join(parts, "\n")
 }
 
-func scheduledTaskByID(tasks []seelebridge.ScheduledTaskStatus, id string) *seelebridge.ScheduledTaskStatus {
+func scheduledTaskByID(tasks []assemble.ScheduledTaskStatus, id string) *assemble.ScheduledTaskStatus {
 	for index := range tasks {
 		if tasks[index].ID == id {
 			return &tasks[index]
@@ -223,7 +223,7 @@ func scheduledTaskByID(tasks []seelebridge.ScheduledTaskStatus, id string) *seel
 	return nil
 }
 
-func scheduledTaskVisible(tasks []seelebridge.ScheduledTaskStatus, id string) bool {
+func scheduledTaskVisible(tasks []assemble.ScheduledTaskStatus, id string) bool {
 	return scheduledTaskByID(tasks, id) != nil
 }
 

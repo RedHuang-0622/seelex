@@ -55,7 +55,7 @@ type compactionIndexPush struct {
 //     provider 侧已发出的字节（TranscriptEventMessages 走 ProviderContent 优先），
 //     不是视图文本；
 //   - replay：上一次真实请求的历史字节（引擎历史，与产出该请求是同一条装配路径，
-//     见 seelebridge.MainCompactionDAG 的注释），前缀重放摘要据此共享 provider
+//     见 assemble.MainCompactionDAG 的注释），前缀重放摘要据此共享 provider
 //     缓存；从事件流重拼会丢掉这份字节一致性，因此绝不那样做；
 //   - 区间：TranscriptPrefixRange 的记录值。EventSeq 是装配层手里的**权威**区间
 //     事实，单元下标由接收侧按 Seq 反查（两者不是减法关系）。

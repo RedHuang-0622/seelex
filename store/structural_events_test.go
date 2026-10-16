@@ -8,6 +8,7 @@ package store
 import (
 	"bytes"
 	"encoding/json"
+	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -17,7 +18,7 @@ import (
 
 func eventFixture(t *testing.T, shardRows int) (*storeEngine, Key) {
 	t.Helper()
-	store := newStoreEngine(t.TempDir(), storageSettings{MessageShardRows: shardRows})
+	store := newStoreEngine(t.TempDir(), storeroot.Settings{MessageShardRows: shardRows})
 	return store, Key{ProjectID: "p-ev", SessionID: "s-ev"}
 }
 
@@ -251,7 +252,7 @@ func TestStructuralEventCrashTailDropped(t *testing.T) {
 // 丢弃**（丢真数据）；随机凭据 → 发布失败后的重放认不出同一逻辑操作而留下重复
 // 行。因此凭据必须逐操作唯一**且**可由调用方从「这次到底是哪一次操作」推出。
 func TestStructuralEventForkRowsSurviveConsecutiveForks(t *testing.T) {
-	store := newStoreEngine(t.TempDir(), storageSettings{})
+	store := newStoreEngine(t.TempDir(), storeroot.Settings{})
 	parent := Key{ProjectID: "p-ev", SessionID: "parent"}
 	if _, err := store.messageCommit(parent, "", []Event{
 		{Role: "user", Content: "a"}, {Role: "assistant", Content: "b"},

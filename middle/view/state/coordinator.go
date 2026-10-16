@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/engine/react"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -206,8 +206,8 @@ func (c *Coordinator) CollectRuntimeProjectionFor(ctx context.Context, sessionID
 			Plugins:           append([]model.PluginInfo(nil), c.Deps.Plugins.All()...),
 			Accounts:          append([]model.AccountInfo(nil), c.Deps.Runtime.Accounts()...),
 			TodoItems:         append([]dto.TodoItem(nil), c.Deps.Runtime.TodoSnapshot()...),
-			ScheduledTasks:    append([]seelebridge.ScheduledTaskStatus(nil), c.Deps.Runtime.ScheduledTasksSnapshot()...),
-			ScheduledCommands: append([]seelebridge.ScheduledCommandInfo(nil), c.Deps.Runtime.ScheduledCommands()...),
+			ScheduledTasks:    append([]assemble.ScheduledTaskStatus(nil), c.Deps.Runtime.ScheduledTasksSnapshot()...),
+			ScheduledCommands: append([]assemble.ScheduledCommandInfo(nil), c.Deps.Runtime.ScheduledCommands()...),
 			SubAgentTree:      c.Deps.Engine.SubAgentTree(),
 		},
 		// 后台作业投影同样在锁外采样（Deps.Runtime.AsyncRunsSnapshot()）。

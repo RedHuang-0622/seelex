@@ -10,7 +10,7 @@ import (
 	frameworksession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/application"
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/testutil"
@@ -111,8 +111,8 @@ func (runtime *guiChainRuntime) SetFullAccessFor(sessionID string, on bool) {
 	}
 	runtime.mu.Unlock()
 }
-func (*guiChainRuntime) SetRuntimeVisibilityProjection(seelebridge.RuntimeVisibilityProjection) {}
-func (*guiChainRuntime) SetParentEvidenceProjection(seelebridge.ParentEvidenceProjection)       {}
+func (*guiChainRuntime) SetRuntimeVisibilityProjection(assemble.RuntimeVisibilityProjection) {}
+func (*guiChainRuntime) SetParentEvidenceProjection(assemble.ParentEvidenceProjection)       {}
 func (runtime *guiChainRuntime) PermissionTier() string {
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
@@ -181,16 +181,16 @@ func (*guiChainRuntime) TakeServedRoute(string) (dto.ServedRoute, bool) {
 }
 func (*guiChainRuntime) SwitchSessionTasks(string, []dto.TaskRecord) {}
 func (*guiChainRuntime) SetSessionWorkspace(string, string)          {}
-func (*guiChainRuntime) ScheduledCommands() []seelebridge.ScheduledCommandInfo {
+func (*guiChainRuntime) ScheduledCommands() []assemble.ScheduledCommandInfo {
 	return nil
 }
-func (*guiChainRuntime) ScheduledTasksSnapshot() []seelebridge.ScheduledTaskStatus {
+func (*guiChainRuntime) ScheduledTasksSnapshot() []assemble.ScheduledTaskStatus {
 	return nil
 }
-func (*guiChainRuntime) ScheduleTask(context.Context, seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
+func (*guiChainRuntime) ScheduleTask(context.Context, assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error) {
 	return nil, nil
 }
-func (*guiChainRuntime) UpdateScheduledTask(context.Context, string, seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
+func (*guiChainRuntime) UpdateScheduledTask(context.Context, string, assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error) {
 	return nil, nil
 }
 func (*guiChainRuntime) CancelScheduledTask(string) error    { return nil }

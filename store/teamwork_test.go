@@ -12,7 +12,7 @@ import (
 
 func teamworkFixture(t *testing.T) (*jsonRepository, Key) {
 	t.Helper()
-	repository, err := newJSONRepository(t.TempDir(), storageSettings{})
+	repository, err := newJSONRepository(t.TempDir(), storeroot.Settings{})
 	if err != nil {
 		t.Fatalf("newJSONRepository: %v", err)
 	}

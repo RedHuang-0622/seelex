@@ -34,7 +34,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/core"
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	seeteamwork "github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	"github.com/RedHuang-0622/seelex/contract/dto"
@@ -398,7 +398,7 @@ func newTeamworkSmoke(t *testing.T, provider *teamworkSmokeProvider) *teamworkSm
 	var planStoreForProbe seeteamwork.PlanStore
 	var keyForForProbe func(string) (store.Key, bool)
 	harness := newFullChainHarnessWithLimits(t, AccountsPath, tempDir, 60*time.Second, true, limits,
-		func(st *store.Router, workspaces *workspacerepo.Repo, runtime *seelebridge.Runtime) error {
+		func(st *store.Router, workspaces *workspacerepo.Repo, runtime *assemble.Runtime) error {
 			repo, ok := st.TeamworkFor()
 			if !ok {
 				t.Fatal("真实 JSON 后端应提供 teamwork 读/写面")
@@ -413,10 +413,10 @@ func newTeamworkSmoke(t *testing.T, provider *teamworkSmokeProvider) *teamworkSm
 			}
 			planStore := seeteamwork.NewPlanStore(repo)
 			planStoreForProbe, keyForForProbe = planStore, keyFor
-			return runtime.SetTeamworkBackend(seelebridge.TeamworkBackend{
+			return runtime.SetTeamworkBackend(assemble.TeamworkBackend{
 				Store:        planStore,
 				Boards:       boards,
-				JobOutputs:   seelebridge.NewTeamworkJobOutputs(repo, keyFor),
+				JobOutputs:   assemble.NewTeamworkJobOutputs(repo, keyFor),
 				KeyFor:       keyFor,
 				MaxTeammates: 3,
 			})

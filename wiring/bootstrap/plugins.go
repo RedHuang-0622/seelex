@@ -8,7 +8,7 @@ import (
 
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
 
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
 	"github.com/RedHuang-0622/seelex/backend/engine/skill"
 	"github.com/RedHuang-0622/seelex/wiring/config"
@@ -32,7 +32,7 @@ type PluginStartup struct {
 }
 
 func InitPluginSystem(
-	runtime *seelebridge.Runtime,
+	runtime *assemble.Runtime,
 	skills *skill.Registry,
 	// pluginsPaths 是 `-plugins` 的原始值（责任链的链首）；环境变量与可执行文件
 	// 位置由 config.PluginRoots 自己解析。

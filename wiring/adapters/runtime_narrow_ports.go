@@ -7,7 +7,7 @@ package adapters
 // application/core 对"不是每个后端都有的能力"一律用**类型断言**探测
 // （见 contract.TeamworkBoardProjection / context_runtime.CompactionIndexPort 的
 // 注释："有就有、没有就是没装配"）。这些断言的接收者是 `Deps.Runtime`，而组合根
-// （wiring/bootstrap）注入的**不是** *seelebridge.Runtime，而是本包的 RuntimePort：
+// （wiring/bootstrap）注入的**不是** *assemble.Runtime，而是本包的 RuntimePort：
 //
 //	Engine: eng, Runtime: adapters.RuntimePort{Runtime: runtime},
 //

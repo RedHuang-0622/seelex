@@ -35,7 +35,7 @@ func TestProbeCommitCostBreakdown(t *testing.T) {
 		rounds  = 20
 	)
 	root := t.TempDir()
-	store := newStoreEngine(root, storageSettings{})
+	store := newStoreEngine(root, storeroot.Settings{})
 	key := Key{ProjectID: "probe-c1", SessionID: "probe-c1-sess"}
 
 	pad := strings.Repeat("x", payload)

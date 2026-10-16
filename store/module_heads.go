@@ -105,7 +105,7 @@ type moduleHeadFile struct {
 // 取锁指针的短临界区（registryMu），数据保护全部落在各会话模块锁上。
 type storeEngine struct {
 	root     string
-	settings storageSettings
+	settings storeroot.Settings
 
 	registryMu sync.RWMutex
 	sessionMu  map[string]*sessionModuleLocks
@@ -170,7 +170,7 @@ var readSelfHealHook func()
 
 // newStoreEngine 构造 会话存储布局引擎。root 不存在时延后到首个会话提交再创建
 // （与 jsonRepository 惰性建目录一致）。
-func newStoreEngine(root string, settings storageSettings) *storeEngine {
+func newStoreEngine(root string, settings storeroot.Settings) *storeEngine {
 	resolved := storeroot.ResolveSettings(settings)
 	return &storeEngine{
 		root:      filepath.Clean(root),

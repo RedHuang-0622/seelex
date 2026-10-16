@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"io/fs"
 	"path/filepath"
 	"testing"
@@ -90,7 +91,7 @@ func sameRangeEvents(got, want []Event) bool {
 // TestEventRangeMissingSessionFails 验证缺失会话的 event range 读取显式
 // 报错（不静默伪造为空；interfaces.md 降级矩阵）。
 func TestEventRangeMissingSessionFails(t *testing.T) {
-	repository, err := newJSONRepository(t.TempDir(), storageSettings{})
+	repository, err := newJSONRepository(t.TempDir(), storeroot.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}

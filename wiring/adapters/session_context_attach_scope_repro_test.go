@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/session"
 	"github.com/RedHuang-0622/seelex/store"
 )
@@ -54,7 +54,7 @@ func TestAttachSessionContextBindsSessionProjectNotViewScope(t *testing.T) {
 	if err := os.WriteFile(accounts, []byte("roles:\n  agent:\n    - model: test-model\n      base_url: http://localhost\n      api_key: test-key-not-used\n"), 0o644); err != nil {
 		t.Fatalf("write accounts: %v", err)
 	}
-	runtime, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{AccountsPath: accounts})
+	runtime, err := assemble.NewRuntime(assemble.RuntimeConfig{AccountsPath: accounts})
 	if err != nil {
 		t.Fatalf("NewRuntime: %v", err)
 	}

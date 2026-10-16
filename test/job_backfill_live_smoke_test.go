@@ -38,7 +38,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
@@ -256,7 +256,7 @@ func (c *backfillCollector) take() []liveToolCall {
 
 // waitForAsyncTerminal 轮询登记表直到该句柄落到终态。**不调用任何工具**：这条路径
 // 就是"没人取回"本身。
-func waitForAsyncTerminal(t *testing.T, runtime *seelebridge.Runtime, handle string, budget time.Duration) dto.AsyncRunRecord {
+func waitForAsyncTerminal(t *testing.T, runtime *assemble.Runtime, handle string, budget time.Duration) dto.AsyncRunRecord {
 	t.Helper()
 	deadline := time.Now().Add(budget)
 	for {
@@ -273,7 +273,7 @@ func waitForAsyncTerminal(t *testing.T, runtime *seelebridge.Runtime, handle str
 }
 
 // asyncHandlePresent 报告句柄是否仍在登记表里。
-func asyncHandlePresent(runtime *seelebridge.Runtime, handle string) bool {
+func asyncHandlePresent(runtime *assemble.Runtime, handle string) bool {
 	for _, record := range runtime.AsyncRunsSnapshot() {
 		if record.Handle == handle {
 			return true

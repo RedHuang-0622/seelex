@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/search"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/store"
@@ -54,7 +54,7 @@ type fakeApplication struct {
 	composerText          string
 	resumedSession        string
 	forkedSession         string
-	scheduledSpec         seelebridge.ScheduledTaskSpec
+	scheduledSpec         assemble.ScheduledTaskSpec
 	updatedTaskID         string
 	cancelledTaskID       string
 	searchQuery           string
@@ -277,14 +277,14 @@ func (fake *fakeApplication) ConfigureSessionStorage(context.Context, store.Conf
 func (fake *fakeApplication) SubagentSessionDetail(string) (*application.SubagentDetail, error) {
 	return nil, nil
 }
-func (fake *fakeApplication) ScheduleTask(_ context.Context, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
+func (fake *fakeApplication) ScheduleTask(_ context.Context, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error) {
 	fake.scheduledSpec = spec
-	return &seelebridge.ScheduledTaskStatus{ID: "sched_1", Name: spec.Name, Kind: string(spec.Kind), Enabled: spec.Enabled}, nil
+	return &assemble.ScheduledTaskStatus{ID: "sched_1", Name: spec.Name, Kind: string(spec.Kind), Enabled: spec.Enabled}, nil
 }
-func (fake *fakeApplication) UpdateScheduledTask(_ context.Context, id string, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
+func (fake *fakeApplication) UpdateScheduledTask(_ context.Context, id string, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error) {
 	fake.scheduledSpec = spec
 	fake.updatedTaskID = id
-	return &seelebridge.ScheduledTaskStatus{ID: id, Name: spec.Name, Kind: string(spec.Kind), Enabled: spec.Enabled}, nil
+	return &assemble.ScheduledTaskStatus{ID: id, Name: spec.Name, Kind: string(spec.Kind), Enabled: spec.Enabled}, nil
 }
 func (fake *fakeApplication) CancelScheduledTask(id string) error {
 	fake.cancelledTaskID = id
@@ -787,8 +787,8 @@ func TestBridgeForwardsScheduledTaskCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	created, err := bridge.ScheduleTask(seelebridge.ScheduledTaskSpec{
-		Name: "抓职位", Kind: seelebridge.ScheduledTaskCommand,
+	created, err := bridge.ScheduleTask(assemble.ScheduledTaskSpec{
+		Name: "抓职位", Kind: assemble.ScheduledTaskCommand,
 		Command: "auto_get_jobs", Enabled: true,
 	})
 	if err != nil {
@@ -802,8 +802,8 @@ func TestBridgeForwardsScheduledTaskCommands(t *testing.T) {
 	}
 
 	runAt := time.Now().Add(time.Hour).Truncate(time.Second)
-	if _, err := bridge.ScheduleTask(seelebridge.ScheduledTaskSpec{
-		Name: "one-shot", Kind: seelebridge.ScheduledTaskPrompt, Prompt: "P", RunAt: runAt,
+	if _, err := bridge.ScheduleTask(assemble.ScheduledTaskSpec{
+		Name: "one-shot", Kind: assemble.ScheduledTaskPrompt, Prompt: "P", RunAt: runAt,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -812,8 +812,8 @@ func TestBridgeForwardsScheduledTaskCommands(t *testing.T) {
 	}
 
 	// 编辑：ID 是操作键，定义走同一份 spec 形状（面板新建/编辑共用一套控件）。
-	updated, err := bridge.UpdateScheduledTask("sched_1", seelebridge.ScheduledTaskSpec{
-		Name: "抓职位（改）", Kind: seelebridge.ScheduledTaskPrompt, Prompt: "换个提示词",
+	updated, err := bridge.UpdateScheduledTask("sched_1", assemble.ScheduledTaskSpec{
+		Name: "抓职位（改）", Kind: assemble.ScheduledTaskPrompt, Prompt: "换个提示词",
 		WorkspaceID: "ws_1", PermissionTier: "auto", Plugins: []string{"cad"}, Enabled: true,
 		ReasoningEffort: "low", LoopLimit: 48,
 	})

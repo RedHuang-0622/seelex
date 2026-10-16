@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"path/filepath"
 	"testing"
 	"time"
@@ -139,7 +140,7 @@ func TestSessionContextStorePersistsToIsolatedChannel(t *testing.T) {
 // TestContextStateMissingReturnsNotFound 验证缺失 context 返回 not-found
 // （SessionContextStore.Load 据此静默初始化为空记录）。
 func TestContextStateMissingReturnsNotFound(t *testing.T) {
-	repository, err := newJSONRepository(t.TempDir(), storageSettings{})
+	repository, err := newJSONRepository(t.TempDir(), storeroot.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}

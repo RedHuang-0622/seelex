@@ -2,13 +2,14 @@ package store
 
 import (
 	"fmt"
+	storeroot "github.com/RedHuang-0622/seelex/store/root"
 	"testing"
 	"time"
 )
 
 func wireFixture(t *testing.T) (*storeEngine, Key) {
 	t.Helper()
-	store := newStoreEngine(t.TempDir(), storageSettings{})
+	store := newStoreEngine(t.TempDir(), storeroot.Settings{})
 	return store, Key{ProjectID: "p-r2", SessionID: "s-r2"}
 }
 

@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/wiring"
@@ -40,7 +40,7 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	tempAccounts := filepath.Join(tempDir, "accounts.yaml")
 	copyOpaqueFile(t, AccountsPath, tempAccounts)
 
-	runtime, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{
+	runtime, err := assemble.NewRuntime(assemble.RuntimeConfig{
 		AccountsPath:    tempAccounts,
 		StorePath:       filepath.Join(tempDir, "runtime"),
 		ToolCallTimeout: 30 * time.Second,

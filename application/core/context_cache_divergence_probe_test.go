@@ -536,7 +536,7 @@ func runPrefixProbeTwoTurns(t *testing.T, cfg prefixProbeConfig) {
 // ── H4：记忆块/稳定前缀栈块的位置与随查询变化 ────────────────────────────
 
 // TestContextCacheDivergenceProbe_MemoryBlockPosition 用生产装配器
-// （seelexctx.NewAssembler，与 seelebridge.seelexAssembler 同款选项接线）验证
+// （seelexctx.NewAssembler，与 assemble.seelexAssembler 同款选项接线）验证
 // 「记忆块 + 稳定前缀栈块」投影顺序，并度量记忆块随当前查询变化时被失效的
 // 字节/token 量。
 func TestContextCacheDivergenceProbe_MemoryBlockPosition(t *testing.T) {

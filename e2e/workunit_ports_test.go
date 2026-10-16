@@ -387,7 +387,7 @@ var _ workunit.Lifecycle = (*lifecycleHost)(nil)
 	// ④ 依赖方向：一个**真的** import 了 worktree 的假契约包目录必须被逮住（③E 撤掉例外之后
 	// 这条判据是"零命中"，对照用临时目录喂同一个扫描函数）。
 	fakeRoot := t.TempDir()
-	fakeUnit := filepath.Join(fakeRoot, "seelebridge", "workunit")
+	fakeUnit := filepath.Join(fakeRoot, "assemble", "workunit")
 	if err := os.MkdirAll(fakeUnit, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -408,7 +408,7 @@ var _ = worktree.ErrUncommittedChanges
 		t.Fatalf("契约包 import worktree 的样例没有被门禁逮住，得到 %v", dependents)
 	}
 	// 干净目录（只有注释里提到 worktree）不得误报。
-	cleanUnit := filepath.Join(t.TempDir(), "seelebridge", "workunit")
+	cleanUnit := filepath.Join(t.TempDir(), "assemble", "workunit")
 	if err := os.MkdirAll(cleanUnit, 0o755); err != nil {
 		t.Fatal(err)
 	}

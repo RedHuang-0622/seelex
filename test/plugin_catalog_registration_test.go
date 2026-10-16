@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	assemble "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
 	"github.com/RedHuang-0622/seelex/wiring/bootstrap"
 	"github.com/RedHuang-0622/seelex/wiring/registry"
@@ -107,7 +107,7 @@ mcp_servers: []
 		t.Fatal(err)
 	}
 
-	runtime, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{
+	runtime, err := assemble.NewRuntime(assemble.RuntimeConfig{
 		AccountsPath:    AccountsPath,
 		StorePath:       filepath.Join(temp, "runtime"),
 		ToolCallTimeout: 30 * time.Second,

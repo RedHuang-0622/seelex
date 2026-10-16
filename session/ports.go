@@ -23,14 +23,12 @@ import (
 // 会话粒度类型以 store 为单一事实源（存储模块定义，端口层别名；
 // store 不得反向依赖本包，见 session_granular.go 说明）。
 type (
-	SessionKind     = store.Kind
-	SessionStatus   = store.Status
-	SessionRecord   = store.Record
-	TranscriptEvent = store.TranscriptEvent
-	ToolResultRef   = store.ToolResultRef
-	ContextStack    = store.ContextStack
-	SessionInfo     = store.SessionInfo
-	SessionBinding  = store.Binding
+	SessionStatus  = store.Status
+	SessionRecord  = store.Record
+	ToolResultRef  = store.ToolResultRef
+	ContextStack   = store.ContextStack
+	SessionInfo    = store.SessionInfo
+	SessionBinding = store.Binding
 )
 
 const (
@@ -209,7 +207,7 @@ type SessionSettingPort interface {
 // 热/冷由 EnginePort.HasSession 判定（loaded），薄状态机只维护可见状态。
 type SessionUnit struct {
 	ID       string
-	Kind     SessionKind
+	Kind     store.Kind
 	ParentID string
 	Title    string
 
@@ -293,7 +291,7 @@ func NewDraftUnit() *SessionUnit {
 }
 
 // WithKind 设置会话种类（main/subagent）。
-func WithKind(kind SessionKind) func(*SessionUnit) {
+func WithKind(kind store.Kind) func(*SessionUnit) {
 	return func(unit *SessionUnit) {
 		unit.Kind = kind
 		unit.Binding.Kind = kind
