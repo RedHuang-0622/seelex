@@ -27,9 +27,7 @@ AgentTeam 装配适配与群聊角色会话透传（端口形状与 A2A 元数�
 
 ### role_session.go
 
-- `func (service *Service) rolePorts() (rolePorts, error)`
-- `func (service *Service) roleSessionPort() (contract.RoleSessionPort, error)`
-- `func (service *Service) schedulePort() (contract.SchedulePort, error)`
+- `func (service *Service) roleSessions() team.RoleSessions` — roleSessions 把会话端口上可选的两项能力断言出来（两者都由 wiring/adapters.SessionPort
 - `func (service *Service) CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (dto.RoleSessionInfo, error)`
 - `func (service *Service) AppendRoleDraft(mainSessionID, roleName, roleSessionID string, rows []dto.RoleDraftRow) error`
 - `func (service *Service) ReadRoleDraft(mainSessionID, roleName, roleSessionID string) ([]dto.RoleDraftRow, error)`

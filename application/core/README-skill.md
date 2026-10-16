@@ -13,7 +13,7 @@ Skill 指令信封编解码
 
 ### skill_activate.go
 
-- `func (service *Service) ActivateSkill(name string) (SkillInfo, error)` — ActivateSkill 把当前插件的一个技能激活进当前会话的 skill 层（模型侧
+- `func (service *Service) ActivateSkill(name string) (SkillInfo, error)` — ActivateSkill 把当前插件的一个技能激活进当前会话的 skill 层（模型侧 `skill_activate`
 
 ### skill_activate_test.go
 

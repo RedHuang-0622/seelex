@@ -122,7 +122,7 @@
 - `func (service *Service) forgetContentLocked(sessionID string)` — forgetContentLocked 把会话移出内容 LRU 使用序（正文已卸载；调用方持有
 - `func (service *Service) pruneContentOrderLocked() int` — pruneContentOrderLocked 收敛使用序并返回当前持有正文的会话数（调用方持有
 - `func (service *Service) reconcileLoadedContentLimit(protect string)` — reconcileLoadedContentLimit 按释放面口径收敛正文（内容层）：受保护集既不计数
-- `func (service *Service) contentLimitSnapshotLocked(protect string) residency.ContentLimitSnapshot` — contentLimitSnapshotLocked 在同一临界区内取齐一次收敛读数（调用方持有
+- `func (service *Service) contentLimitSnapshotLocked(protect string) residency.EvictionSnapshot` — contentLimitSnapshotLocked 在同一临界区内取齐一次收敛读数（调用方持有
 - `func (service *Service) evictLoadedContent(sessionID string) error` — evictLoadedContent 卸载一个空闲会话的已加载正文：先 flush（非活跃会话
 - `func (service *Service) sessionContentLoadedLocked(sessionID string) bool` — sessionContentLoadedLocked 报告目标会话当前是否持有已加载的可见正文
 - `func (service *Service) sessionContentUnloaded(sessionID string) bool` — sessionContentUnloaded 报告目标会话的可见正文是否已被内容 LRU 卸载（需要

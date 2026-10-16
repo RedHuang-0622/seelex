@@ -147,6 +147,7 @@
 - `func (service *Service) touchResident(sessionID string)` — touchResident 记录一次会话引擎使用（冷加载/热切换/物化），并触发超限
 - `func (service *Service) markResidentRecentLocked(sessionID string, resident bool)` — markResidentRecentLocked 把会话移到 LRU 使用序最前并标记驻留（调用方持
 - `func (service *Service) reconcileResidentLimit()` — reconcileResidentLimit 按释放面口径收敛驻留引擎（引擎层）：受保护集（当前视图 /
+- `func (service *Service) residentEvictionSnapshotLocked() residency.EvictionSnapshot` — residentEvictionSnapshotLocked 在同一临界区内取齐一次收敛读数（调用方持有
 - `func (service *Service) sessionBusy(unit *session.SessionUnit) bool` — sessionBusy 报告会话是否正忙（释放面的守卫判据之一：忙的会话绝不释放）：
 - `func sessionBusyState(unit *session.SessionUnit) switching.BusyState` — sessionBusyState 把会话单元的四个忙态读数装配成中间层的值（装配缝；判据在
 

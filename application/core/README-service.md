@@ -40,19 +40,11 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 - `func (service *Service) SetAccountWindow(_ context.Context, name string, window int) (int, error)` — SetAccountWindow 改一个账号的上下文窗口（设置弹窗的挡位/自定义值）。
 
-### service_account_window_test.go
+### service_account_window_forward_test.go
 
-- `func (store *recordingAccountWindowStore) SaveAccountWindow(name string, window int) error`
-- `func (store *recordingAccountWindowStore) read(name string) (int, bool)`
-- `func newFakeAccountWindowRuntime(global int) *fakeAccountWindowRuntime`
-- `func (runtime *fakeAccountWindowRuntime) SetAccountWindow(name string, window int)`
-- `func (runtime *fakeAccountWindowRuntime) AccountWindowFor(name string) int`
-- `func TestSetAccountWindowValidatesBeforeWriting(t *testing.T)` — TestSetAccountWindowValidatesBeforeWriting：越界值与空账号名在动盘/动内存之前就被拒。
-- `func TestSetAccountWindowPersistsThenApplies(t *testing.T)` — TestSetAccountWindowPersistsThenApplies：合法值先落盘、再改运行面，返回**生效值**。
-- `func TestSetAccountWindowStoreFailureKeepsRuntimeUntouched(t *testing.T)` — TestSetAccountWindowStoreFailureKeepsRuntimeUntouched：写盘失败 ⇒ 运行面不动。
-- `func TestSetAccountWindowWithoutStoreStillApplies(t *testing.T)` — TestSetAccountWindowWithoutStoreStillApplies：宿主没装落盘口 ⇒ 只本次运行有效，不算失败。
-- `func TestSetAccountWindowNeedsRuntimePort(t *testing.T)` — TestSetAccountWindowNeedsRuntimePort：宿主没实现窄可选能力面时给出明确错误，
-- `func TestAccountContextWindowPresetsAreUsable(t *testing.T)` — TestAccountContextWindowPresetsAreUsable：挡位表归后端（前端只渲染它），且每个挡位都过校验。
+- `func TestSetAccountWindowNilServiceGuard(t *testing.T)`
+- `func TestSetAccountWindowNeedsRuntimePort(t *testing.T)`
+- `func (store *recordingWindowStoreForForward) SaveAccountWindow(string, int) error`
 
 ### service_assembler.go
 
@@ -330,22 +322,16 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 ### service_knobs.go
 
-- `func (service *Service) ensureViewIdle(action string) (string, error)` — ensureViewIdle 是本文件与 SwitchEffort 共用的运行守卫：返回视图会话 ID，并在
-- `func validWireReasoningEffort(value string) bool` — validWireReasoningEffort 判定一个值是否是 provider 词表里的思考强度。
 - `func (service *Service) SetReasoningEffort(_ context.Context, effort string) error` — SetReasoningEffort 单独下发"想多深"（不碰循环上限、不碰档位的 prompt 层与预算）。
-- `func (service *Service) SetLoopLimit(_ context.Context, limit int) error` — SetLoopLimit 单独改"跑多少轮"（不碰思考强度）。取值判据与定时任务的循环次数
-- `func (service *Service) applyLoopLimit(limit int)` — applyLoopLimit 是"改循环上限"的唯一写点：引擎与快照读数一起改，避免出现
-- `func (service *Service) setReasoningEffortReading(value string)` — setReasoningEffortReading 记录"当前生效的 wire 思考强度"（engine/账号池那一步由
-- `func (service *Service) knobReadings() (string, int)` — knobReadings 是 runtime 投影收集两条拉条读数的唯一入口（每个回合尾、每次工具
-- `func (service *Service) knobReasonings() string` — knobReasonings / knobLimit 是投影装配用的两个单值回调。
-- `func (service *Service) knobLimit() int`
-- `func (service *Service) currentLoopLimit() int` — currentLoopLimit 返回"当前生效的循环上限"：用户用拉条改过就用改过的值，否则回退
-- `func (service *Service) pushSessionReasoningEffort(wireValue string) int` — pushSessionReasoningEffort 把 wire 值下发给"跟随会话"的账号，返回被改动的账号数。
-- `func (service *Service) publishKnobs(mutate func(*RuntimeState)) error` — publishKnobs 把两条拉条的读数变更推成一次 runtime.changed：mutate 在 ViewMu 下
-- `func reasoningEffortChoices() []string` — reasoningEffortChoices 是给报错提示用的可选值清单（不含 "session"：见
-- `func validateLoopLimit(limit int) error` — validateLoopLimit 是"循环次数"这一项的**唯一**一份取值判据：拉条（SetLoopLimit）
-- `func (service *Service) borrowSessionReasoningEffort(sessionID, wireValue string)` — —— 定时任务的按会话思考强度（"租一笔"）——
-- `func (service *Service) takeSessionReasoningEffort(sessionID string) (string, bool)` — takeSessionReasoningEffort 取走并消掉指定会话待下发的思考强度（没有则 false）。
+- `func (service *Service) SetLoopLimit(_ context.Context, limit int) error` — SetLoopLimit 单独改"跑多少轮"（不碰思考强度）。判据与守卫在 `limit.Knobs`。
+- `func (host serviceKnobsHost) ViewSession() (string, bool)`
+- `func (host serviceKnobsHost) MutateRuntime(mutate func(*model.RuntimeState))`
+- `func (host serviceKnobsHost) PublishRuntime(mutate func(*model.RuntimeState)) error`
+- `func (host serviceKnobsHost) SetEngineMaxLoops(limit int)`
+- `func (host serviceKnobsHost) CurrentEffort() string`
+- `func (host serviceKnobsHost) MaxLoopsForEffort(level string) int`
+- `func (host serviceKnobsHost) ReasoningEffortSink() contract.ReasoningEffortPort`
+- `func newServiceKnobs(service *Service) *limit.Knobs` — newServiceKnobs 在装配期为某个 Service 建拉条组件（宿主就是它自己）。
 
 ### service_knobs_smoke_test.go
 
@@ -407,8 +393,9 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 ### service_release_window.go
 
-- `func (service *Service) SetSessionReleaseWindow(_ context.Context, window int) (int, error)` — SetSessionReleaseWindow 改「受保护集之外最多保留几个已加载会话」，返回**真正生效**
+- `func (service *Service) SetSessionReleaseWindow(_ context.Context, window int) (int, error)` — SetSessionReleaseWindow 改「受保护集之外最多保留几个已加载会话」，返回**真正生效**的值
 - `func (service *Service) SessionReleaseWindow() int` — SessionReleaseWindow 返回当前生效的会话驻留窗口（设置弹窗打开时读一次）。
+- `func (service *Service) releaseWindowDeps() switching.ReleaseWindowDeps` — releaseWindowDeps 装配驻留窗口可调面的宿主面。
 
 ### service_release_window_test.go
 

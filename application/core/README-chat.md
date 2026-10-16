@@ -64,6 +64,15 @@
 - `func (engine *singleLoopEngine) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error)` — ChatStreamFor 显式转发到自身 ChatStream（会话路由面下仍单次提交）。
 - `func TestLoopDelegatedToSeele(t *testing.T)` — TestLoopDelegatedToSeele（UC6）：core 无自编 ReAct 循环——一次提交只
 
+### chat_error_surface_test.go
+
+- `func (failingSnapshotSessions) SaveSessionSnapshot(string, []EngineMessage, SessionRecord, []TranscriptEvent, []StoredToolResult) error`
+- `func (failingSnapshotSessions) SaveSessionSnapshotWorkspace(string, string, []EngineMessage, SessionRecord, []TranscriptEvent, []StoredToolResult) error`
+- `func TestRunChatUsesRawErrorWhileToolProjectionUsesPresentedError(t *testing.T)`
+- `func TestRunChatLogsRawUnclassifiedError(t *testing.T)`
+- `func TestPersistenceFailureDoesNotClaimProgressWasSaved(t *testing.T)`
+- `func conversationContains(conversation []Message, role, fragment string) bool`
+
 ### chat_hot_attach_reasoning_repro_test.go
 
 - `func TestHotMountKeepsStepReasoningInVisibleWindow(t *testing.T)`

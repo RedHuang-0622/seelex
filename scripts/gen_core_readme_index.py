@@ -69,25 +69,14 @@ EXTRA_PACKAGES = (
     "middle/view/board/boardtest",
 )
 
-# 默认**不写**的树：搬迁中/收口中的树，README 由各自切片负责（契约 §3.1）。
-# 它们的索引漂移不在这里修，只登记（交付里的 tmp/reshape/p13-deferred.tsv）；
-# 树静默后由 root 用 `--only <包>` 一次性刷新（同款判据、同一份实现）。
-DEFERRED_TREES = (
-    "application/core",
-    "backend/engine",
-    "backend/tool",
-    "middle",
-)
+# 「搬迁中/收口中」的延后树在 2026-10-17 已全部清空：M5 的搬迁与收口片入库后工作树静默，
+# 原先登记的 52 个延后包（`application/core`、`backend/{engine,tool}`、`middle`）由本脚本
+# 一次性刷新完毕（见 `docs/2026-10-15-architecture-reshape/m5-record.md` §29 的收尾记录）。
+# 判据与实现仍是同一份：全仓包一律按 `--check` 逐字比对，没有再需要跳过的树。
+DEFERRED_TREES = ()
 
-# 例外：这些**已登记包**的索引一直由本脚本负责（README 的「刷新方式」行就指向本脚本，
-# 且拥有它们的历史切片都已完成），所以不随所在树一起延后。
-REGISTERED_IN_DEFERRED = (
-    "middle/protocol/model",
-    "middle/protocol/event",
-    "middle/view",
-    "middle/view/board",
-    "middle/view/board/boardtest",
-)
+# 例外表随之清空（它只为"延后树里已登记的包"服务）。
+REGISTERED_IN_DEFERRED = ()
 
 
 def is_deferred(rel: str) -> bool:
@@ -537,7 +526,7 @@ def main() -> int:
         print("未知参数：" + " ".join(unknown))
         return 2
 
-    if not only:
+    if not only and DEFERRED_TREES:
         print(
             f"跳过 {len(deferred_packages())} 个延后包（搬迁中/收口中，README 由各自切片负责；"
             "登记见 tmp/reshape/p13-deferred.tsv）。"
