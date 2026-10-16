@@ -24,7 +24,10 @@
 3. 释放面判据（`release.go`，M5-R6-release-surface 接收者转移）：`Busy`（待审批 / 运行中 / 排队输入 /
    在飞请求都算忙）与 `Protected`（受保护集：当前视图 / 待审批 / 运行·排队·在飞 / 正在恢复）——
    引擎驻留层（`resident_lru`）与正文层（`content_lru`）的收敛循环都只调这一份；
-4. 判据与文案只此一份：空会话 ID 拒绝（`session ID is required`）、未装配存储
+4. 草稿尾恢复的**决策表**（`pendingtail.go`，M5-R6-pending-tail 接收者转移）：运行中不抢发布点、
+   `clean`/未知状态静默、`recoverable` 恢复并报"恢复了 N 行（发布点 a → b）"、
+   `gap` **只报告**（明说内容仍在磁盘，不发布不清理不猜测）；
+5. 判据与文案只此一份：空会话 ID 拒绝（`session ID is required`）、未装配存储
    （`ErrMetaUnsupported` = "session meta storage is not assembled"）、写盘失败冒泡且**不**唤醒。
 
 **不做**：不做会话事实（谁在跑、绑定哪个工作区）；不持久化（元数据落在存储层的项目级 meta blob，
@@ -38,6 +41,8 @@
 | `meta_test.go` | 空 ID / 未装配 / 写盘失败不唤醒 / 成功唤醒一次 / 读回转发 |
 | `release.go` | `BusyState` + `Busy`、`ProtectedInput` + `Protected`：释放面的两条判据 |
 | `release_test.go` | 忙态四轴、受保护集四条来源、空会话 ID 与空视图 ID 的边界 |
+| `pendingtail.go` | `PendingTailDeps` + `RecoverPendingTail`：草稿尾恢复的决策表与四条提示文案 |
+| `pendingtail_test.go` | 运行中不探测 / clean·未知静默 / 恢复并报数 / gap 只报告 / 探测与恢复失败的文案 |
 | `history/` | 历史分页的窗口装配判据（见其 README） |
 
 ## 核心实现
@@ -106,3 +111,8 @@ go test ./wiring/adapters/ -run SessionSetting -count=1        # 存储端口实
 - `func Busy(state BusyState) bool` — 四个读数任一非零即忙（零值 = 不忙，同 `sessionBusy(nil)` 口径）。
 - `type ProtectedInput struct` — 受保护集判据的输入（会话 ID + 视图会话 ID + 恢复态 + 忙态）。
 - `func Protected(input ProtectedInput) bool` — 是否属于受保护集（绝不释放）；空会话 ID 亦判为受保护。
+
+### pendingtail.go
+
+- `type PendingTailDeps struct` — 草稿尾决策的宿主面（`Running` / `Probe` / `Recover` 三个窄口）。
+- `func RecoverPendingTail(deps PendingTailDeps, sessionID string) string` — 冷加载时探测/恢复草稿尾，返回要补进可见会话的 system 提示（"" = 静默）。
