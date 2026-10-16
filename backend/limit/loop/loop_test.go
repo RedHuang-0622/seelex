@@ -84,7 +84,7 @@ func TestEffectiveResolution(t *testing.T) {
 
 // TestValidateSubagentMaxLoopsUsesProcessCeiling：循环声明的判据只有**进程级天花板**。
 //
-// 三条钉子（与迁移前 `backend/tool/fork` 的同名用例逐条对应）：
+// 三条钉子（与搬迁前 `seelebridge/fork` 的同名用例逐条对应，该包现落在 `backend/tool/fork`）：
 //   - 越过天花板（9999）与负数在入口就被拒；
 //   - 比 effort 档位节点上限（high=48）大的 60 **可以**——档位不是工作单元次数的
 //     判据（2026-10-08 口径：设置 reasoning effort 不得污染 subagent/teammate 的循环次数）；

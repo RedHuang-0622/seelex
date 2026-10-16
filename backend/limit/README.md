@@ -43,7 +43,6 @@ Seelex 的**判据与档位基座包**：集中运行时上限（`config/seelex.
 - 不 import 任何 Seelex 包（见「依赖方向」）。
 
 **规划，尚未实现**（plan §2.8 的其余行）：
-`seelebridge/security` → `gate/`（plan §3.6 **V9**：以用户进行中的 security 改动为准）；
 权限三件套 + `tool_meta.go` → `policy/`（需先把 `seelebridge/tools` 的依赖抽成接口）；
 `application/prompt/effort.go` 的 effort 策略面 → `effort/`。
 
@@ -51,6 +50,9 @@ Seelex 的**判据与档位基座包**：集中运行时上限（`config/seelex.
 哨兵错误留在 `contract/approval.go`，实现包不做第二份定义）；`overlay/`（运行时上限覆盖层，
 M2-C2；数据根由组合根注入，不再依赖 `package main` 的 flag）；`accountwindow/`
 （每账号上下文窗口的挡位表与校验，M2-C3；从 `seelexctx/window.go` 归位）。
+`gate/`（路径门 / 沙箱 / 进程树 / 环境清洗，M4-B；从 `seelebridge/security` 整体归位，
+包名仍为 `security`——plan §2.8 点名的落点是 `gate/`，改名不是搬迁，包名是否统一到
+`gate` 留给用户裁决）。
 
 **不搬的一项（有意）**：`tier/`（权限档位）。档位词表与规整/校验已经**只有一份**，在
 `contract/dto/permission.go`（`PermissionTiers` / `NormalizePermissionTier` / …）——
