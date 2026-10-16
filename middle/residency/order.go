@@ -42,6 +42,38 @@ func (o Order) Forget(id string) Order {
 	return kept
 }
 
+// PruneOrder 收敛使用序：去重、丢弃**已不再持有正文**的会话，并把"持有正文但不在序里"的会话
+// 收养到序尾（视作最旧——兼容本机制上线前已装载的会话与直接构造视图的宿主）。
+//
+// loaded 报告某会话此刻是否持有正文（宿主读会话单元/视图；本包不碰状态）；
+// unitIDs 是当前单元表里的会话，作为收养来源按给定顺序追加。返回值即收敛后的序
+// （调用方据此更新自己的字段），因此它的长度就是"当前持有正文的会话数"。
+func PruneOrder(order Order, loaded func(sessionID string) bool, unitIDs []string) Order {
+	kept := make(Order, 0, len(order))
+	tracked := make(map[string]struct{}, len(order))
+	for _, sessionID := range order {
+		if _, duplicate := tracked[sessionID]; duplicate {
+			continue
+		}
+		if !loaded(sessionID) {
+			continue
+		}
+		tracked[sessionID] = struct{}{}
+		kept = append(kept, sessionID)
+	}
+	for _, sessionID := range unitIDs {
+		if _, ok := tracked[sessionID]; ok {
+			continue
+		}
+		if !loaded(sessionID) {
+			continue
+		}
+		tracked[sessionID] = struct{}{}
+		kept = append(kept, sessionID)
+	}
+	return kept
+}
+
 // Budget 计算"这一层还能留几个会话"的额度：
 //   - `legacyLimit > 0`（显式配了分层上限）→ 该层总上限 − 受保护数，不足则 0；
 //   - 否则 → 统一窗口 `window`（受保护集不参与计数，见释放面口径）。

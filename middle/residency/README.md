@@ -43,6 +43,7 @@
 | `preview_test.go` | 截断/透传、UTF-8 边界与 rune 计数、`limit <= 0` 语义 |
 | `order.go` | `Order`（`Touch` / `Forget`）+ `Budget`：使用序与额度的唯一实现 |
 | `order_test.go` | 去重前置、不改原序、摘除保持相对顺序、额度两种口径与边界 |
+| `prune_test.go` | `PruneOrder` 的收敛口径（丢弃已卸载 / 去重 / 按单元表收养） |
 | `catalog.go` | `CatalogRefresher`（窄口）+ `WaitCatalogRefresh`：目录刷新等待的判据 |
 | `catalog_test.go` | 回执到达即返回、恰好请求一次、ctx 超时返回 `ctx.Err()` 且之后仍可等待 |
 
@@ -104,6 +105,7 @@ go test ./application/core/ -run 'SnapshotBudget|ToolResult|Truncation' -count=1
 - `type Order []string` — "最近使用序"（索引 0 = 最近使用；空 ID 视为无效）。
 - `func (o Order) Touch(id string) Order` — 移到序首（重复则先去重再前置）；返回新切片，不改原序。
 - `func (o Order) Forget(id string) Order` — 移出序，其余相对顺序不变。
+- `func PruneOrder(order Order, loaded func(sessionID string) bool, unitIDs []string) Order` — 收敛使用序：去重、丢弃已不再持有正文的会话、按单元表顺序收养。
 - `func Budget(legacyLimit, protectedCount, window int) int` — 释放额度：分层上限 − 受保护数，或统一窗口。
 
 ### catalog.go

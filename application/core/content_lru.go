@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/RedHuang-0622/seelex/middle/residency"
 	"github.com/RedHuang-0622/seelex/session"
 )
 
@@ -65,30 +66,12 @@ func (service *Service) forgetContentLocked(sessionID string) {
 // 但不在序里」的会话（视作最旧，兼容本机制上线前已装载的会话与直接构造视图
 // 的宿主），因此返回值就是内存中已加载正文的会话数。
 func (service *Service) pruneContentOrderLocked() int {
-	kept := make([]string, 0, len(service.loadedContentOrder))
-	tracked := make(map[string]struct{}, len(service.loadedContentOrder))
-	for _, sessionID := range service.loadedContentOrder {
-		if _, duplicate := tracked[sessionID]; duplicate {
-			continue
-		}
-		if !service.sessionContentLoadedLocked(sessionID) {
-			continue
-		}
-		tracked[sessionID] = struct{}{}
-		kept = append(kept, sessionID)
-	}
-	for _, sessionID := range service.sessions.UnitIDs() {
-		if _, ok := tracked[sessionID]; ok {
-			continue
-		}
-		if !service.sessionContentLoadedLocked(sessionID) {
-			continue
-		}
-		tracked[sessionID] = struct{}{}
-		kept = append(kept, sessionID)
-	}
-	service.loadedContentOrder = kept
-	return len(kept)
+	service.loadedContentOrder = residency.PruneOrder(
+		service.loadedContentOrder,
+		service.sessionContentLoadedLocked,
+		service.sessions.UnitIDs(),
+	)
+	return len(service.loadedContentOrder)
 }
 
 // reconcileLoadedContentLimit 按释放面口径收敛正文（内容层）：受保护集既不计数
