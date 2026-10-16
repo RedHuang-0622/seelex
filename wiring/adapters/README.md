@@ -167,7 +167,7 @@ go test ./wiring/adapters -count=1
 - `func (port *EnginePort) NodeSessionConversation(nodeID string) ([]types.Message, bool)` — NodeSessionConversation 转发子代理会话记录查询（节点详情数据面；
 - `func (port *EnginePort) NodeContextSnapshot(nodeID string) (*snapshot.ContextSnapshot, bool)` — NodeContextSnapshot 转发子代理结构化上下文查询（详情弹窗"上下文"标签；
 - `func (port *EnginePort) NodeToolResult(nodeID, ref string) (string, bool)` — NodeToolResult 转发子代理工具结果读回（ref 带 node:<nodeID>: 前缀；
-- `func (port *EnginePort) NodeWorktreeInfoFor(nodeID string) (seelebridge.NodeWorktreeInfo, bool)` — NodeWorktreeInfoFor 转发节点 worktree 现场查询（失败现场恢复入口；
+- `func (port *EnginePort) NodeWorktreeInfoFor(nodeID string) (assemble.NodeWorktreeInfo, bool)` — NodeWorktreeInfoFor 转发节点 worktree 现场查询（失败现场恢复入口；
 - `func (port *EnginePort) SubAgentTree() []dto.SubAgentTreeNode` — SubAgentTree 转发 fork 子代理树投影查询（GUI 树视图数据源；内存态
 - `func (port *EnginePort) SubscribeSubagentLive(nodeID string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error)` — SubscribeSubagentLive 订阅 node 第一视角实时流（历史回放 + 即时输出面）。
 - `func (port *EnginePort) SubagentLiveHistoryPage(nodeID string, offset, limit int) dto.SubagentLiveHistoryPage` — SubagentLiveHistoryPage 转发同一份实时回放窗口的分页读法（翻页入口；窗口上限
@@ -345,8 +345,8 @@ go test ./wiring/adapters -count=1
 - `func (port RuntimePort) SetPermissionTierFor(sessionID, tier string) error`
 - `func (port RuntimePort) PerSessionExecution() bool`
 - `func (port RuntimePort) ForkInFlight(sessionID string) bool`
-- `func (port RuntimePort) SetRuntimeVisibilityProjection(projection seelebridge.RuntimeVisibilityProjection)`
-- `func (port RuntimePort) SetParentEvidenceProjection(projection seelebridge.ParentEvidenceProjection)`
+- `func (port RuntimePort) SetRuntimeVisibilityProjection(projection assemble.RuntimeVisibilityProjection)`
+- `func (port RuntimePort) SetParentEvidenceProjection(projection assemble.ParentEvidenceProjection)`
 - `func (port RuntimePort) DrainSubagentContexts() []string`
 - `func (port RuntimePort) SetPlanPolicy(policy dto.PlanPolicy)`
 - `func (port RuntimePort) SetPlanPolicyFor(sessionID string, policy dto.PlanPolicy)` — SetPlanPolicyFor 按会话写入 plan 策略槽（会话 effort 同步入口；引擎侧
@@ -380,10 +380,10 @@ go test ./wiring/adapters -count=1
 - `func (port RuntimePort) TakeServedRoute(sessionID string) (dto.ServedRoute, bool)`
 - `func (port RuntimePort) SwitchSessionTasks(sessionID string, records []dto.TaskRecord)`
 - `func (port RuntimePort) SetSessionWorkspace(sessionID, workspaceID string)`
-- `func (port RuntimePort) ScheduledCommands() []seelebridge.ScheduledCommandInfo`
-- `func (port RuntimePort) ScheduledTasksSnapshot() []seelebridge.ScheduledTaskStatus`
-- `func (port RuntimePort) ScheduleTask(ctx context.Context, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error)`
-- `func (port RuntimePort) UpdateScheduledTask(ctx context.Context, id string, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error)`
+- `func (port RuntimePort) ScheduledCommands() []assemble.ScheduledCommandInfo`
+- `func (port RuntimePort) ScheduledTasksSnapshot() []assemble.ScheduledTaskStatus`
+- `func (port RuntimePort) ScheduleTask(ctx context.Context, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error)`
+- `func (port RuntimePort) UpdateScheduledTask(ctx context.Context, id string, spec assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error)`
 - `func (port RuntimePort) CancelScheduledTask(id string) error`
 - `func (port RuntimePort) ClearSubagentTree() error`
 - `func (port RuntimePort) RestoreSubagentAnchors(sessionID string) error`

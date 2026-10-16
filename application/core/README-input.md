@@ -51,9 +51,9 @@
 - `func (service *Service) submitSkill(ctx context.Context, name string, args []string, input string) error`
 - `func (service *Service) submitPluginSwitch(ctx context.Context, name string) error` — submitPluginSwitch 是 `#` 前缀的落点：切换/停用插件。
 - `func (service *Service) endSkill() error`
-- `func (service *Service) activateSkillAndSubmit(ctx context.Context, skill SkillInfo, args []string, input string) error`
+- `func (service *Service) activateSkillAndSubmit(ctx context.Context, skill model.SkillInfo, args []string, input string) error`
 - `func (service *Service) prepareCompletedTaskBoundary()`
-- `func (service *Service) applySkill(skill SkillInfo)`
+- `func (service *Service) applySkill(skill model.SkillInfo)`
 
 ### input_router_compat_test.go
 

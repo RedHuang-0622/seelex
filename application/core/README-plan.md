@@ -14,22 +14,22 @@ Plan 打点/分支事件/重规划
 ### plan_node_phase_word_test.go
 
 - `func TestPlanNodePhaseWordDoesNotOverwriteNodeStatus(t *testing.T)` — plan_node_phase_word_test.go — 「阶段词不是节点状态」的回归。
-- `func assertPhaseWordKeptNodeStatus(t *testing.T, name string, plan *PlanState)`
+- `func assertPhaseWordKeptNodeStatus(t *testing.T, name string, plan *model.PlanState)`
 
 ### plan_tools.go
 
 - `func (service *Service) updatePlanFromLoad(argsJSON string)` — updatePlanFromLoad 从 plan_load 的参数 JSON 初始化 PlanState。
 - `func (service *Service) updatePlanFromRunResult(resultJSON string)` — updatePlanFromRunResult 从 plan_run 返回的 JSON 更新 PlanState。
-- `func resolveNodeStatus(nodes []struct { NodeID string `json:"node_id"` Kind string `json:"kind"` Status string `json:"status"` Output string `json:"output,omitempty"` Skipped bool `json:"skipped"` Aborted bool `json:"aborted"` StartedAt string `json:"started_at,omitempty"` EndedAt string `json:"ended_at,omitempty"` }, nodeID string) NodeStatus` — resolveNodeStatus 辅助：从框架返回的 nodes 列表中查找 nodeID 的状态。
-- `func (service *Service) planProjectionLocked(sessionID string) *PlanState` — HandlePlanNodeComplete 是 plan 执行事实的投影订阅（由 Runtime 经
-- `func (service *Service) mirrorPlanProjectionForSessionLocked(sessionID string, fallback func() *PlanState)` — mirrorPlanProjectionForSessionLocked 在会话成为视图会话时刷新
+- `func resolveNodeStatus(nodes []struct { NodeID string `json:"node_id"` Kind string `json:"kind"` Status string `json:"status"` Output string `json:"output,omitempty"` Skipped bool `json:"skipped"` Aborted bool `json:"aborted"` StartedAt string `json:"started_at,omitempty"` EndedAt string `json:"ended_at,omitempty"` }, nodeID string) model.NodeStatus` — resolveNodeStatus 辅助：从框架返回的 nodes 列表中查找 nodeID 的状态。
+- `func (service *Service) planProjectionLocked(sessionID string) *model.PlanState` — HandlePlanNodeComplete 是 plan 执行事实的投影订阅（由 Runtime 经
+- `func (service *Service) mirrorPlanProjectionForSessionLocked(sessionID string, fallback func() *model.PlanState)` — mirrorPlanProjectionForSessionLocked 在会话成为视图会话时刷新
 - `func (service *Service) HandlePlanNodeComplete(event dto.PlanNodeEvent)`
 - `func (service *Service) handleViewPlanNodeComplete(event dto.PlanNodeEvent, sessionID string)` — handleViewPlanNodeComplete 是当前视图会话的 plan 节点事件路径：投影即
 - `func (service *Service) handleBackgroundPlanNodeComplete(event dto.PlanNodeEvent, sessionID string)` — handleBackgroundPlanNodeComplete 是后台会话的 plan 节点事件路径：投影变更
 - `func (service *Service) HandlePlanBranchEvent(event seelplan.PlanBranchEvent)` — HandlePlanBranchEvent 应用来自桥接层的分支生命周期迁移，并向两端前端发布
 - `func mapKindForDisplay(kind string) string` — mapKindForDisplay 将框架节点 kind 映射为 seelex PlanNode 展示值。
 - `func isTerminalNodeStatus(word string) bool` — isTerminalNodeStatus 判定节点状态词是否为终态（checkpoint 只对终态生效）。
-- `func (service *Service) handlePlanRunFailureLocked(errMsg, resultJSON string) *Interaction` — handlePlanRunFailure 处理 plan_run 执行失败的情况。
+- `func (service *Service) handlePlanRunFailureLocked(errMsg, resultJSON string) *model.Interaction` — handlePlanRunFailure 处理 plan_run 执行失败的情况。
 - `func (service *Service) replanRequestLocked(failure, idempotencyKey string) dto.ReplanRequest` — replanRequestLocked 从权威快照提取最小的可用恢复上下文。要求调用方持有
 - `func (service *Service) replanFailedWork(ctx context.Context, interactionID, failure string) (resultErr error)` — replanFailedWork 替换失败的 Plan 但不执行它：保留用户在恢复规划与任何新
 - `func planRunFailure(resultJSON string) string`

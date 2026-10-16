@@ -113,7 +113,7 @@ go test ./e2e/ -count=1
 ### application.go
 
 - `func InitSessionManager(router *store.Router, eng *adapters.EnginePort) *session.Manager`
-- `func InitApplication( eng *adapters.EnginePort, runtime *seelebridge.Runtime, plugins *plugin.Manager, sessions *session.Manager, skills *skill.Registry, workspaces *workspace.Repo, events *application.EventHub, approval *application.ApprovalBroker, // storePath 是数据根（`-store` 解析后的值）：运行期上限覆盖层与工具记录 // 计数开关都落在它下面的 runtime-limits.json，所以它是**显式输入**而不是 // 包级变量的隐含读取。 storePath string, ) (*application.Service, error)`
+- `func InitApplication( eng *adapters.EnginePort, runtime *assemble.Runtime, plugins *plugin.Manager, sessions *session.Manager, skills *skill.Registry, workspaces *workspace.Repo, events *application.EventHub, approval *application.ApprovalBroker, // storePath 是数据根（`-store` 解析后的值）：运行期上限覆盖层与工具记录 // 计数开关都落在它下面的 runtime-limits.json，所以它是**显式输入**而不是 // 包级变量的隐含读取。 storePath string, ) (*application.Service, error)`
 
 ### bootstrap.go
 
@@ -141,18 +141,18 @@ go test ./e2e/ -count=1
 ### plugins.go
 
 - `func InitSkillSystem() *skill.Registry`
-- `func InitPluginSystem( runtime *seelebridge.Runtime, skills *skill.Registry, // pluginsPaths 是 `-plugins` 的原始值（责任链的链首）；环境变量与可执行文件 // 位置由 config.PluginRoots 自己解析。 pluginsPaths string, ) (*plugin.Manager, PluginStartup, error)`
+- `func InitPluginSystem( runtime *assemble.Runtime, skills *skill.Registry, // pluginsPaths 是 `-plugins` 的原始值（责任链的链首）；环境变量与可执行文件 // 位置由 config.PluginRoots 自己解析。 pluginsPaths string, ) (*plugin.Manager, PluginStartup, error)`
 - `func ActivateDefaultPlugin(manager *plugin.Manager, eng *frameworkSession.Session) error`
 
 ### runtime.go
 
-- `func initRuntime(storePath string) (*seelebridge.Runtime, error)` — initRuntime 装配 Runtime：配置责任链 → limits（含数据根覆盖层）→ 账号池。
+- `func initRuntime(storePath string) (*assemble.Runtime, error)` — initRuntime 装配 Runtime：配置责任链 → limits（含数据根覆盖层）→ 账号池。
 - `func guardMultiProcess(storePath string) error`
 - `func InitStore(storePath string) (*store.Router, error)`
-- `func sessionStorageLimits() store.Settings` — sessionStorageLimits 把 seele.yaml limits.session_storage 映射成存储覆盖层
+- `func sessionStorageLimits() storeroot.Settings` — sessionStorageLimits 把 seele.yaml limits.session_storage 映射成存储覆盖层
 - `func InitWorkspaceRepo(storePath string) (*workspace.Repo, error)`
-- `func InitEngine(runtime *seelebridge.Runtime, hooks *application.ToolHookBridge, sessionID string) (*frameworkSession.Session, error)` — InitEngine 按新装配模型创建主会话（session.NewSession）。
-- `func toolCommandOutcomeObserver(next seelebridge.BashDiagnosticObserver, app *application.Service) seelebridge.BashDiagnosticObserver` — toolCommandOutcomeObserver 把命令面的退出码折成一次工具记录（成功/失败），再把事件
+- `func InitEngine(runtime *assemble.Runtime, hooks *application.ToolHookBridge, sessionID string) (*frameworkSession.Session, error)` — InitEngine 按新装配模型创建主会话（session.NewSession）。
+- `func toolCommandOutcomeObserver(next toolreg.BashDiagnosticObserver, app *application.Service) toolreg.BashDiagnosticObserver` — toolCommandOutcomeObserver 把命令面的退出码折成一次工具记录（成功/失败），再把事件
 - `func sessionKeyFor(workspaces *workspace.Repo, sessionID string) (store.Key, bool)` — sessionKeyFor 把会话 ID 解析成存储作用域键（项目 + 会话）：**按会话自己的项目绑定**解析，
 - `func (st sessionToolRecordStore) SaveToolRecordSnapshot(sessionID string, snapshot application.ToolRecordSnapshot) error`
 - `func (st sessionToolRecordStore) LoadToolRecordSnapshot(sessionID string) (application.ToolRecordSnapshot, bool, error)`

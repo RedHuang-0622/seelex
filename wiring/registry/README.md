@@ -103,25 +103,25 @@ go test ./test/ -run 'TestTool|TestProjectBoard|TestPlugin' -count=1
 
 ### registry.go
 
-- `func RegisterContextReadTools(runtime *seelebridge.Runtime, app *application.Service)`
-- `func RegisterProjectBoardReadTool(runtime *seelebridge.Runtime, st *store.Router, app *application.Service)` — RegisterProjectRefreshTool 注册 project_refresh 产品工具：扫描模块文档目录 +
-- `func RegisterProjectRefreshTool(runtime *seelebridge.Runtime, st *store.Router, app *application.Service)`
-- `func ScheduledPromptExecutor(app *application.Service) seelebridge.ScheduledPromptExecutor` — ScheduledPromptExecutor 是定时提示词任务的执行器。落点与装配都从任务定义读
-- `func RegisterScheduledTaskCapability(runtime *seelebridge.Runtime)` — RegisterScheduledTaskCapability 装配定时周期任务白名单命令：
-- `func RegisterTaskTerminalTools(runtime *seelebridge.Runtime, app *application.Service)` — RegisterTaskTerminalTools 把 task_complete/task_failed/task_needs_user_decision
-- `func RegisterProductTools(runtime *seelebridge.Runtime, plugins *plugin.Manager, eng pluginPromptEngine, approval *application.ApprovalBroker, skills *skill.Registry)`
-- `func RegisterReviewFilesTool(runtime *seelebridge.Runtime, app *application.Service)` — RegisterReviewFilesTool 注册 show_files：agent 请求 GUI 在侧边资源管理器打开
-- `func RegisterMCPServers(runtime *seelebridge.Runtime, mcpPath string)` — RegisterMCPServers 将 mcp.yaml 配置的 MCP 服务器全部登记到 Runtime
-- `func RegisterMCPLoadTool(runtime *seelebridge.Runtime)` — RegisterMCPLoadTool 注册按需加载工具：连接已登记但未连接的 MCP 服务器
-- `func RegisterTimeTool(runtime *seelebridge.Runtime)`
-- `func RegisterPluginSwitchTools( runtime *seelebridge.Runtime, plugins *plugin.Manager, eng pluginPromptEngine, )`
-- `func RegisterPluginSelfTools(runtime *seelebridge.Runtime, plugins *plugin.Manager)` — RegisterPluginSelfTools 注册插件/技能/MCP 的自迭代工具族：
+- `func RegisterContextReadTools(runtime *assemble.Runtime, app *application.Service)`
+- `func RegisterProjectBoardReadTool(runtime *assemble.Runtime, st *store.Router, app *application.Service)` — RegisterProjectRefreshTool 注册 project_refresh 产品工具：扫描模块文档目录 +
+- `func RegisterProjectRefreshTool(runtime *assemble.Runtime, st *store.Router, app *application.Service)`
+- `func ScheduledPromptExecutor(app *application.Service) assemble.ScheduledPromptExecutor` — ScheduledPromptExecutor 是定时提示词任务的执行器。落点与装配都从任务定义读
+- `func RegisterScheduledTaskCapability(runtime *assemble.Runtime)` — RegisterScheduledTaskCapability 装配定时周期任务白名单命令：
+- `func RegisterTaskTerminalTools(runtime *assemble.Runtime, app *application.Service)` — RegisterTaskTerminalTools 把 task_complete/task_failed/task_needs_user_decision
+- `func RegisterProductTools(runtime *assemble.Runtime, plugins *plugin.Manager, eng pluginPromptEngine, approval *application.ApprovalBroker, skills *skill.Registry)`
+- `func RegisterReviewFilesTool(runtime *assemble.Runtime, app *application.Service)` — RegisterReviewFilesTool 注册 show_files：agent 请求 GUI 在侧边资源管理器打开
+- `func RegisterMCPServers(runtime *assemble.Runtime, mcpPath string)` — RegisterMCPServers 将 mcp.yaml 配置的 MCP 服务器全部登记到 Runtime
+- `func RegisterMCPLoadTool(runtime *assemble.Runtime)` — RegisterMCPLoadTool 注册按需加载工具：连接已登记但未连接的 MCP 服务器
+- `func RegisterTimeTool(runtime *assemble.Runtime)`
+- `func RegisterPluginSwitchTools( runtime *assemble.Runtime, plugins *plugin.Manager, eng pluginPromptEngine, )`
+- `func RegisterPluginSelfTools(runtime *assemble.Runtime, plugins *plugin.Manager)` — RegisterPluginSelfTools 注册插件/技能/MCP 的自迭代工具族：
 - `func ApplyPluginPrompt(eng pluginPromptEngine, plugins *plugin.Manager)`
-- `func RegisterAskApprove(runtime *seelebridge.Runtime, approval *application.ApprovalBroker)`
-- `func ProjectBoardSinkFor( limits limit.ProjectBoardLimits, st board.ProjectBoardStore, workTableRows func(sessionID string) []core.WorkItem, teamPlanFor func(sessionID string) *store.TeamworkPlan, teamStateFor func(sessionID string) *store.TeamworkState, projectRootFor func(sessionID string) string, ) (board.ProjectBoardSink, func(), error)` — guardMultiProcess 是启动期多进程闸门：数据根是单进程写者
+- `func RegisterAskApprove(runtime *assemble.Runtime, approval *application.ApprovalBroker)`
+- `func ProjectBoardSinkFor( limits limit.ProjectBoardLimits, st board.ProjectBoardStore, workTableRows func(sessionID string) []model.WorkItem, teamPlanFor func(sessionID string) *store.TeamworkPlan, teamStateFor func(sessionID string) *store.TeamworkState, projectRootFor func(sessionID string) string, ) (board.ProjectBoardSink, func(), error)` — guardMultiProcess 是启动期多进程闸门：数据根是单进程写者
 - `func PluginByName(plugins []plugin.Plugin, name string) (plugin.Plugin, error)`
-- `func RegisterGoalTools(runtime *seelebridge.Runtime, app *application.Service)`
-- `func RegisterSkillActivateTool(runtime *seelebridge.Runtime, skills *skill.Registry, activate func(name string) (skill.Skill, error))` — RegisterSkillActivateTool 注册模型侧的技能激活工具（Codex 式 "调用 skill"
+- `func RegisterGoalTools(runtime *assemble.Runtime, app *application.Service)`
+- `func RegisterSkillActivateTool(runtime *assemble.Runtime, skills *skill.Registry, activate func(name string) (skill.Skill, error))` — RegisterSkillActivateTool 注册模型侧的技能激活工具（Codex 式 "调用 skill"
 - `func projectBoardReadRows(rows []store.ProjectBoardRow) []map[string]interface` — projectBoardReadRows 把投影行渲染成给模型看的紧凑载荷：只带判定所需的那几格，
 - `func projectBoardHookMode(hook string) (string, error)` — projectBoardHookMode 归一化并校验项目看板的触发面取值。
 

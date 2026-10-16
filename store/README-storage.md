@@ -2,9 +2,9 @@
 
 ## 生态位
 
-存储引擎底座：JSON v8 布局、模块 head 发布、fork 子树、历史迁移与保形别名
+存储引擎底座：JSON v8 布局、模块 head 发布、fork 子树与历史迁移
 
-覆盖：`json_layout*.go`、`module_heads*.go`、`fork_store*.go`、`legacy_storage*.go`、`router_storage*.go`、`root_aliases*.go`；未归属文件由覆盖自检拦下。
+覆盖：`json_layout*.go`、`module_heads*.go`、`fork_store*.go`、`router_storage*.go`；未归属文件由覆盖自检拦下。
 
 ## 文件与函数索引
 
@@ -28,7 +28,7 @@
 
 ### json_layout.go
 
-- `func newJSONRepositoryWithLayout(root string, settings storageSettings) (*jsonRepository, error)`
+- `func newJSONRepositoryWithLayout(root string, settings storeroot.Settings) (*jsonRepository, error)`
 - `func (repository *jsonRepository) active(key Key) bool`
 - `func (repository *jsonRepository) writeCommitLayout(key Key, commit Commit) error` — writeCommitLayout 是 WriteCommit 的 分支：
 - `func (store *storeEngine) publishToolResultRefs(key Key, refs []string) error` — publishToolResultRefs 在全部结果文件写完后原子发布 refs 索引（S13：不再
@@ -64,38 +64,9 @@
 - `func readMetaFromDir(sessionRoot string) (frameworkStorage.SessionMeta, bool)` — readMetaFromDir 读取 会话目录枚举 meta（message head.Meta；显式目录
 - `func (repository *jsonRepository) listMeta(projectID string) []frameworkStorage.SessionMeta` — listMeta 返回项目内 会话的枚举 meta。
 
-### legacy_storage.go
-
-- `func NewSessionStore(path string) (*SessionStore, error)`
-- `func (s *SessionStore) FrameworkStore() storage.Storage`
-- `func (s *SessionStore) Save(sessionID string, messages []Message) error`
-- `func (s *SessionStore) Load(sessionID string) ([]Message, error)`
-- `func (s *SessionStore) List() []SessionMeta`
-- `func (s *SessionStore) Delete(sessionID string) error`
-- `func (s *SessionStore) LoadRange(sessionID string, offset, limit int) ([]Message, int, error)` — LoadRange 读取 shard 文件，只加载覆盖 [offset, offset+limit) 的分片。
-- `func (s *SessionStore) MessageCount(sessionID string) (int, error)` — MessageCount 返回会话总消息数（从 shard 文件计算）。
-- `func (s *SessionStore) shardDir(sessionID string) string`
-- `func (s *SessionStore) listShardFiles(sessionID string) ([]string, error)`
-- `func sha256Sum(s string) [32]byte`
-- `func NewNestedSessionStore(baseDir string) (*NestedSessionStore, error)` — NewNestedSessionStore creates a nested store rooted at baseDir.
-- `func (ns *NestedSessionStore) SetWorkspace(workspaceID string)` — SetWorkspace sets the active workspace for subsequent operations.
-- `func (ns *NestedSessionStore) Workspace() string` — Workspace returns the currently active workspace ID ("" = default).
-- `func (ns *NestedSessionStore) activeStore() *SessionStore` — activeStore returns the SessionStore for the current workspace,
-- `func (ns *NestedSessionStore) ListByWorkspace(workspaceID string) []SessionMeta` — ListByWorkspace lists sessions stored under a specific workspace directory.
-- `func (ns *NestedSessionStore) Save(sessionID string, messages []Message) error` — Save delegates to the active workspace's SessionStore.
-- `func (ns *NestedSessionStore) List() []SessionMeta`
-- `func (ns *NestedSessionStore) Delete(sessionID string) error`
-- `func (ns *NestedSessionStore) Load(sessionID string) ([]Message, error)`
-- `func (ns *NestedSessionStore) LoadRange(sessionID string, offset, limit int) ([]Message, int, error)`
-- `func (ns *NestedSessionStore) MessageCount(sessionID string) (int, error)`
-
-### legacy_storage_test.go
-
-- `func TestSessionStoreRoundTrip(t *testing.T)`
-
 ### module_heads.go
 
-- `func newStoreEngine(root string, settings storageSettings) *storeEngine` — newStoreEngine 构造 会话存储布局引擎。root 不存在时延后到首个会话提交再创建
+- `func newStoreEngine(root string, settings storeroot.Settings) *storeEngine` — newStoreEngine 构造 会话存储布局引擎。root 不存在时延后到首个会话提交再创建
 - `func (store *storeEngine) locks(key Key) *sessionModuleLocks` — locks 返回（必要时创建）该会话的模块锁与短临界区状态集合。
 - `func (store *storeEngine) mu(key Key, mod storageModule) *sync.Mutex` — mu 返回指定会话 + 模块的锁（按会话分片；注册表短临界区，不参与 IO）。
 - `func moduleForStackKind(kind StackKind) storageModule` — moduleForStackKind 返回栈 kind 的模块 head 枚举（S16：head 按 kind 分文件）。

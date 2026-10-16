@@ -263,7 +263,7 @@
 - `func EventKindOf(event Event) string` — EventKindOf 返回事件的显式类别；旧数据 Kind 为空时按 Role/ToolCalls 回退。
 - `func (key Key) validate() error`
 - `func validateProjectID(projectID string) error` — validateProjectID 校验项目级记录（WriteProjectRecord/ReadProjectRecord）的
-- `func NewRouter(configPath, defaultPath string, limits ...storageSettings) (*Router, error)`
+- `func NewRouter(configPath, defaultPath string, limits ...storeroot.Settings) (*Router, error)`
 - `func (router *Router) SetWorkspace(projectID string)`
 - `func (router *Router) Workspace() string`
 - `func (router *Router) Save(sessionID string, messages []types.Message) error`
@@ -331,7 +331,7 @@
 - `func (router *Router) ensureOpsCond()`
 - `func (router *Router) waitOpsIdleLocked()` — waitOpsIdleLocked 等待在途操作归零（调用方持 router.mu）。
 - `func Open(ctx context.Context, config Config) (Repository, error)`
-- `func newJSONRepository(root string, settings storageSettings) (*jsonRepository, error)`
+- `func newJSONRepository(root string, settings storeroot.Settings) (*jsonRepository, error)`
 - `func (repository *jsonRepository) WriteAtomic(_ context.Context, key Key, messages []types.Message) error`
 - `func (repository *jsonRepository) WriteCommit(_ context.Context, key Key, commit Commit) error`
 - `func (repository *jsonRepository) Read(_ context.Context, key Key) ([]types.Message, error)` — Read 只服务 v8 布局会话（D2/S12：旧 manifest 布局会话不再打开，读接口

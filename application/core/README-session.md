@@ -133,21 +133,21 @@
 
 - `func withContentLimit(limit int) func()` — withContentLimit 临时把进程级 loaded_content_limit 改成 limit，返回还原
 - `func newMultiPagedStore(counts map[string]int) *multiPagedStore`
-- `func (store *multiPagedStore) SessionsOf(projectID string) []SessionInfo` — SessionInfo 行只带标题（零正文读）：目录刷新不会把正文拉回内存。
-- `func (store *multiPagedStore) LoadHistory(sessionID string) ([]EngineMessage, error)`
-- `func (store *multiPagedStore) LoadHistoryRange(sessionID string, offset, limit int) ([]EngineMessage, int, error)`
-- `func (store *multiPagedStore) LoadSessionRecordWorkspace(workspaceID, sessionID string) (SessionRecord, error)`
-- `func (store *multiPagedStore) SaveSessionRecord(sessionID string, record SessionRecord) error` — SaveSessionRecord* 是 no-op：本夹具的 durable 消息由 messages 槽给出，卸载
-- `func (store *multiPagedStore) SaveSessionRecordWorkspace(workspaceID, sessionID string, record SessionRecord) error`
-- `func (store *multiPagedStore) LoadSessionRecord(sessionID string) (SessionRecord, error)`
-- `func (store *multiPagedStore) LoadConversationRangeWorkspace(workspaceID, sessionID string, offset, limit int) ([]Message, int, error)`
+- `func (store *multiPagedStore) SessionsOf(projectID string) []model.SessionInfo` — SessionInfo 行只带标题（零正文读）：目录刷新不会把正文拉回内存。
+- `func (store *multiPagedStore) LoadHistory(sessionID string) ([]contract.EngineMessage, error)`
+- `func (store *multiPagedStore) LoadHistoryRange(sessionID string, offset, limit int) ([]contract.EngineMessage, int, error)`
+- `func (store *multiPagedStore) LoadSessionRecordWorkspace(workspaceID, sessionID string) (model.SessionRecord, error)`
+- `func (store *multiPagedStore) SaveSessionRecord(sessionID string, record model.SessionRecord) error` — SaveSessionRecord* 是 no-op：本夹具的 durable 消息由 messages 槽给出，卸载
+- `func (store *multiPagedStore) SaveSessionRecordWorkspace(workspaceID, sessionID string, record model.SessionRecord) error`
+- `func (store *multiPagedStore) LoadSessionRecord(sessionID string) (model.SessionRecord, error)`
+- `func (store *multiPagedStore) LoadConversationRangeWorkspace(workspaceID, sessionID string, offset, limit int) ([]model.Message, int, error)`
 - `func (store *multiPagedStore) messageCount(sessionID string) int`
 - `func readContentState(t *testing.T, service *Service, sessionID string) contentState`
 - `func assertContentLoaded(t *testing.T, service *Service, sessionID string, want bool) contentState`
 - `func assertContentWindow(t *testing.T, service *Service, sessionID string, offset, count int)` — assertContentWindow 断言会话当前持有「尾部窗口 offset 起 count 条」的正文。
 - `func waitForContentLoaded(t *testing.T, service *Service, sessionID string) contentState` — waitForContentLoaded 轮询等待会话正文装载完成：运行中会话存在时冷加载走
 - `func waitForContentUnloaded(t *testing.T, service *Service, sessionID string) contentState` — waitForContentUnloaded 轮询等待内容 LRU 真正把正文卸载（区别于「本来就
-- `func snapshotSessions(t *testing.T, service *Service) map[string]SessionInfo` — snapshotSessions 等一轮目录收敛后返回左侧列表行（按 ID 索引）。
+- `func snapshotSessions(t *testing.T, service *Service) map[string]model.SessionInfo` — snapshotSessions 等一轮目录收敛后返回左侧列表行（按 ID 索引）。
 - `func TestLoadedContentLayerLimitDefaults(t *testing.T)` — TestLoadedContentLayerLimitDefaults 内容层的限额口径（2026-10-14）：
 - `func TestContentLimitEvictsLeastRecentlyUsedIdleContent(t *testing.T)` — TestContentLimitEvictsLeastRecentlyUsedIdleContent 上限 1：冷加载第二个会话
 - `func TestContentLimitKeepsBusyAndActiveSessions(t *testing.T)` — TestContentLimitKeepsBusyAndActiveSessions 上限 1：运行中（busy）会话与当前
@@ -173,15 +173,15 @@
 
 ### session_archive_test.go
 
-- `func (sessions *archiveSessions) SessionsOf(projectID string) []SessionInfo` — SessionsOf 实现 session_runtime.SessionGranularPort：替身只认得一个会话，
+- `func (sessions *archiveSessions) SessionsOf(projectID string) []model.SessionInfo` — SessionsOf 实现 session_runtime.SessionGranularPort：替身只认得一个会话，
 - `func (sessions *archiveSessions) SaveCurrent(string) error`
-- `func (sessions *archiveSessions) LoadHistory(string) ([]EngineMessage, error)`
-- `func (sessions *archiveSessions) SaveSessionRecord(_ string, record SessionRecord) error`
-- `func (sessions *archiveSessions) SaveSessionRecordWorkspace(_ string, _ string, record SessionRecord) error`
-- `func (sessions *archiveSessions) LoadSessionRecord(string) (SessionRecord, error)`
-- `func (sessions *archiveSessions) LoadSessionRecordWorkspace(string, string) (SessionRecord, error)`
-- `func (sessions *archiveSessions) LoadTranscriptTailWorkspace(_, _ string, tokenBudget, maxUnits int) ([]TranscriptEvent, error)`
-- `func (sessions *archiveSessions) LoadToolResultWorkspace(string, string, string) (StoredToolResult, error)`
+- `func (sessions *archiveSessions) LoadHistory(string) ([]contract.EngineMessage, error)`
+- `func (sessions *archiveSessions) SaveSessionRecord(_ string, record model.SessionRecord) error`
+- `func (sessions *archiveSessions) SaveSessionRecordWorkspace(_ string, _ string, record model.SessionRecord) error`
+- `func (sessions *archiveSessions) LoadSessionRecord(string) (model.SessionRecord, error)`
+- `func (sessions *archiveSessions) LoadSessionRecordWorkspace(string, string) (model.SessionRecord, error)`
+- `func (sessions *archiveSessions) LoadTranscriptTailWorkspace(_, _ string, tokenBudget, maxUnits int) ([]model.TranscriptEvent, error)`
+- `func (sessions *archiveSessions) LoadToolResultWorkspace(string, string, string) (model.StoredToolResult, error)`
 - `func (sessions *contextAwareSessions) AttachSessionContext(workspaceID, sessionID string) error`
 - `func (sessions *contextAwareSessions) DetachSessionContext()`
 - `func TestResumeSessionAttachesSessionContext(t *testing.T)` — TestResumeSessionAttachesSessionContext 验证恢复会话后 context 模块被
@@ -190,7 +190,7 @@
 - `func TestSessionArchivePreservesVisibleHistoryPlanAndReadCache(t *testing.T)`
 - `func TestResumeSessionDropsMetadataOnlyCheckpointAndUsesDurableConversation(t *testing.T)`
 - `func TestResumeLongContextReasksOpeningQuestionFromCheckpoint(t *testing.T)`
-- `func historyContainsAssistant(history []EngineMessage, content string) bool`
+- `func historyContainsAssistant(history []contract.EngineMessage, content string) bool`
 - `func TestBoundConversationTailKeepsOnlyConfiguredVariableHeightWindow(t *testing.T)`
 - `func TestPersistSessionRecordRebuildsConversationFromTranscript(t *testing.T)`
 - `func TestSessionRecordStoresLargeContentByReference(t *testing.T)`
@@ -214,7 +214,7 @@
 
 - `func TestCatalogRefreshScopedByProjectKeepsOtherProjectGrids(t *testing.T)` — TestCatalogRefreshScopedByProjectKeepsOtherProjectGrids 钉住 G6 目录按
 - `func TestCatalogFullRefreshReplacesProjectGrid(t *testing.T)` — TestCatalogFullRefreshReplacesProjectGrid 钉住全量刷新按项目整格替换：
-- `func sessionIDsOf(sessions []SessionInfo) []string`
+- `func sessionIDsOf(sessions []model.SessionInfo) []string`
 - `func containsSessionID(ids []string, target string) bool`
 
 ### session_catalog_test.go
@@ -230,8 +230,8 @@
 
 ### session_cold_read.go
 
-- `func (service *Service) snapshotOfCold(sessionID string) (SessionSnapshot, error)` — snapshotOfCold 组装未驻留会话的只读会话快照（record 事实源）。目录已归档
-- `func (service *Service) GetSessionTranscript(sessionID string, fromSeq, toSeq uint64) ([]TranscriptEvent, error)` — GetSessionTranscript 读取指定会话的事件库区间（fromSeq..toSeq 含端点；
+- `func (service *Service) snapshotOfCold(sessionID string) (model.SessionSnapshot, error)` — snapshotOfCold 组装未驻留会话的只读会话快照（record 事实源）。目录已归档
+- `func (service *Service) GetSessionTranscript(sessionID string, fromSeq, toSeq uint64) ([]model.TranscriptEvent, error)` — GetSessionTranscript 读取指定会话的事件库区间（fromSeq..toSeq 含端点；
 
 ### session_cold_read_test.go
 
@@ -251,14 +251,14 @@
 ### session_concurrent_content_isolation_test.go
 
 - `func TestConcurrentSessionsKeepOwnContent(t *testing.T)`
-- `func concurrentTranscriptText(events []TranscriptEvent) string` — concurrentTranscriptText 把 transcript 拼成可搜索文本（角色 + 正文 + 调用 ID）。
+- `func concurrentTranscriptText(events []model.TranscriptEvent) string` — concurrentTranscriptText 把 transcript 拼成可搜索文本（角色 + 正文 + 调用 ID）。
 - `func concurrentViewText(service *Service, sessionID string) string` — concurrentViewText 返回指定会话可见视图的全部消息文本（用户 + assistant +
 
 ### session_cross_session_cold_load_repro_test.go
 
 - `func (sessions *gatedColdSessions) releaseNow()`
-- `func (sessions *gatedColdSessions) LoadHistory(sessionID string) ([]EngineMessage, error)`
-- `func (sessions *gatedColdSessions) LoadHistoryRange(sessionID string, offset, limit int) ([]EngineMessage, int, error)`
+- `func (sessions *gatedColdSessions) LoadHistory(sessionID string) ([]contract.EngineMessage, error)`
+- `func (sessions *gatedColdSessions) LoadHistoryRange(sessionID string, offset, limit int) ([]contract.EngineMessage, int, error)`
 - `func (sessions *gatedColdSessions) gate(sessionID string)`
 - `func newGatedColdSessions() *gatedColdSessions`
 - `func (runtime *scopeSpyRuntime) SwitchSessionTasks(sessionID string, records []dto.TaskRecord)`
@@ -292,6 +292,7 @@
 
 - `func (service *Service) newDraftSessionIDLocked() string` — newDraftSessionIDLocked 生成早分配的会话 ID（调用方持有 Core.ViewMu）。
 - `func (service *Service) BeginNewSession() error` — BeginNewSession 进入幂等的草稿状态：早分配真实会话 ID 并建 SessionUnit
+- `func (service *Service) enterDraftShellLocked(options draftShellOptions) *session.SessionUnit` — enterDraftShellLocked 把视图单例切到草稿壳（调用方持有 Core.ViewMu），返回草稿的会话单元。
 - `func (service *Service) materializeDraftSession(firstQuestion string) error` — materializeDraftSession 为首条请求创建引擎会话与项目绑定：复用早分配
 - `func (service *Service) isUnmaterializedDraftTarget(sessionID string) bool` — isUnmaterializedDraftTarget 预判显式提交的目标是否就是那份尚未物化的草稿
 - `func (service *Service) draftTargetLocked() switching.DraftTarget` — draftTargetLocked 把草稿归属判据的两个来源（进程单例草稿槽 + 共享视图镜像）装成
@@ -308,6 +309,13 @@
 ### session_draft_context_scope_test.go
 
 - `func TestBeginNewSessionClearsPreviousSessionContextFacts(t *testing.T)` — TestBeginNewSessionClearsPreviousSessionContextFacts 钉住「新建会话」的**会话事实**
+
+### session_draft_shell_test.go
+
+- `func seedPreviousSessionFacts(service *Service)` — seedPreviousSessionFacts 在快照里铺满"上一个会话留下的会话事实"，供三条路径消费。
+- `func TestBeginNewSessionDraftShellClearsEverySessionFact(t *testing.T)`
+- `func TestColdRestoreFailureDraftShellKeepsWindowAndReadFiles(t *testing.T)`
+- `func TestUnloadViewDraftShellKeepsInteractionAndWritesNoSlot(t *testing.T)`
 
 ### session_effort_test.go
 
@@ -329,8 +337,8 @@
 - `func (s *routerForkSessions) SetWorkspace(projectID string)`
 - `func (s *routerForkSessions) Workspace() string`
 - `func (s *routerForkSessions) List() []model.SessionInfo`
-- `func (s *routerForkSessions) LoadHistory(string) ([]EngineMessage, error)`
-- `func (s *routerForkSessions) LoadHistoryRange(string, int, int) ([]EngineMessage, int, error)`
+- `func (s *routerForkSessions) LoadHistory(string) ([]contract.EngineMessage, error)`
+- `func (s *routerForkSessions) LoadHistoryRange(string, int, int) ([]contract.EngineMessage, int, error)`
 - `func (s *routerForkSessions) Delete(sessionID string) error`
 - `func (s *routerForkSessions) SessionsOf(projectID string) []model.SessionInfo`
 - `func (s *routerForkSessions) SaveSessionRecord(sessionID string, record model.SessionRecord) error`
@@ -353,19 +361,19 @@
 
 ### session_fork_test.go
 
-- `func (s *forkServiceSessions) LoadSessionRecord(string) (SessionRecord, error)`
-- `func (s *forkServiceSessions) LoadSessionRecordWorkspace(_, sessionID string) (SessionRecord, error)`
-- `func (s *forkServiceSessions) SaveSessionRecord(string, SessionRecord) error`
-- `func (s *forkServiceSessions) SaveSessionRecordWorkspace(string, string, SessionRecord) error`
+- `func (s *forkServiceSessions) LoadSessionRecord(string) (model.SessionRecord, error)`
+- `func (s *forkServiceSessions) LoadSessionRecordWorkspace(_, sessionID string) (model.SessionRecord, error)`
+- `func (s *forkServiceSessions) SaveSessionRecord(string, model.SessionRecord) error`
+- `func (s *forkServiceSessions) SaveSessionRecordWorkspace(string, string, model.SessionRecord) error`
 - `func (s *forkServiceSessions) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]store.Event, error)`
 - `func (s *forkServiceSessions) LoadToolResultsWorkspace(projectID, sessionID string) ([]store.ToolResult, error)`
-- `func (s *forkServiceSessions) SaveSessionSnapshotWorkspace(projectID, sessionID string, history []EngineMessage, record SessionRecord, events []model.TranscriptEvent, results []model.StoredToolResult) error`
+- `func (s *forkServiceSessions) SaveSessionSnapshotWorkspace(projectID, sessionID string, history []contract.EngineMessage, record model.SessionRecord, events []model.TranscriptEvent, results []model.StoredToolResult) error`
 - `func (s *forkServiceSessions) LoadContextStateWorkspace(projectID, sessionID string) ([]byte, error)`
 - `func (s *forkServiceSessions) SaveContextStateWorkspace(projectID, sessionID string, payload []byte) error`
 - `func (s *forkServiceSessions) CurrentGenerationWorkspace(projectID, sessionID string) (string, error)`
 - `func TestForkSessionCreatesAndSwitchesToChild(t *testing.T)`
 - `func TestForkSessionChildContentVisibleAfterResume(t *testing.T)` — TestForkSessionChildContentVisibleAfterResume 钉住 fork 回归：ForkSession
-- `func lastMessageOf(messages []Message) *Message`
+- `func lastMessageOf(messages []model.Message) *model.Message`
 - `func TestForkSessionLatestResolvesNewestParagraph(t *testing.T)`
 - `func TestForkCommandForksCurrentSession(t *testing.T)`
 - `func TestForkSessionDeepCopyIsolation(t *testing.T)` — TestForkSessionDeepCopyIsolation（T2.7）：fork 子会话 record 与父数据面
@@ -402,14 +410,14 @@
 - `func (service *Service) LoadLatestHistory() error` — LoadLatestHistory 把可见会话拉回最新一页（历史浏览后的「回到最新」）。
 - `func (service *Service) visibleTailServedFromMemory(sessionID string) bool` — visibleTailServedFromMemory 报告内存窗口是否已经把有效尾部整窗带到（非空且
 - `func (service *Service) loadConversationTailPage(workspaceID, sessionID string, window int) (conversationPage, error)` — loadConversationTailPage 读发布点处的尾部窗口：先探总数（未过滤空间，只用来
-- `func (service *Service) loadEarlierVisiblePage(workspaceID, sessionID string, offset, limit, window int, seam Message) (conversationPage, error)` — loadEarlierVisiblePage 读可见窗口之前的一页历史（「加载更早」的冷读面）。
+- `func (service *Service) loadEarlierVisiblePage(workspaceID, sessionID string, offset, limit, window int, seam model.Message) (conversationPage, error)` — loadEarlierVisiblePage 读可见窗口之前的一页历史（「加载更早」的冷读面）。
 - `func (page conversationPage) reachesPublishedTail() bool` — reachesPublishedTail 报告这一页读到了发布点（未过滤空间的右界）。
 - `func currentWorkspaceIDLocked(service *Service) string` — currentWorkspaceIDLocked 返回当前视图会话的 workspace ID（调用方持有
 - `func (service *Service) loadConversationPage(workspaceID, sessionID string, offset, limit int) (conversationPage, error)` — loadConversationPage 读回一段历史：record conversation 模块优先（长会话翻页不
 - `func (service *Service) installVisibleHistory(sessionID string, page conversationPage, window int, mode historyPageInstall) error` — installVisibleHistory 安装一页可见历史：写会话可见投影（事实源）→ 收敛
-- `func (service *Service) visibleWindowFirstRow(sessionID string) Message` — visibleWindowFirstRow 返回目标会话可见窗口的首条 durable 行——前置一页要接在它
-- `func adaptEngineMessage(msg EngineMessage) Message`
-- `func isVisibleHistoryMessage(message EngineMessage) bool`
+- `func (service *Service) visibleWindowFirstRow(sessionID string) model.Message` — visibleWindowFirstRow 返回目标会话可见窗口的首条 durable 行——前置一页要接在它
+- `func adaptEngineMessage(msg contract.EngineMessage) model.Message`
+- `func isVisibleHistoryMessage(message contract.EngineMessage) bool`
 
 ### session_history_browsing_submit_repro_test.go
 
@@ -419,7 +427,7 @@
 
 ### session_history_coldload_latest_repro_test.go
 
-- `func internalCheckpointRow(index int) Message` — internalCheckpointRow 造一条**已落盘**的内部行（上下文 checkpoint 标记）。
+- `func internalCheckpointRow(index int) model.Message` — internalCheckpointRow 造一条**已落盘**的内部行（上下文 checkpoint 标记）。
 - `func seedDurableRows(store *pagedSessionStore, visible, trailingInternal int)` — seedDurableRows 铺一整份**已发布**行：visible 条 durable-N + trailingInternal
 - `func coldLoadLongSession(t *testing.T, trailingInternal int) (*Service, *pagedSessionStore)` — coldLoadLongSession 冷加载一个「durable 20 条 + 末尾内部行」的长会话（窗口 6），
 - `func assertWindowAtTail(t *testing.T, service *Service, label string)` — assertWindowAtTail 断言「回到最新」之后的三件事：窗口贴尾（前端
@@ -429,7 +437,7 @@
 ### session_history_hot_tail_test.go
 
 - `func beginInFlightTurn(t *testing.T, service *Service, store *pagedSessionStore, count int) []string` — beginInFlightTurn 造「本轮已进内存窗口、尚未落盘」的在飞尾部：store 只物理
-- `func assertVisibleWindow(t *testing.T, label string, snapshot Snapshot, wantOffset int, wantContents []string, wantTotal int)` — assertVisibleWindow 断言快照里的「窗口起点 + 窗口内容 + 已可见总数」。
+- `func assertVisibleWindow(t *testing.T, label string, snapshot model.Snapshot, wantOffset int, wantContents []string, wantTotal int)` — assertVisibleWindow 断言快照里的「窗口起点 + 窗口内容 + 已可见总数」。
 - `func TestLoadLatestHistoryKeepsInFlightTail(t *testing.T)` — TestLoadLatestHistoryKeepsInFlightTail 红灯 1（缺陷 1）：回合进行中，内存窗口
 - `func TestColdPageReadDoesNotRegressVisibleTotal(t *testing.T)` — TestColdPageReadDoesNotRegressVisibleTotal 红灯 2（缺陷 2）：「加载更早」滑走
 - `func TestToolResultAfterPagingDoesNotPunchHole(t *testing.T)` — TestToolResultAfterPagingDoesNotPunchHole 红灯 3（缺陷 1+2 的后果）：内存窗口
@@ -441,24 +449,24 @@
 - `func withHistoryWindow(window int) func()` — withHistoryWindow 临时把进程级 history_window 调小，让分页行为在少量消息
 - `func newPagedSessionStore(sessionID string, count int) *pagedSessionStore`
 - `func (store *pagedSessionStore) countLocked() int`
-- `func (store *pagedSessionStore) SessionsOf(projectID string) []SessionInfo`
-- `func (store *pagedSessionStore) LoadHistory(sessionID string) ([]EngineMessage, error)`
-- `func (store *pagedSessionStore) LoadHistoryRange(sessionID string, offset, limit int) ([]EngineMessage, int, error)`
-- `func (store *pagedSessionStore) LoadSessionRecordWorkspace(workspaceID, sessionID string) (SessionRecord, error)`
-- `func (store *pagedSessionStore) SaveSessionRecord(sessionID string, record SessionRecord) error` — 下面三个方法补齐 SessionRecordPort（生产 wiring/adapters.SessionPort 同时
-- `func (store *pagedSessionStore) SaveSessionRecordWorkspace(workspaceID, sessionID string, record SessionRecord) error`
-- `func (store *pagedSessionStore) LoadSessionRecord(sessionID string) (SessionRecord, error)`
-- `func (store *pagedSessionStore) LoadConversationRangeWorkspace(workspaceID, sessionID string, offset, limit int) ([]Message, int, error)` — LoadConversationRangeWorkspace 是生产分页读回面（SessionConversationRangePort）：
+- `func (store *pagedSessionStore) SessionsOf(projectID string) []model.SessionInfo`
+- `func (store *pagedSessionStore) LoadHistory(sessionID string) ([]contract.EngineMessage, error)`
+- `func (store *pagedSessionStore) LoadHistoryRange(sessionID string, offset, limit int) ([]contract.EngineMessage, int, error)`
+- `func (store *pagedSessionStore) LoadSessionRecordWorkspace(workspaceID, sessionID string) (model.SessionRecord, error)`
+- `func (store *pagedSessionStore) SaveSessionRecord(sessionID string, record model.SessionRecord) error` — 下面三个方法补齐 SessionRecordPort（生产 wiring/adapters.SessionPort 同时
+- `func (store *pagedSessionStore) SaveSessionRecordWorkspace(workspaceID, sessionID string, record model.SessionRecord) error`
+- `func (store *pagedSessionStore) LoadSessionRecord(sessionID string) (model.SessionRecord, error)`
+- `func (store *pagedSessionStore) LoadConversationRangeWorkspace(workspaceID, sessionID string, offset, limit int) ([]model.Message, int, error)` — LoadConversationRangeWorkspace 是生产分页读回面（SessionConversationRangePort）：
 - `func (store *pagedSessionStore) appendDurable(role, content string)` — appendDurable 追加一条**已提交**行（物理落盘 + 推进发布点）。
 - `func (store *pagedSessionStore) appendDraft(role, content string)` — appendDraft 只将行物理落盘，不推进发布点：对冷读面不可见（等价 message
 - `func (store *pagedSessionStore) publishDraftTail()` — publishDraftTail 推进发布点（回合收尾 PersistCurrentSession 同一效果）。
 - `func (store *pagedSessionStore) appendRowLocked(role, content string)`
-- `func (store *pagedSessionStore) setPublished(messages ...Message)` — setPublished 直接铺一整份**已发布**的磁盘消息：不关心草稿尾的用例用它，
+- `func (store *pagedSessionStore) setPublished(messages ...model.Message)` — setPublished 直接铺一整份**已发布**的磁盘消息：不关心草稿尾的用例用它，
 - `func (store *pagedSessionStore) rangeReads() int`
 - `func sliceWindow[T any](items *[]T, offset, limit int) []T`
-- `func visibleContents(snapshot Snapshot) []string` — visibleContents 取快照对话里的非 system 消息内容（system 是「已恢复会话」
+- `func visibleContents(snapshot model.Snapshot) []string` — visibleContents 取快照对话里的非 system 消息内容（system 是「已恢复会话」
 - `func wantRange(start, count int) []string`
-- `func assertRange(t *testing.T, label string, snapshot Snapshot, start, count int)`
+- `func assertRange(t *testing.T, label string, snapshot model.Snapshot, start, count int)`
 - `func TestLegacySessionWithoutRecordExposesEarlierHistory(t *testing.T)` — TestLegacySessionWithoutRecordExposesEarlierHistory 旧格式会话（端口只提供
 - `func openLongSession(t *testing.T, window, total int) (*Service, *pagedSessionStore)` — openLongSession 打开一个长会话（window 条尾窗 + offset），返回服务与存储。
 - `func mirrorOnce(t *testing.T, service *Service, store *pagedSessionStore)` — mirrorOnce 触发一次会话可见投影镜像（真实链路上任何新消息/工具事件都会
@@ -477,7 +485,7 @@
 ### session_input_index_test.go
 
 - `func inputIndexService(t *testing.T, store *pagedSessionStore) *Service` — inputIndexService 用「durable 消息 + record + conversation 窗口读」的仿真
-- `func setLoadedWindow(t *testing.T, service *Service, sessionID string, start, end int, messages []Message)` — setLoadedWindow 模拟"前端只加载了尾部一窗"：把可见窗口锚定在 [start,end)。
+- `func setLoadedWindow(t *testing.T, service *Service, sessionID string, start, end int, messages []model.Message)` — setLoadedWindow 模拟"前端只加载了尾部一窗"：把可见窗口锚定在 [start,end)。
 - `func TestSessionInputIndexCoversUnloadedEarlyRounds(t *testing.T)` — TestSessionInputIndexCoversUnloadedEarlyRounds 全量索引必须包含尚未加载到
 - `func TestSessionInputIndexEmptySession(t *testing.T)` — TestSessionInputIndexEmptySession 空会话（无消息、无窗口）返回空索引且不报错。
 - `func TestSessionInputIndexRequiresSessionID(t *testing.T)` — TestSessionInputIndexRequiresSessionID 空 sessionID 显式失败（不静默成空索引）。
@@ -500,8 +508,8 @@
 - `func TestHotAttachNoReplay(t *testing.T)` — TestHotAttachNoReplay（TC-LC-02）：空闲驻留会话 resume 只换指针，不重建
 - `func TestUnloadReleasesScope(t *testing.T)` — TestUnloadReleasesScope（TC-LC-03）：unload 释放会话内存态（chat 运行态、
 - `func TestUnloadRejectsRunningSession(t *testing.T)` — TestUnloadRejectsRunningSession（阶段 D · 卸载/提交互斥）：unload 与 submit
-- `func containsMessageContent(messages []Message, needle string) bool`
-- `func conversationTextsForTest(conversation []Message) []string`
+- `func containsMessageContent(messages []model.Message, needle string) bool`
+- `func conversationTextsForTest(conversation []model.Message) []string`
 
 ### session_live_content_probe_test.go
 
@@ -514,8 +522,8 @@
 - `func (service *Service) metaDeps() switching.MetaDeps` — metaDeps 装配展示元数据用例的宿主面（每次调用构造一次值语义的 Deps；无状态）。
 - `func (service *Service) metaPort() session.SessionMetaPort` — metaPort 返回会话端口的可选展示元数据扩展（未装配 = 元数据恒为零值，不算失败）。
 - `func (service *Service) wakeCatalogRefresh()` — wakeCatalogRefresh 唤醒会话目录 worker 重拉（元数据/标题变化后让所有客户端看到新排序）。
-- `func (service *Service) SetSessionMeta(sessionID string, meta SessionMeta) error` — SetSessionMeta 写单个会话的展示元数据，随后唤醒目录刷新让所有客户端重拉。
-- `func (service *Service) SessionMeta(sessionID string) (SessionMeta, error)` — SessionMeta 读取单个会话的展示元数据（未装配元数据存储时返回 switch.ErrMetaUnsupported）。
+- `func (service *Service) SetSessionMeta(sessionID string, meta model.SessionMeta) error` — SetSessionMeta 写单个会话的展示元数据，随后唤醒目录刷新让所有客户端重拉。
+- `func (service *Service) SessionMeta(sessionID string) (model.SessionMeta, error)` — SessionMeta 读取单个会话的展示元数据（未装配元数据存储时返回 switch.ErrMetaUnsupported）。
 
 ### session_parallel_test.go
 
@@ -530,11 +538,11 @@
 - `func (e *multiSessionEngine) StartSession() string`
 - `func (e *multiSessionEngine) ActivateSession(sessionID string) error` — ActivateSession 以显式会话 ID 创建（如缺）并激活引擎实例。
 - `func (e *multiSessionEngine) SessionID() string`
-- `func (e *multiSessionEngine) History() []EngineMessage`
-- `func (e *multiSessionEngine) HistoryFor(sessionID string) []EngineMessage`
-- `func (e *multiSessionEngine) ReplaceHistory(sessionID string, history []EngineMessage) error`
-- `func (e *multiSessionEngine) ReplaceHistoryFor(sessionID string, history []EngineMessage) error` — ReplaceHistoryFor 是 SessionChatEngine 接口要求的会话内历史替换：替换
-- `func (e *multiSessionEngine) ResumeSession(sessionID string, history []EngineMessage) error` — ResumeSession 模拟 production EnginePort.ResumeSession 语义：目标会话
+- `func (e *multiSessionEngine) History() []contract.EngineMessage`
+- `func (e *multiSessionEngine) HistoryFor(sessionID string) []contract.EngineMessage`
+- `func (e *multiSessionEngine) ReplaceHistory(sessionID string, history []contract.EngineMessage) error`
+- `func (e *multiSessionEngine) ReplaceHistoryFor(sessionID string, history []contract.EngineMessage) error` — ReplaceHistoryFor 是 SessionChatEngine 接口要求的会话内历史替换：替换
+- `func (e *multiSessionEngine) ResumeSession(sessionID string, history []contract.EngineMessage) error` — ResumeSession 模拟 production EnginePort.ResumeSession 语义：目标会话
 - `func (e *multiSessionEngine) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error)`
 - `func (e *multiSessionEngine) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error)`
 - `func (e *multiSessionEngine) AppendHistoryFor(sessionID string, msg types.Message)`
@@ -622,7 +630,7 @@
 - `func (runtime *fakeRuntime) UnbindProjectRootFor(sessionID string)`
 - `func (runtime *fakeRuntime) toolRootForSession(sessionID string) string` — toolRootForSession 模拟工具面的路径根解析：会话根优先，未绑定时回退进程默认
 - `func newMultiProjectWorkspace() *multiProjectWorkspace`
-- `func (repo *multiProjectWorkspace) Create(name, rootPath, gitRemote string) (WorkspaceInfo, error)`
+- `func (repo *multiProjectWorkspace) Create(name, rootPath, gitRemote string) (model.WorkspaceInfo, error)`
 - `func TestBackgroundSessionKeepsOwnProjectRoot(t *testing.T)` — TestBackgroundSessionKeepsOwnProjectRoot 复现工作区污染：会话 A 绑定项目 A，
 - `func waitSessionIdle(t *testing.T, service *Service)` — waitSessionIdle 等待全部会话回合结束（多会话并行时视图 Chat 状态不代表进程空闲）。
 
@@ -689,7 +697,7 @@
 - `func viewContains(unit *session.SessionUnit, text string) bool` — viewContains 报告指定会话可见对话中是否出现目标文本。
 - `func TestS0BackgroundEventsDoNotPolluteActiveSnapshot(t *testing.T)` — TestS0BackgroundEventsDoNotPolluteActiveSnapshot（波 1 验收锚）：
 - `func TestS0SwitchResyncsBaseline(t *testing.T)` — TestS0SwitchResyncsBaseline（波 1 验收锚）：视图切到会话 B 后按显式 sid
-- `func conversationTexts(messages []Message) []string`
+- `func conversationTexts(messages []model.Message) []string`
 
 ### session_scope.go
 
@@ -702,7 +710,7 @@
 - `func (service *Service) unbindGlobalProjectRoot()` — unbindGlobalProjectRoot 清空进程级项目根。
 - `func (service *Service) bindSessionProjectRoot(sessionID string)` — bindSessionProjectRoot 把指定会话自己的项目根绑到工具面（按会话分格）。
 - `func (service *Service) writeSessionSystemPrompt(sessionID string)` — writeSessionSystemPrompt 把当前 prompt 栈写入**目标会话**的引擎：会话路由
-- `func (service *Service) openSessionEngine(sessionID string, workspace *WorkspaceInfo) (string, error)` — openSessionEngine 给一个**新会话**装上它自己那一格：建引擎 bundle、挂接
+- `func (service *Service) openSessionEngine(sessionID string, workspace *model.WorkspaceInfo) (string, error)` — openSessionEngine 给一个**新会话**装上它自己那一格：建引擎 bundle、挂接
 - `func (service *Service) transitionForKey(key string) sync.Locker` — transitionForKey 返回指定 key 的会话过渡锁（G5 per-session keyed）：会
 - `func (service *Service) sessionUnitLocked(sessionID string) *session.SessionUnit` — sessionUnitLocked 返回指定会话的会话单元（聊天运行态已收进 SessionUnit，
 - `func (service *Service) currentViewSessionID() string` — currentViewSessionID 返回当前视图会话 ID（读锁内快照；供解锁后发布
@@ -717,7 +725,7 @@
 - `func (service *Service) mirrorActiveChatLocked()` — mirrorActiveChatLocked 把当前活跃会话的聊天运行态写入会话 view（阶段 1：
 - `func queuedChatRequests(requests []session.QueuedRequest) []chatRequest` — queuedChatRequests 把会话域排队输入（不透明载荷）还原为执行内核的
 - `func (service *Service) activeQueuedChatRequestsLocked() []chatRequest` — activeQueuedChatRequestsLocked 返回当前会话域的排队输入（还原为执行内核
-- `func (service *Service) publishSessionEvent(kind event.EventKind, revision uint64, requestID, sessionID string, payload any) event.Event` — publishSessionEvent 发布事件；装配的 EventHub 支持会话路由时携带
+- `func (service *Service) publishSessionEvent(kind protocol_event.EventKind, revision uint64, requestID, sessionID string, payload any) protocol_event.Event` — publishSessionEvent 发布事件；装配的 EventHub 支持会话路由时携带
 - `func (service *Service) publishViewSessionChanged()` — publishViewSessionChanged 通告权威视图会话已被应用内部切换（进程级事件、
 - `func (service *Service) publishChatStateFor(sessionID string)` — publishChatStateFor 下发指定会话的权威聊天运行态（chat.changed）。运行/排队
 - `func (service *Service) bindProjectRootIfSafe(_ string, rootPath string) bool` — bindProjectRootIfSafe 在安全条件下重绑全局项目根（P3/G5 收口）：
@@ -727,14 +735,14 @@
 - `func (service *Service) deferSubmitUntilRestored(ctx context.Context, sessionID, text string)` — deferSubmitUntilRestored 把一次对话提交挂到后台冷加载完成点：restoring 期间
 - `func (service *Service) sessionLoaded(sessionID string) bool` — sessionLoaded 报告目标会话引擎是否已实例化（后台提交前置检查）。
 - `func (service *Service) ActivateSession(sessionID string) error` — ActivateSession 切换当前展示/执行会话。M1 没有每会话驻留快照，切换即
-- `func (service *Service) SnapshotOf(sessionID string) (SessionSnapshot, error)` — SnapshotOf 返回指定会话的权威**会话快照**（G3 分型：SessionSnapshot，
+- `func (service *Service) SnapshotOf(sessionID string) (model.SessionSnapshot, error)` — SnapshotOf 返回指定会话的权威**会话快照**（G3 分型：SessionSnapshot，
 - `func (service *Service) sessionResidentLocked(unit *session.SessionUnit, sessionID string) bool` — sessionResidentLocked 判定目标会话引擎是否驻留（SnapshotOf 热/冷分界；
-- `func (service *Service) snapshotOfResident(sessionID string) (SessionSnapshot, error)` — snapshotOfResident 组装驻留会话（引擎 bundle 在内存）的会话快照：走单元
-- `func sessionRuntimeOf(runtime RuntimeState) SessionRuntime` — sessionRuntimeOf 从全量 RuntimeState 投影提取会话专属运行原件（G3 字段
+- `func (service *Service) snapshotOfResident(sessionID string) (model.SessionSnapshot, error)` — snapshotOfResident 组装驻留会话（引擎 bundle 在内存）的会话快照：走单元
+- `func sessionRuntimeOf(runtime model.RuntimeState) model.SessionRuntime` — sessionRuntimeOf 从全量 RuntimeState 投影提取会话专属运行原件（G3 字段
 - `func cloneGoalGovernanceView(view *dto.GoalGovernanceView) *dto.GoalGovernanceView`
-- `func (service *Service) sessionEventFilter(sessionID string) func(event.Event) bool` — sessionEventFilter 构造会话级订阅谓词（口径见 SubscribeSession）。
-- `func (service *Service) SubscribeSessionWithReplay(sessionID string, buffer, replayWindow int) (Subscription, error)` — SubscribeSessionWithReplay 与 SubscribeSession 同一归属口径，但订阅附带
-- `func (service *Service) SubscribeSession(sessionID string, buffer int) (Subscription, error)` — SubscribeSession 返回按会话过滤的事件订阅（只投递该会话或全局事件）。
+- `func (service *Service) sessionEventFilter(sessionID string) func(protocol_event.Event) bool` — sessionEventFilter 构造会话级订阅谓词（口径见 SubscribeSession）。
+- `func (service *Service) SubscribeSessionWithReplay(sessionID string, buffer, replayWindow int) (protocol_event.Subscription, error)` — SubscribeSessionWithReplay 与 SubscribeSession 同一归属口径，但订阅附带
+- `func (service *Service) SubscribeSession(sessionID string, buffer int) (protocol_event.Subscription, error)` — SubscribeSession 返回按会话过滤的事件订阅（只投递该会话或全局事件）。
 
 ### session_scope_test.go
 
@@ -756,9 +764,9 @@
 
 ### session_status_test.go
 
-- `func (sessions *liveCatalogSessions) SessionsOf(string) []SessionInfo`
-- `func (sessions *liveCatalogSessions) setInfos(infos []SessionInfo)`
-- `func catalogStatusOf(t *testing.T, service *Service, sessionID string) SessionStatus` — catalogStatusOf 返回会话在 Snapshot 目录中的可见状态（等待目录刷新）。
+- `func (sessions *liveCatalogSessions) SessionsOf(string) []model.SessionInfo`
+- `func (sessions *liveCatalogSessions) setInfos(infos []model.SessionInfo)`
+- `func catalogStatusOf(t *testing.T, service *Service, sessionID string) model.SessionStatus` — catalogStatusOf 返回会话在 Snapshot 目录中的可见状态（等待目录刷新）。
 - `func TestSessionStatusReflectsRunningWhileChatActive(t *testing.T)` — TestSessionStatusReflectsRunningWhileChatActive（状态机回归）：chat 启动
 - `func TestSwitchToRunningSessionPreservesState(t *testing.T)` — TestSwitchToRunningSessionPreservesState（T4.5/运行中切换）：A 运行中切到
 
@@ -835,8 +843,8 @@
 - `func TestSwitchDuringToolInvocation(t *testing.T)` — TestSwitchDuringToolInvocation 复现：工具调用（引擎忙）期间切换会话。
 - `func TestSwitchDuringLLMStreaming(t *testing.T)` — TestSwitchDuringLLMStreaming 复现：LLM 输出（引擎忙）期间切换会话。
 - `func (sessions *gatedHistorySessions) releaseNow()`
-- `func (sessions *gatedHistorySessions) LoadHistory(sessionID string) ([]EngineMessage, error)`
-- `func (sessions *gatedHistorySessions) LoadHistoryRange(sessionID string, offset, limit int) ([]EngineMessage, int, error)`
+- `func (sessions *gatedHistorySessions) LoadHistory(sessionID string) ([]contract.EngineMessage, error)`
+- `func (sessions *gatedHistorySessions) LoadHistoryRange(sessionID string, offset, limit int) ([]contract.EngineMessage, int, error)`
 - `func (sessions *gatedHistorySessions) gateEnabled(sessionID string) bool`
 - `func TestSwitchDuringColdLoadSerializes(t *testing.T)` — TestSwitchDuringColdLoadSerializes 度量「冷加载占不占视图过渡 key」这条契约。
 - `func TestBeginNewSessionSingleDraftOwner(t *testing.T)` — TestBeginNewSessionSingleDraftOwner 复现/钉住“新建会话”的幂等与责任链：
@@ -865,7 +873,7 @@
 ### view_switch_isolation_test.go
 
 - `func TestLongRunningSessionSurvivesViewSwitch(t *testing.T)` — TestLongRunningSessionSurvivesViewSwitch（视图切换隔离用例）：先开启一个
-- `func readSessionView(t *testing.T, service *Service, sessionID string) []Message`
-- `func viewText(messages []Message) string`
-- `func joinHistoryText(history []EngineMessage) string`
+- `func readSessionView(t *testing.T, service *Service, sessionID string) []model.Message`
+- `func viewText(messages []model.Message) string`
+- `func joinHistoryText(history []contract.EngineMessage) string`
 - `func joinTranscript(t *testing.T, service *Service, sessionID string) string`

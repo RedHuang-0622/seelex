@@ -85,8 +85,8 @@ go test ./e2e/scenario -count=1
 - `func (harnessRuntime) SetFullAccessFor(string, bool)`
 - `func (harnessRuntime) PermissionTier() string`
 - `func (harnessRuntime) SetPermissionTierFor(string, string) error`
-- `func (harnessRuntime) SetRuntimeVisibilityProjection(seelebridge.RuntimeVisibilityProjection)`
-- `func (harnessRuntime) SetParentEvidenceProjection(seelebridge.ParentEvidenceProjection)`
+- `func (harnessRuntime) SetRuntimeVisibilityProjection(assemble.RuntimeVisibilityProjection)`
+- `func (harnessRuntime) SetParentEvidenceProjection(assemble.ParentEvidenceProjection)`
 - `func (harnessRuntime) DrainSubagentContexts() []string`
 - `func (harnessRuntime) SetPlanPolicy(dto.PlanPolicy)`
 - `func (harnessRuntime) SetPlanPolicyFor(string, dto.PlanPolicy)`
@@ -119,10 +119,10 @@ go test ./e2e/scenario -count=1
 - `func (harnessRuntime) TakeServedRoute(string) (dto.ServedRoute, bool)`
 - `func (harnessRuntime) SwitchSessionTasks(string, []dto.TaskRecord)`
 - `func (harnessRuntime) SetSessionWorkspace(string, string)`
-- `func (harnessRuntime) ScheduledCommands() []seelebridge.ScheduledCommandInfo`
-- `func (harnessRuntime) ScheduledTasksSnapshot() []seelebridge.ScheduledTaskStatus`
-- `func (harnessRuntime) ScheduleTask(context.Context, seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error)` — ScheduleTask 显式报错（诚实桩）：e2e 场景不使用定时任务，静默返回
-- `func (harnessRuntime) UpdateScheduledTask(context.Context, string, seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error)`
+- `func (harnessRuntime) ScheduledCommands() []assemble.ScheduledCommandInfo`
+- `func (harnessRuntime) ScheduledTasksSnapshot() []assemble.ScheduledTaskStatus`
+- `func (harnessRuntime) ScheduleTask(context.Context, assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error)` — ScheduleTask 显式报错（诚实桩）：e2e 场景不使用定时任务，静默返回
+- `func (harnessRuntime) UpdateScheduledTask(context.Context, string, assemble.ScheduledTaskSpec) (*assemble.ScheduledTaskStatus, error)`
 - `func (harnessRuntime) CancelScheduledTask(string) error`
 - `func (harnessRuntime) ClearSubagentTree() error`
 - `func (harnessRuntime) RestoreSubagentAnchors(string) error`
@@ -213,7 +213,7 @@ go test ./e2e/scenario -count=1
 - `func (*ScriptedEngine) NodeSessionConversation(string) ([]types.Message, bool)`
 - `func (*ScriptedEngine) NodeContextSnapshot(string) (*snapshot.ContextSnapshot, bool)`
 - `func (*ScriptedEngine) NodeToolResult(string, string) (string, bool)`
-- `func (*ScriptedEngine) NodeWorktreeInfoFor(string) (seelebridge.NodeWorktreeInfo, bool)`
+- `func (*ScriptedEngine) NodeWorktreeInfoFor(string) (assemble.NodeWorktreeInfo, bool)`
 - `func (*ScriptedEngine) SubscribeSubagentLive(string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error)`
 - `func (*ScriptedEngine) SubagentLiveHistoryPage(nodeID string, offset, limit int) dto.SubagentLiveHistoryPage`
 - `func (*ScriptedEngine) SubAgentTree() []dto.SubAgentTreeNode`

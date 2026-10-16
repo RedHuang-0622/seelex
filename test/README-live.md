@@ -105,8 +105,8 @@
 - `func TestManualSmokeRealAccountJobBackfillWithoutManage(t *testing.T)` — TestManualSmokeRealAccountJobBackfillWithoutManage 见文件头注。
 - `func newBackfillCollector(subscription application.Subscription) *backfillCollector`
 - `func (c *backfillCollector) take() []liveToolCall` — take 取走本轮的调用记录并清空（轮次边界由 submit/WaitForIdle 划定）。
-- `func waitForAsyncTerminal(t *testing.T, runtime *seelebridge.Runtime, handle string, budget time.Duration) dto.AsyncRunRecord` — waitForAsyncTerminal 轮询登记表直到该句柄落到终态。**不调用任何工具**：这条路径
-- `func asyncHandlePresent(runtime *seelebridge.Runtime, handle string) bool` — asyncHandlePresent 报告句柄是否仍在登记表里。
+- `func waitForAsyncTerminal(t *testing.T, runtime *assemble.Runtime, handle string, budget time.Duration) dto.AsyncRunRecord` — waitForAsyncTerminal 轮询登记表直到该句柄落到终态。**不调用任何工具**：这条路径
+- `func asyncHandlePresent(runtime *assemble.Runtime, handle string) bool` — asyncHandlePresent 报告句柄是否仍在登记表里。
 - `func waitForAsyncWorkRow(app *application.Service, handle string, budget time.Duration) string` — waitForAsyncWorkRow 等投影发布器把 async:<handle> 行推出来（发布是异步的），
 
 ### job_live_smoke_test.go
@@ -184,8 +184,8 @@
 - `func TestManualSmokeRealAccountScheduledPromptChain(t *testing.T)` — TestManualSmokeRealAccountScheduledPromptChain 是**真实 API** 上的定时任务链路
 - `func waitForConversationMarker(t *testing.T, ctx context.Context, bridge *gui.Bridge, sessionID, marker string, budget time.Duration) string` — waitForConversationMarker 等到**指定会话**里出现标记（提示词原文或助手回复），
 - `func sessionConversationText(snapshot application.SessionSnapshot) string` — sessionConversationText 把会话快照的可见会话拼成一段文本（判据只看"出现过没有"）。
-- `func scheduledTaskByID(tasks []seelebridge.ScheduledTaskStatus, id string) *seelebridge.ScheduledTaskStatus`
-- `func scheduledTaskVisible(tasks []seelebridge.ScheduledTaskStatus, id string) bool`
+- `func scheduledTaskByID(tasks []assemble.ScheduledTaskStatus, id string) *assemble.ScheduledTaskStatus`
+- `func scheduledTaskVisible(tasks []assemble.ScheduledTaskStatus, id string) bool`
 - `func tailLine(text string) string` — tailLine 取最后一行非空内容（日志用，避免把整段会话刷进测试输出）。
 
 ### smoke_test.go

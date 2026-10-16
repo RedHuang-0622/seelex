@@ -70,14 +70,14 @@ goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回
 - `func (engine *sessionLockEngine) SessionBacked() bool` — SessionBacked 报告"新 Session 装配"：OnIterationComplete 在会话锁内同步执行。
 - `func (engine *sessionLockEngine) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error)`
 - `func (engine *sessionLockEngine) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error)`
-- `func (engine *sessionLockEngine) History() []EngineMessage`
-- `func (engine *sessionLockEngine) HistoryFor(string) []EngineMessage`
+- `func (engine *sessionLockEngine) History() []contract.EngineMessage`
+- `func (engine *sessionLockEngine) HistoryFor(string) []contract.EngineMessage`
 - `func (engine *sessionLockEngine) AppendHistory(msg types.Message)`
 - `func (engine *sessionLockEngine) AppendHistoryFor(_ string, msg types.Message)`
 - `func (engine *sessionLockEngine) ClearHistory()`
 - `func (engine *sessionLockEngine) ClearHistoryFor(string)`
-- `func (engine *sessionLockEngine) ReplaceHistory(sessionID string, history []EngineMessage) error`
-- `func (engine *sessionLockEngine) ReplaceHistoryFor(sessionID string, history []EngineMessage) error`
+- `func (engine *sessionLockEngine) ReplaceHistory(sessionID string, history []contract.EngineMessage) error`
+- `func (engine *sessionLockEngine) ReplaceHistoryFor(sessionID string, history []contract.EngineMessage) error`
 - `func (engine *sessionLockEngine) SetSystemPrompt(string)`
 - `func (engine *sessionLockEngine) SetSystemPromptFor(string, string)`
 - `func TestQueuedRoundMustNotReenterSessionLock(t *testing.T)`
@@ -191,8 +191,8 @@ goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回
 ### goal_work_summary.go
 
 - `func (service *Service) goalTurnWorkSummary(sessionID string) string` — goalTurnWorkSummary 读目标会话的可见投影，返回本轮 EXEC 工作摘要（有界）。
-- `func summarizeTurnWork(messages []Message) string` — summarizeTurnWork 抽取本轮（最后一条 user 行之后）的 EXEC 产出摘要。
-- `func computerUseEvidence(messages []Message) string` — computerUseEvidence 抽取本轮 computer use 的可审查证据：截图工具结果里的
+- `func summarizeTurnWork(messages []model.Message) string` — summarizeTurnWork 抽取本轮（最后一条 user 行之后）的 EXEC 产出摘要。
+- `func computerUseEvidence(messages []model.Message) string` — computerUseEvidence 抽取本轮 computer use 的可审查证据：截图工具结果里的
 - `func oneLine(text string) string` — oneLine 压掉换行/连续空白（Detail 是"有界一句话"，不是多行正文）。
 - `func truncateRunes(text string, max int) string` — truncateRunes 按 rune 截断（中文不被切半）。
 

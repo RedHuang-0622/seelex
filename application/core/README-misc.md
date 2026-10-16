@@ -2,28 +2,28 @@
 
 ## 生态位
 
-基础与杂项（aliases/limits/completion/compressed/diagnostics/fault-guard/perf/snapshot-budget/runtime/workspace/race）
+基础与杂项（vocabulary/assembly_helpers/limits/completion/compressed/diagnostics/fault-guard/perf/snapshot-budget/runtime/workspace/race）
 
-覆盖：显式名单 25 个文件（见生成器 `ROOT_GROUPS`）；未归属文件由覆盖自检拦下。
+覆盖：显式名单 26 个文件（见生成器 `ROOT_GROUPS`）；未归属文件由覆盖自检拦下。
 
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-### aliases.go
+### assembly_helpers.go
 
-- `func NewCommandRegistry() *CommandRegistry`
+- `func NewCommandRegistry() *input_router.CommandRegistry`
 - `func newInputRouter(handlers inputRouteHandlers) *inputRouter`
-- `func NewDefaultWindowPolicy(config WindowConfig) DefaultWindowPolicy`
-- `func DefaultWindowConfig() WindowConfig`
-- `func LoadWindowConfig(path string) (WindowConfig, error)`
-- `func NewEventHub() *EventHub`
-- `func NewApprovalBroker(events event.Hub) *ApprovalBroker`
-- `func NewPromptStack() *PromptStack`
-- `func NewEffortManager(stack *PromptStack, engine interface { SetMaxLoops(int) SetSystemPrompt(string) }) *EffortManager`
-- `func cloneSnapshot(snapshot Snapshot) Snapshot`
-- `func cloneRuntimeState(runtime RuntimeState) RuntimeState`
+- `func NewDefaultWindowPolicy(config cc.WindowConfig) cc.DefaultWindowPolicy`
+- `func DefaultWindowConfig() cc.WindowConfig`
+- `func LoadWindowConfig(path string) (cc.WindowConfig, error)`
+- `func NewEventHub() *event.EventHub`
+- `func NewApprovalBroker(events event.Hub) *limitapproval.ApprovalBroker`
+- `func NewPromptStack() *prompt.PromptStack`
+- `func NewEffortManager(stack *prompt.PromptStack, engine interface { SetMaxLoops(int) SetSystemPrompt(string) }) *prompt.EffortManager`
+- `func cloneSnapshot(snapshot model.Snapshot) model.Snapshot`
+- `func cloneRuntimeState(runtime model.RuntimeState) model.RuntimeState`
 - `func maxLoopsFor(level string) int`
 - `func reasoningEffortFor(level string) string`
 - `func reactBudgetFor(level string) prompt.ReActBudget`
@@ -61,8 +61,8 @@
 - `func testStringPtr(value string) *string` — testStringPtr 返回字符串指针（测试消息正文）。
 - `func (f *fakeCommitSession) SaveCommitWorkspace(projectID, sessionID string, commit store.Commit) error`
 - `func TestCompressedTurnArchiverScopesCommitToSessionProject(t *testing.T)` — TestCompressedTurnArchiverScopesCommitToSessionProject 写侧项目作用域：先按
-- `func (f *fakeTranscriptSession) LoadTranscriptTailWorkspace(_, _ string, _, _ int) ([]TranscriptEvent, error)`
-- `func (f *fakeTranscriptSession) LoadToolResultWorkspace(_, _, ref string) (StoredToolResult, error)`
+- `func (f *fakeTranscriptSession) LoadTranscriptTailWorkspace(_, _ string, _, _ int) ([]model.TranscriptEvent, error)`
+- `func (f *fakeTranscriptSession) LoadToolResultWorkspace(_, _, ref string) (model.StoredToolResult, error)`
 - `func TestCompressedTurnArchiverPersistsOriginal(t *testing.T)` — TestCompressedTurnArchiverPersistsOriginal 写侧：溢出轮次原文序列化后
 - `func TestCompressedTurnArchiverRoutesByContextSessionID(t *testing.T)` — TestCompressedTurnArchiverRoutesByContextSessionID 写侧归属（G0a 回归）：
 - `func TestCompressedTurnArchiverFallsBackToProviderWithoutContext(t *testing.T)` — TestCompressedTurnArchiverFallsBackToProviderWithoutContext 无 ctx 注入时
@@ -71,7 +71,7 @@
 
 ### diagnostics.go
 
-- `func RenderDiag(snap Snapshot) string` — RenderDiag 构建诊断文本。由 /diag 命令调用。
+- `func RenderDiag(snap model.Snapshot) string` — RenderDiag 构建诊断文本。由 /diag 命令调用。
 
 ### fault_guard.go
 
@@ -162,7 +162,7 @@
 ### review_files.go
 
 - `func (service *Service) reviewRequests() *review.Requests` — reviewRequests 返回落点（每次调用构造一次值语义的宿主适配；无状态）。
-- `func (service *Service) RequestFileReview(ctx context.Context, files []dto.ReviewFileRef) (dto.ReviewRequest, error)` — RequestFileReview 实现 seelebridge.ReviewFilesPort（判据在 `backend/tool/review`）。
+- `func (service *Service) RequestFileReview(ctx context.Context, files []dto.ReviewFileRef) (dto.ReviewRequest, error)` — RequestFileReview 实现 assemble.ReviewFilesPort（判据在 `backend/tool/review`）。
 - `func (service *Service) ClearReviewRequest(sessionID string)` — ClearReviewRequest 清空指定会话的待审阅请求（工作区切换/解绑的失效面；
 - `func (host serviceReviewHost) WorkspaceFile() (contract.WorkspaceFilePort, string, error)`
 - `func (host serviceReviewHost) NextRequestID() string` — NextRequestID 派一个跨调用唯一的召唤 ID（前端据此区分"新的一次请求"与"同一份快照的补放"）。
@@ -212,11 +212,11 @@
 
 ### window.go
 
-- `func ApplyWindowConfig(config WindowConfig)` — ApplyWindowConfig 应用 seele.yaml window 段（零值字段自动补默认）；
-- `func CurrentWindowConfig() WindowConfig` — CurrentWindowConfig 返回当前生效的 window 段（含默认值）。
+- `func ApplyWindowConfig(config cc.WindowConfig)` — ApplyWindowConfig 应用 seele.yaml window 段（零值字段自动补默认）；
+- `func CurrentWindowConfig() cc.WindowConfig` — CurrentWindowConfig 返回当前生效的 window 段（含默认值）。
 - `func RetainedReadTailBudget(runtime any) int` — RetainedReadTailBudget 返回**读尾**（冷恢复装载 transcript/history 尾部）的
 - `func RetainFloorTokens(budget task_context.ContextBudget) int` — RetainFloorTokens 返回当前配置下保护区下限的**比例部分**（token 数）：
-- `func ValidateRetainWindow(config WindowConfig, limits limit.Limits, windowTokens int) error` — ValidateRetainWindow 校验 window 段与 limits 段的组合是否自洽（启动期调用）：
+- `func ValidateRetainWindow(config cc.WindowConfig, limits limit.Limits, windowTokens int) error` — ValidateRetainWindow 校验 window 段与 limits 段的组合是否自洽（启动期调用）：
 - `func (r retainWindowLimits) ContextWindow() int`
 - `func (r retainWindowLimits) MaxOutputTokens() int`
 
@@ -261,7 +261,7 @@
 - `func (service *Service) DeleteSession(sessionID string) error`
 - `func (service *Service) CreateWorkspace(name, rootPath, gitRemote string) error`
 - `func (service *Service) BindWorkspace(workspaceID string) error`
-- `func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error`
+- `func (service *Service) bindWorkspaceInfo(workspace model.WorkspaceInfo) error`
 - `func (service *Service) UnbindWorkspace()`
 - `func (service *Service) WorkspaceTree(relPath string, depth int) (dto.TreeListing, error)` — WorkspaceTree 列出当前工作区某目录的子条目（GUI 工作树数据源；root 只
 - `func (service *Service) WorkspaceFileCount() (dto.TreeCount, error)` — WorkspaceFileCount 统计当前工作区文件/目录数（工作树文件数 badge 数据源）。

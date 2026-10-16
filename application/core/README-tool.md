@@ -164,8 +164,8 @@
 - `func (service *Service) ToolRecordEnabled() bool` — ToolRecordEnabled 返回当前开关状态（设置面板与看板都读它）。
 - `func (service *Service) FlushToolRecord(sessionID string)` — FlushToolRecord 把一个会话的读数**批量**写进会话自己的存储（真相源提交时刻调一次）。
 - `func (service *Service) loadToolRecord(sessionID string)` — loadToolRecord 把该会话最后一次落盘的读数读回内存（每个会话只读一次）。
-- `func (service *Service) SetToolRecordSnapshotStore(store ToolRecordSnapshotStore)` — SetToolRecordSnapshotStore 注入（或收回：传 nil）读数落盘口。
-- `func (service *Service) toolRecordSnapshotStore() ToolRecordSnapshotStore`
+- `func (service *Service) SetToolRecordSnapshotStore(store contract.ToolRecordSnapshotStore)` — SetToolRecordSnapshotStore 注入（或收回：传 nil）读数落盘口。
+- `func (service *Service) toolRecordSnapshotStore() contract.ToolRecordSnapshotStore`
 - `func (service *Service) flushAllToolRecords()` — flushAllToolRecords 把**所有**会话的读数批量落一次（停机兜底用）。
 - `func (service *Service) ToolRecordBoard() dto.ToolRecordBoard` — ToolRecordBoard 返回**当前视图会话**的工具记录看板（TUI / GUI 同源读法）。
 - `func (service *Service) RecordToolCommandOutcome(sessionID, tool string, exitCode int)` — RecordToolCommandOutcome 记一次**命令面**的结果（进程退出码）。

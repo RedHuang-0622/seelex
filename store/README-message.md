@@ -176,7 +176,7 @@ message/event 事件行、段落投影、wire 装配与大工具结果归档
 ### wire_assembler.go
 
 - `func (params wireParams) normalized() wireParams`
-- `func applyWireBudget(settings storageSettings, base wireParams) wireParams` — applyWireBudget 把 §5.2 的 wire 装配预算落到一次装配请求，返回装配实际使用的
+- `func applyWireBudget(settings storeroot.Settings, base wireParams) wireParams` — applyWireBudget 把 §5.2 的 wire 装配预算落到一次装配请求，返回装配实际使用的
 - `func (store *storeEngine) assembleWire(key Key, cache *attemptCache, params wireParams) (wireResult, error)` — assembleWire 构造 wire 消息序列（R2 主入口）。
 - `func assembleWireRows(frame *compactFrameRecord, rows []Event, cache *attemptCache, params wireParams) wireResult` — assembleWireRows 是 wire 装配的纯函数核心：给定最新帧（可空）与尾行，
 - `func (state *wireState) emit(message wireMessage, cost int)`

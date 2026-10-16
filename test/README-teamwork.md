@@ -48,7 +48,7 @@ teamwork / 子代理装配：headless 冒烟、插件装配与 worktree 生命�
 - `func decodeAssemblyReceipt(t *testing.T, text string) assemblyReceipt`
 - `func assemblyViewFor(t *testing.T, receipt assemblyReceipt, role string) dto.PluginAssemblyView`
 - `func assemblyDispatchHandles(t *testing.T, receipts []string) []string` — assemblyDispatchHandles 从派发受理回执里取句柄（受理回执是 JSON，但工具结果可能被
-- `func attachRealSkills(t *testing.T, runtime *seelebridge.Runtime)` — attachRealSkills 把**真插件根**的技能装上 Runtime 的员工目录读面。
+- `func attachRealSkills(t *testing.T, runtime *assemble.Runtime)` — attachRealSkills 把**真插件根**的技能装上 Runtime 的员工目录读面。
 - `func assemblySampleFor(t *testing.T, samples []workerSample, role, marker string) workerSample` — assemblySampleFor 取某个 worker 回合的采样：按角色名辨认，并**用探针标记再确认一次**
 - `func assemblySameStrings(got, want []string) bool`
 

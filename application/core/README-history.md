@@ -31,7 +31,7 @@
 - `func TestRecoverProviderContextIgnoresOtherProviderErrors(t *testing.T)`
 - `func TestRecoverProviderTimeoutCreatesPrivateResumeCheckpoint(t *testing.T)`
 - `func TestContextExhaustionPersistsInterruptedProjectionAfterBoundedRetryFails(t *testing.T)`
-- `func containsRecoveryHistory(history []EngineMessage, prefix string) bool`
+- `func containsRecoveryHistory(history []contract.EngineMessage, prefix string) bool`
 - `func TestContextExhaustionReturnsBoundedRecoveryInstructionToAgent(t *testing.T)`
 - `func TestEmptyProviderContentRejectionResumesFromBoundedCheckpoint(t *testing.T)` — TestEmptyProviderContentRejectionResumesFromBoundedCheckpoint 覆盖“记录不合法”
 - `func TestNonRecoverableProviderFailureMarksTaskFailed(t *testing.T)`

@@ -112,7 +112,7 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 
 ### async_completion_trigger_test.go
 
-- `func asyncCompletionHarness(t *testing.T, trigger bool, engine ChatEngine) (*Service, *fakeRuntime)` — asyncCompletionHarness 造一个装配好该触发路径的 Service。
+- `func asyncCompletionHarness(t *testing.T, trigger bool, engine contract.ChatEngine) (*Service, *fakeRuntime)` — asyncCompletionHarness 造一个装配好该触发路径的 Service。
 - `func waitForTriggeredTurn(t *testing.T, service *Service, needle string) string` — waitForTriggeredTurn 轮询可见会话，直到出现一条含 needle 的用户行（= 触发回合开
 - `func assertNoTurn(t *testing.T, service *Service, needle string)` — assertNoTurn 报告可见会话里有没有含 needle 的用户行——"不该触发"的用例用它。
 - `func completedRecord(handle string, state dto.AsyncState) dto.AsyncRunRecord` — completedRecord 造一条已落到终态的作业投影记录。
@@ -126,7 +126,7 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 
 ### project_board_read.go
 
-- `func (service *Service) WorkTableRowsFor(sessionID string) []WorkItem` — WorkTableRowsFor 返回指定会话的**活体工作表格投影**（只读；不重算任何状态）。
+- `func (service *Service) WorkTableRowsFor(sessionID string) []model.WorkItem` — WorkTableRowsFor 返回指定会话的**活体工作表格投影**（只读；不重算任何状态）。
 - `func (service *Service) ProjectRootFor(sessionID string) string` — ProjectRootFor 返回会话所属工作区的**项目根**（绝对路径；"" = 未绑定/无落点）。
 - `func (service *Service) ProjectBoardTeamPlanFor(sessionID string) *store.TeamworkPlan` — ProjectBoardTeamPlanFor 按**窄可选端口**取 teamwork 计划（未装配 / 该会话没有计划 ⇒ nil）。
 - `func (service *Service) ProjectBoardTeamStateFor(sessionID string) *store.TeamworkState` — ProjectBoardTeamStateFor 取该会话的 teamwork **运行态**（里程碑结论 / 整队收口）。
@@ -137,7 +137,7 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - `func newBoardTestService(t *testing.T, options ...testServiceOption) (*Service, *fakeRuntime, string)`
 - `func TestBuildProjectBoardRowsMatchesLiveProjection(t *testing.T)`
 - `func TestProjectBoardIsNotAnInput(t *testing.T)`
-- `func marshalWorkItems(t *testing.T, items []WorkItem) string`
+- `func marshalWorkItems(t *testing.T, items []model.WorkItem) string`
 - `func TestProjectBoardReadersForAssembly(t *testing.T)`
 - `func (runtime *boardPlanRuntime) TeamworkPlanFor(sessionID string) (store.TeamworkPlan, bool)`
 - `func (sink *recordingBoardSink) OnToolComplete(name string, err error, sessionID string)`
@@ -147,16 +147,16 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 ### work_table.go
 
 - `func (state *serviceState) refreshWorkTableLocked(tasks []dto.TaskRecord, asyncRuns []dto.AsyncRunRecord)` — refreshWorkTableLocked 在 service.ViewMu 持锁时重建工作表格投影。
-- `func (state *serviceState) publishWorkTable(revision uint64, requestID string, items []WorkItem, batches []WorkTableBatch)` — publishWorkTable 在锁外发布整表（CSP 汇聚发布器，latest-wins；items 必须
-- `func (service *Service) workTableEventPayload(update worktable.WorkTableUpdate) WorkTableEvent` — workTableEventPayload 组装 worktable.changed 的 payload：表格 + 批次头 +
+- `func (state *serviceState) publishWorkTable(revision uint64, requestID string, items []model.WorkItem, batches []model.WorkTableBatch)` — publishWorkTable 在锁外发布整表（CSP 汇聚发布器，latest-wins；items 必须
+- `func (service *Service) workTableEventPayload(update worktable.WorkTableUpdate) model.WorkTableEvent` — workTableEventPayload 组装 worktable.changed 的 payload：表格 + 批次头 +
 - `func (service *Service) publishTaskChanged(record dto.TaskRecord, revision uint64, requestID, sessionID string)` — publishTaskChanged 发布单 task 增量（task.changed；直发 hub，不汇聚——
 - `func (service *Service) publishTaskDeltas()` — publishTaskDeltas 拉取注册表快照，锁内重建 worktable，发布
 - `func (service *Service) syncTasksFromSources()` — syncTasksFromSources 同步当前活跃会话的 plan/子代理树到其自身 task scope。
 - `func (service *Service) syncTasksFromSourcesFor(sessionID string)` — syncTasksFromSourcesFor 把指定会话的 plan 节点与子代理树生命周期投影进该
-- `func (service *Service) sessionActivePlanLocked(sessionID string) *PlanState` — sessionActivePlanLocked 返回指定会话当前 plan 投影：活跃会话读 Snapshot 镜像，
-- `func (service *Service) syncPlanNodeTask(sessionID string, node PlanNode, parentID string)`
+- `func (service *Service) sessionActivePlanLocked(sessionID string) *model.PlanState` — sessionActivePlanLocked 返回指定会话当前 plan 投影：活跃会话读 Snapshot 镜像，
+- `func (service *Service) syncPlanNodeTask(sessionID string, node model.PlanNode, parentID string)`
 - `func (service *Service) syncSubagentTask(sessionID string, node dto.SubAgentTreeNode, parentID string)`
-- `func (service *Service) workItemForRecord(record dto.TaskRecord, sessionID string) WorkItem` — workItemForRecord 把注册表记录映射为工作表格行，并按 plan 邻接面补齐
+- `func (service *Service) workItemForRecord(record dto.TaskRecord, sessionID string) model.WorkItem` — workItemForRecord 把注册表记录映射为工作表格行，并按 plan 邻接面补齐
 - `func (state *serviceState) workTableTraceBlock() string` — workTableTraceBlock 返回当前活跃会话的打点表标记块（活跃会话即
 - `func (state *serviceState) workTableTraceBlockFor(sessionID string) string` — workTableTraceBlockFor 返回指定会话的打点表标记块：只含该会话 scope 中
 - `func (service *Service) RefreshWorkTableSnapshot()` — RefreshWorkTableSnapshot 是子代理树生命周期变更的被动投影入口（由 CSP
@@ -176,13 +176,13 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 ### work_table_ab_test.go
 
 - `func TestWorkTablePayloadSmallerThanFullRuntime(t *testing.T)`
-- `func heavyTestPlan(nodes int) *PlanState`
+- `func heavyTestPlan(nodes int) *model.PlanState`
 - `func heavySubagentTree(rows int) []dto.SubAgentTreeNode`
 
 ### work_table_async_test.go
 
 - `func runningAsyncRecord(handle string) dto.AsyncRunRecord`
-- `func workItemByID(rows []WorkItem, id string) (WorkItem, bool)`
+- `func workItemByID(rows []model.WorkItem, id string) (model.WorkItem, bool)`
 - `func TestAsyncRunProjectsEveryVisibleColumn(t *testing.T)` — 列位分配：描述→行标题、指令→描述列、探针读数→打点行、日志路径→附件列。
 - `func TestAsyncTerminalStatesMapToWorkStatus(t *testing.T)` — 终态映射：done→completed，failed/killed→failed（表格状态机没有"被杀"这一档）。
 - `func TestAsyncTraceLinesCarryNoPathsOrLogContent(t *testing.T)` — 打点块列**在途行 + 待取回的完成行**（打点 K-5 的回填规范），且进上下文的字段必须
@@ -191,7 +191,7 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - `func TestAsyncChangeSignalReprojectsWorkTable(t *testing.T)` — 第 4 个生命周期消费者：执行域一发声，表格就重投影——不靠模型再调一次工具，
 - `func TestAsyncRowsAreCappedAndNeverEvictTasks(t *testing.T)` — 后台行按上限封顶，且不挤掉真实任务行（在途优先，终态按最新补齐）。
 - `func TestAsyncBackfillStaysBounded(t *testing.T)` — TC-K5-1（打点 K-5 的"有界"判据）：注入 100 个已完成作业 →
-- `func serviceWorkTableRows(service *Service) []WorkItem`
+- `func serviceWorkTableRows(service *Service) []model.WorkItem`
 
 ### work_table_fuzz_test.go
 
@@ -255,5 +255,5 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - `func TestUpdateWorkItemStatusTodoThreeStates(t *testing.T)` — TestUpdateWorkItemStatusTodoThreeStates 走完整 Service 路径：
 - `func TestUpdateWorkItemStatusRejectsInvalid(t *testing.T)`
 - `func TestRefreshWorkTableSnapshotPublishesSubagentRows(t *testing.T)` — TestRefreshWorkTableSnapshotPublishesSubagentRows 验证被动触发：
-- `func waitForWorkTableEvent(t testing.TB, subscription Subscription) WorkTableEvent`
+- `func waitForWorkTableEvent(t testing.TB, subscription protocol_event.Subscription) model.WorkTableEvent`
 - `func TestWorkTableEventCarriesSubagentTreeOnChange(t *testing.T)` — TestWorkTableEventCarriesSubagentTreeOnChange 验证详情入口的数据面：子代理

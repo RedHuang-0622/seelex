@@ -48,7 +48,7 @@
 ### media_test.go
 
 - `func mediaTestPNG(t *testing.T, width, height int) []byte` — mediaTestPNG 生成一张可识别尺寸的真 PNG，避免用假字节掩盖编码问题。
-- `func openMediaTestStore(t *testing.T, settings Settings) (Repository, MediaStore)`
+- `func openMediaTestStore(t *testing.T, settings storeroot.Settings) (Repository, MediaStore)`
 - `func mediaTestKey() Key`
 - `func TestMediaStoreKeepsOriginalNameUnderHashFolder(t *testing.T)` — TestMediaStoreKeepsOriginalNameUnderHashFolder 锁定布局契约：
 - `func TestMediaStoreNeverTruncates(t *testing.T)` — TestMediaStoreNeverTruncates 是不变式测试：媒体没有字符软限，

@@ -186,10 +186,10 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 - `func (h *prefixProbeHarness) toolCallEventContents() []string` — toolCallEventContents 返回 transcript 中 assistant 工具调用事件的正文。
 - `func (h *prefixProbeHarness) visibleAssistantText() string` — visibleAssistantText 返回可见投影中最后一条 assistant 正文（生产视图里
 - `func prefixProbeCompare(prev, cur prefixProbeCall) prefixProbeDivergence` — prefixProbeCompare 计算 prev → cur 的字节 LCP 与失效后缀（block 粒度按
-- `func prefixProbeFirstDiff(prev, cur []EngineMessage) (int, string)`
-- `func probeMessagesEqual(left, right EngineMessage) bool`
-- `func probeEngineCalls(calls []types.ToolCall) []EngineToolCall`
-- `func probeCallIDs(calls []EngineToolCall) string`
+- `func prefixProbeFirstDiff(prev, cur []contract.EngineMessage) (int, string)`
+- `func probeMessagesEqual(left, right contract.EngineMessage) bool`
+- `func probeEngineCalls(calls []types.ToolCall) []contract.EngineToolCall`
+- `func probeCallIDs(calls []contract.EngineToolCall) string`
 - `func probeStreamedContent(cfg prefixProbeConfig) string` — probeStreamedContent 返回生产路径下引擎 assistant 工具调用消息的流式正文
 - `func splitProbeChunks(text string, size int) []string`
 - `func summarizeProbeText(text string) string`
@@ -216,7 +216,7 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 - `func appendSettledRound(service *Service, round int, toolResultToken int)` — appendSettledRound 追加一个"已定稿轮次"的 transcript 事件（user → assistant
 - `func systemPromptFor(service *Service) string` — systemPromptFor 取当前 system（与 Prepare 内部使用的同一组装函数）。
 - `func serText(label, text string) string` — serText 生成 JSON 前缀友好串行化片段（固定键序、无长度前缀；内容前缀相等
-- `func serializeRequest(system string, history []EngineMessage, input string, tools []Tool) string` — serializeRequest 把一次请求（system + history + current input + tools）固化为
+- `func serializeRequest(system string, history []contract.EngineMessage, input string, tools []model.Tool) string` — serializeRequest 把一次请求（system + history + current input + tools）固化为
 - `func lcpBytes(a, b string) int` — lcpBytes 返回两个字节串的最长公共前缀长度。
 - `func blockFloor(shared, block int) int` — blockFloor 按缓存块粒度对齐（provider 只命中整块）。
 - `func measure(prev, current string, totalTok int) (shared int, ratioRaw, ratio64, ratio1k float64)` — measure 计算本轮与上一轮请求的命中指标（block 粒度按 provider 整块缓存语义
@@ -248,9 +248,9 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 - `func compactionFailureRuntime() *compactionReadbackRuntime` — compactionFailureRuntime 是"摘要器装好了、但这次真的拿不到模型读后感"的宿主：
 - `func appendSizedRounds(t *testing.T, service *Service, taskID string, rounds int, asciiRunes int)` — appendSizedRounds 追加 rounds 个已定稿轮次，每轮的 assistant 正文按 asciiRunes 个
 - `func startCompactionFailureSession(t *testing.T, taskID string) (*Service, *fakeEngine, string)` — startCompactionFailureSession 起一个任务执行中的会话（/compact 的显式路径）。
-- `func startCompactionFailureSessionWith(t *testing.T, runtime RuntimePort, taskID string) (*Service, *fakeEngine, string)` — startCompactionFailureSessionWith 同上，但宿主由调用方给——两种失败形态（回执里
+- `func startCompactionFailureSessionWith(t *testing.T, runtime contract.RuntimePort, taskID string) (*Service, *fakeEngine, string)` — startCompactionFailureSessionWith 同上，但宿主由调用方给——两种失败形态（回执里
 - `func compactionRecordsOf(t *testing.T, service *Service) []model.ContextCompaction` — compactionRecordsOf 取会话当前的压缩记录（内存态真值，不用快照投影代替）。
-- `func historyHasContent(history []EngineMessage, needle string) bool` — historyHasContent 报告引擎工作历史里是否还留着某段正文。
+- `func historyHasContent(history []contract.EngineMessage, needle string) bool` — historyHasContent 报告引擎工作历史里是否还留着某段正文。
 - `func TestCompactionFailureKeepsWholeContextAndLeavesTrace(t *testing.T)` — TestCompactionFailureKeepsWholeContextAndLeavesTrace（红灯复现①）
 - `func TestCompactionFailureDoesNotInterruptOverBudgetSession(t *testing.T)` — TestCompactionFailureDoesNotInterruptOverBudgetSession（红灯复现②）
 - `func TestCompactionFailureNoteCarriesReadbackEvidence(t *testing.T)` — TestCompactionFailureNoteCarriesReadbackEvidence（② 的留痕补丁，先红后绿）
@@ -358,18 +358,18 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 
 - `func TestCompactionMaterialMustCarryConversationBody(t *testing.T)` — ── 现场复现（红灯，第一跳：素材）──────────────────────────────────────
 - `func TestCompactionMaterialContrastEmptyEngineHistory(t *testing.T)` — ── 对照组（断言当前行为，不是红灯）────────────────────────────────────
-- `func dialogueRows(messages []EngineMessage) []string` — dialogueRows 返回引擎历史里的**对话正文行**（role=user/assistant 且内容非空）。
-- `func describeRoles(messages []EngineMessage) string` — describeRoles 渲染素材的角色构成（红线里要能一眼看出「全是 system」）。
+- `func dialogueRows(messages []contract.EngineMessage) []string` — dialogueRows 返回引擎历史里的**对话正文行**（role=user/assistant 且内容非空）。
+- `func describeRoles(messages []contract.EngineMessage) string` — describeRoles 渲染素材的角色构成（红线里要能一眼看出「全是 system」）。
 - `func firstLine(content string) string`
 
 ### context_compaction_facts_restore_repro_test.go
 
-- `func (sessions *retiredRecordChannelSessions) SaveSessionRecord(_ string, record SessionRecord) error`
-- `func (sessions *retiredRecordChannelSessions) SaveSessionRecordWorkspace(_, _ string, record SessionRecord) error`
-- `func (sessions *retiredRecordChannelSessions) persist(record SessionRecord) error` — persist 模拟 v8 的落盘：record 通道收下 status/title/对话，`execution` 子树丢弃
-- `func (sessions *retiredRecordChannelSessions) LoadCompactionRecordsWorkspace(_, _ string) ([]ContextCompaction, error)`
+- `func (sessions *retiredRecordChannelSessions) SaveSessionRecord(_ string, record model.SessionRecord) error`
+- `func (sessions *retiredRecordChannelSessions) SaveSessionRecordWorkspace(_, _ string, record model.SessionRecord) error`
+- `func (sessions *retiredRecordChannelSessions) persist(record model.SessionRecord) error` — persist 模拟 v8 的落盘：record 通道收下 status/title/对话，`execution` 子树丢弃
+- `func (sessions *retiredRecordChannelSessions) LoadCompactionRecordsWorkspace(_, _ string) ([]model.ContextCompaction, error)`
 - `func restartCompactionRuntime(recorder *compactionIndexRecorder, source string) *compactionReadbackRuntime` — restartCompactionRuntime 造一个 200k 窗口的宿主；readback 决定这次压缩能不能
-- `func startRestartSession(t *testing.T, store *retiredRecordChannelSessions, runtime RuntimePort, requestID string, rounds int) (*Service, string)` — startRestartSession 起一个任务执行中的会话并追加 rounds 个已定稿轮次
+- `func startRestartSession(t *testing.T, store *retiredRecordChannelSessions, runtime contract.RuntimePort, requestID string, rounds int) (*Service, string)` — startRestartSession 起一个任务执行中的会话并追加 rounds 个已定稿轮次
 - `func persistRestartSession(t *testing.T, service *Service, store *retiredRecordChannelSessions, sessionID string)` — persistRestartSession 按会话落盘（事件流是会话自己的 durable 事实，重启后按同一
 - `func TestReproCompactionFactsSurviveProcessRestart(t *testing.T)` — TestReproCompactionFactsSurviveProcessRestart 重启后压缩栈必须从存储读回来：
 - `func TestReproCompactionFailureTraceSurvivesProcessRestart(t *testing.T)` — TestReproCompactionFailureTraceSurvivesProcessRestart 压缩失败痕同样要跨重启：
@@ -385,7 +385,7 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 - `func realProbeSessionID(t *testing.T, sessionDir string) string` — realProbeSessionID 从会话自己的 message head 读回 Router 的会话键：磁盘目录名是
 - `func realProbeProjectID(t *testing.T, root, sessionID string) string` — realProbeProjectID 从 workspace_index.json 的 bindings（会话 → 项目）读回项目键。
 - `func realProbeLoadFacts(t *testing.T) *realProbeFacts` — realProbeLoadFacts 只读拷贝真实会话目录到临时根，再按生产读面把事实读回来。
-- `func realProbeWindowConfig(t *testing.T) WindowConfig` — realProbeWindowConfig 读真实 seelex.yaml 的 window 段（缺省档见探针文件头）。
+- `func realProbeWindowConfig(t *testing.T) cc.WindowConfig` — realProbeWindowConfig 读真实 seelex.yaml 的 window 段（缺省档见探针文件头）。
 - `func realProbeWindow(t *testing.T) int`
 - `func realProbeSelectEvents(facts *realProbeFacts, fromSeq, toSeq uint64) []model.TranscriptEvent`
 - `func realProbeRunArm(t *testing.T, facts *realProbeFacts, arm realProbeArm) realProbeOutcome` — realProbeRunArm 在**被动**路径上跑一轮：自动装配（判据命中才折）。
@@ -401,7 +401,7 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 
 ### context_compactions_restore_repro_test.go
 
-- `func compactedSessionStore(t *testing.T) (*archiveSessions, string, ContextCompaction, int)` — compactedSessionStore 造一份「重启前」的持久面并结束进程：第一份 Service 在
+- `func compactedSessionStore(t *testing.T) (*archiveSessions, string, model.ContextCompaction, int)` — compactedSessionStore 造一份「重启前」的持久面并结束进程：第一份 Service 在
 - `func coldResume(t *testing.T, store *archiveSessions, sessionID string) *Service` — coldResume 在 store 上新建 Service（进程重启）并冷加载会话。
 - `func TestReproCompactionStackSurvivesProcessRestart(t *testing.T)` — TestReproCompactionStackSurvivesProcessRestart 应用重启后，旧会话的压缩栈
 - `func TestReproCompactionStackVisibleWithoutProjection(t *testing.T)` — TestReproCompactionStackVisibleWithoutProjection projection 缺失（老记录、
@@ -420,7 +420,7 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 - `func TestTranscriptTailKeepsTrailingUnansweredUserInput(t *testing.T)`
 - `func TestTranscriptTailAccumulatesAllSettledRoundsWhenUnlimited(t *testing.T)`
 - `func TestPrepareExecutionContextAccumulatesAllSettledRoundsAndByteStable(t *testing.T)`
-- `func historyContents(history []EngineMessage) []string`
+- `func historyContents(history []contract.EngineMessage) []string`
 - `func TestRejectToolResultsRecognizesFrameworkTruncationMarker(t *testing.T)`
 
 ### context_hook_test.go
@@ -436,16 +436,16 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 - `func TestContextPrefixInvariant_CrossTurn(t *testing.T)`
 - `func TestContextPrefixInvariant_EmptyToolResult(t *testing.T)` — TestContextPrefixInvariant_EmptyToolResult 覆盖第 3 处事后改写：工具返回空
 - `func probeAssertPrefixInvariant(t *testing.T, harness *prefixProbeHarness)` — probeAssertPrefixInvariant 断言相邻请求保持字节前缀；首条违反即失败并归因。
-- `func probeMessageAt(messages []EngineMessage, index int) EngineMessage` — probeMessageAt 返回序列化消息快照中的第 index 条（越界返回空消息）。
-- `func probeMessageContentAt(messages []EngineMessage, index int) string`
-- `func probeFirstDiffKind(previous, current []EngineMessage, index int) string` — probeFirstDiffKind 归因首个差异消息的成因——只在两侧 role / tool_calls ID
+- `func probeMessageAt(messages []contract.EngineMessage, index int) contract.EngineMessage` — probeMessageAt 返回序列化消息快照中的第 index 条（越界返回空消息）。
+- `func probeMessageContentAt(messages []contract.EngineMessage, index int) string`
+- `func probeFirstDiffKind(previous, current []contract.EngineMessage, index int) string` — probeFirstDiffKind 归因首个差异消息的成因——只在两侧 role / tool_calls ID
 
 ### context_restore_prefix_order_test.go
 
 - `func TestRunningSessionAccumulatesAllRoundsInOrderControl(t *testing.T)`
 - `func TestColdRestoreTailFirstRequestKeepsTranscriptOrder(t *testing.T)`
-- `func appendOrderedRoundsLocked(service *Service, rounds int) []TranscriptEvent`
-- `func orderRoundLabels(history []EngineMessage) []string`
+- `func appendOrderedRoundsLocked(service *Service, rounds int) []model.TranscriptEvent`
+- `func orderRoundLabels(history []contract.EngineMessage) []string`
 - `func expectedOrderRoundLabels(rounds int) []string`
 
 ### context_retain_floor_test.go
@@ -459,14 +459,14 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 
 - `func abBody(line string, repeat int) string`
 - `func abDemoScript() []abTurnScript` — abDemoScript 是一条 4 轮脚本会话，每轮都发 2 次工具调用（与生产 ReAct 形状一致）。
-- `func abSerialize(system string, items []EngineMessage, tools []Tool) string` — abSerialize 把一次"provider 可见请求"固化为确定性字节流：
-- `func abToolsSignature(tools []Tool) string`
-- `func abSortedTools(tools []Tool) []Tool`
-- `func abCapture(arm string, turn, iter int, system string, items []EngineMessage, tools []Tool) abCall`
+- `func abSerialize(system string, items []contract.EngineMessage, tools []model.Tool) string` — abSerialize 把一次"provider 可见请求"固化为确定性字节流：
+- `func abToolsSignature(tools []model.Tool) string`
+- `func abSortedTools(tools []model.Tool) []model.Tool`
+- `func abCapture(arm string, turn, iter int, system string, items []contract.EngineMessage, tools []model.Tool) abCall`
 - `func abCompare(prev, cur abCall) abDivergence`
 - `func abLog(t *testing.T, kind string, d abDivergence)`
 - `func runABProductionArm(t *testing.T, label string, script []abTurnScript, cfg prefixProbeConfig) *abRun`
-- `func runABCodexArm(t *testing.T, label string, script []abTurnScript, system string, tools []Tool) *abRun` — runABCodexArm 按 Codex 的发布策略构造同一脚本的请求序列：
+- `func runABCodexArm(t *testing.T, label string, script []abTurnScript, system string, tools []model.Tool) *abRun` — runABCodexArm 按 Codex 的发布策略构造同一脚本的请求序列：
 - `func TestContextStrategyAB_CrossTurnScript(t *testing.T)`
 - `func abCallAt(run *abRun, turn, iter int) *abCall`
 - `func abPreview(text string, limit int) string`
@@ -480,14 +480,14 @@ RawHistoryFor → engine.History()`）——同 goroutine 抢自己已持有的�
 
 ### context_window_rule_test.go
 
-- `func applyWindowConfig(t *testing.T, config WindowConfig)` — applyWindowConfig 应用 window 段并在测试结束恢复（进程内生效配置）。
+- `func applyWindowConfig(t *testing.T, config cc.WindowConfig)` — applyWindowConfig 应用 window 段并在测试结束恢复（进程内生效配置）。
 - `func appendWindowRounds(t *testing.T, service *Service, requestID string, rounds, answerChars int) []string` — appendWindowRounds 追加 rounds 个已定稿轮次（短问 + 长答），返回每轮标记。
-- `func retainedRounds(history []EngineMessage, marks []string) int` — retainedRounds 统计仍留在 provider 历史里的轮次数（按轮标记匹配）。
-- `func compactNow(t *testing.T, service *Service, sessionID string) ContextCompaction` — compactNow 走显式压缩落点（/compact、compact_context 同一条路径），返回
+- `func retainedRounds(history []contract.EngineMessage, marks []string) int` — retainedRounds 统计仍留在 provider 历史里的轮次数（按轮标记匹配）。
+- `func compactNow(t *testing.T, service *Service, sessionID string) model.ContextCompaction` — compactNow 走显式压缩落点（/compact、compact_context 同一条路径），返回
 - `func TestCompactRetainedPrefixIsMinOfTwoWindows(t *testing.T)` — TestCompactRetainedPrefixIsMinOfTwoWindows：保留前缀 = min(token1, token2)。
 - `func TestCompactHardThresholdForcesCompression(t *testing.T)` — TestCompactHardThresholdForcesCompression：window.force_compact_tokens 是硬
 - `func TestCompactHardThresholdBypassesEpochThrottle(t *testing.T)` — TestCompactHardThresholdBypassesEpochThrottle：硬压缩不被"同一批进展只压
 - `func TestReadTailBudgetFollowsRetainedWindowRule(t *testing.T)` — TestReadTailBudgetFollowsRetainedWindowRule：读尾（冷恢复装载 transcript /
-- `func compactionRecords(service *Service, sessionID string) []ContextCompaction`
-- `func lastCompactionRecord(t *testing.T, service *Service, sessionID string) ContextCompaction`
+- `func compactionRecords(service *Service, sessionID string) []model.ContextCompaction`
+- `func lastCompactionRecord(t *testing.T, service *Service, sessionID string) model.ContextCompaction`
 - `func TestCompactContextHandlerReportsRecordedRange(t *testing.T)` — TestCompactContextHandlerReportsRecordedRange：compact_context 工具/命令的

@@ -66,7 +66,7 @@
 
 ### skill_activate_tool_test.go
 
-- `func newSkillToolHarness(t *testing.T) (*seelebridge.Runtime, *skill.Registry, *[]string)` — newSkillToolHarness 构造 skill_activate 工具测试台：真实 skill.Registry +
+- `func newSkillToolHarness(t *testing.T) (*assemble.Runtime, *skill.Registry, *[]string)` — newSkillToolHarness 构造 skill_activate 工具测试台：真实 skill.Registry +
 - `func TestSkillActivateToolCandidatesFollowPluginSwitch(t *testing.T)` — TestSkillActivateToolCandidatesFollowPluginSwitch：候选技能列表随插件切换
 - `func TestSkillActivateToolValidation(t *testing.T)` — TestSkillActivateToolValidation：空名报错；json 可解析。
 - `func TestSkillActivateToolActivateErrorSurfaced(t *testing.T)` — TestSkillActivateToolActivateErrorSurfaced：activate 返回错误 → status=error

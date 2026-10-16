@@ -13,7 +13,7 @@ Skill 指令信封编解码
 
 ### skill_activate.go
 
-- `func (service *Service) ActivateSkill(name string) (SkillInfo, error)` — ActivateSkill 把当前插件的一个技能激活进当前会话的 skill 层（模型侧 `skill_activate`
+- `func (service *Service) ActivateSkill(name string) (model.SkillInfo, error)` — ActivateSkill 把当前插件的一个技能激活进当前会话的 skill 层（模型侧 `skill_activate`
 
 ### skill_activate_test.go
 
@@ -25,14 +25,14 @@ Skill 指令信封编解码
 ### skill_context.go
 
 - `func chatRequestDisplays(requests []chatRequest) []string`
-- `func newChatRequest(input string, layers []PromptLayer) chatRequest`
-- `func selectedSkillLayers(layers []PromptLayer) []PromptLayer`
-- `func formatSkillUserInput(layers []PromptLayer, input string) string`
-- `func writeSkillItem(builder *strings.Builder, skill PromptLayer)`
+- `func newChatRequest(input string, layers []prompt.PromptLayer) chatRequest`
+- `func selectedSkillLayers(layers []prompt.PromptLayer) []prompt.PromptLayer`
+- `func formatSkillUserInput(layers []prompt.PromptLayer, input string) string`
+- `func writeSkillItem(builder *strings.Builder, skill prompt.PromptLayer)`
 - `func wrapModelInput(displayInput, body string) string`
 - `func displayUserInput(modelInput string) string`
 - `func combineChatRequests(requests []chatRequest) chatRequest`
-- `func mergeSkillLayers(current, incoming []PromptLayer) []PromptLayer`
+- `func mergeSkillLayers(current, incoming []prompt.PromptLayer) []prompt.PromptLayer`
 - `func parseModelEnvelope(input string) (string, int, bool)`
 
 ### skill_context_test.go
