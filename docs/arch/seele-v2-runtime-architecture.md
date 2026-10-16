@@ -21,7 +21,7 @@ seelex 仍引用已删除包，**当前 `go build ./...` 处于构建阻断状�
 | `seelebridge/branch.go` | `Seele/agent/core/tool/builtin`（ChatAgentFactory/WorkPlanTool） |
 | `seelebridge/plugins.go` | `Seele/agent/core/tool/holder` |
 | `seelebridge/mcp.go` | `Seele/agent/core/tool/mcp` |
-| `seelebridge/plan_tool_provider.go` | `Seele/agent/core/tool/interfaces` |
+| `backend/tool/plan/tool_provider.go` | `Seele/agent/core/tool/interfaces` |
 | `application_adapters.go` | `Seele/agent/core/tool/permission` |
 | `backend/tool/plan.go`、`branch.go` 等 | `Seele/workplan/runtime/serialize`、`workplan/core/*`（部分仍在但非新入口） |
 | `seelebridge/runtime.go` | `Seele/agent/core/api`（ChatClient/AccountPool） |
@@ -30,7 +30,7 @@ seelex 仍引用已删除包，**当前 `go build ./...` 处于构建阻断状�
 
 ### 2.1 Plan→subagent：子代理无作用域，只能串行
 
-现状（`seelebridge/plan_tool_provider.go`、`seelebridge/branch.go`）：plan 的 DAG 执行整体委托给旧 `builtin.WorkPlanTool`。`plan_run` 触发框架内部 scheduler/fork，框架按 `resolvePlanBranchRuntime()` 请求 seelex 提供 `forkexec.BranchRuntime`（账号解析 + `ChatAgentFactory` 私有 client）。但：
+现状（`backend/tool/plan/tool_provider.go`、`backend/tool/plan/branch_types.go`）：plan 的 DAG 执行整体委托给旧 `builtin.WorkPlanTool`。`plan_run` 触发框架内部 scheduler/fork，框架按 `resolvePlanBranchRuntime()` 请求 seelex 提供 `forkexec.BranchRuntime`（账号解析 + `ChatAgentFactory` 私有 client）。但：
 
 - 框架创建的 branch 子聊天不继承 seelex 的项目作用域工具集（`ProjectScope`、`scoped_tools.go` 的过滤逻辑）与上游证据 envelope；
 - 因此 `withoutAuthoritativePlanMutationTools()` 在 authoritative 模式下把 `plan_run` 隐藏，主代理只能拿 plan 当清单**串行**执行，fork/并行能力被框架持有而 seelex 不可控；
@@ -129,7 +129,7 @@ seelebridge ──> Seele 新根模块（agent/tools/session/workplan/seelectx/a
 ### 4.4 Plan→subagent（workplan/codec + agent/bridge）
 
 - **产品 DSL 解释归 seelex**：`plan_load`/`plan_run`/`plan_clear` 由 seelex 作为普通产品工具实现（注册进 Registry），内部：
-  1. `NormalizePlanLoadArguments`/`DetectCycle`/`TopoSort`/`PlanPolicy` 校验逻辑保留（`seelebridge/plan_input_adapter.go`、`plan.go`、`plan_policy.go`）；
+  1. `NormalizePlanLoadArguments`/`DetectCycle`/`TopoSort`/`PlanPolicy` 校验逻辑保留（`backend/tool/plan/input_adapter.go`、`backend/tool/plan/graph.go`、`backend/tool/plan/policy.go`）；
   2. 规范 JSON 经 `codec.Import`/`codec.ImportEdgeList` 导入为 `*coreplan.Plan`（`Document[SeelexNodeInput]` 或 `Document[string]`），由 seelex 的 `codec.NodeFactory[SeelexNodeInput]` 将 `kind`/`input` 解释为具体 Node；
   3. `workplan.NewFromPlan(plan, factory, WithEventSink(sink, planID), WithEventRunID(runID), WithEventLocators(agent.EventLocator, workplan.EventLocator))`，`runner.New(plan).Run(ctx)` 执行，支持真并行 fork、取消、checkpoint、Resume。
 - **Node 语义（kind 由 seelex 解释）**：

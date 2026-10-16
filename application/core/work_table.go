@@ -14,7 +14,7 @@ import (
 )
 
 // ── 工作表格（Work Table）投影 ──────────────────────────────
-// task 就是 worktable 条目：单一 task 注册表（seelebridge/task_registry.go，
+// task 就是 worktable 条目：单一 task 注册表（backend/tool/task/task.go，
 // Actor + Mailbox，保护粒度=task）是权威状态源；plan/subagent 节点生命周期
 // 被动同步进注册表（B5），todolist 融合为 kind=todo 的 task（B0），主动
 // taskadd 直接入注册表（B1 幂等）。

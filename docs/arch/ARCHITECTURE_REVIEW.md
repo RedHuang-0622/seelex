@@ -209,7 +209,7 @@
 | SubagentMailbox 满则计数 + 丢弃 | `seelebridge/actor.go:enqueueSubagentContext` (select+default) | `subagent_audit_test.go:TestSubagentMailboxIsBoundedAndNeverBlocksProducer` |
 | ToolHook 不重入 Service.mu | `taskRuntimeState.goalSkillActive` atomic.Bool | `TestToolCompletionDoesNotReenterServiceLockForGoalSkillVisibility` |
 | Plan 节点级 cycle 拒绝 | `backend/tool/plan.go:DetectCycle` (Kahn) | `plan_kernel_test.go` |
-| Plan 节点 budget 上限 | `seelebridge/plan_policy.go:validateLoad` (MaxNodeLoops/MaxNodeOutputTokens) | `plan_input_fuzz_test.go` |
+| Plan 节点 budget 上限 | `backend/tool/plan/policy.go:ValidatePolicyLoad` (MaxNodeLoops/MaxNodeOutputTokens；原记录写 `seelebridge/plan_policy.go:validateLoad`，路径与符号都已在搬迁中改名) | **无守卫用例**（原记录的 `plan_input_fuzz_test.go` 不存在，该分支当前没有测试覆盖） |
 | Plan 节点事件时间线截断 | `application/core/chat.go:appendPlanNodeEvent` (limits.plan_node_events) | race_test / session_archive_test |
 | 流式 chunk 按 32 条 / 40ms 批 | `application/core/chat.go:newBatchedDeltaSink` | — |
 | 上下文恢复有界 | `application/core/context_controller.go:prepareExecutionContext` (TargetAfterCompaction) | `context_controller_test.go` |

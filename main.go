@@ -1138,7 +1138,7 @@ func resolvePythonCommand() string {
 }
 
 // registerTaskTerminalTools 把 task_complete/task_failed/task_needs_user_decision
-// 注册进 tools.Registry（taskTerminalProvider，见 seelebridge/task_terminal.go）；
+// 注册进 tools.Registry（taskTerminalProvider，见 backend/tool/task/terminal.go）；
 // handler 内调用 TaskService.VerifyAndApply（投影 flush + 终态校验）。
 func registerTaskTerminalTools(runtime *seelebridge.Runtime, app *application.Service) {
 	runtime.RegisterTaskTerminalTools(app.TaskTerminalHandler)
