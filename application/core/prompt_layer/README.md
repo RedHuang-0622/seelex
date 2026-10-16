@@ -65,6 +65,17 @@ system 层、前缀缓存失效面、锁外 `SetSystemPrompt`。
 - `func (c *Coordinator) setEngineSystemPrompt(sessionID, promptText string)` — setEngineSystemPrompt 设置指定会话引擎的 system prompt（支持会话路由的
 - `func (c *Coordinator) activeSessionID() string` — activeSessionID 返回当前活跃会话（快照归属会话）。
 
+### environment_section_test.go
+
+- `func TestEnvironmentSectionIsInjectedAndStable(t *testing.T)` — TestEnvironmentSectionIsInjectedAndStable：**执行面的环境事实**（这台机器上 bash 工具落到
+- `func renderSystemPrompt(coordinator *pl.Coordinator) string` — renderSystemPrompt 走**生产同一条路**：先 BuildSystemPrompt（推段 + 同步引擎），再读回。
+- `func (engine *environmentPromptEngine) SetSystemPrompt(promptText string)`
+- `func (engine *environmentPromptEngine) SetMaxLoops(int)`
+- `func (environmentPluginStub) All() []model.PluginInfo`
+- `func (environmentPluginStub) Activate(context.Context, string) error`
+- `func (environmentPluginStub) Deactivate(context.Context) error`
+- `func (environmentPluginStub) Current() (model.PluginInfo, bool)`
+
 ### skill_catalog.go
 
 - `func skillCatalogActivationHint(skillSigil string) string` — skillCatalogActivationHint 是目录尾的激活纪律：目录只宣告可激活技能，

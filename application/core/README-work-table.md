@@ -165,18 +165,18 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 ### project_board_test.go
 
 - `func newFakeBoardStore() *fakeBoardStore`
-- `func boardStoreKey(projectRoot, file string) string` — boardStoreKey 是内存替身的文件键：落点现在是**项目级平铺文件**
-- `func (store *fakeBoardStore) AppendProjectBoardRows(projectRoot, file string, rows []store.ProjectBoardRow) (uint64, error)`
-- `func (store *fakeBoardStore) ProjectBoardWatermark(projectRoot, file string) (uint64, error)`
-- `func (store *fakeBoardStore) watermarkLocked(projectRoot, file string) uint64`
-- `func (store *fakeBoardStore) writeCount(file string) int`
-- `func (store *fakeBoardStore) lastWrite(file string) []store.ProjectBoardRow`
-- `func (store *fakeBoardStore) raw(projectRoot, file string) []store.ProjectBoardRow` — raw 是文件的**原始行**（未折叠；I6 断言"空集合不建文件"用它）。
-- `func (store *fakeBoardStore) folded(projectRoot, file string) []store.ProjectBoardRow` — folded 复用存储面**唯一读法**（折叠读），不自己实现第二份。
-- `func (store *fakeBoardStore) dropFile(projectRoot, file string)`
+- `func boardStoreKey(projectRoot, sessionID, file string) string` — boardStoreKey 是内存替身的文件键：落点是**按会话分目录**的一份文件
+- `func (st *fakeBoardStore) AppendProjectBoardRows(projectRoot, sessionID, file string, rows []store.ProjectBoardRow) (uint64, error)`
+- `func (st *fakeBoardStore) ProjectBoardWatermark(projectRoot, sessionID, file string) (uint64, error)`
+- `func (st *fakeBoardStore) watermarkLocked(projectRoot, sessionID, file string) uint64`
+- `func (st *fakeBoardStore) writeCount(file string) int`
+- `func (st *fakeBoardStore) lastWrite(file string) []store.ProjectBoardRow`
+- `func (st *fakeBoardStore) raw(projectRoot, sessionID, file string) []store.ProjectBoardRow` — raw 是**某会话某文件**的原始行（未折叠；I6 断言"空集合不建文件"用它）。
+- `func (st *fakeBoardStore) folded(projectRoot, sessionID, file string) []store.ProjectBoardRow` — folded 复用存储面**唯一读法**（折叠读），不自己实现第二份。
+- `func (st *fakeBoardStore) dropFile(projectRoot, sessionID, file string)`
 - `func newBoardTestService(t *testing.T, options ...testServiceOption) (*Service, *fakeRuntime, string)` — newBoardTestService 造一个带 fakeRuntime 的 Service，并返回其**当前视图会话**
-- `func boardDeps(store ProjectBoardStore, idle time.Duration, rows func(string) []WorkItem) ProjectBoardDeps` — boardDeps 造同步器入参（默认走默认触发档，落点固定 ws-board）。
-- `func waitForBoardWrites(t *testing.T, store *fakeBoardStore, file string, want int)`
+- `func boardDeps(st ProjectBoardStore, idle time.Duration, rows func(string) []WorkItem) ProjectBoardDeps` — boardDeps 造同步器入参（默认走默认触发档，落点固定 ws-board）。
+- `func waitForBoardWrites(t *testing.T, st *fakeBoardStore, file string, want int)`
 - `func settleBoard(idle time.Duration)` — settleBoard 等过若干倍静默窗：用来证明"没有第 N 次落盘"（消极断言需要时间）。
 - `func marshalBoardRows(t *testing.T, rows []store.ProjectBoardRow) string`
 - `func boardRowByKey(rows []store.ProjectBoardRow, key string) (store.ProjectBoardRow, bool)`
@@ -207,9 +207,9 @@ running 的假行。因此后台行的生命完全跟着登记表：派发出现
 - `func (runtime *boardPlanRuntime) TeamworkPlanFor(sessionID string) (store.TeamworkPlan, bool)`
 - `func (sink *recordingBoardSink) OnToolComplete(name string, err error, sessionID string)`
 - `func (sink *recordingBoardSink) snapshot() []boardSinkCall`
-- `func boardSessionRows(t *testing.T, store *fakeBoardStore, session, file string) int` — boardSessionRows 取"该会话在该文件里"的行数。
+- `func boardSessionRows(t *testing.T, st *fakeBoardStore, session, file string) int` — boardSessionRows 取"该会话在该文件里"的行数。
 - `func TestProjectBoardHooksOnExistingSyncPoint(t *testing.T)`
-- `func (store *flakyBoardStore) AppendProjectBoardRows(projectRoot, file string, rows []store.ProjectBoardRow) (uint64, error)`
+- `func (st *flakyBoardStore) AppendProjectBoardRows(projectRoot, sessionID, file string, rows []store.ProjectBoardRow) (uint64, error)`
 - `func TestProjectBoardHookFailureNoHalfWrite(t *testing.T)`
 
 ### work_table.go

@@ -287,7 +287,10 @@ def strip_old_section(text: str) -> str:
 def write_if_changed(path: pathlib.Path, content: str) -> None:
     if path.exists() and path.read_text(encoding="utf-8") == content:
         return
-    path.write_text(content, encoding="utf-8")
+    # 显式 LF：Windows 上 `write_text` 的默认换行翻译会把整份 README 写成 CRLF，
+    # 而那与仓库的 LF 约定、`.githooks/pre-commit` 的 CRLF 拦截直接冲突
+    # （同款事故见 docs/2026-10-15-architecture-reshape/m2-record.md 的 D-M2-13）。
+    path.write_text(content, encoding="utf-8", newline="\n")
     # 基座包（EXTRA_PACKAGES）不在 application/core 下，relative_to(ROOT) 会抛错；
     # 优先按仓库根打印，退化时用绝对路径。
     try:
