@@ -43,6 +43,7 @@ import (
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/backend/tool/task"
 	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
+	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/config"
 	"github.com/RedHuang-0622/seelex/internal/docker"
@@ -260,10 +261,10 @@ type Runtime struct {
 	// runtime_subagent_resume.go。
 	subagentResume subagentResumeState
 	// teamResume 保存 teammate 单元中断恢复期的 system 恢复说明（角色会话 →
-	// 说明；只进它自己的下一次装配，读完即消）。**容器只有一份**（resumeNotes，
+	// 说明；只进它自己的下一次装配，读完即消）。**容器只有一份**（workunit.ResumeNotes，
 	// 见 resume_notes.go）；正文也只有一份（见 workunit_team_records.go 的
 	// `workunit.RecoveryNote` 接线）。
-	teamResume       resumeNotes
+	teamResume       workunit.ResumeNotes
 	eventPersisterMu sync.Mutex
 	eventPersister   func(context.Context, frameworkevent.Event) error
 	lazyMCPServerMu  sync.RWMutex

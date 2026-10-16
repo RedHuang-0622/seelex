@@ -1,33 +1,21 @@
 package assemble
 
-// runtime_unit_recovery.go — 恢复链的**策略面**：一条持久记录该按哪一层恢复，由记录快照里的
-// **身份**（`store.NodeUnitRecord.Kind`）决定，而不是由 nodeID 的拼法去猜。
+// runtime_unit_recovery.go — 恢复链的**两层策略本体**（装配面）。
 //
-// 为什么恢复侧必须是策略、写侧却是责任链：两条链**要读的东西、要恢复的内容确实不同**——
-//   - subagent：恢复"崩溃遗留的节点"（详情数据面 + 子代理树节点 + 现场登记），跑完即清；
-//   - teammate：恢复**团队现场**（Work Item 级 worktree + 角色会话"跑到哪"），它的记录是
-//     运行期落盘的正本，**绝不是子代理树上的节点**。
-//
-// 只有一条链的代价是实打实的：两种记录共用同一个 `subagents/` 目录，于是 teammate 的单元记录
-// 被当成"崩溃遗留的子代理节点"恢复——工作表格上因此长出一条 `subagent:<role>-<itemID>
-// interrupted` 的假行（它的真身是团队现场）。记录侧的身份（`NodeUnitRecord`）就是为了让这里
-// 有判据可用：**不猜形状，读记录自己写的身份**。
+// 判据（记录身份 → 哪一层、"认不得的词不静默归类"、分派次序、留痕）在契约包
+// [`backend/workunit`](../../workunit/README.md) 的 `recovery.go`（P21-16 归位）；
+// 本文件只剩两层策略各自**要对宿主做的那几件事**：恢复详情数据面 / 子代理树 / 现场登记。
+// 策略差异只允许出现在本文件的装配与调用点上（AGENTS §8.5）。
 
 import (
 	"log"
-	"strings"
 
 	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/store"
 )
 
-// unitRecoveryStrategy 是恢复链上的一格策略：认哪些记录、把它们恢复成什么。
-type unitRecoveryStrategy interface {
-	// Kind 报告本策略管哪一层（诊断读数与用例的判据）。
-	Kind() workunit.Kind
-	// Restore 恢复本策略**认得的那一批**记录（空批 = 幂等的无事路径）。
-	Restore(records []store.NodeSessionRecord)
-}
+// unitRecoveryStrategy 是契约包里那一格策略接口的**同身份别名**（既有调用点与用例零改动）。
+type unitRecoveryStrategy = workunit.RecoveryStrategy
 
 // subagentRecovery 恢复子代理层：详情数据面 + 子代理树 + 现场登记。
 //
@@ -88,50 +76,22 @@ func (r *Runtime) unitRecoveryStrategies(sessionID string) []unitRecoveryStrateg
 	}
 }
 
-// unitKindOf 读出这条记录属于哪一层（**唯一转换点**：快照里的 wire 串 → 契约枚举）。
-//
-// 两段判据，顺序是判据的一部分：
-//  1. 快照里写明的身份（新记录一律写明；写侧见 `SubagentUnitRecordLink` 与 teammate 那一环）；
-//  2. 加固之前写下的老记录没有身份那一格：按**团队事实**兜底——nodeID 落在本会话的团队现场
-//     名单（计划 + 绑定账本，见 `teamSceneIndex`）里，它就是一个 teammate 单元。这不是"猜
-//     nodeID 的形状"：那份名单是"这个 nodeID 属于谁"的正本。
-//
-// 认不得的词（将来加了新层而这里没跟上）不静默归类：按既有链（子代理）恢复并留痕。
-func (r *Runtime) unitKindOf(record store.NodeSessionRecord, teamScenes map[string]bool) workunit.Kind {
-	switch kind := workunit.Kind(strings.TrimSpace(record.Unit.Kind)); kind {
-	case workunit.KindSubagent, workunit.KindTeammate:
-		return kind
-	}
-	if word := strings.TrimSpace(record.Unit.Kind); word != "" {
-		log.Printf("seelex: 记录 %q 的身份词未知（%q），按 subagent 那一层恢复", record.NodeID, word)
-		return workunit.KindSubagent
-	}
-	if teamScenes[strings.TrimSpace(record.NodeID)] {
-		return workunit.KindTeammate
-	}
-	return workunit.KindSubagent
-}
-
-// restoreUnitRecords 是恢复链的**分派点**：先按身份把记录切开，再交给各自的策略。
+// restoreUnitRecords 是恢复链的分派点（装配侧接线）：读团队现场名单 → 交契约包按身份切开 →
+// 各层策略跑自己的恢复动作。
 func (r *Runtime) restoreUnitRecords(sessionID string, records []store.NodeSessionRecord) {
 	if r == nil || len(records) == 0 {
 		return
 	}
-	scenes := make(map[string]bool, 4)
-	for _, entry := range r.teamSceneIndex(sessionID) {
-		scenes[entry.NodeID] = true
-	}
-	owned := make(map[workunit.Kind][]store.NodeSessionRecord, 2)
-	for _, record := range records {
-		kind := r.unitKindOf(record, scenes)
-		owned[kind] = append(owned[kind], record)
-	}
-	for _, strategy := range r.unitRecoveryStrategies(sessionID) {
-		batch := owned[strategy.Kind()]
-		if len(batch) == 0 {
-			continue
-		}
-		strategy.Restore(batch)
-		log.Printf("seelex: 恢复 %s 记录 %d 条（会话 %s）", strategy.Kind(), len(batch), sessionID)
-	}
+	workunit.RestoreUnits(sessionID, records, workunit.RestoreDeps{
+		SceneNodes: func(sessionID string) []string {
+			index := r.teamSceneIndex(sessionID)
+			nodeIDs := make([]string, 0, len(index))
+			for _, entry := range index {
+				nodeIDs = append(nodeIDs, entry.NodeID)
+			}
+			return nodeIDs
+		},
+		Strategies: r.unitRecoveryStrategies(sessionID),
+		Log:        log.Printf,
+	})
 }

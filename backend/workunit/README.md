@@ -93,6 +93,8 @@ tool / multiagent / internal 三块（`backend/tool/worktree` 依赖本包的哨
 | `progress.go` | 进度**读面**：`Stage` + `EncodeStages`/`DecodeStages`（打点载荷的唯一一份编解码 + `ClipPreview` 唯一一份预览裁剪）+ `Progress`/`ProgressOf`（记录 → 进度的唯一一份折算）+ `UnitReader`（按 nodeID 读一件事的进度：`Read`/`Record`/`List`/`Records`）。步骤②已把它接进生产读路（宿主记录读面 / 子代理恢复定位 / teammate 会话级读回） |
 | `ports.go` | **宿主注入面**（三格窄端口）：`SceneFace`（建 / 合并 / 认领 / 拆 / 在册）、`UnitFace`（归属 / 重入 / 回执 / 回收 / 回灌）、`RecordFace`（状态读数 / 回灌读数 / 落盘 / 写终态 / 清记录）。实现留在装配处（`backend/engine/assemble` 的 `hostPorts`）：`worktree` / `teamwork` / `store` 的具体类型只允许出现在那里 |
 | `lifecycle.go` | **唯一一份生命周期实现** `Host`：`Begin` / `AlreadySettled` / `Finish` / `Reclaim` / `Recover` / `Notice`，只持上面三格端口。判据全在这里（重入怎么回答、合并只做一次、恢复的粒度、要不要收作业），装配处只负责构造（`NewHost`）与挂在装配链的位置 |
+| `recovery.go` | **恢复链的判据面**（P21-16 从 `backend/engine/assemble/{runtime_unit_recovery.go,resume_notes.go}` 归位）：`KindOf`（记录身份 → 哪一层：写明的身份优先 → 缺身份时按团队现场名单兜底 → 认不得的词交回调用方留痕）、`RecoveryStrategy`（一格策略：认哪些记录、恢复成什么）+ `RestoreDeps{SceneNodes, Strategies, Log}` + `RestoreUnits`（按身份切开、只喂非空批次、次序固定）、`ResumeNotes`（恢复说明容器：`Set` / `Take` 读完即消 / `Peek` 非消费读 / `Clear`；**键语义留在调用点**） |
+| `recovery_test.go` | 身份判据的三段顺序（含未知身份词按既有链归类并交回留痕）、分派（批次 / 次序 / 空批幂等 / 无现场名单）、`ResumeNotes` 语义与并发安全（供 `-race`） |
 
 **依赖方向**（步骤③E 之后）：契约包**不 import 任何实现包**——`classify.go` 认的两个哨兵错误
 （`ErrUncommittedChanges` / `ErrMergeBlockedByMain`）现在**定义在契约里**（判据在哪、哨兵就在哪），
@@ -306,6 +308,26 @@ go test ./e2e/ -run TestWorkunitPortGate -count=1   # 装配与作业面的机�
 - `func TestUnitReaderReadsByNodeIDAndFiltersOwnership(t *testing.T)` — TestUnitReaderReadsByNodeIDAndFiltersOwnership：读法收成一份，归属过滤由调用方给出
 - `func TestUnitReaderRecordSharesTheSameLookup(t *testing.T)` — TestUnitReaderRecordSharesTheSameLookup：层专有格（History/ContextJSON/ResultJSON、
 - `func TestUnitReaderCannotBranchOnKind(t *testing.T)` — TestUnitReaderCannotBranchOnKind：Kind 是描述性标注，读面不据它分支——同一份记录、同一份
+
+### recovery.go
+
+- `func KindOf(record store.NodeSessionRecord, teamScenes map[string]bool) (Kind, string)` — KindOf 读出这条记录属于哪一层（**唯一转换点**：快照里的 wire 串 → 契约枚举）。
+- `func RestoreUnits(sessionID string, records []store.NodeSessionRecord, deps RestoreDeps)` — RestoreUnits 是恢复链的**分派点**：先按身份把记录切开，再交给各自的策略。
+- `func (n *ResumeNotes) Set(key, note string)` — Set 记下某个键下一次装配要带的恢复说明（空键 / 空说明 = 不记，幂等）。
+- `func (n *ResumeNotes) Take(key string) string` — Take 取走某个键的恢复说明并**清掉**（一次装配读完即消）。
+- `func (n *ResumeNotes) Peek(key string) string` — Peek 读回某个键的恢复说明但**不清掉**（非消费读：装配期间同一次提示可能被读多次）。
+- `func (n *ResumeNotes) Clear(key string)` — Clear 丢掉某个键还没被读走的恢复说明（收口清会话内容时用：会话内容都不在了，
+
+### recovery_test.go
+
+- `func unitRecord(nodeID, kind string) store.NodeSessionRecord`
+- `func TestKindOfReadsTheRecordsOwnIdentity(t *testing.T)` — TestKindOfReadsTheRecordsOwnIdentity：身份判据的顺序是判据的一部分——
+- `func (s *stubStrategy) Kind() Kind`
+- `func (s *stubStrategy) Restore(records []store.NodeSessionRecord)`
+- `func TestRestoreUnitsDispatchesByIdentityAndKeepsOrder(t *testing.T)` — TestRestoreUnitsDispatchesByIdentityAndKeepsOrder：分派按身份切开、只把**非空批次**交给
+- `func TestRestoreUnitsWithoutSceneIndex(t *testing.T)` — TestRestoreUnitsWithoutSceneIndex：没有现场名单（未装配计划/账本）时，缺身份的老记录一律
+- `func TestResumeNotesIsReadOnceAndKeyScoped(t *testing.T)` — TestResumeNotesIsReadOnceAndKeyScoped：恢复说明的容器语义——空键/空说明不记、
+- `func TestResumeNotesIsConcurrencySafe(t *testing.T)` — TestResumeNotesIsConcurrencySafe：容器自持锁，并发读写不产生数据竞争（本用例供 `-race` 使用）。
 
 ### session.go
 

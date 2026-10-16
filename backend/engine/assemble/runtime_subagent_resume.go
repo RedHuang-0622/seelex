@@ -49,7 +49,7 @@ const subagentRecoveryNotePrefix = "[Seelex recovery note: interrupted subagent"
 //   - parentRepair：父侧历史补齐钩子（application 组合根注入）。
 type subagentResumeState struct {
 	mu           sync.Mutex
-	notes        resumeNotes
+	notes        workunit.ResumeNotes
 	parentRepair func(sessionID string) error
 	// redispatch 覆盖“同键重跑”的传输实现（默认 DirectDispatch fork_subagents；
 	// 测试与替换传输用）。与 parentRepair 同锁保护。
@@ -74,21 +74,21 @@ func (r *Runtime) SubagentResumeNote(nodeID string) string {
 	if r == nil {
 		return ""
 	}
-	return r.subagentResume.notes.peek(nodeID)
+	return r.subagentResume.notes.Peek(nodeID)
 }
 
 func (r *Runtime) setSubagentResumeNote(nodeID, note string) {
 	if r == nil {
 		return
 	}
-	r.subagentResume.notes.set(nodeID, note)
+	r.subagentResume.notes.Set(nodeID, note)
 }
 
 func (r *Runtime) clearSubagentResumeNote(nodeID string) {
 	if r == nil {
 		return
 	}
-	r.subagentResume.notes.clear(nodeID)
+	r.subagentResume.notes.Clear(nodeID)
 }
 
 // setSubagentRedispatchHook 覆盖同键重跑的传输实现（nil = 默认

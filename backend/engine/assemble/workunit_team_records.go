@@ -219,7 +219,7 @@ func (r *Runtime) setTeamResumeNote(roleSessionID, note string) {
 	if r == nil {
 		return
 	}
-	r.teamResume.set(roleSessionID, note)
+	r.teamResume.Set(roleSessionID, note)
 }
 
 // consumeTeamResumeNote 取走该角色会话的恢复说明并**清掉**（一次装配读完即消：恢复
@@ -228,7 +228,7 @@ func (r *Runtime) consumeTeamResumeNote(roleSessionID string) string {
 	if r == nil {
 		return ""
 	}
-	return r.teamResume.take(roleSessionID)
+	return r.teamResume.Take(roleSessionID)
 }
 
 // clearTeamResumeNote 丢掉该角色会话还没被读走的恢复说明（收口清会话内容时用：会话内容
@@ -237,7 +237,7 @@ func (r *Runtime) clearTeamResumeNote(roleSessionID string) {
 	if r == nil {
 		return
 	}
-	r.teamResume.clear(roleSessionID)
+	r.teamResume.Clear(roleSessionID)
 }
 
 // ── 重启回灌 ───────────────────────────────────────────────────────────
