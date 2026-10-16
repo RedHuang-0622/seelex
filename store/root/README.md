@@ -131,8 +131,8 @@ store 关闭（引用计数归零）
 | 面 | 用例 |
 |---|---|
 | 数据根锁（取得/归还/引用计数/外来活锁/陈旧锁/强杀残留） | `store/data_root_lock_test.go`、`data_root_lock_multiprocess_test.go`、`data_root_lock_windows_test.go` |
-| 共享读（Windows 共享位契约） | `store/file_shared_read_windows_test.go` |
-| 原子发布退避 | `store/atomic_publish_windows_test.go`、`lock_hotspot_probe_test.go` |
+| 共享读（Windows 共享位契约） | `store/root/file_shared_read_windows_test.go` |
+| 原子发布退避 | `store/root/atomic_publish_windows_test.go`、`lock_hotspot_probe_test.go` |
 | 残尾与无锁发布前提 | `store/retention_advisory_lock_test.go`、`c1_publish_probe_test.go` |
 | `Settings` 默认值/覆盖链/校验 | `store/retention_search_blob_test.go`、`wire_soft_budget_test.go` |
 

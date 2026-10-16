@@ -19,16 +19,24 @@ if [[ -z "$ROOT" ]]; then
 fi
 
 if [[ "$force" != "1" ]]; then
-  # 构建相关路径：源码、依赖清单、配置样板与脚本、插件包、Makefile。
+  # 构建相关路径：**产物会变**的那些改动。
+  #
+  # 判据（M5 之后可以写得更准）：`.go` 里排除纯用例（`test/`、`e2e/`、`*_test.go`）——
+  # 它们不进二进制，改用例不需要重建；另加依赖清单、配置样板与脚本、插件包、Makefile。
+  # 搬迁前 test 文件散在仓库根，与入口源码混在同一层，所以旧口径只能"见到 .go 就建"。
   changed="$(git diff-tree --no-commit-id --name-only -r HEAD)"
-  if ! printf '%s\n' "$changed" | grep -qE '^(.*\.go|go\.mod|go\.sum|config/.*\.ya?ml|scripts/.*|plugins/.*|Makefile)$'; then
+  source_changed="$(printf '%s\n' "$changed" | grep -E '\.go$' | grep -vE '(_test\.go$|^test/|^e2e/)' || true)"
+  other_changed="$(printf '%s\n' "$changed" | grep -E '^(go\.mod|go\.sum|config/.*\.ya?ml|scripts/[^/]*|plugins/.*|Makefile)$' || true)"
+  if [[ -z "$source_changed" && -z "$other_changed" ]]; then
     echo "[post-commit] 本次提交未触及构建相关路径，跳过 dev 构建（要强制：SEELEX_POST_COMMIT_BUILD=1）"
     exit 0
   fi
 fi
 
 echo "[post-commit] rebuilding dev binaries (SKIP_BUILD=1 to skip)..."
-"$ROOT/scripts/build-dev.sh" || {
+# SEELEX_BUILD_COMMAND 只给钩子自测用（scripts/hooks-selftest.sh 拿它把"决定要构建"
+# 与"真的构建 30MB 二进制"分开，这样自测能断言决策本身）。
+"${SEELEX_BUILD_COMMAND:-$ROOT/scripts/build-dev.sh}" || {
   echo "[post-commit] build failed (commit itself succeeded; fix and rebuild manually)" >&2
   exit 0
 }

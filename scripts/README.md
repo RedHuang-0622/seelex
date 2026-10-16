@@ -51,6 +51,7 @@ tmp/build/                          流程中间态（可整体删除）
 | `build.ps1` | Windows/PowerShell 跨平台构建+归档（P1 + P3，保留 P2）。 |
 | `build.sh` | POSIX 构建入口（P1 + P3，保留 P2）。 |
 | `build-dev.sh` | post-commit 快速重建 dev 二进制（CLI→`dist/dev/seelex.exe`，GUI→P2）。 |
+| `hooks-selftest.sh` | `.githooks` 的自测（hermetic：临时仓库 + 假构建命令；覆盖 BOM/CRLF/未格式化/禁入路径/真实配置与 post-commit 的构建决策）。改钩子后必须跑。 |
 | `build-gui.ps1` | Wails GUI 发布包（Publish/Dev），产物只进 `dist/archive/`。 |
 | `build-linux-gui.sh` | **Linux GUI 构建入口（P6）**：Docker（默认 `ubuntu:22.04` + `webkit2_40`）/ `--native` / `--pack-only`，产物落 `dist/linux-amd64-gui/` 并归档到 `dist/archive/`。 |
 | `seelex-flow.ps1` | 分阶段构建/部署/回滚/发布流程（Stage → Smoke → Deploy → Release，另可单独 `-Stage SyncPlugins`）。 |

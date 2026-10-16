@@ -4,6 +4,20 @@
 # 规范说明见同目录 README.md。
 set -uo pipefail
 
+# resolve_tool：先看 PATH，再退到 GOROOT（GUI git 客户端/精简 shell 常常没有 Go 的 PATH）。
+# SEELEX_GOFMT / SEELEX_GO 只给钩子自测替换（scripts/hooks-selftest.sh）。
+resolve_tool() {
+  local override="$1" name="$2"
+  if [[ -n "$override" ]]; then printf '%s' "$override"; return; fi
+  if command -v "$name" >/dev/null 2>&1; then command -v "$name"; return; fi
+  if command -v go >/dev/null 2>&1; then
+    local root
+    root="$(go env GOROOT 2>/dev/null || true)"
+    if [[ -n "$root" && -x "$root/bin/$name" ]]; then printf '%s' "$root/bin/$name"; return; fi
+  fi
+  printf '%s' ""
+}
+
 if [[ "${SEELEX_SKIP_HOOKS:-0}" == "1" ]]; then
   echo "[pre-commit] 已按 SEELEX_SKIP_HOOKS=1 跳过检查"
   exit 0
@@ -30,14 +44,21 @@ if [[ -n "$go_files" ]]; then
   done <<< "$go_files"
 
   # 2) 暂存区里的 .go 必须 gofmt 干净
-  unformatted=$(printf '%s\n' "$go_files" | while IFS= read -r f; do
-    [[ -f "$f" ]] || continue
-    gofmt -l "$f" 2>/dev/null
-  done)
-  if [[ -n "$unformatted" ]]; then
-    echo "[pre-commit] 下面这些暂存的 .go 没 gofmt 干净（跑 gofmt -w 后重新 git add）：" >&2
-    printf '  %s\n' $unformatted >&2
-    fail=1
+  gofmt_bin="$(resolve_tool "${SEELEX_GOFMT:-}" gofmt)"
+  if [[ -z "$gofmt_bin" ]]; then
+    # 找不到工具链时**必须说出来**：静默通过等于这条护栏不存在（2026-10-16 自测发现
+    # 精简 PATH 下它一直在空转）。
+    echo "[pre-commit] ⚠ PATH 与 GOROOT 都找不到 gofmt：**本次未执行格式检查**（把 Go 加进 PATH，或 SEELEX_SKIP_HOOKS=1 显式跳过）" >&2
+  else
+    unformatted=$(printf '%s\n' "$go_files" | while IFS= read -r f; do
+      [[ -f "$f" ]] || continue
+      "$gofmt_bin" -l "$f" 2>/dev/null
+    done)
+    if [[ -n "$unformatted" ]]; then
+      echo "[pre-commit] 下面这些暂存的 .go 没 gofmt 干净（跑 gofmt -w 后重新 git add）：" >&2
+      printf '  %s\n' $unformatted >&2
+      fail=1
+    fi
   fi
 fi
 

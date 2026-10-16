@@ -78,6 +78,23 @@
 同一件事**不许有第二份实现**（判据、词表、状态判定、回收动作、恢复说明都属于此列）：先找既有实现、
 能结构满足就不写适配器、只并"本质重复"、交付必须列删除清单——完整纪律见 `AGENTS.md` §8「复用与单一实现纪律」。
 
+### 入口与装配归属（2026-10-16，M5「架构重排」之后）
+
+新增"启动/装配类"代码时按下面四条落位，别再往入口堆：
+
+1. **启动参数**（flag 名、默认值、说明文案）→ `wiring/config` 的 `Flags` + `BindFlags`；路径/配置
+   责任链、模式词法解析也在那里。默认值即安全基线，改动要同步 `test/release_test.go` 的契约。
+2. **装配顺序**（装什么、按什么次序、怎么逆序关机）→ `wiring/bootstrap` 的 `Run` / `App`；新增
+   装配步骤必须写在 `Run` 的**正确位置**并说明理由（顺序即行为），需要关机就 `boot.addCleanup`。
+3. **工具与能力注册**（`register*Tool` / 能力面）→ `wiring/registry`；新工具要在
+   `backend/limit/policy` 的工具组表里分封，否则 `test` 的 `tool_meta_declaration_test.go` 会点名。
+4. **入口**（`main.go`，目前 48 行）只做：`BindFlags` → `flag.Parse` → pprof 构建钩子 →
+   `-version` → `bootstrap.Run` → `Serve` → `Shutdown`。第二个入口（不同 build tag / 前端形态）
+   照抄这五步即可，**不要**复制装配段——那正是历史事故（测试基座漏一句 `AttachSubSessionStore`，
+   端到端断言恒为空集）的成因。
+
+仓库级集成用例统一在 `test/` 包（原先散在仓库根，M5-S4 归位）；模块内部用例仍随包走。
+
 ## 会话存储约定（2026-09-09，配合 docs/2026-09-08-session-storage-architecture/my_design.md）
 
 下列约定是会话存储设计（my_design v8）的权威口径，实现与讨论请保持一致：
