@@ -1,251 +1,64 @@
-// 统一事件库：单一追加日志源 + 分层投影（解耦方案 §02.3 / §04.7 的长期形态，
-// 见 docs/2026-08-14-decoupling/06-unified-event-store-decision.md）。
-//
-// 形态：A 类（plan/节点执行事实）全量持久化是唯一事实源；B 类
-// （llm/tool 意图-效果遥测）留内存实时面，另以有界脱敏摘要追加进
-// 同一 store 事件库（B 摘要与 A 类同库，查询统一、存储不双写）。
-// 统一查询按 sessionID/nodeID 关联两轨，用引用/索引而不是复制 payload。
 package assemble
+
+// events_unified.go 是**统一事件库**的宿主转发面。
+//
+// 落点沿革（P21-6，plan §2.5 的 `events_unified.go` → `backend/engine/obs/`）：B 类摘要日志
+// （`SummaryLog`）与统一事件查询（`UnifiedEventReader` / `UnifiedEventView` / 两个读法 /
+// 话题映射 / 过滤）都搬进观测域
+// [`backend/engine/obs/unified_events.go`](../obs/unified_events.go)；这里只留**同身份别名**
+// （既有调用方与用例零改动）与两个公开读法的薄转发。
+//
+// 宿主读数只有两处，仍留在本层：store 事件库路由（`HistoryRouter`）与内存 tracer 的查询口
+// （以函数值端口交给域包，域包因此不必认识 tracer 的具体类型）。
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"sync"
 
-	frameworkevent "github.com/RedHuang-0622/Seele/event"
 	frameworktelemetry "github.com/RedHuang-0622/Seele/telemetry"
 
-	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/backend/engine/obs"
 )
 
-// summaryEventSource 是 B 类摘要事件在统一事件库（store 事件库）中的
-// 稳定 Source 标识，与 A 类事实（workplan.runner / seelex.subagent）同库共存。
-const summaryEventSource = "seelex.telemetry.summary"
+// 同身份别名（调用方与既有用例零改动）。
+type (
+	SummaryLog         = obs.SummaryLog
+	UnifiedEventView   = obs.UnifiedEventView
+	UnifiedEventReader = obs.UnifiedEventReader
+)
 
-// errUnifiedEventsRouterMissing 是"统一事件视图依赖的 store Router 未装配"的**唯一文案处**：
-// UnifiedEvents 与 UnifiedEventsRange 两个入口共用一句，避免两处各写一份而漂移。
-// 文案里的包名口径随 M3 的 `sessionstore` → `store` 改名同步（D-M3-12 / P9）。
-var errUnifiedEventsRouterMissing = errors.New("unified events: store router is not attached")
+// NewSummaryLog 创建摘要统一日志（域包实现）。
+func NewSummaryLog() *SummaryLog { return obs.NewSummaryLog() }
 
-// SummaryLog 是 B 类（llm/tool 意图-效果）脱敏摘要的统一日志：
-// 内存 append-only + 可选持久化钩子，形态镜像 plan.EventSink。
-// 持久化把摘要转换为 frameworkevent.Event（Source=seelex.telemetry.summary），
-// 经 Runtime.SetEventPersister 与 A 类事实写入同一 store 事件库。
-// 节点级定位靠 Scope.NodeID（节点会话事件按主会话 session_id 落库，
-// 与框架 runner 事件的短期桥约定一致，见 events.go）。
-type SummaryLog struct {
-	mu        sync.Mutex
-	st        []seeletelemetry.SummaryEvent
-	persister func(context.Context, frameworkevent.Event) error
-}
+// unifiedEventsRouterMissing 与域包的唯一文案处同值（错误值身份不变）。
+var errUnifiedEventsRouterMissing = obs.ErrUnifiedEventsRouterMissing
 
-// NewSummaryLog 创建摘要统一日志。
-func NewSummaryLog() *SummaryLog {
-	return &SummaryLog{st: make([]seeletelemetry.SummaryEvent, 0)}
-}
-
-// RecordSummary 实现 seeletelemetry.SummaryRecorder（best-effort，void）。
-func (log *SummaryLog) RecordSummary(event seeletelemetry.SummaryEvent) {
-	_ = log.Append(context.Background(), event)
-}
-
-// Append 追加摘要到内存日志并调用可选持久化钩子（与 A 类事实同库）。
-func (log *SummaryLog) Append(ctx context.Context, event seeletelemetry.SummaryEvent) error {
-	if log == nil {
-		return nil
-	}
-	log.mu.Lock()
-	log.st = append(log.st, event)
-	persister := log.persister
-	log.mu.Unlock()
-	if persister != nil {
-		return persister(ctx, summaryEventToFrameworkEvent(event))
-	}
-	return nil
-}
-
-// Summaries 返回内存日志的只读快照（进程存活时的实时摘要）。
-func (log *SummaryLog) Summaries() []seeletelemetry.SummaryEvent {
-	if log == nil {
-		return nil
-	}
-	log.mu.Lock()
-	defer log.mu.Unlock()
-	return append([]seeletelemetry.SummaryEvent(nil), log.st...)
-}
-
-// SetPersister 安装摘要持久化钩子（与 A 类事实同一 store 事件库）。
-func (log *SummaryLog) SetPersister(fn func(context.Context, frameworkevent.Event) error) {
-	if log == nil {
-		return
-	}
-	log.mu.Lock()
-	log.persister = fn
-	log.mu.Unlock()
-}
-
-// summaryEventToFrameworkEvent 把脱敏摘要转换为统一事件库的框架事件形态。
-// Sequence 用 At.UnixNano()（与 plan.AppendPhase 同策略），保证同库去重
-// 合并（mergeEventLogEntries 按 Seq 幂等）不会把多次摘要折叠成一条。
-func summaryEventToFrameworkEvent(event seeletelemetry.SummaryEvent) frameworkevent.Event {
-	status := frameworkevent.StatusCompleted
-	if event.Status == "failed" {
-		status = frameworkevent.StatusFailed
-	}
-	content, _ := json.Marshal(event)
-	return frameworkevent.Event{
-		Sequence:   uint64(event.At.UnixNano()),
-		OccurredAt: event.At,
-		Source:     summaryEventSource,
-		Type:       frameworkevent.TypeLifecycle,
-		Status:     status,
-		Scope:      frameworkevent.Scope{NodeID: event.NodeID},
-		Content:    content,
-	}
-}
-
-// UnifiedEventView 是统一事件查询的返回视图：
-// Events 为持久统一日志（A 类事实 + B 类摘要，同库合一，按追加顺序），
-// Live 为 B 类实时遥测（进程存活时的 tracer 视图）。
-type UnifiedEventView struct {
-	Events []frameworkevent.Event
-	Live   frameworktelemetry.ViewModel
-}
-
-// UnifiedEventReader 是统一事件查询门面：单一追加日志源的持久读取
-// （Load）+ B 类实时遥测（Live）。查询按 sessionID 关联两轨，nodeID
-// 非空时过滤持久日志（Scope.NodeID）；调用方持引用按需回源，不复制 payload。
-type UnifiedEventReader struct {
-	// Load 全量读（legacy；新代码优先 QueryRange，按需区间读 + 实时轨合并）。
-	Load func(ctx context.Context, sessionID string) ([]frameworkevent.Event, error)
-	// LoadRange 按 Seq 区间（含端点）读回事实轨；(0,0) = 全量。
-	LoadRange func(ctx context.Context, sessionID string, fromSeq, toSeq uint64) ([]frameworkevent.Event, error)
-	Live      func(ctx context.Context, limit int) (frameworktelemetry.ViewModel, error)
-}
-
-// Query 按 sessionID/nodeID 返回统一事件视图。
-func (reader *UnifiedEventReader) Query(ctx context.Context, sessionID, nodeID string, limit int) (UnifiedEventView, error) {
-	return reader.query(ctx, sessionID, nodeID, limit, func(ctx context.Context, sessionID string) ([]frameworkevent.Event, error) {
-		if reader == nil || reader.Load == nil {
-			return nil, fmt.Errorf("unified events: reader is unavailable")
-		}
-		return reader.Load(ctx, sessionID)
+// unifiedEvents 装配一次查询的域句柄：Router 与 Live 都在调用时取读数，
+// 保持"Router 可能后装配"与"tracer 可能未接线"的既有语义。
+func (r *Runtime) unifiedEvents() *obs.UnifiedEvents {
+	return obs.NewUnifiedEvents(obs.UnifiedEventsDeps{
+		Router: r.HistoryRouter,
+		Live: func(ctx context.Context, limit int) (frameworktelemetry.ViewModel, error) {
+			if r.tracer == nil {
+				return frameworktelemetry.ViewModel{}, fmt.Errorf("unified events: tracer is unavailable")
+			}
+			return r.tracer.Query(ctx, frameworktelemetry.Query{Limit: limit})
+		},
 	})
 }
 
-// QueryRange 按 Seq 区间返回统一事件视图（G7 收口：事实轨从"整段 Load"演进
-// 为按需 LoadRange，实时轨照旧合并；fromSeq/toSeq 均 0 = 全量）。
-func (reader *UnifiedEventReader) QueryRange(ctx context.Context, sessionID, nodeID string, fromSeq, toSeq uint64, limit int) (UnifiedEventView, error) {
-	return reader.query(ctx, sessionID, nodeID, limit, func(ctx context.Context, sessionID string) ([]frameworkevent.Event, error) {
-		if reader.LoadRange == nil {
-			return nil, fmt.Errorf("unified events: range reader is unavailable")
-		}
-		return reader.LoadRange(ctx, sessionID, fromSeq, toSeq)
-	})
-}
-
-func (reader *UnifiedEventReader) query(
-	ctx context.Context,
-	sessionID, nodeID string,
-	limit int,
-	load func(context.Context, string) ([]frameworkevent.Event, error),
-) (UnifiedEventView, error) {
-	var view UnifiedEventView
-	if reader == nil || load == nil {
-		return view, fmt.Errorf("unified events: reader is unavailable")
-	}
-	events, err := load(ctx, sessionID)
-	if err != nil {
-		return view, err
-	}
-	view.Events = filterUnifiedEvents(events, nodeID, limit)
-	if reader.Live != nil {
-		view.Live, err = reader.Live(ctx, limit)
-		if err != nil {
-			return view, err
-		}
-	}
-	return view, nil
-}
-
-// unifiedEventTopic 把框架执行事实事件映射为 middle/protocol/event 桥接的
-// (channel, sid) 契约（G2 白名单镜像）：事件带 agent.runtime 位置的
-// session_id → 会话类事件，sid 必填；无会话位置的进程级事件 → sid 空。
-// 本函数只给出映射（纯函数），实际投递由装配层 adapter 完成——seelebridge
-// 在依赖方向下层，不反向 import middle/protocol/event。
-func unifiedEventTopic(event frameworkevent.Event) (channel string, sessionID string, sessionScoped bool) {
-	for _, location := range event.Locations {
-		if location.Kind != "agent.runtime" {
-			continue
-		}
-		if sid := location.IDs["session_id"]; sid != "" {
-			return string(event.Type), sid, true
-		}
-	}
-	return string(event.Type), "", false
-}
-
-// filterUnifiedEvents 按 nodeID 过滤并按 limit 截断（不修改入参切片）。
-func filterUnifiedEvents(events []frameworkevent.Event, nodeID string, limit int) []frameworkevent.Event {
-	filtered := make([]frameworkevent.Event, 0, len(events))
-	for _, event := range events {
-		if nodeID != "" && event.Scope.NodeID != nodeID {
-			continue
-		}
-		filtered = append(filtered, event)
-	}
-	if limit > 0 && len(filtered) > limit {
-		filtered = filtered[:limit]
-	}
-	return filtered
-}
-
-// UnifiedEvents 按 sessionID/nodeID 查询统一事件视图：A 类事实 + B 类摘要的
-// 持久统一日志（store 事件库）+ B 类实时遥测（内存 tracer）。
-// store Router 未装配时返回可读错误。
+// UnifiedEvents 按 sessionID/nodeID 查询统一事件视图（域包 `UnifiedEvents.Query`）。
 func (r *Runtime) UnifiedEvents(ctx context.Context, sessionID, nodeID string, limit int) (UnifiedEventView, error) {
 	if r == nil {
 		return UnifiedEventView{}, fmt.Errorf("unified events: runtime is nil")
 	}
-	router := r.HistoryRouter()
-	if router == nil {
-		return UnifiedEventView{}, errUnifiedEventsRouterMissing
-	}
-	reader := &UnifiedEventReader{
-		Load:      store.NewEventStore(router).Load,
-		LoadRange: store.NewEventStore(router).LoadRange,
-		Live: func(ctx context.Context, limit int) (frameworktelemetry.ViewModel, error) {
-			if r.tracer == nil {
-				return frameworktelemetry.ViewModel{}, fmt.Errorf("unified events: tracer is unavailable")
-			}
-			return r.tracer.Query(ctx, frameworktelemetry.Query{Limit: limit})
-		},
-	}
-	return reader.Query(ctx, sessionID, nodeID, limit)
+	return r.unifiedEvents().Query(ctx, sessionID, nodeID, limit)
 }
 
-// UnifiedEventsRange 按 Seq 区间查询统一事件视图（事实轨 LoadRange + 实时轨
-// 合并；见 UnifiedEventReader.QueryRange）。
+// UnifiedEventsRange 按 Seq 区间查询统一事件视图（域包 `UnifiedEvents.QueryRange`）。
 func (r *Runtime) UnifiedEventsRange(ctx context.Context, sessionID, nodeID string, fromSeq, toSeq uint64, limit int) (UnifiedEventView, error) {
 	if r == nil {
 		return UnifiedEventView{}, fmt.Errorf("unified events: runtime is nil")
 	}
-	router := r.HistoryRouter()
-	if router == nil {
-		return UnifiedEventView{}, errUnifiedEventsRouterMissing
-	}
-	st := store.NewEventStore(router)
-	reader := &UnifiedEventReader{
-		LoadRange: st.LoadRange,
-		Live: func(ctx context.Context, limit int) (frameworktelemetry.ViewModel, error) {
-			if r.tracer == nil {
-				return frameworktelemetry.ViewModel{}, fmt.Errorf("unified events: tracer is unavailable")
-			}
-			return r.tracer.Query(ctx, frameworktelemetry.Query{Limit: limit})
-		},
-	}
-	return reader.QueryRange(ctx, sessionID, nodeID, fromSeq, toSeq, limit)
+	return r.unifiedEvents().QueryRange(ctx, sessionID, nodeID, fromSeq, toSeq, limit)
 }

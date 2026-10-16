@@ -39,17 +39,21 @@
 | P21-served-route | **域方法随类型走**第三片：路由事实注册表（`servedRoutes` + `routingNoticeMu` + `routingNoticeSeen` 三个字段与四条判据：哪些原因覆盖、只有主链路才记、读即清、unpinned 摘要去重）下沉；顺带收敛一处**同形状两份实现**（`internal/stream.RoutingNotice` 与 `dto.RoutingNotice` 字段逐一相同，现为同身份别名） | [`backend/engine/account`](../../engine/account/README.md) 的 `ServedRouteRegistry`（`served_route.go`）；本包 `runtime_account.go` 只留 `observeRoutingNotice` / `TakeServedRoute` 两个转发，公开面逐字不变 |
 | P21-review-files | **域方法随类型走**第四片：`show_files` 的**工具形状**（名字 / 描述 / JSON schema / 参数校验 / 返回值回执）搬进域包 | [`backend/tool/review`](../../tool/review/README.md) 的 `show_files.go`；本包 `review_files.go` 只剩一句注册（`runtime.RegisterTool(review.ShowFilesToolName, …)`，与 `RegisterTaskTerminalTools` 同款形状）+ `ReviewFilesPort` 同身份别名 |
 | P21-subagent-session | **域方法随类型走**第五片：子代理**独立会话工厂**（显式 ID 建会话 + 重名拒绝 + 组件模板补齐 Hooks/SessionID/ModelName/History + 注册进 registry）搬进域包 | [`backend/multiagent/subagent`](../../multiagent/subagent/README.md) 的 `SessionFactory`（`session_factory.go`）；本包 `runtime_subagent_session.go` 只剩一行薄转发，公开方法名与签名逐字不变 |
+| P21-unified-events | **域方法随类型走**第六片：B 类脱敏摘要日志（`SummaryLog` + 摘要→框架事件转换）与统一事件查询（`UnifiedEventReader` / `UnifiedEventView` / 两个读法 / `UnifiedEventTopic` 话题映射 / `filterUnifiedEvents` 过滤）连同**判据**一起下沉 | [`backend/engine/obs`](../../engine/obs/README.md) 的 `unified_events.go`；本包 `events_unified.go` 只剩同身份别名（调用方与用例零改动）+ 两个公开读法的薄转发，宿主读数仍只有两格（`HistoryRouter` 与 tracer 的查询闭包） |
 
 **仍未下沉**（按 plan §2.5–§2.8 的目标落点，逐域各一片）：engine 侧 `runtime_context`
 （→ `backend/engine/context`；同域的 `runtime_compaction_index` 已随 **P21-compaction-stack** 下沉）、
-`runtime_role_prompt`（→ `backend/engine/prompt`）、
-`runtime_tools`（→ `backend/engine/toolregistry`）、`runtime_account`（→ `backend/engine/account`）、
+`runtime_role_prompt`（→ `backend/engine/prompt`）、`runtime_tools`（→ `backend/engine/toolregistry`）、
 `runtime_session` / `role_host_session`（→ `backend/engine/session`）、`runtime_goal_tl`（→ `backend/multiagent/goal`）；
-tool 侧 `runtime_plan`（→ `backend/tool/plan`）、`runtime_async` / `jobs_events`（→ `backend/tool/jobs`）、
-`review_files`（→ `backend/tool/review`）；multiagent 侧 `runtime_teamwork*` + `teamwork`（→ `backend/multiagent/teamwork`）、
-`runtime_subagent_*`（→ `backend/multiagent/subagent`）、`workunit_*`（→ `backend/multiagent/workunit`）、
+tool 侧 `runtime_plan`（→ `backend/tool/plan`）、`runtime_async` / `jobs_events`（→ `backend/tool/jobs`）；
+multiagent 侧 `runtime_teamwork*` + `teamwork`（→ `backend/multiagent/teamwork`）、
+`runtime_subagent_*`（→ `backend/multiagent/subagent`；实时流与独立会话工厂已随 **P21-live-dispatch** /
+**P21-subagent-session** 下沉，剩余是恢复/续跑面）、`workunit_*`（→ `backend/multiagent/workunit`）、
 `runtime_role_turn` / `runtime_role_plugins`（→ `backend/multiagent/team`）；M5 侧 `runtime_project_board*`
-（→ `middle/view/board`）。**收口片已完成**：`ports.go` 的每一段都按域归位后**文件被删除**
+（→ `middle/view/board`）。已下沉的域另有：`runtime_account` 的路由事实注册表
+（**P21-served-route** → `backend/engine/account`）、`review_files` 的工具形状
+（**P21-review-files** → `backend/tool/review`）、统一事件库（**P21-unified-events** → `backend/engine/obs`）。
+**收口片已完成**：`ports.go` 的每一段都按域归位后**文件被删除**
 （R11-task 收掉 task/todolist 状态与薄转发面、R11-schedule / R11-mcp / R11-plugin / R11-node
 各收掉自己的宿主转发面、收口片 R11-ports-zero 把 plan / 历史检索 / actor 边界三段并回域文件）。
 `git ls-files backend/engine/assemble/ports.go` 为空即这条验收。
@@ -109,7 +113,7 @@ flowchart TB
 | `request_log.go` | LLM 请求记录中间件（`SEELEX_REQUEST_LOG` 门控，默认关闭）：包装 Completer/StreamCompleter，把每次真实请求的 role + 内容 hash + 工具调用名按顺序写 JSONL（不落正文/参数原文），供 headless 冒烟做“请求顺序 ↔ 存储内容”匹配 |
 | `runtime_deps.go` | 启动期装配结构 `RuntimeDeps` + `ApplyDeps`（一次性注入；装配点不散装单字段 setter） |
 | `events.go` | 事件体系双轨（workplan event.Sink ↔ telemetry.Hook）的短期收敛：关联字段说明 + 主会话 session_id 补全 |
-| `events_unified.go` | 统一事件库（解耦方案 §02.3/§04.7 长期形态）：B 类 llm/tool 脱敏摘要 `SummaryLog`（与 A 类事实同库持久化）+ 统一查询 `UnifiedEventReader`/`Runtime.UnifiedEvents` |
+| `events_unified.go` | 统一事件库的**宿主转发面**（P21-6：B 类 llm/tool 脱敏摘要 `SummaryLog`、统一查询 `UnifiedEventReader`、话题映射与过滤判据都在 [`backend/engine/obs`](../../engine/obs/README.md) 的 `unified_events.go`）：本文件只留同身份别名 + `NewSummaryLog()` 一行 + `Runtime.UnifiedEvents` / `Runtime.UnifiedEventsRange` 两个薄转发，宿主读数只有 `HistoryRouter` 与 tracer 查询闭包两格 |
 
 | `runtime_tools.go` | 工具注册表装配（RegistryState/内联工具/权限门）、RegisterBuiltins、可见性策略装配、Deps 闭包工厂 |
 | `runtime_computer.go` | computer use 工具族装配：`SEELEX_COMPUTER_USE` 门控 + 平台判定 + DPI 感知 + 注册（脚本面见 `../backend/tool/computer/tools*.go`） |
