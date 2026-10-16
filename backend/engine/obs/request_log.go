@@ -5,7 +5,7 @@
 // 运行期请求顺序与落盘/重启恢复后的存储内容做匹配（2026-09-08 上下文
 // 恢复复查）。仅当设置 SEELEX_REQUEST_LOG=<jsonl 路径> 时启用并包装
 // Completer/StreamCompleter；未设置时零开销、不改变任何装配行为。
-package assemble
+package obs
 
 import (
 	"context"
@@ -25,8 +25,8 @@ import (
 	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 )
 
-// requestLogEnv 是启用请求记录的文件路径环境变量（JSONL append）。
-const requestLogEnv = "SEELEX_REQUEST_LOG"
+// RequestLogEnv 是启用请求记录的文件路径环境变量（JSONL append）。
+const RequestLogEnv = "SEELEX_REQUEST_LOG"
 
 // requestMessageDigest 是单条消息的内容指纹（只含 role + hash + 工具名，
 // 不落任何正文/参数原文，避免诊断日志泄漏会话内容）。
@@ -46,8 +46,8 @@ type requestLogEntry struct {
 	ToolNames []string               `json:"tool_names,omitempty"`
 }
 
-// requestLogger 是线程安全的 JSONL 记录器（一次请求一行）。
-type requestLogger struct {
+// RequestLogger 是线程安全的 JSONL 记录器（一次请求一行）。
+type RequestLogger struct {
 	mu     sync.Mutex
 	file   *os.File
 	enc    *json.Encoder
@@ -55,7 +55,7 @@ type requestLogger struct {
 	closed bool
 }
 
-func openRequestLogger(path string) (*requestLogger, error) {
+func OpenRequestLogger(path string) (*RequestLogger, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, fmt.Errorf("request log path is empty")
 	}
@@ -66,10 +66,10 @@ func openRequestLogger(path string) (*requestLogger, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &requestLogger{file: file, enc: json.NewEncoder(file)}, nil
+	return &RequestLogger{file: file, enc: json.NewEncoder(file)}, nil
 }
 
-func (l *requestLogger) record(ctx context.Context, messages []types.Message, tools []types.Tool) {
+func (l *RequestLogger) record(ctx context.Context, messages []types.Message, tools []types.Tool) {
 	if l == nil {
 		return
 	}
@@ -96,7 +96,7 @@ func (l *requestLogger) record(ctx context.Context, messages []types.Message, to
 	_ = l.enc.Encode(entry)
 }
 
-func (l *requestLogger) Close() error {
+func (l *RequestLogger) Close() error {
 	if l == nil {
 		return nil
 	}
@@ -151,24 +151,34 @@ func normalizeWireContent(content string) string {
 	return content
 }
 
-// requestLogCompleter 包装同步 Completer。
-type requestLogCompleter struct {
+// RequestLogCompleter 包装同步 Completer。
+type RequestLogCompleter struct {
 	inner agent.Completer
-	log   *requestLogger
+	log   *RequestLogger
 }
 
-func (c *requestLogCompleter) Complete(ctx context.Context, messages []types.Message, tools []types.Tool) (types.Message, error) {
+// NewRequestLogCompleter 包装一个同步 Completer：每轮先记一次请求画像，再转调原实现。
+func NewRequestLogCompleter(inner agent.Completer, log *RequestLogger) *RequestLogCompleter {
+	return &RequestLogCompleter{inner: inner, log: log}
+}
+
+func (c *RequestLogCompleter) Complete(ctx context.Context, messages []types.Message, tools []types.Tool) (types.Message, error) {
 	c.log.record(ctx, messages, tools)
 	return c.inner.Complete(ctx, messages, tools)
 }
 
-// requestLogStreamCompleter 包装流式 StreamCompleter。
-type requestLogStreamCompleter struct {
+// RequestLogStreamCompleter 包装流式 StreamCompleter。
+type RequestLogStreamCompleter struct {
 	inner agent.StreamCompleter
-	log   *requestLogger
+	log   *RequestLogger
 }
 
-func (c *requestLogStreamCompleter) CompleteStream(
+// NewRequestLogStreamCompleter 包装一个流式 Completer（同上，记录点在所有 provider 调用之前）。
+func NewRequestLogStreamCompleter(inner agent.StreamCompleter, log *RequestLogger) *RequestLogStreamCompleter {
+	return &RequestLogStreamCompleter{inner: inner, log: log}
+}
+
+func (c *RequestLogStreamCompleter) CompleteStream(
 	ctx context.Context,
 	messages []types.Message,
 	tools []types.Tool,
@@ -179,6 +189,6 @@ func (c *requestLogStreamCompleter) CompleteStream(
 }
 
 var (
-	_ agent.Completer       = (*requestLogCompleter)(nil)
-	_ agent.StreamCompleter = (*requestLogStreamCompleter)(nil)
+	_ agent.Completer       = (*RequestLogCompleter)(nil)
+	_ agent.StreamCompleter = (*RequestLogStreamCompleter)(nil)
 )

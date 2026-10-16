@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"github.com/RedHuang-0622/seelex/backend/engine/obs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,7 +42,7 @@ func TestCustomRoleLiveProbe(t *testing.T) {
 		accountsPath = filepath.Join("..", "config", "accounts.yaml")
 	}
 	logPath := filepath.Join(t.TempDir(), "custom-role-requests.jsonl")
-	t.Setenv(requestLogEnv, logPath)
+	t.Setenv(obs.RequestLogEnv, logPath)
 
 	runtime, err := NewRuntime(RuntimeConfig{
 		AccountsPath:    accountsPath,

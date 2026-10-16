@@ -55,6 +55,7 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
+	"github.com/RedHuang-0622/seelex/backend/engine/obs"
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
@@ -291,7 +292,7 @@ func (r *Runtime) runRoleRound(ctx context.Context, spec roleRoundSpec) (string,
 	// 后写的那份覆盖（并发丢失更新的另一面）。
 	turnCtx = toolreg.WithRolePlugins(turnCtx, assembly)
 	// telemetry 标签写成角色会话：角色回合的 llm/tool 事件可按角色归因（审计面）。
-	turnCtx = WithTelemetrySessionID(turnCtx, roleSessionID)
+	turnCtx = obs.WithTelemetrySessionID(turnCtx, roleSessionID)
 
 	// 在飞标记挂到**本轮**的 ctx 上：检测在上方（进函数处），标记在这里——ChatStream
 	// 与它派生的工具调用因此都能看到"这一轮正在跑哪个角色会话"，本轮之内的重入请求

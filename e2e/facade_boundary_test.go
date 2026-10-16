@@ -63,7 +63,9 @@ const (
 // M4-C（调度器持久化面）：`store/schedule` 同口径——定时任务定义的全局 JSONL 从
 // `backend/engine/schedule/persistence.go` 抽出成基座子包（直接依赖 = 标准库 + contract 系），
 // 因此上限抬到 71。
-const facadeClosureAllowListMax = 71
+// M4-J2a：`backend/engine/obs` 同口径——请求画像与会话遥测从装配器再下沉成叶子观测包
+// （直接依赖 = 标准库 + Seele + `internal/telemetry`），因此上限抬到 72。
+const facadeClosureAllowListMax = 72
 
 var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application",
@@ -107,6 +109,7 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/internal/jsonobj",
 	"github.com/RedHuang-0622/seelex/mcpstack",
 	"github.com/RedHuang-0622/seelex/backend/engine/assemble",
+	"github.com/RedHuang-0622/seelex/backend/engine/obs",
 	"github.com/RedHuang-0622/seelex/backend/engine/account",
 	"github.com/RedHuang-0622/seelex/backend/tool/fork",
 	"github.com/RedHuang-0622/seelex/backend/tool/io/fs",

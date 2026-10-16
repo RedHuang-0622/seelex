@@ -6,7 +6,7 @@ import (
 
 	frameworktelemetry "github.com/RedHuang-0622/Seele/telemetry"
 	"github.com/RedHuang-0622/Seele/types"
-	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	"github.com/RedHuang-0622/seelex/backend/engine/obs"
 	"github.com/RedHuang-0622/seelex/internal/adapters"
 	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 )
@@ -89,16 +89,16 @@ func TestSessionTokenCountUsesSessionTaggedEvents(t *testing.T) {
 	emitTaggedLLMUsage(t, chain, "sess-b", 7, 3)
 	emitTaggedLLMUsage(t, chain, "sess-a", 20, 30)
 
-	if got := seelebridge.SessionTokenCount(tracer, "sess-a"); got != 200 {
-		t.Fatalf("SessionTokenCount(sess-a) = %d, want 200", got)
+	if got := obs.SessionTokenCount(tracer, "sess-a"); got != 200 {
+		t.Fatalf("obs.SessionTokenCount(sess-a) = %d, want 200", got)
 	}
-	if got := seelebridge.SessionTokenCount(tracer, "sess-b"); got != 10 {
-		t.Fatalf("SessionTokenCount(sess-b) = %d, want 10", got)
+	if got := obs.SessionTokenCount(tracer, "sess-b"); got != 10 {
+		t.Fatalf("obs.SessionTokenCount(sess-b) = %d, want 10", got)
 	}
-	if got := seelebridge.SessionTokenCount(tracer, "sess-other"); got != 0 {
-		t.Fatalf("SessionTokenCount(sess-other) = %d, want 0", got)
+	if got := obs.SessionTokenCount(tracer, "sess-other"); got != 0 {
+		t.Fatalf("obs.SessionTokenCount(sess-other) = %d, want 0", got)
 	}
-	if got := seelebridge.SessionTokenCount(tracer, ""); got != 0 {
-		t.Fatalf("SessionTokenCount(\"\") = %d, want 0", got)
+	if got := obs.SessionTokenCount(tracer, ""); got != 0 {
+		t.Fatalf("obs.SessionTokenCount(\"\") = %d, want 0", got)
 	}
 }

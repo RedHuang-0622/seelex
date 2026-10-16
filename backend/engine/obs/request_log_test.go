@@ -1,4 +1,4 @@
-package assemble
+package obs
 
 import (
 	"bufio"
@@ -27,12 +27,12 @@ func (recordingFakeCompleter) CompleteStream(
 // 按调用顺序写 JSONL（seq 单调），每条记录 role+hash，不写原文。
 func TestRequestLoggerRecordsOrderedDigests(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "requests.jsonl")
-	logger, err := openRequestLogger(path)
+	logger, err := OpenRequestLogger(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer logger.Close()
-	inner := &requestLogStreamCompleter{inner: recordingFakeCompleter{}, log: logger}
+	inner := &RequestLogStreamCompleter{inner: recordingFakeCompleter{}, log: logger}
 	first := []types.Message{{Role: "user", Content: strPtr("hello")}}
 	second := []types.Message{
 		{Role: "user", Content: strPtr("hello")},

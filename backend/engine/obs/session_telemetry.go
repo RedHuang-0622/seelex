@@ -1,4 +1,4 @@
-package assemble
+package obs
 
 import (
 	"context"

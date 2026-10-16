@@ -23,6 +23,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/engine/account"
 	"github.com/RedHuang-0622/seelex/backend/engine/mcp"
+	"github.com/RedHuang-0622/seelex/backend/engine/obs"
 	"github.com/RedHuang-0622/seelex/backend/engine/plugin"
 	"github.com/RedHuang-0622/seelex/backend/engine/schedule"
 	"github.com/RedHuang-0622/seelex/backend/limit"
@@ -189,7 +190,7 @@ type Runtime struct {
 	// requestLog 是 LLM 请求记录中间件（SEELEX_REQUEST_LOG 门控；nil =
 	// 关闭）。包装 Completer/StreamCompleter，把每次真实请求的顺序与内容
 	// 指纹落 JSONL，供 headless 冒烟做「请求顺序 ↔ 存储内容」匹配。
-	requestLog *requestLogger
+	requestLog *obs.RequestLogger
 	// subagentTree 是 fork 子代理树注册表（内存态，不落盘）：fork 创建子代理
 	// 时记录 parent/child 链与节点状态/goal/会话摘要，GUI 树视图经
 	// Runtime.SubAgentTree() 读取（subagent_tree.go）。
@@ -408,14 +409,14 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	// 请求记录中间件（诊断/冒烟，默认关闭）：SEELEX_REQUEST_LOG=<jsonl>
 	// 时包装 Completer/StreamCompleter，在 agent.NewWithComponents 前完成，
 	// 保证主会话、子代理与 QuickChat 辅助请求全部经过同一记录点。
-	if path := os.Getenv(requestLogEnv); path != "" {
-		logger, err := openRequestLogger(path)
+	if path := os.Getenv(obs.RequestLogEnv); path != "" {
+		logger, err := obs.OpenRequestLogger(path)
 		if err != nil {
 			return nil, fmt.Errorf("seelebridge: open request log %q: %w", path, err)
 		}
 		r.requestLog = logger
-		r.completer = &requestLogCompleter{inner: r.completer, log: logger}
-		r.streamer = &requestLogStreamCompleter{inner: r.streamer, log: logger}
+		r.completer = obs.NewRequestLogCompleter(r.completer, logger)
+		r.streamer = obs.NewRequestLogStreamCompleter(r.streamer, logger)
 	}
 
 	// 3.1 待随图（截屏/看图 → 下一次请求随图）：包装在最靠近 provider 的一层，
