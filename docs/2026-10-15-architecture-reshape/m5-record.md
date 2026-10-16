@@ -348,3 +348,82 @@ dirty 门、原因归一、`Load` 只增不减语义逐字保留。`internal/REA
   changed/unchanged 供复核。
 - 提交信息一律落盘成 `tmp/reshape/msg-*.txt` 再 `git commit -F`：PowerShell 没有 heredoc，
   内联中文经 shell 管道会打坏文件（M4 期已出过一次事故，见 m4-record 的教训）。
+
+## M5-R5a —— 项目看板行投影与同步器归位 `middle/view/board`（plan §2.4）
+
+**删除清单（原位置 → 新唯一位置）**
+
+| 原位置 | 新唯一位置 | 说明 |
+|---|---|---|
+| `application/core/project_board.go`（867 行，§1 映射 + §2 触发表 + §3 同步器） | `middle/view/board/projection.go`（§1+§2）与 `middle/view/board/syncer.go`（§3） | `package core` → `package board`；`WorkItem` → `model.WorkItem`；`Limits()` → `limit.Get()`（同一份进程级快照，core 的那个门面取数口 → `backend/limit`） |
+| `application/core/project_board.go`（§4 Service 侧只读取数口 + `taskRecordsForSession`） | `application/core/project_board_read.go` | **留在应用层**（偏差登记见下）；`TeamworkPlanSource` → `board.TeamworkPlanSource` |
+| `application/core/project_board_test.go`（1073 行） | 见下三处 | 夹具与纯用例/取数口用例按"被测对象在哪"拆开 |
+| 同上（映射/触发表/同步器用例） | `middle/view/board/projection_test.go`、`syncer_test.go`、`trigger_test.go` | 用例体逐字保留，只换限定符 |
+| 同上（两侧共用的夹具） | `middle/view/board/boardtest/{store.go,rows.go}` | 内存存储面 + 行助手；**刻意不 import 本包**（否则本包内部用例 import 它 = 测试环） |
+| 同上（Service 侧取数口/钩子接线用例） | `application/core/project_board_read_test.go` | 与 `project_board.go` 的 §4 同落点 |
+| `application/core/project_board_hook_modes_test.go` | `middle/view/board/trigger_test.go` | 判据一词不动（档名词表 = 触发表键集） |
+| `application/core/work_table.go` 的 `truncateWorkEvidence`（未导出） | `middle/view/worktable.TruncateWorkEvidence` | **一条判据只能有一份**：看板映射也要用它（`EvidenceChars` 截断 + `…`），而 `middle` 不能反向 import `application/core`；调用点 5 处改引用（core 4 文件 + board 映射） |
+
+**偏差登记（未按 plan 字面做的部分）**
+
+1. `project_board.go` 的 §4（`WorkTableRowsFor` / `ProjectRootFor` / `ProjectBoardTeamPlanFor` /
+   `ProjectBoardTeamStateFor` / `taskRecordsForSession`）**留在 `application/core`**，不随文件搬入
+   `middle/view/board`。理由：这五个方法读的是**服务状态**（视图锁、`Snapshot.Session.ID`、
+   子代理树、task 注册表 scope、`Deps.Workspace`/`Deps.Runtime` 端口），要搬必须先给 board 定一个
+   只能由 `core` 实现的 `Host` 端口（plan §2 的两段式第 4–6 步）。本片先把**无状态**的两半
+   （映射 + 同步器，794 行非空行）搬干净、行为零变化；`Host` 注入版取数口是本条的**续做步**
+   （见"下一步"）。**偏差的代价是零**：门面签名与装配调用点一字未动。
+2. `boardtest` 是**新模块**（plan 未点名）：两侧用例（board 自己的同步器用例 + core 的接线用例）
+   共用同一份内存存储面夹具——若在两侧各写一份，水位/追加语义就会漂移成两份判据。
+
+**保真证据（不是"测试绿了"，是"只剩一份实现 + 未改一行逻辑"）**
+
+- `python tmp/reshape/r5a_boundary_check.py`：把 HEAD 的 `project_board.go` 与三份目标文件的
+  非空行做**行多重集**比对（剥掉 package/import 行，只归一化搬迁强制的限定符差异
+  `model.WorkItem` / `limit.Get()` / `worktable.TruncateWorkEvidence` / `board.TeamworkPlanSource`）：
+
+  ```text
+  original non-empty lines: 794
+  destination non-empty lines: 794
+  lines in original but not found at destination: 0
+  lines at destination that were not in the original: 0
+  ```
+
+- 门面闭包上限 73 → 74，并把 `middle/view/board` 登记进 `facadeClosureAllowList`（**一条进**的新模块：
+  此前它是 `application/core` 里的一个文件，不是独立包；自身直接依赖全在清单内）。
+  正负两向都验过：把清单里那一行注掉，`TestFacadeDependencyClosureRatchet` 立刻报
+  "门面依赖闭包新增了未登记的 Seelex 包 … middle/view/board"。
+- `e2e/layout_test.go` 模块表增 `middle/view/board`、`middle/view/board/boardtest`；
+  `scripts/gen_core_readme_index.py` 的 `EXTRA_PACKAGES` 增同两项（README「文件与函数索引」由它生成）。
+
+**验证（HEAD 上重跑）**
+
+- `gofmt -l .` 空；`go build ./...` 绿；`go build -tags "gui,desktop,production" ./...` 绿；
+  `go vet ./...` 绿；`go test ./e2e/ -count=1` 绿。
+- `go test ./middle/view/board/... -count=1` 绿（搬运后的映射/同步器/词表用例）；
+  `go test ./application/core/ -run 'ProjectBoard|BuildProjectBoardRows' -count=1` 绿（取数口 + 钩子接线）。
+- 全量 `go test ./... -count=1 -timeout=900s` 的失败集合 = 基线 3 例
+  （`application/core` 的 `TestContextBudgetSkipsCompactionWithoutMargin`、
+  `TestRunningSessionAccumulatesAllRoundsInOrderControl`、
+  `TestColdRestoreTailFirstRequestKeepsTranscriptOrder`）+ 2 例 Windows 环境性红
+  （`backend/tool/registry.TestJobHandlesCarryTheirTableToken` 的 TempDir 清理、
+  `gui/terminal.TestManagerRealShellRoundTrip`）。
+  后两例**逐条取证**：`gui/terminal` 那条单跑即绿；`backend/tool/registry` 那条在
+  **HEAD 的干净 checkout**（`$env:TEMP` 下的独立 worktree，无本次改动）上**同样红、同一句错误**
+  （`TempDir RemoveAll cleanup: … being used by another process`），因此与本次搬迁无关。
+
+**下一步（R5 续做，按依赖顺序）**
+
+- R5a-2：给 board 定 `Host` 端口（视图读锁下的一致口径 + task 记录 + 异步运行 + 项目根 + teamwork 计划），
+  把 §4 五个方法搬进 `middle/view/board/read.go`，`Service` 侧只留转发——门面与装配调用点不变。
+- R5b：`work_table.go` + `work_table_async.go` → `middle/view/worktable/`（终态触发回合段 → `middle/switch/`），
+  其中 `buildWorkTable` 等纯投影函数与 `TruncateWorkEvidence` 同落点。
+- R5c：`runtime_projection.go` / `diagnostics.go` / `perf_stats.go` / `service_snapshot.go` → `middle/view/`。
+
+**本片的教训（写进工具约定）**
+
+- **不要用 `Set-Content -Encoding utf8` 做变异实验**：Windows PowerShell 5 会写出 BOM + CRLF，
+  当场把 `e2e/facade_boundary_test.go` 变成 CRLF+BOM（本片实际踩到，已 `git checkout HEAD --` 复原后
+  重新用 `apply_patch` 落改动）。变异实验一律"改 → 跑 → 立刻用 git 复原 → 用 apply_patch 重落"。
+- 夹具跨包时**先想好 import 方向**：`boardtest` 若 import `board`，board 的内部用例就无法 import 它
+  （Go 不允许测试环）。所以夹具刻意保持"零业务依赖 + 由使用侧断言接口满足"。
