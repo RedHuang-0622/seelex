@@ -188,17 +188,12 @@ io 组 6（含 e2e 门面闭包清单与 `layout_test.go` 的模块清单）。
 
 ### 6.3 本轮结束时的实况
 
-- `seelebridge/` 从 23 个子目录缩到 **9 个**：`internal`（只剩 `mapper`）、`mcp`、`plugin`、
-  `scheduler`、`security`、`session`（已搬，见 6.4 注）、`teamwork`、`tools`、`workunit`。
+- `seelebridge/` 从 23 个子目录缩到 **8 个**：`internal`（只剩 `mapper`）、`mcp`、`plugin`、
+  `scheduler`、`security`、`teamwork`、`tools`、`workunit`（外加 `.seelex/` 数据目录）。
 - 搬出 12 个包（含 `internal/*` 6 个）：tools/computer、internal/{actor,config,docker,model,stream,telemetry}、
   task、fork、plan、node、worktree、fs、attachment、imageattach、multimodal、search、tools/websearch、
   account、session。
 - 根包 **53 个生产文件 / 13,373 行未动**（J 片的活），`Runtime` 仍是单类型跨文件。
-
-> 6.4 注：上表把 `session` 同时列在"9 个"里是笔误——`seelebridge/session` 已在 `1d9dba53`
-> 搬到 `backend/multiagent/subagent`，收尾时 `seelebridge/` 实际只剩 8 个子目录
-> （`internal`、`mcp`、`plugin`、`scheduler`、`security`、`teamwork`、`tools`、`workunit`）
-> 与 `.seelex/` 数据目录。
 
 | ID | 新增偏差 | 处置 |
 |---|---|---|
