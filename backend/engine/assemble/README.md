@@ -33,6 +33,7 @@
 | R11-plugin | 插件域的宿主转发面：`DefinePlugin` / `UndefinePlugin` / `ActivatePlugin` / `DeactivatePlugin` / `ActivePlugin` / `SetPluginUnassembledReason` / `WithPluginAssembly` | 本包 `runtime_plugin.go`（插件生命周期在 [`backend/engine/plugin`](../../engine/plugin/README.md)，`Runtime.plugins` 即装配点；`WithPluginAssembly` 与 teammate 回合共用 `toolreg.WithRolePlugins` 原语） |
 | R11-node | 子代理树与节点只读面的宿主转发面：`ClearSubagentTree` / `SubagentTreeEvents` / `SubAgentTree` / `SetSubagentToolCallback` / `NodeSessionConversation` / `NodeContextSnapshot` / `SetSkillRegistry` / `NodeToolResult` / `NodeWorktreeInfo{,For}` / `NodeStageLogs` / `NodeStageEvents` / `NodeFirstPersonView` / `NodeSemanticResult` / `DrainSubagentSemanticResults` | 本包 `runtime_node.go`（状态在多智能体域组件上：子代理树注册表、节点会话/上下文快照、worktree 管理器） |
 | R11-task-forwarder | task 台账域的薄转发面：`ledger()` 句柄 + 台账/清单/批次 20 个 `Runtime` 公开方法 + `SetSessionWorkspace`（会话绑定事实）+ `RegisterTaskTerminalTools`（改的是工具注册表） | 本包 `runtime_task.go`（判据与状态在 [`backend/engine/task`](../../engine/task/README.md) 的 `Ledger`，本层不写第二份判据） |
+| R11-ports-zero | 收口片（契约 §2.3 第 3 条）：plan 端口的 `PrepareReplan`、历史检索端口的 `SearchHistory`、actor 边界的两个投影别名 + 两个 setter、包级常量 `mainAgentNodeID` 各回其域文件；**`ports.go` 删除（文件不存在）** | 本包 `runtime_plan.go` / `runtime_history.go` / `runtime_visibility.go` / `runtime.go`（状态由 `Runtime` 自有组件持有） |
 
 **仍未下沉**（按 plan §2.5–§2.8 的目标落点，逐域各一片）：engine 侧 `runtime_context` /
 `runtime_compaction_index`（→ `backend/engine/context`）、`runtime_role_prompt`（→ `backend/engine/prompt`）、
@@ -42,9 +43,10 @@ tool 侧 `runtime_plan`（→ `backend/tool/plan`）、`runtime_async` / `jobs_e
 `review_files`（→ `backend/tool/review`）；multiagent 侧 `runtime_teamwork*` + `teamwork`（→ `backend/multiagent/teamwork`）、
 `runtime_subagent_*`（→ `backend/multiagent/subagent`）、`workunit_*`（→ `backend/multiagent/workunit`）、
 `runtime_role_turn` / `runtime_role_plugins`（→ `backend/multiagent/team`）；M5 侧 `runtime_project_board*`
-（→ `middle/view/board`）。收口片 K 删 `ports.go`（R11-task 已收掉 task/todolist 两段、
-R11-schedule 收掉调度器段、R11-mcp 收掉 MCP 段、R11-plugin 收掉插件段、R11-node 收掉子代理树与
-节点段、R11-task-forwarder 收掉台账段，现 **80 行**；剩余 plan/历史检索/可见性投影等兼容别名）。
+（→ `middle/view/board`）。**收口片已完成**：`ports.go` 的每一段都按域归位后**文件被删除**
+（R11-task 收掉 task/todolist 状态与薄转发面、R11-schedule / R11-mcp / R11-plugin / R11-node
+各收掉自己的宿主转发面、收口片 R11-ports-zero 把 plan / 历史检索 / actor 边界三段并回域文件）。
+`git ls-files backend/engine/assemble/ports.go` 为空即这条验收。
 
 每片的判据都是"行为零变化"：只动"文件在哪、包叫什么、谁持有状态"，不动判定、协议与持久化格式。
 
@@ -88,7 +90,8 @@ flowchart TB
 | 文件 | 职责 |
 |---|---|
 | `runtime.go` | 组合根骨架：RuntimeConfig/Runtime 结构体 + NewRuntime（拓扑序装配链）+ Shutdown（生命周期逆序关停）+ 主会话装配 |
-| `ports.go` | contract 端口实现：plan/子代理树/节点/plugin/历史检索的逐行委托与兼容别名；**task 台账域**（含 todolist）已下沉 [`backend/engine/task`](../../engine/task/README.md)，这里只剩一行式薄转发（`func (r *Runtime) TaskSnapshot() … { return r.ledger().Snapshot() }`） |
+| `runtime_history.go` | 历史检索端口的宿主面（M5-R11 收口片从 `ports.go` 原样搬来）：`SearchHistory` 的装配（会话上下文存储当栈源 + 事件库路由当数据源）与两条未装配判据 |
+| `runtime_visibility.go` | actor 消息边界（M5-R11 收口片从 `ports.go` 原样搬来）：`RuntimeVisibilityProjection` / `ParentEvidenceProjection` 两个跨层别名 + `SetRuntimeVisibilityProjection` / `SetParentEvidenceProjection` 两个单向发布口 |
 | `runtime_schedule.go` | 定时/周期任务域的宿主转发面（M5-R11-schedule 从 `ports.go` 原样搬来）：7 个 DTO 别名 + 9 个 `Runtime` 公开方法，逐行委托 [`backend/engine/schedule.State`](../../engine/schedule/README.md)（`Runtime.scheduler` 即该装配点引用） |
 | `runtime_mcp.go` | MCP 域的宿主转发面（M5-R11-mcp 从 `ports.go` 原样搬来）：`MCPServer` 别名 + 11 个 `Runtime` 公开方法，逐行委托 [`backend/engine/mcp`](../../engine/mcp/README.md)（`Runtime.mcpManager`） |
 | `runtime_plugin.go` | 插件域的宿主转发面（M5-R11-plugin 从 `ports.go` 原样搬来）：7 个 `Runtime` 公开方法，前六个逐行委托 [`backend/engine/plugin`](../../engine/plugin/README.md)，`WithPluginAssembly` 走共享原语 `toolreg.WithRolePlugins` |

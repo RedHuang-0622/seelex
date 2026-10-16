@@ -454,3 +454,14 @@ func (r *Runtime) currentPlanPolicy() dto.PlanPolicy {
 	}
 	return r.planExecutor.Policy()
 }
+
+// PrepareReplan atomically replaces a failed WorkPlan with a recovery plan.
+// It only plans; it never invokes plan_run or retries side effects.
+//
+// 落点：R11-S6 从 `ports.go` 原样搬来（契约 §2.3 的收口片把 plan 端口并回 plan 域文件）。
+func (r *Runtime) PrepareReplan(ctx context.Context, request dto.ReplanRequest) (dto.PlanPreflight, error) {
+	if r == nil || r.planExecutor == nil {
+		return dto.PlanPreflight{}, fmt.Errorf("plan replan: plan executor is unavailable")
+	}
+	return r.planExecutor.PrepareReplan(ctx, request)
+}

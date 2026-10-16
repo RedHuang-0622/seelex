@@ -17,6 +17,10 @@ import (
 	"github.com/RedHuang-0622/seelex/internal/model"
 )
 
+// mainAgentNodeID 是子代理树的合成根节点 ID（R11-S6 从 `ports.go` 搬来：随 `ports.go`
+// 归零，它跟着子代理树的宿主面落在这里）。
+const mainAgentNodeID = model.MainAgentNodeID
+
 // ── 子代理树端口 ──────────────────────────────────────────────────
 
 // ClearSubagentTree 清空子代理树（GUI"清空"按钮入口）。
