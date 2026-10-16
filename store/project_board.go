@@ -25,7 +25,7 @@ package store
 //     code）用普通文件读法就能看见；不再钉在数据根的 hash 目录（那是本机私货，只有
 //     Seelex 自己的读工具能折叠）。代价是失去数据根锁的覆盖：并发只由按路径分片的
 //     独立锁（本文件 projectBoardLock）兜底，跨进程一致性由使用者负责（契约 §9.3 R-3）。
-//  5. 追加复用既有 `truncateCrashTail`（jsonl_io.go）：先截残尾、再逐行 O_APPEND。
+//  5. 追加复用既有 `storeroot.TruncateCrashTail`（store/root/jsonl_io.go）：先截残尾、再逐行 O_APPEND。
 //  6. 独立锁：投影**不新增 storageModule 枚举**（不改 module_heads.go 的
 //     枚举—锁对应关系），自带按**文件路径**分片的独立锁（与 roleDraftLock 同形）。
 //     跨模块共用一把锁会把"落投影"与"落消息/落团队事实"串成一个串行点。
@@ -422,7 +422,7 @@ func projectBoardMaxSeq(rows []ProjectBoardRow) uint64 {
 }
 
 // readProjectBoardRowsForAppend 读回投影文件的**完整行**：先截崩溃残尾（复用
-// jsonl_io.go 的 truncateCrashTail 这一份实现），再整份解码。返回时文件已停在
+// store/root/jsonl_io.go 的 storeroot.TruncateCrashTail 这一份实现），再整份解码。返回时文件已停在
 // 完整行边界上——追加与压实都能安全接着做。
 func readProjectBoardRowsForAppend(path string) ([]ProjectBoardRow, error) {
 	handle, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
@@ -477,7 +477,7 @@ func compactProjectBoardFile(path string, existing []ProjectBoardRow) ([]Project
 //   - 归属：本批每行的 `scope.session` 必须等于本目录的会话（空串补上），否则显式报错；
 //   - 有界：本批超过 ProjectBoardMaxRows ⇒ 显式报错；累计越界 ⇒ 先压实再判，
 //     压实后仍越界才显式报错（不静默截断）；
-//   - 先截崩溃残尾（truncateCrashTail）再逐行追加；
+//   - 先截崩溃残尾（storeroot.TruncateCrashTail）再逐行追加；
 //   - 全程持**该文件路径的独立锁**；
 //   - 落盘成功后刷新人读件 `BOARD.md`（派生件的渲染是同一个"落"的后半段，
 //     失败只影响人读件，不影响投影行）。

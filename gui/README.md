@@ -200,7 +200,7 @@ Bridge 不保存 `currentSessionID` 副本。顺序的唯一事实是会话
   `AgentTeamSaveTeam`（按 `team_id` 幂等 upsert）/`AgentTeamSaveCurrentTeam`（把当前
   会话在编员工存成库条目）/`AgentTeamDeleteTeam`（幂等）/`AgentTeamMaterializeTeam`
   （库条目 → `TeamSpec` → 既有工厂：建角色会话 + 写会话注册表 + 写 `lifecycle` 顺序）。
-  团队库条目与会话在编员工是**两份不同的事实**（见 `sessionstore/README.md`）。
+  团队库条目与会话在编员工是**两份不同的事实**（见 `store/README.md`）。
 - **全局母本（2026-09-15）**：团队库 / 员工库（`team/employees.json`）/ 默认顺序
   （`team/order.json`）都是全局粒度；会话读的是母本**深拷贝副本**（会话在编员工表 +
   lifecycle 顺序），会话内入职/改序只改副本。`AgentTeamGlobalConfig` 读母本 + 会话副本
@@ -244,7 +244,7 @@ Bridge 方法只做参数转换和调用，不维护镜像业务状态。DSN 等
 纯解析口径抽在 `frontend/dist/permission-tier.js`（`node --test` 用例
 `frontend/dist/permission-tier.test.mjs`），app.js 只负责 DOM 写入。档位的**归属与落盘**
 不在 GUI：它由 `application/core` 按会话写入会话级设置并跨重启读回（见
-`sessionstore/README.md`），GUI 只是三个切换入口之一（chip/列表、CLI `/permission`、
+`store/README.md`），GUI 只是三个切换入口之一（chip/列表、CLI `/permission`、
 headless RPC）。
 
 ## 下栏终端（本地 PTY，2026-09-17）

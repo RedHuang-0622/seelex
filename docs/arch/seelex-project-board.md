@@ -23,7 +23,7 @@
 | 摘要层 | **新增（复用既有 `ProjectRecord` 链）** | `project-known.md` 的初始化/更新 | 不新增项目知识来源 |
 
 **非目标**：不新增事实源；不做每轮上下文注入；不重写 todo/teamwork 状态机；
-不新增第二套文件写实现（落点即使搬进项目目录，走的仍是 `jsonl_io.go` 那套
+不新增第二套文件写实现（落点即使搬进项目目录，走的仍是 `store/root/jsonl_io.go` 那套
 追加 + 残尾自愈 + 分片锁，**不是**另起一套写盘实现）。
 
 ### 1.1 分名分责（防误并）
@@ -45,7 +45,7 @@
 | **I1 派生而非事实** | 删掉投影文件，系统功能不变，且能被重建 | 删文件 → 触发同步 → 折叠读结果与活体投影逐行相等 |
 | **I2 活体优先** | 本会话读**活体投影**；文件只在活体给不出时兜底 | **反例用例**：篡改文件不得影响活体与领域判定 |
 | **I3 不新增第二份判据** | 状态、分类、里程碑语义只由既有处产生 | `buildWorkTable` / `TeamworkPlan` / `TeamworkState` 是唯一判据处；新代码只做字段映射（`AGENTS.md §8.3`） |
-| **I4 单写者 + 原子追加** | 一个**投影文件**只有一个写者（**一个会话一份文件** ⇒ 会话之间不存在共用写者）；行级追加不重写整份；崩溃残尾视为未提交 | 复用 `store/jsonl_io.go` 的 `truncateCrashTail`；写者是进程内的同步器，锁按**文件路径**分片（路径含会话 ⇒ 各会话各一把锁）；唯一共享产物是 `BOARD.md`（纯渲染、确定性、后写覆盖前写不丢信息）。数据根的 `lock.owner` 不覆盖项目目录，见 §9.3 R-3 |
+| **I4 单写者 + 原子追加** | 一个**投影文件**只有一个写者（**一个会话一份文件** ⇒ 会话之间不存在共用写者）；行级追加不重写整份；崩溃残尾视为未提交 | 复用 `store/root/jsonl_io.go` 的 `storeroot.TruncateCrashTail`；写者是进程内的同步器，锁按**文件路径**分片（路径含会话 ⇒ 各会话各一把锁）；唯一共享产物是 `BOARD.md`（纯渲染、确定性、后写覆盖前写不丢信息）。数据根的 `lock.owner` 不覆盖项目目录，见 §9.3 R-3 |
 | **I5 有界** | 读取行数、跨会话**会话目录数**、单文件行数、单行字节都有上限；截断显式标注 | 对齐尾部块既有口径：`ProjectBoardMaxRows`（单文件）/ `ProjectBoardReadMaxSessions`（聚合读枚举） |
 | **I6 空则退场** | 没有任务/里程碑 → 不建文件、不渲染、不留空壳 | 对齐 `store/board.go` 的退场语义 |
 | **I7 不进模型上下文** | 投影**不得**进入 system/project 前缀，也**不得**进入请求尾部 | 回归用例：能力开/关，装配前缀字节**完全一致**；请求尾部**不含**项目看板段 |
@@ -93,7 +93,7 @@
 >   2026-10-15 改钉**项目根**。那一版不可提交也不可归属——数据根在工程之外、目录名是 hash、
 >   行内还带着 `ws-<nano>`。现在**落点即项目归属**：外部 agent（codex / claude code）直接读盘上的
 >   `<项目根>/.seelex/board/BOARD.md` 就能接手。写盘纪律仍是同一份实现
->   （`jsonl_io.go` 的追加 + 残尾自愈 + **按文件路径分片**的投影锁），换的只是路径来源。
+>   （`store/root/jsonl_io.go` 的追加 + 残尾自愈 + **按文件路径分片**的投影锁），换的只是路径来源。
 
 **落点的三条硬纪律**（投影落在项目目录里，它们从"将来导出时再说"变成**现行要求**）：
 
@@ -395,7 +395,7 @@ M0 契约冻结
 
 | 需求 | **复用** | 不新写 |
 |---|---|---|
-| JSONL 追加 + 残尾自愈 | `store/jsonl_io.go` 的 `truncateCrashTail` | 第二份尾修复 |
+| JSONL 追加 + 残尾自愈 | `store/root/jsonl_io.go` 的 `storeroot.TruncateCrashTail` | 第二份尾修复 |
 | 落点目录派生 | `store.ProjectBoardDir(projectRoot)`（`<项目根>/.seelex/board`） | 第二套目录命名 / 自造 hash 目录 |
 | 项目作用域写面 | `Router.withRepositoryAt` | 直连文件系统 |
 | 会话枚举 | `Router.ListWorkspace` | 自造枚举 |
@@ -494,7 +494,7 @@ M0 契约冻结
 
 | 不写的东西 | 复用了什么 |
 |---|---|
-| 第二套 JSONL 追加 / 残尾修复 | `store/jsonl_io.go` 的 `truncateCrashTail`、`appendEventLogLine` |
+| 第二套 JSONL 追加 / 残尾修复 | `store/root/jsonl_io.go` 的 `storeroot.TruncateCrashTail`、`appendEventLogLine` |
 | 第二套目录命名 / 锁枚举 | `ProjectBoardDir(projectRoot)`（`<项目根>/.seelex/board`，**固定名、不派生 hash 目录**）；投影自带按路径分片的独立锁（**不**新增 `storageModule` 枚举） |
 | 第二份工作表格判据 | `buildWorkTable`；按会话取 task 快照的判据抽成 `taskRecordsForSession`（打点块与看板共用一份） |
 | 第二套里程碑状态机 | `TeamworkPlan` / `TeamworkState`（运行态优先、声明态兜底） |

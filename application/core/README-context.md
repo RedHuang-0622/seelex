@@ -28,7 +28,7 @@
   处理器归档引用（`result_ref=result:<callID>`），而视图/轨迹读的是应用呈现文本
   （`presentToolError` / `tr-<digest>` 归档引用）。记录侧为此增 provider-only 字段
   `provider_content`（`application/model/context.go` 的 `TranscriptEvent`、
-  `store/store.go` 的 `Event`），三个 provider 投影出口统一取它：
+  `store/sessionstore.go` 的 `Event`），三个 provider 投影出口统一取它：
   `store/durable_history.go` 的 `eventsToMessages`、`store/wire_assembler.go`
   的会话 wire 装配、`application/core/task_context/plan_transcript.go` 的
   `transcriptEventMessage`。守卫用例：

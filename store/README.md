@@ -336,8 +336,8 @@ markdown，`WriteProjectKnown` / `ReadProjectKnown` 把它原子落到项目级�
 - **复用清单（禁止第二份实现）**：目录派生 `projectBoardRoot`（`project_board.go:165`）、
   `storeroot.Hash`（`store/root/atomic.go`）、原子发布 `storeroot.WriteAtomic`（`store/root/atomic.go`）、
   按路径锁 `projectBoardLock`（`project_board.go:191`）、项目作用域写面
-  `Router.withJSONRepositoryAt`（`store.go:1066`）、键校验 `validateProjectID`
-  （`store.go:248`）、项目知识链 `ProjectKnowledgeBuilder` / `RefreshProjectKnowledge`
+  `Router.withJSONRepositoryAt`（`sessionstore.go:1066`）、键校验 `validateProjectID`
+  （`sessionstore.go:248`）、项目知识链 `ProjectKnowledgeBuilder` / `RefreshProjectKnowledge`
   （`project_record.go:73` / `:460`）。
   **删除清单**：本项**没有**新增第二套目录命名、第二份 rename 发布、第二个 `storageModule`
   锁枚举、第二份项目知识构建/判定、第二把工具（`project_refresh` 仍是唯一入口）、
@@ -637,7 +637,7 @@ R2/R4 存储侧接口已落地，应用层 actor / EVENT 生产者尚未接线�
 
 **退场状态（2026-10-15，A06）**：写入这一面的用户能力（装配 / 员工入职 / 团队库 /
 员工库 / 全局母本 / 角色管理面板）已随 2026-10-12 J-1a 整条退场；本仓源码里
-`team_global.go`、`team_library.go` 与 `Read/WriteTeamLibraryGlobal`、
+`team_global.go`、`team_library.go`（两个文件均已删除）与 `Read/WriteTeamLibraryGlobal`、
 `Read/WriteEmployeeLibraryGlobal`、`Read/WriteDefaultOrderGlobal` **都已删除**。
 `store` 只剩角色注册表文件本身：
 

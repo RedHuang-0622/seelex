@@ -40,6 +40,13 @@ IGNORED_NAMES = {
     "metadata/message.json", "metadata/lifecycle.json", "meta.json", "roles.json",
     "session/team/roles.json", "team/employees.json", "team/library.json",
     "team/order.json",
+    # 数据根里的本机数据文件（用户态配置/读数，不入库；README 只描述落点）
+    "runtime-limits.json", "session-storage.json", "gui-appearance.json",
+    # 项目目录/看板里的运行时数据与渲染件（随会话与项目生成，不入库）
+    "BOARD.md", "project-known.md", "project-record.json", "seelex.project.md",
+    "events.json", "generation-N/events.json", "plan.json",
+    # 构建标签兄弟文件的通配写法（形如 `file_shared_read_windows.go` / `_other.go`）
+    "_other.go",
 }
 # 明说「已删除/已退役」的行是在讲历史，不是在声称文件存在
 REMOVAL_MARKERS = ("已删除", "已移除", "已退役", "deleted", "removed")

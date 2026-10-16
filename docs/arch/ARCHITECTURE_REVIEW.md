@@ -260,7 +260,7 @@
 - `RouterStorage` 把 Router 适配为 `lifecycle.Storage[T]`，ContextActor 以 Router 为冷存储接缝——但**当前 Append 路径是 O(n) 读-合-写**（`router_storage.go:Append` 注释明确写出），基建期可接受。
 
 **Hypothesis / 风险**
-- H5：`store.Router.Save/Load/SaveCommit/LoadRange` 等约 15 处 `Repository` 方法，**全部使用 `context.Background()`**（`store.go` 中 15 处）。这意味着 caller 的 ctx（cancel、超时）无法传播到持久化层。建议在 Router 与底层 Repository 之间加 ctx 透传边界（虽然这与"切换后端"语义有冲突，但能透传 cancel 信号至少不会让 HTTP client 死等）。
+- H5：`store.Router.Save/Load/SaveCommit/LoadRange` 等约 15 处 `Repository` 方法，**全部使用 `context.Background()`**（`store/sessionstore.go` 中 15 处）。这意味着 caller 的 ctx（cancel、超时）无法传播到持久化层。建议在 Router 与底层 Repository 之间加 ctx 透传边界（虽然这与"切换后端"语义有冲突，但能透传 cancel 信号至少不会让 HTTP client 死等）。
 - H6：`mcpstack.TraceProvider` 通过 `provider.Compact` 路径（`mcpstack/provider.go:48`）直接构造 `ContextSnapshot` 副本，但绕过了 `seelexctx/provider.Provider` 接口——这是为了避免 import 循环而做的妥协。代价是 mcpstack 不在 seelexctx.Provider 命名空间下，可能在 `Merger.MergeBack` 时被遗漏。建议加 compile-time 接口断言 `var _ provider.Provider = (*mcpstack.TraceProvider)(nil)`（如果 import 关系允许重构）。
 - H7：`SessionRecord` / `SessionContextStore` 的 state blob 与 `ProviderHistory` 是双写关系（`persistCurrentSession` 既写 framework history 也写 state blob）；但二者在落库失败时**只返回第一个错**，后续动作是否会回滚无显式事务。`store.WriteCommit` 显式接受一次 Commit（4 段），但 Commit 内部各段（ProviderHistory/Events/State/ToolResults）的失败一致性是 backend 决定的（JSON 后端是串行 `os.WriteFile` + `os.Rename`）。
 - H8：`RouterStorage.Append` 注释明确"基建期 O(n)"，并把增量优化（事件库 SaveCommit + 投影）列为后续切片。**当前若用作冷加载主路径，每次 Append 都是 read+merge+write 全量**——长会话下这是 O(n²) 的写入成本。一旦切到活跃生产，需要先把增量写做掉。

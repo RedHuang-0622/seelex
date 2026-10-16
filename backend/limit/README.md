@@ -13,7 +13,7 @@ Seelex 的**判据与档位基座包**：集中运行时上限（`config/seelex.
 | `application/core` 门面（[limits.go](../../application/core/limits.go)） | `ApplyLimits` / `Limits` / `ApplySessionReleaseWindow` 一行转发（本包是唯一实现处） |
 | `seelebridge`（装配 Runtime、`internal/config`） | 启动期 `LoadLimits` 读数 + `Apply` 注入；运行期按构造参数注入生效值 |
 | `seelexctx`（`ContextWindowPolicy` / `ToolResultProcessor`） | 按**构造参数**消费生效值，不自己持有第二份 |
-| `main.go`、[overlay/](overlay/README.md) | 启动期加载、启动期覆盖层校验（`ValidateSessionReleaseWindow`）与界面改值的落盘（M2-C2 前在仓库根的 `runtime_limits_overlay.go`） |
+| `main.go`、[overlay/](overlay/README.md) | 启动期加载、启动期覆盖层校验（`ValidateSessionReleaseWindow`）与界面改值的落盘（M2-C2 前在仓库根的 `runtime_limits_overlay.go`，已移除） |
 
 落点沿革：`limits.go` 与 `active.go` 于 2026-10-16 随架构重排 M2-A 从
 原 `seelexctx/limits.go`、`application/core/internal/limits/`（两处旧文件已移除）**物理归位**到此处，

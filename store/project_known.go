@@ -18,7 +18,7 @@ package store
 //     两次渲染**字节完全相同**（模块按 `Name` 稳定排序）。
 //  5. 落点 = `<项目根>/.seelex/board/project-known.md`（**项目目录**，与两块投影同一个
 //     目录）；目录派生**复用** `ProjectBoardDir`（project_board.go），发布**复用**
-//     `writeAtomic`（store.go），锁**复用** `projectBoardLock`
+//     `storeroot.WriteAtomic`（store/root/atomic.go），锁**复用** `projectBoardLock`
 //     （project_board.go，按文件路径分片的独立锁，不新增 storageModule 枚举）。
 //
 // 复用清单（**禁止第二份实现**，交付时同表复核）：
@@ -26,7 +26,7 @@ package store
 //	需求              | 复用（file:line）                                  | 不新写
 //	------------------|----------------------------------------------------|------------------
 //	目录派生           | `ProjectBoardDir` project_board.go                 | 第二套目录命名
-//	原子发布           | `writeAtomic` store.go                      | 第二份 rename 实现
+//	原子发布           | `storeroot.WriteAtomic` store/root/atomic.go | 第二份 rename 实现
 //	按路径独立锁       | `projectBoardLock` project_board.go                | 新 storageModule 枚举
 //	项目知识链         | `ProjectKnowledgeBuilder` / `RefreshProjectKnowledge` project_record.go | 第二份项目知识实现
 //	根校验             | `validateProjectRoot` project_board.go             | 第二份空根校验

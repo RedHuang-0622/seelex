@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// 本文件是基座的原子发布与身份动作（原 `store/store.go` 的 `writeAtomic` / `hash` /
+// 本文件是基座的原子发布与身份动作（原 `sessionstore/sessionstore.go` 的 `writeAtomic` / `hash` /
 // `randomID` / `removeAllWithBackoff`）。迁移只换包与导出名：实现逐字不变。
 
 // RemoveAllWithBackoff 对目录删除做与 rename 发布同一量级的有界退避：

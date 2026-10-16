@@ -275,3 +275,68 @@ $ rg -l 'seelex/store/root'                       # 除 store/** 外无引用者
 3. **V10 的"是否进 Snapshot"** 仍待用户裁决（§3），本轮未改快照协议。
 4. `plan.md` §2.9 的**文件清单本身**未按工作区更新（plan 是方案文档，漂移已在 §2 登记；
    按 plan §5 的口径，记录以工作区实测为准）。
+
+## 8. 复核与收尾（2026-10-16，复核者独立重跑）
+
+复核不复用实施者自述：以下数字都是复核者在当前工作区重跑得到的。
+
+### 8.1 M3 主判据复核结果
+
+| 判据 | 复核动作 | 结果 |
+|---|---|---|
+| 基座闭包纯标准库 | `go list -deps ./store/root` | 带点依赖只剩自身（非 Seelex 的带点包 = 0） |
+| 整仓可构建 | `gofmt -l .` / `go build ./...` / `go vet ./...` | 三者均无输出 |
+| I6 门禁在位且可咬 | 读 `e2e/store_boundary_test.go` + `go test ./e2e/...` | 两条判据（闭包 + 测试文件 import）+ 允许清单 ratchet 上限；e2e 绿 |
+| 归位后的存储面未坏 | `go test ./store/... -count=1` | `store` 84.6s、`store/workspace` 38.5s 全绿；`store/root` 无测试文件（见 §7.1） |
+
+### 8.2 复核发现的缺陷（本轮已修，见 8.3）
+
+**缺陷 1：改名脚本把同名折叠成了错路径。** `sessionstore/sessionstore.go` 在文档/注释里被压成
+`store/store.go`（同名去重 bug），共 6 处：`store/root/atomic.go:14`、`application/core/README-context.md:31`、
+`store/README.md:339,340`、`store/project_known.go:21,29`、`docs/arch/ARCHITECTURE_REVIEW.md:263`。
+这类错路径是**静默**的：编译器看不见注释里的路径，只有人读或漂移脚本能发现。
+
+**缺陷 2：S2 归位后旧落点未跟。** `data_root_lock.go`、`storage_settings.go`、`jsonl_io.go` 三个文件
+进了 `store/root/`，但 5 处现行文档仍写 `store/...`：`config/README.md:17,69`、
+`docs/arch/remote-agent-node-feasibility.md:89`、`docs/arch/seelex-project-board.md:48,398,497`、
+`docs/test/2026-10-01-computer-use-smoke-checklist.md:19`。
+
+**缺陷 3：函数改名未跟注释。** `truncateCrashTail` → `storeroot.TruncateCrashTail` 后，
+`store/project_board.go:28,425,480` 与 `docs/arch/seelex-project-board.md` 仍用旧名/旧文件。
+
+**缺陷 4：已删除文件在现行 README 里没有「历史叙述」标记。** `backend/limit/README.md:16` 写
+`runtime_limits_overlay.go`（M2-C2 已移除）、`application/core/agentteam/README.md:242,243` 写
+`store/team_global.go`/`library.go`/`global.go`（J-1a 已删除）；纯看这两行会读成"文件还在"。
+
+### 8.3 收尾动作与证据
+
+- 22 条替换由落盘脚本 `tmp/reshape/m3_doc_drift_fix.py` 执行，**每条声明期望命中次数**，对不上即整体
+  不写盘（实际 22/22 命中 1 次或 3 次，`failures: 0`）。
+- 漂移门禁基线对照（`scripts/check_readme_refs.py --strict`，同一脚本跑 `tmp/reshape/head-wt` 的
+  main 副本作基线）：**19 条 → 11 条**，且**新增条目归零**；`store/README.md`（即改名前的
+  `sessionstore/README.md` 那条）与其 `gui/README.md`、`config/README.md` 条目都已消解。
+- 门禁容忍表扩了**类**而不是逐个开例外：数据根数据文件（`runtime-limits.json`/`session-storage.json`/
+  `gui-appearance.json`）、项目目录渲染件（`BOARD.md`/`project-known.md`/`project-record.json`/
+  `seelex.project.md`/`events.json`/`generation-N/events.json`/`plan.json`）、构建标签兄弟文件通配
+  （`_other.go`）。变异探针验证：往 `scripts/README.md` 注入
+  `store/root/__mutation_probe_missing.go` ⇒ 门禁报 `scripts/README.md -> ['store/root/__mutation_probe_missing.go']`（先红），
+  撤掉探针后该条消失（后绿）。
+- 收尾后整仓：`gofmt -l .` 干净、`go build ./...`、`go vet ./...`、`go test ./e2e/...`、
+  `go test ./store/...` 全绿；改动面 `15 files changed, 33 insertions(+), 25 deletions(-)`，
+  其中 Go 侧只有注释与文档路径，零逻辑改动。
+
+### 8.4 登记为残留（本轮不动，附判据）
+
+1. **历史封存文档仍写 `sessionstore/`**：`docs/research/**`（含日期报告）、`docs/test/REPORT-*.md`、
+   `CHANGELOG.md`、`docs/devlog/**`、`docs/YYYY-MM-DD-*`。判据 = 门禁脚本自己的封存政策
+   （「按时间封存的记录描述当时状态，可能合法引用后来被删除的文件」），改写它们等于篡改历史测量口径。
+   现行文档（模块 README、`docs/arch/**`、脚本、代码注释）本轮已归零。
+2. `scripts/gen_store_readme_volumes.py:30` 的分卷键表里仍留 `sessionstore` 字面量（作为**旧键**参与
+   映射，见该文件注释）；不是断链，属 M5 前端/脚本收口项。
+3. D-M3-13（`gui/frontend/dist/*.js` 注释旧路径）未动，仍按 plan §2.1「前端本轮零改动」留给 M5。
+
+### 8.5 新增偏差登记
+
+| ID | 偏差 | 需要谁点头 |
+|---|---|---|
+| D-M3-14 | 复核者越出"只审不改"：修订了 8 个现行文档的路径、3 个 Go 文件的注释、门禁脚本的容忍表，并提交为独立 commit（不含任何逻辑改动、不含无关工作区改动） | 用户 |
