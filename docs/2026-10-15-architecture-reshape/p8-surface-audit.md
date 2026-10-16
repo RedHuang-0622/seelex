@@ -99,7 +99,11 @@
 纯机械替换 + 散文里的旧包名一并对齐，零行为变化。这是"搬迁收尾"的一部分，
 按 P7/post-migration 收口批一起做即可。
 
-## 6. legacy 存储面详解：`store/legacy_storage.go`（257 行）+ `store/README-storage.md`（79 行）
+## 6. legacy 存储面详解：`store/legacy_storage.go`（301 行）+ `store/README-storage.md`（146 行）
+
+行数以 `wc -l` / Python 口径为准（本环境下 PowerShell 的 `Measure-Object -Line` 会少算）。
+本节与 [post-migration-proposals.md](post-migration-proposals.md) §5.3 的 Z1/Z2 讲的是同一件事：
+那边是"裁决层"（判定 + 建议 + 待你决定），这里是"证据层"（清单、逐条详解、可复现脚本）。
 
 它现在是 `store` 包里的**文件分片（shard）会话存储**：
 

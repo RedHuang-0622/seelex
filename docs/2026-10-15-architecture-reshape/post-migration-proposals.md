@@ -148,6 +148,15 @@
 
 （§1 汇总表里 P8 行的状态以本节为准：**判别已完成**。）
 
+**本节数字的复核口径**（root 2026-10-16 独立重跑）：`rg -l '^\s*seelebridge\s' --glob '*.go'` = **34** ✓、
+`rg -c 'seelebridge' --glob '*.go'` 命中文件数 = **207** ✓。两条经复核**已更正**：
+
+1. `store/legacy_storage.go` 行数以 `wc -l` / Python 口径为 **301**（本环境下 PowerShell 的
+   `Measure-Object -Line` 会少算，**不要**用它数行）；
+2. §5.2 原列 `prompt.ReActBudget` 为"限定名 = 0，删"——**错**：该限定名被
+   `application/core/task_context/coordinator.go`（多处签名与字段）等 6 个文件消费，属 §5.1 的
+   "领域词汇别名"，已改判为**保留**。
+
 > **两处不重复**：逐条详解（含 19 条"生产者零引用"僵尸面、仅被测试引用的出口、
 > "同一形状被 2–3 个名字各自出口"的三条链、以及每条的删除后果）在
 > [p8-surface-audit.md](p8-surface-audit.md)——那是**规范详解处**。
@@ -174,14 +183,18 @@
 | `store/root_aliases.go` | 7 条 | 外部只有 3 处：`wiring/bootstrap/runtime.go` 用 `store.Settings`(2) 与 `store.DataRootLockedByWith`(1)；`store.NewSettings`、`store.ErrDataRootLocked`、`store.ErrDataRootStaleLock`、`store.DataRootLockedBy` 的**限定名引用 = 0**，只剩 `store/` 自己的测试在用 | 删文件；3 处外部改 `storeroot.X`；`store/` 测试改限定名 |
 | `backend/engine/assemble/{ports.go,runtime.go,runtime_role_plugins.go}` | 15 条（11+3+1） | 旧根包名遗留 | R11 随 `ports.go` 一并删 |
 | `application/core/service_scheduler.go:333,336` | 2 条 | `core.ScheduledTaskSpec`/`ScheduledTaskStatus` 限定名 **= 0**（包内也无人用）；同文件第 10 行的 import 别名仍叫 `seelebridge`，实际指向 `backend/engine/assemble` | 删这 2 条 + import 别名改 `assemble` |
-| `application/prompt/effort.go:29`（`ReActBudget`） | 1 条 | `prompt.ReActBudget` 限定名 = 0；包内仅定义行 | 删；调用点直接用 `loop.Budget` |
 | `session/ports.go:26,29`（`SessionKind`/`TranscriptEvent`） | 2 条 | `session.SessionKind`/`session.TranscriptEvent` 限定名 = 0；包内仅定义行 | 删；改用 `store.Kind`/`store.TranscriptEvent` |
+
+**改判（root 复核，见本节开头的"复核口径"）**：`application/prompt/effort.go:29` 的
+`ReActBudget = loop.Budget` **不是**兼容面——`rg -n 'prompt\.ReActBudget'` 命中 6 个文件
+（`application/core/aliases.go:224,234`、`application/core/task_context/coordinator.go` 的 4 处签名/字段等），
+是生产在用的**领域词汇别名**，按 §5.1 处置（保留）。要收口的是 `application/core/aliases.go` 里那一跳（R10）。
 
 ### 5.3 冗余/僵尸面（**等你决定；本轮未动**）
 
 （Z1/Z2 与 [p8-surface-audit.md](p8-surface-audit.md) §0/§3 的 `store/legacy_storage.go` 是同一件事，两处结论一致：都等你裁决。）
 
-**Z1 `store/legacy_storage.go`（296 行）整文件存疑。**
+**Z1 `store/legacy_storage.go`（301 行，`wc -l`）整文件存疑。**
 
 - 它定义 `SessionStore` + `NestedSessionStore` 两个类型与两个构造（legacy shard 文件存储、按工作区路由的嵌套存储）。
 - 全仓限定名引用：`store.SessionStore` = 0、`store.NestedSessionStore` = 0、`store.NewNestedSessionStore` = 0；`store.NewSessionStore` = **1**，唯一消费者是 `test/smoke_test.go:35`，而那里拿到 `st` 之后只做了一句 `_ = st.FrameworkStore()`，整段流程随后走 `runtime.NewMainSession`。
@@ -216,6 +229,6 @@
 
 ### 5.4 建议的执行顺序
 
-1. **5.2 的兼容面删除**（`store/root_aliases.go`、`service_scheduler.go` 两条 + import 别名、`prompt.ReActBudget`、`session/ports.go` 两条）：与 M5 并行、零行为变化。`application/core/aliases.go` 与 `backend/engine/assemble/*` 两组分别在 R10/R11 收口。
+1. **5.2 的兼容面删除**（`store/root_aliases.go`、`service_scheduler.go` 两条 + import 别名、`session/ports.go` 两条）：与 M5 并行、零行为变化。`application/core/aliases.go` 与 `backend/engine/assemble/*` 两组分别在 R10/R11 收口。（原列的 `prompt.ReActBudget` 已按上条改判为保留。）
 2. **Z3 的别名与文案**：随 P9 一起（已扩范围），只动不在搬迁路径上的文件。
 3. **Z1/Z2**：等你一句"删/留"；删的话与 Z3 同批做（同文件冲突面大，不拆两片）。
