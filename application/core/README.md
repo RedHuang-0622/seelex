@@ -470,7 +470,7 @@ todoState mailbox actor（Actor + Mailbox 并发安全）；plan/subagent 状态
 done 节点有界保留（`subagentTreeRetainDone`），工作表格持续展示已完成
 任务，直到显式清空。
 
-task 体系：`seelebridge/task/task.go`（`TaskRegistry` actor）是唯一权威源（Actor + Mailbox，
+task 体系：`backend/tool/task/task.go`（`TaskRegistry` actor）是唯一权威源（Actor + Mailbox，
 保护粒度=task），todolist 融合为 kind=todo 的 task；主动 `taskadd` 与被动
 plan/subagent 生命周期同步都落到注册表；`syncTasksFromSources`（锁外外部
 端口）做幂等同步，`publishTaskDeltas` 发布 `task.changed`（逐任务）与

@@ -10,12 +10,12 @@ import (
 	frameworkmcp "github.com/RedHuang-0622/Seele/tools/mcp"
 	"github.com/RedHuang-0622/Seele/types"
 
+	"github.com/RedHuang-0622/seelex/backend/tool/task"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/mcp"
 	"github.com/RedHuang-0622/seelex/seelebridge/scheduler"
 	subagentsession "github.com/RedHuang-0622/seelex/seelebridge/session"
-	"github.com/RedHuang-0622/seelex/seelebridge/task"
 	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
 	"github.com/RedHuang-0622/seelex/seelexctx/search"

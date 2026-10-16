@@ -3,7 +3,7 @@ package fork
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/seelebridge/task"
+	"github.com/RedHuang-0622/seelex/backend/tool/task"
 )
 
 // TestBindSubagentTaskIdempotent 验证 B6 装配件：相同 goal 的子代理绑定同一

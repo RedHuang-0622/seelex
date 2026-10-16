@@ -146,7 +146,7 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "task 状态",
 		files: map[string]string{
-			"seelebridge/task/task.go":       "写：task 注册表的状态迁移与打点状态",
+			"backend/tool/task/task.go":      "写：task 注册表的状态迁移与打点状态",
 			"application/core/work_table.go": "读：折成工作表格行（子代理行沿用 done 的显示映射）",
 		},
 		// 这一格的取值面 = dto.Task*（TaskRecord.Status / TaskTracePoint.Status）。

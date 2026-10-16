@@ -108,7 +108,7 @@ flowchart TB
 | `security/` | `ProjectScope` 项目根 containment + `CommandSandbox` shell 隔离（见 `security/README.md`） |
 | `fs/` | `FileSystem` 文件系统 actor（写路径分片串行化，见 `fs/README.md`） |
 | `plan/` | Plan 执行域：`Executor`/`ToolProvider`/`PlanPolicy`/`PlanPreflight`/`PlanNodeEvent`/`ReplanGuard`/`SeelexNodeInput`/`PlanBranchBinding`/`BuildNode` 等（见 `plan/README.md`） |
-| `task/` | `TaskRegistry` actor、`TaskRecord`/`TodoItem` 共享 DTO、`TaskTerminalProvider`/`Tools`（见 `task/README.md`） |
+| `task/` | `TaskRegistry` actor、`TaskRecord`/`TodoItem` 共享 DTO、`TaskTerminalProvider`/`Tools`（见 `../backend/tool/task/README.md`） |
 | `fork/` | `fork_subagents` 纯类型、summary 节点与执行编排 `Tool`（见 `fork/README.md`） |
 | `node/` | `kind:agent` 节点执行域：`AgentNode`/`Coordinator`/`ScopeAssembler`/预算/charter/skill 匹配/工具结果归档（见 `node/README.md`） |
 | `session/` | 子代理会话注册表、fork 子代理树与父证据/merge-back actor（见 `session/README.md`） |
@@ -119,12 +119,12 @@ flowchart TB
 | `scheduler/` | 定时周期任务 actor：白名单命令/prompt 任务/状态快照（见 `scheduler/README.md`） |
 | `tools/` | scoped 工具 Router、`RegistryState`（内联工具+权限门控）、websearch、computer use 原语与工具面（见 `tools/README.md`、`../backend/tool/computer/README.md`） |
 | `internal/model/` | 各域共享的纯类型层（`AccountSpec`/`AccountRole`/`NodeScope`，无运行时依赖） |
-| `internal/actor/` | 单消费者 actor 底座（有界命令通道 + 串行 handler + 幂等 Close；task/session 等 mailbox actor 复用，见 `internal/actor/README.md`） |
+| `internal/actor/` | 单消费者 actor 底座（有界命令通道 + 串行 handler + 幂等 Close；task/session 等 mailbox actor 复用，见 `../internal/actor/README.md`） |
 | `internal/mapper/` | 运行态结构 ↔ `contract/dto` 的无业务转换（`ToolEventToDTO` 等；见 `internal/mapper/README.md`） |
 | `internal/config/` | 简化账号 YAML 加载（`Config`/`AccountLimits`/`Load`） |
-| `internal/docker/` | Docker 守护进程自动恢复（探针/daemon-down 判定/恢复提示，见 `internal/docker/README.md`） |
+| `internal/docker/` | Docker 守护进程自动恢复（探针/daemon-down 判定/恢复提示，见 `../internal/docker/README.md`） |
 | `internal/stream/` | 流式账号 Completer 适配（`NewStreamingCompleter`） |
-| `internal/telemetry/` | 内存遥测追踪器/生命周期钩子/诊断钩子/`Chain` 组合器/`SummaryHook` 脱敏摘要构造（见 `internal/telemetry/README.md`） |
+| `internal/telemetry/` | 内存遥测追踪器/生命周期钩子/诊断钩子/`Chain` 组合器/`SummaryHook` 脱敏摘要构造（见 `../internal/telemetry/README.md`） |
 
 根包对子包保持单向依赖；子包禁止 import seelebridge 根包，跨域协作一律走
 Deps 闭包或端口接口注入（`node.Coordinator`、`fork.Tool`、`tools.Router`、

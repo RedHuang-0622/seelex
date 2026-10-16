@@ -22,6 +22,7 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/backend/tool/task"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/config"
 	"github.com/RedHuang-0622/seelex/internal/docker"
@@ -38,7 +39,6 @@ import (
 	"github.com/RedHuang-0622/seelex/seelebridge/scheduler"
 	"github.com/RedHuang-0622/seelex/seelebridge/security"
 	subagentsession "github.com/RedHuang-0622/seelex/seelebridge/session"
-	"github.com/RedHuang-0622/seelex/seelebridge/task"
 	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
 	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 	"github.com/RedHuang-0622/seelex/seelebridge/worktree"

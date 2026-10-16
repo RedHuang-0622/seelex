@@ -267,7 +267,7 @@ func TestRegistrationScannerSeesEveryFamily(t *testing.T) {
 	sites, _, _ := scanToolRegistrations(t, ".")
 	for _, name := range []string{
 		"read_file", "bash", "write_file", // seelebridge/tools/router.go
-		"todo_init", "task_add", // seelebridge/task/tools.go
+		"todo_init", "task_add", // backend/tool/task/tools.go
 		"computer_click", "computer_screenshot", // backend/tool/computer/tools.go（别名形态）
 		"fork_subagents",              // seelebridge/runtime_plan.go
 		"read_tool_result",            // main.go

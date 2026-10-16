@@ -48,10 +48,10 @@
 | 协作介质 | task 行（`Assignee` / `Participants` / `Trace`）+ 子代理摘要 + worktree 合并 | **唯一帧账本**（同一 `seq` 空间，逐帧带 `role_name`）+ 角色 lifecycle |
 | 执行单元 | plan 节点 / fork 子代理（DAG，可并发） | 席位回合（`roleTurnSeat.Act` → `RunRoleTurn`） |
 | 「做完」的判据 | 任务终态 + 有界自述摘要（+ worktree 提交/合并痕迹） | goal `acceptance` + 终态 gate 的裁决（`verdict_done` 才收口） |
-| 主要代码锚点 | `seelebridge/task/task.go`、`application/core/work_table.go`、`seelebridge/fork/tool.go`、`seelebridge/worktree/worktree_manager.go` | `application/core/agentteam/{spec,scheduler,runtime,factory}.go`、`application/core/goal_coordinator.go`、`application/core/goal/gate.go`、`store/role_session.go` |
+| 主要代码锚点 | `backend/tool/task/task.go`、`application/core/work_table.go`、`seelebridge/fork/tool.go`、`seelebridge/worktree/worktree_manager.go` | `application/core/agentteam/{spec,scheduler,runtime,factory}.go`、`application/core/goal_coordinator.go`、`application/core/goal/gate.go`、`store/role_session.go` |
 
 **认领的确切语义（B）**：`attachParticipantLocked` 里，「认领」= **最后一个接管者成为当前 `Assignee`**，
-名单只增不减，没有 lease / TTL / unclaim / 排他检查（`seelebridge/task/task.go`）。
+名单只增不减，没有 lease / TTL / unclaim / 排他检查（`backend/tool/task/task.go`）。
 也就是说认领是**标签语义**，不是锁语义。子代理行的认领是**被动投影**发生的：
 `fork` 注册子代理树 → 树事件 → `application/core/work_table.go` 的 `syncSubagentTask`
 → `TaskAttachParticipant`（模型不调任何工具也照样认领）。
@@ -110,7 +110,7 @@ flowchart TB
    （`application/core/goal/record.go`，上限 64 条）。作品集里这一条最值钱：**验收判据是数据，不是措辞**。
 2. **分配无争用的确定性**：发言权来自一份顺序事实 + 一个游标，不存在「抢占 / 覆盖」。
    对比：认领制的 `Assignee` 是单值字段，同 goal 的两个并行子代理会共用同一 task 行，
-   `Assignee` 被后到者覆盖（B：`seelebridge/task/task.go` 的 `attachParticipantLocked`、
+   `Assignee` 被后到者覆盖（B：`backend/tool/task/task.go` 的 `attachParticipantLocked`、
    `seelebridge/fork/bind_subagent_task_test.go`）。
 3. **上下文口径可算、有界、可展示**：切点 `C` 的计算式、端点语义（`seq > C`）、
    main 恒 `C=0`、缺 `compact_ref` 硬报错而不静默兼容、以及前端把「不在区间内」的行渲染成占位 `—`
@@ -268,7 +268,7 @@ flowchart TB
 `application/core/agentteam/{spec,scheduler,runtime,factory,presets}.go`、
 `application/core/goal/{gate,record,stack}.go`、`application/core/goal_coordinator.go`、
 `application/core/goal_service.go`、`application/core/work_table.go`、`store/role_session.go`、
-`seelebridge/task/task.go`、`seelebridge/fork/{tool,summary}.go`、`seelebridge/plan/policy.go`、
+`backend/tool/task/task.go`、`seelebridge/fork/{tool,summary}.go`、`seelebridge/plan/policy.go`、
 `seelebridge/worktree/worktree_manager.go`、`seelebridge/session/subagent_tree.go`、
 `gui/frontend/dist/agent-team-view.js`。静态检索结论：`GatePolicy` / `CompactPolicy` /
 `PresencePolicy` / `ModelPolicy` / `DirectiveSchema` 仅出现在 DTO、preset、注册表、适配器与

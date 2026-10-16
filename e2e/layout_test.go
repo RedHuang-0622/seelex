@@ -32,7 +32,7 @@ var repositoryModules = []string{
 	"seelebridge", "seelebridge/fork", "seelebridge/fs", "internal/config",
 	"internal/model", "internal/stream",
 	"internal/telemetry", "seelebridge/plan",
-	"seelebridge/search", "seelebridge/security", "seelebridge/task", "seelebridge/tools/websearch", "seelexctx", "seelexctx/compactor",
+	"seelebridge/search", "seelebridge/security", "backend/tool/task", "seelebridge/tools/websearch", "seelexctx", "seelexctx/compactor",
 	"seelexctx/merger", "seelexctx/provider", "seelexctx/search", "seelexctx/snapshot",
 	"session", "skill", "store", "store/root", "store/workspace",
 	"tui", "tui/splash", "wiring",
