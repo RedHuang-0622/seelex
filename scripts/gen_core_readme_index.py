@@ -1,156 +1,200 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""生成 application/core 各包 README 的「文件与函数索引」段。
+"""全仓 README「文件与函数索引」生成器（P13：按包生成 + `--check` / `--only`）。
 
-根包按文件前缀分卷：每个前缀组生成一个 README-<组>.md（组概述 + 文件/函数
-索引）；子包保持单 README。主 README 的索引段会被移除（改由分卷 README 承载，
-导航链接见主 README「分卷 README」）。根包每个 .go 必须归入恰好一个分卷，
-否则脚本报错退出（覆盖自检，见 verify_coverage）。
+判据的事实源：`docs/arch/readme-spec.md` §3/§4 与
+`docs/2026-10-15-architecture-reshape/r10-r11-p13-contract.md` §3。
 
-索引从源码 doc 注释提取每个函数的首行摘要（中文优先，代码标识符保留原文），
-与实现保持同步；改动源码注释后重跑本脚本即可刷新。
+本脚本只写**已定案树**（搬迁中/收口中的树由各自切片负责，见契约 §3.1）：
 
-用法：python scripts/gen_core_readme_index.py
+* 单 README 包（`## 生态位` + 索引）：`SETTLED_TREES` 下按目录自动发现；
+* 分卷包（根/大包，文件数 > 15，按文件前缀分卷）：`application/core`、`test/`、`store/`；
+* 树外已登记包：`kernel/state`、`middle/protocol/{model,event}`、`middle/view{,/board,/boardtest}`。
+
+脚本名保持不变：仓库既有 README 的「刷新方式」行都指向
+`python scripts/gen_core_readme_index.py`（该格式已冻结，改名会让全仓 README 漂移）。
+
+用法：
+
+    python scripts/gen_core_readme_index.py                        # 全仓刷新（只写已定案树）
+    python scripts/gen_core_readme_index.py --check                # 只报漂移，不写文件；有漂移 exit 1
+    python scripts/gen_core_readme_index.py --only <import-path>…  # 只处理给定包（仓库相对路径前缀匹配）
+
+安全（「索引静默漏文档」的报警器）：
+
+1. 分卷覆盖自检：每个 `.go` 必须**恰好**归入一卷，漏归属/重复归属直接失败；
+2. 索引段是生成器的地盘：段内只允许生成器写的形状（`### 文件` / `- 条目` / `> 说明`）。
+   一旦发现手写表格、缩进列表或别的分节，**拒绝覆盖整批**并逐条列出，
+   避免刷新索引时静默丢掉手写文档——先人工归一到冻结格式，再跑本脚本。
 """
+
+from __future__ import annotations
 
 import pathlib
 import re
+import sys
+from dataclasses import dataclass
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent / "application" / "core"
 REPO = pathlib.Path(__file__).resolve().parent.parent
 SECTION_HEADER = "## 文件与函数索引"
 CORRUPTED_HEADER = re.compile(r"^## \?{7,}$")
+NAVIGATION_HEADER = "## 分卷 README"
+MODULE_PREFIX = "github.com/RedHuang-0622/seelex/"
 
-# 基座包（非 application/core）：复用**同款**提取逻辑生成单 README 的索引段
-# （docs/arch/readme-spec.md §3「其它包的 README 可复用同一提取逻辑」）。
-# 这里只列已经归位、且 README 存在的包；新增基座包时补一行即可。
-EXTRA_PACKAGES = [
-    REPO / "backend" / "limit",
-    REPO / "backend" / "limit" / "policy",
-    REPO / "kernel" / "state",
-    REPO / "middle" / "protocol" / "model",
-    REPO / "middle" / "protocol" / "event",
-    REPO / "middle" / "view" / "board",
-    REPO / "middle" / "view" / "board" / "boardtest",
-    REPO / "middle" / "view",
-    REPO / "wiring" / "adapters",
-    REPO / "wiring" / "config",
-    REPO / "wiring" / "registry",
-    REPO / "wiring" / "bootstrap",
-    REPO / "test",
-]
+# 索引段的说明两行是**冻结格式**（契约 §3.1）：改这里等于让全仓索引漂移。
+SECTION_NOTE = (
+    "> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。",
+    "> 刷新方式：`python scripts/gen_core_readme_index.py`。",
+)
 
-# 会话/视图/审批等跨域回归测试：文件名前缀不表达归属，用显式名单挂到 session 卷
-SESSION_EXTRA = [
-    "approval_session_ownership_test.go",
-    "message_seq_scope_test.go",
-    "view_singleton_test.go",
-    "view_switch_isolation_test.go",
-    "subscribe_session_test.go",
-    "hot_attach_running_test.go",
-    "interrupted_continue_test.go",
-    "fork_gate_test.go",
-    "shutdown_concurrent_test.go",
-    # 会话内容 LRU（第二层内存治理：已加载正文按上限释放）与按会话的内容回读
-    # 用例：文件名前缀不表达归属（c 打头），显式挂到 session 卷。
-    "content_lru.go",
-    "content_lru_test.go",
-]
+# 单 README 包：按树自动发现（搬迁中/收口中的树刻意不在列）。
+SETTLED_TREES = (
+    "contract",
+    "e2e",
+    "wiring",
+    "store",
+    "internal",
+    "backend/workunit",
+    "backend/limit",
+    "backend/multiagent",
+)
 
-# 基础与杂项：前缀各异（或就是单文件域），用显式名单成卷
-MISC_FILES = [
-    "aliases.go",
-    "completion.go",
-    "completion_test.go",
-    "compressed_turn.go",
-    "compressed_turn_test.go",
-    "diagnostics.go",
-    "fault_guard.go",
-    "fault_guard_test.go",
-    "limits.go",
-    "perf_stats.go",
-    "race_test.go",
-    # J-2：agent 请求 GUI 打开待审阅文件（与 workspace_usecase.go 同族的跨域用例）
-    "review_files.go",
-    "review_files_test.go",
-    "resident_lru.go",
-    "resident_lru_test.go",
-    "runtime_projection.go",
-    "snapshot_budget.go",
-    "snapshot_budget_test.go",
-    "workspace_usecase.go",
-    "workspace_file_usecase_test.go",
-    "workspace_tree_usecase_test.go",
-    # J-1a 文档同步时发现的**既有**漂移（与 J-1a 无关）：这三个根包测试文件在本条目之前就没有归卷，
-    # `verify_coverage` 因此一直失败（根包分卷索引停在旧快照，刷新不了任何一卷）。按脚本自己的
-    # 口径「新增文件必须显式归卷」，先把它们补进杂项卷。
-    "plugin_source_projection_test.go",
-    "served_route_test.go",
-    "turn_status_single_word_test.go",
-    "window.go",
-]
+# 树外已登记包（历史遗留的基座包；索引一直由本脚本负责）。
+EXTRA_PACKAGES = (
+    "kernel/state",
+    "middle/protocol/model",
+    "middle/protocol/event",
+    "middle/view",
+    "middle/view/board",
+    "middle/view/board/boardtest",
+)
 
-# 根包分卷：(卷名, 组概述, 前缀列表, 显式文件名列表)；卷名用于 README-<卷名>.md。
-# 覆盖规则 = 命中任一前缀 **或** 在显式名单中；每个根包 .go 必须恰好命中一卷，
-# 由 verify_coverage 兜底（新增文件不归卷即失败，不静默漏文档）。
-ROOT_GROUPS = [
-    ("service", "Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/测试夹具）", ["service"], ["employee_permission_assembly_test.go", "fixture_concurrency_test.go", "teamwork_service.go", "teamwork_board_projection_test.go", "role_tool_activity_test.go", "teamwork_board_session_switch_test.go", "teamwork_completion_trigger_test.go"]),
-    ("session", "会话草稿/恢复/存储用例与集成测试；运行中切到未驻留会话走异步冷加载（restoring 空壳 + 后台装载 + epoch 判定发布基线）", ["session"], SESSION_EXTRA),
-    ("chat", "聊天主循环与可见输出集成（含可见会话的群聊角色归属载荷）", ["chat"],
-     ["visible_output_test.go", "reasoning_visible_test.go", "visible_role_attribution_test.go"]),
-    ("command", "内置命令注册与执行", ["command"], ["permission_command_test.go"]),
-    ("error", "错误码与面向用户的错误呈现", ["error"], []),
-    ("history", "历史检索与 provider 失败恢复", ["history"], []),
-    ("input", "输入分派与路由兼容测试", ["input"], ["durable_queue_wire_test.go"]),
-    ("plan", "Plan 打点/分支事件/重规划", ["plan"], []),
-    ("reference", "read_tool_result / read_plan 引用工具", ["reference"], []),
-    ("skill", "Skill 指令信封编解码", ["skill"], []),
-    ("tool", "工具事件钩子与诊断", ["tool"], []),
-    ("work-table", "后台作业面与工作表格投影：执行登记表的只读投影、请求尾部打点块（在途行 + 待取回的完成行）、作业终态为**空闲**会话触发对话、项目看板的派生投影（按会话落盘 + 按需读取面）", ["work_table", "async", "project_board"], []),
-    ("context", "上下文控制相关集成测试", ["context"], []),
-    ("task", "任务执行集成测试", ["task"], []),
-    ("subagent", "子代理投影集成测试", ["subagent"], []),
-    ("goal", "goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回归", ["goal"], []),
-    ("agentteam", "AgentTeam 装配适配与群聊角色会话透传（端口形状与 A2A 元数据口径）", ["agentteam", "role_session"], ["role_turn.go", "role_turn_test.go"]),
-    ("composer", "输入草稿合成器的持久化与工作区绑定（重启后恢复）", ["composer"], []),
-    ("archive", "会话归档与收尾语义（归档隐藏/拒绝忙碌会话、推理与工具叙述随记录持久化、运行判定与取消排空）", ["archive"], ["close_semantics_test.go"]),
-    ("misc", "基础与杂项（aliases/limits/completion/compressed/diagnostics/fault-guard/perf/snapshot-budget/runtime/workspace/race）", [], MISC_FILES),
-]
+# 默认**不写**的树：搬迁中/收口中的树，README 由各自切片负责（契约 §3.1）。
+# 它们的索引漂移不在这里修，只登记（交付里的 tmp/reshape/p13-deferred.tsv）；
+# 树静默后由 root 用 `--only <包>` 一次性刷新（同款判据、同一份实现）。
+DEFERRED_TREES = (
+    "application/core",
+    "backend/engine",
+    "backend/tool",
+    "middle",
+)
+
+# 例外：这些**已登记包**的索引一直由本脚本负责（README 的「刷新方式」行就指向本脚本，
+# 且拥有它们的历史切片都已完成），所以不随所在树一起延后。
+REGISTERED_IN_DEFERRED = (
+    "middle/protocol/model",
+    "middle/protocol/event",
+    "middle/view",
+    "middle/view/board",
+    "middle/view/board/boardtest",
+)
 
 
-def verify_coverage(all_files):
-    """把根包 .go 文件按前缀/名单分派到分卷；漏归属或重复归属直接失败。
-
-    这是「索引静默漏文档」的报警器：新增根包文件后必须显式归卷（前缀打头
-    或加进某个显式名单），否则本脚本拒绝刷新。
-    """
-    hits = {}
-    for group_name, _, prefixes, names in ROOT_GROUPS:
-        for path in all_files:
-            if any(path.name.startswith(prefix) for prefix in prefixes) or path.name in names:
-                hits.setdefault(path.name, []).append(group_name)
-    orphans = sorted(name for name in (p.name for p in all_files) if name not in hits)
-    overlaps = {name: groups for name, groups in hits.items() if len(groups) > 1}
-    problems = []
-    if orphans:
-        problems.append("未归属任何分卷：" + "、".join(orphans))
-    if overlaps:
-        problems.append(
-            "同时命中多个分卷：" + "、".join(f"{n}→{'/'.join(g)}" for n, g in sorted(overlaps.items()))
-        )
-    if problems:
-        raise SystemExit("根包分卷覆盖自检失败（请把新文件归入某个分卷）：\n  " + "\n  ".join(problems))
-    return {name: groups[0] for name, groups in hits.items()}
+def is_deferred(rel: str) -> bool:
+    """该包是否属于「搬迁中/收口中」的延后树。"""
+    if rel in REGISTERED_IN_DEFERRED:
+        return False
+    return any(rel == tree or rel.startswith(tree + "/") for tree in DEFERRED_TREES)
 
 
-def coverage_hint(prefixes, names) -> str:
-    """卷内「覆盖」说明行：前缀 + 是否有显式名单。"""
-    parts = "、".join(f"`{prefix}*.go`" for prefix in prefixes) if prefixes else "显式名单"
-    if prefixes and names:
-        parts += " + 显式名单（见生成器 `ROOT_GROUPS`）"
-    elif not prefixes:
-        parts = f"显式名单 {len(names)} 个文件（见生成器 `ROOT_GROUPS`）"
-    return parts
+def deferred_packages() -> dict:
+    """延后清单：包路径 → 目录内 .go 文件数（供登记与回报用）。"""
+    out = {}
+    for tree in DEFERRED_TREES:
+        base = REPO / tree
+        if not base.is_dir():
+            continue
+        for path in sorted({go.parent for go in base.rglob("*.go")}):
+            rel = path.relative_to(REPO).as_posix()
+            if is_deferred(rel):
+                out[rel] = len(list(path.glob("*.go")))
+    return out
+
+
+@dataclass(frozen=True)
+class VolumeSpec:
+    """一卷：卷名、一句话概述、覆盖用的文件前缀与显式名单。"""
+
+    name: str
+    overview: str
+    prefixes: tuple[str, ...] = ()
+    names: tuple[str, ...] = ()
+    fallback: bool = False
+
+
+@dataclass(frozen=True)
+class VolumePackage:
+    """根/大包：主 README 之外的 `README-<卷名>.md` 由本脚本生成。"""
+
+    rel: str
+    title: str
+    volumes: tuple[VolumeSpec, ...]
+    main_mode: str
+    keep_prose: bool = False
+    fallback_volume: str | None = None
+    table: str = ""  # 本包分卷登记表的常量名（写在卷 README 的「覆盖：」行里，便于维护者定位）
+
+
+# 根包分卷：(卷名, 组概述, 覆盖前缀, 显式文件名)；卷名用于 README-<卷名>.md。
+# 覆盖规则 = 命中任一前缀 **或** 在显式名单中；每个根包 .go 必须恰好命中一卷。
+ROOT_GROUPS = (
+    VolumeSpec("service", "Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/测试夹具）", ("service",), ("employee_permission_assembly_test.go", "fixture_concurrency_test.go", "teamwork_service.go", "teamwork_board_projection_test.go", "role_tool_activity_test.go", "teamwork_board_session_switch_test.go", "teamwork_completion_trigger_test.go")),
+    VolumeSpec("session", "会话草稿/恢复/存储用例与集成测试；运行中切到未驻留会话走异步冷加载（restoring 空壳 + 后台装载 + epoch 判定发布基线）", ("session",), ("approval_session_ownership_test.go", "message_seq_scope_test.go", "view_singleton_test.go", "view_switch_isolation_test.go", "subscribe_session_test.go", "hot_attach_running_test.go", "interrupted_continue_test.go", "fork_gate_test.go", "shutdown_concurrent_test.go", "content_lru.go", "content_lru_test.go")),
+    VolumeSpec("chat", "聊天主循环与可见输出集成（含可见会话的群聊角色归属载荷）", ("chat",), ("visible_output_test.go", "reasoning_visible_test.go", "visible_role_attribution_test.go")),
+    VolumeSpec("command", "内置命令注册与执行", ("command",), ("permission_command_test.go",)),
+    VolumeSpec("error", "错误码与面向用户的错误呈现", ("error",)),
+    VolumeSpec("history", "历史检索与 provider 失败恢复", ("history",)),
+    VolumeSpec("input", "输入分派与路由兼容测试", ("input",), ("durable_queue_wire_test.go",)),
+    VolumeSpec("plan", "Plan 打点/分支事件/重规划", ("plan",)),
+    VolumeSpec("reference", "read_tool_result / read_plan 引用工具", ("reference",)),
+    VolumeSpec("skill", "Skill 指令信封编解码", ("skill",)),
+    VolumeSpec("tool", "工具事件钩子与诊断", ("tool",)),
+    VolumeSpec("work-table", "后台作业面与工作表格投影：执行登记表的只读投影、请求尾部打点块（在途行 + 待取回的完成行）、作业终态为**空闲**会话触发对话、项目看板的派生投影（按会话落盘 + 按需读取面）", ("work_table", "async", "project_board")),
+    VolumeSpec("context", "上下文控制相关集成测试", ("context",)),
+    VolumeSpec("task", "任务执行集成测试", ("task",)),
+    VolumeSpec("subagent", "子代理投影集成测试", ("subagent",)),
+    VolumeSpec("goal", "goal 域协调器/门面用例与「goal 上线不覆盖会话团队」接线回归", ("goal",)),
+    VolumeSpec("agentteam", "AgentTeam 装配适配与群聊角色会话透传（端口形状与 A2A 元数据口径）", ("agentteam", "role_session"), ("role_turn.go", "role_turn_test.go")),
+    VolumeSpec("composer", "输入草稿合成器的持久化与工作区绑定（重启后恢复）", ("composer",)),
+    VolumeSpec("archive", "会话归档与收尾语义（归档隐藏/拒绝忙碌会话、推理与工具叙述随记录持久化、运行判定与取消排空）", ("archive",), ("close_semantics_test.go",)),
+    VolumeSpec("misc", "基础与杂项（aliases/limits/completion/compressed/diagnostics/fault-guard/perf/snapshot-budget/runtime/workspace/race）", (), ("aliases.go", "completion.go", "completion_test.go", "compressed_turn.go", "compressed_turn_test.go", "diagnostics.go", "fault_guard.go", "fault_guard_test.go", "limits.go", "perf_stats.go", "race_test.go", "review_files.go", "review_files_test.go", "resident_lru.go", "resident_lru_test.go", "runtime_projection.go", "snapshot_budget.go", "snapshot_budget_test.go", "workspace_usecase.go", "workspace_file_usecase_test.go", "workspace_tree_usecase_test.go", "plugin_source_projection_test.go", "served_route_test.go", "turn_status_single_word_test.go", "window.go")),
+)
+
+# test/：仓库级集成用例包（文件数 > 15，按 readme-spec §4 分卷）。
+TEST_VOLUMES = (
+    VolumeSpec("harness", "用例基座：包说明、TestMain 的 CWD 口径与 launchFlags 摆现场句柄。", (), ("doc.go", "main_test.go")),
+    VolumeSpec("live", "真 API / 手工冒烟族：由 build tag 与环境变量双开关，缺凭证即 skip（默认集合不红）。", ("async_", "compact_live", "computer_use", "context_long", "job_backfill", "job_live", "manual_smoke", "prefix_chain", "real_api_", "scheduled_task", "smoke_")),
+    VolumeSpec("repro", "会话/工具链回归复现：用户现象 → 会红的断言（含多会话并发与热切场景）。", ("repro_",), ("prefix_invariant_fullchain_test.go",)),
+    VolumeSpec("session", "会话生命周期与切换成本：链路基准与切换剖面。", ("session_",)),
+    VolumeSpec("plugin", "插件与精选目录契约：目录登记、根解析、自省工具、技能激活、工具声明分封。", ("plugin_", "dev_plugin_", "curated_", "skill_activate_tool", "tool_meta_declaration", "tool_face_prompt")),
+    VolumeSpec("project-board", "项目看板：读/写/刷新工具与装配接线。", ("project_board_",)),
+    VolumeSpec("teamwork", "teamwork / 子代理装配：headless 冒烟、插件装配与 worktree 生命周期。", ("teamwork_",)),
+    VolumeSpec("tool", "工具面全链：装配基座与上下文读工具、工具记录写路径。", ("tool_full_chain",)),
+    VolumeSpec("permission", "权限门与审批桥：配置叠加、员工面板、真 API 权限冒烟。", ("permission_",)),
+    VolumeSpec("release", "发布与交付契约：版本号、默认档位、构建布局、图标资源、快照校验与启动种子。", ("release_", "build_layout", "icon_resource", "boot_")),
+    VolumeSpec("probe", "一次性探针：headless 恢复前缀顺序与作业迁移残留（现场取证用，保持可复跑）。", ("headless_restore_prefix_probe", "job_migration_residue")),
+)
+
+# store/：根包文件多（> 100），同款按文件前缀分卷
+# （原先的第二份生成器 scripts/gen_store_readme_volumes.py 已并入本脚本，见 P13 删除清单）。
+STORE_VOLUMES = (
+    VolumeSpec("session", "会话句柄与上下文状态：Router/SessionGranularStore、历史读面与运行期 API", ("sessionstore", "session_granular", "session_context", "session_meta", "durable_history", "runtime_api", "conversation", "history_resume_readers")),
+    VolumeSpec("message", "message/event 事件行、段落投影、wire 装配与大工具结果归档", ("message_rows", "structural_events", "event_store", "event_range", "paragraphs", "wire_assembler", "big_tool_result", "provider_wire")),
+    VolumeSpec("compact", "压缩帧与压缩记录、检查点、运行期材料/尝试缓存", ("compact_frames", "compaction_records", "checkpoint_store", "context_state", "material_cache", "attempt_cache")),
+    VolumeSpec("stack", "上下文四栈的通道与日志（Plan/Task/Skill/Compact）", ("stack_channel", "stack_journal")),
+    VolumeSpec("retention", "草稿尾与未提交批次、队列消费与 LRU 回收", ("retention", "pending_tail", "lifecycle", "queue_consume")),
+    VolumeSpec("board", "项目看板投影：行文件、会话分目录、项目知识记录与渲染件", ("board", "project_board", "project_known", "project_record")),
+    VolumeSpec("team", "团队计划/工作项、角色会话与节点会话记账", ("teamwork", "team_registry", "role_session", "node_session_store", "unit_record_writer")),
+    VolumeSpec("media", "媒体分区、检索索引与派生通道（工具记录、定时任务事件）", ("media", "search_index", "tool_record", "schedule_events")),
+    VolumeSpec("storage", "存储引擎底座：JSON v8 布局、模块 head 发布、fork 子树、历史迁移与保形别名", ("json_layout", "module_heads", "fork_store", "legacy_storage", "router_storage", "root_aliases")),
+    VolumeSpec("misc", "跨卷用例与基础回归（会话状态/锁、head 发布与自愈、并发与读放大探针）", (), (), fallback=True),
+)
+
+VOLUME_PACKAGES = (
+    VolumePackage("application/core", "# core/{name}（根包分卷）", ROOT_GROUPS, "strip-index", keep_prose=True, table="ROOT_GROUPS"),
+    VolumePackage("test", "# test/{name}（集成用例分卷）", TEST_VOLUMES, "navigation", table="TEST_VOLUMES"),
+    VolumePackage("store", "# store/{name}（根包分卷）", STORE_VOLUMES, "untouched", fallback_volume="misc", table="STORE_VOLUMES"),
+)
 
 
 def clean_sig(sig: str) -> str:
@@ -219,10 +263,41 @@ def section(go_files, base: pathlib.Path) -> str:
     return (
         SECTION_HEADER
         + "\n\n"
-        + "> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。\n"
-        + "> 刷新方式：`python scripts/gen_core_readme_index.py`。\n\n"
+        + "\n".join(SECTION_NOTE)
+        + "\n\n"
         + build_index(go_files, base)
     )
+
+
+def strip_old_section(text: str) -> str:
+    """去掉上一轮的索引段（本次重写）。"""
+    keep = []
+    for line in text.splitlines():
+        if line == SECTION_HEADER or CORRUPTED_HEADER.match(line):
+            break
+        keep.append(line)
+    return "\n".join(keep).rstrip() + "\n"
+
+
+def index_tail_offenders(text: str) -> list:
+    """索引段里**非生成器形状**的行（手写表格/缩进列表/别的分节）。
+
+    生成器只认三种行：`### <文件>`、`- <条目>`、`> <说明>`（空行随意）。
+    发现别的内容就拒绝覆盖——否则刷新索引会把维护者手写的内容静默删掉。
+    """
+    lines = text.splitlines()
+    start = None
+    for i, line in enumerate(lines):
+        if line == SECTION_HEADER or CORRUPTED_HEADER.match(line):
+            start = i
+            break
+    if start is None:
+        return []
+    return [
+        line
+        for line in lines[start + 1 :]
+        if line.strip() and not line.startswith(("### ", "- ", "> "))
+    ]
 
 
 def extra_prose(text: str) -> str:
@@ -250,59 +325,182 @@ def extra_prose(text: str) -> str:
     return "\n".join(kept).strip()
 
 
-def group_section(
-    group_name: str,
-    overview: str,
-    go_files,
-    base: pathlib.Path,
-    prefixes,
-    names,
-    prose: str = "",
-    title: str = "",
-) -> str:
+def coverage_hint(vol: VolumeSpec, table: str) -> str:
+    """卷内「覆盖」说明行：前缀 + 是否有显式名单（兜底卷单独说清）。"""
+    if vol.fallback:
+        return "测试文件兜底卷（前缀无归属时落这里）"
+    parts = "、".join(f"`{prefix}*.go`" for prefix in vol.prefixes) if vol.prefixes else "显式名单"
+    if vol.prefixes and vol.names:
+        parts += f" + 显式名单（见生成器 `{table}`）"
+    elif not vol.prefixes:
+        parts = f"显式名单 {len(vol.names)} 个文件（见生成器 `{table}`）"
+    return parts
+
+
+def group_section(title: str, vol: VolumeSpec, go_files, base: pathlib.Path, prose: str = "", table: str = "") -> str:
     out = [
-        title or f"# core/{group_name}（根包分卷）",
+        title,
         "",
         "## 生态位",
         "",
-        overview,
+        vol.overview,
         "",
-        f"覆盖：{coverage_hint(prefixes, names)}；未归属文件由覆盖自检拦下。",
+        f"覆盖：{coverage_hint(vol, table)}；未归属文件由覆盖自检拦下。",
         "",
     ]
     if prose:
         out.append(prose)
         out.append("")
-    out.extend(
-        [
-            "## 文件与函数索引",
-            "",
-            "> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。",
-            "> 刷新方式：`python scripts/gen_core_readme_index.py`。",
-            "",
-        ]
-    )
+    out.extend([SECTION_HEADER, "", *SECTION_NOTE, ""])
     out.append(build_index(go_files, base))
     return "\n".join(out).rstrip() + "\n"
 
 
 def strip_navigation(text: str) -> str:
     """去掉上一轮的「分卷 README」导航段（本次重写）。"""
-    marker = "## 分卷 README"
-    index = text.find(marker)
+    index = text.find(NAVIGATION_HEADER)
     if index < 0:
         return text
     return text[:index].rstrip() + "\n"
 
 
-def strip_old_section(text: str) -> str:
-    lines = text.splitlines()
-    keep = []
-    for line in lines:
-        if line == SECTION_HEADER or CORRUPTED_HEADER.match(line):
-            break
-        keep.append(line)
-    return "\n".join(keep).rstrip() + "\n"
+def assign_volumes(files, spec: VolumePackage) -> dict:
+    """把包内 .go 文件按前缀/名单分派到分卷；漏归属或重复归属直接失败。"""
+    hits = {}
+    for vol in spec.volumes:
+        for path in files:
+            if any(path.name.startswith(prefix) for prefix in vol.prefixes) or path.name in vol.names:
+                hits.setdefault(path.name, []).append(vol.name)
+    orphans = sorted(name for name in (p.name for p in files) if name not in hits)
+    overlaps = {name: groups for name, groups in hits.items() if len(groups) > 1}
+    owner = {name: groups[0] for name, groups in hits.items()}
+    problems = []
+    if overlaps:
+        problems.append(
+            "同时命中多个分卷：" + "、".join(f"{n}→{'/'.join(g)}" for n, g in sorted(overlaps.items()))
+        )
+    if orphans:
+        if spec.fallback_volume:
+            stray = [name for name in orphans if not name.endswith("_test.go")]
+            if stray:
+                problems.append("未归属任何分卷（非测试文件不落兜底卷）：" + "、".join(stray))
+            for name in orphans:
+                if name.endswith("_test.go"):
+                    owner[name] = spec.fallback_volume
+        else:
+            problems.append("未归属任何分卷：" + "、".join(orphans))
+    if problems:
+        raise SystemExit(
+            f"{spec.rel} 分卷覆盖自检失败（请把新文件归入某个分卷）：\n  " + "\n  ".join(problems)
+        )
+    return owner
+
+
+def navigation_table(spec: VolumePackage, owner: dict) -> str:
+    out = [
+        NAVIGATION_HEADER,
+        "",
+        "本包文件数超过 15，按 readme-spec §4 分卷承载「文件与函数索引」（每卷一个 "
+        "`README-<卷名>.md`）：",
+        "",
+        "| 卷 | 覆盖 | 内容 |",
+        "|---|---|---|",
+    ]
+    for vol in spec.volumes:
+        covered = sorted(name for name, group in owner.items() if group == vol.name)
+        if not covered:
+            continue
+        out.append(
+            "| [README-%s.md](README-%s.md) | %s | %s |"
+            % (vol.name, vol.name, "、".join("`%s`" % n for n in covered), vol.overview)
+        )
+    return "\n".join(out).rstrip() + "\n"
+
+
+def plan_single(rel: str) -> dict:
+    """单 README 包：既有文本 + 索引段。"""
+    package = REPO / rel
+    readme = package / "README.md"
+    if not readme.exists():
+        print(f"警告：{rel} 无 README.md（本脚本不代写；README 义务见 e2e/layout_test.go）")
+        return {}
+    text = strip_old_section(readme.read_text(encoding="utf-8"))
+    return {readme: text.rstrip() + "\n\n" + section(sorted(package.glob("*.go")), package) + "\n"}
+
+
+def plan_volumes(spec: VolumePackage) -> dict:
+    """分卷包：每卷一个 README-<卷名>.md（+ 主 README 的索引/导航处理）。"""
+    package = REPO / spec.rel
+    files = sorted(package.glob("*.go"))
+    if not files:
+        return {}
+    owner = assign_volumes(files, spec)
+    planned = {}
+    for vol in spec.volumes:
+        group_files = [f for f in files if owner[f.name] == vol.name]
+        if not group_files:
+            continue
+        target = package / f"README-{vol.name}.md"
+        prose = ""
+        if spec.keep_prose and target.exists():
+            prose = extra_prose(target.read_text(encoding="utf-8"))
+        planned[target] = group_section(
+            spec.title.format(name=vol.name), vol, group_files, package, prose, spec.table
+        )
+    main = package / "README.md"
+    if main.exists():
+        text = main.read_text(encoding="utf-8")
+        if spec.main_mode == "strip-index":
+            planned[main] = strip_old_section(text)
+        elif spec.main_mode == "navigation":
+            base = strip_navigation(strip_old_section(text).rstrip())
+            planned[main] = base + "\n\n" + navigation_table(spec, owner) + "\n"
+    return planned
+
+
+def selected(rel: str, only: tuple) -> bool:
+    if not only:
+        return True
+    return any(rel == want or rel.startswith(want + "/") for want in only)
+
+
+def normalize_only(values) -> tuple:
+    return tuple(
+        v.strip().replace("\\", "/").removeprefix(MODULE_PREFIX).strip("/")
+        for v in values
+        if v.strip()
+    )
+
+
+def build_plan(only: tuple) -> tuple:
+    """返回 (path -> 目标内容, 拒绝覆盖清单)。"""
+    singles = set()
+    for tree in SETTLED_TREES:
+        base = REPO / tree
+        if not base.is_dir():
+            continue
+        for path in sorted({go.parent for go in base.rglob("*.go")}):
+            singles.add(path.relative_to(REPO).as_posix())
+    singles.update(EXTRA_PACKAGES)
+    for spec in VOLUME_PACKAGES:
+        singles.discard(spec.rel)
+
+    planned = {}
+    for rel in sorted(singles):
+        if selected(rel, only) and (only or not is_deferred(rel)):
+            planned.update(plan_single(rel))
+    for spec in VOLUME_PACKAGES:
+        if selected(spec.rel, only) and (only or not is_deferred(spec.rel)):
+            planned.update(plan_volumes(spec))
+
+    refused = []
+    for path in sorted(planned):
+        if not path.exists():
+            continue
+        offenders = index_tail_offenders(path.read_text(encoding="utf-8"))
+        if offenders:
+            refused.append((path, offenders))
+    return planned, refused
 
 
 def write_if_changed(path: pathlib.Path, content: str) -> None:
@@ -312,205 +510,64 @@ def write_if_changed(path: pathlib.Path, content: str) -> None:
     # 而那与仓库的 LF 约定、`.githooks/pre-commit` 的 CRLF 拦截直接冲突
     # （同款事故见 docs/2026-10-15-architecture-reshape/m2-record.md 的 D-M2-13）。
     path.write_text(content, encoding="utf-8", newline="\n")
-    # 基座包（EXTRA_PACKAGES）不在 application/core 下，relative_to(ROOT) 会抛错；
-    # 优先按仓库根打印，退化时用绝对路径。
-    try:
-        shown = path.relative_to(REPO)
-    except ValueError:
-        shown = path
-    print("wrote", shown)
+    print("wrote", path.relative_to(REPO).as_posix())
 
 
-# ── test/：仓库级集成用例包（文件数 > 15，按 readme-spec §4 分卷） ──────────────
-#
-# 判据同 application/core 的根包分卷：每个 .go 必须**恰好**归入一卷，漏归属或重复归属
-# 直接失败——新增用例文件不归卷就刷新不了文档，这是"索引静默漏文档"的报警器。
-TEST_PACKAGE = REPO / "test"
-TEST_VOLUMES = [
-    (
-        "harness",
-        "用例基座：包说明、TestMain 的 CWD 口径与 launchFlags 摆现场句柄。",
-        [],
-        ["doc.go", "main_test.go"],
-    ),
-    (
-        "live",
-        "真 API / 手工冒烟族：由 build tag 与环境变量双开关，缺凭证即 skip（默认集合不红）。",
-        ["async_", "compact_live", "computer_use", "context_long", "job_backfill", "job_live",
-         "manual_smoke", "prefix_chain", "real_api_", "scheduled_task", "smoke_"],
-        [],
-    ),
-    (
-        "repro",
-        "会话/工具链回归复现：用户现象 → 会红的断言（含多会话并发与热切场景）。",
-        ["repro_"],
-        ["prefix_invariant_fullchain_test.go"],
-    ),
-    (
-        "session",
-        "会话生命周期与切换成本：链路基准与切换剖面。",
-        ["session_"],
-        [],
-    ),
-    (
-        "plugin",
-        "插件与精选目录契约：目录登记、根解析、自省工具、技能激活、工具声明分封。",
-        ["plugin_", "dev_plugin_", "curated_", "skill_activate_tool", "tool_meta_declaration",
-         "tool_face_prompt"],
-        [],
-    ),
-    (
-        "project-board",
-        "项目看板：读/写/刷新工具与装配接线。",
-        ["project_board_"],
-        [],
-    ),
-    (
-        "teamwork",
-        "teamwork / 子代理装配：headless 冒烟、插件装配与 worktree 生命周期。",
-        ["teamwork_"],
-        [],
-    ),
-    (
-        "tool",
-        "工具面全链：装配基座与上下文读工具、工具记录写路径。",
-        ["tool_full_chain"],
-        [],
-    ),
-    (
-        "permission",
-        "权限门与审批桥：配置叠加、员工面板、真 API 权限冒烟。",
-        ["permission_"],
-        [],
-    ),
-    (
-        "release",
-        "发布与交付契约：版本号、默认档位、构建布局、图标资源、快照校验与启动种子。",
-        ["release_", "build_layout", "icon_resource", "boot_"],
-        [],
-    ),
-    (
-        "probe",
-        "一次性探针：headless 恢复前缀顺序与作业迁移残留（现场取证用，保持可复跑）。",
-        ["headless_restore_prefix_probe", "job_migration_residue"],
-        [],
-    ),
-]
+def report_refused(refused) -> None:
+    print(f"拒绝覆盖 {len(refused)} 个 README：索引段里有非生成器内容（手写表格/缩进列表/别的分节）。")
+    print("请先人工归一到冻结格式（每文件一节 `### <文件>`、每条目一行 `- <签名> — <摘要>`），再重跑本脚本：")
+    for path, offenders in refused:
+        print(f"  {path.relative_to(REPO).as_posix()}（{len(offenders)} 行）")
+        for line in offenders[:3]:
+            print(f"      {line[:100]}")
 
 
-def test_volume_coverage(all_files):
-    hits = {}
-    for group_name, _, prefixes, names in TEST_VOLUMES:
-        for path in all_files:
-            if any(path.name.startswith(prefix) for prefix in prefixes) or path.name in names:
-                hits.setdefault(path.name, []).append(group_name)
-    orphans = sorted(name for name in (p.name for p in all_files) if name not in hits)
-    overlaps = {name: groups for name, groups in hits.items() if len(groups) > 1}
-    problems = []
-    if orphans:
-        problems.append("未归属任何分卷：" + "、".join(orphans))
-    if overlaps:
-        problems.append(
-            "同时命中多个分卷：" + "、".join(f"{n}→{'/'.join(g)}" for n, g in sorted(overlaps.items()))
+def main() -> int:
+    argv = sys.argv[1:]
+    check_only = "--check" in argv
+    only = ()
+    if "--only" in argv:
+        idx = argv.index("--only")
+        only = normalize_only([a for a in argv[idx + 1 :] if not a.startswith("--")])
+        if not only:
+            print("--only 需要一个或多个 import path")
+            return 2
+    unknown = [a for a in argv if a.startswith("--") and a not in ("--check", "--only")]
+    if unknown:
+        print("未知参数：" + " ".join(unknown))
+        return 2
+
+    if not only:
+        print(
+            f"跳过 {len(deferred_packages())} 个延后包（搬迁中/收口中，README 由各自切片负责；"
+            "登记见 tmp/reshape/p13-deferred.tsv）。"
         )
-    if problems:
-        raise SystemExit("test/ 分卷覆盖自检失败（请把新用例归入某个分卷）：\n  " + "\n  ".join(problems))
-    return {name: groups[0] for name, groups in hits.items()}
+    planned, refused = build_plan(only)
+    if refused:
+        report_refused(refused)
+        return 1
 
+    if check_only:
+        drift = []
+        for path in sorted(planned):
+            rel = path.relative_to(REPO).as_posix()
+            if not path.exists():
+                drift.append((rel, "索引段缺失"))
+            elif path.read_text(encoding="utf-8") != planned[path]:
+                drift.append((rel, "内容漂移"))
+        if drift:
+            print(f"--check：检查 {len(planned)} 个 README，{len(drift)} 个需要刷新。")
+            for rel, why in drift:
+                print(f"  漂移 {rel}（{why}）")
+            return 1
+        print(f"--check：检查 {len(planned)} 个 README，无漂移。")
+        return 0
 
-def test_volume_navigation(owner) -> str:
-    out = [
-        "## 分卷 README",
-        "",
-        "本包文件数超过 15，按 readme-spec §4 分卷承载「文件与函数索引」（每卷一个 "
-        "`README-<卷名>.md`）：",
-        "",
-        "| 卷 | 覆盖 | 内容 |",
-        "|---|---|---|",
-    ]
-    for group_name, overview, prefixes, names in TEST_VOLUMES:
-        covered = sorted(name for name, group in owner.items() if group == group_name)
-        if not covered:
-            continue
-        out.append(
-            "| [README-%s.md](README-%s.md) | %s | %s |"
-            % (
-                group_name,
-                group_name,
-                "、".join("`%s`" % n for n in covered),
-                overview,
-            )
-        )
-    return "\n".join(out).rstrip() + "\n"
-
-
-def main() -> None:
-    # 子包：单 README，含生态位概述 + 索引
-    for pkg in sorted(p for p in ROOT.iterdir() if p.is_dir() and p.name != "internal"):
-        readme = pkg / "README.md"
-        text = strip_old_section(readme.read_text(encoding="utf-8")) if readme.exists() else ""
-        text = text.rstrip() + "\n\n" + section(sorted(pkg.rglob("*.go")), pkg) + "\n"
-        write_if_changed(readme, text)
-    # application/core 的两个旧叶子包都已迁出：internal/limits → backend/limit（M2-A）、
-    # internal/state → kernel/state（M5-R3）。两者都已在 EXTRA_PACKAGES 里，因此这里不再
-    # 保留叶子循环——留着它只会在下次刷新时对着已不存在的路径报 FileNotFoundError。
-
-    # 基座包：单 README（生态位 + 索引），无分卷。
-    for package in EXTRA_PACKAGES:
-        readme = package / "README.md"
-        if not readme.exists():
-            continue
-        text = strip_old_section(readme.read_text(encoding="utf-8"))
-        text = text.rstrip() + "\n\n" + section(sorted(package.glob("*.go")), package) + "\n"
-        write_if_changed(readme, text)
-
-    # test/：集成用例包按前缀分卷（文件多），主 README 只留导航表。
-    test_files = sorted(TEST_PACKAGE.glob("*.go"))
-    if test_files:
-        test_owner = test_volume_coverage(test_files)
-        for group_name, overview, prefixes, names in TEST_VOLUMES:
-            group_files = [f for f in test_files if test_owner[f.name] == group_name]
-            if not group_files:
-                continue
-            volume = TEST_PACKAGE / f"README-{group_name}.md"
-            write_if_changed(
-                volume,
-                group_section(
-                    group_name,
-                    overview,
-                    group_files,
-                    TEST_PACKAGE,
-                    prefixes,
-                    names,
-                    title=f"# test/{group_name}（集成用例分卷）",
-                ),
-            )
-        main_readme = TEST_PACKAGE / "README.md"
-        if main_readme.exists():
-            base = strip_old_section(main_readme.read_text(encoding="utf-8")).rstrip()
-            base = strip_navigation(base)
-            write_if_changed(main_readme, base + "\n\n" + test_volume_navigation(test_owner) + "\n")
-
-    # 根包：移除主 README 的索引段（由分卷 README 承载）
-    main_readme = ROOT / "README.md"
-    text = strip_old_section(main_readme.read_text(encoding="utf-8"))
-    write_if_changed(main_readme, text)
-
-    # 根包分卷 README
-    all_files = sorted(ROOT.glob("*.go"))
-    owner = verify_coverage(all_files)
-    for group_name, overview, prefixes, names in ROOT_GROUPS:
-        group_files = [f for f in all_files if owner[f.name] == group_name]
-        if not group_files:
-            continue
-        volume = ROOT / f"README-{group_name}.md"
-        prose = extra_prose(volume.read_text(encoding="utf-8")) if volume.exists() else ""
-        write_if_changed(
-            volume,
-            group_section(group_name, overview, group_files, ROOT, prefixes, names, prose),
-        )
-    print("README 分卷已刷新。")
+    for path in sorted(planned):
+        write_if_changed(path, planned[path])
+    print(f"索引已刷新（{len(planned)} 个 README）。")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
