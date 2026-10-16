@@ -47,10 +47,11 @@
 | P21-teammate-live | **域方法随类型走**第十一片：**当前 teammate 会话**的实时只读投影（默认页 + 分页读法 + 唯一一份裁剪/分页判据 + 只留 user/assistant 的投影判据 + 两个上限常量）整文件下沉 | [`backend/multiagent/teamwork`](../../multiagent/teamwork/README.md) 的 `teammate_live.go`（plan §2.7 的目标落点）；本包 `runtime_teammate_session_live.go` 只剩两个公开方法的一行转发 + 同值常量别名 + **一格宿主读数** `teammateLiveDeps`/`teammateLiveSession`（角色回合执行面句柄：角色名 / 是否在飞 / 引擎历史）。域级用例随实现搬进域包（`teammate_live_test.go`，含原纯函数用例的断言），宿主级用例（两个 `runtime_teammate_session_live*_test.go`，真 Runtime + 真角色回合）留在本包 |
 | P21-goal-tl | **域方法随类型走**第十二片：ADVISOR(TL) 真实评估器整文件下沉（提示词四段与输出契约追加、工具边界与实际执行面同源判定、只读权限口径、裁决解析与域校验） | [`backend/multiagent/goal`](../../multiagent/goal/README.md) 的 `advisor_evaluator.go`（plan §2.5：`seelebridge` 的 runtime_goal_tl → `backend/multiagent/goal/`"搬 + 反向依赖改端口"）；本包 `runtime_goal_tl.go` 只剩 `GoalTLEvaluator` + **三格宿主读数**（`completeAdvisorOnce` 无工具兜底 / `rolePromptFor` 提示词读面 / `advisorRound` 把 `goal.AdvisorRoundRequest` 翻成 `roleRoundSpec`——**唯一**一处翻译）。两条域级用例随实现搬进域包，另补 7 条（两条执行面同源、只读口径与 FreshContext、ErrTLDisabled 与 ErrBadDirective 的区分、宽松解析、安全截断）。顺带把装配层两个零散字符串助手（`stringPtr` / `truncateRunes`）抽到新文件 `strings.go`：它们不止 goal 用，原来挂在被搬走的文件尾部 |
 | P21-subagent-conclusion | **域方法随类型走**第十三片：子代理最终结论的**两向投影**与接管判据下沉——结论事件形状（时间基序号 / done-failed 映射 / 定位挂主会话）、从事件库读回结论记录（跳过外族与坏条目）、"记录的主人已不在本进程才按崩溃口径接管" | [`backend/multiagent/subagent`](../../multiagent/subagent/README.md) 的 `conclusion.go`（plan §2.7 的目标落点）；本包 `runtime_subagent_recovery.go` 的 `persistSubagentConclusion` / `loadSubagentConclusions` 仍持签名（下一片 `runtime_subagent_resume.go` 也在用），但正文只剩"交给谁落盘 / 从哪读"的接线。域级 4 条新用例（形状、**正反两向互为逆**的往返、跳过外族坏条目、接管判据）；宿主级用例 `runtime_subagent_recovery_test.go` 一行未改（只把 Source 常量换成域包的导出名） |
+| P21-role-prompt-optimize | **域方法随类型走**第十四片：员工提示词的**一次有界改写**（固定元指令 / 请求按标签渲染 / 输出契约宽松解析 + `optimized` 必填 + 理由去空截断到 5 条每条 ≤60 rune / 回执组装）下沉 | [`backend/engine/prompt`](../../engine/prompt/README.md) 的 `role_prompt_optimize.go`（plan §2.5 的目标落点）；本包 `runtime_role_prompt.go` 只留**读面状态**（`SetRolePromptProvider` / `rolePromptFor`——宿主注入的读面，不是提示词域的事实）与两格宿主读数（`completePromptOptimizeRound` 一次无工具回合 / `Model`）。解析用例随实现搬进域包，另补 4 条（回合编排与缺省兜底、无执行面、回合失败包一层、理由有界）；`rolePromptFor` 用例留在本包 |
 
 **仍未下沉**（按 plan §2.5–§2.8 的目标落点，逐域各一片）：engine 侧 `runtime_context`
 （→ `backend/engine/context`；同域的 `runtime_compaction_index` 已随 **P21-compaction-stack** 下沉）、
-`runtime_role_prompt`（→ `backend/engine/prompt`）、`runtime_tools`（→ `backend/engine/toolregistry`）、
+`runtime_tools`（→ `backend/engine/toolregistry`）、
 `runtime_session` / `role_host_session`（→ `backend/engine/session`）；
 tool 侧 `runtime_plan`（→ `backend/tool/plan`）；
 multiagent 侧 `runtime_teamwork*` + `teamwork`（→ `backend/multiagent/teamwork`）、
@@ -124,7 +125,7 @@ flowchart TB
 
 | `runtime_tools.go` | 工具注册表装配（RegistryState/内联工具/权限门）、RegisterBuiltins、可见性策略装配、Deps 闭包工厂 |
 | `runtime_computer.go` | computer use 工具族装配：`SEELEX_COMPUTER_USE` 门控 + 平台判定 + DPI 感知 + 注册（脚本面见 `../backend/tool/computer/tools*.go`） |
-| `runtime_role_prompt.go` | 员工提示词的装配读面与一次有界优化：`SetRolePromptProvider`/`rolePromptFor`（ADVISOR 回合取已登记提示词，未登记回退内置；装配根在 `main.go` 注入）+ `OptimizeRolePrompt`（实现 `contract.RolePromptPort`，只产出候选、不落盘、不写会话消息） |
+| `runtime_role_prompt.go` | 员工提示词的**装配读面**（P21-15：优化那一半的判据在域包 [`backend/engine/prompt`](../../engine/prompt/README.md)）：`SetRolePromptProvider`/`rolePromptFor`（ADVISOR 回合取已登记提示词，未登记回退内置；装配根在 `main.go` 注入——宿主状态，不搬）+ `OptimizeRolePrompt` 一行转发（把 completer 接成“一次无工具回合”与模型名两格读数） |
 | `runtime_goal_tl.go` | goal 域 TL 评估器的**宿主转发面**（P21-13：评估器本体与提示词判据在 [`backend/multiagent/goal.AdvisorEvaluator`](../../multiagent/goal/README.md)）：`GoalTLEvaluator()` 装配 + 三格宿主读数（`completeAdvisorOnce` / `rolePromptFor` / `advisorRound`→`roleRoundSpec` 的唯一翻译） |
 | `strings.go` | 装配层自己的零散字符串助手（`stringPtr` / `truncateRunes`）——原来挂在 `runtime_goal_tl.go` 尾部，但提示词优化与角色回合读数也在用，故单独成文件并写明与别处同名助手"像却不并"的理由 |
 | `runtime_role_turn.go` | **角色（员工）回合执行体**：开角色会话（独立引擎 + 角色提示）的同时把该员工的权限分配成 `emp_<角色名>` 主体，回合起手按构造把主体放进 ctx（`tools.WithEmployeeSubject`），工具面与判定因此按角色权责收窄；引擎构造可用 `SetRoleEngineFactory` 替换（测试/更严隔离面），`ReleaseRoleSessions` 在 Shutdown 释放派生执行面。**ReAct 钩子按本轮身份分流**（2026-10-03）：员工做工回合（`roleRoundSpec.WorkScope`）的每次工具调用 → `dto.RoleToolActivity` → `SetRoleToolCallback`（装配根接 `app.HandleRoleToolActivity`）→ 会话级事件 `teammate.tool.started/completed`；ADVISOR 评审回合仍走 goal 域 TLStep sink |

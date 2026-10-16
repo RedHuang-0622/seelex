@@ -10,32 +10,9 @@ import (
 // goal 域（`backend/multiagent/goal/advisor_evaluator_test.go`，P21-13）；本文件只留
 // **宿主读面**（提示词优化与 `rolePromptFor`）的用例。
 
-// TestParseRolePromptOptimization：优化回合的 JSON 解析容忍围栏/前后噪声，缺
-// optimized 显式报错，notes 去空且截断到 5 条。
-func TestParseRolePromptOptimization(t *testing.T) {
-	optimized, notes, err := parseRolePromptOptimization("```json\n{\"optimized\":\"新提示词\",\"notes\":[\"补了输出格式\",\"\",\"   \"]}\n```")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if optimized != "新提示词" || len(notes) != 1 || notes[0] != "补了输出格式" {
-		t.Fatalf("解析结果 = %q %v", optimized, notes)
-	}
-
-	if _, _, err := parseRolePromptOptimization("抱歉，我无法完成"); err == nil {
-		t.Fatal("缺 JSON 必须报错")
-	}
-	if _, _, err := parseRolePromptOptimization(`{"notes":["x"]}`); err == nil {
-		t.Fatal("缺 optimized 必须报错")
-	}
-
-	_, notes, err = parseRolePromptOptimization(`{"optimized":"x","notes":["1","2","3","4","5","6","7"]}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(notes) != 5 {
-		t.Fatalf("notes 必须截断到 5 条，实际 %v", notes)
-	}
-}
+// 优化回合的 JSON 解析用例随实现搬进提示词域
+// （`backend/engine/prompt/role_prompt_optimize_test.go`，P21-15）；本文件只留**读面**
+// （`rolePromptFor`）的宿主用例。
 
 // TestRolePromptProviderDefaultsToEmpty：未注入读面时 rolePromptFor 返回空串
 // （调用方回退内置），不让 nil 读面 panic。
