@@ -103,3 +103,31 @@ J 片之后不再下沉。若你更希望它们有"底座"名分，替代方案�
 
 **需要你裁决的只有两条**：① `policy.go`（可见性）进 `backend/limit/policy/` 还是留注册表板；
 ② 端口层的落点（`contract/` 还是各自板内的 `ports.go`）。其余我按上面三步做。
+
+## 7. 一页清单：现在卡住 M4/M5 的全部裁决（每条都附实测与建议）
+
+`seelebridge/` 现在只剩 `teamwork` 与 `workunit` 两个包（外加根包 52 个生产文件），
+**再往下每一步都撞在这张表上**。每条都给了"批准后我立刻做什么"。
+
+| # | 待裁决 | 实测证据 | 我的建议 | 批准后立刻做 |
+|---|---|---|---|---|
+| 1 | **J 片：根包的目标目录 / 包名 / 顺序** | 根包 52 生产文件 13,373 行；`Runtime` 单类型跨文件（`runtime.go` 定义、其余 40+ 文件是它的方法） | 目标 `backend/engine/assemble/`、包名 `assemble`（plan §2.5 给这 4 个装配文件点名的落点就是 `backend/engine/assemble/`）；顺序 **B→A**：先整体落位（引用方保留原别名，调用点零改动）再逐域下沉 | 整体搬 + 包名改名（一次，可逆），拿到"根包离开 `seelebridge/`"；随后按域下沉 |
+| 2 | **V3：`workunit` 的归属** | 契约包 4 文件 869 行；进口方：`backend/multiagent/subagent`(2 文件)、`backend/tool/{node,registry,worktree}`、`internal/telemetry`、`e2e`、根包 9 个 `workunit*` 文件 2,663 行、`seelebridge/teamwork` | **独立 `backend/workunit/`**：进口方横跨 tool/multiagent/internal 三块，放 multiagent 会让 tool 板出现"回指"；且它本来就是共享契约 | 契约包 + 根包 9 个同域文件一起搬（同一片），门禁 `e2e/workunit_ports_test.go` 改成按包名扫描（现在是写死仓库路径） |
+| 3 | **`teamwork` 与根包 11 个 `runtime_teamwork*.go`** | 该域代码：`seelebridge/teamwork` 7 文件 2,580 行 + 根包 `runtime_teamwork*.go` ≈3,000 行 | 与 1 合并做：先在 J 的整体落位后，把这一域从 `assemble` 下沉到 `backend/multiagent/teamwork/` | 域内下沉（plan §2.7） |
+| 4 | **T4 端口层口径** | 见 §6 的耦合表（作业组引用注册表组 14 个私有符号） | 端口放各板内 `ports.go`（`contract/` 已经背着 29 条污染，不再往里加） | 三步走（抽端口 → 搬 `backend/tool/jobs` → 权限段并入 policy） |
+| 5 | **`internal/*` 终局** | 六个包的进口方横跨三块板 | 保持模块根 `internal/*`（与既有 `internal/{bootseed,buildinfo,…}` 同一惯例） | 收口时只更新 README 措辞，不再搬 |
+| 6 | **`backend/limit/gate` 的目录名 vs 包名 `security`** | 目录按 plan 取名 `gate`，包名仍是 `security` | 保持现状即可；若要统一，改名成本 = 一次包重命名 + 字符串门禁同步（M3 的 `sessionstore→store` 是同款先例） | 一次机械改名 |
+| 7 | **`mcp`/`plugin` 的最终嵌套（A/B）** | 两包已落 `backend/engine/{mcp,plugin}`，板级落点已定 | 方案 A：顶层 `mcpstack/`、`plugin/` 占目录名，适配层进 `.../seele/` | 一次子目录移动 |
+| 8 | **`store/schedule_events.go` 是否搬** | 它是 `storeEngine` 的结构事件写方法（D-M4-22） | 留在 `store`（搬出去要暴露 store 内部实现） | 记录为"不搬"即可 |
+
+### 7.1 K 片（收口）待删清单——已清点完（`tmp/reshape/m4_k_inventory.py`）
+
+- `seelebridge/ports.go`：**1020 行**、**11 条 `type X = Y` 兼容别名**、**69 个方法/转发**。
+- 别名的消费者集中在 `application/core`（service_scheduler 及其测试桩、`runtime_projection.go`、
+  `view_state/coordinator.go`）、`main.go`、`mcpstack/config`、`backend/engine/schedule`，
+  以及 **`contract/ports.go`**——契约层现在为了 `RuntimeVisibilityProjection` /
+  `ParentEvidenceProjection` 两个别名反向依赖 `seelebridge` 根包（这就是 `contractClosureAllowList`
+  里那 29 条污染的一部分）。删掉别名会让契约层闭包**变干净**，所以 K 片不只减行数，还直接
+  削 M5 的收窄成本。
+- 计划 §2.10 点名的 19 处别名里，`plan`/`task`/`scheduler`/`session`/`tools`/`worktree`/`node`
+  那几组已随各自的搬迁消失，**只剩这 11 条**（都在 `ports.go`）。
