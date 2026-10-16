@@ -1,11 +1,10 @@
 package core
 
 import (
-	"strconv"
-	"strings"
 	"unicode/utf8"
 
 	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/middle/residency"
 )
 
 // snapshotToolOutputLimit 返回可见会话快照单条工具输出的字符预算
@@ -21,24 +20,14 @@ func snapshotToolOutputLimit() int {
 	return limit
 }
 
-// toolOutputPreview 把超限工具输出截断为快照预览：取前 limit 字节（按
-// UTF-8 rune 边界安全切割，避免切坏多字节字符），并追加一行可读的省略
-// 说明（供 TUI/纯文本面展示，GUI 另按 TotalChars 渲染"加载完整输出"）。
-// 返回 (预览, 是否截断)。
+// toolOutputPreview 是快照预览截断判据的**宿主转发**：判据本体在中间层
+// `middle/residency.Preview`（plan §2.4；M5-R6-residency-preview 接收者转移），
+// 本函数只把进程级预算取出来交给它（取数留宿主）。
 func toolOutputPreview(content string, limit int) (string, bool) {
 	if limit <= 0 {
 		limit = snapshotToolOutputLimit()
 	}
-	if len(content) <= limit {
-		return content, false
-	}
-	cut := limit
-	for cut > 0 && !utf8.RuneStart(content[cut]) {
-		cut--
-	}
-	preview := strings.TrimRight(content[:cut], " \t\r\n")
-	total := utf8.RuneCountInString(content)
-	return preview + "\n… 快照已截断（完整输出 " + strconv.Itoa(total) + " 字符）", true
+	return residency.Preview(content, limit)
 }
 
 // boundToolResultForSnapshot 生成进入可见会话快照的工具输出（调用方持有

@@ -92,7 +92,9 @@ const (
 // 抽成独立模块（plan §2.6），因此是**一条进**的新模块，上限抬到 78。
 // M5-R-tool-reference：`backend/tool/reference`（工具结果引用与分页判据）同口径——从
 // `application/core` 抽成独立模块（plan §2.6），因此是**一条进**的新模块，上限抬到 79。
-const facadeClosureAllowListMax = 79
+// M5-R6-residency-preview：`middle/residency`（快照预算的截断判据）同口径——从
+// `application/core` 抽成中间层叶子模块（plan §2.4），因此是**一条进**的新模块，上限抬到 80。
+const facadeClosureAllowListMax = 80
 
 var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application",
@@ -169,6 +171,10 @@ var facadeClosureAllowList = []string{
 	// "把 core 的判据抽成独立叶子模块"的一次换落点 + 落点新建；新包只依赖 `middle/protocol/model`
 	// （已在清单内）与标准库，没有引入第三方或反向依赖。
 	"github.com/RedHuang-0622/seelex/backend/tool/reference",
+	// M5-R6-residency-preview：快照预算的截断判据归位中间层常驻/预算落点（plan §2.4 的
+	// `middle/residency`，本片建包）。**新增登记的理由**："计算入中间层、取数留宿主"的
+	// 换落点 + 落点新建；新包只依赖标准库，没有引入第三方或反向依赖。
+	"github.com/RedHuang-0622/seelex/middle/residency",
 	"github.com/RedHuang-0622/seelex/internal/actor",
 	"github.com/RedHuang-0622/seelex/internal/config",
 	"github.com/RedHuang-0622/seelex/internal/docker",

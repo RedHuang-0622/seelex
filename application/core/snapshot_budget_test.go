@@ -8,32 +8,6 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/limit"
 )
 
-// TestToolOutputPreviewTruncates 验证快照预览截断：超过阈值只留前 N 字符
-// + 可读省略说明，且不切坏 UTF-8 多字节字符。
-func TestToolOutputPreviewTruncates(t *testing.T) {
-	limit := snapshotToolOutputLimit()
-	big := strings.Repeat("甲", limit*2) // 多字节字符 × 2
-	preview, truncated := toolOutputPreview(big, limit)
-	if !truncated {
-		t.Fatal("big content must be flagged truncated")
-	}
-	if !utf8.ValidString(preview) {
-		t.Fatal("preview must be valid UTF-8")
-	}
-	if len(preview) > limit+64 {
-		t.Fatalf("preview too large: %d bytes (limit %d)", len(preview), limit)
-	}
-	if !strings.Contains(preview, "快照已截断") {
-		t.Fatalf("preview must carry truncation note, got: %q", preview)
-	}
-
-	small := "hello"
-	kept, truncated := toolOutputPreview(small, limit)
-	if truncated || kept != small {
-		t.Fatalf("small content must pass through unchanged: truncated=%v kept=%q", truncated, kept)
-	}
-}
-
 // TestBoundToolResultForSnapshotArchives 验证截断链入口：超限输出归档为
 // result_ref，快照只留预览；未超限原样返回且无引用。
 func TestBoundToolResultForSnapshotArchives(t *testing.T) {
