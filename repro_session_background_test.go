@@ -231,7 +231,7 @@ func (p *blockingProvider) serve(t *testing.T, writer http.ResponseWriter, reque
 	// 先把响应头落地，再进入「阻塞这一轮」的等待。
 	//
 	// 客户端传输层用 ResponseHeaderTimeout 兜「连响应头都拿不到」的挂死
-	// （seelebridge/account/transport.go，硬编码 60s）；而本 provider 要模拟的是
+	// （backend/engine/account/transport.go，硬编码 60s）；而本 provider 要模拟的是
 	// 「模型这一轮长时间不出结果」——真实 provider 此刻早就把 200 + SSE 头发回来了。
 	// 不先 Flush，阻塞一旦超过 60s 就会被头超时打断，那一轮提前结束，用例里
 	// 「该轮仍在阻塞」的断言随之失真（CI run 37118931912 的 race-and-coverage：
