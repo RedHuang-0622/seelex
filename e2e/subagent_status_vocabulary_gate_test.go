@@ -131,14 +131,14 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "工具调用视图词",
 		files: map[string]string{
-			"middle/protocol/model/state.go":              "定义：这一格的字段类型与落盘读法（转换点 ToolCallStatusOfRecord）",
-			"application/core/tool_hooks.go":              "写：工具调起（running）与完成（success|error）的可见行 + 视图回写",
-			"application/core/chat.go":                    "写：引擎历史回灌的可见工具行",
-			"application/core/session_history.go":         "写：引擎消息折成可见消息时的工具行",
-			"application/core/session_runtime/archive.go": "写：存档投影里的工具行",
-			"middle/view/subagent/coordinator.go":         "写：子代理详情会话的工具行（曾经写 completed，本格不收）",
-			"wiring/adapters/session_workspace_ports.go":  "读：存储面的词 → 枚举（转换点 ToolCallStatusOfRecord）",
-			"tui/state.go": "读：工具行图标与耗时（精确判 running）",
+			"middle/protocol/model/state.go":             "定义：这一格的字段类型与落盘读法（转换点 ToolCallStatusOfRecord）",
+			"application/core/tool_hooks.go":             "写：工具调起（running）与完成（success|error）的可见行 + 视图回写",
+			"application/core/chat.go":                   "写：引擎历史回灌的可见工具行",
+			"application/core/session_history.go":        "写：引擎消息折成可见消息时的工具行",
+			"backend/engine/session/archive.go":          "写：存档投影里的工具行",
+			"middle/view/subagent/coordinator.go":        "写：子代理详情会话的工具行（曾经写 completed，本格不收）",
+			"wiring/adapters/session_workspace_ports.go": "读：存储面的词 → 枚举（转换点 ToolCallStatusOfRecord）",
+			"tui/state.go":                               "读：工具行图标与耗时（精确判 running）",
 		},
 		// 这一格的取值面 = dto.ToolEvent*（model.ToolCall.Status；与工具事件状态同格）。
 		// store 那一侧（store.ConversationToolCall.Status）是契约之下的 wire，本层不 import
@@ -180,15 +180,15 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "会话可见状态",
 		files: map[string]string{
-			"application/core/service_snapshot.go":        "写：目录行的可见状态（运行态叠加：restoring/待批/运行/排队/空闲）",
-			"application/core/session_history.go":         "写：冷加载的 restoring 空壳",
-			"application/core/session_draft.go":           "写：草稿会话行",
-			"application/core/session_lifecycle.go":       "写：草稿会话行",
-			"application/core/archive_session.go":         "读：归档门（运行中的会话不许归档）",
-			"application/core/resident_lru.go":            "读：草稿行不参与驱逐",
-			"application/core/session_runtime/archive.go": "读+写：落盘记录的归档态",
-			"application/core/session_runtime/scope.go":   "读：归档会话不进分发范围",
-			"wiring/adapters/session_workspace_ports.go":  "读：存储面 → 可见面（**转换点** sessionStatusOfRecord）",
+			"application/core/service_snapshot.go":       "写：目录行的可见状态（运行态叠加：restoring/待批/运行/排队/空闲）",
+			"application/core/session_history.go":        "写：冷加载的 restoring 空壳",
+			"application/core/session_draft.go":          "写：草稿会话行",
+			"application/core/session_lifecycle.go":      "写：草稿会话行",
+			"application/core/archive_session.go":        "读：归档门（运行中的会话不许归档）",
+			"application/core/resident_lru.go":           "读：草稿行不参与驱逐",
+			"backend/engine/session/archive.go":          "读+写：落盘记录的归档态",
+			"backend/engine/session/scope.go":            "读：归档会话不进分发范围",
+			"wiring/adapters/session_workspace_ports.go": "读：存储面 → 可见面（**转换点** sessionStatusOfRecord）",
 			"tui/view.go": "读：待批会话行（跨会话计数）",
 		},
 		// 这一格的取值面 = dto.SessionStatus*（SessionState/SessionInfo.Status）。

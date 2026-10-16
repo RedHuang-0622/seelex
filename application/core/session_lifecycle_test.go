@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
+	"github.com/RedHuang-0622/seelex/backend/engine/session"
 )
 
 // TestResumeRunningSessionAllowsHotAttach（TC-A3-01 新语义）：运行中会话

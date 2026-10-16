@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
+	"github.com/RedHuang-0622/seelex/backend/engine/session"
 )
 
 // TestSessionDomainsDisjoint（TC-INV-01）：A 与 B 的 M/X/R 状态域无共享，

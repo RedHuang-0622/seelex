@@ -52,7 +52,7 @@
 | [`../kernel/state/`](../kernel/state/README.md) | core 共享状态内核：唯一共享锁、Snapshot、Deps、Events、Approval（M5-R3 迁出 `application/core/internal/state/`）。 |
 | [`../backend/engine/prompt/`](../backend/engine/prompt/README.md) | system prompt 层组装与引擎同步（前缀缓存友好）（M5-R7 迁出 `core/prompt_layer/`，包名不变）。 |
 | [`../backend/multiagent/resume/`](../backend/multiagent/resume/README.md) | 「终止前未完成工作」的领域无关恢复模板；原 `core/resume/`，M5-R8b 归位多代理板块。 |
-| [`core/session_runtime/`](core/session_runtime/README.md) | 会话域协调器：持久化、目录与标题恢复、项目 binding、会话三读。 |
+| [`../backend/engine/session/`](../backend/engine/session/README.md) | 会话域协调器：持久化、目录与标题恢复、项目 binding、会话三读（M5-R7 迁出 `core/session_runtime/`，包名不变）。 |
 | [`../middle/view/subagent/`](../middle/view/subagent/README.md) | 子代理投影面：详情分类、live 流透传、树/节点事件投影（M5-R4 迁出 `core/subagent_view/`）。 |
 | [`../backend/engine/task/`](../backend/engine/task/README.md) | 任务执行域协调器：打点与终态、transcript、checkpoint、token 审计（M5-R7 迁出 `core/task_context/`，包名不变）。 |
 | [`../middle/view/state/`](../middle/view/state/README.md) | 用户可见 Snapshot 读写与事件发布（M5-R4 迁出 `core/view_state/`）。 |
@@ -101,7 +101,7 @@ flowchart TB
 
     subgraph CORE["application/core"]
         SVC["Service 用例门面"]
-        DOM["域协调器<br/>session_runtime"]
+        DOM["域协调器<br/>backend/engine/session"]
         LEAF["叶子包<br/>goal · agentteam · resume"]
         MIDV["middle/view<br/>state · subagent · worktable（M5-R4 迁出）"]
         ST["internal/state<br/>唯一共享锁 + Snapshot + Deps"]
@@ -217,7 +217,7 @@ sequenceDiagram
 flowchart LR
     ACTION["Action<br/>Submit / ResolveInteraction / BindWorkspace"] --> USE["用例<br/>core.Service"]
     USE --> TX["跨域事务编排"]
-    TX --> DOM["域协调器<br/>session_runtime"]
+    TX --> DOM["域协调器<br/>backend/engine/session"]
     DOM --> PORT["Ports<br/>Engine / Runtime / Store / Workspace"]
     PORT --> RESULT["副作用结果"]
     RESULT --> SNAP["权威 Snapshot 更新"]

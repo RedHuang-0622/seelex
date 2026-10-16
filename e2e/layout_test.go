@@ -17,7 +17,7 @@ var repositoryModules = []string{
 	"application/core", "backend/engine/react", "backend/engine/input/contextcontrol",
 	"backend/engine/context", "backend/engine/input",
 	"kernel/state",
-	"backend/engine/prompt", "application/core/session_runtime",
+	"backend/engine/prompt", "backend/engine/session",
 	"middle/view/subagent", "backend/engine/task",
 	"middle/view/state", "middle/view/worktable",
 	// M5-R5：项目看板的行投影与同步器从 application/core/project_board.go 归位；

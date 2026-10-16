@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
+	"github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 	"github.com/RedHuang-0622/seelex/session"

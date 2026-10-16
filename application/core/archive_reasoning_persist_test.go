@@ -3,7 +3,7 @@ package core
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
+	"github.com/RedHuang-0622/seelex/backend/engine/session"
 )
 
 // TestPersistKeepsToolNarrationAndReasoningInRecord：真实轨迹里工具轮之间

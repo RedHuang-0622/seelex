@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
+	"github.com/RedHuang-0622/seelex/backend/engine/session"
 )
 
 const draftSessionName = "新会话"

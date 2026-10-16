@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
+	"github.com/RedHuang-0622/seelex/backend/engine/session"
 )
 
 // archiveCommandSessions 是 C2 ArchiveSession 的测试桩：会话粒度目录
