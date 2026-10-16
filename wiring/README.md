@@ -123,12 +123,16 @@ go test ./... -count=1 -timeout=900s
 
 ## 文件与函数索引
 
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
 ### constructors.go
 
-- `func New(deps contract.Dependencies) (*core.Service, error)` — 构造应用 Service 并接线 `contract.Dependencies` 里的全部端口。
-- `func NewEventHub() *event.EventHub` — 构造进程级事件 hub（唯一事件发布点，前端按 Subscription 消费）。
-- `func NewApprovalBroker(events *event.EventHub) *limitapproval.ApprovalBroker` — 构造异步审批 broker；events 为 nil 表示不发布审批事件。
-- `func NewToolHookBridge() *core.ToolHookBridge` — 构造工具钩子桥（工具调用前后的诊断与观测挂点）。
-- `func NewPromptStack() *prompt.PromptStack` — 构造空的 prompt 栈。
-- `func NewEffortManager(stack *prompt.PromptStack, engine interface{ SetMaxLoops(int); SetSystemPrompt(string) }) *prompt.EffortManager` — 构造 effort 管理器（推理档位与 ReAct 循环预算）。
-- `func WebSearch(ctx context.Context, config search.WebSearchConfig, query string, maxResults int) (string, error)` — 执行一次 Web 搜索。
+- `func New(deps contract.Dependencies) (*core.Service, error)` — New 构造应用 Service 并接线 contract.Dependencies 里的全部端口。
+- `func NewEventHub() *event.EventHub` — NewEventHub 构造进程级事件 hub（唯一事件发布点，前端按 Subscription 消费）。
+- `func NewApprovalBroker(events *event.EventHub) *limitapproval.ApprovalBroker` — NewApprovalBroker 构造异步审批 broker；events 为 nil 表示不发布审批事件。
+- `func NewToolHookBridge() *core.ToolHookBridge` — NewToolHookBridge 构造工具钩子桥（工具调用前后的诊断与观测挂点）。
+- `func NewPromptStack() *prompt.PromptStack` — NewPromptStack 构造空的 prompt 栈。
+- `func NewEffortManager(stack *prompt.PromptStack, engine interface { SetMaxLoops(int) SetSystemPrompt(string) }) *prompt.EffortManager` — NewEffortManager 构造 effort 管理器（推理档位与 ReAct 循环预算）。
+- `func WebSearch(ctx context.Context, config search.WebSearchConfig, query string, maxResults int) (string, error)` — WebSearch 执行一次 Web 搜索。
+

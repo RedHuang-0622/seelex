@@ -224,3 +224,98 @@ go test ./e2e/ -run TestWorkunitPortGate -count=1   # 装配与作业面的机�
 | `session_test.go` | 会话账本的编译期断言 / 恢复说明陈述事实与下一步 / 空读数不算错误 |
 | `progress_test.go` | 打点编解码往返与有界 / 折算只读不编造 / 按 nodeID 的读法与归属过滤 / 读面不许按层分支 |
 | `progress_bench_test.go` | 读面五个基准（预览裁剪 / 编解码 / 折算 / 列表），供"读面变慢"时对照 |
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### classify.go
+
+- `func IsUncommittedChanges(err error) bool` — IsUncommittedChanges 报告 err 是不是"现场收尾协议未执行"那一族（判据**唯一一份**）。
+- `func IsMergeBlockedByMain(err error) bool` — IsMergeBlockedByMain 报告 err 是不是"合并被主工作区挡路"那一族（判据**唯一一份**）。
+- `func ClassifyFinish(result Result, mergeErr error) Outcome` — ClassifyFinish 是三层**唯一一份**收尾分类：把"这一轮怎么结束的"归到四类之一。
+- `func remedyFor(kind OutcomeKind) string` — remedyFor 返回该结论的处置办法（落定为空 —— 它走验收，不走处置）。
+- `func boundedTo(text string, limit int) string` — boundedTo 把说明裁到有界长度（按 rune 裁，避免切断多字节字符）。
+- `func bounded(text string) string` — bounded 把收尾说明裁到 Outcome 的长度上限。
+- `func (o Outcome) Settled() bool` — Settled 报告一次收尾是否算"落定"（可以进验收）。
+- `func (o Outcome) String() string` — String 便于日志与看板投影（`kind: notice`）。
+
+### contract.go
+
+- `func (Immediate) AfterFinish(ctx context.Context, lifecycle Lifecycle, u Unit) error` — AfterFinish 立刻回收：调的就是**同一个**析构函数（`Lifecycle.Reclaim`）。
+- `func (AtTeamClose) AfterFinish(context.Context, Lifecycle, Unit) error` — AfterFinish 不做任何事：回收由 team_close 统一触发（调用点不同，析构函数是同一个）。
+
+### contract_test.go
+
+- `func TestClassifyFinishIsTheOneClassification(t *testing.T)` — TestClassifyFinishIsTheOneClassification：三层唯一一份收尾分类的判据表。
+- `func TestClassifyFinishNoticeIsBounded(t *testing.T)` — TestClassifyFinishNoticeIsBounded：说明要进回执与看板行，必须有界。
+- `func TestFinishPolicyIsTheOnlyDifference(t *testing.T)` — TestFinishPolicyIsTheOnlyDifference：三层之间唯一的差异点是"什么时候回收"——
+- `func (f fakeUnit) Kind() Kind`
+- `func (f fakeUnit) ID() string`
+- `func (f fakeUnit) SessionPath() string`
+- `func (f fakeUnit) Policy() FinishPolicy`
+- `func (f fakeUnit) Owns() Ownership`
+- `func (f *fakeLifecycle) Begin(context.Context, Unit) (Scene, error)`
+- `func (f *fakeLifecycle) Finish(context.Context, Unit, Result, error) (Outcome, error)`
+- `func (f *fakeLifecycle) Reclaim(context.Context, Unit) error`
+- `func (f *fakeLifecycle) Recover(context.Context, Unit) (Resume, error)`
+- `func (f *fakeLifecycle) AlreadySettled(context.Context, Unit) (bool, error)`
+- `func (f *fakeLifecycle) Notice(Outcome) string`
+
+### lifecycle.go
+
+- `func NewHost(scenes SceneFace, units UnitFace, records RecordFace) *Host` — NewHost 收下三格端口（构造式注入，不读全局）。三格都允许传 nil = 宿主未装配，
+- `func (h *Host) teamOwned(ctx context.Context, u Unit) bool` — teamOwned 报告这一份是不是**归团队托管**（生命周期里唯一允许出现的"按层"判断，依据是
+- `func (h *Host) Begin(ctx context.Context, u Unit) (Scene, error)` — Begin 建（或复用）这一份现场：唯一实现。
+- `func (h *Host) AlreadySettled(ctx context.Context, u Unit) (bool, error)` — AlreadySettled 回答"这件事已经收过尾了吗"——**重入**的唯一判据，两层共用。
+- `func (h *Host) Finish(ctx context.Context, u Unit, result Result, mergeErr error) (Outcome, error)` — Finish 只回答"这一轮怎么结束的"：分类 + 合并 + 回执；不拆现场。唯一实现。
+- `func (h *Host) Reclaim(ctx context.Context, u Unit) error` — Reclaim 拆这一份：唯一入口，幂等。唯一实现。
+- `func (h *Host) Recover(ctx context.Context, u Unit) (Resume, error)` — Recover 重启回灌：先认领现场（**必须在 Prune 之前**），再按**会话级**粒度读回这一层的
+- `func (h *Host) Notice(outcome Outcome) string` — Notice 生成给人看的说明：**非落定必带处置办法**（合同见 Outcome）。
+
+### progress.go
+
+- `func EncodeStages(stages []Stage) []byte` — EncodeStages 把打点表编成记录里的那串载荷：**唯一一份**（含预览的 rune 上限与空阶段丢弃）。
+- `func DecodeStages(payload []byte) []Stage` — DecodeStages 解出记录里的打点表：**唯一一份**。
+- `func ClipPreview(text string) string` — ClipPreview 把一段正文压成有界的一行（按 rune 裁，避免切断多字节字符）——**唯一一份**
+- `func ProgressOf(kind Kind, record store.NodeSessionRecord) Progress` — ProgressOf 把一条会话记录折成进度读数——**唯一一份折算**。
+- `func NewUnitReader(ledger SessionLedger, projectID, mainSessionID string, kind Kind, owned func(store.NodeSessionRecord) bool) *UnitReader` — NewUnitReader 建一个**面向一层**的读面。
+- `func (r *UnitReader) Read(nodeID string) (Progress, bool, error)` — Read 返回一件事的进度读数。
+- `func (r *UnitReader) Records() ([]store.NodeSessionRecord, error)` — Records 返回本读面的**原始记录清单**（归属过滤已生效）：层专有格（`History` /
+- `func (r *UnitReader) Record(nodeID string) (store.NodeSessionRecord, bool, error)` — Record 返回一件事**原始**的会话记录：层专有格（`History` / `ContextJSON` / `ResultJSON`，
+- `func (r *UnitReader) List() ([]Progress, error)` — List 返回本账本里**归属于本读面**的全部单元进度读数（按 NodeID 稳定排序）。
+- `func (r *UnitReader) records() ([]store.NodeSessionRecord, error)` — records 读回本会话的单元记录（未装配账本 = 空读数；归属过滤在这里统一落地）。
+
+### progress_bench_test.go
+
+- `func benchRecords(n int) []store.NodeSessionRecord`
+- `func BenchmarkClipPreview(b *testing.B)`
+- `func BenchmarkEncodeStages(b *testing.B)`
+- `func BenchmarkDecodeStages(b *testing.B)`
+- `func BenchmarkProgressOf(b *testing.B)`
+- `func BenchmarkUnitReaderList100(b *testing.B)`
+
+### progress_test.go
+
+- `func (f *fakeLedger) Save(string, string, store.NodeSessionRecord) error`
+- `func (f *fakeLedger) Delete(string, string, string) error`
+- `func (f *fakeLedger) List(string, string) ([]store.NodeSessionRecord, error)`
+- `func TestStageCodecRoundTripsAndBounds(t *testing.T)` — TestStageCodecRoundTripsAndBounds：打点载荷只有一份编解码，且预览有界。
+- `func TestProgressOfIsAReadOnlyProjection(t *testing.T)` — TestProgressOfIsAReadOnlyProjection：折算逐一对应记录里已有的格子，不加事实。
+- `func TestUnitReaderReadsByNodeIDAndFiltersOwnership(t *testing.T)` — TestUnitReaderReadsByNodeIDAndFiltersOwnership：读法收成一份，归属过滤由调用方给出
+- `func TestUnitReaderRecordSharesTheSameLookup(t *testing.T)` — TestUnitReaderRecordSharesTheSameLookup：层专有格（History/ContextJSON/ResultJSON、
+- `func TestUnitReaderCannotBranchOnKind(t *testing.T)` — TestUnitReaderCannotBranchOnKind：Kind 是描述性标注，读面不据它分支——同一份记录、同一份
+
+### session.go
+
+- `func (r Resume) Empty() bool` — Empty 报告这次回灌什么都没发生（无存储/空会话时的正常读数，不是错误）。
+- `func InFlight(status string) bool` — InFlight 报告一条会话记录的 status 是不是"说自己在跑"：记录说在跑、而本进程已无它的
+- `func RecoveryNote(kind Kind, record store.NodeSessionRecord) string` — RecoveryNote 组装"这件事重启前跑到哪、下一步做什么"的恢复说明。三层**共用这一份构建器**
+
+### session_test.go
+
+- `func TestSessionLedgerIsSatisfiedByExistingStore(t *testing.T)` — TestSessionLedgerIsSatisfiedByExistingStore：契约要复用**既有**存储，不是再写一份。
+- `func TestResumeNoticeStatesFactsAndNextStep(t *testing.T)` — TestResumeNoticeStatesFactsAndNextStep：恢复说明三层一份：事实在前、动作在后、有界、不编造。
+- `func TestResumeEmptyReadsAsNoop(t *testing.T)` — TestResumeEmptyReadsAsNoop：没有存储/没有残留时的读数必须干净（不是错误、也不是"有事"）。
+

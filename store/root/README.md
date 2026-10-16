@@ -148,8 +148,7 @@ go test ./e2e/ -count=1           # I6 与 README 门禁
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
-> 刷新方式：复用 `scripts/gen_core_readme_index.py` 的提取逻辑重跑本生成器
-> （`python tmp/reshape/m3s2_root_readme.py`）。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
 
 ### atomic.go
 
@@ -157,6 +156,12 @@ go test ./e2e/ -count=1           # I6 与 README 门禁
 - `func Hash(value string) string`
 - `func RandomID() string`
 - `func WriteAtomic(path string, data []byte, permission os.FileMode) error`
+
+### atomic_publish_windows_test.go
+
+- `func holdExclusive(t *testing.T, path string) func()` — holdExclusive 以 share mode 0 打开 path（任何 rename 覆盖都会失败），返回释放函数。
+- `func TestWriteAtomicSurvivesTransientHandle(t *testing.T)`
+- `func TestWriteAtomicGivesUpWithinBudgetAndLeavesNoTemp(t *testing.T)`
 
 ### data_root_lock.go
 
@@ -186,6 +191,12 @@ go test ./e2e/ -count=1           # I6 与 README 门禁
 - `func OpenSharedRead(path string) (*os.File, error)` — OpenSharedRead 以只读 + `FILE_SHARE_READ\|FILE_SHARE_WRITE\|FILE_SHARE_DELETE`
 - `func ReadSharedFile(path string) ([]byte, error)` — ReadSharedFile 读整个只读共享文件（模块 head / 目录枚举 meta），是
 
+### file_shared_read_windows_test.go
+
+- `func holdForDelete(t *testing.T, path string) *os.File` — holdForDelete 以「GENERIC_READ\|DELETE 访问 + 全共享位」打开 path，等价于 rename
+- `func TestReadSharedFileSurvivesPublishWindow(t *testing.T)` — TestReadSharedFileSurvivesPublishWindow 钉住缺陷 1：目标被"发布中"的 DELETE 访问
+- `func TestOpenSharedReadDoesNotBlockEvictionDelete(t *testing.T)` — TestOpenSharedReadDoesNotBlockEvictionDelete 钉住缺陷 2：读者持柄时，淘汰/回收
+
 ### jsonl_io.go
 
 - `func TruncateCrashTail(file *os.File) error` — TruncateCrashTail 把 JSONL 文件末尾未换行收尾的半行截断，保证后续追加
@@ -198,6 +209,19 @@ go test ./e2e/ -count=1           # I6 与 README 门禁
 
 - `func ProcessAlive(pid int) bool` — ProcessAlive 判断 pid 是否仍属于某个存活进程。
 
+### root_unit_test.go
+
+- `func TestWriteAtomicCreatesOverwritesAndLeavesNoTemp(t *testing.T)`
+- `func TestWriteAtomicFailureLeavesNoPartialTarget(t *testing.T)` — 失败姿态：目标不可替换（这里是"目标路径是个目录"）时，必须返回错误、
+- `func TestHashIsStableAndDistinct(t *testing.T)`
+- `func TestRandomIDIsHexAndUnique(t *testing.T)`
+- `func TestRemoveAllWithBackoff(t *testing.T)`
+- `func TestTruncateCrashTailBoundaries(t *testing.T)` — TruncateCrashTail 的残尾裁定：只有"末尾没有换行"才算残尾；残尾整段丢弃，
+- `func TestProcessAlive(t *testing.T)`
+- `func TestSettingsDefaultsAndOverlayChain(t *testing.T)`
+- `func readFile(t *testing.T, path string) string`
+- `func entryNames(entries []os.DirEntry) []string`
+
 ### storage_settings.go
 
 - `func NewSettings() Settings` — NewSettings 返回一个只含指定覆盖项的 Settings（全部零值 = 用默认）。
@@ -208,3 +232,4 @@ go test ./e2e/ -count=1           # I6 与 README 门禁
 - `func ValidateSettings(config Settings) error` — ValidateSettings 校验配置覆盖（非法值显式拒绝）。
 - `func (settings Settings) ShardRows() int` — ShardRows 返回 message/event 分片行数（已解析，恒 > 0）。
 - `func (settings Settings) WireBudget() (int, int, int)` — WireBudget 返回 (budget, softTokens, targetTokens)（§5.2）。
+

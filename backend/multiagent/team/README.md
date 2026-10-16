@@ -399,6 +399,44 @@ go test -race ./backend/multiagent/team -count=1
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
+### roles.go
+
+- `func (r RoleSessions) RolePort() (contract.RoleSessionPort, error)` — RolePort 返回角色会话端口。
+- `func (r RoleSessions) SchedulePort() (contract.SchedulePort, error)` — SchedulePort 返回定时插话端口。
+- `func (r RoleSessions) CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (dto.RoleSessionInfo, error)`
+- `func (r RoleSessions) AppendRoleDraft(mainSessionID, roleName, roleSessionID string, rows []dto.RoleDraftRow) error`
+- `func (r RoleSessions) ReadRoleDraft(mainSessionID, roleName, roleSessionID string) ([]dto.RoleDraftRow, error)`
+- `func (r RoleSessions) SyncRoleDraft(mainSessionID, roleName, roleSessionID string, order []string) (dto.RoleDraftSyncResult, error)`
+- `func (r RoleSessions) AppendRoleSessionRows(mainSessionID, roleName, roleSessionID string, rows []dto.RoleRow) error`
+- `func (r RoleSessions) ReadRoleSessionRows(mainSessionID, roleName, roleSessionID string) ([]dto.RoleRow, error)`
+- `func (r RoleSessions) RoleSnapshot(mainSessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error)`
+- `func (r RoleSessions) AssembleRoleWire(mainSessionID, roleName, roleSessionID string, budget, k int) (dto.RoleWireSnapshot, error)`
+- `func (r RoleSessions) SetLifecycleOrder(sessionID, policy string, roles []string) error`
+- `func (r RoleSessions) SetRoleLifecycle(mainSessionID, roleName, roleSessionID string, joinSeq uint64, ref *dto.CompactFrameRef) error`
+- `func (r RoleSessions) ListRoleSessions(mainSessionID string) ([]string, error)`
+- `func (r RoleSessions) ScheduleRegister(sessionID string, payload dto.ScheduleEventPayload) error`
+- `func (r RoleSessions) ScheduleCancel(sessionID string, payload dto.ScheduleEventPayload) error`
+- `func (r RoleSessions) ScheduleFire(sessionID string, payload dto.ScheduleEventPayload) error`
+
+### roles_test.go
+
+- `func (port *fakeRolePort) CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (dto.RoleSessionInfo, error)`
+- `func (port *fakeRolePort) AppendRoleDraft(string, string, string, []dto.RoleDraftRow) error`
+- `func (port *fakeRolePort) ReadRoleDraft(string, string, string) ([]dto.RoleDraftRow, error)`
+- `func (port *fakeRolePort) SyncRoleDraft(string, string, string, []string) (dto.RoleDraftSyncResult, error)`
+- `func (port *fakeRolePort) AppendRoleSessionRows(string, string, string, []dto.RoleRow) error`
+- `func (port *fakeRolePort) ReadRoleSessionRows(string, string, string) ([]dto.RoleRow, error)`
+- `func (port *fakeRolePort) RoleSnapshot(string, string, string) (dto.RoleSnapshot, error)`
+- `func (port *fakeRolePort) AssembleRoleWire(string, string, string, int, int) (dto.RoleWireSnapshot, error)`
+- `func (port *fakeRolePort) SetLifecycleOrder(string, string, []string) error`
+- `func (port *fakeRolePort) SetRoleLifecycle(string, string, string, uint64, *dto.CompactFrameRef) error`
+- `func (port *fakeRolePort) ListRoleSessions(string) ([]string, error)`
+- `func (port *fakeSchedulePort) ScheduleRegister(string, dto.ScheduleEventPayload) error`
+- `func (port *fakeSchedulePort) ScheduleCancel(string, dto.ScheduleEventPayload) error`
+- `func (port *fakeSchedulePort) ScheduleFire(sessionID string, _ dto.ScheduleEventPayload) error`
+- `func TestRoleSessionsPortErrors(t *testing.T)` — TestRoleSessionsPortErrors：三种"没有可用端口"的情形各自给固定文案（判据只此一份）。
+- `func TestRoleSessionsForwards(t *testing.T)` — TestRoleSessionsForwards：解析成功后原样转发（角色面与定时面各一条）。
+
 ### spec.go
 
 - `func Normalize(spec dto.TeamSpec) (dto.TeamSpec, error)` — Normalize 把 TeamSpec 规整成可装配形态：补默认值、去重、推导 order_roles、
@@ -413,16 +451,4 @@ go test -race ./backend/multiagent/team -count=1
 ### spec_plugins_test.go
 
 - `func TestNormalizeRoleNormalizesPlugins(t *testing.T)` — TestNormalizeRoleNormalizesPlugins 钉住写入侧的**语法**口径（与编排侧共用
-
-### roles.go
-
-- `type RoleSessions struct` — 角色会话 / 定时插话两个可选端口的窄门面（`Assembled` 区分"端口未装配"与"未暴露该能力"）。
-- `func (r RoleSessions) RolePort() (contract.RoleSessionPort, error)` — 解析角色会话端口（三种错误文案见本文件头）。
-- `func (r RoleSessions) SchedulePort() (contract.SchedulePort, error)` — 解析定时插话端口。
-- `func (r RoleSessions) CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (dto.RoleSessionInfo, error)` — 转发：建角色会话。
-- `func (r RoleSessions) AppendRoleDraft(...) error` / `ReadRoleDraft(...)` / `SyncRoleDraft(...)` — 转发：角色草稿的追加 / 读取 / 按顺序同步。
-- `func (r RoleSessions) AppendRoleSessionRows(...) error` / `ReadRoleSessionRows(...)` — 转发：角色会话行的追加 / 读取。
-- `func (r RoleSessions) RoleSnapshot(...) (dto.RoleSnapshot, error)` / `AssembleRoleWire(...) (dto.RoleWireSnapshot, error)` — 转发：角色快照与 wire 装配。
-- `func (r RoleSessions) SetLifecycleOrder(...) error` / `SetRoleLifecycle(...) error` / `ListRoleSessions(...) ([]string, error)` — 转发：生命周期顺序、角色生命周期与列表。
-- `func (r RoleSessions) ScheduleRegister(...) error` / `ScheduleCancel(...)` / `ScheduleFire(...)` — 转发：定时插话的注册 / 取消 / 触发。
 

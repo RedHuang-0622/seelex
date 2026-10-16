@@ -107,3 +107,202 @@ go build ./application/...
 go test ./application/... -count=1
 node --test gui/frontend/dist/*.test.mjs   # 协议字段与 reducer 一致性
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### async_run.go
+
+- `func (s AsyncState) String() string` — String 给出对外词。
+- `func ParseAsyncState(text string) (AsyncState, bool)` — ParseAsyncState 把对外词读回枚举；第二个返回值报告它是不是我们认得的词。
+- `func (s AsyncState) MarshalJSON() ([]byte, error)` — MarshalJSON 保住 wire 形状：JSON 里仍是 "running" 这样的词，不是枚举的整数值。
+- `func (s *AsyncState) UnmarshalJSON(data []byte) error` — UnmarshalJSON 读回对外词。认不得的词**报错**，不静默折成零值——那会把"读不懂"变成
+
+### goal_status.go
+
+- `func (s GoalStatus) String() string` — String 给出对外词（视图 JSON 与存档 wire 都用它）。
+- `func ParseGoalStatus(text string) (GoalStatus, bool)` — ParseGoalStatus 把对外词读回枚举；第二个返回值报告认不认得。
+- `func (s GoalStatus) Terminal() bool` — Terminal 报告状态是否终态（不再停留在 goal 栈上）。
+- `func (s GoalStatus) MarshalJSON() ([]byte, error)` — MarshalJSON 保住 wire 形状：JSON 里仍是 "active" 这样的词。
+- `func (s *GoalStatus) UnmarshalJSON(data []byte) error` — UnmarshalJSON 读回对外词；认不得的词报错，不动原值。
+
+### job_namespace.go
+
+- `func jobNamespacePrefix(namespace JobNamespace) string` — jobNamespacePrefix 是某个命名空间的**前缀**（token + 分隔符）。识别与解析都走它，
+- `func JobHandle(namespace JobNamespace, seq int) string` — JobHandle 铸造一个句柄。它是**唯一一处**把 token 与序号拼起来的地方：两张作业表的铸造点
+- `func JobNamespaceOf(handle string) (JobNamespace, bool)` — JobNamespaceOf 识别一个句柄属于哪个命名空间；第二个返回值报告它是不是**我们认得的形态**
+- `func JobHandleSeq(handle string) (int, bool)` — JobHandleSeq 从句柄里取回**派发序号**（第二个返回值 = 这个形态认不认得）。
+
+### job_namespace_test.go
+
+- `func TestJobNamespaceOfMatchesTokenPlusSeparator(t *testing.T)` — TestJobNamespaceOfMatchesTokenPlusSeparator 钉住句柄文法里最容易错的一处：
+- `func TestJobHandleRoundTripsThroughItsNamespace(t *testing.T)` — TestJobHandleRoundTripsThroughItsNamespace 钉住"铸造与识别是同一份文法"：凡铸造出来的
+- `func TestJobNamespacesAreDisjoint(t *testing.T)` — TestJobNamespacesAreDisjoint 钉住整套命名空间互不相交：任何两个 token 铸造出来的句柄
+
+### node_scope.go
+
+- `func WithNodeScope(ctx context.Context, scope NodeScope) context.Context` — WithNodeScope 把节点作用域注入 ctx（子代理执行请求）。
+- `func NodeScopeFromContext(ctx context.Context) (NodeScope, bool)` — NodeScopeFromContext 读取 ctx 中的节点作用域；无作用域时返回 (零值, false)。
+- `func NodeScopeFromContextOrEmpty(ctx context.Context) NodeScope` — NodeScopeFromContextOrEmpty 读取节点作用域；无作用域时返回空 NodeScope
+
+### node_status.go
+
+- `func (s NodeStatus) String() string` — String 给出对外词。
+- `func ParseNodeStatus(text string) (NodeStatus, bool)` — ParseNodeStatus 把对外词读回枚举；第二个返回值报告认不认得。**用它判"这个词是不是
+- `func (s NodeStatus) MarshalJSON() ([]byte, error)` — MarshalJSON 保住 wire 形状：JSON 里仍是 "running" 这样的词。
+- `func (s *NodeStatus) UnmarshalJSON(data []byte) error` — UnmarshalJSON 读回对外词；认不得的词报错，不动原值。
+- `func NodeStatusFromFramework(word string) (NodeStatus, bool)` — NodeStatusFromFramework 把框架 workplan 的节点状态词折成这一格；第二个返回值报告
+
+### peer_state.go
+
+- `func (s PeerState) String() string` — String 给出对外词（治理投影的 peer_state）。
+- `func ParsePeerState(text string) (PeerState, bool)` — ParsePeerState 把对外词读回枚举；第二个返回值报告认不认得。
+- `func (s PeerState) MarshalJSON() ([]byte, error)` — MarshalJSON 保住 wire 形状：JSON 里仍是 "detached" 这样的词。
+- `func (s *PeerState) UnmarshalJSON(data []byte) error` — UnmarshalJSON 读回对外词；认不得的词报错，不动原值。
+
+### permission.go
+
+- `func PermissionGroupNames() []string` — PermissionGroupNames 返回规范组序（装配面板的"格子顺序"）。
+- `func ValidPermissionGroup(group string) bool` — ValidPermissionGroup 报告 group 是否是已知路由组。
+- `func NormalizePermissionGroups(groups map[string]uint8) (map[string]uint8, error)` — NormalizePermissionGroups 规整一份"逐格装配"的权限：校验组名与位值，返回**独立
+- `func PermissionTiers() []PermissionTierInfo` — PermissionTiers 返回规范档位目录（升序 = 自动度递增；返回新切片，调用方
+- `func PermissionTierIDs() []string` — PermissionTierIDs 返回规范档位 id 序列（装配/校验/测试用）。
+- `func ValidPermissionTier(tier string) bool` — ValidPermissionTier 报告 tier 是否是已知档位 id。
+- `func NormalizePermissionTier(tier string) (string, error)` — NormalizePermissionTier 规整档位 id：空（未选择）→ manual（进程默认）；未识别
+- `func (e *PermissionTierError) Error() string`
+- `func PermissionTierFromFullAccess(on bool) string` — PermissionTierFromFullAccess 把旧的二元 full_access 口径映射成档位（兼容壳：
+- `func PermissionTierIsFullAccess(tier string) bool` — PermissionTierIsFullAccess 报告档位是否等价旧 full_access（诊断/兼容读面）。
+- `func (e *PermissionGroupError) Error() string`
+
+### plan_run.go
+
+- `func (s PlanRunStatus) String() string` — String 给出对外词（plan_run 结果 JSON 里的 status）。
+- `func ParsePlanRunStatus(text string) (PlanRunStatus, bool)` — ParsePlanRunStatus 把对外词读回枚举；第二个返回值报告它是不是这一格的词。
+- `func (s PlanRunStatus) MarshalJSON() ([]byte, error)` — MarshalJSON 保住 wire 形状：JSON 里仍是 "completed" 这样的词。
+- `func (s *PlanRunStatus) UnmarshalJSON(data []byte) error` — UnmarshalJSON 读回对外词；认不得的词报错（含框架的节点状态词——它不属于这一格）。
+
+### plan_status.go
+
+- `func (s PlanStatus) String() string` — String 给出对外词。注意 "running" 在这一格里是**计划的**在途态；节点状态的
+- `func ParsePlanStatus(text string) (PlanStatus, bool)` — ParsePlanStatus 把对外词读回枚举；第二个返回值报告认不认得。
+- `func (s PlanStatus) MarshalJSON() ([]byte, error)` — MarshalJSON 保住 wire 形状：JSON 里仍是 "running" 这样的词。
+- `func (s *PlanStatus) UnmarshalJSON(data []byte) error` — UnmarshalJSON 读回对外词；认不得的词报错，不动原值。
+
+### plugin_assembly.go
+
+- `func NormalizePlugins(names []string, limit int) ([]string, error)` — NormalizePlugins 规整一份按会话装配的插件名清单：去首尾空白、丢弃空项（纯空白
+
+### reasoning_effort.go
+
+- `func ValidReasoningEffort(value string) bool` — ValidReasoningEffort 判断一个配置值是否为本系统认识的思考强度值。
+- `func WireReasoningEffortVocabulary() []string` — WireReasoningEffortVocabulary 返回 **provider 词表** 的合法取值（不含 "session"）：
+- `func NormalizeWireReasoningEffort(raw string) (string, error)` — NormalizeWireReasoningEffort 归一一个 provider 词表的思考强度，是"什么算一个合法
+- `func ReasoningEffortVocabulary() []string` — ReasoningEffortVocabulary 返回全部合法取值（"session" 在前），供配置报错提示用。
+- `func DefaultReasoningEffortForRole(role AccountRole) string` — DefaultReasoningEffortForRole 返回角色的默认思考强度（可能是 "session"）。
+
+### review_request.go
+
+- `func CloneReviewRequest(request *ReviewRequest) *ReviewRequest` — CloneReviewRequest 深拷贝一份待审阅请求（快照是并发读者的共享值，浅拷贝会
+
+### routing_notice.go
+
+- `func (n RoutingNotice) Message() string` — Message 把这条路由事实翻成一句给用户看的提示（B 类摘要 Detail 与文案同源）。
+- `func (n RoutingNotice) failureKindText() string` — failureKindText 把账号资格失败类别翻成一句中文（与 backend/engine/account 的
+
+### schedule_run_status.go
+
+- `func (s ScheduleRunStatus) String() string` — String 给出对外词（面板 JSON 里的 last_status）。
+- `func ParseScheduleRunStatus(text string) (ScheduleRunStatus, bool)` — ParseScheduleRunStatus 把对外词读回枚举；第二个返回值报告认不认得。
+- `func (s ScheduleRunStatus) MarshalJSON() ([]byte, error)` — MarshalJSON 保住 wire 形状：JSON 里仍是 "ok" 这样的词。
+- `func (s *ScheduleRunStatus) UnmarshalJSON(data []byte) error` — UnmarshalJSON 读回对外词；认不得的词报错，不动原值。
+
+### session_status.go
+
+- `func (s SessionStatus) String() string` — String 给出对外词（快照 JSON / 目录行都用它）。
+- `func ParseSessionStatus(text string) (SessionStatus, bool)` — ParseSessionStatus 把对外词读回枚举；第二个返回值报告认不认得。
+- `func (s SessionStatus) MarshalJSON() ([]byte, error)` — MarshalJSON 保住 wire 形状：JSON 里仍是 "idle" 这样的词。
+- `func (s *SessionStatus) UnmarshalJSON(data []byte) error` — UnmarshalJSON 读回对外词；认不得的词报错，不动原值。
+
+### state_codec.go
+
+- `func (c stateCodec) word(ordinal uint8) string` — word 给出对外词。越界（将来加了常量却忘了加词）折回"未知"，不 panic：
+- `func (c stateCodec) ordinal(text string) (uint8, bool)` — ordinal 把对外词读回枚举序数；第二个返回值报告认不认得。
+- `func (c stateCodec) marshal(ordinal uint8) ([]byte, error)` — marshal 让枚举的**整数值不出本进程**：JSON 里永远是词。
+- `func (c stateCodec) unmarshal(data []byte, into *uint8) error` — unmarshal 读回对外词；认不得的词报错且**不动原值**。
+
+### state_enum_test.go
+
+- `func TestAsyncStateEnumKeepsWireShape(t *testing.T)`
+- `func TestAsyncStateRejectsUnknownWord(t *testing.T)` — 认不得的词必须报错：静默折成零值会把"读不懂"变成"还在跑"——两者差一整个作业生命周期。
+- `func TestAsyncRunRecordWireRoundTrip(t *testing.T)` — 记录整条走一遍 JSON：字段形状与字符串时代逐字节相同（`"state":"running"`）。
+- `func TestPlanRunStatusEnumKeepsWireShape(t *testing.T)`
+
+### state_machines_test.go
+
+- `func assertStateWire(t *testing.T, c stateWireCase)`
+- `func TestRecordStatusEnumWire(t *testing.T)` — 格 A：记录状态（子代理节点的生命周期；词也是**落盘**的那一份）。
+- `func TestToolEventStatusEnumWire(t *testing.T)` — 格 B：工具事件状态（子代理工具调用的 running \| success \| error）。
+- `func TestTaskStatusEnumWire(t *testing.T)` — 格 D：task 状态（工作表格条目的生命周期）。
+- `func TestTurnStatusEnumWire(t *testing.T)` — 格 E：回合状态（用户这一次请求的生命周期；可见面 `Snapshot.Task.Status` 与
+- `func TestSessionStatusEnumWire(t *testing.T)` — 格 F：会话可见状态（一个会话的可见状态机：运行期叠加 + 持久子集）。
+- `func TestPlanStatusEnumWire(t *testing.T)` — 格 G：计划状态（整张 Plan 的生命周期；与 plan_run 的**批次结果**是两格）。
+- `func TestNodeStatusEnumWire(t *testing.T)` — 格 H：节点状态（一个计划节点的状态；框架词 + 我们的 worktree 阶段词）。
+- `func TestNodeStatusFromFrameworkFoldsStartedAndRejectsPhases(t *testing.T)` — 框架词折一次：框架的 "started" 与我们的 running 同态；**阶段词不是节点状态**
+- `func TestScheduleRunStatusEnumWire(t *testing.T)` — 格 I：定时任务上次运行结果（`ScheduledTaskStatus.LastStatus`；GUI 面板数据源）。
+- `func TestGoalStatusEnumWire(t *testing.T)` — 格 J：goal 状态（goal 栈每层一态；看板视图与 goal 存档同格）。
+- `func TestPeerStateEnumWire(t *testing.T)` — 格 K：评审者（b / ADVISOR）生命周期状态。
+- `func TestUnitStatusEnumWire(t *testing.T)` — 格 L：恢复单元状态（恢复模板里的粗分三桶；由记录状态折一次）。
+- `func TestRecordStatusReadsOldShapedRecords(t *testing.T)` — 落盘那一格：老形状（字符串）的记录必须能读回，认不得的词**不炸**、也不被当成终态。
+
+### subagent.go
+
+- `func (s SubAgentNodeStatus) String() string` — String 给出对外词（JSON / GUI / 落盘记录都用它）。
+- `func ParseSubAgentNodeStatus(text string) (SubAgentNodeStatus, bool)` — ParseSubAgentNodeStatus 把对外词读回枚举；第二个返回值报告认不认得。
+- `func (s SubAgentNodeStatus) MarshalJSON() ([]byte, error)` — MarshalJSON 保住 wire 形状：JSON 里仍是 "running" 这样的词。
+- `func (s *SubAgentNodeStatus) UnmarshalJSON(data []byte) error` — UnmarshalJSON 读回对外词；认不得的词报错，不动原值。
+
+### subagent_live.go
+
+- `func (s ToolEventStatus) String() string` — String 给出对外词（事件 JSON 与 GUI 都用它）。
+- `func ParseToolEventStatus(text string) (ToolEventStatus, bool)` — ParseToolEventStatus 把对外词读回枚举；第二个返回值报告认不认得。
+- `func (s ToolEventStatus) MarshalJSON() ([]byte, error)` — MarshalJSON 保住 wire 形状：JSON 里仍是 "success" 这样的词。
+- `func (s *ToolEventStatus) UnmarshalJSON(data []byte) error` — UnmarshalJSON 读回对外词；认不得的词报错，不动原值。
+
+### task.go
+
+- `func (s TaskStatus) String() string` — String 给出对外词。
+- `func ParseTaskStatus(text string) (TaskStatus, bool)` — ParseTaskStatus 把对外词读回枚举；第二个返回值报告认不认得。
+- `func (s TaskStatus) MarshalJSON() ([]byte, error)` — MarshalJSON 保住 wire 形状：JSON 里仍是 "completed" 这样的词。
+- `func (s *TaskStatus) UnmarshalJSON(data []byte) error` — UnmarshalJSON 读回对外词；认不得的词报错，不动原值。
+- `func PhaseForKind(kind string) string` — PhaseForKind 由权威类型 Kind 派生展示阶段（Phase 与 Kind 不允许双轨漂移）。
+- `func ActorIdentity(role, sessionID string) string` — ActorIdentity 由执行角色与会话 ID 合成 Assignee/Participants 身份标识。
+- `func (item TodoItem) WithDerivedDone() TodoItem` — WithDerivedDone 返回 Done 与 Status 一致的副本（Status == done → Done=true）。
+
+### teamwork_board_test.go
+
+- `func decodeKeys(t *testing.T, value any) []string`
+- `func wantSorted(keys []string) []string`
+- `func TestPluginAssemblyViewWireKeysAreFrozen(t *testing.T)` — TestPluginAssemblyViewWireKeysAreFrozen 逐键断言装配读数的 wire 形状。
+- `func TestTeamworkMemberViewCarriesAssemblyGates(t *testing.T)` — TestTeamworkMemberViewCarriesAssemblyGates 钉成员行的装配两格：
+
+### tool_record.go
+
+- `func ToolReasonVocabulary() []string` — ToolReasonVocabulary 是词表全集（顺序稳定）：前端标签、看板配色与用例都按它走，
+
+### turn_status.go
+
+- `func (s TurnStatus) String() string` — String 给出对外词（Snapshot 的 JSON 与回合存档都用它）。
+- `func ParseTurnStatus(text string) (TurnStatus, bool)` — ParseTurnStatus 把对外词读回枚举；第二个返回值报告认不认得。
+- `func (s TurnStatus) MarshalJSON() ([]byte, error)` — MarshalJSON 保住 wire 形状：JSON 里仍是 "progressing" 这样的词。
+- `func (s *TurnStatus) UnmarshalJSON(data []byte) error` — UnmarshalJSON 读回对外词；认不得的词报错，不动原值。
+
+### unit_status.go
+
+- `func (s UnitStatus) String() string` — String 给出对外词。
+- `func ParseUnitStatus(text string) (UnitStatus, bool)` — ParseUnitStatus 把对外词读回枚举；第二个返回值报告认不认得。
+- `func (s UnitStatus) Active() bool` — Active 报告这一单元是否要续跑（唯一判据：`Unit.Active()` 转调它）。
+- `func (s UnitStatus) MarshalJSON() ([]byte, error)` — MarshalJSON 保住 wire 形状：JSON 里仍是 "active" 这样的词。
+- `func (s *UnitStatus) UnmarshalJSON(data []byte) error` — UnmarshalJSON 读回对外词；认不得的词报错，不动原值。
+

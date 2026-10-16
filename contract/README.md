@@ -126,3 +126,14 @@ flowchart LR
 ```text
 go test ./application/... ./e2e/scenario . -count=1
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### errors.go
+
+- `func IsProviderContextExhaustion(err error) bool` — IsProviderContextExhaustion 判定 provider 是否以"上下文窗口超出"为由拒绝请求。
+- `func ClassifyProviderFailure(err error) ProviderFailureKind` — ClassifyProviderFailure 按 provider 措辞把传输失败归到具体类别；无法归类返回
+

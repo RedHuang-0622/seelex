@@ -4,12 +4,12 @@
 
 message/event 事件行、段落投影、wire 装配与大工具结果归档
 
-覆盖 13 个文件（前缀 `message_rows`/`structural_events`/`event_store`/`event_range`/`paragraphs`/`wire_assembler`/`big_tool_result`/`provider_wire`）。
+覆盖：`message_rows*.go`、`structural_events*.go`、`event_store*.go`、`event_range*.go`、`paragraphs*.go`、`wire_assembler*.go`、`big_tool_result*.go`、`provider_wire*.go`；未归属文件由覆盖自检拦下。
 
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
-> 刷新方式：`python scripts/gen_store_readme_volumes.py`。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
 
 ### big_tool_result.go
 
@@ -36,7 +36,7 @@ message/event 事件行、段落投影、wire 装配与大工具结果归档
 ### event_store.go
 
 - `func NewEventStore(router *Router) *EventStore` — NewEventStore 创建会话级执行事实事件库（惰性追加，不预读）。
-- `func (store *EventStore) SetWorkspaceResolver(resolver func(sessionID string) string)` — SetWorkspaceResolver 注入会话绑定项目解析器（main.go 装配点：从
+- `func (store *EventStore) SetWorkspaceResolver(resolver func(sessionID string) string)` — SetWorkspaceResolver 注入会话绑定项目解析器（wiring/bootstrap 装配点：从
 - `func (store *EventStore) projectFor(sessionID string) string`
 - `func (store *EventStore) Append(ctx context.Context, event frameworkevent.Event) error` — Append 实现 frameworkevent.Sink：按事件 Location（agent.runtime →
 - `func (store *EventStore) Load(ctx context.Context, sessionID string) ([]frameworkevent.Event, error)` — Load 读取会话级事件库（按 Seq 排序，追加顺序）。

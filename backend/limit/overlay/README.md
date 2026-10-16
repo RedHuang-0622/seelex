@@ -97,24 +97,7 @@ go test ./backend/limit/overlay/... -count=1
 go test ./backend/limit/... -count=1
 ```
 
-## 文件与函数索引
-
-### overlay.go
-
-| 函数 | 签名 | 摘要 |
-|---|---|---|
-| `Path` | `func Path(dataRoot string) string` | 覆盖层落盘路径：数据根下的 `FileName` |
-| `Read` | `func Read(path string) Overlay` | 读覆盖层；路径空/文件缺失/内容损坏一律回落"没有覆盖" |
-| `Apply` | `func Apply(base limit.Limits, overlay Overlay) limit.Limits` | 把覆盖层叠到 limits 上（覆盖层优先，非法值跳过） |
-| `WriteSessionReleaseWindow` | `func WriteSessionReleaseWindow(path string, window int) error` | 读-改-写：只动会话驻留窗口一格 |
-| `WriteAccountWindow` | `func WriteAccountWindow(path, name string, window int) error` | 读-改-写：按账号写窗口（`<= 0` 清掉该键） |
-| `WriteToolRecordEnabled` | `func WriteToolRecordEnabled(path string, enabled bool) error` | 读-改-写：工具记录计数开关 |
-| `writeFile` | `func writeFile(path string, current Overlay) error` | 临时文件 + rename 原子落盘 |
-| `SaveSessionReleaseWindow` | `func (store StoreFile) SaveSessionReleaseWindow(window int) error` | 落盘口：会话驻留窗口 |
-| `SaveAccountWindow` | `func (store StoreFile) SaveAccountWindow(name string, window int) error` | 落盘口：账号窗口 |
-| `SaveToolRecordEnabled` | `func (store StoreFile) SaveToolRecordEnabled(enabled bool) error` | 落盘口：工具记录计数开关 |
-
-### overlay_test.go
+## 测试要点
 
 | 测试 | 钉住什么 |
 |---|---|
@@ -124,3 +107,32 @@ go test ./backend/limit/... -count=1
 | `TestPathSitsInDataRoot` | `Path(dataRoot)` 的拼接口径 |
 | `TestStoreFileWritesOverlay` | 落盘口写入 + 空路径显式报错 |
 | `TestAccountWindowsOverlayRoundTripKeepsOtherKeys` | 多设置面共用一份文件时互不抹掉 |
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### overlay.go
+
+- `func Path(dataRoot string) string` — Path 是覆盖层的落盘路径：数据根，与 session-storage.json 同级。调用方（组合根）负责把数据根取出来传进来。
+- `func Read(path string) Overlay` — Read 读覆盖层。路径为空 / 文件不存在 / 内容损坏一律回落到
+- `func Apply(base limit.Limits, overlay Overlay) limit.Limits` — Apply 把覆盖层叠到 limits 上（覆盖层优先）。取值不合法的格子
+- `func WriteSessionReleaseWindow(path string, window int) error` — WriteSessionReleaseWindow 把覆盖层落盘：**读-改-写**（先读回现有正文再改要改的那一
+- `func WriteAccountWindow(path, name string, window int) error` — WriteAccountWindow 把"某个账号的上下文窗口"写进覆盖层：
+- `func WriteToolRecordEnabled(path string, enabled bool) error` — WriteToolRecordEnabled 把"工具记录计数开关"写进覆盖层：同样是
+- `func writeFile(path string, current Overlay) error` — writeFile 把一份覆盖层落到盘上（临时文件 + rename，见下）。
+- `func (store StoreFile) SaveSessionReleaseWindow(window int) error`
+- `func (store StoreFile) SaveAccountWindow(name string, window int) error` — SaveAccountWindow 实现 contract.AccountWindowStore：把界面上按账号设的窗口写进
+- `func (store StoreFile) SaveToolRecordEnabled(enabled bool) error` — SaveToolRecordEnabled 实现 contract.ToolRecordStore：把界面上改的工具记录开关写进
+
+### overlay_test.go
+
+- `func overlayPath(t *testing.T) string` — overlayPath 给每个用例一份独立的落盘路径（数据根下的覆盖层文件），顺带证明
+- `func TestRuntimeLimitsOverlayRoundTripsWindow(t *testing.T)`
+- `func TestReadRuntimeLimitsOverlayFallsBackToNoOverlay(t *testing.T)`
+- `func TestApplyRuntimeLimitsOverlayPrecedence(t *testing.T)`
+- `func TestPathSitsInDataRoot(t *testing.T)` — TestPathSitsInDataRoot：`Path(dataRoot)` = dataRoot/FileName。
+- `func TestRuntimeLimitsStoreFileWritesOverlay(t *testing.T)`
+- `func TestAccountWindowsOverlayRoundTripKeepsOtherKeys(t *testing.T)` — TestAccountWindowsOverlayRoundTripKeepsOtherKeys 钉住「每账号上下文窗口」（设置 →
+

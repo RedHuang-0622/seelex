@@ -59,3 +59,28 @@ seelebridge 根包及其它域。
 ## 测试与验证
 
 `go test ./internal/docker/...`（纯函数测试随域迁移）。
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### docker.go
+
+- `func IsDaemonDown(stdout, stderr string) bool` — IsDaemonDown 判断 bash 命令的失败输出是否指向 docker 守护进程
+- `func CLIPath() string` — CLIPath 定位 docker CLI：PATH 优先，回退 Docker Desktop 固定路径。
+- `func RealProber() Prober` — RealProber 是生产探针：docker info 快速探测 + Windows 启动路径。
+- `func EnsureDaemon(ctx context.Context, prober Prober, waitTimeout time.Duration) error` — EnsureDaemon 确保守护进程就绪：未就绪 → Start → 轮询 Up 直到
+- `func EnsureForRuntime(ctx context.Context, disableAutoStart bool, startTimeoutSec int, probe Prober) error` — EnsureForRuntime 是 Runtime 的接线面：按 limits 配置执行自动恢复
+- `func Hint(startErr error) string` — Hint 生成模型可读的恢复说明（重跑仍失败时附加）。
+
+### docker_test.go
+
+- `func TestIsDaemonDown(t *testing.T)`
+- `func TestCLIPathFallbacks(t *testing.T)`
+- `func TestEnsureDaemonReadyImmediately(t *testing.T)`
+- `func TestEnsureDaemonStartsAndWaits(t *testing.T)`
+- `func TestEnsureDaemonStartFails(t *testing.T)`
+- `func TestEnsureDaemonTimeout(t *testing.T)`
+- `func TestHintMentionsRecovery(t *testing.T)`
+

@@ -99,24 +99,43 @@ go test ./backend/limit/approval -count=10
 go test ./application/core -run Approval -count=1
 ```
 
+## 测试要点
+
+会话级归属隔离（自动放行/全部放行不跨会话）、只完成一次、超时与关闭清理
+（`approval_session_isolation_test.go` / `broker_test.go`）。
+
 ## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### approval_session_isolation_test.go
+
+- `func waitApprovalPending(t *testing.T, broker *ApprovalBroker, sessionID string, want int)` — waitApprovalPending 等待指定归属的待批审批出现（最多 2s）。
+- `func TestProbePermissionAutoApprovalIsPerSession(t *testing.T)` — TestProbePermissionAutoApprovalIsPerSession：会话级自动放行只覆盖该会话。
+- `func TestProbeResolveAllForIsSessionScoped(t *testing.T)` — TestProbeResolveAllForIsSessionScoped：全权放行只结本会话待批，别的会话
 
 ### broker.go
 
-| 函数 | 签名 | 摘要 |
-|---|---|---|
-| `NewApprovalBroker` | `func NewApprovalBroker(events event.Hub) *ApprovalBroker` | 构造异步审批 broker（events 可为 nil） |
-| `SetObserver` | `func (broker *ApprovalBroker) SetObserver(observer func(sessionID, requestID string, interaction *model.Interaction))` | 注册审批开/结观察回调 |
-| `SetPermissionAutoApproval` | `func (broker *ApprovalBroker) SetPermissionAutoApproval(on bool)` | 进程级权限自动放行（无会话归属面） |
-| `SetPermissionAutoApprovalFor` | `func (broker *ApprovalBroker) SetPermissionAutoApprovalFor(sessionID string, on bool)` | 会话级权限自动放行（GUI 全权按钮） |
-| `Request` | `func (broker *ApprovalBroker) Request(ctx context.Context, request ApprovalRequest) (ApprovalDecision, error)` | 登记待批并等待决议（context/timeout/Resolve/Shutdown） |
-| `Resolve` | `func (broker *ApprovalBroker) Resolve(id string, decision ApprovalDecision) error` | 结掉一笔待批（只允许一次） |
-| `ResolveAll` | `func (broker *ApprovalBroker) ResolveAll(decision ApprovalDecision) int` | 结掉全部无会话归属的待批 |
-| `ResolveAllFor` | `func (broker *ApprovalBroker) ResolveAllFor(sessionID string, decision ApprovalDecision) int` | 结掉指定会话全部待批 |
-| `Pending` | `func (broker *ApprovalBroker) Pending() []PendingApproval` | 返回待批的会话归属快照 |
-| `PendingBySession` | `func (broker *ApprovalBroker) PendingBySession(sessionID string) []model.Interaction` | 返回指定会话的待批审批 |
-| `Shutdown` | `func (broker *ApprovalBroker) Shutdown()` | 关闭 broker 并释放全部等待方 |
+- `func NewApprovalBroker(events event.Hub) *ApprovalBroker` — NewApprovalBroker 构造异步审批 broker。events 可为 nil（无事件发布）。
+- `func (broker *ApprovalBroker) SetObserver(observer func(sessionID, requestID string, interaction *model.Interaction))` — SetObserver receives a copy of each newly opened/closed interaction together
+- `func (broker *ApprovalBroker) SetPermissionAutoApproval(on bool)` — SetPermissionAutoApproval makes future permission-gate requests resolve
+- `func (broker *ApprovalBroker) SetPermissionAutoApprovalFor(sessionID string, on bool)` — SetPermissionAutoApprovalFor 按会话开启权限自动放行（GUI 全权按钮）。
+- `func (broker *ApprovalBroker) permissionAutoApprovedLocked(sessionID string) bool` — permissionAutoApprovedLocked 报告该归属的权限请求是否应自动放行：无会话
+- `func (broker *ApprovalBroker) Request(ctx context.Context, request ApprovalRequest) (ApprovalDecision, error)`
+- `func (broker *ApprovalBroker) Resolve(id string, decision ApprovalDecision) error`
+- `func (broker *ApprovalBroker) ResolveAll(decision ApprovalDecision) int` — ResolveAll completes every currently pending approval with the same
+- `func (broker *ApprovalBroker) ResolveAllFor(sessionID string, decision ApprovalDecision) int` — ResolveAllFor 结掉指定会话（空 = 进程级/无归属）当前全部待批审批，返回
+- `func (broker *ApprovalBroker) Pending() []PendingApproval` — Pending 返回全部待批审批的会话归属快照（按审批 ID 排序，确定性）。
+- `func (broker *ApprovalBroker) PendingBySession(sessionID string) []model.Interaction` — PendingBySession 返回指定会话的待批审批（会话激活/镜像时补取用）。
+- `func cloneInteraction(interaction model.Interaction) model.Interaction`
+- `func (broker *ApprovalBroker) Shutdown()`
+- `func (broker *ApprovalBroker) remove(id string)`
 
-### approval_session_isolation_test.go / broker_test.go
+### broker_test.go
 
-会话级归属隔离（自动放行/全部放行不跨会话）、只完成一次、超时与关闭清理。
+- `func TestResolveAllReleasesPendingApprovals(t *testing.T)`
+- `func TestResolveAllRacesSingleResolveWithoutDoubleCompletion(t *testing.T)`
+- `func TestPermissionAutoApprovalClosesFullAccessEnqueueRace(t *testing.T)`
+- `func TestApprovalSessionAttributionAndPendingQueries(t *testing.T)`
+

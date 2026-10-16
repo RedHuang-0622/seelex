@@ -52,8 +52,9 @@ errors; they do not participate in range/recovery semantics.
 ## 分卷 README（根包按文件前缀）
 
 根包文件较多（134 个 `.go`），按**文件前缀**分卷：每卷含生态位与「文件与函数索引」，
-索引由源码 doc 注释自动提取（生成器 [`../scripts/gen_store_readme_volumes.py`](../scripts/gen_store_readme_volumes.py)，
-复用 `scripts/gen_core_readme_index.py` 的提取逻辑）。
+索引由源码 doc 注释自动提取（生成器 [`../scripts/gen_core_readme_index.py`](../scripts/gen_core_readme_index.py)，
+分卷登记表 `STORE_VOLUMES`）；全仓刷新 `python scripts/gen_core_readme_index.py`，
+只刷本包 `python scripts/gen_core_readme_index.py --only store`。
 
 | 分卷 | 覆盖文件（前缀） | 一句话生态位 |
 |---|---|---|

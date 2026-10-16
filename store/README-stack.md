@@ -4,12 +4,12 @@
 
 上下文四栈的通道与日志（Plan/Task/Skill/Compact）
 
-覆盖 4 个文件（前缀 `stack_channel`/`stack_journal`）。
+覆盖：`stack_channel*.go`、`stack_journal*.go`；未归属文件由覆盖自检拦下。
 
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
-> 刷新方式：`python scripts/gen_store_readme_volumes.py`。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
 
 ### stack_channel.go
 

@@ -154,3 +154,210 @@ limit 截断，并有真实 git 仓库的集成用例（改动/暂存/删除/重
 不存在提交返回 `Result.Error`；文件内容侧覆盖"读的是对象库而不是磁盘"（工作区已改、
 提交内仍是旧内容）、已删除文件在历史提交里仍可读、二进制原样带回、大文件截断早停、
 目录/敏感/越界路径与非 git 目录一律拒绝。
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### gitchanges.go
+
+- `func (r *Repo) GitChanges(root string, limit int) (dto.WorkspaceChangesResult, error)` — GitChanges 返回工作区 root 内未提交的改动（含暂存/未暂存/未跟踪/冲突）。
+- `func parseGitStatusOutput(output []byte, maxRecords int) parsedGitStatus` — parseGitStatusOutput 把 `git status --porcelain=v1 -b -z` 的原始输出解析成
+- `func parseBranchHeader(line string) string` — parseBranchHeader 解析 -b 的分支头（porcelain v1）。见过的形态：
+- `func classifyChange(index, worktree byte) string` — classifyChange 把 porcelain 的 XY 归一化成展示分类；未知/无改动组合返回空串
+- `func isConflictXY(index, worktree byte) bool` — isConflictXY 判断 XY 是否为未解决冲突（porcelain v1 的冲突组合：任一侧为 U，
+- `func statusKind(code byte) string` — statusKind 把单个状态字符映射为展示分类；空格（该侧无改动）与未知字符返回空串。
+- `func isSensitiveChangePath(rel string) bool` — isSensitiveChangePath 与 ListTree/ReadFile 同一可见性边界：路径任一环节命中
+- `func gitTopLevel(root string) string` — gitTopLevel 返回 root 所属仓库的顶层目录；非 git 仓库或 git 不可用时返回空串
+- `func workspacePathPrefix(topLevel, rootAbs string) string` — workspacePathPrefix 计算仓库根 → 工作区根的前缀（"sub/" 形式，/ 分隔）；
+- `func resolveRealPath(path string) string` — resolveRealPath 尽力把路径归一到真实路径（解掉路径上所有符号链接）；解不出来
+- `func relativeToWorkspace(path, prefix string) (string, bool)` — relativeToWorkspace 把仓库根基准的路径转成工作区根基准。返回 ok=false 表示
+- `func escapesRoot(path string) bool` — escapesRoot 判断相对路径是否逃出根（".." 开头；git 正常不会给出，防御性）。
+
+### gitchanges_test.go
+
+- `func zRecords(records ...string) []byte` — zRecords 把记录切片拼成 -z 的原始输出（每条记录以 NUL 结尾，含末尾那条）。
+- `func TestParseGitStatusOutputKindsAndRename(t *testing.T)`
+- `func TestParseGitStatusOutputKeepsRawPaths(t *testing.T)`
+- `func TestParseGitStatusOutputSkipsJunkAndTruncatesAtBudget(t *testing.T)`
+- `func TestParseGitStatusOutputDropsDanglingRenameRecord(t *testing.T)`
+- `func TestParseBranchHeader(t *testing.T)`
+- `func TestClassifyChange(t *testing.T)`
+- `func TestRelativeToWorkspace(t *testing.T)`
+- `func TestWorkspacePathPrefix(t *testing.T)`
+- `func TestIsSensitiveChangePath(t *testing.T)`
+- `func TestRepoGitChangesIntegration(t *testing.T)`
+- `func TestRepoGitChangesFiltersSensitiveAndOutsideWorkspace(t *testing.T)`
+- `func TestRepoGitChangesTruncatesAtLimit(t *testing.T)`
+- `func TestRepoGitChangesRejectsNonGitDir(t *testing.T)`
+- `func TestRepoGitChangesRejectsBadRoot(t *testing.T)`
+- `func TestRepoGitChangesClampsLimit(t *testing.T)`
+- `func newChangesTestRepo(t *testing.T) string` — newChangesTestRepo 建一个带一次提交的临时 git 仓库（含 sub/、gone.txt）。
+- `func runGitChanges(t *testing.T, root string, args ...string)` — runGitChanges 在指定目录跑 git 子命令；失败即测试失败（不用 CombinedOutput 吞错）。
+- `func writeFile(t *testing.T, root, relPath, content string)`
+
+### gitcommit.go
+
+- `func (r *Repo) GitCommitDetail(root, hash string, limit int) (dto.GitCommitDetail, error)` — GitCommitDetail 返回某个提交改了哪些文件（含状态/行数统计）。
+- `func (r *Repo) GitCommitFileContent(root, hash, relPath string, limit int64) (dto.FileContent, error)` — GitCommitFileContent 读取某文件在某个提交时的内容（前 limit 字节）。
+- `func gitCommitFilesArgv(rootAbs, mode, hash string) []string` — gitCommitFilesArgv 组一次"某提交的文件清单"查询 argv。mode 是 --name-status
+- `func readGitBlob(rootAbs, revPath string, limit int64, expectTruncated bool) ([]byte, error)` — readGitBlob 从对象库读一个 blob，最多 limit 字节。截断时**早停**：读够就关读端，
+- `func parseGitNameStatus(output []byte, maxFiles int) ([]parsedCommitFile, bool)` — parseGitNameStatus 解析 `git show --format= --name-status -z` 的输出。
+- `func parseGitNumstat(output []byte, maxFiles int) (map[string]parsedCommitStat, bool)` — parseGitNumstat 解析 `git show --format= --numstat -z` 的输出，返回
+- `func parseNumstatCounts(addRaw, delRaw []byte) (parsedCommitStat, bool)` — parseNumstatCounts 解析 numstat 的两个计数字段。`-` `-` 是二进制的约定
+- `func commitFileKind(status string) string` — commitFileKind 把 git 名状态的首字母解释成展示分类。字母表与 porcelain 的
+
+### gitcommit_test.go
+
+- `func TestParseGitNameStatusRecords(t *testing.T)`
+- `func TestParseGitNameStatusJunkAndBudget(t *testing.T)`
+- `func TestParseGitNumstatRecords(t *testing.T)`
+- `func TestParseGitNumstatJunk(t *testing.T)`
+- `func TestParseGitNumstatBudget(t *testing.T)`
+- `func TestParseGitCommitFields(t *testing.T)`
+- `func TestCommitFileKindLetters(t *testing.T)`
+- `func TestGitCommitHashPatternRejectsOptionShapes(t *testing.T)`
+- `func newGitCommitTestRepo(t *testing.T) *gitCommitTestRepo`
+- `func (repo *gitCommitTestRepo) git(args ...string) string`
+- `func (repo *gitCommitTestRepo) write(rel, content string)`
+- `func (repo *gitCommitTestRepo) writeBytes(rel string, content []byte)`
+- `func (repo *gitCommitTestRepo) remove(rel string)`
+- `func (repo *gitCommitTestRepo) rename(oldRel, newRel string)`
+- `func (repo *gitCommitTestRepo) commit(message string) string`
+- `func (repo *gitCommitTestRepo) seedBaseCommit() string` — seedBaseCommit 写第一批文件并提交（这批文件的身份在下一个提交里被改/删/改名）。
+- `func (repo *gitCommitTestRepo) secondCommit() string` — secondCommit 在基准之上做一次"什么都有"的提交：改 / 删 / 增 / 重命名（带内容
+- `func TestRepoGitCommitDetailIntegration(t *testing.T)`
+- `func TestRepoGitCommitDetailRootCommitListsEverythingAdded(t *testing.T)`
+- `func TestRepoGitCommitDetailMergeUsesFirstParent(t *testing.T)`
+- `func TestRepoGitCommitDetailSubdirWorkspaceRootStripsPrefix(t *testing.T)`
+- `func TestRepoGitCommitDetailTruncatesAtLimit(t *testing.T)`
+- `func TestRepoGitCommitDetailRejectsBadInput(t *testing.T)`
+- `func TestRepoGitCommitFileContentReadsObjectDatabase(t *testing.T)`
+- `func TestRepoGitCommitFileContentTruncatesLargeBlob(t *testing.T)`
+- `func TestRepoGitCommitFileContentRejectsNonFilesAndBadPaths(t *testing.T)`
+- `func decodeBase64(t *testing.T, encoded string) string`
+- `func decodeBase64Bytes(t *testing.T, encoded string) []byte`
+
+### gitlog.go
+
+- `func (r *Repo) GitLog(root string, limit int) (dto.GitLogResult, error)` — GitLog 返回 workspace root 内最近 limit 条提交（含父提交拓扑）。
+- `func parseGitLogOutput(output string, limit int) dto.GitLogResult` — parseGitLogOutput 把 git log 的原始输出解析为提交行（保序）。
+- `func parseGitCommitFields(line string) (dto.GitCommitNode, bool)` — parseGitCommitFields 解析一行 gitCommitPrettyFormat 口径的提交头部事实。
+- `func splitParents(raw string) []string` — splitParents 把 %P（空格分隔的父提交 hash）解析成切片；根提交返回 nil。
+
+### gitlog_test.go
+
+- `func TestParseGitLogOutputCommitLines(t *testing.T)`
+- `func TestParseGitLogOutputMergeKeepsParentOrder(t *testing.T)`
+- `func TestParseGitLogOutputKeepsSubjectSeparators(t *testing.T)`
+- `func TestParseGitLogOutputTruncationAndJunk(t *testing.T)`
+- `func TestSplitParentsIgnoresBlankSeparators(t *testing.T)`
+- `func TestRepoGitLogIntegration(t *testing.T)`
+- `func TestRepoGitLogRejectsNonGitDir(t *testing.T)`
+- `func TestRepoGitLogRejectsBadRoot(t *testing.T)`
+- `func TestRepoGitLogClampsLimit(t *testing.T)`
+- `func initTestGitRepo(root string) error` — initTestGitRepo 在临时目录初始化 git 仓库并提交两个文件。
+
+### gitread.go
+
+- `func runGitRead(argv []string, timeout time.Duration, timeoutMessage string) ([]byte, string)` — runGitRead 跑一次只读 git 命令。成功返回 stdout 原始字节；失败返回
+- `func resolveGitRoot(root, label string) (string, error)` — resolveGitRoot 校验 git 查询的 root：非空、绝对化、且确实是一个目录。
+
+### readfile.go
+
+- `func (r *Repo) ReadFile(root, relPath string, limit int64) (dto.FileContent, error)` — ReadFile 读取根内 relPath 文件的前 limit 字节（GUI 文件预览数据源）。
+- `func resolveFileTarget(root, relPath string) (rootAbs, fileAbs, rel string, err error)` — resolveFileTarget 校验 root/relPath 并把 relPath 解析为根内文件绝对路径。
+- `func sanitizeWorkspaceRelPath(relPath string) (string, error)` — sanitizeWorkspaceRelPath 校验并归一化一个工作区相对路径（纯函数，不碰磁盘）：
+- `func textLikeBytes(chunk []byte) bool` — textLikeBytes 做轻量二进制探测：含 NUL 字节即视为二进制；控制字节
+
+### readfile_test.go
+
+- `func writeTreeFile(t *testing.T, root, rel, content string)`
+- `func TestReadFileReturnsBytesWithMetadata(t *testing.T)`
+- `func TestReadFileTruncatesAtLimit(t *testing.T)`
+- `func TestReadFileClampsLimitBounds(t *testing.T)`
+- `func TestReadFileRejectsEscapesAndAbsolutePaths(t *testing.T)`
+- `func TestReadFileRejectsDirectoryAndSymlink(t *testing.T)`
+- `func TestReadFileRejectsSensitiveAndIgnoredPaths(t *testing.T)`
+- `func TestReadFileDetectsBinary(t *testing.T)`
+- `func TestReadFileMissingRoot(t *testing.T)`
+
+### symlink_root_test.go
+
+- `func linkDirOrSkip(t *testing.T, target, link string)` — linkDirOrSkip 建一个指向 target 的目录链接，并确认它真能被 filepath.EvalSymlinks 解掉；
+- `func TestRepoGitChangesSymlinkedWorkspaceRootStripsPrefix(t *testing.T)` — 工作区根的祖先被符号链接过时，子树前缀仍要按真实路径算。
+
+### tree.go
+
+- `func isSensitiveName(name string) bool` — isSensitiveName 判断条目是否属于敏感配置文件（仅元数据也不展示/统计）。
+- `func sortTreeEntries(entries []dto.TreeEntry)` — TreeEntry 直接子条目排序：目录优先，再按名称大小写不敏感排序。
+- `func resolveTreeDir(root, relPath string) (rootAbs, dirAbs string, err error)` — resolveTreeDir 把客户端相对路径解析为根内目录绝对路径，同时返回规范化
+- `func treeWithinRoot(root, candidate string) bool`
+- `func (walker *treeWalker) readDir(dir string) ([]os.DirEntry, bool)` — readDir 读取目录并扣除预算；超预算置 truncated 并返回 nil 表示停止。
+- `func (r *Repo) ListTree(root, relPath string, depth int) (dto.TreeListing, error)` — ListTree 列出根内某目录的子条目（dir-first 排序、有界；dir 条目带直接
+- `func listTreeLevel(walker *treeWalker, dir string, depth int, listing *dto.TreeListing)`
+- `func directFileCount(walker *treeWalker, dir string) int` — directFileCount 统计目录的直接文件子条目数（不递归；忽略目录与敏感文件
+- `func (r *Repo) CountFiles(root string) (dto.TreeCount, error)` — CountFiles 递归统计工作区文件/目录数（忽略规则与敏感文件除外；有预算
+- `func countTreeFiles(walker *treeWalker, dir string, count *dto.TreeCount)`
+- `func isIgnoredDir(name string) bool`
+
+### tree_test.go
+
+- `func writeTestTree(t *testing.T, root string, paths []string)`
+- `func TestListTreeSortsDirsFirstAndCountsFiles(t *testing.T)`
+- `func TestListTreeFiltersIgnoredAndSensitiveEntries(t *testing.T)`
+- `func TestListTreeRejectsEscapesAndAbsolutePaths(t *testing.T)`
+- `func TestCountFilesRespectsIgnoresAndSensitiveNames(t *testing.T)`
+- `func TestCountFilesErrorsOnMissingRoot(t *testing.T)`
+- `func TestListTreeNestedDepth(t *testing.T)`
+- `func TestListTreePathsAreRootRelativeAndUnique(t *testing.T)` — TestListTreePathsAreRootRelativeAndUnique 验证条目路径相对工作区根（跨
+
+### workspace.go
+
+- `func NewRepo() *Repo` — NewRepo creates an empty workspace repository without persistence.
+- `func NewRepoWithStore(storePath string) (*Repo, error)` — NewRepoWithStore creates a workspace repository that persists to the given
+- `func (r *Repo) Save() error` — Save writes the current workspaces and bindings to workspace_index.json.
+- `func (r *Repo) Load() error` — Load reads workspace_index.json and populates the repo.
+- `func (r *Repo) Create(name, rootPath, gitRemote string) (Info, error)`
+- `func (r *Repo) Get(id string) (Info, error)`
+- `func (r *Repo) List() []Info`
+- `func (r *Repo) Delete(id string) error`
+- `func (r *Repo) UpdateGitRemote(id, remote string) error`
+- `func (r *Repo) BindSession(sessionID, workspaceID string)`
+- `func (r *Repo) UnbindSession(sessionID string)`
+- `func (r *Repo) SessionWorkspace(sessionID string) (Info, bool)`
+- `func (r *Repo) AllBindings() map[string]string` — AllBindings returns all session→workspace bindings.
+- `func (r *Repo) WorkspaceSessions(workspaceID string) []string`
+- `func (r *Repo) saveLocked() error` — saveLocked persists the repo without acquiring the lock (caller holds mu).
+- `func writeFileAtomic(path string, data []byte, mode os.FileMode) error`
+- `func DetectGitRemote(rootPath string) string` — DetectGitRemote 在给定目录中检测 git remote origin 地址。
+
+### workspace_test.go
+
+- `func TestRepoPersistsWorkspaceAndBinding(t *testing.T)`
+- `func TestRepoCreateDeduplicatesAbsoluteRoot(t *testing.T)`
+- `func TestRepoRejectsInvalidCreateAndMissingLookup(t *testing.T)`
+- `func TestRepoDeleteRemovesBindingsAndPersists(t *testing.T)`
+- `func TestRepoUpdateGitRemotePersists(t *testing.T)`
+- `func TestRepoSavePublishesValidJSONWithoutTempResidue(t *testing.T)`
+- `func TestRepoLoadRejectsCorruptIndex(t *testing.T)`
+- `func TestWorkspaceSessionsAreSortedAndUnbindWorks(t *testing.T)`
+
+### writefile.go
+
+- `func (r *Repo) WriteFile(root, relPath string, content []byte) (dto.FileWriteResult, error)` — WriteFile 用 content 覆盖 root 内 relPath 文件的**全部内容**（GUI 文件详情
+- `func readProbeBytes(path string) ([]byte, error)` — readProbeBytes 读取文件头部至多 binaryProbeBytes 字节，供二进制探测。
+
+### writefile_test.go
+
+- `func decodeFileContent(t *testing.T, content dto.FileContent) string` — decodeFileContent 解出预览读取的正文（base64 通道）。
+- `func TestWriteFileWritesContentAndReportsMetadata(t *testing.T)`
+- `func TestWriteFileOverwritesExistingFileAndEmptyContent(t *testing.T)`
+- `func TestWriteFilePreservesModeAndLeavesNoTempFiles(t *testing.T)`
+- `func TestWriteFileRejectsEscapesIgnoredAndSensitivePaths(t *testing.T)`
+- `func TestWriteFileRejectsDirectoryAndSymlink(t *testing.T)`
+- `func TestWriteFileRejectsBinaryTargets(t *testing.T)`
+- `func TestWriteFileRejectsOversizeContent(t *testing.T)`
+- `func TestWriteFileMissingRoot(t *testing.T)`
+

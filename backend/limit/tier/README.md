@@ -94,17 +94,29 @@ go test ./backend/limit/approval/ -count=1                              # 审批
 
 ### tier.go
 
-- `type SettingStore interface` — 会话级用户设置端口（结构满足 `session.SessionSettingPort`）。
-- `type Units interface` — 会话槽读写口（Unit 自带锁）。
-- `type View interface` — 视图侧读写口（锁语义见类型注释）。
-- `type Gate func(sessionID, tier string)` — 把生效档位写进执行门。
-- `type Deps struct` — 档位用例需要的宿主能力面（全部可空 = 降级）。
-- `func (d Deps) EffectiveTier(sessionID string) string` — 生效档位解析（会话槽优先，回退进程默认）。
-- `func (d Deps) FullAccessFor(sessionID string) bool` — 兼容派生读面：full 档 ⇔ 旧的全权开启。
-- `func (d Deps) Persist(sessionID, tier string) error` — 写会话级设置；未装配端口返回 nil。
-- `func (d Deps) Read(sessionID string) string` — 读会话级设置，失败按"未选择"。
-- `func (d Deps) ApplyStored(sessionID, tier string)` — 落地持久化档位并重算视图快照。
-- `func (d Deps) ApplyTier(sessionID, normalized string)` — 落地已校验档位（槽 + 门 + 审批面）。
-- `func (d Deps) RestoreFor(sessionID string)` — 读回并落地（便捷入口）。
-- `func (d Deps) SyncViewLocked(sessionID string)` — 把生效档位重算进快照（调用方持视图锁）。
-- `func (d Deps) SyncGateFor(sessionID string)` — 按会话档位同步执行门。
+- `func (d Deps) EffectiveTier(sessionID string) string` — EffectiveTier 返回指定会话生效的权限档位（G4：会话槽优先；未选择回退进程默认）。
+- `func (d Deps) FullAccessFor(sessionID string) bool` — FullAccessFor 是档位的**兼容派生读面**：full 档 ⇔ 旧的全权开启。
+- `func (d Deps) Persist(sessionID, tier string) error` — Persist 把档位写进会话级设置（"" = 清除该会话的选择）。
+- `func (d Deps) Read(sessionID string) string` — Read 读取该会话持久化的权限档位（"" = 从未选择 / 未装配设置端口 / 读失败）。
+- `func (d Deps) ApplyStored(sessionID, tier string)` — ApplyStored 把持久化档位落到该会话的内存槽 + 执行门 + 审批自动放行，并把**视图会话**的
+- `func (d Deps) ApplyTier(sessionID, normalized string)` — ApplyTier 把**已校验**的档位落到会话槽 + 执行门 + 审批面（不改视图快照；快照由调用方按
+- `func (d Deps) RestoreFor(sessionID string)` — RestoreFor 读回并落地该会话的档位（非锁内衔接场合的便捷入口）。
+- `func (d Deps) SyncViewLocked(sessionID string)` — SyncViewLocked 把 sessionID 的**生效档位**重算进进程快照，保证「快照里的档位 == 该会话
+- `func (d Deps) SyncGateFor(sessionID string)` — SyncGateFor 按会话档位同步执行门（G4：chat 起点调用，保证每个会话都按自己的选择运行——
+
+### tier_test.go
+
+- `func (units *fakeUnits) UnitPermissionTier(sessionID string) (string, bool)`
+- `func (units *fakeUnits) SetUnitPermissionTier(sessionID, tier string)`
+- `func (view *fakeView) ViewSessionID() string`
+- `func (view *fakeView) SnapshotSessionID() string`
+- `func (view *fakeView) WriteTier(sessionID, tier string)`
+- `func (settings *fakeSettings) SessionPermissionTier(sessionID string) (string, error)`
+- `func (settings *fakeSettings) SetSessionPermissionTier(sessionID, tier string) error`
+- `func (approval *fakeApproval) SetPermissionAutoApprovalFor(sessionID string, on bool)`
+- `func TestEffectiveTierPrefersSlotThenDefault(t *testing.T)` — TestEffectiveTierPrefersSlotThenDefault：会话槽优先；未选择回退进程默认；都没有 = manual。
+- `func TestApplyTierTouchesSlotGateAndApproval(t *testing.T)` — TestApplyTierTouchesSlotGateAndApproval：一次落地写三处（槽 / 门 / 审批面）。
+- `func TestApplyStoredKeepsSlotCleanButMirrorsView(t *testing.T)` — TestApplyStoredKeepsSlotCleanButMirrorsView：脏值不落槽，但视图快照仍要重算；
+- `func TestSyncViewLockedOnlyForViewSession(t *testing.T)` — TestSyncViewLockedOnlyForViewSession：只有当前视图会话会被写；空 ID 不写。
+- `func TestPersistAndReadDegradeWithoutSettings(t *testing.T)` — TestPersistAndReadDegradeWithoutSettings：未装配端口 = 内存态降级（不报错、读回空）。
+

@@ -4,12 +4,12 @@
 
 压缩帧与压缩记录、检查点、运行期材料/尝试缓存
 
-覆盖 9 个文件（前缀 `compact_frames`/`compaction_records`/`checkpoint_store`/`context_state`/`material_cache`/`attempt_cache`）。
+覆盖：`compact_frames*.go`、`compaction_records*.go`、`checkpoint_store*.go`、`context_state*.go`、`material_cache*.go`、`attempt_cache*.go`；未归属文件由覆盖自检拦下。
 
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
-> 刷新方式：`python scripts/gen_store_readme_volumes.py`。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
 
 ### attempt_cache.go
 

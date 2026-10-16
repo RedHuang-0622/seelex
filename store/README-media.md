@@ -4,12 +4,12 @@
 
 媒体分区、检索索引与派生通道（工具记录、定时任务事件）
 
-覆盖 7 个文件（前缀 `media`/`search_index`/`tool_record`/`schedule_events`）。
+覆盖：`media*.go`、`search_index*.go`、`tool_record*.go`、`schedule_events*.go`；未归属文件由覆盖自检拦下。
 
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
-> 刷新方式：`python scripts/gen_store_readme_volumes.py`。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
 
 ### media.go
 

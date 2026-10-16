@@ -4,12 +4,12 @@
 
 跨卷用例与基础回归（会话状态/锁、head 发布与自愈、并发与读放大探针）
 
-覆盖 38 个文件（兜底卷：测试文件按前缀无归属时落这里）。
+覆盖：测试文件兜底卷（前缀无归属时落这里）；未归属文件由覆盖自检拦下。
 
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
-> 刷新方式：`python scripts/gen_store_readme_volumes.py`。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
 
 ### absent_state_reads_test.go
 
@@ -18,12 +18,6 @@
 ### archive_status_test.go
 
 - `func TestArchiveStatusRewriteKeepsFivePieces(t *testing.T)` — TestArchiveStatusRewriteKeepsFivePieces 钉住 C2 的存储契约：归档只重写
-
-### atomic_publish_windows_test.go
-
-- `func holdExclusive(t *testing.T, path string) func()` — holdExclusive 以 share mode 0 打开 path（任何 rename 覆盖都会失败），返回释放函数。
-- `func TestWriteAtomicSurvivesTransientHandle(t *testing.T)`
-- `func TestWriteAtomicGivesUpWithinBudgetAndLeavesNoTemp(t *testing.T)`
 
 ### blob_unify_test.go
 
@@ -108,12 +102,6 @@
 - `func TestEventLogKeepsLastEntryForRepeatedSeq(t *testing.T)` — TestEventLogKeepsLastEntryForRepeatedSeq 钉住重试幂等口径：同 Seq 重复追加
 - `func TestEventLogConcurrentAppendsKeepEveryEntry(t *testing.T)` — TestEventLogConcurrentAppendsKeepEveryEntry 覆盖并发追加：每一条都要完整落盘
 - `func writeLegacyEventLogArray(t *testing.T, path string, entries []EventLogEntry)` — writeLegacyEventLogArray 手写旧形态（整份 JSON 数组）到盘上。
-
-### file_shared_read_windows_test.go
-
-- `func holdForDelete(t *testing.T, path string) *os.File` — holdForDelete 以「GENERIC_READ\|DELETE 访问 + 全共享位」打开 path，等价于 rename
-- `func TestReadSharedFileSurvivesPublishWindow(t *testing.T)` — TestReadSharedFileSurvivesPublishWindow 钉住缺陷 1：目标被"发布中"的 DELETE 访问
-- `func TestOpenSharedReadDoesNotBlockEvictionDelete(t *testing.T)` — TestOpenSharedReadDoesNotBlockEvictionDelete 钉住缺陷 2：读者持柄时，淘汰/回收
 
 ### first_user_input_test.go
 

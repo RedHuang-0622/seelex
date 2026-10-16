@@ -30,3 +30,19 @@ flowchart LR
 > M4-F（2026-10-16）把本包上移到模块根 `internal/model` 后，`backend/*` 已能 import
 > 本包；形状继续留在 `contract/dto` 的理由改为"权限判据与适配层共用的形状归契约层"，
 > 别名与调用点不动（类型身份不变）。
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### account.go
+
+- `func WireReasoningEffort(configured string) string` — WireReasoningEffort 把账号配置里的思考强度翻成"能不能直接上线"的值。
+- `func DefaultReasoningEffortForRole(role AccountRole) string` — DefaultReasoningEffortForRole 见 dto.DefaultReasoningEffortForRole。
+- `func ValidReasoningEffort(value string) bool` — ValidReasoningEffort 见 dto.ValidReasoningEffort。
+- `func ReasoningEffortVocabulary() []string` — ReasoningEffortVocabulary 见 dto.ReasoningEffortVocabulary。
+- `func FallbackRoles(role AccountRole) []AccountRole` — FallbackRoles 返回 role 的回退角色（未配置时回退主 agent 角色，
+- `func AccountRoleFromName(name string) AccountRole` — AccountRoleFromName 从账号 ID 推断角色（按角色前缀匹配，回退 agent）。
+- `func ResolveAccountSpec(specs []AccountSpec, role AccountRole) (AccountSpec, error)` — ResolveAccountSpec picks an account spec from the loaded config for the
+

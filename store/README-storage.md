@@ -4,12 +4,12 @@
 
 存储引擎底座：JSON v8 布局、模块 head 发布、fork 子树、历史迁移与保形别名
 
-覆盖 8 个文件（前缀 `json_layout`/`module_heads`/`fork_store`/`legacy_storage`/`router_storage`/`root_aliases`）。
+覆盖：`json_layout*.go`、`module_heads*.go`、`fork_store*.go`、`legacy_storage*.go`、`router_storage*.go`、`root_aliases*.go`；未归属文件由覆盖自检拦下。
 
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
-> 刷新方式：`python scripts/gen_store_readme_volumes.py`。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
 
 ### fork_store.go
 

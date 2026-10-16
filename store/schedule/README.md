@@ -61,3 +61,21 @@ go test ./store/schedule -count=1
 - 残尾语义有没有被"顺手修复"掉？未收尾的一行就是未提交，不许猜。
 - `Append` 是否仍是"一次写出整行 + 换行"？拆成两次写会制造假的残尾。
 - 新增字段时是否同步了 `dto.ScheduledTaskRecord` 与本文表格。
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### file_store.go
+
+- `func NewFileStore(path string) *FileStore` — NewFileStore 构造全局 JSONL 任务定义存储（目录不存在时在首次写入时创建）。
+- `func (store *FileStore) Path() string` — Path 返回落盘路径（空 = 未配置，调度器此时不持久化）。
+- `func (store *FileStore) Append(record dto.ScheduledTaskRecord) error` — Append 追加一行变更：先补齐目录，再以 O_APPEND 追加一整行 JSON。
+- `func (store *FileStore) Load() ([]dto.ScheduledTaskRecord, error)` — Load 读回当前任务集：逐行解码，后写覆盖先写（按 ID），墓碑行删除该 ID。
+
+### file_store_test.go
+
+- `func TestFileStoreDropsTornTail(t *testing.T)` — TestFileStoreDropsTornTail 钉住 append-only 的崩溃恢复语义：没有收尾换行的
+- `func TestFileStoreMissingFileIsEmpty(t *testing.T)` — TestFileStoreMissingFileIsEmpty 钉住"没有文件 = 空任务集"，而不是错误：
+

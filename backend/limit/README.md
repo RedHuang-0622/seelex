@@ -197,32 +197,49 @@ go list -deps ./backend/limit
 - `func SetSessionReleaseWindow(window int)` — SetSessionReleaseWindow 只改**一格**并原子发布：读当前快照 → 改这一格 → 整体替换。
 - `func Get() Limits` — Get 返回当前生效的运行时上限（只读拷贝语义）。
 
-### knobs.go
-
-- `type KnobsHost interface` — 两条拉条需要的宿主能力面（视图锁、快照写面、引擎与档位读数）。
-- `type Knobs struct` — 两条独立拉条的状态与判据本体（进程级）。
-- `func NewKnobs(host KnobsHost) *Knobs` — 建一条拉条状态机（host 不可为 nil）。
-- `func (k *Knobs) SeedReadings(reasoningEffort string, loopLimit int)` — 装配期播种两条读数。
-- `func (k *Knobs) EnsureViewIdle(action string) (string, error)` — 运行守卫：返回视图会话 ID，running 时给拒绝理由。
-- `func (k *Knobs) SetReasoningEffort(effort string) error` — 单独下发"想多深"（守卫 → 校验 → 下发 → 记读数 → 发布）。
-- `func (k *Knobs) SetLoopLimit(limit int) error` — 单独改"跑多少轮"（守卫 → 校验 → 应用 → 发布）。
-- `func (k *Knobs) ApplyLoopLimit(limit int)` — "改循环上限"的唯一写点：引擎 + 宿主锁内的快照/组件读数。
-- `func (k *Knobs) Readings() (string, int)` — runtime 投影收集两条读数的唯一入口（不取宿主视图锁）。
-- `func (k *Knobs) ReasoningEfforts() string` / `func (k *Knobs) LoopLimit() int` — 投影装配的两个单值回调。
-- `func (k *Knobs) CurrentLoopLimit() int` — 当前生效的循环上限（拉条改过 > 档位预设）。
-- `func (k *Knobs) PushSessionReasoningEffort(wireValue string) int` — 把强度下发给"跟随会话"的账号；无端口时 no-op。
-- `func (k *Knobs) Publish(mutate func(*model.RuntimeState)) error` — 推一次完整 `runtime.changed`。
-- `func (k *Knobs) BorrowSessionReasoningEffort(sessionID, wireValue string)` — 记一笔按会话强度租约。
-- `func (k *Knobs) TakeSessionReasoningEffort(sessionID string) (string, bool)` — 取走并消掉租约。
-- `func ValidateLoopLimit(limit int) error` — "循环次数"的唯一取值判据（拉条与定时任务共用）。
-- `func ValidWireReasoningEffort(value string) bool` — 是否 provider 词表里的思考强度（不收空值）。
-- `func ReasoningEffortChoices() []string` — 报错提示用的可选值清单（词表本体在契约层）。
-- `var ErrKnobsLocked` — 运行守卫哨兵（迁移前只有定义、无消费者，按"行为零变化"保留，待 P8 裁决）。
-
 ### async_exec_config_test.go
 
 - `func TestAsyncExecShippedConfigOn(t *testing.T)` — 两条口径必须分开钉住（§10 J9）：
 - `func TestAsyncExecZeroValueStaysOff(t *testing.T)`
+
+### knobs.go
+
+- `func NewKnobs(host KnobsHost) *Knobs` — NewKnobs 建一条拉条状态机；host 不可为 nil。
+- `func (k *Knobs) SeedReadings(reasoningEffort string, loopLimit int)` — SeedReadings 在装配期播种两条拉条的默认读数（档位默认值派生）。只该在装配期调一次：
+- `func (k *Knobs) EnsureViewIdle(action string) (string, error)` — EnsureViewIdle 是运行守卫：返回视图会话 ID，并在视图会话 running 时给出「先等回合结束」
+- `func (k *Knobs) SetReasoningEffort(effort string) error` — SetReasoningEffort 单独下发"想多深"（不碰循环上限、不碰档位的 prompt 层与预算）。
+- `func (k *Knobs) SetLoopLimit(limit int) error` — SetLoopLimit 单独改"跑多少轮"（不碰思考强度）。取值判据与定时任务的循环次数同源
+- `func (k *Knobs) ApplyLoopLimit(limit int)` — ApplyLoopLimit 是"改循环上限"的唯一写点：引擎与快照读数一起改，避免出现"引擎已经改了、
+- `func (k *Knobs) setReasoningEffortReading(value string)` — setReasoningEffortReading 记录"当前生效的 wire 思考强度"（engine/账号池那一步由调用方做：
+- `func (k *Knobs) Readings() (string, int)` — Readings 是 runtime 投影收集两条拉条读数的唯一入口（每个回合尾、每次工具边界都会调；
+- `func (k *Knobs) ReasoningEfforts() string` — ReasoningEfforts / LoopLimit 是投影装配用的两个单值回调。
+- `func (k *Knobs) LoopLimit() int`
+- `func (k *Knobs) CurrentLoopLimit() int` — CurrentLoopLimit 返回"当前生效的循环上限"：用户用拉条改过就用改过的值，否则回退当前档位的
+- `func (k *Knobs) PushSessionReasoningEffort(wireValue string) int` — PushSessionReasoningEffort 把 wire 值下发给"跟随会话"的账号，返回被改动的账号数。
+- `func (k *Knobs) Publish(mutate func(*model.RuntimeState)) error` — Publish 把两条拉条的读数变更推成一次 runtime.changed：mutate 在宿主视图锁下改快照
+- `func (k *Knobs) BorrowSessionReasoningEffort(sessionID, wireValue string)` — BorrowSessionReasoningEffort 记下"某会话的下一回合要用哪条 wire 思考强度"（触发即记，
+- `func (k *Knobs) TakeSessionReasoningEffort(sessionID string) (string, bool)` — TakeSessionReasoningEffort 取走并消掉指定会话待下发的思考强度（没有则 false）。
+- `func ValidateLoopLimit(limit int) error` — ValidateLoopLimit 是"循环次数"这一项的**唯一**一份取值判据：拉条（SetLoopLimit）与定时任务
+- `func ValidWireReasoningEffort(value string) bool` — ValidWireReasoningEffort 判定一个值是否是 provider 词表里的思考强度。
+- `func ReasoningEffortChoices() []string` — ReasoningEffortChoices 是给报错提示用的可选值清单（不含 "session"：见
+
+### knobs_test.go
+
+- `func (host *fakeKnobsHost) ViewSession() (string, bool)`
+- `func (host *fakeKnobsHost) MutateRuntime(mutate func(*model.RuntimeState))`
+- `func (host *fakeKnobsHost) PublishRuntime(mutate func(*model.RuntimeState)) error`
+- `func (host *fakeKnobsHost) SetEngineMaxLoops(limit int)`
+- `func (host *fakeKnobsHost) CurrentEffort() string`
+- `func (host *fakeKnobsHost) MaxLoopsForEffort(level string) int`
+- `func (host *fakeKnobsHost) ReasoningEffortSink() contract.ReasoningEffortPort`
+- `func (sink *fakeEffortSink) SetSessionReasoningEffort(wireValue string) int`
+- `func newFakeKnobsHost() *fakeKnobsHost`
+- `func TestKnobsEnsureViewIdleReturnsViewSessionID(t *testing.T)` — TestKnobsEnsureViewIdleReturnsViewSessionID：守卫返回视图会话 ID；running 时给拒绝理由。
+- `func TestKnobsCurrentLoopLimitFallsBackToEffortPreset(t *testing.T)` — TestKnobsCurrentLoopLimitFallsBackToEffortPreset：拉条没改过 → 回退档位预设；
+- `func TestKnobsApplyLoopLimitWritesInsideHostLock(t *testing.T)` — TestKnobsApplyLoopLimitWritesInsideHostLock：引擎与两条读数一次改完（避免半截状态）。
+- `func TestKnobsSetReasoningEffortPushesThenPublishes(t *testing.T)` — TestKnobsSetReasoningEffortPushesThenPublishes：先下发强度、再记读数、最后发一次
+- `func TestKnobsPushWithoutSinkIsNoOp(t *testing.T)` — TestKnobsPushWithoutSinkIsNoOp：宿主没装配强度端口时整步退化为记录读数，不报错。
+- `func TestKnobsBorrowTakeIsOneShot(t *testing.T)` — TestKnobsBorrowTakeIsOneShot：按会话租一笔强度，取走即消掉；空参数是 no-op。
 
 ### limits.go
 

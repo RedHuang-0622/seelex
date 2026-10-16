@@ -49,7 +49,14 @@ CGO_ENABLED=0 GOOS=darwin go build ./internal/winhide
 
 ## 文件与函数索引
 
-- `winhide_windows.go`
-  - `func Apply(cmd *exec.Cmd)`：隐藏子进程控制台窗口（Windows）；其它平台无副作用。
-- `winhide_other.go`
-  - `func Apply(_ *exec.Cmd)`：在非 Windows 平台为空操作。
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### winhide_other.go
+
+- `func Apply(_ *exec.Cmd)` — Apply 在非 Windows 平台为空操作。
+
+### winhide_windows.go
+
+- `func Apply(cmd *exec.Cmd)` — Apply 隐藏子进程控制台窗口（Windows）；其它平台无副作用。
+

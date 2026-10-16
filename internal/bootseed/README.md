@@ -88,3 +88,47 @@ go build ./...
 ```
 
 对应的研发日志：`docs/devlog/2026-09-29-boot-default-seed.md`。
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### bootseed.go
+
+- `func Resolve(spec Spec) (Result, error)` — Resolve 对**包内默认数据**执行责任链，等价于 ResolveFS(spec, Assets())。
+- `func ResolveFS(spec Spec, packFS fs.FS) (Result, error)` — ResolveFS 在给定资源集上执行责任链：第一个存在的候选胜出；全都不存在 → 在
+- `func Materialize(root string, pack Pack, packFS fs.FS) (written, existing []string, err error)` — Materialize 把默认数据包落到 root：逐文件写出，**已存在的目标一律跳过**
+- `func Decode(packFS fs.FS, file File) ([]byte, error)` — Decode 按 File.Encoding 还原一份默认数据的原始字节。
+- `func EncodeBase64(data []byte) string` — EncodeBase64 把任意字节编码成可放进内嵌资源的形式（与 Decode 对称：换行与缩进
+
+### bootseed_test.go
+
+- `func rawPack(t *testing.T) (Pack, fstest.MapFS, map[string][]byte)` — rawPack 造一份"逐字节 + 编码"混合的默认数据包（测试里的资源集，不碰真实 assets）。
+- `func TestResolveHitReadsExistingAndWritesNothing(t *testing.T)`
+- `func TestResolveCandidatePriorityFirstWins(t *testing.T)`
+- `func TestResolveMissingSeedsDefaultBytes(t *testing.T)` — TestResolveMissingSeedsDefaultBytes 是本次改动的核心：候选链全缺时按内嵌默认
+- `func TestResolveKeepsSeededThenNeverOverwrites(t *testing.T)`
+- `func TestResolveWithoutSeedRootReportsMissing(t *testing.T)`
+- `func TestResolveSeedFailureIsReported(t *testing.T)`
+- `func TestResolveSeedWithoutEntryReportsEmptyPath(t *testing.T)` — TestResolveSeedWithoutEntryReportsEmptyPath：默认数据里没有入口文件（脚本要用户
+- `func TestMaterializeRejectsEscapingRel(t *testing.T)`
+- `func TestDecodeBase64RoundTripKeepsNonUTF8Bytes(t *testing.T)`
+
+### defaults.go
+
+- `func Assets() fs.FS` — Assets 返回内嵌默认数据的只读资源集。
+- `func RuntimeConfigPack() Pack` — RuntimeConfigPack 是运行参数配置（window / limits）的默认数据包。
+- `func PermissionConfigPack() Pack` — PermissionConfigPack 是权限规则配置（permission.rules）的默认数据包。
+- `func MCPConfigPack() Pack` — MCPConfigPack 是 MCP 服务器清单（mcp.yaml）的默认数据包。
+- `func SearchEngineConfigPack() Pack` — SearchEngineConfigPack 是搜索引擎配置（search_engine.yaml）的默认数据包。
+- `func ToolPack(tool string, files ...File) Pack` — ToolPack 是本地工具目录的默认数据包：只放**本应用自己写**的骨架（README、
+- `func AutoGetJobsPack() Pack` — AutoGetJobsPack 是白名单命令 auto_get_jobs 的脚本目录骨架：一份给人看的
+
+### defaults_test.go
+
+- `func TestEmbeddedConfigDefaultsMatchRepository(t *testing.T)` — TestEmbeddedConfigDefaultsMatchRepository 是这次的"防漂移钉子"：内嵌默认档必须
+- `func TestSearchEngineSeedCarriesNoCredential(t *testing.T)` — TestSearchEngineSeedCarriesNoCredential 钉住一条安全性质：search_engine.yaml
+- `func TestEmbeddedPacksAreAllReadable(t *testing.T)` — TestEmbeddedPacksAreAllReadable：每个默认数据包里的每一份都要能读出来、且非空。
+- `func TestAutoGetJobsSkeletonShipsDotEnvExample(t *testing.T)`
+

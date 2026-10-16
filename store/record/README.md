@@ -107,24 +107,26 @@ node --test gui/frontend/dist/tool-record-board.test.mjs    # 柱形图/原因�
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
 
 ### accumulator.go
 
-- `type Accumulator struct{…}` — 一个会话的工具记录累计（内存态；落盘走会话存储）。
-- `func NewAccumulator() *Accumulator` — 构造一个空累计。
-- `func (accumulator *Accumulator) Record(tool string, ok bool, reason string)` — 累加一次调用（成功也记）。
-- `func (accumulator *Accumulator) Stats() []dto.ToolRecordStat` — 返回全部工具的读数（按总调用次数降序；并列按首次出现序）。
-- `func (accumulator *Accumulator) Totals() (int, int, int)` — 返回（总调用, 成功, 失败）。
-- `func (accumulator *Accumulator) Snapshot() (dto.ToolRecordSnapshot, bool)` — 取一份整份读数快照（落盘用；同时把 dirty 清掉）。
-- `func (accumulator *Accumulator) Load(snapshot dto.ToolRecordSnapshot)` — 用一份落盘读数**填充**空累计（冷启动/会话切回时读回）。
-- `func normalizeReason(reason string) string` — 把外部给的 reason 归一到词表：认得才留，认不得一律 other。
-- `func bumpReason(reasons []dto.ToolRecordReason, reason string) []dto.ToolRecordReason` — 给原因表加一笔。
-- `func mergeReasons(current, incoming []dto.ToolRecordReason) []dto.ToolRecordReason` — 按原因取较大者合并（与 Load 的"只增不减"同源）。
-- `func cloneStat(stat dto.ToolRecordStat) dto.ToolRecordStat` — 复制一格读数（含原因切片）。
+- `func NewAccumulator() *Accumulator` — NewAccumulator 构造一个空累计。
+- `func (accumulator *Accumulator) Record(tool string, ok bool, reason string)` — Record 累加一次调用（成功也记：没有分母的失败计数会把优化带偏）。
+- `func (accumulator *Accumulator) Stats() []dto.ToolRecordStat` — Stats 返回全部工具的读数（按总调用次数降序；并列按首次出现序 ⇒ 读数确定）。
+- `func (accumulator *Accumulator) Stat(tool string) (dto.ToolRecordStat, bool)` — Stat 返回某工具当前的读数（不存在 = 零值 + false）。
+- `func (accumulator *Accumulator) Totals() (int, int, int)` — Totals 返回（总调用, 成功, 失败）。
+- `func (accumulator *Accumulator) Snapshot() (dto.ToolRecordSnapshot, bool)` — Snapshot 取一份整份读数快照（落盘用；同时把 dirty 清掉）。
+- `func (accumulator *Accumulator) Load(snapshot dto.ToolRecordSnapshot)` — Load 用一份落盘读数**填充**空累计（冷启动/会话切回时读回）。
+- `func normalizeReason(reason string) string` — normalizeReason 把外部给的 reason 归一到词表：认得才留，认不得一律 other（保守默认：
+- `func bumpReason(reasons []dto.ToolRecordReason, reason string) []dto.ToolRecordReason` — bumpReason 给原因表加一笔。
+- `func mergeReasons(current, incoming []dto.ToolRecordReason) []dto.ToolRecordReason` — mergeReasons 按原因取较大者合并（与 Load 的"只增不减"同源）。
+- `func cloneStat(stat dto.ToolRecordStat) dto.ToolRecordStat` — cloneStat 复制一格读数（含原因切片）：读面交出去的必须是快照，
 
 ### accumulator_test.go
 
-- `func TestAccumulatorCountsBothOutcomes(t *testing.T)` — 成功与失败都记、失败带原因、按总次数降序。
-- `func TestAccumulatorSnapshotHonoursDirtyGate(t *testing.T)` — 快照只在有新东西时标记 dirty（调用方据此跳过写盘）。
-- `func TestAccumulatorLoadOnlyGrows(t *testing.T)` — 回填旧读数只增不减（同进程内的累计不能被改小）。
-- `func TestAccumulatorNormalizesReasonVocabulary(t *testing.T)` — 认得的词原样留，认不得的一律 other。
+- `func TestAccumulatorCountsBothOutcomes(t *testing.T)`
+- `func TestAccumulatorSnapshotHonoursDirtyGate(t *testing.T)`
+- `func TestAccumulatorLoadOnlyGrows(t *testing.T)`
+- `func TestAccumulatorNormalizesReasonVocabulary(t *testing.T)`
+

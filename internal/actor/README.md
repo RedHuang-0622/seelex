@@ -99,3 +99,29 @@ wg 样板。锁/ticker 驱动的串行化组件（如 `scheduler.State`、`fs` �
 `go test ./internal/actor -count=1`；并发路径由
 `fork_concurrency_*`、`merge_back_concurrency_test.go`、
 `subagent_audit_test.go` 等既有测试护航。
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### actor.go
+
+- `func WithCap(cap int) Option` — WithCap 设置命令通道容量（0 = 无缓冲；默认 256）。
+- `func New[T any](handler func(T), options ...Option) *Actor[T]` — New 构造并启动 actor：handler 在单一 goroutine 内串行处理每条命令。
+- `func (a *Actor[T]) Send(command T) bool` — Send 投递命令（阻塞直到入队；actor 已关闭返回 false）。
+- `func (a *Actor[T]) SendTimeout(command T, timeout time.Duration) bool` — SendTimeout 投递命令（上限 timeout；超时或 actor 已关闭返回 false）。
+- `func (a *Actor[T]) TrySend(command T) bool` — TrySend 非阻塞投递（通道满或 actor 已关闭返回 false）。
+- `func (a *Actor[T]) Done() <-chan struct` — Done 返回 actor 关闭信号（调用方可在回复等待中 select 快返）。
+- `func (a *Actor[T]) Close()` — Close 幂等关闭：close(done)，消费者 goroutine 处理完当前命令后退出。
+- `func (a *Actor[T]) Wait()` — Wait 等待消费者 goroutine 退出（应在 Close 之后调用）。
+
+### actor_test.go
+
+- `func TestActorSerializesCommands(t *testing.T)` — TestActorSerializesCommands 验证命令在单消费者 goroutine 内串行处理且
+- `func TestActorReplyRoundTrip(t *testing.T)` — TestActorReplyRoundTrip 验证命令自带回复通道的完整往返（Send + 回复等待
+- `func TestActorSendAfterClose(t *testing.T)` — TestActorSendAfterClose 验证关闭后 Send/SendTimeout/TrySend 全部快返 false。
+- `func TestActorCloseIsIdempotent(t *testing.T)` — TestActorCloseIsIdempotent 验证 Close 幂等且 Wait 在 Close 后返回。
+- `func TestActorTrySendFullNonBlocking(t *testing.T)` — TestActorTrySendFullNonBlocking 验证通道满时 TrySend 立即返回 false。
+- `func TestActorConcurrentSenders(t *testing.T)` — TestActorConcurrentSenders 验证并发投递安全（多生产者单消费者）。
+

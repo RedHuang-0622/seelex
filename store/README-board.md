@@ -4,12 +4,12 @@
 
 项目看板投影：行文件、会话分目录、项目知识记录与渲染件
 
-覆盖 10 个文件（前缀 `board`/`project_board`/`project_known`/`project_record`）。
+覆盖：`board*.go`、`project_board*.go`、`project_known*.go`、`project_record*.go`；未归属文件由覆盖自检拦下。
 
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
-> 刷新方式：`python scripts/gen_store_readme_volumes.py`。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
 
 ### board.go
 

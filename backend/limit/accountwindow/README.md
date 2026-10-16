@@ -104,16 +104,35 @@ node --test gui/frontend/dist/account-window.test.mjs  # 两端同源
 
 ## 文件与函数索引
 
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
 ### accountwindow.go
 
-| 函数 | 签名 | 摘要 |
-|---|---|---|
-| `Presets` | `func Presets() []int` | 返回界面挡位表（token，升序） |
-| `Validate` | `func Validate(window int) error` | 校验界面设的账号窗口（正数 + 防手滑上界） |
+- `func Presets() []int` — Presets 返回界面上「每账号上下文窗口」的挡位（token，升序）。
+- `func Validate(window int) error` — Validate 校验界面设的账号窗口。
+
+### accountwindow_test.go
+
+- `func TestPresetsAreAscendingAndValid(t *testing.T)` — TestPresetsAreAscendingAndValid：挡位表升序、不重复，且每一挡都过自己的校验。
+- `func TestValidateRejectsNonPositive(t *testing.T)` — TestValidateRejectsNonPositive：0 不是"合法窗口"（0 = 清掉该账号的覆盖，由调用方
+- `func TestValidateAcceptsBoundaryAndRejectsBeyond(t *testing.T)` — TestValidateAcceptsBoundaryAndRejectsBeyond：上界本身合法，超过上界被拒——
 
 ### setter.go
 
-| 函数/类型 | 签名 | 摘要 |
-|---|---|---|
-| `Setter` | `type Setter struct{ Runtime contract.AccountWindowPort; Store contract.AccountWindowStore }` | 可调面：依赖全是契约端口，结构满足即可 |
-| `Set` | `func (s Setter) Set(name string, window int) (int, error)` | 改一个账号的窗口覆盖（0 = 清除），先写盘再改内存，返回生效值 |
+- `func (s Setter) Set(name string, window int) (int, error)` — Set 改一个账号的上下文窗口（设置弹窗的挡位/自定义值）。
+
+### setter_test.go
+
+- `func (store *recordingAccountWindowStore) SaveAccountWindow(name string, window int) error`
+- `func (store *recordingAccountWindowStore) read(name string) (int, bool)`
+- `func newFakeAccountWindowRuntime(global int) *fakeAccountWindowRuntime`
+- `func (runtime *fakeAccountWindowRuntime) SetAccountWindow(name string, window int)`
+- `func (runtime *fakeAccountWindowRuntime) AccountWindowFor(name string) int`
+- `func TestSetterValidatesBeforeWriting(t *testing.T)` — TestSetterValidatesBeforeWriting：越界值与空账号名在动盘/动内存之前就被拒。
+- `func TestSetterPersistsThenApplies(t *testing.T)` — TestSetterPersistsThenApplies：合法值先落盘、再改运行面，返回**生效值**。
+- `func TestSetterStoreFailureKeepsRuntimeUntouched(t *testing.T)` — TestSetterStoreFailureKeepsRuntimeUntouched：写盘失败 ⇒ 运行面不动。
+- `func TestSetterWithoutStoreStillApplies(t *testing.T)` — TestSetterWithoutStoreStillApplies：宿主没装落盘口 ⇒ 只本次运行有效，不算失败。
+- `func TestSetterNeedsRuntimePort(t *testing.T)` — TestSetterNeedsRuntimePort：宿主没实现窄可选能力面时给出明确错误，而不是静默无效；
+- `func TestAccountContextWindowPresetsAreUsable(t *testing.T)` — TestAccountContextWindowPresetsAreUsable：挡位表归后端（前端只渲染它），且每个挡位都过校验。
+

@@ -4,12 +4,12 @@
 
 会话句柄与上下文状态：Router/SessionGranularStore、历史读面与运行期 API
 
-覆盖 20 个文件（前缀 `sessionstore`/`session_granular`/`session_context`/`session_meta`/`durable_history`/`runtime_api`/`conversation`/`history_resume_readers`）。
+覆盖：`sessionstore*.go`、`session_granular*.go`、`session_context*.go`、`session_meta*.go`、`durable_history*.go`、`runtime_api*.go`、`conversation*.go`、`history_resume_readers*.go`；未归属文件由覆盖自检拦下。
 
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
-> 刷新方式：`python scripts/gen_store_readme_volumes.py`。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
 
 ### conversation.go
 
@@ -30,7 +30,7 @@
 
 ### durable_history.go
 
-- `func isSessionNotFound(err error) bool` — isSessionNotFound 判断「会话不存在」错误。会话恢复的语义是空历史/空记录，
+- `func IsSessionNotFound(err error) bool` — IsSessionNotFound 判断「会话不存在」错误——**全仓唯一判据**。会话恢复的语义是
 - `func NewDurableHistory(router *Router, sessionID string) *DurableHistory` — NewDurableHistory 创建绑定到指定会话的持久化适配器。
 - `func (d *DurableHistory) SetWorkspaceResolver(resolver func() string)` — SetWorkspaceResolver 注入会话绑定 workspace 解析器：DurableHistory 的
 - `func (d *DurableHistory) workspace() string`
@@ -170,9 +170,9 @@
 ### session_granular.go
 
 - `func NewSessionGranularStore(router *Router) *SessionGranularStore` — NewSessionGranularStore 构造会话粒度存储；router 为 nil 时所有方法
-- `func (store *SessionGranularStore) SetWorkspaceResolver(resolver func(sessionID string) string)` — SetWorkspaceResolver 注入会话绑定项目解析器（main.go 装配点：从
+- `func (store *SessionGranularStore) SetWorkspaceResolver(resolver func(sessionID string) string)` — SetWorkspaceResolver 注入会话绑定项目解析器（wiring/bootstrap 装配点：从
 - `func (store *SessionGranularStore) resolver() func(string) string` — resolver 返回注入的会话绑定解析器（可能为 nil）。回调在锁外调用。
-- `func (store *SessionGranularStore) SetProjectSource(source func() []string)` — SetProjectSource 注入应用已知项目列表（main.go 装配点：workspace.Repo.List），
+- `func (store *SessionGranularStore) SetProjectSource(source func() []string)` — SetProjectSource 注入应用已知项目列表（wiring/bootstrap 装配点：workspace.Repo.List），
 - `func (store *SessionGranularStore) projectList() func() []string` — projectList 返回注入的项目来源（可能为 nil）。回调在锁外调用。
 - `func (store *SessionGranularStore) projectID(projectID string) string`
 - `func (store *SessionGranularStore) SaveSession(projectID string, record Record) error` — SaveSession 原子写会话记录（幂等：同键重写不漂移；B6）。

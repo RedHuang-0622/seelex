@@ -4,12 +4,12 @@
 
 团队计划/工作项、角色会话与节点会话记账
 
-覆盖 15 个文件（前缀 `teamwork`/`team_registry`/`role_session`/`node_session_store`/`unit_record_writer`）。
+覆盖：`teamwork*.go`、`team_registry*.go`、`role_session*.go`、`node_session_store*.go`、`unit_record_writer*.go`；未归属文件由覆盖自检拦下。
 
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
-> 刷新方式：`python scripts/gen_store_readme_volumes.py`。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
 
 ### node_session_store.go
 

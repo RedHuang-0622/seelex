@@ -21,3 +21,10 @@ flowchart LR
     MAIN --> CLI["-version 输出 / 前端默认选择"]
     NOTE["源码构建报告 dev<br/>release 版本来自 Git tag"] -.-> VAR
 ```
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+

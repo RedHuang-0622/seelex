@@ -42,3 +42,21 @@ go test ./internal/jsonobj -count=1
 ```
 
 用例 `jsonobj_test.go` 覆盖三档解码路径（含 2026-09-16 事故的原始形状）。
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### jsonobj.go
+
+- `func DecodeLenient(raw string, out any) error` — DecodeLenient 取 raw 里第一个平衡的 JSON 对象并解码到 out。
+- `func firstBalancedJSONObject(raw string, repair bool) (string, bool)` — firstBalancedJSONObject 返回 raw 里第一个花括号平衡的 JSON 对象文本。
+- `func jsonStringEndsAt(raw string, quote int) bool` — jsonStringEndsAt 判断 raw[i] 处的引号是不是字符串的结束引号：只有紧随其后的
+- `func validJSONEscapeAt(raw string, i int) bool` — validJSONEscapeAt 判断 raw[i] == '\\' 是否开启一个合法 JSON 转义序列。
+- `func writeEscapedControl(out *strings.Builder, c byte)` — writeEscapedControl 把 JSON 不允许的裸控制字节写成转义形式。
+
+### jsonobj_test.go
+
+- `func TestDecodeJSONObjectLenient(t *testing.T)` — TestDecodeJSONObjectLenient 钉住"只修语法、不改语义"的容错边界。
+

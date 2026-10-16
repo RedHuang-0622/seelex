@@ -112,21 +112,7 @@ go test ./wiring/adapters/... ./backend/tool/fork/... -count=1
 `application/prompt` 的 `TestEffortLoopReadingsComeFromSingleJudgment` 是跨实现一致性用例
 （同一档位名，两个入口必须给同一判定）。
 
-## 文件与函数索引
-
-### loop.go
-
-| 函数 | 签名 | 摘要 |
-|---|---|---|
-| `normalize` | `func normalize(level string) string` | 档位名解析口径（大小写与首尾空白不敏感） |
-| `For` | `func For(level string) (Profile, bool)` | 返回档位的循环读数；未识别档位返回 false |
-| `MaxLoops` | `func MaxLoops(level string) int` | 返回档位的循环上限；未识别档位返回 0 |
-| `BudgetFor` | `func BudgetFor(level string) Budget` | 返回档位的工具预算；未识别档位兜底 lite |
-| `Levels` | `func Levels() []string` | 返回全部已登记档位名（顺序不保证） |
-| `Effective` | `func Effective(pinned, fallback int) int` | 会话钉住值优先，否则回退进程默认值 |
-| `ValidateSubagentMaxLoops` | `func ValidateSubagentMaxLoops(id string, maxLoops, ceiling int) error` | 校验子代理声明的循环次数（负数、越天花板） |
-
-### loop_test.go
+## 测试要点
 
 | 测试 | 钉住什么 |
 |---|---|
@@ -136,3 +122,28 @@ go test ./wiring/adapters/... ./backend/tool/fork/... -count=1
 | `TestEffectiveResolution` | 有效上限解析的 5 种输入 |
 | `TestValidateSubagentMaxLoopsUsesProcessCeiling` | 子代理校验的 6 个边界（含等于天花板放行） |
 | `TestValidateSubagentMaxLoopsMessagesUnchanged` | 两条错误文案逐字不变 |
+
+## 文件与函数索引
+
+> 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
+> 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### loop.go
+
+- `func normalize(level string) string` — normalize 是档位名的解析口径（大小写与首尾空白不敏感），与 effort 侧一致。
+- `func For(level string) (Profile, bool)` — For 返回档位的循环读数；未识别的档位返回 false（调用方自己决定兜底）。
+- `func MaxLoops(level string) int` — MaxLoops 返回档位的循环上限；未识别的档位返回 0（不猜档位）。
+- `func BudgetFor(level string) Budget` — BudgetFor 返回档位的工具预算；未识别的档位兜底到 lite（与迁移前一致）。
+- `func Levels() []string` — Levels 返回全部已登记的档位名。
+- `func Effective(pinned, fallback int) int` — Effective 解析"这次用多少轮"：会话钉住值优先，否则回退进程默认值。
+- `func ValidateSubagentMaxLoops(id string, maxLoops, ceiling int) error` — ValidateSubagentMaxLoops 判一条子代理自己声明的循环次数能不能用。
+
+### loop_test.go
+
+- `func TestTierTableExactValues(t *testing.T)` — TestTierTableExactValues 钉住档位数字：这是**唯一**一份，改了就必须改这里的期望。
+- `func TestUnknownLevelDoesNotGuess(t *testing.T)` — TestUnknownLevelDoesNotGuess：未识别档位的两个既有口径必须保住——
+- `func TestLevelNameNormalization(t *testing.T)` — TestLevelNameNormalization：档位名的解析口径（大小写与首尾空白不敏感）与 effort 侧一致。
+- `func TestEffectiveResolution(t *testing.T)` — TestEffectiveResolution 钉住"这次用多少轮"的解析：会话钉住值优先，否则进程默认值；
+- `func TestValidateSubagentMaxLoopsUsesProcessCeiling(t *testing.T)` — TestValidateSubagentMaxLoopsUsesProcessCeiling：循环声明的判据只有**进程级天花板**。
+- `func TestValidateSubagentMaxLoopsMessagesUnchanged(t *testing.T)` — TestValidateSubagentMaxLoopsMessagesUnchanged：错误文案是用户可见面的既有事实，
+
