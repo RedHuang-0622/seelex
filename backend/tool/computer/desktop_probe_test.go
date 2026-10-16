@@ -18,7 +18,7 @@ var procGetAsyncKeyState = user32DLL.NewProc("GetAsyncKeyState")
 //
 //	$env:SEELEX_COMPUTER_DESKTOP_PROBE = "1"
 //	$env:SEELEX_COMPUTER_DESKTOP_PROBE_POINT = "800,600"   # 可选，默认当前光标处
-//	go test ./seelebridge/tools/computer/ -run TestClickReleasesMouseButton -v
+//	go test ./backend/tool/computer/ -run TestClickReleasesMouseButton -v
 //
 // 它守的是这条曾经踩过的坑：Click 把 void 返回的 mouse_event 当失败判断，
 // 于是只发出按下、从不发出释放——点击既报错，又把鼠标留在按下状态（桌面进入

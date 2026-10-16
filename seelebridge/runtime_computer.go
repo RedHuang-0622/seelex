@@ -4,12 +4,12 @@ import (
 	"os"
 	"strings"
 
-	bridgecomputer "github.com/RedHuang-0622/seelex/seelebridge/tools/computer"
+	bridgecomputer "github.com/RedHuang-0622/seelex/backend/tool/computer"
 )
 
 // ── computer use 装配面 ─────────────────────────────────────
 //
-// Seelex 侧的 computer use 工具族（原语在 seelebridge/tools/computer）在这里
+// Seelex 侧的 computer use 工具族（原语在 backend/tool/computer）在这里
 // 接到运行时能力上：工具注册面 + 开关闸门。工具实现本身不依赖 seelebridge，
 // 全部跨域能力都由闭包注入，因此这层只做装配。
 //

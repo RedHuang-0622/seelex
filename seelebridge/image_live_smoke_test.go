@@ -32,10 +32,10 @@ import (
 
 	"github.com/RedHuang-0622/Seele/types"
 
+	"github.com/RedHuang-0622/seelex/backend/tool/computer"
 	"github.com/RedHuang-0622/seelex/seelebridge/account"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/config"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
-	"github.com/RedHuang-0622/seelex/seelebridge/tools/computer"
 )
 
 func TestEngineImageLiveSmoke(t *testing.T) {

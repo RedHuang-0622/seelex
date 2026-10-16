@@ -52,7 +52,7 @@ import (
 	"unicode"
 
 	"github.com/RedHuang-0622/seelex/application/model"
-	"github.com/RedHuang-0622/seelex/seelebridge/tools/computer"
+	"github.com/RedHuang-0622/seelex/backend/tool/computer"
 )
 
 func TestComputerUseLiveSmoke(t *testing.T) {

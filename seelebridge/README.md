@@ -63,7 +63,7 @@ flowchart TB
 | `events_unified.go` | 统一事件库（解耦方案 §02.3/§04.7 长期形态）：B 类 llm/tool 脱敏摘要 `SummaryLog`（与 A 类事实同库持久化）+ 统一查询 `UnifiedEventReader`/`Runtime.UnifiedEvents` |
 
 | `runtime_tools.go` | 工具注册表装配（RegistryState/内联工具/权限门）、RegisterBuiltins、可见性策略装配、Deps 闭包工厂 |
-| `runtime_computer.go` | computer use 工具族装配：`SEELEX_COMPUTER_USE` 门控 + 平台判定 + DPI 感知 + 注册（脚本面见 `tools/computer/tools*.go`） |
+| `runtime_computer.go` | computer use 工具族装配：`SEELEX_COMPUTER_USE` 门控 + 平台判定 + DPI 感知 + 注册（脚本面见 `../backend/tool/computer/tools*.go`） |
 | `runtime_image.go` | 随图链路：`AttachImage`/`PendingImageCount`/`wrapImageAttachments`（至多送一次）+ 截图媒体落盘与按 ref 读回（`storeSessionMedia`/`loadSessionMedia`/`mediaProjectIDFor`） |
 | `runtime_role_prompt.go` | 员工提示词的装配读面与一次有界优化：`SetRolePromptProvider`/`rolePromptFor`（ADVISOR 回合取已登记提示词，未登记回退内置；装配根在 `main.go` 注入）+ `OptimizeRolePrompt`（实现 `contract.RolePromptPort`，只产出候选、不落盘、不写会话消息） |
 | `runtime_goal_tl.go` | goal 域 `TLEvaluator` 的真实实现（主 completer + `TLDirective` JSON 契约）；ADVISOR 角色设定优先取已登记的员工提示词，**输出契约永远追加**（登记提示词改不掉解析格式） |
@@ -117,7 +117,7 @@ flowchart TB
 | `mcp/` | MCP 服务器生命周期 Manager：provider 懒创建/breaker/lazy 登记/工具重挂载（见 `mcp/README.md`） |
 | `plugin/` | 插件 include/exclude 可见性过滤 Manager（见 `plugin/README.md`） |
 | `scheduler/` | 定时周期任务 actor：白名单命令/prompt 任务/状态快照（见 `scheduler/README.md`） |
-| `tools/` | scoped 工具 Router、`RegistryState`（内联工具+权限门控）、websearch、computer use 原语与工具面（见 `tools/README.md`、`tools/computer/README.md`） |
+| `tools/` | scoped 工具 Router、`RegistryState`（内联工具+权限门控）、websearch、computer use 原语与工具面（见 `tools/README.md`、`../backend/tool/computer/README.md`） |
 | `internal/model/` | 各域共享的纯类型层（`AccountSpec`/`AccountRole`/`NodeScope`，无运行时依赖） |
 | `internal/actor/` | 单消费者 actor 底座（有界命令通道 + 串行 handler + 幂等 Close；task/session 等 mailbox actor 复用，见 `internal/actor/README.md`） |
 | `internal/mapper/` | 运行态结构 ↔ `contract/dto` 的无业务转换（`ToolEventToDTO` 等；见 `internal/mapper/README.md`） |

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/seelebridge/tools/computer"
+	"github.com/RedHuang-0622/seelex/backend/tool/computer"
 )
 
 // newTempPNG 在临时目录写一张 PNG，返回路径。

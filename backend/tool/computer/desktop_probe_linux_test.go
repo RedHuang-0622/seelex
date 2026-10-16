@@ -16,7 +16,7 @@ import (
 //
 //	DISPLAY=:0 SEELEX_COMPUTER_DESKTOP_PROBE=1 \
 //	  SEELEX_COMPUTER_DESKTOP_PROBE_POINT="800,600" \
-//	  go test ./seelebridge/tools/computer/ -run TestLinuxClickReleasesMouseButton -v
+//	  go test ./backend/tool/computer/ -run TestLinuxClickReleasesMouseButton -v
 //
 // 它守的是 X11 侧的两条底线：
 //

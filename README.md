@@ -619,7 +619,7 @@ Skill 使用 <code>&lt;skill&gt;/SKILL.md</code> 目录结构；相关脚本和�
 - 截图按宽度缩放（最近邻，保持坐标系），PNG 落会话媒体分区，画面随下一次模型请求送入，同一张图至多送一次。
 - **滚轮与可滚动面板**：<code>computer_scroll_targets</code> 用 UI Automation **只读**列出窗口里的可滚轮面板（名称、控件类型、矩形、中心坐标、纵向/横向滚动位置与视口占比），模型据此知道"屏幕外的上下文在哪个面板里、还差多少"；<code>computer_scroll</code> 在指定坐标按格下发滚轮（给 <code>window</code> 时按该窗口最大的纵向面板落点），并在结果里回读落点面板的滚前/滚后位置，区分"滚了但已到头"和"没滚到可滚动区域"。
 - 输入注入默认逐次审批；子代理只可见只读观察类 <code>computer_screenshot</code>、<code>computer_windows</code>、<code>computer_scroll_targets</code> 与 <code>computer_wait</code>（<code>computer_focus</code> 与键鼠注入类对子代理不可见，因为并行子代理共用一块桌面会互相打断）。
-- 另有一条面向外部宿主的 MCP 工具面（<code>seelebridge/tools/computer/mcp</code>）：<code>screenshot</code> / <code>view_screen</code> / <code>view_image</code> / <code>scroll_targets</code> 与键鼠、窗口原语，图像以 base64 内联返回，供不共享会话媒体分区的宿主使用。
+- 另有一条面向外部宿主的 MCP 工具面（<code>backend/tool/computer/mcp</code>）：<code>screenshot</code> / <code>view_screen</code> / <code>view_image</code> / <code>scroll_targets</code> 与键鼠、窗口原语，图像以 base64 内联返回，供不共享会话媒体分区的宿主使用。
 
 权限规则在 <code>config/seele.yaml</code> 中声明（默认已包含以下条目）：
 
@@ -693,7 +693,7 @@ go build -tags "gui,desktop,production" ./...
 
 ~~~bash
 # 真机探针：真截一次屏并落会话媒体分区（不注入键鼠）
-$env:SEELEX_COMPUTER_DESKTOP_PROBE=1; go test ./seelebridge/tools/computer -run RealDesktop -v
+$env:SEELEX_COMPUTER_DESKTOP_PROBE=1; go test ./backend/tool/computer -run RealDesktop -v
 
 # 真实 API 冒烟：走完整应用链路（模型自己调用 computer_screenshot → 截图随下一次
 # 请求送入 → 回答必须命中真实前台窗口标题）。⚠️ 会把当前屏幕画面发给 provider。
@@ -790,7 +790,7 @@ Linux CI 还会执行 race detector、覆盖率和发布包安全检查。
 |---|---|
 | 应用层 | [application/](application/README.md) · [application/core/](application/core/README.md)（含分卷与叶子包） · [model/](application/model/README.md) · [event/](application/event/README.md) · [prompt/](application/prompt/README.md) · 审批面已归位到 [backend/limit/approval/](backend/limit/approval/README.md) |
 | 底座（契约） | [contract/](contract/README.md) · [contract/dto/](contract/dto/README.md) |
-| 运行时适配 | [seelebridge/](seelebridge/README.md) · [security/](seelebridge/security/README.md) · [tools/](seelebridge/tools/README.md) · [plan/](seelebridge/plan/README.md) · [node/](seelebridge/node/README.md) · [fork/](seelebridge/fork/README.md) · [session/](seelebridge/session/README.md) · [account/](seelebridge/account/README.md) · [mcp/](seelebridge/mcp/README.md) · [computer/](seelebridge/tools/computer/README.md) |
+| 运行时适配 | [seelebridge/](seelebridge/README.md) · [security/](seelebridge/security/README.md) · [tools/](seelebridge/tools/README.md) · [plan/](seelebridge/plan/README.md) · [node/](seelebridge/node/README.md) · [fork/](seelebridge/fork/README.md) · [session/](seelebridge/session/README.md) · [account/](seelebridge/account/README.md) · [mcp/](seelebridge/mcp/README.md) · [computer/](backend/tool/computer/README.md) |
 | 上下文与存储 | [seelexctx/](seelexctx/README.md) · [store/](store/README.md) · [session/](session/README.md) · [store/workspace/](store/workspace/README.md) |
 | 扩展与前端 | [plugin/](plugin/README.md) · [skill/](skill/README.md) · [mcpstack/](mcpstack/README.md) · [gui/](gui/README.md) · [tui/](tui/README.md) · [plugins/](plugins/README.md) |
 | 工程基座 | [e2e/](e2e/README.md) · [scripts/](scripts/README.md) · [config/](config/README.md) · [internal/](internal/README.md) |

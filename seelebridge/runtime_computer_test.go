@@ -8,10 +8,10 @@ import (
 
 	"github.com/RedHuang-0622/Seele/types"
 
+	bridgecomputer "github.com/RedHuang-0622/seelex/backend/tool/computer"
 	"github.com/RedHuang-0622/seelex/seelebridge/imageattach"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
-	bridgecomputer "github.com/RedHuang-0622/seelex/seelebridge/tools/computer"
 	"github.com/RedHuang-0622/seelex/store"
 )
 

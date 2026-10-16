@@ -15,7 +15,7 @@ import (
 //
 // 用法：
 //
-//	$env:SEELEX_COMPUTER_DESKTOP_PROBE=1; go test ./seelebridge/tools/computer -run RealDesktop -v
+//	$env:SEELEX_COMPUTER_DESKTOP_PROBE=1; go test ./backend/tool/computer -run RealDesktop -v
 func TestScreenshotThroughRealDesktop(t *testing.T) {
 	if os.Getenv("SEELEX_COMPUTER_DESKTOP_PROBE") != "1" {
 		t.Skip("设置 SEELEX_COMPUTER_DESKTOP_PROBE=1 才跑真机桌面冒烟")

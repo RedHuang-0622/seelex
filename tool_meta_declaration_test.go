@@ -68,7 +68,7 @@ func TestEveryRegisteredToolDeclaresGroups(t *testing.T) {
 // 认两种调用形态（生产里各有一处，缺哪一种都会漏掉一整族工具）：
 //   - `x.RegisterTool("name", …)`（router.go / task/tools.go / main.go）；
 //   - 先把注册面存进局部变量再调用（`register := t.deps.RegisterTool; register(ToolClick, …)`，
-//     见 seelebridge/tools/computer/tools.go）——别名从赋值语句里识别。
+//     见 backend/tool/computer/tools.go）——别名从赋值语句里识别。
 func scanToolRegistrations(t *testing.T, root string) (map[string]string, []string, int) {
 	t.Helper()
 	sites := map[string]string{}
@@ -190,7 +190,7 @@ func constStringsOf(file *ast.File) map[string]string {
 }
 
 // registrationAliases 收集"注册面的局部别名"：任何被赋值为 `<…>.RegisterTool`
-// 的标识符都算。见 seelebridge/tools/computer/tools.go 的 `register := t.deps.RegisterTool`。
+// 的标识符都算。见 backend/tool/computer/tools.go 的 `register := t.deps.RegisterTool`。
 func registrationAliases(file *ast.File) map[string]bool {
 	aliases := map[string]bool{}
 	ast.Inspect(file, func(node ast.Node) bool {
@@ -268,7 +268,7 @@ func TestRegistrationScannerSeesEveryFamily(t *testing.T) {
 	for _, name := range []string{
 		"read_file", "bash", "write_file", // seelebridge/tools/router.go
 		"todo_init", "task_add", // seelebridge/task/tools.go
-		"computer_click", "computer_screenshot", // seelebridge/tools/computer/tools.go（别名形态）
+		"computer_click", "computer_screenshot", // backend/tool/computer/tools.go（别名形态）
 		"fork_subagents",              // seelebridge/runtime_plan.go
 		"read_tool_result",            // main.go
 		"compact_context",             // main.go

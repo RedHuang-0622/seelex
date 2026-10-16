@@ -2,7 +2,7 @@
 
 ## 生态位
 
-`seelebridge/tools/computer` 提供桌面 computer use 的**原语层**：截屏、鼠标、
+`backend/tool/computer` 提供桌面 computer use 的**原语层**：截屏、鼠标、
 键盘、窗口枚举与聚焦；同一个包再往上承载 **Seelex 侧工具族**（`tools*.go`）。
 两个消费面共用同一套原语，差异只在"图像怎么送到模型"：
 
@@ -354,7 +354,7 @@ macOS 走纯 Go `dlopen` 的 CoreGraphics/CGEvent/Accessibility。**不引入运
 ## 测试与验证
 
 ```text
-go test ./seelebridge/tools/computer/... -count=1
+go test ./backend/tool/computer/... -count=1
 ```
 
 - `click_test.go`：点击序列（成对、失败补释放、clicks<1 归一）。

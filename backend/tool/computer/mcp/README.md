@@ -1,12 +1,12 @@
-# seelebridge/tools/computer/mcp
+# backend/tool/computer/mcp
 
 ## 生态位
 
-`seelebridge/tools/computer/mcp` 是一个 **MCP stdio 服务端**：通过 JSON-RPC 把
+`backend/tool/computer/mcp` 是一个 **MCP stdio 服务端**：通过 JSON-RPC 把
 桌面 computer use 原语（截图、鼠标、键盘、窗口枚举与聚焦）暴露给外部宿主
 （例如 Codex）。
 
-它是 `seelebridge/tools/computer` 原语层的两个消费面之一（另一个是 Seelex 自己的
+它是 `backend/tool/computer` 原语层的两个消费面之一（另一个是 Seelex 自己的
 工具族），两者共用同一套原语，差异只在「图像怎么送到模型」：
 
 | 消费面 | 调用方 | 图像通道 |
@@ -33,7 +33,7 @@ flowchart LR
     HOST["外部宿主（Codex 等）"] -->|stdio JSON-RPC| SRV["computer-use MCP server"]
     SRV --> DEC["方法分发 + 工具名解析"]
     DEC --> VAL["参数校验 + 上限钳制"]
-    VAL --> PRIM["seelebridge/tools/computer 原语层"]
+    VAL --> PRIM["backend/tool/computer 原语层"]
     PRIM --> SCR["截图"]
     PRIM --> MOU["鼠标"]
     PRIM --> KEY["键盘"]
@@ -74,7 +74,7 @@ sequenceDiagram
 ## 扩展方式
 
 新增暴露的工具：在原语层加函数，再在本包注册工具名与参数 schema，并同步
-[`seelebridge/tools/computer/README.md`](../README.md) 的工具清单。
+[`backend/tool/computer/README.md`](../README.md) 的工具清单。
 
 ## Review 指南
 
@@ -85,6 +85,6 @@ sequenceDiagram
 ## 测试与验证
 
 ```text
-go test ./seelebridge/tools/computer/... -count=1
+go test ./backend/tool/computer/... -count=1
 go build ./...
 ```

@@ -24,6 +24,7 @@ var repositoryModules = []string{
 	"application/console", "backend/limit", "backend/limit/accountwindow", "backend/limit/approval",
 	"backend/limit/loop",
 	"backend/limit/overlay", "backend/limit/policy", "config", "docs",
+	"backend/tool/computer",
 	"docs/arch", "docs/devlog", "docs/gui", "docs/gui/schemas", "docs/product", "docs/research",
 	"docs/test", "e2e", "e2e/scenario", "gui", "gui/frontend", "internal", "internal/adapters",
 	"internal/buildinfo", "internal/frontmatter", "mcpstack", "mcpstack/config", "plugin", "plugins", "plugins/default",

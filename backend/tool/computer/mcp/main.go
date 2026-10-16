@@ -6,7 +6,7 @@
 //	codex mcp add computer -- G:\path\to\computer-use-mcp.exe
 //
 // 服务端只做输入注入与截屏，不做任何业务判断；安全边界由调用方（模型与用户审批）
-// 负责，详见 seelebridge/tools/computer/README.md。
+// 负责，详见 backend/tool/computer/README.md。
 package main
 
 import (
@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/seelebridge/tools/computer"
+	"github.com/RedHuang-0622/seelex/backend/tool/computer"
 )
 
 const (

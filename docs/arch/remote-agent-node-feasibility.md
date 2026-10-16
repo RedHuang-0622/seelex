@@ -66,9 +66,9 @@ type roleEngine interface {
 
 ## 3. computer use 本来就是"跨进程可用"的
 
-- `seelebridge/tools/computer/mcp/` 是**一个 stdio MCP 服务端**，明确服务于"外部宿主（Codex 之类）"；
+- `backend/tool/computer/mcp/` 是**一个 stdio MCP 服务端**，明确服务于"外部宿主（Codex 之类）"；
   原语层与"图像怎么进模型"解耦：Seelex 自己走会话媒体分区（`media:<hash>` 随下一次请求送），
-  MCP 面走 base64 内联（见 `seelebridge/tools/computer/README.md` 的两消费面对照表）。
+  MCP 面走 base64 内联（见 `backend/tool/computer/README.md` 的两消费面对照表）。
 - Seelex 作为 MCP **客户端**已支持远端：
   `vendor/github.com/RedHuang-0622/Seele/tools/mcp/provider.go:108-114`
   `case "stdio": NewStdioMCPClient(...)` / `case "sse": NewSSEMCPClient(cfg.URL)`；
@@ -150,7 +150,7 @@ L0 的暴露面即**已经写死在契约里的工具名 + JSON 参数**
 ## 7. 平台事实：三个桌面后端的能力对照（**含对早期误判的更正**）
 
 早期口径曾说"macOS 是三个后端里能力面最全的"。**这是错的**，按代码更正如下
-（`seelebridge/tools/computer/` 下各 `platform_*.go`）：
+（`backend/tool/computer/` 下各 `platform_*.go`）：
 
 | 能力 | Windows | macOS | Linux(X11) |
 |---|---|---|---|
