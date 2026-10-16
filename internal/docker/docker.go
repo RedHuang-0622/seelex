@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/seelebridge/security"
+	"github.com/RedHuang-0622/seelex/backend/limit/gate"
 )
 
 // desktopExe 是 Docker Desktop 的固定安装路径（回退启动路径）。

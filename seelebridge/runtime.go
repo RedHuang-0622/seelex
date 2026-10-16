@@ -23,6 +23,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/engine/account"
 	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/backend/limit/gate"
 	subagentsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	"github.com/RedHuang-0622/seelex/backend/tool/fork"
 	"github.com/RedHuang-0622/seelex/backend/tool/io/fs"
@@ -39,7 +40,6 @@ import (
 	"github.com/RedHuang-0622/seelex/seelebridge/mcp"
 	"github.com/RedHuang-0622/seelex/seelebridge/plugin"
 	"github.com/RedHuang-0622/seelex/seelebridge/scheduler"
-	"github.com/RedHuang-0622/seelex/seelebridge/security"
 	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
 	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 	"github.com/RedHuang-0622/seelex/seelexctx"

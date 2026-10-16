@@ -12,7 +12,7 @@ package tools
 import (
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/seelebridge/security"
+	"github.com/RedHuang-0622/seelex/backend/limit/gate"
 )
 
 // BenchmarkNoteProcessTreeDegradedHealthy 量的是生产上**绝大多数时候**走的那条：树健康 →

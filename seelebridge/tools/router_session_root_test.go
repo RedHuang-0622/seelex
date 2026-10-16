@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/RedHuang-0622/seelex/backend/limit/gate"
 	"github.com/RedHuang-0622/seelex/backend/tool/io/fs"
-	"github.com/RedHuang-0622/seelex/seelebridge/security"
 )
 
 // sessionKeyContextKey 是本用例的会话键（生产为 telemetry 会话键；此处不

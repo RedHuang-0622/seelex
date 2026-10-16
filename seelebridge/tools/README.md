@@ -217,7 +217,7 @@ string 只会让每个调用点多做一次编解码往返；框架的 `ToolHand
   sleep 25"` 在 150ms 被 `/T` 杀掉后 GRANDCHILD 仍落进日志。Job Object 不看父子关系，
   且 `KILL_ON_JOB_CLOSE` 让"执行体收尾时关句柄"成为唯一确定的回收点。Job 建不出来时
   退化成按 PID 杀，`Degraded()` 说得清——此时不得主张"整棵进程树已终止"。两条链读的是
-  **同一个判据**（`security/process_tree_windows.go` 的 `Degraded()`：Job 没建成 **或** 进程没挂进去），
+  **同一个判据**（`backend/limit/gate/process_tree_windows.go` 的 `Degraded()`：Job 没建成 **或** 进程没挂进去），
   只是读数通道不同——后台链折进探针的 `Degraded` 栏与观察行（`async_probe.go:64`/`:127`），
   同步链发一条 `bash.process.degraded` 诊断（`router.go:714`，回归见
   `process_tree_degraded_reading_test.go`）：同一件事不许一条链说得出口、另一条链瞒下。
@@ -242,7 +242,7 @@ string 只会让每个调用点多做一次编解码往返；框架的 `ToolHand
   false，旧配置文件缺这段 = 关）：关闭时作业工具（`bash_bg` / `read_batch` /
   `bg_manage`）都不注册、`bash` 收到旧入参 `background=true` 与
   `fork_subagents`（它只走作业面）都直接报错。**关就是关**，不得静默降级成同步执行
-  （与 `security/sandbox.go` 头注同源）。常驻开的已知代价：这几个入口的 schema
+  （与 `backend/limit/gate/sandbox.go` 头注同源）。常驻开的已知代价：这几个入口的 schema
   每轮常驻（实测三个入口约 213 token/轮，A/B 报告 §4 r1）。
 - 完成回填（打点 K-5）：终态迁移那一刻算一次**有界摘要**（≤512B：状态 + 退出码 +
   行数 + 字节数 + 有界末行），投影（`application/core/work_table_async.go`）把它回填进

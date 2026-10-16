@@ -25,8 +25,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/backend/limit/gate"
 	"github.com/RedHuang-0622/seelex/internal/model"
-	"github.com/RedHuang-0622/seelex/seelebridge/security"
 )
 
 // withDegradedProcessTree 在本用例期间把建树工厂换成"Job 没建成"的形态（用完立刻还原）。

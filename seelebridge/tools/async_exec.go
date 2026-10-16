@@ -139,7 +139,7 @@ type asyncRun struct {
 	tree processTree
 }
 
-// processTree 是执行体所属进程树的最小面（实现在 seelebridge/security，
+// processTree 是执行体所属进程树的最小面（实现在 backend/limit/gate，
 // Windows = Job Object，POSIX = 进程组）。做成接口只为让"杀"这条路径在单测里
 // 能在没有真进程时被判据覆盖。
 type processTree interface {

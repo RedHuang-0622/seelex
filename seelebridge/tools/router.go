@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/backend/limit/gate"
 	"github.com/RedHuang-0622/seelex/backend/tool/io/fs"
 	"github.com/RedHuang-0622/seelex/internal/model"
 	"github.com/RedHuang-0622/seelex/internal/winhide"
-	"github.com/RedHuang-0622/seelex/seelebridge/security"
 )
 
 // Deps is the runtime callback set injected by the root package (Runtime).

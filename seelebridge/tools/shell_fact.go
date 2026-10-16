@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/RedHuang-0622/seelex/seelebridge/security"
+	"github.com/RedHuang-0622/seelex/backend/limit/gate"
 )
 
 // shell_fact.go — "bash 工具实际落到哪个壳"的**单一事实源**（2026-10-15 审计 D4）。

@@ -2,7 +2,7 @@
 
 ## 生态位
 
-`seelebridge/security` 承载项目作用域、路径门禁与命令执行隔离的安全边界：
+`backend/limit/gate` 承载项目作用域、路径门禁与命令执行隔离的安全边界：
 
 - `project_scope.go`：`ProjectScope` 项目根 containment（fail-closed，无 fallback root）。
   根按**会话键**分格：`BindFor(sessionKey, root)` / `Resolve*For(sessionKey, …)`
@@ -60,5 +60,5 @@ flowchart TB
 ## 验证
 
 ```text
-go test ./seelebridge/security -count=1
+go test ./backend/limit/gate -count=1
 ```
