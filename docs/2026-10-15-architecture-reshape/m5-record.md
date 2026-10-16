@@ -208,3 +208,62 @@ go test ./... -count=1 -timeout=900s     → 失败集合 = 基线（application
 **过程事故**：本轮派出的两个子代理（`m5_adapters`、它再派生的 `m5_k1`）在 25 分钟内**没有产生
 任何文件改动**，也未回报；按"长时间无响应就串行执行"的约定，我已中断它们并亲自完成本切片。
 教训：子代理侧要有"多久没落地就交回"的硬超时，不能靠它自述状态。
+
+### R3 —— `model` / `event` / `state` 归位（plan §2.3，commit `0853f297`）
+
+**删除清单（原位置 → 新唯一位置）**
+
+| 原位置 | 新唯一位置 |
+|---|---|
+| `application/model/`（5 文件 1037 行 + README） | `middle/protocol/model/`（包名仍为 `model`） |
+| `application/event/`（1 文件 346 行 + README） | `middle/protocol/event/`（包名仍为 `event`） |
+| `application/core/internal/state/`（27 行 + README） | `kernel/state/`（包名仍为 `state`） |
+
+`git mv` 的三组文件**零行差异**；145 个引用侧只改字符串（import 路径与散文落点）。
+
+**同步的登记面**
+
+| 面 | 改法 |
+|---|---|
+| `e2e/layout_test.go` | 模块表换登记（`middle/protocol/*`、`kernel/state`） |
+| `e2e/facade_boundary_test.go` | 三张 allowlist 等量换名，**上限不动** |
+| `e2e/dto_boundary_test.go` | 又一次分段式路径（`filepath.Join("application","model","state.go")` 与 `readRepoFile`）——同 R1 的教训：`filepath.Join` 的段式写法纯字符串替换抓不到 |
+| `application/README.md` / `application/core/README.md` | 表行与相对链接改指 `../middle/protocol/*`、`../../kernel/state/`（否则 `TestRepositoryModuleReadmeLinks` 打红） |
+| `middle/protocol/event/README.md` | 相对链接深度修正（`../../docs/gui` → `../../../docs/gui`） |
+| `scripts/gen_core_readme_index.py` | 删掉已迁出的 `internal/state` 叶子循环（留着下次刷新直接 `FileNotFoundError`）；把 `kernel/state`、`middle/protocol/{model,event}`、`wiring/adapters` 登记进 `EXTRA_PACKAGES` |
+
+**顺带补齐**：`middle/protocol/{model,event}` 与 `wiring/adapters` 此前**没有**「文件与函数索引」
+（readme-spec §3 要求），本次由生成器补上——这同时销掉了 D-M5-R1-2。
+
+### R4 —— 中间层三个叶子包归位（plan §2.4，commit `c64b37fe`）
+
+**删除清单**
+
+| 原位置 | 新唯一位置 |
+|---|---|
+| `application/core/view_state/` | `middle/view/state/`（包名仍为 `view_state`） |
+| `application/core/subagent_view/` | `middle/view/subagent/`（包名仍为 `subagent_view`） |
+| `application/core/worktable/` | `middle/view/worktable/`（包名仍为 `worktable`） |
+
+`git show --stat` 里这三组是"0 行变化"的重命名；改动只在 25 个取用侧（core 内部
+`service_assembler/components/state`、`work_table.go`、`chat.go`、`session_*` 等）与 e2e 门禁表。
+架构图/表格里对已删目录的链接一并改指（`TestRepositoryModuleReadmeLinks` 是这里的守门人）。
+
+### 第二半的当前进度（可复跑 `python tmp/reshape/remaining.py`）
+
+| 切片 | 状态 |
+|---|---|
+| R1 adapters → `wiring/adapters` | 已提交 `853f6b31` + 记录 `72b6082e` |
+| R3 model/event/state → `middle/protocol/*`、`kernel/state` | 已提交 `0853f297` |
+| R4 中间层三叶子 → `middle/view/*` | 已提交 `c64b37fe` |
+| R2 toolrecord → `store/record` | 未开始 |
+| R5/R6 `application/core` 根文件按域切分（view/switch/residency） | 未开始（需 §2 两段式切分） |
+| R7/R8 core 的 engine/tool/multiagent/limit 域归位 | 未开始（同上） |
+| R9 `plugin` / `skill` / `mcpstack` → `backend/engine/*` | 未开始 |
+| R10 `aliases.go` 删除 + 门面五组收窄 + I5 | 未开始 |
+| R11 `assemble/ports.go` 删除 + `Runtime` 按域下沉 | 未开始 |
+
+**Windows 偶发基线（本轮实测，不是回归）**：全量 `go test ./...` 在并行负载下会出现
+`backend/tool/registry`（`TestJobHandlesCarryTheirTableToken` 的 TempDir 清理、进程句柄未放）、
+`gui/terminal`（`TestManagerRealShellRoundTrip`）、`store`（`TestCommitNotBlockedByFullHistoryRead`）
+三类超时/清理失败；**逐条单跑必过**，与环境负载相关，与本次搬迁无关。
