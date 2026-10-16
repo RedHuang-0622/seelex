@@ -701,3 +701,48 @@ git diff --cached -M --numstat（片内）
   `application/core/{work_table*,async_completion,session_cold_read,session_scope,service_*}.go`，19 个文件未提交）；
   本轮的每一片都**没有碰**它的文件，但它负责的 `e2e/subagent_status_vocabulary_gate_test.go` 更新尚未落地，
   所以**主工作树**的 `go test ./e2e/` 目前会因它而红；本轮的复核一律在独立 worktree 里做（那里没有它的在途改动）。
+
+## 12. M5 第二半（续 2）：R-limitb / R-limitc / R8d（2026-10-16 本轮）
+
+三片都是**接收者转移**（判据与状态搬到拥有它的模块，门面只留宿主适配 + 一行转发），
+每片一个提交、逐片在独立 worktree 复核（`go build ./...`、`-tags "gui,desktop,production"`、
+`go vet ./...`、`go test ./e2e/`）。
+
+| 片 | commit | 原位置 → 新唯一位置 | 门面侧留下什么 | 端口（全部结构满足） |
+|---|---|---|---|---|
+| R-limitb | `ca010440` | `application/core/service_knobs.go` 的判据、守卫与状态 → `backend/limit/knobs.go`（`Knobs` + `KnobsHost` + `ValidateLoopLimit` / `ValidWireReasoningEffort` / `ReasoningEffortChoices`） | `serviceKnobsHost` 适配 + `SetReasoningEffort` / `SetLoopLimit` 一行转发 | `ViewSession` / `MutateRuntime` / `PublishRuntime` / `SetEngineMaxLoops` / `CurrentEffort` / `MaxLoopsForEffort` / `ReasoningEffortSink` |
+| R-limitc | `93f93705` | `application/core/session_permission_tier.go` + `session_scope.go` 的档位三处 + `service_interaction.go` 的落地 → `backend/limit/tier/tier.go`（`Deps` + `EffectiveTier` / `Persist` / `Read` / `ApplyTier` / `ApplyStored` / `RestoreFor` / `SyncViewLocked` / `SyncGateFor`） | `service.tierDeps()` + `serviceTierUnits` / `serviceTierView` 薄适配 + 8 个一行转发 | `SettingStore`（↔ `session.SessionSettingPort`）/ `Units` / `AutoApproval` / `View` / `Gate` / `DefaultTier` |
+| R8d | `65be4dfc` | `application/core/role_session.go` 的端口解析判据与 14 个转发 → `backend/multiagent/team/roles.go`（`RoleSessions`） | `service.roleSessions()`（两个可选能力的类型断言）+ 14 个一行转发 | 直接持 `contract.RoleSessionPort` / `contract.SchedulePort` |
+
+**为什么不是"加一层转发"**：三片都把**判据**（错误文案与取值规则）搬到了拥有该规则的模块，
+门面侧不再有任何第二份实现；端口全部是契约端口或既有窄接口，用**结构满足**接上，没有适配层。
+证据是删除清单 + 编译器（改完门面侧同义实现即编译失败），不是"用例全绿"。
+
+**R-limitc 推翻了 M2 的"有意不搬"**：M2 记录的理由是"档位**词表**不该搬进 limit"——那条前提仍然成立
+（词表仍在 `contract/dto/permission.go`，前端与 limit 共消费）；M2 同时把"Service 的持久化与快照同步"
+有意延后到 M5，本片正是那一步，`backend/limit/README.md` 的沿革段已改写，避免两处结论冲突。
+
+**R-limitb 的加锁次序**（本次最容易做错的地方）：原实现的次序是 视图锁 → 组件锁（只单向），且读数的
+**收集**刻意在锁外。转移后由 `KnobsHost.MutateRuntime` / `PublishRuntime` 保证"宿主在自己锁内调用
+mutate、组件在 mutate 里取自己的锁"，次序不会倒；`knobs_test.go` 有对应用例钉住。
+
+**新增用例的分工**（不重复判据）：
+
+| 包 | 新增用例 | 打的是什么 |
+|---|---|---|
+| `backend/limit` | `knobs_test.go`（6 条） | 两条拉条的**宿主端口契约**：守卫返回视图会话 ID、档位回退、改上限在宿主锁内一次写完、下发即发布、无端口 no-op、租约一次性 |
+| `backend/limit/tier` | `tier_test.go`（5 条） | 生效档位解析与回退、一次落地写三处、脏值不落槽但镜像快照、非视图会话不写快照、读写降级与失败语义 |
+| `backend/multiagent/team` | `roles_test.go`（2 条） | 三种"没有可用端口"文案 + 两条原样转发 |
+| `application/core` | 原有门面级用例**保持不动** | 端到端路径（Service → 快照/门/审批面/引擎） |
+
+**门禁同步**：`e2e/layout_test.go` 模块清单 +1（`backend/limit/tier`）；`e2e/facade_boundary_test.go`
+闭包清单 +1 且上限 76 → 77（按该文件"新模块可 +1、必须写清多了谁"的既有约定）。
+
+**并行编辑隔离（第 3 次踩到）**：`application/core/session_scope.go` 同时被另一个 worker 改写
+（它给该文件加了 `middle/view/worktable` import）。`git add <file>` 会把它的在途编辑一起提交，
+所以本批对**同时被并行改写的文件**一律用 `tmp/reshape/stage_*.py` 从父提交内容重建 blob
+（只施加本片替换、再 gofmt）后暂存；它的编辑既没被夹带、也没被回退。
+
+**复核证据（本批结束时的实况）**：`go build ./...` 0、`-tags "gui,desktop,production"` 0、
+`go vet ./...` 0、`go test ./e2e/` ok、`go test ./backend/limit/... ./backend/multiagent/... ./test/` 全 ok；
+`application/core` 的失败集合 = 开工前就红的**基线 3 例**，无新增。
