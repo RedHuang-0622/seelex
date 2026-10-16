@@ -1363,3 +1363,32 @@ case"两个工具缺陷后**重做成功**，见 §33。
 `runtime_subagent_{resume,recovery}.go`（793 行，共用 22 个宿主读数，本域最后一片）、
 `workunit_*`（≈1k 行）、`runtime_context`、`runtime_session`/`role_host_session`、`runtime_plan`、
 `runtime_async`/`jobs_events`、`runtime_project_board*`。
+
+## 35. P21 续片（2026-10-17 第三轮：P21-6 / P21-8 / P21-9）+ 派单失败登记
+
+### 派单失败（必须先说）
+
+本轮按用户授权派出 3 个子代理（`p21_board` / `p21_jobs_events` / `p21_teammate_live`），任务书
+逐条写明目标、约束、纪律（1 分钟内落盘进度文件、10 分钟更新、paths 显式提交）。三个都回报
+**"没有收到任务文本（无 NEW_TASK）"**，零落盘、零改动——与 §29 登记的"两个重派子代理都是零落盘"
+同因。结论：本环境**子代理通道不投递任务正文**，不构成可用并行手段；按用户口径
+（"长时间没有响应就串行执行工作直到任务完成"）改为**串行自做**，本节起所有片都由 root 单线程完成。
+
+| 片 | 内容 | 提交 |
+|---|---|---|
+| P21-6 | **统一事件库**：B 类脱敏摘要日志（`SummaryLog` + 摘要→框架事件转换）与统一事件查询（`UnifiedEventReader` / `UnifiedEventView` / `Query` / `QueryRange` / `UnifiedEventTopic` / `filterUnifiedEvents`）连同判据 → `backend/engine/obs/unified_events.go`；装配层只剩同身份别名 + 两个薄转发，宿主读数只有两格（`HistoryRouter` + tracer 查询闭包，后者以函数值端口注入，域包不认识 tracer 类型）。测试按"域级白盒进域包、宿主级留装配层"拆分（7 条进 obs、2 条留 assemble，另删 `events_range_test.go` 并把两条白盒用例并入 obs 文件） | `ffb66580` |
+| P21-8 | **每账号上下文窗口覆盖层**：状态（互斥量 + 表）与三条判据（入口过滤 / 改一格清一格 / **生效窗口优先级**：账号级 > `limits.context_window` > 账号档自报）→ `backend/engine/account.WindowOverlay` + `WindowDeps`；装配层 `runtime.go` 的两个字段换成一个句柄，`runtime_account.go` 只剩三个薄转发。**顺带删掉装配层私有读法 `Runtime.accountWindow`**（域包 `For` 成为唯一读法）。新增 5 条域级用例（优先级三条支路、值拷贝、nil 接收者、含一轮并发读写供 `-race`） | `d8647644` |
+| P21-9 | **事件关联面归位 + 判据归一（P18）**：`assemble/events.go` 整文件 → `obs/event_correlation.go`（`CorrelateMainSessionID`），调用点 `runtime_plan.go` 改一行，两条域级用例随实现搬进 obs；**同时把"从事件读会话归属"的三份逐字副本并成一份**：`store.sessionIDFromEvent` 升为导出的 `store.SessionIDFromEvent` / `SessionIDFromLocations`（唯一一份循环），删掉 `assemble.eventSessionID` 与 `backend/tool/plan.sessionIDFromLocations`，并把 `obs.UnifiedEventTopic` 的内联循环改为问同一句。新增跨实现一致性用例（同一输入走三处同解，表驱动 5 例） | `0958f237` |
+
+**P21 剩余**（未变，按体量排序）：`runtime_teamwork*` + `runtime_role_*`（≈2.5k 行）、
+`runtime_subagent_{resume,recovery}.go`（793 行）、`workunit_*`（≈1k 行）、`runtime_context`、
+`runtime_session`/`role_host_session`、`runtime_plan`、`runtime_async`/`jobs_events`、
+`runtime_project_board*`、`runtime_tools`、`runtime_goal_tl`、`runtime_computer`/`runtime_mcp`/
+`runtime_plugin`/`runtime_schedule`/`runtime_history`/`runtime_node`/`runtime_task`/
+`runtime_visibility`/`runtime_bundle`/`runtime_deps`。
+
+**待用户裁决的相邻冗余（本轮新发现，未动）**：`backend/limit/overlay/overlay.go` 的
+`WriteAccountWindow` 与 `account.WindowOverlay.Set` 有同形状的一格增删（`>0` 写入 / 否则删键），
+但前者作用在**落盘结构**（JSON 覆盖层形状）、后者作用在**活体裁决读面**，按 AGENTS §8.2
+"只是长得像的不并"。若要收敛成"一处判据 + 一处落盘"，需先改 `AccountWindowStore` 端口的
+输入形状（现为 `SaveAccountWindow(name, window)`），属契约变更 → 等裁决。
