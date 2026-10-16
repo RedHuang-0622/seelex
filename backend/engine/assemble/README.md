@@ -45,11 +45,12 @@
 | P21-jobs-domain | **域方法随类型走**第九片：异步作业域的两面整文件下沉——作业生命周期事件流（`jobsEventStream` + 状态记忆 + 状态映射 + 时间基序号）与后台执行表投影（`AsyncRunsSnapshot` 的逐列搬运）；端口取窄（事件流只吃 `Snapshot(Scope)` 一格；投影只吃 `[]registry.AsyncRunInfo`） | 新建 [`backend/tool/jobs`](../../tool/jobs/README.md)（`event_stream.go` / `projection.go`，plan §2.6 的目标落点）；本包容纳事件流的那个文件（`jobs_events`）**整份删除**、`runtime_async.go` 只剩两个薄转发，`currentEventPersister` 移到 `runtime_plan.go`（与 `SetEventPersister` 同处），装配点 `SetTeamworkBackend` 改为 `tooljobs.NewEventStream(...)`。**顺带修掉一处停机隐患**：`Close` 在"从未 Start"时不再等一个永不关闭的 `done`（装配中途失败会让停机钉死） |
 | P21-project-board | **域方法随类型走**第十片：项目看板的两面下沉——按需读取面（`ReadProjectBoard` + 白名单归一 + 稳定排序 + 边界报错，整文件）与 `TeamworkPlanFor` 的取数判定（会话号归一 / 键完整性 / 读失败与空计划同解）；端口取两格函数值 | [`middle/view/board`](../../../middle/view/board/README.md) 的 `read.go` / `teamwork_plan.go`（plan §2.4 的目标落点）；本包按需读取面那个文件（`runtime_project_board_read`）**整份删除**、`runtime_project_board.go` 只剩方法转发 + `teamworkKeyFor` / `readTeamworkPlan` 两格宿主读数 + **直接**钉 `var _ board.TeamworkPlanSource = (*Runtime)(nil)`（依赖方向允许本层引用该接口名）；工具注册点 `wiring/registry/registry.go` 的 5 处引用改指域包。域级用例随实现搬进域包（`read_test.go` 断言逐字 + 5 条新的 `teamwork_plan_test.go`），宿主级用例（`runtime_project_board_test.go`，真 Runtime + 真存储）留在本包 |
 | P21-teammate-live | **域方法随类型走**第十一片：**当前 teammate 会话**的实时只读投影（默认页 + 分页读法 + 唯一一份裁剪/分页判据 + 只留 user/assistant 的投影判据 + 两个上限常量）整文件下沉 | [`backend/multiagent/teamwork`](../../multiagent/teamwork/README.md) 的 `teammate_live.go`（plan §2.7 的目标落点）；本包 `runtime_teammate_session_live.go` 只剩两个公开方法的一行转发 + 同值常量别名 + **一格宿主读数** `teammateLiveDeps`/`teammateLiveSession`（角色回合执行面句柄：角色名 / 是否在飞 / 引擎历史）。域级用例随实现搬进域包（`teammate_live_test.go`，含原纯函数用例的断言），宿主级用例（两个 `runtime_teammate_session_live*_test.go`，真 Runtime + 真角色回合）留在本包 |
+| P21-goal-tl | **域方法随类型走**第十二片：ADVISOR(TL) 真实评估器整文件下沉（提示词四段与输出契约追加、工具边界与实际执行面同源判定、只读权限口径、裁决解析与域校验） | [`backend/multiagent/goal`](../../multiagent/goal/README.md) 的 `advisor_evaluator.go`（plan §2.5：`seelebridge` 的 runtime_goal_tl → `backend/multiagent/goal/`"搬 + 反向依赖改端口"）；本包 `runtime_goal_tl.go` 只剩 `GoalTLEvaluator` + **三格宿主读数**（`completeAdvisorOnce` 无工具兜底 / `rolePromptFor` 提示词读面 / `advisorRound` 把 `goal.AdvisorRoundRequest` 翻成 `roleRoundSpec`——**唯一**一处翻译）。两条域级用例随实现搬进域包，另补 7 条（两条执行面同源、只读口径与 FreshContext、ErrTLDisabled 与 ErrBadDirective 的区分、宽松解析、安全截断）。顺带把装配层两个零散字符串助手（`stringPtr` / `truncateRunes`）抽到新文件 `strings.go`：它们不止 goal 用，原来挂在被搬走的文件尾部 |
 
 **仍未下沉**（按 plan §2.5–§2.8 的目标落点，逐域各一片）：engine 侧 `runtime_context`
 （→ `backend/engine/context`；同域的 `runtime_compaction_index` 已随 **P21-compaction-stack** 下沉）、
 `runtime_role_prompt`（→ `backend/engine/prompt`）、`runtime_tools`（→ `backend/engine/toolregistry`）、
-`runtime_session` / `role_host_session`（→ `backend/engine/session`）、`runtime_goal_tl`（→ `backend/multiagent/goal`）；
+`runtime_session` / `role_host_session`（→ `backend/engine/session`）；
 tool 侧 `runtime_plan`（→ `backend/tool/plan`）；
 multiagent 侧 `runtime_teamwork*` + `teamwork`（→ `backend/multiagent/teamwork`）、
 `runtime_subagent_*`（→ `backend/multiagent/subagent`；实时流与独立会话工厂已随 **P21-live-dispatch** /
@@ -78,7 +79,7 @@ flowchart TB
         R2["runtime_tools / runtime_plan / runtime_context"]
         R3["runtime_account / runtime_session / runtime_deps"]
         R4["runtime_computer / runtime_role_*"]
-        R5["runtime_goal_tl：TLEvaluator 真实实现"]
+        R5["runtime_goal_tl：goal 域 TLEvaluator 的装配面（本体已下沉 goal 域）"]
     end
 
     subgraph DOMAIN["子包（域实现）"]
@@ -123,7 +124,8 @@ flowchart TB
 | `runtime_tools.go` | 工具注册表装配（RegistryState/内联工具/权限门）、RegisterBuiltins、可见性策略装配、Deps 闭包工厂 |
 | `runtime_computer.go` | computer use 工具族装配：`SEELEX_COMPUTER_USE` 门控 + 平台判定 + DPI 感知 + 注册（脚本面见 `../backend/tool/computer/tools*.go`） |
 | `runtime_role_prompt.go` | 员工提示词的装配读面与一次有界优化：`SetRolePromptProvider`/`rolePromptFor`（ADVISOR 回合取已登记提示词，未登记回退内置；装配根在 `main.go` 注入）+ `OptimizeRolePrompt`（实现 `contract.RolePromptPort`，只产出候选、不落盘、不写会话消息） |
-| `runtime_goal_tl.go` | goal 域 `TLEvaluator` 的真实实现（主 completer + `TLDirective` JSON 契约）；ADVISOR 角色设定优先取已登记的员工提示词，**输出契约永远追加**（登记提示词改不掉解析格式） |
+| `runtime_goal_tl.go` | goal 域 TL 评估器的**宿主转发面**（P21-13：评估器本体与提示词判据在 [`backend/multiagent/goal.AdvisorEvaluator`](../../multiagent/goal/README.md)）：`GoalTLEvaluator()` 装配 + 三格宿主读数（`completeAdvisorOnce` / `rolePromptFor` / `advisorRound`→`roleRoundSpec` 的唯一翻译） |
+| `strings.go` | 装配层自己的零散字符串助手（`stringPtr` / `truncateRunes`）——原来挂在 `runtime_goal_tl.go` 尾部，但提示词优化与角色回合读数也在用，故单独成文件并写明与别处同名助手"像却不并"的理由 |
 | `runtime_role_turn.go` | **角色（员工）回合执行体**：开角色会话（独立引擎 + 角色提示）的同时把该员工的权限分配成 `emp_<角色名>` 主体，回合起手按构造把主体放进 ctx（`tools.WithEmployeeSubject`），工具面与判定因此按角色权责收窄；引擎构造可用 `SetRoleEngineFactory` 替换（测试/更严隔离面），`ReleaseRoleSessions` 在 Shutdown 释放派生执行面。**ReAct 钩子按本轮身份分流**（2026-10-03）：员工做工回合（`roleRoundSpec.WorkScope`）的每次工具调用 → `dto.RoleToolActivity` → `SetRoleToolCallback`（装配根接 `app.HandleRoleToolActivity`）→ 会话级事件 `teammate.tool.started/completed`；ADVISOR 评审回合仍走 goal 域 TLStep sink |
 | `runtime_session.go` | 主会话绑定状态（sessionBindings：ctxStore/historyRouter/mainHistory/project/turnArchiver/sessionID）+ merge-back 内部方法 |
 | `runtime_live.go` | node 第一视角实时流的**宿主转发面**（P21-2：状态/广播循环/事件源接线/窗口归一化/分页读法都在 [`backend/multiagent/subagent.LiveDispatcher`](../../multiagent/subagent/README.md)）：`SubscribeSubagentLive`（历史回放 + 实时通道）与**同一份回放窗口**的分页读法 `SubagentLiveHistoryPage` 一行转发；窗口**配置读数**留在本层（`RuntimeConfig.SubagentLiveWindow`），归一化判据在域包（0 → 默认 512，<50 → 50） |

@@ -42,6 +42,11 @@ headless 契约（`headless.go`）作为外部驱动面。
 - DS-A2A 双会话治理：EXEC 事件账本（execSeq）、ADVISOR 独立上下文
   （锚点 + 帧账本 + 自身回合段，只尾部追加）、corr 信封指令、B4 缺席矩阵
   （`advisor.go`/`techleader.go`/`gate.go`）；
+- **ADVISOR 的真实评估器**（`advisor_evaluator.go`，P21-13 从
+  `backend/engine/assemble/runtime_goal_tl.go` 归位）：提示词分段（内置角色设定 /
+  已登记员工提示词 + 工具边界 + **永远追加**的输出契约）、"有工作区就带只读工具跑一轮、
+  否则退回无工具一次调用"的两条执行面同源判定、裁决解析（语法容错、语义不放宽）与
+  `Validate` 兜底；
 - 终态 gate 与审批预筛（`gate.go`）——已退场的席位环曾把 EXEC/TL 语义适配成
   `govern.Seat`（`adapter.go`，2026-10-03 已删除）；
 - headless 调教接口（`/rpc` + `/events`，`headless.go`）。
@@ -51,7 +56,8 @@ headless 契约（`headless.go`）作为外部驱动面。
 - 不持有 seelebridge/application 装配（P1 起由 application 的会话级
   goal 协调器持有 Controller/Supervisor，见 `application/core/goal_coordinator.go`；
   真实 TLEvaluator 与 gui/headless 透传为待续项）；
-- 不接触 LLM provider/账号（`TLEvaluator` 由装配方注入，本包不持有凭据）。
+- 不接触 LLM provider/账号：`TLEvaluator` 的三格读数（无工具兜底调用面、角色提示词读面、
+  角色回合原语）由装配方以**函数值**注入，本包不持有凭据、不认识 Runtime 与引擎槽。
 
 ## 架构图
 
@@ -149,6 +155,15 @@ stateDiagram-v2
   治理，不渲染进模型上下文）；
 - `audit.go`：审计端口与有界条目（`AuditAccount`/`AuditEntry`），
   `ContextStateStore.AppendGoalAudit` 映射为 store GoalAuditEntry。
+- `advisor_evaluator.go`：ADVISOR(TL) 的真实评估器（P21-13 从
+  `backend/engine/assemble/runtime_goal_tl.go` 归位）——`AdvisorEvaluator` +
+  `AdvisorEvaluatorDeps{Complete, PromptProvider, Round}`（三格宿主读数，都是函数值）+
+  `AdvisorRoundRequest`（域侧回合请求，装配层翻译成宿主的角色回合原语）+ 两个上限常量
+  （`AdvisorRoundMaxLoops`=8 / 评审会话号前缀 `advisor:`）+ 提示词四段与
+  `AdvisorSystemPrompt` + `ToolRoundEnvelope`（"这一轮有没有读手段"与实际分支**同源**）
+  + `Evaluate`（解析与 `Validate` 兜底）。**只读是评审者的构造口径**：
+  权限由域内常量给出（`dto.ToolPolicyReadonly`），不读角色注册表——否则 "tl 被填成
+  readwrite" 就等于给评审者发写权限。
 
 （`adapter.go` 已删除：它曾把上面语义翻译为 `govern` 治理循环的座位动作，
 2026-10-03 随席位轮转退场；今天没有"座位动作"这一层。）
@@ -178,6 +193,10 @@ goal_propose_finish → 终态 gate（真实 TL 回合 → verdict_done / not_do
 - goal 包保持叶子生态位：只依赖低层持久化
   `store`（GoalFrame 纯 DTO），不依赖 application/core 其它子包与
   seelebridge；
+- `advisor_evaluator.go` 在叶子生态位内多加两格**平台级**依赖：`contract/dto`
+  （只读权限口径常量）与 `internal/jsonobj`（裁决原文的宽松解码）；执行面（completer /
+  角色回合 / 提示词读面）一律以函数值注入，**禁止** import `backend/engine/assemble`
+  （装配层反过来依赖本包）；
 - `sessionstore_store.go` 依赖 `store`（goal → store 单向，
   store 不反向依赖 goal）；
 - seelebridge 未来可依赖 goal（装配面），方向不反转。
@@ -271,6 +290,30 @@ go test -race ./backend/multiagent/goal/ -count=1
 - `func (e TLSessionEmbed) RenderText() string` — RenderText 把一次 b 回合输入渲染为文本（P_b 角色说明 + 锚点 + 帧账本 + 自身回合段）。
 - `func goalFrameText(frame GoalFrame) string` — goalFrameText 渲染锚点目标（复刻 Goal 帧关键信息，有界）。
 - `func (b *AdvisorSession) markBound(peerID string, anchor GoalFrame, refSeq uint64, now int64)` — markEvaluating / markAdvisory / markBound 是状态机辅助（调用方持锁）。
+
+### advisor_evaluator.go
+
+- `func AdvisorRoleSessionID(mainSessionID string) string` — AdvisorRoleSessionID 派生某主会话的 ADVISOR 评审会话号。
+- `func NewAdvisorEvaluator(deps AdvisorEvaluatorDeps) *AdvisorEvaluator` — NewAdvisorEvaluator 装配评估器（装配点是组合根的 `Runtime.GoalTLEvaluator`）。
+- `func (e *AdvisorEvaluator) AdvisorSystemPrompt(withTools bool) string` — AdvisorSystemPrompt 组装 ADVISOR 回合的 system 提示词：**已登记的员工提示词
+- `func (e *AdvisorEvaluator) ToolRoundEnvelope(embed TLSessionEmbed) bool` — ToolRoundEnvelope 报告本回合会不会走"带只读工具"的评审回合。
+- `func (e *AdvisorEvaluator) Evaluate(ctx context.Context, embed TLSessionEmbed) (TLDirective, error)` — Evaluate 跑一轮评审并给出裁决：提示词 → 回合 → 解析 → 域校验。
+- `func (e *AdvisorEvaluator) review(ctx context.Context, embed TLSessionEmbed, systemPrompt, content string) (string, error)` — review 跑一次评审回合：优先带只读工具（角色会话，权限按构造落地），没有工作区
+- `func parseGoalDirective(raw string) (TLDirective, error)` — parseGoalDirective 从 b 回合原文里取出 TLDirective。
+- `func truncateAdvisorRunes(value string, max int) string` — truncateAdvisorRunes 把一段原文压到 max 个 rune 并加省略号（只用于错误文案的原文摘录）。
+
+### advisor_evaluator_test.go
+
+- `func TestAdvisorSystemPromptPrefersRegisteredPrompt(t *testing.T)` — TestAdvisorSystemPromptPrefersRegisteredPrompt：登记了员工提示词就用它，未登记
+- `func TestAdvisorSystemPromptReportsActualToolBoundary(t *testing.T)` — TestAdvisorSystemPromptReportsActualToolBoundary：工具边界必须与实际执行面**同源**
+- `func advisorEmbed(mainSessionID string) TLSessionEmbed`
+- `func TestAdvisorEvaluatorUsesRoundOnlyWithWorkspace(t *testing.T)` — TestAdvisorEvaluatorUsesRoundOnlyWithWorkspace：有工作区（embed 带主会话 id）且注入了
+- `func TestAdvisorEvaluatorFallsBackWithoutWorkspace(t *testing.T)` — TestAdvisorEvaluatorFallsBackWithoutWorkspace：没有主会话 id（老宿主/单测）或没有回合
+- `func TestAdvisorEvaluatorDisabledWithoutDeps(t *testing.T)` — TestAdvisorEvaluatorDisabledWithoutDeps：两格执行面都没装 ⇒ `ErrTLDisabled`
+- `func TestAdvisorEvaluatorRejectsBadDirective(t *testing.T)` — TestAdvisorEvaluatorRejectsBadDirective 钉住**两类失败的区分**：原文解析不出 / 域校验
+- `func TestParseGoalDirectiveLenientSyntax(t *testing.T)` — TestParseGoalDirectiveLenientSyntax：容错只修**语法**（围栏 / 未转义引号），不改语义；
+- `func TestAdvisorRoleSessionIDIsNamespacedPerMainSession(t *testing.T)` — TestAdvisorRoleSessionIDIsNamespacedPerMainSession：评审会话号走独立命名空间且按主会话稳定
+- `func TestTruncateAdvisorRunesIsSafeForNonPositive(t *testing.T)` — TestTruncateAdvisorRunesIsSafeForNonPositive：`max <= 0` 原样返回（不切片越界 panic）。
 
 ### audit.go
 
