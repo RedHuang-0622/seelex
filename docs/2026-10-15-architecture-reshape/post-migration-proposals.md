@@ -27,7 +27,7 @@
 | P8 | 契约 vs 兼容面甄别（别名/转发面清理） | `backend/workunit`、`backend/limit/policy`、`store`、`middle/protocol/*`、`internal/*` | 搬迁期留了一层 `type X = Y` 别名与转发（`GroupBit*`、`NodeScope`、`Settings`、`StoreFile` 等） | **先判性质**：①**契约抽象**（如 `workunit` = 后台工作 agent 的抽象，含 subagent/teammate，并为未来后台 agent 方案（含规划中的远程 agent 调用）提供契约；`policy` = 多条件 select 出 bool 决定权限的统一抽象与契约）→ 保留并归位；②**兼容面**（只为不动调用点而存在的转发/别名）→ 删；③**冗余或僵尸面** → **先暴露清单与详解，交用户决定**，不自行删 | 判错性质会把契约当垃圾删掉，或把垃圾当契约供起来 | 按上述三类处置；**每一条都要先给"为什么是这一类"的判据与证据** | **已裁决（按三类甄别；冗余/僵尸先暴露给用户决定）** |
 | P9 | 错误文案统一 | `backend/engine/obs`（原 `seelebridge/events_unified.go`） | 文案里仍写 `"unified events: sessionstore router is not attached"`（D-M3-12） | 改成当前包名措辞 | 用户可见面；改则同步用例 | 做（按建议），单独一个 commit | **已裁决（按建议做）** |
 | P10 | **判据漂移（较高优先级 bug）**：`isSessionNotFound` 两份实现 | `store/durable_history.go`、`seelexctx/search/search.go`（终局 `backend/engine/context/seelectx/search`） | 两处各自判断"会话不存在"，后者还多认 `sql.ErrNoRows`（SQL 后端已退役）→ 两处**已不一致** | 合并成一处唯一判据（保留哪一份的语义要有依据） | AGENTS §8.3「同一判据两处即缺陷」；不合并会让"会话不存在"在不同路径下两种答案 | **先写会红的用例复现差异，再合并** | **已裁决（较高优先级修复）** |
-| P11 | 覆盖缺口：节点预算上限守卫 | `backend/tool/plan`、`backend/limit/loop` | `docs/arch/ARCHITECTURE_REVIEW.md` 宣称的 `plan_input_fuzz_test.go` 在现行树**不存在** | 补用例，或把该行标为"无覆盖" | 不补=文档失真 | 按建议：补用例或改文档，二选一 | **已裁决（按建议判别）** |
+| P11 | 覆盖缺口：节点预算上限守卫 | `backend/tool/plan`、`backend/engine/assemble` | `docs/arch/ARCHITECTURE_REVIEW.md` 声称为 `plan_input_fuzz_test.go`；复核更正：该文件**存在**（`backend/engine/assemble/plan_input_fuzz_test.go`），但只 fuzz `NormalizePlanLoadArguments`，**不触及** `ValidatePolicyLoad` 的 MaxNodeLoops/MaxNodeOutputTokens 分支 → 覆盖缺口为真、理由不同 | 补用例（原描述的二选一里选"补"） | 不补=文档失真 | 补边界用例，并把文档指向真实用例名 | **已修复（见 [p-items-record.md](p-items-record.md) §P11）** |
 | P12 | 文档漂移清理 | `docs/arch/**`、模块 README、`docs/gui/**` | `docs/arch` 约 23 行指向从未存在的旧文件名；README 漂移门禁现存 12 条（与本方案无关） | 逐条改指当前实现或标"已删除" | 不打红 CI（有容忍表），但损害"文档即事实" | 按建议做，可并入 P7 收口片 | **已裁决（按建议判别）** |
 | P13 | 「文件与函数索引」生成器全仓化 | `scripts/gen_core_readme_index.py`、全仓 Go 包 README | 生成器只覆盖 `application/core` 分卷与少数登记包 | 提取逻辑扩到全仓，一次补齐 | 逐包手补会漂移 | 按建议做；先确认"中文 doc 注释缺失"包的降级行为 | **已裁决（按建议判别）** |
 | P14 | 多入口 / 多变体构建 | `wiring/{config,bootstrap,registry}`、新增 `cmd/<变体>/main.go` | `main.go` 已 36 行 | 有第二入口需求时加 `cmd/<变体>/main.go`，不复制 main | 现在没有真实第二入口 | 按建议：先不做，等需求 | **已裁决（按建议判别）** |
@@ -138,5 +138,6 @@
 - 搬迁方案与约束：[plan.md](plan.md)。
 - 各里程碑**已做**内容、删除清单与偏差：[m1-record.md](m1-record.md)、[m2-record.md](m2-record.md)、
   [m3-record.md](m3-record.md)、[m4-record.md](m4-record.md)、[m5-record.md](m5-record.md)。
+- 本文件里**已执行**的提案条目（做过的删除/新增与证据）：[p-items-record.md](p-items-record.md)。
 - 剩余搬迁切片与切分技术：[m5-slices.md](m5-slices.md)、[m4-decision-brief.md](m4-decision-brief.md)。
 - 本文件只放**提案**（未做）+ 用户裁决，与"已做/在做"的记录分开，避免把规划写成既成事实。

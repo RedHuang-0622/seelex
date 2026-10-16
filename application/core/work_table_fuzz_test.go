@@ -8,7 +8,7 @@ import (
 )
 
 // FuzzBuildWorkTable 以畸形输入喂投影构建器：深层嵌套、错类型、超大文本
-// 都必须产出有界行且不 panic（白盒健壮性，参照 plan_input_fuzz_test.go）。
+// 都必须产出有界行且不 panic（白盒健壮性）。
 func FuzzBuildWorkTable(f *testing.F) {
 	f.Add(`{"status":"running","nodes":[{"id":"n1","label":"a","status":"completed","output":"x","events":[{"status":"queued","at":"2026-01-01T00:00:00Z"}]}]}`, `[]`)
 	f.Add(`{"status":"completed","nodes":[],"edges":[]}`, `[{"id":"todo:0","phase":"tasklist","task":"a","status":"doing","kind":"todo"},{"id":"subagent:s1","phase":"subagent","task":"g","status":"running","kind":"subagent"}]`)
