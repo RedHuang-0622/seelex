@@ -2,15 +2,14 @@ package assemble
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
 
+	contextruntime "github.com/RedHuang-0622/seelex/backend/engine/context"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/compactor"
-	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/memory"
 	"github.com/RedHuang-0622/seelex/backend/engine/context/seelectx/snapshot"
 	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
 	"github.com/RedHuang-0622/seelex/store"
@@ -49,30 +48,16 @@ func (r *Runtime) compressionSnapshot(_ string) *snapshot.ContextSnapshot {
 // 压入会话压缩栈（state blob / 内存兜底），原文经 TurnArchiver 归档
 // （read_compressed_turn 可读回）。无真空区 → 无副作用。
 func (r *Runtime) coverHistoryGap(ctx context.Context, allEvents []store.Event, tailStartUnit int) error {
-	if len(allEvents) == 0 {
-		return nil
-	}
-	stacks := runtimeCompactStacks{runtime: r, memory: seelexctx.NewMemoryCompactStack()}
-	record := stacks.Snapshot()
-	if len(record.CompactStack) == 0 {
-		// 没有压缩基线（会话从未在运行期产生过 CompactStack 帧）时不做真空区
-		// 补压：冷恢复只装载尾窗，与“未重启继续运行”的上下文组成一致。否则
-		// 每次恢复都会凭空生成一个覆盖会话头部的合成摘要帧，使恢复后首请求
-		// 比中断前多出模型从未见过的前缀（前缀不稳定 / 顺序不一致）。
-		return nil
-	}
-	_, err := seelexctx.CoverHistoryGap(ctx, seelexctx.GapCoverageOptions{
-		AllEvents:     allEvents,
-		TailStartUnit: tailStartUnit,
-		Record:        record,
-		Stacks:        stacks,
-		Turns:         r.getTurnArchiver(),
-		SessionID:     r.MainSessionID(),
-		// 帧摘要传递上限（limits.context_frame_carry_tokens）：真空区合并帧同样
-		// 受并入上限约束，避免栈顶帧随帧数无界膨胀。
+	// 判据（"没有压缩基线就不补"）在域包 context_runtime.CoverHistoryGap；本层只把
+	// "当前会话的压缩栈 / 轮次归档器 / 会话号 / 传递上限"接成那一跳的读数。
+	return contextruntime.CoverHistoryGap(ctx, contextruntime.GapCoverageDeps{
+		AllEvents:        allEvents,
+		TailStartUnit:    tailStartUnit,
+		Stacks:           runtimeCompactStacks{runtime: r, memory: seelexctx.NewMemoryCompactStack()},
+		Turns:            r.getTurnArchiver(),
+		SessionID:        r.MainSessionID(),
 		FrameCarryTokens: r.limits.ContextFrameCarryTokens,
 	})
-	return err
 }
 
 // mainContextComponents 构造主会话的 ContextComponents（plan.md §3.1 步骤 4）。
@@ -130,26 +115,8 @@ func (r *Runtime) relatedMemoryBlocks(_ context.Context, query string) []seelect
 	if st == nil {
 		return nil
 	}
-	record := st.Snapshot()
-	if len(record.CompactStack) == 0 {
-		return nil
-	}
-	candidates := make([]memory.Candidate, 0, len(record.CompactStack))
-	for _, frame := range record.CompactStack {
-		candidates = append(candidates, memory.Candidate{
-			SegmentID: frame.SegmentID, Summary: frame.Summary,
-			Evidence: frame.Evidence, From: frame.From, To: frame.To,
-		})
-	}
-	opts := memory.DefaultOptions()
-	selected := memory.Select(query, candidates, opts)
-	if len(selected) == 0 {
-		return nil
-	}
-	if block := memory.RenderMemoryBlock(selected, opts.MaxTokens); block != nil {
-		return []seelectx.PromptBlock{*block}
-	}
-	return nil
+	// 选取与渲染的判据在域包（候选 → 词法选取 → 渲染；无命中就不注入）。
+	return contextruntime.RelatedMemoryBlocks(st.Snapshot(), query)
 }
 
 // resolvePlaceholder 解析 {{name}} 占位符（当前无内置变量，未知占位符
@@ -218,14 +185,7 @@ func (r *Runtime) seelexController() seelectx.ContextController {
 // limits.context_compaction_summary.input_tokens > 0 时以配置为准；未配置才走
 // 这里的推导——旋钮的零值必须是"沿用既有行为"，否则加了它就静默改掉片预算。
 func (r *Runtime) replayInputTokens() int {
-	if configured := r.limits.ContextCompactionSummary.InputTokens; configured > 0 {
-		return configured
-	}
-	window := r.ContextWindow()
-	if window <= 0 {
-		return 0
-	}
-	return window * 3 / 4
+	return contextruntime.ReplayInputTokens(r.limits.ContextCompactionSummary.InputTokens, r.ContextWindow())
 }
 
 // compactionSummarizer 按开关构造前缀重放厚摘要器（limits.context_compaction_summary）。
@@ -246,18 +206,8 @@ func (r *Runtime) compactionSummarizer() seelexctx.PrefixReplaySummarizer {
 // 可看，现场只剩一个 `summary_source=local`；这份 note 走进压缩 DAG 的
 // SummarizerNote，最终落进帧证据与帧正文，让"模型为什么没被叫到"在帧里自答。
 func (r *Runtime) compactionSummarizerWithNote() (seelexctx.PrefixReplaySummarizer, string) {
-	if !r.limits.ContextCompactionSummary.Enabled {
-		return nil, "压缩处厚摘要开关关闭（limits.context_compaction_summary.enabled 非 true），本次不调用模型"
-	}
-	quickChat, err := seelectx.NewQuickChat(r.completer)
-	if err != nil || quickChat == nil {
-		return nil, fmt.Sprintf("QuickChat 装配失败（%v），本次不调用模型", err)
-	}
-	summarizer, err := seelexctx.NewQuickChatPrefixReplaySummarizer(quickChat)
-	if err != nil {
-		return nil, fmt.Sprintf("前缀重放摘要器构造失败（%v），本次不调用模型", err)
-	}
-	return summarizer, ""
+	// 三条 nil 出口与各自的理由文案都在域包：本层只给"开关"与"主 completer"两格读数。
+	return contextruntime.NewCompactionSummarizer(r.completer, r.limits.ContextCompactionSummary.Enabled)
 }
 
 // MainCompactionDAG 返回**装配层压缩**（application/core/context_runtime，回合
@@ -342,24 +292,8 @@ func (r *Runtime) windowPolicy() seelexctx.WindowPolicy {
 	return r.window
 }
 
-// windowTailBudget 推导主会话 DurableHistory 的读尾预算（D1，plan.md §9）。
-// 它是「从磁盘读哪些分片」的宽度上限，不是压缩保留前缀的决策——保留前缀走
-// WindowConfig.RetainedContextTokens 的 min(token1, token2)。
-//   - tokenBudget = 账号上下文窗口：恒 ≥ 保留前缀（该函数已把结果夹在
-//     [1, all_context]），所以这一维实际不约束；
-//   - maxUnits = 轮数：本路径只给 ProviderContextInfo 填 ContextTokens，
-//     AvgRoundTokens/Reserved 缺省 → WindowRounds 恒走"输入缺失回退"分支，
-//     因此实际值 = window.rounds（显式配置时）或 window.min_rounds，
-//     clamp 推导在此不生效（要自适应需补估算输入，属另一条决策）。
-//
-// 两条边界：尾窗分支同时是真空区覆盖的唯一触发点（见 runtime.go 装配）；
-// selectEventTail 把 maxUnits<=0 判为"不读"（返回空历史），故 0 必须回退。
+// windowTailBudget 推导主会话 DurableHistory 的读尾预算（判据在域包：窗口 → 读尾的
+// tokenBudget/maxUnits 推导与轮数回退）。
 func (r *Runtime) windowTailBudget() (tokenBudget, maxUnits int) {
-	tokenBudget = r.ContextWindow()
-	info := seelexctx.ProviderContextInfo{ContextTokens: tokenBudget}
-	rounds, _ := r.windowPolicy().WindowRounds(context.Background(), info)
-	if rounds <= 0 {
-		rounds = seelexctx.DefaultWindowConfig().MinRounds
-	}
-	return tokenBudget, rounds
+	return contextruntime.WindowTailBudget(r.ContextWindow(), r.windowPolicy())
 }

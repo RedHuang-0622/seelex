@@ -69,6 +69,8 @@
 | `history.go` | provider 历史归一化（`HistoryCoordinator`）。 |
 | `compaction_stack.go` | **装配层压缩推帧的接收侧**（P21「域方法随类型走」从 `backend/engine/assemble/runtime_compaction_index.go` 归位）：`CompactionStack` + `CompactionStackDeps`（四个函数值读取面由装配点注入）+ `Push` / `Readback` / `SummaryAvailable` + 两个帧降级助手（`frameLocalDegrade` / `frameSummaryNote`）。调用侧（`compaction_index.go`）与端口（`ports.go` 的 `CompactionIndexPort`）本来就在本包，接收侧回归后这一域不再跨包往返。 |
 | `compaction_stack_test.go` | 降级码与原因（去首尾空白、无证据不编原因）、探针跟摘要器走、未绑定存储/未装配 runtime 的两种装配缺口文案 |
+| `wiring.go` | **上下文面的判据**（P21-17 从 `backend/engine/assemble/runtime_context.go` 归位，plan §2.5）：`ReplayInputTokens`（旋钮零值语义：未配置才走窗口 3/4）、`NewCompactionSummarizer`（三条 nil 出口各带理由文案）、`WindowTailBudget`（读尾预算 + 轮数回退）、`CoverHistoryGap` + `GapCoverageDeps`（**没有压缩基线就不补真空区**）、`RelatedMemoryBlocks`（候选 → 词法选取 → 渲染；无命中不注入）。装配层只留组件工厂（把宿主 limits/completer/会话上下文存储接成构造参数） |
+| `wiring_test.go` | 旋钮零值语义与窗口未装配（不分片）、三条 nil 出口的理由、读尾预算与轮数回退、无基线不补帧、记忆块选取（空记录/空查询/无命中/命中） |
 
 ## 数据流图
 
