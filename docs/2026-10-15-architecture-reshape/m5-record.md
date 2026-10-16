@@ -427,3 +427,76 @@ dirty 门、原因归一、`Load` 只增不减语义逐字保留。`internal/REA
   重新用 `apply_patch` 落改动）。变异实验一律"改 → 跑 → 立刻用 git 复原 → 用 apply_patch 重落"。
 - 夹具跨包时**先想好 import 方向**：`boardtest` 若 import `board`，board 的内部用例就无法 import 它
   （Go 不允许测试环）。所以夹具刻意保持"零业务依赖 + 由使用侧断言接口满足"。
+
+## M5-R5c —— 视图读数面归位 `middle/view`（plan §2.4）
+
+提交：`d7ca1cc4`（`middle/view` 根包本体（`diagnostics.go` / `metrics.go` / `projection.go` /
+`view_test.go` / `README.md`）+ 三处宿主缝 + 两道门禁登记）。分支仍是
+`refactor/architecture-reshape`。
+
+**删除清单（原位置 → 新唯一位置）**
+
+| 原位置 | 新唯一位置 | 说明 |
+|---|---|---|
+| `application/core/diagnostics.go` 的 `RenderDiag` 实现（82 行） | `middle/view/diagnostics.go` 的 `RenderDiag` | 宿主只留一行转发（`/diag` 命令与门面签名不变） |
+| `application/core/perf_stats.go` 的派生计算（44 行） | `middle/view/metrics.go` 的 `PerfStats` | 宿主只留"锁下取数"（上限 / 归档读数 / 快照三处输入） |
+| `application/core/runtime_projection.go` 的 `latestVisibleUserGoal` + `truncateRuntimeProjectionGoal`（两条判据） | `middle/view/projection.go` 的 `LatestVisibleUserGoal` + 私有 `truncateRuntimeProjectionGoal` | 宿主只留"锁下取数、锁外发布" |
+| `application/core/runtime_projection.go` 对 `backend/engine/assemble` 的投影形状依赖 | `middle/view/projection.go` + `contract/dto` | **消掉一条越层边**：投影形状本已在 `contract/dto`，宿主不再经适配层取名 |
+
+**偏差登记**
+
+1. **锁与进程级上限不搬**。plan 只说文件搬到 `middle/view/`，但 `PerfStats` 原来整段跑在
+   `service.ViewMu` 读锁里，`HistoryWindow` 读的是 `backend/limit` 的进程级快照。把锁搬进
+   中间层意味着中间层要么持有宿主的互斥量、要么反向依赖 `backend/limit` —— 两条都违反
+   plan §1.2 的"中间层允许依赖 = 契约 + store 读端口"。因此本片按**计算入中间层、取数留宿主**
+   切：`view.PerfStats(snapshot, historyWindow, toolRefs)` 把三个宿主输入按参数收下。
+   代价为零：调用点、门面签名、`Snapshot`/`PerfStats` 字段与 JSON 标签一字未动。
+2. **`middle/view/state` 只借一个常量**：`SubagentContextMarker` 是"子代理产出标记"的既有唯一
+   定义（`middle/view/state/coordinator.go:26`），`LatestVisibleUserGoal` 直接引用它而不是复写字符串
+   ——否则标记词表就有两份，改一处会漂移成两份判据。
+3. **`diagnostics.go` 仍在 `application/core` 留名**：文件里只剩一行转发。留名是为了让
+   `command.go`（`/diag`）与门面 `application.RenderDiag` 的调用点零改动；plan §2 的两段式
+   技术本身就要求"门面侧转发方法保留，这是门面稳定的钉子"。
+
+**保真证据（不是"测试绿了"，是"同一份输入跑两遍得同一结果"）**
+
+- **跨实现一致性探针**（`AGENTS.md` §8.6）：`_scratch/r5c_probe`（下划线目录，Go 工具链与
+  README 门禁都当它不存在）把**迁移前的三个函数逐字保留**成 legacy 实现，与 `middle/view`
+  在**同一份合成输入**上对跑（含 4 节点计划、2 插件、2 账号（1 个禁用）、5 技能（跨 `cols=4`
+  折行）、6 条消息（空正文 / 子代理标记行 / 250 rune 目标 / 截断工具结果）、2 条归档引用）：
+
+  ```text
+  RenderDiag 一致（638 字节）
+  PerfStats 一致（{SnapshotBytes:2982 ConversationMessages:6 ConversationChars:1114
+                   LargestMessageChars:750 ToolResults:2 ArchivedBytes:123
+                   TruncatedOutputs:1 HistoryWindow:37 Revision:12345}）
+  LatestVisibleUserGoal 一致（201 runes）
+  RuntimeVisibility 字段一致
+  ParentEvidence 字段一致
+  跨实现一致性探针：全部一致
+  ```
+
+  `RenderDiag` 与 `LatestVisibleUserGoal` 是**逐字节**相等（不是"结构化等价"）；`PerfStats` 是
+  整结构体相等。探针本身不 commit（`_scratch/` 是本地草稿目录），命令与输出记在此处。
+- **旧实现只剩一份**：`application/core` 侧只有一行 `return view.RenderDiag(snap)`；
+  `latestVisibleUserGoal` / `truncateRuntimeProjectionGoal` 在 `application/core` 已无定义
+  （`rg` 全仓只剩 `middle/view` 一处）。宿主的 `PerfStats` 只剩取数与转发。
+- **门禁两向验过**：`facadeClosureAllowList` 增 `middle/view`、上限 74 → 75（**一条进**的新模块：
+  此前它是 `application/core` 里的文件）；`e2e/layout_test.go` 模块表增 `middle/view`；
+  `scripts/gen_core_readme_index.py` 的 `EXTRA_PACKAGES` 增同项，并已重跑生成器（core 分卷索引
+  同步删掉两条已迁走的函数条目）。
+
+**验证（本机实跑）**
+
+- `gofmt -l .` 空；`go build ./...` 绿；`go build -tags "gui,desktop,production" ./...` 绿；
+  `go vet ./middle/view/ ./application/core/ ./e2e/` 绿。
+- `go test ./middle/view/ -count=1` 绿（新包 5 组用例）；`go test ./middle/... ./gui/... -count=1` 绿；
+  `go test ./e2e/ -count=1` 绿（模块 README 门禁 / 闭包 ratchet / 链接门禁一并过）。
+- `go run ./_scratch/r5c_probe` 退出码 0（上面的逐条一致）。
+
+**下一步（R5 续做）**
+
+- R5a-2：给 board 定 `Host` 端口，把取数口搬进 `middle/view/board`。
+- R5b：`work_table.go` + `work_table_async.go` → `middle/view/worktable/`（终态触发回合段 → `middle/switch/`）。
+- R5c-2：`service_snapshot.go`（会话状态富化 + 目录行富化）→ `middle/view`，需要先定
+  `SnapshotHost`（`ViewMu` 读锁下的 Snapshot / 会话单元 / 草稿槽 / restoring 集合）。
