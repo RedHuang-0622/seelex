@@ -32,84 +32,47 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
+	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/internal/model"
 	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
-	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
 	"github.com/RedHuang-0622/seelex/store"
 )
 
 // ── 端口（生命周期实现只认识这三个名字）──────────────────────────────────
 
-// sceneFace 是**现场端口**：一份活的现场（建 / 合并 / 认领 / 拆 / 在册）。
-//
-// 建与合并是两层的动作，由实现在内部按**归属读数**选路（团队托管的现场归 team，其余归
-// worktree 端口）；认领、拆单体与在册读数是子代理那一侧的动作——team 托管的现场由编排端口
-// 的 Reclaim 一并拆、由编排端口的 Recover 一并认领（那里是那份"整队收口"的唯一实现）。
-type sceneFace interface {
-	// BeginScene 建（或复用）这一份现场：返回现场身份（指派名 + 现场 nodeID）。
-	// 幂等，且**不得**对已存在的现场动手（现场是人的资产）。
-	BeginScene(ctx context.Context, own workunit.Ownership, nodeID, sessionPath string) (workunit.Scene, error)
-	// MergeScene 把这一份现场的改动合回主工作区**一次**（合并失败原文交回调用方分类）。
-	MergeScene(ctx context.Context, own workunit.Ownership, nodeID, sessionPath string) error
-	// ReleaseScene 拆掉**没有团队归属**的那一份现场（幂等；team 托管的那一份由编排端口回收）。
-	ReleaseScene(nodeID string)
-	// AdoptScenes 认领本会话在册的现场（重启回灌；**必须在 Prune 之前**）。
-	AdoptScenes(ctx context.Context, sessionPath string) error
-	// SceneRegistered 报告这一份现场此刻是否还在册（读数，不动现场）。
-	SceneRegistered(nodeID string) bool
-}
-
-// unitFace 是**编排闸门 + 账本端口**：谁在编、哪一件、收尾往哪写、回收谁、重启怎么回灌。
-//
-// 它**不是**"第二份生命周期"：分类、重入、合并只做一次这些判据都在 lifecycleHost 里，这一格
-// 只提供"编排面已有的读写"。方法面全部用契约词汇，`teamwork.WorkerRequest` 不出装配处。
-type unitFace interface {
-	// Owned 报告这一份是不是**归团队托管**（编排里认得这一件）。
-	Owned(ctx context.Context, sessionPath string, own workunit.Ownership) bool
-	// Settled 报告这一件事在计划里是否已经收过尾（收口过 / 被重派）。
-	Settled(ctx context.Context, sessionPath, itemID string) (bool, error)
-	// SettleUnit 交回收尾结论（分类 + 计划状态 + 回执）；分类是编排面那一份，调用方不替它判。
-	SettleUnit(ctx context.Context, sessionPath string, own workunit.Ownership, resultErr, mergeErr error) (workunit.Outcome, error)
-	// ReclaimUnit 回收一个 teammate 单元（作业 → 现场 → 会话内容；幂等）。
-	ReclaimUnit(ctx context.Context, sessionPath, role string) error
-	// RecoverUnits 重启回灌本会话的团队单元（认领现场 + 账本读数 + 回灌 + 恢复说明）。
-	RecoverUnits(ctx context.Context, sessionPath string) (workunit.Resume, error)
-}
-
-// recordFace 是**会话记录端口**：一个工作单元 = 一条 `store.NodeSessionRecord`。
-//
-// 作用域的解析（团队账本键 vs 会话工作区绑定）只有这一格知道——它是"记录落在哪个项目/会话
-// 目录"这件事的唯一一处实现（此前两个调用点各算一次，迟早算成两个目录）。
-type recordFace interface {
-	// Status 读回本单元那一份记录的 status（found=false = 没有这一格事实）。
-	Status(ctx context.Context, own workunit.Ownership, nodeID, sessionPath string) (string, bool, error)
-	// Readout 按**会话路径**读回该会话的单元记录并折成回灌读数（Sessions / Interrupted）。
-	Readout(ctx context.Context, own workunit.Ownership, nodeID, sessionPath string) (workunit.Resume, error)
-	// SaveRecord 落一条本单元的记录（整条写；未托管/未装配 = no-op）。
-	SaveRecord(ctx context.Context, own workunit.Ownership, nodeID, sessionPath, status, summary, stage string)
-	// SettleRecord 把收尾分类落成记录终态（未托管/空结论 = no-op）。
-	SettleRecord(ctx context.Context, own workunit.Ownership, nodeID, sessionPath string, outcome workunit.Outcome)
-	// Clear 清掉本单元的记录（幂等；没有记录可清 = no-op）。
-	Clear(ctx context.Context, own workunit.Ownership, nodeID, sessionPath string) error
-}
+// 三格端口（`workunit.SceneFace` / `workunit.UnitFace` / `workunit.RecordFace`）的**声明**
+// 在契约包 `backend/workunit/ports.go`：它们是生命周期实现的注入面，跟着实现走。本文件只做
+// 两件事——把宿主接成那三格（hostPorts），以及决定它挂在装配链的哪一层。
 
 // ── 装配处：把宿主能力面接成上面三格 ─────────────────────────────────────
 
 // hostPorts 是三格端口的**唯一一份**实现（宿主能力面的适配）。字段不导出：只有装配处
-// （newLifecycleHost）拿得到它，生命周期实现只拿到上面那三个接口。
+// （newLifecycleHost）拿得到它，生命周期实现只拿到那三个接口。
 type hostPorts struct {
 	r *Runtime
 }
 
 var (
-	_ sceneFace  = (*hostPorts)(nil)
-	_ unitFace   = (*hostPorts)(nil)
-	_ recordFace = (*hostPorts)(nil)
+	_ workunit.SceneFace  = (*hostPorts)(nil)
+	_ workunit.UnitFace   = (*hostPorts)(nil)
+	_ workunit.RecordFace = (*hostPorts)(nil)
 )
 
 // newHostPorts 把宿主接成端口（构造式注入，不读全局）。
 func newHostPorts(r *Runtime) *hostPorts { return &hostPorts{r: r} }
+
+// newLifecycleHost 是**装配点**：把同一个适配器接成三格传进生命周期实现（契约包的 `Host`）。
+//
+// 缺宿主（r == nil）时三格都不装：动作随即以 `workunit.ErrHostUnavailable` 显式失败——缺装配是
+// 错误，不是"静默降级成没有现场"。构造只有一个入口，注册点不许各拼一份端口。
+func newLifecycleHost(r *Runtime) workunit.Lifecycle {
+	if r == nil {
+		return workunit.NewHost(nil, nil, nil)
+	}
+	ports := newHostPorts(r)
+	return workunit.NewHost(ports, ports, ports)
+}
 
 // Owned 实现"是不是归团队托管"：归属读数里给了 TeamID 就是；只给了工作项 id 时，按它去
 // **计划**里认一次——事实只有一个来源（计划），不猜、也不另立一份归属表。
@@ -136,7 +99,7 @@ func (p *hostPorts) Owned(ctx context.Context, sessionPath string, own workunit.
 // Settled 实现"计划里这一件事是否已经收过尾"（重入判据的编排侧一半）。
 func (p *hostPorts) Settled(ctx context.Context, sessionPath, itemID string) (bool, error) {
 	if p == nil || p.r == nil {
-		return false, errLifecycleHostUnavailable
+		return false, workunit.ErrHostUnavailable
 	}
 	coordinator, err := p.r.coordinatorForSession(sessionPath)
 	if err != nil {
@@ -148,7 +111,7 @@ func (p *hostPorts) Settled(ctx context.Context, sessionPath, itemID string) (bo
 // SettleUnit 交回收尾结论：编排面那一份分类在 `SettleWorkItemWith` 里，本方法只转发。
 func (p *hostPorts) SettleUnit(ctx context.Context, sessionPath string, own workunit.Ownership, resultErr, mergeErr error) (workunit.Outcome, error) {
 	if p == nil || p.r == nil {
-		return workunit.Outcome{}, errLifecycleHostUnavailable
+		return workunit.Outcome{}, workunit.ErrHostUnavailable
 	}
 	coordinator, err := p.r.coordinatorForSession(sessionPath)
 	if err != nil {
@@ -160,7 +123,7 @@ func (p *hostPorts) SettleUnit(ctx context.Context, sessionPath string, own work
 // ReclaimUnit 回收一个 teammate 单元：收口四步的前三步（作业 → 现场 → 会话内容）只有那一份实现。
 func (p *hostPorts) ReclaimUnit(ctx context.Context, sessionPath, role string) error {
 	if p == nil || p.r == nil {
-		return errLifecycleHostUnavailable
+		return workunit.ErrHostUnavailable
 	}
 	coordinator, err := p.r.coordinatorForSession(sessionPath)
 	if err != nil {
@@ -172,7 +135,7 @@ func (p *hostPorts) ReclaimUnit(ctx context.Context, sessionPath, role string) e
 // RecoverUnits 重启回灌本会话的团队单元（认领现场 → 账本读数 → 会话回灌 → 注入恢复说明）。
 func (p *hostPorts) RecoverUnits(ctx context.Context, sessionPath string) (workunit.Resume, error) {
 	if p == nil || p.r == nil {
-		return workunit.Resume{}, errLifecycleHostUnavailable
+		return workunit.Resume{}, workunit.ErrHostUnavailable
 	}
 	recovery, err := p.r.RecoverTeamworkUnits(ctx, sessionPath)
 	if err != nil {
@@ -190,7 +153,7 @@ func (p *hostPorts) RecoverUnits(ctx context.Context, sessionPath string) (worku
 // 选路依据是**归属读数**（Owned），不是 Kind：契约里 Kind 是描述性的，不是分支判据。
 func (p *hostPorts) BeginScene(ctx context.Context, own workunit.Ownership, nodeID, sessionPath string) (workunit.Scene, error) {
 	if p == nil || p.r == nil {
-		return workunit.Scene{}, errLifecycleHostUnavailable
+		return workunit.Scene{}, workunit.ErrHostUnavailable
 	}
 	scene := workunit.Scene{
 		NodeID:    nodeID,
@@ -236,7 +199,7 @@ func (p *hostPorts) BeginScene(ctx context.Context, own workunit.Ownership, node
 // MergeScene 把这一份现场的改动合回主工作区一次：team 托管的走编排面的合并，其余走现场面。
 func (p *hostPorts) MergeScene(ctx context.Context, own workunit.Ownership, nodeID, sessionPath string) error {
 	if p == nil || p.r == nil {
-		return errLifecycleHostUnavailable
+		return workunit.ErrHostUnavailable
 	}
 	if p.Owned(ctx, sessionPath, own) {
 		coordinator, err := p.r.coordinatorForSession(sessionPath)
@@ -259,7 +222,7 @@ func (p *hostPorts) ReleaseScene(nodeID string) {
 // AdoptScenes 认领本会话在册的现场（重启回灌；**必须在 Prune 之前**，顺序是判据的一部分）。
 func (p *hostPorts) AdoptScenes(ctx context.Context, sessionPath string) error {
 	if p == nil || p.r == nil {
-		return errLifecycleHostUnavailable
+		return workunit.ErrHostUnavailable
 	}
 	return p.r.RestoreSubagentAnchors(sessionPath)
 }
@@ -339,7 +302,7 @@ func (p *hostPorts) SettleRecord(ctx context.Context, own workunit.Ownership, no
 //	其余     → 先按 nodeID 找到那一条，再按它自己的会话号删（会话号才是记录的键）。
 func (p *hostPorts) Clear(ctx context.Context, own workunit.Ownership, nodeID, sessionPath string) error {
 	if p == nil || p.r == nil {
-		return errLifecycleHostUnavailable
+		return workunit.ErrHostUnavailable
 	}
 	if p.Owned(ctx, sessionPath, own) {
 		p.r.clearTeamUnitRecord(sessionPath, own.RoleSessionID)

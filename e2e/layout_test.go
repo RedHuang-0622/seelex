@@ -31,6 +31,7 @@ var repositoryModules = []string{
 	"plugins/hardware", "plugins/impeccable", "scripts",
 	"backend/engine/assemble", "backend/engine/obs", "backend/tool/fork", "backend/tool/io/fs",
 	"backend/tool/io/media", "internal/config",
+	"backend/workunit",
 	"internal/model", "internal/stream",
 	"internal/telemetry", "backend/tool/plan",
 	"backend/tool/search", "backend/limit/gate", "backend/tool/task", "backend/tool/websearch", "seelexctx", "seelexctx/compactor",

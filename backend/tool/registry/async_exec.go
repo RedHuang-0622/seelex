@@ -13,8 +13,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
 )
 
 // 后台命令的轮询型执行域·登记表与状态机（规格见

@@ -432,3 +432,93 @@ J1（§11）只把根包整体落位，没动类型结构。J2 才是 M4 的出�
 | D-M4-30 | plan §2.6 把 `runtime_image.go` 指向 `backend/tool/io/`，但那只是目录（四个子包各占一层，自己没有包） | 落成 `backend/tool/io/media/`（一包一目录，目录名 = 包名），与 C 片的 `io/{fs,attachment,imageattach,multimodal}` 同款 |
 | D-M4-31 | 迁移操作本身踩的坑：Python `Path.write_text` 在 Windows 上把 `\n` 写成 `\r\n`，6 个被批量改名的文件从 LF 变 CRLF，`gofmt -l` 立刻报红（内容 diff 只有 1 行，可逆） | 已按"工作树 = LF"归一化；教训：**批量改写 Go 文件后必须跑 `gofmt -l` 并归一化行尾**，这是纯路径改写唯一的机械保险 |
 | D-M4-32 | `Runtime` 因域下沉新长出两条导出访问器（`HistoryRouter` / `SessionProjectID`） | 宿主端口的必然代价，且是收窄方向：域包拿到的是两格只读事实，不是整个 `Runtime`。与 K 片（删 `ports.go`）无耦合 |
+
+## 13. M4-W：`workunit` 归位（契约 + 唯一实现合成一包）
+
+M4 只剩两个包（`workunit`、`teamwork`）。本片做 `workunit`：plan §2.7 点名"`seelebridge/workunit`
+（4 文件 595）+ 根包 `workunit_*.go`（5 文件 1065）+ `runtime_unit_recovery.go`（99）→
+`backend/multiagent/workunit/`"；本片落地为**独立 `backend/workunit/`**（偏差见 D-M4-W1）。
+
+### 13.1 删除清单（原位置 → 新唯一位置）
+
+| 原位置 | 新唯一位置 | 说明 |
+|---|---|---|
+| `seelebridge/workunit/{contract,classify,progress,session}.go`（4 生产文件）+ 4 个用例 + README | `backend/workunit/` 同名文件（`git mv`，**包名不变、内容零 diff**） | 纯路径搬迁，22 处 import 里的包限定符零改动 |
+| `backend/engine/assemble/workunit_parent.go`（200 行，`lifecycleHost` = 生命周期的唯一一份实现） | `backend/workunit/lifecycle.go`（类型 `Host`） | 唯一实现的判据（重入 / 合并只做一次 / 分类 / 策略 / 恢复粒度）一字未改；只剩"同包化"改写：包名、自指 import 去掉、`workunit.` 限定符去掉、端口与构造导出 |
+| `workunit_assembly.go` 里的三格端口**接口声明**（`sceneFace` / `unitFace` / `recordFace`） | `backend/workunit/ports.go`（`SceneFace` / `UnitFace` / `RecordFace`，**导出**） | 接口跟着实现走；装配处已在另一个包，不导出就注入不进来 |
+| 装配侧的常量 `teamUnitStatusRunning`（= `workunit.StatusRunning.String()`）在实现里的引用 | `lifecycle.go` 直接写 `StatusRunning.String()`（**同一个词、同一份词表**） | 实现包不再认识装配侧的常量名 |
+| `backend/engine/assemble/workunit_parent.go` 在两条 e2e 门禁清单里的路径项 | `backend/workunit/lifecycle.go` | 见 §13.3 |
+
+**留在装配处的四类**（有意，不是漏搬）：`hostPorts`（三格端口的唯一实现，具体类型只允许在这里）、
+`newLifecycleHost`（唯一的构造点）、两个**注册点**（`nodeWorkUnit` / `teamUnit`，含 `Unit` 读数与
+层词表）、teammate 的**记录面**与恢复策略。判据是 AGENTS §8.5「层差异只允许出现在装配表与策略的
+调用点上」+ 依赖方向：`backend/tool/worktree` 依赖本包的两个哨兵，装配侧反过来 import `worktree`
+——两半不能互换位置，否则成环。
+
+### 13.2 依赖方向与"为什么两半同包"
+
+```text
+backend/tool/worktree ─┐
+backend/multiagent/subagent ─┼─→ backend/workunit（契约 + 唯一实现 + 三格端口）
+internal/telemetry ─┤                   ↑ 注入
+backend/tool/{node,registry} ─┘    backend/engine/assemble（hostPorts 适配 + 注册点 + 记录面）
+seelebridge/teamwork ─┘
+```
+
+`backend/workunit` 的依赖只有 stdlib + `store` + `contract/dto` + `Seele/jobs` ——**不含任何
+Seelex 实现包**（`lifecycle.go` 只 import stdlib，`ports.go` 只 import `context`）。这是"实现不认识
+具体宿主"的可机械断言形态，也是 `e2e/workunit_ports_test.go` 的 ①② 两条判据扫的对象。
+
+### 13.3 门禁改造（本片唯一"非机械"的改动）
+
+原门禁把三个落点写成**仓库路径常量**（`backend/engine/assemble/workunit_parent.go` 等），
+每次搬迁都要改门禁——域还要继续下沉（J2 续做 / M5），这成了一段"赶不上搬迁的门禁"。本片改成
+**按包名 + 标记定位**：
+
+1. `packageDir`：读仓库根 `go.mod` 的 `module` 行，把 import path 翻成目录（第三方模块直接判红）；
+2. `locateMarkerFiles` / `locatePackageFile`：在包目录里按**标记**认生产文件（
+   `var _ Lifecycle = (*`、`var _ Jobs = (jobs.Manager)(nil)`、`(*hostPorts)(nil)`），
+   命中**恰好一个**才算过（零个 = 断言没了；多个 = 标记不再唯一）；
+3. 新增 `TestWorkunitGateLocatorCatchesMissingMarkers`：对照喂**临时假目录**与假 import path
+   （标记不存在 / 命中两处 / `_test.go` 不算生产文件 / 目录不存在 / 第三方模块），
+   验的是"定位判据本身"而不是"我肉手改坏跑了一次"。
+
+同一片里跟随的两处**清单式**门禁（它们是"谁在这格里干什么"的登记，不是定位器）：
+`e2e/subagent_status_vocabulary_gate_test.go` 的「记录状态」清单项、以及由它派生的
+`e2e/state_enum_cast_gate_test.go` 文件集（后者自动跟随前者，无需改）。
+
+### 13.4 证据（实跑）
+
+| 检查 | 结果 |
+|---|---|
+| `gofmt -l .`（排除 `tmp/`） | 空 |
+| `go build ./...` / `go build -tags "gui,desktop,production" ./...` | 均通过 |
+| `go vet ./...` | 无输出 |
+| `go test ./backend/workunit/...` | ok（1.9s，含 3 个基准编译） |
+| `go test ./backend/engine/assemble/` | ok（44.4s） |
+| `go test ./backend/tool/... ./backend/multiagent/... ./internal/telemetry/... ./seelebridge/...` | 全 ok（`backend/tool/registry` 的 `TestJobHandlesCarryTheirTableToken` 触发一次 D-M4-11 的 Windows `TempDir` 环境性失败，**单跑该用例即 ok**，与搬迁无关） |
+| `go test ./e2e/` | ok（含门面闭包 ratchet、模块 README 门禁、两条新老门禁与阴性对照） |
+| `go test ./... -count=1 -timeout=900s` | **失败集合 = 基线 3 条**（`application/core` 的 `TestContextBudgetSkipsCompactionWithoutMargin`、`TestRunningSessionAccumulatesAllRoundsInOrderControl`、`TestColdRestoreTailFirstRequestKeepsTranscriptOrder`），与改动前逐条相同 |
+| `node --test gui/frontend/dist/*.test.mjs` | 778/778 |
+| `python scripts/check_readme_refs.py` | 12 条（**新增 0**） |
+| 改动形状（`git diff --cached -M --numstat`） | 8 个文件 **0 行 diff** 的纯改名；21 个文件各 1 行（import 路径）；`lifecycle.go` 56/55 全为"同包化"改写（无一行逻辑变化）；`ports.go` 新增 69 行 |
+
+### 13.5 本片新偏差
+
+| ID | 偏差 | 处置 |
+|---|---|---|
+| D-M4-W1 | **落点偏差（已裁决后落地）**：plan §2.7 写 `backend/multiagent/workunit/`，实际落 `backend/workunit/`。理由：进口方横跨 tool / multiagent / internal 三块，且 `backend/tool/worktree` 反向依赖本包的两个哨兵（`ErrUncommittedChanges` / `ErrMergeBlockedByMain`）——放 multiagent 会让 tool 板出现跨板回指（M4 出口条件之一正是"无跨板块回指"）。任务书给出的裁决即"独立 `backend/workunit/`" | 已按此落地；plan 的 §2.7 那一行与 §3.6 的 V3 因此按本记录收口 |
+| D-M4-W2 | 生命周期实现下沉后，三格端口**必须导出**（装配处已在另一个包），于是新增 `SceneFace` / `UnitFace` / `RecordFace` / `NewHost` / `ErrHostUnavailable` 五个名字。它们替代的是原来**同包私有**的 `sceneFace` / `unitFace` / `recordFace` / `newLifecycleHost` / `errLifecycleHostUnavailable` | 记偏差而不留私有别名：同一件事不许有第二个名字（AGENTS §8.3）。不动任何行为、协议与持久化格式 |
+| D-M4-W3 | 端口门禁从"写死路径"改成"按包名 + 标记定位"后，**门禁的失效形态变了**（路径写错 → 标记找不到）。若没有对照，这种门禁可能"静默少扫一个文件却全绿" | 已补定位器阴性对照（§13.3 第 3 条，5 个对照用例） |
+| D-M4-W4 | `teamUnitStatusFor`（收尾分类 → 记录终态词）**故意留在**装配包 `workunit_team.go`：它是"这一层自己的词表"，属 AGENTS §8.5 的"层差异只允许出现在装配表与策略的调用点"。若后人想把它搬进契约包，先看这条 | 记录性偏差（不是待办） |
+| D-M4-W5 | `hostPorts` / 注册点 / teammate 记录面 / 恢复策略仍在 `backend/engine/assemble`：它们本质是**宿主适配**（要 `Runtime` 的编排、现场、账本读写）。彻底离开装配包要等 node/subagent/teamwork 三个板块各自下沉（J2 续做） | 登记为 J2 续做项；`backend/engine/assemble/README.md` 的 workunit 一节已写明"本包只剩注册/装配五文件" |
+| D-M4-W6 | 搬迁后 `lifecycle.go` 的日志前缀仍是 `seelebridge: `（`log.Printf("seelebridge: 判定 %q 是否已收尾失败…")`）。改它属"行为可观察面变化"，与 plan §5.1 的"行为零变化"冲突 | 保留，与既有搬迁同款（`backend/engine/plugin` / `backend/tool/plan` / `store/legacy_storage.go` 都是这个状态）；要不要统一前缀应作为**一次独立的行为变更**处理 |
+
+### 13.6 本片结束时的实况
+
+`seelebridge/` 只剩 **`teamwork` 一个包**（6 生产文件 + 15 个用例，≈2,580 行）与 `.seelex/`
+（mcp trace 运行数据，**不是包**；保留/迁移/删除待用户裁决，本轮不擅自动）。根包 53 个文件早随 J1
+落位 `backend/engine/assemble`，其中 J2a/J2b/J2c（obs / media / workunit 域）已下沉。
+下一片 = `teamwork` 片（`seelebridge/teamwork` + 根包 `runtime_teamwork*.go` 13 文件 ≈3,700 行 +
+`teamwork_job_signals.go` + `runtime_teammate_session_live.go` → `backend/multiagent/teamwork/`），
+做完 `seelebridge/` 目录即消失（M4 出口条件的第一个标志）。

@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	frameworktelemetry "github.com/RedHuang-0622/Seele/telemetry"
+	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/internal/model"
-	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
 )
 
 // StageRecorder 是 node 第一视角阶段日志的记录面（由 session.SubagentSessions

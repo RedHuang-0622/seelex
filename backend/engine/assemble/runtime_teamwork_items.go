@@ -16,8 +16,8 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/backend/tool/worktree"
+	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
-	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
 )
 
 // SettleWorkItem 实现 teamwork.ItemSettler：worker 一轮跑完之后**自动**做尾插

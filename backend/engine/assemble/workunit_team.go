@@ -20,9 +20,9 @@ import (
 	"context"
 	"strings"
 
+	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
-	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
 )
 
 // ── 记录词表与定位键（纯读数，不碰端口）───────────────────────────────────
@@ -149,7 +149,7 @@ type teamUnit struct {
 // 编排面）时**显式报错**：契约里的动作都落在编排面上，缺了它就没有"这一份现场"可言。
 func newTeamUnit(r *Runtime, mainSessionID, role string, scene workunit.Scene, request teamwork.WorkerRequest) (*teamUnit, error) {
 	if r == nil {
-		return nil, errLifecycleHostUnavailable
+		return nil, workunit.ErrHostUnavailable
 	}
 	if _, err := r.coordinatorForSession(mainSessionID); err != nil {
 		return nil, err

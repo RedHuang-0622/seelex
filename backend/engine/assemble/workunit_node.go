@@ -3,8 +3,8 @@ package assemble
 import (
 	"context"
 
+	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/internal/model"
-	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
 )
 
 // ── subagent 层的**注册点**（在契约那份父实现上注册 + 转发）────────────────

@@ -139,7 +139,7 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/backend/tool/registry",
 	"github.com/RedHuang-0622/seelex/backend/tool/computer",
 	"github.com/RedHuang-0622/seelex/backend/tool/worktree",
-	"github.com/RedHuang-0622/seelex/seelebridge/workunit",
+	"github.com/RedHuang-0622/seelex/backend/workunit",
 	"github.com/RedHuang-0622/seelex/seelexctx",
 	"github.com/RedHuang-0622/seelex/seelexctx/compactor",
 	"github.com/RedHuang-0622/seelex/seelexctx/lifecycle",

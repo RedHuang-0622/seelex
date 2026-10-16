@@ -1,24 +1,30 @@
-package assemble
+package workunit
 
-// workunit_parent.go — 一件活的生命周期的**唯一一份实现**（父）。本文件只写"怎么判"，不写
-// "谁去做"：它持有的三个字段全是**端口**（sceneFace / unitFace / recordFace，实现在装配处
-// workunit_assembly.go），因此文件里搜不到任何一个 `teamwork` / `worktree` / `store`
-// 的具体类型，也搜不到按层分支。
+// lifecycle.go — 一件活的生命周期的**唯一一份实现**（父）。本文件只写"怎么判"，不写"谁去做"：
+// 它持有的三个字段全是**端口**（SceneFace / UnitFace / RecordFace，实现在装配处
+// `backend/engine/assemble/workunit_assembly.go` 的 hostPorts），因此文件里搜不到任何一个
+// `teamwork` / `worktree` / `store` 的具体类型，也搜不到按层分支。
+//
+// 物理位置：2026-10-16 按 docs/2026-10-15-architecture-reshape/plan.md §2.7 从装配包
+// （`backend/engine/assemble/workunit_parent.go`，溯源 `seelebridge/workunit_parent.go`）
+// 下沉到本包——**同一域的两半**（契约 + 唯一实现）现在同处一个包，因此三格端口导出：
+// 装配处已经在另一个包，不导出就注入不进来。
+// 装配侧只剩三件事：端口实现（hostPorts）、构造（调用 `NewHost`）、决定它挂在装配链的哪一层。
 //
 // 口径（docs/arch/workunit-single-lifecycle-one-implementation.md §3 接口先行 + §7 纪律，
 // docs/arch/workunit-ports-and-assembly.md §2 端口清单 + §3 装配矩阵）：一个工作单元的生命周期
 // （建现场 → 收尾 → 回收 → 重启接着做）只有**一份实现**；subagent 与 teammate 只做
 // **在父实现上注册 + 转发**。层与层之间唯一的差别是注册点交进来的**读数**
-// （contract.go 的 `workunit.Unit`）：
+// （contract.go 的 `Unit`）：
 //
 //	Kind / ID（本单元现场的身份）/ SessionPath（自己的会话路径）/ Policy（什么时候回收）/
 //	Owns（归属：团队 · 工作项 · 角色 · 这一轮的目标 · 显式现场名）
 //
-// 父持有三格端口（字段不导出，只有父能拿到）：
+// 父持有三格端口（字段不导出：注册点只拿到 `Lifecycle` 与自己的 `Unit` 读数）：
 //
-//	scenes   sceneFace    // 现场：建 / 合并 / 认领 / 拆单体 / 在册读数
-//	units    unitFace     // 编排闸门 + 账本：归属 / 重入 / 回执 / 单个回收 / 回灌
-//	records  recordFace   // 会话记录：状态读数 / 回灌读数 / 落盘 / 写终态 / 清记录
+//	scenes   SceneFace    // 现场：建 / 合并 / 认领 / 拆单体 / 在册读数
+//	units    UnitFace     // 编排闸门 + 账本：归属 / 重入 / 回执 / 单个回收 / 回灌
+//	records  RecordFace   // 会话记录：状态读数 / 回灌读数 / 落盘 / 写终态 / 清记录
 //
 // 为什么不是"包一层"：四个动作的**判据与顺序**（重入怎么回答、合并只做一次、恢复的粒度、
 // 拆的时候收不收作业）此前在两个实现里各写了一遍且互相漂移；现在它们只写在下面这四个
@@ -33,42 +39,37 @@ import (
 	"errors"
 	"log"
 	"strings"
-
-	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
 )
 
 // ── 父：唯一实现，持有端口（字段不导出）──────────────────────────────────
 
-// lifecycleHost 是一件活的生命周期的唯一实现。端口**不导出**：两个注册点只持有
-// `workunit.Lifecycle`（就是它）与自己的 `workunit.Unit` 读数，拿不到下面任何一个端口。
-type lifecycleHost struct {
-	scenes  sceneFace
-	units   unitFace
-	records recordFace
+// Host 是一件活的生命周期的唯一实现。端口字段**不导出**：两个注册点只持有
+// `Lifecycle`（就是它）与自己的 `Unit` 读数，拿不到下面任何一个端口。
+//
+// 构造只有一处（`NewHost`）：装配处把宿主能力面接成三格端口后传进来。三格端口**允许缺**
+// （宿主未装配），此时动作以 `ErrHostUnavailable` 显式失败——缺装配是错误，不是静默降级。
+type Host struct {
+	scenes  SceneFace
+	units   UnitFace
+	records RecordFace
 }
 
 // 编译期钉住"这就是契约那份父实现"：契约漂移先红。
-var _ workunit.Lifecycle = (*lifecycleHost)(nil)
+var _ Lifecycle = (*Host)(nil)
 
-// errLifecycleHostUnavailable 是缺装配时的显式错误（缺的是宿主，不是"静默降级"）。
-var errLifecycleHostUnavailable = errors.New("workunit: 生命周期宿主未装配")
+// ErrHostUnavailable 是缺装配时的显式错误（缺的是宿主，不是"静默降级"）。
+var ErrHostUnavailable = errors.New("workunit: 生命周期宿主未装配")
 
-// newLifecycleHost 是**装配处**：把宿主能力面接成端口（构造式注入，不读全局）。
-//
-// 缺宿主（r == nil）时三格都不装：动作随即以 `errLifecycleHostUnavailable` 显式失败——
-// 缺装配是错误，不是"静默降级成没有现场"。
-func newLifecycleHost(r *Runtime) *lifecycleHost {
-	if r == nil {
-		return &lifecycleHost{}
-	}
-	ports := newHostPorts(r)
-	return &lifecycleHost{scenes: ports, units: ports, records: ports}
+// NewHost 收下三格端口（构造式注入，不读全局）。三格都允许传 nil = 宿主未装配，
+// 每个动作随即以 `ErrHostUnavailable` 显式失败；现场与记录两格共用同一个适配器时传同一份。
+func NewHost(scenes SceneFace, units UnitFace, records RecordFace) *Host {
+	return &Host{scenes: scenes, units: units, records: records}
 }
 
 // teamOwned 报告这一份是不是**归团队托管**（生命周期里唯一允许出现的"按层"判断，依据是
 // **归属读数**：TeamID，或"这件工作项在计划里"）。归属判定只有一份实现（装配处的
 // `hostPorts.Owned`），这里只是转发。
-func (h *lifecycleHost) teamOwned(ctx context.Context, u workunit.Unit) bool {
+func (h *Host) teamOwned(ctx context.Context, u Unit) bool {
 	if h == nil || h.units == nil {
 		return false
 	}
@@ -82,18 +83,18 @@ func (h *lifecycleHost) teamOwned(ctx context.Context, u workunit.Unit) bool {
 //	其余（subagent）      → 按角色读数给现场（entry 角色降级共享主工作区 = 没有独立现场）。
 //
 // 选路依据是**归属读数**，不是 Kind；具体走哪条路由端口实现（装配处）决定。
-func (h *lifecycleHost) Begin(ctx context.Context, u workunit.Unit) (workunit.Scene, error) {
+func (h *Host) Begin(ctx context.Context, u Unit) (Scene, error) {
 	if h == nil || h.scenes == nil {
-		return workunit.Scene{}, errLifecycleHostUnavailable
+		return Scene{}, ErrHostUnavailable
 	}
 	own := u.Owns()
 	scene, err := h.scenes.BeginScene(ctx, own, u.ID(), u.SessionPath())
 	if err != nil {
-		return workunit.Scene{}, err
+		return Scene{}, err
 	}
 	scene.Kind = u.Kind()
 	if h.teamOwned(ctx, u) {
-		h.records.SaveRecord(ctx, own, u.ID(), u.SessionPath(), teamUnitStatusRunning, own.Goal, "running")
+		h.records.SaveRecord(ctx, own, u.ID(), u.SessionPath(), StatusRunning.String(), own.Goal, "running")
 	}
 	return scene, nil
 }
@@ -105,9 +106,9 @@ func (h *lifecycleHost) Begin(ctx context.Context, u workunit.Unit) (workunit.Sc
 //
 // 已经收过尾时 `Finish` 交回**零值结论**：不重复合并、不重复回执、不重复判定——
 // 结论已经落盘（计划 / 会话记录里读得到）。
-func (h *lifecycleHost) AlreadySettled(ctx context.Context, u workunit.Unit) (bool, error) {
+func (h *Host) AlreadySettled(ctx context.Context, u Unit) (bool, error) {
 	if h == nil || h.records == nil {
-		return false, errLifecycleHostUnavailable
+		return false, ErrHostUnavailable
 	}
 	own := u.Owns()
 	if h.teamOwned(ctx, u) {
@@ -122,7 +123,7 @@ func (h *lifecycleHost) AlreadySettled(ctx context.Context, u workunit.Unit) (bo
 		// = 已经回收过，没有可收的尾）。
 		return !h.scenes.SceneRegistered(u.ID()), nil
 	}
-	return !workunit.InFlight(status), nil
+	return !InFlight(status), nil
 }
 
 // Finish 只回答"这一轮怎么结束的"：分类 + 合并 + 回执；不拆现场。唯一实现。
@@ -131,12 +132,12 @@ func (h *lifecycleHost) AlreadySettled(ctx context.Context, u workunit.Unit) (bo
 //
 //	① 重入：已经收过尾 ⇒ 零值结论（AlreadySettled）；
 //	② 合并**只做一次**：调用方已经拿到的合并结果非空即采信，不再合第二次；
-//	③ 分类只有一份（workunit.ClassifyFinish）：未提交 / 挡路不判死、其余合并错误判死；
+//	③ 分类只有一份（ClassifyFinish）：未提交 / 挡路不判死、其余合并错误判死；
 //	④ 落定之后才按策略回收（FinishPolicy.AfterFinish 恰一次，调的是同一个 Reclaim）——
 //	   未落定时现场保留，因为"未提交改动"是人的资产（契约不变式 1）。
-func (h *lifecycleHost) Finish(ctx context.Context, u workunit.Unit, result workunit.Result, mergeErr error) (workunit.Outcome, error) {
+func (h *Host) Finish(ctx context.Context, u Unit, result Result, mergeErr error) (Outcome, error) {
 	if h == nil || h.scenes == nil {
-		return workunit.Outcome{}, errLifecycleHostUnavailable
+		return Outcome{}, ErrHostUnavailable
 	}
 	settled, err := h.AlreadySettled(ctx, u)
 	if err != nil {
@@ -144,7 +145,7 @@ func (h *lifecycleHost) Finish(ctx context.Context, u workunit.Unit, result work
 		// 不该被当成"这件事已经收过尾"而静默丢掉收尾动作，也不该判死整件事。
 		log.Printf("seelebridge: 判定 %q 是否已收尾失败（按未收尾继续）：%v", u.ID(), err)
 	} else if settled {
-		return workunit.Outcome{}, nil
+		return Outcome{}, nil
 	}
 	own := u.Owns()
 	if mergeErr == nil {
@@ -152,7 +153,7 @@ func (h *lifecycleHost) Finish(ctx context.Context, u workunit.Unit, result work
 	}
 	if h.teamOwned(ctx, u) {
 		// 团队托管：回执（尾插）与状态写回计划是编排那条路的事（结束事实各有各的载体）。
-		// 分类仍然只有一份（workunit.ClassifyFinish，就在它的写态半段里），这里只交回读数。
+		// 分类仍然只有一份（ClassifyFinish，就在它的写态半段里），这里只交回读数。
 		outcome, err := h.units.SettleUnit(ctx, u.SessionPath(), own, result.Err, mergeErr)
 		if err != nil {
 			return outcome, err
@@ -166,7 +167,7 @@ func (h *lifecycleHost) Finish(ctx context.Context, u workunit.Unit, result work
 		// 像收尾崩了（执行体对尾插错误只会记一行 note，但那一行是误导）。
 		return outcome, nil
 	}
-	outcome := workunit.ClassifyFinish(result, mergeErr)
+	outcome := ClassifyFinish(result, mergeErr)
 	if outcome.Settled() {
 		if err := u.Policy().AfterFinish(ctx, h, u); err != nil {
 			return outcome, err
@@ -187,9 +188,9 @@ func (h *lifecycleHost) Finish(ctx context.Context, u workunit.Unit, result work
 // **两个策略调的都是这一个函数**，差别只在调用点：`Immediate` 在 Finish 落定时调它，
 // `AtTeamClose` 留到整队收口调它（那条路落在编排端口的 Reclaim 上，与这里共用同一份
 // "拆现场 + 清会话 + 回收作业"）。
-func (h *lifecycleHost) Reclaim(ctx context.Context, u workunit.Unit) error {
+func (h *Host) Reclaim(ctx context.Context, u Unit) error {
 	if h == nil || h.records == nil {
-		return errLifecycleHostUnavailable
+		return ErrHostUnavailable
 	}
 	own := u.Owns()
 	if h.teamOwned(ctx, u) {
@@ -207,23 +208,23 @@ func (h *lifecycleHost) Reclaim(ctx context.Context, u workunit.Unit) error {
 //
 //	归团队托管：编排端口那一份回灌（认领团队现场 → 账本读数 → 会话回灌 → 注入恢复说明）；
 //	其余（subagent）：认领现场（+ 回灌 + Prune）+ 读回该会话全部单元记录。
-func (h *lifecycleHost) Recover(ctx context.Context, u workunit.Unit) (workunit.Resume, error) {
+func (h *Host) Recover(ctx context.Context, u Unit) (Resume, error) {
 	if h == nil || h.scenes == nil || h.records == nil {
-		return workunit.Resume{}, errLifecycleHostUnavailable
+		return Resume{}, ErrHostUnavailable
 	}
 	sessionPath := strings.TrimSpace(u.SessionPath())
 	if sessionPath == "" {
-		return workunit.Resume{}, nil
+		return Resume{}, nil
 	}
 	if h.teamOwned(ctx, u) {
 		return h.units.RecoverUnits(ctx, sessionPath)
 	}
 	if err := h.scenes.AdoptScenes(ctx, sessionPath); err != nil {
-		return workunit.Resume{}, err
+		return Resume{}, err
 	}
 	resume, err := h.records.Readout(ctx, u.Owns(), u.ID(), sessionPath)
 	if err != nil {
-		return workunit.Resume{}, err
+		return Resume{}, err
 	}
 	if h.scenes.SceneRegistered(u.ID()) {
 		resume.Scenes = 1
@@ -231,11 +232,11 @@ func (h *lifecycleHost) Recover(ctx context.Context, u workunit.Unit) (workunit.
 	return resume, nil
 }
 
-// Notice 生成给人看的说明：**非落定必带处置办法**（合同见 workunit.Outcome）。
+// Notice 生成给人看的说明：**非落定必带处置办法**（合同见 Outcome）。
 //
-// 处置办法不是在这里现编的：它就是分类器（workunit.ClassifyFinish）拼进 Notice 的那一段，
+// 处置办法不是在这里现编的：它就是分类器（ClassifyFinish）拼进 Notice 的那一段，
 // 父只负责把它交回调用方（节点警告 / 回执 / 看板）。分类一旦漂移，这里立刻看得出来。
-func (h *lifecycleHost) Notice(outcome workunit.Outcome) string {
+func (h *Host) Notice(outcome Outcome) string {
 	if strings.TrimSpace(outcome.Notice) != "" {
 		return outcome.Notice
 	}

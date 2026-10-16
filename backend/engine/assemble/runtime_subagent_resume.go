@@ -10,9 +10,9 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application/core/resume"
 	"github.com/RedHuang-0622/seelex/backend/tool/fork"
+	"github.com/RedHuang-0622/seelex/backend/workunit"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
-	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
 	"github.com/RedHuang-0622/seelex/store"
 )
 

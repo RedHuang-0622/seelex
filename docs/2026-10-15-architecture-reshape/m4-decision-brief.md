@@ -5,6 +5,10 @@
 
 ## 1. V3：`workunit` 的最终归属
 
+> **已落地（2026-10-16，M4-W）**：按下面"建议"的第二条落地为**独立 `backend/workunit/`**，
+> 契约与唯一实现（原 `workunit_parent.go`）同处一个包；落地细节、删除清单与新偏差见
+> [m4-record.md §13](m4-record.md)。下面保留当时的证据与选项，供回溯。
+
 **证据（搬后视角的进口方）**：`backend/tool/node`、`backend/tool/worktree`（tool 板）、
 `internal/telemetry`（模块底座）、`seelebridge/teamwork` 与 `seelebridge/tools`（尚未搬）、
 以及根包的 5 个实现文件（`workunit_assembly.go`、`workunit_parent.go`、`workunit_team.go`、
@@ -112,7 +116,7 @@ J 片之后不再下沉。若你更希望它们有"底座"名分，替代方案�
 | # | 待裁决 | 实测证据 | 我的建议 | 批准后立刻做 |
 |---|---|---|---|---|
 | 1 | **J 片：根包的目标目录 / 包名 / 顺序** | 根包 52 生产文件 13,373 行；`Runtime` 单类型跨文件（`runtime.go` 定义、其余 40+ 文件是它的方法） | 目标 `backend/engine/assemble/`、包名 `assemble`（plan §2.5 给这 4 个装配文件点名的落点就是 `backend/engine/assemble/`）；顺序 **B→A**：先整体落位（引用方保留原别名，调用点零改动）再逐域下沉 | 整体搬 + 包名改名（一次，可逆），拿到"根包离开 `seelebridge/`"；随后按域下沉 |
-| 2 | **V3：`workunit` 的归属** | 契约包 4 文件 869 行；进口方：`backend/multiagent/subagent`(2 文件)、`backend/tool/{node,registry,worktree}`、`internal/telemetry`、`e2e`、根包 9 个 `workunit*` 文件 2,663 行、`seelebridge/teamwork` | **独立 `backend/workunit/`**：进口方横跨 tool/multiagent/internal 三块，放 multiagent 会让 tool 板出现"回指"；且它本来就是共享契约 | 契约包 + 根包 9 个同域文件一起搬（同一片），门禁 `e2e/workunit_ports_test.go` 改成按包名扫描（现在是写死仓库路径） |
+| 2 | **V3：`workunit` 的归属**（**已落地**，见 m4-record §13 与 D-M4-W1） | 契约包 4 文件 869 行；进口方：`backend/multiagent/subagent`(2 文件)、`backend/tool/{node,registry,worktree}`、`internal/telemetry`、`e2e`、根包 9 个 `workunit*` 文件 2,663 行、`seelebridge/teamwork` | **独立 `backend/workunit/`**：进口方横跨 tool/multiagent/internal 三块，放 multiagent 会让 tool 板出现"回指"；且它本来就是共享契约 | 已完成：契约 + 唯一实现（原 `workunit_parent.go`）同落 `backend/workunit/`，门禁改成**按包名 + 标记**定位（含定位器阴性对照） |
 | 3 | **`teamwork` 与根包 11 个 `runtime_teamwork*.go`** | 该域代码：`seelebridge/teamwork` 7 文件 2,580 行 + 根包 `runtime_teamwork*.go` ≈3,000 行 | 与 1 合并做：先在 J 的整体落位后，把这一域从 `assemble` 下沉到 `backend/multiagent/teamwork/` | 域内下沉（plan §2.7） |
 | 4 | **T4 端口层口径** | 见 §6 的耦合表（作业组引用注册表组 14 个私有符号） | 端口放各板内 `ports.go`（`contract/` 已经背着 29 条污染，不再往里加） | 三步走（抽端口 → 搬 `backend/tool/jobs` → 权限段并入 policy） |
 | 5 | **`internal/*` 终局** | 六个包的进口方横跨三块板 | 保持模块根 `internal/*`（与既有 `internal/{bootseed,buildinfo,…}` 同一惯例） | 收口时只更新 README 措辞，不再搬 |

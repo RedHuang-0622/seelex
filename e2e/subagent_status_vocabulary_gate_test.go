@@ -82,7 +82,9 @@ var statusVocabularyScopes = []statusVocabularyScope{
 			"backend/engine/assemble/runtime_subagent_resume.go":   "读+本层常量：子代理那一层的终态词表",
 			"backend/engine/assemble/workunit_team.go":             "写：teammate 那一层的终态词表（收尾分类折成记录词）",
 			"backend/engine/assemble/workunit_team_records.go":     "写：teammate 单元记录的落盘写点",
-			"backend/engine/assemble/workunit_parent.go":           "写：生命周期实现落盘时的记录状态",
+			// M4-W：生命周期实现（唯一一份）下沉到契约包 `backend/workunit/lifecycle.go`——
+			// 词的来源没变（`workunit.StatusRunning` = 契约那一份），落点跟着实现走。
+			"backend/workunit/lifecycle.go": "写：生命周期实现落盘时的记录状态",
 		},
 		// 这一格的取值面 = dto.SubAgent* 的四个（"还在不在跑"那半份在 workunit.Status*）。
 		words: map[string]bool{"queued": true, "running": true, "done": true, "failed": true},

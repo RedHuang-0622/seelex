@@ -102,21 +102,23 @@ flowchart TB
 
 ### workunit：一件活的生命周期（一份实现 + 三格端口）
 
-契约包 `seelebridge/workunit`（`contract.go` 的 `Kind/Scene/Outcome/Unit/Lifecycle/FinishPolicy` +
-作业面 `Jobs`、`classify.go` 的收尾分类、`session.go` 的会话记录端口 + 在跑词表、
-`progress.go` 的进度读面）与根包里"在它上面注册/装配"的五个文件：
+契约与**唯一一份生命周期实现**已按 M4-W 下沉到 [`backend/workunit`](../../workunit/README.md)
+（`contract.go` 的 `Kind/Scene/Outcome/Unit/Lifecycle/FinishPolicy` + 作业面 `Jobs`、`classify.go` 的
+收尾分类、`session.go` 的会话记录端口 + 在跑词表、`progress.go` 的进度读面、`ports.go` 的三格端口、
+`lifecycle.go` 的 `Host`）。本包只剩"在它上面注册/装配"的五个文件：
 
 | 文件 | 职责 |
 |---|---|
-| `workunit_parent.go` | **唯一一份生命周期实现**（`lifecycleHost`：Begin/Finish/Reclaim/Recover/AlreadySettled/Notice）。只持三格端口（`sceneFace`/`unitFace`/`recordFace`），文件里搜不到 teamwork/worktree/store 的具体类型、也搜不到按层分支 |
-| `workunit_assembly.go` | **装配表**：三格端口的唯一实现（`hostPorts`，宿主能力面的适配）+ 子代理层的生产驱动点（`beginNodeUnit`/`finishNodeUnit`）。具体类型只允许出现在这里 |
+| `workunit_assembly.go` | **装配表**：三格端口（`workunit.SceneFace`/`UnitFace`/`RecordFace`）的唯一实现 `hostPorts` + 唯一的构造点 `newLifecycleHost`（把同一个适配器接成三格传进 `workunit.NewHost`）+ 子代理层的生产驱动点（`beginNodeUnit`/`finishNodeUnit`）。具体类型只允许出现在这里 |
 | `workunit_node.go` | subagent 层的**注册点**（`nodeUnitReadings` + 纯转发） |
 | `workunit_team.go` | teammate 层的**注册点**（`teamUnitReadings` + 纯转发） |
 | `workunit_team_records.go` | teammate 的会话记录面（词表 / 落盘 / 清理 / 恢复说明 / 重启回灌）——父那一侧的记录读写法都在这里 |
+| `runtime_unit_recovery.go` | 恢复链的**策略面**：一条记录按哪一层恢复（身份在记录里，不猜 nodeID 形状） |
 
 层与层之间唯一的差别是**读数**（身份 / 会话路径 / 策略 / 归属）与**装配**（装哪几格）；
 两条链的跨层一致性由 `workunit_chain_test.go` / `workunit_single_path_test.go` 钉住，
-"实现里没有第二份 + 每个实现都带编译期断言"由 `e2e/workunit_ports_test.go` 的机械门禁钉住。
+"实现里没有第二份 + 每个实现都带编译期断言"由 `e2e/workunit_ports_test.go` 的机械门禁钉住
+（该门禁**按包名 + 标记定位**文件，因此本域继续下沉时它不需要跟着改路径）。
 
 ## 配置容错
 
