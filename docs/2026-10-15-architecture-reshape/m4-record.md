@@ -220,6 +220,16 @@ io 组 6（含 e2e 门面闭包清单与 `layout_test.go` 的模块清单）。
 `tools`、`workunit`（外加 `.seelex/` 数据目录）；`seelebridge/internal/` 已整体消失。
 根包仍是 53 个生产文件 / 13,373 行，等 J 片。
 
+**收尾全量验证**（`go build -tags "gui,desktop,production" ./...` + `go test ./... -count=1`）：
+
+- 带标签构建通过。
+- 全量测试只有两个失败集合：`application/core` 的**基线 3 例**（本轮开工前即红）与
+  `seelebridge/tools` 的 `TestJobHandlesCarryTheirTableToken` / `TestBgManageRefusesHandlesFromOtherTables`。
+- 后两条已被证明是**负载敏感的 Windows 临时目录句柄问题**，不是搬迁引入：① 它们在
+  `-run` 单跑与机器安静时整包跑**都通过**（本轮实测：安静时 `go test ./seelebridge/tools/`
+  ok 38.3s）；② 高负载时在**干净 `main`（96fc163b）副本**上同样失败（3/3）。失败面是
+  `TempDir RemoveAll cleanup` 的 `unlinkat ... being used by another process`，子用例本身全 PASS。
+
 | ID | 事项 | 处置 |
 |---|---|---|
 | D-M4-1 | 首轮替换脚本把 `docs/research/**`、`docs/test/**` 的路径也改写了（这两类是"把当时状态固定下来"的记录）。已 `git checkout` 还原，并把这两类目录加入脚本跳过清单，与 M3 §8.4 登记的口径一致 | 已修 |
