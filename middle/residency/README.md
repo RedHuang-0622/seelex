@@ -12,12 +12,13 @@
    返回 `ctx.Err()` 而不是失败（M5-R6-session-catalog）。
 4. **会话归档**（`Archive`）：门控次序 → 读 record → 驱逐前置 flush / 释放引擎 bundle / 摘驻留序 →
    写归档状态 → 释放后台命令 → 按项目刷新目录（M5-R6-archive，来自 `archive_session.go`）。
-5. **正文层的超限收敛**（`EvictUntilWithinLimit`）：按使用序逐个卸载**最旧且可卸载**的会话，
-   直到持有正文的会话数进入额度；受保护集既不计数也不参与挑选，没有候选即容忍超限
-   （M5-R6-content-lru，来自 `content_lru.go` 的挑选循环）。
+5. **两层的超限收敛**（`EvictUntilWithinLimit`）：按使用序逐个卸载**最旧且可卸载**的会话，
+   直到占用本层的会话数进入额度；受保护集既不计数也不参与挑选，没有候选即容忍超限。
+   正文层（可见正文窗口）与引擎层（引擎 bundle 驻留）逐字同形，因此**只有这一份循环**
+   （M5-R6-content-lru 来自 `content_lru.go`；M5-R6-resident-lru 来自 `resident_lru.go`）。
 
-`session_cold_read` / `session_input_index` / `window` 与**引擎驻留层**（`resident_lru.go`）的收敛循环
-随 R6 续做搬入（后者要读会话单元状态与引擎桥、且取会话过渡锁，属宿主面）。
+`session_cold_read` / `session_input_index` / `window` 随 R6 续做搬入；两层的**受保护集读数**
+（要读会话单元状态与引擎桥）留在宿主，只把判据送进来。
 
 主要调用方：`application/core`（`snapshot_budget.go` 的 `boundToolResultForSnapshot` 与
 `handleToolCompleteObserved` / 会话恢复路径）。
@@ -39,8 +40,9 @@
 4. `Archive(deps, sessionID)` —— 会话归档的**判据与次序**：门控（关闭 / 排空 / 忙·恢复中）→ 读 record
    （缺失或归属别的会话即 not-found）→ 已归档则幂等返回 → 驻留时 flush → unload → 摘驻留序 →
    写归档状态 → 释放后台命令 → 按项目刷新目录。
-5. `EvictUntilWithinLimit(deps)` —— 正文层超限收敛的**判据与循环**：一次读数（使用序 / 持有正文 /
-   受保护 / 额度配置）→ 挑最旧的可卸载候选 → 卸载 → 再读数，直到进入额度；失败即停、无候选即容忍超限。
+5. `EvictUntilWithinLimit(deps)` —— 两层 LRU 超限收敛的**判据与循环**：一次读数（使用序 / 占用本层 /
+   受保护 / 触发会话 / 额度配置）→ 挑最旧的可卸载候选 → 卸载 → 再读数，直到进入额度；
+   失败即停、无候选即容忍超限。
 
 **不做**：不读配置（进程级预算、窗口、分层上限的取数都在宿主侧）；不做**工具结果归档**（超限全文落
 `result_ref` 由宿主的任务域端口负责）；不写快照；不读盘、不自己持锁、不 import 宿主域类型——会话单元
@@ -61,8 +63,8 @@
 | `archive_test.go` | 门控四轴次序与装配缺陷、空 ID 与 trim、record 缺失/归属不符、已归档幂等、驻留次序、跳过引擎、三条失败即停 |
 | `inputindex.go` | `InputIndexSummaryLimit` + `SummarizeInputText` / `AlignLoadedInputTexts` / `BuildInputIndex`：用户输入索引的装配判据 |
 | `inputindex_test.go` | 摘要截断（rune / 折空白 / 默认上限）、对齐算法（尾窗 / 整段 / 退让 / 不对齐）、命中段标 Loaded 与序号偏移 |
-| `contentlimit.go` | `ContentLimitSnapshot` / `ContentLimitDeps` + `EvictUntilWithinLimit`：正文层超限收敛的唯一判据（宿主只提供"一次读数"与"卸载一个"两个动作） |
-| `contentlimit_test.go` | 统一窗口与分层额度、受保护集不计数不挑选、无正文/空 ID 跳过、最旧端先走、失败即停、无候选容忍超限、缺装配不 panic |
+| `eviction.go` | `EvictionSnapshot` / `EvictionDeps` + `EvictUntilWithinLimit`：正文层与引擎层**共用**的超限收敛判据（宿主只提供"一次读数"与"卸载一个"两个动作） |
+| `eviction_test.go` | 统一窗口与分层额度、受保护集不计数不挑选、不占本层/空 ID 跳过、最旧端先走、失败即停、无候选容忍超限、缺装配不 panic |
 
 ## 核心实现
 
@@ -79,11 +81,13 @@
   失败，静默放行才是危险的）；record 缺失或归属别的会话都归 `ErrArchiveNotFound`（宿主侧保留的名字是
   `ErrSessionNotFoundArchive`）；`record.Status` 已是 archived 时**幂等返回 nil**，且不碰引擎、不写盘、
   不释放后台命令、不刷新目录。
-- `EvictUntilWithinLimit(deps ContentLimitDeps)`：判据只有一份。宿主把"同一临界区内取齐的一组读数"
-  装成 `ContentLimitSnapshot`（含额度配置的**取数**：分层上限与统一窗口），把"卸载一个会话的正文"
-  与"记一次失败"装成函数值端口——**挑选不做二次确认**，因为并发激活/卸载会让读数过期，二次确认是
-  宿主动作内部的事（`evictLoadedContent` 在视图锁内重判单元/受保护/正文三格）。
-  `Protect`（本次触发的会话）绝不参与本轮卸载但计入受保护数：否则会多放掉别的会话。
+- `EvictUntilWithinLimit(deps EvictionDeps)`：判据只有一份（两层共用）。宿主把"同一临界区内取齐的
+  一组读数"装成 `EvictionSnapshot`（含额度配置的**取数**：分层上限与统一窗口），把"卸载一个会话
+  在本层的占用"与"记一次失败"装成函数值端口——**挑选不做二次确认**，因为并发激活/卸载会让读数
+  过期，二次确认是宿主动作内部的事（正文层 `evictLoadedContent` 在视图锁内重判单元/受保护/正文三格；
+  引擎层 `releaseSessionMemory` 同款）。
+  `Protect`（本次触发的会话）绝不参与本轮卸载但计入受保护数：否则会多放掉别的会话；引擎层没有这个
+  角色，留空即可。两层差异（使用序是否先收敛、占用判据、额度来源）**全部在宿主的读数闭包里**。
 
 ## 数据流
 
@@ -187,8 +191,8 @@ go test ./application/core/ -run 'Content|LRU|Resident|Release|Evict' -count=1  
 - `func gateError(err error) error` — gateError 把"该轴拒绝"翻译成一个错误：宿主没带错误值即装配缺陷。
 - `func Archive(deps ArchiveDeps, sessionID string) error` — Archive 归档指定会话：门控通过后把 record.Status 写为 archived，驻留会话先 flush 并释放引擎 bundle。
 
-### contentlimit.go
+### eviction.go
 
-- `type ContentLimitSnapshot struct` — 一次超限收敛的读数（使用序 / 触发会话 / 持有正文集合 / 受保护集合 / 分层上限与统一窗口）。
-- `type ContentLimitDeps struct` — 正文层收敛的宿主面（取一次自洽读数 + 卸载一个会话 + 记录一次失败）。
-- `func EvictUntilWithinLimit(deps ContentLimitDeps)` — 反复卸载最旧且可卸载的会话，直到持有正文的会话数进入额度；无候选即容忍超限，失败即停。
+- `type EvictionSnapshot struct` — 一次超限收敛的读数（使用序 / 触发会话 / 占用本层集合 / 受保护集合 / 分层上限与统一窗口）。
+- `type EvictionDeps struct` — 超限收敛的宿主面（取一次自洽读数 + 卸载一个会话 + 记录一次失败）。
+- `func EvictUntilWithinLimit(deps EvictionDeps)` — 反复卸载最旧且可卸载的会话，直到占用本层的会话数进入额度；无候选即容忍超限，失败即停（正文层与引擎层共用）。

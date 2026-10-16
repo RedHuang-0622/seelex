@@ -89,8 +89,8 @@ func (service *Service) reconcileLoadedContentLimit(protect string) {
 	if service == nil {
 		return
 	}
-	residency.EvictUntilWithinLimit(residency.ContentLimitDeps{
-		Snapshot: func() residency.ContentLimitSnapshot {
+	residency.EvictUntilWithinLimit(residency.EvictionDeps{
+		Snapshot: func() residency.EvictionSnapshot {
 			service.ViewMu.Lock()
 			defer service.ViewMu.Unlock()
 			return service.contentLimitSnapshotLocked(protect)
@@ -109,12 +109,12 @@ func (service *Service) reconcileLoadedContentLimit(protect string) {
 // 见文件头「窗口口径」的后续项：由装载/卸载记账取代），再逐个体读出"是否持有
 // 正文"与"是否受保护"——**只对持有正文的会话读受保护集**，与迁移前挑选循环的
 // 读取次序逐字一致（判据侧对无正文的会话在读受保护之前就 `continue`）。
-func (service *Service) contentLimitSnapshotLocked(protect string) residency.ContentLimitSnapshot {
+func (service *Service) contentLimitSnapshotLocked(protect string) residency.EvictionSnapshot {
 	service.pruneContentOrderLocked()
-	snapshot := residency.ContentLimitSnapshot{
+	snapshot := residency.EvictionSnapshot{
 		Order:       service.loadedContentOrder,
 		Protect:     protect,
-		Loaded:      make(map[string]bool, len(service.loadedContentOrder)),
+		Occupied:    make(map[string]bool, len(service.loadedContentOrder)),
 		Protected:   make(map[string]bool, len(service.loadedContentOrder)),
 		LegacyLimit: Limits().LoadedContentLimit,
 		Window:      Limits().ReleaseWindow(),
@@ -126,7 +126,7 @@ func (service *Service) contentLimitSnapshotLocked(protect string) residency.Con
 		if !service.sessionContentLoadedLocked(sessionID) {
 			continue
 		}
-		snapshot.Loaded[sessionID] = true
+		snapshot.Occupied[sessionID] = true
 		if service.protectedSessionLocked(sessionID) {
 			snapshot.Protected[sessionID] = true
 		}
