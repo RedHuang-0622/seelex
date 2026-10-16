@@ -38,6 +38,12 @@
    以及 `DraftTarget` 的两条真值表——`Matches`（廉价闸门：槽命中或视图命中）与 `InView`（物化闸门：视图必须
    停在草稿上，槽空表示尚未物化）。草稿的**状态机**（进草稿清哪些字段、物化绑哪个工作区、发哪些事件）仍在宿主，
    因为那是视图过渡锁下的编排而不是判据。
+8. 交互面（`interaction.go`，M5-R6-interaction 接收者转移）：四类 kind 与两个选项/文案词表
+   （`InteractionKind*`、`InteractionCancelOptionID`、`PlanRetryOption*`、`PlanRetryNotice*`、`PlanAbortNotice`）、
+   两条 ID 拼法（`SessionInteractionID` / `AccountInteractionID`）、选择项与交互体的装配
+   （`BuildSessionInteraction` / `BuildAccountInteraction`，含 `tok:` 描述与"名称缺失才取短 ID"的惰性端口），
+   以及未识别 kind 的报错构造器 `UnsupportedInteractionKind`。**派发与结案**（点 replan 就调
+   `replanFailedWork`、恢复失败就 `addNotice`）仍在宿主——那是用例编排，不是词表。
 
 **不做**：不做会话事实（谁在跑、绑定哪个工作区）；不持久化（元数据落在存储层的项目级 meta blob，
 由宿主端口 `MetaStore` 代劳）；不发布事件（目录刷新由宿主的 `Wake` 回调负责）。
@@ -65,6 +71,8 @@
 | `draft.go` | `DraftSessionName` / `DraftSessionIDPrefix` + `NewDraftSessionID`、`DraftTarget` 的 `Matches` / `InView`：草稿身份的两条判据 |
 | `draft_test.go` | 常量值钉住（持久化键口径）、同 tick 去重与格式、`Matches` 九格真值表、`InView` 六格真值表（含"视图切走但槽仍命中"的反例） |
 | `history/` | 历史分页的窗口装配判据（见其 README） |
+| `interaction.go` | 交互面词表与装配：`InteractionKind*` 四类 kind、`InteractionCancelOptionID`、`PlanRetryOption*` 与两条 `PlanRetryNotice*` / `PlanAbortNotice` 文案、`SessionInteractionID` / `AccountInteractionID`、`BuildSessionInteraction` / `BuildAccountInteraction`、`UnsupportedInteractionKind` |
+| `interaction_test.go` | 四类 kind 与取消选项的字面量口径、plan_retry 四个选项与两条提示文案、未识别 kind 的报错、会话/账号交互体的选项装配（含短 ID 惰性端口与 `tok:` 描述） |
 
 ## 核心实现
 
@@ -176,3 +184,20 @@ go test ./wiring/adapters/ -run SessionSetting -count=1        # 存储端口实
 - `type ReleaseWindowDeps struct` — 宿主面：`Validate`（limit 域取值判据）、`Persist`（nil = 没装配落盘口）、`Apply`（改进程级值并返回生效值）、`Current`（当前读数）。
 - `func SetReleaseWindow(deps ReleaseWindowDeps, window int) (int, error)` — 先校验 → 再落盘（失败文案 `保存会话驻留窗口失败: %w`）→ 最后改内存；返回真正生效的值。
 - `func ReleaseWindow(deps ReleaseWindowDeps) int` — 当前生效的窗口（设置弹窗打开时读一次；不挂进快照）。
+
+### interaction.go
+
+- `func UnsupportedInteractionKind(kind string) error` — UnsupportedInteractionKind 是未知 kind 的报错（文案逐字保留 `%q` 的引号形式，
+- `func SessionInteractionID(now time.Time) string` — SessionInteractionID / AccountInteractionID 是视图单格交互的 ID 口径：
+- `func AccountInteractionID(now time.Time) string`
+- `func BuildSessionInteraction(id string, sessions []SessionChoice, openedAt time.Time) model.Interaction` — BuildSessionInteraction 装配"选择会话"交互：标签 = 会话名，名缺失时回退短 ID；
+- `func BuildAccountInteraction(id string, accounts []AccountChoice, openedAt time.Time) model.Interaction` — BuildAccountInteraction 装配"切换账号"交互：停用的账号在标签后补 ` [禁用]`（不隐藏，
+
+### interaction_test.go
+
+- `func TestInteractionVocabularyIsPinned(t *testing.T)` — TestInteractionVocabularyIsPinned 钉住词表与文案：它们是前端按钮的机器名与用户可见文字，
+- `func TestUnsupportedInteractionKind(t *testing.T)` — TestUnsupportedInteractionKind 未列出的 kind 必须带引号报错（宿主原样冒泡给前端）。
+- `func TestInteractionIDFormats(t *testing.T)` — TestInteractionIDFormats 两类交互 ID 前缀不同（互不覆盖），且按 UnixNano 单调可区分。
+- `func TestBuildSessionInteraction(t *testing.T)` — TestBuildSessionInteraction 标签回退与描述格式；ShortID 端口只在名称缺失时被调用。
+- `func TestBuildSessionInteractionWithoutShortIDPort(t *testing.T)` — TestBuildSessionInteractionWithoutShortIDPort 没装端口时不得 panic（名称缺失就留空标签）。
+- `func TestBuildAccountInteraction(t *testing.T)` — TestBuildAccountInteraction 停用标记、`provider model` 去尾空与空账号池。

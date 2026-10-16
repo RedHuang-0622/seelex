@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/switch"
 )
 
 func (service *Service) ResolveInteraction(ctx context.Context, id, optionID string) error {
@@ -25,43 +26,43 @@ func (service *Service) ResolveInteraction(ctx context.Context, id, optionID str
 		}
 		return ErrInteractionNotFound
 	}
-	if optionID == "__CANCEL__" {
-		if interaction.Kind == "approval" {
+	if optionID == switching.InteractionCancelOptionID {
+		if interaction.Kind == switching.InteractionKindApproval {
 			return service.Approval.Resolve(id, ApprovalDecision{OptionID: optionID})
 		}
 		service.closeInteraction(id)
 		return nil
 	}
 	switch interaction.Kind {
-	case "approval":
+	case switching.InteractionKindApproval:
 		return service.Approval.Resolve(id, ApprovalDecision{OptionID: optionID})
-	case "session":
+	case switching.InteractionKindSession:
 		if err := service.resumeSession(optionID); err != nil {
 			service.addNotice("恢复失败: " + err.Error())
 			service.closeInteraction(id)
 			return err
 		}
-	case "account":
+	case switching.InteractionKindAccount:
 		if err := service.SelectAccount(ctx, optionID); err != nil {
 			service.addNotice("账号切换失败: " + err.Error())
 			service.closeInteraction(id)
 			return err
 		}
-	case "plan_retry":
+	case switching.InteractionKindPlanRetry:
 		switch optionID {
-		case "replan":
+		case switching.PlanRetryOptionReplan:
 			if err := service.replanFailedWork(ctx, interaction.ID, interaction.Question); err != nil {
 				return err
 			}
-		case "retry":
-			service.appendPlanRetryNotice("节点失败，用户选择重试。请调用 plan_run 重新执行工作流。")
-		case "skip":
-			service.appendPlanRetryNotice("节点失败，用户选择跳过。请修改工作流（plan_clear + plan_load）排除失败节点后重新 plan_run。")
-		case "abort":
+		case switching.PlanRetryOptionRetry:
+			service.appendPlanRetryNotice(switching.PlanRetryNoticeRetry)
+		case switching.PlanRetryOptionSkip:
+			service.appendPlanRetryNotice(switching.PlanRetryNoticeSkip)
+		case switching.PlanRetryOptionAbort:
 			service.abortPlanInteraction()
 		}
 	default:
-		return fmt.Errorf("unsupported interaction kind %q", interaction.Kind)
+		return switching.UnsupportedInteractionKind(interaction.Kind)
 	}
 	service.closeInteraction(id)
 	return nil
@@ -96,7 +97,7 @@ func (service *Service) abortPlanInteraction() {
 			}
 		}
 	}
-	service.appendMessageLocked("system", "工作流已终止。", nil)
+	service.appendMessageLocked("system", switching.PlanAbortNotice, nil)
 	revision := service.bumpLocked()
 	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", service.currentViewSessionID(), nil)
@@ -399,26 +400,33 @@ func (service *Service) closeInteraction(id string) {
 
 func (service *Service) sessionInteraction() *Interaction {
 	sessions := service.Snapshot().Sessions
-	options := make([]InteractionOption, 0, len(sessions))
+	choices := make([]switching.SessionChoice, 0, len(sessions))
 	for _, session := range sessions {
-		label := session.Name
-		if label == "" {
-			label = service.components.sessions.ShortSessionID(session.ID)
+		choice := switching.SessionChoice{
+			ID:         session.ID,
+			Name:       session.Name,
+			TokenCount: session.TokenCount,
+			UpdatedAt:  session.UpdatedAt,
 		}
-		options = append(options, InteractionOption{ID: session.ID, Label: label, Description: fmt.Sprintf("tok:%d  %s", session.TokenCount, session.UpdatedAt.Format("01-02 15:04"))})
+		// 短 ID 是**惰性端口**：只在名称缺失时取（判据在 middle/switch，取数在宿主）。
+		choice.ShortID = func() string { return service.components.sessions.ShortSessionID(session.ID) }
+		choices = append(choices, choice)
 	}
-	return &Interaction{ID: fmt.Sprintf("session-%d", time.Now().UnixNano()), Kind: "session", Title: "选择会话", Options: options, OpenedAt: time.Now()}
+	interaction := switching.BuildSessionInteraction(switching.SessionInteractionID(time.Now()), choices, time.Now())
+	return &interaction
 }
 
 func (service *Service) accountInteraction() *Interaction {
 	accounts := service.Deps.Runtime.Accounts()
-	options := make([]InteractionOption, 0, len(accounts))
+	choices := make([]switching.AccountChoice, 0, len(accounts))
 	for _, account := range accounts {
-		label := account.Name
-		if account.Disabled {
-			label += " [禁用]"
-		}
-		options = append(options, InteractionOption{ID: account.Name, Label: label, Description: strings.TrimSpace(account.Provider + " " + account.Model)})
+		choices = append(choices, switching.AccountChoice{
+			Name:     account.Name,
+			Disabled: account.Disabled,
+			Provider: account.Provider,
+			Model:    account.Model,
+		})
 	}
-	return &Interaction{ID: fmt.Sprintf("account-%d", time.Now().UnixNano()), Kind: "account", Title: "切换账号", Options: options, OpenedAt: time.Now()}
+	interaction := switching.BuildAccountInteraction(switching.AccountInteractionID(time.Now()), choices, time.Now())
+	return &interaction
 }
