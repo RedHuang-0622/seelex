@@ -31,6 +31,7 @@
 | R11-schedule | 定时/周期任务域的宿主转发面：7 个 DTO 别名 + `RestoreScheduledTasks` / `RegisterScheduledCommand` / `ScheduledCommands` / `ScheduleTask` / `UpdateScheduledTask` / `CancelScheduledTask` / `ScheduledTasksSnapshot` / `SetScheduledPromptExecutor` / `SetSchedulerObserver` | 本包 `runtime_schedule.go`（**状态**早已在 [`backend/engine/schedule`](../../engine/schedule/README.md)，该域的 `Runtime` 面上没有可下沉的状态，故按任务书 S4/S5 条只搬转发面） |
 | R11-mcp | MCP 域的宿主转发面：`MCPServer` 别名 + 11 个 `Runtime` 公开方法（`BreakerEvents` / `AttachMCP` / `AttachMCPServer` / `RegisterLazyMCP` / `LazyMCPServerNames` / `LoadMCP` / `DetachMCP` / `RefreshMCP` / `MCPServerNames` / `IsMCPAlive` / `MCPServerStatus`） | 本包 `runtime_mcp.go`（连接与工具刷新在 [`backend/engine/mcp`](../../engine/mcp/README.md)，`Runtime.mcpManager` 即装配点） |
 | R11-plugin | 插件域的宿主转发面：`DefinePlugin` / `UndefinePlugin` / `ActivatePlugin` / `DeactivatePlugin` / `ActivePlugin` / `SetPluginUnassembledReason` / `WithPluginAssembly` | 本包 `runtime_plugin.go`（插件生命周期在 [`backend/engine/plugin`](../../engine/plugin/README.md)，`Runtime.plugins` 即装配点；`WithPluginAssembly` 与 teammate 回合共用 `toolreg.WithRolePlugins` 原语） |
+| R11-node | 子代理树与节点只读面的宿主转发面：`ClearSubagentTree` / `SubagentTreeEvents` / `SubAgentTree` / `SetSubagentToolCallback` / `NodeSessionConversation` / `NodeContextSnapshot` / `SetSkillRegistry` / `NodeToolResult` / `NodeWorktreeInfo{,For}` / `NodeStageLogs` / `NodeStageEvents` / `NodeFirstPersonView` / `NodeSemanticResult` / `DrainSubagentSemanticResults` | 本包 `runtime_node.go`（状态在多智能体域组件上：子代理树注册表、节点会话/上下文快照、worktree 管理器） |
 
 **仍未下沉**（按 plan §2.5–§2.8 的目标落点，逐域各一片）：engine 侧 `runtime_context` /
 `runtime_compaction_index`（→ `backend/engine/context`）、`runtime_role_prompt`（→ `backend/engine/prompt`）、
@@ -41,8 +42,8 @@ tool 侧 `runtime_plan`（→ `backend/tool/plan`）、`runtime_async` / `jobs_e
 `runtime_subagent_*`（→ `backend/multiagent/subagent`）、`workunit_*`（→ `backend/multiagent/workunit`）、
 `runtime_role_turn` / `runtime_role_plugins`（→ `backend/multiagent/team`）；M5 侧 `runtime_project_board*`
 （→ `middle/view/board`）。收口片 K 删 `ports.go`（R11-task 已收掉 task/todolist 两段、
-R11-schedule 收掉调度器段、R11-mcp 收掉 MCP 段、R11-plugin 收掉插件段，现 374 行；
-剩余 task 台账薄转发段、plan/子代理树/节点/历史检索/可见性投影等兼容别名）。
+R11-schedule 收掉调度器段、R11-mcp 收掉 MCP 段、R11-plugin 收掉插件段、R11-node 收掉子代理树与
+节点段，现 235 行；剩余 task 台账薄转发段、plan/历史检索/可见性投影等兼容别名）。
 
 每片的判据都是"行为零变化"：只动"文件在哪、包叫什么、谁持有状态"，不动判定、协议与持久化格式。
 
@@ -90,6 +91,7 @@ flowchart TB
 | `runtime_schedule.go` | 定时/周期任务域的宿主转发面（M5-R11-schedule 从 `ports.go` 原样搬来）：7 个 DTO 别名 + 9 个 `Runtime` 公开方法，逐行委托 [`backend/engine/schedule.State`](../../engine/schedule/README.md)（`Runtime.scheduler` 即该装配点引用） |
 | `runtime_mcp.go` | MCP 域的宿主转发面（M5-R11-mcp 从 `ports.go` 原样搬来）：`MCPServer` 别名 + 11 个 `Runtime` 公开方法，逐行委托 [`backend/engine/mcp`](../../engine/mcp/README.md)（`Runtime.mcpManager`） |
 | `runtime_plugin.go` | 插件域的宿主转发面（M5-R11-plugin 从 `ports.go` 原样搬来）：7 个 `Runtime` 公开方法，前六个逐行委托 [`backend/engine/plugin`](../../engine/plugin/README.md)，`WithPluginAssembly` 走共享原语 `toolreg.WithRolePlugins` |
+| `runtime_node.go` | 子代理树与节点只读面的宿主转发面（M5-R11-node 从 `ports.go` 原样搬来，含 `NodeWorktreeInfo` 别名）：14 个 `Runtime` 公开方法，逐行读 `Runtime` 自己持有的域组件 |
 | `runtime_plan.go` | plan 执行域装配与委托（SetPlan*/Replan/事件通道/分支账号/NodeFactory/plan 与 fork/node 的 Deps 闭包） |
 | `runtime_context.go` | 上下文接线（Assembler/Controller/Compressor/窗口/stack/project/memory/归档） |
 | `runtime_account.go` | 账号路由委托（account.Manager：选中账号/provider/限额/选择器）；**每账号上下文窗口**的取值面：`ContextWindowFor`（账号级覆盖 > `limits.context_window` 全局 > 账号档自报值）、`SetAccountWindow`（界面「设置 → 账号」改一格，改后立刻生效）、`AccountWindows`（拷贝，诊断/对账用）。覆盖层的落盘在数据根 `runtime-limits.json`（宿主侧 [`backend/limit/overlay`](../../limit/overlay/README.md)），**不写回** `seelex.yaml` 与账号档 |
