@@ -51,26 +51,13 @@ func (service *Service) markContentRecentLocked(sessionID string) {
 	if sessionID == "" {
 		return
 	}
-	next := make([]string, 0, len(service.loadedContentOrder)+1)
-	next = append(next, sessionID)
-	for _, existing := range service.loadedContentOrder {
-		if existing != sessionID {
-			next = append(next, existing)
-		}
-	}
-	service.loadedContentOrder = next
+	service.loadedContentOrder = service.loadedContentOrder.Touch(sessionID)
 }
 
 // forgetContentLocked 把会话移出内容 LRU 使用序（正文已卸载；调用方持有
 // Core.ViewMu）。正文下次装载/回读时经 touchContent 重新入序（最近使用端）。
 func (service *Service) forgetContentLocked(sessionID string) {
-	filtered := service.loadedContentOrder[:0]
-	for _, existing := range service.loadedContentOrder {
-		if existing != sessionID {
-			filtered = append(filtered, existing)
-		}
-	}
-	service.loadedContentOrder = filtered
+	service.loadedContentOrder = service.loadedContentOrder.Forget(sessionID)
 }
 
 // pruneContentOrderLocked 收敛使用序并返回当前持有正文的会话数（调用方持有

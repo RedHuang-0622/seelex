@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/RedHuang-0622/seelex/middle/residency"
 	"github.com/RedHuang-0622/seelex/session"
 )
 
@@ -62,13 +63,7 @@ func (service *Service) protectedSessionLocked(sessionID string) bool {
 //     会话）"，因此可释放的额度 = 上限 − 受保护数（下限 0）。
 //   - legacyLimit <= 0：**统一窗口（默认口径）**——受保护集之外保留窗口个。
 func releaseBudget(legacyLimit int, protectedCount int) int {
-	if legacyLimit > 0 {
-		if budget := legacyLimit - protectedCount; budget > 0 {
-			return budget
-		}
-		return 0
-	}
-	return Limits().ReleaseWindow()
+	return residency.Budget(legacyLimit, protectedCount, Limits().ReleaseWindow())
 }
 
 // releaseSessionMemory 释放一个会话的内存占用（引擎 + 桥侧本体 + 正文 + 使用序，
@@ -174,13 +169,7 @@ func (service *Service) releaseSessionContentMemory(sessionID string) {
 
 // forgetResidentLocked 把会话移出驻留使用序并清驻留标记（调用方持有 Core.ViewMu）。
 func (service *Service) forgetResidentLocked(sessionID string) {
-	filtered := service.residentOrder[:0]
-	for _, existing := range service.residentOrder {
-		if existing != sessionID {
-			filtered = append(filtered, existing)
-		}
-	}
-	service.residentOrder = filtered
+	service.residentOrder = service.residentOrder.Forget(sessionID)
 	if unit := service.sessions.Unit(sessionID); unit != nil {
 		unit.SetResident(false)
 	}

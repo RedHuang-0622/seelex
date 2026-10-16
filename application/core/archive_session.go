@@ -71,14 +71,7 @@ func (service *Service) ArchiveSession(sessionID string) error {
 			return fmt.Errorf("archive unload %q: %w", sessionID, err)
 		}
 		service.ViewMu.Lock()
-		service.markResidentRecentLocked(sessionID, false)
-		filtered := service.residentOrder[:0]
-		for _, existing := range service.residentOrder {
-			if existing != sessionID {
-				filtered = append(filtered, existing)
-			}
-		}
-		service.residentOrder = filtered
+		service.forgetResidentLocked(sessionID)
 		service.ViewMu.Unlock()
 	}
 

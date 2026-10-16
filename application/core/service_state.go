@@ -7,6 +7,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/kernel/state"
+	"github.com/RedHuang-0622/seelex/middle/residency"
 	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"github.com/RedHuang-0622/seelex/session"
 )
@@ -66,7 +67,7 @@ type serviceState struct {
 	// residentOrder 是驻留引擎（session bundle）的 LRU 使用序（Core.ViewMu
 	// 保护；索引 0 = 最近使用）。G6 驱逐按最旧优先；running/queued/
 	// awaiting_approval 与当前视图会话不可驱逐（INV-G8）。
-	residentOrder []string
+	residentOrder residency.Order
 
 	// loadedContentOrder 是「已加载会话可见正文」的 LRU 使用序（Core.ViewMu
 	// 保护；索引 0 = 最近使用）。内容上限 = limits.loaded_content_limit
@@ -75,7 +76,7 @@ type serviceState struct {
 	// awaiting_approval（含待批/排队输入）/ restoring / 本已无正文的会话都
 	// 不做候选。与 residentOrder 是两层独立治理：引擎驻留与否、正文留内存
 	// 与否互不替代。
-	loadedContentOrder []string
+	loadedContentOrder residency.Order
 
 	// viewEpoch 是视图切换的单调序号（Core.ViewMu 保护）：它是一支**时钟**——
 	// 每次"激活某个会话"都从这里取一个序号当该会话的视图意图值（见

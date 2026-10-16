@@ -2,9 +2,15 @@
 
 ## 生态位
 
-`middle/residency` 是中间层的**常驻与预算**落点（plan §2.4）：先落"可见快照的预算判据"
-（单条工具输出的预览截断），`resident_lru` / `content_lru` / `snapshot_budget` / `session_catalog` /
-`session_cold_read` / `session_input_index` / `window` / `archive_session` 家族随 R6 续做搬入。
+`middle/residency` 是中间层的**常驻与预算**落点（plan §2.4），当前已有两件判据：
+
+1. 可见快照的**预览截断**（`Preview`，来自 `snapshot_budget.go`）；
+2. **LRU 使用序维护**（`Order.Touch` / `Order.Forget`）与**释放额度**（`Budget`）——
+   迁移前这两段算法在引擎驻留层、正文层、归档路径与释放面**四处各写了一份**（AGENTS §8.3 的
+   同一判据多处），M5-R6-residency-order 收敛到此一处。
+
+`session_catalog` / `session_cold_read` / `session_input_index` / `window` / `archive_session`
+与两个 LRU 的**收敛循环/受保护集**随 R6 续做搬入（后者要读会话单元状态与引擎桥，属宿主面）。
 
 主要调用方：`application/core`（`snapshot_budget.go` 的 `boundToolResultForSnapshot` 与
 `handleToolCompleteObserved` / 会话恢复路径）。
@@ -15,11 +21,17 @@
 
 ## 职责与非职责
 
-**做**：`Preview(content, limit)` —— 把超限内容截断成快照预览：按 **UTF-8 rune 边界**安全切割
-（不切坏多字节字符）、去掉尾部空白、追加一行可读的省略说明（含按 **rune** 计的总字符数）。
+**做**：
 
-**不做**：不读配置（进程级预算 `snapshot_tool_output_chars` 的取数与默认值在宿主侧）；
-不做归档（超限全文落 `result_ref` 由宿主的任务域端口负责）；不写快照。
+1. `Preview(content, limit)` —— 把超限内容截断成快照预览：按 **UTF-8 rune 边界**安全切割
+   （不切坏多字节字符）、去掉尾部空白、追加一行可读的省略说明（含按 **rune** 计的总字符数）；
+2. `Order.Touch` / `Order.Forget` —— 使用序的唯一维护实现（索引 0 = 最近使用；Touch 去重前置、
+   Forget 保持相对顺序；空 ID 视为无效）；
+3. `Budget(legacyLimit, protectedCount, window)` —— 释放额度的唯一判据（分层口径 = 总上限 − 受保护数，
+   否则用统一窗口）。
+
+**不做**：不读配置（进程级预算、窗口、分层上限的取数都在宿主侧）；不做归档（超限全文落 `result_ref`
+由宿主的任务域端口负责）；不写快照；不持锁、不知道会话单元状态（受保护集的判定留在宿主）。
 
 ## 目录与文件结构
 
@@ -27,6 +39,8 @@
 |---|---|
 | `preview.go` | `Preview`：预览截断的唯一实现（`limit <= 0` = 不截断） |
 | `preview_test.go` | 截断/透传、UTF-8 边界与 rune 计数、`limit <= 0` 语义 |
+| `order.go` | `Order`（`Touch` / `Forget`）+ `Budget`：使用序与额度的唯一实现 |
+| `order_test.go` | 去重前置、不改原序、摘除保持相对顺序、额度两种口径与边界 |
 
 ## 核心实现
 
@@ -80,3 +94,10 @@ go test ./application/core/ -run 'SnapshotBudget|ToolResult|Truncation' -count=1
 ### preview.go
 
 - `func Preview(content string, limit int) (string, bool)` — 把超限内容截断为快照预览（UTF-8 边界安全，含按 rune 计数的省略说明）。
+
+### order.go
+
+- `type Order []string` — "最近使用序"（索引 0 = 最近使用；空 ID 视为无效）。
+- `func (o Order) Touch(id string) Order` — 移到序首（重复则先去重再前置）；返回新切片，不改原序。
+- `func (o Order) Forget(id string) Order` — 移出序，其余相对顺序不变。
+- `func Budget(legacyLimit, protectedCount, window int) int` — 释放额度：分层上限 − 受保护数，或统一窗口。

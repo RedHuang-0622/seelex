@@ -50,14 +50,7 @@ func (service *Service) touchResident(sessionID string) {
 // markResidentRecentLocked 把会话移到 LRU 使用序最前并标记驻留（调用方持
 // 有 Core.ViewMu；resident=false 用于驱逐后移除序）。
 func (service *Service) markResidentRecentLocked(sessionID string, resident bool) {
-	next := make([]string, 0, len(service.residentOrder)+1)
-	next = append(next, sessionID)
-	for _, existing := range service.residentOrder {
-		if existing != sessionID {
-			next = append(next, existing)
-		}
-	}
-	service.residentOrder = next
+	service.residentOrder = service.residentOrder.Touch(sessionID)
 	if unit := service.sessions.Unit(sessionID); unit != nil {
 		unit.SetResident(resident)
 	}
