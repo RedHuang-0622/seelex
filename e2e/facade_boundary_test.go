@@ -76,7 +76,12 @@ const (
 // 不是独立包，因此这是**一条进**的新模块，上限抬到 74。
 // 同片还抽走了 `middle/view/board/boardtest`（测试夹具包）：它只被两处用例 import，
 // 不在门面闭包里（`go list -deps ./application` 不含测试依赖），故不登记。
-const facadeClosureAllowListMax = 74
+// M5-R5c：`middle/view`（视图读数面：诊断文本 / 性能指标 / 运行时投影）同口径——
+// 从 `application/core` 的三个根文件抽出中间层视图根包（plan §2.4）。此前它们是
+// `application/core` 内部的文件、不是独立包，因此这是**一条进**的新模块，上限抬到 75。
+// 同片还消掉一条越层边：投影形状本来取自身为适配层的 `backend/engine/assemble`，
+// 现在直接用契约层 `contract/dto`（闭包规模不变，只是来源改正）。
+const facadeClosureAllowListMax = 75
 
 var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application",
@@ -94,6 +99,8 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/middle/view/subagent",
 	// M5-R5：项目看板的行投影与同步器（从 application/core/project_board.go 抽出）。
 	"github.com/RedHuang-0622/seelex/middle/view/board",
+	// M5-R5c：视图读数面（从 application/core/{diagnostics,perf_stats,runtime_projection}.go 抽出）。
+	"github.com/RedHuang-0622/seelex/middle/view",
 	"github.com/RedHuang-0622/seelex/application/core/task_context",
 	"github.com/RedHuang-0622/seelex/middle/view/state",
 	"github.com/RedHuang-0622/seelex/middle/view/worktable",

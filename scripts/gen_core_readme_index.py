@@ -32,6 +32,7 @@ EXTRA_PACKAGES = [
     REPO / "middle" / "protocol" / "event",
     REPO / "middle" / "view" / "board",
     REPO / "middle" / "view" / "board" / "boardtest",
+    REPO / "middle" / "view",
     REPO / "wiring" / "adapters",
     REPO / "wiring" / "config",
     REPO / "wiring" / "registry",

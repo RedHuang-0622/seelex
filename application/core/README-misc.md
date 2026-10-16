@@ -177,8 +177,6 @@
 ### runtime_projection.go
 
 - `func (service *Service) publishRuntimeProjections()` — publishRuntimeProjections 在 service.ViewMu 下拷贝应用自有状态，释放锁后发布
-- `func latestVisibleUserGoal(messages []Message) string`
-- `func truncateRuntimeProjectionGoal(content string) string`
 
 ### served_route_test.go
 
