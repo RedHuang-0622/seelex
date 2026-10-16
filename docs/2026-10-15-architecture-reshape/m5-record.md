@@ -1417,3 +1417,43 @@ case"两个工具缺陷后**重做成功**，见 §33。
 `runtime_session`/`role_host_session`、`runtime_plan`、`runtime_project_board*`、`runtime_tools`、
 `runtime_goal_tl`、`runtime_computer`/`runtime_mcp`/`runtime_plugin`/`runtime_schedule`/
 `runtime_history`/`runtime_node`/`runtime_task`/`runtime_visibility`/`runtime_bundle`/`runtime_deps`。
+
+## 37. P21 续片（2026-10-17 第五轮：P21-11 / P21-12）+ 全仓 `-race` 验收
+
+| 片 | 内容 | 提交 |
+|---|---|---|
+| P21-11 | **项目看板两面**：按需读取面（`ProjectBoardReader` 窄端口 + 四个边界常量 + `ProjectBoardReadRequest`/`Result` + `ReadProjectBoard` + 白名单归一 + 稳定排序，整文件）与 `TeamworkPlanFor` 的取数判定（会话号归一 / 半截键不当有键 / 读失败与空计划同解）→ `middle/view/board` 的 `read.go` / `teamwork_plan.go`；装配层只剩方法转发 + `teamworkKeyFor`/`readTeamworkPlan` 两格宿主读数，并把"两侧各写一份结构体字面量"的旧形状断言换成**一条真断言** `var _ board.TeamworkPlanSource = (*Runtime)(nil)`；`wiring/registry` 的 5 处引用改指域包。域级用例随实现搬入 + 新增 5 条；顺带修掉看板 README 一条陈旧路径字面量 | `2db9d342` |
+| P21-12 | **teammate 会话实时投影**：默认页 + 分页读法 + **唯一一份**裁剪/分页判据 + 只留 user/assistant 的投影判据 + 两个上限常量 → `backend/multiagent/teamwork/teammate_live.go`；装配层只剩两个公开方法的一行转发 + 同值常量别名 + 一格宿主读数（角色回合执行面句柄）。域级用例 6 条（含随搬的两条断言），宿主级用例留在装配层 | `e7afa51e` |
+
+### 全仓 `-race` 验收（本机 Windows + CGO + MinGW gcc 13.2，2026-10-17）
+
+`go test -race` 在本机**可用**（`CGO_ENABLED=1`，`CC=gcc` 来自 Strawberry Perl）。分片跑完 `./...`：
+
+| 分片 | 结果 |
+|---|---|
+| `./backend/...` | **59 包全 ok**，0 FAIL、0 `DATA RACE`（日志 `tmp/reshape/race-backend.log`） |
+| `./application/... ./middle/... ./store/... ./session/... ./wiring/... ./internal/... ./contract/... ./kernel/... .` | 29 包 ok；唯一 FAIL 是 `application/core` 的**基线 3 例**（登记不变）；0 `DATA RACE`（`race-app.log`） |
+| `./e2e/... ./gui/... ./tui/...` | 全 ok（e2e 31s / gui 9.7s / tui 3.4s） |
+| `./test/...` | **1 例红**：`TestBackgroundCompletionWhileSwitchingToC`（"C second turn did not block"，90s）——**基线复现**（在 `ae2faa18` 的独立 worktree `tmp/verify-p21base` 上跑同一条命令同样红），非本轮引入；非 `-race` 下 4s 通过。已登记为"`-race` 下的预存红"，待单独定位（形状与 `TestTwoRunningViewThirdSwitchStress` 同族：用例对时序阈值有隐含假设，`-race` 的减速把窗口放大） |
+
+**结论**：`-race` 下**没有任何数据竞争告警**；两处红都是已登记/可复现的既有问题（`application/core` 3 例 + `./test/` 1 例）。
+
+### 顺带修掉一条时序抽签（`272a7349`）
+
+`test.TestSettlePrintsTheRunErrorIntoTheTeammateMessage` 在负载下会红（今天实测 2 次：一次在多包 `-race`
+并发跑、一次单独 `-count=50`）。根因**不是产品缺陷**：`DispatchItem` 会真起执行体，执行体跑完带着自己的
+`runErr`（fixture 的 `fakeRunner` 返回 nil）**自动**尾插一次；用例自己那次"带错误的手动尾插"若后到，撞上
+`SettleWorkItemWith` 的幂等闸门（"合并期间已被收口 ⇒ 幂等返回"，这是**设计如此**），队列里只剩自动尾插的
+成功回执，断言即红。修法：用例先把执行体挡在 `fakeRunner.block` 闸门上（包内既有惯用法），手动尾插因此
+确定性先落笔。证据：修前 `-count=50` 偶红，修后 `-count=200 × 3`（600 次）与 `-race -count=200` 全绿；
+原失败的多包 `-race` 组合连跑 3 次全绿。
+
+### 本轮新暴露、待用户裁决的一条越层边（未动）
+
+`middle/view/state/coordinator.go` **import 了 `backend/engine/assemble`**（中间层反向依赖装配层）。
+它是 `e2e.TestFacadeDependencyClosureRatchet` 闭包里"装配层在册"的唯一入口：门面闭包之所以会变宽到
+`backend/engine/assemble`，再经它带上 `backend/tool/jobs`（本轮已按先例登记并抬上限 82 → 83），根子就在这条边。
+按 plan §1.2 的单向依赖，中间层不该认识装配层——它需要的是**窄端口**（`Deps.Runtime` 的字段面）。
+这条边属"换落点 + 收窄"的独立一片（改动面在 `middle/view/state` 与 `wiring` 的装配点），
+**未动，等裁决**：要不要把它排进 P21 剩余清单（做成第 N 片），以及是否需要先给出 `middle/view/state`
+的端口清单。
