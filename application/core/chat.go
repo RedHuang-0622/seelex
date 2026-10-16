@@ -13,7 +13,9 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/react"
 	"github.com/RedHuang-0622/seelex/backend/engine/session"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/middle/view/errors"
 	"github.com/RedHuang-0622/seelex/middle/view/state"
 	"github.com/RedHuang-0622/seelex/session"
 )
@@ -296,9 +298,9 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		// 时它不会再被任何一轮接管（consumed_by 非空会被标记跳过）。
 		_ = service.components.sessions.QueueFailConsumedInput(location, sessionID, requestID)
 		if err != nil {
-			err = wrapError(fmt.Errorf("%w; persistence failed and recovery is not guaranteed: %v", err, saveErr), errorCodePersistenceFailed)
+			err = viewerrors.Wrap(fmt.Errorf("%w; persistence failed and recovery is not guaranteed: %v", err, saveErr), contract.ErrorCodePersistenceFailed)
 		} else {
-			err = wrapError(fmt.Errorf("persistence failed and recovery is not guaranteed: %w", saveErr), errorCodePersistenceFailed)
+			err = viewerrors.Wrap(fmt.Errorf("persistence failed and recovery is not guaranteed: %w", saveErr), contract.ErrorCodePersistenceFailed)
 		}
 	} else {
 		// durable queue：本轮的消费项已随 message 发布（PersistCurrentSession
@@ -319,14 +321,14 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 	runtime.UpdateChat(func(chat *ChatState) { chat.Error = "" }, nil)
 	visibleError := ""
 	if err != nil {
-		if isUnclassifiedRunChatError(err) {
+		if viewerrors.IsUnclassified(err) {
 			// 分类只服务诊断日志：用户可见错误一律是原始 err 正文，
 			// 与下面三个出口（chat.Error / 会话 error 行 / EventError）同源。
 			log.Printf("[runChat] request_id=%s unclassified_error=%v", requestID, err)
 		}
-		// chat 报错恢复原始错误正文（诊断优先）：不再经 presentedError 文案
+		// chat 报错恢复原始错误正文（诊断优先）：不再经 viewerrors.Presented 文案
 		// 改写，UI/事件里就是 runChat 拿到的那条 err。错误分类呈现只保留给
-		// 工具错误出口（presentToolError → tool.Error 呈现文本）。
+		// 工具错误出口（viewerrors.PresentToolError → tool.Error 呈现文本）。
 		visibleError = err.Error()
 		runtime.UpdateChat(func(chat *ChatState) { chat.Error = visibleError }, nil)
 		service.appendSessionMessageLocked(sessionID, "error", visibleError, nil)
@@ -459,7 +461,7 @@ func (service *Service) recordUnhandledTaskErrorLocked(sessionID, requestID stri
 		service.components.tasks.InterruptTaskLocked(requestID, "The task was canceled before completion.")
 		return
 	}
-	if kind := classifyProviderFailure(err); kind != providerFailureNone {
+	if kind := contract.ClassifyProviderFailure(err); kind != contract.ProviderFailureNone {
 		service.components.tasks.InterruptTaskLocked(requestID, "The provider interrupted the task before completion.")
 		return
 	}
@@ -593,7 +595,7 @@ func (service *Service) finalizeReActBudgetWithSink(ctx context.Context, request
 	}
 	budgetErr := service.components.tasks.ReActBudgetError(requestID)
 	if budgetErr != nil {
-		budgetErr = wrapError(budgetErr, errorCodeReActBudget)
+		budgetErr = viewerrors.Wrap(budgetErr, contract.ErrorCodeReActBudget)
 	}
 	if budgetErr == nil {
 		return nil

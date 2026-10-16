@@ -646,7 +646,7 @@ const wireToolResultRefPrefix = "result:"
 // `out = fmt.Sprintf("{\"error\": %q}", dErr.Error())`，ToolResultProcessor
 // 对错误结果原样透传（seelexctx/processor.go Process：`result.Err != nil` →
 // `ToolResultView{Content: result.Raw}`）。因此 wire 上是这段 JSON，而不是应用
-// 的分类呈现文本。记录侧按原样保存「已发出字节」，呈现文本（presentToolError）
+// 的分类呈现文本。记录侧按原样保存「已发出字节」，呈现文本（注入的 PresentToolError）
 // 只留给视图。
 //
 // 与框架的这处字节级耦合由全链路 mock-provider 用例

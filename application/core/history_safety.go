@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/backend/engine/context"
+	"github.com/RedHuang-0622/seelex/contract"
 )
 
 const contextRecoveryPrefix = "<!-- seelex:context-recovery:v1 -->"
@@ -29,7 +30,7 @@ func nonEmptyProviderInput(input string) string {
 // 已给出"全量历史不可用"的权威信号。记录仅留在引擎私有区，下一轮成功后
 // 恢复原始用户请求。
 func (service *Service) recoverProviderContext(err error, originalRequest string) error {
-	if !isProviderContextExhaustion(err) {
+	if !contract.IsProviderContextExhaustion(err) {
 		return nil
 	}
 	_, recoveryErr := service.recoverProviderFailure(err, originalRequest)
@@ -53,8 +54,8 @@ func (service *Service) recoverProviderFailureFor(ctx context.Context, err error
 		sessionID = service.Core.Snapshot.Session.ID
 		service.ViewMu.RUnlock()
 	}
-	failureKind := classifyProviderFailure(err)
-	if failureKind == providerFailureNone {
+	failureKind := contract.ClassifyProviderFailure(err)
+	if failureKind == contract.ProviderFailureNone {
 		return false, nil
 	}
 	prefix, heading, summary := providerRecoveryDetails(failureKind)
@@ -124,48 +125,6 @@ func (service *Service) retryContextRecovery(ctx context.Context, requestID stri
 	return err
 }
 
-type providerFailureKind string
-
-const (
-	providerFailureNone    providerFailureKind = ""
-	providerFailureContext providerFailureKind = "context_exhausted"
-	providerFailureHistory providerFailureKind = "invalid_history"
-	providerFailureTimeout providerFailureKind = "timeout"
-	providerFailureServer  providerFailureKind = "server_unavailable"
-)
-
-func classifyProviderFailure(err error) providerFailureKind {
-	if isProviderContextExhaustion(err) {
-		return providerFailureContext
-	}
-	if err == nil {
-		return providerFailureNone
-	}
-	message := strings.ToLower(err.Error())
-	// tool 配对协议的两种措辞都算"记录不合法"：孤儿/乱序 tool 结果（2026-09-20
-	// 现场）与 assistant 宣告的调用没拿到足够回执（"insufficient tool messages
-	// following tool_calls message"，2026-09-24 探针 P4 实测、现场复现）。
-	if strings.Contains(message, "chat content is empty") ||
-		strings.Contains(message, "must be a response to a preceding message with") ||
-		strings.Contains(message, "must be followed by tool messages") {
-		// 后两者 = provider 拒绝 tool 配对协议（孤儿/乱序 tool 结果，2026-09-20
-		// 现场）：同属"请求里的记录不合法"，走有界检查点的历史恢复，而不是把
-		// 会话循环判死。wire 出口已按协议剔除这类形状（seelexctx 装配器），
-		// 这里保留兜底——provider 的措辞与严格度不由我们决定。
-		return providerFailureHistory
-	}
-	if strings.Contains(message, "http 504") || strings.Contains(message, "timeout_error") ||
-		strings.Contains(message, "upstream timeout") || strings.Contains(message, "request timeout") {
-		return providerFailureTimeout
-	}
-	if strings.Contains(message, "http 500") || strings.Contains(message, "http 502") ||
-		strings.Contains(message, "http 503") || strings.Contains(message, "http 529") ||
-		strings.Contains(message, "server_error") || strings.Contains(message, "internal server error") {
-		return providerFailureServer
-	}
-	return providerFailureNone
-}
-
 // retryableAfterRecovery 判定"被 provider 拒绝的这次请求"能否安全地重放一次
 // 有界恢复回合。恢复（recoverProviderFailureFor）已把 transcript 换成有界
 // 检查点，重放不会把被拒的记录再发一遍；判据是"这次拒绝发生在工具执行之前"：
@@ -177,33 +136,22 @@ func classifyProviderFailure(err error) providerFailureKind {
 //
 // 超时（504）与服务端故障刻意排除：工具副作用不确定，不得自动重放。
 func retryableAfterRecovery(err error) bool {
-	return isProviderContextExhaustion(err) || classifyProviderFailure(err) == providerFailureHistory
+	return contract.IsProviderContextExhaustion(err) || contract.ClassifyProviderFailure(err) == contract.ProviderFailureHistory
 }
 
-func providerRecoveryDetails(kind providerFailureKind) (prefix, heading, summary string) {
+func providerRecoveryDetails(kind contract.ProviderFailureKind) (prefix, heading, summary string) {
 	switch kind {
-	case providerFailureContext:
+	case contract.ProviderFailureContext:
 		return contextRecoveryPrefix, "Context Recovery", "The provider context window was exceeded; a bounded checkpoint was prepared."
-	case providerFailureHistory:
+	case contract.ProviderFailureHistory:
 		return providerRecoveryPrefix, "History Recovery", "The provider rejected an invalid conversation record; a bounded checkpoint was prepared."
-	case providerFailureTimeout:
+	case contract.ProviderFailureTimeout:
 		return providerRecoveryPrefix, "Recoverable Provider Interruption", "The model service timed out; the task was marked interrupted and will be persisted before the UI reports completion."
-	case providerFailureServer:
+	case contract.ProviderFailureServer:
 		return providerRecoveryPrefix, "Recoverable Provider Interruption", "The model service was temporarily unavailable; the task was marked interrupted and will be persisted before the UI reports completion."
 	default:
 		return "", "", ""
 	}
-}
-
-func isProviderContextExhaustion(err error) bool {
-	if err == nil {
-		return false
-	}
-	message := strings.ToLower(err.Error())
-	return strings.Contains(message, "context window exceeds") ||
-		strings.Contains(message, "context length") ||
-		strings.Contains(message, "maximum context") ||
-		strings.Contains(message, "上下文窗口")
 }
 
 func (service *Service) removeProviderContextRecovery() error {

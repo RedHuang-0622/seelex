@@ -4,7 +4,7 @@ package test
 // LLM 请求的情况下失败。
 //
 // 现象记录时的 UI 只显示兜底文案「代理运行时 / runChat / 当前任务未能完成」
-// （= classifyPresentedError 的 unclassifiedPresentation）；自 chat 报错恢复
+// （= viewerrors.Classify 的 unclassifiedPresentation）；自 chat 报错恢复
 // 原始正文后，该场景会直接显示 runChat 拿到的原始错误，兜底文案不再出现，
 // 但本文件的红灯判据（第二轮没有新增 provider 请求 / 会话出现 error 行）不变。
 //

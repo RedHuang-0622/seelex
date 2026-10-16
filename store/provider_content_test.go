@@ -4,7 +4,7 @@ package store
 //
 // 记录侧必须保存**已发出的字节**。工具失败时 wire 上是框架合成的原始错误
 // JSON（`{"error": %q}`，63 B），而视图/轨迹读的是应用分类呈现文本
-// （presentToolError，181 B）；超限结果同理只差归档引用。provider 投影出口
+// （viewerrors.PresentToolError，181 B）；超限结果同理只差归档引用。provider 投影出口
 // （eventsToMessages / 会话 wire 装配）必须取 ProviderContent，否则下一轮从
 // 记录重投影时这条 tool 消息被改写、provider 前缀缓存自该点起全部失效。
 //

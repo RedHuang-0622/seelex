@@ -12,6 +12,7 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 	"github.com/RedHuang-0622/seelex/kernel/state"
+	"github.com/RedHuang-0622/seelex/middle/view/errors"
 	"github.com/RedHuang-0622/seelex/middle/view/state"
 	"github.com/RedHuang-0622/seelex/middle/view/subagent"
 	"github.com/RedHuang-0622/seelex/middle/view/worktable"
@@ -99,7 +100,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		},
 		IsOversizedToolResult:      context_runtime.IsOversizedToolResult,
 		OversizedToolResultWarning: context_runtime.OversizedToolResultWarning,
-		PresentToolError:           presentToolError,
+		PresentToolError:           viewerrors.PresentToolError,
 		QueuedInputRefs: func(sessionID string) []string {
 			// F-3b：按会话取排队输入引用（不读视图 Snapshot；unit 自锁）。
 			unit := service.sessions.Unit(sessionID)

@@ -10,7 +10,7 @@ package test
 // 该用例对应真实 API 冒烟（real_api_prefix_live_test.go）在 DeepSeek 上实测到的
 // 两类跨轮改写：
 //  1. 工具轮 assistant 消息的正文在跨轮投影里从空变成说明文本；
-//  2. 工具失败结果的正文从 wire 上的原始输出变成应用呈现文本（presentToolError）。
+//  2. 工具失败结果的正文从 wire 上的原始输出变成应用呈现文本（viewerrors.PresentToolError）。
 //
 // 两者的共同后果：同一会话的后续请求不再以前一条请求的字节为前缀，provider 的
 // 前缀缓存自该消息起全部失效（实测命中率波动 81%–95%）。
@@ -285,7 +285,7 @@ func fullChainWireContent(t *testing.T, body []byte, toolCallID string) (string,
 // **工具失败结果**。wire 上框架发出的是原始错误 JSON
 // （`{"error": %q}`，Seele `session/loop.go`：`out = fmt.Sprintf(...)` 后经
 // ToolResultProcessor 原样透传，seelexctx/processor.go）；而 durable 记录里存
-// 的是应用呈现文本（presentToolError →「【模块：工具执行｜…】」，181 B）。
+// 的是应用呈现文本（viewerrors.PresentToolError →「【模块：工具执行｜…】」，181 B）。
 // 下一轮从记录重投影时这条 tool 消息被改写（63 B → 181 B），前缀自该点起失效，
 // provider 前缀缓存从这条消息起全部重新计费。
 //

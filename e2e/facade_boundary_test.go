@@ -81,7 +81,12 @@ const (
 // `application/core` 内部的文件、不是独立包，因此这是**一条进**的新模块，上限抬到 75。
 // 同片还消掉一条越层边：投影形状本来取自身为适配层的 `backend/engine/assemble`，
 // 现在直接用契约层 `contract/dto`（闭包规模不变，只是来源改正）。
-const facadeClosureAllowListMax = 75
+// M5-R5d：`middle/view/errors`（错误呈现域）同口径——从 `application/core` 的两个根文件
+// （`error_codes.go` + `error_presentation.go`）抽出中间层视图子包（plan §2.4）。
+// 此前它们是 `application/core` 内部的文件、不是独立包，因此这是**一条进**的新模块，
+// 上限抬到 76。同一片还把跨层判据（错误码 / provider 失败分类 / ReAct 预算哨兵）
+// 下沉到 `contract`：它本来就在清单里，闭包规模不变。
+const facadeClosureAllowListMax = 76
 
 var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application",
@@ -99,6 +104,11 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/middle/view/subagent",
 	// M5-R5：项目看板的行投影与同步器（从 application/core/project_board.go 抽出）。
 	"github.com/RedHuang-0622/seelex/middle/view/board",
+	// M5-R5d：错误呈现域（原 application/core/{error_codes,error_presentation}.go）归位
+	// 中间层视图子包（plan §2.4）。**新增登记的理由**：这是一次"换落点 + 落点新建"，
+	// 门面闭包里 `application/core` 仍在，它引用的呈现包由 core 根文件变成 middle/view/errors，
+	// 闭包因此多了这一个包；同一片没有引入任何新的第三方/反向依赖（只依赖 contract 与 Seele/errors）。
+	"github.com/RedHuang-0622/seelex/middle/view/errors",
 	// M5-R5c：视图读数面（从 application/core/{diagnostics,perf_stats,runtime_projection}.go 抽出）。
 	"github.com/RedHuang-0622/seelex/middle/view",
 	"github.com/RedHuang-0622/seelex/backend/engine/task",

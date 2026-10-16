@@ -2,13 +2,13 @@ package task_context
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
 
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/backend/limit"
+	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/kernel/state"
 	"github.com/RedHuang-0622/seelex/middle/protocol/model"
 )
@@ -447,14 +447,11 @@ func (c *Coordinator) DeleteReplanInFlight(interactionID string) {
 	defer c.stateMu.Unlock()
 	c._DeleteReplanInFlight(interactionID)
 
-	// ErrReActBudgetExceeded 标记请求被其捕获的执行预算终止。
 }
 
 func (c *Coordinator) _DeleteReplanInFlight(interactionID string) {
 	delete(c.activeSessionLocked().replanInFlight, interactionID)
 }
-
-var ErrReActBudgetExceeded = errors.New("ReAct execution budget exhausted")
 
 // StartReActBudgetLocked 启动活跃会话请求级执行预算（调用方持有 Core.ViewMu）。
 func (c *Coordinator) StartReActBudgetLocked(requestID string, budget prompt.ReActBudget) {
@@ -598,7 +595,7 @@ func (c *Coordinator) ReActBudgetError(requestID string) error {
 
 func (c *Coordinator) _ReActBudgetError(requestID string) error {
 	if st := c.sessionForRequestLocked(requestID); st != nil && st.reactBudget != nil && st.reactBudget.requestID == requestID && st.reactBudget.reason != "" {
-		return fmt.Errorf("%w: %s", ErrReActBudgetExceeded, st.reactBudget.reason)
+		return fmt.Errorf("%w: %s", contract.ErrReActBudgetExceeded, st.reactBudget.reason)
 	}
 	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/RedHuang-0622/seelex/backend/engine/context"
+	"github.com/RedHuang-0622/seelex/contract"
 	"strings"
 	"testing"
 )
@@ -169,7 +170,7 @@ func TestContextExhaustionReturnsBoundedRecoveryInstructionToAgent(t *testing.T)
 
 // TestEmptyProviderContentRejectionResumesFromBoundedCheckpoint 覆盖“记录不合法”
 // 的另一半措辞（invalid params, chat content is empty）：它与 tool 配对 400 同类
-// （classifyProviderFailure 都判 providerFailureHistory），恢复之后同样重放一次
+// （contract.ClassifyProviderFailure 都判 contract.ProviderFailureHistory），恢复之后同样重放一次
 // 有界恢复回合，而不是把回合判死。被拒的记录不进入重放的请求；恢复说明只走私有
 // system 区，回合成功后由 removeProviderContextRecovery 摘掉。
 func TestEmptyProviderContentRejectionResumesFromBoundedCheckpoint(t *testing.T) {
@@ -247,8 +248,8 @@ func TestIterationRepairsNewlyAddedEmptyToolHistory(t *testing.T) {
 }
 
 func TestServerFailuresAreRecoverableWithoutAutomaticReplay(t *testing.T) {
-	if got := classifyProviderFailure(errors.New("engine loop 16: HTTP 500: server_error")); got != providerFailureServer {
-		t.Fatalf("provider failure = %q, want %q", got, providerFailureServer)
+	if got := contract.ClassifyProviderFailure(errors.New("engine loop 16: HTTP 500: server_error")); got != contract.ProviderFailureServer {
+		t.Fatalf("provider failure = %q, want %q", got, contract.ProviderFailureServer)
 	}
 }
 
@@ -262,8 +263,8 @@ func TestToolProtocolRejectionsAreHistoryFailures(t *testing.T) {
 		`ChatClient stream: HTTP 400: {"error":{"message":"Messages with role 'tool' must be a ` +
 		`response to a preceding message with 'tool_calls'","type":"invalid_request_error",` +
 		`"param":null,"code":"invalid_request_error"}}`)
-	if got := classifyProviderFailure(err); got != providerFailureHistory {
-		t.Fatalf("provider failure = %q, want %q", got, providerFailureHistory)
+	if got := contract.ClassifyProviderFailure(err); got != contract.ProviderFailureHistory {
+		t.Fatalf("provider failure = %q, want %q", got, contract.ProviderFailureHistory)
 	}
 }
 
@@ -281,8 +282,8 @@ func TestInsufficientToolMessagesIsAHistoryFailure(t *testing.T) {
 		`must be followed by tool messages responding to each 'tool_call_id'. ` +
 		`(insufficient tool messages following tool_calls message)","type":"invalid_request_error",` +
 		`"param":null,"code":"invalid_request_error"}}`)
-	if got := classifyProviderFailure(err); got != providerFailureHistory {
-		t.Fatalf("provider failure = %q, want %q", got, providerFailureHistory)
+	if got := contract.ClassifyProviderFailure(err); got != contract.ProviderFailureHistory {
+		t.Fatalf("provider failure = %q, want %q", got, contract.ProviderFailureHistory)
 	}
 }
 

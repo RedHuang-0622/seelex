@@ -9,6 +9,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/seelex/backend/engine/task"
+	"github.com/RedHuang-0622/seelex/contract"
 	selexsession "github.com/RedHuang-0622/seelex/session"
 )
 
@@ -30,8 +31,8 @@ func TestReActBudgetStopsOnlyAfterItsToolBudget(t *testing.T) {
 	if hooks.OnIterationComplete(context.Background(), 1) {
 		t.Fatal("tool-call budget should stop the next ReAct iteration")
 	}
-	if err := service.components.tasks.ReActBudgetError("budget-request"); !errors.Is(err, task_context.ErrReActBudgetExceeded) {
-		t.Fatalf("budget error = %v, want task_context.ErrReActBudgetExceeded", err)
+	if err := service.components.tasks.ReActBudgetError("budget-request"); !errors.Is(err, contract.ErrReActBudgetExceeded) {
+		t.Fatalf("budget error = %v, want contract.ErrReActBudgetExceeded", err)
 	}
 }
 
