@@ -34,8 +34,8 @@ import (
 	seelimits "github.com/RedHuang-0622/Seele/limits"
 	"github.com/RedHuang-0622/Seele/types"
 
+	"github.com/RedHuang-0622/seelex/internal/config"
 	"github.com/RedHuang-0622/seelex/seelebridge/account"
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/config"
 )
 
 func TestSeelexLimitsLiveSmoke(t *testing.T) {

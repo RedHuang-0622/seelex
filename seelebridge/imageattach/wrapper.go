@@ -9,7 +9,7 @@ import (
 	"github.com/RedHuang-0622/Seele/agent"
 	"github.com/RedHuang-0622/Seele/types"
 
-	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
+	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 )
 
 // DefaultPrompt 是随图那句话的默认正文。

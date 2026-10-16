@@ -9,8 +9,8 @@ import (
 
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/actor"
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	"github.com/RedHuang-0622/seelex/internal/actor"
+	"github.com/RedHuang-0622/seelex/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/seelexctx/provider"

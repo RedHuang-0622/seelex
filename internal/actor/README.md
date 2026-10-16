@@ -1,8 +1,8 @@
-# seelebridge/internal/actor
+# internal/actor
 
 ## 生态位
 
-`seelebridge/internal/actor` 是 seelebridge 内部的**单消费者 actor 底座**：
+`internal/actor` 是 seelebridge 内部的**单消费者 actor 底座**：
 统一"有界命令通道 + 唯一消费者 goroutine + done 关闭 + WaitGroup + 带超时
 投递 + 幂等 Close"这套样板，供 task 注册表、子代理会话/上下文等 mailbox
 actor 复用。handler 由调用方闭包提供，回复类型域相关由命令自身携带。
@@ -96,6 +96,6 @@ wg 样板。锁/ticker 驱动的串行化组件（如 `scheduler.State`、`fs` �
 
 ## 测试与验证
 
-`go test ./seelebridge/internal/actor -count=1`；并发路径由
+`go test ./internal/actor -count=1`；并发路径由
 `fork_concurrency_*`、`merge_back_concurrency_test.go`、
 `subagent_audit_test.go` 等既有测试护航。

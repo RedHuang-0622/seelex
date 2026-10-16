@@ -9,7 +9,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/tools"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	"github.com/RedHuang-0622/seelex/internal/model"
 )
 
 // SubagentToolEvent 是 Runtime 对子代理工具调用的稳定投影，不暴露 Seele

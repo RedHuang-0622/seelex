@@ -12,7 +12,7 @@ import (
 	"github.com/RedHuang-0622/Seele/agent"
 	"github.com/RedHuang-0622/Seele/agent/core/api"
 	"github.com/RedHuang-0622/Seele/types"
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	"github.com/RedHuang-0622/seelex/internal/model"
 )
 
 // ClientFor 从账号配置构造一个同步 Completer（agent.Completer）。

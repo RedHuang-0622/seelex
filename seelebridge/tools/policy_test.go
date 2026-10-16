@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/Seele/types"
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	"github.com/RedHuang-0622/seelex/internal/model"
 )
 
 func planTool(name string) types.Tool {

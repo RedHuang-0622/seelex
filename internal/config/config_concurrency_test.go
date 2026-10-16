@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	"github.com/RedHuang-0622/seelex/internal/model"
 )
 
 // TestRoleDefaultConcurrency verifies the 2026-09-07 role-aware defaults:

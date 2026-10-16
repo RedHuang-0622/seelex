@@ -33,10 +33,10 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/backend/tool/computer"
+	"github.com/RedHuang-0622/seelex/internal/config"
+	"github.com/RedHuang-0622/seelex/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/account"
 	"github.com/RedHuang-0622/seelex/seelebridge/imageattach"
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/config"
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 )
 
 func TestImageAttachLiveSmoke(t *testing.T) {

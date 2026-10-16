@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/RedHuang-0622/Seele/types"
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	"github.com/RedHuang-0622/seelex/internal/model"
 )
 
 // PolicyDeps 是可见性策略的跨域闭包（goal skill 激活判定 + 插件过滤 + 员工工具面）。

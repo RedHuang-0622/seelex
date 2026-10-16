@@ -58,4 +58,4 @@ seelebridge 根包及其它域。
 
 ## 测试与验证
 
-`go test ./seelebridge/internal/docker/...`（纯函数测试随域迁移）。
+`go test ./internal/docker/...`（纯函数测试随域迁移）。

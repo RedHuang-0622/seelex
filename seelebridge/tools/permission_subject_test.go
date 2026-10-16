@@ -9,7 +9,7 @@ import (
 
 	frameworktools "github.com/RedHuang-0622/Seele/tools"
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	"github.com/RedHuang-0622/seelex/internal/model"
 )
 
 // permission_subject_test.go — 权责模型的主体口径验收：

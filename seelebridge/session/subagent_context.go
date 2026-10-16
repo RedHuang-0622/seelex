@@ -5,8 +5,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	seelactor "github.com/RedHuang-0622/seelex/seelebridge/internal/actor"
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	seelactor "github.com/RedHuang-0622/seelex/internal/actor"
+	"github.com/RedHuang-0622/seelex/internal/model"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/seelexctx/merger"
 	"github.com/RedHuang-0622/seelex/seelexctx/provider"

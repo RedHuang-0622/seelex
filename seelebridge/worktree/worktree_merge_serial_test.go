@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	"github.com/RedHuang-0622/seelex/internal/model"
 )
 
 // scriptedGit 是可编程 git 执行器，比 worktree_manager_test.go 的 fakeGit 多两样：

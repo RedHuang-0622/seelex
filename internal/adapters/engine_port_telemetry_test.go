@@ -7,7 +7,7 @@ import (
 	frameworktelemetry "github.com/RedHuang-0622/Seele/telemetry"
 )
 
-// telemetrySessionAttribute 是 seelebridge/internal/telemetry 的
+// telemetrySessionAttribute 是 internal/telemetry 的
 // SessionAttributeKey（"session_id"）。测试直接打 attribute，等价于
 // SessionTagHook 在生产链上的产物（该包为 internal，不允许本包引用）。
 const telemetrySessionAttribute = "session_id"

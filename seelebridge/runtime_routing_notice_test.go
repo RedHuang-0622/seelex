@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/stream"
+	"github.com/RedHuang-0622/seelex/internal/stream"
 )
 
 // ── served route 注册表（observeRoutingNotice → TakeServedRoute）─────────────

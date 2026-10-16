@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/actor"
+	"github.com/RedHuang-0622/seelex/internal/actor"
 )
 
 // ── task 注册表（worktable task 状态体系，Actor + Mailbox）────────────

@@ -2,7 +2,7 @@
 
 ## 生态位
 
-`seelebridge/internal/config` 承载简化账号 YAML（accounts*.yaml 角色分组格式）
+`internal/config` 承载简化账号 YAML（accounts*.yaml 角色分组格式）
 的加载：产出账号规格（`model.AccountSpec`）与 Seelex 侧上下文/输出预算
 （`Config`/`AccountLimits`）。属于根 facade 的装配细节（仅 runtime.go 使用），
 置于 internal/；根包直接 import 使用（`runtime_account.go` 的

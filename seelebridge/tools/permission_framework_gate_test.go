@@ -9,7 +9,7 @@ import (
 
 	frameworktools "github.com/RedHuang-0622/Seele/tools"
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	"github.com/RedHuang-0622/seelex/internal/model"
 )
 
 // sessionScopedGate 造一个按调用 ctx 解析会话归属的门，模拟 seelebridge 的装配。

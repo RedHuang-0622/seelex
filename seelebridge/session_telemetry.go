@@ -5,7 +5,7 @@ import (
 	"strconv"
 
 	frameworktelemetry "github.com/RedHuang-0622/Seele/telemetry"
-	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
+	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 )
 
 // WithTelemetrySessionID 把会话 ID 注入 ctx（G1/M8 会话入口接线）。

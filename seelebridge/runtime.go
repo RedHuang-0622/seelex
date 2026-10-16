@@ -23,14 +23,14 @@ import (
 
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/internal/config"
+	"github.com/RedHuang-0622/seelex/internal/docker"
+	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/mcpstack"
 	"github.com/RedHuang-0622/seelex/seelebridge/account"
 	"github.com/RedHuang-0622/seelex/seelebridge/fork"
 	"github.com/RedHuang-0622/seelex/seelebridge/fs"
 	"github.com/RedHuang-0622/seelex/seelebridge/imageattach"
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/config"
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/docker"
-	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/seelebridge/mcp"
 	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
 	"github.com/RedHuang-0622/seelex/seelebridge/plan"
@@ -535,7 +535,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	})
 	r.forkTool = fork.NewTool(r.forkDeps())
 	// telemetry 钩子链统一由 Chain 组装（最外层→最内层，见
-	// seelebridge/internal/telemetry/chain.go）：
+	// internal/telemetry/chain.go）：
 	// 1) DiagnosticHook：bash 停滞诊断，bracket telemetry.After（这是工具
 	//    注册表返回与应用 ToolHookBridge 完成回调之间唯一的框架边界；
 	//    观察者未启用时保持惰性）。

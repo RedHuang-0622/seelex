@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/docker"
+	"github.com/RedHuang-0622/seelex/internal/docker"
 )
 
 // ── docker 守护进程自动恢复（Runtime 接线，2026-08-07 根治）──────────

@@ -6,7 +6,7 @@ import (
 	"time"
 
 	frameworktelemetry "github.com/RedHuang-0622/Seele/telemetry"
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	"github.com/RedHuang-0622/seelex/internal/model"
 )
 
 // summarySlowThreshold 是 B 类摘要的默认慢调用阈值：正常成功但耗时超过

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
+	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/store"
 )
 

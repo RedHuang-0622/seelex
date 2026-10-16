@@ -8,8 +8,8 @@ import (
 
 	"github.com/RedHuang-0622/Seele/agent"
 
+	"github.com/RedHuang-0622/seelex/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/account"
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 )
 
 // ── 路由事实观察（RoutingNotice）────────────────────────────────────────────

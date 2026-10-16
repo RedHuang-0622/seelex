@@ -21,12 +21,12 @@
 
 | 片 | 内容 | 前置 | 状态 |
 |---|---|---|---|
-| A | `seelebridge/tools/computer`（+`mcp`，41 文件）→ `backend/tool/computer` | 无 | **本 commit** |
+| A | `seelebridge/tools/computer`（+`mcp`，41 文件）→ `backend/tool/computer` | 无 | **已落地**（8468ce72） |
+| F | `seelebridge/internal/{actor,config,docker,model,stream,telemetry}` → 模块根 `internal/*` | 无（**它是别的片的前置**） | **已落地**（见 §4） |
 | B | `seelebridge/security` → `backend/limit/gate` | V9 未确认 ⇒ 暂缓（§3） |
 | C | `seelebridge/{fs,attachment,imageattach,multimodal}` + `runtime_image.go` → `backend/tool/io` | 需与根包拆分协同（`runtime_image.go` 在根包内） |
 | D | `seelebridge/tools/websearch` + `seelebridge/search` → `backend/tool/websearch` | `seelebridge/tools/websearch` 只被 `search` 与 `main.go` 引用 |
 | E | `seelebridge/{plan,worktree,task,node,fork}` → `backend/tool/*` | `fork` 被 `session` 引用 |
-| F | `seelebridge/internal/{model,telemetry,config,stream,docker,actor,mapper}` | 归属未定（§3：跨板块共享 ⇒ 不能按 plan 放进 `backend/tool/internal`） |
 | G | `seelebridge/{account,mcp,plugin}`、`internal/config` → `backend/engine/*` | 无 |
 | H | `seelebridge/{session,workunit}`、`internal/actor` → `backend/multiagent/*` | V3（workunit 归属）未裁决 |
 | I | `seelebridge/teamwork`、`runtime_teamwork*.go`、`workunit_*` → `backend/multiagent/teamwork` | 冻结解除依据见 D-M4-3 |
@@ -62,6 +62,68 @@
 - `scripts/check_readme_refs.py --strict`：**11 条**，与本次搬迁前的基线一致（新增 0）。
 
 ## 3. 未决 / 风险 / 偏差
+
+## 4. F 片：`seelebridge/internal/*` 上移到模块根（M4 的关键路径）
+
+**为什么必须先做它（编译器给的答案，不是设计偏好）**：第一次搬 `seelebridge/task` →
+`backend/tool/task` 时构建直接失败：
+
+```text
+backend/tool/task/task.go:17:2: use of internal package
+  github.com/RedHuang-0622/seelex/seelebridge/internal/actor not allowed
+```
+
+Go 的 `internal` 规则只允许**同一子树**导入。于是所有依赖 `seelebridge/internal/*` 的包
+（`task`/`fork`/`plan`/`node`/`worktree`/`account`/`session`/`imageattach`/`tools`…）
+在 `internal/*` 搬走之前都出不去。而 plan §2.6 给的落点 `backend/tool/internal/` 只在
+"进口方全部落在 tool 板块"时成立——实测进口方横跨 engine / tool / multiagent 三个板块，
+且根包（`seelebridge`）在 J 片之前还活着，它也不在 `backend/` 子树内。**唯一能让
+`seelebridge/*` 与 `backend/*` 双方都合法引用、且整个搬迁过程构建始终为绿的位置，是模块根
+`internal/*`**（模块内任意包都可导入）。因此本轮按"过渡落点 = 模块根 `internal/*`"落地，
+终局是否再下沉进某个板块，留给 J 片之后的收口（见 D-M4-8）。
+
+**删除清单（原位置 → 新唯一位置）**：
+
+| 原位置 | 新唯一位置 | 规模 |
+|---|---|---|
+| `seelebridge/internal/actor` | `internal/actor` | 1 文件 139 行 |
+| `seelebridge/internal/config` | `internal/config` | 1 文件 295 行 |
+| `seelebridge/internal/docker` | `internal/docker` | 1 文件 180 行 |
+| `seelebridge/internal/model` | `internal/model` | 6 文件 257 行 |
+| `seelebridge/internal/stream` | `internal/stream` | 1 文件 314 行 |
+| `seelebridge/internal/telemetry` | `internal/telemetry` | 6 文件 582 行 |
+
+`seelebridge/internal/mapper`（19 行，单一进口方 `runtime_live.go`）**本轮未动**：plan §2.10
+要求"删"，但它的删除要改 `runtime_live.go` 的投影代码（不是纯路径改写），归入 J 片（根包拆分）。
+
+**证据（实跑）**：
+
+- 引用改写：`internal/model` 68 文件、`internal/telemetry` 45 文件、`internal/config` 13 文件、
+  `internal/actor` 5 文件、`internal/docker` 4 文件、`internal/stream` 4 文件（含 e2e 门面闭包清单
+  与 layout 模块清单）。
+- `gofmt -l .`（不含 `tmp/`）干净；`go build ./...`、`go build -tags "gui,desktop,production" ./...`、
+  `go vet ./...` 全部无输出。
+- `go test ./seelebridge/... -count=1`：**除 `seelebridge/tools` 的既有环境性失败外全绿**
+  （下表逐包列出）；`go test ./internal/... -count=1` 全绿（含搬迁后的 6 个包）；
+  `go test ./e2e/... -count=1` 全绿。
+- 漂移门禁 `scripts/check_readme_refs.py --strict`：本次搬迁**新增 0 条**（现存 12 条里，
+  11 条与本方案无关的历史噪声 + 1 条是并发写入方 `store/root` 正在改的用例引用）。
+
+**搬迁后暴露并修掉的两处真实问题**：
+
+1. `internal/config/config_example_test.go` 用 `..\..\..\config\accounts.example.yaml`
+   找发行模板（按旧深度三级）。上移一层后路径失效，**用例先红**
+   （`open ..\..\..\config\accounts.example.yaml: The system cannot find the path specified.`），
+   改成 `..\..` 后绿。这类"相对深度"漂移是纯路径搬迁的典型盲点，只靠 `go build` 抓不到。
+2. `internal/model/README.md` 有一句"`seelebridge/internal/*` 按 Go 规则不能被外部 import"
+   ——上移后这句话不再成立，已就地更正（形状留在 `contract/dto` 的理由改为"权限判据与适配层
+   共用的形状归契约层"，别名与调用点不动）。
+
+**既有失败的环境性证据（不是我这次改动引入的）**：`seelebridge/tools` 的
+`TestJobHandlesCarryTheirTableToken` 在本工作区连续 3 次失败（失败面是 Windows 临时目录
+`TempDir RemoveAll cleanup` 的文件句柄占用，三个子用例 `process`/`inline`/`subagent` 本身都 PASS）。
+在 `git worktree` 出来的**干净 `main`（96fc163b）副本**上同样 3/3 失败 ⇒ 与本轮搬迁无关
+（该副本已删除，不留在仓库里）。
 
 | ID | 事项 | 处置 |
 |---|---|---|

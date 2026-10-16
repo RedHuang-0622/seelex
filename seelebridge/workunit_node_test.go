@@ -13,7 +13,7 @@ import (
 	"github.com/RedHuang-0622/Seele/workplan/codec"
 	frameworknode "github.com/RedHuang-0622/Seele/workplan/core/node"
 
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	"github.com/RedHuang-0622/seelex/internal/model"
 	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
 	"github.com/RedHuang-0622/seelex/seelebridge/plan"
 	"github.com/RedHuang-0622/seelex/seelebridge/worktree"

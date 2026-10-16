@@ -9,7 +9,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/agent"
 	"github.com/RedHuang-0622/Seele/telemetry"
-	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
+	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 )
 
 // ── 遥测装配（slice 8：seelectx/tracer → telemetry） ────────────

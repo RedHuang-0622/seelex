@@ -16,8 +16,8 @@ import (
 	"github.com/RedHuang-0622/Seele/agent/bridge"
 	"github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
-	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
+	"github.com/RedHuang-0622/seelex/internal/model"
+	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 
 	"github.com/RedHuang-0622/seelex/seelebridge/account"
 )

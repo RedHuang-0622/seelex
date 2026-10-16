@@ -3,7 +3,7 @@ package node
 import (
 	"context"
 
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	"github.com/RedHuang-0622/seelex/internal/model"
 )
 
 // NodeScope 是 Plan 节点的执行作用域（类型本体在 internal/model）。

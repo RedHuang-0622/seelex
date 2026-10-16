@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	"github.com/RedHuang-0622/seelex/internal/model"
 )
 
 // approveGateStub 是测试审批门（approve/reject 可配）。

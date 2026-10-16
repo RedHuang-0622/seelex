@@ -22,7 +22,7 @@ import (
 	"github.com/RedHuang-0622/Seele/agent"
 	"github.com/RedHuang-0622/Seele/types"
 
-	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
+	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 )
 
 // requestLogEnv 是启用请求记录的文件路径环境变量（JSONL append）。

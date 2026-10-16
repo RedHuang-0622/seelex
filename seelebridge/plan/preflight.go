@@ -9,8 +9,8 @@ import (
 	"github.com/RedHuang-0622/Seele/agent/core/api"
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/contract/dto"
+	"github.com/RedHuang-0622/seelex/internal/model"
 	"github.com/RedHuang-0622/seelex/internal/promptassets"
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 )
 
 // PlanPreflight is the audited result of an isolated optional planning turn.

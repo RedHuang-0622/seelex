@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	frameworktelemetry "github.com/RedHuang-0622/Seele/telemetry"
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	"github.com/RedHuang-0622/seelex/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
 )
 

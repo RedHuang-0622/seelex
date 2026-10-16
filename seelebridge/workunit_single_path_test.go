@@ -14,8 +14,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
-	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
+	"github.com/RedHuang-0622/seelex/internal/model"
+	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
 	"github.com/RedHuang-0622/seelex/seelebridge/workunit"
 	"github.com/RedHuang-0622/seelex/store"

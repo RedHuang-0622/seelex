@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
-	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
+	"github.com/RedHuang-0622/seelex/internal/model"
+	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 )
 
 // TestPlanLoadPerSessionPolicyIsolation（G1-C 运行路径）：plan_load /

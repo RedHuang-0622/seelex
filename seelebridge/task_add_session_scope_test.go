@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
+	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 )
 
 // ── taskadd 的会话归属（2026-09-29 与子代理树同一批收口）──────────────────

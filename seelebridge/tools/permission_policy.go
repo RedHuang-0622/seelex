@@ -17,7 +17,7 @@ import (
 	frameworktools "github.com/RedHuang-0622/Seele/tools"
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 	"github.com/RedHuang-0622/seelex/backend/limit/policy"
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	"github.com/RedHuang-0622/seelex/internal/model"
 )
 
 // rolePolicyCacheTTL 是"角色会话 → 员工权限口径"解析结果的缓存时长。解析器由

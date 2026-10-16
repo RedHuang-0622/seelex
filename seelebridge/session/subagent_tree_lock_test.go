@@ -8,8 +8,8 @@ import (
 
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/fork"
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 )
 
 // blockingChatCompleter 是“长流式”的可控替身：进入 CompleteStream 后一直阻塞

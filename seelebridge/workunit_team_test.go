@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/jobs"
-	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
+	seeletelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/seelebridge/teamwork"
 	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
 	"github.com/RedHuang-0622/seelex/seelebridge/workunit"

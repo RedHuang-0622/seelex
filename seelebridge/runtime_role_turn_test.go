@@ -28,7 +28,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application/core/agentteam"
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
+	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
 )
 
 // fakeRoleEngine 是角色会话引擎的桩：记录系统提示/循环上限/输入/ctx，不碰网络。

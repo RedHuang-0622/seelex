@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	"github.com/RedHuang-0622/seelex/internal/model"
 )
 
 // ── 工作区现场触发路径冒烟 ────────────────────────────────────────

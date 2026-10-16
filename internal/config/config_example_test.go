@@ -7,7 +7,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	"github.com/RedHuang-0622/seelex/internal/model"
 )
 
 // TestShippedAccountsExampleLoads 钉住"发行示例永远可装载"。
@@ -17,7 +17,7 @@ import (
 // 亲自过一遍，而不是靠人眼看注释。新增字段（如 reasoning_effort）时，这条用例
 // 同时保证"文档里写了的键，loader 真的认识"。
 func TestShippedAccountsExampleLoads(t *testing.T) {
-	path := filepath.Join("..", "..", "..", "config", "accounts.example.yaml")
+	path := filepath.Join("..", "..", "config", "accounts.example.yaml")
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("shipped example must load: %v", err)
@@ -40,7 +40,7 @@ func TestShippedAccountsExampleLoads(t *testing.T) {
 // 加回模板，等于又把运行配置教给用户放进凭据文件。判"写没写"用 loader 自己的 schema
 // （simplifiedConfig），与 Load 走同一份结构，不另立一份键名清单——两份清单必然漂移。
 func TestShippedAccountsExampleCarriesNoRuntimeConfig(t *testing.T) {
-	path := filepath.Join("..", "..", "..", "config", "accounts.example.yaml")
+	path := filepath.Join("..", "..", "config", "accounts.example.yaml")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
