@@ -30,7 +30,7 @@ import (
 //
 //	$env:SEELEX_LIVE_SMOKE='1'
 //	$env:SEELEX_ACCOUNTS_PATH='G:\Program\go\seelex\config\accounts.yaml'
-//	go test ./seelebridge/multimodal/ -run TestLiveMultimodalImageSmoke -count=1 -v -timeout 300s
+//	go test ./backend/tool/io/multimodal/ -run TestLiveMultimodalImageSmoke -count=1 -v -timeout 300s
 func TestLiveMultimodalImageSmoke(t *testing.T) {
 	if os.Getenv("SEELEX_LIVE_SMOKE") == "" {
 		t.Skip("set SEELEX_LIVE_SMOKE=1 and SEELEX_ACCOUNTS_PATH to run the live multimodal smoke test")

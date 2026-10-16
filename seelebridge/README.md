@@ -106,7 +106,7 @@ flowchart TB
 | 子包 | 内容 |
 |---|---|
 | `security/` | `ProjectScope` 项目根 containment + `CommandSandbox` shell 隔离（见 `security/README.md`） |
-| `fs/` | `FileSystem` 文件系统 actor（写路径分片串行化，见 `fs/README.md`） |
+| `fs/` | `FileSystem` 文件系统 actor（写路径分片串行化，见 `../backend/tool/io/fs/README.md`） |
 | `plan/` | Plan 执行域：`Executor`/`ToolProvider`/`PlanPolicy`/`PlanPreflight`/`PlanNodeEvent`/`ReplanGuard`/`SeelexNodeInput`/`PlanBranchBinding`/`BuildNode` 等（见 `../backend/tool/plan/README.md`） |
 | `task/` | `TaskRegistry` actor、`TaskRecord`/`TodoItem` 共享 DTO、`TaskTerminalProvider`/`Tools`（见 `../backend/tool/task/README.md`） |
 | `fork/` | `fork_subagents` 纯类型、summary 节点与执行编排 `Tool`（见 `../backend/tool/fork/README.md`） |

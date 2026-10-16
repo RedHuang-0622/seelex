@@ -96,12 +96,12 @@ flowchart LR
 ## 测试与验证
 
 ```text
-go test ./seelebridge/multimodal/ -count=1
+go test ./backend/tool/io/multimodal/ -count=1
 
 # 真机冒烟（opt-in；只把路径交给加载器，不读取打印 accounts.yaml 内容）
 $env:SEELEX_LIVE_SMOKE='1'
 $env:SEELEX_ACCOUNTS_PATH='<path-to-accounts.yaml>'
-go test ./seelebridge/multimodal/ -run TestLiveMultimodalImageSmoke -count=1 -v -timeout 300s
+go test ./backend/tool/io/multimodal/ -run TestLiveMultimodalImageSmoke -count=1 -v -timeout 300s
 ```
 
 真机冒烟的断言刻意选择「文字提示里没有答案」的颜色词：模型答出 `red`/`blue` 只能来自

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/seelebridge/fs"
+	"github.com/RedHuang-0622/seelex/backend/tool/io/fs"
 	"github.com/RedHuang-0622/seelex/seelebridge/security"
 )
 

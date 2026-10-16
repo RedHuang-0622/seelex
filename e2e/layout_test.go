@@ -29,7 +29,7 @@ var repositoryModules = []string{
 	"docs/test", "e2e", "e2e/scenario", "gui", "gui/frontend", "internal", "internal/adapters",
 	"internal/buildinfo", "internal/frontmatter", "mcpstack", "mcpstack/config", "plugin", "plugins", "plugins/default",
 	"plugins/hardware", "plugins/impeccable", "scripts",
-	"seelebridge", "backend/tool/fork", "seelebridge/fs", "internal/config",
+	"seelebridge", "backend/tool/fork", "backend/tool/io/fs", "internal/config",
 	"internal/model", "internal/stream",
 	"internal/telemetry", "backend/tool/plan",
 	"seelebridge/search", "seelebridge/security", "backend/tool/task", "seelebridge/tools/websearch", "seelexctx", "seelexctx/compactor",
