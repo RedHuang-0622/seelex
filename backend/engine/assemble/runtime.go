@@ -173,19 +173,14 @@ type Runtime struct {
 	tasks        *task.TaskRegistry // task 注册表 actor（task/；todolist 融合为 kind=todo 的 task）
 	scheduler    *schedule.State    // 定时周期任务 actor（scheduler/ 域）
 	toolEvents   *subagentsession.ToolEventState
-	// live* 是 node 第一视角实时流分发器（runtime_live.go）：阶段+工具事件
-	// 统一通道按 nodeID 广播；liveStarted/liveStop 保护启动与停机。
-	liveMu      sync.Mutex
-	liveStarted bool
-	liveStop    chan struct{}
-	liveCh      chan dto.SubagentLiveEvent
-	liveSubs    map[string][]chan dto.SubagentLiveEvent
-	liveHistory map[string][]dto.SubagentLiveEvent
+	// live 是**子代理第一视角实时流分发器**（P21-2「域方法随类型走」下沉到
+	// `backend/multiagent/subagent` 的 `LiveDispatcher`）：状态、广播循环、事件源接线与
+	// 分页读法都在域包，本层只持有句柄并做一行薄转发。
+	live *subagentsession.LiveDispatcher
 	// subagentLiveWindow 是实时回放窗口上限的**配置值**（RuntimeConfig.SubagentLiveWindow）：
 	// 读法与写入点都经 subagentLiveWindowSize() 归一化（0 → 默认 512），因此零值 Runtime
 	// （测试直接构造）也拿到默认窗口，不会把窗口剪成 0。
 	subagentLiveWindow int
-	liveToolCancel     func()
 
 	// 子代理会话注册表组件（actor：channel 命令 + 单 goroutine，subagent_sessions.go）。
 	// 运行中读子会话 History（子代理 actor 独立锁，安全）；结束后保留快照；
@@ -407,6 +402,17 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		DAG:        r.MainCompactionDAG,
 		Summarizer: r.compactionSummarizer,
 		Archiver:   r.getTurnArchiver,
+	})
+	// 实时流分发器（域包 `backend/multiagent/subagent`）：两个事件源走函数值端口，
+	// 窗口按域包的归一化判据取（配置读数仍是本层的 subagentLiveWindow）。
+	r.live = subagentsession.NewLiveDispatcher(r.subagentLiveWindow, subagentsession.LiveDispatcherDeps{
+		StageEvents: r.NodeStageEvents,
+		ToolEvents: func(fn func(subagentsession.SubagentToolEvent)) func() {
+			if r.toolEvents == nil {
+				return func() {}
+			}
+			return r.toolEvents.Subscribe(fn)
+		},
 	})
 	// 媒体域（待随图队列 + 会话媒体分区读写法）：宿主就是本 Runtime——它只经
 	// media.Host 的两格读面（HistoryRouter / SessionProjectID）回看状态。

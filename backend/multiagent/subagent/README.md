@@ -73,6 +73,8 @@ sequenceDiagram
 | `subagent_sessions_stream_test.go` | 注册表观测面不被运行中节点阻塞的回归测试（2026-09-10 长流热点） |
 | `subagent_context.go` | 父证据合并 + merge-back mailbox actor |
 | `context_clone.go` | `ContextSnapshot` 深拷贝辅助 |
+| `live_dispatch.go` | 第一视角实时流分发器（P21-2 从 `backend/engine/assemble/runtime_live.go` 归位）：`LiveDispatcher` + `LiveDispatcherDeps`（阶段日志/工具事件两条事件源走函数值端口）+ `Start` / `Stop` / `Subscribe` / `HistoryPage` / `Broadcast` / `RecordAssistant` + 窗口归一化 `NormalizeLiveWindow` + 三个事件投影助手 |
+| `live_dispatch_test.go` | 窗口归一化、订阅回放与实时投递（含取消幂等、取消后广播不 panic）、窗口上限与分页（越界/收敛/空节点）、正文增量只在有订阅者时入窗、阶段与工具事件投影（Duration→ms） |
 | `subagent_sessions_test.go` | 会话注册表单元测试 |
 
 ## 核心实现
@@ -167,6 +169,31 @@ go build ./...
 ### context_clone.go
 
 - `func cloneContextSnapshot(source *snapshot.ContextSnapshot) *snapshot.ContextSnapshot` — cloneContextSnapshot 返回快照的深拷贝（读侧导出与 parentEvidence 合并共用）。
+
+### live_dispatch.go
+
+- `func NormalizeLiveWindow(configured int) int` — NormalizeLiveWindow 归一化实时回放窗口上限：未配置（0）→ 默认 512；小于下限 → 下限。
+- `func NewLiveDispatcher(configuredWindow int, deps LiveDispatcherDeps) *LiveDispatcher` — NewLiveDispatcher 装配一例（窗口按 `NormalizeLiveWindow` 归一）。
+- `func (dispatcher *LiveDispatcher) Window() int` — Window 返回归一化后的窗口上限（分页与历史淘汰共用同一个数）。
+- `func (dispatcher *LiveDispatcher) Start()` — Start 启动分发器（幂等）：汇入阶段日志与工具事件，按 nodeID 广播。
+- `func (dispatcher *LiveDispatcher) Stop()` — Stop 停止分发（幂等；关机路径调用）。
+- `func (dispatcher *LiveDispatcher) Subscribe(nodeID string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error)` — Subscribe 订阅 node 第一视角实时流：返回**历史回放**（从 subagent start 到订阅时刻的
+- `func (dispatcher *LiveDispatcher) HistoryPage(nodeID string, offset, limit int) dto.SubagentLiveHistoryPage` — HistoryPage 读回一页实时回放（有界窗口 + 分页），与 Subscribe 共用同一份窗口。
+- `func (dispatcher *LiveDispatcher) Broadcast(event dto.SubagentLiveEvent)` — Broadcast 把一条事件写进该节点窗口并投递给订阅者（窗口超限丢最旧；订阅者满投即丢）。
+- `func (dispatcher *LiveDispatcher) RecordAssistant(nodeID, delta string)` — RecordAssistant 投递子代理 assistant 正文增量（G7 正文增量 kind 的数据源接线）：
+- `func AssistantLiveEvent(nodeID, delta string) dto.SubagentLiveEvent` — AssistantLiveEvent 组装一条 assistant 正文增量事件。
+- `func StageLiveEvent(log model.NodeStageLog) dto.SubagentLiveEvent` — StageLiveEvent 把阶段日志投影成实时流事件（`model.NodeStageLog` 与 `dto.NodeStageLog`
+- `func ToolEventToDTO(event SubagentToolEvent) dto.SubagentTool` — ToolEventToDTO 把子代理工具调用运行态事件投影为实时流对外 DTO：
+- `func ToolLiveEvent(event SubagentToolEvent) dto.SubagentLiveEvent` — ToolLiveEvent 组装一条工具事件（投影见 ToolEventToDTO）。
+
+### live_dispatch_test.go
+
+- `func TestNormalizeLiveWindow(t *testing.T)`
+- `func TestLiveDispatcherWindowFollowsNormalization(t *testing.T)`
+- `func TestLiveDispatcherSubscribeReplaysHistoryAndDeliversLive(t *testing.T)`
+- `func TestLiveDispatcherHistoryPageKeepsWindowBound(t *testing.T)`
+- `func TestLiveDispatcherRecordAssistantNeedsSubscriber(t *testing.T)`
+- `func TestLiveDispatcherStageAndToolEventProjection(t *testing.T)`
 
 ### subagent_context.go
 

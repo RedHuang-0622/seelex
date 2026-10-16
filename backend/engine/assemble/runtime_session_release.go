@@ -56,7 +56,8 @@ func (r *Runtime) ReleaseSessionBundle(sessionID string) bool {
 // 这些格子都是"按会话只增不删"的登记表/缓存：不放掉就等于每开过一个会话
 // 永久留一格（teamwork 协调器另含看板快照，是其中较重的一个）。
 //
-// 不在这里动的是 node 维度的残格（liveHistory / liveSubs 按 nodeID 键控：
+// 不在这里动的是 node 维度的残格（实时流分发器的回放窗口/订阅表按 nodeID 键控，
+// 见 `backend/multiagent/subagent.LiveDispatcher`：
 // 节点与主会话的映射不在本注册表里，映射错了会误删别的会话的回放窗口），
 // 以及角色回合面（roleTurns 自己有成套的 ReleaseRoleSessions 收口）。
 func (r *Runtime) dropSessionResidue(sessionID string) {
