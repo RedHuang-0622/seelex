@@ -421,8 +421,20 @@ func TestFacadeHasNoConstructors(t *testing.T) {
 	}
 }
 
+// facadeOwnContractTypes 是门面**故意新造**的契约类型（不是搬迁来的别名）：
+// plan §1.3 的 ③「用例方法面收窄成五组窄接口」要求四组行为面接口声明在门面里
+// （`application/faces.go`，M5-R10a 契约 §1.1）。除这四个之外，I4 仍然一句不让：
+// 门面导出的类型必须是 `type X = Y` 别名，搬迁不得产生新的类型身份。
+var facadeOwnContractTypes = map[string]bool{
+	"ViewFace":    true,
+	"CommandFace": true,
+	"PolicyFace":  true,
+	"QueueFace":   true,
+}
+
 // TestFacadeKeepsTypeIdentityByAlias 钉 I4：门面导出的每个类型都必须是别名
-// （`type X = Y`），搬迁不得产生新的类型身份。
+// （`type X = Y`），搬迁不得产生新的类型身份——只有 `facadeOwnContractTypes`
+// 里那四个窄接口是门面自己的契约类型。
 func TestFacadeKeepsTypeIdentityByAlias(t *testing.T) {
 	for _, path := range packageGoFiles(t, filepath.Join(repoRoot(), "application")) {
 		parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
@@ -437,6 +449,9 @@ func TestFacadeKeepsTypeIdentityByAlias(t *testing.T) {
 			for _, spec := range generic.Specs {
 				typeSpec, ok := spec.(*ast.TypeSpec)
 				if !ok || typeSpec.Assign.IsValid() {
+					continue
+				}
+				if facadeOwnContractTypes[typeSpec.Name.Name] {
 					continue
 				}
 				t.Errorf("%s 定义了新类型 %s（不是 `type X = Y` 别名）："+

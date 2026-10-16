@@ -17,6 +17,37 @@
   `NewPromptStack` / `NewEffortManager` / `WebSearch` 已于 2026-10-16（M1-B）迁到
   [`wiring/`](../wiring/README.md)：前端不得自造引擎，构造只发生在组合根。
 
+## 五组窄接口（`faces.go`，M5-R10a）
+
+门面按 plan §1.3 的「用例方法面收窄成五组」落地（契约
+[`docs/2026-10-15-architecture-reshape/r10-r11-p13-contract.md`](../docs/2026-10-15-architecture-reshape/r10-r11-p13-contract.md) §1）：
+
+| 组 | 形态 | 内容 |
+|---|---|---|
+| A 类型与事件身份 | `FaceTypeNames` 清单（88 个名字，别名表达不了方法集） | `application/application.go` 的 `type (...)` 别名块，按字母序逐字钉住 |
+| B 读投影 | `ViewFace`（48 个方法） | 只读查询、订阅、历史窗口读回（不改内存/磁盘状态） |
+| C 命令面 | `CommandFace`（38 个方法） | 提交/取消、会话与工作区生命周期、子代理与角色草稿动作 |
+| D 档位与策略 | `PolicyFace`（22 个方法） | 限制、档位、账号、存储配置、插件、角色生命周期、调度策略 |
+| E 队列面 | `QueueFace`（3 个方法）+ 包级无状态函数 | 排队输入召回/调序、输入建议；`HasSigilPrefix` / `SigilOf` / `ValidEffortLevels` / `AccountWindowPresets` 仍是包级函数（接口装不下函数） |
+
+- 四个接口的方法名与签名**逐字**取自今日门面已导出的方法面（`go doc -all ./application/core`，
+  共 140 个公开方法）：不新增、不删除、不改名、不改签名——它们就是 gui/tui 今天消费的契约（I5）。
+- `Service` 在**结构上**满足四个面：`application/faces.go` 末尾有编译期钉子
+  `var _ ViewFace = (*Service)(nil)` 一族（契约 §1.2 第 1 条）。
+- 不在四组的第三类共 29 个方法（**不属于前端缝**，仍供 `wiring` 与工具注册表调用）：装配注入口
+  （`SetProjectBoardSink` / `SetToolRecordSnapshotStore` / `SetGoalTLEvaluator` / `ApplyToolRecordEnabled` /
+  `SetToolRecordEnabled`）、工具注册面（11 个 `*Handler`）、事件钩子（4 个 `Handle*`）、内部发布与落盘编排
+  （`Publish*` / `Refresh*` / `Flush*` / `Record*` / `PrepareProviderHistory`）与调度装配面
+  （`StartScheduledSession` / `AssembleScheduledRun` / `ClearReviewRequest`）。清单是
+  `e2e/facade_narrow_faces_test.go` 里的 `assemblyOnlyMethods`。
+- 机械断言（`e2e/facade_narrow_faces_test.go`，契约 §1.2）：①四个面的方法集与本文件冻结清单逐字比对；
+  ②`Service` 的每个公开方法要么在四组、要么在装配面清单（本片追加，防止新方法绕过分组）；
+  ③A 组别名集合逐字等于 `FaceTypeNames`（解析 `application.go` 的 `type (...)` 块——Go 反射列不出包级别名，
+  故按事实源源码比对）；④`git diff -- gui tui` 为空（I5）。
+- 分类口径：B = 只读投影/订阅；C = 会改会话、对话或工作区状态的动作；D = 档位与策略（含账号、存储配置、
+  插件、角色、调度）；E = 队列与输入建议。逐方法分组理由是生成器
+  `tmp/reshape/r10a_groups.py` 的显式清单，新增方法必须显式归类（断言 ② 会拦住漏网）。
+
 ## 子模块
 
 ### 根级子包
@@ -258,6 +289,7 @@ flowchart LR
 ```text
 go test ./application/... -count=1
 go test ./application/... -race -count=1   # 需要 CGO/C toolchain
+go test ./e2e/ -run 'Facade' -count=1      # 五组窄接口的 4 条机械断言（M5-R10a）
 ```
 
 集成入口主要位于 `core/service_test.go`、`core/command_registry_test.go` 和 `wiring/adapters/adapters_test.go`。
