@@ -97,7 +97,7 @@ type SessionInfo struct {
 }
 
 // SessionGranularStore 是会话粒度存储实现（消费端口定义在
-// application/core/session_runtime/ports.go，适配由 internal/adapters 承担；
+// application/core/session_runtime/ports.go，适配由 wiring/adapters 承担；
 // session.StorePort 死契约已删除）：包装 Router，暴露五片 + 项目索引的会话
 // 粒度 API。projectID 为空 = 默认项目（未关联会话归属），不再回退 Router
 // 活跃写作用域（视图切换不得改变会话的存储归属，R3 键漂移收敛）。

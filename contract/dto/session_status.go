@@ -6,10 +6,10 @@ package dto
 // 以及 `running`/`queued`/`awaiting_approval` 这些只在进程活着的期间成立的态），
 // 另一半是**持久**的态（`draft`/`idle`/`archived`）。落盘那一侧由 store 的
 // `store.Status`（字符串 wire，在契约之下）承载，它的词集是这一格的**持久子集**；
-// 边界转换点见 `internal/adapters` 的 `sessionStatusOfRecord`。
+// 边界转换点见 `wiring/adapters` 的 `sessionStatusOfRecord`。
 //
 // 历史：`model.SessionStatus` 曾经是 `type SessionStatus string` 的第二份词表，
-// `internal/adapters` 里那句 `model.SessionStatus(item.Status)` 是**无类型转换**——
+// `wiring/adapters` 里那句 `model.SessionStatus(item.Status)` 是**无类型转换**——
 // store 里出现一个不在表里的词，它照样流进可见面。合并后取值只能从下面这组常量来，
 // 越界的词在边界处显式折成 `SessionStatusUnknown`（不是任何已知态）。
 type SessionStatus uint8

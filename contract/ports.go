@@ -383,7 +383,7 @@ type SessionPort interface {
 // RoleSessionPort 是 R2/R4 群聊角色会话与 role draft 的应用契约（S27 收口：
 // 只用 contract/dto 纯 DTO，不出现存储类型）。
 //
-// 装配口径：会话端口实现（internal/adapters.SessionPort）在实现 SessionPort 的
+// 装配口径：会话端口实现（wiring/adapters.SessionPort）在实现 SessionPort 的
 // 同时实现本接口；`application/core` 用类型断言发现它，未装配时显式返回“不可用”，
 // 不静默退化、不新增旁路。真正的排序、幂等、同步即删与 message head 发布仍由
 // 存储侧 sequencer 入口执行，本端口只做窄转发。

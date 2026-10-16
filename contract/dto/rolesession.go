@@ -8,7 +8,7 @@ import (
 // 本文件是 R2/R4 群聊角色会话的应用层纯 DTO（S27 收口）。
 //
 // 边界：这些都是**数据形状**，不带行为方法、不 import 存储包。store 的
-// `Event`/`RoleDraftRow`/`RoleSnapshot` 等类型只在 `internal/adapters` 里出现，
+// `Event`/`RoleDraftRow`/`RoleSnapshot` 等类型只在 `wiring/adapters` 里出现，
 // 由适配器做 DTO ↔ 存储映射；`application/core` 与 `gui`/`tui` 只认这里的类型。
 //
 // 语义仍以 docs/arch/a2a-agent-team-factory.md 与 my_design §8.3 为准：

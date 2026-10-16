@@ -18,11 +18,11 @@ import (
 	"github.com/RedHuang-0622/seelex/backend/limit/overlay"
 	seeteamwork "github.com/RedHuang-0622/seelex/backend/multiagent/teamwork"
 	"github.com/RedHuang-0622/seelex/gui"
-	"github.com/RedHuang-0622/seelex/internal/adapters"
 	"github.com/RedHuang-0622/seelex/internal/promptassets"
 	"github.com/RedHuang-0622/seelex/skill"
 	"github.com/RedHuang-0622/seelex/store"
 	"github.com/RedHuang-0622/seelex/wiring"
+	"github.com/RedHuang-0622/seelex/wiring/adapters"
 	"github.com/RedHuang-0622/seelex/wiring/config"
 	"github.com/RedHuang-0622/seelex/wiring/registry"
 )

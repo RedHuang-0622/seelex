@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/contract/dto"
-	"github.com/RedHuang-0622/seelex/internal/adapters"
 	"github.com/RedHuang-0622/seelex/store/workspace"
+	"github.com/RedHuang-0622/seelex/wiring/adapters"
 )
 
 // fileFakeWorkspace 内嵌 fakeWorkspace（WorkspacePort）并实现

@@ -9,7 +9,7 @@ import (
 // 草稿尾部（seq_draft）恢复的应用侧装配（A4）。
 //
 // 存储层早就提供了「探测 → 恢复 / 丢弃」的显式入口（store/pending_tail.go
-// → Router → internal/adapters.SessionPort），但**应用侧此前没有任何调用方**：
+// → Router → wiring/adapters.SessionPort），但**应用侧此前没有任何调用方**：
 // 草稿尾恢复只是"端口能力"，用户在会话加载时看不到任何行为差异。本文件把它接到
 // 会话冷加载路径上，并把结果变成用户可感知的一条 system 行。
 //

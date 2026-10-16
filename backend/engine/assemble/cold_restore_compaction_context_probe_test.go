@@ -68,7 +68,7 @@ type restoreProbeFixture struct {
 // restoreProbeBoot 在同一份 root 上装配 Runtime（重启前 / 重启后各一次）。
 //
 // resume=true 模拟重启：先 Load 再挂接——生产入口
-// internal/adapters.SessionPort.AttachSessionContext 就是这个顺序。顺序不能反：
+// wiring/adapters.SessionPort.AttachSessionContext 就是这个顺序。顺序不能反：
 // SetSystemPrompt 走 mutate 会把 loaded 置真，随后的 Load 直接返回、compact 通道
 // 不再回读（那样量到的是探针自己的顺序缺陷，不是产品行为）。
 func restoreProbeBoot(t *testing.T, root string, resume bool) *restoreProbeFixture {

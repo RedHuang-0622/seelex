@@ -17,9 +17,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/internal/adapters"
 	"github.com/RedHuang-0622/seelex/plugin"
 	"github.com/RedHuang-0622/seelex/skill"
+	"github.com/RedHuang-0622/seelex/wiring/adapters"
 )
 
 func TestCollectRuntimeProjectionCarriesPluginSource(t *testing.T) {

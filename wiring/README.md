@@ -31,9 +31,11 @@
 |---|---|
 | [`constructors.go`](constructors.go) | 七个构造函数，逐一转发到唯一实现。 |
 
-规划（尚未实现）：按 plan §2.5/§2.10，`internal/adapters/` 将搬到 `wiring/adapters/`、
-`main.go` 的注册段将搬到 `wiring/registry/`；`WebSearch` 的终局是
-`backend/tool/websearch`（plan §2.2，M4）。
+按 plan §2.5/§2.10 的落点已就位：`wiring/adapters/`（M5-R1 自 `internal/adapters/`
+迁入，仍是"端口实现"那一格）、`wiring/registry/`（M5-S2 自 `main.go` 注册段迁入）。
+`WebSearch` 的终局 `backend/tool/websearch`（plan §2.2）仍是**规划**：当前唯一实现是
+`backend/tool/search.WebSearch`，`backend/tool/websearch` 只承接 M4 搬入的搜索能力面，
+别名收口随 M5 门面收窄一起做。
 
 ## 核心实现
 

@@ -38,7 +38,7 @@ type ConversationMessage struct {
 // ConversationToolCallStatusSuccess 是存储层会话投影写出的工具调用状态词。
 //
 // 本层不 import 契约包（见文件头："不依赖 application 包"），所以这里存的是**词**；它必须与
-// 契约那一格的词逐字相同——互锁在 `internal/adapters` 的
+// 契约那一格的词逐字相同——互锁在 `wiring/adapters` 的
 // TestToolCallStatusOfRecordLocksTheStoreVocabulary（store 换词而契约没换 = 那条用例红）。
 //
 // 语义（现状，本轮未改）：会话投影把"某条工具记录存在"折成"这次调用出来了结果"，

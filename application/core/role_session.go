@@ -15,7 +15,7 @@ import (
 )
 
 // rolePorts 聚合角色会话与定时插话两个可选端口；两者都由会话端口实现在
-// 装配期一并提供（internal/adapters.SessionPort）。
+// 装配期一并提供（wiring/adapters.SessionPort）。
 type rolePorts struct {
 	roles    contract.RoleSessionPort
 	schedule contract.SchedulePort

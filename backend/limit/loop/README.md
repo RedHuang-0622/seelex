@@ -9,7 +9,7 @@
 主要调用方：
 
 - `application/prompt`（effort 档位表取这里的读数，`MaxLoops` / `ReActBudgetFor` 转发到此处）；
-- `internal/adapters`（会话级引擎端口解析"这次用多少轮"）；
+- `wiring/adapters`（会话级引擎端口解析"这次用多少轮"）；
 - `backend/tool/fork`（`fork_subagents` 的子代理 `max_loops` 入口校验）。
 
 ## 职责与非职责
@@ -66,7 +66,7 @@ config/seelex.yaml limits.input_loop_limit ─┐
                                             │
 application/prompt 的档位表 ──→ loop.For(level) ──→ MaxLoops / Budget
                                             │
-internal/adapters（会话钉住值）──→ loop.Effective(pin, 进程默认) ──→ engine.SetMaxLoops
+wiring/adapters（会话钉住值）──→ loop.Effective(pin, 进程默认) ──→ engine.SetMaxLoops
                                             │
 backend/tool/fork（子代理声明）──→ loop.ValidateSubagentMaxLoops(…, ceiling)
 ```
@@ -104,7 +104,7 @@ backend/tool/fork（子代理声明）──→ loop.ValidateSubagentMaxLoops(�
 ```text
 go test ./backend/limit/loop/... -count=1
 go test ./application/prompt/... -count=1      # 跨入口一致性用例在这里
-go test ./internal/adapters/... ./backend/tool/fork/... -count=1
+go test ./wiring/adapters/... ./backend/tool/fork/... -count=1
 ```
 
 关键用例：`TestTierTableExactValues`（唯一数字表）、`TestEffectiveResolution`、

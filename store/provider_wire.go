@@ -15,7 +15,7 @@ import "github.com/RedHuang-0622/Seele/types"
 //
 // 为什么必须在**这一层**做：生产装配下框架的 WorkingHistory 来自
 // `DurableHistory.Load`（`ReleaseWorkingHistoryFor` 每轮清空工作视图，下一轮
-// 从 durable owner 冷载尾窗，见 internal/adapters/engine_port.go:631-651），
+// 从 durable owner 冷载尾窗，见 wiring/adapters/engine_port.go:631-651），
 // 因此这里才是 provider 请求的真实投影出口。把记录侧正文带进请求，同一会话的
 // 后续请求就不再以前一条请求的字节为前缀（工具轮消息跨轮从空变成说明文本）。
 // 真实 API 冒烟实测（DeepSeek，2026-09-12）：跨轮在 msg#1 丢掉 80–97 字节

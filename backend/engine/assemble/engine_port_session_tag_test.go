@@ -7,8 +7,8 @@ import (
 	frameworktelemetry "github.com/RedHuang-0622/Seele/telemetry"
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/backend/engine/obs"
-	"github.com/RedHuang-0622/seelex/internal/adapters"
 	seetelemetry "github.com/RedHuang-0622/seelex/internal/telemetry"
+	"github.com/RedHuang-0622/seelex/wiring/adapters"
 )
 
 // captureReactorEngine 记录 ChatStream 收到的 ctx，用于断言 EnginePort 在

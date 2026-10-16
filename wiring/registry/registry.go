@@ -21,13 +21,13 @@ import (
 	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
 	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/backend/tool/websearch"
-	"github.com/RedHuang-0622/seelex/internal/adapters"
 	"github.com/RedHuang-0622/seelex/internal/bootseed"
 	mcpconfig "github.com/RedHuang-0622/seelex/mcpstack/config"
 	"github.com/RedHuang-0622/seelex/plugin"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
 	"github.com/RedHuang-0622/seelex/skill"
 	"github.com/RedHuang-0622/seelex/store"
+	"github.com/RedHuang-0622/seelex/wiring/adapters"
 	"github.com/RedHuang-0622/seelex/wiring/config"
 )
 

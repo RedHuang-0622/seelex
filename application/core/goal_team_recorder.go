@@ -39,7 +39,7 @@ import (
 //   - goal 域端口 `TLRoundRecorder` / `TLHistoryArchiver` 与 `Supervisor.SetRoundRecorder` /
 //     `Supervisor.recorder` 的调用（`goal/techleader.go`、`goal/escape.go` 的归档分支）；
 //   - **保留**：`AppendRoleDraft` / `SyncRoleDraft` / `RoleSnapshot`（B1 保留面，headless
-//     `role.*` 仍在用）、`internal/adapters` 的 role 字段编解码与旧 role draft 读取面
+//     `role.*` 仍在用）、`wiring/adapters` 的 role 字段编解码与旧 role draft 读取面
 //     （历史消息/草稿要还能读回）。
 
 type goalTLRecorder struct {

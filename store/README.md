@@ -46,7 +46,7 @@ errors; they do not participate in range/recovery semantics.
 本包**不再**自己实现这些机制（同一判据只许有一处实现）。
 
 主要调用方：`application/core/session_runtime`（持久化与会话三读）、`session`
-（fork 的显式项目作用域读写）、`internal/adapters`（DTO ↔ 存储映射）与
+（fork 的显式项目作用域读写）、`wiring/adapters`（DTO ↔ 存储映射）与
 `gui`/`headless`（目录与元数据读面）。
 
 ## 分卷 README（根包按文件前缀）
@@ -72,7 +72,7 @@ errors; they do not participate in range/recovery semantics.
 
 ```mermaid
 flowchart TB
-    CALLER["调用方<br/>application/core · session · internal/adapters"] --> ROUTER["store.Router"]
+    CALLER["调用方<br/>application/core · session · wiring/adapters"] --> ROUTER["store.Router"]
 
     subgraph LAYOUT["JSON v8 分区布局"]
         P["先按 project_id 分区"]

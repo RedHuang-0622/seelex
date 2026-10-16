@@ -99,7 +99,7 @@ func Levels() []string {
 // Effective 解析"这次用多少轮"：会话钉住值优先，否则回退进程默认值。
 //
 // 钉住值 <= 0 表示"这一格没被钉住"（撤掉这一格），不是"零轮"——这是既有语义，
-// 见 `contract.SessionLoopLimitPort` 与 internal/adapters 的会话钉住实现。
+// 见 `contract.SessionLoopLimitPort` 与 wiring/adapters 的会话钉住实现。
 func Effective(pinned, fallback int) int {
 	if pinned > 0 {
 		return pinned

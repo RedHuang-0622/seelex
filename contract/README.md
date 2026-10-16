@@ -9,7 +9,7 @@
 M1-A，本包从 `application/contract/` 归位到仓库顶层 `contract/`。包名、导出面与 JSON 形状均未变化，
 调用方只改 import 路径。
 
-主要调用方：`application/core`（只依赖端口）、`internal/adapters`、`seelebridge/`、
+主要调用方：`application/core`（只依赖端口）、`wiring/adapters`、`seelebridge/`、
 `plugin/`、`skill/`、`session/`、`workspace/`（各自实现对应端口），以及 `e2e/scenario` 的 fake ports。
 
 ## 架构图
@@ -28,7 +28,7 @@ flowchart TB
         RUNTIME["seelebridge.Runtime"]
         PLUGIN["plugin.Manager"]
         SKILL["skill.Registry"]
-        SESSION["session.Manager / internal/adapters"]
+        SESSION["session.Manager / wiring/adapters"]
         WS["workspace.Repo"]
     end
 
@@ -96,7 +96,7 @@ flowchart LR
 
 | 接口 | 责任 | 典型实现 |
 |---|---|---|
-| `RoleSessionPort` | R2/R4 群聊角色会话：建角色会话、role draft 读写与 sequencer sync、顺序设置、角色 backup、snapshot/wire 观察面 | `internal/adapters.SessionPort`（同时实现 `SessionPort`） |
+| `RoleSessionPort` | R2/R4 群聊角色会话：建角色会话、role draft 读写与 sequencer sync、顺序设置、角色 backup、snapshot/wire 观察面 | `wiring/adapters.SessionPort`（同时实现 `SessionPort`） |
 | `SchedulePort` | 定时任务式插话的 `schedule.registered` / `schedule.cancelled` / `schedule.fired` 事件登记 | 同上 |
 | `RoleTurnPort` | 角色（员工）回合执行体：在角色自己的会话上跑一次带工具的有界回合，并保证主体类按 `ToolsPolicy` 落地 | `seelebridge.Runtime.RunRoleTurn`（经 `Dependencies.RoleTurn` 注入） |
 
@@ -105,7 +105,7 @@ flowchart LR
 未装配时显式返回“不可用”，不静默退化、不新增旁路。签名只用
 `contract/dto` 的纯 DTO（`dto.RoleRow` / `dto.RoleDraftRow` /
 `dto.RoleSnapshot` / `dto.RoleWireSnapshot` / `dto.ScheduleEventPayload`），
-存储实现类型 `store.*` 只允许出现在 `internal/adapters` 的映射函数里
+存储实现类型 `store.*` 只允许出现在 `wiring/adapters` 的映射函数里
 （S27 收口；回归见 `e2e/dto_boundary_test.go`）。
 
 ## 扩展规则

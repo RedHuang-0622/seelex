@@ -14,7 +14,7 @@
 - `backend/tool/registry`（执行门 `PermissionGate` 的类解析、可见性、工具面与注册表；
   判据搬走后它只调用 `policy.*`）；
 - `seelebridge` 根包与 `main.go`（装配期的配置表、壳类别、子代理/员工权限派生）；
-- `internal/adapters`、`application/*`（员工权限装配、工具声明的读面）。
+- `wiring/adapters`、`application/*`（员工权限装配、工具声明的读面）。
 
 ## 职责与非职责
 

@@ -203,7 +203,7 @@ type ComposerDraft struct {
 //
 // 词表只有一份，住在契约 `contract/dto`（`dto.SessionStatus`）：本包以别名
 // 保持 model 侧的读法，**不再定义第二份词表**。落盘那一侧（store 的
-// `Status` 字符串）在契约之下，转换点见 `internal/adapters` 的 `sessionStatusOfRecord`。
+// `Status` 字符串）在契约之下，转换点见 `wiring/adapters` 的 `sessionStatusOfRecord`。
 type SessionStatus = dto.SessionStatus
 
 const (

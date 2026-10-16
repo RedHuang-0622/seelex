@@ -69,10 +69,10 @@ flowchart LR
     PROJ --> SNAP["application/model.Snapshot"]
     SNAP --> FE["GUI / TUI 渲染"]
     FE -->|写操作经端口回传| DOMAIN
-    STORE["store 落地类型"] -->|internal/adapters 映射| DTO
+    STORE["store 落地类型"] -->|wiring/adapters 映射| DTO
 ```
 
-存储层类型（`store.Event` / `RoleDraftRow` / `RoleSnapshot`）只在 `internal/adapters`
+存储层类型（`store.Event` / `RoleDraftRow` / `RoleSnapshot`）只在 `wiring/adapters`
 里出现，由适配器做 DTO ↔ 存储映射；`application/core` 与前端只认本包类型。
 
 ## 并发、存储与错误语义

@@ -66,7 +66,7 @@ WorkItem DAG，leader 掌控），goal 终态由 goal 域 gate 判定；**发言
 ## 依赖方向
 
 - 允许：本包 → `contract/dto`（纯 DTO）。
-- 禁止：本包 → `store`、`internal/adapters`、`gui`；也禁止反向依赖（存储与界面不得
+- 禁止：本包 → `store`、`wiring/adapters`、`gui`；也禁止反向依赖（存储与界面不得
   import 本包）。存储形态只在适配器里出现。
 
 ## Review 指南
@@ -238,7 +238,7 @@ sequenceDiagram
 | EXEC 工作内容进入 ADVISOR 输入 | **已接线**：`turn_completed.Detail`（本轮正文/工具名有界摘要）→ `work.progress` 帧 → b 回合输入正文 | `application/core/goal_work_summary.go`、`application/core/goal/techleader.go`（`flushWorkProgressLocked`） |
 | EXEC 的 computer use 证据进入 ADVISOR 输入 | **已接线**：工作摘要额外带 `screen: media:… 宽x高 foreground="…"`（截图句柄 + 画面尺寸 + 前台窗口），ADVISOR 据此"看证据评审"，而不是只看到一个工具名 | `application/core/goal_work_summary.go`（`computerUseEvidence`）、`gui/team_work_computer_use_live_probe_test.go` |
 | ADVISOR 直接读画面内容 | **尚未实现**：ADVISOR 回合是一次有界 LLM 调用（`TLEvalEvaluator`，无工具循环），它拿到的是证据**句柄与元数据**，不是像素；要读图需要给 b 回合挂图（imageattach）或给角色配独立工具循环 | 见 `docs/devlog/2026-09-15-team-work-computer-use.md` |
-| `TeamView.floor_role` | **已接线**：读主会话 `message head.floor`（唯一写者 = sequencer）填成员表；宿主未实现可选读面时留空 | `store/team_registry.go`（`ReadMessageFloorWorkspace`）、`internal/adapters/agentteam_ports.go`（`ReadFloorRole`） |
+| `TeamView.floor_role` | **已接线**：读主会话 `message head.floor`（唯一写者 = sequencer）填成员表；宿主未实现可选读面时留空 | `store/team_registry.go`（`ReadMessageFloorWorkspace`）、`wiring/adapters/agentteam_ports.go`（`ReadFloorRole`） |
 | 团队库（可复用团队模板） | **已接线**：**全局** `<root>/team/library.json`（整份替换型），条目 = 角色配置集 + 顺序策略；装配 = 条目 → `TeamSpec` → 既有工厂（建角色会话 + 写会话 registry + 写 lifecycle 顺序） | `store/team_global.go`、本包 `library.go`（均已删除，见顶部退场时间线）、`application/core/agentteam_service.go`（`AgentTeamSaveTeam`/`AgentTeamMaterializeTeam`） |
 | 全局母本（员工库 + 默认顺序） | **已接线**：`<root>/team/employees.json`（员工名册）与 `<root>/team/order.json`（默认顺序）是全局母本；会话在编员工表 + lifecycle 顺序是它的**深拷贝副本**，会话内入职/改序只改副本；只有「确认·普及搭配到全局」把副本回写母本 | `store/team_global.go`、本包 `global.go`（均已删除，见顶部退场时间线）、`application/core/agentteam_service.go`（`AgentTeamGlobalConfig`/`AgentTeamPublishToGlobal`） |
 | 员工提示词（`RoleSpec.SystemPrompt`）→ ADVISOR 回合 | **已接线**：装配根把"读已装配提示词"的读面注入 Runtime，ADVISOR 回合用它替换内置角色设定；**输出契约永远追加**（goal 域要解析 `TLDirective`，不能被员工提示词改掉输出格式） | `backend/engine/assemble/runtime_role_prompt.go`（`SetRolePromptProvider`）、`backend/engine/assemble/runtime_goal_tl.go`（`advisorSystemPrompt`）、`main.go` 装配点 |
@@ -294,7 +294,7 @@ user**（环头扫描会落到它），与「其余时间都是 agent teammate �
 
 - `Port` 是唯一外部依赖面：`EnsureRoleSession`、`ReadLifecycleOrder`、
   `SetLifecycleOrder`、`Read/WriteTeamRegistry`。实现方是 `application/core` 的
-  `agentTeamAdapter`（把 `internal/adapters.SessionPort` 的 DTO 形态转成工厂输入）。
+  `agentTeamAdapter`（把 `wiring/adapters.SessionPort` 的 DTO 形态转成工厂输入）。
 - `FloorPort`（可选）是运行态读面：`ReadFloorRole` 读主会话 `message head.floor`。
   未实现的宿主（旧端口/测试桩）不填充 `TeamView.FloorRole`，也不报错——可选而不是
   塞进 `Port`，是为了不给每个装配桩加编译期义务。读失败只进 `DesignNotice`。
@@ -332,7 +332,7 @@ presence 与 `message head.floor` 提供，不在本包落盘；`Registry.View`/
 ## 退场前：依赖方向
 
 - 允许：本包 → `contract/dto`（纯 DTO）。
-- 禁止：本包 → `store`、`internal/adapters`、`gui`；也禁止反向依赖
+- 禁止：本包 → `store`、`wiring/adapters`、`gui`；也禁止反向依赖
   （存储与界面不得 import 本包）。存储形态只在适配器里出现。
 
 ## 退场前：并发、存储、安全或错误语义
@@ -372,7 +372,7 @@ presence 与 `message head.floor` 提供，不在本包落盘；`Registry.View`/
 gofmt -l .
 go build ./...
 go build -tags "gui,desktop,production" ./...
-go vet ./application/core/agentteam ./store ./gui ./internal/adapters
+go vet ./application/core/agentteam ./store ./gui ./wiring/adapters
 go test ./application/core/agentteam ./store ./gui -count=1
 go test -race ./application/core/agentteam -count=1
 ```

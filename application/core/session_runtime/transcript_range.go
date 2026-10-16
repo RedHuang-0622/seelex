@@ -11,7 +11,7 @@ import (
 	"github.com/RedHuang-0622/seelex/store"
 )
 
-// transcriptRangePort 是事件区间读的可选能力面（生产实现：internal/adapters
+// transcriptRangePort 是事件区间读的可选能力面（生产实现：wiring/adapters
 // SessionPort.LoadEventRangeWorkspace；窄接口避免把 fork 的整组能力塞进冷读
 // 契约——测试桩只需实现这一个方法）。
 type transcriptRangePort interface {
@@ -35,7 +35,7 @@ func (c *Coordinator) LoadTranscriptRange(sessionID string, fromSeq, toSeq uint6
 }
 
 // modelTranscriptEventsFromStore 把存储层事件转换为应用层 transcript 事件
-// （与 internal/adapters 落盘转换互逆；字段一一对应）。
+// （与 wiring/adapters 落盘转换互逆；字段一一对应）。
 func modelTranscriptEventsFromStore(events []store.Event) []model.TranscriptEvent {
 	adapted := make([]model.TranscriptEvent, 0, len(events))
 	for _, event := range events {

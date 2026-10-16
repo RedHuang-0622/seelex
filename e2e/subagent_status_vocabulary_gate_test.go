@@ -26,7 +26,7 @@ package e2e
 //     `dto.SubagentToolEvent.Status`，后者是快照/存档/事件 wire 上的 `model.ToolCall.Status`。
 //     两处现已都进本清单（工具事件状态 / 工具调用视图词）；后者是**落盘**格，读回经具名转换点
 //     `model.ToolCallStatusOfRecord`（未知词落 unknown，不折成成功），存储面那名词由
-//     `internal/adapters` 的 TestToolCallStatusOfRecordLocksTheStoreVocabulary 互锁；
+//     `wiring/adapters` 的 TestToolCallStatusOfRecordLocksTheStoreVocabulary 互锁；
 //   - 计划节点状态（queued|running|completed|failed|skipped|canceled|aborted|panicked）来自
 //     框架 workplan 的 `NodeBase.Status`，**不是我们这一格的词**——所以
 //     `application/core/plan_tools.go`（同一文件里既读计划批次结果、又读节点状态）**故意不进
@@ -137,12 +137,12 @@ var statusVocabularyScopes = []statusVocabularyScope{
 			"application/core/session_history.go":           "写：引擎消息折成可见消息时的工具行",
 			"application/core/session_runtime/archive.go":   "写：存档投影里的工具行",
 			"application/core/subagent_view/coordinator.go": "写：子代理详情会话的工具行（曾经写 completed，本格不收）",
-			"internal/adapters/session_workspace_ports.go":  "读：存储面的词 → 枚举（转换点 ToolCallStatusOfRecord）",
+			"wiring/adapters/session_workspace_ports.go":    "读：存储面的词 → 枚举（转换点 ToolCallStatusOfRecord）",
 			"tui/state.go": "读：工具行图标与耗时（精确判 running）",
 		},
 		// 这一格的取值面 = dto.ToolEvent*（model.ToolCall.Status；与工具事件状态同格）。
 		// store 那一侧（store.ConversationToolCall.Status）是契约之下的 wire，本层不 import
-		// 契约包；它写出的词由 internal/adapters 的 TestToolCallStatusOfRecordLocksTheStoreVocabulary 互锁。
+		// 契约包；它写出的词由 wiring/adapters 的 TestToolCallStatusOfRecordLocksTheStoreVocabulary 互锁。
 		words: map[string]bool{"running": true, "success": true, "error": true},
 	},
 	{
@@ -180,20 +180,20 @@ var statusVocabularyScopes = []statusVocabularyScope{
 	{
 		name: "会话可见状态",
 		files: map[string]string{
-			"application/core/service_snapshot.go":         "写：目录行的可见状态（运行态叠加：restoring/待批/运行/排队/空闲）",
-			"application/core/session_history.go":          "写：冷加载的 restoring 空壳",
-			"application/core/session_draft.go":            "写：草稿会话行",
-			"application/core/session_lifecycle.go":        "写：草稿会话行",
-			"application/core/archive_session.go":          "读：归档门（运行中的会话不许归档）",
-			"application/core/resident_lru.go":             "读：草稿行不参与驱逐",
-			"application/core/session_runtime/archive.go":  "读+写：落盘记录的归档态",
-			"application/core/session_runtime/scope.go":    "读：归档会话不进分发范围",
-			"internal/adapters/session_workspace_ports.go": "读：存储面 → 可见面（**转换点** sessionStatusOfRecord）",
+			"application/core/service_snapshot.go":        "写：目录行的可见状态（运行态叠加：restoring/待批/运行/排队/空闲）",
+			"application/core/session_history.go":         "写：冷加载的 restoring 空壳",
+			"application/core/session_draft.go":           "写：草稿会话行",
+			"application/core/session_lifecycle.go":       "写：草稿会话行",
+			"application/core/archive_session.go":         "读：归档门（运行中的会话不许归档）",
+			"application/core/resident_lru.go":            "读：草稿行不参与驱逐",
+			"application/core/session_runtime/archive.go": "读+写：落盘记录的归档态",
+			"application/core/session_runtime/scope.go":   "读：归档会话不进分发范围",
+			"wiring/adapters/session_workspace_ports.go":  "读：存储面 → 可见面（**转换点** sessionStatusOfRecord）",
 			"tui/view.go": "读：待批会话行（跨会话计数）",
 		},
 		// 这一格的取值面 = dto.SessionStatus*（SessionState/SessionInfo.Status）。
 		// 落盘那一侧（store.Status）是契约之下的 wire，取值面是这里的**持久子集**，
-		// 两包同一份词由 internal/adapters 的 TestSessionStatusOfRecordLocksTheStoreVocabulary 互锁。
+		// 两包同一份词由 wiring/adapters 的 TestSessionStatusOfRecordLocksTheStoreVocabulary 互锁。
 		words: map[string]bool{
 			"draft": true, "idle": true, "running": true, "queued": true,
 			"awaiting_approval": true, "archived": true, "restoring": true,

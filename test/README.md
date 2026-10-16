@@ -99,6 +99,7 @@ gofmt -l test
 安全默认值）、`build_layout_test.go` 与 `icon_resource_test.go`（构建/交付布局护栏）、
 `plugin_*_test.go` 与 `project_board_*_test.go`（插件与看板契约）。
 
+
 ## 分卷 README
 
 本包文件数超过 15，按 readme-spec §4 分卷承载「文件与函数索引」（每卷一个 `README-<卷名>.md`）：

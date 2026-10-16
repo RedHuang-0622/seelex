@@ -92,7 +92,7 @@ func TestRuntimePortForwardsEveryNarrowPort(t *testing.T) {
 	if len(unknown) > 0 {
 		sort.Strings(unknown)
 		t.Fatalf("application/core 里出现未接线的窄可选端口探测点（断言在 RuntimePort 上恒 false，功能会整块消失）：\n  %s\n\n"+
-			"修法：internal/adapters/runtime_narrow_ports.go 补转发方法 + var _ 断言，并把标识加进本文件的 narrowPortForwarded。",
+			"修法：wiring/adapters/runtime_narrow_ports.go 补转发方法 + var _ 断言，并把标识加进本文件的 narrowPortForwarded。",
 			strings.Join(unknown, "\n  "))
 	}
 }

@@ -16,7 +16,7 @@ import (
 //
 // 语义：AGENTS.md §1「frontend 只能通过 Application API 消费状态」——GUI 与
 // application 都不得 import 存储包来表达群聊角色形状；存储类型只允许出现在
-// internal/adapters 的映射函数里。
+// wiring/adapters 的映射函数里。
 //
 // 范围：本用例只覆盖 S27 声明的面（角色会话 / role draft / 顺序 / 定时插话）。
 // store 在其它既有链路（session 路由、goal 审计、compaction 等）的
@@ -46,9 +46,9 @@ func TestRoleSessionPortsDoNotLeakStorageTypes(t *testing.T) {
 	}
 
 	// 反向断言：适配器确实承担了映射职责（收口不是"删掉依赖"，而是"依赖换位置"）。
-	adapterImports := fileImports(t, filepath.Join(root, "internal", "adapters", "session_workspace_ports.go"))
+	adapterImports := fileImports(t, filepath.Join(root, "wiring", "adapters", "session_workspace_ports.go"))
 	if _, ok := adapterImports[storageImport]; !ok {
-		t.Errorf("internal/adapters/session_workspace_ports.go 必须承载 DTO ↔ 存储映射")
+		t.Errorf("wiring/adapters/session_workspace_ports.go 必须承载 DTO ↔ 存储映射")
 	}
 }
 

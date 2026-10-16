@@ -5,7 +5,7 @@ package contract
 //
 // 为什么形状放这里而不是实现包：`contract` 是依赖倒置的边界，实现体
 // （`backend/limit/approval.ApprovalBroker`）与消费方（`application/core`、
-// `internal/adapters`、前端）都只认这里的定义——实现包换落点/换实现时，
+// `wiring/adapters`、前端）都只认这里的定义——实现包换落点/换实现时，
 // 端口与形状不动。这也是把 `application/approval` 搬进 limit 板块时
 // 必须先把形状留在底座的原因：契约层不得反过来依赖 backend 包。
 

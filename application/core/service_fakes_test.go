@@ -34,7 +34,7 @@ type fakeEngine struct {
 	maxLoops          int
 	// sessionMaxLoops 是按会话钉住的循环上限（application 的 SessionLoopLimitPort：
 	// 定时任务声明的"这次跑多少轮"）。单引擎桩按会话记账即可，真实按会话落引擎由
-	// internal/adapters 的 EnginePort 用例钉住。
+	// wiring/adapters 的 EnginePort 用例钉住。
 	sessionMaxLoops    map[string]int
 	releaseCalls       int
 	loadedSessions     map[string]bool

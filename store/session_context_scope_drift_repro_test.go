@@ -28,7 +28,7 @@ import (
 // SessionContextStore.Persist → SaveSystemPromptWorkspace 的唯一产物，且
 // ensureLayoutGuide 是目录里 guide.json 的唯一创建者（module_heads.go）。
 //
-// 根因（装配侧缺口 + 本层兜底）：internal/adapters.SessionPort.AttachSessionContext
+// 根因（装配侧缺口 + 本层兜底）：wiring/adapters.SessionPort.AttachSessionContext
 // 把入参 workspaceID 整条丢掉、也不注入 resolver，于是 SessionContextStore.workspace()
 // 回退 router.Workspace()——**进程级活跃写作用域**，即"当前视图所在项目"。为后台会话
 // （会话 A 在视图里、会话 B 在后台跑）写 system prompt / 压缩帧时，数据就落进了当前
@@ -90,7 +90,7 @@ func TestSessionContextStoreNeverFollowsActiveWriteScope(t *testing.T) {
 			sessionID, filepath.Join(root, "project-"+storeroot.Hash("")))
 	}
 
-	// ② 装配注入绑定解析器（internal/adapters.SessionPort.AttachSessionContext 的
+	// ② 装配注入绑定解析器（wiring/adapters.SessionPort.AttachSessionContext 的
 	//    修复形态）：落盘键是会话自己的项目，即便视图在别的项目。
 	bound := NewSessionContextStore(router, sessionID)
 	bound.SetWorkspaceResolver(func() string { return ownerProject })

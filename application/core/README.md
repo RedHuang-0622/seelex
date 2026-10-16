@@ -441,7 +441,7 @@ Application 只做窄转发，不实现 sequencer、floor、draft 删除或 comp
 端口形状在 S27 之后来自 `contract`：`contract.RoleSessionPort`
 与 `contract.SchedulePort`（可选能力，装配期用类型断言发现），签名只用
 `contract/dto` 纯 DTO，本包与 `gui/headless` 不再出现
-`store.*` 类型；DTO ↔ 存储映射是 `internal/adapters.SessionPort` 的
+`store.*` 类型；DTO ↔ 存储映射是 `wiring/adapters.SessionPort` 的
 职责。边界回归见 `e2e/dto_boundary_test.go`。
 
 `task_context` 的消息生产者给 `user` 行写 `role_name=user`、给

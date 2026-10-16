@@ -8,7 +8,7 @@
 // `RemoveTeamRegistryWorkspace` / `EnsureRoleSessionWorkspace` /
 // `ReadMessageFloorWorkspace` / `ReadLifecycleOrderWorkspace` 在全仓 `.go` 里
 // **没有任何生产调用方**（只剩自身定义与本包用例命中；`SetLifecycleOrderWorkspace`
-// 另由 `internal/adapters` 的端口转发，见 A05）。
+// 另由 `wiring/adapters` 的端口转发，见 A05）。
 //
 // 因此本文件现在是**旧数据兼容与诊断面**，按 A06 的兼容政策处理：
 //   - **读能力保留**：旧会话里的 `session/team/roles.json` 仍可读出、诊断与迁移

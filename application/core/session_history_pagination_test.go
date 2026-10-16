@@ -11,7 +11,7 @@ import (
 
 // 本文件复现「长会话加载更早历史」的分页缺陷（2026-09-11）。
 //
-// 现场（生产装配 internal/adapters.SessionPort）：
+// 现场（生产装配 wiring/adapters.SessionPort）：
 //   - 冷加载有 record 的会话时，可见窗口 = 会话尾部 window 条，
 //     HistoryOffset = total - window，HasMoreHistory = offset > 0；
 //   - 前端顶部 sentinel/「加载更早」调用 LoadMoreHistory(limit) 取更早一页，
@@ -109,7 +109,7 @@ func (store *pagedSessionStore) LoadSessionRecordWorkspace(workspaceID, sessionI
 	return record, nil
 }
 
-// 下面三个方法补齐 SessionRecordPort（生产 internal/adapters.SessionPort 同时
+// 下面三个方法补齐 SessionRecordPort（生产 wiring/adapters.SessionPort 同时
 // 实现该面；缺一个方法就不会被当成 record 端口，冷加载会退化到旧的
 // provider 历史路径）。
 func (store *pagedSessionStore) SaveSessionRecord(sessionID string, record SessionRecord) error {

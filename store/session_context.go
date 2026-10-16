@@ -256,7 +256,7 @@ func (s *SessionContextStore) SetWorkspaceResolver(resolver func() string) {
 // 哪个项目），会随切换改变；拿它当会话级键，system prompt / 压缩帧就写进了视图
 // 项目——同一会话因此在两个项目目录里各留一份，目录枚举按项目分格（前端把它显示
 // 成两个会话，尽管没有任何 fork 指令）。装配点必须注入绑定解析器，见
-// internal/adapters.SessionPort.AttachSessionContext。
+// wiring/adapters.SessionPort.AttachSessionContext。
 func (s *SessionContextStore) workspace() string {
 	if s == nil {
 		return ""

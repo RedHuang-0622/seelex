@@ -453,7 +453,7 @@
 - `func (store *pagedSessionStore) LoadHistory(sessionID string) ([]EngineMessage, error)`
 - `func (store *pagedSessionStore) LoadHistoryRange(sessionID string, offset, limit int) ([]EngineMessage, int, error)`
 - `func (store *pagedSessionStore) LoadSessionRecordWorkspace(workspaceID, sessionID string) (SessionRecord, error)`
-- `func (store *pagedSessionStore) SaveSessionRecord(sessionID string, record SessionRecord) error` — 下面三个方法补齐 SessionRecordPort（生产 internal/adapters.SessionPort 同时
+- `func (store *pagedSessionStore) SaveSessionRecord(sessionID string, record SessionRecord) error` — 下面三个方法补齐 SessionRecordPort（生产 wiring/adapters.SessionPort 同时
 - `func (store *pagedSessionStore) SaveSessionRecordWorkspace(workspaceID, sessionID string, record SessionRecord) error`
 - `func (store *pagedSessionStore) LoadSessionRecord(sessionID string) (SessionRecord, error)`
 - `func (store *pagedSessionStore) LoadConversationRangeWorkspace(workspaceID, sessionID string, offset, limit int) ([]Message, int, error)` — LoadConversationRangeWorkspace 是生产分页读回面（SessionConversationRangePort）：

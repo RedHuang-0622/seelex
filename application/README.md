@@ -80,7 +80,7 @@
 [`contract/dto/scheduler.go`](../contract/dto/scheduler.go)，`seelebridge` 的同名符号只是遗留别名
 （plan §2.10 列入删除），因此 `gui/bridge.go` 直接改用 `dto.ScheduledTaskSpec` /
 `dto.ScheduledTaskStatus`——即「改用上游类型」，而不是再造一层门面别名。
-后端适配器（`application/adapters`）同步迁至 `internal/adapters/`，只依赖
+后端适配器（`application/adapters`）同步迁至 `wiring/adapters/`，只依赖
 `contract` 层，不再反向依赖本门面。
 
 `application.go` 通过类型别名和薄转发保持外部 API 稳定，调用方不需要依赖内部子包。
@@ -259,4 +259,4 @@ go test ./application/... -count=1
 go test ./application/... -race -count=1   # 需要 CGO/C toolchain
 ```
 
-集成入口主要位于 `core/service_test.go`、`core/command_registry_test.go` 和 `internal/adapters/adapters_test.go`。
+集成入口主要位于 `core/service_test.go`、`core/command_registry_test.go` 和 `wiring/adapters/adapters_test.go`。

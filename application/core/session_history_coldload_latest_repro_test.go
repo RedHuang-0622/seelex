@@ -24,7 +24,7 @@ package core
 //   - 分页读回（LoadMoreHistory / LoadLatestHistory → loadConversationPage，
 //     session_history.go:716-739）拿到的 count 却是**未过滤空间**的总数：存储侧
 //     派生会话由 message 行直接展开（store/json_layout.go:295
-//     derivedConversationMessages 不剔内部行；internal/adapters/
+//     derivedConversationMessages 不剔内部行；wiring/adapters/
 //     session_workspace_ports.go:921 storeTranscriptEvents 原样落行——
 //     application/core/session_archive_test.go:325 就是一条落盘的
 //     task-context checkpoint 内部行）；

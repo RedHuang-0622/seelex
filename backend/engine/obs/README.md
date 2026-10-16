@@ -4,7 +4,7 @@
 
 `backend/engine/obs` 是**引擎侧的观测面**：把"这一轮发出去的请求长什么样"与"这个会话用了多少
 token"变成可查询的读数。主要调用方是装配器（`backend/engine/assemble` 的 Runtime 在
-`agent.NewWithComponents` 之前包一层）与 `internal/adapters`（会话入口注入 telemetry 归属键）。
+`agent.NewWithComponents` 之前包一层）与 `wiring/adapters`（会话入口注入 telemetry 归属键）。
 
 物理位置：2026-10-16 按
 [plan.md](../../../docs/2026-10-15-architecture-reshape/plan.md) §2.5 从
@@ -27,7 +27,7 @@ Runtime 装配（assemble）
   └─ 若 SEELEX_REQUEST_LOG 非空：OpenRequestLogger(path)
        ├─ NewRequestLogCompleter(inner)       ← 同步调用：先 record 再转调原 Completer
        └─ NewRequestLogStreamCompleter(inner)  ← 流式调用：同上
-会话入口（internal/adapters）
+会话入口（wiring/adapters）
   └─ WithTelemetrySessionID(ctx, sessionID) → 引擎侧按会话记账
   └─ SessionTokenCount(tracer, sessionID)   → 读该会话的 token 合计
 ```
