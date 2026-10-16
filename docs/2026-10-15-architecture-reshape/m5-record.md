@@ -902,4 +902,20 @@ R6 续做（尚未开始）：`runtime_projection`/`diagnostics`/`perf_stats` �
   `session_release.go`/`resident_lru.go`/`content_lru.go` 划为自己独占（我的 release/prune 两片正在改它们），
   并提醒它在改 README 前 `git pull`/重读（避免两边同时改同一段）。
 - 它的交付由 root 下一轮**独立复核**（不看自述：重跑 build/vet/e2e、逐条对照行为保真清单、核对删除清单）。
+
+## 21. M5-R6 第七片：R6-pending-tail（`721beee9`）
+
+| 项 | 内容 |
+|---|---|
+| 原位置 → 新唯一位置 | `application/core/session_pending_tail.go` 的**决策表与四条提示文案** → `middle/switch/pendingtail.go`（`PendingTailDeps{Running, Probe, Recover}` + `RecoverPendingTail`） |
+| 门面留下什么 | `pendingTailDeps()`（在跑判定 + 定位会话后调存储端口的探测/恢复）、`recoverPendingMessageTailAtLoad`（转发）、`appendPendingTailNoticeLocked`（写面：把结论作为 system 行补进可见投影） |
+| 判据唯一 | 决策表（`clean`/未知静默、`recoverable` 恢复并报数、`gap` **只报告**）+ 四条文案（探测失败 / 恢复失败"内容仍在磁盘" / 恢复成功"发布点 a → b" / gap 说明）；新包只依赖 `contract/dto` |
+| 守卫次序 | "运行中不抢发布点"放在最前，且**连探测都不做**（探测也要读发布点）；与迁移前"取锁判 running 再探测"语义一致 |
+| 用例 | `middle/switch/pendingtail_test.go` 5 条（含"gap 不触发恢复"这条红线 3 断言） |
+| 复核 | 独立 worktree（`721beee9`）：`go build ./...` 0、`go vet ./...` 0、`go test ./e2e/` ok、`middle/switch/...` ok、`application/core` 全量失败集合 = **基线 3 例** |
+
+**子代理（`/root/r6_archive`）进展快照**（23:53）：`middle/residency/archive.go` 已落盘、门面改为一字转发、
+`archive_test.go` 9 条用例写好、`go build ./...` 通过；它自己也识别出"`application/core` 测试包因另一个在途
+worker 的 `work_table*` 改动暂时无法编译，与本片无关，走干净 worktree 复核"——与 root 的口径一致。
+它交付后由 root 复核（重跑 build/vet/e2e + 逐条对照行为保真清单 + 核对删除清单）。
 R6 续做（尚未开始）：`runtime_projection`/`diagnostics`/`perf_stats` 三文件已是薄宿主缝（R5c 已把计算搬进 `middle/view`，只剩锁与取数）；其余按 plan §2.4 的落点继续搬
