@@ -981,9 +981,10 @@ worker 的 `work_table*` 改动暂时无法编译，与本片无关，走干净 
 | 宿主留下什么 | 驱动链（全量扫描 + 幂等账裁剪 + `sessionIdleForAsyncTrigger` + 起回合）、两条**用户行正文**（`asyncCompletionPrompt` / `teamworkCompletionPrompt`）与 kind 展示词（`asyncPromptKind`）；`teamworkJobCompletions` / `teamworkJobEvents` 在 core 保留一行转发（`work_table.go` 调用点零改动）；`asyncStateDone/Failed` 两个常量在 core 保留为**词表命名**（判据在 middle） |
 | 登记偏差 | 两条正文与 kind 词表**本片不搬**：那张词表正被另一个在途切片搬去 `middle/view/worktable`（`worktable.PromptKind` **尚未提交**），现在搬就会造出第二份词表 |
 
-**一次"重做"与教训（重要）**：本片首版把并行 worker 对 `application/core/async_completion.go` 的**在途改动**
+**一次"重做"与教训（重要）**：本片**首版 `fd549859` 的树在干净 worktree 里编译不过**（它把并行 worker 对 `application/core/async_completion.go` 的**在途改动**
 （改用 `worktable.PromptKind`）一起提交了，并且我的新代码引用了同一个未提交符号 ⇒ **提交在干净 worktree 里
-编译不过**（主工作树里能过，因为工作树有那个未提交文件）。修正过程：
+编译不过**，而主工作树里能过——因为工作树有那个未提交文件）。修正落在紧随的 `9e07bc83`（本片实际可由它单独
+复核通过；**两片合起来 = 本片**）。修正过程：
 
 1. 把该文件内容重置回 `c1f8fd45` 的原版 + 只施加本片改动（用脚本逐段删/替换，不看工作树版本）；
 2. middle 侧删掉对未提交符号的引用；
@@ -997,4 +998,8 @@ worker 的 `work_table*` 改动暂时无法编译，与本片无关，走干净 
 `git diff <parent> -- <file>` 的每一行都能归因到自己，且在**干净 worktree** 里 build/vet 过。
 另：本轮重置 `async_completion.go` 时，并行 worker 在该文件上的在途编辑（改用 `worktable.PromptKind`）
 被丢弃（它的 `middle/view/worktable/async.go` 仍在，重新应用代价很小）。
+
+**历史卫生登记**：`fd549859`（首版，树不可独立构建）仍在分支祖先里，`9e07bc83` 在其上修复；
+严格"每提交可构建"要求在 push 前把这两条 squash 成一条（本环境同时有 3 个子代理在同一工作树里工作，
+**现在做交互式 rebase 的破坏面大于收益**，故登记而不动）。
 R6 续做（尚未开始）：`runtime_projection`/`diagnostics`/`perf_stats` 三文件已是薄宿主缝（R5c 已把计算搬进 `middle/view`，只剩锁与取数）；其余按 plan §2.4 的落点继续搬
