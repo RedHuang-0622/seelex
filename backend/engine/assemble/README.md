@@ -1,10 +1,9 @@
-# Seele Bridge
-
-## 模块定位
+# assemble（原 seelebridge 根包装配面）
 
 ## 生态位
 
-`seelebridge` 是 Seelex 与 Seele（当前 `v0.3.4`，见 `go.mod`）之间的防腐层。它把 Seele 的
+`backend/engine/assemble` 是 Seelex 与 Seele（当前 `v0.3.4`，见 `go.mod`）之间的防腐层**装配面**：
+它把 Seele 的
 `accountpool`（P2C 账号租约）、`agent`（NewWithComponents 装配）、`session`
 （主会话与节点子代理会话）、`tools`（Registry + 主体×路由组×位的权限门）、
 `workplan`（codec 导入 + 事件投影）、`event`/`telemetry` 能力包装成 Seelex
@@ -12,6 +11,34 @@
 
 主要调用方：根目录组合根（`main.go`）、`application/core` 经
 `contract` 端口消费、`gui`/`tui` 只经 Application 间接使用。
+
+## 迁移状态：这是 **staging**（未收敛）
+
+本包是 M4-J1 的落点：`seelebridge/` 根包（52 个生产文件 13,373 行 + 121 个用例）整体搬到这里，
+**包名 `seelebridge` → `assemble`，调用方保留原别名**，目的是先让 `seelebridge/` 目录从仓库里
+消失（可验证、可回滚），再按域把内容下沉到 `backend/{engine,tool,multiagent}`。因此本包今天
+比它的终局**臃肿得多**——按
+[plan.md](../../../docs/2026-10-15-architecture-reshape/plan.md) §2.5，终局只留四个文件：
+`runtime.go`（拓扑装配 + 逆序关机）、`runtime_bundle.go`、`runtime_deps.go`、`runtime_live.go`。
+
+已下沉的域（每片一个 commit，行为零变化）：
+
+| 片 | 内容 | 落点 |
+|---|---|---|
+| M4-J2a | 请求画像 + 会话遥测（`request_log.go`、`session_telemetry.go`） | [`backend/engine/obs`](../../engine/obs/README.md) |
+| M4-J2b | 会话媒体与随图（原 `assemble/runtime_image.go`，已删除：同一份实现换落点） | [`backend/tool/io/media`](../../tool/io/media/README.md) |
+
+**仍未下沉**（按 plan §2.5–§2.8 的目标落点，逐域各一片）：engine 侧 `runtime_context` /
+`runtime_compaction_index`（→ `backend/engine/context`）、`runtime_role_prompt`（→ `backend/engine/prompt`）、
+`runtime_tools`（→ `backend/engine/toolregistry`）、`runtime_account`（→ `backend/engine/account`）、
+`runtime_session` / `role_host_session`（→ `backend/engine/session`）、`runtime_goal_tl`（→ `backend/multiagent/goal`）；
+tool 侧 `runtime_plan`（→ `backend/tool/plan`）、`runtime_async` / `jobs_events`（→ `backend/tool/jobs`）、
+`review_files`（→ `backend/tool/review`）；multiagent 侧 `runtime_teamwork*` + `teamwork`（→ `backend/multiagent/teamwork`）、
+`runtime_subagent_*`（→ `backend/multiagent/subagent`）、`workunit_*`（→ `backend/multiagent/workunit`）、
+`runtime_role_turn` / `runtime_role_plugins`（→ `backend/multiagent/team`）；M5 侧 `runtime_project_board*`
+（→ `middle/view/board`）。收口片 K 删 `ports.go`（1020 行、11 处兼容别名）。
+
+每片的判据都是"行为零变化"：只动"文件在哪、包叫什么、谁持有状态"，不动判定、协议与持久化格式。
 
 ## 架构图
 
@@ -24,7 +51,7 @@ flowchart TB
         R1["runtime.go：拓扑序装配链 + Shutdown 逆序关停"]
         R2["runtime_tools / runtime_plan / runtime_context"]
         R3["runtime_account / runtime_session / runtime_deps"]
-        R4["runtime_computer / runtime_image / runtime_role_*"]
+        R4["runtime_computer / runtime_role_*"]
         R5["runtime_goal_tl：TLEvaluator 真实实现"]
     end
 
@@ -64,7 +91,6 @@ flowchart TB
 
 | `runtime_tools.go` | 工具注册表装配（RegistryState/内联工具/权限门）、RegisterBuiltins、可见性策略装配、Deps 闭包工厂 |
 | `runtime_computer.go` | computer use 工具族装配：`SEELEX_COMPUTER_USE` 门控 + 平台判定 + DPI 感知 + 注册（脚本面见 `../backend/tool/computer/tools*.go`） |
-| `runtime_image.go` | 随图链路：`AttachImage`/`PendingImageCount`/`wrapImageAttachments`（至多送一次）+ 截图媒体落盘与按 ref 读回（`storeSessionMedia`/`loadSessionMedia`/`mediaProjectIDFor`） |
 | `runtime_role_prompt.go` | 员工提示词的装配读面与一次有界优化：`SetRolePromptProvider`/`rolePromptFor`（ADVISOR 回合取已登记提示词，未登记回退内置；装配根在 `main.go` 注入）+ `OptimizeRolePrompt`（实现 `contract.RolePromptPort`，只产出候选、不落盘、不写会话消息） |
 | `runtime_goal_tl.go` | goal 域 `TLEvaluator` 的真实实现（主 completer + `TLDirective` JSON 契约）；ADVISOR 角色设定优先取已登记的员工提示词，**输出契约永远追加**（登记提示词改不掉解析格式） |
 | `runtime_role_turn.go` | **角色（员工）回合执行体**：开角色会话（独立引擎 + 角色提示）的同时把该员工的权限分配成 `emp_<角色名>` 主体，回合起手按构造把主体放进 ctx（`tools.WithEmployeeSubject`），工具面与判定因此按角色权责收窄；引擎构造可用 `SetRoleEngineFactory` 替换（测试/更严隔离面），`ReleaseRoleSessions` 在 Shutdown 释放派生执行面。**ReAct 钩子按本轮身份分流**（2026-10-03）：员工做工回合（`roleRoundSpec.WorkScope`）的每次工具调用 → `dto.RoleToolActivity` → `SetRoleToolCallback`（装配根接 `app.HandleRoleToolActivity`）→ 会话级事件 `teammate.tool.started/completed`；ADVISOR 评审回合仍走 goal 域 TLStep sink |

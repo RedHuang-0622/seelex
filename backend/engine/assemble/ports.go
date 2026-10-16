@@ -798,7 +798,7 @@ func (r *Runtime) SearchHistory(ctx context.Context, query string, limit int) (s
 	if r == nil {
 		return search.Result{}, errors.New("search_history: runtime is unavailable")
 	}
-	router := r.durableHistoryRouter()
+	router := r.HistoryRouter()
 	if router == nil {
 		return search.Result{}, errors.New("search_history: 事件库未装配（会话持久化未启用）")
 	}

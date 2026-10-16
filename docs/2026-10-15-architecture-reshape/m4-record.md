@@ -376,3 +376,59 @@ J2（把 assemble 里的各域下沉到 engine/tool/multiagent）需要"谁持�
 | D-M4-9 | plan §2.6 写 `seelebridge/search` 与 `seelebridge/tools/websearch` **都进** `backend/tool/websearch/`——一个目录装不下两个包。本轮按"一包一目录、目录名 = 包名"落成 `backend/tool/search/` 与 `backend/tool/websearch/`，语义仍是同一板块 | 需点头 |
 | D-M4-10 | **相对链接深度漂移**（本轮抓到的第二类纯路径盲点）：README 里的 `../../x` 在搬迁后少一级/多一级。门禁抓到两处（`backend/tool/search` 的 `../../docs/research/...`、`backend/tool/websearch` 的 `../../search/README.md`），已改为 `../../../` 与 `../`。`go build` 与 `go vet` 都看不见这类错 | 已修 |
 | D-M4-11 | `seelebridge/tools` 的 `TestJobHandlesCarryTheirTableToken` 在当前环境**稳定失败**（失败面是 Windows `TempDir` 清理时的句柄占用，三个子用例本身全 PASS）。在干净 `main` 副本上同样 3/3 失败 ⇒ 与本轮搬迁无关，不在本轮修 | 既有环境性 |
+
+## 12. J2：按域下沉（J2a + J2b）——"谁持有 Runtime"的可执行答案
+
+J1（§11）只把根包整体落位，没动类型结构。J2 才是 M4 的出口条件所在：
+**`Runtime` 的 352 个方法与 `tools` 的 5,076 行按域分到各板块且无跨板块回指**。
+
+本记录给出 J2 的**可执行答案**（不再等裁决）：一个域 = 四步，每片一个 commit。
+
+1. **端口先行**：在目标包定义宿主端口（只列这个域真正要问的几格读面）。
+2. **状态随方法走**：域状态（队列、绑定、映射）搬进目标包的一个类型，不再躺在 `Runtime` 字段里。
+3. **装配侧只留两件事**：持有域组件 + 决定它的**拓扑位置**（挂在链的哪一层、什么时候包装）。
+4. **用例跟着被测对象走**，断言逐条不变；只钉"装配接线"的用例留在 assemble。
+
+判据仍是 plan §5.1 的"行为零变化"：不动判定、不动协议、不动持久化格式；`Runtime` 的公开面
+**允许增加只读访问器**（宿主端口需要），不允许出现第二个名字（同款实现只能有一处）。
+
+### 12.1 J2a：`backend/engine/obs`（`5e502dda`，已落地）
+
+`request_log.go`（184 行）+ `session_telemetry.go`（68 行）**完全不提 `Runtime`**（方法、参数、
+字段都没有），所以是 J2 里唯一"纯搬"的一片。导出面收口：`requestLogger → RequestLogger`、
+`openRequestLogger → OpenRequestLogger`、`requestLogEnv → RequestLogEnv`，并新增
+`NewRequestLogCompleter` / `NewRequestLogStreamCompleter`（私有字段留在包内）。调用点只有
+`assemble/runtime.go`（4 处）与 `internal/adapters/engine_port.go`（3 处）。门面闭包上限 71 → 72。
+
+### 12.2 J2b：`backend/tool/io/media`（第一片"带宿主端口的域下沉"）
+
+**删除清单（原位置 → 新唯一位置）**
+
+| 原位置 | 新唯一位置 | 说明 |
+|---|---|---|
+| `backend/engine/assemble/runtime_image.go`（**181 行 / 7 个函数**，已删除） | `backend/tool/io/media/media.go` | 属于域面的六格改为 `SessionMedia.{Attach,PendingCount,StoreMedia,AttachPending,LoadMedia,ProjectIDFor}` |
+| `Runtime.images *imageattach.Registry` 字段 | `SessionMedia.pending`（私有、唯一一份队列状态） | 装配器不再直接持有队列；入队路径只剩 `SessionMedia.Attach` 一处 |
+| `Runtime.durableHistoryRouter()`（10 个调用点） | `Runtime.HistoryRouter()`（**同一份实现**，只去掉第二个名字） | 它同时成为 `media.Host` 的一格（AGENTS §8.3） |
+| `wrapImageAttachments` 的方法体 | `media.SessionMedia.Wrap`（返回挂好的一对）；方法壳留在 `runtime.go` | 拓扑位置（request log 之内、`agent.NewWithComponents` 之前）是装配决策，不进域包 |
+| 用例 `TestStoreSessionMediaWritesIntoExecutingSessionPartition`、`TestMediaProjectIDForResolution`、`TestAttachSessionImageQueuesForExecutingSession` | `backend/tool/io/media/media_test.go`（**断言逐条不变**，夹具从 `&Runtime{...}` 换成 `stubHost`） | 同一份用例换落点 |
+| 用例 `TestWrapImageAttachmentsWiresMediaLoader` | **留在 assemble**，改为断言"装配器把 `Wrap` 的结果装回了 `completer` 且 Loader 非空" | 它钉的是装配接线，不是域行为 |
+
+**唯一新增公开面**：`media.Host`（两格：`HistoryRouter` / `SessionProjectID`）、`media.New(host)`、
+`Runtime.SessionProjectID`；新增用例 `TestWrapKeepsStreamChain`（流式链保留 Stream/StreamEvents、
+返回同一个包装、未装配不造包装）与 `TestNilMediaIsInert`（零值四格：空操作 / 显式错误）。
+
+**证据（实跑）**：`gofmt -l backend e2e` 干净；`go build ./...`、`go vet ./...` 无输出；
+`go test ./backend/tool/io/media/...` ok；`go test ./backend/engine/assemble/...` ok（41.9s）；
+`go test ./backend/tool/computer/... ./internal/adapters/...` ok；`go test ./e2e/...` ok
+（含门面闭包 ratchet I1 与模块 README 门禁）；全量 `go test ./... -count=1` 的**失败集合与改动前
+逐条相同**（`backend/tool/registry` 的 D-M4-11 环境性失败 + `application/core` 基线 3 条）；
+`scripts/check_readme_refs.py --strict` **12 条（新增 0）**。
+
+**新偏差**
+
+| ID | 新增偏差 | 处置 |
+|---|---|---|
+| D-M4-29 | 闭包清单那条"新模块必须是干净叶子"的口径，`backend/tool/io/media` 不完全满足：它要用 `store` / `backend/tool/computer` / `imageattach` / `internal/{model,telemetry}` 才能做归属与落盘 | 记偏差而不拆散它：这些下游**全在既有清单内**，闭包只多它自己一格，上限 72 → 73 并在常量处写明理由。"干净叶子"是给"抽判据"写的口径，域下沉不适用 |
+| D-M4-30 | plan §2.6 把 `runtime_image.go` 指向 `backend/tool/io/`，但那只是目录（四个子包各占一层，自己没有包） | 落成 `backend/tool/io/media/`（一包一目录，目录名 = 包名），与 C 片的 `io/{fs,attachment,imageattach,multimodal}` 同款 |
+| D-M4-31 | 迁移操作本身踩的坑：Python `Path.write_text` 在 Windows 上把 `\n` 写成 `\r\n`，6 个被批量改名的文件从 LF 变 CRLF，`gofmt -l` 立刻报红（内容 diff 只有 1 行，可逆） | 已按"工作树 = LF"归一化；教训：**批量改写 Go 文件后必须跑 `gofmt -l` 并归一化行尾**，这是纯路径改写唯一的机械保险 |
+| D-M4-32 | `Runtime` 因域下沉新长出两条导出访问器（`HistoryRouter` / `SessionProjectID`） | 宿主端口的必然代价，且是收窄方向：域包拿到的是两格只读事实，不是整个 `Runtime`。与 K 片（删 `ports.go`）无耦合 |

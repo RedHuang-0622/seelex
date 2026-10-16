@@ -14,8 +14,8 @@ import (
 // 全部跨域能力都由闭包注入，因此这层只做装配。
 //
 // 图像通路（截图落会话媒体分区、随下一次请求送入模型、按 ref 读回）与既有的
-// 随图链路同一处：`runtime_image.go` 的 storeSessionMedia / attachSessionImage /
-// loadSessionMedia / mediaProjectIDFor。
+// 随图链路同一处：媒体域 `backend/tool/io/media` 的 StoreMedia / AttachPending /
+// LoadMedia / ProjectIDFor；本文件只把其中两格接进 computer 工具族的 Deps。
 
 // computerUseEnv 是 computer use 工具族的开关：缺省开（支持桌面的平台），
 // `0/off/false/no` 关闭（无头/CI 或不希望模型碰桌面时用）。
@@ -37,8 +37,8 @@ func (r *Runtime) registerComputerTools() {
 	}
 	bridgecomputer.NewTools(bridgecomputer.Deps{
 		RegisterTool: r.RegisterTool,
-		StoreMedia:   r.storeSessionMedia,
-		AttachImage:  r.attachSessionImage,
+		StoreMedia:   r.media.StoreMedia,
+		AttachImage:  r.media.AttachPending,
 	}).Register()
 }
 

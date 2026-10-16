@@ -65,7 +65,11 @@ const (
 // 因此上限抬到 71。
 // M4-J2a：`backend/engine/obs` 同口径——请求画像与会话遥测从装配器再下沉成叶子观测包
 // （直接依赖 = 标准库 + Seele + `internal/telemetry`），因此上限抬到 72。
-const facadeClosureAllowListMax = 72
+// M4-J2b：`backend/tool/io/media` 是**域下沉**而不是抽判据——会话媒体与随图
+// （原 assemble 的 `runtime_image.go`）带着宿主端口搬进自己的包。它不引入任何新的
+// 下游包（只用已在清单内的 `store` / `backend/tool/computer` / `imageattach` /
+// `internal/{model,telemetry}`），所以闭包只多它自己一格，上限抬到 73。
+const facadeClosureAllowListMax = 73
 
 var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/application",
@@ -114,6 +118,8 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/backend/tool/fork",
 	"github.com/RedHuang-0622/seelex/backend/tool/io/fs",
 	"github.com/RedHuang-0622/seelex/backend/tool/io/imageattach",
+	// M4-J2b：会话媒体与随图的域下沉（见上限常量处的说明）。
+	"github.com/RedHuang-0622/seelex/backend/tool/io/media",
 	"github.com/RedHuang-0622/seelex/internal/actor",
 	"github.com/RedHuang-0622/seelex/internal/config",
 	"github.com/RedHuang-0622/seelex/internal/docker",

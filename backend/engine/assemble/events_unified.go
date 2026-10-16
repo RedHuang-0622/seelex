@@ -204,7 +204,7 @@ func (r *Runtime) UnifiedEvents(ctx context.Context, sessionID, nodeID string, l
 	if r == nil {
 		return UnifiedEventView{}, fmt.Errorf("unified events: runtime is nil")
 	}
-	router := r.durableHistoryRouter()
+	router := r.HistoryRouter()
 	if router == nil {
 		return UnifiedEventView{}, fmt.Errorf("unified events: sessionstore router is not attached")
 	}
@@ -227,7 +227,7 @@ func (r *Runtime) UnifiedEventsRange(ctx context.Context, sessionID, nodeID stri
 	if r == nil {
 		return UnifiedEventView{}, fmt.Errorf("unified events: runtime is nil")
 	}
-	router := r.durableHistoryRouter()
+	router := r.HistoryRouter()
 	if router == nil {
 		return UnifiedEventView{}, fmt.Errorf("unified events: sessionstore router is not attached")
 	}

@@ -122,7 +122,7 @@ func (r *Runtime) RestoreSubagentAnchors(sessionID string) error {
 	if r == nil || sessionID == "" {
 		return nil
 	}
-	router := r.durableHistoryRouter()
+	router := r.HistoryRouter()
 	if router == nil {
 		return nil
 	}

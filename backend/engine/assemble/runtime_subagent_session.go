@@ -36,7 +36,7 @@ func (r *Runtime) NewSubagentSessionWithID(sessionID string, hooks *frameworkSes
 		SessionID: sessionID,
 		ModelName: r.model,
 	}
-	if router := r.durableHistoryRouter(); router != nil {
+	if router := r.HistoryRouter(); router != nil {
 		history := store.NewDurableHistory(router, sessionID)
 		history.SetWorkspaceResolver(r.sessionWorkspaceFor(sessionID))
 		components.History = history

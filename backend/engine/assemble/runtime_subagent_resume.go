@@ -266,7 +266,7 @@ func (r *Runtime) newSubagentResumePort(sessionID string) (*subagentResumePort, 
 		return nil, fmt.Errorf("resume subagent: main session id is required")
 	}
 	projectID := ""
-	if router := r.durableHistoryRouter(); router != nil {
+	if router := r.HistoryRouter(); router != nil {
 		projectID = r.sessionProjectIDFor(sessionID)
 	}
 	return &subagentResumePort{
@@ -534,7 +534,7 @@ func (p *subagentResumePort) ensureConclusion(ctx context.Context, unit resume.U
 
 // subagentConclusionSet 读取父级事件库里的子代理结论（幂等键集合）。
 func (r *Runtime) subagentConclusionSet(ctx context.Context, projectID, sessionID string) (map[string]struct{}, error) {
-	router := r.durableHistoryRouter()
+	router := r.HistoryRouter()
 	if router == nil {
 		return map[string]struct{}{}, nil
 	}

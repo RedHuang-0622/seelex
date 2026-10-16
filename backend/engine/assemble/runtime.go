@@ -31,7 +31,7 @@ import (
 	subagentsession "github.com/RedHuang-0622/seelex/backend/multiagent/subagent"
 	"github.com/RedHuang-0622/seelex/backend/tool/fork"
 	"github.com/RedHuang-0622/seelex/backend/tool/io/fs"
-	"github.com/RedHuang-0622/seelex/backend/tool/io/imageattach"
+	toolmedia "github.com/RedHuang-0622/seelex/backend/tool/io/media"
 	seenode "github.com/RedHuang-0622/seelex/backend/tool/node"
 	"github.com/RedHuang-0622/seelex/backend/tool/plan"
 	toolreg "github.com/RedHuang-0622/seelex/backend/tool/registry"
@@ -81,8 +81,10 @@ type Runtime struct {
 	pool      *accountpool.P2CPool[agent.Completer]
 	completer agent.Completer
 	streamer  agent.StreamCompleter
-	images    *imageattach.Registry // 会话待随图队列：工具 Add，下一次请求 Take（至多送一次）
-	agt       *agent.Agent
+	// media 是媒体域（会话媒体落盘 + 待随图队列），实现见
+	// backend/tool/io/media；本结构只持有它并由拓扑序决定包装位置。
+	media *toolmedia.SessionMedia
+	agt   *agent.Agent
 
 	// 会话槽化（决策契约 §决策契约 1/2）：每个逻辑会话一个独立 bundle
 	// （Session + 锁 + 绑定状态），runtime 生成与生命周期会话粒度且不
@@ -358,7 +360,6 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	r := &Runtime{
 		pool:         pool,
 		model:        first.Model,
-		images:       imageattach.NewRegistry(),
 		MCPStack:     mcpstack.New(mcpStackOpts...),
 		projectScope: security.NewProjectScope(),
 		filesystem:   fs.NewFileSystemActor(),
@@ -396,6 +397,9 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		sessionBatches:       make(map[string]string),
 		startupWarnings:      startupWarnings,
 	}
+	// 媒体域（待随图队列 + 会话媒体分区读写法）：宿主就是本 Runtime——它只经
+	// media.Host 的两格读面（HistoryRouter / SessionProjectID）回看状态。
+	r.media = toolmedia.New(r)
 	// 账号路由状态收敛为 account.Manager：选中账号/provider 过滤/限额。
 	r.accounts = account.NewManager(loaded.Specs, loaded.Limits, first.Name, pool)
 	// ── 拓扑序装配链（config→account→registry→completer→agent→plan→node→…）──
@@ -641,10 +645,37 @@ func (r *Runtime) AttachHistoryRouter(router *store.Router) {
 	r.historyRouter = router
 	r.historyRouterMu.Unlock()
 }
-func (r *Runtime) durableHistoryRouter() *store.Router {
+
+// HistoryRouter 返回会话存储路由（装配后只读；未装配 nil）。
+//
+// 它是 `media.Host` 的一格：媒体域（backend/tool/io/media）按会话写/读媒体分区，
+// 需要一个拿路由的窄口。本包内部的其它消费点同样走它——一份实现，两个调用面。
+func (r *Runtime) HistoryRouter() *store.Router {
 	r.historyRouterMu.RLock()
 	defer r.historyRouterMu.RUnlock()
 	return r.historyRouter
+}
+
+// SessionProjectID 解析会话绑定的项目 id（未绑定 = ""）。
+//
+// 它是 `media.Host` 的另一格：媒体归属解析要知道"这个会话属于哪个项目"。刻意
+// 只暴露绑定本身（不读 Router 的活跃写作用域、不用主会话兜底），归属判定仍由
+// 媒体域自己那份实现负责。
+func (r *Runtime) SessionProjectID(sessionID string) string {
+	return r.sessionProjectIDFor(sessionID)
+}
+
+// wrapImageAttachments 把待随图包装挂到最靠近 provider 的一层。
+//
+// 位置是有意的（因此留在装配文件而不是媒体域里）：它必须在 request log 包装
+// **之内**（即先 log 再 wrap），这样 request log 记录下来的就是真正发出去的消息
+// ——包含图片的那条；同时必须在 agent.NewWithComponents 之前，引擎按组件快照取
+// Completer。包装本体由 media.SessionMedia 提供，这里只决定它挂在哪。
+func (r *Runtime) wrapImageAttachments() {
+	if r == nil {
+		return
+	}
+	r.completer, r.streamer = r.media.Wrap(r.completer, r.streamer)
 }
 
 // PrepareMainSessionHistory arms the Runtime-owned DurableHistory to hand the
@@ -690,7 +721,7 @@ func (r *Runtime) newMainSession(sessionID string, hooks *session.LoopHooks) (*s
 	// 未装配 Router 时保持框架内存 history——仅测试可用；生产装配点
 	// （main.go）始终在会话创建前 AttachHistoryRouter(store)，不会走到
 	// 该兜底（存储双轨只读迁移语义，见解耦方案 §02.5）。
-	if router := r.durableHistoryRouter(); router != nil {
+	if router := r.HistoryRouter(); router != nil {
 		history := store.NewDurableHistory(router, sessionID)
 		history.SetWorkspaceResolver(r.sessionWorkspaceFor(sessionID))
 		history.SetTailBudget(r.windowTailBudget())
