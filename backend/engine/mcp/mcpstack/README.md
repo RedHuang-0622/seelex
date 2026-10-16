@@ -8,7 +8,7 @@
 
 ```mermaid
 flowchart LR
-    RUNTIME["seelebridge.Runtime<br/>在 MCP tool 调用周围接入"] --> BEFORE["BeforeCall / CallRecorder.AfterCall<br/>拦截器式计时与结果记录"]
+    RUNTIME["backend/engine/assemble 的 Runtime<br/>在 MCP tool 调用周围接入"] --> BEFORE["BeforeCall / CallRecorder.AfterCall<br/>拦截器式计时与结果记录"]
     BEFORE --> STACK["MCPStack<br/>线性 history + cursor"]
     STACK --> CALL["MCPCall<br/>server/tool · args/result · 状态 · 耗时 · 错误 · backlink"]
     BREAKER["Seele breaker channel"] --> LISTEN["ListenBreaker"]
@@ -50,7 +50,8 @@ cursor 指向当前 active call。Undo 不删除历史，Redo 只在未发生新
 
 ## 生态位与依赖
 
-上游由 `seelebridge.Runtime` 在 MCP tool 调用周围接入；下游可供 trace、context export 和诊断 UI 使用。禁止反向依赖 Application 或 frontend。
+上游由 [`backend/engine/assemble`](../README.md) 的 Runtime 在 MCP tool 调用周围接入；
+下游可供 trace、context export 和诊断 UI 使用。禁止反向依赖 Application 或 frontend。
 
 ## Review 指南
 
@@ -63,5 +64,5 @@ cursor 指向当前 active call。Undo 不删除历史，Redo 只在未发生新
 ## 测试
 
 ```text
-go test ./mcpstack -count=1
+go test ./backend/engine/mcp/mcpstack/... -count=1
 ```

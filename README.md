@@ -661,7 +661,7 @@ permission:
 | [<code>backend/engine/plugin/</code>](backend/engine/plugin/README.md) | Plugin loader、生命周期和事务式切换 |
 | [<code>backend/engine/skill/</code>](backend/engine/skill/README.md) | Skill 加载、资源安全和可见性 |
 | [<code>store/workspace/</code>](store/workspace/README.md) | Workspace 与 Session binding |
-| [<code>mcpstack/</code>](mcpstack/README.md) | MCP 调用轨迹、持久化和上下文摘要 |
+| [<code>backend/engine/mcp/mcpstack/</code>](backend/engine/mcp/mcpstack/README.md) | MCP 调用轨迹、持久化和上下文摘要 |
 | [<code>tui/</code>](tui/README.md) | Bubble Tea 终端前端 |
 | [<code>gui/</code>](gui/README.md) | Wails GUI 适配层、headless RPC 与前端 |
 | [<code>e2e/</code>](e2e/README.md) | 无真实 LLM 的确定性端到端场景 |
@@ -792,7 +792,7 @@ Linux CI 还会执行 race detector、覆盖率和发布包安全检查。
 | 底座（契约） | [contract/](contract/README.md) · [contract/dto/](contract/dto/README.md) |
 | 运行时适配 | [seelebridge/](backend/engine/assemble/README.md) · [security/](backend/limit/gate/README.md) · [tools/](backend/tool/registry/README.md) · [plan/](backend/tool/plan/README.md) · [node/](backend/tool/node/README.md) · [fork/](backend/tool/fork/README.md) · [session/](backend/multiagent/subagent/README.md) · [account/](backend/engine/account/README.md) · [mcp/](backend/engine/mcp/README.md) · [computer/](backend/tool/computer/README.md) |
 | 上下文与存储 | [seelexctx/](seelexctx/README.md) · [store/](store/README.md) · [session/](session/README.md) · [store/workspace/](store/workspace/README.md) |
-| 扩展与前端 | [plugin/](backend/engine/plugin/README.md) · [skill/](backend/engine/skill/README.md) · [mcpstack/](mcpstack/README.md) · [gui/](gui/README.md) · [tui/](tui/README.md) · [plugins/](plugins/README.md) |
+| 扩展与前端 | [plugin/](backend/engine/plugin/README.md) · [skill/](backend/engine/skill/README.md) · [mcpstack/](backend/engine/mcp/mcpstack/README.md) · [gui/](gui/README.md) · [tui/](tui/README.md) · [plugins/](plugins/README.md) |
 | 工程基座 | [e2e/](e2e/README.md) · [scripts/](scripts/README.md) · [config/](config/README.md) · [internal/](internal/README.md) |
 
 README 内的 Mermaid 图由 `go test ./e2e/` 的结构门禁保护（fence 闭合、图类型、括号与引号配平、

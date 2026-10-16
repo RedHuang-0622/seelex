@@ -27,7 +27,7 @@ var repositoryModules = []string{
 	"backend/tool/computer",
 	"docs/arch", "docs/devlog", "docs/gui", "docs/gui/schemas", "docs/product", "docs/research",
 	"docs/test", "e2e", "e2e/scenario", "gui", "gui/frontend", "internal", "wiring/adapters",
-	"internal/buildinfo", "internal/frontmatter", "mcpstack", "mcpstack/config", "plugins", "plugins/default",
+	"internal/buildinfo", "internal/frontmatter", "plugins", "plugins/default",
 	"plugins/hardware", "plugins/impeccable", "scripts",
 	"backend/engine/assemble", "backend/engine/obs", "backend/tool/fork", "backend/tool/io/fs",
 	"backend/tool/io/media", "internal/config",
@@ -48,6 +48,9 @@ var repositoryModules = []string{
 	// Runtime 的可见性投影缓存（原 backend/engine/plugin，包名 plugin → visibility）。
 	"backend/engine/plugin",
 	"backend/engine/plugin/visibility",
+	// M5-R9：mcpstack 归位到 engine 板块的 mcp 子域（包名不变）。
+	"backend/engine/mcp/mcpstack",
+	"backend/engine/mcp/mcpstack/config",
 	"test",
 }
 

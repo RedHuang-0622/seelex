@@ -10,7 +10,7 @@ import (
 
 	frameworkmcp "github.com/RedHuang-0622/Seele/tools/mcp"
 
-	"github.com/RedHuang-0622/seelex/mcpstack"
+	"github.com/RedHuang-0622/seelex/backend/engine/mcp/mcpstack"
 )
 
 // ── TestBreakerEventsChannel ────────────────────────────────────

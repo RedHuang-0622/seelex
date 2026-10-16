@@ -10,7 +10,7 @@ lazy 冷启动登记、attach/detach/refresh、工具重挂载。主要调用方
 
 - 职责：`Manager` 持有 MCP 生命周期状态并对外提供服务；`ToFramework`
   做传输中立配置校验与转换。
-- 非职责：MCP 调用 trace 的数据层（归 `mcpstack`）、插件驱动的 MCP 装配
+- 非职责：MCP 调用 trace 的数据层（归子包 `mcpstack/`）、插件驱动的 MCP 装配
   （归顶层 `plugin/`）。
 
 ## 与其它域的关系

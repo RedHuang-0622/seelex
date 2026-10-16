@@ -12,7 +12,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/tools"
 	frameworkmcp "github.com/RedHuang-0622/Seele/tools/mcp"
-	"github.com/RedHuang-0622/seelex/mcpstack"
+	"github.com/RedHuang-0622/seelex/backend/engine/mcp/mcpstack"
 )
 
 // Server is the transport-neutral MCP configuration consumed by Seelex.

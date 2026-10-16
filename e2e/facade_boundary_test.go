@@ -111,7 +111,10 @@ var facadeClosureAllowList = []string{
 	"github.com/RedHuang-0622/seelex/internal/toolrecord",
 	"github.com/RedHuang-0622/seelex/internal/winhide",
 	"github.com/RedHuang-0622/seelex/internal/jsonobj",
-	"github.com/RedHuang-0622/seelex/mcpstack",
+	// M5-R9：mcpstack 归位到 engine 板块的 mcp 子域（plan §2.5）；原先的
+	// `backend/engine/mcp` 已由 MCP 生命周期管理者占用，因此退一档做子包。
+	// 同一份代码换落点，属等量替换，清单上限不变。
+	"github.com/RedHuang-0622/seelex/backend/engine/mcp/mcpstack",
 	"github.com/RedHuang-0622/seelex/backend/engine/assemble",
 	"github.com/RedHuang-0622/seelex/backend/engine/obs",
 	"github.com/RedHuang-0622/seelex/backend/engine/account",
