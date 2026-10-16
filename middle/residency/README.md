@@ -2,12 +2,14 @@
 
 ## 生态位
 
-`middle/residency` 是中间层的**常驻与预算**落点（plan §2.4），当前已有两件判据：
+`middle/residency` 是中间层的**常驻与预算**落点（plan §2.4），当前已有三件判据：
 
 1. 可见快照的**预览截断**（`Preview`，来自 `snapshot_budget.go`）；
 2. **LRU 使用序维护**（`Order.Touch` / `Order.Forget`）与**释放额度**（`Budget`）——
    迁移前这两段算法在引擎驻留层、正文层、归档路径与释放面**四处各写了一份**（AGENTS §8.3 的
    同一判据多处），M5-R6-residency-order 收敛到此一处。
+3. **目录刷新等待**（`WaitCatalogRefresh`）：等一轮覆盖本次请求的目录刷新，ctx 超时按"最佳努力"
+   返回 `ctx.Err()` 而不是失败（M5-R6-session-catalog）。
 
 `session_catalog` / `session_cold_read` / `session_input_index` / `window` / `archive_session`
 与两个 LRU 的**收敛循环/受保护集**随 R6 续做搬入（后者要读会话单元状态与引擎桥，属宿主面）。
@@ -41,6 +43,8 @@
 | `preview_test.go` | 截断/透传、UTF-8 边界与 rune 计数、`limit <= 0` 语义 |
 | `order.go` | `Order`（`Touch` / `Forget`）+ `Budget`：使用序与额度的唯一实现 |
 | `order_test.go` | 去重前置、不改原序、摘除保持相对顺序、额度两种口径与边界 |
+| `catalog.go` | `CatalogRefresher`（窄口）+ `WaitCatalogRefresh`：目录刷新等待的判据 |
+| `catalog_test.go` | 回执到达即返回、恰好请求一次、ctx 超时返回 `ctx.Err()` 且之后仍可等待 |
 
 ## 核心实现
 
@@ -101,3 +105,8 @@ go test ./application/core/ -run 'SnapshotBudget|ToolResult|Truncation' -count=1
 - `func (o Order) Touch(id string) Order` — 移到序首（重复则先去重再前置）；返回新切片，不改原序。
 - `func (o Order) Forget(id string) Order` — 移出序，其余相对顺序不变。
 - `func Budget(legacyLimit, protectedCount, window int) int` — 释放额度：分层上限 − 受保护数，或统一窗口。
+
+### catalog.go
+
+- `type CatalogRefresher interface` — 请求一次目录刷新的窄口（结构满足会话协调器的同名方法）。
+- `func WaitCatalogRefresh(ctx context.Context, refresher CatalogRefresher) error` — 等一轮覆盖本次请求的目录刷新；ctx 超时返回 `ctx.Err()`（不是失败）。
