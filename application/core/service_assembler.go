@@ -66,6 +66,9 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		restoreSig:         make(chan struct{}),
 	}
 	service := &Service{serviceState: svcState}
+	// 两条独立拉条（思考强度 / 循环次数）的状态与判据归位 backend/limit.Knobs（M5-R-limitb），
+	// 宿主就是本 Service：视图锁、快照写面、引擎与档位读数经适配注入。
+	service.knobs = newServiceKnobs(service)
 	// 项目看板订阅口槽位在装配期建好（M3）：写路径"判 nil 才是漏锁的老毛病"，
 	// 槽位自己持有锁，注入方（wiring/bootstrap / 测试）随时可 SetProjectBoardSink。
 	service.components.projectBoard = &projectBoardPort{}
@@ -77,10 +80,10 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	// 两条独立拉条的进程级读数在装配期播种成默认档（high）派生值：否则首个快照里
 	// reasoning_effort / loop_limit 是空/0，前端两条拉条会显示成 Low / 1，与引擎
 	// 实际生效的 high（384）不一致。
-	service.knobReasoningEffort = reasoningEffortFor(service.effortManager.Current())
-	service.knobLoopLimit = maxLoopsFor(service.effortManager.Current())
-	// 定时任务的按会话强度租约表在装配期建好（写路径不加锁判 nil 是漏锁的老毛病）。
-	service.sessionEffort = make(map[string]string)
+	service.knobs.SeedReadings(
+		reasoningEffortFor(service.effortManager.Current()),
+		maxLoopsFor(service.effortManager.Current()),
+	)
 	// 进程级 fullAccess 默认在装配期捕获一次（配置/初始引擎门值），会话
 	// 未选择时回退该默认，而不是读取其它会话遗留的引擎门状态（G4）。
 	if service.Deps.Runtime != nil {
@@ -164,8 +167,8 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		Core:                   kernel,
 		Units:                  sessionDomain,
 		CurrentEffort:          service.effortForSession,
-		CurrentReasoningEffort: service.knobReasonings,
-		CurrentLoopLimit:       service.knobLimit,
+		CurrentReasoningEffort: service.knobs.ReasoningEfforts,
+		CurrentLoopLimit:       service.knobs.LoopLimit,
 		CurrentFullAccess:      service.fullAccessForSession,
 		CurrentPermissionTier:  service.permissionTierForSession,
 		CurrentSessionID: func() string {

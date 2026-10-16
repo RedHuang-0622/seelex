@@ -8,6 +8,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	seelebridge "github.com/RedHuang-0622/seelex/backend/engine/assemble"
+	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/contract"
 	"github.com/RedHuang-0622/seelex/contract/dto"
 )
@@ -54,7 +55,7 @@ func (service *Service) validateScheduledRunParams(spec seelebridge.ScheduledTas
 	if _, err := dto.NormalizeWireReasoningEffort(spec.ReasoningEffort); err != nil {
 		return err
 	}
-	return validateLoopLimit(spec.LoopLimit)
+	return limit.ValidateLoopLimit(spec.LoopLimit)
 }
 
 // applyScheduledRunParams 把两条执行参数装配到**目标会话**上（触发路径的唯一实现，
@@ -72,7 +73,7 @@ func (service *Service) applyScheduledRunParams(sessionID string, task seelebrid
 		return errors.New("宿主引擎不支持按会话设置循环上限（SetSessionMaxLoopsFor 未实现）")
 	}
 	pinner.SetSessionMaxLoopsFor(sessionID, loops)
-	service.borrowSessionReasoningEffort(sessionID, effort)
+	service.knobs.BorrowSessionReasoningEffort(sessionID, effort)
 	return nil
 }
 

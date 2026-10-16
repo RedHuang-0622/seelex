@@ -20,6 +20,11 @@ Seelex 的**判据与档位基座包**：集中运行时上限（`config/seelex.
 行为零变化；迁移口径见
 [plan.md](../../docs/2026-10-15-architecture-reshape/plan.md) §2.8。
 
+`knobs.go` 于 2026-10-16 随 M5-R-limitb **接收者转移**从 `application/core/service_knobs.go`
+归位：两条独立拉条（思考强度 / 循环次数）的判据、运行守卫与状态（读数 + 按会话说强度租约）
+都在这里，宿主能力经 `KnobsHost` 注入（门面只留一行转发 + 适配，见
+[`application/core/service_knobs.go`](../../application/core/service_knobs.go)）。
+
 ## 职责与非职责
 
 **做**：
@@ -72,6 +77,8 @@ core，等 M5 切分时随用例面走。
 | `accountwindow/` | 「每账号上下文窗口」的判据：界面挡位表 + 自定义值校验（见 [`accountwindow/README.md`](accountwindow/README.md)）。 |
 | `limits.go` | `limits` 段类型（`Limits` / `SessionStorageLimits` / `AsyncExecLimits` / `ProjectBoardLimits` / `CompactionSummaryLimits` / `TeamLimits` / `RuntimeLimits` / `PluginLimits`）、出厂默认、`LoadLimits` 与启动期校验、窗口判据。 |
 | `active.go` | 进程级生效快照：`active atomic.Pointer[Limits]` + `Apply` / `Get` / `SetSessionReleaseWindow`。 |
+| `knobs.go` | 两条独立拉条（思考强度 / 循环次数）的判据、运行守卫与状态（读数 + 按会话说强度租约）；宿主能力经 `KnobsHost` 注入（M5-R-limitb 从 `application/core` 接收者转移而来）。 |
+| `knobs_test.go` | 上述组件的**宿主端口契约**用例（守卫返回视图会话 ID、拉条读数的档位回退、改上限在宿主锁内一次写完、下发即发布、无端口 no-op、租约一次性）。 |
 | `limits_test.go` | 默认档、部分覆盖、负值/比例越界/`soft >= hard` 拒绝、厚摘要"缺省即开"、`search_timeout` 别名。 |
 | `limits_runtime_test.go` | `limits.runtime.allow_multi_process` 两臂 + 出厂档单实例。 |
 | `limits_project_board_test.go` | `limits.project_board` 三格解析与出厂档打开。 |
@@ -182,6 +189,28 @@ go list -deps ./backend/limit
 - `func Apply(l Limits)` — Apply 应用 seele.yaml limits 段（零值字段自动补默认）。
 - `func SetSessionReleaseWindow(window int)` — SetSessionReleaseWindow 只改**一格**并原子发布：读当前快照 → 改这一格 → 整体替换。
 - `func Get() Limits` — Get 返回当前生效的运行时上限（只读拷贝语义）。
+
+### knobs.go
+
+- `type KnobsHost interface` — 两条拉条需要的宿主能力面（视图锁、快照写面、引擎与档位读数）。
+- `type Knobs struct` — 两条独立拉条的状态与判据本体（进程级）。
+- `func NewKnobs(host KnobsHost) *Knobs` — 建一条拉条状态机（host 不可为 nil）。
+- `func (k *Knobs) SeedReadings(reasoningEffort string, loopLimit int)` — 装配期播种两条读数。
+- `func (k *Knobs) EnsureViewIdle(action string) (string, error)` — 运行守卫：返回视图会话 ID，running 时给拒绝理由。
+- `func (k *Knobs) SetReasoningEffort(effort string) error` — 单独下发"想多深"（守卫 → 校验 → 下发 → 记读数 → 发布）。
+- `func (k *Knobs) SetLoopLimit(limit int) error` — 单独改"跑多少轮"（守卫 → 校验 → 应用 → 发布）。
+- `func (k *Knobs) ApplyLoopLimit(limit int)` — "改循环上限"的唯一写点：引擎 + 宿主锁内的快照/组件读数。
+- `func (k *Knobs) Readings() (string, int)` — runtime 投影收集两条读数的唯一入口（不取宿主视图锁）。
+- `func (k *Knobs) ReasoningEfforts() string` / `func (k *Knobs) LoopLimit() int` — 投影装配的两个单值回调。
+- `func (k *Knobs) CurrentLoopLimit() int` — 当前生效的循环上限（拉条改过 > 档位预设）。
+- `func (k *Knobs) PushSessionReasoningEffort(wireValue string) int` — 把强度下发给"跟随会话"的账号；无端口时 no-op。
+- `func (k *Knobs) Publish(mutate func(*model.RuntimeState)) error` — 推一次完整 `runtime.changed`。
+- `func (k *Knobs) BorrowSessionReasoningEffort(sessionID, wireValue string)` — 记一笔按会话强度租约。
+- `func (k *Knobs) TakeSessionReasoningEffort(sessionID string) (string, bool)` — 取走并消掉租约。
+- `func ValidateLoopLimit(limit int) error` — "循环次数"的唯一取值判据（拉条与定时任务共用）。
+- `func ValidWireReasoningEffort(value string) bool` — 是否 provider 词表里的思考强度（不收空值）。
+- `func ReasoningEffortChoices() []string` — 报错提示用的可选值清单（词表本体在契约层）。
+- `var ErrKnobsLocked` — 运行守卫哨兵（迁移前只有定义、无消费者，按"行为零变化"保留，待 P8 裁决）。
 
 ### async_exec_config_test.go
 

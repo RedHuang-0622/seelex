@@ -213,10 +213,10 @@ func TestAssembleScheduledRunAppliesTierAndPlugins(t *testing.T) {
 	if got := engine.sessionLoopsFor(sessionID); got != 384 {
 		t.Fatalf("未声明循环次数没有落成默认档位读数：%d, want 384", got)
 	}
-	if wire, ok := service.takeSessionReasoningEffort(sessionID); !ok || wire != dto.ReasoningEffortHigh {
+	if wire, ok := service.knobs.TakeSessionReasoningEffort(sessionID); !ok || wire != dto.ReasoningEffortHigh {
 		t.Fatalf("未声明思考强度没有落成默认档位读数：%q（ok=%v）, want high", wire, ok)
 	}
-	if _, again := service.takeSessionReasoningEffort(sessionID); again {
+	if _, again := service.knobs.TakeSessionReasoningEffort(sessionID); again {
 		t.Fatal("强度租约必须只被取走一次（它属于那一次运行）")
 	}
 
@@ -229,7 +229,7 @@ func TestAssembleScheduledRunAppliesTierAndPlugins(t *testing.T) {
 	if got := engine.sessionLoopsFor(sessionID); got != 48 {
 		t.Fatalf("声明的循环次数没有落到那次会话：%d, want 48", got)
 	}
-	if wire, ok := service.takeSessionReasoningEffort(sessionID); !ok || wire != dto.ReasoningEffortLow {
+	if wire, ok := service.knobs.TakeSessionReasoningEffort(sessionID); !ok || wire != dto.ReasoningEffortLow {
 		t.Fatalf("声明的思考强度没有记上：%q（ok=%v）, want low", wire, ok)
 	}
 	// 别的会话一个字都不受影响（装配是会话级决定，不进进程默认）。

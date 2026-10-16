@@ -125,7 +125,7 @@ func (service *Service) SelectAccount(_ context.Context, name string) error {
 // （后台会话的 prompt 由各自的 runChat 起点/热挂载刷新）。会话化 effort
 // 属刀 4，在此之前的全局选择器只允许在视图空闲时变更。
 func (service *Service) SwitchEffort(_ context.Context, level string) error {
-	viewSessionID, err := service.ensureViewIdle("切换 Effort")
+	viewSessionID, err := service.knobs.EnsureViewIdle("切换 Effort")
 	if err != nil {
 		return err
 	}
@@ -159,14 +159,14 @@ func (service *Service) SwitchEffort(_ context.Context, level string) error {
 	service.Core.Snapshot.Runtime.Effort = service.effortManager.Current()
 	// 档位 = **两条拉条的预设**：切档位把两条拉条的读数一起带进该档（前端因此看得见
 	// "档位改了什么"），而拉条各自只改自己那一项（composer 底部的两条独立拉条，
-	// 见 service_knobs.go）。权威读数与快照一起写：runtime 投影每次整份重建 Runtime，
-	// 只写快照会被下一次投影清零。加锁次序：ViewMu → knobMu（此处已持 ViewMu）。
-	service.knobMu.Lock()
-	service.knobReasoningEffort = reasoningEffortFor(service.effortManager.Current())
-	service.knobLoopLimit = maxLoopsFor(service.effortManager.Current())
-	service.Core.Snapshot.Runtime.ReasoningEffort = service.knobReasoningEffort
-	service.Core.Snapshot.Runtime.LoopLimit = service.knobLoopLimit
-	service.knobMu.Unlock()
+	// 见 backend/limit.Knobs）。权威读数与快照一起写：runtime 投影每次整份重建 Runtime，
+	// 只写快照会被下一次投影清零。加锁次序：ViewMu → 组件锁（此处已持 ViewMu）。
+	service.knobs.SeedReadings(
+		reasoningEffortFor(service.effortManager.Current()),
+		maxLoopsFor(service.effortManager.Current()),
+	)
+	service.Core.Snapshot.Runtime.ReasoningEffort = service.knobs.ReasoningEfforts()
+	service.Core.Snapshot.Runtime.LoopLimit = service.knobs.LoopLimit()
 	revision := service.bumpLocked()
 	runtime := cloneRuntimeState(service.Core.Snapshot.Runtime)
 	service.ViewMu.Unlock()
@@ -237,7 +237,7 @@ func (service *Service) reapplyEffortAfterPluginSwitch() {
 	// 而用户可能已经用底部的循环次数拉条把它拧到了别的值。这里补回"当前生效的
 	// 循环上限"，让插件切换不再偷偷把拉条值吃掉（currentLoopLimit 读的就是快照里
 	// 那份权威值，没被用户改过时回退档位默认值，与 Apply 写的一致）。
-	service.applyLoopLimit(service.currentLoopLimit())
+	service.knobs.ApplyLoopLimit(service.knobs.CurrentLoopLimit())
 }
 
 // SetPermissionTier 切换**视图会话的权限档位**，并返回真正生效的档位。

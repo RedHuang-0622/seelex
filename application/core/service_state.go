@@ -5,6 +5,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/backend/limit"
 	"github.com/RedHuang-0622/seelex/kernel/state"
 	"github.com/RedHuang-0622/seelex/middle/view/worktable"
 	"github.com/RedHuang-0622/seelex/session"
@@ -38,25 +39,11 @@ type serviceState struct {
 	// 首次提交（materializeDraftSession）时消费并清空。
 	draft *draftSlot
 
-	// knobLoopLimit / knobReasoningEffort 是 composer 底部两条**独立**拉条的进程级
-	// 权威读数（推理强度 / 循环次数），由 knobMu 单独保护。
-	//
-	// 为什么不用 Core.ViewMu：runtime 投影每次整份重建 Snapshot.Runtime，读数必须
-	// 反哺进投影；而投影的**收集**发生在锁外、**应用**在 ViewMu 内，用同一把锁会有
-	// "收集时再取一次"的重入风险。加锁次序固定为 ViewMu → knobMu（只单向）。
-	//
-	// 为什么要单独存一份而不是"只写进 Snapshot.Runtime"：见上面那句——投影整份重建
-	// 时只写快照的读数会被抹掉。进程级（不分会话）的理由见 view_state.Deps 注释。
-	knobMu              sync.RWMutex
-	knobLoopLimit       int
-	knobReasoningEffort string
-
-	// sessionEffort 是"某会话的下一回合要用哪条 wire 思考强度"的一笔租约
-	// （sessionEffortMu 保护；索引 = 会话 ID）。定时任务声明的那条强度落在这里，
-	// 由该会话的回合起点取走并下发一次——账号池是进程级共享的，没有"按会话的
-	// 强度"这种格子，所以按会话记一笔、用完即消（见 service_knobs.go 的注释）。
-	sessionEffortMu sync.Mutex
-	sessionEffort   map[string]string
+	// knobs 是 composer 底部两条**独立**拉条（推理强度 / 循环次数）的状态与判据：
+	// 读数、按会话说强度租约与全部守卫都已随 M5-R-limitb 归位 `backend/limit.Knobs`（plan §2.8）。
+	// 宿主能力（视图锁、快照写面、引擎与档位读数）经 `serviceKnobsHost` 注入；
+	// 加锁次序仍是 视图锁 → 组件锁（只单向），见该组件与适配的注释。
+	knobs *limit.Knobs
 
 	// chatSeq 是聊天请求 ID 的单调序号（Core.ViewMu 保护）。requestID 必须
 	// 跨会话唯一：Windows 上 time.Now().UnixNano() 分辨率约 0.5ms，并行

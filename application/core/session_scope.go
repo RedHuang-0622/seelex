@@ -222,14 +222,14 @@ func (service *Service) syncPlanPolicyFor(sessionID string) {
 //   - 否则是 composer 那条"思考强度"拉条的读数（进程级），空值不下发——"没选过"
 //     保持不下发，让 provider 用自己的默认（与档位链的既有边界一致）。
 func (service *Service) syncSessionReasoningEffortFor(sessionID string) {
-	wireValue, borrowed := service.takeSessionReasoningEffort(sessionID)
+	wireValue, borrowed := service.knobs.TakeSessionReasoningEffort(sessionID)
 	if !borrowed {
-		wireValue = service.knobReasonings()
+		wireValue = service.knobs.ReasoningEfforts()
 	}
 	if strings.TrimSpace(wireValue) == "" {
 		return
 	}
-	service.pushSessionReasoningEffort(wireValue)
+	service.knobs.PushSessionReasoningEffort(wireValue)
 }
 
 // syncSessionReasoningEffort 把档位对应的 wire 思考强度下发给**跟随会话**的账号
@@ -249,7 +249,7 @@ func (service *Service) syncSessionReasoningEffortFor(sessionID string) {
 // 端口是窄可选的（contract.ReasoningEffortPort）：宿主没实现就整步退化为 no-op，
 // 不影响 loop/预算那半条链。
 func (service *Service) syncSessionReasoningEffort(level string) int {
-	return service.pushSessionReasoningEffort(reasoningEffortFor(level))
+	return service.knobs.PushSessionReasoningEffort(reasoningEffortFor(level))
 }
 
 // permissionTierForSession 返回指定会话生效的权限档位（G4：Unit 内选择优先；
